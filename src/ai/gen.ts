@@ -92,21 +92,17 @@ export async function* withFirstByteTimeout(
   onStall?: () => void,
 ): AsyncGenerator<GenEvent> {
   const it = source[Symbol.asyncIterator]()
-  // R0912-D-P3-4：单 deferred + 单 timer——原实现每 chunk 新建 Promise + setTimeout
-  //（每 chunk 一组定时器/闭包/Promise 分配），改「单 timer，每 chunk timer.refresh()
-  // 重置」。语义严格保持：
-  // - 计时窗与原实现一致——timer 只在 Promise.race 活动期在场（race 赢得结果后、yield
-  //   悬挂前显式 clearTimeout；原实现悬挂期间 timer 虽仍在场但 race 已结算、触发被吞，
-  //   可观测行为同为「悬挂期不计时」），下一轮循环顶 refresh 重启整窗；
-  // - 任一 chunk 间隔超 timeoutMs 即 reject GenError（错误消息格式不变）；
-  // - 外层 finally it.return() 收口与 onStall → 清理的顺序不变。
-  let rejectStall!: (e: GenError) => void
-  const stalled = new Promise<never>((_, reject) => {
-    rejectStall = reject
-  })
   const stallError = (): GenError =>
     new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })
-  const timer = setTimeout(() => rejectStall(stallError()), timeoutMs)
+  // R0912-D-P3-4 曾把「每 chunk 新建 Promise + setTimeout」收敛为「单 timer + 每 chunk
+  // timer.refresh() 重置」——六轮重评 B101 勘误：Node 语义下 clearTimeout() 之后的
+  // timer.refresh() 是 no-op（timer 已出列，v26.8.1 实测回调永不复活），而下方恰在首个
+  // chunk 后 clearTimeout（yield 悬挂期解武装），循环顶的 refresh 自此永远重启不了
+  // 计时窗——流中挂起检测自第 2 个 chunk 起静默失效，半死连接只能等 runner 10min 总
+  // 超时兜底（可重试的 60s 快速失败退化成不可重试的终态死等）。恢复每 chunk「新
+  // timer + 新 deferred」的原实现：分配成本相对 SSE chunk 解析可忽略，且每轮新
+  // deferred 使悬挂期误触发也不会污染下一轮 race（单 deferred 方案的真约束，亦是
+  // 当初收敛动机的一半——另一半 refresh 重置已被 Node 语义否决）。
   // R33D-11（三十三轮）：任意退出路径都关源迭代器——原实现只在 done 与自身超时分支
   // it.return()；消费方（generate/probe）收到适配器 yield 的 error 事件 throw 时，
   // for-await 调 wrapper.return() 只恢复到 wrapper 的 yield 点、finally 仅 clearTimeout，
@@ -116,13 +112,16 @@ export async function* withFirstByteTimeout(
   // 清理段异常吞掉（M-3 同口径）。
   try {
     while (true) {
-      timer.refresh()
+      let rejectStall!: (e: GenError) => void
+      const stalled = new Promise<never>((_, reject) => {
+        rejectStall = reject
+      })
+      const timer = setTimeout(() => rejectStall(stallError()), timeoutMs)
       try {
         const result = await Promise.race([it.next(), stalled])
-        if (result.done) { return }
-        // R0912-D-P3-4：yield 悬挂期解武装（见上「计时窗」注）——否则单 deferred 一旦
-        // 在悬挂期被触发即永久滞留 rejected，污染下一轮 race
+        // yield 悬挂期解武装——慢消费者不计时（与原实现口径一致）；下轮循环顶重建新 timer
         clearTimeout(timer)
+        if (result.done) { return }
         yield result.value
       } catch (e) {
         // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
@@ -139,7 +138,7 @@ export async function* withFirstByteTimeout(
       }
     }
   } finally {
-    clearTimeout(timer)
+    // 每轮 timer 均在循环内成对清理（race 结算后 / catch 两态），此处无存活 timer 可清
     // R33D-11：正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
     it.return?.().catch(() => { /* 清理段异常不外抛 */ })
   }

@@ -19,6 +19,7 @@ import { patchFlatFm } from '../format/frontmatter.js'
 // chapterNoFromEntryPath 小件）
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { countWords } from '../format/words.js'
+import { clipByCodePoints } from '../shared/text.js'
 import { readManifestStrict } from './manifest.js'
 import { readVersionRaw, listVersions } from './version.js'
 // 0918独立重评修复批（B003）：合并续跑判定读改 strict——listTrash（容错版）吞瞬态
@@ -135,7 +136,9 @@ export async function planChapterMerge(
     sourceTitle: s.标题,
     encodingSuspect: !isUtf8Bytes(t.bytes) || !isUtf8Bytes(s.bytes),
     sourceWords: countWords(s.body),
-    sourcePreview: canonicalizeText(s.body).trim().replace(/\n+/g, ' ').slice(0, 60),
+    // 六轮重评 C101：预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
+    // 与 structure-split 干跑预览同口径，防第 60 码元劈代理对（弹窗尾字符乱码）
+    sourcePreview: clipByCodePoints(canonicalizeText(s.body).trim().replace(/\n+/g, ' '), 60),
     mergedInto,
     leadPreviews,
     ragChunksToClear: rag.estimateRagChunkCount(bookRoot, [s.章号]),
@@ -378,7 +381,8 @@ async function locateLatestMergeEvent(
     // 改两趟 structure 族小流：先收全 merge-undo 的 planHash 撤销集，再在 merge 流里择
     // 最近未被撤销者。undo 恒后于其撤销的 merge 落库（append-only），撤销集先行收集与
     // 旧单趟「走到才记」在常规形态（每 merge 至多一 undo、undo 后于 merge、planHash 唯
-    // 一）逐位一致；差异仅在「merge→undo→同 planHash 重并」病态形态——旧单趟会把手为
+    // 一）逐位一致；【遍历】差异在全部形态均在（type 下推免全流逐行 parse 即本修动机）；
+    // 【结果】差异仅在「merge→undo→同 planHash 重并」病态形态——旧单趟会把手为
     // 已撤销者的 found 残留值（更早那次同 hash merge）误当可撤销，两趟补全撤销集后拒得
     // 更干净（null 落回 body/disk 定位链），方向安全。
     const undone = new Set<string>()

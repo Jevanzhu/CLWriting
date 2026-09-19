@@ -24,3 +24,13 @@ export function codePointLength(text: string): number {
   }
   return n
 }
+
+/** 按码位截断（Array.from 迭代码点）——String.slice 按 UTF-16 码元，增补平面字符
+ *  （CJK 扩展 B 生僻字、emoji）在边界处被切成半个代理对，产出尾带孤立高代理的
+ *  乱码串。原实现居 process/summary.ts（R-11 十五轮登记销账），六轮重评 C101 下沉
+ *  本模块单源：document 层（structure-split/merge 干跑预览）与 process 层共用同一
+ *  口径，消除「同仓两处码元截断漏网」（下沉先例 = codePointLength 复审-0914-优化
+ *  A2；process/summary.ts re-export 保住既有消费方 import 面不变）。 */
+export function clipByCodePoints(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('')
+}

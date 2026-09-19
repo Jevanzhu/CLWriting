@@ -485,7 +485,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 可用索引，chat-history 真尾窗每次请求全表扫描（node:sqlite 同步 API 直接停在
       // 事件循环上，翻倍前扩循环里最坏反复全扫）。改 VIRTUAL 生成列（instr 确定性函数，
       // 读时零存储按行求值）+ 部分索引（只收录携带分支元数据的行，体量 = 分支事件数级，
-      // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_info 判列后 ALTER 补列（幂等，
+      // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_xinfo 判列后 ALTER 补列（幂等，
       // 首开一次 ALTER O(1) 元操作 + 建索引一次全行扫描），新库建表（上方，无此列）同样
       // 走到本处补齐——单点单路径防新旧两态 schema 漂移。ALTER 生成列须 SQLite ≥3.31
       // （node:sqlite 内建版远高于此，见分支 meta 索引回归用例的实证断言）；若未来

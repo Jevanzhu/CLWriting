@@ -150,4 +150,53 @@ describe('0918四轮修复批 B406: pending 溢出丢弃补 chat_gap 断链标�
     rec.dispose()
     store.close()
   })
+
+  // 六轮重评 A101：溢出裁剪后 pending 恒 257，持续失败下下一轮 dropped 恰为 1、被裁的
+  // 第 0 项正是上一轮垫入的 chat_gap 标记——旧实现把它当普通事件丢弃，第一轮真实丢弃
+  // 条数的流内唯一凭据被无声替换、dropped 系统性低估。钉住合并口径：旧标记计数累加进
+  // 新标记、其自身不计被丢条数、真实事件裁剪与保留语义不变。
+  it('连续溢出：上一轮 gap 标记不被裁掉，dropped 累计不失实', () => {
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    const { store } = openTmp()
+    const sid = store.createSession('书G4')
+    const fail = { n: 2 }
+    withPersistentFailure(store, fail)
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书G4'))
+    for (let i = 0; i < 300; i++) rec.add(userMessageEvent(`u${i}`))
+    // 第 1 轮失败：301 条 → 丢 45 真实事件（start + u0–u43），垫 gap(45)，pending=257
+    expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
+    const inner = rec as unknown as { pending: NewEvent[] }
+    expect(inner.pending[0]).toMatchObject({ type: 'chat_gap', data: { dropped: 45 } })
+    // 第 2 轮失败：257 条 → dropped=1 恰为旧标记——须合并（45 保持）而非替换丢失
+    expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
+    expect(inner.pending).toHaveLength(257)
+    expect(inner.pending[0]).toMatchObject({ type: 'chat_gap', data: { dropped: 45 } })
+    expect(inner.pending.at(-1)!.data['message']).toBe('u299') // 保留段未被误裁
+    // 第 3 轮：再攒 50 条（307）→ 丢 51（旧标记 + u44–u93 共 50 真实）→ 合计 45+50=95
+    for (let i = 0; i < 50; i++) rec.add(userMessageEvent(`v${i}`))
+    fail.n = 1
+    expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
+    expect(inner.pending).toHaveLength(257)
+    expect(inner.pending[0]).toMatchObject({ type: 'chat_gap', data: { dropped: 95 } })
+    expect(
+      warn.mock.calls.map((c) => String(c[1])).some((m) => m.includes('丢弃最旧 50') && m.includes('累计 95')),
+    ).toBe(true)
+    // 恢复落库：恰一条 gap、计数 95、被丢真实事件不在库、幸存段边界正确
+    fail.n = 0
+    const range = rec.flush()!
+    expect(range.seqs).toHaveLength(257)
+    rec.dispose()
+    const evs = store.listEvents('书G4')
+    const gaps = evs.filter((e) => e.type === 'chat_gap')
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0]!.data['dropped']).toBe(95)
+    expect(evs.some((e) => e.data['message'] === 'u43')).toBe(false) // 第 1 轮被丢
+    expect(evs.some((e) => e.data['message'] === 'u93')).toBe(false) // 第 3 轮被丢
+    expect(evs.some((e) => e.data['message'] === 'u94')).toBe(true) // 第 3 轮幸存首条
+    expect(evs.some((e) => e.data['message'] === 'v49')).toBe(true) // 最新段完整保留
+    expect(foldSurface(evs)).toHaveLength(256)
+    expect(validateEventStream(evs)).toEqual([])
+    store.close()
+  })
 })

@@ -44,7 +44,9 @@ describe('0918四轮修复批 B401: firstBranchMetaSeq 生成列 + 部分索引'
       const evs: NewEvent[] = [
         userMessageEvent('线性正文一'),
         assistantMessageEvent('线性回复一'),
-        // 误报形态：正文巧含带引号的键名序列——旧 LIKE 与新 instr 同样命中（方向安全）
+        // JSON 逃逸形态：正文巧含带引号的键名序列——序列化后内层引号转义为 \"，
+        // `"branchId"` 针在 data 中不出现，旧 LIKE 与新 instr 同样【不】命中（0919 复核
+        // H403-② 勘误：原注「同样命中」失实；本行钉的是两形态一致的「不误报」方向）
         userMessageEvent('正文里写到 "branchId" 这个词'),
         // 真分支元数据行（seq 最小的键载体）
         assistantMessageEvent('变体答案', undefined, undefined, undefined, {

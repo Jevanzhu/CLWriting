@@ -60,9 +60,10 @@ function usage(): void {
   console.log('缺 key（env 与 --api-key 均无）或 --base-url 时仅打印本用法并以 0 退出，不发任何请求。')
 }
 
-// R0912-3（2026-09-12 全量重评 #49）：本判式为两脚本 argValue 中的严格口径基准——
-// 值缺失/空串/以 `--` 开头（误吞下一个 flag 名）一律按缺参返回 null，不得简化为
-// calibrate-tokens.ts argValue 的宽松直取形态（该处会吞 `--flag` 作值，待另行对齐）
+// R0912-3（2026-09-12 全量重评 #49）：本判式为两脚本 argValue 的严格口径——值缺失/
+// 空串/以 `--` 开头（误吞下一个 flag 名）一律按缺参返回 null。（六轮重评 D101 勘误：
+// 原注「calibrate-tokens.ts 宽松直取、待另行对齐」已失实——该处早已同口径对齐，
+// 现两脚本判式等价，勿据旧注再去「修」对侧。）
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
   if (i === -1 || i + 1 >= process.argv.length) return null

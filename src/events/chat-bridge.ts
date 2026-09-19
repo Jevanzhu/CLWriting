@@ -216,14 +216,24 @@ export class SessionRecorder {
       if (this.pending.length > SESSION_PENDING_MAX) {
         const dropped = this.pending.length - SESSION_PENDING_MAX
         const droppedEvs = this.pending.slice(0, dropped)
+        // 六轮重评 A101：溢出裁剪后 pending 恒为 1 + MAX（标记 + 保留段），持续写失败下
+        // 下一轮 dropped 恰为 1、被裁的第 0 项正是上一轮垫入的 chat_gap 标记——第一轮
+        // 真实丢弃条数在流内的唯一凭据被无声替换，dropped 系统性低估累计丢弃量。合并
+        // 口径：被裁段首项若为旧标记，其 dropped 累加进新标记，且旧标记本身不计入本轮
+        // 被丢事件条数（凭据延续，不是凭据丢失）。标记只由本路径垫在批首，add() 只追加
+        // 到尾，故旧标记若在必居 droppedEvs[0]。
+        const prevGapDropped = droppedEvs[0]?.type === 'chat_gap' && typeof droppedEvs[0].data['dropped'] === 'number'
+          ? (droppedEvs[0].data['dropped'] as number)
+          : null
+        const realDropped = prevGapDropped !== null ? dropped - 1 : dropped
         // B406（0918四轮修复批）：丢弃时补断链标记事件入流——被丢事件已永久丢失
-        // （「已记录」凭据出现缺口），此前只有日志留痕，事件流本身无声不连续（压缩
+        //（「已记录」凭据出现缺口），此前只有日志留痕，事件流本身无声不连续（压缩
         // 遮蔽区间/血缘回放跨缺口时无据可查）。在保留事件之前垫一条 chat_gap 标记
-        // （data.dropped = 本次丢弃条数），随恢复后的下一次成功 flush 一并落库，
-        // 审计/投影侧可见断链凭据。非 surface、无 surfaceOp：foldSurface 对未知类型
-        // 直落忽略、validateEventStream 无专项校验、前端对话种子化只消费投影消息——
-        // 全链安全忽略（对齐边界类/meta 类先例）。
-        const gapMarker: NewEvent = { type: 'chat_gap', data: { dropped } }
+        //（data.dropped = 累计丢弃条数——含合并的上一轮计数），随恢复后的下一次成功
+        // flush 一并落库，审计/投影侧可见断链凭据。非 surface、无 surfaceOp：foldSurface
+        // 对未知类型直落忽略、validateEventStream 无专项校验、前端对话种子化只消费投影
+        // 消息——全链安全忽略（对齐边界类/meta 类先例）。
+        const gapMarker: NewEvent = { type: 'chat_gap', data: { dropped: realDropped + (prevGapDropped ?? 0) } }
         // 标记垫在保留段批首 → 存活事件的批内序号整体 +1：sourceIdxs/pendingSurfaceIdx
         // 先按旧口径平移（-dropped，滤掉指向已蒸发前驱的引用），再 +1 让出标记批首位。
         // 次序不可反——先 +1 会把「恰指向最后一个被丢事件」的引用（i = dropped-1）误留
@@ -245,9 +255,12 @@ export class SessionRecorder {
         ].sort((a, b) => a - b)
         log.warn(
           'events',
-          `SessionRecorder 落库持续失败，pending 超上限（${SESSION_PENDING_MAX}）：丢弃最旧 ${dropped} 条事件` +
+          `SessionRecorder 落库持续失败，pending 超上限（${SESSION_PENDING_MAX}）：丢弃最旧 ${realDropped} 条事件` +
             (droppedTurns.length > 0
               ? `（涉及 turn ${droppedTurns[0]!}–${droppedTurns[droppedTurns.length - 1]!}）`
+              : '') +
+            (prevGapDropped !== null
+              ? `，合并上一轮 chat_gap 断链计数 ${prevGapDropped} → 累计 ${realDropped + prevGapDropped}`
               : '') +
             '，已垫 chat_gap 断链标记随恢复后落库，保留最新事件待重试（保最新对话语义）——丢事件必留痕（ChainRecorder 同口径）',
         )

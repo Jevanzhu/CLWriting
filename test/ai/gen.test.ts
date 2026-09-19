@@ -296,6 +296,48 @@ describe('B-2 首字节超时', () => {
     expect(Date.now() - start).toBeLessThan(1000)
     expect(returnCalled).toBe(true) // void 调用仍触发了 return()
   })
+
+  // 六轮重评 B101：R0912-D-P3-4「单 timer + refresh 重置」在 Node 语义下失效——首个
+  // chunk clearTimeout 后 refresh 恒 no-op（v26.8.1 实测），流中挂起检测自第 2 个 chunk
+  // 起静默失效（半死连接退化等 runner 10min 总超时、可重试通道丢失）。钉住第 2+ 个
+  // chunk 间隔超时面，防同类重构再犯。
+  it('首个 chunk 后流中途挂起 → 同样快速超时 reject 并触发 onStall', async () => {
+    let stalledCb = 0
+    const halfDead: AsyncIterable<GenEvent> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', delta: 'first' } // 首字节正常到达
+        await new Promise<never>(() => {}) // 此后静默挂死（连接半死：发部分数据后卡住）
+      },
+    }
+    const iter = withFirstByteTimeout(halfDead, 20, () => { stalledCb++ })
+    const first = await iter.next()
+    expect(first.done).toBe(false)
+    expect(first.value.type).toBe('text')
+    const start = Date.now()
+    await expect(iter.next()).rejects.toThrow('响应超时')
+    expect(Date.now() - start).toBeLessThan(1000) // 20ms 档快速失败，不是悬挂等外层总超时
+    expect(stalledCb).toBe(1) // 流中挂起同样先 abort 底层在途 HTTP（RB-AI-P2-3 口径）
+  })
+
+  // B101 伴生面：多 chunk 正常续流不受每轮新 timer 影响（chunk 间隔 < 超时窗全程通过）
+  it('多 chunk 快速续流 → 全程无超时（每轮新 timer 不误伤正常流）', async () => {
+    const fast: AsyncIterable<GenEvent> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text', delta: 'a' }
+        yield { type: 'text', delta: 'b' }
+        yield { type: 'text', delta: 'c' }
+        yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
+      },
+    }
+    const iter = withFirstByteTimeout(fast, 10_000)
+    const out: string[] = []
+    while (true) {
+      const r = await iter.next()
+      if (r.done) break
+      if (r.value.type === 'text') out.push(r.value.delta)
+    }
+    expect(out).toEqual(['a', 'b', 'c'])
+  })
 })
 
 // ── RB-AI-P2-3：超时 abort 底层请求（不再只放弃消费迭代器）──

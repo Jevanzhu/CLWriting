@@ -293,3 +293,22 @@ describe('阶段 24 S4: 拆分执行（structure-apply op=split）', () => {
     expect(existsSync(join(studio.bookRoot, '写作/正文/第一卷/0017-新章.md'))).toBe(false)
   })
 })
+
+// 六轮重评 C101：tailPreview 原按码元 .slice(0, 60) 截断，第 60 码元落在增补平面
+// 字符（CJK 扩展 B / emoji）内部时劈出孤立高代理——确认弹窗预览尾字符乱码。钉住
+// 码位截断口径（clipByCodePoints 单源 shared/text.ts）。置于文件末尾：本文件用例
+// 按执行顺序连续取号（新章号 = 全书 max+1 断言逐用例推进），高章号垫在中间会搅
+// 后续用例的取号/文件名预期。
+describe('六轮重评 C101: 拆分干跑预览码位截断', () => {
+  it('迁出段为增补平面字符：tailPreview 按码位截断、不劈代理对', async () => {
+    const ASTRAL = '\u{20BB7}' // 𠮷（CJK 扩展 B，单字符 2 码元）
+    const content = chapterContent(18, '第18章', `前半段保留，光标记位。\n\n${ASTRAL.repeat(80)}`)
+    const d = await createChapter('写作/正文/第一卷/0018-第18章.md', content)
+    const cursor = content.indexOf(ASTRAL) // 迁出段 = 80 个 astral 字符（码元边界安全）
+    const plan = await planSplit(d, cursor)
+    expect(plan.status).toBe(200)
+    const preview = String((plan.json['plan'] as Record<string, unknown>)['tailPreview'])
+    expect(preview).toBe(ASTRAL.repeat(60)) // 60 码位整字符，旧码元口径此处会劈出孤立高代理
+    expect(preview.length).toBe(120) // 60 码位 × 2 码元
+  })
+})

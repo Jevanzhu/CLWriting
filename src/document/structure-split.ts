@@ -25,6 +25,7 @@ import { stringifyValue } from '../format/frontmatter.js'
 import { isPublishedValue } from '../format/chapters.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { chapterFilePrefix, countWords } from '../format/words.js'
+import { clipByCodePoints } from '../shared/text.js'
 import { isUtf8Bytes, type DocumentService } from './service.js'
 import { invalidateTreeIndex } from './tree.js'
 import { structureSplitEvent } from '../events/chain-bridge.js'
@@ -151,7 +152,10 @@ export async function planChapterSplit(
     order,
     headWords: countWords(o.text.slice(fmEnd, cursorOffset)),
     tailWords: countWords(tail),
-    tailPreview: canonicalizeText(tail).trim().replace(/\n+/g, ' ').slice(0, 60),
+    // 六轮重评 C101：预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
+    // 原 .slice(0, 60) 按码元计数，第 60 码元落在增补平面字符内部时劈出孤立高代理，
+    // 确认弹窗渲染尾字符乱码（影响面止于预览显示，不落盘）
+    tailPreview: clipByCodePoints(canonicalizeText(tail).trim().replace(/\n+/g, ' '), 60),
     publishedWarning: isPublishedValue(o.map.get('已发布')),
     planHash: splitPlanHash(o, cursorOffset, newChapterNo, order),
   }

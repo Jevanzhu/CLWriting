@@ -147,7 +147,8 @@ jobs:
       # 锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；
       # restore-keys 前缀兜底换版时恢复旧缓存只补差量浏览器。
       # G407（0918四轮修复批）：键内版本改从根 lock 动态提取进 step output（下方 pwver
-      # 步；shell: bash 显式——win 默认 pwsh 的 >> 重定向编码与 GITHUB_OUTPUT 不兼容）
+      # 步；shell: bash 显式——win 默认 pwsh 里 $GITHUB_OUTPUT 不展开（须 $env:GITHUB_OUTPUT），
+      # 且 >> 重定向编码历史面不一；0919 复核 H404 勘误：原注「编码不兼容」系成因误写）
       # ——「写死 1.61.1 对照 ^1.61.1、升版须同步改」双真相源销账；键式 pw-<ver>-<os>
       # -<workflow>（workflow 身份保留，两工作流缓存互不串用）；web-next 子包 lock 无
       # @playwright/test，playwright 由根 lock 统一管理（实态已核）。

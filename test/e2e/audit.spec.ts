@@ -5,7 +5,8 @@
  * 数据来源约束：e2e globalSetup 起 server 时不传 userDataPath（事件库落址在
  * <userData>/clwriting/session/，无路径即无库）→ audit 端点天然返回空数据，遮蔽
  * 差异与 >500 条分页续页无法靠真实事件触发。故本 spec 用 page.route 截获 audit GET、
- * 按服务端 pageSlice 同语义（offset/limit 切片 + eventsTotal 全量总数）回合成分页
+ * 按服务端分页同语义（offset/limit 切片 + eventsTotal 全量总数；pageSlice 已随
+ * 0918四轮修复批 B402 流式化删除，此处仅沿用其 offset/limit 契约）回合成分页
  * 数据；进书/导航/交互仍走真实 UI（同 check.spec / version-restore.spec 模式）。
  */
 import { test, expect, type Page, type Route } from '@playwright/test'

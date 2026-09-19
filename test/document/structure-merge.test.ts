@@ -125,6 +125,18 @@ describe('阶段 24 S3: 合并干跑（structure-plan）', () => {
     expect((plan['planHash'] as string).length).toBeGreaterThan(0)
   })
 
+  // 六轮重评 C101：sourcePreview 原按码元 .slice(0, 60) 截断，第 60 码元落在增补平面
+  // 字符内部时劈出孤立高代理（确认弹窗尾字符乱码）。与 structure-split tailPreview
+  // 同口径钉住码位截断（clipByCodePoints 单源 shared/text.ts）。
+  it('源章正文为增补平面字符：sourcePreview 按码位截断、不劈代理对', async () => {
+    const ASTRAL = '\u{20BB7}' // 𠮷（CJK 扩展 B，单字符 2 码元）
+    const t = await createChapter('写作/正文/第一卷/0041-第41章.md', chapterContent(41, '第41章', '目标章正文，段落完整。'))
+    const s = await createChapter('写作/正文/第一卷/0042-第42章.md', chapterContent(42, '第42章', ASTRAL.repeat(80)))
+    const plan = await planMerge(t, s)
+    expect(plan['sourcePreview']).toBe(ASTRAL.repeat(60)) // 旧码元口径此处会劈出孤立高代理
+    expect((plan['sourcePreview'] as string).length).toBe(120) // 60 码位 × 2 码元
+  })
+
   it('同章 / 跨卷重号章 → 400 BAD_INPUT', async () => {
     const a = await createChapter('写作/正文/第一卷/0003-第3章.md', chapterContent(3, '第3章', '第三章正文。'))
     const same = await studio.req(

@@ -54,19 +54,17 @@ export const SUMMARY_CHAPTER_MAX_FALLBACK = 200
 /** 卷摘要字数上限最终回落（书级 summary_volume_max 未设时生效；500，与 yaml 脚手架缺省一致） */
 export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 
-/** R-11（十五轮登记销账）：按码位截断（Array.from 迭代码点）——String.slice 按
- *  UTF-16 码元，增补平面字符在边界处被切成半个代理对；章/卷摘要硬截断两处对齐
- *  全库 code point 口径（P-7 estimateTokens / format/filename 同源）。 */
-// R64-6（十二轮）导出：ai/tools/rewrite.ts 预览切片收编码点口径（第 4 处消费方）
-export function clipByCodePoints(text: string, max: number): string {
-  return Array.from(text).slice(0, max).join('')
-}
-
 // 复审-0914-优化 A2（2026-09-14 修复批）：实现下沉 src/shared/text.ts 单源（六处
 // 同口径实现收敛）；本模块 re-export 保住既有消费方（ai/tools/rewrite、ai/rules/
 // style-remedy）import 面不变。
 export { codePointLength } from '../shared/text.js'
 import { codePointLength } from '../shared/text.js'
+// 六轮重评 C101：clipByCodePoints 同款下沉 shared/text.ts（R-11 十五轮原实现——按
+// 码位截断防劈代理对；R64-6 十二轮导出供 ai/tools/rewrite 等第 4 处消费方）——
+// document 层 structure-split/merge 干跑预览改为同口径引用，re-export 保住本模块
+// 既有消费方 import 面不变。
+export { clipByCodePoints } from '../shared/text.js'
+import { clipByCodePoints } from '../shared/text.js'
 import { testableConst } from '../shared/testable.js'
 
 
