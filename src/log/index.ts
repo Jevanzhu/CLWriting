@@ -140,8 +140,14 @@ const LOG_SWEEP_THROTTLE_MS = 60 * 60 * 1000
 const logSweepLastAt = new Map<string, number>()
 
 /** 0918二轮修复批（D101）：上次实际落盘的日文件名（app-YYYYMMDD.jsonl）——泵内据此
- *  检测跨日切换；记名不记全路径：换目录不误报（init 换目录自带一次清理）。 */
+ * 检测跨日切换；记名不记全路径：换目录不误报（init 换目录自带一次清理）。 */
 let lastDayName: string | null = null
+
+/** 在途运行期清理 promise——cleanupOldLogsThrottled 的 fire-and-forget 语义不变
+ *  （不占泵串行队列、日志主链不让路），仅记引用供 flushLogsForTest 补等：清理的
+ *  readdir/unlink 与测试断言 existsSync 存在调度竞速，CI Node 26 双腿（ubuntu/mac）
+ *  确定性翻红而本机 Node 26 恒绿——纯调度窗差异，不等则断言红绿随环境漂移。 */
+let sweepInFlight: Promise<void> | null = null
 
 /** 0918二轮修复批（D101）：7 天保留不再只在启动期执行——cleanupOldLogs 原先仅被
  *  initLogging 排队一次，长跑进程跨天新建的日志文件超期不清理（运行期目录无界增长）。
@@ -154,7 +160,7 @@ function cleanupOldLogsThrottled(logsDir: string): void {
   const last = logSweepLastAt.get(logsDir)
   if (last !== undefined && now - last < LOG_SWEEP_THROTTLE_MS) return
   logSweepLastAt.set(logsDir, now)
-  void cleanupOldLogs(logsDir).catch(() => {})
+  sweepInFlight = cleanupOldLogs(logsDir).catch(() => {})
 }
 
 /**
@@ -428,11 +434,14 @@ export function resetLoggingForTest(): void {
   }
   lastDayName = null
   logSweepLastAt.clear()
+  sweepInFlight = null
 }
 
-/** 测试钩子：等待串行队列排空（断言文件内容前调用）。 */
+/** 测试钩子：等待串行队列排空（断言文件内容前调用）。在途运行期清理
+ *  （cleanupOldLogsThrottled）一并等——unlink 与断言的调度竞速见 sweepInFlight 注。 */
 export async function flushLogsForTest(): Promise<void> {
   await state.tail
+  if (sweepInFlight) await sweepInFlight
 }
 
 /** 测试钩子（D2）：待写队列长度与累计丢写数——背压行为可观测（封顶/丢最旧断言面）。 */
