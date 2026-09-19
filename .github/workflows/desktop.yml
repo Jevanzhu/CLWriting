@@ -345,10 +345,16 @@ jobs:
       # 崩溃标记（标记字符串与 mac 腿同源，均为 main.ts 直写 stdout 的结构化打点）。
       # ELECTRON_ENABLE_LOGGING=1 与 mac 腿同口径；pwsh 的 Start-Process 不允许
       # stdout/stderr 重定向同一文件，分两文件后同查（等价 mac 的 2>&1 合流）。
-      # 复审-0914-优化修复批 P3：固定 25s 改轮询启动标记早退（上限 60s ≥ 原 25s 安全
+      # 复审-0914-优化修复批 P3：固定 25s 改轮询启动标记早退（上限 ≥ 原 25s 安全
       # 裕度）。判定语义不弱化：下方 HasExited + ready + 无 renderer-crash 三重判定
       # 原样保留——轮询超时（标记未现）落「未捕获标记」失败路径、进程已死落「退出」
       # 失败路径，两路均输出尾部日志。
+      # 阶段 45：终检 $logs | Select-String 修 + 窗 60→120——本步 authored 以来首上 CI
+      # 即红（Desktop 二轮实录）：终检把「路径数组」管道送 Select-String 绑定
+      # -InputObject，搜的是路径字符串本身非文件内容，永不匹配 = 终检恒红（ready
+      # 标记在报错后 tail 诊断里在列 = 实证；轮询循环的 Get-Content | Select-String
+      # 形态正确不受影响）。改 Select-String -Path 搜文件内容（renderer-crash 同修）；
+      # 窗 120s 留冷 runner 首启 + 杀软扫描裕量（ready 实录恰落在 ~60s 边界）。
       - name: Electron 启动冒烟（打包态 exe 拉起）
         if: runner.os == 'Windows'
         shell: pwsh
@@ -362,23 +368,23 @@ jobs:
           $logErr = "clw-electron-smoke.err.log"
           $env:ELECTRON_ENABLE_LOGGING = "1"
           $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr
-          $deadline = (Get-Date).AddSeconds(60)
+          $deadline = (Get-Date).AddSeconds(120)
           while (-not (Get-Content $logOut, $logErr -ErrorAction SilentlyContinue | Select-String -SimpleMatch "[CLW_SMOKE] ready") -and ((Get-Date) -lt $deadline)) {
             Start-Sleep -Seconds 1
           }
           if ($p.HasExited) {
-            Write-Output "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败，ExitCode=$($p.ExitCode)）"
+            Write-Output "::error::Electron 打包应用在启动标记轮询窗（120s）内退出（启动失败，ExitCode=$($p.ExitCode)）"
             Get-Content $logOut -Tail 80 -ErrorAction SilentlyContinue
             Get-Content $logErr -Tail 80 -ErrorAction SilentlyContinue
             exit 1
           }
           $logs = @($logOut, $logErr) | Where-Object { Test-Path $_ }
-          if (-not ($logs | Select-String -SimpleMatch "[CLW_SMOKE] ready")) {
+          if (-not (Select-String -Path $logs -SimpleMatch "[CLW_SMOKE] ready" -ErrorAction SilentlyContinue)) {
             Write-Output "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完"
             $logs | ForEach-Object { Get-Content $_ -Tail 80 }
             exit 1
           }
-          if ($logs | Select-String -SimpleMatch "[CLW_SMOKE] renderer-crash") {
+          if (Select-String -Path $logs -SimpleMatch "[CLW_SMOKE] renderer-crash" -ErrorAction SilentlyContinue) {
             Write-Output "::error::冒烟期内触发渲染进程崩溃"
             $logs | ForEach-Object { Get-Content $_ -Tail 80 }
             exit 1
