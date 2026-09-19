@@ -124,10 +124,29 @@ export function forbiddenPhrasesIn(content, list = FORBIDDEN_PHRASES) {
   return hits
 }
 
+// ─ 修订日期标注（索引面禁）─────────────────────────────────────────
+// 作者指令：「为什么一定要加修订日期之类的……特别是 CLAUDE.md，不是记录文档，是规则！」
+// 规则/索引文档写的是「现在是什么规矩」，不是「哪批改的」——批号与日期正本 = git 历史
+// （blame 一查即得）。文件名内的日期（`…-2026-08-15.md`）是命名要素，放行；只禁**括号
+// 标注形态**「（2026-09-19 …）」「（2026-09-19）」这类挂在条目上的修订日期。
+const DATE_ANNOTATION_RE = /[（(]\s*\d{4}-\d{2}-\d{2}\s*[)）]|[（(]\s*\d{4}-\d{2}-\d{2}\s+[^)）]{0,40}[)）]/
+
+/** 命中的括号日期标注（含行号与原文）。返回 [{ line, text, preview }]。 */
+export function findDateAnnotations(content) {
+  const hits = []
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(DATE_ANNOTATION_RE)
+    if (m) hits.push({ line: i + 1, text: m[0], preview: lines[i].slice(0, 80) })
+  }
+  return hits
+}
+
 /**
  * 校验一份文档。list = 该面适用的禁止短语表。返回人话问题串数组（空 = 通过）。
+ * dateAnnotations=true 时额外禁括号修订日期标注（索引面规则文档专用）。
  */
-export function checkDocSurface(content, spec, list = FORBIDDEN_PHRASES) {
+export function checkDocSurface(content, spec, list = FORBIDDEN_PHRASES, dateAnnotations = false) {
   const problems = []
   const bytes = Buffer.byteLength(content, 'utf8')
   if (bytes > spec.maxBytes) {
@@ -143,12 +162,19 @@ export function checkDocSurface(content, spec, list = FORBIDDEN_PHRASES) {
   for (const h of forbiddenPhrasesIn(content, list)) {
     problems.push(`${spec.label}:${h.line}：命中禁止短语「${h.phrase}」——${h.why}。行首：${h.preview}…`)
   }
+  if (dateAnnotations) {
+    for (const h of findDateAnnotations(content)) {
+      problems.push(
+        `${spec.label}:${h.line}：命中括号修订日期标注「${h.text}」——规则/索引文档写「现在是什么规矩」，不写「哪批改的」（日期与沿革正本 = git 历史）。行首：${h.preview}…`,
+      )
+    }
+  }
   return problems
 }
 
-/** 索引面校验（结论 + 指针面）。 */
+/** 索引面校验（结论 + 指针面；禁实录链与括号修订日期）。 */
 export function checkDocsIndex(content, spec) {
-  return checkDocSurface(content, spec, FORBIDDEN_PHRASES)
+  return checkDocSurface(content, spec, FORBIDDEN_PHRASES, true)
 }
 
 /** 介绍面校验（对外门面，禁项目进展）。 */

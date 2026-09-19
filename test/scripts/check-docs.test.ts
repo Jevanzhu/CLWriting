@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { INDEX_FILES, INTRO_FILES, FORBIDDEN_PHRASES, FORBIDDEN_INTRO_PHRASES, isExemptLine, findLongLines, forbiddenPhrasesIn, checkDocsIndex, checkIntroDoc } from '../../scripts/check-docs.mjs'
+import { INDEX_FILES, INTRO_FILES, FORBIDDEN_PHRASES, FORBIDDEN_INTRO_PHRASES, isExemptLine, findLongLines, forbiddenPhrasesIn, findDateAnnotations, checkDocsIndex, checkIntroDoc } from '../../scripts/check-docs.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -83,6 +83,29 @@ describe('checkDocsIndex vs checkIntroDoc：索引面与介绍面口径不同', 
   it('体积超限即报（索引面 500 字节上限）', () => {
     const problems = checkDocsIndex('a'.repeat(600), spec)
     expect(problems.some((p: string) => p.includes('体积'))).toBe(true)
+  })
+})
+
+describe('findDateAnnotations：括号修订日期标注（规则文档禁）', () => {
+  const spec = { label: 'T', maxLine: 500, maxBytes: 5000 }
+
+  it('命中「（2026-09-19 …）」「（2026-09-19）」挂条日期标注', () => {
+    expect(findDateAnnotations('- **篇幅纪律（2026-09-19 作者指令「…」）**：…')[0].text).toBe(
+      '（2026-09-19 作者指令「…」）',
+    )
+    expect(findDateAnnotations('- **计划治理**（2026-08-23）：…')[0].text).toBe('（2026-08-23）')
+    expect(findDateAnnotations('- 维护日期：2026-09-19。')).toHaveLength(0) // 非括号形态
+  })
+
+  it('文件名内日期放行（命名要素，非修订标注）', () => {
+    const line = '| `03-设计/五大数据子系统归类规则-现行规范-2026-08-15.md` | 现行规范 |'
+    expect(findDateAnnotations(line)).toHaveLength(0)
+  })
+
+  it('索引面禁日期标注；介绍面与索引面口径差异体现在 dateAnnotations 开关', () => {
+    const content = '- **三拍板实施（2026-09-18）**：…'
+    expect(checkDocsIndex(content, spec).length).toBeGreaterThan(0)
+    expect(checkIntroDoc(content, spec).length).toBe(0) // 介绍面未开日期档
   })
 })
 
