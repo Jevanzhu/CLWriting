@@ -55,13 +55,19 @@ export interface RosettaProbeDeps {
  *
  * 判据（纯 existsSync——本判定必须先于死锁点可用，不 spawn 子进程、不触 Keychain）：
  * x64 进程 + 机型持 Rosetta 组件目录。可靠性：x64 代码无法在 arm64 芯片原生执行，
- * 进程活着即必经 Rosetta；两条路径（/System/Library/CoreServices/Rosetta、
- * /Library/Apple/usr/share/rosetta）均为 arm64 macOS 专属，Intel 机型不存在——
- * 误报形态「Intel 机持 arm64 专属目录」不成立。linux/win 无此路径恒 false。
+ * 进程活着即必经 Rosetta；三条路径均为 arm64 macOS Rosetta 专属（Intel 机型不存在，
+ * 误报形态「Intel 机持 arm64 专属目录」不成立；linux/win 无此路径恒 false）：
+ * /Library/Apple/usr/share/rosetta（AOT 缓存）、/Library/Apple/usr/libexec/oah
+ * （翻译运行时）——/Library/Apple 族为稳态判据（macOS 26 实测 /System 族不落盘），
+ * /System/Library/CoreServices/Rosetta 为旧版兜底。
  */
 export function isRosettaTranslated(deps: RosettaProbeDeps = { arch: () => process.arch, exists: existsSync }): boolean {
   if (deps.arch() !== 'x64') return false
-  return deps.exists('/System/Library/CoreServices/Rosetta') || deps.exists('/Library/Apple/usr/share/rosetta')
+  return (
+    deps.exists('/Library/Apple/usr/share/rosetta') ||
+    deps.exists('/Library/Apple/usr/libexec/oah') ||
+    deps.exists('/System/Library/CoreServices/Rosetta')
+  )
 }
 
 /** 翻译态判定可注入（测试假件）；缺省真件 isRosettaTranslated */

@@ -286,23 +286,32 @@ jobs:
           set -eu
           for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-            echo "== 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
+            # v1.0.0-rc.0 发布修复批附批：按 arch 定冒烟窗——x64 包冷 Rosetta 翻译
+            # 首启显著慢于原生（本地暖机 24s 过；win 原生冷机实录 ready 恰落 ~60s 边界
+            # 已提 120s，翻译态更甚），60s 窗在冷机误杀活进程；arm64 原生维持 60s。
+            case "$APP_BIN" in
+              *mac-arm64*) SMOKE_WAIT_S=60 ;;
+              *) SMOKE_WAIT_S=180 ;;
+            esac
+            echo "== 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行，窗 ${SMOKE_WAIT_S}s）=="
             ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
             PID=$!
             i=0
             until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do
               sleep 1
               i=$((i + 1))
-              [ "$i" -ge 60 ] && break
+              [ "$i" -ge "$SMOKE_WAIT_S" ] && break
             done
             if ! kill -0 "$PID" 2>/dev/null; then
-              echo "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败）：$APP_BIN"
+              echo "::error::Electron 打包应用在启动标记轮询窗（${SMOKE_WAIT_S}s）内退出（启动失败）：$APP_BIN"
               tail -80 /tmp/clw-electron-smoke.log || true
               exit 1
             fi
             if ! grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log; then
               echo "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完：$APP_BIN"
               tail -80 /tmp/clw-electron-smoke.log || true
+              echo "---- 诊断：主线程采样（3s，看阻塞点；下轮若仍红以此定分诊）----"
+              sample "$PID" 3 2>/dev/null | sed -n '/Call graph/,/^Total number/p' | head -40 || true
               exit 1
             fi
             if grep -q "\[CLW_SMOKE\] renderer-crash" /tmp/clw-electron-smoke.log; then
@@ -338,8 +347,14 @@ jobs:
           set -eu
           for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-            echo "== window-cycle 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
-            CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
+            # v1.0.0-rc.0 发布修复批附批：窗随 arch——x64 冷 Rosetta 翻译首启慢（同上步
+            # 口径；脚本超时可调面 CLW_SMOKE_TIMEOUT_MS，缺省 60000）。
+            case "$APP_BIN" in
+              *mac-arm64*) CLW_CYCLE_TIMEOUT_MS=60000 ;;
+              *) CLW_CYCLE_TIMEOUT_MS=180000 ;;
+            esac
+            echo "== window-cycle 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行，超时 ${CLW_CYCLE_TIMEOUT_MS}ms）=="
+            CLW_SMOKE_TIMEOUT_MS="$CLW_CYCLE_TIMEOUT_MS" CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
           done
       # 五轮重评修复批（H101）：packaged-app-smoke 接线——此前是零调用方死 spec：env 门
       # CLWRITING_E2E_RELEASE 只有 test:e2e:release 脚本设且 playwright 只点名 release-smoke

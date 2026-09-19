@@ -256,6 +256,14 @@ describe('Rosetta 翻译态守卫（v1.0.0-rc.0 发布修复批）', () => {
         exists: (p) => p === '/Library/Apple/usr/share/rosetta',
       }),
     ).toBe(true)
+    // x64 进程 + 仅 /Library/Apple/usr/libexec/oah 在（翻译运行时；macOS 26 实测
+    // /System 族路径不落盘，/Library/Apple 族为稳态判据）→ 翻译态
+    expect(
+      isRosettaTranslated({
+        arch: () => 'x64',
+        exists: (p) => p === '/Library/Apple/usr/libexec/oah',
+      }),
+    ).toBe(true)
     // x64 进程 + 两路径皆无 → Intel 机型原生运行，不拦（Keychain 通道保持）
     expect(isRosettaTranslated({ arch: () => 'x64', exists: () => false })).toBe(false)
     // arm64 进程 + 目录在（arm64 Mac 常态）→ 原生进程，不拦

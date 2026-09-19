@@ -67,7 +67,10 @@ test.afterAll(async () => {
 })
 
 test('打包态应用：进书 → 设置「外观与主题」→ 界面中文字体下拉列出系统字体', async () => {
-  test.setTimeout(120_000) // 打包冷启动（fork server + 握手 + 窗口加载）+ 字体枚举，给足
+  // v1.0.0-rc.0 发布修复批附批：120s→180s——mac x64 包冷 Rosetta 翻译首启显著慢于
+  // 原生（win 原生冷机实录 ready 恰落 ~60s 边界，翻译态更甚），留同量级裕度；
+  // 步内 waitFor（30s/20s）在启动完成后执行、彼时已暖，不动。
+  test.setTimeout(180_000) // 打包冷启动（fork server + 握手 + 窗口加载）+ 字体枚举，给足
   expect(existsSync(APP_BIN), `打包产物缺失（${APP_BIN}）——先 npm run build:desktop:dir`).toBe(true)
 
   // userData 隔离（关键）：CLW_SMOKE_USER_DATA（main.ts 最小 env 钩子）指向临时目录，
