@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 let root = ''
@@ -33,7 +34,7 @@ async function start(): Promise<string> {
   writeFileSync(join(root, 'favicon.ico'), 'ico-bytes')
   writeFileSync(join(root, 'assets', 'blob.xyz'), 'unknown-bytes')
   server = http.createServer(createStaticHandler(root))
-  await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+  await listenSafe(server!)
   const address = server.address() as AddressInfo
   return `http://127.0.0.1:${address.port}`
 }

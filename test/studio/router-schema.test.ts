@@ -7,14 +7,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { defineRoute, getRouteSchema, resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 import { createRouteTable, dispatch, route, withRouteTable } from '../../src/studio/server/router.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
-function listen(srv: Server): Promise<number> {
-  return new Promise((resolve) => {
-    srv.listen(0, '127.0.0.1', () => {
-      const addr = srv.address()
-      resolve(typeof addr === 'object' && addr ? addr.port : 0)
-    })
-  })
+async function listen(srv: Server): Promise<number> {
+  await listenSafe(srv)
+  const addr = srv.address()
+  return typeof addr === 'object' && addr ? addr.port : 0
 }
 
 function postJson(port: number, path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {

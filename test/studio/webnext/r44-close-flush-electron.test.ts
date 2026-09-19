@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { listenSafe } from '../../helpers/safe-port.js'
 
 const require = createRequire(import.meta.url)
 
@@ -60,7 +61,7 @@ describe.skipIf(!canRunRealElectron)('R44-2 实机: close 拦截 + 异步 flush 
         res.writeHead(404)
         res.end()
       })
-      s.listen(0, '127.0.0.1', () => resolve(s))
+      listenSafe(s).then(() => resolve(s))
     })
     const port = (server.address() as { port: number }).port
 

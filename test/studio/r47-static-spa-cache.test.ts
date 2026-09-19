@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 // 透传式 spy（先例 static.test.ts M-P3-09）——只计数不改行为，断言 SPA fallback 命中缓存时不再读盘
@@ -46,7 +47,7 @@ afterEach(async () => {
 
 async function serve(r: string): Promise<void> {
   server = http.createServer(createStaticHandler(r))
-  await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+  await listenSafe(server!)
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
@@ -125,7 +126,7 @@ test('R47-21: 槽按入口路径比对——不同 rootDir 实例不串页', asy
 
     // 同进程第二个实例（不同 dist root）：不得命中 A 的缓存槽
     const serverB = http.createServer(createStaticHandler(rootB))
-    await new Promise<void>((resolve) => serverB.listen(0, '127.0.0.1', resolve))
+    await listenSafe(serverB)
     try {
       const baseB = `http://127.0.0.1:${(serverB.address() as AddressInfo).port}`
       const b = await fetch(`${baseB}/route`)

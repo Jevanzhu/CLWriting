@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, it, expect } from 'vitest'
 import { armWatchdog } from '../helpers/spawn-node.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const tsxCli = join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
@@ -63,7 +64,7 @@ describe('RB-SV-P2-3 server-main 监听错误兜底', () => {
   it('端口被占（EADDRINUSE）→ 退出码 1 + 中文报错，而非未捕获异常', async () => {
     // 先占住一个端口
     const blocker = http.createServer((_req, res) => res.end('blocker'))
-    await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', r))
+    await listenSafe(blocker)
     const busyPort = (blocker.address() as AddressInfo).port
     try {
       const { child, out } = spawnServerMain(['--dir', makeWorkDir(), '--port', String(busyPort)])

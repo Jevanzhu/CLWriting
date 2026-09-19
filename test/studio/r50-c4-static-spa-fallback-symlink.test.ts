@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 let root = ''
@@ -26,7 +27,7 @@ beforeEach(async () => {
   outside = mkdtempTracked(join(tmpdir(), 'clw-r50-c4-out-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Studio</title>')
   server = http.createServer(createStaticHandler(root))
-  await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+  await listenSafe(server!)
   const address = server.address() as AddressInfo
   baseUrl = `http://127.0.0.1:${address.port}`
 })

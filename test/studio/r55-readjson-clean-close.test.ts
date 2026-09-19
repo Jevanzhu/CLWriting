@@ -26,6 +26,7 @@ import { describe, it, expect } from 'vitest'
 import { readJson, reply, isClientAbort } from '../../src/studio/server/http.js'
 import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
 import { sleep } from '../helpers/wait-for.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
 describe('R55-E-N：readJson close 兜底（断开无 error 形态）', () => {
   it('body 读到一半 destroy()（close 触发、无 error、未 end）→ clientAbort reject（修复前悬挂）', async () => {
@@ -98,8 +99,7 @@ describe('R55-E-N：真实 socket 部分后 end()（干净 FIN）→ settle + �
       onSettle()
       reply(res, 200, observed) // 干净半关闭只关写侧，客户端读侧仍可收观测回执
     })
-    server.listen(0, '127.0.0.1')
-    await new Promise<void>((r) => server.once('listening', r))
+    await listenSafe(server)
     const { port } = server.address() as AddressInfo
 
     // 原生 net 客户端：headers + 部分 body，30ms 后干净半关闭（FIN，无 RST）

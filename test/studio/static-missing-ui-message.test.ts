@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createStaticHandler, spaMissingUiMessage } from '../../src/studio/server/static.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
 const DEV_MESSAGE = '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build'
 const PACKED_MESSAGE = '前端资源缺失，请重新安装应用'
@@ -35,7 +36,7 @@ describe('D105：SPA 入口缺失 404 文案按形态分叉', () => {
     // 空目录（无 index.html）→ SPA fallback 读失败 → 404 信封
     const root = mkdtempTracked(join(tmpdir(), 'clw-d105-static-'))
     const server = http.createServer(createStaticHandler(root))
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    await listenSafe(server)
     try {
       const { port } = server.address() as AddressInfo
       const res = await fetch(`http://127.0.0.1:${port}/missing-spa-route`)

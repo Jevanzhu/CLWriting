@@ -19,6 +19,7 @@ import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
 import { GenError } from '../../src/ai/gen.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
 // tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
 const workDirs: string[] = []
@@ -33,7 +34,7 @@ function tempUserData(): string {
 let REFUSED_BASE_URL = 'http://127.0.0.1:1'
 beforeAll(async () => {
   const srv = createServer()
-  await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+  await listenSafe(srv)
   const port = (srv.address() as { port: number }).port
   // vitest worker 在无其它 ref 句柄时不驱动 http close 回调（forks/threads 同现，
   // 探针实测保活 interval 后 5ms 完成）——保活至 close 完成再释放。

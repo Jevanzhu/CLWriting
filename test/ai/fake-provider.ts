@@ -10,6 +10,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { listenSafe } from '../helpers/safe-port.js'
 
 /** token 用量（OpenAI 格式 prompt_tokens / completion_tokens） */
 interface FakeUsage {
@@ -215,21 +216,24 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as AddressInfo
-      resolve({
-        url: `http://127.0.0.1:${addr.port}/v1`,
-        close: () => new Promise<void>((r) => server.close(() => r())),
-        setScript: (responses) => {
-          script = responses
-          callIdx = 0
-          reqCount = 0
-          lastRequestBody = null
-        },
-        requestCount: () => reqCount,
-        lastBody: () => lastRequestBody,
-      })
-    })
+    listenSafe(server).then(
+      () => {
+        const addr = server.address() as AddressInfo
+        resolve({
+          url: `http://127.0.0.1:${addr.port}/v1`,
+          close: () => new Promise<void>((r) => server.close(() => r())),
+          setScript: (responses) => {
+            script = responses
+            callIdx = 0
+            reqCount = 0
+            lastRequestBody = null
+          },
+          requestCount: () => reqCount,
+          lastBody: () => lastRequestBody,
+        })
+      },
+      reject,
+    )
   })
 }
 
@@ -425,22 +429,25 @@ export function createFakeAnthropicProvider(initialScript: AnthropicFakeResponse
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as AddressInfo
-      resolve({
-        url: `http://127.0.0.1:${addr.port}/v1`,
-        close: () => new Promise<void>((r) => server.close(() => r())),
-        setScript: (responses) => {
-          script = responses
-          callIdx = 0
-          reqCount = 0
-          lastRequestBody = null
-          lastHeaders = null
-        },
-        requestCount: () => reqCount,
-        lastBody: () => lastRequestBody,
-        lastHeaders: () => lastHeaders,
-      })
-    })
+    listenSafe(server).then(
+      () => {
+        const addr = server.address() as AddressInfo
+        resolve({
+          url: `http://127.0.0.1:${addr.port}/v1`,
+          close: () => new Promise<void>((r) => server.close(() => r())),
+          setScript: (responses) => {
+            script = responses
+            callIdx = 0
+            reqCount = 0
+            lastRequestBody = null
+            lastHeaders = null
+          },
+          requestCount: () => reqCount,
+          lastBody: () => lastRequestBody,
+          lastHeaders: () => lastHeaders,
+        })
+      },
+      reject,
+    )
   })
 }

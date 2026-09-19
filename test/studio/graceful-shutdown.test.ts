@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest'
 import { shutdownStudio } from '../../src/desktop/graceful-shutdown.js'
+import { listenSafe } from '../helpers/safe-port.js'
 import { abortSelfHeal } from '../../src/ai/orchestrate/self-heal.js'
 import { abortChat } from '../../src/ai/orchestrate/chat.js'
 
@@ -42,13 +43,11 @@ afterAll(() => {
 
 /** 起一个挂起响应的 server（模拟 SSE：连接建立后不结束）。 */
 function makeHangServer(): Promise<http.Server> {
-  return new Promise((resolveP) => {
-    const s = http.createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/event-stream' })
-      res.write(': hold\n\n') // 挂起不 end——close 回调将等待该连接
-    })
-    s.listen(0, '127.0.0.1', () => resolveP(s))
+  const s = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write(': hold\n\n') // 挂起不 end——close 回调将等待该连接
   })
+  return listenSafe(s).then(() => s)
 }
 
 describe('RB-SV-P2-6 shutdownStudio', () => {
@@ -64,7 +63,7 @@ describe('RB-SV-P2-6 shutdownStudio', () => {
 
   it('无残留连接：close 正常完成，此后连接被拒', async () => {
     const server = http.createServer((_req, res) => res.end('ok'))
-    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    await listenSafe(server)
     const port = (server.address() as { port: number }).port
     await shutdownStudio(() => null, server)
     await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow()
@@ -106,7 +105,7 @@ describe('RB-SV-P2-6 + R-20 定时器 unref', () => {
     }) as typeof globalThis.setTimeout)
     try {
       const server = http.createServer((_req, res) => res.end('ok'))
-      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+      await listenSafe(server)
       await shutdownStudio(() => workDir, server, { closeTimeoutMs: 1_500, settleTimeoutMs: 1_500 })
     } finally {
       spy.mockRestore()

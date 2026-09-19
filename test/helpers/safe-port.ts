@@ -11,6 +11,13 @@
  * 分配，重抽中概率归零）；端口检查在 listening 之后、调用方注册 .once('listening')
  * 之前完成，故调用方原「bind 后 await once(listening)」两行式可安全合并为一行
  * await（listening 已发射，再挂 once 永不触发——这正是本 helper 代等的原因）。
+ *
+ * listenSafe（阶段 40 裸 listen(0) 收口批）：裸 http.Server 版同语义——studio 族
+ * 服务器走 startServerSafe（重试 = 每轮新建 server，因 startServer 内部自 listen、
+ * 已监听实例再 listen 抛 ERR_SERVER_ALREADY_LISTENING）；各测试自建裸 server 的
+ * 18 处 `listen(0, '127.0.0.1', …)` 统一换装本函数（重试 = 同实例 close 后重绑，
+ * 对未接连接的裸 server 等价）。调用方原「listen(0) + once('listening') / promise
+ * 包 callback」诸形合并为一行 await（同上，helper 代等 listening）。
  */
 import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -36,4 +43,17 @@ export async function startServerSafe(opts: StudioServerOptions): Promise<Server
     await new Promise<void>((r) => server.close(() => r()))
   }
   throw new Error('startServerSafe：连续 32 次抽中受限端口（概率上不可能）——检查本机动态段配置')
+}
+
+/** 裸 http.Server 安全抽端口：绑 0 → 查黑名单 → 命中则同实例关服重绑（RESTRICTED_PORTS 与
+ * startServerSafe 单源共用）。调用方 await 返回后 server 已在非受限端口上 listening。 */
+export async function listenSafe(server: Server, host = '127.0.0.1'): Promise<void> {
+  for (let i = 0; i < 32; i++) {
+    await new Promise<void>((r) => server.listen(0, host, r))
+    const port = (server.address() as AddressInfo).port
+    if (!RESTRICTED_PORTS.has(port)) return
+    server.closeAllConnections()
+    await new Promise<void>((r) => server.close(() => r()))
+  }
+  throw new Error('listenSafe：连续 32 次抽中受限端口（概率上不可能）——检查本机动态段配置')
 }

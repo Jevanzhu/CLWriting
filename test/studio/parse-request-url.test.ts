@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { parseRequestUrl } from '../../src/studio/server/http.js'
+import { listenSafe } from '../helpers/safe-port.js'
 
 function fakeReq(url: string | undefined): { url: string | undefined } {
   return { url }
@@ -49,7 +50,7 @@ beforeAll(async () => {
     res.writeHead(200)
     res.end('ok')
   })
-  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
+  await listenSafe(server!)
 })
 
 afterAll(async () => {
