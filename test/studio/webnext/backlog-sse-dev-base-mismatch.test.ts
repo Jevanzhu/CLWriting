@@ -11,7 +11,7 @@
  *
  * 桩结构对齐 r51-h5-sse-ticket-warn-dedupe（MockES + fetch stub + settle/failClosed 泵）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref, nextTick } from 'vue'
 
@@ -91,7 +91,7 @@ async function failClosed(es: MockES): Promise<void> {
 }
 
 /** 只计双基址失配告警（过滤 Vue onUnmounted 直调的 dev warning 等噪音） */
-function mismatchWarnCount(spy: ReturnType<typeof vi.spyOn>): number {
+function mismatchWarnCount(spy: MockInstance<typeof console.warn>): number {
   return spy.mock.calls.filter((c) => String(c[0]).includes('双基址')).length
 }
 

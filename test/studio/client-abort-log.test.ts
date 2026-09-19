@@ -13,7 +13,7 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 vi.mock('../../src/log/index.js', () => ({
   log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
@@ -35,8 +35,8 @@ function fakeReq(method: string, url: string): FakeReq {
 /** 桩 res：headersSent 可变 + writeHead/end 桩——回包断言面 */
 type StubRes = ServerResponse & {
   headersSent: boolean
-  writeHead: ReturnType<typeof vi.fn>
-  end: ReturnType<typeof vi.fn>
+  writeHead: Mock
+  end: Mock
 }
 function fakeRes(): StubRes {
   const res = new EventEmitter() as unknown as StubRes

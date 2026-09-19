@@ -45,15 +45,16 @@ describe('log 模块（A4 批 0）', () => {
     expect(localDayKey(Date.now()).replaceAll('-', '')).toMatch(/^\d{8}$/)
   })
 
-  it('未初始化：仅镜像 console，不落盘（与引入前行为一致）', () => {
+  it('未初始化：仅镜像 console，不落盘（与引入前行为一致）', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     log.error('t1', 'boom')
     log.warn('t1', 'careful')
     expect(errSpy).toHaveBeenCalledWith('[t1] boom')
     expect(warnSpy).toHaveBeenCalledWith('[t1] careful')
-    // logsDir 为 null：不排队、不落盘（flush 是空操作也不产生文件）
-    expect(flushLogsForTest()).resolves.toBeUndefined()
+    // logsDir 为 null：不排队、不落盘（flush 是空操作也不产生文件）。
+    // vitest 5 起「未 await 的 .resolves 断言」为硬错（v3 静默悬浮未验证）——补 await
+    await expect(flushLogsForTest()).resolves.toBeUndefined()
   })
 
   it('初始化后：JSONL 落盘 + 镜像 console；行含 {ts,level,tag,msg,err}', async () => {

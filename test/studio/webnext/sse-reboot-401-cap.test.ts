@@ -14,7 +14,7 @@
  * 桩结构对齐 sse-ticket.test.ts / backlog-sse-dev-base-mismatch.test.ts
  * （MockES + fetch stub + fake timers 泵 failClosed）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref, nextTick } from 'vue'
 
@@ -103,7 +103,9 @@ async function failClosed(es: MockES): Promise<void> {
 }
 
 /** 只计双基址失配指引（R59 与 E003 共用同一指引面；过滤 ?token= 回退留痕等噪音） */
-function mismatchWarns(spy: ReturnType<typeof vi.spyOn>): string[] {
+// vitest 5 批：ReturnType<typeof vi.spyOn> 在 v5 泛型收紧下退化为不可推断（filter 回调
+// 隐式 any 红），改 MockInstance<被 spy 函数型> 显型
+function mismatchWarns(spy: MockInstance<typeof console.warn>): string[] {
   return spy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('双基址'))
 }
 

@@ -13,7 +13,7 @@
  *    旧键方案在本场景必触发 Vue 告警（Vue 仅在更新期 keyed diff 建新索引表时告警，
  *    故用筛选切换逼出真实 diff，而非只看首挂）。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi , type MockInstance } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import SampleCandidateList from '../../../src/studio/web-next/src/components/learn/SampleCandidateList.vue'
@@ -29,7 +29,7 @@ beforeEach(() => {
 })
 
 /** console.warn 中是否出现 duplicate key 告警（Vue keyed diff 更新期文案） */
-function hasDuplicateKeyWarn(warnSpy: ReturnType<typeof vi.spyOn>): boolean {
+function hasDuplicateKeyWarn(warnSpy: MockInstance<typeof console.warn>): boolean {
   return warnSpy.mock.calls.some(
     (c) => typeof c[0] === 'string' && c[0].includes('Duplicate keys'),
   )

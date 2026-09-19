@@ -6,7 +6,7 @@
  * console.warn（分钟级刷屏）。修复后同连接纪元只 warn 一次；onopen 成功 / 切书
  * connect 复位（恢复后再故障可再告，观测口不丢新事件）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref, nextTick } from 'vue'
 
@@ -77,7 +77,7 @@ async function failClosed(es: MockES): Promise<void> {
 describe('R51-H-5: 换票失败回退告警去重', () => {
   // useSse 在组件外直调会带出一条 Vue onUnmounted 的 dev warning（同样走 console.warn），
   // 断言按文案过滤只计换票告警
-  function ticketWarnCount(spy: ReturnType<typeof vi.spyOn>): number {
+  function ticketWarnCount(spy: MockInstance<typeof console.warn>): number {
     return spy.mock.calls.filter((c) => String(c[0]).includes('换票失败')).length
   }
 

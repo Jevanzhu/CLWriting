@@ -9,7 +9,7 @@
  * 用例直接以 run 回调抛 GenError 驱动各失败分支（不触网络），断言 log.warn 的
  * 结构化字段；用户中断（决策表 ABORTED → 'none' 非失败口径）不产生失败日志。
  */
-import { describe, expect, it, vi, afterEach } from 'vitest'
+import { describe, expect, it, vi, afterEach, type MockInstance } from 'vitest'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -49,7 +49,7 @@ function writeProviders(userDataPath: string, timeoutMs?: number): void {
 }
 
 /** 取本用例关注的两类结构化失败日志（过滤 mkChain missing-args 等环境噪声） */
-function failureWarns(spy: ReturnType<typeof vi.spyOn>): Array<Record<string, unknown>> {
+function failureWarns(spy: MockInstance<typeof log.warn>): Array<Record<string, unknown>> {
   return spy.mock.calls
     .map((c) => String(c[1]))
     .filter((m) =>

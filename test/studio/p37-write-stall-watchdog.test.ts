@@ -21,7 +21,7 @@
  * 独立 tmp 目录 + 自清（服务侧只消费绝对路径，语义等价）；post 走裸 node:http
  * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
 import http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -146,7 +146,7 @@ const BOOK = 'P3挂起书'
 let studio: StudioHarness
 let workDir = ''
 let userDataDir = ''
-let warnSpy: ReturnType<typeof vi.spyOn>
+let warnSpy: MockInstance<typeof log.warn>
 
 /** node:http 请求（fetch/undici 的超时定时器在假 timer 下不可控，用裸 http 规避） */
 function post(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {

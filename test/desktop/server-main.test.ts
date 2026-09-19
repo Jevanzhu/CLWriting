@@ -15,7 +15,7 @@
  * 真链路（真起 server + argv/env 透传）由子进程黑盒 test/studio/server-main-error.test.ts
  * 锚定，不在此重复。
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach , type MockInstance } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import type { ParsedServerArgs } from '../../src/desktop/server-boot.js'
@@ -72,7 +72,7 @@ function spyExit() {
 }
 
 let exitSpy: ReturnType<typeof spyExit>
-let errSpy: ReturnType<typeof vi.spyOn>
+let errSpy: MockInstance<typeof console.error>
 
 beforeEach(() => {
   h.bootCalls.length = 0
