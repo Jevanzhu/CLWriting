@@ -70,6 +70,25 @@ jobs:
       - name: tag 与 package.json version 一致性门
         if: github.ref_type == 'tag'
         run: node -e "const v=require('./package.json').version;const ref=process.env.GITHUB_REF_NAME||'';const t=ref.replace(/^v/,'');if(v!==t){console.error('[tag-version] 不一致：tag='+ref+' 但 package.json version='+v+'（去前导 v 应为 '+t+'）——bump version 或修正 tag 后重跑');process.exit(1)}console.log('[tag-version] 一致：tag '+ref+' == package.json version '+v)"
+      # 阶段 48（发版基线门）：tag 指向必须在 origin/main 历史上——作者口径「CI 只有 main
+      # 才做，推到 main 才用 CI 打包」：ci.yml 已限 main/PR-to-main，本门把出包链同口径焊死
+      #（tag 打在未合 main 的分支上 = 未走 main 线治理，出包即红；tag 与 main 头同 commit
+      # 或落 main 历史中段均过）。checkout 浅克隆（fetch-depth 1）无 main 历史，fetch main
+      # 后 merge-base --is-ancestor 判定（浅库按需加深，tag 在 main 头时 fetch 近零成本）。
+      # workflow_dispatch 复演腿豁免（ref_type=branch——作者手动验证工具，不限分支，
+      # 亦不产 Release）。shell: bash 显式：win runner 默认 pwsh，本步是 bash 语法
+      #（soak 门同款先例）。
+      - name: tag 指向必须在 main（发版基线门）
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          git fetch origin +refs/heads/main:refs/remotes/origin/main
+          if git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "[main-gate] 过：tag $GITHUB_REF_NAME 指向 $(git rev-parse --short "$GITHUB_SHA") 在 origin/main 历史上"
+          else
+            echo "::error::tag $GITHUB_REF_NAME 指向不在 origin/main 上——出包只从 main 出：先合 main 推送，再在 main 上打 tag"
+            exit 1
+          fi
       # M-3（第十一轮）：tag 发布门补 typecheck+test 前置——此前 tag v* 直接产 DMG，工作流
       # 内无任何验证步（ci.yml 只监听分支 push），tag 若指未测提交即产出未验证发布物；
       # rc.1 实操是先门禁绿再打 tag（流程弥补），此处把门焊进工作流本体
