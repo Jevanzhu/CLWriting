@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-7769%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-7781%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -100,7 +100,7 @@ npm run setup             # 一键装齐双包依赖（根包 npm install + 前�
 npm --prefix src/studio/web-next ci   # 装前端子包依赖（CodeMirror 等；新克隆必跑，见下）
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 7769 单测
+npm test                   # 7781 单测
 npm run test:related -- src/foo.ts   # 只跑与改动文件 import 相关的单测（日常小改的快速面；合入门槛仍是 npm test 全量）
 npm run test:e2e           # Playwright e2e（mock 驱动，33 specs / 54 用例）（其中常规命令跑 51，另 3 个发布 smoke 需 CLWRITING_E2E_RELEASE）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
@@ -110,19 +110,20 @@ npm run dev:electron       # 构建后起 Electron（非 HMR）
 npm run build:desktop      # electron-builder 打包（mac 出 dmg / win 出 NSIS exe）
 npm run lint               # ESLint（JS/MJS 最小门 + TS 面 typescript-eslint recommended：src / scripts / test 全部 .ts 纳管）
 npm run check:counts       # 核对 README 里的测试数和实际是否一致
+npm run check:docs         # 文档篇幅门（索引面只写结论+指针；根 README 是对外介绍面）
 ```
 
-Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量写法已由 cross-env 统一，脚本无 POSIX 专属语法；`dev:app` / `dev:electron` 走 Electron 官方入口，工作区路径含 `^` 等特殊字符也正常）。Node 建议 24 或 26 LTS。CI 覆盖盲区披露（R0915-P2，四轮重评处置批）：ci.yml 矩阵为 os×{24,26} 但显式排除 windows×26 腿（R69-6 控成本），desktop.yml 出包腿仅 node 24——即 **win×26 组合无任何 CI 腿背书**，win 侧持续门以 node 24 腿为准；本机 win×26 全量门实录见下方门槛段（负载下 worker OOM 曾于 2026-09-15 四轮重评记录，main.test.ts 监听器治理已处置，win×26 复跑绿与否以下轮全量实录为准——2026-09-17 win 侧收口批 v26.8.1 全量一次全绿实证，治理后未再复发）。
+Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量写法已由 cross-env 统一，脚本无 POSIX 专属语法；`dev:app` / `dev:electron` 走 Electron 官方入口，工作区路径含 `^` 等特殊字符也正常）。Node 建议 24 或 26 LTS。CI 覆盖：`ci.yml` 矩阵为 os×{24,26} 但排除 windows×26 腿（控成本），`desktop.yml` 出包腿仅 node 24——win 侧持续门以 node 24 腿为准。
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面的 `npm --prefix src/studio/web-next ci` 一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：1268 个测试文件 / 7769 单测全绿是合入门槛（macOS/Linux 口径）；CI 的 check:counts 会核对本文件声称的数字，对不上直接红——**本行是这类数字与平台门差的唯一真相源**，改数请连同句式一起改。win 上 `skipIf(win32)` 平台门用例进 vitest 收集但按门跳过、不计入过数：win 实测 = 声称值 − 差值，**过数实测差 68 恒定**；CI linux 腿同法反推，**linux 实测差 5 恒定**（darwin 门 1 + linux 门 3 + DISPLAY 门 1，ubuntu headless 无 DISPLAY 时该门省、差值回 4）。历批 L2 亲跑实录（逐批文件/过数/跳/败 + 九门明细 + 差值锚 81→64→68 重锚沿革）= git 历史（本行精简前全文 = `git show dbfa3f11:README.md`）；批级改动明细见各批 commit message。动了前端就再跑 `vue-tsc` 和 e2e；e2e 的 33 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用，主链共享单一临时 workDir）——勿加并行或改 spec 顺序，否则隐式依赖会静默错乱。
+改完代码至少跑 `npm test`：1269 个测试文件 / 7781 单测全绿是合入门槛（macOS/Linux 口径）；CI 的 check:counts 会核对本文件声称的数字，对不上直接红——这行是这类数字与平台门差的唯一真相源，改数请连同句式一起改。win 上 `skipIf(win32)` 平台门用例进 vitest 收集但按门跳过、不计入过数：win 实测 = 声称值 − 差值，**过数实测差 68 恒定**；CI linux 腿同法反推，**linux 实测差 5 恒定**（darwin 门 1 + linux 门 3 + DISPLAY 门 1，ubuntu headless 无 DISPLAY 时省该门、差值回 4）。动了前端就再跑 `vue-tsc` 和 e2e；e2e 的 33 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用，主链共享单一临时 workDir）——勿加并行或改 spec 顺序，否则隐式依赖会静默错乱。
 
-项目治理与协作规矩（文档操作链、测试分层、评审命名、入库判据等纪律条）正本 = 项目根 `CLAUDE.md`（入库；`AGENTS.md` 为其 symlink）；同日 Archive README（归档规则/批记）亦撤除，历批明细改由 git 历史兜底。
+项目治理与协作规矩（文档操作链、测试分层、评审命名、入库判据等纪律条）正本 = 项目根 `CLAUDE.md`（入库；`AGENTS.md` 为其 symlink）。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（7769 单测）+ Playwright（33 specs / 54 用例）（常规命令跑 51，3 个发布 smoke 用例需 CLWRITING_E2E_RELEASE 环境变量）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（7781 单测）+ Playwright（33 specs / 54 用例）（常规命令跑 51，3 个发布 smoke 用例需 CLWRITING_E2E_RELEASE 环境变量）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；AI 生成链路不 spawn 任何 CLI 子进程（要用的内核模块直接 import），历史轨迹与启动迁移会 spawn 本地 Git（Windows 需预装，见上方使用须知）；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删；另外「清空对话历史」会连带删除该书本次对话产生的事件（同一份账，语义一致），两处入口删的都是同一库。
 

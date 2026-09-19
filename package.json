@@ -32,6 +32,7 @@
     "test:related": "vitest related --run",
     "test:coverage": "vitest run --coverage",
     "check:counts": "node scripts/check-counts.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
     "check:knowledge": "tsx scripts/check-knowledge.ts",
     "verify:responses": "tsx scripts/verify-responses-relay.ts",

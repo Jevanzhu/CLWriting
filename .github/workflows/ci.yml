@@ -187,6 +187,11 @@ jobs:
       - name: 知识层 manifest 对账（check:knowledge）
         run: npm run check:knowledge
 
+      # 2026-09-19：文档篇幅门——索引面只写结论 + 指针、根 README 是对外介绍面禁项目进展，
+      # 从自律升级为门禁（check-counts X-P2-16 先例）；防历批实录回弹到索引面。
+      - name: 文档篇幅门（check:docs）
+        run: npm run check:docs
+
       # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
       # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 
