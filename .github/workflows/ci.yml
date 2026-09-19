@@ -71,27 +71,26 @@ jobs:
         run: npm --prefix src/studio/web-next ci
 
       # G401（0918四轮修复批）：CI 无依赖漏洞扫描门——根包与 web-next 子包各扫一次
-      # （--audit-level=high 只拦高危以上，low/moderate 噪声不进门）。首期 continue-on-error
-      # 非阻塞起步：存量告警基线未知，先观察门输出（基线观察期），连续绿后翻 blocker。
+      # （--audit-level=high 只拦高危以上，low/moderate 噪声不进门）。存量高危已由清链批
+      # 024f8726 清零（root 仅余 vitest 族 moderate、web-next 归零，全 dev 链），观察期
+      # 收口翻 blocker：新增 high 及以上即红（四轮-G401「连续绿后翻 blocker」兑现）。
       - name: 依赖漏洞扫描（npm audit ≥high，根包）
-        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
         run: npm audit --audit-level=high
       - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
-        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
         run: npm --prefix src/studio/web-next audit --audit-level=high
 
-      # 五轮重评修复批（H103）：观察档到期硬锚——本文件 audit 双门 + desktop.yml audit
-      # 双门 / win 腿 e2e·release-smoke 双观察档的「连续绿后翻 blocker/连续 3 次绿翻阻断」
-      # 承诺此前只存在于注释 prose，无任何机器兑现面（遗忘即无限期不阻断）。过期仍挂
-      # 观察即红（fail-closed 强制复盘：翻正撤 continue-on-error 后本步随锚一并删除，
-      # 或有意延期则修订锚日并批注缘由）。
+      # 五轮重评修复批（H103）：观察档到期硬锚——原守 audit 四门（本文件 + desktop.yml
+      # 各双门）与 win 腿 e2e·release-smoke 双观察档（desktop.yml G403 步）的「连续绿后翻
+      # blocker/连续 3 次绿翻阻断」承诺；audit 四门已随清链批翻正，本锚现守 G403 win 腿
+      # 双观察档。过期仍挂观察即红（fail-closed 强制复盘：翻正撤 continue-on-error 后
+      # 本步随锚一并删除，或有意延期则修订锚日并批注缘由）。
       - name: 观察档到期断言（过期未翻阻断即红）
         shell: bash
         run: |
           EXPIRY=2026-10-31
           TODAY=$(date +%Y-%m-%d)
           if [[ "$TODAY" > "$EXPIRY" ]]; then
-            echo "::error::观察档已到期（锚日 ${EXPIRY}）：npm audit 双门 / win 腿 e2e·release-smoke 观察档仍挂 continue-on-error 未翻阻断——先复盘翻正（或修订锚日并批注缘由）再重跑"
+            echo "::error::观察档已到期（锚日 ${EXPIRY}）：win 腿 e2e·release-smoke 观察档仍挂 continue-on-error 未翻阻断（audit 四门已翻正不在守面）——先复盘翻正（或修订锚日并批注缘由）再重跑"
             exit 1
           fi
           echo "观察档未到期（${TODAY} ≤ ${EXPIRY}）"
