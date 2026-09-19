@@ -36,10 +36,10 @@ npm run dev:app     # 终端 2：再起桌面应用（HMR，加载 :5173 的 Vit
 
 ## Windows 版使用须知
 
-Windows 包（NSIS x64）是第一版，几件事提前说清：
+Windows 包（x64 便携版）是第一版：下载 zip 解压到任意目录，双击目录里的 `CLWriting.exe` 即用——免安装、不写注册表，删掉目录就是卸载。几件事提前说清：
 
-- **安装包未做代码签名。** 首次运行时 Windows SmartScreen 可能提示「Windows 已保护你的电脑」——点「更多信息」→「仍要运行」即可，这是无签名分发的正常提示，不是文件损坏。
-- **没有自动更新。** 新版本要手动下载安装包覆盖安装（先退出应用再装）。书稿都在书库文件夹里，重装应用不影响内容。
+- **程序未做代码签名。** 首次运行 `CLWriting.exe` 时 Windows SmartScreen 可能提示「Windows 已保护你的电脑」——点「更多信息」→「仍要运行」即可，这是无签名分发的正常提示，不是文件损坏。
+- **没有自动更新。** 新版本要手动下载新 zip，退出应用后解压覆盖旧目录（或解压到新目录再删旧目录）。书稿都在书库文件夹里，换目录重解压不影响内容。
 - **先装 Git。** 旧书的历史迁移等功能依赖 Git；没装会明确提示，装 [Git for Windows](https://gitforwindows.org/) 后重启应用即可。
 - **书库别放在 OneDrive、坚果云等同步盘里。** 应用的保存与检索要独占锁文件和 SQLite 索引，同步盘的实时同步会与之冲突，还可能造出「冲突副本」文件。坚果云式冲突副本能自动检测提醒；OneDrive 式副本（文件名带计算机名后缀）认不出来，只能靠你避开。
 - **路径别太深。** Windows 对超长路径支持有限，书库放在浅层目录、总路径 200 字符以内最稳。
@@ -107,7 +107,7 @@ npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web�
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
 npm run dev:app            # 桌面应用（HMR；需先有 dev:api，见「安装和上手」）
 npm run dev:electron       # 构建后起 Electron（非 HMR）
-npm run build:desktop      # electron-builder 打包（mac 出 dmg / win 出 NSIS exe）
+npm run build:desktop      # electron-builder 打包（mac 出 dmg / win 出便携 zip）
 npm run lint               # ESLint（JS/MJS 最小门 + TS 面 typescript-eslint recommended：src / scripts / test 全部 .ts 纳管）
 npm run check:counts       # 核对 README 里的测试数和实际是否一致
 npm run check:docs         # 文档篇幅门（索引面只写结论+指针；根 README 是对外介绍面）

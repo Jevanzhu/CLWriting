@@ -1,5 +1,6 @@
-# Electron 桌面应用构建（#electron · mac dmg + win nsis——win 腿阶段 21 J0 启用，2026-08-28；linux 仍暂缓）
-# 手动触发 或 tag v* 触发；产物 macOS→dmg、Windows→exe（x64 单文件 NSIS，首版 unsigned 见 D4）
+# Electron 桌面应用构建（#electron · mac dmg + win 便携 zip——win 腿阶段 21 J0 启用、阶段 47 改便携免安装；linux 仍暂缓）
+# 手动触发 或 tag v* 触发；产物 macOS→dmg、Windows→便携 zip（x64，首版 unsigned 见 D4）；
+# tag 跑全绿后由「发布」job 汇双腿产物建 GitHub Release 草稿（作者复核后手动发布，见文末）
 name: Desktop Build
 on:
   workflow_dispatch:
@@ -211,7 +212,7 @@ jobs:
       # 空格格式，sha256sum -c 可验），与产物一并上传（下方两腿 artifact path 已并入）。
       # 零产物即红：electron-builder 静默不出包时在此 fail-closed，不上传空壳工件。
       - name: 生成发布产物 SHA256 清单
-        run: node -e "const fs=require('fs'),crypto=require('crypto');const dir='dist-electron';const files=fs.readdirSync(dir).filter(f=>f.endsWith('.dmg')||f.endsWith('.exe')).sort();if(files.length===0){console.error('[checksum] dist-electron 下无 .dmg/.exe 产物——electron-builder 出包异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(dir+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(dir+'/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
+        run: node -e "const fs=require('fs'),crypto=require('crypto');const dir='dist-electron';const files=fs.readdirSync(dir).filter(f=>f.endsWith('.dmg')||f.endsWith('.zip')).sort();if(files.length===0){console.error('[checksum] dist-electron 下无 .dmg/.zip 产物——electron-builder 出包异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(dir+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(dir+'/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && runner.os == 'macOS'
         with:
@@ -223,15 +224,15 @@ jobs:
             dist-electron/*.dmg
             dist-electron/SHA256SUMS.txt
           if-no-files-found: error
-      # J0：win 腿工件只留 NSIS 单文件 exe（win-unpacked/ 解包态不上传，同 H-8 体积口径；
-      # blockmap 等伴生文件不在 *.exe 通配内自然排除）
+      # J0/阶段 47：win 腿工件只留便携 zip 单文件（win-unpacked/ 解包态不上传，同 H-8
+      # 体积口径；zip target 无 blockmap 伴生，*.zip 通配天然单文件）
       # R0916-6-P3-9：SHA256SUMS.txt 随产物一并上传（生成步见 build:desktop 后）
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && runner.os == 'Windows'
         with:
           name: clwriting-desktop-${{ matrix.os }}
           path: |
-            dist-electron/*.exe
+            dist-electron/*.zip
             dist-electron/SHA256SUMS.txt
           if-no-files-found: error
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
@@ -322,7 +323,7 @@ jobs:
           APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
           test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
           CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
-      # J0：win 腿同款启动冒烟——NSIS 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
+      # J0：win 腿同款启动冒烟——便携 zip 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
       # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
       # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：
       # ①进程存活 ②日志含 [CLW_SMOKE] ready 启动标记 ③无 [CLW_SMOKE] renderer-crash
@@ -395,3 +396,57 @@ jobs:
           }
           $env:CLW_SMOKE_APP_BIN = $exe
           npm run smoke:electron
+
+  # 阶段 47（发版链批）：tag 全绿后建 GitHub Release 草稿——此前 tag 跑完只留 workflow
+  # 工件（登录 GitHub 才能下、90 天过期），正式发版要人工下载再上传；本 job 汇双腿产物
+  # + 重生成双平台合并口径的 SHA256 清单 + gh 建草稿 Release 挂产物，作者补写说明、复核
+  # 后在 Release 页手动发布（改自动直发 = 摘 --draft）。
+  # 门序：needs: build + 缺省 success() = 双腿全绿（含打包态冒烟）才到，任一门红/冒烟红
+  # 均止步于此；仅 tag 触发（workflow_dispatch 复演跑不建草稿——GITHUB_REF_NAME 是分支
+  # 名，--verify-tag 会拒，if 在源头拦）。权限收窄在 job 级 contents: write（工作流级仍
+  # read，build job 不抬权）。gh 走 runner 预装 CLI + GITHUB_TOKEN（github.token），不引
+  # 第三方 release action（G406 钉版口径下零新增第三方面）。
+  release:
+    name: 发布（GitHub Release 草稿）
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # 双腿工件分目录下载（不用 merge-multiple 合并——两腿各带一份 SHA256SUMS.txt，
+      # 同名合并会静默覆盖；本 job 要按腿归位重算全量清单，分目录是前提）。SHA 钉版口径
+      # 同 G406（v4 tag → commit，git ref 端点实取）。
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: clwriting-desktop-macos-latest
+          path: release-assets/mac
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: clwriting-desktop-windows-latest
+          path: release-assets/win
+      # 全量 SHA256 清单（双平台合并口径，覆盖两腿各自的分腿清单）：文件名取基名——
+      # Release 资产平铺、与 sha256sum -c 的验法对齐；零产物即红 fail-closed（工件上传步
+      # 已 if-no-files-found: error 兜底，此处双保险防「空目录建出空壳 Release」）。
+      - name: 重生成全量 SHA256 清单（双平台合并）
+        run: node -e "const fs=require('fs'),crypto=require('crypto');const files=[...fs.readdirSync('release-assets/mac').filter(f=>f.endsWith('.dmg')).map(f=>'release-assets/mac/'+f),...fs.readdirSync('release-assets/win').filter(f=>f.endsWith('.zip')).map(f=>'release-assets/win/'+f)].sort();if(files.length===0){console.error('[checksum] 双腿产物下载后为空——工件异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')+'  '+f.split('/').pop());fs.writeFileSync('release-assets/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
+      # 草稿说明为最小占位（下载/校验/须知指针），正式说明作者在 Release 页补写后发布。
+      # --verify-tag：tag 必须已存在（本工作流即 tag push 触发，恒真；防 ref 异态直发）。
+      - name: 建 Draft Release 并挂产物
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          printf '%s\n' \
+            "${GITHUB_REF_NAME} 产物：" \
+            "- Windows（x64 便携版，免安装）：下载 zip 解压到任意目录，运行目录内 CLWriting.exe；使用须知见仓库 README「Windows 版使用须知」。" \
+            "- macOS（Apple Silicon）：dmg 内应用拖入「应用程序」；使用须知见「macOS 版使用须知」。" \
+            "- 完整性校验：sha256sum -c SHA256SUMS.txt（Windows 可用 certutil -hashfile 文件名 SHA256 比对）。" \
+            "- 安装包未做正式代码签名，首次运行的系统提示与处理见 README 使用须知。" \
+            > release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            release-assets/mac/*.dmg release-assets/win/*.zip release-assets/SHA256SUMS.txt \
+            --draft --verify-tag \
+            --title "CLWriting ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md
