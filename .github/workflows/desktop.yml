@@ -483,6 +483,9 @@ jobs:
         run: node -e "const fs=require('fs'),crypto=require('crypto');const files=[...fs.readdirSync('release-assets/mac').filter(f=>f.endsWith('.dmg')).map(f=>'release-assets/mac/'+f),...fs.readdirSync('release-assets/win').filter(f=>f.endsWith('.zip')).map(f=>'release-assets/win/'+f)].sort();if(files.length===0){console.error('[checksum] 双腿产物下载后为空——工件异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')+'  '+f.split('/').pop());fs.writeFileSync('release-assets/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
       # 草稿说明为最小占位（下载/校验/须知指针），正式说明作者在 Release 页补写后发布。
       # --verify-tag：tag 必须已存在（本工作流即 tag push 触发，恒真；防 ref 异态直发）。
+      # v1.0.0-rc.0 发布链附批：-R 显式定位仓库——本 job 无 checkout 步（工作区无 .git），
+      # gh 缺省靠 git 推断 owner/repo，首跑实录「failed to run git: fatal: not a git
+      # repository」即红；$GITHUB_REPOSITORY 环境量恒在，显式传参不依赖工作区形态。
       - name: 建 Draft Release 并挂产物
         env:
           GH_TOKEN: ${{ github.token }}
@@ -496,6 +499,7 @@ jobs:
             "- 安装包未做正式代码签名，首次运行的系统提示与处理见 README 使用须知。" \
             > release-notes.md
           gh release create "$GITHUB_REF_NAME" \
+            -R "$GITHUB_REPOSITORY" \
             release-assets/mac/*.dmg release-assets/win/*.zip release-assets/SHA256SUMS.txt \
             --draft --verify-tag \
             --title "CLWriting ${GITHUB_REF_NAME}" \
