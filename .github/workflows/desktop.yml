@@ -284,7 +284,23 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -eu
-          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+          # v1.0.0-rc.0 发布修复批：冒烟前把 .app 拷出工作区——ESM 裸包解析从导入文件
+          # 位置逐级向上找 node_modules，app 在工作区 dist-electron/ 内时能摸到仓库根
+          # node_modules，漏 bundle 的坏包照样起得来（rc.0 假绿根因：本步三连绿、用户
+          # /Applications 全挂）。拷到 RUNNER_TEMP（与工作区分属不同子树，向上链永不
+          # 经过仓库）后解析语义与真实用户安装位一致，漏 bundle 即此步红。ditto 保
+          # bundle 元数据（签名/权限），mac 镜像自带。本步建拷贝，下方 window-cycle /
+          # packaged-app-smoke 两步复用同目录（同 job 步骤共享文件系统）。
+          SMOKE_ROOT="${RUNNER_TEMP}/clw-smoke"
+          rm -rf "${SMOKE_ROOT}"
+          mkdir -p "${SMOKE_ROOT}"
+          for APP in dist-electron/mac*/CLWriting.app; do
+            test -d "$APP" || { echo "::error::未找到打包态 .app：$APP"; exit 1; }
+            ARCH_DIR="$(basename "$(dirname "$APP")")"
+            mkdir -p "${SMOKE_ROOT}/${ARCH_DIR}"
+            ditto "$APP" "${SMOKE_ROOT}/${ARCH_DIR}/CLWriting.app"
+          done
+          for APP_BIN in "${SMOKE_ROOT}"/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
             # v1.0.0-rc.0 发布修复批附批：按 arch 定冒烟窗——x64 包冷 Rosetta 翻译
             # 首启显著慢于原生（本地暖机 24s 过；win 原生冷机实录 ready 恰落 ~60s 边界
@@ -341,11 +357,13 @@ jobs:
       # 退出均非零。路径与上步同源 glob（mac*/ 容 arch 目录命名差异，勿硬编码 mac-arm64）；
       # test -x 必须保留：glob 落空时 APP_BIN 为空串，脚本对空 CLW_SMOKE_APP_BIN 会静默
       # 降级 dev 态形态（假绿）。放工件上传后（同上步口径：冒烟红仍留 DMG 供排查）。
+      # v1.0.0-rc.0 发布修复批：路径改上步拷出的 RUNNER_TEMP 副本（出工作区杀裸包
+      # 解析假绿，机理见上步注释；glob 段不变仍为 mac*/ 容 arch 目录命名差异）。
       - name: Electron 关窗链冒烟（打包态 .app，window-cycle，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
-          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+          for APP_BIN in "${RUNNER_TEMP}/clw-smoke"/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
             # v1.0.0-rc.0 发布修复批附批：窗随 arch——x64 冷 Rosetta 翻译首启慢（同上步
             # 口径；脚本超时可调面 CLW_SMOKE_TIMEOUT_MS，缺省 60000）。
@@ -363,12 +381,13 @@ jobs:
       # 此处 build:desktop 产物在位后真跑（打包态 UI 动线冒烟本就该在打包后执行；spec
       # 自带产物缺失 fail-closed 断言 + CLWRITING_E2E_APP_BIN 覆盖二进制定位）。同上方
       # 两步口径：放工件上传后，冒烟红仍留 DMG 供排查；APP_BIN 同款 glob（勿硬编码
-      # arch 段）+ test -x 防假绿守卫。
+      # arch 段）+ test -x 防假绿守卫。路径亦为上上步拷出的 RUNNER_TEMP 副本（出工作
+      # 区，机理见彼步注释）。
       - name: 打包态应用冒烟（packaged-app-smoke，UI 动线 · 字体链，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
-          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+          for APP_BIN in "${RUNNER_TEMP}/clw-smoke"/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
             echo "== packaged-app-smoke 包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
             CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
@@ -394,11 +413,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = "dist-electron/win-unpacked/CLWriting.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Output "::error::未找到打包态可执行体：$exe"
+          # v1.0.0-rc.0 发布修复批：冒烟前把 win-unpacked 拷出工作区（机理同 mac 腿：
+          # ESM 裸包解析从导入文件位置逐级向上，工作区内能摸到仓库根 node_modules =
+          # rc.0 假绿根因；拷 RUNNER_TEMP 后与真实用户安装位同语义）。下步 window-cycle
+          # 复用同目录。
+          $srcExe = "dist-electron/win-unpacked/CLWriting.exe"
+          if (-not (Test-Path $srcExe)) {
+            Write-Output "::error::未找到打包态可执行体：$srcExe"
             exit 1
           }
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "clw-smoke"
+          if (Test-Path $smokeRoot) { Remove-Item -Recurse -Force $smokeRoot }
+          Copy-Item -Recurse -Force "dist-electron/win-unpacked" (Join-Path $smokeRoot "win-unpacked")
+          $exe = Join-Path $smokeRoot "win-unpacked\CLWriting.exe"
           $logOut = "clw-electron-smoke.out.log"
           $logErr = "clw-electron-smoke.err.log"
           $env:ELECTRON_ENABLE_LOGGING = "1"
@@ -431,7 +458,9 @@ jobs:
       # 驱动，脚本的 win 支持（taskkill /T 杀树 + 打包态直起二进制分支）早已在位但从未
       # 接线，win 打包态「真实建窗→关窗→白名单摘除」链此前无任何 CI 兜底。形态复刻 mac
       # 腿两行（定位产物 + 可执行体守卫 + env 注入）；win 产物无 mac 的 arch 可变段
-      #（win-unpacked/ 固定，与上方启动冒烟腿同一路径口径），Get-Item 落空返回 $null。
+      #（win-unpacked/ 固定，与上方启动冒烟腿同一路径口径——v1.0.0-rc.0 发布修复批起
+      # 该路径为彼步拷出的 RUNNER_TEMP 副本，出工作区杀裸包解析假绿），Get-Item 落空
+      # 返回 $null。
       # 守卫必须保留：appBin 为空串时脚本对空 CLW_SMOKE_APP_BIN 会静默降级 dev 态形态
       # （假绿，同 mac 腿 test -x 的防假绿语义）。放工件上传后（同 mac 口径：冒烟红
       # 仍留 exe 工件供排查）。
@@ -439,9 +468,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = (Get-Item "dist-electron/win-unpacked/CLWriting.exe" -ErrorAction SilentlyContinue).FullName
+          $exe = (Get-Item (Join-Path $env:RUNNER_TEMP "clw-smoke\win-unpacked\CLWriting.exe") -ErrorAction SilentlyContinue).FullName
           if (-not $exe) {
-            Write-Output "::error::未找到打包态可执行体：dist-electron/win-unpacked/CLWriting.exe"
+            Write-Output "::error::未找到打包态可执行体（上步应已拷出工作区）：$env:RUNNER_TEMP\clw-smoke\win-unpacked\CLWriting.exe"
             exit 1
           }
           $env:CLW_SMOKE_APP_BIN = $exe

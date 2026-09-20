@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-7878%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-7880%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -100,7 +100,7 @@ npm run setup             # 一键装齐双包依赖（根包 npm install + 前�
 npm --prefix src/studio/web-next ci   # 装前端子包依赖（CodeMirror 等；新克隆必跑，见下）
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 7878 单测
+npm test                   # 7880 单测
 npm run test:related -- src/foo.ts   # 只跑与改动文件 import 相关的单测（日常小改的快速面；合入门槛仍是 npm test 全量）
 npm run test:e2e           # Playwright e2e（mock 驱动，33 specs / 54 用例）（其中常规命令跑 51，另 3 个发布 smoke 需 CLWRITING_E2E_RELEASE）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
@@ -117,13 +117,13 @@ Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面的 `npm --prefix src/studio/web-next ci` 一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：1272 个测试文件 / 7878 单测全绿是合入门槛；CI 的 check:counts 会核对本文件声称的数字，对不上直接红——改数请连同句式一起改。单测数为 vitest 静态口径（`vitest list --json` 数声明不数执行，模板标题不求值、循环产用例按调用点计 1），不执行用例、全平台同数；各平台实际通过/跳过数随平台门不同，以 vitest 全量跑输出为准。动了前端就再跑 `vue-tsc` 和 e2e；e2e 的 33 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用，主链共享单一临时 workDir）——勿加并行或改 spec 顺序，否则隐式依赖会静默错乱。
+改完代码至少跑 `npm test`：1272 个测试文件 / 7880 单测全绿是合入门槛；CI 的 check:counts 会核对本文件声称的数字，对不上直接红——改数请连同句式一起改。单测数为 vitest 静态口径（`vitest list --json` 数声明不数执行，模板标题不求值、循环产用例按调用点计 1），不执行用例、全平台同数；各平台实际通过/跳过数随平台门不同，以 vitest 全量跑输出为准。动了前端就再跑 `vue-tsc` 和 e2e；e2e 的 33 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用，主链共享单一临时 workDir）——勿加并行或改 spec 顺序，否则隐式依赖会静默错乱。
 
 项目治理与协作规矩（文档操作链、测试分层、评审命名、入库判据等纪律条）正本 = 项目根 `CLAUDE.md`（入库；`AGENTS.md` 为其 symlink）。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（7878 单测）+ Playwright（33 specs / 54 用例）（常规命令跑 51，3 个发布 smoke 用例需 CLWRITING_E2E_RELEASE 环境变量）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（7880 单测）+ Playwright（33 specs / 54 用例）（常规命令跑 51，3 个发布 smoke 用例需 CLWRITING_E2E_RELEASE 环境变量）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；AI 生成链路不 spawn 任何 CLI 子进程（要用的内核模块直接 import），历史轨迹与启动迁移会 spawn 本地 Git（Windows 需预装，见上方使用须知）；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删；另外「清空对话历史」会连带删除该书本次对话产生的事件（同一份账，语义一致），两处入口删的都是同一库。
 

@@ -47,6 +47,11 @@ vi.mock('electron', () => ({
 
 import { isRosettaTranslated, loadOrGenerateOsKek } from '../../src/desktop/os-kek.js'
 
+// 钥匙串通道搁置守卫（作者指令 2026-09-20）后，装置用例须显式关掉搁置开关才能
+// 走真实生成/解锁通道；缺省（无 deps）形态由搁置守卫专属 describe 覆盖
+const load = (ud: string, extra: { isRosetta?: () => boolean } = {}): Buffer | null =>
+  loadOrGenerateOsKek(ud, { isShelved: () => false, ...extra })
+
 const dirs: string[] = []
 
 beforeEach(() => {
@@ -69,7 +74,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
   // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖（CC-P2-3 先例 test/ai/calls.test.ts）
   it.skipIf(process.platform === 'win32')('无文件 → 生成：32 字节 IKM + os-kek.json 落盘（v1 形态 + 0600）', () => {
     const ud = setup()
-    const kek = loadOrGenerateOsKek(ud)
+    const kek = load(ud)
     expect(kek).not.toBeNull()
     expect(kek!.length).toBe(32)
     const fp = join(ud, 'os-kek.json')
@@ -82,36 +87,36 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
 
   it('生成 → 重载材料逐字节一致（IKM 变了 = v2 vault 全部解不开，安全面核心断言）', () => {
     const ud = setup()
-    const first = loadOrGenerateOsKek(ud)!
-    const second = loadOrGenerateOsKek(ud)!
+    const first = load(ud)!
+    const second = load(ud)!
     expect(Buffer.compare(first, second)).toBe(0)
   })
 
   it('isEncryptionAvailable false（linux 无钥匙串）→ null 且不落文件', () => {
     const ud = setup()
     safeState.available = false
-    expect(loadOrGenerateOsKek(ud)).toBeNull()
+    expect(load(ud)).toBeNull()
     expect(existsSync(join(ud, 'os-kek.json'))).toBe(false)
   })
 
   it('decryptString 失败（Keychain 拒绝/跨账户恢复）+ 无 v2 凭据 → 自愈重建出新 IKM（C404②）', () => {
     const ud = setup()
-    const first = loadOrGenerateOsKek(ud)!
+    const first = load(ud)!
     safeState.failDecrypt = true
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const second = loadOrGenerateOsKek(ud)
+    const second = load(ud)
     warnSpy.mockRestore()
     expect(second).not.toBeNull()
     expect(second!.length).toBe(32)
     expect(Buffer.compare(second!, first), '旧 IKM 零消费者（无 v2 vault），重建无损').not.toBe(0)
     // 重建后（假件解密恢复）新材料重载一致
     safeState.failDecrypt = false
-    expect(Buffer.compare(loadOrGenerateOsKek(ud)!, second!)).toBe(0)
+    expect(Buffer.compare(load(ud)!, second!)).toBe(0)
   })
 
   it('decryptString 失败 + providers.json 持 v2 vault → null 回落且文件原字节保持（绝不重建）', () => {
     const ud = setup()
-    loadOrGenerateOsKek(ud)
+    load(ud)
     writeFileSync(
       join(ud, 'providers.json'),
       JSON.stringify({ vault: { v: 2, salt: 's', dek: { byOs: { iv: 'i', ct: 'c', tag: 't' } }, keys: {} } }),
@@ -121,7 +126,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     safeState.failDecrypt = true
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      expect(load(ud)).toBeNull()
       expect(readFileSync(join(ud, 'os-kek.json'), 'utf8'), 'v2 凭据在位：不重建（重建 = 永久不可解）').toBe(sealedBefore)
       expect(warnSpy.mock.calls.some(([line]) => String(line).includes('不重建'))).toBe(true)
     } finally {
@@ -134,7 +139,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     try {
       const ud = setup()
       writeFileSync(join(ud, 'os-kek.json'), '不是 JSON{{{', 'utf8')
-      const kek = loadOrGenerateOsKek(ud)
+      const kek = load(ud)
       expect(kek).not.toBeNull()
       expect(kek!.length).toBe(32)
       const raw = JSON.parse(readFileSync(join(ud, 'os-kek.json'), 'utf8')) as { v: number; sealed: string }
@@ -143,7 +148,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
 
       const ud2 = setup()
       writeFileSync(join(ud2, 'os-kek.json'), JSON.stringify({ v: 99, sealed: 'x' }), 'utf8')
-      expect(loadOrGenerateOsKek(ud2)).not.toBeNull()
+      expect(load(ud2)).not.toBeNull()
     } finally {
       warnSpy.mockRestore()
     }
@@ -160,7 +165,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     )
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      expect(load(ud)).toBeNull()
       expect(readFileSync(join(ud, 'os-kek.json'), 'utf8'), '损坏文件保持原字节').toBe(broken)
       expect(warnSpy.mock.calls.some(([line]) => String(line).includes('不重建'))).toBe(true)
     } finally {
@@ -175,7 +180,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     writeFileSync(join(ud, 'providers.json'), '坏 JSON{{', 'utf8')
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      expect(load(ud)).toBeNull()
       expect(readFileSync(join(ud, 'os-kek.json'), 'utf8')).toBe(broken)
     } finally {
       warnSpy.mockRestore()
@@ -192,7 +197,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     )
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud)).not.toBeNull()
+      expect(load(ud)).not.toBeNull()
     } finally {
       warnSpy.mockRestore()
     }
@@ -207,7 +212,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     )
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      expect(load(ud)).toBeNull()
       // 原缺陷：缺失形态直达生成路径，新 IKM 静默落盘顶替（跨机迁移场景误导用户重配
       // key → saveProviders 覆盖 providers.json，可恢复凭据演化为永久丢失）
       expect(existsSync(join(ud, 'os-kek.json')), '缺失形态不得静默重建落新 IKM').toBe(false)
@@ -224,7 +229,7 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
       JSON.stringify({ vault: { v: 1, salt: 's', dek: { byApp: { iv: 'i', ct: 'c', tag: 't' } }, keys: {} } }),
       'utf8',
     )
-    const kek = loadOrGenerateOsKek(ud)
+    const kek = load(ud)
     expect(kek).not.toBeNull()
     expect(kek!.length).toBe(32)
     expect(existsSync(join(ud, 'os-kek.json'))).toBe(true)
@@ -232,11 +237,11 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
 
   it('可用性翻转 false（已有文件）→ null；恢复 true → 材料不变', () => {
     const ud = setup()
-    const first = loadOrGenerateOsKek(ud)!
+    const first = load(ud)!
     safeState.available = false
-    expect(loadOrGenerateOsKek(ud)).toBeNull()
+    expect(load(ud)).toBeNull()
     safeState.available = true
-    expect(Buffer.compare(loadOrGenerateOsKek(ud)!, first)).toBe(0)
+    expect(Buffer.compare(load(ud)!, first)).toBe(0)
   })
 })
 
@@ -274,7 +279,7 @@ describe('Rosetta 翻译态守卫（v1.0.0-rc.0 发布修复批）', () => {
     const ud = setup()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      expect(loadOrGenerateOsKek(ud, { isRosetta: () => true })).toBeNull()
+      expect(load(ud, { isRosetta: () => true })).toBeNull()
       expect(existsSync(join(ud, 'os-kek.json'))).toBe(false)
       // 死锁点证明：isEncryptionAvailable/encryptString/decryptString 任一被调即可能挂
       //（实证栈是 SecItemAdd 写路径，但三入口同经 Security 框架，全零才是安全断言）
@@ -287,10 +292,34 @@ describe('Rosetta 翻译态守卫（v1.0.0-rc.0 发布修复批）', () => {
 
   it('非翻译态（isRosetta false）→ 正常生成通道不变（守卫不误伤）', () => {
     const ud = setup()
-    const kek = loadOrGenerateOsKek(ud, { isRosetta: () => false })
+    const kek = load(ud, { isRosetta: () => false })
     expect(kek).not.toBeNull()
     expect(kek!.length).toBe(32)
     expect(existsSync(join(ud, 'os-kek.json'))).toBe(true)
     expect(safeState.calls.avail + safeState.calls.enc).toBeGreaterThan(0)
+  })
+})
+
+describe('钥匙串通道搁置守卫（作者指令 2026-09-20「暂时搁置使用钥匙串的功能」）', () => {
+  it('缺省（无 deps）→ null 回落、不落文件、不触任何 safeStorage 调用 + warn 留痕', () => {
+    const ud = setup()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      expect(existsSync(join(ud, 'os-kek.json'))).toBe(false)
+      // 守卫须先于一切 safeStorage 调用（搁置 = 弹窗面归零的安全断言，计数口径同 Rosetta 守卫）
+      expect(safeState.calls).toEqual({ avail: 0, enc: 0, dec: 0 })
+      expect(warnSpy.mock.calls.some(([line]) => String(line).includes('搁置'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('isShelved false → 生成通道恢复（守卫不误伤，恢复面正向对照）', () => {
+    const ud = setup()
+    const kek = loadOrGenerateOsKek(ud, { isShelved: () => false })
+    expect(kek).not.toBeNull()
+    expect(kek!.length).toBe(32)
+    expect(existsSync(join(ud, 'os-kek.json'))).toBe(true)
   })
 })

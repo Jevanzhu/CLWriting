@@ -70,9 +70,22 @@ export function isRosettaTranslated(deps: RosettaProbeDeps = { arch: () => proce
   )
 }
 
+/**
+ * 钥匙串通道搁置开关（作者指令 2026-09-20「暂时搁置使用钥匙串的功能」）：
+ * true = loadOrGenerateOsKek 整面提前回落 null（v1 内置通道语义，零悬崖），
+ * 不触任何 safeStorage 调用——未签名（ad-hoc）应用首启 safeStorage 落 Keychain
+ * 项会触发系统授权弹窗（743de314 批实录），发版未签名期间该弹窗属发布体验噪音。
+ * 恢复通道：本常量改 false（或删守卫）；providers.json 为 v1 vault 时全程零影响，
+ * v2 vault 环境回落后 server 侧按既有语义抛 VaultOsKeyMissingError 引导（与
+ * Rosetta 翻译态守卫同型回落，见下）。
+ */
+const OS_KEK_SHELVED = true
+
 /** 翻译态判定可注入（测试假件）；缺省真件 isRosettaTranslated */
 export interface OsKekDeps {
   isRosetta?: () => boolean
+  /** 搁置开关可注入（测试假件）；缺省读模块常量 OS_KEK_SHELVED */
+  isShelved?: () => boolean
 }
 
 /**
@@ -87,6 +100,15 @@ export interface OsKekDeps {
  */
 export function loadOrGenerateOsKek(userDataPath: string, deps: OsKekDeps = {}): Buffer | null {
   try {
+    // 作者指令（2026-09-20）：钥匙串通道暂时搁置——置于全部守卫与 safeStorage 调用
+    // 之前，回落语义与 Rosetta 守卫一致（warn 留痕、v1 零影响、v2 见开关注）
+    if ((deps.isShelved ?? (() => OS_KEK_SHELVED))()) {
+      log.warn(
+        'desktop',
+        `钥匙串通道暂时搁置（作者指令 2026-09-20）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）；恢复 = os-kek.ts OS_KEK_SHELVED 改 false`,
+      )
+      return null
+    }
     // v1.0.0-rc.0 发布修复批④：翻译态整面提前回落——safeStorage 任一调用
     //（isEncryptionAvailable/encryptString/decryptString）都可能是死锁点
     //（见 isRosettaTranslated 注），守卫必须置于全部调用之前

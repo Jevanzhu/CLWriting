@@ -44,6 +44,42 @@ export default defineConfig([
       'rebuild-worker': 'src/cache/rebuild-worker.ts',
     },
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
+    // rc.0 发布修复批：dependencies 三件必须强制内联——tsup/esbuild 缺省把 package.json
+    // dependencies 全部外置（external:['electron'] 只管显式清单，管不到隐式 deps 外置），
+    // 产物因此留下裸 import '@anthropic-ai/sdk'/'openai'/'font-list'；而 electron-builder
+    // files '!node_modules/**' 已把 node_modules 排除出 asar（0917清库修复批，前提是
+    // 「tsup 全量 bundle、运行时零裸包解析」——该前提被隐式外置打破），打包态 ESM link
+    // 即抛 ERR_MODULE_NOT_FOUND：server-utility 子进程秒崩×3 → 「服务异常」错误框 → 无窗
+    // 挂死（v1.0.0-rc.0 发版实录）；main 侧 ipc.ts 的 font-list 裸导入同病（App
+    // Translocation 态主进程未捕获异常实录）。dev 能跑是仓库根有 node_modules，CI 打包态
+    // 冒烟假绿是 .app 躺在 workspace dist-electron/ 下、解析沿文件路径向上摸到仓库
+    // node_modules——装进 /Applications / 从 dmg 挂载卷运行必死。font-list 内联后
+    // __dirname 指向本目录，R0911-A-P2-1 的二进制同伴拷贝（onSuccess）设计随之成真。
+    noExternal: ['@anthropic-ai/sdk', 'openai', 'font-list'],
+    // rc.0 发布修复批·font-list 特例：其 ESM 壳 index.mjs 是 createRequire 运行时
+    // require('./libs/core')（相对 import.meta.url）——esbuild bundle 后该路径指向
+    // dist/desktop/、libs/ 不在，裸 noExternal 内联会在模块顶层抛 MODULE_NOT_FOUND
+    // （连 dev 一起碎，本批实证）。alias 钉到 CJS 入口 index.js 走 esbuild 原生 CJS
+    // 静态内联；内联后其内部 path.join(__dirname, 'fontlist') 的 __dirname 即本产物
+    // 目录，与下方 onSuccess 的 darwin 二进制同伴拷贝（R0911-A-P2-1）正好对齐。
+    esbuildOptions: (options) => {
+      options.alias = {
+        'font-list': fileURLToPath(new URL('./node_modules/font-list/index.js', import.meta.url)),
+      }
+      // font-list CJS 内联后的运行时垫片——esbuild ESM 输出既不提供自由变量
+      // __dirname（本批实证：仅剩使用点、零定义，darwin 枚举 path.join(__dirname,
+      // 'fontlist') 运行时即 ReferenceError），也让内联 CJS 的 require 走 __require
+      // 垫片、在无 require 的 ESM 顶层抛 "Dynamic require of path is not supported"
+      // （dev 示踪实录：font-list/libs/darwin require('path') 即炸、主进程模块求值
+      // 未捕获异常 → Electron 默认错误对话框模态挂起）。banner 顶层 var 与 wrapper
+      // 同模块作用域词法可见；__dirname 随产物自身位置推导（dev = dist/desktop，
+      // 打包态 = app.asar/dist/desktop——execFile 走 Electron asar 补丁可执行，自管
+      // spawn 路径另有 asarUnpack 外置，两路均在位）；require = createRequire 同位
+      // 推导，node 内建模块经它解析。
+      options.banner = {
+        js: `import { fileURLToPath as __clwUrl2Path } from 'node:url';import { dirname as __clwPathDirname } from 'node:path';import { createRequire as __clwCreateRequire } from 'node:module';var __dirname = __clwPathDirname(__clwUrl2Path(import.meta.url));var require = __clwCreateRequire(import.meta.url);`,
+      }
+    },
     format: ['esm'],
     target: 'node24',
     platform: 'node',
