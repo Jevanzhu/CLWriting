@@ -103,3 +103,7 @@
 - **P3 立项/登记**（4）：知识层分发口径 + 致谢补列 → 总览 §四 待拍板（各一）；慢盘面加固（树红点 rebuild/预扫同步块 + leads 冷 miss 切片让出）→ 总览 §三 阶段 52 候选首项；banner require 探测 → 静态核实销账（三包全树仅 `@anthropic-ai/sdk/bin/cli` 含 typeof-require 形态、bin 不入 SDK import 图，内联面零探测；重发出包后 `verify:responses` 打包态实连仍列操作项）。
 - **P3 维持既有登记**（5）：死代码两件（哨兵注释已在位，删除留清理批）；lens 覆盖宽松（R73-26 登记裁定，解锁条件在案）；命名存量 42% 渐进；coverage razor 档（只防回退）；e2e 无真模型线 + worker 覆盖归因（披露项）。
 - **门实录（修复批全量）**：typecheck ✅ + typecheck:web-next ✅ + eslint --max-warnings 0 ✅ + check:packaging ✅（含两新门）+ check:docs ✅ + check:knowledge ✅ + desktop.yml/ci.yml/win-vitest-retry action 三件 js-yaml 解析 ✅ + 定向回归 10 文件 71 例 ✅ + wrapper 三闸直验 ✅ + vitest 全量 ✅（计数随 README 同步，见 check:counts）。
+
+## 十、勘误（2026-09-20 重发链实录）
+
+**P1-1 的「已发布 Latest 为坏包」定性系误判，特此勘误。** 评审取证时本地 tag `v1.0.0-rc.0` 停在 `530d3625`（陈旧——作者已于阶段 50 后将远端 tag 移指 `a6ea7628`），由此推断「产物构建源 = tag 时点 CI（530d3625，不含打包修复）」。重发链实录推翻该推断：Desktop Build **#15**（tag @ `a6ea7628`）2026-09-20 08:45–09:17Z **全绿**，其 release job 建稿、Release 09:27Z 发布且创建者为 github-actions[bot]——三证（bot 创建者 + 时间线 + #15 success）表明评审时在架产物**极可能是已含阶段 50 打包修复的 `a6ea7628` 构建**（草稿级资产时间戳无认证不可读，未能字节级终证）。P1-1 的过程性缺口仍然成立且已修：本地/远端 tag 脱同步使「发布态」不可从本地 git 判读——本次重发以 API/Actions 实录取证，并以重发批产物替换在架（Desktop Build #16 全绿、12:43Z 发布 Latest、四资产 SHA256SUMS 齐），终态 = 评审全部修复在架；随后提交说明脱敏批重放历史（commit 信息撤作者指令原文引述、决策只留结论转述），tag 重指后 Desktop Build #17 同内容重链、同名重发复位在架，终态不变。教训：发布面判读以远端实态（Actions/Releases API）为准，本地 ref 仅作线索。
