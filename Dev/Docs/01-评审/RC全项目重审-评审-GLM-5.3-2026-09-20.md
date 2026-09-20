@@ -41,7 +41,7 @@
 | AI 链路 | mock 快路不过 chat 预算闸，注释未声明例外（测试用 mock 验闸会静默空过） | `src/ai/runner.ts:488` |
 | 发布链 | desktop.yml 缺 check:docs，四 check 只有三个进 tag 发布腿（与 ci.yml 门集合对齐宣称不符） | `.github/workflows/desktop.yml:123` |
 | 发布链 | 打包态冒烟只杀主进程不杀树，utilityProcess server 子进程成孤儿（`electron-smoke.mjs` 有 killTree 先例未复用） | `desktop.yml:338` |
-| 发布链 | banner 的 `var require` 可翻转内联包 dual-mode 探测（`typeof require` 分支）；真凭据链未在打包态跑过 | `tsup.config.ts:79`（待核，建议 rc.1 后 `verify:responses` 打包态实连一次） |
+| 发布链 | banner 的 `var require` 可翻转内联包 dual-mode 探测（`typeof require` 分支）；真凭据链未在打包态跑过 | `tsup.config.ts:79`（待核，建议重发出包后 `verify:responses` 打包态实连一次） |
 | 前端 | 树红点聚合 rebuild/预扫段仍是单段同步块，网络盘书库可冻结服务（代码自认「不在本批允许清单」） | `src/check/run-tree-issues.ts:63` |
 | 前端 | 单章机检账本核对冷缓存时在请求 handler 内同步整读多章正文（稳态有缓存，慢盘面） | `src/check/leads.ts:118` |
 | 前端 | 合审档视角覆盖判定宽松：单文件存在即记全部视角已回收（R73-26 在案，等 submit_issues schema 加 lens 后收紧） | `src/review/run.ts:371` |
@@ -90,9 +90,9 @@
 
 ## 九、收口记录（阶段 51 修复批，2026-09-20）
 
-**P1/P2 全修，P3 已修 14 / 立项登记 4 / 维持既有登记 5，随批全量回归绿——仓库面收口。** rc.0 远端坏包的下架与 rc.1 tag 推送为作者侧 GitHub 操作（总览 §三 在案），执行后发布面收口。
+**P1/P2 全修，P3 已修 14 / 立项登记 4 / 维持既有登记 5，随批全量回归绿——仓库面收口。** P1 终局处置 = 同版本重发（作者 2026-09-20 拍板：版本不 bump、tag 移指修复批提交重跑发布链、release job 删旧建新并复位已发布态），执行态见总览 §三。
 
-- **P1-1**：版本 bump `1.0.0-rc.1`（package.json）；tag `v1.0.0-rc.0` 停 `530d3625` 不再动（历史如实）；总览 §三 落账处置与作者侧动作清单。
+- **P1-1**：处置两步——首拍 bump `1.0.0-rc.1`（package.json）+ tag 停 `530d3625`；作者终局指令改**同版本重发**（重发批版本回 `1.0.0-rc.0`，tag `v1.0.0-rc.0` 移指修复批提交、desktop.yml release job 增删旧建新 + 复位已发布路径）；总览 §三 落账。
 - **P2-1**：`vault.ts` VaultOsKeyMissingError 文案补两态真实出路（暂缓期指引 + providers.json 重配）；直测钉死（vault-os-channel ② 追加 /暂缓期/ 与 /providers\.json/ 断言）。
 - **P2-2**：check:packaging 新门 `problemsForDepsNoExternal`——package.json dependencies ⊆ tsup noExternal 并集（fail-closed：deps 非空而解析不到清单即红）；直测 5 例。
 - **P2-3**：台账实体落档 `03-设计/win腿间歇红台账-现行规范-2026-09-20.md`（三件在册 + 吸收/甄别机制 + 维护规则），commit 消息不再作 known-red 载体。
@@ -100,6 +100,6 @@
 - **P2-5**：vitest coverage views/pages 自聚合桶拆出单列显影桶（0/0 = e2e 自管边界显式登记），聚合桶 glob 收窄、80/66 门不放松。
 - **P2-6/7**：总览复原锚节号 §四→§五（锚 `93e5df74` 实况亲核：一/二/三/五/六）；§三 状态行按发布实况重写。
 - **P3 已修**（14）：structure-core 注释按实况改写；structure-split 撤「可重试拆分」死指引；structure-merge 无事件库形态分支指引；trace.ts 补 estimated/reasoningTokens 透传；sanitizeHistory 确定性直测 3 例（R69-12 重放不变量机器锁）；runner mock 不过预算闸注释声明；desktop.yml 补 check:docs（四 check 对齐）；mac/win 冒烟杀树（pkill -P 两段 + taskkill /T）；leads.ts 固定 SQL 收编 prepared；根/子包依赖同步门 + typescript 对齐 ^5.5.0；test:related wrapper 三闸防呆（零参数/坏路径/No test files found 兜底）；package.json description 对齐 README 定位；总览 §1.3 枚举补全（13 篇）。
-- **P3 立项/登记**（4）：知识层分发口径 + 致谢补列 → 总览 §四 待拍板（各一）；慢盘面加固（树红点 rebuild/预扫同步块 + leads 冷 miss 切片让出）→ 总览 §三 阶段 52 候选首项；banner require 探测 → 静态核实销账（三包全树仅 `@anthropic-ai/sdk/bin/cli` 含 typeof-require 形态、bin 不入 SDK import 图，内联面零探测；rc.1 出包后 `verify:responses` 打包态实连仍列操作项）。
+- **P3 立项/登记**（4）：知识层分发口径 + 致谢补列 → 总览 §四 待拍板（各一）；慢盘面加固（树红点 rebuild/预扫同步块 + leads 冷 miss 切片让出）→ 总览 §三 阶段 52 候选首项；banner require 探测 → 静态核实销账（三包全树仅 `@anthropic-ai/sdk/bin/cli` 含 typeof-require 形态、bin 不入 SDK import 图，内联面零探测；重发出包后 `verify:responses` 打包态实连仍列操作项）。
 - **P3 维持既有登记**（5）：死代码两件（哨兵注释已在位，删除留清理批）；lens 覆盖宽松（R73-26 登记裁定，解锁条件在案）；命名存量 42% 渐进；coverage razor 档（只防回退）；e2e 无真模型线 + worker 覆盖归因（披露项）。
 - **门实录（修复批全量）**：typecheck ✅ + typecheck:web-next ✅ + eslint --max-warnings 0 ✅ + check:packaging ✅（含两新门）+ check:docs ✅ + check:knowledge ✅ + desktop.yml/ci.yml/win-vitest-retry action 三件 js-yaml 解析 ✅ + 定向回归 10 文件 71 例 ✅ + wrapper 三闸直验 ✅ + vitest 全量 ✅（计数随 README 同步，见 check:counts）。

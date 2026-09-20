@@ -535,6 +535,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          # RC 全项目重审·重发批（作者 2026-09-20 拍板：同版本重发上架）：tag 移指重跑
+          # 链时，既有同名 Release（含旧产物）会挡住
+          # gh release create——重发路径 = 删旧建新；被删的是已发布态，重建后立即
+          # 复位 published（保持「在架」不断货）。常态首发纪律不变（草稿 + 作者
+          # 手动发布），重发直发的触发面 = 作者移 tag 重跑链这一显式动作本身。
+          REISSUE=0
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            REISSUE=1
+            echo "同名 Release 已在（tag 移指重发形态）——删除旧 Release（含旧产物）后重建"
+            gh release delete "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --yes
+          fi
           printf '%s\n' \
             "${GITHUB_REF_NAME} 产物：" \
             "- Windows（x64 便携版，免安装）：下载 zip 解压到任意目录，运行目录内 CLWriting.exe；使用须知见仓库 README「下载与安装」。" \
@@ -548,3 +559,7 @@ jobs:
             --draft --verify-tag \
             --title "CLWriting ${GITHUB_REF_NAME}" \
             --notes-file release-notes.md
+          if [ "$REISSUE" = "1" ]; then
+            gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false
+            echo "重发完成：旧 Release 已被新产物替换并复位为已发布（Latest）"
+          fi
