@@ -8,8 +8,8 @@
  * 跨进程锁 / sweep 崩溃残留清扫。
  *
  * manifest longPathAware 对策已复核不可行（electron-builder 无此字段，app-builder-lib
- * schema 零命中，2026-08-30）——对策收口为 Node \\?\ 转换 + 根 README「书库路径建议
- * <200 字符」披露，见二十五轮报告 §七。跨平台：mac/linux 原生支持长路径（验证链路
+ * schema 零命中，2026-08-30）——对策收口为 Node \\?\ 转换，见二十五轮报告 §七。
+ * 跨平台：mac/linux 原生支持长路径（验证链路
  * 行为不随路径长度分叉）；win（CI 单测腿）是真实 MAX_PATH 场景。
  */
 import { describe, expect, it } from 'vitest'

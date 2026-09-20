@@ -323,7 +323,7 @@ export function scanCloudCopies(bookRoot: string): string[] {
   // R77-3（二十五轮批 B）：坚果云 win 特征——`<名>（冲突副本 …）.md` 中文冲突标记
   //（全角/半角括号或连字符分隔，名与分隔符间的空格不入捕获——母本推导不受尾随空格干扰）。
   // OneDrive 式 `<名>-<计算机名>.md` 与合法标题不可分（假阳性高），不进自动检测，
-  // 改根 README「Windows 版使用须知」披露；同 X-P2-20 必须验母本。
+  // 同步盘场景靠用户避开放置（坚果云式标记仍自动检测）；同 X-P2-20 必须验母本。
   const zhConflicted = /^(.+?)\s*[（(-]\s*冲突副本.*\.md$/
   // R0913-win P3-9（2026-09-13 全库源码重评 win 适配修复批）：Windows 资源管理器
   // 首份副本 `<名> - Copy.md` 与中文 Windows 形态 `<名> - 副本.md`——dedupCopy 的

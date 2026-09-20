@@ -522,10 +522,10 @@ jobs:
           set -eu
           printf '%s\n' \
             "${GITHUB_REF_NAME} 产物：" \
-            "- Windows（x64 便携版，免安装）：下载 zip 解压到任意目录，运行目录内 CLWriting.exe；使用须知见仓库 README「Windows 版使用须知」。" \
-            "- macOS：按机型选 dmg（Apple Silicon = arm64 / Intel = x64），dmg 内应用拖入「应用程序」；使用须知见「macOS 版使用须知」。" \
+            "- Windows（x64 便携版，免安装）：下载 zip 解压到任意目录，运行目录内 CLWriting.exe；使用须知见仓库 README「下载与安装」。" \
+            "- macOS：按机型选 dmg（Apple Silicon = arm64 / Intel = x64），dmg 内应用拖入「应用程序」；使用须知见仓库 README「下载与安装」。" \
             "- 完整性校验：sha256sum -c SHA256SUMS.txt（Windows 可用 certutil -hashfile 文件名 SHA256 比对）。" \
-            "- 安装包未做正式代码签名，首次运行的系统提示与处理见 README 使用须知。" \
+            "- 安装包未做正式代码签名，首次运行的系统提示与处理见 README「下载与安装」。" \
             > release-notes.md
           gh release create "$GITHUB_REF_NAME" \
             -R "$GITHUB_REPOSITORY" \
