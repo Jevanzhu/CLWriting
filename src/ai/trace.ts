@@ -57,13 +57,18 @@ export function promptMeta(systemPrompt: string, userPrompt: string, files: stri
   }
 }
 
-/** trace 落盘用的 token 用量提取（从 TaskOk.usage 或 GenResult.usage；D4 含 cache 字段） */
-export function toTraceUsage(usage: TokenUsage | null): { input: number; output: number; cacheRead?: number; cacheWrite?: number } {
+/** trace 落盘用的 token 用量提取（从 TaskOk.usage 或 GenResult.usage；D4 含 cache 字段）。
+ *  RC 全项目重审 P3：补 estimated / reasoningTokens 两可选键——此前仅落 ai-calls.json 账本
+ *  （calls.ts A-6 粘性标记 / reasoning 计量），事件库（trace-stats/cost-stats 聚合源与重放
+ *  对账面）无法区分实测/估计口径，两口径分叉。加性透传，无两键的 usage 输出形不变。 */
+export function toTraceUsage(usage: TokenUsage | null): { input: number; output: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; estimated?: boolean } {
   if (!usage) return { input: 0, output: 0 }
   return {
     input: usage.inputTokens,
     output: usage.outputTokens,
     ...(usage.cacheReadTokens !== undefined ? { cacheRead: usage.cacheReadTokens } : {}),
     ...(usage.cacheWriteTokens !== undefined ? { cacheWrite: usage.cacheWriteTokens } : {}),
+    ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
+    ...(usage.estimated === true ? { estimated: true } : {}),
   }
 }

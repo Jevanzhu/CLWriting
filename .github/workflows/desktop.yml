@@ -127,6 +127,11 @@ jobs:
       # 发布工作流；tag 指未经分支 CI 的提交时 DMG 不再携带文档失真/manifest 失配出包
       - name: 计数对账门（check:counts）
         run: npm run check:counts
+      # RC 全项目重审 P3：check:docs（2026-09-19 入 ci.yml）此前未随批同步进发布腿——
+      # 四 check 只有三个在 tag 门，与 ci.yml 门集合对齐的既有宣称不符；tag 指未走分支
+      # CI 的提交时文档篇幅/禁语失真可随发布物出包。补齐后四 check 集合两工作流对齐。
+      - name: 文档篇幅门（check:docs）
+        run: npm run check:docs
       - name: 知识层门（check:knowledge）
         run: npm run check:knowledge
       # G404（0918四轮修复批）：tag 发布门补 soak 内存门——此前 soak 只在 ci.yml e2e job
@@ -335,6 +340,10 @@ jobs:
               tail -80 /tmp/clw-electron-smoke.log || true
               exit 1
             fi
+            # RC 全项目重审 P3：只杀主进程会留孤儿——server utilityProcess 子进程不在射程
+            #（连续三步冒烟的残留串扰面）；pkill -P 连直接子进程一并收口（electron-smoke.mjs
+            # 的 killTree 同款口径），TERM/KILL 两段对称。
+            pkill -TERM -P "$PID" 2>/dev/null || true
             kill "$PID" 2>/dev/null || true
             # 复审-0914-优化修复批 P3：TERM 后固定 sleep 3 改轮询进程退出早退（上限 3s
             # 不短于原裕度，提前退出即提前收口）；仍滞留时 KILL 兜底保持不变。
@@ -345,6 +354,7 @@ jobs:
               i=$((i + 1))
               [ "$i" -ge 3 ] && break
             done
+            pkill -KILL -P "$PID" 2>/dev/null || true
             kill -9 "$PID" 2>/dev/null || true
             echo "冒烟通过：$APP_BIN 启动标记已捕获、无渲染崩溃标记，TERM 后进程已收口"
           done
@@ -451,7 +461,12 @@ jobs:
             $logs | ForEach-Object { Get-Content $_ -Tail 80 }
             exit 1
           }
-          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          # RC 全项目重审 P3：Stop-Process 只杀主进程留孤儿——改 taskkill /T 杀树（下步
+          # window-cycle 的 scripts/electron-smoke.mjs win 支持同款先例），utilityProcess
+          # server 子进程一并收口；已退出时 taskkill 非零不致步红（末态无害）。
+          if (-not $p.HasExited) {
+            taskkill /PID "$($p.Id)" /T /F 2>&1 | Out-Null
+          }
           Write-Output "冒烟通过：打包态 Electron 启动标记已捕获，无渲染崩溃标记"
       # 重评-0914-三轮 P3-5：win 腿补关窗链冒烟——mac 腿（复审-0913-mac适配 P3-11）已以
       # CLW_SMOKE_APP_BIN 注入打包态二进制跑 scripts/electron-smoke.mjs 的 window-cycle

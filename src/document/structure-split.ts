@@ -251,9 +251,12 @@ export async function applyChapterSplit(
         const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
         const created = await svc.createDocument({ relPath, content: newContent })
         if (!created.ok) {
+          // RC 全项目重审 P3：撤「可重试拆分」指引——原章已截断后重试干跑必
+          // PLAN_STALE（planHash 失配）或 BAD_INPUT（光标超出截断后文本），唯一
+          // 出路是版本面板恢复原章后再重新发起；指引不可达会误导作者原地空转
           return fail(
             created.code,
-            `原章已截断（截断前全文已留底为版本），但新章创建失败：${created.reason}——可重试拆分或从版本面板恢复原章`,
+            `原章已截断（截断前全文已留底为版本），但新章创建失败：${created.reason}——请从版本面板恢复原章后重新发起拆分（截断后直接重试不会成功）`,
           )
         }
         return { originChapterNo: o.章号, newDocId: created.docId, newChapterNo, order }

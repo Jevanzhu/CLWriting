@@ -20,6 +20,10 @@ import { bodyOf } from '../format/frontmatter-core.js'
 import { chapterNoFromName } from '../format/filename.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
+// RC 全项目重审 P3：固定 SQL 收编连接级 prepared 缓存——R0917-6-P3-8 同批迁移漏网件
+//（runner.ts / tree-issues-cache.ts 已迁，此处每次 checkLeadsBookItems 调用重编译）；
+// 占位符拼接的变体 SQL 以整串为缓存键，变体数有界（enabledTypes 子集数）
+import { prepared } from '../shared/sqlite-prepared.js'
 
 /**
  * 账本形式三检。
@@ -81,7 +85,8 @@ export function checkLeadsBookItems(
 
   // 取所有已启用类的 open 条目
   const placeholders = enabledTypes.map(() => '?').join(',')
-  const leads = db.prepare(
+  const leads = prepared(
+    db,
     `SELECT id, type, title, status FROM leads WHERE type IN (${placeholders})`,
   ).all(...enabledTypes) as Record<string, unknown>[]
 

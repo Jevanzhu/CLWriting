@@ -609,7 +609,13 @@ export async function undoChapterMerge(
     // 与 B002 定位链（body/disk 均以 并入 非空为前提）语义不受影响。
     const half = await locateUndoHalfDone(userDataPath, bookRoot, targetDocId, t)
     if (half === null) {
-      return fail('NOT_MERGE_STATE', '该章 fm 无 并入 登记（不是合并目标或已撤销）')
+      // RC 全项目重审 P3：无事件库形态（仅 CLI/测试配置，生产 Electron 恒有 userDataPath）
+      // 半完成态续跑不可达（定位链第一重即事件副录）——补真实出路指引，防「已撤销」
+      // 误导滞留回收站的源章无人管；有事件库形态维持原文案
+      return fail(
+        'NOT_MERGE_STATE',
+        `该章 fm 无 并入 登记（不是合并目标或已撤销${userDataPath === null ? '；当前无事件库、不支持自动续跑，源章如滞留回收站请从回收站/版本面板手工恢复' : ''}）`,
+      )
     }
     return finishUndo(bookRoot, userDataPath, targetDocId, t.章号, half, half.rollbackSnapshotId, rag)
   }

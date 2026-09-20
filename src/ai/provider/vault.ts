@@ -153,8 +153,12 @@ export function openVault(vault: Vault, keyMaterial: Buffer, osKeyMaterial?: Buf
   const salt = Buffer.from(vault.salt, 'base64')
   if (vault.v >= 2) {
     if (!osKeyMaterial) {
+      // RC 全项目重审 P2-1：文案必须给真实出路——钥匙串搁置期（os-kek.ts OS_KEK_SHELVED，
+      // 2026-09-20 起在档）桌面应用同样无 OS 通道，「请从桌面应用启动」成死胡同。补齐两态：
+      // 常态（独立 server / env 未注入）从桌面启动即恢复；搁置期桌面启动仍报此错 → 等通道
+      // 恢复，或弃旧凭据重配（providers.json 备份后删除，与 os-kek.ts 损坏分诊文案同出路）。
       throw new VaultOsKeyMissingError(
-        '配置已由系统钥匙串保护（vault v2），当前环境缺少 OS 凭据通道无法解锁——请从桌面应用启动',
+        '配置已由系统钥匙串保护（vault v2），当前环境缺少 OS 凭据通道无法解锁——请从桌面应用启动；桌面应用启动仍报此错时为钥匙串通道暂缓期，等待后续版本恢复通道，或备份后删除 providers.json 重新配置 API Key',
       )
     }
     if (!vault.dek.byOs) throw new VaultDecryptError('vault v2 缺 byOs 通道，文件损坏或来源不明')

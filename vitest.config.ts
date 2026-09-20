@@ -209,7 +209,14 @@ export default defineConfig({
         // 根层 *.vue 键现只命中 App.vue 单文件，桶内池化观测 L 98.33 / B 64.29
         // （branches 低因启动分支多被 mock），不能套聚合桶 43/81（branches 必红），
         // 按 −2pp 规则自定地板 96/62。
-        'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**': { lines: 80, branches: 66 },
+        // RC 全项目重审 P2-5：views/pages 自聚合桶拆出单列显影桶——两目录 .vue 的单测
+        // 恒 mock（webnext 72 测试文件 stub views 路径）、真实视图脚本仅 e2e 驱动而
+        // e2e 不回流 v8 覆盖，0% 视图质量在聚合均值里对门不可见（stores/composables
+        // 拆桶同款论证的漏网面）。显影桶 0/0 = 「e2e 自管」边界的显式登记（不虚设门，
+        // 回收条件 = views 出现真单测面时按实测基线立门）；聚合桶 glob 同步收窄，80/66
+        // 门此后只辖真有单测面的域（0% 质量移出后观测上浮，门不放松、口径更纯）。
+        'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**': { lines: 80, branches: 66 },
+        'src/studio/web-next/src/{pages,views}/**': { lines: 0, branches: 0 },
         'src/studio/web-next/src/*.vue': { lines: 96, branches: 88 },
         // R29-12（二十九轮批 F）：stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
