@@ -20,9 +20,20 @@ runs:
   steps:
     - shell: pwsh
       run: |
-        npm test
+        # RC 全项目重审 P2-4：首跑输出落盘留痕——重跑洗白面（首跑红文件清单）可见化，
+        # 供对竞态台账（Dev/Docs 03-设计 win 腿竞态台账）甄别「在册家族」与新增间歇面；
+        # 洗白吸收语义不变（重跑绿即过），只是不再不可见。Tee 不吞退出码（native 命令
+        # $LASTEXITCODE 照常生效）。
+        npm test 2>&1 | Tee-Object -FilePath win-vitest-first.out.log
         if ($LASTEXITCODE -ne 0) {
           Write-Host "::warning title=${{ inputs.warning-title }}::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
+          $fails = @(Select-String -Path win-vitest-first.out.log -Pattern 'FAIL\s+\S*test' -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { $_.Line.Trim() })
+          if ($fails.Count -eq 0) {
+            $fails = @(Select-String -Path win-vitest-first.out.log -Pattern 'Test Files' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line.Trim() })
+          }
+          if ($fails.Count -gt 0) {
+            Write-Host "::warning title=${{ inputs.warning-title }}-重跑洗白面::首跑红文件（重跑绿即被吸收的间歇面，须对竞态台账甄别在册家族/新增间歇）：$($fails -join ' | ')"
+          }
           npm test
           if ($LASTEXITCODE -ne 0) { exit 1 }
         }

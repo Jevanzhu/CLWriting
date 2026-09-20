@@ -1,7 +1,7 @@
 {
   "name": "clwriting",
-  "version": "1.0.0-rc.0",
-  "description": "为中文网文作者打造的开箱即用、全程中文、200 万字不崩的 AI 长篇创作系统",
+  "version": "1.0.0-rc.1",
+  "description": "为中文网文作者打造的桌面写作软件：全程中文、200 万字量级不崩设定，AI 为叠加辅助层",
   "type": "module",
   "license": "MIT",
   "private": true,
@@ -29,7 +29,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:related": "vitest related --run",
+    "test:related": "node scripts/test-related.mjs",
     "test:coverage": "vitest run --coverage",
     "check:counts": "node scripts/check-counts.mjs",
     "check:docs": "node scripts/check-docs.mjs",

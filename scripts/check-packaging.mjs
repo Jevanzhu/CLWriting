@@ -133,6 +133,75 @@ export function problemsForElectronBuilderNodeModulesExclusion(files) {
   return found
 }
 
+// ── RC 全项目重审（GLM-5.3，2026-09-20）P2-2：裸包外置回潮静态门 ──────────────
+// 背景：rc.0 假绿链的根因形态——package.json dependencies 新增裸包而 tsup noExternal
+// 漏收时，ESM 产物留裸 import × electron-builder '!node_modules/**' 排除 → 打包态链接期
+// ERR_MODULE_NOT_FOUND 秒崩。此前无任何 PR 级门：ci.yml release-smoke 在工作区内直跑、
+// 裸包解析沿路径向上摸到仓库 node_modules（假绿），asar 清单断言只查 node_modules 不混入、
+// 查不出「产物 js 残留裸 import」——回潮要到 tag 发布出工作区冒烟才红（发布周期浪费）。
+// 本门把发现提前到 PR：断言 package.json dependencies ⊆ tsup.config.ts 全部 noExternal
+// 清单之并集（多 config/多段均可）。新增依赖须同步 noExternal（或显式改走 electron
+// external 语义并在 tsup 注明），否则本门红。fail-closed：deps 非空而 noExternal 解析
+// 不到任何段 → 红（配置形状变了不许静默过）。导出纯函数供直测锚定。
+
+/** 解析 tsup.config.ts 全文所有 `noExternal: [...]` 数组字面量（行内/多行皆可），返回
+ *  引号剥除后的成员并集；一个都解析不到 → 空数组（由断言函数按 fail-closed 判红）。
+ *  只认成对引号成员（tsup 配置实态），容忍空白/尾逗号；不递归求值——配置里放表达式
+ *  本门即红，逼配置保持字面量（静态可查性即本门存在前提）。 */
+export function parseTsupNoExternal(tsText) {
+  const out = new Set()
+  const text = String(tsText || '')
+  const re = /noExternal\s*:\s*\[([^\]]*)\]/g
+  let m
+  while ((m = re.exec(text)) !== null) {
+    for (const raw of m[1].split(',')) {
+      const v = raw.trim()
+      if (v.length >= 2 && ((v.startsWith("'") && v.endsWith("'")) || (v.startsWith('"') && v.endsWith('"')))) {
+        out.add(v.slice(1, -1))
+      }
+    }
+  }
+  return [...out]
+}
+
+/** 断言 dependencies 键集 ⊆ noExternal 清单——漏收即红（rc.0 发布修复批前提
+ *  「tsup 全量 bundle、运行时零裸包解析」的机器化）。 */
+export function problemsForDepsNoExternal(dependencies, noExternal) {
+  const found = []
+  const deps = dependencies && typeof dependencies === 'object' ? Object.keys(dependencies) : []
+  const list = Array.isArray(noExternal) ? noExternal : []
+  if (deps.length > 0 && list.length === 0) {
+    found.push('tsup.config.ts 解析不到任何 noExternal 数组——裸包外置门无法校验（配置形状变了或清空即红，不许静默过）')
+    return found
+  }
+  for (const dep of deps) {
+    if (!list.includes(dep)) {
+      found.push(`package.json dependencies 的 ${dep} 不在 tsup noExternal 清单——asar 已排除 node_modules，打包态该裸 import 必炸 ERR_MODULE_NOT_FOUND（rc.0 假绿链回潮；补 noExternal 或显式 external 并注明）`)
+    }
+  }
+  return found
+}
+
+// ── RC 全项目重审（GLM-5.3，2026-09-20）P3-15：根/子包重复依赖版本同步门 ──────
+// 背景：vue/pinia/@vitejs/plugin-vue/typescript 在根与 web-next 子包双侧手抄（根侧钉根
+// 副本供 vitest alias 用、子包供构建用——双 package.json 结构的固有形态），此前无同步门：
+// typescript 声明区间已漂移（根 ^5.5.0 / 子 ^5.6.0，实测同落 5.9.3 未爆），测试面与构建面
+// 静默分叉。本门断言：同一包名在两 package.json 出现（依赖区不限）时版本声明必须一致。
+export function problemsForDepsVersionSync(rootDeps, subDeps) {
+  const found = []
+  const a = rootDeps && typeof rootDeps === 'object' ? rootDeps : {}
+  const b = subDeps && typeof subDeps === 'object' ? subDeps : {}
+  const names = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()
+  for (const name of names) {
+    const va = a[name]
+    const vb = b[name]
+    if (va !== undefined && vb !== undefined && va !== vb) {
+      found.push(`根包与 web-next 子包的 ${name} 版本声明分叉（根 ${va} / 子 ${vb}）——测试面（钉根副本）与构建面（子包副本）静默分叉（RC 全项目重审 P3-15）`)
+    }
+  }
+  return found
+}
+
 /**
  * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
  * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
@@ -251,6 +320,32 @@ function checkPackaging() {
     problems.push(`package.json 不可读/不是合法 JSON：${e.message}`)
   }
   if (pkg) problems.push(...problemsForPackageFiles(pkg.files))
+
+  // ── RC 全项目重审 P2-2：裸包外置回潮静态门（dependencies ⊆ tsup noExternal）──
+  // P3-15：根/子包重复依赖版本同步门（vue/pinia/plugin-vue/typescript 双侧手抄面）
+  if (pkg) {
+    const tsupPath = join(root, 'tsup.config.ts')
+    let tsupText = ''
+    try {
+      tsupText = readFileSync(tsupPath, 'utf8')
+    } catch (e) {
+      problems.push(`tsup.config.ts 不可读：${e.message}`)
+    }
+    if (tsupText !== '') {
+      problems.push(...problemsForDepsNoExternal(pkg.dependencies, parseTsupNoExternal(tsupText)))
+    }
+    const subPkgPath = join(root, 'src', 'studio', 'web-next', 'package.json')
+    let subPkg
+    try {
+      subPkg = JSON.parse(readFileSync(subPkgPath, 'utf8'))
+    } catch (e) {
+      problems.push(`web-next 子包 package.json 不可读/不是合法 JSON：${e.message}`)
+    }
+    if (pkg && subPkg) {
+      const merge = (p) => ({ ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) })
+      problems.push(...problemsForDepsVersionSync(merge(pkg), merge(subPkg)))
+    }
+  }
 
   // ── 1b. （R62-22）第三层：electron-builder.yml files 断言（asar 实际打包面）──
   // package.json files 只约束 npm pack；DMG 实际打包走 electron-builder.yml——

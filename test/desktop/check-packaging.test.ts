@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForElectronBuilderNodeModulesExclusion, problemsForDistFontList } from '../../scripts/check-packaging.mjs'
+import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForElectronBuilderNodeModulesExclusion, problemsForDistFontList, parseTsupNoExternal, problemsForDepsNoExternal, problemsForDepsVersionSync } from '../../scripts/check-packaging.mjs'
 
 const scriptPath = fileURLToPath(new URL('../../scripts/check-packaging.mjs', import.meta.url))
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -163,5 +163,58 @@ describe('单立清账批：electron-builder.yml node_modules 全排除项断言
   it('真实 electron-builder.yml 经 parseBuilderFiles 后断言绿（引号已剥）', () => {
     const yml = readFileSync(join(root, 'electron-builder.yml'), 'utf8')
     expect(problemsForElectronBuilderNodeModulesExclusion(parseBuilderFiles(yml))).toEqual([])
+  })
+})
+
+// ── RC 全项目重审（GLM-5.3，2026-09-20）P2-2：裸包外置回潮静态门直测 ──
+// rc.0 假绿链根因形态（dependencies 裸包漏收 noExternal × asar 排除 node_modules）此前
+// 无 PR 级门——本门 dependencies ⊆ tsup noExternal 的断言口径锚定。
+describe('RC 重审 P2-2：parseTsupNoExternal / problemsForDepsNoExternal', () => {
+  it('行内数组解析：引号剥除、多段并集、双引号/单引号皆可', () => {
+    expect(parseTsupNoExternal(`noExternal: ['a', "b"],`)).toEqual(['a', 'b'])
+    expect(parseTsupNoExternal("noExternal: ['a']\n// 注释\nnoExternal: ['b', 'c']")).toEqual(['a', 'b', 'c'])
+    expect(parseTsupNoExternal('noExternal: [ ]')).toEqual([])
+  })
+  it('解析不到任何段 / 表达式形态成员 → 空并集（由断言函数按 fail-closed 判红）', () => {
+    expect(parseTsupNoExternal('')).toEqual([])
+    expect(parseTsupNoExternal('noExternal: DEPS // 表达式形态')).toEqual([])
+  })
+  it('deps ⊆ noExternal → 无问题；漏收一个 → 红且点名', () => {
+    expect(problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', openai: '^2' }, ['@anthropic-ai/sdk', 'openai', 'font-list'])).toEqual([])
+    const problems = problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', 'new-dep': '^3' }, ['@anthropic-ai/sdk', 'openai'])
+    expect(problems).toHaveLength(1)
+    expect(String(problems[0])).toContain('new-dep')
+    expect(String(problems[0])).toContain('noExternal')
+  })
+  it('deps 非空而 noExternal 空 → 红（配置形状变了不许静默过）；deps 空 → 恒绿', () => {
+    expect(problemsForDepsNoExternal({ openai: '^2' }, [])).toHaveLength(1)
+    expect(problemsForDepsNoExternal({}, [])).toEqual([])
+  })
+  it('真实仓库面：package.json dependencies 三件 ⊆ tsup.config.ts noExternal', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+    const tsup = readFileSync(join(root, 'tsup.config.ts'), 'utf8')
+    expect(problemsForDepsNoExternal(pkg.dependencies, parseTsupNoExternal(tsup))).toEqual([])
+  })
+})
+
+// ── RC 全项目重审（GLM-5.3，2026-09-20）P3-15：根/子包重复依赖版本同步门直测 ──
+describe('RC 重审 P3-15：problemsForDepsVersionSync（双包同名依赖声明一致性）', () => {
+  it('同名同声明 → 无问题；单侧独有 → 无问题（只辖交集）', () => {
+    expect(problemsForDepsVersionSync({ vue: '^3.5.42' }, { vue: '^3.5.42', vite: '^8.0.16' })).toEqual([])
+    expect(problemsForDepsVersionSync({ typescript: '^5.5.0' }, {})).toEqual([])
+  })
+  it('同名异声明 → 红且点名两侧区间', () => {
+    const problems = problemsForDepsVersionSync({ typescript: '^5.5.0' }, { typescript: '^5.6.0' })
+    expect(problems).toHaveLength(1)
+    expect(String(problems[0])).toContain('typescript')
+    expect(String(problems[0])).toContain('^5.5.0')
+    expect(String(problems[0])).toContain('^5.6.0')
+  })
+  it('真实仓库面：根包与 web-next 子包交集声明一致（typescript 漂移已随批对齐）', () => {
+    const rootPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+    const subPkg = JSON.parse(readFileSync(join(root, 'src/studio/web-next/package.json'), 'utf8'))
+    const merge = (p: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) =>
+      ({ ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) })
+    expect(problemsForDepsVersionSync(merge(rootPkg), merge(subPkg))).toEqual([])
   })
 })

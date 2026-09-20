@@ -251,7 +251,9 @@ export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | n
 
 /** 已定稿章号集合（manifest finalizedRevision 条目，路径章号派生；state.ts
  *  skipFinalizedChapters 同语义）。strict 读失败上抛——取号错比拒绝执行更贵
- *  （fail-closed，调用方收 WRITE_ERROR 信封）。
+ *  （fail-closed；异常穿透 apply 锁释放后由 server 路由顶层兜底 500 ERROR、
+ *  message 脱敏——RC 全项目重审 P3 修注：原注「调用方收 WRITE_ERROR 信封」
+ *  与实际路由不符，如需信封化须在 plan/apply 入口显式收口，此处按实况记档）。
  *  0918独立重评修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
  *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
  *  漏跳 → 拆分取号可撞定稿章号。

@@ -5,7 +5,7 @@
 你的书就是磁盘上一个普通文件夹，里面全是 Markdown 和 YAML——备份、换电脑、用别的软件打开都随你。目标是在长篇写到两百万字的量级时依然不崩设定、不吃书：这件事不指望 AI 自觉，靠程序里的账本核对、伏笔追踪、版本快照兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-7880%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
+[![Test](https://img.shields.io/badge/tests-7891%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -27,7 +27,7 @@
 
 ## 技术栈
 
-Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（7880 单测）+ Playwright（33 specs / 54 用例）——1272 个测试文件 / 7880 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
+Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（7891 单测）+ Playwright（33 specs / 54 用例）——1273 个测试文件 / 7891 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
 
 ## 致谢
 

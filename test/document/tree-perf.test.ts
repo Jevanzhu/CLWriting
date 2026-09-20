@@ -6,7 +6,7 @@
  *
  * 不做：watcher（§9.2 守 0 依赖红线）、精确 SLA（性能验证非硬约束，宽松防严重回归）。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -22,6 +22,7 @@ import {
 const VOL = 5
 const CH = 50 // 250 章（方案「200+ 章」）
 let root = ''
+const chapterFiles: string[] = []
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-perf-'))
@@ -40,6 +41,7 @@ beforeAll(() => {
         `---\n章号: ${n}\n标题: 章${n}\n---\n第${n}章正文。`,
         'utf-8',
       )
+      chapterFiles.push(join(root, ...rel.split('/')))
       lines.push(
         JSON.stringify({ id: `doc_${n}`, nodeType: 'document', path: rel, parentId: null, status: 'final' }),
       )
@@ -67,16 +69,39 @@ function countChapters(ns: TreeNode[]): number {
   return c
 }
 
+/** 5 次采样取中位——对单次 GC 暂停/JIT 毛刺鲁棒（同文件缓存命中断言的低-a 先例）。 */
+function medianOf(samples: number[]): number {
+  const sorted = samples.slice().sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)]!
+}
+
 describe('tree 大书性能（§9.3）', () => {
   it(`扫描 ${VOL * CH} 章（${VOL} 卷）：buildTree 含派生 + 清单 + 卷纲关联`, () => {
-    invalidateTreeIndex(root)
-    const t0 = performance.now()
+    // RC 全项目重审 P2-4：绝对墙钟帽（1000ms）在 CI 慢机系统性超时即 flaky（win 腿实录
+    // 红三件之一，竞态台账在册）——断言回到相对口径本身（低-a 先例同款「不受机器/CI
+    // 快慢影响」）：buildTree 中位数 < 「裸读全部 250 章文件」基线中位数 × 20。基线是
+    // 同书同盘的 IO+CPU 混合负载，随机器快慢与 buildTree 同向缩放；倍率余量按本机实测
+    // （build ~245ms / 基线 ~40ms ≈ 6x）留 3 倍以上，只拦量级级回归（派生/清单合并
+    // 复杂度恶化）不拦机器慢。
+    const baselineSamples: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now()
+      for (const p of chapterFiles) readFileSync(p, 'utf-8')
+      baselineSamples.push(performance.now() - t0)
+    }
+    const buildSamples: number[] = []
+    for (let i = 0; i < 5; i++) {
+      invalidateTreeIndex(root)
+      const t0 = performance.now()
+      buildTree(root)
+      buildSamples.push(performance.now() - t0)
+    }
+    const baseline = medianOf(baselineSamples)
+    const dt = medianOf(buildSamples)
+    console.log(`  buildTree ${VOL * CH} 章(5 次中位): ${dt.toFixed(1)}ms（裸读基线中位 ${baseline.toFixed(1)}ms，帽 ${Math.round(baseline * 20)}ms）`)
     const nodes = buildTree(root)
-    const dt = performance.now() - t0
-    console.log(`  buildTree ${VOL * CH} 章: ${dt.toFixed(1)}ms`)
     expect(countChapters(nodes)).toBe(VOL * CH)
-    // 方案本地目标 < 200ms；防回归阈值 1000ms（CI/慢机留余量，超标才告警优化）
-    expect(dt).toBeLessThan(1000)
+    expect(dt).toBeLessThan(baseline * 20)
   })
 
   it('纯目录扫描 scanBookTree（无派生/清单/git）', () => {

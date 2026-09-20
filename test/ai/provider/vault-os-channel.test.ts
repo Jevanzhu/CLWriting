@@ -54,6 +54,10 @@ test('② v2 open 往返 DEK 一致；无 os key → VaultOsKeyMissingError（�
   // 无 OS 通道 ≠ 文件损坏——专用错误类 + 文案引导桌面启动（既有 catch VaultDecryptError 零改动）
   expect(() => openVault(vault, KEY_A)).toThrow(VaultOsKeyMissingError)
   expect(() => openVault(vault, KEY_A)).toThrow(/钥匙串/)
+  // RC 全项目重审 P2-1：钉死「暂缓期 + providers.json 重配」出路——搁置期（OS_KEK_SHELVED）
+  // 桌面也无通道，「请从桌面应用启动」单指引起死胡同；文案回退成死胡同即红
+  expect(() => openVault(vault, KEY_A)).toThrow(/暂缓期/)
+  expect(() => openVault(vault, KEY_A)).toThrow(/providers\.json/)
 
   expect(() => openVault(vault, KEY_A, OS_B)).toThrow(VaultDecryptError)
 })

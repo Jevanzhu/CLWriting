@@ -513,6 +513,8 @@ export async function runTask<T>(opts: {
   // 在 runTask 入口闸检。写稿链的闸在 self-heal 编排层（checkAiCallBudget 前置两道），
   // chat 无编排层宿主，闸检落 runTask 单点；轮循环每次发送与收尾压缩（finish.ts 同
   // task:'chat'）都过此处，账本 tasks.chat 块本就由两处共用同键累计，闸与账同口径。
+  // RC 全项目重审 P3：mock 快路在上文已短路返回——mock 不入账不计费（与零计费契约
+  // 自洽），故 mock 会话不过本闸；测试要验证预算闸行为时须用非 mock 档。
   // a7 收缩重试是第二次 runTask，账已记入，重查自然趋紧——与写稿链「重写前重查」同构。
   // 失败出口形态对齐下方 resolveProvider 失败分支（trace + step/end 'error' + 日志留痕
   // + GEN_FAIL 人话文案），不进重试循环。

@@ -53,7 +53,11 @@ const EXPECTED_GLOBS = [
   // 的 SFC 并入聚合桶（glob 扩 pages,views + 根层 *.vue 键单列自定地板 96/62；
   // 聚合桶阈值维持 43/81，.vue 计入后扩面口径新观测 L 81.42 / B 83.81 未低于现地板
   // 未触发重定，缘由见 vitest.config.ts 同锚注）
-  'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**',
+  // RC 全项目重审（GLM-5.3，2026-09-20）P2-5：views/pages 自聚合桶拆出——单测恒 mock、
+  // 真实脚本仅 e2e 驱动（不回流 v8 覆盖），0% 视图在聚合均值里对门不可见；显影桶 0/0
+  // 登记「e2e 自管」边界，聚合桶 glob 收窄（80/66 门不放松），缘由见 vitest.config.ts 同锚注
+  'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**',
+  'src/studio/web-next/src/{pages,views}/**',
   'src/studio/web-next/src/*.vue',
   // R29-12（二十九轮批 F）：stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
   'src/studio/web-next/src/stores/**',
