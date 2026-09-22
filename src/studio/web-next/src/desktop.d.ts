@@ -25,6 +25,10 @@ declare global {
       openShelf: () => Promise<void>
       openLibraryWindow: () => Promise<void>
       openLibraryDir: () => Promise<void>
+      /** 阶段 53 S3：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+       *  主进程侧白名单（仅本项目 GitHub 发布页）——白名单外/打开失败回 {ok:false,reason}
+       *  （带值 channel 精确 union 口径，token 面 openLibrary 信封同款）。 */
+      openExternal: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       openBook: (name: string) => Promise<void>
       /** 订阅主窗口导航事件，返回退订函数 */
       onNavigate: (cb: (path: string) => void) => () => void

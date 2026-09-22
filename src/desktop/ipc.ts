@@ -118,6 +118,37 @@ export const __testHooks = {
 }
 
 /**
+ * 阶段 53 S3：外部链接白名单（设计 D3/§3.4）——只放行本项目的 GitHub 发布页前缀。
+ *
+ * 为什么要白名单而不是「打开调用方给的 URL」：URL 来自**运行时数据**（更新检查拿到
+ * 的 GitHub API 响应，可被中间人/劫持 DNS 篡改），渲染层又把它交回主进程执行系统级
+ * 打开动作——不做前缀校验等于把「在用户机器上打开任意网页/协议」的能力交给响应体。
+ * 前缀面收在本项目 release 页：`https://github.com/Jevanzhu/CLWriting/releases`。
+ *
+ * 判定链（逐条，任一不过即拒）：字符串 → `new URL` 可解析 → `protocol === 'https:'`
+ * → `host === 'github.com'` → `pathname` **恰为** releases 前缀或以其 `/` 续段开头。
+ * 用 URL 解析而非串前缀比较：`https://github.com.evil.com/...`（host 后缀混淆）、
+ * `/Jevanzhu/CLWriting/releasesx`（前缀陷阱）在解析后逐字段可比，串比较逐条都要自己
+ * 写对。末条边界（`===` 或 `前缀 + '/'`）专治后者——裸 `startsWith` 会放行
+ * `releasesx` 这类同前缀异目录。
+ */
+const ALLOWED_EXTERNAL_PREFIX = '/Jevanzhu/CLWriting/releases'
+
+export function isAllowedExternalUrl(url: unknown): url is string {
+  if (typeof url !== 'string') return false
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:' || parsed.host !== 'github.com') return false
+  return (
+    parsed.pathname === ALLOWED_EXTERNAL_PREFIX || parsed.pathname.startsWith(`${ALLOWED_EXTERNAL_PREFIX}/`)
+  )
+}
+
+/**
  * F2（复审-0914-优化修复批）：可信 sender 守卫接线单点——原 14 个 handler 各自首行
  * `if (!isTrustedSender(e)) return`，收敛为 handleTrusted/onTrusted 包装。拒绝语义
  * 逐位不变：untrusted 即静默返回 undefined（不弹提示不回退上下文，R4-P2-1 口径），
@@ -325,6 +356,20 @@ export function registerIpc(): void {
       })
     } catch {
       // realpath 失败 = 目录不存在，无物可开
+    }
+  })
+  // 打开外部链接（阶段 53 更新检查横幅「去下载」用；白名单见 isAllowedExternalUrl）
+  handleTrusted('desktop:open-external', async (_e, url: unknown) => {
+    if (!isAllowedExternalUrl(url)) {
+      return { ok: false as const, reason: '仅支持打开本项目的 GitHub 发布页' }
+    }
+    // shell.openExternal 失败形态：不入参回显（含可疑 URL 原文），只回人话
+    try {
+      await shell.openExternal(url)
+      return { ok: true as const }
+    } catch (e) {
+      log.warn('desktop', '打开外部链接失败', e)
+      return { ok: false as const, reason: '打开浏览器失败，可手动复制链接' }
     }
   })
   // ── 原生右键菜单 ──

@@ -66,6 +66,11 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   openLibraryWindow: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-window'),
   /** 在系统文件管理器中打开当前书库根目录。 */
   openLibraryDir: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-dir'),
+  /** 阶段 53 S3：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+   *  主进程侧白名单只放行本项目 GitHub 发布页——白名单外回 { ok:false, reason }，
+   *  前端据此降级「复制链接」。 */
+  openExternal: (url: string): Promise<{ ok: true } | { ok: false; reason: string }> =>
+    ipcRenderer.invoke('desktop:open-external', url),
   /** 书架窗口选书 → 通知主窗口打开该工作区并聚焦，关闭书架窗口。 */
   openBook: (name: string): Promise<void> =>
     ipcRenderer.invoke('desktop:open-book', name),
