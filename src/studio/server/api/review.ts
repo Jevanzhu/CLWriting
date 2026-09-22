@@ -26,7 +26,7 @@ import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuard
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
-import { runCheckForDocument, checkOutcomeStatus, forgetTreeIssuesCache } from './check.js'
+import { runCheckForDocumentAsync, checkOutcomeStatus, forgetTreeIssuesCache } from './check.js'
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
 import type { ReviewTier } from '../../../review/contract.js'
@@ -152,7 +152,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         const sourceHash = sourceHashOf(draftText)
 
         // 机检（R63-7：draftText 喂预读快照；byproducts.leadChanges 供账本核对）
-        const outcome = runCheckForDocument(bookRoot, f.absPath, ctx.userDataPath, { draftText })
+        const outcome = await runCheckForDocumentAsync(bookRoot, f.absPath, ctx.userDataPath, { draftText })
         if (!outcome.ok) {
           // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
           return replyError(

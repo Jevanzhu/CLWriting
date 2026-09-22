@@ -7,6 +7,11 @@
  * 机检执行逻辑已下沉 src/check/run.ts（P1-8 架构治理），此处 re-export 兼容既有调用方
  * （三审端点 review.ts、AI 编排层 orchestrate 均从内核直接 import）。
  *
+ * 阶段 52 批 2（P3-13）：本端点改走 async 孪生 runCheckForDocumentAsync（rebuild 内核
+ * 搬 worker + 账本全书性/章纲整扫段分段让出）——慢盘上机检不再整段冻结事件循环，其间
+ * SSE 心跳与其它请求照跑；信封/报告面与同步版逐位同款（等价性锚 =
+ * test/check/check-chain-async-parity.test.ts）。
+ *
  * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
@@ -22,7 +27,7 @@ import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字�
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import { testableConst } from '../../../shared/testable.js'
 import {
-  runCheckForDocument,
+  runCheckForDocumentAsync,
   collectTreeIssuesAsync,
   checkOutcomeStatus,
 } from '../../../check/run.js'
@@ -30,6 +35,7 @@ import {
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export {
   runCheckForDocument,
+  runCheckForDocumentAsync,
   checkOutcomeStatus,
   type CheckOutcome,
 } from '../../../check/run.js'
@@ -88,7 +94,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
       if (!f.ok) return replyError(res, f.status, f.code, f.message)
 
-      const outcome = runCheckForDocument(bookRoot, f.absPath, ctx.userDataPath)
+      const outcome = await runCheckForDocumentAsync(bookRoot, f.absPath, ctx.userDataPath)
       if (!outcome.ok) {
         // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
         return replyError(
@@ -131,7 +137,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const checkId = input.checkId
 
       // 复跑机检定位命中区间（机检零 token 纯函数，复跑成本可忽略）
-      const outcome = runCheckForDocument(bookRoot, f.absPath, ctx.userDataPath)
+      const outcome = await runCheckForDocumentAsync(bookRoot, f.absPath, ctx.userDataPath)
       if (!outcome.ok) return replyError(res, checkOutcomeStatus(outcome.code), outcome.code, outcome.error)
       const items = outcome.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === checkId)
       if (items.length === 0) {

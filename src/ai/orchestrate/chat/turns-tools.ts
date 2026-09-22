@@ -26,7 +26,7 @@ import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮
 import { TOOL_EXECUTORS, type ToolContext } from '../../tools/index.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from '../self-heal.js'
 import { isSpawnRunning } from '../spawn-registry.js'
-import { runCheckForDocument, type CheckOutcome } from '../../../check/run.js'
+import { runCheckForDocumentAsync, type CheckOutcome } from '../../../check/run.js'
 import { resolveDraftPath } from '../../../document/draft-path.js'
 // 低-2（第十轮）：chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
 // studio/server/api/task-gate.ts（纯内存模块、零依赖），从 ai 层引它是共用同一
@@ -274,7 +274,7 @@ export async function executeChatTool(
         // 共享前置（章号回落 X-P2-12 / forRead R68-1 / 存在性）见 resolveChapterForRead
         const pre = resolveChapterForRead(input)
         if ('error' in pre) return { ok: false, summary: pre.error }
-        const outcome = runCheckForDocument(opts.bookRoot, pre.draftPath, opts.userDataPath)
+        const outcome = await runCheckForDocumentAsync(opts.bookRoot, pre.draftPath, opts.userDataPath)
         return formatCheckResult(outcome)
       }
       case 'read_chapter': {
