@@ -1,6 +1,6 @@
 {
   "name": "clwriting",
-  "version": "1.0.0-rc.0",
+  "version": "1.0.0-rc.1",
   "description": "为中文网文作者打造的桌面写作软件：全程中文、200 万字量级不崩设定，AI 为叠加辅助层",
   "type": "module",
   "license": "MIT",
