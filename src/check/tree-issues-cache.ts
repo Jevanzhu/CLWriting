@@ -32,6 +32,8 @@ import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
 // iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
 import { isMdFileName } from '../format/filename.js'
 import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
+import { driveToEnd } from '../async.js'
+import { preludeYieldStats } from '../shared/yield-stats.js'
 
 /** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
  *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
@@ -76,6 +78,10 @@ function fileFp(p: string): string {
   }
 }
 
+/** 阶段 52 批 1（P3-12）：dirFpCore 的让出粒度——每计入 N 个 .md 项让出一次。
+ *  导出供测试锚（A2 隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
+export const DIR_FP_YIELD_EVERY = 25
+
 /** 目录树指纹 "count:size:maxMtime:nameHash"（递归**只计 .md 文件**，跳过 ._ 资源文件）。
  *  R51-E-N4（五十一轮）：只计 .md——本指纹的全部消费目录（布线/大纲/章纲/文风/暂存
  *  归档/写作·正文）在机检侧均只吃 .md（rebuild walkMdEach、iron-rules/leak-derive 的
@@ -85,14 +91,21 @@ function fileFp(p: string): string {
  *  nameHash = 相对路径 FNV-1a（2026-08-21 四轮复审）：纯改名 count/size/mtime 全不变，
  *  但章节文件名是 findChapterFile 章号映射与引文 grep 的输入——改名不失效会让
  *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。
- *  R73-27（二十一轮）：maxMtime 同步升 mtimeNs（同 fileFp 口径）。 */
-function dirFp(p: string): string {
+ *  R73-27（二十一轮）：maxMtime 同步升 mtimeNs（同 fileFp 口径）。
+ *  阶段 52 批 1（P3-12）：拆生成器核（dirFpCore）单源供同步/async 双驱动——本文件内
+ *  全部调用方（fp 族组合核）自此走核（模块内同步包装已无消费方，随之撤除）；导出面
+ *  computeTreeIssuesGlobalFp / computeLeadsBookFpFromEpochFp 仍留同步包装，外部调用方
+ *  零改动。语义与切片前逐位一致：计数单位 = 计入指纹的 .md 项（真正的工作量 = stat +
+ *  nameHash；非 .md 目录项只走 readdir 不计），目录递归经 yield* 委托（嵌套深度 =
+ *  目录层级，产出串逐字节同构）。 */
+function* dirFpCore(p: string): Generator<void, string, unknown> {
   if (!existsSync(p)) return 'absent'
   let count = 0
   let size = 0
   let maxMtime = 0n
   let nameHash = 0x811c9dc5
-  const walk = (dir: string, prefix: string): void => {
+  let scanned = 0
+  const walk = function* (dir: string, prefix: string): Generator<void, void, unknown> {
     let entries
     try {
       entries = readdirSync(dir, { withFileTypes: true })
@@ -102,8 +115,13 @@ function dirFp(p: string): string {
     for (const e of entries) {
       if (e.name.startsWith('._') || e.name === '.DS_Store') continue
       const fp = join(dir, e.name)
-      if (e.isDirectory()) walk(fp, `${prefix}${e.name}/`)
+      if (e.isDirectory()) yield* walk(fp, `${prefix}${e.name}/`)
       else if (e.isFile() && isMdFileName(e.name)) {
+        // 阶段 52 批 1：让出点（A2）——每 N 项一次，让出后本项照常处理
+        if (++scanned % DIR_FP_YIELD_EVERY === 0) {
+          preludeYieldStats.dirFp++
+          yield
+        }
         try {
           const st = statSync(fp, { bigint: true })
           count++
@@ -120,7 +138,7 @@ function dirFp(p: string): string {
       }
     }
   }
-  walk(p, '')
+  yield* walk(p, '')
   return `${count}:${size}:${maxMtime}:${nameHash.toString(16)}`
 }
 
@@ -133,14 +151,23 @@ function dirFp(p: string): string {
  * 漏在纪元外（名册为十三轮补），编辑后树红点/黄项不失效可陈旧。
  */
 export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string | null): string {
+  return driveToEnd(computeTreeIssuesGlobalFpCore(bookRoot, userDataPath))
+}
+
+/** computeTreeIssuesGlobalFp 的实现体（生成器，单源供同步/async 双驱动）。parts 逐段
+ *  与切片前同序同源；六处 dirFp 走 dirFpCore（`yield*` 让出点透传到驱动）。 */
+export function* computeTreeIssuesGlobalFpCore(
+  bookRoot: string,
+  userDataPath: string | null,
+): Generator<void, string, unknown> {
   const parts = [
     CHECKER_GENERATION,
     fileFp(join(bookRoot, 'book.yaml')),
     userDataPath ? fileFp(join(userDataPath, 'global.json')) : 'no-userdata',
-    dirFp(join(bookRoot, '布线')),
-    dirFp(join(bookRoot, '大纲', '关系线')),
-    dirFp(join(bookRoot, '大纲', '章纲')),
-    dirFp(join(bookRoot, '文风')),
+    yield* dirFpCore(join(bookRoot, '布线')),
+    yield* dirFpCore(join(bookRoot, '大纲', '关系线')),
+    yield* dirFpCore(join(bookRoot, '大纲', '章纲')),
+    yield* dirFpCore(join(bookRoot, '文风')),
     fileFp(join(bookRoot, '工作区', '细纲.md')),
     fileFp(join(bookRoot, '设定', '境界体系.md')),
     // R65-17（十三轮）：checkNewNames 的名册输入入纪元——此前漏掉，作者改名册后
@@ -150,7 +177,7 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
     // R66-3（十四轮）：R65-24 起机检吃「主文件 + .账本推进暂存 归档」两源，但纪元只含
     // 主文件 fileFp——归档章被补/改/删而纪元内文件不动时，章级缓存命中陈旧行（假红
     // 残留/漏红）。归档目录 dirFp 入纪元一次性整表失效（对齐周边目录口径，无害）。
-    dirFp(join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)),
+    yield* dirFpCore(join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)),
     fileFp(join(bookRoot, '项目', '文档清单.jsonl')),
   ]
   return parts.join('|')
@@ -179,7 +206,16 @@ export function computeLeadsBookFp(bookRoot: string, userDataPath: string | null
  * computeLeadsBookFp 全算，非空/null 分支语义保持。
  */
 export function computeLeadsBookFpFromEpochFp(bookRoot: string, epochFp: string): string {
-  return `${epochFp}|${dirFp(join(bookRoot, '写作', '正文'))}`
+  return driveToEnd(computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp))
+}
+
+/** computeLeadsBookFpFromEpochFp 的实现体（生成器，单源供同步/async 双驱动）——
+ *  「写作/正文 目录指纹」段走 dirFpCore（让出点透传到驱动）；输出串逐字节同构。 */
+export function* computeLeadsBookFpFromEpochFpCore(
+  bookRoot: string,
+  epochFp: string,
+): Generator<void, string, unknown> {
+  return `${epochFp}|${yield* dirFpCore(join(bookRoot, '写作', '正文'))}`
 }
 
 /** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。

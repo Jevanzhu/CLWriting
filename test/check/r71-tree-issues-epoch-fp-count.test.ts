@@ -18,7 +18,9 @@ import { join } from 'node:path'
 
 vi.mock('../../src/check/tree-issues-cache.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/tree-issues-cache.js')>()
-  return { ...actual, computeTreeIssuesGlobalFp: vi.fn(actual.computeTreeIssuesGlobalFp) }
+  // 阶段 52 批 1：改挂新核（computeTreeIssuesGlobalFp → …Core）——聚合内首尾两遍走
+  // 核（yield* 委托），同步包装不再被核心调用；断言值一律不改。
+  return { ...actual, computeTreeIssuesGlobalFpCore: vi.fn(actual.computeTreeIssuesGlobalFpCore) }
 })
 
 vi.mock('../../src/format/draft.js', async (importOriginal) => {
@@ -26,14 +28,14 @@ vi.mock('../../src/format/draft.js', async (importOriginal) => {
   return { ...actual, readDraft: vi.fn(actual.readDraft) }
 })
 
-import { computeTreeIssuesGlobalFp } from '../../src/check/tree-issues-cache.js'
+import { computeTreeIssuesGlobalFpCore } from '../../src/check/tree-issues-cache.js'
 import { readDraft } from '../../src/format/draft.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const fpMock = vi.mocked(computeTreeIssuesGlobalFp)
+const fpMock = vi.mocked(computeTreeIssuesGlobalFpCore)
 const readDraftMock = vi.mocked(readDraft)
 
 /** 与 tree-issues-scan-count 测试同款造书（含布线 + 每章禁词「玉佩」制造确定红源） */

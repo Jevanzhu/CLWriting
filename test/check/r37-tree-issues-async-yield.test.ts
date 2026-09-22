@@ -63,6 +63,20 @@ function makeBook(chapterCount: number): string {
   return root
 }
 
+/** 阶段 52 批 1（P3-12）：把布线喂大（前奏段变长、章数不动）——让出点只可能落在前奏段，
+ *  用于「前奏重章轻」形态的等价复跑（章数 2 < TREE_ISSUES_YIELD_EVERY ⇒ 逐章段零让出点）。
+ *  文件须为合法账本：rebuild 报错会降级成 rebuildFailed 使红点为空、断言假失败。 */
+function addWiring(root: string, count: number): void {
+  for (let i = 2; i <= count; i++) {
+    const no = String(i).padStart(3, '0')
+    writeFileSync(
+      join(root, '布线', '悬念', `悬念-${no}-线索${no}.md`),
+      `---\n编号: 悬念-${no}\n标题: 线索${no}\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n`,
+      'utf-8',
+    )
+  }
+}
+
 describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
   it('同一本书：async 版结果与同步版 deep equal（同步版先跑落下章级缓存，async 跑热缓存路径）', async () => {
     const root = makeBook(60)
@@ -98,5 +112,33 @@ describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
     const r = await p
     expect(Object.keys(r.issues).length).toBe(60)
     expect(beats).toBeGreaterThan(0) // 「至少一次」：不脆断言次数
+  })
+})
+
+/**
+ * 阶段 52 批 1（P3-12）扩用例组：前奏重章轻形态的等价复跑。
+ *
+ * 逐章段的等价已被上组覆盖（60 章 ⇒ 逐章让出点密集），但前奏段切片后「章数少、章外
+ * 输入重」（深履历/满布线的小书）的聚合路径是另一条：让出全部落在纪元指纹递归 walk
+ * 与整扫/预扫，章级缓存几乎全冷或全热。此组按两序各锁一遍 deep equal。
+ */
+describe('R37-3 扩（阶段 52 批 1）：前奏重章轻形态等价', () => {
+  it('冷径：async 先跑（前奏让出密集处冷启动）→ 同步版复跑热缓存面：deep equal', async () => {
+    const root = makeBook(2)
+    addWiring(root, 100)
+    const asyncCold = await collectTreeIssuesAsync(root, () => undefined)
+    expect(Object.keys(asyncCold.issues).length).toBe(2)
+    expect(asyncCold.rebuildFailed).toBe(false)
+    const syncHot = collectTreeIssues(root, () => undefined)
+    expect(syncHot).toEqual(asyncCold)
+  })
+
+  it('热径：同步版先跑 → async 复跑：deep equal', async () => {
+    const root = makeBook(2)
+    addWiring(root, 100)
+    const syncCold = collectTreeIssues(root, () => undefined)
+    expect(Object.keys(syncCold.issues).length).toBe(2)
+    const asyncHot = await collectTreeIssuesAsync(root, () => undefined)
+    expect(asyncHot).toEqual(syncCold)
   })
 })

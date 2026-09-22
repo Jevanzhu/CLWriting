@@ -25,20 +25,28 @@ vi.mock('../../src/check/tree-issues-cache.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/tree-issues-cache.js')>()
   return {
     ...actual,
-    computeLeadsBookFpFromEpochFp: vi.fn(
-      (...a: Parameters<typeof actual.computeLeadsBookFpFromEpochFp>) => actual.computeLeadsBookFpFromEpochFp(...a),
-    ),
+    // 阶段 52 批 1：改挂新核（computeLeadsBookFpFromEpochFp → …Core）——聚合头/写前
+    // 复核两调自此走核（yield* 委托）；断言值一律不改。
+    computeLeadsBookFpFromEpochFpCore: vi.fn(actual.computeLeadsBookFpFromEpochFpCore),
   }
 })
 
 import { collectTreeIssues } from '../../src/check/run.js'
-import { computeLeadsBookFpFromEpochFp } from '../../src/check/tree-issues-cache.js'
+import { computeLeadsBookFpFromEpochFpCore } from '../../src/check/tree-issues-cache.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
-const fpMock = vi.mocked(computeLeadsBookFpFromEpochFp)
+const fpMock = vi.mocked(computeLeadsBookFpFromEpochFpCore)
+
+/** 阶段 52 批 1：核（生成器）注入适配——原 mockReturnValueOnce('fp-X') 的直返值包成
+ *  核产出（每调用新生成器，避免同一实例被二次驱动后空转）。 */
+function coreOf<T>(v: T): () => Generator<void, T, unknown> {
+  return function* () {
+    return v
+  }
+}
 
 beforeEach(() => {
   // 只清调用记录：Once 队列耗尽后回落默认委托（真实实现），不污染后续用例
@@ -91,7 +99,7 @@ describe('R53-E-1：leads_book 写前纪元终核', () => {
   it('写前复核漂移（聚合头 fp-A → 写前 fp-B）→ 本轮不落缓存，红点照常返回；去漂移后下轮自愈落表', () => {
     const { root, docId1 } = makeBook()
     try {
-      fpMock.mockReturnValueOnce('fp-A').mockReturnValueOnce('fp-B') // 头遍 A、写前复核 B → 漂移
+      fpMock.mockImplementationOnce(coreOf('fp-A')).mockImplementationOnce(coreOf('fp-B')) // 头遍 A、写前复核 B → 漂移
       const first = collectTreeIssues(root, () => undefined)
       // 本轮返回值不回滚（R70-14 口径：单请求周期陈旧可接受，只拦固化）
       expect(first.issues[docId1]?.hasRed).toBe(true)
@@ -115,7 +123,7 @@ describe('R53-E-1：leads_book 写前纪元终核', () => {
   it('写前复核同值 → 照常落缓存（等值分支不误伤正常路径）', () => {
     const { root, docId1 } = makeBook()
     try {
-      fpMock.mockReturnValueOnce('fp-S').mockReturnValueOnce('fp-S') // 头遍与写前同值
+      fpMock.mockImplementationOnce(coreOf('fp-S')).mockImplementationOnce(coreOf('fp-S')) // 头遍与写前同值
       const r = collectTreeIssues(root, () => undefined)
       expect(r.issues[docId1]?.hasRed).toBe(true)
       const rows = readLeadsBookRows(root)

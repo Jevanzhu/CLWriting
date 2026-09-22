@@ -22,6 +22,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
+import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { closeTreeIssuesDb } from './tree-issues-cache.js'
 import { runAllChecks, hasRed, effectiveShort, promoteStrictShort } from './runner.js'
 import { outlineDeclarationForChapter, type OutlineDeclaration } from './outline-leads.js'
@@ -40,6 +41,8 @@ import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import type { CheckReport, CheckItem } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
+import { driveToEnd } from '../async.js'
+import { preludeYieldStats } from '../shared/yield-stats.js'
 
 // R0916-5f（2026-09-16，⑤④产品拆分波2 · 缝 A）：树红点聚合族已纯移动拆出至
 // run-tree-issues.ts——逐名 re-export 桥接，既有 'check/run.js' import 方零感知
@@ -49,6 +52,7 @@ export {
   collectTreeIssuesAsync,
   __setLeadsBookDegradeForTest,
   __setChapterCheckDegradeForTest,
+  __setOpenCheckDbAsyncForTest,
 } from './run-tree-issues.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
@@ -87,12 +91,23 @@ export function readCheckConfig(
  *   rebuildFailed=true，只算 verdict 不拦树——与缓存层「读写失败跳过缓存走全量」红线
  *   对齐）。PRAGMA 并入同一失败链（2026-08-24 审计 C4 口径：exec 抛错即关库不留句柄，
  *   单章侧契约不变、树聚合侧由调用方 finally 收口）。
+ * 阶段 52 批 1（P3-12）：签名类型别名化（OpenCheckDbOpts/OpenCheckDbResult）——异步孪生
+ * openCheckDbAsync 与树聚合的「效应让出」档共享同一形状，仅 rebuild 内核所在线程不同。
  */
+export type OpenCheckDbOpts = { throttleSourceProbe: boolean; failMode: 'envelope' | 'fail-open' }
+
+/** openCheckDb / openCheckDbAsync 共用结果形状（`fail` 仅 'envelope' 档产出）。 */
+export type OpenCheckDbResult = {
+  db: DatabaseSync | null
+  rebuildFailed: boolean
+  fail?: { error: string; details?: unknown }
+}
+
 export function openCheckDb(
   bookRoot: string,
   hasWiring: boolean,
-  opts: { throttleSourceProbe: boolean; failMode: 'envelope' | 'fail-open' },
-): { db: DatabaseSync | null; rebuildFailed: boolean; fail?: { error: string; details?: unknown } } {
+  opts: OpenCheckDbOpts,
+): OpenCheckDbResult {
   // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
   if (!hasWiring) return { db: null, rebuildFailed: false }
   const cachePath = join(bookRoot, '.cache', 'index.db')
@@ -124,6 +139,69 @@ export function openCheckDb(
       return { db, rebuildFailed: false }
     } catch (e) {
       closeTreeIssuesDb(db) // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄；R0916-6 改道 closeTreeIssuesDb（prepared 调用面连接断 ephemeron 链再关，同 rag closeRagDb 口径）
+      return opts.failMode === 'envelope'
+        ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
+        : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
+    }
+  } catch (e) {
+    return opts.failMode === 'envelope'
+      ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
+      : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
+  }
+}
+
+/**
+ * 阶段 52 批 1（P3-12，慢盘面加固）：「rebuild→开库→PRAGMA」前奏的异步孪生——结构逐位
+ * 对齐 openCheckDb，唯一替换 = `rebuild(...)` → `await runRebuildAsync(...)`（rebuild 内核
+ * 搬 worker 线程：慢盘/网盘上 rebuild 段不再冻结事件循环，其间 SSE 心跳/其它请求可跑；
+ * R48-11 同款卸载层，服务进程只等 worker 消息）。
+ *
+ * 失败面与同步版同款信封，不向外抛：worker 起不来/超时 terminate/内部抛错、rebuild 报错
+ * 列表非空、开库 PRAGMA 失败，三档都落 'envelope'（fail 字段）或 'fail-open'（warn +
+ * rebuildFailed）——调用方（树聚合效应让出档）的降级口径零改动。
+ *
+ * 与同步版的**已知差异**（刀 2 S5 承接，当前不可达）：R47-11 的 3s 探测节流状态在
+ * worker 内随调用新建而失效 ⇒ 传 throttleSourceProbe 时 async 路径实际不节流。本批唯一
+ * 调用方（树聚合）恒传 false（树聚合 rebuild 不节流，见 openCheckDb 头注），单章链仍走
+ * 同步版，故差异面为零；TTL 承接落刀 2。
+ */
+export async function openCheckDbAsync(
+  bookRoot: string,
+  hasWiring: boolean,
+  opts: OpenCheckDbOpts,
+): Promise<OpenCheckDbResult> {
+  // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
+  if (!hasWiring) return { db: null, rebuildFailed: false }
+  const cachePath = join(bookRoot, '.cache', 'index.db')
+  const failOpen = (message: string): { db: null; rebuildFailed: true } => {
+    log.warn('check', message)
+    return { db: null, rebuildFailed: true }
+  }
+  try {
+    const rebuilt = await runRebuildAsync({
+      bookRoot,
+      cachePath,
+      ...(opts.throttleSourceProbe ? { opts: { throttleSourceProbe: true } } : {}),
+    })
+    if (rebuilt.errors.length > 0) {
+      if (opts.failMode === 'envelope') {
+        return {
+          db: null,
+          rebuildFailed: false,
+          fail: { error: '源文件解析失败，先修这些文件', details: rebuilt.errors.slice(0, 5) },
+        }
+      }
+      // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
+      //（verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
+      return { db: null, rebuildFailed: true }
+    }
+    const db = new DatabaseSync(cachePath)
+    try {
+      // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
+      db.exec('PRAGMA busy_timeout = 5000')
+      return { db, rebuildFailed: false }
+    } catch (e) {
+      closeTreeIssuesDb(db) // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄（同 openCheckDb）
       return opts.failMode === 'envelope'
         ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
         : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
@@ -309,6 +387,21 @@ export interface BatchCheckContext {
  * 不阻断批量机检本体，但两端闭合对该章降级跳过（fail-noisy，见 checkWithDb 黄项）。
  */
 export function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => ChapterUpdatesResult {
+  return driveToEnd(scanChapterUpdatesByChapterCore(bookRoot))
+}
+
+/** 阶段 52 批 1（P3-12）：账本归档逐文件读的让出粒度——每配对 N 个归档 .md 让出一次。
+ *  导出供测试锚（A2 按 K 断言）。 */
+export const LEAD_UPDATES_SCAN_YIELD_EVERY = 25
+
+/**
+ * scanChapterUpdatesByChapter 的实现体（生成器，单源供同步/async 双驱动）——主文件
+ * 整读段（单文件毫秒级，D4 残余）不在切片面，让出点 = 归档目录 readdir 后的逐文件读
+ * 循环。返回闭包与切片前逐位同构（调用方零感知）。
+ */
+export function* scanChapterUpdatesByChapterCore(
+  bookRoot: string,
+): Generator<void, (chapterNo: number) => ChapterUpdatesResult, unknown> {
   const mainPath = join(bookRoot, LEAD_UPDATES_FILE)
   const mainTag = readLeadUpdateChapterTag(mainPath) // 无文件/读失败 → null（宽容口径）
   const mainRead = readLeadUpdatesAtChecked(mainPath)
@@ -330,10 +423,16 @@ export function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: numbe
         throw e
       }
     }
+    let scanned = 0
     for (const f of archivedFiles) {
       const m = f.match(/^第(\d+)章\.md$/i)
       // R38-9：i 标志——归档文件 .MD 大写扩展名不再漏配对（其余命名如 ._ 资源文件照旧不入）
       if (!m) continue
+      // 阶段 52 批 1：让出点（A2）——每 N 个配对的归档章让出一次（计数单位 = 实际读的文件）
+      if (++scanned % LEAD_UPDATES_SCAN_YIELD_EVERY === 0) {
+        preludeYieldStats.leadUpdatesScan++
+        yield
+      }
       const read = readLeadUpdatesAtChecked(join(archiveDir, f))
       archiveByChapter.set(Number(m[1]), { updates: read ?? [], unreadable: read === null })
     }

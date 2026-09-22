@@ -10,7 +10,7 @@
  */
 
 import { join } from 'node:path'
-import { walkMdEach } from '../fs/walk-md.js'
+import { walkMdEachGen } from '../fs/walk-md.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { readLeadHistory } from '../format/read.js'
@@ -24,6 +24,8 @@ import { readMdTextCached } from '../fs/md-text-cache.js'
 //（runner.ts / tree-issues-cache.ts 已迁，此处每次 checkLeadsBookItems 调用重编译）；
 // 占位符拼接的变体 SQL 以整串为缓存键，变体数有界（enabledTypes 子集数）
 import { prepared } from '../shared/sqlite-prepared.js'
+import { driveToEnd } from '../async.js'
+import { preludeYieldStats } from '../shared/yield-stats.js'
 
 /**
  * 账本形式三检。
@@ -74,6 +76,10 @@ export function checkLeadsForm(
  * = 全量重算等价」不变量。修复：单章机检端点照旧全量（本函数经 checkLeadsForm 调
  * 用，报告完整）；树红点聚合改为本书一次计算、按「纪元 + 正文目录指纹」单独缓存，
  * 章级缓存行经 skipBookItems 只留章作用域条目（两端闭合：细纲声明 + 本章正文）。
+ *
+ * 阶段 52 批 1（P3-13）：拆生成器核（checkLeadsBookItemsCore）——聚合侧冷读段（章号表
+ * 构建 + 逐章正文引文核验）自此在核内悬停让出，单章链经同步包装零改动；计算集合与
+ * 上段「全量重算等价」口径逐位不变（切片只改悬停点）。
  */
 export function checkLeadsBookItems(
   db: DatabaseSync,
@@ -81,6 +87,24 @@ export function checkLeadsBookItems(
   currentChapter: number,
   enabledTypes: string[],
 ): CheckItem[] {
+  return driveToEnd(checkLeadsBookItemsCore(db, bookRoot, currentChapter, enabledTypes))
+}
+
+/** 阶段 52 批 1（P3-13）：全书性红项的让出粒度——章号表构建与履历逐条核验各每 N 项
+ *  让出一次。导出供测试锚（A2 隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
+export const LEADS_BOOK_YIELD_EVERY = 25
+
+/**
+ * checkLeadsBookItems 的实现体（生成器，单源供同步/async 双驱动）。切片只改悬停点，
+ * 计算集合逐位不变——头注「缓存命中 = 全量重算等价」不变量是回归红线（假红/漏红双向
+ * 锁在 tree-issues-leads-book 套）：lazy 建表/并入回退/正文指纹缓存的时机与顺序同改前。
+ */
+export function* checkLeadsBookItemsCore(
+  db: DatabaseSync,
+  bookRoot: string,
+  currentChapter: number,
+  enabledTypes: string[],
+): Generator<void, CheckItem[], unknown> {
   const items: CheckItem[] = []
 
   // 取所有已启用类的 open 条目
@@ -98,23 +122,30 @@ export function checkLeadsBookItems(
   // R62-5：章文件定位改一次 walkMdEach 建 章号→路径 查表（首见优先）——此前每新章号
   // 一次 walkMdFind 全树扫，深履历大书 O(章数²)（500 章书最多 500 次全树 readdir）。
   // 惰性建表：无履历章号需求时不发生任何目录扫描（与旧路径「无需求不扫」一致）。
+  // 阶段 52 批 1：建表循环走 walkMdEachGen 并在项间让出（切片点之一）。
   let chapterPathMap: Map<number, string> | null = null
-  const chapterPathOf = (chapter: number): string | null => {
+  let pathScanScanned = 0
+  function* chapterPathOf(chapter: number): Generator<void, string | null, unknown> {
     if (chapterPathMap === null) {
       chapterPathMap = new Map()
-      walkMdEach(正文dir, (abs, name) => {
+      for (const { abs, name } of walkMdEachGen(正文dir)) {
+        if (++pathScanScanned % LEADS_BOOK_YIELD_EVERY === 0) {
+          preludeYieldStats.leadsBook++
+          yield
+        }
         // 前缀数字 == 章号即登记（补零与否不影响判等）；首见优先保 walkMdFind 找到即停语义
         // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则升格 format/filename.ts
         // chapterNoFromName 单源（与 tree 排序同宽容集——`5—标题.md` 不再线索核验缺章）
         const n = chapterNoFromName(name)
         if (n !== null && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
-      })
+      }
     }
     return chapterPathMap.get(chapter) ?? null
   }
   // S2（阶段 24）：并入回退（D3 留洞制）——被合并源章从正文消失，履历行按源章号的
   // 引文核验经 mergedIntoMap 回退到目标章正文（正文命中恒优先；仅 miss 时构建 Map，
   // 闭包内 memo 防「一次三检内多次 miss 反复全书扫」）。回退口径单源 chapter-lookup.ts。
+  // （阶段 52 批 1：本段不在切片面——miss 支路罕见，属 D4 单文件粒度残余。）
   let mergedInto: Map<number, string> | null = null
   const mergedTargetOf = (chapter: number): string | null => {
     if (mergedInto === null) mergedInto = mergedIntoMap(bookRoot)
@@ -124,10 +155,10 @@ export function checkLeadsBookItems(
   // 调用内 Map——每次机检/三审打包按线索履历章号集全量重读各章正文，成熟长篇等效
   // 整读全书）。保留调用内 memo（章号 → body）避免同一章多条履历条目重复 bodyOf。
   const chapterTextCache = new Map<number, string | null>()
-  const chapterTextOf = (chapter: number): string | null => {
+  function* chapterTextOf(chapter: number): Generator<void, string | null, unknown> {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
     // S2：按名 miss → 并入回退目标章路径（回退后仍按同一读取口径处理）
-    const path = chapterPathOf(chapter) ?? mergedTargetOf(chapter)
+    const path = (yield* chapterPathOf(chapter)) ?? mergedTargetOf(chapter)
     // 低级项（第六轮）：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null
@@ -145,12 +176,18 @@ export function checkLeadsBookItems(
     return text
   }
 
+  let entriesScanned = 0
   for (const lead of leads) {
     const id = lead['id'] as string
     const history = readLeadHistory(db, id)
 
     let prevChapter = 0 // 章号单调校验（履历按 seq 排序，非回填章号应不减）
     for (const entry of history) {
+      // 阶段 52 批 1：让出点（A2）——履历逐条核验（含章号表建表/正文整读的间接成本）
+      if (++entriesScanned % LEADS_BOOK_YIELD_EVERY === 0) {
+        preludeYieldStats.leadsBook++
+        yield
+      }
       // #1 章号一致 a：非回填行的章号须 ≤ currentChapter（不能凭空声称未来章）
       if (!entry.回填 && entry.章号 > currentChapter) {
         items.push({
@@ -179,7 +216,7 @@ export function checkLeadsBookItems(
       // 不再被 truthy 门径整条跳过——落 needles.length===0 的 R76-19 unverifiable
       // 黄项（fail-noisy），与 format/leads.ts 头注「空证据条目照常入模型」宣称对齐
       if (!entry.回填) {
-        const text = chapterTextOf(entry.章号)
+        const text = yield* chapterTextOf(entry.章号)
         // R63-8：匹配走多候选针串任一命中（单针串的内部闭引号会整组 miss，见 evidenceNeedles 头注）；
         // evidenceCore 仅供红项文案展示
         const evidenceCore = extractEvidenceCore(entry.证据)

@@ -18,21 +18,24 @@ import { join } from 'node:path'
 
 vi.mock('../../src/check/tree-issues-cache.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/tree-issues-cache.js')>()
-  return { ...actual, computeTreeIssuesGlobalFp: vi.fn(actual.computeTreeIssuesGlobalFp) }
+  // 阶段 52 批 1：改挂新核（computeTreeIssuesGlobalFp → …Core）——聚合内首遍走核
+  // （yield* 委托），同步包装不再被核心调用；断言值一律不改。
+  return { ...actual, computeTreeIssuesGlobalFpCore: vi.fn(actual.computeTreeIssuesGlobalFpCore) }
 })
 vi.mock('../../src/cache/rebuild.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/cache/rebuild.js')>()
   return { ...actual, rebuild: vi.fn(actual.rebuild) }
 })
 
-import { computeTreeIssuesGlobalFp } from '../../src/check/tree-issues-cache.js'
+import { computeTreeIssuesGlobalFpCore } from '../../src/check/tree-issues-cache.js'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { driveToEnd } from '../../src/async.js'
 
-const fpMock = vi.mocked(computeTreeIssuesGlobalFp)
+const fpMock = vi.mocked(computeTreeIssuesGlobalFpCore)
 const rebuildMock = vi.mocked(rebuild)
 
 /** 与 r47 计数测试同款造书（含布线 + 每章禁词「玉佩」制造确定红源） */
@@ -108,12 +111,15 @@ describe('R52-E-1：纪元指纹基线先于 rebuild', () => {
       const fpOrig = fpMock.getMockImplementation()!
       let n = 0
       fpMock.mockImplementation((...args) => {
-        const r = fpOrig(...args)
+        // 阶段 52 批 1：核为生成器——注入侧先直驱算完（等价原同步调用）再触碰，最后包成核产出
+        const r = driveToEnd(fpOrig(...args))
         if (++n === 1) {
           const st = JSON.stringify({ t: Date.now() })
           writeFileSync(join(root, '文风', '文风铁律.md'), `# 文风铁律\n## 硬禁词\n- 玉佩\n<!-- ${st} -->\n`, 'utf-8')
         }
-        return r
+        return (function* () {
+          return r
+        })()
       })
       try {
         collectTreeIssues(root, () => undefined)

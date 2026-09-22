@@ -6,3 +6,14 @@
 export function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve))
 }
+
+/** 生成器核的同步驱动（阶段 52 批 1）：驱到尾、忽略纯悬停——净效果与切片前的纯同步
+ *  执行逐位一致（同步版调用方零感知）。仅适用「纯悬停核」（yield 无值）；带效应让出
+ *  档的核（yield 值 = 待办请求）由调用方自定义驱动回填（先例 process/book-search.ts
+ *  driveSearchCoreSync、check/run-tree-issues.ts 两驱动）。 */
+export function driveToEnd<T>(it: Generator<unknown, T, unknown>): T {
+  for (;;) {
+    const r = it.next()
+    if (r.done) return r.value
+  }
+}

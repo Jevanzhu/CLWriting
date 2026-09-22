@@ -8,6 +8,9 @@
  *
  * A1（批 1）增量缓存断言：二次请求正文整读次数（readDraft）= 变更章数——
  * 章级 (mtime,size)+verdict 指纹全中的章直接取缓存聚合，零机检零重读。
+ *
+ * 阶段 52 批 1：mock 缝由 readChapterDir 迁至目录整扫核 scanChapterDirCore（聚合内
+ * 正文/章纲两处整扫自此走核）——断言与次数不变量逐字保留，只换 mock 符号。
  */
 import { describe, it, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
@@ -16,7 +19,10 @@ import { join } from 'node:path'
 
 vi.mock('../../src/format/chapters.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/format/chapters.js')>()
-  return { ...actual, readChapterDir: vi.fn(actual.readChapterDir) }
+  // 阶段 52 批 1：改挂新核（readChapterDir → scanChapterDirCore）——聚合内正文/章纲
+  // 两处整扫自核起走（yield* 委托），readChapterDir 不再被核心调用；次数不变量保持，
+  // 断言值一律不改。
+  return { ...actual, scanChapterDirCore: vi.fn(actual.scanChapterDirCore) }
 })
 
 vi.mock('../../src/format/draft.js', async (importOriginal) => {
@@ -31,7 +37,7 @@ vi.mock('../../src/document/status.js', async (importOriginal) => {
   return { ...actual, readPublished: vi.fn(actual.readPublished) }
 })
 
-import { readChapterDir } from '../../src/format/chapters.js'
+import { readChapterDir, scanChapterDirCore } from '../../src/format/chapters.js'
 import { readDraft } from '../../src/format/draft.js'
 import { readPublished } from '../../src/document/status.js'
 import { createHash } from 'node:crypto'
@@ -90,14 +96,14 @@ function makeBook(chapterCount: number, wiring = true): string {
   return root
 }
 
-const readChapterDirMock = vi.mocked(readChapterDir)
+const readChapterDirMock = vi.mocked(scanChapterDirCore)
 
 function callCount(): number {
   return readChapterDirMock.mock.calls.length
 }
 
 describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
-  it('readChapterDir 调用次数与章数解耦：3 章 → 全书固定 2 次（修复前 2+N 次）', () => {
+  it('目录整扫调用次数与章数解耦：3 章 → 全书固定 2 次（修复前 2+N 次）', () => {
     const root = makeBook(3)
     try {
       readChapterDirMock.mockClear()

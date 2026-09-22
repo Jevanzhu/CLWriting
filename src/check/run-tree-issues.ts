@@ -18,7 +18,7 @@
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, statSync } from 'node:fs'
-import { readChapterDir } from '../format/chapters.js'
+import { scanChapterDirCore } from '../format/chapters.js'
 import { readManifestDegraded, type ManifestEntry } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
@@ -31,24 +31,28 @@ import {
   readTreeIssuesCache,
   writeTreeIssuesCacheBatch,
   computeLeadsBookFp,
-  computeLeadsBookFpFromEpochFp,
+  computeLeadsBookFpFromEpochFpCore,
   readLeadsBookRed,
   writeLeadsBookRed,
-  computeTreeIssuesGlobalFp,
+  computeTreeIssuesGlobalFpCore,
   closeTreeIssuesDb,
 } from './tree-issues-cache.js'
-import { checkLeadsBookItems } from './leads.js'
+import { checkLeadsBookItemsCore } from './leads.js'
 import {
   readCheckConfig,
   openCheckDb,
+  openCheckDbAsync,
   checkWithDb,
   maxWrittenChapterOf,
-  scanChapterUpdatesByChapter,
+  scanChapterUpdatesByChapterCore,
   type BatchCheckContext,
+  type OpenCheckDbOpts,
+  type OpenCheckDbResult,
 } from './run.js'
 import { log, errMsg } from '../log/index.js'
 import { yieldToEventLoop } from '../async.js'
 import { testableConst } from '../shared/testable.js'
+import { preludeYieldStats } from '../shared/yield-stats.js'
 
 // ── R37-3（三十七轮）：树红点聚合 async 孪生的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，collectTreeIssues 同步遍历全书
@@ -61,11 +65,45 @@ import { testableConst } from '../shared/testable.js'
 // 同进程并发同享这套口径。
 // 实现取「生成器核心 + 双驱动」而非复制体：逻辑单源零漂移（同步版驱到尾 = 与修复前
 // 逐位等价的纯同步执行，存量测试调用方零感知），async 版在每个悬停点让出。
-// 边界如实记：rebuild/预扫段（readChapterDir×2 + 账本预扫）仍是单段同步块——其内核
-//（src/cache/rebuild.ts、src/format/chapters.ts）不在本批允许清单，热路径有 stat 级
-// 缓存（CC-P1-3）与增量 rebuild 兜住；本批切的是章循环（大书的主要阻塞段）。
+// 阶段 52 批 1（P3-12）落定：前奏段切片 + rebuild 效应让出——fp 首尾遍（dirFp 递归
+// walk）、正文/章纲目录整扫、账本预扫各自收进生成器核（tree-issues-cache / format/
+// chapters / run），核内 `yield*` 委托、让出点透传本文件两驱动；rebuild/开库段
+//（openCheckDb）改「效应让出」档：核 yield 效应对象，同步驱动现执行现回填（= 与切片前
+// 逐位一致），async 驱动 await openCheckDbAsync（rebuild 内核走 worker 线程）后回填。
+// 剩余单段同步块 = 单文件/单句柄粒度残余（D4 如实记账）。
 /** R37-3：章循环的让出粒度——每处理 25 章让出一次（块内单章 stat/机检为毫秒级）。 */
 const TREE_ISSUES_YIELD_EVERY = 25
+
+/**
+ * 阶段 52 批 1（P3-12）：「效应让出」契约——核内单段同步块（rebuild/开库）无法靠
+ * yield 悬停点切分（块内零悬停，且异步实现要换线程跑），改为 yield 一个效应请求对象，
+ * 由驱动决定怎么执行、把结果 next() 回填：
+ *   yield 无值（undefined） = 纯悬停：同步驱动直推 next()，async 驱动 await 让出事件循环
+ *   yield TreeEffect        = 效应请求：同步驱动现执行现回填，async 驱动 await 异步实现后回填
+ * 核内写法与普通悬停点同形（`const opened = (yield eff) as OpenCheckDbResult`），
+ * 两种驱动各自解释——逻辑单源，无「同一段写两遍」的漂移面。
+ */
+type TreeEffect = { kind: 'openCheckDb'; bookRoot: string; hasWiring: boolean; opts: OpenCheckDbOpts }
+
+/** A4 测试注入：async 效应实现替换口——断言 async 驱动确实走异步档（worker 路数）而非
+ *  回落同步执行。生产恒 null（走真实 openCheckDbAsync）。 */
+export const [getOpenCheckDbEffectForTest, __setOpenCheckDbAsyncForTest] = testableConst<
+  ((eff: TreeEffect) => Promise<OpenCheckDbResult>) | null
+>(null)
+
+/** 同步效应执行：与切片前的内联调用逐位一致（含 preludeYieldStats.rebuild 计数）。 */
+function execEffectSync(eff: TreeEffect): OpenCheckDbResult {
+  preludeYieldStats.rebuild++
+  return openCheckDb(eff.bookRoot, eff.hasWiring, eff.opts)
+}
+
+/** 异步效应执行：rebuild 内核搬 worker（openCheckDbAsync），降级信封口径与同步版同款。 */
+async function execEffectAsync(eff: TreeEffect): Promise<OpenCheckDbResult> {
+  preludeYieldStats.rebuild++
+  const override = getOpenCheckDbEffectForTest()
+  if (override) return override(eff)
+  return openCheckDbAsync(eff.bookRoot, eff.hasWiring, eff.opts)
+}
 
 /** R62-7 测试注入：强制账本全书性红项计算抛错——验证 leadsBookDegraded 透出路径
  *  （真实损坏多被 readLeadsBookRed 自愈吞掉,难确定性触发）。生产恒 false。
@@ -102,12 +140,18 @@ export function collectTreeIssues(
   userDataPath?: string | null,
 ): TreeIssuesResult {
   // R37-3：同步驱动——生成器 yield 只把控制权交还本驱动，随即 next() 续跑，
-  // 净效果与修复前的纯同步执行逐位一致（无事件循环参与）
+  // 净效果与修复前的纯同步执行逐位一致（无事件循环参与）；效应 yield（rebuild/开库）
+  // 现执行现回填，同样零事件循环参与。
+  // 阶段 52 批 1（P3-12）：回填结果必须接在 r 上继续判 done——效应 yield 可能是整轮
+  // 聚合的**唯一**悬停点（小书：章数/目录项数均低于各段让出阈值），丢弃它再 next()
+  // 会让「已完成生成器」返回 {done:true, value:undefined} 把聚合结果吞成 undefined。
   const it = collectTreeIssuesCore(bookRoot, readReviewVerdict, userDataPath)
-  for (;;) {
-    const r = it.next()
-    if (r.done) return r.value
+  let r: IteratorResult<void | TreeEffect, TreeIssuesResult> = it.next()
+  while (!r.done) {
+    const eff = r.value
+    r = eff === undefined ? it.next() : it.next(execEffectSync(eff))
   }
+  return r.value
 }
 
 /**
@@ -115,6 +159,8 @@ export function collectTreeIssues(
  *（每 TREE_ISSUES_YIELD_EVERY 章）await setImmediate 让出事件循环，大书聚合期间
  * 其它请求/SSE 心跳可跑（服务热路径纪律：禁止同步长段，让出范式同 learn/index.ts
  * R72-2）。并发防护口径见上方 R37-3 注释块——与同步版共享，无新增差异面。
+ * 阶段 52 批 1（P3-12）：驱动加 inject 槽承载「效应让出」——rebuild/开库段改 await
+ * openCheckDbAsync（rebuild 内核走 worker 线程，慢盘上该段不再冻结事件循环）。
  */
 export async function collectTreeIssuesAsync(
   bookRoot: string,
@@ -122,19 +168,23 @@ export async function collectTreeIssuesAsync(
   userDataPath?: string | null,
 ): Promise<TreeIssuesResult> {
   const it = collectTreeIssuesCore(bookRoot, readReviewVerdict, userDataPath)
+  let inject: OpenCheckDbResult | undefined
   for (;;) {
-    const r = it.next()
+    const r = it.next(inject)
+    inject = undefined
     if (r.done) return r.value
-    await yieldToEventLoop()
+    if (r.value !== undefined) inject = await execEffectAsync(r.value as TreeEffect)
+    else await yieldToEventLoop()
   }
 }
 
-/** R37-3：树红点聚合的实现体（生成器，单源供同步/async 双驱动）。 */
+/** R37-3：树红点聚合的实现体（生成器，单源供同步/async 双驱动）。
+ *  阶段 52 批 1：yield 面含效应请求（TreeEffect），由驱动解释执行（见上「效应让出」注）。 */
 function* collectTreeIssuesCore(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
   userDataPath?: string | null,
-): Generator<void, TreeIssuesResult, unknown> {
+): Generator<void | TreeEffect, TreeIssuesResult, unknown> {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   // R29-5（二十九轮）：树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
   // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
@@ -157,7 +207,7 @@ function* collectTreeIssuesCore(
   let epochFp0: string | null = null
   if (hasWiring) {
     try {
-      epochFp0 = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+      epochFp0 = yield* computeTreeIssuesGlobalFpCore(bookRoot, userDataPath ?? null)
     } catch {
       /* fp 前算失败：rebuild 照常，sync 处自算兜底 */
     }
@@ -166,7 +216,14 @@ function* collectTreeIssuesCore(
     // 「rebuild 报错列表非空」这一种失败形态走了降级，库损坏/锁超时直接把树红点端点打挂。
     //（「rebuild→开库→PRAGMA」前奏 P3 收编 openCheckDb（failMode 'fail-open'，rebuild
     // 失败降级 comment 随实现移入该函数）；树聚合不吃 R47-11 节流，口径见其头注。）
-    const opened = openCheckDb(bookRoot, hasWiring, { throttleSourceProbe: false, failMode: 'fail-open' })
+    // 阶段 52 批 1（P3-12）：改「效应让出」——同步驱动现执行现回填（openCheckDb，行为
+    // 与切片前逐位一致），async 驱动 await openCheckDbAsync（rebuild 走 worker 线程）
+    const opened = (yield {
+      kind: 'openCheckDb',
+      bookRoot,
+      hasWiring,
+      opts: { throttleSourceProbe: false, failMode: 'fail-open' },
+    }) as OpenCheckDbResult
     db = opened.db
     rebuildFailed = opened.rebuildFailed
   }
@@ -224,7 +281,7 @@ function* collectTreeIssuesCore(
     // 计数透出（chaptersParseDegraded，与 chaptersDegraded 同款降级口径）；章级黄项
     // 无处落（issues 只存 hasRed/verdictRejected 布尔，见上方 R29-5 注），可见性由
     // 计数标志 + warn 承担。
-    const bodyDirScan = existsSync(bodyDir) ? readChapterDir(bodyDir) : null
+    const bodyDirScan = existsSync(bodyDir) ? yield* scanChapterDirCore(bodyDir) : null
     const bodyChapters = bodyDirScan?.chapters ?? []
     let chaptersParseDegraded = 0
     for (const pe of bodyDirScan?.errors ?? []) {
@@ -247,7 +304,7 @@ function* collectTreeIssuesCore(
         // （epochFpEnd）各一遍（R47-30 口径成立，见下方待落盘段注）；基线缺席（前算
         // 失败为 null）回落全算，非空/null 分支语义保持。
         const leadsFp = epochFp0 !== null
-          ? computeLeadsBookFpFromEpochFp(bookRoot, epochFp0)
+          ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
           : computeLeadsBookFp(bookRoot, userDataPath ?? null)
         const cachedRed = readLeadsBookRed(db, leadsFp)
         if (cachedRed !== null) {
@@ -257,7 +314,7 @@ function* collectTreeIssuesCore(
           //（bodyChapters 全空时以 0 为基准）；R48-37（四十八轮）：原 `?? maxExisting`
           // 死回退与「回退全书最高现存章号」注释删除——maxWritten 为 undefined 仅当
           // bodyChapters 为空，此时 maxExisting 恒 0，真回退在上移的函数内完成
-          leadsBookRed = checkLeadsBookItems(db, bookRoot, maxWritten ?? 0, enabledLeadTypes(config)).some(
+          leadsBookRed = (yield* checkLeadsBookItemsCore(db, bookRoot, maxWritten ?? 0, enabledLeadTypes(config))).some(
             (i) => i.level === 'red',
           )
           // R53-E-1（五十三轮）：写前纪元终核（R70-14 章级行同款口径）——leadsFp 在
@@ -270,7 +327,7 @@ function* collectTreeIssuesCore(
           // 的 fp 比对即失效判定，语义不变；mtimeNs 粒度下旧 fp 值不可复现，无脏读面）
           // ——两分支下轮都付同一次重算，仅少留一行必然失效的单键值。
           const leadsFpNow = epochFp0 !== null
-            ? computeLeadsBookFpFromEpochFp(bookRoot, epochFp0)
+            ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
             : computeLeadsBookFp(bookRoot, userDataPath ?? null)
           if (leadsFpNow === leadsFp) {
             writeLeadsBookRed(db, leadsFp, leadsBookRed)
@@ -299,11 +356,11 @@ function* collectTreeIssuesCore(
       const batch: BatchCheckContext = {
         maxWrittenChapter: maxWritten,
         outlineChapters: existsSync(join(bookRoot, '大纲', '章纲'))
-          ? readChapterDir(join(bookRoot, '大纲', '章纲')).chapters
+          ? (yield* scanChapterDirCore(join(bookRoot, '大纲', '章纲'))).chapters
           : [],
         // R65-24：批量预扫同口径走「主文件 + 归档暂存」两源（此前 readChapterLeadUpdates
         // 只读主文件——归档章实际侧失明，与单章端点统一后此处一并统一）
-        leadUpdatesForChapter: scanChapterUpdatesByChapter(bookRoot),
+        leadUpdatesForChapter: yield* scanChapterUpdatesByChapterCore(bookRoot),
         // R32-16：细纲声明批内 memo（此前每章现读同一细纲文件，CC-P1-3 预扫漏项）
         outlineDeclarationFor: scanOutlineDeclarationMemo(bookRoot),
         // P3（复审-0914-优化修复批）：布线判定透传——章循环内 checkWithDb 不再逐章
@@ -439,7 +496,7 @@ function* collectTreeIssuesCore(
       // R33D-17（三十三轮）：落盘改单事务包批（writeTreeIssuesCacheBatch）——数百章书
       // 纪元失效后一轮聚合此前逐行独立 commit（WAL 放大）。
       if (pendingCacheWrites.length > 0 && db && epochFp0 !== null) {
-        const epochFpEnd = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+        const epochFpEnd = yield* computeTreeIssuesGlobalFpCore(bookRoot, userDataPath ?? null)
         if (epochFpEnd !== epochFp0) {
           log.warn('check', `聚合窗口内全局输入纪元漂移——本轮 ${pendingCacheWrites.length} 条章缓存不落盘（下轮重算）`)
         } else {

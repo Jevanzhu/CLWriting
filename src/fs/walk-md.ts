@@ -108,6 +108,20 @@ export async function walkMdEachAsync(
   await walk(startDir, realRoot)
 }
 
+/**
+ * walkMdEach 的生成器孪生（阶段 52 批 1）：与同步版同源核心（mdFileEntries），逐项产出
+ * 命中而非回调——调用方可在项目间 yield 让出事件循环（机检前奏段的目录整扫切片用）。
+ * 遍历纪律与 walkMdEach 逐位同源：Dirent 判型（不跟随 symlink）、realpath 去重环剪枝、
+ * 根界 = startDir 自身、`._` 资源分叉排除、产物路径重挂回调用方 startDir 命名空间。
+ * @param visited 跨目录共享的已访问集合（语义同 walkMdEach）。
+ */
+export function* walkMdEachGen(
+  startDir: string,
+  visited: Set<string> = new Set<string>(),
+): Generator<{ abs: string; name: string }, void, void> {
+  for (const hit of mdFileEntries(startDir, visited)) yield { abs: hit.abs, name: hit.name }
+}
+
 /** 共享遍历核心：产出 startDir 之下全部 .md 文件（生成器，短路友好）。 */
 function* mdFileEntries(
   startDir: string,

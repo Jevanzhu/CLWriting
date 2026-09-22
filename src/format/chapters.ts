@@ -7,10 +7,12 @@
 
 import { statSync } from 'node:fs'
 import { sep } from 'node:path'
-import { walkMdEach } from '../fs/walk-md.js'
+import { walkMdEach, walkMdEachGen } from '../fs/walk-md.js'
 import { readFile, parseFlat } from './frontmatter.js'
 import { countWords, chapterFilePrefix } from './words.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
+import { driveToEnd } from '../async.js'
+import { preludeYieldStats } from '../shared/yield-stats.js'
 
 /** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
@@ -278,9 +280,27 @@ export function readChapterDirSummary(dirPath: string): {
  * 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）；latest 在同一轮 stat 里
  * 顺带跟踪最新 mtime 的章（readChapterDirSummary 消费），不产生第二次 stat。
  */
-function scanChapterDir(
-  dirPath: string,
-): { chapters: ChapterMeta[]; errors: ParseError[]; latest: { mtimeMs: number; no: number; title: string } | null } {
+function scanChapterDir(dirPath: string): ChapterDirScan {
+  return driveToEnd(scanChapterDirCore(dirPath))
+}
+
+/** CC-P1-3：目录整扫结果（scanChapterDirCore 与其同步包装共用形状）。 */
+interface ChapterDirScan {
+  chapters: ChapterMeta[]
+  errors: ParseError[]
+  latest: { mtimeMs: number; no: number; title: string } | null
+}
+
+/** 阶段 52 批 1（P3-12）：目录整扫的让出粒度——每枚举 N 个 .md 项让出一次
+ *  （含后续 stat/解析失败的项：扫描成本已付）。导出供测试锚（A2 按 K 断言）。 */
+export const CHAPTER_SCAN_YIELD_EVERY = 25
+
+/**
+ * scanChapterDir 的实现体（生成器，单源供同步/async 双驱动；导出供机检链 `yield*`
+ * 委托）。遍历经 walkMdEachGen（与 walkMdEach 同源核，symlink/根界纪律单源）；
+ * 逐项 stat + (mtimeNs,size) 判定 + 解析/缓存写入的顺序与切片前逐位一致。
+ */
+export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDirScan, unknown> {
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
   // R70-21：FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
   if (!chapterDirCache.has(dirPath) && chapterDirCache.size >= CHAPTER_DIR_CACHE_MAX) {
@@ -294,12 +314,18 @@ function scanChapterDir(
   let latest: { mtimeMs: number; no: number; title: string } | null = null
   // N2（五十九轮）：walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
   // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
-  walkMdEach(dirPath, (fp) => {
+  let scanned = 0
+  for (const { abs: fp } of walkMdEachGen(dirPath)) {
+    // 阶段 52 批 1：让出点（A2）——每 N 项一次，让出后本项照常处理
+    if (++scanned % CHAPTER_SCAN_YIELD_EVERY === 0) {
+      preludeYieldStats.chapterScan++
+      yield
+    }
     let st: ReturnType<typeof statSync>
     try {
       st = statSync(fp, { bigint: true })
     } catch {
-      return
+      continue
     }
     const mtimeMs = Number(st.mtimeNs) / 1e6
     const hit = cache.get(fp)
@@ -311,7 +337,7 @@ function scanChapterDir(
       if (!r.ok) {
         errors.push(r.error)
         cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
-        return
+        continue
       }
       cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
       chapter = cloneChapter(r.chapter)
@@ -324,7 +350,7 @@ function scanChapterDir(
     if (latest === null || mtimeMs > latest.mtimeMs || (mtimeMs === latest.mtimeMs && chapter.章号 > latest.no))
       latest = { mtimeMs, no: chapter.章号, title: chapter.标题 }
     seen.add(fp)
-  })
+  }
   // 清理已删除文件条目（结构变化自愈：删章/移章下一轮 walk 即失效）
   for (const key of cache.keys()) {
     if (!seen.has(key)) cache.delete(key)

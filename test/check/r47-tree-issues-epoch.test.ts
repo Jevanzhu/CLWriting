@@ -17,16 +17,17 @@ import { DatabaseSync } from 'node:sqlite'
 
 vi.mock('../../src/check/tree-issues-cache.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/tree-issues-cache.js')>()
-  return { ...actual, computeTreeIssuesGlobalFp: vi.fn(actual.computeTreeIssuesGlobalFp) }
+  return { ...actual, computeTreeIssuesGlobalFpCore: vi.fn(actual.computeTreeIssuesGlobalFpCore) }
 })
 
-import { computeTreeIssuesGlobalFp, syncTreeIssuesEpoch } from '../../src/check/tree-issues-cache.js'
+import { computeTreeIssuesGlobalFpCore, syncTreeIssuesEpoch } from '../../src/check/tree-issues-cache.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { driveToEnd } from '../../src/async.js'
 
-const fpMock = vi.mocked(computeTreeIssuesGlobalFp)
+const fpMock = vi.mocked(computeTreeIssuesGlobalFpCore)
 
 /** 与 r71 计数测试同款造书（含布线 + 每章禁词「玉佩」制造确定红源） */
 function makeBook(chapterCount: number): string {
@@ -120,12 +121,16 @@ describe('R47-30：语义零回归（终核口径保留）', () => {
       collectTreeIssues(root, () => undefined) // 建缓存（首轮全 miss + 落盘）
       // 第二轮：章循环中途触碰纪元源——通过 fp 包装在每次调用后触碰一次全局输入，
       // 使终核遍（epochFpEnd）必见漂移 → 本轮零落缓存
+      // 阶段 52 批 1：改挂新核（computeTreeIssuesGlobalFp → …Core，断言值一律不改）——
+      // 核为生成器，注入侧先直驱算完（等价原同步调用），再包成核产出回传
       const orig = fpMock.getMockImplementation()!
       let n = 0
       fpMock.mockImplementation((...args) => {
-        const r = orig(...args)
+        const r = driveToEnd(orig(...args))
         if (++n === 1) utimesSync(join(root, 'book.yaml'), new Date(), new Date())
-        return r
+        return (function* () {
+          return r
+        })()
       })
       try {
         collectTreeIssues(root, () => undefined)
