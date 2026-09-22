@@ -22,6 +22,7 @@ import { yieldToEventLoop } from '../../src/async.js'
 import {
   collectTreeIssues,
   collectTreeIssuesAsync,
+  scanChapterUpdatesByChapter,
   scanChapterUpdatesByChapterCore,
 } from '../../src/check/run.js'
 import { computeTreeIssuesGlobalFpCore } from '../../src/check/tree-issues-cache.js'
@@ -128,6 +129,28 @@ describe('机检前奏段让出计数（A2，三段隔离夹具）', () => {
     expect(preludeYieldStats.dirFp).toBe(0)
     expect(preludeYieldStats.chapterScan).toBe(0)
     expect(preludeYieldStats.leadsBook).toBe(0)
+  })
+
+  // 阶段 52 附批（coverage 修账）：同步包装 `scanChapterUpdatesByChapter` 与生成器异步驱动
+  // 逐位同结果——设计 §1.2 的「生成器核心 + 同步包装」单源承诺在此钉住（域级阈值门抓到该
+  // 包装零覆盖：run-tree-issues 的调用点随批改 `yield*` 核心，包装失去既有消费方）。
+  it('账本预扫段：同步包装与生成器异步驱动逐位同结果（单源双驱动）', async () => {
+    const root = makeBook(0, 2)
+    const archiveDir = join(root, LEAD_UPDATES_ARCHIVE_DIR)
+    mkdirSync(archiveDir, { recursive: true })
+    for (let no = 1; no <= 3; no++) {
+      writeFileSync(
+        join(archiveDir, `第${no}章.md`),
+        `- 悬念-001 埋下：「第${no}章的归档推进证据」\n`,
+        'utf-8',
+      )
+    }
+    const syncOf = scanChapterUpdatesByChapter(root)
+    const asyncOf = await driveAsync(scanChapterUpdatesByChapterCore(root))
+    for (const no of [1, 2, 3, 99]) {
+      expect(syncOf(no)).toEqual(asyncOf(no))
+    }
+    expect(syncOf(1).updates).toHaveLength(1) // 非空自证：两侧都不是「都没读到」的等价
   })
 })
 
