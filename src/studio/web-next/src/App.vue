@@ -7,6 +7,8 @@ import { usePrefsStore } from './stores/prefs'
 import { LAST_BOOK_KEY } from './shared/storage-keys'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
+// 阶段 53：更新提示横幅（有新正式版时提示 + 指路下载）
+import UpdateBanner from './components/ui/UpdateBanner.vue'
 // R42-3/R42-4（四十二轮）：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
 // /welcome、/library、书库独立窗口上 ui.toast 静默失效（switchLibrary 取消原因/
 // openLibraryDir 失败无渲染点）、系统菜单「设置/新建书/导出」（CmdOrCtrl+, / Cmd+N /
@@ -82,6 +84,7 @@ onBeforeUnmount(() => {
 <template>
   <ErrorBoundary>
     <StartupNoticeBanner />
+    <UpdateBanner />
     <router-view />
     <!-- R42-3/R42-4：全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
     <Toast />
