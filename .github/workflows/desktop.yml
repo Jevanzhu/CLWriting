@@ -1,6 +1,9 @@
 # Electron 桌面应用构建（#electron · mac dmg + win 便携 zip——win 腿阶段 21 J0 启用、阶段 47 改便携免安装；linux 仍暂缓）
 # 手动触发 或 tag v* 触发；产物 macOS→dmg、Windows→便携 zip（x64，首版 unsigned 见 D4）；
 # tag 跑全绿后由「发布」job 汇双腿产物建 GitHub Release 草稿（作者复核后手动发布，见文末）
+# 门分工（触发面/门分工批，2026-09-22）：命令级重复门全在 ci.yml（已接 tags 触发）——本工作流
+# 只留 release-specific 门、平台运行腿与出包/打包态冒烟；移交由 release job 首步的「同 commit
+# CI 全绿门」fail-closed 兑现（见彼步注释），不靠自律。
 name: Desktop Build
 on:
   workflow_dispatch:
@@ -25,6 +28,8 @@ jobs:
     # build:all + playwright），与 ci.yml e2e job 同预算量级
     # J0（阶段 21）：40→50——win 腿 npm ci 与 NSIS 首跑工具链下载（nsis/winCodeSign）
     # 偏慢，windows runner 无历史缓存留余量；mac 腿实测量级不变
+    # 触发面/门分工批：重复门摘净后本 job 工作量回落（单测/四 check/audit/soak 已不在此
+    # 腿），50 作为慢 runner + 首跑工具链下载的余量原样保留（预算不是门清单的反推）。
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -54,14 +59,6 @@ jobs:
       # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
       # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
       - run: npm --prefix src/studio/web-next ci
-      # G401（0918四轮修复批）：依赖漏洞扫描门——根包与 web-next 子包各扫一次
-      #（--audit-level=high 只拦高危以上）。存量高危已由清链批 024f8726 清零（root 仅余
-      # vitest 族 moderate、web-next 归零），观察期收口翻 blocker：新增 high 及以上即红
-      #（四轮-G401「连续绿后翻 blocker」兑现）。
-      - name: 依赖漏洞扫描（npm audit ≥high，根包）
-        run: npm audit --audit-level=high
-      - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
-        run: npm --prefix src/studio/web-next audit --audit-level=high
       # R0916-6-P2-3（2026-09-16 全库源码重评五轮修复批）：tag 名 ↔ package.json version
       # 一致性门——工作流以 tags: ['v*'] 触发，此前出包前无任何步骤校验两者一致：打 tag
       # v1.0.0 忘 bump version 时，electron-builder 产物名写旧版本（package.json 的
@@ -90,65 +87,17 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME 指向不在 origin/main 上——出包只从 main 出：先合 main 推送，再在 main 上打 tag"
             exit 1
           fi
-      # M-3（第十一轮）：tag 发布门补 typecheck+test 前置——此前 tag v* 直接产 DMG，工作流
-      # 内无任何验证步（ci.yml 只监听分支 push），tag 若指未测提交即产出未验证发布物；
-      # rc.1 实操是先门禁绿再打 tag（流程弥补），此处把门焊进工作流本体
-      - name: 类型检查（tsc --noEmit 零错）
-        run: npm run typecheck
-      - name: 前端类型检查（vue-tsc）
-        run: npm --prefix src/studio/web-next run typecheck
-      # R67-3（十五轮）：lint 门焊进 tag 发布工作流（与 ci.yml 同款步骤）——此前 tag 门
-      # 门集与分支 CI 不对称，lint 只在本地生效
-      - name: lint 门（eslint）
-        run: npm run lint
-      # R0912-G2-P3-5（2026-09-12 独立重评修复批）：win 腿拆专用步收尾竞态重跑兜底，
-      # 同 ci.yml「测试」步的 R0911-G-P1-1d 结构逐行照搬（成因/语义/副作用见彼处注释；
-      # desktop.yml 矩阵为 os 双腿无 node 维度——按矩阵腿 if 分流：win 走 pwsh 重跑，
-      # 非 win 维持原样单跑。上游根治后与 ci.yml 兜底一并可撤）。
-      - name: 单元测试（vitest run）
-        if: runner.os != 'Windows'
-        run: npm test
-      - name: 单元测试（win 腿，R0912-G2-P3-5 收尾竞态重跑一次兜底，同 R0911-G-P1-1d）
-        if: runner.os == 'Windows'
-        # G402（0918四轮修复批）：pwsh 重跑逻辑抽本地 composite action（.github/actions/
-        # win-vitest-retry，ci.yml 同批接线）——两段逐行复制品单源化；语义与日志文案
-        # 逐字保持（批次号经 warning-title 传参），重跑兜底语义不变。
-        uses: ./.github/actions/win-vitest-retry
-        with:
-          warning-title: R0912-G2-P3-5
-      # N-1（第十二轮）：M-3 修得不完整——tag 门只补了 typecheck+test，check:packaging
-      # （打包资源完整性门）与 release-smoke（编译产物真实起服验证）仍只在 ci.yml 分支
-      # push 跑；tag 若指 ci.yml 跳过/失败的提交（CC-P1-7 场景），DMG 仍可产出未验发布
-      # 形态。此处把两门焊进 tag 工作流本体（与 ci.yml e2e job 同款步骤）
-      - name: 打包资源门（check:packaging）
-        run: npm run check:packaging
-      # P-2（第十四轮）：tag 门与 ci.yml 门集合对齐——counts（README 账实对账）与
-      # knowledge（知识层 manifest 校验，check:knowledge 是其唯一自动执行通道）补进
-      # 发布工作流；tag 指未经分支 CI 的提交时 DMG 不再携带文档失真/manifest 失配出包
-      - name: 计数对账门（check:counts）
-        run: npm run check:counts
-      # RC 全项目重审 P3：check:docs（2026-09-19 入 ci.yml）此前未随批同步进发布腿——
-      # 四 check 只有三个在 tag 门，与 ci.yml 门集合对齐的既有宣称不符；tag 指未走分支
-      # CI 的提交时文档篇幅/禁语失真可随发布物出包。补齐后四 check 集合两工作流对齐。
-      - name: 文档篇幅门（check:docs）
-        run: npm run check:docs
-      - name: 知识层门（check:knowledge）
-        run: npm run check:knowledge
-      # G404（0918四轮修复批）：tag 发布门补 soak 内存门——此前 soak 只在 ci.yml e2e job
-      # 跑（tag 触发不经分支 CI），泄漏回归可随未测提交的 DMG/exe 出包无门可拦；此处焊进
-      # 发布工作流本体，blocking（不设 continue-on-error）。取 mac 腿单腿背书（纯 Node
-      # 脚本零系统依赖，win 腿亦可跑，但 win 腿预算已被 J0 吃紧不叠加）。断言两段式
-      #（G408）：先 soak.ts --plan 提计划数，再真跑比对 OK 行数——计数源与 ci.yml soak
-      # 门同源（补段只改 soak.ts PLAN_SEGMENTS 一处）；先例逐字对齐 ci.yml soak 门。
-      - name: 有界内存/soak 门（--expose-gc，tag 发布腿）
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          SOAK_N=$(node --import tsx test/soak/soak.ts --plan | sed -n 's/^plan: \([0-9]\{1,\}\)$/\1/p')
-          [ -n "$SOAK_N" ] || { echo "::error::soak --plan 未输出计划数（应含 plan: N 行）——计数提取失败，按 fail-closed 处理"; exit 1; }
-          npm run soak | tee /tmp/soak-output.log
-          OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
-          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
+      # 触发面/门分工批（2026-09-22）：本工作流原有的一批命令级重复门随批摘净——npm audit ×2
+      #（G401）/ tsc / vue-tsc / lint（R67-3）/ 单测两腿（R0912-G2-P3-5）/ check:packaging
+      #（N-1）/ check:counts（P-2）/ check:docs / check:knowledge / soak（G404）全部撤步：
+      # ci.yml 本批接 tags 触发，同一 commit 上这些门在彼处按「三 OS × node 24/26 + ubuntu
+      # e2e job」全矩阵跑（等效或更宽，tag 路径不再双跑）；逐条撤步的成因沿革 = git 历史。
+      # 本工作流留三门面：① release-specific 门（上方两条 tag 门）② 平台运行腿（win 腿
+      # e2e/release-smoke——ci.yml e2e job 是 ubuntu 单腿，win 是出货平台，G403/阶段 46 的
+      # 翻阻断承诺由此承载）③ 出包与打包态冒烟（物理上只能在出包工作流里跑）。
+      # 移交不靠自律：release job 首步「同 commit CI 全绿门」fail-closed 确认背书在位（CI 被
+      # 停用即彼处报红，不静默放行未验发布物）。workflow_dispatch 复演腿的门请走 ci.yml 的
+      # workflow_dispatch——本工作流复演只做出包面。
       # R0912-3（重评-0912-3 #45）：mac 腿补 playwright chromium 缓存——此前仅 ci.yml
       # e2e job（ubuntu）有缓存，mac 腿每次 ~130MB 重下。路径按 macOS 实际缓存位
       #（~/Library/Caches/ms-playwright，非 linux 的 ~/.cache）。
@@ -189,25 +138,22 @@ jobs:
       - name: 装 playwright chromium
         # G403：win 腿接 e2e 后双腿同装（chromium 在 win 免系统依赖步，无需 --with-deps）
         run: npx playwright install chromium
-      # R69-32（十七轮）：tag 门补常规 e2e（29 spec 前端动线）——此前 tag 门只有
-      # release-smoke（2 用例）+ Electron 启动冒烟兜底核心面，前端交互回归可随 DMG
-      # 出包；复用上方已装 chromium（test:e2e 自带 build:web 前置）。coverage 阈值门
-      # 仍留分支 CI（阈值门管代码演化趋势，非发布物属性，注释记档口径）。
-      - name: 常规 e2e（build:web + playwright test）
-        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革；win 腿同款两步见下方，阶段 46 已翻阻断）
-        run: npm run test:e2e
-      - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
-        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革；win 腿同款两步见下方，阶段 46 已翻阻断）
-        run: npm run test:e2e:release
+      # 触发面/门分工批：mac 腿两步（常规 e2e 与 release-smoke）撤步——ci.yml e2e job 跑同款
+      # 命令、同款 spec 集，链平台中立（R66-38 已据「全链只碰 chromium + Node HTTP」把 e2e
+      # 从 mac 迁 ubuntu，macos runner 10× 计费），属命令级重复；撤步后 mac 腿的 playwright
+      # 消费面 = 下方打包态应用冒烟（packaged-app-smoke）。R69-32（十七轮）「tag 门补常规
+      # e2e（29 spec 前端动线），此前 tag 门只有 release-smoke + Electron 启动冒烟」的本意
+      # 由 win 腿两步承载（见下）；coverage 阈值门仍留分支 CI（阈值门管代码演化趋势，
+      # 非发布物属性，注释记档口径）。
       # G403（0918四轮修复批）：出货平台 Windows 的 e2e/release-smoke CI 覆盖——此前 win
       # 腿只跑门禁步 + build:desktop + 打包态冒烟，test:e2e / test:e2e:release 双零覆盖
       #（D5「e2e 仍 mac」口径未随 win 出货反转）。镜像 mac 腿式样：复用上方已装 chromium；
       # test:e2e 自带 build:web 前置、release-smoke 自带 build:all 前置，零额外环境变量
       #（两链纯 Node + chromium 无 mac 专属面；playwright.config/global-setup 平台中立，
-      # global-setup 自带 win32 分支）。timeout 预算核对：job 总额 50min，win 腿现跑段
-      #（双 npm ci + 门禁步 + build:desktop + 冒烟）估 ~30min，叠 e2e（build:web + 33
-      # spec 串行）+ release-smoke（build:all + 2 用例）≈ +8min，预算内；首跑若触顶再校准
-      #（参照 ci.yml e2e job 同链 25min 预算）。
+      # global-setup 自带 win32 分支）。timeout 预算核对（触发面/门分工批重核）：job 总额
+      # 50min，win 腿现跑段 = 双 npm ci + e2e（build:web + 33 spec 串行）+ release-smoke
+      #（build:all + 2 用例）+ build:desktop + 打包态冒烟（原「门禁步」已随批摘净）≈ 30min
+      # 量级，预算内；首跑若触顶再校准（参照 ci.yml e2e job 同链 25min 预算）。
       # G403 观察档收口（阶段 46 翻正批）：首期 continue-on-error 观察档撤除翻阻断——
       # win runner 上 e2e·release-smoke 连续 3 次绿达成（Desktop dispatch 二/五/六轮
       # 实录：run 35455818028·35458683520·35460424950，win 腿两步逐轮双绿），承诺兑现。
@@ -505,10 +451,55 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 触发面/门分工批：15→60——首步「同 commit CI 全绿门」要等 ci.yml（tag 推送同时触发）
+    # 跑完（build-test 预算 45min 与 e2e 25min 并行），轮询上限 45min 落在本预算内。
+    timeout-minutes: 60
     permissions:
       contents: write
+      # 触发面/门分工批：job 级 permissions 显式后未列项归零——读 ci.yml 运行面（「同 commit
+      # CI 全绿门」走 actions/runs 端点）须补本项，缺则 403 表现为「查不到 CI 运行」。
+      actions: read
     steps:
+      # 触发面/门分工批（2026-09-22）：移交门——本工作流摘净的重复门（typecheck/lint/单测/
+      # 四 check/audit/soak/ubuntu e2e 与 release-smoke）由 ci.yml 承担，本步把「承担」验成
+      # 门禁再建 Release：查同一 commit 的 ci.yml 运行（优先取 tag ref 那次，缺则取该 SHA
+      # 最近一次），未出现/未完成/非 success 一律止步（不建草稿）。
+      # fail-closed 语义：CI 工作流被停用（Actions 页 disabled_manually）时该 SHA 无 run——
+      # 本门报红并给指因，不静默放行「无人验证的发布物」；tag 触发若失效（工作流文件不在
+      # tag 提交上）同见此红。轮询上限 45min 与 release job 预算 60min 对齐，超时按未完成
+      # 判红（不吞）。重发链（移 tag 重跑）走同门：新 tag 指向的新 commit 各自过各自的 CI。
+      - name: 确认 ci.yml 已背书本 commit（同 commit CI 全绿门）
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          DEADLINE=$((SECONDS + 2700))
+          NONE_SINCE=""
+          LAST="none"
+          while :; do
+            RUNS=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=20" 2>/dev/null || echo '{"workflow_runs":[]}')
+            VERDICT=$(printf '%s' "$RUNS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let r=[];try{r=(JSON.parse(s).workflow_runs)||[]}catch(e){}const same=r.filter(x=>x.head_sha===process.env.GITHUB_SHA);const p=same.find(x=>x.head_branch===process.env.GITHUB_REF_NAME)||same[0];console.log(!p?"none":p.status!=="completed"?"pending "+p.status:p.conclusion==="success"?"ok "+p.html_url:"fail "+(p.conclusion||"null")+" "+p.html_url)})')
+            case "$VERDICT" in
+              ok\ *) echo "同 commit CI 全绿门过：${VERDICT#ok }"; exit 0 ;;
+              fail\ *) echo "::error::同 commit 的 ci.yml 未绿（${VERDICT#fail }）——Release 草稿不建：先修红再移 tag 重跑本链"; exit 1 ;;
+            esac
+            if [ "$VERDICT" = "none" ]; then
+              [ -n "$NONE_SINCE" ] || NONE_SINCE=$SECONDS
+              if [ $((SECONDS - NONE_SINCE)) -ge 120 ]; then
+                echo "::error::同一 commit 上迟迟无 ci.yml 运行（等待 120s）——CI 工作流可能被停用（Actions 页 disabled_manually）或 tag 触发未生效：本门 fail-closed 不建 Release；启用 ci.yml 后移 tag 重跑本链"
+                exit 1
+              fi
+            else
+              NONE_SINCE=""
+              LAST="$VERDICT"
+            fi
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::等待 ci.yml 背书超时（45min，末次状态：${LAST}）——查 Actions 页 ci.yml 是否仍在跑/被停用；本门 fail-closed 不建 Release"
+              exit 1
+            fi
+            sleep 30
+          done
       # 双腿工件分目录下载（不用 merge-multiple 合并——两腿各带一份 SHA256SUMS.txt，
       # 同名合并会静默覆盖；本 job 要按腿归位重算全量清单，分目录是前提）。SHA 钉版口径
       # 同 G406（v4 tag → commit，git ref 端点实取）。

@@ -8,8 +8,16 @@ on:
   # R49-36：补回 push main 腿——上一行挂账的「push 腿频推期结束后恢复」至此兑现，
   # main 直推恢复全矩阵背书。push（refs/heads/main）与 PR（refs/pull/*/merge）ref 不同，
   # concurrency 组互不相扰；组内语义两触发各自成立（PR 连推连取消，push 腿不取消，见下）。
+  # 触发面/门分工批（2026-09-22）：push 补 tags 腿——作者口径「CI 走 main，打 tag 才触发」
+  # 落为双面：main 直推照旧全矩阵背书，tag 推送把发布物的 CI 背书收进本工作流。同批
+  # desktop.yml 里与本文命令级重复的门（audit / tsc / vue-tsc / lint / 单测两腿 / 四 check
+  # / soak / mac 腿 e2e·release-smoke）摘净，门责任单源化到此处；desktop.yml 的 release job
+  # 前置「同 commit CI 全绿门」把移交验成门禁（不靠自律，CI 停用即彼处报红）。
+  # 语义要点：branches 与 tags 两过滤互不抑制，push 命中任一即触发；tags 只认 v* 前缀
+  #（正式版与 rc 均命中），且 tag 触发的运行读的是 tag 所指提交上的本文件。
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
