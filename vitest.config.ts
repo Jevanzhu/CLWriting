@@ -61,7 +61,9 @@ export default defineConfig({
     environment: 'node',
     // T2-3：GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
     // x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
-    setupFiles: ['test/helpers/studio-token-setup.ts'],
+    // 阶段 53 S5：第二个 setup 关掉起服后延迟触发的更新检查（测试不打网的硬要求，
+    // 见 test/helpers/disable-update-check-setup.ts 头注）。
+    setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
     // R73-77（批 F-7）：全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
     // 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
     // it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级

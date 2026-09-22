@@ -14,8 +14,10 @@ import { startServerSafe } from '../helpers/safe-port.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   runUpdateCheckOnce,
+  getUpdateCheckState,
   __resetUpdateCheckForTest,
   __setUpdateCheckResultForTest,
+  UPDATE_CHECK_DISABLE_ENV,
 } from '../../src/update/check.js'
 
 const servers: http.Server[] = []
@@ -93,7 +95,16 @@ describe('GET /api/app-info（阶段 53 S2）', () => {
   })
 
   it('无更新态（检查已跑完但无新版）：update 仍为 null', async () => {
-    await runUpdateCheckOnce({ currentVersion: '1.0.0', fetchImpl: rcOnlyFetch })
+    // 全局 setup 置了不打网开关（test/helpers/disable-update-check-setup.ts）——本例要
+    // 真跑一次检查（stub fetch，不出站）才能到「已跑完」态，故局部摘掉再还原
+    const saved = process.env[UPDATE_CHECK_DISABLE_ENV]
+    delete process.env[UPDATE_CHECK_DISABLE_ENV]
+    try {
+      await runUpdateCheckOnce({ currentVersion: '1.0.0', fetchImpl: rcOnlyFetch })
+    } finally {
+      if (saved !== undefined) process.env[UPDATE_CHECK_DISABLE_ENV] = saved
+    }
+    expect(getUpdateCheckState()).toBe('done') // 非空基：确认检查真跑过（非开关短路）
     const baseUrl = await bootReady()
     const r = await getAppInfo(baseUrl)
     expect(r.body.update).toBeNull()

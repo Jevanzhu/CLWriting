@@ -3,6 +3,11 @@ import { defineConfig } from '@playwright/test'
 // CLW_E2E_PORT_BASE（缺省 18999）派生，定义见 test/e2e/e2e-ports.ts（含偏移表）
 import { E2E_PORT_BASE } from './test/e2e/e2e-ports.js'
 
+// 阶段 53 S5：e2e 不打网闸——关掉起服后延迟触发的更新检查（会出站访问 api.github.com）。
+// 落点在配置模块加载期：Playwright 的 worker 进程继承本进程 env，故 global-setup 的主
+// server 与各 spec 自起的 server（test/e2e/e2e-ports.ts 偏移族）一并覆盖，无需逐 spec 注入。
+process.env['CLW_DISABLE_UPDATE_CHECK'] = '1'
+
 /**
  * e2e 配置（#13.1）：globalSetup 起 studio server（mock driver + 双轨 fixture + dist/web 静态托管），
  * 测访问 baseURL 跑关键路径。mock driver 不调大模型（CLWRITING_DRIVER=mock）。
