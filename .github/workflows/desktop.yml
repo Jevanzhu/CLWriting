@@ -47,8 +47,8 @@ jobs:
       # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
       # 可读性；SHAs 与 ci.yml 同批实取、git ref 与 commit 端点双源核验）——浮动 major
       # tag 指向可被上游移动的供应链面，见 ci.yml 同注。
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm # dd-P3（E-P3-2）：npm 缓存（两条 lockfile 入键）
@@ -117,7 +117,7 @@ jobs:
         run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
       - name: 缓存 playwright chromium
         if: runner.os == 'macOS'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/ms-playwright
           key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
@@ -129,7 +129,7 @@ jobs:
       # 键含 runner.os 与 mac 腿互不串用）。
       - name: 缓存 playwright chromium（win 腿）
         if: runner.os == 'Windows'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~\AppData\Local\ms-playwright
           key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
@@ -167,7 +167,7 @@ jobs:
         run: npm run test:e2e:release
       - name: 上传 playwright trace（失败时）
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-trace-desktop
           path: test-results/
@@ -184,7 +184,7 @@ jobs:
       # 零产物即红：electron-builder 静默不出包时在此 fail-closed，不上传空壳工件。
       - name: 生成发布产物 SHA256 清单
         run: node -e "const fs=require('fs'),crypto=require('crypto');const dir='dist-electron';const files=fs.readdirSync(dir).filter(f=>f.endsWith('.dmg')||f.endsWith('.zip')).sort();if(files.length===0){console.error('[checksum] dist-electron 下无 .dmg/.zip 产物——electron-builder 出包异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(dir+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(dir+'/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && runner.os == 'macOS'
         with:
           name: clwriting-desktop-${{ matrix.os }}
@@ -198,7 +198,7 @@ jobs:
       # J0/阶段 47：win 腿工件只留便携 zip 单文件（win-unpacked/ 解包态不上传，同 H-8
       # 体积口径；zip target 无 blockmap 伴生，*.zip 通配天然单文件）
       # R0916-6-P3-9：SHA256SUMS.txt 随产物一并上传（生成步见 build:desktop 后）
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always() && runner.os == 'Windows'
         with:
           name: clwriting-desktop-${{ matrix.os }}
@@ -503,11 +503,11 @@ jobs:
       # 双腿工件分目录下载（不用 merge-multiple 合并——两腿各带一份 SHA256SUMS.txt，
       # 同名合并会静默覆盖；本 job 要按腿归位重算全量清单，分目录是前提）。SHA 钉版口径
       # 同 G406（v4 tag → commit，git ref 端点实取）。
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: clwriting-desktop-macos-latest
           path: release-assets/mac
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: clwriting-desktop-windows-latest
           path: release-assets/win

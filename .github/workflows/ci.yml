@@ -65,9 +65,9 @@ jobs:
       # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
       # 可读性）——浮动 major tag 指向可被上游移动，门逻辑可被静默换血（供应链面）；SHA
       # 为 2026-09-18 各 repo releases/tags/v4 实取，git ref 与 commit 端点双源核验。
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           # dd-P3（E-P3-2）：npm 缓存——两条 lockfile 都入键，web-next 单独升级依赖也能正确失效
@@ -167,7 +167,7 @@ jobs:
       #（用例红形态下 coverage/ 目录也要产出，见 R44-4 注记）。
       - name: 上传覆盖率报告（ubuntu·24 腿）
         if: ${{ always() && matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-report
           path: coverage/
@@ -203,9 +203,9 @@ jobs:
     # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -236,7 +236,7 @@ jobs:
         id: pwver
         run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
       - name: 缓存 playwright chromium
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
@@ -331,7 +331,7 @@ jobs:
 
       - name: 上传 trace（失败时）
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-trace
           path: test-results/
