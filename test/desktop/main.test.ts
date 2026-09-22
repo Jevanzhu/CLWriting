@@ -221,13 +221,14 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 })
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
-  it('注册面：12 handle + context-menu on', () => {
+  it('注册面：13 handle + context-menu on', () => {
     expect(Object.keys(M.ipcHandle).sort()).toEqual([
       'desktop:get-current',
       'desktop:get-recent',
       'desktop:get-system-fonts',
       'desktop:open-book',
       'desktop:open-book-dir',
+      'desktop:open-external', // 阶段 53 S3：外链（白名单前缀校验）
       'desktop:open-library',
       'desktop:open-library-dir',
       'desktop:open-library-window',
