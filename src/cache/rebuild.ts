@@ -218,7 +218,9 @@ function walkSourceStats(bookRoot: string): SourceStats {
 //    下一次探测可见——方向 = 延后一次全量重建自愈，不会永久跳过变化）；
 // ③ walkSourceStats 每次真实扫描都刷新节流条目（含未节流调用方的全量重建），
 //    让条目随任何真实扫描保持新鲜，缩小 ② 的误跳窗。
-const SOURCE_PROBE_TTL_MS = 3000
+/** R47-11：节流窗宽（ms）。导出供阶段 52 批 2 的 worker 档 TTL 承接复用同一常量
+ *  （openCheckDbAsync 的窗内跳重建与本节流条目同宽，两处口径不得手抄分裂）。 */
+export const SOURCE_PROBE_TTL_MS = 3000
 const sourceProbeLastScan = new Map<string, { at: number; stats: SourceStats }>()
 
 /** R47-11：实际扫描计数（测试断言用；生产只增不读——口径同 chapterCacheStats）。 */

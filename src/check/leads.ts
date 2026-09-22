@@ -41,6 +41,9 @@ import { preludeYieldStats } from '../shared/yield-stats.js'
  * @param closureChapter 两端闭合红项的 chapter 字段归属章（R69-16：默认 currentChapter；
  *   复检低章时 currentChapter 是全书最高定稿章，红项 chapter 若标最高章则在 UI 分组
  *   与误报标记上错指——调用方应传被检章自身章号）
+ *
+ * 阶段 52 批 2（P3-13）：本函数为同步包装（driveToEnd），实现体 = checkLeadsFormCore
+ * ——单章链 async 孪生经同一核让出（见其注）。既有调用方（runner.ts）零改动。
  */
 export function checkLeadsForm(
   db: DatabaseSync,
@@ -52,8 +55,31 @@ export function checkLeadsForm(
   skipBookItems = false,
   closureChapter?: number,
 ): CheckSectionResult {
+  return driveToEnd(
+    checkLeadsFormCore(db, bookRoot, currentChapter, enabledTypes, declaredLeadIds, actualLeadIds, skipBookItems, closureChapter),
+  )
+}
+
+/**
+ * checkLeadsForm 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = P3-13）。
+ *
+ * 全书性条目经 `yield*` 委托 checkLeadsBookItemsCore——冷缓存建章号表 + 逐章整读正文
+ * 做引文核验的让出点自此透传到驱动（单章链 async 孪生据此不再整段冻结事件循环）。
+ * 两端闭合条目零 IO（比对调用方传入的两侧清单），随核一次跑完。计算集合与切片前逐位
+ * 一致（切片只改悬停点，见 checkLeadsBookItems 头注的「全量重算等价」不变量）。
+ */
+export function* checkLeadsFormCore(
+  db: DatabaseSync,
+  bookRoot: string,
+  currentChapter: number,
+  enabledTypes: string[],
+  declaredLeadIds?: string[],
+  actualLeadIds?: string[],
+  skipBookItems = false,
+  closureChapter?: number,
+): Generator<void, CheckSectionResult, unknown> {
   const items: CheckItem[] = []
-  if (!skipBookItems) items.push(...checkLeadsBookItems(db, bookRoot, currentChapter, enabledTypes))
+  if (!skipBookItems) items.push(...(yield* checkLeadsBookItemsCore(db, bookRoot, currentChapter, enabledTypes)))
 
   // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
   // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。

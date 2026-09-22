@@ -18,7 +18,8 @@
  * 末尾：曾见块前 maxGap 31 → 块后仍 31，而块实测 349ms）。故每次驱动后先 `settleProbe()`
  * 让出一拍（探针到期回调在计时器相位先跑并记上真实间隔）再 stop()。
  *
- * 场景（三个数字说明三件事：切片生效 → 剩余大块恰是 rebuild → rebuild 搬 worker 后大块消失）：
+ * 场景（四个数字说明四件事：切片生效 → 剩余大块恰是 rebuild → rebuild 搬 worker 后大块消失
+ * → 单章链同样被切片接管）：
  *   ① 同执行档切片对比（前奏段单独的书：重布线 + 零章，逐章残余为空）：注入桩让两驱动
  *      都走同步 openCheckDb，唯一变量 = 让出点 ⇒ 同步一条长段 vs async 只剩 rebuild 块。
  *   ② 真 worker 档（同形书）：async 经 openCheckDbAsync → runRebuildAsync，rebuild 出
@@ -26,10 +27,13 @@
  *   ③ 真实混合书（重布线 + 5 章）：如实留档**未切片残余**——逐章机检按 25 章粒度让出
  *      （R37-3 既有常量，刀 2 面）+ 单文件/单句柄粒度 D4 残余，与本批切片无关但同现于
  *      真实请求，不混进 ①/② 的结论里。
+ *   ④ 单章链（重布线 + 30 章 + 60 章纲 + 30 条履历；刀 2 S7 并入）：`runCheckForDocument`
+ *      同步一条长段 vs `runCheckForDocumentAsync`（rebuild 走 worker + 履历段/章纲整扫
+ *      分段让出）——停顿时长与「同步总时长」，加结果等价锚。
  *
  * 覆盖面（如实记账）：本仿真只注同步 fs——链上前奏/整扫/逐章机检全走同步 fs；rebuild 的
  * worker 档在另一线程上下文，注入不可达（其路数由 rebuild-worker-effect.test.ts 的注入
- * 桩锁）。单章链（runCheckForDocumentAsync）的同款仿真随刀 2（S7）并入本文件。
+ * 桩锁，单章链侧由 check-chain-source-probe-ttl.test.ts 的 runRebuildAsync 桩计数锁）。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -37,6 +41,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const SIM = vi.hoisted(() => ({ delayMs: 1, readdir: 0, stat: 0, readFile: 0 }))
+
+/** 履历引文：故意不写进任何正文 → 每条履历产一条 lead-evidence-miss 红（核验真的逐条跑）。 */
+const EVIDENCE = '密室尽头的青铜灯'
 
 /** 墙钟阻塞（自旋卡时）：见头注——Atomics.wait 在 win 被计时器粒度抬到 ~15ms。 */
 function blockMs(ms: number): void {
@@ -71,7 +78,12 @@ import {
   collectTreeIssues,
   collectTreeIssuesAsync,
   openCheckDb,
+  runCheckForDocument,
+  runCheckForDocumentAsync,
   __setOpenCheckDbAsyncForTest,
+  __setOpenCheckDbTtlForTest,
+  __resetRebuildDoneAtForTest,
+  type CheckOutcome,
 } from '../../src/check/run.js'
 import { preludeYieldStats, __resetPreludeYieldStatsForTest } from '../../src/shared/yield-stats.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -80,8 +92,16 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造书：布线喂养到 wiringCount 条（前奏段重）+ chapterCount 章正文（含禁词「玉佩」）。
  *  leads.enabled 置「悬念」——rebuild 只扫已启用类（rebuild.ts:393），不启用则账本整段
- *  不进 rebuild（重前奏夹具就白造了：rebuild 块小到量不出来）。 */
-function makeBook(wiringCount: number, chapterCount: number): string {
+ *  不进 rebuild（重前奏夹具就白造了：rebuild 块小到量不出来）。
+ *  opts（全部缺省 = 批 1 各场景的原始夹具，逐字节不变）：historyEntries = 首条账本喂多少
+ *  条履历（单章链场景用：履历段是刀 2 的切片目标之一；引文故意不进正文 → 逐条产红项，
+ *  核验真的逐条跑）；outlineCount = 大纲/章纲 份数（单章链的章纲整扫段输入）。 */
+function makeBook(
+  wiringCount: number,
+  chapterCount: number,
+  opts: { historyEntries?: number; outlineCount?: number } = {},
+): string {
+  const { historyEntries = 0, outlineCount = 0 } = opts
   const root = mkdtempTracked(join(tmpdir(), 'slow-fs-sim-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -94,11 +114,23 @@ function makeBook(wiringCount: number, chapterCount: number): string {
     'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: [悬念]\n',
     'utf-8',
   )
+  const history = historyEntries > 0
+    ? Array.from({ length: historyEntries }, () => `- 第1章 埋下：「${EVIDENCE}」`).join('\n') + '\n'
+    : ''
   for (let i = 1; i <= wiringCount; i++) {
     const no = String(i).padStart(3, '0')
+    // 履历只喂首条账本（其余留空）：单章链履历段的输入集中一处，条目数 = historyEntries
     writeFileSync(
       join(root, '布线', '悬念', `悬念-${no}-线索${no}.md`),
-      `---\n编号: 悬念-${no}\n标题: 线索${no}\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n`,
+      `---\n编号: 悬念-${no}\n标题: 线索${no}\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n${i === 1 ? history : ''}`,
+      'utf-8',
+    )
+  }
+  for (let no = 1; no <= outlineCount; no++) {
+    const pad = String(no).padStart(3, '0')
+    writeFileSync(
+      join(root, '大纲', '章纲', `${pad}-第${no}章.md`),
+      `---\n章号: ${no}\n标题: 第${no}章\n字数目标: 3000\n---\n\n章纲 ${no}。\n`,
       'utf-8',
     )
   }
@@ -158,9 +190,20 @@ async function settleProbe(): Promise<void> {
   await new Promise<void>((r) => setTimeout(r, 0))
 }
 
+/** 去绝对路径的结果面：单章链两档各造同形书（临时目录名不同），只比内容不比路径。 */
+function normOutcome(o: CheckOutcome): unknown {
+  if (!o.ok) return o
+  const { _path: _ignored, ...chapterRest } = o.chapter
+  return { ...o, chapter: chapterRest }
+}
+
 const counters = (): [number, number, number] => [SIM.readdir, SIM.stat, SIM.readFile]
 
-afterEach(() => __setOpenCheckDbAsyncForTest(null))
+afterEach(() => {
+  __setOpenCheckDbAsyncForTest(null)
+  __setOpenCheckDbTtlForTest(null)
+  __resetRebuildDoneAtForTest()
+})
 
 describe('慢盘仿真：前奏段停顿与存活（收口证据）', () => {
   it('① 同执行档切片对比 + ② 真 worker 档：同步长段 → 只剩 rebuild 块 → 大块消失', async () => {
@@ -232,6 +275,56 @@ describe('慢盘仿真：前奏段停顿与存活（收口证据）', () => {
     console.log(
       `[slow-fs-sim] 真实混合书（重布线 + 5 章）：async(worker) 总时长 ${ms}ms / 最长单次停顿 ${probeResult.maxGapMs}ms / 心跳 ${probeResult.beats}\n` +
         `  （残余 = 逐章机检段 25 章粒度 + 单文件/单句柄 D4 残余——刀 2 面，非同批切片目标）`,
+    )
+  }, 90_000)
+
+  it('④ 单章链：runCheckForDocument 一条长段 vs Async（worker + 分段让出）停顿塌落 + 结果等价', async () => {
+    // 夹具：重布线 40 + 30 章正文 + 60 章纲 + 30 条履历（链上四类段都喂到让出阈值以上：
+    // 正文整扫（含 maxWrittenChapterOf 的未来章基准现扫）/章纲整扫/章目建表/履历逐条核验）
+    const rootSync = makeBook(40, 30, { historyEntries: 30, outlineCount: 60 })
+    const draftSync = join(rootSync, '写作', '正文', '001-第1章.md')
+    __resetPreludeYieldStatsForTest()
+    const c0 = counters()
+    const t0 = Date.now()
+    const sync = runCheckForDocument(rootSync, draftSync, null)
+    const syncMs = Date.now() - t0
+    const syncCalls = counters().map((v, i) => v - c0[i]!)
+    expect(sync.ok).toBe(true)
+
+    const rootAsync = makeBook(40, 30, { historyEntries: 30, outlineCount: 60 })
+    const draftAsync = join(rootAsync, '写作', '正文', '001-第1章.md')
+    __resetPreludeYieldStatsForTest()
+    const probe = startPauseProbe('④ async(单章链)')
+    const t1 = Date.now()
+    const asyncOutcome = await runCheckForDocumentAsync(rootAsync, draftAsync, null)
+    await settleProbe()
+    const asyncMs = Date.now() - t1
+    const probeResult = probe.stop()
+    const asyncCalls = counters().map((v, i) => v - c0[i]! - syncCalls[i]!)
+
+    expect(probeResult.beats).toBeGreaterThan(0) // 存活
+    expect(normOutcome(asyncOutcome)).toEqual(normOutcome(sync)) // 结果等价（切片只改悬停点）
+    // 注：两档 fs 调用数**不应**相等——async 档的 rebuild 在 worker 线程，本进程注入
+    // 打不到（这正是「搬出主线程」的证据面之一），故此处只留档不比较。
+
+    // 热态复跑（同书第二遍，窗关掉以保持「照常重建」的单变量）：余下那段停顿若主要来自
+    // 冷缓存首扫（布线派生词表/名册/铁律等单文件与小目录读），热态应显著回落——本条即
+    // 「残余归因」的证据锚，不作为门槛断言。
+    __resetRebuildDoneAtForTest()
+    __setOpenCheckDbTtlForTest(0)
+    const warmProbe = startPauseProbe('④ async(单章链,热)')
+    const t2 = Date.now()
+    const warmOutcome = await runCheckForDocumentAsync(rootAsync, draftAsync, null)
+    await settleProbe()
+    const warmMs = Date.now() - t2
+    const warmProbeResult = warmProbe.stop()
+    expect(normOutcome(warmOutcome)).toEqual(normOutcome(sync))
+
+    console.log(
+      `[slow-fs-sim] 单章链（重布线 40 + 30 章 + 60 章纲 + 30 条履历，注入 ${SIM.delayMs}ms/次）：\n` +
+        `  ④ 同步 总时长 ${syncMs}ms（= 最长单次停顿，全程无让出） vs async(worker) 总时长 ${asyncMs}ms / 最长单次停顿 ${probeResult.maxGapMs}ms / 心跳 ${probeResult.beats}\n` +
+        `     热态复跑（同书第二遍）：总时长 ${warmMs}ms / 最长单次停顿 ${warmProbeResult.maxGapMs}ms（残余归因锚：冷缓存首扫段）\n` +
+        `  fs 调用数（readdir/stat/readFile）同步 [${syncCalls.join('/')}] async(worker) [${asyncCalls.join('/')}]（不同档：rebuild 走 worker，注入不可达）`,
     )
   }, 90_000)
 })

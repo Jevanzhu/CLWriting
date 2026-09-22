@@ -11,7 +11,7 @@ import { join, basename } from 'node:path'
 import { existsSync, readdirSync } from 'node:fs'
 import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
-import { checkLeadsForm } from './leads.js'
+import { checkLeadsFormCore } from './leads.js'
 import { checkGrowth } from './growth.js'
 import {
   checkFrontMatter,
@@ -35,6 +35,7 @@ import {
 import { readIronRules } from '../format/iron-rules.js'
 // R0917-6-P3-8：机检热路径固定 SQL 走连接级 prepared 缓存单源
 import { prepared } from '../shared/sqlite-prepared.js'
+import { driveToEnd } from '../async.js'
 import { isMdFileName } from '../format/filename.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
@@ -110,6 +111,17 @@ export function effectiveShort(config: BookConfig): BookConfig['short'] {
  * - 通用项（禁词/复读/句式/文风/字数/AI 味=身体部位词+比喻）恒跑
  */
 export function runAllChecks(input: CheckInput): CheckReport {
+  return driveToEnd(runAllChecksCore(input))
+}
+
+/**
+ * runAllChecks 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = P3-13）。
+ *
+ * 链内唯一让出面 = `yield* checkLeadsFormCore(...)`（全书性条目的冷读建表/逐章核验，
+ * 让出点定义见 leads.ts）；其余检查器调用一行不动（正文级纯函数，无悬停面）。计算集合
+ * 与报告形状逐位不变：同步驱动 = 切片前行为。
+ */
+export function* runAllChecksCore(input: CheckInput): Generator<void, CheckReport, unknown> {
   const { db, bookRoot, config, chapter, body, fileName } = input
   const hasWiring = existsSync(join(bookRoot, '布线'))
   // R26-13（二十六轮）：短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——此前用
@@ -138,7 +150,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
     }
     // #10 项 1 账本形式三检（红）—— 章号一致 / 引文命中 / 状态闭合 / 两端闭合
     sections.push(
-      checkLeadsForm(
+      yield* checkLeadsFormCore(
         db,
         bookRoot,
         futureBaselineChapter,

@@ -21,10 +21,10 @@ import { existsSync, readdirSync } from 'node:fs'
 import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
-import { rebuild } from '../cache/rebuild.js'
+import { rebuild, SOURCE_PROBE_TTL_MS } from '../cache/rebuild.js'
 import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { closeTreeIssuesDb } from './tree-issues-cache.js'
-import { runAllChecks, hasRed, effectiveShort, promoteStrictShort } from './runner.js'
+import { runAllChecksCore, hasRed, effectiveShort, promoteStrictShort } from './runner.js'
 import { outlineDeclarationForChapter, type OutlineDeclaration } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
@@ -35,14 +35,15 @@ import {
   LEAD_UPDATES_FILE,
   LEAD_UPDATES_ARCHIVE_DIR,
 } from './lead-updates.js'
-import { readChapterDir } from '../format/chapters.js'
+import { scanChapterDirCore } from '../format/chapters.js'
 import { readManifestDegraded, type ManifestEntry } from '../document/manifest.js'
 import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import type { CheckReport, CheckItem } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
-import { driveToEnd } from '../async.js'
+import { driveToEnd, driveToEndAsync } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
+import { testableConst } from '../shared/testable.js'
 
 // R0916-5f（2026-09-16，⑤④产品拆分波2 · 缝 A）：树红点聚合族已纯移动拆出至
 // run-tree-issues.ts——逐名 re-export 桥接，既有 'check/run.js' import 方零感知
@@ -103,6 +104,26 @@ export type OpenCheckDbResult = {
   fail?: { error: string; details?: unknown }
 }
 
+// ── 阶段 52 批 2（P3-13）：worker 档的 R47-11 节流承接（设计 §1.4-2 备选 (a)）────────
+// R47-11 的 3s 探测节流状态在 rebuild 内核里（cache/rebuild.ts 模块内存表），worker 档
+// 每次新起线程 ⇒ 线程内观测不到主线程的窗态。承接法 (a)：主线程自记「最近一次 async
+// 重建完成时刻」，窗内直接跳重建、只开库——与同步节流分支的净效应等价：同步档窗内也用
+// **上次扫描的 stats**（walkSourceStatsThrottled）比对 db meta，结论必然是「源未变」→
+// 增量跳过不写库，故窗内改动同样看不见（≤3s 可见延迟是 R47-11 已登记的取舍，方向 =
+// 延后一次全量重建自愈，不会永久跳过变化）。窗宽与节流条目同源（SOURCE_PROBE_TTL_MS），
+// 窗锚点 = 最后一次真实重建（跳重建不续期，同 walkSourceStatsThrottled 不刷新 at 的口径）。
+// 开库（new DatabaseSync + PRAGMA）属 D4 残余：主线程同步，量级毫秒级。
+const lastRebuildDoneAt = new Map<string, number>()
+
+/** 测试注入口：窗宽覆盖（null = 生产常量 SOURCE_PROBE_TTL_MS）。 */
+export const [getOpenCheckDbTtlForTest, __setOpenCheckDbTtlForTest] = testableConst<number | null>(null)
+
+/** 测试注入口：窗态复位（跨用例隔离——残留时间戳会让下一次调用误跳重建）。 */
+export function __resetRebuildDoneAtForTest(): void {
+  lastRebuildDoneAt.clear()
+}
+
+/** 前奏参数化（头注见上方类型别名块）与 async 孪生共用。 */
 export function openCheckDb(
   bookRoot: string,
   hasWiring: boolean,
@@ -160,10 +181,10 @@ export function openCheckDb(
  * 列表非空、开库 PRAGMA 失败，三档都落 'envelope'（fail 字段）或 'fail-open'（warn +
  * rebuildFailed）——调用方（树聚合效应让出档）的降级口径零改动。
  *
- * 与同步版的**已知差异**（刀 2 S5 承接，当前不可达）：R47-11 的 3s 探测节流状态在
- * worker 内随调用新建而失效 ⇒ 传 throttleSourceProbe 时 async 路径实际不节流。本批唯一
- * 调用方（树聚合）恒传 false（树聚合 rebuild 不节流，见 openCheckDb 头注），单章链仍走
- * 同步版，故差异面为零；TTL 承接落刀 2。
+ * 与同步版的**已知差异**（刀 2 S5 承接，见下）：R47-11 的 3s 探测节流状态在 worker 内随
+ * 调用新建而失效——故传 throttleSourceProbe 时按上方 lastRebuildDoneAt 窗承接（窗内跳
+ * 重建直开库、窗外走 worker 并记窗），净效应与同步节流分支等价。树聚合恒传 false（不节流）
+ * 不入窗，两条路径互不干扰。
  */
 export async function openCheckDbAsync(
   bookRoot: string,
@@ -177,7 +198,29 @@ export async function openCheckDbAsync(
     log.warn('check', message)
     return { db: null, rebuildFailed: true }
   }
+  /** 窗内直开库（不重建）：与 openCheckDb 的「开库 + PRAGMA」段逐位同构。 */
+  const openExistingDb = (): OpenCheckDbResult => {
+    const db = new DatabaseSync(cachePath)
+    try {
+      db.exec('PRAGMA busy_timeout = 5000')
+      return { db, rebuildFailed: false }
+    } catch (e) {
+      closeTreeIssuesDb(db)
+      return opts.failMode === 'envelope'
+        ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
+        : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
+    }
+  }
   try {
+    // R47-11 承接（备选 (a)）：窗内跳重建——库在盘才跳（被删/首次进门的自愈面不受节流
+    // 影响，口径同 tryIncrementalRebuild 的 !existsSync → null 走全量）。
+    if (opts.throttleSourceProbe) {
+      const hit = lastRebuildDoneAt.get(cachePath)
+      const ttl = getOpenCheckDbTtlForTest() ?? SOURCE_PROBE_TTL_MS
+      if (hit !== undefined && Date.now() - hit < ttl && existsSync(cachePath)) {
+        return openExistingDb()
+      }
+    }
     const rebuilt = await runRebuildAsync({
       bookRoot,
       cachePath,
@@ -195,17 +238,11 @@ export async function openCheckDbAsync(
       //（verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
       return { db: null, rebuildFailed: true }
     }
-    const db = new DatabaseSync(cachePath)
-    try {
-      // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
-      db.exec('PRAGMA busy_timeout = 5000')
-      return { db, rebuildFailed: false }
-    } catch (e) {
-      closeTreeIssuesDb(db) // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄（同 openCheckDb）
-      return opts.failMode === 'envelope'
-        ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
-        : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
-    }
+    const opened = openExistingDb()
+    // 刷新节流窗（锚 = 最后一次真实重建）：口径同 rebuild.ts 节流块注③——非节流调用方
+    // 的真实扫描也刷新条目，让后续节流调用少误跳。
+    if (opened.db !== null) lastRebuildDoneAt.set(cachePath, Date.now())
+    return opened
   } catch (e) {
     return opts.failMode === 'envelope'
       ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
@@ -289,19 +326,93 @@ export function runCheckForDocument(
 }
 
 /**
+ * 阶段 52 批 2（P3-13，慢盘面加固）：「rebuild→开库→机检」单章链的 async 孪生——
+ * 结构逐位对齐 runCheckForDocument，两处替换：
+ * ① 前奏 `openCheckDb` → `await openCheckDbAsync`（rebuild 内核搬 worker 线程；R47-11
+ *    节流窗由 openCheckDbAsync 的 lastRebuildDoneAt 承接，语义见该处注）；
+ * ② 机检体 `checkWithDb` → `await driveToEndAsync(checkWithDbCore(...))`（每悬停让出
+ *    一次事件循环——账本全书性条目/章纲整扫的冷读段不再整段冻结事件循环）。
+ *
+ * 信封/降级口径与同步版逐字同款（REBUILD_FAIL / NOT_CHAPTER / CHECK_ERROR，book.yaml
+ * 降级黄项 R29-5，else 分支全同）：服务进程侧只多线程等待，结果面零差异——等价性由
+ * test/check/check-chain-async-parity.test.ts（A1）锁。调用方（机检/三审端点、AI 编排
+ * check_chapter）全在 async 上下文，批 2 S6 起改走本函数。
+ */
+export async function runCheckForDocumentAsync(
+  bookRoot: string,
+  absPath: string,
+  userDataPath?: string | null,
+  opts?: { draftText?: string },
+): Promise<CheckOutcome> {
+  const { config, degradedError } = readCheckConfig(bookRoot, userDataPath ?? null)
+  const hasWiring = existsSync(join(bookRoot, '布线'))
+  // M-9（2026-08-21）：rebuild/开库硬异常归 REBUILD_FAIL 出口（同同步版）——R47-11 节流
+  // opt-in（窗内跳 worker 重建，见 openCheckDbAsync 头注）
+  const opened = await openCheckDbAsync(bookRoot, hasWiring, { throttleSourceProbe: true, failMode: 'envelope' })
+  if (opened.fail) {
+    const envelope: Extract<CheckOutcome, { ok: false }> = {
+      ok: false,
+      code: 'REBUILD_FAIL',
+      error: opened.fail.error,
+    }
+    if (opened.fail.details !== undefined) envelope.details = opened.fail.details
+    return envelope
+  }
+  const db = opened.db
+  try {
+    // R29-5：book.yaml 降级黄项透出（同同步版逐字）
+    const outcome = await driveToEndAsync(
+      checkWithDbCore(bookRoot, absPath, db, config, undefined, { draftText: opts?.draftText }),
+    )
+    if (outcome.ok && degradedError !== null) {
+      pushDegradedYellow(
+        outcome.report,
+        config,
+        'book.yaml',
+        'book-config-degraded',
+        `book.yaml 解析失败，本轮机检按默认配置降级执行（${degradedError}）——书级阈值/词表/账本配置未生效，修复后请重查。`,
+        outcome.chapter.章号,
+      )
+    }
+    return outcome
+  } finally {
+    if (db) closeTreeIssuesDb(db) // R0916-6：裸 close 改道（prepared ephemeron 断链）
+  }
+}
+
+/**
  * 扫 `写作/正文` 取全书最高已定稿章号（账本「未来章」基准，T9b 修复）。
  * 无布线不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
+ *
+ * 阶段 52 批 2（P3-13）：本函数为同步包装（driveToEnd），实现体 = maxWrittenChapterOfCore
+ * ——单章链未传预扫列表时正文目录整扫入核让出（见其注）。既有调用方（树聚合、导出等）
+ * 零改动。
  */
 export function maxWrittenChapterOf(
   bookRoot: string,
   preScanned?: ChapterMeta[],
   manifestEntries?: Map<string, ManifestEntry>,
 ): number | undefined {
+  return driveToEnd(maxWrittenChapterOfCore(bookRoot, preScanned, manifestEntries))
+}
+
+/**
+ * maxWrittenChapterOf 的实现体（生成器，单源供同步/async 双驱动）。
+ * 唯一让出面 = 未传预扫列表时的 正文目录整扫（`yield* scanChapterDirCore`）——单章链
+ * 每次机检都会为「未来章基准」现扫全书正文，慢盘上这是秒级同步段（批 2 前它整段冻在
+ * 事件循环里）。批量路径（树聚合传 preScanned + manifestEntries）内部无遍历，随核一次
+ * 跑完；返回值与切片前逐位同构。
+ */
+export function* maxWrittenChapterOfCore(
+  bookRoot: string,
+  preScanned?: ChapterMeta[],
+  manifestEntries?: Map<string, ManifestEntry>,
+): Generator<void, number | undefined, unknown> {
   const bodyDir = join(bookRoot, '写作', '正文')
   // P5-管线（第七轮）：接受调用方预扫的正文章列表（批量路径 bodyChapters 一扫两用），
   // 原先内部再 readChapterDir 一遍 = 全书正文双遍扫描
-  const chapters = preScanned ?? (existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : [])
+  const chapters = preScanned ?? (existsSync(bodyDir) ? (yield* scanChapterDirCore(bodyDir)).chapters : [])
   if (chapters.length === 0) return undefined
   // 排除未定稿（无 finalizedRevision）的草稿——不算"已写"基准（防账本「未来章」检查误判）
   // P3（复审-0914-优化修复批）：树聚合侧接受已读 entries（collectTreeIssuesCore 聚合头
@@ -465,6 +576,25 @@ export function checkWithDb(
   batch?: BatchCheckContext,
   opts?: { skipLeadsBookChecks?: boolean; draftText?: string },
 ): CheckOutcome {
+  return driveToEnd(checkWithDbCore(bookRoot, absPath, db, config, batch, opts))
+}
+
+/**
+ * checkWithDb 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = P3-13）。
+ *
+ * 让出面两处：`yield* runAllChecksCore(...)`（其内账本全书性条目，见 runner.ts）与
+ * 章纲目录整扫 `yield* scanChapterDirCore(...)`（单章路径现扫；批量路径走 batch 预扫
+ * 不入此支）。其余读（readDraft / 细纲声明 / 账本推进 / 正文读取）为单文件~小目录粒度
+ * 同步读，不在切片面（D4 残余，如实记账）。返回值与切片前逐位同构。
+ */
+function* checkWithDbCore(
+  bookRoot: string,
+  absPath: string,
+  db: DatabaseSync | null,
+  config: BookConfig,
+  batch?: BatchCheckContext,
+  opts?: { skipLeadsBookChecks?: boolean; draftText?: string },
+): Generator<void, CheckOutcome, unknown> {
   // R63-7：draftText（预读快照）传入时按它解析，不读文件——见 runCheckForDocument 头注
   const draft = readDraft(absPath, opts?.draftText)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
@@ -473,11 +603,12 @@ export function checkWithDb(
     const hasWiring = batch?.hasWiring ?? existsSync(join(bookRoot, '布线'))
     // 全书最高已定稿章号：batch 存在即视为已预扫（树红点聚合循环外已扫过全书），
     // 直接用 batch.maxWrittenChapter——即使为 undefined（无定稿章）也是预扫的合法结果，
-    // 不再回扫；未传 batch（单章 check 端点）时才扫描一次 写作/正文 取最大章号。
+    // 不再回扫；未传 batch（单章 check 端点）时才扫描一次 写作/正文 取最大章号
+    //（批 2：该次扫描走核让出，见 maxWrittenChapterOfCore）。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     // 优化：无布线时账本检查不运行，跳过全书扫描
     const maxChapter = hasWiring
-      ? (batch ? batch.maxWrittenChapter : maxWrittenChapterOf(bookRoot))
+      ? (batch ? batch.maxWrittenChapter : (yield* maxWrittenChapterOfCore(bookRoot)))
       : batch?.maxWrittenChapter
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
@@ -514,9 +645,9 @@ export function checkWithDb(
     // CC-P1-3：批量聚合经 batch 传预扫列表；单章端点现扫（只消除批量时的每章重扫）
     const outlineDir = join(bookRoot, '大纲', '章纲')
     const outlineList =
-      batch?.outlineChapters ?? (existsSync(outlineDir) ? readChapterDir(outlineDir).chapters : [])
+      batch?.outlineChapters ?? (existsSync(outlineDir) ? (yield* scanChapterDirCore(outlineDir)).chapters : [])
     const targetWords = outlineList.find((c) => c.章号 === draft.chapter.章号)?.字数目标
-    const report: CheckReport = runAllChecks({
+    const report: CheckReport = yield* runAllChecksCore({
       ...(db ? { db } : {}),
       bookRoot,
       config,

@@ -9,6 +9,8 @@
  *
  * 注入手法：mock ../../src/check/runner.js 的 runAllChecks 抛内部错误（其余导出
  * 透传），走 runCheckForDocument（单章端点入口）验证 warn 被调用。
+ * 阶段 52 批 2（P3-13）：改挂新核（runAllChecks → …Core，断言值一律不改）——单章链
+ * 经 checkWithDbCore `yield* runAllChecksCore` 入报告，mock 缝随核迁移。
  */
 import { test, expect, vi } from 'vitest'
 import { writeFileSync } from 'node:fs'
@@ -19,7 +21,7 @@ vi.mock('../../src/check/runner.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/runner.js')>()
   return {
     ...actual,
-    runAllChecks: () => {
+    runAllChecksCore: () => {
       const err = new Error('boom: 注入的机检内部错误') as NodeJS.ErrnoException
       err.code = 'EIO'
       throw err
