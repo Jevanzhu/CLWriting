@@ -144,6 +144,9 @@ interface StartStudioServerOptions {
   book?: string | null
   /** dev 态传 true → child 附 --mirror-console（打包态 false 不传） */
   mirrorConsole?: boolean
+  /** 阶段 53 S2：应用版本号（main 侧 `app.getVersion()`；child 无 app 对象，经 env
+   *  CLW_APP_VERSION 下发）。缺省不注入——dev/测试形态 child 回落读 package.json。 */
+  appVersion?: string
 }
 
 interface ActiveChild {
@@ -328,6 +331,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // 剥除无旁损。
     // 0918三拍板批（KEK v2）：清除面再补 CLW_OS_KEK——宿主残留会绕过下方受控注入
     //（旧 IKM 穿透 = v2 vault 解锁失败或错通道），同款逐键清洗后注入。
+    // 阶段 53 S2：清除面再补 CLW_APP_VERSION——宿主残留版本号会让更新检查比错基准
+    //（旧版本被判「已是最新」漏提示，或高版本造出假提示），同款清洗后按 opts 注入。
     for (const k of Object.keys(childEnv)) {
       const ku = k.toUpperCase()
       if (
@@ -336,13 +341,16 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         ku === 'CLW_DEV_UI' ||
         ku === 'CLW_DEV_CORS' ||
         ku === 'CLWRITING_RESOURCES_DIR' ||
-        ku === 'CLW_OS_KEK'
+        ku === 'CLW_OS_KEK' ||
+        ku === 'CLW_APP_VERSION'
       ) {
         delete childEnv[k]
       }
     }
     childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
     childEnv['CLW_LOG_STDOUT'] = '1'
+    // 阶段 53 S2：版本号经 env 下发（缺省不注入——child 回落读 package.json）
+    if (opts.appVersion) childEnv['CLW_APP_VERSION'] = opts.appVersion
     // 0918三拍板批（KEK v2）：OS 通道 IKM 经 env 注入（safeStorage 只在主进程可用，
     // 子进程按 hex 接收；null = 无 OS 通道，子进程回落 v1 内置通道语义）
     const osKek = loadOsKek(opts.userDataPath)

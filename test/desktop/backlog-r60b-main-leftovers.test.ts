@@ -198,6 +198,8 @@ vi.mock('electron', () => {
       isPackaged: true,
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
+      // 阶段 53 S2：main 启动链读版本号经 env 下发（假件给固定版号）
+      getVersion: () => '0.0.0-fake',
     },
     BrowserWindow: Object.assign(class extends FakeWin {}, {
       fromWebContents: (wc: unknown) => M.windows.find((w) => w.webContents === wc) ?? null,

@@ -151,6 +151,8 @@ vi.mock('electron', () => {
       isPackaged: true,
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
+      // 阶段 53 S2：main 启动链读它经 env CLW_APP_VERSION 下发（假件给固定版号）
+      getVersion: () => '0.0.0-fake',
     },
     // R4-P2-1：isTrustedSender 兜底反查（白名单外窗口形态）+ 测试侧受信事件构造
     BrowserWindow: Object.assign(class extends FakeWin {}, {

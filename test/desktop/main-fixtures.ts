@@ -52,6 +52,8 @@ const M_hoisted = vi.hoisted(() => ({
    *  'pending'（不回任何消息——握手挂起形态，R0912-3 #35 backstop 竞速用例） */
   forkBehavior: 'ready' as 'ready' | 'boot-error' | 'pending',
   errorBox: [] as Array<[string, string]>,
+  /** 阶段 53 S2：app.getVersion() 返回值（main 启动链经 env CLW_APP_VERSION 下发） */
+  appVersion: '1.2.3-fake',
   // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
   msgBoxSync: [] as Array<Record<string, unknown>>,
   msgBoxSyncChoice: 1,
@@ -267,6 +269,9 @@ vi.mock('electron', () => {
       isPackaged: true,
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
+      // 阶段 53 S2：版本号——main 启动链读它下发子进程（env CLW_APP_VERSION），
+      // 假件给固定版号供 fork env 注入面断言
+      getVersion: () => M_hoisted.appVersion,
     },
     BrowserWindow: Object.assign(
       class extends FakeWin {},

@@ -69,6 +69,9 @@ import { configureTaskGateLockRoot } from './api/task-gate.js'
 import { setInitialBook } from './api/books.js'
 // A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
+// 阶段 53 S2：应用信息端点（版本号 + 更新检查结果）+ 起服后延迟一次的更新检查
+import { registerAppInfoRoutes } from './api/app-info.js'
+import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
 
@@ -92,6 +95,8 @@ function buildRoutes(
     registerAiStatusRoutes({ userDataPath })
     // 元：启动通告（A4 批 0）——启动链迁移失败 / 事件库迁移失败的用户可见出口
     registerStartupNoticeRoutes({ sink })
+    // 元：应用信息（阶段 53）——版本号 + 更新检查结果（前端 App 级横幅数据源）
+    registerAppInfoRoutes()
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add })
@@ -500,6 +505,16 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 自愈假设均以 300s 为前提（见 http.ts R51-G-2 注），显式钉住防默认值漂移。
   server.requestTimeout = 300_000
   server.listen(opts.port, host)
+  // 阶段 53 S2：起服后延迟一次更新检查（fire-and-forget——不 await、不阻塞监听，
+  // 也不进启动关键路径）。timer 显式 unref：否则「只起 server 不求请求」的进程
+  //（单测/脚本形态）会被这枚待触发定时器多留住数秒；close 时清掉（实例关灯后
+  // 不再出站）。检查内部自带开关短路与静默（CLW_DISABLE_UPDATE_CHECK=1 → 不打网），
+  // 失败不抛——此处无需 try/catch。
+  let updateCheckTimer: NodeJS.Timeout | null = setTimeout(() => {
+    updateCheckTimer = null
+    void runUpdateCheckOnce()
+  }, UPDATE_CHECK_DELAY_MS)
+  updateCheckTimer.unref?.()
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {
     const addr = server.address()
@@ -519,6 +534,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 还依赖运行中实例的 live-set 语义（set 后即可读），close 清空两头都保住。
   server.on('close', () => {
     setInitialBook(undefined)
+    // 阶段 53 S2：清掉尚未触发的更新检查定时器（关灯后不再出站）
+    if (updateCheckTimer) {
+      clearTimeout(updateCheckTimer)
+      updateCheckTimer = null
+    }
     // R0910-W：模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
     closeAllSseConnections()
   })

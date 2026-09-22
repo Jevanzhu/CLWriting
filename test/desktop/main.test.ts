@@ -196,6 +196,16 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(stored.token).toBe((call.options['env'] as Record<string, string | undefined>)['CLW_STUDIO_TOKEN'])
   })
 
+  // 阶段 53 S2：版本号通路——main 读 app.getVersion() 经 fork env 下发 child
+  //（child 无 app 对象；更新检查的当前版本基准即此）
+  it('CLW_APP_VERSION 下发（阶段 53）：fork env 值 = app.getVersion()，argv 面不带', () => {
+    const call = M.forkCalls[0]!
+    expect((call.options['env'] as Record<string, string | undefined>)['CLW_APP_VERSION']).toBe(
+      '1.2.3-fake',
+    )
+    expect(call.args).not.toContain('--app-version')
+  })
+
   it('window-state 恢复：合法 bounds → 主窗尺寸取存量值', () => {
     expect(mainWin().opts.width).toBe(1500)
     expect(mainWin().opts.height).toBe(900)

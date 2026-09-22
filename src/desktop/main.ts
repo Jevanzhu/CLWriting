@@ -380,6 +380,8 @@ async function bootstrap(): Promise<void> {
         userDataPath: app.getPath('userData'),
         book: initialName,
         mirrorConsole: !app.isPackaged,
+        // 阶段 53 S2：版本号下发子进程（child 无 app 对象）——更新检查的当前版本基准
+        appVersion: app.getVersion(),
       })
       serverStarted = true // R50-A-1：session-end 观察窗自愈的「有服务可拉回」判据
     } catch (e) {
