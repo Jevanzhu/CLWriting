@@ -45,10 +45,10 @@ describe('R55-E-N：readJson close 兜底（断开无 error 形态）', () => {
     const req = stream as unknown as IncomingMessage
     const pending = readJson(req, 32, 60, 50) // 32 字节上限
     stream.write(Buffer.from('x'.repeat(64))) // 超限 → 413 先 reject
-    await expect(pending).rejects.toMatchObject({ status: 413, code: 'BAD_INPUT' })
+    await expect(pending).rejects.toMatchObject({ status: 413, code: 'PAYLOAD_TOO_LARGE' })
     // 排空窗中途 destroy → close 触发（readableEnded=false）→ 兜底 reject 幂等无效
     stream.destroy()
-    await expect(pending).rejects.toMatchObject({ status: 413, code: 'BAD_INPUT' })
+    await expect(pending).rejects.toMatchObject({ status: 413, code: 'PAYLOAD_TOO_LARGE' })
   })
 
   it('正常收齐 body 后 close（readableEnded=true）→ 结果不受影响', async () => {

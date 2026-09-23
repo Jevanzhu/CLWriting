@@ -189,6 +189,13 @@ onMounted(() => {
         // R39-20（三十九轮）：单次 toString 复用——emit 值与同文档外部同步判据
         //（lastLocalEmit，见下方 watch）取同一字符串，此前 emit 一次 + watch 里
         // doc.toString() 再一次，每击键 2× 全文拷贝（超大单文件可感）
+        // RC 源码重审 B-2（Opus-5.5 轮）：本行是每按键唯一剩余的全文拷贝，且是刻意
+        // 留的预算边界——父层那几笔更重的全文面（mergeFm 重拼 / doc.patch / body 计算
+        // 属性重切 / 本组件 watch 的全等回比）已改 200ms 尾随节流摊薄
+        //（shared/body-writeback.ts 头注：不变量与窗口取舍）。此处不再延迟：emit 载荷
+        // 是「已变更 + 当下最新正文」的唯一投递通道，切档瞬间父层已指向新档，晚投的
+        // 正文无从按旧档路由（要按档路由须给 emit 契约带 docId，属结构改动，不在本批）。
+        // 往此路径再加每次按键的全文转换/拷贝前，先读上述两处注。
         if (u.docChanged) {
           lastLocalEmit = u.state.doc.toString()
           // 四轮-E402：程序化全量替换（applyDocSwitch 切文档 / applyExternalReplace 外部

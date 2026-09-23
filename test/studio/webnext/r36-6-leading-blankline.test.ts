@@ -96,6 +96,14 @@ beforeEach(() => {
 
 // ── 纯函数：mergeFm stripLeading 选项 ────────────────────────────
 
+/** RC 源码重审 B-2（Opus-5.5 轮）：父层正文回写改 200ms 尾随节流合并（shared/body-writeback）
+ *  ——本文件被测语义（前导空行往返 / mergeFm 口径）逐位不变，只「emit → store 落回」的
+ *  时点从当拍移到窗末，故 emit 后等窗（而非只等微任务）再断言。 */
+async function settleWriteback(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 260)) // 200ms 窗 + 余量
+  await flushPromises()
+}
+
 describe('R36-6 mergeFm stripLeading（方案 b）', () => {
   it('默认仍剥前导（加载/粘贴/对账等明确来源契约不变——既有 words.test 锚）', () => {
     const full = '---\n标题: x\n---\n\n旧\n'
@@ -127,7 +135,7 @@ describe('R36-6 EditorView 前导空行往返', () => {
     // 作者在正文首行按回车（R31-30 补笔窗）：CM6 内容 = '\n正文'
     expect(holder.emitNext).not.toBeNull()
     holder.emitNext!('\n正文')
-    await flushPromises()
+    await settleWriteback()
     // store 按编辑器为准记录前导（fm 分隔照常单行收敛：--- 后一个空行 + 用户一个空行）
     expect(doc.get('d1')!.content).toBe(`${FM_HEAD}\n\n\n${PLAIN_BODY}`)
     cm = w.findComponent({ name: 'CmHost' })
@@ -136,7 +144,7 @@ describe('R36-6 EditorView 前导空行往返', () => {
 
     // 首次后续键入（R36-6 拽回点）：CM6 内容 = '\n你正文'
     holder.emitNext!('\n你正文')
-    await flushPromises()
+    await settleWriteback()
     // 修复点：store 前导仍在（旧实现 mergeFm 剥前导 → store 变 '---\n\n你正文'）
     expect(doc.get('d1')!.content).toBe(`${FM_HEAD}\n\n\n你正文`)
     cm = w.findComponent({ name: 'CmHost' })
@@ -161,7 +169,7 @@ describe('R36-6 EditorView 前导空行往返', () => {
 
     // 后续编辑（改稿）：前导空行继续保留在 store 与展示层
     holder.emitNext!('\n留白后的正文（修改）')
-    await flushPromises()
+    await settleWriteback()
     expect(doc.get('d1')!.content).toBe(`${FM_HEAD}\n\n\n留白后的正文（修改）`)
     expect(w.findComponent({ name: 'CmHost' }).props('modelValue')).toBe('\n留白后的正文（修改）')
     w.unmount()
@@ -180,7 +188,7 @@ describe('R36-6 EditorView 前导空行往返', () => {
 
     // 正文中段改动（不带前导）：合并结果与旧契约一致（--- 分隔后单行收敛）
     holder.emitNext!('正文改')
-    await flushPromises()
+    await settleWriteback()
     expect(doc.get('d1')!.content).toBe(`${FM_HEAD}\n\n正文改`)
     expect(w.findComponent({ name: 'CmHost' }).props('modelValue')).toBe('正文改')
     w.unmount()

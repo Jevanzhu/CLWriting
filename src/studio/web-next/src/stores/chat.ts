@@ -1,10 +1,16 @@
 import { useWorkspaceStore } from './workspace'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { str } from './sse-guards'
 import { rawErrorMessage } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
-import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
+import {
+  createChatDispatch,
+  createChatTurnState,
+  clipToolInput,
+  nextMsgId,
+  type ChatMessage,
+  type ToolCard,
+} from './chat-dispatch'
 import {
   fetchChatHistory,
   fetchChatBranches,
@@ -22,74 +28,15 @@ import {
  * Y-P2-5：刷新/切书后经 seedHistory 从事件库投影恢复历史（仅 messages 为空时种子化）。
  * G1：重新生成（regenerate）与分支切换（switchBranch）——消息带 seq、维护
  * activeBranchId/branches，多分支书支持在变体组间切换。
+ *
+ * RC 源码重审 B-5（Opus-5.5 轮）：事件分发状态机（dispatch / ensureTool / updateTool /
+ * trimMessages + 消息与工具卡片模型 + 在途回合状态）随批抽入 ./chat-dispatch——本文件
+ * 只留 store 外壳、网络面（种子化/分支/重新生成）与章号语境。对外类型面经下方
+ * re-export 原样保持（ChatMessages.vue 的具名导入等调用方零改动）。
  */
 
-/** 工具卡片状态 */
-export type ToolStatus = 'pending' | 'running' | 'ok' | 'failed' | 'cancelled'
-
-/** 工具卡片 */
-interface ToolCard {
-  callId: string
-  name: string
-  input: unknown
-  status: ToolStatus
-  summary?: string
-}
-
-/** 聊天消息气泡（文本 + 关联工具卡片按时序穿插） */
-export interface ChatMessage {
-  /** 稳定唯一 id（v-for key 用，防裁剪/弹出后索引错位导致动画重播） */
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  done: boolean
-  /** 本回合的工具卡片（按时序） */
-  tools: ToolCard[]
-  /** G1：该消息事件 seq（历史种子化时取 seqs[i][0]；实时 SSE 消息无此字段） */
-  seq?: number
-}
-
-/** 消息列表上限（防长对话内存膨胀；R0912-3 #10：单源 shared/chat-history——原硬编码
- *  200 与 fetchChatHistory 尾窗 limit / ChatMessages 截断提示三处各自为政曾失同步） */
-const MAX_MESSAGES = CHAT_HISTORY_LIMIT
-
-/** 工具入参落存截断上限（码位）。内存闸（2026-08-24 审计 C3）：工具卡 input 是
- *  整章正文级文本（如 write_chapter 的正文入参），原样入 store 常驻——列表上限只
- *  限消息条数不限体积（200 条 × 全文章节 = MB 级驻留）。落存前统一截到 2000 码位
- *  + … 尾标（方案原文写 ToolCard.summary，以实际字段为准 = input）。 */
-const TOOL_INPUT_MAX = 2000
-
-// 复审-0914-优化 A2：码位计数收编根 src/shared/text.ts 单源（跨包引用对齐
-// shared/words.ts 引 format/words 先例；原本地副本删）。
-import { codePointLength } from '../../../../shared/text'
-
-
-/** 码位截断（口径同 src/process/summary.ts clipByCodePoints：Array.from 迭代码点——
- *  String.slice 按 UTF-16 码元会把增补平面字符切成半个代理对） */
-function clipByCodePoints(text: string, max: number): string {
-  return Array.from(text).slice(0, max).join('')
-}
-
-/** 内存闸（2026-08-24 审计 C3）：工具入参落存前截断——SSE 两条路（chat_tool_pending
- *  追加 / readonly chat_tool 经 ensureTool 补建）与历史种子化（seedFromHistory 的
- *  tool_use）三处收口。字符串超限 → 截断 + …；对象序列化后超限才替换为截断串
- *  （小对象原形落存，不动既有展示与断言口径）；其余类型原样透传。 */
-function clipToolInput(input: unknown): unknown {
-  let text: string
-  if (typeof input === 'string') {
-    text = input
-  } else {
-    try {
-      text = JSON.stringify(input) ?? ''
-    } catch {
-      return input // 循环引用等不可序列化：原样透传（不为此抛错）
-    }
-  }
-  return codePointLength(text) > TOOL_INPUT_MAX ? clipByCodePoints(text, TOOL_INPUT_MAX) + '…' : input
-}
-
-/** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
-let _msgSeq = 0
+// RC 源码重审 B-5：消息/工具卡片模型迁入 ./chat-dispatch——对外类型面原样转发。
+export type { ChatMessage, ToolStatus } from './chat-dispatch'
 
 export const useChatStore = defineStore('chat', () => {
   /** 消息列表 */
@@ -103,15 +50,13 @@ export const useChatStore = defineStore('chat', () => {
   const errorEcho = ref<string | null>(null)
   /** E1a（steer）：非错误提示（如「消息已入队，当前对话结束后处理」） */
   const notice = ref<string | null>(null)
-  /** 当前正在填充的 assistant 气泡索引（chat_text 追加目标） */
-  let currentIdx = -1
+  /** RC 源码重审 B-5：在途回合宿主状态——原 setup 内四个可变本地量（currentIdx /
+   *  pendingReseed / regenPending / regenBook）随事件分发状态机迁入 ./chat-dispatch
+   *  的 ChatTurnState（字段沿革注释随迁）；本 store 与状态机共享同一实例，读写口不变。 */
+  const turn = createChatTurnState()
   /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫）
    *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（seed/switch 用 begin，regenerate/chat_done 观测点 current，clear invalidate）。 */
   const seedGen = useStaleGuard()
-  /** Q-8（第十五轮）：切书 clear 时该书在途回合被清（running 守卫跳过 seedHistory）→
-   *  记待补种书名，running 翻 false（chat_done/chat_error）后自动补种——在途回合
-   *  不再 UI 失明（服务端历史本就完好）。clear() 复位（每次切换重新登记，防跨书误种）。 */
-  let pendingReseed: string | null = null
   // R70-30：sync 事件不带书名——延迟取 workspace store 当前书（pinia 惰性激活防循环引用）
   const wsBookName = (): string | null => {
     try {
@@ -136,10 +81,6 @@ export const useChatStore = defineStore('chat', () => {
    *  0917清库修复批口径分流：未截断 = 投影消息数；截断态 = 服务端骨架事件行数
    *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）。 */
   const historyTotal = ref<number | null>(null)
-  /** G1：重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
-  let regenPending = false
-  /** G1：重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
-  let regenBook: string | null = null
 
   // ── R35-11：章号语境（对话作用于「全书」还是某章）单一事实源 ──
   // 此前 ChatDock 与 ChatPanel 各建一份 useChatComposer 实例（dock 开窗时双实例并存），
@@ -190,223 +131,30 @@ export const useChatStore = defineStore('chat', () => {
   /** 是否有消息 */
   const hasMessages = computed(() => messages.value.length > 0)
 
-  /** 分派一条 chat_* SSE 事件 */
-  function dispatch(ev: { type: string; [k: string]: unknown }): void {
-    switch (ev.type) {
-      case 'sync': {
-        // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
-        running.value = ev['chatRunning'] === true
-        // 重评2-P2-1（2026-09-09 全量重评 GLM-5.3）修复：重连快照 chatRunning=false = 后端
-        // 已收尾该回合，是前端漏收 chat_done/chat_error 的兜底信号——对齐 chat_error 的
-        // R-7 口径收尾在途气泡（done + 复位索引），防永久「生成中」+ 后续文本错位；同时
-        // 守住 P2-9 前提「未完成气泡只属于在途回合」（否则此后新回合 + 错过 chat_turn 的
-        // 重连会把新回合文本追加进旧气泡，跨回合并文）。
-        if (!running.value && currentIdx >= 0) {
-          messages.value[currentIdx]!.done = true
-          currentIdx = -1
-        }
-        // AA-P3-8：regenPending 陷阱态恢复——regenPending 只由 chat_done/chat_error 复位，
-        // 若 SSE 全断且这两者都没到，防重入标志永久卡死「重新生成」。重连的 sync 是权威
-        // 快照：后端不在跑对话（chatRunning=false）→ 那次 regenerate 的回合要么从未启动、
-        // 要么已结束（chat_done 已消费掉但前端没收到）→ 必须复位标志，允许再次触发。
-        if (!running.value && regenPending) {
-          regenPending = false
-          regenBook = null
-        }
-        // P2-9：重连时 sync 只补发 chatRunning（0918独立重评修复批 E001 起：chat 腿活跃时
-        // 服务端另发 chat_replay_begin + ring 回放重建在途回合，见该分支）——若旧 currentIdx
-        // 已随回合结束失效，找到最后一个未 done 的 assistant 气泡重建索引（否则 chat_text
-        // 追加到错误气泡或被静默丢弃）
-        if (running.value && (currentIdx < 0 || messages.value[currentIdx]?.done)) {
-          // 反向找最后一个未 done 的 assistant 气泡（lib=ES2022 无 findLastIndex，手写循环）
-          let lastUndone = -1
-          for (let i = messages.value.length - 1; i >= 0; i--) {
-            const m = messages.value[i]
-            if (m && m.role === 'assistant' && !m.done) {
-              lastUndone = i
-              break
-            }
-          }
-          currentIdx = lastUndone
-          // R70-30（十八轮）：running=true 但无可续气泡（seedHistory 先于 sync 到达的
-          // 时序边界）——在途回合的 chat_text 会因 currentIdx=-1 全部被丢且 chat_done
-          // 后无人补种（Q-8 只覆盖「clear 时在跑」反向序）；登记 pendingReseed 由
-          // 回合收尾补种（事件库无损，此处纯展示缺口的自愈）
-          if (lastUndone === -1 && wsBookName()) pendingReseed = wsBookName()
-        }
-        break
-      }
-      case 'chat_replay_begin': {
-        // 0918独立重评修复批（E001）：SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
-        // 活跃且 ring 非空时、于回放数组最前发一次（每个新消费者各得一次），随后重放 chat 腿
-        // ring（chat_start/chat_turn/chat_text/... 可能从头重建整回合）。此前 chat_turn 无条件
-        // push 新气泡：重连回放会在断连前已存在的在途气泡之后再 push 一条 → 气泡重复；ring
-        // 截断（cap 溢出）时孤儿气泡永久滞留。rebuild 模式：移除未 done 的 assistant 在途
-        // 气泡（不动 done 历史与 user 消息）+ 复位 currentIdx + 登记 pendingReseed（复用
-        // R70-30/Q-8 既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
-        // seedHistory(replace:true) 从事件库重播种；ring 截断导致的回合展示不全由此自愈，
-        // 与刷新路径同口径）。设计意图：重连后视图状态 = 等价新连接（历史保留，在途回合
-        // 由回放重建）。
-        for (let i = messages.value.length - 1; i >= 0; i--) {
-          const m = messages.value[i]!
-          if (m.role === 'assistant' && !m.done) {
-            messages.value.splice(i, 1)
-            break // P2-9 不变式「未完成气泡只属于在途回合」：至多一条，命中即止
-          }
-        }
-        currentIdx = -1
-        const replayBook = wsBookName()
-        if (replayBook) pendingReseed = replayBook
-        break
-      }
-      case 'chat_start': {
-        running.value = true
-        error.value = null
-        errorEcho.value = null
-        notice.value = null
-        break
-      }
-      case 'chat_turn': {
-        // 新回合 = 新 assistant 气泡
-        messages.value.push({ id: `m${_msgSeq++}`, role: 'assistant', content: '', done: false, tools: [] })
-        currentIdx = messages.value.length - 1
-        // 0918二轮修复批（E103）：推新气泡即修剪——原 trimMessages 只挂在 chat_done /
-        // pushUser / seedFromHistory 三处收尾，单次长跑（多回合工具链连转）超上限要等
-        // 整跑结束才裁剪，期间消息条数无界膨胀。trimMessages 只裁头部并同步偏移
-        // currentIdx，刚 push 的在途回合气泡恒在尾部不受影响（上限 ≥1 时裁剪永远够不到）。
-        trimMessages()
-        break
-      }
-      case 'chat_text': {
-        const text = str(ev['text'])
-        if (text && currentIdx >= 0) {
-          messages.value[currentIdx]!.content += text
-        }
-        break
-      }
-      case 'chat_tool_pending': {
-        const callId = str(ev['callId'])
-        const name = str(ev['name'])
-        if (callId && name && currentIdx >= 0) {
-          // C3：入参落存前截断（整章正文级 input 不得原样常驻）
-          messages.value[currentIdx]!.tools.push({
-            callId,
-            name,
-            input: clipToolInput(ev['input']),
-            status: 'pending',
-          })
-        }
-        break
-      }
-      case 'chat_tool': {
-        // readonly 工具不经 pending 直接 tool → 创建卡片
-        const callId = str(ev['callId'])
-        const name = str(ev['name'])
-        if (callId && name) {
-          ensureTool(callId, name, ev['input'])
-          updateTool(callId, { status: 'running' })
-        }
-        break
-      }
-      case 'chat_tool_result': {
-        const callId = str(ev['callId'])
-        if (callId) {
-          // R-6（十五轮登记销账）：失败结果标 failed 对齐种子化路径同口径；
-          // cancelled 仅保留给「无 tool_result 回填」的兜底语义（异常中断 ≠ 工具执行失败）
-          updateTool(callId, {
-            status: ev['ok'] === true ? 'ok' : 'failed',
-            ...(str(ev['summary']) ? { summary: str(ev['summary']) } : {}),
-          })
-        }
-        break
-      }
-      case 'chat_reset': {
-        // 重试防拼接：清当前回合的文本和工具卡片（旧工具结果不残留）
-        if (currentIdx >= 0) {
-          messages.value[currentIdx]!.content = ''
-          messages.value[currentIdx]!.tools = []
-        }
-        break
-      }
-      case 'chat_done': {
-        running.value = false
-        if (currentIdx >= 0) {
-          messages.value[currentIdx]!.done = true
-        }
-        // P2-9：回合结束即失效 currentIdx——旧索引指向已 done 气泡会让后续 chat_text
-        //（含重连回放重建的新回合）追加错误位置
-        currentIdx = -1
-        trimMessages()
-        // G1：重新生成的回合结束 → 复位进行中标志 + best-effort 刷新分支列表（变体计数更新）
-        if (regenPending) {
-          regenPending = false
-          const book = regenBook
-          regenBook = null
-          if (book) void refreshBranches(book, seedGen.current())
-        }
-        break
-      }
-      case 'chat_error': {
-        running.value = false
-        error.value = str(ev['error']) ?? '未知错误'
-        // 0918三拍板批（A006 轻量档）：回显作者原文（服务端回滚后仅存于此，供复制重发；
-        // regenerate 回合无 echo 字段——原文本就在历史尾气泡里）
-        errorEcho.value = str(ev['echo']) || null
-        // 0918独立重评修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
-        // 中断时旧 notice（如「已入队」）随之失效，不得残挂在错误态旁。chat_done 不清：
-        // 正常收尾下 notice 可能是刚提示的「已入队，当前对话结束后处理」，清掉会让它在
-        // done → 下一回合 chat_start 的间隙提前消失（chat_start 开跑时自清）
-        notice.value = null
-        // R-7（第十六轮）：收尾在途气泡（对齐 chat_done 口径）——异常中断时 currentIdx
-        // 指向的未完成 assistant 气泡置 done + 复位索引，防永久「生成中」+ 后续文本错位
-        if (currentIdx >= 0) {
-          messages.value[currentIdx]!.done = true
-        }
-        currentIdx = -1
-        // G1：重新生成回合异常中断 → 复位防重入标志（防永久锁死，可再次触发）
-        if (regenPending) {
-          regenPending = false
-          regenBook = null
-        }
-        break
-      }
-      case 'notice': {
-        // AA-P3-1：队列超容丢弃最旧消息等非错误提示（与「已加入队列」同通道展示）
-        const msg = str(ev['message'])
-        if (msg) notice.value = msg
-        break
-      }
-    }
-  }
-
-  /** 确保工具卡片存在（readonly 工具不经 pending，chat_tool 时补建） */
-  function ensureTool(callId: string, name: string, input: unknown): void {
-    if (currentIdx < 0) return
-    const tools = messages.value[currentIdx]!.tools
-    if (!tools.some((t) => t.callId === callId)) {
-      // C3：readonly 工具补建卡片同样走截断收口
-      tools.push({ callId, name, input: clipToolInput(input), status: 'pending' })
-    }
-  }
-
-  /** 更新工具卡片状态 */
-  function updateTool(callId: string, patch: Partial<ToolCard>): void {
-    // R62-19：反向遍历取最近的同 callId 卡——SSE 的 updateTool 与种子化 applySeedToolResult
-    // 原先一个正向首个、一个反向最近，callId 跨回合重复时同事件打在两张卡上（状态错乱）。
-    // 统一反向：新回合的事件精确落回本回合卡片（旧回合卡是历史只读呈现）。
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const tool = messages.value[i]!.tools.find((t) => t.callId === callId)
-      if (tool) {
-        Object.assign(tool, patch)
-        return
-      }
-    }
-  }
+  /** RC 源码重审 B-5：事件分发状态机随批迁入 ./chat-dispatch（dispatch 的 11 个
+   *  chat_* 分支 + ensureTool/updateTool/trimMessages + 在途回合状态）——此处只注入
+   *  宿主依赖面：store 的 refs、共享回合状态，与本文件其余职责的两个回调
+   *  （wsBookName 惰性取当前书 / refreshBranches 刷分支列表）。refreshBranches 为
+   *  函数声明、wsBookName 为箭头常量：均只在事件到达时被调用（不在装配期求值），
+   *  与迁移前的调用时机逐位一致。 */
+  const chatDispatch = createChatDispatch({
+    messages,
+    running,
+    error,
+    errorEcho,
+    notice,
+    turn,
+    wsBookName,
+    refreshBranches,
+    currentGen: () => seedGen.current(),
+  })
+  const dispatch = chatDispatch.dispatch
+  const updateTool = chatDispatch.updateTool
 
   /** 添加用户消息（发送时调用） */
   function pushUser(text: string): void {
-    messages.value.push({ id: `m${_msgSeq++}`, role: 'user', content: text, done: true, tools: [] })
-    trimMessages()
+    messages.value.push({ id: nextMsgId(), role: 'user', content: text, done: true, tools: [] })
+    chatDispatch.trimMessages()
   }
 
   // ── Y-P2-5：历史种子化（刷新/切书后从事件库投影恢复）────
@@ -419,7 +167,7 @@ export const useChatStore = defineStore('chat', () => {
       const m = msgs[i]!
       const seq = seqs?.[i]?.[0]
       if (typeof m.content === 'string') {
-        seeded.push({ id: `m${_msgSeq++}`, role: m.role, content: m.content, done: true, tools: [], ...(typeof seq === 'number' ? { seq } : {}) })
+        seeded.push({ id: nextMsgId(), role: m.role, content: m.content, done: true, tools: [], ...(typeof seq === 'number' ? { seq } : {}) })
         continue
       }
       if (m.role === 'user') {
@@ -439,7 +187,7 @@ export const useChatStore = defineStore('chat', () => {
         // C3：历史种子化路径与 SSE 同口径截断（tool_use 的整章正文级 input）
         else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: clipToolInput(b.input), status: 'running' })
       }
-      seeded.push({ id: `m${_msgSeq++}`, role: 'assistant', content: text, done: true, tools, ...(typeof seq === 'number' ? { seq } : {}) })
+      seeded.push({ id: nextMsgId(), role: 'assistant', content: text, done: true, tools, ...(typeof seq === 'number' ? { seq } : {}) })
     }
     // 兜底：无 tool_result 回填的卡片（异常残留的半截回合）标 cancelled，防永久转圈
     for (const m of seeded) {
@@ -449,8 +197,8 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(...seeded)
     // 种子化只在空列表进行（见 seedHistory 守卫），currentIdx 必为 -1；防御性复位防未来不变式漂移
-    currentIdx = -1
-    trimMessages()
+    turn.currentIdx = -1
+    chatDispatch.trimMessages()
   }
 
   /** 历史 tool_result 回填：反向找最近的同 callId 卡片（等价 SSE 的 updateTool） */
@@ -482,7 +230,7 @@ export const useChatStore = defineStore('chat', () => {
     // Q-8：running 中种子化会吞掉在途回合的增量（clear 后 currentIdx=-1）——改为
     // 登记 pendingReseed 等回合收尾后补种，不再直接放弃
     if (running.value) {
-      pendingReseed = bookName
+      turn.pendingReseed = bookName
       return
     }
     if (!replace && messages.value.length > 0) return
@@ -524,7 +272,7 @@ export const useChatStore = defineStore('chat', () => {
     if (opts.replace === true) {
       // R33D-8：替换式——先清旧种子再回填，防 append 错位
       messages.value = []
-      currentIdx = -1
+      turn.currentIdx = -1
     }
     if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
     // G1：activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
@@ -583,8 +331,8 @@ export const useChatStore = defineStore('chat', () => {
    */
   async function regenerate(bookName: string, chapter?: number): Promise<void> {
     const last = messages.value[messages.value.length - 1]
-    if (regenPending || running.value || !last || last.role !== 'assistant' || !last.done) return
-    regenPending = true
+    if (turn.regenPending || running.value || !last || last.role !== 'assistant' || !last.done) return
+    turn.regenPending = true
     const gen = seedGen.current()
     let handedOff = false // 已交由 SSE 接管（标志改由 chat_done/chat_error 复位）
     try {
@@ -623,7 +371,7 @@ export const useChatStore = defineStore('chat', () => {
       // 窗口内 SSE 可抢跑（服务端收到请求即开跑并回流 chat_done），届时读 null 漏刷
       // 分支列表。POST 失败由 finally（!handedOff）清；POST 成功则无论后续路径，回合
       // 结束（chat_done）都能读到书名
-      regenBook = bookName
+      turn.regenBook = bookName
       try {
         await regenerateChat(bookName, {
           parentSeq,
@@ -648,7 +396,7 @@ export const useChatStore = defineStore('chat', () => {
           (m, i) => i <= lastUser || !m.done || !preIds.has(m.id),
         )
         // 截断移动了在途回合气泡的索引 → 重定位 currentIdx（SSE 已开跑时）
-        if (currentIdx >= 0) {
+        if (turn.currentIdx >= 0) {
           let live = -1
           for (let i = messages.value.length - 1; i >= 0; i--) {
             const m = messages.value[i]!
@@ -657,7 +405,7 @@ export const useChatStore = defineStore('chat', () => {
               break
             }
           }
-          currentIdx = live
+          turn.currentIdx = live
         }
       }
       activeBranchId.value = branchId
@@ -666,21 +414,15 @@ export const useChatStore = defineStore('chat', () => {
       // F6（五十九轮）：未交接（POST 失败/前置拒绝/期间清空）时连带清前置登记的 regenBook，
       // 防 POST 失败后残留书名被下一轮无关 chat_done 误刷分支
       if (!handedOff) {
-        regenPending = false
-        regenBook = null
+        turn.regenPending = false
+        turn.regenBook = null
       }
     }
   }
 
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
-  function trimMessages(): void {
-    if (messages.value.length > MAX_MESSAGES) {
-      const cut = messages.value.length - MAX_MESSAGES
-      messages.value.splice(0, cut)
-      // 防御性修正：splice 从头部删后 currentIdx 偏移
-      if (currentIdx >= 0) currentIdx = Math.max(-1, currentIdx - cut)
-    }
-  }
+  // RC 源码重审 B-5：实现迁入 ./chat-dispatch（trimMessages 与在途回合状态同处一模块
+  // ——裁剪要同步偏移 currentIdx），本文件经 chatDispatch.trimMessages() 调用。
 
   /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */
   function popUser(): void {
@@ -694,9 +436,9 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     errorEcho.value = null
     notice.value = null
-    currentIdx = -1
+    turn.currentIdx = -1
     seedGen.invalidate() // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
-    pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
+    turn.pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
     // 0918独立重评修复批（E006）：running 一并复位——旧实现残留 true 会让 clear 后的
     // seedHistory 被 running 守卫拦成 pendingReseed（无人收尾时永不补种）。新书真实运行态
     // 由重连 sync 权威校正（workbench.clear 的 M-12 同口径）。须在 pendingReseed 清空之后
@@ -708,8 +450,8 @@ export const useChatStore = defineStore('chat', () => {
     // 重评-0912-2 P3：截断态随视图清空复位（同分支态口径）
     historyTruncated.value = false
     historyTotal.value = null
-    regenPending = false
-    regenBook = null
+    turn.regenPending = false
+    turn.regenBook = null
     // R35-11：切书在此收口（Book.vue 切书链统一调 clear）——章号语境换到目标书的
     // 显式记忆值（无记忆 = 「全书」，随后的 currentChapter 跟随照常）；同书清空对话
     // 时记忆值即当前值，选择不丢。记忆 Map 不清：按书记忆跨切书保留
@@ -722,9 +464,9 @@ export const useChatStore = defineStore('chat', () => {
   // R33D-8：补种走 replace:true——pendingReseed 登记时 messages 已非空（历史先于
   // sync 种子化），原空列表守卫使补种恒 no-op；替换式重播种回填在途回合的权威结果。
   watch(running, (v) => {
-    if (!v && pendingReseed) {
-      const b = pendingReseed
-      pendingReseed = null
+    if (!v && turn.pendingReseed) {
+      const b = turn.pendingReseed
+      turn.pendingReseed = null
       void seedHistory(b, { replace: true })
     }
   })

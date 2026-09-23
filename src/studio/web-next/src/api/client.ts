@@ -1,7 +1,7 @@
 // API 客户端：启动从 /api/boot 取 token，所有 /api/* 请求（boot 自身除外）自动注入 x-studio-token；
-// 错误信封统一 {error, code?}（CC-P2-11）——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
+// 错误信封统一 {error, code?}——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
 
-// O-10（第十三轮）显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
+// 显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
 //（主窗/书架/书库）各自 boot 独立取 token，互不共享；正确性依赖服务端多 token 并存
 // 兼容（boot 签发不吊销旧 token），若未来改为单 token 轮换吊旧，此模块需改为跨窗口
 // 共享存储，勿只改服务端。
@@ -20,14 +20,14 @@ export class ApiError extends Error {
 }
 
 /** 启动初始化：GET /api/boot 取 token + initialBook。应用挂载前调一次；失败容错不阻塞（离线态挂载）。
- *  RB-FE-P2-2：5s 超时 + 有限重试（指数退避）——API 慢于 web 就绪（dev 启动竞态）时不再
- *  永久 401；重试仍失败不抛出（token 留 null，离线态挂载），console.warn 留痕。 */
+ *  5s 超时 + 有限重试（指数退避）——API 慢于 web 就绪（dev 启动竞态）时不再永久 401；
+ *  重试仍失败不抛出（token 留 null，离线态挂载），console.warn 留痕。 */
 const BOOT_TIMEOUT_MS = 5_000
 const BOOT_RETRIES = 3
 const BOOT_RETRY_BASE_MS = 300
 
-/** R64-43（十二轮）：退避注入点——测试用 vi.stubGlobal('setTimeout', ...) 太脆
- *  （连带伤及 AbortController 计时）；显式可换睡眠函数，产线默认真实 setTimeout。 */
+/** 退避注入点——测试用 vi.stubGlobal('setTimeout', ...) 太脆（连带伤及 AbortController
+ *  计时）；显式可换睡眠函数，产线默认真实 setTimeout。 */
 export const __testHooks = {
   sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
 }
@@ -47,9 +47,8 @@ export async function boot(): Promise<void> {
         const data = (await r.json().catch(() => ({}))) as { token?: string; initialBook?: string }
         if (r.ok && data.token) {
           token = data.token
-          // R0911b-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：initialBook 验型——
-          // 非 string 脏值（服务端字段漂移/手改响应）按无值处理，不再未验直入
-          // getLastInitialBook → App 启动路由拼接
+          // initialBook 验型——非 string 脏值（服务端字段漂移/手改响应）按无值处理，
+          // 否则未验直入 getLastInitialBook → App 启动路由拼接
           initialBook = typeof data.initialBook === 'string' ? data.initialBook : null
           return
         }
@@ -71,11 +70,11 @@ export function getToken(): string | null {
   return token
 }
 
-/** E-2（第五十三轮）：re-boot 的防抖/并发去重——多请求同时 401/403 时只触发一次 boot；
- *  settle 后置空，下次失败可再次尝试（不永久放弃恢复通道）。 */
+/** re-boot 的防抖/并发去重——多请求同时 401/403 时只触发一次 boot；settle 后置空，
+ *  下次失败可再次尝试（不永久放弃恢复通道）。 */
 let rebootstrapPromise: Promise<void> | null = null
-/** N-3（第五十四轮）导出给 SSE 层复用：token null 时 EventSource 连接前也走此防抖通道
- *  re-boot（勿在 SSE 层另造重试风暴——去重/退避语义单源在此）。 */
+/** 导出给 SSE 层复用：token null 时 EventSource 连接前也走此防抖通道 re-boot（勿在 SSE
+ *  层另造重试风暴——去重/退避语义单源在此）。 */
 export function rebootstrap(): Promise<void> {
   if (!rebootstrapPromise) {
     rebootstrapPromise = boot().finally(() => {
@@ -86,29 +85,27 @@ export function rebootstrap(): Promise<void> {
 }
 
 /** 带 token 注入的 fetch：所有 /api/* 请求（/api/boot 自身免鉴权除外）自动注入
- *  x-studio-token。鉴权契约①（GET /api/* 同样要求 token）：原先仅写方法（非 GET）注入，
- *  现统一为 GET/写全部注入——服务端逐步收口 GET 鉴权，提前带上头对旧服务端无害。
- *  init.signal 透传，调用方可用于取消。
- *  E-2（第五十三轮）：boot 失败后 token 永久 null、写请求持续 401/403 只能刷新页面——
- *  收到 401/403 时触发一次防抖去重的 re-boot 重取 token，**token 变化**才重放原请求
- *  （同一请求最多重试一次，防死循环）。Y-30（第五十七轮）拓宽：token 非空但失效
- *  （dev 重启 dev:api 换 token）同走此通道，不再只覆盖 null 形态。re-boot 失败、
+ *  x-studio-token。鉴权契约①（GET /api/* 同样要求 token）：GET/写全部注入——服务端逐步
+ *  收口 GET 鉴权，提前带上头对旧服务端无害。init.signal 透传，调用方可用于取消。
+ *  401/403 自愈：boot 失败后 token 永久 null、或 token 非空但失效（dev 重启 dev:api 换
+ *  token），写请求都只能刷新页面——收到 401/403 时触发一次防抖去重的 re-boot 重取
+ *  token，**token 变化**才重放原请求（同一请求最多重试一次，防死循环）。re-boot 失败、
  *  token 未变或重放仍 401/403 则原样透传错误。注意：init.body 须可重放（字符串/
  *  undefined；现有调用方均如此）。
- *  0918二轮修复批（E106）：重放收敛幂等面——GET/HEAD 与带 operationId 的 PUT 之外
- *  （POST/DELETE/PUT 无幂等键）re-boot 后不自动重发，401/403 原样透传（判定见
- *  isReplayable 注；re-boot 照常执行，新 token 供后续请求使用）。
+ *  重放收敛幂等面——GET/HEAD 与带 operationId 的 PUT 之外（POST/DELETE/PUT 无幂等键）
+ *  re-boot 后不自动重发，401/403 原样透传（判定见 isReplayable 注；re-boot 照常执行，
+ *  新 token 供后续请求使用）。
  *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
-/** R42-15（四十二轮）：apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期
- *  （boot 自带 5s×3 次重试退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额
- *  计时（重放是新的 fetch，不吃剩余预算），保持对外 TIMEOUT 语义：真实 fetch 阶段
- *  超时才报。仅本模块内部传参，apiFetch 外部调用面（心跳等）不受影响。 */
+/** apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期（boot 自带 5s×3 次重试
+ *  退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额计时（重放是新的 fetch，不吃
+ *  剩余预算），保持对外 TIMEOUT 语义：真实 fetch 阶段超时才报。仅本模块内部传参，apiFetch
+ *  外部调用面（心跳等）不受影响。 */
 interface TimeoutGauge {
   pause: () => void
   resume: () => void
 }
 
-/** 0918二轮修复批（E106）：401/403 自动重放的幂等面判定——GET/HEAD 天然幂等直过；
+/** 401/403 自动重放的幂等面判定——GET/HEAD 天然幂等直过；
  *  PUT 带 operationId 幂等键（文档保存：body 为 apiJson 物化后的 JSON 字符串，键由
  *  shared/revision.ts 的 newOperationId 注入、服务端按 operationId 判重去重）同样可
  *  安全重放；其余（POST / DELETE / PUT 无幂等键）不自动重放——re-boot 等待窗后的
@@ -132,9 +129,8 @@ export async function apiFetch(
   init: RequestInit = {},
   _retried = false,
   _gauge?: TimeoutGauge,
-  /** 重审-15（2026-09-07 全量代码重审 §四.15）：「本响应来自重放」出参——apiJson 据此
-   *  区分「重放仍 401/403」（登录态失效，换统一文案）与「不重放透传」（r28-client-cancel
-   *  锁定的信封原样口径）。仅本模块内部传参，外部调用面不受影响。 */
+  /** 「本响应来自重放」出参——apiJson 据此区分「重放仍 401/403」（登录态失效，换统一
+   *  文案）与「不重放透传」（信封原样口径）。仅本模块内部传参，外部调用面不受影响。 */
   _replayed?: { yes: boolean },
 ): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
@@ -146,27 +142,26 @@ export async function apiFetch(
   }
   const r = await fetch(path, { ...init, method, headers })
   if ((r.status === 401 || r.status === 403) && !_retried) {
-    // Y-30（第五十七轮）：token 非空但失效（dev 重启 dev:api 换 token——生产靠持久化
-    // token 规避）同样走 re-boot 恢复通道；**token 变化才重放**——re-boot 拿回同一枚
-    // 说明 401/403 另有原因（Origin/权限类），透传不空转（同一请求最多重试一次）
+    // token 非空但失效（dev 重启 dev:api 换 token——生产靠持久化 token 规避）同样走
+    // re-boot 恢复通道；**token 变化才重放**——re-boot 拿回同一枚说明 401/403 另有原因
+    // （Origin/权限类），透传不空转（同一请求最多重试一次）
     const used = token
-    _gauge?.pause() // R42-15（四十二轮）：进 rebootstrap 等待先停表（等待期不计时）
+    _gauge?.pause() // 进 rebootstrap 等待先停表（等待期不计时）
     await rebootstrap()
-    _gauge?.resume() // R42-15（四十二轮）：等待结束重启满额计时（重放 fetch/读体同受保护）
+    _gauge?.resume() // 等待结束重启满额计时（重放 fetch/读体同受保护）
     if (token !== null && token !== used) {
-      // 0918二轮修复批（E106）：重放仅限幂等面（判定见 isReplayable 注）——非幂等
-      // 请求（POST/DELETE/PUT 无 operationId）re-boot 后不重发，401/403 响应原样
-      // 透传（响应体完整留给调用方读信封，对齐 R28-4「不重放不 cancel」口径）
+      // 重放仅限幂等面（判定见 isReplayable 注）——非幂等请求（POST/DELETE/PUT 无
+      // operationId）re-boot 后不重发，401/403 响应原样透传（响应体完整留给调用方读
+      // 信封，对齐下方「不重放不 cancel」口径）
       if (!isReplayable(method, init.body)) return r
-      // R26-81（二十六轮）：重放前取消首个响应的未读流——重放后旧响应体不再被消费，
-      // 不 cancel 会占住连接直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求
-      // 可能挤占连接池）；cancel 拒绝（已锁定的流等）静默吞掉。
-      // R28-4（二十八轮）：cancel 只放在**确定重放**的分支——不重放（token 未变/为
-      // null）时响应体须原样返回调用方（apiJson 仍要读 {code,error} 信封）；原先
-      // 无条件 cancel 把响应体提前作废，信封解析失败被伪造成「本地服务未连接」，
-      // 掩盖服务端真实错误。
+      // 重放前取消首个响应的未读流——重放后旧响应体不再被消费，不 cancel 会占住连接
+      // 直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求可能挤占连接池）；
+      // cancel 拒绝（已锁定的流等）静默吞掉。
+      // cancel 只放在**确定重放**的分支——不重放（token 未变/为 null）时响应体须原样
+      // 返回调用方（apiJson 仍要读 {code,error} 信封）；无条件 cancel 会把响应体提前
+      // 作废，信封解析失败被伪造成「本地服务未连接」，掩盖服务端真实错误。
       r.body?.cancel().catch(() => {})
-      // 重审-15（2026-09-07 全量代码重审 §四.15）：标记本请求发生过重放（出参带回 apiJson）
+      // 标记本请求发生过重放（出参带回 apiJson）
       if (_replayed) _replayed.yes = true
       return apiFetch(path, init, true, _gauge, _replayed)
     }
@@ -175,23 +170,21 @@ export async function apiFetch(
 }
 
 /** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（error > code > HTTP 状态）。
- *  timeoutMs 缺省 = 30s 兜底档（R72-3 / 二十轮 F-1）：原先「未传则无超时」，documents/
- *  books/search 等几十处本地快端点漏配后请求挂死即 loading 永真（与 runLearn 的 P2-FE-2
- *  修复史同形态）。慢端点（AI 分析/收割/流式生成）均已显式配更大档（60s/120s/300s），
- *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。
- *  A5（复审-0914-优化修复批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
+ *  timeoutMs 缺省 = 30s 兜底档：不设默认则「未传即无超时」，documents/books/search 等
+ *  几十处本地快端点漏配后请求挂死即 loading 永真。慢端点（AI 分析/收割/流式生成）均已
+ *  显式配更大档（60s/120s/300s），显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。
+ *  A5（复审-0914-优化批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
  *  providers/onboard 此前旁路手写裸值 30_000 的调用点统一改 import（数值零变化）。 */
 export const API_DEFAULT_TIMEOUT_MS = 30_000
 
-/** 重审-15（2026-09-07 全量代码重审 §四.15）：重放（re-boot 换新 token 后重发）仍
- *  401/403 的统一友好文案——boot 重试与重放双失败说明登录态失效且自动恢复已尽力，
- *  不再透传服务端原始错误串（「token 无效」等工程口径），由 apiJson 单点统一出口
- *  （此前各调用方凭 friendlyError 分散兜底、文案不一）。 */
+/** 重放（re-boot 换新 token 后重发）仍 401/403 的统一友好文案——boot 重试与重放双失败
+ *  说明登录态失效且自动恢复已尽力，不再透传服务端原始错误串（「token 无效」等工程口径），
+ *  由 apiJson 单点统一出口（避免各调用方凭 friendlyError 分散兜底、文案不一）。 */
 const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请刷新页面或重启应用'
 
-/** R0912-C1-P3-4（2026-09-12 全量重评修复批）：apiJson 的 JSON 快捷载荷约定——init.json
- *  非 undefined 时自动补 `Content-Type: application/json` 头并物化 `body: JSON.stringify(json)`，
- *  api/ 层「method + headers + body 三件套」成对样板（55 处）由此收敛为 `{ method, json }`。
+/** apiJson 的 JSON 快捷载荷约定——init.json 非 undefined 时自动补
+ *  `Content-Type: application/json` 头并物化 `body: JSON.stringify(json)`，api/ 层
+ *  「method + headers + body 三件套」成对样板（55 处）由此收敛为 `{ method, json }`。
  *  合并语义：json 与显式 headers 并用时只补缺（已有 Content-Type 不覆盖，其余头原样保留）；
  *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
  *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
@@ -205,7 +198,7 @@ export async function apiJson<T>(
   init?: ApiJsonInit,
   timeoutMs: number = API_DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  // R0912-C1-P3-4：json 快捷载荷物化（语义见 ApiJsonInit 注）——先落成标准 RequestInit，
+  // json 快捷载荷物化（语义见 ApiJsonInit 注）——先落成标准 RequestInit，
   // 后续 signal 联动 / apiFetch 透传 / 401 重放均只见常规字符串 body，不感知本约定
   const { json, ...rest } = init ?? {}
   let reqInit: RequestInit = rest
@@ -217,12 +210,12 @@ export async function apiJson<T>(
   let timer: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
   const controller = new AbortController()
-  // 低-6（第十轮）：外部 signal 的联动监听器引用——settle 后必须摘除，否则 once 监听器
-  // 在请求结束后仍挂在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
+  // 外部 signal 的联动监听器引用——settle 后必须摘除，否则 once 监听器在请求结束后仍挂
+  // 在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
   let unlinkExternalSignal: (() => void) | undefined
   timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
-  // R42-15（四十二轮）：计时句柄——401/403 → rebootstrap 等待期停表（boot 重试退避可
-  // 达 ~16s，计入会让慢恢复被伪报 TIMEOUT 408）；等待结束重启满额计时
+  // 计时句柄——401/403 → rebootstrap 等待期停表（boot 重试退避可达 ~16s，计入会让慢恢复
+  // 被伪报 TIMEOUT 408）；等待结束重启满额计时
   const gauge: TimeoutGauge = {
     pause: () => {
       if (timer) clearTimeout(timer)
@@ -233,8 +226,8 @@ export async function apiJson<T>(
       timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     },
   }
-  // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
-  // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
+  // 外部 signal 联动：外部 abort → 内部也 abort。abort 事件只在 abort() 时刻派发一次——
+  // 调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
   if (reqInit.signal?.aborted) controller.abort()
   else if (reqInit.signal) {
     const external = reqInit.signal
@@ -243,15 +236,13 @@ export async function apiJson<T>(
     unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
   }
   try {
-    // R26-85（二十六轮）：原 `controller?.signal ?? init?.signal` 的 `?? init?.signal`
-    // 是死代码（controller 恒已创建，左侧永真）——删除。外部 init.signal 的取消语义已由
-    // 上方联动机制完整覆盖（外部 abort → controller.abort，settle 后摘监听器），apiFetch
-    // 收到的恒是内部 signal，不存「未传 controller 就透传原 signal」的分支。
-    // 重审-15（2026-09-07 全量代码重审 §四.15）：重放标记出参——apiFetch 内部 token 变化
-    // 重发时置位，供下方 !r.ok 分支区分「重放仍 401/403」与「不重放透传」。
+    // 外部 init.signal 的取消语义已由上方联动机制完整覆盖（外部 abort → controller.abort，
+    // settle 后摘监听器），apiFetch 收到的恒是内部 signal。
+    // 重放标记出参——apiFetch 内部 token 变化重发时置位，供下方 !r.ok 分支区分「重放仍
+    // 401/403」与「不重放透传」。
     const replayed = { yes: false }
     const r = await apiFetch(path, { ...reqInit, signal: controller.signal }, false, gauge, replayed)
-    // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
+    // 错误信封判别：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案
     // （否则裸 HTTP 5xx 被匹配成「AI 服务繁忙，请稍后重试」，掩盖真正原因）。
@@ -265,40 +256,35 @@ export async function apiJson<T>(
         typeof parsed === 'object' &&
         (typeof parsed['error'] === 'string' || typeof parsed['code'] === 'string')
     } catch (err) {
-      // R32-25（三十二轮）：超时若落在响应体读取期（r.json() 中途 abort），AbortError
-      // 在本 catch 被吞成 body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手
-      // （fetch 头已到、体读取超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，
-      // ApiError 原样穿透）。须先于下方 abort 判定——超时同样中止内部 signal。
+      // 超时若落在响应体读取期（r.json() 中途 abort），AbortError 在本 catch 被吞成
+      // body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手（fetch 头已到、体读取
+      // 超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，ApiError 原样穿透）。须先于
+      // 下方 abort 判定——超时同样中止内部 signal。
       if (timedOut) throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
-      // R59 清偿批（R55-F-5）：外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已
-      // 为真，原实现把 AbortError 当坏体吞进本 catch 后误报 MALFORMED_RESPONSE（把
-      // 调用方主动取消伪造成服务端故障）。判定 abort（联动内部 signal 已中止，或
-      // 错误本身是 AbortError DOMException）→ 直通原 abort 语义，不伪造
-      // MALFORMED_RESPONSE。当前全库无调用方传 signal（纯理论面），此守卫保证未来
-      // 接线取消时不误报。
+      // 外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已为真，若把 AbortError 当坏体
+      // 吞进本 catch 会误报 MALFORMED_RESPONSE（把调用方主动取消伪造成服务端故障）。判定
+      // abort（联动内部 signal 已中止，或错误本身是 AbortError DOMException）→ 直通原
+      // abort 语义，不伪造 MALFORMED_RESPONSE。当前全库无调用方传 signal（纯理论面），
+      // 此守卫保证未来接线取消时不误报。
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         throw err instanceof DOMException
           ? err
           : new DOMException('This operation was aborted', 'AbortError')
       }
-      // R51-H-1（五十一轮）：2xx + 非 JSON 体不再静默回 {}——本 API 面服务端统一
-      // JSON 信封、无 200-无体端点（原注「304/204 无体合法」与本面不符），静默 {}
-      // 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误基线，
-      // 首存必吃 REVISION_CONFLICT。仅 204（HTTP 语义无体合法）维持空对象口径，
+      // 2xx + 非 JSON 体不得静默回 {}——本 API 面服务端统一 JSON 信封、无 200-无体端点，
+      // 静默 {} 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误
+      // 基线，首存必吃 REVISION_CONFLICT。仅 204（HTTP 语义无体合法）维持空对象口径，
       // 其余 2xx 坏体上抛 MALFORMED_RESPONSE；非 2xx 非 JSON 仍走下方 LOCAL_API_DOWN。
-      // 复审-0914-修复批 P3-R2-2（前科收口）：304 属 3xx、Response.ok 恒假，从不进
-      // 本分支（fetch 304 直落下方 !r.ok），原「仅 204/304 维持空对象」表述失实，
-      // 同名死条件 r.status !== 304 一并移除。
+      // 304 属 3xx、Response.ok 恒假，从不进本分支（fetch 304 直落下方 !r.ok）。
       if (r.ok && r.status !== 204) {
         throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
       }
       body = {} as T & { error?: string; code?: string }
     }
     if (!r.ok) {
-      // 重审-15（2026-09-07 全量代码重审 §四.15）：重放后仍 401/403 → message 换统一
-      // 友好文案；status/code 原样保留（useSse 的 dev 诊断等上游 instanceof/状态码/
-      // 机器码分支依赖）。不重放路径（token 未变/为 null：Origin/权限类）不在本分支——
-      // 信封原样透传（r28-client-cancel 已锁）。friendlyError 对两形态均渲染统一文案：
+      // 重放后仍 401/403 → message 换统一友好文案；status/code 原样保留（useSse 的 dev
+      // 诊断等上游 instanceof/状态码/机器码分支依赖）。不重放路径（token 未变/为 null：
+      // Origin/权限类）不在本分支——信封原样透传。friendlyError 对两形态均渲染统一文案：
       // 有信封 code → 结构化优先直出 message；无信封（LOCAL_API_DOWN）→ TECH_PATTERNS
       // 无命中原样透出。
       if ((r.status === 401 || r.status === 403) && replayed.yes) {
@@ -310,19 +296,13 @@ export async function apiJson<T>(
         : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
       throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }
-    // 重评二轮-P3-3（2026-09-13 全库源码重评二轮 GLM-5.3）：2xx + 字面量 null 体防御——
-    // r.json() 对「null」体解析成功（不进 catch），信封判别的 parsed !== null 使
-    // hasEnvelope 为假、!r.ok 不命中，null 一路穿透到 return body。调用方按 T 消费
-    // （getContent 得 content:undefined → sha256Revision('undefined') 错基线，R51-H-1
-    // 坏体同族）。null 是本面实测可达的坏体形态（本面 T 全为对象/数组、无产出裸字面
-    // 量的端点），守卫锚定 null 收口为最小修复。复审-0914-修复批 P3-R2-1 记正：其余
-    // 裸字面量（true/数字/字符串）并非「可被 typeof 消费」而无害——信封字段消费
-    // （body.error 等）对一切非对象都静默 undefined，与 null 失效同族，属理论面维持
-    // 穿透。对齐 204 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
-    // 0918二轮修复批（E102）：上述「理论面维持穿透」收口——守卫从 null 扩到一切非
-    // 对象裸字面量（true/数字/字符串；数组 typeof 'object' 照常放行）。全量 apiJson
-    // 调用方复核（25 个 api/ 模块、63 处调用）：T 全为对象/数组形状，无合法返回
-    // string/number/boolean 的端点，收紧零误伤。
+    // 2xx + 非对象裸字面量体防御：r.json() 对「null」体解析成功（不进 catch），信封判别
+    // 使 hasEnvelope 为假、!r.ok 不命中，坏体一路穿透到 return body——调用方按 T 消费
+    // （getContent 得 content:undefined → sha256Revision('undefined') 错基线，与上面 2xx
+    // 坏体同族）。信封字段消费（body.error 等）对一切非对象都静默 undefined，故守卫覆盖
+    // null/true/数字/字符串（数组 typeof 'object' 照常放行）。全量 apiJson 调用方复核
+    // （25 个 api/ 模块、63 处调用）：T 全为对象/数组形状，无合法返回 string/number/boolean
+    // 的端点，收紧零误伤。对齐 204 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
     if (body === null || (typeof body !== 'object' && typeof body !== 'undefined')) {
       throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
     }
@@ -335,8 +315,8 @@ export async function apiJson<T>(
     throw e
   } finally {
     if (timer) clearTimeout(timer)
-    // 低-6（第十轮）：settle（成功/失败/超时）后摘除外部 signal 监听器；外部 abort 触发
-    // 路径的 AbortError 语义不变（上面 timedOut 区分，不伪装成超时）
+    // settle（成功/失败/超时）后摘除外部 signal 监听器；外部 abort 触发路径的 AbortError
+    // 语义不变（上面 timedOut 区分，不伪装成超时）
     unlinkExternalSignal?.()
   }
 }

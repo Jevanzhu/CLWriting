@@ -5,7 +5,15 @@
  *  - 「编辑」/行尾展开钮切单值互斥就地进行编辑（开一张收另一张）；
  *  - 「新增」= 列表下方新增卡（内嵌空白编辑器），与任一展开行互斥。
  * 数据层走统一 store（getProviders/getRagProviders/... 全 mock）。
+ *
+ * A-3（RC 全项目源码重审）：钥匙串通道搁置期（src/desktop/os-kek.ts OS_KEK_SHELVED）Key
+ * 保护强度如实告知——面板顶部告知行 + 两编辑器卡片文案 + 根 README 介绍面改口，三者
+ * 口径必须与实现一致（v1 内置通道 = 混淆级）。失真断言（「vault 加密」「交给系统钥匙串」）
+ * 一律不得回流：恢复 safeStorage 时须同步翻正文案，本文件断言随文案一起改。
  */
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -163,5 +171,55 @@ describe('AiServicePanel 卡片化交互（照搬 DSH）', () => {
     await flushPromises()
     expect(wrapper.find('.add-provider-card').exists()).toBe(false)
     expect(wrapper.findAll('.ai-service-panel .provider-row')).toHaveLength(2)
+  })
+})
+
+describe('Key 保护强度如实告知（A-3：钥匙串通道搁置期文案对齐实现）', () => {
+  // 事实单源：src/desktop/os-kek.ts OS_KEK_SHELVED（搁置期内 osKeyMaterial = null →
+  // createVault 落 v1，新配 Key 一律混淆级）+ src/ai/provider/vault-key.ts 头注威胁模型声明。
+  it('面板顶部告知行常显（AI / RAG 两分页共用单点）：落盘位置 + 混淆级保护 + 勿入同步盘', async () => {
+    const wrapper = await mountPanel()
+    const notice = wrapper.findAll('.ai-service-panel > .group-intro').at(0)!
+    const text = notice.text()
+    expect(text).toContain('providers.json') // ① 落盘位置 = userDataPath/providers.json（store.ts）
+    expect(text).toContain('混淆级保护') // ② 强度 = 混淆级（非加密存储、非钥匙串托管）
+    expect(text).toContain('同步盘') // ③ 勿入同步盘 / 公开备份
+    // 失真断言清零：不得出现「vault 加密」这类加密强度宣称
+    expect(wrapper.text()).not.toContain('vault 加密')
+    expect(text).not.toContain('系统钥匙串')
+
+    // 切到 RAG 分页：告知行仍在（单点覆盖两页，不在分页内各写一份）
+    await wrapper.findAll('.panel-tab').at(1)!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.ai-service-panel > .group-intro').at(0)!.text()).toContain('混淆级保护')
+  })
+
+  it('编辑器卡片 hasKey=true 显示如实文案（AI 与 RAG 两处口径一致）', async () => {
+    const wrapper = await mountPanel()
+    // AI 侧：展开甲家（hasKey=true、apiKey 空）→ 卡片显示已存 Key 提示
+    await wrapper.findAll('.provider-row').at(0)!.find('.mini-btn[data-tip="编辑"]').trigger('click')
+    await flushPromises()
+    const aiStored = wrapper.find('.row-inline-editor .key-stored')
+    expect(aiStored.exists()).toBe(true)
+    expect(aiStored.text()).toBe('已存 Key（本机保存，留空即保留）')
+
+    // RAG 侧：同款文案（两编辑器共用 .key-stored 语义）
+    await wrapper.findAll('.panel-tab').at(1)!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.provider-row').at(0)!.find('.mini-btn[data-tip="编辑"]').trigger('click')
+    await flushPromises()
+    const ragStored = wrapper.find('.row-inline-editor .key-stored')
+    expect(ragStored.exists()).toBe(true)
+    expect(ragStored.text()).toBe('已存 Key（本机保存，留空即保留）')
+
+    expect(wrapper.text()).not.toContain('vault 加密')
+  })
+
+  it('根 README 介绍面同批改口：不再宣称「加密后」或钥匙串托管', () => {
+    const readme = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../README.md'), 'utf8')
+    expect(readme).not.toContain('交给系统钥匙串')
+    expect(readme).not.toContain('Key 加密后存在本机')
+    expect(readme).toContain('本机应用数据目录')
+    expect(readme).toContain('混淆级保护')
   })
 })

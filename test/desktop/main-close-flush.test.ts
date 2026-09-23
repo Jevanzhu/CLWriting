@@ -176,6 +176,70 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     ).toBe(true)
   })
 
+  // RC 源码重审 A-1（Opus-5.5 轮）：session-end 链改序——先等渲染层 flush 落定再下发停机
+  // 指令。旧「并行下发互不等待」下，渲染层 PUT 几乎必然晚于子进程停机指令，而
+  // shutdownStudio 逐书 abort 后立即 server.close()：迟到的保存连连接都进不来（本文件
+  // 反面用例即钉这条），失败只落 info 日志——自动保存节拍内的最后键入静默丢失。
+  describe('RC 源码重审 A-1: session-end 先落 flush 再停服', () => {
+    it('flush 在途时不得先行下发停机指令；落定后才停服', async () => {
+      const win = await freshModule()
+      const child = M.forkChildren.at(-1)!
+      // flush 挂手动闸（渲染层往返未落定）
+      let release!: (v: unknown) => void
+      const gate = new Promise((r) => {
+        release = r
+      })
+      win.webContents.executeJavaScript = (code: string) => {
+        win.webContents.execJs.push(code)
+        return gate
+      }
+      win.emit('session-end')
+      await new Promise((r) => setImmediate(r))
+      expect(win.webContents.execJs).toHaveLength(1)
+      // 关键断言：flush 未落定 → 停机指令不得下发（停服后保存必失败，正是要修的破面）
+      expect(child.posted).not.toContainEqual({ type: 'shutdown' })
+      // 落定即停服（不等满预算）
+      release({ conflict: [], failed: [] })
+      await vi.waitFor(() => expect(child.posted).toContainEqual({ type: 'shutdown' }))
+    })
+
+    it('窗口已先销毁（flush 链早退分支）→ 停机指令仍下发（finally 兜底）', async () => {
+      const win = await freshModule()
+      const child = M.forkChildren.at(-1)!
+      win.destroy() // 早退分支：target.isDestroyed() 命中（flush 链不发起 executeJavaScript）
+      win.emit('session-end')
+      await vi.waitFor(() => expect(child.posted).toContainEqual({ type: 'shutdown' }))
+      expect(win.webContents.execJs).toHaveLength(0) // 窗已销毁：不白起 flush
+    })
+
+    it('渲染层挂起 → 预算到点后仍下发停机指令（等待有界，不拖死 OS 收尾）', async () => {
+      const prevBudget = process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']
+      process.env['CLW_SESSION_END_FLUSH_BUDGET_MS'] = '500'
+      try {
+        vi.useFakeTimers()
+        vi.resetModules()
+        await import('../../src/desktop/main.js')
+        await vi.advanceTimersByTimeAsync(0)
+        const win = M.windows.at(-1)!
+        const child = M.forkChildren.at(-1)!
+        win.webContents.executeJavaScript = (code: string) => {
+          win.webContents.execJs.push(code)
+          return new Promise(() => {}) // 永不落定
+        }
+        win.emit('session-end')
+        await vi.advanceTimersByTimeAsync(0)
+        expect(child.posted).not.toContainEqual({ type: 'shutdown' }) // 预算内仍在等
+        await vi.advanceTimersByTimeAsync(500) // 预算到点
+        expect(child.posted).toContainEqual({ type: 'shutdown' }) // 有界收口：仍下发停机
+        expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 未落定'))).toBe(true)
+      } finally {
+        vi.useRealTimers()
+        if (prevBudget === undefined) delete process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']
+        else process.env['CLW_SESSION_END_FLUSH_BUDGET_MS'] = prevBudget
+      }
+    })
+  })
+
   // R53-A-1（五十三轮）：session-end 并行 flush 的三种结局——落净 / 未落净（冲突+失败
   // 只留痕不弹窗）/ 钩子缺失。停机窗口内原生确认框会钉死进程，conflict/failed 只能留痕。
   it('R53-A-1: session-end flush 落净 → info 留痕；未落净（冲突/失败）→ error 留痕零弹窗', async () => {

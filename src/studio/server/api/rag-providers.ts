@@ -14,6 +14,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
 import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
+// RC 源码重审 B-4 同型补洞：主机变更闸与 /api/providers 同源（api/host-change-guard.ts）
+import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
   saveProviders,
@@ -151,6 +153,14 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     const target = s.ragProviders.find((p) => p.id === params['id'])
     if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
+    // RC 源码重审 B-4 同型补洞（复核遗留项）：endpoint 主机变更时不得静默沿用已存 Key。
+    // 「apiKey 留空 = 不改」只在同一主机下成立——endpoint 可改为任意主机（误填域名、换
+    // 第三方中转站/自建嵌入服务），沿用旧 Key 即把已存凭据发往新地址（下一次嵌入往返就
+    // 送达）。判定口径、拒绝码与文案与 /api/providers 同源（host-change-guard.ts，两族
+    // 端点逐字同则）。必须早于下方 target.* 赋值：否则失败路径已把旧 Key 配到新主机上。
+    if (!input.apiKey && !sameEndpointHost(target.endpoint, input.endpoint)) {
+      return replyError(res, 400, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE)
+    }
     const endpointChanged = input.endpoint !== target.endpoint
     const modelChanged = input.model !== target.model
     target.name = input.name

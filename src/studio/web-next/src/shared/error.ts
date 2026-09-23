@@ -6,6 +6,7 @@
  * dev 模式额外 console.error 原始错误，便于调试。
  */
 import { ApiError } from '../api/client'
+import { SAVE_TOO_LARGE_MESSAGE } from './save-limits'
 
 /**
  * 已知技术错误模式 → 友好提示。
@@ -47,6 +48,12 @@ export function rawErrorMessage(e: unknown): string {
 }
 
 export function friendlyError(e: unknown): string {
+  // RC 源码重审 B-1：413 专用码给「拆分」出路——服务端只知「请求体过大」，不知文种形态
+  //（正文/设定 md 都是长文本），出路上屏须在前端补；预检漏网（如经 /file PUT 的路径）
+  // 时由本分支兜底同一句话（文案单源 = shared/save-limits）。
+  if (e instanceof ApiError && e.code === 'PAYLOAD_TOO_LARGE') {
+    return SAVE_TOO_LARGE_MESSAGE
+  }
   // R40-40（四十轮）：结构化优先——ApiError 携带机器码（服务端 {error, code} 信封或
   // 客户端预制超时错）时 message 已是服务端/客户端人话文案，直接透出，不再对信封文案
   // 跑子串猜测：信封里的数字/英文片段（如「第 429 章不存在」的 429、含 model key 名的

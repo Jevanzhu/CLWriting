@@ -22,7 +22,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
 //（resolveBookOrReply 失败即回写错误响应返回 null）。readJson 站点 defineRoute
 // parse 迁移跳过：书域写端点按 CC-P2-9 先占书级闸再读体（R51-G-2 悬持计时耦合闸
@@ -88,7 +88,8 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         replyError(res, 404, 'NOT_FOUND', `文档ID未在清单登记：${docId}`)
         return
       }
-      const input = parseSaveInput(await readJson(req))
+      // RC 源码重审 B-1：正文保存走内容档上限（默认 1MB 对 >35 万字中文正文即 413）
+      const input = parseSaveInput(await readJson(req, CONTENT_BODY_LIMIT_BYTES))
       if (!input) {
         replyError(res, 400, 'BAD_INPUT', 'content / expectedRevision / operationId 缺失或类型不符')
         return
@@ -116,7 +117,15 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         },
       })
       if (outcome.ok) {
-        reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
+        // RC 源码重审 A-5（Opus-5.5 轮）：留底降级旗透出（仅 true 时带，既有响应形状
+        // 零改动）——正文已保存，但本笔没生成版本留底（.版本 目录不可写），前端据此
+        // 提示一次「版本历史有缺口」，别让作者在「保存成功」的表象下丢了可回退的底。
+        reply(res, 200, {
+          ok: true,
+          revision: outcome.revision,
+          superseded: outcome.superseded,
+          ...(outcome.snapshotDegraded ? { snapshotDegraded: true } : {}),
+        })
         return
       }
       // CC-P2-11：错误信封统一 {error, code?}——save 结构化失败码保留 code，人话进 error

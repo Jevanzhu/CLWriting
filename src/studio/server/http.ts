@@ -4,6 +4,15 @@ import { redactSecret } from '../../ai/provider/redact.js'
 
 const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
+/** RC 源码重审 B-1（Opus-5.5 轮）：带正文的写端点专用上限——默认 1MB 档对「200 万字」
+ *  级正文远不够（中文 UTF-8 ≈3 字节/字，约 34 万字即撞 1MB → 413），而读取/编辑两侧
+ *  无上限、前端 dirty-mirror 还专为 >1M 字符文档设了节流档——前后端规模假设原不一致：
+ *  作者导入整本旧稿（>35 万字）后可开可编辑、却永远存不上，autosave 每拍重传整文再失败，
+ *  切书只剩「丢弃并切换」。16MB 覆盖约 500 万字中文正文（含 JSON 信封余量），前端
+ *  预检单源镜像 = web-next/src/shared/save-limits.ts（两侧等值由测试钉住）。
+ *  仅正文类端点使用：documents content PUT / documents POST（建文带 content）/ file PUT。 */
+export const CONTENT_BODY_LIMIT_BYTES = 16 * 1024 * 1024
+
 /** R-1（十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
  * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
 const PAYLOAD_GRACE_MS = 1500
@@ -56,7 +65,8 @@ export function reply(res: ServerResponse, status: number, body: unknown): void 
  * 且 grep replyError 即可盘点全部错误点。
  * - error 保留中文人话（前端 toast 展示，client.ts 按 error 优先解析 → 前端零改动）
  * - code 机器可判别（复用既有词表 NO_WORKDIR/NOT_FOUND/BAD_INPUT/BAD_PATH/BUSY/...，
- *   无法归类的用 'ERROR' 兜底，禁止自创同义码）
+ *   无法归类的用 'ERROR' 兜底，禁止自创同义码；RC 源码重审 B-1 起 413 单独有码
+ *   PAYLOAD_TOO_LARGE——前端据此给「拆分文档」出路，不再混同参数校验的 BAD_INPUT）
  * - extra（N-2，第十二轮）：可选诊断扩展字段（如机检失败带 details）——仍走本单一
  *   出口，不回退到手拼 reply({ok:false,...}) 混合信封
  */
@@ -174,7 +184,7 @@ export function readJson(
         // 上层 catch 后据此回复 413。剩余数据排空丢弃——同步 req.destroy() 会抢在
         // 413 响应刷出前掐断 socket（客户端收到 ECONNRESET 而非 413）；排空让
         // 有限请求体自然到 end，连接随响应正常收口，同样不占 FD。
-        reject(new HttpError(413, '请求体过大', 'BAD_INPUT'))
+        reject(new HttpError(413, '请求体过大', 'PAYLOAD_TOO_LARGE'))
         clearIdle() // R51-G-2：413 后计时职责移交 R-1 排空宽限，闲置 destroy 不得再插手
         req.removeAllListeners('data')
         req.resume()

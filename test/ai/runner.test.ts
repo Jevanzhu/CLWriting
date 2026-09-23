@@ -18,6 +18,7 @@ import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
 import { GenError } from '../../src/ai/gen.js'
+import { formatTimeoutText } from '../../src/shared/text.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { listenSafe } from '../helpers/safe-port.js'
 
@@ -449,6 +450,31 @@ describe('runTask B-1 指数退避重试', () => {
   })
 })
 
+// RC 源码重审 A-9（Opus-5.5 轮）：超时文案时长格式化单源——档位 timeoutMs 可配任意毫秒值，
+// 此前写死 `${timeoutMs / 60_000} 分钟`，非整分钟配置下作者看到「1.5 分钟」「0.001 分钟」。
+// 纯函数矩阵钉住三档边界，含「向下取整」口径：文案说的是「超过 N …」，90s 报「1 分钟」
+// 为真、报「2 分钟」为假（进位会把已发生的时长说大）。
+describe('RC 源码重审 A-9：超时文案时长格式化（formatTimeoutText 单源）', () => {
+  it.each([
+    [60, '60 毫秒'],
+    [999, '999 毫秒'],
+    [1000, '1 秒'],
+    [30_000, '30 秒'],
+    [59_999, '59 秒'],
+    [60_000, '1 分钟'],
+    [90_000, '1 分钟'],
+    [600_000, '10 分钟'],
+  ])('%i ms → 「%s」', (ms, want) => {
+    expect(formatTimeoutText(ms)).toBe(want)
+  })
+
+  it('零/负/NaN 输入不产更坏文案（回退毫秒原样——档位面已由 resolve 侧保证正值）', () => {
+    expect(formatTimeoutText(0)).toBe('0 毫秒')
+    expect(formatTimeoutText(-5)).toBe('-5 毫秒')
+    expect(formatTimeoutText(Number.NaN)).toBe('NaN 毫秒') // 不产 NaN 分钟/秒
+  })
+})
+
 describe('ee-P1-2：整体超时与外部 ctrl 隔离', () => {
   // 前置：run 回调挂起不 resolve、只在 signal abort 时 reject——模拟真实 provider
   // 流式行为（在途 HTTP 随 abort 终止），与 chain-events.test.ts 超时用例同款搭法
@@ -467,6 +493,9 @@ describe('ee-P1-2：整体超时与外部 ctrl 隔离', () => {
     })
     expect(out).toMatchObject({ ok: false, code: 'TIMEOUT_TOTAL' })
     if (!out.ok) expect(out.error).toContain('生成超时')
+    // RC 源码重审 A-9（Opus-5.5 轮）锚点：60ms 档此前渲染成「超过 0.001 分钟」——修后
+    // 走 shared/text.formatTimeoutText 单源（<1s 毫秒口径），此处断在真实超时出口上
+    if (!out.ok) expect(out.error).toContain('超过 60 毫秒')
     // 关键断言：超时不得 abort 外部 ctrl——否则 self-heal 判 signal.aborted 吞掉超时文案、
     // 误归因为用户中断，批量连写静默停摆
     expect(ctrl.signal.aborted).toBe(false)

@@ -2,11 +2,15 @@
  * R2W-4（win 平台专项复审 R2）：providers.json 备份恢复不再用 copyFileSync 覆盖写。
  *
  * 夹具：主文件损坏 + 只读属性（copyFileSync 覆盖写在 win 撞只读 EPERM、posix 撞
- * EACCES——两平台修复前都恢复失败）；修复后 rmQuietly（libuv 对只读属性自动清位删除）
- * + atomicWriteFile 落盘 → 自愈成功、bak 保留、主文件恢复可解析。
+ * EACCES——两平台修复前都恢复失败）；修复后「改名留证（win 上对只读属性文件
+ * renameSync 实测成功）+ atomicWriteFile 落盘」→ 自愈成功、bak 保留、主文件恢复可解析。
+ *
+ * A-7（RC 源码重审，Opus-5.5 轮）：本文件的固定点由「rmQuietly 前置（先删主文件）」
+ * 迁到「留证改名」——只读主文件自愈后仍在 .corrupt-<ts> 留证（原字节可查），删除降为
+ * 改名失败时的退回口径。
  */
 import { describe, expect, it } from 'vitest'
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
@@ -38,6 +42,11 @@ describe('providers bak 自愈对只读主文件（R2W-4）', () => {
       const restored = JSON.parse(readFileSync(fp, 'utf-8'))
       expect(restored).toBeTypeOf('object')
       expect(existsSync(bakFp)).toBe(true)
+
+      // A-7：损坏且只读的主文件被改名留证（而非删除），原字节可查；原名是新文件
+      const siblings = readdirSync(dir).filter((n) => n.startsWith('providers.json.corrupt-'))
+      expect(siblings).toHaveLength(1)
+      expect(readFileSync(join(dir, siblings[0]!), 'utf-8')).toBe('{oops-not-json')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

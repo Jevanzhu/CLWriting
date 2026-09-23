@@ -15,35 +15,33 @@ import { log, errMsg } from '../../../log/index.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
-// R1010c-SRV-P3-1（2026-09-10 全量独立复审修复批）：watchdog 二段强释放改用生产命名导出
-// forceReleaseSelfHealRunning（= running.delete，幂等）——此前借道测试命名导出
-// __setSelfHealRunningForTest，测试专用 API 进生产路径；该导出自本批起回归测试专用
+// watchdog 二段强释放用生产命名导出 forceReleaseSelfHealRunning（= running.delete，幂等）——
+// 不走测试命名导出 __setSelfHealRunningForTest：测试专用 API 不得进生产路径；
+// __setSelfHealRunningForTest 仅供回归测试。
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal, forceReleaseSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { isChatRunning, abortChat } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import type { StreamTicketStore } from './stream-ticket.js'
 import { isReviewRunningForBook } from './review.js'
-// R29-9（二十九轮）：任务闸查询换合并口径（进程内 + 跨进程锁文件扫描，books.ts busyGate
-// R75-5 同款）——helper 放 audit.ts 导出（模式已三处重复，不动 task-gate.ts 共享面）。
-// R0912-P2-疑似：spawn / auto-write / chat 入口闸自本批起同样换合并口径——此前这三处仍用
-// 纯进程内 heldTaskGatesFor，双进程形态（dev-api/脚本与 GUI 并存）下他进程分钟级任务
-// 在途时写端点照常放行，产出互踩（busyGate 修复时漏的对称面）。
+// 任务闸查询用合并口径（进程内 + 跨进程锁文件扫描，与 books.ts busyGate 同款）——helper 放
+// audit.ts 导出（模式已三处重复，不动 task-gate.ts 共享面）。为什么必须合并：双进程形态
+// （dev-api/脚本与 GUI 并存）下他进程分钟级任务在途时，纯进程内查询看不见，spawn /
+// auto-write / chat 入口写端点会照常放行致产出互踩。
 import { allHeldTaskGatesFor } from './audit.js'
-// R0912：chat 工具侧闸端口的注册端（见 registerStreamRoutes 头部注）与真实闸本体
+// chat 工具侧闸端口的注册端（见 registerStreamRoutes 头部注）与真实闸本体
 import { registerTaskGateProvider } from '../../../ai/orchestrate/task-gate-port.js'
 import { acquireTaskGate } from './task-gate.js'
-// M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
-// import server 路由层）；此处再导出保持 books/audit/测试的既有导入不变
+// spawn 闸正本在 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向 import server
+// 路由层）；此处再导出保持 books/audit/测试的导入面不变
 import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
-// R0916-5h（2026-09-16，⑤④产品巨件拆分波4）：SSE 连接记账/写出器族拆出
-// stream-sse-writer.ts、静默挂死 watchdog 族拆出 stream-watchdog.ts（纯移动，
-// 零行为变化）——此处 import 残核消费面：GET books.stream handler 的连接记账
-// （sseConnections / MAX_SSE_PER_BOOK / SseConnHandle）与安全写（createSseWriter），
+// SSE 连接记账/写出器族在 stream-sse-writer.ts、静默挂死 watchdog 族在 stream-watchdog.ts
+// ——此处 import 消费面：GET books.stream handler 的连接记账（sseConnections /
+// MAX_SSE_PER_BOOK / SseConnHandle）与安全写（createSseWriter），
 // runWriterSpawn / auto-write 的挂死兜底（startStallWatchdog）
 import { sseConnections, MAX_SSE_PER_BOOK, createSseWriter } from './stream-sse-writer.js'
 import type { SseConnHandle } from './stream-sse-writer.js'
@@ -51,9 +49,9 @@ import { startStallWatchdog } from './stream-watchdog.js'
 
 export { isSpawnRunning, __setSpawnRunning }
 
-// R0916-5h 桥：拆出族的全部既有外部消费名逐名再导出——books.ts / chat.ts 的
-// forgetSseCount，index.ts 的 closeAllSseConnections，sse-count-cleanup /
-// r0910-w 测试的 __getSseConnections，sse-backpressure 测试的 createSseWriter，
+// 桥：拆出族的既有外部消费名逐名再导出——books.ts / chat.ts 的 forgetSseCount，
+// index.ts 的 closeAllSseConnections，sse-count-cleanup / r0910-w 测试的
+// __getSseConnections，sse-backpressure 测试的 createSseWriter，
 // p37 测试的 ORCH_STALL_WATCHDOG_MS / ORCH_STALL_GRACE_MS——消费方 import 面零改动
 export { forgetSseCount, closeAllSseConnections, __getSseConnections, createSseWriter } from './stream-sse-writer.js'
 export { ORCH_STALL_WATCHDOG_MS, ORCH_STALL_GRACE_MS } from './stream-watchdog.js'
@@ -63,55 +61,54 @@ interface StreamCtx {
   userDataPath: string | null
   /** GET SSE 端点 token 校验用（EventSource 不走 isWrite 拦截） */
   studioToken: string
-  /** R73-49（二十一轮）：本 server 实例的 ticket 库（与 /api/stream-ticket 签发侧同实例共享） */
+  /** 本 server 实例的 ticket 库（与 /api/stream-ticket 签发侧同实例共享） */
   tickets: StreamTicketStore
 }
 
-// RB-SV-P2-1：per-book spawn 运行闸（与 /auto-write 的 self-heal 闸同模式）——
+// per-book spawn 运行闸（与 /auto-write 的 self-heal 闸同模式）——
 // 双标签页时序窗口并发双 spawn 会互相覆写草稿回流。占位在首个 await 前同步完成
 // （比 auto-write 的「检查→await→二次检查」更严，无 TOCTOU 窗口），终态 finally 释放。
-// （闸本体在 ai/orchestrate/spawn-registry.ts，M-2·第八轮移驻）
+// （闸本体在 ai/orchestrate/spawn-registry.ts）
 
 /**
  * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
- * text 增量经 driver.emit 推 SSE。替代旧 driver.spawnRole 路径。
- * P1-2：ctrl 经 registerCtrl 交给 driver——interrupt() 可 abort 真实请求，isRunning() 判在途。
- * 重评-P3-7：导出供单测直调 watchdog 行为（同 createSseWriter「导出供单测注入假 res」先例）。
+ * text 增量经 driver.emit 推 SSE。
+ * ctrl 经 registerCtrl 交给 driver——interrupt() 可 abort 真实请求，isRunning() 判在途。
+ * 导出供单测直调 watchdog 行为（同 createSseWriter「导出供单测注入假 res」先例）。
  */
 export async function runWriterSpawn(opts: {
   driver: StudioDriver
   mainSession: Session
-  /** 重评-P3-7：watchdog 判定/文案用书名（闸正本 isSpawnRunning 在 ai 层 spawn-registry） */
+  /** watchdog 判定/文案用书名（闸正本 isSpawnRunning 在 ai 层 spawn-registry） */
   bookName: string
   userDataPath: string | null
   bookRoot: string
   prompt: string
   role: string
-  /** Q-5（第十五轮）：GET /draft-prompt 回传的注入源清单 → promptMeta.files 登记 */
+  /** GET /draft-prompt 回传的注入源清单 → promptMeta.files 登记 */
   promptFiles: string[]
 }): Promise<void> {
-  // 重评-P3-7：spawn 同款静默挂死兜底——闸正本在 ai 层 spawn-registry，其 hold/release
+  // spawn 同款静默挂死兜底——闸正本在 ai 层 spawn-registry，其 hold/release
   // 是生产导出，强释放直接走 releaseSpawnGate（与 self-heal 借 __set 测试导出不同）。
   // 进度复位点 = 本地 emit 闭包（text 增量/usage/done/warning/error 全经此回流）。
   const wd = startStallWatchdog({
     bookName: opts.bookName,
     label: '手动写稿',
     gateHeld: () => isSpawnRunning(opts.bookName),
-    // 一段：既有用户中止路径。R0912-P2-③：对齐 /interrupt 的动作集（self-heal 分支同款
-    // driver.interrupt 链）——此前只 registeredCtrl.abort() 不推 interrupted 事件，
-    // /spawn 超时强停后前端状态机收不到终态（running 卡死），与 /interrupt 路径语义分叉。
-    // driver.interrupt（cc 实现）= abort 全部在册 ctrl + 推 interrupted，恰是 /interrupt
-    // 对 spawn 的完整动作集；driver 未实现 interrupt（mock 系桩）时退回直 abort 在册
+    // 一段：用户中止路径——必须对齐 /interrupt 的动作集（self-heal 分支同款 driver.interrupt
+    // 链）：只 abort 不推 interrupted 事件则 /spawn 超时强停后前端状态机收不到终态（running
+    // 卡死），与 /interrupt 路径语义分叉。driver.interrupt（cc 实现）= abort 全部在册 ctrl +
+    // 推 interrupted；driver 未实现 interrupt（mock 系桩）时退回直 abort 在册
     // ctrl 保底（不回退既有中止能力，仅少事件面）。
     abortLikeUser: () => {
       if (opts.driver.interrupt) opts.driver.interrupt(opts.mainSession)
       else registeredCtrl?.abort()
     },
-    // 二段：强释放。R0912-P2-④：只放闸，不在此注销 ctrl——注销唯一落点留在底层 run
-    // settle（本函数终态 finally）。此前在此注销：若一段 abort 未触达底层 runTask（ctrl
-    // 尚未登记，或请求无视中止信号），ctrl 一经注销 isRunning 即假空闲，后续 /interrupt
-    // 对该在途请求永久失联；保留注册至 settle，/interrupt 仍可经 driver.isRunning 命中
-    // 并 abort，同 owner 的新登记（cc P2-6）亦会 abort 旧 ctrl 防僵尸。
+    // 二段：强释放——只放闸，不在此注销 ctrl：注销唯一落点在底层 run settle（本函数终态
+    // finally）。在此注销则一段 abort 未触达底层 runTask 时（ctrl 尚未登记，或请求无视中止
+    // 信号）ctrl 一经注销 isRunning 即假空闲，后续 /interrupt 对该在途请求永久失联；保留注册
+    // 至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort，同 owner 的新登记亦会
+    // abort 旧 ctrl 防僵尸。
     forceRelease: () => {
       releaseSpawnGate(opts.bookName)
       opts.driver.emit?.(opts.mainSession, {
@@ -120,10 +117,10 @@ export async function runWriterSpawn(opts: {
       })
     },
   })
-  // X-P2-11：登记的 ctrl 在终态注销——isRunning 归 false（此前 done 后仍登记，SSE 快照假报「生成中」）
+  // 登记的 ctrl 在终态注销——isRunning 归 false（否则 done 后仍登记，SSE 快照假报「生成中」）
   let registeredCtrl: AbortController | null = null
   const emit = (ev: DriverEvent): void => {
-    wd.touch() // 重评-P3-7：进度复位（text 增量/usage/done 等一切事件单点经此）
+    wd.touch() // 进度复位（text 增量/usage/done 等一切事件单点经此）
     opts.driver.emit?.(opts.mainSession, ev)
   }
 
@@ -138,7 +135,7 @@ export async function runWriterSpawn(opts: {
     }
     emit({ type: 'usage', cost: 0.0001, tokens: 120 })
     emit({ type: 'done', cost: 0.0001, usage: 120, reason: 'success' })
-    wd.cancel() // 重评-P3-7：mock 快路终态撤 watchdog（无泄漏）
+    wd.cancel() // mock 快路终态撤 watchdog（无泄漏）
     return
   }
 
@@ -148,30 +145,29 @@ export async function runWriterSpawn(opts: {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,
       userPrompt: opts.prompt,
-      // Q-5（第十五轮）：注入源清单随 prompt 透传 → llm/call promptMeta.files
+      // 注入源清单随 prompt 透传 → llm/call promptMeta.files
       promptFiles: opts.promptFiles,
       register: (ctrl) => {
         registeredCtrl = ctrl
-        wd.touch() // 重评-P3-7：ctrl 登记点亦复位
+        wd.touch() // ctrl 登记点亦复位
         opts.driver.registerCtrl?.(opts.mainSession, ctrl, 'spawn')
       },
       onReset: () => emit({ type: 'text_reset' }),
       onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
-      // R-P3-2 移交项（己路由）：spawn 链此前未接 onRetry，重试对前端不可见
-      //（self-heal/chat/finish 均已接）——补同款 warning 事件（对齐 self-heal.ts:876 文案与脱敏口径）
+      // spawn 链补接 onRetry——不接则重试对前端不可见（self-heal/chat/finish 均已接）；
+      // 同款 warning 事件（对齐 self-heal.ts:876 文案与脱敏口径）
       onRetry: (attempt, error) =>
         emit({ type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
     })
 
     if (out.ok) {
-      // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
+      // max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
       if (out.data.stopReason === 'max_tokens') {
         emit({ type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
       }
-      // D2（批 5）：有价格表算单次金额（input+output 按写稿模型四档分计），
-      // 未配价省略 cost 字段——不再发恒 0（mock 遗留口径修正）
-      // R70-11（十八轮）：计价用请求时刻的模型（TaskOk.model = resolve 时快照，Y-15 同
-      // 口径）——此前生成后二次 resolveTier，生成期间作者换档/改价会按新价折旧调用。
+      // 有价格表才算单次金额（input+output 按写稿模型四档分计），未配价省略 cost 字段——
+      // 不发恒 0。计价用请求时刻的模型（TaskOk.model = resolve 时快照）：生成后二次
+      // resolveTier 会让生成期间作者换档/改价按新价折旧调用。
       const model = out.model
       const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
       const cost = out.usage && pricing
@@ -184,14 +180,13 @@ export async function runWriterSpawn(opts: {
         : null
       emit({ type: 'done', usage: out.usage?.outputTokens ?? 0, reason: 'success', ...(cost !== null ? { cost } : {}) })
     } else {
-      // R26-8（二十六轮）：失败分支消息过 redactSecret——runSpec 失败的 out.error 是
-      // provider/SDK 原始报错，可能携带 API Key 痕迹，此前未脱敏直接经 SSE 广播给
-      // 前端（emitSpawnError / SSE catch 分支均有同款先例）
+      // 失败分支消息过 redactSecret——out.error 是 provider/SDK 原始报错，可能携带 API Key
+      // 痕迹，不经脱敏直接经 SSE 广播给前端即泄漏（emitSpawnError / SSE catch 分支同款）
       emit({ type: 'error', kind: 'provider', message: redactSecret(out.error), recoverable: false })
     }
   } finally {
-    wd.cancel() // 重评-P3-7：终态撤 watchdog（成功/失败/中断统一，clearTimeout 无泄漏）
-    // R0912-P2-④：底层 run settle 的注销点（唯一）——watchdog 二段强释放不再提前注销，
+    wd.cancel() // 终态撤 watchdog（成功/失败/中断统一，clearTimeout 无泄漏）
+    // 底层 run settle 的注销点（唯一）——二段强释放不提前注销，
     // 强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
     if (registeredCtrl) opts.driver.unregisterCtrl?.(opts.mainSession, registeredCtrl)
   }
@@ -202,25 +197,32 @@ function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): voi
   driver.emit?.(session, {
     type: 'error',
     kind: 'provider',
-    // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
+    // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
     message: redactSecret(errMsg(e)),
     recoverable: false,
   })
 }
 
 /**
- * R0912-P3-⑥：SSE 端点路径模式单源声明——index.ts 的 GET token 豁免表
- * （GET_TOKEN_EXEMPT_PATHS）引用本常量。此前豁免正则与下方 books.stream 路由分居两文件，
- * 靠各自手写的等价正则字符串耦合：路由路径若改，豁免表不会跟着改（静默失闸或漏豁免）。
- * 现模式与被豁免端点（自带 ticket/?token=/x-studio-token 三凭据闸，见该 handler）同居
- * 一文件，改路径只动一处。:name 为单路径段（[^/]+），与 router.ts :param 捕获口径一致。
- * 行为零变更（两处正则原本等价）。
+ * SSE 端点路径模式单源声明——index.ts 的 GET token 豁免表
+ * （GET_TOKEN_EXEMPT_PATHS）引用本常量。模式与被豁免端点（自带 ticket/?token=/x-studio-token
+ * 三凭据闸，见该 handler）同居一文件：路由路径若改，豁免表跟着改，只动一处（此前两处各写
+ * 等价正则会静默失闸或漏豁免）。:name 为单路径段（[^/]+），与 router.ts :param 捕获口径一致。
  */
 export const SSE_STREAM_PATH_PATTERN = /^\/api\/books\/[^/]+\/stream$/
 
+/** SSE 闸门响应单源——GET 建流与 HEAD 探测共用一处。
+ *  为什么：探测报给前端的「忙/拒」必须与建流真正拒的「忙/拒」逐字同口径（同状态码、
+ *  同 code、同文案），两处各写一份字符串会在改动时静默分叉（探测说忙、建流却放行，
+ *  或反之——前端 429 指引与真实成因失配）。 */
+const replySseBusy = (res: ServerResponse): void =>
+  replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
+const replySseForbidden = (res: ServerResponse): void =>
+  replyError(res, 403, 'FORBIDDEN', 'forbidden')
+
 export function registerStreamRoutes(ctx: StreamCtx): void {
-  // R0912（重评-0911b P2③ / 重评-0911c）：ai→studio 反向依赖收口的注册端——chat 工具
-  // 侧（turns.ts）经 ai/orchestrate/task-gate-port 端口取闸，真实闸在服务构造时注入。
+  // ai→studio 反向依赖收口的注册端——chat 工具侧
+  //（turns.ts）经 ai/orchestrate/task-gate-port 端口取闸，真实闸在服务构造时注入。
   // 幂等（重注册覆盖）；未注册形态仅存在于纯 ai 层单测（端口放行，见端口头注）。
   registerTaskGateProvider(acquireTaskGate)
   // SSE 订阅 driver 事件流
@@ -229,68 +231,63 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     path: '/api/books/:name/stream',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token。
-    // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程 GET /boot 即可拿
-    // token，此处不承诺防本机进程；token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的
-    // 客户端，配合 Host/Origin 校验（server/index.ts）防远端网页窃听创作内容。
-    // E-5（第五十三轮）：SSE 端点改用 R-19（第十六轮）parseRequestUrl 统一解析
-    // （Q-1/N-3 口径）——畸形 URL（如 `GET http://[bad`）原在 handler 内抛
-    // TypeError 经 dispatch 变 500，现与六处 API 裸调同款回 400 BAD_INPUT。
+    // 口径：本机进程=同信任域——本地进程 GET /boot 即可拿 token，此处不承诺防本机进程；
+    // token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的客户端，配合 Host/Origin 校验
+    // （server/index.ts）防远端网页窃听创作内容。
+    // URL 用 parseRequestUrl 统一解析：畸形 URL（如 `GET http://[bad`）在 handler 内抛
+    // TypeError 会经 dispatch 变 500，统一回 400 BAD_INPUT 而非 500。
     const url = parseRequestUrl(req)
     if (!url) {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
-    // T2 批：优先一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——
+    // 优先一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——
     // token 不再进 URL（进程列表/代理日志信道收敛）。`?token=` 旧通道保留为兼容期
     // 通道（e2e 及未升级客户端），两凭据任一过闸即放行。
-    // R30-25（三十轮）登记维持：全仓盘点（src/ + test/ 含 test/e2e）后本通道仍有
-    // **非测试消费方**——src/studio/web-next/src/composables/useSse.ts 把 `?token=`
+    // 兼容通道仍有**非测试消费方**——src/studio/web-next/src/composables/useSse.ts 把 `?token=`
     // 作为 ticket 端点 404/网络异常时的探测与回退路径（服务端只比对凭据不烧票），
     // 依赖本分支放行。移除条件：web-next 回退路径下线（useSse 不再拼 `?token=`）
     // 且 test/e2e 无残余消费后，删本分支与 stream-ticket 测试的兼容用例一并收口。
     const queryTicket = url.searchParams.get('ticket') ?? undefined
     const queryToken = url.searchParams.get('token') ?? undefined
-    // R31-32（三十一轮）：fetch 型客户端（429 探测）本可带头，改走 x-studio-token 头
-    // 通道——token 不再进 URL（进程列表/代理日志信道）；EventSource 回退通道维持
-    // R30-25 登记（EventSource 无法带头，移除条件不变）。
+    // fetch 型客户端（429 探测）走 x-studio-token 头通道——token 不再进 URL（进程列表/
+    // 代理日志信道）；EventSource 无法带头，回退通道见上（移除条件同上）。
     const headerToken = req.headers['x-studio-token']
-    // R64-27（十二轮）：鉴权前移到全部书域判定（连接数闸 429 / resolveBook 404）之前
-    // ——原顺序让未持凭据者借差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同
-    // 信任域），统一 403 消除信道零成本。
-    // R65-43（总六十五轮）：此处只「预检」不消费 ticket——原 consumeStreamTicket 在
-    // 闸首即烧掉一次性 ticket，429/404 时票被白白作废，EventSource 自动重连带废票
-    // 反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方 R65-43 消费点）。
+    // 鉴权必须在全部书域判定（连接数闸 429 / resolveBook 404）之前——否则未持凭据者可借
+    // 差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同信任域），统一 403 消除信道零成本。
+    // 此处只「预检」不消费 ticket——在闸首烧票会让 429/404 时票被白白作废，EventSource
+    // 自动重连带废票反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方消费点）。
     if (
       !ctx.tickets.peek(queryTicket) &&
       !safeTokenCompare(queryToken, ctx.studioToken) &&
       !safeTokenCompare(headerToken, ctx.studioToken)
     ) {
-      replyError(res, 403, 'FORBIDDEN', 'forbidden')
+      replySseForbidden(res)
       return
     }
-    // P2-2：per-book 连接数限制（S2：按句柄集合实际存活数判定）
+    // per-book 连接数限制（SSE 名额上限；按句柄集合实际存活数判定）
     const sseName = params['name']!
     const conns = sseConnections.get(sseName)?.size ?? 0
     if (conns >= MAX_SSE_PER_BOOK) {
-      // hh §八-12：SSE 错误路径也走统一 JSON 信封（原裸文本 'too many connections'）——
+      // SSE 错误路径也走统一 JSON 信封（不再裸文本）——
       // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
-      replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
+      replySseBusy(res)
       return
     }
     if (!ctx.workDir) {
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
     }
-    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    // resolveBook 双行样板收编单源
     const bookR = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!bookR) return
-    // R65-43（总六十五轮）：全部书域校验（429 连接数 / workDir / resolveBook 404）
+    // 全部书域校验（429 连接数 / workDir / resolveBook 404）
     // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
     // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
     // 竞态兜底：预检与消费之间被并发连接抢先消费 → 票已作废，403（一次性语义）。
-    // R33D-6（三十三轮）：消费点补认 x-studio-token 头——预检三凭据（ticket/?token=/
-    // header）任一放行，消费只认前两者：header-only 请求通过全部书域校验后在建流前
-    // 必 403（R31-32 头通道契约只在预检半边落地，零覆盖死路）。票抢消费语义不变。
+    // 消费点必须同认 x-studio-token 头——预检认三凭据（ticket/?token=/header）任一放行，
+    // 消费只认前两者则 header-only 请求通过全部书域校验后在建流前必 403（头通道契约只在
+    // 预检半边落地即零覆盖死路）。票抢消费语义不变。
     if (
       !safeTokenCompare(queryToken, ctx.studioToken) &&
       !safeTokenCompare(headerToken, ctx.studioToken) &&
@@ -299,8 +296,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
-    // 校验通过后才登记连接句柄（P1-1：防 early return 路径泄漏计数器致 DoS；
-    // S2：句柄化记账——close 移除与 forgetSseCount 清账幂等互不漂移）
+    // 校验通过后才登记连接句柄（防 early return 路径泄漏计数器致 DoS；
+    // 句柄化记账——close 移除与 forgetSseCount 清账幂等互不漂移）
     const handle: SseConnHandle = { destroy: () => res.destroy() }
     const bookConns = sseConnections.get(sseName) ?? new Set<SseConnHandle>()
     bookConns.add(handle)
@@ -313,28 +310,28 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     req.on('close', () => {
       clientGone = true
       if (heartbeat) clearInterval(heartbeat)
-      // S2：按句柄移除（forgetSseCount 已清账时 get 不到即跳过——不对新账目 -1）
+      // 按句柄移除（forgetSseCount 已清账时 get 不到即跳过——不对新账目 -1）
       const live = sseConnections.get(sseName)
       if (live) {
         live.delete(handle)
         if (live.size === 0) sseConnections.delete(sseName)
       }
-      // 低级项（第六轮）：.return() 触发生成器 finally 段，其内部抛错会让该 promise
+      // .return() 触发生成器 finally 段，其内部抛错会让该 promise
       // reject——void 丢弃即 unhandledRejection（进程级崩溃），吞掉只留断连现场
       if (iter) {
-        // B-19（第六十轮补修）：先唤醒 park 在内部 await 的生成器——iter.return 只能
-        // 在 yield 边界生效，此前断开后生成器悬挂至该书下一 driver 事件才被推进回收
-        // （consumer 闭包滞留，KB 级/个、事件到达即自愈，登记维持项本次补修）。
+        // 先唤醒 park 在内部 await 的生成器——iter.return 只能
+        // 在 yield 边界生效，否则断开后生成器悬挂至该书下一 driver 事件才被推进回收
+        // （consumer 闭包滞留，KB 级/个，事件到达即自愈）。
         // getDriver() 就地调用：close 可能在下方 driver 赋值前触发（TDZ），此处只取实现无状态
         getDriver().cancelStream?.(iter)
         void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
       }
-      // E1c（后台继续，cherry backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
-      // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放（E1b）恢复现场。
+      // 后台继续（backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
+      // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放恢复现场。
       // 显式停止仍走 POST /interrupt（用户主动取消）。
     })
     const session = await ensureSession(params['name']!, ctx.workDir)
-    // 第五轮：ensureSession 的 await 窗口内客户端断开（页面刷新可触发）——close 回调
+    // ensureSession 的 await 窗口内客户端断开（页面刷新可触发）——close 回调
     // 跑空（heartbeat/iter 尚未赋值）。若照常挂载：30s 心跳 interval + channel consumer
     // 挂在 notify 上无人唤醒，泄漏到 session dispose。已断开（计数已由 close 回调减）
     // 则直接放弃建流。
@@ -343,20 +340,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
-      // R5-P2-1（2026-09-09 修复批）：SSE 流响应此前亦无 nosniff——与 JSON API 面同批补齐
+      // SSE 流响应必须带 nosniff——与 JSON API 面同口径
       'x-content-type-options': 'nosniff',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
       // ACAO 由全局 CORS 白名单统一设置(index.ts);不再覆写为 *,防跨站订阅 driver 流(创作内容泄露)
     })
-    // P-8：写统一走 createSseWriter（覆盖写背压判死——假死客户端不再无界缓冲）；
-    // B-20（第六十轮）：safeWrite 创建前移到初始 sync 快照之前——此前首帧裸 res.write，
+    // 写统一走 createSseWriter（覆盖写背压判死——假死客户端不再无界缓冲）；
+    // safeWrite 必须在初始 sync 快照之前创建——否则首帧裸 res.write，
     // 断连边沿对已死连接裸写一次，与全链守卫口径不一致
     const safeWrite = createSseWriter(res)
 
     // 连接建立即补发运行态快照:刷新/新标签会错过 init 事件(channel 消费即弃),
     // 无快照则前端 running 假空闲 → 生成中误显「可生成」可再触发 spawn
-    // 0918独立重评修复批（E002）：running 收窄为写手腿（isWriterRunning）——chat 腿
+    // running 收窄为写手腿（isWriterRunning）——chat 腿
     // ctrl 以 `chat:<book>` owner 全程在册至 finish 注销，isRunning 对话期间恒真且
     // chat 终态（chat_done/chat_error 走 chat 族）不达 workbench.running，前端永不
     // 复位；对话态由 chatRunning 单独承载。driver 未实现新接口（旧桩）时回落 false，
@@ -365,8 +362,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       `data: ${JSON.stringify({ type: 'sync', running: driver.isWriterRunning?.(session) ?? false, chatRunning: isChatRunning(params['name']!) })}\n\n`,
     )
 
-    // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
-    // R30-21（三十轮）：stream() 工厂同步抛错兜底——此刻 writeHead(200) 已发出，
+    // stream() 工厂同步抛错兜底——此刻 writeHead(200) 已发出，
     // 异常直穿 handler 后 dispatch 兜底因 headersSent 不回错也不 end，连接悬挂至
     // 客户端自断（心跳也未建，无任何字节回流）。catch 中按本文件既有 SSE 错误事件
     // 格式（下方 for-await 的 catch 同款：type:'error'/kind:'stream' + redactSecret
@@ -375,7 +371,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     try {
       iter = driver.stream(session) as AsyncGenerator<DriverEvent>
     } catch (e) {
-      // R43-21（四十三轮）：补诊断日志（对齐 router.ts:104 纪律——只进错误事件不留痕
+      // 补诊断日志（对齐 router.ts:104 纪律——只进错误事件不留痕
       // 时排障无从下手；urlPathOnly 只记路径段，SSE token 走 query 不落日志）
       log.error('api', 'sse stream error: ' + urlPathOnly(req.url), e)
       safeWrite(
@@ -389,14 +385,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if (!res.writableEnded) res.end()
       return
     }
-    // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
+    // 心跳保活（防代理/浏览器 30-60s 无数据超时断连）
     heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
     try {
       for await (const ev of iter) {
         safeWrite(`data: ${JSON.stringify(ev)}\n\n`)
       }
     } catch (e) {
-      // R43-21（四十三轮）：补诊断日志（对齐 router.ts:104 纪律；urlPathOnly 只记路径段，
+      // 补诊断日志（对齐 router.ts:104 纪律；urlPathOnly 只记路径段，
       // SSE token 走 query 不落日志）——流中断只进错误事件时排障无从下手
       log.error('api', 'sse stream error: ' + urlPathOnly(req.url), e)
       safeWrite(
@@ -413,6 +409,66 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   },
   })
 
+  /**
+   * 不建流的 SSE 名额探测端点（HEAD，与 GET 同路径）。
+   *
+   * 为什么：前端 useSse.probeSseBusy 只为拿「连接为何被拒」的状态码，用 GET 真开流会占名额
+   * ——200 路径在响应头之前即登记 connHandle（上方 books.stream 的登记点）、推 sync
+   * 快照、ensureSession，客户端 abort 前该名额一直被占。与 fail-closed 首档 0ms 重连
+   * 并发时探测会抢走最后一个名额（实测：4 条在途 + GET 探测 → 探测 200 计 5，紧随的
+   * 正式流 429），正式连接被迫再等一档退避（4s）——探测本意是「解释断连」，反而
+   * 制造了断连。HEAD 无响应体、不建流：本题只做鉴权 + 名额判定，判定完即回，名额
+   * 对正式流始终可用。
+   *
+   * 不变量（改这条路由前先看）：
+   * - 闸口径与 GET 建流逐条同源：同一套三凭据预检（ticket peek / ?token= / x-studio-token
+   *   头）→ 同一名额判定（replySseBusy 单源）→ 同序的书域判定（鉴权在
+   *   全部书域判定之前，未持凭据者不借差异响应探测书名存在性）。
+   * - 只判定不登记：不消费 ticket（只 peek，消费点仍只在 GET）、不登记
+   *   connHandle、不推 sync 快照、不 ensureSession——重复探测对名额/连接账目/会话零影响。
+   * - 路由层：router.ts 按 method 精确匹配，HEAD 必须显式注册（不注册即落 404）；路径与
+   *   GET 完全相同，故仍在 index.ts GET_TOKEN_EXEMPT_PATHS（SSE_STREAM_PATH_PATTERN）
+   *   豁免面内，token 校验由本 handler 自带的凭据闸接管——与 GET 同一条链，无旁路。
+   * - CORS：dev 跨源探测（Vite 5173 → DEV_API_BASE 7878）带 x-studio-token 头必触发预检，
+   *   index.ts 的 access-control-allow-methods 必须含 HEAD（服务端放行口径
+   *   与预检清单失配即浏览器侧静默失效，429 指引在 dev 丢失）。
+   */
+  defineRoute('books.stream.probe', {
+    method: 'HEAD',
+    path: '/api/books/:name/stream',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 与 GET 同款统一解析：畸形 URL 回 400 BAD_INPUT 而非 500
+    const url = parseRequestUrl(req)
+    if (!url) {
+      replyError(res, 400, 'BAD_INPUT', 'bad request')
+      return
+    }
+    // 三凭据预检（只 peek 不 consume——探测不烧票；消费点唯一保留在 GET 建流侧）
+    if (
+      !ctx.tickets.peek(url.searchParams.get('ticket') ?? undefined) &&
+      !safeTokenCompare(url.searchParams.get('token') ?? undefined, ctx.studioToken) &&
+      !safeTokenCompare(req.headers['x-studio-token'], ctx.studioToken)
+    ) {
+      replySseForbidden(res)
+      return
+    }
+    const sseName = params['name']!
+    const conns = sseConnections.get(sseName)?.size ?? 0
+    if (conns >= MAX_SSE_PER_BOOK) {
+      replySseBusy(res)
+      return
+    }
+    if (!ctx.workDir) {
+      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      return
+    }
+    if (!resolveBookOrReply(ctx.workDir, params['name'], res)) return
+    // 200 = 「现在可以建流」（名额有余）——客户端只取状态码（EventSource 不暴露状态码，
+    // 故这条状态码即断连成因的全部可得信息）。HEAD 无响应体：Node 对 HEAD 丢弃 body。
+    reply(res, 200, { ok: true })
+  },
+  })
+
   // 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流
   defineRoute('books.spawn', {
     method: 'POST',
@@ -423,48 +479,46 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
-    // RB-SV-P2-1：并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
+    // 并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
     const bookName = params['name']!
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在生成，先等它跑完或中断')
     }
-    // dd-P2：与全自动写章互斥——双向均已设闸（/auto-write 侧 M-2·第八轮补齐 spawnRunning
-    // 检查；此前该注释宣称「/auto-write 已查 spawnRunning」但该检查从未存在，git 考古
-    // c0b82be 起即失实）：self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
+    // 与全自动写章互斥（双向均已设闸）：
+    // self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
-    // AI-1（第七轮）：与对话编排互斥——M-1（第六轮）只修了 chat→self-heal 单向，反向
-    // 此前缺失：chat 在途（含 rewrite/write_chapter 等嵌套生成工具）时再启动 /spawn，
-    // 两路 runTask 以不同章号交替记账互覆预算章块；跨编排 ctrl 并存虽已不互相 abort
-    // （M-1·第八轮 owner 分槽），但写手并发互覆草稿的根矛盾仍在，入口闸是正解
+    // 与对话编排互斥：chat 在途（含 rewrite/write_chapter 等嵌套生成工具）时再启动 /spawn，
+    // 两路 runTask 以不同章号交替记账互覆预算章块；跨编排 ctrl 并存虽不互相 abort
+    //（owner 分槽），但写手并发互覆草稿的根矛盾仍在，入口闸是正解
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再手动写稿')
     }
-    // R71-1（总七十一轮）：生成任务闸反向互斥——对齐 /chat（R70-5）与删书/改名 busyGate
-    // 口径：outline/lead-updates/onboard-ai/analyze 等分钟级任务在途时再 /spawn，写手
-    // 草稿与任务收尾的覆盖写（细纲.md/账本推进.md 等上下文注入源）互相踩踏
-    // R0912-P2-疑似：换 allHeldTaskGatesFor（busyGate 同款含跨进程锁文件面）——双进程
-    // 形态下他进程分钟级任务在途时，此前纯进程内查询看不见、放行 /spawn 互踩产出
+    // 生成任务闸反向互斥——对齐 /chat 与删书/改名 busyGate 口径：
+    // outline/lead-updates/onboard-ai/analyze 等分钟级任务在途时再 /spawn，写手
+    // 草稿与任务收尾的覆盖写（细纲.md/账本推进.md 等上下文注入源）互相踩踏。
+    // 用 allHeldTaskGatesFor（含跨进程锁文件面）——纯进程内查询在双进程形态下看不见
+    // 他进程分钟级任务、放行 /spawn 互踩产出
     {
       const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再手动写稿`)
       }
     }
-    // R71-1：三审运行闸反向互斥（isReviewRunningForBook，同 busyGate 引用）——三审分钟级
-    // 在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫（R61-13）必然失配
+    // 三审运行闸反向互斥（isReviewRunningForBook，同 busyGate 引用）——三审分钟级
+    // 在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫必然失配
     if (isReviewRunningForBook(bookName)) {
       return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再手动写稿')
     }
     holdSpawnGate(bookName)
     let launched = false
     try {
-      // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
-      //（五道 409 闸 + holdSpawnGate 在 readJson 前同步占位覆盖 body 在途窗口——RB-SV-P2-1/CC-P2-9 防线时序）
+      // 不走 defineRoute parse：校验顺序依赖前置门，parse 化会翻转错误优先级
+      //（五道 409 闸 + holdSpawnGate 在 readJson 前同步占位覆盖 body 在途窗口——防线时序）
       const body = await readJson(req)
-      // R33-68（三十三轮）：role 白名单——此前任意字符串直进 streamSpec（未知 role
-      // 静默落 error 事件路径）；现客户端仅用 'writer'（WorkbenchView 唯一调用点），
+      // role 白名单——不校验则任意字符串直进 streamSpec（未知 role
+      // 静默落 error 事件路径）；客户端仅用 'writer'（WorkbenchView 唯一调用点），
       // 白名单收敛入口，扩角色时同步补表。
       const SPAWN_ROLES = new Set(['writer'])
       const rawRole = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
@@ -473,14 +527,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
       const role = rawRole
       const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
-      // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
+      // 拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
       if (!prompt.trim()) {
         return replyError(res, 400, 'BAD_INPUT', 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）')
       }
       if (prompt.length > 100_000) {
         return replyError(res, 400, 'BAD_INPUT', 'prompt 过长（上限 10 万字符）')
       }
-      // Q-5（第十五轮）：GET /draft-prompt 回传的注入源清单——只作登记字符串（promptMeta.files）
+      // GET /draft-prompt 回传的注入源清单——只作登记字符串（promptMeta.files）
       // 不再读盘，服务端仍轻校验形状（串数组、条数/长度封顶）防事件库被灌垃圾
       const promptFiles = Array.isArray(body['files'])
         ? (body['files'] as unknown[])
@@ -524,7 +578,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 先停自愈编排 + 对话编排（幂等：未运行时为 no-op）
     abortSelfHeal(bookName)
     abortChat(bookName)
-    // S5（五十九轮）：无运行直接返回成功 no-op——原实现无条件 ensureSession，对无会话
+    // 无运行直接返回成功 no-op——无条件 ensureSession 会对无会话
     // 的书静默新建 channel（永不 dispose，泄漏）并向零消费者 push 陈旧 interrupted
     // 事件（重连客户端错认刚被中断）。运行态判定 = 三编排闸任一在途 或 driver 会话
     // 在途（registerCtrl 登记）；全空闲则不 ensureSession、不 interrupt。
@@ -535,15 +589,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       isChatRunning(bookName) ||
       isSpawnRunning(bookName) ||
       (session0 !== null && (driver0.isRunning?.(session0) ?? false))
-    // R0912-P2-①：返回值如实附 interrupted——true = 在途任务确被下达中断动作；false =
-    // 判定时刻本就无在途（含波 2 已注册 ctrl 的 outline/review/analysis 等端点——其
-    // ctrl 经 driver.isRunning 判真走真实中断路径），不再无差别 {ok:true} 假成功。
+    // 返回值如实附 interrupted——true = 在途任务确被下达中断动作；false =
+    // 判定时刻本就无在途（含已注册 ctrl 的 outline/review/analysis 等端点——其
+    // ctrl 经 driver.isRunning 判真走真实中断路径），不做无差别 {ok:true} 假成功。
     if (!anyRunning) return reply(res, 200, { ok: true, interrupted: false })
     const session = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver()
-    // R0912-P3-④：await 后复检——anyRunning 判定与 ensureSession await 之间任务可能
-    // 自然收尾，原样 interrupt 会向零消费者 push 假 interrupted 事件（重连客户端错认
-    // 刚被中断）。复检仍真值才下达中断；driver.isRunning 对波 2 注册 ctrl 的任务同样
+    // await 后复检——anyRunning 判定与 ensureSession await 之间任务可能
+    // 自然收尾，不复查就 interrupt 会向零消费者 push 假 interrupted 事件（重连客户端错认
+    // 刚被中断）。复检仍真值才下达中断；driver.isRunning 对已注册 ctrl 的任务同样
     // 生效（cc.isRunning 覆盖全部 owner 槽位的在册 ctrl）。
     const stillRunning =
       isSelfHealRunning(bookName) ||
@@ -565,30 +619,27 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!r) return
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
-    // 并发保护（防御双闸之一，Z-P2-5 起与 driver.isRunning 并存）：本闸是编排级内存锁，
+    // 并发保护（防御双闸之一，与 driver.isRunning 并存）：本闸是编排级内存锁，
     // 覆盖 self-heal 完整生命周期——机检/账本草稿等阶段无在途 LLM 请求，driver.isRunning
     // 仍为 false，只有本闸拦得住重复触发（两个编排器会互相覆写草稿）。生成期两闸重叠冗余，
     // 保留无害：登记受 /interrupt 注销影响存在时序窗口，内存闸始终是可靠口径。
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章,先等它跑完或中断')
     }
-    // AI-1（第七轮）：chat 在途（嵌套生成工具按章记账）时启动 self-heal 会互覆预算
-    // 章块并掐断在途对话——与 /spawn 入口同款反向闸（M-1 的另一半）
+    // chat 在途（嵌套生成工具按章记账）时启动 self-heal 会互覆预算
+    // 章块并掐断在途对话——与 /spawn 入口同款反向闸
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
     }
-    // M-2（第八轮）：与手动写稿互斥——互斥矩阵此前缺的最后一角（/spawn 侧 dd-P2 注释
-    // 自 c0b82be 起即失实地宣称此处已查 spawnRunning）。spawn 在途时启动 self-heal：
+    // 与手动写稿互斥：spawn 在途时启动 self-heal =
     // 双写手并发流式产出互覆草稿（saveDraft 与前端保存竞争），正是本闸要防的场景
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
     }
-    // R70-5（十八轮）：生成任务闸反向互斥——R67-13 只修了「写稿在途→拒收生成任务」
-    // 方向；outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间启动 self-heal，
-    // 其收尾覆盖写 细纲.md/账本推进.md，后续章拿到混合态上下文（双费 + 两端闭合误报
-    // 红触发多余重写）。与删书/改名 busyGate 同口径。
-    // R0912-P2-疑似：换 allHeldTaskGatesFor（busyGate 同款含跨进程锁文件面）——双进程
-    // 形态下他进程分钟级任务在途时，此前纯进程内查询看不见、放行 self-heal 互踩产出
+    // 生成任务闸反向互斥——outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间
+    // 启动 self-heal，其收尾覆盖写 细纲.md/账本推进.md，后续章拿到混合态上下文（双费 +
+    // 两端闭合误报红触发多余重写）。与删书/改名 busyGate 同口径；用 allHeldTaskGatesFor
+    // 的跨进程面——纯进程内查询在双进程形态下看不见他进程任务。
     {
       const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
@@ -596,14 +647,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
     }
 
-    // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+    // 不走 defineRoute parse：校验顺序依赖前置门，parse 化会翻转错误优先级
     //（r0912-cross-process-write-gates 钉「首检即拦，不进 chapter 校验」：跨进程闸在持 + 空 body → 409 非 400）
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
     if (!Number.isInteger(chapter) || chapter < 1) {
       return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
     }
-    // P2-3：批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
+    // 批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
     const rawBatch = body['batchSize']
     const batchSize = rawBatch === undefined ? 1 : Number(rawBatch)
     if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 20) {
@@ -612,7 +663,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
 
     const mainSession = await ensureSession(bookName, ctx.workDir!)
-    // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄；chat/spawn 闸同款补查
+    // 二次检查（await 期间可能另一个请求已启动）——TOCTOU 收窄；chat/spawn 闸同款补查
     if (isSelfHealRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
     }
@@ -622,10 +673,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
     }
-    // R71-2（总七十一轮）：任务闸复检（对齐 /chat 的 R70-5 复检口径）——readJson +
+    // 任务闸复检（对齐 /chat 复检口径）——readJson +
     // ensureSession 两个 await 的窗口内新 acquire 的生成任务闸（分钟级）在此拦截，
-    // 否则 self-heal 收尾覆盖写 细纲.md/账本推进.md 时与任务产出互踩
-    // R0912-P2-疑似：复检同换 allHeldTaskGatesFor（与首检同口径，含跨进程面）
+    // 否则 self-heal 收尾覆盖写 细纲.md/账本推进.md 时与任务产出互踩。
+    // 复检与首检同口径，含跨进程面（allHeldTaskGatesFor）。
     {
       const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
@@ -633,12 +684,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
     }
     const driver = getDriver()
-    // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
-    // 生成期 isRunning() 真值（SSE sync 快照此前假空闲，前端可误触 /spawn 互相覆写草稿），
+    // self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
+    // 生成期 isRunning() 真值（否则 SSE sync 快照假空闲，前端可误触 /spawn 互相覆写草稿），
     // /interrupt 的 driver.interrupt() 也能直接 abort 在途请求（与 abortSelfHeal 双保险）。
-    // X-P2-11：终态注销（finally）——防 done 后快照仍报「生成中」。
+    // 终态注销（finally）——防 done 后快照仍报「生成中」。
     let registered: AbortController | null = null
-    // 重评-P3-7：静默挂死 watchdog（进度复位式 + 两段式处置，设计详见 startStallWatchdog）。
+    // 静默挂死 watchdog（进度复位式 + 两段式处置，设计详见 startStallWatchdog）。
     const wd = startStallWatchdog({
       bookName,
       label: '全自动写章',
@@ -650,15 +701,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         if (s) driver.interrupt?.(s)
       },
       // 二段：强释放。运行登记正本在 ai 层 running Map——经生产命名导出
-      // forceReleaseSelfHealRunning(name)（= running.delete，幂等；R1010c-SRV-P3-1
-      // 收编：原直调 __setSelfHealRunningForTest 系测试命名 API 进生产路径）完成
+      // forceReleaseSelfHealRunning(name)（= running.delete，幂等）完成
       // 登记清理；迟到编排若日后 settle：其 finally 的 running.delete 同键幂等，
       // 迟到结果按既有迟到覆盖口径处理。
-      // R0912-P2-④：不在此注销 ctrl——注销唯一落点留在底层 run settle（下方 finally）。
-      // 此前在此注销：一段 abort 未触达底层 runTask 时（请求无视中止信号 / ctrl 尚未
+      // 不在此注销 ctrl——注销唯一落点留在底层 run settle（下方 finally）。
+      // 在此注销则一段 abort 未触达底层 runTask 时（请求无视中止信号 / ctrl 尚未
       // 重新登记），ctrl 一经注销 isRunning 即假空闲，后续 /interrupt 对该在途请求永久
       // 失联；保留注册至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort，同
-      // owner 的新登记（cc P2-6）亦会 abort 旧 ctrl 防僵尸。
+      // owner 的新登记亦会 abort 旧 ctrl 防僵尸。
       forceRelease: () => {
         forceReleaseSelfHealRunning(bookName)
         driver.emit?.(mainSession, {
@@ -667,7 +717,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         })
       },
     })
-    // 重评-P3-7：进度复位式计时——编排器一切事件（text/self_heal_*/warning/done…）
+    // 进度复位式计时——编排器一切事件（text/self_heal_*/warning/done…）
     // 单点经 driver.emit 广播（self-heal.ts emit()），包装 emit 复位 watchdog；
     // startSession/stream/dispose 为接口必需成员，本路径不触达，原样委托（不散播
     // this 绑定风险）。
@@ -691,14 +741,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       ...(chapters ? { chapters } : {}),
       register: (c) => {
         registered = c
-        wd.touch() // 重评-P3-7：ctrl 登记点亦复位
+        wd.touch() // ctrl 登记点亦复位
         driver.registerCtrl?.(mainSession, c, 'self-heal')
       },
     })
       .catch((e) => emitSpawnError(driver, mainSession, e))
       .finally(() => {
-        wd.cancel() // 重评-P3-7：终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
-        // R0912-P2-④：底层 run settle 的注销点（唯一）——watchdog 二段强释放不再提前
+        wd.cancel() // 终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
+        // 底层 run settle 的注销点（唯一）——二段强释放不提前
         // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
         if (registered) driver.unregisterCtrl?.(mainSession, registered)
       })

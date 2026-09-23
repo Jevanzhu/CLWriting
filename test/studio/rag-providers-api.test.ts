@@ -115,7 +115,7 @@ describe('RAG 服务商管理端点', () => {
     embedFails = false
   })
 
-  it('PUT 编辑：apiKey 留空 = 保留原 key；endpoint 变更 → caps 清空', async () => {
+  it('PUT 编辑：apiKey 留空 = 保留原 key（同主机）；endpoint 变更 → caps 清空', async () => {
     const list = await api('/api/rag-providers')
     const id = String((list.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['id'])
 
@@ -133,13 +133,54 @@ describe('RAG 服务商管理端点', () => {
     const afterKeep = await api('/api/rag-providers')
     expect(((afterKeep.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['apiKeyMasked'])).toBe('sk-r...3456')
 
-    // 换 endpoint → caps 清空（要求重测）
+    // 换 endpoint（同主机换路径，RC 源码重审 B-4 补洞后：同主机才允许留空 key）→ caps 清空（要求重测）
     const change = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '改名', endpoint: 'https://stub2.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
+      body: JSON.stringify({ name: '改名', endpoint: 'https://stub.example/v2/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
     })
     expect(change.status).toBe(200)
     expect((change.json['provider'] as Record<string, unknown>)['caps']).toBeNull()
+  })
+
+  // RC 源码重审 B-4 同型补洞（复核遗留项）：/api/rag-providers 与 /api/providers 同一段
+  // 「留空 Key = 不改」语义、另一份拷贝——endpoint 换主机时沿用旧 Key 即把已存凭据发往
+  // 新地址（下一次嵌入往返就送达）。判定与文案单源见 api/host-change-guard.ts。
+  it('RC-B-4：endpoint 换主机 + Key 留空 → 400 拒绝且盘上零改写；同请求带 Key 才放行', async () => {
+    const before = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
+    const id = String(before[0]!['id'])
+    const disk0 = readFileSync(join(userData, 'providers.json'), 'utf8')
+
+    // 换主机（stub.example → evil.example）+ 空 Key → 拒（不静默沿用旧 Key 外流）
+    const blocked = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: '迁站', endpoint: 'https://evil.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
+    })
+    expect(blocked.status).toBe(400)
+    expect(blocked.json['code']).toBe('API_KEY_REQUIRED_ON_HOST_CHANGE')
+    expect(String(blocked.json['error'])).toContain('主机已变更')
+    // 盘上零改写（endpoint 与掩码都还是原值；失败路径不得留下半改状态）
+    const after = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
+    expect(after[0]!['endpoint']).toBe('https://stub.example/v2/embeddings')
+    expect(after[0]!['apiKeyMasked']).toBe('sk-r...3456')
+    expect(readFileSync(join(userData, 'providers.json'), 'utf8')).toBe(disk0)
+
+    // 同请求显式带 Key → 正常放行（作者改主机的正路）
+    const ok = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: '迁站', endpoint: 'https://evil.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: 'sk-new-host-987654' }),
+    })
+    expect(ok.status).toBe(200)
+    const afterOk = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
+    expect(afterOk[0]!['endpoint']).toBe('https://evil.example/v1/embeddings')
+    expect(afterOk[0]!['apiKeyMasked']).toBe('sk-n...7654')
+
+    // 复原：换回原主机 + 重填原 key（后续用例共用同一服务商）
+    const restore = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: '测试嵌入', endpoint: 'https://stub.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: 'sk-rag-test-123456' }),
+    })
+    expect(restore.status).toBe(200)
+    expect(readFileSync(join(userData, 'providers.json'), 'utf8')).not.toContain('sk-rag-test-123456')
   })
 
   it('PUT / DELETE 不存在的 id → 404', async () => {

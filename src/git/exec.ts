@@ -81,14 +81,44 @@ export function killWithEscalation(
 const GIT_MAX_BUFFER = 64 * 1024 * 1024
 
 /**
+ * RC 源码重审 A-2（Opus-5.5 轮）：书目录（外部来源）不可信——git 会读仓库内
+ * `.git/config`，其中 `core.fsmonitor = <命令>` 在 `status` 刷新索引时被当场执行
+ *（本机实测 git 2.52 win：裸 `git status --porcelain` 即触发命名脚本），
+ * 而 `safe.directory` 只拦属主不一致——作者自己下载/解压的书目录属主就是他本人，
+ * 拦不住。server 启动链 migrateFinalizedRevisions 对每本书跑 statusPorcelain，
+ * 等价于「把他人共享的书目录放进书库 = 启动即执行任意命令」。
+ *
+ * 统一前置两类 -c 覆盖（命令行 -c 优先级高于仓库内配置，实测生效）：
+ * - `core.fsmonitor=false`：关掉外部 fsmonitor 命令——本条的唯一活靶；
+ * - `core.hooksPath=NUL`（win）/`/dev/null`（posix）：hooks 全关——现存子命令
+ *   （status / for-each-ref / hash-object / update-ref / cat-file）本不触发 hook，
+ *   此处只防将来新增子命令（checkout/commit 类）把同一面带回来。
+ *
+ * 未屏蔽 global/system 配置：那是用户/管理员自己的信任域（本害面是随书目录流入的仓库内
+ * 配置），且 Git for Windows 系统配置带 autocrlf 等既有默认，屏蔽会引入无关行为变化。
+ * 残余（如实记档，不在本条修）：git 可执行仍按 PATH 解析、未做绝对路径——要劫持得先能
+ * 写入应用工作目录/PATH，风险面远小于本条。
+ * 导出单源：同步 git() 与 gitAsync() 共用；测试经此断言平台分支与参数面。
+ */
+export function hardenGitArgs(args: string[]): string[] {
+  return [
+    '-c', 'core.fsmonitor=false',
+    '-c', `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+    ...args,
+  ]
+}
+
+/**
  * 执行一条 git 命令（统一收口，#16 第 3 节）。
  * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败按退出码 → 人话，不把作者丢给 git 报错。
  * opts.input：喂 stdin（hash-object --stdin 等内容写入场景用）。
  * 超时（P2-30）：15s 上限，git 无响应即中止并按失败返回（statusPorcelain 得 null → fail-closed）。
+ * 传参经 hardenGitArgs（RC 源码重审 A-2：仓库内 fsmonitor/hooks 配置不可信）；
+ * 报错信封仍用调用方原 args 拼装，-c 加固参数不外露给作者。
  */
 export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; input?: string }): GitResult {
-  const r = spawnSync('git', args, {
+  const r = spawnSync('git', hardenGitArgs(args), {
     cwd,
     stdio: 'pipe',
     // R1W-8（win 平台专项复审 R1）/ R37-4（三十七轮）双线同旨合并：windowsHide——
@@ -162,7 +192,8 @@ export function gitAsync(
   return new Promise<GitResult>((resolve) => {
     // R1W-8 / R37-4（双线同旨合并）：windowsHide 同步补齐——异步路径与同步路径
     // 同频闪窗，与同步 git() 同款收口
-    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    // RC 源码重审 A-2：传参与同步 git() 同源经 hardenGitArgs（仓库内 fsmonitor/hooks 不可信）
+    const child = spawn('git', hardenGitArgs(args), { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const stdoutParts: string[] = []
     const stderrParts: string[] = []
     // R66-22 同款缓冲上限：只收满上限为止（stream 继续排空，防子进程写阻塞在后挂 SIGPIPE）

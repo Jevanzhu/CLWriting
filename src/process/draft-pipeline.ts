@@ -77,6 +77,12 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
  *  - 结构化表单覆写面（onboard-save、outline、lead-updates）→ **fail-open 留痕继续**
  *    （log.warn + 响应/日志 snapshotted:false）：写的是表单值或派生内容而非自由正文，
  *    丢的手改面窄且作者可重填，阻断保存的代价大于保留旧版本的收益。
+ *  - 编辑器保存链（studio server documents-save → document/service.save 的 maybeSnapshot）
+ *    → **fail-open 留痕继续**（RC 源码重审 A-5，Opus-5.5 轮补记于此汇总）：正文是作者
+ *    正在写的内容，留底只是「改前留一手」的增量收益，为它拒绝一次正文保存得不偿失——
+ *    失败降级为 SaveResult.snapshotDegraded 标记，服务端透出 200 响应，前端弹一次
+ *    info 提示（作者可见化，不静默）。判据同上（唯一性）：被覆写的是编辑器自己上一版
+ *    正文，盘上正文与内存稿都在，缺的只是留底副本。
  *  新增调用方按本判据自选，勿照抄邻近端点。
  */
 export function snapshotBeforeOverwrite(

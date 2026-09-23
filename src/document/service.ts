@@ -95,7 +95,15 @@ export interface SaveDocumentInput {
 }
 
 export type SaveResult =
-  | { ok: true; revision: `sha256:${string}` }
+  | {
+      ok: true
+      revision: `sha256:${string}`
+      /** RC 源码重审 A-5（Opus-5.5 轮）：保存前留底（maybeSnapshot）失败但正文已落盘——
+       *  留底是兜底不是闸（fail-open），正文照常保存成功；本旗仅在该降级发生时带出，
+       *  供上层提示「本次修改前的旧内容未留底、版本历史本笔缺口」。健康路径无此字段
+       *  （响应形状零改动）。 */
+      snapshotDegraded?: boolean
+    }
   | {
       ok: false
       // 0917清库修复批（件1）：新增 BOOK_MOVED——executeSave 落盘前书注册重验失败
@@ -534,6 +542,10 @@ export class DocumentService {
         }
       }
 
+      // RC 源码重审 A-5（Opus-5.5 轮）：留底降级旗（本笔保存是否因快照失败而丢了旧文留底）。
+      // 声明在内层 try 之外：快照失败在下方 catch 置位，成功返回分支（正文已落盘）再读它
+      // ——失败收口（返回 WRITE_ERROR）不需要该旗：保存没成，留底缺口不是当务之急。
+      let snapshotDegraded = false
       try {
         // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
         // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
@@ -580,15 +592,35 @@ export class DocumentService {
         // PM-4：普通保存也改传 diskBytes 字节直存（见上方 ③），oldBodyText 消除后
         // 两分支合一；words 传 exact 口径（byteRestore 无安全文本视图不传，面板对
         // 稀疏字节档回落全量读兜底）。
-        this.maybeSnapshot(
-          docId,
-          relPath,
-          absPath,
-          input,
-          currentRev,
-          diskBytes ?? undefined,
-          !byteRestore && oldWords !== null ? oldWords : undefined,
-        )
+        // RC 源码重审 A-5（Opus-5.5 轮）：留底 fail-open——maybeSnapshot 原为裸调用且与
+        // 正文原子写同处内层 try，writeVersion 的真落盘段（version.ts 无 try/catch）在
+        // `.版本` 目录被同步盘锁住/只读/配额满时抛出，直接落进下方 catch：journal 误记
+        // aborted + 返回 WRITE_ERROR——正文一字未动却报失败。更糟的是 listVersions 对
+        // 坏目录恒返 [] ⇒ 节流/去重判据永不生效 ⇒ 每笔保存都真去写、每笔都抛，作者陷入
+        // 「写不进去且只有状态条一行小字」的永久死锁（autosave 失败不弹 toast），无自愈
+        // 路径。留底是兜底不是闸（口径对齐 service-meta.ts R26-51 的 fail-open 先例，
+        // 同「写后 best-effort 副作用不得把成功改判失败」的 R75-4/R27-44 家族）：warn
+        // 留痕 + 置 snapshotDegraded 旗随结果上抛，正文照常落盘。
+        // 不变量（唯一不能碰）：留底成功时其内容恒 === 被覆盖的盘上旧内容（R28-13）——
+        // 本改动只在快照抛错时改判据，不触碰写成功路径。
+        try {
+          this.maybeSnapshot(
+            docId,
+            relPath,
+            absPath,
+            input,
+            currentRev,
+            diskBytes ?? undefined,
+            !byteRestore && oldWords !== null ? oldWords : undefined,
+          )
+        } catch (e) {
+          snapshotDegraded = true
+          log.warn(
+            'document',
+            `保存前版本留底失败（留底是兜底不是闸，fail-open 继续写入，正文已保存）：${errMsg(e)}。本次修改前的旧内容未留底、版本历史本笔缺口；` +
+              `多为 工作区/.版本 目录不可写或被占用（同步盘锁定/只读/配额满），请检查该书目录下 工作区/.版本 的权限与占用后重试`,
+          )
+        }
         // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
         // R26-49（二十六轮）：新建路径（expectedRevision=null）不再裸 rename——基线校验
         // （文件不存在）与落盘之间无互斥，他进程并发新建同名文件时 atomicWriteFile 的
@@ -679,7 +711,12 @@ export class DocumentService {
         //（rev 键控：即便此笔回填后文件又被外部改动，rev 不匹配自动失效，无害）。
         if (newWords !== null) this.rememberDocWords(docId, newRev, newWords)
         // 步骤 11
-        return { ok: true, revision: newRev }
+        // RC 源码重审 A-5（Opus-5.5 轮）：留底降级旗随成功结果上抛——保存成功与「本笔无
+        // 留底」是两件事，正文落盘结论不变，仅把快照缺口如实带给调用方（API 层透出 →
+        // 前端一次性提示）；健康路径不带该字段，信封形状与既有消费方零冲突。
+        return snapshotDegraded
+          ? { ok: true, revision: newRev, snapshotDegraded: true }
+          : { ok: true, revision: newRev }
       } catch (e) {
         // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
         try {

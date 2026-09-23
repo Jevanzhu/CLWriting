@@ -16,17 +16,25 @@
  * 阻塞时长由调用方超时封顶）。同进程嵌套获取同一锁会自锁——调用方需保证进程内
  * 已有串行化（如 calls.ts 的 writeChains）再进跨进程锁。
  *
- * X-4（第五十六轮）：stale 接管的「判定 → rmSync」窗口残余竞态——双 contender
- * 先后判同一死 pid stale 时，后到者的 rmSync 可能删掉先到者刚创建的新锁（双持锁）。
- * 缓解：接管前随机 jitter（去相关化并发轮询者）+ rmSync 前二次复核（重判仍 stale
- * 才删，窗口收窄到 µs 级）。残余窗口如实记档：POSIX 无 inode 级条件删除，二次复核
- * 与 rmSync 之间锁文件仍可能被换（proper-lockfile 同款已知语义）；彻底闭合需
- * lease/fencing token，超出文件锁范畴。
+ * X-4 / RC 源码重审 A-4（Opus-5.5 轮）：stale 接管的「判定 → 夺锁」残余竞态。原实现
+ * 「判 stale → rmWithRetry(锁名) → 重试创建」把删除落在**共享锁名**上，而该删除不可观测
+ *（rmSync force 对已不存在的路径静默成功）：两个 contender 先后对同一把死锁判 stale 时，
+ * 后到者的 rm 可能删掉先到者刚重建的新锁再自建（双持锁），自己看不出发生过什么。现接管
+ * 改为「原子改名认领」——rename(锁名 → 同目录唯一隔离名)：同一源名至多一个赢家，「判
+ * stale」与「实际夺走」不再分离；败者只得 ENOENT（源已被赢家取走 / 持有者已自行释放），
+ * 此时它不触碰任何文件，落回 create 路径按在位者的活 pid 重新判定——「删共享名 + 自建」
+ * 这一对动作对败者已不存在。
+ * 残余来源如实记档：① 二次复核与 rename 之间共享名被换（恰在该窗内重建的赢家的新锁会被
+ * 夺走）——按名 check-then-act 固有，窗口是复核到 rename 的几条指令（µs 级，proper-lockfile
+ * 同款），再收窄需夺取后核验隔离件身份；② 活进程超龄误判（judgeStaleLock 的 Z-19 分支：
+ * pid 复用 / SIGSTOP 形态），由持锁方续期兜底（renewIntervalMs——长临界段调用方必须开启，
+ * 见 learn 的 LEARN_HARVEST_LOCK_RENEW_MS）。彻底闭合需 lease/fencing token，超出文件锁范畴。
  */
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { log } from '../log/index.js'
-import { rmWithRetry, retryOnTransientFsError, fsBackoffSleep } from './atomic.js'
+import { rmWithRetry, renameWithRetry, rmQuietly, retryOnTransientFsError, fsBackoffSleep } from './atomic.js'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
  *  R71-24（十九轮）导出复用：events 开口标记内容同样落 pid+bootTime。 */
@@ -266,30 +274,52 @@ export function tryAcquireCrossProcessLock(
       if (first === 'held') return null
       if (first === 'gone') continue // 刚被释放——下轮重试创建
       // X-4：接管前随机 jitter（去相关化并发轮询者——双 contender 同拍判 stale 时，
-      // 后到者的 rmSync 会删掉先到者刚重建的新锁 → 双持锁）；注入 0 可关。
+      // 后到者的夺锁动作会落在先到者刚重建的新锁上 → 双持锁）；注入 0 可关。本 jitter
+      // 与下方二次复核在 A-4 改名认领后仍保留：它们把「判 stale」与「实际夺走」的间隔
+      // 压到极限（残余窗口见模块头注①）。
       if (jitterMax > 0) {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.floor(Math.random() * jitterMax))
       }
-      // X-4：rmSync 前二次复核——判 stale 与删除之间，锁文件可能已被其他接管者清理并
-      // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才删；判定翻转 → 放弃本轮重来
+      // X-4：夺锁前二次复核——判 stale 与夺取之间，锁文件可能已被其他接管者清理并
+      // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才继续；判定翻转 → 放弃本轮重来
       // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
       if (judgeStaleLock(lockPath, isAlive, grace, maxHeld) !== 'stale') continue
       // 重审-10：陈锁接管留痕——持有进程已死/超龄不可读的锁被接管清理此前零 warn
       //（自愈发生但无迹可查，双 contender/崩溃恢复场景无从诊断）；带原持有 pid（读取
-      // 失败容错为「pid 不可读」）后照旧清理重试。
+      // 失败容错为「pid 不可读」）。
       const staleHolderPid = readHolderPid(lockPath)
+      // RC 源码重审 A-4（Opus-5.5 轮）：接管 = 「原子改名认领」——夺锁动作不再落在共享
+      // 名上（旧实现 rmWithRetry(lockPath) 删共享名，且 force 删除不可观测：两个 contender
+      // 先后判同一把死锁 stale 时，后到者的 rm 落在先到者刚重建的新锁上也照样"成功"）。
+      // 改名后同一源名至多一个赢家，输的那方拿到 ENOENT ——它不触碰任何文件，落回 create
+      // 路径：① 赢家已重建 → 撞 EEXIST → 按在位者活 pid 判定（活着不接管，见下方 null）；
+      // ② 赢家还没重建 → 直接建成自己的锁。两条路都不会出现「删掉他人新锁再自建」。
+      // win 杀软/索引器对死进程遗留锁文件的瞬时锁定（EPERM/EBUSY）由 renameWithRetry 的
+      // 3×50ms 指数退避吸收（重评-12 原口径）；退避后仍失败照旧上抛——接管语义不吞错，
+      // 调用方超时降级面不变。
+      const quarantinePath = join(
+        dirname(lockPath),
+        // 同目录（rename 需同卷才原子）+ 唯一（本进程 pid + uuid，无他人可争用）；后缀形态
+        // 匹配 fs/atomic.ts 的 ABANDONED_TMP_RE → 删除失败留下的残迹交官方 sweep 自愈
+        //（本进程存活时走 SELF_TMP_MIN_AGE_MS 5min 自身年龄门，绝不被误当在途写清掉）
+        `.${basename(lockPath)}.${process.pid}.${randomUUID()}.tmp`,
+      )
+      try {
+        renameWithRetry(lockPath, quarantinePath)
+      } catch (e) {
+        // ENOENT = 源名已空（他人已改名认领，或持有者恰在此刻自行释放）——本 contender 不
+        // 触碰任何文件，落 create 路径与在位者公平竞争（与旧实现 for 两次尝试语义等价）；
+        // 其余（EPERM/EBUSY 退避耗尽、权限类）原样上抛。
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw e
+      }
       log.warn(
         'fs',
-        `陈锁接管：持有进程${staleHolderPid !== null ? `（pid=${staleHolderPid}）` : '（pid 不可读——超龄半写/损坏）'}已死或超龄，接管清理后重试创建：${lockPath}`,
+        `陈锁接管：持有进程${staleHolderPid !== null ? `（pid=${staleHolderPid}）` : '（pid 不可读——超龄半写/损坏）'}已死或超龄，已改名隔离并重试创建：${lockPath}`,
       )
-      // 持有进程已死（或超龄仍不可读——创建即崩溃的半写兜底）：接管清理重试
-      // 重评-12（全库代码重评审 2026-09-05）：接管清理删除收编 fs/atomic.ts rmWithRetry
-      //（R42-10 trash.ts 先例、本文件 rmWithRetryQuiet 同族）——win 杀软/索引器对死进程
-      // 遗留锁文件的瞬时锁定（EPERM/EBUSY）下裸 rmSync 直败会让陈锁接管无谓失败（调用
-      // 方超时降级/上抛）。退避口径同款（3×50ms 指数退避，仅 EPERM/EBUSY 进重试；缺省
-      // rm 即 rmSync force，与原裸调逐位同源）；退避后仍失败照旧上抛——接管语义不吞错，
-      // 调用方超时降级面不变。
-      rmWithRetry(lockPath)
+      // 隔离文件（死锁原件）删除 best-effort：名字唯一、无他人争用，删除失败仅留隔离残迹
+      //（交 sweep 自愈，见上方 quarantinePath 注释），不因清理失败反噬接管本身。
+      rmQuietly(quarantinePath)
     } finally {
       if (fd !== undefined) {
         try {

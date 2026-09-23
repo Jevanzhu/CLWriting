@@ -63,30 +63,38 @@ export interface GenResult {
   degraded?: boolean
 }
 
-/** B-2：chunk 超时默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
+/** B-2：逐 chunk 挂起时限默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
+ *  RC 源码重审 A-8（Opus-5.5 轮）更名：本值原称「首字节超时」，实为**逐 chunk 挂起**
+ *  口径（B-2 首字节只是它最常命中的一例，P3-8 流中途挂起同样受此限）——函数/常量层
+ *  随批改为 chunk-stall 命名，避免读代码时误以为「只在首字节生效」。**env 名与事件
+ *  schema 字段（firstByteTimeoutMs，events/types.ts）保名**：一个是对外配置面、一个是
+ *  已落库的字段形状（重放纪律），改名只到本模块符号层。
  *  P3-1：参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s 不变）——
  *  深度推理模型首 token 可能超过 60s，此前写死导致被误判 TIMEOUT 白废一轮请求 + 吃退避。 */
-const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 60_000
-const FIRST_BYTE_TIMEOUT_ENV = 'CLWRITING_FIRST_BYTE_TIMEOUT_MS'
+const DEFAULT_CHUNK_STALL_TIMEOUT_MS = 60_000
+const CHUNK_STALL_TIMEOUT_ENV = 'CLWRITING_FIRST_BYTE_TIMEOUT_MS'
 
-/** 显式 resolve 首字节超时（默认值纪律：链路参数不允许隐式默认穿透，超时也须可重放） */
-export function resolveFirstByteTimeoutMs(): number {
-  const raw = process.env[FIRST_BYTE_TIMEOUT_ENV]
+/** 显式 resolve 逐 chunk 挂起时限（默认值纪律：链路参数不允许隐式默认穿透，超时也须可重放） */
+export function resolveChunkStallTimeoutMs(): number {
+  const raw = process.env[CHUNK_STALL_TIMEOUT_ENV]
   if (raw !== undefined && raw !== '') {
     const n = Number(raw)
     if (Number.isFinite(n) && n > 0) return n
   }
-  return DEFAULT_FIRST_BYTE_TIMEOUT_MS
+  return DEFAULT_CHUNK_STALL_TIMEOUT_MS
 }
 
 /**
  * 包装 async iterable，对每个 chunk 加超时（B-2：首字节网络挂起 → 快速失败可重试；
  * P3-8：流中途挂起同样超时，防 provider 发部分数据后静默卡死靠 runner 10min 兜底）。
  *
+ * RC 源码重审 A-8：原函数名 withFirstByteTimeout 与实现口径不符——计时窗是**每两个
+ * 事件之间**，不止首字节（B-2/P3-8 两处语义都靠它）；随批改名，符号面不留误导读点。
+ *
  * RB-AI-P2-3：新增 onStall 钩子——超时/异常先回调（调用方借此 abort 底层 HTTP），
  * 再做迭代器清理；仅放弃消费不 abort 时，重试期间旧请求继续在途生成计费。
  */
-export async function* withFirstByteTimeout(
+export async function* withChunkStallTimeout(
   source: AsyncIterable<GenEvent>,
   timeoutMs: number,
   onStall?: () => void,
@@ -124,6 +132,10 @@ export async function* withFirstByteTimeout(
         if (result.done) { return }
         yield result.value
       } catch (e) {
+        // RC 源码重审 A-8（Opus-5.5 轮）：本分支此前不 clearTimeout——race 已吸收 reject，
+        // 但计时器仍在（未 unref）挂到超时点才空转回调 rejectStall，最长白挂 60s；且 finally
+        // 注释误称「catch 两态均已清」。catch 首行解武装，与成功分支成对，注释随之改口径。
+        clearTimeout(timer)
         // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
         // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
         // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
@@ -138,7 +150,9 @@ export async function* withFirstByteTimeout(
       }
     }
   } finally {
-    // 每轮 timer 均在循环内成对清理（race 结算后 / catch 两态），此处无存活 timer 可清
+    // RC 源码重审 A-8：本处**没有**存活 timer 可清是这个结构的结论、不是前提——每轮 timer
+    // 在两条路径成对解武装（race 结算后的 clearTimeout / catch 首行的 clearTimeout），
+    // 循环外不存在逃逸轮次；改动上方任一处都需重新校验本前提（勿把本注释当免责声明）。
     // R33D-11：正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
     it.return?.().catch(() => { /* 清理段异常不外抛 */ })
   }
@@ -179,9 +193,9 @@ export async function generate(
   if (signal.aborted) attempt.abort()
   else signal.addEventListener('abort', onOuterAbort)
   try {
-    for await (const ev of withFirstByteTimeout(
+    for await (const ev of withChunkStallTimeout(
       provider.stream(req, attempt.signal),
-      resolveFirstByteTimeoutMs(),
+      resolveChunkStallTimeoutMs(),
       () => attempt.abort(),
     )) {
       switch (ev.type) {

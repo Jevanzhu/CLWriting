@@ -41,6 +41,15 @@ const mockSpawn = vi.mocked(spawn)
 
 let root = ''
 
+/** RC 源码重审 A-2（Opus-5.5 轮）：git() 统一前置硬化参数（`-c core.fsmonitor=false`
+ *  `-c core.hooksPath=…`）——本文件断言的是「哪条子命令走了异步 spawn」（读侧不冻结事件
+ *  循环的机理），硬化旗本身的逐字断言在 test/git/exec.test.ts；此处剥掉前置 -c 对。 */
+function gitArgsOf(argv: readonly unknown[]): unknown[] {
+  const out = [...argv]
+  while (out[0] === '-c' && out.length >= 2) out.splice(0, 2)
+  return out
+}
+
 beforeEach(() => {
   root = mkdtempTracked(join(tmpdir(), 'clwriting-r37-5-read-'))
   git(['init'], root)
@@ -76,7 +85,7 @@ describe('R37-5: 读侧异步孪生与同步版等价', () => {
     expect(versions).toHaveLength(1)
     expect(mockSpawn).toHaveBeenCalled() // for-each-ref 经异步 spawn
     await readAiVersionAsync(root, 'doc_A', versions[0]!.sha)
-    expect(mockSpawn.mock.calls.some((c) => c[0] === 'git' && (c[1] as string[])[0] === 'cat-file')).toBe(true)
+    expect(mockSpawn.mock.calls.some((c) => c[0] === 'git' && gitArgsOf(c[1] as string[])[0] === 'cat-file')).toBe(true)
   })
 
   it('失败面：坏 .git → 空表 / null，永不 reject（轨迹旁路不阻断主流程）', async () => {

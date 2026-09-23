@@ -12,7 +12,7 @@
  */
 import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
 import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
-import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
+import { GenError, resolveChunkStallTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
@@ -31,6 +31,8 @@ import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-
 // 不在 runner 侧维护第二份 code→action 映射（Z-P2-2 单口径化纪律）
 import { failureAction } from './provider/failure.js'
 import { errMsg, log } from '../log/index.js'
+// RC 源码重审 A-9（Opus-5.5 轮）：超时文案时长格式化单源（shared/text 零依赖惯例）
+import { formatTimeoutText } from '../shared/text.js'
 
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
@@ -423,9 +425,11 @@ export async function runTask<T>(opts: {
   // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
   let resolvedEffort: string | undefined = undefined
   let resolvedTimeoutMs: number | undefined = undefined
-  // Q-13（第十五轮）：首字节超时 resolve 值（gen.generate 同源 resolver——env 纯函数，
-  // 进程内确定性；mock 快路与取 provider 失败路径在 resolve 之前，undefined 不入事件）
-  let resolvedFirstByteTimeoutMs: number | undefined = undefined
+  // Q-13（第十五轮）：逐 chunk 挂起时限 resolve 值（gen.generate 同源 resolver——env 纯函数，
+  // 进程内确定性；mock 快路与取 provider 失败路径在 resolve 之前，undefined 不入事件）。
+  // RC 源码重审 A-8：局部变量随 gen.ts 同批更名（chunk-stall 口径），**事件键名
+  // firstByteTimeoutMs 不变**——已落库字段形状属重放契约（events/types.ts 同注）。
+  let resolvedChunkStallTimeoutMs: number | undefined = undefined
   const trace = (p: {
     model: string
     attempt: number
@@ -460,7 +464,7 @@ export async function runTask<T>(opts: {
         // B-2（第六十轮）：degraded 落事件最后一跳——此前 trace 入参带了但未转发进
         // llmCallEvent（spread 绕过类型检查静默丢弃），Z-12 的贯通实际断在此处
         ...(p.degraded ? { degraded: true } : {}),
-        ...(resolvedFirstByteTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedFirstByteTimeoutMs } : {}),
+        ...(resolvedChunkStallTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedChunkStallTimeoutMs } : {}),
         // R-8（十五轮登记销账）：进程内参数表版本常量——mock 快路/失败路径同样携带
         //（表版本与调用成败无关，重放漂移检测需要全量覆盖）
         quirksVersion: MODEL_QUIRKS_VERSION,
@@ -581,7 +585,7 @@ export async function runTask<T>(opts: {
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
   resolvedEffort = tier.effort
   resolvedTimeoutMs = timeoutMs
-  resolvedFirstByteTimeoutMs = resolveFirstByteTimeoutMs()
+  resolvedChunkStallTimeoutMs = resolveChunkStallTimeoutMs()
   const totalTimer = setTimeout(() => {
     if (!abortCause) abortCause = 'total-timeout'
     ctrl.abort()
@@ -645,7 +649,10 @@ export async function runTask<T>(opts: {
     // 退避 sleep 中 abort）共走本函数，日志单点留痕；task/bookRoot 缺省时事件库 llm/call
     // 也不落（mkChain 返 null），本行是日志通道唯一线索
     log.warn('runner', JSON.stringify({ msg: 'AI 任务总超时（终态）', task: task ?? null, bookRoot: bookRoot ?? null, code: 'TIMEOUT_TOTAL', timeoutMs }))
-    return { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）`, attemptsUsage, model: tier.model }
+    // RC 源码重审 A-9（Opus-5.5 轮）：此前写死 `${timeoutMs / 60_000} 分钟`——档位可配
+    // 任意毫秒值，非整分钟配置下作者看到「1.5 分钟」「0.001 分钟」；改走单源格式化
+    // （<1s 毫秒 / <60s 秒 / 否则分钟，向下取整——文案是「超过 N」的口径）
+    return { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${formatTimeoutText(timeoutMs)}）`, attemptsUsage, model: tier.model }
   }
 
   try {

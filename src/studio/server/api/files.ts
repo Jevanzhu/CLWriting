@@ -18,7 +18,7 @@ import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service.js'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
@@ -121,7 +121,8 @@ export function registerFileRoutes(ctx: FileCtx): void {
       if (!dest) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
       const putRel: string = dest.rel
       const safe: string = dest.abs
-      const body = (await readJson(req)) as { content?: unknown; expectedRevision?: unknown }
+      // RC 源码重审 B-1：全文写走内容档上限（设定/大纲等大 md 同属正文类写入面）
+      const body = (await readJson(req, CONTENT_BODY_LIMIT_BYTES)) as { content?: unknown; expectedRevision?: unknown }
       if (typeof body.content !== 'string') {
         replyError(res, 400, 'BAD_INPUT', '缺少 content')
         return

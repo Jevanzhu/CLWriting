@@ -56,7 +56,8 @@ const keyError = computed(() => {
           class="text-input"
         />
         <span v-if="keyError" class="key-error">{{ keyError }}</span>
-        <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（vault 加密，留空即保留）</span>
+        <!-- A-3（RC 全项目源码重审）：原「vault 加密」为失真断言——保护强度单源见 src/desktop/os-kek.ts（钥匙串通道搁置开关 OS_KEK_SHELVED）与 src/ai/provider/vault-key.ts（混淆级自述），恢复 safeStorage 时须同步改回本行文案及 AiServicePanel 顶部告知段 -->
+        <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（本机保存，留空即保留）</span>
       </div>
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>

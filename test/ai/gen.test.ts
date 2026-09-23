@@ -4,8 +4,8 @@
  * 假 provider 事件流 → 验证 generate 收集 text/tool/usage/done、错误转 GenError、
  * generateText / generateTool 简化路径。
  */
-import { describe, expect, it } from 'vitest'
-import { generate, generateText, generateTool, GenError, withFirstByteTimeout } from '../../src/ai/gen.js'
+import { describe, expect, it, vi } from 'vitest'
+import { generate, generateText, generateTool, GenError, withChunkStallTimeout } from '../../src/ai/gen.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 
 const CONF = { name: 'fake' } as ProviderConf
@@ -234,7 +234,7 @@ describe('GenError 类型', () => {
   })
 })
 
-describe('B-2 首字节超时', () => {
+describe('B-2 逐 chunk 挂起超时（wrapper 原名 withFirstByteTimeout，RC 源码重审 A-8 更名为 withChunkStallTimeout）', () => {
   it('首个事件前超时 → 可重试 GenError', async () => {
     const slow: AsyncIterable<GenEvent> = {
       async *[Symbol.asyncIterator]() {
@@ -242,7 +242,7 @@ describe('B-2 首字节超时', () => {
         yield { type: 'text', delta: 'too late' }
       },
     }
-    const iter = withFirstByteTimeout(slow, 10) // 10ms 超时
+    const iter = withChunkStallTimeout(slow, 10) // 10ms 超时
     await expect(iter.next()).rejects.toThrow('响应超时')
   })
 
@@ -253,7 +253,7 @@ describe('B-2 首字节超时', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
       },
     }
-    const iter = withFirstByteTimeout(fast, 10_000)
+    const iter = withChunkStallTimeout(fast, 10_000)
     const first = await iter.next()
     expect(first.done).toBe(false)
     expect(first.value.type).toBe('text')
@@ -271,7 +271,7 @@ describe('B-2 首字节超时', () => {
         }
       },
     }
-    const iter = withFirstByteTimeout(slow, 10)
+    const iter = withChunkStallTimeout(slow, 10)
     await expect(iter.next()).rejects.toThrow('响应超时')
     expect(returnCalled).toBe(true)
   })
@@ -289,7 +289,7 @@ describe('B-2 首字节超时', () => {
         }
       },
     }
-    const iter = withFirstByteTimeout(hung, 10)
+    const iter = withChunkStallTimeout(hung, 10)
     const start = Date.now()
     await expect(iter.next()).rejects.toThrow('响应超时')
     // 超时应立即抛错（<1s），而不是等 return() 结算
@@ -309,7 +309,7 @@ describe('B-2 首字节超时', () => {
         await new Promise<never>(() => {}) // 此后静默挂死（连接半死：发部分数据后卡住）
       },
     }
-    const iter = withFirstByteTimeout(halfDead, 20, () => { stalledCb++ })
+    const iter = withChunkStallTimeout(halfDead, 20, () => { stalledCb++ })
     const first = await iter.next()
     expect(first.done).toBe(false)
     expect(first.value.type).toBe('text')
@@ -329,7 +329,7 @@ describe('B-2 首字节超时', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'end_turn' }
       },
     }
-    const iter = withFirstByteTimeout(fast, 10_000)
+    const iter = withChunkStallTimeout(fast, 10_000)
     const out: string[] = []
     while (true) {
       const r = await iter.next()
@@ -337,6 +337,44 @@ describe('B-2 首字节超时', () => {
       if (r.value.type === 'text') out.push(r.value.delta)
     }
     expect(out).toEqual(['a', 'b', 'c'])
+  })
+
+  // RC 源码重审 A-8（Opus-5.5 轮）：catch 分支此前不 clearTimeout——race 已吸收 reject，
+  // 但每轮循环顶新起的计时器仍在（未 unref）挂到 60s 才空转。fake timers 下 getTimerCount()
+  // 是唯一能看见「已出列 but armed」的观测面：非超时异常退出后必须为 0。
+  it('RC-源码重审-A-8: 非超时异常退出 → catch 首行解武装（零存活 timer）', async () => {
+    vi.useFakeTimers()
+    try {
+      const boom: AsyncIterable<GenEvent> = {
+        async *[Symbol.asyncIterator]() {
+          throw new Error('upstream-boom') // 非超时原因 reject（SDK 网络错/协议错）
+        },
+      }
+      const iter = withChunkStallTimeout(boom, 60_000)
+      await expect(iter.next()).rejects.toThrow('upstream-boom')
+      // 修复点：若 catch 未 clearTimeout，此处为 1（计时器空挂到 60s 才触发空转回调）
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // A-8 对照臂：正常 done 出场同样零存活 timer（成功路径的 clearTimeout 不回归）
+  it('RC-源码重审-A-8: 正常 done 出场 → 亦零存活 timer（成功路径解武装不回归）', async () => {
+    vi.useFakeTimers()
+    try {
+      const fast: AsyncIterable<GenEvent> = {
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', delta: 'x' }
+        },
+      }
+      const iter = withChunkStallTimeout(fast, 60_000)
+      await expect(iter.next()).resolves.toMatchObject({ done: false })
+      await expect(iter.next()).resolves.toMatchObject({ done: true })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

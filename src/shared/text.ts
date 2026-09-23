@@ -34,3 +34,21 @@ export function codePointLength(text: string): number {
 export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
+
+/** 毫秒 → 作者可读时长短句（RC 源码重审 A-9，Opus-5.5 轮）。
+ *
+ *  起因：超时文案在 src/ai/runner.ts 里写死 `${timeoutMs / 60_000} 分钟`——档位 timeoutMs
+ *  可被配置成任意毫秒值（如 90_000 → 「1.5 分钟」、30_000 → 「0.5 分钟」，极端值 60 →
+ *  「0.001 分钟」），作者看到的小数分钟既不像他配的值也不可读。
+ *
+ *  口径：**向下取整**——文案说的是「超过 N …」（已发生的时长下界），例如 90_000ms 报
+ *  「超过 1 分钟」为真、报「2 分钟」为假；单位按量级三档选最长可读者，毫秒档仅在
+ *  <1s 时出现（正常配置不会走到，但档位可注入任意值，故不能假设）。
+ *
+ *  零内部依赖（同本模块惯例），任意层可引。 */
+export function formatTimeoutText(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return `${ms} 毫秒`
+  if (ms < 1000) return `${Math.floor(ms)} 毫秒`
+  if (ms < 60_000) return `${Math.floor(ms / 1000)} 秒`
+  return `${Math.floor(ms / 60_000)} 分钟`
+}

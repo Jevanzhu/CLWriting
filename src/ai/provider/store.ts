@@ -12,8 +12,11 @@
  *
  * 写入健壮性（原子写/备份/损坏不静默）属于 S5；凭据文件权限统一 0600 且随创建即生效（ee-P2-1）。
  */
-import { readFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
+import { readFileSync, mkdirSync, existsSync, statSync, renameSync } from 'node:fs'
 import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
+// RC 源码重审 A-7（Opus-5.5 轮）：备份恢复段与写侧共用同一把跨进程写锁——同步非阻塞
+// 占锁原语（loadProviders 是同步函数，不能用异步孪生；见 tryRestoreFromBak 注②）
+import { tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
 // 复审-0914-优化修复批（C1）：写链队列 + 跨进程锁机械收编 ai/calls.ts serializedLockedWrite
 // 单源（R30-3 快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
 // CLI+桌面双进程争用窗口不再冻结事件循环，机制见 calls.ts crossProcessLockedWrite）
@@ -188,25 +191,122 @@ interface DiskFormat {
 }
 
 /**
+ * RC 源码重审 A-7（Opus-5.5 轮）：恢复段的 fs 依赖注入口（测试用，生产零调用——注入即
+ * 完全接管该调用，缺省实现与生产逐位同源；风格照 fs/atomic.ts rmQuietly(path, { rm }) /
+ * renameWithRetry(from, to, { rename, sleep }) 先例）。生产不设开关，缺省即生产口径。
+ */
+let _restoreTestDeps: {
+  /** 读 bak 字节（缺省 readFileSync）——注入抛错覆盖「bak 存在但不可读」分支。 */
+  readBak?: (path: string) => Buffer
+  /** 写回主文件（缺省 atomicWriteFile + fsync + 0600，即生产口径）——注入抛错覆盖
+   *  「改名留证成功但写回失败」分支（该分支下主文件已不在原名，必须断言留证路径）。 */
+  writeMain?: (path: string, bytes: Buffer) => void
+} = {}
+
+/** 测试辅助（生产零调用）：注入恢复段 fs 依赖；用例结束须以
+ *  `__setProvidersRestoreDepsForTest({})` 还原。 */
+export function __setProvidersRestoreDepsForTest(deps: {
+  readBak?: (path: string) => Buffer
+  writeMain?: (path: string, bytes: Buffer) => void
+}): void {
+  _restoreTestDeps = deps
+}
+
+/** RC 源码重审 A-7（Opus-5.5 轮）：锁内复核判据——主文件此刻是否已是「可解析且形状
+ *  正常」的配置（providers 为数组，与 loadProviders 的形状校验同口径；ragProviders
+ *  形状坏按容错为 [] 处理，不在此判据内）。 */
+function isMainLoadable(fp: string): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(fp, 'utf8')) as { providers?: unknown }
+    return Array.isArray(raw.providers)
+  } catch {
+    return false
+  }
+}
+
+/**
  * W-P2-9：主文件损坏时的备份恢复引导。
  * 从 providers.bak.json 读回字节经 atomicWriteFile 落主文件（0600+fsync，与写侧
  * ee-P2-1 同口径）。
  * R2W-4（win 平台专项复审 R2）：原 copyFileSync 覆盖写在 win 有两条失效边——目标只读
  * 属性（libuv 不清位）与目标被他进程瞬时打开（CopyFileW EPERM），都会把「主文件损坏 →
- * bak 自愈」打断成持续 500。改为 rmQuietly 先除旧主文件（libuv 对只读属性自动清位删除）
- * + atomicWriteFile（tmp+rename+EPERM/EBUSY 退避）；unlink 仍失败（真占用）时落下方
- * catch 的「备份恢复亦失败」既有收口，.bak 全程保留。
- * @returns null=恢复成功；string=恢复失败原因（bak 缺失/读失败/写失败）。
+ * bak 自愈」打断成持续 500。改为先除旧主文件（rename 改名保留；改名失败才退回 rmQuietly
+ * ——libuv 对只读属性自动清位删除）+ atomicWriteFile（tmp+rename+EPERM/EBUSY 退避）；
+ * 删除/改名仍失败（真占用）时落下方 catch 的「备份恢复亦失败」既有收口，.bak 全程只读不动。
+ *
+ * RC 源码重审 A-7（Opus-5.5 轮）：处置顺序重排为「先读 bak → 取写锁 → 锁内复核 → 改名
+ * 留证 → 写回」。修复前 rmQuietly(fp) 先删主文件再 readFileSync(bakFp)——bak 读/写失败
+ * 时主文件已被无痕销毁，而两处调用点文案却称「损坏文件保留」（文案与处置相反，用户数据
+ * 亦无痕丢失）；且全段不持锁，可与并发 saveProviders 的写段交错（旧 bak 快照覆盖新配置 /
+ * 半态）。不变量：① 任何失败分支都不比进入前更差——bak 缺失/不可读、写锁被占 → 主文件
+ * 原封不动（此时「保留原文件」才为真）；② 一旦进入「留证 + 写回」段，原损坏字节必在
+ * <fp>.corrupt-<ts> 留证（改名失败才退回旧口径 rmQuietly 删除——batch-pause R29-n/C-7
+ * 二段式先例；路径用 Date.now() 数值，toISOString 含 ':' 在 win 是非法文件名）；
+ * ③ 复核 + 留证 + 写回全段与写侧 saveProvidersRaw 同一把锁文件（其 lockPath 单源）。
+ *
+ * @returns null=主文件已是可用配置（恢复成功，或锁内复核发现并发写方已修复/替换）；
+ *  string=失败原因（进入过留证段时原因串内含留证路径，供调用点文案如实透出）。
  */
 function tryRestoreFromBak(fp: string, bakFp: string): string | null {
+  const readBak = _restoreTestDeps.readBak ?? ((p: string) => readFileSync(p))
+  const writeMain =
+    _restoreTestDeps.writeMain ??
+    ((p: string, bytes: Buffer) => atomicWriteFile(p, bytes, { fsync: true, mode: 0o600 }))
+
+  // ① 先读后删：bak 缺失/不可读 → 直接返回原因，绝不触碰主文件（修复前此步在
+  // rmQuietly 之后——bak 读失败时主文件已被删，「损坏文件保留」的文案因此为假）
   if (!existsSync(bakFp)) return '备份文件不存在'
+  let bakBytes: Buffer
   try {
-    rmQuietly(fp)
-    atomicWriteFile(fp, readFileSync(bakFp), { mode: 0o600 })
+    bakBytes = readBak(bakFp)
+  } catch (e) {
+    return `备份文件不可读：${errMsg(e)}`
+  }
+
+  // ② 与写侧同一把锁（lockPath 与 saveProvidersRaw 同源）：同步非阻塞占锁。拿不到 =
+  // 他进程写段在途（文件 IO 级毫秒）→ 本轮放弃、主文件原状，交上层既有错误/空配置出口，
+  // 下次 load 自然重试。不取有界等待（acquireCrossProcessLockWithTimeout）的理由：
+  // Atomics.wait 同步微睡会冻结承载 SSE 的服务进程，而本恢复面是罕见降级路径，不值得
+  // 按毫秒换冻结（document/journal.ts 非阻塞 best-effort 同款口径）。持锁段 = 复核 +
+  // 留证 + 原子写回，全程同步、无 await 点。
+  const lockPath = join(dirname(fp), `${FILE}.lock`)
+  const release = tryAcquireCrossProcessLock(lockPath)
+  if (!release) {
+    log.warn(
+      'providers',
+      `providers.json 备份恢复跳过：写锁被占用（并发写入中）——主文件保持原状，下次 load 重试：${lockPath}`,
+    )
+    return '写锁被占用（并发写入中），本轮跳过'
+  }
+  const corruptFp = `${fp}.corrupt-${Date.now()}`
+  let preserved = false
+  try {
+    // ③ 锁内复核：「解析失败 → 取锁」窗口内并发写方可能已修复/替换主文件——此刻已是
+    // 可用配置即视为恢复完成（两处调用点成功后本就重读主文件，语义天然兼容）。不做复核
+    // 会把更新的配置覆盖成旧 bak 快照（bak = 上一次 save 前的内容，天然落后一拍）。
+    if (isMainLoadable(fp)) return null
+    // ④ 留证改名（batch-pause 二段式）：原字节留在 .corrupt-<ts> 供排查/手动回填，不再
+    // 无痕删除；改名失败（占用等）才退回旧口径删除——写回是 tmp+rename 原子写，失败也
+    // 不留半截主文件，且 bak 始终只读不动、天然兜底
+    try {
+      renameSync(fp, corruptFp)
+      preserved = true
+    } catch {
+      rmQuietly(fp)
+    }
+    // ⑤ 写回 bak 字节（fsync 落盘 + 0600，与写侧 ee-P2-1 同口径）
+    writeMain(fp, bakBytes)
     cacheDelete(fp) // 恢复后强制重读（四轮-A404：按键失效，原 _cache = null）
+    log.warn(
+      'providers',
+      `providers.json 损坏，已从备份恢复（${preserved ? `原损坏文件留证为 ${corruptFp}` : '原损坏文件留证改名失败、已按旧口径删除'}）：${fp}`,
+    )
     return null
   } catch (e) {
-    return errMsg(e)
+    // ⑥ 失败原因如实带出留证路径——调用点文案据此陈述实际处置，不得再声称「保留原文件」
+    return preserved ? `${errMsg(e)}（原损坏文件已留证为 ${corruptFp}）` : errMsg(e)
+  } finally {
+    release()
   }
 }
 
@@ -283,7 +383,11 @@ export function loadProviders(userDataPath: string): ProviderStore {
     // 恢复成功 → 用备份内容继续（并在下方用恢复后的内容重写主文件，重建一致状态）。
     const bakErr = tryRestoreFromBak(fp, bakFp)
     if (bakErr) {
-      // D6：备份也不可用 → 保留原文件、向上报错（router 全局 catch 转 500 响应）
+      // D6：备份也不可用 → 向上报错（router 全局 catch 转 500 响应）。
+      // RC 源码重审 A-7（Opus-5.5 轮）：文案校正——修复前写「保留原文件」，但恢复段已
+      // 先 rmQuietly(fp)，该声称只对「bak 缺失/不可读、写锁被占」两条前置失败分支为真
+      // （现在它们才真的不触碰主文件）；进入「留证 + 写回」段后失败时原字节在
+      // <fp>.corrupt-<ts>，路径由 bakErr 带出（不再声称留在原名可手动恢复）。
       throw new Error(`providers.json 解析失败，文件可能损坏（备份恢复亦失败）：${e instanceof Error ? e.message : ''}${bakErr ? '；bak: ' + bakErr : ''}`)
     }
     try {
@@ -309,9 +413,14 @@ export function loadProviders(userDataPath: string): ProviderStore {
     if (restored) {
       raw = restored
     } else {
+      // RC 源码重审 A-7（Opus-5.5 轮）：文案按实际处置生成——修复前称「损坏文件保留，
+      // 可从 providers.bak.json 手动恢复」，两句皆失真：进入恢复段后原文件已改名留证
+      //（改名失败才退回删除），而本分支恰是「bak 内容亦不可用」（bakErr 为空 = bak 字节
+      // 已写回主文件但仍不可解析，指向 bak 手抄的指引同样无效）。两态分述，恢复失败时
+      // 主文件的实际处置由 bakErr 自身陈述（不再有与处置相反的声称）。
       log.warn(
         'providers',
-        `providers.json 形状损坏（providers 非数组）${bakErr ? `，备份恢复失败：${bakErr}` : '，备份内容亦不可用'}——已重置为空配置（损坏文件保留，可从 providers.bak.json 手动恢复）`,
+        `providers.json 形状损坏（providers 非数组）${bakErr ? `，备份恢复失败：${bakErr}` : '，备份内容亦不可用（原损坏文件已改名留证为 providers.json.corrupt-<时间戳>，路径见上一条 providers 日志；主文件现为 bak 字节）'}——已重置为空配置`,
       )
       return emptySettings()
     }
@@ -415,11 +524,16 @@ export function loadProviders(userDataPath: string): ProviderStore {
  * 通道）＋双方基线同为缺失文件（revision 0 的双建竞态）不设防——前者自愈语义优先，
  * 后者仅在「首次配置双端同刻创建」窄窗，可接受。
  *
- * R33-17（三十三轮）现状校正：J7 之后锁获取为**同步阻塞**（Atomics.wait 轮询，
- * fs/cross-process-lock.ts），空闲快路同步完成、控制流不归还——上方「排队为微任务/
- * 微任务残余窗口」论述与下方排队分支**实际不可达**（prev 恒 undefined，队列从不
- * 置位）。保留排队代码作为未来锁异步化（acquireCrossProcessLockAsync 已在树）的
- * 现成接管面；在读到本注释时请以「全同步串行」理解当前语义。
+ * RC 源码重审 A-7（Opus-5.5 轮）补记「读路径不参与互斥」的唯一例外：损坏恢复段——
+ * tryRestoreFromBak 的「复核 + 留证 + 写回」已纳入本函数同一把锁文件（同步非阻塞占锁，
+ * 拿不到即放弃本轮、主文件原状），恢复写不再与在途写交错。
+ *
+ * R33-17（三十三轮）现状校正（RC 源码重审 A-7（Opus-5.5 轮）按 tree 实况复校）：锁获取
+ * 走 serializedLockedWrite 的快/慢双路——空闲且锁空闲时同步直行（控制流不归还）；
+ * 锁被他进程持有时快路转**异步孪生**（acquireCrossProcessLockAsync，setTimeout 轮询，
+ * 见 ai/calls.ts crossProcessLockedWrite）并返回在途 promise。故下方排队分支
+ *（prev 非 undefined）**可达**：在途段未落地期间的新写者按链排队，队列非空窗口 =
+ * 他进程持锁窗口。R33-17 原文「全同步串行、排队不可达」只对无争用快路成立，已作废。
  */
 const writeChains = new Map<string, Promise<unknown>>()
 

@@ -6,10 +6,11 @@
  * scanCloudCopies（状态机进门检查）。本文件覆盖后两者的行为契约。
  */
 import { test, expect, vi, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
+import { spawnSync } from 'node:child_process'
+import { git, gitAsync, hardenGitArgs, scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
 import { makeGitBook } from '../helpers/book.js'
 
 const ORIG_PLATFORM = process.platform
@@ -19,12 +20,13 @@ afterEach(() => {
 
 // P2-30：包装 spawnSync 记录调用参数（真实实现保留——现有测试零感知），
 // 断言 git()/statusPorcelain 每次调用都带 timeout（防挂起永久阻塞）。
+// RC 源码重审 A-2：spawn 同款包装（argv 加固断言用，真实实现保留）。
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
-  return { ...actual, spawnSync: vi.fn(actual.spawnSync) }
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync), spawn: vi.fn(actual.spawn) }
 })
-import { spawnSync } from 'node:child_process'
-import { git } from '../../src/git/exec.js'
+import { spawn } from 'node:child_process'
+const mockSpawnArgv = vi.mocked(spawn)
 const mockSpawn = vi.mocked(spawnSync)
 
 test('scanCloudCopies: Dropbox/OneDrive 风格「名 2.md」与 Google Drive「名 (1).md」命中（需同名母本）', () => {
@@ -206,6 +208,90 @@ test('R0913-win P3-9: 资源管理器「名 - Copy.md」/「名 - 副本.md」�
     expect(copies.some((f) => f.includes('第1章 - 副本.md'))).toBe(true)
     expect(copies.some((f) => f.includes('第1章 - 副本 (2)'))).toBe(true)
     expect(copies.some((f) => f.includes('孤儿'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── RC 源码重审 A-2（Opus-5.5 轮）：仓库内 fsmonitor/hooks 配置不可信 ──────────
+
+const fwd = (p: string): string => p.replace(/\\/g, '/')
+
+/** 装置：造一个「仓库内 .git/config 带 core.fsmonitor = <脚本>」的裸仓；
+ *  脚本被执行即在仓根留 ran.txt（证明该配置确实是一条约会执行任意命令的面）。 */
+function makeFsmonRepo(): { root: string; marker: string } {
+  const root = mkdtempSync(join(tmpdir(), 'clw-gitsec-'))
+  const g = (a: string[]): void => {
+    spawnSync('git', a, { cwd: root, stdio: 'pipe', encoding: 'utf-8' })
+  }
+  g(['init'])
+  g(['config', 'user.email', 't@t'])
+  g(['config', 'user.name', 't'])
+  writeFileSync(join(root, 'a.md'), 'x', 'utf-8')
+  g(['add', 'a.md'])
+  const marker = join(root, 'ran.txt')
+  const script = join(root, 'fsm.sh')
+  writeFileSync(script, `#!/bin/sh\necho ran >> "${fwd(marker)}"\n`, 'utf-8')
+  chmodSync(script, 0o755)
+  // 直写配置文件（不经 git config 命令面，模拟「随书目录流入的仓库配置」）
+  appendFileSync(join(root, '.git', 'config'), `\n[core]\n\tfsmonitor = ${fwd(script)}\n`, 'utf-8')
+  return { root, marker }
+}
+
+test('RC 源码重审 A-2: 仓库内 core.fsmonitor 命令经统一执行器不被执行（裸 git 对照支证明害面为真）', () => {
+  const probe = makeFsmonRepo()
+  const subject = makeFsmonRepo()
+  try {
+    // 对照支：无加固的裸 git status → 命令被执行。证明本环境（git 版本/平台）上这条害面是活的；
+    // 若此支不活（老 git 不认外部 fsmonitor 命令），本用例无法证伪修复有效性——直接红，不假绿。
+    spawnSync('git', ['status', '--porcelain'], { cwd: probe.root, stdio: 'pipe' })
+    expect(
+      existsSync(probe.marker),
+      '前置对照支未触发：本环境裸 git 未执行 core.fsmonitor 命令，用例需按 git 版本复核',
+    ).toBe(true)
+
+    // 受试支：同款仓库经统一执行器（-c core.fsmonitor=false 前置）→ 命令不执行、status 仍正常返回
+    expect(statusPorcelain(subject.root)).not.toBeNull()
+    expect(existsSync(subject.marker)).toBe(false)
+  } finally {
+    for (const r of [probe, subject]) rmSync(r.root, { recursive: true, force: true })
+  }
+})
+
+test('RC 源码重审 A-2: hardenGitArgs 平台分支——fsmonitor 恒关，hooksPath 按平台落 NUL//dev/null', () => {
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+  expect(hardenGitArgs(['status'])).toEqual([
+    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=NUL', 'status',
+  ])
+  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  expect(hardenGitArgs(['status'])).toEqual([
+    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'status',
+  ])
+})
+
+test('RC 源码重审 A-2: git()/gitAsync() 子进程 argv 均带加固前置；失败信封不外露 -c 噪音', async () => {
+  const root = makeGitBook()
+  const expectPrefix = [
+    '-c', 'core.fsmonitor=false', '-c',
+    `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+  ]
+  try {
+    mockSpawn.mockClear()
+    git(['status'], root)
+    expect(mockSpawn.mock.calls[0]![1]).toEqual([...expectPrefix, 'status'])
+
+    mockSpawnArgv.mockClear()
+    await gitAsync(['for-each-ref', '--format=%(refname)', 'refs/ai/'], root)
+    expect(mockSpawnArgv).toHaveBeenCalled()
+    expect(mockSpawnArgv.mock.calls[0]![1]).toEqual([...expectPrefix, 'for-each-ref', '--format=%(refname)', 'refs/ai/'])
+
+    // 失败信封用调用方原 args 拼装（作者可见文案里不出现加固参数）
+    const r = git(['cat-file', '-p', 'refs/ai/不存在'], root)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.humanMsg).toContain('cat-file -p refs/ai/不存在')
+      expect(r.humanMsg).not.toContain('core.fsmonitor')
+    }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

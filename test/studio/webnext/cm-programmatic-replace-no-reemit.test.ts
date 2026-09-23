@@ -210,6 +210,10 @@ describe('四轮-E402: 非规范 fm 文件切档零输入不置脏（EditorView 
 
     // 作者真实键入：照常 patch（mergeFm 合并正文、fm 侧规范化属既有编辑写入口径）
     view!.dispatch({ changes: { from: 2, to: 2, insert: '改' } })
+    // RC 源码重审 B-2（Opus-5.5 轮）：父层正文回写改 200ms 尾随节流合并
+    //（shared/body-writeback）——「键入 → patch 置脏」语义逐位不变，只落回时点移到窗末
+    //（改前 emit 当拍即 patch），故等窗再断言
+    await new Promise((r) => setTimeout(r, 260))
     await flushPromises()
     expect(patchSpy).toHaveBeenCalledTimes(1)
     expect(doc.get('d2')!.dirty).toBe(true)

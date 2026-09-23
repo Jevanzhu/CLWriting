@@ -12,6 +12,11 @@ import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
 import { mergeFm, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
 import { useDebouncedFmFields } from '../composables/useDebouncedWordCount'
+import {
+  registerBodyWriteback,
+  scheduleBodyWriteback,
+  flushBodyWriteback,
+} from '../shared/body-writeback'
 import CmHost from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -71,10 +76,15 @@ const body = computed(() => {
   // 后续键入走 mergeFm 剥前导 → body computed 变化 → CmHost 全量替换把前导回车拽回。
   return split.body.replace(/^\n/, '')
 })
-function onBodyChange(next: string): void {
-  const e = entry.value
+function commitBodyWriteback(docId: string, next: string): void {
+  // RC 源码重审 B-2（Opus-5.5 轮）③：条目按登记时的 docId 解析——切档后本组件
+  // entry 已指向新档（props.docId 已变），照 entry.value 合并回写会把旧档正文整段
+  // 写进新档（R51-I-6 同型跨档污染）。doc.get(docId) 与 entry.value 在「同档在编」
+  // 时是同一对象，语义同改前；条目已被删/弃（doc.discard、LRU 驱逐、404 清理）时
+  // 取不到 → 照改前 onBodyChange 的 `if (!e) return` 早退。
+  const e = doc.get(docId)
   if (!e) return
-  if (!hasForm.value) {
+  if (formKindOf(e.path) === null) {
     doc.patch(e.docId, next)
     return
   }
@@ -93,6 +103,23 @@ function onBodyChange(next: string): void {
   // { stripLeading: false }) 逐字节同构（同源 splitFrontmatter + 同模板），patch 同串
   // 恒为 no-op（doc.patch 对同内容早退），纯死代码。
 }
+
+// RC 源码重审 B-2（Opus-5.5 轮）：每次按键的正文回写改「登记 + 200ms 尾随节流」，
+// 到点才跑上面的 mergeFm + doc.patch（见 shared/body-writeback.ts 头注：不变量与窗口
+// 取舍）。改前每个按键都在同步输入栈内跑全文 mergeFm/patch/body 重切/CmHost 全等回比；
+// 改后每按键只剩 CmHost 侧一次 doc.toString()（R39-20 已钉的单遍），全量合并按窗口摊薄。
+function onBodyChange(next: string): void {
+  const e = entry.value
+  if (!e) return
+  scheduleBodyWriteback(e.docId, next)
+}
+
+// RC 源码重审 B-2（Opus-5.5 轮）②：切档前先落防抖尾——props.docId 一变就同步冲刷，
+// 早于子层 CmHost 的切档全量替换与本组件 entry 切换后的任何消费；不冲刷则末尾一个
+// 窗口的键入随切档静默丢失（红线：编辑永不静默丢失）。用 flush:'sync' 而非默认 pre：
+// sync 在 props 落定瞬间执行，判据只看槽内 docId（见 shared/body-writeback.ts 头注③），
+// 序不依赖调度器的 pre 队列排序。同档内 props.docId 不变则本 watch 不触发（无开销）。
+watch(() => props.docId, () => flushBodyWriteback(), { flush: 'sync' })
 // R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
 // R39-20（三十九轮）：字数统计防抖 150ms——countWords 全文正则 + 码点展开每击键
@@ -268,11 +295,19 @@ onMounted(() => {
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
   // 阶段 24：光标偏移读取器同款接线（章节拆分读拆分点）
   ws.setEditorGetCursorOffset(() => cmHost.value?.getCursorOffset() ?? null)
+  // RC 源码重审 B-2（Opus-5.5 轮）：正文回写执行体注册（mergeFm + doc.patch 的落回
+  // 入口，见 shared/body-writeback.ts 头注）——本组件在场期间按键回写走 200ms 防抖窗
+  registerBodyWriteback(commitBodyWriteback)
   // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
   tryConsumeInsert()
   window.addEventListener(APP_FIND_EVENT, onAppFind)
 })
 onUnmounted(() => {
+  // RC 源码重审 B-2（Opus-5.5 轮）②：卸载（切到工作台/总览等视图）先落防抖尾，
+  // 否则末尾一个窗口的键入随组件销毁静默丢失；落回用槽内 docId，不依赖本组件 props。
+  // 序：flush 先于注销——注销会丢弃未落槽（registerBodyWriteback(null) 的既定语义）
+  flushBodyWriteback()
+  registerBodyWriteback(null)
   ws.setEditorGetSelection(null)
   ws.setEditorGetCursorOffset(null)
   window.removeEventListener(APP_FIND_EVENT, onAppFind)

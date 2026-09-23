@@ -46,7 +46,8 @@ export function llmCallEvent(data: {
   effort?: string
   timeoutMs?: number
   /** Q-13（第十五轮）：resolve 后终值——上线输出上限（适配器 done 事件透出，编排层
-   *  透传；无兜底不发/early-error 无值）与首字节超时（env resolver，同 gen.generate 源） */
+   *  透传；无兜底不发/early-error 无值）与逐 chunk 挂起时限（env resolver，同 gen.generate
+   *  源；RC 源码重审 A-8 改口径表述，字段名保名，见 LlmCallData 同注） */
   maxTokens?: number
   firstByteTimeoutMs?: number
   /** R-8（十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */

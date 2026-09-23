@@ -327,6 +327,13 @@ async function testRag(p: RagProviderDto): Promise<void> {
 
 <template>
   <div class="ai-service-panel">
+    <!-- A-3（RC 全项目源码重审）：Key 保护强度如实告知——AI 与 RAG 两分页共用本单点，勿在分页内各写一份。
+         事实单源：① src/desktop/os-kek.ts OS_KEK_SHELVED（钥匙串通道搁置，故搁置期内新配 Key 一律 v1）
+         ② src/ai/provider/vault-key.ts 头注威胁模型声明（碎片异或 = 混淆级，非密码学秘密）
+         ③ 落盘位置 src/ai/provider/store.ts（providers.json @ userDataPath）。
+         恢复 safeStorage（OS_KEK_SHELVED 改 false）时须同步改回本段与两个编辑器的 .key-stored 文案。 -->
+    <p class="group-intro">API Key 保存在本机应用数据目录的 providers.json，目前仅做混淆级保护——不是加密存储，也不由钥匙串托管；请勿把该数据目录放进同步盘或公开备份。</p>
+
     <!-- 内部分页：AI 提供方 / RAG 提供方（柔光分段切换）——列表始终可见，编辑/新增就地展开 -->
     <div class="panel-tabs" role="tablist" aria-label="提供方分页">
       <button class="panel-tab" :class="{ on: panelTab === 'ai' }" role="tab" :aria-selected="panelTab === 'ai'" @click="panelTab = 'ai'">

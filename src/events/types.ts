@@ -152,8 +152,10 @@ export interface LlmCallData {
   effort?: string
   timeoutMs?: number
   /** Q-13（第十五轮）：resolve 后终值补全——上线输出上限 maxTokens（适配器 done 事件透出
-   *  经编排层透传；无兜底不发/early-error 无值）与首字节超时 firstByteTimeoutMs（env
-   *  resolver 与 gen.generate 同源）。mock 快路 / 取 provider 失败路径无此两键 */
+   *  经编排层透传；无兜底不发/early-error 无值）与逐 chunk 挂起时限（env resolver 与
+   *  gen.generate 同源；RC 源码重审 A-8 改口径表述——原称「首字节超时」，字段名
+   *  firstByteTimeoutMs 保名：已落库形状属重放契约，改名只到 gen.ts 符号层）。
+   *  mock 快路 / 取 provider 失败路径无此两键 */
   maxTokens?: number
   /** Z-12（第五十八轮）：成功建流用的是降级参数面（剥 structured/剥 tools）——重放口径 */
   degraded?: boolean

@@ -27,14 +27,14 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
-// 复审-0914-优化 D3：chat 四端点自 stream.ts 独立成文件（stream.ts 回归 SSE/spawn/
+// chat 四端点独立成文件（stream.ts 只辖 SSE/spawn/
 // interrupt/auto-write 四职责；chat 段与 SSE 零共享，仅 forgetSseCount 单向依赖）
 import { registerChatRoutes } from './api/chat.js'
-// closeAllSseConnections：R0910-W close 收尾断开在途 SSE；
-// SSE_STREAM_PATH_PATTERN：R0912-P3-⑥ GET token 豁免表引用（SSE 端点路径模式单源，
+// closeAllSseConnections：close 收尾断开在途 SSE；
+// SSE_STREAM_PATH_PATTERN：GET token 豁免表引用（SSE 端点路径模式单源，
 // 与 books.stream 路由及其自带凭据闸同居 stream.ts，改路径只动一处）
 import { closeAllSseConnections, SSE_STREAM_PATH_PATTERN } from './api/stream.js'
-import { waitInFlightWorkSettled } from './api/in-flight-work.js' // R0910-W：close 收尾有界等在途外部工作
+import { waitInFlightWorkSettled } from './api/in-flight-work.js' // close 收尾有界等在途外部工作
 import { createStreamTicketStore, registerStreamTicketRoutes, type StreamTicketStore } from './api/stream-ticket.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
@@ -50,7 +50,7 @@ import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
 import { registerSnapshotRoutes } from './api/snapshots.js'
 import { registerSearchRoutes } from './api/search.js'
-// C2：内置 prompt overlay 升级迁移（startServer 启动期执行一次）
+// 内置 prompt overlay 升级迁移（startServer 启动期执行一次）
 import { migratePromptOverlays } from '../../ai/prompts/resource.js'
 import { registerCheckRoutes } from './api/check.js'
 import { registerAnalysisRoutes } from './api/analysis.js'
@@ -59,28 +59,27 @@ import { registerStyleRoutes } from './api/style.js'
 import { registerAiStatusRoutes } from './api/ai-status.js'
 import { registerProvidersRoutes } from './api/providers.js'
 import { registerTraceStatsRoutes } from './api/trace-stats.js'
-import { registerCostStatsRoutes } from './api/cost-stats.js' // D2（批 5）：llm/call × 价格表聚合
+import { registerCostStatsRoutes } from './api/cost-stats.js' // llm/call × 价格表聚合
 import { registerAuditRoutes } from './api/audit.js'
 import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerChatBranchesRoutes } from './api/chat-branches.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
-// T2-4：task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
+// task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
 import { configureTaskGateLockRoot } from './api/task-gate.js'
 import { setInitialBook } from './api/books.js'
-// A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
+// 启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
-// 阶段 53 S2：应用信息端点（版本号 + 更新检查结果）+ 起服后延迟一次的更新检查
+// 应用信息端点（版本号 + 更新检查结果）+ 起服后延迟一次的更新检查
 import { registerAppInfoRoutes } from './api/app-info.js'
 import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
- *  清理批（2026-09-09 残留清偿批）：原此处对旧模块级单例 schema 注册表的
- *  resetRouteSchemas() 调用已删——重评2-P3-③ 起注册表按「当前活动路由表」隔离
- *  （api/schema.ts WeakMap 键 = RouteTable），「防跨实例重复声明」由隔离结构本身
- *  承担；旧调用位于 withRouteTable 之外，清的只是外层默认表（生产恒空），属无害
- *  冗余。resetRouteSchemas 函数本身保留（router-schema 测试在用）。 */
+ *  注意：注册表按「当前活动路由表」隔离（api/schema.ts WeakMap 键 = RouteTable），
+ *  「防跨实例重复声明」由隔离结构本身承担——不得在 withRouteTable 之外调
+ *  resetRouteSchemas()（那清的是外层默认表，生产恒空，属无害冗余）；
+ *  resetRouteSchemas 函数本身保留（router-schema 测试在用）。 */
 function buildRoutes(
   workDir: string | null,
   token: string,
@@ -91,34 +90,33 @@ function buildRoutes(
 ): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
-    // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
+    // 元：AI 可达性探测（editor/ai 共用，降级体验）
     registerAiStatusRoutes({ userDataPath })
-    // 元：启动通告（A4 批 0）——启动链迁移失败 / 事件库迁移失败的用户可见出口
+    // 元：启动通告——启动链迁移失败 / 事件库迁移失败的用户可见出口
     registerStartupNoticeRoutes({ sink })
-    // 元：应用信息（阶段 53）——版本号 + 更新检查结果（前端 App 级横幅数据源）
+    // 元：应用信息——版本号 + 更新检查结果（前端 App 级横幅数据源）
     registerAppInfoRoutes()
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add })
-    // cc 批4（P1-8）：RAG 建索引/状态端点——buildIndex 生产入口；
+    // RAG 建索引/状态端点——buildIndex 生产入口；
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
     registerRagRoutes({ workDir, userDataPath })
     registerRagProviderRoutes({ userDataPath })
     registerHealthRoutes({ workDir })
-    registerFileRoutes({ workDir, userDataPath }) // R26-9（二十六轮）：PUT /file 覆盖留底读全局保留策略
+    registerFileRoutes({ workDir, userDataPath }) // PUT /file 覆盖留底读全局保留策略
     registerOverviewRoutes({ workDir, userDataPath }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir })
     registerSettingsRoutes({ workDir, userDataPath })
     registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
-    registerStateRoutes({ workDir, userDataPath }) // GG-P2-5：状态机入口过全局托底链（volume_size 等喂生效值）
-    // R0911b-B-P3-2（2026-09-11 全量重评修复批）：token 死注入删除——两 ctx 的 token
-    // 字段注入后零读取（写闸在路由分派前已拦，R1010-P3 删 handler 复核后即成死字段）
+    registerStateRoutes({ workDir, userDataPath }) // 状态机入口过全局托底链（volume_size 等喂生效值）
+    // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
     registerIoRoutes({ workDir })
     registerKnowledgeRoutes({ workDir })
     registerHeartbeatRoutes({ workDir })
-    registerDocumentRoutes({ workDir, userDataPath }) // Z-P2-6：伏笔事件族接线（伏笔文档变更落 foreshadow/change）
+    registerDocumentRoutes({ workDir, userDataPath }) // 伏笔事件族接线（伏笔文档变更落 foreshadow/change）
     registerSnapshotRoutes({ workDir, userDataPath }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir, userDataPath }) // 全局托底：机检 short.strict 吃生效值
@@ -129,15 +127,15 @@ function buildRoutes(
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerCostStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath })
-    registerChatHistoryRoutes({ workDir, userDataPath }) // Y-P2-5：对话历史只读端点（editor 组，同 audit 事件读取模式）
-    registerChatBranchesRoutes({ workDir, userDataPath }) // G1：分支列表只读端点（editor 组，分支 UI 服务端支撑）
+    registerChatHistoryRoutes({ workDir, userDataPath }) // 对话历史只读端点（editor 组，同 audit 事件读取模式）
+    registerChatBranchesRoutes({ workDir, userDataPath }) // 分支列表只读端点（editor 组，分支 UI 服务端支撑）
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
-    // R73-49（二十一轮）：ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
+    // ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
     // 票不跨 server 实例残留/消费（对齐路由表 per-server 生命周期）
     registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets })
-    registerChatRoutes({ workDir, userDataPath }) // 复审-0914-优化 D3：chat.send/confirm/regenerate/clear
-    registerStreamTicketRoutes(streamTickets) // T2 批：SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
+    registerChatRoutes({ workDir, userDataPath }) // chat.send/confirm/regenerate/clear
+    registerStreamTicketRoutes(streamTickets) // SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
     registerOutlineRoutes({ workDir, userDataPath })
     registerLeadUpdateRoutes({ workDir, userDataPath })
     registerReviewRoutes({ workDir, userDataPath })
@@ -148,24 +146,24 @@ function buildRoutes(
 }
 
 /**
- * X-19（第五十六轮）：GET token 闸豁免清单——显式路径表（精确模式匹配）。
- * 原实现用 `path.endsWith('/stream')` 后缀匹配：任何尾段恰为 /stream 的端点（包括
- * 将来新增的路由命名撞车）都会静默失闸。豁免面收敛为两条精确模式：
+ * GET token 闸豁免清单——显式路径表（精确模式匹配）。不得改回后缀匹配：
+ * `path.endsWith('/stream')` 会让任何尾段恰为 /stream 的端点（含将来新增的路由命名
+ * 撞车）静默失闸。豁免面仅两条精确模式：
  * - /api/boot：前端无 token 时的 bootstrap 通道，token 本身由它下发；
  * - /api/books/:name/stream：SSE 端点（EventSource 不能带头），经此处放行后由
  *   stream.ts 自带的一次性 ticket / query token 双凭据闸校验；:name 为单路径段
  *   （[^/]+），与 router.ts :param 捕获口径一致。
+ * SSE 豁免项引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——此处不手写等价
+ * 正则（两处正则字符串耦合时，路由路径改动会令豁免表静默失配）；/api/boot 项本文件
+ * 自持（bootstrap 端点注册面不在 stream.ts）。
  * 健康检查无独立顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
- * R0912-P3-⑥：SSE 豁免项改引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——
- * 此处不再手写等价正则（原两处正则字符串耦合，路由路径改动时豁免表会静默失配）；
- * /api/boot 项本文件自持（bootstrap 端点注册面不在 stream.ts）。
- * 四轮-F402（2026-09-18 全量源码独立重评四轮修复批）：加导出——test 侧 fetch 包装的
- * 豁免抄本同步守卫（test/governance/studio-token-exempt-sync.test.ts）读本正本比对；
- * 纯导出零行为，闸消费点仅下方 GET/HEAD token 闸一处。
+ * 本常量须保持导出：test 侧 fetch 包装的豁免抄本同步守卫
+ *（test/governance/studio-token-exempt-sync.test.ts）读本正本比对——
+ * 闸消费点仅下方 GET/HEAD token 闸一处。
  */
 export const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, SSE_STREAM_PATH_PATTERN]
 
-/** R0910-W：close 收尾等「在途外部工作」（重建/导出/扫描 Worker 线程）settle 的
+/** close 收尾等「在途外部工作」（重建/导出/扫描 Worker 线程）settle 的
  *  有界预算——超时放行，与 graceful-shutdown 的 settle/close 超时同口径（close 只
  *  需覆盖该进程内最长的单次 worker 收尾，不追求覆盖全量重建）。 */
 const CLOSE_FLUSH_BUDGET_MS = 2_000
@@ -179,10 +177,10 @@ export interface StudioServerOptions {
   workDir?: string | null
   /** APP 级数据目录（Electron userData / CLI 约定路径）；全局偏好 JSON 存储位置 */
   userDataPath?: string | null
-  /** 日志是否镜像 console（A4 批 0）——dev/CLI 态 true（看得见）；Electron 打包态
+  /** 日志是否镜像 console——dev/CLI 态 true（看得见）；Electron 打包态
    *  console 输出到无人看见的地方，传 false 只落 JSONL。缺省 true。 */
   mirrorConsoleLog?: boolean
-  /** studio 会话 token（U-6 A，阶段 22 唯一红线豁免）：缺省 randomUUID() 行为不变；
+  /** studio 会话 token（唯一红线豁免）：缺省 randomUUID() 行为不变；
    *  Electron 拆分形态由 main 侧 server-manager 持久化注入（跨崩溃重启稳定——前端
    *  token 仅挂载时取一次，换代即写/SSE/心跳永久 403）。协议语义零改动。 */
   studioToken?: string
@@ -191,20 +189,20 @@ export interface StudioServerOptions {
 /** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
 export function startServer(opts: StudioServerOptions): http.Server {
   const studioToken = opts.studioToken ?? randomUUID()
-  // A4（批 0）：结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
+  // 结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
   // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
   initLogging({
     logsDir: opts.userDataPath ? join(opts.userDataPath, 'logs') : null,
     mirrorConsole: opts.mirrorConsoleLog ?? true,
   })
-  // A4（批 0）：启动链通告收集——迁移失败不再是「console 失明出口」，统一进
+  // 启动链通告收集——迁移失败不再是「console 失明出口」，统一进
   // startupNotices 供 /api/startup-notices + App 横幅消费
   const sink = createStartupNoticeSink()
   const noticeOrLog = (kind: string, message: string, err?: unknown): void => {
     sink.add(kind, message)
     log.error(kind, message, err)
   }
-  // C2：内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
+  // 内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
   // 用户改过的原样保留；A6「升级不覆盖用户改动」的落点）
   if (opts.userDataPath) {
     try {
@@ -217,19 +215,19 @@ export function startServer(opts: StudioServerOptions): http.Server {
       noticeOrLog('migrate-prompts', `prompt overlay 迁移失败：${errMsg(e)}`, e)
     }
   }
-  // 书库自愈（P1-10）：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
+  // 书库自愈：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
   // changed=false 不写盘；变更时报告供诊断（作者侧零交互）。置于迁移循环前：
   // 先保证登记完整，逐书迁移才遍历得到全部书。
-  // 残留清偿批（三十四轮）登记：repairBooks 的 books.lock 同步等待发生在本启动段
+  // 维持同步版：repairBooks 的 books.lock 同步等待发生在本启动段
   //（createServer/listen 之前、零请求在途），阻塞仅推迟首请求可处理时刻，不触达
-  // SSE/HTTP 响应性——维持同步版（startServer 契约同步返回 http.Server，异步化
-  // 级联全部测试 boot 面，不成比例）。
+  // SSE/HTTP 响应性——startServer 契约同步返回 http.Server，异步化
+  // 级联全部测试 boot 面，不成比例。
   if (opts.workDir) {
     try {
       const r = repairBooks(opts.workDir)
       if (r.skipped) {
-        // M-8（第八轮）：读失败跳过自愈——告警而非报告自愈，防作者误以为登记刚被重建
-        // R63-2（十一轮）：登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错）
+        // 读失败 / 登记锁超时跳过自愈——告警而非报告自愈（防作者误以为登记刚被重建；
+        // 另一进程持锁改写中，扫盘整写会与之交错）
         const why =
           r.skipped === 'read-failed'
             ? 'books.jsonl 读取失败（权限或磁盘故障）'
@@ -237,7 +235,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         log.warn('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
         sink.add('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
       } else if (r.changed) {
-        // R35-28（三十五轮）：missing 有幽灵条目时随通告带回可操作提示（自愈只报告
+        // missing 有幽灵条目时随通告带回可操作提示（自愈只报告
         // 不清除，作者按提示人工修复或移回原位）
         const hint = r.missingHint ? `\n${r.missingHint}` : ''
         log.warn(
@@ -257,9 +255,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       const bookPath = join(opts.workDir, book.path)
-      // M-10（第八轮）：逐书 try/catch——迁移函数内部仍有未收编的抛出点（migrateLayoutV3
+      // 逐书 try/catch——迁移函数内部有未收编的抛出点（migrateLayoutV3
       // 的 readdirSync、migrateLayoutV2 的 mkdirSync、migrateLegacyForeshadows 的
-      // atomicWriteFile 等）：单本书目录权限故障（备份恢复/同步盘 EACCES）此前会炸整
+      // atomicWriteFile 等）：单本书目录权限故障（备份恢复/同步盘 EACCES）会炸整
       // 个服务启动、全部书不可用；一本失败只降级该书（migrateBookDefaults 的先例）。
       try {
         const v2Result = migrateLayoutV2(bookPath)
@@ -273,7 +271,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
         migrateVersionsDir(bookPath)
         // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
-        // R71-14（总七十一轮）：必须在 migrateFinalizedRevisions **之前**——
+        // 必须在 migrateFinalizedRevisions **之前**——
         // migrateLayoutV2 的清单路径改写已把 大纲/伏笔/* 指到 设定/伏笔/*，但物理
         // 文件靠本函数搬；若定稿基线先跑，伏笔 entry 对 设定/伏笔/* existsSync 落空
         // 被跳过，且幂等闸（任一 document entry 已有基线→整书跳过）此后不再补——
@@ -298,11 +296,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
       noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${errMsg(e)}`, e)
     }
   }
-  // 平台规范化批（2026-09-03）：v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户
+  // v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户
   // 书库（唯一测试库实测已全规范），写路径收口 + 读侧容忍 + NFC 创建点已覆盖全部保证；
   // 「启动即改写用户数据」的长期风险面大于无受众的收益。裁决记档见
   // Dev/Docs/Archive/书库平台规范化-实施方案-2026-09-03.md §一 D。
-  // RB-SV-P1-1：Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
+  // Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
   // dev Vite(5173) 仅 CLW_DEV_UI/CLW_DEV_CORS 显式开启时注入（scripts/dev-api.ts 设 env，
   // dev:web/dev:app 链路保持可用）——生产态不再放行本地任意监听 5173 的页面。
   const allowedOrigins = new Set<string>()
@@ -311,14 +309,14 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add('http://localhost:5173')
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
-  // T2-4：本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
+  // 本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
   configureTaskGateLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
-  // R73-49（二十一轮）：ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
+  // ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
   const streamTickets = createStreamTicketStore()
   const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets)
-  // CC-P2-13：host 选项此前是陷阱——允许传任意监听地址，但下方 Host 白名单硬编码回环，
-  // 传非回环 host 时全请求 403（参数存在即故障）。产品口径仅本机回环（本文件头注释），
-  // 非回环值启动即拒——fail-fast 优于逐请求 403 的静默失效。
+  // host 仅限本机回环（本文件头注释），非回环值启动即拒——
+  // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；
+  // fail-fast 优于逐请求 403 的静默失效。
   const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
   const host = opts.host ?? '127.0.0.1'
   if (!LOOPBACK_HOSTS.has(host)) {
@@ -335,30 +333,28 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 实际监听端口（listening 后缓存，供 Host 白名单校验；0 = 未监听）
   let listeningPort = 0
   const server = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // R61-E-1：请求体排空钩子上提为入口单挂点。原 /api 分支（R64-28）与 /API/ 404
-    // 分支各自挂「finish 后排空未消费请求体」钩子，六处闸拒绝路径（bad request 400 /
-    // Host 403 / OPTIONS 204 / 写 Origin 403 / 写 token 403 / GET token 403）漏挂：
-    // 带 body 的请求被闸拒绝后 body 滞留，在无核心自动排空的运行时（Electron 内嵌
-    // Node / CI node 24；node ≥25 核心才在响应 finish 后自动 resume 未消费 body）上
-    // keep-alive 连接无法解析下一请求被整条弃掉（R64-28 同型）。单挂点必须先于任何
-    // replyError/return；readableEnded 守卫下只 resume 未消费的请求流，不改变任何
-    // 响应行为；收敛单挂点后全路径恰好挂一次，也消除多分支重复挂载的多次 resume。
+    // 请求体排空钩子为入口单挂点（必须先于任何 replyError/return）。为什么：带 body 的
+    // 请求被闸拒绝后 body 滞留，在无核心自动排空的运行时（Electron 内嵌 Node / CI node 24；
+    // node ≥25 核心才在响应 finish 后自动 resume 未消费 body）上 keep-alive 连接无法解析
+    // 下一请求被整条弃掉——六处闸拒绝路径（bad request 400 / Host 403 / OPTIONS 204 /
+    // 写 Origin 403 / 写 token 403 / GET token 403）逐一挂载必漏。readableEnded 守卫下
+    // 只 resume 未消费的请求流，不改变任何响应行为；全路径恰好挂一次，也消除多分支
+    // 重复挂载的多次 resume。
     res.on('finish', () => {
       if (!req.readableEnded) req.resume()
     })
-    // X-20（第五十六轮）：请求行 URL 只收 origin-form（以 / 起始）。origin-form 是
-    // node http 服务端唯一合法形态；absolute-form（GET http://…/api/*）此前绕过下方
-    // /api 前缀判断落静态分支回 200 HTML——入口直接拒 400，不给绕前缀判断的形态留通道。
+    // 请求行 URL 只收 origin-form（以 / 起始，node http 服务端唯一合法形态）。
+    // absolute-form（GET http://…/api/*）会绕过下方 /api 前缀判断落静态分支回 200 HTML
+    // ——入口直接拒 400，不给绕前缀判断的形态留通道。
     if (typeof req.url !== 'string' || !req.url.startsWith('/')) {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
-    // DNS rebinding 防御（U-P2-6）：Host 头必须精确匹配本机回环地址 + 实际监听端口。
+    // DNS rebinding 防御：Host 头必须精确匹配本机回环地址 + 实际监听端口。
     // GET 端点无 Origin 头可校验——攻击页把域名二次解析到 127.0.0.1 后，同源 GET
     // 即可全量读取书稿/配置；Host 校验切断该路径（写路径已有 Origin+token 双闸）
     {
-      // 重评-0914-三轮 nano R1-1：reqHost 改名消除跨作用域遮蔽——原名与外层监听
-      // host（上方 CC-P2-13 回环校验用，:315）同名异义，读改时易混
+      // reqHost 命名与外层监听 host 区分——两者同名异义（请求头 vs 监听参数）易读混
       const reqHost = req.headers.host
       if (listeningPort === 0 || (reqHost !== `127.0.0.1:${listeningPort}` && reqHost !== `localhost:${listeningPort}` && reqHost !== `[::1]:${listeningPort}`)) {
         replyError(res, 403, 'FORBIDDEN', 'forbidden host')
@@ -369,11 +365,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // CORS:只对白名单 Origin 设 ACAO(跨站浏览器读被阻)
     if (origin && allowedOrigins.has(origin)) {
       res.setHeader('access-control-allow-origin', origin)
-      // R37-18（三十七轮）：allow-methods 补 PATCH——下方写闸（isWrite）本就把 PATCH
-      // 纳入 Origin/token 校验，但预检 allow-methods 清单漏了它：浏览器对 PATCH
-      //（非简单方法）先发预检，清单不含 PATCH → 预检通过后实际请求仍被浏览器按
-      // CORS 拒发（服务端放行口径与预检清单失配）
-      res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS')
+      // allow-methods 必须与上下方闸的放行集合一致：下方写闸（isWrite）把 PATCH 纳入
+      // Origin/token 校验，清单漏项则浏览器对 PATCH（非简单方法）先发预检、预检通过后
+      // 实际请求仍被浏览器按 CORS 拒发——服务端放行口径与预检清单失配即静默失效。
+      // HEAD 同理：dev 跨源形态（Vite 5173 → SSE 直连 DEV_API_BASE 7878）下 SSE 名额
+      // 探测是带 x-studio-token 头的 HEAD（该头非 CORS 安全列表头 → 必预检），清单不含
+      // HEAD 时浏览器直接拒发，429 指引在 dev 静默丢失（服务端放行口径与预检清单必须一致）。
+      res.setHeader('access-control-allow-methods', 'GET,HEAD,POST,PUT,DELETE,PATCH,OPTIONS')
       res.setHeader('access-control-allow-headers', 'content-type, x-studio-token')
       res.setHeader('vary', 'origin')
     }
@@ -395,35 +393,29 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
     // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
     if (isWrite && !safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
-      // boot-token 回归断言 error 含 'token'（RB-SV-P2-4 用例），文案保持该词根
+      // 文案须保留 'token' 词根（boot-token 回归断言 error 含 'token'）
       replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
       return
     }
-    // T2-3：GET /api/* 读端点 token 闸。此前只拦写——本机任意进程/被 rebinding 的远端
+    // GET/HEAD /api/* 读端点 token 闸：不拦则本机任意进程/被 rebinding 的远端
     // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
+    // HEAD 与 GET 同读语义，一并入闸（原只判 GET 则 HEAD /api/* 绕过 token 校验，
+    // 响应头同会泄漏资源元数据）。
     // 与写闸同源校验（x-studio-token 头，或 query token——SSE/EventSource 不能带头，
     // 与 stream.ts 既有 query 凭据口径一致）、常量时间比较、失败 403 FORBIDDEN 同口径。
-    // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（X-19：原 endsWith('/stream')
-    // 后缀匹配是路由命名耦合的静默失闸模式）。
-    // R65-46（总六十五轮）：HEAD 与 GET 同读语义，一并入闸——原只判 GET，HEAD /api/*
-    // 绕过 token 校验（当前无 HEAD 路由无实害，口径不一致留缺口；响应头同会泄漏
-    // 资源元数据）。
+    // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（不得改回后缀匹配）。
     // API 优先
-    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
-    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致；
-    // token 闸在先无绕过，此为口径统一）。解析失败按非 API 处理。
-    // R31-4（三十一轮，dev 线）/ R33-11（三十三轮，win 线）同因独立修复：apiPathname
-    // 计算上移到 GET/HEAD token 闸之前——原闸用 raw `req.url.startsWith('/api/')`，
-    // 与 dispatch 的规范化 pathname 双轨：llhttp 不归一化请求行，`GET /foo/../api/books`
-    // 的 raw url 不含 `/api/` 前缀 → 跳过 token 闸，而 apiPathname 归一化后命中 `/api/`
-    // → 无凭据进路由（win 线实测 200 无凭据读全部读端点；`%2e%2e` 编码点段同效）。
-    // 闸与豁免表改用同一规范化口径（WHATWG URL 归一化点段），豁免匹配同步换
+    // apiPathname（规范化）必须在 GET/HEAD token 闸之前算好，且与 dispatch 同口径：
+    // llhttp 不归一化请求行，`GET /foo/../api/books` 的 raw url 不含 `/api/` 前缀，
+    // 用 raw url 判前缀会跳过 token 闸，而规范化 pathname 命中 `/api/` → 无凭据进路由
+    //（实测 200 无凭据读全部读端点；`%2e%2e` 编码点段同效）。解析失败按非 API 处理。
+    // 闸与豁免表用同一规范化口径（WHATWG URL 归一化点段），豁免匹配同步换
     // apiPathname（new URL().pathname 已剥 query，urlPathOnly 职责内含）。写闸在一切
     // 路径判定之前不受影响；SSE 豁免路径自带凭据闸。
     const apiPathname = (() => {
       try {
-        // R35-30（三十五轮）：base 单源化——引 http.ts URL_PARSE_BASE（原 'http://local'
-        // 与 parseRequestUrl 的 'http://localhost' 数值等价但字面量漂移）
+        // base 单源化——引 http.ts URL_PARSE_BASE（与 parseRequestUrl 同一 base，
+        // 避免两处字面量漂移）
         return new URL(req.url ?? '/', URL_PARSE_BASE).pathname
       } catch {
         return '/'
@@ -431,11 +423,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     })()
     if ((req.method === 'GET' || req.method === 'HEAD') && apiPathname.startsWith('/api/')) {
       if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(apiPathname))) {
-        // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用，
-        // token 进 URL 的暴露面（进程列表/代理/服务器日志）比「EventSource 不能带头」
-        // 的最小必要面大。现在非豁免 GET 只认 x-studio-token 头（前端 client.ts 契约①
-        // 全量 /api/* 已带头）；`?token=`/`?ticket=` 仅在豁免路径（SSE）放行，由
-        // stream.ts 自身凭据闸校验（T2 批 ticket 优先 + token 兼容期通道）。
+        // query token 通道收窄——非豁免 GET 只认 x-studio-token 头（前端 client.ts 契约①
+        // 全量 /api/* 已带头）；`?token=` 对全部非豁免 GET 通用会让 token 进 URL 的暴露面
+        //（进程列表/代理/服务器日志）远超「EventSource 不能带头」的最小必要面。
+        // `?token=`/`?ticket=` 仅在豁免路径（SSE）放行，由
+        // stream.ts 自身凭据闸校验（ticket 优先 + token 兼容期通道）。
         if (!safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
           replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
           return
@@ -444,7 +436,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
 
     if (apiPathname.startsWith('/api/')) {
-      // R64-28（十二轮）的 finish 后排空钩子已上提为入口单挂点（R61-E-1，见回调顶部）
+      // finish 后排空钩子已上提为入口单挂点（见回调顶部）
       try {
         const matched = await dispatch(req, res, routes)
         if (matched || res.headersSent) return
@@ -452,7 +444,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         return
       } catch (e) {
         if (!res.headersSent) {
-          // P3-9：不向客户端泄漏 detail（含文件路径等），仅日志留诊断。M3：只记路径段
+          // 不向客户端泄漏 detail（含文件路径等），仅日志留诊断；且只记路径段
           // （SSE token 走 query，完整 url 入日志 = 凭证明文留存 app-*.jsonl）
           log.error('api', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
           replyError(res, 500, 'ERROR', '服务器内部错误')
@@ -461,14 +453,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
       }
     }
 
-    // D-4（二十九轮）：/API/ 大写前缀变体此前双失配——上方 GET token 闸与 dispatch 都按
-    // 小写 /api/ 匹配，/API/books 一路落进静态分支回 200 index.html（API 路径拿到 SPA
-    // 页面，调用方按 JSON 解析报糊墙错误）。静态回退（含静态 miss 落 index.html）前按
-    // 小写化口径兜一道：任意大小写的 /api/ 前缀未匹配任何路由 → 统一 404 JSON 错误信封
-    // （与 /api/ 未命中同款 replyError），不再落 SPA。POST /API/* 带 body 被 404 时
-    // keep-alive 连接的未消费请求体由入口单挂点排空（R61-E-1，R64-28 同口径）。
-    // R35-30（三十五轮）：裸 /api（无尾斜杠，任意大小写）同口径兜 404——startsWith('/api/')
-    // 不含精确 '/api'，此前落 SPA 回 200 HTML；API 前缀约定的自然延伸。
+    // /API/ 大写前缀（含裸 /api，无尾斜杠）在静态回退前兜一道：上方 GET token 闸与
+    // dispatch 都按小写 /api/ 匹配，大写变体未匹配任何路由会落进静态分支回 200
+    // index.html（API 路径拿到 SPA 页面，调用方按 JSON 解析报糊墙错误）。统一 404 JSON
+    // 错误信封（与 /api/ 未命中同款 replyError），不再落 SPA。
+    // POST /API/* 带 body 被 404 时，keep-alive 连接的未消费请求体由入口单挂点排空（同口径）。
     const apiLower = apiPathname.toLowerCase()
     if (apiLower === '/api' || apiLower.startsWith('/api/')) {
       replyError(res, 404, 'NOT_FOUND', 'not found')
@@ -476,17 +465,17 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
 
     // 静态托管前端
-    // R-8（第十六轮）：静态分支补兜底 catch——对齐 /api 分支口径。createStaticHandler
+    // 静态分支兜底 catch（对齐 /api 分支口径）：createStaticHandler
     // 是 async（返回 promise），对已销毁连接 writeHead 抛 ERR_STREAM_ALREADY_FINISHED
-    // 等异步异常此前变成 unhandledRejection（Node ≥15 默认 throw 即进程崩溃）；
-    // 若响应尚未结束则 500 'IO' 收尾（R33-58 统一错误码），重复写头由 headersSent/writableEnded 守卫。
+    // 等异步异常不接即 unhandledRejection（Node ≥15 默认 throw 即进程崩溃）；
+    // 若响应尚未结束则 500 'IO' 收尾，重复写头由 headersSent/writableEnded 守卫。
     if (serveStatic) {
       try {
         await serveStatic(req, res)
       } catch (e) {
         log.error('static', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
         if (!res.headersSent && !res.writableEnded && !res.destroyed) {
-          replyError(res, 500, 'IO', '服务器内部错误') // R33-58：对齐 R31-26 'IO' 单一口径
+          replyError(res, 500, 'IO', '服务器内部错误') // 统一 'IO' 错误码
         }
       }
       return
@@ -499,13 +488,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 拉长到 30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout(Node v19+ 硬约束)。
   server.keepAliveTimeout = 30_000
   server.headersTimeout = 35_000
-  // 0918二轮修复批（D103）：requestTimeout 显式钉 300s——原只显式设 keepAlive/headers
-  // 两项，requestTimeout 依赖 Node 缺省（当前恰 300s，无锚可依、跨版本漂移即翻车）。
-  // 408 闲置超时设计（readJson BODY_IDLE_TIMEOUT_MS=30s 的占闸上限语义）与前端 ~300s
-  // 自愈假设均以 300s 为前提（见 http.ts R51-G-2 注），显式钉住防默认值漂移。
+  // requestTimeout 显式钉 300s，不得删：408 闲置超时设计（readJson
+  // BODY_IDLE_TIMEOUT_MS=30s 的占闸上限语义）与前端 ~300s 自愈假设均以 300s 为前提
+  //（见 http.ts 注）；只依赖 Node 缺省值（当前恰 300s）则无锚可依、跨版本漂移即翻车。
   server.requestTimeout = 300_000
   server.listen(opts.port, host)
-  // 阶段 53 S2：起服后延迟一次更新检查（fire-and-forget——不 await、不阻塞监听，
+  // 起服后延迟一次更新检查（fire-and-forget——不 await、不阻塞监听，
   // 也不进启动关键路径）。timer 显式 unref：否则「只起 server 不求请求」的进程
   //（单测/脚本形态）会被这枚待触发定时器多留住数秒；close 时清掉（实例关灯后
   // 不再出站）。检查内部自带开关短路与静默（CLW_DISABLE_UPDATE_CHECK=1 → 不打网），
@@ -521,29 +509,27 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (addr && typeof addr === 'object') {
       allowedOrigins.add(`http://127.0.0.1:${addr.port}`)
       allowedOrigins.add(`http://localhost:${addr.port}`)
-      // L-S6（第八轮）：与 Host 白名单（认 [::1]:port）对齐——当前 appUrl 固定 127.0.0.1
-      // 无实际影响，消两侧不对称漂移点
+      // 与 Host 白名单（认 [::1]:port）对齐——消两侧不对称漂移点
       allowedOrigins.add(`http://[::1]:${addr.port}`)
       listeningPort = addr.port
     }
   })
-  // R64-30（十二轮）：生命周期复位 initialBook 模块态——同进程二次 startServer（dev/
-  // 测试形态）此前残留上一实例的 --book 初始书（第二次无 --book 启动仍直达旧书）。
+  // 生命周期复位 initialBook 模块态——不复位则同进程二次 startServer（dev/
+  // 测试形态）残留上一实例的 --book 初始书（第二次无 --book 启动仍直达旧书）。
   // 复位点选 close 而非 startServer 入口：调用序铁律是 setInitialBook 先于 startServer
   //（desktop/server-boot.ts 测试锚定），入口清空会抹掉刚注入的值；boot-token 回归
   // 还依赖运行中实例的 live-set 语义（set 后即可读），close 清空两头都保住。
   server.on('close', () => {
     setInitialBook(undefined)
-    // 阶段 53 S2：清掉尚未触发的更新检查定时器（关灯后不再出站）
+    // 清掉尚未触发的更新检查定时器（关灯后不再出站）
     if (updateCheckTimer) {
       clearTimeout(updateCheckTimer)
       updateCheckTimer = null
     }
-    // R0910-W：模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
+    // 模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
     closeAllSseConnections()
   })
-  // R0910-W：server.close 自包含化（P2「close 不完整」修复）。
-  // 原 close 只停接新请求、等在途响应——两类收尾逃逸出回调语义：
+  // server.close 自包含化：裸 close 只停接新请求、等在途响应——两类收尾逃逸出回调语义：
   //  ① SSE 长连接响应未 end（非 closeIdleConnections 可摘的空闲连接），close 回调
   //     被悬置到调用方自身超时才放行；② 客户端可先断开连接而 handler 仍 await 重建/
   //     导出 Worker 线程，连接清空即触发回调，worker 仍持 .cache/index.db 句柄写盘 →
@@ -560,7 +546,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
       })
     }) as typeof server.close
   }
-  // R73-49（二十一轮）：票库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
+  // ticket 库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
   // 旧实例签发的票随实例隔离，新实例（二次 startServer）零残留零可用
   ;(server as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets = streamTickets
   return server

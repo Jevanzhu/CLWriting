@@ -162,9 +162,10 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // R73-67（D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
   // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
   // 探测拿状态码：R31-32（三十一轮）起探测走 x-studio-token 头，不拼 ?token= 进 URL、
-  // 不消费一次性 ticket、不烧票；服务端 429 判定在连接登记之前（429 响应不占连接槽）。
-  // 取到状态码即 abort，不留存活探测流连接；仅在 fail-closed 接管退避前探测一次，
-  // 网络抖动/每轮退避不重复探测。
+  // 不消费一次性 ticket、不烧票。RC 源码重审 B-3（Opus-5.5 轮）：探测整体不建流——
+  // 只做鉴权 + 名额判定（服务端 books.stream.probe，见该 handler），不再占连接槽
+  //（原 GET 形 200 时服务端已建流登记消费者，abort 前占名额，见探测点内注释）。
+  // 仅在 fail-closed 接管退避前探测一次，网络抖动/每轮退避不重复探测。
   async function probeSseBusy(): Promise<void> {
     if (probing429) return
     const t = getToken()
@@ -184,11 +185,20 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       // R31-32（三十一轮）：探测是 fetch（可带头）——token 改走 x-studio-token 头，
       // 不再拼 `?token=` 进 URL（服务端闸已补认 header）；EventSource 正式连接仍走
       // ticket，其 ?token= 回退通道维持 R30-25 登记。
+      // RC 源码重审 B-3（Opus-5.5 轮）：探测改 HEAD（服务端 books.stream.probe，同路径
+      // 同闸：三凭据预检 + 名额判定）。为什么：原 GET 形是真开流——200 路径在响应头前
+      // 即登记 connHandle、推 sync 快照、ensureSession，客户端 abort 前该名额一直占着；
+      // 与下方 fail-closed 首档 0ms 重连并发时会抢走最后一个名额，正式 EventSource 吃
+      // 429 再等一档退避（4s）——探测本为解释断连，反而制造断连。HEAD 不建流、不登记
+      // 名额、不消费 ticket，探测与重连的并发关系无需串行化（不引入新的等待窗口）。
+      // 不变量：此处只取状态码——401→re-boot、429→指引 toast、403/404 静默、8s 超时、
+      // 代闸、失败/被拒静默交回既有退避节奏，全部不变。
       const r = await fetch(`${base}/api/books/${encodeURIComponent(currentName)}/stream`, {
+        method: 'HEAD',
         signal: ctrl.signal,
         headers: { 'x-studio-token': t },
       })
-      ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
+      ctrl.abort() // 拿到状态码即断（HEAD 无响应体、服务端不建流——不留存活探测连接）
       // R0910-W：探测起始至今已被 disconnect 接管（切书/卸载/重连推代 + 中止在途探测）
       // ——迟到的状态码属旧语境，不落 429 指引、不计失配连记
       if (connectGen.stale(gen)) return

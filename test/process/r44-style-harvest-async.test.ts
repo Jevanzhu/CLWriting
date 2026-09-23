@@ -44,6 +44,16 @@ const mockSpawnSync = vi.mocked(spawnSync)
 
 let root = ''
 
+/** RC 源码重审 A-2（Opus-5.5 轮）：git() 统一前置硬化参数（`-c core.fsmonitor=false`
+ *  `-c core.hooksPath=…`）——本文件断言的是「子命令 + 实参」面（异步孪生与同步版同源、
+ *  恰好一次 spawn），硬化旗本身的逐字断言在 test/git/exec.test.ts；此处剥掉前置 -c 对，
+ *  让硬化清单演进不再波及本文件的形态断言。 */
+function gitArgsOf(argv: readonly unknown[]): unknown[] {
+  const out = [...argv]
+  while (out[0] === '-c' && out.length >= 2) out.splice(0, 2)
+  return out
+}
+
 beforeEach(() => {
   root = mkdtempTracked(join(tmpdir(), 'clw-r44-13-harvest-'))
   mockSpawn.mockClear()
@@ -106,7 +116,7 @@ describe('R44-13: listTrackedDocsAsync 异步孪生（直接调用面）', () =>
     expect(mockSpawnSync).toHaveBeenCalledTimes(0) // 修复点：git 后端枚举不再同步 spawnSync
     expect(mockSpawn).toHaveBeenCalledTimes(1) // 恰好一次异步 spawn（for-each-ref）
     expect(mockSpawn.mock.calls[0]![0]).toBe('git')
-    expect(mockSpawn.mock.calls[0]![1]).toEqual(['for-each-ref', '--format=%(refname)', 'refs/clwriting/ai/'])
+    expect(gitArgsOf(mockSpawn.mock.calls[0]![1] as string[])).toEqual(['for-each-ref', '--format=%(refname)', 'refs/clwriting/ai/'])
   })
 
   it('失败面：坏 .git → resolve 空表，永不 reject（旁路证据不阻断主流程）', async () => {
@@ -144,7 +154,7 @@ describe('R44-13: harvestStyleCandidatesAsync 端到端（收割链清零同步 
     expect(mockSpawnSync).toHaveBeenCalledTimes(0) // 修复点：源1 顶部枚举不再漏网
     // 轨迹枚举的 for-each-ref（%(refname) 单列格式）确实经异步 spawn 发出
     const trackedListCall = mockSpawn.mock.calls.find(
-      (c) => c[0] === 'git' && (c[1] as string[]).join(' ') === 'for-each-ref --format=%(refname) refs/clwriting/ai/',
+      (c) => c[0] === 'git' && gitArgsOf(c[1] as string[]).join(' ') === 'for-each-ref --format=%(refname) refs/clwriting/ai/',
     )
     expect(trackedListCall).toBeDefined()
     expect(r.created.length).toBeGreaterThanOrEqual(1) // 轨迹确实被枚举到（gap 段成样章候选）

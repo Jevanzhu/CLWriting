@@ -13,9 +13,31 @@ import { test, expect, vi } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { learnFromBook, LEARN_HARVEST_LOCK_TIMEOUT_MS } from '../../src/learn/index.js'
+import {
+  learnFromBook,
+  LEARN_HARVEST_LOCK_TIMEOUT_MS,
+  LEARN_HARVEST_LOCK_RENEW_MS,
+} from '../../src/learn/index.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+
+// RC 源码重审 A-4（Opus-5.5 轮）：取锁实参捕参钩子——learn 此前第三参数（opts）整段
+// 缺省 = renewIntervalMs 0 = 不续期，而本锁是唯一的「长临界段 + 无续期」调用方：大书
+// 慢盘收割整段可超锁原语活 pid 超龄门槛（MAX_HELD_MS 10min），第二进程会按「超龄且
+// mtime 无续期」接管 → 双持锁。透传原实现、仅记录实参：断言确定性看参数，不依赖墙钟。
+const lockCalls = vi.hoisted(
+  () => [] as Array<{ lockPath: string; timeoutMs: number; opts?: { renewIntervalMs?: number } }>,
+)
+vi.mock('../../src/fs/cross-process-lock.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/cross-process-lock.js')>()
+  return {
+    ...actual,
+    acquireCrossProcessLockAsync: (lockPath: string, timeoutMs: number, opts?: { renewIntervalMs?: number }) => {
+      lockCalls.push({ lockPath, timeoutMs, opts })
+      return actual.acquireCrossProcessLockAsync(lockPath, timeoutMs, opts)
+    },
+  }
+})
 
 const HARVEST_LOCK = join('工作区', '.learn-harvest.lock')
 const CANDIDATE_DIR = '工作区/learn候选'
@@ -85,4 +107,23 @@ test('R0912-5: 无争用 → 收割在锁内正常完成，结束后锁释放（
   const release = await acquireCrossProcessLockAsync(join(root, HARVEST_LOCK), 1000)
   expect(release).toBeTruthy()
   release?.()
+})
+
+// RC 源码重审 A-4（Opus-5.5 轮）回归：learn 收割锁必须开续期——缺省（不传第三参数）
+// = renewIntervalMs 0 = 锁文件 mtime 恒为创建时刻，长书慢盘收割越过 10min 超龄线即被
+// 第二进程按「活 pid 超龄且无续期」接管，双方同时持锁（同书收割双写候选）。判据取
+// 实参（捕参钩子），与墙钟/真实续期定时器无关。
+test('RC 源码重审 A-4: 收割取锁传了 30s 档续期（renewIntervalMs > 0 且 ≪ MAX_HELD_MS 10min）', async () => {
+  const root = makeBook()
+  lockCalls.length = 0
+  const r = await learnFromBook(root)
+  expect(r.ok).toBe(true)
+  const harvestCalls = lockCalls.filter((c) => c.lockPath.endsWith(HARVEST_LOCK))
+  expect(harvestCalls).toHaveLength(1)
+  const call = harvestCalls[0]!
+  expect(call.opts?.renewIntervalMs).toBe(LEARN_HARVEST_LOCK_RENEW_MS)
+  expect(call.opts!.renewIntervalMs!).toBeGreaterThan(0) // 0/undefined = 不续期（修复前形态）
+  // 续期周期必须远低于锁原语的活 pid 超龄门槛（10min），否则「活着且在续期不接管」收紧失效
+  expect(call.opts!.renewIntervalMs!).toBeLessThan(10 * 60_000)
+  expect(call.timeoutMs).toBe(LEARN_HARVEST_LOCK_TIMEOUT_MS) // 等待档未被顺手改动
 })

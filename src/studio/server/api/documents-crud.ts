@@ -20,7 +20,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import type { CopyResult, CreateResult, MoveResult, TrashResult } from '../../../document/service.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -70,7 +70,8 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      const body = await readJson(req)
+      // RC 源码重审 B-1：新建可带 content（建卷即建首章/导入大章）——同走内容档上限
+      const body = await readJson(req, CONTENT_BODY_LIMIT_BYTES)
       const relPath = body.relPath
       if (typeof relPath !== 'string' || !relPath) {
         replyError(res, 400, 'BAD_INPUT', 'relPath 缺失')

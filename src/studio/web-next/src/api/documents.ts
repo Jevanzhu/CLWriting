@@ -48,6 +48,10 @@ export interface SaveOk {
   ok: true
   revision: `sha256:${string}`
   superseded?: boolean
+  /** RC 源码重审 A-5（Opus-5.5 轮）：服务端保存前留底失败（工作区/.版本 不可写）但正文
+   *  已落盘——留底是兜底不是闸（fail-open），保存成功；本旗仅降级时带出，doc store 据此
+   *  每文档提示一次「版本历史有缺口」。 */
+  snapshotDegraded?: boolean
 }
 
 export async function saveContent(

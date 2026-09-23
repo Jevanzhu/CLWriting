@@ -131,6 +131,16 @@ function scoreByChecks(
  *  失去唯一改写点，读点直用本常量。 */
 export const LEARN_HARVEST_LOCK_TIMEOUT_MS = 5_000
 
+/** RC 源码重审 A-4（Opus-5.5 轮）：learn 收割锁续期周期（毫秒）——本锁是**长临界段**：
+ *  锁内 = 逐章读全书 .md + 逐段打分类 + 重建候选 + ≤15 次 atomicWriteFile 落盘，
+ *  大书慢盘整段可超锁原语的活 pid 超龄门槛（MAX_HELD_MS = 10min）。不续期时锁文件
+ *  mtime 恒为创建时刻，第二进程（GUI/CLI 双开同书）按「活 pid 超龄且 mtime 无续期」
+ *  判 stale 趁机接管并自建锁 → 双方同时持锁，同一本书收割双写候选。续期让活锁的
+ *  mtime 恒新，超龄接管只打击真死进程的 pid 复用残留。
+ *  30s 档与 R71-3 task-gate / R27-105 摘要锁同款——30s ≪ MAX_HELD_MS（10min），
+ *  判定面上的「活锁」恒不超龄；本常量导出供测试断言取锁参数（不依赖墙钟）。 */
+export const LEARN_HARVEST_LOCK_RENEW_MS = 30_000
+
 // R0910-W（2026-09-10 修复批）：候选池有界化——样章/金句候选原随全书合格段持续
 // push，末了才 sort+slice，大书峰值可达数万条 snippet 对象（O(全书)）。现循环内即
 // 保有界 top-N 池：每池容量 = 终取数 ×2，越过即按「最终排序口径」裁剪回终取数
@@ -166,7 +176,15 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   //（文案/返回形状逐字不变），锁内逻辑不变（扫描 → 候选 → 落盘全临界段）。
   // R0912-B-P2-1（win 线 2026-09-11 精简批）：锁等待读点直用导出常量——原模块内
   // 可变生效值 learnHarvestLockTimeoutMs 及测试注入钩子已退役（钩子全仓零消费）。
-  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), LEARN_HARVEST_LOCK_TIMEOUT_MS)
+  // RC 源码重审 A-4（Opus-5.5 轮）：第三参数（锁原语 opts）此前整段缺省 = renewIntervalMs 0
+  //（不续期）——本锁是唯一的「长临界段 + 无续期」调用方（task-gate / 摘要锁 / 实例守卫
+  // 均已接线续期），大书慢盘收割越过 10min 超龄线时第二进程会按「活 pid 超龄且无续期」
+  // 接管 → 双持锁。此处仅接线既有续期能力，锁原语与判据零改动。
+  const releaseHarvest = await acquireCrossProcessLockAsync(
+    join(bookRoot, '工作区', '.learn-harvest.lock'),
+    LEARN_HARVEST_LOCK_TIMEOUT_MS,
+    { renewIntervalMs: LEARN_HARVEST_LOCK_RENEW_MS },
+  )
   if (!releaseHarvest) {
     return {
       ok: false,

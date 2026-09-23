@@ -177,7 +177,8 @@ async function savePricing(clear = false): Promise<void> {
       <!-- nano R6-1（重评-0914-三轮）：去掉 !initial 门——编辑卡非法 key 就地反馈
            （留空仍合法，由 keyError computed 守卫），形态对齐 RagProviderEditor -->
       <span v-if="keyError" class="key-error">{{ keyError }}</span>
-      <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（vault 加密，留空即保留）</span>
+      <!-- A-3（RC 全项目源码重审）：原「vault 加密」为失真断言——保护强度单源见 src/desktop/os-kek.ts（钥匙串通道搁置开关 OS_KEK_SHELVED）与 src/ai/provider/vault-key.ts（混淆级自述），恢复 safeStorage 时须同步改回本行文案及 AiServicePanel 顶部告知段 -->
+      <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（本机保存，留空即保留）</span>
     </div>
 
     <!-- 折叠自定义设置（类型/名称/API 地址 + 模型行） -->

@@ -5,7 +5,7 @@
  * 明文迁移、半迁移收敛、删除清理、损坏不覆盖、版本守卫。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { rmSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
@@ -290,6 +290,14 @@ test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留
   const raw = readFileSync(FP(), 'utf8')
   expect(raw).not.toContain('broken')
   expect(JSON.parse(raw).providers[0].id).toBe('prov-restore')
+
+  // RC 源码重审 A-7（Opus-5.5 轮）：恢复成功路径的固定点从「先删主文件」迁到「改名留证」
+  // ——主文件字节逐位 = bak 字节（原子写回原文），原损坏字节留在 <fp>.corrupt-<ts>
+  // 可查（修复前被 rmQuietly 无痕删除）
+  expect(raw).toBe(readFileSync(join(dir, 'providers.bak.json'), 'utf8'))
+  const corruptSiblings = readdirSync(dir).filter((n) => n.startsWith('providers.json.corrupt-'))
+  expect(corruptSiblings).toHaveLength(1)
+  expect(readFileSync(join(dir, corruptSiblings[0]!), 'utf8')).toBe('{ broken json !!!')
 })
 
 test('W-P2-9: 主文件损坏且无 bak → 仍抛错（不静默返回空）', () => {

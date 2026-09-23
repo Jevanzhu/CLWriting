@@ -14,6 +14,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError, replyHttpError } from '../http.js'
 import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
+// RC 源码重审 B-4：主机变更闸收敛单源（providers/rag-providers 共用同一判定与文案）
+import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
   saveProviders,
@@ -269,6 +271,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
 
     const existing = s.providers[idx]!
+    // RC 源码重审 B-4（Opus-5.5 轮）：baseUrl 主机变更时不得静默沿用已存 Key——判定口径、
+    // 拒绝码与文案见 host-change-guard.ts（同源另供 /api/rag-providers，先例 = revision-guard
+    // 的三处拷贝收敛）；此处只保留「为什么挂在这个位置」：必须早于下方 newKey 计算与
+    // s.providers[idx] 赋值，否则失败路径已把旧 Key 配到新主机上。
+    if (!input.apiKey && !sameEndpointHost(existing.baseUrl, input.baseUrl)) {
+      return replyError(res, 400, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE)
+    }
     // apiKey 为空 = 不改（保留原 key）
     const newKey = input.apiKey || existing.apiKey
     // 编辑后 caps 可能不再准确（baseUrl/key/model 变了）→ 清空要求重新探测

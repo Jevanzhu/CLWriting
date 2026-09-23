@@ -4,7 +4,8 @@
  * - R33D-2：openai 线 finish_reason='content_filter' / anthropic 线 stop_reason='refusal'
  *   不得按正常 done 出场（半截正文按成功落稿三线分叉闭合）——error（PROTOCOL，不可重试）
  *   且 usage 随错上抛（B-12 通道）。
- * - R33D-11：withFirstByteTimeout 任意退出路径关源迭代器——消费方收到 error 事件 throw
+ * - R33D-11：withChunkStallTimeout（RC 源码重审 A-8 更名，原 withFirstByteTimeout）
+ *   任意退出路径关源迭代器——消费方收到 error 事件 throw
  *   后，源生成器的 finally 必须执行（原实现源停在 yield 上悬挂 SDK 流）。
  * - R33D-12：responses done 项 call_id/id 双缺 → 兜底序号 id（不再产出空串 tool id）。
  */
@@ -14,7 +15,7 @@ import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
-import { withFirstByteTimeout } from '../../../src/ai/gen.js'
+import { withChunkStallTimeout } from '../../../src/ai/gen.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -140,7 +141,7 @@ describe('R33D-2：content_filter / refusal 不再伪装正常完成', () => {
   })
 })
 
-describe('R33D-11：withFirstByteTimeout 任意退出路径关源', () => {
+describe('R33D-11：withChunkStallTimeout 任意退出路径关源', () => {
   it('消费方收到 error 事件 throw → 源生成器 finally 执行（不再悬挂）', async () => {
     let sourceClosed = false
     async function* source(): AsyncGenerator<GenEvent> {
@@ -152,7 +153,7 @@ describe('R33D-11：withFirstByteTimeout 任意退出路径关源', () => {
         sourceClosed = true
       }
     }
-    const wrapper = withFirstByteTimeout(source(), 60_000)
+    const wrapper = withChunkStallTimeout(source(), 60_000)
     const evs: GenEvent[] = []
     await expect(async () => {
       for await (const ev of wrapper) {
@@ -177,7 +178,7 @@ describe('R33D-11：withFirstByteTimeout 任意退出路径关源', () => {
       }
     }
     const evs: GenEvent[] = []
-    for await (const ev of withFirstByteTimeout(source(), 60_000)) evs.push(ev)
+    for await (const ev of withChunkStallTimeout(source(), 60_000)) evs.push(ev)
     expect(evs).toHaveLength(2)
     expect(sourceClosed).toBe(true)
   })

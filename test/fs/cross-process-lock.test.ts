@@ -6,7 +6,7 @@
  * acquireWithTimeout 超时返回 null、非冲突类故障（权限）原样上抛。
  * 真「双进程互斥 + 丢账」的行为级验证见 test/ai/calls-cross-process.test.ts。
  */
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chmodSync } from 'node:fs'
@@ -19,9 +19,19 @@ import {
 // R43-25 收口回归（2026-09-04）：openSync 'wx' 的瞬态 EPERM 注入面——win delete-pending
 // 窗口/杀软瞬时握锁形态。mock 工厂透传全部原实现，仅 openSync 按计数器前 N 次 'wx'
 // 创建抛 EPERM（默认 0 = 全部用例原语义不受影响；用例内置数，beforeEach 归零）。
-// 重评-12（全库代码重评审 2026-09-05）：同手法补 rmSync 注入面——陈锁接管的清理删除
+// 重评-12（全库代码重评审 2026-09-05）：同手法补删除注入面——陈锁接管的清理删除
 // 已收编 rmWithRetry，用例按计数注入 EPERM 验证退避重试与耗尽上抛两面。
-const fsState = vi.hoisted(() => ({ epermLeft: 0, rmEpermLeft: 0 }))
+// RC 源码重审 A-4（Opus-5.5 轮）：接管删除改「原子改名认领」，瞬时占用面随调用面
+// 迁到 rename（renameWithRetry）——注入面同步 rmSync → renameSync；另加 stealRenameAt
+// 钩子，在 rename 真正落地前模拟「共享名上的锁已被他人认领走」，构造确定性交错时序。
+const fsState = vi.hoisted(() => ({
+  epermLeft: 0,
+  renameEpermLeft: 0,
+  /** A-4 交错：下一次针对该路径的 rename 之前先删掉源（= 他人已认领走）→ 真 ENOENT */
+  stealRenameAt: '' as string,
+  /** 上者触发后是否立刻写回一把活 pid 锁（= 那人已重建并在持锁） */
+  stealRecreate: false,
+}))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
@@ -35,14 +45,31 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       return (actual.openSync as (...a: unknown[]) => number)(p, flags, ...rest)
     },
-    rmSync: (p: string, opts?: { force?: boolean; recursive?: boolean }) => {
-      if (fsState.rmEpermLeft > 0) {
-        fsState.rmEpermLeft--
-        const err = new Error(`EPERM: operation not permitted, unlink '${p}'`) as NodeJS.ErrnoException
+    // A-4：接管面 = renameWithRetry（缺省 renameSync）——瞬态 EPERM 注入 + 交错钩子
+    renameSync: (from: string, to: string) => {
+      if (fsState.renameEpermLeft > 0) {
+        fsState.renameEpermLeft--
+        const err = new Error(`EPERM: operation not permitted, rename '${from}'`) as NodeJS.ErrnoException
         err.code = 'EPERM'
         throw err
       }
-      return (actual.rmSync as (...a: unknown[]) => void)(p, opts)
+      if (fsState.stealRenameAt === from) {
+        fsState.stealRenameAt = '' // 一次性钩子
+        const recreate = fsState.stealRecreate
+        fsState.stealRecreate = false
+        // 他人已认领走共享名上的锁（其 rename 先落地）——本 contender 的 rename 随即
+        // 撞真 ENOENT（源已不在）；可选：他人立即重建并在持锁（活 pid）
+        ;(actual.rmSync as (p: string, o?: { force?: boolean }) => void)(from, { force: true })
+        try {
+          return (actual.renameSync as (a: string, b: string) => void)(from, to)
+        } catch (e) {
+          if (recreate) {
+            ;(actual.writeFileSync as (p: string, d: string) => void)(from, JSON.stringify({ pid: process.pid, bootTime: 0 }))
+          }
+          throw e
+        }
+      }
+      return (actual.renameSync as (a: string, b: string) => void)(from, to)
     },
   }
 })
@@ -55,7 +82,9 @@ const lp = (name: string): string => join(dir, `${name}.lock`)
 
 beforeEach(() => {
   fsState.epermLeft = 0 // 瞬态注入计数归零（其余用例原语义零影响）
-  fsState.rmEpermLeft = 0
+  fsState.renameEpermLeft = 0
+  fsState.stealRenameAt = ''
+  fsState.stealRecreate = false
 })
 
 describe('tryAcquireCrossProcessLock', () => {
@@ -80,13 +109,13 @@ describe('tryAcquireCrossProcessLock', () => {
     r!()
   })
 
-  it('X-4：判 stale 后锁文件已被他人换成新 pid → 二次复核拦下 rmSync（不删新锁）', () => {
+  it('X-4/A-4：判 stale 后锁文件已被他人换成新 pid → 二次复核拦下夺锁（不改名取走新锁）', () => {
     const p = lp('stale-recheck')
     writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
     let swapped = false
     const r = tryAcquireCrossProcessLock(p, {
       // 首次探测死 pid 时，模拟「另一 contender 已接管重建」——把锁文件换成活进程 pid；
-      // 二次复核应读到新 pid 并按存活放行，rmSync 不得执行（否则删掉他人新锁 → 双持锁）
+      // 二次复核应读到新 pid 并按存活放行，接管改名不得执行（否则取走他人新锁 → 双持锁）
       isProcessAlive: (pid) => {
         if (pid === 4194303 && !swapped) {
           swapped = true
@@ -158,26 +187,79 @@ describe('tryAcquireCrossProcessLock', () => {
   // 重评-12（全库代码重评审 2026-09-05）：陈锁接管的清理删除收编 fs/atomic.ts
   // rmWithRetry——win 杀软/索引器对死进程遗留锁文件瞬时锁定（EPERM/EBUSY）下裸
   // rmSync 直败会让接管无谓失败。
-  it('重评-12：陈锁接管删除撞瞬时 EPERM → 退避重试后接管成功', () => {
+  // RC 源码重审 A-4（Opus-5.5 轮）：接管改「原子改名认领」（rename → 唯一隔离名 → 删），
+  // 瞬时占用面随调用面由 rmWithRetry 迁到 renameWithRetry——两点用例注入面同步换装，
+  // 「瞬态吸收 / 耗尽上抛」两条断言语义逐条不动。
+  it('重评-12/A-4：陈锁接管改名撞瞬时 EPERM → 退避重试后接管成功', () => {
     const p = lp('stale-takeover-eperm')
     writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
-    fsState.rmEpermLeft = 1 // 接管清理首删撞瞬时锁（一次后放行——瞬时占用形态）
+    fsState.renameEpermLeft = 1 // 接管改名首撞瞬时锁（一次后放行——瞬时占用形态）
     const r = tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 })
     expect(r).not.toBeNull()
-    expect(fsState.rmEpermLeft).toBe(0) // 一次性瞬时锁被退避重试吸收（裸删时代此处直败）
+    expect(fsState.renameEpermLeft).toBe(0) // 一次性瞬时锁被退避重试吸收（裸 rename 时代此处直败）
     expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid)
     r!()
   })
 
-  it('重评-12：接管删除持续 EPERM → 重试耗尽仍上抛（不吞错，调用方超时降级面不变）', () => {
+  it('重评-12/A-4：接管改名持续 EPERM → 重试耗尽仍上抛（不吞错，调用方超时降级面不变）', () => {
     const p = lp('stale-takeover-eperm-exhaust')
     writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
-    fsState.rmEpermLeft = 99 // 持续占用（非瞬时形态）
+    fsState.renameEpermLeft = 99 // 持续占用（非瞬时形态）
     expect(() =>
       tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 }),
     ).toThrowError(/EPERM/)
-    fsState.rmEpermLeft = 0 // 收尾放行，手工清走残留锁文件
+    fsState.renameEpermLeft = 0 // 收尾放行，手工清走残留死锁文件（认领改名从未成功）
     rmSync(p, { force: true })
+  })
+
+  // RC 源码重审 A-4（Opus-5.5 轮）：接管 = rename 到同目录唯一隔离名（`.名字.pid.uuid.tmp`）
+  // 后再 best-effort 删——正常接管不得在锁目录留隔离残迹（否则每次接管漏一个文件，
+  // 只能等 sweepAbandonedTmpFiles 的 5min 年龄门清）。
+  it('A-4：接管成功后锁目录无 .tmp 隔离残迹（死锁原件已随隔离名删除）', () => {
+    const sub = join(dir, 'quarantine-clean')
+    mkdirSync(sub, { recursive: true })
+    const p = join(sub, 'stale.lock')
+    writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
+    const r = tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 })
+    expect(r).not.toBeNull()
+    expect(readdirSync(sub)).toEqual(['stale.lock']) // 只剩本进程新建的锁，无隔离件残留
+    r!()
+  })
+
+  // RC 源码重审 A-4（Opus-5.5 轮）交错时序之一：A 已把共享名上的死锁改名认领走（旧实现
+  // 此处是「删共享名 → 自建」两步），B 的 rename 因此得 ENOENT（源已不在）——B 不得把
+  // 它当故障上抛、不得触碰任何文件，而应落回 create 路径建成自己的锁（结束时恰好一把锁）。
+  it('A-4 交错：A 已认领走 → B 的 rename 撞 ENOENT → 不误删不误判，正常重建（互斥成立）', () => {
+    const p = lp('a4-lost-race')
+    writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
+    fsState.stealRenameAt = p // 本 contender 的 rename 落地前，源被「他人」取走
+    const r = tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 })
+    expect(r).not.toBeNull() // ENOENT 未被当成故障上抛（旧 rm 面此处不可观测，故无从区分）
+    expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid)
+    expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]) // 败者零隔离残迹
+    r!()
+  })
+
+  // RC 源码重审 A-4（Opus-5.5 轮）交错时序之二：A 认领走死锁后立刻重建并在持锁（活 pid），
+  // B 的 rename 才落地——B 仍只可能得 ENOENT（源已被 A 取走），随后落回 create 路径撞
+  // EEXIST，按 A 的活 pid 判定为「在持」→ 不接管、不删、不双持。旧实现此处 B 的 rm
+  // 落在共享名上会直接删掉 A 的新锁再自建（双持锁）——本用例即该路径的回归。
+  it('A-4 交错：rename 落败者不得删掉 A 刚重建的活锁（不误删、不误判为可接管）', () => {
+    const p = lp('a4-lost-race-live')
+    writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
+    fsState.stealRenameAt = p
+    fsState.stealRecreate = true // A 已在位并在持锁
+    const r = tryAcquireCrossProcessLock(p, {
+      isProcessAlive: (pid) => pid !== 4194303, // 死锁 pid 已死；A（本进程）活着
+      staleTakeoverJitterMs: 0,
+    })
+    expect(r).toBeNull() // A 在持锁 → 不接管
+    expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid) // A 的锁原样在位
+    // 收尾：A 释放后本进程可正常重建（互斥链未被败者的失败打断）
+    rmSync(p, { force: true })
+    const r2 = tryAcquireCrossProcessLock(p)
+    expect(r2).not.toBeNull()
+    r2!()
   })
 })
 
