@@ -15,6 +15,11 @@
  *     调用点 = EditorView（docId 同步 watch + onUnmounted）、doc store（save/flushDirty
  *     顶部，覆盖 ⌘S/autosave/切书冲刷/flushBeforeClose/改名前置冲刷）、Book.vue
  *     （hasUnsavedWork 刷新守卫）；
+ *  2b. **「先读 dirty 再决定落不落盘」的决策点，读之前必须 flush**（附批补账：首版只
+ *     列了整链落盘点，这类决策点在窗内读到 dirty=false 就整段放行——既不冲刷也不保存，
+ *     随后按盘上缺末段的内容走）。调用点 = 章节结构操作族 flushUnsaved（并入上一章/
+ *     撤销并入/光标拆分，读前先落尾）、章节树删除前置落盘、改写基线（服务端读盘）、
+ *     切档存旧档（openTab）；
  *  3. **落点恒按登记时的 docId 解析**：切档后父层 entry 已指向新档，若按「当前 entry」
  *     回写即跨档污染（R51-I-6 同型面），故槽存 {docId, body} 原子对、commit 用槽内
  *     docId 取条目。

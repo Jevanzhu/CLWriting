@@ -19,6 +19,7 @@ import type { useWorkspaceStore } from '../stores/workspace'
 import type { TreeNode } from '../types/tree'
 import { structurePlan, structureApply, structureMergeUndo, type MergePlanView, type SplitPlanView } from '../api/documents'
 import { splitFrontmatter } from '../shared/words'
+import { flushBodyWriteback } from '../shared/body-writeback'
 import { prevBodyChapterInDisplayOrder } from '../shared/chapter-tree'
 
 type TreeStore = ReturnType<typeof useTreeStore>
@@ -52,6 +53,11 @@ export function useChapterTreeStructure(deps: {
    *  origin 用 autosave 同 R48-88：内部步骤非作者动作，不弹「已保存」toast）。
    *  false = 冲突未决或保存失败，调用方中止并提示。 */
   async function flushUnsaved(docId: string): Promise<boolean> {
+    // RC 源码重审 B-2 附批（mac 腿 e2e 首因）：读 dirty 前先落编辑器防抖尾——正文回写
+    // 有 ≤200ms 合并窗，窗内键入只登记未落回 store（dirty 仍 false），不先冲刷则本函数
+    // 「既不保存也不报错」就返 true：结构操作随后按盘上缺末段的陈旧内容干跑（拆分干跑
+    // 按全文偏移校验即 400 BAD_INPUT，并入则吃半章）。flush 幂等（无待落即 no-op）。
+    flushBodyWriteback()
     await doc.waitInflightSave(docId)
     const cur = doc.get(docId)
     if (!cur) return true

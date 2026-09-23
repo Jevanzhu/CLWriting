@@ -5,6 +5,7 @@ import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 import { setFullScreen } from '../shared/fullscreen'
+import { flushBodyWriteback } from '../shared/body-writeback'
 import { useStaleGuard } from '../composables/useStaleGuard'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观/伏笔（TabBar 下拉 → ChapterTreePanel 执行）。 */
@@ -306,6 +307,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const prevId = activeDocId.value
     if (prevId && prevId !== docId) {
       const doc = useDocStore()
+      // RC 源码重审 B-2 附批：读 dirty 前先落编辑器防抖尾——正文回写有 ≤200ms 合并窗，
+      // 窗内键入未落回 store 时本判式读到 false，存旧文档链整段不启动（内容靠 autosave
+      // 节拍兜底，切档即存这条保护在窗口内静默失效）。flush 幂等，落尾按槽内 docId。
+      flushBodyWriteback()
       if (doc.get(prevId)?.dirty) {
         // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：fire-and-forget 存旧文档
         // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随

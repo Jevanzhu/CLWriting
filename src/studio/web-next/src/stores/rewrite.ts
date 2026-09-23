@@ -6,6 +6,7 @@ import { useUiStore } from './ui'
 import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import { stripFrontmatter, mergeFm } from '../shared/words'
+import { flushBodyWriteback } from '../shared/body-writeback'
 
 /**
  * 改写 store（M12 块2 B2.2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
@@ -32,6 +33,10 @@ export const useRewriteStore = defineStore('rewrite', () => {
     try {
       // W-P1-4：改写基线在服务端读磁盘（readDraft），dirty 内容必须先落盘——否则「接受」
       // 会用磁盘旧版拼出的 rewritten 覆盖本地未保存的编辑（从未落盘，.版本 也救不回）。
+      // RC 源码重审 B-2 附批：读 dirty 前先落编辑器防抖尾——回写有 ≤200ms 合并窗，窗内
+      // 键入未落回 store 时 entry.dirty 仍 false，本判式整段跳过 → 基线读到缺末段的旧版
+      // 且「接受」会按旧版拼 rewritten（W-P1-4 要防的正是这一路）。flush 幂等。
+      flushBodyWriteback()
       const doc = useDocStore()
       const entry = doc.get(docId)
       if (entry?.dirty) {

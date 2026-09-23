@@ -37,6 +37,7 @@ import {
 } from '../api/documents'
 import { parseChapterFileName, chapterFilePrefix } from '../shared/words'
 import { friendlyError } from '../shared/error'
+import { flushBodyWriteback } from '../shared/body-writeback'
 import {
   sanitizeName,
   lastVolumePathIn,
@@ -322,6 +323,10 @@ export function useChapterTreeActions(deps: {
     // R48-88（四十八轮）：内部落盘 origin 改 autosave——手动保存会弹「已保存」toast，
     // 紧接「确认删除」弹窗语义突兀（这次保存只是删除前置步骤非作者动作）；autosave
     // 静默落盘，留住 R44-3 的防丢语义不惊扰
+    // RC 源码重审 B-2 附批：读 dirty 前先落编辑器防抖尾——正文回写有 ≤200ms 合并窗，
+    // 窗内键入未落回 store 时本判式的 entry.dirty 仍 false，R44-3 的防丢保护在窗口内
+    // 整段失守（删除后回收站只剩上一次已保存版本，与弹窗承诺不符）。flush 幂等。
+    flushBodyWriteback()
     const entry = doc.get(node.docId)
     let unsaved = false
     if (entry && entry.dirty) {
