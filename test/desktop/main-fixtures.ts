@@ -37,6 +37,8 @@ const M_hoisted = vi.hoisted(() => ({
   popupCb: null as null | (() => void),
   dialogOpen: { canceled: true, filePaths: [] as string[] },
   dialogOpenCalls: 0, // E-9c：pickLibrary 循环封顶断言用
+  /** 起点记忆批：showOpenDialog 实收选项捕获面（判 defaultPath 有/无） */
+  dialogOpenOpts: [] as Array<Record<string, unknown>>,
   msgResponse: 2,
   shell: { show: [] as string[], open: [] as string[] },
   windows: [] as Array<Record<string, any>>,
@@ -317,8 +319,10 @@ vi.mock('electron', () => {
       },
     },
     dialog: {
-      showOpenDialog: async () => {
+      showOpenDialog: async (a: Record<string, unknown>, maybeOpts?: Record<string, unknown>) => {
         M_hoisted.dialogOpenCalls++ // E-9c：计数（pickLibrary 封顶锚定）
+        // 真 API 双参重载 (parentWindow, options)——单参形态 (options) 兼容（同 msgBox 假件）
+        M_hoisted.dialogOpenOpts.push(maybeOpts ?? a)
         return M_hoisted.dialogOpen
       },
       // R1010-P3（G7-②）：异步对话框捕获面——崩溃风暴封顶改走此通道（0=重启服务 /

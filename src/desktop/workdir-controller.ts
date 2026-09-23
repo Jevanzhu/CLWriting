@@ -13,7 +13,7 @@ import {
   type MessageBoxOptions,
   type OpenDialogOptions,
 } from 'electron'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { readFileSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises' // R54-A-2：切库可达性预探（异步+超时，不冻主进程）
 import { findWorkDir, readBooks } from '../install/books.js'
@@ -335,13 +335,51 @@ async function warnIfCaseSensitive(dir: string): Promise<boolean> {
   const choice = await msgBox(parent, msgOpts)
   return choice.response === 1
 }
+/** 选择器起点记忆预探预算（ms）——起点只是便利面，超时即放弃传值让对话框照常弹。 */
+const PICK_DEFAULT_PROBE_TIMEOUT_MS = 500
+/** 预探超时哨兵（raceWithTimeout 归一回 null 的载体；stat 真实异常都带 errno code，唯超时无）。 */
+const PICK_DEFAULT_PROBE_TIMEOUT = Symbol('pick-default-dir-probe-timeout')
+
+/**
+ * Electron 43 起 dialog 方法未传 defaultPath 时缺省落「下载」目录，且系统不再记忆上次
+ * 目录（官方 breaking changes「Behavior Changed: Dialog methods default to Downloads
+ * directory」；官方给出的回退方案即「自记上次目录并显式传 defaultPath」）。本仓随
+ * Electron 42 → 44 升级批起「打开书库」每次从下载目录起步，本函数把起点记忆补回。
+ *
+ * 记忆源 = 当前书库（bootstrap 实际值优先，welcome 态回落 recent 首项）：两者都是
+ * 「上次真正用过的目录」，且切库落库（saveCurrentSafe → setCurrent）天然刷新记忆
+ * ——无需新增持久化字段，也就没有 workdir.json 结构变更与迁移面。
+ * 取父目录而非书库自身：目录选择器停在书库内部时看不见同级书库（要另选得先退出到
+ * 上级），取父目录才等价于旧「系统记住上次浏览位置」的观感（作者多在父目录里点选目标）。
+ * 无记忆源 / 根目录（无父级）/ 预探失败或超时 → null，调用方不写 defaultPath 键交
+ * Electron 缺省：起点是便利面，不得为它拖住对话框弹出——失联网络卷上同步 stat 即冻主
+ * 进程（R54-A-2 / R61-B-1 同族病因），故走异步 + 预算。
+ */
+async function pickLibraryDefaultDir(): Promise<string | null> {
+  const anchor = currentWorkDir() ?? readStore().recent[0]?.path ?? null
+  if (!anchor) return null
+  const parent = dirname(anchor)
+  if (parent === anchor) return null // 根目录的父级仍是自身——不值得作起点
+  try {
+    const r = await raceWithTimeout(stat(parent), PICK_DEFAULT_PROBE_TIMEOUT_MS, PICK_DEFAULT_PROBE_TIMEOUT)
+    return r === PICK_DEFAULT_PROBE_TIMEOUT ? null : r.isDirectory() ? parent : null
+  } catch {
+    return null
+  }
+}
+
 async function pickLibrary(): Promise<string | null> {
+  // 起点记忆：循环内各轮共用同一起点——重选轮用户虽已在对话框里导航过，但对话框不
+  // 回报中间位置（取消态 filePaths 为空），无从刷新，沿用首轮起点。
+  const defaultDir = await pickLibraryDefaultDir()
   // E-9c：递归改循环 + 封顶——超限退出并报错，不再无限弹窗
   for (let attempt = 1; attempt <= PICK_LIBRARY_MAX_ATTEMPTS; attempt++) {
     const parent = wins.mainWindow ?? undefined
     const openOpts: OpenDialogOptions = {
       title: '选择 CLWriting 书库目录',
       properties: ['openDirectory', 'createDirectory'],
+      // 记忆起点（null 时不写键，交 Electron 缺省）
+      ...(defaultDir ? { defaultPath: defaultDir } : {}),
     }
     const result = await openDirDialog(parent, openOpts)
     const dir = result.canceled ? null : result.filePaths[0]
