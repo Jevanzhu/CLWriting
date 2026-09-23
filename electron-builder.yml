@@ -47,9 +47,10 @@ mac:
   # 的记档至此由作者拍板落定。交叉出包（arm64 runner 上产 x64）为 electron-builder 标准
   # 路径（另拉 x64 Electron 发行件重打）；ad-hoc identity "-" 对两 arch 均走密封路径。
   # fontlist 原生二进制为 FAT universal（x64+arm64 双切片同文件，tsup 拷入不变），双 arch
-  # 包共用无碍——Intel mac 字体快路径照常可达。系统下限随 Electron 42（Chromium 148）=
+  # 包共用无碍——Intel mac 字体快路径照常可达。系统下限随 Electron 44（Chromium 152）=
   # macOS 13 Ventura（Intel 侧即 2017 年及以后机型），更旧硬件受 Chromium 支持策略限制
-  # 不可运行（根 README macOS 须知披露）。
+  # 不可运行（根 README macOS 须知披露）。注：Electron 42 发行件 plist 实为
+  # LSMinimumSystemVersion 12.0，44 起才真正钉到 13——本行口径随 44 升级批成立。
   target:
     - target: dmg
       arch:

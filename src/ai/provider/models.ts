@@ -26,7 +26,7 @@ export function normalizeBaseUrl(baseUrl: string, protocol: Protocol): string {
 /**
  * Anthropic 客户端构造参数（auth 策略 + env 污染双向阻断）——导出供单测断言。
  *
- * 关键：SDK 只在字段 === undefined 时读 env（client.js:76 实证），故两个方向都要显式置 null：
+ * 关键：SDK 只在字段 === undefined 时读 env（实证锚 0.128 起 client.js:77，0.115 为 :76；profile 非空亦抑制），故两个方向都要显式置 null：
  * - auth='anthropic' → 显式 authToken:null 阻断 ANTHROPIC_AUTH_TOKEN 注入（本机
  *   Claude Code 凭据污染成双认证头，网关只认 authorization → 返回匿名子集 2 个模型）
  * - claudeAuth/bearer → 显式 apiKey:null 阻断 ANTHROPIC_API_KEY 注入（CC-P1-1：

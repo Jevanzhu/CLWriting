@@ -12,6 +12,7 @@
  * ④ .composer-footer padding（var 档 vs 2px 12px 6px）
  * ⑤ .chapter-menu 阴影深一档（dock 悬浮覆盖，原 ChatDock scoped 规则随迁）
  */
+import { ref } from 'vue'
 import { Send, Trash2, BookOpen, ChevronDown, Square } from 'lucide-vue-next'
 import { useChatStore } from '../../../stores/chat'
 import { useChatComposer } from '../../../composables/useChatComposer'
@@ -32,15 +33,19 @@ const chat = useChatStore()
 // R48-97（四十八轮）：原 ChatPanel 的 enabled=!hideComposer 与其模板 v-if 同条件——
 // 抽组件后「不被渲染即不实例化」，enabled 恒 true 语义等价（双活监听面随 v-if 消失）。
 // onPushed 经 props 活值透传（非 setup 快照，防 prop 晚到丢回调）。
+// 章节下拉外层容器的模板 ref：本地声明后传入（vue-tsc 3 起，解构自 composable 的
+// 绑定绑到字符串 ref 不再计入 noUnusedLocals 读取——详见 useChatComposer 同名参数注）
+const chapterWrapRef = ref<HTMLElement | null>(null)
 const {
   input, sending, busy, chatRunning, selectedChapter,
-  chapterMenuOpen, chapterWrapRef,
+  chapterMenuOpen,
   handleSend, handleKeydown, stopChat, handleClear,
   toggleChapterMenu, selectChapter,
 } = useChatComposer(
   () => props.bookName,
   () => props.currentChapter,
   () => props.onPushed?.(),
+  chapterWrapRef,
 )
 </script>
 

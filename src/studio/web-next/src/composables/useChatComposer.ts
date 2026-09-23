@@ -2,7 +2,7 @@
  * 对话发送/停止/清空/章节选择共享逻辑（P2-11 去重）。
  * ChatPanel 与 ChatDock 共用，差异点通过 onPushed 回调注入。
  */
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, type Ref } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useWorkbenchStore } from '../stores/workbench'
 import { friendlyError, rawErrorMessage } from '../shared/error'
@@ -50,6 +50,10 @@ export function useChatComposer(
   currentChapter: () => number | undefined,
   /** pushUser 后、sendChat 前的额外操作（ChatPanel: scrollToBottom, ChatDock: chatOpen=true） */
   onPushed?: () => void | Promise<void>,
+  /** 章节下拉的外层容器模板 ref，由调用方本地声明后传入：vue-tsc 3 起，绑到字符串
+   *  ref 的绑定若解构自 composable 调用，不再计入 noUnusedLocals 的读取面，只有组件
+   *  本地声明才过 typecheck:web-next 门（本仓其余字符串 ref 均为本地声明形态）。 */
+  chapterWrapRef: Ref<HTMLElement | null> = ref<HTMLElement | null>(null),
   /** R48-97（四十八轮）：enabled=false = 哑实例——不注册草稿回填/章节跟随 watch、
    *  不挂 document click/keydown 监听、动作入口静默 return。dock 场景 ChatPanel
    * （hideComposer）传入 false：输入区由 ChatDock 自持，面板内隐藏的完整 composer
@@ -160,7 +164,6 @@ export function useChatComposer(
 
   /** 章节下拉菜单（自定义浮层，替代原生 select 以掌控定位） */
   const chapterMenuOpen = ref(false)
-  const chapterWrapRef = ref<HTMLElement | null>(null)
 
   function toggleChapterMenu(): void {
     if (!enabled) return
@@ -240,7 +243,7 @@ export function useChatComposer(
 
   return {
     input, sending, busy, chatRunning, selectedChapter,
-    chapterMenuOpen, chapterWrapRef,
+    chapterMenuOpen,
     handleSend, handleKeydown, stopChat, handleClear,
     toggleChapterMenu, selectChapter,
   }
