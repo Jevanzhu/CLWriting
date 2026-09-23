@@ -3,7 +3,7 @@
 写给中文网文作者的桌面写作软件，长篇和短篇集都能写。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-7992%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
+[![Test](https://img.shields.io/badge/tests-8112%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 先说清楚一件事：这是写作软件，不是 AI 工具。建书、大纲、设定、正文、审稿、定稿，整套流程都在这个应用里。AI 只是其中一环——起草、改写、分析它可以代劳，读稿和拍板永远是你自己。
@@ -41,7 +41,8 @@
 
 AI 服务自己配，Anthropic、OpenAI Chat、OpenAI Responses 三种协议，官方接口和中转站都能接。
 
-Key 加密后存在本机，密钥交给系统钥匙串（macOS Keychain / Windows DPAPI）管，不进 git，也不进日志。所有请求走同一个入口，超时、重试、用量和花费都在这一处记账；单章有预算上限，写章循环烧到线就停。没有遥测，除了你自己配的 AI 服务，不向任何第三方发请求。
+<!-- Key 存储的落盘位置与保护强度以代码为准：src/desktop/os-kek.ts（钥匙串通道搁置开关）+ src/ai/provider/vault-key.ts（混淆级自述）；该通道恢复后本行与设置页文案同步改口。 -->
+Key 存在本机应用数据目录，目前只做混淆级保护——不是加密存储，请勿把该目录放进同步盘或公开备份。Key 不进 git，也不进日志。所有请求走同一个入口，超时、重试、用量和花费都在这一处记账；单章有预算上限，写章循环烧到线就停。没有遥测，除了你自己配的 AI 服务，不向任何第三方发请求。
 
 ## 你的书就是一个文件夹
 
@@ -80,7 +81,7 @@ M 系芯片下 arm64 版，Intel 机型下 x64 版，拖进「应用程序」。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（7992 单测）+ Playwright（33 specs / 54 用例）——1288 个测试文件 / 7992 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
+Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（8112 单测）+ Playwright（33 specs / 54 用例）——1303 个测试文件 / 8112 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
 
 ## 致谢
 
