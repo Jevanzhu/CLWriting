@@ -14,7 +14,6 @@ import { join, relative, sep } from 'node:path'
 import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { openChainRecorder } from '../open-chain.js'
-import { rebuild } from '../../cache/rebuild.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import type { BookConfig } from '../../format/types.js'
@@ -33,7 +32,9 @@ import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
 // 以下纯逻辑函数（checkWithDb/buildDraftPrompt/saveDraft/buildRewritePrompt/draftFileName/readKind）
 // 物理上位于 api/（与端点同文件），本身不依赖 HTTP 语境；待后续下沉治理。
 import { readKind } from '../../format/kind.js'
-import { checkWithDb, type CheckOutcome } from '../../check/run.js'
+import { checkWithDbCore, openCheckDbAsync, type CheckOutcome } from '../../check/run.js'
+import { closeTreeIssuesDb } from '../../check/tree-issues-cache.js'
+import { driveToEndAsync } from '../../async.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
 import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
 // R0912-1（2026-09-11 修复批）：后台任务独立登记 ctrl 的共享 helper（summary.ts 单源，
@@ -90,8 +91,12 @@ export interface SelfHealOpts {
   embedded?: boolean
   /** 最大重写次数（默认 3） */
   maxAttempts?: number
-  /** 机检注入（单测替身） */
-  check?: (draftPath: string) => CheckOutcome
+  /** 编排进度回调：每个进度事件（emit 出口）调一次，/auto-write 的静默挂死 watchdog
+   *  据此复位计时。此前靠端点包装 driver 拦 emit 转发，包装漏方法即丢中断能力
+   *  （质量评审 P2-1）；改回调后 driver 原样直通，漏委托面从结构上消失。 */
+  onActivity?: () => void
+  /** 机检注入（单测替身）。同步或异步均可：生产默认实现走异步机检，注入替身保持同步返回。 */
+  check?: (draftPath: string) => CheckOutcome | Promise<CheckOutcome>
   /** 落盘注入（单测替身） */
   save?: typeof saveDraft
   /** 生成函数注入（单测替身）；缺省用 provider + tool_use 生成。
@@ -207,27 +212,34 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // 是有效值而非 undefined）
     const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, opts.userDataPath)
     const hasWiring = existsSync(join(bookRoot, '布线'))
+    // 有布线才建缓存：rebuild 内核走 worker（runRebuildAsync，经 openCheckDbAsync），
+    // 开库与 busy_timeout 与机检端点同口径。源文件解析失败 / 缓存库不可用都收成
+    // failed 出口，不在服务端事件循环上跑同步 rebuild。
     if (hasWiring) {
-      const rebuilt = rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
-      if (rebuilt.errors.length > 0) {
-        return { outcome: 'failed', error: '源文件解析失败，先修这些文件再重试' }
+      const opened = await openCheckDbAsync(bookRoot, true, { throttleSourceProbe: false, failMode: 'envelope' })
+      if (opened.fail) {
+        const parseFail = opened.fail.details !== undefined
+        return {
+          outcome: 'failed',
+          error: parseFail ? '源文件解析失败，先修这些文件再重试' : opened.fail.error,
+        }
       }
+      db = opened.db
     }
-    // 复用 db 连接：rebuild 后开一次，循环内 check 不重开（P2-BE-5）。
-    // busy_timeout 与 rebuild/机检端点同款——自愈与树红点聚合可并发，等锁而非 SQLITE_BUSY
-    db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
-    if (db) db.exec('PRAGMA busy_timeout = 5000')
 
     // F2：单章/批量共享同一套 ctx（消除双路径重复）。
     // 0918二轮修复批（A102）：default check 读 ctx.config（非批头 config 快照）——
     // 章边界重读刷新 ctx.config 后，机检随本章新配置走，与预算闸/字数（draftFirstChapter/
     // rewriteOnce 均读 ctx.config）同源；opts.check 注入替身路径不受影响。
+    // 默认机检复用本轮 db（循环内不重开），实现体按悬停让出事件循环。
     const ctx: ChapterCtx = {
       bookRoot,
       maxAttempts,
       save,
       kind,
-      check: opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, ctx.config)),
+      check:
+        opts.check ??
+        ((p: string) => driveToEndAsync(checkWithDbCore(bookRoot, p, db, ctx.config))),
       db,
       chain,
       config,
@@ -263,7 +275,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       ...(run.yellows ? { yellows: run.yellows } : {}),
     }
   } finally {
-    if (db) db.close()
+    if (db) closeTreeIssuesDb(db)
     chain?.close()
   }
 }
@@ -273,7 +285,7 @@ interface ChapterCtx {
   maxAttempts: number
   save: typeof saveDraft
   kind: 'long' | 'short'
-  check: (p: string) => CheckOutcome
+  check: (p: string) => CheckOutcome | Promise<CheckOutcome>
   db: DatabaseSync | null
   chain: ChainRecorder | null
   /** P3-6：book.yaml 解析一次，循环共用（预算闸/check 同源）；0918二轮修复批（A102）
@@ -665,7 +677,7 @@ async function rewriteOnce(
     // R0912-2（2026-09-11 修复批）：以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
     // ——此前 loop.draftPath 仅首稿设定、重写落盘后不回写：tool_use 未命中降级自由文本
     // 且 AI 自带异章号 front matter 时，resolveDraftPath（只读接口）按章号失配新建孤儿
-    // 文件，而机检恒打首稿路径（:796 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
+    // 文件，而机检恒打首稿路径（runChapter 章循环内的 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
     // 机检/后续重写始终以最新落盘稿为准（首稿路径本就取自 save 返回值，口径对齐）。
     loop.draftPath = join(ctx.bookRoot, saved.relPath)
     // R0912-2 防线：重写稿 front matter 章号 ≠ 编排章号时 warn 留痕（不阻断，保持现行
@@ -803,9 +815,9 @@ async function runChapter(
     // 已写、无 block 收口）、批量连写不落暂停记录（recordPause 只认 runChapter 的返回
     // 值形态，异常直接穿出 orchestrateBatch）。收敛到 exitCheckCrash 同款 failed 出口
     //（goal 落 block 附原因，批量侧按 failed 落暂停）。
-    let outcome: ReturnType<typeof ctx.check>
+    let outcome: CheckOutcome
     try {
-      outcome = ctx.check(loop.draftPath)
+      outcome = await ctx.check(loop.draftPath)
     } catch (e) {
       return exitCheckCrash(term, loop, `机检异常（未归类）：${errMsg(e)}`)
     }

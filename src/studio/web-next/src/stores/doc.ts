@@ -5,7 +5,7 @@ import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { exceedsSaveBodyLimit, SAVE_TOO_LARGE_MESSAGE } from '../shared/save-limits'
 import { createDirtyMirror } from '../shared/dirty-mirror'
-import { flushBodyWriteback } from '../shared/body-writeback'
+import { flushBodyWriteback, registerBodyWritebackDirty } from '../shared/body-writeback'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
@@ -237,6 +237,34 @@ export const useDocStore = defineStore('doc', () => {
     // <autosave 间隔键入的本地兜底（实现与判读见 shared/dirty-mirror）
     mirror.scheduleDirtyMirror(docId, content.length)
   }
+
+  /** 条目元数据回填（标题提交/树对账后）：只改路径与名称，不动内容与脏位。
+   *  组件不得直改缓存条目——条目状态的写口收在 store。 */
+  function adoptRenamed(docId: string, path: string, name: string): void {
+    const e = docs.value.get(docId)
+    if (!e) return
+    e.path = path
+    e.name = name
+  }
+
+  /** 清冲突标记（标题提交成功且正文干净时：autosave 竞态残留的 conflict 不再需要
+   *  作者决断）。dirty 时不清——本地正文还没落盘，清了会被 autosave 静默覆盖外部修改。 */
+  function clearConflict(docId: string): void {
+    const e = docs.value.get(docId)
+    if (!e || e.dirty) return
+    e.conflict = false
+  }
+
+  /** 正文回写窗的首笔标脏（质量评审 P2-5）：内容仍按 200ms 节流落回，dirty 位在第一笔
+   *  键入时同步置位——「先读 dirty 再决定」的判定（历史恢复等）不再依赖每个调用点都
+   *  记得先冲刷。只置位不动内容：同内容的重复标脏不产生镜像节流（内容变化由 patch
+   *  到点接管）。条目不存在时静默（与 patch 的早退同口径）。 */
+  function markEntryDirty(docId: string): void {
+    const e = docs.value.get(docId)
+    if (!e || e.dirty) return
+    e.dirty = true
+  }
+  registerBodyWritebackDirty(markEntryDirty)
 
   /** 在途保存的 promise 台账——⌘S 遇在途保存时链式排队用（等在途 settle 后重存一次，
    *  期间新输入不在在途快照内）。 */
@@ -613,10 +641,9 @@ export const useDocStore = defineStore('doc', () => {
         useUiStore().toast(r.skipped ? '已是定稿' : '已定稿', 'success')
         // 防吃书闸降级透出——服务端 fail-open 放行的事实（兑现侧清单不可读/闸门自身
         // 异常）弹 warning toast（对齐机检侧 pushDegradedYellow 黄项口径，作者只看面板
-        // 即知该次闭合比对被跳过）。字段面在 api/documents.ts FinalizeOk（本地窄化读取）。
-        const degraded = (r as { gateDegraded?: string[] }).gateDegraded
-        if (degraded && degraded.length > 0) {
-          useUiStore().toast(`防吃书检查降级：${degraded.join('；')}（已放行定稿）`, 'warning')
+        // 即知该次闭合比对被跳过）。
+        if (r.gateDegraded && r.gateDegraded.length > 0) {
+          useUiStore().toast(`防吃书检查降级：${r.gateDegraded.join('；')}（已放行定稿）`, 'warning')
         }
         return true
       }
@@ -747,5 +774,5 @@ export const useDocStore = defineStore('doc', () => {
   // 清扫，属主按 payload 精确判定）供文档改名（useChapterTree 的 onRenameCommit /
   // onSaveMeta）、删书（useShelf.confirmDelete）等外部链调用，键格式与降级惯例收敛在
   // shared/dirty-mirror，不再各链自拼 `clw:dirty-mirror:` 键。
-  return { docs, bookName, setBook, get, open, patch, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard, clearDirtyMirror: mirror.clearDirtyMirror, clearBookMirrors: mirror.clearBookMirrors }
+  return { docs, bookName, setBook, get, open, patch, adoptRenamed, clearConflict, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard, clearDirtyMirror: mirror.clearDirtyMirror, clearBookMirrors: mirror.clearBookMirrors }
 })

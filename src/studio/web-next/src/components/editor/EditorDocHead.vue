@@ -211,18 +211,14 @@ async function onTitleCommit(): Promise<void> {
     await tree.load(book)
     if (ws.activeDocId !== id) return // 已切文档：fm 已落盘，树已全量刷新，放弃对旧条目的回填
     const fresh = tree.byDocId.get(id)
-    if (fresh) {
-      e.path = fresh.path
-      e.name = fresh.name
-    }
+    if (fresh) doc.adoptRenamed(id, fresh.path, fresh.name)
     // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
     await doc.refresh(id)
     // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记。
     // Q-10（第十五轮）：仅正文干净时清——dirty 时 refresh 保留本地正文，若一并清
     // conflict，后续 autosave 会以本地正文静默覆盖外部修改，绕过「重载/覆盖」决断
-    //（外部版本仅存 .版本 快照可找回）。
-    const refreshed = doc.get(id)
-    if (refreshed && !refreshed.dirty) refreshed.conflict = false
+    //（外部版本仅存 .版本 快照可找回）。判定与写口都在 store（clearConflict）。
+    doc.clearConflict(id)
   } catch (err) {
     // R64-1：切书后的错误 toast 不落 B 书界面（fm 操作属 A 书，界面已切走）
     if (doc.bookName === book) ui.toast(friendlyError(err), 'error')

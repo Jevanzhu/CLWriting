@@ -184,15 +184,23 @@ export function useChapterTreeActions(deps: {
       const skipped = r.results.filter((x) => x.ok && x.skipped).length
       const failed = r.results.filter((x) => !x.ok).length
       const total = r.results.length
+      // 防吃书闸降级汇总：放行成功的条目里带 gateDegraded 的章数——此前批量路径只读
+      // ok/skipped/error，降级放行与正常定稿同报绿色成功，作者不知道要补检。
+      const degradedItems = r.results.filter((x) => x.ok && x.gateDegraded && x.gateDegraded.length > 0)
       // R0916-6-P3-1（评审修复批）：服务端逐条 error（防吃书闸/LEAD_GATE 人话红项）此前
       // 整段丢弃，被闸拦下只能逐章单章定稿排查——failed>0 时追加快照首条原因（多项加
       // 「等 N 项」），保持单行 toast；完整明细仍以服务端响应为准，此处仅透出首因。
       const firstFail = failed ? r.results.find((x) => !x.ok) : undefined
+      const degradedNote = degradedItems.length
+        ? `，其中 ${degradedItems.length} 章防吃书检查降级已放行：${degradedItems[0]!.gateDegraded!.join('；')}${
+            degradedItems.length > 1 ? `（等 ${degradedItems.length} 章）` : ''
+          }`
+        : ''
       ui.toast(
         `已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${
           failed ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failed > 1 ? `（等 ${failed} 项）` : ''}` : ''
-        }`,
-        failed ? 'error' : 'success',
+        }${degradedNote}`,
+        failed ? 'error' : degradedItems.length ? 'warning' : 'success',
       )
       void tree.load(bookName, true)
     } catch (err) {

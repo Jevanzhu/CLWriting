@@ -180,6 +180,9 @@ interface FinalizeOk {
   ok: true
   status: 'final'
   skipped: boolean
+  /** 防吃书闸降级短语（非空 = 闸门 fail-open 放行：账本推进文件读失败或闸自身异常）。
+   *  服务端单章与批量逐项均透出（documents-save.ts），前端据此弹 warning。 */
+  gateDegraded?: string[]
 }
 export async function finalizeDoc(name: string, docId: string): Promise<FinalizeOk> {
   return apiJson<FinalizeOk>(
@@ -195,6 +198,8 @@ interface BatchFinalizeItem {
   status?: 'final'
   skipped?: boolean
   error?: string
+  /** 同 FinalizeOk.gateDegraded：本条定稿被降级放行的原因（ok 时才可能出现） */
+  gateDegraded?: string[]
 }
 interface BatchFinalizeOk {
   ok: true

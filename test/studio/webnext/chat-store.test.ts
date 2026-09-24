@@ -811,11 +811,14 @@ describe('C3: 工具入参超长截断（2000 码位 + … 尾标）', () => {
     // pending 路径（整章正文字符串入参）
     chat.dispatch({ type: 'chat_tool_pending', callId: 'c1', name: 'write_chapter', input: LONG })
     expect(chat.messages[0]!.tools[0]!.input).toBe(CLIPPED)
-    // readonly 路径（对象入参内嵌超长正文 → 序列化超限同样截断为字符串）
+    // readonly 路径（对象入参内嵌超长正文 → 字段级截断：长文本字段截断、键结构保留，
+    // 工具卡摘要才取得到字段；闸仍为准——序列化总长不超上限）
     chat.dispatch({ type: 'chat_tool', callId: 'c2', name: 'check_chapter', input: { chapter: 1, text: LONG } })
-    const obj = chat.messages[0]!.tools[1]!.input as string
-    expect(typeof obj).toBe('string')
-    expect(obj.endsWith('…')).toBe(true)
+    const obj = chat.messages[0]!.tools[1]!.input as { chapter: number; text: string }
+    expect(obj.chapter).toBe(1)
+    expect(obj.text.endsWith('…')).toBe(true)
+    expect(Array.from(obj.text).length).toBeLessThanOrEqual(1001) // 2 键 → 额度均分 1000 + 尾标
+    expect(JSON.stringify(obj).length).toBeLessThanOrEqual(2000)
     // 短入参不误伤：小对象原形落存（既有展示/断言口径不变）
     chat.dispatch({ type: 'chat_tool', callId: 'c3', name: 'check_chapter', input: { chapter: 1 } })
     expect(chat.messages[0]!.tools[2]!.input).toEqual({ chapter: 1 })

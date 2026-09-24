@@ -17,6 +17,8 @@ import { nextTick } from 'vue'
 import ChatPanel from '../../../src/studio/web-next/src/components/panels/ChatPanel.vue'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
+import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
+import { clipToolInput } from '../../../src/studio/web-next/src/stores/chat-dispatch'
 
 // ── mock API 层（拦截真实网络请求） ────────────────────
 
@@ -353,6 +355,71 @@ describe('ChatMessages: 工具确认 404（R65-50）', () => {
     expect(tool.status).toBe('pending')
     const ui = useUiStore()
     expect(ui.toasts.at(-1)?.kind).toBe('error')
+  })
+})
+
+// ── 工具确认卡的作者可见面：中文名 + 参数摘要（章名经章节树解析）──
+
+describe('ChatMessages: 工具确认卡展示参数', () => {
+  it('改名卡显示中文名与「章名 + 新标题」，不显示英文内部名', async () => {
+    const tree = useTreeStore()
+    tree.raw = [
+      {
+        path: '写作/正文/第一卷/0012-北境的雪.md',
+        name: '0012-北境的雪.md',
+        isDirectory: false,
+        role: 'chapter',
+        children: [],
+      },
+    ]
+    const chat = useChatStore()
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      done: true,
+      tools: [{ callId: 'c1', name: 'rename_chapter', input: { chapter: 12, newTitle: '雪落无声' }, status: 'pending' }],
+    })
+    const w = mountPanel()
+    await nextTick()
+    const card = w.find('.chat-tool-card')
+    expect(card.find('.chat-tool-name').text()).toBe('重命名章节')
+    expect(card.text()).not.toContain('rename_chapter')
+    expect(card.find('.chat-tool-params').text()).toBe('第 12 章 北境的雪：改为「雪落无声」')
+  })
+
+  it('章节树解析不到章名时回落「第 N 章」（不因此藏起摘要）', async () => {
+    const chat = useChatStore()
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      done: true,
+      tools: [{ callId: 'c1', name: 'delete_chapter', input: { chapter: 7 }, status: 'pending' }],
+    })
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-tool-name').text()).toBe('删除章节（移入回收站）')
+    expect(w.find('.chat-tool-params').text()).toBe('第 7 章')
+  })
+
+  it('超限入参（截断后仍保结构）照常显示摘要——大改写指令正是最需要核对的一类', async () => {
+    const chat = useChatStore()
+    // 走生产同一条路：SSE 落存前过 clipToolInput，卡片渲染再取摘要
+    const input = clipToolInput({ chapter: 3, instruction: '把这段改得更克制：' + '甲'.repeat(2400) })
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      done: true,
+      tools: [{ callId: 'c1', name: 'rewrite_selection', input, status: 'pending' }],
+    })
+    const w = mountPanel()
+    await nextTick()
+    const params = w.find('.chat-tool-params')
+    expect(params.exists()).toBe(true)
+    expect(params.text()).toContain('第 3 章')
+    expect(params.text()).toContain('把这段改得更克制')
   })
 })
 

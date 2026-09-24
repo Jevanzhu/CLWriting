@@ -61,6 +61,7 @@ import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { mergeFm, splitFrontmatter } from '../../../src/studio/web-next/src/shared/words'
 import {
   registerBodyWriteback,
+  registerBodyWritebackDirty,
   scheduleBodyWriteback,
   flushBodyWriteback,
   hasPendingBodyWriteback,
@@ -144,10 +145,11 @@ describe('B-2 正文回写防抖合并（EditorView + 真 CmHost）', () => {
     typeKey(view)
     typeKey(view)
 
-    // 窗内（同步断言，未过 200ms）：正文只在编辑器里，store 零落回、零置脏
+    // 窗内（同步断言，未过 200ms）：正文只在编辑器里，store 零落回（内容未变）；
+    // 脏位已置——首笔输入即同步标脏（质量评审 P2-5），内容仍等窗口到点
     expect(patchSpy).not.toHaveBeenCalled()
     expect(doc.get('d1')!.content).toBe(DOC1)
-    expect(doc.get('d1')!.dirty).toBe(false)
+    expect(doc.get('d1')!.dirty).toBe(true)
 
     await sleep(AFTER_WINDOW_MS)
     // 合并为一笔（改前 3 键 3 笔），且落的是槽内最新正文（末次输入不丢）
@@ -207,14 +209,14 @@ describe('B-2 正文回写防抖合并（EditorView + 真 CmHost）', () => {
 
     typeKey(view)
     typeKey(view)
-    expect(doc.get('d1')!.dirty).toBe(false) // 前置：窗内回写未到点，条目尚未置脏
+    expect(doc.get('d1')!.content).toBe(DOC1) // 前置：窗内内容未落回（脏位已由首笔置上）
 
     expect(await doc.save('d1', 'manual')).toBe(true)
     const sent = (mocks.saveContent.mock.calls[0]![2] as { content: string }).content
     expect(sent).toBe(`${FM_HEAD}正文xx`)
   })
 
-  it('flushDirty 扫描前冲刷：窗内未置脏的键入随切书/关窗一并落盘', async () => {
+  it('flushDirty 扫描前冲刷：窗内键入随切书/关窗一并落盘', async () => {
     const doc = useDocStore()
     w = mountEditor('d1')
     await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
@@ -223,7 +225,7 @@ describe('B-2 正文回写防抖合并（EditorView + 真 CmHost）', () => {
 
     typeKey(view)
     typeKey(view)
-    expect(doc.get('d1')!.dirty).toBe(false) // 前置：不在 dirty 扫描面内（改前此处即静默丢弃面）
+    expect(doc.get('d1')!.content).toBe(DOC1) // 前置：窗内内容未落回（脏位已置，但内容不在扫描面内）
 
     expect(await doc.flushDirty()).toEqual([])
     const sent = (mocks.saveContent.mock.calls[0]![2] as { content: string }).content
@@ -241,7 +243,7 @@ describe('B-2 正文回写防抖合并（EditorView + 真 CmHost）', () => {
 
     typeKey(view)
     typeKey(view)
-    expect(doc.get('d1')!.dirty).toBe(false) // 前置：窗内未落回 → 条目仍 clean
+    expect(doc.get('d1')!.content).toBe(DOC1) // 前置：窗内内容未落回（脏位已由首笔置上）
 
     // 外部改了 fm（服务端内容不含窗内键入）：refresh 前须先落尾，否则 clean 分支整体
     // 覆盖服务端内容、窗内键入被吞（改前逐键即 dirty，走 dirty 分支保留本地正文）
@@ -336,5 +338,21 @@ describe('B-2 回写队列单元（跨档登记 / 注销语义）', () => {
     registerBodyWriteback(null)
     scheduleBodyWriteback('d1', 'A')
     expect(hasPendingBodyWriteback()).toBe(false)
+  })
+
+  it('首笔输入即同步标脏：dirty 回调只在档内首笔触发一次，内容仍等窗口落回', () => {
+    const committed: Array<[string, string]> = []
+    const dirtied: string[] = []
+    registerBodyWriteback((id, body) => committed.push([id, body]))
+    registerBodyWritebackDirty((id) => dirtied.push(id))
+    scheduleBodyWriteback('d1', '第一笔')
+    // 窗口未到：内容未落回，但脏位已置（「先读 dirty 再决定」此刻读到 true）
+    expect(committed).toEqual([])
+    expect(dirtied).toEqual(['d1'])
+    scheduleBodyWriteback('d1', '第二笔') // 同档后续键入：回调幂等再报，由 store 侧去重
+    expect(dirtied).toEqual(['d1', 'd1'])
+    vi.advanceTimersByTime(1000)
+    expect(committed).toEqual([['d1', '第二笔']]) // 到点落的是槽内最新正文
+    registerBodyWritebackDirty(null)
   })
 })

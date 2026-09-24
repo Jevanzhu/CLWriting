@@ -56,10 +56,11 @@ const shFake = vi.hoisted(() => {
     settleFns: [] as Array<() => void>,
     /** 强释放观测：forceReleaseSelfHealRunning(name) 的 name 列表 */
     forced: [] as string[],
-    /** 端点传入的 opts（断言 driver 包装 / mainSession 用） */
+    /** 端点传入的 opts（断言 driver 直通 / onActivity 接线 / mainSession 用） */
     lastOpts: null as {
       driver: { emit?: (s: unknown, ev: unknown) => void }
       mainSession: unknown
+      onActivity?: () => void
       register?: (c: AbortController) => void
     } | null,
   }
@@ -274,11 +275,19 @@ describe('重评-P3-7：/auto-write（self-heal）静默挂死 watchdog', () => 
     expect(r.status).toBe(200)
     const opts = shFake.lastOpts!
     expect(opts.driver.emit).toBeDefined()
+    expect(opts.onActivity).toBeDefined()
+
+    // 编排器发一个进度事件 = onActivity（emit 出口单点）+ driver.emit 广播，逐字对齐
+    // src/ai/orchestrate/self-heal-generate.ts 的 emit()——测试以同一次调用模拟真实推进
+    const progress = (): void => {
+      opts.onActivity!()
+      opts.driver.emit!(opts.mainSession, { type: 'self_heal_phase', phase: 'drafting' } as DriverEvent)
+    }
 
     // 每 15min 一个进度事件（批量连写的合法推进节奏），累计 45min 不触发（15 < 20）
     for (let i = 0; i < 3; i++) {
       await vi.advanceTimersByTimeAsync(15 * 60_000)
-      opts.driver.emit!(opts.mainSession, { type: 'self_heal_phase', phase: 'drafting' } as DriverEvent)
+      progress()
     }
     await vi.advanceTimersByTimeAsync(ORCH_STALL_WATCHDOG_MS - 60_000) // 距上次事件 19min
     expect(vi.mocked(abortSelfHeal)).not.toHaveBeenCalled()

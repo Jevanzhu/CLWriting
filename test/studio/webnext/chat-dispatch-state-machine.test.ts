@@ -12,7 +12,7 @@
  * 仍全绿），是抽取后新增的针对性守护：状态机自身的行为面。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
+import { ref, toRaw } from 'vue'
 import {
   createChatDispatch,
   createChatTurnState,
@@ -149,6 +149,51 @@ describe('RC B-5: chat 事件分发状态机——工具卡片状态机', () => 
     expect(clipped.endsWith('…')).toBe(true)
     s.d.dispatch({ type: 'chat_tool_pending', callId: 'small', name: 'write_chapter', input: '短正文' })
     expect(s.messages.value[0]!.tools[1]!.input).toBe('短正文')
+  })
+
+  it('对象入参截断保结构（P2-3 收口）：长文本字段截断、键保留——摘要不因截断整条落空', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({
+      type: 'chat_tool_pending',
+      callId: 'obj',
+      name: 'rewrite_selection',
+      input: { chapter: 12, instruction: '甲'.repeat(2500) },
+    })
+    const input = s.messages.value[0]!.tools[0]!.input as Record<string, unknown>
+    expect(input['chapter']).toBe(12) // 结构字段原样：摘要靠它解析章名
+    const instruction = String(input['instruction'])
+    expect(instruction.endsWith('…')).toBe(true)
+    expect(Array.from(instruction).length).toBeLessThanOrEqual(1001) // 2 键 → 额度均分 1000 + 尾标
+  })
+
+  it('对象入参未超限 → 原形落存（对象身份不变，不动既有展示与断言口径）', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    const small = { chapter: 5, newTitle: '雪落无声' }
+    s.d.dispatch({ type: 'chat_tool_pending', callId: 'smallobj', name: 'rename_chapter', input: small })
+    // toRaw：messages 是 ref，读回的是响应式代理——比对底层对象身份即「原样落存」
+    expect(toRaw(s.messages.value[0]!.tools[0]!.input)).toBe(small)
+  })
+
+  it('字段级后仍超闸（嵌套大值）与不可序列化 → 退回整串截断 / 原样透传，闸恒为准', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({
+      type: 'chat_tool_pending',
+      callId: 'nest',
+      name: 'write_chapter',
+      input: { chapter: 1, list: Array.from({ length: 40 }, () => '乙'.repeat(100)) },
+    })
+    const nested = s.messages.value[0]!.tools[0]!.input
+    expect(typeof nested).toBe('string') // 无字符串字段可截 → 整串截断分支
+    expect((nested as string).endsWith('…')).toBe(true)
+    expect(Array.from(nested as string).length).toBeLessThanOrEqual(2001)
+
+    const cyclic: Record<string, unknown> = { chapter: 1 }
+    cyclic['self'] = cyclic
+    s.d.dispatch({ type: 'chat_tool_pending', callId: 'cyclic', name: 'write_chapter', input: cyclic })
+    expect(toRaw(s.messages.value[0]!.tools[1]!.input)).toBe(cyclic) // 不为此抛错
   })
 
   it('chat_reset → 清当前回合文本与工具卡片（旧结果不残留），不影响在途标志', () => {

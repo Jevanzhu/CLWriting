@@ -9,10 +9,13 @@
  * YIELD_EVERY/TreeIssuesResult/collectTreeIssues/collectTreeIssuesAsync/
  * collectTreeIssuesCore/__setLeadsBookDegradeForTest/__setChapterCheckDegradeForTest）
  * 纯移动拆出至 run-tree-issues.ts（零行为变化），本文件残核 = 单章机检链 + 批量预扫
- *（readCheckConfig/openCheckDb/pushDegradedYellow/runCheckForDocument/checkWithDb/
- * checkOutcomeStatus/maxWrittenChapterOf/BatchCheckContext/scanChapterUpdatesByChapter）；
+ *（readCheckConfig/openCheckDb/openCheckDbAsync/pushDegradedYellow/runCheckForDocument/
+ * runCheckForDocumentAsync/checkWithDb/checkWithDbCore/checkOutcomeStatus/
+ * maxWrittenChapterOf/BatchCheckContext/scanChapterUpdatesByChapter）；
  * 其中 readCheckConfig/openCheckDb/maxWrittenChapterOf/scanChapterUpdatesByChapter 自
- * 本批起 export（原模块私有，升 export 供拆出件复用，见 run-tree-issues.ts 头注）。
+ * 本批起 export（原模块私有，升 export 供拆出件复用，见 run-tree-issues.ts 头注）；
+ * checkWithDbCore 同属共享件（生成器核，同步/异步双击驱动共用：runCheckForDocumentAsync
+ * 与 AI 编排 self-heal 各按需选驱动）。
  * 树红点聚合族既有导出由下方具名 re-export 桥接，全库 'check/run.js' import 面零改动。
  */
 import { join, relative, basename } from 'node:path'
@@ -587,7 +590,7 @@ export function checkWithDb(
  * 不入此支）。其余读（readDraft / 细纲声明 / 账本推进 / 正文读取）为单文件~小目录粒度
  * 同步读，不在切片面（D4 残余，如实记账）。返回值与切片前逐位同构。
  */
-function* checkWithDbCore(
+export function* checkWithDbCore(
   bookRoot: string,
   absPath: string,
   db: DatabaseSync | null,

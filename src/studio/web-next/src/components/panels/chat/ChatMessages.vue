@@ -7,8 +7,11 @@
  * composer 实例 props 传入，dock 双实例下与用户实际选择分裂）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
-import { PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
+import { PenLine, ShieldCheck, Search, BookOpen, Scissors, Trash2, Copy, FolderInput, Type, ScrollText, Sparkles, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../../stores/chat'
+import { useTreeStore } from '../../../stores/tree'
+import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'
+import { parseChapterFileName } from '../../../shared/words'
 import { confirmTool, type ChatBranchInfo } from '../../../api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../shared/chat-history'
 import { ApiError } from '../../../api/client'
@@ -20,6 +23,7 @@ const props = defineProps<{
 
 const chat = useChatStore()
 const ui = useUiStore()
+const tree = useTreeStore()
 
 // ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次，P2-FE-7）──
 
@@ -120,17 +124,40 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   }
 }
 
-// ── 工具图标映射 ─────────────────────────────────
+// ── 工具卡片展示（中文名与参数摘要单源 src/ai/contract/tool-meta.ts）────
 
 const TOOL_ICONS: Record<string, typeof PenLine> = {
   write_chapter: PenLine,
   check_chapter: ShieldCheck,
+  read_chapter: BookOpen,
+  read_skill: BookOpen,
+  book_search: Search,
+  chapter_status: ScrollText,
+  move_chapter: FolderInput,
+  rename_chapter: Type,
+  copy_chapter: Copy,
+  delete_chapter: Trash2,
+  rewrite_chapter: Scissors,
+  rewrite_selection: Scissors,
+  apply_spill: PenLine,
+  lead_update: ScrollText,
+  harvest_style: Sparkles,
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  write_chapter: '自动写章',
-  check_chapter: '机检',
-}
+/** 章号 → 作者可见章名（章节树解析；解析不到回 null，摘要层回落「第 N 章」）。
+ *  建一次查表：摘要在渲染期按卡片逐张求值，而树只在增删改章时变——逐次全树扫描
+ *  是 O(卡片 × 节点) 的每帧开销（流式输出期间按帧重算）。同名章号取先入者（与
+ *  原先按 byPath 迭代序取首个命中同口径）。 */
+const chapterNames = computed(() => {
+  const m = new Map<number, string>()
+  for (const node of tree.byPath.values()) {
+    if (node.isDirectory) continue
+    const parsed = parseChapterFileName(node.name)
+    if (parsed && !m.has(parsed.章号)) m.set(parsed.章号, `第 ${parsed.章号} 章 ${parsed.标题}`)
+  }
+  return m
+})
+const chapterNameOf: ChapterNameLookup = (chapter) => chapterNames.value.get(chapter) ?? null
 
 // ── G1：重新生成 + 变体切换 ─────────────────────
 
@@ -289,13 +316,18 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
         >
           <div class="chat-tool-head">
             <component :is="TOOL_ICONS[tool.name] ?? PenLine" :size="14" />
-            <span class="chat-tool-name">{{ TOOL_LABELS[tool.name] ?? tool.name }}</span>
+            <span class="chat-tool-name">{{ toolLabel(tool.name) }}</span>
             <span v-if="tool.status === 'running'" class="chat-tool-badge">
               <Loader2 :size="12" class="spin" /> 执行中
             </span>
             <span v-else-if="tool.status === 'ok'" class="chat-tool-badge ok">完成</span>
             <span v-else-if="tool.status === 'failed'" class="chat-tool-badge bad">失败</span>
             <span v-else-if="tool.status === 'cancelled'" class="chat-tool-badge bad">已取消</span>
+          </div>
+
+          <!-- 参数摘要：放行前作者要核对的目标章 / 新名 / 指令（入参被截断时也照常展示已存部分） -->
+          <div v-if="toolSummary(tool.name, tool.input, chapterNameOf)" class="chat-tool-params">
+            {{ toolSummary(tool.name, tool.input, chapterNameOf) }}
           </div>
 
           <!-- 工具结果摘要 -->
@@ -472,6 +504,13 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 .chat-tool-badge.bad {
   color: var(--dv-bad);
   background: color-mix(in srgb, var(--dv-bad) 12%, transparent);
+}
+.chat-tool-params {
+  margin-top: var(--size-4-1);
+  color: var(--text-normal);
+  line-height: 1.5;
+  font-size: var(--font-size-xs);
+  word-break: break-all;
 }
 .chat-tool-summary {
   margin-top: var(--size-4-1);

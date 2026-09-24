@@ -46,6 +46,7 @@ import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } fr
 import { sseConnections, MAX_SSE_PER_BOOK, createSseWriter } from './stream-sse-writer.js'
 import type { SseConnHandle } from './stream-sse-writer.js'
 import { startStallWatchdog } from './stream-watchdog.js'
+import { trackInFlightWork } from './in-flight-work.js'
 
 export { isSpawnRunning, __setSpawnRunning }
 
@@ -717,41 +718,40 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         })
       },
     })
-    // 进度复位式计时——编排器一切事件（text/self_heal_*/warning/done…）
-    // 单点经 driver.emit 广播（self-heal.ts emit()），包装 emit 复位 watchdog；
-    // startSession/stream/dispose 为接口必需成员，本路径不触达，原样委托（不散播
-    // this 绑定风险）。
-    const watchedDriver: StudioDriver = {
-      startSession: (cwd, so) => driver.startSession(cwd, so),
-      stream: (s) => driver.stream(s),
-      dispose: (s) => driver.dispose(s),
-      emit: (s, ev) => {
-        wd.touch()
-        driver.emit?.(s, ev)
-      },
-    }
-    void runSelfHeal({
-      driver: watchedDriver,
-      mainSession,
-      userDataPath: ctx.userDataPath!,
-      cwd: ctx.workDir!,
-      bookRoot: r.bookRoot,
-      bookName,
-      chapter,
-      ...(chapters ? { chapters } : {}),
-      register: (c) => {
-        registered = c
-        wd.touch() // ctrl 登记点亦复位
-        driver.registerCtrl?.(mainSession, c, 'self-heal')
-      },
-    })
-      .catch((e) => emitSpawnError(driver, mainSession, e))
-      .finally(() => {
-        wd.cancel() // 终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
-        // 底层 run settle 的注销点（唯一）——二段强释放不提前
-        // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
-        if (registered) driver.unregisterCtrl?.(mainSession, registered)
+    // 进度复位式计时——编排器一切事件经 onActivity 回调（self-heal generate 的 emit
+    // 单点）复位 watchdog，下方 register 回调在 ctrl 登记点另行复位。driver 原样直通：
+    // 端点不再包装它，中断能力（interrupt/isRunning/registerCtrl…）无转发面可漏——
+    // 包装式曾把 registerCtrl 丢成 undefined，pass 后的后台账本草稿
+    //（runRegisteredBgTask）登记落空、/interrupt 找不到 ctrl（质量评审 P2-1）。
+    // 本端点 200 先回、编排后台跑（fire-and-forget）——登记进 server 在途工作表：
+    // close 收尾的裸 close 只等连接清空，编排仍持会话库（userData/session/*.db）与
+    // 机检库句柄在写，调用方（e2e/集成测试）close 后立刻 rmSync 临时目录会在 Windows
+    // 落 EPERM（同 R0910-W 的 Worker 句柄族；rag 的 buildIndex 同款登记先例）。
+    void trackInFlightWork(
+      runSelfHeal({
+        driver,
+        mainSession,
+        userDataPath: ctx.userDataPath!,
+        cwd: ctx.workDir!,
+        bookRoot: r.bookRoot,
+        bookName,
+        chapter,
+        ...(chapters ? { chapters } : {}),
+        onActivity: () => wd.touch(),
+        register: (c) => {
+          registered = c
+          wd.touch() // ctrl 登记点亦复位
+          driver.registerCtrl?.(mainSession, c, 'self-heal')
+        },
       })
+        .catch((e) => emitSpawnError(driver, mainSession, e))
+        .finally(() => {
+          wd.cancel() // 终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
+          // 底层 run settle 的注销点（唯一）——二段强释放不提前
+          // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
+          if (registered) driver.unregisterCtrl?.(mainSession, registered)
+        }),
+    )
 
     reply(res, 200, { ok: true, chapter, ...(batchSize > 1 ? { batchSize, chapters } : {}) })
   },

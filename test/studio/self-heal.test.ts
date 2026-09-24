@@ -151,6 +151,21 @@ test('一次绿：1 次 check、0 次重写 → pass', async () => {
   expect(evTypes(emitted)).not.toContain('self_heal_reset')
 })
 
+// 端点侧（/auto-write 的静默挂死 watchdog）靠 onActivity 复位计时——编排器必须每个
+// 进度事件回调解一次；漏调即 watchdog 在合法长跑（批量连写）中误判挂起
+test('进度出口带 onActivity：与 driver.emit 同点、逐事件一一对应', async () => {
+  const { opts, emitted } = setup([`${FM}全绿正文`], () => greenOutcome())
+  let ticks = 0
+  opts.onActivity = (): void => {
+    ticks++
+  }
+  const r = await runSelfHeal(opts)
+
+  expect(r.outcome).toBe('pass')
+  expect(ticks).toBeGreaterThan(0)
+  expect(ticks).toBe(emitted.length)
+})
+
 test('先红后绿：1 次重写且 prompt 带红项明细 → pass', async () => {
   const seq: CheckOutcome[] = [redOutcome('命中禁词「顿时」'), greenOutcome()]
   let i = 0

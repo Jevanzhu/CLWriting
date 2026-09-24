@@ -7,6 +7,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
+import { flushBodyWriteback } from '../../shared/body-writeback'
 import { useDebouncedWordCount } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
@@ -97,6 +98,11 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
+  // 质量评审 P2-5：正文回写有 ≤200ms 尾随节流，窗口内的键入此刻只在待写槽里、dirty
+  // 尚未置位（首笔标脏已把窗口收窄到「标脏回调未接线」的退化态，这里仍显式冲刷——
+  // 恢复决策读的是 dirty，读前必须先把槽内正文落回条目，否则随后的 refresh 保留的
+  // 是缺末段的本地稿）。
+  flushBodyWriteback()
   // Y-9（第五十七轮）：dirty 先存后恢复——restore 后的 refresh 走 dirty 分支（fm 取
   // 服务端、正文保留本地），随后 autosave 会用本地旧正文把刚恢复的版本静默覆盖，toast
   // 却报「已恢复」。先落盘：本地编辑进磁盘与「恢复前」留底（确认弹窗的承诺），恢复真正

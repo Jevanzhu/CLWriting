@@ -100,7 +100,8 @@ function node(docId: string): TreeNode {
 }
 
 /** 构造「防抖窗内」态：登记一笔正文输入但不等到点——commit 复刻 EditorView 的落回
- *  语义（mergeFm + doc.patch，此处正文形态直接 patch），条目因而尚未置脏。 */
+ *  语义（mergeFm + doc.patch，此处正文形态直接 patch）。内容未落回 store；脏位已由
+ *  首笔标脏置上（质量评审 P2-5），决策点仍须先冲刷才能读到窗内正文。 */
 function windowedInput(docId: string, body = WINDOWED): void {
   registerBodyWriteback((id, next) => useDocStore().patch(id, next))
   scheduleBodyWriteback(docId, body)
@@ -147,8 +148,8 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
     ws.openTab('d1') // activeDocId = d1（doSplitHere 前置复检）
     ws.setEditorGetCursorOffset(() => 5)
     windowedInput('d1')
-    // 窗内态取证：未落回 store，故 dirty 仍 false（改前判式在此放行）
-    expect(useDocStore().get('d1')!.dirty).toBe(false)
+    // 窗内态取证：内容未落回 store（改前判式在此读到 dirty=false 整段放行）
+    expect(useDocStore().get('d1')!.content).not.toContain(WINDOWED)
 
     planMock.mockResolvedValue({
       plan: { op: 'split', docId: 'd1', planHash: 'ph', tailPreview: WINDOWED, tailWords: 3, headWords: 3 },
@@ -165,7 +166,7 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
   it('删除：R44-3 前置落盘在窗内不失守（文案仍承诺可从回收站恢复）', async () => {
     await openDoc('d2')
     windowedInput('d2')
-    expect(useDocStore().get('d2')!.dirty).toBe(false)
+    expect(useDocStore().get('d2')!.content).not.toContain(WINDOWED)
 
     await actions().doDelete(node('d2'))
 
@@ -179,7 +180,7 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
   it('改写：W-P1-4 基线落盘在窗内不失守（服务端读盘前先落尾）', async () => {
     await openDoc('d3')
     windowedInput('d3')
-    expect(useDocStore().get('d3')!.dirty).toBe(false)
+    expect(useDocStore().get('d3')!.content).not.toContain(WINDOWED)
     rewriteMock.mockResolvedValue({ ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [] })
 
     await useRewriteStore().run(BOOK, 'd3', '改紧凑', '')
@@ -193,7 +194,7 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
     await openDoc('d4')
     useWorkspaceStore().openTab('d4')
     windowedInput('d4')
-    expect(useDocStore().get('d4')!.dirty).toBe(false)
+    expect(useDocStore().get('d4')!.content).not.toContain(WINDOWED)
 
     const ws = useWorkspaceStore()
     ws.openTab('d5')

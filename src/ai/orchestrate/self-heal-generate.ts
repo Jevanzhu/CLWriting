@@ -179,6 +179,10 @@ function emitMockPreview(opts: SelfHealOpts, body: string): void {
   if (chunk) emit(opts, { type: 'text', text: chunk })
 }
 
+/** 编排器事件唯一出口（一切 text / self_heal_* / warning / done 经此）。
+ *  onActivity 与事件同点：调用方（/auto-write 的静默挂死 watchdog）据此复位计时，
+ *  无需再包装 driver 转发 emit。 */
 export function emit(opts: SelfHealOpts, ev: DriverEvent): void {
+  opts.onActivity?.()
   opts.driver.emit?.(opts.mainSession, ev)
 }

@@ -21,9 +21,9 @@
 import type { Ref } from 'vue'
 import { str } from './sse-guards'
 import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
-// 复审-0914-优化 A2：码位计数收编根 src/shared/text.ts 单源（跨包引用对齐
+// 复审-0914-优化 A2：码位计数与截断收编根 src/shared/text.ts 单源（跨包引用对齐
 // shared/words.ts 引 format/words 先例；原本地副本删）。
-import { codePointLength } from '../../../../shared/text'
+import { codePointLength, clipByCodePoints } from '../../../../shared/text'
 
 /** 工具卡片状态 */
 export type ToolStatus = 'pending' | 'running' | 'ok' | 'failed' | 'cancelled'
@@ -60,28 +60,58 @@ const MAX_MESSAGES = CHAT_HISTORY_LIMIT
  *  + … 尾标（方案原文写 ToolCard.summary，以实际字段为准 = input）。 */
 const TOOL_INPUT_MAX = 2000
 
-/** 码位截断（口径同 src/process/summary.ts clipByCodePoints：Array.from 迭代码点——
- *  String.slice 按 UTF-16 码元会把增补平面字符切成半个代理对） */
-function clipByCodePoints(text: string, max: number): string {
-  return Array.from(text).slice(0, max).join('')
+/** 序列化探测：不可序列化（循环引用等）回 null——调用方原样透传，不为此抛错。 */
+function serialize(input: unknown): string | null {
+  try {
+    return JSON.stringify(input) ?? ''
+  } catch {
+    return null
+  }
 }
 
-/** 内存闸（2026-08-24 审计 C3）：工具入参落存前截断——SSE 两条路（chat_tool_pending
- *  追加 / readonly chat_tool 经 ensureTool 补建）与历史种子化（seedFromHistory 的
- *  tool_use）三处收口。字符串超限 → 截断 + …；对象序列化后超限才替换为截断串
- *  （小对象原形落存，不动既有展示与断言口径）；其余类型原样透传。 */
+/** 超限才截断（+ … 尾标）；未超限原样返回。 */
+function clipOver(text: string, max: number): string {
+  return codePointLength(text) > max ? clipByCodePoints(text, max) + '…' : text
+}
+
+/** 内存闸（2026-08-24 审计 C3；2026-09-24 质量评审 P2-3 收口）：工具入参落存前截断
+ *  ——SSE 两条路（chat_tool_pending 追加 / readonly chat_tool 经 ensureTool 补建）与
+ *  历史种子化（seedFromHistory 的 tool_use）三处收口。未超闸一律原形落存。
+ *  对象走**字段级**截断：额度按键数均分、键结构完整保留——工具卡摘要按字段取值，
+ *  整串截断会把 input 落成半截 JSON 串、摘要整条落空，而超限入参恰是最需要作者核对
+ *  的长改写指令 / 整章正文。字段级不成立（无字符串字段可截 / 截断后仍超闸）才退回
+ *  整串截断，闸恒为准。 */
 export function clipToolInput(input: unknown): unknown {
-  let text: string
-  if (typeof input === 'string') {
-    text = input
-  } else {
-    try {
-      text = JSON.stringify(input) ?? ''
-    } catch {
-      return input // 循环引用等不可序列化：原样透传（不为此抛错）
-    }
+  const whole = typeof input === 'string' ? input : serialize(input)
+  if (whole === null) return input // 循环引用等不可序列化：原样透传（不为此抛错）
+  if (codePointLength(whole) <= TOOL_INPUT_MAX) return input
+  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    const fields = clipFields(input as Record<string, unknown>)
+    if (fields !== null) return fields
   }
-  return codePointLength(text) > TOOL_INPUT_MAX ? clipByCodePoints(text, TOOL_INPUT_MAX) + '…' : input
+  return clipByCodePoints(whole, TOOL_INPUT_MAX) + '…'
+}
+
+/** 字段级截断（额度按键数均分；未发生截断或截断后仍超闸 → null，交调用方整串截断） */
+function clipFields(obj: Record<string, unknown>): Record<string, unknown> | null {
+  const keys = Object.keys(obj)
+  if (keys.length === 0) return null
+  const per = Math.max(1, Math.floor(TOOL_INPUT_MAX / keys.length))
+  const out: Record<string, unknown> = {}
+  let clipped = false
+  for (const k of keys) {
+    const v = obj[k]
+    if (typeof v !== 'string') {
+      out[k] = v
+      continue
+    }
+    const c = clipOver(v, per)
+    if (c !== v) clipped = true
+    out[k] = c
+  }
+  if (!clipped) return null
+  const text = serialize(out)
+  return text !== null && codePointLength(text) <= TOOL_INPUT_MAX ? out : null
 }
 
 /** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
