@@ -45,6 +45,7 @@ import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周
 import { registerIpc } from './ipc.js' // 复审-0914-优化修复批 F1：IPC 注册面拆出
 import { createRepeatedSignalExit } from './signal-hard-exit.js' // 0918二轮修复批（C107）：重复信号硬退出口
 import { acquireAppInstanceGuard } from './app-instance-guard.js' // R0913-win P3-13：提权差异双开文件锁防线（win线并树随行）
+import { defaultWindowSize } from './window-state.js' // 首启缺省尺寸/创建下限单源（纯函数，零 Electron 依赖）
 import {
   attachMainWindowLifecycle,
   registerQuitChain,
@@ -395,22 +396,21 @@ async function bootstrap(): Promise<void> {
     wins.appUrl = `http://127.0.0.1:${port}`
   }
 
-  // 主窗口 bounds：优先恢复上次尺寸/位置，无记录时默认 1532×1237
-  // （三栏 + 编辑区留白充足），小屏按工作区 -80px 兜底；min 1200×760 保三栏不挤。
+  // 主窗口 bounds：优先恢复上次尺寸/位置；无记录时缺省按工作区占比取（宽 60%/
+  // 高 80%，随分辨率自适应——不同机器首开窗口比例一致，大屏不再钉死 1532×1237
+  // 定值）。缺省与 minWidth/minHeight（1200×760 保三栏不挤；R1W-10：下限不得超过
+  // 可用工作区——1366×768 上原 760 硬下限出生即压任务栏，小屏按 wa-8 收口。恢复侧
+  // WIN_MIN_HEIGHT 随行收口）统一在 window-state.defaultWindowSize 单源。
   const saved = loadWinState()
   const wa = screen.getPrimaryDisplay().workAreaSize
-  const winW = saved?.bounds.width ?? Math.min(1532, wa.width - 80)
-  const winH = saved?.bounds.height ?? Math.min(1237, wa.height - 80)
+  const { width: defW, height: defH, minWidth, minHeight } = defaultWindowSize(wa)
   const mainWindow = createSecureWindow({
-    width: winW,
-    height: winH,
+    width: saved?.bounds.width ?? defW,
+    height: saved?.bounds.height ?? defH,
     x: saved?.bounds.x,
     y: saved?.bounds.y,
-    // R1W-10（win 平台专项复审 R1）：下限不得超过可用工作区——1366×768（工作区
-    // ≈728px）上原 760 硬下限让窗口出生即压任务栏；大屏产品意图（1200×760 保三栏
-    // 不挤）原样保留，仅在小屏按可用空间收口。恢复侧 WIN_MIN_HEIGHT 随行收口。
-    minWidth: Math.min(1200, wa.width - 8),
-    minHeight: Math.min(760, wa.height - 8),
+    minWidth,
+    minHeight,
     title: 'CLWriting',
   })
   wins.mainWindow = mainWindow

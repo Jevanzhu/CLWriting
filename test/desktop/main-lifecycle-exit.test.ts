@@ -298,8 +298,8 @@ describe('kk-P2-8：退出与边界分支', () => {
     await import('../../src/desktop/main.js')
     await new Promise((r) => setImmediate(r))
     const win = M.windows[windows0]!
-    expect(win.opts.width).toBe(1532) // min(1532, 1920-80) 默认
-    expect(win.opts.height).toBe(1000) // min(1237, 1080-80) 小屏兜底
+    expect(win.opts.width).toBe(1200) // 1920×0.6=1152 不足产品下限，兜底 1200（保三栏）
+    expect(win.opts.height).toBe(864) // 1080×0.8（旧口径 min(1237, 1080-80)=1000）
   })
 
   // 低-8（第十轮）：fresh module（此前用例的 before-quit 已把 shutdownStarted 永久置位，

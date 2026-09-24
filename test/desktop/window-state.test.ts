@@ -4,7 +4,18 @@
  * 永远「越界」，恢复被无条件丢弃（尺寸/位置白丢）。纯函数直测，不依赖 Electron。
  */
 import { describe, it, expect } from 'vitest'
-import { isBoundsVisibleOnAnyDisplay, WIN_MIN_WIDTH, WIN_MIN_HEIGHT, BOUNDS_TOLERANCE, type WinRect } from '../../src/desktop/window-state.js'
+import {
+  isBoundsVisibleOnAnyDisplay,
+  defaultWindowSize,
+  WIN_MIN_WIDTH,
+  WIN_MIN_HEIGHT,
+  CREATE_MIN_WIDTH,
+  CREATE_MIN_HEIGHT,
+  DEFAULT_WIDTH_RATIO,
+  DEFAULT_HEIGHT_RATIO,
+  BOUNDS_TOLERANCE,
+  type WinRect,
+} from '../../src/desktop/window-state.js'
 
 const PRIMARY = { x: 0, y: 0, width: 1920, height: 1080 }
 const SECOND = { x: 1920, y: 0, width: 1920, height: 1080 } // 右侧副屏
@@ -14,6 +25,62 @@ describe('R26-86：isBoundsVisibleOnAnyDisplay', () => {
     expect(WIN_MIN_WIDTH).toBe(1200)
     expect(WIN_MIN_HEIGHT).toBe(600)
     expect(BOUNDS_TOLERANCE).toBe(200)
+  })
+
+  it('常量口径锚定（创建侧）：产品最小面 1200×760、缺省占比宽 0.6 / 高 0.8', () => {
+    expect(CREATE_MIN_WIDTH).toBe(1200)
+    expect(CREATE_MIN_HEIGHT).toBe(760)
+    expect(DEFAULT_WIDTH_RATIO).toBe(0.6)
+    expect(DEFAULT_HEIGHT_RATIO).toBe(0.8)
+  })
+
+  // 首启缺省尺寸随分辨率自适应（取代固定 1532×1237——旧定值即某台机器的工作区-80，
+  // 换机失准）：宽 0.6 / 高 0.8 占比 + 上钳工作区-80 + 下钳产品最小面（min(CREATE_MIN_*, wa-8)）。
+  describe('defaultWindowSize：首启缺省尺寸随分辨率自适应', () => {
+    it('2K 屏（2560×1440）：1536×1152（作者定标 2560 宽取 1550 够用 ≈0.6）', () => {
+      expect(defaultWindowSize({ width: 2560, height: 1440 })).toEqual({
+        width: 1536,
+        height: 1152,
+        minWidth: 1200,
+        minHeight: 760,
+      })
+    })
+
+    it('1080p 屏（1920×1080）：宽 60% 不足产品下限取 1200（保三栏），高 864', () => {
+      expect(defaultWindowSize({ width: 1920, height: 1080 })).toEqual({
+        width: 1200,
+        height: 864,
+        minWidth: 1200,
+        minHeight: 760,
+      })
+    })
+
+    it('1366×728 win 小屏：宽不足产品下限取 1200，高随屏收口 720（R1W-10 口径）', () => {
+      expect(defaultWindowSize({ width: 1366, height: 728 })).toEqual({
+        width: 1200,
+        height: 720,
+        minWidth: 1200,
+        minHeight: 720,
+      })
+    })
+
+    it('1024×768 超小屏：宽高均按工作区-8 收口（1016×760），不出生即压任务栏', () => {
+      expect(defaultWindowSize({ width: 1024, height: 768 })).toEqual({
+        width: 1016,
+        height: 760,
+        minWidth: 1016,
+        minHeight: 760,
+      })
+    })
+
+    it('mac 13″（1440×875 工作区）：80% 不足产品下限，兜底 1200×760', () => {
+      expect(defaultWindowSize({ width: 1440, height: 875 })).toEqual({
+        width: 1200,
+        height: 760,
+        minWidth: 1200,
+        minHeight: 760,
+      })
+    })
   })
 
   it('R1W-10：1366×768 小屏合法存档（高 720）恢复有效；600 以下仍按损坏丢弃', () => {
