@@ -23,10 +23,11 @@ import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  runRegisteredBgTask,
   afterFinalizeGenerateSummary,
   afterFinalizeGenerateSummaryBatch,
 } from '../../src/process/summary.js'
+// R0916-7-P3-3：后台任务 ctrl 登记原语迁 process/bg-task.ts（原 summary.js，无兼容层）
+import { runRegisteredBgTask } from '../../src/process/bg-task.js'
 import { ccDriver } from '../../src/driver/cc.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import { hasBackgroundTasks, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'

@@ -195,168 +195,252 @@ export function deriveMessages(events: ChatEvent[], prefixSeq?: number): Array<{
  * - sourceSeqs 必须完整覆盖每个被遮蔽节点、全部早于当前 seq、无重复
  * - seq 单调递增无重复
  * 返回问题列表（空 = 通过）。
+ *
+ * R0916-7-P3-2：原单遍巨型校验体按「形状 / 序号与因果 / 载荷语义」三段拆为可直测的
+ * 小步函数（见下方各段注）。**步骤顺序 = 问题报告顺序契约**：同一事件同时触犯多条时
+ * 先报哪条、多条之间的相对次序都是对外行为（调用方/日志按序消费），三段拆分不得
+ * 重排——validateEventStream 的调用序列即该契约的唯一落点，测试逐条钉住。
  */
-interface ValidationIssue {
+export interface ValidationIssue {
   seq: number
   message: string
 }
 
-export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
+/** R0916-7-P3-2：校验游标——跨事件读-写状态（序号去重 / 已可见 seq 集 / 上一 seq）。
+ *  各步函数只改自己那一份（序号步写 seenSeqs/lastSeq，因果步写 visibleSeqs）。 */
+export interface ValidateCursor {
+  seenSeqs: Set<number>
+  visibleSeqs: Set<number>
+  lastSeq: number
+}
+
+/** 新游标（直测各步函数的入口；生产唯一消费方是 validateEventStream） */
+export function createValidateCursor(): ValidateCursor {
+  return { seenSeqs: new Set(), visibleSeqs: new Set(), lastSeq: -1 }
+}
+
+// ─── 段一：序号与因果校验 ───────────────────────────────────────────────
+
+/** 序号步：重复 / 未严格递增。R26-103（二十六轮）：同一坏事件的「未递增 + 重复」双告警
+ *  合并为一条——重复 seq 必然也 ≤ 前一 seq，原先两条 issue 叠发（同一病灶两行噪音）；
+ *  现重复只报「seq 重复」，非重复的乱序才报「未严格递增」。 */
+export function seqStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
   const issues: ValidationIssue[] = []
-  const sorted = sortEvents(events)
-  const seenSeqs = new Set<number>()
-  const visibleSeqs = new Set<number>()
-  let lastSeq = -1
+  if (cur.seenSeqs.has(ev.seq)) {
+    issues.push({ seq: ev.seq, message: 'seq 重复' })
+  } else {
+    if (ev.seq <= cur.lastSeq) issues.push({ seq: ev.seq, message: 'seq 未严格递增（乱序）' })
+    cur.seenSeqs.add(ev.seq)
+  }
+  cur.lastSeq = ev.seq
+  return issues
+}
 
-  for (const ev of sorted) {
-    // R26-103（二十六轮）：同一坏事件的「未递增 + 重复」双告警合并为一条——重复 seq 必然
-    // 也 ≤ 前一 seq，原先两条 issue 叠发（同一病灶两行噪音）；现重复只报「seq 重复」，
-    // 非重复的乱序才报「未严格递增」。
-    if (seenSeqs.has(ev.seq)) {
-      issues.push({ seq: ev.seq, message: 'seq 重复' })
-    } else {
-      if (ev.seq <= lastSeq) issues.push({ seq: ev.seq, message: 'seq 未严格递增（乱序）' })
-      seenSeqs.add(ev.seq)
-    }
-    lastSeq = ev.seq
+/** 遮蔽可见性步（因果）：被遮蔽节点必须已可见。R62-31：改对 visibleSeqs 做区间包含
+ *  判断 O(visible)（此前逐 seq 扫 [start,end]：脏数据 shadowEnd=1e9 会线性扫十亿次
+ *  挂死校验链）；区间形状非法（缺端点/start>end）时本步不产问题——已由形状步报过。 */
+export function shadowCoverageStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
+  if (ev.type !== 'compaction/end') return []
+  const { start, end } = { start: ev.shadowStart, end: ev.shadowEnd }
+  if (start === undefined || end === undefined || start > end) return []
+  const inRange: number[] = []
+  for (const s of cur.visibleSeqs) if (s >= start && s <= end) inRange.push(s)
+  if (inRange.length === end - start + 1) return []
+  return [
+    {
+      seq: ev.seq,
+      message: `遮蔽区间 [${start},${end}] 含未可见 seq（区间 ${end - start + 1} 个，可见仅 ${inRange.length} 个）`,
+    },
+  ]
+}
 
-    const isSurfaceType = SURFACE_EVENT_TYPES.has(ev.type as EventType)
-    // compaction/end 是 replace 载体（遮蔽旧节点），允许且必须带 surfaceOp='replace'
-    const isReplaceCarrier = ev.type === 'compaction/end'
-    if (!isSurfaceType && !isReplaceCarrier && ev.surfaceOp !== undefined) {
-      issues.push({ seq: ev.seq, message: '非 surface 事件禁带 surfaceOp' })
-    }
-    if (isSurfaceType && ev.surfaceOp === undefined) {
-      issues.push({ seq: ev.seq, message: 'surface 事件必须带 surfaceOp' })
-    }
-    // R54-B-3（五十四轮）：普通 surface 事件禁带 replace——replace 载体仅 compaction/end
-    // （遮蔽旧节点 + 存档原位插入的语义与 compaction 数据形状绑定）；生产构造器不产
-    // surface+replace 形态，此前该形态静默过闸成可见节点而遮蔽闭区间无消费方，投影/
-    // 审计口径劈裂，校验链补防。
-    if (isSurfaceType && ev.surfaceOp === 'replace') {
-      issues.push({ seq: ev.seq, message: '普通 surface 事件禁带 surfaceOp=replace（replace 载体仅 compaction/end）' })
-    }
-    if (isReplaceCarrier && ev.surfaceOp !== 'replace') {
-      issues.push({ seq: ev.seq, message: 'compaction/end 必须带 surfaceOp=replace' })
-    }
-
-    // F2：结构化终止原因校验——turn/end、step/end、session/end 的 reason 必须是受控词表
-    const reason = ev.data['reason']
-    if (ev.type === 'turn/end' && typeof reason === 'string' && !(TURN_END_REASONS as readonly string[]).includes(reason)) {
-      issues.push({ seq: ev.seq, message: 'turn/end 非法终止原因: ' + reason })
-    }
-    if (ev.type === 'step/end' && typeof reason === 'string' && !(STEP_END_REASONS as readonly string[]).includes(reason)) {
-      issues.push({ seq: ev.seq, message: 'step/end 非法终止原因: ' + reason })
-    }
-    if (ev.type === 'session/end' && typeof reason === 'string' && !(SESSION_END_REASONS as readonly string[]).includes(reason)) {
-      issues.push({ seq: ev.seq, message: 'session/end 非法终止原因: ' + reason })
-    }
-
-    // F5：goal/change 的 operation 受控词表 + 快照形状；todo/write 整表形状
-    if (ev.type === 'goal/change') {
-      const op = ev.data['operation']
-      if (typeof op === 'string' && !(GOAL_OPERATIONS as readonly string[]).includes(op)) {
-        issues.push({ seq: ev.seq, message: 'goal/change 非法 operation: ' + op })
-      }
-      const goal = ev.data['goal']
-      if (!goal || typeof goal !== 'object') {
-        issues.push({ seq: ev.seq, message: 'goal/change 缺 goal 快照' })
-      } else {
-        const g = goal as Record<string, unknown>
-        if (typeof g['id'] !== 'string' || typeof g['title'] !== 'string') {
-          issues.push({ seq: ev.seq, message: 'goal/change 快照缺 id/title' })
-        }
-        if (g['state'] !== 'active' && g['state'] !== 'paused' && g['state'] !== 'blocked' && g['state'] !== 'complete') {
-          issues.push({ seq: ev.seq, message: 'goal/change 快照非法 state' })
-        }
-      }
-    }
-    if (ev.type === 'todo/write') {
-      const todos = ev.data['todos']
-      if (!Array.isArray(todos)) {
-        issues.push({ seq: ev.seq, message: 'todo/write 缺 todos 数组' })
-      } else {
-        for (const t of todos) {
-          const td = t as Record<string, unknown> | null
-          if (!td || typeof td['text'] !== 'string' || (td['state'] !== 'pending' && td['state'] !== 'in_progress' && td['state'] !== 'completed')) {
-            issues.push({ seq: ev.seq, message: 'todo/write 含非法条目' })
-            break
-          }
-        }
-      }
-    }
-
-    // G2-1：快照登记类事件同载荷形状 {scope, digest}——settings/snapshot 与 skills/snapshot 同构校验
-    if (ev.type === 'settings/snapshot' || ev.type === 'skills/snapshot') {
-      if (typeof ev.data['scope'] !== 'string' || typeof ev.data['digest'] !== 'string') {
-        issues.push({ seq: ev.seq, message: ev.type + ' 载荷缺 scope/digest 字符串字段' })
-      }
-    }
-
-    if (ev.type === 'compaction/end') {
-      const start = ev.shadowStart
-      const end = ev.shadowEnd
-      if (start === undefined || end === undefined) {
-        issues.push({ seq: ev.seq, message: 'compaction/end 缺 shadowStart/shadowEnd' })
-      } else if (start > end) {
-        issues.push({ seq: ev.seq, message: 'shadowStart > shadowEnd' })
-      } else {
-        // R62-31：被遮蔽节点必须已可见——改对 visibleSeqs 做区间包含判断 O(visible)。
-        // 此前逐 seq 扫 [start,end]：脏数据 shadowEnd=1e9 会线性扫十亿次挂死校验链。
-        const inRange: number[] = []
-        for (const s of visibleSeqs) if (s >= start && s <= end) inRange.push(s)
-        if (inRange.length !== end - start + 1) {
-          issues.push({
-            seq: ev.seq,
-            message: `遮蔽区间 [${start},${end}] 含未可见 seq（区间 ${end - start + 1} 个，可见仅 ${inRange.length} 个）`,
-          })
-        }
-      }
-      // sourceSeqs 覆盖校验
-      const srcs = ev.sourceSeqs ?? []
-      const dup = srcs.filter((x, i) => srcs.indexOf(x) !== i)
-      if (dup.length > 0) issues.push({ seq: ev.seq, message: 'sourceSeqs 有重复: ' + dup.join(',') })
-      for (const s of srcs) {
-        if (s >= ev.seq) issues.push({ seq: ev.seq, message: 'sourceSeqs 含不小于当前 seq 的 ' + s })
-      }
-      if (start !== undefined && end !== undefined) {
-        // R62-31 同款 O(visible)：只对区间内实际可见的 seq 报未覆盖（区间内不可见的
-        // 已由上一条「含未可见 seq」报过，脏数据下不重复扫十亿区间）
-        const srcSet = new Set(srcs)
-        for (const s of visibleSeqs) {
-          if (s >= start && s <= end && !srcSet.has(s)) {
-            issues.push({ seq: ev.seq, message: 'sourceSeqs 未覆盖被遮蔽节点 ' + s })
-          }
-        }
-      }
-      // replace 后 visible 更新：移除被遮蔽节点（R62-31 同款 O(visible)，不逐 seq 扫区间）
-      {
-        const st = start ?? 0
-        const en = end ?? -1
-        for (const s of [...visibleSeqs]) {
-          if (s >= st && s <= en) visibleSeqs.delete(s)
-        }
-      }
-      // Y-P2-2：携带存档的 compaction/end 本身成为可见节点（投影在区间原位插入存档）
-      if (typeof ev.data['message'] === 'string' && (ev.data['message'] as string).trim() !== '') {
-        visibleSeqs.add(ev.seq)
-      }
-    }
-
-    // 本事件成为可见节点（surface 且带 surfaceOp 时加入）
-    // R70-13（十八轮）：可见性谓词与投影对齐——空 usage 壳/损坏载荷的 assistant
-    // message 在投影侧（foldSurface/assistantMessageVisible）不算可见，校验器此前
-    // 无差别计入，遮蔽契约闸比设计口径宽。R62-11 注释宣称两侧「共用同口径」，今对齐。
-    if (isSurfaceType && ev.surfaceOp !== undefined) {
-      // R70-13：assistant/message 事件与投影侧 foldSurface 同谓词（user 文本恒可见、
-      // assistant 须载荷形别合法且非空壳）
-      if (ev.type === 'assistant/message') {
-        if (assistantMessageVisible(ev.data)) visibleSeqs.add(ev.seq)
-      } else {
-        visibleSeqs.add(ev.seq)
+/** 血缘步（因果）：sourceSeqs 无重复 / 全部早于当前 seq / 完整覆盖区间内被遮蔽节点。 */
+export function sourceSeqsStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
+  if (ev.type !== 'compaction/end') return []
+  const issues: ValidationIssue[] = []
+  const srcs = ev.sourceSeqs ?? []
+  const dup = srcs.filter((x, i) => srcs.indexOf(x) !== i)
+  if (dup.length > 0) issues.push({ seq: ev.seq, message: 'sourceSeqs 有重复: ' + dup.join(',') })
+  for (const s of srcs) {
+    if (s >= ev.seq) issues.push({ seq: ev.seq, message: 'sourceSeqs 含不小于当前 seq 的 ' + s })
+  }
+  const start = ev.shadowStart
+  const end = ev.shadowEnd
+  if (start !== undefined && end !== undefined) {
+    // R62-31 同款 O(visible)：只对区间内实际可见的 seq 报未覆盖（区间内不可见的
+    // 已由上一条「含未可见 seq」报过，脏数据下不重复扫十亿区间）
+    const srcSet = new Set(srcs)
+    for (const s of cur.visibleSeqs) {
+      if (s >= start && s <= end && !srcSet.has(s)) {
+        issues.push({ seq: ev.seq, message: 'sourceSeqs 未覆盖被遮蔽节点 ' + s })
       }
     }
   }
+  return issues
+}
 
+/** 可见集推进步（因果，无问题产出）：遮蔽区间移除 + 存档节点加入 + 本事件成为可见节点。
+ *  谓词必须与投影侧 foldSurface 同口径（R70-13：空 usage 壳/损坏载荷的 assistant
+ *  message 不算可见；见 assistantMessageVisible）。 */
+export function advanceVisibleStep(ev: ChatEvent, cur: ValidateCursor): void {
+  if (ev.type === 'compaction/end') {
+    const start = ev.shadowStart
+    const end = ev.shadowEnd
+    // replace 后 visible 更新：移除被遮蔽节点（R62-31 同款 O(visible)，不逐 seq 扫区间）
+    const st = start ?? 0
+    const en = end ?? -1
+    for (const s of [...cur.visibleSeqs]) {
+      if (s >= st && s <= en) cur.visibleSeqs.delete(s)
+    }
+    // Y-P2-2：携带存档的 compaction/end 本身成为可见节点（投影在区间原位插入存档）
+    if (typeof ev.data['message'] === 'string' && ev.data['message'].trim() !== '') {
+      cur.visibleSeqs.add(ev.seq)
+    }
+  }
+  // 本事件成为可见节点（surface 且带 surfaceOp 时加入）
+  // R70-13（十八轮）：可见性谓词与投影对齐——空 usage 壳/损坏载荷的 assistant
+  // message 在投影侧（foldSurface/assistantMessageVisible）不算可见，校验器此前
+  // 无差别计入，遮蔽契约闸比设计口径宽。R62-11 注释宣称两侧「共用同口径」，今对齐。
+  if (SURFACE_EVENT_TYPES.has(ev.type as EventType) && ev.surfaceOp !== undefined) {
+    if (ev.type === 'assistant/message') {
+      if (assistantMessageVisible(ev.data)) cur.visibleSeqs.add(ev.seq)
+    } else {
+      cur.visibleSeqs.add(ev.seq)
+    }
+  }
+}
+
+// ─── 段二：形状校验 ───────────────────────────────────────────────────
+
+/** 载体形状步：surfaceOp 与事件类型的搭配（禁带 / 必带 / 普通 surface 禁 replace /
+ *  compaction/end 必须 replace）。R54-B-3（五十四轮）：普通 surface 事件禁带 replace
+ *  ——replace 载体仅 compaction/end（遮蔽旧节点 + 存档原位插入的语义与 compaction 数据
+ *  形状绑定）；生产构造器不产 surface+replace 形态，此前该形态静默过闸成可见节点而
+ *  遮蔽闭区间无消费方，投影/审计口径劈裂，校验链补防。 */
+export function surfaceOpStep(ev: ChatEvent): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const isSurfaceType = SURFACE_EVENT_TYPES.has(ev.type as EventType)
+  // compaction/end 是 replace 载体（遮蔽旧节点），允许且必须带 surfaceOp='replace'
+  const isReplaceCarrier = ev.type === 'compaction/end'
+  if (!isSurfaceType && !isReplaceCarrier && ev.surfaceOp !== undefined) {
+    issues.push({ seq: ev.seq, message: '非 surface 事件禁带 surfaceOp' })
+  }
+  if (isSurfaceType && ev.surfaceOp === undefined) {
+    issues.push({ seq: ev.seq, message: 'surface 事件必须带 surfaceOp' })
+  }
+  if (isSurfaceType && ev.surfaceOp === 'replace') {
+    issues.push({ seq: ev.seq, message: '普通 surface 事件禁带 surfaceOp=replace（replace 载体仅 compaction/end）' })
+  }
+  if (isReplaceCarrier && ev.surfaceOp !== 'replace') {
+    issues.push({ seq: ev.seq, message: 'compaction/end 必须带 surfaceOp=replace' })
+  }
+  return issues
+}
+
+/** goal 快照形状步：F5——goal/change 的快照存在性与 id/title/state 字段形。 */
+export function goalSnapshotStep(ev: ChatEvent): ValidationIssue[] {
+  if (ev.type !== 'goal/change') return []
+  const issues: ValidationIssue[] = []
+  const goal = ev.data['goal']
+  if (!goal || typeof goal !== 'object') {
+    issues.push({ seq: ev.seq, message: 'goal/change 缺 goal 快照' })
+    return issues
+  }
+  const g = goal as Record<string, unknown>
+  if (typeof g['id'] !== 'string' || typeof g['title'] !== 'string') {
+    issues.push({ seq: ev.seq, message: 'goal/change 快照缺 id/title' })
+  }
+  if (g['state'] !== 'active' && g['state'] !== 'paused' && g['state'] !== 'blocked' && g['state'] !== 'complete') {
+    issues.push({ seq: ev.seq, message: 'goal/change 快照非法 state' })
+  }
+  return issues
+}
+
+/** todo 整表形状步：F5——todo/write 的 todos 数组与逐条目 text/state 形。 */
+export function todoWriteStep(ev: ChatEvent): ValidationIssue[] {
+  if (ev.type !== 'todo/write') return []
+  const todos = ev.data['todos']
+  if (!Array.isArray(todos)) return [{ seq: ev.seq, message: 'todo/write 缺 todos 数组' }]
+  for (const t of todos) {
+    const td = t as Record<string, unknown> | null
+    if (!td || typeof td['text'] !== 'string' || (td['state'] !== 'pending' && td['state'] !== 'in_progress' && td['state'] !== 'completed')) {
+      return [{ seq: ev.seq, message: 'todo/write 含非法条目' }]
+    }
+  }
+  return []
+}
+
+/** 快照载荷形状步：G2-1——settings/snapshot 与 skills/snapshot 同构 {scope, digest}。 */
+export function snapshotPayloadStep(ev: ChatEvent): ValidationIssue[] {
+  if (ev.type !== 'settings/snapshot' && ev.type !== 'skills/snapshot') return []
+  if (typeof ev.data['scope'] !== 'string' || typeof ev.data['digest'] !== 'string') {
+    return [{ seq: ev.seq, message: ev.type + ' 载荷缺 scope/digest 字符串字段' }]
+  }
+  return []
+}
+
+/** 遮蔽区间形状步：compaction/end 必须带 shadowStart/shadowEnd 且 start≤end。 */
+export function shadowIntervalStep(ev: ChatEvent): ValidationIssue[] {
+  if (ev.type !== 'compaction/end') return []
+  const { start, end } = { start: ev.shadowStart, end: ev.shadowEnd }
+  if (start === undefined || end === undefined) {
+    return [{ seq: ev.seq, message: 'compaction/end 缺 shadowStart/shadowEnd' }]
+  }
+  if (start > end) return [{ seq: ev.seq, message: 'shadowStart > shadowEnd' }]
+  return []
+}
+
+// ─── 段三：载荷语义校验 ────────────────────────────────────────────────
+
+/** 终止原因步：F2——turn/end、step/end、session/end 的 reason 必须是受控词表。 */
+export function endReasonStep(ev: ChatEvent): ValidationIssue[] {
+  const reason = ev.data['reason']
+  if (typeof reason !== 'string') return []
+  if (ev.type === 'turn/end' && !(TURN_END_REASONS as readonly string[]).includes(reason)) {
+    return [{ seq: ev.seq, message: 'turn/end 非法终止原因: ' + reason }]
+  }
+  if (ev.type === 'step/end' && !(STEP_END_REASONS as readonly string[]).includes(reason)) {
+    return [{ seq: ev.seq, message: 'step/end 非法终止原因: ' + reason }]
+  }
+  if (ev.type === 'session/end' && !(SESSION_END_REASONS as readonly string[]).includes(reason)) {
+    return [{ seq: ev.seq, message: 'session/end 非法终止原因: ' + reason }]
+  }
+  return []
+}
+
+/** goal 操作步：F5——goal/change 的 operation 受控词表（快照字段形归形状段）。 */
+export function goalOperationStep(ev: ChatEvent): ValidationIssue[] {
+  if (ev.type !== 'goal/change') return []
+  const op = ev.data['operation']
+  if (typeof op === 'string' && !(GOAL_OPERATIONS as readonly string[]).includes(op)) {
+    return [{ seq: ev.seq, message: 'goal/change 非法 operation: ' + op }]
+  }
+  return []
+}
+
+/**
+ * 校验入口：按 seq 升序重放事件，逐事件跑步骤链，返回问题列表（空 = 通过）。
+ *
+ * **步骤顺序即问题报告顺序契约**（顺序见下方调用序列，勿调换）：语义段与形状段在
+ * 步骤链里交错（该事件身上原本先报哪条就保持先报哪条），段别只是关注点归类。
+ */
+export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
+  const cur = createValidateCursor()
+  const issues: ValidationIssue[] = []
+  for (const ev of sortEvents(events)) {
+    // ① 序号 → ② 载体形状 → ③ 终止原因 → ④ goal 操作 → ⑤ goal 快照 → ⑥ todo
+    // → ⑦ 快照载荷 → ⑧ 遮蔽区间形状 → ⑨ 遮蔽可见性 → ⑩ sourceSeqs → ⑪ 可见集推进
+    issues.push(...seqStep(ev, cur))
+    issues.push(...surfaceOpStep(ev))
+    issues.push(...endReasonStep(ev))
+    issues.push(...goalOperationStep(ev))
+    issues.push(...goalSnapshotStep(ev))
+    issues.push(...todoWriteStep(ev))
+    issues.push(...snapshotPayloadStep(ev))
+    issues.push(...shadowIntervalStep(ev))
+    issues.push(...shadowCoverageStep(ev, cur))
+    issues.push(...sourceSeqsStep(ev, cur))
+    advanceVisibleStep(ev, cur)
+  }
   return issues
 }

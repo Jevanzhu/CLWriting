@@ -50,7 +50,7 @@ describe('N4 compact 与并发 append 互斥', () => {
 import { appendPending, appendSettled } from ${mod}
 const jp = ${JSON.stringify(jp)}
 for (let i = 0; i < 60; i++) {
-  const op = await appendPending(jp, 'docA', null, 'A'.repeat(1024))
+  const op = await appendPending(jp, 'docA', null)
   await appendSettled(jp, op, 'sha256:a' + i)
 }
 `
@@ -58,7 +58,7 @@ for (let i = 0; i < 60; i++) {
 import { appendPending } from ${mod}
 const jp = ${JSON.stringify(jp)}
 for (let i = 0; i < 40; i++) {
-  const op = await appendPending(jp, 'docB', null, 'B'.repeat(2048))
+  const op = await appendPending(jp, 'docB', null)
   console.log(op)
 }
 `
@@ -74,8 +74,8 @@ for (let i = 0; i < 40; i++) {
     const jp = join(dir, 'quiet.jsonl')
     seedOversized(jp)
     // 留一个未结算 pending（压缩必须保留）；用另一个 op 的 settled 触发压缩
-    const opA = await appendPending(jp, 'docC', null, '会被结算的内容')
-    const keep = await appendPending(jp, 'docC', null, '待恢复内容')
+    const opA = await appendPending(jp, 'docC', null)
+    const keep = await appendPending(jp, 'docC', null)
     await appendSettled(jp, opA, 'sha256:c')
     const unsettled = findUnsettled(jp)
     expect(unsettled.map((p) => p.opId)).toEqual([keep])

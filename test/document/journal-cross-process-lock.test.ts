@@ -71,7 +71,7 @@ describe('journal 跨进程锁（J7）', () => {
   it('锁被活进程持有 → append 仍落盘（降级裸写 + warn 留痕）', async () => {
     const jp = join(dir, 'append-held.jsonl')
     holdLockWithOwnPid(jp)
-    const opId = await appendPending(jp, 'doc-1', null, '正文内容')
+    const opId = await appendPending(jp, 'doc-1', null)
     const lines = readFileSync(jp, 'utf8').trim().split('\n')
     expect(lines.length).toBe(1)
     expect(JSON.parse(lines[0]!).opId).toBe(opId)
@@ -88,7 +88,7 @@ describe('journal 跨进程锁（J7）', () => {
     for (let i = 0; i < 200; i++) text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
     while (text.length < JOURNAL_COMPACT_BYTES + 1024) text += text
     writeFileSync(jp, text)
-    const opId = await appendPending(jp, 'doc-1', null, '快照')
+    const opId = await appendPending(jp, 'doc-1', null)
     await appendSettled(jp, opId, 'sha256:z')
     expect(readFileSync(jp, 'utf8').length).toBeLessThan(JOURNAL_COMPACT_BYTES)
     expect(findUnsettled(jp)).toEqual([])

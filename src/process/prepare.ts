@@ -24,7 +24,12 @@ import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
-import { volumeSummaryProvablyStale, volumeSummaryPath, codePointLength } from './summary.js'
+import { volumeSummaryProvablyStale, volumeSummaryPath } from './summary.js'
+// R0916-7-P3-3：码点计量与 token 折算直引 shared 单源（estimateTokens/TOKEN_COEFFICIENTS
+// 原定义在本文件、codePointLength 原经 ./summary.js 的 re-export 中转——前者被 provider
+// 适配器族反向依赖、后者是环边来源，两者均下沉 shared，本文件不留 re-export 兼容层）
+import { codePointLength } from '../shared/text.js'
+import { estimateTokens } from '../shared/tokens.js'
 import { log, errMsg } from '../log/index.js'
 
 /**
@@ -113,43 +118,12 @@ export interface PrepareResult {
   injectedSummaryFiles: string[]
 }
 
-/**
- * C4（批 3）：按模型的 chars→tokens 实测系数表（P8-①）。
- * 校准来源：`npx tsx scripts/calibrate-tokens.ts` 读事件库 llm/call 的
- * promptMeta.chars × usage.input 成对样本，按模型最小二乘拟合——产出报告后
- * 人工把建议值写进本表并注明测定日期与样本量（低频动作，不做运行时配置）。
- * 匹配规则：模型 id 最长前缀命中（如 'claude-sonnet' 覆盖 'claude-sonnet-4-5'）。
- */
-export const TOKEN_COEFFICIENTS: Record<string, number> = {
-  // 测定日期：尚未实测（2026-08-20 建表）。首次跑校准脚本后填入，形如：
-  // 'claude-sonnet': 0.58, // 2026-08-20，n=1234，r=0.97
-  // R26-106（二十六轮·登记不修）：空表是「待校准」状态而非代码欠账——系数必须来自
-  // 真实语料拟合（无值可填，属登记观察项）；语料收集到位后跑 calibrate-tokens.ts 回填。
-}
-
-/** 全局兜底系数（校准前的既有口径：中文约 0.6 token/字） */
-export const DEFAULT_TOKEN_COEFF = 0.6
-
-// R48-56（四十八轮）：codePointLength 收编 summary.js 单源——原注释「不直接 import
-// summary.ts：其依赖链拖入 AI 编排栈」已失实（本文件 26 行起早已 import summary.js），
-// 双实现纯漂移面；summary.js 侧实现同为非分配码位计数，口径严格一致。
-
-/** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6。
- *  P-7（第十四轮）：长度按 code points 计（非分配计数器）——与 spill/compaction 全库
- *  口径统一；此前 text.length 是 UTF-16 码元，含 emoji/增补平面文本预算估长偏差至多 2 倍。
- *  内存核查（2026-08-25，M-P3-16a）：Array.from(text).length 换 codePointLength——
- *  预算闸每段至少一调，展开数组是 6-10× 瞬态分配，码位语义不变。 */
-export function estimateTokens(text: string, model?: string): number {
-  let coeff = DEFAULT_TOKEN_COEFF
-  if (model) {
-    let best = ''
-    for (const prefix of Object.keys(TOKEN_COEFFICIENTS)) {
-      if (model.startsWith(prefix) && prefix.length > best.length) best = prefix
-    }
-    if (best) coeff = TOKEN_COEFFICIENTS[best]!
-  }
-  return Math.ceil(codePointLength(text) * coeff)
-}
+// ── R0916-7-P3-3（2026-09-16 评审修复批）：token 折算单源迁 shared/tokens.ts ──────
+// 本文件原持 TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件（C4 批 3），
+// 被最底层适配器族 ai/provider/usage-estimate.ts 反向引用（provider→编排层传递依赖，
+// 与 ai 侧回引本模块合围成强连通）。三件随迁 src/shared/tokens.ts 单源，本文件不留
+// re-export 兼容层（全库「不留双轨」口径）：消费方（本文件预算闸 / 适配器族）直引新家。
+// R48-56（四十八轮）的 codePointLength 收编注仍成立——其实现早已在 shared/text.ts。
 
 /**
  * 取正文末尾至多 maxChars 字，按段落边界（`\n\n`）截断，不切半句。

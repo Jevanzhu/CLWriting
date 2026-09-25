@@ -7,7 +7,9 @@
  */
 
 import { splitSentences } from '../../format/sentences.js'
-import { clipByCodePoints, codePointLength } from '../../process/summary.js'
+// R0916-7-P3-3：码点工具直引实现所在模块——原经 process/summary 的 re-export 中转，
+// 该转运边（style-remedy→summary）与 summary→ai/tasks/spec 合围成 ai 侧强连通，剥除
+import { clipByCodePoints, codePointLength } from '../../shared/text.js'
 
 /** 总结体开头词 */
 const SUMMARY_KEYWORDS = ['总之', '综上', '总而言之', '由此可见', '这一切', '如此看来', '说到底']

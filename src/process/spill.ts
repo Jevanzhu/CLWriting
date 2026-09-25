@@ -18,7 +18,9 @@ import { join } from 'node:path'
 import { atomicWriteFile, rmQuietly } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 import { log } from '../log/index.js' // R0912-3：写失败节流 warn 留痕
-import { codePointLength } from './summary.js' // R26-96：非分配码位计数单源复用
+// R26-96：非分配码位计数单源复用；R0916-7-P3-3 直引实现所在模块（原经 ./summary.js
+// re-export 中转，已剥除）
+import { codePointLength } from '../shared/text.js'
 
 export interface SpillThresholds {
   /** 超过该 code point 数才外置（≤ 则原文透传） */

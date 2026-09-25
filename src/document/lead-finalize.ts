@@ -26,7 +26,7 @@ import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, readLeadFromBytes } fro
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
-import { isUtf8Bytes } from './service.js'
+import { isUtf8Bytes } from './service-guards.js'
 import {
   readChapterUpdatesForChapter,
   chapterUpdateSources,

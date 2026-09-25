@@ -8,7 +8,8 @@
  * 分隔符归一 / NFC / resolve，各管线留在调用点）。硬性不变量：锁键派生磁盘真实
  * 锁文件名，键字节与收编前逐位一致（新旧版本进程混跑时锁互斥仍成立）。
  *
- * 可达性：service wiringFileLockKey 为类私有（as unknown as 直调，全仓既有做法）；
+ * 可达性：R0916-7-P3-8 起锁键本体在 DocContext.wiringFileLockKey（svc.ctx 显式 API 直调，
+ * 原「类私有 + as unknown as」形态随剥 private 面收编一并消失）；
  * files.ts wiringLockKeyForPut 与 document manifestLockKey 为模块私有——前者按
  * r38-batch-f.test.ts 消费点静态扫描先例锁定委托；后者走 withManifestLock 重入
  * 行为面锚定（r35-manifest-lock-async 先例：重入键即 manifestLockKey 归一结果）。
@@ -53,24 +54,22 @@ afterEach(() => {
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
 
-/** 类私有方法测试直调形态（全仓既有 as unknown as 先例）。 */
-type SvcWithWiringKey = { wiringFileLockKey(rel: string): string | null }
-
 describe('R45-2: 三侧布线锁同键（win32 钉定）', () => {
   it('同一 rel 下 service / lead-finalize 产出同一锁文件名（字节逐位一致）', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     const root = mkdtempTracked(join(tmpdir(), 'r45-fold-'))
     try {
-      const svc = new DocumentService({ bookRoot: root }) as unknown as SvcWithWiringKey
+      // R0916-7-P3-8：锁键本体迁 DocContext（svc.ctx 显式 API 直调，原 as unknown as 摸类私有面不再需要）
+      const ctx = new DocumentService({ bookRoot: root }).ctx
       const rel = '布线/悬念/0001-线索.md'
-      const svcKey = svc.wiringFileLockKey(rel)
+      const svcKey = ctx.wiringFileLockKey(rel)
       const leadKey = wiringFileLockKeyOf(join(root, rel))
       expect(svcKey).not.toBeNull()
       expect(svcKey).toBe(leadKey)
       // 精确字节钉定：join(root, rel) 小写折叠 + '.lock'（与收编前手写实现逐位一致）
       expect(svcKey).toBe(`${join(root, rel).toLowerCase()}.lock`)
       // 前缀过滤留调用点：非布线文件不加锁（win32 下亦然）
-      expect(svc.wiringFileLockKey('写作/正文/0001-章.md')).toBeNull()
+      expect(ctx.wiringFileLockKey('写作/正文/0001-章.md')).toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -153,7 +152,7 @@ describe('R45-2: 收编面静态扫描（r38-batch-f 消费点扫描先例）', 
   const DELEGATING = [
     'knowledge/manifest.ts',
     'document/manifest.ts',
-    'document/service.ts',
+    'document/doc-context.ts', // R0916-7-P3-8：锁键本体迁 DocContext（扫描随代码走，锚定意图不变）
     'document/lead-finalize.ts',
     'studio/server/api/files.ts',
   ]

@@ -59,7 +59,7 @@ async function makePendingBook(
   writeManifest(mp, m)
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
   const jPath = join(root, '工作区', '.journal', `${docId}.jsonl`)
-  await appendPending(jPath, docId, baseRevision, '崩溃窗内未保存的键入快照')
+  await appendPending(jPath, docId, baseRevision)
   return { root, jPath }
 }
 

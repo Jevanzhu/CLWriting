@@ -6,13 +6,14 @@
  * 端点永不生效、成本报表系统性偏低（注释自认「0 成本是可得最优估计」的取舍，本轮
  * 升级）：以可得信号估计入账，用量结构带 estimated 标记（见 types.ts TokenUsage）。
  *
- * 折算系数与备料输入预算闸同源（src/process/prepare.ts estimateTokens：按模型查
+ * 折算系数与备料输入预算闸同源（src/shared/tokens.ts estimateTokens：按模型查
  * 实测系数表、未命中回落中文 0.6 token/字、码位口径）——不复制第二份系数逻辑，
- * 校准脚本产出新系数后此处自动跟随。依赖方向 src/ai → src/process 与 self-heal
- * 等编排层既有方向一致（process 依赖链不回指 ai/provider，无环）。
+ * 校准脚本产出新系数后此处自动跟随。R0916-7-P3-3：estimateTokens 已自
+ * src/process/prepare.ts 下沉 src/shared/tokens.ts（原 provider→process 反向依赖
+ * 是 ai 侧强连通的一条环边；现适配器族只依赖 shared，不再引编排层）。
  */
 import type { GenRequest } from './types.js'
-import { estimateTokens } from '../../process/prepare.js'
+import { estimateTokens } from '../../shared/tokens.js'
 
 /** ChatMsg 内容 flatten 为纯文本（估算口径：text 原文 + tool 参数 JSON + tool_result 内容） */
 function flattenMsgContent(content: GenRequest['messages'][number]['content']): string {

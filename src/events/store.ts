@@ -393,13 +393,19 @@ export async function openSessionStoreAsync(
 
 /** R34D-19（三十四轮）：首开核心（建库 + DDL + 孤儿修复 + 开口标记 + 登记缓存）——
  *  自 openSessionStore 抽出，同步/异步两个开库壳共用（防两壳各持一份 DDL/修复逻辑
- *  漂移）；调用方须已持 session 迁移锁。
+ *  漂移）；调用方须已持 session 迁移锁，锁释放归开库壳（同步壳/异步壳各自的 finally
+ *  releaseOpenLock）——首开核心自身无锁可放。
  *  WAL 切换退避（SQLITE_BUSY 重试）内的 Atomics.wait 微睡 ≤1.8s 有界保留：首开段
  *  已被迁移锁跨进程串行化，退避仅在他进程**已开库连接**持写锁的窗口触发，且
  *  DatabaseSync 的 DDL 序列是同步共用面不宜双轨化（收口记登记）。
  *  残留清偿批（三十四轮）复核维持：busy_timeout=5000 本身使 db.exec 在 SQLite
  *  内部同步等待——微睡异步化不消除真阻塞源（node:sqlite 无异步 API），双轨化只
- *  增 DDL 漂移面。此为本链同步残留登记中唯一的「不可异步化」架构项。 */
+ *  增 DDL 漂移面。此为本链同步残留登记中唯一的「不可异步化」架构项。
+ *  R0916-7-P3-2（2026-09-25 评审 P3-2）：按职责拆为可命名单元——迁移墓碑
+ *  （clearStaleMigrationTombstone）/ 打开期 PRAGMA 与 WAL（applyOpenPragmas）/
+ *  DDL（createEventsSchema）/ 打开全流程错误收口（openEventsDbWithDdl）/
+ *  预置与修复（repairOrphanSessions + 开口标记续期 + maybeRepairOrphans）/
+ *  方法族按职责分组（createWriteMethods 等四个分组工厂）。对外句柄形状与行为不变。 */
 /** IR-2（独立重评 2026-09-02）：SQLite 库文件损坏类错误判据——node:sqlite 对
  *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
  *  宁可漏判走原样上抛，不误判把 BUSY/IOERR 包装成「损坏」。 */
@@ -410,165 +416,177 @@ function isDbCorruptionError(e: unknown): boolean {
   )
 }
 
-function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
-  let db: DatabaseSync
-  // R71-24：开口标记续期定时器（首开成功后启动；打开期抛错保持 null）
-  let markerTimer: ReturnType<typeof setInterval> | null = null
+/** R67-2（十五轮）：旧路径库文件缺失 + 墓碑在位 = 该库曾随书改名迁走——分两态：
+ *  旧书根目录已不存在（书确实改名迁走，stale 书目录视图的进程迟来首开）且墓碑
+ *  指向的新库还活着 → fail-closed 抛错拒建空库（建空库会让事件流分裂成两半，走
+ *  调用方既有 catch 降级 null）；旧根目录又在（同路径重新建书）或新库也已不存在
+ *  （再迁移/已删书）→ 墓碑过期，清除后放行正常新建。
+ *  R0916-7-P3-2：导出供回归直测（生产唯一调用点在 firstOpenStore 首开头）。 */
+export function clearStaleMigrationTombstone(bookRoot: string, dbPath: string): void {
+  if (existsSync(dbPath) || !existsSync(dbPath + MIGRATED_EXT)) return
+  let to: unknown = null
   try {
-    // R67-2（十五轮）：旧路径库文件缺失 + 墓碑在位 = 该库曾随书改名迁走——分两态：
-    // 旧书根目录已不存在（书确实改名迁走，stale 书目录视图的进程迟来首开）且墓碑
-    // 指向的新库还活着 → fail-closed 抛错拒建空库（建空库会让事件流分裂成两半，走
-    // 调用方既有 catch 降级 null）；旧根目录又在（同路径重新建书）或新库也已不存在
-    // （再迁移/已删书）→ 墓碑过期，清除后放行正常新建。
-    if (!existsSync(dbPath) && existsSync(dbPath + MIGRATED_EXT)) {
-      let to: unknown = null
-      try {
-        to = (JSON.parse(readFileSync(dbPath + MIGRATED_EXT, 'utf-8')) as { to?: unknown }).to
-      } catch {
-        // R41-11（四十一轮）：墓碑不可解析（写中途进程死留下的半截 JSON——写侧已改
-        // atomicWriteFile 杜绝新发，此为存量/外因形态）不当作「无墓碑」清除放行：
-        // 清除后本处按正常缺库重建空库，事件流在新旧两路径分裂（R71-25 要防的正是
-        // 这个）。保留墓碑 + fail-closed 拒建，走调用方既有 catch 降级 null；作者按
-        // 告警人工核对迁移目标（修复墓碑 JSON 或确认旧库确已废弃后手删）。
-        log.error(
-          'events',
-          `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——保留墓碑并拒绝在旧路径重建空库，请人工核对迁移目标（合法形：${'{ to: <新库绝对路径>, at: <毫秒> }'}）`,
-        )
-        throw new Error(`事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`)
-      }
-      if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
-        throw new Error(
-          `事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`,
-        )
-      }
-      try {
-        rmSync(dbPath + MIGRATED_EXT, { force: true })
-      } catch {
-        /* 清除失败维持原样：下次首开再试 */
-      }
-    }
-    mkdirSync(dir, { recursive: true })
-    db = new DatabaseSync(dbPath)
-    // 内存闸（2026-08-24 审计 B3）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——
-    // 此刻尚未登记 openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级
-    // null 继续跑，句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）
-    try {
-      // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
-      // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
-      // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
-      db.exec('PRAGMA busy_timeout = 5000')
-      // R73-48（二十一轮·裁定维持不加深退避）：审查项「8 次退避耗尽仍可抛 SQLITE_BUSY」
-      // ——耗尽即抛是 fail-closed 正确出口，不是缺陷：每轮失败前 busy_timeout 已在
-      // SQLite 内部等待 5s，8 轮 × 5s + 退避 1.8s ≈ 42s 仍抢不到，说明对手是僵死
-      // 写方（SIGSTOP 挂起/磁盘级卡死），再等只会把「打开失败可重试」拖成分钟级假死；
-      // 抛错走调用方既有 catch 降级 null，无数据损伤。维持 8 次 + 线性退避现状。
-      // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
-      // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
-      // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
-      {
-        let lastErr: unknown
-        for (let i = 0; i < 8; i++) {
-          try {
-            db.exec('PRAGMA journal_mode = WAL')
-            lastErr = null
-            break
-          } catch (err) {
-            // IR-2：库损坏是确定性错误，退避重试只会空转 8×（busy_timeout 5s 内部
-            // 等待 + 微睡）——立即上抛走外层分类包装（含可行动指引）
-            if (isDbCorruptionError(err)) throw err
-            lastErr = err
-            const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
-            if (mode === 'wal') {
-              lastErr = null
-              break
-            }
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
-          }
-        }
-        if (lastErr !== null) throw lastErr
-      }
-      db.exec(
-        `CREATE TABLE IF NOT EXISTS events (
-          seq         INTEGER PRIMARY KEY,
-          session_id  TEXT NOT NULL,
-          turn        INTEGER,
-          step        INTEGER,
-          type        TEXT NOT NULL,
-          data        TEXT NOT NULL,
-          surface_op  TEXT,
-          shadow_start INTEGER,
-          shadow_end   INTEGER,
-          source_seqs  TEXT,
-          replace_generation INTEGER NOT NULL DEFAULT 0,
-          created_at   INTEGER NOT NULL
-        )`
-      );
-      db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
-      // ── 0918四轮修复批（B401）：分支元数据检索列 + 部分索引 ──
-      // firstBranchMetaSeq 原 `data LIKE '%"branchId"%' OR LIKE '%"parentSeq"%'` 谓词无
-      // 可用索引，chat-history 真尾窗每次请求全表扫描（node:sqlite 同步 API 直接停在
-      // 事件循环上，翻倍前扩循环里最坏反复全扫）。改 VIRTUAL 生成列（instr 确定性函数，
-      // 读时零存储按行求值）+ 部分索引（只收录携带分支元数据的行，体量 = 分支事件数级，
-      // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_xinfo 判列后 ALTER 补列（幂等，
-      // 首开一次 ALTER O(1) 元操作 + 建索引一次全行扫描），新库建表（上方，无此列）同样
-      // 走到本处补齐——单点单路径防新旧两态 schema 漂移。ALTER 生成列须 SQLite ≥3.31
-      // （node:sqlite 内建版远高于此，见分支 meta 索引回归用例的实证断言）；若未来
-      // node:sqlite 拒绝 ALTER 加生成列，回退方案 = 独立 branch_meta 影子表（本批未采）。
-      {
-        // 判列必须走 table_xinfo——生成列是 hidden 列（hidden=2），table_info 不列出
-        //（误判缺列会让每次重开库都重跑 ALTER 撞 duplicate column）
-        const cols = db.prepare('PRAGMA table_xinfo(events)').all() as Array<{ name: string }>
-        if (!cols.some((c) => c.name === 'has_branch_meta')) {
-          db.exec(
-            `ALTER TABLE events ADD COLUMN has_branch_meta INTEGER GENERATED ALWAYS AS
-             (instr(data, '"branchId"') > 0 OR instr(data, '"parentSeq"') > 0) VIRTUAL`,
-          )
-        }
-      }
-      db.exec('CREATE INDEX IF NOT EXISTS idx_events_branch_meta ON events(session_id, seq) WHERE has_branch_meta = 1')
-      db.exec(
-        `CREATE TABLE IF NOT EXISTS sessions (
-          session_id TEXT PRIMARY KEY,
-          format_version INTEGER NOT NULL DEFAULT 1,
-          book        TEXT NOT NULL,
-          header      TEXT NOT NULL,
-          created_at   INTEGER NOT NULL,
-          updated_at   INTEGER NOT NULL
-        )`
-      );
-
-      repairOrphanSessions(db, activeChatSessions)
-      // R67-2：首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
-      // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。
-      registerOpenMarker(dir, dbPath)
-      // R71-24：起续期定时器——活句柄定期刷标记 mtime；进程挂死/崩溃后停止续期，
-      // 超龄标记在扫描时按 pid 复用残留 GC（见 sweepOpenMarkers）。unref 不阻退出。
-      markerTimer = setInterval(() => touchOpenMarker(dbPath), OPEN_MARKER_RENEW_MS)
-      markerTimer.unref()
-    } catch (e) {
-      try {
-        closeEventsDb(db)
-      } catch {
-        /* best-effort：close 自身失败不再遮蔽原始错误 */
-      }
-      // IR-2（独立重评 2026-09-02）：库文件损坏原样上抛裸 SQLite 码（「file is not
-      // a database」），调用方降级 null 后用户只看到「事件库不可用」无任何可行动
-      // 线索。事件是对话史/审计产品数据，不做静默删库自愈——换含路径与恢复指引的
-      // 人话错误（原始错误挂 cause 保诊断链），经 chat-history 族结构化 500 透传。
-      if (isDbCorruptionError(e)) {
-        throw new Error(
-          `事件库文件损坏（${dbPath}），对话史/审计/链路事件暂不可读。` +
-            `请先备份并移走该文件后重试——应用将重建空库（旧事件记录不会自动恢复）`,
-          { cause: e },
-        )
-      }
-      throw e
-    }
-  } finally {
-    /* R34D-19：锁释放归开库壳（同步壳/异步壳各自的 finally releaseOpenLock）——首开
-       核心自身无锁可放；空 finally 仅保留外层 try 的既有嵌套层级，内层 try/catch
-       负责「打开期抛错先关句柄」（2026-08-24 审计 B3 内存闸）。 */
+    to = (JSON.parse(readFileSync(dbPath + MIGRATED_EXT, 'utf-8')) as { to?: unknown }).to
+  } catch {
+    // R41-11（四十一轮）：墓碑不可解析（写中途进程死留下的半截 JSON——写侧已改
+    // atomicWriteFile 杜绝新发，此为存量/外因形态）不当作「无墓碑」清除放行：
+    // 清除后本处按正常缺库重建空库，事件流在新旧两路径分裂（R71-25 要防的正是
+    // 这个）。保留墓碑 + fail-closed 拒建，走调用方既有 catch 降级 null；作者按
+    // 告警人工核对迁移目标（修复墓碑 JSON 或确认旧库确已废弃后手删）。
+    log.error(
+      'events',
+      `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——保留墓碑并拒绝在旧路径重建空库，请人工核对迁移目标（合法形：${'{ to: <新库绝对路径>, at: <毫秒> }'}）`,
+    )
+    throw new Error(`事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`)
   }
+  if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
+    throw new Error(
+      `事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`,
+    )
+  }
+  try {
+    rmSync(dbPath + MIGRATED_EXT, { force: true })
+  } catch {
+    /* 清除失败维持原样：下次首开再试 */
+  }
+}
+
+/** 打开期 PRAGMA + WAL 切换（须在 DDL 之前）：busy_timeout 必须先于 journal_mode=WAL
+ *  设置——WAL 切换在 journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，
+ *  会立即抛 SQLITE_BUSY（N3 五十九轮三进程并发首开回归在全量并发下偶发红的根因）。
+ *  R0916-7-P3-2：导出供回归直测（生产唯一调用点在 openEventsDbWithDdl 首开段）。 */
+export function applyOpenPragmas(db: DatabaseSync): void {
+  // N3（五十九轮）补：busy_timeout 先设（见上）
+  db.exec('PRAGMA busy_timeout = 5000')
+  // R73-48（二十一轮·裁定维持不加深退避）：审查项「8 次退避耗尽仍可抛 SQLITE_BUSY」
+  // ——耗尽即抛是 fail-closed 正确出口，不是缺陷：每轮失败前 busy_timeout 已在
+  // SQLite 内部等待 5s，8 轮 × 5s + 退避 1.8s ≈ 42s 仍抢不到，说明对手是僵死
+  // 写方（SIGSTOP 挂起/磁盘级卡死），再等只会把「打开失败可重试」拖成分钟级假死；
+  // 抛错走调用方既有 catch 降级 null，无数据损伤。维持 8 次 + 线性退避现状。
+  // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
+  // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
+  // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
+  let lastErr: unknown
+  for (let i = 0; i < 8; i++) {
+    try {
+      db.exec('PRAGMA journal_mode = WAL')
+      lastErr = null
+      break
+    } catch (err) {
+      // IR-2：库损坏是确定性错误，退避重试只会空转 8×（busy_timeout 5s 内部
+      // 等待 + 微睡）——立即上抛走外层分类包装（含可行动指引）
+      if (isDbCorruptionError(err)) throw err
+      lastErr = err
+      const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
+      if (mode === 'wal') {
+        lastErr = null
+        break
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
+    }
+  }
+  if (lastErr !== null) throw lastErr
+}
+
+/** 首开 DDL：events / sessions 建表 + 检索索引 + 分支元数据生成列（0918四轮修复批 B401）。
+ *  R0916-7-P3-2：导出供回归直测（生产唯一调用点在 openEventsDbWithDdl 首开段）。 */
+export function createEventsSchema(db: DatabaseSync): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS events (
+      seq         INTEGER PRIMARY KEY,
+      session_id  TEXT NOT NULL,
+      turn        INTEGER,
+      step        INTEGER,
+      type        TEXT NOT NULL,
+      data        TEXT NOT NULL,
+      surface_op  TEXT,
+      shadow_start INTEGER,
+      shadow_end   INTEGER,
+      source_seqs  TEXT,
+      replace_generation INTEGER NOT NULL DEFAULT 0,
+      created_at   INTEGER NOT NULL
+    )`
+  );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
+  // ── 0918四轮修复批（B401）：分支元数据检索列 + 部分索引 ──
+  // firstBranchMetaSeq 原 `data LIKE '%"branchId"%' OR LIKE '%"parentSeq"%'` 谓词无
+  // 可用索引，chat-history 真尾窗每次请求全表扫描（node:sqlite 同步 API 直接停在
+  // 事件循环上，翻倍前扩循环里最坏反复全扫）。改 VIRTUAL 生成列（instr 确定性函数，
+  // 读时零存储按行求值）+ 部分索引（只收录携带分支元数据的行，体量 = 分支事件数级，
+  // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_xinfo 判列后 ALTER 补列（幂等，
+  // 首开一次 ALTER O(1) 元操作 + 建索引一次全行扫描），新库建表（上方，无此列）同样
+  // 走到本处补齐——单点单路径防新旧两态 schema 漂移。ALTER 生成列须 SQLite ≥3.31
+  // （node:sqlite 内建版远高于此，见分支 meta 索引回归用例的实证断言）；若未来
+  // node:sqlite 拒绝 ALTER 加生成列，回退方案 = 独立 branch_meta 影子表（本批未采）。
+  {
+    // 判列必须走 table_xinfo——生成列是 hidden 列（hidden=2），table_info 不列出
+    //（误判缺列会让每次重开库都重跑 ALTER 撞 duplicate column）
+    const cols = db.prepare('PRAGMA table_xinfo(events)').all() as Array<{ name: string }>
+    if (!cols.some((c) => c.name === 'has_branch_meta')) {
+      db.exec(
+        `ALTER TABLE events ADD COLUMN has_branch_meta INTEGER GENERATED ALWAYS AS
+         (instr(data, '"branchId"') > 0 OR instr(data, '"parentSeq"') > 0) VIRTUAL`,
+      )
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_events_branch_meta ON events(session_id, seq) WHERE has_branch_meta = 1')
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS sessions (
+      session_id TEXT PRIMARY KEY,
+      format_version INTEGER NOT NULL DEFAULT 1,
+      book        TEXT NOT NULL,
+      header      TEXT NOT NULL,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL
+    )`
+  );
+}
+
+/** R34D-19（三十四轮）首开全流程（建目录 + 开库 + PRAGMA/WAL + DDL + 孤儿修复 +
+ *  开口标记登记）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——此刻尚未登记
+ *  openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级 null 继续跑，
+ *  句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）。 */
+function openEventsDbWithDdl(dir: string, dbPath: string): { db: DatabaseSync; markerTimer: ReturnType<typeof setInterval> } {
+  mkdirSync(dir, { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  try {
+    applyOpenPragmas(db)
+    createEventsSchema(db)
+    repairOrphanSessions(db, activeChatSessions)
+    // R67-2：首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
+    // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。
+    registerOpenMarker(dir, dbPath)
+    // R71-24：起续期定时器——活句柄定期刷标记 mtime；进程挂死/崩溃后停止续期，
+    // 超龄标记在扫描时按 pid 复用残留 GC（见 sweepOpenMarkers）。unref 不阻退出。
+    // 打开期抛错则不启动（标记登记在 repair 之后，异常路径无续期定时器可留）。
+    const markerTimer = setInterval(() => touchOpenMarker(dbPath), OPEN_MARKER_RENEW_MS)
+    markerTimer.unref()
+    return { db, markerTimer }
+  } catch (e) {
+    try {
+      closeEventsDb(db)
+    } catch {
+      /* best-effort：close 自身失败不再遮蔽原始错误 */
+    }
+    // IR-2（独立重评 2026-09-02）：库文件损坏原样上抛裸 SQLite 码（「file is not
+    // a database」），调用方降级 null 后用户只看到「事件库不可用」无任何可行动
+    // 线索。事件是对话史/审计产品数据，不做静默删库自愈——换含路径与恢复指引的
+    // 人话错误（原始错误挂 cause 保诊断链），经 chat-history 族结构化 500 透传。
+    if (isDbCorruptionError(e)) {
+      throw new Error(
+        `事件库文件损坏（${dbPath}），对话史/审计/链路事件暂不可读。` +
+          `请先备份并移走该文件后重试——应用将重建空库（旧事件记录不会自动恢复）`,
+        { cause: e },
+      )
+    }
+    throw e
+  }
+}
+
+function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
+  // R0916-7-P3-2：迁移墓碑判定（旧路径拒建空库 / 过期清除）先于建库
+  clearStaleMigrationTombstone(bookRoot, dbPath)
+  const { db, markerTimer } = openEventsDbWithDdl(dir, dbPath)
   // R66-12：登记/挂缓存段不碰库文件（纯内存，轻快）；R51-B-1（五十一轮）注释勘误——
   // 本段实际仍在首开锁内执行（firstOpenStore 全程持 session 迁移锁，锁释放归开库壳
   // finally，openStores.set 在本函数末尾、锁释放前）。原注「留在锁外」与实态相反，
@@ -576,70 +594,98 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
   // 再查 openStores）能命中先到者的前提——若据此「锁外」表述把登记挪到锁外或删双检，
   // 会重开双进程并发首开的重复建库窗口。勿改时序。
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
-  /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
-   *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。
-   *  R53-B-3（五十三轮）：触发点收敛到 createSession——原挂在 createSession/
-   *  appendEvents/appendEventsResolveLineage 三处（每批事件都过 Date.now 闸，TTL
-   *  到期后的那一笔还要先扛完整的分页扫描 + 逐孤儿 BEGIN IMMEDIATE），热路径写放大
-   *  与锁持有面偏大。createSession 是低频用户可见动作（新开一次对话），修复语义
-   *  不变（打开期修一次 + 32 分钟 TTL 惰性续修）；代价：马拉松单会话数小时不新开
-   *  对话时，他进程崩溃残留的补 end 推迟到下次新开对话/重开库——审计收尾本就非
-   *  当前写正确性所系，取舍可接受（如实记档）。 */
-  const maybeRepairOrphans = (): void => {
-    if (Date.now() - entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
-    entry.lastOrphanRepairAt = Date.now()
-    repairOrphanSessions(db, activeChatSessions)
+  const ctx: StoreCtx = { db, dbPath, entry }
+  /** R0916-7-P3-2：方法族按职责分组装配（写入 / 读 / 会话行 / 维护）——分组内的声明
+   *  顺序即对外 Object.keys 顺序（与拆分前的单一字面量逐位一致），勿调整分组次序。 */
+  const store: SessionStore = {
+    dbPath,
+    ...createWriteMethods(ctx),
+    ...createReadMethods(ctx),
+    ...createSessionQueryMethods(ctx),
+    ...createMaintenanceMethods(ctx),
   }
-  /** B2（复审-0914-优化修复批）：listEvents/iterateEvents 的 SQL 装配单源——两方法
-   *  原 2×2 分支（按会话/按书 × 物化/流式）逐字同构，抽出本生成器后两方法只剩
-   *  物化/流式编排差异。查询结果与坏行降级（safeRowToEvent，R65-20）逐位同旧实现；
-   *  label 随调用方传入保告警可归因。唯一文本归一：原 listEvents 无 limit 变体的
-   *  ORDER BY 尾随空格去除（prepared 缓存以 SQL 串为键，键文本稳定即无行为面）。
-   *  cap 语义沿 O-2：仅正有限数生效（向下取整），否则全量。 */
-  function* queryEventRows(
-    book: string,
-    sessionId: string | undefined,
-    cap: number | undefined,
-    type: EventType | undefined,
-    label: 'listEvents' | 'iterateEvents',
-  ): Generator<ChatEvent> {
-    if (sessionId) {
-      const args: Array<string | number> = [sessionId]
-      if (type !== undefined) args.push(type)
-      if (cap !== undefined) args.push(cap)
-      // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
-      // R0916-P3-11（四轮处置批）：iterateEvents 长生命周期生成器改每次新编译语句——
-      // 此前共用缓存语句，重入（外层迭代未完时再开同 SQL 迭代）会令外层迭代器被
-      // node:sqlite 判失效（ERR_INVALID_STATE，实证见 test/events r0916 用例）；
-      // listEvents 在表达式内同步排干生成器、语句生命周期不越出单次调用，保留缓存收益。
-      // streaming 路径的编译成本（µs 级）相对全表扫描可忽略（readAllChunks 同款先例）。
-      const sql = `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
-      const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
-        .iterate(...args) as unknown as Iterable<Row>
-      for (const r of rows) {
-        const ev = safeRowToEvent(r, label)
-        if (ev) yield ev
-      }
-      return
-    }
-    const args: Array<string | number> = [book]
+  entry.store = store
+  openStores.set(dbPath, entry)
+  return store
+}
+
+/** R0916-7-P3-2：store 方法族的公共上下文（连接句柄 + 库路径 + 引用计数条目）。 */
+interface StoreCtx {
+  db: DatabaseSync
+  dbPath: string
+  entry: StoreEntry
+}
+
+/** 预置与修复：写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：
+ *  打开时仍在宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。
+ *  R53-B-3（五十三轮）：触发点收敛到 createSession——原挂在 createSession/
+ *  appendEvents/appendEventsResolveLineage 三处（每批事件都过 Date.now 闸，TTL
+ *  到期后的那一笔还要先扛完整的分页扫描 + 逐孤儿 BEGIN IMMEDIATE），热路径写放大
+ *  与锁持有面偏大。createSession 是低频用户可见动作（新开一次对话），修复语义
+ *  不变（打开期修一次 + 32 分钟 TTL 惰性续修）；代价：马拉松单会话数小时不新开
+ *  对话时，他进程崩溃残留的补 end 推迟到下次新开对话/重开库——审计收尾本就非
+ *  当前写正确性所系，取舍可接受（如实记档）。 */
+function maybeRepairOrphans(ctx: StoreCtx): void {
+  if (Date.now() - ctx.entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
+  ctx.entry.lastOrphanRepairAt = Date.now()
+  repairOrphanSessions(ctx.db, activeChatSessions)
+}
+
+/** 语句准备：B2（复审-0914-优化修复批）：listEvents/iterateEvents 的 SQL 装配单源——
+ *  两方法原 2×2 分支（按会话/按书 × 物化/流式）逐字同构，抽出本生成器后两方法只剩
+ *  物化/流式编排差异。查询结果与坏行降级（safeRowToEvent，R65-20）逐位同旧实现；
+ *  label 随调用方传入保告警可归因。唯一文本归一：原 listEvents 无 limit 变体的
+ *  ORDER BY 尾随空格去除（prepared 缓存以 SQL 串为键，键文本稳定即无行为面）。
+ *  cap 语义沿 O-2：仅正有限数生效（向下取整），否则全量。 */
+function* queryEventRows(
+  ctx: StoreCtx,
+  book: string,
+  sessionId: string | undefined,
+  cap: number | undefined,
+  type: EventType | undefined,
+  label: 'listEvents' | 'iterateEvents',
+): Generator<ChatEvent> {
+  const db = ctx.db
+  if (sessionId) {
+    const args: Array<string | number> = [sessionId]
     if (type !== undefined) args.push(type)
     if (cap !== undefined) args.push(cap)
-    // R0916-P3-11：同上——iterateEvents 新编译、listEvents 走缓存（SQL 单源本处一份）
-    const sql = `SELECT * FROM events
-       WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
-       ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
+    // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
+    // R0916-P3-11（四轮处置批）：iterateEvents 长生命周期生成器改每次新编译语句——
+    // 此前共用缓存语句，重入（外层迭代未完时再开同 SQL 迭代）会令外层迭代器被
+    // node:sqlite 判失效（ERR_INVALID_STATE，实证见 test/events r0916 用例）；
+    // listEvents 在表达式内同步排干生成器、语句生命周期不越出单次调用，保留缓存收益。
+    // streaming 路径的编译成本（µs 级）相对全表扫描可忽略（readAllChunks 同款先例）。
+    const sql = `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
     const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
       .iterate(...args) as unknown as Iterable<Row>
     for (const r of rows) {
       const ev = safeRowToEvent(r, label)
       if (ev) yield ev
     }
+    return
   }
-  const store: SessionStore = {
-    dbPath,
+  const args: Array<string | number> = [book]
+  if (type !== undefined) args.push(type)
+  if (cap !== undefined) args.push(cap)
+  // R0916-P3-11：同上——iterateEvents 新编译、listEvents 走缓存（SQL 单源本处一份）
+  const sql = `SELECT * FROM events
+     WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
+     ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
+  const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
+    .iterate(...args) as unknown as Iterable<Row>
+  for (const r of rows) {
+    const ev = safeRowToEvent(r, label)
+    if (ev) yield ev
+  }
+}
+/** 写入面方法族：会话创建 + 事件批写（R0916-7-P3-2 自巨型对象字面量按职责切出；
+ *  方法体逐字未动，仅把原闭包捕获的 db 改为显式上下文）。 */
+function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' | 'appendEvents' | 'appendEventsResolveLineage'> {
+  const db = ctx.db
+  return {
     createSession(book: string, header?: Record<string, unknown>): string {
-      maybeRepairOrphans()
+      maybeRepairOrphans(ctx)
       const sid = ulid()
       const now = Date.now()
       // R46-42：固定 SQL 走连接级 prepared 缓存（每会话一条，编译一次复用）
@@ -726,6 +772,15 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         return seqs
       })
     },
+  }
+}
+
+/** 读面方法族：全量/尾窗/计数/分支边界/流式读（语句准备见 queryEventRows 单源）。 */
+function createReadMethods(
+  ctx: StoreCtx,
+): Pick<SessionStore, 'listEvents' | 'listEventsTail' | 'countEvents' | 'firstBranchMetaSeq' | 'iterateEvents'> {
+  const db = ctx.db
+  return {
     listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[] {
       // O-2（第十三轮）：limit 可选限量（seq 升序前 N）；投影折叠调用方不传（全量语义不变）
       // 内存闸（2026-08-24 审计 B1）双降：①type 可选 SQL 下推——trace/cost 聚合只取
@@ -735,7 +790,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // B2（复审-0914-优化修复批）：SQL 装配/坏行降级单源 queryEventRows，本方法只承担
       // cap 解析 + 物化数组（R65-20 坏行降级见 safeRowToEvent）。
       const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
-      return [...queryEventRows(book, sessionId, cap, type, 'listEvents')]
+      return [...queryEventRows(ctx, book, sessionId, cap, type, 'listEvents')]
     },
     // ── 0917清库修复批：真尾窗三原语实现（接口处注释为设计正本）──
     listEventsTail(book: string, tail: number): ChatEvent[] {
@@ -786,8 +841,17 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 负责 close（与 listEvents 同约定）；提前 break 时游标随 GC 回收，无悬挂。
       // B2（复审-0914-优化修复批）：SQL 装配/坏行降级单源 queryEventRows，本方法只承担
       // 逐行 yield（不物化）。
-      yield* queryEventRows(book, sessionId, undefined, type, 'iterateEvents')
+      yield* queryEventRows(ctx, book, sessionId, undefined, type, 'iterateEvents')
     },
+  }
+}
+
+/** 会话行面方法族：工作区会话惰性创建 / 最新会话 / 最大 seq / 遮蔽自检数据源。 */
+function createSessionQueryMethods(
+  ctx: StoreCtx,
+): Pick<SessionStore, 'workspaceSession' | 'latestSession' | 'lastSeq' | 'maskSelfCheckData'> {
+  const db = ctx.db
+  return {
     workspaceSession(book: string): string {
       // N3（五十九轮）：SELECT→INSERT 包 BEGIN IMMEDIATE——双进程并行首开同书时，原裸
       // SELECT→INSERT 竞态会分裂两个 ws 会话（链路事件分裂写入两处）。IMMEDIATE 拿写锁
@@ -874,6 +938,13 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       ).all(from, to, ...surfaceTypes) as Array<{ seq: number; type: string; data: string }>
       return { intervals, rows }
     },
+  }
+}
+
+/** 维护面方法族：多 book 键清理 + 引用计数关库。 */
+function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook' | 'clearBooks' | 'close'> {
+  const { db, dbPath, entry } = ctx
+  return {
     clearBook(book: string): void {
       // RB-IF-P2-1：两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
@@ -931,9 +1002,6 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       }
     },
   }
-  entry.store = store
-  openStores.set(dbPath, entry)
-  return store
 }
 
 /**

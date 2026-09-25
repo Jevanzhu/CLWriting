@@ -25,7 +25,7 @@ import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-conte
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
-import { isUtf8Bytes } from '../../../document/service.js' // R34D-18：字节档判定共享（M-5 防线同源口径）
+import { isUtf8Bytes } from '../../../document/service-guards.js' // R34D-18：字节档判定共享（M-5 防线同源口径）；R0916-7-P3-8：转发桥删除，直引正本
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'

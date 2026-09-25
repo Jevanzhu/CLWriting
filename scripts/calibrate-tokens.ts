@@ -8,7 +8,7 @@
  * 读 userData/clwriting/session/*.db 事件库里全部 llm/call 事件的
  * promptMeta.chars × usage.input 成对样本，按模型过原点最小二乘拟合 chars→tokens
  * 系数，输出 markdown 报告（样本量 / 拟合度 / 建议值）。产出后人工把建议值写进
- * src/process/prepare.ts 的 TOKEN_COEFFICIENTS 并注明测定日期——校准是低频动作，
+ * src/shared/tokens.ts 的 TOKEN_COEFFICIENTS 并注明测定日期——校准是低频动作，
  * 不做运行时配置。
  *
  * 零 AI 调用、确定性、只读事件库。

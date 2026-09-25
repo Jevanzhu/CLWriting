@@ -8,10 +8,10 @@
  * 模块级常量六组（READ_CHAPTER_MAX_CHARS/READ_CHAPTER_HEAD_CHARS/
  * READ_CHAPTER_TAIL_CHARS、READ_SKILL_MAX_CHARS、AI_GEN_TOOLS、REWRITE_GATE_TOOLS
  * ——顶层求值常量随族迁此单源，不经 re-export 链外引）。
- * 轮循环主流程残核（runAgentTurns/lastMessageFingerprint/TurnDeps/
- * MAX_AGENT_TURNS/CHAT_TOOL_NAMES）留 turns.ts 并 re-export 本文件
- * waitConfirm/executeChatTool（原既有导出面，消费方 import 零改动）；可见性诊断
- * 缝见 turns-visibility.ts。
+ * 轮循环骨架（runAgentTurns/lastMessageFingerprint/TurnDeps/
+ * MAX_AGENT_TURNS/CHAT_TOOL_NAMES）留 turns.ts、三段实现件在 turns-phases.ts，
+ * 二者 re-export 本文件 waitConfirm/executeChatTool（原既有导出面，消费方 import
+ * 零改动）；可见性诊断缝见 turns-visibility.ts。
  * 依赖方向单向（无环回引）：本文件 import 既有上游出边（provider/tools/check/
  * format/process/log/node 内建 + ../chat.js、./state.js 类型），不 import turns.ts
  * ——残核单向引本文件。

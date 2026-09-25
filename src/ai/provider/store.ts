@@ -17,10 +17,11 @@ import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
 // RC 源码重审 A-7（Opus-5.5 轮）：备份恢复段与写侧共用同一把跨进程写锁——同步非阻塞
 // 占锁原语（loadProviders 是同步函数，不能用异步孪生；见 tryRestoreFromBak 注②）
 import { tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
-// 复审-0914-优化修复批（C1）：写链队列 + 跨进程锁机械收编 ai/calls.ts serializedLockedWrite
-// 单源（R30-3 快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
-// CLI+桌面双进程争用窗口不再冻结事件循环，机制见 calls.ts crossProcessLockedWrite）
-import { serializedLockedWrite } from '../calls.js'
+// 复审-0914-优化修复批（C1）：写链队列 + 跨进程锁机械收编 serializedLockedWrite 单源
+//（R30-3 快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
+// CLI+桌面双进程争用窗口不再冻结事件循环，机制见该文件头注）。R0916-7-P3-3：该原语
+// 迁 src/fs/lock-file.ts——设置域不再经记账模块（ai/calls.ts）借用 fs 锁原语。
+import { serializedLockedWrite } from '../../fs/lock-file.js'
 // W-重评P3（重评-win适配修复批）：写链键折叠单源 writeChainKey——case-only/NFD 路径在
 // win/darwin 折叠同链（linux 原样），双进程争用时同链排队
 import { platformCaseFold } from '../../fs/safe-path.js'
@@ -531,7 +532,8 @@ export function loadProviders(userDataPath: string): ProviderStore {
  * R33-17（三十三轮）现状校正（RC 源码重审 A-7（Opus-5.5 轮）按 tree 实况复校）：锁获取
  * 走 serializedLockedWrite 的快/慢双路——空闲且锁空闲时同步直行（控制流不归还）；
  * 锁被他进程持有时快路转**异步孪生**（acquireCrossProcessLockAsync，setTimeout 轮询，
- * 见 ai/calls.ts crossProcessLockedWrite）并返回在途 promise。故下方排队分支
+ * R0916-7-P3-3 起该机理的实现居 fs/lock-file.ts crossProcessLockedWrite）并返回在途
+ * promise。故下方排队分支
  *（prev 非 undefined）**可达**：在途段未落地期间的新写者按链排队，队列非空窗口 =
  * 他进程持锁窗口。R33-17 原文「全同步串行、排队不可达」只对无争用快路成立，已作废。
  */
@@ -605,11 +607,11 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
  *  排队路径挂 promise then 段）。对外 saveProviders 恒 Promise（R29-2 语义不变）。 */
 function saveProvidersRaw(userDataPath: string, store: ProviderStore): void | Promise<void> {
   // 复审-0914-优化修复批（C1）：快/慢双路、在途入链、cleanup 身份比对、旁挂 warn 防
-  // unhandled rejection 收编 ai/calls.ts serializedLockedWrite 单源（记账侧 serializedWrite
-  // 同构薄壳）。R73-2 串行队列 + R30-3 锁异步化 + R29-2 排队段失败随 promise 上抛语义
-  // 逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；快路同步完成
-  // 返回 undefined，saveProviders 转 Promise.resolve()（R29-2：IO 异常照旧同步上抛，await 侧
-  // try/catch 同样接得住）。
+  // unhandled rejection 收编 serializedLockedWrite 单源（R0916-7-P3-3 起居 fs/lock-file.ts；
+  // 记账侧 serializedWrite 同构薄壳）。R73-2 串行队列 + R30-3 锁异步化 + R29-2 排队段失败
+  // 随 promise 上抛语义逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；
+  // 快路同步完成返回 undefined，saveProviders 转 Promise.resolve()（R29-2：IO 异常照旧同步
+  // 上抛，await 侧 try/catch 同样接得住）。
   // W-重评P3 并合注：链键走 writeChainKey 折叠（case-only/NFD 路径同链排队，win 侧
   // 修复与 C1 收编单源的接合点；__seedProvidersWriteChainForTest 同键口径）。
   const lockPath = join(userDataPath, `${FILE}.lock`)

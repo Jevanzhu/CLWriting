@@ -30,7 +30,8 @@ export function codePointLength(text: string): number {
  *  乱码串。原实现居 process/summary.ts（R-11 十五轮登记销账），六轮重评 C101 下沉
  *  本模块单源：document 层（structure-split/merge 干跑预览）与 process 层共用同一
  *  口径，消除「同仓两处码元截断漏网」（下沉先例 = codePointLength 复审-0914-优化
- *  A2；process/summary.ts re-export 保住既有消费方 import 面不变）。 */
+ *  A2）。R0916-7-P3-3：下沉时留在 process/summary.ts 的 re-export 中转已剥除——
+ *  消费方一律直引本模块（中转层即 ai↔process 的环边来源）。 */
 export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }

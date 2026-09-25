@@ -26,7 +26,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { DocumentService, __setMetaSaveLockTimeoutForTest } from '../../src/document/service.js'
+import { DocumentService } from '../../src/document/service.js'
+// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
+import { __setMetaSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { snapshotBeforeOverwrite } from '../../src/process/draft-pipeline.js'
 import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -132,7 +134,7 @@ test('R76-25: crashedWrite 健康报文以清单路径为首要标识（不再�
   const m = readManifest(mp)
   upsertEntry(m, { id: 'doc_r25', nodeType: 'document', path: '设定/人物.md', parentId: null })
   writeManifest(mp, m)
-  await appendPending(join(bookRoot, '工作区', '.journal', 'doc_r25.jsonl'), 'doc_r25', null, 'lost content')
+  await appendPending(join(bookRoot, '工作区', '.journal', 'doc_r25.jsonl'), 'doc_r25', null)
   const d = await detectState(bookRoot, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return

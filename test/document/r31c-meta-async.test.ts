@@ -16,7 +16,9 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, unlinkSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { DocumentService, __setMetaSaveLockTimeoutForTest, __setWiringSaveLockTimeoutForTest } from '../../src/document/service.js'
+import { DocumentService } from '../../src/document/service.js'
+// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
+import { __setMetaSaveLockTimeoutForTest, __setWiringSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
 import { __setManifestLockTimeoutForTest } from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { readManifest } from '../../src/document/manifest.js'
@@ -110,19 +112,18 @@ describe('R31-19: legacy 收编链异步化', () => {
     mkdirSync(join(bookRoot, '设定', '物品'), { recursive: true })
     writeFileSync(join(bookRoot, rel), '---\n标题: 旧物\n---\n\n说明', 'utf-8')
     const id = legacyId(rel)
-    const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
-    const hit = await target.lookupPathByDocIdAdoptAsync(id)
+    // R0916-7-P3-8：收编链本体迁 DocContext（svc.ctx 显式依赖），不再需要 as unknown as 摸类私有面
+    const hit = await svc.ctx.lookupPathByDocIdAdoptAsync(id)
     expect(hit).toBe(rel)
     // 补登记落盘（异步清单锁通道）
     const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
     expect(m.entries.get(id)?.path).toBe(rel)
     // 幂等：再查直达清单命中
-    const again = await target.lookupPathByDocIdAdoptAsync(id)
+    const again = await svc.ctx.lookupPathByDocIdAdoptAsync(id)
     expect(again).toBe(rel)
   })
 
   it('非 legacy docId miss → null（不触发收编，与同步版口径一致）', async () => {
-    const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
-    expect(await target.lookupPathByDocIdAdoptAsync('doc_not_exist')).toBeNull()
+    expect(await svc.ctx.lookupPathByDocIdAdoptAsync('doc_not_exist')).toBeNull()
   })
 })

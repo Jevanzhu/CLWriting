@@ -24,7 +24,7 @@ import { readManifest, readManifestStrict, upsertEntry, withManifestLockAsync, w
 import { readTrashManifest } from '../document/trash.js'
 import { writeVersion, readGlobalSnapshotPolicy, DEFAULT_VERSION_POLICY, encodeDocDirName } from '../document/version.js'
 import { legacyId } from '../document/stable-id.js'
-import { isUtf8Bytes } from '../document/service.js'
+import { isUtf8Bytes } from '../document/service-guards.js'
 import { invalidateTreeIndexForContent } from '../document/tree.js'
 import { appendAborted, appendPending, appendSettled } from '../document/journal.js'
 import { appendWordsDelta, todayDate } from '../document/words-diary.js'
@@ -235,12 +235,13 @@ export async function saveDraft(
     content = preserveStructureFmIn(absPath, content, diskBytes)
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath, diskBytes)
-    // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——
+    // 步骤 4（对齐 executeSave）：journal pending 先于写盘（只记元数据，防丢字）——
     // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
     // R33D-18（三十三轮）：revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
     //（消除读间 TOCTOU；R27-45/R72-5 先例；P3-7 起读点上提为三路共用）。
+    // R0916-7-P3-8：appendPending 全文实参随形参收窄删除（journal.ts，P3-9 起只记元数据）。
     const currentRev = diskBytes ? (hashBytes(diskBytes) as `sha256:${string}`) : null
-    const opId = await appendPending(journalPath, finalDocId, currentRev, content)
+    const opId = await appendPending(journalPath, finalDocId, currentRev)
     let words: number
     let newRev: `sha256:${string}`
     try {

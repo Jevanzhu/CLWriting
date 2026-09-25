@@ -314,6 +314,9 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
     // 实现同构（代理对合 1 计），漂移风险由两处同注钉住。
     // R0912-2 P3（2026-09-12 全量重评修复批）：内联计数收敛至文件内 codePointLength
     // 单源（同批样章块长过滤引入、与其同口径），算法逐位不变。
+    // R0916-7-P3-3（2026-09-16）：码点口径单源的现址 = src/shared/text.ts（零内部依赖，
+    // 本文件头 import 即该模块）；上两注中「process/summary.ts 的 codePointLength」
+    // 系旧址（该模块的 re-export 中转已剥除），读作 shared/text.ts。
     const sentences = splitSentences(body).filter((s) => {
       const cpLen = codePointLength(s)
       return cpLen >= 10 && cpLen <= 50 && !s.startsWith('#')

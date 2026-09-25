@@ -8,8 +8,9 @@
  */
 import { searchBookAsync } from '../../process/book-search.js'
 // R75-A-P3c（批 A）：命中行截断改用码位口径助手——rewrite.ts 预览切片同款（R64-6 第 4 处
-// 消费方先例），本处为第 5 处
-import { clipByCodePoints } from '../../process/summary.js'
+// 消费方先例），本处为第 5 处；R0916-7-P3-3 直引 shared/text.js（原经 process/summary
+// re-export 中转，环边来源已剥除）
+import { clipByCodePoints } from '../../shared/text.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 export async function bookSearch(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {

@@ -29,11 +29,19 @@ import type {
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
-import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer } from './stream-finalize.js'
+// R0916-7-P3-2：流事件的语义单元（增量/工具累积/终态判决/流尾）——本文件只留骨架
+//（建流 → 逐事件交判定 → 逐条 yield → 400 降级链），单事件语义与顺序不变量见该件头注
+import {
+  createResponsesStreamAccum,
+  applyResponsesStreamEvent,
+  closeStreamAttempt,
+  estimateAttemptUsage,
+  type StreamEventCtx,
+} from './responses-stream.js'
 import { log } from '../../log/index.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
@@ -223,23 +231,6 @@ function toResponsesTool(tool: ToolDef): ResponsesWireTool {
   }
 }
 
-/**
- * Responses usage 线格式 → TokenUsage（R3 缺口 12：细节计量）。
- * M-1：input_tokens **已含** cached_tokens（与 Chat 线 prompt_tokens 同协议语义），
- * 边界处扣减归一成「inputTokens 不含 cache 读」的统一口径（Anthropic 语义），
- * 下游计价/预算四档分计公式对两协议同时成立。
- */
-function toUsage(u: OpenAI.Responses.ResponseUsage | null | undefined): TokenUsage {
-  const cached = u?.input_tokens_details?.cached_tokens
-  const reasoning = u?.output_tokens_details?.reasoning_tokens
-  return {
-    inputTokens: Math.max(0, (u?.input_tokens ?? 0) - (cached ?? 0)),
-    outputTokens: u?.output_tokens ?? 0,
-    ...(cached ? { cacheReadTokens: cached } : {}),
-    ...(reasoning ? { reasoningTokens: reasoning } : {}),
-  }
-}
-
 export function createOpenAIResponsesProvider(
   conf: ProviderConf,
   client?: OpenAI,
@@ -256,8 +247,9 @@ export function createOpenAIResponsesProvider(
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let degraded = false // Z-12：成功建流是否用了降级参数面（fin.isDegraded 闭包读）
       // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
-      // outText / outToolText / terminal 均声明在 attempt 循环内，外层 catch 取不到；由循环内
-      // 逐 attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入）
+      // outText / outToolText / terminal 均在 attempt 循环内（累积态见 responses-stream），
+      // 外层 catch 取不到；由循环内逐 attempt 绑定（每次 attempt 起始重置，防上一 attempt
+      // 的半截累计泄入）
       let errorUsageOf: (() => TokenUsage) | undefined
       // R0917-6-P3-4：流级「是否曾开始消费」——外层 catch 的 usage 上抛门（循环内同名
       // per-attempt 变量每轮重置判降级续跑，本变量只置位不复位）
@@ -274,6 +266,10 @@ export function createOpenAIResponsesProvider(
         resolvedMaxTokens,
         isDegraded: () => degraded,
       })
+      // R0916-7-P3-2：事件判定的外部依赖——本线骨架只做「建流 → 逐事件交判定 → 逐条 yield」，
+      // 单事件语义（增量/累积/终态）在 responses-stream。req 恒传**首发请求**：usage 估计的
+      // input 折算基准，降级 attempt 的请求不参与折算（口径与原实现一致）
+      const ctx: StreamEventCtx = { fin, req, model: conf.model ?? undefined }
 
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
       // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
@@ -296,316 +292,32 @@ export function createOpenAIResponsesProvider(
             // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
             degraded = attempt !== plan.original
 
-            // 分块拼装中的 function call：item_id → { callId, name, args }
-            // （P2 复审：声明在 attempt 循环内每次新建——mid-stream 400 降级续跑时，
-            // 上一 attempt 的半截拼装不得泄入下一 attempt（对齐 openai-adapter 结构））
-            const toolAccum = new Map<string, { callId: string; name: string; args: string }>()
-            // R65-10（总六十五轮）：缺 item_id 的 delta 兜底聚合（与 R65-9 同族）——此前
-            // 并入同一空键会把多个调用的参数串调；改自增兜底键 + FIFO 队列：
-            // output_item.done 按流式序认领队头（Responses 流中项的 added→delta→done
-            // 顺序相邻，队头即当前项），续片归并最近兜底键
-            let idxlessSeq = 0
-            const idxlessQueue: string[] = []
-            // R36-15（三十六轮）：兜底 tool id 流级单调计数——原 `call_${toolAccum.size}`
-            // 随 done 删键非单调（同流两段工具调用 map.size 可同为 1 → 重号，撞历史已有
-            // id 致下轮 tool_result 关联错配）；对齐 openai 线 fallbackToolSeq 口径，
-            // 跨 output_item.done 段不重号
-            let fallbackToolSeq = 0
-            // A-5（二十九轮）：本 attempt 加密推理项计数——gen.ts 对 reasoning_item 是
-            // 覆盖式收集（只留末条），多条时前 N-1 条被丢弃；流尾按计数一次性汇总留痕
-            //（逐条 warn 会刷屏，丢弃必须可感知 → 汇总一条）
-            let reasoningItemCount = 0
-            // R74-1（二十二轮批 A）：产出累计（文本/推理 delta 串联 + tool 参数串）——
-            // completed/incomplete 无 usage 时按此折算估计入账（usage-estimate.ts 同源
-            // 系数，对齐 openai/anthropic 线 R73-1 形态），不再按 0/0 入账（预算闸对
-            // 不回 usage 的 Responses 端点永不生效）
-            const outText: string[] = []
-            const outToolText: string[] = []
-            // R74-1：终止事件无 usage 的估计兜底——input 按请求字符折算；output 按产出
-            // 累计折算，toolAccum 未认领残留（incomplete 截断在途的调用参数）一并并入
-            // （R0916-7-P3-15：折算体收敛进 fin.estimateUsage 单点）
-            const estimateDoneUsage = (): TokenUsage =>
-              fin.estimateUsage({
-                req,
-                model: conf.model ?? undefined,
-                outText,
-                outToolText,
-                pendingToolText: [...toolAccum.values()].map((t) => t.name + t.args),
-              })
-            // R38-8（三十八轮）：空 usage 对象（{} truthy 但无计量字段）等价「无 usage」——
-            // 原判定 `r.usage ? toUsage(r.usage) : estimate` 让 {} 走 toUsage 得 0/0 假计量，
-            // 绕过本线的估计兜底（R74-1），预算闸/成本对非标网关系统性偏低。对齐 openai 线
-            // isRealUsage（R36-14）口径：至少一个计量字段在位才采信，否则走估计（标 estimated）。
-            const usageOrEstimate = (u: OpenAI.Responses.ResponseUsage | null | undefined): TokenUsage => {
-              if (u !== null && u !== undefined && (u.input_tokens !== undefined || u.output_tokens !== undefined)) {
-                return toUsage(u)
-              }
-              return estimateDoneUsage()
-            }
+            // 本 attempt 的流消费状态（分块拼装 / 产出累计 / 终止态），随 attempt 新建
+            const accum = createResponsesStreamAccum()
+            // R0917-6-P3-4：本 attempt 的异常用量估计器绑定——流中 SDK 直接 throw 时异常
+            // 事件无 usage 载荷，走估计折算（与流中 error 事件分支同源口径，标 estimated）
+            errorUsageOf = () => estimateAttemptUsage(accum, ctx)
 
             // ── R1 事件循环：终止事件契约 ──
             // 流必须以 completed / incomplete / failed 之一收尾；无终止事件 = 传输截断。
-            // 网关偏差挂点（缺口 18）：响应侧缺字段时在此入口加 per-family normalize。
-            let terminal: 'completed' | 'incomplete' | 'failed' | 'none' = 'none'
-            let toolYielded = false
-            // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：本 attempt 的异常用量估计器
-            // 绑定（见流级声明处注释）——流中 SDK 直接 throw 时异常事件无 usage 载荷，走
-            // estimateDoneUsage 折算（与 :525 流中 error 事件分支同源口径，标 estimated）
-            errorUsageOf = () => estimateDoneUsage()
-            // 重评-0912-2 P2-2（2026-09-12 全量重评修复批）：text 分支实际产出标记——
-            // R35-18 伪流回填门与 R74-1 计费口径分家。此前两处共用 outText 判「已有正文
-            // delta」，但 reasoning delta 也 push 进 outText（R74-1 计费面，保留不动），
-            // 「reasoning 有流出 + text 全缺 + completed 带 message 全文」的网关形态误跳
-            // 回填（正文永不 yield）且 hasOutput 误判成功（静默丢主产出不报错不重试）。
-            // textYielded 只认 text 分支实际 yield；reasoning-only 流（无 text delta 且
-            // completed 无 message/function_call 项）回归 R1/R26-4「空产出」报错语义。
-            let textYielded = false
+            // 单事件语义（含网关偏差挂点，缺口 18）见 responses-stream；本循环只保证
+            // 「逐事件判定 → 按序 yield → stop 即 return」三步顺序不变。
             for await (const event of stream) {
               consumedAny = true
               streamConsumedAny = true // R0917-6-P3-4：跨 attempt 置位不复位
-              switch (event.type) {
-                case 'response.output_text.delta': {
-                  if (event.delta) {
-                    outText.push(event.delta) // R74-1：产出累计
-                    textYielded = true // 重评-0912-2 P2-2：正文实际 yield 标记（回填门/hasOutput 判据，见声明处注释）
-                    yield { type: 'text', delta: event.delta }
-                  }
-                  break
-                }
-                // 缺口 4：reasoning 增量——reasoning_text.delta（OpenAI/grok 原生文本）
-                // 与 reasoning_summary_text.delta（OpenAI summary）都归一到 reasoning 事件
-                case 'response.reasoning_text.delta':
-                case 'response.reasoning_summary_text.delta': {
-                  if (event.delta) {
-                    outText.push(event.delta) // R74-1：产出累计（推理 token 也是真实计费面，学 openai 线）
-                    yield { type: 'reasoning', delta: event.delta }
-                  }
-                  break
-                }
-                case 'response.function_call_arguments.delta': {
-                  // R65-10：key 决策——有 item_id 原样；缺失时续片归并最近兜底键
-                  //（其 accum 仍在），否则开新自增兜底键入队（供 done 按序认领）
-                  const lastPending = idxlessQueue.length > 0 ? idxlessQueue[idxlessQueue.length - 1]! : undefined
-                  let key: string
-                  if (typeof event.item_id === 'string' && event.item_id !== '') {
-                    key = event.item_id
-                  } else if (lastPending !== undefined && toolAccum.has(lastPending)) {
-                    key = lastPending
-                  } else {
-                    key = `no-item-id-${++idxlessSeq}`
-                    idxlessQueue.push(key)
-                  }
-                  const acc = toolAccum.get(key) ?? { callId: '', name: '', args: '' }
-                  if (event.delta) acc.args += event.delta
-                  toolAccum.set(key, acc)
-                  break
-                }
-                case 'response.output_item.done': {
-                  const item = event.item
-                  if (item.type === 'function_call') {
-                    // P1-S5：done 之前直接 yield tool（probe break-on-done 语义）
-                    const itemId = item.id ?? item.call_id ?? ''
-                    // R65-10：直接键未命中（delta 缺 item_id 走了兜底键）→ FIFO 队列
-                    // 按流式序认领队头
-                    let accKey = itemId
-                    let acc = toolAccum.get(itemId)
-                    if (!acc && idxlessQueue.length > 0) {
-                      accKey = idxlessQueue.shift()!
-                      acc = toolAccum.get(accKey)
-                    }
-                    if (!acc) acc = { callId: '', name: '', args: '' }
-                    // R33D-12（三十三轮）：done 项 call_id/id 双缺（R65-10 只兜了 delta 缺
-                    // item_id 的拼装面）→ 空 callId 回灌历史成 tool_use{id:''}，下轮组装
-                    // function_call_output{call_id:''} 严格网关 400。兜底序号 id 对齐另两线。
-                    // R36-15（三十六轮）：序号流级单调（原 map.size 非单调，同流重号）
-                    acc.callId = item.call_id ?? (itemId || `call_${fallbackToolSeq++}`)
-                    acc.name = item.name
-                    // R38-7（三十八轮）：权威值优先——done 事件携带的 item.arguments 是
-                    // 服务端完整串；原 `acc.args || item.arguments` 让 delta 累计优先，
-                    // 网关 delta 丢片时残缺 JSON 静默回退空对象 {}（工具参数丢失）。
-                    // done 项完整值在位时覆盖累计，缺失才回落累计（旧口径保留面）。
-                    acc.args = item.arguments || acc.args || ''
-                    toolAccum.delete(accKey)
-                    outToolText.push(acc.name + acc.args) // R74-1：tool 参数计入产出累计
-                    let input: unknown
-                    try {
-                      const parsed = acc.args ? JSON.parse(acc.args) : {}
-                      // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：合法 JSON 非对象
-                      //（数字/字符串/数组/布尔——模型偶发裸标量参数形态）同兜 {_raw}——
-                      // 原样透出入库后，跨协议换供方回放 Anthropic 线必 400（input 契约
-                      // 是 object；anthropic-adapter 侧另有归一兜底，此处产源头窄前置）
-                      input =
-                        typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-                          ? parsed
-                          : { _raw: acc.args }
-                    } catch {
-                      input = { _raw: acc.args }
-                    }
-                    toolYielded = true
-                    yield { type: 'tool', id: acc.callId, name: acc.name, input }
-                  } else if (item.type === 'reasoning' && item.encrypted_content) {
-                    // R3（缺口 11 后半）：加密推理项透出（gen 收集入 GenResult → chat 存回）
-                    reasoningItemCount++ // A-5：覆盖前计数（消费侧只留末条）
-                    yield { type: 'reasoning_item', encrypted: item.encrypted_content, ...(item.id ? { itemId: item.id } : {}) }
-                  }
-                  break
-                }
-                case 'response.completed': {
-                  terminal = 'completed'
-                  const r = event.response
-                  // R35-18：伪流式网关（接受 stream 只回终态、delta 事件全缺）——completed
-                  // 的 message item 是唯一产出，回填 text（一次性 yield）使该形态可用；
-                  // 有 text delta 流出时不回填（防重复增量），回填后仍无产出走下方空产出报错不变
-                  // 重评-0912-2 P2-2：门判据由 outText.length === 0 改 !textYielded——outText
-                  // 是 R74-1 计费累计（含 reasoning delta），不能作「已有正文 delta」判据
-                  if (!textYielded) {
-                    const backfill: string[] = []
-                    for (const it of r.output ?? []) {
-                      if (it.type !== 'message') continue
-                      for (const part of it.content ?? []) {
-                        if (part.type === 'output_text' && part.text) backfill.push(part.text)
-                      }
-                    }
-                    if (backfill.length > 0) {
-                      const full = backfill.join('')
-                      outText.push(full) // R74-1：产出累计口径一致
-                      textYielded = true // 重评-0912-2 P2-2：回填即产出，防双回填
-                      yield { type: 'text', delta: full }
-                    }
-                  }
-                  // 五轮重评修复批（C103）：伪流回填对称扩展 function_call 项——伪流网关
-                  // completed.output 只含 function_call（无 output_item.done 流出）时原实现
-                  // 无 tool 事件，hasOutput 因 function_call 在场判 true → 正常 emitDone，
-                  // 工具型调用方拿 input:null 报「产出为空或非对象」。字段形状/兜底与上方
-                  // output_item.done 臂同款（call_id 缺失序号 id、arguments 完整串优先、
-                  // 合法 JSON 非对象/畸形 JSON 同落 {_raw}），R74-1 计费累计同口径；
-                  // 正常流已 yield 过 tool（toolYielded）时不回填（防重复）。
-                  if (!toolYielded) {
-                    for (const it of r.output ?? []) {
-                      if (it.type !== 'function_call') continue
-                      const args = it.arguments || ''
-                      outToolText.push(it.name + args) // R74-1：tool 参数计入产出累计
-                      let input: unknown
-                      try {
-                        const parsed = args ? JSON.parse(args) : {}
-                        input =
-                          typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-                            ? parsed
-                            : { _raw: args }
-                      } catch {
-                        input = { _raw: args }
-                      }
-                      toolYielded = true
-                      yield { type: 'tool', id: it.call_id ?? `call_${fallbackToolSeq++}`, name: it.name, input }
-                    }
-                  }
-                  // R1 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call
-                  // 产出且未 yield 过 tool → 退化完成判错不判成功。判据限定 output item 类型，
-                  // probe（「回复OK」）与结构化产出（message item）不受影响。
-                  // R26-4（二十六轮）：补本流已实际流出内容判据——网关省略 completed 的
-                  // output 数组（响应缺字段形态，文件头缺口 18 自认）但 delta 已流出正文时，
-                  // 原判据误判「空产出」且 retryable:false 不重试，token 白烧。
-                  // 重评-0912-2 P2-2：正文面判据由 outText.length > 0 改 textYielded——
-                  // outText 含 reasoning delta（R74-1 计费面），不再作产出判据；
-                  // reasoning-only 流（无 text delta 且无 message/function_call 项）
-                  // 回归 R1/R26-4「空产出」报错，不再静默判成功。
-                  const hasOutput =
-                    toolYielded || textYielded || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
-                  if (!hasOutput) {
-                    // R34D-8（三十四轮）：空产出 error 同款随错上抛 usage（R32-2 口径——
-                    // 同文件另四条错误路径均已带）：上游 r.usage 在手即真值，否则走紧邻
-                    // R74-1 估计入账兜底（R0916-7-P3-15：错误壳走 fin.terminalError 单点）
-                    yield fin.terminalError('模型返回空产出（Responses completed 无内容项）', usageOrEstimate(r.usage))
-                    return
-                  }
-                  // R74-1：completed 无 usage（网关不回 usage）→ 估计入账兜底，
-                  // estimated 标记估计口径（修复前 toUsage(null) 恒 0/0 入账）
-                  const ev = fin.done(usageOrEstimate(r.usage), toolYielded ? 'tool_use' : 'stop')
-                  if (ev) yield ev
-                  break
-                }
-                case 'response.incomplete': {
-                  terminal = 'incomplete'
-                  const r = event.response
-                  const reason = r.incomplete_details?.reason
-                  if (reason === 'max_output_tokens') {
-                    // R74-1：incomplete 同款估计兜底（截断场景网关更常缺 usage）
-                    const ev = fin.done(usageOrEstimate(r.usage), 'max_tokens')
-                    if (ev) yield ev
-                  } else {
-                    // R1（缺口 2）：content_filter 等其他截断原因不得伪装成正常 stop
-                    // R32-2（三十二轮）：随错上抛已发生消耗（R31-1 openai 线同口径）——
-                    // r.usage 在手即真值，否则 estimateDoneUsage 折算（标 estimated）
-                    yield fin.terminalError(`响应不完整：${reason ?? 'unknown'}`, usageOrEstimate(r.usage))
-                    return
-                  }
-                  break
-                }
-                case 'response.failed': {
-                  // 重审-批2-1（2026-09-07 全量代码重审 §四P3/§六批2）：completed 已
-                  // emitDone 后网关仍补发 failed/error（个别网关流尾抖动形态）——原实现
-                  // 照常 yield 终态失败，整回合成功产出被判失败。R0912-3（2026-09-12
-                  // 全量重评修复批 #4）：守卫放宽为 terminal!=='none'——incomplete
-                  // (max_tokens) 同样已 emitDone（能续走流的终态事件必然已发 done），
-                  // 流尾 failed/error 一律忽略，done 已发的回合不被翻转。
-                  if (terminal !== 'none') break
-                  terminal = 'failed'
-                  // R30-9（三十轮）登记维持：流中 failed/error 事件恒 retryable:false，与
-                  // 另两线（HTTP status → 决策表）不对称系有意保守——流中事件缺 HTTP
-                  // status，无法可靠判可重试；保守终态防半截流反复重试成风暴。不修。
-                  // R1（缺口 1）：failed → error 不发 done（此前落穿被流结束兜底伪装成
-                  // done{stop, 0/0}）；message 脱敏后带上。
-                  // code：流中 failed 属协议层异常，无 HTTP status 可归因 → 与 toErrorEvent
-                  // 兜底同码 'PROTOCOL'（vendor 的 response.error.code 是自由字符串，无
-                  // GenErrorCode 映射表，不猜）
-                  const msg = event.response.error?.message ?? `response.failed (status=${event.response.status ?? 'unknown'})`
-                  // R32-2（三十二轮）：failed 同款随错上抛 usage（R31-1 口径，B-12 通道）
-                  // R0916-7-P3-15：错误壳走 fin.terminalError 单点
-                  yield fin.terminalError(redactSecret(msg), usageOrEstimate(event.response.usage), 'PROTOCOL')
-                  return
-                }
-                case 'error': {
-                  // SDK 流中错误事件（网关 mid-stream error）——同 failed 处理，code 同上
-                  // 重审-批2-1：同 response.failed——terminal 已置（done 已发）时忽略，
-                  // R0912-3：守卫同款放宽含 incomplete（见 response.failed 分支注）
-                  if (terminal !== 'none') break
-                  terminal = 'failed'
-                  // R32-2：error 事件无 response 载荷，usage 走估计兜底（标 estimated）
-                  yield fin.terminalError(redactSecret(event.message ?? '流中错误事件'), estimateDoneUsage(), 'PROTOCOL')
-                  return
-                }
-              }
+              const step = applyResponsesStreamEvent(accum, event, ctx)
+              for (const ev of step.events) yield ev
+              if (step.stop) return
             }
 
-            // 循环后兜底改写（R1 缺口 3，R48-30（四十八轮）订正）：删除「无 completed
-            // 兜底发 done{0/0,stop}」——无终止事件 = 传输截断，报错不发 done。
-            // R32-2（三十二轮）：截断兜底 error 的 usage 在 toolAccum clear 之前
-            // 估计（残留调用参数一并计入产出，clear 后再估就丢了）
-            const truncUsage = terminal === 'none' ? estimateDoneUsage() : null
-            // R39-13（三十九轮）：done 之后不再 flush 残留 tool——completed/incomplete 已
-            // done（fin 幂等门），网关某 function_call 只发 delta 未发 output_item.done
-            // 时原逻辑会在 done 之后补发 tool 事件（事件序畸形，违反「done 收尾」契约；
-            // gen 侧按类型收集会把 post-done tool 混入 toolCalls 且 stopReason 已定为
-            // 'stop'）。openai 线同位 flush 只在未 done 分支执行（openai-adapter.ts），三线
-            // 对齐。
-            // R48-30（四十八轮）：截断路径原「残留 flush」循环删除——物理不可达：
-            // toolAccum 条目的 name 只在 output_item.done 分支赋值（该分支随即 delete
-            // 条目），循环后残留条目的 name 恒为 ''，原 `if (!t.name) continue` 全部
-            // 跳过。即截断（terminal==='none'，必然未 done）时未到 done 的调用不交出，
-            // 其参数仅经 truncUsage（上方已按 clear 前时点估计）计入产出——如实记档
-            // 替代原「有 name 才构成完整调用」的失实承诺。
-            toolAccum.clear()
+            // 流尾收尾（R32-2/R48-30/R39-13）：截断壳在残留清理前估算，清理后按计数留痕
+            const tail = closeStreamAttempt(accum, ctx)
             // A-5（二十九轮）：多条加密推理项 → 流尾一次性汇总留痕丢弃条数
             //（GenResult.reasoningEncrypted 覆盖式只留末条，前 N-1 条不再无感消失）
-            if (reasoningItemCount > 1) {
-              log.warn('responses', `单回合收到 ${reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${reasoningItemCount - 1} 条，chat 回传推理状态以末条为准）`)
+            if (tail.discardedReasoningItems > 0) {
+              log.warn('responses', `单回合收到 ${accum.reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${tail.discardedReasoningItems} 条，chat 回传推理状态以末条为准）`)
             }
-            if (terminal === 'none') {
-              // R32-2：无终止事件截断同款随错上抛估计 usage（R31-1 口径）
-              //（R0916-7-P3-15：截断壳走 fin.truncatedError 单点；terminal==='none' 时
-              //  truncUsage 必非 null，见上行三元）
-              yield fin.truncatedError(truncUsage!)
-            }
+            for (const ev of tail.events) yield ev
             return
           } catch (e) {
             if (!consumedAny && isMidChain400(e, OpenAI.APIError, attempt, plan)) {

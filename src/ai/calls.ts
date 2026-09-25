@@ -16,13 +16,14 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-// R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（SSE/全部接口所在的
-// 服务进程）在双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
-import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../fs/cross-process-lock.js'
+// R0916-7-P3-3：写链队列 + 跨进程锁的写段原语迁 src/fs/lock-file.ts——记账模块不再
+// 承载 fs 锁原语（provider/store.ts 与设置域改为直引 fs 层，不经记账模块借用）；
+// R30-3（三十轮）的锁等待异步孪生语义随实现整体迁至该文件（本文件只留记账职责）
+import { serializedLockedWrite } from '../fs/lock-file.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
-import { errMsg, log } from '../log/index.js'
+import { log } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
 /** chapter 块（预算闸专用） */
@@ -257,8 +258,8 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 修复批 #3）现状再校正：R33-17 时点 J7 锁获取还是 Atomics.wait 同步阻塞，「排队为
 // 微任务」分支确不可达，排队代码按「未来异步化接管面」保留；R30-3 锁等待改异步轮询
 // 后，锁被占时 writeWithCrossProcessLock 返回在途 Promise 并紧随 writeChains.set
-//（见 serializedLockedWrite 快路段，复审-0914-优化修复批 C1 单源移位）——排队分支已在役
-//（保调用序 = 落盘序），非保留代码。
+//（见 fs/lock-file.ts 的 serializedLockedWrite 快路段，复审-0914-优化修复批 C1 单源移位；
+//  R0916-7-P3-3 起该原语居其新家）——排队分支已在役（保调用序 = 落盘序），非保留代码。
 const writeChains = new Map<string, Promise<unknown>>()
 
 /** Y-1（第五十七轮）：当前是否处于某次记账写段（writeWithCrossProcessLock 的 doWrite）
@@ -277,11 +278,11 @@ export const AI_CALLS_MUTEX_SCOPE_NOTE =
   'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
 
 /** 读改写互斥队列（per-bookRoot）薄壳。返回 undefined = 已同步完成（本侧历史口径：
- *  在途段也返回 undefined，调用方拿不到 promise——失败由 serializedLockedWrite 旁挂
- *  warn 留痕；readRecord N-10 迁移写的 inflight 兜底分支在此口径下不可达，保留作
- *  未来异步化返回面）。复审-0914-优化修复批（C1）：快/慢双路、在途入链、cleanup
- *  身份比对、旁挂 warn 防未处理 rejection 全部收编 serializedLockedWrite 单源
- *  （provider/store.ts saveProviders 同构薄壳），机制语义逐位不变。 */
+ *  在途段也返回 undefined，调用方拿不到 promise——失败由 fs/lock-file.ts 的
+ *  serializedLockedWrite 旁挂 warn 留痕；readRecord N-10 迁移写的 inflight 兜底分支
+ *  在此口径下不可达，保留作未来异步化返回面）。复审-0914-优化修复批（C1）：快/慢双路、
+ *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部收编 serializedLockedWrite
+ *  单源（provider/store.ts saveProviders 同构薄壳），机制语义逐位不变。 */
 function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
   return serializedLockedWrite(writeChains, bookRoot, lockPath, doWrite, {
@@ -308,133 +309,10 @@ export const AI_CALLS_LOCK_TIMEOUT_MS = 5_000
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
 export const [getAiCallsLockTimeoutMs, __setAiCallsLockTimeoutForTest] = testableConst(AI_CALLS_LOCK_TIMEOUT_MS)
 
-/** 复审-0914-优化修复批（C1）：写链队列机制单源——本文件 serializedWrite 与
- *  provider/store.ts saveProviders 的同构「writeChains Map → 快路锁内直行 → 在途
- *  promise 入链 → cleanup 身份比对删 → 旁挂 warn 防 unhandled rejection」段收编于此
- *  （R-5 串行队列 / J7 跨进程真锁 / R30-3 锁等待异步化 / R73-2 providers 侧收口 /
- *  R61-7 旁挂留痕的沿革语义逐位不变，只收机械重复）。chains/键由调用方持有
- *  （两域各自独立链互不阻塞；store 侧测试钩子 __seedProvidersWriteChainForTest
- *  直写其 Map，收编后照旧生效）。 */
-export interface SerializedLockedWriteOpts {
-  /** 旁挂 warn 的 log tag */
-  warnTag: string
-  /** 快路在途段失败 warn 文案（已接 errMsg 的 message） */
-  fastWarn: (msg: string) => string
-  /** 排队段失败 warn 文案 */
-  queuedWarn: (msg: string) => string
-  /** 锁等待超时毫秒（getter：calls 侧经注入钩子读内部生效值，排队段执行时点取值口径不变）
-   *  与超时错误文案（已带 lockPath 插值） */
-  lockTimeoutMs: () => number
-  lockTimeoutMsg: string
-  /** 写段重入标志（calls 记账侧 inWriteSegment——doWrite 同步执行段两侧置/清；缺省无标志） */
-  segmentFlag?: (on: boolean) => void
-  /** 在途/排队 promise 是否随返回值交给调用方：providers 侧 true（R29-2：失败随 promise
-   *  上抛，不吞）；calls 侧 false（历史口径恒 undefined，失败由旁挂 warn 承担） */
-  returnInflight: boolean
-}
-
-export function serializedLockedWrite(
-  chains: Map<string, Promise<unknown>>,
-  key: string,
-  lockPath: string,
-  doWrite: () => void,
-  opts: SerializedLockedWriteOpts,
-): void | Promise<void> {
-  const lockedWrite = (): void | Promise<void> =>
-    crossProcessLockedWrite(lockPath, doWrite, {
-      lockTimeoutMs: opts.lockTimeoutMs,
-      lockTimeoutMsg: opts.lockTimeoutMsg,
-      segmentFlag: opts.segmentFlag,
-    })
-  const prev = chains.get(key)
-  if (prev === undefined) {
-    // 空闲快路：无争用时同步原子完成（跨进程锁内执行——整段互斥，多进程同写不再交错
-    // 覆盖；同步错误同步上抛，既有同步 try/catch 口径不变）。锁被占时
-    // crossProcessLockedWrite 返回在途 promise（异步轮询等待）——此处临时入链让后续
-    // 写者排队其后（保调用序 = 落盘序）。
-    const r = lockedWrite()
-    if (r === undefined) return
-    chains.set(key, r)
-    const cleanupInflight = (): void => {
-      if (chains.get(key) === r) chains.delete(key)
-    }
-    // R61-7（第六十一轮）口径沿用：在途写段失败旁挂 warn 留痕（少记一次可从日志发现）；
-    // 旁挂 rejection handler 同时向运行时标记「已处理」，防 unhandled rejection
-    void r.then(cleanupInflight, (e: unknown) => {
-      log.warn(opts.warnTag, opts.fastWarn(errMsg(e)))
-      cleanupInflight()
-    })
-    return opts.returnInflight ? r : undefined
-  }
-  const next = prev.catch(() => {}).then(() => lockedWrite())
-  chains.set(key, next)
-  const cleanup = (): void => {
-    if (chains.get(key) === next) chains.delete(key)
-  }
-  // R61-7（第六十一轮）：排队写段失败留痕对齐 runner recordUsageSafe 口径（旁挂分支只
-  // 留痕 + 清链，是否吞拒绝由 returnInflight 定——providers 侧随返回 promise 上抛）
-  void next.then(cleanup, (e: unknown) => {
-    log.warn(opts.warnTag, opts.queuedWarn(errMsg(e)))
-    cleanup()
-  })
-  return opts.returnInflight ? next : undefined
-}
-
-/** C1 单源底层：单次「跨进程锁内同步/异步执行写段」——无争用快路同步持锁直行
- *  （tryAcquire 即得，写段为文件 IO 级毫秒，同步原子完成后返回 undefined）；锁被占时
- *  改用 acquireCrossProcessLockAsync 异步轮询等待（setTimeout 微睡、事件循环不阻塞，
- *  R30-3：CLI+桌面双进程争用时承载 SSE/全部接口的服务进程不再被 Atomics.wait 同步微睡
- *  冻结至超时）。同步/异步获取对同一把锁互通互斥（fs/cross-process-lock.ts 同源
- *  tryAcquireCrossProcessLock）。返回 undefined = 已同步完成（含同步抛错）；Promise =
- *  在途写段（超时/写失败以 rejection 表达，由 serializedLockedWrite 旁挂留痕/上抛）。
- *  segmentFlag 在 doWrite 同步执行段两侧置/清——等待期（false）与执行段（true）对
- *  readRecord 的可观测口径与旧实现一致。
- *
- * 重审-05（2026-09-07 全量代码重审 §四P3/§六批2）记档（原 writeWithCrossProcessLock 注，
- * 随 C1 单源移位，两调用方同受）：快路 doWrite 为全同步写段（load→mutate→writeRecord，
- * atomicWriteFile 默认 fsync=true：文件内容 + 父目录两次 fsync）——慢盘/网络盘（SMB/NAS
- * 挂载）上单次毫秒~百毫秒级阻塞事件循环，承载 SSE 与全部接口的 studio 服务进程同步冻结，
- * 是**已知代价的既定取舍**，不按 bug 处理。权衡理由：①「记完即读」——recordTaskUsage/
- * recordAiCall 返回即账已落盘，checkAiCallBudget 的锁内快照读（self-heal 首稿/重写两道闸）
- * 与 review.ts effectiveRemainingCalls 等 A 域外读方无需任何等待协议就能读到刚记的账；
- * ②同步错误同步上抛——rag recordEmbedUsage / runner recordUsageSafe 的既有同步 try/catch
- * 降级口径零改动。未来异步化的前置条件（满足前不动）：a. 盘点「记完即读」消费者清单并
- * 逐一确认无「写返回后立即读必须见新值」依赖（或改等待句柄/版本号协议）；b. 全部写方
- * （recordTaskUsage / recordAiCall / readRecord 锁内迁移写）统一改返回 Promise 并上溯改造
- * runner/rag/self-heal 调用链的同步 catch 口径；c. R33-17 曾保留、R30-3 起已在役的
- * writeChains 排队代码即现成接管面。 */
-function crossProcessLockedWrite(
-  lockPath: string,
-  doWrite: () => void,
-  opts: { lockTimeoutMs: () => number; lockTimeoutMsg: string; segmentFlag?: (on: boolean) => void },
-): void | Promise<void> {
-  const fast = tryAcquireCrossProcessLock(lockPath)
-  if (fast) {
-    try {
-      opts.segmentFlag?.(true)
-      doWrite()
-      return
-    } finally {
-      opts.segmentFlag?.(false)
-      fast()
-    }
-  }
-  // R43-5（四十三轮）：消费点改读内部生效值（导出常量只是默认档；getter 在等待发起
-  // 时点取值，与原实现读 aiCallsLockTimeoutMs 的时点一致）
-  return acquireCrossProcessLockAsync(lockPath, opts.lockTimeoutMs()).then((release) => {
-    if (!release) {
-      throw new Error(opts.lockTimeoutMsg)
-    }
-    try {
-      opts.segmentFlag?.(true)
-      doWrite()
-    } finally {
-      opts.segmentFlag?.(false)
-      release()
-    }
-  })
-}
-
+// ── R0916-7-P3-3：写链队列 + 跨进程锁的写段原语已迁 src/fs/lock-file.ts ─────────
+// serializedLockedWrite / crossProcessLockedWrite（复审-0914-优化修复批 C1 单源）原定义
+// 于此，被 provider/store.ts 借用（记账模块被动承载 fs 锁职责）；现由两域各自直引
+// fs 层，本文件只留记账职责（预算判定 / 用量累计 / 落盘读写）。
 /** 预算判定（D3 批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示
  *  （三条出路在文档 §五）；损坏 → 保守阻断（V-P2-10）。
  *  - tokens 口径 = input+output+cacheRead+cacheWrite 全口径累计（长上下文章正是拦截对象）；

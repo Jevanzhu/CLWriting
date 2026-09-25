@@ -17,10 +17,9 @@ import { rmSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  DocumentService,
-  __setStructSaveLockTimeoutForTest,
-} from '../../src/document/service.js'
+import { DocumentService } from '../../src/document/service.js'
+// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
+import { __setStructSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 

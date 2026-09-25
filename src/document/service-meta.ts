@@ -10,49 +10,43 @@
  *   - rollbackMetaOnRenameFail：rename 失败回写旧 fm（M-2）；
  *   - syncRenamePieceList：短篇正文改名后章纲同名跟随（N-7/R37-13）；
  *   - updateDocMetaLocked：通用 fm PATCH 锁内本体（卷纲/总纲，不联动文件名）。
- * 原 private 方法降为模块级自由函数、首参 `svc: MetaHost` 宿主；仅跨模块消费的
- * 两个入口函数加 export，模块私有件（rollbackMetaOnRenameFail/syncRenamePieceList
- * 仅本文件消费）保持非导出。注释全部原样随迁；锁序（save → 布线 → 清单/journal）、
- * revision 链、journal 落账、错误信封逐字节保持。
+ * 原 private 方法降为模块级自由函数、首参为显式依赖；R0916-7-P3-8 起该首参由
+ * 「MetaHost 结构化宿主（DocumentService 实例）」改为 `ctx: DocContext`——共享设施
+ * 不再从类实例上摸（原形态要求 service.ts 剥 private + 标 @internal 且与宿主双向耦合，
+ * 见源码质量评审 P3-8）；move/rename 本体亦迁 service-move.ts，本文件单向引入。
+ * 仅跨模块消费的两个入口函数加 export，模块私有件（rollbackMetaOnRenameFail/
+ * syncRenamePieceList 仅本文件消费）保持非导出。注释全部原样随迁；锁序（save → 布线 →
+ * 清单/journal）、revision 链、journal 落账、错误信封逐字节保持。
  *
- * 非纯移动差异账本（全部为行为等价的形状改写，剥前缀/缩进后逻辑行零增删，
- * 多重集机检锚定）：
- * 1) 宿主参数化：四函数新增首参 `svc: MetaHost`；函数体内 `this.X`（X ∈ bookRoot/
+ * 非纯移动差异账本（全部为行为等价的形状改写，剥前缀/缩进后逻辑行零增删）：
+ * 1) 依赖参数化：四函数首参 `ctx: DocContext`；函数体内 `ctx.X`（X ∈ bookRoot/
  *    journalDir/snapshotsDir/manifestPath/lookupPathByDocIdAdoptAsync/resolveSafePath/
- *    withSaveLocks/snapshotPolicy/doMoveOrRename）逐处改写 `svc.X`。MetaHost 接口
- *    （本文件）列实读所得本族实际消费的成员与方法；DocumentService 经结构化类型
- *    隐式满足（不写 implements），对 service.ts 零运行时耦合。
+ *    withSaveLocks/snapshotPolicy）逐处改写 `ctx.X`，`doMoveOrRename(ctx, ...)` 改直调
+ *    service-move.ts 的 doMoveOrRename(ctx, ...)；journal 路径改经 ctx.journalPathOf
+ *    单源。不再需要宿主接口与剥 private 面（MetaHost 接口随本批删除）。
  * 2) 兄弟调用降级：updateChapterMetaLocked 内 `this.syncRenamePieceList(...)` 与
- *    `this.rollbackMetaOnRenameFail(...)`（3 个调用点）改为同模块自由函数直调、
- *    首参补传 svc。
- * 3) 成员放宽（service.ts 侧逐处记档）：bookRoot/journalDir/snapshotsDir/manifestPath
- *    四字段与 lookupPathByDocIdAdoptAsync/resolveSafePath/snapshotPolicy/withSaveLocks/
- *    doMoveOrRename 五方法剥 `private`（各带 `@internal —— 缝C` 注记），供 MetaHost
- *    结构化消费；被放宽成员的初始化/方法体逐字节零触碰。未被本族消费的私有成员
- *   （queue/userDataPath/docWordsCache/globalPolicyCache 等）保持 private 不放宽。
- * 4) 调用点接线：公开入口 updateChapterMeta/updateDocMeta 原位保持于 service.ts 类体
- *   （chainDocMetaOp 串行链不变），回调内 `this.updateXxxMetaLocked(docId, meta)` 改为
- *    自由函数 `updateXxxMetaLocked(this, docId, meta)`（2 个调用点）；service.ts 随族
- *    收缩 14 个转为未用的 import 名（正本 import 移本文件）。
+ *    `this.rollbackMetaOnRenameFail(...)`（3 个调用点）为同模块自由函数直调、首参补传 ctx。
+ * 3) 调用点接线：公开入口 updateChapterMeta/updateDocMeta 原位保持于 service.ts 类体
+ *   （chainDocMetaOp 串行链不变），回调内改为 `updateXxxMetaLocked(this.ctx, docId, meta)`。
  *
- * per-实例状态口径：metaOpChains Map（R31-20 同 docId meta 串行链）是每服务实例
- * 状态，留 service.ts 类体单源（chainDocMetaOp 队列基建小件随留残核），未随族迁移、
- * 严禁提为模块级单例（多服务实例会跨实例串态）。本文件模块顶层零求值常量、零
- * 可变模块态。
+ * per-实例状态口径：metaOpChains Map（R31-20 同 docId meta 串行链）现由 ctx
+ * （DocContext.chainDocMetaOp）持有——身份仍是「每服务实例一份」，严禁提为模块级单例
+ * （多服务实例会跨实例串态）。本文件模块顶层零求值常量、零可变模块态。
  *
  * 依赖方向：本文件对 service.ts 仅 `import type { MoveResult }`（verbatimModuleSyntax
- * 下编译期擦除，运行时零回边、无环）；service.ts 单向 import 本文件两个入口函数。
- * 其余出边（fs/format/log 与 document 叶子件）与原 service.ts 同集，G5 只出不进。
+ * 下编译期擦除，运行时零回边、无环）；运行时依赖只有 doc-context.ts（共享设施）与
+ * service-move.ts（rename 委托），单向引入。其余出边（fs/format/log 与 document
+ * 叶子件）与原 service.ts 同集，G5 只出不进。
  */
 
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname } from 'node:path'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { errMsg, log } from '../log/index.js'
 import { computeRevisionBytes } from './revision.js'
 import { layoutOf } from './layout.js'
 import { appendAborted, appendPending, appendSettled } from './journal.js'
-import { encodeDocDirName, writeVersion, type VersionPolicy } from './version.js'
+import { writeVersion } from './version.js'
 import { readManifestStrict, type Manifest } from './manifest.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf, isFmWritableValue } from '../format/frontmatter.js'
@@ -60,58 +54,24 @@ import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle, chapterNoFromName } from '../format/filename.js'
 import { isUtf8Bytes, NON_UTF8_REJECT, getMetaSaveLockTimeoutMs, getWiringSaveLockTimeoutMs } from './service-guards.js'
 import { isPieceBody, isSamePhysicalFile, normalizeChapterNo, chapterTitleSegment } from './service-helpers.js'
-// 依赖方向纪律：对残核仅 import type（编译期擦除，运行时零回边、无环）
+import { doMoveOrRename } from './service-move.js'
+import type { DocContext } from './doc-context.js'
+// 依赖方向纪律：对公共入口模块仅 import type（编译期擦除，运行时零回边、无环）
 import type { MoveResult } from './service.js'
 
-/** 宿主面（缝C 参数化，R0916-5j）：meta 族自由函数对 DocumentService 的实际消费面
- *  （实读盘点，最小集）。DocumentService 经结构化类型隐式满足本接口（不写 implements、
- *  无运行时耦合）；各成员在 service.ts 侧逐处剥 `private`（带 @internal 注记），
- *  本体零触碰。 */
-export interface MetaHost {
-  /** 书仓库根（绝对路径）。 */
-  readonly bookRoot: string
-  /** journal 目录（<bookRoot>/工作区/.journal）。 */
-  readonly journalDir: string
-  /** 版本快照目录（<bookRoot>/工作区/.版本）。 */
-  readonly snapshotsDir: string
-  /** 文档清单路径（<bookRoot>/项目/文档清单.jsonl）。 */
-  readonly manifestPath: string
-  /** docId → 登记路径（含 legacy 收编链；strict 读，失败上抛由调用方信封收口）。 */
-  lookupPathByDocIdAdoptAsync(docId: string): Promise<string | null>
-  /** 路径安全（symlink 防越出 + 内部路径跳板判定；fail-closed）。 */
-  resolveSafePath(relPath: string): string | null
-  /** 快照保留策略（global.json stat 键控缓存读取）。 */
-  snapshotPolicy(): VersionPolicy
-  /** 保存链锁编排单源（复审-0914 P1-1）：save 锁 → 布线锁 → body → finally 逆序释放；
-   *  holdSaveLock/wiring/失败收口语义见 service.ts 正本注记。 */
-  withSaveLocks<T>(args: {
-    journalPath: string
-    holdSaveLock?: boolean
-    saveTimeoutMs: number
-    onSaveLockThrown: (e: unknown) => T
-    onSaveLockTimeout: () => T
-    wiring?: { relPath: string; timeoutMs: number; onThrown: (e: unknown) => T; onTimeout: () => T }
-    body: () => Promise<T>
-  }): Promise<T>
-  /** 结构性 move/rename 共用体（meta 尾部文件名联动委托；opts.holdSaveLock 防
-   *  同进程嵌套同路径锁，语义见 service.ts 正本注记）。 */
-  doMoveOrRename(
-    docId: string,
-    op: { kind: 'move'; toDir: string } | { kind: 'rename'; newName: string },
-    opts?: { holdSaveLock?: boolean },
-  ): Promise<MoveResult>
-}
+/** R0916-7-P3-8：原 MetaHost 结构化宿主接口随「剥 private + @internal」面一并删除——
+ *  共享设施改由 DocContext 显式提供（见 doc-context.ts），本文件不再对 service.ts 提宿主面要求。 */
 
-export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
+export async function updateChapterMetaLocked(ctx: DocContext, docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
   // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行修改、可重试），不裸穿
   let path: string | null
   try {
-    path = await svc.lookupPathByDocIdAdoptAsync(docId)
+    path = await ctx.lookupPathByDocIdAdoptAsync(docId)
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `元数据修改前清单查询失败（未执行修改，可重试）：${errMsg(e)}` }
   }
   if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
-  const abs = svc.resolveSafePath(path)
+  const abs = ctx.resolveSafePath(path)
   if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
   // Z-13（第五十八轮）：能力校验补齐（与 save() 同防线）——定稿/摘要 等只读区
   // 此前可经 PATCH op=meta 改写其 fm
@@ -137,11 +97,11 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
   // 极端（持锁段超 5s，如杀毒扫描拖慢 IO）fail-closed 返回 WRITE_ERROR 可重试；
   // 同族操作另由 SaveQueue（save）/chainDocMetaOp（meta）按 docId 链串行，同进程
   // 交错面只剩「save ↔ meta」这一跨族 await 窗口，如上受锁轮询兜底。
-  const journalPath = join(svc.journalDir, `${encodeDocDirName(docId)}.jsonl`)
+  const journalPath = ctx.journalPathOf(docId) // R0916-7-P3-8：编码口径单源（doc-context）
   // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
   //（R48-6 获取抛出收口 / R29-7 布线锁 / R30-5 锁序 / R31-20 异步化机制随迁），
   // 本处保留调用面专属文案与锁档，锁序与失败语义逐位不变。
-  return svc.withSaveLocks<MoveResult>({
+  return ctx.withSaveLocks<MoveResult>({
     journalPath,
     saveTimeoutMs: getMetaSaveLockTimeoutMs(),
     onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
@@ -179,7 +139,7 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
     // piece-body / chapter 统一写「章号」字段
     // （复审-0914-优化修复批 P3：原注「避免同方法内两次磁盘读」为旧双调用口径——
     // 现行本方法仅此一处判定，结果存 isPiece 供尾部 rename 分流，随本批如实化。）
-    const isPiece = isPieceBody(path, svc.bookRoot)
+    const isPiece = isPieceBody(path, ctx.bookRoot)
     if (meta.章号 !== undefined) map.set('章号', meta.章号)
     // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会把手写
     // 嵌套段/块标量变体压平（同 updateDocMeta 的境界体系问题），补丁只换目标键行
@@ -204,11 +164,11 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
       // 物化可接受，免版本面板对 meta-overwrite 版本的全量读+重数兜底（读侧
       // listVersionEntries 以 meta.words 命中为快路径）。
       writeVersion(
-        svc.snapshotsDir,
+        ctx.snapshotsDir,
         docId,
         fileBytes,
         { origin: 'meta-overwrite', reason: '章节元数据修改前留底（R26-51）', words: countWords(bodyOf(fileBytes.toString('utf-8'))) },
-        { policy: svc.snapshotPolicy(), force: true },
+        { policy: ctx.snapshotPolicy(), force: true },
       )
     } catch (e) {
       log.warn('document', `章节元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
@@ -216,16 +176,18 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
     // R0912-4（2026-09-11 重评-0911c 修复批）：meta PATCH 写回补 journal pending/settled
     // 配对（保存协议统一；此前双路径写回零 pending——原子写兜底只保「不半截」，崩溃窗
     // 在健康面零痕迹，作者对「fm 是否改成了」无从对账）。选取「真补」而非豁免登记的
-    // 依据：写回全文（新 fm + 原正文）在写前已知，appendPending 原语直接可用；pending
-    // 快照即写回全文，崩溃后 R0912-1a 的 save 类复核按「盘上指纹 vs baseRevision」
-    // 确定性收口（已落盘 ⇒ 自动 settled；未落盘 ⇒ 报红），与 executeSave 语义逐位同构。
+    // 依据：写回全文（新 fm + 原正文）在写前已知，appendPending 原语直接可用；崩溃后
+    // R0912-1a 的 save 类复核按「盘上指纹 vs baseRevision」确定性收口（已落盘 ⇒ 自动
+    // settled；未落盘 ⇒ 报红），与 executeSave 语义逐位同构。
     // baseRevision 取写回前盘上指纹（fileBytes 单读派生，R39-11 同源口径）。
     // updateDocMetaLocked 同款。
+    // R0916-7-P3-8：appendPending 全文实参随形参收窄删除（P3-9 起 pending 只记元数据；
+    // 当时的「pending 快照即写回全文」已不成立，复核判据一律走 baseRevision）。
     const metaFullText = joinFrontMatter(patched.text, r.body)
     const metaBaseRev = computeRevisionBytes(fileBytes)
     let metaOpId: string
     try {
-      metaOpId = await appendPending(journalPath, docId, metaBaseRev, metaFullText)
+      metaOpId = await appendPending(journalPath, docId, metaBaseRev)
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `journal 追加失败，元数据修改未执行：${errMsg(e)}` }
     }
@@ -250,7 +212,7 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
       log.warn('document', `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`)
     }
     // R46-8（四十六轮）：meta PATCH 同文件整写——与 executeSave 同款单键失效
-    invalidateTreeIndexForContent(svc.bookRoot, path)
+    invalidateTreeIndexForContent(ctx.bookRoot, path)
     // R71-22（十九轮）：标题三级回落——显式传标题（meta.标题）→ fm 标题 → 现有文件名
     // 标题段（剥章号数字前缀与 .md）。此前章号-only PATCH 且 fm 缺标题时直落「未命名」，
     // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
@@ -300,9 +262,9 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
       if (basename(path) !== newName) {
         // R0912-2：外层已持本 docId 的 save 锁（R76-1），传 holdSaveLock:false 防
         // 同进程嵌套同路径锁（重取必超时 fail-closed）
-        const result = await svc.doMoveOrRename(docId, { kind: 'rename', newName }, { holdSaveLock: false })
-        if (result.ok) await syncRenamePieceList(svc, path, newName)
-        else rollbackMetaOnRenameFail(svc, abs, r)
+        const result = await doMoveOrRename(ctx, docId, { kind: 'rename', newName }, { holdSaveLock: false })
+        if (result.ok) await syncRenamePieceList(ctx, path, newName)
+        else rollbackMetaOnRenameFail(ctx, abs, r)
         return result
       }
       return { ok: true, docId, path }
@@ -315,8 +277,8 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
       no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
     if (basename(path) !== newName) {
       // R0912-2：外层已持本 docId 的 save 锁（R76-1），同 piece 分支防嵌套自锁
-      const result = await svc.doMoveOrRename(docId, { kind: 'rename', newName }, { holdSaveLock: false })
-      if (!result.ok) rollbackMetaOnRenameFail(svc, abs, r)
+      const result = await doMoveOrRename(ctx, docId, { kind: 'rename', newName }, { holdSaveLock: false })
+      if (!result.ok) rollbackMetaOnRenameFail(ctx, abs, r)
       return result
     }
     return { ok: true, docId, path }
@@ -332,12 +294,12 @@ export async function updateChapterMetaLocked(svc: MetaHost, docId: string, meta
  *  一致；文件已不在原路径（doMoveOrRename 的「清单更新失败」路径——文件已 rename，
  *  新 fm 与新文件名一致）不回写，回写反而制造错配；回写自身失败维持 mismatch，机检
  *  兜底，不吞 rename 失败原因。 */
-function rollbackMetaOnRenameFail(svc: MetaHost, abs: string, original: { fmRaw: string; body: string }): void {
+function rollbackMetaOnRenameFail(ctx: DocContext, abs: string, original: { fmRaw: string; body: string }): void {
   if (!existsSync(abs)) return
   try {
     // 平台规范化批：R39-10 BOM 补回移除——joinFrontMatter 整体规范（规范形无 BOM）
     atomicWriteFile(abs, joinFrontMatter(original.fmRaw, original.body), { fsync: true })
-    invalidateTreeIndex(svc.bookRoot, true)
+    invalidateTreeIndex(ctx.bookRoot, true)
   } catch {
     // 回写失败维持现状：fm-chapter-mismatch 由机检兜底
   }
@@ -352,14 +314,14 @@ function rollbackMetaOnRenameFail(svc: MetaHost, abs: string, original: { fmRaw:
  *  journal + snapshot + 清单 path 更新 + 树索引失效与正文改名同一纪律。未登记（从未
  *  做过结构性操作）时无条目可孤儿，保留无登记回落（R37-13：linkOrRenameExclusive
  *  独占落位 + 时间戳后缀保双份，失败结构化 warn 不阻断正文 rename）。 */
-async function syncRenamePieceList(svc: MetaHost, oldBodyRel: string, newName: string): Promise<void> {
+async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName: string): Promise<void> {
   const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
   const newListRel = `大纲/章纲/${newName}`
-  const oldSafe = svc.resolveSafePath(oldListRel)
-  const newSafe = svc.resolveSafePath(newListRel)
+  const oldSafe = ctx.resolveSafePath(oldListRel)
+  const newSafe = ctx.resolveSafePath(newListRel)
   if (!oldSafe || !newSafe) return
   if (!existsSync(oldSafe)) return
-  if (existsSync(svc.manifestPath)) {
+  if (existsSync(ctx.manifestPath)) {
     // 重评-0912-4 P2-2（2026-09-12 全量重评修复批）：命中读改 strict（R0912 strict 化
     // 家族口径——lookupPathByDocIdAdoptAsync 同款，本条为该族漏网成员）。容忍版在瞬态
     // 锁占（win 杀软/索引器/他进程 RMW 的 EACCES/EBUSY/EIO）时返回空清单 → oldListRel
@@ -370,14 +332,14 @@ async function syncRenamePieceList(svc: MetaHost, oldBodyRel: string, newName: s
     // 章纲滞留旧名 + 清单与盘上文件一致（世界自洽），warn 留痕交作者重试或机检收口。
     let listedStrict: Manifest
     try {
-      listedStrict = readManifestStrict(svc.manifestPath)
+      listedStrict = readManifestStrict(ctx.manifestPath)
     } catch (e) {
       log.warn('document', `章纲清单读失败（strict），章纲同步重命名跳过（${oldListRel} 滞留旧名，登记与盘上文件保持一致）：${errMsg(e)}`)
       return
     }
     const hit = [...listedStrict.entries].find(([, e]) => e.path === oldListRel)
     if (hit) {
-      const r = await svc.doMoveOrRename(hit[0], { kind: 'rename', newName })
+      const r = await doMoveOrRename(ctx, hit[0], { kind: 'rename', newName })
       if (r.ok) return
       // 失败（含「文件已移、清单更新失败」半程态）不阻断正文 rename：前者落回裸
       // rename 兜底配对，后者 healthCheck 按悬置 pending 收口（P3-10 语义）
@@ -430,7 +392,7 @@ async function syncRenamePieceList(svc: MetaHost, oldBodyRel: string, newName: s
       }
       throw rmErr
     }
-    invalidateTreeIndex(svc.bookRoot, true)
+    invalidateTreeIndex(ctx.bookRoot, true)
   } catch (e) {
     // R37-13（三十七轮）/ R1W-4（win 平台专项复审 R1）双线同旨合并：失败不再静默吞
     // ——本函数只在 doMoveOrRename 成功后调用，按既有约定不阻断/不回滚正文 rename
@@ -441,7 +403,7 @@ async function syncRenamePieceList(svc: MetaHost, oldBodyRel: string, newName: s
   }
 }
 
-export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
+export async function updateDocMetaLocked(ctx: DocContext, docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
   // 0918独立重评修复批（B010）：fm 值类型闸——对象/null 等非标量此前经 stringifyValue
   // 的 String(val) 兜底落成 "[object Object]"/"null" 伪值写坏 fm；入口 fail-loud 拒收
   //（BAD_INPUT 走本 API 既有错误信封，未执行任何修改）。undefined 与既有 fmUpdates
@@ -459,12 +421,12 @@ export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Re
   // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行修改、可重试），不裸穿
   let path: string | null
   try {
-    path = await svc.lookupPathByDocIdAdoptAsync(docId)
+    path = await ctx.lookupPathByDocIdAdoptAsync(docId)
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `元数据修改前清单查询失败（未执行修改，可重试）：${errMsg(e)}` }
   }
   if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
-  const abs = svc.resolveSafePath(path)
+  const abs = ctx.resolveSafePath(path)
   if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
   // Z-13（第五十八轮）：同 updateChapterMeta——能力校验补齐
   if (!layoutOf(path).capabilities.write) {
@@ -475,12 +437,12 @@ export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Re
   // 的「旧正文+新 fm」覆盖回去（跨进程丢正文窗）。取 executeSave 同款跨进程保存锁
   //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
   // save→journal/manifest 单向序无环。
-  const journalPath = join(svc.journalDir, `${encodeDocDirName(docId)}.jsonl`)
+  const journalPath = ctx.journalPathOf(docId) // R0916-7-P3-8：编码口径单源（doc-context）
   // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
   //（R48-6 / R29-7（布线文件含 大纲/关系线/，与 lead-finalize 回写互斥，fail-closed
   // 先释放 save 锁防泄漏）/ R30-5 锁序 / R31-20 异步化机制随迁），本处保留调用面
   // 专属文案与锁档，锁序与失败语义逐位不变。
-  return svc.withSaveLocks<MoveResult>({
+  return ctx.withSaveLocks<MoveResult>({
     journalPath,
     saveTimeoutMs: getMetaSaveLockTimeoutMs(),
     onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
@@ -529,11 +491,11 @@ export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Re
     // PM-6：raw 已在手，顺带产 words（免版本面板全量读兜底，meta PATCH 低频路径）。
     try {
       writeVersion(
-        svc.snapshotsDir,
+        ctx.snapshotsDir,
         docId,
         raw,
         { origin: 'meta-overwrite', reason: '元数据修改前留底（R26-51）', words: countWords(bodyOf(raw)) },
-        { policy: svc.snapshotPolicy(), force: true },
+        { policy: ctx.snapshotPolicy(), force: true },
       )
     } catch (e) {
       log.warn('document', `元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
@@ -545,7 +507,7 @@ export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Re
     const metaBaseRev = computeRevisionBytes(fileBytes!)
     let metaOpId: string
     try {
-      metaOpId = await appendPending(journalPath, docId, metaBaseRev, metaFullText)
+      metaOpId = await appendPending(journalPath, docId, metaBaseRev)
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `journal 追加失败，元数据修改未执行：${errMsg(e)}` }
     }
@@ -568,7 +530,7 @@ export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Re
     } catch (e) {
       log.warn('document', `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`)
     }
-    invalidateTreeIndex(svc.bookRoot, true)
+    invalidateTreeIndex(ctx.bookRoot, true)
     return { ok: true, docId, path }
     },
   })

@@ -66,8 +66,9 @@ describe('executeSave 前段收编（R27-43 → 残留清偿批 await 迁移）'
   })
 
   it('前段收编抛出（清单锁超时）→ WRITE_ERROR 信封 resolve（R27-43 契约，await 迁移后同形）', async () => {
-    const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
-    const real = target.lookupPathByDocIdAdoptAsync.bind(svc)
+    // R0916-7-P3-8：收编链本体迁 DocContext（svc.ctx 显式依赖），spy 目标随之（原 as unknown as 摸类私有面已不需要）
+    const target = svc.ctx
+    const real = svc.ctx.lookupPathByDocIdAdoptAsync.bind(svc.ctx)
     let calls = 0
     vi.spyOn(target, 'lookupPathByDocIdAdoptAsync').mockImplementation((id: string) => {
       calls++

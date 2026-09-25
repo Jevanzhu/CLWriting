@@ -20,7 +20,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import * as serviceMod from '../../src/document/service.js'
+// R0916-7-P3-8：锁档正本随转发桥删除直引（service-guards.ts，原经 service.ts re-export）
+import * as guardsMod from '../../src/document/service-guards.js'
 import * as journalMod from '../../src/document/journal.js'
 import * as manifestMod from '../../src/document/manifest.js'
 import * as leadMod from '../../src/document/lead-finalize.js'
@@ -31,8 +32,8 @@ import { processBootTime } from '../../src/fs/cross-process-lock.js'
 describe('R30-18 / 锁超时档常量化', () => {
   it('六个导出档为生产默认值，且外部赋值不可达生效路径（值恒不变）', () => {
     const cases: [string, object, string, number][] = [
-      ['service.META', serviceMod, 'META_SAVE_LOCK_TIMEOUT_MS', 5_000],
-      ['service.WIRING', serviceMod, 'WIRING_SAVE_LOCK_TIMEOUT_MS', 5_000],
+      ['service-guards.META', guardsMod, 'META_SAVE_LOCK_TIMEOUT_MS', 5_000],
+      ['service-guards.WIRING', guardsMod, 'WIRING_SAVE_LOCK_TIMEOUT_MS', 5_000],
       ['journal', journalMod, 'JOURNAL_LOCK_TIMEOUT_MS', 2_000],
       ['manifest', manifestMod, 'MANIFEST_LOCK_TIMEOUT_MS', 5_000],
       ['lead-finalize', leadMod, 'LEAD_FINALIZE_LOCK_TIMEOUT_MS', 5_000],

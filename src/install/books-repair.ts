@@ -7,13 +7,17 @@
  * 原样随迁（注释随代码走，零行为变化）；books.ts 逐名 re-export 桥接，既有消费方
  * import 面不动。登记读写/锁原语（readBooksStrict/writeBooks/tryBooksLock）与
  * books.jsonl 残核留在 books.ts。
+ *
+ * R0916-7-P3-3（2026-09-16 评审修复批）：登记读写/锁原语与 KIND_DIRS 改引
+ * books-store.ts（原引 books.ts）——本模块自此不回引 books.ts，
+ * books ↔ books-repair 环解开。
  */
 
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
-import { KIND_DIRS, readBooksStrict, tryBooksLock, writeBooks, type BookEntry } from './books.js'
+import { KIND_DIRS, readBooksStrict, tryBooksLock, writeBooks, type BookEntry } from './books-store.js'
 import { isBookRepo } from './books-resolve.js'
 
 // ── 自愈（#32 第 6 节，文件即真相 + 不报错拒绝）──

@@ -50,7 +50,7 @@ describe('journal', () => {
   })
 
   it('appendPending 返回 ULID opId，行含元数据（无全文快照字段）', async () => {
-    const opId = await appendPending(j, 'doc_1', null, '正文内容')
+    const opId = await appendPending(j, 'doc_1', null)
     expect(opId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
     const line = readFileSync(j, 'utf-8').split('\n')[0]!
     expect(JSON.parse(line)).toEqual({
@@ -67,21 +67,21 @@ describe('journal', () => {
   })
 
   it('pending + settled 配对 → findUnsettled 为空', async () => {
-    const opId = await appendPending(j, 'doc_1', null, 'x')
+    const opId = await appendPending(j, 'doc_1', null)
     await appendSettled(j, opId, SHA('sha256:abc'))
     expect(findUnsettled(j)).toHaveLength(0)
   })
 
   it('pending 无 settled → findUnsettled 返回该条目', async () => {
-    const opId = await appendPending(j, 'doc_1', null, '未结算')
+    const opId = await appendPending(j, 'doc_1', null)
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
     expect(u[0]!.opId).toBe(opId)
   })
 
   it('多 opId 混合 → 只返回未结算的', async () => {
-    const a = await appendPending(j, 'doc_1', null, 'a')
-    const b = await appendPending(j, 'doc_1', null, 'b')
+    const a = await appendPending(j, 'doc_1', null)
+    const b = await appendPending(j, 'doc_1', null)
     await appendSettled(j, a, SHA('sha256:1'))
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
@@ -93,7 +93,7 @@ describe('journal', () => {
   })
 
   it('非法行跳过降级', async () => {
-    await appendPending(j, 'doc_1', null, 'x')
+    await appendPending(j, 'doc_1', null)
     appendFileSync(j, '非法行\n{bad json\n')
     expect(findUnsettled(j)).toHaveLength(1)
   })
@@ -119,7 +119,7 @@ describe('journal compact（U-P2-9）', () => {
   it('超阈值的全结算 journal → settle 后压缩为空文件', async () => {
     const big = '雪'.repeat(240) // 行以元数据为主，垫字节靠 docId 长度补齐
     for (let i = 0; i < 4; i++) {
-      const opId = await appendPending(j, 'doc_' + big, null, big)
+      const opId = await appendPending(j, 'doc_' + big, null)
       await appendSettled(j, opId, SHA(`sha256:s${i}`))
     }
     expect(statSync(j).size).toBe(0) // 已结算行全部丢弃
@@ -128,10 +128,10 @@ describe('journal compact（U-P2-9）', () => {
 
   it('压缩保留未结算 pending（崩溃检测资产不丢）', async () => {
     const pad = '雨'.repeat(200)
-    const alive = await appendPending(j, 'doc_' + pad + '尾巴', null, '') // 未结算（快路径先行落盘）
-    const settled1 = await appendPending(j, 'doc_' + pad, null, '')
+    const alive = await appendPending(j, 'doc_' + pad + '尾巴', null) // 未结算（快路径先行落盘）
+    const settled1 = await appendPending(j, 'doc_' + pad, null)
     await appendSettled(j, settled1, SHA('sha256:a')) // 跨阈值 → 触发压缩
-    const settled3 = await appendPending(j, 'doc_' + pad, null, '')
+    const settled3 = await appendPending(j, 'doc_' + pad, null)
     await appendSettled(j, settled3, SHA('sha256:b')) // 二次触发（幂等）
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
@@ -140,7 +140,7 @@ describe('journal compact（U-P2-9）', () => {
 
   it('阈值以下不压缩（防高频重写 O(n²)）', async () => {
     __setJournalCompactBytesForTest(1024 * 1024) // 显式高阈值：小文件不触发
-    const opId = await appendPending(j, 'doc_1', null, '小内容')
+    const opId = await appendPending(j, 'doc_1', null)
     await appendSettled(j, opId, SHA('sha256:c'))
     const text = readFileSync(j, 'utf-8')
     expect(text).toContain('"status":"pending"') // 原行保留
@@ -149,7 +149,7 @@ describe('journal compact（U-P2-9）', () => {
 
   it('aborted 配对同样参与压缩', async () => {
     const big = '风'.repeat(400) // ≈1.3KB > 阈值
-    const opId = await appendPending(j, 'doc_' + big, null, '')
+    const opId = await appendPending(j, 'doc_' + big, null)
     await appendAborted(j, opId, '模拟磁盘满')
     expect(statSync(j).size).toBe(0)
     expect(findUnsettled(j)).toHaveLength(0)
@@ -161,11 +161,11 @@ describe('journal compact（U-P2-9）', () => {
   async function seedCrossing(): Promise<string> {
     const big = 'a'.repeat(250)
     for (let i = 0; i < 2; i++) {
-      const opId = await appendPending(j, 'doc_' + big, null, '')
+      const opId = await appendPending(j, 'doc_' + big, null)
       await appendSettled(j, opId, SHA(`sha256:pre${i}`))
     }
     expect(statSync(j).size).toBeLessThan(1024) // 前置：未触发过早压缩
-    return await appendPending(j, 'doc_' + big, null, '') // 跨阈值（appendPending 不触发压缩）
+    return await appendPending(j, 'doc_' + big, null) // 跨阈值（appendPending 不触发压缩）
   }
 
   /** KN-H-1/N4：compact 读→替换窗口吞他进程 pending 的竞态守卫——读算期间有新行即
@@ -247,7 +247,7 @@ describe('journal move pending（P3-10）', () => {
 
   it('move pending 与 save pending 混合 → 各自独立配对结算', async () => {
     const m = await appendMovePending(j, 'doc_1', 'a.md', 'b.md')
-    const s = await appendPending(j, 'doc_1', null, '保存中')
+    const s = await appendPending(j, 'doc_1', null)
     await appendSettled(j, m, SHA('sha256:m1'))
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)

@@ -24,7 +24,8 @@ import { readdir, stat, realpath } from 'node:fs/promises'
 import { isWithinRoot, docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { readMdTextCached, readMdTextCachedAsync } from '../fs/md-text-cache.js'
 import { finalizedPathSet } from '../document/manifest.js'
-import { clipByCodePoints } from './summary.js'
+// R0916-7-P3-3：码点截断直引实现所在模块（原经 ./summary.js 的 re-export 中转，已剥除）
+import { clipByCodePoints } from '../shared/text.js'
 
 /** 可搜目录全集（相对 bookRoot） */
 export const SEARCH_ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']

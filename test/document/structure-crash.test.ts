@@ -19,9 +19,8 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { detectState } from '../../src/state/state.js'
 import { readBookConfig } from '../../src/format/yaml.js'
-import {
-  __setStructSaveLockTimeoutForTest,
-} from '../../src/document/service.js'
+// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
+import { __setStructSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { encodeDocDirName } from '../../src/document/version.js'
 import { listTrash } from '../../src/document/trash.js'

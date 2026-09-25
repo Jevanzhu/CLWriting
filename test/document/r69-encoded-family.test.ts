@@ -111,7 +111,7 @@ async function makeTrashedLegacyBook(): Promise<void> {
   writeFileSync(join(root, '项目', '分析', 'legacy_purge.json'), '{"emotion":{}}', 'utf-8')
   // journal：编码名 + 未结算 save pending（含全文快照行）
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
-  await appendPending(join(root, '工作区', '.journal', 'legacy_purge.jsonl'), 'legacy:purge', 'sha256:x', '崩溃前全文')
+  await appendPending(join(root, '工作区', '.journal', 'legacy_purge.jsonl'), 'legacy:purge', 'sha256:x')
   // 清单（供 purge 后孤儿判定对照：该 doc 不在清单）
   mkdirSync(join(root, '项目'), { recursive: true })
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
@@ -230,7 +230,7 @@ test('孤儿判定保守面：save pending（无路径字段无法证实无主�
   mkdirSync(join(root, '项目'), { recursive: true })
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
   const j = join(root, '工作区', '.journal', 'legacy_save.jsonl')
-  await appendPending(j, 'legacy:save', 'sha256:x', '全文快照')
+  await appendPending(j, 'legacy:save', 'sha256:x')
   const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {

@@ -16,8 +16,9 @@ import { listSkills, formatSkillIndex } from '../../process/skills.js'
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../format/frontmatter-core.js'
 // 五轮重评修复批（C102）：码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
-import { clipByCodePoints } from '../../process/summary.js'
-import { codePointLength } from '../../shared/text.js'
+// R0916-7-P3-3：两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
+// re-export 中转（环边来源，已剥除），本模块的 ai→process 转运依赖随之消失
+import { clipByCodePoints, codePointLength } from '../../shared/text.js'
 // G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'

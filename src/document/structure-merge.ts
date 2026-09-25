@@ -26,7 +26,8 @@ import { readVersionRaw, listVersions } from './version.js'
 // 读失败成空表会把「已软删」误判成「未软删」续跑（R42-7 service.ts 同款口径：
 // 容错版只供只读展示面）。locateMergeByDisk（undo 降级定位，只读候选扫描）维持容错版
 import { restoreTrash, listTrash, readTrashManifestStrict, type TrashEntry } from './trash.js'
-import { isUtf8Bytes, type DocumentService } from './service.js'
+import { isUtf8Bytes } from './service-guards.js'
+import type { DocumentService } from './service.js'
 import { invalidateTreeIndex } from './tree.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../events/store.js'

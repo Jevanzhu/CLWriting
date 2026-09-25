@@ -44,6 +44,9 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { chapterNoFromName } from '../format/filename.js'
 import type { Session, StudioDriver } from '../driver/index.js'
+// R0916-7-P3-3：后台任务 ctrl 登记原语独立成模块（原定义在本文件；通用编排原语不再
+// 由摘要模块转运——本模块与 ai/orchestrate/self-heal 的互引即由此解开）
+import { runRegisteredBgTask } from './bg-task.js'
 
 // N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
 // applyGlobalDefaults 全局默认链内（书级不设即 undefined），此值即实际生效的最终回落，
@@ -54,17 +57,11 @@ export const SUMMARY_CHAPTER_MAX_FALLBACK = 200
 /** 卷摘要字数上限最终回落（书级 summary_volume_max 未设时生效；500，与 yaml 脚手架缺省一致） */
 export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 
-// 复审-0914-优化 A2（2026-09-14 修复批）：实现下沉 src/shared/text.ts 单源（六处
-// 同口径实现收敛）；本模块 re-export 保住既有消费方（ai/tools/rewrite、ai/rules/
-// style-remedy）import 面不变。
-export { codePointLength } from '../shared/text.js'
-import { codePointLength } from '../shared/text.js'
-// 六轮重评 C101：clipByCodePoints 同款下沉 shared/text.ts（R-11 十五轮原实现——按
-// 码位截断防劈代理对；R64-6 十二轮导出供 ai/tools/rewrite 等第 4 处消费方）——
-// document 层 structure-split/merge 干跑预览改为同口径引用，re-export 保住本模块
-// 既有消费方 import 面不变。
-export { clipByCodePoints } from '../shared/text.js'
-import { clipByCodePoints } from '../shared/text.js'
+// R0916-7-P3-3：码点工具直引 shared/text.ts——此前两道 re-export 中转（复审-0914-优化
+// A2 / 六轮重评 C101 下沉时留下的 import 面兼容层）把 ai/prompts、ai/rules、ai/tools
+// 引到本模块，与 ai 侧后续回引本模块构成强连通；中转层即环边来源，故剥除，消费方直引
+// 实现所在模块（全库「不留双轨」口径）。
+import { codePointLength, clipByCodePoints } from '../shared/text.js'
 import { testableConst } from '../shared/testable.js'
 
 
@@ -330,40 +327,9 @@ function summaryAutoEnabled(config: BookConfig): boolean {
 }
 
 // ── R0912-1（2026-09-11 修复批）：后台 AI 任务的独立中断通道 ─────────────────
-/**
- * 后台 AI 任务改持**独立登记的 ctrl**：启动处新建 AbortController 并
- * driver.registerCtrl(session, ctrl, owner)（owner 如 'bg-summary:<bookName>' /
- * 'bg-lead-draft:<bookName>'——与 'chat:<book>'/'spawn'/'self-heal' 各占 owner 槽位，
- * 互不抢占），任务 settle（成功/失败/中断）finally unregisterCtrl。
- *
- * 背景：此前两类后台任务的 AI 调用没有可被 /interrupt 命中的在册 ctrl——定稿摘要
- * 钩子（afterFinalizeGenerateSummary/Batch）根本不持 ctrl；self-heal pass 后账本
- * 推进草稿（self-heal exitPass）持编排级 state.ctrl，而编排收尾后 running Map 已删
- * （self-heal.ts）、ctrl 已在 stream.ts unregister——/interrupt 既找不到编排闸也无
- * 在册 ctrl，该 AI 调用只能跑到 10min 总超时（分钟级白烧 token）。
- *
- * 中断语义：/interrupt 对 session 全部在册 ctrl abort（cc interrupt）→ ctrl.signal
- * 置位 → run 内部 runTask 经 signal 桥接即时收口；失败/中断由调用方按既有后台任务
- * 失败口径落账/落日志（不 crash）。driver/session 未接线（旧调用方不传新形参）→
- * 只建 ctrl 不登记：中断面退化为「无外部中断点」，与修复前等价，不影响既有调用方。
- */
-export async function runRegisteredBgTask<T>(
-  driver: StudioDriver | null | undefined,
-  session: Session | null | undefined,
-  owner: string,
-  run: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const ctrl = new AbortController()
-  const registered = driver != null && session != null
-  if (registered) driver!.registerCtrl?.(session!, ctrl, owner)
-  try {
-    return await run(ctrl.signal)
-  } finally {
-    // settle（成功/失败/中断）即注销——isRunning 归位（cc X-P2-11 口径）；
-    // 只注销自己：晚到的注销不得抹掉同 session 后来的新登记
-    if (registered) driver!.unregisterCtrl?.(session!, ctrl)
-  }
-}
+// R0916-7-P3-3（2026-09-16 评审修复批）：runRegisteredBgTask 独立成 process/bg-task.ts
+// ——通用编排原语（self-heal 账本推进草稿同用）不再由本摘要模块转运，消费方直引。
+// 模块 rationale（独立 ctrl 登记 / 中断语义 / 未接线退化）随实现迁至该文件头注。
 
 /**
  * 挂点一（定稿即生成，P7-①）：finalize 管线成功后由 API 层调用（依赖方向：document/

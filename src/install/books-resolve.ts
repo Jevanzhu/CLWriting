@@ -5,11 +5,14 @@
  * findWorkDir / isBookRepo 原样随迁（注释随代码走，零行为变化）；books.ts 逐名
  * re-export 桥接，既有消费方 import 面不动。残核（books.jsonl 登记读写 + 锁 +
  * 活动书指针）留在 books.ts。
+ *
+ * R0916-7-P3-3（2026-09-16 评审修复批）：CLWRITING_DIR 改引 books-store.ts（原引
+ * books.ts）——本模块自此不回引 books.ts，books ↔ books-resolve 环解开。
  */
 
 import { existsSync, statSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
-import { CLWRITING_DIR } from './books.js'
+import { CLWRITING_DIR } from './books-store.js'
 
 // ── 工作目录定位（向上找 .clwriting/）──────────────
 

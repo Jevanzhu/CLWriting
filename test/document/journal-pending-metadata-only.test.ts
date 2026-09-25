@@ -80,20 +80,21 @@ describe('R0916-7-P3-9：journal pending 只记元数据', () => {
     expect(findUnsettled(j)).toEqual([])
   })
 
-  it('新写入行键集 = 元数据全量（无 content/degraded），实参内容不落盘', async () => {
-    const opId = await appendPending(j, 'doc_new', 'sha256:base-new', '这是绝不该出现在 journal 里的全文快照')
+  it('新写入行键集 = 元数据全量（无 content/degraded；R0916-7-P3-8 起连传参通道也已删除）', async () => {
+    const opId = await appendPending(j, 'doc_new', 'sha256:base-new')
     const line = readFileSync(j, 'utf-8').trim()
     const parsed = JSON.parse(line) as Record<string, unknown>
     expect(Object.keys(parsed).sort()).toEqual(['baseRevision', 'docId', 'opId', 'status', 'ts'])
     expect(parsed.baseRevision).toBe('sha256:base-new')
-    expect(line).not.toContain('全文快照')
+    // 行体不含任何内容字段（P3-9 收窄写侧 + P3-8 删形参，全文自此连参数通道都不存在）
+    expect(line).not.toContain('content')
     expect(findUnsettled(j).map((p) => p.opId)).toEqual([opId])
   })
 
   it('compact 保留未结算 pending 且按新形态重写（旧格式行的内容字段随压缩丢弃——零消费方）', async () => {
     __setJournalCompactBytesForTest(1024)
     writeFileSync(j, legacyPendingLine('legacy-keep', '旧格式快照·'.repeat(60)), 'utf-8') // ≈1.5KB > 阈值
-    const opId = await appendPending(j, 'doc_new', null, '')
+    const opId = await appendPending(j, 'doc_new', null)
     await appendSettled(j, opId, 'sha256:z') // 触发压缩
 
     const text = readFileSync(j, 'utf-8')
@@ -115,7 +116,7 @@ describe('R0916-7-P3-9：journal pending 只记元数据', () => {
     // 手工放置「活进程」锁（本进程 pid → 缺省探测恒存活）→ 等锁超时走降级裸写
     writeFileSync(`${j}.lock`, JSON.stringify({ pid: process.pid, bootTime: 0 }), 'utf-8')
     try {
-      const opId = await appendPending(j, 'doc_degraded', 'sha256:base', '内容不入行')
+      const opId = await appendPending(j, 'doc_degraded', 'sha256:base')
       const parsed = JSON.parse(readFileSync(j, 'utf-8').trim()) as { opId: string; status: string }
       expect(parsed.opId).toBe(opId)
       expect(parsed.status).toBe('pending')

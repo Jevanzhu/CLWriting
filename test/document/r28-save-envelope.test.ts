@@ -54,8 +54,9 @@ describe('R28 保存链契约', () => {
     // 残留清偿批（三十四轮）：executeSave 前段收编（R27-43 段）亦迁本孪生——保存链
     // 上现为两次调用：第一次 = 前段（真跑放行走到取锁），第二次 = 锁内复核（本测
     // 抛点）。恢复真身供后续保存用（第二个 save 断言锁释放干净）。
-    const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
-    const real = target.lookupPathByDocIdAdoptAsync.bind(svc)
+    // R0916-7-P3-8：收编链本体迁 DocContext（svc.ctx 显式依赖），spy 目标随之（原 as unknown as 摸类私有面已不需要）
+    const target = svc.ctx
+    const real = svc.ctx.lookupPathByDocIdAdoptAsync.bind(svc.ctx)
     let calls = 0
     vi.spyOn(target, 'lookupPathByDocIdAdoptAsync').mockImplementation((id: string) => {
       calls++

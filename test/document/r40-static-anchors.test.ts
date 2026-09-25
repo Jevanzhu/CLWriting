@@ -38,10 +38,13 @@ describe('R40 静态锚：document/export', () => {
     expect(src).toContain("code: 'PATH_ESCAPE'")
   })
 
-  it('R40-21：export/index.ts warnings 不再有裸 relative() 插值', () => {
+  it('R40-21：export/index.ts warnings 路径一律走 relPosix 家族（无裸 relative 插值）', () => {
     const src = read('export', 'index.ts')
+    // R0916-7-P3-2：导出拆六阶段后 helper 带 bookRoot 参数改名 relPosixIn，
+    // 语义锚（warnings 里出现路径即走该 helper）不变——正断言改锚 helper 定义件 + 插值点
     expect(src).not.toMatch(/warnings\.push\(`\$\{relative\(/)
-    expect(src).toContain('relPosix(e.file)')
+    expect(src).toContain('function relPosixIn(')
+    expect(src).toMatch(/warnings\.push\(`\$\{relPosixIn\(/)
   })
 })
 
@@ -91,6 +94,8 @@ describe('R40 静态锚：服务端与工程', () => {
   })
 
   it('R40-25：books.jsonl 读侧剥 BOM', () => {
-    expect(read('install', 'books.ts')).toContain("replace(/^\\uFEFF/, '')")
+    // R0916-7-P3-3：登记存储层迁 install/books-store.ts（books.ts 只余 re-export 面），
+    // 读侧剥 BOM 随实现单点落位——锚点跟着实现走，锚的是语义不是文件
+    expect(read('install', 'books-store.ts')).toContain("replace(/^\\uFEFF/, '')")
   })
 })

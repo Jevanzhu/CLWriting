@@ -3,7 +3,9 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { log } from '../log/index.js'
 // R48-71（四十八轮）：存活探测收编单源（原 isPidAlive 私抄副本删除）
-import { isProcessAlive } from './cross-process-lock.js'
+// R0916-7-P3-3：探测实现拆至零依赖叶子模块 fs/process-alive.ts——此前自
+// cross-process-lock.ts 引 isProcessAlive 而后者引本文件的重试原语，互引成环
+import { isProcessAlive } from './process-alive.js'
 
 interface AtomicWriteOptions {
   /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 true
@@ -366,8 +368,8 @@ function fsyncDir(dir: string): void {
  *  持有进程存活探测，防误清他进程在途写。 */
 const ABANDONED_TMP_RE = /^\..+\.(\d+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 
-/** R65-37：进程存活探测——R48-71（四十八轮）收编 cross-process-lock.isProcessAlive
- *  单源（原私抄同语义副本；import 形成的 atomic↔lock 环仅为函数级互引，运行时安全）。 */
+/** R65-37：进程存活探测——R48-71（四十八轮）收编单源（原私抄同语义副本）；
+ *  R0916-7-P3-3：实现迁 fs/process-alive.ts，atomic↔lock 的文件级互引环就此消除。 */
 
 /** Y-24：清扫 atomicWriteFile 崩溃残留的 tmp 文件（rename 前进程崩溃时 catch 清理
  *  不可达，`.<name>.<pid>.<uuid>.tmp` 永久留盘累积占空间）。

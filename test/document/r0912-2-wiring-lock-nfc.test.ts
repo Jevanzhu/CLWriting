@@ -9,8 +9,8 @@
  * 静默失效（丢失更新窗）。修复后：三侧统一「先 toNfcName 后 platformCaseFold」
  * （与 docJoinKey 同序）。
  *
- * 断言形态学 r45-casefold-keys.test.ts：service 私有方法 as unknown as 直调（全仓
- * 既有做法）；精确钉定键字节——NFC 输入键与修前逐位一致（R45-2 字节稳定不变量
+ * 断言形态学 r45-casefold-keys.test.ts：R0916-7-P3-8 起锁键本体在 DocContext
+ * （svc.ctx.wiringFileLockKey 直调，不再 as unknown as 摸类私有面）；精确钉定键字节——NFC 输入键与修前逐位一致（R45-2 字节稳定不变量
  * 防回归），仅 NFD 输入键变化。行为级：真实跨进程文件锁——终稿链键（NFD 磁盘
  * 路径派生）持锁后，保存链键（NFC 清单 relPath 派生）请求同一锁文件自锁超时，
  * 互斥成立（修前两键相异则第二把锁直接得手，本用例红）。
@@ -30,8 +30,8 @@ afterEach(() => {
   Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true })
 })
 
-/** 类私有方法测试直调形态（r45-casefold-keys 先例）。 */
-type SvcWithWiringKey = { wiringFileLockKey(rel: string): string | null }
+/** R0916-7-P3-8：锁键本体迁 DocContext，经 svc.ctx 显式 API 直调（原 as unknown as 摸类私有面不再需要）。 */
+type CtxWithWiringKey = { wiringFileLockKey(rel: string): string | null }
 
 /** 布线文件 relPath（NFC 清单登记形态）：目录段与文件名段各含一个可分解字符
  *  （é U+00E9 / ü U+00FC），NFD 磁盘形态经 `normalize('NFD')` 逆构造（mac APFS
@@ -42,10 +42,10 @@ const NFD_REL = NFC_REL.normalize('NFD')
 /** 两形态必须确属不同字节（构造自检——否则本文件全部断言退化空转）。 */
 expect(NFD_REL).not.toBe(NFC_REL)
 
-function withTempRoot(prefix: string, run: (root: string, svc: SvcWithWiringKey) => void): void {
+function withTempRoot(prefix: string, run: (root: string, svc: CtxWithWiringKey) => void): void {
   const root = mkdtempTracked(join(tmpdir(), prefix))
   try {
-    const svc = new DocumentService({ bookRoot: root }) as unknown as SvcWithWiringKey
+    const svc = new DocumentService({ bookRoot: root }).ctx
     run(root, svc)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -140,7 +140,9 @@ describe('重评-0912-2 P2-3: files.ts PUT 侧同批修齐（模块私有，静�
   }
 
   it('三侧键派生均为「platformCaseFold(toNfcName(…))」序（NFC 在折叠内，序不可倒置）', () => {
-    expect(codeOf('document/service.ts')).toContain('platformCaseFold(toNfcName(key))')
+    // R0916-7-P3-8：锁键本体自 service.ts 迁 doc-context.ts（DocContext.wiringFileLockKey），
+    // 静态扫描随代码走——锚定意图不变（三侧键派生同为「platformCaseFold(toNfcName(key))」序）
+    expect(codeOf('document/doc-context.ts')).toContain('platformCaseFold(toNfcName(key))')
     expect(codeOf('studio/server/api/files.ts')).toContain('platformCaseFold(toNfcName(key))')
     expect(codeOf('document/lead-finalize.ts')).toContain('platformCaseFold(toNfcName(absFile))')
   })

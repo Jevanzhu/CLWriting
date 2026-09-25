@@ -79,15 +79,14 @@ export function isMovePending(p: JournalAnyPending): p is JournalMovePending {
 type RawLine = { [k: string]: unknown }
 
 /** 追加 pending 行（元数据）。返回 opId 供后续 appendSettled 配对。
- *  R0916-7-P3-9：第 4 形参 content 已无消费——三个调用方（document/service.ts、
- *  document/service-meta.ts、process/draft-pipeline.ts）仍传全文实参，签名收窄会连带
- *  改这三个文件（本轮改动面不含），故此处保留形参并显式前缀 `_` 标「有意忽略」；
- *  下批删形参时三处实参一并删（service.ts 的 `byteRestore ? '' : content` 转义同批清）。 */
+ *  R0916-7-P3-9 收窄时第 4 形参 content 已无消费，本轮（R0916-7-P3-8）连形参一并删除
+ *  ——三个调用方（document/service.ts、document/service-meta.ts、process/draft-pipeline.ts）
+ *  的全文实参同步删净，其中 service.ts 的 `byteRestore ? '' : content` 转义随之消失
+ *  （原转义只是「字节档不落失真文本视图」的历史残留，收窄后无对象可指）。 */
 export async function appendPending(
   journalPath: string,
   docId: string,
   baseRevision: Revision,
-  _content: string,
 ): Promise<string> {
   const entry: JournalPending = {
     opId: ulid(),

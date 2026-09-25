@@ -14,7 +14,8 @@ import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { learnFromBook } from '../../src/learn/index.js'
-import { codePointLength } from '../../src/process/summary.js'
+// R0916-7-P3-3：码点计量直引实现所在模块（原经 process/summary 的 re-export 中转，已剥除）
+import { codePointLength } from '../../src/shared/text.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const EMOJI = '😀' // 增补平面：1 码位 = 2 码元

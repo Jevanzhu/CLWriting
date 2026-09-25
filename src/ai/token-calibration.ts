@@ -99,7 +99,8 @@ export function renderCalibrationReport(fits: Map<string, CoefficientFit>, measu
     '',
     `- 测定日期：${measuredAt}`,
     '- 口径：tokens ≈ coeff × chars（过原点最小二乘；chars = promptMeta.chars，tokens = usage 全口径 input+cacheRead+cacheWrite，M-1 归一后）',
-    '- 建议值写进 src/process/prepare.ts 的 TOKEN_COEFFICIENTS（注明测定日期与样本量）',
+    // R0916-7-P3-3：系数表已自 process/prepare.ts 下沉 src/shared/tokens.ts（报告指引随之改指）
+    '- 建议值写进 src/shared/tokens.ts 的 TOKEN_COEFFICIENTS（注明测定日期与样本量）',
     '',
     '| 模型 | 样本量 | 建议 coeff | 相关 r | chars 范围 |',
     '|---|---|---|---|---|',

@@ -35,23 +35,17 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { log } from '../log/index.js'
 import { rmWithRetry, renameWithRetry, rmQuietly, retryOnTransientFsError, fsBackoffSleep } from './atomic.js'
+// R0916-7-P3-3：存活探测拆零依赖叶子模块（原定义在本文件）——fs/atomic.ts 只为取它
+// 而 import 本模块、本模块又 import atomic 的重试原语，互引成环；拆后环消除。
+// isProcessAlive 继续自本模块 re-export：events/store-open-markers 与
+// studio/server/api/task-gate 的既有 import 面（R67-2 口径）不动。
+import { isProcessAlive } from './process-alive.js'
+export { isProcessAlive } from './process-alive.js'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
  *  R71-24（十九轮）导出复用：events 开口标记内容同样落 pid+bootTime。 */
 export function processBootTime(): number {
   return Date.now() - Math.round(process.uptime() * 1000)
-}
-
-/** 进程存活探测：process.kill(pid, 0) 不发信号只做权限/存在性检查；ESRCH = 不存在
- *  （stale）。EPERM（存在但属他人）按存活处理——保守不接管。
- *  R67-2（十五轮）导出复用：events 句柄标记的 pid 探测与锁共用同一存活口径。 */
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
 }
 
 interface CrossProcessLockOptions {

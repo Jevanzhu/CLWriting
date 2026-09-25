@@ -37,9 +37,10 @@ import { closeTreeIssuesDb } from '../../check/tree-issues-cache.js'
 import { driveToEndAsync } from '../../async.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
 import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
-// R0912-1（2026-09-11 修复批）：后台任务独立登记 ctrl 的共享 helper（summary.ts 单源，
-// 定稿摘要钩子与 self-heal pass 后账本草稿两路共用）
-import { runRegisteredBgTask } from '../../process/summary.js'
+// R0912-1（2026-09-11 修复批）：后台任务独立登记 ctrl 的共享 helper（定稿摘要钩子与
+// self-heal pass 后账本草稿两路共用）；R0916-7-P3-3 起该原语独立成 process/bg-task.ts
+//（原经 process/summary.ts 转运，与本模块互引成环）
+import { runRegisteredBgTask } from '../../process/bg-task.js'
 // R0912-2（2026-09-11 修复批）：重写稿 front matter 章号防线——与机检同源解析器
 import { readDraft } from '../../format/draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'

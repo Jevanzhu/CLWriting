@@ -44,8 +44,9 @@ import { countWords, readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
-// 重评-P2-3（2026-09-09 全量代码重评）：基础两类单源自 install/data.ts，防手抄漂移
-import { BASE_LEAD_TYPES } from '../install/data.js'
+// R0916-7-P3-2：账本类配置派生（enabledLeadTypes）迁中立件 leads-config.ts——树红点
+// 聚合族消费它不再牵入本聚合机检模块（解 check/run ↔ check/run-tree-issues 环，见该件头注）
+import { enabledLeadTypes } from './leads-config.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
 // R37-9：章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
 import { log } from '../log/index.js'
@@ -86,13 +87,9 @@ interface CheckInput {
   skipLeadsBookChecks?: boolean
 }
 
-/** 已启用账本类 = 基础两类 + book.yaml leads.enabled（基础两类单源自 install/data.ts
- *  BASE_LEAD_TYPES，rebuild.ts 同源引用——重评-P2-3（2026-09-09 全量代码重评）：此前
- *  三处各持手抄副本易漂移，现已收敛为单点；树红点聚合的全书性红项计算共用）。
- *  R33-41（三十三轮）：去重——book.yaml 重复登记类此前产生重复 IN 参数（无害但脏）。 */
-export function enabledLeadTypes(config: BookConfig): string[] {
-  return [...new Set([...BASE_LEAD_TYPES, ...config.leads.enabled])]
-}
+/** 已启用账本类（基础两类 + book.yaml leads.enabled）实现体在 leads-config.ts——
+ *  本入口按原导出面透传，消费方 import 面零改动（R0916-7-P3-2）。 */
+export { enabledLeadTypes } from './leads-config.js'
 
 /** 生效短篇配置：仅 kind === 'short' 时返回 short 段（无段给空对象，由各检查器的
  *  缺省参数兜底阈值），否则 undefined。重评-P2-4（2026-09-09 全量代码重评）：run.ts

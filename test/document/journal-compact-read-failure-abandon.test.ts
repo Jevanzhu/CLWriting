@@ -67,7 +67,7 @@ describe('A101：compact 读失败弃本轮压缩（journal 不清空）', () =>
     READFAIL.inject = true
     // appendPending 不触发 compact（仅 settle/abort 后压缩）——注入保持武装，由
     // appendSettled 的 compact 轮消费（scanUnsettled 单次读）
-    const done = await appendPending(jp, 'doc_1', null, '会被结算的内容')
+    const done = await appendPending(jp, 'doc_1', null)
     await appendSettled(jp, done, 'sha256:done')
 
     // 修复点①：compact 弃本轮（warn 留痕），不拿空集当保留集清空文件
@@ -78,7 +78,7 @@ describe('A101：compact 读失败弃本轮压缩（journal 不清空）', () =>
 
     // 修复点②：恢复扫描仍可找回该 pending；后续读成功的 settle 照常压缩且 pending 保留
     expect(findUnsettled(jp).map((p) => p.opId)).toContain(keepOp)
-    const done2 = await appendPending(jp, 'doc_1', null, '再次结算')
+    const done2 = await appendPending(jp, 'doc_1', null)
     await appendSettled(jp, done2, 'sha256:done2')
     expect(findUnsettled(jp).map((p) => p.opId)).toEqual([keepOp])
   })
@@ -87,7 +87,7 @@ describe('A101：compact 读失败弃本轮压缩（journal 不清空）', () =>
     dir = mkdtempTracked(join(tmpdir(), 'journal-a101-ok-'))
     const jp = join(dir, 'doc_1.jsonl')
     const keepOp = seedOversized(jp)
-    const done = await appendPending(jp, 'doc_1', null, '会被结算的内容')
+    const done = await appendPending(jp, 'doc_1', null)
     await appendSettled(jp, done, 'sha256:done')
     // 正常压缩后：settled 垫字节被清、未结算 pending 保留
     const after = readFileSync(jp, 'utf-8')

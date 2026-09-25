@@ -16,7 +16,9 @@ import { chapterInput } from './shared.js'
 import { createHash } from 'node:crypto'
 import { saveDraft } from '../../process/draft-pipeline.js'
 import { resolveDraftPath } from '../../document/draft-path.js'
-import { clipByCodePoints, codePointLength } from '../../process/summary.js' // R64-6：预览/字数码点口径单源
+// R64-6：预览/字数码点口径单源；R0916-7-P3-3 直引 shared/text.js（原经 process/summary
+// re-export 中转，环边来源已剥除）
+import { clipByCodePoints, codePointLength } from '../../shared/text.js'
 import { readFile, joinFrontMatter } from '../../format/frontmatter.js'
 import { join } from 'node:path'
 import { readChapterBody } from './shared.js'

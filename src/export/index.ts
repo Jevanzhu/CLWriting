@@ -82,7 +82,8 @@ export interface ExportResult {
   error?: string
 }
 
-interface ExportUnit {
+/** R0916-7-P3-2：导出单元（收集段产出、过滤/编号/写出段消费）——导出供分段直测。 */
+export interface ExportUnit {
   num: number
   title: string
   path: string
@@ -266,6 +267,169 @@ function sanitizeFileName(name: string, maxBytes: number): string {
   return sanitizeFileNamePart(name, FILENAME_MAX_CP, maxBytes) || '未命名'
 }
 
+/** R0916-7-P3-2（2026-09-25 评审 P3-2）：导出阶段结果——失败携错误文案（与该阶段原
+ *  错误信封文案逐字一致）；写出段与投稿视图段另携已落盘产物快照（重审-09 口径：
+ *  split 项 ⟺ 已落盘、merged 名仅完整发布后列），其余阶段恒为 []。 */
+type StageResult<T> = { ok: true; value: T } | { ok: false; error: string; files?: string[] }
+
+/** R0916-7-P3-2：导出运行态——跨阶段共享的可变状态（警告留痕 / 产物表 / 写出计数与
+ *  实际产出章号集）。行为面与拆分前的同名局部变量逐位等价（警告文案求值时机不变）。
+ *  导出供分段直测（测试自建 run 驱动单段）。 */
+export interface ExportRun {
+  readonly bookRoot: string
+  readonly warnings: string[]
+  readonly files: string[]
+  writtenCount: number
+  /** R73-37：实际产出章号集——投稿视图按它对齐（原经定稿预滤天然排除空正文章） */
+  readonly writtenNums: Set<number>
+}
+
+/** R0916-7-P3-2：备目录段产物（写出段的落点与命名口径）——导出供分段直测。 */
+export interface ExportPlan {
+  exportDir: string
+  /** 全本产物名（同名归档不下时就地改写为序号兜底名——写出段读改写后的值，勿缓存旧名） */
+  mergedFileName: string
+  /** 分章产物目录名（归档失败时为「分章-N」；R33-8 不覆写原目录） */
+  splitTargetDirName: string
+  doMerged: boolean
+  doSplit: boolean
+  /** 定稿过滤后的可导出单元（收集 → 过滤 → 编号三段的结果，写出段按此序产出） */
+  filtered: ExportUnit[]
+}
+
+/** 相对书根的 posix 路径（win 的 relative() 产反斜杠，警告文案按 / 单源——R40-21）。 */
+function relPosixIn(bookRoot: string, p: string): string {
+  return relative(bookRoot, p).replace(/\\/g, '/')
+}
+
+/** 阶段一·收集：扫描定稿正文（统一 readChapterDir，递归卷结构）。
+ *  R73-37（二十一轮）：不再 includeBody 一次读带出全部正文——极端大书（200 万字级）
+ *  全部章正文 + 净化副本同时驻留内存可 OOM；改 meta-only 扫描，正文在写出段逐章现读
+ *  即弃（读-写流水化，峰值降为单章级）。X-P2-4：单个坏章（解析失败）不再拖垮整本导出
+ *  ——记入 warnings 跳过，仍有可导章则继续。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 exportBook 阶段一）。 */
+export function collectExportUnits(bookRoot: string, warnings: string[]): StageResult<{ units: ExportUnit[] }> {
+  const bodyDir = join(bookRoot, '写作', '正文')
+  if (!existsSync(bodyDir)) {
+    return { ok: false, error: '没有定稿正文可导出。' }
+  }
+  const { chapters, errors } = readChapterDir(bodyDir)
+  for (const e of errors) warnings.push(`${relPosixIn(bookRoot, e.file)}: ${e.message}`)
+  // S2（阶段 24）：units 组装带出 sortKey（序 ?? 章号）与 published（_raw.已发布）——
+  // readChapter 已将 `已发布` 容错落 _raw（中文键不在 KNOWN_FM_KEYS），经 isPublishedValue
+  // 单源判定（与树 probe regex 同式）
+  const units: ExportUnit[] = chapters.flatMap((ch) =>
+    ch._path
+      ? {
+          num: ch.章号,
+          title: ch.标题,
+          path: ch._path,
+          sortKey: ch.序 ?? ch.章号,
+          published: isPublishedValue(ch._raw?.['已发布']),
+        }
+      : [],
+  )
+  if (units.length === 0 && warnings.length > 0) {
+    return { ok: false, error: `章解析失败：${warnings.join('; ')}` }
+  }
+  if (units.length === 0) {
+    return { ok: false, error: '没有定稿正文可导出。' }
+  }
+  return { ok: true, value: { units } }
+}
+
+/** 阶段二·过滤：V-P2-2「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无
+ *  finalizedRevision；态7 流水线刚写出的在写章/坏 fm 草稿不再混进全本/分章/投稿视图）。
+ *  判定收敛到 manifest.finalizedPathSet 单一真相（learn 收割 H-1 同款，防两处漂移）。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 exportBook 阶段二）。 */
+export function filterFinalizedUnits(
+  bookRoot: string,
+  units: ExportUnit[],
+): {
+  filtered: ExportUnit[]
+  skippedDrafts: number
+  finalizedFilter: ExportResult['finalizedFilter']
+  finalizedPaths: Set<string> | null
+} {
+  const finalizedPaths = finalizedPathSet(bookRoot)
+  // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
+  // 精确匹配失配，定稿章被当草稿跳过）；非 win 并非恒等——platformCaseFold（R45-2 收编、
+  // R51-D-2 折叠面扩 darwin）在 darwin 也折叠，仅 linux 恒等（复审-0913-mac适配 P3-12
+  // 注释勘误：原注「posix 恒等」失实，零行为变化）
+  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
+  // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：过滤是否生效的显式标记（见
+  // ExportResult.finalizedFilter 注）——自此以下各构造点（含失败信封）一律携带
+  const finalizedFilter: ExportResult['finalizedFilter'] =
+    finalizedPaths === null ? 'skipped-no-manifest' : 'applied'
+  let skippedDrafts = 0
+  const filtered: ExportUnit[] =
+    finalizedPaths !== null
+      ? units.filter((u) => {
+          // RB-KN-P2-3：relative() 在 Windows 产反斜杠而 manifest path 是正斜杠——
+          // 不归一会把全部章误判未定稿、导出为空（对齐 state.ts 既有 slash 归一口径）
+          if (finalizedKeys?.has(docJoinKey(relative(bookRoot, u.path)))) return true
+          skippedDrafts++
+          return false
+        })
+      : units
+  return { filtered, skippedDrafts, finalizedFilter, finalizedPaths }
+}
+
+/** 阶段三·编号：按排序键数值排序（S2：`序 ?? 章号`——不依赖文件名字符串序；tie 章号
+ *  保稳定），随后 D7 分流编号。
+ *  顺序不变量：编号按排序后序位——先排后编不可倒置。
+ *  S2（阶段 24）D7 分流：已发布章固定本地章号，其后未发布段从「已发布最大章号+1」
+ *  按 sortKey 序位连续编。全无已发布章时（旧书常态）从 1 连续编——无 `序` 且章号
+ *  连续的旧书 displayNum ≡ num，零漂移；章号空洞（合并留洞）在分章前缀上闭合。
+ *  拍板快断批（2026-09-15，作者指令「按建议顺序开工」）：displayNum 语义拍板维持
+ *  D7——已发布章号不可变优先于显示序单调（发布号是读者侧锚点）；已发布章不居
+ *  sortKey 序前时显示序非单调（[6,7,8,9,5,10] 形态，复审-0913-源码 ⑰）系该语义的
+ *  自然结论，接受不改。
+ *  R0916-7-P3-2：导出供分段直测（纯函数：排序 + D7 编号，生产唯一调用点在 exportBook 阶段三）。 */
+export function orderAndNumberUnits(filtered: ExportUnit[]): void {
+  filtered.sort((a, b) => a.sortKey - b.sortKey || a.num - b.num)
+  const maxPublished = filtered.reduce((m, u) => (u.published ? Math.max(m, u.num) : m), 0)
+  let next = maxPublished + 1
+  for (const u of filtered) u.displayNum = u.published ? u.num : next++
+}
+
+/** 写出段内部：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
+ *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 writeExportProducts）。 */
+export function readUnitBody(bookRoot: string, u: ExportUnit, warnings: string[]): string | null {
+  // R38-17（三十八轮）：导出链补非 UTF-8 防线——save/finalize 链均有 isUtf8Bytes 闸
+  //（document/service.ts:71 同款 TextDecoder fatal 口径），导出此前 utf-8 文本直读，
+  // GBK 章产出 U+FFFD 乱码且零警告、照常计入 chapterCount。现按字节先验：非 UTF-8
+  // 记警告按读取失败同口径跳过（源文件只读不动，作者转码后可再导出）。
+  let bytes: Buffer
+  try {
+    bytes = readFileSync(u.path)
+  } catch (e) {
+    warnings.push(`${relPosixIn(bookRoot, u.path)}: 正文读取失败（${errMsg(e)}），已跳过`)
+    return null
+  }
+  if (!isUtf8ExportBytes(bytes)) {
+    warnings.push(
+      `${relPosixIn(bookRoot, u.path)}: 正文不是 UTF-8 编码（如 GBK 旧档），导出会产生乱码，已跳过——请先转码为 UTF-8 再导出`,
+    )
+    return null
+  }
+  // 字节已验 UTF-8，toString 无损；复用同份内容走 readFile 解析（避免双读竞态）
+  const r = readFile(u.path, bytes.toString('utf-8'))
+  if (!r.ok) {
+    warnings.push(`${relPosixIn(bookRoot, u.path)}: 正文读取失败（${r.error.message}），已跳过`)
+    return null
+  }
+  // R51-F-7（五十一轮）：判空改 trim 口径——全空白正文（纯空行/空白符，非空串）
+  // 此前 `!r.body` 判不住，照常计入章数并在产物中产出空壳章节（分隔符 + 空段）。
+  // 净化管线（stripAuthorNotes 后 trim）本就会把它打成空串，此处提前同口径拦截。
+  if (r.body.trim() === '') {
+    warnings.push(`${relPosixIn(bookRoot, u.path)}: 正文为空，已跳过`)
+    return null
+  }
+  return r.body
+}
+
 export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, platform = 'generic' } = options
   const format = options.format ?? 'both'
@@ -292,70 +456,17 @@ export function exportBook(options: ExportOptions): ExportResult {
   }
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
-  const bodyDir = join(bookRoot, '写作', '正文')
-
-  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构）。R73-37（二十一轮）：不再
-  // includeBody 一次读带出全部正文——极端大书（200 万字级）全部章正文 + 净化副本同时
-  // 驻留内存可 OOM；改 meta-only 扫描，正文在下方写循环内逐章现读即弃（读-写流水化，
-  // 峰值降为单章级，对齐 5+6 步「单遍流式」注释口径）。
-  if (!existsSync(bodyDir)) {
-    return failEarly('没有定稿正文可导出。')
-  }
-  // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
+  // X-P2-4：正文为空/读取失败的单章在写出段现读时判定（R73-37 起正文不预读），
+  // 记警告跳过，不再整本失败；零可写章按 writtenCount 收口
   const warnings: string[] = []
-  /** R73-37：相对路径统一正斜杠——win 的 relative() 产反斜杠，消费方/测试按 / 匹配
-   *  （与本文件下方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。
-   *  R40-21（四十轮）：声明前移至首个消费点（readChapterDir 解析错误警告）之前——
-   *  原先 :211 坏章警告用裸 relative() 插值，win 反斜杠漏进警告文案（relPosix 已有
-   *  却定义在其后，漏网面）；本函数内全部 warnings 路径插值自此单源走它。 */
-  const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
-  const { chapters, errors } = readChapterDir(bodyDir)
-  for (const e of errors) warnings.push(`${relPosix(e.file)}: ${e.message}`)
-  // S2（阶段 24）：units 组装带出 sortKey（序 ?? 章号）与 published（_raw.已发布）——
-  // readChapter 已将 `已发布` 容错落 _raw（中文键不在 KNOWN_FM_KEYS），经 isPublishedValue
-  // 单源判定（与树 probe regex 同式）
-  const units: ExportUnit[] = chapters.flatMap((ch) =>
-    ch._path
-      ? {
-          num: ch.章号,
-          title: ch.标题,
-          path: ch._path,
-          sortKey: ch.序 ?? ch.章号,
-          published: isPublishedValue(ch._raw?.['已发布']),
-        }
-      : [],
-  )
-  if (units.length === 0 && warnings.length > 0) {
-    return failEarly(`章解析失败：${warnings.join('; ')}`)
-  }
-  if (units.length === 0) {
-    return failEarly('没有定稿正文可导出。')
-  }
 
-  // V-P2-2：「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无 finalizedRevision；
-  // 态7 流水线刚写出的在写章/坏 fm 草稿不再混进全本/分章/投稿视图）。
-  // 判定收敛到 manifest.finalizedPathSet 单一真相（learn 收割 H-1 同款，防两处漂移）
-  const finalizedPaths = finalizedPathSet(bookRoot)
-  // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
-  // 精确匹配失配，定稿章被当草稿跳过）；非 win 并非恒等——platformCaseFold（R45-2 收编、
-  // R51-D-2 折叠面扩 darwin）在 darwin 也折叠，仅 linux 恒等（复审-0913-mac适配 P3-12
-  // 注释勘误：原注「posix 恒等」失实，零行为变化）
-  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
-  // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：过滤是否生效的显式标记（见
-  // ExportResult.finalizedFilter 注）——自此以下各构造点（含失败信封）一律携带
-  const finalizedFilter: ExportResult['finalizedFilter'] =
-    finalizedPaths === null ? 'skipped-no-manifest' : 'applied'
-  let skippedDrafts = 0
-  const filtered: ExportUnit[] =
-    finalizedPaths !== null
-      ? units.filter((u) => {
-          // RB-KN-P2-3：relative() 在 Windows 产反斜杠而 manifest path 是正斜杠——
-          // 不归一会把全部章误判未定稿、导出为空（对齐 state.ts 既有 slash 归一口径）
-          if (finalizedKeys?.has(docJoinKey(relative(bookRoot, u.path)))) return true
-          skippedDrafts++
-          return false
-        })
-      : units
+  // ── 阶段一·收集（R0916-7-P3-2 拆段）──
+  const collected = collectExportUnits(bookRoot, warnings)
+  if (!collected.ok) return failEarly(collected.error)
+  const units = collected.value.units
+
+  // ── 阶段二·过滤 ──
+  const { filtered, skippedDrafts, finalizedFilter, finalizedPaths } = filterFinalizedUnits(bookRoot, units)
   // C2（复审-0914-优化修复批）：失败信封单源——下方 7 处 {ok:false, files, chapterCount:0,
   // unit:'章', finalizedFilter, skippedDrafts, ...(warnings), error} 同构字面量收编单行调用。
   // warnings/finalizedFilter/skippedDrafts 闭包捕获（求值时机 = 调用时刻，与原字面量一致）；
@@ -371,88 +482,101 @@ export function exportBook(options: ExportOptions): ExportResult {
     ...(warnings.length > 0 ? { warnings } : {}),
     error,
   })
-  // X-P2-4：正文为空/读取失败的单章在写循环内现读时判定（R73-37 起正文不预读），
-  // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
-  /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
-   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
-  const readUnitBody = (u: ExportUnit): string | null => {
-    // R38-17（三十八轮）：导出链补非 UTF-8 防线——save/finalize 链均有 isUtf8Bytes 闸
-    //（document/service.ts:71 同款 TextDecoder fatal 口径），导出此前 utf-8 文本直读，
-    // GBK 章产出 U+FFFD 乱码且零警告、照常计入 chapterCount。现按字节先验：非 UTF-8
-    // 记警告按读取失败同口径跳过（源文件只读不动，作者转码后可再导出）。
-    let bytes: Buffer
-    try {
-      bytes = readFileSync(u.path)
-    } catch (e) {
-      warnings.push(`${relPosix(u.path)}: 正文读取失败（${errMsg(e)}），已跳过`)
-      return null
-    }
-    if (!isUtf8ExportBytes(bytes)) {
-      warnings.push(`${relPosix(u.path)}: 正文不是 UTF-8 编码（如 GBK 旧档），导出会产生乱码，已跳过——请先转码为 UTF-8 再导出`)
-      return null
-    }
-    // 字节已验 UTF-8，toString 无损；复用同份内容走 readFile 解析（避免双读竞态）
-    const r = readFile(u.path, bytes.toString('utf-8'))
-    if (!r.ok) {
-      warnings.push(`${relPosix(u.path)}: 正文读取失败（${r.error.message}），已跳过`)
-      return null
-    }
-    // R51-F-7（五十一轮）：判空改 trim 口径——全空白正文（纯空行/空白符，非空串）
-    // 此前 `!r.body` 判不住，照常计入章数并在产物中产出空壳章节（分隔符 + 空段）。
-    // 净化管线（stripAuthorNotes 后 trim）本就会把它打成空串，此处提前同口径拦截。
-    if (r.body.trim() === '') {
-      warnings.push(`${relPosix(u.path)}: 正文为空，已跳过`)
-      return null
-    }
-    return r.body
-  }
+  const run: ExportRun = { bookRoot, warnings, files: [], writtenCount: 0, writtenNums: new Set() }
   if (filtered.length === 0) {
     return fail(`正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`)
   }
 
-  // 2. 按排序键数值排序（S2：`序 ?? 章号`——不依赖文件名字符串序；tie 章号保稳定）
-  filtered.sort((a, b) => a.sortKey - b.sortKey || a.num - b.num)
+  // ── 阶段三·编号 ──
+  orderAndNumberUnits(filtered)
 
-  // S2（阶段 24）D7 分流：已发布章固定本地章号，其后未发布段从「已发布最大章号+1」
-  // 按 sortKey 序位连续编。全无已发布章时（旧书常态）从 1 连续编——无 `序` 且章号
-  // 连续的旧书 displayNum ≡ num，零漂移；章号空洞（合并留洞）在分章前缀上闭合。
-  // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」）：displayNum 语义拍板维持
-  // D7——已发布章号不可变优先于显示序单调（发布号是读者侧锚点）；已发布章不居
-  // sortKey 序前时显示序非单调（[6,7,8,9,5,10] 形态，复审-0913-源码 ⑰）系该语义的
-  // 自然结论，接受不改。
-  {
-    const maxPublished = filtered.reduce((m, u) => (u.published ? Math.max(m, u.num) : m), 0)
-    let next = maxPublished + 1
-    for (const u of filtered) u.displayNum = u.published ? u.num : next++
+  const doMerged = format === 'merged' || format === 'both'
+  const doSplit = format === 'split' || format === 'both'
+  // 读书名（用于合并文件名；book.yaml #9 格式）
+  const bookTitle = cfg.ok && cfg.config.book.title ? cfg.config.book.title : '未命名'
+
+  // ── 阶段四·备目录（母本 6.2 工作区/导出/）──
+  const layout = prepareExportLayout({ bookRoot, bookTitle, doMerged, doSplit, warnings })
+  if (!layout.ok) return fail(layout.error)
+  const plan: ExportPlan = { ...layout.value, filtered }
+
+  // ── 阶段五·写出（全本流式 / 分章逐章）──
+  const wrote = writeExportProducts(run, plan)
+  if (!wrote.ok) return fail(wrote.error, wrote.files)
+
+  // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经定稿预滤
+  // （filtered）走同一信封；具体病因见 warnings 逐章留痕）。
+  // R26-53（二十六轮）：文案如实归因——到达此处时各章**均已定稿**（filtered 即定稿
+  // 集），真实病因是空正文/读取失败；原「均未定稿，请先在文档树中定稿」误导作者去重
+  // 复定稿操作。配合 publish 裁定，盘上亦无空壳产物残留。
+  // R28-16（二十八轮）：报数口径再收紧——units.length 是正文区全部章数，跳过草稿
+  // （skippedDrafts>0）或无清单兜底（finalizedPaths===null）时按它报「有定稿章 N 章」
+  // 会虚高（10 章仅 1 定稿且空 → 误报 10 章）。分口径如实表述：有定稿清单报定稿章数
+  // （filtered.length，另注跳过的草稿数）；无清单兜底改说正文区全部章（未按定稿过滤）。
+  if (run.writtenCount === 0) {
+    const scope =
+      finalizedPaths !== null
+        ? `有定稿章 ${filtered.length} 章但正文全部为空或读取失败${skippedDrafts > 0 ? `（另有 ${skippedDrafts} 章未定稿已跳过）` : ''}`
+        : `正文区 ${units.length} 章的正文全部为空或读取失败（未找到定稿清单，未按定稿过滤）`
+    return fail(`${scope}，没有可导出的内容；逐章原因见 warnings。`)
   }
 
-  // 3. 准备导出目录（母本 6.2 工作区/导出/）
+  // ── 阶段六·投稿视图（R70-4 十八轮：short 分支整体收编进错误信封——R67-10 只包了
+  // merged/split 写入，投稿视图的 scanShortCollection/readdirSync 清点/atomicWriteFile
+  // 裸穿：磁盘满/目录并发删除时异常破坏 {ok:false} 契约、worker 形态丢 warnings 上下文）──
+  if (kind === 'short') {
+    const view = writeSubmissionView({
+      bookRoot,
+      exportDir: plan.exportDir,
+      cfg,
+      bookTitle,
+      platform,
+      writtenNums: run.writtenNums,
+      warnings,
+      files: run.files,
+    })
+    if (!view.ok) return fail(view.error, view.files)
+  }
+
+  return {
+    ok: true,
+    files: run.files,
+    chapterCount: run.writtenCount,
+    unit: '章',
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：成功面核心消费点——清单缺失
+    // （skipped-no-manifest）时前端据此明示「本次导出未按定稿过滤（含未定稿章）」
+    finalizedFilter,
+    skippedDrafts,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  }
+}
+
+/** 阶段四·备目录：导出目录创建 + 同名旧产物归档清位 + 分章目录归档重建。
+ *  顺序不变量（勿调换）：①目录先建——其后全部产物写在其下；②清旧只归档「其它名字」
+ *  的过期产物——当前同名的保护留给写出段「先归档再覆盖 / 归档不下改序号」单点
+ *  （R0916-7-P3-10），清旧失败不阻断导出（清的是别名产物，留在原位不构成覆写）；
+ *  ③分章目录归档失败 → 本次产物写「分章-N」新目录（R33-8 不覆写原目录——目录被
+ *  编辑器/Word 占用正是 win 上整目录 rename 最常失败的场景）。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 exportBook 阶段四）。 */
+export function prepareExportLayout(args: {
+  bookRoot: string
+  bookTitle: string
+  doMerged: boolean
+  doSplit: boolean
+  warnings: string[]
+}): StageResult<Omit<ExportPlan, 'filtered'>> {
+  const { bookRoot, bookTitle, doMerged, doSplit, warnings } = args
   const exportDir = join(bookRoot, '工作区', '导出')
   // R74-2（二十二轮）：目录创建位于主信封 try 之外——工作区只读/EROFS/EACCES 时裸异常
   // 上抛，worker 形态变 500 且丢 chapterCount/warnings，违背 R67-10/R70-4 确立的
   // {ok:false} 信封契约。mkdir 结果被后续清旧/分章目录准备依赖、无法并入主 try，
-  // 本地 try 收编同款错误信封（口径照抄 R70-4 的 short 分支收编写法）。
+  // 本地收编同款错误信封（口径照抄 R70-4 的 short 分支收编写法）。
   try {
     mkdirSync(exportDir, { recursive: true })
   } catch (e) {
-    return fail(`导出写入失败：${errMsg(e)}`)
+    return { ok: false, error: `导出写入失败：${errMsg(e)}` }
   }
 
-  // 4. 读书名（用于合并文件名；book.yaml #9 格式）
-  let bookTitle = '未命名'
-  if (cfg.ok && cfg.config.book.title) {
-    bookTitle = cfg.config.book.title
-  }
-
-  const files: string[] = []
-  const doMerged = format === 'merged' || format === 'both'
-  const doSplit = format === 'split' || format === 'both'
-
-  // 5. 单文件合并：全本-<书名>.md
-  // 5+6. 单遍流式导出（内存闸 2026-08-24 审计 A1）：不再物化 purified 全书数组与
-  //  `join('\n\n---\n\n')` 整书大串（原峰值 ≈4-6× 全书体积，200 万字书几十 MB
-  //  多份并存）——逐章净化即写即弃，merged 经 atomicWriteStream 追加写、split 逐章
-  //  原子写，峰值降为单章级；产物字节与原实现逐一恒等（同段同序同分隔符）。
   let mergedFileName = ''
   if (doMerged) {
     mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
@@ -470,11 +594,11 @@ export function exportBook(options: ExportOptions): ExportResult {
         }
       }
     } catch (e) {
-      return fail(`导出写入失败：${errMsg(e)}`)
+      return { ok: false, error: `导出写入失败：${errMsg(e)}` }
     }
   }
 
-  // 6. 分章导出目录准备：旧目录先归档再重建（R67-1：原 rmSync 整删与 R65-27「归档
+  // 分章导出目录准备：旧目录先归档再重建（R67-1：原 rmSync 整删与 R65-27「归档
   //    不删」哲学相悖——作者手改过 分章/ 内单章稿后再导出即被静默销毁不可挽回；
   //    对齐 archiveOldExport：整目录 rename 进 导出/.旧版/分章[-N]/，归档失败保留
   //    原目录记 warnings 继续导（宁可残留不可销毁））
@@ -508,57 +632,73 @@ export function exportBook(options: ExportOptions): ExportResult {
     try {
       mkdirSync(join(exportDir, splitTargetDirName), { recursive: true })
     } catch (e) {
-      return fail(`导出写入失败：${errMsg(e)}`)
+      return { ok: false, error: `导出写入失败：${errMsg(e)}` }
     }
   }
+  return { ok: true, value: { exportDir, mergedFileName, splitTargetDirName, doMerged, doSplit } }
+}
+/** 阶段五内部·分章单章写出：前缀/文件名净化 + 撞名序号判定 + 规范化写 + 产物登记。
+ *  R67-10（十五轮）：单章写入失败带上章上下文重抛——外层收编为 {ok:false}。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 writeExportProducts）。 */
+export function writeSplitUnit(
+  run: ExportRun,
+  plan: ExportPlan,
+  splitUsed: Set<string>,
+  unit: { num: number; title: string; path: string; displayNum?: number },
+  body: string,
+): void {
+  try {
+    // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
+    //（原内联 padStart(4) 未走写侧单源，CC-P2-21 家族）；文案章号引用维持本地章号。
+    const display = unit.displayNum ?? unit.num
+    const prefix = chapterFilePrefix(display, 'chapter')
+    const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
+    // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
+    // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
+    // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
+    const fileName = `${prefix}${baseName}.md`
+    // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
+    // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
+    const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
+    // P3（复审-0914-优化修复批）：撞名/非撞名两分支重复的 atomicWriteFile+files.push
+    // 合并单点写——名单先算定（finalName），写盘与登记只写一份
+    let finalName = fileName
+    if (splitUsed.has(fileName)) {
+      let n = 2
+      while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
+      finalName = `${prefix}${baseName}-${n}.md`
+      run.warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
+    }
+    splitUsed.add(finalName)
+    atomicWriteFile(join(plan.exportDir, plan.splitTargetDirName, finalName), payloadOf(unit.title, body))
+    run.files.push(`工作区/导出/${plan.splitTargetDirName}/${finalName}`)
+  } catch (e) {
+    // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
+    throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
+  }
+}
+
+/** 阶段五·写出：全本（单遍流式，内存闸 2026-08-24 审计 A1——不再物化 purified 全书
+ *  数组与 `join('\n\n---\n\n')` 整书大串，逐章净化即写即弃，峰值降为单章级，产物字节
+ *  与物化实现逐一恒等）+ 分章逐章原子写。
+ *  R67-10（十五轮）：写入期异常（分章经 merged 流式回调或 split 循环抛出、
+ *  atomicWriteStream 自身失败）不再裸穿透 exportBook——库形态信封契约是 {ok:false}，
+ *  裸异常在服务端直接打到 500 兜底面且丢 chapterCount/warnings 上下文。收编时全本
+ *  尚在 tmp 未发布（atomicWriteStream 自清理），分章半产物由下次导出整目录归档清位。
+ *  重审-09（2026-09-07 全量代码重审 §四.9）：错误信封回填已落盘产物——原 `files: []`
+ *  清零让 merged+split 双模式中途失败时盘上已落的部分产物无列表（调用方/作者无从
+ *  核对半产物）。回填累积的 files：split 项 push 紧随成功 atomicWriteFile 之后 ⟺
+ *  已落盘；merged 名仅在 atomicWriteStream 完整发布后 unshift（中途失败 tmp 自
+ *  清理、目标不在盘），不虚列。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 exportBook 阶段五）。 */
+export function writeExportProducts(run: ExportRun, plan: ExportPlan): StageResult<null> {
   // R66-23（十四轮）：splitUsed 原声明在 writeSplit 闭包定义之后（仅靠「闭包实际调用
   // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit
-  // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
+  // 调用即 ReferenceError；声明保持在产出闭包之前，消除对调用时序的隐式依赖（行为不变）。
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
-  const writeSplit = (unit: { num: number; title: string; path: string; displayNum?: number }, body: string): void => {
-    try {
-      // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
-      //（原内联 padStart(4) 未走写侧单源，CC-P2-21 家族）；文案章号引用维持本地章号。
-      const display = unit.displayNum ?? unit.num
-      const prefix = chapterFilePrefix(display, 'chapter')
-      const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
-      // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
-      // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
-      // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
-      const fileName = `${prefix}${baseName}.md`
-      // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
-      // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
-      const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
-      // P3（复审-0914-优化修复批）：撞名/非撞名两分支重复的 atomicWriteFile+files.push
-      // 合并单点写——名单先算定（finalName），写盘与登记只写一份
-      let finalName = fileName
-      if (splitUsed.has(fileName)) {
-        let n = 2
-        while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
-        finalName = `${prefix}${baseName}-${n}.md`
-        warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
-      }
-      splitUsed.add(finalName)
-      atomicWriteFile(join(exportDir, splitTargetDirName, finalName), payloadOf(unit.title, body))
-      files.push(`工作区/导出/${splitTargetDirName}/${finalName}`)
-    } catch (e) {
-      // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
-      throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
-    }
-  }
-
-  // R67-10（十五轮）：写入期异常（writeSplit 经 merged 流式回调或 split 循环抛出、
-  // atomicWriteStream 自身失败）不再裸穿透 exportBook——库形态信封契约是 {ok:false}，
-  // 裸异常在服务端直接打到 500 兜底面且丢 chapterCount/warnings 上下文。收编时全本
-  // 尚在 tmp 未发布（atomicWriteStream 自清理），分章半产物由下次导出整目录归档清位。
-  // R73-37：循环内逐章 readUnitBody 现读即弃（读-写流水化），writtenCount 记实际
-  // 写出的章数（空正文/读取失败章已记 warnings 跳过，不再计入）。
-  let writtenCount = 0
-  // R73-37：实际产出章号集——投稿视图按它对齐（原实现经定稿预滤（filtered）天然排除
-  // 空正文章；预滤取消后改按实际写出集合，口径不漂移）
-  const writtenNums = new Set<number>()
+  const { warnings, files } = run
   try {
-    if (doMerged) {
+    if (plan.doMerged) {
       let first = true
       // R38-2（三十八轮）：同名产物先归档再覆盖——上方清旧循环只归档「其它名字」，
       // 当前同名被跳过后被 atomicWriteStream 直接覆盖；作者手改过的导出稿（R65-27
@@ -568,73 +708,65 @@ export function exportBook(options: ExportOptions): ExportResult {
       // 相反（作者按提示去找的稿已被销毁）。改：归档未成 → 本次产物写序号兜底名，
       // 与分章目录 R33-8「分章-N 不覆写原目录」同口径。
       if (
-        existsSync(join(exportDir, mergedFileName)) &&
-        !archiveOldExport(exportDir, mergedFileName, warnings)
+        existsSync(join(plan.exportDir, plan.mergedFileName)) &&
+        !archiveOldExport(plan.exportDir, plan.mergedFileName, warnings)
       ) {
-        const fallback = nextFreeName(exportDir, mergedFileName)
+        const fallback = nextFreeName(plan.exportDir, plan.mergedFileName)
         warnings.push(`本次产物改写入 ${fallback}，不覆写原产物`)
-        mergedFileName = fallback
+        plan.mergedFileName = fallback
       }
       atomicWriteStream(
-        join(exportDir, mergedFileName),
+        join(plan.exportDir, plan.mergedFileName),
         (append) => {
-          for (const unit of filtered) {
-            const raw = readUnitBody(unit)
+          for (const unit of plan.filtered) {
+            const raw = readUnitBody(run.bookRoot, unit, warnings)
             if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
             const body = purifyBody(raw)
             if (!first) append('\n\n---\n\n')
             first = false
             // 平台规范化批：全本产物规范形写（同分章/投稿视图收口）
             append(canonicalizeText(`# ${unit.title}\n\n${body}`))
-            if (doSplit) writeSplit(unit, body)
-            writtenCount++
-            writtenNums.add(unit.num)
+            if (plan.doSplit) writeSplitUnit(run, plan, splitUsed, unit, body)
+            run.writtenCount++
+            run.writtenNums.add(unit.num)
           }
         },
         // R26-53（二十六轮）：发布裁定——零成功章时全本文件连空壳都不落盘（原口径
         // 空 `全本-*.md` 照常 rename 落盘后才在下方按失败收口，盘上残留空产物）
-        { publish: () => writtenCount > 0 },
+        { publish: () => run.writtenCount > 0 },
       )
-      if (writtenCount > 0) files.unshift(`工作区/导出/${mergedFileName}`)
-    } else if (doSplit) {
-      for (const unit of filtered) {
-        const raw = readUnitBody(unit)
+      if (run.writtenCount > 0) files.unshift(`工作区/导出/${plan.mergedFileName}`)
+    } else if (plan.doSplit) {
+      for (const unit of plan.filtered) {
+        const raw = readUnitBody(run.bookRoot, unit, warnings)
         if (raw === null) continue
-        writeSplit(unit, purifyBody(raw))
-        writtenCount++
-        writtenNums.add(unit.num)
+        writeSplitUnit(run, plan, splitUsed, unit, purifyBody(raw))
+        run.writtenCount++
+        run.writtenNums.add(unit.num)
       }
     }
+    return { ok: true, value: null }
   } catch (e) {
-    // 重审-09（2026-09-07 全量代码重审 §四.9）：错误信封回填已落盘产物——原 `files: []`
-    // 清零让 merged+split 双模式中途失败时盘上已落的部分产物无列表（调用方/作者无从
-    // 核对半产物）。回填累积的 files：split 项 push 紧随成功 atomicWriteFile 之后 ⟺
-    // 已落盘；merged 名仅在 atomicWriteStream 完整发布后 unshift（中途失败 tmp 自
-    // 清理、目标不在盘），不虚列。
-    return fail(`导出写入失败：${errMsg(e)}`, files)
+    return { ok: false, error: `导出写入失败：${errMsg(e)}`, files }
   }
-  // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经定稿预滤
-  // （filtered）走同一信封；具体病因见 warnings 逐章留痕）。
-  // R26-53（二十六轮）：文案如实归因——到达此处时各章**均已定稿**（filtered 即定稿
-  // 集），真实病因是空正文/读取失败；原「均未定稿，请先在文档树中定稿」误导作者去重
-  // 复定稿操作。配合 publish 裁定，盘上亦无空壳产物残留。
-  // R28-16（二十八轮）：报数口径再收紧——units.length 是正文区全部章数，跳过草稿
-  // （skippedDrafts>0）或无清单兜底（finalizedPaths===null）时按它报「有定稿章 N 章」
-  // 会虚高（10 章仅 1 定稿且空 → 误报 10 章）。分口径如实表述：有定稿清单报定稿章数
-  // （filtered.length，另注跳过的草稿数）；无清单兜底改说正文区全部章（未按定稿过滤）。
-  if (writtenCount === 0) {
-    const scope =
-      finalizedPaths !== null
-        ? `有定稿章 ${filtered.length} 章但正文全部为空或读取失败${skippedDrafts > 0 ? `（另有 ${skippedDrafts} 章未定稿已跳过）` : ''}`
-        : `正文区 ${units.length} 章的正文全部为空或读取失败（未找到定稿清单，未按定稿过滤）`
-    return fail(`${scope}，没有可导出的内容；逐章原因见 warnings。`)
-  }
+}
 
-  // R70-4（十八轮）：short 分支整体收编进错误信封——R67-10 只包了 merged/split 写入，
-  // 投稿视图的 scanShortCollection/readdirSync 清点/atomicWriteFile 裸穿：磁盘满/目录
-  // 并发删除时异常破坏 {ok:false} 契约（worker 形态丢 warnings 上下文、库形态裸异常）。
+/** 阶段六·投稿视图（短篇书专属）：旧产物清点归档 + 同名先归档再覆盖（归档不下改序号
+ *  兜底名，与全本侧同口径）+ 规范形写。写失败时 merged/split 产物均已完整落盘，错误
+ *  信封回填累积的 files（重审-09 同族收口）。
+ *  R0916-7-P3-2：导出供分段直测（生产唯一调用点在 exportBook 阶段六）。 */
+export function writeSubmissionView(args: {
+  bookRoot: string
+  exportDir: string
+  cfg: ReturnType<typeof readBookConfig>
+  bookTitle: string
+  platform: ExportPlatform
+  writtenNums: ReadonlySet<number>
+  warnings: string[]
+  files: string[]
+}): StageResult<null> {
+  const { bookRoot, exportDir, cfg, bookTitle, platform, writtenNums, warnings, files } = args
   try {
-  if (kind === 'short') {
     // 文件名与内容标题一致：非 generic 平台带模板 label（多平台产物不互相覆盖）
     const submissionNameOf = (p: string, label: string | undefined): string => {
       const suffix = label && p !== 'generic' ? `-${label}` : ''
@@ -679,22 +811,8 @@ export function exportBook(options: ExportOptions): ExportResult {
       canonicalizeText(formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform)),
     )
     files.push(`工作区/导出/${targetName}`)
-  }
+    return { ok: true, value: null }
   } catch (e) {
-    // 重审-09（2026-09-07 全量代码重审 §四.9）同族收口：投稿视图写失败时 merged/split
-    // 产物均已完整落盘，错误信封回填累积的 files（原 `files: []` 清零，同主写入 catch）。
-    return fail(`导出写入失败：${errMsg(e)}`, files)
-  }
-
-  return {
-    ok: true,
-    files,
-    chapterCount: writtenCount,
-    unit: '章',
-    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：成功面核心消费点——清单缺失
-    // （skipped-no-manifest）时前端据此明示「本次导出未按定稿过滤（含未定稿章）」
-    finalizedFilter,
-    skippedDrafts,
-    ...(warnings.length > 0 ? { warnings } : {}),
+    return { ok: false, error: `导出写入失败：${errMsg(e)}`, files }
   }
 }
