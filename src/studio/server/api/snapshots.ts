@@ -19,7 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
@@ -150,9 +150,10 @@ interface VersionStatsResult {
 /** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
  *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
 export const [getVersionStatsTtlMs, __setVersionStatsTtlForTest] = testableConst<number | null>(null)
-/** 复审-0914-修复批 P3-R3-3：restore 处理器读体前让出注入口——测试用其在
+/** 复审-0914-修复批 P3-R3-3：restore 读体前让出注入口——测试用其在
  *  readJson 窗口内确定性改盘（改名/删书），替代真实 40ms 竞态 timer（先例同
- *  __setLearnCommitYieldForTest）。生产 null 零行为差异。仅测试用。 */
+ *  __setLearnCommitYieldForTest）。R0916-7-P3-13 起该注入口随前置门迁进 restore 的
+ *  gate（仍在读体之前，窗口语义不变）。生产 null 零行为差异。仅测试用。 */
 /** 三件套换装 testableConst 工厂（让出桩覆盖档，null = 无桩；setter 元组第二位原名原签名，测试面零感知）。 */
 export const [getSnapshotsRestoreYield, __setSnapshotsRestoreYieldForTest] = testableConst<(() => Promise<void>) | null>(null)
 /** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
@@ -456,13 +457,19 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   })
 
   // 恢复：用该版本内容覆盖当前正文（当前内容自动留底）
+  // R0916-7-P3-13：原 handler 内联 readJson + as 断言——现 find 书/文档 404、版本 404
+  // 与让出注入口落 gate（保住「404 先于 body 400」的既有优先级与「读体前」竞态窗口，
+  // 见下方注入口注释），body 形状（expectedRevision 必填）落 parse。
   defineRoute('books.documents.snapshots.restore', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/snapshots/:id/restore',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    gate: async ({ params, res }) => {
       const docId = params['docId'] ?? ''
       const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      if ('error' in r) {
+        replyError(res, r.status, r.code, r.error)
+        return false
+      }
       // R34D-18（三十四轮）：字节保真读——此前 readVersion 的 utf-8 文本视图对
       // R26-52 字节档（非 UTF-8 源按原字节留底）必有损（U+FFFD 不可逆），恢复形同
       // 虚设。utf-8 档解码回精确文本（合法 utf-8 字节 ↔ 字符串双射，journal 全文
@@ -470,34 +477,43 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       // 直存（save 侧 M-5 覆写防线对 Buffer 放行——该防线的威胁模型是文本往返
       // 失真覆写，字节保真写不在其内）。
       const snap = readVersionRaw(r.snapshotsDir, docId, params['id'] ?? '')
-      if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
+      if (!snap) {
+        replyError(res, 404, 'NOT_FOUND', '版本不存在')
+        return false
+      }
       const content: string | Buffer = isUtf8Bytes(snap.content)
         ? snap.content.toString('utf-8')
         : snap.content
 
+      // 让出注入口仍在读体之前（R0916-7-P3-13 起随前置门留在 gate 内）：测试据「读体
+      // 窗口」改盘/[改名]确定性复现竞态，窗口位置不变量见 __setSnapshotsRestoreYieldForTest 注。
       const yieldFn = getSnapshotsRestoreYield()
       if (yieldFn) await yieldFn()
-      const body = (await readJson(req)) as { expectedRevision?: unknown }
+      return { value: { docId, r, snap, content } }
+    },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
-      if (expectedRevision === null) {
-        return replyError(res, 400, 'BAD_INPUT', 'expectedRevision 必填')
-      }
+      if (expectedRevision === null) throw new Error('expectedRevision 必填')
+      return { expectedRevision }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+    const { docId, r, snap, content } = gate
+    // 重评二轮-P3-1（2026-09-13 全库源码重评二轮 GLM-5.3）：readJson 窗口后写前重验书
+    // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
+    // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
+    // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
+    const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
 
-      // 重评二轮-P3-1（2026-09-13 全库源码重评二轮 GLM-5.3）：readJson 窗口后写前重验书
-      // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
-      // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
-      // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
-      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
-      if (moved) return replyError(res, 409, moved.code, moved.reason)
-
-      const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
-        content,
-        expectedRevision,
-        operationId: ulid(),
-        origin: 'restore',
-        reason: `恢复到 ${new Date(snap.meta.time).toLocaleString('zh-CN')} 的版本`,
-      })
+    const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
+      content,
+      expectedRevision: input.expectedRevision,
+      operationId: ulid(),
+      origin: 'restore',
+      reason: `恢复到 ${new Date(snap.meta.time).toLocaleString('zh-CN')} 的版本`,
+    })
       if (!outcome.ok) {
         const status = outcome.code === 'REVISION_CONFLICT' ? 409 : 400
         // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）

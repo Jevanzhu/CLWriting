@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 机检报告类型（镜像后端 src/check/types.ts 精简；web-next 独立构建不跨包 import）。
 export type CheckLevel = 'red' | 'yellow'
@@ -27,7 +28,7 @@ interface CheckResult {
 // 即算即显，不落信封；返回 CheckReport + hasRed 汇总。
 export async function runCheck(name: string, docId: string): Promise<CheckResult> {
   return apiJson<CheckResult>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/check`,
+    bookUrl(name, 'documents', docId, 'check'),
     {
       method: 'POST',
       json: {},
@@ -45,7 +46,7 @@ export async function markFalsePositive(
   checkId: string,
 ): Promise<{ ok: true; checkId: string; chapter: number; excerpt: string }> {
   return apiJson(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/check-false-positive`,
+    bookUrl(name, 'documents', docId, 'check-false-positive'),
     {
       method: 'POST',
       json: { checkId },

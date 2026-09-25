@@ -400,24 +400,19 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // SRV-N8 机械批：手输分支的形状抽取/校验移入 parse（id 分支不校验其余字段——沿用
   // 旧路径不误伤，凭据仍由 handler 从 store 取）；「必填」检查留在 handler（两分支
   // 合流后判定，与旧序一致）
+  // R0916-7-P3-13：手输分支的 protocol/auth/baseUrl 改由 parseConnectionInput 单源校验
+  // ——此前 protocol/auth 只 as 断言、baseUrl 不校 scheme，非法值原样透给下方 listModels
+  // （该端点恰是 scheme 校验注释点名的「打错目标」面）后以 500 GEN_FAIL 收场；现非法
+  // protocol / 缺 scheme 就地 400 BAD_INPUT 且文案指明字段（与增/改端点同口径）。
   defineRoute('providers.models', {
     method: 'POST',
     path: '/api/providers/models',
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
       if (typeof body['id'] === 'string' && body['id']) return { id: body['id'] }
-      const protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
-      // I6（dsh 口径）：手输 key 同过传输不变量——就地解释拒绝优于上游 opaque 401
-      const typed = normalizeApiKey(typeof body['apiKey'] === 'string' ? body['apiKey'] : '')
-      if (!typed.ok && typed.reason === 'illegalCharacters') {
-        throw new Error(apiKeyRefusal('illegalCharacters'))
-      }
-      return {
-        protocol,
-        baseUrl: typeof body['baseUrl'] === 'string' ? body['baseUrl'] : '',
-        apiKey: typed.ok ? typed.value : '',
-        auth: (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy,
-      }
+      const conn = parseConnectionInput(body)
+      if (!conn.ok) throw new Error(conn.error)
+      return conn
     },
     handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
@@ -439,6 +434,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       apiKey = input.apiKey
       auth = input.auth
     }
+    // R0916-7-P3-13：手输分支的 baseUrl/apiKey 形状已在 parse 段过 parseConnectionInput
+    // （缺 baseUrl 回「baseUrl 必填」），此闸现只兜「id 分支指向的存量配置缺 Key/地址」
+    // （手改 providers.json 形态）——两分支合流后判定，文案与旧序一致。
     if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
     try {
       const models = await listModels(protocol, baseUrl, apiKey, auth)
@@ -562,6 +560,23 @@ function parseProviderInput(
   | { ok: false; error: string } {
   const name = String(body['name'] ?? '').trim()
   if (!name) return { ok: false, error: 'name 必填' }
+  const conn = parseConnectionInput(body)
+  if (!conn.ok) return conn
+  const models = parseModels(body['models'])
+  if (models === 'invalid') return { ok: false, error: 'models 行不合法：id 必填且供应商内唯一，容量须为正整数' }
+  return { ...conn, name, models: models === undefined ? undefined : models }
+}
+
+/** 连接参数校验单源（增/改与 /models 手输探测共用）——R0916-7-P3-13：此前只
+ *  parseProviderInput 侧有校验，/models 对 protocol/auth 直接 as 断言、不校 baseUrl
+ *  scheme，非法值原样透给 listModels/probe（打错目标）后以 500 GEN_FAIL 收场；
+ *  两处各写一份校验必然漂移，故抽本函数。字段序 / 文案与 parseProviderInput 原实现
+ *  逐位一致（name 与 models 的校验仍在调用方，本函数只管连接四要素）。 */
+function parseConnectionInput(
+  body: Record<string, unknown>,
+):
+  | { ok: true; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string }
+  | { ok: false; error: string } {
   const protocolRaw = String(body['protocol'] ?? '')
   // Responses 启用批（2026-08-17）：openai-responses 恢复放行，三选一校验（曾随 Z-P2-1 误判拒配）
   const protocol = protocolRaw as Protocol
@@ -584,9 +599,7 @@ function parseProviderInput(
     return { ok: false, error: apiKeyRefusal('illegalCharacters') }
   }
   const apiKey = keyChecked.ok ? keyChecked.value : ''
-  const models = parseModels(body['models'])
-  if (models === 'invalid') return { ok: false, error: 'models 行不合法：id 必填且供应商内唯一，容量须为正整数' }
-  return { ok: true, name, protocol, auth, baseUrl, apiKey, models: models === undefined ? undefined : models }
+  return { ok: true, protocol, auth, baseUrl, apiKey }
 }
 
 /** 解析并校验模型行数组；undefined=未传，'invalid'=不合法 */

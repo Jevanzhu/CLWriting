@@ -9,6 +9,9 @@
  * - 系统菜单「设置/新建书/导出」经 useAppActions 只置 store 标志位 → 整面静默空操作。
  * 修复后五件上移 App.vue（Teleport to body），任何路由均可渲染。
  * 路由面用库内惯例双路径 mock（book-watch-reentry 同款），App 挂在非工作区语境断言。
+ * 每个用例收尾必须 unmount：beforeEach 清空 body 而 App 实例不卸载时，活实例的
+ * Teleport 锚点会随 body 清空变 null，后续任何一次重渲染都抛「insertBefore of null」
+ * 并经 ErrorBoundary 转成未处理拒绝（R0916-7 批 3 复现并定位）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -67,24 +70,26 @@ describe('R42-3/R42-4: 反馈层与模态全局挂载（非工作区路由语境
   })
 
   it('R42-3: ui.toast 有渲染点（修复前 /welcome、/library 整面死区）', async () => {
-    await mountApp()
+    const w = await mountApp()
     const ui = useUiStore()
     ui.toast('大小写敏感卷不合适，换个目录', 'error')
     await flushPromises()
     expect(document.body.textContent).toContain('大小写敏感卷不合适，换个目录')
+    w.unmount()
   })
 
   it('R42-4: ui.openSettings 弹设置模态（菜单 CmdOrCtrl+, 不再静默空操作）', async () => {
-    await mountApp()
+    const w = await mountApp()
     const ui = useUiStore()
     ui.openSettings()
     await flushPromises()
     // SettingsModal v-if=ui.settingsOpen，Teleport 到 body——mask 在文档即挂载成功
     expect(document.querySelector('.modal-mask')).not.toBeNull()
+    w.unmount()
   })
 
   it('R42-4: ui.openShelf / openExport 置位后模态面存在（标志位不再无消费者）', async () => {
-    await mountApp()
+    const w = await mountApp()
     const ui = useUiStore()
     ui.openShelf()
     await flushPromises()
@@ -94,6 +99,7 @@ describe('R42-3/R42-4: 反馈层与模态全局挂载（非工作区路由语境
     // 两模态均为 Teleport 浮层；断言不抛错且 body 有浮层根
     expect(document.body.children.length).toBeGreaterThan(0)
     ui.closeExport()
+    w.unmount()
   })
 
   it('静态锚：五件全局挂载于 App.vue，WorkspaceShell 不再重复挂载（防双挂载回归）', () => {

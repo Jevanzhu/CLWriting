@@ -47,6 +47,8 @@ import {
 } from '../shared/chapter-tree'
 import { useChapterTreeCreate, type Creating } from './useChapterTreeCreate'
 import { useChapterTreeStructure } from './useChapterTreeStructure'
+import { bookSessionFor } from './useBookSession'
+import { isAbortError } from '../api/client'
 
 /** 新建类 key → 标准落盘目录（空白处 / 找不到右键目录时用）。正文/卷原地建不在此表（依赖右键目标或正文区惯例）。 */
 const NEW_DEFAULT_DIRS: Record<string, { renderDir: string; fsDir: string }> = {
@@ -78,11 +80,21 @@ export function useChapterTreeActions(deps: {
   // `if (deps.bookName() !== book) return` 复检 + 「catch 里先查书名再落错」样板单源。
   // 红线沿革：R34D-21（catch 补切书守卫）/ R71-28（批量定稿 catch）/ B-10（await 后
   // 活源复检）/ R48-24 / R64-2 各轮均因漏配此守卫出过 bug——收敛只换写法，判定时机
-  // 逐位不变（await 返回后先查书名，再决定落错/刷树/开 tab）。
-  /** 仍在 book 书（await 窗口后未切书）？ */
-  const stillIn = (book: string): boolean => deps.bookName() === book
-  /** catch 尾款单源：已切书则静默丢弃旧书报错，仍在本书才落 openError（R34D-21 语义）。 */
+  // 逐位不变（await 返回后先查会话，再决定落错/刷树/开 tab）。
+  // R0916-7-P3-20（评审 P3-20）：判定源换装书会话（composables/useBookSession）——
+  // 「还在本书」= 本动作入口的书名仍是在册会话（会话同一性判定，不再逐点手写书名复检）；
+  // 本书结构写请求经 session.signal 中止（api/client 按路径接驳），迟到结果由 failScoped
+  // 顶部的 isAbortError 一处静默吸收。无在册会话时（未进书窗口/测试直挂面板）回落书名
+  // 复检，与旧判定逐位等价（同名重进的回环窗口差异见 useBookSession 头注）。
+  /** 仍在 book 书（await 窗口后未切书/未离书）？ */
+  const stillIn = (book: string): boolean => {
+    const session = bookSessionFor(book)
+    return session ? session.stillIn() : deps.bookName() === book
+  }
+  /** catch 尾款单源：书会话中止（切书/离书）的迟到失败一律静默吸收，仍在本书才落
+   *  openError（R34D-21 语义 + R0916-7-P3-20 的 AbortError 唯一出口）。 */
   const failScoped = (book: string, e: unknown): void => {
+    if (isAbortError(e)) return // 会话 abort：请求已被取消，结果无意义（不再逐点判书名丢旧书报错）
     if (!stillIn(book)) return
     deps.openError.value = friendlyError(e)
   }

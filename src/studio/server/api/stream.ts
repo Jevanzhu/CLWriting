@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl, urlPathOnly } from '../http.js'
+import { reply, replyError, parseRequestUrl, urlPathOnly } from '../http.js'
 import { log, errMsg } from '../../../log/index.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
@@ -460,18 +460,23 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   },
   })
 
-  // 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流
+// 触发写稿：generateText + writerSystem，fire-and-forget + SSE 回流
+  // R0916-7-P3-13：本端点原「不走 defineRoute parse：校验顺序依赖前置门」——现前置门
+  //（找书 404 → 五道忙闸 409 → holdSpawnGate 同步占位 → 之后才读 body）落 gate 前置闸，
+  // body 形状与 role/prompt 校验落 parse：执行序逐位不变（gate 先于 readJson），而占位
+  // 的写稿闸改由 defineRoute 的闸 cleanup 释放（覆盖 parse 失败 / handler 早退两条原
+  // 手工标记路径，取代 handler 内 try/finally 的 launched 双写）。
   defineRoute('books.spawn', {
     method: 'POST',
     path: '/api/books/:name/spawn',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    gate: ({ params, res }) => {
     // resolveBook 成功 = workDir 非空（null 已在其 error 分支 NO_WORKDIR 覆盖）——
     // 本文件后续 ctx.workDir! 断言据此成立（ensureSession 的 session.cwd 用 workDir 而非 bookRoot）
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+    if (!r) return false
 
     // 忙闸：单调 busyReason('spawn') 覆盖五面（P3-12 前为五段手写 check）——自身 spawn 闸
-    // （同步占位，无 TOCTOU；未实际启动的路径 finally 释放）→ self-heal 全自动写章
+    //（同步占位，无 TOCTOU；未实际启动的路径 finally 释放）→ self-heal 全自动写章
     //（双向均已设闸：self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿）
     // → 对话编排（chat 在途含 rewrite/write_chapter 等嵌套生成工具，两路 runTask 以不同章号
     // 交替记账互覆预算章块）→ 生成任务闸反向互斥（outline/lead-updates/onboard-ai/analyze
@@ -481,31 +486,31 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const bookName = params['name']!
     const busy = busyReason(bookName, 'spawn')
     if (busy) {
-      return replyError(res, 409, 'BUSY', busy)
+      replyError(res, 409, 'BUSY', busy)
+      return false
     }
+    // 占位在 parse 读体前同步完成（防线时序）：五道 409 闸与占位都先于 body 在途窗口，
+    // 客户端发完 headers 悬持 body 时同书第二次 /spawn 也拿 409 而非排队进 handler。
     holdSpawnGate(bookName)
-    let launched = false
-    try {
-      // 不走 defineRoute parse：校验顺序依赖前置门，parse 化会翻转错误优先级
-      //（五道 409 闸 + holdSpawnGate 在 readJson 前同步占位覆盖 body 在途窗口——防线时序）
-      const body = await readJson(req)
+    // launched 由 handler 在真正起跑（runWriterSpawn 已接盘）后置真——false 时 cleanup
+    // 释放占位（闸后段任一失败路径：读体/校验 400、ensureSession 抛错等）
+    const gateState = { bookRoot: r.bookRoot, launched: false }
+    return { value: gateState, cleanup: () => { if (!gateState.launched) releaseSpawnGate(bookName) } }
+  },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
       // role 白名单——不校验则任意字符串直进 streamSpec（未知 role
       // 静默落 error 事件路径）；客户端仅用 'writer'（WorkbenchView 唯一调用点），
       // 白名单收敛入口，扩角色时同步补表。
       const SPAWN_ROLES = new Set(['writer'])
-      const rawRole = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
+      const rawRole = typeof body['role'] === 'string' ? body['role'] : 'writer'
       if (!SPAWN_ROLES.has(rawRole)) {
-        return replyError(res, 400, 'BAD_INPUT', `未知角色 role=${rawRole}（可用：${[...SPAWN_ROLES].join('、')}）`)
+        throw new Error(`未知角色 role=${rawRole}（可用：${[...SPAWN_ROLES].join('、')}）`)
       }
-      const role = rawRole
-      const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
+      const prompt = typeof body['prompt'] === 'string' ? body['prompt'] : ''
       // 拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
-      if (!prompt.trim()) {
-        return replyError(res, 400, 'BAD_INPUT', 'prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）')
-      }
-      if (prompt.length > 100_000) {
-        return replyError(res, 400, 'BAD_INPUT', 'prompt 过长（上限 10 万字符）')
-      }
+      if (!prompt.trim()) throw new Error('prompt 不能为空（请先拉取 /draft-prompt 组写稿上下文）')
+      if (prompt.length > 100_000) throw new Error('prompt 过长（上限 10 万字符）')
       // GET /draft-prompt 回传的注入源清单——只作登记字符串（promptMeta.files）
       // 不再读盘，服务端仍轻校验形状（串数组、条数/长度封顶）防事件库被灌垃圾
       const promptFiles = Array.isArray(body['files'])
@@ -513,29 +518,30 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
             .filter((f): f is string => typeof f === 'string' && f.length > 0 && f.length <= 200)
             .slice(0, 64)
         : []
+      return { role: rawRole, prompt, promptFiles }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+    const bookName = params['name']!
+    const mainSession = await ensureSession(bookName, ctx.workDir!)
+    const driver = getDriver()
+    // 起跑标记：闸 cleanup 据此不再释放（释放责任移交下方 finally——终态含失败/中断）
+    gate.launched = true
+    // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
+    // 终态（含失败/中断）释放并发闸
+    void runWriterSpawn({
+      driver,
+      mainSession,
+      bookName,
+      userDataPath: ctx.userDataPath,
+      bookRoot: gate.bookRoot,
+      prompt: input.prompt,
+      role: input.role,
+      promptFiles: input.promptFiles,
+    })
+      .catch((e) => emitSpawnError(driver, mainSession, e))
+      .finally(() => releaseSpawnGate(bookName))
 
-      const mainSession = await ensureSession(bookName, ctx.workDir!)
-      const driver = getDriver()
-      launched = true
-      // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
-      // 终态（含失败/中断）释放并发闸
-      void runWriterSpawn({
-        driver,
-        mainSession,
-        bookName,
-        userDataPath: ctx.userDataPath,
-        bookRoot: r.bookRoot,
-        prompt,
-        role,
-        promptFiles,
-      })
-        .catch((e) => emitSpawnError(driver, mainSession, e))
-        .finally(() => releaseSpawnGate(bookName))
-
-      reply(res, 200, { ok: true, role })
-    } finally {
-      if (!launched) releaseSpawnGate(bookName)
-    }
+    reply(res, 200, { ok: true, role: input.role })
   },
   })
 
@@ -583,14 +589,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
   // 全自动写章(红项自愈闭环):AI 写稿 → 机检 → 红则自动退回重写 → 全绿或触顶交作者。
   // fire-and-forget(与 /spawn 同风格):编排最长可跑十几分钟,进度全程经主 session SSE 回流。
+  // R0916-7-P3-13：原「不走 defineRoute parse：校验顺序依赖前置门」的第二个绕开点——现
+  // 前置门（找书 404 → 工目录 400 → 忙闸首查 409）落 gate、chapter/batchSize 校验落 parse，
+  // 首检仍先于 chapter 校验（r0912-cross-process-write-gates 钉的「跨进程闸在持 + 空 body
+  // → 409 非 400」逐位保持；parse 失败即 400，handler 不再吃非法 chapter）。
   defineRoute('books.auto-write', {
     method: 'POST',
     path: '/api/books/:name/auto-write',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    gate: ({ params, res }) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+    if (!r) return false
     const bookName = params['name']!
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
+    if (!ctx.userDataPath) {
+      replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
+      return false
+    }
     // 忙闸首查：单调 busyReason('auto-write') 覆盖四面（P3-12 前为四段手写 check，且
     // 同一句文案一处半角逗号一处全角——现单源全角）：
     // ① self-heal 自查——本闸是编排级内存锁，覆盖 self-heal 完整生命周期：机检/账本草稿
@@ -602,28 +615,28 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // ④ 生成任务闸反向互斥——outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间
     //   启动 self-heal，其收尾覆盖写细纲.md/账本推进.md，后续章拿到混合态上下文（双费 +
     //   两端闭合误报红触发多余重写）；含跨进程锁文件面（双进程形态下他进程任务可见）。
-    {
-      const busy = busyReason(bookName, 'auto-write')
-      if (busy) {
-        return replyError(res, 409, 'BUSY', busy)
+    const busy = busyReason(bookName, 'auto-write')
+    if (busy) {
+      replyError(res, 409, 'BUSY', busy)
+      return false
+    }
+    return { value: { bookRoot: r.bookRoot } }
+  },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const chapter = Number(body['chapter'])
+      if (!Number.isInteger(chapter) || chapter < 1) throw new Error('chapter 需为正整数')
+      // 批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
+      const rawBatch = body['batchSize']
+      const batchSize = rawBatch === undefined ? 1 : Number(rawBatch)
+      if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 20) {
+        throw new Error('batchSize 需为 1-20 的整数')
       }
-    }
-
-    // 不走 defineRoute parse：校验顺序依赖前置门，parse 化会翻转错误优先级
-    //（r0912-cross-process-write-gates 钉「首检即拦，不进 chapter 校验」：跨进程闸在持 + 空 body → 409 非 400）
-    const body = await readJson(req)
-    const chapter = Number(body['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) {
-      return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
-    }
-    // 批量连写——batchSize 1-20，有值则生成连续章号序列（中途红项触顶停当前章，不续后续）
-    const rawBatch = body['batchSize']
-    const batchSize = rawBatch === undefined ? 1 : Number(rawBatch)
-    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 20) {
-      return replyError(res, 400, 'BAD_INPUT', 'batchSize 需为 1-20 的整数')
-    }
-    const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
-
+      const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
+      return { chapter, batchSize, chapters }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+    const bookName = params['name']!
     const mainSession = await ensureSession(bookName, ctx.workDir!)
     // 二次检查（await 期间可能另一个请求已启动）——TOCTOU 收窄；chat/spawn 闸同款补查
     // R0916-7-P3-12：复检 = 同一单源再调一次（readJson + ensureSession 两个 await 的窗口
@@ -684,10 +697,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         mainSession,
         userDataPath: ctx.userDataPath!,
         cwd: ctx.workDir!,
-        bookRoot: r.bookRoot,
+        bookRoot: gate.bookRoot,
         bookName,
-        chapter,
-        ...(chapters ? { chapters } : {}),
+        chapter: input.chapter,
+        ...(input.chapters ? { chapters: input.chapters } : {}),
         onActivity: () => wd.touch(),
         register: (c) => {
           registered = c
@@ -704,7 +717,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         }),
     )
 
-    reply(res, 200, { ok: true, chapter, ...(batchSize > 1 ? { batchSize, chapters } : {}) })
+    reply(res, 200, { ok: true, chapter: input.chapter, ...(input.batchSize > 1 ? { batchSize: input.batchSize, chapters: input.chapters } : {}) })
   },
   })
 

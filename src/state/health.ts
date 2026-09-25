@@ -177,7 +177,9 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
         const pending = findUnsettled(journalFile)
         // R69-4（十七轮）：孤儿 journal 归档——docId 不在清单且不在回收站、且 move 类
         // pending 两端路径都不在盘（purge/外部删除后的残骸），对其报 crashedWrite 是
-        // 永久幽灵红且含全文快照的内容级残留；改判 .orphaned 保留数据可手工恢复。
+        // 永久幽灵红且留下永不消解的残留行；改判 .orphaned 保留数据可手工恢复。
+        // R0916-7-P3-9：pending 不再含全文快照（只记 opId/baseRevision），归档保留的
+        // 只是「这次保存没结算」的账目痕迹。
         // save 类 pending 无路径字段无法证实无主，保守维持原报红（ genuine 崩溃不静默）。
         if (isOrphanJournal(bookRoot, docId, orphanSnapshot, pending)) {
           const dst = `${journalFile}.orphaned-${Date.now()}`
@@ -216,10 +218,14 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
             kind: 'crashedWrite',
             humanMsg: `上次写作时「${where}」的保存没完成，可能丢字。`,
             // R53-D-2（五十三轮）：恢复指引如实化——原「可从版本历史恢复」误导：版本
-          // 历史只含已保存部分，崩溃窗内未保存的新键入不在其中（这正是本提示要防
-          // 的丢失面）；未保存部分的盘上残片在 journal 快照（降级行为头尾截断，
-          // R53-D-2 后有迹可考）。
-          fix: '版本历史与磁盘只保留已保存的内容，崩溃前未保存的新键入不在其中；可对照 工作区/.journal 下的快照残片补回，确认后忽略继续写作。',
+            // 历史只含已保存部分，崩溃窗内未保存的新键入不在其中（这正是本提示要防
+            // 的丢失面）。
+            // R0916-7-P3-9（2026-09-25）：原文案叫作者「对照 工作区/.journal 下的快照
+            // 残片补回」——journal 已不再存全文快照（只记 opId/baseRevision 元数据，
+            // 见 document/journal.ts 头注取证），该指引已无物可指。改指真实的未保存
+            // 恢复通道：编辑器本地镜像（web-next shared/dirty-mirror.ts，重开该文档时
+            // 按 baseRev 时效门自动复活为脏内容）；版本历史与磁盘只保留已保存的内容。
+            fix: '版本历史与磁盘只保留已保存的内容；若崩溃前编辑器里有未保存的键入，重新打开该文档会自动恢复上次未保存的正文（编辑器本地镜像）。确认现状无误后忽略继续写作。',
             files: unresolved.map((p) => p.opId),
           })
         }

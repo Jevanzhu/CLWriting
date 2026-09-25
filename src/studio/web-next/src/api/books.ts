@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 import type { TreeNode } from '../types/tree'
 
 // GET /api/books/:name/tree → {ok, nodes, revision, validatedAt}
@@ -8,7 +9,7 @@ export async function getTree(
   refresh = false,
 ): Promise<{ nodes: TreeNode[]; revision: string; validatedAt?: string }> {
   const q = refresh ? '?refresh=1' : ''
-  return apiJson(`/api/books/${encodeURIComponent(name)}/tree${q}`)
+  return apiJson(`${bookUrl(name, 'tree')}${q}`)
 }
 
 // GET /config → {config}（book.yaml）。target_words 在 config.book.target_words。
@@ -35,7 +36,7 @@ export async function getConfigWithRevision(
   name: string,
 ): Promise<{ config: BookConfig; revision: number }> {
   return apiJson<{ config: BookConfig; revision: number }>(
-    `/api/books/${encodeURIComponent(name)}/config`,
+    bookUrl(name, 'config'),
   )
 }
 
@@ -55,7 +56,7 @@ export async function putConfig(
   config: BookConfig,
   expectedRevision?: number,
 ): Promise<void> {
-  await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/config`, {
+  await apiJson<{ ok: true }>(bookUrl(name, 'config'), {
     method: 'PUT',
     json: { config, expectedRevision },
   })
@@ -65,12 +66,12 @@ export async function putConfig(
 export async function getWordsDiary(
   name: string,
 ): Promise<{ date: string; baseline: number | null; delta: number | null }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`)
+  return apiJson(bookUrl(name, 'words-diary'))
 }
 
 // POST /words-diary {baseline} → 记今日基线（首次打开记当前已写）。
 export async function postBaseline(name: string, baseline: number): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`, {
+  await apiJson(bookUrl(name, 'words-diary'), {
     method: 'POST',
     json: { baseline },
   })
@@ -106,7 +107,7 @@ interface RenameBookResult {
   eventsMigrationFailed?: true
 }
 export async function renameBook(name: string, newName: string): Promise<RenameBookResult> {
-  return apiJson<RenameBookResult>(`/api/books/${encodeURIComponent(name)}/rename`, {
+  return apiJson<RenameBookResult>(bookUrl(name, 'rename'), {
     method: 'POST',
     json: { name: newName },
   })
@@ -142,11 +143,11 @@ export interface RagStatus {
 }
 
 export async function getRagStatus(name: string): Promise<RagStatus> {
-  return apiJson<RagStatus>(`/api/books/${encodeURIComponent(name)}/rag/status`)
+  return apiJson<RagStatus>(bookUrl(name, 'rag', 'status'))
 }
 
 export async function triggerRagBuild(name: string): Promise<{ started: true }> {
-  return apiJson<{ started: true }>(`/api/books/${encodeURIComponent(name)}/rag/build`, {
+  return apiJson<{ started: true }>(bookUrl(name, 'rag', 'build'), {
     method: 'POST',
   })
 }
@@ -157,7 +158,7 @@ export async function triggerRagBuild(name: string): Promise<{ started: true }> 
 // 失配文案指向本端点），rebuild 是 GUI 的程序化出路（此前仅 CLI/手搓 HTTP 可达）。
 // 与 build 同一套任务闸（运行中 409 BUSY）与响应信封。
 export async function triggerRagRebuild(name: string): Promise<{ started: true; reset: true }> {
-  return apiJson<{ started: true; reset: true }>(`/api/books/${encodeURIComponent(name)}/rag/rebuild`, {
+  return apiJson<{ started: true; reset: true }>(bookUrl(name, 'rag', 'rebuild'), {
     method: 'POST',
   })
 }

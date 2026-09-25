@@ -4,6 +4,7 @@ import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { getToken, rebootstrap } from '../api/client'
 import { useStaleGuard } from './useStaleGuard'
+import { bookUrl } from '../api/url'
 
 /**
  * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑），
@@ -224,7 +225,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       // 名额、不消费 ticket，探测与重连的并发关系无需串行化（不引入新的等待窗口）。
       // 不变量：此处只取状态码——401→re-boot、429→指引 toast、403/404 静默、8s 超时、
       // 代闸、失败/被拒静默交回既有退避节奏，全部不变。
-      const r = await fetch(`${base}/api/books/${encodeURIComponent(currentName)}/stream`, {
+      const r = await fetch(base + bookUrl(currentName, 'stream'), {
         method: 'HEAD',
         signal: ctrl.signal,
         headers: { 'x-studio-token': t },
@@ -310,11 +311,11 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         reconnectTimer = setTimeout(safeDoConnect, delay)
         return
       }
-      es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream?ticket=${encodeURIComponent(ticket)}`)
+      es = new EventSource(`${base + bookUrl(currentName, 'stream')}?ticket=${encodeURIComponent(ticket)}`)
     } else {
       // N-3 既有口径：re-boot 失败 token 仍 null → 照常开连（无凭据必 401 fail-closed），
       // 由退避节奏再次走到这里重试（n3-sse-reboot 钉住）。
-      es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream`)
+      es = new EventSource(base + bookUrl(currentName, 'stream'))
     }
     es.onopen = () => {
       // R0916-7-P3-19：连接成功 = 新纪元——抖动/退避计数、429 已告位、失配连记、401

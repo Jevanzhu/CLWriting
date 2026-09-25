@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 伏笔/线索追踪：GET /foreshadows → 结构化列表（fm 字段 + 足迹 + 风险）
 
@@ -31,5 +32,5 @@ export interface Foreshadow {
 }
 
 export async function getForeshadows(name: string): Promise<Foreshadow[]> {
-  return apiJson<Foreshadow[]>(`/api/books/${encodeURIComponent(name)}/foreshadows`)
+  return apiJson<Foreshadow[]>(bookUrl(name, 'foreshadows'))
 }

@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 导入/导出（细案 §2.2 T4.2）：POST /export（B-24 起服务端 worker 线程执行，数秒返回）。
 // format 三选；platform 五选一可选；带写 token。
@@ -45,7 +46,7 @@ export async function exportBook(
   body: { format: ExportFormat; platform?: ExportPlatform },
 ): Promise<ExportResponse> {
   return apiJson<ExportResponse>(
-    `/api/books/${encodeURIComponent(name)}/export`,
+    bookUrl(name, 'export'),
     {
       method: 'POST',
       json: body,

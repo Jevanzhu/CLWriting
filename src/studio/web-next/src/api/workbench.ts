@@ -1,4 +1,5 @@
 import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
+import { bookUrl } from './url'
 
 // 工作台 HTTP 端点（细案 §2.2）。AI 类（spawn/outline）阻塞数十秒，调用方防重复提交。
 // P3-20（全库重评-0914）：原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
@@ -34,7 +35,7 @@ export interface BookState {
   crashedPendingOpIds?: string[]
 }
 export async function getState(name: string): Promise<BookState> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/state`)
+  return apiJson(bookUrl(name, 'state'))
 }
 
 // POST /spawn {role?, prompt?, files?} —— 起角色生成（AI 阻塞）。
@@ -43,7 +44,7 @@ export async function spawnRole(
   name: string,
   body: { role?: string; prompt?: string; files?: string[] },
 ): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/spawn`, {
+  await apiJson(bookUrl(name, 'spawn'), {
     method: 'POST',
     json: body,
   }, 120_000) // 角色生成超时 2 分钟
@@ -55,7 +56,7 @@ export async function spawnRole(
 // 后者此前误导性提示「已中断」。
 export async function interrupt(name: string): Promise<{ ok: boolean; interrupted: boolean }> {
   return apiJson<{ ok: boolean; interrupted: boolean }>(
-    `/api/books/${encodeURIComponent(name)}/interrupt`,
+    bookUrl(name, 'interrupt'),
     { method: 'POST' },
     INTERRUPT_TIMEOUT_MS,
   )
@@ -70,7 +71,7 @@ export async function autoWrite(
   batchSize = 1,
 ): Promise<{ ok: boolean; chapter: number; batchSize?: number; chapters?: number[] }> {
   return apiJson(
-    `/api/books/${encodeURIComponent(name)}/auto-write`,
+    bookUrl(name, 'auto-write'),
     {
       method: 'POST',
       json: { chapter, ...(batchSize > 1 ? { batchSize } : {}) },
@@ -88,7 +89,7 @@ export async function acknowledgeJournalPending(
   opId: string,
 ): Promise<{ ok: true; acknowledged: boolean }> {
   return apiJson<{ ok: true; acknowledged: boolean }>(
-    `/api/books/${encodeURIComponent(name)}/journal/${encodeURIComponent(opId)}/acknowledge`,
+    bookUrl(name, 'journal', opId, 'acknowledge'),
     { method: 'POST' },
   )
 }
@@ -103,7 +104,7 @@ interface DraftSaveResult {
   snapshotted: boolean
 }
 export async function saveDraft(name: string, chapter: number, content: string): Promise<DraftSaveResult> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/draft-save`, {
+  return apiJson(bookUrl(name, 'draft-save'), {
     method: 'POST',
     json: { chapter, content },
   })
@@ -111,12 +112,12 @@ export async function saveDraft(name: string, chapter: number, content: string):
 
 // GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单，Q-5 随 spawn 回传）
 export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string; files?: string[] }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/draft-prompt?chapter=${chapter}`)
+  return apiJson(`${bookUrl(name, 'draft-prompt')}?chapter=${chapter}`)
 }
 
 // POST /outline {chapter} —— 大纲生成（AI 阻塞，多源合成）
 export async function generateOutline(name: string, chapter: number): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/outline`, {
+  await apiJson(bookUrl(name, 'outline'), {
     method: 'POST',
     json: { chapter },
   }, 300_000) // 大纲多源合成超时 5 分钟
@@ -124,7 +125,7 @@ export async function generateOutline(name: string, chapter: number): Promise<vo
 
 // W-P1-3 右端：POST /lead-updates {chapter} —— 生成账本推进草稿（AI 草拟，作者定稿时确认回写）
 export async function generateLeadUpdates(name: string, chapter: number): Promise<{ ok: boolean; count: number }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/lead-updates`, {
+  return apiJson(bookUrl(name, 'lead-updates'), {
     method: 'POST',
     json: { chapter },
   }, 300_000)

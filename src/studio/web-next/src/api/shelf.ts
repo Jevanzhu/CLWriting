@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 export interface BookEntry {
   name: string
@@ -29,5 +30,5 @@ export async function listBooks(): Promise<{
 
 // DELETE /api/books/:name → 物理删除（目录 + 登记 + active 指针）
 export async function deleteBook(name: string): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  await apiJson(bookUrl(name), { method: 'DELETE' })
 }

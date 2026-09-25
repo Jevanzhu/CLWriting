@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 设定台（#7.5）：GET /settings → 角色卡 + 角色关系边（关系图数据源，块5）。
 
@@ -38,12 +39,12 @@ export interface SettingsResult {
 }
 
 export async function getSettings(name: string): Promise<SettingsResult> {
-  return apiJson<SettingsResult>(`/api/books/${encodeURIComponent(name)}/settings`)
+  return apiJson<SettingsResult>(bookUrl(name, 'settings'))
 }
 
 /** AI 关系梳理：触发 AI 通读材料提炼关系边，落盘缓存。force=true 强制重梳理。 */
 export async function mineRelations(name: string, force = false): Promise<{ ok: boolean; cached: boolean; relations: { from: string; to: string; type: string; note?: string }[] }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/relations/mine`, {
+  return apiJson(bookUrl(name, 'relations', 'mine'), {
     method: 'POST',
     json: { force },
   }, 120_000) // AI 关系梳理超时 2 分钟
@@ -55,5 +56,5 @@ interface CompletionNames {
   items: string[]
 }
 export async function getCompletionNames(name: string): Promise<CompletionNames> {
-  return apiJson<CompletionNames>(`/api/books/${encodeURIComponent(name)}/completion-names`)
+  return apiJson<CompletionNames>(bookUrl(name, 'completion-names'))
 }

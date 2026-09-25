@@ -1,4 +1,5 @@
 import { apiJson, ApiError } from './client'
+import { bookUrl } from './url'
 
 // 三审结果类型（镜像后端 src/review/run.ts CollectedReview + normalized 精简）。
 export interface ReviewIssueFE {
@@ -54,7 +55,7 @@ interface EnvelopeGet {
 // POST /documents/:docId/review —— 三审直读（M12 B0.2，需 AI 可达）。
 export async function runReview(name: string, docId: string): Promise<ReviewResult> {
   return apiJson<ReviewResult>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review`,
+    bookUrl(name, 'documents', docId, 'review'),
     { method: 'POST', json: {} },
     600_000, // X-P1-4：三审超时 10 分钟——真实 provider 串行 3 视角单次 1-3 分钟常态，120s 必假超时（服务端继续跑完落信封，费用照花）
   )
@@ -63,7 +64,7 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
 // POST /documents/:docId/review-verdict —— 作者裁决（落 review 信封 payload.verdict，M12 B1.3 方案 A）
 export async function runVerdictDoc(name: string, docId: string, approved: boolean): Promise<void> {
   await apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review-verdict`,
+    bookUrl(name, 'documents', docId, 'review-verdict'),
     { method: 'POST', json: { approved } },
   )
 }
@@ -75,7 +76,7 @@ export async function getReviewEnvelope(
 ): Promise<{ envelope: ReviewEnvelope; stale: boolean } | null> {
   try {
     const r = await apiJson<EnvelopeGet>(
-      `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analysis/review`,
+      bookUrl(name, 'documents', docId, 'analysis', 'review'),
     )
     return { envelope: r.envelope, stale: r.stale }
   } catch (e) {

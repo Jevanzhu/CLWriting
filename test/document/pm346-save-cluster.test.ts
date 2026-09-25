@@ -1,12 +1,10 @@
 /**
- * PM-3/4/6（性能与内存专项·2026-09-05）回归：保存链 journal 尺寸闸 + 副本收敛 + 版本字数。
+ * PM-4/6（性能与内存专项·2026-09-05）回归：保存链副本收敛 + 版本字数。
  *
- * - PM-3：appendPending 快照尺寸闸——快照超 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES（256KB）
- *   时落降级行（degraded:true），journal 不再随超大章每笔翻倍 IO + 立即触发 compact
- *   全量重读。恢复面契约不变：findUnsettled 仍报 opId（恢复消费方只读 opId，content
- *   全仓零程序性消费方——R31-21 已实证）；常规章全文快照照旧完整入 journal。
- *   R53-D-2（五十三轮）：降级行快照从 content:'' 改为头尾各 32KB 截断
- *   （truncateSnapshotHeadTail）——空快照使崩窗内新内容零盘上副本，红线失守。
+ * R0916-7-P3-9（2026-09-25）：原 PM-3 用例（appendPending 快照尺寸闸 256KB / 降级行头尾
+ * 截断）钉住的快照机制已整段删除——journal pending 只记 opId/baseRevision/ts 元数据，
+ * 正文不再进 journal。本文件 PM-3 段按新形态改造为「保存链 journal 尺寸与正文规模解耦」
+ * 契约定点：任意规模正文保存后 pending 行都不含内容字段、journal 尺寸与正文规模无关。
  * - PM-4：executeSave 副本收敛——wordDelta 的旧文字数走 revision 键控缓存
  *   （docWordsCache），连续保存/外部改动后 delta 仍逐次精确（缓存陈旧即在此暴露）；
  *   字数日记为外部可观测面。
@@ -20,12 +18,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
-import { findUnsettled, appendPending, JOURNAL_PENDING_SNAPSHOT_MAX_BYTES } from '../../src/document/journal.js'
+import { findUnsettled } from '../../src/document/journal.js'
 import { listVersionEntries, writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { countWords } from '../../src/format/words.js'
 import { bodyOf } from '../../src/format/frontmatter.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
+
+/** 从 journal 文本里取 pending 行（未结算行的唯一形态；settled 行另计） */
+function pendingLineOf(text: string): string {
+  const line = text.split('\n').find((l) => l.includes('"status":"pending"'))
+  expect(line).toBeDefined()
+  return line!
+}
 
 describe('PM-3/4/6 保存链回归', () => {
   let bookRoot: string
@@ -50,50 +55,40 @@ describe('PM-3/4/6 保存链回归', () => {
     rmSync(bookRoot, { recursive: true, force: true })
   })
 
-  // ── PM-3：pending 快照尺寸闸 ───────────────────────────────
+  // ── P3-9：保存链 journal 只记元数据（正文不进 journal）───────────
 
-  it('PM-3: 快照超 256KB → 降级行（degraded + 头尾截断，R53-D-2），findUnsettled 仍报 opId，保存成功', async () => {
-    const bigBody = '山'.repeat(JOURNAL_PENDING_SNAPSHOT_MAX_BYTES) // 256K 个「山」（UTF-8 计 768KB，超限）
+  it('P3-9: 超大章（>256KB 正文）保存 → pending 行仍只含元数据，journal 尺寸与正文规模解耦', async () => {
+    const bigBody = '山'.repeat(300_000) // ≈900KB UTF-8：原 256KB 快照闸的触发域
     const big = '---\n标题: 开篇\n章号: 1\n---\n' + bigBody
     const r = await svc.save(docId, relPath, { content: big, expectedRevision: computeRevision(absPath), operationId: 'op-big-' + String(seq++), origin: 'manual' })
     expect(r.ok).toBe(true)
 
-    // journal pending 行已降级：无兆级行（文件远小于快照本体），行形态 = degraded:true
-    // + 头尾截断快照（R53-D-2：原 content:'' 使崩窗内新内容零盘上副本）
     const text = readFileSync(journalPath, 'utf-8')
-    const pendingLine = text.split('\n').find((l) => l.includes('"pending"'))
-    expect(pendingLine).toBeDefined()
-    const parsed = JSON.parse(pendingLine!) as { content: string; degraded?: boolean }
-    expect(parsed.content.startsWith('---\n标题: 开篇\n章号: 1\n---\n')).toBe(true) // 头部正文开头
-    expect(parsed.content.endsWith('山')).toBe(true) // 尾部最新键入
-    expect(parsed.content).toContain('快照超长已截断')
-    expect(parsed.degraded).toBe(true)
-    expect(text.length).toBeLessThan(80 * 1024) // 降级行 ≤ 2×32KB 截断 + 标记（原全文形态此处会 ≈768KB）
+    const parsed = JSON.parse(pendingLineOf(text)) as Record<string, unknown>
+    // 行 = 元数据全量（键集精确钉住：多一个 content/degraded 即红）
+    expect(Object.keys(parsed).sort()).toEqual(['baseRevision', 'docId', 'opId', 'status', 'ts'])
+    expect(parsed.status).toBe('pending')
+    expect(text).not.toContain('快照超长已截断')
+    // journal 尺寸与正文规模无关（原全文快照形态此处 ≈900KB，降级形态 ≈64KB）
+    expect(text.length).toBeLessThan(2 * 1024)
 
-    // 崩溃恢复契约不变：save 成功已 settled → 无未结算项；再手工追加一条超限 pending
-    // 验证降级形态仍被 findUnsettled 识别（opId 可报，恢复面零缺口）
+    // 崩溃检测契约不变：save 成功已 settled → 无未结算项
     expect(findUnsettled(journalPath).length).toBe(0)
-    const opId = await appendPending(journalPath, docId, null, 'x'.repeat(JOURNAL_PENDING_SNAPSHOT_MAX_BYTES + 1))
-    const after = findUnsettled(journalPath)
-    expect(after.map((p) => p.opId)).toContain(opId)
-    const line2 = readFileSync(journalPath, 'utf-8').split('\n').find((l) => l.includes(opId))
-    expect(line2).toBeDefined()
-    const parsed2 = JSON.parse(line2!) as { content: string; degraded?: boolean }
-    expect(parsed2.degraded).toBe(true)
-    expect(parsed2.content.startsWith('x')).toBe(true)
-    expect(parsed2.content.endsWith('x')).toBe(true)
-    expect(parsed2.content).toContain('快照超长已截断')
   })
 
-  it('PM-3: 常规章（< 阈值）全文快照照旧完整入 journal', async () => {
+  it('P3-9: 常规章保存 → 同样无内容字段（新旧形态唯一差别是少了快照，元数据口径全一致）', async () => {
     const small = '---\n标题: 开篇\n章号: 1\n---\n新正文一段话，不长。'
-    const r = await svc.save(docId, relPath, { content: small, expectedRevision: computeRevision(absPath), operationId: 'op-small-' + String(seq++), origin: 'manual' })
+    const baseRevision = computeRevision(absPath) // 保存前基线（pending.baseRevision 语义）
+    const r = await svc.save(docId, relPath, { content: small, expectedRevision: baseRevision, operationId: 'op-small-' + String(seq++), origin: 'manual' })
     expect(r.ok).toBe(true)
     const text = readFileSync(journalPath, 'utf-8')
-    const pendingLine = text.split('\n').find((l) => l.includes('"pending"'))
-    const parsed = JSON.parse(pendingLine!) as { content: string; degraded?: boolean }
-    expect(parsed.content).toBe('---\n标题: 开篇\n章号: 1\n---\n新正文一段话，不长。')
-    expect(parsed.degraded).toBeUndefined()
+    const parsed = JSON.parse(pendingLineOf(text)) as Record<string, unknown>
+    expect(Object.keys(parsed).sort()).toEqual(['baseRevision', 'docId', 'opId', 'status', 'ts'])
+    // 基线仍进 journal（health 的 save pending 复核靠它比对盘上指纹，R0912-1a）
+    expect(parsed.baseRevision).toBe(baseRevision)
+    expect(computeRevision(absPath)).not.toBe(baseRevision) // 本笔确已落盘（复核判『已保存』的形态）
+    expect(text).not.toContain('新正文一段话')
+    expect(text).not.toContain('"content"')
   })
 
   // ── PM-4：副本收敛——wordDelta 缓存逐次精确 + 外部改动自动失效 ──

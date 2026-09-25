@@ -293,6 +293,12 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     }, async (ctrl) => {
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
       //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
+      // R0916-7-P3-13（输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
+      // 既有语义，故留内联读取并显式判型（force 仅此一处消费，无第二套校验口径）：
+      // ① 闸先于读体——runGatedGeneration 的编排互斥/task 闸 409 必须早于 body 400，
+      //    迁 parse 要把闸搬进 gate，而闸包装正本在 task-gate.ts（本批范围外）；
+      // ② 容错读取——非 HttpError 的连接层失败按空 body 兜底继续（同 providers.test 的
+      //    R26-63 口径），defineRoute 的 readJson 失败先于 parse 短路回 400，容错不可表达。
       const body = (await readJson(req).catch((e: unknown) => {
         if (e instanceof HttpError) throw e
         return {}

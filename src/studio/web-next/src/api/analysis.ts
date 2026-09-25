@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 信封（镜像后端 Envelope；payload 按 kind 异构，前端按 kind 断言）。
 interface EnvelopeFE {
@@ -19,7 +20,7 @@ interface ChapterTags {
 // POST /documents/:docId/autotag —— AI 读正文判定章节标签，返回 tags（不落信封；前端写 fm）。
 export async function autotag(name: string, docId: string): Promise<ChapterTags> {
   const r = await apiJson<{ ok: true; tags: ChapterTags }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/autotag`,
+    bookUrl(name, 'documents', docId, 'autotag'),
     { method: 'POST', json: {} },
     60_000, // 标签判定超时 1 分钟
   )
@@ -35,7 +36,7 @@ interface InferredMeta {
 // POST /documents/:docId/infer-meta —— AI 读正文反推目标情绪与核心反转（不落信封；前端写 fm）。
 export async function inferMeta(name: string, docId: string): Promise<InferredMeta> {
   const r = await apiJson<{ ok: true; meta: InferredMeta }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/infer-meta`,
+    bookUrl(name, 'documents', docId, 'infer-meta'),
     { method: 'POST', json: {} },
     60_000,
   )
@@ -80,7 +81,7 @@ export interface AnalysisOverview {
 // GET /analysis-overview —— 全书聚合趋势（体验分/情绪/钩子逐章 + 全书文风）。
 export async function getAnalysisOverview(name: string): Promise<AnalysisOverview> {
   return apiJson<AnalysisOverview & { ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/analysis-overview`,
+    bookUrl(name, 'analysis-overview'),
   )
 }
 
@@ -90,7 +91,7 @@ export async function runStyleAnalysis(
   name: string,
 ): Promise<{ envelope: EnvelopeFE; styleCandidates: number }> {
   const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
-    `/api/books/${encodeURIComponent(name)}/analyze-style`,
+    bookUrl(name, 'analyze-style'),
     { method: 'POST', json: {} },
     120_000, // AI 文风分析超时 2 分钟
   )

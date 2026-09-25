@@ -16,7 +16,9 @@ import type { SplitPlanView } from '../../../src/studio/web-next/src/api/documen
 let wrapper: ReturnType<typeof mount> | null = null
 
 const basePlan: SplitPlanView = {
+  ok: true,
   op: 'split',
+  path: '正文/第3章.md',
   docId: 'd1',
   chapterNo: 3,
   title: '第3章',

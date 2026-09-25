@@ -59,8 +59,18 @@ describe('R73-32 / saveDraft 保存协议纪律', () => {
     const raw = readFileSync(jp, 'utf-8')
     expect(raw).toContain('"pending"')
     expect(raw).toContain('"settled"')
-    // journal 行是 JSON 编码（换行转义），全文快照断言用转义形态
-    expect(raw).toContain(JSON.stringify(NEW).slice(1, -1)) // pending 含全文快照（防丢字）
+    // R0916-7-P3-9（2026-09-25）：journal pending 只记元数据（opId/docId/baseRevision/ts），
+    // 全文快照机制已整段删除——原「pending 含全文快照（防丢字）」断言随撤，改钉元数据
+    // 键集 + 「正文不入 journal」的反向约束（正文副本职责归前端镜像/版本历史）。
+    const pendingLine = raw.split('\n').find((l) => l.includes('"status":"pending"'))!
+    expect(Object.keys(JSON.parse(pendingLine) as Record<string, unknown>).sort()).toEqual([
+      'baseRevision',
+      'docId',
+      'opId',
+      'status',
+      'ts',
+    ])
+    expect(raw).not.toContain(JSON.stringify(NEW).slice(1, -1))
 
     // manifest：新文件已登记（R73-32 前不入清单）
     const entry = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(r.docId)

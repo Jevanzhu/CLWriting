@@ -1,4 +1,36 @@
 import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
+import { bookUrl } from './url'
+// R0916-7-P3-21：回包类型单源 = 根 src/shared/contract/documents.ts（两端共用同一份
+// 声明，服务端批以对象字面量注解/`satisfies` 接入多余属性检查）。类型经本模块原样
+// 转发（下方 export type），调用方 import 面零变化。
+import type {
+  BatchFinalizeOk,
+  CreateOk,
+  FileContentPayload,
+  FinalizeOk,
+  MergeApplyOk,
+  MergeUndoOk,
+  SaveOk,
+  SplitApplyOk,
+  StructurePlanOk,
+  TrashEntry,
+} from '../../../../shared/contract/documents'
+export type {
+  BatchFinalizeItem,
+  BatchFinalizeOk,
+  CreateOk,
+  FileContentPayload,
+  FinalizeOk,
+  MergeApplyOk,
+  MergePlanView,
+  MergeUndoOk,
+  Revision,
+  SaveOk,
+  SplitApplyOk,
+  SplitPlanView,
+  StructurePlanOk,
+  TrashEntry,
+} from '../../../../shared/contract/documents'
 
 // GET /file?file=<path> → 完整载荷（路径寻址读全文，含 frontmatter；细案 §2.1）。
 // E1（复审-0914-优化修复批）：同端点三包装（getContent / getContentPayload /
@@ -8,15 +40,9 @@ import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 // 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：GET /file 带编码探测的完整载荷——
 // 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
 // doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被 R66-1 防线 400 拒绝）。
-export interface FileContentPayload {
-  content: string
-  revision?: string
-  encodingSuspect?: boolean
-  encodingHint?: string
-}
 export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
   return apiJson<FileContentPayload>(
-    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+    `${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`,
   )
 }
 
@@ -31,7 +57,7 @@ export async function putContent(
   expectedRevision?: string,
 ): Promise<{ revision: string }> {
   return apiJson<{ ok: true; revision: string }>(
-    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+    `${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`,
     {
       method: 'PUT',
       json: {
@@ -44,16 +70,9 @@ export async function putContent(
 
 // PUT /documents/:docId/content —— 乐观锁保存（细案 §2.1 保存协议）。
 // 成功 → {ok,revision,superseded}；409 冲突由 apiJson 抛 ApiError{code:'REVISION_CONFLICT'}，调用方 catch。
-export interface SaveOk {
-  ok: true
-  revision: `sha256:${string}`
-  superseded?: boolean
-  /** RC 源码重审 A-5（Opus-5.5 轮）：服务端保存前留底失败（工作区/.版本 不可写）但正文
-   *  已落盘——留底是兜底不是闸（fail-open），保存成功；本旗仅降级时带出，doc store 据此
-   *  每文档提示一次「版本历史有缺口」。 */
-  snapshotDegraded?: boolean
-}
-
+// R0916-7-P3-26：显式声明可重放——body 带 newOperationId 幂等键（服务端按 operationId
+// 判重去重），401/403 re-boot 换票后自动重发是安全的（原由 client 嗅探 body 的
+// operationId 推断；现改为调用方自证）。
 export async function saveContent(
   name: string,
   docId: string,
@@ -65,10 +84,11 @@ export async function saveContent(
   },
 ): Promise<SaveOk> {
   return apiJson<SaveOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/content`,
+    bookUrl(name, 'documents', docId, 'content'),
     {
       method: 'PUT',
       json: body,
+      replayable: true,
     },
     API_DEFAULT_TIMEOUT_MS, // 本地磁盘写应秒级；超时防 saving 永不清除（原裸值 30_000，A5 收敛）
   )
@@ -77,17 +97,11 @@ export async function saveContent(
 // --- 树 CRUD（细案 §2.1）---
 
 // POST /documents（新建；建卷即建首章靠 relPath 含 <卷>/<首章>.md）。
-interface CreateOk {
-  ok: true
-  docId: string
-  path: string
-  revision: `sha256:${string}`
-}
 export async function createDoc(
   name: string,
   body: { relPath: string; content?: string },
 ): Promise<CreateOk> {
-  return apiJson<CreateOk>(`/api/books/${encodeURIComponent(name)}/documents`, {
+  return apiJson<CreateOk>(bookUrl(name, 'documents'), {
     method: 'POST',
     json: body,
   })
@@ -101,7 +115,7 @@ export async function copyDoc(
   relPath: string,
 ): Promise<CreateOk> {
   return apiJson<CreateOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/copy`,
+    bookUrl(name, 'documents', docId, 'copy'),
     {
       method: 'POST',
       json: { relPath },
@@ -116,7 +130,7 @@ export async function renameDoc(
   newName: string,
 ): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    bookUrl(name, 'documents', docId),
     {
       method: 'PATCH',
       json: { op: 'rename', newName },
@@ -129,7 +143,7 @@ export async function moveDoc(
   toDir: string,
 ): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    bookUrl(name, 'documents', docId),
     {
       method: 'PATCH',
       json: { op: 'move', toDir },
@@ -144,7 +158,7 @@ export async function updateChapterMetaDoc(
   meta: { 标题?: string; 章号?: number },
 ): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    bookUrl(name, 'documents', docId),
     {
       method: 'PATCH',
       json: { op: 'meta', ...meta },
@@ -159,7 +173,7 @@ export async function updateDocMeta(
   meta: Record<string, unknown>,
 ): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    bookUrl(name, 'documents', docId),
     {
       method: 'PATCH',
       json: { op: 'fm', meta },
@@ -170,44 +184,23 @@ export async function updateDocMeta(
 // DELETE /documents/:docId（软删 → 回收站）。
 export async function deleteDoc(name: string, docId: string): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
+    bookUrl(name, 'documents', docId),
     { method: 'DELETE' },
   )
 }
 
 // POST /documents/:docId/finalize —— 定稿确认（revision → final，git commit 锁定版本）。
-interface FinalizeOk {
-  ok: true
-  status: 'final'
-  skipped: boolean
-  /** 防吃书闸降级短语（非空 = 闸门 fail-open 放行：账本推进文件读失败或闸自身异常）。
-   *  服务端单章与批量逐项均透出（documents-save.ts），前端据此弹 warning。 */
-  gateDegraded?: string[]
-}
 export async function finalizeDoc(name: string, docId: string): Promise<FinalizeOk> {
   return apiJson<FinalizeOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/finalize`,
+    bookUrl(name, 'documents', docId, 'finalize'),
     { method: 'POST' },
   )
 }
 
 // POST /documents/batch-finalize —— 批量定稿（P2-PROD-2）。
-interface BatchFinalizeItem {
-  docId: string
-  ok: boolean
-  status?: 'final'
-  skipped?: boolean
-  error?: string
-  /** 同 FinalizeOk.gateDegraded：本条定稿被降级放行的原因（ok 时才可能出现） */
-  gateDegraded?: string[]
-}
-interface BatchFinalizeOk {
-  ok: true
-  results: BatchFinalizeItem[]
-}
 export async function batchFinalizeDocs(name: string, docIds: string[]): Promise<BatchFinalizeOk> {
   return apiJson<BatchFinalizeOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/batch-finalize`,
+    bookUrl(name, 'documents', 'batch-finalize'),
     {
       method: 'POST',
       json: { docIds },
@@ -217,76 +210,8 @@ export async function batchFinalizeDocs(name: string, docIds: string[]): Promise
 }
 
 // --- 章节结构操作（阶段 24 S3+S4：合并 / 拆分 / 撤销合并）---
-
-/** 合并干跑视图（确认弹窗数据源；服务端 structure.ts MergePlanView 同形裁剪——路径
- *  字段前端不消费，略）。 */
-export interface MergePlanView {
-  op: 'merge'
-  targetDocId: string
-  sourceDocId: string
-  targetChapterNo: number
-  sourceChapterNo: number
-  targetTitle: string
-  sourceTitle: string
-  /** 任一方非 UTF-8（GBK 存量）——apply 将 400 拒绝，前端干跑后即拦 */
-  encodingSuspect: boolean
-  sourceWords: number
-  sourcePreview: string
-  /** 折叠后目标章 fm 并入 数组（写侧单跳化） */
-  mergedInto: number[]
-  /** 源章履历引文对拼接正文的命中预演（false 项合并后将产 lead-evidence-miss 红） */
-  leadPreviews: Array<{ leadId: string; 动词: string; 证据: string; willMatch: boolean }>
-  /** 源章 RAG 向量块清除预估 */
-  ragChunksToClear: number
-  planHash: string
-}
-
-/** 拆分干跑视图（拆分弹窗数据源；服务端 SplitPlanView 同形裁剪）。 */
-export interface SplitPlanView {
-  op: 'split'
-  docId: string
-  chapterNo: number
-  title: string
-  /** 新章号 = 全书 max+1 再跳已定稿章号（篇号永不复用） */
-  newChapterNo: number
-  order: number
-  headWords: number
-  tailWords: number
-  tailPreview: string
-  /** 原章 fm 已发布 → 提示「平台连载无插入机制」，不硬拦 */
-  publishedWarning: boolean
-  planHash: string
-}
-
-export interface MergeApplyOk {
-  ok: true
-  targetDocId: string
-  sourceDocId: string
-  targetChapterNo: number
-  sourceChapterNo: number
-  mergedInto: number[]
-  /** = 源 docId（TrashEntry.id 即原 docId） */
-  trashEntryId: string
-  rollbackSnapshotId?: string
-  planHash: string
-}
-export interface SplitApplyOk {
-  ok: true
-  docId: string
-  newDocId: string
-  originChapterNo: number
-  newChapterNo: number
-  order: number
-  title: string
-}
-export interface MergeUndoOk {
-  ok: true
-  targetDocId: string
-  sourceDocId: string
-  sourceChapterNo: number
-  trashEntryId: string
-  planHash: string
-}
+// 干跑视图 / 执行结果 / 撤销结果的类型全在共享契约（service 层权威形状的镜像，由
+// src/shared/contract/documents.conformance.ts 编译期对齐）——此处不再手抄第二份。
 
 // POST /documents/:docId/structure-plan —— 干跑预览（不占结构闸；合并 body 带
 // sourceDocId（:docId = 目标章），拆分带 cursorOffset（全文坐标，含 fm））。
@@ -295,9 +220,9 @@ export async function structurePlan(
   name: string,
   docId: string,
   body: { op: 'merge'; sourceDocId: string } | { op: 'split'; cursorOffset: number },
-): Promise<{ plan: MergePlanView | SplitPlanView }> {
-  return apiJson<{ ok: true; plan: MergePlanView | SplitPlanView }>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/structure-plan`,
+): Promise<StructurePlanOk> {
+  return apiJson<StructurePlanOk>(
+    bookUrl(name, 'documents', docId, 'structure-plan'),
     { method: 'POST', json: body },
   )
 }
@@ -312,7 +237,7 @@ export async function structureApply(
     | { op: 'split'; title: string; cursorOffset: number; planHash: string },
 ): Promise<MergeApplyOk | SplitApplyOk> {
   return apiJson<MergeApplyOk | SplitApplyOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/structure-apply`,
+    bookUrl(name, 'documents', docId, 'structure-apply'),
     { method: 'POST', json: body },
     120_000, // 慢档对齐 batchFinalize——per-book 串行链排队 + 双章读写留底 + RAG 清理，30s 默认档在链积压时假超时（服务端继续成功、前端报超时不刷树）
   )
@@ -332,34 +257,28 @@ export async function structureMergeUndo(
   } = {},
 ): Promise<MergeUndoOk> {
   return apiJson<MergeUndoOk>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/merge-undo`,
+    bookUrl(name, 'documents', docId, 'merge-undo'),
     { method: 'POST', json: hints },
     120_000, // 同 structureApply——版本回滚 + 回收站还原 + 事件落账串行链
   )
 }
 
 // --- 回收站 ---
-export interface TrashEntry {
-  id: string
-  path: string
-  originalPath?: string
-  deletedAt?: string
-}
 export async function listTrash(name: string): Promise<TrashEntry[]> {
   const r = await apiJson<{ entries: TrashEntry[] }>(
-    `/api/books/${encodeURIComponent(name)}/trash`,
+    bookUrl(name, 'trash'),
   )
   return r.entries ?? []
 }
 export async function restoreTrash(name: string, id: string): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/trash/${encodeURIComponent(id)}/restore`,
+    bookUrl(name, 'trash', id, 'restore'),
     { method: 'POST' },
   )
 }
 export async function purgeTrash(name: string, id: string): Promise<{ ok: true }> {
   return apiJson<{ ok: true }>(
-    `/api/books/${encodeURIComponent(name)}/trash/${encodeURIComponent(id)}`,
+    bookUrl(name, 'trash', id),
     { method: 'DELETE' },
   )
 }

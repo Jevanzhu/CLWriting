@@ -25,7 +25,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
+import { reply, replyError, HttpError } from '../http.js'
 import { readBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -111,67 +111,60 @@ export function registerBookRoutes(ctx: BookCtx): void {
   })
 
   // 建书（1.5 段 1 表单 → doInit）
+  // R0916-7-P3-13：原 handler 内联 readJson + as 断言——现工目录前置门落 gate（NO_WORKDIR
+  // 仍先于 body 400）、name 形状/合法性等 body 校验落 parse；handler 只拿类型化 input。
+  // 书名非法仍回 400 BAD_PATH（HttpError 透传自身码，与迁移前逐位一致）。
   defineRoute('books.post', {
     method: 'POST',
     path: '/api/books',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) {
+    gate: ({ res }) => {
+      if (ctx.workDir) return { value: ctx.workDir }
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录，无法建书')
-      return
-    }
-    const body = (await readJson(req)) as {
-      name?: unknown
-      genre?: unknown
-      kind?: unknown
-      leads?: unknown
-      host?: unknown
-      targetWords?: unknown
-      brief?: unknown
-    }
-    const name = typeof body.name === 'string' ? body.name.trim() : ''
-    if (!name) {
-      replyError(res, 400, 'BAD_INPUT', '书名不能为空')
-      return
-    }
-    // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
-    //（复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
-    // 与跨平台原因披露——行为维持跨平台硬拒不变）
-    if (isInvalidBookName(name)) {
-      replyError(res, 400, 'BAD_PATH', BOOK_NAME_INVALID_REASON)
-      return
-    }
-    const genre = typeof body.genre === 'string' ? body.genre.trim() : ''
-    const kind = body.kind === 'short' ? 'short' : 'long'
-    const leads = Array.isArray(body.leads)
-      ? body.leads.filter((x): x is string => typeof x === 'string')
-      : undefined
-    const host = body.host === 'codex' ? 'codex' : 'cc'
-    // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
-    const targetWords =
-      typeof body.targetWords === 'number' && Number.isFinite(body.targetWords) && body.targetWords > 0
-        ? body.targetWords
+      return false
+    },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
+      if (!name) throw new Error('书名不能为空')
+      // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
+      //（复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
+      // 与跨平台原因披露——行为维持跨平台硬拒不变）
+      if (isInvalidBookName(name)) throw new HttpError(400, BOOK_NAME_INVALID_REASON, 'BAD_PATH')
+      const genre = typeof body['genre'] === 'string' ? body['genre'].trim() : ''
+      const kind: 'short' | 'long' = body['kind'] === 'short' ? 'short' : 'long'
+      const leads = Array.isArray(body['leads'])
+        ? body['leads'].filter((x): x is string => typeof x === 'string')
         : undefined
-    // 简介（可选，落 简介.md）
-    const brief = typeof body.brief === 'string' ? body.brief.trim() : undefined
+      const host: 'cc' | 'codex' = body['host'] === 'codex' ? 'codex' : 'cc'
+      // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
+      const targetWords =
+        typeof body['targetWords'] === 'number' && Number.isFinite(body['targetWords']) && body['targetWords'] > 0
+          ? body['targetWords']
+          : undefined
+      // 简介（可选，落 简介.md）
+      const brief = typeof body['brief'] === 'string' ? body['brief'].trim() : undefined
+      return { name, genre, kind, leads, host, targetWords, brief }
+    },
+    handler: async ({ input, gate: workDir }, _req: IncomingMessage, res: ServerResponse) => {
     // R36-9/R36-26（三十六轮）：建书迁 doInitAsync——doInit 经 appendBook 的同步
     // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
     // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
     // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
     const result = await doInitAsync({
-      workDir: ctx.workDir,
-      name,
-      genre: genre || undefined,
-      leads,
-      kind,
-      host,
-      targetWords,
-      brief,
+      workDir,
+      name: input.name,
+      genre: input.genre || undefined,
+      leads: input.leads,
+      kind: input.kind,
+      host: input.host,
+      targetWords: input.targetWords,
+      brief: input.brief,
     })
     if (!result.ok) {
       replyError(res, 400, 'BAD_INPUT', result.reason)
       return
     }
-    reply(res, 200, { name: result.bookName, kind, path: result.bookPath })
+    reply(res, 200, { name: result.bookName, kind: input.kind, path: result.bookPath })
   },
   })
 

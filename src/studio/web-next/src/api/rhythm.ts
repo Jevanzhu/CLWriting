@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 节奏双轨（块4）：GET /rhythm → 长篇(written/planned 双轨) / 短篇(章长+目标情绪)。
 // written=写作/正文 已写实际；planned=大纲/章纲 规划（字数目标合计）。
@@ -60,5 +61,5 @@ export interface RhythmShort {
 export type RhythmResult = RhythmLong | RhythmShort
 
 export async function getRhythm(name: string): Promise<RhythmResult> {
-  return apiJson<RhythmResult>(`/api/books/${encodeURIComponent(name)}/rhythm`)
+  return apiJson<RhythmResult>(bookUrl(name, 'rhythm'))
 }

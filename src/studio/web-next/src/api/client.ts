@@ -1,5 +1,6 @@
 // API 客户端：启动从 /api/boot 取 token，所有 /api/* 请求（boot 自身除外）自动注入 x-studio-token；
 // 错误信封统一 {error, code?}——非 2xx 一律抛 ApiError（error 人话 + code 机器码）。
+import { bookUrl } from './url'
 
 // 显式约束：token 为「每个渲染进程一份」的模块级变量——多窗口
 //（主窗/书架/书库）各自 boot 独立取 token，互不共享；正确性依赖服务端多 token 并存
@@ -92,9 +93,11 @@ export function rebootstrap(): Promise<void> {
  *  token，**token 变化**才重放原请求（同一请求最多重试一次，防死循环）。re-boot 失败、
  *  token 未变或重放仍 401/403 则原样透传错误。注意：init.body 须可重放（字符串/
  *  undefined；现有调用方均如此）。
- *  重放收敛幂等面——GET/HEAD 与带 operationId 的 PUT 之外（POST/DELETE/PUT 无幂等键）
- *  re-boot 后不自动重发，401/403 原样透传（判定见 isReplayable 注；re-boot 照常执行，
- *  新 token 供后续请求使用）。
+ *  重放收敛幂等面——GET/HEAD 之外的请求由调用方以 init.replayable 显式声明才重发
+ *  （判定见 isReplayable 注；re-boot 照常执行，新 token 供后续请求使用）。
+ *  R0916-7-P3-26（2026-09-24 全库源码质量评审修复批）：对外只剩 (path, init) 两参——
+ *  递归重试标记与超时计量/重放出参原为对外形参（调用方可见的内部状态），现收进私有
+ *  apiFetchCore，本函数只是薄壳。
  *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
 /** apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期（boot 自带 5s×3 次重试
  *  退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额计时（重放是新的 fetch，不吃
@@ -105,42 +108,49 @@ interface TimeoutGauge {
   resume: () => void
 }
 
-/** 401/403 自动重放的幂等面判定——GET/HEAD 天然幂等直过；
- *  PUT 带 operationId 幂等键（文档保存：body 为 apiJson 物化后的 JSON 字符串，键由
- *  shared/revision.ts 的 newOperationId 注入、服务端按 operationId 判重去重）同样可
- *  安全重放；其余（POST / DELETE / PUT 无幂等键）不自动重放——re-boot 等待窗后的
- *  盲目重发即双发（sendChat 双投递、删除类双删等）。re-boot 本身照常执行，非幂等面
- *  的 401/403 响应原样透传调用方（新 token 已就位，用户重试/下一动作自然带上）。 */
-function isReplayable(method: string, body: BodyInit | null | undefined): boolean {
+/** 401/403 自动重放的幂等面判定——GET/HEAD 天然幂等直过；其余方法**只有调用方显式声明
+ *  init.replayable 才重放**：判据不再从 body 里嗅探（原实现对 PUT 做 JSON.parse 找
+ *  operationId——每请求多一次全量体解析，「键名落进 body = 幂等」还是条隐式契约，body
+ *  形态一变就静默失效）。POST / DELETE / PUT 未声明即不自动重放——re-boot 等待窗后的
+ *  盲目重发即双发（sendChat 双投递、删除类双删等）。re-boot 本身照常执行，非幂等面的
+ *  401/403 响应原样透传调用方（新 token 已就位，用户重试/下一动作自然带上）。
+ *  声明前须自证幂等（服务端有幂等键或语义可重复），误声明即双写——调用方自负。 */
+function isReplayable(method: string, declared: boolean | undefined): boolean {
   if (method === 'GET' || method === 'HEAD') return true
-  if (method === 'PUT' && typeof body === 'string') {
-    try {
-      const parsed = JSON.parse(body) as { operationId?: unknown }
-      return typeof parsed.operationId === 'string' && parsed.operationId.length > 0
-    } catch {
-      return false // 非 JSON 体（理论面）：无从验幂等键，不重放
-    }
-  }
-  return false
+  return declared === true
 }
 
-export async function apiFetch(
+/** 请求级显式声明（叠在 RequestInit 上）：replayable = 本请求可安全重放。见 isReplayable 注。 */
+export interface ApiFetchInit extends RequestInit {
+  replayable?: boolean
+}
+
+/** 薄壳：对外只有 (path, init)——内部递归/计量/出参面见 apiFetchCore。 */
+export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<Response> {
+  return apiFetchCore(path, init)
+}
+
+/** apiFetch 实体：单次 fetch + 401/403 re-boot 自愈 + 一次重放（递归调用自身，_retried 封顶）。
+ *  计时句柄 / 重放标记为模块内部管道，经 apiJson 单点注入，不对外暴露。 */
+async function apiFetchCore(
   path: string,
-  init: RequestInit = {},
+  init: ApiFetchInit = {},
   _retried = false,
   _gauge?: TimeoutGauge,
   /** 「本响应来自重放」出参——apiJson 据此区分「重放仍 401/403」（登录态失效，换统一
    *  文案）与「不重放透传」（信封原样口径）。仅本模块内部传参，外部调用面不受影响。 */
   _replayed?: { yes: boolean },
 ): Promise<Response> {
-  const method = (init.method ?? 'GET').toUpperCase()
-  const headers = new Headers(init.headers)
+  // replayable 是 api 层内部约定，不进 fetch init（避免把未知键透传给 fetch）
+  const { replayable, ...rest } = init
+  const method = (rest.method ?? 'GET').toUpperCase()
+  const headers = new Headers(rest.headers)
   // 契约①：所有 /api/* 请求注入 token（boot 自身免鉴权——它就是取 token 的端点）；
   // 非 /api/* 路径（静态资源等）不注入。
   if (path.startsWith('/api/') && path !== '/api/boot' && token) {
     headers.set('x-studio-token', token)
   }
-  const r = await fetch(path, { ...init, method, headers })
+  const r = await fetch(path, { ...rest, method, headers })
   if ((r.status === 401 || r.status === 403) && !_retried) {
     // token 非空但失效（dev 重启 dev:api 换 token——生产靠持久化 token 规避）同样走
     // re-boot 恢复通道；**token 变化才重放**——re-boot 拿回同一枚说明 401/403 另有原因
@@ -150,10 +160,10 @@ export async function apiFetch(
     await rebootstrap()
     _gauge?.resume() // 等待结束重启满额计时（重放 fetch/读体同受保护）
     if (token !== null && token !== used) {
-      // 重放仅限幂等面（判定见 isReplayable 注）——非幂等请求（POST/DELETE/PUT 无
-      // operationId）re-boot 后不重发，401/403 响应原样透传（响应体完整留给调用方读
-      // 信封，对齐下方「不重放不 cancel」口径）
-      if (!isReplayable(method, init.body)) return r
+      // 重放仅限幂等面（判定见 isReplayable 注）——未声明的非幂等请求 re-boot 后不
+      // 重发，401/403 响应原样透传（响应体完整留给调用方读信封，对齐下方「不重放不
+      // cancel」口径）
+      if (!isReplayable(method, replayable)) return r
       // 重放前取消首个响应的未读流——重放后旧响应体不再被消费，不 cancel 会占住连接
       // 直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求可能挤占连接池）；
       // cancel 拒绝（已锁定的流等）静默吞掉。
@@ -163,7 +173,7 @@ export async function apiFetch(
       r.body?.cancel().catch(() => {})
       // 标记本请求发生过重放（出参带回 apiJson）
       if (_replayed) _replayed.yes = true
-      return apiFetch(path, init, true, _gauge, _replayed)
+      return apiFetchCore(path, init, true, _gauge, _replayed)
     }
   }
   return r
@@ -188,9 +198,51 @@ const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请
  *  合并语义：json 与显式 headers 并用时只补缺（已有 Content-Type 不覆盖，其余头原样保留）；
  *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
  *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
- *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。 */
-interface ApiJsonInit extends RequestInit {
+ *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。
+ *  R0916-7-P3-26：幂等声明（replayable）与 json 同层透传，apiFetchCore 消费。 */
+interface ApiJsonInit extends ApiFetchInit {
   json?: unknown
+}
+
+// ── R0916-7-P3-20（评审 P3-20）：书会话信号接驳 ──────────────────────────────
+// 「离书后迟到结果」的隔离从「每个异步动作 await 后手写书名复检」收敛到会话对象
+// （composables/useBookSession）：进书创建 BookSession、离书/切书 abort 其 signal，
+// 本书写请求随之中止，迟到结果由调用方一处 isAbortError 静默吸收。
+// 接驳面刻意收窄为「本书（/api/books/<在册名>）+ 非读非保存写」：
+// - 读面（GET/HEAD）不接：读请求的调用点在 stores/views（本批文件面外），其错误面
+//   （EditorView 的 doc.open 失败 toast、树/聚合 store 的 error 面）会把切书 abort 渲染
+//   成伪错误提示；读侧迟到隔离继续由各 store 既有切书代守卫（doc bookGen / tree loadGen
+//   / chat seedGen / workspace bookGen）承担。要扩面须连同对应调用点的 AbortError 吸收
+//   一起改，勿只放宽本函数。
+// - 保存写面（PUT：正文保存/书级偏好）不接：保存链自管在途台账与错误面（中止会伪造
+//   「保存失败」提示），且其成功分支已有书名守卫兜底。切书前的冲刷在 abort 之前落定
+//   （useBookSwitchGuard：冲刷与决断完成才 begin/endBookSession），故正常切书不会中止冲刷。
+// - 其余写请求（POST/PATCH/DELETE）即章节树结构动作族，调用点 = useChapterTreeActions 及
+//   其两个子 composable，错误面统一经 failScoped（已按 AbortError 静默吸收改写）。
+let bookSessionSignal: { name: string; signal: AbortSignal } | null = null
+
+/** 登记/摘除「在册书会话」信号（null = 摘除）。仅 useBookSession 调用（进书建会话、
+ *  离书/切书 abort 时同步登记/摘除）。 */
+export function setBookSessionSignal(name: string, signal: AbortSignal | null): void {
+  bookSessionSignal = signal ? { name, signal } : null
+}
+
+/** 本请求是否落在书会话信号的接驳面（口径见上方注释）——命中返回值，否则 null。
+ *  已 abort 的会话信号不再接（免把新请求立刻打断，转由调用方既有书名守卫处理）。 */
+function bookSessionSignalFor(path: string, method: string): AbortSignal | null {
+  if (!bookSessionSignal || bookSessionSignal.signal.aborted) return null
+  if (method === 'GET' || method === 'HEAD' || method === 'PUT') return null
+  // 文档结构动作族前缀（书名编码口径取 api/url.ts 的 bookUrl 单源）
+  const base = bookUrl(bookSessionSignal.name, 'documents')
+  if (path === base || path.startsWith(`${base}/`) || path.startsWith(`${base}?`)) return bookSessionSignal.signal
+  return null
+}
+
+/** AbortError 归类单源（R0916-7-P3-20）：按 name 判定而非 `instanceof DOMException`——
+ *  abort 抛出的 DOMException 可能来自别的 realm（iframe/Node 环境）或被上层重新包装，
+ *  instanceof 不可靠。调用方凡要「静默吸收取消」都走本判定，勿各自手写 name 比较。 */
+export function isAbortError(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'AbortError'
 }
 
 export async function apiJson<T>(
@@ -198,14 +250,20 @@ export async function apiJson<T>(
   init?: ApiJsonInit,
   timeoutMs: number = API_DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  // json 快捷载荷物化（语义见 ApiJsonInit 注）——先落成标准 RequestInit，
-  // 后续 signal 联动 / apiFetch 透传 / 401 重放均只见常规字符串 body，不感知本约定
+  // json 快捷载荷物化（语义见 ApiJsonInit 注）——先落成标准 RequestInit + replayable，
+  // 后续 signal 联动 / apiFetch 透传 / 401 重放均只见常规字符串 body，不感知 json 约定
   const { json, ...rest } = init ?? {}
-  let reqInit: RequestInit = rest
+  let reqInit: ApiFetchInit = rest
   if (json !== undefined) {
     const headers = new Headers(rest.headers)
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     reqInit = { ...rest, headers, body: JSON.stringify(json) }
+  }
+  // R0916-7-P3-20：书会话信号接驳——调用方未显式传 signal 时按「路径 + 方法」取在册会话
+  // 信号（口径见 setBookSessionSignal 注）。显式 signal 优先，本接驳不覆盖调用方意图。
+  if (!reqInit.signal) {
+    const sessionSignal = bookSessionSignalFor(path, (reqInit.method ?? 'GET').toUpperCase())
+    if (sessionSignal) reqInit = { ...reqInit, signal: sessionSignal }
   }
   let timer: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
@@ -241,7 +299,7 @@ export async function apiJson<T>(
     // 重放标记出参——apiFetch 内部 token 变化重发时置位，供下方 !r.ok 分支区分「重放仍
     // 401/403」与「不重放透传」。
     const replayed = { yes: false }
-    const r = await apiFetch(path, { ...reqInit, signal: controller.signal }, false, gauge, replayed)
+    const r = await apiFetchCore(path, { ...reqInit, signal: controller.signal }, false, gauge, replayed)
     // 错误信封判别：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案
@@ -264,8 +322,9 @@ export async function apiJson<T>(
       // 外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已为真，若把 AbortError 当坏体
       // 吞进本 catch 会误报 MALFORMED_RESPONSE（把调用方主动取消伪造成服务端故障）。判定
       // abort（联动内部 signal 已中止，或错误本身是 AbortError DOMException）→ 直通原
-      // abort 语义，不伪造 MALFORMED_RESPONSE。当前全库无调用方传 signal（纯理论面），
-      // 此守卫保证未来接线取消时不误报。
+      // abort 语义，不伪造 MALFORMED_RESPONSE。R0916-7-P3-20：外部 signal 的实调用方即
+      // 书会话接驳（上方 setBookSessionSignal 注）——本守卫是该接驳的 AbortError 归类出口，
+      // 调用方以 isAbortError 静默吸收。
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         throw err instanceof DOMException
           ? err

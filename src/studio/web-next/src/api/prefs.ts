@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 /** 书库级偏好（.clwriting/prefs.json）：工作区布局 + 可覆盖编辑器偏好。 */
 export interface BookPrefs {
@@ -15,7 +16,7 @@ export interface BookPrefs {
 
 export async function getBookPrefs(name: string): Promise<BookPrefs> {
   const r = await apiJson<{ prefs: BookPrefs }>(
-    `/api/books/${encodeURIComponent(name)}/prefs`,
+    bookUrl(name, 'prefs'),
   )
   // R61-F-2：200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
   // 原直返 r.prefs 会把 undefined 交给消费侧：workspace.loadBookPrefs 的
@@ -32,7 +33,7 @@ export async function getBookPrefs(name: string): Promise<BookPrefs> {
  * 若后续 prefs 承载高价值数据需加锁，另立批次接线（服务端零改动）。
  */
 export async function putBookPrefs(name: string, prefs: BookPrefs): Promise<void> {
-  await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/prefs`, {
+  await apiJson<{ ok: true }>(bookUrl(name, 'prefs'), {
     method: 'PUT',
     json: { prefs },
   })

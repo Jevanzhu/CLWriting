@@ -12,14 +12,15 @@
  * getRouteSchema 取 handler）+ 假 req/res；假 req 悬持 body 模拟「入口已过、临界段
  * 未跑」窗口，窗口内删书/改名再放行 body（确定性复现）。learn-commit 另有让出点
  * 用例：注入 yield 桩（__setLearnCommitYieldForTest）在首个让出点改名，锚定让出后
- * 重验中止剩余条目。
+ * 重验中止剩余条目。style 四端点自 R0916-7-P3-13 起 body 读取在 defineRoute 包装层
+ * （parse 段），窗口转由整表 dispatch 复现——见 styleDispatch 头注。
  */
 import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
+import { createRouteTable, dispatch, withRouteTable, type RouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerKnowledgeRoutes, __setLearnCommitYieldForTest } from '../../src/studio/server/api/knowledge.js'
 import { registerStyleRoutes } from '../../src/studio/server/api/style.js'
@@ -31,11 +32,8 @@ import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 interface Rig {
   workDir: string
   bookRoot: string
+  table: RouteTable
   learnCommit: NonNullable<ReturnType<typeof getRouteSchema>>
-  stylePost: NonNullable<ReturnType<typeof getRouteSchema>>
-  styleDelete: NonNullable<ReturnType<typeof getRouteSchema>>
-  styleConfirm: NonNullable<ReturnType<typeof getRouteSchema>>
-  styleIgnore: NonNullable<ReturnType<typeof getRouteSchema>>
   configPut: NonNullable<ReturnType<typeof getRouteSchema>>
   cleanup: () => void
 }
@@ -52,26 +50,45 @@ function makeBook(name: string): Rig {
   const bookRoot = join(workDir, '长篇', name)
   mkdirSync(bookRoot, { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
-  const handlers = withRouteTable(createRouteTable(), () => {
+  const table = createRouteTable()
+  const handlers = withRouteTable(table, () => {
     // R0911b-B-P3-2：KnowledgeCtx token 死字段删除，注入随之去 token
     registerKnowledgeRoutes({ workDir })
     registerStyleRoutes({ workDir, userDataPath: null })
     registerConfigRoutes({ workDir })
     return {
       learnCommit: getRouteSchema('books.learn-commit')!,
-      stylePost: getRouteSchema('books.style.entries.post')!,
-      styleDelete: getRouteSchema('books.style.entries.delete')!,
-      styleConfirm: getRouteSchema('books.style.candidates.confirm')!,
-      styleIgnore: getRouteSchema('books.style.candidates.ignore')!,
       configPut: getRouteSchema('books.config.put')!,
     }
   })
   return {
     workDir,
     bookRoot,
+    table,
     ...handlers,
     cleanup: () => rmSync(workDir, { recursive: true, force: true }),
   }
+}
+
+/** R0916-7-P3-13：style 四端点的 body 读取已迁入 defineRoute 包装层的 parse 段
+ *  （handler 不再自读 readJson），handler 直调复现不出「入口已过、临界段未跑」窗口——
+ *  改走整表 dispatch（闸→parse→handler 全栈），假 req 补 method/url 供分发器匹配。
+ *  观测点随 readJson 落点迁移，断言语义（409 BOOK_MOVED + 旧根无孤儿）不变。 */
+function styleDispatch(
+  rig: Rig,
+  method: 'POST' | 'DELETE',
+  url: string,
+): {
+  req: ReturnType<typeof fakeReqRes>['req']
+  send: ReturnType<typeof fakeReqRes>['send']
+  captured: ReturnType<typeof fakeReqRes>['captured']
+  done: Promise<boolean>
+} {
+  const { req, res, send, captured } = fakeReqRes()
+  const mutable = req as unknown as { method: string; url: string }
+  mutable.method = method
+  mutable.url = url
+  return { req, send, captured, done: dispatch(req, res, rig.table) }
 }
 
 /** 窗口内改名（books.ts rename 完成态模拟：登记换新名 + 目录搬走）。 */
@@ -162,8 +179,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
   it('POST entries：readJson 窗口内书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验条目书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.stylePost.handler({ params: { name: '重验条目书' }, input: undefined }, req, res)
+      const { req, send, captured, done } = styleDispatch(rig, 'POST', '/api/books/重验条目书/style/entries')
       await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ 类型: '样章', 正文: '窗口期正文' })
@@ -180,8 +196,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
   it('DELETE entries：readJson 窗口内书被改名 → 409 BOOK_MOVED（先于旧根 realpath 失败的 400）', async () => {
     const rig = makeBook('重验删条书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.styleDelete.handler({ params: { name: '重验删条书' }, input: undefined }, req, res)
+      const { req, send, captured, done } = styleDispatch(rig, 'DELETE', '/api/books/重验删条书/style/entries')
       await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验删条书', '重验删条书乙')
       send({ path: '文风/条目/样章/对话-001.md' })
@@ -198,8 +213,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
   it('POST candidates/confirm：readJson 窗口内书被改名 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验确认书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.styleConfirm.handler({ params: { name: '重验确认书' }, input: undefined }, req, res)
+      const { req, send, captured, done } = styleDispatch(rig, 'POST', '/api/books/重验确认书/style/candidates/confirm')
       await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验确认书', '重验确认书乙')
       send({ path: '文风/候选/对话-001.md' })
@@ -216,8 +230,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
   it('POST candidates/ignore：readJson 窗口内书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验忽略书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.styleIgnore.handler({ params: { name: '重验忽略书' }, input: undefined }, req, res)
+      const { req, send, captured, done } = styleDispatch(rig, 'POST', '/api/books/重验忽略书/style/candidates/ignore')
       await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ path: '文风/候选/对话-001.md' })

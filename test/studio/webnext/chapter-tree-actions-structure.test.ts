@@ -74,7 +74,10 @@ const planMock = structurePlan as ReturnType<typeof vi.fn>
 const applyMock = structureApply as ReturnType<typeof vi.fn>
 
 const mergePlan: MergePlanView = {
+  ok: true,
   op: 'merge',
+  targetPath: '正文/第1章 甲.md',
+  sourcePath: '正文/第2章 乙.md',
   targetDocId: 'doc1',
   sourceDocId: 'doc2',
   targetChapterNo: 1,

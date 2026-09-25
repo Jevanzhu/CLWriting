@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 文风收割 API（M12 后置 · learn 候选制）：镜像后端 learn/index.ts + knowledge.ts 契约。
 // learn 是规则打分（借 #10 机检），**不涉大模型**——无 AI 可达性问题，始终可用。
@@ -43,7 +44,7 @@ interface LearnCommitResultFE {
 /** 收割候选（扫定稿正文 → 段落分块 + #10 打分 + 场景预归类 → 候选） */
 export async function runLearn(name: string): Promise<LearnResultFE> {
   // P2-FE-2：扫全部定稿章打分，大书可能 10-30s；无超时则 loading 永转
-  return apiJson<LearnResultFE>(`/api/books/${encodeURIComponent(name)}/learn`, { method: 'POST' }, 60_000)
+  return apiJson<LearnResultFE>(bookUrl(name, 'learn'), { method: 'POST' }, 60_000)
 }
 
 /** 入库勾选候选（作者勾选才入库；品味归人，不自动入库） */
@@ -55,7 +56,7 @@ export async function runLearnCommit(
   // 60s——无超时的请求挂死时调用方 loading 永转（大书候选 payload 大，弱机慢盘同受
   // 10-30s 量级影响，与 runLearn 同口径）
   return apiJson<LearnCommitResultFE>(
-    `/api/books/${encodeURIComponent(name)}/learn-commit`,
+    bookUrl(name, 'learn-commit'),
     { method: 'POST', json: body },
     60_000,
   )

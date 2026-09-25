@@ -244,7 +244,7 @@ describe('R0916-7-P3-22: 章节属性/拆分对话框入遮罩登记（⌘P 守�
       props: {
         modelValue: true,
         plan: {
-          op: 'split', docId: 'd1', chapterNo: 3, title: '第3章', newChapterNo: 9,
+          ok: true, op: 'split', docId: 'd1', path: '正文/第3章.md', chapterNo: 3, title: '第3章', newChapterNo: 9,
           order: 3.5, headWords: 100, tailWords: 200, tailPreview: '', publishedWarning: false, planHash: 'h',
         },
       },

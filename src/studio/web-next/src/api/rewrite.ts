@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 改写结果（镜像后端 DiffLine + { mode, original, rewritten, diff }）。
 export interface DiffLineFE {
@@ -21,7 +22,7 @@ export async function runRewriteDoc(
   body: { instruction: string; selection?: string; append?: boolean },
 ): Promise<RewriteResult> {
   return apiJson<RewriteResult>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/rewrite`,
+    bookUrl(name, 'documents', docId, 'rewrite'),
     { method: 'POST', json: body },
     120_000, // AI 改写超时 2 分钟
   )
@@ -31,7 +32,7 @@ export async function runRewriteDoc(
 // fire-and-forget 语义：轨迹是旁路证据，失败由调用方静默吞掉，不阻断接受。
 export async function reportAiVersion(name: string, docId: string, content: string): Promise<void> {
   await apiJson(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/ai-version`,
+    bookUrl(name, 'documents', docId, 'ai-version'),
     { method: 'POST', json: { content } },
   )
 }

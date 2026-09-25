@@ -1,5 +1,6 @@
 // cost-stats 客户端（D2 批 5 / D1 批 4 渲染）：配价书金额聚合；未配价 enabled:false。
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 export interface CostBucket {
   cost: number
@@ -18,5 +19,5 @@ export interface CostStats {
 
 /** GET /api/books/:name/cost-stats */
 export async function getCostStats(bookName: string): Promise<CostStats> {
-  return apiJson<CostStats>(`/api/books/${encodeURIComponent(bookName)}/cost-stats`)
+  return apiJson<CostStats>(bookUrl(bookName, 'cost-stats'))
 }

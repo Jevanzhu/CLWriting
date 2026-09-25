@@ -156,6 +156,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
       // 扫 工作区/.journal/*.jsonl 定位持该 opId 未结算 pending 的 journal 文件
       //（findUnsettled 逐行容错：坏行跳过、读失败降级 []——本端点按「无 pending」幂等
       // 返回，不放大瞬态读故障）
+      // R0916-7-P3-9：journal pending 只记元数据（opId/docId/baseRevision/ts），本端点
+      // 的读取面即「按 opId 定位文件」，与收窄前逐位一致（旧格式行含 content 也不消费）。
       const journalDir = join(r.bookRoot, '工作区', '.journal')
       let names: string[] = []
       if (existsSync(journalDir)) {

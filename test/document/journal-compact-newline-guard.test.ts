@@ -5,6 +5,10 @@
  * journal 上高频 append+settle（每轮 settle 触发 compact 的读→算→整文件替换），
  * 进程 B 并发裸追加 pending 行（模拟锁超时降级裸写的 append 路径）。终态 B 的
  * 全部 pending opId 必须仍可 findUnsettled 找回（compact 不得吞他进程新行）。
+ *
+ * R0916-7-P3-9（2026-09-25）：A-6 刀 1 的「尾段补追」已随快照机制撤除，复核口径回到
+ * N4「读算期间有新行即整轮弃压」——本用例的终态不变量（他进程行零丢失）与实现形态
+ * 无关，两代口径下都应绿。
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

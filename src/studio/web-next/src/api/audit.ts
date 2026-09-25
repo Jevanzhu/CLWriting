@@ -1,5 +1,6 @@
 // F1-P5 审计客户端：GET /api/books/:name/audit → 事件重放 + 遮蔽差异 + 工作流链路。
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 /** 审计事件（带投影遮蔽标记 + 血缘引用） */
 export interface AuditEventFE {
@@ -70,14 +71,12 @@ export async function getAudit(bookName: string, paging?: AuditPagingFE): Promis
   if (paging?.limit !== undefined) q.set('limit', String(paging.limit))
   if (paging?.offset !== undefined) q.set('offset', String(paging.offset))
   const qs = q.toString()
-  return apiJson<AuditViewFE>(
-    '/api/books/' + encodeURIComponent(bookName) + '/audit' + (qs ? '?' + qs : ''),
-  )
+  return apiJson<AuditViewFE>(bookUrl(bookName, 'audit') + (qs ? '?' + qs : ''))
 }
 
 /** 事件保留定版：清除本书事件史（销毁动作——对话 + 工作流两侧；调前需作者二次确认）。
  *  R26-82（二十六轮，登记顺手改档）：销毁链删除大量事件可达秒级，30s 默认兜底档偏紧，
  *  显式配 120s 慢档（对齐 AI 分析/收割类慢端点档位）。 */
 export async function clearAudit(bookName: string): Promise<void> {
-  await apiJson<{ ok: true }>('/api/books/' + encodeURIComponent(bookName) + '/audit', { method: 'DELETE' }, 120_000)
+  await apiJson<{ ok: true }>(bookUrl(bookName, 'audit'), { method: 'DELETE' }, 120_000)
 }

@@ -1,3 +1,27 @@
+<script lang="ts">
+// R0916-7-P3-21（2026-09-24 全库源码质量评审修复批）：对外暴露面（defineExpose）的类型
+// 单源——父组件 EditorView 此前手写复制同一接口（CmHostExposed），增删方法时两侧只改
+// 一处即漂移，且父侧漏改被可选链（`cmHost.value?.x()`）静默吞掉，运行时才表现为
+// 「点了没反应」。声明随组件走，父组件 `import type { CmHostHandle }` 引用；
+// 下方 `defineExpose<CmHostHandle>(…)` 反向钉住实现面（漏暴露/多暴露/签名不符即编译期报错）。
+export interface CmHostHandle {
+  /** 在当前光标处插入文本（无 view 时为 no-op） */
+  insertText: (t: string) => void
+  /** 当前选区文本（无选区/无 view 时为空串） */
+  getSelection: () => string
+  hasSelection: () => boolean
+  /** 光标偏移（无 view 时为 null） */
+  getCursorOffset: () => number | null
+  clipboardCut: () => Promise<void>
+  clipboardCopy: () => Promise<void>
+  clipboardPaste: () => Promise<void>
+  selectAll: () => void
+  undoAction: () => void
+  redoAction: () => void
+  openSearch: () => void
+}
+</script>
+
 <script setup lang="ts">
 // CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：Obsidian 风格正文编辑器。
 // 无行号/无卡片边框、lineWrapping、正文字体（--prose-* 偏好）；md 模式加 markdown() 高亮。
@@ -590,7 +614,8 @@ function openSearch(): void {
 }
 // R40-45（四十轮）：getSelectionRect 移除——浮动工具栏方案未落地，全库零消费方
 //（迁移残留死导出，eslint 存量 warn 关联项随触碰顺清）；落地时按本批 git 史取回。
-defineExpose({ insertText, getSelection, hasSelection, getCursorOffset, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
+// R0916-7-P3-21：显式标注暴露面（类型单源见上方 CmHostHandle）——漏暴露/签名不符即编译期报错。
+defineExpose<CmHostHandle>({ insertText, getSelection, hasSelection, getCursorOffset, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
 
 // B-25（第六十轮）：销毁后置 null——compositionend 已排定的 setTimeout 与挂起的
 // watch 回调靠 `if (!view) return` 短路，不留对 destroyed view 的 dispatch

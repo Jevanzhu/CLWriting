@@ -1,5 +1,6 @@
 import { ref, onUnmounted, watch } from 'vue'
 import { apiFetch, getToken } from '../api/client'
+import { bookUrl } from '../api/url'
 
 // 协作心跳：进书后每 20s POST /heartbeat 续期；卸载（onUnmounted）DELETE 清除（单写者互斥）。
 // 切书不发 DELETE（依赖服务端过期回收）——L-F5（第八轮）注释校准：原「切书 DELETE」与实现不符。
@@ -49,7 +50,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
       // 进程在线——业务语义留给各自处理链（401 的 re-boot 在 apiFetch 内自愈、404 由
       // 路由/调用方收口），心跳只盯传输层；原实现按 r.ok 计离线连败，业务 4xx 误报
       // 离线徽章并驱动 SSE 看门狗误 resync。响应体无人消费，不读。
-      await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, {
+      await apiFetch(bookUrl(name, 'heartbeat'), {
         method: 'POST',
         signal: ctrl.signal,
       })
@@ -97,7 +98,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
       const ctrl = new AbortController()
       const timeout = setTimeout(() => ctrl.abort(), BEAT_TIMEOUT_MS)
       try {
-        await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, { method: 'DELETE', signal: ctrl.signal })
+        await apiFetch(bookUrl(name, 'heartbeat'), { method: 'DELETE', signal: ctrl.signal })
       } catch {
         /* 退书心跳清除失败忽略 */
       } finally {

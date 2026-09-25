@@ -17,7 +17,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
 import { existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
-import { reply, replyError, readJson } from '../http.js'
+import { reply, replyError } from '../http.js'
 import { acquireTaskGate } from './task-gate.js' // R40-4：收割端点任务闸
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { rmWithRetry } from '../../../fs/atomic.js' // R0913-win P3-1：删条目收编 EPERM/EBUSY 退避
@@ -97,13 +97,23 @@ function insideDir(rel: string, dir: string): boolean {
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
-  //（SRV-N8·2026-09-15 机械批：双行样板随收编下沉 resolveBookOrReply 单源）
+  //（SRV-N8·2026-09-15 机械批：双行样板随收编 resolveBookOrReply 单源）
   const resolveStyleBook = (
     res: ServerResponse,
     params: Record<string, string | undefined>,
   ): string | null => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     return r ? r.bookRoot : null
+  }
+
+  // R0916-7-P3-13：四个带 body 的写端点（entries 新增/删除、候选确认/忽略）此前在
+  // handler 里内联 readJson + as 断言——「找书 404 先于 body 400」是本族的既有错误
+  // 优先级（parse 直接声明会把读体提到找书之前），故找书走 gate 前置闸、body 形状与
+  // 目录守卫（path 须在 条目/候选 内）走 parse：响应序与迁移前逐位一致（404 → 400 →
+  // 409 书注册重验 → 落盘），而 handler 内的 as 断言消失。
+  const styleBookGate = (res: ServerResponse, params: Record<string, string>): false | { value: string } => {
+    const bookRoot = resolveStyleBook(res, params)
+    return bookRoot ? { value: bookRoot } : false // false = 闸内已回错误（NO_WORKDIR/404）
   }
 
   // 条目列表（老书首读自动迁移——幂等，常态 no-op；迁移发生时附结果供 toast）
@@ -128,33 +138,35 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.entries.post', {
     method: 'POST',
     path: '/api/books/:name/style/entries',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const body = (await readJson(req)) as Record<string, unknown>
-    const kind = body['类型']
-    if (typeof kind !== 'string' || !(ENTRY_KINDS as readonly string[]).includes(kind)) {
-      return replyError(res, 400, 'BAD_INPUT', '类型须为 样章/手法/反例/禁词')
-    }
-    const text = typeof body['正文'] === 'string' ? body['正文'].trim() : ''
-    if (!text) return replyError(res, 400, 'BAD_INPUT', '正文为空')
-    const scene = typeof body['场景'] === 'string' && body['场景'].trim() ? body['场景'].trim() : '通用'
-    const source = body['来源']
-    const entry: StyleEntry = {
-      类型: kind as EntryKind,
-      场景: scene,
-      // 第五轮：hasOwn 防原型链穿透（'constructor' 会经 `in` 命中并写进条目，下游
-      // SOURCE_RANK[来源] 排序比较器恒 NaN）
-      来源: typeof source === 'string' && Object.hasOwn(SOURCE_RANK, source) ? (source as EntrySource) : '作者标注',
-      ...(typeof body['说明'] === 'string' && body['说明'].trim() ? { 说明: body['说明'].trim() } : {}),
-      ...(typeof body['出处'] === 'string' && body['出处'].trim() ? { 出处: body['出处'].trim() } : {}),
-      ...(Array.isArray(body['标签']) ? { 标签: (body['标签'] as unknown[]).map(String) } : {}),
-      正文: text,
-    }
+    gate: ({ params, res }) => styleBookGate(res, params),
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const kind = body['类型']
+      if (typeof kind !== 'string' || !(ENTRY_KINDS as readonly string[]).includes(kind)) {
+        throw new Error('类型须为 样章/手法/反例/禁词')
+      }
+      const text = typeof body['正文'] === 'string' ? body['正文'].trim() : ''
+      if (!text) throw new Error('正文为空')
+      const scene = typeof body['场景'] === 'string' && body['场景'].trim() ? body['场景'].trim() : '通用'
+      const source = body['来源']
+      const entry: StyleEntry = {
+        类型: kind as EntryKind,
+        场景: scene,
+        // 第五轮：hasOwn 防原型链穿透（'constructor' 会经 `in` 命中并写进条目，下游
+        // SOURCE_RANK[来源] 排序比较器恒 NaN）
+        来源: typeof source === 'string' && Object.hasOwn(SOURCE_RANK, source) ? (source as EntrySource) : '作者标注',
+        ...(typeof body['说明'] === 'string' && body['说明'].trim() ? { 说明: body['说明'].trim() } : {}),
+        ...(typeof body['出处'] === 'string' && body['出处'].trim() ? { 出处: body['出处'].trim() } : {}),
+        ...(Array.isArray(body['标签']) ? { 标签: (body['标签'] as unknown[]).map(String) } : {}),
+        正文: text,
+      }
+      return entry
+    },
+    handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
     // R0911-B-P3-4：readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
-    reply(res, 200, { ok: true, path: addEntry(bookRoot, entry) })
+    reply(res, 200, { ok: true, path: addEntry(bookRoot, input) })
   },
   })
 
@@ -162,14 +174,15 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.entries.delete', {
     method: 'DELETE',
     path: '/api/books/:name/style/entries',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const body = (await readJson(req)) as Record<string, unknown>
-    const p = typeof body['path'] === 'string' ? body['path'] : ''
-    if (!insideDir(p, ENTRIES_DIR)) {
-      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/条目/ 内')
-    }
+    gate: ({ params, res }) => styleBookGate(res, params),
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const path = typeof body['path'] === 'string' ? body['path'] : ''
+      if (!insideDir(path, ENTRIES_DIR)) throw new Error('path 须在 文风/条目/ 内')
+      return { path }
+    },
+    handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
+    const p = input.path
     // R0911-B-P3-4：重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
     // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
@@ -225,14 +238,15 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.candidates.confirm', {
     method: 'POST',
     path: '/api/books/:name/style/candidates/confirm',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const body = (await readJson(req)) as Record<string, unknown>
-    const p = typeof body['path'] === 'string' ? body['path'] : ''
-    if (!insideDir(p, CANDIDATES_DIR)) {
-      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
-    }
+    gate: ({ params, res }) => styleBookGate(res, params),
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const path = typeof body['path'] === 'string' ? body['path'] : ''
+      if (!insideDir(path, CANDIDATES_DIR)) throw new Error('path 须在 文风/候选/ 内')
+      return { path }
+    },
+    handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
+    const p = input.path
     // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
     // 书已搬走时旧根 realpath 失败误报 400；时序见 bookMovedFailure 头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
@@ -254,14 +268,15 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.candidates.ignore', {
     method: 'POST',
     path: '/api/books/:name/style/candidates/ignore',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const body = (await readJson(req)) as Record<string, unknown>
-    const p = typeof body['path'] === 'string' ? body['path'] : ''
-    if (!insideDir(p, CANDIDATES_DIR)) {
-      return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
-    }
+    gate: ({ params, res }) => styleBookGate(res, params),
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const path = typeof body['path'] === 'string' ? body['path'] : ''
+      if (!insideDir(path, CANDIDATES_DIR)) throw new Error('path 须在 文风/候选/ 内')
+      return { path }
+    },
+    handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
+    const p = input.path
     // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)

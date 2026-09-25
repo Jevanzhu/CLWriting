@@ -1,20 +1,31 @@
 /**
  * 恢复 journal（W0-1 §7）—— 防丢字资产。
  *
- * 保存协议每步写 pending（含全文快照），落盘后追加 settled。崩溃后扫
+ * 保存协议每步写 pending（opId/baseRevision/ts 元数据），落盘后追加 settled。崩溃后扫
  * 「有 pending 无 settled」的 opId 提示作者恢复。
  *
  * 追加写（appendFileSync + fsync），**不用 atomicWriteFile**——整文件替换会
  * O(n²) 且重写窗口崩了丢全历史；追加一行最多损坏末行，恢复扫描本就逐行容错。
  *
- * 膨胀治理（U-P2-9）：pending 含全文快照，日写一章 journal 线性涨 ~2MB。
- * settle/abort 后超过阈值触发 compact——只保留未结算 pending（崩溃恢复唯一
- * 依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，无净损失。
- * RC 源码重审 A-6（Opus-5.5 轮）：新文件 = 保留集 + 尾段补追（基线 stat 之后新增的
- * 行原文一并写出，原 N4「有新增即弃轮」换为「把新增带进新文件」）；尾段起止行形态
- * 不可判定时仍弃轮（原文件不动），见 maybeCompactJournal / readCompactTail。
+ * 膨胀治理（U-P2-9）：settle/abort 后超过阈值触发 compact——只保留未结算 pending
+ *（崩溃恢复唯一依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，
+ * 无净损失。并发守卫（KN-H-1 → N4）：锁内基线 stat → 读算 → rename 前重 stat，
+ * size/mtime 有变（他进程追加过）即弃本轮，不吞新行。
+ *
+ * R0916-7-P3-9（2026-09-25）：pending 收窄为「opId + baseRevision + ts」元数据，全文快照
+ * 及其配套机制（头尾截断降级、惰性构造、256KB 闸、compact 尾段补追、降级写 inode
+ * 自校验）整段删除。取舍证据（评审 P3-9 取证）：
+ *  · 快照全仓零程序性消费方——两处读取面（state/health.ts reconcileSavePending、
+ *    studio/server/api/state.ts acknowledge）只用 opId 与 baseRevision；
+ *  · 作者侧唯一出口只是一句「对照 工作区/.journal 下的快照残片补回」，即要小说作者
+ *    手读 JSON 转义的隐藏 JSONL，且 >256KB 文档的降级行本就只剩头尾各 32KB；
+ *  · 实际承担未保存恢复的是前端 dirty 镜像（web-next shared/dirty-mirror.ts：保存成功
+ *    才清，故崩窗内恒在盘、按 baseRev 时效门复活）+ 版本历史（磁盘现状）；
+ *  · 故本文件不再自留内容副本，恢复职责明确交前端镜像与版本历史（只减不加）。
+ * 兼容口径：**向后兼容读旧、只写新**——旧格式行多出的 content/degraded 字段按未知
+ * 字段忽略（scanUnsettled 只校验本形态必需字段），不因格式演进报错。
  */
-import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
 import { tryAcquireCrossProcessLock, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
@@ -29,18 +40,6 @@ export interface JournalPending {
   baseRevision: Revision
   ts: string
   status: 'pending'
-  content: string // 发起时的全文快照（防丢字）；降级落盘行为头尾截断快照（R53-D-2，原为 ''）
-  /** R31-21（三十一轮）：true = 本行在跨进程锁超时后降级裸写、快照经截断收敛行长——
-   *  大快照 append 超文件系统原子窗，双进程同拍降级可交错损坏（坏行被
-   *  findUnsettled 容错跳过 → 恢复失据）。恢复消费方只读 opId（state 健康
-   *  扫描）不受截断快照影响。
-   *  PM-3（性能与内存专项）：快照超 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES 的主动
-   *  降级同置本位（同样行短；见 appendPending 注释）。
-   *  R53-D-2（五十三轮）：降级快照从整段剥离（content:''）改为保头尾截断
-   *  （truncateSnapshotHeadTail）——空快照使崩窗内新内容零盘上副本（版本历史
-   *  只含已保存部分，磁盘是保存前旧文，「编辑永不静默丢失」红线在降级窗失守）；
-   *  截断后头部正文与尾部最新键入随行落盘，作者恢复有迹可考。 */
-  degraded?: boolean
 }
 
 /** 移动/重命名 pending（P3-10：rename 与清单更新之间的非原子窗口兜底）。
@@ -79,34 +78,16 @@ export function isMovePending(p: JournalAnyPending): p is JournalMovePending {
 
 type RawLine = { [k: string]: unknown }
 
-/** R53-D-2（五十三轮）：降级快照头尾截断——超 2×keepBytes 的快照保头（正文开头）
- *  尾（崩溃前最新键入）各 keepBytes，中段以省略标记替代；≤ 2×keepBytes 原样返回
- *  （小快照锁超时降级不再无谓剥离——R31-21 的原子窗顾虑只在兆级行）。
- *  切点按 UTF-8 续字节（0b10xxxxxx）回退到字符首字节，不劈多字节字符；降级行
- *  JSON.parse 后 content 仍是合法 string（findUnsettled 字段校验兼容）。 */
-function truncateSnapshotHeadTail(content: string, keepBytes: number): string {
-  const buf = Buffer.from(content, 'utf-8')
-  if (buf.length <= keepBytes * 2) return content
-  const adjustBack = (i: number): number => {
-    while (i > 0 && (buf[i]! & 0xc0) === 0x80) i--
-    return i
-  }
-  const headEnd = adjustBack(keepBytes)
-  const tailStart = adjustBack(buf.length - keepBytes)
-  if (tailStart <= headEnd) return content // 防御：不可能（已过 2×keepBytes 闸）
-  return (
-    buf.subarray(0, headEnd).toString('utf-8') +
-    `\n…〔快照超长已截断：中段 ${tailStart - headEnd} 字节未随行保存，全文以磁盘现状/版本历史为准〕…\n` +
-    buf.subarray(tailStart).toString('utf-8')
-  )
-}
-
-/** 追加 pending 行（含全文快照）。返回 opId 供后续 appendSettled 配对。 */
+/** 追加 pending 行（元数据）。返回 opId 供后续 appendSettled 配对。
+ *  R0916-7-P3-9：第 4 形参 content 已无消费——三个调用方（document/service.ts、
+ *  document/service-meta.ts、process/draft-pipeline.ts）仍传全文实参，签名收窄会连带
+ *  改这三个文件（本轮改动面不含），故此处保留形参并显式前缀 `_` 标「有意忽略」；
+ *  下批删形参时三处实参一并删（service.ts 的 `byteRestore ? '' : content` 转义同批清）。 */
 export async function appendPending(
   journalPath: string,
   docId: string,
   baseRevision: Revision,
-  content: string,
+  _content: string,
 ): Promise<string> {
   const entry: JournalPending = {
     opId: ulid(),
@@ -114,37 +95,8 @@ export async function appendPending(
     baseRevision,
     ts: new Date().toISOString(),
     status: 'pending',
-    content,
   }
-  // R31-21（三十一轮）：锁超时降级收敛行长——降级行经 truncateSnapshotHeadTail 截断
-  // （≤ 2×KEEP + 标记 ≈64KB，回原子窗内；R31-21 的交错损坏顾虑只在兆级行），不再
-  // 整段剥离。R53-D-2（五十三轮）：content:'' 使崩窗内新内容零盘上副本——版本历史
-  // 只含已保存部分、磁盘是保存前旧文，降级窗「编辑永不静默丢失」失守；截断保头
-  // （正文开头）尾（最新键入），作者恢复有迹可考。
-  // R61-C-2（六十一轮）：惰性化——原在此处无条件预构造降级行（truncateSnapshotHeadTail
-  // 首行 Buffer.from 全文编码），常态（≤256KB，降级行几乎永不消费）每笔保存白付一次
-  // 全文 UTF-8 拷贝。现改闭包按需构造，仅两处消费点触发（下方超阈值判定 /
-  // appendLineAsync 锁超时降级兜底写）：常态零构造；超阈值或锁超时路径写出的内容
-  // 与预构造形态逐字节一致（entry 建后不变异，truncate 确定性）。
-  const degradedFallback = (): string =>
-    JSON.stringify({
-      ...entry,
-      content: truncateSnapshotHeadTail(content, getJournalDegradedKeepBytes()),
-      degraded: true,
-    })
-  // PM-3（性能与内存专项·2026-09-05）：超大快照主动降级——快照超阈值时直接落降级行
-  // （与锁超时同款 degraded:true 形态），不再追加全文。动因：恢复消费方
-  // （state.ts assembleStatus）只读 opId——pending.content 全仓零程序性消费方（R31-21
-  // 已实证），作者侧恢复路径是版本历史/磁盘现状；而全量快照进 journal 的代价是每笔
-  // 保存 IO 翻倍（大章 2MB 快照 = 正文写 2MB + journal 追加 2MB + fsync ×2），且
-  // journal 一笔即越过 2MB compact 阈值 → 每笔保存触发整文件重读+逐行重解析（含对
-  // 兆级行的 JSON.parse）。阈值取 256KB：常规章（数千至数万字）全文照旧完整入
-  // journal；仅超大文档（10 万字级）降级为头尾截断（R53-D-2，原为空快照）。
-  const line =
-    Buffer.byteLength(content, 'utf-8') > JOURNAL_PENDING_SNAPSHOT_MAX_BYTES
-      ? degradedFallback() // R61-C-2：仅超阈值才构造（常态不再白付全文拷贝）
-      : JSON.stringify(entry)
-  await appendLineAsync(journalPath, line, degradedFallback)
+  await appendLineAsync(journalPath, JSON.stringify(entry))
   return entry.opId
 }
 
@@ -224,9 +176,13 @@ function scanUnsettled(
       continue // 非法行跳过
     }
     if (obj.status === 'pending' && typeof obj.opId === 'string') {
-      // 字段校验（P2-A3）：损坏 journal 缺字段的 pending 行不救（内容快照不完整，恢复无意义）。
-      // baseRevision 允许 null（无基线场景合法），docId/ts/content 必须为 string；
-      // move 类（P3-10）按 kind 分流——oldPath/newPath 必须为 string。
+      // 字段校验（P2-A3）：损坏 journal 缺字段的 pending 行不救（形态不完整，恢复扫描
+      // 无法据此定位/复核）。baseRevision 允许 null（无基线场景合法），docId/ts 必须为
+      // string；move 类（P3-10）按 kind 分流——oldPath/newPath 必须为 string。
+      // R0916-7-P3-9：save 类不再校验 content——本形态不写该字段，且**旧格式行**（含
+      // 全文快照 content / degraded）多出的字段在此按未消费字段忽略（向后兼容读旧）；
+      // 收窄后按下述白名单**逐字段重建**，故 compact 重写时旧格式行自动落成新形态
+      //（写新——旧快照内容不再被原样搬进压缩后的文件）。
       if (obj.kind === 'move') {
         if (
           typeof obj.docId === 'string' &&
@@ -234,15 +190,28 @@ function scanUnsettled(
           typeof obj.oldPath === 'string' &&
           typeof obj.newPath === 'string'
         ) {
-          pending.set(obj.opId, obj as unknown as JournalMovePending)
+          pending.set(obj.opId, {
+            opId: obj.opId,
+            docId: obj.docId,
+            ts: obj.ts,
+            status: 'pending',
+            kind: 'move',
+            oldPath: obj.oldPath,
+            newPath: obj.newPath,
+          })
         }
       } else if (
         typeof obj.docId === 'string' &&
         (obj.baseRevision == null || typeof obj.baseRevision === 'string') &&
-        typeof obj.ts === 'string' &&
-        typeof obj.content === 'string'
+        typeof obj.ts === 'string'
       ) {
-        pending.set(obj.opId, obj as unknown as JournalPending)
+        pending.set(obj.opId, {
+          opId: obj.opId,
+          docId: obj.docId,
+          baseRevision: (obj.baseRevision ?? null) as Revision,
+          ts: obj.ts,
+          status: 'pending',
+        })
       }
     } else if ((obj.status === 'settled' || obj.status === 'aborted') && typeof obj.opId === 'string') {
       pending.delete(obj.opId)
@@ -277,18 +246,18 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
  * journal 写路径（含 healMovePending 自愈回写）均走本异步版。原同步 appendLine 随
  * appendSettledSync/appendAbortedSync 一并删除（R36-11：生产零调用死码，自 R35-5
  * 起无任何调用方）。
- * R61-C-2（六十一轮）：degradedLine 允许传惰性 thunk（() => string）——appendPending
- * 的降级行构造含全文 Buffer 编码，常态（锁正常拿到）永不消费，改按需构造（仅锁超时
- * 降级分支触发）；传 string 的调用方行为不变。
- * RC 源码重审 A-6（Opus-5.5 轮）刀 2：降级分支的裸 appendFileSync 改走
- * appendDegradedVerified（fd 自校验 + 重试）——拿锁两轮失败的降级语义与 warn 文案
- * 不变，自校验通过即正常返回；见该函数注释（残余窗口与 win 兼容口径）。
+ * R61-C-2（六十一轮）与 RC 源码重审 A-6（Opus-5.5 轮）刀 2 的 degradedLine thunk /
+ * 降级写 inode 自校验随 R0916-7-P3-9 快照机制删除一并撤除——两条都只为「行长」与
+ * 「快照内容不丢」服务：pending 行现为 ~200 字节元数据（远在文件系统原子窗内），降级写
+ * 退化为原「裸 appendFileSync」形态，仅留锁超时 warn 与「尽力而为」语义。
+ * 残余窗口（如实记档）：拿锁两轮失败的降级裸写不持锁，若此刻 compact 完成
+ * atomicWriteFile（tmp+rename 换 inode），本行可能落在被换下的旧 inode 上——
+ * findUnsettled 永不报，即丢一条**崩溃检测**行。P3-9 前丢的是快照内容（故当时以
+ * dev+ino 自校验 + 尾段补追堵）；现丢的只是「这次保存没结算」的账目行，其后果是
+ * 少一次进门提示（无内容可丢——内容副本已不在 journal），且下一笔保存即新写 pending，
+ * 故接受为小概率残余，不再为此保留自校验机制。
  */
-async function appendLineAsync(
-  filePath: string,
-  line: string,
-  degradedLine?: string | (() => string),
-): Promise<void> {
+async function appendLineAsync(filePath: string, line: string): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })
   // R0916-6-P3-16：锁超时先重试一档再降级——超时多为对端 append 突发 / compact 尾窗
   // 的瞬时争用（50ms 退避后常已让出），而降级裸写 = 与 compact 的互斥失守窗（两条
@@ -308,124 +277,8 @@ async function appendLineAsync(
     return
   }
   log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
-  const degraded = typeof degradedLine === 'function' ? degradedLine() : degradedLine
-  await appendDegradedVerified(filePath, (degraded ?? line) + '\n')
-}
-
-/**
- * RC 源码重审 A-6（Opus-5.5 轮）刀 1 辅助：按字节偏移读盘上区间 [from, to)。
- *
- * 为什么要 fd 读：compact 的补追要在**基线字节偏移**之后取原文（readFileSync 走
- * 整文件字符串，无法按字节定位）；区间长度由调用方的 stat 快照给出，读取不整读
- * 第二遍。readSync 可短读（R61-9 同类），循环读满；读不满（截断/并发替换）返回
- * undefined = 调用方弃本轮（不猜内容）。best-effort：任何失败返回 undefined。
- */
-function readByteRange(filePath: string, from: number, to: number): Buffer | undefined {
-  const len = to - from
-  if (len <= 0) return Buffer.alloc(0)
-  let fd: number | undefined
-  try {
-    fd = openSync(filePath, 'r')
-    const buf = Buffer.alloc(len)
-    let off = 0
-    while (off < len) {
-      const n = readSync(fd, buf, off, len - off, from + off)
-      if (n <= 0) break // EOF：盘上比调用方快照短（被截断/替换）→ 弃轮
-      off += n
-    }
-    return off === len ? buf : undefined
-  } catch {
-    return undefined
-  } finally {
-    if (fd !== undefined) {
-      try {
-        closeSync(fd)
-      } catch {
-        // best-effort
-      }
-    }
-  }
-}
-
-/** RC 源码重审 A-6（Opus-5.5 轮）刀 2：降级写自校验重试上限（含首次）。
- *  重试针对的是 rename-换 inode 的毫秒级竞态（不需要长退避），上限低是因为降级路径
- *  本身已在保存链上占时；20ms 起步指数退避，最坏多等 60ms。 */
-const JOURNAL_DEGRADED_WRITE_ATTEMPTS = 3
-
-/**
- * RC 源码重审 A-6（Opus-5.5 轮）刀 2：降级裸写自校验——把「确定性丢行」扭转成小概率。
- *
- * 缺陷（报告 A-6①②）：降级裸写不持锁，与 compact 的 atomicWriteFile（tmp + rename，
- * **换 inode**）并存时，本行可能落在「已被 rename 换下的旧 inode」上——路径上是新文件、
- * 本行在无人可见的孤儿 inode 上（findUnsettled 永不报 → 崩溃恢复失据）。原
- * `appendFileSync` 对此零感知，命中即确定性丢行。
- *
- * 自校验：按 'a'（O_APPEND）打开 fd → **fstat 记本进程写入对象的 dev+ino** → 写 + fsync
- * → `stat(path)`（路径当前解析到的 inode）比对 dev+ino。相等 = 本行确实落在路径可见的
- * 文件上，返回；不等 = 本行写进了孤儿 inode（compact 刚换过 inode），**重试整段**（重新
- * open 即落在当前路径所指的新 inode 上）。重复行无副作用——scanUnsettled 是 map 覆盖
- * 语义，同一 opId 多行等价一行。上限 3 次仍不成 → log.warn 留痕后返回：保留「尽力而为」
- * 的既有兜底语义（宁小概率丢行 + 有痕，不把降级写升级成保存链上的抛错）。
- *
- * 残余窗口（如实记档）：末次 stat(path) 与返回之间若 compact 完成 rename，本行仍在旧
- * inode 上——与刀 1（compact 尾段补追）互补：只要本行在 rename 之前的盘上文件里，补追
- * 会把它带进新文件；两侧残余窗口同级（µs），合计远小于修复前（整段窗口确定性丢行）。
- * 另有平台口径：文件系统若不提供稳定 ino（全 0），dev+ino 恒等 → 自校验空转通过（退回
- * 原裸写语义）——win32/NTFS 实测 dev+ino 可比对（真机验证 fstat 与 stat 同 inode 相等、
- * rename 换 inode 后不等）。
- *
- * win 兼容：fsync 直接对**本函数持有的可写 fd** 调用（不经 fsyncFile 的 'r+' 重开——
- * R33-7 的 FlushFileBuffers 写权限要求天然满足）；fsyncFile 本体不动（另有消费方）。
- *
- * 抛错口径不变：open/写 失败照旧上抛（与 A-6 前 appendFileSync 同款，调用方错误收口
- * 不动）；fstat/fsync/stat(path) 属新增的「判定用」调用——失败即视同「无法判定」，退回
- * 既有裸写语义（写入已完成，不因判定失败把成功写反转成抛错）。
- */
-async function appendDegradedVerified(filePath: string, text: string): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    const fd = openSync(filePath, 'a') // 追加打开（O_APPEND）；文件不存在即创建
-    let targetDev = -1
-    let targetIno = -1
-    let verifiable = true
-    try {
-      try {
-        const st = fstatSync(fd) // 本进程写入对象的 inode（rename 前的路径目标）
-        targetDev = st.dev
-        targetIno = st.ino
-      } catch {
-        verifiable = false // 取不到写入对象 inode → 无法自校验（退回裸写语义）
-      }
-      writeFileSync(fd, text, 'utf-8') // R61-9 同类：writeSync 可短写，writeFileSync 内部写满
-      try {
-        fsyncSync(fd) // 耐久与 fsyncFile 同款 best-effort（不因刷盘失败把已写入判失败）
-      } catch {
-        /* best-effort */
-      }
-    } finally {
-      try {
-        closeSync(fd)
-      } catch {
-        // best-effort（close 失败不掩盖已写入结果，交下方路径复核判定）
-      }
-    }
-    let onPathDev = -1
-    let onPathIno = -1
-    try {
-      const onPath = statSync(filePath)
-      onPathDev = onPath.dev
-      onPathIno = onPath.ino
-    } catch {
-      verifiable = false
-    }
-    if (!verifiable) return // 平台/权限取不到 inode：退回裸写语义（与 A-6 前一致）
-    if (onPathDev === targetDev && onPathIno === targetIno) return // 自校验通过：本行在路径可见文件上
-    if (attempt >= JOURNAL_DEGRADED_WRITE_ATTEMPTS) break // 上限到（含首次共 3 次）→ 留痕后收手
-    await new Promise<void>((resolve) => setTimeout(resolve, 20 * attempt))
-  }
-  log.warn(
-    'journal',
-    `降级写入自校验失败（写入对象 inode 与路径当前 inode 三次比对均不一致——本行可能落在 compact 换下的旧 inode 上）：${filePath}`,
-  )
+  appendFileSync(filePath, line + '\n', 'utf-8')
+  fsyncFile(filePath)
 }
 
 /** fsync 已存在文件（追加后同步数据落盘）。best-effort。
@@ -456,30 +309,22 @@ export function fsyncFile(filePath: string): void {
 // ── 膨胀治理（U-P2-9）────────────────────────────
 
 /** compact 阈值：journal 字节数超过此值时在 settle/abort 后压缩（只留未结算 pending）。
- *  R30-18 口径：export const + 模块内可变生效值 + 注入钩子——测试经钩子改档
- *  （PM-3 批起 compact 用例以低阈值+小内容建仓，不再依赖 MB 级 pending 全文撑破
- *  2MB——快照超 256KB 已被 appendPending 降级，撑不破），生产恒用常量。 */
+ *  R30-18 口径：export const + 模块内可变生效值 + 注入钩子——测试经钩子改档（PM-3 批起
+ *  compact 用例以低阈值+小内容建仓），生产恒用常量。
+ *  R0916-7-P3-9：pending 只记元数据（每行 ~200 字节），2MB 阈值对应约 5000 笔保存的
+ *  累积量——阈值与触发时机（settle/abort 之后）均不变。 */
 export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
 
 /** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
 export const [getJournalCompactBytes, __setJournalCompactBytesForTest] = testableConst(JOURNAL_COMPACT_BYTES)
 
-/** PM-3：pending 全文快照尺寸闸——超过此字节数的快照不进 journal（降级行替代），
- *  见 appendPending 注释。测试可经注入钩子改档（生产恒用常量，R30-18 口径）。 */
-export const JOURNAL_PENDING_SNAPSHOT_MAX_BYTES = 256 * 1024
-
-/** R53-D-2（五十三轮）：降级行快照保留预算——头尾各保此字节数（UTF-8 安全切点）。
- *  降级行总长 ≤ 2×预算 + 标记（≈64KB）：远小于 R31-21 的原子窗顾虑（兆级行交错
- *  损坏），也不回到 PM-3 要消除的每笔保存 journal IO 翻倍（256KB 级）。
- *  R30-18 口径：常量 + 模块内可变生效值 + 注入钩子（生产恒用常量）。 */
-export const JOURNAL_PENDING_DEGRADED_KEEP_BYTES = 32 * 1024
-
-/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
-export const [getJournalDegradedKeepBytes, __setJournalDegradedKeepBytesForTest] = testableConst(JOURNAL_PENDING_DEGRADED_KEEP_BYTES)
+// R0916-7-P3-9：原 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES（256KB 快照闸）、
+// JOURNAL_PENDING_DEGRADED_KEEP_BYTES（降级行头尾保留预算）与两个注入钩子已随快照机制
+// 整段删除——pending 行不再含内容，无尺寸闸可言。
 
 /**
  * 超阈值时压缩 journal：已结算（settled/aborted 配对完成）的行全部丢弃，
- * 只保留未结算 pending（崩溃恢复的唯一依赖，含全文快照）。
+ * 只保留未结算 pending（崩溃检测的唯一依赖）。
  *
  * 安全条件：settled 行的使命仅是配对消除 pending（findUnsettled 语义），其
  * pending 已不在保留集内，丢弃无损失。原子替换（tmp+rename）：压缩窗口崩溃
@@ -488,33 +333,21 @@ export const [getJournalDegradedKeepBytes, __setJournalDegradedKeepBytesForTest]
  *
  * KN-H-1（2026-08-23，bb 轮挂起销账·轻量守卫）：原「无并发写」假设仅限单进程——
  * CLI/脚本与 GUI 双进程操作同一书时，compact 的「读→算→整文件替换」窗口可吞掉
- * 对方刚 append 的 pending 行（崩溃恢复唯一依据，丢了恢复链失据）。守卫：读前后
+ * 对方刚 append 的 pending 行（崩溃检测唯一依据，丢了检测链失据）。守卫：读前后
  * 各 stat 一次，size/mtime 任变（= 有他进程追加过）→ 放弃本轮压缩（compact 本就
  * best-effort，下次再试）。J7（2026-08-23）：跨进程文件锁已落地
  * （fs/cross-process-lock.ts，含 win 语义评估）——compact 与 append 共享 journal
  * 锁文件，「末次 stat → rename」理论窗口彻底闭合；stat 守卫保留作双保险。
  * N4（五十九轮）：基线 stat 移入锁内——原「锁外 before stat → 等锁 → 锁内 after
- * stat」对比，等锁期间他进程的合法 append 也会误判为「压缩窗口内有变」白白弃压；
- * 且 append 锁超时降级裸写时，after-stat 与 rename 之间仍各有 µs 级窗口。此前口径：
- * 锁内先 stat（基线）→ 读算 → rename 前重 stat 对比（size/mtime 变 = 有新行）→ 变则
- * 放弃本轮；把「读算期间被裸写 append 插行」的丢失窗口收敛到 stat 与 rename 之间的
- * µs 级（与 J7 锁语义的残余窗口同级，如实记档）。
- *
- * RC 源码重审 A-6（Opus-5.5 轮）刀 1：报告 A-6 指出「整文件替换」型 compact 与
- * 「无锁写」的固有冲突——N4 的「rename 前复核有变即弃轮」只挡得住「读算期间的新行」，
- * 而新行在基线之后、复核之前落下时的处置是**整轮放弃**（文件继续膨胀，下次 settle 再
- * 撞同一窗口；且裸写行与替换的冲突窗口本身没被消除，只是让 compact 让路）。现改为
- * **保留集 + 尾段补追**：锁内基线 stat 的偏移之后若有新增行，把这段**原文**读出来接在
- * 新文件末尾——新增行随新文件一起落盘，不与替换冲突。安全性依据：
- *   · 文件顺序 = 保留集在前、尾段接后，而尾段行按原文件行序本就晚于保留集的任何行 →
- *     scanUnsettled 是 map 覆盖语义（同 opId 后出现者胜、settled/aborted 抵消），拼接
- *     后的终态与「原文件原样读」逐 opId 一致；重复行无副作用（同 opId 多行等价一行）。
- *   · 保留集是「读那一刻」的未结算态，尾段是其后新增的原文 → 两者拼起来正好是「读之后
- *     不丢任何行」的超集（多发的那一两个重复行由 map 语义吸收）。
- *   · 新行在补追**之后**、rename 之前落下 → 仍是 µs 级残余窗口（与 N4 同级，如实记档，
- *     不宣称归零；降级写侧由刀 2 的自校验再收一层）。
- * 尾段形态不可判定（基线偏移不落行首 = 上一行被截断、尾段末行半行、读失败、EOF 在重读
- * 上限内不停）则弃本轮：原文件不动，无净损失。
+ * stat」对比，等锁期间他进程的合法 append 也会误判为「压缩窗口内有变」白白弃压。
+ * R0916-7-P3-9（2026-09-25）：RC 重审 A-6 的「保留集 + 尾段补追」随快照机制一并撤除
+ * （补追整套机制——readByteRange/readCompactTail/稳定性重读——价值全在「把基线之后
+ * 新增的**内容行原文**带进新文件」；pending 行现为 ~200 字节元数据、journal 增长速率
+ * 降两个数量级，弃轮一次的代价远小于保留这套拼接逻辑），复核口径回到 N4：锁内基线
+ * stat → 读算 → rename 前重 stat 对比（size/mtime 有变 = 有新行）→ 变则整轮放弃
+ * （原文件不动、无净损失，下次 settle 再试）。残余窗口如实记档：复核 stat 与 rename
+ * 之间仍有 µs 级窗口（与 A-6 同级，不宣称归零）；降级写侧不再有 inode 自校验兜底，
+ * 丢的也只是一条检测行（见 appendLineAsync 注释）。
  */
 function maybeCompactJournal(journalPath: string): void {
   try {
@@ -530,70 +363,27 @@ function maybeCompactJournal(journalPath: string): void {
       if (before.size < getJournalCompactBytes()) return
       // A101（五轮重评修复批）：读失败弃本轮压缩——原复用 findUnsettled 的 [] 降级，
       // 读失败（EACCES/EBUSY 等，rename 只需目录写权）时 before/after stat 全等、N4
-      // 复核不触发，atomicWriteFile('') 把在档全部未结算 pending（崩溃恢复唯一依据，
-      // 含全文快照）清空、半截正文损坏自此静默存活。现走 scanUnsettled 可辨信号，与
+      // 复核不触发，atomicWriteFile('') 把在档全部未结算 pending（崩溃检测唯一依据）
+      // 清空、半截正文损坏自此静默存活。现走 scanUnsettled 可辨信号，与
       // N4「有变即弃」同款 best-effort（下次 settle 再试）。
       const scan = scanUnsettled(journalPath)
       if (!scan.ok) {
         log.warn('journal', `journal 读取失败，本轮压缩放弃（保留原文件不动，${journalPath}）：${scan.cause}`)
         return
       }
+      // N4 复核（P3-9 起即 rename 前唯一复核）：读算期间若有他进程追加（含锁超时降级
+      // 裸写），size/mtime 必变——整轮放弃，绝不拿旧读结果覆盖新行。
+      const after = statSync(journalPath)
+      if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) return
       const unsettled = scan.items
-      // A-6 刀 1：尾段补追（基线之后新增的行的原文）。null = 形态不可判定/EOF 未稳，
-      // 弃本轮（原文件原样保留，新行随原文件在盘）；'' = 无新增（绝大多数轮次）。
-      // 该函数内部最后一次 stat 即 N4 的「rename 前复核」，复核口径见其注释。
-      const tail = readCompactTail(journalPath, before.size)
-      if (tail === null) return
       const text = unsettled.map((p) => JSON.stringify(p)).join('\n')
-      atomicWriteFile(journalPath, (unsettled.length > 0 ? text + '\n' : '') + tail, { fsync: true })
+      atomicWriteFile(journalPath, unsettled.length > 0 ? text + '\n' : '', { fsync: true })
     } finally {
       release()
     }
   } catch {
     // best-effort：压缩失败不影响保存结果，下次再试
   }
-}
-
-/** RC 源码重审 A-6（Opus-5.5 轮）刀 1：尾段稳定性重读上限（含首次）。
- *  有源源不断的 append 时（对端降级写风暴）超上限即弃本轮，防 compact 在锁内被拖住
- *  （best-effort，下次 settle 再试）。 */
-const JOURNAL_COMPACT_TAIL_STABILIZE_MAX_ROUNDS = 4
-
-/**
- * RC 源码重审 A-6（Opus-5.5 轮）刀 1：读基线（beforeSize）之后新增行的原文。
- * 返回 null = 弃本轮压缩；返回 '' = 无新增（常态，行为与 A-6 前一致）。
- *
- * 不变量：返回的非空尾段**必是完整行序列**——首字节紧接基线行尾的 `\n`（从 beforeSize-1
- * 起读、校验该字节是 `\n`），末字节为 `\n`。新文件 = 保留集 + 尾段 的行序语义才成立
- * （见 maybeCompactJournal 的 map 覆盖论证）。
- * 弃轮条件（一律 best-effort 放弃：原文件不动、无净损失、下次 settle 再试）：
- *   · 基线偏移不落行首（beforeSize-1 ≠ `\n`：基线那行是被崩溃/半写截断的残行）——
- *     拼接会把残行尾巴当成新文件的起始半行，制造一条谁都不认识的坏行；
- *   · 尾段末字节不是 `\n`（对端正写到一半：此刻读到的末行可能随后续字节长成完整行，
- *     补追进新文件即把这半行**固化**，且后续字节会写到被 rename 换下的旧 inode）；
- *   · 读失败（readByteRange undefined）/ 文件比基线短（被截断或整替换，形态不可判）；
- *   · EOF 在稳定性重读上限内仍未停（append 风暴）。
- * 稳定性重读：读到尾段后再 stat 一次，size 变了说明读窗内又有新增（对端持续裸写）→
- * 重读整段（上限 JOURNAL_COMPACT_TAIL_STABILIZE_MAX_ROUNDS）→ 稳定才返回。**最后一次
- * stat 即 N4 的 rename 前复核**（口径由「size/mtime 一变即弃轮」换为「尾段是否再增长 /
- * 半行形态」）——复核与 rename 之间仍有 µs 级窗口，如实记档（与 N4 同级，不宣称归零）。
- */
-function readCompactTail(journalPath: string, beforeSize: number): string | null {
-  if (beforeSize < 1) return null // 防御：基线无前缀字节可校验（阈值被注入为 0 等）→ 弃轮
-  for (let round = 0; round < JOURNAL_COMPACT_TAIL_STABILIZE_MAX_ROUNDS; round++) {
-    const cur = statSync(journalPath)
-    if (cur.size === beforeSize) return '' // 无新增（常态：持锁期间无人追加）
-    if (cur.size < beforeSize) return null // 盘上比基线短（截断/整替换）：形态不可判，弃轮
-    const buf = readByteRange(journalPath, beforeSize - 1, cur.size)
-    if (!buf) return null // 读失败/短读：不猜内容，弃轮
-    if (buf[0] !== 0x0a) return null // 基线偏移不落行首（上一行是残行）→ 弃轮
-    const stable = statSync(journalPath)
-    if (stable.size !== cur.size) continue // EOF 仍在增长 → 重读（有上限）
-    const tail = buf.subarray(1).toString('utf-8')
-    if (tail.length > 0 && !tail.endsWith('\n')) return null // 末行半行形态（对端正写到一半）→ 弃轮
-    return tail
-  }
-  return null // 上限内 EOF 未稳（append 风暴）→ 弃轮
 }
 
 /** J7 锁等待超时（毫秒）——争用为文件 IO 级毫秒。

@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { bookUrl } from './url'
 
 // 文风系统 API（文风系统重整 S7）：镜像后端 api/style.ts + health/style 契约。
 // 条目库/候选箱/收割/定标全零 AI；AI 语义分析走 api/analysis.ts
@@ -79,7 +80,7 @@ export interface StyleTrendFE {
 }
 
 function base(name: string): string {
-  return `/api/books/${encodeURIComponent(name)}/style`
+  return bookUrl(name, 'style')
 }
 
 export async function listStyleEntries(
@@ -141,5 +142,5 @@ export async function freezeStyleBaseline(name: string): Promise<{ baseline: Sty
 
 /** 机检重扫（零 AI，按需全量重算；复用体检报告同源端点） */
 export async function getStyleTrend(name: string): Promise<StyleTrendFE> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/health/style`)
+  return apiJson(bookUrl(name, 'health', 'style'))
 }

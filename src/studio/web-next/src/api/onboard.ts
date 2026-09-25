@@ -1,4 +1,5 @@
 import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
+import { bookUrl } from './url'
 
 // onboard 开书对话（细案 §2.2 + 服务端 onboard.ts）：分步 AI 生成设定 + 落盘。
 // 长篇 9 步 + 短篇 1 步；realm 仅成长线书（服务端校验）。
@@ -69,7 +70,7 @@ export async function onboardAi(
   name: string,
   body: { step: OnboardStep; premise?: string; discussionContext?: string },
 ): Promise<OnboardAiResult> {
-  return apiJson<OnboardAiResult>(`/api/books/${encodeURIComponent(name)}/onboard-ai`, {
+  return apiJson<OnboardAiResult>(bookUrl(name, 'onboard-ai'), {
     method: 'POST',
     json: body,
   }, 180_000) // AI 开书对话超时 3 分钟
@@ -80,7 +81,7 @@ export async function onboardSave(
   name: string,
   body: { step: OnboardStep; content: string },
 ): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/onboard-save`, {
+  await apiJson(bookUrl(name, 'onboard-save'), {
     method: 'POST',
     json: body,
   }, API_DEFAULT_TIMEOUT_MS) // A5（复审-0914-优化修复批）：原裸值 30_000 收敛，数值零变化

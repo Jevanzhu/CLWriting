@@ -70,10 +70,13 @@ vi.mock('../../../src/studio/web-next/src/api/prefs', async (importOriginal) => 
   }
 })
 
-// 路由桩：只有 useRouter（本状态机不取 useRoute——bookName 由调用方注入）
-vi.mock('vue-router', () => ({ useRouter: () => ({ replace: mocks.replace }) }))
+// 路由桩：只有 useRouter + onBeforeRouteUpdate（本状态机不取 useRoute——bookName 由调用方注入）。
+// R0916-7-P3-20：本文件直挂状态机（无 router-view 上下文），提交前守卫（onBeforeRouteUpdate）
+// 以空桩登记——本文件验的仍是提交后 watch 链；提交前守卫面见 book-switch-precommit-guard.test.ts。
+vi.mock('vue-router', () => ({ useRouter: () => ({ replace: mocks.replace }), onBeforeRouteUpdate: vi.fn() }))
 vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({
   useRouter: () => ({ replace: mocks.replace }),
+  onBeforeRouteUpdate: vi.fn(),
 }))
 
 import { useBookSwitchGuard } from '../../../src/studio/web-next/src/composables/useBookSwitchGuard'

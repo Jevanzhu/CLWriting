@@ -18,7 +18,7 @@ import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service.js'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
+import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
@@ -104,33 +104,49 @@ export function registerFileRoutes(ctx: FileCtx): void {
   })
 
   // 写 .md 全文
+  // R0916-7-P3-13：本端点原在 handler 里内联 readJson + as 断言——现读体与 content/
+  // expectedRevision 形状校验落 parse（读体上限经 bodyLimit 保持内容档 16MB），
+  // 找书 404 / 畸形 query 400 / 白名单 BAD_PATH 400 这三道「先于 body」的前置门落
+  // gate：响应序与迁移前逐位一致（404 → BAD_PATH → body 400 → 串行链内 409/404）。
   defineRoute('books.file.put', {
     method: 'PUT',
     path: '/api/books/:name/file',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    gate: ({ params, req, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
+      if (!r) return false
       // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
       const q = queryParams(req)
-      if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      if (!q) {
+        replyError(res, 400, 'BAD_INPUT', 'bad request')
+        return false
+      }
       const file = q.get('file') ?? ''
       // X-P2-14：路径寻址 PUT 不放行 写作/正文——正文保存必须走 /documents/:docId/content
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
       // R26-9（二十六轮）：writablePath 同次解析带回 rel（快照留底按 bookRoot 相对路径寻址）
       const dest = writablePath(r.bookRoot, file)
-      if (!dest) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
-      const putRel: string = dest.rel
-      const safe: string = dest.abs
-      // RC 源码重审 B-1：全文写走内容档上限（设定/大纲等大 md 同属正文类写入面）
-      const body = (await readJson(req, CONTENT_BODY_LIMIT_BYTES)) as { content?: unknown; expectedRevision?: unknown }
-      if (typeof body.content !== 'string') {
-        replyError(res, 400, 'BAD_INPUT', '缺少 content')
-        return
+      if (!dest) {
+        replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
+        return false
       }
-      // B-22 串行链闭包内使用——属性窄化不跨闭包，先钉成不可变局部
-      // 平台规范化批：PUT 白名单 .md 直写不经 DocumentService.save，此处自收口——
-      // 请求体内容（外部编辑器粘贴/同步盘形态）写前归一规范形，快照比对与指纹同源
-      const content: string = canonicalizeText(body.content)
+      return { value: { bookRoot: r.bookRoot, putRel: dest.rel, safe: dest.abs } }
+    },
+    // RC 源码重审 B-1：全文写走内容档上限（设定/大纲等大 md 同属正文类写入面）
+    bodyLimit: CONTENT_BODY_LIMIT_BYTES,
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      if (typeof body['content'] !== 'string') throw new Error('缺少 content')
+      return {
+        // 平台规范化批：PUT 白名单 .md 直写不经 DocumentService.save，此处自收口——
+        // 请求体内容（外部编辑器粘贴/同步盘形态）写前归一规范形，快照比对与指纹同源
+        content: canonicalizeText(body['content']),
+        // 非字符串与缺省同归「未带基线」（旧「后写为准」语义，见 handler 侧 M-3/B-22 注）
+        expectedRevision: typeof body['expectedRevision'] === 'string' ? body['expectedRevision'] : undefined,
+      }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+      const { bookRoot, putRel, safe } = gate
+      const content = input.content
       // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409。缺省时保持
       // 旧「后写为准」语义（存量调用方零改动）；成功响应回新指纹供客户端滚动基线。
       // B-22（第六十轮）：乐观锁挡的是「基线不符」，挡不住两标签页同 expectedRevision
@@ -141,7 +157,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // R43-1（四十三轮）：布线/关系线文件先取同名布线锁（与保存/定稿链同锁文件互斥），
         // 超时 fail-closed 拒写可重试（裸写正是本锁要闭合的覆盖形态）——此前 PUT 直写
         // 绕过布线锁协议，跨进程定稿履历回写可无痕覆盖 PUT 刚落的内容
-        const wiringKey = wiringLockKeyForPut(r.bookRoot, putRel)
+        const wiringKey = wiringLockKeyForPut(bookRoot, putRel)
         let wiringRelease: (() => void) | null = null
         if (wiringKey) {
           try {
@@ -173,11 +189,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // book-context.ts bookMovedFailure 单源（全库最后一处内联 BOOK_MOVED）——
         // 单源头注即设计不变量「reason 人话各端点一致」，本端点旧文案是该不变量的
         // 漏改残留（主审核定：全域仅此一处旧文案、零测试钉值，归一无契约面损伤）。
-        const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+        const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
         if (moved) {
           return { status: 409, code: moved.code, error: moved.reason } as const
         }
-        if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
+        if (input.expectedRevision !== undefined && input.expectedRevision !== baseline.revision) {
           return {
             status: 409,
             code: 'REVISION_CONFLICT',
@@ -197,7 +213,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         //   = 无版本兜底的不可逆替换，与「作者手改不静默丢失」红线相抵；拒绝保存零损失
         //   （原稿与编辑器内容都在），修好 IO 后重试即成功。
         try {
-          snapshotBeforeOverwrite(r.bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
+          snapshotBeforeOverwrite(bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
         } catch (e) {
           if (e instanceof NonUtf8TargetError) {
             return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message } as const
@@ -214,7 +230,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈。
         // R46-8（四十六轮）：改走单键失效——只清本次改写文件的 probe 键，不再整书清空
         // 哈希缓存（否则每次编辑器保存后下一次树请求全书重读+重哈希）
-        invalidateTreeIndexForContent(r.bookRoot, putRel)
+        invalidateTreeIndexForContent(bookRoot, putRel)
         return { revision: hashContent(content) } as const
         } finally {
           wiringRelease?.()

@@ -18,7 +18,8 @@ import {
   scheduleBodyWriteback,
   flushBodyWriteback,
 } from '../shared/body-writeback'
-import CmHost from '../editor/CmHost.vue'
+// R0916-7-P3-21：暴露面类型由 CmHost 单源导出（原为本文件手写复制的 CmHostExposed）
+import CmHost, { type CmHostHandle } from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
@@ -35,13 +36,15 @@ const ws = useWorkspaceStore()
 const ui = useUiStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
+// R0916-7-P3-21：声明顺序与使用顺序一致——isReviewable 读 entry，entry 须先于它声明
+// （computed 惰性求值故原「先用后声明」能跑，但阅读顺序是反的）。
+const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
+
 const isReviewable = computed(() => {
   if (!entry.value) return false
   if (formKindOf(entry.value.path) !== null) return true
   return isBodyKind(entry.value.path)
 })
-
-const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
 // 当前书类型（长篇/短篇），顶栏 pill 展示；切书时重新拉取 book.yaml
 const bookKind = ref<'long' | 'short' | null>(null)
@@ -162,20 +165,10 @@ const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(
   aiActions.map((a) => [a.key, a]),
 )
 
-type CmHostExposed = {
-  insertText: (t: string) => void
-  getSelection: () => string
-  hasSelection: () => boolean
-  getCursorOffset: () => number | null
-  clipboardCut: () => Promise<void>
-  clipboardCopy: () => Promise<void>
-  clipboardPaste: () => Promise<void>
-  selectAll: () => void
-  undoAction: () => void
-  redoAction: () => void
-  openSearch: () => void
-}
-const cmHost = ref<CmHostExposed | null>(null)
+// R0916-7-P3-21：暴露面类型改引 CmHost 导出的 CmHostHandle（原为手写复制的
+// CmHostExposed）。import 面保持 `, { type CmHostHandle }` 形态——类型擦除后运行时
+// 仍是默认导入一个组件。
+const cmHost = ref<CmHostHandle | null>(null)
 
 // 右键菜单（桌面端 → macOS 原生 Menu；浏览器 → 自定义 ContextMenu）
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()

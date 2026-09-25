@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { defineRoute, getRouteSchema, resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 import { createRouteTable, dispatch, route, withRouteTable } from '../../src/studio/server/router.js'
+import { HttpError, replyError } from '../../src/studio/server/http.js'
 import { listenSafe } from '../helpers/safe-port.js'
 
 async function listen(srv: Server): Promise<number> {
@@ -161,6 +162,136 @@ describe('E2: route schema 单点声明', () => {
     } finally {
       errSpy.mockRestore()
     }
+  })
+
+  // R0916-7-P3-13：parse 前置闸（RouteSchema.gate）钩子语义——执行序、中止、
+  // 收尾 cleanup、抛错口径四件。端点级验证（/spawn、/auto-write 仍是忙闸先于
+  // body 400）见 api-input-validation.test.ts。
+  it('gate → parse → handler 执行序；闸产出经 ctx.gate 透传 handler', async () => {
+    const calls: string[] = []
+    defineRoute('e2.gate.order', {
+      method: 'POST',
+      path: '/e2/gate/order',
+      gate: () => {
+        calls.push('gate')
+        return { value: { tag: 'g' } }
+      },
+      parse: (raw) => {
+        calls.push('parse')
+        return { n: Number((raw as { n?: unknown }).n) }
+      },
+      handler: async ({ input, gate }, _req, res) => {
+        calls.push('handler')
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ n: input.n, tag: gate.tag }))
+      },
+    })
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const ok = await postJson(port, '/e2/gate/order', { n: 7 })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toEqual({ n: 7, tag: 'g' })
+    expect(calls).toEqual(['gate', 'parse', 'handler'])
+    srv.close()
+  })
+
+  it('gate 返回 false（闸内已回错误）→ parse/handler 都不进，且不追加第二条信封', async () => {
+    const calls: string[] = []
+    defineRoute('e2.gate.block', {
+      method: 'POST',
+      path: '/e2/gate/block',
+      gate: ({ res }) => {
+        calls.push('gate')
+        replyError(res, 409, 'BUSY', '闸拦下了')
+        return false
+      },
+      parse: () => {
+        calls.push('parse')
+        throw new Error('不该到这里')
+      },
+      handler: async () => { calls.push('handler') },
+    })
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const busy = await postJson(port, '/e2/gate/block', { n: -1 }) // 体也非法：闸先拦则只见 409
+    expect(busy.status).toBe(409)
+    expect(busy.json).toEqual({ code: 'BUSY', error: '闸拦下了' })
+    expect(calls).toEqual(['gate'])
+    srv.close()
+  })
+
+  it('parse 失败 → 400 且 handler 未被调用；闸 cleanup 在收尾执行一次（占位不泄漏）', async () => {
+    let handlerCalls = 0
+    const cleanups: string[] = []
+    defineRoute('e2.gate.cleanup-parse', {
+      method: 'POST',
+      path: '/e2/gate/cleanup-parse',
+      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('release') } }),
+      parse: () => { throw new Error('体不合法') },
+      handler: async () => { handlerCalls += 1 },
+    })
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const bad = await postJson(port, '/e2/gate/cleanup-parse', {})
+    expect(bad.status).toBe(400)
+    expect(bad.json).toEqual({ code: 'BAD_INPUT', error: '体不合法' })
+    expect(handlerCalls).toBe(0)
+    expect(cleanups).toEqual(['release'])
+    srv.close()
+  })
+
+  it('handler 正常返回与抛错两路 cleanup 各执行一次（抛错仍由 dispatch 兜 500）', async () => {
+    const cleanups: string[] = []
+    defineRoute('e2.gate.cleanup-ok', {
+      method: 'POST',
+      path: '/e2/gate/cleanup-ok',
+      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('ok') } }),
+      handler: async (_ctx, _req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ ok: true }))
+      },
+    })
+    defineRoute('e2.gate.cleanup-throw', {
+      method: 'POST',
+      path: '/e2/gate/cleanup-throw',
+      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('throw') } }),
+      handler: async () => { throw new Error('handler 爆炸') },
+    })
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      expect((await postJson(port, '/e2/gate/cleanup-ok', {})).status).toBe(200)
+      expect((await postJson(port, '/e2/gate/cleanup-throw', {})).status).toBe(500)
+    } finally {
+      errSpy.mockRestore()
+    }
+    expect(cleanups).toEqual(['ok', 'throw'])
+    srv.close()
+  })
+
+  it('闸抛错同 parse 口径：普通 Error → 400 BAD_INPUT；HttpError → 透传自身状态码与码', async () => {
+    defineRoute('e2.gate.thrown', {
+      method: 'POST',
+      path: '/e2/gate/thrown',
+      gate: () => { throw new Error('闸内普通错') },
+      handler: async () => {},
+    })
+    defineRoute('e2.gate.http-error', {
+      method: 'POST',
+      path: '/e2/gate/http-error',
+      gate: () => { throw new HttpError(413, '请求体过大', 'PAYLOAD_TOO_LARGE') },
+      handler: async () => {},
+    })
+    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const port = await listen(srv)
+    const plain = await postJson(port, '/e2/gate/thrown', {})
+    expect(plain.status).toBe(400)
+    expect(plain.json).toEqual({ code: 'BAD_INPUT', error: '闸内普通错' })
+    const httpErr = await postJson(port, '/e2/gate/http-error', {})
+    expect(httpErr.status).toBe(413)
+    expect(httpErr.json).toEqual({ code: 'PAYLOAD_TOO_LARGE', error: '请求体过大' })
+    srv.close()
   })
 })
 

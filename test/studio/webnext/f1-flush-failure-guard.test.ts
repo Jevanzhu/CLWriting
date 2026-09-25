@@ -70,13 +70,13 @@ const routerMock = vi.hoisted(() => ({ replace: vi.fn() }))
 vi.mock('vue-router', async () => {
   const { reactive } = await import('vue')
   routeHolder.route = reactive({ params: { name: '书A' } })
-  return { useRoute: () => routeHolder.route, useRouter: () => routerMock }
+  return { useRoute: () => routeHolder.route, useRouter: () => routerMock, onBeforeRouteUpdate: vi.fn() }
 })
 vi.mock('../../../src/studio/web-next/node_modules/vue-router', async () => {
   const { reactive } = await import('vue')
   // 同一 reactive 代理（首个 mock 已建则复用，保证两路径读到同一路由对象）
   routeHolder.route = routeHolder.route ?? reactive({ params: { name: '书A' } })
-  return { useRoute: () => routeHolder.route, useRouter: () => routerMock }
+  return { useRoute: () => routeHolder.route, useRouter: () => routerMock, onBeforeRouteUpdate: vi.fn() }
 })
 
 import Book from '../../../src/studio/web-next/src/pages/Book.vue'
