@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -33,7 +33,7 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
 
 async function collectOpenAI(client: OpenAI, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
-  for await (const ev of createOpenAIProvider(CONF, client).stream(req, new AbortController().signal)) out.push(ev)
+  for await (const ev of createOpenAIProviderChat(CONF, client).stream(req, new AbortController().signal)) out.push(ev)
   return out
 }
 

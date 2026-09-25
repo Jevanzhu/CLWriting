@@ -535,6 +535,18 @@
 | e2e（playwright，33 spec） | 51 用例通过 / 3 跳过（首轮 1 例红 = 上述在途登记缺口，修复后复跑全绿） |
 | check:counts / docs / packaging / knowledge | 四项通过（README 计数随批同步：1309 文件 / 8137 单测） |
 
-### 8.2 P3
+### 8.2 P3 修复批 R0916-7（2026-09-25 起，基线 `cb483819` 工作树）
 
-本轮未处置：27 条原样保留，按 7.2 的收益/成本序留给 1.0 后的「只减不加」整理轮逐条处置。
+作者拍板 1.0.0 前 27 条全修（本节随批滚动补记）；**发版仍待作者确认，本批不推 tag、不动版本号**。
+
+#### 波 A（2026-09-25）
+
+| ID | 修复形态 | 回归测试 |
+|---|---|---|
+| P3-10 | `archiveOldExport` 返回成败；归档失败时全本/投稿视图产物改写 `nextFreeName` 序号兜底名（`-N` 递推，与分章目录「分章-N」不覆写口径同族），警告改为「本次产物改写入 X，不覆写原产物」——警告与事实一致，手改导出稿不再被销毁 | `test/export/r38-overwrite-archive.test.ts` 新增 3 例：归档失败→序号兜底 + 原稿保全 + 双警告；归档成功→仍写原名无 `-2`；短篇视图同型 |
+| P3-23 | pollRagStatus 内 3 段内联停止收编 `stopRagPolling()`（「停止轮询」4 份实现 → 1 份出口）；`stopRagPolling` 补 `ragFailStreak = 0`；`startRagBuild`/`startRagRebuild` 入口归零——失败终态后重建不再继承连败计数 | `settings-book-analysis.test.ts` 新增「失败终态后重建，连败计数不继承」：5 连败到终态→点重建→再 4 败仍「构建中」、第 5 败才终态 |
+| P3-18 | 搁置通道启动日志降 `log.info` 并删除开发者指令（「恢复 = os-kek.ts OS_KEK_SHELVED 改 false」），改述「内置通道混淆级保护为未签名发行期的预期形态」并指 README；`OS_KEK_SHELVED` 常量与搁置决策不变（作者 2026-09-20 拍板） | `os-kek.test.ts`：断言 info 文案含「钥匙串通道当前未启用」、warn 无「搁置」、输出不泄漏 `OS_KEK_SHELVED` |
+| P3-11 | 七处小型重复/类型谎言单点收编：①`atomic.ts` tmp 写+fsync 块收编 `writeTmpFile`（atomicWriteFile 与 createFileExclusive 两写路径落盘保证不再分叉）；②`retryOnTransientFsError` 返回类型 `T \| undefined`（删 `undefined as T` 类型谎言，唯一吞错调用方 rmWithRetryQuiet 语义不变）；③`cross-process-lock` 三处内联 `Atomics.wait` → 既有 `fsBackoffSleep`（0/负超时返回 timed-out 不抛错，行为等价已验）；④`events/store.ts` 事务样板收编 `withEventsTx`（appendEvents / appendEventsResolveLineage / clearBook / clearBooks 四处；R61-10 回滚加固单源；workspaceSession/迁移改写走 BEGIN IMMEDIATE 语义不同、留自持）；⑤`static.ts` 安全响应头三份 → `STATIC_SECURITY_HEADERS` 单源；⑥`main.ts` devUi 判定两份 → `isDevUi()` 单源；⑦`openai-adapter` 纯别名 `createOpenAIProvider` 删除（与 `createOpenAIProviderChat` 同名同义，调用方无从分辨；15 个测试文件调用面随迁唯一工厂） | typecheck 全绿；`test/events`+`test/ai/provider`+`test/fs`+`test/desktop` 定向 150 文件 1159 例全绿；`r38-batch-d` R38-5 静态锚从薄壳别名改锚唯一工厂签名 + `buildDegradeAttempts` 下传点 |
+| P3-7 | 实测处置（不调阈值）：本批收口后 win 本地全量 `vitest --coverage` 复跑**全桶过门**——评审时红的两项已绿：src/fs 分支 90.00（门 89）、src/rag 分支 88.70（门 88）；src/ai 函数 95.03（门 95，P3-11 删别名后回升）。阈值按 CI ubuntu 腿校准是阶段 43 既定决策，「win 分档/留余量」会放松绿门（违「只紧不松」），不采纳；贴线桶点名入档：ai functions 余 0.03pp（≈1 个函数粒度，最脆）、document S 余 0.04pp、learn S 余 0.19pp、studio/server S 余 0.18pp——后续批触此四域先本地跑 coverage 自查。三个零覆盖视图（Library/Welcome/LearnView）已由 RC 重审 P2-5 显影桶显式登记（0/0 = 「e2e 自管」边界 + 回收条件），非静默暗区，不补组件测试 | 本节实测数字（coverage-summary.json 全桶核算）；CI ubuntu·24 腿阈值门继续兜底 |
+
+波 A 门实录（本机 win）：tsc 通过 / eslint 通过 / 全量 vitest 与 coverage 实测数字见上方 P3-7 行（提交前全量跑）。

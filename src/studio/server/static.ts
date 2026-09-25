@@ -42,6 +42,18 @@ const MIME: Record<string, string> = {
 const SPA_INDEX_TTL_MS = 5000
 let spaIndexCache: { path: string; data: Buffer; ts: number } | null = null
 
+/** 静态响应统一安全头（三处 writeHead 共用单源——R0916-7-P3-11：原三份字典逐字重复，
+ *  改一处漏两处即部分响应缺头）。
+ *  - nosniff（R30-23）：禁浏览器 MIME 嗅探，防落盘内容被误判为可执行脚本（X-XSS 一环）。
+ *  - XFO + CSP frame-ancestors（R5-P2-1）：本机端口服务防点击劫持——任意网页可 iframe
+ *    嵌本服务页面 + 遮罩诱导点击。双保险：老浏览器认 XFO、新浏览器认 CSP，任一生效即
+ *    不渲染于第三方 frame。 */
+const STATIC_SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'content-security-policy': "frame-ancestors 'none'",
+} as const
+
 // 0918二轮修复批（D105）：SPA fallback 404 文案按运行形态分叉——原 404 文案恒为
 // 「请先运行 npm --prefix src/studio/web-next run build」，打包态用户遇 dist 丢失时
 // 看到开发者视角指引（无操作性）且泄漏内部路径。形态判据对齐 worker-async.ts 的
@@ -155,15 +167,7 @@ export function createStaticHandler(rootDir: string) {
         const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-          // R30-23（三十轮）：静态响应统一 nosniff——禁浏览器 MIME 嗅探，防上传/落盘
-          // 内容被误判为可执行脚本（X-XSS 防线的一环，全部静态响应头统一处理）
-          'x-content-type-options': 'nosniff',
-          // R5-P2-1（2026-09-09 修复批）：本机端口服务此前无任何点击劫持防护头——
-          // 任意网页可 iframe 嵌本服务页面 + 遮罩诱导点击（纵深缺口）。静态响应统一加
-          // X-Frame-Options: DENY + CSP frame-ancestors 'none' 双保险（老浏览器认
-          // XFO、新浏览器认 CSP，任一生效即不渲染于第三方 frame）
-          'x-frame-options': 'DENY',
-          'content-security-policy': "frame-ancestors 'none'",
+          ...STATIC_SECURITY_HEADERS,
           'cache-control': cacheable
             ? 'public, max-age=31536000, immutable'
             : 'no-cache',
@@ -201,11 +205,7 @@ export function createStaticHandler(rootDir: string) {
         if (stream.destroyed) return
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-          // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
-          'x-content-type-options': 'nosniff',
-          // R5-P2-1（2026-09-09 修复批）：同 HEAD 分支——点击劫持双保险统一加
-          'x-frame-options': 'DENY',
-          'content-security-policy': "frame-ancestors 'none'",
+          ...STATIC_SECURITY_HEADERS,
           'cache-control': cacheable
             ? 'public, max-age=31536000, immutable'
             : 'no-cache',
@@ -252,11 +252,7 @@ export function createStaticHandler(rootDir: string) {
         }
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
-          // R30-23（三十轮）：SPA fallback 分支同加 nosniff（所有静态响应头统一处）
-          'x-content-type-options': 'nosniff',
-          // R5-P2-1（2026-09-09 修复批）：同 GET/HEAD 分支——点击劫持双保险统一加
-          'x-frame-options': 'DENY',
-          'content-security-policy': "frame-ancestors 'none'",
+          ...STATIC_SECURITY_HEADERS,
           'cache-control': 'no-cache',
           'content-length': String(data.length),
         })

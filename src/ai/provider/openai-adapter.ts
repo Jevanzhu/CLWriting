@@ -64,24 +64,6 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
 }
 
 /**
- * OpenAI Chat Completions 适配器（/v1/chat/completions）。
- *
- * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
- * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——2026-08-17 启用批回接。）
- * 参数差异由 model-quirks 表驱动（方案 §4.1）。
- */
-export function createOpenAIProvider(
-  conf: ProviderConf,
-  client?: OpenAI,
-  // R38-5（三十八轮）：兼容导出补透传 store/userDataPath——原薄壳丢两形参，经此入口
-  // 创建的 provider 降级记忆持久化（400 学习写回 providers.json）静默失效
-  store?: ProviderStore,
-  userDataPath?: string,
-): ModelProvider {
-  return createOpenAIProviderChat(conf, client, store, userDataPath)
-}
-
-/**
  * ChatMsg → OpenAI 线格式 message 列表（纯文本直传；block 数组展开）。
  *
  * OpenAI 与 Anthropic 的 tool 往返形状根本不同：
@@ -277,6 +259,17 @@ function toUsage(u: WireUsage | undefined | null): TokenUsage {
   }
 }
 
+/**
+ * OpenAI Chat Completions 适配器（/v1/chat/completions）。
+ *
+ * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
+ * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——2026-08-17 启用批回接。）
+ * 参数差异由 model-quirks 表驱动（方案 §4.1）。
+ *
+ * R0916-7-P3-11：原另有一个「兼容导出」薄壳 createOpenAIProvider 转调本函数，已删——
+ * 两个导出同名同义（Provider / ProviderChat），调用方无法从名字判断该用哪个，且薄壳
+ * 一度丢 store/userDataPath 两形参（R38-5 修）。名字收成唯一一个。
+ */
 export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore, userDataPath?: string): ModelProvider {
   const c = client ?? createClient(conf)
   const q = quirksFor(conf.model ?? '')

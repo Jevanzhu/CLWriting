@@ -3,7 +3,10 @@
  *
  * - R38-4：listModels 的 OpenAI client 补 maxRetries: 0（静态锚定，对齐 anthropic
  *   分支的「SDK 内建重试破坏单层重试决策」纪律）。
- * - R38-5：兼容导出 createOpenAIProvider 透传 store/userDataPath（静态锚定签名面）。
+ * - R38-5：openai 线工厂透传 store/userDataPath（静态锚定签名面）。原锚定薄壳兼容导出
+ *   createOpenAIProvider，R0916-7-P3-11 已删该纯别名（两入口同名同义，调用方看不出该用
+ *   哪个）；本项改锚唯一工厂 createOpenAIProviderChat——漏传两形参会让降级记忆持久化
+ *   （400 学习写回 providers.json）静默失效，锚定面不随别名删除而失效。
  * - R38-6：canonicalize 剥 BOM——BOM overlay 命中内置历史哈希（此前永判「用户已改」）。
  * - R38-7：responses 线 tool 参数 done 项权威值优先（delta 丢片不再产出残缺 JSON）。
  * - R38-8：responses/anthropic 线 usage:{} 空对象走估计兜底（对齐 openai 线 isRealUsage
@@ -179,10 +182,12 @@ describe('R38-4/R38-5: 静态锚定（SDK 重试纪律与兼容导出透传）',
     expect(openaiBranch.slice(0, 80)).toContain('maxRetries: 0')
   })
 
-  it('R38-5: createOpenAIProvider 兼容导出透传 store/userDataPath', () => {
-    const sig = adapterTs.slice(adapterTs.indexOf('export function createOpenAIProvider('), adapterTs.indexOf('export function createOpenAIProvider(') + 400)
+  it('R38-5: createOpenAIProviderChat 透传 store/userDataPath', () => {
+    // R0916-7-P3-11：锚定面从已删的薄壳别名移到唯一工厂；断言签名仍接两形参、且在函数内
+    // 按名下传（下传点距签名约 30 行，400 字符切片取不到，故签名与调用点分头断言）
+    const sig = adapterTs.slice(adapterTs.indexOf('export function createOpenAIProviderChat('), adapterTs.indexOf('export function createOpenAIProviderChat(') + 400)
     expect(sig).toContain('store?: ProviderStore')
     expect(sig).toContain('userDataPath?: string')
-    expect(sig).toContain('createOpenAIProviderChat(conf, client, store, userDataPath)')
+    expect(adapterTs).toContain('buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)')
   })
 })

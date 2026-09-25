@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -27,7 +27,7 @@ const CONF = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
-async function collect(prov: ReturnType<typeof createOpenAIProvider>, req: GenRequest): Promise<GenEvent[]> {
+async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -55,7 +55,7 @@ describe('R31-1：有 usage 无 finish_reason = 传输截断', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = evs.find((e) => e.type === 'error')
     expect(err).toMatchObject({
@@ -82,7 +82,7 @@ describe('R31-1：有 usage 无 finish_reason = 传输截断', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 3 }, stopReason: 'stop' })
   })
@@ -114,7 +114,7 @@ describe('R31-6：混合 user 消息展开序（tool 消息先于 user 文本）
         },
       ],
     }
-    await collect(createOpenAIProvider(CONF, client), req)
+    await collect(createOpenAIProviderChat(CONF, client), req)
     const msgs: Array<Record<string, unknown>> = (captured as { messages?: Array<Record<string, unknown>> } | undefined)?.messages ?? []
     const roles = msgs.map((m) => m.role)
     // tool 消息必须紧跟 assistant tool_calls：user 文本不得插在中间

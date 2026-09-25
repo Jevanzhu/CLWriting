@@ -76,6 +76,8 @@ export {
   type ResponsesWireQuirks,
 } from './model-quirks.js'
 export { createAnthropicProvider } from './anthropic-adapter.js'
-export { createOpenAIProvider, createOpenAIProviderChat } from './openai-adapter.js'
+// R0916-7-P3-11：原与 createOpenAIProviderChat 同义的薄壳别名 createOpenAIProvider 已删
+// （两导出同名同义，调用方无法从名字判断该用哪个；单源留 carry 全形参的 createOpenAIProviderChat）。
+export { createOpenAIProviderChat } from './openai-adapter.js'
 export { createOpenAIResponsesProvider } from './responses-adapter.js'
 export { normalizeApiKey, apiKeyRefusal, type ApiKeyCheck, type ApiKeyRejection } from './api-key.js'

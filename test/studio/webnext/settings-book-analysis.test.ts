@@ -587,6 +587,52 @@ describe('R26-14（二十六轮）：RAG 轮询连续失败终态', () => {
   })
 })
 
+// R0916-7-P3-23（1.0 前质量债批）：失败终态后重试不再「首败即停」——原三处停表各写一份
+// 清表代码，「失败终态」那份漏了 ragFailStreak 复位：作者点「重建」重试后 streak 仍停在
+// 上限，新一轮轮询首次失败即再次终态（本应容忍到 RAG_POLL_MAX_FAILS），表现为「重建很快
+// 又失败了」。修复后停止路径统一走 stopRagPolling（含计数复位）+ start* 入口归零。
+describe('R0916-7-P3-23：失败终态后重建，连败计数不继承', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('达失败终态 → 点重建 → 仍容忍到上限才再终态（不等价于首败即停）', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
+    mocks.getRagStatus.mockRejectedValue(new Error('服务端挂了'))
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+
+    // 第一轮：连败达上限 → 失败终态
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+    }
+    expect(wrapper.find('.rag-status').text()).toContain('索引状态获取失败，请稍后重试')
+
+    // 作者点「重建索引」重试（失配钮不在场时退回主按钮语义：此处直接点可用钮）
+    const retryBtn = wrapper.findAll('.rag-build-row button').find((b) => b.attributes('disabled') === undefined)!
+    await retryBtn.trigger('click')
+    await flushPromises()
+
+    // 修复前：streak 仍为 5 → 第一拍失败立刻再终态；修复后：需再攒满 5 次才终态。
+    // 前 4 拍失败仍应停留「构建中」。
+    for (let i = 0; i < 4; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+      expect(wrapper.find('.rag-status').text()).not.toContain('索引状态获取失败')
+    }
+    // 第 5 拍失败才回到终态
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+    expect(wrapper.find('.rag-status').text()).toContain('索引状态获取失败，请稍后重试')
+    wrapper.unmount()
+  })
+})
+
 // R28-26（二十八轮）：轮询重叠去重——interval 回调 async，单拍慢于 1.5s 时下一拍照发、
 // 多拍并发：同一失败被并发响应重复计数（ragFailStreak 连加）提前误进失败终态。
 // 修复后上一拍未 settle 本拍跳过（不并发），streak 只按 settle 次数累加。

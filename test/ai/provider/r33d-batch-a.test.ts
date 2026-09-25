@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { withChunkStallTimeout } from '../../../src/ai/gen.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
@@ -59,7 +59,7 @@ describe('R33D-2：content_filter / refusal 不再伪装正常完成', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = findError(evs)
     expect(err).toMatchObject({ type: 'error', retryable: false, code: 'PROTOCOL' })
@@ -78,7 +78,7 @@ describe('R33D-2：content_filter / refusal 不再伪装正常完成', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = findError(evs)
     expect(err?.usage?.inputTokens).toBeGreaterThan(0)

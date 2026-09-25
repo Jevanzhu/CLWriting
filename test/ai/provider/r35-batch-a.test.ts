@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
 
@@ -192,7 +192,7 @@ describe('R35-19: OpenAI Chat 线读取 completion_tokens_details.reasoning_toke
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), {
+    const evs = await collect(createOpenAIProviderChat(CONF, client), {
       systemPrompt: '',
       messages: [{ role: 'user', content: 'hi' }],
     })

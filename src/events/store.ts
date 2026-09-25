@@ -157,6 +157,30 @@ function closeEventsDb(db: DatabaseSync): void {
  *  不 import 该常量（chat.ts 反向依赖本文件，提常量会成环），改由注释锚定对齐依据。 */
 const ORPHAN_GRACE_MS = 32 * 60 * 1000
 
+/** R0916-7-P3-11（1.0 前质量债批）：BEGIN / COMMIT / 失败回滚 事务样板单点——
+ *  appendEvents、appendEventsResolveLineage、clearBook、clearBooks 四处逐字重复
+ *  （原各写一份 catch 回滚块，改一处漏三处）。
+ *  回滚语义不变：SQLite 部分错误（SQLITE_FULL/IOERR 等）会自动回亡事务，此时裸
+ *  ROLLBACK 抛 "no transaction is active" 会掩蔽原始写错误（R61-10/C4 加固）——
+ *  吞掉 ROLLBACK 自身异常、原样上抛业务错误。BEGIN 走默认（deferred）档，与
+ *  四处原实现的 db.exec('BEGIN') 逐位一致；需 IMMEDIATE 写锁的调用点（workspaceSession
+ *  的 SELECT→INSERT 串行化、迁移钥匙改写）语义不同，仍自持事务，不走本处。 */
+function withEventsTx<T>(db: DatabaseSync, body: () => T): T {
+  db.exec('BEGIN')
+  try {
+    const out = body()
+    db.exec('COMMIT')
+    return out
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 已自动回亡 */
+    }
+    throw err
+  }
+}
+
 /** R71-24（十九轮）：开口标记续期周期——活句柄定期 utimes 刷标记 mtime，让「标记年龄」
  *  成为可靠的存活旁证（缺省 30s，测试可注入）。 */
 let OPEN_MARKER_RENEW_MS = 30_000
@@ -639,8 +663,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
       // P3-9：sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
       // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
-      db.exec('BEGIN')
-      try {
+      return withEventsTx(db, () => {
         const seqs: number[] = []
         for (const e of evs) {
           const row = ins.get(sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
@@ -649,19 +672,8 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
           seqs.push(row.seq)
         }
         touch.run(now, sessionId)
-        db.exec('COMMIT')
         return seqs
-      } catch (err) {
-        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
-        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
-        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
-        throw err
-      }
+      })
     },
     // AA-P3-7：INSERT RETURNING 取真实 seq，sourceIdxs 批内索引同事务回写解析——
     // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
@@ -675,8 +687,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       )
       const upd = prepared(db, 'UPDATE events SET source_seqs = ? WHERE session_id = ? AND seq = ?')
       const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
-      db.exec('BEGIN')
-      try {
+      return withEventsTx(db, () => {
         const seqs: number[] = []
         for (const e of evs) {
           const row = ins.get(
@@ -712,19 +723,8 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
           }
         })
         touch.run(now, sessionId)
-        db.exec('COMMIT')
         return seqs
-      } catch (err) {
-        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
-        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
-        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
-        throw err
-      }
+      })
     },
     listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[] {
       // O-2（第十三轮）：limit 可选限量（seq 升序前 N）；投影折叠调用方不传（全量语义不变）
@@ -878,32 +878,19 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // RB-IF-P2-1：两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
       // 0918独立重评修复批（C002）：两条固定 DELETE 收编 prepared() 连接级缓存
-      db.exec('BEGIN')
-      try {
+      withEventsTx(db, () => {
         prepared(
           db,
           `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
         ).run(book)
         prepared(db, 'DELETE FROM sessions WHERE book = ?').run(book)
-        db.exec('COMMIT')
-      } catch (err) {
-        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
-        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
-        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
-        throw err
-      }
+      })
     },
     clearBooks(books: string[]): void {
       // 低级项（第六轮）：多 book 键单事务清理——audit DELETE / chat 清史都是
       // bookName + bookHash 双钥匙，两次 clearBook 各自事务：第二键失败时第一键已提交，
       // 两侧一半清一半留。单 BEGIN 内循环两键的 DELETE，要么全清要么全不动
-      db.exec('BEGIN')
-      try {
+      withEventsTx(db, () => {
         // 0918独立重评修复批（C002）：循环内裸 db.prepare 收编——语句提循环外经
         // prepared() 取缓存（原每 book 每轮重编译两条固定 DELETE）
         const delEvents = prepared(
@@ -915,18 +902,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
           delEvents.run(book)
           delSessions.run(book)
         }
-        db.exec('COMMIT')
-      } catch (err) {
-        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
-        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
-        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
-        throw err
-      }
+      })
     },
     close(): void {
       // Y-P1-1/Y-P2-6：引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）。

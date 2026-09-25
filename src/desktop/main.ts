@@ -90,6 +90,17 @@ const CLW_CSP = [
   "frame-ancestors 'none'",
 ].join('; ')
 
+/** HMR 开发模式判定（CLW_DEV_UI=1 且非打包态）——bootstrap 的 url 选择与 CSP 注入条件
+ *  共用同一判据。
+ *  R43-26（四十三轮）：dev 环境变量防线——打包应用吃到宿主残留 CLW_DEV_UI=1 不得切
+ *  HMR 形态（localhost:5173 + 跳过 server fork）、也不得放行跳过 CSP（Vite 需要的
+ *  unsafe-eval 豁免只属于真 dev）。R62-45：bracket 统一风格。
+ *  R0916-7-P3-11（1.0 前质量债批）：该判据原在 bootstrap 与 whenReady 两处各写一份，
+ *  收紧一处漏另一处即「打包态切 HMR」或「dev 态被 CSP 掐死」——收单源函数。 */
+function isDevUi(): boolean {
+  return !!process.env['CLW_DEV_UI'] && !app.isPackaged
+}
+
 // userData 强制统一到定值（大写 CLWriting）。
 // Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
 // （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
@@ -353,9 +364,8 @@ async function bootstrap(): Promise<void> {
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
-  // R43-26（四十三轮）：dev 环境变量防线——devUi 真值判断要求非打包态（app.isPackaged）：
-  // 打包应用吃到宿主残留 CLW_DEV_UI=1 不再切 HMR 形态（localhost:5173 + 跳过 server fork）
-  const devUi = !!process.env['CLW_DEV_UI'] && !app.isPackaged // R62-45：bracket 统一风格
+  // 判据见 isDevUi（打包态吃到宿主残留 CLW_DEV_UI 不切 HMR 形态）。
+  const devUi = isDevUi()
   // R50-A-1（五十轮）：本 bootstrap 轮是否 fork 了 studio server——session-end 观察
   // 窗自愈据它判「dev HMR 态只复位旗、不拉服务」（dev 态 API 由独立 dev:api 进程供给）
   let serverStarted = false
@@ -623,10 +633,9 @@ function buildMenu(): void {
 // 双标志与门与顶部 :235 同款（guard 异常时 fail-open 返回 acquired:true，放行语义不变）。
 if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   app.whenReady().then(() => {
-    // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
-    // R43-26（四十三轮）：CSP 注入条件同步收紧——与 devUi 同形（!!env && !app.isPackaged）
-    // 取反：打包态恒注入 CSP，宿主残留 CLW_DEV_UI 不再放行跳过（Vite 需要的豁免只属于真 dev）
-    if (!(!!process.env['CLW_DEV_UI'] && !app.isPackaged)) { // R62-45：bracket 统一风格
+    // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）；
+    // 判据同 isDevUi（打包态恒注入 CSP，宿主残留 CLW_DEV_UI 不放行跳过）
+    if (!isDevUi()) {
       session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
         cb({
           responseHeaders: {

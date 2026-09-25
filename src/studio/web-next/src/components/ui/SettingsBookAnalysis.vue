@@ -309,6 +309,7 @@ async function startRagBuild(): Promise<void> {
   if (!name || ragBuilding.value) return
   // R33-81（三十三轮）：在途锁前置——原在 await 之后才置位，POST 往返窗内双击双发
   ragBuilding.value = true
+  ragFailStreak = 0 // R0916-7-P3-23：入口归零——新一轮从头上限计，不继承上一轮残余
   try {
     await triggerRagBuild(name)
     // R0911b-P2①④：build 是增量建索引（不清库），不置 ragRebuildTriggered——原实现
@@ -333,6 +334,7 @@ async function startRagRebuild(): Promise<void> {
   const name = ws.bookName
   if (!name || ragBuilding.value) return
   ragBuilding.value = true // 同款在途锁前置（R33-81 口径）
+  ragFailStreak = 0 // R0916-7-P3-23：入口归零（同 build 侧——失败终态后点重建不再首败即停）
   try {
     await triggerRagRebuild(name)
     // R28-22：真重建（先清库再建）才置触发记忆——此后若以失败收场，
@@ -351,9 +353,7 @@ async function pollRagStatus(name: string): Promise<void> {
   ragPolling = true
   ragPollTimer = setInterval(async () => {
     if (!ragBuilding.value || ws.bookName !== name) {
-      clearInterval(ragPollTimer)
-      ragPollTimer = undefined
-      ragPolling = false
+      stopRagPolling()
       return
     }
     // R28-26（二十八轮）：重叠去重——上一拍 refreshRagStatus 未 settle（慢响应 >1.5s）
@@ -368,15 +368,11 @@ async function pollRagStatus(name: string): Promise<void> {
       if (!ok) ragFailStreak++
       if (ragFailStreak >= RAG_POLL_MAX_FAILS) {
         // 失败终态：停轮询 + 按钮解禁（作者可手动重试）+ 可行动提示
-        clearInterval(ragPollTimer)
-        ragPollTimer = undefined
-        ragPolling = false
+        stopRagPolling()
         ragBuilding.value = false
         ragStatusText.value = '索引状态获取失败，请稍后重试'
       } else if (!ragBuilding.value) {
-        clearInterval(ragPollTimer)
-        ragPollTimer = undefined
-        ragPolling = false
+        stopRagPolling()
       }
     } finally {
       ragPollInFlight = false
@@ -384,6 +380,11 @@ async function pollRagStatus(name: string): Promise<void> {
   }, 1500)
 }
 
+/** 停表单点：清定时器 + 复位在途旗标与连败计数。
+ *  R0916-7-P3-23（1.0 前质量债批）：原三个停止路径各写一份清表代码，失败终态那份漏了
+ *  计数复位——作者点「重建」重试时 streak 仍停在上限，新一轮首败即终止（本应容忍到上限），
+ *  表现为「重建很快又失败了」。改为全部走本函数（计数一并归零 = 新一轮从头计）；
+ *  startRagBuild / startRagRebuild 入口同样归零，双保险不依赖上一轮收尾路径。 */
 function stopRagPolling(): void {
   if (ragPollTimer) {
     clearInterval(ragPollTimer)
@@ -393,7 +394,7 @@ function stopRagPolling(): void {
   // R28-26：停表时可能有在途 refresh（其 settle 落在停表后）——复位在途旗标，
   // 否则下次 pollRagStatus 每拍都被跳过、轮询空转
   ragPollInFlight = false
-  ragFailStreak = 0 // R26-14：停表一并清失败计数（下次轮询从头计）
+  ragFailStreak = 0
 }
 
 // 轮询停表挂点（P3-24 全库重评-0914 注释记正）：dd-P2 原注称「关弹窗只 deactivated

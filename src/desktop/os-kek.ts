@@ -101,11 +101,15 @@ export interface OsKekDeps {
 export function loadOrGenerateOsKek(userDataPath: string, deps: OsKekDeps = {}): Buffer | null {
   try {
     // 作者指令（2026-09-20）：钥匙串通道暂时搁置——置于全部守卫与 safeStorage 调用
-    // 之前，回落语义与 Rosetta 守卫一致（warn 留痕、v1 零影响、v2 见开关注）
+    // 之前，回落语义与 Rosetta 守卫一致（留痕、v1 零影响、v2 见开关注）
+    // R0916-7-P3-18（1.0 前质量债批）：本条原为 warn 且带「恢复 = os-kek.ts
+    // OS_KEK_SHELVED 改 false」的源码修改指引——搁置是发行期的**预期稳态**（非异常），
+    // 每次启动打 warn 是噪音；把内部改法写进面向作者的日志更不该。改：降为 info，
+    // 文案只陈述对作者有意义的事实（Key 当前存哪、保护级别、README 已披露）。
     if ((deps.isShelved ?? (() => OS_KEK_SHELVED))()) {
-      log.warn(
+      log.info(
         'desktop',
-        `钥匙串通道暂时搁置（作者指令 2026-09-20）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）；恢复 = os-kek.ts OS_KEK_SHELVED 改 false`,
+        `系统钥匙串通道当前未启用——Key 存于应用内置通道（${join(userDataPath, OS_KEK_FILE)} 未创建），仅混淆级保护；发行包未签名期间为预期的发布形态，详见 README「下载与安装」`,
       )
       return null
     }

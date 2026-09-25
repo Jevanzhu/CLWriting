@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/index.js'
 import type { GenRequest, ProviderConf, ChatMsg } from '../../../src/ai/provider/index.js'
 
@@ -69,7 +69,7 @@ async function runAnthropic(req: GenRequest, model = CONF.model): Promise<Record
 /** 跑完流并返回捕获的线格式 params（OpenAI） */
 async function runOpenAI(req: GenRequest): Promise<Record<string, unknown>> {
   const client = captureOpenAI()
-  const prov = createOpenAIProvider(CONF, client)
+  const prov = createOpenAIProviderChat(CONF, client)
   for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }

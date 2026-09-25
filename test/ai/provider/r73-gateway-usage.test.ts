@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -30,7 +30,7 @@ function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   }
 }
 
-async function collect(prov: ReturnType<typeof createOpenAIProvider>, req: GenRequest): Promise<GenEvent[]> {
+async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -49,7 +49,7 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
       },
     } as unknown as OpenAI
     const req: GenRequest = { systemPrompt: '系统提示词', messages: [{ role: 'user', content: '写一段' }] }
-    const evs = await collect(createOpenAIProvider(CONF, client), req)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), req)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -73,7 +73,7 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIProviderChat(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -90,7 +90,7 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIProviderChat(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ retryable: true, code: 'NETWORK' })
   })

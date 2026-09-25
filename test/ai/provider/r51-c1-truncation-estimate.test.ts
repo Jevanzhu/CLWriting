@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -24,7 +24,7 @@ const CONF = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
-async function collect(prov: ReturnType<typeof createOpenAIProvider>, req: GenRequest): Promise<GenEvent[]> {
+async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -48,7 +48,7 @@ describe('R51-C-1：无 usage 的传输截断估计入账', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = evs.find((e) => e.type === 'error')
     expect(err).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
@@ -71,7 +71,7 @@ describe('R51-C-1：无 usage 的传输截断估计入账', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const err = evs.find((e) => e.type === 'error')
     expect(err).toMatchObject({
       type: 'error',

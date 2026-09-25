@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { estimateInputTokens, estimateOutputTokens } from '../../../src/ai/provider/usage-estimate.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
@@ -240,7 +240,7 @@ describe('R36-14: openai 线 usage:{} 空对象走 R73-1 估计兜底（不入 0
       },
     } as unknown as OpenAI
     const req: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
-    const evs = await collect(createOpenAIProvider(CONF, client), req)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), req)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -264,7 +264,7 @@ describe('R36-14: openai 线 usage:{} 空对象走 R73-1 估计兜底（不入 0
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), {
+    const evs = await collect(createOpenAIProviderChat(CONF, client), {
       systemPrompt: '',
       messages: [{ role: 'user', content: 'hi' }],
     })

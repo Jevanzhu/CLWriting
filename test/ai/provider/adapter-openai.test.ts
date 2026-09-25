@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider, createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { ProviderConf } from '../../../src/ai/provider/index.js'
 import { CONF, REQ, collect, fakeSend } from './adapter-fixtures.js'
 
@@ -24,7 +24,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.filter((e) => e.type === 'text')).toEqual([
       { type: 'text', delta: '你' },
       { type: 'text', delta: '好' },
@@ -57,7 +57,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const tool = evs.find((e) => e.type === 'tool')
     expect(tool).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x' } })
   })
@@ -76,7 +76,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const tools = evs.filter((e) => e.type === 'tool')
     expect(tools).toHaveLength(2) // 旧实现：并入同一键 → 仅 1 个串拼调用
     expect(tools[0]).toMatchObject({ name: 'toolA', input: { a: 1 } })
@@ -96,7 +96,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const tools = evs.filter((e) => e.type === 'tool')
     expect(tools).toHaveLength(2)
     expect(tools[0]).toMatchObject({ name: 'toolA', input: { a: 1 } })
@@ -120,7 +120,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const evs = await collect(
-      createOpenAIProvider({ ...CONF, protocol: 'openai', model: 'gpt-5' }, client),
+      createOpenAIProviderChat({ ...CONF, protocol: 'openai', model: 'gpt-5' }, client),
       { ...REQ, structured: { schema: { type: 'object' } } }, // gpt 系列 json_schema 档 → 有降级链可续跑
     )
     expect(calls).toBe(1) // 若续跑第二个参数面，「半截」会对消费者重复一遍
@@ -139,7 +139,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     // 旧契约：usage 在场即按 done 收口（截断流被伪装成功）；R33-3 收窄——
     // usage-only chunk 只证明计费上报过，无 finish_reason 仍按 R1 传输截断报错
     //（夹具注：无 finish_reason 的「合规 include_usage」对照组见下一条用例；dev 线
@@ -159,7 +159,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 8, outputTokens: 4 } })
   })
 
@@ -177,7 +177,7 @@ describe('OpenAI 适配器', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 3 } })
     expect((done as { usage: { estimated?: boolean } }).usage.estimated, '实测计量不得降级估计口径').toBeUndefined()
@@ -186,7 +186,7 @@ describe('OpenAI 适配器', () => {
   it('APIError 5xx → error 事件 retryable=true；message 带脱敏状态码', async () => {
     const err = new OpenAI.APIError(500, { type: 'error', message: 'server meltdown' }, 'server meltdown', undefined)
     const client = { chat: { completions: { create: () => Promise.reject(err) } } } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs[0]).toMatchObject({ type: 'error', retryable: true })
     const first = evs[0]
     if (first && first.type === 'error') expect(first.message).toContain('OpenAI API 500')
@@ -205,7 +205,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), REQ)
+    await collect(createOpenAIProviderChat(conf, client), REQ)
     expect(captured).toMatchObject({ model: 'gpt-4o' })
     expect('max_completion_tokens' in (captured ?? {})).toBe(false)
     expect('max_tokens' in (captured ?? {})).toBe(false)
@@ -226,7 +226,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'custom-model' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'high' })
+    await collect(createOpenAIProviderChat(conf, client), { ...REQ, effort: 'high' })
     expect('reasoning_effort' in (captured ?? {})).toBe(false)
   })
 
@@ -245,7 +245,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, effort: 'xhigh' })
+    await collect(createOpenAIProviderChat(conf, client), { ...REQ, effort: 'xhigh' })
     expect(captured?.['reasoning_effort']).toBe('xhigh')
     expect(captured?.['max_tokens']).toBeUndefined()
   })
@@ -266,7 +266,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), {
+    await collect(createOpenAIProviderChat(conf, client), {
       ...REQ,
       toolChoice: 'auto',
       tools: [{ name: 'read_chapter', description: '读章', input_schema: { type: 'object', properties: {} } }],
@@ -290,7 +290,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'gpt-4o' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), {
+    await collect(createOpenAIProviderChat(conf, client), {
       ...REQ,
       tools: [{ name: 'read_chapter', description: '读章', input_schema: { type: 'object', properties: {} } }],
     })

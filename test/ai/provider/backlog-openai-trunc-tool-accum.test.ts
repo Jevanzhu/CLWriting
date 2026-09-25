@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -25,7 +25,7 @@ const CONF = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '查一下' }] }
 
-async function collect(prov: ReturnType<typeof createOpenAIProvider>, req: GenRequest): Promise<GenEvent[]> {
+async function collect(prov: ReturnType<typeof createOpenAIProviderChat>, req: GenRequest): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -51,7 +51,7 @@ describe('R55-C-3：截断估计并入 toolAccum 残留', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     // R26-25 取舍不变：截断分支 tool 事件仍不 flush
     expect(evs.some((e) => e.type === 'tool')).toBe(false)
@@ -75,7 +75,7 @@ describe('R55-C-3：截断估计并入 toolAccum 残留', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const err = evs.find((e) => e.type === 'error')
     const usage = (err as { usage?: { outputTokens: number; estimated?: boolean } }).usage
     expect(usage).toBeDefined()

@@ -301,16 +301,22 @@ describe('Rosetta 翻译态守卫（v1.0.0-rc.0 发布修复批）', () => {
 })
 
 describe('钥匙串通道搁置守卫（作者指令 2026-09-20「暂时搁置使用钥匙串的功能」）', () => {
-  it('缺省（无 deps）→ null 回落、不落文件、不触任何 safeStorage 调用 + warn 留痕', () => {
+  it('缺省（无 deps）→ null 回落、不落文件、不触任何 safeStorage 调用 + info 留痕（非 warn）', () => {
     const ud = setup()
+    const infoSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       expect(loadOrGenerateOsKek(ud)).toBeNull()
       expect(existsSync(join(ud, 'os-kek.json'))).toBe(false)
       // 守卫须先于一切 safeStorage 调用（搁置 = 弹窗面归零的安全断言，计数口径同 Rosetta 守卫）
       expect(safeState.calls).toEqual({ avail: 0, enc: 0, dec: 0 })
-      expect(warnSpy.mock.calls.some(([line]) => String(line).includes('搁置'))).toBe(true)
+      // R0916-7-P3-18：搁置是发行期预期稳态（不是异常），日志降 info 且不带源码修改指引
+      expect(infoSpy.mock.calls.some(([line]) => String(line).includes('钥匙串通道当前未启用'))).toBe(true)
+      expect(warnSpy.mock.calls.some(([line]) => String(line).includes('搁置'))).toBe(false)
+      // 内部指令不得出现在任何面向作者的出口（提示作者去改源码常量属开发指令泄漏）
+      expect(infoSpy.mock.calls.some(([line]) => String(line).includes('OS_KEK_SHELVED'))).toBe(false)
     } finally {
+      infoSpy.mockRestore()
       warnSpy.mockRestore()
     }
   })

@@ -73,6 +73,81 @@ describe('R38-2：同名产物先归档再覆盖', () => {
   })
 })
 
+describe('R0916-7-P3-10：归档失败时不覆写原产物（警告与事实一致）', () => {
+  it('merged：.旧版 被同名普通文件占据 → 归档失败改序号兜底名，手改稿原位保留', () => {
+    const root = makeLongBook('归档不下')
+    writeLongChapter(root, 1, '第一章', '原始正文。')
+    try {
+      const r1 = exportBook({ bookRoot: root, format: 'merged' })
+      expect(r1.ok).toBe(true)
+      const exportDir = join(root, '工作区', '导出')
+      const mergedPath = join(exportDir, '全本-归档不下.md')
+      writeFileSync(mergedPath, '# 手改内容（作者批注版）', 'utf-8')
+      // 造确定性归档失败：mkdirSync 目标路径被一个普通文件占住
+      writeFileSync(join(exportDir, OLD_EXPORT_DIR), '占位普通文件', 'utf-8')
+
+      const r2 = exportBook({ bookRoot: root, format: 'merged' })
+      expect(r2.ok).toBe(true)
+      // 修复前：归档失败仍覆写原名 → 手改稿被销毁，警告却称「已保留原位」
+      expect(readFileSync(mergedPath, 'utf-8')).toContain('手改内容')
+      // 本次产物落在序号兜底名，且是干净稿
+      const fallback = join(exportDir, '全本-归档不下-2.md')
+      expect(existsSync(fallback)).toBe(true)
+      expect(readFileSync(fallback, 'utf-8')).toContain('原始正文')
+      expect(r2.files).toContain('工作区/导出/全本-归档不下-2.md')
+      // 两条警告都如实：归档失败归因 + 本次产物去向
+      expect(r2.warnings?.some((w) => w.includes('归档失败'))).toBe(true)
+      expect(r2.warnings?.some((w) => w.includes('全本-归档不下-2.md') && w.includes('不覆写'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('merged：归档成功（常态）→ 仍写原名，不产兜底副本', () => {
+    const root = makeLongBook('归档正常')
+    writeLongChapter(root, 1, '第一章', '原始正文。')
+    try {
+      exportBook({ bookRoot: root, format: 'merged' })
+      const exportDir = join(root, '工作区', '导出')
+      writeFileSync(join(exportDir, '全本-归档正常.md'), '# 手改', 'utf-8')
+      const r2 = exportBook({ bookRoot: root, format: 'merged' })
+      expect(r2.ok).toBe(true)
+      expect(readFileSync(join(exportDir, '全本-归档正常.md'), 'utf-8')).toContain('原始正文')
+      expect(existsSync(join(exportDir, '全本-归档正常-2.md'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('short：同名投稿视图归档失败同样改序号兜底名，原稿原位保留', () => {
+    const root = mkdtempTracked(join(tmpdir(), 'export-r0916-7-'))
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇兜底', '  genre: 悬疑'].join('\n'),
+      'utf-8',
+    )
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    writeLongChapter(root, 1, '第一章', '原始正文。')
+    try {
+      const r1 = exportBook({ bookRoot: root, format: 'merged' })
+      expect(r1.ok).toBe(true)
+      const exportDir = join(root, '工作区', '导出')
+      const viewPath = join(exportDir, '投稿视图-短篇兜底.md')
+      expect(existsSync(viewPath)).toBe(true)
+      writeFileSync(viewPath, '# 手改投稿稿', 'utf-8')
+      writeFileSync(join(exportDir, OLD_EXPORT_DIR), '占位普通文件', 'utf-8')
+
+      const r2 = exportBook({ bookRoot: root, format: 'merged' })
+      expect(r2.ok).toBe(true)
+      expect(readFileSync(viewPath, 'utf-8')).toContain('手改投稿稿')
+      expect(existsSync(join(exportDir, '投稿视图-短篇兜底-2.md'))).toBe(true)
+      expect(r2.files.some((f) => f.includes('投稿视图-短篇兜底-2.md'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('R38-17：非 UTF-8 定稿章导出记警告跳过', () => {
   it('GBK 正文章不再以 U+FFFD 乱码进入产物，warning 指引转码', () => {
     const root = makeLongBook('非utf8章')

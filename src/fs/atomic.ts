@@ -56,11 +56,15 @@ export function retryOnTransientFsError<T>(
     sleep: (ms: number) => void
     retries: number
     baseDelayMs: number
-    onExhausted?: (e: unknown) => void
+    /** 耗尽后的收口语义：缺省（undefined）上抛；传 null 显式表达「调用方不需要返回值」
+     *  ——Q8P-2（1.0 前质量债批）：原签名用 `return undefined as T` 给泛型撒谎，唯一
+     *  的 onExhausted 调用方（rmWithRetryQuiet）本就丢弃返回值；现把「吞掉并返回
+     *  undefined」的关系写进类型，编译器可拦「拿返回值」的误用。 */
+    onExhausted?: ((e: unknown) => void) | null
     /** B009：留痕上下文（操作名 + 目标路径）。缺省不留痕。 */
     trace?: { op: string; target: string }
   },
-): T {
+): T | undefined {
   let attempt = 0
   let sleptMs = 0
   let traced = false
@@ -72,7 +76,7 @@ export function retryOnTransientFsError<T>(
       if (attempt >= opts.retries || !RETRYABLE_FS_CODES.has(code)) {
         if (opts.onExhausted) {
           opts.onExhausted(e)
-          return undefined as T
+          return undefined
         }
         throw e
       }
@@ -89,6 +93,23 @@ export function retryOnTransientFsError<T>(
       attempt++
     }
   }
+}
+
+/** Q8P-2：同目录 tmp 写入 + fsync + close 单点——atomicWriteFile 与 createFileExclusive
+ *  两处逐字重复的块收编（R0916-7-P3-11：改一处漏一处即两条写路径落盘保证分叉）。 */
+function writeTmpFile(tmpPath: string, data: string | Uint8Array, mode: number | undefined, doFsync: boolean): void {
+  if (doFsync) {
+    // 显式 open + write + fsync + close：内容落盘后再 rename
+    const fd = openSync(tmpPath, 'w', mode)
+    try {
+      writeFileSync(fd, data)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    return
+  }
+  writeFileSync(tmpPath, data, mode !== undefined ? { mode } : undefined)
 }
 
 /**
@@ -173,18 +194,7 @@ export function atomicWriteFile(
   // T2-5：默认 true（数据安全优先）；仅显式 fsync:false 才走快速路径
   const doFsync = opts?.fsync !== false
   try {
-    if (doFsync) {
-      // 显式 open + write + fsync + close：内容落盘后再 rename
-      const fd = openSync(tmpPath, 'w', opts?.mode)
-      try {
-        writeFileSync(fd, data)
-        fsyncSync(fd)
-      } finally {
-        closeSync(fd)
-      }
-    } else {
-      writeFileSync(tmpPath, data, opts?.mode !== undefined ? { mode: opts.mode } : undefined)
-    }
+    writeTmpFile(tmpPath, data, opts?.mode, doFsync)
     renameWithRetry(tmpPath, filePath)
     if (doFsync) fsyncDir(dir)
   } catch (e) {
@@ -270,17 +280,7 @@ export function createFileExclusive(
   const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
   const doFsync = opts?.fsync !== false
   try {
-    if (doFsync) {
-      const fd = openSync(tmpPath, 'w', opts?.mode)
-      try {
-        writeFileSync(fd, data)
-        fsyncSync(fd)
-      } finally {
-        closeSync(fd)
-      }
-    } else {
-      writeFileSync(tmpPath, data, opts?.mode !== undefined ? { mode: opts.mode } : undefined)
-    }
+    writeTmpFile(tmpPath, data, opts?.mode, doFsync)
     // R26-7（二十六轮）：EEXIST → 'exists'；EPERM/ENOSYS/EACCES → rename 降级（含 warn）
     const placed = linkOrRenameExclusive(tmpPath, filePath)
     if (placed === 'exists') return 'exists'

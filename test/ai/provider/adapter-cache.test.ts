@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { ProviderConf } from '../../../src/ai/provider/index.js'
 import { CONF, REQ, collect, fakeSend } from './adapter-fixtures.js'
 
@@ -71,7 +71,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     // prompt_tokens 已含 cache 命中 → inputTokens=50-40=10（Anthropic 口径），cacheReadTokens 单列；
     // 修复前 inputTokens:50 + cacheReadTokens:40 双计（成本/预算口径虚高一个命中量）
     expect(evs.find((e) => e.type === 'done')).toMatchObject({
@@ -90,7 +90,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { cacheReadTokens: 7 } })
   })
 
@@ -103,7 +103,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     // 修复前：兜底 emitDone({0,0},'stop') → 真实计费调用按成功 0 成本入账
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
@@ -117,7 +117,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
     // R73-1：网关完成但不回 usage——判错重试对这类网关是全量破坏，仍放行；但不再按
     // 0/0 入账（预算闸 tokens/cost 对该类端点永不生效）——input/output 按请求/产出
     // 字符折算（'hi' 与 '完整' 各 2 码位 × 0.6 → ceil = 2），estimated 标记估计口径

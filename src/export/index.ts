@@ -217,10 +217,23 @@ const FILENAME_MAX_BYTES = 255 - 52
 /** 导出目录内旧版归档子目录（R65-27）。 */
 const OLD_EXPORT_DIR = '.旧版'
 
+/** 导出目录内同名前缀的序号兜底名（扩展名前插 -N，撞名递推）——归档失败时本次产物
+ *  改写入它，与分章目录的「分章-N」不覆写口径同族。 */
+function nextFreeName(exportDir: string, name: string): string {
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  let n = 2
+  while (existsSync(join(exportDir, `${stem}-${n}${ext}`))) n++
+  return `${stem}-${n}${ext}`
+}
+
 /** R65-27（第六十五轮）：旧产物归档而非删除——移入 导出/.旧版/（不存在则创建），
  *  同名冲突追加序号后缀；任一步失败保留原文件不动（宁可残留不可销毁：作者手改过
- *  的导出稿（改书名/换平台后再导出）被 rmSync 静默销毁不可挽回）+ warnings 留痕。 */
-function archiveOldExport(exportDir: string, oldName: string, warnings: string[]): void {
+ *  的导出稿（改书名/换平台后再导出）被 rmSync 静默销毁不可挽回）+ warnings 留痕。
+ *  返回是否归档成功——调用方据此决定本次产物写原名还是序号兜底名（原名被占且归档
+ *  不下时直接覆写即销毁手改稿，与「已保留原位」警告自相矛盾）。 */
+function archiveOldExport(exportDir: string, oldName: string, warnings: string[]): boolean {
   try {
     const archiveDir = join(exportDir, OLD_EXPORT_DIR)
     mkdirSync(archiveDir, { recursive: true })
@@ -235,12 +248,14 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
     // 瞬时锁（EPERM/EBUSY）不再直接滑进 warning 分支（3×50ms 退避；确定性错误仍走
     // catch 保留原位 + 提示手动移入，语义不变）
     renameWithRetry(join(exportDir, oldName), join(archiveDir, dstName))
+    return true
   } catch (e) {
     // 通用-1（复审-0913-mac适配）：留痕补病因（e.message）——通用文案让作者无从判断
     // 失败原因（EACCES/EBUSY/…）；对齐本文件其余 catch 的 message 口径，语义不变
     warnings.push(
       `旧产物 ${oldName} 归档失败（${errMsg(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`,
     )
+    return false
   }
 }
 
@@ -445,6 +460,8 @@ export function exportBook(options: ExportOptions): ExportResult {
     // 拿错稿——同前缀其余文件视为过期产物归档清位（R65-27：归档不删，清旧失败不阻断导出）
     // R74-2（二十二轮）：readdirSync 清点同在主信封 try 之外——导出目录被并发删/
     // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径，口径照抄 R70-4）。
+    // R0916-7-P3-10：清旧循环里归档失败是安全的——清的是「其它名字」的过期产物，归档
+    // 不下就留在原位，本次写的是另一个名字，不存在覆写；故此处不比照写入点做兜底改名。
     try {
       for (const old of readdirSync(exportDir)) {
         // R41-16：.md 判定改 isMdFileName（大小写不敏感）——.MD 家族漏网点
@@ -545,10 +562,18 @@ export function exportBook(options: ExportOptions): ExportResult {
       let first = true
       // R38-2（三十八轮）：同名产物先归档再覆盖——上方清旧循环只归档「其它名字」，
       // 当前同名被跳过后被 atomicWriteStream 直接覆盖；作者手改过的导出稿（R65-27
-      // 分章侧已定性「不可挽回」）就此静默销毁。归档不删哲学补齐同名族；归档失败
-      // （archiveOldExport 内部已降级为 warning 保留原位）不阻断导出，覆盖照旧。
-      if (existsSync(join(exportDir, mergedFileName))) {
-        archiveOldExport(exportDir, mergedFileName, warnings)
+      // 分章侧已定性「不可挽回」）就此静默销毁。
+      // R0916-7-P3-10（1.0 前质量债批）：归档失败不再覆写——原实现归档失败仍照常
+      // rename 覆盖原名，warnings 却写「已保留原位，请手动移入 .旧版/」，警告与事实
+      // 相反（作者按提示去找的稿已被销毁）。改：归档未成 → 本次产物写序号兜底名，
+      // 与分章目录 R33-8「分章-N 不覆写原目录」同口径。
+      if (
+        existsSync(join(exportDir, mergedFileName)) &&
+        !archiveOldExport(exportDir, mergedFileName, warnings)
+      ) {
+        const fallback = nextFreeName(exportDir, mergedFileName)
+        warnings.push(`本次产物改写入 ${fallback}，不覆写原产物`)
+        mergedFileName = fallback
       }
       atomicWriteStream(
         join(exportDir, mergedFileName),
@@ -616,6 +641,9 @@ export function exportBook(options: ExportOptions): ExportResult {
       return `投稿视图-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength(`投稿视图-${suffix}.md`))}${suffix}.md`
     }
     const submissionName = submissionNameOf(platform, SUBMISSION_TEMPLATES[platform]?.label)
+    // R0916-7-P3-10：实际写入名——归档失败时改序号兜底名（同 merged 侧口径），
+    // 故此处可变，且下方清旧循环仍以「原名」为当前名保护（清的是其它名字的过期产物）。
+    let targetName = submissionName
     // 低级项（第六轮）：投稿视图旧产物清理（对齐「全本-」第五轮口径）——书改名后旧
     // 「投稿视图-旧名…」残留会让作者拿错稿。P5-管线（第七轮）：平台槽位归属由
     // 「尾部 endsWith 平台后缀」猜测改为「当前书名 + 各平台后缀」精确名保护——
@@ -637,15 +665,20 @@ export function exportBook(options: ExportOptions): ExportResult {
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 R73-37 实际产出章号对齐）
     const entries = scanShortCollection(bookRoot).filter((e) => writtenNums.has(e.num))
     // R38-2（三十八轮）：同名投稿视图先归档再覆盖（与 merged 同族修法，R65-27 哲学补齐）
-    if (existsSync(join(exportDir, submissionName))) {
-      archiveOldExport(exportDir, submissionName, warnings)
+    // R0916-7-P3-10：归档失败改序号兜底名，不覆写（同 merged 侧口径）
+    if (
+      existsSync(join(exportDir, submissionName)) &&
+      !archiveOldExport(exportDir, submissionName, warnings)
+    ) {
+      targetName = nextFreeName(exportDir, submissionName)
+      warnings.push(`本次产物改写入 ${targetName}，不覆写原产物`)
     }
     // 平台规范化批：投稿视图规范形写（同分章产物收口）
     atomicWriteFile(
-      join(exportDir, submissionName),
+      join(exportDir, targetName),
       canonicalizeText(formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform)),
     )
-    files.push(`工作区/导出/${submissionName}`)
+    files.push(`工作区/导出/${targetName}`)
   }
   } catch (e) {
     // 重审-09（2026-09-07 全量代码重审 §四.9）同族收口：投稿视图写失败时 merged/split

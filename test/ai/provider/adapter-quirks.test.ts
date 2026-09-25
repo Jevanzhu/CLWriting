@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 import { CONF, REQ, collect, fakeSend } from './adapter-fixtures.js'
 
@@ -31,7 +31,7 @@ describe('批次3 quirks 参数面（方案 §6）', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'kimi-k3' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, maxTokens: 100 })
+    await collect(createOpenAIProviderChat(conf, client), { ...REQ, maxTokens: 100 })
     expect(captured).not.toHaveProperty('temperature')
     expect(captured).not.toHaveProperty('top_p')
     expect(captured).toHaveProperty('max_completion_tokens', 100)
@@ -52,7 +52,7 @@ describe('批次3 quirks 参数面（方案 §6）', () => {
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'glm-5.2' } as ProviderConf
-    await collect(createOpenAIProvider(conf, client), { ...REQ, maxTokens: 100 })
+    await collect(createOpenAIProviderChat(conf, client), { ...REQ, maxTokens: 100 })
     expect(captured).not.toHaveProperty('stream_options')
     expect(captured).toHaveProperty('max_tokens', 100)
   })
@@ -67,7 +67,7 @@ describe('批次3 quirks 参数面（方案 §6）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 3 } })
   })
@@ -110,7 +110,7 @@ describe('Grok 工具整块 chunk（方案 §6：流式 tool_calls 单 chunk 不
       },
     } as unknown as OpenAI
     const conf = { ...CONF, protocol: 'openai' as const, model: 'grok-4.6' } as ProviderConf
-    const evs = await collect(createOpenAIProvider(conf, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(conf, client), REQ)
     const tool = evs.find((e) => e.type === 'tool')
     expect(tool).toMatchObject({ type: 'tool', name: 'submit', input: { a: 1, b: 'x' } })
   })
@@ -128,7 +128,7 @@ describe('批次2 reasoning 思维链（方案 §4.2）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     expect(evs.filter((e) => e.type === 'reasoning')).toEqual([{ type: 'reasoning', delta: '思考中…' }])
   })
 
@@ -162,7 +162,7 @@ describe('批次2 reasoning 思维链（方案 §4.2）', () => {
         },
       ],
     }
-    await collect(createOpenAIProvider(conf, client), req)
+    await collect(createOpenAIProviderChat(conf, client), req)
     const asstMsg = (sentParams?.messages as Record<string, unknown>[])[0]
     expect(asstMsg).toMatchObject({
       role: 'assistant',

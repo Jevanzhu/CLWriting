@@ -113,7 +113,7 @@ function openExclusiveWithTransientRetry(lockPath: string): number {
       const code = (e as NodeJS.ErrnoException).code
       if (code !== 'EPERM' && code !== 'EACCES') throw e
       lastErr = e
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, OPEN_TRANSIENT_RETRY_INTERVAL_MS)
+      fsBackoffSleep(OPEN_TRANSIENT_RETRY_INTERVAL_MS)
     }
   }
   throw lastErr
@@ -277,9 +277,7 @@ export function tryAcquireCrossProcessLock(
       // 后到者的夺锁动作会落在先到者刚重建的新锁上 → 双持锁）；注入 0 可关。本 jitter
       // 与下方二次复核在 A-4 改名认领后仍保留：它们把「判 stale」与「实际夺走」的间隔
       // 压到极限（残余窗口见模块头注①）。
-      if (jitterMax > 0) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.floor(Math.random() * jitterMax))
-      }
+      if (jitterMax > 0) fsBackoffSleep(Math.floor(Math.random() * jitterMax))
       // X-4：夺锁前二次复核——判 stale 与夺取之间，锁文件可能已被其他接管者清理并
       // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才继续；判定翻转 → 放弃本轮重来
       // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
@@ -348,8 +346,8 @@ export function acquireCrossProcessLockWithTimeout(
     const release = tryAcquireCrossProcessLock(lockPath, opts)
     if (release) return release
     if (Date.now() >= deadline) return null
-    // Atomics.wait 同步微睡（Node 主线程合法；争用为文件 IO 级毫秒，不会久驻）
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(poll, deadline - Date.now()))
+    // 同步微睡（Node 主线程合法；争用为文件 IO 级毫秒，不会久驻）
+    fsBackoffSleep(Math.min(poll, deadline - Date.now()))
   }
 }
 

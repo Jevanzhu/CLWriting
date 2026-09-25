@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
 const CONF = {
@@ -40,7 +40,7 @@ async function collect(conf: ProviderConf, req: GenRequest): Promise<{ events: G
     },
   } as unknown as OpenAI
   const out: GenEvent[] = []
-  for await (const ev of createOpenAIProvider(conf, client).stream(req, new AbortController().signal)) out.push(ev)
+  for await (const ev of createOpenAIProviderChat(conf, client).stream(req, new AbortController().signal)) out.push(ev)
   return { events: out, sent }
 }
 

@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
-import { createOpenAIProvider } from '../../../src/ai/provider/openai-adapter.js'
+import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, ModelProvider } from '../../../src/ai/provider/index.js'
 import { CONF, REQ, collect } from './adapter-fixtures.js'
@@ -91,7 +91,7 @@ describe('openai chat 线：流中 SDK 抛错随错上抛 usage', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const err = findError(evs)
     expect(err).toBeDefined()
     expect(err).toMatchObject({ retryable: true, code: 'NETWORK' })
@@ -111,7 +111,7 @@ describe('openai chat 线：流中 SDK 抛错随错上抛 usage', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const err = findError(evs)
     expect(err?.usage).toBeDefined()
     expect(err?.usage?.estimated).toBe(true)
@@ -129,7 +129,7 @@ describe('openai chat 线：流中 SDK 抛错随错上抛 usage', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
     const err = findError(evs)
     expect(err).toBeDefined()
     expect(err?.usage).toBeUndefined()
