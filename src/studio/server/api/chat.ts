@@ -13,10 +13,10 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
-import { isSelfHealRunning, isChatEmbeddedSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { isChatEmbeddedSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
-import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
-import { allHeldTaskGatesFor, chatClearGateReason } from './audit.js'
+import { busyReason, type BusySignal } from './task-gate.js'
+import { chatClearGateReason } from './audit.js'
 import { forgetSseCount } from './stream.js'
 
 interface ChatCtx {
@@ -31,35 +31,27 @@ interface ChatCtx {
  * 调用即时取态：嵌套标记与各闸均为活查询，不缓存）。返回 null = 放行；非 null = 409
  * BUSY 文案。
  *
- * 闸组语义（沿革 R-9 / R70-5 / R76-12）：
+ * R0916-7-P3-12：闸组本体（self-heal / spawn / 任务闸三格，序与文案）单源在 task-gate
+ * 的 BUSY_MATRIX 'chat' 行，本 helper 退为「算跳过哪些格」+ 调 busyReason 的薄适配：
  * - self-heal 闸 × R76-12 嵌套豁免：chat 的 write_chapter 工具在途时 isSelfHealRunning
  *   为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把作者的 steer 追加话拒之门外
- *   （写章是 chat 自己发起的，结束后续链正是 E1a 入队语义）——嵌套标记时放行，交
- *   sendChatMessage 原子判定入队；独立写稿（非嵌套）维持 409。
+ *   （写章是 chat 自己发起的，结束后续链正是 E1a 入队语义）——嵌套标记时跳 self-heal 与
+ *   任务闸两格，交 sendChatMessage 原子判定入队；独立写稿（非嵌套）维持 409。
  * - spawn 闸（AI-1/M-2 互斥矩阵）：写手在途时对话（含嵌套生成工具）两路 runTask 互覆
  *   预算章块/草稿。
- * - 任务闸（R70-5，嵌套时豁免）：outline/lead-updates/onboard-ai/analyze 等分钟级任务
- *   在途时对话收尾与其产出互踩。R0912-P2-疑似：换 allHeldTaskGatesFor（books.ts
- *   busyGate 同款含跨进程面）——他进程分钟级任务在途不再放行。
+ * - 任务闸（R70-5，嵌套时豁免；含跨进程锁文件面，R0912-P2-疑似）：outline/lead-updates/
+ *   onboard-ai/analyze 等分钟级任务在途时对话收尾与其产出互踩。
  * - opts.taskGate = false：regenerate 的 readJson 后中段复检专用——该段历史上只查编排
  *   两闸（R32-7 引入时未含任务闸面），任务闸窗口由 ensureSession 后的终检覆盖，保真
- *   不改拒绝时序。
+ *   不改拒绝时序（经 skip 只跳任务闸一格，不重排其余格）。
  */
+const CHAT_SKIP_EMBEDDED: readonly BusySignal[] = ['self-heal', 'task-gate']
+const CHAT_SKIP_TASK_GATE: readonly BusySignal[] = ['task-gate']
+
 function chatEntryGateError(bookName: string, opts?: { taskGate?: boolean }): string | null {
-  const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
-  if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
-    return '本书正在全自动写章，先等它跑完或中断再对话'
-  }
-  if (isSpawnRunning(bookName)) {
-    return '本书正在手动写稿，先等它跑完或中断再对话'
-  }
-  if ((opts?.taskGate ?? true) && !chatEmbeddedWrite) {
-    const held = allHeldTaskGatesFor(bookName)
-    if (held.length > 0) {
-      return `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`
-    }
-  }
-  return null
+  if (isChatEmbeddedSelfHealRunning(bookName)) return busyReason(bookName, 'chat', { skip: CHAT_SKIP_EMBEDDED })
+  if (opts?.taskGate === false) return busyReason(bookName, 'chat', { skip: CHAT_SKIP_TASK_GATE })
+  return busyReason(bookName, 'chat')
 }
 
 export function registerChatRoutes(ctx: ChatCtx): void {

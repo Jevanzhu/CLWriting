@@ -20,6 +20,12 @@
  * 产物位置派生（dist/desktop/server-utility.js，asar 内等价——R-6 同 server-main
  * dirname 派生先例）。env 显式展开 process.env + CLW_LOG_STDOUT=1（不污染 main 自身
  * process.env）。
+ *
+ * R0916-7-P3-17（2026-09-25 全项目源码质量与优雅度评审 P3-17）：启动/重启/退避/停止
+ * 原由 12 个闭包变量的布尔旗与计数器组合隐式表示（合法组合只写在注释的正确性证明里），
+ * 现收敛为显式状态机——一个 state 容器（相位载荷 + 停机面三值 + 计数 + 最近成功面 +
+ * 正交数据）+ 派生读数（phaseOf/killMarked/isShutting）+ 单一转移点 transition()
+ * （合法性表 isLegalTransition，非法转移记 error 并拒绝，不静默放行）。行为逐位不变。
  */
 import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -133,6 +139,12 @@ export interface ServerManagerDeps {
   /** 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置——缺省真件（safeStorage + 
    *  os-kek.json），测试注入假件（fixtures 无 vi.mock 纪律，同 fork 注入款）。 */
   loadOsKek?: (userDataPath: string) => Buffer | null
+  /**
+   * R0916-7-P3-17：状态机转移轨迹钩子（缺省无操作）——每次转移回调一次（含被拒的
+   * 非法转移，legal=false）。转移矩阵测试经此断言转移序列与非法拒绝；生产不接线
+   * （不落盘、不广播），钩子抛错被隔离，不得反噬状态机。
+   */
+  onTransition?: (trace: TransitionTrace) => void
 }
 
 interface StartStudioServerOptions {
@@ -156,6 +168,159 @@ interface ActiveChild {
   exited: Promise<void>
 }
 
+// ─── R0916-7-P3-17（2026-09-25 全项目源码质量与优雅度评审）：显式状态机 ───
+// 旧实现把「启动/重启/退避/停止」编码在 12 个闭包变量（active/starting/startingOpts/
+// startingProc/shutdownStarted/shuttingDown/restartTimer/restartCount/lastOpts/
+// pinnedPort/token/waiters）的布尔旗与计数器组合里，哪些组合合法只写在注释的正确性
+// 证明里（新增状态时编译器与测试都无从穷举）。现改为：state 容器唯一存真 + 相位读数
+// 派生 + 全部转移经 transition()（合法性表 isLegalTransition，非法即拒并 error 留痕）。
+
+/**
+ * 相位（child 侧在做什么）——由状态载荷派生（见 phaseOf），不单独存（免得两份真相）：
+ * - 'idle'     无 child、无在途轮、无挂起重启
+ * - 'starting' 在途启动轮（fork+握手）未收口。换轮清旧与「child 接管后收口前最后一拍」
+ *              期间当值 child 与在途轮并存，仍读 'starting'：启动通道占用才是 X-3/E-9a
+ *              复用语义的判据（旧 starting 通道口径不变）
+ * - 'running'  当值 child 已握手完成（无在途轮）
+ * - 'backoff'  崩溃后退避等待（重启定时器在途，无 child 无在途轮）
+ */
+export type ManagerPhase = 'idle' | 'starting' | 'running' | 'backoff'
+
+/**
+ * 停机面三值——取代旧 shutdownStarted（主动 kill 标记）+ shuttingDown（停机生命周期门）
+ * 两布尔旗：两旗 4 种组合里「门置位而标记未置位」不可达却可被表达，现由类型排除。
+ * - 'none'     正常运行：当值 child 的 exit 属意外，可排程自动重启
+ * - 'marked'   主动 kill 标记（stopChild / killNow / 换轮清旧）：exit 属预期，不重启
+ * - 'shutting' 停机流程在途（含 marked 语义）：start 入口 fail-closed、shutdown 幂等
+ */
+export type StopMode = 'none' | 'marked' | 'shutting'
+
+/** 转移事件——相位载荷/停机面的每一次变更都必须以一者表达（载荷见 TransitionCall） */
+export type ManagerEvent =
+  | 'round-open' // 开在途轮（显式 start / 自动重启 / 自愈恢复）
+  | 'round-close' // 在途轮收口（调用方 finally 单点）
+  | 'child-up' // 握手完成、child 接管当值位
+  | 'child-down' // 当值 child 退出（预期与否由停机面分派，见 launch 退出监听）
+  | 'backoff-arm' // 排程自动重启（退避定时器武装）
+  | 'backoff-cancel' // 作废挂起重启（换轮/停机/自愈；无定时器时为无害 no-op）
+  | 'backoff-fire' // 退避定时器到点（摘除定时器）
+  | 'stop-mark' // 置主动 kill 标记（幂等）
+  | 'stop-clear' // 复位主动 kill 标记（显式新生命周期复位单点）
+  | 'shutdown-open' // 停机流程在途
+  | 'shutdown-close' // 停机流程收口（主动 kill 标记保留）
+
+/** 状态机读数（转移轨迹与矩阵测试的观测面） */
+export interface ManagerStateSnapshot {
+  phase: ManagerPhase
+  stop: StopMode
+}
+
+/** 转移轨迹（deps.onTransition 载荷）：legal=false = 非法转移被拒（此时 to === from） */
+export interface TransitionTrace {
+  event: ManagerEvent
+  from: ManagerStateSnapshot
+  to: ManagerStateSnapshot
+  legal: boolean
+}
+
+/**
+ * 转移表（机器可读形态，与 transition() 的 switch 一一对应）：事件 × 前置（相位, 停机面）
+ * → 是否合法。非法不是静默返回：transition() 记 error 留痕并拒绝该转移（状态不变）。
+ * 本表外露供转移矩阵测试直测——表的边界即状态机契约（新增状态必同时补本表与 switch，
+ * 穷尽 switch 有编译器兜底）。
+ */
+export function isLegalTransition(ev: ManagerEvent, phase: ManagerPhase, stop: StopMode): boolean {
+  switch (ev) {
+    // 开轮：空闲、换轮（当值 child 待清）、退避到点（重启/自愈）都能开；'starting'
+    // 表示在途轮已占（start 的复用与 E-9a 已在入口拦下）→ 不许双开
+    case 'round-open':
+      return phase === 'idle' || phase === 'running' || phase === 'backoff'
+    // 收口：只有轮在途（含 child 接管后收口前一拍）才可收口，重复收口即非法
+    case 'round-close':
+      return phase === 'starting'
+    // 接管：只在轮内（fork 后握手成功才谈得上）
+    case 'child-up':
+      return phase === 'starting'
+    // 退出：当值 child 正常在跑，或换轮清旧期（轮在途、旧 child 仍是当值）
+    case 'child-down':
+      return phase === 'running' || phase === 'starting'
+    // 排程：崩溃路径（child-down 后已回 'idle'）、重启握手失败续排（轮未收口）、封顶
+    // 决断选重启（等待期作者可能已用显式 start 起了新生命周期）；'backoff' = 已有挂起
+    // 重启（旧 restartTimer 非空即不双排），停机面非 'none' 即不排（S-5）
+    case 'backoff-arm':
+      return stop === 'none' && (phase === 'idle' || phase === 'starting' || phase === 'running')
+    // 作废：任何相位/停机面都可能调用（无定时器时为无害 no-op）——换轮/停机/自愈三面
+    case 'backoff-cancel':
+      return true
+    // 到点：定时器回调只可能来自 'backoff'（0ms 退避与轮收口同拍时读到 'starting'
+    // ——见 phaseOf 的在途轮优先，故两相位都在表内）
+    case 'backoff-fire':
+      return phase === 'backoff' || phase === 'starting'
+    // 主动 kill 标记：任何相位任何停机面都可置位（幂等；'shutting' 下保持流程门语义）
+    case 'stop-mark':
+      return true
+    // 复位：停机流程在途时非法（S1/重评-P3-8——「shutdown 开始后绝不 fork 出存活
+    // child」靠的就是这个复位，流程内把它拆掉即漏杀）
+    case 'stop-clear':
+      return stop !== 'shutting'
+    // 停机流程：已在流程内即非法（shutdown 入口的幂等 early-return 拦下，双开不许可）
+    case 'shutdown-open':
+      return stop !== 'shutting'
+    // 收口：只可能从流程内收口
+    case 'shutdown-close':
+      return stop === 'shutting'
+  }
+}
+
+/** R0916-7-P3-17：在途启动轮——旧 starting/startingOpts/startingProc 三变量合一 */
+interface StartRound {
+  /** 关键 opts 快照（E-9a 并发 start 复用前的一致性校验用） */
+  opts: StartStudioServerOptions
+  /** fork 句柄（fork 后回填；shutdown 短预算耗尽时 kill 链经此够到它，R44-12） */
+  proc: UtilityProcessLike | null
+  /** 本轮 promise（开轮当拍回填、收口时随轮摘除；读侧经 roundPromise() 守卫） */
+  promise: Promise<number> | null
+}
+
+/**
+ * R0916-7-P3-17：管理器状态（唯一可变真相源）——旧 12 个闭包变量收敛于此：相位载荷
+ * （round/child/backoffTimer）+ 停机面 + 计数 + 最近成功面 + 两份正交数据。相位不入
+ * 本对象（由载荷派生，见 phaseOf）。
+ */
+interface ManagerState {
+  /** 在途启动轮（X-3 互斥通道 + E-9a 快照 + R44-12 kill 句柄） */
+  round: StartRound | null
+  /** 当值 child（已握手完成、exit 监听已挂） */
+  child: ActiveChild | null
+  /** 挂起的自动重启定时器 */
+  backoffTimer: NodeJS.Timeout | null
+  /** 停机面三值（原 shutdownStarted + shuttingDown） */
+  stop: StopMode
+  /** 自动重启计数（当前生命周期内）。非相位派生项：跨相位存续的独立计数，故不入
+   *  转移表；清零点 = 稳定窗口 / 显式新生命周期 / 封顶决断选重启（各处就地注释）。 */
+  attempts: number
+  /** 最近一次成功 fork 面（重启/自愈复刻：钉住端口 + 原 opts，S-1 前端同源） */
+  lastBoot: { opts: StartStudioServerOptions; port: number } | null
+  /** studioToken 内存值（F-5：启动读入一次，此后 fork 一律复用；与相位正交的数据） */
+  token: string | null
+  /** 停机收口等待者（restartPinned 有界等待；与相位正交的协调数据） */
+  shutdownSettledWaiters: Array<() => void>
+}
+
+/** transition() 实参：事件 + 该事件载荷（穷尽联合——载荷缺配/错配在编译期排除） */
+type TransitionCall =
+  | { ev: 'round-open'; opts: StartStudioServerOptions }
+  | { ev: 'round-close' }
+  | { ev: 'child-up'; child: ActiveChild; boot: { opts: StartStudioServerOptions; port: number } }
+  | { ev: 'child-down' }
+  | { ev: 'backoff-arm'; timer: NodeJS.Timeout }
+  | { ev: 'backoff-cancel' }
+  | { ev: 'backoff-fire' }
+  | { ev: 'stop-mark' }
+  | { ev: 'stop-clear' }
+  | { ev: 'shutdown-open' }
+  | { ev: 'shutdown-close' }
+
 interface StudioServerManager {
   /** fork + 握手，resolve 实际监听端口（ready 消息回传）。旧 child 在途时先停旧再 fork；
    *  显式 start 开新生命周期（退避计数清零、挂起重启作废）。 */
@@ -176,14 +341,14 @@ interface StudioServerManager {
    * shutdown-done 回执 / 总超时（3.5s，E-1）/ exit 三路先到为准；窗口内未退则 kill 兜底。
    * R44-12（四十四轮）：等在途启动（settleStarting）设短预算（缺省 2s），超时放弃等
    * 握手、直接 kill 在途 fork，不让用户点退出最坏挂 ~41s。
-   * 幂等；与 stopChild 同属主动停机——均置 shutdownStarted（S-5，批 U3 重启门消费）。
+   * 幂等；与 stopChild 同属主动停机——均置停机面主动 kill 标记（S-5，批 U3 重启门消费）。
    */
   shutdown(): Promise<void>
   /**
    * R50-A-1（五十轮）：session-end 观察窗自愈入口——win 上 OS 关机/注销被取消时
    * 进程仍存活，session-end 链已 shutdown 的 server 需显式拉回。复刻 doRestart 的
    * 钉住端口重启（S-1 前端恢复链同源：origin 不变，存活渲染层无缝续用），但作为
-   * 显式新生命周期先复位「主动 kill 标记」shutdownStarted（与 start IIFE 首行同
+   * 显式新生命周期先复位「主动 kill 标记」（与 start 轮内复位点同
    * 语义——那是防「停机途中崩溃自动重启复活」的挡板，不该挡显式恢复）。
    * R55-A-1（五十五轮）：停机流程仍在途不再立即返 null——有界等待停机收口后重试
    * 一次原路径（上限见 RESTART_SHUTDOWN_WAIT_MS / deps.restartShutdownWaitMs）；
@@ -245,49 +410,152 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   const onRestarted = deps.onRestarted
   // 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置（缺省真件；不可用面在装置内回落 null）
   const loadOsKek = deps.loadOsKek ?? loadOrGenerateOsKek
-  let active: ActiveChild | null = null
-  let starting: Promise<number> | null = null
-  // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
-  // 一致性，不一致 fail-closed 直接 reject（不静默吞没后到调用方的配置）
-  let startingOpts: StartStudioServerOptions | null = null
-  /** R44-12（四十四轮）：在途 start/自动重启的 fork 句柄——握手未完成时 active 尚空，
-   *  shutdown 短预算耗尽后 kill 链靠它够得着这个 child（不登记则只能等 30s 握手
-   *  超时或 app 退出连带硬杀）。随 starting 通道同置同清。 */
-  let startingProc: UtilityProcessLike | null = null
-  let tokenInMemory: string | null = null // F-5：启动读入一次，此后 fork 一律复用内存值
-  // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启；
-  // start/shutdown/stopChild 均取消挂起重启——退出/换轮途中 fork 新 child 即孤儿。
-  let shutdownStarted = false
-  /** B-7（第六十轮）：停机流程生命周期门（shutdown 入口置位 / 收口复位）——与
-   *  shutdownStarted（主动 kill 标记，stopActiveChild 也置位且不随收口复位）分工。 */
-  let shuttingDown = false
-  /** R55-A-1（五十五轮）：停机收口等待者——restartPinned 在 shuttingDown 态挂起等
-   *  停机收口，shutdown finally 复位 shuttingDown 时一次性唤醒（事件驱动，不轮询；
-   *  迟到的等待者由下一次收口唤醒，resolve 已落定 promise 为无害 no-op） */
-  let shutdownSettledWaiters: Array<() => void> = []
-  // 批 U3 退避状态：restartCount = 已排程的自动重启次数（ready 后稳定窗口到点清零）；
-  // lastOpts/pinnedPort 供内部重启复刻原 fork 面（钉住最近一次成功端口，S-1）。
-  let restartCount = 0
-  let restartTimer: NodeJS.Timeout | null = null
-  let lastOpts: StartStudioServerOptions | null = null
-  let pinnedPort: number | null = null
+  // R0916-7-P3-17：状态机转移轨迹钩子（缺省无操作；仅观测，不参与决策）
+  const onTransition = deps.onTransition
+  /**
+   * R0916-7-P3-17：管理器状态（唯一可变真相源）——旧 12 个闭包变量收敛于此。旧注释里
+   * 那份「多旗组合的正确性证明」由本对象 + phaseOf() + isLegalTransition() 取代：合法
+   * 组合即「相位 × 停机面」的派生读数（稀疏三类），非法组合在 transition() 处被拒。
+   * 字段语义见 ManagerState 头注；E-9a 的 opts 快照、R44-12 的 fork 句柄、X-3 的
+   * starting 通道分别落在 round 的 opts/proc/promise 上（不再是三个各自可空变量）。
+   */
+  const state: ManagerState = {
+    round: null,
+    child: null,
+    backoffTimer: null,
+    stop: 'none',
+    attempts: 0,
+    lastBoot: null,
+    token: null,
+    shutdownSettledWaiters: [],
+  }
+
+  /** R0916-7-P3-17：相位读数（派生视图，无独立真相）——在途轮 > 挂起重启 > 当值 child > 空闲 */
+  function phaseOf(): ManagerPhase {
+    if (state.round) return 'starting'
+    if (state.backoffTimer) return 'backoff'
+    if (state.child) return 'running'
+    return 'idle'
+  }
+
+  /** 主动 kill 标记（原 shutdownStarted）：当值 child 的 exit 属预期，不触发自动重启 */
+  function killMarked(): boolean {
+    return state.stop !== 'none'
+  }
+
+  /** 停机流程在途（原 shuttingDown）：start 入口 fail-closed / shutdown 幂等门 */
+  function isShutting(): boolean {
+    return state.stop === 'shutting'
+  }
+
+  /** R0916-7-P3-17：状态机读数快照（转移轨迹与测试用） */
+  function stateSnapshot(): ManagerStateSnapshot {
+    return { phase: phaseOf(), stop: state.stop }
+  }
+
+  /**
+   * R0916-7-P3-17：唯一转移点——合法性判定（isLegalTransition，正本在模块级表）与
+   * 载荷/停机面变更同处一函数；非法即 error 留痕并拒绝（状态不变，不静默放行）。
+   * 除本函数外不得改 state 的相位载荷与停机面（attempts 是计数，见 ManagerState 注）。
+   */
+  function transition(call: TransitionCall): void {
+    const from = stateSnapshot()
+    if (!isLegalTransition(call.ev, from.phase, from.stop)) {
+      logger.error(
+        'server-manager',
+        `状态机非法转移已拒绝（R0916-7-P3-17）：${call.ev} @ phase=${from.phase} stop=${from.stop}（状态不变）`,
+      )
+      reportTransition(call.ev, from, from, false)
+      return
+    }
+    switch (call.ev) {
+      case 'round-open':
+        state.round = { opts: call.opts, proc: null, promise: null }
+        break
+      case 'round-close':
+        state.round = null
+        break
+      case 'child-up':
+        state.child = call.child
+        state.lastBoot = call.boot
+        break
+      case 'child-down':
+        state.child = null
+        break
+      case 'backoff-arm':
+        state.backoffTimer = call.timer
+        break
+      case 'backoff-cancel':
+        if (state.backoffTimer) {
+          clearTimeout(state.backoffTimer)
+          state.backoffTimer = null
+        }
+        break
+      case 'backoff-fire':
+        state.backoffTimer = null
+        break
+      case 'stop-mark':
+        if (state.stop === 'none') state.stop = 'marked' // 'shutting' 下保持流程门语义
+        break
+      case 'stop-clear':
+        state.stop = 'none'
+        break
+      case 'shutdown-open':
+        state.stop = 'shutting'
+        break
+      case 'shutdown-close':
+        state.stop = 'marked' // 主动 kill 标记不随流程收口复位（原 shutdownStarted 语义）
+        break
+    }
+    reportTransition(call.ev, from, stateSnapshot(), true)
+  }
+
+  /** 转移轨迹外露（缺省无操作）：纯观测面——钩子抛错被隔离，不得反噬状态机 */
+  function reportTransition(
+    event: ManagerEvent,
+    from: ManagerStateSnapshot,
+    to: ManagerStateSnapshot,
+    legal: boolean,
+  ): void {
+    if (!onTransition) return
+    try {
+      onTransition({ event, from, to, legal })
+    } catch (e) {
+      logger.warn('server-manager', 'onTransition 状态机轨迹钩子抛错（已忽略）', e)
+    }
+  }
+
+  /**
+   * R0916-7-P3-17：开轮（唯一入口）——转移落位后回传轮对象（调用方随即回填 promise
+   * 并 await）。开轮被状态机拒绝（在途轮已占）即无轮可回传：显式抛，不 fork 无主 child
+   * （调用点三处复用守卫已拦，此抛只在状态机不变量被破坏时到场）。
+   */
+  function openRound(opts: StartStudioServerOptions): StartRound {
+    transition({ ev: 'round-open', opts })
+    const round = state.round
+    if (!round) throw new Error('R0916-7-P3-17：在途轮已占，开轮被拒（拒绝 fork 无主 child）')
+    return round
+  }
+
+  /** 在途轮 promise 读数：开轮与回填同拍（无 await 缝），空即状态机不变量被破坏 */
+  function roundPromise(round: StartRound): Promise<number> {
+    if (!round.promise) throw new Error('R0916-7-P3-17：在途轮 promise 未回填（不变量破坏）')
+    return round.promise
+  }
 
   function cancelPendingRestart(): void {
-    if (restartTimer) {
-      clearTimeout(restartTimer)
-      restartTimer = null
-    }
+    transition({ ev: 'backoff-cancel' })
   }
 
   /**
    * R0912-A-P3-2（2026-09-12 独立重评修复批）：预算耗尽时对在途 fork 的就地 kill 收口
    * （stopChild / shutdown 两段逐字同构块收拢为局部闭包，行为零变化）——句柄快照 +
    * once('exit') 等待 + kill + killProcAwaitEscalating 纪律（killWaitMs 等待 + SIGKILL
-   * 升级）。无在途 fork（startingProc 已清）直通；`!settled && startingProc` 守卫留在
+   * 升级）。无在途 fork（轮内句柄已收口）直通；`!settled && state.round?.proc` 守卫留在
    * 调用点（settled 属各自 race 局部量）。
    */
   async function killStartingProc(context: string): Promise<void> {
-    const proc = startingProc
+    const proc = state.round?.proc ?? null
     if (!proc) return
     const exited = new Promise<void>((resolveExit) => {
       proc.once('exit', () => resolveExit())
@@ -297,14 +565,15 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   }
 
   /**
-   * fork + 握手 + 接线（start 与内部重启共用）。
+   * fork + 握手 + 接线（start 与内部重启共用；轮对象由调用方开好，本函数只填轮内载荷）。
    * portArg：start 传 '0'（OS 分配）；重启传钉住端口字符串（S-1 前端恢复链同源）。
-   * 成功后登记 active/lastOpts/pinnedPort、挂持久 exit 监听（非主动停机 → 排程重启）、
-   * 起稳定窗口计时（S-9：本轮 child 存活过窗口才清零——回调时校验 active 身份，
+   * 成功后登记当值 child 与最近成功 boot 面、挂持久 exit 监听（非主动停机 → 排程重启）、
+   * 起稳定窗口计时（S-9：本轮 child 存活过窗口才清零——回调时校验当值身份，
    * 迟到的旧 child exit 不会误清新一轮计数）。
    */
-  async function launch(opts: StartStudioServerOptions, portArg: string): Promise<number> {
-    if (tokenInMemory === null) tokenInMemory = loadOrCreateStudioToken(opts.userDataPath)
+  async function launch(round: StartRound, portArg: string): Promise<number> {
+    const opts = round.opts
+    if (state.token === null) state.token = loadOrCreateStudioToken(opts.userDataPath)
     // E-9b（第五十三轮）：token 不经 argv（本机 ps 可见）——改经 env CLW_STUDIO_TOKEN
     // 注入（server-boot parseServerArgs 读取侧同步切 env），argv 面不再出现 token。
     const args: string[] = ['--user-data', opts.userDataPath, '--port', portArg]
@@ -347,7 +616,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         delete childEnv[k]
       }
     }
-    childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
+    childEnv['CLW_STUDIO_TOKEN'] = state.token
     childEnv['CLW_LOG_STDOUT'] = '1'
     // 阶段 53 S2：版本号经 env 下发（缺省不注入——child 回落读 package.json）
     if (opts.appVersion) childEnv['CLW_APP_VERSION'] = opts.appVersion
@@ -361,7 +630,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       env: childEnv,
     })
     // S1（五十九轮）：fork 后发现停机已置位 → 立即杀掉新 child 并按启动失败收口。
-    // 在途 start/自动重启（X-3 starting 通道）的握手窗口内 shutdown/stopChild 落地时，
+    // 在途轮（X-3 启动通道）的握手窗口内 shutdown/stopChild 落地时，
     // shutdown 侧 settleStarting 只能等到 handshake 完成——fork 即杀把窗口收窄到
     // 「已 fork 未检查」的同步缝隙，新 child 不再漏杀成孤儿（优雅停机面收口）。
     // R0912-3（重评-0912 P3 #34）：kill 收编 killProcAwaitEscalating 同款等待/升级
@@ -370,7 +639,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // 漏杀成孤儿。与既有 stop 路径的差异点：收口形态仍是启动失败——等杀链走完再抛
     // ServerBootError('SHUTDOWN')（握手超时分支同款时序），settleStarting 侧经
     // settle/catch 照常落定，启动期其余语义不变。
-    if (shutdownStarted) {
+    if (killMarked()) {
       const exited = new Promise<void>((resolveExit) => {
         proc.once('exit', () => resolveExit())
       })
@@ -378,9 +647,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       await killProcAwaitEscalating(proc, exited, 'studio server 停机期在途 fork 收口', killWaitMs, logger)
       throw new ServerBootError('SHUTDOWN', 'studio server 启动途中收到停机指令，已中止新 child')
     }
-    // R44-12（四十四轮）：在途 fork 句柄登记（与 starting 通道同生命周期，start/
-    // doRestart 的 finally 同步清空）——shutdown 短预算耗尽时 kill 链经此够到它
-    startingProc = proc
+    // R44-12（四十四轮）：在途 fork 句柄登记进本轮（与轮同生命周期，调用方 finally 收口
+    // 时随轮摘除）——shutdown 短预算耗尽时 kill 链经此够到它
+    round.proc = proc
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
     // R0911-A-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：utilityProcess 'error' 必监听
     // ——V8 FatalError/OOM/spawn 失败等异常终止经该事件抛诊断，EventEmitter 语义下无监听
@@ -396,30 +665,29 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       )
     })
     const port = await handshake(proc, logger, killWaitMs)
-    // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
+    // 稳定窗口计时（unref 不拖退出）：到点仍是当值 child 才清零
     const stabilityTimer = setTimeout(() => {
-      if (active?.proc === proc) restartCount = 0
+      if (state.child?.proc === proc) state.attempts = 0
     }, stabilityResetMs)
     stabilityTimer.unref()
     const exited = new Promise<void>((resolveExit) => {
       proc.once('exit', () => {
         clearTimeout(stabilityTimer)
-        const wasActive = active?.proc === proc
-        if (wasActive) active = null
+        const wasActive = state.child?.proc === proc
+        if (wasActive) transition({ ev: 'child-down' })
         resolveExit()
         // S-5：非主动停机且确系当值 child 崩溃 → 排程重启（迟到旧 exit 不触发）
-        if (wasActive && !shutdownStarted) scheduleRestart()
+        if (wasActive && !killMarked()) scheduleRestart()
       })
     })
-    active = { proc, port, exited }
-    lastOpts = opts
-    pinnedPort = port
+    // 接管（child 当值 + 最近成功 boot 面，S-1 重启/自愈复刻用）——同一转移内落位
+    transition({ ev: 'child-up', child: { proc, port, exited }, boot: { opts, port } })
     return port
   }
 
   function scheduleRestart(): void {
-    if (shutdownStarted || restartTimer) return // 主动停机不重启 / 已有挂起重启不双排
-    if (restartCount >= RESTART_MAX_ATTEMPTS) {
+    if (killMarked() || state.backoffTimer) return // 主动停机不重启 / 已有挂起重启不双排
+    if (state.attempts >= RESTART_MAX_ATTEMPTS) {
       logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
       // R1010-P3（G7-②）：决断可能异步（异步对话框）——exit 回调不等它，决断到达
       // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
@@ -447,7 +715,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       void Promise.resolve(deps.onRestartExhausted())
         .then((choice) => {
           if (choice === 'restart') {
-            restartCount = 0 // 人工重启计一次全新周期
+            state.attempts = 0 // 人工重启计一次全新周期
             scheduleRestart()
             return
           }
@@ -459,32 +727,32 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         })
       return
     }
-    restartCount++
-    const waitMs = backoffMs[Math.min(restartCount - 1, backoffMs.length - 1)] ?? 0
-    logger.warn('server-manager', `studio server 子进程异常退出，${waitMs}ms 后自动重启（第 ${restartCount}/${RESTART_MAX_ATTEMPTS} 次）`)
-    restartTimer = setTimeout(() => {
-      restartTimer = null
+    state.attempts++
+    const waitMs = backoffMs[Math.min(state.attempts - 1, backoffMs.length - 1)] ?? 0
+    logger.warn('server-manager', `studio server 子进程异常退出，${waitMs}ms 后自动重启（第 ${state.attempts}/${RESTART_MAX_ATTEMPTS} 次）`)
+    const timer = setTimeout(() => {
+      transition({ ev: 'backoff-fire' }) // 到点先摘定时器（相位回派生值），再进重启判定
       void doRestart()
     }, waitMs)
-    restartTimer.unref()
+    timer.unref()
+    transition({ ev: 'backoff-arm', timer })
   }
 
   /**
    * F3（复审-0914-优化修复批）：doRestart / restartPinned 的同构核心收敛——
-   * cancelPendingRestart →（调用方旗复位钩子）→ starting 通道占位 launch（钉住端口）
+   * cancelPendingRestart →（调用方停机面/计数复位钩子）→ 开轮占位 launch（钉住端口）
    * → 成功 info + onRestarted 广播隔离 try/catch（重审-3：钩子抛错不得伪装成握手失败）
-   * → 失败 failLog → finally 清理通道/句柄。握手失败返回 null（调用方各自处置：
-   * doRestart 按退避续排 / restartPinned 契约返 null）。
-   * 红线核对：重启计数（本函数不触碰 restartCount——restartPinned 的清零经 beforeLaunch
-   * 钩子保持在原 launch 占位前的时序点）、钩子时序、warn 文案逐位不变。doRestart 侧
-   * 新增的 cancelPendingRestart 在原调用形态下恒 no-op（restartTimer 触发回调已先置
-   * null），与 restartPinned 原显式取消（R51-A-3）合一后语义不变。
+   * → 失败 failLog → finally 轮收口。握手失败返回 null（调用方各自处置：doRestart
+   * 按退避续排 / restartPinned 契约返 null）。
+   * 红线核对：重启计数（本函数不触碰 state.attempts——restartPinned 的清零经 beforeLaunch
+   * 钩子保持在原开轮前的时序点）、钩子时序、warn 文案逐位不变。doRestart 侧新增的
+   * cancelPendingRestart 在原调用形态下恒 no-op（退避定时器回调已先摘除），与
+   * restartPinned 原显式取消（R51-A-3）合一后语义不变。
    */
   async function launchPinned(
-    opts: StartStudioServerOptions,
-    port: number,
+    boot: { opts: StartStudioServerOptions; port: number },
     hooks: {
-      /** launch 占位前调用（restartPinned 的 shutdownStarted/restartCount 复位原序保留） */
+      /** 开轮前调用（restartPinned 的停机面复位/计数清零原序保留） */
       beforeLaunch?: () => void
       successLog: (port: number) => void
       failLog: (e: unknown) => void
@@ -492,13 +760,13 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   ): Promise<number | null> {
     cancelPendingRestart()
     hooks.beforeLaunch?.()
-    // X-3（第五十六轮）：重启全程复用 starting 互斥通道——占位后并发 start 同参数复用
+    // X-3（第五十六轮）：重启全程占在途轮互斥通道——开轮后并发 start 同参数复用
     // 在途重启轮（含钉住端口语义）、参数不一致沿用 E-9a fail-closed reject；finally
-    // 清空归还通道。
-    startingOpts = opts
-    starting = (async () => launch(opts, String(port)))()
+    // 收口归还通道。
+    const round = openRound(boot.opts)
+    round.promise = (async () => launch(round, String(boot.port)))()
     try {
-      const got = await starting
+      const got = await roundPromise(round)
       hooks.successLog(got)
       // 重审-3：广播钩子隔离——钩子抛错不得伪装成「握手失败」再排一轮重启（服务实际已在跑）
       try {
@@ -511,28 +779,26 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       hooks.failLog(e)
       return null
     } finally {
-      starting = null
-      startingOpts = null
-      startingProc = null // R44-12：与 starting 通道同清
+      transition({ ev: 'round-close' }) // R44-12：轮收口（含在途 fork 句柄）同点归还
     }
   }
 
   async function doRestart(): Promise<void> {
-    if (shutdownStarted) return // 等待窗口内被停机（S-5）
+    if (killMarked()) return // 等待窗口内被停机（S-5）
     // R1010b-DSK-P3-2（2026-09-10 内存专项重审修复批）：在途不覆写——R51-A-3 注释自认
     // 「doRestart 不查 starting 直接覆写通道」：崩溃风暴对话框等待期（onRestartExhausted
     // 异步决断在途，R1010-P3 G7-② 起）并发 restartPinned 自愈握手在途时，0ms 退避触发的
-    // doRestart 会覆写 starting/startingOpts/startingProc——先落定方的 finally 清错通道
-    // 与 fork 句柄、launch 双 fork 竞逐 active（输者孤儿）。对齐 start() 复用口径：通道
-    // 被占即复用在途轮（其自身 catch 已按退避续排 / 留痕），本函数不再排新轮。
-    if (starting) {
-      await starting.catch(() => {}) // 在途轮落定即本函数语义完成，失败已由在途轮自身路径收口
+    // doRestart 会覆写在途轮——先落定方的 finally 清错通道与 fork 句柄、launch 双 fork
+    // 竞逐当值位（输者孤儿）。对齐 start() 复用口径：轮被占即复用在途轮（其自身 catch
+    // 已按退避续排 / 留痕），本函数不再排新轮。
+    const pending = state.round
+    if (pending) {
+      await roundPromise(pending).catch(() => {}) // 在途轮落定即本函数语义完成，失败已由在途轮自身路径收口
       return
     }
-    const opts = lastOpts
-    const port = pinnedPort
-    if (!opts || port === null) return
-    await launchPinned(opts, port, {
+    const boot = state.lastBoot
+    if (!boot) return
+    await launchPinned(boot, {
       successLog: (got) => logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`),
       failLog: (e) => {
         // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
@@ -543,13 +809,13 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   }
 
   /**
-   * S1（五十九轮）：等在途 start/自动重启（X-3 starting 通道）落定再判 active。
-   * 握手窗口内 active===null，shutdown/stopChild 只看 active 会让刚 fork 的 child
+   * S1（五十九轮）：等在途 start/自动重启（X-3 在途轮通道）落定再判当值 child。
+   * 握手窗口内当值位为空，shutdown/stopChild 只看当值位会让刚 fork 的 child
    * 收不到停机指令只能硬杀（在途编排 abort + session/end 落库丢失）。握手失败
    * （boot-error/EXIT）catch 吞掉——那是启动失败路径，继续停机面即可。
    */
   async function settleStarting(source: string): Promise<void> {
-    const pending = starting
+    const pending = state.round?.promise
     if (!pending) return
     try {
       await pending
@@ -573,50 +839,51 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     return killProcAwaitEscalating(current.proc, current.exited, context, killWaitMs, logger)
   }
 
-  /** stopChild 核心（kill + 等退出）；start 的换轮路径直接用（此时 starting 是 start
+  /** stopChild 核心（kill + 等退出）；start 的换轮路径直接用（此时在途轮是 start
    *  自身 IIFE 的 promise——公共 stopChild 的 settleStarting 会 await 自己死锁）。 */
   async function stopActiveChild(): Promise<void> {
-    const current = active
+    const current = state.child
     cancelPendingRestart()
     if (!current) return
-    shutdownStarted = true // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
+    transition({ ev: 'stop-mark' }) // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
     current.proc.kill()
-    // SIGTERM 被吞的兜底：R26-87 起超时升级 SIGKILL 强杀（退出事件迟到时 active 已由
+    // SIGTERM 被吞的兜底：R26-87 起超时升级 SIGKILL 强杀（退出事件迟到时当值位已由
     // exit 监听清空，语义不变）；无 pid / 升级失败回落「超时放行」
     await killAwaitEscalating(current, 'stopChild')
   }
 
   /**
-   * R0912-3（重评-0912 P3 #35）：killNow 的实现——同步对在途 fork/当值 child 发 kill
-   * 信号后立即返回（不等待退出、无升级）。握手已落定而 starting 通道未清的窄窗内
-   * startingProc 与 active.proc 同指一个 child，双 kill 对已死句柄为无害幂等。
+   * R0912-3（重评-0912 P3 #35）：killNow 的实现——同步对在途轮 fork/当值 child 发 kill
+   * 信号后立即返回（不等待退出、无升级）。握手已落定而轮未收口的窄窗内轮句柄与当值
+   * child 同指一个 child，双 kill 对已死句柄为无害幂等。
    */
   function killNow(): void {
     cancelPendingRestart()
-    shutdownStarted = true // S-5：被杀 child 的 exit 不触发自动重启
-    startingProc?.kill()
-    active?.proc.kill()
+    transition({ ev: 'stop-mark' }) // S-5：被杀 child 的 exit 不触发自动重启
+    state.round?.proc?.kill()
+    state.child?.proc.kill()
   }
 
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
       // B-7（第六十轮）：停机流程进行中 start fail-closed 拒绝——S1 的注释与复位只覆盖
       // 「shutdown 先于 start 开始」的正向时序；反向时序（shutdown 已置位并停驻 kill/exit
-      // 等待点，此时 starting===null）下 start 进入会在 IIFE 首行同步清掉 shutdownStarted，
+      // 等待点，此时无在途轮）下 start 进入会在复位点同步清掉主动 kill 标记，
       // launch 的 fork 后检查失守 → 新 child 在停机流程中途存活。现状唯一调用链
-      // bootstrapRunner 有 shuttingDown 守卫挡住、不可达——本修复把「靠调用纪律」变成
-      // 机制（与 E-9a 参数不一致拒绝同口径）。注意用独立的 shuttingDown 生命周期门：
-      // shutdownStarted 还承载「主动 kill 标记」语义（stopActiveChild 置位防 exit 触发
-      // 重启），stopChild 之后的 start 换轮必须放行，不能一并拒绝。
-      if (shuttingDown) {
+      // bootstrapRunner 有守卫挡住、不可达——本修复把「靠调用纪律」变成机制（与 E-9a
+      // 参数不一致拒绝同口径）。注意用独立的停机流程门（stop='shutting'）：主动 kill
+      // 标记还承载「停旧不重启」语义（stopActiveChild 置位），stopChild 之后的 start
+      // 换轮必须放行，不能一并拒绝。
+      if (isShutting()) {
         const err = new Error('停机流程进行中，拒绝 start（shutdown 已置位）——请等待停机完成')
         logger.warn('server-manager', '停机中收到 start，fail-closed 拒绝', err)
         return Promise.reject(err)
       }
-      if (starting) {
+      const pending = state.round
+      if (pending) {
         // E-9a（第五十三轮）：并发 start 复用同一轮前校验关键 opts 一致（dir/user-data/
         // book/mirror-console）——不一致 fail-closed reject，不静默拿前者配置吞没后到调用方
-        const s = startingOpts
+        const s = pending.opts
         if (
           s &&
           (s.workDir !== opts.workDir ||
@@ -632,50 +899,39 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           logger.warn('server-manager', '并发 start 参数与在途启动不一致，已拒绝复用（fail-closed）', mismatch)
           return Promise.reject(mismatch)
         }
-        return starting // 并发 start 复用同一轮（bootstrap 重入防护之外的家底）
+        return roundPromise(pending) // 并发 start 复用同一轮（bootstrap 重入防护之外的家底）
       }
-      startingOpts = opts
-      starting = (async () => {
+      const round = openRound(opts)
+      round.promise = (async () => {
         cancelPendingRestart() // 显式换轮作废挂起重启（与 stopChild 的取消面互补）
         // 重试/重启前清旧 child：等退出再 fork，避免端口/连接滞留（L-3 语义换轨，S-4）
-        if (active) {
+        if (state.child) {
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
           await stopActiveChild()
         }
-        // 停机门复位单点（复审-0914-优化修复批 P3：原 IIFE 首行无条件复位〔S1〕+
-        // 此处条件式复位〔重评-P3-8〕两点合一，明显冗余复位合并；三旗状态机不动）。
-        // 合并的时序安全性论证（两处原防线的等价覆盖面）：
-        // ① S1 防的「shutdown 恰落在 stopActiveChild 的 await 等待窗内、无条件复位把
-        //    门静默清掉（launch fork 后检查失守）」——条件式已覆盖：该交织下并发
-        //    shutdown() 同步置 shuttingDown + shutdownStarted，本行 `!shuttingDown`
-        //    判假保持门置位 → launch 的 fork 后检查即杀新 child 按启动失败收口
-        //    （「shutdown 开始后绝不 fork 出存活 child」在任何交织下成立）。
-        // ② S1 注的反向时序（shutdown 已置位停驻 kill/exit 等待点、starting===null 时
-        //    start 进入门被首行复位清掉）——B-7 入口 fail-closed 守卫已挡（shutdown
-        //    流程在途 ⇔ shuttingDown 已置位〔同步序〕，start 根本进不来）。
-        // ③ 占通道到本行之间无 shutdownStarted 读方（stopActiveChild 只置位不读；
-        //    并发 restartPinned/doRestart 走 starting 通道复用、shutdown 走 shuttingDown
-        //    门），复位时点从 IIFE 首行推迟到 launch 前一行无任何可观察差。
-        if (!shuttingDown) shutdownStarted = false
-        restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
-        return await launch(opts, '0')
+        // R0916-7-P3-17：主动 kill 标记的复位单点。旧实现此处是 `if (!shuttingDown)` 的
+        // 条件复位，两条防线的等价性论证（S1 的交织覆盖 + B-7 入口守卫）写在注释里；
+        // 现由状态机承担：stop='shutting' 时 'stop-clear' 在转移表里非法 → 拒绝并 error
+        // 留痕（stop 保持 'shutting'，launch 的 fork 后检查照旧即杀新 child）。
+        // 「shutdown 开始后绝不 fork 出存活 child」仍是任何交织下的硬约束。
+        transition({ ev: 'stop-clear' })
+        state.attempts = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
+        return await launch(round, '0')
       })()
       try {
-        return await starting
+        return await roundPromise(round)
       } finally {
-        starting = null
-        startingOpts = null
-        startingProc = null // R44-12：与 starting 通道同清
+        transition({ ev: 'round-close' }) // R44-12：轮收口（含在途 fork 句柄）同点归还
       }
     },
     async stopChild(): Promise<void> {
-      // R49-4（评审四十九轮）：主动停机门先置位（同 shutdown 入口形态）——在途 fork
+      // R49-4（评审四十九轮）：主动 kill 标记先置位（同 shutdown 入口形态）——在途 fork
       // 若恰在预算窗内完成握手后被就地 kill，其 exit 不会误触自动重启（doRestart
-      // catch 的 scheduleRestart 与 launch 的 exit 监听都消费此门）。幂等：stopActiveChild
-      // 的置位与 start IIFE 首行的复位语义不受影响（stopChild 后的 start 换轮照常放行）。
-      shutdownStarted = true
-      // S1（五十九轮）：在途 start/自动重启先落定（catch 握手失败）再判 active——
-      // 握手窗口内 active===null，只看 active 会让刚 fork 的 child 漏杀成孤儿。
+      // catch 的 scheduleRestart 与 launch 的 exit 监听都消费此标记）。幂等：stopActiveChild
+      // 的置位与 start 轮内复位点的语义不受影响（stopChild 后的 start 换轮照常放行）。
+      transition({ ev: 'stop-mark' })
+      // S1（五十九轮）：在途 start/自动重启先落定（catch 握手失败）再判当值 child——
+      // 握手窗口内当值位为空，只看它会让刚 fork 的 child 漏杀成孤儿。
       // R49-4（评审四十九轮）：settleStarting 纳入短预算 race，与 shutdown 的 R44-12
       // 形态对齐——此前裸 await 在握手挂起时最坏 HANDSHAKE_TIMEOUT_MS(30s) + kill
       // 升级 2s×2 才落定（崩溃重启链上的 bootstrap 重试最坏阻塞用户 ~34s 无响应）。
@@ -688,30 +944,32 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       ])
       // R49-4（评审四十九轮）：预算耗尽且握手未收口——在途 fork 不再等 30s 握手超时，
       // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs 等待
-      // + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属握手已失败/
+      // + SIGKILL 升级，本段不新增等待语义）。settled=true 的空当值位属握手已失败/
       // child 已退形态，其自身路径已收口，此处无需动作。
       // R0912-A-P3-2：同构块收拢为 killStartingProc（行为零变化）。
-      if (!settled && startingProc) {
+      if (!settled && state.round?.proc) {
         await killStartingProc('stopChild 在途 fork 收口')
       }
       await stopActiveChild()
     },
     killNow,
     async shutdown(): Promise<void> {
-      // R62-16：幂等门改判 shuttingDown（B-7 引入的停机生命周期门）——此前用
-      // shutdownStarted：start 换旧 child 的 kill 等待窗（≈2s）内 stopActiveChild 置位
-      // shutdownStarted，before-quit 触发 shutdown 会误判「已在停机」直接返回，新 child 被
-      // app 退出连带硬杀、在途编排收尾丢失。shuttingDown 只在本进程真正停机流程期间置位，
+      // R62-16：幂等门改判停机流程门（B-7 引入的停机生命周期门）——此前用主动 kill
+      // 标记：start 换旧 child 的 kill 等待窗（≈2s）内 stopActiveChild 置位标记，
+      // before-quit 触发 shutdown 会误判「已在停机」直接返回，新 child 被 app 退出连带
+      // 硬杀、在途编排收尾丢失。停机流程门只在本进程真正停机流程期间置位（stop='shutting'），
       // 是前文 B-7 注释预告的「最后一个调用方向」，此处补上。
-      if (shuttingDown) return // 幂等：before-quit 可能多次触发
-      // B-7（第六十轮）：停机流程生命周期门——入口置位 / finally 复位，期间 start 入口
-      // fail-closed 拒绝（见 start 首守卫）。与 shutdownStarted 分工：后者是「主动 kill
-      // 标记」（stopActiveChild 也置位），不随 shutdown 收口复位，不能当生命周期门用。
-      shuttingDown = true
+      if (isShutting()) return // 幂等：before-quit 可能多次触发
+      // B-7（第六十轮）：停机流程门——入口置位 / finally 收口，期间 start 入口
+      // fail-closed 拒绝（见 start 首守卫）。与主动 kill 标记分工：后者是「停旧不重启」
+      // 标记（stopActiveChild 也置位），不随流程收口复位，不能当生命周期门用。
+      // 三值合一：'shutting' 同时含标记语义——原 `shuttingDown = true` + try 内首行
+      // `shutdownStarted = true`（先置位后下发：exit 早于 shutdown-done 到达也不误判
+      // 崩溃，S-5）两点合并为一次转移，其间无读方。
+      transition({ ev: 'shutdown-open' })
       try {
-        shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
-        // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（shutdownStarted
-        // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链。
+        // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（主动 kill
+        // 标记已置位）会即杀新 child，此处等 handshake 收口拿到当值 child 走优雅停机链。
         // R44-12（四十四轮）：settleStarting 纳入短预算 race——裸 await 在握手挂起时最坏
         // 30s + kill 升级 2s×2 才落定（用户点退出最坏 ~41s 关不掉）。预算内收口（正常
         // 握手毫秒级）语义不变，后续优雅停机总窗仍由既有 race（shutdownTotalMs）兜底；
@@ -722,9 +980,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           delay(shutdownSettleBudgetMs).then(() => false),
         ])
         cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
-        const current = active
+        const current = state.child
         if (!current) {
-          if (!settled && startingProc) {
+          if (!settled && state.round?.proc) {
             await killStartingProc('shutdown 在途 fork 收口')
           }
           return
@@ -749,11 +1007,11 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           settle.by = 'exit'
         })
         await Promise.race([done, current.exited, delay(shutdownTotalMs)])
-        if (settle.by === 'done' && active?.proc === current.proc) {
+        if (settle.by === 'done' && state.child?.proc === current.proc) {
           await Promise.race([current.exited, delay(killWaitMs)])
         }
         // 停机结果留痕（运维口径：批 U3 崩溃重启归因同样依赖 graceful/强杀区分）
-        if (settle.by === 'done' || active?.proc !== current.proc) {
+        if (settle.by === 'done' || state.child?.proc !== current.proc) {
           logger.info(
             'server-manager',
             settle.by === 'done'
@@ -768,35 +1026,35 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
               : 'shutdown 超时未回执，已强杀兜底',
           )
         }
-        if (active?.proc === current.proc) {
+        if (state.child?.proc === current.proc) {
           // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
           current.proc.kill()
           // R26-87：同 stopChild——kill 后超时升级 SIGKILL，不再静默放行孤儿
           await killAwaitEscalating(current, 'shutdown')
         }
       } finally {
-        // B-7：停机生命周期门复位——收口后允许下一轮 start（新生命周期；幂等 early-return
-        // 的并发 shutdown 不经此处，由首调用方 finally 统一复位）
-        shuttingDown = false
+        // B-7：停机流程门收口——允许下一轮 start（新生命周期；幂等 early-return
+        // 的并发 shutdown 不经此处，由首调用方 finally 统一收口）。主动 kill 标记保留
+        // （'marked'）：被杀 child 的迟到 exit 仍属预期。
+        transition({ ev: 'shutdown-close' })
         // R55-A-1（五十五轮）：唤醒停机收口等待者（restartPinned 自愈有界等待）
-        const waiters = shutdownSettledWaiters
-        shutdownSettledWaiters = []
+        const waiters = state.shutdownSettledWaiters
+        state.shutdownSettledWaiters = []
         for (const w of waiters) w()
       }
     },
     isRunning(): boolean {
-      return active !== null
+      return state.child !== null
     },
     async restartPinned(): Promise<number | null> {
-      const opts = lastOpts
-      const port = pinnedPort
-      if (!opts || port === null) return null // 从未成功 start 过：无钉住面可复刻
+      const boot = state.lastBoot
+      if (!boot) return null // 从未成功 start 过：无钉住面可复刻
       if (isProcessExiting()) {
         logger.warn('server-manager', 'session-end 自愈：本进程已进入退出链，放弃恢复')
         return null
       }
-      if (shuttingDown) {
-        // R0910-W：等待者闭包挂入 shutdownSettledWaiters，超时分支此前不摘除——超时
+      if (isShutting()) {
+        // R0910-W：等待者闭包挂入 state.shutdownSettledWaiters，超时分支此前不摘除——超时
         // 返回后该 resolver 常驻数组直到下一次 shutdown（无界滞留）。用 finally 在
         // race 落定后从数组移除自身；停机收口路径已整体清空数组（indexOf=-1）为无害
         // no-op，落定语义不变。（对象属性承载 resolver：let 变量在闭包内赋值会被 TS
@@ -805,12 +1063,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         const settled = await Promise.race([
           new Promise<void>((resolve) => {
             waiterRef.fn = resolve
-            shutdownSettledWaiters.push(resolve)
+            state.shutdownSettledWaiters.push(resolve)
           }).then(() => true),
           delay(restartShutdownWaitMs).then(() => false),
         ]).finally(() => {
-          const i = waiterRef.fn ? shutdownSettledWaiters.indexOf(waiterRef.fn) : -1
-          if (i >= 0) shutdownSettledWaiters.splice(i, 1)
+          const i = waiterRef.fn ? state.shutdownSettledWaiters.indexOf(waiterRef.fn) : -1
+          if (i >= 0) state.shutdownSettledWaiters.splice(i, 1)
         })
         if (!settled) {
           logger.warn(
@@ -819,7 +1077,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           )
           return null
         }
-        if (shuttingDown || isProcessExiting()) {
+        if (isShutting() || isProcessExiting()) {
           // 收口瞬间已被新一轮停机（session-end 重臂 / before-quit）或退出链接管：
           // 本轮放弃——恢复面交给新的观察窗轮次，不在退出链上 fork 孤儿（S-5/S1 同向）
           logger.warn('server-manager', 'session-end 自愈：停机收口时本进程已再次进入停机/退出链，放弃恢复')
@@ -827,38 +1085,39 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         }
       }
       // 在途轮复用（X-3 同款互斥通道语义）。重评2-P3-①（2026-09-09 全量重评
-      // GLM-5.3）：原样透传 starting 会把在途 start 的 rejection 一起透传——逃逸
+      // GLM-5.3）：原样透传在途轮会把在途 start 的 rejection 一起透传——逃逸
       // 本函数「失败 resolve null」契约（下方其余路径均 catch 返 null），调用方无
       // .catch 即落全局兜底日志。改对齐契约：复用值包一层 catch，失败留痕后
       // resolve null；成功值原样透传（复用语义不变）。
-      if (starting) {
-        return starting.catch((e) => {
+      const pending = state.round
+      if (pending) {
+        return roundPromise(pending).catch((e) => {
           logger.warn('server-manager', 'session-end 自愈恢复在途 start 失败（API 不可用，建议重启应用）', e)
           return null
         })
       }
       // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称——不取消则崩溃退避
-      // restartTimer 仍武装，launch 在途时 doRestart 触发会复刻钉住端口再 fork，双
-      // child 竞逐 active、输者成孤儿（F3 起 cancelPendingRestart 收编 launchPinned
+      // 挂起重启仍武装，开轮在途时 doRestart 触发会复刻钉住端口再 fork，双
+      // child 竞逐当值位、输者成孤儿（F3 起 cancelPendingRestart 收编 launchPinned
       // 首步，语义不变）。
-      // F3（复审-0914-优化修复批）：尾部「占位 launch → 成功 info + onRestarted 隔离
-      // → 失败留痕返 null → finally 清理」与 doRestart 同构，收敛 launchPinned；
+      // F3（复审-0914-优化修复批）：尾部「开轮 → 成功 info + onRestarted 隔离
+      // → 失败留痕返 null → finally 收口」与 doRestart 同构，收敛 launchPinned；
       // 「显式新生命周期复位主动 kill 标记 + 退避计数清零（恢复不计入崩溃退避）」经
-      // beforeLaunch 钩子保持原时序（launch 占位前）。红线：重启计数、钩子时序、
+      // beforeLaunch 钩子保持原时序（开轮前）。红线：重启计数、钩子时序、
       // warn 文案逐位不变。
-      return launchPinned(opts, port, {
+      return launchPinned(boot, {
         beforeLaunch: () => {
-          // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start IIFE 同口径，
-          // 恢复不计入崩溃退避）——launch 前置位，防 fork 后检查即杀新 child
-          shutdownStarted = false
-          restartCount = 0
+          // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start 轮内同口径，
+          // 恢复不计入崩溃退避）——开轮前置位，防 fork 后检查即杀新 child
+          transition({ ev: 'stop-clear' })
+          state.attempts = 0
         },
         successLog: (got) => logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`),
         failLog: (e) => logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e),
       })
     },
     hasPendingRestart(): boolean {
-      return restartTimer !== null
+      return state.backoffTimer !== null
     },
   }
 }

@@ -67,11 +67,12 @@ afterAll(async () => {
 })
 
 describe('R75-D-P3a：/relations/mine 编排互斥', () => {
-  it('self-heal 写稿在途 → 409 BUSY（文案含写稿进行中）；解除后过闸（400 无梳理材料）', async () => {
+  it('self-heal 写稿在途 → 409 BUSY（文案含全自动写章）；解除后过闸（400 无梳理材料）', async () => {
     __setSelfHealRunningForTest(BOOK, true)
     const busy = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/relations/mine`, { force: true })
     expect(busy.status).toBe(409)
-    expect((busy.json as { error: string }).error).toContain('写稿进行中')
+    // R0916-7-P3-12：忙闸文案单源化——原「……写稿进行中……」→ 矩阵 self-heal 信号句
+    expect((busy.json as { error: string }).error).toContain('全自动写章')
 
     __setSelfHealRunningForTest(BOOK, false)
     // 空书无梳理材料 → 400 BAD_INPUT（非 409 即证明过了互斥闸 + 自身 action 闸）

@@ -43,10 +43,9 @@ import type { BookConfig } from '../../../format/types.js'
 import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { invalidateBookSummary } from './progress.js'
 import { bookHash } from '../../../events/store.js'
-import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
-import { isReviewRunningForBook } from './review.js'
+import { busyReason } from './task-gate.js'
 import { forgetRagBuildTask } from './rag.js'
-import { isSpawnRunning, forgetSseCount } from './stream.js'
+import { forgetSseCount } from './stream.js' // R0916-7-P3-12：isSpawnRunning 面随 busyGate 收编矩阵，本文件不再直取
 // R67-15（十五轮）：四个书键 TTL 结果缓存（体检扫描/概览态/风格语料/learn 候选）的
 // 失效挂点——删书/改名正向清理，TTL 5s 退为兜底自愈
 import { forgetStyleScanCache } from './health.js'
@@ -220,17 +219,17 @@ export async function awaitOrchestrationsSettled(name: string): Promise<void> {
 /** M-4：spawn/三审/task-gate 三闸联合检查——任一在途返回 BUSY 文案（否则 null）。
  * 各闸背景：ee-P2-11 /spawn 手动写稿分钟级且持 bookRoot 闭包（收尾落盘写旧路径重建
  * 孤儿目录）；hh-P1 三审同为分钟级长任务；dd-P2 task-gate（analyze/rewrite/rag-build
- * 等）无 abort 通道——三者持闸时都只能拒删/拒改（409），白烧 API 费用同理。 */
+ * 等）无 abort 通道——三者持闸时都只能拒删/拒改（409），白烧 API 费用同理。
+ * R75-5（批 D）：进程内 Set 与跨进程锁文件扫描合并去重——dev-api/脚本与 GUI 双进程
+ * 并存时，此前只查 heldTaskGatesFor（进程内）看不见进程 A 的分钟级任务闸，放行删/改
+ * 后任务收尾原子写在旧路径重建孤儿目录并白烧 API 费。跨进程侧陈锁（死 pid/超龄）由
+ * 锁原语语义剔除，不算在持。
+ * R0916-7-P3-12：三闸本体与文案单源在 task-gate 的 BUSY_MATRIX（'book-delete'/
+ * 'book-rename' 两行，序 spawn → review → task-gate 逐位保留），本函数退为「动词 →
+ * 意图」薄适配。 */
 export function busyGate(name: string, verb: '删' | '改名'): { error: string } | null {
-  if (isSpawnRunning(name)) return { error: `本书正在生成（手动写稿），先等它完成或中断后再${verb}` }
-  if (isReviewRunningForBook(name)) return { error: `本书三审进行中，先等它完成后再${verb}` }
-  // R75-5（批 D）：进程内 Set 与跨进程锁文件扫描合并去重——dev-api/脚本与 GUI 双进程
-  // 并存时，此前只查 heldTaskGatesFor（进程内）看不见进程 A 的分钟级任务闸，放行删/改
-  // 后任务收尾原子写在旧路径重建孤儿目录并白烧 API 费。跨进程侧陈锁（死 pid/超龄）由
-  // 锁原语语义剔除，不算在持；本进程闸两侧都会报（锁文件也在），去重防文案双报。
-  const held = [...new Set([...heldTaskGatesFor(name), ...crossProcessHeldTaskGatesFor(name)])]
-  if (held.length > 0) return { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再${verb}` }
-  return null
+  const reason = busyReason(name, verb === '删' ? 'book-delete' : 'book-rename')
+  return reason === null ? null : { error: reason }
 }
 
 /** P1-4（复审-0914-优化修复批）：删书/改名共用的「五连 drain + 闸后复查」排水段收编

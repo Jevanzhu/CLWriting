@@ -188,15 +188,12 @@ function fmtDate(iso: string): string {
 <style scoped>
 /* .panel/.btn-ghost 基础与 hover、.token-chip 基础与 .free 已收敛至 style-shared.css
  *（R0912-C2-P3-3 全局装载）。差异行留本文件：disabled 规则原仅 .btn-ghost 单选择器
- *（Baseline/Candidate 为双选择器合并块）；.cost 档仅本文件使用；.spin 仅两件使用。 */
+ *（Baseline/Candidate 为双选择器合并块）；.cost 档仅本文件使用。.spin 旋转动画
+ * R0916-7-P3-26 起单源在全局 styles/utilities.css（原 1s 本地档已删）。 */
 .btn-ghost:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.spin {
-  animation: clw-spin 1s linear infinite;
-}
-
 /* ══ token 徽标（零 token / 耗 token 区分同名打架）══ */
 .token-chip.cost {
   color: var(--dv-warn);

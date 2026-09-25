@@ -10,10 +10,12 @@
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
-import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
+import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage, type StopReason } from './provider/index.js'
 import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveChunkStallTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
+// R0916-7-P3-15：run 回调返回值 stopReason 的值域守卫（三线归一判别联合的运行时表）
+import { isStopReason } from './provider/stream-finalize.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
 // R0916-6-P3-3：chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
@@ -124,6 +126,18 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * R0916-7-P3-16（评审 P3-16 第二项）：run 回调返回壳的显式类型守卫。
+ *
+ * 此前四处 extract*（usage / stopReason / resolvedMaxTokens / degraded）各写一遍
+ * `(data as Record<string, unknown>)['k']` 鸭子类型抽取——形状知识散在四处、无一处校验，
+ * 返回非对象（null / 字符串 / 数组）时四种抽取各自为政。现统一经本守卫取壳，再按字段
+ * 逐个做值类型判定（值类型判定不能省：壳里字段可由调用方任意填）。
+ */
+function runResultShape(data: unknown): Record<string, unknown> | null {
+  return typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : null
+}
+
 /** 从 run 回调返回值提取 usage（如有 { usage: TokenUsage } 字段）。
  *  R0912-3（2026-09-12 全量重评修复批 #7）：键存在之外加值类型守卫——计量字段非
  *  number（字符串/null 等错型）不透传：inputTokens/outputTokens 错型整体视为缺失 →
@@ -132,54 +146,64 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  *  readRecord 对可选字段/标记的同款口径）。三适配器自产 usage 恒为良型，既有形态
  *  逐字段不变。 */
 function extractUsage(data: unknown): TokenUsage | null {
-  if (typeof data === 'object' && data !== null && 'usage' in data) {
-    const u = (data as Record<string, unknown>)['usage']
-    if (u && typeof u === 'object') {
-      const r = u as Record<string, unknown>
-      const inputTokens = r['inputTokens']
-      const outputTokens = r['outputTokens']
-      if (typeof inputTokens !== 'number' || typeof outputTokens !== 'number') return null
-      const optNum = (k: string): number | undefined => {
-        const v = r[k]
-        return typeof v === 'number' ? v : undefined
-      }
-      const cacheReadTokens = optNum('cacheReadTokens')
-      const cacheWriteTokens = optNum('cacheWriteTokens')
-      const reasoningTokens = optNum('reasoningTokens')
-      return {
-        inputTokens,
-        outputTokens,
-        ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
-        ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
-        ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
-        ...(r['estimated'] === true ? { estimated: true } : {}),
-      }
+  const r = runResultShape(data)?.['usage']
+  if (r && typeof r === 'object') {
+    const rec = r as Record<string, unknown>
+    const inputTokens = rec['inputTokens']
+    const outputTokens = rec['outputTokens']
+    if (typeof inputTokens !== 'number' || typeof outputTokens !== 'number') return null
+    const optNum = (k: string): number | undefined => {
+      const v = rec[k]
+      return typeof v === 'number' ? v : undefined
+    }
+    const cacheReadTokens = optNum('cacheReadTokens')
+    const cacheWriteTokens = optNum('cacheWriteTokens')
+    const reasoningTokens = optNum('reasoningTokens')
+    return {
+      inputTokens,
+      outputTokens,
+      ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+      ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+      ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+      ...(rec['estimated'] === true ? { estimated: true } : {}),
     }
   }
   return null
 }
 
-/** 从 run 回调返回值提取 stopReason（如有 { stopReason: string } 字段） */
-function extractStopReason(data: unknown): string {
-  if (typeof data === 'object' && data !== null && 'stopReason' in data) {
-    return String((data as Record<string, unknown>)['stopReason'])
-  }
-  return 'end_turn'
+/**
+ * 从 run 回调返回值提取 stopReason（归一枚举值）。
+ *
+ * R0916-7-P3-15：删除「缺字段/未知字符串 → 默认 'end_turn'」的静默兜底——此前 run 回调
+ * 未带 stopReason 时（旧调用方/单测桩/壳形状漂移）trace 与 step/end 双双谎报「正常完成」，
+ * 截断被当成功记账。现口径：值在 stopReason 值域（provider/types.ts 判别联合）内则原样
+ * 透出；域外字符串与非字符串一律显式归 'unknown' 并日志留痕（丢弃必须可感知）。
+ */
+function extractStopReason(data: unknown, task: string | undefined): StopReason {
+  const v = runResultShape(data)?.['stopReason']
+  if (typeof v === 'string' && isStopReason(v)) return v
+  log.warn(
+    'runner',
+    JSON.stringify({
+      msg: 'AI 任务返回值的 stopReason 非值域成员（归类 unknown）',
+      task: task ?? null,
+      reason: typeof v === 'string' ? 'off-union' : v === undefined ? 'absent' : 'non-string',
+      stopReason: typeof v === 'string' ? v : null,
+    }),
+  )
+  return 'unknown'
 }
 
 /** Q-13（第十五轮）：从 run 回调返回值提取适配器 resolve 后上线输出上限
  *  （GenResult → 编排层 T 透传的 resolvedMaxTokens；无兜底不发/early-error → undefined） */
 function extractMaxTokens(data: unknown): number | undefined {
-  if (typeof data === 'object' && data !== null && 'resolvedMaxTokens' in data) {
-    const n = (data as Record<string, unknown>)['resolvedMaxTokens']
-    return typeof n === 'number' && Number.isFinite(n) ? n : undefined
-  }
-  return undefined
+  const n = runResultShape(data)?.['resolvedMaxTokens']
+  return typeof n === 'number' && Number.isFinite(n) ? n : undefined
 }
 
 /** Z-12（第五十八轮）：run 回调壳是否带 degraded（适配器降级面成功 → gen 透传） */
 function extractDegraded(data: unknown): boolean {
-  return typeof data === 'object' && data !== null && (data as Record<string, unknown>)['degraded'] === true
+  return runResultShape(data)?.['degraded'] === true
 }
 
 /** R65-6（总六十五轮）：降级回调注册记录由模块级单值改 Map（key=userDataPath）——
@@ -685,8 +709,11 @@ export async function runTask<T>(opts: {
         // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
         recordUsageSafe(usage)
-        trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true, maxTokens: extractMaxTokens(data), ...(extractDegraded(data) ? { degraded: true } : {}) })
-        stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
+        // R0916-7-P3-15：stopReason 单次抽取——trace 与 stepReason 同源（原两次调用，
+        // 未知值留痕路径会重复落两行日志）
+        const stopReason = extractStopReason(data, task)
+        trace({ model: tier.model, attempt, stopReason, usage, ok: true, maxTokens: extractMaxTokens(data), ...(extractDegraded(data) ? { degraded: true } : {}) })
+        stepReason = stopReason === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
         return { ok: true, data, ctrl: external, usage, attemptsUsage, runId, model: tier.model }
       } catch (e) {

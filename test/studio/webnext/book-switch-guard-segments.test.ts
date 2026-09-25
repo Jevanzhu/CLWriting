@@ -194,8 +194,8 @@ describe('RC B-5: 切书守卫——Z-8 未决冲突段', () => {
     // Z-8 段的弹窗在链首 workbench.clear() 之前（第五轮口径：clear 早于 flushDirty）——
     // 故本路径只有回滚补清一次（clearWorkbench=true），无链首那次
     expect(clearSpy.mock.calls.length).toBe(clearsAfterLoad + 1)
-    // 回退链的 resync 另有一道 gen 复检闸（`gen === bookGen`）——回退后 watch 重入
-    // （n === lastBook 短路）先推进 bookGen，本拍故不复重取（既有闸语义，refactor 未动）；
+    // 回退链的 resync 另有一道 gen 复检闸（`bookGen.fresh(gen)`）——回退后 watch 重入
+    // （n === lastBook 短路）先推进代数，本拍故不复重取（既有闸语义，refactor 未动）；
     // 此处只钉「首载恰一次」，不把这条顺序细节写进断言
     expect(resync).toHaveBeenCalledTimes(1)
     expect(doc.bookName).toBe('书A') // 未切书
@@ -322,6 +322,36 @@ describe('RC B-5: 切书守卫——重入短路、防乱序与链尾 resync', (
     await flushPromises()
 
     expect(doc.bookName).toBe('书C') // B 链醒来查代不过，不落 setBook('B')
+    w.unmount()
+  })
+
+  it('R0916-7-P3-26 迟到结果丢弃：决断弹窗 await 窗内轮回作废 → 迟到的「丢弃并切换」不落态', async () => {
+    // 换装 useStaleGuard 后语义锚（原裸计数器 bookGen 逐位等价）：弹窗确认迟到于新轮
+    // 之后才 resolve 时，已作废轮不得继续 setBook/清污——否则路由已指向 C，store 落到 B
+    const doc = useDocStore()
+    const ui = useUiStore()
+    const asks: Array<(v: boolean) => void> = []
+    vi.spyOn(ui, 'ask').mockImplementation(() => new Promise<boolean>((r) => { asks.push(r) }))
+    const w = mountGuard()
+    await flushPromises()
+
+    await seedDirty('d1')
+    mocks.saveContent.mockRejectedValue(new Error('网络断了'))
+    bookName.value = '书B'
+    await flushPromises() // B 链挂在 F1 决断弹窗（flush 失败段）
+    expect(asks).toHaveLength(1)
+
+    bookName.value = '书C'
+    await flushPromises() // C 链接管（B 链代次作废）；C 链同样挂在弹窗
+    expect(asks).toHaveLength(2)
+
+    asks[0]!(true) // B 链的迟到确认：丢弃并切换
+    await flushPromises()
+    expect(doc.bookName).toBe('书A') // 已作废轮不落 setBook('B')（C 链仍在等自己的决断）
+
+    asks[1]!(true) // C 链的确认
+    await flushPromises()
+    expect(doc.bookName).toBe('书C')
     w.unmount()
   })
 

@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
-import { __setReviewRunning } from '../../src/studio/server/api/review.js'
+import { __setReviewRunning } from '../../src/studio/server/api/task-gate.js' // R0916-7-P3-12：三审登记表迁入 task-gate.ts
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
 let studio: StudioHarness

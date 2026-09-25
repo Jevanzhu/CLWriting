@@ -550,3 +550,31 @@
 | P3-7 | 实测处置（不调阈值）：本批收口后 win 本地全量 `vitest --coverage` 复跑**全桶过门**——评审时红的两项已绿：src/fs 分支 90.00（门 89）、src/rag 分支 88.70（门 88）；src/ai 函数 95.03（门 95，P3-11 删别名后回升）。阈值按 CI ubuntu 腿校准是阶段 43 既定决策，「win 分档/留余量」会放松绿门（违「只紧不松」），不采纳；贴线桶点名入档：ai functions 余 0.03pp（≈1 个函数粒度，最脆）、document S 余 0.04pp、learn S 余 0.19pp、studio/server S 余 0.18pp——后续批触此四域先本地跑 coverage 自查。三个零覆盖视图（Library/Welcome/LearnView）已由 RC 重审 P2-5 显影桶显式登记（0/0 = 「e2e 自管」边界 + 回收条件），非静默暗区，不补组件测试 | 本节实测数字（coverage-summary.json 全桶核算）；CI ubuntu·24 腿阈值门继续兜底 |
 
 波 A 门实录（本机 win）：tsc 通过 / eslint 通过 / 全量 vitest 与 coverage 实测数字见上方 P3-7 行（提交前全量跑）。
+
+#### 批 1（2026-09-25，提交 `74fd2e15`）
+
+| ID | 修复形态 | 回归测试 |
+|---|---|---|
+| P3-22 | 抽 `ModalMask` 统一组件（`:open` 即登记、浓度自 ui store 内联上色）：7 个全屏遮罩（palette/settings/export/shelf/confirm + 新增 chapterMeta/splitChapter）与书架两个子弹窗遮罩浓度全部单源化（`MASK_ALPHA` / `SHELF_DEEP_ALPHA`），组件 CSS 镜像值与「读 CSS 对账」锁随删。章节属性/拆分对话框入登记表：⌘P 守卫生效、win 窗控变暗生效 | `j5-overlay-dim.test.ts` 改锁「浓度单源 + 行为登记」（含两对话框开→`overlayOpen`/`maskAlpha` 生效、关闭复位；子弹窗渲染面 = SHELF_DEEP_ALPHA + 源码零镜像） |
+| P3-24 | workspace store 收口：导出 `ActiveView` 等类型别名（三处字面量联合收一处）、`pendingInsert` 改一次性令牌（consume-once 在类型层可见，替「读后置 null」）、编辑器两函数槽收敛为 `EditorHandle`（兼容 computed 保持读方语义）、书级偏好补在途追踪（先等在途落定再清窗直发，防两笔 PUT 乱序）；WorkspaceShell 的 warning toast 由 'error' 改 'warning' | 新增 `workspace-shell-warning-toast.test.ts`（2 例）；`workspace.test.ts` 令牌通道 4 例 + 在途冲刷 2 例；`chat-dispatch-state-machine` 15 处断言改对象身份 |
+| P3-27 | chat-dispatch 回合目标由 `messages.value[turn.currentIdx]!` 改持响应式消息对象引用（`current: ChatMessage \| null`）：裁剪/截断天然跟随，消 6 处下标越界断言与 `trimMessages` 手工偏移、删 chat.ts 的「反向扫 last undone 重定位」补偿块 | 新增 2 例（回合中 splice 头部裁剪、filter 式截断，增量仍落原目标气泡）；变异：回退为下标形态 → 13 例红 |
+| P3-19 | `?token=` 过渡回退通道两端同删（服务端 SSE 路径拒收、前端换票失败并入既有退避，不新增重试体系）；连接状态收成 `SseEpochState` + `resetEpoch()` 单点复位（原 10 个散落标志、3 处逐行复位清单收编）；e2e 全量检索确认零直接 SSE 消费方，无受影响 spec | 新增 4 例（换票 404/网络/5xx/超时 → 不回退、URL 无长期 token）+ 2 例（纪元复位归零）；`r51-h5-sse-ticket-warn-dedupe` 随通道删除；变异：恢复回退分支 → 4 例红 |
+| P3-25 | prefs 对外 76 → 10 成员（评审路线 B）：`PREF_ROWS` 泛型 `get/set`（键类型由行表推导，拼错编译期红）、31 个平铺 setter 收进键控表、写 DOM 与窗控变暗拆出 `usePrefsDomEffects` composable（时序不晚于原实现）、`baseStep` 恒零加数删除；26+19 个调用点随迁，无兼容别名双轨；`setOverlayDimmed` 签名语义逐位不变 | 新增 `prefs-generic-getset.test.ts`（5 例：类型面 `@ts-expect-error` ×4、响应依赖、init 时序）；变异：持久化键改错 → 键名锚用例红 |
+
+批 1 门实录（win）：tsc / vue-tsc / eslint 全绿；`vitest run test/studio` 517 文件 3052 例通过 0 红。
+SSE resync 三族测试（r29 4 例 / r55 3 例 / reaudit-03 1 例）断言改竞态无关形态：换票成功路径比旧 404 回退多一次 await（读响应体），useSse watch 的即时连接可能被链尾 resync 抢先作废——原「实例总数」断言依赖微任务竞态，语义锁改为「旧连必断 + 恰一条存活 + 指向书正确」。
+
+#### 批 2（2026-09-25，提交见下）
+
+| ID | 修复形态 | 回归测试 |
+|---|---|---|
+| P3-12 | 忙闸互斥矩阵表驱动：`task-gate.ts` 出 `BUSY_MATRIX`（行=意图/列=信号，表内序=判定序）+ `busyReason(book,intent)` 单源；7 处手写点（stream spawn/auto-write、chat 三态、audit、books-lifecycle、documents-core、review）全改调；`allHeldTaskGatesFor` 迁回 task-gate（audit ↔ stream 环解除，grep 双向证明）；review 按文档闸先于书级闸（`REVIEW_RUNNING` vs `REVIEW_BUSY`，文案不再误称「其他任务在跑」）；409 文案半/全角统一 | 新增 `busy-gate-matrix.test.ts` 169 例（期望矩阵独立字面量 + 逐格三测 + 端点层 10 意图被拦/放行臂 + 三审闸语义 4 例）；变异：删 auto-write 行 chat 格 → 3 例红 |
+| P3-14 | 任务闸锁文件名 `${action}.${hash(book)}.lock`（列目录即枚举持有者），删 `KNOWN_ACTIONS`/`GATED_ACTIONS` 两表与对齐测试；旧格式三层迁移（启动清扫非在持残留 / acquire 先占新锁再探旧名、在持则回滚退让 / 旧名不含书信息故不入枚举面，如实记档）——旧格式无可双重持锁 | 新增 `task-gate-lock-format.test.ts` 8 例（格式、枚举、旧名在持退让不留新锁、崩溃残留清理、启动清扫）；治理门改 action token 门（扫 `acquireTaskGate` 调用点字面量）；变异：删旧名探测 → 3 例红 |
+| P3-16（半） | task-gate 的 driver 可选能力 fail-open 改显式：`resolveInterruptChannel` 缺能力时 `log.warn` 带 `action@book` 可回溯（`driver/types.ts` 的必需化因跨面留后续） | 新增 `r0916-p3-16-interrupt-capability.test.ts` 3 例 |
+| P3-15 | 三适配器流尾收口单点 `stream-finalize.ts`（done 一次性门 / 截断估算 / content_filter·refusal 判错 / usage 兜底）；`stopReason` 收成闭合判别联合 `StopReason` + `normalizeStopReason`（线上别名归一表），`runner.ts` 删静默 `'end_turn'` 兜底改显式 `'unknown'` + 留痕 | 新增 `stop-reason-normalize.test.ts` 34 例（逐线决策表 + 三线适配器级断言）、`stream-finalize.test.ts` 10 例（一表三线共跑）、`runner-stop-reason.test.ts` 7 例；变异：归一函数回退 → 9 例红；runner 守卫回退 → 5 例红 |
+| P3-16（前三项） | ①OpenAI 系参数按 SDK 类型构造（Chat 线交叉类型、responses 线单点 `asSdkParams` 白名单转换，删整对象 `as unknown as`）；②`runner.ts` 结果提取改显式守卫 + 判别（未知值归 `'unknown'` 留痕）；③盘上角色读入校验 `parseDocumentRole`（非法→'note' + 留痕） | 新增 `openai-params-sdk-shape.test.ts` 15 例（类型可赋性探针 + 键形状对照）、`trash-role-validate.test.ts` 18 例；变异：role 校验回退 → 3 例红 |
+| P3-17 | server-manager 12 个闭包变量 → 显式状态容器：相位 `idle│starting│running│backoff`（由载荷派生）+ 停机面三值联合（存储）+ 单一转移点 `transition()` + 转移表 `isLegalTransition()`；非法转移拒绝并 error 留痕（原注释里的「12 变量正确性证明」删除，换状态机说明） | 新增 `server-manager-state-machine.test.ts` 12 例（132 格转移表逐格核验 + 6 条转移轨迹 + 3 组原场景回归 + 非法拒绝）；变异：放行 `stop-clear` → 6 例红（含两条既有并发用例） |
+| P3-26（前端面） | 三处手写防竞态计数器（EditorView `kindReqId`、CmHost `compReqId`、useBookSwitchGuard `bookGen`）收编 `useStaleGuard`；CmHost 两段重复补全映射抽 `completionEntriesOf`；四消费点字数计算共享（`useDebouncedWordCount` 单槽派生记忆，MB 级长章 4 趟 O(n) → 1 趟，定时器仍各消费点自持）；`.spin` 全库单源（0.9s 档，8 处组件内定义删除）、`--text-warning` 失实回退值删除 | 新增 `stale-guard-adoption-late-response.test.ts` 4 例、`word-count-shared-derivation.test.ts` 2 例、`styles-single-source.test.ts` 6 例；`book-switch-guard-segments` +1；变异：四处守卫各自回退 → 对应用例红；字数记忆关闭 → 4→1 断言红 |
+| 遗留收口 | `test/document/r40-static-anchors.test.ts` 的 R40-4 原第二断言钉 `task-gate.ts` 内 `'style-harvest'`（KNOWN_ACTIONS 已删）——改锚调用点 token；`stream-ticket.ts` 头注「`?token=` 保留」陈旧表述随 P3-19 更正 | 同上（r40 静态锚随批更新） |
+
+批 2 门实录（win）：tsc / vue-tsc / eslint 全绿；`vitest run test/studio test/ai test/document test/desktop test/governance` 872 文件 5609 例通过 / 33 跳过，exit 0。

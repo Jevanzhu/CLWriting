@@ -8,8 +8,9 @@
  *    如 .sec-title / .head-actions / .muted / .batch-enter 均因此未收）；
  * 2. 模板消费点全数定位（静态 class 与 :class 字面量扫描），无「未写该类却恰好同名」元素；
  * 3. 特异性 (0,1,0) 低于任何 scoped 规则（scoped 带属性选择器 ≥ (0,2,0)），组件异形可局部覆盖，
- *    故 .spin 三档时长（0.8s/0.9s/1s 真异档）中仅众数档 0.9s 归一于此，0.8s/1s 档保留在各组件
- *    scoped 内并以此全局档为兜底。
+ *    故组件内只留颜色/尺寸等差异声明、不留同名规则体；.spin 的旋转动画在
+ *    R0916-7-P3-26 批按「同一动作不留异体」口径全量收归本文件唯一一份（原散落 7 个组件的
+ *    0.8s / 1s 异档随批删——同一旋转动作三种时长本无依据；类名/选择器不动，只删组件内定义）。
  */
 /* clw-spin @keyframes 沿用 base.css 的全局定义，本文件不重复声明。 */
 
@@ -158,9 +159,10 @@
   gap: 2px;
 }
 
-/* 加载旋转（众数档 0.9s；0.8s 档见 AuditEventList/ModelListEditor/AuditView 与
-   providers.css 的 .ai-service-panel .spin，1s 档见 ChatMessages/StyleAcceptancePanel/
-   StyleCandidateBox，均 scoped 覆盖本兜底档） */
+/* 加载旋转：全库唯一定义点（R0916-7-P3-26 收敛批——原本文件一份 + 7 个组件内各一份，
+   时长 0.8s/0.9s/1s 三档；收归单源一档）。组件内只可留颜色/尺寸覆盖（如 OnboardStepPanel
+   的强调色、EditorDocHead 的 .save-btn-spin/.ai-btn-spin 是另名类非本类），不得再写
+   .spin 的 animation；防复活锚 = test/studio/webnext/styles-single-source.test.ts 源码扫描 */
 .spin {
   animation: clw-spin 0.9s linear infinite;
 }

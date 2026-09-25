@@ -25,6 +25,7 @@ import type {
   TokenUsage,
   ToolDef,
   ContentBlock,
+  EffortLevel,
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
@@ -32,7 +33,7 @@ import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
-import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
+import { createStreamFinalizer } from './stream-finalize.js'
 import { log } from '../../log/index.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
@@ -44,8 +45,39 @@ const toErrorEvent = makeToErrorEvent({
 })
 
 /** tool_use 往返：user 的 tool_result → function_call_output 输出项（call_id 关联） */
-function toolOutputItem(toolUseId: string, content: string): Record<string, unknown> {
+function toolOutputItem(toolUseId: string, content: string): OpenAI.Responses.ResponseInputItem.FunctionCallOutput {
   return { type: 'function_call_output', call_id: toolUseId, output: content }
+}
+
+/**
+ * R0916-7-P3-16：本线工具项——SDK 的 FunctionTool 把 strict 声明为必填，本线沿用既有
+ * 线格式有意不发（补该字段 = 改请求体形状，违反行为逐位不变）；用交叉类型把该字段改回
+ * 可选，逐字段表达差异，不再整对象双重断言。
+ */
+type ResponsesWireTool = Omit<OpenAI.Responses.FunctionTool, 'strict'> & { strict?: boolean | null }
+
+/**
+ * R0916-7-P3-16：本线参数类型 = SDK 类型 + 逐项声明的线格式差异：
+ * - tools：SDK 必填 strict 被本线有意省略（见 ResponsesWireTool）；
+ * - reasoning_effort / output_config：非 SDK 字段（grok 顶层 reasoning_effort、deepseek
+ *   output_config，落点由 responsesWire.effortWire 表驱动）。
+ * 其余字段（model/input/stream/store/max_output_tokens/reasoning/text/include/tool_choice/
+ * parallel_tool_calls）全部按 SDK 类型构造并受其校验。
+ */
+type ResponsesParams = Omit<OpenAI.Responses.ResponseCreateParamsStreaming, 'tools'> & {
+  tools?: ResponsesWireTool[]
+  reasoning_effort?: EffortLevel
+  output_config?: { effort?: EffortLevel }
+}
+
+/**
+ * R0916-7-P3-16：白名单转换点（本文件唯一一处窄断言）——SDK 的 tools 元素要求 strict
+ * 必填而本线有意不发，ResponsesWireTool 与 SDK Tool 的差异仅此一项（其余字段是 SDK
+ * 类型的直接产物）；按已知差异定向转换，形状漂移仍由 toParams 内的赋值受 tsc 拦下。
+ * （导出供测试做类型层可赋性断言：转换后即 SDK create 的入参类型。）
+ */
+export function asSdkParams(p: ResponsesParams): OpenAI.Responses.ResponseCreateParamsStreaming {
+  return p as OpenAI.Responses.ResponseCreateParamsStreaming
 }
 
 /**
@@ -54,11 +86,11 @@ function toolOutputItem(toolUseId: string, content: string): Record<string, unkn
  * 网关偏差挂点（缺口 18，初版不建改写框架）：某网关 400 或缺字段时，按 cherry ark.ts
  * 模式（请求剥 include / 响应补 annotations）在此尾部加 per-family patch。
  */
-function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
+export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
   const q = responsesQuirksFor(conf.model ?? '')
   const rw = q.responsesWire
 
-  const input: Record<string, unknown>[] = []
+  const input: OpenAI.Responses.ResponseInputItem[] = []
   // 系统指令 → developer 角色（OpenAI 新约定；角色 'system' 仍兼容但官方建议 developer）
   if (req.systemPrompt) {
     input.push({ role: 'developer', content: req.systemPrompt })
@@ -70,15 +102,15 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
       continue
     }
     const textParts: string[] = []
-    const toolUseItems: Record<string, unknown>[] = []
+    const toolUseItems: OpenAI.Responses.ResponseInputItem[] = []
     // R72-12（二十轮 A-3）：user 分支与 assistant 同构——tool_result 也收集后统一输出，
     // 消除「text+tool_result 混排 user 消息」的块序颠倒（当前链路 tool_result 独占
     // user 消息不触发，防御性对齐）
-    const toolResultItems: Record<string, unknown>[] = []
+    const toolResultItems: OpenAI.Responses.ResponseInputItem[] = []
     // R3（缺口 11）：assistant 轮 reasoning 块按 echoReasoning 分档——encrypted 回插
     // 加密推理项（置于该 assistant 的 text/function_call 之前，Responses 语义：reasoning
     // item 先于其产出的 function_call）；strip/none 跳过（grok CLI 代理拒绝回传 / 未测）。
-    const reasoningItems: Record<string, unknown>[] = []
+    const reasoningItems: OpenAI.Responses.ResponseInputItem[] = []
     for (const b of m.content as ContentBlock[]) {
       if (b.type === 'text') textParts.push(b.text)
       else if (b.type === 'reasoning') {
@@ -112,7 +144,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     }
   }
 
-  const params: Record<string, unknown> = {
+  const params: ResponsesParams = {
     // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
     model: conf.model ?? '',
     input,
@@ -179,7 +211,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   return params
 }
 
-function toResponsesTool(tool: ToolDef): Record<string, unknown> {
+function toResponsesTool(tool: ToolDef): ResponsesWireTool {
   // 全库重评-0914 P3-1：description 缺省改条件省略——原 `?? ''` 对缺省 description 发
   // 空串，与 anthropic-adapter / openai-adapter 两线的条件 omit 行为分叉（空串 description
   // 与缺省字段在严格端点语义不同）；三线行为分叉收编为同一条件 omit 口径
@@ -222,8 +254,7 @@ export function createOpenAIResponsesProvider(
     conf,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
-      let doneEmitted = false
-      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
+      let degraded = false // Z-12：成功建流是否用了降级参数面（fin.isDegraded 闭包读）
       // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
       // outText / outToolText / terminal 均声明在 attempt 循环内，外层 catch 取不到；由循环内
       // 逐 attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入）
@@ -234,11 +265,15 @@ export function createOpenAIResponsesProvider(
       // Q-13（第十五轮）：resolve 后终值随 done 透出（与 toParams 的 tokenCap 同链：
       // 调用方 cap → 模型行；无兜底不发 → undefined）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
-      const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
-        if (doneEmitted) return null
-        doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
-      }
+      // R0916-7-P3-15：done 发射 / 估计兜底 / 终态错误壳 / 截断收口单点（三线共用，
+      // 见 stream-finalize.ts）。本线终止值由终止事件类型判定（非读线上拼写）故产出恒为
+      // 归一枚举成员；stopField 仅占位（本线的「非 max 不完整」走 terminalError 专属文案）
+      const fin = createStreamFinalizer({
+        line: 'responses',
+        stopField: 'incomplete_details.reason',
+        resolvedMaxTokens,
+        isDegraded: () => degraded,
+      })
 
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
       // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
@@ -254,10 +289,7 @@ export function createOpenAIResponsesProvider(
           // 已收到事件后换参数面重跑会让消费者收到重复增量，一律转终态错误。
           let consumedAny = false
           try {
-            const stream = await c.responses.create(
-              toParams(conf, attempt) as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
-              { signal },
-            )
+            const stream = await c.responses.create(asSdkParams(toParams(conf, attempt)), { signal })
             markStructuredDegrade(plan, attempt, store)
             // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
             // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
@@ -291,15 +323,15 @@ export function createOpenAIResponsesProvider(
             const outToolText: string[] = []
             // R74-1：终止事件无 usage 的估计兜底——input 按请求字符折算；output 按产出
             // 累计折算，toolAccum 未认领残留（incomplete 截断在途的调用参数）一并并入
-            const estimateDoneUsage = (): TokenUsage => {
-              const toolText = [...outToolText]
-              for (const [, t] of toolAccum) toolText.push(t.name + t.args)
-              return {
-                inputTokens: estimateInputTokens(req, conf.model ?? undefined),
-                outputTokens: estimateOutputTokens(outText.join('') + toolText.join(''), conf.model ?? undefined),
-                estimated: true,
-              }
-            }
+            // （R0916-7-P3-15：折算体收敛进 fin.estimateUsage 单点）
+            const estimateDoneUsage = (): TokenUsage =>
+              fin.estimateUsage({
+                req,
+                model: conf.model ?? undefined,
+                outText,
+                outToolText,
+                pendingToolText: [...toolAccum.values()].map((t) => t.name + t.args),
+              })
             // R38-8（三十八轮）：空 usage 对象（{} truthy 但无计量字段）等价「无 usage」——
             // 原判定 `r.usage ? toUsage(r.usage) : estimate` 让 {} 走 toUsage 得 0/0 假计量，
             // 绕过本线的估计兜底（R74-1），预算闸/成本对非标网关系统性偏低。对齐 openai 线
@@ -482,18 +514,13 @@ export function createOpenAIResponsesProvider(
                   if (!hasOutput) {
                     // R34D-8（三十四轮）：空产出 error 同款随错上抛 usage（R32-2 口径——
                     // 同文件另四条错误路径均已带）：上游 r.usage 在手即真值，否则走紧邻
-                    // R74-1 估计入账兜底
-                    yield {
-                      type: 'error',
-                      message: '模型返回空产出（Responses completed 无内容项）',
-                      retryable: false,
-                      usage: usageOrEstimate(r.usage),
-                    }
+                    // R74-1 估计入账兜底（R0916-7-P3-15：错误壳走 fin.terminalError 单点）
+                    yield fin.terminalError('模型返回空产出（Responses completed 无内容项）', usageOrEstimate(r.usage))
                     return
                   }
                   // R74-1：completed 无 usage（网关不回 usage）→ 估计入账兜底，
                   // estimated 标记估计口径（修复前 toUsage(null) 恒 0/0 入账）
-                  const ev = emitDone(usageOrEstimate(r.usage), toolYielded ? 'tool_use' : 'stop')
+                  const ev = fin.done(usageOrEstimate(r.usage), toolYielded ? 'tool_use' : 'stop')
                   if (ev) yield ev
                   break
                 }
@@ -503,18 +530,13 @@ export function createOpenAIResponsesProvider(
                   const reason = r.incomplete_details?.reason
                   if (reason === 'max_output_tokens') {
                     // R74-1：incomplete 同款估计兜底（截断场景网关更常缺 usage）
-                    const ev = emitDone(usageOrEstimate(r.usage), 'max_tokens')
+                    const ev = fin.done(usageOrEstimate(r.usage), 'max_tokens')
                     if (ev) yield ev
                   } else {
                     // R1（缺口 2）：content_filter 等其他截断原因不得伪装成正常 stop
                     // R32-2（三十二轮）：随错上抛已发生消耗（R31-1 openai 线同口径）——
                     // r.usage 在手即真值，否则 estimateDoneUsage 折算（标 estimated）
-                    yield {
-                      type: 'error',
-                      message: `响应不完整：${reason ?? 'unknown'}`,
-                      retryable: false,
-                      usage: usageOrEstimate(r.usage),
-                    }
+                    yield fin.terminalError(`响应不完整：${reason ?? 'unknown'}`, usageOrEstimate(r.usage))
                     return
                   }
                   break
@@ -538,13 +560,8 @@ export function createOpenAIResponsesProvider(
                   // GenErrorCode 映射表，不猜）
                   const msg = event.response.error?.message ?? `response.failed (status=${event.response.status ?? 'unknown'})`
                   // R32-2（三十二轮）：failed 同款随错上抛 usage（R31-1 口径，B-12 通道）
-                  yield {
-                    type: 'error',
-                    message: redactSecret(msg),
-                    retryable: false,
-                    code: 'PROTOCOL',
-                    usage: usageOrEstimate(event.response.usage),
-                  }
+                  // R0916-7-P3-15：错误壳走 fin.terminalError 单点
+                  yield fin.terminalError(redactSecret(msg), usageOrEstimate(event.response.usage), 'PROTOCOL')
                   return
                 }
                 case 'error': {
@@ -554,7 +571,7 @@ export function createOpenAIResponsesProvider(
                   if (terminal !== 'none') break
                   terminal = 'failed'
                   // R32-2：error 事件无 response 载荷，usage 走估计兜底（标 estimated）
-                  yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false, code: 'PROTOCOL', usage: estimateDoneUsage() }
+                  yield fin.terminalError(redactSecret(event.message ?? '流中错误事件'), estimateDoneUsage(), 'PROTOCOL')
                   return
                 }
               }
@@ -566,7 +583,7 @@ export function createOpenAIResponsesProvider(
             // 估计（残留调用参数一并计入产出，clear 后再估就丢了）
             const truncUsage = terminal === 'none' ? estimateDoneUsage() : null
             // R39-13（三十九轮）：done 之后不再 flush 残留 tool——completed/incomplete 已
-            // emitDone（doneEmitted），网关某 function_call 只发 delta 未发 output_item.done
+            // done（fin 幂等门），网关某 function_call 只发 delta 未发 output_item.done
             // 时原逻辑会在 done 之后补发 tool 事件（事件序畸形，违反「done 收尾」契约；
             // gen 侧按类型收集会把 post-done tool 混入 toolCalls 且 stopReason 已定为
             // 'stop'）。openai 线同位 flush 只在未 done 分支执行（openai-adapter.ts），三线
@@ -585,7 +602,9 @@ export function createOpenAIResponsesProvider(
             }
             if (terminal === 'none') {
               // R32-2：无终止事件截断同款随错上抛估计 usage（R31-1 口径）
-              yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK', usage: truncUsage ?? undefined }
+              //（R0916-7-P3-15：截断壳走 fin.truncatedError 单点；terminal==='none' 时
+              //  truncUsage 必非 null，见上行三元）
+              yield fin.truncatedError(truncUsage!)
             }
             return
           } catch (e) {

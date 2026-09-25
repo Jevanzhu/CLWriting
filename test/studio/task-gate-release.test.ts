@@ -12,7 +12,6 @@
 import { mkdtempSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
 import { beforeAll, afterAll, it, expect, vi } from 'vitest'
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -26,13 +25,13 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
+import { acquireTaskGate, isTaskGateHeld, lockFileName } from '../../src/studio/server/api/task-gate.js'
 
 let lockDir = ''
 const BOOK = 'R66-29 测试书'
 const ACTION = 'analyze'
-const lockPath = (action: string, book: string): string =>
-  join(lockDir, `${createHash('sha256').update(`${action}\u0000${book}`).digest('hex').slice(0, 16)}.lock`)
+// 锁名走生产导出（R0916-7-P3-14 起 = `${action}.${hash(book)}.lock`）
+const lockPath = (action: string, book: string): string => join(lockDir, lockFileName(book, action))
 
 beforeAll(() => {
   lockDir = mkdtempSync(join(tmpdir(), 'clwriting-r66-29-'))

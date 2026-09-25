@@ -323,7 +323,8 @@ describe('ee-P2-11 删书/改名查 /spawn 在途闸', () => {
     try {
       const busy = await req({ method: 'DELETE', path: `/api/books/${encodeURIComponent(NAME)}` })
       expect(busy.status).toBe(409)
-      expect((busy.json as { error: string }).error).toContain('生成')
+      // R0916-7-P3-12：忙闸文案单源化（原「本书正在生成（手动写稿）……」→ 统一 spawn 信号句）
+      expect((busy.json as { error: string }).error).toContain('手动写稿')
     } finally {
       __setSpawnRunning(NAME, false)
     }
@@ -343,7 +344,8 @@ describe('ee-P2-11 删书/改名查 /spawn 在途闸', () => {
         body: { name: 'spawn闸改名新名' },
       })
       expect(busy.status).toBe(409)
-      expect((busy.json as { error: string }).error).toContain('生成')
+      // R0916-7-P3-12：忙闸文案单源化（原「本书正在生成（手动写稿）……」→ 统一 spawn 信号句）
+      expect((busy.json as { error: string }).error).toContain('手动写稿')
     } finally {
       __setSpawnRunning(NAME, false)
     }

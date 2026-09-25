@@ -402,9 +402,13 @@ describe('T2-2 建链失败审计留痕（mkChain 不再静默）', () => {
       // task 不传：修复前整段调用零事件零日志（审计黑洞）
       const out = await runTask<string>({ userDataPath: ud, bookRoot: tempBookRoot(), run: () => Promise.resolve('ok') })
       expect(out.ok).toBe(true)
-      expect(spy).toHaveBeenCalledTimes(1)
-      expect(spy.mock.calls[0]![0]).toBe('runner')
-      const msg = JSON.parse(spy.mock.calls[0]![1]) as { msg: string; reason: string }
+      // R0916-7-P3-15：本用例只锁「建链失败恰一条留痕」——修复批起 run 回调返回壳的
+      // stopReason 缺失另有一条留痕（'AI 任务返回值的 stopReason 非值域成员'），
+      // 故按 msg 过滤后计数，不再对 warn 总数设断言
+      const mkChainWarns = spy.mock.calls.filter((c) => String(c[1]).includes('链路事件录制器未建'))
+      expect(mkChainWarns).toHaveLength(1)
+      expect(mkChainWarns[0]![0]).toBe('runner')
+      const msg = JSON.parse(mkChainWarns[0]![1]) as { msg: string; reason: string }
       expect(msg.msg).toContain('链路事件录制器未建')
       expect(msg.reason).toBe('missing-args')
     } finally {

@@ -686,10 +686,4 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   opacity: 0.45;
   cursor: not-allowed;
 }
-
-/* 动画 */
-.spin {
-  animation: clw-spin 1s linear infinite;
-}
-
 </style>

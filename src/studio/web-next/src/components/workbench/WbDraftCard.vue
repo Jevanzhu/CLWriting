@@ -80,9 +80,12 @@ onBeforeUnmount(() => {
   font-weight: 400;
   color: var(--text-faint);
 }
-/* F4（五十九轮）：不完整水印提示（与 muted 区分，用警示色） */
+/* F4（五十九轮）：不完整水印提示（与 muted 区分，用警示色）。
+ * R0916-7-P3-26：删回退值——原此处 #b8860b（浅色档）与 StartupNoticeBanner 的
+ * #d4a72c 各执一份，与 tokens.css 定义（浅 #b8860b / 暗 #d4a13a）三方不一致；
+ * token 已定义，回退值只会掩盖拼写错误。 */
 .incomplete {
-  color: var(--text-warning, #b8860b);
+  color: var(--text-warning);
 }
 .btn {
   padding: 0 16px;

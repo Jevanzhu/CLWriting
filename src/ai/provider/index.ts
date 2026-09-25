@@ -17,6 +17,7 @@ export type {
   ContentBlock,
   ToolDef,
   GenEvent,
+  StopReason, // R0916-7-P3-15：三线归一的停止原因判别联合
   TokenUsage,
   ModelProvider,
   ProbeResult,
@@ -81,3 +82,13 @@ export { createAnthropicProvider } from './anthropic-adapter.js'
 export { createOpenAIProviderChat } from './openai-adapter.js'
 export { createOpenAIResponsesProvider } from './responses-adapter.js'
 export { normalizeApiKey, apiKeyRefusal, type ApiKeyCheck, type ApiKeyRejection } from './api-key.js'
+// R0916-7-P3-15：三适配器流尾收口单点（done / 估计兜底 / 过滤判错 / 截断 / stopReason 归一）
+export {
+  createStreamFinalizer,
+  normalizeStopReason,
+  isStopReason,
+  type StreamFinalizer,
+  type StreamFinalizerOpts,
+  type EstimateUsageSources,
+  type WireLine,
+} from './stream-finalize.js'

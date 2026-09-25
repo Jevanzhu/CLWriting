@@ -23,12 +23,9 @@ import { resolveBookOrReply } from '../book-context.js'
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
-import { isChatRunning } from '../../../ai/orchestrate/chat.js'
-import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
-import { isSpawnRunning } from './stream.js'
-import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
-import { isReviewRunningForBook } from './review.js'
+// R0916-7-P3-12：清库族六闸收编 task-gate.busyReason 单源——本文件不再自带闸谓词，
+// 也不从 stream.js 反向取 isSpawnRunning（audit ↔ stream 的 import 环随之解开）
+import { busyReason } from './task-gate.js'
 import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
 import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
@@ -214,38 +211,21 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
 }
 
 /**
- * R29-9（二十九轮）：任务闸「进程内 + 跨进程」合并查询——books.ts busyGate（R75-5）
- * 同口径。heldTaskGatesFor 只看进程内 Set，双进程形态（dev-api/脚本与 GUI 并存）下
- * B 进程分钟级任务在途时，A 进程的清史（DELETE /audit）/清空对话（chat/clear）看不见
- * 该闸，放行清库后任务收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。并入
- * crossProcessHeldTaskGatesFor 锁文件扫描（陈锁由锁原语语义剔除，不误伤）；Set 去重
- * 防本进程闸两侧双报。模式已在 books/audit/stream 三处重复 → 抽本地 helper（放本文件
- * 导出、stream.ts 引用，不动 task-gate.ts 共享面）。
- */
-export function allHeldTaskGatesFor(bookName: string): string[] {
-  return [...new Set([...heldTaskGatesFor(bookName), ...crossProcessHeldTaskGatesFor(bookName)])]
-}
-
-/**
  * 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：清对话（chat/clear）与清
- * 事件史（audit DELETE）共用的六闸拒清理由单源（null = 放行）。闸序沿革：dd-P3
+ * 事件史（audit DELETE）共用的拒清理由单源（null = 放行）。闸序沿革：dd-P3
  * （对话运行）→ hh-P1（task-gate 分钟级任务 + self-heal 批量写稿）→ 第九轮 M-1
  * （三审）→ 第五轮（后台收尾 + spawn 手动写稿）→ R29-9（task-gate 并入跨进程锁
  * 文件扫描）。原两处各自内联同组闸且只在入口查一次——openSessionStoreAsync /
  * clearChatHistory 内部的 await 让出窗口内新起任务时闸检已过、清库照走，任务收尾
  * 继续向已清 session 追加事件（清不彻底 + 事件复活）。现入口与 await 后清库前各查
- * 一次（本函数两用），消息模板「……后再${action}」（audit = 清除事件史 /
- * stream = 清空对话）。
+ * 一次（本函数两用）。
+ *
+ * R0916-7-P3-12：六闸本体与序迁入 task-gate 的忙闸矩阵（'clear-chat'/'clear-events'
+ * 两行），本函数退为「动作词 → 意图」的薄适配（动作词只剩这两个调用面，故直接判别）。
+ * 文案随之统一到矩阵单源（原先各句的字句/尾句差异见矩阵行注释）。
  */
-export function chatClearGateReason(bookName: string, action: string): string | null {
-  if (isChatRunning(bookName)) return `本书对话仍在运行，先停止后再${action}`
-  const held = allHeldTaskGatesFor(bookName)
-  if (held.length > 0) return `本书有任务在跑（${held.join('、')}），先等它完成后再${action}`
-  if (isSelfHealRunning(bookName)) return `本书正在自动写稿，先等它完成或中断后再${action}`
-  if (isReviewRunningForBook(bookName)) return `本书三审进行中，先等它完成后再${action}`
-  if (hasBackgroundTasks(bookName)) return `本书有后台任务收尾中（如定稿摘要），稍等片刻后再${action}`
-  if (isSpawnRunning(bookName)) return `本书正在生成（手动写稿），先等它完成或中断后再${action}`
-  return null
+export function chatClearGateReason(bookName: string, action: '清空对话' | '清除事件史'): string | null {
+  return busyReason(bookName, action === '清空对话' ? 'clear-chat' : 'clear-events')
 }
 
 export function registerAuditRoutes(ctx: AuditCtx): void {

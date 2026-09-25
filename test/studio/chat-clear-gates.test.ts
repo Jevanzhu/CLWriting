@@ -126,7 +126,8 @@ describe('M-2 + 重评二轮-P3-2: chat/clear 与 audit DELETE 六闸同口径',
     try {
       const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
       expect(r.status).toBe(409)
-      expect((r.json as { error: string }).error).toContain('自动写稿')
+      // R0916-7-P3-12：忙闸文案单源化——原「本书正在自动写稿……」→ 矩阵 self-heal 信号句
+      expect((r.json as { error: string }).error).toContain('全自动写章')
       expect(workflowEvents()).toBe(1)
     } finally {
       vi.mocked(isSelfHealRunning).mockReturnValue(false)

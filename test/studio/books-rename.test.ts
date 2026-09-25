@@ -205,7 +205,9 @@ describe('R26-58: rename 同名早退分支过编排闸', () => {
     try {
       const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
       expect(busy.status).toBe(409)
-      expect((busy.json as { error: string }).error).toContain('生成')
+      // R0916-7-P3-12：忙闸文案单源化——此处原断言旧文案（「本书正在生成（手动写稿）……」
+      // 生成系措辞），统一为矩阵 spawn 信号句「本书正在手动写稿，先等它跑完或中断」
+      expect((busy.json as { error: string }).error).toContain('手动写稿')
     } finally {
       __setSpawnRunning(NAME, false)
     }

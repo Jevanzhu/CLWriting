@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
-import { __setReviewRunning } from '../../src/studio/server/api/review.js'
+import { __setReviewRunning } from '../../src/studio/server/api/task-gate.js' // R0916-7-P3-12：三审登记表迁入 task-gate.ts
 import { sleep } from '../helpers/wait-for.js'
 
 const BOOK = 'R71互斥书'

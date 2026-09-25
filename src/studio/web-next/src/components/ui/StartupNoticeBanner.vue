@@ -74,14 +74,14 @@ function dismiss(): void {
   gap: var(--size-4-2);
   margin: var(--size-4-2) var(--size-4-3);
   padding: var(--size-4-2) var(--size-4-3);
-  border: 1px solid var(--text-warning, #d4a72c);
+  border: 1px solid var(--text-warning);
   border-radius: var(--radius-s);
   background: var(--background-secondary);
 }
 .sn-icon {
   flex: none;
   margin-top: 2px;
-  color: var(--text-warning, #d4a72c);
+  color: var(--text-warning);
 }
 .sn-body {
   flex: 1;

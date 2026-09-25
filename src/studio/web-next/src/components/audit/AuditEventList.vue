@@ -204,7 +204,6 @@ function withinDetailLimit(s: string): boolean {
   font-size: var(--font-size-s);
 }
 .load-more:disabled { opacity: 0.55; cursor: default; }
-.spin { animation: clw-spin 0.8s linear infinite; }
 
 .ev-list {
   display: flex;

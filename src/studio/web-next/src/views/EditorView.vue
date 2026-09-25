@@ -10,8 +10,9 @@ import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
-import { mergeFm, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
-import { useDebouncedFmFields } from '../composables/useDebouncedWordCount'
+import { mergeFm, formKindOf, isBodyKind, splitFrontmatter } from '../shared/words'
+import { useDebouncedFmFields, useDebouncedWordCount } from '../composables/useDebouncedWordCount'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import {
   registerBodyWriteback,
   scheduleBodyWriteback,
@@ -44,7 +45,9 @@ const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
 // 当前书类型（长篇/短篇），顶栏 pill 展示；切书时重新拉取 book.yaml
 const bookKind = ref<'long' | 'short' | null>(null)
-let kindReqId = 0
+// R0916-7-P3-26：请求代守卫收敛 useStaleGuard 单源（原裸计数器 kindReqId）。
+// 判定时机逐位不变：await 后先查代再落态，被后发请求作废的迟归结果丢弃。
+const kindReq = useStaleGuard()
 watch(
   () => doc.bookName,
   async (name) => {
@@ -52,13 +55,13 @@ watch(
       bookKind.value = null
       return
     }
-    const reqId = ++kindReqId
+    const reqId = kindReq.begin()
     try {
       const cfg = await getConfig(name)
-      if (reqId !== kindReqId) return // P2-19：丢弃过期结果
+      if (kindReq.stale(reqId)) return // P2-19：丢弃过期结果
       bookKind.value = cfg.kind === 'short' ? 'short' : 'long'
     } catch {
-      if (reqId !== kindReqId) return
+      if (kindReq.stale(reqId)) return
       bookKind.value = null
     }
   },
@@ -122,32 +125,15 @@ function onBodyChange(next: string): void {
 watch(() => props.docId, () => flushBodyWriteback(), { flush: 'sync' })
 // R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
-// R39-20（三十九轮）：字数统计防抖 150ms——countWords 全文正则 + 码点展开每击键
-// O(n)（超大单文件可感），显示延迟一拍无感；初值取当拍 body（首屏/切文档即时），
-// 卸载清定时器
-const wordCount = ref(countWords(body.value))
-let wordCountTimer: ReturnType<typeof setTimeout> | null = null
-watch([body, () => props.docId], ([b, id], old) => {
-  // R43-17（四十三轮）：切 docId 即刻重算字数再进 150ms 防抖——切文档顶栏此前沿防抖
-  // 窗口滞留旧文档字数（切文档非高频路径，无防抖成本顾虑）；同步作废旧文档排定的
-  // 防抖定时器（其回调携带旧 body）。同文档键入照旧走防抖。
-  if (old !== undefined && old[1] !== id) {
-    if (wordCountTimer) {
-      clearTimeout(wordCountTimer)
-      wordCountTimer = null
-    }
-    wordCount.value = countWords(b)
-    return
-  }
-  if (wordCountTimer) clearTimeout(wordCountTimer)
-  wordCountTimer = setTimeout(() => {
-    wordCount.value = countWords(b)
-    wordCountTimer = null
-  }, 150)
-})
-onUnmounted(() => {
-  if (wordCountTimer) clearTimeout(wordCountTimer)
-})
+// R39-20（三十九轮）：字数统计防抖 150ms——countWords 全文码点展开每击键 O(n)（超大
+// 单文件可感），显示延迟一拍无感；初值取当拍（首屏/切文档即时），卸载清定时器。
+// R0916-7-P3-26：手写副本换装 useDebouncedWordCount 共享件——窗口时长（150ms）、
+// 切 docId 即刻重算、口径（countWords 码点计数 + 剥 markdown）逐位不变。内容源改
+// entry.content（原为已剥 fm 的 body）：与 FocusStatsBar / WritingInfoPanel /
+// HistoryPanel 同源同参，共享件内的单槽记忆据此把同一份正文的每窗口计算收成一遍。
+// 由此产生的唯一口径差：非表单目录的 md 若开头有 --- 围栏，此前顶栏把 fm 头计入而
+// 右栏/树不计（树口径见 stores/doc.ts 的 stripFrontmatter），现统一为不计。
+const { count: wordCount } = useDebouncedWordCount(() => entry.value?.content, () => props.docId)
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')

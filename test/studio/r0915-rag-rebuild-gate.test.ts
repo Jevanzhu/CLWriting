@@ -39,8 +39,8 @@ describe('复审-0913-合并批 P3-5：rag rebuild 编排互斥', () => {
     const busy = await studio.req('POST', REBUILD_PATH)
     expect(busy.status).toBe(409)
     expect((busy.json as { code: string }).code).toBe('BUSY')
-    // orchestrationBusyFor 的 spawn 分支人话文案（task-gate.ts 单源，逐字节钉死）
-    expect((busy.json as { error: string }).error).toBe('本书手动写稿进行中，等它完成后再生成（防写稿上下文被覆盖写混态）')
+    // R0916-7-P3-12：忙闸文案单源化——矩阵 spawn 信号句 + generate 意图尾句，逐字节钉死
+    expect((busy.json as { error: string }).error).toBe('本书正在手动写稿，先等它跑完或中断再生成')
     // 409 走编排闸前置分支：自身 action 闸未被占持（不残留死闸挡后续请求）
     expect(isTaskGateHeld(BOOK, 'rag-build')).toBe(false)
     __setSpawnRunning(BOOK, false) // 用例内即时解除（afterAll 兜底为辅），防泄漏到下一用例

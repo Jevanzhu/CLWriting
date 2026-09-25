@@ -24,6 +24,7 @@ import type {
   ToolDef,
   ChatMsg,
   ContentBlock as ClwContentBlock,
+  StopReason,
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
@@ -31,7 +32,7 @@ import { quirksFor, detectFamily } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { anthropicClientOpts } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
-import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
+import { createStreamFinalizer, normalizeStopReason, type EstimateUsageSources } from './stream-finalize.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -225,13 +226,14 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
     conf,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
-      let doneEmitted = false
       let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens（P2-3）
       let cacheReadFromStart: number | undefined // D4：message_start 的 cache 读量（message_delta 缺字段时兜底）
       let cacheWriteFromStart: number | undefined // D4：message_start 的 cache 写量（同上）
       let latestUsage: TokenUsage | null = null // R27-2：流内逐 delta 覆盖，流末统一 emit（末见 wins）
-      let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
-      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
+      // R0916-7-P3-15：缓存归一后的终止值（N6）——此前透传上游原生拼写、命名三线未归一
+      // （R30-13 登记），现捕获点即归一枚举（非标拼写归 'unknown' 并留痕）
+      let pendingStopReason: StopReason | null = null
+      let degraded = false // Z-12：成功建流是否用了降级参数面（fin.isDegraded 闭包读）
       // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流是否已开始消费——外层 catch
       // 据此决定 usage 随错上抛与否（建连期异常无任何消耗，不得按估计值虚报入账）
       let consumedAny = false
@@ -245,31 +247,36 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
       const outText: string[] = []
       const outToolText: string[] = []
-      // R0917-6-P3-4：异常时点的可得用量——① 已实测（inputTokensFromStart / cache 两档 /
-      // latestUsage 末见值）优先，② 缺失才按累计产出折算（与截断分支同源公式），estimated
-      // 标记估计口径；供外层 catch 交 toErrorEvent 随错上抛（B-12 通道，runner 终态失败入账）
-      const errorUsage = (): TokenUsage => {
-        if (latestUsage) return latestUsage
-        for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf)
-        return {
-          inputTokens:
-            inputTokensFromStart > 0 ? inputTokensFromStart : estimateInputTokens(req, conf.model ?? undefined),
-          outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
-          ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
-          ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
-          estimated: true,
-        }
-      }
+      // R0917-6-P3-4：异常时点的可得用量——① 已实测（latestUsage 末见值）优先，② 缺失才按
+      // 累计产出折算（与截断分支同源公式），estimated 标记估计口径；供外层 catch 交
+      // toErrorEvent 随错上抛（B-12 通道，runner 终态失败入账）
+      // （R0916-7-P3-15：折算体已收敛进 fin.estimateUsage 单点，此处只留「实测优先」次序）
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
       // 按原始 req 计算与各 attempt toParams 上线值一致）
       const resolvedMaxTokens = resolveMaxTokens(conf, req)
-      // 去重：某些上游发重复 message_delta（cc-switch issue 记录的故障）
-      // done 幂等，重复到达时忽略
-      const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
-        if (doneEmitted) return null
-        doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
-      }
+      // R0916-7-P3-15：done 发射 / 过滤判错（refusal）/ 截断估算 / usage 兜底收口单点
+      // （三线共用，见 stream-finalize.ts）。missingStopReason 是本线协议口径的显式声明：
+      // message_delta 下发 usage 却不带 stop_reason = 回合正常结束（原 `?? 'end_turn'` 就地兜底）
+      const fin = createStreamFinalizer({
+        line: 'anthropic',
+        stopField: 'stop_reason',
+        resolvedMaxTokens,
+        isDegraded: () => degraded,
+        missingStopReason: 'end_turn',
+      })
+      /** 估计用量输入单点（流级作用域；在途 toolBlocks 一并计入产出折算）——估计分支、
+       *  截断分支、异常 catch 三处同源，防三份各写各的信号清单漂移 */
+      const lateSources = (): EstimateUsageSources => ({
+        req,
+        model: conf.model ?? undefined,
+        outText,
+        outToolText,
+        pendingToolText: [...toolBlocks.values()].map((tb) => tb.name + tb.jsonBuf),
+        measuredInputTokens: inputTokensFromStart,
+        ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
+        ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
+      })
+      const errorUsage = (): TokenUsage => latestUsage ?? fin.estimateUsage(lateSources())
 
       try {
         // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
@@ -373,8 +380,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               break
             }
             case 'message_delta': {
-              // 缓存 stop_reason（即使无 usage 也不丢）——N6
-              if (event.delta?.stop_reason) pendingStopReason = event.delta.stop_reason
+              // 缓存 stop_reason（即使无 usage 也不丢）——N6。R0916-7-P3-15：捕获点即归一
+              // （本线原生值即归一值；非标拼写归 'unknown' 并留痕），done/llm-call 的重放
+              // 口径自此收敛到判别联合，不再受 R30-13 登记的「三线命名未归一」影响
+              if (event.delta?.stop_reason) pendingStopReason = normalizeStopReason(event.delta.stop_reason, 'anthropic')
               // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）。
               // R27-2（二十七轮）：「末见 wins」——此前 message_delta 即席 emitDone（幂等门锁
               // 首个 usage），逐 delta 回 usage 的网关被记成早期部分值、末 delta 完整值被丢，
@@ -425,80 +434,43 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
         //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
         //    被伪造成 end_turn 正常完成。
-        // R30-13（三十轮）登记维持：stopReason 命名三线未归一——本线透传上游原生值
-        //（'end_turn'/'max_tokens'/'tool_use'/…），openai/responses 两线自然完成发 'stop'
-        //（其余值已各自归一：'length'→'max_tokens'、'tool_calls'→'tool_use'）。收敛为规范
-        // 枚举影响面超 4 文件（gen/runner 缺省值 + 15 个断言 'end_turn' 的测试），且现
-        // 消费方只判 'max_tokens'（截断重写）与 toolCalls 非空，命名差异无实害——维持登记。
-        if (!doneEmitted) {
+        // R30-13（三十轮）登记已销账（R0916-7-P3-15）：stopReason 命名三线收敛——本线终止值
+        // 在 message_delta 捕获点即归一（见该处注释），done / llm/call 落的是判别联合成员。
+        if (!fin.doneEmitted()) {
           // R27-2（二十七轮）：流末统一 emit——末见 usage 优先（上面 message_delta 只记
           // 不发）；无 usage 才走估计/截断兜底（与 openai 线 R26-3 同构）
-          // R33D-2（三十三轮）：refusal 不是正常完成——stop_reason 原生透传口径（R30-13
-          // 登记）下该值此前按成功 done 出场，被过滤的半截正文按成功落稿（openai 线
-          // content_filter / responses 线 R1 缺口 2 同因判 error，三线分叉）。error 出场
-          // （retryable:false，usage 随错上抛）。
+          // R33D-2（三十三轮）：refusal 不是正常完成——该值此前按成功 done 出场，被过滤的
+          // 半截正文按成功落稿（openai 线 content_filter / responses 线 R1 缺口 2 同因判
+          // error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
+          // R0916-7-P3-15：两处 refusal 块与两处估计体收敛进 fin（done/filterError/
+          // estimateUsage/truncatedError），本处只留三情形分流
           if (latestUsage) {
-            if (pendingStopReason === 'refusal') {
-              yield {
-                type: 'error',
-                message: '生成被内容过滤截断（stop_reason=refusal）——半截产出不落稿，请调整提示词后重试',
-                retryable: false,
-                code: 'PROTOCOL',
-                usage: latestUsage,
-              }
+            const filtered = fin.filterError(latestUsage, pendingStopReason)
+            if (filtered) {
+              yield filtered
               return
             }
-            const ev = emitDone(latestUsage, pendingStopReason ?? 'end_turn')
+            const ev = fin.done(latestUsage, pendingStopReason)
             if (ev) yield ev
           } else if (pendingStopReason !== null) {
-            for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf) // R73-1：tool 参数计入产出累计
-            const usage: TokenUsage = {
-              inputTokens:
-                inputTokensFromStart > 0
-                  ? inputTokensFromStart // message_start 实测值优先（真实输入计量）
-                  : estimateInputTokens(req, conf.model ?? undefined),
-              outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
-              // R74-7（二十二轮批 A）：message_start 已实测的 cache 两档原样保留——R73-1
-              // 整包重估输入时丢弃，usage 四档分计在兜底路径少两档（cache 计费面被清零）；
-              // anthropic 的 input_tokens 不含 cache（D4 独立记账），并档不双计
-              ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
-              ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
-              estimated: true,
-            }
+            // R73-1：在途 toolBlocks 经 lateSources.pendingToolText 计入产出累计
+            // R74-7（二十二轮批 A）：message_start 已实测的 cache 两档原样保留——R73-1
+            // 整包重估输入时丢弃，usage 四档分计在兜底路径少两档（cache 计费面被清零）；
+            // anthropic 的 input_tokens 不含 cache（D4 独立记账），并档不双计
+            const usage = fin.estimateUsage(lateSources())
             // R33D-2：无 usage 的 refusal 同款判错（估计 usage 随错上抛）
-            if (pendingStopReason === 'refusal') {
-              yield {
-                type: 'error',
-                message: '生成被内容过滤截断（stop_reason=refusal）——半截产出不落稿，请调整提示词后重试',
-                retryable: false,
-                code: 'PROTOCOL',
-                usage,
-              }
+            const filtered = fin.filterError(usage, pendingStopReason)
+            if (filtered) {
+              yield filtered
               return
             }
-            const ev = emitDone(usage, pendingStopReason)
+            const ev = fin.done(usage, pendingStopReason)
             if (ev) yield ev
           } else {
             // R32-1（三十二轮）：截断 error 随错上抛已发生消耗（R31-1 openai 线同口径，
             // B-12 通道）——message_start 实测 input/cache 优先（本分支 latestUsage 必为
             // null，见上），output 按累计产出折算，标 estimated；截断不再丢已发生计费。
-            for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf)
-            yield {
-              type: 'error',
-              message: '传输截断：流结束无终止事件',
-              retryable: true,
-              code: 'NETWORK',
-              usage: {
-                inputTokens:
-                  inputTokensFromStart > 0
-                    ? inputTokensFromStart
-                    : estimateInputTokens(req, conf.model ?? undefined),
-                outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
-                ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
-                ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
-                estimated: true,
-              },
-            }
+            yield fin.truncatedError(fin.estimateUsage(lateSources()))
           }
         }
       } catch (e) {

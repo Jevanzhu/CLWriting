@@ -17,7 +17,8 @@ test('R74-3: spawn 在途 → orchestrationBusyFor 返回手动写稿 BUSY 文�
     const busy = orchestrationBusyFor('R74互斥书')
     expect(busy).not.toBeNull()
     expect(busy).toContain('手动写稿')
-    expect(busy).toContain('等它完成后再生成') // 措辞对齐周边三条 return 口径
+    // R0916-7-P3-12：忙闸文案单源化——矩阵 spawn 信号句 + generate 意图尾句
+    expect(busy).toContain('先等它跑完或中断再生成')
   } finally {
     __setSpawnRunning('R74互斥书', false)
   }

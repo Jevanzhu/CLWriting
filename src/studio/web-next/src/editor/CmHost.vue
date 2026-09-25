@@ -16,6 +16,7 @@ import { autocompletion, startCompletion, completionKeymap, type CompletionConte
 import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { typewriterExt, centerCursorLine } from './typewriter'
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
@@ -133,6 +134,14 @@ const editorSetup: Extension[] = [
 // 补全名称：输入 @ 自动触发 或 Cmd+I 手动触发
 interface NameEntry { label: string; detail: string }
 const completionEntries = ref<NameEntry[]>([])
+/** 补全名称响应 → 条目表（R0916-7-P3-26：切书拉取与 TTL 补拉两处消费点单源，原两段
+ *  map 逐字重复；detail 是「角色/物品」两分段的界面文案，两处须同形）。 */
+function completionEntriesOf(r: { characters: string[]; items: string[] }): NameEntry[] {
+  return [
+    ...r.characters.map((n) => ({ label: n, detail: '角色' })),
+    ...r.items.map((n) => ({ label: n, detail: '物品' })),
+  ]
+}
 function characterCompletion(context: CompletionContext): CompletionResult | null {
   const entries = completionEntries.value
   if (!entries.length) return null
@@ -422,20 +431,20 @@ watch(
 // 补全名称列表（从设定 API 加载：角色名 + 物品名；@ / Cmd+I 触发用）
 // F-P1-5：请求序号防竞态（快速切书时旧请求晚于新请求 resolve 不覆盖）
 const ws = useWorkspaceStore()
-let compReqId = 0
+// R0916-7-P3-26：请求代守卫收敛 useStaleGuard 单源（原裸计数器 compReqId）。两处发起
+// （切书 watch / TTL 补拉）本就共用同一计数——任一发起即作废另一侧在途请求——故仍只建
+// 这一个实例；判定时机逐位不变（await 后先查代再落态）。
+const compReqGen = useStaleGuard()
 watch(
   () => ws.bookName,
   async (name) => {
     if (!name || props.readonly) { completionEntries.value = []; return }
-    const myId = ++compReqId
+    const myId = compReqGen.begin()
     try {
       const r = await getCompletionNames(name)
-      if (myId !== compReqId) return // 旧请求，丢弃
+      if (compReqGen.stale(myId)) return // 旧请求，丢弃
       completionFetchedAt = Date.now() // G6-④：TTL 基点（成功才计龄，失败下次触发即重试）
-      completionEntries.value = [
-        ...r.characters.map((n) => ({ label: n, detail: '角色' })),
-        ...r.items.map((n) => ({ label: n, detail: '物品' })),
-      ]
+      completionEntries.value = completionEntriesOf(r)
     } catch {
       // 五轮重评修复批（F103）：失败清空（若本请求仍是最新）——原 catch 静默吞掉后
       // completionEntries 残留上一本书的名单：A 书成功拉过 → 切 B 书恰逢请求失败
@@ -443,7 +452,7 @@ watch(
       // 只在成功路径计龄，TTL 补拉闸使陈旧窗最长 5 分钟。名单按书作用域（readonly/
       // falsy 分支同样清空），失败清空同口径——空优于错书；下次 @ 触发即重试
       //（completionFetchedAt 未计龄，G6-④ 语义不变）。
-      if (myId === compReqId) completionEntries.value = []
+      if (compReqGen.fresh(myId)) completionEntries.value = []
     }
   },
   { immediate: true },
@@ -451,9 +460,9 @@ watch(
 
 // R1010-P3（G6-④）：名单 TTL 刷新——原仅切书拉取，同会话里新建角色/物品后 @ 补全
 // 一直陈旧到下次切书。@ 击键 / Cmd+I 触发时超龄（5min）即后台补拉一次：竞态仍走
-// compReqId（旧请求晚归丢弃）、单飞标志防触发风暴。刷新结果对「当次已弹浮层」不
-// 生效（CM6 浮层选项在 source 调用瞬间定格，续打只按 validFor 过滤）——下一次
-// 触发即见新名单，陈旧窗口从「会话级」缩到 TTL 级。
+// 切书同一代的守卫（compReqGen——任一发起作废另一侧在途，旧请求晚归丢弃）、单飞标志
+// 防触发风暴。刷新结果对「当次已弹浮层」不生效（CM6 浮层选项在 source 调用瞬间定格，
+// 续打只按 validFor 过滤）——下一次触发即见新名单，陈旧窗口从「会话级」缩到 TTL 级。
 const COMPLETION_TTL_MS = 5 * 60_000
 let completionFetchedAt = 0
 let completionTtlInflight = false
@@ -462,15 +471,12 @@ function refreshCompletionNamesIfStale(): void {
   if (!book || props.readonly) return
   if (completionTtlInflight || Date.now() - completionFetchedAt < COMPLETION_TTL_MS) return
   completionTtlInflight = true
-  const myId = ++compReqId
+  const myId = compReqGen.begin()
   getCompletionNames(book)
     .then((r) => {
-      if (myId !== compReqId) return
+      if (compReqGen.stale(myId)) return
       completionFetchedAt = Date.now()
-      completionEntries.value = [
-        ...r.characters.map((n) => ({ label: n, detail: '角色' })),
-        ...r.items.map((n) => ({ label: n, detail: '物品' })),
-      ]
+      completionEntries.value = completionEntriesOf(r)
     })
     .catch(() => {}) // 设定 API 不可达：保持现名单（陈旧优于清空）
     .finally(() => {

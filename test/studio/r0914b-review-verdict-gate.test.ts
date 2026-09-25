@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
-import { __setReviewRunning } from '../../src/studio/server/api/review.js'
+import { __setReviewRunning } from '../../src/studio/server/api/task-gate.js' // R0916-7-P3-12：三审登记表迁入 task-gate.ts
 
 const BOOK = '裁决竞窗闸测试书'
 let workDir = ''

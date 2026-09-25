@@ -7,7 +7,7 @@
  * - R40-24：save 新建分支 PATH_ESCAPE 消毒闸 + isSanitizedCreatePath 判定在位
  * - R40-38：inflightOpens 删键前 identity 比对（对齐 inflightSaves R33-12 口径）
  * - R40-42：⌘ tooltip 五处全走 mod-key 平台单源，静态写死清零
- * - R40-4：style-harvest 任务闸接线 + KNOWN_ACTIONS 登记（治理对账前提）
+ * - R40-4：style-harvest 任务闸接线（action token 由调用点固定；登记表已随 R0916-7-P3-14 删除）
  * - R40-50：rag status 端点透出 indexState（RAG_RESET_MARKER_KEY 消费）
  * - R40-25：books.jsonl 读侧剥 BOM
  * - R40-45：CmHost getSelectionRect 死导出移除
@@ -77,10 +77,11 @@ describe('R40 静态锚：web-next', () => {
 })
 
 describe('R40 静态锚：服务端与工程', () => {
-  it('R40-4：收割端点任务闸接线 + KNOWN_ACTIONS 登记', () => {
+  it('R40-4：收割端点任务闸接线（action token 由调用点固定）', () => {
+    // R0916-7-P3-14：原第二断言钉 task-gate.ts 内的 KNOWN_ACTIONS 登记表——该表已
+    // 随「锁文件名改 ${action}.${hash(book)}.lock、列目录即枚举」删除；对账门改
+    // action token 门（扫 acquireTaskGate 调用点字面量），见 test/governance/known-actions-audit.test.ts
     expect(read('studio', 'server', 'api', 'style.ts')).toMatch(/acquireTaskGate\(params\['name'\]!, 'style-harvest'\)/)
-    const gate = read('studio', 'server', 'api', 'task-gate.ts')
-    expect(gate).toContain("'style-harvest'")
   })
 
   it('R40-50：rag status 端点透出 indexState', () => {

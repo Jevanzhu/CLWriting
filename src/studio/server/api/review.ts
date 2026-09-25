@@ -18,7 +18,7 @@ import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
-import { acquireTaskGate, orchestrationBusyFor, crossProcessHeldTaskGatesFor } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
+import { busyReason, acquireTaskGate, crossProcessHeldTaskGatesFor, isReviewRunningForDoc, tryHoldReviewRun, releaseReviewRun, REVIEW_BUSY_TEXT } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）；R0916-7-P3-12：忙闸/三审登记单源
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -43,37 +43,23 @@ interface ReviewCtx {
 }
 
 /**
- * X-P1-4：三审运行中并发闸（key=`${bookName}/${docId}`）。三审真实耗时分钟级，
- * 前端超时重试或双击会并发跑两份（费用双倍 + 并发写同一信封）——同 chat/auto-write 的
- * 409 闸口径，运行中直接拒绝。
+ * X-P1-4：三审运行中并发闸（键=`${bookName}/${docId}`，**按文档**）/ hh-P1：本书任一文档
+ * 三审在跑（books.ts 删书/改名持闸用）。
+ *
+ * R0916-7-P3-12：登记表与两判定函数整表迁入 task-gate.ts（忙闸矩阵的 review 信号需要按书
+ * 判定在途三审，而 review.ts → task-gate.ts 是既有单向依赖，登记留本文件会让矩阵反向依赖
+ * 成环）。本文件经 task-gate 的 isReviewRunningForDoc / tryHoldReviewRun / releaseReviewRun
+ * 使用，语义与键格式（NUL 分隔，前缀匹配防书名前缀误报）逐位不变。
+ *
+ * 两把闸的分工（P3-12 理顺，置此备查）：
+ * - 按文档闸（登记表，键 book+docId）：同文档重复点三审 → 409 REVIEW_RUNNING（文案点名文档）；
+ *   review-verdict 完成写竞窗闸同用它（三审完成写整体覆盖 payload，运行中裁决会被静默清除）。
+ * - 书级闸（任务闸 (book,'review')）：同书同时只跑一次三审——三审 ctrl 以 `review:<书名>`
+ *   单 owner 槽登记（cc driver 同 owner 换新会 abort 旧 ctrl），两个文档并发三审会互相掐断，
+ *   故书级互斥是**有意**的；它同时让删书/改名/他进程看得见在途三审。另一文档来犯时走
+ *   busyReason 的 'review' 行文案（P3-12 前那里写「本书有其他任务在跑」——按 (book,'review')
+ *   取键只会与同书另一次三审冲突，文案与成因不符，现点名「已有三审在跑」）。
  */
-const reviewRunning = new Set<string>()
-
-/** hh-P1：本书任一文档三审在跑（books.ts 删书/改名持闸用）——三审是分钟级长任务，
- * 闸内放行删书/改名会在旧路径重建孤儿目录并白烧 API 费用（与 spawn/task-gate 同模式）。 */
-export function isReviewRunningForBook(bookName: string): boolean {
-  // 二轮复审（低级）：NUL 分隔——书名/文档 ID 任一含 '/' 时 `${book}/${doc}` 的前缀
-  // 匹配理论可误报；NUL 不可能出现在两侧实值里（书名净化 + docId 为生成哈希）
-  const prefix = bookName + '\u0000'
-  for (const k of reviewRunning) if (k.startsWith(prefix)) return true
-  return false
-}
-
-/** 二轮复审（低级）：三审运行闸组键（NUL 分隔，与 isReviewRunningForBook 同判据） */
-function reviewRunKey(bookName: string, docId: string): string {
-  return `${bookName}\u0000${docId}`
-}
-
-/** 测试钩子（同 stream.ts __setSpawnRunning 先例）：不经真实三审直接置/清本书运行闸，
- * 供 books 删书/改名 409 接线测用。P2-1（全库重评-0914）：可选 docId（缺省 '__test__'
- * 既有调用方零破坏）——review-verdict 竞窗闸按真实文档 docId 查闸，须能预置到具体
- * 文档键上；用例负责同参清理。 */
-export function __setReviewRunning(bookName: string, running: boolean, docId = '__test__'): void {
-  const key = reviewRunKey(bookName, docId)
-  if (running) reviewRunning.add(key)
-  else reviewRunning.delete(key)
-}
-
 const LENS_LABEL: Record<string, string> = {
   reader: '读者',
   editor: '编辑',
@@ -105,9 +91,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       //（outline/analysis/onboard 等生成端点均已接 orchestrationBusyFor）：写稿中
       //（self-heal/chat/后台收尾）发起三审，分钟级窗口内草稿持续推进，draft_hash
       // 守卫到期必失配（审稿单不成立），generateTool×3 白烧一次费用；对齐 outline.ts
-      // 接法，命中 409 BUSY（R67-13 同口径）
-      const busyOrch = orchestrationBusyFor(params['name']!)
-      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
+      // 接法，命中 409 BUSY（R67-13 同口径）。
+      // R0916-7-P3-12：忙闸单源 = busyReason('review')——编排四面（self-heal/chat/手动写稿/
+      // 后台收尾），序与文案与 P3-12 前逐位一致。同书另一次三审不在本步（同 action 自冲突
+      // 归下方按文档闸与书级闸，见矩阵 review 行注）。
+      const busy = busyReason(params['name']!, 'review')
+      if (busy) return replyError(res, 409, 'BUSY', busy)
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
@@ -118,19 +107,21 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
       if (!f.ok) return replyError(res, f.status, f.code, f.message)
       // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
-      const runKey = reviewRunKey(params['name']!, docId)
-      if (reviewRunning.has(runKey)) {
+      // R0916-7-P3-12：改经登记表访问器（表已迁 task-gate.ts，单向依赖不变）
+      if (!tryHoldReviewRun(params['name']!, docId)) {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
-      reviewRunning.add(runKey)
       // R62-17：三审此前仅内存 Set（进程内），未接 task-gate 跨进程闸——删书/改名/
       // 他进程（dev-api/Electron 拆分 server）对在跑三审不可见，闸内删除会在旧路径重建
-      // 孤儿目录并白烧 API 费用。补跨进程任务闸（book:review）：占不上（本书有其他
-      // 长任务在跑）→ 409；持有期间 books.ts busyGate/heldTaskGatesFor 一并拦截。
+      // 孤儿目录并白烧 API 费用。补跨进程任务闸（book:review）：持有期间 books.ts
+      // busyGate/heldTaskGatesFor 一并拦截。
+      // R0916-7-P3-12：占闸失败 = 同书已有三审在跑（本格成因单义——按 (book,'review')
+      // 取键只可能与同书另一次三审冲突；跨进程持有者只在此路径可见），文案取
+      // REVIEW_BUSY_TEXT 单源，不再写「本书有其他任务在跑」。
       const releaseGate = acquireTaskGate(params['name']!, 'review')
       if (!releaseGate) {
-        reviewRunning.delete(runKey)
-        return replyError(res, 409, 'REVIEW_BUSY', '本书有其他任务在跑，先等它完成后再发起三审')
+        releaseReviewRun(params['name']!, docId)
+        return replyError(res, 409, 'REVIEW_BUSY', REVIEW_BUSY_TEXT)
       }
       try {
 
@@ -277,8 +268,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           rmSync(reviewOutDir, { recursive: true, force: true })
         }
       } finally {
-        // X-P1-4：并发闸释放（成功/失败/异常路径都解锁）
-        reviewRunning.delete(runKey)
+        // X-P1-4：并发闸释放（成功/失败/异常路径都解锁）；R0916-7-P3-12：经登记表访问器
+        releaseReviewRun(params['name']!, docId)
         releaseGate() // R62-17：task-gate 同 finally 释放（幂等）
       }
     },
@@ -311,7 +302,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // 静默清除（R-16 写前重读只防「verdict 丢三审结果」的另一半，防不了本向）。
       // 最小闸对齐同文件三审端点自身闸（同码同文案）：运行中 409 拒裁决不排队——
       // 排队只会把旧 verdict 在完成写之后覆写回去，时机不可预期。
-      if (reviewRunning.has(reviewRunKey(params['name']!, docId))) {
+      // R0916-7-P3-12：查按文档闸（表已迁 task-gate.ts，访问器同语义）
+      if (isReviewRunningForDoc(params['name']!, docId)) {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
 

@@ -102,7 +102,7 @@ async function onRefresh(): Promise<void> {
 .left-tab svg {
   flex-shrink: 0;
 }
-/* 刷新文件树：仅树面板显示，与收起按钮同排（.spin 旋转走全局 utilities.css 0.9s 兜底档） */
+/* 刷新文件树：仅树面板显示，与收起按钮同排（.spin 旋转单源在全局 utilities.css） */
 
 .left-body {
   flex: 1;

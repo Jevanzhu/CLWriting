@@ -305,8 +305,4 @@ function adoptPicked(): void {
   color: var(--text-normal);
   border-color: var(--interactive-accent);
 }
-.spin {
-  animation: clw-spin 0.8s linear infinite;
-}
-
 </style>

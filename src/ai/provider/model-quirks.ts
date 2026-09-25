@@ -154,8 +154,11 @@ export interface FamilyQuirks {
 
   /** 输出上限参数名（OpenAI 侧新旧名并存，各家不同） */
   maxTokensKey: 'max_completion_tokens' | 'max_tokens'
-  /** effort → reasoning_effort 值；null = 该系列不支持，不发 */
-  reasoningEffort(effort: EffortLevel): string | null
+  /** effort → reasoning_effort 值；null = 该系列不支持，不发。
+   *  R0916-7-P3-16：返回值收窄为 EffortLevel（表内映射只有透传与 trimEffort 两形态，
+   *  产出恒在档位值域内）。SDK 的 ReasoningEffort 是 EffortLevel 的超集，适配器可直接
+   *  赋值受 SDK 类型校验——原先返回 string 迫使调用侧整对象双重断言绕开校验。 */
+  reasoningEffort(effort: EffortLevel): EffortLevel | null
   /** 发 effort 时是否附带 thinking 对象（DeepSeek 双写法官方并存） */
   thinkingWithEffort: boolean
   /** stop 序列裁剪；返回 null = 不发该参数 */
@@ -192,7 +195,7 @@ export interface FamilyQuirks {
  * cherry 有意发 max 直达顶档（注释 "leaving max as the only way to reach the top
  * level"），故 wire 上 medium→high、xhigh→max。其余厂家全透传，不预演折叠。
  */
-function trimEffort(e: EffortLevel): string {
+function trimEffort(e: EffortLevel): EffortLevel {
   return e === 'medium' ? 'high' : e === 'xhigh' ? 'max' : e
 }
 

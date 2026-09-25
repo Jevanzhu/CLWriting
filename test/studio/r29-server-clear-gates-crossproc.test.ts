@@ -17,15 +17,13 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createHash } from 'node:crypto'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
-import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
-import { allHeldTaskGatesFor } from '../../src/studio/server/api/audit.js'
+import { acquireTaskGate, allHeldTaskGatesFor, lockFileName } from '../../src/studio/server/api/task-gate.js'
 
-// 复现锁文件名算法（sha256(key) 前 16 hex；key = action + NUL + book）——与 task-gate.ts 同源约定
-const lockName = (action: string, book: string): string =>
-  `${createHash('sha256').update(`${action}\u0000${book}`).digest('hex').slice(0, 16)}.lock`
+// 锁名走生产导出（R0916-7-P3-14 起 = `${action}.${hash(book)}.lock`）——本文件只关心
+// 「另一进程在持」的语义；allHeldTaskGatesFor 同批迁回 task-gate.ts（原就近放 audit.ts）
+const lockName = (action: string, book: string): string => lockFileName(book, action)
 
 const BOOK = 'R29清史闸书'
 let workDir = ''

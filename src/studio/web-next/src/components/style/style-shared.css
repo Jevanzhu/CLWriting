@@ -11,7 +11,7 @@
  * 仅收编逐字相同的规则块；有差异的行留在各文件（注记差异缘由）：
  * - .btn-ghost:disabled：EntryPanel 原本无 disabled 规则（不引入，保持视觉不变），
  *   AcceptancePanel 仅 .btn-ghost:disabled，Baseline/Candidate 为双选择器合并块。
- * - .spin：仅 Acceptance/Candidate 使用，留在各文件。
+ * - .spin：旋转动画单源在全局 styles/utilities.css（R0916-7-P3-26 起），本域无定义。
  * - .token-chip.cost：仅 AcceptancePanel 使用，留在该文件。
  */
 

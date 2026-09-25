@@ -175,6 +175,42 @@ export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
   return copyTrashEntries(parsed)
 }
 
+/**
+ * R0916-7-P3-16（评审 P3-16 第三项）：角色联合的运行时值表与读入校验。
+ *
+ * 此前 parseTrashText 直接 `(o.role as DocumentRole) ?? 'note'`——盘上任意字符串（清单被
+ * 手改 / 旧版本枚举漂移 / 他进程写入坏值）原样进入角色联合，下游按角色分流的能力判定
+ * （capabilitiesOf、tree 的字数统计面）拿到类型系统无法预料的取值。现在读入即校验：
+ * 非法值回落 'note' 并日志留痕（丢弃必须可感知）。
+ *
+ * 落位说明：DocumentRole 定义在 layout.ts（本轮改动面不含该文件），故校验函数导出在本模块
+ * ——消费方（restore / 清单投影 / 未来其它盘上枚举读点）可按需复用；后续若加宽改动面，
+ * 宜随联合定义上移。
+ */
+const DOCUMENT_ROLES: readonly DocumentRole[] = [
+  'chapter',
+  'piece-body',
+  'chapter-outline',
+  'outline',
+  'volume-outline',
+  'setting',
+  'ledger',
+  'style',
+  'introduction',
+  'draft',
+  'material',
+  'note',
+  'discard',
+]
+
+/** 盘上 role 字段 → DocumentRole（非法/缺失回落 'note'；非法值留痕，缺失是旧清单的合法形态故静默） */
+export function parseDocumentRole(v: unknown): DocumentRole {
+  if (v === undefined || v === null) return 'note'
+  if (typeof v === 'string' && (DOCUMENT_ROLES as readonly string[]).includes(v)) return v as DocumentRole
+  log.warn('trash', JSON.stringify({ msg: '回收站条目 role 非法（回落 note）', role: typeof v === 'string' ? v : typeof v }))
+  return 'note'
+}
+
 /** 文本 → TrashEntry[]（容错/strict 两版共用解析体；P3 复审-0914-优化修复批：
  *  原签名带 out 参 entries 就地 push、返回同容器，改纯返回值语义——收容器内置，
  *  调用方不再预置；解析行为与产出逐位不变）。 */
@@ -196,7 +232,8 @@ function parseTrashText(raw: string): TrashEntry[] {
             ? { tags: o.tags as string[] }
             : {}),
           ...(typeof o.order === 'number' ? { order: o.order } : {}),
-          role: (o.role as DocumentRole) ?? 'note',
+          // R0916-7-P3-16：读入校验（见 parseDocumentRole）；旧清单缺该字段仍回落 'note'
+          role: parseDocumentRole(o.role),
           // W-P2-1：定稿基线随条目落账/读回（旧条目无此字段 → undefined，按从未定稿处理）
           ...(o.finalizedRevision ? { finalizedRevision: o.finalizedRevision, finalizedAt: o.finalizedAt } : {}),
         })

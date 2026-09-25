@@ -173,8 +173,9 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 
 <style scoped>
 /* .panel/.btn-ghost/.btn-primary 基础族、.token-chip 基础与 .free、.kind-badge 族
- * 已收敛至 style-shared.css（R0912-C2-P3-3 全局装载）；disabled 规则与 .spin 留
- * 本文件（Entry 原无 disabled、Acceptance disabled 仅 ghost 单选择器，形态不一致不强统一）。 */
+ * 已收敛至 style-shared.css（R0912-C2-P3-3 全局装载）；disabled 规则留
+ * 本文件（Entry 原无 disabled、Acceptance disabled 仅 ghost 单选择器，形态不一致不强统一）。
+ * .spin 旋转动画随之单源在全局 styles/utilities.css（R0916-7-P3-26，原 1s 本地档已删）。 */
 .head-count {
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -198,10 +199,6 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
   opacity: 0.45;
   cursor: default;
 }
-.spin {
-  animation: clw-spin 1s linear infinite;
-}
-
 /* ══ ③ 候选箱 ══ */
 .cand-list {
   display: flex;

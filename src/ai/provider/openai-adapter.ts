@@ -26,13 +26,14 @@ import type {
   ToolDef,
   ChatMsg,
   ContentBlock,
+  StopReason,
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
-import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
+import { createStreamFinalizer, normalizeStopReason } from './stream-finalize.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -78,14 +79,17 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * 400 会话死锁。与 responses 线 responsesWire.echoReasoning（strip/encrypted/none）
  * 对称，本线为布尔两态。reasoning 块本体在 ChatMsg 内保留（AI 链路守则：模型可见
  * ⟺ 已记录），此处只管 wire 序列化形态。
+ *
+ * R0916-7-P3-16：按 SDK 消息类型构造（返回值须可直接进 create 的 messages）——
+ * reasoning_content 用交叉类型表达为厂商扩展，不再整数组断言。
  */
-function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): Record<string, unknown>[] {
+function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   if (typeof m.content === 'string') return [{ role: m.role, content: m.content }]
 
   // block 数组：分离 text/tool_use(tool_calls) 和 tool_result
   const textParts: string[] = []
-  const toolCalls: Record<string, unknown>[] = []
-  const toolResults: Record<string, unknown>[] = []
+  const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall[] = []
+  const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] = []
 
   for (const b of m.content as ContentBlock[]) {
     if (b.type === 'text') {
@@ -105,12 +109,16 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): Record<string, un
     }
   }
 
-  const out: Record<string, unknown>[] = []
+  const out: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
   // assistant 消息：text + reasoning_content + tool_calls
   if (m.role === 'assistant') {
-    const msg: Record<string, unknown> = { role: 'assistant', content: textParts.join('') || null }
     // 思维链往返（DeepSeek/Kimi 思考模型硬要求，见方案 §4.2）——reasoning 块写回
-    // reasoning_content；档位由 toParams 按家族表注入（R40-2，见函数头注）
+    // reasoning_content；档位由 toParams 按家族表注入（R40-2，见函数头注）。
+    // reasoning_content 是 SDK 类型外的厂商扩展（OpenAI 官方端点无此字段）。
+    const msg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & { reasoning_content?: string } = {
+      role: 'assistant',
+      content: textParts.join('') || null,
+    }
     const reasoning = (m.content as ContentBlock[]).filter((b) => b.type === 'reasoning').map((b) => b.text).join('')
     if (reasoning && echoReasoning) msg['reasoning_content'] = reasoning
     if (toolCalls.length > 0) msg['tool_calls'] = toolCalls
@@ -119,19 +127,29 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): Record<string, un
     // user 消息：纯 text 部分作为 user content；tool_result 展开为独立 role:'tool' 消息
     // R31-6（三十一轮）：tool 消息先出、文本后出——OpenAI 要求 role:'tool' 紧跟 assistant
     // tool_calls，文本插中间会在混合形态下 400；当前链路 tool_result 恒独占 user 消息
-    //（responses-adapter 同注），本序修正是防御性口径对齐
+    // （responses-adapter 同注），本序修正是防御性口径对齐
     out.push(...toolResults)
     if (textParts.length > 0) out.push({ role: 'user', content: textParts.join('') })
   }
   return out
 }
 
-/** GenRequest → OpenAI ChatCompletionCreateParamsStreaming */
-function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
+/**
+ * R0916-7-P3-16：本线 non-SDK 扩展字段——thinking 对象是 DeepSeek 官方双写法
+ * （与 reasoning_effort 并存，方案 §4.1），SDK 类型无此字段，用交叉类型逐字段表达，
+ * 不再把整个参数对象造进 Record<string, unknown> 后 `as unknown as` 回来（那会
+ * 让 SDK 形状校验整段失效）。
+ */
+type OpenAIChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming & {
+  thinking?: { type: 'enabled' }
+}
+
+/** GenRequest → OpenAI ChatCompletionCreateParamsStreaming（导出：测试做类型层可赋性断言） */
+export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams {
   // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数。
   // R40-2：上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
   const q = quirksFor(conf.model ?? '')
-  const messages: Record<string, unknown>[] = []
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
   // P3-Q7：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
   if (req.systemPrompt) {
     messages.push({ role: 'system', content: req.systemPrompt })
@@ -140,7 +158,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     messages.push(...toOpenAIMessages(m, q.echoReasoning))
   }
 
-  const params: Record<string, unknown> = {
+  const params: OpenAIChatParams = {
     // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
     model: conf.model ?? '',
     messages,
@@ -178,7 +196,8 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     }
   }
 
-  // effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛）
+  // effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛；表返回 EffortLevel
+  // 值域，正是 SDK ReasoningEffort 的子集，直接赋值即受 SDK 类型校验）
   if (req.effort) {
     const effort = q.reasoningEffort(req.effort)
     if (effort) {
@@ -210,7 +229,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   return params
 }
 
-function toOpenAITool(tool: ToolDef): Record<string, unknown> {
+function toOpenAITool(tool: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
   return {
     type: 'function',
     function: {
@@ -278,9 +297,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
     conf,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
-      let doneEmitted = false
-      let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
-      let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
+      let degraded = false // Z-12：成功建流是否用了降级参数面（fin.isDegraded 闭包读）
+      // R0916-7-P3-15：本值恒为归一枚举成员——非标网关的未知 finish_reason 在捕获点即
+      // 由 normalizeStopReason 归 'unknown' 并留痕；初值 'stop' 只在 sawFinishReason 之前
+      // 有效，而 done 只在 sawFinishReason 之后发射（见下方收尾分支），故等价于「恒已赋值」
+      let pendingStopReason: StopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
       // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
       // latestUsage / outText 三件均声明在 attempt 循环内，外层 catch 取不到；由循环内逐
@@ -293,11 +314,15 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
       // openai 线无兜底不发 → undefined，与 toParams 上线值同源）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
-      const emitDone = (usage: TokenUsage, stopReason: string): GenEvent | null => {
-        if (doneEmitted) return null
-        doneEmitted = true
-        return { type: 'done', usage, stopReason, resolvedMaxTokens, ...(degraded ? { degraded: true } : {}) }
-      }
+      // R0916-7-P3-15：done 发射 / 过滤判错 / 截断估算 / usage 兜底收口单点（三线共用，
+      // 见 stream-finalize.ts）；本线不设 missingStopReason——done 只在 sawFinishReason
+      // 之后发射，该分支 pendingStopReason 恒已由 finish_reason 赋值
+      const fin = createStreamFinalizer({
+        line: 'openai',
+        stopField: 'finish_reason',
+        resolvedMaxTokens,
+        isDegraded: () => degraded,
+      })
 
       // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
       // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
@@ -311,10 +336,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
           // 已收到 chunk 后换参数面重跑会让消费者收到重复增量，一律转终态错误。
           let consumedAny = false
           try {
-            const stream = await c.chat.completions.create(
-              toParams(conf, attempt) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
-              { signal },
-            )
+            const stream = await c.chat.completions.create(toParams(conf, attempt), { signal })
             markStructuredDegrade(plan, attempt, store)
             // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
             // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
@@ -338,16 +360,17 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             let fallbackToolSeq = 0
             // R0917-6-P3-4：本 attempt 的异常用量估计器绑定（见流级声明处注释）——末见
             // usage 优先（网关实测值），否则按累计产出折算；与截断分支（R51-C-1）同源公式
-            errorUsageOf = () => {
-              if (latestUsage) return toUsage(latestUsage)
-              let estText = outText.join('')
-              for (const [, acc] of toolAccum) estText += acc.name + acc.argsBuf
-              return {
-                inputTokens: estimateInputTokens(req, conf.model ?? undefined),
-                outputTokens: estimateOutputTokens(estText, conf.model ?? undefined),
-                estimated: true,
-              }
-            }
+            // （R0916-7-P3-15：折算走 fin.estimateUsage 单点，在途 toolAccum 一并计入）
+            errorUsageOf = () =>
+              latestUsage
+                ? toUsage(latestUsage)
+                : fin.estimateUsage({
+                    req,
+                    model: conf.model ?? undefined,
+                    outText,
+                    outToolText,
+                    pendingToolText: [...toolAccum.values()].map((a) => a.name + a.argsBuf),
+                  })
             for await (const chunk of stream) {
               consumedAny = true
               streamConsumedAny = true // R0917-6-P3-4：跨 attempt 置位不复位
@@ -436,11 +459,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 }
                 toolAccum.clear()
 
-                // 统一 stopReason 命名：OpenAI 'length' → 'max_tokens'（与 Anthropic 对齐，generateText 截断检查靠此）
-                pendingStopReason =
-                  choice.finish_reason === 'tool_calls' ? 'tool_use'
-                  : choice.finish_reason === 'length' ? 'max_tokens'
-                  : choice.finish_reason
+                // R0916-7-P3-15：终止值在捕获点即归一（'length'→'max_tokens'、
+                // 'tool_calls'→'tool_use'；非标拼写归 'unknown' 并留痕）——三线同一值域，
+                // 收尾分支只按归一枚举判定，不再各处临时改名
+                pendingStopReason = normalizeStopReason(choice.finish_reason, 'openai')
                 sawFinishReason = true
                 // finish_reason chunk 自带 usage（非 include_usage 模式）→ 已在循环头
                 // 统一落账（C101，末见 wins）——此处无需重复写 latestUsage
@@ -466,22 +488,19 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
             // R36-14：latestUsage 为空的兜底闸——空 usage 对象已在上游 isRealUsage 拦截，
             // 此处双保险防未来赋值面漏网；为空则落下方 R73-1 估计兜底分支
+            // R0916-7-P3-15：过滤判错与 done 发射收口 fin 单点（过滤块原两份拷贝已删）
             if (isRealUsage(latestUsage) && sawFinishReason) {
-              if (pendingStopReason === 'content_filter') {
-                yield {
-                  type: 'error',
-                  message: '生成被内容过滤截断（finish_reason=content_filter）——半截产出不落稿，请调整提示词后重试',
-                  retryable: false,
-                  code: 'PROTOCOL',
-                  usage: toUsage(latestUsage),
-                }
+              const usage = toUsage(latestUsage)
+              const filtered = fin.filterError(usage, pendingStopReason)
+              if (filtered) {
+                yield filtered
                 return
               }
-              const ev = emitDone(toUsage(latestUsage), pendingStopReason)
+              const ev = fin.done(usage, pendingStopReason)
               if (ev) yield ev
             }
             // P2-AI-2：流异常收尾（usage 已在上面统一 emit 过则整块跳过）
-            if (!doneEmitted) {
+            if (!fin.doneEmitted()) {
               if (sawFinishReason) {
                 // R26-25（二十六轮）：残留 tool 事件只在「正常完成但缺 usage」分支补发并
                 // 计入产出估计——原口径传输截断分支也先 flush tool 再发 error，gen 层遇
@@ -501,23 +520,15 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 估计入账：output ≈ 累计 delta 文本/tool 参数字符折算（usage-estimate.ts
                 // 与备料 estimateTokens 同源系数），input ≈ 本次请求 prompt 字符折算；
                 // estimated 标记估计口径，runner 记账/self-heal 消费面照常按数值生效。
-                const estimatedUsage: TokenUsage = {
-                  inputTokens: estimateInputTokens(req, conf.model ?? undefined),
-                  outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
-                  estimated: true,
-                }
+                // R0916-7-P3-15：折算走 fin.estimateUsage 单点（reset tool 已入 outToolText）
+                const usage = fin.estimateUsage({ req, model: conf.model ?? undefined, outText, outToolText })
                 // R33D-2：无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
-                if (pendingStopReason === 'content_filter') {
-                  yield {
-                    type: 'error',
-                    message: '生成被内容过滤截断（finish_reason=content_filter）——半截产出不落稿，请调整提示词后重试',
-                    retryable: false,
-                    code: 'PROTOCOL',
-                    usage: estimatedUsage,
-                  }
+                const filtered = fin.filterError(usage, pendingStopReason)
+                if (filtered) {
+                  yield filtered
                   return
                 }
-                const ev = emitDone(estimatedUsage, pendingStopReason)
+                const ev = fin.done(usage, pendingStopReason)
                 if (ev) yield ev
               } else {
                 // R1 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
@@ -534,21 +545,18 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 对齐 anthropic jsonBuf / responses args 两线口径）——「未见 usage 的
                 // 传输截断 + 在途工具调用」复合形态下原只按 delta 文本折算，output 估计
                 // 系统性小幅低估；tool 事件本身仍不 flush（R26-25 取舍不变，只修估计入账面）。
-                let truncEstText = outText.join('')
-                for (const [, acc] of toolAccum) truncEstText += acc.name + acc.argsBuf
-                yield {
-                  type: 'error',
-                  message: '传输截断：流结束无终止事件',
-                  retryable: true,
-                  code: 'NETWORK',
-                  usage: latestUsage
+                // R0916-7-P3-15：估计与截断壳均走 fin 单点（在途 toolAccum 经 pendingToolText 计入）
+                yield fin.truncatedError(
+                  latestUsage
                     ? toUsage(latestUsage)
-                    : {
-                        inputTokens: estimateInputTokens(req, conf.model ?? undefined),
-                        outputTokens: estimateOutputTokens(truncEstText, conf.model ?? undefined),
-                        estimated: true,
-                      },
-                }
+                    : fin.estimateUsage({
+                        req,
+                        model: conf.model ?? undefined,
+                        outText,
+                        outToolText,
+                        pendingToolText: [...toolAccum.values()].map((a) => a.name + a.argsBuf),
+                      }),
+                )
               }
             }
             return

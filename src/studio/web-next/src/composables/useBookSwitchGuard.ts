@@ -29,6 +29,7 @@ import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { useChatTier } from './useChatTier'
+import { useStaleGuard } from './useStaleGuard'
 
 /** 切书守卫的注入面（其余依赖在本函数内取——pinia/路由实例与 setup 同源）。 */
 export interface BookSwitchGuardDeps {
@@ -53,7 +54,10 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   const chat = useChatStore()
   const ui = useUiStore()
 
-  let bookGen = 0
+  // R0916-7-P3-26：切书代次收敛 useStaleGuard 单源（原裸计数器 bookGen）。判定时机逐位
+  // 不变（await 后先查代再落态）：脏路由 flush 窗、三段守卫的弹窗 await 窗与链尾 resync
+  // 前各有一道 stale/fresh 复检，作废轮的迟到结果一律不落态、不回滚。
+  const bookGen = useStaleGuard()
   // Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
   let lastBook = ''
   // 复审-0914-优化修复批（P1-7a）：切书链三段「确认丢弃→取消则回滚」守卫（Z-8 冲突
@@ -78,7 +82,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     // R33D-9：重挂路径 lastBook 为 ''，回退目标用权威源 prevBook
     lastBook = prevBook
     await router.replace(`/book/${encodeURIComponent(prevBook)}`)
-    if (gen === bookGen && bookName.value === prevBook) {
+    if (bookGen.fresh(gen) && bookName.value === prevBook) {
       resync()
       void chat.seedHistory(prevBook)
     }
@@ -99,7 +103,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       cancelText: '留在本书',
       danger: true,
     })
-    if (opts.gen !== bookGen) return 'stale'
+    if (bookGen.stale(opts.gen)) return 'stale'
     if (!drop) {
       // 取消 = 留在原书，但弹窗 await 期间路由已是目标书 n——R32-8（三十二轮）：SSE 已
       // 连上 n，其 sync/chat/text 事件已 dispatch 进仍展示原书的 store；回退路由重入
@@ -115,7 +119,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   }
   watch(bookName, async (n) => {
     // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
-    const gen = ++bookGen
+    const gen = bookGen.begin()
     // R26-18（二十六轮）：同书重入短路——守卫取消分支 router.replace 回原书会再次触发
     // 本 watch，此时书并未变化，workbench.clear/flushDirty/setBook/各 store clear 全是
     // 零收益动作（clear 还会误清原书工作台态）。n===lastBook 直接返回，不重复清。
@@ -133,7 +137,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     if (!n) {
       workbench.clear() // 第五轮口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
       const failedEmpty = await doc.flushDirty()
-      if (gen !== bookGen) return // 挂起期间路由又变：交新轮回处理
+      if (bookGen.stale(gen)) return // 挂起期间路由又变：交新轮回处理
       // R37-1（三十七轮批E）：flush 等待窗口内在途保存可能落成 conflict——这类条目不在
       // failed 口径内（flushDirty 的扫描排除 conflict 项），一并留痕防静默
       const conflictEmpty = doc.conflictedDirtyDocs()
@@ -185,7 +189,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     workbench.clear()
     // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
     const failed = await doc.flushDirty()
-    if (gen !== bookGen) return
+    if (bookGen.stale(gen)) return
     // F1（五十九轮）：守卫拓宽——非冲突保存失败（网络断/5xx）的 dirty 文档同样从未
     // 落盘，setBook 清缓存即不可恢复丢失，与 Z-8 冲突形态同类灾难；统一走确认弹窗
     // （文案区分），拒绝 → 回退路由留在原书重试保存
@@ -232,6 +236,6 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     // flushDirty 秒级在途）期间新书连接的 sync 可能已到并被链首 workbench.clear() 复位
     //（假空闲 → 状态卡显示可再「生成」的双 spawn 窗）。gen 守卫通过（本轮仍是最新切书）
     // 且 bookName 仍等于 n（本轮切书结果未被再切覆盖）时，断开重连让服务端重发权威快照
-    if (gen === bookGen && bookName.value === n) resync()
+    if (bookGen.fresh(gen) && bookName.value === n) resync()
   }, { immediate: true })
 }

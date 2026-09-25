@@ -10,8 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { rmSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
-import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
+import { acquireTaskGate, isTaskGateHeld, lockFileName } from '../../src/studio/server/api/task-gate.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -25,10 +24,9 @@ afterAll(() => {
   for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
 })
 
+/** 锁名走生产导出（R0916-7-P3-14 起 = `${action}.${hash(book)}.lock`）。 */
 function lockPathOf(dir: string, book: string, action: string): string {
-  const key = `${action}\u0000${book}`
-  const name = createHash('sha256').update(key).digest('hex').slice(0, 16) + '.lock'
-  return join(dir, name)
+  return join(dir, lockFileName(book, action))
 }
 
 describe('R71-3 任务闸锁续期', () => {

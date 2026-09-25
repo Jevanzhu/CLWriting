@@ -197,6 +197,32 @@ export interface ToolDef {
   input_schema: Record<string, unknown> // JSON Schema
 }
 
+/**
+ * R0916-7-P3-15：归一后的停止原因判别联合（三适配器同一产出集合）。
+ *
+ * 归一动机：此前三线各自透传上游原生拼写（openai 'length'/'tool_calls' 在适配器内
+ * 临时改名，anthropic 原样透 'end_turn' 等），runner 只能对 run 回调返回值鸭子类型
+ * 抽取、缺省静默落 'end_turn'——未知值既可谎报正常完成、又会以任意字符串进 llm/call
+ * 重放口径。现在：值域封闭于此联合，归一单点在 provider/stream-finalize.ts
+ * （normalizeStopReason），线上未知拼写显式归类 'unknown' 并留痕。
+ *
+ * 'stop' 与 'end_turn' 是两协议对「自然完成」各自的原生拼写，同归一保留——改写任一
+ * 拼写会移动 done 事件与 llm/call 的既有字符串契约（行为逐位不变约束），消费方只判
+ * 'max_tokens'（截断）与 toolCalls 非空，两拼写无实害。
+ */
+export type StopReason =
+  | 'end_turn' // 自然完成（Anthropic 原生）
+  | 'stop' // 自然完成（OpenAI 系原生）
+  | 'max_tokens' // 输出撞上限（三线归一目标值：openai 'length' → 此）
+  | 'tool_use' // 工具调用收尾（三线归一目标值：openai 'tool_calls' → 此）
+  | 'stop_sequence' // 命中停用序列（Anthropic 原生）
+  | 'pause_turn' // 服务端暂停回合（Anthropic 原生）
+  | 'refusal' // 拒答（Anthropic 原生；适配器判 error 不落稿）
+  | 'content_filter' // 内容过滤（两线原生；适配器判 error 不落稿）
+  | 'model_context_window_exceeded' // 输入超窗（Anthropic 原生）
+  | 'function_call' // 旧函数调用收尾（OpenAI 原生遗留值）
+  | 'unknown' // 线上未知/缺失（显式归类 + 日志留痕，不谎报正常完成）
+
 /** 统一事件流——每次调用返回独立 async iterable */
 export type GenEvent =
   | { type: 'text'; delta: string }
@@ -217,7 +243,9 @@ export type GenEvent =
   | {
       type: 'done'
       usage: TokenUsage
-      stopReason: string
+      /** R0916-7-P3-15：归一判别值（判别联合 StopReason）——适配器经 stream-finalize
+       *  单点产出，未知线上拼写归 'unknown' 并留痕；不再是任意字符串 */
+      stopReason: StopReason
       resolvedMaxTokens?: number
       /** Z-12（第五十八轮）：本次成功建流用的是降级参数面（剥 structured/剥 tools）——
        *  适配器降级循环实际发送的参数面与首发不同，不落事件则按事件重放会再 400 */

@@ -74,7 +74,8 @@ describe('R67-13: orchestrationBusyFor 互斥矩阵补角', () => {
   it('self-heal 在途 → 拒收文案；收口后 → null', () => {
     __setSelfHealRunningForTest(BOOK, true)
     try {
-      expect(orchestrationBusyFor(BOOK)).toMatch(/自愈写稿进行中/)
+      // R0916-7-P3-12：忙闸文案单源化——原「自愈写稿进行中……」→ 矩阵 self-heal 信号句
+      expect(orchestrationBusyFor(BOOK)).toMatch(/全自动写章/)
       expect(orchestrationBusyFor(BOOK)).not.toBeNull()
     } finally {
       __setSelfHealRunningForTest(BOOK, false)
@@ -88,7 +89,8 @@ describe('R67-13: orchestrationBusyFor 互斥矩阵补角', () => {
       const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
       expect(r.status).toBe(409)
       expect(r.json?.code).toBe('BUSY')
-      expect(String(r.json?.error)).toMatch(/自愈写稿进行中/)
+      // R0916-7-P3-12：同上，self-heal 信号句已单源化
+      expect(String(r.json?.error)).toMatch(/全自动写章/)
     } finally {
       __setSelfHealRunningForTest(BOOK, false)
     }

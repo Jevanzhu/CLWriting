@@ -365,7 +365,6 @@ async function doClear(): Promise<void> {
   color: var(--text-error);
   font-size: var(--font-size-s);
 }
-.spin { animation: clw-spin 0.8s linear infinite; }
 
 .audit-err {
   display: flex;

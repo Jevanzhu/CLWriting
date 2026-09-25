@@ -38,10 +38,7 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 import { log, errMsg } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕；复审-0914-优化修复批：errMsg 三目收编
 import { createSerialChainMap } from '../serial-chain.js' // P1-3（复审-0914-优化修复批）：per-book 串行链四胞胎通用件
-import { isReviewRunningForBook } from './review.js'
-import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
-import { orchestrationBusyFor } from './task-gate.js'
+import { busyReason } from './task-gate.js' // R0916-7-P3-12：结构操作忙闸单源（原四连手写 + 编排/三审两处 import）
 
 export interface DocumentCtx {
   workDir: string | null
@@ -299,23 +296,15 @@ export async function runBookScopedOp<T extends { ok: boolean }>(
 /** R0916-5a（2026-09-16）：structure-apply / merge-undo 两站重复的 busy 守卫四连
  *  收编单源——次序 self-heal → spawn → orchestration → 三审与四条 409 文案逐字节
  *  保留。返回 true = 已回写 409，调用方直接 return。'structure' 任务闸不在此列：
- *  闸调用点保持各站原位原样（known-actions-audit 按真实调用点对账）。 */
+ *  闸调用点保持各站原位原样（known-actions-audit 按真实调用点对账）。
+ *  R0916-7-P3-12：四连本体收编为 task-gate 的 BUSY_MATRIX 'structure' 行（原实序
+ *  self-heal → spawn → orchestrationBusyFor(self-heal 重复/chat/spawn 重复/后台) →
+ *  三审；表里前两格即原前两闸，chat/background 承接编排面，末格三审——重复格去重后
+ *  的可观察文案与序等价：前两闸同步无 await，重复核查永不可达）。 */
 export function structureBusyGuarded(name: string, res: ServerResponse): boolean {
-  if (isSelfHealRunning(name)) {
-    replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
-    return true
-  }
-  if (isSpawnRunning(name)) {
-    replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
-    return true
-  }
-  const busy = orchestrationBusyFor(name)
+  const busy = busyReason(name, 'structure')
   if (busy) {
     replyError(res, 409, 'BUSY', busy)
-    return true
-  }
-  if (isReviewRunningForBook(name)) {
-    replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
     return true
   }
   return false

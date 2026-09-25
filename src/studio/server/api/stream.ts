@@ -27,12 +27,12 @@ import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱�
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import type { StreamTicketStore } from './stream-ticket.js'
-import { isReviewRunningForBook } from './review.js'
-// 任务闸查询用合并口径（进程内 + 跨进程锁文件扫描，与 books.ts busyGate 同款）——helper 放
-// audit.ts 导出（模式已三处重复，不动 task-gate.ts 共享面）。为什么必须合并：双进程形态
-// （dev-api/脚本与 GUI 并存）下他进程分钟级任务在途时，纯进程内查询看不见，spawn /
-// auto-write / chat 入口写端点会照常放行致产出互踩。
-import { allHeldTaskGatesFor } from './audit.js'
+// 忙闸判定单源——R0916-7-P3-12：本文件不再自写互斥矩阵，spawn/auto-write 两入口只调
+// busyReason（含跨进程锁文件面的任务闸查询在 task-gate.ts 内合并：双进程形态下他进程
+// 分钟级任务在途时纯进程内查询看不见，会照常放行写端点致产出互踩）。
+// allHeldTaskGatesFor 同批迁回 task-gate.ts（原就近放 audit.ts），audit ↔ stream 的
+// 互相 import 环随之解开。
+import { busyReason } from './task-gate.js'
 // chat 工具侧闸端口的注册端（见 registerStreamRoutes 头部注）与真实闸本体
 import { registerTaskGateProvider } from '../../../ai/orchestrate/task-gate-port.js'
 import { acquireTaskGate } from './task-gate.js'
@@ -470,37 +470,18 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
-    // 并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
+    // 忙闸：单调 busyReason('spawn') 覆盖五面（P3-12 前为五段手写 check）——自身 spawn 闸
+    // （同步占位，无 TOCTOU；未实际启动的路径 finally 释放）→ self-heal 全自动写章
+    //（双向均已设闸：self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿）
+    // → 对话编排（chat 在途含 rewrite/write_chapter 等嵌套生成工具，两路 runTask 以不同章号
+    // 交替记账互覆预算章块）→ 生成任务闸反向互斥（outline/lead-updates/onboard-ai/analyze
+    // 等分钟级任务在途时写手草稿与任务收尾的覆盖写互踩；含跨进程锁文件面）→ 三审运行闸
+    //（三审分钟级在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫必然失配）。
+    // 判定顺序与文案单源见 task-gate.ts 的 BUSY_MATRIX 'spawn' 行。
     const bookName = params['name']!
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在生成，先等它跑完或中断')
-    }
-    // 与全自动写章互斥（双向均已设闸）：
-    // self-heal 运行中仍接受 /spawn = 两个写手并发流式产出、落盘互相覆写草稿
-    if (isSelfHealRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
-    }
-    // 与对话编排互斥：chat 在途（含 rewrite/write_chapter 等嵌套生成工具）时再启动 /spawn，
-    // 两路 runTask 以不同章号交替记账互覆预算章块；跨编排 ctrl 并存虽不互相 abort
-    //（owner 分槽），但写手并发互覆草稿的根矛盾仍在，入口闸是正解
-    if (isChatRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再手动写稿')
-    }
-    // 生成任务闸反向互斥——对齐 /chat 与删书/改名 busyGate 口径：
-    // outline/lead-updates/onboard-ai/analyze 等分钟级任务在途时再 /spawn，写手
-    // 草稿与任务收尾的覆盖写（细纲.md/账本推进.md 等上下文注入源）互相踩踏。
-    // 用 allHeldTaskGatesFor（含跨进程锁文件面）——纯进程内查询在双进程形态下看不见
-    // 他进程分钟级任务、放行 /spawn 互踩产出
-    {
-      const held = allHeldTaskGatesFor(bookName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再手动写稿`)
-      }
-    }
-    // 三审运行闸反向互斥（isReviewRunningForBook，同 busyGate 引用）——三审分钟级
-    // 在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫必然失配
-    if (isReviewRunningForBook(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再手动写稿')
+    const busy = busyReason(bookName, 'spawn')
+    if (busy) {
+      return replyError(res, 409, 'BUSY', busy)
     }
     holdSpawnGate(bookName)
     let launched = false
@@ -610,31 +591,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!r) return
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
-    // 并发保护（防御双闸之一，与 driver.isRunning 并存）：本闸是编排级内存锁，
-    // 覆盖 self-heal 完整生命周期——机检/账本草稿等阶段无在途 LLM 请求，driver.isRunning
-    // 仍为 false，只有本闸拦得住重复触发（两个编排器会互相覆写草稿）。生成期两闸重叠冗余，
-    // 保留无害：登记受 /interrupt 注销影响存在时序窗口，内存闸始终是可靠口径。
-    if (isSelfHealRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章,先等它跑完或中断')
-    }
-    // chat 在途（嵌套生成工具按章记账）时启动 self-heal 会互覆预算
-    // 章块并掐断在途对话——与 /spawn 入口同款反向闸
-    if (isChatRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
-    }
-    // 与手动写稿互斥：spawn 在途时启动 self-heal =
-    // 双写手并发流式产出互覆草稿（saveDraft 与前端保存竞争），正是本闸要防的场景
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
-    }
-    // 生成任务闸反向互斥——outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间
-    // 启动 self-heal，其收尾覆盖写 细纲.md/账本推进.md，后续章拿到混合态上下文（双费 +
-    // 两端闭合误报红触发多余重写）。与删书/改名 busyGate 同口径；用 allHeldTaskGatesFor
-    // 的跨进程面——纯进程内查询在双进程形态下看不见他进程任务。
+    // 忙闸首查：单调 busyReason('auto-write') 覆盖四面（P3-12 前为四段手写 check，且
+    // 同一句文案一处半角逗号一处全角——现单源全角）：
+    // ① self-heal 自查——本闸是编排级内存锁，覆盖 self-heal 完整生命周期：机检/账本草稿
+    //   等阶段无在途 LLM 请求，driver.isRunning 仍为 false，只有本闸拦得住重复触发（两个
+    //   编排器会互相覆写草稿）。生成期与 driver.isRunning 重叠冗余，保留无害：登记受
+    //   /interrupt 注销影响存在时序窗口，内存闸始终是可靠口径；
+    // ② chat 在途（嵌套生成工具按章记账）会互覆预算章块并掐断在途对话；
+    // ③ spawn 在途 = 双写手并发流式产出互覆草稿（saveDraft 与前端保存竞争）；
+    // ④ 生成任务闸反向互斥——outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间
+    //   启动 self-heal，其收尾覆盖写细纲.md/账本推进.md，后续章拿到混合态上下文（双费 +
+    //   两端闭合误报红触发多余重写）；含跨进程锁文件面（双进程形态下他进程任务可见）。
     {
-      const held = allHeldTaskGatesFor(bookName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
+      const busy = busyReason(bookName, 'auto-write')
+      if (busy) {
+        return replyError(res, 409, 'BUSY', busy)
       }
     }
 
@@ -655,23 +626,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     const mainSession = await ensureSession(bookName, ctx.workDir!)
     // 二次检查（await 期间可能另一个请求已启动）——TOCTOU 收窄；chat/spawn 闸同款补查
-    if (isSelfHealRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断')
-    }
-    if (isChatRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再自动写章')
-    }
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
-    }
-    // 任务闸复检（对齐 /chat 复检口径）——readJson +
-    // ensureSession 两个 await 的窗口内新 acquire 的生成任务闸（分钟级）在此拦截，
-    // 否则 self-heal 收尾覆盖写 细纲.md/账本推进.md 时与任务产出互踩。
-    // 复检与首检同口径，含跨进程面（allHeldTaskGatesFor）。
+    // R0916-7-P3-12：复检 = 同一单源再调一次（readJson + ensureSession 两个 await 的窗口
+    // 内新起的编排/新 acquire 的分钟级任务闸在此拦截：self-heal 收尾覆盖写 细纲.md/账本
+    // 推进.md 时与任务产出互踩）。首查与复检同表同序，不再各写一份手写闸。
     {
-      const held = allHeldTaskGatesFor(bookName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
+      const busyRecheck = busyReason(bookName, 'auto-write')
+      if (busyRecheck) {
+        return replyError(res, 409, 'BUSY', busyRecheck)
       }
     }
     const driver = getDriver()
