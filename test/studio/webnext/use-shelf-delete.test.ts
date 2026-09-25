@@ -1,7 +1,15 @@
 /**
- * R65-54（十三轮批 E-6）回归：useShelf.confirmDelete 成功后 onDeleted 回调。
- * ShelfModal 借它在「删掉当前打开的书」时导航离开死路由 /book/:name——
- * 回调契约：成功（全部删完）必调且带全量名单；失败不调（保留弹窗重试语义）。
+ * useShelf.confirmDelete 删书链行为族——按行为合并两散落文件
+ * （原 use-shelf-delete + r71-shelf-delete-404，装置同构：真 ApiError + localStorage
+ * Map 替身，node 环境）。
+ *
+ * - R65-54（十三轮批 E-6）：confirmDelete 成功后 onDeleted 回调。ShelfModal 借它在
+ *   「删掉当前打开的书」时导航离开死路由 /book/:name——回调契约：成功（全部删完）必调
+ *   且带全量名单；失败不调（保留弹窗重试语义）。
+ * - R71-26（七十一轮）：批量删书串行循环，部分失败后重试时已删书 404 直接抛 → 后续书
+ *   永远删不掉。修复：循环内单书删除 catch 判 404/NOT_FOUND（ApiError 形状：status/code）
+ *   视为已删继续；其余错误照旧中断记失败（弹窗保留可重试语义不变）。
+ * - R27-79（二十七轮）：删书连带清该书 localStorage 残留键。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -33,7 +41,7 @@ import { useShelf } from '../../../src/studio/web-next/src/composables/useShelf'
 import { treeFirstOpenKey } from '../../../src/studio/web-next/src/shared/storage-keys'
 
 // R27-79：localStorage 键清扫断言用（node 环境默认无 localStorage，Map 替身照
-// r66-frontend-guards 范型；loadSortPreference 的 try/catch 对缺 API 本就兼容）
+// panel-toast-switch-guard 范型；loadSortPreference 的 try/catch 对缺 API 本就兼容）
 function createLocalStorage() {
   const store = new Map<string, string>()
   return {
@@ -150,5 +158,57 @@ describe('useShelf: 删书清 localStorage 键（R27-79）', () => {
     await s.confirmDelete()
     expect(localStorage.getItem(treeFirstOpenKey('书A'))).toBeNull()
     expect(localStorage.getItem('clw2.tree-first-open:书A')).toBe('1')
+  })
+})
+
+// ── R71-26（七十一轮）：部分失败后重试——已删书 404 视为已删继续 ──
+
+const notFound = () => new ApiError('没有这本书：书A', 404, 'NOT_FOUND')
+
+describe('R71-26: confirmDelete 部分失败后重试——已删书 404 视为已删继续', () => {
+  it('三书删中间失败 → 重试：已删书A 404 不抛，继续删书B/书C 直至全部完成', async () => {
+    // 首轮：A 成功、B 失败（500）→ 循环中断，C 未尝试
+    mocks.deleteBook
+      .mockResolvedValueOnce(undefined) // 书A
+      .mockRejectedValueOnce(new ApiError('服务异常', 500, 'INTERNAL')) // 书B 中断
+    const s = useShelf()
+    s.requestDelete(['书A', '书B', '书C'])
+    await s.confirmDelete()
+    expect(s.deleteError.value).toBeTruthy()
+    expect(s.confirmTarget.value).toEqual(['书A', '书B', '书C']) // 弹窗保留（重试带全量名单）
+    expect(mocks.deleteBook).toHaveBeenCalledTimes(2)
+
+    // 重试：A 已删（404）→ 视为已删继续；B/C 正常删完
+    mocks.deleteBook.mockReset()
+    mocks.deleteBook
+      .mockRejectedValueOnce(notFound()) // 书A 重删 404
+      .mockResolvedValueOnce(undefined) // 书B
+      .mockResolvedValueOnce(undefined) // 书C
+    await s.confirmDelete()
+    expect(mocks.deleteBook).toHaveBeenCalledTimes(3) // 修复点：404 后循环不中断，书C 也删到（修复前停在书A）
+    expect(s.confirmTarget.value).toBeNull() // 全部删完 → 弹窗关闭
+    expect(s.batchMode.value).toBe(false)
+    expect(mocks.shelfLoad).toHaveBeenCalled()
+    // 注：deleteError 残留首轮文案是既有行为（成功路径不清、requestDelete 入口清），
+    // 弹窗已关无展示面，不纳入本修复断言
+  })
+
+  it('非 404 错误照旧中断：重试遇 500 仍记失败、弹窗保留（守卫不放宽）', async () => {
+    mocks.deleteBook
+      .mockRejectedValueOnce(notFound())
+      .mockRejectedValueOnce(new ApiError('服务异常', 500, 'INTERNAL'))
+    const s = useShelf()
+    s.requestDelete(['书A', '书B'])
+    await s.confirmDelete()
+    expect(s.deleteError.value).toBeTruthy()
+    expect(s.confirmTarget.value).toEqual(['书A', '书B']) // 弹窗保留可再重试
+  })
+
+  it('404 分支同样清误报灰显键（书已不存在，键不该留——幂等无实害）', async () => {
+    mocks.deleteBook.mockRejectedValueOnce(notFound())
+    const s = useShelf()
+    s.requestDelete(['书A'])
+    await s.confirmDelete()
+    expect(mocks.clearFalsePositiveMarks).toHaveBeenCalledWith('书A')
   })
 })

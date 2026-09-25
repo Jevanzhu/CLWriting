@@ -42,6 +42,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import { typewriterExt, centerCursorLine } from './typewriter'
+import { mapSelectionForFullReplace } from './external-replace'
 import { Annotation, Compartment, EditorSelection, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
   EditorView,
@@ -364,9 +365,9 @@ function applyExternalReplace(v: string): void {
   //（0 或 v.length），会回归 R62-18 的单光标归位语义；min-clamp 即该语义的逐点推广，
   // 单光标路径与原 Math.min(prevHead, v.length) 完全一致（回归测试钉死），多光标/
   // 非空选区的 ranges 数、anchor/head 方向与主 range 顺序语义保持。
-  const prev = view.state.selection
-  const len = v.length
-  const ranges = prev.ranges.map((r) => EditorSelection.range(Math.min(r.anchor, len), Math.min(r.head, len)))
+  // R50-D1-3 行为化（测试资产行为化批）：上述映射实现抽至 ./external-replace.ts
+  // 的 mapSelectionForFullReplace（纯函数单源，回归测试直测真实实现）——逐位同式搬移，行为不变。
+  const selection = mapSelectionForFullReplace(view.state.selection, v)
   // R8B-P1-1（2026-09-09 修复批）：同文档外部全量替换（SSE sync/refresh/冲突取服务端版/
   // AI 改写共用路径）此前只挂 addToHistory.of(false) 不清旧栈——撤销方向实测安全
   //（全量替换的 addMapping 把旧插入事件降为 no-op），但 **redo 方向实测回灌**：替换前
@@ -380,7 +381,7 @@ function applyExternalReplace(v: string): void {
   view.dispatch({
     effects: historyConf.reconfigure(history()),
     changes: { from: 0, to: view.state.doc.length, insert: v },
-    selection: EditorSelection.create(ranges, prev.mainIndex),
+    selection,
     // 四轮-E402：替换事务带程序化替换注解不回发——SSE sync/refresh 落在非规范 fm
     // 存量文件时，回发经父层 mergeFm 往返即「无输入置脏」（见 updateListener 处注释）
     annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],

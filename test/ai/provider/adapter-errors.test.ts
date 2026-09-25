@@ -17,7 +17,7 @@ import {
 import {
   registerDegradedLookup,
   registerDegradedPersist,
-  resetDegradedChannels,
+  processProviderRuntime,
   type ProviderStore,
 } from '../../../src/ai/provider/store.js'
 import type { GenRequest } from '../../../src/ai/provider/types.js'
@@ -37,8 +37,8 @@ const anthropicToErrorEvent = makeToErrorEvent({
 })
 
 // 降级记忆的查/写是模块级通道——用例间必须清空，防泄漏串扰
-beforeEach(() => { resetDegradedChannels() })
-afterEach(() => { resetDegradedChannels() })
+beforeEach(() => { processProviderRuntime().__resetForTest() })
+afterEach(() => { processProviderRuntime().__resetForTest() })
 
 describe('makeToErrorEvent 五分支', () => {
   it('APIUserAbortError → ABORTED「已中断」（子类须先于 APIError 判定）', () => {

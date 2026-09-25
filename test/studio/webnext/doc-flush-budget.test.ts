@@ -6,7 +6,7 @@
  * send() 同步抛 NetworkError、请求零字节到达，双 Electron 实验实证，四十四轮报告
  * §3.1），「预算内串行同步 PUT」在真实引擎下根本不存在，预算语义随之失去主体。
  * 关窗/退出兜底改主进程 close/before-quit 拦截 + 渲染层 flushBeforeClose 异步钩子
- *（行为面见 doc.test.ts / main.test.ts R44-2 用例与 r44-close-flush-electron 实机
+ *（行为面见 doc.test.ts / main.test.ts R44-2 用例与 electron-close-flush-delivery 实机
  * 回归）。本文件留静态守卫：doc store 再引入 XMLHttpRequest 即红——它在这个 store
  * 的历史上只有同步卸载兜底一种用途，任何回归形态都应走异步保存链。
  */

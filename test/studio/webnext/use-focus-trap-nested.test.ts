@@ -1,22 +1,31 @@
 // @vitest-environment happy-dom
 /**
- * R8C-F2（2026-09-09 修复批）回归：嵌套浮层 Tab 焦点让渡。
+ * useFocusTrap 行为族——按行为合并两散落文件（原 use-focus-trap-nested +
+ * r1010b-fe-focus-trap-lifecycle，夹具同思路）。
  *
- * 修复前：全部 useFocusTrap 在 document capture 期无条件处理 Tab、无「上层遮罩
- * 开着则让渡」判据——设置弹窗先开（trap 先注册先执行），确认框（Teleport 到
- * body，位于设置弹窗 DOM 外）压上后，确认框内按 Tab → 下层 trap 先命中
- * 「activeElement 不在自身」→ preventDefault + 焦点拉回设置弹窗首元素，
- * 确认框内 Tab 卡死（确认钮键盘不可达）。修复：模块级活跃 trap 登记表
- *（注册序 = 浮层层级序），仅最顶层处理 Tab，下层静默让渡；上层关闭/卸载后
- * 下一层自动恢复处理权。
+ * - R8C-F2（2026-09-09 修复批）：嵌套浮层 Tab 焦点让渡。修复前：全部 useFocusTrap 在
+ *   document capture 期无条件处理 Tab、无「上层遮罩开着则让渡」判据——设置弹窗先开
+ *  （trap 先注册先执行），确认框（Teleport 到 body，位于设置弹窗 DOM 外）压上后，
+ *   确认框内按 Tab → 下层 trap 先命中「activeElement 不在自身」→ preventDefault +
+ *   焦点拉回设置弹窗首元素，确认框内 Tab 卡死（确认钮键盘不可达）。修复：模块级活跃
+ *   trap 登记表（注册序 = 浮层层级序），仅最顶层处理 Tab，下层静默让渡；上层关闭/卸载
+ *   后下一层自动恢复处理权。
+ * - R1010b-FE-P2-2（2026-09-10 内存专项重审修复批）：activeTraps 摘除。修复前：浮层
+ *   打开 push 登记条目，onCleanup 只置 disposed 标志从不移除——数组界 = 历史打开次数
+ *  （本批内存专项唯一无界堆增长点），且已卸载组件条目经 targetRef/闭包把 detached DOM
+ *   钉在堆里。修复：onCleanup 按 seq findIndex + splice 摘除本条目，活条目集合 = 并发
+ *   浮层数；并补 test-only 探针 __focusTrapActiveCountForTest。
  *
- * 手法：双 trap 夹具（下层 A 先挂、上层 B 后挂，v-if 显隐模拟浮层开闭），
- * 真实 KeyboardEvent 直派（VTU trigger 对 Tab 的 key 透传不可靠，r50-d1 同款）。
+ * 手法：v-if 显隐 + 组件卸载两类关闭路径，真实 KeyboardEvent 直派（VTU trigger 对
+ * Tab 的 key 透传不可靠，r50-d1 同款）。
  */
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
-import { useFocusTrap } from '../../../src/studio/web-next/src/composables/useFocusTrap'
+import {
+  useFocusTrap,
+  __focusTrapActiveCountForTest,
+} from '../../../src/studio/web-next/src/composables/useFocusTrap'
 
 const Harness = defineComponent({
   setup() {
@@ -97,6 +106,95 @@ describe('R8C-F2: 嵌套浮层 Tab 顶层让渡', () => {
     const e = pressTab()
     expect(e.defaultPrevented).toBe(true)
     expect(document.activeElement?.id).toBe('a1')
+    w.unmount()
+  })
+})
+
+// ── R1010b-FE-P2-2：activeTraps 开→关摘除（无界增长防线） ────────────────────────
+
+const ToggleHarness = defineComponent({
+  setup() {
+    const open = ref(false)
+    const el = ref<HTMLElement | null>(null)
+    useFocusTrap(el)
+    return { open, el }
+  },
+  template: `<div v-if="open" ref="el" tabindex="-1"><button id="h1">H1</button><button id="h2">H2</button></div>`,
+})
+
+const NestedHarness = defineComponent({
+  setup() {
+    const aOpen = ref(false) // 下层（先开）
+    const bOpen = ref(false) // 上层（后开）
+    const elA = ref<HTMLElement | null>(null)
+    const elB = ref<HTMLElement | null>(null)
+    useFocusTrap(elA)
+    useFocusTrap(elB)
+    return { aOpen, bOpen, elA, elB }
+  },
+  template: `
+    <div>
+      <div v-if="aOpen" ref="elA" tabindex="-1" data-trap="a">
+        <button id="a1">A1</button><button id="a2">A2</button>
+      </div>
+      <div v-if="bOpen" ref="elB" tabindex="-1" data-trap="b">
+        <button id="b1">B1</button><button id="b2">B2</button>
+      </div>
+    </div>
+  `,
+})
+
+describe('R1010b-FE-P2-2: activeTraps 开→关摘除（无界增长防线）', () => {
+  it('开→关 N 轮后计数每轮归 0（登记不随历史打开次数累积）', async () => {
+    const w = mount(ToggleHarness, { attachTo: document.body })
+    const vm = w.vm as unknown as { open: boolean }
+    for (let i = 0; i < 5; i++) {
+      vm.open = true
+      await nextTick()
+      expect(__focusTrapActiveCountForTest()).toBe(1)
+      vm.open = false // ref 置 null → watch cleanup → 按 seq 摘除
+      await nextTick()
+      expect(__focusTrapActiveCountForTest()).toBe(0) // 修复前：恒 1（残留 disposed 条目）
+    }
+    w.unmount()
+    expect(__focusTrapActiveCountForTest()).toBe(0)
+  })
+
+  it('浮层开着时组件直接卸载：登记同样摘除', async () => {
+    const w = mount(ToggleHarness, { attachTo: document.body })
+    ;(w.vm as unknown as { open: boolean }).open = true
+    await nextTick()
+    expect(__focusTrapActiveCountForTest()).toBe(1)
+    w.unmount() // 组件销毁 → watcher 停止 → cleanup 摘除
+    expect(__focusTrapActiveCountForTest()).toBe(0)
+  })
+})
+
+describe('R1010b-FE-P2-2: 嵌套浮层计数 + 让渡不回归', () => {
+  it('外内两层同时活跃计数 2；逐层关闭归 0；Tab 让渡行为不变', async () => {
+    const w = mount(NestedHarness, { attachTo: document.body })
+    const vm = w.vm as unknown as { aOpen: boolean; bOpen: boolean }
+
+    vm.aOpen = true
+    await nextTick()
+    expect(__focusTrapActiveCountForTest()).toBe(1)
+    vm.bOpen = true
+    await nextTick()
+    expect(__focusTrapActiveCountForTest()).toBe(2) // 活条目 = 并发浮层数
+
+    // 让渡：上层框内非边界按 Tab 不被下层抢拉（R8C-F2 行为保持）
+    document.getElementById('b1')!.focus()
+    const e = pressTab()
+    expect(e.defaultPrevented).toBe(false)
+    expect(document.activeElement?.id).toBe('b1')
+
+    vm.bOpen = false
+    await nextTick()
+    expect(__focusTrapActiveCountForTest()).toBe(1)
+
+    vm.aOpen = false
+    await nextTick()
+    expect(__focusTrapActiveCountForTest()).toBe(0)
     w.unmount()
   })
 })

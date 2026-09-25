@@ -12,7 +12,7 @@
  * 同步判据 R39-20 不变；真实用户输入 / undo / redo 无注解照常 emit）。
  *
  * 分层（库内既有口径）：
- * - CmHost 组件级（真实 CM6，f5-cm-composition-guard 同款）：切文档 / 外部替换不回发、
+ * - CmHost 组件级（真实 CM6，cm-composition-guard 同款）：切文档 / 外部替换不回发、
  *   真实键入照常回发、空→空切档后键入不吞（抑制不粘滞）、undo 照常回发；
  * - EditorView 集成级（真实 CmHost + doc store，r43-17 同款）：非规范 fm（起始 fence
  *   尾随空格）文件切档 → 零 patch 不置脏；真实键入 → 照常 patch 置脏。

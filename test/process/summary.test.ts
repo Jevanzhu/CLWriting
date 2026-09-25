@@ -375,6 +375,12 @@ describe('批量定稿串行摘要链 afterFinalizeGenerateSummaryBatch（第五
       registerCtrl(): void {
         throw new Error('registerCtrl 同步抛错')
       },
+      emit(_s: Session, _ev: DriverEvent): void {},
+      unregisterCtrl(_s: Session, _c: AbortController): void {},
+      cancelStream(): void {},
+      interrupt(): void {},
+      isRunning(): boolean { return false },
+      isWriterRunning(): boolean { return false },
     }
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     try {

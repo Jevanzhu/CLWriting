@@ -134,7 +134,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 批2-A（2026-09-07 全量代码重审 批2-A）：healResult 一并复位——断连窗口前已到的
       // 旧章终局卡片与「写章结果未知」提示同屏自相矛盾；终局须以重连后真实事件为准。
       // 注：完成态空闲重连（healPhase/progress/batchProgress 均 null）不进本分支，
-      // 终局卡片跨连接存续（对照见 b2a-workbench-healresult-residue.test）。
+      // 终局卡片跨连接存续（对照见 workbench-sync-healresult-reset.test）。
       if (
         !running.value &&
         (healPhase.value !== null || healProgress.value !== null || batchProgress.value !== null)

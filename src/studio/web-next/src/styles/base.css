@@ -124,7 +124,7 @@ button:disabled {
    渐变期内页面与窗控色阶对不上，即作者感知的「窗控延迟」）；遮罩改瞬切后两者同
    为单帧跳变，与主题切换（win 已瞬切）同拍一致。mac 交通灯透明底浮在网页上、
    底下像素随特效逐帧自然变，保留渐变。新增全屏遮罩类须加入下方名单
-   （j5-overlay-dim.test.ts 读本文件锁死名单覆盖）。 */
+   （overlay-dim.test.ts 读本文件锁死名单覆盖）。 */
 :root[data-platform='win32'] .modal-mask,
 :root[data-platform='win32'] .shelf-mask,
 :root[data-platform='win32'] .palette-mask,
@@ -140,7 +140,7 @@ button:disabled {
    三页的 titlebar 原为透明、透出页面 --background-primary 渐变，两档 token 恒差
    一级（light #f6f6f6 对 #ffffff、dark #262626 对 #1e1e1e），即作者反馈的「书库
    管理窗控颜色不同步」。主窗口 TabBar 顶带本就是 secondary，故无缝。mac 交通灯
-   浮在网页上、底下像素自然变，不上底带（j5-overlay-dim.test.ts 读本文件锁名单）。 */
+   浮在网页上、底下像素自然变，不上底带（overlay-dim.test.ts 读本文件锁名单）。 */
 :root[data-platform='win32'] .lib-titlebar,
 :root[data-platform='win32'] .welcome-titlebar,
 :root[data-platform='win32'] .shelf-titlebar {

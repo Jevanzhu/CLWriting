@@ -27,8 +27,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
-// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
-import { __setMetaSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
+// R0916-7-P3-6：meta 锁档改 per-ctx 注入（DocContextOptions），模块级 ForTest 钩子删除
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { snapshotBeforeOverwrite } from '../../src/process/draft-pipeline.js'
 import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -47,16 +46,15 @@ beforeEach(() => {
 })
 afterEach(() => {
   if (bookRoot) rmSync(bookRoot, { recursive: true, force: true })
-  __setMetaSaveLockTimeoutForTest(5_000)
 })
 
 // ── R76-1：元数据 PATCH 包 save 锁 ───────────────────────────────
 
 test('R76-1: 持锁期间 updateDocMeta fail-closed 拒绝且文件一字不动；释放后可用、锁不残留', async () => {
-  const svc = new DocumentService({ bookRoot })
+  // R0916-7-P3-6：meta 锁档改 per-ctx 注入（150ms 档保快，生产 5s）
+  const svc = new DocumentService({ bookRoot, metaSaveLockTimeoutMs: 150 })
   const c = await svc.createDocument({ relPath: '设定/世界观.md', content: '---\n名称: A\n---\n第一版' })
   if (!c.ok) throw new Error('prereq create')
-  __setMetaSaveLockTimeoutForTest(150)
   const lockPath = join(bookRoot, '工作区', '.journal', `${c.docId}.jsonl.save.lock`)
   const release = acquireCrossProcessLockWithTimeout(lockPath, 0)
   expect(release).not.toBeNull()
@@ -75,13 +73,12 @@ test('R76-1: 持锁期间 updateDocMeta fail-closed 拒绝且文件一字不动�
 })
 
 test('R76-1: 持锁期间 updateChapterMeta 同款拒绝（含尾部 rename 不发生）', async () => {
-  const svc = new DocumentService({ bookRoot })
+  const svc = new DocumentService({ bookRoot, metaSaveLockTimeoutMs: 150 })
   const c = await svc.createDocument({
     relPath: '写作/正文/0001-开篇.md',
     content: '---\n标题: 开篇\n章号: 1\n---\n正文',
   })
   if (!c.ok) throw new Error('prereq create')
-  __setMetaSaveLockTimeoutForTest(150)
   const lockPath = join(bookRoot, '工作区', '.journal', `${c.docId}.jsonl.save.lock`)
   const release = acquireCrossProcessLockWithTimeout(lockPath, 0)
   expect(release).not.toBeNull()

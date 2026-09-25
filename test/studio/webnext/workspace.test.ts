@@ -441,7 +441,7 @@ describe('workspace · 切书 debounce 竞态（ff 细节#11）', () => {
 // R0911-C1-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：书级 prefs 500ms 防抖的关窗
 // 冲刷——末次布局态此前随关窗静默丢失（R48-82 备案取舍收口）。冲刷 = 清挂起计时器后
 // 直发写穿（Book.vue __clwFlushBeforeClose 调用，页面级接线见
-// r0911-workspace-prefs-close-flush.test）；本组锚定 store 级语义：防抖窗内直写、
+// book-prefs-close-flush-hook.test）；本组锚定 store 级语义：防抖窗内直写、
 // 冲刷后计时器作废不二写、无待写项不空写。
 describe('workspace · 关窗冲刷书级 prefs（R0911-C1-P3-3）', () => {
   it('防抖窗内（未满 500ms）触发冲刷 → 直接写穿落盘（不 advance 计时器）', async () => {

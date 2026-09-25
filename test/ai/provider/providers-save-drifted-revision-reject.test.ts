@@ -22,7 +22,7 @@ import {
   loadProviders,
   saveProviders,
   emptySettings,
-  __seedProvidersWriteChainForTest,
+  processProviderRuntime,
   ProviderRevisionConflictError,
   type ProviderStore,
 } from '../../../src/ai/provider/store.js'
@@ -130,7 +130,7 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
     const gate = new Promise<void>((r) => {
       release = r
     })
-    __seedProvidersWriteChainForTest(dir, gate)
+    processProviderRuntime().__seedProvidersWriteChainForTest(dir, gate)
     const queued = saveProviders(dir, stale)
 
     // 在途窗口内「另一进程」完成落盘（直改盘文件；本进程写链被 gate 占住，恰好表达跨进程时序）

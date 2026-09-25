@@ -11,8 +11,7 @@ import { join } from 'node:path'
 import { createServer } from 'node:http'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { runTask, resolveProvider, configureRunnerMockFastPath, configureProviderRuntime, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
-import { createProviderRuntime, processProviderRuntime } from '../../src/ai/provider/store.js'
-import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
+import { createProviderRuntime, processProviderRuntime, persistDegraded, registerDegradedPersist } from '../../src/ai/provider/store.js'
 import { createProvider } from '../../src/ai/provider/probe.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
@@ -50,7 +49,7 @@ beforeAll(async () => {
 afterEach(() => {
   for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
-  resetDegradedChannels()
+  processProviderRuntime().__resetForTest()
 })
 
 /** 写最小 providers.json（明文 apiKey，loadProviders 自动迁移加密）；timeoutMs 可选注入档位总超时 */

@@ -2,7 +2,7 @@
  * @vitest-environment happy-dom
  *
  * X-6 · SSE 重连核心路径回归（composables/useSse.ts 退避策略）：
- * ticket 两段式与 N-3 re-bootstrap 通道已有 sse-ticket/n3-sse-reboot 各自覆盖，
+ * ticket 两段式与 N-3 re-bootstrap 通道已有 sse-ticket/sse-token-null-rebootstrap 各自覆盖，
  * 本文件锁死退避接管协议——①网络抖动（CONNECTING）前 5 次由浏览器自连不接管；
  * ②第 6 次起接管手动重连；③fail-closed（readyState=CLOSED，非 2xx）首次错误立即
  * 接管；④指数退避（R42-1 起首档 0ms 立即换票，第 2 档起 4s→8s→…→60s 封顶——清空对话服务端

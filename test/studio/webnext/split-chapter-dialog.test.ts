@@ -5,7 +5,7 @@
  * 干跑视图（SplitPlanView）渲染 + 新章标题必填守卫 + Esc/取消/Enter/IME 键盘动线。
  * 形态仿 ChapterMetaDialog：弹窗体经 <teleport to="body"> 渲染，元素从 document.body
  * 取（DOMWrapper 复用 VTU 的 setValue/trigger），手法照 chapter-meta-dialog.test.ts /
- * r35-chapter-meta-esc-ime.test.ts。
+ * chapter-meta-esc-ime.test.ts。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'

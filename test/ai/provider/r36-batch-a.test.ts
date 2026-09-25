@@ -45,7 +45,7 @@ const ANTH_CONF = {
   caps: null,
 } as ProviderConf
 
-/** 伪网关流：客户端返回 async generator（r35-batch-a.test.ts 同款手法） */
+/** 伪网关流：客户端返回 async generator（chat-tool-turn-usage-merge.test.ts 同款手法） */
 function fakeSend(events: unknown[]): () => AsyncGenerator<unknown> {
   return async function* () {
     for (const e of events) yield e

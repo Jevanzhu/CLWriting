@@ -116,7 +116,7 @@ describe('doc store · save 前置守卫', () => {
     let resolve!: (v: SaveOk | PromiseLike<SaveOk>) => void
     vi.mocked(saveContent).mockReturnValueOnce(new Promise((r) => (resolve = r)))
     const p = doc.save('d1') // 进行中
-    // F8（五十九轮）契约变更：manual 遇在途改为链式排队（见 f8-manual-save-queue.test.ts），
+    // F8（五十九轮）契约变更：manual 遇在途改为链式排队（见 manual-save-queue.test.ts），
     // 此处用 autosave 校验原「不重入」语义（autosave 维持 no-op，节拍自会重扫）
     expect(await doc.save('d1', 'autosave')).toBe(false) // 重入被拒
     resolve({ ok: true, revision: 'sha256:h', superseded: false })
@@ -251,7 +251,7 @@ describe('doc store · R44-2 关窗/退出兜底（flushBeforeClose，主进程�
   // 契约演进（R44-2）：V-P1-2 的 beforeunload 内同步 XHR 兜底在 Chromium ≥M80 的
   // 卸载路径被整体禁用（双 Electron 实验实证零字节到达），改为渲染层暴露
   // flushBeforeClose 钩子由主进程 close/before-quit 拦截后调用——页面未死，走
-  // 正常异步保存链（saveContent）。引擎级保证见 r44-close-flush-electron 实机回归。
+  // 正常异步保存链（saveContent）。引擎级保证见 electron-close-flush-delivery 实机回归。
   it('dirty 文档 → 异步保存链落盘 + 返回零失败零冲突', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', '未保存内容')

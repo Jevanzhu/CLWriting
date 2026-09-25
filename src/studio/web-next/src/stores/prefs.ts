@@ -356,7 +356,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（经 PrefValueMap
   // 逐键标注校验，缺行/多行/r 值型不符编译期红）。
   // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
-  // prefs 测试群（prefs-store / r0911-prefs-setter-table 等）回归兜底。
+  // prefs 测试群（prefs-store / prefs-clamp-setters 等）回归兜底。
   interface PrefRow {
     /** global.json 持久化键名（buildCache 落 JSON 的键；applyPrefs 读信封的键） */
     key: keyof GlobalPrefs
@@ -617,7 +617,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   // apply/applyCompact 本体移至 ../composables/usePrefsDomEffects.ts（createPrefsDomEffects
   // 工厂收 prefs refs，行为零变化）；setup 内同步解构接线——usePrefsStore() 首次实例化
   // 即接好，init 在 main.ts mount 前调用，启动写 DOM 时序不晚于原实现（无启动闪主题）。
-  // j5-overlay-dim.test.ts 对本文件的 theme-instant 源码锁由本注记承接，base.css 的
+  // overlay-dim.test.ts 对本文件的 theme-instant 源码锁由本注记承接，base.css 的
   // html.theme-instant 规则改名须三处同步（base.css / shared/theme-apply.ts / 本注记）。
   const { apply, applyTheme, applyCompact, setOverlayDimmed } = createPrefsDomEffects({
     theme,

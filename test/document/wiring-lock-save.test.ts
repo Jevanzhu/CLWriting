@@ -18,8 +18,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
-// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
-import { __setWiringSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
+// R0916-7-P3-6：布线锁档改 per-ctx 注入（DocContextOptions），模块级 ForTest 钩子删除
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -34,13 +33,11 @@ let svc: DocumentService
 beforeEach(() => {
   bookRoot = mkdtempTracked(join(tmpdir(), 'r29-wiring-lock-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  svc = new DocumentService({ bookRoot })
-  // 锁探针等待档缩到 80ms 保快（生产 5s，afterEach 还原）
-  __setWiringSaveLockTimeoutForTest(80)
+  // 锁探针等待档缩到 80ms 保快（生产 5s 档经 DocContextOptions 注入，实例期内恒定）
+  svc = new DocumentService({ bookRoot, wiringSaveLockTimeoutMs: 80 })
 })
 
 afterEach(() => {
-  __setWiringSaveLockTimeoutForTest(5_000)
   rmSync(bookRoot, { recursive: true, force: true })
 })
 

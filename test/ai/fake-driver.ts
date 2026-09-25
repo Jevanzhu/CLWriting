@@ -6,7 +6,7 @@
  * emit 视 opts.emitted——传入时把事件推进该数组（事件收集型用例断言用），
  * 不传时为 no-op（纯编排用例，不关心事件面）。
  * 异构变体不收编、留在各文件（如 chat-checkpoint-owner 的 registerCtrl 登记、
- * r39-self-heal-guard 的挂起 stream）。
+ * self-heal-concurrent-guard（原 r39-self-heal-guard）的挂起 stream）。
  */
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 
@@ -22,5 +22,11 @@ export function makeFakeDriver(opts?: { emitted?: DriverEvent[] }): StudioDriver
     emit(_s, ev): void {
       emitted?.push(ev)
     },
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
+    registerCtrl(): void {},
+    unregisterCtrl(): void {},
   }
 }

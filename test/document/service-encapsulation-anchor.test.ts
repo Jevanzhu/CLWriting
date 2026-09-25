@@ -131,6 +131,34 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
     expect(hits).toEqual([DOCUMENT_SERVICE_PATH]) // 平台无关比较（win 反斜杠不参与断言）
   })
 
+  it('锁档单源（R0916-7-P3-6）：save/meta/wiring 三档只经 ctx 字段消费，模块级注入口不再存在', () => {
+    // 消费面：service.ts / service-meta.ts / service-move.ts 代码面不得再出现已删的
+    // META/WIRING/SAVE 钩子与 getter（含裸 saveLockTimeoutMs 别名）——锁档经 ctx 字段。
+    const retired = [
+      'getMetaSaveLockTimeoutMs',
+      '__setMetaSaveLockTimeoutForTest',
+      'getWiringSaveLockTimeoutMs',
+      '__setWiringSaveLockTimeoutForTest',
+    ]
+    for (const rel of ['service.ts', 'service-meta.ts', 'service-move.ts']) {
+      const code = stripComments(readFileSync(join(SRC_ROOT, 'document', rel), 'utf-8'))
+      for (const name of retired) {
+        expect(code, `${rel} 仍引用已删锁档缝 ${name}（应读 ctx 锁档字段）`).not.toContain(name)
+      }
+    }
+    expect(stripComments(readFileSync(join(SRC_ROOT, 'document', 'service.ts'), 'utf-8')), 'executeSave 锁档未接 ctx.saveLockTimeoutMs').toContain('ctx.saveLockTimeoutMs')
+    // 定义面：service-guards 不再持有 META/WIRING 的 ForTest 注入口（STRUCT 因 studio
+    // 组装点内建 service 消费而保留，见其注——不在本断言面）。
+    const guardsCode = stripComments(readFileSync(join(SRC_ROOT, 'document', 'service-guards.ts'), 'utf-8'))
+    expect(guardsCode, 'META 注入口应已删（收敛入 DocContext）').not.toContain('__setMetaSaveLockTimeoutForTest')
+    expect(guardsCode, 'WIRING 注入口应已删（收敛入 DocContext）').not.toContain('__setWiringSaveLockTimeoutForTest')
+    // 生效值持有面：DocContext 三档只读字段在位
+    const ctxFields = stripComments(readFileSync(join(SRC_ROOT, 'document', 'doc-context.ts'), 'utf-8'))
+    for (const field of ['saveLockTimeoutMs', 'metaSaveLockTimeoutMs', 'wiringSaveLockTimeoutMs']) {
+      expect(ctxFields, `DocContext 缺锁档字段 ${field}`).toMatch(new RegExp(`readonly\\s+${field}\\b`))
+    }
+  })
+
   it('自检：锚定路径存在且 stripComments 确实剥注释（防锚本身空转）', () => {
     expect(existsSync(DOCUMENT_SERVICE_PATH)).toBe(true)
     expect(stripComments('// x\nconst a = 1\n * y\n/** z */\n')).toBe('const a = 1\n')

@@ -11,7 +11,7 @@
  * R1010c-FE2-P3-5（2026-09-10 全量独立复审修复批）：本文件原为「镜像复制」测试——
  * 自建 mountEditor/externalReplace 复刻 CmHost 的挂载与 dispatch 形态而不 import 组件，
  * 组件漂移（清栈序列被改动/回退）测试不红。重构为真实挂载 CmHost.vue + 真实 CM6（对齐
- * f5-cm-composition-guard / r50-d1-cm-external-keep-ranges 的真实 mount 先例），
+ * cm-composition-guard / cm-external-replace-selection 的真实 mount 先例），
  * setProps 变 modelValue（historyKey 不变）驱动 applyExternalReplace 真路径；断言语义
  * 不变：外部替换后 ⌘Z 不触碰新文档内容、redo 亦不回灌、替换后选区 clamp 保留。
  * undo/redo 走 web-next 嵌套 node_modules 相对路径（根 vitest 未钉该包别名，R61-20

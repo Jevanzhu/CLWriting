@@ -11,7 +11,7 @@
  * rebootstrap；非 401/403 探测（token 工作）复位连记并解除武装；onopen/切书复位。
  * token 真过期场景（re-boot 换到有效 token）自愈一次成功，不进截断通道。
  *
- * 桩结构对齐 sse-ticket.test.ts / backlog-sse-dev-base-mismatch.test.ts
+ * 桩结构对齐 sse-ticket.test.ts / sse-dev-base-mismatch-warn.test.ts
  * （MockES + fetch stub + fake timers）。R0916-7-P3-19：换票 401 不再回退 ?token=
  * 开连——401 连记改由换票失败轮（退避节奏）驱动，探测面仅在 ES fail-closed 时参与。
  */

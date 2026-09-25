@@ -14,25 +14,59 @@
  * 不得让 chat 工具全数 409；生产路径注册缺位的回归由
  * test/studio/r0912-task-gate-port.test.ts 源锚测试锁死（registerStreamRoutes 必调
  * registerTaskGateProvider）。
+ *
+ * R0916-7-P3-6 收编：注册槽随端口实例化——原裸模块级 `let provider` 收进
+ * createTaskGatePort 的实例槽位，模块级函数保留为**进程默认端口**的委托壳（与
+ * task-gate.ts 的进程默认实例委托壳同型）：stream.ts 与既有测试按模块级函数取用，
+ * 语义逐位不变；同进程需要第二套注册面时（组装根多实例的未来形态）可自建端口实例。
+ * 如实记：acquire 调用面（chat 工具）无实例判别信息，进程默认端口仍是单通道——
+ * 最后注册者生效（生产单 server 进程一份，无差异）；多实例判据测试不依赖本端口
+ *（chat 工具闸属进程级编排面，与 isChatRunning 等在途表同层，收口见评审报告遗留项）。
  */
 
 /** 与 studio/server/api/task-gate.ts acquireTaskGate 同形（闸满返回 null = fail-closed） */
 type TaskGateAcquire = (bookName: string, action: string) => (() => void) | null
 
-let provider: TaskGateAcquire | null = null
+export interface TaskGatePort {
+  /** 表现层注册真实闸（幂等：重注册覆盖；registerStreamRoutes 每次服务构造都会调用） */
+  register(acquire: TaskGateAcquire): void
+  /** chat 工具侧唯一取闸入口（turns.ts REWRITE_GATE_TOOLS / write_chapter）；
+   *  未注册返回 no-op release（放行，见头注口径） */
+  acquire(bookName: string, action: string): (() => void) | null
+  /** 测试钩子：清空注册（验证未注册放行形态；生产零调用） */
+  resetForTest(): void
+}
 
-/** 表现层注册真实闸（幂等：重注册覆盖；registerStreamRoutes 每次服务构造都会调用） */
+export function createTaskGatePort(): TaskGatePort {
+  let provider: TaskGateAcquire | null = null
+  return {
+    register: (acquire) => {
+      provider = acquire
+    },
+    acquire: (bookName, action) => {
+      if (!provider) return (): void => {} // 未注册：no-op release 放行（见头注口径）
+      return provider(bookName, action)
+    },
+    resetForTest: () => {
+      provider = null
+    },
+  }
+}
+
+/** 进程默认端口（模块级委托壳的状态归属；生产注册面）。 */
+const processPort = createTaskGatePort()
+
+/** 表现层注册真实闸（进程默认端口委托壳；语义见 TaskGatePort.register）。 */
 export function registerTaskGateProvider(acquire: TaskGateAcquire): void {
-  provider = acquire
+  processPort.register(acquire)
 }
 
-/** 测试钩子：清空注册（验证未注册放行形态；生产零调用） */
-export function resetTaskGateProviderForTest(): void {
-  provider = null
-}
-
-/** chat 工具侧唯一取闸入口（turns.ts REWRITE_GATE_TOOLS / write_chapter） */
+/** chat 工具侧唯一取闸入口（进程默认端口委托壳）。 */
 export function acquireTaskGateViaPort(bookName: string, action: string): (() => void) | null {
-  if (!provider) return (): void => {} // 未注册：no-op release 放行（见头注口径）
-  return provider(bookName, action)
+  return processPort.acquire(bookName, action)
+}
+
+/** 测试钩子：清空进程默认端口注册（防跨用例泄漏；生产零调用）。 */
+export function resetTaskGateProviderForTest(): void {
+  processPort.resetForTest()
 }

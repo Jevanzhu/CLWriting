@@ -16,7 +16,7 @@ import {
 import {
   registerDegradedLookup,
   registerDegradedPersist,
-  resetDegradedChannels,
+  processProviderRuntime,
 } from '../../../src/ai/provider/store.js'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
@@ -34,11 +34,11 @@ const CONF = {
 
 beforeEach(() => {
   clearProviderCache()
-  resetDegradedChannels()
+  processProviderRuntime().__resetForTest()
 })
 
 afterEach(() => {
-  resetDegradedChannels()
+  processProviderRuntime().__resetForTest()
 })
 
 describe('resolveAdapter 声明式路由', () => {

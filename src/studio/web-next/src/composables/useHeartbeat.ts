@@ -10,11 +10,11 @@ import { bookUrl } from '../api/url'
 const online = ref(true)
 export const serverOnline = online
 
-/** R55-F-2（五十五轮）：连续失败拍数（模块级，同 serverOnline 惯例）——Book.vue 的 SSE
+/** R55-F-2（五十五轮）：连续失败拍数（模块级，同 serverOnline 惯例）——SSE
  *  半开连接看门狗消费面：服务端「接受连接、回 200 头、此后不发数据也不关」时
  *  EventSource 无 onerror、connected 冻结在 true，靠心跳连败检出后 resync 强制重连
- *  （连续 ≥2 拍失败且 SSE 仍处 connected 态，见 Book.vue 接线）。成功拍复位；
- *  stop（退书/切书）复位；触发侧（Book.vue）触发后同样复位去抖。
+ *  （连续 ≥2 拍失败且 SSE 仍处 connected 态，见 useSseSelfHeal 接线）。成功拍复位；
+ *  stop（退书/切书）复位；触发侧（useSseSelfHeal）触发后同样复位去抖。
  *  0918二轮修复批（E104）：连败只由传输层失败（网络异常/超时 abort，fetch 抛错）
  *  累计——业务 4xx/5xx（书已删 404、鉴权 401 等）服务进程仍在线，不计连败。 */
 const failStreak = ref(0)

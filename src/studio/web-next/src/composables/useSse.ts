@@ -314,7 +314,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       es = new EventSource(`${base + bookUrl(currentName, 'stream')}?ticket=${encodeURIComponent(ticket)}`)
     } else {
       // N-3 既有口径：re-boot 失败 token 仍 null → 照常开连（无凭据必 401 fail-closed），
-      // 由退避节奏再次走到这里重试（n3-sse-reboot 钉住）。
+      // 由退避节奏再次走到这里重试（sse-token-null-rebootstrap 钉住）。
       es = new EventSource(base + bookUrl(currentName, 'stream'))
     }
     es.onopen = () => {
@@ -343,7 +343,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         sock.close()
         es = null
         // R26-66（二十六轮）复核：429 拒绝即 fail-closed，已并入下方同一指数退避通道
-        // （r73-sse-429-guide/sse-reconnect 有回归），无需另接退避线——本批仅补
+        // （sse-busy-probe（原 r73-sse-429-guide）/sse-reconnect 有回归），无需另接退避线——本批仅补
         // probeSseBusy 超时（R26-78），退避机制零改动。
         epoch.backoffStep += 1
         // R42-1（四十二轮）：fail-closed 首档改 0ms 立即换票重连——「清空对话」服务端按

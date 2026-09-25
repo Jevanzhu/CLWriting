@@ -3,10 +3,11 @@
  * service.ts 缝 A 拆出（纯移动，零行为变化）。
  *
  * 内容：非 UTF-8 拒绝守卫（isUtf8Bytes + NON_UTF8_REJECT / NON_UTF8_SAVE_REJECT）与
- * 四组跨进程锁等待档（META / STRUCT / WIRING / SAVE——常量 + testableConst 生效值
- * getter / 注入钩子）。原 service.ts 导出项仍由 service.ts 逐名 re-export 桥接
- * （全库消费方 import 面不变）；原模块私有项（NON_UTF8_*、saveLockTimeoutMs）迁入后
- * 加 export 供 service.ts 内部 import，不对外新增导出面。
+ * 四组跨进程锁等待档常量（META / STRUCT / WIRING / SAVE）。R0916-7-P3-6 起锁档生效值
+ * 由 DocContext 持有（per-ctx 组装参数，缺省 = 本文件常量）：META / WIRING / SAVE 的
+ * 模块级注入钩子已删，唯 STRUCT 保留（唯一剩余测试消费方经 studio server 内建 service
+ * 触达，见其注）。消费方直引本文件（R0916-7-P3-8 起转发桥已删）；saveLockTimeoutMs
+ * 生效值别名随 P3-6 收敛删除（其消费点 service.ts 改读 ctx.saveLockTimeoutMs）。
  */
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -47,40 +48,39 @@ export const NON_UTF8_SAVE_REJECT = {
 }
 
 /** R76-1（二十四轮）：元数据 PATCH 双路径（updateChapterMeta/updateDocMeta）的跨进程
- *  保存锁等待（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快（生产零调用），
- *  同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS 惯例。
+ *  保存锁等待（毫秒）——与 executeSave 的 5s 同档；同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS
+ *  惯例。
  *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
- *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
+ *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。
+ *  R0916-7-P3-6（组装根注入收敛）：生效值改由 DocContext 持有（per-ctx 注入，缺省 =
+ *  本常量），原模块级注入钩子 __setMetaSaveLockTimeoutForTest 删除（消费点只余
+ *  service-meta.ts 的 (ctx,…) 函数，测试经 DocContextOptions.metaSaveLockTimeoutMs 注入）。 */
 export const META_SAVE_LOCK_TIMEOUT_MS = 5_000
 
-/** 复审-0914-优化修复批 A4（2026-09-14 修复批）：三件套换装 testableConst——生效值 getter +
- *  注入钩子由工厂单源产出（钩子名/签名不变，测试面零感知；生产消费点改调 getter）。 */
-export const [getMetaSaveLockTimeoutMs, __setMetaSaveLockTimeoutForTest] = testableConst(META_SAVE_LOCK_TIMEOUT_MS)
-
 /** R0912-2（2026-09-11 重评-0911c 修复批）：结构性操作（doMoveOrRename/doTrash）落位段
- *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快
- *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。
- *  A4 换装（同 META 注）：档位常量为本模块私有（无导出消费方），def 值就地字面化。 */
+ *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档。
+ *  A4 换装（同 META 注）：档位常量为本模块私有（无导出消费方），def 值就地字面化。
+ *  R0916-7-P3-6：本档**保留模块级注入口**（未随 META/WIRING 收敛入 ctx）——消费点虽
+ *  全在 (ctx,…) 函数，但其唯一剩余测试消费方 structure-crash.test.ts 经 studio server
+ *  组装点内建 service（documents-core.ts getOrCreateService 固定实参构造）触达，
+ *  src/studio 为冻结范围、无法从测试侧传 per-instance 档，故保留模块缝 + 如实记档；
+ *  解除条件：studio 侧 service 组装开放 options 透传后，随批改 ctx.structSaveLockTimeoutMs
+ *  并删本钩子（直调面 struct-save-lock.test.ts 同批改构造注入）。 */
 export const [getStructSaveLockTimeoutMs, __setStructSaveLockTimeoutForTest] = testableConst(5_000)
 
 /** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
  *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
- *  同档（测试注入缩短保快，生产零调用）。
- *  R30-18（三十轮）：常量化——同 META_SAVE_LOCK_TIMEOUT_MS 的收口口径。 */
+ *  同档。
+ *  R30-18（三十轮）：常量化——同 META_SAVE_LOCK_TIMEOUT_MS 的收口口径。
+ *  R0916-7-P3-6（同 META 注）：生效值改由 DocContext 持有，模块级注入钩子删除。 */
 export const WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** A4 换装（同 META 注）。 */
-export const [getWiringSaveLockTimeoutMs, __setWiringSaveLockTimeoutForTest] = testableConst(WIRING_SAVE_LOCK_TIMEOUT_MS)
 
 /** 复审-0913-源码 P3-③：executeSave 主体保存锁（`<journalPath>.save.lock`）等待档
  *  （毫秒）——原裸写 5_000 与 META/STRUCT/WIRING 三档惯例脱钩（R30-18 收口口径漏网
- *  单点）；测试注入缩短保快（生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
+ *  单点）。
+ *  R0916-7-P3-6（同 META 注）：生效值改由 DocContext 持有；原 `saveLockTimeoutMs`
+ *  生效值别名（复审-0914-优化修复批 B4 起钩子已删、恒等常量）随收敛删除。 */
 export const SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** 生效值（模块内可变）：初值 = 常量；测试如需注入走模块内替换（复审-0914-优化修复批
- *  B4：原 __setSaveLockTimeoutForTest 钩子全库零调用方，2026-09-14 修复批删）。
- *  本批注：钩子删后本值再无改写通道（恒等常量），随 eslint prefer-const 降 const。 */
-export const saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
 
 // ── 0917清库修复批（件1）：rename 微任务残窗——书注册落盘前重验（二道防线）────────
 // 登记原文「rename 微任务残窗：单元首行重验后微任务窗残留（files.ts R70-6 架构同源，

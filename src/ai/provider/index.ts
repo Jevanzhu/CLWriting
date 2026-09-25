@@ -42,7 +42,9 @@ export {
   persistDegraded,
   registerDegradedLookup,
   lookupDegraded,
-  resetDegradedChannels,
+  // R0916-7-P3-6 收编：原模块级 ForTest 缝（resetDegradedChannels/__clearProvidersCacheForTest/
+  // __providersCacheSizeForTest/__seedProvidersWriteChainForTest）随 ProviderRuntime 端口
+  // 实例化（processProviderRuntime().__resetForTest() 等），不再出模块导出面
   ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突错误（API 层 409 映射用）
   type ProviderStore,
 } from './store.js'

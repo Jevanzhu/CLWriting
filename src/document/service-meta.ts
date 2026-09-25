@@ -52,7 +52,7 @@ import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf, isFmWritableValue } from '../format/frontmatter.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle, chapterNoFromName } from '../format/filename.js'
-import { isUtf8Bytes, NON_UTF8_REJECT, getMetaSaveLockTimeoutMs, getWiringSaveLockTimeoutMs } from './service-guards.js'
+import { isUtf8Bytes, NON_UTF8_REJECT } from './service-guards.js'
 import { isPieceBody, isSamePhysicalFile, normalizeChapterNo, chapterTitleSegment } from './service-helpers.js'
 import { doMoveOrRename } from './service-move.js'
 import type { DocContext } from './doc-context.js'
@@ -103,12 +103,13 @@ export async function updateChapterMetaLocked(ctx: DocContext, docId: string, me
   // 本处保留调用面专属文案与锁档，锁序与失败语义逐位不变。
   return ctx.withSaveLocks<MoveResult>({
     journalPath,
-    saveTimeoutMs: getMetaSaveLockTimeoutMs(),
+    // R0916-7-P3-6：锁档生效值随容器走（per-ctx 组装参数，缺省 = META/WIRING 常量档）
+    saveTimeoutMs: ctx.metaSaveLockTimeoutMs,
     onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
     onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }),
     wiring: {
       relPath: path,
-      timeoutMs: getWiringSaveLockTimeoutMs(),
+      timeoutMs: ctx.wiringSaveLockTimeoutMs,
       onThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
       onTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }),
     },
@@ -444,12 +445,13 @@ export async function updateDocMetaLocked(ctx: DocContext, docId: string, meta: 
   // 专属文案与锁档，锁序与失败语义逐位不变。
   return ctx.withSaveLocks<MoveResult>({
     journalPath,
-    saveTimeoutMs: getMetaSaveLockTimeoutMs(),
+    // R0916-7-P3-6：锁档生效值随容器走（per-ctx 组装参数，缺省 = META/WIRING 常量档）
+    saveTimeoutMs: ctx.metaSaveLockTimeoutMs,
     onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
     onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }),
     wiring: {
       relPath: path,
-      timeoutMs: getWiringSaveLockTimeoutMs(),
+      timeoutMs: ctx.wiringSaveLockTimeoutMs,
       onThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
       onTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }),
     },

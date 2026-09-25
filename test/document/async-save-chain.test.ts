@@ -15,8 +15,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
-// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
-import { __setWiringSaveLockTimeoutForTest, __setMetaSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
+// R0916-7-P3-6：save/meta 布线锁档改 per-ctx 注入（DocContextOptions），模块级 ForTest 钩子删除
 import { __setManifestLockTimeoutForTest, readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 
@@ -32,8 +31,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  __setWiringSaveLockTimeoutForTest(5_000)
-  __setMetaSaveLockTimeoutForTest(5_000)
   __setManifestLockTimeoutForTest(5_000)
   rmSync(bookRoot, { recursive: true, force: true })
 })
@@ -101,10 +98,11 @@ test('R30-6: executeSave 清单锁等待不阻塞事件循环（withManifestLock
 }, 10_000)
 
 test('R30-6: 异步等待的 fail-closed 语义逐位不变——布线锁注入 120ms 档超时仍按 WRITE_ERROR 拒绝', async () => {
-  __setWiringSaveLockTimeoutForTest(120)
+  // R0916-7-P3-6：布线锁档改 per-ctx 注入（本用例自建 120ms 档实例）
+  const svcShort = new DocumentService({ bookRoot, wiringSaveLockTimeoutMs: 120 })
   const wiringAbs = join(bookRoot, ...WIRING_REL.split('/'))
   holdProbeLock(wiringAbs)
-  const r = await svc.save('doc_w1', WIRING_REL, {
+  const r = await svcShort.save('doc_w1', WIRING_REL, {
     content: '---\n标题: 灭门\n---\n\n新正文',
     expectedRevision: null,
     operationId: 'op1',

@@ -200,7 +200,21 @@ export const mockDriver: StudioDriver = {
     // 同 registerCtrl：mock 无登记，注销亦 noop
   },
 
-  // 0918独立重评修复批（E002）：与 cc 实现接口齐平（StudioDriver 可选方法两实现都提供）——
+  // R0916-7-P3-16 收尾（必需能力接口）：interrupt 由「可选缺席」改为显式 no-op——
+  // mock 无可中断生成（无在途 ctrl、无真实请求），noop 不 abort 任何 ctrl、不推
+  // interrupted 事件，与可选时代「缺席即消费点跳过」的运行时语义逐位一致
+  //（/interrupt 与 watchdog 的中断动作集照旧先走编排闸的 abortSelfHeal/abortChat）。
+  interrupt(): void {
+    // noop：无可中断生成——「不支持中断」是显式声明，不再以可选字段表达
+  },
+
+  // 同上收口：isRunning 由「可选缺席 → 消费点 ?? false 回落」改为显式常量 false
+  //（mock 无 ctrl 登记，恒无在途；消费点语义逐位一致）
+  isRunning(): boolean {
+    return false
+  },
+
+  // 0918独立重评修复批（E002）：与 cc 实现接口齐平（StudioDriver 全成员两实现都提供）——
   // mock 无 ctrl 登记（registerCtrl noop），恒无在途，恒 false。注意 E001 的 chat_replay_begin
   // 回放锚不在此实现：mock 无 execRing 回放语义（R62-40 行为分叉点已文档化），无锚可插。
   isWriterRunning(): boolean {

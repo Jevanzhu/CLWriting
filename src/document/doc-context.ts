@@ -31,12 +31,23 @@ import { readManifestStrict, upsertEntry, withManifestLockAsync, writeManifest, 
 import { DEFAULT_VERSION_POLICY, encodeDocDirName, readGlobalSnapshotPolicy, type VersionPolicy } from './version.js'
 import { scanBookTree } from './tree.js'
 import { findByLegacyId } from './service-helpers.js'
+// 锁档常量（生产默认值单源）——本容器是保存链三档生效值的持有者（R0916-7-P3-6 收敛：
+// 原 service-guards 模块级 ForTest 注入口改 per-ctx 显式注入，测试经 DocContextOptions 传档）。
+import { META_SAVE_LOCK_TIMEOUT_MS, WIRING_SAVE_LOCK_TIMEOUT_MS, SAVE_LOCK_TIMEOUT_MS } from './service-guards.js'
 import type { Revision } from './revision.js'
 
 export interface DocContextOptions {
   bookRoot: string
   /** APP 级数据目录（Electron userData）：写时清理读 global.json 全局保留策略（版本保留三层链）。 */
   userDataPath?: string | null
+  /** 保存链锁等待档覆盖（毫秒，测试注入用；缺省 = 生产常量档，逐位不变）。
+   *  R0916-7-P3-6：save/meta/wiring 三档自 service-guards 模块级 ForTest 注入口收敛为
+   *  per-ctx 注入——锁档是「每服务实例的组装参数」，不再是无主的模块级可变态。 */
+  saveLockTimeoutMs?: number
+  /** 元数据 PATCH 链（updateChapterMeta/updateDocMeta）的 save 锁等待档；缺省同 save。 */
+  metaSaveLockTimeoutMs?: number
+  /** 布线文件第二道锁的等待档；缺省同 save。 */
+  wiringSaveLockTimeoutMs?: number
 }
 
 /** withSaveLocks 参数（复审-0914-优化修复批 P1-1 的编排契约，语义见方法注）。 */
@@ -62,12 +73,25 @@ export class DocContext {
   /** 文档清单路径（<bookRoot>/项目/文档清单.jsonl）。 */
   readonly manifestPath: string
 
+  // ── 保存链锁等待档（R0916-7-P3-6：模块级 ForTest 注入口 → per-ctx 组装参数）────
+  // 语义与档位见各常量注（service-guards.ts 单源）；只读字段——注入只在构造时发生，
+  // 实例存活期内恒定（与「每 ctx 一书一实例」的所有权口径一致，无运行期改写通道）。
+  /** executeSave 主保存锁（`<journalPath>.save.lock`）等待档。 */
+  readonly saveLockTimeoutMs: number
+  /** 元数据 PATCH 双路径的 save 锁等待档。 */
+  readonly metaSaveLockTimeoutMs: number
+  /** 布线文件写路径第二道同名锁的等待档。 */
+  readonly wiringSaveLockTimeoutMs: number
+
   constructor(opts: DocContextOptions) {
     this.bookRoot = opts.bookRoot
     this.userDataPath = opts.userDataPath ?? null
     this.journalDir = join(this.bookRoot, '工作区', '.journal')
     this.snapshotsDir = join(this.bookRoot, '工作区', '.版本')
     this.manifestPath = join(this.bookRoot, '项目', '文档清单.jsonl')
+    this.saveLockTimeoutMs = opts.saveLockTimeoutMs ?? SAVE_LOCK_TIMEOUT_MS
+    this.metaSaveLockTimeoutMs = opts.metaSaveLockTimeoutMs ?? META_SAVE_LOCK_TIMEOUT_MS
+    this.wiringSaveLockTimeoutMs = opts.wiringSaveLockTimeoutMs ?? WIRING_SAVE_LOCK_TIMEOUT_MS
   }
 
   /** per-doc journal 路径唯一构造点（R68-3 文件名编码口径单源，见文件头注第三条）。 */

@@ -66,6 +66,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     emit(_s, ev): void {
       emitted.push(ev)
     },
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
+    registerCtrl(): void {},
+    unregisterCtrl(): void {},
   }
 }
 

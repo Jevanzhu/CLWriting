@@ -23,8 +23,7 @@ import {
   loadProviders,
   saveProviders,
   emptySettings,
-  __clearProvidersCacheForTest,
-  __providersCacheSizeForTest,
+  processProviderRuntime,
 } from '../../../src/ai/provider/store.js'
 import type { ProviderConf } from '../../../src/ai/provider/types.js'
 
@@ -61,11 +60,11 @@ function saveDir(tag: string, apiKey: string): string {
 }
 
 beforeEach(() => {
-  __clearProvidersCacheForTest()
+  processProviderRuntime().__clearProvidersCacheForTest()
 })
 
 afterEach(() => {
-  __clearProvidersCacheForTest()
+  processProviderRuntime().__clearProvidersCacheForTest()
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
@@ -119,13 +118,13 @@ test('mtime 变化后失效重读（外部改动自动失效，语义保持）�
 test('容量 8：第 9 个路径入场逐出最旧条目，命中路径不受影响（LRU 有界）', () => {
   const paths = Array.from({ length: 9 }, (_, i) => saveDir(`K${i}`, `sk-key-${i}-abcdef`))
   for (const p of paths) loadProviders(p)
-  expect(__providersCacheSizeForTest()).toBe(8)
+  expect(processProviderRuntime().__providersCacheSizeForTest()).toBe(8)
 
   vi.mocked(readFileSync).mockClear()
   // 最旧（K0）已被逐出 → 重读一次；容量维持 8
   expect(loadProviders(paths[0]!).providers[0]!.apiKey).toBe('sk-key-0-abcdef')
   expect(readCallsFor(join(paths[0]!, 'providers.json'))).toBe(1)
-  expect(__providersCacheSizeForTest()).toBe(8)
+  expect(processProviderRuntime().__providersCacheSizeForTest()).toBe(8)
   // 最新（K8）仍在缓存 → 零重读
   expect(loadProviders(paths[8]!).providers[0]!.apiKey).toBe('sk-key-8-abcdef')
   expect(readCallsFor(join(paths[8]!, 'providers.json'))).toBe(0)

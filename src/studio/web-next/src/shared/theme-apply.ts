@@ -16,7 +16,7 @@
  *   即泄漏；单源求值侧在本文件工厂内，不经环回链，TDZ 无涉）。
  * prefs store 残核（状态 refs/DEFAULTS/localStorage 持久化迁移/setter 表驱动/
  * store 门口径）零触碰，经 createThemeApply(theme) 解构 applyTheme/setOverlayDimmed
- * 桥接，init/finishRow/store 出口调用点原位零改动；j5-overlay-dim.test.ts 对
+ * 桥接，init/finishRow/store 出口调用点原位零改动；overlay-dim.test.ts 对
  * prefs.ts 的 theme-instant 源码锁由残核缝指针注记承接（见 prefs.ts 缝位注记）。
  * 依赖单向无环：本文件 import composables/useStaleGuard + types/theme（type）+
  * vue（type），不回引 stores/*；模块顶层零求值常量（状态全在工厂闭包内）。
@@ -37,7 +37,7 @@ export function createThemeApply(theme: Ref<ThemeId>) {
   // light 0xF6 / dark 0x26，灰通道三值同）。遮罩压暗期间的色 = 顶栏底被遮罩吸收后的
   // 等效色：round(bg × (1-α))，α = 当前有效遮罩浓度——各弹窗遮罩浓度不同（设置 .45、
   // 书架/导出/确认 .35、命令面板 .25，名单在 ui store MASK_ALPHA 与组件 CSS 镜像、
-  // j5-overlay-dim.test.ts 锁死；多层叠开按 1-Π(1-α) 复合）。此前只有 .45 一档标定值
+  // overlay-dim.test.ts 锁死；多层叠开按 1-Π(1-α) 复合）。此前只有 .45 一档标定值
   // （light #878787 / dark #151515），书架等 .35 遮罩下窗控深一档即「颜色不统一」。
   /** 当前有效遮罩浓度（0 = 无遮罩，窗控还原基础色）。 */
   let overlayAlpha = 0

@@ -15,6 +15,8 @@
  * 6. snapshotPolicy：global.json 覆盖 + 默认档回落（throttleMinutes 恒默认）；
  * 7. 每实例缓存：cachedDocWords/rememberDocWords 的 rev 键控（换版即失效）；
  * 8. chainDocMetaOp：同 docId 串行、跨 docId 不互相阻塞。
+ * 9. 锁档容器（R0916-7-P3-6）：save/meta/wiring 三档缺省 = 生产常量（逐位不变）、
+ *    注入档构造期生效（per-ctx 组装参数，原模块级 ForTest 钩子收敛入此）。
  *
  * 不覆盖：与既有用例重复的行为面（r30-snapshot-policy-cache 的 stat 缓存、r31c 的 legacy
  * 收编明细）——本文件只锚「显式设施可用且口径不变」。
@@ -24,6 +26,8 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { DocContext } from '../../src/document/doc-context.js'
+// R0916-7-P3-6：锁档常量（生产默认值单源）——缺省档逐位锚定
+import { META_SAVE_LOCK_TIMEOUT_MS, WIRING_SAVE_LOCK_TIMEOUT_MS, SAVE_LOCK_TIMEOUT_MS } from '../../src/document/service-guards.js'
 import { DEFAULT_VERSION_POLICY, encodeDocDirName } from '../../src/document/version.js'
 import { readManifest, upsertEntry, writeManifest } from '../../src/document/manifest.js'
 import { legacyId } from '../../src/document/stable-id.js'
@@ -128,6 +132,26 @@ describe('R0916-7-P3-8: DocContext 组装与显式设施', () => {
     })
     expect(out).toBe('timeout')
     expect(ran).toBe(false)
+  })
+
+  it('锁档容器：缺省 = 生产常量档，注入档构造期生效（R0916-7-P3-6 per-ctx 收敛）', () => {
+    // 缺省逐位不变：save/meta/wiring 三档 = service-guards 生产常量
+    expect(ctx.saveLockTimeoutMs).toBe(SAVE_LOCK_TIMEOUT_MS)
+    expect(ctx.saveLockTimeoutMs).toBe(5_000)
+    expect(ctx.metaSaveLockTimeoutMs).toBe(META_SAVE_LOCK_TIMEOUT_MS)
+    expect(ctx.metaSaveLockTimeoutMs).toBe(5_000)
+    expect(ctx.wiringSaveLockTimeoutMs).toBe(WIRING_SAVE_LOCK_TIMEOUT_MS)
+    expect(ctx.wiringSaveLockTimeoutMs).toBe(5_000)
+    // 注入档在构造期生效且实例期内恒定（readonly 字段，无运行期改写通道）
+    const short = new DocContext({ bookRoot: root, saveLockTimeoutMs: 1_000, metaSaveLockTimeoutMs: 150, wiringSaveLockTimeoutMs: 80 })
+    expect(short.saveLockTimeoutMs).toBe(1_000)
+    expect(short.metaSaveLockTimeoutMs).toBe(150)
+    expect(short.wiringSaveLockTimeoutMs).toBe(80)
+    // 单档注入不影响其余档（缺省回落常量）
+    const partial = new DocContext({ bookRoot: root, wiringSaveLockTimeoutMs: 80 })
+    expect(partial.saveLockTimeoutMs).toBe(5_000)
+    expect(partial.metaSaveLockTimeoutMs).toBe(5_000)
+    expect(partial.wiringSaveLockTimeoutMs).toBe(80)
   })
 
   it('清单族：upsert → lookup 命中；maybeUpdateManifest/updateManifestPath 改 path', async () => {

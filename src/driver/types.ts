@@ -74,35 +74,43 @@ export type DriverEvent =
   // 消费者队列（stream 回放路径），不经 driver.emit/push，不入 ring。
   | { type: 'chat_replay_begin' }
 
-/** driver 接口(SSE 基础设施,窄化) */
+/**
+ * driver 接口(SSE 基础设施,窄化)。
+ *
+ * R0916-7-P3-16 收尾（必需能力接口）：全部成员**必需**——缺任一实现即类型错误，
+ * 消费点不再有「成员缺席 → 静默跳过 / 结构探测降级」的形态（此前 cancelStream/
+ * interrupt/isRunning/isWriterRunning/registerCtrl/unregisterCtrl/emit 七个可选成员
+ * 就是 P2-1「可选能力被静默丢弃」的病灶）。mock 无可中断生成等「不支持」面以
+ * 显式 no-op/常量实现声明（语义与旧缺省回落逐位一致），不再以可选字段表达。
+ */
 export interface StudioDriver {
   /** 起会话(cwd=工作目录;provider 直连无 CLI 注入语义) */
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
   /** B-19（第六十轮补修）：唤醒 park 在内部等待上的 stream 生成器（SSE 断开即回收，
-   *  不再等该书下一 driver 事件才推进 iter.return）——入参为 stream() 的返回值。
-   *  可选,未实现的 driver 退回 iter.return() 旧语义（等待下一事件） */
-  cancelStream?(iter: AsyncIterable<DriverEvent>): void
+   *  不再等该书下一 driver 事件才推进 iter.return）——入参为 stream() 的返回值。 */
+  cancelStream(iter: AsyncIterable<DriverEvent>): void
   /** 结束会话 */
   dispose(session: Session): void
-  /** 中断当前生成(推 interrupted;session 保留可再用)。可选,mock 可不实现 */
-  interrupt?(session: Session): void
-  /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
-  isRunning?(session: Session): boolean
+  /** 中断当前生成(推 interrupted;session 保留可再用)。mock 无可中断生成——显式 no-op
+   *  （不 abort 任何 ctrl、不推事件），与可选时代的「缺席即跳过」运行时语义逐位一致 */
+  interrupt(session: Session): void
+  /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。mock 恒 false（无登记面） */
+  isRunning(session: Session): boolean
   /** 0918独立重评修复批（E002）：当前是否有存活的「写手腿」生成——sync 快照收窄口径：
    *  排除 `chat:` 前缀 owner 槽位（对话腿 ctrl 全程在册至 finish 注销，isRunning 会被
-   *  其置真且 chat 终态不达 workbench.running，快照永不复位）。可选；未实现时消费方
-   *  回落 false（与 isRunning 缺省同型）。 */
-  isWriterRunning?(session: Session): boolean
+   *  其置真且 chat 终态不达 workbench.running，快照永不复位）。mock 恒 false。 */
+  isWriterRunning(session: Session): boolean
   /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。
    *  M-1（第八轮）：owner 标识编排归属（'chat:<book>'/'spawn'/'self-heal'）——同 owner 换新保持
    *  「先 abort 旧」（P2-6），跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。
    *  R71-19（十九轮）：chat 侧 owner 带书维度（`chat:<bookName>`）——两本书共享 session
-   *  时跨书对话互不抢占；同书摘要与轮循环同槽幂等。可选,mock 可不实现 */
-  registerCtrl?(session: Session, ctrl: AbortController, owner?: string): void
-  /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。可选 */
-  unregisterCtrl?(session: Session, ctrl: AbortController): void
-  /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角)。可选 */
-  emit?(session: Session, ev: DriverEvent): void
+   *  时跨书对话互不抢占；同书摘要与轮循环同槽幂等。mock 为显式 no-op（无可中断生成）。 */
+  registerCtrl(session: Session, ctrl: AbortController, owner?: string): void
+  /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。
+   *  mock 为显式 no-op（同 registerCtrl）。 */
+  unregisterCtrl(session: Session, ctrl: AbortController): void
+  /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角) */
+  emit(session: Session, ev: DriverEvent): void
 }

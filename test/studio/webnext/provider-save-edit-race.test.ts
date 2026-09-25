@@ -6,7 +6,7 @@
  * editedId 后，第二行重新求值走 update 分支，把新增草稿（含 apiKey）写进他行。
  * 修复后：首个 await 前钉定 editTarget，分支与目标全函数用钉定值。
  *
- * mock 面对齐 settings-service-provider.test.ts / r73-double-submit-guards.test.ts。
+ * mock 面对齐 settings-service-provider.test.ts / save-double-submit-lock.test.ts。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'

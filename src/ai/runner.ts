@@ -307,7 +307,7 @@ function registerDegradedCallbacks(userDataPath: string): void {
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
   // R65-6：分发器随注册重装（同一模块级函数引用——幂等）。R42-21（四十二轮）注释对齐
-  // 实况：resetDegradedChannels 清掉 store 槽后，只有「换 userDataPath 的下一次 resolve」
+  // 实况：ProviderRuntime.__resetForTest 清掉实例降级槽后，只有「换 userDataPath 的下一次 resolve」
   // 会走到本函数重接注册（resolveProvider 侧 `degradedActivePath !== userDataPath` 守卫
   // 对同 path 直接跳过，槽保持空——同 path 不重接）；测试需要同 path 重接时直接重新
   // import 本模块或另行暴露钩子。生产路径不调 reset，运行时行为零影响

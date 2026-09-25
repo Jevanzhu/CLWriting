@@ -8,7 +8,7 @@
  * 一遍：作者明确选择留下，工作台态/树/对话却被清空。修复后 n === lastBook 直接返回，
  * 原书状态原封（首载 lastBook==='' 不受影响）。
  *
- * 挂载脚手架沿 f1-flush-failure-guard 先例：视图全 stub，只测切书编排。
+ * 挂载脚手架沿 flush-dirty-switch-guard 先例：视图全 stub，只测切书编排。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'

@@ -65,6 +65,10 @@ function makeRecordingDriver(): {
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
     emit(_s: Session, _ev: DriverEvent): void {},
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
     registerCtrl(session, ctrl, owner) {
       registered.push({ session, ctrl, owner })
     },
@@ -101,6 +105,10 @@ test('R0912-1: 真实 ccDriver——interrupt(session)（/interrupt 同路径）
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
     emit(_s: Session, _ev: DriverEvent): void {},
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
     registerCtrl: (s, c, o) => ccDriver.registerCtrl?.(s, c, o),
     unregisterCtrl: (s, c) => {
       unregistered.push(c)
@@ -179,6 +187,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     emit(_s, ev): void {
       emitted.push(ev)
     },
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
+    registerCtrl(): void {},
+    unregisterCtrl(): void {},
   }
 }
 

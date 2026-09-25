@@ -17,7 +17,7 @@
 /* 窗口拖拽区（桌面端壳层标题栏/顶栏容器；子件 no-drag 规则在各组件 scoped 内，特异性恒压过本条）。
  * 本类是「真实拖拽容器」的专属单类：页面根的桌面态标记一律用 is-desktop——页根若同名,
  * 本规则命中后 app-region 继承会使整页成拖拽面（R0913 复核批 P1,Library/Shelf/Welcome
- * 三页根已随批改名;防复活锚 = test/studio/webnext/r0913-is-drag-scope.test.ts） */
+ * 三页根已随批改名;防复活锚 = test/studio/webnext/desktop-drag-class-scope.test.ts） */
 .is-drag {
   -webkit-app-region: drag;
 }

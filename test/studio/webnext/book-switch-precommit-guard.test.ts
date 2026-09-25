@@ -5,7 +5,7 @@
  * 目标书 SSE 从未连上、事件从未落进任何 store，故「先切后回滚」的整段善后（清污 /
  * 回退路由 / resync + 补种）在这一路径上不再需要。
  *
- * 与既有文件的互补关系：f1-flush-failure-guard / book-watch-reentry / r37-e1 等用
+ * 与既有文件的互补关系：flush-dirty-switch-guard / book-watch-reentry 等用
  * 「直改 route.params」驱动提交后的 watch 链（本文件不动它们）；本文件用**真路由**
  * （memory history + RouterView）驱动提交前守卫面。
  */

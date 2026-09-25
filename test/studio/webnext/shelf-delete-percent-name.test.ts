@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   deleteBook: vi.fn(),
   clearFalsePositiveMarks: vi.fn(),
   shelfLoad: vi.fn(async () => {}),
-  // vue-router mock（r42-global-overlays 双路径先例；alias 钉嵌套副本，裸名 mock 即命中）
+  // vue-router mock（global-overlay-mounts 双路径先例；alias 钉嵌套副本，裸名 mock 即命中）
   routerReplace: vi.fn(),
   routerPush: vi.fn(),
   // F101 断言核心槽位：当前路由 params.name（挂载前按用例设置为「vue-router 已解码」形态）

@@ -1,6 +1,8 @@
 /**
  * check store 单测（第十一轮 P1-TST-1）：
  * 机检触发 / 红/黄项分组 / 清空 / 误报标记持久化与跨文档隔离（M-1 二轮复审）。
+ * 2026-09-26 行为化收尾：E-8（第五十三轮）代数守卫与 clear 复位组自
+ * e8-check-store-gen-clear 并入（同 store 同装置）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -15,6 +17,11 @@ import { useCheckStore, clearFalsePositiveMarks } from '../../../src/studio/web-
 
 const checkMock = runCheck as ReturnType<typeof vi.fn>
 const fpMock = markFalsePositive as ReturnType<typeof vi.fn>
+
+/** 最小机检报告夹具（E-8 有界补齐组用）。 */
+const REPORT = {
+  sections: [{ name: 'S1', items: [{ checkId: 'r1', level: 'red' as const, message: 'm' }] }],
+}
 
 /** node 环境无 localStorage——Map 桩顶上（M-1 持久化路径可测；
  * R-5（十五轮登记销账）补 key/length：clearFalsePositiveMarks 前缀扫描要用） */
@@ -255,5 +262,52 @@ describe('check: R-5 删书清误报灰显键', () => {
     expect(store.has('clw-fp:A:B\u0000d1')).toBe(true)
     clearFalsePositiveMarks('A:B')
     expect(store.has('clw-fp:A:B\u0000d1')).toBe(false) // 各书各清，互不越界
+  })
+})
+
+// ── E-8（第五十三轮）有界补齐：操作代守卫与 clear 复位（原 e8-check-store-gen-clear 并入）──
+
+describe('E-8 · check store 代数守卫与 clear 复位', () => {
+  it('在途 run 期间 clear（切文档）→ 迟到的旧结果不落新文档', async () => {
+    let resolveRun: (v: unknown) => void = () => {}
+    checkMock.mockReturnValue(new Promise((r) => (resolveRun = r)))
+    const s = useCheckStore()
+    const p = s.run('book', 'doc_A')
+    s.clear() // 机检在途时切文档
+    resolveRun({ ok: true, hasRed: true, report: REPORT })
+    await p
+    expect(s.report).toBeNull() // A 文档结果不张冠李戴到新文档
+    expect(s.hasRed).toBe(false)
+  })
+
+  it('clear 推代后 loading 复位不卡死，可再次触发 run（R-1 回归）', async () => {
+    let resolveRun: (v: unknown) => void = () => {}
+    checkMock.mockReturnValue(new Promise((r) => (resolveRun = r)))
+    const s = useCheckStore()
+    const p1 = s.run('book', 'doc_A')
+    expect(s.loading).toBe(true)
+    s.clear()
+    expect(s.loading).toBe(false) // 不等在途 run 的 finally，直接复位
+    resolveRun({ ok: true, hasRed: false, report: REPORT })
+    await p1
+    // 再触发一次 run 正常走完
+    checkMock.mockResolvedValue({ ok: true, hasRed: true, report: REPORT })
+    await s.run('book', 'doc_B')
+    expect(s.loading).toBe(false)
+    expect(s.hasRed).toBe(true)
+  })
+
+  it('clear 全量复位：flagging/flagged/flagError 一并清（跨文档灰显不残留）', async () => {
+    const s = useCheckStore()
+    checkMock.mockResolvedValue({ ok: true, hasRed: true, report: REPORT })
+    await s.run('book', 'doc_A')
+    s.flagging = 'r1'
+    s.flagError = '上次的错误'
+    s.clear()
+    expect(s.flagging).toBeNull()
+    expect(s.flagged.size).toBe(0)
+    expect(s.flagError).toBeNull()
+    expect(s.report).toBeNull()
+    expect(s.error).toBeNull()
   })
 })

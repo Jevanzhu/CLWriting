@@ -2,7 +2,7 @@
 /**
  * R76-8（二十四轮 F 域）：WorkbenchView 生成类动作直测。
  *
- * 与既有零散用例的分工：f4-textout-incomplete 已锚水印兜底拦截、workbench-draft-saved
+ * 与既有零散用例的分工：workbench-incomplete-watermark 已锚水印兜底拦截、workbench-draft-saved
  * 已锚存草稿成功链、usage-card 已锚用量卡——本文件补齐其余主交互面：生成语境拼接
  * （P0-3）、本地在途锁（R69-29）、书名入口捕获（FE-9/R70-10）、无正文守卫、
  * 收工状态卡刷新、AI 不可达置灰。卡片子组件按 f4 先例 stub（内部行为各有直测）。

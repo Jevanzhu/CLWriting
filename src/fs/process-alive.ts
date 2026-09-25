@@ -13,8 +13,11 @@
 
 /** 进程存活探测：process.kill(pid, 0) 不发信号只做权限/存在性检查；ESRCH = 不存在
  *  （stale）。EPERM（存在但属他人）按存活处理——保守不接管。
- *  R67-2（十五轮）导出复用：events 句柄标记的 pid 探测与锁共用同一存活口径。 */
+ *  pid ≤ 0 / 非整数显式判死：POSIX 上 process.kill(≤0, 0) 是「可信号进程组」探测、
+ *  对本进程恒成功，残留文件里的垃圾 pid 会被误判为活（libuv/Windows 则抛 ESRCH）；
+ *  消费方读到的合法 pid 恒为正整数。 */
 export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
   try {
     process.kill(pid, 0)
     return true

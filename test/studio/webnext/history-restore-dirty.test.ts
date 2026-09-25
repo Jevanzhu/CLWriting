@@ -23,7 +23,7 @@ vi.mock('../../../src/studio/web-next/src/api/snapshots', () => ({
 const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined>(undefined)
 const docSaveMock = vi.fn(async () => true)
 // R30-7（三十轮）：refresh 契约改为 Promise<boolean>（true=对齐成功）——本文件覆盖成功
-// 口径，默认返 true；失败分流（warning toast）见 r30-history-refresh-toast.test.ts
+// 口径，默认返 true；失败分流（warning toast）见 history-refresh-toast.test.ts
 const docRefreshMock = vi.fn(async () => true)
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: vi.fn(() => ({

@@ -17,6 +17,7 @@ import process from 'node:process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { testableConst } from '../shared/testable.js'
 import { log, errMsg } from '../log/index.js'
 import { compareSemver, pickLatestStable } from './semver.js'
 
@@ -39,9 +40,11 @@ export interface UpdateCheckResult {
   url: string
 }
 
-/** 进程内结果（随 server 生命周期，同 startup-notices sink 语义：不落盘） */
-let state: 'idle' | 'done' = 'idle'
-let result: UpdateCheckResult | null = null
+/** 进程内结果（随 server 生命周期，同 startup-notices sink 语义：不落盘）。
+ *  R0916-7-P3-6 收敛：原手写模块可变态（`let state` / `let result` + 测试钩子直改）
+ *  换装 testableConst 工厂——生产写入/读取与测试注入走同一元组，模块面无裸可变量。 */
+const [getCheckState, setCheckState] = testableConst<'idle' | 'done'>('idle')
+const [getCheckResult, setCheckResult] = testableConst<UpdateCheckResult | null>(null)
 
 /**
  * 当前版本号**单源**（设计 §3.1）：`CLW_APP_VERSION`（主进程 app.getVersion() 经
@@ -129,7 +132,7 @@ export async function runUpdateCheckOnce(opts?: {
 
   const current = opts?.currentVersion ?? resolveAppVersion()
   const outcome = await fetchOutcome(opts?.fetchImpl ?? fetch, opts?.timeoutMs ?? UPDATE_CHECK_TIMEOUT_MS)
-  state = 'done'
+  setCheckState('done')
   if (outcome.kind === 'error') {
     // 静默口径（§3.3）：只留一行 info（非 warn）——详见文件头与 embed.ts 的差异说明
     log.info('update', `更新检查未完成（${outcome.reason}）——静默跳过，不重试`)
@@ -137,30 +140,30 @@ export async function runUpdateCheckOnce(opts?: {
   }
   if (outcome.kind === 'none' || current === '0.0.0') return
   if (compareSemver(current, outcome.tag) >= 0) return
-  result = {
+  setCheckResult({
     version: outcome.tag.replace(/^v/, ''),
     url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(outcome.tag)}`,
-  }
+  })
 }
 
 /** 更新结果（null = 未完成或已查无新版；端点 `update` 字段直用） */
 export function getUpdateCheckResult(): UpdateCheckResult | null {
-  return result
+  return getCheckResult()
 }
 
 /** 测试钩子：复位为未完成态（模块内存态跨用例隔离用） */
 export function __resetUpdateCheckForTest(): void {
-  state = 'idle'
-  result = null
+  setCheckState('idle')
+  setCheckResult(null)
 }
 
 /** 测试钩子：直接置于「已查到某版本」态（端点三态形状用例用，不打网） */
 export function __setUpdateCheckResultForTest(next: UpdateCheckResult | null): void {
-  state = 'done'
-  result = next
+  setCheckState('done')
+  setCheckResult(next)
 }
 
 /** 检查是否已跑过（端点/前端测试判别未完成态用；生产只读） */
 export function getUpdateCheckState(): 'idle' | 'done' {
-  return state
+  return getCheckState()
 }

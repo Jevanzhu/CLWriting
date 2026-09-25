@@ -17,8 +17,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
-// R0916-7-P3-8：锁档注入钩子随转发桥删除改直引正本（service-guards.ts）
-import { __setMetaSaveLockTimeoutForTest, __setWiringSaveLockTimeoutForTest } from '../../src/document/service-guards.js'
+// R0916-7-P3-6：meta/布线锁档改 per-ctx 注入（DocContextOptions），模块级 ForTest 钩子删除
 import { __setManifestLockTimeoutForTest } from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { readManifest } from '../../src/document/manifest.js'
@@ -30,16 +29,12 @@ let svc: DocumentService
 beforeEach(() => {
   bookRoot = mkdtempTracked(join(tmpdir(), 'r31c-meta-async-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  svc = new DocumentService({ bookRoot })
-  // 锁等待档缩到 300ms 保快（生产 5s，afterEach 还原）
-  __setMetaSaveLockTimeoutForTest(300)
-  __setWiringSaveLockTimeoutForTest(300)
+  // 锁等待档缩到 300ms 保快（生产 5s 档经 DocContextOptions 注入，实例期内恒定）
+  svc = new DocumentService({ bookRoot, metaSaveLockTimeoutMs: 300, wiringSaveLockTimeoutMs: 300 })
   __setManifestLockTimeoutForTest(200)
 })
 
 afterEach(() => {
-  __setMetaSaveLockTimeoutForTest(5_000)
-  __setWiringSaveLockTimeoutForTest(5_000)
   __setManifestLockTimeoutForTest(5_000)
   rmSync(bookRoot, { recursive: true, force: true })
 })

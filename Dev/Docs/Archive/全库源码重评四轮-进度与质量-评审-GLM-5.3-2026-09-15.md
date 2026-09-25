@@ -173,7 +173,7 @@
 - **nano-6**（git/exec）：timedOut 判据收紧为 errCode === 'ETIMEDOUT'；外部 SIGTERM 单立文案臂（不再误归「操作超时」）。
 - **nano-8**（fs/walk-md）：dirReal 可选参递归传递——首层 realpath 结果不再每子目录重做。
 - **nano-9**（events/store ulid）：改直连 fs/id.ts（垫片消费面收敛 document 域、垫片保留；批一维持裁定「有意耦合」随作者指令一并反转，新调用点直连口径落注）。
-- **nano-10**（TabBar/ContextMenu）：下拉坐标与翻位量系打开瞬间快照 + fixed Teleport，不随窗口 resize 重算——补 resize 监听重算（TabBar syncDropPos / ContextMenu measureFlip + resize 臂 recomputeFlip）。**记正**：ContextMenu watch 体初版将测量收进 async 函数再 await——多一跳微任务使 re2-context-menu-roving 焦点断言（单 nextTick 预算）假红——热路径保持原内联同步形态，仅 resize 监听臂走异步包装。
+- **nano-10**（TabBar/ContextMenu）：下拉坐标与翻位量系打开瞬间快照 + fixed Teleport，不随窗口 resize 重算——补 resize 监听重算（TabBar syncDropPos / ContextMenu measureFlip + resize 臂 recomputeFlip）。**记正**：ContextMenu watch 体初版将测量收进 async 函数再 await——多一跳微任务使 context-menu-roving 焦点断言（单 nextTick 预算）假红——热路径保持原内联同步形态，仅 resize 监听臂走异步包装。
 - **nano-11**（ChatDock/ChatComposer）：`--composer-min-h: 70px` 变量化 + 玻璃档 min-height 改消费该变量（跨文件魔法数单源）。
 
 **范围记档**：作者指令系对批一维持 13 项清单的反转处置；波 1 失传 7 项明细不可恢复（仅存计数），不在可处置清单内，维持原登记口径不追补。

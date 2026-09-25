@@ -9,7 +9,7 @@
  * textOut 做 150ms trailing 节流（R46-4 同档位），<pre> 渲染 rendered；trailing 保证
  * 最终一致（最后一次追加必被渲染）。
  *
- * 挂载形态对齐 f4-textout-incomplete（WbDraftCard 零 API 依赖可独立挂载）；fake timers
+ * 挂载形态对齐 workbench-incomplete-watermark（WbDraftCard 零 API 依赖可独立挂载）；fake timers
  * 驱动真实 dispatch text 事件流。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'

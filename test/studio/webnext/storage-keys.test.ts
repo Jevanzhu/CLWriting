@@ -1,0 +1,200 @@
+// @vitest-environment happy-dom
+/**
+ * shared/storage-keys 键单一事实源契约（键工厂落盘格式锁 + 仓内零硬编码残留 + 端到端同源）。
+ *
+ * R30-26（三十轮）：开书梗概键——写入方 OnboardPremise.vue 局部常量
+ * `clwriting:onboard-premise:${n}` 与清除方 useShelf 删书清扫各自硬编码同串，正是
+ * R28-3 为 tree-first-open 键修掉的「写入/清除键名断裂」同族隐患（一侧改格式另一侧
+ * 静默失配，删书清不掉旧梗概）。修复：新增 onboardPremiseKey 键工厂，写入/清除两侧
+ * 共用。落盘格式（冒号形态）不变，历史数据兼容。
+ *
+ * R60-D-4（六十轮）：最近打开书键 'clw-last-book'——App.vue（启动恢复读取）、
+ * Shelf.vue / ShelfModal.vue（选书记入）、ShelfModal.vue（删当前书清扫）四处各自
+ * 硬编码同串。修复：storage-keys.ts 增设 LAST_BOOK_KEY 常量，四方 import 单源；
+ * 落盘键值不变。
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { promises as fsp } from 'node:fs'
+import * as path from 'node:path'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { LAST_BOOK_KEY, onboardPremiseKey, treeFirstOpenKey } from '../../../src/studio/web-next/src/shared/storage-keys'
+import OnboardPremise from '../../../src/studio/web-next/src/components/onboard/OnboardPremise.vue'
+
+const SRC_ROOT = path.resolve(__dirname, '../../../src/studio/web-next/src')
+
+async function walk(dir: string): Promise<string[]> {
+  const out: string[] = []
+  for (const ent of await fsp.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, ent.name)
+    if (ent.isDirectory()) out.push(...(await walk(p)))
+    else if (/\.(ts|vue)$/.test(ent.name)) out.push(p)
+  }
+  return out
+}
+
+// ── 键工厂 ──
+
+describe('storage-keys · onboardPremiseKey（R30-26）', () => {
+  it('产出历史冒号形态（落盘格式锁——改格式即丢历史草稿，禁止静默变更）', () => {
+    expect(onboardPremiseKey('书A')).toBe('clwriting:onboard-premise:书A')
+    expect(onboardPremiseKey('en-book-1')).toBe('clwriting:onboard-premise:en-book-1')
+  })
+
+  it('不同书名产出不同键（同名书共享、异名书隔离）', () => {
+    expect(onboardPremiseKey('书A')).not.toBe(onboardPremiseKey('书B'))
+    expect(onboardPremiseKey('')).toBe('clwriting:onboard-premise:')
+  })
+
+  it('与首开键工厂同源并存、互不串键（R28-3 回归不回退）', () => {
+    expect(treeFirstOpenKey('书A')).toBe('clw2.tree-first-open.书A')
+    expect(treeFirstOpenKey('书A')).not.toBe(onboardPremiseKey('书A'))
+  })
+})
+
+describe('R60-D-4: LAST_BOOK_KEY 单源契约', () => {
+  // 三消费方（R60-D-4 评审快照定位的直写/直读点，grep 实际命中为准）。
+  // 复审-0914-优化修复批 P1-7b（降级单源）：「选书记入」自 Shelf.vue/ShelfModal.vue 两份
+  // 手写收敛 composables/useShelf.ts openBook 单一写入口——消费点从两壳移位到 composable，
+  // 单源契约本身不变（ShelfModal 保留删当前书清扫的直读点）
+  const CONSUMERS: ReadonlyArray<{ label: string; rel: string }> = [
+    { label: 'App.vue：启动恢复读取', rel: 'App.vue' },
+    { label: 'useShelf.openBook：选书记入单源（全屏页/浮层共用）', rel: 'composables/useShelf.ts' },
+    { label: 'ShelfModal.vue：删当前书清扫直读', rel: 'components/ui/ShelfModal.vue' },
+  ]
+
+  it('常量值锁——恰为历史落盘键 clw-last-book（改值即丢全部用户「上次打开的书」恢复态，禁止静默变更）', () => {
+    expect(LAST_BOOK_KEY).toBe('clw-last-book')
+  })
+
+  it('src/** 内除 storage-keys.ts 外无 clw-last-book 字面量（防双源再分叉）', async () => {
+    const files = await walk(SRC_ROOT)
+    expect(files.length).toBeGreaterThan(10) // 扫描路径有效性自证
+    const offenders: string[] = []
+    for (const f of files) {
+      if (f.endsWith(`${path.sep}shared${path.sep}storage-keys.ts`)) continue // 单一事实源本体
+      const text = await fsp.readFile(f, 'utf8')
+      if (text.includes('clw-last-book')) offenders.push(path.relative(SRC_ROOT, f))
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('三消费方均 import LAST_BOOK_KEY 且至少一处实际消费（读/写/清扫四方同源）', async () => {
+    for (const c of CONSUMERS) {
+      const text = await fsp.readFile(path.join(SRC_ROOT, c.rel), 'utf8')
+      // 复审-0914-优化修复批 P1-7b：useShelf.openBook 侧为合并 import 形态（与
+      // treeFirstOpenKey 等同行），断言放宽为「import 子句含 LAST_BOOK_KEY」——
+      // 契约意图（显式从 storage-keys 单源引入）不变
+      expect(text, c.label).toMatch(/import\s*\{[^}]*\bLAST_BOOK_KEY\b[^}]*\}\s*from\s*'/)
+      // import 行自身占 1 次，实际消费须再至少 1 次（getItem/setItem/removeItem）
+      expect((text.match(/\bLAST_BOOK_KEY\b/g) ?? []).length, c.label).toBeGreaterThanOrEqual(2)
+    }
+  })
+})
+
+// ── 仓内无残留硬编码（源码静态扫描）──
+
+describe('storage-keys · 硬编码残留扫描（R30-26）', () => {
+  it('src/** 内除 storage-keys.ts 外无 `clwriting:onboard-premise` 字面量（防双源再分叉）', async () => {
+    const files = await walk(SRC_ROOT)
+    expect(files.length).toBeGreaterThan(10) // 扫描路径有效性自证
+    const offenders: string[] = []
+    for (const f of files) {
+      if (f.endsWith(`${path.sep}shared${path.sep}storage-keys.ts`)) continue // 单一事实源本体
+      const text = await fsp.readFile(f, 'utf8')
+      if (text.includes('clwriting:onboard-premise')) offenders.push(path.relative(SRC_ROOT, f))
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('写入方与清除方均经键工厂取键（onboardPremiseKey 在两处出现）', async () => {
+    const premise = await fsp.readFile(path.join(SRC_ROOT, 'components/onboard/OnboardPremise.vue'), 'utf8')
+    const shelf = await fsp.readFile(path.join(SRC_ROOT, 'composables/useShelf.ts'), 'utf8')
+    expect(premise).toContain('onboardPremiseKey(')
+    expect(shelf).toContain('onboardPremiseKey(')
+  })
+})
+
+// ── 写入/清除两侧同源（端到端：组件落盘 → 删书清扫）──
+
+const mocks = vi.hoisted(() => ({
+  deleteBook: vi.fn(),
+  clearFalsePositiveMarks: vi.fn(),
+  shelfLoad: vi.fn(async () => {}),
+}))
+vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: mocks.deleteBook }))
+vi.mock('../../../src/studio/web-next/src/stores/check', () => ({ clearFalsePositiveMarks: mocks.clearFalsePositiveMarks }))
+vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
+  useShelfStore: vi.fn(() => ({ books: [], load: mocks.shelfLoad })),
+}))
+vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
+  usePrefsStore: vi.fn(() => ({ shelfView: 'grid', setShelfView: vi.fn() })),
+}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiJson: vi.fn(),
+  }
+})
+
+// happy-dom localStorage 在 vitest 集成下缺 clear()，Map-backed 替身（照 prefs-store 范型）
+function createLocalStorage() {
+  const store = new Map<string, string>()
+  return {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+    clear: () => store.clear(),
+    key: (i: number) => Array.from(store.keys())[i] ?? null,
+    get length() {
+      return store.size
+    },
+  }
+}
+vi.stubGlobal('localStorage', createLocalStorage())
+
+describe('R30-26: 梗概键写入/清除两侧同源（端到端）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    localStorage.clear()
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** fake timers 下等 Vue 微任务调度排空（onMounted 回填 / watch flush） */
+  async function nextTickFlush(): Promise<void> {
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+  }
+
+  it('组件写入的键（工厂拼法）与 useShelf 删书清除的键一致 → 删书后不残留', async () => {
+    // 写入侧：OnboardPremise 卸载冲刷落盘（键出自 onboardPremiseKey）
+    const w = mount(OnboardPremise, { props: { bookName: '书测', modelValue: '' } })
+    await nextTickFlush()
+    await w.find('textarea').setValue('书测的设想')
+    w.unmount() // R65-51 卸载冲刷：防抖在途也立即落盘
+    expect(localStorage.getItem(onboardPremiseKey('书测'))).toBe('书测的设想')
+
+    // 清除侧：useShelf.confirmDelete 用同一工厂拼键清扫
+    mocks.deleteBook.mockResolvedValue(undefined)
+    const { useShelf } = await import('../../../src/studio/web-next/src/composables/useShelf')
+    const s = useShelf()
+    s.requestDelete(['书测'])
+    await s.confirmDelete()
+    expect(localStorage.getItem(onboardPremiseKey('书测'))).toBeNull()
+  })
+
+  it('他书梗概键不受牵连（按书名精确清扫）', async () => {
+    localStorage.setItem(onboardPremiseKey('书留'), '别书的设想')
+    mocks.deleteBook.mockResolvedValue(undefined)
+    const { useShelf } = await import('../../../src/studio/web-next/src/composables/useShelf')
+    const s = useShelf()
+    s.requestDelete(['书删'])
+    await s.confirmDelete()
+    expect(localStorage.getItem(onboardPremiseKey('书留'))).toBe('别书的设想')
+  })
+})

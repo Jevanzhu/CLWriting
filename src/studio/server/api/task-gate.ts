@@ -30,7 +30,7 @@
  * R0916-7-P3-6（2026-09-25 源码质量评审 P3-6）：本模块的进程内闸表 / 三审登记表 /
  * 锁根三份模块级可变状态收进 **TaskGate 实例**（createTaskGate）——服务端组装根
  * （server/index.ts 的 createStudioServer）建实例并经各路由 ctx 显式传递，同进程内
- * 两个 server 实例因此互不干扰（判据用例见 test/studio/r0916-p3-6-assembly-root.test.ts）。
+ * 两个 server 实例因此互不干扰（判据用例见 test/studio/assembly-root-deps-injection.test.ts）。
  * 模块级函数（acquireTaskGate 等）保留为**进程默认实例**的委托壳：非路由消费方
  * （desktop/graceful-shutdown.ts 的退出等待、sweepStaleReviewDirs 的启动清扫、ai 侧
  * task-gate-port 的注册面）与既有测试按原签名调用，语义逐位不变。
@@ -52,7 +52,7 @@ import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { log } from '../../../log/index.js' // R37-21：锁根覆盖告警留痕
 import { replyError } from '../http.js' // 复审-0914-优化修复批（P1-2/D4）：包装面 409/错误信封统一出口
 import { productionDriverHost, type DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
-import type { Session, StudioDriver } from '../../../driver/types.js'
+import type { Session } from '../../../driver/types.js' // R0916-7-P3-16 收尾：StudioDriver 必需契约单源在 driver/types.ts，本文件只消费注入宿主
 
 // ── R0916-7-P3-6：闸实例状态（进程默认实例 / 工厂实例各持一份）────────────────
 
@@ -607,7 +607,7 @@ export function orchestrationBusyFor(bookName: string): string | null {
 
 // ── 复审-0914-优化修复批（P1-2/D4）：长任务门控 handler 高阶包装 ─────────────
 // 「orchestrationBusyFor → acquireTaskGate → getDriver → ensureSession → new
-// AbortController → driver.registerCtrl?.(session, ctrl, `action:${book}`) →
+// AbortController → driver.registerCtrl(session, ctrl, `action:${book}`) →
 // finally{unregisterCtrl+release}」十段此前在 9+ 个生成长任务端点逐字复制
 // （analysis ×4 / rewrite / outline / settings(relations-mine) / lead-updates /
 // onboard-ai；RB-SV-P2-2 立闸、R0912-P2-① 接中断通道、R67-13 接编排互斥——三批
@@ -644,32 +644,14 @@ interface GatedGenerationOptions {
   ownerLabel?: string
 }
 
-// ── R0916-7-P3-16（P3-16 的 driver 半条）：中断通道 = 显式必需能力 ─────────────
+// ── R0916-7-P3-16：中断通道 = driver 契约必需成员（收尾）────────────────────
 
-/** 中断通道能力面：registerCtrl/unregisterCtrl。StudioDriver 上这两法是可选成员
- *  （driver/types.ts 不在本批改动面），本文件用结构类型把「可中断」显式提为生成长任务
- *  的**必需能力**：resolveInterruptChannel 取不到即 log.warn 留痕（能力缺失的降级不再
- *  静默 fail-open）。降级面如实声明：缺通道只影响「任务在途能否被 /interrupt 中断」，
- *  不影响闸与执行正确性（任务照常跑完、闸照常释放）——真驱动（cc.ts）实现齐全，
- *  缺实现见于测试替身，故不为此 fail-closed（那会让测试替身上的端点整体不可用）。 */
-interface InterruptChannel {
-  registerCtrl: NonNullable<StudioDriver['registerCtrl']>
-  unregisterCtrl: NonNullable<StudioDriver['unregisterCtrl']>
-}
-
-/** 取 driver 的中断通道；缺任一法返回 null 并留痕（action/book 进日志，可回溯到具体端点）。 */
-function resolveInterruptChannel(driver: StudioDriver, book: string, action: string): InterruptChannel | null {
-  const { registerCtrl, unregisterCtrl } = driver
-  if (typeof registerCtrl !== 'function' || typeof unregisterCtrl !== 'function') {
-    log.warn('task-gate', `驱动缺中断通道能力（registerCtrl/unregisterCtrl 未实现）：${action}@${book} 照常跑但不可被 /interrupt 中断——降级记档，非静默 fail-open（真驱动实现齐全，缺实现多见于测试替身）`)
-    return null
-  }
-  // 显式绑定 driver：能力面从对象上摘下后 this 仍指向 driver（cc 实现是类方法）
-  return {
-    registerCtrl: (session, ctrl, owner) => registerCtrl.call(driver, session, ctrl, owner),
-    unregisterCtrl: (session, ctrl) => unregisterCtrl.call(driver, session, ctrl),
-  }
-}
+/** 中断通道收口沿革：P3-16 前半条（批 2）曾在本文件以结构类型 + resolveInterruptChannel
+ *  把「可中断」从 StudioDriver 的可选成员里显式解析（缺能力 → log.warn 带 action@book
+ *  留痕的显式降级）。收尾批（必需能力接口）把 registerCtrl/unregisterCtrl 随全族提为
+ *  `driver/types.ts` 的**必需成员**——「缺实现」在编译期不可表达，本文件的结构探测、
+ *  warn 档与 InterruptChannel 中间面一并删除，注册/注销直调注入宿主的能力面
+ *  （mock 的「不支持中断」以显式 no-op 声明，见 mock.ts；运行时语义逐位不变）。 */
 
 /**
  * 生成长任务端点的门控包装（busy 预检 → 任务闸 → 中断通道注册 → fn → finally 注销释放）。
@@ -705,22 +687,21 @@ async function runGatedGenerationIn(
   // spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl → driver.registerCtrl
   // → settle（外层 finally）统一注销。实现移位：复审-0914-优化修复批（P1-2）十段
   // 复制收编本包装；owner 分槽语义与 ctrl 注册名逐位保留。
-  // R0916-7-P3-16：中断通道改经 resolveInterruptChannel 取（能力缺失 → warn 留痕 +
-  // 显式降级为「可跑不可中断」，见该函数注），取代先前的 `driver.registerCtrl?.()` 静默跳过。
-  const channel = resolveInterruptChannel(host.driver, opts.book, opts.action)
+  // R0916-7-P3-16 收尾：中断通道是 StudioDriver 必需成员（driver/types.ts），直调
+  // 注入宿主——原 resolveInterruptChannel 的「缺能力 → warn 留痕」降级档随必需化删除。
   let registeredSession: Session | null = null
   let registeredCtrl: AbortController | null = null
   try {
     const session = await host.ensureSession(opts.book, opts.workDir)
     registeredSession = session
     const ctrl = new AbortController()
-    channel?.registerCtrl(session, ctrl, opts.ownerLabel ?? `${opts.action}:${opts.book}`)
+    host.driver.registerCtrl(session, ctrl, opts.ownerLabel ?? `${opts.action}:${opts.book}`)
     registeredCtrl = ctrl
     await fn(ctrl)
   } finally {
     // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
     // ensureSession 失败（未注册）时跳过
-    if (registeredCtrl && registeredSession) channel?.unregisterCtrl(registeredSession, registeredCtrl)
+    if (registeredCtrl && registeredSession) host.driver.unregisterCtrl(registeredSession, registeredCtrl)
     release()
   }
 }

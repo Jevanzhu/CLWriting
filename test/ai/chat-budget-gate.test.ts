@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runTask } from '../../src/ai/runner.js'
 import { parseBookConfig, stringifyBookConfig, readBookConfig } from '../../src/format/yaml.js'
-import { resetDegradedChannels } from '../../src/ai/provider/store.js'
+import { processProviderRuntime } from '../../src/ai/provider/store.js'
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -70,7 +70,7 @@ const RUN_RET = { text: 'ok', usage: { inputTokens: 11, outputTokens: 7 } }
 
 afterEach(() => {
   vi.restoreAllMocks()
-  resetDegradedChannels()
+  processProviderRuntime().__resetForTest()
 })
 
 describe('chat 按书预算闸（budget.chat_max_calls）', () => {

@@ -115,7 +115,7 @@ function onCreateEsc(e: KeyboardEvent): void {
   emit('create-cancel')
 }
 
-// R1010-P3（G6-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 re2-context-menu-roving
+// R1010-P3（G6-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 context-menu-roving
 // / CommandPalette 先例）。方向键在可见 treeitem 间移动真焦点：可见序 = DOM 序（折叠
 // 子树 v-if 不在 DOM、RENDER_CAP 截断行不在渲染面，均天然排除，无需自算）；Tab 只在
 // tabstop 行停靠一次。↑↓ 平移；→ 展开目录 / 已展开则进首个子行；← 收起目录 / 已收起

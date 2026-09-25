@@ -118,15 +118,6 @@ function cacheDelete(fp: string): void {
   _cache.delete(fp)
 }
 
-/** 测试辅助（registry.ts clearProviderCache/providerCacheSize 先例；生产零调用）：
- *  清空 mtime LRU，防跨用例残留；占用量供 LRU 容量/逐出断言。 */
-export function __clearProvidersCacheForTest(): void {
-  _cache.clear()
-}
-export function __providersCacheSizeForTest(): number {
-  return _cache.size
-}
-
 /** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复（P2-AI-1） */
 function cloneStore(store: ProviderStore): ProviderStore {
   const cloned = structuredClone(store)
@@ -545,12 +536,6 @@ function writeChainKey(userDataPath: string): string {
 /** R73-2 跨进程锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 已极保守（同 calls.ts） */
 const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
-/** 测试辅助：向写链注入一段在途 promise（R29-2 排队路径回归用——空闲快路永不入链，
- *  生产代码无从触达排队段；生产零调用）。 */
-export function __seedProvidersWriteChainForTest(userDataPath: string, pending: Promise<unknown>): void {
-  writeChains.set(writeChainKey(userDataPath), pending)
-}
-
 /**
  * R71-18：迁移后收敛 bak 明文残留——saveProviders 的 D7 写前备份会把迁移前的明文
  * 主文件原样拷进 providers.bak.json，用户此后不改配置则明文 Key 在 bak 永久残留
@@ -722,15 +707,28 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
  * 来源 userDataPath（resolveProvider 经 createProvider 注入）调用，分发按显式
  * path 路由；未传（旧形态/单测直调）由 runner 分发器回落「最近 resolve 的活跃
  * path」（进程内口径 = 活跃库优先，兼容不变）。
+ *
+ * R0916-7-P3-6 收编：注册槽随 ProviderRuntime 端口实例化——模块级单槽改
+ * 「进程实例自有槽位（processDegraded，适配器模块级分发面读它）+ 自建实例各自
+ * 的槽位」。同进程多实例（组装根双实例判据）注册互不覆盖；进程缺省行为逐位不变
+ *（生产 runner 经 processProviderRuntime 注册 → 槽仍是原模块槽）。
  */
-let _persistDegraded: ((key: string, userDataPath?: string) => void) | null = null
+interface DegradedChannels {
+  persist: ((key: string, userDataPath?: string) => void) | null
+  lookup: ((key: string, userDataPath?: string) => boolean | undefined) | null
+}
+
+/** 进程实例的降级槽（模块级 persistDegraded/lookupDegraded 分发面唯一读点）。 */
+const processDegraded: DegradedChannels = { persist: null, lookup: null }
+
 export function registerDegradedPersist(fn: (key: string, userDataPath?: string) => void): void {
-  _persistDegraded = fn
+  processDegraded.persist = fn
 }
 export function persistDegraded(key: string, userDataPath?: string): void {
-  if (!_persistDegraded) return
+  const fn = processDegraded.persist
+  if (!fn) return
   try {
-    _persistDegraded(key, userDataPath)
+    fn(key, userDataPath)
   } catch {
     // AA-P3-5：降级记忆是优化通道——写失败（load/save 抛错）不向调用方传播，不得中断
     // 已成功的建流；失败由 runner 侧「不标记」承载，下次 persistDegraded 自然重试。
@@ -747,17 +745,11 @@ export function persistDegraded(key: string, userDataPath?: string): void {
  * 由适配器回落到捕获 store 的快照读。
  * R30-4（三十轮）：显式 path 维度同 persistDegraded（见上注）。
  */
-let _lookupDegraded: ((key: string, userDataPath?: string) => boolean | undefined) | null = null
 export function registerDegradedLookup(fn: (key: string, userDataPath?: string) => boolean | undefined): void {
-  _lookupDegraded = fn
+  processDegraded.lookup = fn
 }
 export function lookupDegraded(key: string, userDataPath?: string): boolean | undefined {
-  return _lookupDegraded?.(key, userDataPath)
-}
-/** 测试辅助：清空注册的查/写回调（防跨用例泄漏） */
-export function resetDegradedChannels(): void {
-  _lookupDegraded = null
-  _persistDegraded = null
+  return processDegraded.lookup?.(key, userDataPath)
 }
 
 /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */
@@ -778,7 +770,17 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
  * 所有权：端口对象的生命周期归组装根；进程单例缺省（processProviderRuntime）即生产口径。
  * 残余（如实记）：适配器深处（src/ai/provider/*-adapter.ts）直接 import 本模块的
  * lookupDegraded/persistDegraded——那是本批改动面之外的实现文件，故「每实例一套降级记忆
- * 注册表」不可端到端成立；端口覆盖的是注册入口与读侧决策面。
+ * 注册表」不可端到端成立；端口覆盖的是注册入口与读侧决策面（注册互不覆盖 + 按实例复位）。
+ *
+ * R0916-7-P3-6 收编（ForTest 缝随端口实例化）：原模块级测试缝 __clearProvidersCacheForTest/
+ * __providersCacheSizeForTest/__seedProvidersWriteChainForTest/resetDegradedChannels 收编为
+ * 端口成员，按运行时实例调用。语义分层如实记：
+ * - 降级注册槽 = **实例自有**状态（注册互不覆盖；__resetForTest 只清本实例的槽）；
+ * - mtime LRU 与串行写链 = **path 键控的进程级共享面**（盘上文件本就跨实例共享，模块级
+ *   loadProviders/saveProviders 及适配器分发面共用；由 __clearProvidersCacheForTest /
+ *   __providersCacheSizeForTest / __seedProvidersWriteChainForTest 单独观测与操作，
+ *   不随单实例复位）。
+ * 生产零调用。
  */
 export interface ProviderRuntime {
   /** 读配置（含 vault 解密；mtime LRU 缓存） */
@@ -789,27 +791,66 @@ export interface ProviderRuntime {
   currentProvider(userDataPath: string): ProviderConf | null
   /** 档位解析（assistant/chat 未配 → 回落 creative + currentModel） */
   resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant' | 'chat'): TierSlot
-  /** 降级记忆落盘回调注册面（runner 侧注册；见 registerDegradedPersist） */
+  /** 降级记忆落盘回调注册面（runner 侧注册；写入本实例槽位，见 DegradedChannels 注） */
   registerDegradedPersist(fn: (key: string, userDataPath?: string) => void): void
-  /** 降级记忆新鲜读回调注册面（见 registerDegradedLookup） */
+  /** 降级记忆新鲜读回调注册面（写入本实例槽位，见 DegradedChannels 注） */
   registerDegradedLookup(fn: (key: string, userDataPath?: string) => boolean | undefined): void
+  /** ForTest：按实例复位——只清本实例的降级注册槽（进程级缓存/写链另走专用缝，见上注） */
+  __resetForTest(): void
+  /** ForTest：读本实例降级槽位（注册互不覆盖判据的观察面；生产零调用） */
+  __degradedChannelsForTest(): Readonly<DegradedChannels>
+  /** ForTest：清空进程级 mtime LRU（防跨用例残留） */
+  __clearProvidersCacheForTest(): void
+  /** ForTest：进程级 mtime LRU 占用量（LRU 容量/逐出断言用） */
+  __providersCacheSizeForTest(): number
+  /** ForTest：向进程级串行写链注入在途 promise（排队路径回归用——空闲快路永不入链） */
+  __seedProvidersWriteChainForTest(userDataPath: string, pending: Promise<unknown>): void
 }
 
-/** 进程单例运行时（组装根缺省值）：直连模块级实现，缺省即生产口径、零行为差异。 */
-export function processProviderRuntime(): ProviderRuntime {
+/** 运行时装配单源：读写决策面直连模块实现，降级注册槽写传入槽位，ForTest 缝挂端口。
+ *  进程实例传 processDegraded（模块分发槽本体），自建实例传私有槽位。 */
+function buildProviderRuntime(channels: DegradedChannels, extraReset?: () => void): ProviderRuntime {
   return {
     loadProviders,
     saveProviders,
     currentProvider,
     resolveTier,
-    registerDegradedPersist,
-    registerDegradedLookup,
+    registerDegradedPersist: (fn) => {
+      channels.persist = fn
+    },
+    registerDegradedLookup: (fn) => {
+      channels.lookup = fn
+    },
+    __resetForTest: () => {
+      channels.persist = null
+      channels.lookup = null
+      extraReset?.()
+    },
+    __degradedChannelsForTest: (): Readonly<DegradedChannels> => channels,
+    __clearProvidersCacheForTest: () => {
+      _cache.clear()
+    },
+    __providersCacheSizeForTest: () => _cache.size,
+    __seedProvidersWriteChainForTest: (userDataPath, pending) => {
+      writeChains.set(writeChainKey(userDataPath), pending)
+    },
   }
 }
 
-/** 建运行时（覆盖项缺席即取进程单例实现）——多实例隔离 / 测试注入用。 */
+/** 建运行时（降级槽位实例自有，注册互不覆盖）——多实例隔离 / 测试注入用。 */
 export function createProviderRuntime(overrides: Partial<ProviderRuntime> = {}): ProviderRuntime {
-  return { ...processProviderRuntime(), ...overrides }
+  return { ...buildProviderRuntime({ persist: null, lookup: null }), ...overrides }
+}
+
+/**
+ * 进程单例运行时（组装根缺省值，模块级 memoized）：直连模块级实现，缺省即生产口径、
+ * 零行为差异。降级注册槽 = processDegraded 本体（模块级 persistDegraded/lookupDegraded
+ * 分发面的同一份槽）——生产 runner 经端口注册后，分发目标与收编前逐位一致。
+ */
+let processRuntime: ProviderRuntime | null = null
+export function processProviderRuntime(): ProviderRuntime {
+  if (!processRuntime) processRuntime = buildProviderRuntime(processDegraded)
+  return processRuntime
 }
 
 /** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */

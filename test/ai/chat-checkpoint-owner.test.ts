@@ -72,6 +72,10 @@ function makeRecordingDriver(events: DriverEvent[], regs: RegEntry[], slots: Map
     emit(_s, ev): void {
       events.push(ev)
     },
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
     registerCtrl(_s: Session, ctrl: AbortController, owner?: string): void {
       regs.push({ ctrl, owner })
       const own = owner ?? ''

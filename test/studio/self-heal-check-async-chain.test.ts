@@ -62,6 +62,12 @@ function setup(): SelfHealOpts {
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
     emit(): void {},
+    cancelStream(): void {},
+    interrupt(): void {},
+    isRunning(): boolean { return false },
+    isWriterRunning(): boolean { return false },
+    registerCtrl(): void {},
+    unregisterCtrl(): void {},
   }
   const save: typeof saveDraft = async (root, _chapter, content) => {
     const relPath = '写作/正文/1-测试章.md'

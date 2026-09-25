@@ -7,8 +7,8 @@
  * 外加取消回滚（清污 → 回退路由 → resync + 补种原书历史）、同书重入短路（R26-18）、
  * 快速连切防乱序（gen 作废）与链尾 resync（R29-10）。
  *
- * 与既有 Book.vue 挂载面（f1-flush-failure-guard / r37-e1-flush-inflight /
- * book-watch-reentry / r29-fe-e2-e7-panels）互补：那些从页面装配面（含模板/视图 stub）
+ * 与既有 Book.vue 挂载面（flush-dirty-switch-guard（原 f1/r37-e1）/
+ * book-watch-reentry / panel-open-switch-guard）互补：那些从页面装配面（含模板/视图 stub）
  * 验接线，本文件从状态机自身的注入面（bookName ref + resync 桩）验条件转移与回滚时序。
  * 宿主组件只做一件事：在 setup 内挂上状态机（生命周期与真实页一致）。
  */
@@ -51,7 +51,7 @@ vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({
   useChatTier: vi.fn(() => ({ refresh: mocks.refreshTier })),
 }))
 // 网络面无关本测：切书链内 ws.setBook（书级 prefs 拉取）与保存成功后的今日字数基线
-// 都会发请求——按「只假网络面、store 全真件」纪律桩掉（沿 r64-switch-guards 惯例）
+// 都会发请求——按「只假网络面、store 全真件」纪律桩掉（沿 finalize-switch-guard（原 r64-switch-guards）惯例）
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getTree: vi.fn(async () => ({ nodes: [], revision: '' })),
   getConfig: vi.fn(async () => ({ kind: 'long' })),

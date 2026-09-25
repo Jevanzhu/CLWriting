@@ -49,7 +49,7 @@ import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
 import { bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
 import { errMsg, log } from '../log/index.js'
-import { isUtf8Bytes, NON_UTF8_SAVE_REJECT, getStructSaveLockTimeoutMs, getWiringSaveLockTimeoutMs, saveLockTimeoutMs, bookMovedGuardFailure, BOOK_MOVED_REASON } from './service-guards.js'
+import { isUtf8Bytes, NON_UTF8_SAVE_REJECT, getStructSaveLockTimeoutMs, bookMovedGuardFailure, BOOK_MOVED_REASON } from './service-guards.js'
 import { trashBaselineOf, sanitizeCreateSegment, isSanitizedCreatePath } from './service-helpers.js'
 import { updateChapterMetaLocked, updateDocMetaLocked } from './service-meta.js'
 import { doMoveOrRename } from './service-move.js'
@@ -152,6 +152,13 @@ export interface DocumentServiceOptions {
   userDataPath?: string | null
   /** 注入队列（测试桩）；默认新建 per-docId 串行队列。 */
   queue?: SaveQueue<SaveResult>
+  /** 保存链锁等待档覆盖（毫秒，测试注入；缺省 = 生产常量档）——透传 DocContext
+   *  （R0916-7-P3-6：模块级 ForTest 注入口 → per-ctx 组装参数，语义见 doc-context.ts）。 */
+  saveLockTimeoutMs?: number
+  /** 元数据 PATCH 链 save 锁等待档覆盖；缺省同上。 */
+  metaSaveLockTimeoutMs?: number
+  /** 布线文件第二道锁等待档覆盖；缺省同上。 */
+  wiringSaveLockTimeoutMs?: number
 }
 
 /** snapshot 策略（W0-1 §7）：restore/external-merge 覆盖前、定稿章首改前留底，其余
@@ -280,7 +287,8 @@ async function executeSave(
   // 取锁/释放编排（含锁获取自身抛出的收口）单源在 withSaveLocks，锁序与失败语义不变。
   return ctx.withSaveLocks<SaveResult>({
     journalPath,
-    saveTimeoutMs: saveLockTimeoutMs,
+    // R0916-7-P3-6：锁档生效值随容器走（per-ctx 组装参数，缺省 = SAVE_LOCK_TIMEOUT_MS 常量档）
+    saveTimeoutMs: ctx.saveLockTimeoutMs,
     onSaveLockThrown: (e) => ({
       ok: false,
       code: 'WRITE_ERROR',
@@ -293,7 +301,7 @@ async function executeSave(
     }),
     wiring: {
       relPath,
-      timeoutMs: getWiringSaveLockTimeoutMs(),
+      timeoutMs: ctx.wiringSaveLockTimeoutMs,
       onThrown: (e) => ({
         ok: false,
         code: 'WRITE_ERROR',
@@ -980,7 +988,13 @@ export class DocumentService {
   private readonly queue: SaveQueue<SaveResult>
 
   constructor(opts: DocumentServiceOptions) {
-    this.ctx = new DocContext({ bookRoot: opts.bookRoot, userDataPath: opts.userDataPath ?? null })
+    this.ctx = new DocContext({
+      bookRoot: opts.bookRoot,
+      userDataPath: opts.userDataPath ?? null,
+      saveLockTimeoutMs: opts.saveLockTimeoutMs,
+      metaSaveLockTimeoutMs: opts.metaSaveLockTimeoutMs,
+      wiringSaveLockTimeoutMs: opts.wiringSaveLockTimeoutMs,
+    })
     this.queue = opts.queue ?? new SaveQueue<SaveResult>()
   }
 

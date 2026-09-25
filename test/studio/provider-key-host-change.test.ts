@@ -18,7 +18,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { saveProviders, loadProviders, type ProviderConf } from '../../src/ai/provider/index.js'
 // 缓存清空只有 store.ts 直出（index 未转发）：本文件按 id 直读盘上明文 key 需它兜同毫秒窗
-import { __clearProvidersCacheForTest } from '../../src/ai/provider/store.js'
+import { processProviderRuntime } from '../../src/ai/provider/store.js'
 
 const HOST_A = 'https://api.host-a.example/v1'
 const KEY_A = 'sk-alpha-AAAA1111'
@@ -61,7 +61,7 @@ function diskText(): string {
 
 /** 盘上明文 key（loadProviders 解密读；先清 mtime LRU 免同毫秒陈旧命中） */
 function diskKey(id: string): string {
-  __clearProvidersCacheForTest()
+  processProviderRuntime().__clearProvidersCacheForTest()
   return loadProviders(userDataPath).providers.find((p) => p.id === id)!.apiKey
 }
 
@@ -69,7 +69,7 @@ function diskKey(id: string): string {
  *  以盘上现态为基线（revision/vault/dek 原样）只换 providers：saveProviders 锁内复验
  *  revision，凭空造 revision 会被判「他写方已先行落盘」拒绝。 */
 async function seedRaw(existing: ProviderConf): Promise<void> {
-  __clearProvidersCacheForTest()
+  processProviderRuntime().__clearProvidersCacheForTest()
   const cur = loadProviders(userDataPath)
   await saveProviders(userDataPath, { ...cur, providers: [existing], currentId: existing.id, modelCaps: {} })
 }

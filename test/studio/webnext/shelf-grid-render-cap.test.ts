@@ -9,7 +9,7 @@
  * 本文件锚定：ShelfGrid 裁剪 + 提示行如实计数 + 分组计数不虚减（grid/list 双视图、
  * 多组各自独立裁剪）；不传 renderCap 时全量渲染零提示（组件层缺省契约——「不传 =
  * 不裁」保留；0918二轮修复批 F102 起两壳均传 shared 单源帽，整页书架不再走缺省）；
- * ShelfModal/Shelf 接线用源码文本断言（j5-overlay-dim 先例，浮层/整页挂载依赖重、
+ * ShelfModal/Shelf 接线用源码文本断言（overlay-dim 先例，浮层/整页挂载依赖重、
  * 文本锚定足够——整页挂载链的行为面另见 shelf-page-render-cap.test.ts）。
  * 原 rp3-4-shelf-render-cap.test.ts（2026-09-18 F102 域触达渐进改行为名）。
  */
@@ -99,7 +99,7 @@ describe('R-P3-4：ShelfGrid 渲染上限（renderCap 裁剪 + 尾部提示行�
   })
 })
 
-describe('R-P3-4 / 0918二轮修复批 F102：两壳接线（源码文本锚定，j5-overlay-dim 先例）', () => {
+describe('R-P3-4 / 0918二轮修复批 F102：两壳接线（源码文本锚定，overlay-dim 先例）', () => {
   const read = (rel: string): string =>
     readFileSync(resolve(__dirname, '../../../src/studio/web-next/src', rel), 'utf-8')
   it('浮层壳经 shared 单源常量传入 ShelfGrid（0918二轮 F102 起帽值收敛 shared/render-cap）', () => {
