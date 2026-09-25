@@ -16,8 +16,7 @@ import {
   getCompletionNamesCached,
   forgetSettingsCache,
   __setSettingsCacheTtlForTest,
-  __completionNamesScanCountForTest,
-  __resetCompletionNamesScanCountForTest,
+  completionNamesCache,
 } from '../../src/studio/server/api/settings.js'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
@@ -41,30 +40,30 @@ afterAll(async () => {
 
 describe('重评-0912-4 deepseek-P2-2: completion-names 缓存壳', () => {
   it('连续请求 → 一次全量扫描（TTL+指纹命中），响应形状不变；端点走同一壳', async () => {
-    __resetCompletionNamesScanCountForTest()
+    completionNamesCache.resetStats()
     const a = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[]; items: string[] }
     const b = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[]; items: string[] }
     expect(a).toEqual({ characters: ['林远'], items: [] })
     expect(b).toEqual(a)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
     // HTTP 端点与直调共壳：命中不再重算
     const r = await studio.req('GET', `/api/books/${encodeURIComponent(BOOK)}/completion-names`)
     expect(r.status).toBe(200)
     expect(r.json).toEqual({ characters: ['林远'], items: [] })
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
   })
 
   it('角色目录 mtime 变化（新建角色卡）→ 指纹失配重算，新名可见', async () => {
     writeFileSync(join(studio.bookRoot, '设定', '角色', '赵衡.md'), '---\n姓名: 赵衡\n---\n\n反派。', 'utf-8')
     const r = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[] }
     expect(r.characters).toEqual(expect.arrayContaining(['林远', '赵衡']))
-    expect(__completionNamesScanCountForTest()).toBe(2)
+    expect(completionNamesCache.stats().misses).toBe(2)
   })
 
   it('forgetSettingsCache（删书/改名挂点）同清两壳 → 下次请求重算', async () => {
-    __resetCompletionNamesScanCountForTest()
+    completionNamesCache.resetStats()
     forgetSettingsCache(studio.bookRoot)
     await getCompletionNamesCached(studio.bookRoot)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
   })
 })

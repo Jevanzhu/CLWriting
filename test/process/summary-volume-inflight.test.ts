@@ -15,10 +15,13 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let releaseVolume: (() => void) | null = null
+/** 卷摘要真正进入挂起 AI 调用的信号（测试侧等它，取代定长实睡的「在途窗口」猜测） */
+let enteredVolume: (() => void) | null = null
 vi.mock('../../src/ai/tasks/spec.js', () => ({
   // 章摘要立即返回；卷摘要挂起直到测试放行——制造可控的并发在途窗口
   runSpec: vi.fn(async (_spec: unknown, opts: { userPrompt: string }) => {
     if (opts.userPrompt.includes('写卷摘要')) {
+      enteredVolume?.() // 在途信号：此刻锁/去重键已登记，首个调用确已挂起
       await new Promise<void>((r) => {
         releaseVolume = r
       })
@@ -26,8 +29,6 @@ vi.mock('../../src/ai/tasks/spec.js', () => ({
     return { ok: true, data: { text: '内容提要。' }, model: 'mock' }
   }),
 }))
-
-const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** 2 章 volume_size=2（卷 1 = 章 1/2），两章均定稿。 */
 function makeBook(): string {
@@ -64,8 +65,11 @@ test('P5-管线（第七轮）：同卷并发只放行一个，第二个 skipped
       const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: ch, bodyAbsPath: bodyOf(root, ch) })
       expect(r.ok).toBe(true)
     }
+    const entered = new Promise<void>((r) => {
+      enteredVolume = r
+    })
     const first = generateVolumeSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, volume: 1 })
-    await delay(30) // 等第一个真正进入挂起的 AI 调用（在途窗口内）
+    await entered // 等第一个真正进入挂起的 AI 调用（在途窗口内），取代定长实睡
     // R26-19（二十六轮）：并发去重命中 = 他人正在生成，返回 skipped（非失败）——
     // 调用方不再把「已在途」误报成自愈失败（R26-101 同步闭合）
     const second = await generateVolumeSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, volume: 1 })

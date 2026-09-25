@@ -64,8 +64,14 @@ import { registerAuditRoutes } from './api/audit.js'
 import { registerChatHistoryRoutes } from './api/chat-history.js'
 import { registerChatBranchesRoutes } from './api/chat-branches.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
-// task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
-import { configureTaskGateLockRoot } from './api/task-gate.js'
+// task-gate 闸实例注入（书库 .clwriting/task-gate/ 锁根 + 闸表/三审登记表随实例；
+// 进程默认实例见 processTaskGate）
+import { createTaskGate, processTaskGate, type TaskGate } from './api/task-gate.js'
+import { productionDriverHost, type DriverHost } from './driver-port.js'
+import { processProviderRuntime, type ProviderRuntime } from '../../ai/provider/store.js'
+// mock 快路与 provider 运行时的注入点：选择只在组装根做一次（R0916-7-P3-6）
+import { configureRunnerMockFastPath } from '../../ai/runner.js'
+import { configureProviderRuntime } from '../../ai/runner.js'
 import { setInitialBook } from './api/books.js'
 // 启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
@@ -74,6 +80,15 @@ import { registerAppInfoRoutes } from './api/app-info.js'
 import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
+
+/** R0916-7-P3-6（评审 P3-6）：路由组装所需的注入面。
+ *  gate/driver/providers 三件均由组装根（createStudioServer）解析后逐路由显式传递——
+ *  模块级可变态（闸表/锁根/三审登记、driver 选择、provider 运行时）不再由路由自取。 */
+interface RouteDeps {
+  gate: TaskGate
+  driver: DriverHost
+  providers: ProviderRuntime
+}
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
  *  注意：注册表按「当前活动路由表」隔离（api/schema.ts WeakMap 键 = RouteTable），
@@ -87,60 +102,61 @@ function buildRoutes(
   isTrustedOrigin: (origin: string) => boolean,
   sink: StartupNoticeSink,
   streamTickets: StreamTicketStore,
+  deps: RouteDeps,
 ): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，降级体验）
-    registerAiStatusRoutes({ userDataPath })
+    registerAiStatusRoutes({ userDataPath, driver: deps.driver, providers: deps.providers })
     // 元：启动通告——启动链迁移失败 / 事件库迁移失败的用户可见出口
     registerStartupNoticeRoutes({ sink })
     // 元：应用信息——版本号 + 更新检查结果（前端 App 级横幅数据源）
     registerAppInfoRoutes()
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
-    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add })
+    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add, gate: deps.gate, driver: deps.driver })
     // RAG 建索引/状态端点——buildIndex 生产入口；
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
-    registerRagRoutes({ workDir, userDataPath })
+    registerRagRoutes({ workDir, userDataPath, gate: deps.gate })
     registerRagProviderRoutes({ userDataPath })
     registerHealthRoutes({ workDir })
     registerFileRoutes({ workDir, userDataPath }) // PUT /file 覆盖留底读全局保留策略
     registerOverviewRoutes({ workDir, userDataPath }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir })
-    registerSettingsRoutes({ workDir, userDataPath })
+    registerSettingsRoutes({ workDir, userDataPath, gate: deps.gate })
     registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath }) // 状态机入口过全局托底链（volume_size 等喂生效值）
     // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
-    registerIoRoutes({ workDir })
-    registerKnowledgeRoutes({ workDir })
+    registerIoRoutes({ workDir, gate: deps.gate })
+    registerKnowledgeRoutes({ workDir, gate: deps.gate })
     registerHeartbeatRoutes({ workDir })
-    registerDocumentRoutes({ workDir, userDataPath }) // 伏笔事件族接线（伏笔文档变更落 foreshadow/change）
-    registerSnapshotRoutes({ workDir, userDataPath }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
+    registerDocumentRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver }) // 伏笔事件族接线（伏笔文档变更落 foreshadow/change）
+    registerSnapshotRoutes({ workDir, userDataPath, gate: deps.gate }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
     registerSearchRoutes({ workDir })
     registerCheckRoutes({ workDir, userDataPath }) // 全局托底：机检 short.strict 吃生效值
-    registerAnalysisRoutes({ workDir, userDataPath })
+    registerAnalysisRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver, providers: deps.providers })
     registerForeshadowRoutes({ workDir })
-    registerStyleRoutes({ workDir, userDataPath }) // 全局托底：注入强度喂写作链路合并 global.json
+    registerStyleRoutes({ workDir, userDataPath, gate: deps.gate }) // 全局托底：注入强度喂写作链路合并 global.json
     registerProvidersRoutes({ userDataPath })
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerCostStatsRoutes({ workDir, userDataPath })
-    registerAuditRoutes({ workDir, userDataPath })
+    registerAuditRoutes({ workDir, userDataPath, gate: deps.gate })
     registerChatHistoryRoutes({ workDir, userDataPath }) // 对话历史只读端点（editor 组，同 audit 事件读取模式）
     registerChatBranchesRoutes({ workDir, userDataPath }) // 分支列表只读端点（editor 组，分支 UI 服务端支撑）
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     // ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
     // 票不跨 server 实例残留/消费（对齐路由表 per-server 生命周期）
-    registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets })
-    registerChatRoutes({ workDir, userDataPath }) // chat.send/confirm/regenerate/clear
+    registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets, gate: deps.gate, driver: deps.driver })
+    registerChatRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver }) // chat.send/confirm/regenerate/clear
     registerStreamTicketRoutes(streamTickets) // SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
-    registerOutlineRoutes({ workDir, userDataPath })
-    registerLeadUpdateRoutes({ workDir, userDataPath })
-    registerReviewRoutes({ workDir, userDataPath })
-    registerOnboardRoutes({ workDir, userDataPath })
-    registerRewriteRoutes({ workDir, userDataPath })
+    registerOutlineRoutes({ workDir, userDataPath, gate: deps.gate })
+    registerLeadUpdateRoutes({ workDir, userDataPath, gate: deps.gate })
+    registerReviewRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver, providers: deps.providers })
+    registerOnboardRoutes({ workDir, userDataPath, gate: deps.gate })
+    registerRewriteRoutes({ workDir, userDataPath, gate: deps.gate })
   })
   return routes
 }
@@ -186,9 +202,92 @@ export interface StudioServerOptions {
   studioToken?: string
 }
 
-/** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭） */
+/**
+ * 组装根依赖（R0916-7-P3-6 显式注入面）。
+ *
+ * 所有权与缺省：
+ * - `taskGate`：闸实例（锁根 + 进程内闸表 + 三审登记表）。缺省 = 本工厂**新建**一个
+ *   实例（锁根取 `opts.workDir`）——故同进程两个 server 的闸互不可见。生产组装
+ *   （startServer）显式传入进程默认实例：非路由消费方（退出链 graceful-shutdown 的
+ *   「等闸释放」、ai 侧 task-gate 端口）按模块级函数取用同一份闸表。
+ * - `driver`：driver 宿主（必需能力面 + 会话存取 + mock 选择结果）。缺省 = 生产宿主
+ *   （读 CLWRITING_DRIVER 选实现，全仓唯一读取点）。测试在组装时传自己的宿主
+ *   （如 mock driver / 隔离会话表）即完成注入，runner 不再自判环境变量。
+ * - `providers`：provider 运行时端口（读侧决策面 + 降级记忆回调注册面）。缺省 =
+ *   进程单例（store 模块实现）。构造时经 configureProviderRuntime 注入给 AI 执行器。
+ */
+export interface StudioServerDeps {
+  taskGate?: TaskGate
+  driver?: DriverHost
+  providers?: ProviderRuntime
+}
+
+/** 组装产物句柄：显式 close 语义 + 解析后的依赖（只读，供上层按实例取用）。 */
+export interface StudioServerHandle {
+  /** Node http.Server（listen 已发起；listening / error 由调用方管） */
+  readonly server: http.Server
+  /**
+   * 关停（原 server.close 猴补的显式化，语义逐位不变）：
+   * ① 断开全部在途 SSE（长连接响应不会自行 end，否则 close 回调被悬置到调用方超时）；
+   * ② 调底层 close；
+   * ③ close 事件到后再于有界预算内等「在途外部工作」（重建/导出/扫描 Worker 线程）settle
+   * 才回调——客户端先断开而 handler 仍 await Worker 时，连接清空即触发回调会让调用方
+   * 立刻 rmSync 在 Windows 落 ENOTEMPTY。预算耗尽即放行（绝不无限期阻塞）；
+   * err 原样透传（未监听等既有错误语义不变）。
+   */
+  close(cb?: (err?: Error) => void): void
+  /** 本实例实际使用的依赖（组装根解析结果） */
+  readonly deps: Required<StudioServerDeps>
+  /** 本实例的 SSE 一次性 ticket 库（签发/消费两侧同实例共享） */
+  readonly tickets: StreamTicketStore
+}
+
+/** 起 server 并监听（返回 http.Server，由调用方管 listening / error / 关闭）。
+ *
+ *  生产组装根：进程级单例依赖（闸 / driver 宿主 / provider 运行时）+ 兼容既有调用方的
+ *  http.Server 形态（close 语义挂在 server.close 上——调用方是退出链与既有测试）。
+ *  需要实例级依赖注入（测试、同进程多实例）请直接用 createStudioServer。 */
 export function startServer(opts: StudioServerOptions): http.Server {
+  const gate = processTaskGate()
+  // 本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
+  gate.configureLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
+  const handle = createStudioServer(opts, { taskGate: gate, driver: productionDriverHost(), providers: processProviderRuntime() })
+  // 兼容形态：把句柄的 close 语义挂到 server 对象上（见 StudioServerHandle.close 注释）
+  const rawClose = handle.server.close.bind(handle.server)
+  handle.server.close = ((cb?: (err?: Error) => void) => {
+    closeSseThenSettle(rawClose, cb)
+    return handle.server
+  }) as typeof handle.server.close
+  return handle.server
+}
+
+/** 关停收尾（句柄与兼容壳共用的实现体）：断 SSE → close → 有界等 Worker settle → 回调。 */
+function closeSseThenSettle(
+  rawClose: (cb?: (err?: Error) => void) => http.Server,
+  cb?: (err?: Error) => void,
+): void {
+  closeAllSseConnections()
+  rawClose((err?: Error) => {
+    void waitInFlightWorkSettled(CLOSE_FLUSH_BUDGET_MS).finally(() => cb?.(err))
+  })
+}
+
+/**
+ * 组装并起 server（R0916-7-P3-6 组装根）：迁移/自愈启动链 → 依赖解析 → 路由注册 →
+ * 监听。deps 缺省即生产口径（driver 宿主读 CLWRITING_DRIVER 选择实现；闸与 provider
+ * 运行时按实例新建/进程单例，见 StudioServerDeps）。
+ */
+export function createStudioServer(opts: StudioServerOptions, deps: StudioServerDeps = {}): StudioServerHandle {
   const studioToken = opts.studioToken ?? randomUUID()
+  // 依赖解析（组装根唯一选择点）：
+  // - 闸：显式传入者胜（生产 = 进程默认实例）；缺省按本实例 workDir 新建（同进程多实例隔离）
+  // - driver：显式传入者胜；缺省生产宿主（环境变量唯一读取点在此宿主内）
+  // - provider 运行时：显式传入者胜；缺省进程单例。注入给 AI 执行器的回调注册面 + mock 快路
+  const driver = deps.driver ?? productionDriverHost()
+  const gate = deps.taskGate ?? createTaskGate({ lockRoot: opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null, driver })
+  const providers = deps.providers ?? processProviderRuntime()
+  configureProviderRuntime(providers)
+  configureRunnerMockFastPath(driver.kind === 'mock')
   // 结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
   // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
   initLogging({
@@ -309,11 +408,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     allowedOrigins.add('http://localhost:5173')
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
-  // 本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
-  configureTaskGateLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
+  // 本实例书库锁根已随闸实例解析（显式 deps.taskGate 或上方缺省新建时配置）——
+  // 不再有模块级 configureTaskGateLockRoot 调用：锁根归属闸实例（R0916-7-P3-6）。
   // ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
   const streamTickets = createStreamTicketStore()
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets)
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets, { gate, driver, providers })
   // host 仅限本机回环（本文件头注释），非回环值启动即拒——
   // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；
   // fail-fast 优于逐请求 403 的静默失效。
@@ -530,25 +629,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
     closeAllSseConnections()
   })
-  // server.close 自包含化：裸 close 只停接新请求、等在途响应——两类收尾逃逸出回调语义：
-  //  ① SSE 长连接响应未 end（非 closeIdleConnections 可摘的空闲连接），close 回调
-  //     被悬置到调用方自身超时才放行；② 客户端可先断开连接而 handler 仍 await 重建/
-  //     导出 Worker 线程，连接清空即触发回调，worker 仍持 .cache/index.db 句柄写盘 →
-  //     调用方（集成测试/e2e）close 后立刻 rmSync 在 Windows 落 ENOTEMPTY。
-  // 包装：close 前先 destroy 全部 SSE；close 事件到后再于有界预算内等在途外部工作
-  // settle，才回调调用方。预算耗尽即放行（与既有 settle 超时同口径，绝不无限期阻塞）；
-  // err 原样透传（服务器未监听等既有错误语义不变）。
-  {
-    const rawClose = server.close.bind(server)
-    server.close = ((cb?: (err?: Error) => void) => {
-      closeAllSseConnections()
-      return rawClose((err?: Error) => {
-        void waitInFlightWorkSettled(CLOSE_FLUSH_BUDGET_MS).finally(() => cb?.(err))
-      })
-    }) as typeof server.close
-  }
+  // 关停语义不再是本体里的 server.close 猴补（R0916-7-P3-6）：由句柄 close 承载
+  //（实现体见 closeSseThenSettle；语义与猴补前逐位一致）。startServer 兼容壳再把
+  // 它挂回 server.close，供既有调用方（退出链/测试）按 http.Server 形态使用。
+  const rawClose = server.close.bind(server)
+  const close = (cb?: (err?: Error) => void): void => closeSseThenSettle(rawClose, cb)
   // ticket 库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
   // 旧实例签发的票随实例隔离，新实例（二次 startServer）零残留零可用
   ;(server as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets = streamTickets
-  return server
+  return { server, close, deps: { taskGate: gate, driver, providers }, tickets: streamTickets }
 }

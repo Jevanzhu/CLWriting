@@ -238,15 +238,15 @@ describe('ttl-cache 收敛变体', () => {
     expect(cache.has('fresh')).toBe(true)
   })
 
-  it('scanCountForTest：MISS→实际计算计数，命中不增', () => {
+  it('stats：MISS→实际计算计数，命中不增（原 scanCountForTest；R0916-7-P3-6 收编进观测面）', () => {
     const { cache, calls } = makeProbeCache()
     cache.getSync('a')
     cache.getSync('a')
     advance(100)
     cache.getSync('a')
-    expect(cache.scanCountForTest()).toBe(2)
+    expect(cache.stats().misses).toBe(2)
     expect(calls.length).toBe(2)
-    cache.resetScanCountForTest()
-    expect(cache.scanCountForTest()).toBe(0)
+    cache.resetStats()
+    expect(cache.stats().misses).toBe(0)
   })
 })

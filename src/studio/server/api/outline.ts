@@ -26,11 +26,11 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R74-4：覆盖留底单源复用
 import { log, errMsg } from '../../../log/index.js' // 复审-0914-优化修复批：errMsg 三目收编
 
-interface OutlineCtx {
+interface OutlineCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -66,7 +66,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='outline:<书名>'，
     // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
     // 收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
-    return runGatedGeneration(res, {
+    return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
       action: 'outline',

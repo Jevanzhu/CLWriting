@@ -32,8 +32,10 @@
  *   语义面（probe 命中判定/store 条件/FIFO 时机）均不覆盖，硬套会改时序行为。
  *
  * 行为红线（本批遵守）：命中/失效时序、逐出序、bookRoot 键控、响应字节逐位不变——
- * 各端点的 TTL 测试注入口（__setXxxForTest）与观测钩子（__xxxScanCountForTest 等）
- * 名与签名原样保留在端点文件内，经 ttl 注入 getter / scanCount 委托接本件，测试零改动。
+ * 各端点的 TTL 测试注入口（__setXxxForTest）名与签名原样保留在端点文件内，经 ttl
+ * 注入 getter 接本件。观测钩子（R0916-7-P3-6 钩子收敛）：计数不再以测试命名 API 挂在
+ * 壳上，改由壳自持 stats()/resetStats() 观测面承载——原路由层自持的探针/签名计数闭包
+ * 与 __xxxScanCountForTest 一族随之删除（analysis / snapshots / settings 三族先行）。
  *
  * 键控：业务键 K（可为复合对象）经 keyOf 字符串化为 Map 存储键（searchCache
  * `bookRoot\0scope\0q` / shelfGuardCache `workDir\0path` 同款复合键口径）。
@@ -107,11 +109,25 @@ export interface TtlProbeCache<K, V> {
   forgetPrefix(prefix: string): void
   /** 整表清（shelfGuardCache forgetBookKeyedCaches 同款） */
   clear(): void
-  /** 条目在否（__xxxCacheHasForTest 观测钩子委托；裸 Map.has 语义） */
+  /** 条目在否（裸 Map.has 语义）。留钩子理由（R0916-7-P3-6）：纯观测读取——生产零调用、
+   *  不改变缓存行为，删掉只能让「过期逐出/FIFO 淘汰」类断言退化为时间猜测。 */
   has(key: K): boolean
-  /** MISS→实际计算 计数（__xxxScanCountForTest 委托；生产零调用） */
-  scanCountForTest(): number
-  resetScanCountForTest(): void
+  /** 观测面（R0916-7-P3-6 钩子收敛）：MISS→实际计算 / 探针 / 全量签名 三计数。
+   *  取代逐端点 __xxxScanCountForTest + 路由层自持计数闭包——观测改读缓存实例自身，
+   *  生产零调用（纯观测读取，不改变缓存行为）。 */
+  stats(): TtlCacheStats
+  /** 计数复位（同观测面；三计数一并清零，测试用例间隔离用） */
+  resetStats(): void
+}
+
+/** 缓存运行计数（观测面返回值；缺省全 0）。 */
+export interface TtlCacheStats {
+  /** MISS→实际计算次数（原 scanCountForTest） */
+  misses: number
+  /** 探针调用次数（原路由层自持 __xxxProbeCountForTest） */
+  probes: number
+  /** 全量签名调用次数（原路由层自持 __xxxSigCountForTest） */
+  signatures: number
 }
 
 export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): TtlProbeCache<K, V> {
@@ -121,7 +137,22 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
   const evictExpired = opts.evictExpiredOnMiss ?? true
   const map = new Map<string, TtlCacheEntry<V>>()
   const inflight = new Map<string, Promise<V>>()
-  let scanCount = 0
+  // 运行计数（观测面 stats 来源）：misses 计入实际计算体，probes/signatures 计入探针
+  // 调用点——原分散在各路由文件的自持计数闭包随之删除（R0916-7-P3-6）。
+  let misses = 0
+  let probes = 0
+  let signatures = 0
+
+  /** 探针取值（计数唯一入口，见 stats） */
+  function probeOf(key: K): string {
+    probes += 1
+    return opts.probe!(key)
+  }
+  /** 全量签名取值（计数唯一入口，见 stats） */
+  function signatureOf(key: K): string {
+    signatures += 1
+    return opts.signature!(key)
+  }
 
   /** 命中判定（全同步段）：probe 未变 && 未过 TTL（两级形态见 R44-9 转写注）。 */
   function judge(key: K): TtlJudgment<V> {
@@ -136,7 +167,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
       if (cached && cached.probeTs !== undefined && now - cached.probeTs < ttl) {
         probe = cached.probe!
       } else {
-        probe = opts.probe!(key)
+        probe = probeOf(key)
         if (cached) cached.probeTs = now
       }
       // 第一级：便宜指纹未变（且 TTL 内）→ 直接复用，跳过全量签名 walk
@@ -146,7 +177,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
       // R47-18：TTL 已过的条目两级判定均不可能再命中，顺手逐出
       if (cached && now - cached.ts >= ttl && evictExpired) map.delete(opts.keyOf(key))
       // 第二级：指纹变了才全量签名；签名一致 → 回填指纹、复用结果免重算
-      const sig = opts.signature(key)
+      const sig = signatureOf(key)
       if (cached && now - cached.ts < ttl && cached.sig === sig) {
         cached.probe = probe
         return { action: 'hit', value: cached.value }
@@ -154,7 +185,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
       return { action: 'compute', sig, probe, probeTs: now }
     }
     // 单级探针：现算签名（先于命中判定——扫描前取值口径）；纯 TTL 形态 sig === undefined
-    const sig = opts.probe ? opts.probe(key) : undefined
+    const sig = opts.probe ? probeOf(key) : undefined
     if (cached && now - cached.ts < ttl && (sig === undefined || cached.sig === sig)) {
       return { action: 'hit', value: cached.value }
     }
@@ -203,7 +234,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
         if (existing) return existing
       }
       const job = (async (): Promise<V> => {
-        scanCount += 1
+        misses += 1
         const value = await compute(key)
         store(key, j, value)
         return value
@@ -225,7 +256,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
       if (!computeSync) {
         throw new Error(`[ttl-cache:${opts.name}] getSync() 需要 computeSync`)
       }
-      scanCount += 1
+      misses += 1
       const value = computeSync(key)
       store(key, j, value)
       return value
@@ -244,11 +275,13 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
     has(key: K): boolean {
       return map.has(opts.keyOf(key))
     },
-    scanCountForTest(): number {
-      return scanCount
+    stats(): TtlCacheStats {
+      return { misses, probes, signatures }
     },
-    resetScanCountForTest(): void {
-      scanCount = 0
+    resetStats(): void {
+      misses = 0
+      probes = 0
+      signatures = 0
     },
   }
 }

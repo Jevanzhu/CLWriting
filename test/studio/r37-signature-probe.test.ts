@@ -6,8 +6,9 @@
  *（manifest stat + 目录 mtime（version-stats 另含 .版本 各直接子目录 mtime））未变
  * → 跳过全量签名 walk 直接复用；指纹变了才走第二级全量签名（R36-7 原口径）。
  *
- * 用 __versionStatsSigCountForTest / __analysisOverviewSigCountForTest 观测全量签名
- * 执行次数（「spy 全量计算」），__*ScanCountForTest 观测结果重算次数。
+ * 用 versionStatsCache.stats().signatures / analysisOverviewCache.stats().signatures 观测
+ * 全量签名执行次数（「spy 全量计算」），同 stats().misses 观测结果重算次数（R0916-7-P3-6
+ * 起计数读缓存壳 stats()，原 __*SigCount/ScanCountForTest 钩子已删）。
  *
  * 探针覆盖边界（与生产注释同口径，用例固化）：
  * - 应用侧写路径全是同目录 rename 原子落盘（atomicWriteFile）——rename 替换目录条目
@@ -33,18 +34,12 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getVersionStatsCached,
   __setVersionStatsTtlForTest,
-  __versionStatsScanCountForTest,
-  __resetVersionStatsScanCountForTest,
-  __versionStatsSigCountForTest,
-  __resetVersionStatsSigCountForTest,
+  versionStatsCache,
 } from '../../src/studio/server/api/snapshots.js'
 import {
   getAnalysisOverviewCached,
   __setAnalysisOverviewTtlForTest,
-  __analysisOverviewScanCountForTest,
-  __resetAnalysisOverviewScanCountForTest,
-  __analysisOverviewSigCountForTest,
-  __resetAnalysisOverviewSigCountForTest,
+  analysisOverviewCache,
 } from '../../src/studio/server/api/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
@@ -88,11 +83,11 @@ function makeAnalysisBook(): string {
 
 afterEach(() => {
   __setVersionStatsTtlForTest(null)
-  __resetVersionStatsScanCountForTest()
-  __resetVersionStatsSigCountForTest()
+  versionStatsCache.resetStats()
+  versionStatsCache.resetStats()
   __setAnalysisOverviewTtlForTest(null)
-  __resetAnalysisOverviewScanCountForTest()
-  __resetAnalysisOverviewSigCountForTest()
+  analysisOverviewCache.resetStats()
+  analysisOverviewCache.resetStats()
   for (const r of roots) rmSync(r, { recursive: true, force: true })
   roots = []
 })
@@ -102,12 +97,12 @@ describe('R37-17 version-stats 两级探针', () => {
     const root = makeSnapshotBook()
     __setVersionStatsTtlForTest(60_000)
     const r1 = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(1)
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
     expect(r1.snapshotCount).toBe(1)
     const r2 = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(1) // 一级命中：递归签名 walk 未跑
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().signatures).toBe(1) // 一级命中：递归签名 walk 未跑
+    expect(versionStatsCache.stats().misses).toBe(1)
     expect(r2).toEqual(r1)
   })
 
@@ -119,14 +114,14 @@ describe('R37-17 version-stats 两级探针', () => {
     atomicWriteFile(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n更长的新定稿内容若干字若干字\n')
     // R44-9：探针节流——rename 已刷 doc_1 目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
     const throttled = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(1)
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
     expect(throttled.snapshotBytes).toBe(before.snapshotBytes)
     // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
     __setVersionStatsTtlForTest(0)
     const after = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(2) // 指纹失配 → 全量签名跑了
-    expect(__versionStatsScanCountForTest()).toBe(2) // 签名变化 → 重算
+    expect(versionStatsCache.stats().signatures).toBe(2) // 指纹失配 → 全量签名跑了
+    expect(versionStatsCache.stats().misses).toBe(2) // 签名变化 → 重算
     expect(after.snapshotBytes).toBeGreaterThan(before.snapshotBytes)
   })
 
@@ -138,13 +133,13 @@ describe('R37-17 version-stats 两级探针', () => {
     // 就地直写（外部进程形态：writeFileSync 覆写、不经 rename）——目录 mtime 不变
     writeFileSync(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n短\n', 'utf-8')
     const stale = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(1) // 一级探针未察觉：签名未跑
+    expect(versionStatsCache.stats().signatures).toBe(1) // 一级探针未察觉：签名未跑
     expect(stale.snapshotBytes).toBe(before.snapshotBytes) // 命中旧缓存（边界如实固化）
     // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
     __setVersionStatsTtlForTest(0)
     const fresh = await getVersionStatsCached(root)
-    expect(__versionStatsSigCountForTest()).toBe(2)
-    expect(__versionStatsScanCountForTest()).toBe(2)
+    expect(versionStatsCache.stats().signatures).toBe(2)
+    expect(versionStatsCache.stats().misses).toBe(2)
     expect(fresh.snapshotBytes).toBeLessThan(before.snapshotBytes)
   })
 })
@@ -154,12 +149,12 @@ describe('R37-17 analysis-overview 两级探针', () => {
     const root = makeAnalysisBook()
     __setAnalysisOverviewTtlForTest(60_000)
     const r1 = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(1)
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     expect(r1.scoreTrend).toHaveLength(1)
     const r2 = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(1) // 一级命中：每文件 stat 签名未跑
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().signatures).toBe(1) // 一级命中：每文件 stat 签名未跑
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     expect(r2).toEqual(r1)
   })
 
@@ -174,14 +169,14 @@ describe('R37-17 analysis-overview 两级探针', () => {
     writeAnalysis(root, docId, 'score', envOf({ score: 3, dims: { 爽点: 3 } }))
     // 重评2-P3-④：探针纳入 TTL 节流——rename 已刷分析目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
     const throttled = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(1)
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     expect(throttled.scoreTrend[0]!.score).toBe(8)
     // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
     __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(2)
-    expect(__analysisOverviewScanCountForTest()).toBe(2)
+    expect(analysisOverviewCache.stats().signatures).toBe(2)
+    expect(analysisOverviewCache.stats().misses).toBe(2)
     expect(after.scoreTrend[0]!.score).toBe(3)
   })
 
@@ -197,13 +192,13 @@ describe('R37-17 analysis-overview 两级探针', () => {
     // 落盘形状与 writeAnalysis 同构（kind 键嵌套：{ score: Envelope }）
     writeFileSync(join(root, '项目', '分析', `${docId}.json`), JSON.stringify({ score: envOf({ score: 1, dims: { 爽点: 1 } }) }, null, 2), 'utf-8')
     const stale = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(1) // 一级探针未察觉：签名未跑
+    expect(analysisOverviewCache.stats().signatures).toBe(1) // 一级探针未察觉：签名未跑
     expect(stale.scoreTrend[0]!.score).toBe(8) // 命中旧缓存（边界如实固化）
     // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
     __setAnalysisOverviewTtlForTest(0)
     const fresh = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewSigCountForTest()).toBe(2)
-    expect(__analysisOverviewScanCountForTest()).toBe(2)
+    expect(analysisOverviewCache.stats().signatures).toBe(2)
+    expect(analysisOverviewCache.stats().misses).toBe(2)
     expect(fresh.scoreTrend[0]!.score).toBe(1)
   })
 })

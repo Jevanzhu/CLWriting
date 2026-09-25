@@ -12,9 +12,9 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { generateLeadUpdateDraft } from '../../../process/lead-update-draft.js'
-import { runGatedGeneration } from './task-gate.js' // P1-2（复审-0914-优化修复批）：长任务门控包装
+import type { TaskGateInjected } from './task-gate.js' // P1-2（复审-0914-优化修复批）：长任务门控包装（R0916-7-P3-6：走 ctx.gate 实例）
 
-interface LeadUpdateCtx {
+interface LeadUpdateCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -32,7 +32,7 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='lead-updates:<书名>'，
     // ctrl.signal 沿 process 层既有形参 Z-P1-1 透传）——十段复制收编 runGatedGeneration
     // 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
-    return runGatedGeneration(res, {
+    return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
       action: 'lead-updates',

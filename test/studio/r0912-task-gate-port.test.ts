@@ -45,7 +45,9 @@ describe('R0912：task-gate 端口（依赖倒置）', () => {
 
   it('注册接线源锚：registerStreamRoutes 必调 registerTaskGateProvider', () => {
     const src = readSrc('src/studio/server/api/stream.ts')
-    expect(src).toContain('registerTaskGateProvider(acquireTaskGate)')
+    // R0916-7-P3-6：真实闸不再是模块级 acquireTaskGate 单例，改经组装根注入的 ctx.gate
+    // 实例——源锚随之钉「端口注册端 + 注入闸实例」两段（缺任一段都会静默放行回潮）。
+    expect(src).toContain('registerTaskGateProvider((book, action) => ctx.gate.acquire(book, action))')
     expect(existsSync(`${root}src/ai/orchestrate/task-gate-port.ts`)).toBe(true)
   })
 

@@ -193,7 +193,10 @@ describe('0918四轮修复批 B401: firstBranchMetaSeq 生成列 + 部分索引'
   })
 
   it('源文本钉针：firstBranchMetaSeq 查询谓词走生成列（防回退 LIKE 全表扫）', () => {
-    // r41-tombstone 同款结构契约：读 store.ts 源文本钉查询形态
+    // 保留理由：本修复的收益是「查询被部分索引服务」这一执行计划属性，而执行计划只能对
+    // 生产 SQL 断言；SQL 未导出、store 亦不暴露 db 句柄，故上面的 EXPLAIN QUERY PLAN 用例
+    // 只能跑镜像 SQL（镜像漂移风险由本钉针兜住——两边合起来才是完整锚）。查询结果语义在
+    // 两个形态下逐位等价（见本文件首用例），行为面无法分辨，故留源文本钉针。
     const src = readFileSync(join(import.meta.dirname, '../../src/events/store.ts'), 'utf-8')
     expect(src).toMatch(/AND has_branch_meta = 1/)
     expect(src).not.toMatch(/data LIKE '%"branchId"'/)

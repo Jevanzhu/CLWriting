@@ -12,7 +12,7 @@
  * - 全表超 warnThreshold+1 行但探针非命中 → false（未丢弃任何命中——超出扫描
  *   窗的未扫行不翻转信号，早停语义由 warn 日志承载），hits 全保留；
  * - 探针为命中（确实 pop 掉一行）→ true，hits ≤ warnThreshold。
- * 探针非命中且表恰为 N+1 的第四象限由 r49-probe-row-truncation.test.ts 锚定
+ * 探针非命中且表恰为 N+1 的第四象限由 probe-row-truncation.test.ts 锚定
  * （其 truncated 断言已随本批改 false）。
  */
 import { describe, it, expect, afterEach } from 'vitest'

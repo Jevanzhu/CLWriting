@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { SaveQueue } from '../../src/document/queue.js'
 
 /** 手动控制的 Promise（精确编排串行/并发时序）。 */
@@ -20,7 +20,8 @@ describe('SaveQueue', () => {
     const run = async (token: number) => {
       active++
       maxActive = Math.max(maxActive, active)
-      await new Promise((r) => setTimeout(r, 10))
+      // 让出一次微任务即可暴露「未串行」时的重叠（无需定长实睡）
+      await Promise.resolve()
       active--
       return `r${token}`
     }
@@ -41,7 +42,7 @@ describe('SaveQueue', () => {
     const run = async () => {
       active++
       maxActive = Math.max(maxActive, active)
-      await new Promise((r) => setTimeout(r, 20))
+      await Promise.resolve() // 同上：让出一次微任务
       active--
       return 'ok'
     }
@@ -93,14 +94,12 @@ describe('SaveQueue / P-3（第十四轮）条目回收', () => {
     const q = new SaveQueue<string>()
     const r1 = await q.enqueue({ docId: 'd1', run: async () => 'a' })
     expect(r1.result).toBe('a')
-    await new Promise((r) => setTimeout(r, 5))
-    expect(q.queuedDocCount()).toBe(0)
+    await vi.waitFor(() => expect(q.queuedDocCount()).toBe(0))
     // 回收后再入队：token 从 1 重新起算，行为正常
     const r2 = await q.enqueue({ docId: 'd1', run: async () => 'b' })
     expect(r2.result).toBe('b')
     expect(r2.superseded).toBe(false)
-    await new Promise((r) => setTimeout(r, 5))
-    expect(q.queuedDocCount()).toBe(0)
+    await vi.waitFor(() => expect(q.queuedDocCount()).toBe(0))
   })
 
   it('多 docId 并存时只回收已排空者；在跑/排队中的保留', async () => {
@@ -110,12 +109,10 @@ describe('SaveQueue / P-3（第十四轮）条目回收', () => {
     const p1 = q.enqueue({ docId: 'a', run: () => pendingA })
     const pb = await q.enqueue({ docId: 'b', run: async () => 'done-b' })
     expect(pb.result).toBe('done-b')
-    await new Promise((r) => setTimeout(r, 5))
     // b 已排空回收，a 在跑保留
-    expect(q.queuedDocCount()).toBe(1)
+    await vi.waitFor(() => expect(q.queuedDocCount()).toBe(1))
     resolveA('done-a')
     await p1
-    await new Promise((r) => setTimeout(r, 5))
-    expect(q.queuedDocCount()).toBe(0)
+    await vi.waitFor(() => expect(q.queuedDocCount()).toBe(0))
   })
 })

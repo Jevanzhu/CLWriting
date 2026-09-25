@@ -31,13 +31,13 @@ import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R26-67：prune 书级任务闸；R0912-ds41：补编排互斥查询
+import type { TaskGateInjected } from './task-gate.js' // R26-67：prune 书级任务闸；R0912-ds41：补编排互斥查询（R0916-7-P3-6：闸实例经组装根注入）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
 import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：三处同体收编单源（先例位在本文件）
 import type { Revision } from '../../../document/revision.js'
 import { testableConst } from '../../../shared/testable.js'
 
-interface SnapshotCtx {
+interface SnapshotCtx extends TaskGateInjected {
   workDir: string | null
   /** APP 级数据目录（Electron userData / CLI 约定路径）：global.json 存全局保留策略 */
   userDataPath: string | null
@@ -160,32 +160,10 @@ export const [getSnapshotsRestoreYield, __setSnapshotsRestoreYieldForTest] = tes
 export function forgetVersionStatsCache(bookRoot: string): void {
   versionStatsCache.forget(bookRoot)
 }
-/** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
- *  全量重算计数。 */
-export function __versionStatsScanCountForTest(): number {
-  return versionStatsCache.scanCountForTest()
-}
-export function __resetVersionStatsScanCountForTest(): void {
-  versionStatsCache.resetScanCountForTest()
-}
-/** R44-9（四十四轮）回归观测钩子（生产零调用）：versionStatsProbe 实际执行计数——
- *  探针节流命中（TTL 窗内复用）时应不再增长。 */
-let versionStatsProbeCount = 0
-export function __versionStatsProbeCountForTest(): number {
-  return versionStatsProbeCount
-}
-export function __resetVersionStatsProbeCountForTest(): void {
-  versionStatsProbeCount = 0
-}
-/** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（versionStatsSignature
- *  递归 walk）执行计数——两级探针命中时应不再增长。 */
-let versionStatsSigCount = 0
-export function __versionStatsSigCountForTest(): number {
-  return versionStatsSigCount
-}
-export function __resetVersionStatsSigCountForTest(): void {
-  versionStatsSigCount = 0
-}
+/** R0916-7-P3-6 钩子收敛：R36-7/R37-17/R44-9 的 6 个观测钩子（__versionStatsScanCount/
+ *  ProbeCount/SigCount 与各自 reset）连同路由层自持计数闭包一并删除——计数收编进缓存壳
+ *  （ttl-cache.ts 的 stats()），回归用例改读下面导出的缓存实例的 stats()/resetStats()。
+ *  导出实例即观测面（生产对象，非测试专用 API）。 */
 
 // A3（复审-0914-优化修复批）：sigStatFor 三处同体（rhythm/snapshots/analysis 原各持
 // 一份）收编 rhythm.ts 单源 export——本文件为原注释所引先例位之一，改 import；
@@ -271,7 +249,6 @@ async function computeVersionStatsAsync(bookRoot: string): Promise<VersionStatsR
  *  一致）；.版本 更深层嵌套（>1 层子目录，现行布局无此形态）同理由 TTL 兜底。
  */
 function versionStatsProbe(bookRoot: string): string {
-  versionStatsProbeCount += 1 // R44-9：观测口（生产语义零影响）
   const parts: string[] = [`m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`]
   const versionsDir = join(bookRoot, '工作区', '.版本')
   try {
@@ -313,16 +290,14 @@ export function getVersionStatsCached(bookRoot: string): Promise<VersionStatsRes
  *  probeTs/probe/sig 五字段条目 + L2 签名一致回填指纹复用）+ 异步计算 + FIFO 32，
  *  转写注见 ttl-cache.ts judge；sigCount 计数随实现迁入 signature 包装，本文件为
  *  两级探针形态正本位。见 ttl-cache.ts 头部收敛映射表）。 */
-const versionStatsCache = createTtlProbeCache<string, VersionStatsResult>({
+/** R0916-7-P3-6：导出供回归用例读 stats() 观测（探针/全量签名计数收编在壳内）。 */
+export const versionStatsCache = createTtlProbeCache<string, VersionStatsResult>({
   name: 'version-stats',
   keyOf: (k) => k,
   max: VERSION_STATS_MAX,
   ttl: () => getVersionStatsTtlMs() ?? VERSION_STATS_TTL_MS,
   probe: versionStatsProbe,
-  signature: (bookRoot) => {
-    versionStatsSigCount += 1
-    return versionStatsSignature(bookRoot)
-  },
+  signature: versionStatsSignature,
   computeAsync: computeVersionStatsAsync,
 })
 
@@ -366,13 +341,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       // 删书/改名 busyGate 是反向枚举面，生成类在途无人拦（矩阵单向不对称）。查法
       // 照抄 analysis.ts analyze 端点精确形态：先查编排闸再占自身 action 闸，409 的
       // code/error 与同族端点逐字节一致。
-      const busyOrch = orchestrationBusyFor(params['name']!)
+      const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
       if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // R26-67（二十六轮）：书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
       // 任务（写稿/onboard 等收尾会写快照）及删书/改名 busyGate（crossProcessHeldTask
       // GatesFor 借 KNOWN_ACTIONS 正向枚举）的互斥面此前缺失；闸忙 409 口径对齐
       // onboard-save 等同类端点。action 已登记 task-gate.ts KNOWN_ACTIONS（R77-2 静态对账门）。
-      const release = acquireTaskGate(params['name']!, 'versions-prune')
+      const release = ctx.gate.acquire(params['name']!, 'versions-prune')
       if (!release) return replyError(res, 409, 'BUSY', '本书快照清理已在进行中，请稍后再试')
       try {
         const bookRoot = r.bookRoot

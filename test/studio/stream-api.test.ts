@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { startServerSafe } from '../helpers/safe-port.js'
 import { isSpawnRunning, __setSpawnRunning, registerStreamRoutes, SSE_STREAM_PATH_PATTERN } from '../../src/studio/server/api/stream.js'
 import { createStreamTicketStore } from '../../src/studio/server/api/stream-ticket.js' // R73-49：registerStreamRoutes 的 ctx 需实例票库
@@ -263,7 +264,7 @@ describe('E-5 SSE 端点畸形 URL 回 400', () => {
   it('dispatch 层：畸形 absolute-form req.url → 400 BAD_INPUT 信封（非 500）', async () => {
     const routes = createRouteTable()
     resetRouteSchemas()
-    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore() }))
+    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() }))
     const res = fakeRes()
     const matched = await dispatch(
       { method: 'GET', url: 'http://[bad/api/books/x/stream', headers: {} } as unknown as import('node:http').IncomingMessage,
@@ -278,7 +279,7 @@ describe('E-5 SSE 端点畸形 URL 回 400', () => {
   it('stream handler 层：畸形 req.url → 400 BAD_INPUT 而非抛 TypeError（修复前裸 new URL 抛错 → 500）', async () => {
     const routes = createRouteTable()
     resetRouteSchemas()
-    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore() }))
+    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() }))
     // 从路由表取出 SSE 路由，直接调 handler（绕过 dispatch 的前置 parse，
     // 专验 E-5 修复点：handler 自身对畸形 URL 的兜底）
     const streamRoute = routes.find((r) => r.method === 'GET' && r.regex.test('/api/books/x/stream'))
@@ -406,7 +407,7 @@ describe('R0912-P3-⑥: SSE 端点路径模式单源', () => {
     const routes = createRouteTable()
     resetRouteSchemas()
     withRouteTable(routes, () => {
-      registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore() })
+      registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() })
       const schema = getRouteSchema('books.stream')
       expect(schema).not.toBeNull()
       // 路由模板的具体形（:name 取单段样例）必被豁免模式命中——两处失配即静默失闸/漏豁免

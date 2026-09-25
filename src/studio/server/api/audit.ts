@@ -25,14 +25,14 @@ import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 // R0916-7-P3-12：清库族六闸收编 task-gate.busyReason 单源——本文件不再自带闸谓词，
 // 也不从 stream.js 反向取 isSpawnRunning（audit ↔ stream 的 import 环随之解开）
-import { busyReason } from './task-gate.js'
+import type { TaskGate, TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入（chatClearGateReason 为模块级助手，显式接闸）
 import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
 import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 // B101（五轮重评修复批）：让出原语 + 让出粒度（域内纪律单源——check/snapshots 同款）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 
-interface AuditCtx {
+interface AuditCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -224,8 +224,8 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
  * 两行），本函数退为「动作词 → 意图」的薄适配（动作词只剩这两个调用面，故直接判别）。
  * 文案随之统一到矩阵单源（原先各句的字句/尾句差异见矩阵行注释）。
  */
-export function chatClearGateReason(bookName: string, action: '清空对话' | '清除事件史'): string | null {
-  return busyReason(bookName, action === '清空对话' ? 'clear-chat' : 'clear-events')
+export function chatClearGateReason(gate: TaskGate, bookName: string, action: '清空对话' | '清除事件史'): string | null {
+  return gate.busyReason(bookName, action === '清空对话' ? 'clear-chat' : 'clear-events')
 }
 
 export function registerAuditRoutes(ctx: AuditCtx): void {
@@ -287,7 +287,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     if (!r) return
     // 重评二轮-P3-2：六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd-P3 /
     // hh-P1 / 第九轮 M-1 / 第五轮 / R29-9），入口首查 + 开库让出后复查（见下）两用
-    const gate = chatClearGateReason(params['name']!, '清除事件史')
+    const gate = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
     if (gate) return replyError(res, 409, 'BUSY', gate)
     const bookRoot = r.bookRoot
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
@@ -312,7 +312,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       // 重评二轮-P3-2：开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
       // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
       // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close() 照常收口
-      const recheck = chatClearGateReason(params['name']!, '清除事件史')
+      const recheck = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
       if (recheck) return replyError(res, 409, 'BUSY', recheck)
       // 低级项（第六轮）：双键单事务（clearBooks）——两次 clearBook 各自事务，
       // 第二键失败时对话侧已提交、工作流侧残留，清除一半

@@ -6,7 +6,7 @@
  * 与事件主路径（最近一条未撤销 structure.merge = 最近一次合并）口径漂移：乱序合并
  * （先并 20 入 10 再并 5 入 10）时 max=20 撤销的是**首并**而非最近并。修复后对齐
  * 0915 拍板「择最新」：候选 = 回收站中章号 ∈ 并入 的条目，按 trashedAt 取最新者
- * 反推源章号（主路径既有用例口径见 r0915-merge-undo-newest.test.ts 同章号择最新）。
+ * 反推源章号（主路径既有用例口径见 merge-undo-newest.test.ts 同章号择最新）。
  *
  * 服务级建账（API 造章/合并）+ 直调 undoChapterMerge、userDataPath = null 确定性走
  * 盘面降级；首并条目 trashedAt 由测试直改 trash-manifest 回拨到 2000 年，时序差

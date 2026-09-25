@@ -33,7 +33,6 @@ import { resolveBookOrReply } from '../book-context.js'
 import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain, drainStructureChainsUnder } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { drainDraftSaveChainsUnder } from './draft.js'
-import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning, waitSelfHealSettled } from '../../../ai/orchestrate/self-heal.js'
@@ -43,7 +42,7 @@ import type { BookConfig } from '../../../format/types.js'
 import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { invalidateBookSummary } from './progress.js'
 import { bookHash } from '../../../events/store.js'
-import { busyReason } from './task-gate.js'
+import type { TaskGate } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入（busyGate 为模块级助手，显式接闸）
 import { forgetRagBuildTask } from './rag.js'
 import { forgetSseCount } from './stream.js' // R0916-7-P3-12：isSpawnRunning 面随 busyGate 收编矩阵，本文件不再直取
 // R67-15（十五轮）：四个书键 TTL 结果缓存（体检扫描/概览态/风格语料/learn 候选）的
@@ -227,8 +226,8 @@ export async function awaitOrchestrationsSettled(name: string): Promise<void> {
  * R0916-7-P3-12：三闸本体与文案单源在 task-gate 的 BUSY_MATRIX（'book-delete'/
  * 'book-rename' 两行，序 spawn → review → task-gate 逐位保留），本函数退为「动词 →
  * 意图」薄适配。 */
-export function busyGate(name: string, verb: '删' | '改名'): { error: string } | null {
-  const reason = busyReason(name, verb === '删' ? 'book-delete' : 'book-rename')
+export function busyGate(gate: TaskGate, name: string, verb: '删' | '改名'): { error: string } | null {
+  const reason = gate.busyReason(name, verb === '删' ? 'book-delete' : 'book-rename')
   return reason === null ? null : { error: reason }
 }
 
@@ -266,7 +265,7 @@ export function busyGate(name: string, verb: '删' | '改名'): { error: string 
  *    分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
  *  - R33-63（三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
  *    后台摘要任务此前可绕过复查，对已删路径收尾写（对齐 settle 三条件口径）。 */
-export async function drainAndRecheckBookMutation(bookRoot: string, name: string, verb: '删' | '改名'): Promise<{ error: string } | null> {
+export async function drainAndRecheckBookMutation(gate: TaskGate, bookRoot: string, name: string, verb: '删' | '改名'): Promise<{ error: string } | null> {
   await drainDocumentSaves(bookRoot)
   await drainFilePutChainsUnder(bookRoot)
   await drainForeshadowSaveChains(bookRoot)
@@ -275,7 +274,7 @@ export async function drainAndRecheckBookMutation(bookRoot: string, name: string
   if (isChatRunning(name) || isSelfHealRunning(name)) {
     return { error: `本书有对话/写稿在途启动，已中止${verb === '删' ? '删除' : '改名'}——请等它完成或中断后重试` }
   }
-  return busyGate(name, verb) ?? (hasBackgroundTasks(name) ? { error: `本书后台任务进行中，请稍后再${verb}` } : null)
+  return busyGate(gate, name, verb) ?? (hasBackgroundTasks(name) ? { error: `本书后台任务进行中，请稍后再${verb}` } : null)
 }
 
 export function registerBookLifecycleRoutes(ctx: BookCtx): void {
@@ -298,7 +297,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
     // 闸拒绝（409，如 spawn/三审/任务闸在持）时在途对话/嵌套写稿已被不可逆中断，作者
     // 只是想删书却被顺带杀掉别的在途任务还删不成。abort 移到闸后：闸忙直接 409，
     // 零副作用；闸过才中断 chat/self-heal 走删除。
-    const busy = busyGate(name, '删')
+    const busy = busyGate(ctx.gate, name, '删')
     if (busy) {
       return replyError(res, 409, 'BUSY', busy.error)
     }
@@ -317,7 +316,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
     // P1-4（复审-0914-优化修复批）：五连 drain + 闸后复查收编 drainAndRecheckBookMutation
     // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（第五轮/R69-25/R1010b-SRV-P2-1/
     // 重评-0912-4 P2-1/阶段 24 五 drain + M-4/R33D-7/R33-63 复查，沿革与顺序见 helper 头注）。
-    const blocked = await drainAndRecheckBookMutation(join(ctx.workDir, entry.path), name, '删')
+    const blocked = await drainAndRecheckBookMutation(ctx.gate, join(ctx.workDir, entry.path), name, '删')
     if (blocked) {
       return replyError(res, 409, 'BUSY', blocked.error)
     }
@@ -376,7 +375,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // 清理 service 缓存，防同 path 重建复用旧实例
       forgetService(bookAbs)
       // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
-      forgetSession(name)
+      ctx.driver.forgetSession(name)
       // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
       forgetSseCount(name)
       // R67-15（十五轮）：书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）

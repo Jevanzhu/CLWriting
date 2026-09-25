@@ -192,25 +192,17 @@ interface DiskFormat {
 }
 
 /**
- * RC 源码重审 A-7（Opus-5.5 轮）：恢复段的 fs 依赖注入口（测试用，生产零调用——注入即
- * 完全接管该调用，缺省实现与生产逐位同源；风格照 fs/atomic.ts rmQuietly(path, { rm }) /
- * renameWithRetry(from, to, { rename, sleep }) 先例）。生产不设开关，缺省即生产口径。
+ * RC 源码重审 A-7（Opus-5.5 轮）：恢复段的 fs 依赖——**逐调用显式参数**（R0916-7-P3-6
+ * 钩子收敛：原为模块级注入口 __setProvidersRestoreDepsForTest，模块级可变状态让同进程
+ * 两个调用方互相污染，且测试钩子挂在生产模块导出面上）。缺省即生产口径；风格照
+ * fs/atomic.ts rmQuietly(path, { rm }) / renameWithRetry(from, to, { rename, sleep }) 先例。
  */
-let _restoreTestDeps: {
+export interface ProvidersRestoreFsDeps {
   /** 读 bak 字节（缺省 readFileSync）——注入抛错覆盖「bak 存在但不可读」分支。 */
   readBak?: (path: string) => Buffer
   /** 写回主文件（缺省 atomicWriteFile + fsync + 0600，即生产口径）——注入抛错覆盖
    *  「改名留证成功但写回失败」分支（该分支下主文件已不在原名，必须断言留证路径）。 */
   writeMain?: (path: string, bytes: Buffer) => void
-} = {}
-
-/** 测试辅助（生产零调用）：注入恢复段 fs 依赖；用例结束须以
- *  `__setProvidersRestoreDepsForTest({})` 还原。 */
-export function __setProvidersRestoreDepsForTest(deps: {
-  readBak?: (path: string) => Buffer
-  writeMain?: (path: string, bytes: Buffer) => void
-}): void {
-  _restoreTestDeps = deps
 }
 
 /** RC 源码重审 A-7（Opus-5.5 轮）：锁内复核判据——主文件此刻是否已是「可解析且形状
@@ -248,10 +240,10 @@ function isMainLoadable(fp: string): boolean {
  * @returns null=主文件已是可用配置（恢复成功，或锁内复核发现并发写方已修复/替换）；
  *  string=失败原因（进入过留证段时原因串内含留证路径，供调用点文案如实透出）。
  */
-function tryRestoreFromBak(fp: string, bakFp: string): string | null {
-  const readBak = _restoreTestDeps.readBak ?? ((p: string) => readFileSync(p))
+function tryRestoreFromBak(fp: string, bakFp: string, fsDeps: ProvidersRestoreFsDeps = {}): string | null {
+  const readBak = fsDeps.readBak ?? ((p: string) => readFileSync(p))
   const writeMain =
-    _restoreTestDeps.writeMain ??
+    fsDeps.writeMain ??
     ((p: string, bytes: Buffer) => atomicWriteFile(p, bytes, { fsync: true, mode: 0o600 }))
 
   // ① 先读后删：bak 缺失/不可读 → 直接返回原因，绝不触碰主文件（修复前此步在
@@ -348,8 +340,11 @@ function decryptConfs<T extends { id: string; apiKey: string }>(
  *
  * 解密失败（版本过高 / 认证失败）抛错——S5 会兜住"损坏不静默"，
  * 当前版本向上传播，由调用方（server API）转成错误响应。
+ *
+ * R0916-7-P3-6：恢复段 fs 依赖走逐调用参数（opts.restoreFs）——生产调用方不传即生产
+ * 口径，测试用其覆盖「bak 不可读 / 写回失败」分支（原模块级注入口已删）。
  */
-export function loadProviders(userDataPath: string): ProviderStore {
+export function loadProviders(userDataPath: string, opts: { restoreFs?: ProvidersRestoreFsDeps } = {}): ProviderStore {
   // 通用-2（复审-0913-mac适配）：路径拼接统一 join()（posix 下与手拼 '/' 逐字节等价）
   const fp = join(userDataPath, FILE)
   if (!existsSync(fp)) {
@@ -382,7 +377,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
     // W-P2-9：损坏不静默，且不再直接放弃——主文件解析失败时尝试从 bak 恢复
     // （save 每次写前都会生成 providers.bak.json，理论上是最新一份完整配置）。
     // 恢复成功 → 用备份内容继续（并在下方用恢复后的内容重写主文件，重建一致状态）。
-    const bakErr = tryRestoreFromBak(fp, bakFp)
+    const bakErr = tryRestoreFromBak(fp, bakFp, opts.restoreFs)
     if (bakErr) {
       // D6：备份也不可用 → 向上报错（router 全局 catch 转 500 响应）。
       // RC 源码重审 A-7（Opus-5.5 轮）：文案校正——修复前写「保留原文件」，但恢复段已
@@ -401,7 +396,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
   //（用户视角 = Key 无故消失、无任何损坏提示），走与解析失败相同的 bak 恢复链；
   // bak 也不可用才重置为空，且 log.warn 显式告警（不静默）
   if (!Array.isArray(raw.providers)) {
-    const bakErr = tryRestoreFromBak(fp, bakFp)
+    const bakErr = tryRestoreFromBak(fp, bakFp, opts.restoreFs)
     let restored: DiskFormat | null = null
     if (!bakErr) {
       try {
@@ -770,6 +765,51 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   const s = loadProviders(userDataPath)
   if (!s.currentId) return null
   return s.providers.find((p) => p.id === s.currentId) ?? null
+}
+
+// ── R0916-7-P3-6：provider 运行时端口（组装根注入面）──────────────────────
+
+/**
+ * 链路消费面 + 降级记忆回调注册面。服务端组装根（server/index.ts 的 createStudioServer）
+ * 取一份传给路由 ctx（档位解析 / 当前供应商查询），并注入 AI 执行器（runner 经
+ * configureProviderRuntime 取用注册面）——「用哪个运行时」的选择与 driver 同款：
+ * 只在组装根做一次，下游不再各自取模块单例。
+ *
+ * 所有权：端口对象的生命周期归组装根；进程单例缺省（processProviderRuntime）即生产口径。
+ * 残余（如实记）：适配器深处（src/ai/provider/*-adapter.ts）直接 import 本模块的
+ * lookupDegraded/persistDegraded——那是本批改动面之外的实现文件，故「每实例一套降级记忆
+ * 注册表」不可端到端成立；端口覆盖的是注册入口与读侧决策面。
+ */
+export interface ProviderRuntime {
+  /** 读配置（含 vault 解密；mtime LRU 缓存） */
+  loadProviders(userDataPath: string): ProviderStore
+  /** 写配置（串行写链 + 跨进程锁；失败随 promise 上抛） */
+  saveProviders(userDataPath: string, store: ProviderStore): Promise<void>
+  /** 当前启用的供应商 */
+  currentProvider(userDataPath: string): ProviderConf | null
+  /** 档位解析（assistant/chat 未配 → 回落 creative + currentModel） */
+  resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant' | 'chat'): TierSlot
+  /** 降级记忆落盘回调注册面（runner 侧注册；见 registerDegradedPersist） */
+  registerDegradedPersist(fn: (key: string, userDataPath?: string) => void): void
+  /** 降级记忆新鲜读回调注册面（见 registerDegradedLookup） */
+  registerDegradedLookup(fn: (key: string, userDataPath?: string) => boolean | undefined): void
+}
+
+/** 进程单例运行时（组装根缺省值）：直连模块级实现，缺省即生产口径、零行为差异。 */
+export function processProviderRuntime(): ProviderRuntime {
+  return {
+    loadProviders,
+    saveProviders,
+    currentProvider,
+    resolveTier,
+    registerDegradedPersist,
+    registerDegradedLookup,
+  }
+}
+
+/** 建运行时（覆盖项缺席即取进程单例实现）——多实例隔离 / 测试注入用。 */
+export function createProviderRuntime(overrides: Partial<ProviderRuntime> = {}): ProviderRuntime {
+  return { ...processProviderRuntime(), ...overrides }
 }
 
 /** 从已加载 store 算档位（纯函数，不读磁盘——供 resolveProvider 复用，避免重复 loadProviders） */

@@ -292,7 +292,10 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
 describe('R0910-W: 窗口关闭（销毁态 webContents）不炸穿 closed 清理链', () => {
   it('关闭主窗：emit 不外抛、自愈计时器撤销、退出链 app.quit 照跑、IPC 白名单登记摘除', async () => {
     vi.resetModules()
-    const mod = (await import('../../src/desktop/main.js')) as unknown as {
+    await import('../../src/desktop/main.js') // 主窗/退出链在 main.js 侧（本用例驱动其生命周期）
+    // R0916-7-P3-6：__testHooks 正本在 windows.js（main.ts 的 re-export 已删）——同 epoch
+    // 动态 import 取同一模块实例的钩子面。
+    const mod = (await import('../../src/desktop/windows.js')) as unknown as {
       __testHooks: { trustedSenderCount: () => number; hasTrustedSender: (wc: unknown) => boolean }
     }
     await new Promise((r) => setImmediate(r))
@@ -356,7 +359,9 @@ describe('R0910-W: 窗口循环冒烟门（CLW_SMOKE_WINDOW_CYCLE）', () => {
       const windows0 = M.windows.length
       const exits0 = M.exitCodes.length
       vi.resetModules()
-      const mod = (await import('../../src/desktop/main.js')) as unknown as {
+      await import('../../src/desktop/main.js') // 冒烟链在 main.js 侧（env 严格 opt-in）
+      // R0916-7-P3-6：钩子取 windows.js 正本（main.ts re-export 已删）
+      const mod = (await import('../../src/desktop/windows.js')) as unknown as {
         __testHooks: { trustedSenderCount: () => number }
       }
       await flushBootstrap()

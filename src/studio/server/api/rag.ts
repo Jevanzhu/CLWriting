@@ -26,7 +26,7 @@ import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
 import { openRagDb, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js'
+import type { TaskGate, TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入（startRagBuild 为模块级助手，显式接闸）
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
@@ -35,7 +35,7 @@ import { log, errMsg } from '../../../log/index.js'
 // style-scan 同族最后一处漏接线）
 import { trackInFlightWork } from './in-flight-work.js'
 
-interface RagCtx {
+interface RagCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -71,13 +71,14 @@ function ragProvidersOf(userDataPath: string | null): RagProviderRef[] {
  * （400 出口）不清库，既有索引无损。
  */
 function startRagBuild(
+  gate: TaskGate,
   bookName: string,
   bookRoot: string,
   workDir: string,
   userDataPath: string | null,
   opts?: { resetIndexFirst?: boolean },
 ): { ok: true } | { ok: false; reason: string; code: 'BUSY' | 'BAD_INPUT' } {
-  const release = acquireTaskGate(bookName, 'rag-build')
+  const release = gate.acquire(bookName, 'rag-build')
   if (!release) return { ok: false, reason: '本书的索引任务已在运行中，请稍候', code: 'BUSY' }
   // R26-61（二十六轮）：收尾回调 set 前复检书仍注册——forgetRagBuildTask（删书/改名
   // 清理，books.ts）把条目清掉之后 buildIndex 才落定的话，无条件 set 会把已清条目
@@ -269,10 +270,10 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // 矩阵缺一角）。build 对索引库只增行、现行无实害，但补齐后「AI 编排在途 → 409」在
     // rag 三端点（build/rebuild/prune）口径一致，后续 build 增改写面时不留雷。文案/码
     // 与 rebuild 逐字节一致（同源 orchestrationBusyFor 返回值直出）。
-    const busyOrch = orchestrationBusyFor(params['name']!)
+    const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
     if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     const bookRoot = r.bookRoot
-    const start = startRagBuild(params['name']!, bookRoot, r.workDir, ctx.userDataPath)
+    const start = startRagBuild(ctx.gate, params['name']!, bookRoot, r.workDir, ctx.userDataPath)
     if (!start.ok) {
       // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT。
       // 低级项（第六轮）：状态码由结构化 code 判定——原按文案子串 includes('运行中') 判，
@@ -295,9 +296,9 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // 复审-0913-合并批 P3-5（登记备查 → 2026-09-15 机械批处置）：rebuild 清库面对齐
     // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
     // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
-    const busyOrch = orchestrationBusyFor(params['name']!)
+    const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
     if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    const start = startRagBuild(params['name']!, r.bookRoot, r.workDir, ctx.userDataPath, { resetIndexFirst: true })
+    const start = startRagBuild(ctx.gate, params['name']!, r.bookRoot, r.workDir, ctx.userDataPath, { resetIndexFirst: true })
     if (!start.ok) return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
     reply(res, 200, { started: true, reset: true })
   },

@@ -18,10 +18,10 @@ import { runExportBookAsync } from '../../../export/run-async.js'
 import { trackInFlightWork } from './in-flight-work.js' // R0910-W：导出 Worker 退出收尾登记
 import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
 import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
-import { acquireTaskGate } from './task-gate.js' // S3（五十九轮）：export 并发闸
+import type { TaskGateInjected } from './task-gate.js' // S3（五十九轮）：export 并发闸（R0916-7-P3-6：闸实例经组装根注入）
 import { testableConst } from '../../../shared/testable.js'
 
-interface IoCtx {
+interface IoCtx extends TaskGateInjected {
   workDir: string | null
 }
 
@@ -125,7 +125,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     // rmSync 同一导出目录互删 → ENOENT 500。同步占位（无 TOCTOU）、finally 释放，
     // 并发第二请求 409（与 analyze/batch-finalize 闸同口径）。闸留本进程持闸跨
     // await（worker 执行期间仍占闸，并发语义不变）。
-    const release = acquireTaskGate(params['name']!, 'export')
+    const release = ctx.gate.acquire(params['name']!, 'export')
     if (!release) return replyError(res, 409, 'BUSY', '本书已有导出任务在跑，请等待完成后再试')
     let releaseGlobal: (() => void) | null = null
     try {

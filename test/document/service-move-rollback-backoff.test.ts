@@ -7,7 +7,7 @@
  * 回收的回滚」劣化成新位孤儿副本滞留。收编后退避重试救回瞬时锁；退避后仍
  * 失败照旧吞错留孤儿副本（硬链接同数据，语义与裸删时代一致，仍按 WRITE_ERROR 收口）。
  *
- * 夹具：node:fs rmSync 注入（r37-piece-list-rename.test.ts 同款手法）——按目录段
+ * 夹具：node:fs rmSync 注入（piece-list-rename.test.ts 同款手法）——按目录段
  * +文件名注入持续/一次性 EPERM（resolveSafePath 走 realpath 归一，mac 上 /var →
  * /private/var，字符串全等对不上）。
  */

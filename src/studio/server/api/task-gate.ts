@@ -26,6 +26,14 @@
  * R0916-7-P3-14（同批）：锁文件名由「截断 sha256(key)」改 `${action}.${hash(book)}.lock`
  * ——列目录即可枚举（不再需要动作注册表逐个哈希探测），排障一眼看出持有者；迁移策略
  * 见下方「锁文件名与旧格式迁移」段。
+ *
+ * R0916-7-P3-6（2026-09-25 源码质量评审 P3-6）：本模块的进程内闸表 / 三审登记表 /
+ * 锁根三份模块级可变状态收进 **TaskGate 实例**（createTaskGate）——服务端组装根
+ * （server/index.ts 的 createStudioServer）建实例并经各路由 ctx 显式传递，同进程内
+ * 两个 server 实例因此互不干扰（判据用例见 test/studio/r0916-p3-6-assembly-root.test.ts）。
+ * 模块级函数（acquireTaskGate 等）保留为**进程默认实例**的委托壳：非路由消费方
+ * （desktop/graceful-shutdown.ts 的退出等待、sweepStaleReviewDirs 的启动清扫、ai 侧
+ * task-gate-port 的注册面）与既有测试按原签名调用，语义逐位不变。
  */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
@@ -43,10 +51,23 @@ import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { log } from '../../../log/index.js' // R37-21：锁根覆盖告警留痕
 import { replyError } from '../http.js' // 复审-0914-优化修复批（P1-2/D4）：包装面 409/错误信封统一出口
-import { getDriver, ensureSession } from '../../../driver/index.js' // 复审-0914-优化修复批（P1-2）：中断通道注册面收编
+import { productionDriverHost, type DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 import type { Session, StudioDriver } from '../../../driver/types.js'
 
-const running = new Set<string>()
+// ── R0916-7-P3-6：闸实例状态（进程默认实例 / 工厂实例各持一份）────────────────
+
+/** 闸实例的可变状态：锁根 + 进程内闸表 + 三审登记表。
+ *  所有权：createTaskGate 的调用方（服务端组装根 / 进程默认实例）。 */
+interface GateState {
+  /** 跨进程锁根目录（书库 .clwriting/task-gate/）；null = 未配置（退化纯内存闸） */
+  lockRoot: string | null
+  /** 进程内闸：key = `${action}\0${book}` */
+  running: Set<string>
+  /** 三审运行登记：key = `${book}\0${docId}` */
+  reviewRunning: Set<string>
+}
+
+const newGateState = (lockRoot: string | null): GateState => ({ lockRoot, running: new Set(), reviewRunning: new Set() })
 
 // dd-P2 自查修正：action:book 冒号拼接在 heldTaskGatesFor 的后缀匹配下有歧义（闸
 // "分析:A"会让书"A"误判持闸）。MP2-11（专项重评二轮顺修）注释勘误：首句「书名可含
@@ -58,25 +79,27 @@ const keyOf = (bookName: string, action: string): string => `${action}${SEP}${bo
 
 // ── T2-4：跨进程文件锁 ──────────────────────────────
 
-/** 模块级锁根目录（书库 .clwriting/task-gate/）——单 server 进程一个 workDir，
- *  startServer 启动时注入；null = 未配置（退化纯内存闸，与旧行为一致）。
- *  契约（R37-21 如实记）：单进程单锁根——重复 configure 即覆盖，且覆盖非空旧值
- *  时 log.warn 留痕（旧/新路径）。覆盖本身是合法操作（dev-api/脚本与测试重配
- *  workDir 场景），但不该无声——startServer 只在启动时配一次，运行中再配多为
- *  接线错误（旧锁根下已持有的锁文件从此查询/续期失联）。 */
-let lockRoot: string | null = null
-
-/** startServer 注入锁根目录（workDir 缺省 → null，纯内存闸）。
- *  R37-21（三十七轮）：覆盖非空旧值（且值实际变化）时 log.warn——此前静默覆盖，
- *  锁根漂移无从察觉。
- *  R0916-7-P3-14：注入同时做一次旧格式锁清扫（见 sweepLegacyGateLocks）。 */
 export function configureTaskGateLockRoot(dir: string | null): void {
-  if (lockRoot !== null && lockRoot !== dir) {
-    log.warn('task-gate', `锁根目录被重复配置覆盖：${lockRoot} → ${dir}（单进程单锁根契约，运行中改配多为接线错误，旧锁根下在持锁文件将失联）`)
+  processGate.configureLockRoot(dir)
+}
+
+/**
+ * 配锁根目录（workDir 缺省 → null，纯内存闸）——组装期调用。
+ * R37-21（三十七轮）：覆盖非空旧值（且值实际变化）时 log.warn——此前静默覆盖，
+ * 锁根漂移无从察觉。
+ * R0916-7-P3-14：注入同时做一次旧格式锁清扫（见 sweepLegacyGateLocks）。
+ *
+ * 契约（R37-21 如实记）：单实例单锁根——重复 configure 即覆盖；覆盖本身是合法操作
+ * （dev-api/脚本与测试重配 workDir 场景），但不该无声——组装只在启动时配一次，
+ * 运行中再配多为接线错误（旧锁根下已持有的锁文件从此查询/续期失联）。 */
+function configureLockRootIn(state: GateState, dir: string | null): void {
+  if (state.lockRoot !== null && state.lockRoot !== dir) {
+    log.warn('task-gate', `锁根目录被重复配置覆盖：${state.lockRoot} → ${dir}（单实例单锁根契约，运行中改配多为接线错误，旧锁根下在持锁文件将失联）`)
   }
-  lockRoot = dir
+  state.lockRoot = dir
   if (dir) sweepLegacyGateLocks(dir)
 }
+
 
 interface TaskGateOptions {
   /** 显式锁目录（测试注入临时目录用）；缺省用模块级 lockRoot。传 null 强制纯内存。 */
@@ -139,16 +162,15 @@ function sweepLegacyGateLocks(dir: string): void {
 }
 
 /**
- * 占闸：成功返回 release（幂等）；同 book+action 已在跑返回 null（调用方回 409）。
- * action 是本模块约定字面量（文件名安全 token），保证锁名可解析。
+ * 占闸（实现体，state 显式传入——实例化见 createTaskGate）。
  *
  * 顺序：进程内 Set 快路径 → 跨进程 lockfile（O_EXCL 独占创建；EEXIST 时探测持有
  * 进程，已死 = stale 接管（删文件后重试一次），活着 = 占闸失败返回 null）。
  */
-export function acquireTaskGate(bookName: string, action: string, opts?: TaskGateOptions): (() => void) | null {
+function acquireIn(state: GateState, bookName: string, action: string, opts?: TaskGateOptions): (() => void) | null {
   const key = keyOf(bookName, action)
-  if (running.has(key)) return null
-  const dir = opts?.lockDir !== undefined ? opts.lockDir : lockRoot
+  if (state.running.has(key)) return null
+  const dir = opts?.lockDir !== undefined ? opts.lockDir : state.lockRoot
   // isAlive 未注入时传 undefined → 通用锁用缺省 process.kill(pid,0) 探测（同源）
   const isAlive = opts?.isProcessAlive
   let lockPath: string | null = null
@@ -174,7 +196,7 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
       return null
     }
   }
-  running.add(key)
+  state.running.add(key)
   let released = false
   return () => {
     if (released) return
@@ -190,8 +212,14 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
     } catch {
       /* 锁文件残留交 stale 接管；进程内闸照常释放 */
     }
-    running.delete(key)
+    state.running.delete(key)
   }
+}
+
+/** 占闸（进程默认实例）：成功返回 release（幂等）；同 book+action 已在跑返回 null
+ *  （调用方回 409）。action 是本模块约定字面量（文件名安全 token，锁名可解析）。 */
+export function acquireTaskGate(bookName: string, action: string, opts?: TaskGateOptions): (() => void) | null {
+  return acquireIn(processState, bookName, action, opts)
 }
 
 /** R0916-7-P3-14：迁移期旧名探测——旧格式锁在持 → true（调用方退让）；非在持则顺手
@@ -207,7 +235,11 @@ function legacyGateHeld(bookName: string, action: string, dir: string, isAlive: 
 
 /** 状态查询（测试用）：该闸当前是否被持有。 */
 export function isTaskGateHeld(bookName: string, action: string): boolean {
-  return running.has(keyOf(bookName, action))
+  return isHeldIn(processState, bookName, action)
+}
+
+function isHeldIn(state: GateState, bookName: string, action: string): boolean {
+  return state.running.has(keyOf(bookName, action))
 }
 
 /**
@@ -221,8 +253,12 @@ export function isTaskGateHeld(bookName: string, action: string): boolean {
  * 调用方只关心本进程编排态）。
  */
 export function heldTaskGatesFor(bookName: string): string[] {
+  return heldIn(processState, bookName)
+}
+
+function heldIn(state: GateState, bookName: string): string[] {
   const actions: string[] = []
-  for (const key of running) {
+  for (const key of state.running) {
     const i = key.indexOf(SEP)
     if (i !== -1 && key.slice(i + SEP.length) === bookName) actions.push(key.slice(0, i))
   }
@@ -258,7 +294,11 @@ interface CrossProcessQueryOptions {
  * 锁目录不可读/未配置 → 返回空（退化旧纯内存行为，fail-open 与 lockRoot=null 同口径）。
  */
 export function crossProcessHeldTaskGatesFor(bookName: string, opts?: CrossProcessQueryOptions): string[] {
-  const dir = opts?.lockDir !== undefined ? opts.lockDir : lockRoot
+  return crossProcessHeldIn(processState, bookName, opts)
+}
+
+function crossProcessHeldIn(state: GateState, bookName: string, opts?: CrossProcessQueryOptions): string[] {
+  const dir = opts?.lockDir !== undefined ? opts.lockDir : state.lockRoot
   if (!dir) return []
   let names: string[]
   try {
@@ -291,7 +331,11 @@ export function crossProcessHeldTaskGatesFor(bookName: string, opts?: CrossProce
  * audit 的 allHeldTaskGatesFor）随之解开，忙闸查询与忙闸判定同居单源。
  */
 export function allHeldTaskGatesFor(bookName: string): string[] {
-  return [...new Set([...heldTaskGatesFor(bookName), ...crossProcessHeldTaskGatesFor(bookName)])].sort()
+  return allHeldIn(processState, bookName)
+}
+
+function allHeldIn(state: GateState, bookName: string): string[] {
+  return [...new Set([...heldIn(state, bookName), ...crossProcessHeldIn(state, bookName)])].sort()
 }
 
 // ── R0916-7-P3-12：三审运行登记（book + docId）────────────────────────
@@ -300,8 +344,7 @@ export function allHeldTaskGatesFor(bookName: string): string[] {
  *  忙闸矩阵的 review 信号（列）要按书判定在途三审，而 review.ts → task-gate.ts 是既有
  *  单向依赖（三审占 'review' 闸经本模块取），登记留在 review.ts 会让矩阵反向依赖成环。
  *  进程内语义、键格式与判据逐位不变；按文档维度的闸（review-verdict 竞窗、三审端点自身）
- *  走 isReviewRunningForDoc/tryHoldReviewRun。 */
-const reviewRunning = new Set<string>()
+ *  走 isReviewRunningForDoc/tryHoldReviewRun。R0916-7-P3-6：随闸状态入实例。 */
 
 /** 二轮复审（低级）：三审运行闸组键（NUL 分隔，书名/文档 ID 任一含 '/' 时前缀匹配理论
  *  可误报；NUL 不可能出现在两侧实值里——书名净化 + docId 为生成哈希）。 */
@@ -312,27 +355,35 @@ function reviewRunKey(bookName: string, docId: string): string {
 /** hh-P1：本书任一文档三审在跑（删书/改名/清库/写端点反向互斥用）——三审是分钟级长任务，
  *  闸内放行删书/改名会在旧路径重建孤儿目录并白烧 API 费用（与 spawn/task-gate 同模式）。 */
 export function isReviewRunningForBook(bookName: string): boolean {
+  return isReviewRunningForBookIn(processState, bookName)
+}
+
+function isReviewRunningForBookIn(state: GateState, bookName: string): boolean {
   const prefix = bookName + SEP
-  for (const k of reviewRunning) if (k.startsWith(prefix)) return true
+  for (const k of state.reviewRunning) if (k.startsWith(prefix)) return true
   return false
 }
 
 /** 该文档三审在跑（三审端点自身并发闸 + review-verdict 完成写竞窗闸）。 */
 export function isReviewRunningForDoc(bookName: string, docId: string): boolean {
-  return reviewRunning.has(reviewRunKey(bookName, docId))
+  return processState.reviewRunning.has(reviewRunKey(bookName, docId))
 }
 
 /** 占「按文档三审运行」登记：false = 该文档三审已在跑（调用方 409 不排队）。 */
 export function tryHoldReviewRun(bookName: string, docId: string): boolean {
+  return tryHoldReviewRunIn(processState, bookName, docId)
+}
+
+function tryHoldReviewRunIn(state: GateState, bookName: string, docId: string): boolean {
   const key = reviewRunKey(bookName, docId)
-  if (reviewRunning.has(key)) return false
-  reviewRunning.add(key)
+  if (state.reviewRunning.has(key)) return false
+  state.reviewRunning.add(key)
   return true
 }
 
 /** 放「按文档三审运行」登记（幂等；成功/失败/中断三路必达）。 */
 export function releaseReviewRun(bookName: string, docId: string): void {
-  reviewRunning.delete(reviewRunKey(bookName, docId))
+  processState.reviewRunning.delete(reviewRunKey(bookName, docId))
 }
 
 /** 测试钩子（同 stream.ts __setSpawnRunning 先例）：不经真实三审直接置/清本书运行闸，
@@ -340,8 +391,8 @@ export function releaseReviewRun(bookName: string, docId: string): void {
  *  闸按真实文档 docId 查闸，须能预置到具体文档键上；用例负责同参清理。
  *  R0916-7-P3-12：随登记表迁入本模块（原 review.ts 导出面同批改指向）。 */
 export function __setReviewRunning(bookName: string, running: boolean, docId = '__test__'): void {
-  if (running) reviewRunning.add(reviewRunKey(bookName, docId))
-  else reviewRunning.delete(reviewRunKey(bookName, docId))
+  if (running) processState.reviewRunning.add(reviewRunKey(bookName, docId))
+  else processState.reviewRunning.delete(reviewRunKey(bookName, docId))
 }
 
 // ── R0916-7-P3-12：忙闸互斥矩阵（行 = 请求方意图，列 = 在途活动信号）─────────────
@@ -498,7 +549,7 @@ export interface BusyReasonOptions {
 }
 
 /** 信号谓词单源：命中返回该列子句（task-gate 列带持闸动作清单），未命中 null。 */
-function signalClause(signal: BusySignal, book: string): string | null {
+function signalClause(state: GateState, signal: BusySignal, book: string): string | null {
   switch (signal) {
     case 'self-heal':
       return isSelfHealRunning(book) ? SIGNAL_TEXT['self-heal'] : null
@@ -507,11 +558,11 @@ function signalClause(signal: BusySignal, book: string): string | null {
     case 'spawn':
       return isSpawnRunning(book) ? SIGNAL_TEXT.spawn : null
     case 'review':
-      return isReviewRunningForBook(book) ? SIGNAL_TEXT.review : null
+      return isReviewRunningForBookIn(state, book) ? SIGNAL_TEXT.review : null
     case 'background':
       return hasBackgroundTasks(book) ? SIGNAL_TEXT.background : null
     case 'task-gate': {
-      const held = allHeldTaskGatesFor(book)
+      const held = allHeldIn(state, book)
       return held.length > 0 ? SIGNAL_TEXT['task-gate'].replace('$ACTIONS', held.join('、')) : null
     }
   }
@@ -523,9 +574,13 @@ function signalClause(signal: BusySignal, book: string): string | null {
  * 子句 + 意图尾句（个别格整句覆盖），句读统一全角。
  */
 export function busyReason(book: string, intent: BusyIntent, opts?: BusyReasonOptions): string | null {
+  return busyReasonIn(processState, book, intent, opts)
+}
+
+function busyReasonIn(state: GateState, book: string, intent: BusyIntent, opts?: BusyReasonOptions): string | null {
   for (const cell of BUSY_MATRIX[intent]) {
     if (opts?.skip?.includes(cell.signal)) continue
-    const clause = signalClause(cell.signal, book)
+    const clause = signalClause(state, cell.signal, book)
     if (clause === null) continue
     return cell.text ?? `${clause}${INTENT_TAIL[intent]}`
   }
@@ -619,18 +674,32 @@ function resolveInterruptChannel(driver: StudioDriver, book: string, action: str
 /**
  * 生成长任务端点的门控包装（busy 预检 → 任务闸 → 中断通道注册 → fn → finally 注销释放）。
  * fn 内完成端点主体（readJson/校验/AI 调用/落盘/响应），中断收口经 replyGenerationFailure。
+ *
+ * R0916-7-P3-6：driver 与会话面改由组装根经 DriverHost 注入（原直调 getDriver()/
+ * ensureSession 的进程单例），实现体收在闸实例上（runGatedGenerationIn），模块级
+ * 同名导出保留为进程默认实例的委托壳。
  */
 export async function runGatedGeneration(
   res: ServerResponse,
   opts: GatedGenerationOptions,
   fn: (ctrl: AbortController) => Promise<void>,
 ): Promise<void> {
+  return runGatedGenerationIn(processState, processDriver, res, opts, fn)
+}
+
+async function runGatedGenerationIn(
+  state: GateState,
+  host: DriverHost,
+  res: ServerResponse,
+  opts: GatedGenerationOptions,
+  fn: (ctrl: AbortController) => Promise<void>,
+): Promise<void> {
   // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/手动写稿/
   // 后台收尾）时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-  const busyOrch = orchestrationBusyFor(opts.book)
+  const busyOrch = busyReasonIn(state, opts.book, 'generate')
   if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
   // RB-SV-P2-2：长任务并发闸（分钟级 AI 任务，重复点击=双倍费用）
-  const release = acquireTaskGate(opts.book, opts.action)
+  const release = acquireIn(state, opts.book, opts.action)
   if (!release) return replyError(res, 409, 'BUSY', opts.busyText)
   // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——接法照抄 stream.ts
   // spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl → driver.registerCtrl
@@ -638,11 +707,11 @@ export async function runGatedGeneration(
   // 复制收编本包装；owner 分槽语义与 ctrl 注册名逐位保留。
   // R0916-7-P3-16：中断通道改经 resolveInterruptChannel 取（能力缺失 → warn 留痕 +
   // 显式降级为「可跑不可中断」，见该函数注），取代先前的 `driver.registerCtrl?.()` 静默跳过。
-  const channel = resolveInterruptChannel(getDriver(), opts.book, opts.action)
+  const channel = resolveInterruptChannel(host.driver, opts.book, opts.action)
   let registeredSession: Session | null = null
   let registeredCtrl: AbortController | null = null
   try {
-    const session = await ensureSession(opts.book, opts.workDir)
+    const session = await host.ensureSession(opts.book, opts.workDir)
     registeredSession = session
     const ctrl = new AbortController()
     channel?.registerCtrl(session, ctrl, opts.ownerLabel ?? `${opts.action}:${opts.book}`)
@@ -672,4 +741,76 @@ export function replyGenerationFailure(
   if (fail.code.startsWith('NO_')) return replyError(res, 400, fail.code, fail.error)
   if (fail.code === 'ABORTED') return replyError(res, 499, fail.code, fail.error)
   replyError(res, 500, fail.code, fail.error)
+}
+
+// ── R0916-7-P3-6：闸实例（组装根注入面）──────────────────────────────────
+
+/**
+ * 组装根注入面：一个闸实例 = 一份「锁根 + 进程内闸表 + 三审登记表」。
+ *
+ * 所有权：调用方（服务端组装根）创建并持有；同一进程内建两个实例即两套互不可见的
+ * 闸（本项的可测判据）。消费方（路由 handler）经 ctx.gate 使用，不自行取模块级壳。
+ */
+export interface TaskGate {
+  /** 配锁根（组装期一次；见 configureLockRootIn 契约） */
+  configureLockRoot(dir: string | null): void
+  acquire(bookName: string, action: string, opts?: TaskGateOptions): (() => void) | null
+  isHeld(bookName: string, action: string): boolean
+  heldFor(bookName: string): string[]
+  crossProcessHeldFor(bookName: string, opts?: CrossProcessQueryOptions): string[]
+  allHeldFor(bookName: string): string[]
+  isReviewRunningForBook(bookName: string): boolean
+  isReviewRunningForDoc(bookName: string, docId: string): boolean
+  tryHoldReviewRun(bookName: string, docId: string): boolean
+  releaseReviewRun(bookName: string, docId: string): void
+  busyReason(book: string, intent: BusyIntent, opts?: BusyReasonOptions): string | null
+  /** 生成长任务门控包装（R67-13 编排互斥 + 任务闸 + 中断通道，见实现体头注） */
+  runGatedGeneration(res: ServerResponse, opts: GatedGenerationOptions, fn: (ctrl: AbortController) => Promise<void>): Promise<void>
+}
+
+/** 闸实例依赖：锁根（workDir 缺省 → null）与 driver 宿主（会话面 + 中断通道解析）。 */
+export interface TaskGateDeps {
+  lockRoot: string | null
+  driver: DriverHost
+}
+
+/** 路由 ctx 的闸注入面（各端点 ctx 组合本接口即可拿到本实例的闸）。 */
+export interface TaskGateInjected {
+  readonly gate: TaskGate
+}
+
+export function createTaskGate(deps: TaskGateDeps): TaskGate {
+  return createTaskGateOnState(newGateState(deps.lockRoot), deps.driver)
+}
+
+/** 实例构造（状态外部传入——进程默认实例要与模块级委托壳共享同一份状态）。 */
+function createTaskGateOnState(state: GateState, driver: DriverHost): TaskGate {
+  return {
+    configureLockRoot: (dir) => configureLockRootIn(state, dir),
+    acquire: (bookName, action, opts) => acquireIn(state, bookName, action, opts),
+    isHeld: (bookName, action) => isHeldIn(state, bookName, action),
+    heldFor: (bookName) => heldIn(state, bookName),
+    crossProcessHeldFor: (bookName, opts) => crossProcessHeldIn(state, bookName, opts),
+    allHeldFor: (bookName) => allHeldIn(state, bookName),
+    isReviewRunningForBook: (bookName) => isReviewRunningForBookIn(state, bookName),
+    isReviewRunningForDoc: (bookName, docId) => state.reviewRunning.has(reviewRunKey(bookName, docId)),
+    tryHoldReviewRun: (bookName, docId) => tryHoldReviewRunIn(state, bookName, docId),
+    releaseReviewRun: (bookName, docId) => state.reviewRunning.delete(reviewRunKey(bookName, docId)),
+    busyReason: (book, intent, opts) => busyReasonIn(state, book, intent, opts),
+    runGatedGeneration: (res, opts, fn) => runGatedGenerationIn(state, driver, res, opts, fn),
+  }
+}
+
+/** 进程默认实例：模块级委托壳（acquireTaskGate/heldTaskGatesFor/…）的状态归属。
+ *  为什么保留：非路由消费方不在本批改动面（desktop/graceful-shutdown.ts 的退出前
+ *  「等闸释放」、ai/orchestrate/task-gate-port.ts 的 chat 工具取闸注册面、review.ts 的
+ *  启动期 sweepStaleReviewDirs），它们按模块级函数取用；生产组装（startServer）把
+ *  本实例交给 server，故两侧看到同一份闸表。 */
+const processState = newGateState(null)
+const processDriver: DriverHost = productionDriverHost()
+const processGate = createTaskGateOnState(processState, processDriver)
+
+/** 进程默认闸实例（生产组装根取用；测试要隔离闸表请自行 createTaskGate）。 */
+export function processTaskGate(): TaskGate {
+  return processGate
 }

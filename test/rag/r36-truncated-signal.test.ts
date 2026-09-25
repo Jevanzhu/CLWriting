@@ -4,7 +4,7 @@
  * - recallDetailed（结构化出口）在召回池超 warnThreshold 硬截断时返回 truncated +
  *   totalBlocks——recall() 兼容包装此前把这两个字段丢弃（仅 log.warn 留痕、消费面
  *   无感），生产消费面（process/materials.ts）已切 recallDetailed 接线（另有
- *   r36-materials-truncated.test.ts 覆盖端到端）。
+ *   test/process/materials-truncated.test.ts 覆盖端到端）。
  * - 本文件：数据驱动构造截断/未截断两种场景，验证结构化信号透出 + 兼容包装
  *   返回值契约不变（存量测试消费面零破坏）。
  */

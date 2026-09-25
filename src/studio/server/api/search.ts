@@ -40,10 +40,10 @@ export function forgetSearchCache(bookRoot: string): void {
 
 /** R35-7：底层实际扫描计数观察口（验证缓存命中/在途去重；生产零调用）。 */
 export function __searchScanCountForTest(): number {
-  return searchCache.scanCountForTest()
+  return searchCache.stats().misses
 }
 export function __resetSearchScanCountForTest(): void {
-  searchCache.resetScanCountForTest()
+  searchCache.resetStats()
 }
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +

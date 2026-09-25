@@ -15,12 +15,12 @@ import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import type { TaskGateInjected } from './task-gate.js' // RB-SV-P2-2：长任务并发闸（R0916-7-P3-6：闸实例经组装根注入）
 import { testableConst } from '../../../shared/testable.js'
 // R0911b-B-P3-2（2026-09-11 全量重评修复批）：token 死字段删除——写闸（index.ts isWrite
 // safeTokenCompare）在路由分派前已拦一切 POST，R1010-P3 删 handler 内冗余复核后本 ctx
 // 的 token 注入后零读取，随批删除
-interface KnowledgeCtx {
+interface KnowledgeCtx extends TaskGateInjected {
   workDir: string | null
 }
 
@@ -102,7 +102,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：
     // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
     // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
-    const release = acquireTaskGate(params['name']!, 'learn')
+    const release = ctx.gate.acquire(params['name']!, 'learn')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
     try {
       // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：

@@ -6,7 +6,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // R0912-3 收口（2026-09-11 重评-0911c 修复批）注：R75-4 原用例以「清单路径是目录」
 // 制造读清单抛——该手法在 lookup 命中读 strict 化后会被保存**前段守卫**拦截（读失败
-// → WRITE_ERROR「未执行保存」，fail-closed，见 r0912-guard-strict-read.test.ts），
+// → WRITE_ERROR「未执行保存」，fail-closed，见 guard-strict-read.test.ts），
 // 走不到落盘段。R75-4 的原语义是「落盘**后**清单刷新失败不误报保存失败」，本文件
 // mock withManifestLockAsync 抛（清单锁等待超时形态，R48-6 同面）继续锚定该面：
 // 前段守卫真实通过（清单可读、条目匹配），刷新在 maybeUpdateManifest 的 best-effort

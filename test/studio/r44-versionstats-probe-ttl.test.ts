@@ -9,7 +9,7 @@
  * ②MISS 分批让出：scanVersionsDir 递归 lstat + 逐快照 .md 同步读判 pinned 改异步
  * 每 25 条让出（R37-3 范式）——扫描期间事件循环可响应。
  *
- * 断言用观测口（__versionStatsProbeCountForTest / SigCount / ScanCount），确定性
+ * 断言用观测口（versionStatsCache.stats() 的 probes/signatures/misses 三计数），确定性
  * 不依赖墙钟 5s（先例 r36/r37）。
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -20,12 +20,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getVersionStatsCached,
   __setVersionStatsTtlForTest,
-  __versionStatsScanCountForTest,
-  __resetVersionStatsScanCountForTest,
-  __versionStatsSigCountForTest,
-  __resetVersionStatsSigCountForTest,
-  __versionStatsProbeCountForTest,
-  __resetVersionStatsProbeCountForTest,
+  versionStatsCache,
 } from '../../src/studio/server/api/snapshots.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { sleep } from '../helpers/wait-for.js'
@@ -57,9 +52,9 @@ function makeBook(docCount = 1): string {
 
 afterEach(() => {
   __setVersionStatsTtlForTest(null)
-  __resetVersionStatsScanCountForTest()
-  __resetVersionStatsSigCountForTest()
-  __resetVersionStatsProbeCountForTest()
+  versionStatsCache.resetStats()
+  versionStatsCache.resetStats()
+  versionStatsCache.resetStats()
   for (const r of roots) rmSync(r, { recursive: true, force: true })
   roots = []
 })
@@ -69,16 +64,16 @@ describe('R44-9 ① 探针 TTL 节流', () => {
     const root = makeBook()
     __setVersionStatsTtlForTest(60_000)
     const r1 = await getVersionStatsCached(root)
-    expect(__versionStatsProbeCountForTest()).toBe(1)
-    expect(__versionStatsSigCountForTest()).toBe(1)
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().probes).toBe(1)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
     expect(r1.snapshotCount).toBe(1)
     const r2 = await getVersionStatsCached(root)
     // R44-9 核心断言：命中不再重付 readdir+逐 doc statSync（探针计数不增长），
     // 也不触发全量签名/重算
-    expect(__versionStatsProbeCountForTest()).toBe(1)
-    expect(__versionStatsSigCountForTest()).toBe(1)
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().probes).toBe(1)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
     expect(r2).toEqual(r1)
   })
 
@@ -91,14 +86,14 @@ describe('R44-9 ① 探针 TTL 节流', () => {
     writeFileSync(join(root, '工作区', '.版本', 'doc_1', 'b.md'), '---\n来源: manual\n---\n后续内容\n', 'utf-8')
     // TTL 窗内：探针节流命中（不重探不重算）
     const throttled = await getVersionStatsCached(root)
-    expect(__versionStatsProbeCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().probes).toBe(1)
     expect(throttled).toEqual(before)
     // TTL 过期 → 必须重新探（探针计数 +1）→ 指纹失配 → 全量签名 → 重算见新值
     __setVersionStatsTtlForTest(0)
     const after = await getVersionStatsCached(root)
-    expect(__versionStatsProbeCountForTest()).toBe(2)
-    expect(__versionStatsSigCountForTest()).toBe(2)
-    expect(__versionStatsScanCountForTest()).toBe(2)
+    expect(versionStatsCache.stats().probes).toBe(2)
+    expect(versionStatsCache.stats().signatures).toBe(2)
+    expect(versionStatsCache.stats().misses).toBe(2)
     expect(after.snapshotCount).toBe(2)
   })
 })
@@ -120,6 +115,6 @@ describe('R44-9 ② MISS 计算体分批让出', () => {
     expect(r.snapshotCount).toBe(60)
     expect(r.pinnedCount).toBe(1)
     expect(beats).toBeGreaterThan(0) // 「至少一次」：不脆断言次数（r37-scan-async-twins 同款）
-    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
   })
 })

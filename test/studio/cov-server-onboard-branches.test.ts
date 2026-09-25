@@ -162,17 +162,6 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
     expect(r.json.error).toContain('过长')
   })
 
-  it('AI 生成失败（无 driver 无 providers）→ 500 GEN_FAIL', async () => {
-    delete process.env.CLWRITING_DRIVER
-    try {
-      const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`, body: { step: 'synopsis' } })
-      expect(r.status).toBe(500)
-      expect(r.json.code).toBe('GEN_FAIL')
-    } finally {
-      process.env.CLWRITING_DRIVER = 'mock'
-    }
-  })
-
   it('premise + discussionContext 注入 synopsis → 200 落盘 大纲/总纲.md（回读一致）', async () => {
     const r = await req({
       method: 'POST',
@@ -289,5 +278,58 @@ describe('R1010c-COV-2：onboard-save 分支', () => {
     expect(r.status).toBe(500)
     expect(r.json.code).toBe('IO_ERROR')
     expect(r.json.error).toContain('落盘失败')
+  })
+})
+
+/**
+ * 非 mock 组装（R0916-7-P3-6）：mock / 非 mock 由组装根在装配期定（CLWRITING_DRIVER
+ * 只在 driver-port.ts 的宿主里读一次），旧用例「用例内临时删环境变量」已不可能切换
+ * 形态——GEN_FAIL 分支需另起一个非 mock 实例（同进程内装配开关后装配者生效，故置于
+ * 全部 mock 用例之后）。独立工作区 + 空 userData（无 providers.json）。
+ */
+describe('R1010c-COV-2：非 mock 组装（无 provider）→ GEN_FAIL', () => {
+  let realDir = ''
+  let realUd = ''
+  let realServer: http.Server | undefined
+  let realBase = ''
+  let realToken = ''
+
+  beforeAll(async () => {
+    realDir = mkdtempSync(join(tmpdir(), 'clwriting-cov-ob-real-'))
+    realUd = mkdtempSync(join(tmpdir(), 'clwriting-cov-ob-real-ud-'))
+    const prev = process.env.CLWRITING_DRIVER
+    delete process.env.CLWRITING_DRIVER
+    try {
+      realServer = await startServerSafe({ port: 0, workDir: realDir, userDataPath: realUd })
+    } finally {
+      if (prev !== undefined) process.env.CLWRITING_DRIVER = prev
+    }
+    realBase = `http://127.0.0.1:${(realServer.address() as AddressInfo).port}`
+    realToken = ((await (await fetch(`${realBase}/api/boot`)).json()) as { token: string }).token
+    mkdirSync(join(realDir, '.clwriting'), { recursive: true })
+    const root = join(realDir, 'books', '设定长篇')
+    mkdirSync(join(root, '项目'), { recursive: true })
+    writeFileSync(join(root, 'book.yaml'), LONG)
+    writeFileSync(
+      join(realDir, '.clwriting', 'books.jsonl'),
+      `${JSON.stringify({ name: '设定长篇', path: 'books/设定长篇' })}\n`,
+      { flag: 'a' },
+    )
+  })
+
+  afterAll(async () => {
+    if (realServer) await new Promise<void>((r) => realServer!.close(() => r()))
+    if (realDir) rmSync(realDir, { recursive: true, force: true })
+    if (realUd) rmSync(realUd, { recursive: true, force: true })
+  })
+
+  it('AI 生成失败（无 driver 无 providers）→ 500 GEN_FAIL', async () => {
+    const r = await request(realBase, realToken, {
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`,
+      body: { step: 'synopsis' },
+    })
+    expect(r.status).toBe(500)
+    expect(r.json.code).toBe('GEN_FAIL')
   })
 })

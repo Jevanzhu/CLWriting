@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
@@ -45,7 +46,7 @@ function makeBook(name: string): Rig {
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
   const handlers = withRouteTable(createRouteTable(), () => {
-    registerDocumentRoutes({ workDir, userDataPath: null })
+    registerDocumentRoutes({ workDir, userDataPath: null, ...processRouteDeps() })
     return {
       restore: getRouteSchema('books.trash.restore')!,
       purge: getRouteSchema('books.trash.delete')!,

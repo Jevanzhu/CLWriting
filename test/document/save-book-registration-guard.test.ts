@@ -161,8 +161,9 @@ describe('0917清库修复批（件1）/ executeSave 落盘前书注册重验', 
   })
 
   it('文案单源锚：BOOK_MOVED_REASON 与 studio 首行重验（book-context.ts）逐字同文', () => {
-    // studio 侧（src/studio/ 本批冻结）仍持内联同文文案；本锚钉住两侧不漂移，
-    // studio 触达批改引本常量后本锚继续成立（字面仍在测试断言内自洽）
+    // 保留理由：studio 侧（book-context.ts）持内联同文文案，document 域无法从行为面触达
+    // studio 的首行重验分支（需起 studio server 且触达跨域拒绝路径）；两侧文案漂移只能靠
+    // 字面比对发现。studio 触达批改引本常量后本锚继续成立（字面仍在测试断言内自洽）。
     const srcRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
     const studioSrc = readFileSync(join(srcRoot, 'studio', 'server', 'book-context.ts'), 'utf-8')
     expect(studioSrc).toContain(BOOK_MOVED_REASON)

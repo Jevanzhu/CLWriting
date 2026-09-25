@@ -1,0 +1,79 @@
+# Node / 构建产物（dist 含 web-next 嵌套；dist-electron 为 electron-builder.yml output）
+node_modules/
+dist/
+dist-electron/
+
+# 日志（npm / vitest / playwright / electron 运行期产物）
+*.log
+npm-debug.log*
+
+# 环境变量（本地凭据不入库；如有模板文件用 !.env.example 反例外）
+.env
+.env.*
+!.env.example
+
+# macOS 元数据垃圾（SMB 挂载产生，绝不进 git）
+._*
+.DS_Store
+
+# Python（v0.2 遗留，无害保留）
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+tmp/
+.vitest-*/
+
+# 本地工作资料（方案、审阅、参考仓库）
+Dev/参考项目
+
+# 编辑器 / 工具壳
+.claude/
+.codex/
+.agents/
+.vscode/
+.zcode/
+.zcode-share/
+
+# Playwright（e2e 产物 / 缓存，本地生成）
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/
+/src/studio/web-next/test-results/
+
+# 项目级私有备忘
+#CLAUDE.md
+#AGENTS.md
+CHANGELOG.md
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

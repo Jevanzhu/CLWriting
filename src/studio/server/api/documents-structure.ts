@@ -39,7 +39,6 @@ import {
 // 由本合法层注入；方法名同 rag/index 原函数，适配零成本）
 import { cleanupRagAfterMerge, estimateRagChunkCount } from '../../../rag/index.js'
 import { invalidateBookSummary } from './progress.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // CC-P2-9：批量定稿并发闸
 // R0916-5h：基建段回引单源 core（见文件头注依赖方向）
 import { enqueueStructureOp, getOrCreateService, structStatus, structureBusyGuarded, type DocumentCtx } from './documents-core.js'
 
@@ -60,7 +59,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      const busy = orchestrationBusyFor(params['name']!)
+      const busy = ctx.gate.busyReason(params['name']!, 'generate')
       if (busy) return replyError(res, 409, 'BUSY', busy)
       const body = await readJson(req)
       const docId = params['docId'] ?? ''
@@ -94,8 +93,8 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
       if (!r) return
       // R0916-5a：busy 守卫四连收编 structureBusyGuarded 单源（次序与文案逐字节不变；
       // 改写正文的结构操作与三审互斥——stream.ts spawn 先例同款面）
-      if (structureBusyGuarded(params['name']!, res)) return
-      const release = acquireTaskGate(params['name']!, 'structure')
+      if (structureBusyGuarded(ctx.gate, params['name']!, res)) return
+      const release = ctx.gate.acquire(params['name']!, 'structure')
       if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
       try {
         const body = await readJson(req)
@@ -173,8 +172,8 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       // R0916-5a：busy 守卫四连收编 structureBusyGuarded 单源（次序与文案逐字节不变）
-      if (structureBusyGuarded(params['name']!, res)) return
-      const release = acquireTaskGate(params['name']!, 'structure')
+      if (structureBusyGuarded(ctx.gate, params['name']!, res)) return
+      const release = ctx.gate.acquire(params['name']!, 'structure')
       if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
       try {
         // 前端恒发 JSON body（无提示时 {}）；hints 三 id 齐备时 undo 直用（apply 响应透传）

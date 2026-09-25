@@ -10,7 +10,10 @@
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
-import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage, type StopReason } from './provider/index.js'
+import { createProvider, loadProviders, saveProviders, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage, type StopReason } from './provider/index.js'
+// R0916-7-P3-6：provider 运行时端口（降级记忆回调注册面）——组装根经 configureProviderRuntime
+// 注入；缺省进程单例即生产口径（provider/index.js 不在本批改动面，故此处直取 store 子模块）
+import { processProviderRuntime, type ProviderRuntime } from './provider/store.js'
 import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveChunkStallTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
@@ -240,7 +243,38 @@ function degradedLookupDispatch(key: string, userDataPath?: string): boolean | u
   return path !== null ? degradedLookupByPath.get(path)?.(key) : undefined
 }
 
-/** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。 */
+/** R0916-7-P3-6：provider 运行时端口（组装根注入）——降级记忆的 persist/lookup 注册面
+ *  由端口承载（缺省进程单例）。所有权：端口对象归组装根；本模块只调用不持有。
+ *  级联影响如实记：端口是进程级（AI 执行器本身是进程级），多 server 实例共用一份；
+ *  生产单 server 进程一份，无差异。 */
+let providerRuntime: ProviderRuntime = processProviderRuntime()
+
+/** 组装根注入 provider 运行时（构造期一次；缺省即进程单例，行为逐位不变）。 */
+export function configureProviderRuntime(rt: ProviderRuntime): void {
+  providerRuntime = rt
+}
+
+/**
+ * mock 快路开关（R0916-7-P3-6）：**组装根唯一选择点**。
+ *
+ * 此前 runTask 自己读 CLWRITING_DRIVER 环境变量（=== 'mock'）决定文本型快路是否短路
+ * ——选择点埋在执行器内、与「用哪个 driver」两处各判一次，且环境变量一旦被子进程/测试
+ * 进程带上就静默改行为。现选择结果由组装根（server/index.ts 的 createStudioServer，
+ * 读 deps.driver.kind）经本注入点送达；runTask 只认注入值，不读任何环境变量。
+ *
+ * 范围如实记：工具型快路（tryMockTool）的判断在 ai/mock-tool.ts（不在本批改动面），
+ * 仍按环境变量短路；生产两处由同一组装根同拍决定，口径一致。
+ */
+let mockFastPath = false
+
+/** 组装根选择 mock/真实驱动后注入（false = 生产真实链路）。 */
+export function configureRunnerMockFastPath(on: boolean): void {
+  mockFastPath = on
+}
+
+/** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。
+ *  R0916-7-P3-6：注册**入口**改经注入的 provider 运行时端口（缺省进程单例 → 直达
+ *  store 的模块级槽，行为逐位不变）。 */
 function registerDegradedCallbacks(userDataPath: string): void {
   degradedPersistByPath.set(userDataPath, (key) => {
     // AA-P3-5：W-P2-9 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
@@ -277,10 +311,9 @@ function registerDegradedCallbacks(userDataPath: string): void {
   // 会走到本函数重接注册（resolveProvider 侧 `degradedActivePath !== userDataPath` 守卫
   // 对同 path 直接跳过，槽保持空——同 path 不重接）；测试需要同 path 重接时直接重新
   // import 本模块或另行暴露钩子。生产路径不调 reset，运行时行为零影响
-  registerDegradedPersist(degradedPersistDispatch)
-  registerDegradedLookup(degradedLookupDispatch)
+  providerRuntime.registerDegradedPersist(degradedPersistDispatch)
+  providerRuntime.registerDegradedLookup(degradedLookupDispatch)
 }
-
 /**
  * 解析当前供应商 provider（统一错误文案）。
  * `ok:false` 时 code 恒为 NO_USERDATA / NO_PROVIDER / NO_MODEL。
@@ -349,9 +382,9 @@ export function resolveProvider(
 /**
  * 跑一次 AI 任务。
  *
- * @param opts.mockTool  mock 快路（工具型）：CLWRITING_DRIVER=mock 时先试 tryMockTool(toolName)，
+ * @param opts.mockTool  mock 快路（工具型）：mock 驱动下先试 tryMockTool(toolName)（选择点在组装根，见 configureRunnerMockFastPath），
  *                       命中则 data = {input, text, usage}（调用方按真实生成同款 decode，mock/真实代码路径一致）。
- * @param opts.mockText  mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回该值（如 outline 的固定细纲）。
+ * @param opts.mockText  mock 快路（文本型）：组装根选定 mock 驱动时直接返回该值（如 outline 的固定细纲）。
  * @param opts.tierKind  任务档位（决定取用哪个模型）；缺省 creative。
  * @param opts.register  登记 ctrl → driver（interrupt / isRunning 生效）。生成结束不自动注销——
  *                        isRunning 设 true 表示「本 session 有生成在途」，由下次 role_spawn/新任务刷新或 dispose 兜底。
@@ -526,8 +559,9 @@ export async function runTask<T>(opts: {
       return { ok: true, data: mock as unknown as T, ctrl: opts.ctrl ?? new AbortController(), usage: mock.usage, attemptsUsage: mock.usage, runId, model: null }
     }
   }
-  // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
-  if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
+  // mock 快路（文本型）：组装根选定 mock 驱动时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）。
+  // R0916-7-P3-6：判断只认注入的 mockFastPath（原为该环境变量的调用期读取）。
+  if (opts.mockText !== undefined && mockFastPath) {
     // R41-5（四十一轮）：usage 对齐工具快路 MOCK_USAGE（B-11 口径）——此前文本快路
     // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })

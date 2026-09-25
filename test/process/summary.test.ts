@@ -48,14 +48,19 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { log } from '../../src/log/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { BookConfig } from '../../src/format/types.js'
+// R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入（见 beforeEach）
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 
 const dirs: string[] = []
 
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
+  // R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入
+  configureRunnerMockFastPath(true)
 })
 
 afterEach(() => {
+  configureRunnerMockFastPath(false)
   delete process.env['CLWRITING_DRIVER']
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
@@ -127,6 +132,7 @@ describe('generateChapterSummary（C1 批 2）', () => {
   it('失败降级：无 provider 且非 mock → ok:false 且不落盘', async () => {
     const root = makeBook(1)
     delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false) // mock 快路随环境变量一并关（选择点在组装根）
     const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
     expect(r.ok).toBe(false)
     expect(existsSync(chapterSummaryPath(root, 1))).toBe(false)

@@ -14,18 +14,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
-import { busyReason, acquireTaskGate, crossProcessHeldTaskGatesFor, isReviewRunningForDoc, tryHoldReviewRun, releaseReviewRun, REVIEW_BUSY_TEXT } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）；R0916-7-P3-12：忙闸/三审登记单源
+import { crossProcessHeldTaskGatesFor, REVIEW_BUSY_TEXT, type TaskGateInjected } from './task-gate.js' // R62-17：三审接跨进程任务闸；R0916-7-P3-12：忙闸/三审登记单源；R0916-7-P3-6：实例面经 ctx.gate（crossProcessHeldTaskGatesFor 留在模块级——启动清扫非路由面）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
 import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuarded, bookMovedFailure } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
-import { getDriver, ensureSession } from '../../../driver/index.js'
+import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 import { runCheckForDocumentAsync, checkOutcomeStatus, forgetTreeIssuesCache } from './check.js'
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
@@ -34,10 +33,14 @@ import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../documen
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
-import { resolveTier } from '../../../ai/provider/index.js'
+import type { ProviderRuntime } from '../../../ai/provider/store.js' // R0916-7-P3-6：provider 运行时端口（组装根注入）
 import { effectiveRemainingCalls } from '../../../ai/calls.js'
 
-interface ReviewCtx {
+interface ReviewCtx extends TaskGateInjected {
+  /** R0916-7-P3-6：driver 宿主（会话面 + 能力面 + mock 选择结果）——组装根注入 */
+  driver: DriverHost
+  /** R0916-7-P3-6：provider 运行时端口——组装根注入（档位解析 / 当前供应商查询） */
+  providers: ProviderRuntime
   workDir: string | null
   userDataPath: string | null
 }
@@ -95,7 +98,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // R0916-7-P3-12：忙闸单源 = busyReason('review')——编排四面（self-heal/chat/手动写稿/
       // 后台收尾），序与文案与 P3-12 前逐位一致。同书另一次三审不在本步（同 action 自冲突
       // 归下方按文档闸与书级闸，见矩阵 review 行注）。
-      const busy = busyReason(params['name']!, 'review')
+      const busy = ctx.gate.busyReason(params['name']!, 'review')
       if (busy) return replyError(res, 409, 'BUSY', busy)
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
@@ -108,7 +111,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       if (!f.ok) return replyError(res, f.status, f.code, f.message)
       // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
       // R0916-7-P3-12：改经登记表访问器（表已迁 task-gate.ts，单向依赖不变）
-      if (!tryHoldReviewRun(params['name']!, docId)) {
+      if (!ctx.gate.tryHoldReviewRun(params['name']!, docId)) {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
       // R62-17：三审此前仅内存 Set（进程内），未接 task-gate 跨进程闸——删书/改名/
@@ -118,9 +121,9 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // R0916-7-P3-12：占闸失败 = 同书已有三审在跑（本格成因单义——按 (book,'review')
       // 取键只可能与同书另一次三审冲突；跨进程持有者只在此路径可见），文案取
       // REVIEW_BUSY_TEXT 单源，不再写「本书有其他任务在跑」。
-      const releaseGate = acquireTaskGate(params['name']!, 'review')
+      const releaseGate = ctx.gate.acquire(params['name']!, 'review')
       if (!releaseGate) {
-        releaseReviewRun(params['name']!, docId)
+        ctx.gate.releaseReviewRun(params['name']!, docId)
         return replyError(res, 409, 'REVIEW_BUSY', REVIEW_BUSY_TEXT)
       }
       try {
@@ -204,8 +207,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
   
         // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
         try {
-          const driver = getDriver()
-          const mainSession = await ensureSession(params['name']!, ctx.workDir!)
+          const driver = ctx.driver.driver
+          const mainSession = await ctx.driver.ensureSession(params['name']!, ctx.workDir!)
           // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 generateTool×3
           // 未接 driver ctrl 注册面，/interrupt 对在途三审完全无效且 driver.isRunning 假空闲
           // （假成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排
@@ -241,7 +244,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
             const collected = collectReviewIssues({ packet: built.packet })
             // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
-            const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
+            // R0916-7-P3-6：mock 判定读注入的 driver.kind（不再读环境变量）；供应商/档位读注入端口
+            const prov = ctx.driver.kind === 'mock' ? null : (ctx.userDataPath ? ctx.providers.currentProvider(ctx.userDataPath) : null)
             // R0915-P3-1（四轮处置批）：写临界段重验书注册——lens 循环分钟级让出窗内
             // 删书/改名可搬走 bookRoot，照写会在旧路径 mkdir recursive 重建孤儿分析目录
             //（时序与防线形态见 bookMovedFailure 头注；对齐 documents/config 家族接线）。
@@ -250,7 +254,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
             await writeAnalysisAsync(bookRoot, docId, 'review', {
               generatedAt: new Date().toISOString(),
-              model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
+              model: prov ? `${prov.name}/${ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
               sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
               // R63-4（十一轮）：采集失败（ok:false）打 incomplete 标记——collected.normalized
               // 已由 run.ts 注入阻断级「三审未完成」issue（passed 恒 false），信封层再加显式
@@ -269,7 +273,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         }
       } finally {
         // X-P1-4：并发闸释放（成功/失败/异常路径都解锁）；R0916-7-P3-12：经登记表访问器
-        releaseReviewRun(params['name']!, docId)
+        ctx.gate.releaseReviewRun(params['name']!, docId)
         releaseGate() // R62-17：task-gate 同 finally 释放（幂等）
       }
     },
@@ -303,7 +307,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // 最小闸对齐同文件三审端点自身闸（同码同文案）：运行中 409 拒裁决不排队——
       // 排队只会把旧 verdict 在完成写之后覆写回去，时机不可预期。
       // R0916-7-P3-12：查按文档闸（表已迁 task-gate.ts，访问器同语义）
-      if (isReviewRunningForDoc(params['name']!, docId)) {
+      if (ctx.gate.isReviewRunningForDoc(params['name']!, docId)) {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
 

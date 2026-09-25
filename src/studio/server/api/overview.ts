@@ -73,10 +73,10 @@ export const [getOverviewTtlMs, __setOverviewCacheTtlForTest] = testableConst<nu
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：MISS 计数断言面 =
  *  test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的「只写不读」至此消除）。 */
 export function __overviewScanCountForTest(): number {
-  return overviewCache.scanCountForTest()
+  return overviewCache.stats().misses
 }
 export function __resetOverviewScanCountForTest(): void {
-  overviewCache.resetScanCountForTest()
+  overviewCache.resetStats()
 }
 
 /** 概览读面指纹：book.yaml（kind/target）+ 写作/正文（timeline/progress/recentDoc）+

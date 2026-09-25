@@ -19,8 +19,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getAnalysisOverviewCached,
   __setAnalysisOverviewTtlForTest,
-  __analysisOverviewScanCountForTest,
-  __resetAnalysisOverviewScanCountForTest,
+  analysisOverviewCache,
 } from '../../src/studio/server/api/analysis.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -52,7 +51,7 @@ function makeBook(docCount: number): string {
 
 afterEach(() => {
   __setAnalysisOverviewTtlForTest(null)
-  __resetAnalysisOverviewScanCountForTest()
+  analysisOverviewCache.resetStats()
   vi.restoreAllMocks()
   for (const r of roots) rmSync(r, { recursive: true, force: true })
   roots = []
@@ -73,7 +72,7 @@ describe('R44-10 analysis-overview MISS 分批让出', () => {
     setImmediate(probe)
     const ov = await p
     expect(beats).toBeGreaterThan(0) // 「至少一次」：不脆断言次数（r37-scan-async-twins 同款）
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     // 让出不破坏结果：60 doc 全部入趋势
     expect(ov.scoreTrend).toHaveLength(60)
     expect(ov.allChapters).toHaveLength(60)
@@ -88,6 +87,6 @@ describe('R44-10 analysis-overview MISS 分批让出', () => {
     //（floor(60/25)=2），加 manifest 段与逐信封段之间的段间让出 1 次——下界断言
     //（框架自身的 setImmediate 调用只会使计数更高，不影响下界成立）
     expect(spy.mock.calls.length).toBeGreaterThanOrEqual(3)
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
   })
 })

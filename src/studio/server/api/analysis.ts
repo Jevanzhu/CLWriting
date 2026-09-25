@@ -23,7 +23,8 @@ import type { ChapterMeta } from '../../../format/types.js'
 import { readIronRules, computeFullStats, type FullStyleStats } from '../../../metrics/style.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
-import { resolveTier } from '../../../ai/provider/index.js'
+import type { ProviderRuntime } from '../../../ai/provider/store.js' // R0916-7-P3-6：provider 运行时端口（组装根注入）
+import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysisAsync, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
@@ -32,12 +33,16 @@ import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readMdTextCachedAsync } from '../../../fs/md-text-cache.js' // R0912-3：GET stale 判定走异步指纹缓存读
 import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：stat 签名单源（原本地同构副本收敛，单源落点 rhythm.ts 既有两 import 方不变）
 import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+探针+FIFO 缓存壳单源
-import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式；R46-2 起主路径下沉 worker，此为回落面）
 import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // R46-2：全书扫描 worker 卸载
 import { testableConst } from '../../../shared/testable.js'
 
-interface AnalysisCtx {
+interface AnalysisCtx extends TaskGateInjected {
+  /** R0916-7-P3-6：driver 宿主（mock 选择结果 / 会话面）——组装根注入 */
+  driver: DriverHost
+  /** R0916-7-P3-6：provider 运行时端口——组装根注入（档位解析） */
+  providers: ProviderRuntime
   workDir: string | null
   userDataPath: string | null
 }
@@ -107,33 +112,11 @@ export const [getAnalysisOverviewTtlMs, __setAnalysisOverviewTtlForTest] = testa
 export function forgetAnalysisOverviewCache(bookRoot: string): void {
   analysisOverviewCache.forget(bookRoot)
 }
-/** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
- *  全量重算计数。 */
-export function __analysisOverviewScanCountForTest(): number {
-  return analysisOverviewCache.scanCountForTest()
-}
-export function __resetAnalysisOverviewScanCountForTest(): void {
-  analysisOverviewCache.resetScanCountForTest()
-}
-/** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（analysisOverviewSignature
- *  每文件 stat walk）执行计数——两级探针命中时应不再增长。 */
-let analysisOverviewSigCount = 0
-export function __analysisOverviewSigCountForTest(): number {
-  return analysisOverviewSigCount
-}
-export function __resetAnalysisOverviewSigCountForTest(): void {
-  analysisOverviewSigCount = 0
-}
-/** 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）回归观测钩子（生产零调用）：
- *  analysisOverviewProbe 实际执行计数——探针节流命中（TTL 窗内复用）时应不再增长
- *  （先例 snapshots.ts __versionStatsProbeCountForTest）。 */
-let analysisOverviewProbeCount = 0
-export function __analysisOverviewProbeCountForTest(): number {
-  return analysisOverviewProbeCount
-}
-export function __resetAnalysisOverviewProbeCountForTest(): void {
-  analysisOverviewProbeCount = 0
-}
+/** R0916-7-P3-6 钩子收敛：R36-7/R37-17/重评2-P3-④ 的 6 个观测钩子（__analysisOverview
+ *  ScanCount/SigCount/ProbeCount 与各自 reset）连同路由层自持计数闭包一并删除——计数
+ *  收编进缓存壳（ttl-cache.ts 的 stats()），回归用例改读下面导出的缓存实例自身的
+ *  stats()/resetStats()。导出实例即观测面：该对象本就是生产对象（getAnalysisOverview
+ *  Cached / forgetAnalysisOverviewCache 的载体），非测试专用 API。 */
 
 /** stat 的 size:mtimeMs 签名（缺失/占位文件 → '-'；Read 失败按缺失处理）。
  *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。
@@ -175,7 +158,6 @@ function analysisOverviewSignature(bookRoot: string): string {
  *  语义由两级结构共同承担）。
  */
 function analysisOverviewProbe(bookRoot: string): string {
-  analysisOverviewProbeCount += 1 // 重评2-P3-④：观测口（生产语义零影响，先例 versionStatsProbeCount）
   return [
     `m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`,
     `d:${sigStatFor(join(bookRoot, '项目', '分析'))}`,
@@ -194,18 +176,16 @@ export function getAnalysisOverviewCached(bookRoot: string): Promise<AnalysisOve
   return analysisOverviewCache.get(bookRoot)
 }
 
-/** D1（复审-0914-优化修复批）：缓存壳实例——两级探针（probe + signature 包装计
- *  sigCount）+ 异步计算 + FIFO 32，见 ttl-cache.ts 头部收敛映射表。 */
-const analysisOverviewCache = createTtlProbeCache<string, AnalysisOverviewResult>({
+/** D1（复审-0914-优化修复批）：缓存壳实例——两级探针（probe + signature）+ 异步计算 +
+ *  FIFO 32，见 ttl-cache.ts 头部收敛映射表。R0916-7-P3-6：导出供回归用例读 stats()
+ *  观测（探针/全量签名 计数收编在壳内，路由层计数闭包已删）。 */
+export const analysisOverviewCache = createTtlProbeCache<string, AnalysisOverviewResult>({
   name: 'analysis-overview',
   keyOf: (k) => k,
   max: ANALYSIS_OVERVIEW_MAX,
   ttl: () => getAnalysisOverviewTtlMs() ?? ANALYSIS_OVERVIEW_TTL_MS,
   probe: analysisOverviewProbe,
-  signature: (bookRoot) => {
-    analysisOverviewSigCount += 1
-    return analysisOverviewSignature(bookRoot)
-  },
+  signature: analysisOverviewSignature,
   computeAsync: computeAnalysisOverviewAsync,
 })
 
@@ -400,7 +380,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道接线——十段复制收编
       // runGatedGeneration 单源（复审-0914-优化修复批 P1-2；ctrl 注册名
       // 'analyze:<书名>' 逐位保留，owner 分槽语义见 task-gate.ts 包装头注）。
-      return runGatedGeneration(res, {
+      return ctx.gate.runGatedGeneration(res, {
         book: params['name']!,
         workDir: ctx.workDir!,
         action: 'analyze',
@@ -427,7 +407,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         // R48-80（四十八轮）：模型档位在 AI 调用前快照——信封 model 原在完成后二次
         // resolve，分钟级分析期间切档则溯源失真（stream.ts R70-11 已确立请求时刻
         // 快照口径，此处对齐）
-        const modelAtRequest = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model
+        const modelAtRequest = ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path], ctrl)
         if (!result.ok) {
@@ -462,7 +442,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（register/unregister 形态
       // 与 analyze 子端点同款；owner 按 action 分槽='autotag:<书名>'）——十段复制收编
       // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
-      return runGatedGeneration(res, {
+      return ctx.gate.runGatedGeneration(res, {
         book: params['name']!,
         workDir: ctx.workDir!,
         action: 'autotag',
@@ -523,7 +503,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!r) return
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='infer-meta:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
-      return runGatedGeneration(res, {
+      return ctx.gate.runGatedGeneration(res, {
         book: params['name']!,
         workDir: ctx.workDir!,
         action: 'infer-meta',
@@ -598,7 +578,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!r) return
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='analyze-style:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
-      return runGatedGeneration(res, {
+      return ctx.gate.runGatedGeneration(res, {
         book: params['name']!,
         workDir: ctx.workDir!,
         action: 'analyze-style',
@@ -656,7 +636,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         // R48-80（四十八轮）：同 analyze——模型档位调用前快照（完成后二次 resolve 在
         // 分钟级分析期间切档则信封溯源失真，R70-11 请求时刻口径）
-        const modelAtRequest = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model
+        const modelAtRequest = ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
         const prompt = [
           '[kind:style]',
           '',

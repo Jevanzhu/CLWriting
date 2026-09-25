@@ -38,9 +38,12 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 import { log, errMsg } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕；复审-0914-优化修复批：errMsg 三目收编
 import { createSerialChainMap } from '../serial-chain.js' // P1-3（复审-0914-优化修复批）：per-book 串行链四胞胎通用件
-import { busyReason } from './task-gate.js' // R0916-7-P3-12：结构操作忙闸单源（原四连手写 + 编排/三审两处 import）
+import type { TaskGate, TaskGateInjected } from './task-gate.js' // R0916-7-P3-12：结构操作忙闸单源（R0916-7-P3-6：闸实例经组装根注入；structureBusyGuarded 为模块级助手，显式接闸）
+import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 
-export interface DocumentCtx {
+export interface DocumentCtx extends TaskGateInjected {
+  /** R0916-7-P3-6：driver 宿主（会话面 + 能力面）——组装根注入 */
+  driver: DriverHost
   workDir: string | null
   /** Z-P2-6：伏笔事件族接线需要（null → 观测层静默跳过） */
   userDataPath: string | null
@@ -301,8 +304,8 @@ export async function runBookScopedOp<T extends { ok: boolean }>(
  *  self-heal → spawn → orchestrationBusyFor(self-heal 重复/chat/spawn 重复/后台) →
  *  三审；表里前两格即原前两闸，chat/background 承接编排面，末格三审——重复格去重后
  *  的可观察文案与序等价：前两闸同步无 await，重复核查永不可达）。 */
-export function structureBusyGuarded(name: string, res: ServerResponse): boolean {
-  const busy = busyReason(name, 'structure')
+export function structureBusyGuarded(gate: TaskGate, name: string, res: ServerResponse): boolean {
+  const busy = gate.busyReason(name, 'structure')
   if (busy) {
     replyError(res, 409, 'BUSY', busy)
     return true

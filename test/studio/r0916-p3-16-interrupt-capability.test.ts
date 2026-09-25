@@ -17,8 +17,19 @@ import { log } from '../../src/log/index.js'
 import type { Session, StudioDriver } from '../../src/driver/types.js'
 import { isTaskGateHeld, runGatedGeneration } from '../../src/studio/server/api/task-gate.js'
 
-/** 替身驱动（能力面按用例装配）；session 用最小对象——包装只把它递给能力面。 */
-const fakeDriver: Record<string, unknown> = {}
+/**
+ * 替身驱动（中断通道按用例装配）；session 用最小对象——包装只把它递给能力面。
+ * R0916-7-P3-6：必需能力（startSession/stream/dispose/emit/cancelStream）**恒给**——
+ * 注入面桥接对缺失的必需能力另有留痕（driver-port.ts），本文件只钉可选中断通道的
+ * 留痕，缺必需能力会让告警计数混入第二条噪声。本文件的替身不实现流式面（不消费）。
+ */
+const fakeDriver: Record<string, unknown> = {
+  startSession: async (cwd: string): Promise<Session> => ({ id: '替身会话', cwd, closed: false }),
+  stream: async function* (): AsyncGenerator<never> {},
+  dispose: () => {},
+  emit: () => {},
+  cancelStream: () => {},
+}
 const fakeSession = { bookId: '替身会话', closed: false } as unknown as Session
 
 vi.mock('../../src/driver/index.js', async (importOriginal) => {

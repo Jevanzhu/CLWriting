@@ -51,10 +51,10 @@ export function forgetRhythmCache(bookRoot: string): void {
 /** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重算（readBookConfig + readChapterDir×2）计数。 */
 export function __rhythmScanCountForTest(): number {
-  return rhythmCache.scanCountForTest()
+  return rhythmCache.stats().misses
 }
 export function __resetRhythmScanCountForTest(): void {
-  rhythmCache.resetScanCountForTest()
+  rhythmCache.resetStats()
 }
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +

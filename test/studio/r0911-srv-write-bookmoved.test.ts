@@ -19,6 +19,7 @@ import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readdirSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -53,8 +54,8 @@ function makeBook(name: string): Rig {
   const table = createRouteTable()
   const handlers = withRouteTable(table, () => {
     // R0911b-B-P3-2：KnowledgeCtx token 死字段删除，注入随之去 token
-    registerKnowledgeRoutes({ workDir })
-    registerStyleRoutes({ workDir, userDataPath: null })
+    registerKnowledgeRoutes({ workDir, ...processRouteDeps() })
+    registerStyleRoutes({ workDir, userDataPath: null, ...processRouteDeps() })
     registerConfigRoutes({ workDir })
     return {
       learnCommit: getRouteSchema('books.learn-commit')!,

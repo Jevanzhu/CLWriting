@@ -18,7 +18,7 @@ import { join, relative, isAbsolute } from 'node:path'
 import { existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
-import { acquireTaskGate } from './task-gate.js' // R40-4：收割端点任务闸
+import type { TaskGateInjected } from './task-gate.js' // R40-4：收割端点任务闸（R0916-7-P3-6：闸实例经组装根注入）
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { rmWithRetry } from '../../../fs/atomic.js' // R0913-win P3-1：删条目收编 EPERM/EBUSY 退避
 import { readBookConfig } from '../../../format/yaml.js'
@@ -46,7 +46,7 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { localDayKey, log, errMsg } from '../../../log/index.js'
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
-interface StyleCtx {
+interface StyleCtx extends TaskGateInjected {
   workDir: string | null
   /** APP 级数据目录：注入强度走「书级 → global.json → 硬编码」三层链时读全局默认 */
   userDataPath: string | null
@@ -303,7 +303,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
-    const releaseGate = acquireTaskGate(params['name']!, 'style-harvest')
+    const releaseGate = ctx.gate.acquire(params['name']!, 'style-harvest')
     if (!releaseGate) {
       return replyError(res, 409, 'BUSY', '本书风格收割进行中，请等它完成后再点')
     }

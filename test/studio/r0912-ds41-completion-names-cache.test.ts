@@ -16,8 +16,7 @@ import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { sleep } from '../helpers/wait-for.js'
 import {
   __setCompletionNamesCacheTtlForTest,
-  __completionNamesScanCountForTest,
-  __resetCompletionNamesScanCountForTest,
+  completionNamesCache,
 } from '../../src/studio/server/api/settings.js'
 
 const BOOK = 'R0912补全名单缓存书'
@@ -55,7 +54,7 @@ afterAll(async () => {
 beforeEach(async () => {
   // 上一用例留下的缓存条目推过注入 TTL（必然过期）+ 计数复位 → 各用例首查必为 MISS
   vi.advanceTimersByTime(2000)
-  __resetCompletionNamesScanCountForTest()
+  completionNamesCache.resetStats()
 })
 
 describe('R0912-ds41：completion-names 缓存壳', () => {
@@ -72,30 +71,30 @@ describe('R0912-ds41：completion-names 缓存壳', () => {
   it('MISS → TTL 内 HIT：第二次请求不再扫盘（计数钩子不变），响应一致', async () => {
     const first = await studio.req('GET', NAMES_PATH)
     expect(first.status).toBe(200)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
     vi.advanceTimersByTime(500) // < 注入 TTL 1000
     const second = await studio.req('GET', NAMES_PATH)
-    expect(__completionNamesScanCountForTest()).toBe(1) // 命中：未重扫
+    expect(completionNamesCache.stats().misses).toBe(1) // 命中：未重扫
     expect(second.json).toEqual(first.json)
   })
 
   it('目录新增文件 → 指纹失配 → TTL 内也重扫（新物品可见）', async () => {
     await studio.req('GET', NAMES_PATH)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
     await sleep(5) // r44-rhythm-cache 先例：让目录 mtime 跨过同毫秒档，指纹必然失配
     writeFileSync(join(studio.bookRoot, '设定', '物品', '青莲灯.md'), '---\n名称: 青莲灯\n---\n\n照明法宝。')
     const second = await studio.req('GET', NAMES_PATH) // 时钟未推进，仅指纹变化
-    expect(__completionNamesScanCountForTest()).toBe(2)
+    expect(completionNamesCache.stats().misses).toBe(2)
     expect((second.json as NamesBody).items).toContain('青莲灯')
     expect((second.json as NamesBody).items).toContain('玄天剑')
   })
 
   it('TTL 过期 → 重扫（注入 TTL 瞬时走完，不付真实睡眠）', async () => {
     const first = await studio.req('GET', NAMES_PATH)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
     vi.advanceTimersByTime(1000 + 1) // 严格越界（先例 r47：TTL+1 即时过期）
     const second = await studio.req('GET', NAMES_PATH)
-    expect(__completionNamesScanCountForTest()).toBe(2)
+    expect(completionNamesCache.stats().misses).toBe(2)
     expect(second.json).toEqual(first.json) // 盘上无变化 → 结果仍一致（证明确为缓存命中臂而非数据差）
   })
 })

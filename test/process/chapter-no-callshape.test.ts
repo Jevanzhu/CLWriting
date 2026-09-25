@@ -10,7 +10,7 @@
  * 防「修复只改一处漏其他」复发（沿 R1010c 原判据，方向由钉分裂翻为钉一致）。
  *
  * 选址说明（沿原选址）：被测现象是消费方调用形态的跨层契约（消费方对表），
- * test/process/ 已收同类消费侧回归（r1010b-volume-chain-wide-name.test.ts）；
+ * test/process/ 已收同类消费侧回归（volume-chain-wide-name.test.ts）；
  * filename.test.ts 是消毒/提取模块自身的单元契约，不宜混入消费方对表。
  */
 import { describe, expect, it } from 'vitest'

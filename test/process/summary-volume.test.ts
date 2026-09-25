@@ -27,6 +27,8 @@ import { estimateTokens, TOKEN_COEFFICIENTS, DEFAULT_TOKEN_COEFF } from '../../s
 import { fitCoefficients, renderCalibrationReport, type CalibrationSample } from '../../src/ai/token-calibration.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { denyRead } from '../helpers/fs-deny.js'
+// R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根，测试侧同点注入（见 beforeEach）
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 
 // win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
 vi.mock('node:fs', async (importOriginal) => {
@@ -46,9 +48,11 @@ const dirs: string[] = []
 
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
+  configureRunnerMockFastPath(true)
 })
 
 afterEach(() => {
+  configureRunnerMockFastPath(false)
   delete process.env['CLWRITING_DRIVER']
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })

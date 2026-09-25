@@ -35,9 +35,7 @@ import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from 
 // R0912（重评-0911c P2）：定稿摘要后台任务的中断接线——driver 会话惰性取得后传入
 // 钩子，后台摘要/批量链持独立登记 ctrl（/interrupt 可中止）；未接线形态（session
 // 取得失败）退化为不登记，与修复前等价
-import { ensureSession, getDriver } from '../../../driver/index.js'
 import { invalidateBookSummary } from './progress.js'
-import { acquireTaskGate } from './task-gate.js'
 // R0916-5h：基建段回引单源 core（见文件头注依赖方向）
 import { getOrCreateService, runBookScopedOp, structStatus, type DocumentCtx } from './documents-core.js'
 
@@ -168,7 +166,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       // 双 manifest 写的 CC-P2-9 动机面）。同族操作同闸名互斥、拒而非排队（闸窗毫秒级，
       // 前端重试即过；对齐 batch-finalize 与 rewrite/outline 闸口径）；books.ts busyGate
       // 随之把单件定稿的 git commit 窗也纳入删书/改名拦截面。
-      const release = acquireTaskGate(params['name']!, 'batch-finalize')
+      const release = ctx.gate.acquire(params['name']!, 'batch-finalize')
       if (!release) {
         return replyError(res, 409, 'BUSY', '本书定稿操作进行中，请等待完成后再试')
       }
@@ -195,8 +193,8 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         // （零 AI 调用/零落盘），M-2 登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
         if (!outcome.skipped) {
           void (async (): Promise<void> => {
-            const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
-            afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], getDriver(), session)
+            const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
+            afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], ctx.driver.driver, session)
           })()
         }
         // B103（0918独立重评二轮修复批）：防吃书闸降级短语随信封透传（非空 = 闸门
@@ -230,7 +228,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       // handler 已持闸悬在 readJson 时，后到的完整请求 409（与 rewrite/outline 闸同口径）。
       // 注：定稿循环全程同步，body 已齐的双击会串行执行——由 finalize 幂等（已定稿 →
       // skipped）兜底，不产生双 commit。
-      const release = acquireTaskGate(params['name']!, 'batch-finalize')
+      const release = ctx.gate.acquire(params['name']!, 'batch-finalize')
       if (!release) {
         return replyError(res, 409, 'BUSY', '本书批量定稿进行中，请等待完成后再试')
       }
@@ -269,8 +267,8 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
         // R0912：同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
         void (async (): Promise<void> => {
-          const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
-          afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'], getDriver(), session)
+          const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
+          afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'], ctx.driver.driver, session)
         })()
         reply(res, 200, { ok: true, results })
       } finally {

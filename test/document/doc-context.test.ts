@@ -19,10 +19,9 @@
  * 不覆盖：与既有用例重复的行为面（r30-snapshot-policy-cache 的 stat 缓存、r31c 的 legacy
  * 收编明细）——本文件只锚「显式设施可用且口径不变」。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { DocContext } from '../../src/document/doc-context.js'
 import { DEFAULT_VERSION_POLICY, encodeDocDirName } from '../../src/document/version.js'
@@ -192,15 +191,6 @@ describe('R0916-7-P3-8: DocContext 组装与显式设施', () => {
     order.length = 0
     await Promise.all([ctx.chainDocMetaOp('doc_b', gate('b1', 20)), ctx.chainDocMetaOp('doc_c', gate('c1', 0))])
     expect(order).toEqual(['b1:start', 'c1:start', 'c1:end', 'b1:end'])
-  })
-
-  it('组装点唯一：类外不得另起 ctx（源码锚——service.ts 是唯一构造处）', () => {
-    // 记忆化说明：本断言与封装锚（service-encapsulation-anchor.test.ts）同批，此处只钉
-    // 「构造点在文档层组装根」，避免后续模块各自 new 一个 ctx 造成设施分裂。
-    const srcRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
-    const src = readFileSync(join(srcRoot, 'document', 'service.ts'), 'utf-8')
-    expect(src).toContain('new DocContext(')
-    expect(src.match(/new DocContext\(/g)).toHaveLength(1)
   })
 
   it('清单写入工具与 ctx 同源（readManifest 读到 upsertEntry 之外的手写形态亦不误判）', async () => {

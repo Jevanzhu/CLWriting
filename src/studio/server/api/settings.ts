@@ -21,13 +21,13 @@ import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
-import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { yieldToEventLoop } from '../../../async.js' // R0917-6-P3-1：扫描段让出原语（rhythm/progress 同源）
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
-interface SettingsCtx {
+interface SettingsCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -97,16 +97,10 @@ export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.forget(bookRoot)
   completionNamesCache.forget(bookRoot)
 }
-/** R46-16 回归观测钩子（先例同 __rhythmScanCountForTest）：缓存 MISS →
- *  全量重算（settingsLong）计数。R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门
- *  收编：MISS 计数断言面 = test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的
- *  「只写不读」至此消除）。 */
-export function __settingsScanCountForTest(): number {
-  return settingsCache.scanCountForTest()
-}
-export function __resetSettingsScanCountForTest(): void {
-  settingsCache.resetScanCountForTest()
-}
+/** R0916-7-P3-6 钩子收敛：R46-16/R0912-ds41 的 4 个观测钩子（__settingsScanCountForTest
+ *  / __completionNamesScanCountForTest 与各自 reset）删除——MISS 计数收编进缓存壳
+ *  （ttl-cache.ts 的 stats()），回归用例改读下面导出的两壳实例的 stats()/resetStats()。
+ *  导出实例即观测面（生产对象，非测试专用 API）。 */
 
 /** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
 function settingsSignature(bookRoot: string): string {
@@ -131,7 +125,8 @@ function settingsSignature(bookRoot: string): string {
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 + FIFO 32；
  *  特记 evictExpiredOnMiss:false——本壳原无 R47-18 过期顺手逐出行，逐条核对后按原
  *  样保留，见 ttl-cache.ts 头部收敛映射表）。 */
-const settingsCache = createTtlProbeCache<string, unknown>({
+/** R0916-7-P3-6：导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
+export const settingsCache = createTtlProbeCache<string, unknown>({
   name: 'settings',
   keyOf: (k) => k,
   max: SETTINGS_CACHE_MAX,
@@ -188,15 +183,7 @@ const COMPLETION_NAMES_CACHE_MAX = 32
  *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖；setter 元组第二位
  *  原名原签名，测试面零感知）。 */
 export const [getCompletionNamesTtlMs, __setCompletionNamesCacheTtlForTest] = testableConst<number | null>(null)
-/** R0912-ds41 回归观测钩子（生产零调用；先例同 __settingsScanCountForTest）：缓存
- *  MISS → 全量重扫计数。消费方 = test/studio/r0912-ds41-completion-names-cache.test.ts
- *  与 test/studio/r0912-4-completion-names-cache.test.ts（两树同题回归，win 合并批并存）。 */
-export function __completionNamesScanCountForTest(): number {
-  return completionNamesCache.scanCountForTest()
-}
-export function __resetCompletionNamesScanCountForTest(): void {
-  completionNamesCache.resetScanCountForTest()
-}
+/** R0912-ds41 回归观测（R0916-7-P3-6 起经导出的壳实例读 stats()，钩子已删；见上方同族注）。 */
 
 /** completion-names 读面指纹：设定/角色 + 设定/物品 目录 mtime。 */
 function completionNamesSignature(bookRoot: string): string {
@@ -217,7 +204,8 @@ function completionNamesSignature(bookRoot: string): string {
  *  0918独立重评修复批（D001）：补 inFlight:true——本壳计算体全异步（readFmNames
  *  readdir/fm 读），并发 MISS（切书 + 编辑器 @ 补拉同刻触发）此前各扫一遍全目录；
  *  补后同键并发合并为一次扫描（settings 壳同款语义，见上方 D001 注）。 */
-const completionNamesCache = createTtlProbeCache<string, unknown>({
+/** R0916-7-P3-6：导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
+export const completionNamesCache = createTtlProbeCache<string, unknown>({
   name: 'completion-names',
   keyOf: (k) => k,
   max: COMPLETION_NAMES_CACHE_MAX,
@@ -285,7 +273,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='relations-mine:<书名>'）
     // ——十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见
     // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
-    return runGatedGeneration(res, {
+    return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
       action: 'relations-mine',

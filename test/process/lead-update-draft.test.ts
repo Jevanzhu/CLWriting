@@ -19,6 +19,9 @@ import {
 } from '../../src/process/lead-update-draft.js'
 // R30-17（三十轮）：readChapterLeadUpdates 死封装已删，读取端改走单源 readLeadUpdatesAt
 import { readLeadUpdatesAt, LEAD_UPDATES_FILE } from '../../src/check/lead-updates.js'
+// R0916-7-P3-6（并发批次）：mock 快路选择点收归组装根（runTask 不再读 CLWRITING_DRIVER），
+// 本文件无 server 组装根，故在测试侧同点注入——环境变量保留给工具型快路（mock-tool 仍读）
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 
 /** 造一本有布线的短书（book.yaml + 布线/悬念 一条进行中线） */
 function makeWiringBook(): string {
@@ -194,6 +197,7 @@ test('archivePendingLeadUpdates: 无条目（无推进占位）/ 无标签旧格
 test('X-P2-6: generateLeadUpdateDraft（mock）→ 落盘带章节标签；载有他章草稿时先归档再写', async () => {
   const prev = process.env['CLWRITING_DRIVER']
   process.env['CLWRITING_DRIVER'] = 'mock' // LEAD_UPDATE_SPEC mock：悬念-001 递进 + 正文原句
+  configureRunnerMockFastPath(true)
   try {
     const root = makeWiringBook()
     try {
@@ -220,6 +224,7 @@ test('X-P2-6: generateLeadUpdateDraft（mock）→ 落盘带章节标签；载�
       rmSync(root, { recursive: true, force: true })
     }
   } finally {
+    configureRunnerMockFastPath(false)
     if (prev === undefined) delete process.env['CLWRITING_DRIVER']
     else process.env['CLWRITING_DRIVER'] = prev
   }

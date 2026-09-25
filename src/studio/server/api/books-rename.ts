@@ -25,7 +25,6 @@ import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { readBooks, readBooksStrict, bookStoragePath, readActive, writeActive, writeBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON, tryBooksLockAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { forgetService } from './documents.js'
-import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { abortSelfHeal, isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
@@ -138,7 +137,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // 现先过闸（闸忙 409 与全量改名同口径）再进早退分支；在途 AI 中断仍只在真正搬目录的
       // 全量路径执行（此处到原闸点之间无 await，检查结果与原位置逐位一致，全量路径行为等价）。
       // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（同删书口径，busyGate 集中各闸背景）
-      const busy = busyGate(oldName, '改名')
+      const busy = busyGate(ctx.gate, oldName, '改名')
       if (busy) {
         return replyError(res, 409, 'BUSY', busy.error)
       }
@@ -163,7 +162,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       if (hadSelfHeal || hadChat || hasBackgroundTasks(oldName)) await awaitOrchestrationsSettled(oldName)
       // P1-4（复审-0914-优化修复批）：五连 drain + 闸后复查收编 drainAndRecheckBookMutation
       // 单源（同删书段口径，沿革与顺序见 helper 头注）——原为与删书 handler 逐位复制的 55 行。
-      const blocked = await drainAndRecheckBookMutation(oldRoot, oldName, '改名')
+      const blocked = await drainAndRecheckBookMutation(ctx.gate, oldRoot, oldName, '改名')
       if (blocked) {
         return replyError(res, 409, 'BUSY', blocked.error)
       }
@@ -223,7 +222,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       const eventsMigrated = await migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
-      forgetSession(oldName)
+      ctx.driver.forgetSession(oldName)
       // R65-44（总六十五轮）：rename 清理序列补 forgetSseCount(oldName)——对齐 delete
       // 路径（R-18）。改名后旧名残留 SSE 计数，随后新建同名书 SSE 配额被旧连接
       // 顶到 429（计数只在 req close 时递减，改名后旧名再无归零通路）。

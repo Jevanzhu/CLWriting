@@ -25,6 +25,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
+import type { TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入
+import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 import { reply, replyError, HttpError } from '../http.js'
 import { readBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -40,7 +42,9 @@ import { registerBookRenameRoutes, initialBook } from './books-rename.js'
 export { __setGraveyardCleanupForTest, __waitForGraveyardCleanupForTest } from './books-lifecycle.js'
 export { setInitialBook } from './books-rename.js'
 
-export interface BookCtx {
+export interface BookCtx extends TaskGateInjected {
+  /** R0916-7-P3-6：driver 宿主（session 存取 + 能力面）——组装根注入 */
+  driver: DriverHost
   workDir: string | null
   /** session token(P0 defense-in-depth,boot 注入前端,写端点校验) */
   token: string

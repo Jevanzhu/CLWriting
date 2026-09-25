@@ -3,7 +3,7 @@
 写给中文网文作者的桌面写作软件，长篇和短篇集都能写。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-8492%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
+[![Test](https://img.shields.io/badge/tests-8490%20all%20green-4FC08D?logo=vitest&logoColor=white)](#技术栈)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 先说清楚一件事：这是写作软件，不是 AI 工具。建书、大纲、设定、正文、审稿、定稿，整套流程都在这个应用里。AI 只是其中一环——起草、改写、分析它可以代劳，读稿和拍板永远是你自己。
@@ -81,7 +81,7 @@ M 系芯片下 arm64 版，Intel 机型下 x64 版，拖进「应用程序」。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（8492 单测）+ Playwright（33 specs / 54 用例）——1345 个测试文件 / 8492 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
+Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；数据是 node:sqlite（检索索引）加 JSON/YAML 文件；AI 接三个协议（Anthropic、OpenAI Chat、OpenAI Responses），统一走 runTask 编排，重试、超时、用量都在这一层管。测试 vitest（8490 单测）+ Playwright（33 specs / 54 用例）——1336 个测试文件 / 8490 单测全绿是合入门槛，CI 会核对本文件声称的数字，对不上直接红。
 
 ## 致谢
 

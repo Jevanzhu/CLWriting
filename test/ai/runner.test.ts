@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
+import { runTask, resolveProvider, configureRunnerMockFastPath, configureProviderRuntime, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
+import { createProviderRuntime, processProviderRuntime } from '../../src/ai/provider/store.js'
 import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { createProvider } from '../../src/ai/provider/probe.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -78,8 +79,9 @@ function writeProviders(userDataPath: string, timeoutMs?: number): void {
 }
 
 describe('runTask mock 快路', () => {
-  it('mockText 形态：CLWRITING_DRIVER=mock 直接返回预定文本，不触 run', async () => {
-    process.env.CLWRITING_DRIVER = 'mock'
+  it('mockText 形态：组装根注入 mock 快路后直接返回预定文本，不触 run', async () => {
+    // P3-6：文本型快路选择点从环境变量收编组装根注入（configureRunnerMockFastPath）
+    configureRunnerMockFastPath(true)
     let ran = false
     const out = await runTask<string>({
       userDataPath: tempUserData(),
@@ -92,6 +94,7 @@ describe('runTask mock 快路', () => {
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.data).toBe('## mock 细纲')
     expect(ran).toBe(false) // mock 短路，不触 run
+    configureRunnerMockFastPath(false)
   })
 
   it('mockTool 形态：data=tryMockTool 结果，调用方可按真实 generateTool decode', async () => {
@@ -125,6 +128,7 @@ describe('runTask mock 快路', () => {
   // P0-1：非 mock 环境 mockText 不短路（与 mockTool 守卫对称，防生产返回 mock 文本）
   it('非 mock 环境 mockText 不短路（走 provider 解析）', async () => {
     delete process.env.CLWRITING_DRIVER
+    configureRunnerMockFastPath(false)
     const out = await runTask<string>({
       userDataPath: tempUserData(), // 无 providers.json → NO_PROVIDER，证明没走 mock
       mockText: '## mock 细纲',
@@ -572,9 +576,11 @@ describe('O-6（第十三轮）降级回调注册幂等化', () => {
   it('同 userDataPath 重复 resolveProvider 只注册一次；换 path 才重注册', async () => {
     const ud = tempUserData()
     writeProviders(ud)
-    const store = await import('../../src/ai/provider/store.js')
-    const spyP = vi.spyOn(store, 'registerDegradedPersist').mockImplementation(() => {})
-    const spyL = vi.spyOn(store, 'registerDegradedLookup').mockImplementation(() => {})
+    // P3-6：注册入口改经注入的 provider 运行时端口——间谍打在端口覆盖项上，
+    // 并在收尾换回进程单例（否则 spies 随 runtime 残留到后续用例）
+    const spyP = vi.fn()
+    const spyL = vi.fn()
+    configureProviderRuntime(createProviderRuntime({ registerDegradedPersist: spyP, registerDegradedLookup: spyL }))
     try {
       expect(resolveProvider(ud).ok).toBe(true) // 首次：注册
       expect(resolveProvider(ud).ok).toBe(true) // 同 path：幂等跳过
@@ -588,8 +594,7 @@ describe('O-6（第十三轮）降级回调注册幂等化', () => {
       expect(spyP).toHaveBeenCalledTimes(2)
       expect(spyL).toHaveBeenCalledTimes(2)
     } finally {
-      spyP.mockRestore()
-      spyL.mockRestore()
+      configureProviderRuntime(processProviderRuntime())
     }
   })
 })

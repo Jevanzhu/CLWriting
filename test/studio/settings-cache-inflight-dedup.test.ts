@@ -10,7 +10,7 @@
  *
  * 测试面取舍：settingsLongAsync 是 settings.ts 模块内引用（创建 options 处直接传函数
  * 值），vi.mock 模块自引用不可行、为可 spy 而重构生产行不改（收益低搅动面大）；退而
- * 以既有观测钩子 __settingsScanCountForTest / __completionNamesScanCountForTest 断言
+ * 以既有观测钩子 settingsCache.stats().misses / completionNamesCache.stats().misses 断言
  * 「MISS → 实际计算」计数——并发双调只扫一次即 in-flight 生效的充要观测面（r0912-ds41
  * TTL 门同款钩子）。书根用空临时目录（settings/completion-names 读面对缺失目录全容错：
  * readRealmDoc/readCharacterCards/readLeadDir/readdir 均回空）。
@@ -22,11 +22,9 @@ import { join } from 'node:path'
 import {
   getSettingsCachedAsync,
   getCompletionNamesCached,
+  settingsCache,
+  completionNamesCache,
   forgetSettingsCache,
-  __settingsScanCountForTest,
-  __resetSettingsScanCountForTest,
-  __completionNamesScanCountForTest,
-  __resetCompletionNamesScanCountForTest,
 } from '../../src/studio/server/api/settings.js'
 
 let roots: string[] = []
@@ -39,44 +37,44 @@ function freshBookRoot(): string {
 }
 
 beforeEach(() => {
-  __resetSettingsScanCountForTest()
-  __resetCompletionNamesScanCountForTest()
+  settingsCache.resetStats()
+  completionNamesCache.resetStats()
 })
 
 afterEach(() => {
   for (const r of roots) forgetSettingsCache(r) // 双壳同清（books.ts forgetBookKeyedCaches 生产挂点同款）
   for (const r of roots) rmSync(r, { recursive: true, force: true })
   roots = []
-  __resetSettingsScanCountForTest()
-  __resetCompletionNamesScanCountForTest()
+  settingsCache.resetStats()
+  completionNamesCache.resetStats()
 })
 
 describe('0918独立重评修复批 D001：settings/completion-names 并发 MISS 单飞', () => {
   it('settings：并发两次 getSettingsCachedAsync 只扫一次且结果同源；随后命中不重扫', async () => {
     const root = freshBookRoot()
     const [a, b] = await Promise.all([getSettingsCachedAsync(root), getSettingsCachedAsync(root)])
-    expect(__settingsScanCountForTest()).toBe(1) // 修复前 = 2（各起一个 job 全量重扫）
+    expect(settingsCache.stats().misses).toBe(1) // 修复前 = 2（各起一个 job 全量重扫）
     expect(a).toEqual(b)
     // 落缓存后命中：仍只 1 次扫描（命中不计数，且 in-flight 收尾自清不残留）
     await getSettingsCachedAsync(root)
-    expect(__settingsScanCountForTest()).toBe(1)
+    expect(settingsCache.stats().misses).toBe(1)
   })
 
   it('completion-names：并发两次 getCompletionNamesCached 只扫一次且结果同源', async () => {
     const root = freshBookRoot()
     const [a, b] = await Promise.all([getCompletionNamesCached(root), getCompletionNamesCached(root)])
-    expect(__completionNamesScanCountForTest()).toBe(1) // 修复前 = 2
+    expect(completionNamesCache.stats().misses).toBe(1) // 修复前 = 2
     expect(a).toEqual(b)
     await getCompletionNamesCached(root)
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
   })
 
   it('去重不跨键：不同书根并发各算各的（in-flight 按键合并，非全局单飞）', async () => {
     const r1 = freshBookRoot()
     const r2 = freshBookRoot()
     await Promise.all([getSettingsCachedAsync(r1), getSettingsCachedAsync(r2)])
-    expect(__settingsScanCountForTest()).toBe(2)
-    expect(__completionNamesScanCountForTest()).toBe(0) // settings 壳与 completion-names 壳计数互不串
+    expect(settingsCache.stats().misses).toBe(2)
+    expect(completionNamesCache.stats().misses).toBe(0) // settings 壳与 completion-names 壳计数互不串
   })
 
   it('真实读面不回归：有材料的书根并发双调结果完整（角色/物品名单来自真实 fm 读）', async () => {
@@ -92,7 +90,7 @@ describe('0918独立重评修复批 D001：settings/completion-names 并发 MISS
       '---\n名称: 红伞\n---\n道具。',
     )
     const [a, b] = await Promise.all([getCompletionNamesCached(root), getCompletionNamesCached(root)])
-    expect(__completionNamesScanCountForTest()).toBe(1)
+    expect(completionNamesCache.stats().misses).toBe(1)
     expect(a).toEqual({ characters: ['林远'], items: ['红伞'] })
     expect(b).toEqual(a)
   })

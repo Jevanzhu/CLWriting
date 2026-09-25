@@ -9,7 +9,7 @@
  * 必须重新探（指纹时效语义与 R44-9① 记档一致：TTL 窗内的 rename 类信封变化
  * 从「下次调用即时可见」变为「TTL 到期重探后可见（≤5s）」）。
  *
- * 断言用观测口（__analysisOverviewProbeCountForTest / SigCount / ScanCount），
+ * 断言用观测口（analysisOverviewCache.stats() 的 probes/signatures/misses 三计数），
  * 确定性不依赖墙钟 5s（先例 r44-versionstats-probe-ttl 同款）。
  */
 import { rmSync } from 'node:fs'
@@ -20,12 +20,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getAnalysisOverviewCached,
   __setAnalysisOverviewTtlForTest,
-  __analysisOverviewScanCountForTest,
-  __resetAnalysisOverviewScanCountForTest,
-  __analysisOverviewSigCountForTest,
-  __resetAnalysisOverviewSigCountForTest,
-  __analysisOverviewProbeCountForTest,
-  __resetAnalysisOverviewProbeCountForTest,
+  analysisOverviewCache,
 } from '../../src/studio/server/api/analysis.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -53,9 +48,9 @@ function makeAnalysisBook(): { root: string; docId1: string } {
 
 afterEach(() => {
   __setAnalysisOverviewTtlForTest(null)
-  __resetAnalysisOverviewScanCountForTest()
-  __resetAnalysisOverviewSigCountForTest()
-  __resetAnalysisOverviewProbeCountForTest()
+  analysisOverviewCache.resetStats()
+  analysisOverviewCache.resetStats()
+  analysisOverviewCache.resetStats()
   for (const r of roots) rmSync(r, { recursive: true, force: true })
   roots = []
 })
@@ -65,16 +60,16 @@ describe('重评2-P3-④ analysis-overview 探针 TTL 节流', () => {
     const { root } = makeAnalysisBook()
     __setAnalysisOverviewTtlForTest(60_000)
     const r1 = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewProbeCountForTest()).toBe(1)
-    expect(__analysisOverviewSigCountForTest()).toBe(1)
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().probes).toBe(1)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     expect(r1.scoreTrend).toHaveLength(1)
     const r2 = await getAnalysisOverviewCached(root)
     // 重评2-P3-④ 核心断言：命中不再重付 manifest+分析目录 statSync（探针计数不增长），
     // 也不触发全量签名/重算（修复前探针每 poll 实算——两探缓存不对称）
-    expect(__analysisOverviewProbeCountForTest()).toBe(1)
-    expect(__analysisOverviewSigCountForTest()).toBe(1)
-    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().probes).toBe(1)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
     expect(r2).toEqual(r1)
   })
 
@@ -88,14 +83,14 @@ describe('重评2-P3-④ analysis-overview 探针 TTL 节流', () => {
     // 探针节流命中旧指纹（即时可见收敛为 ≤TTL 窗，语义与 R44-9① version-stats 侧一致）
     writeAnalysis(root, docId1, 'score', envOf({ score: 3, dims: { 爽点: 3 } }))
     const throttled = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewProbeCountForTest()).toBe(1)
+    expect(analysisOverviewCache.stats().probes).toBe(1)
     expect(throttled.scoreTrend[0]!.score).toBe(8)
     // TTL 过期 → 必须重新探（探针计数 +1）→ 指纹失配 → 全量签名 → 重算见新值
     __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewProbeCountForTest()).toBe(2)
-    expect(__analysisOverviewSigCountForTest()).toBe(2)
-    expect(__analysisOverviewScanCountForTest()).toBe(2)
+    expect(analysisOverviewCache.stats().probes).toBe(2)
+    expect(analysisOverviewCache.stats().signatures).toBe(2)
+    expect(analysisOverviewCache.stats().misses).toBe(2)
     expect(after.scoreTrend[0]!.score).toBe(3)
   })
 })

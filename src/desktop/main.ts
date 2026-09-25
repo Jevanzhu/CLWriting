@@ -57,6 +57,10 @@ import {
   openLibraryWindow,
   openShelfWindow,
   wins,
+  // R0916-7-P3-6 钩子收敛：原经本文件 re-export 供测试面取用，已删除该 re-export
+  //（测试直接动态 import windows.ts 正本）；本文件仍保留对该钩子的**生产路径**使用——
+  // CLW_SMOKE 窗口循环冒烟（e2e 专用、env 严格 opt-in）要用白名单登记计数，而登记表
+  // 正本在 windows.ts（本批改动面外，无生产命名访问器可取），故留用并如实记因。
   __testHooks,
   getDevProxyApplied, // nano R2-4（重评-0914-三轮）：原 let 导出 devProxyApplied 改函数访问器
 } from './windows.js' // 复审-0914-优化修复批 F1：窗口工厂/三窗引用拆出
@@ -71,10 +75,6 @@ import {
 } from './workdir-controller.js' // 复审-0914-优化修复批 F1：workdir 控制器拆出
 import { filterValidRecentBudgeted } from './workdir-store.js'
 import { errMsg, initLogging, log } from '../log/index.js'
-
-// R0914-优化修复批（F1 拆分注记）：__testHooks 正本在 windows.ts（白名单登记面随
-// trackWindow），此处 re-export 保持既有动态 import 测试面（test/desktop/main.test.ts）。
-export { __testHooks }
 
 /** 生产模式 CSP：限定所有资源走本地 origin，防渲染层注入外部脚本/样式 */
 const CLW_CSP = [

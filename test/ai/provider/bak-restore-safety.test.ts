@@ -18,7 +18,6 @@ import {
   loadProviders,
   saveProviders,
   emptySettings,
-  __setProvidersRestoreDepsForTest,
 } from '../../../src/ai/provider/store.js'
 import { tryAcquireCrossProcessLock } from '../../../src/fs/cross-process-lock.js'
 
@@ -31,7 +30,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  __setProvidersRestoreDepsForTest({}) // 注入口还原（防跨用例残留）
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -58,15 +56,16 @@ function corruptSiblings(): string[] {
 describe('providers 损坏恢复段安全性（A-7）', () => {
   it('① bak 存在但不可读 → 抛错、主文件字节不变、无 .corrupt-* 留证', () => {
     seedCorruptWithBak()
-    __setProvidersRestoreDepsForTest({
-      readBak: () => {
-        throw new Error('EACCES: 模拟 bak 不可读')
-      },
-    })
-
     let err: unknown
     try {
-      loadProviders(dir)
+      // R0916-7-P3-6：fs 依赖改逐调用参数注入（原 __setProvidersRestoreDepsForTest）
+      loadProviders(dir, {
+        restoreFs: {
+          readBak: () => {
+            throw new Error('EACCES: 模拟 bak 不可读')
+          },
+        },
+      })
     } catch (e) {
       err = e
     }
@@ -83,15 +82,16 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
   it('② bak 可读但写回失败 → 原损坏字节留证为 providers.json.corrupt-<ts>、主文件缺失、文案带留证路径', () => {
     seedCorruptWithBak()
     const bakBytes = readFileSync(BAK())
-    __setProvidersRestoreDepsForTest({
-      writeMain: () => {
-        throw new Error('ENOSPC: 模拟写回失败')
-      },
-    })
-
     let err: unknown
     try {
-      loadProviders(dir)
+      // R0916-7-P3-6：fs 依赖改逐调用参数注入（原 __setProvidersRestoreDepsForTest）
+      loadProviders(dir, {
+        restoreFs: {
+          writeMain: () => {
+            throw new Error('ENOSPC: 模拟写回失败')
+          },
+        },
+      })
     } catch (e) {
       err = e
     }
@@ -141,15 +141,15 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
   it('④ 锁内复核：取值窗口内主文件已被并发写方修复 → 不覆盖（bak 旧快照不落位）', () => {
     seedCorruptWithBak()
     const FIXED = JSON.stringify({ providers: [], currentId: 'fixed-by-other-writer' })
-    __setProvidersRestoreDepsForTest({
-      readBak: (p) => {
-        // 模拟「读 bak 期间并发写方已把主文件修复」：此刻起主文件是可用配置
-        writeFileSync(FP(), FIXED, 'utf8')
-        return readFileSync(p)
+    // R0916-7-P3-6：注入的 readBak 在「读 bak 期间并发写方已把主文件修复」窗口内改盘
+    const loaded = loadProviders(dir, {
+      restoreFs: {
+        readBak: (p) => {
+          writeFileSync(FP(), FIXED, 'utf8')
+          return readFileSync(p)
+        },
       },
     })
-
-    const loaded = loadProviders(dir)
     expect(loaded.providers).toEqual([])
     expect(loaded.currentId).toBe('fixed-by-other-writer') // 读到的是并发写方的版本
     expect(readFileSync(FP(), 'utf8')).toBe(FIXED) // 未被旧 bak 快照整态覆盖

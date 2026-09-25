@@ -62,10 +62,10 @@ export function forgetForeshadowCache(bookRoot: string): void {
 /** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重扫（readForeshadows + scanForeshadowTrails）计数。 */
 export function __foreshadowScanCountForTest(): number {
-  return foreshadowCache.scanCountForTest()
+  return foreshadowCache.stats().misses
 }
 export function __resetForeshadowScanCountForTest(): void {
-  foreshadowCache.resetScanCountForTest()
+  foreshadowCache.resetStats()
 }
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +

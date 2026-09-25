@@ -16,6 +16,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
+import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 import { registerStreamRoutes } from '../../src/studio/server/api/stream.js'
@@ -99,8 +100,8 @@ function buildRoutes(): (method: 'GET' | 'POST', path: string) => RouteTable[num
   const routes = createRouteTable()
   resetRouteSchemas()
   withRouteTable(routes, () => {
-    registerStreamRoutes({ workDir, userDataPath, studioToken: 'r26-token', tickets: createStreamTicketStore() })
-    registerChatRoutes({ workDir, userDataPath }) // D3：chat/confirm 本体已迁 chat.ts
+    registerStreamRoutes({ workDir, userDataPath, studioToken: 'r26-token', tickets: createStreamTicketStore(), ...processRouteDeps() })
+    registerChatRoutes({ workDir, userDataPath, ...processRouteDeps() }) // D3：chat/confirm 本体已迁 chat.ts
   })
   return (method, path) => {
     const route = routes.find((r) => r.method === method && r.regex.test(path))

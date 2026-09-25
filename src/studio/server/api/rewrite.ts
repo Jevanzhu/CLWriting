@@ -29,12 +29,12 @@ import {
   appendRewritten,
   lineDiff,
 } from '../../../process/rewrite-prompt.js'
-import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff, type DiffLine } from '../../../process/rewrite-prompt.js'
 
-interface RewriteCtx {
+interface RewriteCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -100,7 +100,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     // 修复批）中断通道（register/unregister 形态，owner='rewrite:<书名>'，中断收口经
     // runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制收编
     // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
-    return runGatedGeneration(res, {
+    return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
       action: 'rewrite',

@@ -13,7 +13,7 @@ import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl, urlPathOnly } from '../http.js'
 import { log, errMsg } from '../../../log/index.js'
 import { resolveBookOrReply } from '../book-context.js'
-import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
+import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 // watchdog 二段强释放用生产命名导出 forceReleaseSelfHealRunning（= running.delete，幂等）——
 // 不走测试命名导出 __setSelfHealRunningForTest：测试专用 API 不得进生产路径；
@@ -32,10 +32,9 @@ import type { StreamTicketStore } from './stream-ticket.js'
 // 分钟级任务在途时纯进程内查询看不见，会照常放行写端点致产出互踩）。
 // allHeldTaskGatesFor 同批迁回 task-gate.ts（原就近放 audit.ts），audit ↔ stream 的
 // 互相 import 环随之解开。
-import { busyReason } from './task-gate.js'
+import type { TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入
 // chat 工具侧闸端口的注册端（见 registerStreamRoutes 头部注）与真实闸本体
 import { registerTaskGateProvider } from '../../../ai/orchestrate/task-gate-port.js'
-import { acquireTaskGate } from './task-gate.js'
 // spawn 闸正本在 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向 import server
 // 路由层）；此处再导出保持 books/audit/测试的导入面不变
 import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
@@ -57,7 +56,9 @@ export { isSpawnRunning, __setSpawnRunning }
 export { forgetSseCount, closeAllSseConnections, __getSseConnections, createSseWriter } from './stream-sse-writer.js'
 export { ORCH_STALL_WATCHDOG_MS, ORCH_STALL_GRACE_MS } from './stream-watchdog.js'
 
-interface StreamCtx {
+interface StreamCtx extends TaskGateInjected {
+  /** R0916-7-P3-6：driver 宿主（会话面 + 能力面 + mock 选择结果）——组装根注入 */
+  driver: DriverHost
   workDir: string | null
   userDataPath: string | null
   /** GET SSE 端点 token 校验用（EventSource 不走 isWrite 拦截） */
@@ -88,6 +89,8 @@ export async function runWriterSpawn(opts: {
   role: string
   /** GET /draft-prompt 回传的注入源清单 → promptMeta.files 登记 */
   promptFiles: string[]
+  /** R0916-7-P3-6：mock 快路（组装根按 driver.kind 定的选择结果）——本函数不再读环境变量 */
+  mock?: boolean
 }): Promise<void> {
   // spawn 同款静默挂死兜底——闸正本在 ai 层 spawn-registry，其 hold/release
   // 是生产导出，强释放直接走 releaseSpawnGate（与 self-heal 借 __set 测试导出不同）。
@@ -129,7 +132,7 @@ export async function runWriterSpawn(opts: {
   emit({ type: 'role_spawn', role: opts.role, parentToolUseId: `tu-${Date.now()}` })
 
   // mock 快路：emit 模拟事件序列（runTask 的 mockText 只返回值、不透出事件流，故 mock 独立处理）
-  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+  if (opts.mock === true) {
     const mockText = `【mock · ${opts.role}】这是 mock 的模拟写稿产出。\n`
     for (let i = 0; i < mockText.length; i += 12) {
       emit({ type: 'text', text: mockText.slice(i, i + 12), role: opts.role })
@@ -225,7 +228,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   // ai→studio 反向依赖收口的注册端——chat 工具侧
   //（turns.ts）经 ai/orchestrate/task-gate-port 端口取闸，真实闸在服务构造时注入。
   // 幂等（重注册覆盖）；未注册形态仅存在于纯 ai 层单测（端口放行，见端口头注）。
-  registerTaskGateProvider(acquireTaskGate)
+  registerTaskGateProvider((book, action) => ctx.gate.acquire(book, action))
   // SSE 订阅 driver 事件流
   defineRoute('books.stream', {
     method: 'GET',
@@ -314,20 +317,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         // 在 yield 边界生效，否则断开后生成器悬挂至该书下一 driver 事件才被推进回收
         // （consumer 闭包滞留，KB 级/个，事件到达即自愈）。
         // getDriver() 就地调用：close 可能在下方 driver 赋值前触发（TDZ），此处只取实现无状态
-        getDriver().cancelStream?.(iter)
+        ctx.driver.driver.cancelStream(iter)
         void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
       }
       // 后台继续（backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
       // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放恢复现场。
       // 显式停止仍走 POST /interrupt（用户主动取消）。
     })
-    const session = await ensureSession(params['name']!, ctx.workDir)
+    const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir)
     // ensureSession 的 await 窗口内客户端断开（页面刷新可触发）——close 回调
     // 跑空（heartbeat/iter 尚未赋值）。若照常挂载：30s 心跳 interval + channel consumer
     // 挂在 notify 上无人唤醒，泄漏到 session dispose。已断开（计数已由 close 回调减）
     // 则直接放弃建流。
     if (clientGone) return
-    const driver = getDriver()
+    const driver = ctx.driver.driver
 
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -484,7 +487,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     //（三审分钟级在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫必然失配）。
     // 判定顺序与文案单源见 task-gate.ts 的 BUSY_MATRIX 'spawn' 行。
     const bookName = params['name']!
-    const busy = busyReason(bookName, 'spawn')
+    const busy = ctx.gate.busyReason(bookName, 'spawn')
     if (busy) {
       replyError(res, 409, 'BUSY', busy)
       return false
@@ -522,8 +525,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     },
     handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
     const bookName = params['name']!
-    const mainSession = await ensureSession(bookName, ctx.workDir!)
-    const driver = getDriver()
+    const mainSession = await ctx.driver.ensureSession(bookName, ctx.workDir!)
+    const driver = ctx.driver.driver
     // 起跑标记：闸 cleanup 据此不再释放（释放责任移交下方 finally——终态含失败/中断）
     gate.launched = true
     // fire-and-forget：generateText 期间 text 增量经 driver.emit → SSE 回流；
@@ -537,6 +540,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       prompt: input.prompt,
       role: input.role,
       promptFiles: input.promptFiles,
+      mock: ctx.driver.kind === 'mock',
     })
       .catch((e) => emitSpawnError(driver, mainSession, e))
       .finally(() => releaseSpawnGate(bookName))
@@ -560,8 +564,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 的书静默新建 channel（永不 dispose，泄漏）并向零消费者 push 陈旧 interrupted
     // 事件（重连客户端错认刚被中断）。运行态判定 = 三编排闸任一在途 或 driver 会话
     // 在途（registerCtrl 登记）；全空闲则不 ensureSession、不 interrupt。
-    const driver0 = getDriver()
-    const session0 = getSession(bookName)
+    const driver0 = ctx.driver.driver
+    const session0 = ctx.driver.getSession(bookName)
     const anyRunning =
       isSelfHealRunning(bookName) ||
       isChatRunning(bookName) ||
@@ -571,8 +575,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 判定时刻本就无在途（含已注册 ctrl 的 outline/review/analysis 等端点——其
     // ctrl 经 driver.isRunning 判真走真实中断路径），不做无差别 {ok:true} 假成功。
     if (!anyRunning) return reply(res, 200, { ok: true, interrupted: false })
-    const session = await ensureSession(bookName, ctx.workDir!)
-    const driver = getDriver()
+    const session = await ctx.driver.ensureSession(bookName, ctx.workDir!)
+    const driver = ctx.driver.driver
     // await 后复检——anyRunning 判定与 ensureSession await 之间任务可能
     // 自然收尾，不复查就 interrupt 会向零消费者 push 假 interrupted 事件（重连客户端错认
     // 刚被中断）。复检仍真值才下达中断；driver.isRunning 对已注册 ctrl 的任务同样
@@ -615,7 +619,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // ④ 生成任务闸反向互斥——outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间
     //   启动 self-heal，其收尾覆盖写细纲.md/账本推进.md，后续章拿到混合态上下文（双费 +
     //   两端闭合误报红触发多余重写）；含跨进程锁文件面（双进程形态下他进程任务可见）。
-    const busy = busyReason(bookName, 'auto-write')
+    const busy = ctx.gate.busyReason(bookName, 'auto-write')
     if (busy) {
       replyError(res, 409, 'BUSY', busy)
       return false
@@ -637,18 +641,18 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     },
     handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
     const bookName = params['name']!
-    const mainSession = await ensureSession(bookName, ctx.workDir!)
+    const mainSession = await ctx.driver.ensureSession(bookName, ctx.workDir!)
     // 二次检查（await 期间可能另一个请求已启动）——TOCTOU 收窄；chat/spawn 闸同款补查
     // R0916-7-P3-12：复检 = 同一单源再调一次（readJson + ensureSession 两个 await 的窗口
     // 内新起的编排/新 acquire 的分钟级任务闸在此拦截：self-heal 收尾覆盖写 细纲.md/账本
     // 推进.md 时与任务产出互踩）。首查与复检同表同序，不再各写一份手写闸。
     {
-      const busyRecheck = busyReason(bookName, 'auto-write')
+      const busyRecheck = ctx.gate.busyReason(bookName, 'auto-write')
       if (busyRecheck) {
         return replyError(res, 409, 'BUSY', busyRecheck)
       }
     }
-    const driver = getDriver()
+    const driver = ctx.driver.driver
     // self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——
     // 生成期 isRunning() 真值（否则 SSE sync 快照假空闲，前端可误触 /spawn 互相覆写草稿），
     // /interrupt 的 driver.interrupt() 也能直接 abort 在途请求（与 abortSelfHeal 双保险）。
@@ -662,7 +666,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // 一段：既有用户中止路径——/interrupt 的动作集同款（abortSelfHeal + driver.interrupt 双保险）
       abortLikeUser: () => {
         abortSelfHeal(bookName)
-        const s = getSession(bookName)
+        const s = ctx.driver.getSession(bookName)
         if (s) driver.interrupt?.(s)
       },
       // 二段：强释放。运行登记正本在 ai 层 running Map——经生产命名导出

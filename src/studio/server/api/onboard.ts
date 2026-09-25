@@ -27,11 +27,11 @@ import { bodyOf } from '../../../format/frontmatter.js'
 // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源；
 // onboard-save 仍直连 acquireTaskGate（无 AI 生成段不接包装，闸在 body 校验后占——
 // 入口闸会改 409/400 判序与 driver 假在途面，行为红线不越）
-import { acquireTaskGate, runGatedGeneration, replyGenerationFailure } from './task-gate.js'
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：门控包装走 ctx.gate（闸实例）
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R71-9：覆盖留底单源复用
 import { log } from '../../../log/index.js'
 
-interface OnboardCtx {
+interface OnboardCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
@@ -91,7 +91,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts；
     // ownerLabel='onboard' 保留历史注册名 'onboard:<书名>' 字面量——与 action 名
     // 'onboard-ai' 异名，包装缺省拼接不适用）。onboard-save 无 AI 生成段，不接线。
-    return runGatedGeneration(res, {
+    return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
       action: 'onboard-ai',
@@ -201,7 +201,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const relPath = STEP_PATH[input.step]
     // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存
     // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
-    const release = acquireTaskGate(params['name']!, 'onboard-save')
+    const release = ctx.gate.acquire(params['name']!, 'onboard-save')
     if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
     try {
       // R26-59（二十六轮）：覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖

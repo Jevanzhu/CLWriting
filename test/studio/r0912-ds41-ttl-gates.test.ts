@@ -5,8 +5,9 @@
  * 评审登记：settings（R46-16 壳）与 overview（R47-7 壳）的 TTL 语义此前缺注入式回
  * 归门，5 个 ForTest 钩子零引用、2 组扫描计数器只写不读——本测试补门收编：__set
  * SettingsCacheTtlForTest / __setOverviewCacheTtlForTest（后者既有消费者 r0912-ttl
- * -write-clock 不受影响）注入短档 TTL，__settingsScanCountForTest / __overviewScan
- * CountForTest 断言 MISS 次数，__reset*ForTest 在 beforeEach 复位；forgetSettings
+ * -write-clock 不受影响）注入短档 TTL，settingsCache.stats().misses / __overviewScan
+ * CountForTest 断言 MISS 次数，两壳 resetStats() 在 beforeEach 复位（R0916-7-P3-6 起
+ * settings/completion-names 计数读缓存壳 stats()，钩子已删）；forgetSettings
  * Cache / forgetOverviewCache（books.ts forgetBookKeyedCaches 既有挂点）做用例间缓
  * 存隔离。时钟注入同 r0912-ttl-write-clock 手法（toFake:['Date']，过期臂即时推走不
  * 付真实睡眠）；指纹臂写真实文件（r44-rhythm-cache 先例 5ms sleep 跨同毫秒档）。
@@ -19,11 +20,9 @@ import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { sleep } from '../helpers/wait-for.js'
 import {
   __setSettingsCacheTtlForTest,
-  __settingsScanCountForTest,
-  __resetSettingsScanCountForTest,
+  settingsCache,
   forgetSettingsCache,
-  __completionNamesScanCountForTest,
-  __resetCompletionNamesScanCountForTest,
+  completionNamesCache,
 } from '../../src/studio/server/api/settings.js'
 import {
   __setOverviewCacheTtlForTest,
@@ -67,7 +66,7 @@ afterAll(async () => {
 beforeEach(async () => {
   // 上一用例留下的缓存条目推过注入 TTL（必然过期）+ 计数复位 + 双壳 forget → 首查必 MISS
   vi.advanceTimersByTime(2000)
-  __resetSettingsScanCountForTest()
+  settingsCache.resetStats()
   __resetOverviewScanCountForTest()
   forgetSettingsCache(studio.bookRoot)
   forgetOverviewCache(studio.bookRoot)
@@ -77,28 +76,28 @@ describe('R0912-ds41：settings 缓存壳 TTL 门（P3-2 补门收编）', () =>
   it('TTL 命中：窗口内第二次 GET 不重扫，响应一致', async () => {
     const first = await studio.req('GET', SETTINGS_PATH)
     expect(first.status).toBe(200)
-    expect(__settingsScanCountForTest()).toBe(1)
+    expect(settingsCache.stats().misses).toBe(1)
     vi.advanceTimersByTime(500) // < 注入 TTL 1000
     const second = await studio.req('GET', SETTINGS_PATH)
-    expect(__settingsScanCountForTest()).toBe(1) // 命中：未重扫
+    expect(settingsCache.stats().misses).toBe(1) // 命中：未重扫
     expect(second.json).toEqual(first.json)
   })
 
   it('TTL 过期：推过注入 TTL 即重扫（不付真实睡眠）', async () => {
     await studio.req('GET', SETTINGS_PATH)
-    expect(__settingsScanCountForTest()).toBe(1)
+    expect(settingsCache.stats().misses).toBe(1)
     vi.advanceTimersByTime(1000 + 1) // 严格越界（先例 r47：TTL+1 即时过期）
     await studio.req('GET', SETTINGS_PATH)
-    expect(__settingsScanCountForTest()).toBe(2)
+    expect(settingsCache.stats().misses).toBe(2)
   })
 
   it('指纹失效：设定/时间线 新增文件 → TTL 内也重扫', async () => {
     await studio.req('GET', SETTINGS_PATH)
-    expect(__settingsScanCountForTest()).toBe(1)
+    expect(settingsCache.stats().misses).toBe(1)
     await sleep(5) // r44-rhythm-cache 先例：让目录 mtime 跨过同毫秒档，指纹必然失配
     writeFileSync(join(studio.bookRoot, '设定', '时间线', '新增卡.md'), '新增卡\n时间线条目。\n')
     await studio.req('GET', SETTINGS_PATH)
-    expect(__settingsScanCountForTest()).toBe(2)
+    expect(settingsCache.stats().misses).toBe(2)
   })
 })
 
@@ -140,18 +139,18 @@ describe('R0912-ds41：overview 缓存壳 TTL 门（P3-2 补门收编）', () =>
 // 对 completion-names 端点生效（窗内命中 / 越窗重扫），防链被静默简化后全绿照旧。
 describe('R0912-ds41：TTL 生效值链中间档（completion 壳自有档缺省 → settings 注入口回落档生效）', () => {
   it('settings 注入口 300ms → completion-names 端点窗内命中、越窗重扫（completion 默认档 5000 远未到）', async () => {
-    __resetCompletionNamesScanCountForTest()
+    completionNamesCache.resetStats()
     __setSettingsCacheTtlForTest(300) // completion 自有注入口本文件未注入（保持 null）→ 走中间档
     try {
       const first = await studio.req('GET', NAMES_PATH)
       expect(first.status).toBe(200)
-      expect(__completionNamesScanCountForTest()).toBe(1)
+      expect(completionNamesCache.stats().misses).toBe(1)
       vi.advanceTimersByTime(100) // < 300：settings 中间档窗内
       await studio.req('GET', NAMES_PATH)
-      expect(__completionNamesScanCountForTest()).toBe(1) // 命中：未重扫
+      expect(completionNamesCache.stats().misses).toBe(1) // 命中：未重扫
       vi.advanceTimersByTime(201) // 累计 301 > 300（若误走默认档 5000，此臂不会重扫）
       const third = await studio.req('GET', NAMES_PATH)
-      expect(__completionNamesScanCountForTest()).toBe(2) // 中间档过期 → 重扫
+      expect(completionNamesCache.stats().misses).toBe(2) // 中间档过期 → 重扫
       expect(third.json).toEqual(first.json) // 盘上无变化 → 结果仍一致（证明确为 TTL 臂而非数据差）
     } finally {
       __setSettingsCacheTtlForTest(1000) // 还原本文件 beforeAll 基线，防泄漏到后续用例

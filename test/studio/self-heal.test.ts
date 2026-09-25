@@ -21,6 +21,9 @@ import {
   type SelfHealOpts,
 } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
+// R0916-7-P3-6：mock 快路的组装期注入点（生产由 createStudioServer 装配；本文件不起
+// 服务，直接驱动 runSelfHeal，故在用例内装配——见 X-P1-2 两条的注入注释）
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
@@ -455,8 +458,10 @@ function setupLongBook(
 }
 
 test('X-P1-2：账本侧红 → 补生成账本推进草稿后复查真绿（不重写正文、只补一次）', async () => {
-  const prev = process.env['CLWRITING_DRIVER']
-  process.env['CLWRITING_DRIVER'] = 'mock' // generateLeadUpdateDraft 走 mock 快路（悬念-001 递进 + 正文原句证据）
+  // R0916-7-P3-6：mock 快路改组装期注入（runner 不再按调用期读 CLWRITING_DRIVER）——
+  // 本用例直接驱动 runSelfHeal（不起服务），故由用例充任组装方：装配 mock 快路，
+  // 使 generateLeadUpdateDraft 拿到 LEAD_UPDATE_SPEC 的 mock 文本。用例末复位为真实口径。
+  configureRunnerMockFastPath(true)
   try {
     const seq: CheckOutcome[] = [leadRedOutcome(), greenOutcome()]
     let i = 0
@@ -479,14 +484,12 @@ test('X-P1-2：账本侧红 → 补生成账本推进草稿后复查真绿（不
     expect(draft).toContain('# 第1章 账本推进')
     expect(draft).toContain('- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。')
   } finally {
-    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
-    else process.env['CLWRITING_DRIVER'] = prev
+    configureRunnerMockFastPath(false)
   }
 })
 
 test('X-P1-2：补生成失败（无 provider）→ 不死循环，按正常重写/升级走（只补一次）', async () => {
-  const prev = process.env['CLWRITING_DRIVER']
-  delete process.env['CLWRITING_DRIVER'] // 真实 provider 路径 → 空 providers 解析失败
+  configureRunnerMockFastPath(false) // 真实 provider 路径 → 空 providers 解析失败（显式装配，不依赖缺省）
   try {
     const { opts, emitted, prompts, bookRoot } = setupLongBook(() => {
       return leadRedOutcome() // 恒红（重写修不了账本侧红）→ 触顶升级
@@ -502,8 +505,7 @@ test('X-P1-2：补生成失败（无 provider）→ 不死循环，按正常重�
     // 生成失败 → 账本推进.md 未落盘
     expect(existsSync(join(bookRoot, '工作区', '账本推进.md'))).toBe(false)
   } finally {
-    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
-    else process.env['CLWRITING_DRIVER'] = prev
+    configureRunnerMockFastPath(false)
   }
 })
 

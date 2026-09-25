@@ -7,7 +7,7 @@
  * 纯契约一致。
  */
 import { test, expect } from 'vitest'
-import { runTask } from '../../src/ai/runner.js'
+import { runTask, configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import { tempUserData } from '../studio/fixtures.js'
 
 test('R0912-3: mockTool 快路 ctrl 返回 opts.ctrl（外部同一把）', async () => {
@@ -28,7 +28,9 @@ test('R0912-3: mockTool 快路 ctrl 返回 opts.ctrl（外部同一把）', asyn
 })
 
 test('R0912-3: mockText 快路 ctrl 同契约（opts.ctrl 优先）', async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // 文本型快路选择点已收编组装根注入（P3-6）：mockTool 仍走 mock-tool.ts 的环境变量
+  // 短路（见 runner.ts configureRunnerMockFastPath 注释的范围记），两条用例各按其面开
+  configureRunnerMockFastPath(true)
   try {
     const external = new AbortController()
     const out = await runTask<string>({
@@ -43,7 +45,7 @@ test('R0912-3: mockText 快路 ctrl 同契约（opts.ctrl 优先）', async () =
       expect(out.ctrl).toBe(external)
     }
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
   }
 })
 

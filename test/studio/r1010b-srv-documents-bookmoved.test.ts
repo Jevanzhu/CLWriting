@@ -20,6 +20,7 @@ import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
@@ -68,7 +69,7 @@ function makeBook(name: string): Rig {
   upsertEntry(m, { id: 'doc_f1', nodeType: 'document', path: '设定/伏笔/伏笔-001.md', parentId: null })
   writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)
   const handlers = withRouteTable(createRouteTable(), () => {
-    registerDocumentRoutes({ workDir, userDataPath: null })
+    registerDocumentRoutes({ workDir, userDataPath: null, ...processRouteDeps() })
     return {
       content: getRouteSchema('books.documents.content')!,
       create: getRouteSchema('books.documents')!,
