@@ -49,7 +49,9 @@ watch(
   () => wb.warning,
   (msg) => {
     if (!msg) return
-    ui.toast(msg, 'error')
+    // R0916-7-P3-24：警告走 'warning' 通道（原以 'error' 呈现——max_tokens 截断等
+    // 可继续的非致命提示被作者当成致命失败）
+    ui.toast(msg, 'warning')
     wb.warning = null
   },
 )
@@ -227,7 +229,7 @@ onBeforeUnmount(() => {
              R27-76（二十七轮）：挂 :key=bookName 切书即重建——dock 常驻时组件本地 input 跨书残留，
              A 书没发出去的文本切到 B 书会直接发进 B 书；重建一并复位展开态（fabOpen/chatOpen） -->
         <ChatDock
-          v-if="prefs.chatEnabled && !ws.focusMode && ws.activeView !== 'workbench'"
+          v-if="prefs.get('chatEnabled') && !ws.focusMode && ws.activeView !== 'workbench'"
           :key="bookName"
           :book-name="bookName"
           :current-chapter="dockChapter"

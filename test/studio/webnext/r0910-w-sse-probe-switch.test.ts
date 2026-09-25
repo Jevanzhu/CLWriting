@@ -57,7 +57,8 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', MockES)
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
+    // 换票桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连）
+    if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
     if (url.includes('/stream')) {
       // 探测：挂起直到用例手动 settle（忽略 abort —— 专测代闸兜底，而非 abort 通道）
       probeSignal = init?.signal ?? null

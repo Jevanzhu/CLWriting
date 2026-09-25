@@ -15,8 +15,8 @@ const prefs = usePrefsStore()
 function onGlobalSnapInput(which: 'days' | 'count', e: Event): void {
   const v = parseNumericInput(e)
   if (v === null) return
-  if (which === 'days') prefs.setSnapDays(Math.round(v))
-  else prefs.setSnapCount(Math.round(v))
+  if (which === 'days') prefs.set('snapDays', Math.round(v))
+  else prefs.set('snapCount', Math.round(v))
 }
 </script>
 
@@ -26,11 +26,11 @@ function onGlobalSnapInput(which: 'days' | 'count', e: Event): void {
     <div class="cfg-card-head">版本保留</div>
     <section class="cfg-card">
       <SettingItem name="保留天数" desc="所有书统一按此规则保留（无书级覆盖）">
-        <input class="num-input" type="number" min="1" max="365" aria-label="保留天数（全局默认）" :value="prefs.snapDays" @change="onGlobalSnapInput('days', $event)" />
+        <input class="num-input" type="number" min="1" max="365" aria-label="保留天数（全局默认）" :value="prefs.get('snapDays')" @change="onGlobalSnapInput('days', $event)" />
         <span class="val-suffix">天</span>
       </SettingItem>
       <SettingItem name="保留数量" desc="每章历史版本的数量上限（所有书统一）">
-        <input class="num-input" type="number" min="1" max="200" aria-label="保留数量（全局默认）" :value="prefs.snapCount" @change="onGlobalSnapInput('count', $event)" />
+        <input class="num-input" type="number" min="1" max="200" aria-label="保留数量（全局默认）" :value="prefs.get('snapCount')" @change="onGlobalSnapInput('count', $event)" />
         <span class="val-suffix">个</span>
       </SettingItem>
     </section>

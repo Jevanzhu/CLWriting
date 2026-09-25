@@ -29,21 +29,21 @@ const saveConfig = inject(SAVE_CONFIG_KEY)!
 /** 短篇严格模式：把短篇专属黄项提升为红项（book.yaml short.strict），仅短篇书显示本书组 */
 const bookKind = ref<'long' | 'short'>('long')
 const bookShortStrict = ref<boolean | null>(null)
-const effShortStrict = computed(() => bookShortStrict.value ?? prefs.defaultShortStrict)
+const effShortStrict = computed(() => bookShortStrict.value ?? prefs.get('defaultShortStrict'))
 const shortOverride = computed(() => bookShortStrict.value !== null)
 
 // 关系图 AI 梳理：手动按钮为主（控成本，方案③决策）；自动梳理默认关，作者可自行开启
 const bookAutoMine = ref<boolean | null>(null)
 const bookMineThreshold = ref<number | null>(null)
-const effAutoMine = computed(() => bookAutoMine.value ?? prefs.relationAutoMine)
-const effMineThreshold = computed(() => bookMineThreshold.value ?? prefs.relationMineThreshold)
+const effAutoMine = computed(() => bookAutoMine.value ?? prefs.get('relationAutoMine'))
+const effMineThreshold = computed(() => bookMineThreshold.value ?? prefs.get('relationMineThreshold'))
 const relationOverride = computed(() => bookAutoMine.value !== null || bookMineThreshold.value !== null)
 
 // 知识检索（组键 = rag.enabled + rag.provider；endpoint/model 是旧版内联遗留，不参与组开关判定）
 const bookRagEnabled = ref<boolean | null>(null)
 const bookRagProvider = ref<string | null>(null)
-const effRagEnabled = computed(() => bookRagEnabled.value ?? prefs.ragEnabled)
-const effRagProvider = computed(() => bookRagProvider.value ?? (prefs.ragProvider || null))
+const effRagEnabled = computed(() => bookRagEnabled.value ?? prefs.get('ragEnabled'))
+const effRagProvider = computed(() => bookRagProvider.value ?? (prefs.get('ragProvider') || null))
 const ragOverride = computed(() => bookRagEnabled.value !== null || bookRagProvider.value !== null)
 
 /** 旧版内联配置（endpoint/model 直存 book.yaml）——本书子项展示「沿用」伪选项，选中提供方即迁移清除 */

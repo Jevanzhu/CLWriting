@@ -36,8 +36,8 @@ const prefs = usePrefsStore()
 // 持久化由 workspace 的 startPersistWatch 统一写 prefs.json（本页不碰 book.yaml）。
 const pfwOverride = computed(() => prefs.bookPageWidth !== null)
 const asOverride = computed(() => prefs.bookAutosaveInterval !== null)
-const pfwEff = computed(() => prefs.bookPageWidth ?? prefs.pageWidth)
-const asEff = computed(() => prefs.bookAutosaveInterval ?? prefs.autosaveInterval)
+const pfwEff = computed(() => prefs.bookPageWidth ?? prefs.get('pageWidth'))
+const asEff = computed(() => prefs.bookAutosaveInterval ?? prefs.get('autosaveInterval'))
 function onPfwToggle(v: boolean): void {
   prefs.bookPageWidth = v ? prefs.effectivePageWidth : null
   prefs.apply()

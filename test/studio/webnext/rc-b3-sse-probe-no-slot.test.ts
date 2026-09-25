@@ -74,14 +74,15 @@ const probeCalls: Array<{ url: string; method: string; headers: Record<string, s
 type HeadMode = 'auto' | 'reject' | 'hang'
 
 /**
- * fetch 桩：/api/stream-ticket 404（前端回退 ?token= 通道）；/stream 按 method 分流——
+ * fetch 桩：/api/stream-ticket 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再
+ * 回退 ?token= 开连）；/stream 按 method 分流——
  * HEAD = 探测（只判定，**不改名额账**，回退成 GET 探测即被抓）、GET = 真建流（占名额）。
  */
 function stubFetch(mode: HeadMode = 'auto'): ReturnType<typeof vi.fn> {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     const method = (init?.method ?? 'GET').toUpperCase()
-    if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
+    if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
     if (url.includes('/stream')) {
       probeCalls.push({ url, method, headers: (init?.headers ?? {}) as Record<string, string> })
       if (method === 'HEAD') {

@@ -84,12 +84,12 @@ describe('R60-D-1 关窗冲刷在途竞态', () => {
     await prefs.init()
 
     // 改动一：落防抖窗，推 500ms 让 PUT #1 发起并挂起（快照 = proseSize 20）
-    prefs.setSize(20)
+    prefs.set('proseSize', 20)
     await vi.advanceTimersByTimeAsync(500)
     expect(put.calls()).toHaveLength(1)
 
     // 在途窗口内改动二（PUT #1 快照之后、防抖 500ms 未到）
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
 
     // 关窗冲刷：旧实现此处空返回（丢改动二的窗口死亡面）；新实现返回在途链 + 补发链
     const flushP = prefs.flushPendingPersist() as unknown
@@ -114,9 +114,9 @@ describe('R60-D-1 关窗冲刷在途竞态', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setSize(20)
+    prefs.set('proseSize', 20)
     await vi.advanceTimersByTimeAsync(500) // PUT #1 挂起
-    prefs.setCompact(true)
+    prefs.set('compact', true)
 
     const flushP = prefs.flushPendingPersist() as Promise<void>
     let settled = false
@@ -139,7 +139,7 @@ describe('R60-D-1 关窗冲刷在途竞态', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setSize(20) // 防抖 500ms 未到即关窗
+    prefs.set('proseSize', 20) // 防抖 500ms 未到即关窗
     const flushP = prefs.flushPendingPersist() as Promise<void>
     await vi.advanceTimersByTimeAsync(0)
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(1)
@@ -147,7 +147,7 @@ describe('R60-D-1 关窗冲刷在途竞态', () => {
     expect(payload).toMatchObject({ proseSize: 20 })
     await expect(flushP).resolves.toBeUndefined()
     // 冲刷完成后再改 + 落防抖：单飞照常（不因冲刷链占位卡死后续保存）
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     await vi.advanceTimersByTimeAsync(500)
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(2)
     expect(putGlobalPrefsMock.mock.calls[1]?.[0]).toMatchObject({ theme: 'dark' })
@@ -158,9 +158,9 @@ describe('R60-D-1 关窗冲刷在途竞态', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setSize(20)
+    prefs.set('proseSize', 20)
     await vi.advanceTimersByTimeAsync(500) // PUT #1 挂起
-    prefs.setThemeValue('dark') // 再度武装 500ms 防抖
+    prefs.set('theme', 'dark') // 再度武装 500ms 防抖
 
     const flushP = prefs.flushPendingPersist() as Promise<void>
     put.settle(1, 1)

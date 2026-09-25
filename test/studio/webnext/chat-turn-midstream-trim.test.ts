@@ -5,7 +5,7 @@
  * 原 trimMessages 只挂在 chat_done / pushUser / seedFromHistory 三处收尾——单次长跑
  * （多回合工具链连转，每回合一条 chat_turn）超过 CHAT_HISTORY_LIMIT 时要等整跑收尾
  * 才裁剪，期间 messages 条数无界膨胀。修复：chat_turn 分支 push 后补 trimMessages()
- * （只裁头部并同步偏移 currentIdx，在途回合气泡恒在尾部不受影响）。
+ * （只裁头部，在途回合气泡恒在尾部不受影响；R0916-7-P3-27 起目标持对象引用，位移自动跟随）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'

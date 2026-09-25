@@ -3,13 +3,17 @@
  * （src/studio/web-next/src/stores/chat-dispatch.ts）。
  *
  * 被测行为 = 抽出的状态机本身，不经 pinia/store 外壳：chat_* 事件的每个分支对
- * 消息列表、在途气泡索引、工具卡片、回合收尾标志的读写，以及 chat_turn/chat_done
+ * 消息列表、在途回合气泡引用、工具卡片、回合收尾标志的读写，以及 chat_turn/chat_done
  * 触发的裁尾。抽取前这些支路只能经 useChatStore 间接行使（chat-store.test.ts 走
  * store 面），本文件按「状态机 + 注入依赖」直接构造，钉住逐位语义（含沿革注释所述
  * 的 R-7/R-6/P2-9/AA-P3-8/R70-30/Q-8/AA-P3-1 各条口径）。
  *
  * 直测口径不替代既有 store 面回归（chat-store / chat-replay-rebuild / f6-regenbook 等
  * 仍全绿），是抽取后新增的针对性守护：状态机自身的行为面。
+ *
+ * R0916-7-P3-27：在途回合目标由数组下标（currentIdx）改持消息对象的响应式引用
+ * （turn.current）——本文件所有回合目标断言随之改按对象身份（toBe 同一气泡）；
+ * 末组新增「裁剪/截断后引用自动跟随」的漏重定位守护用例。
  */
 import { describe, expect, it, vi } from 'vitest'
 import { ref, toRaw } from 'vue'
@@ -64,7 +68,7 @@ describe('RC B-5: chat 事件分发状态机——回合开跑与文本流', () 
     s.d.dispatch({ type: 'chat_turn' })
     expect(s.messages.value).toHaveLength(1)
     expect(s.messages.value[0]).toMatchObject({ role: 'assistant', content: '', done: false, tools: [] })
-    expect(s.turn.currentIdx).toBe(0)
+    expect(s.turn.current).toBe(s.messages.value[0]) // 引用指向刚建立的气泡
     s.d.dispatch({ type: 'chat_text', text: '你好' })
     s.d.dispatch({ type: 'chat_text', text: '世界' })
     expect(s.messages.value[0]!.content).toBe('你好世界')
@@ -203,7 +207,7 @@ describe('RC B-5: chat 事件分发状态机——工具卡片状态机', () => 
     s.d.dispatch({ type: 'chat_tool', callId: 'c1', name: 'check_chapter', input: {} })
     s.d.dispatch({ type: 'chat_reset' })
     expect(s.messages.value[0]).toMatchObject({ content: '', tools: [] })
-    expect(s.turn.currentIdx).toBe(0) // 气泡仍在途，索引不动
+    expect(s.turn.current).toBe(s.messages.value[0]) // 气泡仍在途，引用不动
   })
 })
 
@@ -216,7 +220,7 @@ describe('RC B-5: chat 事件分发状态机——回合收尾', () => {
     s.d.dispatch({ type: 'chat_done' })
     expect(s.running.value).toBe(false)
     expect(s.messages.value[0]!.done).toBe(true)
-    expect(s.turn.currentIdx).toBe(-1) // 回合结束即失效索引
+    expect(s.turn.current).toBeNull() // 回合结束即失效回合引用
   })
 
   it('chat_done 复位 regenPending 并用 regenBook + 现行代刷分支列表（无 pending 不刷）', () => {
@@ -240,7 +244,7 @@ describe('RC B-5: chat 事件分发状态机——回合收尾', () => {
     expect(s.error.value).toBe('服务开小差')
     expect(s.errorEcho.value).toBe('作者原文')
     expect(s.messages.value[0]!.done).toBe(true) // R-7：异常中断同样收尾在途气泡
-    expect(s.turn.currentIdx).toBe(-1)
+    expect(s.turn.current).toBeNull()
     s.notice.value = '已入队'
     s.d.dispatch({ type: 'chat_error' })
     expect(s.error.value).toBe('未知错误') // 缺 error 字段
@@ -282,7 +286,7 @@ describe('RC B-5: chat 事件分发状态机——sync/回放重连自愈', () =
     s.d.dispatch({ type: 'sync', chatRunning: false })
     expect(s.running.value).toBe(false)
     expect(s.messages.value[0]!.done).toBe(true)
-    expect(s.turn.currentIdx).toBe(-1)
+    expect(s.turn.current).toBeNull()
   })
 
   it('sync chatRunning=false → 复位 regenPending 陷阱态（AA-P3-8：防永久锁死重新生成）', () => {
@@ -299,7 +303,7 @@ describe('RC B-5: chat 事件分发状态机——sync/回放重连自愈', () =
     s.messages.value.push({ id: 'u1', role: 'user', content: '问', done: true, tools: [] })
     s.d.dispatch({ type: 'sync', chatRunning: true })
     expect(s.running.value).toBe(true)
-    expect(s.turn.currentIdx).toBe(-1)
+    expect(s.turn.current).toBeNull()
     expect(s.turn.pendingReseed).toBe('书A')
   })
 
@@ -311,7 +315,7 @@ describe('RC B-5: chat 事件分发状态机——sync/回放重连自愈', () =
       { id: 'a1', role: 'assistant', content: '半截', done: false, tools: [] },
     )
     s.d.dispatch({ type: 'sync', chatRunning: true })
-    expect(s.turn.currentIdx).toBe(2)
+    expect(s.turn.current).toBe(s.messages.value[2]) // 重建引用到最后 undone 气泡
     s.d.dispatch({ type: 'chat_text', text: '续写' })
     expect(s.messages.value[2]!.content).toBe('半截续写') // 追加到正确气泡
     expect(s.turn.pendingReseed).toBeNull() // 有可续气泡：不登记补种
@@ -332,7 +336,7 @@ describe('RC B-5: chat 事件分发状态机——sync/回放重连自愈', () =
     )
     s.d.dispatch({ type: 'chat_replay_begin' })
     expect(s.messages.value.map((m) => m.id)).toEqual(['a0', 'u1']) // 只删在途气泡
-    expect(s.turn.currentIdx).toBe(-1)
+    expect(s.turn.current).toBeNull()
     expect(s.turn.pendingReseed).toBe('书B')
   })
 
@@ -341,11 +345,11 @@ describe('RC B-5: chat 事件分发状态机——sync/回放重连自愈', () =
     s.messages.value.push({ id: 'a0', role: 'assistant', content: '历史答', done: true, tools: [] })
     s.d.dispatch({ type: 'chat_replay_begin' })
     expect(s.messages.value).toHaveLength(1)
-    expect(s.turn.currentIdx).toBe(-1)
+    expect(s.turn.current).toBeNull()
   })
 })
 
-describe('RC B-5: chat 事件分发状态机——裁尾与索引偏移', () => {
+describe('RC B-5: chat 事件分发状态机——裁尾与回合引用跟随', () => {
   it('chat_turn 推新气泡即裁尾（E103：单次长跑不无界膨胀），在途气泡恒在尾不受影响', () => {
     const s = setup()
     s.messages.value = Array.from({ length: CHAT_HISTORY_LIMIT }, (_, i) => ({
@@ -357,9 +361,9 @@ describe('RC B-5: chat 事件分发状态机——裁尾与索引偏移', () => 
     }))
     s.d.dispatch({ type: 'chat_turn' })
     expect(s.messages.value).toHaveLength(CHAT_HISTORY_LIMIT)
-    expect(s.turn.currentIdx).toBe(CHAT_HISTORY_LIMIT - 1) // 新气泡在尾，索引正确
+    expect(s.turn.current).toBe(s.messages.value[CHAT_HISTORY_LIMIT - 1]) // 新气泡在尾
     s.d.dispatch({ type: 'chat_text', text: '新回合' })
-    expect(s.messages.value[s.turn.currentIdx]!.content).toBe('新回合')
+    expect(s.turn.current?.content).toBe('新回合')
   })
 
   it('裁尾同步偏移在途索引：索引进位前 push 的历史被裁后 currentIdx 落在正确气泡', () => {
@@ -376,7 +380,49 @@ describe('RC B-5: chat 事件分发状态机——裁尾与索引偏移', () => 
     )
     s.d.dispatch({ type: 'chat_turn' }) // 触发裁尾：旧在途气泡出列，新气泡在尾
     expect(s.messages.value).toHaveLength(CHAT_HISTORY_LIMIT)
-    expect(s.turn.currentIdx).toBe(CHAT_HISTORY_LIMIT - 1)
-    expect(s.messages.value[s.turn.currentIdx]!.done).toBe(false)
+    expect(s.turn.current).toBe(s.messages.value[CHAT_HISTORY_LIMIT - 1])
+    expect(s.turn.current?.done).toBe(false)
+  })
+})
+
+describe('R0916-7-P3-27: 回合目标持对象引用——数组变动后自动跟随（漏重定位不可能写错位）', () => {
+  it('回合进行中头部被外部裁剪（状态机未获重定位通知）→ chat_text 增量仍落原目标气泡', () => {
+    const s = setup()
+    s.messages.value.push(
+      { id: 'u0', role: 'user', content: '问', done: true, tools: [] },
+      { id: 'a0', role: 'assistant', content: '历史', done: true, tools: [] },
+    )
+    s.d.dispatch({ type: 'chat_start' })
+    s.d.dispatch({ type: 'chat_turn' })
+    const target = s.turn.current
+    expect(target?.id).toMatch(/^m\d+$/)
+    // 模拟「漏重定位」变动点：回合进行中数组被外部截断（改前下标机制下 currentIdx
+    // 指向的槽位已换人/越界，增量必错位或崩）——引用机制下对象身份不变
+    s.messages.value.splice(0, 2)
+    expect(s.messages.value[0]).toBe(target)
+    s.d.dispatch({ type: 'chat_text', text: '增量' })
+    expect(target?.content).toBe('增量') // 落原目标
+    expect(s.messages.value.every((m) => m === target || m.content !== '增量')).toBe(true) // 不串别的消息
+  })
+
+  it('回合进行中 filter 式截断（regenerate 同型）→ 增量跟随、收尾仍落原气泡', () => {
+    const s = setup()
+    s.messages.value.push(
+      { id: 'a0', role: 'assistant', content: '更旧', done: true, tools: [] },
+      { id: 'u0', role: 'user', content: '问1', done: true, tools: [] },
+      { id: 'a1', role: 'assistant', content: '旧答', done: true, tools: [] },
+      { id: 'u1', role: 'user', content: '问2', done: true, tools: [] },
+    )
+    s.d.dispatch({ type: 'chat_start' })
+    s.d.dispatch({ type: 'chat_turn' })
+    const target = s.turn.current
+    // regenerate 同型：截到最后一条 user 之后只留未 done 的在途气泡
+    s.messages.value = s.messages.value.filter((m) => !m.done || m === target)
+    expect(s.messages.value.map((m) => m.id)).toEqual([target!.id])
+    s.d.dispatch({ type: 'chat_text', text: '续' })
+    expect(target?.content).toBe('续')
+    s.d.dispatch({ type: 'chat_done' })
+    expect(target?.done).toBe(true)
+    expect(s.turn.current).toBeNull()
   })
 })

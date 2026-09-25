@@ -231,7 +231,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     method: 'GET',
     path: '/api/books/:name/stream',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token。
+    // GET 端点凭据校验：EventSource 不走 isWrite 拦截，单独校凭据（一次性 ticket /
+    // x-studio-token 头）。
     // 口径：本机进程=同信任域——本地进程 GET /boot 即可拿 token，此处不承诺防本机进程；
     // token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的客户端，配合 Host/Origin 校验
     // （server/index.ts）防远端网页窃听创作内容。
@@ -242,27 +243,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
-    // 优先一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——
-    // token 不再进 URL（进程列表/代理日志信道收敛）。`?token=` 旧通道保留为兼容期
-    // 通道（e2e 及未升级客户端），两凭据任一过闸即放行。
-    // 兼容通道仍有**非测试消费方**——src/studio/web-next/src/composables/useSse.ts 把 `?token=`
-    // 作为 ticket 端点 404/网络异常时的探测与回退路径（服务端只比对凭据不烧票），
-    // 依赖本分支放行。移除条件：web-next 回退路径下线（useSse 不再拼 `?token=`）
-    // 且 test/e2e 无残余消费后，删本分支与 stream-ticket 测试的兼容用例一并收口。
+    // 一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——token 不进
+    // URL（进程列表/代理日志信道收敛）。
+    // R0916-7-P3-19：`?token=` 旧通道（ticket 端点未上线期的过渡回退）已两端同删——
+    // 前后端同包同版发布，不存在「服务端未就绪」的错配兼容对象；EventSource 侧凭据
+    // 仅 ?ticket= 一条（前端换票失败即入既有退避重连，不再拼长期 token 进 URL）。
     const queryTicket = url.searchParams.get('ticket') ?? undefined
-    const queryToken = url.searchParams.get('token') ?? undefined
-    // fetch 型客户端（429 探测）走 x-studio-token 头通道——token 不再进 URL（进程列表/
-    // 代理日志信道）；EventSource 无法带头，回退通道见上（移除条件同上）。
+    // fetch 型客户端（429 探测）走 x-studio-token 头通道——token 不进 URL（进程列表/
+    // 代理日志信道收敛）；EventSource 无法带头，凭据 = 一次性 ticket。
     const headerToken = req.headers['x-studio-token']
     // 鉴权必须在全部书域判定（连接数闸 429 / resolveBook 404）之前——否则未持凭据者可借
     // 差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同信任域），统一 403 消除信道零成本。
     // 此处只「预检」不消费 ticket——在闸首烧票会让 429/404 时票被白白作废，EventSource
     // 自动重连带废票反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方消费点）。
-    if (
-      !ctx.tickets.peek(queryTicket) &&
-      !safeTokenCompare(queryToken, ctx.studioToken) &&
-      !safeTokenCompare(headerToken, ctx.studioToken)
-    ) {
+    if (!ctx.tickets.peek(queryTicket) && !safeTokenCompare(headerToken, ctx.studioToken)) {
       replySseForbidden(res)
       return
     }
@@ -284,16 +278,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (!bookR) return
     // 全部书域校验（429 连接数 / workDir / resolveBook 404）
     // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
-    // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
+    // 先凭据预检（上方闸）、后书域判定、最后消费；header token 过闸者无需 ticket。
     // 竞态兜底：预检与消费之间被并发连接抢先消费 → 票已作废，403（一次性语义）。
-    // 消费点必须同认 x-studio-token 头——预检认三凭据（ticket/?token=/header）任一放行，
-    // 消费只认前两者则 header-only 请求通过全部书域校验后在建流前必 403（头通道契约只在
+    // 消费点必须同认 x-studio-token 头——预检认两凭据（ticket/header）任一放行，消费
+    // 只认 ticket 则 header-only 请求通过全部书域校验后在建流前必 403（头通道契约只在
     // 预检半边落地即零覆盖死路）。票抢消费语义不变。
-    if (
-      !safeTokenCompare(queryToken, ctx.studioToken) &&
-      !safeTokenCompare(headerToken, ctx.studioToken) &&
-      !ctx.tickets.consume(queryTicket)
-    ) {
+    if (!safeTokenCompare(headerToken, ctx.studioToken) && !ctx.tickets.consume(queryTicket)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
@@ -422,9 +412,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
    * 对正式流始终可用。
    *
    * 不变量（改这条路由前先看）：
-   * - 闸口径与 GET 建流逐条同源：同一套三凭据预检（ticket peek / ?token= / x-studio-token
-   *   头）→ 同一名额判定（replySseBusy 单源）→ 同序的书域判定（鉴权在
-   *   全部书域判定之前，未持凭据者不借差异响应探测书名存在性）。
+   * - 闸口径与 GET 建流逐条同源：同一套两凭据预检（ticket peek / x-studio-token 头，
+   *   R0916-7-P3-19 起 `?token=` 通道已删）→ 同一名额判定（replySseBusy 单源）→ 同序的
+   *   书域判定（鉴权在全部书域判定之前，未持凭据者不借差异响应探测书名存在性）。
    * - 只判定不登记：不消费 ticket（只 peek，消费点仍只在 GET）、不登记
    *   connHandle、不推 sync 快照、不 ensureSession——重复探测对名额/连接账目/会话零影响。
    * - 路由层：router.ts 按 method 精确匹配，HEAD 必须显式注册（不注册即落 404）；路径与
@@ -444,10 +434,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }
-    // 三凭据预检（只 peek 不 consume——探测不烧票；消费点唯一保留在 GET 建流侧）
+    // 两凭据预检（只 peek 不 consume——探测不烧票；消费点唯一保留在 GET 建流侧），
+    // 与 GET 建流闸同源（`?token=` 通道已删，见上方 GET 凭据闸注）
     if (
       !ctx.tickets.peek(url.searchParams.get('ticket') ?? undefined) &&
-      !safeTokenCompare(url.searchParams.get('token') ?? undefined, ctx.studioToken) &&
       !safeTokenCompare(req.headers['x-studio-token'], ctx.studioToken)
     ) {
       replySseForbidden(res)

@@ -28,21 +28,21 @@ beforeEach(() => {
 })
 
 describe('SettingsWriting 写作默认全局默认（直写 prefs store）', () => {
-  it('题材输入写 prefs.defaultGenre；不触发 saveConfig', async () => {
+  it('题材输入写 store defaultGenre；不触发 saveConfig', async () => {
     const wrapper = mountPage()
     const input = wrapper.find('input[aria-label="题材（全局默认）"]')
     await input.setValue('  都市  ')
-    expect(usePrefsStore().defaultGenre).toBe('都市')
+    expect(usePrefsStore().get('defaultGenre')).toBe('都市')
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
-  it('每卷章数 clamp 5-500 写 prefs.defaultVolumeSize', async () => {
+  it('每卷章数 clamp 5-500 写 store defaultVolumeSize', async () => {
     const wrapper = mountPage()
     const input = wrapper.find('input[aria-label="每卷章数（全局默认）"]')
     await input.setValue('3')
-    expect(usePrefsStore().defaultVolumeSize).toBe(5)
+    expect(usePrefsStore().get('defaultVolumeSize')).toBe(5)
     await input.setValue('999')
-    expect(usePrefsStore().defaultVolumeSize).toBe(500)
+    expect(usePrefsStore().get('defaultVolumeSize')).toBe(500)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -51,17 +51,17 @@ describe('SettingsWriting 写作默认全局默认（直写 prefs store）', () 
     await wrapper.find('input[aria-label="目标字数（全局默认）"]').setValue('0')
     await wrapper.find('input[aria-label="每章字数（全局默认）"]').setValue('3000')
     const prefs = usePrefsStore()
-    expect(prefs.defaultTargetWords).toBe(0)
-    expect(prefs.defaultChapterTargetWords).toBe(3000)
+    expect(prefs.get('defaultTargetWords')).toBe(0)
+    expect(prefs.get('defaultChapterTargetWords')).toBe(3000)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
   it('store 初值即硬编码回落（每卷 50 章 / 目标 0 / 每章 0）', () => {
     mountPage()
     const prefs = usePrefsStore()
-    expect(prefs.defaultGenre).toBe('')
-    expect(prefs.defaultVolumeSize).toBe(50)
-    expect(prefs.defaultTargetWords).toBe(0)
-    expect(prefs.defaultChapterTargetWords).toBe(0)
+    expect(prefs.get('defaultGenre')).toBe('')
+    expect(prefs.get('defaultVolumeSize')).toBe(50)
+    expect(prefs.get('defaultTargetWords')).toBe(0)
+    expect(prefs.get('defaultChapterTargetWords')).toBe(0)
   })
 })

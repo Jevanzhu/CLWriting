@@ -4,6 +4,7 @@
 import { ref, watch } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import ModalMask from '../ui/ModalMask.vue'
 
 // 重评-0912-2 P3（2026-09-12 全量重评修复批）：
 // ① prop 名「标题」→ title（全库中文 prop 唯一孤例收敛）；fm 数据键「标题」不随改——
@@ -81,7 +82,9 @@ function onKeyEsc(e: KeyboardEvent): void {
 
 <template>
   <teleport to="body">
-    <div v-if="modelValue" class="meta-mask" @click.self="emit('update:modelValue', false)">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
+         遮罩 CSS 与浓度不再本组件自持 -->
+    <ModalMask :open="modelValue" kind="chapterMeta" @mask-click="emit('update:modelValue', false)">
       <div
         ref="dlgRef"
         class="meta-dialog"
@@ -107,20 +110,11 @@ function onKeyEsc(e: KeyboardEvent): void {
           <button class="btn primary" :disabled="!noInput" @click="onSave">保存</button>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </teleport>
 </template>
 
 <style scoped>
-.meta-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
 .meta-dialog {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);

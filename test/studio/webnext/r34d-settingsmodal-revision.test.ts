@@ -27,7 +27,13 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
 }))
 
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: mocks.toast, settingsOpen: true, closeSettings: vi.fn(), confirmState: null })),
+  useUiStore: vi.fn(() => ({
+    toast: mocks.toast, settingsOpen: true, closeSettings: vi.fn(), confirmState: null,
+    // R0916-7-P3-22：SettingsModal 遮罩走 ModalMask，挂载/卸载即登记
+    setMaskOpen: vi.fn(),
+  })),
+  // ModalMask 渲染面从此表读浓度（模块级导出）——mock 面补齐最小形状
+  MASK_ALPHA: { palette: 0.25, settings: 0.45, export: 0.35, shelf: 0.35, confirm: 0.35, chapterMeta: 0.35, splitChapter: 0.35 },
 }))
 
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({

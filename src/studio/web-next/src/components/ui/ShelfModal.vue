@@ -13,6 +13,7 @@ import { afterPaint } from '../../shared/after-paint'
 import { LAST_BOOK_KEY } from '../../shared/storage-keys'
 import { SHELF_RENDER_CAP } from '../../shared/render-cap'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import ModalMask from './ModalMask.vue'
 import ShelfGrid from './ShelfGrid.vue'
 import ShelfModalHero from '../shelf/ShelfModalHero.vue'
 import CreateBookModal from './CreateBookModal.vue'
@@ -132,7 +133,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <div v-if="ui.shelfOpen" class="shelf-mask" @click.self="ui.closeShelf">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <ModalMask :open="ui.shelfOpen" kind="shelf" @mask-click="ui.closeShelf">
       <div v-if="contentReady" ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
         <header class="modal-head">
           <div class="head-left">
@@ -264,23 +266,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         @confirm="confirmDelete"
         @cancel="cancelDelete"
       />
-    </div>
+    </ModalMask>
   </Teleport>
 </template>
 
 <style scoped>
-/* mask + 居中浮层（对齐设置 SettingsModal 的视觉语言）*/
-.shelf-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 150;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 24vh;
-  animation: clw-overlay var(--dur-norm) var(--ease-out);
-}
+/* 居中浮层（对齐设置 SettingsModal 的视觉语言；遮罩已收编 ModalMask）*/
 .shelf-modal {
   width: min(92vw, 760px);
   max-height: calc(76vh - 24px);

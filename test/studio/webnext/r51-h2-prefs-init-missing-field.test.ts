@@ -52,9 +52,9 @@ describe('R51-H-2: prefs.init 200 缺 prefs 字段', () => {
     getGlobalPrefsMock.mockResolvedValue({ revision: 7 }) // 信封缺 prefs
     const prefs = usePrefsStore()
     await expect(prefs.init()).resolves.toBeUndefined()
-    expect(prefs.theme).toBe('light')
-    expect(prefs.proseSize).toBe(17)
-    expect(prefs.autosaveInterval).toBe(30)
+    expect(prefs.get('theme')).toBe('light')
+    expect(prefs.get('proseSize')).toBe(17)
+    expect(prefs.get('autosaveInterval')).toBe(30)
   })
 
   it('同信封 + 旧 localStorage 残值 → 走既有「空 cache 即迁移」链，不因缺字段崩溃', async () => {
@@ -62,14 +62,14 @@ describe('R51-H-2: prefs.init 200 缺 prefs 字段', () => {
     getGlobalPrefsMock.mockResolvedValue({ revision: 7 })
     const prefs = usePrefsStore()
     await expect(prefs.init()).resolves.toBeUndefined()
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
   })
 
   it('信封正常（含 prefs）→ 行为不变（守卫不误伤常规加载）', async () => {
     getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'dark', proseSize: 19 }, revision: 7 })
     const prefs = usePrefsStore()
     await prefs.init()
-    expect(prefs.theme).toBe('dark')
-    expect(prefs.proseSize).toBe(19)
+    expect(prefs.get('theme')).toBe('dark')
+    expect(prefs.get('proseSize')).toBe(19)
   })
 })

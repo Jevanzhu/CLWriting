@@ -50,9 +50,10 @@ export const useChatStore = defineStore('chat', () => {
   const errorEcho = ref<string | null>(null)
   /** E1a（steer）：非错误提示（如「消息已入队，当前对话结束后处理」） */
   const notice = ref<string | null>(null)
-  /** RC 源码重审 B-5：在途回合宿主状态——原 setup 内四个可变本地量（currentIdx /
+  /** RC 源码重审 B-5：在途回合宿主状态——原 setup 内四个可变本地量（回合目标 /
    *  pendingReseed / regenPending / regenBook）随事件分发状态机迁入 ./chat-dispatch
-   *  的 ChatTurnState（字段沿革注释随迁）；本 store 与状态机共享同一实例，读写口不变。 */
+   *  的 ChatTurnState（字段沿革注释随迁）；本 store 与状态机共享同一实例，读写口不变。
+   *  R0916-7-P3-27：回合目标 current 持气泡的响应式对象引用（原数组下标 currentIdx）。 */
   const turn = createChatTurnState()
   /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫）
    *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（seed/switch 用 begin，regenerate/chat_done 观测点 current，clear invalidate）。 */
@@ -196,8 +197,8 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     messages.value.push(...seeded)
-    // 种子化只在空列表进行（见 seedHistory 守卫），currentIdx 必为 -1；防御性复位防未来不变式漂移
-    turn.currentIdx = -1
+    // 种子化只在空列表进行（见 seedHistory 守卫），回合引用必为空；防御性复位防未来不变式漂移
+    turn.current = null
     chatDispatch.trimMessages()
   }
 
@@ -227,7 +228,7 @@ export const useChatStore = defineStore('chat', () => {
   async function seedHistory(bookName: string, opts?: { replace?: boolean }): Promise<void> {
     const replace = opts?.replace === true
     if (!bookName) return
-    // Q-8：running 中种子化会吞掉在途回合的增量（clear 后 currentIdx=-1）——改为
+    // Q-8：running 中种子化会吞掉在途回合的增量（clear 后回合引用已复位）——改为
     // 登记 pendingReseed 等回合收尾后补种，不再直接放弃
     if (running.value) {
       turn.pendingReseed = bookName
@@ -253,7 +254,7 @@ export const useChatStore = defineStore('chat', () => {
    * best-effort 刷分支列表」原是两处逐行双写，收敛本函数防再漂移。语义逐位等价：
    * - replace:true（switchBranch / seedHistory 的 R33D-8 替换式补种）先清旧种子再回填，
    *   防 append 错位（fetch 窗口内无在途回合）；不传不清（seedHistory 原路径，种子化
-   *   只在空列表进行，currentIdx 必 -1）；
+   *   只在空列表进行，回合引用必空）；
    * - fallbackBranchId：switchBranch 传请求的 branchId（≡原
    *   `data.branchId !== undefined ? data.branchId : branchId ?? null`）；seedHistory 不传
    *   （≡原 `data.branchId ?? null`，undefined ?? null = null）。
@@ -272,7 +273,7 @@ export const useChatStore = defineStore('chat', () => {
     if (opts.replace === true) {
       // R33D-8：替换式——先清旧种子再回填，防 append 错位
       messages.value = []
-      turn.currentIdx = -1
+      turn.current = null
     }
     if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
     // G1：activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
@@ -395,18 +396,9 @@ export const useChatStore = defineStore('chat', () => {
         messages.value = messages.value.filter(
           (m, i) => i <= lastUser || !m.done || !preIds.has(m.id),
         )
-        // 截断移动了在途回合气泡的索引 → 重定位 currentIdx（SSE 已开跑时）
-        if (turn.currentIdx >= 0) {
-          let live = -1
-          for (let i = messages.value.length - 1; i >= 0; i--) {
-            const m = messages.value[i]!
-            if (m.role === 'assistant' && !m.done) {
-              live = i
-              break
-            }
-          }
-          turn.currentIdx = live
-        }
+        // R0916-7-P3-27：截断只位移数组、消息对象身份不变（filter 留下的在途回合气泡
+        // 还是同一响应式代理）——回合目标持对象引用自动跟随，原「反向扫 last undone
+        // 重定位 currentIdx」的补偿块随之退役（漏重定位即增量写错位的根源形态）
       }
       activeBranchId.value = branchId
       handedOff = true
@@ -422,7 +414,8 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
   // RC 源码重审 B-5：实现迁入 ./chat-dispatch（trimMessages 与在途回合状态同处一模块
-  // ——裁剪要同步偏移 currentIdx），本文件经 chatDispatch.trimMessages() 调用。
+  // ——R0916-7-P3-27 起回合目标持对象引用，裁剪位移自动跟随），本文件经
+  // chatDispatch.trimMessages() 调用。
 
   /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */
   function popUser(): void {
@@ -436,7 +429,7 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     errorEcho.value = null
     notice.value = null
-    turn.currentIdx = -1
+    turn.current = null
     seedGen.invalidate() // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
     turn.pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
     // 0918独立重评修复批（E006）：running 一并复位——旧实现残留 true 会让 clear 后的

@@ -87,9 +87,10 @@ describe('R0910-W：server.close 自包含化', () => {
     const base = `http://127.0.0.1:${port}`
     const token = ((await (await fetch(`${base}/api/boot`)).json()) as { token: string }).token
     const ac = new AbortController()
+    // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
     const r = await fetch(
-      `${base}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(token)}`,
-      { signal: ac.signal },
+      `${base}/api/books/${encodeURIComponent(BOOK)}/stream`,
+      { signal: ac.signal, headers: { 'x-studio-token': token } },
     )
     expect(r.status).toBe(200)
     void r.body?.getReader().read().catch(() => { /* abort 后忽略 */ })

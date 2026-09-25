@@ -249,12 +249,13 @@ async function onCtxSelect(key: string): Promise<void> {
 // 低级项（第六轮）：immediate 的回调在 setup 期执行时 cmHost 必为 null（模板 ref 未挂），
 // 「挂载后补消费」实际不达——挂载时（onMounted）与 doc 异步打开落位后（nextTick）各补一次
 function tryConsumeInsert(): void {
-  const p = ws.pendingInsert
-  if (!p) return
-  if (cmHost.value) {
-    cmHost.value.insertText(p.text)
-    ws.consumeInsert()
-  }
+  const cmd = ws.pendingInsert
+  if (!cmd || !cmHost.value) return
+  // R0916-7-P3-24：一次性令牌 consume()——挂载/落位多口补消费并存时重复消费得
+  // null，天然幂等；仅插入成功才占消费权（cmHost 缺位不 consume，令牌留槽等下次）
+  const text = cmd.consume()
+  if (text === null) return
+  cmHost.value.insertText(text)
 }
 watch(() => ws.pendingInsert, () => tryConsumeInsert(), { immediate: true })
 
@@ -292,9 +293,12 @@ function onAppFind(): void {
 // Q-9（第十五轮）：自动保存定时器上移 Book.vue（切到工作台/总览等视图后本组件卸载，
 // 此前 dirty 文档随之停止自动保存）——此处只保留编辑器专属生命周期接线。
 onMounted(() => {
-  ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
-  // 阶段 24：光标偏移读取器同款接线（章节拆分读拆分点）
-  ws.setEditorGetCursorOffset(() => cmHost.value?.getCursorOffset() ?? null)
+  // R0916-7-P3-24：选区/光标查询面收敛为单句柄注册（原两个函数槽各自挂卸，
+  // 含阶段 24 的光标偏移读取器——章节拆分读拆分点）
+  ws.setEditorHandle({
+    getSelection: () => cmHost.value?.getSelection() ?? '',
+    getCursorOffset: () => cmHost.value?.getCursorOffset() ?? null,
+  })
   // RC 源码重审 B-2（Opus-5.5 轮）：正文回写执行体注册（mergeFm + doc.patch 的落回
   // 入口，见 shared/body-writeback.ts 头注）——本组件在场期间按键回写走 200ms 防抖窗
   registerBodyWriteback(commitBodyWriteback)
@@ -308,8 +312,7 @@ onUnmounted(() => {
   // 序：flush 先于注销——注销会丢弃未落槽（registerBodyWriteback(null) 的既定语义）
   flushBodyWriteback()
   registerBodyWriteback(null)
-  ws.setEditorGetSelection(null)
-  ws.setEditorGetCursorOffset(null)
+  ws.setEditorHandle(null)
   window.removeEventListener(APP_FIND_EVENT, onAppFind)
 })
 </script>

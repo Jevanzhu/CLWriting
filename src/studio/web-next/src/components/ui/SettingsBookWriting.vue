@@ -33,10 +33,10 @@ const bookTargetWords = ref<number | null>(null)
 const bookChapterTargetWords = ref<number | null>(null)
 
 // 当前生效值（本书覆盖 ?? 全局默认）：本书开关 desc 与覆盖初始化用
-const effGenre = computed(() => bookGenre.value || prefs.defaultGenre)
-const effVolumeSize = computed(() => bookVolumeSize.value ?? prefs.defaultVolumeSize)
-const effTargetWords = computed(() => bookTargetWords.value ?? prefs.defaultTargetWords)
-const effChapterTargetWords = computed(() => bookChapterTargetWords.value ?? prefs.defaultChapterTargetWords)
+const effGenre = computed(() => bookGenre.value || prefs.get('defaultGenre'))
+const effVolumeSize = computed(() => bookVolumeSize.value ?? prefs.get('defaultVolumeSize'))
+const effTargetWords = computed(() => bookTargetWords.value ?? prefs.get('defaultTargetWords'))
+const effChapterTargetWords = computed(() => bookChapterTargetWords.value ?? prefs.get('defaultChapterTargetWords'))
 // 组开关判定：组内任一键在 raw config 中已设（题材空串=未设）即算覆盖
 const bookOverride = computed(
   () =>

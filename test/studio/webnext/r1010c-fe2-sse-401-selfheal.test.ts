@@ -6,7 +6,8 @@
  * api/client 的 401→rebootstrap 链——token 失效（dev 重启 dev:api 换 token 等）时 SSE
  * 层无直接自愈，只能靠同挂载点心跳（Book.vue 的 useHeartbeat→apiFetch→E-2）20s 拍间
  * 接换新 token，该耦合此前无测试钉住。修复后两处 401 触发 client 同款 re-boot 通道
- * （promise 去重防风暴）；返回 null / 既有退避节奏不变。
+ * （promise 去重防风暴）。R0916-7-P3-19：换票失败不再回退 ?token= 开连（回退通道
+ * 两端同删），本轮不开连并入既有退避重连。
  *
  * 另含 Book.vue 源码锚定：useHeartbeat 与 useSse 必须同处一个挂载点（同组件 setup、
  * 同 bookName 源）且心跳连败看门狗→sse.resync() 接线保留——防未来挂载点分离静默断链
@@ -87,15 +88,29 @@ async function settle(): Promise<void> {
 }
 
 describe('R1010c-FE2-P3-2: fetchStreamTicket 401 → 触发 re-boot 通道', () => {
-  it('token 非空但失效（换票 401）→ 触发 rebootstrap，且本轮仍按既有语义回退 ?token= 连接', async () => {
+  it('token 非空但失效（换票 401）→ 触发 rebootstrap；本轮不开连（无回退通道），并入退避重连', async () => {
+    vi.useFakeTimers()
     stubFetch(401, 401)
     useSse(ref('书A'))
     await nextTick()
     await settle()
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(1) // 本轮恰一次（client promise 去重防风暴）
-    expect(MockES.instances).toHaveLength(1)
-    // 返回 null 语义不变：本轮仍回退旧通道，不自打断连接节奏；下轮退避重连取新票
-    expect(decodeURIComponent(MockES.instances[0]!.url)).toContain('token=T-stale')
+    expect(MockES.instances).toHaveLength(0) // R0916-7-P3-19：不再回退 ?token= 开连
+
+    // 退避首档 0ms 重连：换票再 401 → strike 连记再自愈（截断面见 sse-reboot-401-cap）
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.rebootstrap).toHaveBeenCalledTimes(2)
+    expect(MockES.instances).toHaveLength(0)
+  })
+
+  it('换票 403（非 401）→ 不触发 rebootstrap（只认 401）；本轮不开连并入退避', async () => {
+    vi.useFakeTimers() // 换票失败轮自 perpetuate 退避链——fake timers 下随用例丢弃，不泄漏真实定时器
+    stubFetch(403, 403)
+    useSse(ref('书A'))
+    await nextTick()
+    await settle()
+    expect(mocks.rebootstrap).not.toHaveBeenCalled()
+    expect(MockES.instances).toHaveLength(0) // R0916-7-P3-19：无回退通道，不开连
   })
 
   it('换票 200（ticket 通道健康）→ 不触发 rebootstrap（守卫不误伤正常路径）', async () => {
@@ -124,11 +139,11 @@ describe('R1010c-FE2-P3-2: probeSseBusy 401 → 触发 re-boot 通道', () => {
   })
 
   it('探测 403 不触发 rebootstrap（Origin/权限类 re-boot 无解，只认 401）', async () => {
-    stubFetch(403, 403)
+    stubFetch(200, 403, '{"ticket":"TK"}') // 换票健康（探测面单独设 403；票体必带——空体即换票失败）
     useSse(ref('书A'))
     await nextTick()
     await settle()
-    expect(mocks.rebootstrap).not.toHaveBeenCalled() // 换票 403 不触发
+    expect(mocks.rebootstrap).not.toHaveBeenCalled() // 连接期未触发
     const es0 = MockES.instances[0]!
     es0.readyState = MockES.CLOSED
     es0.onerror?.()

@@ -139,12 +139,12 @@ describe('useAppActions', () => {
     expect(dispatch('not-exist')).toBe(false)
   })
 
-  it('theme 动作调 useTheme.toggle → prefs.theme 切暗', async () => {
+  it('theme 动作调 useTheme.toggle 经泛型 set 切暗', async () => {
     const prefs = (await import('../../../src/studio/web-next/src/stores/prefs')).usePrefsStore()
-    prefs.theme = 'light'
+    prefs.set('theme', 'light')
     const { dispatch } = useAppActions()
     expect(dispatch('theme')).toBe(true)
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
   })
 })
 
@@ -179,10 +179,10 @@ describe('useHeartbeat', () => {
 
 describe('useSse', () => {
   // 鉴权契约②：doConnect 连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——
-  // 统一桩 404（服务端未就绪 → 回退 ?token= 旧通道，URL 断言口径不变），并在断言前
-  // 用 settle 泵完「换票 → fallback → new EventSource」微任务链。
+  // 统一桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连），
+  // 并在断言前用 settle 泵完「换票 → new EventSource」微任务链。
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
   })
   async function settle(): Promise<void> {
     for (let i = 0; i < 20; i++) await Promise.resolve()
@@ -208,13 +208,13 @@ describe('useSse', () => {
     }
   }
 
-  it('进书 → EventSource 连接（带 token）→ onmessage 分流 chat/workbench', async () => {
+  it('进书 → EventSource 连接（带 ticket）→ onmessage 分流 chat/workbench', async () => {
     vi.stubGlobal('EventSource', MockES)
     MockES.instances = []
     const name = ref('书A')
     useSse(name)
     await nextTick()
-    await settle() // 换票（404 → 回退）后再开 EventSource
+    await settle() // 换票后再开 EventSource
     expect(MockES.instances).toHaveLength(1)
     expect(MockES.instances[0]!.url).toContain('/api/books/%E4%B9%A6A/stream')
     expect(getToken).toHaveBeenCalled()

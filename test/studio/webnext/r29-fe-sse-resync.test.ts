@@ -128,7 +128,7 @@ function makeNode(docId: string): TreeNode {
 function live(): MockES[] {
   return MockES.instances.filter((e) => !e.closed)
 }
-/** 泵微任务链：doConnect 的「换票（404 回退）→ new EventSource」走到位 */
+/** 泵微任务链：doConnect 的「换票 → new EventSource」走到位 */
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve()
   await nextTick()
@@ -144,8 +144,8 @@ beforeEach(() => {
   mocks.fetchChatHistory.mockResolvedValue({ messages: [] })
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
-  // 契约②换票统一 404 → 回退 ?token= 旧通道
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+  // 契约②换票桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连）
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
 })
 
 afterEach(() => {
@@ -153,7 +153,7 @@ afterEach(() => {
 })
 
 describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
-  it('正常切书 A→B → 链尾 resync 断开重连同一本书（末两个连接都是新书）', async () => {
+  it('正常切书 A→B → 链尾 resync 断开重连同一本书（旧书零存活、新书恰一条）', async () => {
     const w = mount(Book)
     await flushPromises()
     await settle()
@@ -164,12 +164,15 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
     routeHolder.route!.params.name = '书B'
     await flushPromises()
     await settle()
-    // 修复点：切书完成后末两个连接都是书B（useSse watch 的即时连接 + 链尾 resync 重连）
-    const urls = MockES.instances.map((e) => decodeURIComponent(e.url))
-    expect(urls.at(-1)).toContain('书B')
-    expect(urls.at(-2)).toContain('书B')
+    // 修复点：切书完成后存活连接恰一条，且指向书B（链尾 resync 重连的是新书）。
+    // R0916-7-P3-19：断言不以「末两个连接都是书B」锁实例总数——换票成功路径比旧
+    // 404 回退路径多一次 await（读 ticket 响应体），useSse watch 的即时连接可能被
+    // 链尾 resync 抢先作废（实例数随微任务竞态 1 或 2），语义不变的面是「旧书零存活
+    // + 新书恰一条 + 末个连接是新书」。
     expect(live().length).toBe(1)
     expect(live()[0]!.url).toContain(encodeURIComponent('书B'))
+    expect(decodeURIComponent(MockES.instances.at(-1)!.url)).toContain('书B')
+    expect(MockES.instances.some((e) => e.closed && decodeURIComponent(e.url).includes('书A'))).toBe(true)
     w.unmount()
   })
 

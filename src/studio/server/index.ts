@@ -151,8 +151,8 @@ function buildRoutes(
  * 撞车）静默失闸。豁免面仅两条精确模式：
  * - /api/boot：前端无 token 时的 bootstrap 通道，token 本身由它下发；
  * - /api/books/:name/stream：SSE 端点（EventSource 不能带头），经此处放行后由
- *   stream.ts 自带的一次性 ticket / query token 双凭据闸校验；:name 为单路径段
- *   （[^/]+），与 router.ts :param 捕获口径一致。
+ *   stream.ts 自带的凭据闸校验（一次性 ticket / x-studio-token 头，R0916-7-P3-19 起
+ *   `?token=` 通道已删）；:name 为单路径段（[^/]+），与 router.ts :param 捕获口径一致。
  * SSE 豁免项引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——此处不手写等价
  * 正则（两处正则字符串耦合时，路由路径改动会令豁免表静默失配）；/api/boot 项本文件
  * 自持（bootstrap 端点注册面不在 stream.ts）。
@@ -401,8 +401,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
     // HEAD 与 GET 同读语义，一并入闸（原只判 GET 则 HEAD /api/* 绕过 token 校验，
     // 响应头同会泄漏资源元数据）。
-    // 与写闸同源校验（x-studio-token 头，或 query token——SSE/EventSource 不能带头，
-    // 与 stream.ts 既有 query 凭据口径一致）、常量时间比较、失败 403 FORBIDDEN 同口径。
+    // 与写闸同源校验（x-studio-token 头；query token 通道已全量下线——S7 收窄非豁免
+    // GET 只认头，R0916-7-P3-19 起 SSE 豁免路径的 `?token=` 亦删，凭据只走 ticket/头）、
+    // 常量时间比较、失败 403 FORBIDDEN 同口径。
     // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（不得改回后缀匹配）。
     // API 优先
     // apiPathname（规范化）必须在 GET/HEAD token 闸之前算好，且与 dispatch 同口径：
@@ -426,8 +427,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
         // query token 通道收窄——非豁免 GET 只认 x-studio-token 头（前端 client.ts 契约①
         // 全量 /api/* 已带头）；`?token=` 对全部非豁免 GET 通用会让 token 进 URL 的暴露面
         //（进程列表/代理/服务器日志）远超「EventSource 不能带头」的最小必要面。
-        // `?token=`/`?ticket=` 仅在豁免路径（SSE）放行，由
-        // stream.ts 自身凭据闸校验（ticket 优先 + token 兼容期通道）。
+        // 仅 `?ticket=` 在豁免路径（SSE）放行，由 stream.ts 自身凭据闸校验；
+        // `?token=` 通道已两端同删（R0916-7-P3-19：前后端同包同版发布，无过渡兼容对象）。
         if (!safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
           replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
           return

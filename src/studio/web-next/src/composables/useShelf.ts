@@ -230,9 +230,9 @@ export function useShelf(options?: {
 
   // 视图模式（网格/列表），全局偏好持久化（global.json）
   const prefs = usePrefsStore()
-  const viewMode = computed(() => prefs.shelfView)
+  const viewMode = computed(() => prefs.get('shelfView'))
   function setView(mode: 'grid' | 'list'): void {
-    prefs.setShelfView(mode)
+    prefs.set('shelfView', mode)
   }
 
   // 新建书表单

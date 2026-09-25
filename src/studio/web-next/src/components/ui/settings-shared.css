@@ -16,18 +16,6 @@
  * .setting-item 基族（ContextQuickPanel 域外自有同名）；.cfg-card/.settings-nav/
  * [data-tab-scope] 系选择器自带设置域限定，无需前缀。
  */
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  z-index: 150;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: clw-overlay var(--dur-norm) var(--ease-out);
-}
 .settings-modal {
   /* 面板尺寸对齐 dsh SettingsRoot：figma 1080 缩到 800 宽，高度上限 800 取视口，
    * 四周留 24px 呼吸位（100vw-48）；高度不随内容跳（超长在 settings-content 滚） */

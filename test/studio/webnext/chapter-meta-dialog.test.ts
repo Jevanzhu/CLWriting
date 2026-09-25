@@ -9,11 +9,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue'
 
 let wrapper: ReturnType<typeof mount> | null = null
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // 遮罩走 ModalMask → ui store（挂载即登记），mount 需 pinia
   // 重评-0912-2 P3：prop 名「标题」→ title（改前口径：props 传 `标题: '开篇'`）；
   // emit save 载荷仍用 fm 键「标题」（弹窗 emit 边界转换），下方断言不变。
   wrapper = mount(ChapterMetaDialog, {

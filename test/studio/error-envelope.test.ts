@@ -66,10 +66,13 @@ describe('SSE 错误路径走 JSON 信封（不再裸文本）', () => {
     server = await startServerSafe({ port: 0, workDir: null, studioToken: 'envelope-test-token' })
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
-    // R64-27（十二轮）：SSE 鉴权前移——无凭据先吃 403，带 token 才到达 workDir 判定
+    // R64-27（十二轮）：SSE 鉴权前移——无凭据先吃 403，带凭据才到达 workDir 判定。
+    // R0916-7-P3-19：`?token=` 通道已删——凭据改走 x-studio-token 头。
     const unauthed = await fetch(`${baseUrl}/api/books/任意书/stream`)
     expect(unauthed.status).toBe(403)
-    const resp = await fetch(`${baseUrl}/api/books/任意书/stream?token=envelope-test-token`)
+    const resp = await fetch(`${baseUrl}/api/books/任意书/stream`, {
+      headers: { 'x-studio-token': 'envelope-test-token' },
+    })
     expect(resp.status).toBe(400)
     expect(resp.headers.get('content-type')).toContain('application/json')
     expect(await resp.json()).toEqual({ code: 'NO_WORKDIR', error: '未定位到工作目录' })

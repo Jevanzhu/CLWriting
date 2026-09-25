@@ -5,6 +5,7 @@
 import { ref, watch } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import ModalMask from '../ui/ModalMask.vue'
 import type { SplitPlanView } from '../../api/documents'
 
 const props = defineProps<{
@@ -54,8 +55,12 @@ function onKeyEsc(e: KeyboardEvent): void {
 
 <template>
   <teleport to="body">
-    <div v-if="modelValue && plan" class="split-mask" @click.self="emit('update:modelValue', false)">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
+         遮罩 CSS 与浓度不再本组件自持。内层 v-if 自持 plan 窄化——:open 传参不做模板
+         窄化，删掉它下方 plan 各字段访问会在 vue-tsc 下报「可能为 null」 -->
+    <ModalMask :open="modelValue && plan !== null" kind="splitChapter" @mask-click="emit('update:modelValue', false)">
       <div
+        v-if="plan"
         ref="dlgRef"
         class="split-dialog"
         role="dialog"
@@ -83,20 +88,11 @@ function onKeyEsc(e: KeyboardEvent): void {
           <button class="btn primary" :disabled="!titleInput.trim()" @click="onConfirm">拆分</button>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </teleport>
 </template>
 
 <style scoped>
-.split-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
 .split-dialog {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);

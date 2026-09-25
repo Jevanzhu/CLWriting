@@ -111,7 +111,7 @@ const chapterTarget = computed(() => {
     // R32-32（三十二轮）：isFinite 守卫同 WritingInfoPanel——脏 fm 手填不产 NaN 目标
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
-  return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords
+  return config.value.book?.chapter_target_words ?? prefs.get('defaultChapterTargetWords')
 })
 const chapterProgress = computed(() =>
   chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,

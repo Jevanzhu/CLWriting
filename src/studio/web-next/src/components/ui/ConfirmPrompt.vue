@@ -5,6 +5,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { isImeComposing } from '../../shared/ime'
+import ModalMask from './ModalMask.vue'
 const ui = useUiStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
@@ -27,8 +28,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>
-  <div v-if="ui.confirmState" class="cp-mask" @click.self="ui.resolveConfirm(false)">
-    <div ref="modalRef" class="cp-modal" role="dialog" aria-modal="true" aria-label="确认" tabindex="-1">
+  <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
+       内层 v-if 自持窄化——:open 传参不做模板窄化，删掉它下方 confirmState 各字段访问
+       会在 vue-tsc 下报「可能为 null」 -->
+  <ModalMask :open="!!ui.confirmState" kind="confirm" @mask-click="ui.resolveConfirm(false)">
+    <div v-if="ui.confirmState" ref="modalRef" class="cp-modal" role="dialog" aria-modal="true" aria-label="确认" tabindex="-1">
       <div class="cp-title">{{ ui.confirmState.title }}</div>
       <div class="cp-body">{{ ui.confirmState.message }}</div>
       <div class="cp-actions">
@@ -44,20 +48,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
         </button>
       </div>
     </div>
-  </div>
+  </ModalMask>
 </template>
 
 <style scoped>
-.cp-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  animation: clw-overlay var(--dur-norm) var(--ease-out);
-}
 .cp-modal {
   width: min(360px, calc(100vw - 32px));
   background: var(--background-primary);

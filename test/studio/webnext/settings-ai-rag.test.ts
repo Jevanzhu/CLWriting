@@ -44,21 +44,21 @@ beforeEach(() => {
 })
 
 describe('SettingsAnalysis 知识检索全局默认', () => {
-  it('启用检索 → 写 prefs.ragEnabled（不触发 saveConfig）', async () => {
+  it('启用检索 → 写 store ragEnabled（不触发 saveConfig）', async () => {
     const wrapper = await mountOpen()
     const sw = wrapper.find('input[aria-label="启用知识检索（全局默认）"]')
     expect(sw.exists()).toBe(true)
     await sw.setValue(true)
-    expect(usePrefsStore().ragEnabled).toBe(true)
+    expect(usePrefsStore().get('ragEnabled')).toBe(true)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
-  it('检索提供方下拉列出服务商，选中写 prefs.ragProvider', async () => {
+  it('检索提供方下拉列出服务商，选中写 store ragProvider', async () => {
     const wrapper = await mountOpen()
     const select = wrapper.find('select[aria-label="检索提供方（全局默认）"]')
     expect(select.findAll('option').filter((o) => o.element.value === 'rag-a')).toHaveLength(1)
     await select.setValue('rag-b')
-    expect(usePrefsStore().ragProvider).toBe('rag-b')
+    expect(usePrefsStore().get('ragProvider')).toBe('rag-b')
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -77,10 +77,10 @@ describe('SettingsAnalysis 知识检索全局默认', () => {
 })
 
 describe('SettingsAnalysis 短篇严格模式全局默认', () => {
-  it('开关 → 写 prefs.defaultShortStrict（不触发 saveConfig）', async () => {
+  it('开关 → 写 store defaultShortStrict（不触发 saveConfig）', async () => {
     const wrapper = await mountOpen()
     await wrapper.find('input[aria-label="短篇严格模式（全局默认）"]').setValue(true)
-    expect(usePrefsStore().defaultShortStrict).toBe(true)
+    expect(usePrefsStore().get('defaultShortStrict')).toBe(true)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 })
@@ -91,8 +91,8 @@ describe('SettingsAnalysis 关系图全局默认', () => {
     await wrapper.find('input[aria-label="关系图自动梳理（全局默认）"]').setValue(true)
     await wrapper.find('input[aria-label="章节增量阈值（全局默认）"]').setValue('7')
     const prefs = usePrefsStore()
-    expect(prefs.relationAutoMine).toBe(true)
-    expect(prefs.relationMineThreshold).toBe(7)
+    expect(prefs.get('relationAutoMine')).toBe(true)
+    expect(prefs.get('relationMineThreshold')).toBe(7)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 })

@@ -2,8 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, type Ref } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
-import { buildFontFamily, buildProseFontStack } from '../composables/useSystemFonts'
-import { createThemeApply } from '../shared/theme-apply'
+import { createPrefsDomEffects } from '../composables/usePrefsDomEffects'
 import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
@@ -26,6 +25,10 @@ import type { ThemeId } from '../types/theme'
  * 确认细纲/批量章数/单章上限（AI 写作组）与版本保留已砍书级，所有书统一。
  * 生效链 book.yaml 对应键 → 此处 → 硬编码回落（ref 初值即回落，服务端合并同链）；
  * 书级覆盖存 book.yaml（「本书」页各领域的「本书使用独立设定」组开关写），不进本 store。
+ *
+ * 对外接口（R0916-7-P3-25 收口）：偏好读写走泛型 get(key) / set(key, value[, bookOnly])——
+ * 键类型由 PREF_ROWS 经模块级 PrefValueMap 推导，拼错键编译期红；书级覆盖与有效值为
+ * 直读 ref/computed；写 DOM 与窗控变暗副作用在 composables/usePrefsDomEffects.ts。
  *
  * 初始化：main.ts 在 mount 前 await init() → API 读取 → apply CSS 变量。
  * 首次为空时从旧 localStorage 自动迁移。
@@ -70,6 +73,61 @@ const OLD_LS = {
   autosaveInterval: 'clw.autosaveInterval',
   shelfView: 'clw-shelf-view',
 }
+
+// ── 泛型读写面的模块级类型锚（R0916-7-P3-25）──
+// 键集 = PREF_ROWS 行名（= 消费方观念中的偏好名）；值型 = 承载 ref 的值型。store 内
+// 行表以本映射逐键标注校验：缺行/多行/r 值型不符任一即编译期红，调用点键拼错同红——
+// 「表抄录零失手」由类型系统承接（原 r0911 批以测试钉界，测试仍保留兜底运行时行为）。
+export interface PrefValueMap {
+  theme: ThemeId
+  proseSize: number
+  proseLh: number
+  uiFontCn: string
+  uiFontEn: string
+  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大） */
+  uiFontSizeStep: number
+  proseFontCn: string
+  proseFontEn: string
+  pageWidth: number
+  autosaveInterval: number
+  shelfView: 'grid' | 'list'
+  chatEnabled: boolean
+  compact: boolean
+  /** 版本保留全局默认 · 保留天数（持久化键 snapMaxDays） */
+  snapDays: number
+  /** 版本保留全局默认 · 保留数量（持久化键 snapMaxCount） */
+  snapCount: number
+  defaultGenre: string
+  defaultVolumeSize: number
+  defaultTargetWords: number
+  defaultChapterTargetWords: number
+  defaultShortStrict: boolean
+  styleInjection: 'light' | 'heavy'
+  autoConfirmOutline: boolean
+  /** 批量写作章数默认（持久化键 autoBatchSize） */
+  aiBatchSize: number
+  callsPerChapter: number
+  relationAutoMine: boolean
+  relationMineThreshold: number
+  ragEnabled: boolean
+  ragProvider: string
+  // ── 机检阈值五键：读面 number | undefined（undefined = 未设 = 走引擎默认）；
+  // 写面恒 number（见 PrefWriteValue）──
+  checkRepeatThreshold: number | undefined
+  checkRepeatCharsThreshold: number | undefined
+  checkMaxSentenceLen: number | undefined
+  checkImageryThreshold: number | undefined
+  checkWordCountTolerance: number | undefined
+}
+
+/** 泛型 get/set 的键集（= PREF_ROWS 行名 = PrefValueMap 键） */
+export type PrefKey = keyof PrefValueMap
+/** 可带 bookOnly 书级覆盖第三参的两键（双 ref 写，见 setPageWidth/setAutosaveInterval） */
+export type BookOnlyKey = 'pageWidth' | 'autosaveInterval'
+/** 泛型 set 的二元键集（除 bookOnly 双分支两键外全部行） */
+export type WritablePrefKey = Exclude<PrefKey, BookOnlyKey>
+/** 写面值型：机检五键读面含 undefined（= 未设），写入参数恒 number——undefined 只出现在读面 */
+export type PrefWriteValue<K extends PrefKey> = PrefValueMap[K] extends number | undefined ? number : PrefValueMap[K]
 
 export const usePrefsStore = defineStore('prefs', () => {
   // ── 全局偏好（global.json）──
@@ -290,13 +348,15 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
-  // ── E2（复审-0914-优化修复批）：偏好键描述表（三面单源）──
-  // 一张表吃三面：applyPrefs 逐键守卫 / buildCache 全量组装 / setter clamp+副作用参数。
-  // 键序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变
-  //（「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键）。
-  // persist 键名（key）与 ref 名不同源两键：snapMaxDays→snapDays、autoBatchSize→aiBatchSize。
+  // ── 偏好键描述表（三面单源）──
+  // 一张表吃三面：applyPrefs 逐键守卫 / buildCache 全量组装 / SETTERS 写入（clamp+副作用参数）。
+  // R0916-7-P3-25：行名改按承载 ref 名对齐（= 对外 get/set 键），JSON 持久化键仍走行内
+  // key 字段（snapDays→snapMaxDays、aiBatchSize→autoBatchSize 两异名映射显式在行上）；
+  // 行序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变。
+  // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（经 PrefValueMap
+  // 逐键标注校验，缺行/多行/r 值型不符编译期红）。
   // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
-  // prefs 测试群（r0911-prefs-setter-table 等）回归兜底。
+  // prefs 测试群（prefs-store / r0911-prefs-setter-table 等）回归兜底。
   interface PrefRow {
     /** global.json 持久化键名（buildCache 落 JSON 的键；applyPrefs 读信封的键） */
     key: keyof GlobalPrefs
@@ -317,12 +377,13 @@ export const usePrefsStore = defineStore('prefs', () => {
     /** setter 副作用族：写后 apply（排版 CSS 变量）/ applyTheme（主题+win 窗控）/
      *  applyCompact（紧凑 class）。缺省 = 纯写 + persist */
     side?: 'apply' | 'applyTheme' | 'applyCompact'
-    /** setter clamp：Math.min(max, Math.max(min, Math.round(v)))（原 numSetter 同款）；
-     *  缺省 = 原样赋值（setSize/setLh 字号族原口径，全部 bool/str/enum 键同） */
-    set?: { min: number; max?: number }
+    /** setter clamp：Math.min(max, Math.max(min, round(v)))（原 numSetter 同款）；
+     *  round2 = 先两位小数取整再 clamp（checkRepeatThreshold 浮点截断异形收编进表，
+     *  R0916-7-P3-25）；缺省行 set = 原样赋值（setSize/setLh 字号族原口径，bool/str/enum 同） */
+    set?: { min: number; max?: number; round2?: boolean }
   }
 
-  const PREF_ROWS = {
+  const PREF_ROWS: { [K in PrefKey]: Omit<PrefRow, 'r'> & { r: Ref<PrefValueMap[K]> } } = {
     theme: { key: 'theme', r: theme, kind: 'enum', values: ['dark', 'light'], side: 'applyTheme' },
     proseSize: { key: 'proseSize', r: proseSize, kind: 'num', gt: 0, side: 'apply' },
     proseLh: { key: 'proseLh', r: proseLh, kind: 'num', gt: 0, side: 'apply' },
@@ -339,8 +400,8 @@ export const usePrefsStore = defineStore('prefs', () => {
     chatEnabled: { key: 'chatEnabled', r: chatEnabled, kind: 'bool' },
     compact: { key: 'compact', r: compact, kind: 'bool', side: 'applyCompact' },
     // 版本保留全局默认（持久化为 snapMaxDays/snapMaxCount；clamp 见 set）
-    snapMaxDays: { key: 'snapMaxDays', r: snapDays, kind: 'num', gt: 0, set: { min: 1, max: 365 } },
-    snapMaxCount: { key: 'snapMaxCount', r: snapCount, kind: 'num', gt: 0, set: { min: 1, max: 200 } },
+    snapDays: { key: 'snapMaxDays', r: snapDays, kind: 'num', gt: 0, set: { min: 1, max: 365 } },
+    snapCount: { key: 'snapMaxCount', r: snapCount, kind: 'num', gt: 0, set: { min: 1, max: 200 } },
     // ── 书级设定全局托底 13 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）──
     defaultGenre: { key: 'defaultGenre', r: defaultGenre, kind: 'str', trim: true },
     defaultVolumeSize: { key: 'defaultVolumeSize', r: defaultVolumeSize, kind: 'num', gte: 5, round: true, set: { min: 5, max: 500 } },
@@ -351,20 +412,21 @@ export const usePrefsStore = defineStore('prefs', () => {
     styleInjection: { key: 'styleInjection', r: styleInjection, kind: 'enum', values: ['light', 'heavy'] },
     autoConfirmOutline: { key: 'autoConfirmOutline', r: autoConfirmOutline, kind: 'bool' },
     // ref 名与 JSON 键 autoBatchSize 不同源（避免与语义混淆）
-    autoBatchSize: { key: 'autoBatchSize', r: aiBatchSize, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
+    aiBatchSize: { key: 'autoBatchSize', r: aiBatchSize, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
     callsPerChapter: { key: 'callsPerChapter', r: callsPerChapter, kind: 'num', gte: 1, round: true, set: { min: 1, max: 50 } },
     relationAutoMine: { key: 'relationAutoMine', r: relationAutoMine, kind: 'bool' },
     relationMineThreshold: { key: 'relationMineThreshold', r: relationMineThreshold, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
     ragEnabled: { key: 'ragEnabled', r: ragEnabled, kind: 'bool' },
     ragProvider: { key: 'ragProvider', r: ragProvider, kind: 'str', trim: true },
     // ── R52-E-2：机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
-    // 复读占比守 (0,1]（>1 会把全书章节判复读）；setter 浮点两位截断异形手写（见 setCheckRepeatThreshold）
-    checkRepeatThreshold: { key: 'checkRepeatThreshold', r: checkRepeatThreshold, kind: 'num', gt: 0, lte: 1 },
+    // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断异形已收编进行 set（round2，
+    // 写面与原手写 setCheckRepeatThreshold 逐位一致）
+    checkRepeatThreshold: { key: 'checkRepeatThreshold', r: checkRepeatThreshold, kind: 'num', gt: 0, lte: 1, set: { min: 0.01, max: 1, round2: true } },
     checkRepeatCharsThreshold: { key: 'checkRepeatCharsThreshold', r: checkRepeatCharsThreshold, kind: 'num', gt: 0, round: true, set: { min: 2, max: 1000 } },
     checkMaxSentenceLen: { key: 'checkMaxSentenceLen', r: checkMaxSentenceLen, kind: 'num', gt: 0, round: true, set: { min: 10, max: 500 } },
     checkImageryThreshold: { key: 'checkImageryThreshold', r: checkImageryThreshold, kind: 'num', gt: 0, round: true, set: { min: 1, max: 100 } },
     checkWordCountTolerance: { key: 'checkWordCountTolerance', r: checkWordCountTolerance, kind: 'num', gt: 0, set: { min: 1, max: 500 } },
-  } satisfies Record<string, PrefRow>
+  }
 
   /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖）。
    *  E2：表驱动全量组装——键序即 JSON 键序（PUT body 字节不变），undefined 序列化时被
@@ -549,61 +611,35 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
-  // ── apply（直写 :root CSS 变量）──
-  // 正文排版三件（字体/字号/行距）为全局正文偏好：设置「编辑器 → 排版」写 --prose-*，
-  // 编辑区与开书对话/草稿卡等所有正文编辑框同步（2026-09-05 作者确认全局一致，
-  // 不设编辑器专属作用域）。
-
-  function apply(): void {
-    const r = document.documentElement
-    r.style.setProperty('--prose-size', `${proseSize.value}px`)
-    r.style.setProperty('--prose-lh', String(proseLh.value))
-    r.style.setProperty('--page-width', `${effectivePageWidth.value}px`)
-    // J5→F0（2026-09-05）：UI 字号档（外观「字号」设置，两平台通用）——win 隐藏基准
-    // 原 +1px 系 ClearType hinting 补偿（灰度时代），F0 找回原生子像素渲染后撤销归零，
-    // 与 tokens 平台块同步；用户步进直接叠 0 基（内联值覆盖 CSS，此处始终写合计值）
-    const baseStep = 0
-    r.style.setProperty('--font-size-step', `${baseStep + uiFontSizeStep.value}px`)
-    if (uiFontCn.value || uiFontEn.value) {
-      r.style.setProperty('--font-ui', buildFontFamily(uiFontEn.value, uiFontCn.value, 'system-ui, sans-serif'))
-    } else {
-      r.style.removeProperty('--font-ui')
-    }
-    if (proseFontCn.value || proseFontEn.value) {
-      // J5→F0c②（2026-09-05）：回退尾按中文字体族归边——衬线/书卷（宋·仿宋·楷·思源宋·
-      // 文楷…）挂衬线基座带宋体，其余（雅黑/等线/黑体/思源黑…）挂无衬线基座——
-      // 修「选思源黑体预设但未装 Noto 时正文静默落宋体」的跨族翻转；CN 槽空维持
-      // 衬线基座（出厂空槽口径不变）。串值单源于 useSystemFonts 的 proseFallbackTail。
-      r.style.setProperty('--prose-font', buildProseFontStack(proseFontCn.value, proseFontEn.value))
-    } else {
-      r.style.removeProperty('--prose-font')
-    }
-  }
-
-  // ── R0916-5i（2026-09-16，⑤④产品巨件拆分波5）：theme-apply 缝拆出——窗控 overlay
-  // 色族（overlayAlpha/overlayColorsFor/applyOverlayAlpha/syncOverlayNow/setOverlayDimmed）、
-  // theme-instant 压制代数（R48-86 useStaleGuard 实例）与 applyTheme 本体已纯移动至
-  // ../shared/theme-apply.ts（createThemeApply 工厂闭包收 theme ref，per-store 实例态
-  // 随闭包迁，行为零变化）；此处解构桥接，init/recoverFromConflict/finishRow/store
-  // 出口等调用点原位零改动。挂/摘过渡压制 class 的代码行 classList.add('theme-instant')
-  // / classList.remove('theme-instant') 已随 applyTheme 迁至该文件——j5-overlay-dim.test.ts
-  // 对本文件的源码锁（theme-instant 挂/摘在位）自此锚定本指针注记，base.css 的
+  // ── R0916-7-P3-25（2026-09-16 批次续）：写 DOM 与窗控变暗副作用迁出 store——
+  // applyTheme/setOverlayDimmed（含挂/摘过渡压制 class 的 classList.add('theme-instant')
+  // / classList.remove('theme-instant') 两行，本体在 shared/theme-apply.ts）与
+  // apply/applyCompact 本体移至 ../composables/usePrefsDomEffects.ts（createPrefsDomEffects
+  // 工厂收 prefs refs，行为零变化）；setup 内同步解构接线——usePrefsStore() 首次实例化
+  // 即接好，init 在 main.ts mount 前调用，启动写 DOM 时序不晚于原实现（无启动闪主题）。
+  // j5-overlay-dim.test.ts 对本文件的 theme-instant 源码锁由本注记承接，base.css 的
   // html.theme-instant 规则改名须三处同步（base.css / shared/theme-apply.ts / 本注记）。
-  const { applyTheme, setOverlayDimmed } = createThemeApply(theme)
+  const { apply, applyTheme, applyCompact, setOverlayDimmed } = createPrefsDomEffects({
+    theme,
+    proseSize,
+    proseLh,
+    effectivePageWidth,
+    uiFontSizeStep,
+    uiFontCn,
+    uiFontEn,
+    proseFontCn,
+    proseFontEn,
+    compact,
+  })
 
-  /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */
-  function applyCompact(): void {
-    document.documentElement.classList.toggle('compact', compact.value)
-  }
-
-  // ── setter ──
+  // ── setter（R0916-7-P3-25 收口）──
   // 表驱动（E2，复审-0914-优化修复批）：「写 ref →（side 副作用）→ schedulePersist」
-  // 三段式收拢行工厂，clamp 参数（set）与副作用族（side）从 PREF_TABLE 行取——与
-  // applyPrefs 守卫、buildCache 组装三面单源。2026-09-11 专项精简批的 numSetter/
-  // boolSetter/strSetter/setter 四工厂由行版工厂接管（公开名/签名/边界逐键零变化，
-  // 消费面含函数引用传递不动）。
-  // 异形手写保留：setPageWidth / setAutosaveInterval（bookOnly 双分支双 ref 写，
-  // 双 ref 无法进单行表）、setCheckRepeatThreshold（浮点两位截断）。
+  // 三段式收拢行工厂，clamp 参数（set）与副作用族（side）从 PREF_ROWS 行取——与
+  // applyPrefs 守卫、buildCache 组装三面单源。本批在行工厂之上再收一层：31 个同构
+  // setter 收进 SETTERS 键控映射，经泛型 set(key, value) 单出口（键类型由 PrefValueMap
+  // 推导，拼错键编译期红）；异形保留：setPageWidth / setAutosaveInterval（bookOnly 双
+  // 分支双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）、checkRepeatThreshold
+  // 浮点截断已收编进行 set（round2）。
 
   /** 行 setter 的收尾两段：按行 side 挂副作用 → schedulePersist 防抖落 global.json。 */
   function finishRow(row: PrefRow): void {
@@ -612,12 +648,15 @@ export const usePrefsStore = defineStore('prefs', () => {
     else if (row.side === 'applyCompact') applyCompact()
     schedulePersist()
   }
-  /** 数值行 setter：行带 set 参数时 clamp [min, max] 取整（原 numSetter 同款公式），
+  /** 数值行 setter：行带 set 参数时 clamp [min, max]（先取整后 clamp：缺省 Math.round，
+   *  round2 = Math.round(v*100)/100 两位小数——原 setCheckRepeatThreshold 手写公式），
    *  否则原样赋值（原 setSize/setLh 字号族口径）。ref 形参联合宽型：机检四键为
    *  Ref<number|undefined>（undefined = 未设），纯 number ref 同传。 */
   const numRow = (row: PrefRow) => (v: number): void => {
     const r = row.r as Ref<number>
-    r.value = row.set ? Math.min(row.set.max ?? Infinity, Math.max(row.set.min, Math.round(v))) : v
+    r.value = row.set
+      ? Math.min(row.set.max ?? Infinity, Math.max(row.set.min, row.set.round2 ? Math.round(v * 100) / 100 : Math.round(v)))
+      : v
     finishRow(row)
   }
   /** 布尔行 setter：纯赋值 */
@@ -640,16 +679,49 @@ export const usePrefsStore = defineStore('prefs', () => {
     finishRow(row)
   }
 
-  const setThemeValue = enumRow<ThemeId>(PREF_ROWS.theme)
-  const setSize = numRow(PREF_ROWS.proseSize)
-  const setLh = numRow(PREF_ROWS.proseLh)
-  const setUiFontCn = strRow(PREF_ROWS.uiFontCn)
-  const setUiFontEn = strRow(PREF_ROWS.uiFontEn)
-  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
-  const setUiFontSizeStep = numRow(PREF_ROWS.uiFontSizeStep)
-  const setProseFontCn = strRow(PREF_ROWS.proseFontCn)
-  const setProseFontEn = strRow(PREF_ROWS.proseFontEn)
-  /** 纸张宽度：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖） */
+  /** 31 个同构行的键控 setter 映射（键 = 行名 = PrefKey；set 的分发出口）。映射标注
+   *  与 WritablePrefKey 逐键校验：缺行/多行/值型不符编译期红。 */
+  const SETTERS: { [K in WritablePrefKey]: (v: PrefWriteValue<K>) => void } = {
+    theme: enumRow<ThemeId>(PREF_ROWS.theme),
+    proseSize: numRow(PREF_ROWS.proseSize),
+    proseLh: numRow(PREF_ROWS.proseLh),
+    uiFontCn: strRow(PREF_ROWS.uiFontCn),
+    uiFontEn: strRow(PREF_ROWS.uiFontEn),
+    /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
+    uiFontSizeStep: numRow(PREF_ROWS.uiFontSizeStep),
+    proseFontCn: strRow(PREF_ROWS.proseFontCn),
+    proseFontEn: strRow(PREF_ROWS.proseFontEn),
+    shelfView: enumRow<'grid' | 'list'>(PREF_ROWS.shelfView),
+    chatEnabled: boolRow(PREF_ROWS.chatEnabled),
+    compact: boolRow(PREF_ROWS.compact),
+    /** 版本保留全局默认（clamp 1-365 / 1-200；所有书统一） */
+    snapDays: numRow(PREF_ROWS.snapDays),
+    snapCount: numRow(PREF_ROWS.snapCount),
+    // ── 书级设定全局托底 setter（clamp/trim 参数在 PREF_ROWS 行上，E2 表驱动）──
+    defaultGenre: strRow(PREF_ROWS.defaultGenre),
+    defaultVolumeSize: numRow(PREF_ROWS.defaultVolumeSize),
+    defaultTargetWords: numRow(PREF_ROWS.defaultTargetWords),
+    defaultChapterTargetWords: numRow(PREF_ROWS.defaultChapterTargetWords),
+    defaultShortStrict: boolRow(PREF_ROWS.defaultShortStrict),
+    styleInjection: enumRow<'light' | 'heavy'>(PREF_ROWS.styleInjection),
+    autoConfirmOutline: boolRow(PREF_ROWS.autoConfirmOutline),
+    aiBatchSize: numRow(PREF_ROWS.aiBatchSize),
+    callsPerChapter: numRow(PREF_ROWS.callsPerChapter),
+    relationAutoMine: boolRow(PREF_ROWS.relationAutoMine),
+    relationMineThreshold: numRow(PREF_ROWS.relationMineThreshold),
+    ragEnabled: boolRow(PREF_ROWS.ragEnabled),
+    ragProvider: strRow(PREF_ROWS.ragProvider),
+    // ── R52-E-2：机检阈值五键（clamp 参数在行上 → schedulePersist 防抖落 global.json；
+    // checkRepeatThreshold 浮点两位截断在行 set.round2）──
+    checkRepeatThreshold: numRow(PREF_ROWS.checkRepeatThreshold),
+    checkRepeatCharsThreshold: numRow(PREF_ROWS.checkRepeatCharsThreshold),
+    checkMaxSentenceLen: numRow(PREF_ROWS.checkMaxSentenceLen),
+    checkImageryThreshold: numRow(PREF_ROWS.checkImageryThreshold),
+    checkWordCountTolerance: numRow(PREF_ROWS.checkWordCountTolerance),
+  }
+
+  /** 纸张宽度：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖）——泛型 set 的
+   *  pageWidth 分支落点。 */
   function setPageWidth(v: number, bookOnly = false): void {
     if (bookOnly) {
       bookPageWidth.value = v
@@ -664,7 +736,8 @@ export const usePrefsStore = defineStore('prefs', () => {
     apply()
     schedulePersist()
   }
-  /** 自动保存间隔：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖） */
+  /** 自动保存间隔：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖）——泛型 set 的
+   *  autosaveInterval 分支落点。 */
   function setAutosaveInterval(v: number, bookOnly = false): void {
     if (bookOnly) {
       bookAutosaveInterval.value = v
@@ -675,133 +748,47 @@ export const usePrefsStore = defineStore('prefs', () => {
     bookAutosaveInterval.value = null
     schedulePersist()
   }
-  const setShelfView = enumRow<'grid' | 'list'>(PREF_ROWS.shelfView)
-  const setChatEnabled = boolRow(PREF_ROWS.chatEnabled)
-  const setCompact = boolRow(PREF_ROWS.compact)
-  /** 版本保留全局默认 · 保留天数（clamp 1-365；所有书统一） */
-  const setSnapDays = numRow(PREF_ROWS.snapMaxDays)
-  /** 版本保留全局默认 · 保留数量（clamp 1-200；所有书统一） */
-  const setSnapCount = numRow(PREF_ROWS.snapMaxCount)
 
-  // ── 书级设定全局托底 setter（clamp/trim 参数在 PREF_TABLE 行上，E2 表驱动）──
-
-  /** 写作默认 · 题材（apply 守卫 trim；'' = 未设） */
-  const setDefaultGenre = strRow(PREF_ROWS.defaultGenre)
-  /** 写作默认 · 每卷章数（clamp 5-500 取整；仅长篇使用） */
-  const setDefaultVolumeSize = numRow(PREF_ROWS.defaultVolumeSize)
-  /** 写作默认 · 目标字数（0 = 未设，否则正整数） */
-  const setDefaultTargetWords = numRow(PREF_ROWS.defaultTargetWords)
-  /** 写作默认 · 每章字数（0 = 未设，否则正整数） */
-  const setDefaultChapterTargetWords = numRow(PREF_ROWS.defaultChapterTargetWords)
-  /** AI 机检 · 短篇严格模式（仅短篇书生效） */
-  const setDefaultShortStrict = boolRow(PREF_ROWS.defaultShortStrict)
-  /** AI 写作 · 文风注入强度 */
-  const setStyleInjection = enumRow<'light' | 'heavy'>(PREF_ROWS.styleInjection)
-  /** AI 写作 · 自动确认细纲 */
-  const setAutoConfirmOutline = boolRow(PREF_ROWS.autoConfirmOutline)
-  /** AI 写作 · 批量写作章数（clamp 1-20 取整） */
-  const setAiBatchSize = numRow(PREF_ROWS.autoBatchSize)
-  /** AI 写作 · 单章调用上限（clamp 1-50 取整） */
-  const setCallsPerChapter = numRow(PREF_ROWS.callsPerChapter)
-  /** 关系图 · 自动梳理 */
-  const setRelationAutoMine = boolRow(PREF_ROWS.relationAutoMine)
-  /** 关系图 · 章节增量阈值（clamp 1-20 取整） */
-  const setRelationMineThreshold = numRow(PREF_ROWS.relationMineThreshold)
-  /** 知识检索 · 启用 */
-  const setRagEnabled = boolRow(PREF_ROWS.ragEnabled)
-  /** 知识检索 · 提供方（apply 守卫 trim；'' = 未设） */
-  const setRagProvider = strRow(PREF_ROWS.ragProvider)
-  // ── R52-E-2：机检阈值五键 setter（clamp 参数在行上 → schedulePersist 防抖落 global.json）──
-  /** AI 机检 · 复读占比阈值（clamp (0,1]，两位小数截断防浮点尾差入盘）——浮点截断异形，手写不进表 */
-  function setCheckRepeatThreshold(v: number): void {
-    checkRepeatThreshold.value = Math.min(1, Math.max(0.01, Math.round(v * 100) / 100))
-    schedulePersist()
+  /** 泛型读：取承载 ref 的 .value——在 computed/watch/渲染效应内调用照常建立响应依赖
+   *  （等价旧 ref 直读面）。键类型由 PrefValueMap 推导，拼错键编译期红。 */
+  function get<K extends PrefKey>(key: K): PrefValueMap[K] {
+    return PREF_ROWS[key].r.value
   }
-  /** AI 机检 · 复读最小连续字数（clamp 2-1000 取整） */
-  const setCheckRepeatCharsThreshold = numRow(PREF_ROWS.checkRepeatCharsThreshold)
-  /** AI 机检 · 超长句判定长度（clamp 10-500 取整） */
-  const setCheckMaxSentenceLen = numRow(PREF_ROWS.checkMaxSentenceLen)
-  /** AI 机检 · 高频意象次数阈值（clamp 1-100 取整） */
-  const setCheckImageryThreshold = numRow(PREF_ROWS.checkImageryThreshold)
-  /** AI 机检 · 字数容差百分比（clamp 1-500 取整） */
-  const setCheckWordCountTolerance = numRow(PREF_ROWS.checkWordCountTolerance)
+
+  /** 泛型写：31 键走 SETTERS 行工厂（clamp/trim/副作用逐键同旧平铺 setter）；pageWidth/
+   *  autosaveInterval 两键带 bookOnly 书级覆盖第三参（缺省 false）。两个重载把「哪些键
+   *  带第三参」钉进类型面：二元键传第三参、值型不符均编译期红（重载 1 先试——只有
+   *  bookOnly 两键吃第三参；非 bookOnly 键落重载 2，无第三参位）。 */
+  function set<K extends BookOnlyKey>(key: K, value: number, bookOnly?: boolean): void
+  function set<K extends PrefKey>(key: K, value: PrefWriteValue<K>): void
+  function set(key: PrefKey, value: unknown, bookOnly?: boolean): void {
+    if (key === 'pageWidth') {
+      setPageWidth(value as number, bookOnly ?? false) // 重载 1 保证 number/bookOnly
+      return
+    }
+    if (key === 'autosaveInterval') {
+      setAutosaveInterval(value as number, bookOnly ?? false)
+      return
+    }
+    // key 已排除 bookOnly 两键，SETTERS 键控查得必中；value 型由重载 2 保证
+    ;(SETTERS as Record<WritablePrefKey, (v: never) => void>)[key as WritablePrefKey](value as never)
+  }
 
   return {
-    theme,
-    proseSize,
-    proseLh,
-    uiFontCn,
-    uiFontEn,
-    uiFontSizeStep,
-    proseFontCn,
-    proseFontEn,
-    pageWidth,
-    autosaveInterval,
-    shelfView,
-    chatEnabled,
-    compact,
-    snapDays,
-    snapCount,
-    defaultGenre,
-    defaultVolumeSize,
-    defaultTargetWords,
-    defaultChapterTargetWords,
-    defaultShortStrict,
-    styleInjection,
-    autoConfirmOutline,
-    aiBatchSize,
-    callsPerChapter,
-    relationAutoMine,
-    relationMineThreshold,
-    ragEnabled,
-    ragProvider,
-    checkRepeatThreshold,
-    checkRepeatCharsThreshold,
-    checkMaxSentenceLen,
-    checkImageryThreshold,
-    checkWordCountTolerance,
+    // ── 泛型读写面（键类型由 PrefValueMap 推导；pageWidth/autosaveInterval 带书级覆盖第三参）──
+    get,
+    set,
+    // ── 书级覆盖与有效值（不进 PREF_ROWS：持久化归 workspace 的 prefs.json，消费方直写 ref）──
     bookPageWidth,
     bookAutosaveInterval,
     effectivePageWidth,
     effectiveAutosaveInterval,
-    flushPendingPersist,
+    // ── 生命周期与冲刷 ──
     init,
+    flushPendingPersist,
+    // ── 副作用句柄（本体在 composables/usePrefsDomEffects.ts；受保护消费方经 store 出口：
+    // workspace.ts 直调 apply，ui.ts 遮罩链直调 setOverlayDimmed——两者签名逐位不变）──
     apply,
-    applyTheme,
-    applyCompact,
     setOverlayDimmed,
-    setThemeValue,
-    setSize,
-    setLh,
-    setUiFontCn,
-    setUiFontEn,
-    setUiFontSizeStep,
-    setProseFontCn,
-    setProseFontEn,
-    setPageWidth,
-    setAutosaveInterval,
-    setShelfView,
-    setChatEnabled,
-    setCompact,
-    setSnapDays,
-    setSnapCount,
-    setDefaultGenre,
-    setDefaultVolumeSize,
-    setDefaultTargetWords,
-    setDefaultChapterTargetWords,
-    setDefaultShortStrict,
-    setStyleInjection,
-    setAutoConfirmOutline,
-    setAiBatchSize,
-    setCallsPerChapter,
-    setRelationAutoMine,
-    setRelationMineThreshold,
-    setRagEnabled,
-    setRagProvider,
-    setCheckRepeatThreshold,
-    setCheckRepeatCharsThreshold,
-    setCheckMaxSentenceLen,
-    setCheckImageryThreshold,
-    setCheckWordCountTolerance,
   }
 })

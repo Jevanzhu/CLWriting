@@ -71,8 +71,8 @@ describe('SettingsBookWriting 写作默认本书覆盖（两层组开关）', ()
 
   it('开关 on → mutator 用生效值（书级 ?? 全局）写四键；子项用生效值初始化', async () => {
     const prefs = usePrefsStore()
-    prefs.setDefaultGenre('玄幻')
-    prefs.setDefaultVolumeSize(30)
+    prefs.set('defaultGenre', '玄幻')
+    prefs.set('defaultVolumeSize', 30)
     const wrapper = await mountOpen()
 
     const run = captureMutator()

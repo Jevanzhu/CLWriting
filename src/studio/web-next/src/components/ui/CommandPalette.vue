@@ -12,6 +12,7 @@ import { useAppActions } from '../../composables/useAppActions'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { isImeComposing } from '../../shared/ime'
 import { capView } from '../../shared/render-cap'
+import ModalMask from './ModalMask.vue'
 import type { TreeNode } from '../../types/tree'
 
 const ui = useUiStore()
@@ -175,7 +176,9 @@ function run(c: Cmd): void {
 
 <template>
   <Teleport to="body">
-    <div v-if="ui.paletteOpen" class="palette-mask" @click="ui.closePalette">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
+         面板内层 @click.stop 未变——遮罩空白处点击 = self 点击，maskClick 语义与原 @click 等价 -->
+    <ModalMask :open="ui.paletteOpen" kind="palette" @mask-click="ui.closePalette">
       <div ref="paletteRef" class="palette" role="dialog" aria-modal="true" aria-label="命令面板" tabindex="-1" @click.stop>
         <input
           ref="inp"
@@ -211,22 +214,11 @@ function run(c: Cmd): void {
           <div v-if="!filtered.length" class="palette-empty">无匹配</div>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </Teleport>
 </template>
 
 <style scoped>
-.palette-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  z-index: 150;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 12vh;
-  animation: clw-overlay var(--dur-norm) var(--ease-out);
-}
 .palette {
   width: min(480px, calc(100vw - 32px));
   background: var(--background-primary);

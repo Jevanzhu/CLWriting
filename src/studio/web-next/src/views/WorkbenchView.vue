@@ -265,8 +265,8 @@ async function onAutoWrite(): Promise<void> {
   const chap = chapter.value
   try {
     const cfg = await getConfig(book)
-    // 书级未设回落全局默认（prefs.aiBatchSize 初值即硬编码回落 8；服务端合并同链）
-    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.aiBatchSize)))
+    // 书级未设回落全局默认（prefs.get('aiBatchSize') 初值即硬编码回落 8；服务端合并同链）
+    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.get('aiBatchSize'))))
     if (props.bookName !== book) return
     const r = await autoWrite(book, chap, batchSize)
     // R52-I-1：同 onSpawn——autoWrite POST 在途切书，A 书的「已开始全自动写稿」toast
@@ -384,7 +384,7 @@ async function onSaveDraft(): Promise<void> {
 <template>
   <div class="workbench">
     <!-- 对话 tab 切换（仅 chatEnabled 时显示） -->
-    <div v-if="prefs.chatEnabled" class="wb-tabs">
+    <div v-if="prefs.get('chatEnabled')" class="wb-tabs">
       <button
         class="wb-tab"
         :class="{ active: activeTab === 'write' }"
@@ -398,7 +398,7 @@ async function onSaveDraft(): Promise<void> {
     </div>
 
     <!-- 对话 tab -->
-    <div v-if="prefs.chatEnabled && activeTab === 'chat'" class="wb-chat-wrap">
+    <div v-if="prefs.get('chatEnabled') && activeTab === 'chat'" class="wb-chat-wrap">
       <!-- R33-15（三十三轮）：:key 重建实例（对齐 ChatDock R27-76）——切书后消息区
          已重播种而输入框残留 A 书草稿，Enter 会把 A 书草稿发进 B 书；重建顺带复位
          selectedChapter（切书窗口内带错章号上下文） -->

@@ -107,7 +107,7 @@ class MockES {
 function live(): MockES[] {
   return MockES.instances.filter((e) => !e.closed)
 }
-/** 泵微任务链：doConnect「换票（404 回退）→ new EventSource」与心跳 beat 走到位 */
+/** 泵微任务链：doConnect「换票 → new EventSource」与心跳 beat 走到位 */
 async function settle(): Promise<void> {
   for (let i = 0; i < 40; i++) await Promise.resolve()
 }
@@ -121,7 +121,8 @@ beforeEach(() => {
   heartbeatFailStreak.value = 0
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 }))) // 换票 404 → ?token= 回退
+  // R0916-7-P3-19：换票桩 200 {ticket}（回退通道已删，404 桩即换票失败、不再回退开连）
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ticket: 'tk' }) })))
   vi.useFakeTimers()
 })
 
@@ -134,9 +135,12 @@ describe('R55-F-2: SSE 半开连接盲窗的心跳看门狗', () => {
   it('心跳连续 2 拍失败且 SSE connected → resync 恰触发一次（断旧连新）', async () => {
     const w = mount(Book)
     await settle()
-    // 首载链尾 resync（r29 既有口径）：即时连接 + resync 重连，存活 1 条指向书A
-    expect(MockES.instances).toHaveLength(2)
-    MockES.instances.at(-1)!.onopen?.()
+    // 首载链尾 resync（r29 既有口径）：存活连接恰一条指向书A。实例总数不锁——换票
+    // 成功路径多一次 await（读 ticket 响应体），watch 的即时连接可能被链尾 resync
+    // 抢先作废（R0916-7-P3-19 换票时序），语义面是「恰一条存活 + 后续 resync 断旧连新」。
+    const conn0 = live()[0]!
+    expect(decodeURIComponent(conn0.url)).toContain('书A')
+    conn0.onopen?.()
     const wb = useWorkbenchStore()
     expect(wb.connected).toBe(true)
     // 进书首拍已在 mount 即发且失败：streak=1，未达阈值不触发
@@ -144,9 +148,8 @@ describe('R55-F-2: SSE 半开连接盲窗的心跳看门狗', () => {
 
     await vi.advanceTimersByTimeAsync(20_000) // 第 2 拍失败 → streak=2 → 看门狗 resync
     await settle()
-    expect(MockES.instances).toHaveLength(3) // 修复点：resync 断开重连
-    expect(MockES.instances[1]!.closed).toBe(true) // 旧连接已断
-    expect(live()).toHaveLength(1)
+    expect(conn0.closed).toBe(true) // 修复点：resync 断开旧连
+    expect(live()).toHaveLength(1) // 且恰一条新连接
     expect(decodeURIComponent(live()[0]!.url)).toContain('书A')
     w.unmount()
   })
@@ -154,45 +157,47 @@ describe('R55-F-2: SSE 半开连接盲窗的心跳看门狗', () => {
   it('去抖：resync 触发即复位计数；恢复（成功拍）后再连败 2 拍才可再触发', async () => {
     const w = mount(Book)
     await settle()
-    MockES.instances.at(-1)!.onopen?.()
+    live()[0]!.onopen?.()
 
     await vi.advanceTimersByTimeAsync(20_000) // streak 1→2 → resync + 复位
     await settle()
-    expect(MockES.instances).toHaveLength(3)
+    const afterFirst = MockES.instances.length // resync 后基线（实例总数随微任务竞态，取相对值）
+    expect(afterFirst).toBeGreaterThan(1)
     expect(heartbeatFailStreak.value).toBe(0) // 去抖：触发即复位
 
     // resync 出的新连接恢复在线 + 心跳恢复成功拍 → streak 保持 0
-    MockES.instances.at(-1)!.onopen?.()
+    live()[0]!.onopen?.()
     mocks.apiFetch.mockResolvedValue(new Response('{}', { status: 200 }))
     await vi.advanceTimersByTimeAsync(20_000)
     await settle()
-    expect(MockES.instances).toHaveLength(3) // 成功拍不触发
+    expect(MockES.instances).toHaveLength(afterFirst) // 成功拍不触发
     expect(heartbeatFailStreak.value).toBe(0)
 
     // 再连续失败：第 1 拍不触发，第 2 拍才触发（不能连发/不能 1 拍就触发）
     mocks.apiFetch.mockRejectedValue(new TypeError('network down'))
     await vi.advanceTimersByTimeAsync(20_000)
     await settle()
-    expect(MockES.instances).toHaveLength(3) // streak=1 未达阈值
+    expect(MockES.instances).toHaveLength(afterFirst) // streak=1 未达阈值
     await vi.advanceTimersByTimeAsync(20_000)
     await settle()
-    expect(MockES.instances).toHaveLength(4) // streak=2 → 再次 resync
+    expect(MockES.instances).toHaveLength(afterFirst + 1) // streak=2 → 再次 resync（恰一条新连接）
     w.unmount()
   })
 
   it('SSE 非 connected（退避自愈通道已接管）→ 连败不触发 resync', async () => {
     const w = mount(Book)
     await settle()
-    MockES.instances.at(-1)!.onopen?.()
+    live()[0]!.onopen?.()
+    const base = MockES.instances.length
     const wb = useWorkbenchStore()
     wb.setConnected(false) // SSE 已知断开：重连由 useSse 退避链负责，看门狗不插手
 
     await vi.advanceTimersByTimeAsync(20_000) // streak 1→2
     await settle()
-    expect(MockES.instances).toHaveLength(2) // 未触发
+    expect(MockES.instances).toHaveLength(base) // 未触发
     await vi.advanceTimersByTimeAsync(40_000) // streak 3、4 也不触发
     await settle()
-    expect(MockES.instances).toHaveLength(2)
+    expect(MockES.instances).toHaveLength(base)
     w.unmount()
   })
 })

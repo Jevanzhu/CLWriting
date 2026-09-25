@@ -4,7 +4,7 @@
  * + localStorage 持久化恢复 + validate 失效清空 + 新建信号。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { nextTick, watch } from 'vue'
 // flush：让 setBook 的异步 loadBookPrefs + debounce 500ms persist 落定
 const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
@@ -492,6 +492,58 @@ describe('workspace · 关窗冲刷书级 prefs（R0911-C1-P3-3）', () => {
   })
 })
 
+// R0916-7-P3-24：书级 prefs 在途写句柄（bookPrefsInFlight，对齐 prefs.ts putInFlight
+// 先例）——关窗冲刷先等在途落定再清窗直发，收口「防抖刚 fire 出去的那笔写不在冲刷
+// 等待范围、随窗口销毁夭折」的挂账缺口（R0911-C1-P3-3 已知边界）。
+describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）', () => {
+  it('防抖已 fire、PUT 在途 → 冲刷等在途落定才放行，不空写（在途随窗夭折缺口收口）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    vi.mocked(putBookPrefs).mockImplementationOnce(() => gate)
+    ws.openTab('d-inflight')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(500) // 防抖 fire → PUT 出手（受控 promise 挂起 = 在途）
+    vi.mocked(putBookPrefs).mockClear()
+    let settled = false
+    const flushing = ws.flushPendingBookPrefs().then(() => { settled = true })
+    await drain()
+    expect(settled).toBe(false) // 在途未落定：冲刷不放行（修复前此处即空返回）
+    release()
+    await flushing
+    expect(putBookPrefs).not.toHaveBeenCalled() // 无待写项：只等在途，不空写
+  })
+
+  it('在途未落定 + 防抖窗内新变更 → 冲刷先等在途再直发新快照（两笔 PUT 不乱序）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const calls: string[] = []
+    vi.mocked(putBookPrefs).mockImplementationOnce(() => { calls.push('first'); return gate })
+    ws.openTab('d-first')
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(500) // 第一笔 PUT 出手（在途）
+    ws.openTab('d-second') // 在途窗口内新变更 → 排定新防抖
+    await nextTick()
+    vi.mocked(putBookPrefs).mockImplementationOnce(async (_n, d) => {
+      calls.push('second')
+      bookPrefs.set(BOOK, { ...(d as Record<string, unknown>) })
+    })
+    const flushing = ws.flushPendingBookPrefs()
+    await drain()
+    expect(calls).toEqual(['first']) // 在途未落定：直发不得抢跑（防乱序旧覆盖新）
+    release()
+    await flushing
+    await drain()
+    expect(calls).toEqual(['first', 'second']) // 第二笔在前笔落定后才发出
+    expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd-second' })
+  })
+})
+
 // R-6（第十六轮）：书级 prefs 拉取失败 → 不置 prefsLoaded、不挂持久化 watch、
 // 不做 localStorage 迁移写回——否则默认布局经 watch 覆盖服务端已存的 prefs.json
 describe('workspace · R-6 prefs 拉取失败不覆盖已存 prefs', () => {
@@ -511,26 +563,43 @@ describe('workspace · R-6 prefs 拉取失败不覆盖已存 prefs', () => {
   })
 })
 
-describe('workspace · 插入信号（第五轮 {text, tick}）', () => {
-  it('同文本两次 requestInsert → tick 递增两次触发（同值赋值不再短路丢信号）', () => {
+// R0916-7-P3-24：一次性插入命令（引用直传形态）——消费态收敛在令牌 consume()，
+// 不再有「槽位读后置 null」形态；每次 request 产出新令牌引用，同文本再点不依赖
+// 递增 tick 区分（第五轮 {text, tick} 的防丢信号职责收进「新对象」本体）。
+describe('workspace · 插入信号（R0916-7-P3-24 一次性令牌）', () => {
+  it('写后立刻消费：requestInsert → consume 返回文本', () => {
     const ws = useWorkspaceStore()
     ws.requestInsert('玉佩')
-    const first = ws.pendingInsert
-    expect(first?.text).toBe('玉佩')
-    expect(first?.tick).toBeGreaterThan(0)
-    ws.requestInsert('玉佩') // 同名再点——修复前字符串同值赋值不触发 watcher
-    const second = ws.pendingInsert
-    expect(second?.tick).toBeGreaterThan(first!.tick)
-    expect(second).not.toBe(first) // 新引用，watcher 必触发
+    const cmd = ws.pendingInsert
+    expect(cmd?.text).toBe('玉佩')
+    expect(cmd?.consume()).toBe('玉佩')
   })
 
-  it('consumeInsert 取走并清空信号', () => {
+  it('重复消费：同一令牌二次 consume → null（一次性语义在类型层可见）', () => {
     const ws = useWorkspaceStore()
     ws.requestInsert('设定名')
-    const got = ws.consumeInsert()
-    expect(got?.text).toBe('设定名')
-    expect(ws.pendingInsert).toBeNull()
-    expect(ws.consumeInsert()).toBeNull()
+    const cmd = ws.pendingInsert
+    expect(cmd?.consume()).toBe('设定名')
+    expect(cmd?.consume()).toBeNull()
+    // 已消费令牌留槽为惰性：槽位非 null 但再取不到文本（无读后置 null 的竞态窗）
+    expect(ws.pendingInsert?.consume()).toBeNull()
+  })
+
+  it('同文本两次 requestInsert（各隔一拍，模拟真实点击）→ watcher 均触发（同值短路不再可能）', async () => {
+    const ws = useWorkspaceStore()
+    const seen: unknown[] = []
+    const stop = watch(() => ws.pendingInsert, (cmd) => { if (cmd) seen.push(cmd) })
+    ws.requestInsert('玉佩')
+    await nextTick() // 第一次点击的消费拍
+    const first = ws.pendingInsert
+    ws.requestInsert('玉佩') // 同名再点——字符串槽位形态下同值赋值不触发 watcher
+    await nextTick()
+    const second = ws.pendingInsert
+    stop()
+    expect(second).not.toBe(first) // 新引用，watcher 必触发
+    expect(seen).toEqual([first, second]) // 两次点击两次信号，无丢失
+    expect(first?.consume()).toBe('玉佩')
+    expect(second?.consume()).toBe('玉佩')
   })
 
   // FE-4（第七轮）：切书清插入信号——非编辑器视图点「插入」后切书，A 书设定名

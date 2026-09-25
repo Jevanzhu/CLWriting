@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, shallowRef, watch, nextTick } from 'vue'
 import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
@@ -19,6 +19,35 @@ export type CreateKind =
   | 'worldview'
   | 'foreshadow'
 
+/** 左栏活动面板（R0916-7-P3-24：联合类型单源——ref 初值与 setter 形参此前各写一遍
+ *  字面量联合，改一处漏一处编译器不报，收成别名两处共引）。 */
+export type LeftPanel = 'tree' | 'search' | 'trash'
+/** 主区活动视图（ribbon 切换；点章节回编辑器）。 */
+export type ActiveView = 'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn' | 'style' | 'audit'
+/** 右栏活动 tab（信息/审阅/机检；编辑器 AI 按钮可驱动切到审阅）。 */
+export type RightTab = 'info' | 'review' | 'check'
+
+/** R0916-7-P3-24：一次性插入命令（引用直传形态）。每次 requestInsert 产出新令牌对象
+ *  ——同文本再点也是新引用，watcher 必触发（第五轮 {text, tick} 靠递增 tick 防同值
+ *  短路的职责收进「新对象」本体，tick 字段退役）；「一次性」收敛在 consume()：首次
+ *  返回文本、此后恒 null，重复消费在类型与运行时同时可见，不留「读后置 null」形态
+ *  （丢信号 bug 历史两犯的根源即该形态）。 */
+export interface InsertCommand {
+  readonly text: string
+  /** 消费一次：首次返回 text，此后恒返回 null。 */
+  consume(): string | null
+}
+
+/** R0916-7-P3-24：编辑器查询句柄——EditorView 挂载注册/卸载注销，替代原「选区/光标
+ *  两个函数槽各自存 store、各自挂卸」的函数注册表形态。方法为闭包实现（不依赖 this）。 */
+export interface EditorHandle {
+  /** 当前选区文本（无选区返回空串；「无编辑器」由兼容读面的 null 承担）。 */
+  getSelection(): string
+  /** 光标在编辑器正文（fm 已剥离）中的偏移；无光标信息返回 null。坐标系 = 编辑器
+   *  正文，调用方自行换算全文偏移（口径见 useChapterTreeActions.doSplitHere）。 */
+  getCursorOffset(): number | null
+}
+
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
  *
@@ -37,11 +66,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const leftWidth = ref(220)
   const focusMode = ref(false)
   /** 左栏活动面板（细案 §5 leftPanel）。 */
-  const leftPanel = ref<'tree' | 'search' | 'trash'>('tree')
+  const leftPanel = ref<LeftPanel>('tree')
   /** 主区活动视图：编辑器 / 工作台 / 开书对话 / 总览（ribbon 切换；点章节回编辑器）。 */
-  const activeView = ref<'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn' | 'style' | 'audit'>('editor')
-  /** 右栏活动 tab（信息/审阅/机检/分析）；编辑器 AI 按钮可驱动切到审阅。 */
-  const rightTab = ref<'info' | 'review' | 'check'>('info')
+  const activeView = ref<ActiveView>('editor')
+  /** 右栏活动 tab（信息/审阅/机检）；编辑器 AI 按钮可驱动切到审阅。 */
+  const rightTab = ref<RightTab>('info')
   /** 当前打开的文档 ID（单文档模式，无标签页）。 */
   const activeDocId = ref<string | null>(null)
   /** 章节树展开路径（持久化到 prefs.json）。 */
@@ -49,16 +78,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 新建信号（TabBar 触发 → ChapterTreePanel 监听执行）。createKind 标记类型，createTick 递增触发。 */
   const createKind = ref<CreateKind>('chapter')
   const createTick = ref(0)
-  /** 待插入正文文本（右栏速查 → 编辑器，命令管道）。null = 无待插入。
-   *  第五轮：{text, tick} 结构——纯字符串时同值再点不触发 watcher（ref 同值赋值短路），
-   *  「非编辑器视图下点插入 → 切回编辑器 → 再点同名」会永久丢失该信号；tick 递增保证
-   *  每次点击都是新引用，EditorView 挂载后的 watch(immediate) 也能补消费。 */
-  const pendingInsert = ref<{ text: string; tick: number } | null>(null)
-  let insertTick = 0
-  /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
-  const editorGetSelection = ref<(() => string) | null>(null)
-  /** 编辑器光标偏移读取器（EditorView onMounted 注册；章节拆分读当前光标）。null = 无编辑器。 */
-  const editorGetCursorOffset = ref<(() => number | null) | null>(null)
+  /** 待插入命令（右栏速查「插入」→ 编辑器，命令管道）。null = 无待插入；
+   *  已消费令牌留槽为惰性（consume 恒 null，watcher 不再触发），切书由 setBook 清槽作废。 */
+  const pendingInsert = ref<InsertCommand | null>(null)
+  /** 编辑器查询句柄（EditorView onMounted 注册 / onUnmounted 置 null）。null = 无编辑器。 */
+  const editorHandle = shallowRef<EditorHandle | null>(null)
+  /** 兼容读面（RewritePanel / useAiAssist / useChapterTreeStructure 既有读取口）：
+   *  句柄在场时借出其方法（闭包内直呼，不依赖 this），离场返回 null——读方
+   *  `ws.editorGetSelection?.()` 的可选链语义与改前逐位一致。 */
+  const editorGetSelection = computed<(() => string) | null>(() => {
+    const h = editorHandle.value
+    return h ? () => h.getSelection() : null
+  })
+  const editorGetCursorOffset = computed<(() => number | null) | null>(() => {
+    const h = editorHandle.value
+    return h ? () => h.getCursorOffset() : null
+  })
   const bookName = ref<string | null>(null)
 
   // ── 书库级 prefs 加载/持久化 ──
@@ -71,6 +106,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 持久化失败的一次性提示
    *  去重标记——对齐全局偏好 R55-F-7 口径（同一失败窗只 warning 一次，成功落盘复位） */
   let bookPrefsFailNotified = false
+  /** R0916-7-P3-24：书级 prefs 在途写句柄（对齐 prefs.ts 的 putInFlight 单飞槽先例；
+   *  书级侧此前无在途面——防抖刚 fire 出去的那笔写不在关窗冲刷等待范围，缺口在
+   *  R0911-C1-P3-3 注释挂账待拍板，本批收口）。链尾只清自己占据的占位。 */
+  let bookPrefsInFlight: Promise<void> | null = null
   // E-3（二十九轮）：进书后用户是否动过 treeExpanded（展开/折叠 mutation 处 setTreeExpanded
   // 置位）——loadBookPrefs 迟到回填不得覆盖作者已手工调整的展开态（比照 activeDocId 的
   // R72-11 守卫：既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
@@ -208,7 +247,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // ff 细节#11 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
     if (bookGen.stale(gen) || !prefsLoaded || bookName.value !== name) return Promise.resolve()
     const ps = usePrefsStore()
-    return putBookPrefs(name, {
+    const settle = (q: Promise<void>): void => {
+      if (bookPrefsInFlight === q) bookPrefsInFlight = null
+    }
+    const p = putBookPrefs(name, {
       leftWidth: leftWidth.value,
       leftOpen: leftOpen.value,
       rightOpen: rightOpen.value,
@@ -230,6 +272,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
         }
       })
+      // settle 闭包运行时 p 已初始化（链回调异步于同步段），读参避免自引用早于赋值
+      .finally(() => settle(p))
+    // R0916-7-P3-24：body 起跑即同步占位（对齐 prefs.ts runPutChain 的单飞不变式）
+    bookPrefsInFlight = p
+    return p
   }
 
   /**
@@ -241,16 +288,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 语义不变——平时照旧 500ms 合并写；无待写项（计时器空）不空写。
    *  R0917-6-P3-3（2026-09-17 全库源码重评六轮修复批）：配合防抖 fire 分支置空句柄，
    *  本守卫才真正兑现（此前 fire 后句柄恒非 null，保存过一次的书每次关窗仍空写）。
-   *  已知边界（维持现状，与 R0911-C1-P3-3 原口径一致）：刚 fire 出去的那笔写不在本函数
-   *  等待范围内——本 store 无在途句柄追踪（prefs.ts 的 putInFlight 是全局偏好侧的面，
-   *  书级侧未建），关窗钩子只保证「待写项交给直发链」。要收口需另建在途面，与本批
-   *  缺口正交，登记待作者拍板。
+   *  R0916-7-P3-24（2026-09-24 全库源码质量评审修复批）：原挂账的「已知边界」收口
+   *  ——书级侧补建在途写句柄（bookPrefsInFlight），本冲刷先等在途写落定再清窗直发
+   *  （先等再发，防两笔 PUT 乱序到达旧布局覆盖新布局）；防抖窗空时也等在途——关窗
+   *  钩子「冲刷完成才销毁窗口」的语义自此覆盖刚 fire 出去的那笔写，不随窗夭折。
    */
-  function flushPendingBookPrefs(): Promise<void> {
-    if (!debounceTimer) return Promise.resolve()
+  async function flushPendingBookPrefs(): Promise<void> {
+    if (bookPrefsInFlight) await bookPrefsInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
+    if (!debounceTimer) return
     clearTimeout(debounceTimer)
     debounceTimer = null
-    return writeBookPrefs(bookGen.current(), bookName.value ?? '')
+    await writeBookPrefs(bookGen.current(), bookName.value ?? '')
   }
 
   /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
@@ -369,15 +417,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
     createTick.value++
   }
-  /** 请求插入文本到编辑器光标（右栏速查「插入」用）。 */
+  /** 请求插入文本到编辑器光标（右栏速查「插入」用）。每次调用产出新一次性令牌
+   *  （R0916-7-P3-24：消费态收敛在令牌内，槽位不再承担一次性语义）。 */
   function requestInsert(text: string): void {
-    pendingInsert.value = { text, tick: ++insertTick }
-  }
-  /** 消费待插入文本（EditorView 执行后清空信号）。 */
-  function consumeInsert(): { text: string; tick: number } | null {
-    const t = pendingInsert.value
-    pendingInsert.value = null
-    return t
+    let consumed = false
+    pendingInsert.value = {
+      text,
+      consume(): string | null {
+        if (consumed) return null
+        consumed = true
+        return text
+      },
+    }
   }
 
   function toggleLeft(): void {
@@ -398,27 +449,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function toggleFocus(): void {
     setFocus(!focusMode.value)
   }
-  function setLeftPanel(p: 'tree' | 'search' | 'trash'): void {
+  function setLeftPanel(p: LeftPanel): void {
     leftPanel.value = p
     leftOpen.value = true // 从 ribbon 点面板入口时确保左栏打开
   }
   /** 切右栏 tab（编辑器 AI 按钮调用时自动展开右栏）。 */
-  function setRightTab(t: 'info' | 'review' | 'check'): void {
+  function setRightTab(t: RightTab): void {
     rightTab.value = t
     rightOpen.value = true
   }
-  function setActiveView(v: 'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn' | 'style' | 'audit'): void {
+  function setActiveView(v: ActiveView): void {
     activeView.value = v
   }
-  /** 注册/注销编辑器选区读取器（EditorView mount/unmount；选段改写用）。 */
-  function setEditorGetSelection(fn: (() => string) | null): void {
-    editorGetSelection.value = fn
-  }
-  /** 注册/注销编辑器光标偏移读取器（EditorView mount/unmount；章节拆分读光标位）。
-   *  坐标系 = 编辑器正文（fm 已剥离），调用方自行换算全文偏移——服务端拆分按含 fm
-   *  全文切片，两端换算口径见 useChapterTreeActions.doSplitHere。null = 无编辑器。 */
-  function setEditorGetCursorOffset(fn: (() => number | null) | null): void {
-    editorGetCursorOffset.value = fn
+  /** 注册/注销编辑器查询句柄（EditorView mount/unmount；选区/光标读取单点注册）。
+   *  R0916-7-P3-24：原 editorGetSelection/editorGetCursorOffset 两个函数槽各自挂卸，
+   *  生命周期两条线；读方经上方兼容读面取用，读取口不变。 */
+  function setEditorHandle(h: EditorHandle | null): void {
+    editorHandle.value = h
   }
 
   return {
@@ -450,10 +497,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setActiveView,
     pendingInsert,
     requestInsert,
-    consumeInsert,
     editorGetSelection,
-    setEditorGetSelection,
+    setEditorHandle,
     editorGetCursorOffset,
-    setEditorGetCursorOffset,
   }
 })

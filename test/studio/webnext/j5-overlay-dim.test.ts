@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 /**
- * J5 窗控压暗联动（2026-09-04 二次修复）：
- *  1. 遮罩浓度表与组件 CSS 镜像锁死——各弹窗遮罩浓度不同（设置 .45 / 书架·导出·
- *     确认 .35 / 命令面板 .25 / 书架子弹窗 .5·.3），窗控色按有效浓度合成，写死一档
- *     即「颜色不统一」（原 .45 标定值在书架 .35 遮罩下深一档）。改遮罩透明度须
- *     CSS 与 MASK_ALPHA 两处同步，本测试逐文件锁死。
+ * J5 窗控压暗联动（2026-09-04 二次修复；R0916-7-P3-22 遮罩单源收敛）：
+ *  1. 遮罩浓度单源锁——浓度唯一出处 = ui store MASK_ALPHA，ModalMask 组件按 kind
+ *     内联上色（原「MASK_ALPHA ↔ 各组件 CSS」双份镜像靠本测试读 CSS 对账，收敛后
+ *     镜像已删）：断言各 kind 渲染 rgba = MASK_ALPHA[kind] + DOM 类名保持迁出前口径
+ *     （base.css win32 animation:none 名单按类名对账）+ 迁移弹窗源码零 rgba 镜像。
+ *     改遮罩透明度只动 MASK_ALPHA 一处。
  *  2. 压暗色合成 = round(顶栏底 × (1-α))，light 0xF6 / dark 0x26（--background-secondary）。
  *  3. 多层叠开按 1-Π(1-α) 复合（书架叠确认框 / 书架叠删除确认子弹窗）。
  *  4. 遮罩开/关单拍瞬切到终值——WCO 色是 DWM 窗口属性不进网页合成器，逐帧 IPC 拼
@@ -18,31 +19,113 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { nextTick } from 'vue'
+import { mount } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { useUiStore, MASK_ALPHA, SHELF_DEEP_ALPHA } from '../../../src/studio/web-next/src/stores/ui'
+import { useUiStore, MASK_ALPHA, SHELF_DEEP_ALPHA, type OverlayKey } from '../../../src/studio/web-next/src/stores/ui'
 import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import { useTheme } from '../../../src/studio/web-next/src/composables/useTheme'
+import ModalMask from '../../../src/studio/web-next/src/components/ui/ModalMask.vue'
+import ConfirmDeleteModal from '../../../src/studio/web-next/src/components/ui/ConfirmDeleteModal.vue'
+import CreateBookModal from '../../../src/studio/web-next/src/components/ui/CreateBookModal.vue'
+import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue'
+import SplitChapterDialog from '../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue'
 
 const ROOT = resolve(__dirname, '../../../src/studio/web-next/src/components/ui')
 
-/** 从组件源码中提取指定 class 块内的 rgba(0,0,0,α) 遮罩浓度 */
-function maskAlphaIn(file: string, cls: string): number {
-  const text = readFileSync(resolve(ROOT, file), 'utf-8')
-  const m = text.match(new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(0,\\s*0,\\s*0,\\s*(0\\.\\d+)\\)`))
-  if (!m) throw new Error(`${file} 中未找到 .${cls} 的 rgba(0,0,0,α) 遮罩定义`)
-  return Number(m[1])
+/** 遮罩 DOM 类名（迁出前各弹窗自持 CSS 的类名，ModalMask.MASK_CLASS 同表） */
+const MASK_DOM_CLASS: Record<OverlayKey, string> = {
+  palette: 'palette-mask',
+  settings: 'modal-mask',
+  export: 'modal-mask',
+  shelf: 'shelf-mask',
+  confirm: 'cp-mask',
+  chapterMeta: 'meta-mask',
+  splitChapter: 'split-mask',
 }
 
-describe('J5-1: 遮罩浓度表与组件 CSS 镜像（防漂移锁）', () => {
-  it('各全屏遮罩透明度 = MASK_ALPHA / SHELF_DEEP_ALPHA', () => {
-    expect(maskAlphaIn('settings-shared.css', 'modal-mask')).toBe(MASK_ALPHA.settings)
-    expect(maskAlphaIn('ShelfModal.vue', 'shelf-mask')).toBe(MASK_ALPHA.shelf)
-    expect(maskAlphaIn('ExportDialog.vue', 'modal-mask')).toBe(MASK_ALPHA.export)
-    expect(maskAlphaIn('CommandPalette.vue', 'palette-mask')).toBe(MASK_ALPHA.palette)
-    expect(maskAlphaIn('ConfirmPrompt.vue', 'cp-mask')).toBe(MASK_ALPHA.confirm)
-    expect(maskAlphaIn('ConfirmDeleteModal.vue', 'confirm-overlay')).toBe(SHELF_DEEP_ALPHA.confirmDelete)
-    expect(maskAlphaIn('CreateBookModal.vue', 'create-overlay')).toBe(SHELF_DEEP_ALPHA.create)
+describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 CSS 零镜像）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('各 kind 渲染遮罩背景 rgba = MASK_ALPHA[kind]，类名保持迁出前口径', () => {
+    const ui = useUiStore()
+    for (const kind of Object.keys(MASK_ALPHA) as OverlayKey[]) {
+      const w = mount(ModalMask, { props: { kind, open: true } })
+      try {
+        // Teleport 由调用方自持（ModalMask 不内建）——此处直接挂载，遮罩即 wrapper 根
+        expect(ui.overlayOpen).toBe(true)
+        const el = w.find(`.${MASK_DOM_CLASS[kind]}`)
+        expect(el.exists(), `kind=${kind} 的遮罩未渲染`).toBe(true)
+        expect(el.attributes('style')).toMatch(
+          new RegExp(`rgba\\(0,\\s*0,\\s*0,\\s*${MASK_ALPHA[kind]}\\)`),
+        )
+      } finally {
+        w.unmount() // 登记位随卸载注销，不污染后续用例
+        expect(ui.overlayOpen).toBe(false)
+      }
+    }
+  })
+
+  it('迁移弹窗源码零 rgba 镜像、旧遮罩选择器不回流（只减不增锁）', () => {
+    const noMirror = (file: string, cls: string) => {
+      const src = readFileSync(resolve(ROOT, file), 'utf-8')
+      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(
+        new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`),
+      )
+    }
+    noMirror('CommandPalette.vue', 'palette-mask')
+    noMirror('ExportDialog.vue', 'modal-mask')
+    noMirror('ShelfModal.vue', 'shelf-mask')
+    noMirror('ConfirmPrompt.vue', 'cp-mask')
+    noMirror('../panels/ChapterMetaDialog.vue', 'meta-mask')
+    noMirror('../panels/SplitChapterDialog.vue', 'split-mask')
+    // settings-shared.css 的全局 .modal-mask 整块收编 ModalMask（连选择器一起走）
+    expect(readFileSync(resolve(ROOT, 'settings-shared.css'), 'utf-8')).not.toContain('.modal-mask')
+    // ModalMask 自身不写死档位——浓度只能经 MASK_ALPHA 注入（模板内联插值除外）
+    expect(readFileSync(resolve(ROOT, 'ModalMask.vue'), 'utf-8')).not.toMatch(
+      /rgba\(0,\s*0,\s*0,\s*0\.\d/,
+    )
+  })
+
+  it('书架子弹窗遮罩（ShelfModal 私有叠层）渲染面 = SHELF_DEEP_ALPHA，源码零镜像', () => {
+    // confirmDelete/create 两件是书架私有态（setShelfDeepAlpha 上报面），不进
+    // overlayStates 登记表；浓度同样单源——模板内联自 SHELF_DEEP_ALPHA，组件 CSS 零镜像
+    const noMirror = (file: string, cls: string) => {
+      const src = readFileSync(resolve(ROOT, file), 'utf-8')
+      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(
+        new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`),
+      )
+    }
+    noMirror('ConfirmDeleteModal.vue', 'confirm-overlay')
+    noMirror('CreateBookModal.vue', 'create-overlay')
+
+    const confirm = mount(ConfirmDeleteModal, {
+      props: { names: ['测试书'], deleting: false, error: null },
+      attachTo: document.body,
+    })
+    try {
+      // 本组件自持 Teleport（落 body），断言从 body 取
+      const el = document.body.querySelector('.confirm-overlay')
+      expect(el, '确认删除遮罩未渲染').not.toBeNull()
+      expect(el!.getAttribute('style')).toContain(
+        `rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.confirmDelete})`,
+      )
+    } finally {
+      confirm.unmount()
+    }
+    const create = mount(CreateBookModal, {
+      props: { name: '', kind: 'long', creating: false, error: null },
+      attachTo: document.body,
+    })
+    try {
+      const el = document.body.querySelector('.create-overlay')
+      expect(el, '新建书遮罩未渲染').not.toBeNull()
+      expect(el!.getAttribute('style')).toContain(`rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.create})`)
+    } finally {
+      create.unmount()
+    }
   })
 })
 
@@ -69,7 +152,7 @@ describe('J5-2/3/4: 压暗色按有效浓度合成 + 叠层复合 + 单拍瞬切
     prefs.setOverlayDimmed(true, MASK_ALPHA.settings)
     await vi.advanceTimersByTimeAsync(220)
     expect(lastCall().color).toBe('#878787')
-    prefs.setThemeValue('dark') // 主题落定瞬切（非遮罩路径；win 走双 rAF 延发，见 applyTheme）
+    prefs.set('theme', 'dark') // 主题落定瞬切（非遮罩路径；win 走双 rAF 延发，见 applyTheme）
     await vi.advanceTimersByTimeAsync(80) // 冲排两帧：翻转帧绘制完成后窗控才落
     expect(lastCall().color).toBe('#151515')
   })
@@ -128,12 +211,50 @@ describe('J5-2/3/4: 压暗色按有效浓度合成 + 叠层复合 + 单拍瞬切
 
   it('暗色主题下单层书架 → dark #191919', async () => {
     const prefs = usePrefsStore()
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     const ui = useUiStore()
     ui.openShelf()
     await nextTick()
     await vi.advanceTimersByTimeAsync(220)
     expect(lastCall().color).toBe('#191919') // 38 × 0.65 = 25
+  })
+})
+
+describe('R0916-7-P3-22: 章节属性/拆分对话框入遮罩登记（⌘P 守卫 + win 窗控变暗生效面）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('打开章节属性弹窗 → overlayOpen/maskAlpha 按登记档生效；关闭复位', async () => {
+    const ui = useUiStore()
+    const w = mount(ChapterMetaDialog, {
+      props: { modelValue: true, num: 1, title: '开篇' },
+    })
+    expect(ui.overlayOpen).toBe(true) // ⌘P 守卫（useHotkeys）据此刻让渡
+    expect(ui.maskAlpha).toBe(MASK_ALPHA.chapterMeta) // > 0 → win 窗控压暗生效
+    await w.setProps({ modelValue: false })
+    expect(ui.overlayOpen).toBe(false)
+    expect(ui.maskAlpha).toBe(0)
+    w.unmount()
+  })
+
+  it('打开拆分弹窗 → 同上', async () => {
+    const ui = useUiStore()
+    const w = mount(SplitChapterDialog, {
+      props: {
+        modelValue: true,
+        plan: {
+          op: 'split', docId: 'd1', chapterNo: 3, title: '第3章', newChapterNo: 9,
+          order: 3.5, headWords: 100, tailWords: 200, tailPreview: '', publishedWarning: false, planHash: 'h',
+        },
+      },
+    })
+    expect(ui.overlayOpen).toBe(true)
+    expect(ui.maskAlpha).toBe(MASK_ALPHA.splitChapter)
+    await w.setProps({ modelValue: false })
+    expect(ui.overlayOpen).toBe(false)
+    expect(ui.maskAlpha).toBe(0)
+    w.unmount()
   })
 })
 

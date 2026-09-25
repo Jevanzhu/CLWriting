@@ -5,6 +5,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { isImeComposing } from '../../shared/ime'
+import { SHELF_DEEP_ALPHA } from '../../stores/ui'
 
 const props = defineProps<{
   names: string[]
@@ -46,7 +47,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 
 <template>
   <Teleport to="body">
-    <div class="confirm-overlay" @click.self="emit('cancel')">
+    <div
+      class="confirm-overlay"
+      :style="{ background: `rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.confirmDelete})` }"
+      @click.self="emit('cancel')"
+    >
       <div ref="modalRef" class="confirm-dialog" role="dialog" aria-modal="true" aria-label="确认删除" tabindex="-1">
         <div class="confirm-head">
           <Trash2 :size="22" class="confirm-icon-danger" />
@@ -78,7 +83,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  /* R0916-7-P3-22：浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
   z-index: 300;
   animation: clw-fade-in var(--dur-fast) var(--ease-out);
 }

@@ -315,8 +315,8 @@ export function useRelationGraph(bookName: string): RelationGraph {
     try {
       const cfg = await getConfig(bookName)
       // 自动梳理默认关闭（方案③：手动按钮控成本）；作者开启（书级 ?? 全局默认）后才自动
-      if (!(cfg.auto?.relation_auto_mine ?? prefs.relationAutoMine)) return
-      const threshold = cfg.auto?.relation_mine_threshold ?? prefs.relationMineThreshold
+      if (!(cfg.auto?.relation_auto_mine ?? prefs.get('relationAutoMine'))) return
+      const threshold = cfg.auto?.relation_mine_threshold ?? prefs.get('relationMineThreshold')
       const last = cache.chapterCount ?? 0
       if (cache.currentChapters - last < threshold) return
       await onMine()

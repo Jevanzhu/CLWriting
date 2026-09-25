@@ -7,8 +7,8 @@
  * 进程列表/代理日志。本端点让持有 token 的客户端（POST 走写闸：Origin + 常量时间
  * token 头校验）换取一次性短时效 ticket，SSE 连接改带 `?ticket=`；token 不再出 URL。
  * ticket 一次性（连接校验即消费）+ 60s 过期，仅作「拿到 boot 的客户端」凭据中转，
- * 不承诺防本机进程（ee-P2-12 同源口径）。`?token=` 旧通道保留（e2e/兼容期，注释
- * 见 stream.ts 校验处），新前端零配置自动切换。
+ * 不承诺防本机进程（ee-P2-12 同源口径）。R0916-7-P3-19：`?token=` 旧通道已两端同删
+ * （服务端拒收、前端换票失败不再回退），SSE 凭据只走 ticket 或 `x-studio-token` 头。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'

@@ -6,10 +6,9 @@
  * 可覆盖）直连——两处指向不同实例（多实例/代理命中旧进程）时 SSE 侧 token 对不上，
  * 恒 401/403 fail-closed 退避且无任何诊断。修复：借 probeSseBusy 的 fetch 探测状态码，
  * dev 下连续 3 次 401/403 → console.warn 提示一次双基址可能失配；非 401/403 计数复位，
- * onopen / 切书复位计数与已告位（对齐 busy429Notified/ticketFallbackWarned「同纪元
- * 一次」惯例）。
+ * onopen / 切书复位计数与已告位（对齐 busy429Notified「同纪元一次」惯例）。
  *
- * 桩结构对齐 r51-h5-sse-ticket-warn-dedupe（MockES + fetch stub + settle/failClosed 泵）。
+ * 桩结构对齐 sse-ticket.test.ts（MockES + fetch stub + settle/failClosed 泵）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -79,8 +78,8 @@ async function settle(): Promise<void> {
 
 /**
  * 模拟 fail-closed（EventSource 非 2xx 断连）：onerror 触发退避重连 + 探测。
- * 退避链首档 0ms、其后 4s/8s/16s…（R42-1 档位）——连打多轮必进秒级档，r51-h5
- * 先例的「20ms 真实泵」只够首档；这里统一用 fake timers 推 61s 覆盖任意档
+ * 退避链首档 0ms、其后 4s/8s/16s…（R42-1 档位）——连打多轮必进秒级档，
+ * 「20ms 真实泵」只够首档；这里统一用 fake timers 推 61s 覆盖任意档
  * （探测 fetch 桩即返、8s abort timer 在 finally 清掉，被推无副作用）。
  */
 async function failClosed(es: MockES): Promise<void> {

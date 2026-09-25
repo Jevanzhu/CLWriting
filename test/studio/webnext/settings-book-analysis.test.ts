@@ -81,8 +81,8 @@ beforeEach(() => {
 describe('SettingsBookAnalysis 知识检索（本书组）', () => {
   it('本书开关 on → mutator 用生效值写 rag.enabled + rag.provider（全局未选 provider 则不落键）', async () => {
     const prefs = usePrefsStore()
-    prefs.setRagEnabled(true)
-    prefs.setRagProvider('rag-a')
+    prefs.set('ragEnabled', true)
+    prefs.set('ragProvider', 'rag-a')
     const wrapper = await mountOpen()
     const run = captureMutator()
     await wrapper.find('input[aria-label="知识检索使用独立设定"]').setValue(true)
@@ -190,7 +190,7 @@ describe('SettingsBookAnalysis 知识检索（本书组）', () => {
   })
 
   it('生效启用（本书开关 off + 全局默认 on）→ 显示建立索引入口', async () => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     const wrapper = await mountOpen()
     expect(wrapper.find('.rag-build-row').exists()).toBe(true)
     expect(wrapper.text()).toContain('建立索引')
@@ -202,7 +202,7 @@ describe('SettingsBookAnalysis 知识检索（本书组）', () => {
   })
 
   it('点建立索引 → triggerRagBuild(书名) + 构建中状态（按钮置灰）', async () => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ ok: true })
     const wrapper = await mountOpen()
 
@@ -225,7 +225,7 @@ describe('SettingsBookAnalysis 知识检索（本书组）', () => {
 // 出路（断头）。本批补：失配呈现 + 「重建索引」钮 → triggerRagRebuild。
 describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
   beforeEach(() => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
   })
 
   it('indexModelMismatch=true → 失配提示 + 「重建索引」按钮渲染', async () => {
@@ -299,7 +299,7 @@ describe('SettingsBookAnalysis 短篇严格模式（本书组）', () => {
       book: { title: '短篇', genre: '现实' },
     } satisfies BookConfig)
     const prefs = usePrefsStore()
-    prefs.setDefaultShortStrict(true)
+    prefs.set('defaultShortStrict', true)
     const wrapper = await mountOpen()
 
     const sw = wrapper.find('input[aria-label="AI 机检使用独立设定"]')
@@ -352,8 +352,8 @@ describe('SettingsBookAnalysis 短篇严格模式（本书组）', () => {
 describe('SettingsBookAnalysis 关系图（本书组）', () => {
   it('本书开关 on → mutator 用生效值写 auto.relation_*（保留段内 AI 写作键）', async () => {
     const prefs = usePrefsStore()
-    prefs.setRelationAutoMine(true)
-    prefs.setRelationMineThreshold(5)
+    prefs.set('relationAutoMine', true)
+    prefs.set('relationMineThreshold', 5)
     const wrapper = await mountOpen()
     const run = captureMutator()
     await wrapper.find('input[aria-label="关系图使用独立设定"]').setValue(true)
@@ -442,7 +442,7 @@ describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await �
     const ui = useUiStore()
     const ws = useWorkspaceStore()
     const prefs = usePrefsStore()
-    prefs.setRagEnabled(false) // 全局默认关——甲书迟到值是 true
+    prefs.set('ragEnabled', false) // 全局默认关——甲书迟到值是 true
     ui.settingsOpen = true
     ws.bookName = '甲书'
     let resolveA!: (c: BookConfig) => void
@@ -477,7 +477,7 @@ describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await �
     const ui = useUiStore()
     const ws = useWorkspaceStore()
     const prefs = usePrefsStore()
-    prefs.setRagEnabled(true) // 建索引行渲染（.rag-status 可见）
+    prefs.set('ragEnabled', true) // 建索引行渲染（.rag-status 可见）
     ui.settingsOpen = true
     ws.bookName = '甲书'
     // 甲书 getConfig 立即回；getRagStatus 首调（甲）挂起、次调（乙）立即回
@@ -525,7 +525,7 @@ describe('R26-14（二十六轮）：RAG 轮询连续失败终态', () => {
 
   it('连续 5 次失败 → 停轮询 + 失败终态文本 + 按钮解禁', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ ok: true })
     mocks.getRagStatus.mockRejectedValue(new Error('服务端挂了'))
     const wrapper = await mountOpen()
@@ -555,7 +555,7 @@ describe('R26-14（二十六轮）：RAG 轮询连续失败终态', () => {
 
   it('中途成功归零：4 败 → 成功 → 再 4 败不终态，第 10 败才终态', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ ok: true })
     // 调用序：#1 mount 直调（失败不计数，直调不进轮询计数）；轮询 #2..#5 败（streak 4）、
     // #6 成功（running，归零）、#7..#10 败 → 第 10 次轮询失败才触终态
@@ -598,7 +598,7 @@ describe('R0916-7-P3-23：失败终态后重建，连败计数不继承', () => 
 
   it('达失败终态 → 点重建 → 仍容忍到上限才再终态（不等价于首败即停）', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ ok: true })
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockRejectedValue(new Error('服务端挂了'))
@@ -643,7 +643,7 @@ describe('R28-26（二十八轮）：RAG 轮询重叠去重（inFlight 旗标）
 
   it('慢响应在途 → 后续拍跳过不并发；失败只计一次，不提前进终态', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ ok: true })
     // 调用序：#1 mount 直调（rejected，不进轮询计数）；#2 轮询第 1 拍 = 慢请求（挂起）；
     // 其余调用立即 rejected
@@ -701,7 +701,7 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
 
   /** 挂载时 status 即模型失配（R26-16 标记）→「重建索引」按钮在场；返回 wrapper。 */
   async function mountWithMismatch(): Promise<ReturnType<typeof mount>> {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
@@ -743,7 +743,7 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
   })
 
   it('非本组件触发的失败（打开页面即读到 lastResult 失败）→ 不提示（不误报）', async () => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 0, chunkCount: 0, model: null,
       indexState: 'unbuilt', indexModelMismatch: false,
@@ -758,7 +758,7 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
 
   it('增量「建立索引」失败 → 不出「已清空」提示（build 不清库，R0911b-P2①④ 修失实文案）', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagBuild.mockResolvedValue({ started: true })
     const wrapper = await mountOpen()
     await wrapper.find('.rag-build-row button').trigger('click') // 建立索引（增量）
@@ -803,7 +803,7 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     const ui = useUiStore()
     const ws = useWorkspaceStore()
     const prefs = usePrefsStore()
-    prefs.setRagEnabled(true)
+    prefs.set('ragEnabled', true)
     ui.settingsOpen = true
     ws.bookName = '甲书'
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
@@ -843,7 +843,7 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
 
   it('indexModelMismatch → 重建按钮出现 + 状态文案给出路；点击调 triggerRagRebuild 且两按钮同禁', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
@@ -870,7 +870,7 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
   })
 
   it('普通失败（错误不指向重建）→ 重建按钮不出现', async () => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 0, chunkCount: 0, model: null,
       indexState: 'unbuilt', indexModelMismatch: false,
@@ -883,7 +883,7 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
   })
 
   it('build 失败且错误指向重建（维度失配 R26-16 文案）→ 重建按钮出现（错误信封出路）', async () => {
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
       indexState: 'built', indexModelMismatch: false, // 维度失配：模型同名，标记不亮

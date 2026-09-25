@@ -146,7 +146,8 @@ describe('B-2 附批：读 dirty 前先落防抖尾', () => {
     await openDoc('d1')
     const ws = useWorkspaceStore()
     ws.openTab('d1') // activeDocId = d1（doSplitHere 前置复检）
-    ws.setEditorGetCursorOffset(() => 5)
+    // R0916-7-P3-24：光标读取器随单句柄注册（原 setEditorGetCursorOffset 独立函数槽退役）
+    ws.setEditorHandle({ getSelection: () => '', getCursorOffset: () => 5 })
     windowedInput('d1')
     // 窗内态取证：内容未落回 store（改前判式在此读到 dirty=false 整段放行）
     expect(useDocStore().get('d1')!.content).not.toContain(WINDOWED)

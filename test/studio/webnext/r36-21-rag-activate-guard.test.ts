@@ -89,7 +89,7 @@ afterEach(() => {
 describe('R36-21：onActivated 续轮询「仍激活」复检', () => {
   it('续轮询刷新在途关窗 → settle 后不新起轮询（修复前后台持续打旧书 status）', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
 
     // 调用序：#1 mount 直调（idle）；#2 mount onActivated 直调（idle）；
     // #3 轮询第 1 拍（running，保持构建中）；#4 重新 activate 的 refresh（挂起）
@@ -138,7 +138,7 @@ describe('R36-21：onActivated 续轮询「仍激活」复检', () => {
 
   it('仍激活：重新开窗续轮询正常（不误伤）', async () => {
     vi.useFakeTimers()
-    usePrefsStore().setRagEnabled(true)
+    usePrefsStore().set('ragEnabled', true)
 
     let n = 0
     mocks.getRagStatus.mockImplementation(() => {

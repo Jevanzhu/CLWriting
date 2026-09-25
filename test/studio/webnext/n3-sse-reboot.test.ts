@@ -52,9 +52,10 @@ beforeEach(() => {
   mocks.rebootstrap.mockImplementation(async () => {})
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
-  // 鉴权契约②：连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——统一桩 404
-  // （服务端未就绪 → 回退 ?token= 旧通道，本文件断言口径「带 token 连接」不变）
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })))
+  // 鉴权契约②：连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——统一桩 200
+  // {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连；本文件断言口径
+  // 改为「带 ticket 连接」）
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
 })
 
 /** 泵微任务链：让 doConnect 的「re-boot → 换票（404 回退）→ new EventSource」链走到位 */
@@ -81,7 +82,8 @@ describe('N-3 · SSE token null 自愈', () => {
     await settle()
     expect(mocks.rebootstrap).toHaveBeenCalledTimes(1)
     expect(MockES.instances).toHaveLength(1)
-    expect(MockES.instances[0]!.url).toContain('token=T1')
+    expect(MockES.instances[0]!.url).toContain('ticket=tk')
+    expect(MockES.instances[0]!.url).not.toContain('token=') // token 不进 URL（契约②）
   })
 
   it('token 已存在 → 不触发 rebootstrap（守卫不误伤正常路径）', async () => {
@@ -91,7 +93,7 @@ describe('N-3 · SSE token null 自愈', () => {
     await settle()
     expect(mocks.rebootstrap).not.toHaveBeenCalled()
     expect(MockES.instances).toHaveLength(1)
-    expect(MockES.instances[0]!.url).toContain('token=T0')
+    expect(MockES.instances[0]!.url).toContain('ticket=tk')
   })
 
   it('re-boot 失败（token 仍 null）→ 照常连接（不带 token）；fail-closed 退避重连时再次走 re-bootstrap 通道', async () => {

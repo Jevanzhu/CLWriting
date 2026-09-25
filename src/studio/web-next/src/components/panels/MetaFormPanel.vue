@@ -215,7 +215,7 @@ watch(
     const gen = targetGen.begin()
     if (!n) return
     try {
-      const v = (await getConfig(n)).book?.chapter_target_words ?? prefs.defaultChapterTargetWords
+      const v = (await getConfig(n)).book?.chapter_target_words ?? prefs.get('defaultChapterTargetWords')
       if (targetGen.stale(gen)) return
       globalChapterTarget.value = v
     } catch {

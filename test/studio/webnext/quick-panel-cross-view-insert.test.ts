@@ -124,7 +124,7 @@ describe('F002: 设定速查跨视图插入', () => {
     await flushPromises()
 
     expect(toastSpy).toHaveBeenCalledWith('已挂起：回到编辑器视图后自动插入', 'info')
-    expect(ws.pendingInsert).toEqual({ text: '势力', tick: 1 }) // 入槽待消费（修复前点击零反馈且无人消费）
+    expect(ws.pendingInsert?.text).toBe('势力') // 入槽待消费（修复前点击零反馈且无人消费）
   })
 
   it('切回 editor 视图（挂载 EditorView）→ 挂起信号被消费，插入发生、槽位清空', async () => {
@@ -144,6 +144,8 @@ describe('F002: 设定速查跨视图插入', () => {
     await flushPromises()
 
     await vi.waitFor(() => expect(mocks.insertText).toHaveBeenCalledWith('势力'))
-    expect(ws.pendingInsert).toBeNull() // 消费后清槽（P2-21 仅插入成功才消费）
+    // R0916-7-P3-24：仅插入成功才占消费权（P2-21 语义保持）——消费后令牌惰性
+    //（重复消费 null），槽位不再走读后置 null
+    expect(ws.pendingInsert?.consume()).toBeNull()
   })
 })

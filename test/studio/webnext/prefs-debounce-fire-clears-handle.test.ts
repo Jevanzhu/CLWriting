@@ -65,7 +65,7 @@ describe('R0917-6-P3-3：防抖 fire 后关窗不空写', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setSize(24)
+    prefs.set('proseSize', 24)
     await vi.advanceTimersByTimeAsync(600) // 防抖 fire → PUT #1 完成落盘
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(1)
 
@@ -85,7 +85,7 @@ describe('R0917-6-P3-3：防抖 fire 后关窗不空写', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setSize(26)
+    prefs.set('proseSize', 26)
     await vi.advanceTimersByTimeAsync(500) // 防抖 fire → PUT 发出并挂起
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(1)
 
@@ -106,14 +106,14 @@ describe('R0917-6-P3-3：防抖 fire 后关窗不空写', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setThemeValue('dark') // 500ms 未到即关窗
+    prefs.set('theme', 'dark') // 500ms 未到即关窗
     await prefs.flushPendingPersist()
     await vi.advanceTimersByTimeAsync(0)
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(1)
     expect(putGlobalPrefsMock.mock.calls[0]?.[0]).toMatchObject({ theme: 'dark' })
 
     // 冲刷后再改 + 落防抖：单飞照常
-    prefs.setSize(30)
+    prefs.set('proseSize', 30)
     await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock.mock.calls).toHaveLength(2)
   })

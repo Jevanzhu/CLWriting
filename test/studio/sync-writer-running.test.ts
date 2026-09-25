@@ -36,9 +36,10 @@ interface SyncFrame {
 /** 接入 SSE 读首帧 sync 快照（返回解析结果与断开句柄） */
 async function readSyncFrame(): Promise<{ frame: SyncFrame; abort: () => void }> {
   const ac = new AbortController()
+  // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
   const r = await fetch(
-    `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(studio.token)}`,
-    { signal: ac.signal },
+    `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream`,
+    { signal: ac.signal, headers: { 'x-studio-token': studio.token } },
   )
   expect(r.status).toBe(200)
   const reader = r.body!.getReader()

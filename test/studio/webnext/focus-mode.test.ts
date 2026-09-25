@@ -333,10 +333,10 @@ describe('FocusFormatBar: 专注排版浮动条', () => {
     const ranges = w.findAll('.ffb-range')
     expect(ranges).toHaveLength(3)
     // 滑杆初值与 prefs 当前值一致（所见即所设）
-    expect((ranges[0]!.element as HTMLInputElement).value).toBe(String(prefs.proseSize))
-    expect((ranges[1]!.element as HTMLInputElement).value).toBe(String(prefs.proseLh))
+    expect((ranges[0]!.element as HTMLInputElement).value).toBe(String(prefs.get('proseSize')))
+    expect((ranges[1]!.element as HTMLInputElement).value).toBe(String(prefs.get('proseLh')))
     expect((ranges[2]!.element as HTMLInputElement).value).toBe(String(prefs.effectivePageWidth))
-    expect(w.find('.ffb-val').text()).toBe(`${prefs.proseSize}px`)
+    expect(w.find('.ffb-val').text()).toBe(`${prefs.get('proseSize')}px`)
     expect(w.find('.ffb-select').exists()).toBe(false)
   })
 
@@ -344,7 +344,7 @@ describe('FocusFormatBar: 专注排版浮动条', () => {
     const prefs = usePrefsStore()
     const w = mount(FocusFormatBar)
     await w.findAll('.ffb-range')[0]!.setValue(20)
-    expect(prefs.proseSize).toBe(20)
+    expect(prefs.get('proseSize')).toBe(20)
     expect(document.documentElement.style.getPropertyValue('--prose-size')).toBe('20px')
   })
 
@@ -355,14 +355,14 @@ describe('FocusFormatBar: 专注排版浮动条', () => {
 
     // 全局态（bookPageWidth=null）：写全局默认
     await widthRange().setValue(800)
-    expect(prefs.pageWidth).toBe(800)
+    expect(prefs.get('pageWidth')).toBe(800)
     expect(prefs.bookPageWidth).toBeNull()
 
     // 书级覆盖态：label 带「本书」标记，只写书级，全局不动
     prefs.bookPageWidth = 800
     await widthRange().setValue(900)
     expect(prefs.bookPageWidth).toBe(900)
-    expect(prefs.pageWidth).toBe(800)
+    expect(prefs.get('pageWidth')).toBe(800)
     expect(w.findAll('.ffb-label')[2]!.text()).toContain('本书')
   })
 
@@ -377,7 +377,7 @@ describe('FocusFormatBar: 专注排版浮动条', () => {
     const cnOptions = selects[0]!.findAll('option').map((o) => o.element.value)
     expect(cnOptions).toContain('PingFang SC')
     await selects[0]!.setValue('PingFang SC')
-    expect(prefs.proseFontCn).toBe('PingFang SC')
+    expect(prefs.get('proseFontCn')).toBe('PingFang SC')
   })
 
   it('浮动条在场按 Esc → 直接退出专注（浮动条非弹层，不进 Esc 让渡名单）', () => {

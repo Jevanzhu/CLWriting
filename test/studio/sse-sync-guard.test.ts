@@ -28,9 +28,10 @@ afterAll(() => studio.close())
 describe('B-20: 初始 sync 帧走 safeWrite 守卫', () => {
   it('首帧为 sync 快照；客户端断开后服务存活', async () => {
     const ac = new AbortController()
+    // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
     const r = await fetch(
-      `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(studio.token)}`,
-      { signal: ac.signal },
+      `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream`,
+      { signal: ac.signal, headers: { 'x-studio-token': studio.token } },
     )
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toContain('text/event-stream')

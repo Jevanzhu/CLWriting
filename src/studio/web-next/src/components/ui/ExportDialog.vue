@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { isImeComposing } from '../../shared/ime' // R33-82
+import ModalMask from './ModalMask.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -76,7 +77,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <div v-if="ui.exportOpen" class="modal-mask" @click.self="ui.closeExport">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <ModalMask :open="ui.exportOpen" kind="export" @mask-click="ui.closeExport">
       <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1" data-testid="export-dialog">
         <div class="modal-head">
           <span>导出定稿</span>
@@ -119,21 +121,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </button>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </Teleport>
 </template>
 
 <style scoped>
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 150;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: clw-overlay var(--dur-norm) var(--ease-out);
-}
 .export-modal {
   width: min(420px, calc(100vw - 32px));
   background: var(--background-primary);

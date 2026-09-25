@@ -2,7 +2,7 @@
  * stream-ticket 端点集成测试（T2 批：SSE 凭据信道收敛）。
  *
  * 覆盖：POST /api/stream-ticket 签发（写闸）→ SSE `?ticket=` 过闸（一次性消费）→
- * 复用同 ticket 403 → `?token=` 旧通道兼容仍放行 → 过期 ticket 403。
+ * 复用同 ticket 403 → `?token=` 旧通道已删（携带亦 403，R0916-7-P3-19）→ 过期 ticket 403。
  * SSE 建流只验到「过凭据闸拿到 200 event-stream」，不驱动生成（底层单测兜底）。
  */
 import http from 'node:http'
@@ -26,8 +26,9 @@ function ticketsOf(s: http.Server): StreamTicketStore {
   return (s as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets!
 }
 
-/** 打 SSE 端点，返回状态码（不等 body 流，头到手即断）；base 可指定实例（R73-49 多实例用） */
-function openStreamOn(base: string, query: string): Promise<number> {
+/** 打 SSE 端点，返回状态码（不等 body 流，头到手即断）；base 可指定实例（R73-49 多实例用）；
+ *  extraHeaders 供凭据通道用例挂 x-studio-token 头（R0916-7-P3-19 起 `?token=` 已删） */
+function openStreamOn(base: string, query: string, extraHeaders: Record<string, string> = {}): Promise<number> {
   return new Promise((resolve) => {
     const u = new URL(base)
     const r = http.request(
@@ -36,7 +37,7 @@ function openStreamOn(base: string, query: string): Promise<number> {
         port: u.port,
         path: `/api/books/${encodeURIComponent(BOOK)}/stream${query}`,
         method: 'GET',
-        headers: { accept: 'text/event-stream' },
+        headers: { accept: 'text/event-stream', ...extraHeaders },
       },
       (res) => {
         const status = res.statusCode ?? 0
@@ -49,8 +50,8 @@ function openStreamOn(base: string, query: string): Promise<number> {
   })
 }
 
-function openStream(query: string): Promise<number> {
-  return openStreamOn(baseUrl, query)
+function openStream(query: string, extraHeaders: Record<string, string> = {}): Promise<number> {
+  return openStreamOn(baseUrl, query, extraHeaders)
 }
 
 /** 带 token 头的 POST（与前端 fetchStreamTicket 同形：无 body）；base/token 可指定实例 */
@@ -134,8 +135,10 @@ describe('stream-ticket 端点', () => {
     expect(await openStream(`?ticket=${encodeURIComponent(t)}`)).toBe(403)
   })
 
-  it('SSE ?token= 旧通道兼容仍放行（e2e/兼容期）', async () => {
-    expect(await openStream(`?token=${encodeURIComponent(token)}`)).toBe(200)
+  it('SSE `?token=` 旧通道已删：携带有效长期 token 亦 403（R0916-7-P3-19，凭据只走 ticket/头）', async () => {
+    expect(await openStream(`?token=${encodeURIComponent(token)}`)).toBe(403)
+    // 对照：同凭据走 x-studio-token 头 → 过闸 200（拒收是通道删除，不是凭据失效）
+    expect(await openStream('', { 'x-studio-token': token })).toBe(200)
   })
 
   it('过期 ticket → 403；未知/空 ticket → false（consume 单元口径，注入本实例票库）', async () => {
@@ -180,8 +183,9 @@ describe('R64-27（十二轮）：SSE 鉴权前移——403 与书名存在性�
 // 之后——原闸首即烧票，429/404 时一次性 ticket 被白白作废，EventSource 自动重连带
 // 废票反复 403。鉴权顺序语义不变（R64-27 防探测：无凭据仍先 403）。
 describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后）', () => {
-  /** 保持打开的 SSE 连接（占连接配额）；返回关闭句柄（收尾必须关——server.close 等） */
-  function openStreamHold(query: string): Promise<() => void> {
+  /** 保持打开的 SSE 连接（占连接配额）；返回关闭句柄（收尾必须关——server.close 等）。
+   *  凭据走 x-studio-token 头（R0916-7-P3-19 起 `?token=` 通道已删） */
+  function openStreamHold(query = ''): Promise<() => void> {
     return new Promise((resolve) => {
       const u = new URL(baseUrl)
       const r = http.request(
@@ -190,7 +194,7 @@ describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后�
           port: u.port,
           path: `/api/books/${encodeURIComponent(BOOK)}/stream${query}`,
           method: 'GET',
-          headers: { accept: 'text/event-stream' },
+          headers: { accept: 'text/event-stream', 'x-studio-token': token },
         },
         (res) => {
           res.on('data', () => {}) // 挂后台消费，防背压缓冲（连接活着即可）
@@ -205,8 +209,8 @@ describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后�
   it('连接数满 429 → ticket 未被消费；腾出名额后同票可用', async () => {
     const closers: Array<() => void> = []
     try {
-      // 占满 5 条（MAX_SSE_PER_BOOK，凭据走 token 旧通道——与被测 ticket 无关）
-      for (let i = 0; i < 5; i++) closers.push(await openStreamHold(`?token=${encodeURIComponent(token)}`))
+      // 占满 5 条（MAX_SSE_PER_BOOK，凭据走 header——与被测 ticket 无关）
+      for (let i = 0; i < 5; i++) closers.push(await openStreamHold())
       await new Promise((r) => setTimeout(r, 100)) // 等服务端登记句柄
       const t = (await postTicket(true)).json.ticket!
       // 第 6 条：429（BUSY）——修复前此步已把 ticket 烧掉

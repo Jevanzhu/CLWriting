@@ -17,6 +17,11 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
 vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   interrupt: vi.fn(),
 }))
+// R0916-7-P3-25：夹具经泛型 set 写主题会排防抖 PUT——mock 掉防真 fetch 冒烟
+vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
+  getGlobalPrefs: vi.fn(async () => ({})),
+  putGlobalPrefs: vi.fn(async () => ({})),
+}))
 vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   getProviders: vi.fn(),
   setChatTier: vi.fn(),
@@ -298,22 +303,22 @@ describe('useSystemFonts / selValue', () => {
 describe('useTheme', () => {
   it('theme 读 prefs + setTheme 写 prefs', async () => {
     const prefs = (await import('../../../src/studio/web-next/src/stores/prefs')).usePrefsStore()
-    prefs.theme = 'light'
+    prefs.set('theme', 'light')
     const t = useTheme()
     expect(t.theme.value).toBe('light')
     t.setTheme('dark')
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
     // happy-dom 无 startViewTransition → 直接 apply
   })
 
   it('toggle 亮暗切换', async () => {
     const prefs = (await import('../../../src/studio/web-next/src/stores/prefs')).usePrefsStore()
-    prefs.theme = 'light'
+    prefs.set('theme', 'light')
     const t = useTheme()
     t.toggle()
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
     t.toggle()
-    expect(prefs.theme).toBe('light')
+    expect(prefs.get('theme')).toBe('light')
   })
 })
 

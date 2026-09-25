@@ -3,9 +3,11 @@
  *
  * 鉴权契约②回归：SSE 连接先 POST /api/stream-ticket 换一次性 ticket，再以 ?ticket= 开流。
  *
- * 覆盖：ticket 成功换得 → ?ticket= 连接；ticket 端点 404 / 异常 / 响应无 ticket →
- * 回退 ?token= 旧通道（过渡期兼容，服务端未上线时保 e2e 绿）；fail-closed 退避重连
- * 每轮重取新 ticket；token null 的 re-bootstrap 通道（N-3）不受影响。
+ * 覆盖：ticket 成功换得 → ?ticket= 连接；fail-closed 退避重连每轮重取新 ticket（一次性
+ * 短时效）；token null 的 re-bootstrap 通道（N-3）不受影响。
+ * R0916-7-P3-19：换票失败（404/网络/5xx/超时）不再回退 ?token= 旧通道（回退通道两端
+ * 同删——长期 token 拼进 URL 与契约「token 不进 URL」相悖，前后端同包同版发布无过渡
+ * 兼容对象）——本轮不开连，并入既有 fail-closed 退避重连（同档位公式、同调度点）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -22,6 +24,7 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
 }))
 
 import { useSse } from '../../../src/studio/web-next/src/composables/useSse'
+import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
 class MockES {
   static instances: MockES[] = []
@@ -90,39 +93,79 @@ describe('契约② · SSE ticket 化', () => {
     expect(MockES.instances[0]!.url).not.toContain('token=')
   })
 
-  it('ticket 端点 404（服务端未就绪）→ 回退 ?token= 旧通道（过渡期兼容）', async () => {
-    stubTicketFetch(() => new Response('Not Found', { status: 404 }))
+  // R0916-7-P3-19：换票失败三形态（404 / 网络错 / 5xx 信封）统一断言——不回退 ?token=
+  // 开连，并入既有退避（首档 0ms 立即换票重试）；恢复后连接只带一次性 ticket。
+  it('换票 404 → 不回退 ?token=：本轮不开连，退避 0ms 重试换票成功后 ?ticket= 开连', async () => {
+    vi.useFakeTimers()
+    let healthy = false
+    const fetchFn = stubTicketFetch((url) => {
+      if (url.endsWith('/api/stream-ticket')) {
+        return healthy
+          ? new Response(JSON.stringify({ ticket: 'K1' }), { status: 200 })
+          : new Response('Not Found', { status: 404 })
+      }
+      return new Response('{}')
+    })
     useSse(ref('书A'))
     await settle()
+    expect(fetchFn).toHaveBeenCalledTimes(1) // 仅换票一次
+    expect(MockES.instances).toHaveLength(0) // 修复点：不再回退 ?token= 开连
+
+    healthy = true
+    await vi.advanceTimersByTimeAsync(0) // 退避首档 0ms：立即换票重试
+    expect(fetchFn).toHaveBeenCalledTimes(2)
     expect(MockES.instances).toHaveLength(1)
-    expect(MockES.instances[0]!.url).toContain('?token=T0')
+    expect(MockES.instances[0]!.url).toContain('?ticket=K1')
+    expect(MockES.instances[0]!.url).not.toContain('token=') // 长期 token 不进 URL
   })
 
-  it('ticket 请求网络异常 → 同样回退 ?token= 旧通道（ticket 层故障不单独打断 SSE）', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw new TypeError('fetch failed')
-      }),
-    )
+  it('换票网络异常 → 同样并入退避重连（ticket 层故障不单独打断 SSE 节奏）', async () => {
+    vi.useFakeTimers()
+    let healthy = false
+    stubTicketFetch((url) => {
+      if (url.endsWith('/api/stream-ticket')) {
+        if (!healthy) throw new TypeError('fetch failed')
+        return new Response(JSON.stringify({ ticket: 'K2' }), { status: 200 })
+      }
+      return new Response('{}')
+    })
     useSse(ref('书A'))
     await settle()
+    expect(MockES.instances).toHaveLength(0) // 不回退开连
+
+    healthy = true
+    await vi.advanceTimersByTimeAsync(0)
     expect(MockES.instances).toHaveLength(1)
-    expect(MockES.instances[0]!.url).toContain('?token=T0')
+    expect(MockES.instances[0]!.url).toContain('?ticket=K2')
+    expect(MockES.instances[0]!.url).not.toContain('token=')
   })
 
-  it('ticket 响应体无 ticket 字段（500 信封等）→ 回退旧通道', async () => {
-    stubTicketFetch(() => new Response(JSON.stringify({ error: '内部错误' }), { status: 500 }))
+  it('换票 500（无 ticket 字段信封）→ 并入退避重连', async () => {
+    vi.useFakeTimers()
+    let healthy = false
+    stubTicketFetch((url) => {
+      if (url.endsWith('/api/stream-ticket')) {
+        return healthy
+          ? new Response(JSON.stringify({ ticket: 'K3' }), { status: 200 })
+          : new Response(JSON.stringify({ error: '内部错误' }), { status: 500 })
+      }
+      return new Response('{}')
+    })
     useSse(ref('书A'))
     await settle()
-    expect(MockES.instances[0]!.url).toContain('?token=T0')
+    expect(MockES.instances).toHaveLength(0)
+
+    healthy = true
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockES.instances).toHaveLength(1)
+    expect(MockES.instances[0]!.url).toContain('?ticket=K3')
   })
 
   it('fail-closed（403，readyState=CLOSED）→ 退避重连时重取新 ticket（一次性短时效，不复用旧票）', async () => {
     vi.useFakeTimers()
     let call = 0
     stubTicketFetch((url) => {
-      // R73-67：fail-closed 现在附带一次 429 探测（GET /stream?token= 旧通道）——
+      // R73-67：fail-closed 现在附带一次 429 探测（HEAD /stream，header 通道）——
       // 该请求不走换票端点，桩按 URL 分流只对 /api/stream-ticket 发号（生产语义）
       if (!String(url).endsWith('/api/stream-ticket')) return new Response('{}', { status: 200 })
       call++
@@ -185,10 +228,10 @@ describe('契约② · SSE ticket 化', () => {
 
 // R34D-23（三十四轮）：换票超时——服务端半死（接受连接不回包）时裸 fetch 永不
 // settle，doConnect 悬挂在换票 await：不建 EventSource、无 onerror 退避接管，SSE
-// 静默断连无自愈。修复：AbortController + 5s 超时（对齐 probeSseBusy/boot 同族手法），
-// 超时按既有失败语义回退 ?token= 旧通道开连。
+// 静默断连无自愈。修复：AbortController + 5s 超时（对齐 probeSseBusy/boot 同族手法）。
+// R0916-7-P3-19：超时按换票失败处理——不回退 ?token= 开连，并入既有退避重连。
 describe('R34D-23 · 换票超时自愈', () => {
-  it('ticket 端点不回包 → 5s 超时 abort → 回退 ?token= 旧通道开连（不再悬挂）', async () => {
+  it('ticket 端点不回包 → 5s 超时 abort → 不回退开连，退避到点重试换票（不再悬挂）', async () => {
     vi.useFakeTimers()
     // 模拟真实 fetch：不回包，但 abort 信号到达即 reject（超时通道可观察）
     const fetchFn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -205,43 +248,83 @@ describe('R34D-23 · 换票超时自愈', () => {
     useSse(ref('书A'))
     await vi.advanceTimersByTimeAsync(0) // doConnect 链走到换票挂起
     expect(fetchFn).toHaveBeenCalledTimes(1)
-    expect(MockES.instances).toHaveLength(0) // 未超时：不回退也不开连（修复前此后永久悬挂）
+    expect(MockES.instances).toHaveLength(0) // 未超时：不开连
 
-    await vi.advanceTimersByTimeAsync(5_000) // TICKET_TIMEOUT_MS 到点 abort
-    for (let i = 0; i < 20; i++) await Promise.resolve() // 泵 catch→回退→开连微任务链
-    expect(MockES.instances).toHaveLength(1) // 修复点：回退旧通道开连，SSE 不再静默断连
-    expect(MockES.instances[0]!.url).toContain('?token=T0')
-    expect(MockES.instances[0]!.url).not.toContain('ticket=')
+    await vi.advanceTimersByTimeAsync(5_001) // TICKET_TIMEOUT_MS 5s 到点 abort（+1ms：tick 内排程的 0ms 退避档在 sinon 下落在下一毫刻）
+    expect(MockES.instances).toHaveLength(0) // 修复点：不回退 ?token= 开连（原实现此处已开）
+    expect(fetchFn).toHaveBeenCalledTimes(2) // 并入退避：到点再换票（仍挂起，节奏保留）
   })
 })
 
-// R50-D2-2（五十轮）：换票失败回退 ?token= 旧通道把令牌拼进 URL，与契约「token 不进
-// URL」目标相悖且原实现无告警——回退行为不动（e2e 过渡期兼容依赖），补 console.warn
-// 留痕供诊断。
-describe('R50-D2-2 · 换票失败回退留痕', () => {
-  it('ticket 失败（404）→ URL 含 token 且 console.warn 留痕；换票成功不告警', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    /** useSse 在组件外调用会带一条 Vue onUnmounted 生命周期 warn（与本修复无关）——
-     *  断言收窄到本修复的 [sse] 前缀消息 */
-    const sseWarns = (): string[] => warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('[sse]'))
-    try {
-      // 先验成功路径不告警
-      stubTicketFetch(() => new Response(JSON.stringify({ ticket: 'OK1' }), { status: 200 }))
-      useSse(ref('书A'))
-      await settle()
-      expect(MockES.instances[0]!.url).toContain('?ticket=OK1')
-      expect(sseWarns()).toEqual([])
+// R0916-7-P3-19：纪元状态对象（SseEpochState）复位归零——构造 error → 重连成功（onopen）
+// 后各字段无残留：退避阶数回 0ms 起阶、429 指引已告位归零、401 自愈截断连记解除武装。
+describe('R0916-7-P3-19 · 纪元状态复位归零', () => {
+  /** fail-closed 一轮并泵完「退避到点 → 换票 → 开连」链；返回新连接 */
+  async function failClosedRound(es: MockES, delayMs: number): Promise<MockES> {
+    es.readyState = MockES.CLOSED
+    es.onerror?.()
+    const before = MockES.instances.length
+    await vi.advanceTimersByTimeAsync(delayMs)
+    await settle()
+    expect(MockES.instances).toHaveLength(before + 1)
+    return MockES.instances[MockES.instances.length - 1]!
+  }
 
-      // 换桩：404 失败 → 回退 ?token=（行为保留）+ warn 留痕（修复点）
-      stubTicketFetch(() => new Response('Not Found', { status: 404 }))
-      useSse(ref('书B'))
-      await settle()
-      expect(MockES.instances).toHaveLength(2)
-      expect(MockES.instances[1]!.url).toContain('?token=T0')
-      expect(sseWarns()).toHaveLength(1)
-      expect(sseWarns()[0]).toContain('?token=')
-    } finally {
-      warnSpy.mockRestore()
-    }
+  it('退避档位与 429 已告位复位：onopen 后再故障首档仍 0ms，429 指引可再弹', async () => {
+    vi.useFakeTimers()
+    const probeStatus = 429 // 探测恒 429：每轮 fail-closed 出指引（首次）
+    stubTicketFetch((url) => {
+      if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'K' }), { status: 200 })
+      return new Response('', { status: probeStatus })
+    })
+    // 直接 spy ui.toast 动作计数——ui store 对同文案同级别 toast 合并（R32-34），
+    // toasts 数组长度数不出重复弹出
+    const toastSpy = vi.spyOn(useUiStore(), 'toast').mockImplementation(() => {})
+    useSse(ref('书A'))
+    await settle()
+
+    // 纪元内：fail-closed → 探测 429 弹指引一次；0ms 重连
+    const es1 = await failClosedRound(MockES.instances[0]!, 0)
+    expect(toastSpy).toHaveBeenCalledTimes(1)
+
+    // 重连成功 = 新纪元复位
+    es1.onopen?.()
+    await settle()
+
+    // 无残留①：退避阶数归零——再 fail-closed 首档仍 0ms（残留则 4s）
+    await failClosedRound(es1, 0)
+    // 无残留②：busy429Notified 归零——同轮探测 429 再次弹指引（已告位未复位则此处不来）
+    expect(toastSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('401 自愈截断连记复位：onopen 后首见 401 重新获得完整自愈（截断态不跨纪元压制）', async () => {
+    vi.useFakeTimers()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const probeStatus = 401
+    stubTicketFetch((url) => {
+      if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'K' }), { status: 200 })
+      return new Response('', { status: probeStatus })
+    })
+    useSse(ref('书A'))
+    await settle()
+    const fails = (): string[] => warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('双基址'))
+
+    // 纪元内连续三轮探测 401：armed 自愈（rb#1）→ strike1 自愈（rb#2）→ strike2 达阈值
+    // 指引一次并截断（不再逐轮自愈）
+    let es = await failClosedRound(MockES.instances[0]!, 0)
+    es = await failClosedRound(es, 4_000)
+    es = await failClosedRound(es, 8_000)
+    expect(mocks.rebootstrap).toHaveBeenCalledTimes(2)
+    expect(fails()).toHaveLength(1)
+
+    // 重连成功 = 新纪元复位
+    es.onopen?.()
+    await settle()
+
+    // 无残留③：armed/Guided 归零——再遇 401 重新走完整自愈（截断态残留则 rebootstrap 不再增长）
+    await failClosedRound(es, 0)
+    expect(mocks.rebootstrap).toHaveBeenCalledTimes(3) // 修复点：自愈重新武装
+    expect(fails()).toHaveLength(1) // strike 未达阈值：无第二次指引（Guided 已归零的正常表现）
+    warnSpy.mockRestore()
   })
 })

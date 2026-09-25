@@ -47,7 +47,7 @@ describe('R55-F-7: 非 409 持久化失败的一次性 warning', () => {
     const toastSpy = vi.spyOn(ui, 'toast')
 
     putMock.mockRejectedValue(new Error('网络中断'))
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     await vi.advanceTimersByTimeAsync(600) // 500ms 防抖到点 → PUT 失败
     await pump()
 
@@ -63,17 +63,17 @@ describe('R55-F-7: 非 409 持久化失败的一次性 warning', () => {
     const toastSpy = vi.spyOn(ui, 'toast')
 
     putMock.mockRejectedValue(new Error('网络中断'))
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(1)
 
-    prefs.setSize(20)
+    prefs.set('proseSize', 20)
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(1) // 修复点：去重，不刷屏
 
-    prefs.setLh(2)
+    prefs.set('proseLh', 2)
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(1)
@@ -86,19 +86,19 @@ describe('R55-F-7: 非 409 持久化失败的一次性 warning', () => {
     const toastSpy = vi.spyOn(ui, 'toast')
 
     putMock.mockRejectedValueOnce(new Error('网络中断'))
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(1)
 
     // 恢复：PUT 成功（beforeEach 默认实现）→ 复位
-    prefs.setSize(20)
+    prefs.set('proseSize', 20)
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(1) // 成功不提示
 
     putMock.mockRejectedValueOnce(new Error('再次断网'))
-    prefs.setLh(2)
+    prefs.set('proseLh', 2)
     await vi.advanceTimersByTimeAsync(600)
     await pump()
     expect(toastSpy).toHaveBeenCalledTimes(2) // 修复点：复位后再败可再提示

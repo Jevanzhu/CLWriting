@@ -50,9 +50,10 @@ afterAll(() => studio.close())
 
 describe('R30-21: driver.stream() 同步抛错 → SSE 错误事件 + 连接正常收束', () => {
   it('响应含 sync 帧 + error 事件，流正常结束（不悬挂），服务存活', async () => {
-    const r = await fetch(
-      `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(studio.token)}`,
-    )
+    // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream`, {
+      headers: { 'x-studio-token': studio.token },
+    })
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toContain('text/event-stream')
     // r.text() 只有服务端 end() 才 resolve——修复前连接悬挂，此处直接超时失败

@@ -24,24 +24,24 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
     </SettingItem>
     <SettingItem name="字号" desc="界面文字整体大小（两平台通用）">
       <div class="seg">
-        <button :class="{ on: prefs.uiFontSizeStep === -1 }" @click="prefs.setUiFontSizeStep(-1)">小</button>
-        <button :class="{ on: prefs.uiFontSizeStep === 0 }" @click="prefs.setUiFontSizeStep(0)">标准</button>
-        <button :class="{ on: prefs.uiFontSizeStep === 1 }" @click="prefs.setUiFontSizeStep(1)">大</button>
-        <button :class="{ on: prefs.uiFontSizeStep === 2 }" @click="prefs.setUiFontSizeStep(2)">特大</button>
+        <button :class="{ on: prefs.get('uiFontSizeStep') === -1 }" @click="prefs.set('uiFontSizeStep', -1)">小</button>
+        <button :class="{ on: prefs.get('uiFontSizeStep') === 0 }" @click="prefs.set('uiFontSizeStep', 0)">标准</button>
+        <button :class="{ on: prefs.get('uiFontSizeStep') === 1 }" @click="prefs.set('uiFontSizeStep', 1)">大</button>
+        <button :class="{ on: prefs.get('uiFontSizeStep') === 2 }" @click="prefs.set('uiFontSizeStep', 2)">特大</button>
       </div>
     </SettingItem>
     <SettingItem v-if="hasDesktop" name="界面字体" desc="侧栏与菜单等 UI 文字">
       <div class="font-pair">
         <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-        <FontPicker class="font-select" ariaLabel="界面中文字体" :value="prefs.uiFontCn" :fonts="chineseFonts" :default-font="defaultUiFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontCn($event)" />
-        <FontPicker class="font-select" ariaLabel="界面英文字体" :value="prefs.uiFontEn" :fonts="englishFonts" :default-font="defaultUiFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontEn($event)" />
+        <FontPicker class="font-select" ariaLabel="界面中文字体" :value="prefs.get('uiFontCn')" :fonts="chineseFonts" :default-font="defaultUiFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontCn', $event)" />
+        <FontPicker class="font-select" ariaLabel="界面英文字体" :value="prefs.get('uiFontEn')" :fonts="englishFonts" :default-font="defaultUiFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontEn', $event)" />
       </div>
     </SettingItem>
-    <SettingToggle name="紧凑模式" desc="收窄侧栏间距，列表显示更多内容" ariaLabel="紧凑模式" :checked="prefs.compact" @change="prefs.setCompact" />
+    <SettingToggle name="紧凑模式" desc="收窄侧栏间距，列表显示更多内容" ariaLabel="紧凑模式" :checked="prefs.get('compact')" @change="prefs.set('compact', $event)" />
     <SettingItem name="书架视图" desc="书架的显示方式">
       <div class="seg">
-        <button :class="{ on: prefs.shelfView === 'grid' }" @click="prefs.setShelfView('grid')">网格</button>
-        <button :class="{ on: prefs.shelfView === 'list' }" @click="prefs.setShelfView('list')">列表</button>
+        <button :class="{ on: prefs.get('shelfView') === 'grid' }" @click="prefs.set('shelfView', 'grid')">网格</button>
+        <button :class="{ on: prefs.get('shelfView') === 'list' }" @click="prefs.set('shelfView', 'list')">列表</button>
       </div>
     </SettingItem>
   </section>

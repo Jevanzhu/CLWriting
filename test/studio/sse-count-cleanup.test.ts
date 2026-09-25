@@ -23,9 +23,10 @@ const openStreams: AbortController[] = []
 async function openStream(name: string): Promise<void> {
   const ac = new AbortController()
   openStreams.push(ac)
+  // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
   const r = await fetch(
-    `${studio.baseUrl}/api/books/${encodeURIComponent(name)}/stream?token=${encodeURIComponent(studio.token)}`,
-    { signal: ac.signal },
+    `${studio.baseUrl}/api/books/${encodeURIComponent(name)}/stream`,
+    { signal: ac.signal, headers: { 'x-studio-token': studio.token } },
   )
   expect(r.status).toBe(200)
   expect(r.headers.get('content-type')).toContain('text/event-stream')

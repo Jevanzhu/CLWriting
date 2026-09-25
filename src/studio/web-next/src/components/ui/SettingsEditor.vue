@@ -2,7 +2,7 @@
 // 设置 · 编辑器 tab：正文字体/字号/行距为全局正文排版——编辑区、开书对话、草稿卡等
 // 所有正文编辑框同步（2026-09-05 作者确认全局一致）；纸张（宽度/自动保存）。
 import { computed } from 'vue'
-import { usePrefsStore } from '../../stores/prefs'
+import { usePrefsStore, type PrefKey } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { useSystemFonts, buildProseFontStack } from '../../composables/useSystemFonts'
 import { isFontInstalled, resolveInstalledFont } from '../../shared/font-names'
@@ -20,15 +20,15 @@ const prosePresetList = prosePresets()
 // 正文排版预设（F 线 2026-09-05）：激活态由四字段派生，手动改任一项即落「自定义」；
 // 应用 = 逐项走既有 setter（apply()/持久化链路复用，无新持久化键）
 const activePresetId = computed(() =>
-  matchProsePreset({ proseFontCn: prefs.proseFontCn, proseFontEn: prefs.proseFontEn, proseSize: prefs.proseSize, proseLh: prefs.proseLh }),
+  matchProsePreset({ proseFontCn: prefs.get('proseFontCn'), proseFontEn: prefs.get('proseFontEn'), proseSize: prefs.get('proseSize'), proseLh: prefs.get('proseLh') }),
 )
 function applyPreset(p: ProsePreset): void {
   // F 线④（2026-09-06）：CN 槽按已装候补落地（如 zh 系统的思源黑体），CSS 直接命中
   // 真字体；全未装才回落原名走回退链。激活态由 matchProsePreset 族键比对兜住
-  prefs.setProseFontCn(resolveInstalledFont(systemFonts.value, p.values.proseFontCn))
-  prefs.setProseFontEn(p.values.proseFontEn)
-  prefs.setSize(p.values.proseSize)
-  prefs.setLh(p.values.proseLh)
+  prefs.set('proseFontCn', resolveInstalledFont(systemFonts.value, p.values.proseFontCn))
+  prefs.set('proseFontEn', p.values.proseFontEn)
+  prefs.set('proseSize', p.values.proseSize)
+  prefs.set('proseLh', p.values.proseLh)
 }
 
 // 预设「未装」徽标（2026-09-06 中优先⑥）：指名族完全不装（含 zh/en 异名与思源/Noto
@@ -58,20 +58,20 @@ function previewStyle(p: ProsePreset): Record<string, string> {
 
 // 全局默认：纸张宽度 / 自动保存（书级覆盖现由「本书」页管理，全局页只设跨书共享默认）
 function onPageWidthInput(v: number): void {
-  prefs.setPageWidth(v)
+  prefs.set('pageWidth', v)
 }
 function onAutosaveInput(v: number): void {
-  prefs.setAutosaveInterval(v)
+  prefs.set('autosaveInterval', v)
 }
 
 /**
- * range 配套数字输入：clamp 到范围后调 setter。
+ * range 配套数字输入：组件层钳到滑杆范围后经泛型 set 按键写（store 层 clamp 单点不变形）。
  * R72-11（二十轮 E-2）：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 min）
  */
-function numInput(min: number, max: number, setter: (v: number) => void, e: Event): void {
+function numInput(min: number, max: number, key: PrefKey, e: Event): void {
   const v = parseNumericInput(e)
   if (v === null) return
-  setter(Math.min(max, Math.max(min, v)))
+  prefs.set(key, Math.min(max, Math.max(min, v)))
 }
 </script>
 
@@ -107,8 +107,8 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
     <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
       <div class="font-pair">
         <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-        <FontPicker class="font-select" ariaLabel="正文中文字体" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-        <FontPicker class="font-select" ariaLabel="正文英文字体" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+        <FontPicker class="font-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
+        <FontPicker class="font-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
       </div>
     </SettingItem>
   </section>
@@ -116,13 +116,13 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   <div class="cfg-card-head">排版</div>
   <section class="cfg-card">
     <SettingItem name="正文字号" desc="所有正文编辑框文字大小">
-      <input type="range" min="13" max="24" :value="prefs.proseSize" @input="prefs.setSize(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="13" max="24" step="0.5" :value="prefs.proseSize" @change="numInput(13, 24, prefs.setSize, $event)" />
+      <input type="range" min="13" max="24" :value="prefs.get('proseSize')" @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="13" max="24" step="0.5" :value="prefs.get('proseSize')" @change="numInput(13, 24, 'proseSize', $event)" />
       <span class="val-suffix">px</span>
     </SettingItem>
     <SettingItem name="行距" desc="所有正文编辑框行间距倍数">
-      <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @change="numInput(1.4, 2.4, prefs.setLh, $event)" />
+      <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')" @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')" @change="numInput(1.4, 2.4, 'proseLh', $event)" />
       <span class="val-suffix">×</span>
     </SettingItem>
   </section>
@@ -130,13 +130,13 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   <div class="cfg-card-head">纸张</div>
   <section class="cfg-card">
     <SettingItem name="纸张宽度" desc="写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）">
-      <input type="range" min="600" max="1400" step="20" :value="prefs.pageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.pageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
+      <input type="range" min="600" max="1400" step="20" :value="prefs.get('pageWidth')" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.get('pageWidth')" @change="numInput(600, 1400, 'pageWidth', $event)" />
       <span class="val-suffix">px</span>
     </SettingItem>
     <SettingItem name="自动保存" desc="编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）">
-      <input type="range" min="5" max="120" step="5" :value="prefs.autosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.autosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
+      <input type="range" min="5" max="120" step="5" :value="prefs.get('autosaveInterval')" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.get('autosaveInterval')" @change="numInput(5, 120, 'autosaveInterval', $event)" />
       <span class="val-suffix">s</span>
     </SettingItem>
   </section>

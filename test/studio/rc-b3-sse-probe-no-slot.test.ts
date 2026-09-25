@@ -149,17 +149,15 @@ describe('RC 源码重审 B-3: 探测不建流、不占名额', () => {
     expect(__getSseConnections().has(FULL_BOOK)).toBe(false)
   })
 
-  it('凭据闸同口径：无凭据/错 token → 探测与建流同为 403；有效 header 与 ?token= 通道 → 同为 200', async () => {
+  it('凭据闸同口径：无凭据/错 token → 探测与建流同为 403；?token= 旧通道已删（同 403）', async () => {
     const none = { 'x-studio-token': '' }
     expect(await probe(BOOK, none)).toBe(403)
     expect(await openStream(BOOK, none)).toBe(403)
     expect(await probe(BOOK, { 'x-studio-token': 'wrong-token' })).toBe(403)
-    // 有效凭据：header 通道（探测用）与 ?token= 旧通道（EventSource 回退通道）都被认
+    // 有效凭据：header 通道（探测/建流通用）
     expect(await probe(BOOK)).toBe(200)
-    expect(await openStream(BOOK, none, `?token=${encodeURIComponent(studio.token)}`)).toBe(200)
-    await closeLastStream()
-    await tick()
-    expect(__getSseConnections().has(BOOK)).toBe(false)
+    // R0916-7-P3-19：`?token=` 旧通道已两端同删——query 携带有效长期 token 亦拒（与无凭据同语义）
+    expect(await openStream(BOOK, none, `?token=${encodeURIComponent(studio.token)}`)).toBe(403)
   })
 
   it('Origin 面无第三态：探测与建流对非白名单 Origin 的处置逐字一致（读路径本无 Origin 闸，靠 Host 闸 + 响应侧 CORS 头）', async () => {

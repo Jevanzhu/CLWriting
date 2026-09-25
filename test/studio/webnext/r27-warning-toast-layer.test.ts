@@ -25,7 +25,7 @@ beforeEach(() => {
 })
 
 describe('R27-77: wb.warning 常驻层消费', () => {
-  it('工作台视图未挂载（仅常驻外壳）期间 warning 置位 → error toast 且消费置空', async () => {
+  it('工作台视图未挂载（仅常驻外壳）期间 warning 置位 → warning toast 且消费置空', async () => {
     const w = mount(WorkspaceShell, { props: { bookName: '书甲' }, shallow: true })
     const wb = useWorkbenchStore()
     const ui = useUiStore()
@@ -34,7 +34,8 @@ describe('R27-77: wb.warning 常驻层消费', () => {
     wb.warning = '生成被截断：max_tokens 到顶'
     await nextTick()
     const last = ui.toasts.at(-1)
-    expect(last?.kind).toBe('error')
+    // R0916-7-P3-24：非致命警告走 'warning' 通道（原误用 'error' 呈现）
+    expect(last?.kind).toBe('warning')
     expect(last?.msg).toContain('max_tokens')
     expect(wb.warning).toBeNull() // 消费即置空（原 B-3 契约不变）
     w.unmount()

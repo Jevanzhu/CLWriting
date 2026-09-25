@@ -29,29 +29,29 @@ beforeEach(() => {
 })
 
 describe('SettingsAi AI 对话（直写 prefs store）', () => {
-  it('对话助手开关 → prefs.chatEnabled', async () => {
+  it('对话助手开关 → store chatEnabled', async () => {
     const wrapper = mountPage()
     await wrapper.find('input[aria-label="对话助手"]').setValue(true)
-    expect(usePrefsStore().chatEnabled).toBe(true)
+    expect(usePrefsStore().get('chatEnabled')).toBe(true)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 })
 
 describe('SettingsAi AI 写作全局默认（直写 prefs store）', () => {
-  it('文风注入 seg → prefs.styleInjection', async () => {
+  it('文风注入 seg → store styleInjection', async () => {
     const wrapper = mountPage()
     // 本页唯一一个 seg（文风注入）
     const segBtns = wrapper.findAll('.seg').at(0)!.findAll('button')
     expect(segBtns).toHaveLength(2)
     await segBtns[1]!.trigger('click') // 点「重」
-    expect(usePrefsStore().styleInjection).toBe('heavy')
+    expect(usePrefsStore().get('styleInjection')).toBe('heavy')
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
-  it('自动确认细纲开关 → prefs.autoConfirmOutline', async () => {
+  it('自动确认细纲开关 → store autoConfirmOutline', async () => {
     const wrapper = mountPage()
     await wrapper.find('input[aria-label="自动确认细纲（全局默认）"]').setValue(true)
-    expect(usePrefsStore().autoConfirmOutline).toBe(true)
+    expect(usePrefsStore().get('autoConfirmOutline')).toBe(true)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -60,18 +60,18 @@ describe('SettingsAi AI 写作全局默认（直写 prefs store）', () => {
     await wrapper.find('input[aria-label="批量写作章数（全局默认）"]').setValue('99')
     await wrapper.find('input[aria-label="单章调用上限（全局默认）"]').setValue('0')
     const prefs = usePrefsStore()
-    expect(prefs.aiBatchSize).toBe(20)
-    expect(prefs.callsPerChapter).toBe(1)
+    expect(prefs.get('aiBatchSize')).toBe(20)
+    expect(prefs.get('callsPerChapter')).toBe(1)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
   it('store 初值即硬编码回落（批量 8 / 上限 8 / 轻 / 关）', async () => {
     mountPage()
     const prefs = usePrefsStore()
-    expect(prefs.aiBatchSize).toBe(8)
-    expect(prefs.callsPerChapter).toBe(8)
-    expect(prefs.styleInjection).toBe('light')
-    expect(prefs.autoConfirmOutline).toBe(false)
+    expect(prefs.get('aiBatchSize')).toBe(8)
+    expect(prefs.get('callsPerChapter')).toBe(8)
+    expect(prefs.get('styleInjection')).toBe('light')
+    expect(prefs.get('autoConfirmOutline')).toBe(false)
   })
 
   it('全局页不含本书覆盖组（无「本书使用独立设定」开关）', async () => {

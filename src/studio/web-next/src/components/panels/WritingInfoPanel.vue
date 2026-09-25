@@ -82,7 +82,7 @@ const chapterTarget = computed(() => {
     const v = fmFields.value['字数目标']
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
-  return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords
+  return config.value.book?.chapter_target_words ?? prefs.get('defaultChapterTargetWords')
 })
 const chapterProgress = computed(() =>
   chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,

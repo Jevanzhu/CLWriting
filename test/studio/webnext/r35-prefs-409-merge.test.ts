@@ -45,7 +45,7 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setThemeValue('dark') // 本窗脏修改（防抖窗口内，尚未落盘）
+    prefs.set('theme', 'dark') // 本窗脏修改（防抖窗口内，尚未落盘）
     // 他窗抢先保存：pageWidth → 999，revision 5 → 6；首次 PUT 吃 409
     putMock.mockImplementationOnce(async () => Promise.reject(conflict409()))
     getMock.mockResolvedValueOnce({ prefs: { theme: 'light', pageWidth: 999, defaultGenre: '玄幻' }, revision: 6 })
@@ -54,9 +54,9 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
     // 修复点 1：本窗未落盘修改保留（修复前 applyPrefs 整体采纳远端 → theme 被改回 light）
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
     // 修复点 2：他窗字段合入（R33-73 语义保留）
-    expect(prefs.pageWidth).toBe(999)
+    expect(prefs.get('pageWidth')).toBe(999)
     expect(putMock).toHaveBeenCalledTimes(2)
     // 修复点 3：重试 PUT 带远端最新 revision + 合并后的完整快照
     expect(putMock).toHaveBeenLastCalledWith(
@@ -74,14 +74,14 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     let release!: () => void
     const gate = new Promise<void>((r) => { release = r })
     putMock.mockImplementationOnce(() => gate.then(() => Promise.reject(conflict409())))
     getMock.mockResolvedValueOnce({ prefs: { theme: 'light', shelfView: 'list' }, revision: 1 })
 
     await vi.advanceTimersByTimeAsync(600) // 防抖到点：首次 PUT 挂起在 gate
-    prefs.setShelfView('list') // 恢复窗口内的新保存
+    prefs.set('shelfView', 'list') // 恢复窗口内的新保存
     await vi.advanceTimersByTimeAsync(600) // 第二个防抖定时器到点：putInFlight 非空 → 重新排队
     expect(putMock).toHaveBeenCalledTimes(1) // 单飞：恢复链未完成，无并发 PUT
 
@@ -112,13 +112,13 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
     // 用 setSnapDays 制造一次保存，但随后远端 snapMaxDays 视为非脏会被远端覆盖）
     getMock.mockResolvedValueOnce({ prefs: { theme: 'dark', proseSize: 22 }, revision: 9 })
 
-    prefs.setSnapDays(45) // 本窗修改：snapDays
+    prefs.set('snapDays', 45) // 本窗修改：snapDays
     await vi.advanceTimersByTimeAsync(600)
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
-    expect(prefs.snapDays).toBe(45) // 本窗脏字段重放
-    expect(prefs.theme).toBe('dark') // 非脏字段随远端
-    expect(prefs.proseSize).toBe(22)
+    expect(prefs.get('snapDays')).toBe(45) // 本窗脏字段重放
+    expect(prefs.get('theme')).toBe('dark') // 非脏字段随远端
+    expect(prefs.get('proseSize')).toBe(22)
     expect(putMock).toHaveBeenCalledTimes(2)
   })
 })

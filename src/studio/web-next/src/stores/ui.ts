@@ -15,18 +15,22 @@ export interface ToastItem {
 let seq = 0
 
 // ── J5 窗控压暗：全屏遮罩浓度表（2026-09-04）──
-// 各弹窗遮罩浓度不同（设置 .45 / 书架·导出·确认框 .35 / 命令面板 .25），窗控压暗色
-// 必须按「当前开着的遮罩」实时合成而非一档写死（写死 .45 时书架 .35 遮罩下窗控深一档
-// 即作者反馈的「颜色不统一」）。下列数值与组件 CSS 镜像——j5-overlay-dim.test.ts
-// 逐文件读 CSS 锁死防漂移，改遮罩透明度须两处同步。
+// 各弹窗遮罩浓度不同（设置 .45 / 书架·导出·确认·章节属性·拆分 .35 / 命令面板 .25），
+// 窗控压暗色必须按「当前开着的遮罩」实时合成而非一档写死（写死 .45 时书架 .35 遮罩下
+// 窗控深一档即作者反馈的「颜色不统一」）。本表是浓度唯一出处：ModalMask 组件渲染面从
+// 此读取内联上色（R0916-7-P3-22 收敛）——组件 CSS 不再镜像，改浓度只动这一处。
 export const MASK_ALPHA = {
   palette: 0.25, // CommandPalette .palette-mask
-  settings: 0.45, // settings-shared.css .modal-mask
+  settings: 0.45, // SettingsModal .modal-mask
   export: 0.35, // ExportDialog .modal-mask
   shelf: 0.35, // ShelfModal .shelf-mask
   confirm: 0.35, // ConfirmPrompt .cp-mask
+  // P3-22：章节属性/拆分对话框原只写自己的 CSS、未登记——⌘P 命令面板（z 150）盖在
+  // 对话框（z 100）上、win 窗控不变暗；入表后两症结随 overlayOpen/maskAlpha 消除
+  chapterMeta: 0.35, // ChapterMetaDialog .meta-mask
+  splitChapter: 0.35, // SplitChapterDialog .split-mask
 } as const
-type OverlayKey = keyof typeof MASK_ALPHA
+export type OverlayKey = keyof typeof MASK_ALPHA
 /** 书架子弹窗遮罩（叠在书架遮罩之上）：ConfirmDeleteModal .confirm-overlay .5、
  *  CreateBookModal .create-overlay .3——ShelfModal 私有态，经 setShelfDeepAlpha 上报。 */
 export const SHELF_DEEP_ALPHA = { confirmDelete: 0.5, create: 0.3 } as const
@@ -51,6 +55,13 @@ export const useUiStore = defineStore('ui', () => {
     danger?: boolean
     resolve: (v: boolean) => void
   } | null>(null)
+  // 确认框遮罩登记位（ask/resolveConfirm 维护，与 confirmState 同开同关）——
+  // overlayStates 收成 7 个 open 位齐表（R0916-7-P3-22）
+  const confirmOpen = ref(false)
+  // R0916-7-P3-22：章节属性/拆分对话框的开合态由面板侧 v-model 持有、无 store 开关
+  // 动作——登记位由 ModalMask 挂载/卸载自动写（见 setMaskOpen）
+  const chapterMetaOpen = ref(false)
+  const splitChapterOpen = ref(false)
   const toasts = ref<ToastItem[]>([])
   // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
@@ -80,13 +91,30 @@ export const useUiStore = defineStore('ui', () => {
     shelfOpen.value = false
   }
   // ── 全屏遮罩弹层单源判据（2026-09-04）──
+  // 遮罩登记（R0916-7-P3-22）：kind → open 位。ModalMask 挂载即写 true、卸载即写
+  // false（开合随组件生命周期自动）；palette/settings/export/shelf/confirm 的
+  // open/close 动作仍是各自 v-if 开关，登记写入与动作同值幂等。
+  const maskOpenRefs: Record<OverlayKey, ReturnType<typeof ref<boolean>>> = {
+    palette: paletteOpen,
+    settings: settingsOpen,
+    export: exportOpen,
+    shelf: shelfOpen,
+    confirm: confirmOpen,
+    chapterMeta: chapterMetaOpen,
+    splitChapter: splitChapterOpen,
+  }
+  function setMaskOpen(kind: OverlayKey, open: boolean): void {
+    maskOpenRefs[kind]!.value = open
+  }
   function overlayStates(): Array<{ key: OverlayKey; open: boolean; alpha: number }> {
     return [
       { key: 'palette', open: paletteOpen.value, alpha: MASK_ALPHA.palette },
       { key: 'settings', open: settingsOpen.value, alpha: MASK_ALPHA.settings },
       { key: 'export', open: exportOpen.value, alpha: MASK_ALPHA.export },
       { key: 'shelf', open: shelfOpen.value, alpha: MASK_ALPHA.shelf },
-      { key: 'confirm', open: confirmState.value !== null, alpha: MASK_ALPHA.confirm },
+      { key: 'confirm', open: confirmOpen.value, alpha: MASK_ALPHA.confirm },
+      { key: 'chapterMeta', open: chapterMetaOpen.value, alpha: MASK_ALPHA.chapterMeta },
+      { key: 'splitChapter', open: splitChapterOpen.value, alpha: MASK_ALPHA.splitChapter },
     ]
   }
   /** 「其它遮罩层是否开着」：Esc 让渡判定用（useHotkeys 专注退出 / SettingsModal /
@@ -97,7 +125,7 @@ export const useUiStore = defineStore('ui', () => {
   function overlayOpenExcept(self?: OverlayKey): boolean {
     return overlayStates().some((s) => s.open && s.key !== self)
   }
-  /** 任一全屏遮罩弹层开着（palette/设置/导出/书架/确认框）——单源判据。 */
+  /** 任一全屏遮罩弹层开着（palette/设置/导出/书架/确认框/章节属性/拆分）——单源判据。 */
   const overlayOpen = computed(() => overlayOpenExcept())
   /** 书架子弹窗遮罩浓度（ShelfModal 经 setShelfDeepAlpha 上报；只在书架开着时并入
    *  maskAlpha——书架关闭期间残留值不生效，重开书架若子弹窗仍在则继续匹配）。 */
@@ -136,12 +164,14 @@ export const useUiStore = defineStore('ui', () => {
       // 否则首个调用方 await 永久挂起，后续保存/删除逻辑静默丢失
       confirmState.value?.resolve(false)
       confirmState.value = { ...opts, resolve }
+      confirmOpen.value = true
     })
   }
   /** ConfirmPrompt 内部调：关闭弹窗 + resolve 调用方。 */
   function resolveConfirm(v: boolean): void {
     const s = confirmState.value
     confirmState.value = null
+    confirmOpen.value = false
     s?.resolve(v)
   }
   /** R32-34（三十二轮）：toast 上限——循环失败（AI 轮询报错等）此前逐条无界堆叠遮屏 */
@@ -235,11 +265,16 @@ export const useUiStore = defineStore('ui', () => {
     settingsOpen,
     exportOpen,
     shelfOpen,
+    confirmOpen,
+    chapterMetaOpen,
+    splitChapterOpen,
     toasts,
     aiAvailable,
     probeAiStatus,
     overlayOpen,
     overlayOpenExcept,
+    maskAlpha,
+    setMaskOpen,
     setShelfDeepAlpha,
     openPalette,
     closePalette,

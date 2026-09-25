@@ -71,7 +71,7 @@ describe('RC B-5: 自动保存节拍——起拍、重起与停表', () => {
     vi.advanceTimersByTime(30_000)
     expect(tickSpy).toHaveBeenCalledTimes(1)
 
-    prefs.autosaveInterval = 10
+    prefs.set('autosaveInterval', 10)
     await nextTick() // 重起走 watch(flush 默认 pre)
     tickSpy.mockClear()
     vi.advanceTimersByTime(10_000)
@@ -96,7 +96,7 @@ describe('RC B-5: 自动保存节拍——起拍、重起与停表', () => {
     const doc = useDocStore()
     const prefs = usePrefsStore()
     const tickSpy = vi.spyOn(doc, 'autosaveTick').mockImplementation(() => {})
-    prefs.autosaveInterval = 1
+    prefs.set('autosaveInterval', 1)
     const w = mount(Host)
     vi.advanceTimersByTime(4_999)
     expect(tickSpy).not.toHaveBeenCalled()

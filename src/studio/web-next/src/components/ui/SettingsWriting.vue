@@ -13,22 +13,22 @@ const prefs = usePrefsStore()
 // ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
 
 function onGlobalGenreInput(e: Event): void {
-  prefs.setDefaultGenre((e.target as HTMLInputElement).value)
+  prefs.set('defaultGenre', (e.target as HTMLInputElement).value)
 }
 // R75-E-P3a：每卷章数改共享 helper——此前 `Number('')===0` 穿过 isFinite 闸，
 // setDefaultVolumeSize(0) 被 store clamp 静默钳成 5（清空输入框反而落 5）；
 // 空串/非数字不写。目标字数/每章字数不在此列：0 本身是「未设」合法语义
 function onGlobalVolumeSizeInput(e: Event): void {
   const v = parseNumericInput(e)
-  if (v !== null) prefs.setDefaultVolumeSize(v)
+  if (v !== null) prefs.set('defaultVolumeSize', v)
 }
 function onGlobalTargetWordsInput(e: Event): void {
   const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setDefaultTargetWords(raw)
+  if (Number.isFinite(raw)) prefs.set('defaultTargetWords', raw)
 }
 function onGlobalChapterTargetInput(e: Event): void {
   const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setDefaultChapterTargetWords(raw)
+  if (Number.isFinite(raw)) prefs.set('defaultChapterTargetWords', raw)
 }
 </script>
 
@@ -40,19 +40,19 @@ function onGlobalChapterTargetInput(e: Event): void {
       <SettingItem name="题材" desc="未单独设定的书使用此默认题材，用于 AI 设定生成与总览回显">
         <label class="genre-field">
           <LibraryBig :size="14" aria-hidden="true" />
-          <input class="text-input" type="text" placeholder="如：东方玄幻、都市异能" aria-label="题材（全局默认）" :value="prefs.defaultGenre" @change="onGlobalGenreInput($event)" />
+          <input class="text-input" type="text" placeholder="如：东方玄幻、都市异能" aria-label="题材（全局默认）" :value="prefs.get('defaultGenre')" @change="onGlobalGenreInput($event)" />
         </label>
       </SettingItem>
       <SettingItem name="每卷章数" desc="每卷容纳的章节数量，影响节奏预测；仅长篇使用">
-        <input class="num-input" type="number" min="5" max="500" step="1" aria-label="每卷章数（全局默认）" :value="prefs.defaultVolumeSize" @change="onGlobalVolumeSizeInput($event)" />
+        <input class="num-input" type="number" min="5" max="500" step="1" aria-label="每卷章数（全局默认）" :value="prefs.get('defaultVolumeSize')" @change="onGlobalVolumeSizeInput($event)" />
         <span class="val-suffix">章</span>
       </SettingItem>
       <SettingItem name="目标字数" desc="全书完稿目标，用于进度追踪；0 = 未设">
-        <input class="num-input" type="number" min="0" step="1000" aria-label="目标字数（全局默认）" :value="prefs.defaultTargetWords" @change="onGlobalTargetWordsInput($event)" />
+        <input class="num-input" type="number" min="0" step="1000" aria-label="目标字数（全局默认）" :value="prefs.get('defaultTargetWords')" @change="onGlobalTargetWordsInput($event)" />
         <span class="val-suffix">字</span>
       </SettingItem>
       <SettingItem name="每章字数" desc="写作进度目标 + 新章表单默认值，并作为 AI 写稿字数区间基准（±20%）；0 = 未设">
-        <input class="num-input" type="number" min="0" step="100" aria-label="每章字数（全局默认）" :value="prefs.defaultChapterTargetWords" @change="onGlobalChapterTargetInput($event)" />
+        <input class="num-input" type="number" min="0" step="100" aria-label="每章字数（全局默认）" :value="prefs.get('defaultChapterTargetWords')" @change="onGlobalChapterTargetInput($event)" />
         <span class="val-suffix">字</span>
       </SettingItem>
     </section>

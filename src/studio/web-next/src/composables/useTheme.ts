@@ -64,7 +64,7 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
 
 export function useTheme() {
   const prefs = usePrefsStore()
-  const theme = computed<ThemeId>(() => prefs.theme)
+  const theme = computed<ThemeId>(() => prefs.get('theme'))
 
   /** 当前主题显示名。*/
   function themeName(): string {
@@ -73,7 +73,7 @@ export function useTheme() {
 
   /** 设置主题并持久化 + apply（可选圆形扩散过渡）。*/
   function setTheme(id: ThemeId, event?: MouseEvent): void {
-    withThemeTransition(event, () => prefs.setThemeValue(id))
+    withThemeTransition(event, () => prefs.set('theme', id))
   }
 
   /** 切换亮/暗（可选圆形扩散过渡）。*/

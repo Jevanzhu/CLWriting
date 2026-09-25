@@ -42,7 +42,7 @@ describe('R40-41: 恢复链三态告知', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     // 首笔 PUT 吃 409；恢复链 GET 拿到远端 rev1；重试 PUT 网络失败
     putMock.mockImplementationOnce(async () => Promise.reject(conflict409()))
     getMock.mockResolvedValueOnce({ prefs: { theme: 'light' }, revision: 1 })
@@ -59,7 +59,7 @@ describe('R40-41: 恢复链三态告知', () => {
     // 不再有无条件的成功口径提示
     expect(ui.toasts.filter((t) => t.kind === 'warning' && t.msg.includes('已保留本窗修改并合并'))).toHaveLength(0)
     // 本窗脏修改仍保留（下次 schedulePersist 自动重试的语义基础）
-    expect(prefs.theme).toBe('dark')
+    expect(prefs.get('theme')).toBe('dark')
   })
 
   it('重试成功 → 维持成功口径 warning（不回归）', async () => {
@@ -67,7 +67,7 @@ describe('R40-41: 恢复链三态告知', () => {
     const prefs = usePrefsStore()
     await prefs.init()
 
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     putMock.mockImplementationOnce(async () => Promise.reject(conflict409()))
     getMock.mockResolvedValueOnce({ prefs: { theme: 'light', pageWidth: 999 }, revision: 1 })
 
@@ -77,6 +77,6 @@ describe('R40-41: 恢复链三态告知', () => {
     const ui = useUiStore()
     expect(ui.toasts.at(-1)?.kind).toBe('warning')
     expect(ui.toasts.at(-1)?.msg).toContain('已保留本窗修改并合并')
-    expect(prefs.pageWidth).toBe(999)
+    expect(prefs.get('pageWidth')).toBe(999)
   })
 })

@@ -13,6 +13,7 @@ import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import { isImeComposing } from '../../shared/ime' // R33-82
+import ModalMask from './ModalMask.vue'
 // settings-shared.css 已提升至 main.ts 全局装载——.val/.save-btn 等共享类被设置域外
 // 组件（右栏面板/导出弹窗等）消费，依赖本组件被静态 import 才生效过于脆弱。
 import BetaBadge from './BetaBadge.vue'
@@ -135,7 +136,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <div v-if="ui.settingsOpen" class="modal-mask" @click.self="ui.closeSettings">
+    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <ModalMask :open="ui.settingsOpen" kind="settings" @mask-click="ui.closeSettings">
       <div v-if="contentReady" ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
         <div class="modal-head">
           <div class="modal-heading">
@@ -192,6 +194,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </Teleport>
 </template>

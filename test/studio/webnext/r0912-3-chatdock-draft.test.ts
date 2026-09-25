@@ -34,11 +34,16 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
 vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   interrupt: mocks.interrupt,
 }))
+// R0916-7-P3-25：夹具经泛型 set 开 chatEnabled 会排防抖 PUT——mock 掉防真 fetch 冒烟
+vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
+  getGlobalPrefs: vi.fn(async () => ({})),
+  putGlobalPrefs: vi.fn(async () => ({})),
+}))
 
 beforeEach(() => {
   setActivePinia(createPinia())
   for (const m of Object.values(mocks)) m.mockReset()
-  usePrefsStore().chatEnabled = true // dock 默认关（R66 开关），测试显式开
+  usePrefsStore().set('chatEnabled', true) // dock 默认关（R66 开关），测试显式开
 })
 
 function mountShell(book: string) {

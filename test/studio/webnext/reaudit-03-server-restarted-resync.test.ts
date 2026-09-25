@@ -113,9 +113,14 @@ class MockES {
   }
 }
 
-/** 泵微任务链：换票（404 回退）→ new EventSource 等走到位 */
+/** 泵微任务链：换票 → new EventSource 等走到位 */
 async function settle(): Promise<void> {
   for (let i = 0; i < 40; i++) await Promise.resolve()
+}
+
+/** 存活（未 close）的连接 */
+function live(): MockES[] {
+  return MockES.instances.filter((e) => !e.closed)
 }
 
 beforeEach(() => {
@@ -127,7 +132,7 @@ beforeEach(() => {
   mocks.apiFetch.mockResolvedValue(new Response('{}', { status: 200 })) // 心跳成功拍（不与看门狗交织）
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 }))) // 换票 404 → ?token= 回退
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 }))) // 换票桩 200（R0916-7-P3-19 起 404 即换票失败、不回退开连）
   ;(window as unknown as Record<string, unknown>)['clwritingDesktop'] = {
     onServerRestarted: desktop.onServerRestarted,
   }
@@ -145,14 +150,17 @@ describe('重审-3: Book.vue 订阅 desktop:server-restarted → resync + toast'
     const w = mount(Book)
     await settle()
     expect(desktop.onServerRestarted).toHaveBeenCalledTimes(1) // 挂载期恰订阅一次
-    // 首载链尾 resync（r29 既有口径）：即时连接 + resync 重连，存活 1 条
-    expect(MockES.instances).toHaveLength(2)
-    MockES.instances.at(-1)!.onopen?.()
+    // 首载链尾 resync（r29 既有口径）：存活连接恰一条（实例总数随微任务竞态——换票
+    // 成功路径多一次 await，即时连接可能被链尾 resync 抢先作废，见 r29 同款注）
+    const conn0 = live()[0]!
+    conn0.onopen?.()
 
     desktop.restartedCbs[0]!(45678) // 主进程广播：服务已在钉住端口拉回
     await settle()
-    expect(MockES.instances).toHaveLength(3) // 修复点：立即 resync 断旧连新（不等退避）
-    expect(MockES.instances[1]!.closed).toBe(true)
+    // 修复点：立即 resync 断旧连新（不等退避）——旧连接已断、恰一条新连接存活
+    expect(conn0.closed).toBe(true)
+    expect(live()).toHaveLength(1)
+    expect(MockES.instances.length).toBeGreaterThan(1)
     const ui = useUiStore()
     expect(ui.toasts.some((t) => t.msg.includes('写作服务已自动恢复'))).toBe(true)
     w.unmount()

@@ -70,10 +70,10 @@ async function onFreeze(): Promise<void> {
 
 // 注入强度：只走全局（prefs store），与设置「AI 写作」页同源——文风页和设置页显示同一值。
 // 2026-08-19 决策：砍掉书级覆盖，一律跟随 global.json styleInjection。
-const injection = computed(() => prefs.styleInjection)
+const injection = computed(() => prefs.get('styleInjection'))
 async function onInjection(v: 'light' | 'heavy'): Promise<void> {
   if (injection.value === v) return
-  prefs.setStyleInjection(v)
+  prefs.set('styleInjection', v)
   ui.toast('参考强度已保存', 'success')
 }
 

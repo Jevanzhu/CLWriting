@@ -45,11 +45,12 @@ class MockES {
   }
 }
 
-/** fetch 桩：按 URL 分流——ticket 端点 404（EventSource 回退通道），stream 端点按指定状态回 */
+/** fetch 桩：按 URL 分流——ticket 端点 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、
+ * 不再回退 ?token= 开连），stream 端点按指定状态回 */
 function stubFetch(streamStatus: number): ReturnType<typeof vi.fn> {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
+    if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
     if (url.includes('/stream')) {
       probeUrls.push(url)
       probeHeaders.push(init?.headers as Record<string, string> | undefined)
@@ -104,7 +105,7 @@ function failClose(inst: MockES): void {
 }
 
 describe('R73-67: SSE 429（per-book 连接上限）→ 中文指引 toast', () => {
-  it('fail-closed + 探测命中 429 → toast「标签页开太多」指引；探测走 ?token= 且不烧票', async () => {
+  it('fail-closed + 探测命中 429 → toast「标签页开太多」指引；探测走 header 且不烧票', async () => {
     const fetchFn = stubFetch(429)
     useSse(ref('书A'))
     await settle()
@@ -201,8 +202,8 @@ describe('R26-78: probeSseBusy 探测超时', () => {
     vi.useFakeTimers()
     const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
-      if (url.endsWith('/stream')) { // R31-32：探测改 header 通道，URL 不再带 ?token=
+      if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
+      if (url.endsWith('/stream')) { // R31-32：探测走 header 通道，URL 不带凭据
         // 模拟真实 fetch：永不回包，但 abort 信号到达即 reject（超时通道可观察）
         return new Promise<Response>((_, rej) => {
           init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))

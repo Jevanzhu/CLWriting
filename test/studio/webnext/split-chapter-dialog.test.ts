@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import SplitChapterDialog from '../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue'
 import type { SplitPlanView } from '../../../src/studio/web-next/src/api/documents'
 
@@ -29,6 +30,7 @@ const basePlan: SplitPlanView = {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // 遮罩走 ModalMask → ui store（挂载即登记），mount 需 pinia
   wrapper = mount(SplitChapterDialog, {
     props: { modelValue: true, plan: basePlan },
   })

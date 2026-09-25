@@ -27,21 +27,21 @@ const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // 
 /** 纸宽写入保持当前 scope：书级覆盖存在时继续写书级（SettingsEditor 同语义） */
 const widthBookOnly = computed(() => prefs.bookPageWidth !== null)
 function onPageWidthInput(v: number): void {
-  prefs.setPageWidth(v, widthBookOnly.value)
+  prefs.set('pageWidth', v, widthBookOnly.value)
 }
 </script>
 
 <template>
   <aside v-if="!sideRoomTooSmall" class="focus-format-bar" aria-label="排版设置">
     <label class="ffb-item">
-      <span class="ffb-label">字号<i class="ffb-val">{{ prefs.proseSize }}px</i></span>
-      <input class="ffb-range" type="range" min="13" max="24" :value="prefs.proseSize"
-        @input="prefs.setSize(Number(($event.target as HTMLInputElement).value))" />
+      <span class="ffb-label">字号<i class="ffb-val">{{ prefs.get('proseSize') }}px</i></span>
+      <input class="ffb-range" type="range" min="13" max="24" :value="prefs.get('proseSize')"
+        @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))" />
     </label>
     <label class="ffb-item">
-      <span class="ffb-label">行距<i class="ffb-val">{{ prefs.proseLh }}×</i></span>
-      <input class="ffb-range" type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh"
-        @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />
+      <span class="ffb-label">行距<i class="ffb-val">{{ prefs.get('proseLh') }}×</i></span>
+      <input class="ffb-range" type="range" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')"
+        @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))" />
     </label>
     <label class="ffb-item">
       <span class="ffb-label">纸宽<template v-if="widthBookOnly">·本书</template><i class="ffb-val">{{ prefs.effectivePageWidth }}px</i></span>
@@ -52,8 +52,8 @@ function onPageWidthInput(v: number): void {
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
       <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-      <FontPicker class="ffb-select" ariaLabel="正文中文字体" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-      <FontPicker class="ffb-select" ariaLabel="正文英文字体" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+      <FontPicker class="ffb-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
+      <FontPicker class="ffb-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
     </template>
   </aside>
 </template>

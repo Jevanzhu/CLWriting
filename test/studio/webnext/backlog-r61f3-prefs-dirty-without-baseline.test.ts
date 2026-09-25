@@ -69,31 +69,31 @@ describe('R61-F-3: 无持久化基线的 409 恢复——仅采纳远端，默�
 
     // 不调 init()：lastPersisted 保持 null（无已持久化基线态）
     const prefs = usePrefsStore()
-    prefs.setThemeValue('dark') // 本窗仅这一键触发保存（re-GET 对齐 → PUT → 409 → 恢复链）
+    prefs.set('theme', 'dark') // 本窗仅这一键触发保存（re-GET 对齐 → PUT → 409 → 恢复链）
     await vi.advanceTimersByTimeAsync(600)
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
     // 修复点：无基线 = 零本窗脏字段 → 合并整体采纳远端。
     // 修复前 dirtyKeysOf 回 Object.keys(local) 全量判脏：本地默认 proseSize 17 /
     // shelfView 'grid' 当「本窗修改」回放，覆盖他窗配置
-    expect(prefs.proseSize).toBe(22)
-    expect(prefs.shelfView).toBe('list')
+    expect(prefs.get('proseSize')).toBe(22)
+    expect(prefs.get('shelfView')).toBe('list')
   })
 
   it('对照：init 失败（GET reject）完成态遇 409 → 远端非默认值采纳 + 本窗真实改动键保留（既有正确行为不回归）', async () => {
     getMock.mockRejectedValueOnce(new Error('down')) // init GET 失败 → else 分支置默认值快照基线
     const prefs = usePrefsStore()
     await prefs.init()
-    expect(prefs.proseSize).toBe(17) // init 失败降级默认
+    expect(prefs.get('proseSize')).toBe(17) // init 失败降级默认
 
     // 他窗配置 proseSize 22；本窗仅真实改动 theme
     getMock.mockResolvedValue({ prefs: { proseSize: 22 }, revision: 6 })
     putMock.mockImplementationOnce(async () => Promise.reject(conflict409()))
-    prefs.setThemeValue('dark')
+    prefs.set('theme', 'dark')
     await vi.advanceTimersByTimeAsync(600)
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
-    expect(prefs.proseSize).toBe(22) // 远端非默认值采纳
-    expect(prefs.theme).toBe('dark') // 本窗真实改动键（唯一可判脏键）保留
+    expect(prefs.get('proseSize')).toBe(22) // 远端非默认值采纳
+    expect(prefs.get('theme')).toBe('dark') // 本窗真实改动键（唯一可判脏键）保留
   })
 })

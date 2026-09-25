@@ -28,20 +28,20 @@ beforeEach(() => {
 })
 
 describe('SettingsRetention 版本保留全局默认（直写 prefs store）', () => {
-  it('保留天数 clamp 1-365 写 prefs.snapDays；不触发 saveConfig', async () => {
+  it('保留天数 clamp 1-365 写 store snapDays；不触发 saveConfig', async () => {
     const wrapper = mountPage()
     const input = wrapper.find('input[aria-label="保留天数（全局默认）"]')
     await input.setValue('0')
-    expect(usePrefsStore().snapDays).toBe(1)
+    expect(usePrefsStore().get('snapDays')).toBe(1)
     await input.setValue('999')
-    expect(usePrefsStore().snapDays).toBe(365)
+    expect(usePrefsStore().get('snapDays')).toBe(365)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
-  it('保留数量 clamp 1-200 写 prefs.snapCount', async () => {
+  it('保留数量 clamp 1-200 写 store snapCount', async () => {
     const wrapper = mountPage()
     await wrapper.find('input[aria-label="保留数量（全局默认）"]').setValue('500')
-    expect(usePrefsStore().snapCount).toBe(200)
+    expect(usePrefsStore().get('snapCount')).toBe(200)
     expect(mocks.saveConfig).not.toHaveBeenCalled()
   })
 
@@ -49,8 +49,8 @@ describe('SettingsRetention 版本保留全局默认（直写 prefs store）', (
     const wrapper = mountPage()
     // R72-11（二十轮 E-1/E-2）：空串不再写 store——Number('')=0 恰好过 isFinite 闸被
     // clamp 成下限 1 是已修复的 bug（清空输入框不应改值），此处断言值保持不变
-    const before = usePrefsStore().snapDays
+    const before = usePrefsStore().get('snapDays')
     await wrapper.find('input[aria-label="保留天数（全局默认）"]').setValue('')
-    expect(usePrefsStore().snapDays).toBe(before)
+    expect(usePrefsStore().get('snapDays')).toBe(before)
   })
 })

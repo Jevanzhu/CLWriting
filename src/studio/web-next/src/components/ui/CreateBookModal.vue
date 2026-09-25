@@ -4,6 +4,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { SHELF_DEEP_ALPHA } from '../../stores/ui'
 
 const props = defineProps<{
   name: string
@@ -41,7 +42,11 @@ function onNameEnter(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="create-overlay" @click.self="emit('cancel')">
+  <div
+    class="create-overlay"
+    :style="{ background: `rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.create})` }"
+    @click.self="emit('cancel')"
+  >
     <div ref="modalRef" class="create-modal" role="dialog" aria-modal="true" aria-label="新建书" tabindex="-1">
       <h3>新建书</h3>
       <div class="kind-picker">
@@ -75,10 +80,10 @@ function onNameEnter(e: KeyboardEvent): void {
 .create-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
+  /* R0916-7-P3-22：浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
   z-index: 160;
 }
 .create-modal {
