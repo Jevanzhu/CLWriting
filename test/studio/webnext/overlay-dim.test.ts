@@ -26,6 +26,7 @@ import { useUiStore, MASK_ALPHA, SHELF_DEEP_ALPHA, type OverlayKey } from '../..
 import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import { useTheme } from '../../../src/studio/web-next/src/composables/useTheme'
 import ModalMask from '../../../src/studio/web-next/src/components/ui/ModalMask.vue'
+import ModelPicker from '../../../src/studio/web-next/src/components/ui/ModelPicker.vue'
 import ConfirmDeleteModal from '../../../src/studio/web-next/src/components/ui/ConfirmDeleteModal.vue'
 import CreateBookModal from '../../../src/studio/web-next/src/components/ui/CreateBookModal.vue'
 import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue'
@@ -42,6 +43,7 @@ const MASK_DOM_CLASS: Record<OverlayKey, string> = {
   confirm: 'cp-mask',
   chapterMeta: 'meta-mask',
   splitChapter: 'split-mask',
+  modelPicker: 'picker-mask',
 }
 
 describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 CSS 零镜像）', () => {
@@ -77,10 +79,50 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
     noMirror('ConfirmPrompt.vue', 'cp-mask')
     noMirror('../panels/ChapterMetaDialog.vue', 'meta-mask')
     noMirror('../panels/SplitChapterDialog.vue', 'split-mask')
+    noMirror('ModelPicker.vue', 'picker-mask')
     // settings-shared.css 的全局 .modal-mask 整块收编 ModalMask（连选择器一起走）
     expect(readFileSync(resolve(ROOT, 'settings-shared.css'), 'utf-8')).not.toContain('.modal-mask')
     // ModalMask 自身不写死档位——浓度只能经 MASK_ALPHA 注入（模板内联插值除外）
     expect(readFileSync(resolve(ROOT, 'ModalMask.vue'), 'utf-8')).not.toMatch(/rgba\(0,\s*0,\s*0,\s*0\.\d/)
+  })
+
+  it('ModelPicker 遮罩走 ModalMask：开即登记、浓度取 MASK_ALPHA.modelPicker、关即注销', async () => {
+    const ui = useUiStore()
+    const w = mount(ModelPicker, {
+      props: { show: true, candidates: ['m1', 'm2'], picked: new Set<string>() },
+      attachTo: document.body,
+    })
+    try {
+      // 本组件自持 Teleport（落 body），遮罩类名由 ModalMask 承载
+      expect(ui.overlayOpen).toBe(true)
+      expect(ui.maskAlpha).toBe(MASK_ALPHA.modelPicker)
+      const el = document.body.querySelector('.picker-mask')
+      expect(el, '候选遮罩未渲染').not.toBeNull()
+      expect(el!.getAttribute('style')).toContain(`rgba(0, 0, 0, ${MASK_ALPHA.modelPicker})`)
+      await w.setProps({ show: false })
+      expect(ui.overlayOpen).toBe(false)
+    } finally {
+      w.unmount()
+      document.body.innerHTML = ''
+    }
+  })
+
+  it('纯点击捕获遮罩（FontPicker/ContextMenu）有意不入遮罩体系：无背景浓度、不登记', () => {
+    // 这两处遮罩只做「点外部关闭」，本无背景；并入 ModalMask 会凭空引入全屏变暗并登记成
+    // overlay（改 ⌘P/Esc 让渡语义），故有意留在体系外——契约：其 .X-mask 块无 background/
+    // rgba、类名不出现在登记表值域，且 z-index 保持 1000（高于应用内 modal-mask 150）。
+    for (const [file, cls] of [
+      ['FontPicker.vue', 'fp-mask'],
+      ['ContextMenu.vue', 'cm-mask'],
+    ] as const) {
+      const src = readFileSync(resolve(ROOT, file), 'utf-8')
+      const block = src.match(new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`))
+      expect(block, `${file} 未找到 .${cls} 规则`).not.toBeNull()
+      expect(block![1], `${file} 的 .${cls} 不应有背景浓度`).not.toMatch(/background|rgba\(/)
+      expect(block![1], `${file} 的 .${cls} z-index 应为 1000`).toContain('z-index: 1000')
+      expect(Object.values(MASK_DOM_CLASS)).not.toContain(cls)
+      expect(src, `${file} 不应引入 ModalMask`).not.toMatch(/import\s+ModalMask/)
+    }
   })
 
   it('书架子弹窗遮罩（ShelfModal 私有叠层）渲染面 = SHELF_DEEP_ALPHA，源码零镜像', () => {

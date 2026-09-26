@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { generate, generateText, generateTool, GenError, withChunkStallTimeout } from '../../src/ai/gen.js'
+import { log } from '../../src/log/index.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 
 const CONF = { name: 'fake' } as ProviderConf
@@ -81,10 +82,17 @@ describe('generate', () => {
     ).rejects.toMatchObject({ name: 'GenError', message: 'boom', retryable: true })
   })
 
-  it('无 done 事件正常结束，usage 默认 0', async () => {
-    const r = await generate(provider([{ type: 'text', delta: 'x' }]), { systemPrompt: '', messages: [] }, signal())
-    expect(r.text).toBe('x')
-    expect(r.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+  it('无 done 事件：usage 默认 0，stopReason 归 unknown 并留痕（不默认正常完成）', async () => {
+    const warn = vi.spyOn(log, 'warn')
+    try {
+      const r = await generate(provider([{ type: 'text', delta: 'x' }]), { systemPrompt: '', messages: [] }, signal())
+      expect(r.text).toBe('x')
+      expect(r.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+      expect(r.stopReason).toBe('unknown')
+      expect(warn.mock.calls.some((c) => c[0] === 'gen' && String(c[1]).includes('未收到 done 事件'))).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

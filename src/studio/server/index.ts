@@ -194,7 +194,7 @@ function buildRoutes(
       settingsTtlMs: ov.settingsTtlMs,
       completionNamesTtlMs: ov.completionNamesTtlMs,
     })
-    registerDraftRoutes({ workDir, userDataPath })
+    registerDraftRoutes({ workDir, userDataPath, gate: deps.gate })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath, stateTtlMs: ov.stateTtlMs }) // 状态机入口过全局托底链（volume_size 等喂生效值）
@@ -263,7 +263,7 @@ function buildRoutes(
  * 撞车）静默失闸。豁免面仅两条精确模式：
  * - /api/boot：前端无 token 时的 bootstrap 通道，token 本身由它下发；
  * - /api/books/:name/stream：SSE 端点（EventSource 不能带头），经此处放行后由
- * stream.ts 自带的凭据闸校验（一次性 ticket / x-studio-token 头， 起
+ * stream.ts 自带的凭据闸校验（一次性 ticket / x-studio-token 头起
  * `?token=` 通道已删）；name 为单路径段（[^/]+），与 router.ts:param 捕获口径一致。
  * SSE 豁免项引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——此处不手写等价
  * 正则（两处正则字符串耦合时，路由路径改动会令豁免表静默失配）；/api/boot 项本文件
@@ -621,8 +621,8 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
     // HEAD 与 GET 同读语义，一并入闸（原只判 GET 则 HEAD /api/* 绕过 token 校验，
     // 响应头同会泄漏资源元数据）。
-    // 与写闸同源校验（x-studio-token 头；query token 通道已全量下线—— 收窄非豁免
-    // GET 只认头， 起 SSE 豁免路径的 `?token=` 亦删，凭据只走 ticket/头）、
+    // 与写闸同源校验（x-studio-token 头；query token 通道已全量下线——收窄非豁免
+    // GET 只认头起 SSE 豁免路径的 `?token=` 亦删，凭据只走 ticket/头）、
     // 常量时间比较、失败 403 FORBIDDEN 同口径。
     // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（不得改回后缀匹配）。
     // API 优先

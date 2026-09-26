@@ -14,8 +14,18 @@ export interface ToastItem {
 }
 let seq = 0
 
-// ── 窗控压暗：全屏遮罩浓度表──
-// 各弹窗遮罩浓度不同（设置 .45 / 书架·导出·确认·章节属性·拆分 .35 / 命令面板 .25），
+/** 通用确认弹窗状态（ask 持有、ConfirmPrompt 渲染）——类型提至模块层，避免 store 闭包过长 */
+interface ConfirmState {
+  title: string
+  message: string
+  confirmText?: string
+  cancelText?: string
+  danger?: boolean
+  resolve: (v: boolean) => void
+}
+
+// ──窗控压暗：全屏遮罩浓度表──
+// 各弹窗遮罩浓度不同（设置 .45 / 书架·导出·确认·章节属性·拆分·模型候选 .35 / 命令面板 .25），
 // 窗控压暗色必须按「当前开着的遮罩」实时合成而非一档写死（写死 .45 时书架 .35 遮罩下
 // 窗控深一档即作者反馈的「颜色不统一」）。本表是浓度唯一出处：ModalMask 组件渲染面从
 // 此读取内联上色（收敛）——组件 CSS 不再镜像，改浓度只动这一处。
@@ -29,6 +39,10 @@ export const MASK_ALPHA = {
   // 对话框（z 100）上、win 窗控不变暗；入表后两症结随 overlayOpen/maskAlpha 消除
   chapterMeta: 0.35, // ChapterMetaDialog .meta-mask
   splitChapter: 0.35, // SplitChapterDialog .split-mask
+  // 模型候选弹层（嵌在设置弹窗内，DOM 类名 .picker-mask 逐字保留）原自写 rgba 且未登记——
+  // 入表后浓度与 ⌘P 守卫/窗控变暗随其他遮罩同源；盖在设置遮罩（z 150）之上的 z-index 由
+  // ModalMask 侧承载
+  modelPicker: 0.35, // ModelPicker .picker-mask
 } as const
 export type OverlayKey = keyof typeof MASK_ALPHA
 /** 书架子弹窗遮罩（叠在书架遮罩之上）：ConfirmDeleteModal .confirm-overlay .5、
@@ -45,23 +59,14 @@ export const useUiStore = defineStore('ui', () => {
   const settingsOpen = ref(false)
   const exportOpen = ref(false)
   const shelfOpen = ref(false)
-  // 通用确认弹窗（命令式）：const ok = await ui.ask({ ... })，替代原生 confirm。
-  // 由 ConfirmPrompt.vue 渲染——保持应用内视觉一致，不弹系统原生框。
-  const confirmState = ref<{
-    title: string
-    message: string
-    confirmText?: string
-    cancelText?: string
-    danger?: boolean
-    resolve: (v: boolean) => void
-  } | null>(null)
-  // 确认框遮罩登记位（ask/resolveConfirm 维护，与 confirmState 同开同关）——
-  // overlayStates 收成 7 个 open 位齐表
+  // 通用确认弹窗（命令式）：const ok = await ui.ask({...})，由 ConfirmPrompt.vue 渲染（应用内视觉一致，不弹系统原生框）
+  const confirmState = ref<ConfirmState | null>(null)
+  // 确认框遮罩登记位（ask/resolveConfirm 维护，与 confirmState 同开同关；overlayStates 收成 8 个 open 位齐表）
   const confirmOpen = ref(false)
-  // 章节属性/拆分对话框的开合态由面板侧 v-model 持有、无 store 开关
-  // 动作——登记位由 ModalMask 挂载/卸载自动写（见 setMaskOpen）
+  // 章节属性/拆分/模型候选的开合态由面板侧持有、无 store 动作——登记位由 ModalMask 挂载/卸载自动写
   const chapterMetaOpen = ref(false)
   const splitChapterOpen = ref(false)
+  const modelPickerOpen = ref(false)
   const toasts = ref<ToastItem[]>([])
   // AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
@@ -91,9 +96,8 @@ export const useUiStore = defineStore('ui', () => {
     shelfOpen.value = false
   }
   // ── 全屏遮罩弹层单源判据──
-  // 遮罩登记：kind → open 位。ModalMask 挂载即写 true、卸载即写
-  // false（开合随组件生命周期自动）；palette/settings/export/shelf/confirm 的
-  // open/close 动作仍是各自 v-if 开关，登记写入与动作同值幂等。
+  // 遮罩登记 kind → open 位：ModalMask 挂载即写 true、卸载即写 false（随组件生命周期自动）；
+  // palette/settings/export/shelf/confirm 的开合动作仍是各自 v-if 开关，登记写入与动作同值幂等。
   const maskOpenRefs: Record<OverlayKey, ReturnType<typeof ref<boolean>>> = {
     palette: paletteOpen,
     settings: settingsOpen,
@@ -102,6 +106,7 @@ export const useUiStore = defineStore('ui', () => {
     confirm: confirmOpen,
     chapterMeta: chapterMetaOpen,
     splitChapter: splitChapterOpen,
+    modelPicker: modelPickerOpen,
   }
   function setMaskOpen(kind: OverlayKey, open: boolean): void {
     maskOpenRefs[kind]!.value = open
@@ -115,17 +120,17 @@ export const useUiStore = defineStore('ui', () => {
       { key: 'confirm', open: confirmOpen.value, alpha: MASK_ALPHA.confirm },
       { key: 'chapterMeta', open: chapterMetaOpen.value, alpha: MASK_ALPHA.chapterMeta },
       { key: 'splitChapter', open: splitChapterOpen.value, alpha: MASK_ALPHA.splitChapter },
+      { key: 'modelPicker', open: modelPickerOpen.value, alpha: MASK_ALPHA.modelPicker },
     ]
   }
-  /** 「其它遮罩层是否开着」：Esc 让渡判定用（useHotkeys 专注退出 / SettingsModal /
-   *  ShelfModal 各自收层）——层自身开着时不应把自己算进让渡名单，传自身 key 剔除。
-   *  OR 名单此前在 useHotkeys（Esc 让渡 + Ctrl+P 守卫）与两个弹窗各抄一份，注释写着
-   *  「对齐名单口径」纯人肉同步——新增遮罩弹窗漏改一处就出新 bug（即此类）。
+  /** 「其它遮罩层是否开着」（Esc 让渡判定，useHotkeys / SettingsModal / ShelfModal 用）：
+   *  层自身开着时不算进让渡名单，传自身 key 剔除。OR 名单曾在多处各抄一份靠人肉同步，
+   *  新增遮罩弹窗漏改一处即出新 bug——故收成单源：新增带全屏遮罩的弹窗，状态 ref 建在
    *  新增带全屏遮罩的弹窗：状态 ref 建在本 store + 加进 overlayStates 即可，消费点自动跟上。 */
   function overlayOpenExcept(self?: OverlayKey): boolean {
     return overlayStates().some((s) => s.open && s.key !== self)
   }
-  /** 任一全屏遮罩弹层开着（palette/设置/导出/书架/确认框/章节属性/拆分）——单源判据。 */
+  /** 任一全屏遮罩弹层开着（palette/设置/导出/书架/确认框/章节属性/拆分/模型候选）——单源判据。 */
   const overlayOpen = computed(() => overlayOpenExcept())
   /** 书架子弹窗遮罩浓度（ShelfModal 经 setShelfDeepAlpha 上报；只在书架开着时并入
    *  maskAlpha——书架关闭期间残留值不生效，重开书架若子弹窗仍在则继续匹配）。 */
@@ -194,9 +199,9 @@ export const useUiStore = defineStore('ui', () => {
     toasts.value = toasts.value.filter((t) => t.id !== id)
   }
   /** 弹 toast（自动消失；时长按级别分级——低级项：错误 1.8s 读不完就消失，
-   *  作者看不到失败原因只能重复操作。（二十四轮 E 域）：注释校正——实际代码
+   * 作者看不到失败原因只能重复操作。注释校正——实际代码
    *  error 5000ms / 成功与信息类 1800ms，旧注释「错误 1.8s」与实现相悖，误导后续维护）。
-   *  同文案同级别合并（重置既有条目消失计时，循环失败只刷新一条不堆叠）+
+   * 同文案同级别合并（重置既有条目消失计时，循环失败只刷新一条不堆叠）+
    *  上限 TOAST_MAX（挤掉最旧）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
     const existing = toasts.value.find((t) => t.msg === msg && t.kind === kind)
@@ -252,7 +257,7 @@ export const useUiStore = defineStore('ui', () => {
   function reportUnhandledError(err: unknown, info = ''): void {
     console.error('[Vue Error]', err, info)
     try {
-      // -：三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
+      // 三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
       const msg = rawErrorMessage(err)
       toast(`发生未处理错误：${msg}`, 'error')
     } catch {
@@ -268,6 +273,7 @@ export const useUiStore = defineStore('ui', () => {
     confirmOpen,
     chapterMetaOpen,
     splitChapterOpen,
+    modelPickerOpen,
     toasts,
     aiAvailable,
     probeAiStatus,

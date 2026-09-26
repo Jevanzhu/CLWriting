@@ -1,5 +1,5 @@
 /**
- * rewrite 改写端点(2.5 + M12 .1):局部改写 + 整章返修 + diff,docId 直读。
+ * rewrite 改写端点(2.5 + M12 B2.1):局部改写 + 整章返修 + diff,docId 直读。
  *
  * POST /api/books/:name/documents/:docId/rewrite  body {instruction, selection?, append?}
  *   → 读正文(strip fm body)→ 组 prompt → generateTool(submit_text)→ produced
@@ -7,7 +7,7 @@
  *   → lineDiff(原, 改)→ {ok, mode, original, rewritten, diff}
  *
  * POST /api/books/:name/documents/:docId/ai-version  body {content}
- *   → 作者接受改写时上报 AI 版全文 → 旁路 ref(文风 轨迹,不碰正文)
+ * → 作者接受改写时上报 AI 版全文 → 旁路 ref(文风轨迹,不碰正文)
  *
  * 改写走 generateTool(submit_text);apply 不走后端,前端拿 rewritten 进编辑器由作者 ⌘S 保存。
  * diff 行级 LCS 自写(YAGNI,~50 行)。
@@ -20,11 +20,9 @@ import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
 import { readDraft } from '../../../format/draft.js'
-import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff } from '../../../process/rewrite-prompt.js'
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // /：长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 
 // re-export（下沉兼容：既有 import 方零感知）
 export {
@@ -41,7 +39,7 @@ interface RewriteCtx extends TaskGateInjected {
 }
 
 /** 跑一次 writer 改写（runSpec 统一编排；mock 与真实同走 decode）。
- *  -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
+ * -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
 async function runRewriter(
   userDataPath: string | null,
   prompt: string,
@@ -76,7 +74,7 @@ async function runRewriter(
 }
 
 export function registerRewriteRoutes(ctx: RewriteCtx): void {
-  // 改写直读（M12 .1，O-a）：docId → 正文（strip fm 的 body）→ generateTool(submit_text) → lineDiff
+  // 改写直读（M12 B2.1，O-a）：docId → 正文（strip fm 的 body）→ generateTool(submit_text) → lineDiff
   // apply 不走后端：前端拿 rewritten 进编辑器 buffer 由作者 ⌘S 保存（最纯提案模型，AI 永不直接落盘正文）
   // 续写解选区：body {instruction, append:true}（无 selection）→ 全文作语境只产续写部分 → 原文 + 续写
   defineRoute('books.documents.rewrite', {
@@ -85,29 +83,15 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 反向互斥面——端点持 'rewrite' 闸但此前不查 self-heal 运行标记，
-      // 全自动写章在途时编辑器整章改写可并发起跑（双份费用 + 过期基线改写产出）。chat 侧
-      // write_chapter 已同持此闸（turns.ts），本检查补齐 self-heal ↔ 端点互斥
-      if (isSelfHealRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再发起改写')
-      }
-      // spawn 面——全库互斥矩阵其余各面（chat 工具/spawn/auto-write/
-      // chat.send）均纳入 spawn，唯本端点漏（只补了 self-heal 面）：手动写稿在途
-      // 时编辑器改写放行 = 双倍费用 + 过期基线 + 后写赢顶掉 spawn 产出。
-      if (isSpawnRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再发起改写')
-      }
-      // （修复批）：补 chat/后台收尾互斥面——同族生成端点
-      // （analyze/outline/onboard-ai/relations.mine/lead-updates）入口均走 orchestrationBusyFor
-      // （含 isChatRunning + hasBackgroundTasks），本端点此前只有 self-heal/spawn
-      // 两个单独补查面：纯文本对话在途时编辑器整章改写仍可并发起跑（双份 LLM 费用 + 过期基线
-      // 提案）——反方向已封（chat.send/auto-write/chat.clear 用 allHeldTaskGatesFor，'rewrite'
-      // 闸在持时对话 409），唯正向漏，矩阵不对称。组合方式照 lead-updates 先例：与前两面覆盖
-      // 重叠（self-heal/spawn）时上方既有检查先命中，既有文案语义不变。
-      // 长任务并发闸（409 文案逐位保留）+ -①（c
-      // 修复批）中断通道（register/unregister 形态，owner='rewrite:<书名>'，中断收口经
-      // runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制收编
-      // runGatedGeneration 单源（-，接法头注见 task-gate.ts）。
+      // 写稿系编排面互斥：全自动写章/手动写稿在途时本端点并发起跑 = 双份费用 +
+      // 过期基线改写产出（后写赢顶掉写手产物）。文案与判定序从忙闸矩阵单源出
+      // （busyReason 的 'rewrite' 行 = self-heal → spawn，逐字同迁出前）；
+      // chat/后台收尾两面由下方 runGatedGeneration 的 generate 预查兜住，不在此重复查。
+      const writeBusy = ctx.gate.busyReason(params['name']!, 'rewrite')
+      if (writeBusy) return replyError(res, 409, 'BUSY', writeBusy)
+      // 长任务并发闸（自持 action 重入文案）+ 中断通道注册（owner='rewrite:<书名>'，
+      // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段
+      // 复制收编 runGatedGeneration 单源（接法头注见 task-gate.ts）。
       return ctx.gate.runGatedGeneration(
         res,
         {

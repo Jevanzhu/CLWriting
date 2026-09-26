@@ -8,6 +8,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { capView } from '../../shared/render-cap'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import ModalMask from './ModalMask.vue'
 
 const props = defineProps<{
   show: boolean
@@ -26,7 +27,7 @@ const emit = defineEmits<{
 // 无条数约束，全量 v-for 挂 DOM 会线性膨胀。对齐 CommandPalette/ChapterTreeItem/
 // RewritePanel 的 RENDER_CAP=100 域内惯例：数据面不动（props.candidates 原样、父层
 // picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const capped = computed(() => capView(props.candidates, RENDER_CAP))
 
@@ -44,7 +45,7 @@ function onKeydown(e: KeyboardEvent): void {
 onMounted(() => document.addEventListener('keydown', onKeydown, true))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
-// （修复批）：补齐弹窗族唯一缺口——焦点陷阱 + dialog 语义 +
+// 补齐弹窗族唯一缺口——焦点陷阱 + dialog 语义 +
 // 初始聚焦（对齐 ConfirmPrompt/SettingsModal/CreateBookModal 同族）。
 // 此前 Tab 直穿到背后表单；trap 落焦到首个可交互元素 = 关闭钮（右上角），
 // 与 ConfirmDeleteModal「危险操作默认聚焦安全项」同向。
@@ -55,7 +56,9 @@ useFocusTrap(modalRef)
 <template>
   <!-- 候选弹窗：从已拉取清单勾选 -->
   <Teleport to="body">
-    <div v-if="show" class="picker-mask" @click.self="emit('close')">
+    <!-- 遮罩走 ModalMask 单源（浓度入 MASK_ALPHA、登记进 overlayStates）；类名/层级/blur
+         由 ModalMask 的 .picker-mask 段承载，本组件不再自写遮罩 CSS -->
+    <ModalMask :open="show" kind="modelPicker" @mask-click="emit('close')">
       <div class="picker-pop" ref="modalRef" role="dialog" aria-modal="true" aria-label="从模型清单选择" tabindex="-1">
         <div class="picker-head">
           <span>从模型清单选择</span>
@@ -76,23 +79,12 @@ useFocusTrap(modalRef)
           </button>
         </div>
       </div>
-    </div>
+    </ModalMask>
   </Teleport>
 </template>
 
 <style scoped>
 /* ── 候选弹窗 ── */
-.picker-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: clw-overlay var(--dur-fast) var(--ease-out);
-}
 .picker-pop {
   width: min(420px, 90vw);
   max-height: 70vh;

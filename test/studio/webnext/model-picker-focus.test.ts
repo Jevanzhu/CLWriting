@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { setActivePinia, createPinia } from 'pinia'
 
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
 
@@ -19,6 +20,7 @@ import ModelPicker from '../../../src/studio/web-next/src/components/ui/ModelPic
 const PROPS = { show: true, candidates: ['gemini-1.5', 'claude-3.5', 'gpt-4o'], picked: new Set<string>() }
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // 遮罩经 ModalMask → ui store 登记，需 active pinia
   document.body.innerHTML = ''
 })
 

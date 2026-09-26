@@ -18,27 +18,27 @@ import { readKind } from '../../../format/kind.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { saveDraft, buildDraftPrompt, NonUtf8TargetError } from '../../../process/draft-pipeline.js'
-import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
 import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import { log } from '../../../log/index.js'
 import { createSerialChainMap } from '../serial-chain.js' // per-key 串行链四胞胎通用件
+import type { TaskGateInjected } from './task-gate.js'
 
 // re-export（下沉兼容：既有 import 方零感知）
 export { saveDraft, buildDraftPrompt, snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js'
 
-interface DraftCtx {
+interface DraftCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath?: string | null
 }
 
-// ── （修复批）：draft-save per-book 串行链 ──
+// ──：draft-save per-book 串行链 ──
 // 此前 draft-save 端点游离于全部排水闸之外：删书/改名排水清单（busyGate → abort →
 // awaitOrchestrationsSettled → drainDocumentSaves → drainFilePutChainsUnder →
 // drainForeshadowSaveChains）不含本链，在途/迟到 draft-save 在墓地 rename 之后落地，
 // saveDraft 的 mkdirSync(recursive) 按旧书路径重建幽灵目录树并返 200（内容不属于任何
 // 书）；改名后 stale 客户端续存亦无书注册重验。收编为 files.ts filePutChains（/
-// ）同款范式：per-book Promise 链 + drain 导出（books.ts 删/改名排水段调用）+
+//）同款范式：per-book Promise 链 + drain 导出（books.ts 删/改名排水段调用）+
 // 链内临界段 bookMovedFailure 单源重验（readJson await 窗口内书可被删/改名）。
 // 死锁核查（同款）：链单元只单向 await saveDraft 的跨进程锁
 //（journal save 锁/清单锁）与 git/轨迹收尾，从不反等 books 侧锁；drain 置于既有
@@ -62,7 +62,7 @@ function enqueueDraftSave(bookRoot: string, critical: () => Promise<DraftSaveOut
  *  调用（drainFilePutChainsUnder 同型）：在途 draft-save 的 saveDraft await 窗口跨墓地
  *  renameSync 时 mkdirSync(recursive) 会重建旧书路径目录树（幽灵书目录，无 book.yaml，
  *  repairBooks 不认领）。快照当前键后逐键等待（新进链不等——由链内 bookMovedFailure
- *  重验兜底拒绝）。：匹配/等待实现在 serial-chain.ts
+ * 重验兜底拒绝）。匹配/等待实现在 serial-chain.ts
  *  drainUnder 单源。 */
 export async function drainDraftSaveChainsUnder(bookRoot: string): Promise<void> {
   await draftSaveChains.drainUnder(bookRoot)
@@ -82,13 +82,12 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
 
-      // 编排互斥补齐——self-heal 写章在途时同章 draft-save 放行
-      // = 后写赢覆盖自愈产物（有 snapshotBeforeOverwrite 留底故定级）。对齐 rewrite.ts
-      // /同款双查口径；draft-save 是 writer 产出的落盘通道，spawn 侧经
-      // driver 内部走同函数不经本端点，故只查 self-heal 面
-      if (isSelfHealRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再保存草稿')
-      }
+      // 编排互斥：全自动写章在途时同章 draft-save 放行 = 后写赢覆盖自愈产物
+      //（saveDraft 内 snapshotBeforeOverwrite 留底，属定级不回滚）。文案与判定从忙闸
+      // 矩阵单源出（busyReason 的 'draft-save' 行）；spawn 侧经 driver 内部直调
+      // saveDraft、不经本端点，故只查 self-heal 面。
+      const busy = ctx.gate.busyReason(params['name']!, 'draft-save')
+      if (busy) return replyError(res, 409, 'BUSY', busy)
 
       const body = await readJson(req)
       const chapter = Number(body['chapter'])
@@ -109,7 +108,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
         try {
           // saveDraft/recordAuthorSignal 已异步化（保存锁等待不再冻结事件循环）
           const saved = await saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
-          // 文风改稿轨迹（-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
+          // 文风改稿轨迹（从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
           await recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
           // recordAiVersion 迁异步孪生——原同步 spawnSync git 两连
           // （hash-object+update-ref）在 git 无响应时拖住事件循环最长 15s×2（注释
@@ -142,7 +141,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
+      // parseRequestUrl 统一解析（口径）——畸形 URL → 400 BAD_INPUT
       const url = parseRequestUrl(req)
       if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
       const chapter = Number(url.searchParams.get('chapter') ?? '1')

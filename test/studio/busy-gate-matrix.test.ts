@@ -68,6 +68,8 @@ const TAIL: Record<BusyIntent, string> = {
   'clear-chat': '后再清空对话',
   'clear-events': '后再清除事件史',
   review: '再发起三审',
+  rewrite: '再发起改写',
+  'draft-save': '再保存草稿',
 }
 const ALL_SIGNALS: readonly BusySignal[] = ['self-heal', 'chat', 'spawn', 'task-gate', 'review', 'background']
 
@@ -166,6 +168,17 @@ const EXP: Array<{ intent: BusyIntent; cells: Array<{ signal: BusySignal; text: 
       { signal: 'spawn', text: SIGNAL_TEXT.spawn + TAIL.review },
       { signal: 'background', text: SIGNAL_TEXT.background + TAIL.review },
     ],
+  },
+  {
+    intent: 'rewrite',
+    cells: [
+      { signal: 'self-heal', text: SIGNAL_TEXT['self-heal'] + TAIL.rewrite },
+      { signal: 'spawn', text: SIGNAL_TEXT.spawn + TAIL.rewrite },
+    ],
+  },
+  {
+    intent: 'draft-save',
+    cells: [{ signal: 'self-heal', text: SIGNAL_TEXT['self-heal'] + TAIL['draft-save'] }],
   },
 ]
 const cellsOf = (intent: BusyIntent) => EXP.find((r) => r.intent === intent)!.cells
@@ -390,6 +403,20 @@ const PROBES: ProbeRow[] = [
     blocked: () => studio.req('POST', `/api/books/${enc(BOOK)}/documents/${PROBE_DOC}/review`, {}),
     // 放行臂：越过忙闸 → 未登记 docId 404
     pass: { run: () => studio.req('POST', `/api/books/${enc(BOOK)}/documents/${PROBE_DOC}/review`, {}), status: 404 },
+  },
+  {
+    intent: 'rewrite',
+    code: 'BUSY',
+    blocked: () => studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/rewrite`, { instruction: '润色' }),
+    // 放行臂：越过忙闸 → 空 instruction 落 400（不真起改写）
+    pass: { run: () => studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/rewrite`, {}), status: 400 },
+  },
+  {
+    intent: 'draft-save',
+    code: 'BUSY',
+    blocked: () => studio.req('POST', `/api/books/${enc(BOOK)}/draft-save`, { chapter: 1, content: '正文' }),
+    // 放行臂：越过忙闸 → chapter 非正整数落 400
+    pass: { run: () => studio.req('POST', `/api/books/${enc(BOOK)}/draft-save`, {}), status: 400 },
   },
 ]
 

@@ -24,6 +24,7 @@ const MASK_CLASS: Record<OverlayKey, string> = {
   confirm: 'cp-mask',
   chapterMeta: 'meta-mask',
   splitChapter: 'split-mask',
+  modelPicker: 'picker-mask',
 }
 
 // open 即登记：开合条件直连（store 动作位 / 面板 v-model / confirmState），登记随动
@@ -60,7 +61,8 @@ const alpha = computed(() => MASK_ALPHA[props.kind])
 .shelf-mask,
 .cp-mask,
 .meta-mask,
-.split-mask {
+.split-mask,
+.picker-mask {
   position: fixed;
   inset: 0;
   display: flex;
@@ -92,5 +94,13 @@ const alpha = computed(() => MASK_ALPHA[props.kind])
 .meta-mask,
 .split-mask {
   z-index: 100;
+}
+/* 模型候选弹层嵌在设置弹窗（.modal-mask z 150）之内，须压在其上；
+   blur/animation 时长同为迁出前原值 */
+.picker-mask {
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: clw-overlay var(--dur-fast) var(--ease-out);
 }
 </style>

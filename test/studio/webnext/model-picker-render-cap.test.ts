@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
 import ModelPicker from '../../../src/studio/web-next/src/components/ui/ModelPicker.vue'
 
 let wrapper: ReturnType<typeof mount> | null = null
@@ -25,6 +26,7 @@ function capHint(): HTMLElement | null {
 }
 
 beforeEach(() => {
+  setActivePinia(createPinia()) // 遮罩经 ModalMask → ui store 登记，需 active pinia
   document.body.innerHTML = ''
 })
 

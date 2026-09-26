@@ -116,6 +116,17 @@ describe('R0916-7-P3-15：runTask 抽 stopReason（无静默兜底）', () => {
     expect(stepEnd['reason']).toBe('completed')
   })
 
+  it("显式 'unknown'（流缺 done 的归类值）原样透出，不再被二次改写、不留域外痕", async () => {
+    const spy = vi.spyOn(log, 'warn')
+    const { call, stepEnd } = await runWithResult({
+      stopReason: 'unknown',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    })
+    expect(call['stopReason']).toBe('unknown')
+    expect(stepEnd['reason']).toBe('completed')
+    expect(stopReasonWarns(spy)).toHaveLength(0)
+  })
+
   it("域外字符串 → 'unknown' + 留痕（此前原样透出任意字符串进 llm/call 重放口径）", async () => {
     const spy = vi.spyOn(log, 'warn')
     const { call, stepEnd } = await runWithResult({ stopReason: 'eos', usage: { inputTokens: 1, outputTokens: 1 } })
