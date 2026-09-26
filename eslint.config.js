@@ -1,18 +1,18 @@
 /**
- * R66-44（十四轮）：最小 lint 门——项目此前无任何 lint/format 门禁（报告 R66-44），
+ * 最小 lint 门——项目此前无任何 lint/format 门禁（报告），
  * 风格一致性零机器约束。本配置刻意从简：只上 no-unused-vars / no-undef 两条
  * 零争议规则，覆盖 eslint 核心可直接解析的 JS/MJS 面（scripts/*.mjs + 本配置）。
  *
- * R74-26（二十二轮 批E）：TS 面接入——typescript-eslint 预装后扩 src 下 .ts 块
+ * TS 面接入——typescript-eslint 预装后扩 src 下 .ts 块
  * （此前 espree 不认 TS 语法，CI lint 步对 TS 零约束近乎空转）。规则起步＝
  * recommended 预设，报红量大且低价值的规则逐条关掉（每条配中文理由，见下）。
  * 射程登记：vue 面（web-next 子包独立自治 + .vue SFC）本轮不动。
- * R28-30（二十八轮）：scripts 目录 .ts 接入（实测 9 文件 0 错，零修复纳管）。
- * R30-28（三十轮）：test 目录接入——扩进 TS 块 files（与 src/scripts 同规则族，
+ * scripts 目录 .ts 接入（实测 9 文件 0 错，零修复纳管）。
+ * test 目录接入——扩进 TS 块 files（与 src/scripts 同规则族，
  * 规则表逐位未动），存量 45 错机械清偿（31 处 no-explicit-any + 14 处
- * no-unused-vars，2026-08-30 实测口径）；其中 no-explicit-any 后续单独降档
- * （三十轮末降 warn → R45-4 降 off，见下方 test 块）。
- * R45-4（四十五轮）：test/ 侧 no-explicit-any 显式降为 off——31 处存量 warning
+ * no-unused-vars，实测口径）；其中 no-explicit-any 后续单独降档
+ * （三十轮末降 warn → 降 off，见下方 test 块）。
+ * test/ 侧 no-explicit-any 显式降为 off——31 处存量 warning
  * 归零，此后 `npx eslint .` 口径为 0 error / 0 warning。
  *
  * 刻意不做的：
@@ -34,7 +34,7 @@ export default [
     // 生成产物与参考资料不入口：coverage/test-results/playwright-report/tmp 为工具输出，
     // dist 为构建产物，Dev/ 为项目文档链（Dev/Docs）+ 第三方参考项目（Dev/参考项目，
     // 均非 lint 射程内的代码面）。
-    // R32-11（三十二轮）：web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立
+    // web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立
     // 自治」口径收窄为「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
     ignores: [
       'dist/**',
@@ -42,11 +42,11 @@ export default [
       'test-results/**',
       'playwright-report/**',
       'Dev/**',
-      'tmp/**', // R36-27（三十六轮）：本地脚本临时产物（gates-*.sh/log 等），防未来 .js 入 lint
+      'tmp/**', // 本地脚本临时产物（gates-*.sh/log 等），防未来 .js 入 lint
       'src/studio/web-next/node_modules/**',
       'src/studio/web-next/test-results/**',
       'src/studio/web-next/dist/**',
-      'dist-electron/**', // R49-35：本地 build:desktop:dir 出包的解包产物（lint 不扫假红；CI 不受影响）
+      'dist-electron/**', // 本地 build:desktop:dir 出包的解包产物（lint 不扫假红；CI 不受影响）
     ],
   },
   {
@@ -83,12 +83,12 @@ export default [
     },
   },
   {
-    // TS 面（R74-26）：src 下的 .ts——parser/plugin 用 typescript-eslint；
-    // R28-30（二十八轮）：scripts/**/*.ts 增量接入（9 文件 0 错零修复纳管）；
-    // R30-28（三十轮）：test/**/*.ts 增量接入（同规则族，存量 45 错机械清偿）；
-    // R32-11（三十二轮）：web-next 随 src/**/*.ts 通配自然纳入（.vue SFC 仍由
+    // TS 面：src 下的 .ts——parser/plugin 用 typescript-eslint；
+    // scripts/**/*.ts 增量接入（9 文件 0 错零修复纳管）；
+    // test/**/*.ts 增量接入（同规则族，存量 45 错机械清偿）；
+    // web-next 随 src/**/*.ts 通配自然纳入（.vue SFC 仍由
     // vue-tsc 管，本配置不解析 SFC 模板）
-    // R33D-36（三十三轮）：根目录构建配置收编（vitest/playwright/tsup config 此前只受 tsc 管不受 lint 管）
+    // 根目录构建配置收编（vitest/playwright/tsup config 此前只受 tsc 管不受 lint 管）
     files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts', '*.config.ts'],
     languageOptions: {
       parser: tseslint.parser,
@@ -97,7 +97,7 @@ export default [
         sourceType: 'module',
       },
     },
-    // R32-41（三十二轮）：reportUnusedDisableDirectives 回归默认（warn）——存量唯一
+    // reportUnusedDisableDirectives 回归默认（warn）——存量唯一
     // 失效指令 filename.ts 的 no-control-regex 注释已清（规则本就未启用，指令纯噪声）
     plugins: {
       '@typescript-eslint': tseslint.plugin,
@@ -110,7 +110,7 @@ export default [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' },
       ],
-      // 重评-P3-24③（2026-09-09 全量代码重评）：存量 9 处 let 违例已随修复批 --fix 清偿，
+      // 存量 9 处 let 违例已随修复批 --fix 清偿，
       // 规则开启（原「关门待清偿」注记由此取代）
       'prefer-const': 'error',
       // 放行空接口：src/driver/types.ts:16 的空接口是既有 driver 扩展点契约
@@ -119,13 +119,13 @@ export default [
     },
   },
   {
-    // R30-28（三十轮）：test/ 目录单规则降档——no-explicit-any 降 warn 记档。
+    // test/ 目录单规则降档——no-explicit-any 降 warn 记档。
     // 理由：存量 31 处同类全落在测试假件语境（studio 假 HTTP 客户端的 `json: any`
     // 载荷 + desktop Electron 假窗口的 `Record<string, any>` 宽松索引面），断言面
     // 52 处动态属性直取，补真类型须对全断言链逐点 cast——非机械改动（>10 同类
     // 阈值），且测试假件本就允许宽松取用。降 warn 留痕（0 error 验收口径允许），
     // 其余规则（含 no-unused-vars 15 处存量）一律 error 清零。src/scripts 不受本块影响。
-    // R45-4（四十五轮）：warn 显式降为 off——mock 类型 any 属测试常态，31 处存量
+    // warn 显式降为 off——mock 类型 any 属测试常态，31 处存量
     // warning 长期占据警告通道（门只卡 error，新增 warning 会被存量噪音淹没），
     // tsc 仍对 test/ 全量类型检查兜底。降级后警告通道归零（0 error / 0 warning）。
     files: ['test/**/*.ts'],

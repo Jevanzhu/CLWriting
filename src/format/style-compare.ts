@@ -1,7 +1,7 @@
 /**
- * 文风比对层（文风系统重整 S3）：AI 版 vs 作者版的纯函数比对，零落盘。
+ * 文风比对层（文风系统重整）：AI 版 vs 作者版的纯函数比对，零落盘。
  *
- * 词级——AI 版有、作者版无的 n-gram（禁词候选原料；跨章频次聚合在候选箱 S4 做）。
+ * 词级——AI 版有、作者版无的 n-gram（禁词候选原料；跨章频次聚合在候选箱做）。
  * 段级——n-gram Jaccard 相似度分层：
  *   >95% 已对齐（aligned，不产候选）
  *   70–95% 表层微调（surface，供词级信号）
@@ -19,9 +19,9 @@ function hanRuns(text: string): string[] {
 export function charNgrams(text: string, n: number): Set<string> {
   const grams = new Set<string>()
   for (const run of hanRuns(text)) {
-    // R48-53（四十八轮）：按码位取窗——.length/.slice 是 UTF-16 码元口径，扩展 B 区
+    // 按码位取窗——.length/.slice 是 UTF-16 码元口径，扩展 B 区
     // 生僻字（代理对占 2 码元）会被劈成孤立代理对落进 n-gram，落盘禁词在正文
-    // includes 永不命中（红闸静默失效）。Array.from 按码位切窗（对齐 R72-7/R41-4）。
+    // includes 永不命中（红闸静默失效）。Array.from 按码位切窗（对齐 /）。
     const cps = Array.from(run)
     if (cps.length < n) {
       grams.add(run)
@@ -41,7 +41,7 @@ export function missingNgrams(aiText: string, authorText: string): string[] {
   for (let n = 5; n >= 2; n--) {
     const authorGrams = charNgrams(authorText, n)
     for (const gram of charNgrams(aiText, n)) {
-      // R48-53（四十八轮）：兜底项判定同步码位口径——含扩展 B 区字的 n-gram 其
+      // 兜底项判定同步码位口径——含扩展 B 区字的 n-gram 其
       // UTF-16 length 是 2n，原 `.length !== n` 会把合法 gram 误当兜底项滤掉
       if (Array.from(gram).length !== n) continue // 短 run 兜底项不作候选
       if (authorGrams.has(gram)) continue
@@ -52,9 +52,9 @@ export function missingNgrams(aiText: string, authorText: string): string[] {
   return out
 }
 
-/** n-gram Jaccard 相似度的集合版内核（R65-28：compareVersions 段对矩阵 O(P²) 不再
+/** n-gram Jaccard 相似度的集合版内核（compareVersions 段对矩阵 O(P²) 不再
  *  每对重算 charNgrams O(L)，循环外对每段预计算一次 ngram Set 后走此函数——
- *  数值与公开 similarity() 逐一恒等）；两侧皆空视为相同 → 1 */
+ *  数值与公开 similarity 逐一恒等）；两侧皆空视为相同 → 1 */
 function similarityFromSets(ga: Set<string>, gb: Set<string>): number {
   if (ga.size === 0 && gb.size === 0) return 1
   let inter = 0
@@ -105,7 +105,7 @@ export function compareVersions(aiText: string, authorText: string): CompareResu
   const auParas = splitParas(authorText)
 
   // 所有 (作者段, AI段) 对按相似度降序全局贪心。
-  // R65-28：每段 ngram Set 只算一次（原先每对 similarity→charNgrams 重算，O(P²·L)），
+  // 每段 ngram Set 只算一次（原先每对 similarity→charNgrams 重算，O(P²·L)），
   // 数值与原先逐一恒等（同集合同 Jaccard）
   const aiGrams = aiParas.map((p) => charNgrams(p, 2))
   const auGrams = auParas.map((p) => charNgrams(p, 2))

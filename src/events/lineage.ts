@@ -1,8 +1,8 @@
 /**
- * F1-P3 血缘 + 「模型可见 ⟺ 已记录」校验器（方案 §五 + AGENTS.md 守则；G2-1 扩三种登记形状）。
+ * 血缘 + 「模型可见 ⟺ 已记录」校验器（方案 §五 + AGENTS.md 守则；扩三种登记形状）。
  *
  * - verifyVisibleRecorded：断言「注入 prompt 的内容 ⊆ 事件可重建内容」——
- *   每个可见注入（scope+digest）须有对应登记事件。三种登记形状（G2-1）：
+ *   每个可见注入（scope+digest）须有对应登记事件。三种登记形状
  *   settings/snapshot（scope=data.scope、digest=data.digest）、
  *   skills/snapshot（scope='skills'、digest=data.digest）、
  *   revision/ref（正文登记：scope='chapter'、digest=data.revision）。
@@ -36,7 +36,7 @@ export function digest16(input: string): string {
   return createHash('sha256').update(input, 'utf8').digest('hex').slice(0, 16)
 }
 
-/** 登记记录归一化：三种登记事件 → 统一 {scope, digest, seq}（G2-1）
+/** 登记记录归一化：三种登记事件 → 统一 {scope, digest, seq}
  *  - settings/snapshot / skills/snapshot：直接取 data.scope + data.digest；
  *  - revision/ref：正文登记，固定 scope='chapter'、digest=data.revision。 */
 function registeredRecords(events: ChatEvent[]): { scope: string; digest: string; seq: number }[] {
@@ -65,7 +65,7 @@ export function verifyVisibleRecorded(visible: VisibleInjection[], events: ChatE
 }
 
 /** 从事件流提取全部登记记录（settings/snapshot + skills/snapshot + revision/ref 归一化；血缘重建用）。
- *  R62-32：生产链经 registeredRecords 直连，本导出仅测试消费——测试资产保留。 */
+ *  ：生产链经 registeredRecords 直连，本导出仅测试消费——测试资产保留。 */
 export function recordedSnapshots(events: ChatEvent[]): { scope: string; digest: string; seq: number }[] {
   return registeredRecords(events)
 }

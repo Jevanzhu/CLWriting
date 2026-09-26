@@ -1,5 +1,5 @@
 /**
- * M1 格式层内存模型 —— 所有 md ↔ 内存 ↔ 缓存映射的类型基础。
+ * 格式层内存模型 —— 所有 md ↔ 内存 ↔ 缓存映射的类型基础。
  *
  * 设计依据：
  * - #3 账本格式 spec（六类 front matter + 履历；伏笔已独立为设定伏笔系统）
@@ -33,7 +33,7 @@ export interface LeadEntry {
   回填?: boolean // 显式回填例外（#3 第 4 节），章号机检放行
 }
 
-/** 履历段内分组标题（R51-F-1）：条目之间的 ATX 标题行（如 `### 第一卷`）——
+/** 履历段内分组标题：条目之间的 ATX 标题行（如 `### 第一卷`）——
  *  挂靠其后首个条目的序号，回写时原位还原（此前 continue 三不管、回写即物理删除） */
 export interface LeadHistoryGroupHeading {
   /** 挂靠条目下标（该标题位于 entries[beforeEntry] 之前；解析时 = 当时 entries.length） */
@@ -59,15 +59,15 @@ export interface Lead {
   欠方?: string // 关系线（#3 第 6.3 节）
   债主?: string // 关系线
 
-  // 容错：未知字段原样保留（#3 第 8 节；R64-17 十二轮：数组型按 string[] 原样承载）
+  // 容错：未知字段原样保留（#3 第 8 节； 十二轮：数组型按 string[] 原样承载）
   _raw?: Record<string, string | string[]>
   /** 履历段前的人工说明正文（如人物/设定简介），回写时保留 */
   _bodyBeforeHistory?: string
-  /** 履历段之后的人工正文（备注/关联线索等，dd-P2：回写时保留——此前被静默删除） */
+  /** 履历段之后的人工正文（备注/关联线索等，dd-回写时保留——此前被静默删除） */
   _bodyAfterHistory?: string
-  /** 「## 履历」标题与首条条目之间的手写散文（R48-8：回写时原位还原——此前三路都不接住、回写即物理删除） */
+  /** 「## 履历」标题与首条条目之间的手写散文（回写时原位还原——此前三路都不接住、回写即物理删除） */
   _historyPreamble?: string
-  /** 履历段内分组标题（R51-F-1：按挂靠条目序号回写原位还原——此前 continue 丢弃、回写即物理删除） */
+  /** 履历段内分组标题（按挂靠条目序号回写原位还原——此前 continue 丢弃、回写即物理删除） */
   _historyGroupHeadings?: LeadHistoryGroupHeading[]
   /** 源 md 的 front matter 字段顺序（回写保序用，#3 第 8 节"不重排已有字段顺序"） */
   _fmOrder?: string[]
@@ -80,7 +80,7 @@ export interface Lead {
 /** 钩子类型（#7 第 3 节，追读力 5 类） */
 export type HookType = '危机钩' | '悬念钩' | '渴望钩' | '情绪钩' | '选择钩'
 
-// ── 单篇清单（M8 #27，账本降级：反转线索表 + 伏笔回收）──
+// ── 单篇清单（#27，账本降级：反转线索表 + 伏笔回收）──
 
 /** 反转线索表的铺垫点（结构物件三现，吸收点 7.4） */
 export interface SetupPoint {
@@ -112,7 +112,7 @@ export interface EmotionCurvePoint {
 }
 
 /**
- * 单篇清单（M8 #27 第 4 节）。
+ * 单篇清单（#27 第 4 节）。
  * 范围限单章、写完即归档；复用账本格式骨架降级，无跨章长程线。
  * 落点：大纲/章纲/<章号>-<标题>.md。
  */
@@ -120,7 +120,7 @@ export interface PieceList {
   反转线索表: ReversalLead
   情绪曲线?: EmotionCurvePoint[]
   伏笔回收: PayoffEntry[]
-  _path?: string // R73-16b（二十一轮）：死字段 _raw 删除（R65-39 已登记从不填充，未知段保形走文本级补丁路径）
+  _path?: string // 死字段 _raw 删除（已登记从不填充，未知段保形走文本级补丁路径）
 }
 
 /** 钩子强弱 */
@@ -145,21 +145,21 @@ export interface ChapterMeta {
   // 以下为通用可选字段（长短篇均可用，非"短篇专属"）
   目标情绪?: string // 读者体验目标（惊悚/温暖/心酸…）
   核心反转?: string // 本章核心反转点（有反转的章才填）
-  /** 阶段 24 章节结构操作（留洞制，D2/D5）：显示排序键，缺省 = 章号（旧书零迁移）。
+  /** 阶段 24 章节结构操作（留洞制，/）：显示排序键，缺省 = 章号（旧书零迁移）。
    *  拆分新章取两侧有效序中值；正有限数，非法值按缺省处理（不报错）。 */
   序?: number
-  /** 阶段 24 章节结构操作（D3）：本章吸收的源章号清单（合并写入，链式折叠单跳——
+  /** 阶段 24 章节结构操作：本章吸收的源章号清单（合并写入，链式折叠单跳——
    *  `12` / `12, 13` / 数组形态）。权威源 = 存活目标章 fm（文件本位原则）。 */
   并入?: number[]
-  // 容错：未知字段原样保留（#3 第 8 节；R51-F-6（五十一轮）：数组型按 string[]
-  // 原样承载，对齐 LeadMeta R64-17——此前 String(v) 把数组压成 "a,b" 单串，回写
+  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[]
+  // 原样承载，对齐 LeadMeta ——此前 String(v) 把数组压成 "a,b" 单串，回写
   // stringifyValue 按标量引号化，项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
-  /** W-P2-4：readChapterDir 传 includeBody 时带出正文原文（导出单次读用；默认缺省不驻留内存） */
+  /** readChapterDir 传 includeBody 时带出正文原文（导出单次读用；默认缺省不驻留内存） */
   _body?: string
-  /** R73-16（二十一轮 B-3）：必填枚举缺失清单（钩子类型/钩子强弱/情绪定位，缺省 = 全齐）。
+  /** 必填枚举缺失清单（钩子类型/钩子强弱/情绪定位，缺省 = 全齐）。
    *  readChapter 登记、checkFrontMatter 消费产红项（fm-missing）；缺字段不再静默补默认了事。 */
   _fmMissing?: string[]
 }
@@ -175,10 +175,10 @@ export interface StyleSample {
   来源: SampleSource
   出处?: string // 可选
   标签?: string[] // 可选，内联数组
-  技法指令?: string // 可选：注入时提示重点学什么（M1 #5 新增吸收点）
+  技法指令?: string // 可选：注入时提示重点学什么（#5 新增吸收点）
   正文: string // 样章本身（front matter 之后的正文）
-  // 容错：未知字段原样保留（#3 第 8 节；R55-D-1（五十五轮）：数组型按 string[] 原样
-  // 承载，对齐 Lead R64-17 / ChapterMeta R51-F-6 同族口径——此前 String(v) 把数组压成
+  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[] 原样
+  // 承载，对齐 Lead / ChapterMeta 同族口径——此前 String(v) 把数组压成
   // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
@@ -201,9 +201,9 @@ export interface StyleEntry {
   出处?: string
   标签?: string[] // 金句 / 锚点 / AI味 / …
   正文: string // 样章正文 / 手法描述 / 反例正文 / 禁词
-  证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式 S4 定义）
-  // 容错：未知字段原样保留（#3 第 8 节；R55-D-1（五十五轮）：数组型按 string[] 原样
-  // 承载，对齐 Lead R64-17 / ChapterMeta R51-F-6 同族口径——此前 String(v) 把数组压成
+  证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式定义）
+  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[] 原样
+  // 承载，对齐 Lead / ChapterMeta 同族口径——此前 String(v) 把数组压成
   // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
@@ -237,7 +237,7 @@ export interface RealmDoc {
 /** book.yaml 配置（#9 第 2 节，机器域英文 key） */
 export interface BookConfig {
   spec_version: number
-  /** 双轨标识（M8 #25）：long（缺省，长篇）/ short（短篇集）。缺省 = long，现有仓库零改动 */
+  /** 双轨标识（#25）：long（缺省，长篇）/ short（短篇集）。缺省 = long，现有仓库零改动 */
   kind?: 'long' | 'short'
   /** AI 宿主（决策 12/22）：cc（缺省，Claude Code）/ codex。首版只 cc */
   host?: 'cc' | 'codex'
@@ -265,12 +265,12 @@ export interface BookConfig {
     input_per_chapter?: number
     summary_chapter_max?: number
     summary_volume_max?: number
-    /** D3（批 5）：单章 token 预算上限（input+output+cache 全口径累计；未设 = 不拦） */
+    /** 单章 token 预算上限（input+output+cache 全口径累计；未设 = 不拦） */
     tokens_per_chapter?: number
-    /** D3（批 5）：单章金额预算上限（需配价格表才生效——未配价时静默不生效，
+    /** 单章金额预算上限（需配价格表才生效——未配价时静默不生效，
      *  与信息差未配置静默跳过同语义；未设 = 不拦） */
     cost_per_chapter?: number
-    /** R0916-6-P3-3：chat 任务按书调用上限（可选；未设 = 不限，零行为变化）。
+    /** chat 任务按书调用上限（可选；未设 = 不限，零行为变化）。
      *  次数口径读 ai-calls.json tasks.chat 块（每 attempt 按次入账，同 chapter 块口径）；
      *  parse 面非法值 fail-closed 落 0 = chat AI 调用全部阻断（宁拦勿放）。 */
     chat_max_calls?: number
@@ -314,13 +314,13 @@ export interface BookConfig {
     /** 自动梳理的章节增量阈值（缺省 3；global relationMineThreshold 托底） */
     relation_mine_threshold?: number
   }
-  /** 摘要金字塔（C1 批 2）。缺省 auto=true：定稿即生成章摘要 + 自愈按需补漏。
+  /** 摘要金字塔。缺省 auto=true：定稿即生成章摘要 + 自愈按需补漏。
    *  summary.auto: false = 整体关闭，回到「作者手写约定」现状。 */
   summary?: {
     auto?: boolean
   }
   growth: {
-    realm_span_max?: number // 跃迁跨度上限（O1，#6）
+    realm_span_max?: number // 跃迁跨度上限（#6）
   }
   /** 机检扩展词表（#10 项 7/11 数据源接线）。整段可选：未设 = 各检查走默认供给链
    *  （高频意象回落内置种子表 check/imagery-seed.ts；信息差无内置默认、静默不启用）。
@@ -331,7 +331,7 @@ export interface BookConfig {
     imagery_words?: string[]
     /** 信息差关键词。无内置默认（逐书的秘密无通用词表）；未设 = 静默不启用 */
     leak_keywords?: string[]
-    // ── R52-E-2：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
+    // ── ：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
     // 未设 = 走 runner 直传引擎默认参数；生效链 book.yaml checks.* → global.json 托底 → 引擎默认
     /** 复读占比阈值（0-1 小数；引擎默认 0.15） */
     repeat_threshold?: number
@@ -357,10 +357,10 @@ export interface BookConfig {
     provider?: string // RAG 服务商 id（应用级 providers.json 引用；设此键时 endpoint/model 不再写）
     endpoint?: string // 旧版内联 embedding 端点（存量兼容，resolver 回落用）
     model?: string // 旧版内联 embedding 模型名（存量兼容）
-    candidate_depth?: number // A3（批 7）：召回惰性指纹校验的候选章上限（缺省 20；P4 拍板写死可覆盖）
-    embed_timeout_ms?: number // R62-27：embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
+    candidate_depth?: number // 召回惰性指纹校验的候选章上限（缺省 20；拍板写死可覆盖）
+    embed_timeout_ms?: number // embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
   }
-  // R73-16b（二十一轮）：死字段 _raw 删除——Z-16 已如实登记「全库无生产填充」，
+  // 死字段 _raw 删除—— 已如实登记「全库无生产填充」，
   // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层），
   // 全量重生成（stringifyBookConfig）丢弃未知段是既定取舍；类型面不再保留幻影字段。
 }

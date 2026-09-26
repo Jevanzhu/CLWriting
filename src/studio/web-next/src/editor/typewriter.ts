@@ -6,7 +6,7 @@
  * 过渡）。亮窗跟随选区——点击/方向键移动即随行。与「滚动居中」并存：输入时当前行
  * 始终居中并随内容滚动。
  *
- * B-25（第六十轮）注释如实化：本仓 @codemirror/view 6.43.x 的 updateListeners 在
+ * 注释如实化：本仓 @codemirror/view 6.43.x 的 updateListeners 在
  * updateState 回到 Idle 之后才调用（dist 实读），listener 内直接 dispatch 并不抛
  * "update in progress"——首版静默失效归因于此系误记。微任务推迟保留为防御性写法
  * （对更早/未来版本语义安全），且取当下光标不映射旧位置的语义不变。
@@ -32,7 +32,7 @@ const FADE_BANDS: readonly { maxDist: number; cls: string; opacity: number }[] =
  * - 输入停 IDLE_MS（思考停顿不误触发，取宽）或滚轮回看 → 全亮
  * 实现为插件内部状态：浏览态 = 不产出任何渐隐装饰（而非根类压样式——CM6 初始
  * setState 阶段会整体重写 view.dom.className，构造期挂的根类会被冲掉）。
- * wheel/idle 在事务外改态后派发空事务驱动 update() 重建装饰。
+ * wheel/idle 在事务外改态后派发空事务驱动 update 重建装饰。
  */
 const BROWSE_IDLE_MS = 8000
 
@@ -85,7 +85,7 @@ const fadePlugin = ViewPlugin.fromClass(
         this.decoratedBrowsing = this.browsing
       }
     }
-    /** 切浏览态：事件/定时器上下文（事务外）派发空事务合法，update() 里统一重建 */
+    /** 切浏览态：事件/定时器上下文（事务外）派发空事务合法，update 里统一重建 */
     private setBrowse(on: boolean): void {
       if (this.browsing === on) return
       this.browsing = on
@@ -125,7 +125,7 @@ export function typewriterExt(on: boolean): Extension[] {
       if (!u.docChanged) return
       Promise.resolve().then(() => {
         const v = u.view
-        // 视图若已销毁：CM6 update() 对 destroyed 视图提前 return（只更新 state 不碰
+        // 视图若已销毁：CM6 update 对 destroyed 视图提前 return（只更新 state 不碰
         // DOM、不抛错），无需 destroyed 守卫（该字段类型私有，运行时公有）
         const head = v.state.selection.main.head
         v.dispatch({ effects: EditorView.scrollIntoView(head, { y: 'center' }) })

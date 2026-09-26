@@ -1,6 +1,6 @@
 /**
  * 测试精简批（2026-09-12，台账重评-0912-3 #54 fakeReqRes 三份收编）：
- * 假 req/res 单一真相源——迁自 r1010b-srv-documents-bookmoved / r0911-srv-write-bookmoved /
+ * 假 req/res 单一真相源——迁自 r1010b-srv-documents-bookmoved / srv-write-bookmoved-guard /
  * r0912-acknowledge-endpoint 三份逐字相同的本地拷贝（「对齐 error-envelope 先例」原注释保留）。
  *
  * 假 req（EventEmitter 手工喂 data/end；readJson 的闲置 30s 窗内挂持即「入口已过、

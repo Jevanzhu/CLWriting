@@ -47,10 +47,10 @@ export interface DocEntry {
   error: string | null
   /** 乐观锁冲突未决：外部已修改，等用户选「重载/覆盖」；期间 autosave 跳过（必再冲突）。 */
   conflict: boolean
-  /** RC 源码重审 B-1：正文超单次保存上限（保存前字节预检拦下，未发起请求）——期间
+  /** RC：正文超单次保存上限（保存前字节预检拦下，未发起请求）——期间
    *  autosave 跳过重试（每拍重传整文必再超限）；内容再变（patch）即复位复检。 */
   tooLarge?: boolean
-  /** RC 源码重审 A-5：已就「版本留底降级」（服务端 .版本 不可写，正文保存成功但没留底）
+  /** RC：已就「版本留底降级」（服务端 .版本 不可写，正文保存成功但没留底）
    *  提示过一次——每文档只提示一次，避免 autosave 每拍刷屏；旗随条目生命周期（切书清
    *  缓存/重开自然复位）。 */
   snapshotDegradedNotified?: boolean
@@ -68,13 +68,13 @@ export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
   const bookName = ref<string | null>(null)
   /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫）。
-   *  裸计数器换装 useStaleGuard（复审-0914-优化批；begin/current 语义映射见工具注；
+   *  裸计数器换装 useStaleGuard（-优化批；begin/current 语义映射见工具注；
    *  判定时机不变——doOpen 进入时快照、await 落定后 stale 复检）。 */
   const bookGen = useStaleGuard()
 
   // ── dirty 正文节流镜像（渲染进程硬崩溃兜底）──
   // 镜像子系统（键格式/节流分档/指纹台账/书级清扫/复活判读）整体在 shared/dirty-mirror.ts
-  // 单源（复审-0914-优化批抽出）——纯 localStorage 逻辑，文档缓存态经 deps 注入（下方
+  // 单源（-优化批抽出）——纯 localStorage 逻辑，文档缓存态经 deps 注入（下方
   // docs/bookName 取值器）；本 store 只留五个调用点的薄委托（patch/save/discard/setBook/
   // doOpen）+ 清理单源再导出（改名/删书各链经此调用，键拼法不外泄）。
   const mirror = createDirtyMirror({
@@ -119,7 +119,7 @@ export const useDocStore = defineStore('doc', () => {
   }
 
   /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。
-   *  并发去重返回在途 promise——裸 return 会让 `await doc.open()` 即刻 resolve 而 entry
+   *  并发去重返回在途 promise——裸 return 会让 `await doc.open` 即刻 resolve 而 entry
    *  未落位，调用方（EditorView 的 pendingInsert 补消费只等一拍 nextTick）在慢网下消费
    *  不到挂起信号。 */
   const inflightOpens = new Map<string, Promise<void>>()
@@ -152,17 +152,17 @@ export const useDocStore = defineStore('doc', () => {
   async function doOpen(docId: string, node: TreeNode): Promise<void> {
     // 进入时代数——await 期间切书（setBook bump bookGen）则丢弃结果，防旧书 doc 注入
     // 新书缓存（后续 save 会用新书名写旧书内容）
-    // `const gen = bookGen` 只快照不推进 → guard.current()（切书作废走 setBook 的 invalidate）
+    // `const gen = bookGen` 只快照不推进 → guard.current（切书作废走 setBook 的 invalidate）
     const gen = bookGen.current()
     // 书名 fail-closed：非空断言 `bookName.value!` 不挡运行时 null（setBook(null)/切书
     // 窗口）——null 会被拼进请求路径（/api/books/null/...）且成功后注入共享 docs。
-    // 无书即无「打开」语义，早退（open() 的 inflight 台账 finally 照常清理）。
+    // 无书即无「打开」语义，早退（open 的 inflight 台账 finally 照常清理）。
     const book = bookName.value
     if (!book) return
     let content: string
     try {
       // 改取完整载荷——非 UTF-8 存量（GBK/Big5 导入旧稿）经 utf-8 解码即 U+FFFD 乱码且
-      // 此前零披露，作者在乱码上编辑保存会被 R66-1 防线 400 拒绝（NOT_UTF8_TARGET）。
+      // 此前零披露，作者在乱码上编辑保存会被防线 400 拒绝（NOT_UTF8_TARGET）。
       // 打开时 toast 告警指引先转码再编辑（重复打开重复提示，属预期告警语义）。
       const payload = await getContentPayload(book, node.path)
       content = payload.content
@@ -230,7 +230,7 @@ export const useDocStore = defineStore('doc', () => {
     e.content = content
     e.dirty = true
     e.error = null
-    // RC 源码重审 B-1：内容已变 → 超限旗复位（拆分/删减后下一拍 autosave 复检；
+    // RC：内容已变 → 超限旗复位（拆分/删减后下一拍 autosave 复检；
     // 未复位则作者拆完文档也仍被跳过，必须重启才恢复自动保存）
     e.tooLarge = false
     // dirty entry 节流镜像（trailing，间隔按内容规模分档）——crash/OOM/kill -9 时
@@ -255,7 +255,7 @@ export const useDocStore = defineStore('doc', () => {
     e.conflict = false
   }
 
-  /** 正文回写窗的首笔标脏（质量评审 P2-5）：内容仍按 200ms 节流落回，dirty 位在第一笔
+  /** 正文回写窗的首笔标脏（质量评审）：内容仍按 200ms 节流落回，dirty 位在第一笔
    *  键入时同步置位——「先读 dirty 再决定」的判定（历史恢复等）不再依赖每个调用点都
    *  记得先冲刷。只置位不动内容：同内容的重复标脏不产生镜像节流（内容变化由 patch
    *  到点接管）。条目不存在时静默（与 patch 的早退同口径）。 */
@@ -281,7 +281,7 @@ export const useDocStore = defineStore('doc', () => {
     origin: 'manual' | 'autosave' = 'manual',
     _waitRounds = 0,
   ): Promise<boolean> {
-    // RC 源码重审 B-2：快照前先落编辑器防抖尾（shared/body-writeback）——编辑器正文回写
+    // RC：快照前先落编辑器防抖尾（shared/body-writeback）——编辑器正文回写
     // 有 ≤200ms 合并窗，不落尾则本笔快照缺窗内最后一段键入（⌘S 存下的内容比屏幕少），
     // 且该条目此刻可能尚未置脏而整笔被跳过。flush 幂等（无编辑器在场/无待落输入即
     // no-op），autosave 路径同样受益（节拍取到的是屏幕内容）。
@@ -302,7 +302,7 @@ export const useDocStore = defineStore('doc', () => {
     if (!e.dirty) return false
     // 冲突未决时 autosave 必再冲突，跳过重试（也避免每 30s 一条错误提示），等用户选重载/覆盖
     if (e.conflict && origin === 'autosave') return false
-    // RC 源码重审 B-1：超限未决时 autosave 必再超限，跳过重试（同 conflict 口径：不刷屏、
+    // RC：超限未决时 autosave 必再超限，跳过重试（同 conflict 口径：不刷屏、
     // 不重传整文）；手动保存仍走 doSave —— 由 preflight 给出提示与出路（拆分文档）
     if (e.tooLarge && origin === 'autosave') return false
     const p = doSave(e, origin)
@@ -333,7 +333,7 @@ export const useDocStore = defineStore('doc', () => {
       return false
     }
     try {
-      // RC 源码重审 B-1：保存前字节预检——超单次上限即不发请求（否则只剩 413 通用
+      // RC：保存前字节预检——超单次上限即不发请求（否则只剩 413 通用
       // 「请求体过大」、autosave 每拍重传整文再失败、切书只剩「丢弃并切换」）。错误
       // 文案给拆分出路上屏（状态条/toast），置 tooLarge 旗停掉 autosave 重试；内容再变
       // 由 patch 复位复检。
@@ -367,7 +367,7 @@ export const useDocStore = defineStore('doc', () => {
         // 刷新今日字数增量（fire-and-forget 重 GET delta）
         void useWordsStore().ensureBaseline(book)
         if (origin === 'manual') useUiStore().toast('已保存', 'success')
-        // RC 源码重审 A-5：留底降级可见化——服务端 .版本 不可写时正文照常保存（fail-open），
+        // RC：留底降级可见化——服务端 .版本 不可写时正文照常保存（fail-open），
         // 但「本笔没有留底、版本历史有缺口」必须让作者看见（否则作者面对的是永久写不
         // 进去的死锁，只有状态条一行小字）。每文档只提示一次（snapshotDegradedNotified
         // 随条目生命周期，切书/重开复位）——autosave 每 30s 一拍，不设闸会刷屏。
@@ -407,7 +407,7 @@ export const useDocStore = defineStore('doc', () => {
 
   /** 冲突出路①重载：丢弃本地修改，取远端最新内容为准。 */
   async function reloadFromRemote(docId: string): Promise<void> {
-    // RC 源码重审 B-2：决断前先落编辑器防抖尾（同 refresh 口径）——冲突决断的对象是
+    // RC：决断前先落编辑器防抖尾（同 refresh 口径）——冲突决断的对象是
     // 「本地正文」，窗口内未落回的键入同属本地正文，须先入 store 再判，「本地修改已按
     // 作者决断丢弃」的语义面才完整（落尾是决断前的最后一次本地快照）。
     flushBodyWriteback()
@@ -423,7 +423,7 @@ export const useDocStore = defineStore('doc', () => {
     // 冲刷双兜底同时失明；故须与同文件 refresh / syncCleanWithTree 同款 await 窗口复检。
     const contentAtEntry = e.content
     try {
-      // E1（复审-0914-优化批）：getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
+      // （-优化批）：getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
       const content = (await getContentPayload(book, e.path)).content
       const rev = await sha256Revision(content)
       // 双窗口（fetch + sha256）后统一复检，命中任一即放弃覆盖：①已切书（e 已脱离
@@ -456,7 +456,7 @@ export const useDocStore = defineStore('doc', () => {
 
   /** 冲突出路②覆盖：以远端当前内容算基线 revision，再把本地内容写上面（覆盖外部修改）。 */
   async function overwriteRemote(docId: string): Promise<void> {
-    // RC 源码重审 B-2：决断/重写前先落编辑器防抖尾（同 refresh 口径）。
+    // RC：决断/重写前先落编辑器防抖尾（同 refresh 口径）。
     flushBodyWriteback()
     const e = docs.value.get(docId)
     if (!e || e.saving) return
@@ -492,7 +492,7 @@ export const useDocStore = defineStore('doc', () => {
    *  返回值 Promise<boolean>（成功 true / 失败 false）——吞错语义不变（catch 不上抛），
    *  仅让调用方能感知结果；忽略返回值的调用方零影响。 */
   async function refresh(docId: string): Promise<boolean> {
-    // RC 源码重审 B-2：外部内容写回前先落编辑器防抖尾（shared/body-writeback）——否则
+    // RC：外部内容写回前先落编辑器防抖尾（shared/body-writeback）——否则
     // 窗口内刚键入、条目仍 clean（dirty=false）的正文会走下方 clean 分支被服务端内容
     // 整体覆盖，且编辑区随之被 applyExternalReplace 拽回旧文本（store 与屏幕分叉）。
     // 落尾后该条目转 dirty，判据与改前逐位相同。
@@ -575,7 +575,7 @@ export const useDocStore = defineStore('doc', () => {
    *  局部更新 updateWordCount(旧path) 永远 no-op。 */
   async function syncCleanWithTree(book: string, curRev: string): Promise<void> {
     if (!curRev || bookName.value !== book) return
-    // RC 源码重审 B-2：对账前先落编辑器防抖尾（同 refresh 口径）——否则窗口内的活动
+    // RC：对账前先落编辑器防抖尾（同 refresh 口径）——否则窗口内的活动
     // 文档条目仍 clean（dirty=false），会被下方 stale 面重拉整体覆盖（编辑区随之被全量
     // 替换拽回）；落尾后该条目转 dirty，被 stale 过滤自然排除。
     flushBodyWriteback()
@@ -693,7 +693,7 @@ export const useDocStore = defineStore('doc', () => {
    *  （manual 等待链）覆盖的编辑被静默丢弃。故收集 saving 条目的在途 promise，allSettled
    *  落定后重扫——落定后仍 dirty（快照后新键入/保存失败）自然进入下方扫描闭环。 */
   async function flushDirty(): Promise<string[]> {
-    // RC 源码重审 B-2：扫描前先落编辑器防抖尾——否则「窗口内刚键入、
+    // RC：扫描前先落编辑器防抖尾——否则「窗口内刚键入、
     // 回写尚未到点（故 dirty 仍为 false）」的条目不在下方 dirty 扫描面内，切书
     // setBook 清缓存/关窗即把这段键入静默丢弃（红线）。flush 幂等、无待落即 no-op；
     // 落回可能新增/推进 dirty 项，故必须在扫描之前（save 路径会再 flush 一次，幂等）。
@@ -763,7 +763,7 @@ export const useDocStore = defineStore('doc', () => {
     docs.value.delete(docId)
     inflightSaves.delete(docId)
     // inflightOpens 同口径清（setBook 先例）——删除后同 docId 重开（同名重建/回收站
-    // 还原）窗口内 open() 会命中在途旧 promise（旧 doOpen 的 getContent 已 404 或内容
+    // 还原）窗口内 open 会命中在途旧 promise（旧 doOpen 的 getContent 已 404 或内容
     // 已旧），复用旧 promise 要么直接 reject 要么落过期内容。同步删键让重开必发新请求；
     // 旧 open 的 finally 为 identity 条件删，不会误删新登记。
     inflightOpens.delete(docId)

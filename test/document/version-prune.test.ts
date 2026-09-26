@@ -4,8 +4,13 @@
  *
  * 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编退避删 rmWithRetry 的回归——
  * win 杀软/索引器瞬时锁（EPERM/EBUSY）下首删直败曾让旧版本滞留/伴生文件残留。
+ *
+ * 2026-09-26 终扫自 r34d-version-prune.test.ts 并入（R34D-14，三十四轮）：头部不可读
+ * 版本按 pinned 同等保护（是否定稿无法判定 ⇒ 不删，与写侧 R73-35 meta 不可读
+ * fail-open 的宁多勿失口径一致）+ 头部可读非 pinned 旧版本仍正常清理（不过度保护）。
+ * 断言逐条保留、零去重；夹具（合成 ULID / 头部截断 / 手工造档）随之收编。
  */
-import { rmSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -216,5 +221,85 @@ describe('pruneVersions 退避删（重评-14）', () => {
     expect(removed).toBe(1)
     expect(adCalls).toBe(2) // 伴生首删 EPERM + 退避重试成功
     expect(existsSync(adPath)).toBe(false)
+  })
+})
+
+// ── R34D-14（三十四轮，2026-09-26 终扫自 r34d-version-prune.test.ts 并入）：
+// 头部不可读版本的 prune 保护 ──────────────────────────────────────────────────
+// 场景核心：定稿档（pinned=true）的 front matter 头部被截断/损坏后，readVersionMeta
+// 返回 null → 此前按「非 pinned」走超期/maxCount 清理删除——头部受损的定稿里程碑被
+// 静默删掉，与写侧 R73-35「meta 不可读 fail-open 落写」的宁多勿失口径相反。修复后：
+// 是否定稿无法判定 ⇒ 不删（按 pinned 同等保护）。同时回归锁定：头部可读的非 pinned
+// 旧版本仍正常被清理（不过度保护）。
+
+const HEAD_DOC = 'doc_prune_head'
+
+/** 指定毫秒时间戳的合成 ULID（尾部恒 0，仅测试用时间序构造，字母表同 fs/id.ts） */
+function ulidAt(ms: number): string {
+  const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+  let v = BigInt(ms)
+  const chars: string[] = []
+  for (let i = 0; i < 10; i++) {
+    chars.push(CROCKFORD[Number(v & 0x1fn)]!)
+    v >>= 5n
+  }
+  return chars.reverse().join('') + '0'.repeat(16)
+}
+
+function existsHead(id: string | null): boolean {
+  if (!id) return false
+  return listVersions(dir, HEAD_DOC).some((s) => s.id === id)
+}
+
+/** 把版本文件头部截断成「未闭合 front matter」（readVersionMeta 判 null 的损坏形态） */
+function corruptHead(id: string): void {
+  writeFileSync(join(dir, HEAD_DOC, `${id}.md`), '---\n版本ID: 损坏\n时间: 头部截断\n')
+}
+
+/** 手工在盘上造一个版本文件（绕过 writeVersion，用于控制 ULID 时间序/头部形态） */
+function craftVersionFile(id: string, origin: string, body: string, extraFm = ''): void {
+  mkdirSync(join(dir, HEAD_DOC), { recursive: true })
+  const text = `---\n版本ID: ${id}\n时间: 2026-08-31T00:00:00.000Z\n来源: ${origin}\n${extraFm}---\n${body}`
+  writeFileSync(join(dir, HEAD_DOC, `${id}.md`), text)
+}
+
+describe('pruneVersions 头部不可读保护（R34D-14）', () => {
+  it('头部被截断的定稿档（pinned 不可判定）不被超期清理删除', () => {
+    const pinnedId = writeVersion(dir, HEAD_DOC, '定稿内容', { origin: 'finalize', pinned: true })
+    expect(pinnedId).not.toBeNull()
+    corruptHead(pinnedId!)
+
+    // 100 天后 prune：修复前按非 pinned 超期删除；修复后无法判定 ⇒ 保留
+    const future = Date.now() + 100 * 24 * 60 * 60 * 1000
+    const removed = pruneVersions(dir, HEAD_DOC, DEFAULT_VERSION_POLICY, future)
+    expect(removed).toBe(0)
+    expect(existsHead(pinnedId)).toBe(true)
+  })
+
+  it('头部不可读的旧版本在 maxCount 兜底时同样不被裁', () => {
+    // 3 个新鲜的正常 autosave 版本（先落盘建目录）
+    writeVersion(dir, HEAD_DOC, '草稿一', { origin: 'autosave' })
+    writeVersion(dir, HEAD_DOC, '草稿二', { origin: 'autosave' })
+    writeVersion(dir, HEAD_DOC, '草稿三', { origin: 'autosave' })
+    // 手工造 40 天前的「头部截断定稿档」（ULID 时间序可控，writeVersion 只能写当下时刻）
+    const oldId = ulidAt(Date.now() - 40 * 24 * 60 * 60 * 1000)
+    corruptHead(oldId)
+    expect(existsHead(oldId)).toBe(true)
+
+    // maxCount=2：修复前头部不可读旧档按非 pinned 超期删除；修复后受保护
+    const policy = { maxDays: 14, maxCount: 2, throttleMinutes: 0 }
+    pruneVersions(dir, HEAD_DOC, policy)
+
+    expect(existsHead(oldId)).toBe(true)
+  })
+
+  it('回归：头部可读的非 pinned 旧版本仍正常被清理（不过度保护）', () => {
+    const oldId = ulidAt(Date.now() - 40 * 24 * 60 * 60 * 1000)
+    craftVersionFile(oldId, 'autosave', '可读的旧草稿')
+    expect(existsHead(oldId)).toBe(true)
+
+    const removed = pruneVersions(dir, HEAD_DOC, DEFAULT_VERSION_POLICY)
+    expect(removed).toBe(1)
+    expect(existsHead(oldId)).toBe(false)
   })
 })

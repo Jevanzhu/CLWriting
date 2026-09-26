@@ -2,7 +2,7 @@
 /**
  * 书架页「继续写作」hero 卡（hh §八-16 自 pages/Shelf.vue 拆出，纯搬家）。
  * 全屏页专属竖版大卡（grid 视图）；紧凑单行（list 视图）与弹层同构，
- * R0912-C2-P3-5（2026-09-12 独立重评修复批）起收敛为共享子件 ShelfHeroList。
+ * （修复批）起收敛为共享子件 ShelfHeroList。
  * 弹层横版大卡在 ShelfModalHero。
  */
 import { ArrowRight } from 'lucide-vue-next'
@@ -21,7 +21,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <!-- R72-12（二十轮 E-10）：role/tabindex/keydown 补键盘与读屏可达性（原仅 @click） -->
+  <!-- ：role/tabindex/keydown 补键盘与读屏可达性（原仅 @click） -->
   <section
     v-if="viewMode === 'grid'"
     class="hero-card"
@@ -55,7 +55,7 @@ const emit = defineEmits<{
       >
     </div>
   </section>
-  <!-- list 单行：与弹层同构，共享子件渲染（R0912-C2-P3-5） -->
+  <!-- list 单行：与弹层同构，共享子件渲染 -->
   <ShelfHeroList v-else :book="book" variant="page" @open="emit('open', $event)" />
 </template>
 
@@ -164,7 +164,7 @@ const emit = defineEmits<{
   color: var(--text-faint);
 }
 
-/* 列表模式 hero（hero-list 族）已随 R0912-C2-P3-5 抽取搬入 ShelfHeroList.vue
+/* 列表模式 hero（hero-list 族）已随抽取搬入 ShelfHeroList.vue
  * （page 档变体，原值不变）。 */
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 角色关系图（RelationsView 拆分 P2-5 编排壳）：顶栏工具 + 图/详情双栏布局。
+// 角色关系图（RelationsView 拆分编排壳）：顶栏工具 + 图/详情双栏布局。
 // 图状态与交互逻辑在 useRelationGraph composable（provide 注入），
 // 渲染拆到 RelationGraph / RelationDetail 两个子组件——本文件只留编排。
 import { Search, Crosshair, Sparkles } from 'lucide-vue-next'

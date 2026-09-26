@@ -5,7 +5,7 @@
  *
  * 工作台进页拉此端点：顶部状态卡显示「现在该写第 N 章」/「第 N 章写到一半续写」，
  * 并自动填章号（态 7→nextChapter，态 4 续写章→chapterNum）。
- * GG-P2-5：内核 enter() 自读原始 book.yaml（无 userDataPath 概念，卷大小回落硬编码 50），
+ * 内核 enter 自读原始 book.yaml（无 userDataPath 概念，卷大小回落硬编码 50），
  * 这里在 API 层展开同一串内核件（readBookConfig → detectState → routeState → buildRecap），
  * config 先过 applyGlobalDefaults——书级未设 volume_size 等回落 global.json → 硬编码
  * （与 overview 喂 detectState 同一口径），态 5 卷末判定 / recap 卷号因此吃到生效值。
@@ -22,47 +22,45 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
 import { detectState, routeState, buildRecap, STATE_NAMES } from '../../../state/state.js'
 import { appendAborted, findUnsettled } from '../../../document/journal.js'
-import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
-import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { trackInFlightWork } from './in-flight-work.js' // rebuild Worker 退出收尾登记
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { log, errMsg } from '../../../log/index.js'
-import { testableConst } from '../../../shared/testable.js'
 
 interface StateCtx {
   workDir: string | null
-  /** APP 级数据目录：状态机入口的全局托底链（GG-P2-5）读 global.json 用 */
+  /** APP 级数据目录：状态机入口的全局托底链读 global.json 用 */
   userDataPath: string | null
+  /** 收尾：/state 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 5s 逐位不变；测试经 deps 注入短档消除真实墙钟依赖） */
+  stateTtlMs?: number | null
 }
 
-// ── R75-D-P3b（批 D）：/state 结果 5s TTL 缓存 ─────────────────────────
+// ── /state 结果 5s TTL 缓存 ─────────────────────────
 // detectState→routeState→buildRecap 每请求全量读盘（manifest + 布线 rebuild + 近况
 // 复述），工作台进页/轮询/反复刷新会反复重建。缓存口径对齐 health.ts styleScanCache
 //（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效挂点——保存/定稿后最迟 5s 自愈
 //（health.ts 先例同款，避免给每个写端点平添 forget 接线的过度设计）；书删除/改名的
-// 生命周期清理走 forgetStateCache（R67-15 forgetBookKeyedCaches 家族接线）。
-/** R75-D-P3b：删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
+// 生命周期清理走 forgetStateCache（forgetBookKeyedCaches 家族接线）。
+/** 删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
 export function forgetStateCache(bookRoot: string): void {
   stateCache.forget(bookRoot)
 }
-/** R75-D-P3b 回归观测钩子（先例同 health.ts __styleScanCacheHasForTest）——仅测试用。 */
-export function __stateCacheHasForTest(bookRoot: string): boolean {
-  return stateCache.has(bookRoot)
-}
-/** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
- *  恢复默认。仅测试用，勿在生产路径调用。三件套换装 testableConst 工厂（TTL 覆盖档，
- *  null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getStateTtlMs, __setStateTtlForTest] = testableConst<number | null>(null)
+/** 收尾：__stateCacheHasForTest / __setStateTtlForTest 删除——
+ * 缓存实例即观测面（生产对象，非测试专用 API；先例同 analysisOverviewCache）：
+ * 「过期逐出/失效」断言读下方导出实例的 has/get 覆盖档（组装根 RouteOverrides
+ * 注入，随实例隔离，无跨用例残留）。 */
 const STATE_TTL = 5000
 const STATE_CACHE_MAX = 32
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
- *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
  *  只缓存成功路径由「计算体抛错即不落缓存」承担（同原 try/catch 口径），见
  *  ttl-cache.ts 头部收敛映射表）。 */
-const stateCache = createTtlProbeCache<string, Record<string, unknown>>({
+export const stateCache = createTtlProbeCache<string, Record<string, unknown>>({
   name: 'state',
   keyOf: (k) => k,
   max: STATE_CACHE_MAX,
-  ttl: () => getStateTtlMs() ?? STATE_TTL,
+  ttl: () => STATE_TTL,
 })
 
 export function registerStateRoutes(ctx: StateCtx): void {
@@ -74,24 +72,26 @@ export function registerStateRoutes(ctx: StateCtx): void {
     if (!r) return
 
     const bookRoot = r.bookRoot
-    // R75-D-P3b：命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；R47-18
+    // 命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；
     // 过期条目顺手逐出与「只缓存成功路径」由通用件承担（计算体抛错即不落缓存，同
-    // 原 try/catch 口径）。D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件。
+    // 原 try/catch 口径）。：壳体收编 ttl-cache.ts 通用件。
     try {
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入——
+      // undefined = 生产口径 5s；缺失覆盖下命中/逐出时序与改前逐位一致
       const payload = await stateCache.get(bookRoot, async (root): Promise<Record<string, unknown>> => {
-        // GG-P2-5：enter() 的等价展开（见文件头注释），差异仅在读出的 config 过
+        // enter 的等价展开（见文件头注释），差异仅在读出的 config 过
         // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
         // 卷号用生效值：书级未设时 global.json 书库级默认不再断链
         const cfgResult = readBookConfig(join(root, 'book.yaml'))
-        // P3-2 同款：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
+        // 同款：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
         if (!cfgResult.ok) {
           log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
         }
         const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
         const manifest = readManifest(join(root, '项目', '文档清单.jsonl'))
-        // 与 enter() 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，P2-BE-4）
-        // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-        // R55-B-N（五十五轮）：rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
+        // 与 enter 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，-BE-4）
+        // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+        // rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
         // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结
         const detected = await trackInFlightWork(detectState(root, config, manifest, { rebuildChannel: 'worker' }))
         const act = routeState(detected)
@@ -109,10 +109,10 @@ export function registerStateRoutes(ctx: StateCtx): void {
           kind: config.kind ?? 'long',
           // 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位（前端据此分流按钮）
           resumePoint: d.state === 4 ? d.resumePoint : undefined,
-          // kk-P1-4：连写暂停元状态（M6 #34）透传——buildRecap 已产出但此前在响应组装处被
+          // 连写暂停元状态（#34）透传——buildRecap 已产出但此前在响应组装处被
           // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
           ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
-          // R0912（重评-0911c P2 + FE 接线）：态 1 crashedWrite 的 opId 透出——前端
+          // （c + FE 接线）：态 1 crashedWrite 的 opId 透出——前端
           // 「忽略此提醒」按钮据此调 POST /api/books/:name/journal/:opId/acknowledge
           // （幽灵红消解闭环的人工半边）。取全部 crashedWrite issue 的 files（opId）
           // 扁平去重；非态 1 无 issues 恒缺省（可选字段契约，前端条件渲染）。
@@ -120,11 +120,11 @@ export function registerStateRoutes(ctx: StateCtx): void {
             ? { crashedPendingOpIds: [...new Set(d.issues.flatMap((i) => (i.kind === 'crashedWrite' ? (i.files ?? []) : [])))] }
             : {}),
         }
-      })
+      }, ctx.stateTtlMs ?? undefined)
       reply(res, 200, payload)
     } catch (e) {
-      // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
-      // R33-61（三十三轮）：500 不直透原始 message（可含文件路径等内部 detail，与
+      // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
+      // 500 不直透原始 message（可含文件路径等内部 detail，与
       // index.ts「500 只回泛化文案」口径对齐）；全量诊断经 log.error 留服务端日志。
       log.error('state', `state 聚合失败：${redactSecret(errMsg(e))}`, e instanceof Error ? e : undefined)
       replyError(res, 500, 'ERROR', '状态聚合失败（详见服务端日志）')
@@ -132,18 +132,18 @@ export function registerStateRoutes(ctx: StateCtx): void {
   },
   })
 
-  // ── R0912-1b（2026-09-11 重评-0911c 修复批）：崩溃 pending 人工确认通道 ─────────
+  // ── （c ）：崩溃 pending 人工确认通道 ─────────
   // POST /api/books/:name/journal/:opId/acknowledge → 对该 save 类 pending appendAborted
   // （journal.ts 既有原语，自带跨进程 journal 锁），使其 findUnsettled 不再命中、
   // healthCheck 不再报 crashedWrite「可能丢字」。这是幽灵红消解闭环的人工半边：
-  // R0912-1a 在 state.ts 自动消解「盘上已落盘」的确定性面，真未落盘（盘上仍是基线/
+  // 在 state.ts 自动消解「盘上已落盘」的确定性面，真未落盘（盘上仍是基线/
   // 文件不在盘）的报红由作者确认后经本端点消解（前端接线另批，服务端先行 + 单测）。
   // 幂等语义：opId 不存在 / 已 settled / 已 aborted（重复确认、清理竞态）→ 200
   // { ok:true, acknowledged:false }——确认动作可安全重复点击；命中 pending →
   // appendAborted → { ok:true, acknowledged:true }。opId 只用于比对与 journal 行写入
   //（JSON 编码），不参与路径构造，无注入面。
   // 鉴权/路径形态沿用本文件现行 defineRoute 模式（本地回环 server，无额外鉴权中间件）；
-  // 书注册重验对齐 documents.ts bookMovedFailure（R1010b-SRV-P2-1 同款）：写盘
+  // 书注册重验对齐 documents.ts bookMovedFailure（同款）：写盘
   //（appendAborted）前按书名重验，已删/改名 → 409 BOOK_MOVED，不对旧捕获 bookRoot 落盘。
   defineRoute('books.state.journal-acknowledge', {
     method: 'POST',
@@ -156,7 +156,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
       // 扫 工作区/.journal/*.jsonl 定位持该 opId 未结算 pending 的 journal 文件
       //（findUnsettled 逐行容错：坏行跳过、读失败降级 []——本端点按「无 pending」幂等
       // 返回，不放大瞬态读故障）
-      // R0916-7-P3-9：journal pending 只记元数据（opId/docId/baseRevision/ts），本端点
+      // journal pending 只记元数据（opId/docId/baseRevision/ts），本端点
       // 的读取面即「按 opId 定位文件」，与收窄前逐位一致（旧格式行含 content 也不消费）。
       const journalDir = join(r.bookRoot, '工作区', '.journal')
       let names: string[] = []
@@ -182,7 +182,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
         return
       }
       // 书注册重验（贴近写盘时刻）：扫描为同步段，此处的重验窗口只剩 journal 锁等待期。
-      // 并合注（R0912-B-P3-2）：内联重验已收敛 book-context.ts bookMovedFailure 单源。
+      // 并合注：内联重验已收敛 book-context.ts bookMovedFailure 单源。
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
@@ -192,8 +192,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
         replyError(res, 500, 'WRITE_ERROR', '崩溃提示清除失败（journal 落账未完成），请重试')
         return
       }
-      // P3-4（全库重评-0914）：确认落账即失效 /state 5s TTL 缓存——appendAborted 改变了
-      // findUnsettled 的结果面，确认成功后前端立即 refreshState 若命中缓存（R75-D-P3b
+      // 确认落账即失效 /state 5s TTL 缓存——appendAborted 改变了
+      // findUnsettled 的结果面，确认成功后前端立即 refreshState 若命中缓存（
       // 纯 TTL 口径），态 1 的 crashedWrite 提醒会再回显一次（5s 陈旧窗）。本端点是
       // crashedPendingOpIds 唯一的人工写侧来源，单点挂 forget 不属「给每个写端点平添
       // 接线」的过度设计（同文件 review.ts verdict 落盘即 forgetTreeIssuesCache 先例）。

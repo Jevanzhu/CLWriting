@@ -2,7 +2,7 @@
 // 设置弹窗（Obsidian 风格：左侧分类导航 + 右侧列表项）。
 // 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
 // 各 tab 内容拆分到 Settings*.vue 子组件；设置域共享样式在 settings-shared.css
-//（hh §八-16 自本件 <style> 原样搬出——全局样式，全部 Settings* 子件共用）。
+// （hh §八-16 自本件 <style> 原样搬出——全局样式，全部 Settings* 子件共用）。
 import { ref, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
 import { X, Palette, Type, NotebookPen, Sparkles, ScanSearch, History, BookOpen, Server } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
@@ -12,7 +12,7 @@ import { friendlyError } from '../../shared/error'
 import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
-import { isImeComposing } from '../../shared/ime' // R33-82
+import { isImeComposing } from '../../shared/ime'
 import ModalMask from './ModalMask.vue'
 // settings-shared.css 已提升至 main.ts 全局装载——.val/.save-btn 等共享类被设置域外
 // 组件（右栏面板/导出弹窗等）消费，依赖本组件被静态 import 才生效过于脆弱。
@@ -31,7 +31,7 @@ const ws = useWorkspaceStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-// J5 win 同步拍（2026-09-04）：设置弹窗整树挂载实测 ~22ms（8 个 tab 组件静态导入 +
+// win 同步拍：设置弹窗整树挂载实测 ~22ms（8 个 tab 组件静态导入 +
 // 外观页组件树），144Hz 帧预算仅 6.9ms——遮罩与窗控压暗（主进程 ~2ms）必然差 2-3 帧，
 // 即作者感知的「打开设置不同步」。遮罩独占轻帧先上屏（与窗控同帧扫描输出），modal
 // 主体下一帧再挂（1 帧 6.9ms 不可感知）。分帧原语必须 afterPaint——初版单 rAF 实测
@@ -84,9 +84,9 @@ const currentTabComponent = computed(() => tabComponents[activeTab.value])
 
 // ── saveConfig（串行化读写 book.yaml）──
 /** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。
- * P1-10：串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
+ * 串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
  * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。
- * R34D-25（三十四轮）：乐观锁端到端穿线——每次队列内操作重读 {config, revision}
+ * 乐观锁端到端穿线——每次队列内操作重读 {config, revision}
  * （指纹）随 PUT 上送 expectedRevision；另一标签页/进程在 GET 与 PUT 之间写入时
  * 服务端指纹失配回 409，本侧 toast「书籍配置已在其他窗口被修改，请刷新」提示作者，
  * 后写者不再静默覆盖先写者。串行队列天然自愈：作者下一次修改重读最新基线。 */
@@ -110,23 +110,23 @@ provide(SAVE_CONFIG_KEY, saveConfig)
 
 // Esc 关闭（ConfirmPrompt 打开时让位——层级更高，先关它再关设置）
 function onKeydown(e: KeyboardEvent): void {
-  // R8C-F1（2026-09-09 修复批）：让渡链补 defaultPrevented 检查——ConfirmPrompt 在
+  // 让渡链补 defaultPrevented 检查——ConfirmPrompt 在
   // document capture 期先消费 Esc（preventDefault + resolveConfirm），本处理器（window
   // bubble 期）随后执行时 confirmState 已被同键清空，旧守卫 `if (ui.confirmState) return`
   // 失效 → 一次 Esc 把确认框与设置弹窗双关。defaultPrevented 是让渡链在各层间的
   // 通用判据（上层消费后本层不得再动作），首行短路即可封回。
   if (e.defaultPrevented) return
   if (e.key !== 'Escape' || !ui.settingsOpen) return
-  // R33-82（三十三轮）：IME 组合期让渡（对齐 CommandPalette R61-3）——组合期收候选的
+  // IME 组合期让渡（对齐 CommandPalette ）——组合期收候选的
   // Esc 不应连带关闭设置弹层
   if (isImeComposing(e)) return
   if (ui.confirmState) return
-  // R42-30（四十二轮）：其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
+  // 其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
   // 剔除自身；确认已在上行让位）：压在设置上方的顶层弹层的 Esc 归自身处理，本层
   // 不处理不 preventDefault（防设置下方的弹层被 Esc 连带关掉）
   if (ui.overlayOpenExcept('settings')) return
   ui.closeSettings()
-  // Z-23（第五十八轮）：本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出
+  // 本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出
   // 走 defaultPrevented 让渡口，同一按键不再双效（关弹层连带退专注）
   e.preventDefault()
 }
@@ -136,7 +136,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.settingsOpen" kind="settings" @mask-click="ui.closeSettings">
       <div v-if="contentReady" ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
         <div class="modal-head">
@@ -182,7 +182,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <!-- 右侧设置内容：data-tab-scope 驱动整页徽章（book 页条目得「本书」，其余 7 页得「全局」） -->
           <div class="settings-content" :data-tab-scope="tabScope">
             <div class="tab-pane">
-              <!-- mode="out-in" + keep-alive + :key 是 Vue 3 已知竞态组合：
+              <!-- mode="out-in" + keep-alive +:key 是 Vue 3 已知竞态组合：
                    快速切 tab 时缓存命中跳过挂载，但过渡仍等离开动画 → 内容区永久空白。
                    去掉 mode（并行过渡）→ 离开面板 absolute 浮于上层交叉淡出，无堆叠。 -->
               <transition name="tab-fade">

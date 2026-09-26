@@ -1,9 +1,9 @@
 /**
- * RAG embedding 调用 —— 依据 M7 #37 spec 第 4 节。
+ * RAG embedding 调用 —— 依据 #37 spec 第 4 节。
  *
  * 调外部 OpenAI 兼容端点（内置 fetch；除 ../log 失败留痕外零 npm 依赖）。
  * 异常容错：网络/HTTP 错误返回 null（降级用，不抛——#37 第 6.2 节降级回落）；
- * 失败留痕走 log.warn（R62-4，每端点 60s 去抖——分批索引一次失败一屏，
+ * 失败留痕走 log.warn（每端点 60s 去抖——分批索引一次失败一屏，
  * 此前全静默，作者只见「召回为空」无从定位）。
  */
 
@@ -16,7 +16,7 @@ export type EmbedResult = number[][] | null
 export interface EmbedOptions {
   /** 请求超时毫秒；默认 30s。<=0 表示不启用超时。 */
   timeoutMs?: number
-  /** R62-4：用量回报——端点随响应下发 usage.prompt_tokens 时回调一次（记账通道，
+  /** 用量回报——端点随响应下发 usage.prompt_tokens 时回调一次（记账通道，
    *  rag/index.ts 借此把 embedding 消耗记入 ai-calls.json 的 rag-embed 任务位）。 */
   onUsage?: (promptTokens: number) => void
 }
@@ -48,7 +48,7 @@ function warnEmbedFailure(endpoint: string, reason: string): void {
   const now = Date.now()
   if (now - (lastWarnAt.get(endpoint) ?? 0) < 60_000) return
   lastWarnAt.set(endpoint, now)
-  // R58-B-7（五十八轮）：FIFO 上限——键为用户配置端点串，增删 provider 后旧键永驻；
+  // FIFO 上限——键为用户配置端点串，增删 provider 后旧键永驻；
   // 64 个端点远覆盖现实配置，超限丢最旧（Map 保插入序）
   if (lastWarnAt.size > 64) {
     const oldest = lastWarnAt.keys().next().value
@@ -99,7 +99,7 @@ export async function embed(
 
     if (!resp.ok) {
       warnEmbedFailure(endpoint, `HTTP ${resp.status}`)
-      // 五轮重评修复批（C104）：非 2xx 响应体未消费前连接不回池（undici 需等 bodyTimeout
+      // 修复批（C104）：非 2xx 响应体未消费前连接不回池（undici 需等 bodyTimeout
       // 或 GC 兜底才释放）——显式取消，防失败请求钉住 socket。AI 侧两适配器错误路径由
       // SDK 读 body 构造 APIError，本文件是出站点孤例；cancel 拒绝兜 catch（best-effort）。
       try {
@@ -119,7 +119,7 @@ export async function embed(
       return null
     }
 
-    // R62-3：按 index 归位——OpenAI 兼容协议的 data[] 数组顺序无契约（批次端点/部分
+    // 按 index 归位——OpenAI 兼容协议的 data[] 数组顺序无契约（批次端点/部分
     // 网关按内部并行完成序返回），此前按位对齐在乱序端点上会把向量永久错配到别的块，
     // 毒化整库索引且无任何症状。全部条目带合法 index（0≤index<len 整数）→ 按 index
     // 归位（重复/空洞由落位后满位校验兜底）；全部不带 index → 回落按位（兼容不回显
@@ -153,7 +153,7 @@ export async function embed(
     return slots as number[][]
   } catch {
     // 网络/解析错误：降级不抛（#37 第 6.2 节，不崩主路径），仅留痕。
-    // R26-91（二十六轮）：超时 abort 与网络/解析错误分流文案——此前一律「网络/解析
+    // 超时 abort 与网络/解析错误分流文案——此前一律「网络/解析
     // 异常」，端点只是慢（未坏）时作者无从判断该调 embed_timeout_ms 还是查网络。
     // abort 只可能来自本函数的超时定时器（未外接信号），signal.aborted 即超时铁证。
     if (controller?.signal.aborted) {

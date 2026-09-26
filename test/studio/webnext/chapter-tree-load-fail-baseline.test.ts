@@ -5,7 +5,7 @@
  * resolve、只有书名守卫，ensureBaseline(新书) 照常发起，words 侧快照滞留旧书树 →
  * 带旧书总字数 POST 新书今日基线（污染服务端 words-diary）。
  * 手法对齐 chapter-tree-switch-guard.test.ts；words store 属主校验面见
- * r35-words-owner-baseline.test.ts。
+ * words-baseline-owner-guard.test.ts。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'

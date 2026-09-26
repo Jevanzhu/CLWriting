@@ -5,13 +5,13 @@
  * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（预览）
  * POST /api/books/:name/documents/:docId/snapshots/:id/restore → 恢复该版本
  *
- * 保留策略两层链（2026-08-19 起只走全局，R34D-20 校正头注）：global.json snapMax*
+ * 保留策略两层链（起只走全局，校正头注）：global.json snapMax*
  * （全局）→ 硬编码 14 天 / 30 个。book.yaml snapshots 书级段已砍除，不再参与（旧值忽略）。
  *
  * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底
  * （maybeSnapshot 的 restore 分支 force 不节流）——恢复本身可再撤销。
- * R34D-18（三十四轮）：恢复按字节保真读（readVersionRaw）——utf-8 档解码为精确
- * 文本（journal 全文快照/字数口径照旧），非 UTF-8 字节档（R26-52 GBK 留底）原字节
+ * 恢复按字节保真读（readVersionRaw）——utf-8 档解码为精确
+ * 文本（journal 全文快照/字数口径照旧），非 UTF-8 字节档（GBK 留底）原字节
  * 透传 save，恢复不再强制失真（U+FFFD）。
  * 复用 documents.ts 的 service 缓存：两个队列会破坏串行写保证。
  */
@@ -24,29 +24,34 @@ import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
-import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
-import { isUtf8Bytes } from '../../../document/service-guards.js' // R34D-18：字节档判定共享（M-5 防线同源口径）；R0916-7-P3-8：转发桥删除，直引正本
+import { safeDocId } from '../../../fs/safe-path.js' // docId 白名单校验共享（不内联手写）
+import { isUtf8Bytes } from '../../../document/service-guards.js' // 字节档判定共享（防线同源口径）；：转发桥删除，直引正本
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
-import type { TaskGateInjected } from './task-gate.js' // R26-67：prune 书级任务闸；R0912-ds41：补编排互斥查询（R0916-7-P3-6：闸实例经组装根注入）
-import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
-import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：三处同体收编单源（先例位在本文件）
+import type { TaskGateInjected } from './task-gate.js' // prune 书级任务闸；：补编排互斥查询（闸实例经组装根注入）
+import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // MISS 计算体逐块让出（范式）
+import { sigStatFor } from './rhythm.js' // 三处同体收编单源（先例位在本文件）
 import type { Revision } from '../../../document/revision.js'
-import { testableConst } from '../../../shared/testable.js'
 
 interface SnapshotCtx extends TaskGateInjected {
   workDir: string | null
   /** APP 级数据目录（Electron userData / CLI 约定路径）：global.json 存全局保留策略 */
   userDataPath: string | null
+  /** 收尾：version-stats 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 5s 逐位不变） */
+  versionStatsTtlMs?: number | null
+  /** 收尾：restore 读体前让出桩——组装根 RouteOverrides 注入（undefined =
+ * 无让出，生产口径逐位不变；测试在让出窗口内确定性改盘复现竞态） */
+  snapshotsRestoreYield?: (() => Promise<void>) | null
 }
 
 /** 定位书 + 文档：返回 bookRoot 与文档相对路径。userDataPath 传给 DocumentService
  *  （缓存实例共享——先经此创建的实例也要带全局策略，否则恢复端点写时清理退化为两层链）。
- *  P3-⑬（2026-09-13 服务端端点/摘要簇修复批）：找书段收编 resolveBook 单源（workDir
- *  判空 + readBooks().find + 404 样板原内联在此，与 book-context.ts 单源目标相悖）；
+ * -⑬：找书段收编 resolveBook 单源（workDir
+ *  判空 + readBooks.find + 404 样板原内联在此，与 book-context.ts 单源目标相悖）；
  *  错误形状/文案与原内联逐位一致（resolveBook 同款信封），对外响应字节不变。 */
 async function resolveDoc(
   workDir: string | null,
@@ -66,11 +71,11 @@ async function resolveDoc(
 }
 
 /** 递归统计某目录下 .md 文件：数量 + 字节总量 + pinned（front matter 含「永久: true」）。
- *  R-15（第十六轮）：symlink 环防护——lstatSync 判定（不跟随 symlink），symlink 条目
- *  （目录/文件）按 M-9 同族口径跳过。原 statSync 跟随链接，指向祖先目录的 symlink
+ * symlink 环防护——lstatSync 判定（不跟随 symlink），symlink 条目
+ * （目录/文件）按 同族口径跳过。原 statSync 跟随链接，指向祖先目录的 symlink
  *  会让 walk 无限递归栈溢出挂死端点。
- *  R44-9（四十四轮）：改异步 walk，每 SCAN_YIELD_EVERY（25）条让出一次事件循环
- *  （R37-3 范式，先例 analysis.ts R39-15 读循环）——此前 MISS 时递归 lstat + 逐快照
+ * 改异步 walk，每 SCAN_YIELD_EVERY条让出一次事件循环
+ * （范式，先例 analysis.ts 读循环）——此前 MISS 时递归 lstat + 逐快照
  *  .md 同步整读判 pinned，大书数千快照单 tick 冻结事件循环（SSE 心跳/保存同停）。
  *  统计口径与同步版逐位一致。 */
 async function scanVersionsDirAsync(
@@ -97,12 +102,12 @@ async function scanVersionsDirAsync(
       } catch {
         continue
       }
-      // R-15：symlink 一律跳过（不跟随——防目录环，也防外指 symlink 逃逸统计面）
+      // symlink 一律跳过（不跟随——防目录环，也防外指 symlink 逃逸统计面）
       if (st.isSymbolicLink()) continue
       if (st.isDirectory()) {
         await walk(p)
       } else if (isMdFileName(n)) {
-        // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 版本
+        // .md 判定收敛 isMdFileName（大小写不敏感）——.MD 版本
         // 文件此前不计数/不计字节/不参与 pinned 判定；`._` 前缀跳过条件不变
         count++
         bytes += st.size
@@ -117,7 +122,7 @@ async function scanVersionsDirAsync(
           /* 读 FAIL 不算 pinned */
         }
       }
-      // R44-9：每 25 条让出一次（含目录条目——大书 doc 目录数同量级）
+      // 每 25 条让出一次（含目录条目——大书 doc 目录数同量级）
       if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
     }
   }
@@ -127,15 +132,15 @@ async function scanVersionsDirAsync(
 
 // 全局保留策略读取器已上移 document/version.ts（service.ts 写时清理也走同一三层链）
 
-// ── R36-7（三十六轮）：version-stats 全书快照统计 5s TTL 缓存 ─────────────────
+// ── version-stats 全书快照统计 5s TTL 缓存 ─────────────────
 // 端点递归遍历 .版本 全目录（含 pinned 判定逐文件 fm 读 + parse）+ manifest 全表，
-// 进页/轮询/刷新反复触发。手法对齐 search.ts R35-7（mtime 探针 + TTL）：递归
-// mtime/size 探针（symlink 跳过，与 scanVersionsDirAsync R-15 同口径）——命中即跳过
+// 进页/轮询/刷新反复触发。手法对齐 search.ts （mtime 探针 + TTL）：递归
+// mtime/size 探针（symlink 跳过，与 scanVersionsDirAsync 同口径）——命中即跳过
 // 逐文件 fm 读 + manifest 整读；TTL 5s 兜底探针不可见的变化（mtime 粒度粗/同拍同
 // 尺寸重写）。写侧另挂同文件失效点（prune/restore 落盘后 forgetVersionStatsCache）；
 // 保存/定稿等外部快照写（documents.ts/service.ts 不在本批允许清单）靠探针见
 // （新快照文件/新目录即变）与 TTL 兜底。
-// R37-17（三十七轮）：递归签名之上再叠两级探针——第一级便宜目录指纹（见
+// 递归签名之上再叠两级探针——第一级便宜目录指纹（见
 // versionStatsProbe）命中即跳过递归签名 walk 本身（前端 3s 轮询此前每 poll 全量
 // stat 重算签名）；指纹覆盖边界见该函数头注。
 const VERSION_STATS_TTL_MS = 5000
@@ -147,29 +152,24 @@ interface VersionStatsResult {
   pinnedCount: number
   finalizedDocs: number
 }
-/** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
- *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getVersionStatsTtlMs, __setVersionStatsTtlForTest] = testableConst<number | null>(null)
-/** 复审-0914-修复批 P3-R3-3：restore 读体前让出注入口——测试用其在
- *  readJson 窗口内确定性改盘（改名/删书），替代真实 40ms 竞态 timer（先例同
- *  __setLearnCommitYieldForTest）。R0916-7-P3-13 起该注入口随前置门迁进 restore 的
- *  gate（仍在读体之前，窗口语义不变）。生产 null 零行为差异。仅测试用。 */
-/** 三件套换装 testableConst 工厂（让出桩覆盖档，null = 无桩；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getSnapshotsRestoreYield, __setSnapshotsRestoreYieldForTest] = testableConst<(() => Promise<void>) | null>(null)
-/** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
+/** 收尾：__setVersionStatsTtlForTest / __setSnapshotsRestoreYieldForTest
+ * 删除——TTL 覆盖档改组装根 RouteOverrides 注入（getVersionStatsCached 覆盖尾参，
+ * 随实例隔离）；restore 读体前让出桩同通道注入（SnapshotCtx.snapshotsRestoreYield，
+ * 窗口位置不变量见 restore gate 内注：仍在读体之前）。 */
+/** 写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
 export function forgetVersionStatsCache(bookRoot: string): void {
   versionStatsCache.forget(bookRoot)
 }
-/** R0916-7-P3-6 钩子收敛：R36-7/R37-17/R44-9 的 6 个观测钩子（__versionStatsScanCount/
+/** 钩子收敛：//的 6 个观测钩子（__versionStatsScanCount/
  *  ProbeCount/SigCount 与各自 reset）连同路由层自持计数闭包一并删除——计数收编进缓存壳
- *  （ttl-cache.ts 的 stats()），回归用例改读下面导出的缓存实例的 stats()/resetStats()。
+ *  （ttl-cache.ts 的 stats），回归用例改读下面导出的缓存实例的 stats/resetStats。
  *  导出实例即观测面（生产对象，非测试专用 API）。 */
 
-// A3（复审-0914-优化修复批）：sigStatFor 三处同体（rhythm/snapshots/analysis 原各持
+// sigStatFor 三处同体（rhythm/snapshots/analysis 原各持
 // 一份）收编 rhythm.ts 单源 export——本文件为原注释所引先例位之一，改 import；
 // size:mtimeMs 口径与 mtimeMs 亚毫秒保留逐位不变（statSync 其余使用点仍本地）。
 
-/** R36-7：version-stats 的盘面签名——manifest size:mtime + .版本 递归每条目
+/** version-stats 的盘面签名——manifest size:mtime + .版本 递归每条目
  *  name:size:mtime（读侧内容全部由签名覆盖：命中即跳过逐文件 fm 读 + manifest 整读）。
  *  AppleDouble 伴生文件不计、symlink 跳过，口径与 scanVersionsDir 逐位一致。 */
 function versionStatsSignature(bookRoot: string): string {
@@ -197,7 +197,7 @@ function versionStatsSignature(bookRoot: string): string {
       } catch {
         continue
       }
-      if (st.isSymbolicLink()) continue // R-15：不跟随（目录环/外指逃逸同防线）
+      if (st.isSymbolicLink()) continue // 不跟随（目录环/外指逃逸同防线）
       const rel = prefix ? `${prefix}/${n}` : n
       if (st.isDirectory()) {
         parts.push(`d:${rel}:${st.mtimeMs}`)
@@ -211,8 +211,8 @@ function versionStatsSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** R36-7：version-stats 计算体（原 handler 内联逻辑原样下沉，行为不变）。
- *  R44-9（四十四轮）：改异步——.版本 递归扫描逐块让出（scanVersionsDirAsync），
+/** version-stats 计算体（原 handler 内联逻辑原样下沉，行为不变）。
+ *  ：改异步——.版本 递归扫描逐块让出（scanVersionsDirAsync），
  *  manifest 整读与计数为轻量同步段，与扫描段之间让出一次（computeProgressAsync
  *  口径：端点 handler 不是无让出的整段同步链）。 */
 async function computeVersionStatsAsync(bookRoot: string): Promise<VersionStatsResult> {
@@ -233,19 +233,19 @@ async function computeVersionStatsAsync(bookRoot: string): Promise<VersionStatsR
   }
 }
 
-/** R37-17（三十七轮）：version-stats 两级探针的第一级——便宜目录指纹（先例
- *  search.ts R35-7 dirSignature 的 statSync(dir).mtimeMs，按本端点全量签名的实际
+/** version-stats 两级探针的第一级——便宜目录指纹（先例
+ *  search.ts dirSignature 的 statSync(dir).mtimeMs，按本端点全量签名的实际
  *  读面设计构成）：
  *  - manifest（项目/文档清单.jsonl）size:mtimeMs——manifest 是单文件内容写（原子
  *    rename 重写、不改父目录条目集），目录 mtime 探不到，必须以文件 stat 入指纹；
  *  - .版本 顶层目录 mtime——doc 子目录增删改名可见；
  *  - .版本 每个直接子目录的 mtime——快照 .md 在其 doc 目录内的增删/原子重写可见
  *    （快照档写后不改：应用侧变更 = 新增落盘（同目录 rename / exclusive create）、
- *    prune 删除、新 doc 目录，均刷对应目录 mtime；r36 回归「写进既有 doc 目录的
+ *    prune 删除、新 doc 目录，均刷对应目录 mtime；回归「写进既有 doc 目录的
  *    新快照即时失效」必须由子目录 mtime 承担——顶层 stat 探不到）。
  *  覆盖边界（如实）：目录 mtime 只反映直接子项增删/改名与同目录 rename 落盘——
  *  外部进程对快照文件的「非 rename 就地内容改写」一级探针不可见，由 TTL 到期
- *  （≤5s）走第二级全量签名重算兜底（与 R36-7「TTL 兜底探针不可见变化」既有口径
+ *  （≤5s）走第二级全量签名重算兜底（与 「TTL 兜底探针不可见变化」既有口径
  *  一致）；.版本 更深层嵌套（>1 层子目录，现行布局无此形态）同理由 TTL 兜底。
  */
 function versionStatsProbe(bookRoot: string): string {
@@ -267,12 +267,12 @@ function versionStatsProbe(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** R37-17（三十七轮）：version-stats 聚合查询两级探针化（递归 mtime 探针 + 5s TTL
+/** version-stats 聚合查询两级探针化（递归 mtime 探针 + 5s TTL
  *  缓存壳之上加便宜目录指纹）。前端 3s 轮询此前每 poll 都全量重算递归签名（大书
  *  数千次 lstat）；现在第一级 O(子目录数) stat 未变即复用，指纹变化才走第二级
- *  （R36-7 原全量签名），签名仍一致（指纹抖动，如原子写 tmp 中间态已消失）则回填
+ *  （原全量签名），签名仍一致（指纹抖动，如原子写 tmp 中间态已消失）则回填
  *  指纹复用结果。导出供回归测试直测（同 searchBookCached 口径）。
- *  R44-9（四十四轮）：①探针本身纳入 TTL 节流——versionStatsProbe 原在 TTL 判断
+ *  ：①探针本身纳入 TTL 节流——versionStatsProbe 原在 TTL 判断
  *  之前每次执行（缓存命中也重付 readdirSync + 逐 doc statSync，前端 3s 轮询本端点
  *  每 poll 照付）；现 TTL 窗内复用上次探针值，命中路径零系统调用。指纹时效语义
  *  如下收敛（如实记档）：探针省的是「TTL 未到也重付」那部分，TTL 一到必须重新探
@@ -281,21 +281,21 @@ function versionStatsProbe(bookRoot: string): string {
  *  改写的既有兜底窗口一致；本文件写路径（prune/restore）仍走 forgetVersionStatsCache
  *  即时失效。②MISS 计算体异步分批让出（scanVersionsDirAsync），本函数与 handler
  *  相应 async 化（dispatch 兜底 try/catch → 500，Promise 不悬空）。 */
-export function getVersionStatsCached(bookRoot: string): Promise<VersionStatsResult> {
-  return versionStatsCache.get(bookRoot)
+export function getVersionStatsCached(bookRoot: string, ttlOverrideMs?: number | null): Promise<VersionStatsResult> {
+  return versionStatsCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
- *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——两级探针（probe 节流 +
- *  probeTs/probe/sig 五字段条目 + L2 签名一致回填指纹复用）+ 异步计算 + FIFO 32，
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——两级探针（probe 节流 +
+ *  probeTs/probe/sig 五字段条目 + 签名一致回填指纹复用）+ 异步计算 + FIFO 32，
  *  转写注见 ttl-cache.ts judge；sigCount 计数随实现迁入 signature 包装，本文件为
  *  两级探针形态正本位。见 ttl-cache.ts 头部收敛映射表）。 */
-/** R0916-7-P3-6：导出供回归用例读 stats() 观测（探针/全量签名计数收编在壳内）。 */
+/** 导出供回归用例读 stats 观测（探针/全量签名计数收编在壳内）。 */
 export const versionStatsCache = createTtlProbeCache<string, VersionStatsResult>({
   name: 'version-stats',
   keyOf: (k) => k,
   max: VERSION_STATS_MAX,
-  ttl: () => getVersionStatsTtlMs() ?? VERSION_STATS_TTL_MS,
+  ttl: () => VERSION_STATS_TTL_MS,
   probe: versionStatsProbe,
   signature: versionStatsSignature,
   computeAsync: computeVersionStatsAsync,
@@ -309,11 +309,12 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // R36-7：递归 mtime 探针 + 5s TTL 缓存壳（命中即跳过 .版本 逐文件 fm 读 +
+      // 递归 mtime 探针 + 5s TTL 缓存壳（命中即跳过 .版本 逐文件 fm 读 +
       // manifest 整读；计算体见 computeVersionStatsAsync，行为与改前逐位一致）
-      // R44-9：MISS 计算体异步分批让出，handler 相应 async（同文件 restore 等
+      // MISS 计算体异步分批让出，handler 相应 async（同文件 restore 等
       // async handler 同款，dispatch try/catch 兜底 → 500）
-      const st = await getVersionStatsCached(r.bookRoot)
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      const st = await getVersionStatsCached(r.bookRoot, ctx.versionStatsTtlMs ?? undefined)
       reply(res, 200, {
         ok: true,
         snapshotBytes: st.snapshotBytes,
@@ -329,24 +330,24 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   defineRoute('books.versions.prune', {
     method: 'POST',
     path: '/api/books/:name/versions/prune',
-    // R50-C-1（五十轮）：handler 改 async——prune 循环逐块让出（见下方 R50-C-1 注），
+    // handler 改 async——prune 循环逐块让出（见下方 注），
     // reply 在全部 prune 完成后才发出（dispatch await handler，同文件 version-stats
     // 等 async handler 同款，dispatch try/catch 兜底 → 500）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // R0912-ds41（重评-deepseek-v4.1-flash P3-9）：编排互斥矩阵补向——prune 批量删
+      // 编排互斥矩阵补向——prune 批量删
       // .版本 快照，写稿系编排（self-heal/对话/手动写稿/后台收尾）的收尾正会写快照，
-      // 在途放行 prune = 清理与收尾快照并发互踩；此前 R26-67 闸只挡同 action 重入，
+      // 在途放行 prune = 清理与收尾快照并发互踩；此前 闸只挡同 action 重入，
       // 删书/改名 busyGate 是反向枚举面，生成类在途无人拦（矩阵单向不对称）。查法
       // 照抄 analysis.ts analyze 端点精确形态：先查编排闸再占自身 action 闸，409 的
       // code/error 与同族端点逐字节一致。
       const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
       if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-      // R26-67（二十六轮）：书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
+      // 书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
       // 任务（写稿/onboard 等收尾会写快照）及删书/改名 busyGate（crossProcessHeldTask
       // GatesFor 借 KNOWN_ACTIONS 正向枚举）的互斥面此前缺失；闸忙 409 口径对齐
-      // onboard-save 等同类端点。action 已登记 task-gate.ts KNOWN_ACTIONS（R77-2 静态对账门）。
+      // onboard-save 等同类端点。action 已登记 task-gate.ts KNOWN_ACTIONS（静态对账门）。
       const release = ctx.gate.acquire(params['name']!, 'versions-prune')
       if (!release) return replyError(res, 409, 'BUSY', '本书快照清理已在进行中，请稍后再试')
       try {
@@ -354,7 +355,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         const versionsDir = join(bookRoot, '工作区', '.版本')
         if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
 
-        // 保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码 14 天 / 30 个；
+        // 保留策略：global.json snapMax* → 硬编码 14 天 / 30 个；
         // book.yaml snapshots 段已砍书级，不再参与（旧值忽略）。
         const global = readGlobalSnapshotPolicy(ctx.userDataPath)
         const policy = {
@@ -368,7 +369,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         const ids = new Set(manifest.entries.keys())
         try {
           for (const d of readdirSync(versionsDir)) {
-            // dd-P3：readdir 后目录项可能并发消失——单项失败跳过，防裸 ENOENT 中断整轮 prune
+            // readdir 后目录项可能并发消失——单项失败跳过，防裸 ENOENT 中断整轮 prune
             try {
               if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
             } catch {
@@ -380,15 +381,15 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         }
 
         let removed = 0
-        // R50-C-1（五十轮）：全书 prune 循环改 async 逐块让出——pruneVersions 内部
+        // 全书 prune 循环改 async 逐块让出——pruneVersions 内部
         // readdirSync + 逐 meta 读 + 逐 unlink 均同步，大书数百 docId 单 tick 冻结事件
-        // 循环（SSE 心跳/保存同停）；让出口径对齐同文件 scanVersionsDirAsync（R44-9
-        // 范式：每 SCAN_YIELD_EVERY（25）项 await yieldToEventLoop() 一次）。清理结果
+        // 循环（SSE 心跳/保存同停）；让出口径对齐同文件 scanVersionsDirAsync（
+        // 范式：每 SCAN_YIELD_EVERY（25）项 await yieldToEventLoop 一次）。清理结果
         // 与同步版逐位一致（ids 集合遍历序不变、逐项 try/catch 语义不变）。
         let processed = 0
         for (const docId of ids) {
           if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
-          // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
+          // docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
           if (!safeDocId(docId)) continue
           try {
             removed += pruneVersions(versionsDir, docId, policy)
@@ -396,7 +397,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
             /* 单文档清理失败不阻断全书 */
           }
         }
-        // R36-7：快照被删 → version-stats 缓存失效（探针/TTL 兜底）
+        // 快照被删 → version-stats 缓存失效（探针/TTL 兜底）
         forgetVersionStatsCache(bookRoot)
         reply(res, 200, { ok: true, removed })
       } finally {
@@ -432,7 +433,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   })
 
   // 恢复：用该版本内容覆盖当前正文（当前内容自动留底）
-  // R0916-7-P3-13：原 handler 内联 readJson + as 断言——现 find 书/文档 404、版本 404
+  // 原 handler 内联 readJson + as 断言——现 find 书/文档 404、版本 404
   // 与让出注入口落 gate（保住「404 先于 body 400」的既有优先级与「读体前」竞态窗口，
   // 见下方注入口注释），body 形状（expectedRevision 必填）落 parse。
   defineRoute('books.documents.snapshots.restore', {
@@ -445,11 +446,11 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         replyError(res, r.status, r.code, r.error)
         return false
       }
-      // R34D-18（三十四轮）：字节保真读——此前 readVersion 的 utf-8 文本视图对
-      // R26-52 字节档（非 UTF-8 源按原字节留底）必有损（U+FFFD 不可逆），恢复形同
+      // 字节保真读——此前 readVersion 的 utf-8 文本视图对
+      // 字节档（非 UTF-8 源按原字节留底）必有损（U+FFFD 不可逆），恢复形同
       // 虚设。utf-8 档解码回精确文本（合法 utf-8 字节 ↔ 字符串双射，journal 全文
       // 快照/字数增量/回复体口径照旧）；非 UTF-8 字节档原 Buffer 透传 save 原字节
-      // 直存（save 侧 M-5 覆写防线对 Buffer 放行——该防线的威胁模型是文本往返
+      // 直存（save 侧 覆写防线对 Buffer 放行——该防线的威胁模型是文本往返
       // 失真覆写，字节保真写不在其内）。
       const snap = readVersionRaw(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) {
@@ -460,9 +461,10 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         ? snap.content.toString('utf-8')
         : snap.content
 
-      // 让出注入口仍在读体之前（R0916-7-P3-13 起随前置门留在 gate 内）：测试据「读体
-      // 窗口」改盘/[改名]确定性复现竞态，窗口位置不变量见 __setSnapshotsRestoreYieldForTest 注。
-      const yieldFn = getSnapshotsRestoreYield()
+      // 让出注入口仍在读体之前（起随前置门留在 gate 内）：测试据「读体
+      // 窗口」改盘/[改名]确定性复现竞态，窗口位置不变量见 SnapshotCtx.snapshotsRestoreYield
+      // 注（收尾：桩改组装根 RouteOverrides 注入，随实例隔离）。
+      const yieldFn = ctx.snapshotsRestoreYield
       if (yieldFn) await yieldFn()
       return { value: { docId, r, snap, content } }
     },
@@ -475,7 +477,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     },
     handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
     const { docId, r, snap, content } = gate
-    // 重评二轮-P3-1（2026-09-13 全库源码重评二轮 GLM-5.3）：readJson 窗口后写前重验书
+    // 二轮-：readJson 窗口后写前重验书
     // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
     // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
     // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
@@ -491,13 +493,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     })
       if (!outcome.ok) {
         const status = outcome.code === 'REVISION_CONFLICT' ? 409 : 400
-        // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
+        // 收编 replyError 单一出口（去掉 ok:false 冗余位）
         return replyError(res, status, outcome.code, outcome.reason)
       }
       // 回复体是编辑器缓冲区的文本视图：utf-8 档即原文；字节档为失真视图（编辑器
-      // 世界是 utf-8 文本，后续保存由 M-5 防线拦截提示先转码——不产生静默覆写）
+      // 世界是 utf-8 文本，后续保存由 防线拦截提示先转码——不产生静默覆写）
       const view = typeof content === 'string' ? content : content.toString('utf-8')
-      // R36-7：恢复即新快照（maybeSnapshot restore 分支强制不节流）→ version-stats
+      // 恢复即新快照（maybeSnapshot restore 分支强制不节流）→ version-stats
       // 缓存失效（探针/TTL 兜底）
       forgetVersionStatsCache(r.bookRoot)
       reply(res, 200, { ok: true, revision: outcome.revision, content: view })

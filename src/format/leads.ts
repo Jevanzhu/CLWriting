@@ -9,7 +9,7 @@
 
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-// R34D-2（三十四轮）：履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates R26-32 手法）
+// 履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates 手法）
 import { log } from '../log/index.js'
 import { isMdFileName } from './filename.js'
 import {
@@ -37,7 +37,7 @@ export const LEAD_TYPES: readonly LeadType[] = [
   '关系线',
 ] as const
 
-/** #3 第 5 节动词表：每类合法动词（机检用，M2）。
+/** #3 第 5 节动词表：每类合法动词（机检用）。
  *  open 开端 → advance 进行中推进（不收尾）→ resolve 收尾 / drop 放弃。
  *  advance 语义：线仍在「进行中」，仅推进不闭合（悬疑递进/成长稳进等），
  *  不触发状态闭合校验（只有 resolve/drop 才要求状态翻转）。 */
@@ -60,20 +60,20 @@ export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
 // ── 履历段解析（#3 第 4 节）──────────────────────
 
 /** 履历条目行：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢）。
- *  R75-2（二十三轮）抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
+ *  抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
  *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。
- *  R34D-2（三十四轮）：证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
+ *  证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
  *  此前整行不匹配落续行折入分支，声明蒸发 + 上一条证据被污染；空证据条目照常入模型，
- *  R76-19 的空证据黄项既有路径即可见。 */
+ * 的空证据黄项既有路径即可见。 */
 const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.*)$/
 
-/** R34D-2（三十四轮）：形似条目但 HISTORY_ENTRY_RE 解析失败时的二次抢救正则——
+/** 形似条目但 HISTORY_ENTRY_RE 解析失败时的二次抢救正则——
  *  容忍章号后缺空格（`\s*`）、全角数字章号（０-９，配 normalizeDigits 归一）、
  *  动词与冒号间空格，证据段可空。仅用于 parseHistory 守卫分支的独立条目抢救，
  *  主路径仍走严格正则（两正则不互为出处，抢救条目回写物化为规范形态后由主正则接管）。 */
 const HISTORY_ENTRY_LOOSE_RE = /^\s*-\s*第([０-９\d]+)章\s*([^\s:：]+)\s*[：:](.*)$/
 
-/** R34D-2（三十四轮）：全角数字 → 半角（防输入法切错致章号进不了账本模型）。 */
+/** 全角数字 → 半角（防输入法切错致章号进不了账本模型）。 */
 function normalizeDigits(s: string): string {
   return s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
 }
@@ -81,7 +81,7 @@ function normalizeDigits(s: string): string {
 /** ATX 标题行（#~###### 后随空白；markdown 标准形态）。 */
 export const ATX_HEADING_RE = /^#{1,6}\s/
 
-/** R75-2（二十三轮）：lines[headingIdx] 是标题行时判定「节终 or 分组」——其后到下一
+/** lines[headingIdx] 是标题行时判定「节终 or 分组」——其后到下一
  *  标题/文末仍出现条目行 → 分组标题（false：跳过不折入，条目照常解析）；否则为节终
  *  标题（true：终断条目段，其后人工内容归 after 段保真回写）。isEntry 由调用方注入
  *  （履历条目与账本推进声明条目格式不同，共用同一分组判定口径防两侧漂移）。 */
@@ -90,7 +90,7 @@ export function headingEndsSection(
   headingIdx: number,
   isEntry: (line: string) => boolean,
 ): boolean {
-  // R76-21（二十四轮 B 域）：连续标题链不再提前终断——原「下一行是标题即判节终」把
+  // （二十四轮 B 域）：连续标题链不再提前终断——原「下一行是标题即判节终」把
   // `## 分组`+`### 详注`+条目 的链式分组首标题误判节终，其下条目整体掉出解析（回写
   // 保真无数据丢失，机检对它们失明）。标题行改为跳过继续找条目：链下仍出现条目 =
   // 整链是分组结构（false，条目照常解析）；到文末无条目 = 节终（其后人工内容归
@@ -110,15 +110,15 @@ export function parseHistory(body: string): LeadEntry[] {
   return parseHistoryWithPreamble(body).entries
 }
 
-/** R48-8（四十八轮）：解析履历段并收集「## 履历」标题与首条条目之间的手写散文
+/** 解析履历段并收集「## 履历」标题与首条条目之间的手写散文
  *  （_historyPreamble）——此前散文三路都不接住（不进 entries/不进 bodyBefore/
  *  bodyAfter），writeLead 重建时物理删除。原样行收集（不 trim），由 stringifyHistory
  *  在标题与首条之间原位还原；节终无条目时标题与节终标题之间的散文同样在此收
  *  （bodyAfterHistory 只保节终标题之后的内容，两区天然不重叠）。
- *  R51-F-1（五十一轮）：条目间的分组标题（后随条目的 ATX 标题，如 `### 第一卷`）第三
+ *  ：条目间的分组标题（后随条目的 ATX 标题，如 `### 第一卷`）第三
  *  槽位保真（_historyGroupHeadings）——此前分支 continue 三不管（不进 entries/preamble/
- *  bodyAfterHistory），writeLead 整段重序列化即物理删除（P1：作者手写结构标记不可逆
- *  丢失）。挂靠 beforeEntry = 解析当时 entries.length（其后首个条目），标题链（R76-21）
+ *  bodyAfterHistory），writeLead 整段重序列化即物理删除（作者手写结构标记不可逆
+ *  丢失）。挂靠 beforeEntry = 解析当时 entries.length（其后首个条目），标题链
  *  逐行各记一条、数组序即文件序；stringifyHistory 原位还原。 */
 export function parseHistoryWithPreamble(body: string): {
   entries: LeadEntry[]
@@ -128,7 +128,7 @@ export function parseHistoryWithPreamble(body: string): {
   const entries: LeadEntry[] = []
   const preamble: string[] = []
   const groupHeadings: LeadHistoryGroupHeading[] = []
-  // R36-1（三十六轮）：CRLF 行尾归一——HISTORY_ENTRY_RE / LOOSE_RE 对原始行 `$` 锚定
+  // CRLF 行尾归一——HISTORY_ENTRY_RE / LOOSE_RE 对原始行 `$` 锚定
   // 匹配且无 m 标志，`\r` 前不认行尾 → CRLF 账本的履历条目全量落「形似条目」分支被
   // log.warn 丢弃，随后定稿回写 writeLead 按 stringifyHistory 整文件重序列化 → 既有
   // 全部履历物理清空、不可恢复（防吃书账本整体失真）。此处仅剥每行行尾单个 `\r`
@@ -147,15 +147,15 @@ export function parseHistoryWithPreamble(body: string): {
     }
     if (!inHistory) continue
 
-    // R75-2（二十三轮）：条目段的 ATX 标题不再折入上一条证据——此前 `### 手记` 等
-    // 标题行被 R64-17 续行折空格拼进证据（证据 needle 派生自标题碎片、命中正文必败
+    // 条目段的 ATX 标题不再折入上一条证据——此前 `### 手记` 等
+    // 标题行被续行折空格拼进证据（证据 needle 派生自标题碎片、命中正文必败
     // →「声明了没兑现」定稿假红；且定稿回写 dedup 按 章号+动词+证据 精确比对永不相
     // 等 → 重复条目追加固化）。节终标题（后无条目）终断条目段——其后内容由
     // bodyAfterHistory 保真回写；分组标题（后随条目）跳过。# 一级/### 三级此前不触发
     // `## ` 终断、一律折入证据，同本修收口。
     if (ATX_HEADING_RE.test(t)) {
       if (headingEndsSection(lines, i, (l) => HISTORY_ENTRY_RE.test(l))) break
-      // R51-F-1（五十一轮）：分组标题第三槽位保真（原 continue 即物理丢失）
+      // 分组标题第三槽位保真（原 continue 即物理丢失）
       groupHeadings.push({ beforeEntry: entries.length, line })
       continue
     }
@@ -168,7 +168,7 @@ export function parseHistoryWithPreamble(body: string): {
       let 证据 = m[3]!.trim()
       let 回填 = false
       // 回填标记（#3 第 4 节）：证据末尾的（回填·卷摘要级）
-      // R1-P2-1（2026-09-09 修复批）：匹配收紧为精确系统标记——旧正则 /（回填[^）]*）$/
+      // （修复批）：匹配收紧为精确系统标记——旧正则 /（回填[^）]*）$/
       // 命中任意「（回填…）」结尾（如作者手写备注「（回填时补了线索）」）即剥离并改写为
       // 「（回填·卷摘要级）」，用户文本被无感知篡改。系统生成形态恒为（回填·卷摘要级）
       //（生成侧 suffix 单点 :231、全库无其它形态），精确匹配后非精确形态保留原文零改写，
@@ -182,12 +182,12 @@ export function parseHistoryWithPreamble(body: string): {
       }
       entries.push({ 章号, 动词, 证据, ...(回填 ? { 回填 } : {}) })
     } else if (/^\s*-\s*第/.test(line)) {
-      // R34D-2（三十四轮）：形似履历条目（`- 第…` 开头）却未被条目正则解析的畸形行
-      // 不折入上一条证据——此前落 R64-17 续行分支被折空格拼进上一条（空证据行整条
+      // 形似履历条目（`- 第…` 开头）却未被条目正则解析的畸形行
+      // 不折入上一条证据——此前落续行分支被折空格拼进上一条（空证据行整条
       // 声明蒸发 + 上一条证据被污染，下次 stringifyHistory 回写把改写后的证据物化，
       // 账本静默损坏）。缺空格/全角数字形态经 HISTORY_ENTRY_LOOSE_RE 二次抢救为
       // 独立条目（声明不蒸发、机检可见、回写物化为规范形态，既有条目不被改写）；
-      // 抢救失败 log.warn 留痕后丢弃（对齐 lead-updates R26-32 手法）。
+      // 抢救失败 log.warn 留痕后丢弃（对齐 lead-updates 手法）。
       const loose = line.match(HISTORY_ENTRY_LOOSE_RE)
       if (loose) {
         entries.push({
@@ -199,15 +199,15 @@ export function parseHistoryWithPreamble(body: string): {
         log.warn('leads', `履历条目格式不符被丢弃（应为「- 第N章 动词：证据」）：${t.slice(0, 40)}`)
       }
     } else if (entries.length > 0 && t !== '') {
-      // R64-17（十二轮）：多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
+      // 多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
       // 此前被静默丢弃（下次回写物理丢失）。续行折空格并入上一条证据（换行归一）。
-      // R75-2：标题行已在上方分流（分组跳过/节终终断），到达此处的必为普通续行文本。
-      // R48-55（四十八轮）：折叠前剥行首列表标记（`- `/`* `）——普通 bullet 续行
+      // 标题行已在上方分流（分组跳过/节终终断），到达此处的必为普通续行文本。
+      // 折叠前剥行首列表标记（`- `/`* `）——普通 bullet 续行
       // 此前原样折入，证据物化成「…… - 备注」且回写不可逆污染。
       const prev = entries[entries.length - 1]!
       prev.证据 = `${prev.证据} ${t.replace(/^[*-]\s+/, '')}`.trim()
     } else if (t !== '') {
-      // R48-8（四十八轮）：首条条目前的手写散文 → preamble（原样行收集），
+      // 首条条目前的手写散文 → preamble（原样行收集），
       // 不再静默穿透后被 writeLead 物理删除。
       preamble.push(line)
     }
@@ -215,10 +215,10 @@ export function parseHistoryWithPreamble(body: string): {
   return { entries, preamble: preamble.join('\n'), groupHeadings }
 }
 
-/** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原（R48-8）；
- *  groupHeadings 按挂靠条目序号原位还原（R51-F-1）——同槽多条（标题链）按数组序，
+/** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原；
+ *  groupHeadings 按挂靠条目序号原位还原——同槽多条（标题链）按数组序，
  *  越界槽位（条目被删等）尾插兜底不静默丢弃。
- *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）注记精度：preamble 两侧外围空行
+ *  （GLM-5.3 修复批）注记精度：preamble 两侧外围空行
  *  trim 后按「标题-空行-散文-空行-首条」规范形重拼——「原位还原」是内容级原位
  *  （散文行本体与位置不丢），非字节级往返；作者在散文前后多打的连续空行不保真
  *  （单空行分隔形态即规范形，实际漂移面仅多余空行）。 */
@@ -256,8 +256,8 @@ function bodyBeforeHistory(body: string): string {
   return lines.slice(0, idx).join('\n').trim()
 }
 
-/** 履历段之后的人工正文（节终标题起到文末；无则空）——dd-P2 回写保真用。
- *  R75-2（二十三轮）：节终判定与 parseHistory 共用 headingEndsSection——此前仅认
+/** 履历段之后的人工正文（节终标题起到文末；无则空）——dd- 回写保真用。
+ *  ：节终判定与 parseHistory 共用 headingEndsSection——此前仅认
  *  `## ` 二级标题，`### 手记` 等子标题不终断，其后续写内容被 parseHistory 折进证据；
  *  现两处同口径，节终标题起的内容原样保真、不再触碰条目数据。 */
 function bodyAfterHistory(body: string): string {
@@ -286,10 +286,10 @@ const KNOWN_FM_KEYS = new Set([
 ])
 
 /**
- * R-P2-3（P2 评审修复批）：readLead 的解析主体抽为模块内单源 parseLeadModel——
+ * （评审修复批）：readLead 的解析主体抽为模块内单源 parseLeadModel——
  * readLead（盘读）与 readLeadFromBytes（content 注入孪生，见下）共用同一解析体。
  * 此前 document/lead-finalize.ts 对本函数非 legacy 路径持 60 行消费侧同步副本
- *（R42-11 因 format 域禁改暂置消费侧；2026-09 漂移核验与正本逐位一致后按其预告坍缩），
+ *（因 format 域禁改暂置消费侧；2026-09 漂移核验与正本逐位一致后按其预告坍缩），
  * 格式链解析语义演进只改本函数，定稿链自动随动。 */
 function parseLeadModel(
   filePath: string,
@@ -305,7 +305,7 @@ function parseLeadModel(
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：编号' } }
   }
 
-  // R73-22（二十一轮）：类型/状态写了非法值不再静默默认——此前错别字类型（如「选念」）
+  // 类型/状态写了非法值不再静默默认——此前错别字类型（如「选念」）
   // 落默认「悬念」、错状态落「进行中」，机检动词表按错类执行（动词越界黄项+状态闭合
   // 误判），作者还以为配置生效。缺字段维持默认回落（存量手写账本兼容）；写了但非法 =
   // 结构化错误（readLeadDir 容错收集、重建面板可见），fail-loud 不入库错类。
@@ -329,7 +329,7 @@ function parseLeadModel(
   }
 
   // 收集未知字段（容错保留）
-  // R64-17（十二轮）：数组型未知字段此前 String(v) 落成 "a,b" ——回写 stringifyValue
+  // 数组型未知字段此前 String(v) 落成 "a,b" ——回写 stringifyValue
   // 按标量引号化，往返后项内逗号错位。数组原样保留（writeLead 的 stringifyValue
   // 原生支持数组逐项序列化）。
   const _raw: Record<string, string | string[]> = {}
@@ -339,16 +339,16 @@ function parseLeadModel(
     }
   }
 
-  // R75-2（二十三轮）：Number() 无守卫——手写「十二」→ NaN 落模型，机检章号区间
-  // 比较恒 false（「未来章」误判族）、回写 NaN 扩散。对齐 chapters.ts R64-19 口径：
+  // Number 无守卫——手写「十二」→ NaN 落模型，机检章号区间
+  // 比较恒 false（「未来章」误判族）、回写 NaN 扩散。对齐 chapters.ts 口径：
   // 非有限数按「未写」处理，回落默认 0（缺字段/空串语义不变）。
-  // 复审-0913-源码 P2：守卫从 isFinite 收紧为 isSafeInteger && >= 1——对齐 chapters.ts
-  // R31-15 同语义字段口径（章号 = 正整数）；-3/12.5/1e20 此前穿透 isFinite 落 opened_at，
+  // -源码：守卫从 isFinite 收紧为 isSafeInteger && >= 1——对齐 chapters.ts
+  // 同语义字段口径（章号 = 正整数）；-3/12.5/1e20 此前穿透 isFinite 落 opened_at，
   // readStaleLeads 的 age = 当前章 − opened_at 被虚高（悬太久误报族）。
   const 开启章Num = Number(map.get('开启章'))
   const 开启章合法 = Number.isSafeInteger(开启章Num) && 开启章Num >= 1
 
-  // R48-8（四十八轮）：履历段解析改带 preamble 收集——标题与首条条目间的手写
+  // 履历段解析改带 preamble 收集——标题与首条条目间的手写
   // 散文原样带回（存在才带字段），writeLead 经 stringifyHistory 原位还原
   const hist = parseHistoryWithPreamble(body)
   const lead: Lead = {
@@ -356,7 +356,7 @@ function parseLeadModel(
     标题: String(map.get('标题') ?? ''),
     // B202（0918三轮修复批）：改 `||`——手写「类型:」「状态:」（空值）经 parseValue
     // 落成 ''，非 nullish，`??` 接不住 → 枚举字段空串穿透（UI 分档/状态闭合比较恒
-    // 落空），与上方校验的豁免意图（:322-328「空视同缺省回落」）相悖。R41-14 同型
+    // 落空），与上方校验的豁免意图（322-328「空视同缺省回落」）相悖。 同型
     // 先例（chapters.ts 钩子类型）：枚举合法值均非空串，`||` 语义面精确。
     类型: (map.get('类型') as LeadType) || '悬念',
     状态: (map.get('状态') as Lead['状态']) || '进行中',
@@ -392,8 +392,8 @@ export function readLead(
 }
 
 /**
- * R-P2-3：readLead 的 content 注入孪生（原 document/lead-finalize.ts 就地副本，本批
- * 按 R42-11 预告坍缩回单源）——fm/body 经 frontmatter.readFile 的 content 通道（R63-7）
+ * readLead 的 content 注入孪生（原 document/lead-finalize.ts 就地副本，本批
+ * 按预告坍缩回单源）——fm/body 经 frontmatter.readFile 的 content 通道
  * 从调用方整读的同一份 Buffer 派生，不再二次读盘（单读派生：UTF-8 判据与本模型同源，
  * 消除两读间外部改写错源窗；消费方 = 定稿回写链 applyLeadUpdatesLocked，布线锁内一次
  * readFileSync 同时喂 isUtf8Bytes 判据与本函数）。不设 legacy 通道：消费方恒走六类
@@ -463,21 +463,21 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 /** 写入账本 md（front matter + 履历段）。 */
 export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
-  // R48-8（四十八轮）：履历前散文（_historyPreamble）原位还原——此前 stringifyHistory
+  // 履历前散文（_historyPreamble）原位还原——此前 stringifyHistory
   // 只认条目，手写在标题与首条之间的散文每次回写都被物理删除
-  // R51-F-1（五十一轮）：分组标题（_historyGroupHeadings）同原位还原——P1 红线面
+  // 分组标题（_historyGroupHeadings）同原位还原—— 红线面
   const historyText = stringifyHistory(lead.履历, lead._historyPreamble, lead._historyGroupHeadings)
   const preserved = lead._bodyBeforeHistory?.trim()
-  // dd-P2：履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
+  // dd-履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
   // 都会把作者手写在 ## 履历 之后的内容静默删掉
   const after = lead._bodyAfterHistory?.trim()
   const parts = [...(preserved ? [preserved] : []), historyText, ...(after ? [after] : [])]
   const body = `\n${parts.join('\n\n')}\n`
-  // ee-P1-6：账本是防吃书根基，写入与 manifest/version/journal 同级 fsync——tmp+rename
+  // ee-账本是防吃书根基，写入与 manifest/version/journal 同级 fsync——tmp+rename
   // 防半截文件，但不防掉电时 rename 元数据先于内容持久化（账本整体回退旧状态的窗口）
-  // 平台规范化批（2026-09-03）：恒 LF——R38-11 的「按盘上主导行尾渲染」（dominantEolOf
+  // 平台规范化批：恒 LF—— 的「按盘上主导行尾渲染」（dominantEolOf
   // 探测随之移除）随规范形拍板翻转；joinFrontMatter 整体规范化连带归一保留段内杂散
-  // \r（R38-11 LF 侧既有行为的延续）。CRLF 存量账本由启动迁移 v4 归一。
+  // \r（LF 侧既有行为的延续）。CRLF 存量账本由启动迁移 v4 归一。
   const full = joinFrontMatter(fmText, body)
   atomicWriteFile(filePath, full, { fsync: true })
 }
@@ -496,8 +496,8 @@ export function readLeadDir(
 
   let files: string[]
   try {
-    // R34D-11（三十四轮）：扩展名匹配大小写不敏感（win 手工改名 .MD 不再对账本扫描隐形）；
-    // R40-11（四十轮）：判定收口 filename.isMdFileName 单源（与 parseLeadFileName 剥尾
+    // 扩展名匹配大小写不敏感（win 手工改名 .MD 不再对账本扫描隐形）；
+    // 判定收口 filename.isMdFileName 单源（与 parseLeadFileName 剥尾
     // 侧同口径——此前扫描侧认 .MD 而解析侧 basename('.md') 剥不掉，构造/扫描两口径分裂，
     // .MD 条目标题残留扩展名尾）
     files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
@@ -508,7 +508,7 @@ export function readLeadDir(
 
   for (const f of files) {
     const fp = join(dirPath, f)
-    // dd-P3：readdir 与 stat 之间文件可能被删——单文件失败跳过（与「单文件解析失败不中断」契约一致），此前裸 ENOENT 会中断整扫描
+    // dd-readdir 与 stat 之间文件可能被删——单文件失败跳过（与「单文件解析失败不中断」契约一致），此前裸 ENOENT 会中断整扫描
     let isFile = false
     try {
       isFile = statSync(fp).isFile()
@@ -536,10 +536,10 @@ export function readLeadDir(
 }
 
 /** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md）
- *  R40-11（四十轮）：扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
- *  尾，.MD 条目（扫描侧 R34D-11 起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
+ *  ：扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
+ *  尾，.MD 条目（扫描侧起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
  *  readLeadDir 扫描侧同走 isMdFileName 单源（mac 敏感卷上 .MD 也是合法账本文件）。
- *  复审-0913-源码 P3-⑫：else 分支（basename('.md')）在「不以 .md 结尾」前提下等价于
+ *  -源码 -⑫：else 分支（basename('.md')）在「不以 .md 结尾」前提下等价于
  *  原串、却暗带剥路径副作用（唯一调用方 readLeadDir 只传纯文件名）——统一为
  *  「isMdFileName 剥 3 字符尾，否则原样」，消除「看似剥扩展名实则原样」的陷阱分支。 */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {

@@ -4,7 +4,7 @@
 import { apiJson } from './client'
 
 export interface AppInfo {
-  /** 当前应用版本（服务端 resolveAppVersion()：env 注入优先，缺省 package.json） */
+  /** 当前应用版本（服务端 resolveAppVersion：env 注入优先，缺省 package.json） */
   version: string
   /** 有新正式版时非空；未完成检查 / 已查无新版均为 null */
   update: { version: string; url: string } | null

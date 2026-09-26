@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）：formKindOf/stripFrontmatter/mergeFm 零消费移除
+import { isBodyKind } from '../../shared/words' // formKindOf/stripFrontmatter/mergeFm 零消费移除
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
@@ -32,9 +32,9 @@ const isReviewable = computed(() => {
 const tagging = ref(false)
 async function analyzeTags(): Promise<void> {
   if (!docId.value || tagging.value) return
-  // dd-P1：入口捕获 docId——await（AI 调用可达 60s）后 docId.value 可能已切到别的文档，
+  // dd-入口捕获 docId——await（AI 调用可达 60s）后 docId.value 可能已切到别的文档，
   // 届时用新 id 写回 = 把 A 的标签写进 B 的 fm、把 A 的正文 patch 进 B（dirty → 落盘覆盖）
-  // 第五轮：bookName 同步捕获——props.bookName 在首个 await 后才求值，60s 内切书时
+  // bookName 同步捕获——props.bookName 在首个 await 后才求值，60s 内切书时
   // 请求变为 updateDocMeta(B 书, A 的 docId)，legacy 反查命中 B 书同路径文件时跨书写坏
   const id = docId.value
   const book = props.bookName
@@ -42,16 +42,16 @@ async function analyzeTags(): Promise<void> {
   try {
     const tags = await autotag(book, id)
     await updateDocMeta(book, id, tags)
-    // M-6（第八轮）：守卫补书名项（对齐 MetaFormPanel.onSave 双条件）——legacy docId
+    // 守卫补书名项（对齐 MetaFormPanel.onSave 双条件）——legacy docId
     // 纯路径派生跨书同路径，只查 docId 时 B 书同路径条目会被 A 书正文 patch → autosave 覆盖
     if (docId.value !== id || props.bookName !== book) return
-    // Z-2（第五十八轮）：删旧正文回拼——refresh 的 dirty 分支（CC-P2-15）已完整承担
-    //「fm 取服务端、正文保留本地」；此前回拼用 T0 快照比对恒不等（60s AI 调用期间作者
+    // 删旧正文回拼——refresh 的 dirty 分支已完整承担
+    //「fm 取服务端、正文保留本地」；此前回拼用快照比对恒不等（60s AI 调用期间作者
     // 打过字即触发），把分析开始时的旧正文 patch 回覆盖全部新键入（外部同步替换不可撤销）
     await doc.refresh(id)
     ui.toast('标签分析完成', 'success')
   } catch (err) {
-    // R65-53（E-5）：失败提示同域守卫——60s AI 调用期间切档/切书后，A 的失败不该
+    // 失败提示同域守卫——60s AI 调用期间切档/切书后，A 的失败不该
     // 弹在 B 的界面上（作者无从对应；对齐上方成功路径的双条件）
     if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
@@ -66,7 +66,7 @@ const TAG_FIELDS = [
   { key: '情绪定位', label: '情绪定位' },
   { key: '场景', label: '场景' },
 ] as const
-// R46-5（四十六轮）：fm 解析 150ms 防抖（此前每击键 parseFmFields 全文两趟大分配）
+// fm 解析 150ms 防抖（此前每击键 parseFmFields 全文两趟大分配）
 const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => docId.value)
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
@@ -89,21 +89,21 @@ const metaValues = computed<Record<string, string>>(() => {
 const inferring = ref(false)
 async function inferChapterMeta(): Promise<void> {
   if (!docId.value || inferring.value) return
-  // dd-P1：入口捕获 docId（同 analyzeTags——await 后切档会把 A 的推断写进 B）
+  // dd-入口捕获 docId（同 analyzeTags——await 后切档会把 A 的推断写进 B）
   const id = docId.value
-  // 第五轮：bookName 入口捕获（同 analyzeTags 的跨书写坏面；提 try 外——catch 守卫要用）
+  // bookName 入口捕获（同 analyzeTags 的跨书写坏面；提 try 外——catch 守卫要用）
   const book = props.bookName
   inferring.value = true
   try {
     const meta = await inferMeta(book, id)
     await updateDocMeta(book, id, meta)
-    // M-6（第八轮）：同上——双条件守卫
+    // 同上——双条件守卫
     if (docId.value !== id || props.bookName !== book) return
-    // Z-2：同 analyzeTags——删旧正文回拼，refresh dirty 分支已护正文
+    // 同 analyzeTags——删旧正文回拼，refresh dirty 分支已护正文
     await doc.refresh(id)
     ui.toast('情绪/反转推断完成', 'success')
   } catch (err) {
-    // R65-53（E-5）：失败提示同域守卫（同 analyzeTags——切档/切书后不弹 A 的失败到 B 界面）
+    // 失败提示同域守卫（同 analyzeTags——切档/切书后不弹 A 的失败到 B 界面）
     if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     inferring.value = false
@@ -112,8 +112,8 @@ async function inferChapterMeta(): Promise<void> {
 
 // ── 全书速览（聚合 overview 摘要）──
 const overview = ref<AnalysisOverview | null>(null)
-// M-11：代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 的速览（含失败回填 null）。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 的速览（含失败回填 null）。
+// 裸计数器换装 useStaleGuard。
 const overviewGen = useStaleGuard()
 async function loadOverview(): Promise<void> {
   const gen = overviewGen.begin()

@@ -10,7 +10,7 @@ import { rawErrorMessage } from '../shared/error'
 const { isDesktop: hasDesktop, isMac } = usePlatform()
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
-// 低级项（第六轮）：IPC 失败不再永久「加载中…」——错误态 + 重试出口
+// 低级项：IPC 失败不再永久「加载中…」——错误态 + 重试出口
 const loadError = ref<string | null>(null)
 
 async function load(): Promise<void> {
@@ -31,7 +31,7 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 选库/切库 IPC 交互单点化（复审-0914-优化 E7 → useLibraryIpc；取错口径保真 =
+// 选库/切库 IPC 交互单点化（-优化 → useLibraryIpc；取错口径保真 =
 // rawErrorMessage 原样透出，本页历史口径）
 const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage })
 </script>
@@ -80,8 +80,8 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
       </div>
 
       <!-- 最近 -->
-      <!-- 低级项（第六轮）：最近列表 IPC 失败给错误态 + 重试（主入口按钮不依赖该数据，保持可用）。
-           R0912-3 #21：错误态与列表数据分离——两段独立 v-if，失败的补拉不顶掉已加载列表 -->
+      <!-- 低级项：最近列表 IPC 失败给错误态 + 重试（主入口按钮不依赖该数据，保持可用）。
+ #21：错误态与列表数据分离——两段独立 v-if，失败的补拉不顶掉已加载列表 -->
       <section v-if="hasDesktop && loadError" class="recent">
         <p class="no-desktop">最近书库加载失败：{{ loadError }}</p>
         <button class="retry-btn" @click="void load()">重试</button>
@@ -143,11 +143,11 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   height: var(--size-tabbar);
   flex-shrink: 0;
 }
-/* R33-14（三十三轮）：win 拖拽区（is-desktop = 桌面态页根标记；同 Shelf/Library 注）。
-   R48-87（四十八轮）：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
+/* win 拖拽区（is-desktop = 桌面态页根标记；同 Shelf/Library 注）。
+   ：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
    上——Library/Shelf 同结构注释均在拖拽侧，随批归属更正。
-   R0913 复核批：页根标记 is-drag 改名 is-desktop——is-drag 已归全局 utilities.css
-   真实拖拽容器单类，页根同名会被命中、app-region 继承致整页成拖拽面（P1 修复） */
+ 复核批：页根标记 is-drag 改名 is-desktop——is-drag 已归全局 utilities.css
+   真实拖拽容器单类，页根同名会被命中、app-region 继承致整页成拖拽面（修复） */
 .welcome.is-desktop .welcome-titlebar {
   -webkit-app-region: drag;
 }
@@ -414,7 +414,7 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   .brand-mark { width: 68px; height: 68px; }
 }
 
-/* 低级项（第六轮）：最近列表加载失败的重试按钮 */
+/* 低级项：最近列表加载失败的重试按钮 */
 .retry-btn {
   padding: 6px 18px;
   font-size: 14px;

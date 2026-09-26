@@ -3,7 +3,7 @@
  *
  * 旧书库首次加载时，把 git 时代的状态映射到 manifest.finalizedRevision 基线：
  * - 有 git 的书库：git clean 文件 = 已定稿 → 基线 = 当前指纹；dirty/untracked → 不设（revision/draft）。
- * - 无 .git 的书库：**跳过**（X-P1-1）。原「无 git = 全部坍缩 final」是 git 时代的迁移假设——
+ * - 无 .git 的书库：**跳过**。原「无 git = 全部坍缩 final」是 git 时代的迁移假设——
  *   v3 架构新书永无 .git（scaffold 不再 git init），假设失效：误标会把新书正常草稿判成已定稿，
  *   断写章链路（ensureChapterNotFinalized 拦截 + 手改误报）。无基线保持 draft 是安全方向
  *   （误判 draft 可正常走定稿流程，误判 final 断写）。
@@ -37,38 +37,38 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   }
   if (migratedAny) return 0
 
-  // X-P1-1：仅对有 .git 的 git 时代书库执行（无 git = 从未经历 git 时代 → 无状态可映射）。
+  // 仅对有 .git 的 git 时代书库执行（无 git = 从未经历 git 时代 → 无状态可映射）。
   if (!existsSync(join(bookRoot, '.git'))) return 0
   let updated = 0
   const nowIso = new Date().toISOString()
-  // R64-23（十二轮）：清单 RMW 持锁（Y-4/X-5 纪律）——此前读改写无锁，双开窗口内
+  // 清单 RMW 持锁（/纪律）——此前读改写无锁，双开窗口内
   // 与 service/其他迁移并发时后写者整文件覆盖先写者（finalizedRevision 丢行）。
   // 锁内重读复查幂等闸：并发迁移者可能已写入。
-  // R0916-P3-15（四轮处置批）：git 状态（porcelain 脏集）改锁内取——原锁外 status →
+  // （四轮处置批）：git 状态（porcelain 脏集）改锁内取——原锁外 status →
   // 锁内写盘的窗口里他进程改稿/回滚会让脏集失真：锁内时刻已 dirty 的文件被旧快照
-  // 判 clean 误标 final（本文件红线：误判 final 断写）。R64-23「git 状态在锁外取
+  // 判 clean 误标 final（本文件红线：误判 final 断写）。「git 状态在锁外取
   //（与清单无依赖）」就此记正：无依赖不等于无新鲜度要求。代价 = 清单锁持有期含
   // 一次 git status（毫秒级；启动一次性迁移，可接受）。
   updated = withManifestLock(manifestPath, () => {
-    const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败上抛走逐书 try 收口）
+    const m = readManifestStrict(manifestPath) // RMW strict 读（读失败上抛走逐书 try 收口）
     for (const e of m.entries.values()) {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
     }
-    // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）——R0916-P3-15 锁内取
-    // R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：最坏档位如实记——git 单次调用
+    // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）—— 锁内取
+    // （六轮修复批）：最坏档位如实记——git 单次调用
     // 超时 GIT_TIMEOUT_MS=15s（git/exec.ts），而清单锁等待档 MANIFEST_LOCK_TIMEOUT_MS=5s
     // 且有界重试 1 次（共 2 轮）⇒ 他方最多等 10s。极端情形（挂载盘无响应的 git status 被
-    // 超时 kill）下他方两轮等不满即 fail-closed 抛错拒绝写（R73-33 口径：宁拒绝不覆盖），
+    // 超时 kill）下他方两轮等不满即 fail-closed 抛错拒绝写（口径：宁拒绝不覆盖），
     // 本次迁移自身随后按 porcelain===null 跳过。取值取舍已记档（不为此放大他方等待档：
     // 放大到 15s+ 会让正常路径的争用等待变钝，而此形态只出现在坏盘上、后果仅「重试」）。
     const porcelain = statusPorcelain(bookRoot, true)
     if (porcelain === null) {
-      // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
+      // git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
       // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试
       log.warn('migrate-finalized-revision', `git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
       return 0
     }
-    // 低级项（第六轮）：porcelain 路径归一后再入脏集——git 对含空格/非 ASCII 的路径加
+    // 低级项：porcelain 路径归一后再入脏集——git 对含空格/非 ASCII 的路径加
     // C 风格引号转义（`"a b/c.md"`），rename 行是 `old -> new` 形；manifest 路径是正斜杠
     // 无引号，原先直接 has 比对会整段失配（脏文件漏判 clean → 误标 final 断写，本文件红线）
     const dirty = new Set(
@@ -81,7 +81,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     for (const e of m.entries.values()) {
       if (e.nodeType !== 'document') continue
       if (e.finalizedRevision) continue // 幂等：已有基线跳过
-      // R73-36（二十一轮）：join(bookRoot, e.path) 直拼改过 safe-path 校验（同 doTrash/
+      // join(bookRoot, e.path) 直拼改过 safe-path 校验（同 doTrash/
       // save 的 resolveWithinRoot 口径）——manifest 属可篡改数据面，`../`/绝对路径/空 path
       // 条目此前可让 computeRevision 读到书仓库外（或撞目录 EISDIR 崩迁移链）；不合法
       // 条目跳过不设基线（保持 draft 安全方向，本文件红线：误判 final 断写）。
@@ -100,17 +100,17 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
 }
 
 /**
- * 低级项（第六轮）：porcelain 行路径归一。
+ * 低级项：porcelain 行路径归一。
  * - 引号段：git 对含空格/非 ASCII/引号的路径整体 C 风格转义（`\"` `\\` `\t` `\n`
  *   及八进制）——按 git core.quotePath 语义解回字面路径；
  * - rename 行：`R  old -> new` 取箭头后的现路径（盘上现存的是它，脏判定应对它做）。
  */
 function normalizePorcelainPath(raw: string, isRename = false): string {
   let p = raw
-  // P5-数据层（第七轮）：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
+  // -数据层：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
   // 改动行原先被首匹配 indexOf 误截成残路径
   if (isRename) {
-    // L-D7（第八轮）：引号外扫描定位 " -> "——R 状态 + 引号路径且任一侧路径字面含
+    // L-：引号外扫描定位 " -> "——R 状态 + 引号路径且任一侧路径字面含
     // " -> " 时，首匹配/末匹配都会切在引号内产出残路径；跟踪引号开合（含 \" 转义）
     // 只认闭引号外的箭头
     let inQuote = false

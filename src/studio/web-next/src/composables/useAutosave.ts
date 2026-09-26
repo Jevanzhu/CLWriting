@@ -1,5 +1,5 @@
 /**
- * RC 源码重审 B-5（Opus-5.5 轮）：自动保存节拍独立成 composable。
+ * （Opus-5.5 轮）：自动保存节拍独立成 composable。
  *
  * 为什么独立：节拍（interval）的起、重起、停三处必须成对——此前它散在 Book.vue setup
  * 顶层（onMounted(startAutosave) / watch(effectiveAutosaveInterval, startAutosave) /
@@ -8,7 +8,7 @@
  * 文件后启停同处一屏，且可就节奏本身直测（见 test/studio/webnext/book-autosave-timer.
  * test.ts）。
  *
- * 语义零变化：逐行搬迁 Book.vue 原自动保存块（Q-9 的「节拍上移 Book 层」沿革随迁），
+ * 语义零变化：逐行搬迁 Book.vue 原自动保存块（的「节拍上移 Book 层」沿革随迁），
  * 仅 store 在本函数内取实例。
  */
 import { onMounted, onUnmounted, watch } from 'vue'
@@ -19,7 +19,7 @@ import { usePrefsStore } from '../stores/prefs'
 export function useAutosave(): void {
   const doc = useDocStore()
   const prefs = usePrefsStore()
-  // Q-9（第十五轮）：自动保存节拍上移 Book 层——此前绑 EditorView 挂载，切到工作台/
+  // 自动保存节拍上移 Book 层——此前绑 EditorView 挂载，切到工作台/
   // 总览等视图后编辑器卸载、interval 被清，store 里的 dirty 文档停止自动保存（丢失窗口
   // 超过 autosave 间隔）。扫描逻辑在 doc.autosaveTick（覆盖全部打开文档，非仅当前编辑器）。
   let autosaveTimer: ReturnType<typeof setInterval> | null = null

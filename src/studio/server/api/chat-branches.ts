@@ -1,5 +1,5 @@
 /**
- * G1 分支列表只读端点：事件库分支树 → 前端分支切换 UI 的数据源。
+ * 分支列表只读端点：事件库分支树 → 前端分支切换 UI 的数据源。
  *
  * GET /api/books/:name/chat/branches → { branches: BranchInfo[], activeBranchId: string | null }
  *
@@ -14,7 +14,7 @@ import { reply, replyError } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
 import { buildBranchTree, listBranches, defaultBranchId, type BranchInfo } from '../../../events/branch-tree.js'
-import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
+import { errMsg } from '../../../log/index.js' // errMsg 收编：错误文案三目单源
 
 interface ChatBranchesCtx {
   workDir: string | null
@@ -26,14 +26,14 @@ function buildBranchesView(
   store: SessionStore,
   bookName: string,
 ): { branches: BranchInfo[]; activeBranchId: string | null } {
-  // PM-10（2026-09-05 性能专项）核查：分支树须由全部消息事件构建（兄弟组/祖先链/最新组
+  // 核查：分支树须由全部消息事件构建（兄弟组/祖先链/最新组
   // 判定都是全量结构语义），缺任一事件即错组错链——全量语义必需，不走尾读
   const tree = buildBranchTree(store.listEvents(bookName))
   return { branches: listBranches(tree), activeBranchId: defaultBranchId(tree) }
 }
 
 export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
-  // E2 增量纪律：新路由一律 defineRoute；GET 无 body，parse 省略（input 恒 undefined）
+  // 增量纪律：新路由一律 defineRoute；GET 无 body，parse 省略（input 恒 undefined）
   defineRoute('chat.branches', {
     method: 'GET',
     path: '/api/books/:name/chat/branches',
@@ -46,12 +46,12 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
       if (!ctx.userDataPath) return reply(res, 200, { branches: [], activeBranchId: null })
 
       // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-      // R62-43：userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
+      // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
       // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-      // IR-8（独立重评 2026-09-02）勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
       //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
       // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
-      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
       let store: SessionStore | null
       try {
         store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)

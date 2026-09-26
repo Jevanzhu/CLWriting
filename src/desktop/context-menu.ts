@@ -1,5 +1,5 @@
 /**
- * RB-SV-P2-5：desktop:context-menu IPC 载荷净化。
+ * desktop:context-menu IPC 载荷净化。
  *
  * 渲染层传入任意形状（被攻陷/异常的渲染进程可发非数组或 null 元素），主进程直接
  * specs.map 会抛 TypeError 崩 app。此处做形状校验：非数组 → null（整体忽略不弹
@@ -16,19 +16,19 @@ export interface ContextMenuSpec {
   submenu?: ContextMenuSpec[]
 }
 
-/** 低级项（第六轮）：accelerator 白名单——Electron 对非法 accelerator 会在
+/** 低级项：accelerator 白名单——Electron 对非法 accelerator 会在
  *  Menu.buildFromTemplate 直接抛错（主进程崩溃）。渲染层合法输入只有修饰键组合 +
  *  单键/F 键/具名键；白名单外的一律剥掉（菜单项保留，仅不显示快捷键——安全降级）。 */
 const ACCELERATOR_RE =
   /^(?:(?:Command|Cmd|Super|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift)\+)*(?:[0-9A-Z]|F(?:[1-9]|1[0-9]|2[0-4])|Plus|Space|Tab|Capslock|Numlock|Scrolllock|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|VolumeUp|VolumeDown|VolumeMute|MediaNextTrack|MediaPreviousTrack|MediaStop|MediaPlayPause|PrintScreen)$/
 
-/** SV-1（第七轮）：submenu 净化深度上限——被攻陷/异常渲染进程可经结构化克隆构造
+/** SV-1submenu 净化深度上限——被攻陷/异常渲染进程可经结构化克隆构造
  *  数万层嵌套数组（不受 JSON.parse 深度限制），无上限递归净化自身先栈溢出崩主进程，
  *  恰是本文件头宣称要防的威胁模型。超限剥 submenu（菜单项保留，对齐 accelerator
  *  白名单的安全降级思路）。 */
 const MAX_SUBMENU_DEPTH = 5
 
-/** L-S3（第八轮）：平面项数上限——SV-1 修了深度未修宽度：被攻陷渲染进程可发数十万级
+/** L-平面项数上限——SV-1 修了深度未修宽度：被攻陷渲染进程可发数十万级
  *  平面菜单项，净化线性建对象 + Menu.buildFromTemplate 构建原生菜单，主进程 CPU/内存
  *  暴涨。超限整体拒收（null → 不弹菜单），对齐深度方向的 fail-closed 思路 */
 const MAX_MENU_ITEMS = 200
@@ -43,18 +43,18 @@ const MAX_ITEM_BYTES = 200
 
 /**
  * 0918二轮修复批（C103）：总载荷字节上限——单条 200B × 200 条 = 40KB 仍可无谓占原生
- * 构建面；累计超限整体拒收（null → 不弹菜单，对齐 L-S3 顶层超限 fail-closed 口径）。
- * 与 R27-95 项数预算同对象跨层共享。
+ * 构建面；累计超限整体拒收（null → 不弹菜单，对齐 L- 顶层超限 fail-closed 口径）。
+ * 与项数预算同对象跨层共享。
  */
 const MAX_TOTAL_BYTES = 20_000
 
 /**
  * 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。
  *
- * R27-95（二十七轮）：预算跨层共享——原 MAX_MENU_ITEMS 按层独立生效，200 项/层 ×
+ * 预算跨层共享——原 MAX_MENU_ITEMS 按层独立生效，200 项/层 ×
  * MAX_SUBMENU_DEPTH=5 层是指数积（200^5），恶意嵌套载荷每层都合规、总量却无界，
  * 净化+建原生菜单照样阻塞主进程。改为所有层共用一个扁平项预算：每层先 O(1) 长度
- * 预筛（raw.length > 剩余额度直接拒），逐项扣减；顶层超限整体 null（L-S3 口径），
+ * 预筛（raw.length > 剩余额度直接拒），逐项扣减；顶层超限整体 null（L- 口径），
  * 深层超限剥该 submenu（SV-1 口径），总净化工作量被钳在 200 项以内。
  */
 export function parseContextMenuSpecs(
@@ -101,7 +101,7 @@ export function parseContextMenuSpecs(
     }
     items.push(item)
   }
-  // 0918二轮修复批（C103）：总载荷字节上限在顶层判定（超限整体拒收 null，对齐 L-S3
+  // 0918二轮修复批（C103）：总载荷字节上限在顶层判定（超限整体拒收 null，对齐 L-
   // fail-closed）——深层不即时中断：净化工作量已被项数预算钳在 ≤200 项，超限后的
   // 继续净化成本有界；若在深层即时 return null 会被调用方按 SV-1 口径当「剥 submenu」
   // 吞掉整体拒收语义。

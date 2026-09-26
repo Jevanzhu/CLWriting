@@ -190,6 +190,6 @@ G105 的两栏信封使 `scripts/knowledge-commit.ts` 的两态分叉点下沉�
 
 ### 批内如实记档
 
-- **连带四败自清**（L2 首跑发现，域内 L1 未覆盖的面）：① `r38-exit-guards` R38-19 静态锚按 C107 新契约改写（原断言 `process.on('SIGINT', () => app.quit())` 字面量，C107 改经工厂接线——锚改「三信号注册齐备 + 工厂首次语义 = app.quit」，R38-19 动机面不变）；② `migrate-defaults-read-fail-warn` 新件 `mkdirSync(.clwriting/books.jsonl)` 缺父目录（ENOENT 而非目标 EISDIR 形态）——补 `recursive: true` 建父目录；③ `append-book-atomic-active` 新件并发用例用默认 `sort()` 按 UTF-16 码元序比较中文书名——改 `localeCompare(b, 'zh')`；④ `r0912-3-knowledge-commit-manifest-state` 脚本测试因 G105 分叉点下沉而红——按上述 scripts/ 改动处置后绿。
+- **连带四败自清**（L2 首跑发现，域内 L1 未覆盖的面）：① `exit-signal-guards` R38-19 静态锚按 C107 新契约改写（原断言 `process.on('SIGINT', () => app.quit())` 字面量，C107 改经工厂接线——锚改「三信号注册齐备 + 工厂首次语义 = app.quit」，R38-19 动机面不变）；② `migrate-defaults-read-fail-warn` 新件 `mkdirSync(.clwriting/books.jsonl)` 缺父目录（ENOENT 而非目标 EISDIR 形态）——补 `recursive: true` 建父目录；③ `append-book-atomic-active` 新件并发用例用默认 `sort()` 按 UTF-16 码元序比较中文书名——改 `localeCompare(b, 'zh')`；④ `r0912-3-knowledge-commit-manifest-state` 脚本测试因 G105 分叉点下沉而红——按上述 scripts/ 改动处置后绿。
 - **批内发现并记档**：A102 的测试锚点问题——`budget.calls_per_chapter` 自 2026-08-19 起属「全局固定」键（applyGlobalDefaults 无条件覆盖书级值），改它无法区分配置冻结与重读，测试锚点换用书级优先键 `budget.tokens_per_chapter`。
 - **G102 缓办理由在案**：真修路径需新增运行时依赖（本仓生产依赖仅 3 个、tsup 全 bundle + asar 排除 node_modules 的打包形态会被波及），且「设置页显式代理项 vs 纯环境变量」属产品决策——按缓办处置，一次性 warn 留痕让作者可从日志定位「配了代理为何还网络异常」。

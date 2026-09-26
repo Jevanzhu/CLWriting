@@ -5,14 +5,14 @@
  * - book.yaml 是独立 .yaml 文件（无 --- 包裹），机器域英文 key，多层嵌套段
  * - front matter 是中文 key、平铺、--- 包裹
  *
- * 这里手写一个支持「段（顶层 key:）+ 缩进子字段」的极简解析，覆盖 #9 第 2 节 schema。
+ * 这里手写一个支持「段（顶层 key）+ 缩进子字段」的极简解析，覆盖 #9 第 2 节 schema。
  *
- * O-12（第十三轮）尺度登记：本文件 885 行属 schema 集中型（readBookConfig 及各段
+ * 尺度登记：本文件 885 行属 schema 集中型（readBookConfig 及各段
  * 读写的单一事实源），拆 core/typed-schema 两层是结构优化非缺陷——随 rc 后重构批评估，
  * 拆分红线：readBookConfig 返回形状与 book.yaml 写入字节序不得变（fm 保形纪律同源）。
  *
- * 拆分沿革（R0916-5e，2026-09-16，⑤④产品巨件拆分波1 · 缝 A+B 纯移动拆分）：
- * - 键 schema 表族拆出 → yaml-spec.ts（P1-5 三面单源：ConfigKeySpec/ConfigSectionSpec、
+ * 拆分沿革（⑤④产品巨件拆分波1 · 缝 A+B 纯移动拆分）：
+ * - 键 schema 表族拆出 → yaml-spec.ts（三面单源：ConfigKeySpec/ConfigSectionSpec、
  *   六个叶键 parse 工厂、scalarLeafEmit、SECTION_SPECS 全表〔表行序 = 字节红线，原注
  *   随表同迁〕、SECTION_BY_NAME、PARSE_SECTION_ORDER、parseSectionSpec/dupChildError/
  *   findChild、parseFiniteNumber/parsePositiveNumber/parseStrictBool/warnBadBool、
@@ -65,7 +65,7 @@ export interface RawSection {
   key: string
   value: string // 行内值（子段为空；块列表项后处理时拼成内联数组）
   children: RawSection[]
-  listItems?: string[] // dd-P2：块式列表项（`- xxx` 行）暂存，循环后拼进 value
+  listItems?: string[] // dd-块式列表项（`- xxx` 行）暂存，循环后拼进 value
 }
 
 /** 解析 YAML 文本为段树（支持 2 空格缩进） */
@@ -77,23 +77,23 @@ function parseSections(text: string): RawSection[] {
     indent, key, value, children: [],
   })
 
-  // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测（ff P2-2）
+  // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测
   let lastNode: RawSection | undefined
-  // R26-37（二十六轮）：tab 缩进 warn 留痕开关（首个 tab 一次，不刷屏）
+  // tab 缩进 warn 留痕开关（首个 tab 一次，不刷屏）
   let tabWarned = false
   // 四轮-D403：全角空格（U+3000）缩进 warn 留痕开关（同 tab 口径：每 parse 一次）
   let wideSpaceWarned = false
   for (const [lineNo, line] of text.split('\n').entries()) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue
     const indent = line.length - line.trimStart().length
-    // R26-37（二十六轮）：缩进含 tab 时 warn 一次——2 空格缩进协议下 tab 按字符数
+    // 缩进含 tab 时 warn 一次——2 空格缩进协议下 tab 按字符数
     // 凑合可解析（计数维持现状，改语义风险大），但作者无从知晓文件混入了 tab、
     // 段挂靠类问题难排查；留痕不中断解析。
     if (!tabWarned && line.slice(0, indent).includes('\t')) {
       tabWarned = true
       log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`)
     }
-    // 四轮-D403：缩进含全角空格（U+3000）时 warn 一次——R26-37 tab 同款口径：
+    // 四轮-D403：缩进含全角空格（U+3000）时 warn 一次—— tab 同款口径：
     // U+3000 同为 trimStart 认可的空白，按字符数凑合可解析（计数维持现状，与 tab
     // 同待遇），但作者无从知晓文件混入了全角空格、段挂靠类问题难排查；留痕不中断。
     if (!wideSpaceWarned && line.slice(0, indent).includes('\u3000')) {
@@ -101,20 +101,20 @@ function parseSections(text: string): RawSection[] {
       log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含全角空格 U+3000（本协议为 2 空格缩进），已按字符数解析；建议改用半角空格`)
     }
     const content = line.trim()
-    // ii 批（ff P2-2）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
+    // ii 批（ff ）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
     // 此前子行会被静默挂到更外层段上（配置无声错位）。改挂前显式报错，宁可红不可错
     if (lastNode && lastNode.value !== '' && indent > lastNode.indent) {
       throw new Error(`第 ${lineNo + 1} 行缩进子行不能挂在有值键「${lastNode.key}:」下（YAML 语法错误）：${content}`)
     }
-    // 低级项（第六轮）：块式列表项（`- xxx`）判定先于冒号——`- 惊悚: 高` 含冒号但语义
+    // 低级项：块式列表项（`- xxx`）判定先于冒号——`- 惊悚: 高` 含冒号但语义
     // 是列表项文本，原先被当 key 行解析成键「- 惊悚」再被白名单静默吞掉（含冒号的
     // 块列表风格整段无声失效）。挂到最近一个「空值父键」，拼成内联数组值由 parseValue
-    // 原生解析（dd-P2）
+    // 原生解析
     if (content.startsWith('- ')) {
       const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
       const item = stripComment(content.slice(2)).trim()
       if (parent && parent.value === '' && item) {
-        // R27-24（二十七轮）：段头直挂块列表 warn——顶层段（indent 0）按映射（子键）
+        // 段头直挂块列表 warn——顶层段（indent 0）按映射（子键）
         // 解析，列表项被拼进段 value 后所有子键读取全部落空（如 leads: 下直接
         // `- 主线`，作者意图是 leads.enabled，实际 enabled 无声丢失）。留痕不中断。
         if (parent.indent === 0) {
@@ -123,19 +123,19 @@ function parseSections(text: string): RawSection[] {
         parent.listItems = [...(parent.listItems ?? []), item]
         if (!listNodes.includes(parent)) listNodes.push(parent)
       } else {
-        // Y-26（第五十七轮）：无处挂靠的块列表项（顶层列表 / 父键已有标量值）此前
+        // 无处挂靠的块列表项（顶层列表 / 父键已有标量值）此前
         // 静默吞掉——同文件 leads.enabled 未知类有 warn 先例，补齐同款留痕防「配置
         // 写了但不生效」无迹可查
         log.warn('yaml', `book.yaml 块列表项无处挂靠被丢弃：${content.slice(0, 40)}`)
       }
       continue
     }
-    // R31-2（三十一轮）：键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，与 parseFlat
+    // 键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，与 parseFlat
     // 同一实现）——手写全角冒号键行（`title：测试`）此前整行走「无冒号」warn 被丢弃，
     // 段/键无声丢失。值侧 stripComment 等切分后逻辑不受影响。
     const colonIdx = firstKeyColon(content)
     if (colonIdx === -1) {
-      // R64-24（十二轮）：无冒号残行此前静默吞掉（Y-26 同款「配置写了但不生效」
+      // 无冒号残行此前静默吞掉（同款「配置写了但不生效」
       // 风险面）——手写残句/续行无迹消失。warn 留痕不中断解析。
       log.warn('yaml', `book.yaml 无冒号行被丢弃：${content.slice(0, 40)}`)
       continue
@@ -170,7 +170,7 @@ function parseSections(text: string): RawSection[] {
   return roots
 }
 
-/** 剥行内注释（原 stripComment）。N-4（第五十四轮）：实现下沉 frontmatter-core.ts
+/** 剥行内注释（原 stripComment）。：实现下沉 frontmatter-core.ts
  *  stripInlineComment（与 frontmatter.ts 共用同一函数——经 core 无循环 import），
  *  语义逐字不变：`#` 且前面是空白（或行首）即注释起点，引号内不算；
  *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。 */
@@ -179,10 +179,10 @@ const stripComment = stripInlineComment
 /** 段树 → BookConfig（#9 第 2 节）。
  *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
  *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。
- *  P1-5（复审-0914-优化修复批）：段键解析整体改 schema 表驱动（SECTION_SPECS），
+ *  ：段键解析整体改 schema 表驱动（SECTION_SPECS），
  *  本函数只保留顶层标量三键与段循环骨架；逐键容错语义与 warn 文案随键行迁入表。 */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
-  // R72-8（二十轮 C-5）：同名重复顶层段报错——原 find 静默取首个，作者复制粘贴出两个
+  // 同名重复顶层段报错——原 find 静默取首个，作者复制粘贴出两个
   // `style:` 段时后段整段无效无提示。fail-loud（parseBookConfig 的 catch 转错误信封）。
   const seenKeys = new Set<string>()
   for (const r of roots) {
@@ -194,7 +194,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
 
-  // R26-38（二十六轮）：spec_version 非法值 warn 留痕（维持回落 1）——此前
+  // spec_version 非法值 warn 留痕（维持回落 1）——此前
   // parseFiniteNumber 静默回落，版本号写错无迹可查
   const sv = find('spec_version')
   if (sv) {
@@ -206,12 +206,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     }
   }
 
-  // kind（M8 #25）：顶层标量，缺省 long；只有显式 kind: short 才路由短篇轨
+  // kind（#25）：顶层标量，缺省 long；只有显式 kind: short 才路由短篇轨
   const kindNode = find('kind')
   if (kindNode) {
     const k = String(parseValue(kindNode.value))
     if (k === 'short' || k === 'long') cfg.kind = k
-    // R37-11（三十七轮）：坏值静默落默认补 warn 留痕——作者笔误（kind: shrt）时
+    // 坏值静默落默认补 warn 留痕——作者笔误（kind: shrt）时
     // 短篇稿被静默路由长篇轨，无迹可查（对齐 spec_version 的 warn 纪律）
     else log.warn('book.yaml', `kind 值非法（「${kindNode.value.trim().slice(0, 40)}」），已按缺省 long 处理`)
   }
@@ -221,14 +221,14 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (hostNode) {
     const h = String(parseValue(hostNode.value))
     if (h === 'cc' || h === 'codex') cfg.host = h
-    // R37-11：同 kind——坏值静默回落 cc 无迹可查
+    // 同 kind——坏值静默回落 cc 无迹可查
     else log.warn('book.yaml', `host 值非法（「${hostNode.value.trim().slice(0, 40)}」），已按缺省 cc 处理`)
   }
 
-  // workflow（W0 §2 已废弃删除）：存量 book.yaml 里的 workflow 行是未知字段，
+  // workflow（§2 已废弃删除）：存量 book.yaml 里的 workflow 行是未知字段，
   // 不解析、不赋值——下次存配置时 stringifyBookConfig 重建 yaml 自然丢弃该行。
 
-  // 段键：schema 表驱动（P1-5）——段序锁历史处理序（PARSE_SECTION_ORDER）
+  // 段键：schema 表驱动——段序锁历史处理序（PARSE_SECTION_ORDER）
   for (const name of PARSE_SECTION_ORDER) {
     const spec = SECTION_BY_NAME.get(name)
     const sectionNode = find(name)
@@ -245,7 +245,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 export function readBookConfig(
   filePath: string,
 ): { ok: true; config: BookConfig } | { ok: false; config: BookConfig; error: ParseError } {
-  // X-P2-17：错误分支返回默认配置的深拷贝——共享单例引用一旦被调用方 mutate 即串污染后续所有读
+  // 错误分支返回默认配置的深拷贝——共享单例引用一旦被调用方 mutate 即串污染后续所有读
   const freshDefault = (): BookConfig => structuredClone(DEFAULT_CONFIG)
   if (!existsSync(filePath)) {
     return {
@@ -274,12 +274,12 @@ export function parseBookConfig(
   file = '<text>',
 ): { ok: true; config: BookConfig } | { ok: false; config: BookConfig; error: ParseError } {
   try {
-    // R42-34（四十二轮）：解析最外层文本入口剥前导 BOM 一次（窄剥——不引 canonicalizeText，
+    // 解析最外层文本入口剥前导 BOM 一次（窄剥——不引 canonicalizeText，
     // 它会连带归一行尾，而解析器对 CRLF 已容忍〔逐行 trim 剥 \r 尾〕，不必徒增行为面）。
-    // 此前首行 \uFEFF 全凭 trim() 恰好剥 ZWNBSP 才不出键名事故，且首行缩进被多计 1
+    // 此前首行 \uFEFF 全凭 trim 恰好剥 ZWNBSP 才不出键名事故，且首行缩进被多计 1
     // （trimStart 剥 BOM 计入缩进字符数）——首个段的 1 空格/tab 缩进子行被弹栈提为
     // 顶层键后静默丢弃。同缺陷族先例：frontmatter-core.ts splitFrontMatter /
-    // install/books.ts readBooksStrict（R40-25）/ 本文件 matchesKeyLine（R37-10），
+    // install/books.ts readBooksStrict/ 本文件 matchesKeyLine，
     // 解析器本体在此收口。
     const roots = parseSections(text.replace(/^\uFEFF/, ''))
     return { ok: true, config: sectionsToConfig(roots) }
@@ -292,15 +292,15 @@ export function parseBookConfig(
   }
 }
 
-/** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，M8 #25）。
- *  P1-5（复审-0914-优化修复批）：逐键条件落行改 schema 表驱动——段体 = 表行 emit
+/** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，#25）。
+ *  ：逐键条件落行改 schema 表驱动——段体 = 表行 emit
  *  拼接（行序 = 表序 = 历史落行序），段门 gate / 段间空行 / 头部三行保持历史语义；
  *  新增键只触表一行。字节红线由 yaml-schema-snapshot 快照钉住。 */
 export function stringifyBookConfig(cfg: BookConfig): string {
   const isShort = cfg.kind === 'short'
   const lines: string[] = [
     `spec_version: ${cfg.spec_version}`,
-    // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，M8 #25）
+    // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，#25）
     ...(isShort ? ['kind: short', ''] : ['']),
     `host: ${cfg.host ?? 'cc'}`,
   ]
@@ -317,12 +317,12 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 
 /** 写 book.yaml */
 export function writeBookConfig(filePath: string, cfg: BookConfig): void {
-  // 平台规范化批（2026-09-03）：恒 LF——R40-9 的「按盘上主导行尾整文件渲染」随规范形
+  // 平台规范化批：恒 LF—— 的「按盘上主导行尾整文件渲染」随规范形
   // 拍板废止（CRLF 存量由启动迁移 v4 归一）；stringifyBookConfig 本就恒 LF，输出即规范形。
   atomicWriteFile(filePath, stringifyBookConfig(cfg))
 }
 
-// ── 拆分桥接（R0916-5e）：yaml-patch.ts 既有导出面原名 re-export，
+// ── 拆分桥接：yaml-patch.ts 既有导出面原名 re-export，
 //    全库消费方 import 路径零改动（仍从 format/yaml.js 取用）──
 export { locateTopSection, patchTopSection, setTopSectionKey, setSectionKeyBlock, patchBookConfigText } from './yaml-patch.js'
 export type { TopSectionSpan } from './yaml-patch.js'

@@ -16,7 +16,7 @@ import type { StyleSample, SampleSource, ParseError } from './types.js'
 
 const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法指令'])
 
-/** 来源三值白名单（#5 第 6 节；与 SampleSource 联合类型同源，R26-41 校验用） */
+/** 来源三值白名单（#5 第 6 节；与 SampleSource 联合类型同源，校验用） */
 const KNOWN_SOURCES: readonly string[] = ['作者原作', '题材范文', '导入']
 
 /** 读取一个样章 md → StyleSample（容错） */
@@ -32,8 +32,8 @@ export function readSample(
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：场景' } }
   }
 
-  // R55-D-1（五十五轮）：数组型未知字段按 string[] 原样承载（对齐 leads.ts R64-17 /
-  // chapters.ts R51-F-6 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
+  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts /
+  // chapters.ts 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
   // 经 writeSample 回写后 stringifyValue 按标量引号化，再解析项内逗号错位不可逆；
   // stringifyValue 原生支持数组逐项序列化，数组原样承载即往返保真。
   const _raw: Record<string, string | string[]> = {}
@@ -41,9 +41,9 @@ export function readSample(
     if (!KNOWN_FM_KEYS.has(k)) _raw[k] = Array.isArray(v) ? v : String(v)
   }
 
-  // R26-41（二十六轮）：来源三值白名单校验——此前 `as SampleSource` 直转无校验，
+  // 来源三值白名单校验——此前 `as SampleSource` 直转无校验，
   // 手写非法值原样落对象污染消费侧（按来源分档的取样/注入逻辑错档）。非法值 warn
-  // 留痕按缺省「作者原作」处理（对齐 R76-15 warn+缺省口径）；未写 = 缺省，不 warn。
+  // 留痕按缺省「作者原作」处理（对齐 warn+缺省口径）；未写 = 缺省，不 warn。
   const rawSource = map.get('来源')
   const 来源 =
     typeof rawSource === 'string' && KNOWN_SOURCES.includes(rawSource)
@@ -53,7 +53,7 @@ export function readSample(
     log.warn('style', `样章 ${basename(filePath)} 来源值非法（「${String(rawSource)}」，合法：${KNOWN_SOURCES.join('/')}），按「作者原作」处理`)
   }
 
-  // 重评-20（全库代码重评审 2026-09-05）：标量「标签」归一为单元素数组——与
+  // （全库代码审）：标量「标签」归一为单元素数组——与
   // style-entry readEntry 同款修法：「标签」在 KNOWN_FM_KEYS 里被排除出 _raw，而模型
   // 字段此前只在数组形态承载，作者手写标量形态（`标签: 快节奏`）两处皆不收，样章库
   // 回写物理丢失。归一只发生在解析侧，写回后标量变数组属规范形归一；空串/缺键不造
@@ -109,22 +109,22 @@ export function readSamplesByScene(
 ): { samples: StyleSample[]; errors: ParseError[] } {
   const samples: StyleSample[] = []
   const errors: ParseError[] = []
-  // dd-P3：scene 防御——调用方之一（prepare.ts）的 scene 来自外部参数，拒绝路径段
+  // dd-scene 防御——调用方之一（prepare.ts）的 scene 来自外部参数，拒绝路径段
   if (scene.includes('/') || scene.includes('\\') || scene === '.' || scene === '..') {
     return { samples, errors: [{ file: join(sampleDir, scene), line: 0, message: '场景名不能包含路径分隔符' }] }
   }
   const sceneDir = join(sampleDir, scene)
   let files: string[]
   try {
-    // 低级项（第六轮）：显式排序——readdir 顺序随平台/文件系统漂移，注入与冻结基线
+    // 低级项：显式排序——readdir 顺序随平台/文件系统漂移，注入与冻结基线
     // 需跨平台可复现（同一书在不同机器产出同一 prompt/基线）
-    files = readdirSync(sceneDir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // R38-9：.MD 大写扩展名不再失明
+    files = readdirSync(sceneDir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // .MD 大写扩展名不再失明
   } catch {
     return { samples, errors } // 场景目录不存在，空
   }
   for (const f of files) {
     const fp = join(sceneDir, f)
-    // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
     // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整场景读取
     let isFile = false
     try {
@@ -144,10 +144,10 @@ export function readSamplesByScene(
 export function parseSampleFileName(
   fileName: string,
 ): { 场景: string; 序号: number } | null {
-  // R38-9（三十八轮）：扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
+  // 扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
   //（nextEntrySeq 同场景编号割裂，靠 O_EXCL 自愈但新旧编号断裂）
   const base = fileName.replace(/\.[mM][dD]$/, '')
-  // R1010b-DOC-P3-3（全量代码重审与内存专项 2026-09-10）：序号由固定 3 位放宽为 3 位起
+  // （与）：序号由固定 3 位放宽为 3 位起
   //（对齐 style-migrate.ts 播种正则 (\d{3,}) 同族先例）——写侧 padStart(3,'0') 不截断，
   // 同场景第 1000 条产出 `战斗-1000.md`，固定 \d{3} 配贪婪 (.+) 吞千位解析成
   // {场景:'战斗-1', 序号:0}，编号割裂靠 O_EXCL 重试自愈；不足 3 位仍不匹配（既有

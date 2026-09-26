@@ -15,7 +15,7 @@
  * chatClearGateReason 单源 + await 后清库前复查（chat.clear 经 clearChatHistory 的
  * gate 回调 / audit DELETE 在 openSessionStoreAsync 之后）。本文件经真服务锁入口
  * 收编后口径不变（chat/clear 与 audit DELETE 两端各验一闸），复查闸的机制面见
- * test/ai/r0913-r2-clear-gate.test.ts。
+ * test/ai/chat-clear-gate-recheck.test.ts。
  */
 import http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'

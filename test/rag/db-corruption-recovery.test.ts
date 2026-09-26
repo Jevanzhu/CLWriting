@@ -7,7 +7,7 @@
  * 无效，专为兜底失配而设的重建入口同死）。修复：损坏窄识别（errcode 26/11 + message
  * 兜底）→ resetRagIndex 确认损坏后删库（连 -wal/-shm）全新建；BUSY 等可重试错误绝不
  * 误判损坏误删库。端点级（status 结构化指引 + rebuild 闭环）见
- * test/studio/r35-rag-db-corruption-api.test.ts。
+ * test/studio/rag-db-corruption-api.test.ts。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'

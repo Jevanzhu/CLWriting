@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 审计事件列表（R0911b-C2-P3-1：自 AuditView.vue 抽出，纯结构去重零行为变更）。
+ * 审计事件列表（自 AuditView.vue 抽出，纯结构去重零行为变更）。
  * 对话审计 / 工作流链路两段事件列表模板原为近复制（行模板 + 空态 + 分页/渲染上限
  * 截断行），抽本组件两处以 props/事件消费；抽取前后渲染产物逐行对照一致（class 名、
  * v-if 分支、事件绑定）。
@@ -14,14 +14,14 @@
  * 展开态、loadMore* 各自续页）；hasMore/capHit/renderCap 的计算同源在父；行渲染封顶
  * （content-visibility）随行模板同迁，见 .ev-row 注。
  *
- * R0912-FE-P3-11（mac 线，merge 2026-09-12 并入）：事件 data JSON 懒展开——原实现内联
+ * （mac 线，merge 并入）：事件 data JSON 懒展开——原实现内联
  * 在 AuditView 两段行模板、状态在父侧；抽取骨架归本组件后随展开态 pre 渲染一并下沉
  * 到此（见下方「事件 data JSON 懒展开」注），父侧仅保留 load 换代复位语义的等价承接。
  */
 import { reactive, watch } from 'vue'
 import { ChevronRight, ChevronDown, EyeOff, GitBranch, MoreHorizontal } from 'lucide-vue-next'
 import type { AuditEventFE } from '../../api/audit'
-// 七轮重评-5（2026-09-19 源码独立重评七轮修复批）：摘要截断改码位（clipByCodePoints
+// 5（七轮修复批）：摘要截断改码位（clipByCodePoints
 // shared 单源，stores/chat.ts codePointLength 同源先例）——码元 slice 劈代理对尾字符乱码
 // H503（七轮修复复核批）：JSON 详情的截断/阈值/计数三处统一码位口径——此前只换 clip
 // 一处，触发阈值与「已截断」计数仍按码元，4097 码元/4096 码位形态一字未删却宣称已截断
@@ -69,7 +69,7 @@ function dataSummary(e: AuditEventFE): string {
   if (typeof d['task'] === 'string') return String(d['task'])
   if (typeof d['callId'] === 'string') return String(d['callId'])
   if (typeof d['chapter'] === 'number') return 'chapter ' + String(d['chapter'])
-  // F5：goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
+  // goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
   if (typeof d['operation'] === 'string' && d['goal'] && typeof d['goal'] === 'object') {
     const g = d['goal'] as { title?: unknown; state?: unknown }
     return clipByCodePoints([d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim(), 60)
@@ -82,7 +82,7 @@ function dataSummary(e: AuditEventFE): string {
   return ''
 }
 
-// ── R0912-FE-P3-11（2026-09-11 重评-0911b 修复批，mac 线；merge 2026-09-12 随抽取骨架下沉）：
+// ── （b 修复批，mac 线；merge 随抽取骨架下沉）：
 // 事件 data JSON 懒展开。原模板内联 `{{ JSON.stringify(e.data, null, 2) }}`：①组件任意重
 // 渲染都重新全量 stringify；②超大 payload（全文快照/批量事件）展开即把 MB 级 JSON 全量
 // 灌进 DOM。改为：展开时 stringify 至多一次（按 e.data 对象身份 WeakMap 缓存，重渲染/截断
@@ -95,7 +95,7 @@ const detailJsonCache = new WeakMap<object, string>()
 /** 「查看完整 JSON」已放行集合（按 e.data 身份，响应式）。 */
 const showFullJson = reactive(new Set<object>())
 
-// 原实现（父侧 AuditView）在 load 整体重取时 showFullJson.clear()。父 load 换新数组、
+// 原实现（父侧 AuditView）在 load 整体重取时 showFullJson.clear。父 load 换新数组、
 // loadMore 原地 push——此处 watch 数组换代即复位，语义等价（放行集合按 data 身份记账，
 // 换代后旧条目本已不可达，清除只为不滞留旧 payload 强引用）。
 watch(
@@ -149,7 +149,7 @@ function withinDetailLimit(s: string): boolean {
         <GitBranch :size="11" /> {{ e.sourceSeqs.join(',') }}
       </span>
       <div v-if="expanded.has(e.seq)" class="ev-detail">
-        <!-- R0912-FE-P3-11：懒展开——截断摘要 +「查看完整 JSON」放行钮（原内联全量 stringify） -->
+        <!-- ：懒展开——截断摘要 +「查看完整 JSON」放行钮（原内联全量 stringify） -->
         <pre>{{ detailText(e) }}</pre>
         <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">
           查看完整 JSON
@@ -161,7 +161,7 @@ function withinDetailLimit(s: string): boolean {
     </div>
     <div v-if="events.length === 0" class="empty">{{ emptyText }}</div>
   </div>
-  <!-- AA-P2-1：截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
+  <!-- ：截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
   <div v-if="hasMore" class="pager">
     <span class="pager-hint">已显示 {{ events.length }} / {{ total }} 条，更多最早事件待加载</span>
     <button class="load-more" :disabled="loadingMore" @click="emit('load-more')">
@@ -176,9 +176,9 @@ function withinDetailLimit(s: string): boolean {
 </template>
 
 <style scoped>
-/* 样式自 AuditView.vue 随模板同迁（R0911b-C2-P3-1 纯搬家）；变量纪律只引 tokens.css
+/* 样式自 AuditView.vue 随模板同迁（纯搬家）；变量纪律只引 tokens.css
  * 既有 token，字号档映射口径见 AuditView style 头注。 */
-/* AA-P2-1：分页续页 */
+/* 分页续页 */
 .pager {
   display: flex;
   align-items: center;
@@ -279,7 +279,7 @@ function withinDetailLimit(s: string): boolean {
   word-break: break-all;
 }
 .lineage-note { font-size: var(--font-size-xs); color: var(--text-muted); margin: 4px 0 0; }
-/* R0912-FE-P3-11：「查看完整 JSON」放行钮（次级小按钮，紧贴截断摘要下方；自 AuditView 随逻辑同迁） */
+/* 「查看完整 JSON」放行钮（次级小按钮，紧贴截断摘要下方；自 AuditView 随逻辑同迁） */
 .ev-full-btn {
   margin-top: 4px;
   padding: 2px 10px;

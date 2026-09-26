@@ -1,14 +1,14 @@
 /**
- * E6（复审-0914-优化修复批）：请求代守卫单源——`let xGen = 0 / const gen = ++xGen /
- * await 后 if (gen !== xGen) return` 样板的收敛件（N-12 / M-11 / M-3 / RB-FE-P2-5 /
- * R72-11 等沿革各自手搓的同构计数器，此后换装本工具）。
+ * 请求代守卫单源——`let xGen = 0 / const gen = ++xGen /
+ * await 后 if (gen !== xGen) return` 样板的收敛件（
+ * 等沿革各自手搓的同构计数器，此后换装本工具）。
  *
  * 与裸计数逐位等价的五个原语：
- * - begin()      = `const gen = ++xGen`（推进并取本代 token；请求开工时调）
+ * - begin      = `const gen = ++xGen`（推进并取本代 token；请求开工时调）
  * - stale(t)     = `t !== xGen`（await 后复检：被后发请求/clear 作废即真）
  * - fresh(t)     = `t === xGen`（finally 条款：仅现行代做 loading 复位等收尾）
- * - invalidate() = `xGen++`（clear/切书/重入：不取 token 直接作废全部在途）
- * - current()    = `xGen`（只快照不推进——style.add / check.flagFalsePositive /
+ * - invalidate = `xGen++`（clear/切书/重入：不取 token 直接作废全部在途）
+ * - current    = `xGen`（只快照不推进——style.add / check.flagFalsePositive /
  *   audit loadMore / learn.commit(harvestGen) / chat.regenerate 的观测代）
  *
  * 无 Vue 生命周期 / inject 依赖：Pinia store setup、组合式函数、视图 <script setup>

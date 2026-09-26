@@ -1,9 +1,9 @@
 /**
- * B5 作者信号（最小闭环）—— 作者保存手改后，diff AI 版本与终稿，
- * 把「作者删掉的片段」按规则 check() 跑一遍，命中 → 该规则命中数 +1。
+ * 作者信号（最小闭环）—— 作者保存手改后，diff AI 版本与终稿，
+ * 把「作者删掉的片段」按规则 check 跑一遍，命中 → 该规则命中数 +1。
  *
  * 信号语义：作者主动删掉含 AI 味/套话的内容 = 规则检对了 AI 味，
- * 该规则的高频统计随作者验证累积（B3 面板 + B4 前置注入更可信）。
+ * 该规则的高频统计随作者验证累积（面板 + 前置注入更可信）。
  *
  * 不做自由文本教训提取（那需要 AI 归纳，留第三波记忆层）。
  * 失败一律静默返回——信号是旁路证据，绝不阻断落盘主流程。
@@ -30,9 +30,9 @@ export async function recordAuthorSignal(
   task: string,
   userDataPath?: string,
 ): Promise<void> {
-  // R37-5（三十七轮）：读侧改异步孪生——listAiVersions/readAiVersion 的同步版走
+  // 读侧改异步孪生——listAiVersions/readAiVersion 的同步版走
   // spawnSync，本函数挂在服务 HTTP 链（draft.ts 落盘端点 / self-heal 终稿三连），
-  // git 无响应时阻塞事件循环最长 15s（写侧 R36-5 已异步化，此处补齐读侧）
+  // git 无响应时阻塞事件循环最长 15s（写侧已异步化，此处补齐读侧）
   const versions = await listAiVersionsAsync(bookRoot, docId)
   if (!versions.length) return
   const prev = await readAiVersionAsync(bookRoot, docId, versions[versions.length - 1]!.sha)
@@ -44,14 +44,14 @@ export async function recordAuthorSignal(
   // 只统计套话类规则（作者删掉的 AI 味片段 = 信号）
   const violations = collectRuleViolations(deleted, task, bookRoot)
     .filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
-  // R32-13（三十二轮）：随 recordRuleHits 异步化（锁等待不再冻结服务事件循环）
-  // R48-29（四十八轮）：task 传 'author-signal'——作者删除信号命中不再误归因 check
+  // 随 recordRuleHits 异步化（锁等待不再冻结服务事件循环）
+  // task 传 'author-signal'——作者删除信号命中不再误归因 check
   await recordRuleHits(bookRoot, violations, userDataPath, 'author-signal')
-  // P3 事件化（author/signal）：作者删除信号入事件流（观测层静默）
+  // 事件化（author/signal）：作者删除信号入事件流（观测层静默）
   if (userDataPath && violations.length > 0) {
     let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
       store = await openSessionStoreAsync(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
@@ -63,7 +63,7 @@ export async function recordAuthorSignal(
     } catch {
       // 观测层失败静默
     } finally {
-      // dd-P2：close 挪进 finally——appendEvents 抛错时此前被跳过，openSessionStore
+      // dd-close 挪进 finally——appendEvents 抛错时此前被跳过，openSessionStore
       // 引用计数泄漏、SQLite 句柄在长驻服务里永不释放
       store?.close()
     }
@@ -75,7 +75,7 @@ export async function recordAuthorSignal(
  * 按行计数匹配（同一行多次出现时按出现次数对齐），避免误判编辑后重排。
  */
 function deletedSegments(prev: string, current: string): string {
-  // R2W-7（win 平台专项复审 R2）：行键剥行尾 \r——CRLF 正文 × LF AI 版本此前全量
+  // （win 平台专项）：行键剥行尾 \r——CRLF 正文 × LF AI 版本此前全量
   // 误判「作者删除」，ai 痕迹规则命中统计虚高
   const stripCr = (l: string): string => (l.endsWith('\r') ? l.slice(0, -1) : l)
   const prevLines = prev.split('\n').map(stripCr)

@@ -1,5 +1,5 @@
 /**
- * 捆绑资源定位（批次 C2/C4 共用：内置 prompt / 写作技巧包）。
+ * 捆绑资源定位（批次 /共用：内置 prompt / 写作技巧包）。
  *
  * 资源根 = 仓库 resources/ 目录（源码运行：src/fs/resources.ts → 上两级）。
  * 打包形态若调整（dist 布局），用 CLWRITING_RESOURCES_DIR 显式指根，或在此扩候选路径。

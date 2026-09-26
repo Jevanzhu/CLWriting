@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 启动通告横幅（A4 批 0）：启动链迁移失败（事件库/书库登记/版式迁移等）此前只有
+// 启动通告横幅启动链迁移失败（事件库/书库登记/版式迁移等）此前只有
 // console 失明出口，打包态用户完全看不见。横幅一次性——「知道了」按通告指纹
 // （kind@ts）落 localStorage，关闭后不再弹；后续新通告（新指纹）会再弹。
 // 挂 App.vue 根部（ErrorBoundary 内、router-view 之外），全路由可见。
@@ -12,7 +12,7 @@ const DISMISS_KEY = 'clw-startup-notices-dismissed'
 function loadDismissed(): string[] {
   try {
     const raw = localStorage.getItem(DISMISS_KEY)
-    // R43-11（四十三轮）：解析值验数组 + 元素验 string（对齐 stores/check.ts loadFlagged
+    // 解析值验数组 + 元素验 string（对齐 stores/check.ts loadFlagged
     // 先例）——手改/损坏的 localStorage（对象/数字元素）此前整包 as string[] 透传，
     // 脏值进 dismissed 后 includes 比对失真且 dismiss 回写把脏值固化。
     const arr = raw ? (JSON.parse(raw) as unknown) : []

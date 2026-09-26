@@ -12,20 +12,20 @@ import { resolveDraftPath } from '../../document/draft-path.js'
 import { normalizeMaxMessages } from './window.js'
 import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
 import { listSkills, formatSkillIndex } from '../../process/skills.js'
-// P-6（第十四轮）：章正文剥 fm 与 format 层同源——此前手写宽松正则
+// 章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../format/frontmatter-core.js'
-// 五轮重评修复批（C102）：码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
-// R0916-7-P3-3：两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
+// 修复批（C102）：码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
+// 两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
 // re-export 中转（环边来源，已剥除），本模块的 ai→process 转运依赖随之消失
 import { clipByCodePoints, codePointLength } from '../../shared/text.js'
-// G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
+// 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
 // 0917清库修复批：知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
 import { readKnowledgeManifest } from '../../knowledge/manifest.js'
 import { resolveWithinRoot } from '../../fs/safe-path.js'
-// R53-C-1（五十三轮）：trimHistory 回合金盲区回落的 warn 留痕
+// trimHistory 回合金盲区回落的 warn 留痕
 import { log } from '../../log/index.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
@@ -40,11 +40,11 @@ export interface ChatContext {
    *  无知识层/无方法论条目为 undefined 不注入）。登记通道 = llm/call systemPrompt hash +
    *  promptMeta.files + settings/snapshot(knowledge 档) 血缘事件 */
   knowledge?: string
-  /** T2-1：本次注入实际引用的文件清单（相对书根，spill 外置时为其 locator）——
+  /** 本次注入实际引用的文件清单（相对书根，spill 外置时为其 locator）——
    *  经 runChat → runTask promptFiles 进 llm/call promptMeta.files，文件级「模型可见
    *  ⟺ 已记录」的登记来源；无文件注入（未选章/章文件不存在）为空数组 */
   files: string[]
-  /** T2-1：章正文注入的 revision/ref 登记路径——spill 外置时为 locator，否则为草稿
+  /** 章正文注入的 revision/ref 登记路径——spill 外置时为 locator，否则为草稿
    *  相对路径；未注入章正文时 undefined（登记侧据此不落 revision/ref 或落空 path） */
   chapterFile?: string
 }
@@ -76,7 +76,7 @@ ${ctx.knowledge ? `\n${ctx.knowledge}\n` : ''}
 }
 
 /**
- * 「模型可见」注入收集器（G2-2 链路侧接线）：把 ctx 中实际进 system prompt 的
+ * 「模型可见」注入收集器（链路侧接线）：把 ctx 中实际进 system prompt 的
  * 段落折成 {scope, digest} 清单——verifyVisibleRecorded 的 visible 入参唯一生产来源。
  *
  * 口径与 chatSystem 的注入条件一一镜像：settings 恒注入；currentChapter / skillsIndex /
@@ -85,7 +85,7 @@ ${ctx.knowledge ? `\n${ctx.knowledge}\n` : ''}
  * 必须对同一字段做同源 digest16，任一侧改拼接源即破坏「模型可见 ⟺ 已记录」。
  */
 export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
-  // R66-9（十四轮）：{scope,digest} 组装下沉到 FromDigests 单源——CLW_VERIFY_VISIBLE
+  // {scope,digest} 组装下沉到 FromDigests 单源——CLW_VERIFY_VISIBLE
   // 诊断开关与治理测试共用同一形状逻辑，诊断侧不再手工镜像（镜像漂移恰是该开关要抓的）
   // A201（0918三轮修复批）：补 knowledge 档——0917 扩登记面时校验面三处未同步
   //（本处 / FromDigests / verifyVisibleSampled 签名），抽样校验对 knowledge 通道失明
@@ -97,7 +97,7 @@ export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
   })
 }
 
-/** digest 级单源组装（R66-9）：运行时诊断入口——轮循环里只有预计算的 deps.digests、
+/** digest 级单源组装：运行时诊断入口——轮循环里只有预计算的 deps.digests、
  *  无原始 ctx。形状口径与 visibleInjections 严格一致（settings 恒在 + 条件注入）。 */
 export function visibleInjectionsFromDigests(d: {
   settings: string
@@ -130,23 +130,23 @@ export function buildChatContext(
   let chapterFile: string | undefined
 
   if (chapter !== undefined && chapter >= 1) {
-    // 尝试读取章节正文前 2000 字（R68-1：forRead 只读口径——定稿章上下文注入合法，
+    // 尝试读取章节正文前 2000 字（forRead 只读口径——定稿章上下文注入合法，
     // 不吃「拒绝覆盖写」写防线）
     const draftRel = resolveDraftPath(bookRoot, chapter, undefined, { forRead: true }).relPath
     const draftPath = join(bookRoot, draftRel)
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
       const raw = readFileSync(draftPath, 'utf-8')
-      // 剥离 front matter，取正文（P-6：bodyOf 同源结构化解析——首行必须 --- 且逐行找闭合，
+      // 剥离 front matter，取正文（bodyOf 同源结构化解析——首行必须 --- 且逐行找闭合，
       // 无 fm 的裸 md 原样返回；不再用宽松正则误吞正文中的 --- 分隔线）
       const body = bodyOf(raw)
-      // B3：超长正文外置（工作区/spills/）+ 头尾预览 + read_chapter 取回指引，
+      // 超长正文外置（工作区/spills/）+ 头尾预览 + read_chapter 取回指引，
       // 替代 slice(0,2000) 无通知硬切（可切半句、章尾不可见）
       const spilled = spillIfLarge(body, { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }, (full) =>
         writeSpillFile(bookRoot, full),
       )
       parts.push(spilled.preview)
-      // T2-1：章正文注入的文件级溯源——revision/ref 登记路径取实际注入源
+      // 章正文注入的文件级溯源——revision/ref 登记路径取实际注入源
       //（外置成功记 spill locator，否则记草稿文件本身），同一路径并入 files 清单
       chapterFile = spilled.locator ?? draftRel
       files.push(chapterFile)
@@ -187,7 +187,7 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
     if (!resolved || !existsSync(resolved.abs)) continue
     try {
       let body = bodyOf(readFileSync(resolved.abs, 'utf-8'))
-      // 五轮重评修复批（C102）：码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
+      // 修复批（C102）：码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
       // ——原 body.length/slice 按 UTF-16 码元计，截断点恰落代理对（emoji/扩展区汉字）
       // 中间产出孤立代理进 system prompt，且合计帽提前误触发；仓内同族截断
       // （clipByCodePoints/codePointLength）均已收码点口径，此处单源接入。
@@ -217,7 +217,7 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
  * @param maxTurns 保留最近 N 个完整回合（默认 10）
  */
 export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
-  // A1（CS-12）：窗口参数入口归一——非法值（0/负/NaN/分数/非数）归 null = 不设限，
+  // （CS-12）：窗口参数入口归一——非法值（0/负/NaN/分数/非数）归 null = 不设限，
   // 防设置项化后脏值静默丢上下文；当前调用方传常量，属前置防线
   const window = normalizeMaxMessages(maxTurns)
   if (window === null) return history
@@ -237,7 +237,7 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
     }
   }
 
-  // R53-C-1（五十三轮）：回合金盲区收口——历史够长（> window*2 条）却凑不满 window
+  // 回合金盲区收口——历史够长（> window*2 条）却凑不满 window
   // 个纯文本 user 边界（工具重往返把回合撑肥：tool_result 是 user 角色 content block，
   // 不算回合起点）时，原实现 cutIdx 停 0 → slice(0) 全量返回，历史静默全额随每次请求
   // 携带（「200 万字不崩」的成本防线在此窗口失效）。回落：按码点预算对齐最新可切边界
@@ -256,26 +256,26 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
   return history.slice(cutIdx)
 }
 
-/** R53-C-1（五十三轮）：回合金盲区回落的保尾码点预算——约 2 万码点（≈2 万汉字）上下文，
+/** 回合金盲区回落的保尾码点预算——约 2 万码点（≈2 万汉字）上下文，
  *  与单次调用上下文预算同量级的保守兜底，非精确 token 计量。 */
 const TRIM_TAIL_BUDGET_POINTS = 20_000
 
-/** R57-B-2（五十七轮）：chat 单轮发送预算的窗口未知回退值——显式 fallback（非隐式
+/** chat 单轮发送预算的窗口未知回退值——显式 fallback（非隐式
  *  默认）：取 128k token 级模型窗口的 3/4（96k 码点）。理由：中文 ≈1 码点/token 的粗
  *  口径下，历史消息至多约 9.6 万 token；余下 1/4 窗口留给 system prompt（设定摘要 +
  *  章节预览 2000 字 + 技巧索引 800，万级 token）、15 个工具 schema（数千 token）、输出
  *  上限与消息包装开销 + 安全余量。正常流 finalizeHistory（trimHistory/compaction）会在
  *  收尾后控住体量，本预算只在单轮内重工具往返把历史撑肥（收尾防线未及）时兜底——是
- *  发送面防线触发线，非精确 token 计量。R55-C-1（五十五轮）初设为硬编码常量；
- *  R57-B-2 起降为 resolveChatSendBudget 的显式回退值（窗口已知的模型按窗收紧）。 */
+ *  发送面防线触发线，非精确 token 计量。初设为硬编码常量；
+ * 起降为 resolveChatSendBudget 的显式回退值（窗口已知的模型按窗收紧）。 */
 export const CHAT_SEND_BUDGET_POINTS = 96_000
 
 /**
- * R57-B-2（五十七轮）：显式 resolve chat 单轮发送预算（「默认值显式 resolve」域规约——
+ * 显式 resolve chat 单轮发送预算（「默认值显式 resolve」域规约——
  * 同链 maxTokens 已按模型逐层 resolve，发送防线预算不再吃硬编码 96k）。
  *
  * - contextWindow 已知：min(96_000, ⌊窗口/2⌋)——按窗比例收紧，上限压到 ≤ 半窗：历史
- *   + system prompt（R57-B-1 起计入同一预算）合计不越过半窗，给模型响应、工具 schema
+ *   + system prompt（起计入同一预算）合计不越过半窗，给模型响应、工具 schema
  *   与包装开销留足余量（64k 窗模型在旧硬编码 96k 下防线放行必超窗 → 400 卡死）。
  * - 未知/非法（模型行未声明）：显式回落 CHAT_SEND_BUDGET_POINTS（96k，128k 级窗口
  *   3/4 的既有校准值），fallback 在此单点声明、不散落调用方。
@@ -289,19 +289,19 @@ export function resolveChatSendBudget(contextWindow?: number): number {
   return Math.min(CHAT_SEND_BUDGET_POINTS, Math.floor(contextWindow / 2))
 }
 
-/** R57-B-1（五十七轮）：发送预算扣除 system prompt 后「历史可用码点」的具名下限——
+/** 发送预算扣除 system prompt 后「历史可用码点」的具名下限——
  *  sys 超大（重设定书场景）把差额挤负时 clamp 到此值（与 TRIM_TAIL_BUDGET_POINTS 同
  *  量级，约保一个回合），宁可切后总量仍超、走切后复查 warn（fail-open 语义），也不把
  *  历史压成空手发送。
  *  0918二轮修复批（A101）：消费侧（turns.ts）取下限时先与 sendBudget 取 min——
  *  contextWindow < 40k 的小窗模型 sendBudget 本身低于此下限，恒 clamp 到 20k 会高于
- *  发送预算本身（发送防线对 [sendBudget, 20k] 区间失效、A7 收缩重试预算仍超窗）；
+ *  发送预算本身（发送防线对 [sendBudget, 20k] 区间失效、收缩重试预算仍超窗）；
  *  下限随预算收缩后 historyBudget 恒 ≤ sendBudget。 */
 export const CHAT_HISTORY_MIN_BUDGET_POINTS = 20_000
 
-/** R57-B-1（五十七轮）：纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token
+/** 纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token
  *  粗估）的文本入参形态；system prompt 不经 ChatMsg 包装，发送预算侧按同一口径计量。
- *  R0912-D-P3-1：热路径每轮全历史计量不再物化 N 元素数组——就地计数，代理对跨
+ *  ：热路径每轮全历史计量不再物化 N 元素数组——就地计数，代理对跨
  *  surrogate 对算 1；口径不变（UTF-16 码点数，孤立代理算 1）。 */
 export function measureTextPoints(text: string): number {
   let n = 0
@@ -318,7 +318,7 @@ export function measureTextPoints(text: string): number {
 
 /** 码点计量（与 compaction.measureMessages 同口径的本地副本——该模块在
  *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒）
- *  R0912-D-P3-1：块文本计量统一走零分配 measureTextPoints。 */
+ *  ：块文本计量统一走零分配 measureTextPoints。 */
 function measurePoints(m: ChatMsg): number {
   if (typeof m.content === 'string') return measureTextPoints(m.content)
   let n = 0
@@ -331,11 +331,11 @@ function measurePoints(m: ChatMsg): number {
 }
 
 /**
- * R53-C-1：回合金盲区回落切点——凑不满 window 个纯文本 user 边界时，取「保尾后缀
+ * 回合金盲区回落切点——凑不满 window 个纯文本 user 边界时，取「保尾后缀
  * ≤ 预算的最早纯文本 user 边界」为切点（预算内保留最多上下文）；所有边界后缀都超
  * 预算则保最近一整回合（必须发送内容）；历史无任何可对齐边界 → null（无法安全切）。
  *
- * R55-C-1（五十五轮）：预算参数化并导出为 budgetTailCut——trimHistory 回落分支与
+ * 预算参数化并导出为 budgetTailCut——trimHistory 回落分支与
  * chat 轮循环发送前体量防线（turns.ts）共用同一保尾口径（切点只取纯文本 user 边界，
  * 永不落 tool_use/tool_result 配对中间），避免复制逻辑漂移。
  */
@@ -361,13 +361,13 @@ export function budgetTailCut(history: ChatMsg[], budget: number): number | null
   return bounds[bounds.length - 1]! // 单回合即超预算：仍保最近一整回合
 }
 
-/** R53-C-1（五十三轮）trimHistory 回落口径——R55-C-1 起为 budgetTailCut 的薄包装
+/** trimHistory 回落口径—— 起为 budgetTailCut 的薄包装
  * （逻辑单源在 budgetTailCut，预算取 trimHistory 专用值）。 */
 function fallbackBudgetCut(history: ChatMsg[]): number | null {
   return budgetTailCut(history, TRIM_TAIL_BUDGET_POINTS)
 }
 
-/** R55-C-1（五十五轮）：历史总码点计量（measurePoints 同口径逐条求和）——发送前
+/** 历史总码点计量（measurePoints 同口径逐条求和）——发送前
  *  体量防线的预检（超预算才触发 budgetTailCut，预算内零改动零开销）。 */
 export function measureHistoryPoints(history: ChatMsg[]): number {
   let n = 0
@@ -375,7 +375,7 @@ export function measureHistoryPoints(history: ChatMsg[]): number {
   return n
 }
 
-/** R69-12（十七轮）：消毒层合成占位文案（连续同 role 补位）。模型可见但无独立事件
+/** 消毒层合成占位文案（连续同 role 补位）。模型可见但无独立事件
  *  ——确定性函数合成，重放按 sanitizeHistory 同函数重建（口径声明见函数内注释）。 */
 const SANITIZE_PLACEHOLDER_ACK = '[收到]'
 const SANITIZE_PLACEHOLDER_CONT = '[对话继续]'
@@ -414,7 +414,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
   const result: ChatMsg[] = []
   // 已出现的 tool_use id（供后续孤儿 tool_result 判定；时序上 use 先于 result）
   const knownToolUseIds = new Set<string>()
-  // B-13（第六十轮）：病态时序双弃登记——result 先于 use 到达时（外部损坏的历史恢复），
+  // 病态时序双弃登记——result 先于 use 到达时（外部损坏的历史恢复），
   // result 被前向集合判孤儿删除，但 use 侧的全局预扫仍命中（result 在历史里存在过）→
   // 产出必然 400 的悬空 tool_use（比不消毒更糟）。被删 result 的 id 在此登记，
   // 后续同 id 的 tool_use 一并剔除（病态对双双丢弃）；正常时序（use 先于 result）不进此集合。
@@ -456,7 +456,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
         const kept = blocks.filter((b) => {
           if (b.type !== 'tool_result') return true
           if (knownToolUseIds.has(b.toolUseId)) return true
-          // B-13：前向集合未命中 → 删除并登记，供后续同 id tool_use 双弃
+          // 前向集合未命中 → 删除并登记，供后续同 id tool_use 双弃
           droppedToolResultIds.add(b.toolUseId)
           return false
         })
@@ -476,7 +476,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
 
   // 连续同 role → 插入与当前消息角色互补的占位（保持交替，治 #3b）。
   // 占位角色必须互补：写死 user 会在连续 user 场景插出三连 user（防线失效）
-  // R69-12（十七轮）：占位文案定常量并显式声明事件口径——占位是消毒层对已记录历史的
+  // 占位文案定常量并显式声明事件口径——占位是消毒层对已记录历史的
   // 确定性合成（模型可见、无独立事件），不破坏铁律①重放：重放按同函数重建即得同值。
   const fixed: ChatMsg[] = []
   for (const m of result) {

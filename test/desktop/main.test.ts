@@ -110,8 +110,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 
   // R40-32（四十轮）：titleBarStyle 平台分支——win 宿主经平台 mock 驱动新开窗口断言
   //（createSecureWindow 读当下 process.platform，主窗已按真实平台创建，改走
-  // desktop:open-shelf 新开书架窗口；Object.defineProperty 手法对齐
-  // test/document/r38-batch-f.test.ts:39-42）。
+  // desktop:open-shelf 新开书架窗口；Object.defineProperty 手法即本文件下方平台桩同款（原 r38-batch-f 桌面批拆分入本目录）。
   it('R40-32: linux 新开窗不带 hiddenInset（默认标题栏）；darwin 保持 hiddenInset', async () => {
     const ORIG = process.platform
     const n0 = M.windows.length
@@ -304,6 +303,10 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     }
     // 合法载荷后未销毁窗口上的既有空参形态维持 no-op（无字段 → undefined）
     expect(h(ev, {})).toBeUndefined()
+    // 2026-09-26 行为化批（原 r38-exit-guards 源码抠正则断言并入门下）：4 位 hex 与
+    // 字面量 'transparent' 两臂补齐 R38-20 白名单集 {3,4,6,8} + transparent
+    expect(h(ev, { color: '#f6f6' })).toBeUndefined()
+    expect(h(ev, { color: 'transparent' })).toBeUndefined()
   })
 
   it('专注全屏反向同步：enter/leave-full-screen → desktop:fullscreen-change 转发渲染层', () => {

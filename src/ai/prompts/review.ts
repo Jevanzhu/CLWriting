@@ -1,5 +1,5 @@
 /**
- * 审稿角色 system prompt（方案 §四③；C2 起资源化——文案唯一源 = resources/prompts/review-*.md）。
+ * 审稿角色 system prompt（方案 §四③；起资源化——文案唯一源 = resources/prompts/review-*.md）。
  *
  * 六视角全量文件（通用段已内嵌，哈希粒度 = 整份视角文案）；
  * review-common.md 是未知 lens 的 fallback。输出契约统一由 submit_issues tool_use 强制。

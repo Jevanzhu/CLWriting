@@ -1,7 +1,7 @@
 /**
- * SSE 事件 type guard —— stores 的 SSE 事件运行时校验统一收口（P2-2）。
+ * SSE 事件 type guard —— stores 的 SSE 事件运行时校验统一收口。
  *
- * 原先 workbench.ts / chat.ts 各自手写 `as Record` 断言 + 重复的 str() 提取，
+ * 原先 workbench.ts / chat.ts 各自手写 `as Record` 断言 + 重复的 str 提取，
  * 后端事件结构变化时前端静默失败。本模块提供：
  * - str / strArr：字段安全提取（原两处重复实现合并）
  * - isSseEvent：基础对象守卫（取代手写 typeof 检查 + as Record）
@@ -26,7 +26,7 @@ export function isSseEvent(ev: unknown): ev is { type: string; [k: string]: unkn
   return typeof (ev as Record<string, unknown>)['type'] === 'string'
 }
 
-/** 全自动写章阶段（与 HEAL_PHASES 白名单一致）；P2-3 批量新增 chapter_start/chapter_done */
+/** 全自动写章阶段（与 HEAL_PHASES 白名单一致）；批量新增 chapter_start/chapter_done */
 type HealPhaseName = 'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done'
 
 /** self_heal_phase 事件守卫：phase 白名单校验 + 类型收窄 */

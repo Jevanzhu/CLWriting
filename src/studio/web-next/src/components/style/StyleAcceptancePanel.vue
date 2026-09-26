@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文风验收卡（StyleView 拆分 P2-5 ④ 验收段）：机检重扫 + AI 语义分析双块。
+// 文风验收卡（StyleView 拆分 ④ 验收段）：机检重扫 + AI 语义分析双块。
 // 机检重扫零 AI；AI 语义分析耗 token 且完成时后端自动落源3候选。
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -9,7 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import { runStyleAnalysis, type StylePayload } from '../../api/analysis'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
-// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-ghost/.token-chip 逐字重复块
+// （修复批）：.panel/.btn-ghost/.token-chip 逐字重复块
 // 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
 // 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -22,7 +22,7 @@ const ui = useUiStore()
 const rescanning = ref(false)
 async function onRescan(): Promise<void> {
   if (rescanning.value) return
-  // R26-71（二十六轮）：书名入口捕获 + catch 复检（对齐下方 onAnalyze 的 M-4/R75-E-P3c
+  // 书名入口捕获 + catch 复检（对齐下方 onAnalyze 的 /
   // 模式）——重扫在途切书后本组件成死实例（props 冻结旧书），A 书的失败 toast 不落 B 书
   const book = props.bookName
   rescanning.value = true
@@ -41,7 +41,7 @@ const analyzing = ref(false)
 const aiResult = ref<StylePayload | null>(null)
 async function onAnalyze(): Promise<void> {
   if (analyzing.value) return
-  // M-4（第十轮）：书名入口捕获 + await 后复检——分析可达 120s，期间切书时 StyleView
+  // 书名入口捕获 + await 后复检——分析可达 120s，期间切书时 StyleView
   // 挂 :key=bookName 整树重建，本死实例的 props 冻结在旧书（比 props 恒等），须比
   // 路由活书名：放行则死实例的 style.load(旧书) 把 A 书数据写进共享 store，B 书文风页
   // 从此显示 A 的数据、后续确认/忽略/收割全写向 A 书
@@ -59,7 +59,7 @@ async function onAnalyze(): Promise<void> {
       ui.toast('分析完成', 'success')
     }
   } catch (e) {
-    // R75-E-P3c：catch 侧补同款书名复检——成功路径有门（上方两处），catch 漏配：
+    // catch 侧补同款书名复检——成功路径有门（上方两处），catch 漏配：
     // runStyleAnalysis await 窗口切书后，A 书的分析失败错误会 toast 在 B 书界面上
     if (String(route.params.name ?? '') !== book) return
     ui.toast(friendlyError(e), 'error')
@@ -143,7 +143,7 @@ function fmtDate(iso: string): string {
             <span>总结体结尾 {{ style.trend.summaryEndingChapters.length }}{{ unit }}</span>
           </div>
           <div v-if="style.trend.drifts.length > 0" class="drift-list">
-            <!-- R46-30（四十六轮）：漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
+            <!-- ：漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
               （metrics/style.ts detectConsecutiveOver 单发 + 固定推送各一次），metric 即行身份 -->
             <div v-for="d in style.trend.drifts" :key="d.metric" class="drift-item"><TriangleAlert :size="11" /> {{ d.message }}</div>
           </div>
@@ -166,14 +166,14 @@ function fmtDate(iso: string): string {
         <template v-if="aiResult">
           <div class="ai-drift">{{ aiResult.drift }}</div>
           <div v-if="aiResult.口癖?.length" class="ai-tags">
-            <!-- 重评2-P3-4（2026-09-09 全量重评 GLM-5.3）：key 弃纯 index——口癖串可重复，
+            <!-- 2-（GLM-5.3）：key 弃纯 index——口癖串可重复，
                  改「值+序号」复合键（同 OverviewView 口癖 tags 形态）；aiResult 一次性整表
                  替换、纯展示 span 无内部状态（无错位实害），零行为改动。 -->
             <span v-for="(t, i) in aiResult.口癖" :key="t + '-' + i" class="ai-tag">{{ t }}</span>
           </div>
           <div v-if="aiResult.重复度评价" class="ai-line">{{ aiResult.重复度评价 }}</div>
           <div v-if="aiResult.建议?.length" class="ai-suggestions">
-            <!-- 重评2-P3-4：同上——建议串可重复，复合键替代 index -->
+            <!-- 2-：同上——建议串可重复，复合键替代 index -->
             <div v-for="(s, i) in aiResult.建议" :key="s + '-' + i" class="ai-suggestion">{{ s }}</div>
           </div>
         </template>
@@ -187,9 +187,9 @@ function fmtDate(iso: string): string {
 
 <style scoped>
 /* .panel/.btn-ghost 基础与 hover、.token-chip 基础与 .free 已收敛至 style-shared.css
- *（R0912-C2-P3-3 全局装载）。差异行留本文件：disabled 规则原仅 .btn-ghost 单选择器
+ *（全局装载）。差异行留本文件：disabled 规则原仅 .btn-ghost 单选择器
  *（Baseline/Candidate 为双选择器合并块）；.cost 档仅本文件使用。.spin 旋转动画
- * R0916-7-P3-26 起单源在全局 styles/utilities.css（原 1s 本地档已删）。 */
+ * 起单源在全局 styles/utilities.css（原 1s 本地档已删）。 */
 .btn-ghost:disabled {
   opacity: 0.45;
   cursor: default;

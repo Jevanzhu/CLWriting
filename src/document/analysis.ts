@@ -1,5 +1,5 @@
 /**
- * AI 分析信封（M12 块0 B0.1）—— 随书存储的 AI 生成辅助数据。
+ * AI 分析信封（M12 块0 .1）—— 随书存储的 AI 生成辅助数据。
  *
  * 生成与展示解耦：AI 不可达时存量数据照常展示，仅「重新分析」置灰
  * （与三审意见落 审稿.md 同模式，符合「无开关、置灰不隐藏」）。
@@ -22,7 +22,7 @@ import { log } from '../log/index.js'
 /** 分析载荷种类（review=三审汇总 / score=体验分 / emotion=情绪曲线 / hooks=钩子密度 / style=文风总结）。 */
 export type AnalysisKind = 'review' | 'score' | 'emotion' | 'hooks' | 'style'
 
-/** 单条分析信封（payload 按 kind 各异；B0.1 统一 unknown，B4 各载荷细化类型）。 */
+/** 单条分析信封（payload 按 kind 各异；.1 统一 unknown，各载荷细化类型）。 */
 export interface Envelope {
   /** 生成时刻（ISO）。 */
   generatedAt: string
@@ -34,13 +34,13 @@ export interface Envelope {
   payload: unknown
 }
 
-/** 分析文件候选路径（R68-3）：项目/分析/<docId>.json——写侧恒编码（legacy 冒号
- *  在 win 文件名非法）。R70-1（十八轮）：候选序**编码在前**（权威位优先）——读侧
+/** 分析文件候选路径：项目/分析/<docId>.json——写侧恒编码（legacy 冒号
+ *  在 win 文件名非法）。：候选序**编码在前**（权威位优先）——读侧
  *  双候选时编码文件（新写落点）优先，字面旧文件仅编码不存在时兜底；此前字面在前
  *  会让迁移后的新写被字面旧信封永久遮蔽（含 verdictFp stat 恒指字面致树红点缓存
- *  永不失效）。docId 非法返回 null（safe-by-default，P1-SEC-C 契约不变）。 */
+ *  永不失效）。docId 非法返回 null（safe-by-default，-SEC-C 契约不变）。 */
 export function analysisPathCandidates(bookRoot: string, docId: string): string[] | null {
-  // P1-SEC-C：safeDocId 内联，使路径安全成为函数契约（调用方无需重复校验）
+  // -SEC-C：safeDocId 内联，使路径安全成为函数契约（调用方无需重复校验）
   if (!safeDocId(docId)) return null
   const literal = join(bookRoot, '项目', '分析', `${docId}.json`)
   const encoded = join(bookRoot, '项目', '分析', `${encodeDocDirName(docId)}.json`)
@@ -53,7 +53,7 @@ export function analysisPath(bookRoot: string, docId: string): string | null {
   return candidates ? candidates[0]! : null
 }
 
-/** 已存在的分析文件（读侧定位；都不存在返回 null）。R68-3：check/run.ts 信封
+/** 已存在的分析文件（读侧定位；都不存在返回 null）。：check/run.ts 信封
  *  stat 指纹等「按现存文件取路径」的消费方用本函数，不吃单候选读写分裂。 */
 export function existingAnalysisPath(bookRoot: string, docId: string): string | null {
   const candidates = analysisPathCandidates(bookRoot, docId)
@@ -70,7 +70,7 @@ export function analysisBookPath(bookRoot: string): string {
 }
 
 /** 读某文档某 kind 的信封；无文件/无 kind/损坏 → null。docId 非法 → null。
- *  R68-3：双候选读（mac 存量字面在前、编码在后）。 */
+ *  ：双候选读（mac 存量字面在前、编码在后）。 */
 export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind): Envelope | null {
   const candidates = analysisPathCandidates(bookRoot, docId)
   if (!candidates) return null
@@ -87,7 +87,7 @@ export function readAnalysis(bookRoot: string, docId: string, kind: AnalysisKind
   return null
 }
 
-/** R69-27（十七轮）：一次读盘取多个 kind 的信封（analysis-overview 等多 kind 消费方）——
+/** 一次读盘取多个 kind 的信封（analysis-overview 等多 kind 消费方）——
  *  此前每个 kind 各调 readAnalysis = 同一 JSON 文件 existsSync+readFileSync 整读 N 遍，
  *  几百章长书的 overview 端点同步 IO 上千次、阻塞事件循环秒级。损坏候选跳过与
  *  readAnalysis 同语义；候选内任一请求 kind 命中即返回（按 kind 取用，缺失键 undefined）。 */
@@ -119,11 +119,11 @@ export function readAnalysisKinds(
   return {}
 }
 
-/** B-15（第六十轮）：分析合并写 RMW 跨进程短锁——读 raw → merge → 整写此前无互斥，
+/** 分析合并写 RMW 跨进程短锁——读 raw → merge → 整写此前无互斥，
  *  双进程并发写不同 kind 时后写者以其旧 raw 落盘，先写者的 kind 静默丢失。
- *  锁文件 `${filePath}.lock`（journal/manifest 同款基建，X-5/N7 语义）；超时降级
+ *  锁文件 `${filePath}.lock`（journal/manifest 同款基建，/语义）；超时降级
  *  裸写 + warn 留痕（AI 派生数据可重跑，宁裸写不阻断主流程）。 */
-/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+/** 三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
 export const [getAnalysisLockTimeoutMs, __setAnalysisLockTimeoutForTest] = testableConst(5_000)
 
 function withAnalysisLock<T>(filePath: string, fn: () => T): T {
@@ -140,9 +140,9 @@ function withAnalysisLock<T>(filePath: string, fn: () => T): T {
 }
 
 /** 写某文档某 kind 的信封（合并写：其他 kind 保留；损坏文件重建）。docId 非法 → 跳过。
- *  R68-3：写侧恒落编码路径；合并基读双候选（mac 存量字面文件存在时其 kind 随写迁入
+ *  ：写侧恒落编码路径；合并基读双候选（mac 存量字面文件存在时其 kind 随写迁入
  *  编码文件，不被同 docId 新文件遮蔽丢失）。
- *  R70-1/R70-2（十八轮）：合并基改**双候选 overlay**（字面为底、编码文件键覆盖其上）——
+ *  /：合并基改**双候选 overlay**（字面为底、编码文件键覆盖其上）——
  *  此前基取「首个存在候选」（字面优先）：字面与编码并存时第二次写的基不含第一次迁入
  *  编码文件的 kind，整写把先写的 kind 静默清除；且编码写成功后**锁内删字面源**——读侧
  *  候选序字面在前会让新写被字面旧信封永久遮蔽（verdictFp 取 existingAnalysisPath 的
@@ -158,11 +158,11 @@ export function writeAnalysis(
   withAnalysisLock(fp, () => writeAnalysisLocked(fp, bookRoot, docId, kind, envelope))
 }
 
-/** R34D-19（三十四轮）：writeAnalysis 的异步孪生——锁等待走 acquireCrossProcessLockAsync
+/** writeAnalysis 的异步孪生——锁等待走 acquireCrossProcessLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），服务进程调用链（review/analysis 端点）专用；
  *  超时降级裸写 + warn 留痕口径与同步版逐位同源。RMW 本体抽 writeAnalysisLocked 共用
  *  （防两版漂移）。同步版 writeAnalysis 保留——生产零调用（review/analysis 均已切异步
- *  孪生，R36-11 复核），仅测试直调与无异步上下文的 CLI/脚本侧预留。 */
+ *  孪生，复核），仅测试直调与无异步上下文的 CLI/脚本侧预留。 */
 export async function writeAnalysisAsync(
   bookRoot: string,
   docId: string,
@@ -184,13 +184,13 @@ export async function writeAnalysisAsync(
   }
 }
 
-/** R34D-19（三十四轮）：合并写 RMW 本体（锁由调用方在持）——writeAnalysis（同步壳）与
+/** 合并写 RMW 本体（锁由调用方在持）——writeAnalysis（同步壳）与
  *  writeAnalysisAsync（异步壳）共用，防两壳各持一份合并逻辑漂移。 */
 function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: AnalysisKind, envelope: Envelope): void {
   const candidates = analysisPathCandidates(bookRoot, docId) ?? []
   // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
   let raw: Record<string, unknown> = {}
-  // R48-49（四十八轮）：单候选常态（迁移收口后 candidates=[fp]）已在循环内读完，
+  // 单候选常态（迁移收口后 candidates=[fp]）已在循环内读完，
   // 下方不再整读+解析同一路径第二遍（fpConsumed 标记）；多候选/循环内读失败仍走
   // 下方兜底读，语义不变。
   let fpConsumed = false
@@ -217,8 +217,8 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
   for (const cp of candidates) {
     if (cp !== fp && existsSync(cp)) {
       try {
-        // R0911-E-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：删源收编 rmWithRetry
-        //（fs/atomic.ts R40-18「确实要删」原语，trash.ts/service.ts 等删源点同款）——
+        // （GLM-5.3 修复批）：删源收编 rmWithRetry
+        //（fs/atomic.ts 「确实要删」原语，trash.ts/service.ts 等删源点同款）——
         // 裸 rmSync 撞 win 杀软/索引器对相邻刚写文件的瞬时锁（EPERM/EBUSY）直败，
         // 字面旧源滞留拖长双候选期；3×50ms 退避后仍失败保持既有收口（吞错不阻断，
         // 下次写重试删）
@@ -230,7 +230,7 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
   }
 }
 
-/** R36-4（三十六轮）：withAnalysisLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
+/** withAnalysisLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），服务进程调用链（analyze-style 全书信封落盘）专用；
  *  超时降级裸写 + warn 留痕口径与同步版逐位同源。同步版 withAnalysisLock 保留——随
  *  writeAnalysis（生产零调用）仅测试直调使用。 */
@@ -260,11 +260,11 @@ export function readBookAnalysis(bookRoot: string, kind: AnalysisKind): Envelope
   }
 }
 
-/** R36-4（三十六轮）：写全书级某 kind 信封（合并写：其他 kind 保留；B-15 同款跨进程
+/** 写全书级某 kind 信封（合并写：其他 kind 保留；同款跨进程
  *  短锁）的异步孪生——锁等待走 acquireCrossProcessLockAsync（setTimeout 轮询，事件循环
  *  不阻塞）。原同步版 writeBookAnalysis 的 Atomics.wait ≤5s 曾冻结服务事件循环（HTTP
- *  热路径唯一调用点 analyze-style 落盘，R36-4 迁移本版）；同步版已无任何调用方
- *  （R36-11 复核 src/scripts/test 全零）→ 删除，不留双版漂移面。超时降级裸写 + warn
+ *  热路径唯一调用点 analyze-style 落盘，迁移本版）；同步版已无任何调用方
+ *  （复核 src/scripts/test 全零）→ 删除，不留双版漂移面。超时降级裸写 + warn
  *  留痕口径与 writeAnalysisAsync 逐位同源。 */
 export async function writeBookAnalysisAsync(
   bookRoot: string,

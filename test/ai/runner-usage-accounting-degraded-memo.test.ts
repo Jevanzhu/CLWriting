@@ -1,5 +1,5 @@
 /**
- * （R0916-7 收尾批：文件由批号命名 r34d-batch-a.test.ts 改行为命名；用例与断言零改动。）
+ * （R0916-7 收尾批：文件由批号命名 r34d-batch-a.test.ts 改行为命名（现 responses-empty-output-error-usage.test.ts）；用例与断言零改动。）
  * R34D 批 A（三十四轮）回归——AI 链路 usage 口径与降级记忆标记时序：
  *
  * - R34D-1：runner 可重试分支把 GenError.usage 硬记 null——截断带 usage 机制（B-12/R31-1）

@@ -11,8 +11,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 // R75-D-P3b（批 D）：/tree-issues 已有 5s TTL 结果缓存——本测验证「verdict 落盘后立即可见」，
-// 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
-import { __setTreeIssuesTtlForTest } from '../../src/studio/server/api/check.js'
+// 注入 TTL=0 关缓存保住原即时语义（缓存三态由 state-tree-issues-ttl.test.ts 覆盖）
 // R26-57（二十六轮）：降级注入口（真实损坏多被自愈吞掉，难确定性触发——生产恒 false）
 import { __setChapterCheckDegradeForTest } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -58,11 +57,12 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 }
 
 beforeAll(async () => {
-  __setTreeIssuesTtlForTest(0) // R75-D-P3b：关 TTL 缓存（it1→it2 verdict 翻转后需立即可见）
   studio = await bootStudio({
     book: BOOK,
     prefix: 'clwriting-tree-issues-',
     env: { CLWRITING_DRIVER: 'mock' },
+    // R75-D-P3b：关 TTL 缓存（it1→it2 verdict 翻转后需立即可见；原模块级 setter 已删）
+    overrides: { treeIssuesTtlMs: 0 },
     dirs: ['写作/正文', '项目', '文风'],
     // leads.enabled: [] 关闭账本/成长线长程项，隔离出禁词 red 这一确定红源
     bookYaml:
@@ -104,7 +104,6 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  __setTreeIssuesTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   await studio.close()
 })
 

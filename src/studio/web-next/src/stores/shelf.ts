@@ -12,16 +12,16 @@ export const useShelfStore = defineStore('shelf', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 操作代（N-12，第五十四轮，与 check store 同款）：并发 load 慢响应迟到不回填旧数据。
-   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  /** 操作代（与 check store 同款）：并发 load 慢响应迟到不回填旧数据。
+   *  ：裸计数器换装 useStaleGuard。 */
   const opGen = useStaleGuard()
 
-  // win 平台专项（2026-09-02）：书架快照缓存——列表要等 GET /api/books（win 慢盘/网络盘扫
+  // win 平台专项：书架快照缓存——列表要等 GET /api/books（win 慢盘/网络盘扫
   // 可达数百 ms）返回才渲染。写侧在每次成功拉取后落一份非敏感快照（书名/章数/字数/时间，
   // 屏幕上本就可见），load 起始先同步灌入再后台刷新——「加载中…」不再卡整屏，感知延迟降到
   // 近零。失败降级（隐私模式/配额满静默）。
   //
-  // 2026-09-02 二审修正：sessionStorage → localStorage。sessionStorage 只在同标签内刷新
+  // 二审修正：sessionStorage → localStorage。sessionStorage 只在同标签内刷新
   // （Ctrl+R）保留，**关窗/重启进程即清空**——「以 dev app 方式启动」是全新窗口冷启动，
   // 缓存读不到等于没效果，书架仍要等首轮 API。localStorage 跨窗口存活，冷启动同样先同步
   // 灌入快照再后台刷新；后台刷新永远覆盖快照，展示态不会比刷新场景更陈旧（同一 tradeoff）。
@@ -33,9 +33,9 @@ export const useShelfStore = defineStore('shelf', () => {
     hint: string | null
   }
 
-  /** R50-D2-3（五十轮）：shelf 条目逐条形状校验——name 为 BookEntry 必填 string、
+  /** shelf 条目逐条形状校验——name 为 BookEntry 必填 string、
    * title 存在时须 string/null/undefined（消费面 BookCard/useShelf 的
-   * b.title ?? b.name 直呼 .toLowerCase()/.localeCompare，非 string 即 TypeError 白屏）。
+   * b.title ?? b.name 直呼 .toLowerCase/.localeCompare，非 string 即 TypeError 白屏）。
    * 口径对齐 workspace.loadBookPrefs 的 filter((x): x is string => ...) 逐条校验。 */
   function isBookEntry(x: unknown): x is BookEntry {
     if (typeof x !== 'object' || x === null) return false
@@ -51,11 +51,11 @@ export const useShelfStore = defineStore('shelf', () => {
       if (!raw) return null
       const parsed = JSON.parse(raw) as ShelfCache
       if (!Array.isArray(parsed['books'])) return null
-      // R50-D2-3（五十轮）：books 只验 Array.isArray 不够——坏条目（null/数字元素等）
-      // 在消费点 (b.title ?? b.name).toLowerCase() 抛 TypeError 整页白屏。逐条校验：
+      // books 只验 Array.isArray 不够——坏条目（null/数字元素等）
+      // 在消费点 (b.title ?? b.name).toLowerCase 抛 TypeError 整页白屏。逐条校验：
       // 坏条目丢弃、好条目保留（全坏 → 空表，走「有快照」路径立即渲染空列表后台刷新）
       const books = parsed['books'].filter(isBookEntry)
-      // 重评-P3-13（2026-09-09 全量代码重评）：workDirMissing/hint 与 books 同口径形状校验——
+      // -（全量代码）：workDirMissing/hint 与 books 同口径形状校验——
       // 损坏快照的字段类型非法即回落缺省值，不直通进 store
       return {
         books,
@@ -101,8 +101,8 @@ export const useShelfStore = defineStore('shelf', () => {
       // 有快照时刷新失败不整屏报错（列表仍展示旧数据，控制台留痕）；无快照（首屏）照旧上抛
       if (cached) {
         console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
-        // 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：原仅 console.warn，作者对着
-        // 可能过期的列表继续操作毫无感知——补 warning toast 可见化（对齐 doc.ts 重审-16
+        // 清偿-shelf缓存失效提示（残留清偿批）：原仅 console.warn，作者对着
+        // 可能过期的列表继续操作毫无感知——补 warning toast 可见化（对齐 doc.ts
         // 「显示内容可能已过期」的半失败口径；同文案同 kind 经 ui.toast 合并去重不刷屏）。
         useUiStore().toast('书架刷新失败，当前显示本地缓存', 'warning')
       } else {

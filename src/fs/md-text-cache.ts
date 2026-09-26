@@ -1,14 +1,14 @@
 /**
- * 进程级 md 文件文本指纹缓存（R47-5/R47-10/R47-27，四十七轮）。
+ * 进程级 md 文件文本指纹缓存。
  *
  * 动机：三处独立消费方此前各持一份私有正文缓存/无缓存——document/foreshadow.ts
- * chapterTextCache（R66-6）与 metrics/style.ts chapterBodyCache（R66-24）各 4096 条
+ * chapterTextCache 与 metrics/style.ts chapterBodyCache 各 4096 条
  * 存**同一批章文件的去 fm 正文**（双份驻留）；check/leads.ts chapterTextOf 仅调用内
  * Map（每次机检全量重读）；process/book-search.ts searchFile 每查询裸 readFileSync
  * （无命中时读完全书）。收敛为单源后：同指纹零重读、驻留总量减半、三消费方共享。
  *
  * 纪律（对齐 document/tree.ts probeCache / format/chapters.ts chapterDirCache /
- * R66-6 / R66-24 同款口径）：
+ * / 同款口径）：
  * - bigint stat 指纹（mtimeNs + size，撞车窗口 ns 级）——写必 bump mtime，自然失效，
  *   无需写路径挂钩；文件消失（TOCTOU）清条目；
  * - Map 插入序 FIFO 上限 4096（正文章数千级的 4 倍余量，防长跑无界）；
@@ -25,7 +25,7 @@ const MD_TEXT_CACHE_MAX = 4096
 let mdTextCacheMax = MD_TEXT_CACHE_MAX
 const mdTextCache = new Map<string, { mtimeNs: bigint; size: bigint; text: string; bytes: number }>()
 
-// PM-8（性能与内存专项·2026-09-05）：字节预算双闸。条目数上限只防「条数无界」，挡不住
+// 字节预算双闸。条目数上限只防「条数无界」，挡不住
 // 少量超大文档（全书单文件拖稿、超长设定卷）的驻留膨胀——4096 条 × 2MB 章 = 理论 8GB。
 // 字节闸按 UTF-8 字节数计账：插入后超预算（默认 64MB，约 2000 万字全量正文 + 余量）
 // 从最旧条目起逐出至预算内；恒保留最新一条（刚请求的条目逐出即缓存击穿抖动）。
@@ -78,14 +78,14 @@ export function readMdTextCached(abs: string): string | null {
     dropEntryLocked(abs)
     return null
   }
-  // FIFO 淘汰最旧（Map 保插入序，防长跑无界）+ 字节预算（PM-8）
+  // FIFO 淘汰最旧（Map 保插入序，防长跑无界）+ 字节预算
   insertEntryLocked(abs, st, text)
   return text
 }
 
 /**
- * 异步孪生（R47-5，四十七轮）：指纹检查/读盘全 async（HTTP 端点搜索链不回退同步
- * IO——R37-5 异步化语义保持），与同步版共享同一指纹表（同步工具路径先扫过的文件
+ * 异步孪生：指纹检查/读盘全 async（HTTP 端点搜索链不回退同步
+ * IO—— 异步化语义保持），与同步版共享同一指纹表（同步工具路径先扫过的文件
  * 端点路径直接命中，反之亦然）。降级语义同同步版：消失/读失败 → null。
  */
 export async function readMdTextCachedAsync(abs: string): Promise<string | null> {
@@ -114,7 +114,7 @@ export async function readMdTextCachedAsync(abs: string): Promise<string | null>
  *  未 resolve）构成，前缀用 bookRoot + sep 同源字节对齐（foreshadow 原本地缓存
  *  forgetChapterTextCacheForBook 同款口径）。返回清除条目数；清后键惰性重建。 */
 export function forgetMdTextCacheForBook(bookRoot: string): number {
-  // R0913-win P3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：前缀比较收编
+  // （折叠键族， win 适配修复批）：前缀比较收编
   // platformCaseFold（键字节不动、只折叠比较；cache/rebuild forgetChapterParseCacheForBook
   // 同批同款）——同一书以不同 case 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配
   // 清不净（FIFO 4096 + 字节闸兜底内的内存卫生态）。linux 不折叠语义不变。
@@ -129,7 +129,7 @@ export function forgetMdTextCacheForBook(bookRoot: string): number {
   return removed
 }
 
-/** R47-27：测试钩子（生产零调用，先例同 rebuild.ts __testHooks）——清缓存防用例间污染。 */
+/** 测试钩子（生产零调用，先例同 rebuild.ts __testHooks）——清缓存防用例间污染。 */
 export const __mdTextCacheTestHooks = {
   clear(): void {
     mdTextCache.clear()
@@ -141,7 +141,7 @@ export const __mdTextCacheTestHooks = {
   setMaxEntriesForTest(n: number | null): void {
     mdTextCacheMax = n ?? MD_TEXT_CACHE_MAX
   },
-  // PM-8：字节计账观测 + 预算注入（生产零调用）
+  // 字节计账观测 + 预算注入（生产零调用）
   bytes(): number {
     return mdTextCacheBytes
   },

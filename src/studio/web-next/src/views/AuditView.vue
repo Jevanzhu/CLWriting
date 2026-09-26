@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// F1-P5 审计视图：事件重放 + 遮蔽差异（模型可见 vs 人类可见）+ 工作流链路。
+// 审计视图：事件重放 + 遮蔽差异（模型可见 vs 人类可见）+ 工作流链路。
 // 只读审计——展示「模型看到的 vs 人类看到的」差异，以及每本书的事件流与血缘引用。
-// AA-P2-1：长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
+// 长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle } from 'lucide-vue-next'
@@ -10,7 +10,7 @@ import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import AuditDiffPanel from '../components/audit/AuditDiffPanel.vue'
 import AuditGoalTodoPanel from '../components/audit/AuditGoalTodoPanel.vue'
-// R0911b-C2-P3-1：对话/工作流两段事件列表模板近复制（行 + 空态 + 分页/截断行），
+// 对话/工作流两段事件列表模板近复制（行 + 空态 + 分页/截断行），
 // 抽 AuditEventList 子组件两处以 props/事件消费（纯结构去重零行为变更）
 import AuditEventList from '../components/audit/AuditEventList.vue'
 
@@ -50,8 +50,8 @@ const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTot
 const convoCapHit = computed(() => !hasMoreConvo.value && convoEvents.value.length >= RENDER_CAP && convoEvents.value.length < convoTotal.value)
 const workflowCapHit = computed(() => !hasMoreWorkflow.value && workflowEvents.value.length >= RENDER_CAP && workflowEvents.value.length < workflowTotal.value)
 
-// R36-25（三十六轮）：script 层代守卫——load/loadMore 的 await 回调当前被模板禁用态
-// （:disabled="loading"）封死（刷新在途时按钮不可点），但禁用态只是 UI 耦合；实例卸载
+// script 层代守卫——load/loadMore 的 await 回调当前被模板禁用态
+// （disabled="loading"）封死（刷新在途时按钮不可点），但禁用态只是 UI 耦合；实例卸载
 // 后迟到的响应仍会回写 refs。置 unmounted 标记，异步回调落点前复检吞掉（对将来
 // 模板移除禁用态/新增自动刷新均不失守）。
 let alive = true
@@ -59,11 +59,11 @@ onUnmounted(() => {
   alive = false
 })
 
-// R48-23（四十八轮）：共享代数守卫（库内 loadGen 惯例）——「加载更多」在途时点「刷新」，
-// load() 清列表归零 offset，迟到续页此前按旧 offset push 进已重置列表且 offset 漂移
+// 共享代数守卫（库内 loadGen 惯例）——「加载更多」在途时点「刷新」，
+// load 清列表归零 offset，迟到续页此前按旧 offset push 进已重置列表且 offset 漂移
 //（原注释自称不失守恰恰失守：alive 只护卸载不护刷新）。续页开工时拍代数，回写前
 // 复核；load 开工递增代数使全部在途续页作废。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（load begin，续页/清除观测点 current）。
+// 裸计数器换装 useStaleGuard（load begin，续页/清除观测点 current）。
 const loadGen = useStaleGuard()
 
 async function load(): Promise<void> {
@@ -80,12 +80,12 @@ async function load(): Promise<void> {
   goals.value = []
   todos.value = []
   expanded.value = new Set()
-  // R0912-FE-P3-11（mac 线）：「放行全量 JSON」集合原在此随 load 清空；并合后懒展开状态
+  // （mac 线）：「放行全量 JSON」集合原在此随 load 清空；并合后懒展开状态
   // 随 AuditEventList 子组件持有，子组件 watch events 数组换代即复位（load 换新数组、
   // loadMore 原地 push——语义与原父侧 clear 等价），此处不再直清。
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
-    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后迟到响应不回写；R48-23：被更新刷新作废
+    if (!alive || loadGen.stale(gen)) return // 卸载后迟到响应不回写；：被更新刷新作废
     conversation.value = v.conversation
     convoEvents.value = v.conversation?.events ?? []
     convoTotal.value = v.conversation?.eventsTotal ?? 0
@@ -96,10 +96,10 @@ async function load(): Promise<void> {
     goals.value = v.goals ?? []
     todos.value = v.todos ?? []
   } catch (e) {
-    if (!alive || loadGen.stale(gen)) return // R36-25
+    if (!alive || loadGen.stale(gen)) return
     err.value = friendlyError(e)
   } finally {
-    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不再回写 loading
+    if (!alive || loadGen.stale(gen)) return // 卸载后不再回写 loading
     loading.value = false
   }
 }
@@ -107,26 +107,26 @@ async function load(): Promise<void> {
 /** 追加下一页对话事件（offset = 已载条数；seq 去重防 sync/重复请求混入） */
 async function loadMoreConvo(): Promise<void> {
   if (convoLoadingMore.value || !hasMoreConvo.value) return
-  const gen = loadGen.current() // R48-23：拍代数——开工后发生刷新则本页作废
+  const gen = loadGen.current() // 拍代数——开工后发生刷新则本页作废
   convoLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: convoOffset.value })
-    if (!alive) return // R36-25：卸载后迟到续页不回写
-    if (loadGen.stale(gen)) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
+    if (!alive) return // 卸载后迟到续页不回写
+    if (loadGen.stale(gen)) return // 刷新已重置列表，旧 offset 续页不得拼入
     if (conversation.value === null) conversation.value = v.conversation
     const seen = new Set(convoEvents.value.map((e) => e.seq))
     const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
-    // R62-50：整页撞重复（sync/重复请求混入整页全被去重）→ fresh 空但页非空——offset 若
+    // 整页撞重复（sync/重复请求混入整页全被去重）→ fresh 空但页非空——offset 若
     // 仍按已载条数算会原地空转（每轮拉同页）。页非空即按服务端返回条数推进，跳过重复段。
     const pageLen = v.conversation?.events.length ?? 0
     convoEvents.value.push(...fresh)
     convoOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
-    // R57-F-1（五十七轮）：catch 补上方成功路径同款代数复检——续页在途时点刷新，
-    // load() 递增代数并清列表后，迟到失败此前仍会把错误态（err 回写）写到已被
+    // catch 补上方成功路径同款代数复检——续页在途时点刷新，
+    // load 递增代数并清列表后，迟到失败此前仍会把错误态（err 回写）写到已被
     // 新刷新取代的视图上（新代成功数据顶着旧错误横幅）。
-    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     convoLoadingMore.value = false
@@ -136,23 +136,23 @@ async function loadMoreConvo(): Promise<void> {
 /** 追加下一页工作流事件（对称实现；长自愈批的链路事件也可能超 500） */
 async function loadMoreWorkflow(): Promise<void> {
   if (workflowLoadingMore.value || !hasMoreWorkflow.value) return
-  const gen = loadGen.current() // R48-23：同 convo——开工后发生刷新则本页作废
+  const gen = loadGen.current() // 同 convo——开工后发生刷新则本页作废
   workflowLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
-    if (!alive) return // R36-25：卸载后迟到续页不回写
-    if (loadGen.stale(gen)) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
+    if (!alive) return // 卸载后迟到续页不回写
+    if (loadGen.stale(gen)) return // 刷新已重置列表，旧 offset 续页不得拼入
     const seen = new Set(workflowEvents.value.map((e) => e.seq))
     const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
-    // R62-50：同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。
+    // 同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。
     const pageLen = v.workflowEvents?.length ?? 0
     workflowEvents.value.push(...fresh)
     workflowOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
-    // R57-F-1（五十七轮）：同 loadMoreConvo——catch 补代数复检，被刷新作废的续页
+    // 同 loadMoreConvo——catch 补代数复检，被刷新作废的续页
     // 迟到失败不把错误态回写到新代视图。
-    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     workflowLoadingMore.value = false
@@ -168,11 +168,11 @@ function toggle(seq: number): void {
   expanded.value = s
 }
 
-// R0911b-C2-P3-1：typeLabel/dataSummary/事件行渲染随模板迁 AuditEventList.vue；
-// R0912-FE-P3-11（mac 线，merge 2026-09-12 并入）：事件 data JSON 懒展开同样下沉子组件
+// typeLabel/dataSummary/事件行渲染随模板迁 AuditEventList.vue；
+// （mac 线，merge 并入）：事件 data JSON 懒展开同样下沉子组件
 // （展开态 pre 渲染在子组件行模板内），父视图不再持有相关状态。
 
-// ── 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）──────────────
+// ── 事件保留定版（拍板：全量保留 + 手动清理）──────────────
 // 事件史默认 append-only 全量保留；此处是每书唯一清理入口，两步确认（销毁不可撤销）。
 const clearing = ref(false)
 const confirmClear = ref(false)
@@ -181,20 +181,20 @@ async function doClear(): Promise<void> {
   if (clearing.value) return
   clearing.value = true
   err.value = null
-  const gen = loadGen.current() // 重评2-P3-6：入口拍代数（loadMoreConvo R48-23 同款——开工后发生刷新则本操作作废）
+  const gen = loadGen.current() // 2-：入口拍代数（loadMoreConvo 同款——开工后发生刷新则本操作作废）
   try {
     await clearAudit(props.bookName)
     confirmClear.value = false
     await load()
   } catch (e) {
-    // 重评2-P3-6（2026-09-09 全量重评 GLM-5.3）：catch 补存活/代数复检（R57-F-1 先例同款）
+    // 2-：catch 补存活/代数复检（先例同款）
     // ——清除在途时卸载/点刷新，迟到失败此前仍会把错误态写到已卸载实例或已被新刷新
     // 取代的新代视图上（旧错误横幅顶在新数据上）。
-    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的清除不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的清除不得置错
     err.value = friendlyError(e)
   } finally {
     // 只守存活不守代数：clearing 仅由本操作持有，代数作废分支若不复位会把「确认清除」
-    // 按钮永久吊在禁用态（对照 loading 由取代方 load() 自己接管收尾，两处口径并不相同）
+    // 按钮永久吊在禁用态（对照 loading 由取代方 load 自己接管收尾，两处口径并不相同）
     if (alive) clearing.value = false
   }
 }
@@ -250,8 +250,8 @@ async function doClear(): Promise<void> {
           <!-- 事件重放（分页累积，含遮蔽标记 + 血缘） -->
           <section class="sec">
             <h2 class="sec-title">事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）</h2>
-            <!-- R0911b-C2-P3-1：行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列）。
-                 R0912-FE-P3-11（mac 线，merge 2026-09-12 并入）：事件 JSON 懒展开随行模板在子组件内生效 -->
+            <!-- ：行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列）。
+事件 JSON 懒展开随行模板在子组件内生效 -->
             <AuditEventList
               :events="convoEvents"
               :total="convoTotal"
@@ -268,22 +268,22 @@ async function doClear(): Promise<void> {
             />
           </section>
         </template>
-        <!-- R0912-3 #18：加载失败后不再渲染「本库尚无对话事件」空态文案（与上方错误
+        <!-- #18：加载失败后不再渲染「本库尚无对话事件」空态文案（与上方错误
              横幅同屏自相矛盾；头部 shadow-hint :211 同款 !err 守卫先例） -->
         <div v-else-if="!err" class="empty big">本库尚无对话事件（先发一条对话消息）</div>
       </template>
 
       <!-- 工作流链路 -->
       <template v-else>
-        <!-- F5：当前目标 / 任务清单（goal/todo 重放快照） -->
+        <!-- ：当前目标 / 任务清单（goal/todo 重放快照） -->
         <AuditGoalTodoPanel :goals="goals" :todos="todos" />
 
-        <!-- R0912-3 #18：同上——加载失败后不渲染「暂无工作流事件」空态与 (0) 标题；
+        <!-- #18：同上——加载失败后不渲染「暂无工作流事件」空态与 (0) 标题；
              有数据时（续页失败/清除失败）仍照常渲染，错误只走横幅 -->
         <section v-if="!err || workflowEvents.length > 0" class="sec">
           <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
-          <!-- R0911b-C2-P3-1：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
-               R0912-FE-P3-11 懒展开同随子组件生效 -->
+          <!-- ：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
+ 懒展开同随子组件生效 -->
           <AuditEventList
             :events="workflowEvents"
             :total="workflowTotal"
@@ -307,7 +307,7 @@ async function doClear(): Promise<void> {
 <style scoped>
 /* 变量纪律：只引 tokens.css 既有 token（此前 --text-dim/--bg-elev/--border/--bg/--text
  * 等短名变量全库无定义，静默回退 initial——已按语义映射到 Obsidian 命名体系）。
- * R42-27（四十二轮）：style 段硬编码 rem 字号全部就近映射 UI 字号档（tokens.css
+ * style 段硬编码 rem 字号全部就近映射 UI 字号档（tokens.css
  * --font-size-*）——≤0.75rem→xs、0.76-0.85rem→s、0.86-1.0rem→m、>1.0rem→l
  * （1.35rem 标题→l）；只换字号变量，间距/圆角等布局度量不动。 */
 .audit-scroll {
@@ -408,9 +408,9 @@ async function doClear(): Promise<void> {
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-/* R0911b-C2-P3-1：ev-list/ev-row/pager 等事件列表样式随模板迁 AuditEventList.vue
+/* ev-list/ev-row/pager 等事件列表样式随模板迁 AuditEventList.vue
  * （scoped 隔离，子组件同名类不与本视图互相泄漏）；.empty/.empty.big 本视图仍用，保留。
- * R0912-FE-P3-11（mac 线，merge 2026-09-12 并入）：.ev-full-btn 放行钮样式随懒展开逻辑
+ * （mac 线，merge 并入）：.ev-full-btn 放行钮样式随懒展开逻辑
  * 同迁子组件。 */
 .empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }

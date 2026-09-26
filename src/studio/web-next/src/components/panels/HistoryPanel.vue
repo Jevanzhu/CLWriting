@@ -23,8 +23,8 @@ const err = ref<string | null>(null)
 const restoring = ref<string | null>(null)
 
 const current = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
-// R46-5（四十六轮）：当前字数 150ms 防抖（EditorView R39-20 同款；此前每击键全文
-// 重算并经 delta() 联动快照列表渲染）
+// 当前字数 150ms 防抖（EditorView 同款；此前每击键全文
+// 重算并经 delta 联动快照列表渲染）
 const { count: currentWords } = useDebouncedWordCount(() => current.value?.content, () => ws.activeDocId)
 
 /** 来源人话（origin 是机器值，界面不露）。 */
@@ -55,10 +55,10 @@ function delta(words: number): string {
   return d > 0 ? `+${d}` : String(d)
 }
 
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 async function load(): Promise<void> {
-  // RB-FE-P2-6：双 watch（doc/book/savedAt）并发加载竞态——旧响应不覆盖新列表
+  // 双 watch（doc/book/savedAt）并发加载竞态——旧响应不覆盖新列表
   const gen = loadGen.begin()
   if (!ws.activeDocId) {
     entries.value = []
@@ -79,7 +79,7 @@ async function load(): Promise<void> {
   }
 }
 
-// E-8（二十九轮）：原「[activeDocId, bookName] + savedAt」双 watch 合并为单 watch——
+// 原「[activeDocId, bookName] + savedAt」双 watch 合并为单 watch——
 // 三元组一次订阅（文档/书切换或落盘 savedAt 变化都走这里），回调内逐位比对，值未
 // 变化不重拉（避免同一次状态变更触发两次列表请求）；load 内 loadGen 防竞态保持
 watch(
@@ -92,26 +92,26 @@ watch(
 )
 
 async function onRestore(e: SnapshotEntry): Promise<void> {
-  // 低级项（第六轮）：上下文入口捕获——确认弹窗 await 期间可切书/切文档，
+  // 低级项：上下文入口捕获——确认弹窗 await 期间可切书/切文档，
   // await 后重读 props.bookName 会把恢复请求发到别的书（docId 是旧书的）
   const book = props.bookName
   const docId = ws.activeDocId
   const cur = current.value
   if (!docId || !cur || restoring.value) return
-  // 质量评审 P2-5：正文回写有 ≤200ms 尾随节流，窗口内的键入此刻只在待写槽里、dirty
+  // 质量评审：正文回写有 ≤200ms 尾随节流，窗口内的键入此刻只在待写槽里、dirty
   // 尚未置位（首笔标脏已把窗口收窄到「标脏回调未接线」的退化态，这里仍显式冲刷——
   // 恢复决策读的是 dirty，读前必须先把槽内正文落回条目，否则随后的 refresh 保留的
   // 是缺末段的本地稿）。
   flushBodyWriteback()
-  // Y-9（第五十七轮）：dirty 先存后恢复——restore 后的 refresh 走 dirty 分支（fm 取
+  // dirty 先存后恢复——restore 后的 refresh 走 dirty 分支（fm 取
   // 服务端、正文保留本地），随后 autosave 会用本地旧正文把刚恢复的版本静默覆盖，toast
   // 却报「已恢复」。先落盘：本地编辑进磁盘与「恢复前」留底（确认弹窗的承诺），恢复真正
   // 生效；保存失败（冲突等）则中止恢复交作者决断。
   if (cur.dirty) {
     const saved = await doc.save(docId, 'manual')
     if (props.bookName !== book || ws.activeDocId !== docId) return
-    // R43-4（四十三轮）：F8 契约性 false 复检——manual 保存在途时排队等落定，dirty 已清
-    // 即返 false（内容实际已在盘），此前被误判「保存失败」错误中止恢复（对齐 R34D-22
+    // 契约性 false 复检——manual 保存在途时排队等落定，dirty 已清
+    // 即返 false（内容实际已在盘），此前被误判「保存失败」错误中止恢复（对齐
     // rewrite.ts 同型调用点口径）；仅「false 且仍 dirty」才是真失败
     if (!saved && doc.get(docId)?.dirty) {
       ui.toast('有未保存的编辑且保存失败，请先处理（重载/覆盖）再恢复历史版本', 'error')
@@ -129,7 +129,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   restoring.value = e.id
   try {
     await restoreSnapshot(book, docId, e.id, cur.baselineRevision)
-    // R30-7（三十轮）：refresh 静默吞错（网络抖动时 best-effort 失败）——按返回值分流，
+    // refresh 静默吞错（网络抖动时 best-effort 失败）——按返回值分流，
     // false = 恢复已落盘但编辑器未对齐（基线可能仍指旧版），warning 提示手动重载，
     // 不再假报成功（旧行为编辑器显旧正文、下次编辑撞 REVISION_CONFLICT 才暴露）。
     // 恢复期间已切文档时 refresh 未执行（既有门），保持成功口径不变。
@@ -141,7 +141,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     }
     await load()
   } catch (error) {
-    // R66-30（十四轮）：失败路径补书名守卫——上方成功路径有 `props.bookName === book` 门，
+    // 失败路径补书名守卫——上方成功路径有 `props.bookName === book` 门，
     // catch 漏配：restoreSnapshot await 窗口切书后，A 书的恢复失败错误会 toast 在 B 书界面上
     if (props.bookName === book) ui.toast(friendlyError(error), 'error')
   } finally {
@@ -304,7 +304,7 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 .row:hover .restore-btn {
   opacity: 1;
 }
-/* R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：键盘焦点同权显形——原仅 hover 行
+/* （GLM-5.3 修复批）：键盘焦点同权显形——原仅 hover 行
  * 显形，Tab 聚到隐形按钮上「焦点在但看不见」（对齐 switch focus-visible 焦点环口径） */
 .restore-btn:focus-visible,
 .row:focus-within .restore-btn {

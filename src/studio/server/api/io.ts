@@ -3,46 +3,49 @@
  *
  * - POST /api/books/:name/export    body {format, platform?} → 干净导出定稿（剥 front matter）
  *
- * 确定性操作（不涉大模型）。B-24（第六十轮补修）：内核为全同步 IO（S4 留档），
+ * 确定性操作（不涉大模型）。（补修）：内核为全同步 IO（留档），
  * 直调会独占服务进程事件循环（大书导出期间全部书的 SSE 心跳/保存停摆）——改经
  * run-async.ts 卸载 worker 线程，服务进程只等消息（内核零改动）。
  * 写闸承担 session token 校验（defense-in-depth）：index.ts isWrite 的 safeTokenCompare
- * 在路由分派前拦一切 POST——R1010-P3 删 handler 内冗余复核、R0911b-B-P3-2（2026-09-11
- * 全量重评修复批）随之删 ctx.token 死字段（注入后零读取）。
+ * 在路由分派前拦一切 POST—— 删 handler 内冗余复核、（
+ * 修复批）随之删 ctx.token 死字段（注入后零读取）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { runExportBookAsync } from '../../../export/run-async.js'
-import { trackInFlightWork } from './in-flight-work.js' // R0910-W：导出 Worker 退出收尾登记
+import { trackInFlightWork } from './in-flight-work.js' // 导出 Worker 退出收尾登记
 import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
 import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
-import type { TaskGateInjected } from './task-gate.js' // S3（五十九轮）：export 并发闸（R0916-7-P3-6：闸实例经组装根注入）
-import { testableConst } from '../../../shared/testable.js'
+import type { TaskGateInjected } from './task-gate.js' // export 并发闸（闸实例经组装根注入）
 
 interface IoCtx extends TaskGateInjected {
   workDir: string | null
+  /** 收尾：导出排队等待超时覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 10min 逐位不变） */
+  exportWaitTimeoutMs?: number | null
 }
 
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])
 const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
-// 内存闸（2026-08-24 审计 A1）：全局导出 worker 并发闸——task-gate 只按书限并发，
+// 内存闸：全局导出 worker 并发闸——task-gate 只按书限并发，
 // 跨书同时导出会各自 spawn worker（src 形态每线程还独立挂 tsx loader + 内核模块图），
 // 峰值线性叠加（19GB 事故的乘法项之一）。全局同时在跑 export worker ≤2，超出排队
 //（不 409——跨书导出可等，用户无感；单书并发仍走 task-gate 409 语义不变）。
 // acquireExportSlot 导出仅供测试断言排队/放行。
 const MAX_EXPORT_WORKERS = 2
-// R27-62（二十七轮）：等待面封顶——此前 FIFO 队列无界、等待无超时：队首 worker 挂死
+// 等待面封顶——此前 FIFO 队列无界、等待无超时：队首 worker 挂死
 // 时全体 waiter 无限滞留（前端转圈、全局导出不可用且无出口）。排队上限防请求堆积
 // 雪崩；单 waiter 超时给滞留者明确出口（导出是分钟级任务，10min 足够宽）。超限/
 // 超时回 503 BUSY（可重试语义），与单书 task-gate 409 口径区分。
 const MAX_EXPORT_WAITERS = 8
-/** R27-62 测试钩子：注入等待超时（毫秒），回归测超时出口用。三件套换装
- *  testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位
- *  （原名原签名，测试面零感知）。 */
-export const [getExportWaitTimeoutMs, __setExportWaitTimeoutForTest] = testableConst(10 * 60_000)
+/** 单 waiter 等待超时（生产口径 10min）。 收尾：
+ * __setExportWaitTimeoutForTest / getExportWaitTimeoutMs 模块级覆盖档删除——改
+ * acquireExportSlot 尾参（组装根 RouteOverrides 经 handler / 直测面显式传入，
+ * undefined = 10min 逐位不变）。 */
+const EXPORT_WAIT_TIMEOUT_MS = 10 * 60_000
 export class ExportSlotWaitError extends Error {
   constructor(msg: string) {
     super(msg)
@@ -53,7 +56,7 @@ let activeExportWorkers = 0
 const exportWaiters: Array<() => void> = []
 
 /**
- * 释放函数（R65-45 批注见 acquireExportSlot）：名额转移语义——release 时若有
+ * 释放函数（批注见 acquireExportSlot）：名额转移语义——release 时若有
  * waiter，不自减计数、直接 shift 队列并 resolve（名额直接转移给 waiter，waiter
  * 恢复后不再自增）；无 waiter 才自减。released 门防重复释放（二次转移/二次自减
  * 都会破坏计数不变量）。
@@ -72,13 +75,16 @@ function makeExportSlotReleaser(): () => void {
   }
 }
 
-export async function acquireExportSlot(): Promise<() => void> {
+/** 收尾：waitTimeoutMs = 本次等待的超时覆盖档（组装根 RouteOverrides 经
+ * handler / 直测面显式传入；undefined = 生产口径 10min 逐位不变）。 */
+export async function acquireExportSlot(waitTimeoutMs?: number | null): Promise<() => void> {
+  const waitMs = waitTimeoutMs ?? EXPORT_WAIT_TIMEOUT_MS
   if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
-    // R27-62（二十七轮）：队列封顶——超限直接拒（不无限堆积）
+    // 队列封顶——超限直接拒（不无限堆积）
     if (exportWaiters.length >= MAX_EXPORT_WAITERS) {
       throw new ExportSlotWaitError(`导出排队已达上限（${MAX_EXPORT_WAITERS}），请稍后重试`)
     }
-    // R27-62（二十七轮）：等待限时——resolve 与 timeout 竞速，先到者定局（单线程
+    // 等待限时——resolve 与 timeout 竞速，先到者定局（单线程
     // 事件循环下二者互斥执行）；超时方把自己从队列摘除再抛错，防 release shift 到
     // 已废弃的 waiter 名额转移落空
     await new Promise<void>((resolve, reject) => {
@@ -88,8 +94,8 @@ export async function acquireExportSlot(): Promise<() => void> {
         settled = true
         const idx = exportWaiters.indexOf(wrapped)
         if (idx !== -1) exportWaiters.splice(idx, 1)
-        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(getExportWaitTimeoutMs() / 60_000)} 分钟），请稍后重试`))
-      }, getExportWaitTimeoutMs())
+        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(waitMs / 60_000)} 分钟），请稍后重试`))
+      }, waitMs)
       const wrapped = () => {
         if (settled) return
         settled = true
@@ -98,10 +104,10 @@ export async function acquireExportSlot(): Promise<() => void> {
       }
       exportWaiters.push(wrapped)
     })
-    // R65-45（总六十五轮）：名额已由 release 直接转移（release 未自减、直接 resolve
+    // （总六十五轮）：名额已由 release 直接转移（release 未自减、直接 resolve
     // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
     // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
-    // 瞬时并发超 MAX=2（违反 A1 全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
+    // 瞬时并发超 MAX=2（违反 全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
     return makeExportSlotReleaser()
   }
   // 到这里必有空位：同步块内 check+increment 无 await，原子
@@ -116,12 +122,12 @@ export function registerIoRoutes(ctx: IoCtx): void {
     path: '/api/books/:name/export',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：handler 内冗余 token 复核删除——
+    // handler 内冗余 token 复核删除——
     // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST，此处重复
     // 校验误导安全模型分层判断（其余写 handler 均无此行）
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    // S3（五十九轮）：export 并发闸（acquireTaskGate 同款）——双击并发 exportBook 会
+    // export 并发闸（acquireTaskGate 同款）——双击并发 exportBook 会
     // rmSync 同一导出目录互删 → ENOENT 500。同步占位（无 TOCTOU）、finally 释放，
     // 并发第二请求 409（与 analyze/batch-finalize 闸同口径）。闸留本进程持闸跨
     // await（worker 执行期间仍占闸，并发语义不变）。
@@ -130,7 +136,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
     let releaseGlobal: (() => void) | null = null
     try {
       const body = await readJson(req)
-      // R72-10（二十轮 D-3）：显式非法值回 400（与全域 fail-fast 口径一致）；缺省
+      // 显式非法值回 400（与全域 fail-fast 口径一致）；缺省
       //（undefined）保留回落 both/generic（兼容不带参调用方）
       const formatRaw = body['format'] === undefined ? 'both' : String(body['format'])
       if (!EXPORT_FORMATS.has(formatRaw)) {
@@ -142,9 +148,10 @@ export function registerIoRoutes(ctx: IoCtx): void {
       }
       const format: ExportFormat = formatRaw as ExportFormat
       const platform: ExportPlatform = platformRaw as ExportPlatform
-      releaseGlobal = await acquireExportSlot()
+      // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入
+      releaseGlobal = await acquireExportSlot(ctx.exportWaitTimeoutMs ?? undefined)
       const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform }))
-      // B-23（第六十轮补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
+      // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
       // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
       // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。
       // ii 批：成功负载为域形状（chapterCount/unit/files），不透传 CLI 进程信封
@@ -154,15 +161,15 @@ export function registerIoRoutes(ctx: IoCtx): void {
         chapterCount: result.chapterCount,
         unit: result.unit,
         files: result.files,
-        // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：透传定稿过滤标记——
+        // 清偿-导出未过滤提示：透传定稿过滤标记——
         // 清单缺失兜底导出（含未定稿章）时前端据此明示
         finalizedFilter: result.finalizedFilter,
-        // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带（V-P2-2）
+        // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带
         // 但信封漏发，前端无法提示「已跳过 N 个草稿章」
         skippedDrafts: result.skippedDrafts,
       })
     } catch (e) {
-      // R27-62（二十七轮）：排队超限/超时给 503 信封（可重试），不再直穿 500 兜底
+      // 排队超限/超时给 503 信封（可重试），不再直穿 500 兜底
       if (e instanceof ExportSlotWaitError) {
         return replyError(res, 503, 'BUSY', e.message)
       }

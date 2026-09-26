@@ -9,7 +9,7 @@ import { GraduationCap, Sparkles, PackageCheck, AlertCircle, Check, X } from 'lu
 import { useLearnStore } from '../stores/learn'
 import { useTreeStore } from '../stores/tree'
 import { scoreTierStats } from '../shared/learn-tier'
-// P3-㉖（复审-0913-源码）：正文判定走 isBodyKind 单源
+// -㉖（-源码）：正文判定走 isBodyKind 单源
 import { isBodyKind } from '../shared/words'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SampleCandidateList from '../components/learn/SampleCandidateList.vue'
@@ -25,7 +25,7 @@ const chapterCount = computed(
 )
 
 // ── 打分分布统计 ──
-// R48-90（四十八轮）：统计收敛 shared/learn-tier 单源（原与 SampleCandidateList 逐字双实现）
+// 统计收敛 shared/learn-tier 单源（原与 SampleCandidateList 逐字双实现）
 const scoreStats = computed(() => scoreTierStats(learn.samples))
 
 // 场景覆盖数
@@ -86,7 +86,7 @@ async function onCommit(): Promise<void> {
       <span>{{ learn.error }}</span>
     </div>
 
-    <!-- 空状态（R0912-3 P2-3 三态：未收割引导 / 已收割零候选 / 有结果——原内层
+    <!-- 空状态（三态：未收割引导 / 已收割零候选 / 有结果——原内层
          「无合格候选」分支与外层 hasResult 逻辑互斥不可达，判据上移 store 合流到此） -->
     <EmptyState
       v-if="!learn.hasResult && !learn.loading && !learn.error"

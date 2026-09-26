@@ -1,11 +1,11 @@
 /**
- * R0916-7-P3-15（2026-09-24 全项目源码质量与优雅度评审 P3-15）：三适配器流尾收口单点。
+ * （全项目源码质量与优雅度评审）：三适配器流尾收口单点。
  *
  * 收口面（原在 openai / anthropic / responses 三线各写 2–3 份逐字同款拷贝）：
  * - done 事件发射（幂等门 + resolvedMaxTokens / degraded 透传）；
  * - 截断估算 / usage 兜底（input 实测优先 → 请求字符折算；output 按累计产出折算）；
  * - 过滤 / 拒答（content_filter / refusal）→ error 出场，不发 done；
- * - 终态错误壳与传输截断错误壳（B-12：usage 随错上抛，runner 终态失败按真实消耗入账）；
+ * - 终态错误壳与传输截断错误壳（usage 随错上抛，runner 终态失败按真实消耗入账）；
  * - stopReason 归一（types.ts 判别联合 StopReason；线上未知拼写显式归类 'unknown' 并留痕）。
  *
  * 边界（有意不共用）：何时发 done、何时判传输截断的**判定**留在各适配器——它与各线流
@@ -70,7 +70,7 @@ export function normalizeStopReason(raw: string, line: WireLine): StopReason {
 export interface EstimateUsageSources {
   req: GenRequest
   model?: string
-  /** 累计产出正文 / 推理 delta（R73-1/R74-1 计费面） */
+  /** 累计产出正文 / 推理 delta（/计费面） */
   outText: readonly string[]
   /** 已消费的 tool 参数（name + args 串联） */
   outToolText: readonly string[]
@@ -89,9 +89,9 @@ export interface StreamFinalizerOpts {
   line: WireLine
   /** 本线终止字段名（过滤 / 拒答文案） */
   stopField: StopReasonField
-  /** Q-13：resolve 后上线输出上限（done 透出；无兜底不发的线 undefined） */
+  /** resolve 后上线输出上限（done 透出；无兜底不发的线 undefined） */
   resolvedMaxTokens?: number
-  /** Z-12：本次成功建流是否用了降级参数面（延迟读——建流后才确定） */
+  /** 本次成功建流是否用了降级参数面（延迟读——建流后才确定） */
   isDegraded: () => boolean
   /**
    * 缺终止值时的协议默认（显式声明，不做隐式兜底）：Anthropic 线 message_delta 下发
@@ -102,7 +102,7 @@ export interface StreamFinalizerOpts {
   missingStopReason?: StopReason
 }
 
-/** 流尾收口单点（三适配器共用；实例生命周期 = 一次 stream() 调用） */
+/** 流尾收口单点（三适配器共用；实例生命周期 = 一次 stream 调用） */
 export interface StreamFinalizer {
   /** done 是否已发射（适配器兜底分支的判据） */
   doneEmitted(): boolean

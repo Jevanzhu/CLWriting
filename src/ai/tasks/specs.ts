@@ -1,5 +1,5 @@
 /**
- * 7 条 AI 链路的 TaskSpec 声明（A1 声明化）。
+ * 7 条 AI 链路的 TaskSpec 声明（声明化）。
  *
  * 每条链路的五件套（system/tool/tier/mock/genMode）收成一处声明。
  * 动态参数（如 kind、lens、role）通过工厂函数处理。
@@ -43,7 +43,7 @@ export const ONBOARD_SPEC: TaskSpec = {
   mock: { kind: 'text', text: MOCK_ONBOARD },
 }
 
-/** 账本推进声明（W-P1-3 右端：写稿后 AI 声明本章实际写入的履历行，作者确认后 finalize 回写） */
+/** 账本推进声明（右端：写稿后 AI 声明本章实际写入的履历行，作者确认后 finalize 回写） */
 export const LEAD_UPDATE_SPEC: TaskSpec = {
   name: 'lead-updates',
   tierKind: 'creative',
@@ -52,7 +52,7 @@ export const LEAD_UPDATE_SPEC: TaskSpec = {
   mock: { kind: 'text', text: '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。' },
 }
 
-/** 章摘要生成（C1 批 2）：定稿即生成 / 自愈按需补漏共用；低档廉价调用 */
+/** 章摘要生成定稿即生成 / 自愈按需补漏共用；低档廉价调用 */
 export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
   name: 'summary-chapter',
   tierKind: 'assistant',
@@ -70,7 +70,7 @@ export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
   mock: { kind: 'text', text: '- 情节推进：林远初入宗门，玉佩初显异象。\n- 账本变动：无。\n- 章尾钩子：血中之物苏醒在即。' },
 }
 
-/** 卷摘要生成（C2 批 3）：从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
+/** 卷摘要生成从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
 export const SUMMARY_VOLUME_SPEC: TaskSpec = {
   name: 'summary-volume',
   tierKind: 'assistant',

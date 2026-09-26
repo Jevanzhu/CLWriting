@@ -84,5 +84,5 @@ export async function onboardSave(
   await apiJson(bookUrl(name, 'onboard-save'), {
     method: 'POST',
     json: body,
-  }, API_DEFAULT_TIMEOUT_MS) // A5（复审-0914-优化修复批）：原裸值 30_000 收敛，数值零变化
+  }, API_DEFAULT_TIMEOUT_MS) // 原裸值 30_000 收敛，数值零变化
 }

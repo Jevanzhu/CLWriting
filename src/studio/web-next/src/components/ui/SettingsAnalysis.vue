@@ -13,7 +13,7 @@ import SettingItem from './SettingItem.vue'
 import SettingToggle from './SettingToggle.vue'
 
 const ui = useUiStore()
-// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init，设置打开时必已就绪）
 const prefs = usePrefsStore()
 // 阶段 14 §6.3：RAG 提供方读统一 provider store（与服务提供方页共享一份，一处增删处处新鲜）
 const pstore = useProviderStore()
@@ -45,12 +45,12 @@ function onGlobalRagProviderChange(e: Event): void {
   prefs.set('ragProvider', (e.target as HTMLSelectElement).value)
 }
 function onGlobalThresholdInput(e: Event): void {
-  // R72-11（二十轮 E-1）：空串/非数字不写 store——原注释声称挡掉但 Number('')=0
+  // 空串/非数字不写 store——原注释声称挡掉但 Number('')=0
   // 恰好过 isFinite 闸、被 clamp 钳成下限 1（注释与行为相反），统一走共享 helper
   const v = parseNumericInput(e)
   if (v !== null) prefs.set('relationMineThreshold', v)
 }
-// R52-E-2：机检阈值五键共用入口（空串/非数字不写 store，同 R72-11 口径；clamp 在行
+// 机检阈值五键共用入口（空串/非数字不写 store，同口径；clamp 在行
 // set 上）——按键分发经泛型 set，键面由 WritablePrefKey 校验
 function onGlobalCheckNum(e: Event, key: WritablePrefKey): void {
   const v = parseNumericInput(e)
@@ -64,7 +64,7 @@ function onGlobalCheckNum(e: Event, key: WritablePrefKey): void {
     <div class="cfg-card-head">AI 机检</div>
     <section class="cfg-card">
       <SettingToggle name="短篇严格模式" desc="把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿；仅作用于短篇书；未单独设定的书使用此默认" ariaLabel="短篇严格模式（全局默认）" :checked="prefs.get('defaultShortStrict')" @change="prefs.set('defaultShortStrict', $event)" />
-      <!-- R52-E-2：机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
+      <!-- ：机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
       <SettingItem name="复读占比阈值" desc="重复字词占全章比例超过该值报黄（0-1 之间，如 0.15）；留空用内置默认 0.15；未单独设定的书使用此默认">
         <input class="num-input" type="number" min="0.01" max="1" step="0.01" aria-label="复读占比阈值（全局默认）" placeholder="默认 0.15" :value="prefs.get('checkRepeatThreshold')" @change="onGlobalCheckNum($event, 'checkRepeatThreshold')" />
       </SettingItem>

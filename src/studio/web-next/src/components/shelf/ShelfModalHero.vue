@@ -2,9 +2,9 @@
 /**
  * 书架弹层「继续写作」hero 卡（hh §八-16 自 ShelfModal.vue 拆出，纯搬家）。
  * 弹层专属横版单行卡（grid 视图，进度右置）；紧凑单行（list 视图）与全屏页同构，
- * R0912-C2-P3-5（2026-09-12 独立重评修复批）起收敛为共享子件 ShelfHeroList。
+ * （修复批）起收敛为共享子件 ShelfHeroList。
  * 全屏页竖版在 ShelfHeroCard。
- * R36-23（三十六轮）：role/tabindex/keydown 补键盘可达（原仅 @click，R72-12 只修了
+ * role/tabindex/keydown 补键盘可达（原仅 @click，只修了
  * ShelfHeroCard 漏此）；Enter/Space 与点击同一手势处理，语义不变（契约随抽取迁入
  * ShelfHeroList，grid 横版大卡本件保留同款）。
  */
@@ -53,7 +53,7 @@ const emit = defineEmits<{
       <span v-if="book.lastEdited" class="hero-time">{{ formatRelative(book.lastEdited) }}</span>
     </div>
   </section>
-  <!-- list 单行：与全屏页同构，共享子件渲染（R0912-C2-P3-5） -->
+  <!-- list 单行：与全屏页同构，共享子件渲染 -->
   <ShelfHeroList v-else :book="book" variant="modal" @open="emit('open', $event)" />
 </template>
 
@@ -176,6 +176,6 @@ const emit = defineEmits<{
 .hero-time {
   color: var(--text-faint);
 }
-/* 列表模式 hero（hero-list 族）已随 R0912-C2-P3-5 抽取搬入 ShelfHeroList.vue
+/* 列表模式 hero（hero-list 族）已随抽取搬入 ShelfHeroList.vue
  * （modal 档变体，原值不变）。 */
 </style>

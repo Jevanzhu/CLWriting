@@ -19,8 +19,8 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-// R49-32（四十九轮）：对齐 ConfirmDeleteModal 接域内既有焦点圈 useFocusTrap
-// （B-9/R37-33 同族）——Tab 循环锁在弹窗内、关闭归还焦点 + dialog 语义（role/
+// 对齐 ConfirmDeleteModal 接域内既有焦点圈 useFocusTrap
+// （/同族）——Tab 循环锁在弹窗内、关闭归还焦点 + dialog 语义（role/
 // aria-modal）。两处使用点（Shelf/ShelfModal）均 v-if 挂载：mount 即打开。
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
@@ -34,7 +34,7 @@ onMounted(async () => {
 })
 
 function onNameEnter(e: KeyboardEvent): void {
-  // R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 后触发（isComposing 已
+  // 原 @keyup.enter 在 IME compositionend 后触发（isComposing 已
   // false），确认候选词的 Enter 会直接建书——改 keydown + 组合期守卫
   if (isImeComposing(e)) return
   emit('create')
@@ -83,7 +83,7 @@ function onNameEnter(e: KeyboardEvent): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* R0916-7-P3-22：浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
+  /* 浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
   z-index: 160;
 }
 .create-modal {

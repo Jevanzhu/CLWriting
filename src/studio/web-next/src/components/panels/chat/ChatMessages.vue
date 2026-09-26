@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 对话消息流（hh §八-16 自 ChatPanel.vue 拆出，纯搬家）。
- * 无气泡感消息流（用户浅卡片右对齐 / AI 纯文本全宽）+ 工具卡确认闸 + G1 变体切换与
+ * 无气泡感消息流（用户浅卡片右对齐 / AI 纯文本全宽）+ 工具卡确认闸 + 变体切换与
  * 重新生成 + 滚动跟随（rAF 节流）。输入区留在 ChatPanel（dock 拆分场景只挂本件时由
- * hideComposer 控制）。R35-11：章号语境直读 chat store 单一事实源（原经 ChatPanel 的
+ * hideComposer 控制）。：章号语境直读 chat store 单一事实源（原经 ChatPanel 的
  * composer 实例 props 传入，dock 双实例下与用户实际选择分裂）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
@@ -25,11 +25,11 @@ const chat = useChatStore()
 const ui = useUiStore()
 const tree = useTreeStore()
 
-// ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次，P2-FE-7）──
+// ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次，-FE-7）──
 
 const scrollRef = ref<HTMLElement | null>(null)
 let scrollRaf = 0
-// R62-51：用户上滚离开底部的距离阈值（px）——流式输出自动滚动只在距底阈值内跟随，
+// 用户上滚离开底部的距离阈值（px）——流式输出自动滚动只在距底阈值内跟随，
 // 上滚读历史时不再被 SSE 流式内容拽回去
 const AUTO_FOLLOW_THRESHOLD = 64
 /** 距底是否在阈值内（rAF 复用：onScroll 高频，同帧只读一次）允许自动跟随 */
@@ -58,7 +58,7 @@ onBeforeUnmount(() => {
 // ── 消息流滚动跟随 ──────────────────────────────
 
 watch(
-  // R32-9：notice 变化同样触发滚底（入队提示在流尾部，不跟随则不可见）
+  // notice 变化同样触发滚底（入队提示在流尾部，不跟随则不可见）
   [() => chat.messages.length, () => chat.messages.at(-1)?.content, () => chat.notice],
   () => void nextTick(scrollToBottom),
 )
@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
 
 // ── 工具确认 ────────────────────────────────────
 
-// R73-64：确认在途按 callId 记集合（Vue 3 对 Set.add/delete 本身就有响应式插桩，
+// 确认在途按 callId 记集合（Vue 3 对 Set.add/delete 本身就有响应式插桩，
 // add/delete 直接触发依赖更新——SampleCandidateList 的 expandedGroups 即直接依赖；
 // 此处逐次重赋新 Set 属防御性惯例而非响应性必需）。原 confirmingCallId 单值把所有
 // 待确认卡串行化：多张待确认卡并存时，第二张的点击被入口静默忽略（按钮虽未禁但
@@ -103,7 +103,7 @@ const confirmingCallIds = ref<Set<string>>(new Set())
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   if (confirmingCallIds.value.has(callId)) return // 防重复点击（仅同卡；跨卡不受阻）
   confirmingCallIds.value = new Set(confirmingCallIds.value).add(callId)
-  // R69-28（十七轮）：入口捕获书名——await 窗口切书后，迟到的失败 toast/工具终态
+  // 入口捕获书名——await 窗口切书后，迟到的失败 toast/工具终态
   // 落在新书界面（与 doc.finalize catch 同族守卫）
   const book = props.bookName
   try {
@@ -111,7 +111,7 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   } catch (e) {
     if (props.bookName !== book) return
     if (e instanceof ApiError && e.status === 404) {
-      // R65-50（E-2）：404 = 工具调用已超时失效——修复前静默 return，卡面停留 pending、
+      // 404 = 工具调用已超时失效——修复前静默 return，卡面停留 pending、
       // 确认按钮可反复点但服务端早已丢弃，作者无任何反馈。置失败终态给可见交代
       chat.updateTool(callId, { status: 'failed', summary: '确认已超时：该工具调用已失效' })
       return
@@ -159,7 +159,7 @@ const chapterNames = computed(() => {
 })
 const chapterNameOf: ChapterNameLookup = (chapter) => chapterNames.value.get(chapter) ?? null
 
-// ── G1：重新生成 + 变体切换 ─────────────────────
+// ── ：重新生成 + 变体切换 ─────────────────────
 
 /** 最后一条已完成的 assistant 气泡（「重新生成」按钮的挂载点；!running 才可点） */
 const lastDoneAssistant = computed(() => {
@@ -168,7 +168,7 @@ const lastDoneAssistant = computed(() => {
 })
 
 /** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体）。
- *  R35-11：章号语境直读 chat store（与 dock/工作台输入区的章节选择同一份） */
+ *  ：章号语境直读 chat store（与 dock/工作台输入区的章节选择同一份） */
 function handleRegenerate(): void {
   void chat.regenerate(props.bookName, chat.selectedChapter)
 }
@@ -187,7 +187,7 @@ interface VariantGroupInfo {
  * 各助手消息的变体组定位（msgId → 当前序号/总数/同组分支 id 列表）。
  * 命中条件：消息 seq 落在某分支组区间（rootSeq ≤ seq ≤ lastSeq）且
  * 同 parentSeq 的变体组数 > 1（按 rootSeq 升序稳定排序）。
- * R0912-C2-P3-1（2026-09-12 全量重评修复批）：原实现对每条消息各做一次
+ * （修复批）：原实现对每条消息各做一次
  * branches.find（区间扫描）+ 同组 filter/sort——同组过滤/排序逐消息重复（区间扫描本身
  * 仍线性，不构建区间索引）；改为循环前单趟预处理（同 parentSeq 组信息/已排序变体各算
  * 一次），消息循环查表 + 区间线性扫描。渲染输出逐项不变：组内仍 rootSeq 升序、变体
@@ -251,11 +251,11 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 <template>
   <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
   <div ref="scrollRef" class="chat-messages" @scroll="onScroll">
-    <!-- 重评-0912-2 P3（2026-09-12 全量重评修复批）：历史尾窗截断提示——L-S2 起
+    <!-- （修复批）：历史尾窗截断提示——L- 起
          fetchChatHistory 尾窗上限生效时旧消息不进种子化，此前 truncated 全前端
          零消费、旧内容静默消失无提示（设计意图即提示作者：更早在事件库/审计视图可查）。
          truncated 取 store 最近一次视图加载（seedHistory/switchBranch）的权威口径；
-         条数走 shared/chat-history 单源（R0912-3 #10，原硬编码 200）。 -->
+         条数走 shared/chat-history 单源（#10，原硬编码 200）。 -->
     <div v-if="chat.historyTruncated" class="chat-truncated-hint">
       仅显示最近 {{ CHAT_HISTORY_LIMIT }} 条对话，更早内容见审计视图
     </div>
@@ -273,7 +273,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 
       <!-- 助手消息 -->
       <div v-else class="chat-msg chat-msg-assistant">
-        <!-- G1：变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
+        <!-- ：变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
         <div v-if="variantGroups.has(msg.id)" class="chat-variant">
           <button
             type="button"
@@ -333,7 +333,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
           <!-- 工具结果摘要 -->
           <div v-if="tool.summary" class="chat-tool-summary">{{ tool.summary }}</div>
 
-          <!-- 确认按钮（R73-64：仅本卡在途才禁用——其他待确认卡可并行确认） -->
+          <!-- 确认按钮（仅本卡在途才禁用——其他待确认卡可并行确认） -->
           <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
             <button class="chat-confirm-no" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, false)">取消</button>
             <button class="chat-confirm-yes" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, true)">
@@ -343,7 +343,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
           </div>
         </div>
 
-        <!-- G1：最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
+        <!-- ：最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
         <button
           v-if="lastDoneAssistant && msg.id === lastDoneAssistant.id"
           type="button"
@@ -373,7 +373,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
       </button>
     </div>
 
-    <!-- R32-9（三十二轮）：非错误提示（E1a steer 入队确认 / AA-P3-1 队列超容丢弃等
+    <!-- 非错误提示（E1a steer 入队确认 / 队列超容丢弃等
          chat.notice）——此前全前端无渲染点：发送即清空输入框、运行中追加零反馈，
          作者无法得知「已入队」。消息流内联展示（对齐 error 区样式，中性色）。 -->
     <div v-if="chat.notice" class="chat-notice-msg">
@@ -602,7 +602,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   border-color: var(--text-faint);
 }
 
-/* ── R32-9：非错误提示（notice，中性色对齐 error 区布局） ── */
+/* ── ：非错误提示（notice，中性色对齐 error 区布局） ── */
 .chat-notice-msg {
   display: flex;
   align-items: center;
@@ -614,7 +614,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   background: var(--background-secondary);
 }
 
-/* ── 重评-0912-2 P3：历史尾窗截断提示（列表顶部 muted 一行，轻量无底色） ── */
+/* ── ：历史尾窗截断提示（列表顶部 muted 一行，轻量无底色） ── */
 .chat-truncated-hint {
   align-self: center;
   font-size: var(--font-size-xs);
@@ -622,7 +622,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   padding: var(--size-4-1) 0;
 }
 
-/* ── G1：变体切换器 + 重新生成 ── */
+/* ── ：变体切换器 + 重新生成 ── */
 .chat-variant {
   display: inline-flex;
   align-items: center;

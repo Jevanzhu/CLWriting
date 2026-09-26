@@ -1,5 +1,5 @@
 /**
- * 全书文风收割（文风系统重整 S6 编排）：零 AI token 的两源落候选。
+ * 全书文风收割（文风系统重整编排）：零 AI token 的两源落候选。
  *
  * 源1 改稿轨迹：tracked doc 最新 AI 版 vs 当前正文 → 比对层信号 → 样章/禁词候选。
  * 源2 机检漂移：文风趋势 drifts → 固定映射表 → 手法候选。
@@ -67,7 +67,7 @@ export function collectDocSignals(
 }
 
 /**
- * collectDocSignals 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：读侧走
+ * collectDocSignals 的异步孪生（延伸，三十七轮 收口）：读侧走
  * listAiVersionsAsync/readAiVersionAsync（gitAsync spawn + 有界超时）——本函数
  * 挂在服务 HTTP 链（style.ts harvest 端点 → harvestStyleCandidatesAsync），同步
  * spawnSync 在 git 无响应时阻塞事件循环最长 15s。语义与同步版一致：旁路证据静默。
@@ -151,10 +151,10 @@ export function harvestStyleCandidates(
 }
 
 /**
- * harvestStyleCandidates 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：源1 逐 doc
- * 的轨迹读走 collectDocSignalsAsync（gitAsync）。R44-13（四十四轮）补齐源1 顶部的
+ * harvestStyleCandidates 的异步孪生（延伸，三十七轮 收口）：源1 逐 doc
+ * 的轨迹读走 collectDocSignalsAsync（gitAsync）。补齐源1 顶部的
  * 轨迹枚举（listTrackedDocsAsync）——git 后端 for-each-ref 的同步 spawnSync 漏网
- * 已清零，HTTP 链全程不再同步 spawnSync。重评-0912-2 P2-4（2026-09-12 全量重评
+ * 已清零，HTTP 链全程不再同步 spawnSync。 （
  * 修复批）同族收尾：源1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
  * 让出（详见循环内注释锚）。同步版保留供存量测试与等价性对照。
  */
@@ -166,8 +166,8 @@ export async function harvestStyleCandidatesAsync(
   const candidates = []
 
   // ── 源1 · 改稿轨迹（docId → 树反查路径；文档已删的悬空轨迹跳过）──
-  // R44-13（四十四轮）：轨迹枚举改走 listTrackedDocsAsync——git 后端 for-each-ref
-  // 的同步 spawnSync 是 R36-5/R37-5 同族漏网（本函数顶部最后一次同步 spawn，注释
+  // 轨迹枚举改走 listTrackedDocsAsync——git 后端 for-each-ref
+  // 的同步 spawnSync 是 /同族漏网（本函数顶部最后一次同步 spawn，注释
   // 「HTTP 链不再同步 spawnSync」此前名不副实）；结果语义与同步版单源对齐。
   const tracked = await listTrackedDocsAsync(bookRoot)
   if (tracked.length > 0) {
@@ -180,7 +180,7 @@ export async function harvestStyleCandidatesAsync(
     }
     walk(buildTree(bookRoot))
     const signals: DocSignals[] = []
-    // 重评-0912-2 P2-4（2026-09-12 全量重评修复批）：R44-13 同族收尾——本循环此前
+    // （修复批）： 同族收尾——本循环此前
     // 残留两处同步阻塞：① 裸 readFileSync 整读章正文（不走缓存、无让出，大书冷缓存
     // 冻结 HTTP 事件循环数百 ms 至秒级）→ 改走 md-text-cache 指纹缓存异步读
     // readMdTextCachedAsync；② collectDocSignalsAsync 内 compareVersions 为 O(P²)
@@ -190,7 +190,7 @@ export async function harvestStyleCandidatesAsync(
       const rel = byDocId.get(docId)
       if (!rel) continue
       // 容错读：无 front matter 的文档整文件即正文（手写草稿常态）。
-      // 重评-0912-2 P2-4：缓存面 = 原始文本（fm 剥离留给调用方），与 readFileSync
+      // 缓存面 = 原始文本（fm 剥离留给调用方），与 readFileSync
       // utf-8 逐位等价（无 BOM/规范化差异），splitFrontMatter 输入口径不变；消失/
       // 读失败 → null，映射原 catch { continue } 跳过口径。
       const raw = await readMdTextCachedAsync(join(bookRoot, rel))
@@ -205,7 +205,7 @@ export async function harvestStyleCandidatesAsync(
         Number.isInteger(chNum) && chNum > 0 ? chNum : undefined,
       )
       if (s) signals.push(s)
-      // 重评-0912-2 P2-4：按 doc 让出（yieldToEventLoop 单源 src/async.ts）——
+      // 按 doc 让出（yieldToEventLoop 单源 src/async.ts）——
       // O(P²) 段对矩阵同步段后交还事件循环，不让下一个 doc 的重算接连冻结。
       await yieldToEventLoop()
     }
@@ -213,8 +213,8 @@ export async function harvestStyleCandidatesAsync(
   }
 
   // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
-  // R40-4（四十轮）：异步孪生内扫描同样切让出版——同步 scanChapters 在大书上秒级
-  // 冻结事件循环（R39-15 同族漏网点）；同步版上方保留供存量测试与等价性对照
+  // 异步孪生内扫描同样切让出版——同步 scanChapters 在大书上秒级
+  // 冻结事件循环（同族漏网点）；同步版上方保留供存量测试与等价性对照
   const samples = await scanChaptersAsync(bookRoot)
   const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
   candidates.push(...mapDriftsToCandidates(trend.drifts, today))

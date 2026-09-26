@@ -1,5 +1,5 @@
 /**
- * RB-SV-P2-4：--book 直进参数解析（名或路径 → 书架登记名）。
+ * --book 直进参数解析（名或路径 → 书架登记名）。
  *
  * Electron 启动参数 `--book <名|路径>` 或 env CLWRITING_INITIAL_BOOK，在起 server 前
  * 经 setInitialBook 注入 /api/boot（前端 boot 后直达该书工作区）；second-instance
@@ -12,11 +12,11 @@ import { samePath } from '../fs/user-data-path.js'
 import { toNfcName } from '../fs/text-canonical.js'
 
 /** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env（仅冷启动解析自进程 argv 用）。
- *  R53-A-3（五十三轮）：env 回落仅 dev（非打包态）生效——opts.allowEnvFallback=false
+ *  ：env 回落仅 dev（非打包态）生效——opts.allowEnvFallback=false
  *  时只认 argv。动因：打包态吃到宿主 shell 残留的 CLWRITING_INITIAL_BOOK 会让作者
- *  普通双击启动被意外直达某书（与 R43-26 的 CLW_DEV_UI 打包态防线同款风险）；dev
+ *  普通双击启动被意外直达某书（与的 CLW_DEV_UI 打包态防线同款风险）；dev
  *  场景 env 是 `npm run dev` 的合法注入通道，保留。main 调用方传 !app.isPackaged。
- *  R0912-A-P3-1（2026-09-12 独立重评修复批）：second-instance 的「只认 argv」形态
+ *  （修复批）：second-instance 的「只认 argv」形态
  *  （原 initialBookArgvOnly）与本函数 allowEnvFallback:false 分支逐位等价，等价函数
  *  删除、调用点收编为 initialBookArg(argv, { allowEnvFallback: false })。 */
 export function initialBookArg(argv: string[], opts?: { allowEnvFallback?: boolean }): string | undefined {
@@ -28,13 +28,13 @@ export function initialBookArg(argv: string[], opts?: { allowEnvFallback?: boole
 }
 
 /** 解析为书架登记书名：直接命中名册名 / 路径（相对 workDir 或绝对）命中登记 path；未命中返回 null。
- *  R1W-7（win 平台专项复审 R1）：路径命中走 samePath——win 上大小写漂移（盘符/手工
+ *  （win 平台专项）：路径命中走 samePath——win 上大小写漂移（盘符/手工
  *  输入）此前全等比较落空，--book 直达被静默丢弃。
- *  复审-0913-mac适配 P3-3：名命中两侧 NFC 归一（toNfcName 单源）后比较——登记名建书
+ *  -mac适配：名命中两侧 NFC 归一（toNfcName 单源）后比较——登记名建书
  *  时已 NFC（init.ts），CLI/argv 的 ref 可能 NFD（mac 终端/启动器传入分解形），精确
  *  串比较落空 → --book 静默回落书架页。全平台安全：存量登记名恒 NFC，NFC 归一不引入
  *  假命中；路径命中臂由 samePath darwin NFC 覆盖（同批）。
- *  全库重评-0914（P3-9）：名命中臂改返回登记名（books.find 命中项的 name）而非原始
+ *  0914名命中臂改返回登记名（books.find 命中项的 name）而非原始
  *  ref——比较虽已 NFC 归一，返回 NFD 原串会让下游对登记名的严格匹配落空（非 CJK
  *  书名如含 é 分解形）；函数契约即「解析为书架登记书名」，与路径命中臂返回
  *  byPath.name 对齐。 */

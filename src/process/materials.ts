@@ -1,11 +1,11 @@
 /**
- * 备料编排 —— RAG 召回与 prepare 的接缝（M7 #37 第 6 节 R1 真正接入）。
+ * 备料编排 —— RAG 召回与 prepare 的接缝（#37 第 6 节真正接入）。
  *
- * M7 留点：prepare 虽有 ragRecallText 入参，但「调用方在 prepare 外异步 await 召回完成后传入」
+ * 留点：prepare 虽有 ragRecallText 入参，但「调用方在 prepare 外异步 await 召回完成后传入」
  * 一直没有人接——本模块把这条链补齐：
  *
  *   prepareMaterials(db, config, bookRoot, workDir, chapterLeadIds, query?)
- *     ├─ 未配 RAG（或未启用）→ 直接 prepare()，无召回段（行为逐字节不变）
+ *     ├─ 未配 RAG（或未启用）→ 直接 prepare，无召回段（行为逐字节不变）
  *     └─ 已配 RAG → await recall(query) → 取回命中正文片段 → prepare(..., ragRecallText)
  *
  * 降级诚实（#37 第 6.2 节）：端点挂/未配 key/召回失败 → 召回空 → prepare 无 RAG 段，不崩主路径。
@@ -35,11 +35,11 @@ import type { BookConfig } from '../format/types.js'
 /**
  * 取召回命中对应的原文片段（精准读取定稿正文，按偏移切片）。
  * 账本不走这里——召回只补正文（#37 红线）。
- * R0910-W（2026-09-10 修复批）：先收集去重章号、一次遍历解析全部命中章正文——
+ * （修复批）：先收集去重章号、一次遍历解析全部命中章正文——
  * 原对每个命中调 readChapterBodyByNumber（各自一次全树 walk，topK=5 即最多 5 次
  * 全树扫描）；改为单次遍历命中任一候选前缀即读正文。结果等价：同章号取
  * 遍历中最先匹配到的可读文件（与逐个 walkMdFind 的首个命中同序），正文切片口径不变。
- * 0918独立重评修复批（C001）：正文读取随批转异步（对齐 book-search R46-3 同族修法）——
+ * 0918修复批（C001）：正文读取随批转异步（对齐 book-search 同族修法）——
  * 本函数在 studio 服务进程事件循环内被 await，全树扫描 + 逐文件整读同步执行会冻结
  * 同进程全部书的 SSE/保存；现 walk 与文件读全链 fs.promises，扫描期间事件循环可响应
  * 其他请求。
@@ -61,8 +61,8 @@ async function renderRecallHits(bookRoot: string, hits: RecallHit[]): Promise<st
 }
 
 /**
- * 正文整读的异步孪生（0918独立重评修复批 C001）：fs/promises 读全文后经 readFile 的
- * content 传参（R63-7 入参）复用同一解析与错误塑形单源——读失败时回落 readFile(fp)
+ * 正文整读的异步孪生（0918修复1）：fs/promises 读全文后经 readFile 的
+ * content 传参（入参）复用同一解析与错误塑形单源——读失败时回落 readFile(fp)
  * 自读（readFileSync 兜底读同样失败 → 同构错误对象），调用方只看 .ok/.body 面不变。
  */
 async function readFileBodyAsync(fp: string): Promise<ReturnType<typeof readFile>> {
@@ -76,10 +76,10 @@ async function readFileBodyAsync(fp: string): Promise<ReturnType<typeof readFile
 }
 
 /**
- * 按章号集合单次遍历定稿正文目录解析正文（R0910-W；0918独立重评修复批 C001 起异步版）。
- * 前缀口径走 chapterNamePrefixes 单一真相源（CC-P2-21）：无补零 / 3 位 / 4 位补零全试——
+ * 按章号集合单次遍历定稿正文目录解析正文（0918修复1 起异步版）。
+ * 前缀口径走 chapterNamePrefixes 单一真相源：无补零 / 3 位 / 4 位补零全试——
  * 草稿新建是 3 位补零，此前只试「无补零 + 4 位」导致这些章 RAG 召回静默返回 null。
- * 递归扫描含卷子目录（v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏，D1）；
+ * 递归扫描含卷子目录（v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏）；
  * 环剪枝 + 根界走共享 walkMdEachAsync（与同步 walkMdEach 同纪律：Dirent 判型/
  * realpath 剪枝/根界/`._` 排除，IO 面 fs/promises）。
  *
@@ -114,7 +114,7 @@ export async function readChapterBodiesByNumbersAsync(
       if (r.ok) out.set(n, r.body)
     }
   })
-  // S2（阶段 24，D3 留洞制）：并入源章回退——RAG chunk 按章号整型键控，合并后到
+  // （阶段 24，留洞制）：并入源章回退——RAG chunk 按章号整型键控，合并后到
   // buildIndex 清理前的窗口内召回仍可能带源章号；按名 miss 经 mergedIntoMap 取目标章
   // 正文（正文命中优先；回退口径单源 chapter-lookup.ts；Map 只建一次）。C001：目标章
   // 正文读随批转异步（readFileBodyAsync）；mergedIntoMap 保留同步（处置见函数头注）。
@@ -140,7 +140,7 @@ export interface PrepareMaterialsOptions {
   userDataPath?: string
   /** 本章细纲声明推进的账本条目 id（源头限流） */
   chapterLeadIds: string[]
-  /** 本章章号（kk-P1-2）：文风样章场景据此走 readChapterScenes 三级回退（与 draft 链同源） */
+  /** 本章章号：文风样章场景据此走 readChapterScenes 三级回退（与 draft 链同源） */
   chapter?: number
   /** RAG 召回的 query（默认用本章细纲/标题；调用方可显式传） */
   query?: string
@@ -148,10 +148,10 @@ export interface PrepareMaterialsOptions {
   sampleScene?: string | string[]
   /** 召回 topK（默认 5） */
   topK?: number
-  /** R36-16（三十六轮）：召回池告警/硬截断阈值（测试注入用；缺省 RAG_CHUNK_WARN_THRESHOLD）——
+  /** 召回池告警/硬截断阈值（测试注入用；缺省 RAG_CHUNK_WARN_THRESHOLD）——
    *  与 recallDetailed 同参，截断事实经 ragTruncated/ragNote 透出 */
   warnThreshold?: number
-  /** R76-5（二十四轮 A 域）：编排级中断信号（Z-P1-1 同款）——内部补漏 LLM 调用
+  /** （二十四轮 A 域）：编排级中断信号（同款）——内部补漏 LLM 调用
    *  （selfHealRecentChapterSummaries/selfHealVolumeSummary）透传收口，中断即时生效。 */
   signal?: AbortSignal
   /** 可选：注入 embed 函数（测试用桩，默认调真实 embed）—— 与 buildIndex/recall 对齐 */
@@ -165,17 +165,17 @@ interface PrepareMaterialsResult extends PrepareResult {
   ragHitCount: number
   /** 降级原因（召回失败/未配 key 等留痕；无降级则空） */
   ragNote?: string
-  /** R36-16（三十六轮）：本轮召回池超上限被硬截断（recall 兼容包装此前丢弃 truncated
+  /** 本轮召回池超上限被硬截断（recall 兼容包装此前丢弃 truncated
    *  信号，消费面无感——接线后透出，供上层留痕/决策；truncated=false 时缺省） */
   ragTruncated?: boolean
-  /** 文风留痕（G3）：声明了场景却查无样章时提示去 learn 补；无声明/有样章则空 */
+  /** 文风留痕：声明了场景却查无样章时提示去 learn 补；无声明/有样章则空 */
   styleNote?: string
-  /** C1（批 2）：自愈补漏实际生成/重生成的章摘要（相对书根路径；空 = 无补漏） */
+  /** 自愈补漏实际生成/重生成的章摘要（相对书根路径；空 = 无补漏） */
   summaryGenerated: string[]
 }
 
 /**
- * G3 文风留痕：声明了场景（三级水源/显式入参）却查无样章 → 提示去 learn 收割补。
+ * 文风留痕：声明了场景（三级水源/显式入参）却查无样章 → 提示去 learn 收割补。
  * 范文回落待知识层补数据（OQ2）。空声明（冷启动无场景）不留痕，保逐字节红线。
  */
 function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: string } {
@@ -185,10 +185,10 @@ function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: strin
 }
 
 /**
- * 备料链场景水源（kk-P1-2 归一）：与 draft 链共用 readChapterScenes 三级回退
+ * 备料链场景水源（kk- 归一）：与 draft 链共用 readChapterScenes 三级回退
  * （① 章纲 fm「场景」→ ② 正文 fm「场景」→ ③ 细纲「## 场景声明」段+章号门），全空回落 ['通用']。
  * 此前备料链读细纲 fm「场景」字段——全仓无生产写入方（outline 端点只写 章号/推进），
- * 恒空 → prepare 回落硬编码「战斗」，文风样章场景与本章实际场景脱节；G1/G3 特性未生效。
+ * 恒空 → prepare 回落硬编码「战斗」，文风样章场景与本章实际场景脱节；/特性未生效。
  */
 function resolveScenes(bookRoot: string, opts: PrepareMaterialsOptions): { sampleScene: string[] | undefined; declaredScenes: string[] } {
   // 显式入参优先（测试/调用方覆盖）；未传 chapter 的旧调用维持「不推导」→ prepare 自行回落
@@ -204,7 +204,7 @@ function resolveScenes(bookRoot: string, opts: PrepareMaterialsOptions): { sampl
 }
 
 /**
- * 备料 + RAG 召回编排（M7 #37 R1 接缝真正接入）。
+ * 备料 + RAG 召回编排（#37 接缝真正接入）。
  *
  * @param db 缓存
  * @param config book.yaml
@@ -216,29 +216,29 @@ export async function prepareMaterials(
   opts: PrepareMaterialsOptions,
 ): Promise<PrepareMaterialsResult> {
   const { bookRoot, workDir, chapterLeadIds } = opts
-  // 文风样章场景（kk-P1-2 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
-  // 回退（与 draft 链同一水源，全空→['通用']）；G3 留痕只看「已声明」场景（兜底不算声明）
+  // 文风样章场景（kk- 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
+  // 回退（与 draft 链同一水源，全空→['通用']）；留痕只看「已声明」场景（兜底不算声明）
   const { sampleScene, declaredScenes } = resolveScenes(bookRoot, opts)
-  // C4（批 3）：写稿模型（creative 档）——prepare 的 token 系数按模型查表
+  // 写稿模型（creative 档）——prepare 的 token 系数按模型查表
   const writeModel = resolveTier(opts.userDataPath ?? null, 'creative').model || undefined
-  // C1（批 2）自愈补漏：备料前发现近章（N-2/N-1）摘要缺失或过期 → 现场补生成
+  // 自愈补漏：备料前发现近章（/）摘要缺失或过期 → 现场补生成
   // （计入本章 calls_per_chapter 预算，既有预算闸口径）；失败不阻断备料（无近章结尾段降级）
   let summaryGenerated: string[] = []
   if (opts.chapter !== undefined) {
     try {
       summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
     } catch (e) {
-      // R32-20（三十二轮）：静默降级改 warn 留痕——此前「补漏失败静默」把 ENOENT/权限类
+      // 静默降级改 warn 留痕——此前「补漏失败静默」把 ENOENT/权限类
       // 持续性故障埋进零痕迹（自愈循环断链无观测），备料降级语义不变
       log.warn('materials', `近章摘要补漏失败（prepare 无该段照常组装）：${errMsg(e)}`)
     }
-    // C2（批 3）：上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
+    // 上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
     // 卷摘要手写优先（文件存在即跳过）；prepare 直接读文件，无需 rebuild
     try {
       const vol = await selfHealVolumeSummary(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
       if (vol) summaryGenerated.push(vol)
     } catch (e) {
-      // R32-20：同款 warn 留痕（备料降级语义不变）
+      // 同款 warn 留痕（备料降级语义不变）
       log.warn('materials', `上一卷摘要按需生成失败（备料降级）：${errMsg(e)}`)
     }
   }
@@ -268,8 +268,8 @@ export async function prepareMaterials(
   // 召回（失败/空命中 → 降级，不崩）。embedFn 可注入桩（测试），默认调真实 embed。
   // candidate_depth 从书级 ragConfig 显式透传（此前召回点重造字面量漏带该键，
   // book.yaml 配了 rag.candidate_depth 恒不生效——缺省 20 静默兜底）；
-  // embed_timeout_ms 同款透传（R62-27，缺省回落 embed.ts 内置 30s）。
-  // R36-16（三十六轮）：消费面从兼容包装 recall() 切到结构化出口 recallDetailed——
+  // embed_timeout_ms 同款透传（缺省回落 embed.ts 内置 30s）。
+  // 消费面从兼容包装 recall 切到结构化出口 recallDetailed——
   // 原包装把 truncated/totalBlocks 丢弃（截断仅 log.warn 留痕，消费面无感），
   // 接线后截断事实经 ragTruncated + ragNote 透出（目标场景 ~3.5 万块未触界，
   // warnThreshold 仅测试注入压低触发）
@@ -285,25 +285,25 @@ export async function prepareMaterials(
       opts.topK ?? 5,
       opts.embedFn ?? embed,
       ragWarnThreshold,
-      // R0912-4（2026-09-11 修复批）：编排级中断透传——embed 网络往返与流式打分
+      // （修复批）：编排级中断透传——embed 网络往返与流式打分
       // 此前不随编排 signal 收口（分钟级白烧），现入口/网络前后/打分行级检查点齐备
       opts.signal !== undefined ? { signal: opts.signal } : undefined,
     )
   } catch (e) {
-    // 复审-0913-源码 P3-⑱：降级文案附病因（对齐同文件 selfHeal 卷摘要 catch 的
+    // -源码 -⑱：降级文案附病因（对齐同文件 selfHeal 卷摘要 catch 的
     // message 透出口径）——此前 ragNote 只说「异常」，网络/中断/解析错无从归因
     rec = null
     ragNote = `RAG 召回异常（降级回落精准读取）：${errMsg(e)}`
   }
   const hits: RecallHit[] = rec?.hits ?? []
-  // R36-16：截断信号透出——recallDetailed 硬截断（池超上限保读出序前缀）时留痕
+  // 截断信号透出——recallDetailed 硬截断（池超上限保读出序前缀）时留痕
   const ragTruncated = rec?.truncated ?? false
   const truncNote = ragTruncated
     ? `RAG 召回池超上限被硬截断（${rec!.totalBlocks} 块仅取前 ${ragWarnThreshold} 块参与召回，topK 可能不满额）`
     : undefined
 
   if (hits.length === 0) {
-    // 低-1（第十轮）：writingChapter 与另两处调用点对齐——无命中降级也走 L-P3
+    // 低-1writingChapter 与另两处调用点对齐——无命中降级也走
     // 「卷号按写作章推」口径，否则降级分支卷首章的上卷摘要晚一章注入
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
     return {

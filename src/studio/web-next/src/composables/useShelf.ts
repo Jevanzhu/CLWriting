@@ -10,22 +10,22 @@ import { useChatStore } from '../stores/chat'
 import { useDocStore } from '../stores/doc'
 import { ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
-// R0911-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：建书端点调用自本文件裸 apiJson
+// （GLM-5.3 修复批）：建书端点调用自本文件裸 apiJson
 // 归置到 api/books.ts 具名函数（与全仓其余端点统一）——别名导入避免与本组合式函数
 // 同名冲突；apiJson 导入随迁移移除（本文件仅剩 ApiError 供 confirmDelete 的 404 语义
 // 分支用）
 import { createBook as createBookApi } from '../api/books'
 import { friendlyError } from '../shared/error'
-// 复审-0913-源码 P3-㉕：万字分支走 shared 单源（后缀 ' 万字' 与 <1 万 兜底口径留本面）
+// -源码 -㉕：万字分支走 shared 单源（后缀 ' 万字' 与 <1 万 兜底口径留本面）
 import { formatWanZi } from '../shared/words'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
 import { LAST_BOOK_KEY, treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
 
 /**
- * R46-6（四十六轮）：书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
- * （deleteBooks 内联五件：R-5 误报灰显 / R26-83 失败草稿 / R37-28 章号记忆 /
- * R27-79 梗概+首开键），改名路径此前为零：旧名条目全部成孤儿（内存 Map 条目常驻
+ * 书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
+ * （deleteBooks 内联五件：误报灰显 / 失败草稿 / 章号记忆 /
+ * 梗概+首开键），改名路径此前为零：旧名条目全部成孤儿（内存 Map 条目常驻
  * 至进程重启、localStorage 键永驻），且新名侧功能性丢失（章号语境记忆清零、发送
  * 失败草稿找回失效、机检误报灰显丢失、首开标记重套）。本函数 = 同族五件的
  * 「清理旧名 + 值搬家到新名」；localStorage 不可用（隐私模式）静默忽略——与删除
@@ -36,10 +36,10 @@ export function migrateBookKeyedState(oldName: string, newName: string): void {
   useChatStore().migrateChapterMemo(oldName, newName)
   migrateFailedDrafts(oldName, newName)
   try {
-    // 误报灰显键族 `clw-fp:<书>\u0000<文档>`——前缀枚举逐键搬家。R50-D2-1（五十轮）：
-    // 前缀改从 stores/check fpBookPrefix 单源取——R49-27 把分隔符从冒号改 \u0000 时
+    // 误报灰显键族 `clw-fp:<书>\u0000<文档>`——前缀枚举逐键搬家。
+    // 前缀改从 stores/check fpBookPrefix 单源取—— 把分隔符从冒号改 \u0000 时
     // 本分支漏随（仍拼旧冒号前缀），现行键永不匹配、改名迁移整链空转；单源后两侧
-    // 不再漂移。存量冒号旧键（R49-27 前写入）本就不迁移，失配即弃与其口径一致。
+    // 不再漂移。存量冒号旧键（前写入）本就不迁移，失配即弃与其口径一致。
     const oldPrefix = fpBookPrefix(oldName)
     const newPrefix = fpBookPrefix(newName)
     // length/key(i) 枚举（浏览器原生形态；Object.keys 对测试桩/隐私模式实现不稳）
@@ -98,13 +98,13 @@ export function progressPercent(b: { words?: number; targetWords?: number }): nu
 
 /**
  * Linear 风光晕：鼠标位置写入 --mx/--my 驱动卡片 ::before 的 radial-gradient 圆心。
- * 重评-P3-15（2026-09-09 全量代码重评）：原每 mousemove 读 getBoundingClientRect +
- * 写 CSS 变量 = 强制同步 reflow（144Hz ≈ 144 次/秒，PM-9 同族）。套用 WorkspaceShell
- * PM-9 先例：rect 惰性缓存（WeakMap 按卡片元素）+ window resize/scroll(capture) 失效
+ * 原每 mousemove 读 getBoundingClientRect +
+ * 写 CSS 变量 = 强制同步 reflow（144Hz ≈ 144 次/秒，同族）。套用 WorkspaceShell
+ * 先例：rect 惰性缓存（WeakMap 按卡片元素）+ window resize/scroll(capture) 失效
  * （scroll 不冒泡，capture 才能接住浮层内滚动容器）+ rAF 同帧合并只写最后一次位置，
  * 绘制时机与同步写一致，光晕视觉逐位不变。
- * R0910-W（2026-09-10 修复批）：失效改为置脏标记、读取时惰性重建 WeakMap——原实现
- * 每次 scroll tick 直接 `glowRects = new WeakMap()`，而 capture 监听会命中全应用
+ * （修复批）：失效改为置脏标记、读取时惰性重建 WeakMap——原实现
+ * 每次 scroll tick 直接 `glowRects = new WeakMap`，而 capture 监听会命中全应用
  * 每个容器的每次滚动（全局热路径），逐 tick 分配新 WeakMap 丢弃全部缓存；改标记后
  * 热路径仅一次布尔写，重建推迟到下一次 onCardMove 读取（未读零成本），失效与命中
  * 语义不变。监听器为页面寿命、capture 语义均保持不变。
@@ -122,7 +122,7 @@ let glowRaf = 0
 let glowPending: { el: HTMLElement; mx: string; my: string } | null = null
 export function onCardMove(e: MouseEvent): void {
   const el = e.currentTarget as HTMLElement
-  // R0910-W：消费脏标记——roll/resize 后首次读取时一次性重建缓存（惰性失效）
+  // 消费脏标记——roll/resize 后首次读取时一次性重建缓存（惰性失效）
   if (glowRectsDirty) {
     glowRects = new WeakMap()
     glowRectsDirty = false
@@ -150,27 +150,27 @@ export function onCardMove(e: MouseEvent): void {
 /**
  * 书架共享状态：分组 + 视图模式 + 建书表单 + 选书跳转。
  * onCreated 回调在建书成功后调用，由外壳处理跳转（路由 / IPC / 关浮层）。
- * onDeleted 回调在删除成功后调用（R65-54/E-6：ShelfModal 内删掉当前打开的书时，
+ * onDeleted 回调在删除成功后调用（/：ShelfModal 内删掉当前打开的书时，
  * 外壳借它导航离开死路由 /book/:name——留在原地则后续所有 API 全 404）。
- * openBook（P1-7b 降级单源，复审-0914-优化修复批）：「记 LAST_BOOK_KEY + 跳转」自
+ * openBook（降级单源，-）：「记 LAST_BOOK_KEY + 跳转」自
  * Shelf.vue / ShelfModal.vue 两份手写收敛于此；IPC 分支留回调由外壳判定。
  */
 export function useShelf(options?: {
   onCreated?: (name: string) => void
   onDeleted?: (names: string[]) => void
   /** 选书 IPC 分支：书架独立窗口（win=shelf）由外壳判定并走主窗口 IPC 打开（含
-   *  R42-31 的 reject catch 与窗口收尾），返回 true = 已接管跳转；缺省/返回 false =
+   * 的 reject catch 与窗口收尾），返回 true = 已接管跳转；缺省/返回 false =
    *  常规路由跳转（beforeOpenBookNav 钩子先行） */
   openBookViaIpc?: (name: string) => boolean
   /** 常规路由跳转前钩子（浮层壳需先收浮层再导航） */
   beforeOpenBookNav?: (name: string) => void
 }) {
   const shelf = useShelfStore()
-  // P1-7b：openBook 的常规跳转出口（useShelf 均在组件 setup 内调用；单测裸调场景
+  // openBook 的常规跳转出口（useShelf 均在组件 setup 内调用；单测裸调场景
   // router 为 undefined，openBook 不被触达）
   const router = useRouter()
 
-  // ── 搜索 + 排序（P2-PROD-6）────────────────────
+  // ── 搜索 + 排序（-PROD-6）────────────────────
   /** 搜索词（按书名模糊匹配） */
   const query = ref('')
   type SortBy = 'recent' | 'created' | 'name'
@@ -241,7 +241,7 @@ export function useShelf(options?: {
   const newKind = ref<'long' | 'short'>('long')
   const creating = ref(false)
   const createError = ref<string | null>(null)
-  // P3-26（全库重评-0914）：关弹窗清建书错误——原 createError 只在下次提交时清，
+  // （-0914）：关弹窗清建书错误——原 createError 只在下次提交时清，
   // 关闭（Esc/取消/建书成功）后残留，重开弹窗挂着上次失败文案。收敛在组合层
   // （Shelf.vue 全屏页与 ShelfModal.vue 浮层两个消费方同享，零调用方改动）。
   watch(showCreate, (v) => {
@@ -250,11 +250,11 @@ export function useShelf(options?: {
   async function createBook(): Promise<void> {
     const name = newName.value.trim()
     if (!name) return
-    if (creating.value) return // R70-25（十八轮）：Enter 不受按钮 disabled 管辖——双 Enter 第二笔撞重名误报失败
+    if (creating.value) return // Enter 不受按钮 disabled 管辖——双 Enter 第二笔撞重名误报失败
     creating.value = true
     createError.value = null
     try {
-      // R0911-C1-P3-2：裸 apiJson → api/books.ts 具名函数（端点/payload/错误口径零变化）
+      // 裸 apiJson → api/books.ts 具名函数（端点/payload/错误口径零变化）
       await createBookApi(name, newKind.value)
       showCreate.value = false
       newName.value = ''
@@ -295,7 +295,7 @@ export function useShelf(options?: {
     selected.value = new Set()
   }
 
-  // 选书（P1-7b 降级单源）：记 LAST_BOOK_KEY（R60-D-4 键收敛单源写入口）+ 跳转分流——
+  // 选书（降级单源）：记 LAST_BOOK_KEY（键收敛单源写入口）+ 跳转分流——
   // openBookViaIpc 命中（书架独立窗口 win=shelf）时外壳走 IPC 自管收尾；否则（可选
   // beforeOpenBookNav 钩子后）常规路由跳转。两形态（全屏页/浮层）行为逐位不变。
   function openBook(name: string): void {
@@ -324,7 +324,7 @@ export function useShelf(options?: {
     deleting.value = true
     try {
       for (const name of names) {
-        // R71-26（七十一轮）：单书 404/NOT_FOUND 视为已删继续——部分失败后重试时弹窗
+        // 单书 404/NOT_FOUND 视为已删继续——部分失败后重试时弹窗
         // 仍带全量名单，已删成功的书再删必 404，照旧上抛会中断循环、剩余书永远删不掉；
         // 其余错误照旧中断记失败（保留弹窗可重试语义不变）
         try {
@@ -332,27 +332,27 @@ export function useShelf(options?: {
         } catch (e) {
           if (!(e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND'))) throw e
         }
-        // R-5（十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
+        // （十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
         clearFalsePositiveMarks(name)
-        // R26-83（二十六轮，登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
+        // （二十六轮，登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
         // 原无书删除出口）——同名重建书不回填旧书幽灵文本
         clearFailedDrafts(name)
-        // R37-28（三十七轮批E）：一并清该书章号显式记忆（chat store 按书记忆 Map 原无
+        // 一并清该书章号显式记忆（chat store 按书记忆 Map 原无
         // 删除出口，删书残留）——同名重建书不回填旧书的章号语境，其它书记忆不受牵连
         useChatStore().clearChapterMemo(name)
-        // R-P2-1（评审修复批）：一并清该书脏镜像键（键族清理单源 doc.clearBookMirrors）
+        // （评审修复批）：一并清该书脏镜像键（键族清理单源 doc.clearBookMirrors）
         // ——同名重建书不复活已删书的崩溃前未落盘残文（与上各清理同伴同语义）
         useDocStore().clearBookMirrors(name)
-        // R27-79（二十七轮）：连带清该书 localStorage 残留键——否则同名重建书继承已删书
+        // 连带清该书 localStorage 残留键——否则同名重建书继承已删书
         // 梗概（首启引导凭空带出旧稿设定）、且永不套章节树默认展开。两键均经
-        // shared/storage-keys 与写入方同源拼键（R30-26（三十轮）：梗概键原硬编码冒号
-        // 形态与 OnboardPremise 局部常量双源同串，同族断裂隐患一并收敛；首开键 R28-3）。
+        // shared/storage-keys 与写入方同源拼键（梗概键原硬编码冒号
+        // 形态与 OnboardPremise 局部常量双源同串，同族断裂隐患一并收敛；首开键）。
         // try 包裹对齐本文件 loadSortPreference：localStorage 不可用（隐私模式）时静默忽略
         try {
           localStorage.removeItem(onboardPremiseKey(name))
-          // R28-3（二十八轮）：首开键原写死冒号形态 `clw2.tree-first-open:${name}`，而
+          // 首开键原写死冒号形态 `clw2.tree-first-open:${name}`，而
           // 写入方 ChapterTreePanel 前缀为点号 'clw2.tree-first-open.'——冒号→点号键名
-          // 断裂致 R26-74 首开标记删书永远清不掉、同名重建书永不套默认展开（R27-79
+          // 断裂致首开标记删书永远清不掉、同名重建书永不套默认展开（
           // 落空一半）。改从 shared/storage-keys 与写入方同源拼键
           localStorage.removeItem(treeFirstOpenKey(name))
         } catch {
@@ -378,7 +378,7 @@ export function useShelf(options?: {
     shelf,
     groups,
     latestBook,
-    // 搜索 + 排序（P2-PROD-6）
+    // 搜索 + 排序（-PROD-6）
     query,
     sortBy,
     setSortBy,
@@ -397,7 +397,7 @@ export function useShelf(options?: {
     selectAll,
     enterBatch,
     exitBatch,
-    // 选书（P1-7b 降级单源）
+    // 选书（降级单源）
     openBook,
     confirmTarget,
     deleting,

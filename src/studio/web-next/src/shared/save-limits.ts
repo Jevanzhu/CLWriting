@@ -1,9 +1,9 @@
 /**
- * 单次保存的请求体上限（前端预检单源）——RC 源码重审 B-1。
+ * 单次保存的请求体上限（前端预检单源）——RC 。
  *
  * 服务端单源 = `src/studio/server/http.ts` 的 `CONTENT_BODY_LIMIT_BYTES`（文档 content
  * PUT / 新建带 content / `/file` PUT 三处走该档）。前端子包不引用服务端模块（零根依赖
- * 惯例），故此处镜像一份数值，两侧等值由 `test/studio/r78-save-body-limit.test.ts` 的
+ * 惯例），故此处镜像一份数值，两侧等值由 `test/studio/save-content-body-limit.test.ts` 的
  * 断言钉住——改单边即红，不会静默漂移。
  *
  * 为什么前端要预检：默认档（1MB）对「200 万字」级正文远不够（中文 UTF-8 ≈3 字节/字，

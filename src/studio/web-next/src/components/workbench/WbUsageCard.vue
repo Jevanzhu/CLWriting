@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// D1（批 4）AI 用量卡片：消费既有 GET /trace-stats（aggregateTrace 的 byTask 聚合——
-// 此前端连 API 都引了没渲染，本卡补上渲染面）+ D2 的 cost-stats（配价书显示金额，
+// AI 用量卡片：消费既有 GET /trace-stats（aggregateTrace 的 byTask 聚合——
+// 此前端连 API 都引了没渲染，本卡补上渲染面）+ 的 cost-stats（配价书显示金额，
 // 未配价显示引导不显示 0）。自取数（挂载即拉），WorkbenchView 单点挂载零数据编排。
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
@@ -10,7 +10,7 @@ import { useStaleGuard } from '../../composables/useStaleGuard'
 
 const props = defineProps<{ bookName: string }>()
 
-// R0912-FE-P3-4：trace-stats 改走共享 store——与 WorkbenchView.loadRuleHits 同屏各拉
+// trace-stats 改走共享 store——与 WorkbenchView.loadRuleHits 同屏各拉
 // 一次 GET /trace-stats 的双发面在 store 层单点分发（同书并发去重）；本卡的
 // getCostStats 仍自拉（仅本卡消费），取数/失败/切书代守卫口径不变。
 const traceStats = useTraceStatsStore()
@@ -29,12 +29,12 @@ interface TaskStat {
 const byTask = ref<Record<string, TaskStat>>({})
 const total = ref(0)
 const cost = ref<CostStats | null>(null)
-// R0912-3 #19：cost 取数失败与未配价（enabled:false）分流——此前 catch 吞成 null，
+// #19：cost 取数失败与未配价（enabled:false）分流——此前 catch 吞成 null，
 // 失败被渲染成「未配置价格表」引导，误导归因到配置
 const costFailed = ref(false)
 const loaded = ref(false)
 
-/** R0912-3 #19：cost 取数失败不打穿整卡（trace-stats 仍要渲染），失败单独记态 */
+/** #19：cost 取数失败不打穿整卡（trace-stats 仍要渲染），失败单独记态 */
 async function loadCost(book: string): Promise<CostStats | 'failed'> {
   try {
     return await getCostStats(book)
@@ -44,10 +44,10 @@ async function loadCost(book: string): Promise<CostStats | 'failed'> {
 }
 
 // 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 
-// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：卸载 armed 单门——loadGen 代只挡
+// （修复批）：卸载 armed 单门——loadGen 代只挡
 // 在途切书（实例复用），挡不住「请求在途实例卸载」（切路由整树销毁）：迟到的取数续体
 // 此前照旧写回死实例 byTask/total/cost（低敏写回，非泄漏级）。对齐 style 系 armed /
 // SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
@@ -66,28 +66,28 @@ async function load(): Promise<void> {
       loadCost(props.bookName),
     ])
     if (loadGen.stale(gen)) return
-    if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
+    if (!armed) return // 卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
-    costFailed.value = costR === 'failed' // R0912-3 #19
+    costFailed.value = costR === 'failed' // #19
     cost.value = costR === 'failed' ? null : costR
   } catch {
     // 离线/无数据：空态展示。失败也要清旧书数据（gen 匹配 = 本次请求属于当前书）——
     // 否则新书请求失败时 finally 置 loaded，旧书的调用量/金额挂在新书名下（敏感数据错位
     // 在失败路径复现，正是本卡要消灭的场景）
     if (loadGen.stale(gen)) return
-    if (!armed) return // R1010b-FTC-P3-2：失败路径同门
+    if (!armed) return // 失败路径同门
     byTask.value = {}
     total.value = 0
     cost.value = null
-    costFailed.value = false // R0912-3 #19：整卡失败走空态，不误报 cost 取数失败
+    costFailed.value = false // #19：整卡失败走空态，不误报 cost 取数失败
   } finally {
     if (loadGen.fresh(gen) && armed) loaded.value = true
   }
 }
 
 onMounted(() => void load())
-// Y-P2-3 同类：切书组件实例复用（WorkbenchView 不加 :key），此前仅挂载拉一次，
+// 同类：切书组件实例复用（WorkbenchView 不加 :key），此前仅挂载拉一次，
 // 旧书的调用量/金额会残留挂在新书工作台——金额属敏感数据错位
 watch(() => props.bookName, () => void load())
 
@@ -140,7 +140,7 @@ function fmtMs(n: number): string {
       暂无 AI 调用记录（写作/审稿/摘要等任务的用量在此汇总）。
     </div>
     <template v-else>
-      <!-- D2（批 5）：配价书显示金额；未配价引导配置（不显示 0）。R0912-3 #19：
+      <!-- ：配价书显示金额；未配价引导配置（不显示 0）。 #19：
            取数失败单独成态，不再伪装成「未配置价格表」引导 -->
       <div v-if="cost?.enabled" class="usage-cost">
         本书累计成本 <strong>{{ cost.total.toFixed(4) }}</strong> {{ cost.currency ?? 'USD' }}

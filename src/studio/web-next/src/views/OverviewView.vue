@@ -23,7 +23,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
-// 复审-0913-源码 P3-㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
+// -源码 -㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
 import { formatWanZi } from '../shared/words'
 import WordCurveChart from '../components/overview/WordCurveChart.vue'
 import RhythmDistPanel from '../components/overview/RhythmDistPanel.vue'
@@ -38,8 +38,8 @@ function continueWriting(): void {
   const rc = data.value?.recentDoc
   if (!rc) return
   const book = props.bookName
-  // P3-㉒（复审-0913-源码）：byPath 命中前补书归属校验（tree.ownerBook，ChapterTreePanel
-  // R35-10 同款）——切书后旧树滞留时同路径节点属旧书，直接 openTab 会开旧书 docId
+  // -㉒（-源码）：byPath 命中前补书归属校验（tree.ownerBook，ChapterTreePanel
+  // 同款）——切书后旧树滞留时同路径节点属旧书，直接 openTab 会开旧书 docId
   if (tree.ownerBook === book) {
     const node = tree.byPath.get(rc.path)
     if (node?.docId) {
@@ -48,10 +48,10 @@ function continueWriting(): void {
     }
   }
   // 树未命中（树未加载/缓存旧/属主不符）→ 重拉后再打开
-  // B-10（第六十轮）：在途切书守卫——重拉在途切书后旧闭包不再按 A 书树开 tab
+  // 在途切书守卫——重拉在途切书后旧闭包不再按 A 书树开 tab
   void tree.load(book, true).then(() => {
     if (props.bookName !== book) return
-    // R35-10：load 失败只置 error 不清 raw，旧树滞留时不得按旧树开 tab
+    // load 失败只置 error 不清 raw，旧树滞留时不得按旧树开 tab
     if (tree.error) return
     // ownerBook 复检：落定的树必须确属本书（与上方主分支同口径）
     if (tree.ownerBook !== book) return
@@ -69,8 +69,8 @@ const loading = ref(true)
 const err = ref<string | null>(null)
 
 // onMounted 并行加载 4 个 API（容错：单个失败不阻断页面）。
-// R72-11（二十轮 F-8）：代守卫——重试连点/切书后慢响应不再覆盖新响应（gen 判定丢弃）
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（loadAll begin，次级加载器收 gen 参数只查代）。
+// 代守卫——重试连点/切书后慢响应不再覆盖新响应（gen 判定丢弃）
+// 裸计数器换装 useStaleGuard（loadAll begin，次级加载器收 gen 参数只查代）。
 const loadGen = useStaleGuard()
 async function loadAll(): Promise<void> {
   const gen = loadGen.begin()
@@ -83,7 +83,7 @@ async function loadAll(): Promise<void> {
   } catch (e) {
     if (loadGen.stale(gen)) return
     err.value = friendlyError(e)
-    // R0912-FE-P3-9（2026-09-11 重评-0911b 修复批）：主请求失败即止——此前主请求失败
+    // （b 修复批）：主请求失败即止——此前主请求失败
     // 后仍无条件发 3 个子请求（伏笔/节奏/分析）：总览页已整页错误态（数据无处渲染），
     // 子请求纯属白耗且失败静默。重试按钮触发 loadAll 重走全链。
     return
@@ -94,7 +94,7 @@ async function loadAll(): Promise<void> {
   void loadRhythm(gen)
   void loadAnalysis(gen)
 }
-// R76-33（二十四轮 E 域）：次级加载器补代守卫——主加载器有 R72-11 的 gen 判定，三个
+// （二十四轮 E 域）：次级加载器补代守卫——主加载器有的 gen 判定，三个
 // 次级加载器此前裸写响应：重试连点/切书后慢响应（伏笔/节奏/分析）照样回填，A 书的
 // 次级数据盖到 B 书页面上（跨书数据渗漏，主数据代守卫防住的正是同型）。
 async function loadFs(gen: number): Promise<void> {
@@ -104,8 +104,8 @@ async function loadFs(gen: number): Promise<void> {
     foreshadows.value = r
   } catch (e) {
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
-    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
-    // 五轮重评修复批（F102）：对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
+    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+    // 修复批（F102）：对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
     // 不置空，注释「面板保持空态」失实：同书先前成功过一次后重试失败，面板继续展示
     // 旧红/黄/绿统计（陈旧数据假健康）。
     console.warn('[overview] 伏笔健康度加载失败（面板保持空态）', e)
@@ -118,7 +118,7 @@ async function loadRhythm(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     rhythmData.value = r
   } catch (e) {
-    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
     console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     rhythmData.value = null
@@ -130,7 +130,7 @@ async function loadAnalysis(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     analysis.value = r
   } catch (e) {
-    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
     console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
     if (loadGen.stale(gen)) return // 同上
     analysis.value = null
@@ -155,7 +155,7 @@ const targetFmt = computed(() => {
   return t ? (t >= 10000 ? formatWanZi(t, { digits: 0 }) : t.toLocaleString()) : null
 })
 const hasTarget = computed(() => !!targetFmt.value)
-// F-P1-6：Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
+// Date.now 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
 const days = computed(() => {
   const c = data.value?.identity.created_at
   if (!c) return 0
@@ -370,7 +370,7 @@ const fsStats = computed(() => {
         <div v-if="analysis?.style" class="style-body">
           <div class="style-drift">{{ analysis.style.drift }}</div>
           <div v-if="analysis.style.口癖?.length" class="style-tags">
-            <!-- 重评2-P3-4（2026-09-09 全量重评 GLM-5.3）：key 弃纯 index——分析快照为一次性
+            <!-- 2-（GLM-5.3）：key 弃纯 index——分析快照为一次性
                  整表替换、纯展示 span 无内部状态（无错位实害），但口癖串可重复，改「值+序号」
                  复合键令内容参与键（前缀稳定的尾部追加场景 DOM 复用优于 index），零行为改动。 -->
             <span v-for="(t, i) in analysis.style.口癖" :key="t + '-' + i" class="style-tag">{{ t }}</span>
@@ -386,7 +386,7 @@ const fsStats = computed(() => {
 .ov-scroll { height: 100%; overflow: auto; padding: var(--size-4-5) var(--size-4-6); }
 .overview { display: flex; flex-direction: column; gap: var(--size-4-4); max-width: 940px; margin: 0 auto; }
 
-/* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删本处漏网的重复块，声明逐字相同零视觉差） */
+/* .panel 基础走全局 style-shared.css（收敛批装载； 删本处漏网的重复块，声明逐字相同零视觉差） */
 
 .empty { font-size: var(--font-size-s); color: var(--text-faint); padding: var(--size-4-2) 0; }
 

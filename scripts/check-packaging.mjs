@@ -206,7 +206,7 @@ export function problemsForDepsVersionSync(rootDeps, subDeps) {
  * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
  * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
  * 该侧对账诊断，失败方向 fail-closed 不变——不假绿也不吞真故障）；其余错误照抛。
- * 导出供 test/desktop/r50-f2-check-scripts-toctou.test.ts 直测。
+ * 导出供 test/desktop/check-packaging-readdir-tolerant.test.ts 直测。
  */
 export function readDirTolerant(dir) {
   try {

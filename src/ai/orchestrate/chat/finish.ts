@@ -3,12 +3,12 @@
  *
  * - finishTurn：六处失败出口（轮首中止 timedOut / 轮首中止用户中断 / 轮首 deadline /
  *   !ok 超时 / !ok 错误 / max_tokens）的单一出口——回滚 + 全会话 surface 遮蔽 +
- *   chat_error 文案，遮蔽口径（GG-P2-1 幽灵消息口径）只在此处定义；
- * - finalizeHistory / summarizeCheckpoint：B1+B2 溢出时 checkpoint 压缩优先，
- *   失败回落 F1-P1 硬截断（trim 遮蔽语义不变）。
+ *   chat_error 文案，遮蔽口径（幽灵消息口径）只在此处定义；
+ * - finalizeHistory / summarizeCheckpoint：+ 溢出时 checkpoint 压缩优先，
+ *   失败回落硬截断（trim 遮蔽语义不变）。
  */
 import type { ChatMsg, TokenUsage } from '../../provider/types.js'
-import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
+import { redactSecret } from '../../provider/redact.js' // SSE 错误事件脱敏第二层
 import { modelConfOf } from '../../provider/store.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
@@ -23,7 +23,7 @@ import { log, errMsg } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
 
-/** R0912-D-P3-2：工具名清单模块级常量化——chatTools 表模块级不可变，摘要调用 promptTools
+/** 工具名清单模块级常量化——chatTools 表模块级不可变，摘要调用 promptTools
  *  登记（铁律②「模型可见 ⟺ 已记录」工具面）不必每次调用重算 map。（turns.ts 同口径
  *  各持一份本文件常量——共享导出需改 contract/chat.ts 公共面，取最小改。） */
 const CHAT_TOOL_NAMES = chatTools.map((t) => t.name)
@@ -38,8 +38,8 @@ const CHAT_EXIT_SPEC = {
   'max-tokens': { mask: 'max-tokens', message: '回复达到长度上限被截断，请缩小问题范围重试' },
 } as const
 
-// R70-12（十八轮）：文案与超时值同源换算，不再硬编码。
-// R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：CC-P2-2 起 runChatInner 支持
+// 文案与超时值同源换算，不再硬编码。
+// （修复批）： 起 runChatInner 支持
 // opts.deadlineMs 注入，超时文案恒按缺省 AGENT_DEADLINE_MS 换算会与实际生效超时漂移
 // （原「文案按缺省口径展示」声明失真）——改按实际生效 deadline（opts.deadlineMs ??
 // AGENT_DEADLINE_MS，与 chat.ts runChatInner 的 resolve 同式）换算；mask 终态口径不变，
@@ -49,8 +49,8 @@ function timeoutExitSpec(opts: ChatOpts): { mask: 'aborted'; message: string } {
   return { mask: 'aborted', message: `对话超时（超过 ${Math.round(deadlineMs / 60_000)} 分钟），已停止` }
 }
 
-/** 单一失败出口：回滚历史到 baseLen（P1-S4/R1a：防末尾 user → 下次连续 user → Anthropic 400）
- * + 本会话全部 surface 消息遮蔽（F1-P1：防下次恢复/审计重放出已回滚的废数据）+ chat_error 文案。 */
+/** 单一失败出口：回滚历史到 baseLen（-/：防末尾 user → 下次连续 user → Anthropic 400）
+ * + 本会话全部 surface 消息遮蔽（防下次恢复/审计重放出已回滚的废数据）+ chat_error 文案。 */
 export function finishTurn(
   opts: ChatOpts,
   history: ChatMsg[],
@@ -59,14 +59,14 @@ export function finishTurn(
   reason: ChatExitReason,
 ): void {
   history.length = baseLen
-  // R1010b-AI-P3-3：timeout 出口文案按实际生效 deadline 现算（见 timeoutExitSpec 注释）
+  // timeout 出口文案按实际生效 deadline 现算（见 timeoutExitSpec 注释）
   const spec =
     typeof reason === 'object'
       ? { mask: 'error' as const, message: reason.error }
       : reason === 'timeout'
         ? timeoutExitSpec(opts)
         : CHAT_EXIT_SPEC[reason]
-  // M-1（第十一轮）：失败出口自身不得再抛——closeMaskingAll 内含 flush，同一 DB 故障
+  // 失败出口自身不得再抛——closeMaskingAll 内含 flush，同一 DB 故障
   // （磁盘满/血缘校验越界）下随之抛错会直穿 runChatInner（只有 finally 无 catch），
   // 遮蔽失败降级留痕（悬置 pending 事件由孤儿修复收口），回滚与 chat_error 文案必须送达
   try {
@@ -74,11 +74,11 @@ export function finishTurn(
   } catch (e) {
     log.warn('chat', `失败收尾遮蔽落库失败（终态 ${spec.mask}，本会话事件待修复后重放）：${errMsg(e)}`)
   }
-  // R43-19（四十三轮）：chat_error 文案过 redactSecret（与 stream.ts:216 R26-8 同款）——
+  // chat_error 文案过 redactSecret（与 stream.ts:216 同款）——
   // {error} 分支的 message 源自 out.error（provider 异常），可含凭据痕迹；固定文案
   //（超时/中断/截断）不匹配凭据模式，幂等无变化
   // 0918三拍板批（A006 轻量档）：非 regenerate 回合随 chat_error 回显作者原文——回滚/
-  // 遮蔽语义分毫不动（P1-S4/R1a + F1-P1 原样），回滚后原文仅存于本事件供前端「复制重发」，
+  // 遮蔽语义分毫不动（-/+ 原样），回滚后原文仅存于本事件供前端「复制重发」，
   // 免瞬态失败（429 耗尽/断网）后整段重打。echo 原样往返不过 redactSecret（脱敏即破坏
   // 复制重发可用性；原文本就已随 user/message 事件落库，不新增落库面）。regenerate 回合
   // 复用恢复出的旧 user 消息（在 baseLen 之前、不随回滚消失），无需回显。
@@ -86,13 +86,13 @@ export function finishTurn(
   emit(opts, { type: 'chat_error', error: redactSecret(spec.message), echo })
 }
 
-// ── 收尾压缩（B1+B2 升级 F1-P1 的 trim 遮蔽点） ──────
+// ── 收尾压缩（+ 升级的 trim 遮蔽点） ──────
 
-// B2 压缩抑制标记：低级项（第六轮）挪至 state.ts（与 histories 同生命周期，
+// 压缩抑制标记：低级项挪至 state.ts（与 histories 同生命周期，
 // LRU 逐出/清空时一并清理）
 
 /**
- * checkpoint 摘要调用（B2，KV-cache 友好形态）：同一 system + tools + 待压前缀原样重放，
+ * checkpoint 摘要调用（KV-cache 友好形态）：同一 system + tools + 待压前缀原样重放，
  * 末尾追加一条 user 指令——摘要调用成为刚结束对话的真前缀延伸。
  * fail-closed：max_tokens 收尾（截断摘要）/ 意外工具调用 / 空文本 / 调用失败 → null。
  */
@@ -107,19 +107,19 @@ async function summarizeCheckpoint(
   const sanitized = sanitizeHistory(toSummarize)
   if (sanitized.length === 0) return null
   const instruction = buildCheckpointInstruction(priorSummary ?? undefined)
-  // R69-14（十七轮）：摘要调用的实际输入 = 待压前缀 + 指令（messages 全量发给模型），
+  // 摘要调用的实际输入 = 待压前缀 + 指令（messages 全量发给模型），
   // 此前 promptText 只传 instruction——promptMeta 的 hash/chars 都漏前缀（不同历史同
   // 指令的摘要调用指纹全同、输入量低估）。并入前缀后指纹可区分（promptMeta 只记
   // chars+hash 不落正文，体积不变）。
   const promptTextWithPrefix = `${instruction}\n[待压历史]\n${sanitized
     .map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
     .join('\n')}`
-  // Q-13（第十五轮）：run 返回壳对象以透传 resolvedMaxTokens（runner 提取落 llm/call）——
-  // 摘要调用自带 clamp cap（P8），重放口径必须记 resolve 后终值
-  // R35-2：usage + stopReason 同壳透传——摘要调用是长对话中输入最大的真实计费调用，
+  // run 返回壳对象以透传 resolvedMaxTokens（runner 提取落 llm/call）——
+  // 摘要调用自带 clamp cap，重放口径必须记 resolve 后终值
+  // usage + stopReason 同壳透传——摘要调用是长对话中输入最大的真实计费调用，
   // 此前两字段被整链丢弃（usage null 不进账、截断时 stopReason 谎记 end_turn）
-  // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：泛型补 degraded?: boolean——B-2 透传
-  // （:132/:135 两分支返回 degraded）早已写进回调返回值，类型面未声明对调用方不可见
+  // （GLM-5.3 修复批）：泛型补 degraded?: boolean—— 透传
+  // （132/:135 两分支返回 degraded）早已写进回调返回值，类型面未声明对调用方不可见
   const out = await runTask<{ text: string | null; resolvedMaxTokens?: number; degraded?: boolean; usage: TokenUsage; stopReason: string }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
@@ -127,22 +127,22 @@ async function summarizeCheckpoint(
     bookRoot: opts.bookRoot,
     systemPrompt: sys,
     promptText: promptTextWithPrefix,
-    promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
-    // R59 清偿批（R55-C-6）：摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
+    promptFiles, // 摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
+    // 清偿批摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
     // 进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
-    // R0912-D-P3-2：清单收 CHAT_TOOL_NAMES 模块常量（原每次调用 map 重算）
+    // 清单收 CHAT_TOOL_NAMES 模块常量（原每次调用 map 重算）
     promptTools: CHAT_TOOL_NAMES,
     ctrl: state.ctrl,
-    // 低-1（第十轮）：补 owner——对齐第八轮 M-1 的 owner 分槽口径（轮循环
+    // 低-1补 owner——对齐 的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的
-    // 形态下，后书的摘要 register 在 '' 槽触发 P2-6「换新先 abort 旧」，掐断前书在途
+    // 形态下，后书的摘要 register 在 '' 槽触发 「换新先 abort 旧」，掐断前书在途
     // 压缩的 ctrl（摘要失败回落硬截断）。带 owner 后与本轮轮循环同槽同 ctrl（幂等
     // no-op），跨 owner（self-heal/spawn）并发互不影响。
-    // R71-19（十九轮）：owner 带书维度 `chat:<bookName>`——与 turns.ts 同步，跨书
+    // owner 带书维度 `chat:<bookName>`——与 turns.ts 同步，跨书
     // 分槽互不抢占、同书同槽幂等语义不变。
     register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
     onReset: () => emit(opts, { type: 'chat_reset' }),
-    // R49-1：error 拼接前过 redactSecret（R43-19 口径，对齐 turns.ts onRetry 同款）
+    // error 拼接前过 redactSecret（口径，对齐 turns.ts onRetry 同款）
     onRetry: (attempt, error) =>
       emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
     run: async (provider, signal, tier) => {
@@ -152,7 +152,7 @@ async function summarizeCheckpoint(
           systemPrompt: sys,
           messages: [...sanitized, { role: 'user', content: instruction }],
           tools: chatTools,
-          // P8：摘要输出预算按模型上下文窗口吃 clamp——模型行未声明 contextWindow → 维持旧上限 16384
+          // 摘要输出预算按模型上下文窗口吃 clamp——模型行未声明 contextWindow → 维持旧上限 16384
           maxTokens: clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow),
           effort: tier.effort,
         },
@@ -160,7 +160,7 @@ async function summarizeCheckpoint(
       )
       if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
       const t = r.text.trim()
-      // B-2（第六十轮）：degraded 透传（两分支同补——runner extractDegraded 落 llm/call）
+      // degraded 透传（两分支同补——runner extractDegraded 落 llm/call）
       return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
     },
   })
@@ -168,9 +168,9 @@ async function summarizeCheckpoint(
 }
 
 /**
- * 对话收尾的历史窗口处理（B1+B2 升级 F1-P1 的 trim 遮蔽点）：
+ * 对话收尾的历史窗口处理（+ 升级的 trim 遮蔽点）：
  * 溢出时优先 checkpoint 压缩（信息保留 + seq 遮蔽语义不变），失败回落现行硬截断。
- * 空摘要 fail-open：保留原历史、不插占位符（B2 纪律），本次不遮蔽。
+ * 空摘要 fail-open：保留原历史、不插占位符（纪律），本次不遮蔽。
  */
 export async function finalizeHistory(
   opts: ChatOpts,
@@ -179,19 +179,19 @@ export async function finalizeHistory(
   recorder: SessionRecorder,
   sys: string,
   state: ChatRunState,
-  /** Z-11（第五十八轮）：与轮循环同源的注入源清单——sys 同源（内嵌章正文预览），
+  /** 与轮循环同源的注入源清单——sys 同源（内嵌章正文预览），
    *  摘要调用的 llm/call 此前 files 为空，章正文注入源在该次事件断链 */
   promptFiles: string[] = [],
 ): Promise<void> {
-  // 硬截断兜底（= F1-P1 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
-  // R69-10（十七轮）：close 三处收 try——close 抛错（SQLITE_BUSY/盘满）此前穿
+  // 硬截断兜底（= 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
+  // close 三处收 try——close 抛错（SQLITE_BUSY/盘满）此前穿
   // runChatInner（无 catch）→ sendChatMessage catch 发 driver error，chat_done 已发又收
-  // error、压缩存档丢失；现 warn 留痕 + 内存不突变（R65-2「close 成功后才突变」纪律的
+  // error、压缩存档丢失；现 warn 留痕 + 内存不突变（「close 成功后才突变」纪律的
   // 自然推论：失败即整体退化为「截断/压缩未发生」，下次溢出重试）。
   const trimAndClose = (): void => {
     const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
     const cut = history.length - trimmed.length
-    // R65-2（十三轮）：close 先行——N-6 纪律收口硬截断路径。此前先 splice/set 内存后
+    // close 先行—— 纪律收口硬截断路径。此前先 splice/set 内存后
     // close 落库，close 抛错（SQLITE_BUSY/盘满）时遮蔽区间未持久化而内存已截：重启
     // restore 投影回全量历史复活本应 trim 的消息（幽灵历史），且 msgSeqs 与投影错位。
     // close 成功后才突变（失败时内存/DB 双未动，退化为「截断未发生」而非错位）。
@@ -218,19 +218,19 @@ export async function finalizeHistory(
     summarizeCheckpoint(opts, sys, state, toSum, prior, promptFiles),
   )
   if (outcome.summarizedCount > 0) {
-    // N-6（第十二轮）：先算后切——msgSeqs 与 msgSeqMap 是同一数组引用，close 的第二笔
+    // 先算后切——msgSeqs 与 msgSeqMap 是同一数组引用，close 的第二笔
     // 落库（appendEvents 写 compaction 事件）可半途失败（SQLITE_BUSY/盘满），若 splice
     // 先行则共享数组已缩短而 histories 未换，内存头部位错；重启 restore 只在尾部补 []，
     // 错位永久化。close 成功后才突变（失败时数组/历史双未动，DB 无 compaction 事件、
     // 投影回全量历史，退化为「压缩未发生」而非错位）。
     const cut = outcome.summarizedCount
     const shadowSeqs = msgSeqs.slice(0, cut).flat()
-    // Y-P2-2：压缩存档并入 compaction/end 载荷（replace 在被遮蔽区间原位取代）——
+    // 压缩存档并入 compaction/end 载荷（replace 在被遮蔽区间原位取代）——
     // 跨重启恢复经投影带回存档（此前摘要只在内存，重启丢被压上下文）
     const firstMsg = outcome.history[0]
     let archiveSeq: number | null
     try {
-      // R69-10：close 收编同 trimAndClose——失败 warn 留痕、内存/DB 双未动（退化为本轮未压缩）
+      // close 收编同 trimAndClose——失败 warn 留痕、内存/DB 双未动（退化为本轮未压缩）
       archiveSeq =
         firstMsg !== undefined && typeof firstMsg.content === 'string'
           ? recorder.close('completed', shadowSeqs, firstMsg.content)
@@ -245,7 +245,7 @@ export async function finalizeHistory(
     histories.set(opts.bookName, outcome.history)
     return
   }
-  // R53-C-1（五十三轮）：plan=null（回合数 ≤ 窗口）≠ 历史 bounded——单个巨回合（工具
+  // plan=null（回合数 ≤ 窗口）≠ 历史 bounded——单个巨回合（工具
   // 重往返把单回合撑肥，tool_result 不算回合起点）可把消息条数撑到数百而回合数不动，
   // 压缩规划永 null、此路径此前零动作，历史全额随每次请求携带。回落 trimAndClose：
   // trimHistory 的回合金盲区回落（同批修复）按码点预算对齐边界硬截；短历史（≤ window*2
@@ -258,7 +258,7 @@ export async function finalizeHistory(
   // 摘要失败（fail-open 保留原历史，不遮蔽）；置 suppress，下次溢出硬截断
   compactionSuppressed.add(opts.bookName)
   try {
-    recorder.close('completed') // R69-10：no-op close 同款收编（session/end 落库失败不炸收尾）
+    recorder.close('completed') // no-op close 同款收编（session/end 落库失败不炸收尾）
   } catch (e) {
     log.warn('chat', `会话收尾 close 落库失败（孤儿修复将补 interrupted 终态）：${errMsg(e)}`)
   }

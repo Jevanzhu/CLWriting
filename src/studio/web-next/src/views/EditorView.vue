@@ -18,7 +18,7 @@ import {
   scheduleBodyWriteback,
   flushBodyWriteback,
 } from '../shared/body-writeback'
-// R0916-7-P3-21：暴露面类型由 CmHost 单源导出（原为本文件手写复制的 CmHostExposed）
+// 暴露面类型由 CmHost 单源导出（原为本文件手写复制的 CmHostExposed）
 import CmHost, { type CmHostHandle } from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -36,7 +36,7 @@ const ws = useWorkspaceStore()
 const ui = useUiStore()
 
 const aiOff = computed(() => ui.aiAvailable === false)
-// R0916-7-P3-21：声明顺序与使用顺序一致——isReviewable 读 entry，entry 须先于它声明
+// 声明顺序与使用顺序一致——isReviewable 读 entry，entry 须先于它声明
 // （computed 惰性求值故原「先用后声明」能跑，但阅读顺序是反的）。
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
@@ -48,7 +48,7 @@ const isReviewable = computed(() => {
 
 // 当前书类型（长篇/短篇），顶栏 pill 展示；切书时重新拉取 book.yaml
 const bookKind = ref<'long' | 'short' | null>(null)
-// R0916-7-P3-26：请求代守卫收敛 useStaleGuard 单源（原裸计数器 kindReqId）。
+// 请求代守卫收敛 useStaleGuard 单源（原裸计数器 kindReqId）。
 // 判定时机逐位不变：await 后先查代再落态，被后发请求作废的迟归结果丢弃。
 const kindReq = useStaleGuard()
 watch(
@@ -61,7 +61,7 @@ watch(
     const reqId = kindReq.begin()
     try {
       const cfg = await getConfig(name)
-      if (kindReq.stale(reqId)) return // P2-19：丢弃过期结果
+      if (kindReq.stale(reqId)) return // 丢弃过期结果
       bookKind.value = cfg.kind === 'short' ? 'short' : 'long'
     } catch {
       if (kindReq.stale(reqId)) return
@@ -76,16 +76,16 @@ const body = computed(() => {
   if (!hasForm.value) return c
   const split = splitFrontmatter(c)
   if (!split) return c
-  // R36-6（三十六轮）：只剥 fm/body 分隔的首个换行（mergeFm 恒产出 `---\n\n${body}`，
+  // 只剥 fm/body 分隔的首个换行（mergeFm 恒产出 `---\n\n${body}`，
   // splitFrontmatter 的 body 自带该分隔换行）——作者有意保留的正文前空行原样展示。
   // 旧 `.replace(/^\n+/, '')` 把用户留白一并剥掉：补笔后 store 已记录前导空行，首次
   // 后续键入走 mergeFm 剥前导 → body computed 变化 → CmHost 全量替换把前导回车拽回。
   return split.body.replace(/^\n/, '')
 })
 function commitBodyWriteback(docId: string, next: string): void {
-  // RC 源码重审 B-2（Opus-5.5 轮）③：条目按登记时的 docId 解析——切档后本组件
+  // （Opus-5.5 轮）③：条目按登记时的 docId 解析——切档后本组件
   // entry 已指向新档（props.docId 已变），照 entry.value 合并回写会把旧档正文整段
-  // 写进新档（R51-I-6 同型跨档污染）。doc.get(docId) 与 entry.value 在「同档在编」
+  // 写进新档（同型跨档污染）。doc.get(docId) 与 entry.value 在「同档在编」
   // 时是同一对象，语义同改前；条目已被删/弃（doc.discard、LRU 驱逐、404 清理）时
   // 取不到 → 照改前 onBodyChange 的 `if (!e) return` 早退。
   const e = doc.get(docId)
@@ -94,7 +94,7 @@ function commitBodyWriteback(docId: string, next: string): void {
     doc.patch(e.docId, next)
     return
   }
-  // R36-6（三十六轮）：编辑路径显式保前导——body computed 已只剥 fm/body 分隔首换行，
+  // 编辑路径显式保前导——body computed 已只剥 fm/body 分隔首换行，
   // next 的前导空行全部是用户输入；mergeFm 默认剥前导属「加载/粘贴等明确来源」的
   // 写入口径（rewrite 接受 / refresh 对账走默认），此处关掉——否则补笔后首次后续键入
   // store 前导被剥 → body 变化 → CmHost 全量替换把作者刻意留的正文前留白拽回
@@ -103,34 +103,34 @@ function commitBodyWriteback(docId: string, next: string): void {
     doc.patch(e.docId, merged)
     return
   }
-  // 批2-B（2026-09-07 全量代码重审 批2-B）：删除 R31-30 时代 `next.startsWith('\n')` 的
-  // 补笔兜底分支——R36-6 起编辑路径不剥前导后，落至此处即 merged === e.content，而该
+  // 批2-B 批2-B）：删除时代 `next.startsWith('\n')` 的
+  // 补笔兜底分支—— 起编辑路径不剥前导后，落至此处即 merged === e.content，而该
   // 分支构造串 `---\n${fmRaw}\n---\n\n${next}` 与 mergeFm(e.content, next,
   // { stripLeading: false }) 逐字节同构（同源 splitFrontmatter + 同模板），patch 同串
   // 恒为 no-op（doc.patch 对同内容早退），纯死代码。
 }
 
-// RC 源码重审 B-2（Opus-5.5 轮）：每次按键的正文回写改「登记 + 200ms 尾随节流」，
+// （Opus-5.5 轮）：每次按键的正文回写改「登记 + 200ms 尾随节流」，
 // 到点才跑上面的 mergeFm + doc.patch（见 shared/body-writeback.ts 头注：不变量与窗口
 // 取舍）。改前每个按键都在同步输入栈内跑全文 mergeFm/patch/body 重切/CmHost 全等回比；
-// 改后每按键只剩 CmHost 侧一次 doc.toString()（R39-20 已钉的单遍），全量合并按窗口摊薄。
+// 改后每按键只剩 CmHost 侧一次 doc.toString（已钉的单遍），全量合并按窗口摊薄。
 function onBodyChange(next: string): void {
   const e = entry.value
   if (!e) return
   scheduleBodyWriteback(e.docId, next)
 }
 
-// RC 源码重审 B-2（Opus-5.5 轮）②：切档前先落防抖尾——props.docId 一变就同步冲刷，
+// （Opus-5.5 轮）②：切档前先落防抖尾——props.docId 一变就同步冲刷，
 // 早于子层 CmHost 的切档全量替换与本组件 entry 切换后的任何消费；不冲刷则末尾一个
 // 窗口的键入随切档静默丢失（红线：编辑永不静默丢失）。用 flush:'sync' 而非默认 pre：
 // sync 在 props 落定瞬间执行，判据只看槽内 docId（见 shared/body-writeback.ts 头注③），
 // 序不依赖调度器的 pre 队列排序。同档内 props.docId 不变则本 watch 不触发（无开销）。
 watch(() => props.docId, () => flushBodyWriteback(), { flush: 'sync' })
-// R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
+// 字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
-// R39-20（三十九轮）：字数统计防抖 150ms——countWords 全文码点展开每击键 O(n)（超大
+// 字数统计防抖 150ms——countWords 全文码点展开每击键 O(n)（超大
 // 单文件可感），显示延迟一拍无感；初值取当拍（首屏/切文档即时），卸载清定时器。
-// R0916-7-P3-26：手写副本换装 useDebouncedWordCount 共享件——窗口时长（150ms）、
+// 手写副本换装 useDebouncedWordCount 共享件——窗口时长（150ms）、
 // 切 docId 即刻重算、口径（countWords 码点计数 + 剥 markdown）逐位不变。内容源改
 // entry.content（原为已剥 fm 的 body）：与 FocusStatsBar / WritingInfoPanel /
 // HistoryPanel 同源同参，共享件内的单槽记忆据此把同一份正文的每窗口计算收成一遍。
@@ -140,10 +140,10 @@ const { count: wordCount } = useDebouncedWordCount(() => entry.value?.content, (
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
-// R46-5（四十六轮）：标题 fm 解析 150ms 防抖（parseFmFields 每击键全文 split/join
-// 两趟大分配——wordCount R39-20 同族）；F2 编辑守卫与切文档即时语义不变
+// 标题 fm 解析 150ms 防抖（parseFmFields 每击键全文 split/join
+// 两趟大分配——wordCount 同族）；编辑守卫与切文档即时语义不变
 const { fields: titleFmFields } = useDebouncedFmFields(() => entry.value?.content, () => props.docId)
-// F2（五十九轮）：标题编辑守卫——标题框聚焦（新标题未提交）或提交在途期间，watch 源
+// 标题编辑守卫——标题框聚焦（新标题未提交）或提交在途期间，watch 源
 // entry.content 的任何变化（正文键入/refresh）不得回写 titleModel，否则未提交的新标题
 // 被静默覆盖。切文档时强制脱离编辑态（输入框随文档切换失效，提交通道已不可能）。
 const titleEditing = ref(false)
@@ -159,13 +159,13 @@ watch(
 )
 
 const { aiActions, runAiAssist } = useAiAssist()
-// R35-37：右键 AI 动作按指令 key 取用——原按下标硬编码（aiActions[0..3]）与指令表
+// 右键 AI 动作按指令 key 取用——原按下标硬编码（aiActions[0..3]）与指令表
 // 顺序隐式耦合，重排即静默错动作。零行为变更（当前顺序下动作映射不变）。
 const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(
   aiActions.map((a) => [a.key, a]),
 )
 
-// R0916-7-P3-21：暴露面类型改引 CmHost 导出的 CmHostHandle（原为手写复制的
+// 暴露面类型改引 CmHost 导出的 CmHostHandle（原为手写复制的
 // CmHostExposed）。import 面保持 `, { type CmHostHandle }` 形态——类型擦除后运行时
 // 仍是默认导入一个组件。
 const cmHost = ref<CmHostHandle | null>(null)
@@ -207,7 +207,7 @@ function buildCtxItems(hasSel: boolean): MenuItem[] {
 }
 
 async function onCtxSelect(key: string): Promise<void> {
-  // R35-37：AI 子菜单项 key 形如 `ai-<指令key>`，按 key 查指令表取动作
+  // AI 子菜单项 key 形如 `ai-<指令key>`，按 key 查指令表取动作
   if (key.startsWith('ai-')) {
     const action = aiActionByKey.get(key.slice(3))
     if (action) void runAiAssist(action)
@@ -224,13 +224,13 @@ async function onCtxSelect(key: string): Promise<void> {
   }
 }
 
-// P2-21：仅插入成功才消费，防无编辑器时文本静默丢失。
-// 低级项（第六轮）：immediate 的回调在 setup 期执行时 cmHost 必为 null（模板 ref 未挂），
+// 仅插入成功才消费，防无编辑器时文本静默丢失。
+// 低级项：immediate 的回调在 setup 期执行时 cmHost 必为 null（模板 ref 未挂），
 // 「挂载后补消费」实际不达——挂载时（onMounted）与 doc 异步打开落位后（nextTick）各补一次
 function tryConsumeInsert(): void {
   const cmd = ws.pendingInsert
   if (!cmd || !cmHost.value) return
-  // R0916-7-P3-24：一次性令牌 consume()——挂载/落位多口补消费并存时重复消费得
+  // 一次性令牌 consume——挂载/落位多口补消费并存时重复消费得
   // null，天然幂等；仅插入成功才占消费权（cmHost 缺位不 consume，令牌留槽等下次）
   const text = cmd.consume()
   if (text === null) return
@@ -239,7 +239,7 @@ function tryConsumeInsert(): void {
 watch(() => ws.pendingInsert, () => tryConsumeInsert(), { immediate: true })
 
 watch(
-  // CC-P1-4：同时挂 docId 和 tree.byDocId——恢复持久化 activeDocId 时 getBookPrefs（快）
+  // 同时挂 docId 和 tree.byDocId——恢复持久化 activeDocId 时 getBookPrefs（快）
   // 可能先于 tree.load（慢，大书含 git status + 全盘字数）返回，此时 byDocId 为空；
   // 仅 watch docId 会触发一次空查找后静默放弃，树到达后无补偿重试 → 编辑器停留空态。
   // 挂上 byDocId.get(docId) 后树加载完成 watch 重触发，补开恢复的文档。
@@ -248,10 +248,10 @@ watch(
     if (!id || doc.get(id)) return
     const node = tree.byDocId.get(id)
     if (!node) return
-    // V-P2-28：打开失败不再静默——空编辑器无提示会让作者以为内容丢了
+    // 打开失败不再静默——空编辑器无提示会让作者以为内容丢了
     try {
       await doc.open(node)
-      // 低级项（第六轮）：doc 落位渲染出 CmHost 后补消费挂起中的插入信号
+      // 低级项：doc 落位渲染出 CmHost 后补消费挂起中的插入信号
       //（挂载时 entry 尚空 → onMounted 那次消费不到，此后同值不再触发 watch）
       void nextTick().then(() => tryConsumeInsert())
     } catch (err) {
@@ -261,32 +261,32 @@ watch(
   { immediate: true },
 )
 
-// 复审-0913-mac适配 P3-7：全局查找入口（系统菜单「查找…」/ ⌘F 经 useAppActions 与
+// -mac适配：全局查找入口（系统菜单「查找…」/ ⌘F 经 useAppActions 与
 // useHotkeys 派发 APP_FIND_EVENT）桥接到本视图——复用右键菜单 'find' 同一条
-// cmHost.openSearch() 路径（openSearchPanel 幂等，已开面板不重复弹层）；无活动文档时
+// cmHost.openSearch 路径（openSearchPanel 幂等，已开面板不重复弹层）；无活动文档时
 // cmHost 为 null 可选链短路，安全 no-op。
 function onAppFind(): void {
   cmHost.value?.openSearch()
 }
 
-// Q-9（第十五轮）：自动保存定时器上移 Book.vue（切到工作台/总览等视图后本组件卸载，
+// 自动保存定时器上移 Book.vue（切到工作台/总览等视图后本组件卸载，
 // 此前 dirty 文档随之停止自动保存）——此处只保留编辑器专属生命周期接线。
 onMounted(() => {
-  // R0916-7-P3-24：选区/光标查询面收敛为单句柄注册（原两个函数槽各自挂卸，
+  // 选区/光标查询面收敛为单句柄注册（原两个函数槽各自挂卸，
   // 含阶段 24 的光标偏移读取器——章节拆分读拆分点）
   ws.setEditorHandle({
     getSelection: () => cmHost.value?.getSelection() ?? '',
     getCursorOffset: () => cmHost.value?.getCursorOffset() ?? null,
   })
-  // RC 源码重审 B-2（Opus-5.5 轮）：正文回写执行体注册（mergeFm + doc.patch 的落回
+  // （Opus-5.5 轮）：正文回写执行体注册（mergeFm + doc.patch 的落回
   // 入口，见 shared/body-writeback.ts 头注）——本组件在场期间按键回写走 200ms 防抖窗
   registerBodyWriteback(commitBodyWriteback)
-  // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
+  // 低级项：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
   tryConsumeInsert()
   window.addEventListener(APP_FIND_EVENT, onAppFind)
 })
 onUnmounted(() => {
-  // RC 源码重审 B-2（Opus-5.5 轮）②：卸载（切到工作台/总览等视图）先落防抖尾，
+  // （Opus-5.5 轮）②：卸载（切到工作台/总览等视图）先落防抖尾，
   // 否则末尾一个窗口的键入随组件销毁静默丢失；落回用槽内 docId，不依赖本组件 props。
   // 序：flush 先于注销——注销会丢弃未落槽（registerBodyWriteback(null) 的既定语义）
   flushBodyWriteback()

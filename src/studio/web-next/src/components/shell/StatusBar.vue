@@ -7,11 +7,11 @@ import { serverOnline } from '../../composables/useHeartbeat'
 import { useWorkbenchStore } from '../../stores/workbench'
 import { useTreeStore } from '../../stores/tree'
 import { useWordsStore } from '../../stores/words'
-// R0912-3 #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
+// #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
 const { themeName } = useTheme()
 const tree = useTreeStore()
 const words = useWordsStore()
-// R65-55（E-7）：并入 SSE 通道态——HTTP 心跳活着但 SSE 断连（fail-closed 退避/429/换书
+// 并入 SSE 通道态——HTTP 心跳活着但 SSE 断连（fail-closed 退避/429/换书
 // 断档）时，AI 进度事件实际全丢，此前仍绿灯「就绪」误导作者。三态：红=服务不可达，
 // 黄=SSE 断（重连中），绿=全通
 const wb = useWorkbenchStore()
@@ -75,7 +75,7 @@ const connText = computed(() => {
 .status-dot.off {
   background: var(--text-error);
 }
-/* R65-55：SSE 断（服务心跳仍在）黄灯降级态 */
+/* SSE 断（服务心跳仍在）黄灯降级态 */
 .status-dot.degraded {
   background: var(--dv-warn);
 }

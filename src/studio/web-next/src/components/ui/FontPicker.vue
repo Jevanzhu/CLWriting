@@ -1,5 +1,5 @@
 <script lang="ts">
-// R0911-C2-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：实例取号器须在模块作用域——
+// （GLM-5.3 修复批）：实例取号器须在模块作用域——
 // 原写在 <script setup> 内（其顶层即 setup 函数体、每实例重新执行），fpSeq 每实例
 // 归零再自增、uid 恒为 1：设置弹窗与专注排版条等双开 FontPicker 时两实例 optId 全
 // 同名（DOM 重复 id + aria-activedescendant 互串指到对方菜单项）。提模块级后跨实例
@@ -10,7 +10,7 @@ let nextFpUid = 0
 <script setup lang="ts">
 /**
  * 字体下拉选择器。
- * win：原生 <select> 弹出层在 Electron/win 下偶发被 OS 层盖住/错位（J5，2026-09-02），
+ * win：原生 <select> 弹出层在 Electron/win 下偶发被 OS 层盖住/错位，
  * 故 win 改自绘浮层（Teleport + fixed，z-index 同 ContextMenu 系 1000+"层，高于
  * 设置弹窗 modal-mask 150）；非 win 平台保留原生 select（mac 动线不动）。
  * 视觉对齐 `.font-select`（padding/边框/背景由调用方 class 提供，本组件只补按钮
@@ -28,7 +28,7 @@ const props = defineProps<{
   /** 本槽位默认字体的具体名（useSystemFonts 按已安装列表解析；空 = 无可显默认回落 placeholder） */
   defaultFont?: string
   /**
-   * 重评-0914-三轮 P3-10：可访问名称。win 自绘按钮的可见内容只是当前字体名（无槽位
+   * -：可访问名称。win 自绘按钮的可见内容只是当前字体名（无槽位
    * 语境）、非 win 原生 select 无 label 关联——两者此前均无可访问名称（域内同列
    * select 均带 aria-label 口径）。由使用点传有意义的中文名；缺省不输出该属性。
    */
@@ -40,7 +40,7 @@ const { isWin } = usePlatform()
 
 // ── win 自绘浮层状态 ──
 const open = ref(false)
-// 2026-09-04 作者反馈「下拉每次打开有延迟」：原 v-if="open" 每次全量重建字体项
+// 作者反馈「下拉每次打开有延迟」：原 v-if="open" 每次全量重建字体项
 // （win 系统数百个按钮 + 各自 fontFamily shaping/布局）；字体列表一会话内不变，
 // 首开后常驻 DOM、v-show 复开，复开零重建。closed 契约由「元素存在但隐藏」改为
 // display:none（测试按可见性断言）。
@@ -50,7 +50,7 @@ const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
 
-// R8C-F3（2026-09-09 修复批）：win 自绘浮层补 listbox 键盘导航——此前 aria 声明
+// （修复批）：win 自绘浮层补 listbox 键盘导航——此前 aria 声明
 // 完整 combobox/listbox/option 契约（"声明即承诺"），onKey 却只处理 Esc：「声明与
 // 实现不符」漂移。补 roving 光标（键盘焦点留在触发按钮，光标经 aria-activedescendant
 // 移动，标准 listbox 模式）：↑/↓ 逐项（APG：不环绕）、Home/End 首尾、Enter/Space
@@ -108,7 +108,7 @@ function openMenu(): void {
   listH.value = Math.max(120, Math.min(360, window.innerHeight - pos.value.top - 12))
   rendered.value = true
   open.value = true
-  // R8C-F3：打开即定位 roving 光标到当前值对应项（无值 → 默认项 0）
+  // 打开即定位 roving 光标到当前值对应项（无值 → 默认项 0）
   const cur = props.value === '' ? 0 : props.fonts.indexOf(props.value) + 1
   activeIdx.value = cur >= 1 ? cur : 0
 }
@@ -122,19 +122,19 @@ function pick(f: string): void {
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     if (!open.value) return // 未开不消费——Esc 落到 useHotkeys
-    // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
+    // IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
     // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉
     if (isImeComposing(e)) return
-    // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
+    // open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
     // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
-    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
+    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 「本层消费防同键退
     // 专注」口径且不依赖挂载时序
     e.preventDefault()
     e.stopPropagation()
     close()
     return
   }
-  // R8C-F3：非 Esc 键仅 open 态且 win 自绘路径（非 win 原生 select 不拦）才收口
+  // 非 Esc 键仅 open 态且 win 自绘路径（非 win 原生 select 不拦）才收口
   if (!open.value || !isWin) return
   switch (e.key) {
     case 'ArrowDown':
@@ -183,7 +183,7 @@ function onKey(e: KeyboardEvent): void {
 }
 function onScrollOrResize(e: Event): void {
   if (!open.value) return
-  // R39-3（三十九轮）：浮层自身滚动不算锚位失效——捕获监听会收到 target=菜单的
+  // 浮层自身滚动不算锚位失效——捕获监听会收到 target=菜单的
   // scroll（列表溢出滚动是常态），原逻辑首个滚动 tick 即关闭，第 13 项及以后的
   // 字体永远选不到；只有浮层外的滚动/窗口 resize 才关闭
   const t = e.target
@@ -196,10 +196,10 @@ onMounted(() => {
   window.addEventListener('scroll', onScrollOrResize, true)
 })
 onBeforeUnmount(() => {
-  // R0910-W + R1010b-FTC-P3-1（两批同点收敛为一处清理）：
-  // - R0910-W：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
+  // + （两批同点收敛为一处清理）：
+  // - ：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
   //   的闭包写 typeBuf，纯泄漏），随监听器一并回收；
-  // - R1010b-FTC-P3-1（2026-09-10 内存专项重审修复批）：typeahead 定时器卸载随清（typeBuf
+  // - （修复批）：typeahead 定时器卸载随清（typeBuf
   //   一并复位）——原只清 window 监听，800ms 窗内卸载则清窗回调滞留（有界自清、非累积）；
   //   对齐 TooltipHost showTimer / OnboardPremise premiseTimer 的 timer 卸载清理惯例。
   //   清除调用与 typeBuf 复位各只做一次（原两批各写一遍 clearTimeout(typeTimer)）。
@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- win：自绘浮层 -->
-  <!-- P3-10（重评-0914-三轮）：aria-label 可访问名称（记因见 props.ariaLabel 注） -->
+  <!-- ：aria-label 可访问名称（记因见 props.ariaLabel 注） -->
   <template v-if="isWin">
     <button
       ref="btn"
@@ -275,7 +275,7 @@ onBeforeUnmount(() => {
     </Teleport>
   </template>
   <!-- 非 win：原生 select（原样；默认项同步带默认字体名，闭合态即显示「默认 · X」）；
-       aria-label 与 win 路径同源（P3-10，重评-0914-三轮：原生 select 无 label 关联） -->
+       aria-label 与 win 路径同源（-：原生 select 无 label 关联） -->
   <select
     v-else
     v-bind="$attrs"
@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
   /* flex 列布局下默认 flex-shrink:1 会把整表项压进 max-height（46 项→每项 12px，
    * 文字被竖直压扁/裁掉）——禁收缩，超高走 overflow 滚动 */
   flex-shrink: 0;
-  /* 2026-09-08（作者反馈「预热后首开/复开仍有延迟卡顿」）：win 系统字体数百项，
+  /* （作者反馈「预热后首开/复开仍有延迟卡顿」）：win 系统字体数百项，
    * 打开瞬间全量布局 + 每项各自 fontFamily 的文本首次 shaping 是主耗时（v-show
    * display:none 复显每次重排全表；DOM 常驻只免了节点重建）。content-visibility:
    * auto 令溢出视口的项跳过布局/绘制/shaping（字体文件也只在滚入时才加载），
@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
   color: var(--text-accent);
   background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }
-/* R8C-F3：roving 光标（aria-activedescendant 指向项）——与 hover 同底色；
+/* roving 光标（aria-activedescendant 指向项）——与 hover 同底色；
  * 选中项上加叠更深的 accent 底，键盘光标与已选态同屏可辨 */
 .fp-item.active {
   background: var(--background-modifier-hover);

@@ -18,6 +18,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { startServerSafe } from './safe-port.js'
+import type { RouteOverrides } from '../../src/studio/server/index.js'
 
 export interface StudioReqResult {
   status: number
@@ -51,6 +52,9 @@ export interface BootStudioOptions {
   files?: Array<{ rel: string; content: string }>
   /** mkdtemp 前缀（默认 'clw-studio-'；原文件有专名前缀的保持原样传入） */
   prefix?: string
+  /** R0916-7-P3-6 收尾：逐路由测试覆盖档（TTL / 让出桩 / 墓地清理桩等）——组装根
+   *  注入（RouteOverrides；缺省 = 生产口径），随本 server 实例隔离、close 即失效 */
+  overrides?: RouteOverrides
   /** 启动前注入 process.env、close() 时还原（如 { CLWRITING_DRIVER: 'mock' }；值为 undefined 表示删除该键） */
   env?: Record<string, string | undefined>
 }
@@ -88,6 +92,7 @@ export async function bootStudio(opts: BootStudioOptions): Promise<StudioHarness
     workDir,
     userDataPath: opts.userDataPath,
     mirrorConsoleLog: false,
+    ...(opts.overrides ? { overrides: opts.overrides } : {}),
   })
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const bootRes = await fetch(`${baseUrl}/api/boot`)

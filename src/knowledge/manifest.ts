@@ -1,5 +1,5 @@
 /**
- * 知识层 manifest 校验 —— 依据 M4 第 3 节。
+ * 知识层 manifest 校验 —— 依据第 3 节。
  *
  * `知识层/_manifest.json` 是知识素材可复现清单。CI 只相信正式知识层，
  * 不把 ignored 的 Dev/ 参考仓库当隐式输入。
@@ -11,17 +11,17 @@ import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
-// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+// -（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
 
-// R33-97（三十三轮）：win 大小写不敏感 FS 上 `知识层/A.md` 与 `知识层/a.md` 落同一物理文件，
-// 精确字符串判重会放行双登记（同 document/manifest.ts R33-54 lockKey 同款口径）——win 折叠判重
-// R40-16（四十轮）：导出复用——commitKnowledgeFile 登记侧判重（update.ts）此前仍是
+// win 大小写不敏感 FS 上 `知识层/A.md` 与 `知识层/a.md` 落同一物理文件，
+// 精确字符串判重会放行双登记（同 document/manifest.ts lockKey 同款口径）——win 折叠判重
+// 导出复用——commitKnowledgeFile 登记侧判重（update.ts）此前仍是
 // 精确比较（校验器折叠/登记器不折叠的口径分裂），大小写漂移下同文件可重登双条目
-// R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（导出签名不变，
+// 折叠改委托 safe-path platformCaseFold 单源（导出签名不变，
 // update.ts 零改动；纯折叠无分隔符归一，键字节不变）
 export function caseFoldKey(p: string): string {
   return platformCaseFold(p)
@@ -67,7 +67,7 @@ export function readKnowledgeManifest(projectRoot: string): KnowledgeManifestRep
 
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf-8')) as KnowledgeManifest
-    // R0912-G1-P2-1（2026-09-12 独立重评修复批）：parse 后形状守卫——manifest 写成
+    // （修复批）：parse 后形状守卫——manifest 写成
     // 字面 null（手编/半写形态）时 parse 成功返回 null，原直通 ok:true 把 null 当
     // 合法 manifest 放行：validateKnowledgeManifest 的 manifest.version、update.ts
     // 登记链的 manifest.entries 双双在 null 上裸 TypeError 崩。parse 成功 ≠ JSON
@@ -98,7 +98,7 @@ export function validateKnowledgeManifest(projectRoot: string): KnowledgeManifes
 
   const seen = new Set<string>()
   for (const entry of manifest.entries) {
-    // R40-16（四十轮）：坏形状行（null/非对象）在此前 entry.target 处直接 TypeError
+    // 坏形状行（null/非对象）在此前 entry.target 处直接 TypeError
     // 崩整个对账（commitKnowledgeFile 末尾就走这里——判重侧的坏行跳过被对账侧裸崩
     // 抵消，手编半写形态仍登不进）。对齐登记侧降级口径：报 issue 不崩，后续字段校验
     // 对坏行无意义，跳过（条目本身仍原样保留，写入侧不静默增删改）。
@@ -122,11 +122,11 @@ function validateEntry(
   seen: Set<string>,
   issues: KnowledgeManifestIssue[],
 ): void {
-  // 重评-0912-2 P2-5（2026-09-12 全量重评修复批）：字段类型守卫——上方 R40-16 守卫只拦
+  // （修复批）：字段类型守卫——上方 守卫只拦
   // null/非对象行，非字符串 target（如 {"target":123}）在 isSafeKnowledgeTarget 的
   // isAbsolute 处、非字符串 sha256（数字形态）在 `sha256?.startsWith` 处仍裸 TypeError
   // 崩：check:knowledge 门由列 issue 变裸栈崩；commitKnowledgeFile 尾部对账在 manifest
-  // 登记已落盘后崩（CLI 报栈但 manifest 实已写入）。这是 R40-16/R73-4/R0912-G1-P2-1
+  // 登记已落盘后崩（CLI 报栈但 manifest 实已写入）。这是
   // 同族「坏形状报 issue 不崩」序列的漏网——fail-loud 不丢数据，但裸崩形态与已收口族
   // 口径相悖。对齐上方 :103 降级口径：报 issue 不崩，跳过该行后续校验（条目原样保留，
   // 写入侧不静默增删改）。
@@ -156,7 +156,7 @@ function validateEntry(
     return
   }
 
-  // 第五轮：单文件读失败（EACCES/竞态 ENOENT）记 issue 继续——抛出会让整场校验崩掉，
+  // 单文件读失败（EACCES/竞态 ENOENT）记 issue 继续——抛出会让整场校验崩掉，
   // 一个坏文件遮蔽其余全部条目的结果
   try {
     const actual = hashFileSha256(filePath)
@@ -164,7 +164,7 @@ function validateEntry(
       issues.push({ path: entry.target, message: `sha256 不匹配，manifest=${entry.sha256} actual=${actual}` })
     }
 
-    // R42-39（四十二轮）：.md target 判定收敛 isMdFileName（大小写不敏感）——语义从
+    // .md target 判定收敛 isMdFileName（大小写不敏感）——语义从
     // 「跳过」变「纳入」：.MD target 此前不做 fm 元数据（source/license）校验，现在同进
     if (isMdFileName(entry.target)) {
       validateMarkdownMetadata(filePath, entry, issues)
@@ -181,7 +181,7 @@ function validateMarkdownMetadata(
 ): void {
   const text = readFileSync(filePath, 'utf-8')
   const rel = entry.target
-  // M-5（二轮复审）：只认 front matter 块内的 source/license 键（fm 原文逐行前缀匹配）。
+  // 只认 front matter 块内的 source/license 键（fm 原文逐行前缀匹配）。
   // 此前 text.includes 全文子串——正文任意位置出现「source: x」字样即通过（无 fm 也过），
   // `source: X` 前缀可吞 `source: XYZ`，license 溯源 CI 门的信任度被架空
   const fm = fmScalar(text, 'source')
@@ -215,10 +215,10 @@ function fmScalar(text: string, key: string): string | null {
 export function isSafeKnowledgeTarget(projectRoot: string, target: string): boolean {
   if (isAbsolute(target)) return false
   if (!target.startsWith(`${KNOWLEDGE_DIR}/`)) return false
-  // 四轮复审（M-7 同款收口）：统一委托 resolveWithinRoot——此前手写 join+relative 往返
+  // （同款收口）：统一委托 resolveWithinRoot——此前手写 join+relative 往返
   // 校验是全库第六套平行实现，无 symlink 防护，知识层/ 内放指向库外的 symlink 可让
   // 校验器读/哈希库外文件（realpath 抛 → 拒绝，fail-closed）
-  // R61-2（第六十一轮）：resolveWithinRoot 只保证不越**项目根**，`知识层/../库外.md`
+  // resolveWithinRoot 只保证不越**项目根**，`知识层/../库外.md`
   // 解析后 rel=库外.md 仍在根内 → 穿透目录边界；追加规范化 rel 前缀判（解析后路径为准）。
   const resolved = resolveWithinRoot(projectRoot, target)
   return resolved !== null && resolved.rel.startsWith(`${KNOWLEDGE_DIR}/`)

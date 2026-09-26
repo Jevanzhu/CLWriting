@@ -17,17 +17,17 @@ const ui = useUiStore()
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
 
-// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：条目渲染上限——大批量回收站全量
+// （修复批）：条目渲染上限——大批量回收站全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel R-P3-16、r54 ChapterTree）：只裁渲染面前 100 条 + 尾部
+// RewritePanel/AuditDiffPanel 、ChapterTree）：只裁渲染面前 100 条 + 尾部
 // 省略提示行，数据面不动（空态判定仍看全量 entries）。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const entriesCap = computed(() => capView(entries.value, RENDER_CAP))
 
-// M-10：回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
+// 回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
 // 不覆盖 B 的回收站列表（restore/purge 后的 load 同享守卫）。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 async function load(): Promise<void> {
   const gen = loadGen.begin()
@@ -45,40 +45,40 @@ async function load(): Promise<void> {
     err.value = friendlyError(e)
   }
 }
-// R71-32（七十一轮）：恢复在途锁（acting 同款）——restore 此前无防重，双击第二笔
+// 恢复在途锁（acting 同款）——restore 此前无防重，双击第二笔
 // 必 404（条目已被第一笔恢复），旧口径 catch 置 err 会把「实际已恢复成功」的整个
 // 列表换成错误态；锁挡第二笔，迟到的 404 也按已恢复静默处理
 const restoring = ref<string | null>(null)
 async function restore(id: string): Promise<void> {
   if (restoring.value) return // 在途锁：双击第二笔直接忽略
   restoring.value = id
-  // R73-65（E 域）：书名入口捕获——恢复在途切书后，对新书做旧书的整树重扫是纯冗余
-  // （tree.load 扫全书）；面板列表 load() 自带代守卫照常刷新，树刷新比对后才执行
+  // （E 域）：书名入口捕获——恢复在途切书后，对新书做旧书的整树重扫是纯冗余
+  // （tree.load 扫全书）；面板列表 load 自带代守卫照常刷新，树刷新比对后才执行
   const book = props.bookName
   try {
     await restoreTrash(book, id)
     await load()
-    if (props.bookName === book) await tree.load(book) // R73-65：仅未切书才重扫树
+    if (props.bookName === book) await tree.load(book) // 仅未切书才重扫树
   } catch (e) {
     // 404/NOT_FOUND：条目已恢复（双击竞态）或已不在回收站——静默，load 刷新即对齐
     if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) return
-    if (props.bookName !== book) return // R73-65：A 书的失败 toast 不落 B 书界面（R70-10 同族）
-    // R71-32：恢复失败收敛为 toast——列表数据本身无恙，不再整体覆盖成错误态
+    if (props.bookName !== book) return // A 书的失败 toast 不落 B 书界面（同族）
+    // 恢复失败收敛为 toast——列表数据本身无恙，不再整体覆盖成错误态
     ui.toast(friendlyError(e), 'error')
   } finally {
     restoring.value = null
   }
 }
-// R34D-29（三十四轮）：purge 在途锁（restoring 同款）——确认弹窗 + 网络往返全程
+// purge 在途锁（restoring 同款）——确认弹窗 + 网络往返全程
 // 互斥，双击第二笔不发（旧实现第二笔必 404：条目已被第一笔删除）
 const purging = ref<string | null>(null)
 async function purge(id: string): Promise<void> {
   if (purging.value) return // 在途锁：双击第二笔直接忽略（含确认弹窗滞留期）
   purging.value = id
-  // FE-2（第七轮）：书名入口捕获（M-8 类收敛）——永久删除不可恢复，请求不能发到
+  // FE-2书名入口捕获（类收敛）——永久删除不可恢复，请求不能发到
   // 确认弹窗滞留期间切换后的书
   const book = props.bookName
-  // R34D-29：锁在 ask 前置位、try 包住全程（取消/切书早退也走 finally 释放，防锁泄漏）
+  // 锁在 ask 前置位、try 包住全程（取消/切书早退也走 finally 释放，防锁泄漏）
   try {
     const ok = await ui.ask({
       title: '永久删除',
@@ -91,16 +91,16 @@ async function purge(id: string): Promise<void> {
     await purgeTrash(book, id)
     if (props.bookName === book) await load()
   } catch (e) {
-    // R34D-29（三十四轮）：404/NOT_FOUND = 条目已被清（双击竞态第二笔迟到/他端已删）
-    // ——按「已删」收敛静默，load() 对齐列表即可；旧口径直接置 err 会把整个面板
-    // 覆盖成假错误态（restore 的 404 静默同款 R71-32）
+    // 404/NOT_FOUND = 条目已被清（双击竞态第二笔迟到/他端已删）
+    // ——按「已删」收敛静默，load 对齐列表即可；旧口径直接置 err 会把整个面板
+    // 覆盖成假错误态（restore 的 404 静默同款）
     if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) {
       await load()
       return
     }
-    // R76-32（二十四轮 E 域）：purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
+    // （二十四轮 E 域）：purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
     // A 书的删除失败此前无复检直接覆盖 err.value，切到 B 书后整个面板显示成 A 书的错误态
-    //（restore 的 catch 已有同款复检 R73-65/R70-10，purge 漏挂）
+    //（restore 的 catch 已有同款复检 /，purge 漏挂）
     if (props.bookName !== book) return
     err.value = friendlyError(e)
   } finally {
@@ -135,8 +135,8 @@ watch(() => props.bookName, () => load(), { immediate: true })
         </span>
         <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
         <div class="item-actions">
-          <!-- R33D-29（三十三轮）：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
-               R34D-29（三十四轮）：purge 同款在途禁用 -->
+          <!-- ：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
+               ：purge 同款在途禁用 -->
                   <button class="action-btn" data-tip="恢复" data-tip-dir="right" :disabled="restoring !== null" @click="restore(e.id)">
             <RotateCcw :size="13" />
           </button>
@@ -145,7 +145,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
           </button>
         </div>
       </div>
-      <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（与 r54 ChapterTree 尾部提示行同语义） -->
+      <!-- ：RENDER_CAP 截断省略提示行（与 ChapterTree 尾部提示行同语义） -->
       <div v-if="entriesCap.omitted > 0" class="cap-hint">已省略 {{ entriesCap.omitted }} 项</div>
     </div>
   </div>
@@ -214,8 +214,8 @@ watch(() => props.bookName, () => load(), { immediate: true })
 .tree-item:hover .item-actions {
   opacity: 1;
 }
-/* R1010c-FE1-P3-1（2026-09-10 全量独立复审修复批）：键盘焦点同权显形——原仅 hover 行
- * 显形，Tab 聚到「恢复/永久删除」钮上「焦点在但看不见」（对齐 HistoryPanel R1010-P3
+/* （修复批）：键盘焦点同权显形——原仅 hover 行
+ * 显形，Tab 聚到「恢复/永久删除」钮上「焦点在但看不见」（对齐 HistoryPanel
  * restore-btn 同款修法：focus-visible 焦点环 + focus-within 行级显形） */
 .action-btn:focus-visible,
 .tree-item:focus-within .item-actions {
@@ -245,7 +245,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
 .action-btn.danger:hover {
   color: var(--text-error);
 }
-/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示不可点（弱化色，r54 tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示不可点（弱化色，tree-cap-hint 同语义） */
 .cap-hint {
   padding-left: 22px;
   font-size: var(--font-size-xs);

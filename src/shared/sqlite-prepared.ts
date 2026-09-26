@@ -1,8 +1,8 @@
 /**
- * R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：连接级 prepared 语句缓存的单源。
+ * （六轮修复批）：连接级 prepared 语句缓存的单源。
  *
- * 沿革：R46-42（events）/ R46-45（rag）/ 重评-0914-三轮 nano R3-3（check）三域各自
- * 落了一份「WeakMap<db, Map<sql, stmt>> + 配对 close」的实现，逐字同构三份。R0911-G-P3-4
+ * 沿革：（events）/ （rag）/ - nano （check）三域各自
+ * 落了一份「WeakMap<db, Map<sql, stmt>> + 配对 close」的实现，逐字同构三份。
  * 族 bug（node:sqlite 的 StatementSync 强引用其 DatabaseSync，与 WeakMap 弱键构成
  * ephemeron 环——裸 close 后条目不随 GC 消失，每次开/关滞留 ~0.35KB 线性堆积）已需
  * 分头各修一遍，第三份落地时评审已记「形态逐字对齐不合并不源——模块独立性优先」的
@@ -13,7 +13,7 @@
  * 用法契约（两件必须成对，缺一即返祖）：
  *  1. `prepared(db, sql)` 只用于**恒定不变的高频 SQL**（DDL / 一次性迁移 / PRAGMA /
  *     拼变体的动态 SQL 不入缓存）；sql 串本身即缓存键，变体各自独立缓存（变体数须有界）。
- *  2. 凡有 prepared 调用面的连接，关库一律走 `closeWithPrepared(db)`，**不得裸 db.close()**
+ *  2. 凡有 prepared 调用面的连接，关库一律走 `closeWithPrepared(db)`，**不得裸 db.close**
  *     ——后者断不开 ephemeron 环，才是滞留根因。
  */
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
@@ -42,7 +42,7 @@ export function prepared(db: DatabaseSync, sql: string): StatementSync {
 
 /**
  * 带缓存注销的关库——先摘缓存断 ephemeron 链再 close。根因与实测数据见文件头注
- *（R0911-G-P3-4 裸 .mjs 40k 次 open/close 复现：每次 ~0.35KB 线性堆积；close 前
+ *（裸 .mjs 40k 次 open/close 复现：每次 ~0.35KB 线性堆积；close 前
  * 显式 delete 后 30k 次开/关实测归零）。三域各自的 closeEventsDb / closeRagDb /
  * closeTreeIssuesDb 均薄封装本函数，断链序在此单点保证。
  */

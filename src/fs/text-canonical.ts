@@ -1,15 +1,15 @@
 /**
- * 书库文本规范形原语（平台规范化批，2026-09-03 拍板）。
+ * 书库文本规范形原语（平台规范化批，拍板）。
  *
  * 规范形定义：UTF-8、无 BOM、LF 行尾（\r\n 与孤立 \r 一律归一 \n）。
  *
  * 动机：win/mac 书库互拷要求「同一书库在任一台机器上写一次，字节都一致」。
- * 此前 md/yaml 主数据走「保真」语义（R38-11 主导行尾 / MP2-4 补丁行尾 /
- * R39-10 BOM 补回），两侧机器各自保留本机形态——win 写 CRLF、mac 写 LF，
+ * 此前 md/yaml 主数据走「保真」语义（主导行尾 / MP2-4 补丁行尾 /
+ * BOM 补回），两侧机器各自保留本机形态——win 写 CRLF、mac 写 LF，
  * 同一书库在两台机器各编辑一次即字节分叉（迁移无 diff 基准、同步盘噪声）。
  * 本批推翻保真语义改规范形：各写点经 canonicalizeText 收口，新库生而规范。
  * （原配套的存量启动迁移 v4 已裁决拆除：RC 阶段无存量用户书库，裁决记档见
- * Dev/Docs/Archive/书库平台规范化-实施方案-2026-09-03.md §一 D。）
+ * Dev/Docs/Archive/书库平台规范化-实施方案-.md §一 D。）
  *
  * 边界：读侧容忍（剥 BOM / CRLF 双认）不在此模块、各读点既有防线维持——外部
  * 编辑器仍可能造出 BOM/CRLF 文件，「容忍读 + 规范写」= 经应用保存自然收敛。
@@ -27,7 +27,7 @@ export function bufferNeedsCanonical(buf: Buffer): boolean {
   return buf.includes(0x0d)
 }
 
-/** 文件名 NFC 归一（R31-17 备案的收敛落地）：mac APFS 存 NFD、win/NTFS 惯 NFC，
+/** 文件名 NFC 归一（备案的收敛落地）：mac APFS 存 NFD、win/NTFS 惯 NFC，
  *  同名不同形跨机即「找不到文件」。只归一**文件名**——正文内容里的兼容字符
  *  可能是作者有意使用，不归一。 */
 export function toNfcName(name: string): string {

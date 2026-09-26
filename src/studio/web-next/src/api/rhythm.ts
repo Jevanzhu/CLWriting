@@ -22,7 +22,7 @@ interface RhythmWordPoint {
   字数: number
 }
 
-/** 逐章偏差行（D3）：状态 待写/即兴/对比；对比时字段 "规→实"，跑偏 *偏差=true。 */
+/** 逐章偏差行：状态 待写/即兴/对比；对比时字段 "规→实"，跑偏 *偏差=true。 */
 export interface ChapterDiffRow {
   章号: number
   标题: string

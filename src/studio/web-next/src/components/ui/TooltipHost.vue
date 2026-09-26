@@ -7,7 +7,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 interface TipState { text: string; x: number; y: number; dir: string }
 
-/** R42-29（四十二轮）：tooltip 估宽按码位分类累加——全角（CJK 区段 >0x2e80）每字约
+/** tooltip 估宽按码位分类累加——全角（CJK 区段 >0x2e80）每字约
  *  13px、其它（ASCII/半角）约 7px，另加 padding 16px（font-size-s≈12px 口径不变）。
  *  原 text.length*13 一律按全角计，ASCII 文案估宽虚高近一倍，边缘检测过早收边。 */
 function estimateTipWidth(text: string): number {
@@ -39,11 +39,11 @@ function onOver(e: MouseEvent): void {
     return
   }
   lastTarget = el
-  // P2-F6b：data-tip 同时暴露为 aria-label（读屏可读）。已有 aria-label 不覆盖。
+  // F6b：data-tip 同时暴露为 aria-label（读屏可读）。已有 aria-label 不覆盖。
   syncAriaLabel(el)
   if (showTimer) clearTimeout(showTimer)
   showTimer = setTimeout(() => {
-    // R0911-C2-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：250ms 延迟窗内目标可能已被
+    // （GLM-5.3 修复批）：250ms 延迟窗内目标可能已被
     // 摘出文档（hover 中列表重渲染/弹层关闭移节点）——移除节点的 getBoundingClientRect
     // 全 0，tooltip 会错落视口左上角。先验目标仍在文档，不在则按隐藏收口（同时复位
     // lastTarget，避免悬挂在已摘节点上令同元素复挂后 mouseover 被 el===lastTarget 短路）。
@@ -95,7 +95,7 @@ function onOver(e: MouseEvent): void {
   }, 250)
 }
 
-/** 同步 data-tip → aria-label（P2-F6b：读屏可读）。已有 aria-label 不覆盖。 */
+/** 同步 data-tip → aria-label（-F6b：读屏可读）。已有 aria-label 不覆盖。 */
 function syncAriaLabel(el: HTMLElement): void {
   if (!el.getAttribute('aria-label') && el.dataset.tip) {
     el.setAttribute('aria-label', el.dataset.tip)

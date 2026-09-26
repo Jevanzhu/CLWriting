@@ -23,7 +23,7 @@ import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
-// 复审-0914-优化修复批（P3）：openSessionStore/openSessionStoreAsync/bookHash 随 mkChain
+// -：openSessionStore/openSessionStoreAsync/bookHash 随 mkChain
 // 底层段收编 ai/open-chain.ts 移除（唯一消费点）
 import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
 import { registerBackgroundTask } from './background.js'
@@ -37,14 +37,14 @@ import { closeTreeIssuesDb } from '../../check/tree-issues-cache.js'
 import { driveToEndAsync } from '../../async.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
 import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
-// R0912-1（2026-09-11 修复批）：后台任务独立登记 ctrl 的共享 helper（定稿摘要钩子与
-// self-heal pass 后账本草稿两路共用）；R0916-7-P3-3 起该原语独立成 process/bg-task.ts
+// （修复批）：后台任务独立登记 ctrl 的共享 helper（定稿摘要钩子与
+// self-heal pass 后账本草稿两路共用）；起该原语独立成 process/bg-task.ts
 //（原经 process/summary.ts 转运，与本模块互引成环）
 import { runRegisteredBgTask } from '../../process/bg-task.js'
-// R0912-2（2026-09-11 修复批）：重写稿 front matter 章号防线——与机检同源解析器
+// （修复批）：重写稿 front matter 章号防线——与机检同源解析器
 import { readDraft } from '../../format/draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
-import { redactSecret } from '../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
+import { redactSecret } from '../provider/redact.js' // SSE 错误事件脱敏第二层
 import { checkAiCallBudget } from '../calls.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
@@ -52,12 +52,12 @@ import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersionAsync } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
 import { log, errMsg } from '../../log/index.js'
-// R0916-5g（2026-09-16，⑤④产品巨件拆分波3）：缝 A/B 拆出件回引——运行登记族的
+// （⑤④产品巨件拆分波3）：缝 A/B 拆出件回引——运行登记族的
 // running/settling 顶层求值常量单源登记件，直接 import（不经桥、不环回）；生成族回引。
 import { running, settling, type RunState } from './self-heal-registry.js'
 import { runGenerate, emit } from './self-heal-generate.js'
 
-// R0916-5g 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
+// 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
 // 缝 A（orchestrate/self-heal-registry.ts）：运行登记/并发锁族。
 export {
   isSelfHealRunning,
@@ -84,9 +84,9 @@ export interface SelfHealOpts {
   bookName: string
   /** 起始章号（单章，向后兼容） */
   chapter: number
-  /** 批量连写章号序列（P2-3）：有值且 >1 章时走批量循环，中途 escalate 停后续 */
+  /** 批量连写章号序列：有值且 >1 章时走批量循环，中途 escalate 停后续 */
   chapters?: number[]
-  /** R76-12（二十四轮 A 域）：chat 对话嵌套写章标记（write_chapter 工具驱动）——登记进
+  /** （二十四轮 A 域）：chat 对话嵌套写章标记（write_chapter 工具驱动）——登记进
    *  RunState 供 isChatEmbeddedSelfHealRunning 查询；chat 入口闸据此放行 steer 入队
    *  （独立写稿仍 409），不改变写稿链路自身行为。 */
   embedded?: boolean
@@ -94,7 +94,7 @@ export interface SelfHealOpts {
   maxAttempts?: number
   /** 编排进度回调：每个进度事件（emit 出口）调一次，/auto-write 的静默挂死 watchdog
    *  据此复位计时。此前靠端点包装 driver 拦 emit 转发，包装漏方法即丢中断能力
-   *  （质量评审 P2-1）；改回调后 driver 原样直通，漏委托面从结构上消失。 */
+   *  （质量评审）；改回调后 driver 原样直通，漏委托面从结构上消失。 */
   onActivity?: () => void
   /** 机检注入（单测替身）。同步或异步均可：生产默认实现走异步机检，注入替身保持同步返回。 */
   check?: (draftPath: string) => CheckOutcome | Promise<CheckOutcome>
@@ -104,11 +104,11 @@ export interface SelfHealOpts {
    *  接收 userPrompt + kind，返回完整 markdown（front matter + 正文）。 */
   genFn?: (userPrompt: string, kind: 'long' | 'short', signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
   /**
-   * Z-P2-5：ctrl 登记 driver（/interrupt 的 driver.interrupt() 与 isRunning() 据此对生成期生效）。
-   * 四轮-A402（2026-09-18 全量源码独立重评四轮修复批）起 /auto-write 端点（owner
+   * ctrl 登记 driver（/interrupt 的 driver.interrupt 与 isRunning 据此对生成期生效）。
+   * 四轮-A402（四轮修复批）起 /auto-write 端点（owner
    * 'self-heal'）与 chat 内嵌写章（turns-tools write_chapter，owner `self-heal:<书名>`）
-   * 两路都传——原「内嵌不传」是 cc 单槽登记时代的顾虑（再登记触发 P2-6「同槽换新先
-   * abort 旧」误伤外层对话）；M-1 owner 分槽后跨 owner 互不 abort，不登记反而使 sync
+   * 两路都传——原「内嵌不传」是 cc 单槽登记时代的顾虑（再登记触发 「同槽换新先
+   * abort 旧」误伤外层对话）；owner 分槽后跨 owner 互不 abort，不登记反而使 sync
    * 快照（isWriterRunning，E002）在写章全程假空闲。两 owner 均非 `chat:` 前缀，E002
    * 「对话期假忙」的排除口径不受影响。
    */
@@ -116,7 +116,7 @@ export interface SelfHealOpts {
 }
 
 export type SelfHealOutcome =
-  // B-P1-2：pass/escalate 补 chapter（章号），供 chat.ts formatHealResult 显示正确的"第N章"
+  // pass/escalate 补 chapter（章号），供 chat.ts formatHealResult 显示正确的"第N章"
   | { outcome: 'pass'; chapter: number; docId: string; path: string; attempts: number; yellows?: string[] }
   | { outcome: 'escalate'; chapter: number; reds: string[]; docId: string; path: string; attempts: number }
   | { outcome: 'aborted' }
@@ -126,7 +126,7 @@ export type SelfHealOutcome =
  * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
  */
 
-/** X-P3a：fire-and-forget 的账本推进草稿失败留痕（此前静默，作者不知道草稿没生成） */
+/** fire-and-forget 的账本推进草稿失败留痕（此前静默，作者不知道草稿没生成） */
 async function logLeadDraftFailure(
   p: Promise<{ ok: true; count: number } | { ok: false; code: string; error: string }>,
 ): Promise<void> {
@@ -151,7 +151,7 @@ export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 
 async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
   const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 }, ...(opts.embedded ? { embedded: true } : {}) }
-  // R39-14（三十九轮）：并发不变量固化——running.set 此前无条件覆盖，若调用方绕过
+  // 并发不变量固化——running.set 此前无条件覆盖，若调用方绕过
   // isSelfHealRunning 闸并发调起，旧运行 ctrl 被静默顶掉失去中断通道（abortSelfHeal
   // 只能中止新运行，settling 表项被覆盖）。当前全部生产调用方「先查后调」且检查与
   // 调用间无 await（单线程无 TOCTOU），此守卫正常不可达——命中即守卫失效，fail-fast
@@ -172,10 +172,10 @@ async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
   return result
 }
 
-/** P2：自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null）
- *  R34D-19（三十四轮）：开库走 openSessionStoreAsync（首开锁等待不阻塞
+/** 自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null）
+ *  ：开库走 openSessionStoreAsync（首开锁等待不阻塞
  *  服务事件循环），建链半途抛错先关库再降级口径不变。
- *  复审-0914-优化修复批（P3）：「openSessionStoreAsync → workspaceSession → ChainRecorder
+ *  -：「openSessionStoreAsync → workspaceSession → ChainRecorder
  *  失败先关库」底层段收编 ai/open-chain.ts 单源（runner.mkChain 同源；本侧不传 onWarn
  *  ——观测层失败静默口径保留）。 */
 async function mkChain(opts: SelfHealOpts): Promise<ChainRecorder | null> {
@@ -185,15 +185,15 @@ async function mkChain(opts: SelfHealOpts): Promise<ChainRecorder | null> {
 async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHealOutcome> {
   const { bookRoot } = opts
   const maxAttempts = opts.maxAttempts ?? 3
-  // P2：自愈链路事件录制（check/report + retry/attempt 挂 workspace 会话；观测层静默）
+  // 自愈链路事件录制（check/report + retry/attempt 挂 workspace 会话；观测层静默）
   const chain = await mkChain(opts)
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
-  // P2-3：批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）
+  // 批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）
   const chapters = opts.chapters
-  // dd-P2：length>0 即批量——单元素 [N] 此前被静默忽略改跑 opts.chapter，与注释语义矛盾
+  // dd-length>0 即批量——单元素 [N] 此前被静默忽略改跑 opts.chapter，与注释语义矛盾
   const isBatch = chapters !== undefined && chapters.length > 0
-  // dd-P2：db 声明提前 + 单一 finally 收口——此前「源文件解析失败」早返回与
+  // dd-db 声明提前 + 单一 finally 收口——此前「源文件解析失败」早返回与
   // DatabaseSync 打开失败抛错都绕过两个内层 finally，chain（openSessionStore
   // 引用计数）与 db 句柄在长驻 studio 服务里永久泄漏、重试持续累加
   let db: InstanceType<typeof DatabaseSync> | null = null
@@ -205,7 +205,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
     }
 
-    // P3-6：book.yaml 批头解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
+    // book.yaml 批头解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
     // 写 8 章重复解析 8 次同一文件）；0918二轮修复批（A102）起批量循环内章边界重读
     //（见 orchestrateBatch），批头这份是首章前的初值。
     // 全局托底：orchestrate 内自读 config 喂 budget 检查——统一过 applyGlobalDefaults
@@ -228,7 +228,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       db = opened.db
     }
 
-    // F2：单章/批量共享同一套 ctx（消除双路径重复）。
+    // 单章/批量共享同一套 ctx（消除双路径重复）。
     // 0918二轮修复批（A102）：default check 读 ctx.config（非批头 config 快照）——
     // 章边界重读刷新 ctx.config 后，机检随本章新配置走，与预算闸/字数（draftFirstChapter/
     // rewriteOnce 均读 ctx.config）同源；opts.check 注入替身路径不受影响。
@@ -246,13 +246,13 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       config,
     }
 
-    // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
+    // 批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
     // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
     if (isBatch) {
       return await orchestrateBatch(opts, state, ctx, chapters!)
     }
 
-    // F2：单章统一走 runChapter（与批量同源，消除双路径重复 + 语义统一：
+    // 单章统一走 runChapter（与批量同源，消除双路径重复 + 语义统一：
     // 无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿））
     const run = await runChapter(opts, state, ctx, opts.chapter)
     if (run.outcome === 'aborted') return { outcome: 'aborted' }
@@ -260,7 +260,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     if (run.outcome === 'escalate') {
       return {
         outcome: 'escalate',
-        chapter: opts.chapter, // B-P1-2：透传章号，formatHealResult 显示"第N章"
+        chapter: opts.chapter, // 透传章号，formatHealResult 显示"第N章"
         reds: run.reds,
         docId: run.docId,
         path: run.path,
@@ -280,7 +280,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     chain?.close()
   }
 }
-/** 单章闭环共享上下文（F2：单章/批量同源，消除双路径重复） */
+/** 单章闭环共享上下文（单章/批量同源，消除双路径重复） */
 interface ChapterCtx {
   bookRoot: string
   maxAttempts: number
@@ -289,7 +289,7 @@ interface ChapterCtx {
   check: (p: string) => CheckOutcome | Promise<CheckOutcome>
   db: DatabaseSync | null
   chain: ChainRecorder | null
-  /** P3-6：book.yaml 解析一次，循环共用（预算闸/check 同源）；0918二轮修复批（A102）
+  /** book.yaml 解析一次，循环共用（预算闸/check 同源）；0918二轮修复批（A102）
    *  起批量循环章边界重读刷新——预算闸/备料/字数/default check（机检）均读本字段，
    *  作者批中改配置下一章生效 */
   config: BookConfig
@@ -297,7 +297,7 @@ interface ChapterCtx {
 
 /**
  * 单章闭环一次运行的结果（落盘 + 记录已在 runChapter 内完成），或中断。
- * F2 语义统一：无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿）。
+ * 语义统一：无稿可交（首稿预算超限/生成失败）→ failed；有稿可交 → escalate（保留稿）。
  */
 type ChapterRun =
   | { chapter: number; outcome: 'pass'; yellows?: string[]; docId: string; path: string; attempts: number }
@@ -306,11 +306,11 @@ type ChapterRun =
   | { outcome: 'aborted' }
 
 /**
- * P2-3：批量连写编排——循环各章跑 runChapter（单章闭环），
+ * 批量连写编排——循环各章跑 runChapter（单章闭环），
  * 章间 emit chapter_done（done/total）+ 下一章 chapter_start。
  * 任一章 escalate → 停后续章 + 发 self_heal_batch_progress（done=已完成章数, stoppedAt）。
  * 全绿 → 最后一章直接 return pass（不发多余 done 事件）。
- * （重审-批2-2：abort 两分支同款发 batch_progress 终点，与 escalate/failed 对齐。）
+ * （-批2-2：abort 两分支同款发 batch_progress 终点，与 escalate/failed 对齐。）
  */
 async function orchestrateBatch(
   opts: SelfHealOpts,
@@ -319,14 +319,14 @@ async function orchestrateBatch(
   chapters: number[],
 ): Promise<SelfHealOutcome> {
   const total = chapters.length
-  // M6 #34 连写暂停元状态（驱动侧接线）：开批即清旧暂停记录（重开=作者已处置上次的停），
+  // #34 连写暂停元状态（驱动侧接线）：开批即清旧暂停记录（重开=作者已处置上次的停），
   // 此后任何未跑完的停法（aborted/failed/escalate）重新落暂停——进书近况（state.ts
   // readBatchPause → StatusRecap.batchPause）据此提示「连写暂停在第 N 章（原因）」。
   // 观测性元数据：落盘失败静默降级，不挡写稿主线（与备料 best-effort 同口径）。
-  // R33D-1（三十三轮）：writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
+  // writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
   // recordPause 保持 fire-and-forget 语义（catch 吞 rejection）；开批清暂停 await。
-  // R1010b-AI-P2-1（2026-09-10 内存专项重审修复批）：fire-and-forget 写收编进 per-book
-  // 后台表（照下方 exitPass :706 M-2 先例）。成因：writeBatchPause 先抢跨进程锁（竞争下
+  // （修复批）：fire-and-forget 写收编进 per-book
+  // 后台表（照下方 exitPass :706 先例）。成因：writeBatchPause 先抢跨进程锁（竞争下
   // 最长 PAUSE_LOCK_TIMEOUT_MS 轮询）再 mkdirSync recursive + 原子写，而 waitSelfHealSettled
   // 只等编排本体——锁竞争使写在途时 runSelfHeal 已返回，books.ts 删书/改名的
   // hasBackgroundTasks → awaitOrchestrationsSettled 等待链此前等不到这次写，写在已删/
@@ -338,7 +338,7 @@ async function orchestrateBatch(
       opts.bookName,
       writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch((e) => {
         // 暂停记录失败不影响连写结果与回报
-        // R43-20（四十三轮）：空 catch 补留痕（对齐 chain-bridge R66-4 口径）——静默吞掉
+        // 空 catch 补留痕（对齐 chain-bridge 口径）——静默吞掉
         // 后「连写暂停在第 N 章」的进书近况提示缺位且无从排查；带 atChapter/reason 因果
         log.warn('self-heal', `连写暂停记录失败（第 ${atChapter} 章，${reason}）：${errMsg(e)}`)
       }),
@@ -348,14 +348,14 @@ async function orchestrateBatch(
     await clearBatchPause(opts.bookRoot)
   } catch (e) {
     // 同上
-    // R43-20（四十三轮）：同款留痕——开批清旧暂停失败静默时，上一轮的暂停提示会残留
+    // 同款留痕——开批清旧暂停失败静默时，上一轮的暂停提示会残留
     // 到本轮（readBatchPause 仍读到旧记录），误导作者以为本轮又停
     log.warn('self-heal', `开批清理旧连写暂停记录失败（上一轮暂停提示可能残留）：${errMsg(e)}`)
   }
   for (let i = 0; i < total; i++) {
     const ch = chapters[i]!
     if (state.ctrl.signal.aborted) {
-      // 重审-批2-2（2026-09-07 全量代码重审 §四P3/§六批2）：abort 两分支对齐 escalate/
+      // （§四/§六）：abort 两分支对齐 escalate/
       // failed 补发 self_heal_batch_progress——前端批量进度（workbench 监听该事件）在
       // 用户中止时缺终点悬停。事件形状与两停法分支一致（done=已完成章数, stoppedAt）；
       // aborted 语义由 recordPause('aborted') 与 self_heal_result 承载，不新增状态枚举。
@@ -374,12 +374,12 @@ async function orchestrateBatch(
 
     const run = await runChapter(opts, state, ctx, ch)
     if (run.outcome === 'aborted') {
-      // 重审-批2-2：同上——章内中止同样补发批量进度终点
+      // -批2-2：同上——章内中止同样补发批量进度终点
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'aborted', '用户中止连写')
       return { outcome: 'aborted' }
     }
-    // F2 语义统一：无稿（首稿预算超限/生成失败）→ failed 停后续章；有稿 escalate 同样停
+    // 语义统一：无稿（首稿预算超限/生成失败）→ failed 停后续章；有稿 escalate 同样停
     if (run.outcome === 'failed') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'failed', run.error)
@@ -389,7 +389,7 @@ async function orchestrateBatch(
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
-      // 重评-0914-三轮 nano R3-1：删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
+      // - nano ：删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
       // string（见上方类型定义；单章路径 :295/:303 本就直传同款），?? '' 恒不生效，
       // 反而暗示「可能缺字段」误导读改方（下方 pass 分支同款一并删）
       return {
@@ -420,12 +420,12 @@ async function orchestrateBatch(
 }
 
 /**
- * GG-F1① 备料接线：self-heal 首稿前调 prepareMaterials 写 工作区/本章写作材料.md。
+ * GG-① 备料接线：self-heal 首稿前调 prepareMaterials 写 工作区/本章写作材料.md。
  * - ctx.db 为空（无布线书，.cache/index.db 不存在）→ 近况/账本段无数据源，维持接线前行为；
  * - best-effort：备料抛错不挡写稿（buildDraftPrompt 读不到新文件 = prompt 少「备料」段）。
- * config 用 ctx 合并值（已过 applyGlobalDefaults，P3-6 解析一次）；leadIds 按本章细纲声明。
- * C1（批 2）：返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）。
- * Q-5（第十五轮）：调用方与 buildDraftPrompt 的注入源清单（细纲/章纲/设定层/样章）
+ * config 用 ctx 合并值（已过 applyGlobalDefaults，解析一次）；leadIds 按本章细纲声明。
+ * 返回本次 prompt 引用的材料文件（材料文件 + 注入的章摘要）。
+ * 调用方与 buildDraftPrompt 的注入源清单（细纲/章纲/设定层/样章）
  * 合并去重后经 runSpec promptFiles → llm/call promptMeta.files 登记——此前只登记备料
  * 两类，「可见⟺已记录」在设定/样章段断裂。
  */
@@ -436,7 +436,7 @@ async function prepareChapterMaterials(
   signal?: AbortSignal,
 ): Promise<string[]> {
   if (!ctx.db) return []
-  // R-4（第十六轮）：promptFiles 只登记备料成功后真实注入的文件——此前无条件含
+  // promptFiles 只登记备料成功后真实注入的文件——此前无条件含
   // 工作区/本章写作材料.md，备料失败时（buildDraftPrompt 读不到材料 = prompt 无备料段）
   // 登记却还在 = 溯源虚报。铁律：模型可见 ⟺ 已记录。
   let promptFiles: string[] = []
@@ -446,11 +446,11 @@ async function prepareChapterMaterials(
       workDir: opts.cwd,
       userDataPath: opts.userDataPath,
       chapterLeadIds: readOutlineLeads(ctx.bookRoot, chapter),
-      // kk-P1-2：备料场景与 draft 链同源（readChapterScenes 三级回退）——
+      // kk-备料场景与 draft 链同源（readChapterScenes 三级回退）——
       // 此前不传 → 备料恒按「战斗」选样章，与本章实际场景脱节
       chapter,
-      // R76-5（二十四轮 A 域）：编排级中断透传——备料补漏的近章/卷摘要在途 LLM 调用
-      // 此前不受中断传播（Z-P1-1 修了 rewrite/lead_update 独漏此面），批量连写点中断
+      // （二十四轮 A 域）：编排级中断透传——备料补漏的近章/卷摘要在途 LLM 调用
+      // 此前不受中断传播（修了 rewrite/lead_update 独漏此面），批量连写点中断
       // 时分钟级白烧 token、running 迟迟不释放。
       ...(signal ? { signal } : {}),
     })
@@ -458,7 +458,7 @@ async function prepareChapterMaterials(
     promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
   } catch {
     // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）。
-    // R-4（第十六轮）：清掉旧章残留材料（best-effort）——此前静默沿用旧材料文件，
+    // 清掉旧章残留材料（best-effort）——此前静默沿用旧材料文件，
     // buildDraftPrompt 会把上一章的材料注入本章 prompt（模型可见却无本次出处）。
     // 读不到材料文件 = prompt 无备料段，是设计内降级。
     try {
@@ -477,23 +477,23 @@ interface HealLoop {
   draftPath: string
   /** 当前终稿文本（重写成功后覆盖；persistFinal 调用时取当次值） */
   current: string
-  /** X-P1-2：账本侧红补生成是否已试过（只试一次） */
+  /** 账本侧红补生成是否已试过（只试一次） */
   leadDraftTried: boolean
-  /** A4：上一次机检红项集合 key（相同两次 → 换策略提醒） */
+  /** 上一次机检红项集合 key（相同两次 → 换策略提醒） */
   prevRedKey: string | null
   attempt: number
   hasWiring: boolean
 }
 
 /** 终态出口共享闭包组（终稿三连 + todo/goal 事件）——persistFinal 语义不动（ii 批口径）；
- *  R32-5（三十二轮）：persistFinal 随 saveDraft 异步化改 async（保存锁等待异步孪生） */
+ *  ：persistFinal 随 saveDraft 异步化改 async（保存锁等待异步孪生） */
 interface ChapterTerminal {
   persistFinal(): Promise<{ docId: string; relPath: string }>
   writeTodos(draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void
   writeGoal(op: GoalOperation, st: GoalState, extra?: { blockedReason?: string; rounds?: number }): void
 }
 
-/** F5 todo/goal + ii 批终稿三连的闭包工厂（chapter/goalId/goalNow 随单章闭包内固定） */
+/** todo/goal + ii 批终稿三连的闭包工厂（chapter/goalId/goalNow 随单章闭包内固定） */
 function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): ChapterTerminal {
   const { chapter } = loop
   const goalId = 'self-heal:ch' + chapter
@@ -515,7 +515,7 @@ function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): Chapte
         title: '修复第' + chapter + '章红项',
         state,
         roundsStarted: extra?.rounds ?? 0,
-        // C4（复审-0914-优化修复批）：ctx.maxAttempts 是 ChapterCtx 必有 number（orchestrate
+        // ctx.maxAttempts 是 ChapterCtx 必有 number（orchestrate
         // 构造时 ?? 3 兜底），原 `!== undefined` 死条件删——恒取必然侧
         maxGoalRounds: ctx.maxAttempts,
         ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
@@ -526,10 +526,10 @@ function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): Chapte
   }
   const persistFinal = async () => {
     const final = await ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
-    // C4（复审-0914-优化修复批）：opts.userDataPath 是 SelfHealOpts 必有 string，原
+    // opts.userDataPath 是 SelfHealOpts 必有 string，原
     // `?? undefined` 恒等死表达式删
     await recordAuthorSignal(ctx.bookRoot, final.docId, loop.current, 'self-heal', opts.userDataPath)
-    // R36-5（三十六轮）：recordAiVersion 迁异步孪生——连写链每章一次，原同步
+    // recordAiVersion 迁异步孪生——连写链每章一次，原同步
     // spawnSync git 在 git 无响应时逐章冻 15s×2；异步版失败 resolve null，
     // 既有失败降级语义（记日志/静默按现状）逐位不变，不阻断终稿落盘
     await recordAiVersionAsync(ctx.bookRoot, final.docId, loop.current)
@@ -549,26 +549,26 @@ async function draftFirstChapter(
   | { status: 'aborted' }
   | { status: 'error'; error: string }
 > {
-  // C-1：预算闸——超限不跑；config 由 orchestrate 解析一次传入（P3-6）
-  // 预算闸时序（第十六轮复审附带项，口径登记不修）：备料阶段（下方 prepareChapterMaterials）
+  // 预算闸——超限不跑；config 由 orchestrate 解析一次传入
+  // 预算闸时序（附带项，口径登记不修）：备料阶段（下方 prepareChapterMaterials）
   // 内的近章摘要补漏 AI 调用发生在本次闸检查之后——其计入本章 calls_per_chapter
   // （自愈路径 budgetChapter），下一次闸检查即收敛，不构成预算逃逸。
   const budget = checkAiCallBudget(ctx.bookRoot, chapter, ctx.config)
   if (!budget.ok) return { status: 'error', error: budget.reason }
-  // GG-F1①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
+  // GG-①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
   // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
   // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
-  // C1（批 2）：备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
+  // 备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
   const materialFiles = await prepareChapterMaterials(opts, ctx, chapter, state.ctrl.signal)
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
-  // Q-5（第十五轮）：draft prompt 自带注入源清单（细纲/章纲/设定层/样章）——与备料
+  // draft prompt 自带注入源清单（细纲/章纲/设定层/样章）——与备料
   // 清单合并去重（注入序）进 promptMeta.files，铁律①文件级溯源闭合
   const draft = buildDraftPrompt(ctx.bookRoot, chapter, ctx.kind, ctx.config)
   const promptFiles = [...new Set([...materialFiles, ...draft.files])]
   const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles)
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
-  // R26-5（二十六轮）：save 抛错收编（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
+  // save 抛错收编（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
   // orchestrateBatch，批量侧不落暂停记录（recordPause 只认返回值形态）。转 error 出口
   // 后由调用方按既有 failed 链收口（此刻 goal 尚未写 active，无悬挂面）。
   let firstDraft: { relPath: string }
@@ -580,7 +580,7 @@ async function draftFirstChapter(
   return { status: 'ok', text: first.text, draftPath: join(ctx.bookRoot, firstDraft.relPath) }
 }
 
-/** X-P1-2 账本复查相位：账本侧红（lead-declared-not-done）不可修——补生成账本推进草稿后
+/** 账本复查相位：账本侧红（lead-declared-not-done）不可修——补生成账本推进草稿后
  *  复查一次。返回 true = 已补且有效，轮循环 continue 重查；只试一次（leadDraftTried）。 */
 async function maybeLeadRedraft(
   opts: SelfHealOpts,
@@ -594,12 +594,12 @@ async function maybeLeadRedraft(
   if (!getRedItems(outcome.report).some((r) => r.checkId === 'lead-declared-not-done')) return false
   loop.leadDraftTried = true
   emit(opts, { type: 'self_heal_phase', phase: 'lead_update', attempt: loop.attempt })
-  // Z-P1-1：编排级 signal 透传——中断自愈时账本草稿生成同步中止（不跑到总超时）
+  // 编排级 signal 透传——中断自愈时账本草稿生成同步中止（不跑到总超时）
   const gen = await generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)
   return gen.ok && gen.count > 0
 }
 
-/** P2：打回评估事件化（重试链可重放；pass 不记） */
+/** 打回评估事件化（重试链可重放；pass 不记） */
 function recordRetryAttempt(
   chain: ChainRecorder | null,
   st: ReturnType<typeof evaluateRetry>,
@@ -627,7 +627,7 @@ async function rewriteOnce(
   | { status: 'error'; error: string }
   | { status: 'budget'; reason: string }
 > {
-  // C-1：预算闸——超限则 escalate，保留当前稿
+  // 预算闸——超限则 escalate，保留当前稿
   const budget2 = checkAiCallBudget(ctx.bookRoot, loop.chapter, ctx.config)
   if (!budget2.ok) return { status: 'budget', reason: budget2.reason }
   emit(opts, { type: 'self_heal_progress', attempt: loop.attempt + 1, maxAttempts: ctx.maxAttempts, remaining: reds })
@@ -635,16 +635,16 @@ async function rewriteOnce(
   emit(opts, { type: 'self_heal_reset' })
 
   const ruleViolations = collectRuleViolations(loop.current, 'self-heal', ctx.bookRoot, chapterNo)
-  // R32-13：随 recordRuleHits 异步化
-  // R48-29（四十八轮）：task 传 'self-heal'——重写链命中不再误归因 check
-  // C4（复审-0914-优化修复批）：opts.userDataPath 必有 string，原 `?? undefined` 死表达式删
+  // 随 recordRuleHits 异步化
+  // task 传 'self-heal'——重写链命中不再误归因 check
+  // opts.userDataPath 必有 string，原 `?? undefined` 死表达式删
   await recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath, 'self-heal')
   const allIssues = [
     ...redIssues.map((s) => `[必须] ${s}`),
     ...ruleViolations.map((v) => `[建议] ${v.message}`),
   ]
 
-  // A4：与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
+  // 与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
   const redKey = redSetKey(redIssues)
   const repeated = redKey !== '' && redKey === loop.prevRedKey
   loop.prevRedKey = redKey
@@ -661,7 +661,7 @@ async function rewriteOnce(
     // 字数区间与首稿链同口径（ctx.config 已是 applyGlobalDefaults 合并值）
     ctx.config.book.chapter_target_words,
   )
-  // R-3（第十六轮）：整章重写注入 loop.current（= 首稿/上轮重写正文，来自 loop.draftPath
+  // 整章重写注入 loop.current（= 首稿/上轮重写正文，来自 loop.draftPath
   // 的章文件）——补登记该正文文件路径，铁律「模型可见 ⟺ 已记录」在 rewrite 链闭合
   const again = await runGenerate(opts, state, ctx.kind, prompt, loop.chapter, [
     relative(ctx.bookRoot, loop.draftPath).split(sep).join('/'),
@@ -669,19 +669,19 @@ async function rewriteOnce(
   if (again.status === 'aborted') return { status: 'aborted' }
   if (again.status !== 'ok') return { status: 'error', error: again.error }
   loop.current = again.text
-  // R26-5（二十六轮）：save 抛错收编——此刻 goal 已 writeGoal('create','active')，原样
-  // 上抛 = goal 悬挂 active + 批量不落暂停（R76-11 修机检同族时漏掉的写盘路径）。转
-  // error 出口：调用方走 exitEscalateBlocked（F2 语义——重写失败 escalate 保留当前
+  // save 抛错收编——此刻 goal 已 writeGoal('create','active')，原样
+  // 上抛 = goal 悬挂 active + 批量不落暂停（修机检同族时漏掉的写盘路径）。转
+  // error 出口：调用方走 exitEscalateBlocked（语义——重写失败 escalate 保留当前
   // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
   try {
     const saved = await ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
-    // R0912-2（2026-09-11 修复批）：以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
+    // （修复批）：以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
     // ——此前 loop.draftPath 仅首稿设定、重写落盘后不回写：tool_use 未命中降级自由文本
     // 且 AI 自带异章号 front matter 时，resolveDraftPath（只读接口）按章号失配新建孤儿
     // 文件，而机检恒打首稿路径（runChapter 章循环内的 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
     // 机检/后续重写始终以最新落盘稿为准（首稿路径本就取自 save 返回值，口径对齐）。
     loop.draftPath = join(ctx.bookRoot, saved.relPath)
-    // R0912-2 防线：重写稿 front matter 章号 ≠ 编排章号时 warn 留痕（不阻断，保持现行
+    // 防线：重写稿 front matter 章号 ≠ 编排章号时 warn 留痕（不阻断，保持现行
     // 为）——该形态正是孤儿文件成因；读解析失败不在此警告，交由机检 NOT_CHAPTER
     // 既有出口处置（content 传入 = 纯内存解析，不读盘）。
     const parsed = readDraft(loop.draftPath, loop.current)
@@ -697,17 +697,17 @@ async function rewriteOnce(
 
 // ── 终态出口（五路：pass / escalate×3 / 机检崩溃 failed / 中止 pause） ──
 
-/** F5 审阅批：中止时 goal 落 pause（非终态——重跑同 id 重新 create 覆盖） */
+/** 审阅批：中止时 goal 落 pause（非终态——重跑同 id 重新 create 覆盖） */
 function exitAborted(term: ChapterTerminal): ChapterRun {
   term.writeGoal('pause', 'paused')
   return { outcome: 'aborted' }
 }
 
-// R32-5：exitPass/exitEscalateBlocked 随 persistFinal 异步化改 async（调用点在 async 章循环内 return，无需改调用方）
-// R0912-1：state 形参随后台任务改持独立 ctrl（不再读 state.ctrl.signal）移除
+// exitPass/exitEscalateBlocked 随 persistFinal 异步化改 async（调用点在 async 章循环内 return，无需改调用方）
+// state 形参随后台任务改持独立 ctrl（不再读 state.ctrl.signal）移除
 
-/** C3（复审-0914-优化修复批）：exitPass/exitEscalateBlocked 同构的 persistFinal 守卫单源。
- *  R65-8（总六十五轮）：persistFinal 无守卫——抛错（磁盘满/库锁）则 writeTodos/writeGoal
+/** exitPass/exitEscalateBlocked 同构的 persistFinal 守卫单源。
+ *  （总六十五轮）：persistFinal 无守卫——抛错（磁盘满/库锁）则 writeTodos/writeGoal
  *  永不执行，事件链上 goal 永远 'active' 悬挂。失败仍走 writeGoal 终态
  * （block/blocked + blockedReason='persist-failed'）后再记失败出口（终稿未落盘，
  *  不得假报成功/失败口径不变）。 */
@@ -736,12 +736,12 @@ async function exitPass(
   const pf = await persistFinalGuarded(term, loop)
   if (!pf.ok) return pf.failed
   const final = pf.final
-  // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
+  // 批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
   // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
-  // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
-  // M-2：登记进 per-book 后台表——waitSelfHealSettled 只等 runSelfHeal 本体收尾，
+  // signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
+  // 登记进 per-book 后台表——waitSelfHealSettled 只等 runSelfHeal 本体收尾，
   // 此前该任务逃逸出删书/改名/退出的 settle 等待，落盘窗口撞上目录搬移会重建孤儿目录
-  // R0912-1（2026-09-11 修复批）：后台任务改持**独立登记的 ctrl**——此前传编排级
+  // （修复批）：后台任务改持**独立登记的 ctrl**——此前传编排级
   // state.ctrl.signal，但编排收尾后 running Map 已删（runSelfHealInner finally）、ctrl
   // 已在 stream.ts unregister，/interrupt 既找不到编排闸也无在册 ctrl，本 AI 调用只能
   // 跑到 10min 总超时。现于后台任务启动处新建 ctrl 并登记 driver（owner
@@ -773,7 +773,7 @@ async function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: 
   return { chapter: loop.chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: loop.attempt }
 }
 
-/** 机检崩溃出口：goal 落 block 附原因（todo 保持初始表：机检未完成——F5 审阅批口径） */
+/** 机检崩溃出口：goal 落 block 附原因（todo 保持初始表：机检未完成—— 审阅批口径） */
 function exitCheckCrash(term: ChapterTerminal, loop: HealLoop, error: string): ChapterRun {
   term.writeGoal('block', 'blocked', { blockedReason: error, rounds: loop.attempt })
   return { chapter: loop.chapter, outcome: 'failed', error, attempts: loop.attempt }
@@ -789,7 +789,7 @@ async function runChapter(
   ctx: ChapterCtx,
   chapter: number,
 ): Promise<ChapterRun> {
-  // ① 首稿（C-1 预算闸——超限不跑；GG-F1① 备料接线）
+  // ① 首稿（预算闸——超限不跑；GG-① 备料接线）
   const first = await draftFirstChapter(opts, state, ctx, chapter)
   if (first.status === 'aborted') return { outcome: 'aborted' }
   if (first.status !== 'ok') return { chapter, outcome: 'failed', error: first.error, attempts: 0 }
@@ -811,7 +811,7 @@ async function runChapter(
   for (;;) {
     if (state.ctrl.signal.aborted) return exitAborted(term)
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt: loop.attempt })
-    // R76-11（二十四轮 A 域）：机检抛异常（非返回 not-ok）收敛——ctx.check 原先裸调，
+    // （二十四轮 A 域）：机检抛异常（非返回 not-ok）收敛——ctx.check 原先裸调，
     // 内部未捕获的读盘/解析异常会原样上抛：goal 悬挂 active（writeGoal('create','active')
     // 已写、无 block 收口）、批量连写不落暂停记录（recordPause 只认 runChapter 的返回
     // 值形态，异常直接穿出 orchestrateBatch）。收敛到 exitCheckCrash 同款 failed 出口
@@ -822,7 +822,7 @@ async function runChapter(
     } catch (e) {
       return exitCheckCrash(term, loop, `机检异常（未归类）：${errMsg(e)}`)
     }
-    // P2：机检报告事件化（红项结构化，自愈打回判据来源）
+    // 机检报告事件化（红项结构化，自愈打回判据来源）
     ctx.chain?.add(
       checkReportEvent({
         chapter,
@@ -836,12 +836,12 @@ async function runChapter(
 
     if (outcome.ok) {
       chapterNo = outcome.chapter.章号
-      // X-P1-2：账本侧红重写不可修——补生成账本推进草稿后复查一次
+      // 账本侧红重写不可修——补生成账本推进草稿后复查一次
       if (await maybeLeadRedraft(opts, state, ctx, loop, outcome, chapterNo)) continue
       const st = evaluateRetry(outcome.report, loop.attempt, ctx.maxAttempts)
       recordRetryAttempt(ctx.chain, st, ctx.maxAttempts, loop.attempt)
       if (st.state === 'pass') return exitPass(opts, ctx, loop, term, chapterNo)
-      // E-9g（第五十三轮）：redMessages(outcome) 原连算三次（escalate 两处 + reds 赋值），
+      // redMessages(outcome) 原连算三次（escalate 两处 + reds 赋值），
       // 提取为单次计算复用——纯性能修，行为不变
       const redMsgs = redMessages(outcome)
       if (st.state === 'escalate') return exitEscalateBlocked(term, loop, redMsgs, redMsgs.join('；'))
@@ -856,7 +856,7 @@ async function runChapter(
       }
     }
 
-    // ③ 退回重写（预算超限 escalate 保留当前稿；重写失败 escalate 保留当前已落盘稿 F2）
+    // ③ 退回重写（预算超限 escalate 保留当前稿；重写失败 escalate 保留当前已落盘稿）
     const again = await rewriteOnce(opts, state, ctx, loop, reds, redIssues, chapterNo)
     if (again.status === 'aborted') return exitAborted(term)
     if (again.status === 'budget') return exitEscalateBlocked(term, loop, [...reds, again.reason], [...reds, again.reason].join('；'))
@@ -868,7 +868,7 @@ function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
   return getRedItems(outcome.report).map((i) => i.message)
 }
 
-/** 终局黄项复查：对终稿跑规则 → 违规 message 列表（W1 收敛可见性；含 fm——plot 一致规则要比对章纲，正文型规则各自剥） */
+/** 终局黄项复查：对终稿跑规则 → 违规 message 列表（收敛可见性；含 fm——plot 一致规则要比对章纲，正文型规则各自剥） */
 function ruleYellows(content: string, bookRoot: string, chapter: number): string[] {
   return collectRuleViolations(content, 'self-heal', bookRoot, chapter).map((v) => v.message)
 }
@@ -881,7 +881,7 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
         ? { type: 'self_heal_result', outcome: 'escalate', reds: result.reds, docId: result.docId, path: result.path }
         : result.outcome === 'aborted'
           ? { type: 'self_heal_result', outcome: 'aborted' }
-          // R43-19（四十三轮）：failed 的 error 过 redactSecret（与 stream.ts:216 R26-8
+          // failed 的 error 过 redactSecret（与 stream.ts:216
           // 同款）——error 源头是 out.error（provider 异常 message），可含凭据痕迹
           : { type: 'self_heal_result', outcome: 'failed', error: redactSecret(result.error) }
   emit(opts, ev)
@@ -889,9 +889,9 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
     type: 'done',
     // 未配价（cost 恒 0）省略字段——与 spawn 路径同口径，不再恒发 cost:0
     ...(usage.cost > 0 ? { cost: usage.cost } : {}),
-    // W-P2-7：真实 outputTokens 累计（与 stream.ts 口径一致），不再恒 0
-    // R73-10：usage 为全 attempt 累计口径（runGenerate 取 attemptsUsage）；含估计入账
-    // 时带 usageEstimated（R73-1 协同，前端可区分实测/估计）
+    // 真实 outputTokens 累计（与 stream.ts 口径一致），不再恒 0
+    // usage 为全 attempt 累计口径（runGenerate 取 attemptsUsage）；含估计入账
+    // 时带 usageEstimated（协同，前端可区分实测/估计）
     usage: usage.outputTokens,
     ...(usage.estimated ? { usageEstimated: true } : {}),
     reason: result.outcome === 'aborted' ? 'cancelled' : result.outcome === 'failed' ? 'error' : 'success',

@@ -16,7 +16,7 @@ const props = defineProps<{
   depth: number
   expanded: Set<string>
   activePath: string | null
-  /** R1010-P3（G6-③）roving tabindex：唯此行 tabindex=0（active 行优先，无 active
+  /** （-③）roving tabindex：唯此行 tabindex=0（active 行优先，无 active
    *  回落首行），其余行 -1——100 行树只留一个 Tab 停靠点，Tab 序不再被树淹没。 */
   tabstopPath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
@@ -41,12 +41,12 @@ const emit = defineEmits<{
   drop: [targetPath: string]
 }>()
 
-// R54-G-1（五十四轮）：渲染上限——展开目录子项 > RENDER_CAP 时只渲染 RENDER_CAP 行
-// + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，2026-08-25
-// M-P3-13）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
+// 渲染上限——展开目录子项 > RENDER_CAP 时只渲染 RENDER_CAP 行
+// + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，
+// ）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
 // 渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动（children 全量在
 // store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或卷目录分层触达。
-// R55-G-2（五十五轮）：cap 窗口改含 active 项的滑窗——固定取前 100 时 >100 章平铺
+// cap 窗口改含 active 项的滑窗——固定取前 100 时 >100 章平铺
 // 目录经命令面板/搜索打开第 150 章，选中行在树上不可见。口径：无 active 或 active
 // 落在前 RENDER_CAP 内保持现状（前 100，常规浏览零变化）；active 超出时窗口取
 // active 贴尾段（start = activeIdx - RENDER_CAP + 1，恒 ≤ len - CAP 不越界）——
@@ -63,7 +63,7 @@ const renderedChildren = computed<TreeNode[]>(() => {
 const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰
-// 复审-0914-优化修复批 P3：switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
+// -：switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
 //（与 WritingInfoPanel/EditorDocHead 三处同源；未知态回落原 default 档 dot-gray）
 function dotClass(status?: string): string {
   return CHAPTER_STATUS[status ?? '']?.dot ?? 'dot-gray'
@@ -74,7 +74,7 @@ const isCreatingHere = () =>
   props.creatingDirPath === props.node.path && props.node.isDirectory && isOpen()
 const isRenaming = () => props.renamePath === props.node.path
 
-// R37-31（三十七轮批E）：原生拖拽必须在 dragstart 内同步写 dataTransfer——Firefox 等
+// 原生拖拽必须在 dragstart 内同步写 dataTransfer——Firefox 等
 // 无 data 不启动拖拽（规范要求 drag data store 有项才进入拖拽会话）；同时命中区从
 // 14px caret / 8px dot 扩到整行（常规行内无 input，重命名态整行被输入框替换、天然
 // 不受影响，不破坏行内文本选择），path 同时作为 text/plain 供外部拖入
@@ -94,7 +94,7 @@ function forwardRename(path: string, value: string): void {
 const inputVal = ref('')
 const inp = ref<HTMLInputElement | null>(null)
 
-// R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 之后触发（isComposing 已
+// 原 @keyup.enter 在 IME compositionend 之后触发（isComposing 已
 // false），确认候选词的那次 Enter 与主动提交不可区分——统一改 keydown + 组合期守卫
 // （重命名/新建的 Enter-then-blur 双发由 onRenameCommit/onCreateCommit 的态守卫防重）
 function onRenameEnter(e: KeyboardEvent): void {
@@ -102,7 +102,7 @@ function onRenameEnter(e: KeyboardEvent): void {
   emit('rename-commit', props.node.path, inputVal.value)
 }
 function onRenameEsc(e: KeyboardEvent): void {
-  // 组合期 Esc 归输入法（收候选框），不取消重命名（B-9 同判据）
+  // 组合期 Esc 归输入法（收候选框），不取消重命名（同判据）
   if (isImeComposing(e)) return
   emit('rename-cancel')
 }
@@ -115,7 +115,7 @@ function onCreateEsc(e: KeyboardEvent): void {
   emit('create-cancel')
 }
 
-// R1010-P3（G6-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 context-menu-roving
+// （-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 context-menu-roving
 // / CommandPalette 先例）。方向键在可见 treeitem 间移动真焦点：可见序 = DOM 序（折叠
 // 子树 v-if 不在 DOM、RENDER_CAP 截断行不在渲染面，均天然排除，无需自算）；Tab 只在
 // tabstop 行停靠一次。↑↓ 平移；→ 展开目录 / 已展开则进首个子行；← 收起目录 / 已收起
@@ -124,7 +124,7 @@ function cssEscape(s: string): string {
   return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&')
 }
 function onTreeKeyDown(e: KeyboardEvent): void {
-  if (isImeComposing(e)) return // 组合期方向键归输入法选候选（B-9 同判据）
+  if (isImeComposing(e)) return // 组合期方向键归输入法选候选（同判据）
   const el = e.currentTarget as HTMLElement
   const treeRoot = el.closest<HTMLElement>('[role="tree"]')
   if (!treeRoot) return
@@ -215,7 +215,7 @@ watch(
         @blur="emit('rename-commit', node.path, inputVal)"
       />
     </div>
-    <!-- 常规行（R1010-P3 G6-③：treeitem + aria-expanded/level/selected + roving tabindex） -->
+    <!-- 常规行（-③：treeitem + aria-expanded/level/selected + roving tabindex） -->
     <div
       v-else
       class="tree-item"
@@ -257,7 +257,7 @@ watch(
       ></span>
     </div>
 
-    <!-- 子节点 + 新建输入框（G6-③：group 语义包裹，display:contents 不改排版） -->
+    <!-- 子节点 + 新建输入框（-③：group 语义包裹，display:contents 不改排版） -->
     <div v-if="node.isDirectory && isOpen()" role="group" class="tree-group">
       <div v-if="isCreatingHere()" class="tree-item" :style="{ paddingLeft: `${(depth + 1) * 14 + 8}px` }">
         <input
@@ -295,7 +295,7 @@ watch(
         @dragend="emit('dragend')"
         @drop="emit('drop', $event)"
       />
-      <!-- R54-G-1：RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
+      <!-- ：RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
       <div
         v-if="omittedCount > 0"
         class="tree-item tree-cap-hint"
@@ -324,12 +324,12 @@ watch(
 .tree-item:hover {
   background: var(--background-modifier-hover);
 }
-/* R1010-P3（G6-③）：roving 后键盘焦点行显形（对齐 HistoryPanel restore-btn 同批口径） */
+/* （-③）：roving 后键盘焦点行显形（对齐 HistoryPanel restore-btn 同批口径） */
 .tree-item:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
 }
-/* G6-③：子树 group 语义容器——display:contents 不产生盒子，排版与拆分前逐像素一致 */
+/* -③：子树 group 语义容器——display:contents 不产生盒子，排版与拆分前逐像素一致 */
 .tree-group {
   display: contents;
 }
@@ -339,13 +339,13 @@ watch(
 .tree-item.dragging {
   opacity: 0.4;
 }
-/* R54-G-1：RENDER_CAP 截断提示行——纯展示不可点（弱化色 + 默认光标） */
+/* RENDER_CAP 截断提示行——纯展示不可点（弱化色 + 默认光标） */
 .tree-cap-hint {
   color: var(--text-faint);
   font-size: var(--font-size-s);
   cursor: default;
 }
-/* 顶级分组（写作/大纲/设定/布线）— 与章节行完全同权（2026-09-05 作者拍板：
+/* 顶级分组（写作/大纲/设定/布线）— 与章节行完全同权（作者拍板：
  * 四分区为固定目录骨架（位置恒定 + 折叠箭头 + 缩进已足），字号/字重/颜色三线
  * 全部归零——去 600 加粗（反糊）、字号回 m 同号、色统一 --text-normal 同章行
  * （muted #555 对比章节行发灰发糊，作者反馈统一）；仅留上间距 + 字距极弱分组感） */

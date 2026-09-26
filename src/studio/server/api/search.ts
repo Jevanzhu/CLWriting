@@ -15,45 +15,42 @@ import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
-import { testableConst } from '../../../shared/testable.js'
 
 interface SearchCtx {
   workDir: string | null
+  /** 收尾：搜索缓存 TTL 覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 5s 逐位不变） */
+  searchTtlMs?: number | null
 }
 
-// ── R35-7（三十五轮）：全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
+// ── 全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
 // 手法对齐 knowledge.ts learnCache / progress.ts summaryCache（书键 Map + FIFO 上限 +
-// 纯 TTL；删书/改名经 books.ts forgetBookKeyedCaches 失效）。R35-7 async 化后扫描不再
+// 纯 TTL；删书/改名经 books.ts forgetBookKeyedCaches 失效）。 async 化后扫描不再
 // 冻结事件循环，但查询词稀有时仍须读完全部文件才返回——重复点击/同参数并发去重为一次
-// 扫描。失效口径在纯 TTL 之上加目录 mtime 结构探针（方案偏离记档）：既有 V-P2-25 契约
+// 扫描。失效口径在纯 TTL 之上加目录 mtime 结构探针：既有 契约
 // 要求「写完即搜可见」（直写盘的文件服务端无写事件可挂），探针让新增/删除/改名等目录
 // 结构变化即时失效缓存，TTL 5s 只兜内容改写（不触碰目录 mtime）的最坏可见窗。
 const SEARCH_CACHE_TTL_MS = 5000
 const SEARCH_CACHE_MAX = 32
-/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；测试注入 setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getSearchTtlMs, __setSearchCacheTtlForTest] = testableConst<number | null>(null)
+/** 收尾：__setSearchCacheTtlForTest / __searchScanCountForTest（含 reset）
+ * 删除——TTL 覆盖档改组装根 RouteOverrides 注入（searchBookCached 覆盖尾参，随实例
+ * 隔离）；MISS 计数收编进缓存壳（stats.misses），观测面 = 下方导出的缓存实例
+ * （生产对象，非测试专用 API；先例同 analysisOverviewCache）。 */
 
-/** R35-7：删书/改名失效挂点（同 forgetLearnCache 口径；在途扫描不取消，结果照常落缓存）。 */
+/** 删书/改名失效挂点（同 forgetLearnCache 口径；在途扫描不取消，结果照常落缓存）。 */
 export function forgetSearchCache(bookRoot: string): void {
   searchCache.forgetPrefix(bookRoot)
 }
 
-/** R35-7：底层实际扫描计数观察口（验证缓存命中/在途去重；生产零调用）。 */
-export function __searchScanCountForTest(): number {
-  return searchCache.stats().misses
-}
-export function __resetSearchScanCountForTest(): void {
-  searchCache.resetStats()
-}
-
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
- *  R47-18 过期逐出 + inFlightSearches 在途去重本地壳删除；命中/失效时序/逐出序逐位
- *  不变——单级探针 + in-flight 去重 + FIFO 32，见 ttl-cache.ts 头部收敛映射表）。 */
-const searchCache = createTtlProbeCache<{ bookRoot: string; query: string; scope: string | undefined }, SearchOutcome>({
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ * 过期逐出 + inFlightSearches 在途去重本地壳删除；命中/失效时序/逐出序逐位
+ * 不变——单级探针 + in-flight 去重 + FIFO 32，见 ttl-cache.ts 头部收敛映射表）。
+ * 收尾：导出即观测面（stats.misses 取代 __searchScanCountForTest）。 */
+export const searchCache = createTtlProbeCache<{ bookRoot: string; query: string; scope: string | undefined }, SearchOutcome>({
   name: 'search',
   keyOf: (k) => `${k.bookRoot}\u0000${k.scope ?? ''}\u0000${k.query}`,
   max: SEARCH_CACHE_MAX,
-  ttl: () => getSearchTtlMs() ?? SEARCH_CACHE_TTL_MS,
+  ttl: () => SEARCH_CACHE_TTL_MS,
   probe: (k) => dirSignature(k.bookRoot),
   inFlight: true,
   computeAsync: (k) => searchBookAsync(k.bookRoot, k.query, k.scope),
@@ -73,11 +70,13 @@ function dirSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** 全书搜索（缓存 + 在途去重 + 底层 searchBookAsync）。导出供回归测试直测。 */
-export async function searchBookCached(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
+/** 全书搜索（缓存 + 在途去重 + 底层 searchBookAsync）。导出供回归测试直测。
+ * ttlOverrideMs = 逐调用 TTL 覆盖档（收尾：组装根 RouteOverrides 经
+ * handler 传入；直测面显式传——undefined = 生产口径 5s）。 */
+export async function searchBookCached(bookRoot: string, q: string, scope?: string, ttlOverrideMs?: number | null): Promise<SearchOutcome> {
   const query = (q ?? '').trim()
   if (!query) return { results: [] } // 空查询零成本直返，不占缓存
-  return searchCache.get({ bookRoot, query, scope })
+  return searchCache.get({ bookRoot, query, scope }, undefined, ttlOverrideMs ?? undefined)
 }
 
 export function registerSearchRoutes(ctx: SearchCtx): void {
@@ -88,15 +87,16 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
-    // Y-10（第五十七轮）：R-19 parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
+    // parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
     //（此前 api 层唯一残留的裸 new URL，属口径漂移死分叉）
     const url = parseRequestUrl(req)
     if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const q = (url.searchParams.get('q') ?? '').trim()
     const scope = url.searchParams.get('scope') ?? undefined
 
-    // R35-7：异步扫描 + 缓存/去重（原同步 searchBook 冻结事件循环，见上方块注）
-    const out = await searchBookCached(r.bookRoot, q, scope)
+    // 异步扫描 + 缓存/去重（原同步 searchBook 冻结事件循环，见上方块注）
+    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+    const out = await searchBookCached(r.bookRoot, q, scope, ctx.searchTtlMs ?? undefined)
     if (out.truncated) reply(res, 200, { results: out.results, truncated: true })
     else reply(res, 200, { results: out.results })
   },

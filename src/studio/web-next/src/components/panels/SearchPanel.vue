@@ -8,7 +8,7 @@ import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
 
-// 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
+// 全书搜索面板（细案 .7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const doc = useDocStore()
@@ -20,9 +20,9 @@ const results = ref<SearchHit[]>([])
 const truncated = ref(false)
 const loading = ref(false)
 const err = ref<string | null>(null)
-// 重评-0912-4 P2-4（2026-09-12 全量重评修复批）：open 失败错误独立作用域——原先与搜索
+// （修复批）：open 失败错误独立作用域——原先与搜索
 // 错误共用 err，模板 `v-else-if="err"` 把整张结果列表替换成错误文案：结果已展示后单击
-// 某条 open 失败（文件被外部移动/锁定）会吞掉其余 N-1 条结果的可见性（单条失败不该
+// 某条 open 失败（文件被外部移动/锁定）会吞掉其余条结果的可见性（单条失败不该
 // 摧毁整个搜索会话）。openErr 只在列表上方追加提示行，列表维持渲染。
 const openErr = ref<string | null>(null)
 
@@ -36,14 +36,14 @@ const SCOPES = [
   { v: '工作区', label: '工作区' },
 ]
 
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const runGen = useStaleGuard()
 async function run(): Promise<void> {
-  // RB-FE-P2-6：连续搜索竞态——只渲染最后一次查询的结果，旧慢响应不覆盖新结果
+  // 连续搜索竞态——只渲染最后一次查询的结果，旧慢响应不覆盖新结果
   const gen = runGen.begin()
-  // R33-85（三十三轮）：空查询路径同清错误态（原只在有查询路径清，错误残留到下一次搜索）
+  // 空查询路径同清错误态（原只在有查询路径清，错误残留到下一次搜索）
   err.value = null
-  openErr.value = null // 重评-0912-4 P2-4：新搜索/清空同时作废旧 open 失败提示
+  openErr.value = null // 新搜索/清空同时作废旧 open 失败提示
   if (!q.value.trim()) {
     results.value = []
     truncated.value = false
@@ -63,29 +63,29 @@ async function run(): Promise<void> {
   }
 }
 
-// M-7（第八轮）：切书清面板——SidebarLeft 常驻渲染不随切书重建，此前 A 书命中残留
+// 切书清面板——SidebarLeft 常驻渲染不随切书重建，此前 A 书命中残留
 // 到 B 书界面（点击在 B 树找同路径，找到则开 B 书文档、找不到静默无响应）。左栏三面板
 // 中此前唯一没有 bookName watch 的（TrashPanel/ChapterTreePanel/ForeshadowPanel 均有）。
 watch(
   () => props.bookName,
   () => {
-    // 重评-0912-4 P3（2026-09-12 全量重评修复批随批）：切书同清查询词 q——原清
+    // （修复批随批）：切书同清查询词 q——原清
     // results/err/loading 不清 q，切书后残留旧书查询词，回车即对新书重搜旧词
-    //（与 M-7 切书清面板意图不合）。
+    //（与切书清面板意图不合）。
     q.value = ''
     results.value = []
     truncated.value = false
     err.value = null
     openErr.value = null
     runGen.invalidate() // 在途搜索响应作废（gen 对不上即弃；clear 型原 runGen++）
-    // R-1/R-24（第十六轮）：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
+    // /：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位（迟到回填仍被查代挡住，不落结果）
     loading.value = false
   },
 )
 
-// R61-17（第六十一轮）同族：原 @keyup.enter 在 IME compositionend 之后触发
-//（isComposing 已复位），组词确认键会误触全书搜索；keydown + 组合态守卫同 B-9 家族。
+// 同族：原 @keyup.enter 在 IME compositionend 之后触发
+//（isComposing 已复位），组词确认键会误触全书搜索；keydown + 组合态守卫同家族。
 function onEnterKey(e: KeyboardEvent): void {
   if (isImeComposing(e)) return
   e.preventDefault()
@@ -95,17 +95,17 @@ function onEnterKey(e: KeyboardEvent): void {
 async function open(path: string): Promise<void> {
   const node = tree.byPath.get(path)
   if (!node?.docId) return // 非树内可编辑文件忽略
-  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
+  // await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
   // 工作区（新书同名路径命中旧书 docId）
   const bookAtClick = ws.bookName
-  openErr.value = null // 重评-0912-4 P2-4：本次尝试前清上一条 open 失败提示
+  openErr.value = null // 本次尝试前清上一条 open 失败提示
   try {
     await doc.open(node)
     if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
-    // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
-    // 原先零反馈，作者不知为何没反应。重评-0912-4 P2-4：改写 openErr 独立作用域
+    // -前端：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
+    // 原先零反馈，作者不知为何没反应。 ：改写 openErr 独立作用域
     //（原写共享 err 会把整个结果列表顶替成错误文案），列表维持可见。
     openErr.value = friendlyError(e)
   }
@@ -130,7 +130,7 @@ async function open(path: string): Promise<void> {
     <div v-if="loading" class="hint">搜索中…</div>
     <div v-else-if="err" class="hint err">{{ err }}</div>
     <template v-else>
-      <!-- 重评-0912-4 P2-4：open 失败提示独立作用域——追加行而非顶替列表 -->
+      <!-- ：open 失败提示独立作用域——追加行而非顶替列表 -->
       <div v-if="openErr" class="hint err">{{ openErr }}</div>
       <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
@@ -146,7 +146,7 @@ async function open(path: string): Promise<void> {
           @click="open(hit.path)"
         >
           <div class="result-path">{{ hit.path }}</div>
-          <!-- R46-30（四十六轮）：命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
+          <!-- ：命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
             行号在单文件命中列表内唯一；原索引 key 在结果更新时错位复用 DOM -->
           <div
             v-for="m in hit.matches.slice(0, 3)"
@@ -156,8 +156,8 @@ async function open(path: string): Promise<void> {
             <span class="ln">{{ m.line }}</span>
             <span class="text">{{ m.text }}</span>
           </div>
-          <!-- R1010c-FE1-P3-3（2026-09-10 全量独立复审修复批）：命中行余量提示——原
-            slice(0,3) 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶 R72-9）
+          <!-- （修复批）：命中行余量提示——原
+            slice(0,3) 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶）
             时以「20+」区分服务端截断（真实总数未知，不虚报） -->
           <div v-if="hit.matches.length > 3" class="result-more">
             {{ hit.hasMore ? '还有 20+ 条' : `还有 ${hit.matches.length - 3} 条` }}
@@ -256,7 +256,7 @@ async function open(path: string): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* R1010c-FE1-P3-3：命中行余量提示（>3 条截断 / 服务端 20+ 封顶区分文案） */
+/* 命中行余量提示（>3 条截断 / 服务端 20+ 封顶区分文案） */
 .result-more {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);

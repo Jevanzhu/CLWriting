@@ -95,10 +95,10 @@ export function rebootstrap(): Promise<void> {
  *  undefined；现有调用方均如此）。
  *  重放收敛幂等面——GET/HEAD 之外的请求由调用方以 init.replayable 显式声明才重发
  *  （判定见 isReplayable 注；re-boot 照常执行，新 token 供后续请求使用）。
- *  R0916-7-P3-26（2026-09-24 全库源码质量评审修复批）：对外只剩 (path, init) 两参——
+ *  （全库源码质量评审修复批）：对外只剩 (path, init) 两参——
  *  递归重试标记与超时计量/重放出参原为对外形参（调用方可见的内部状态），现收进私有
  *  apiFetchCore，本函数只是薄壳。
- *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
+ *  SSE 走 getToken 拼 URL（stream.ts），不经此路径，不受影响。 */
 /** apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期（boot 自带 5s×3 次重试
  *  退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额计时（重放是新的 fetch，不吃
  *  剩余预算），保持对外 TIMEOUT 语义：真实 fetch 阶段超时才报。仅本模块内部传参，apiFetch
@@ -183,7 +183,7 @@ async function apiFetchCore(
  *  timeoutMs 缺省 = 30s 兜底档：不设默认则「未传即无超时」，documents/books/search 等
  *  几十处本地快端点漏配后请求挂死即 loading 永真。慢端点（AI 分析/收割/流式生成）均已
  *  显式配更大档（60s/120s/300s），显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。
- *  A5（复审-0914-优化批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
+ *  （-优化批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
  *  providers/onboard 此前旁路手写裸值 30_000 的调用点统一改 import（数值零变化）。 */
 export const API_DEFAULT_TIMEOUT_MS = 30_000
 
@@ -199,12 +199,12 @@ const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请
  *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
  *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
  *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。
- *  R0916-7-P3-26：幂等声明（replayable）与 json 同层透传，apiFetchCore 消费。 */
+ *  ：幂等声明（replayable）与 json 同层透传，apiFetchCore 消费。 */
 interface ApiJsonInit extends ApiFetchInit {
   json?: unknown
 }
 
-// ── R0916-7-P3-20（评审 P3-20）：书会话信号接驳 ──────────────────────────────
+// ── （评审）：书会话信号接驳 ──────────────────────────────
 // 「离书后迟到结果」的隔离从「每个异步动作 await 后手写书名复检」收敛到会话对象
 // （composables/useBookSession）：进书创建 BookSession、离书/切书 abort 其 signal，
 // 本书写请求随之中止，迟到结果由调用方一处 isAbortError 静默吸收。
@@ -238,7 +238,7 @@ function bookSessionSignalFor(path: string, method: string): AbortSignal | null 
   return null
 }
 
-/** AbortError 归类单源（R0916-7-P3-20）：按 name 判定而非 `instanceof DOMException`——
+/** AbortError 归类单源：按 name 判定而非 `instanceof DOMException`——
  *  abort 抛出的 DOMException 可能来自别的 realm（iframe/Node 环境）或被上层重新包装，
  *  instanceof 不可靠。调用方凡要「静默吸收取消」都走本判定，勿各自手写 name 比较。 */
 export function isAbortError(e: unknown): boolean {
@@ -259,7 +259,7 @@ export async function apiJson<T>(
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
     reqInit = { ...rest, headers, body: JSON.stringify(json) }
   }
-  // R0916-7-P3-20：书会话信号接驳——调用方未显式传 signal 时按「路径 + 方法」取在册会话
+  // 书会话信号接驳——调用方未显式传 signal 时按「路径 + 方法」取在册会话
   // 信号（口径见 setBookSessionSignal 注）。显式 signal 优先，本接驳不覆盖调用方意图。
   if (!reqInit.signal) {
     const sessionSignal = bookSessionSignalFor(path, (reqInit.method ?? 'GET').toUpperCase())
@@ -284,7 +284,7 @@ export async function apiJson<T>(
       timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     },
   }
-  // 外部 signal 联动：外部 abort → 内部也 abort。abort 事件只在 abort() 时刻派发一次——
+  // 外部 signal 联动：外部 abort → 内部也 abort。abort 事件只在 abort 时刻派发一次——
   // 调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
   if (reqInit.signal?.aborted) controller.abort()
   else if (reqInit.signal) {
@@ -314,7 +314,7 @@ export async function apiJson<T>(
         typeof parsed === 'object' &&
         (typeof parsed['error'] === 'string' || typeof parsed['code'] === 'string')
     } catch (err) {
-      // 超时若落在响应体读取期（r.json() 中途 abort），AbortError 在本 catch 被吞成
+      // 超时若落在响应体读取期（r.json 中途 abort），AbortError 在本 catch 被吞成
       // body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手（fetch 头已到、体读取
       // 超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，ApiError 原样穿透）。须先于
       // 下方 abort 判定——超时同样中止内部 signal。
@@ -322,7 +322,7 @@ export async function apiJson<T>(
       // 外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已为真，若把 AbortError 当坏体
       // 吞进本 catch 会误报 MALFORMED_RESPONSE（把调用方主动取消伪造成服务端故障）。判定
       // abort（联动内部 signal 已中止，或错误本身是 AbortError DOMException）→ 直通原
-      // abort 语义，不伪造 MALFORMED_RESPONSE。R0916-7-P3-20：外部 signal 的实调用方即
+      // abort 语义，不伪造 MALFORMED_RESPONSE。：外部 signal 的实调用方即
       // 书会话接驳（上方 setBookSessionSignal 注）——本守卫是该接驳的 AbortError 归类出口，
       // 调用方以 isAbortError 静默吸收。
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
@@ -355,7 +355,7 @@ export async function apiJson<T>(
         : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
       throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }
-    // 2xx + 非对象裸字面量体防御：r.json() 对「null」体解析成功（不进 catch），信封判别
+    // 2xx + 非对象裸字面量体防御：r.json 对「null」体解析成功（不进 catch），信封判别
     // 使 hasEnvelope 为假、!r.ok 不命中，坏体一路穿透到 return body——调用方按 T 消费
     // （getContent 得 content:undefined → sha256Revision('undefined') 错基线，与上面 2xx
     // 坏体同族）。信封字段消费（body.error 等）对一切非对象都静默 undefined，故守卫覆盖

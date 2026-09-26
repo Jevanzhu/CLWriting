@@ -1,10 +1,10 @@
 /**
  * 核心生成函数（方案 §四② 编排层基础）。
  *
- * 封装 provider.stream() 调用：收集 text 增量 + tool_use 结构化产出 + token 计量。
+ * 封装 provider.stream 调用：收集 text 增量 + tool_use 结构化产出 + token 计量。
  * 上层编排（self-heal/review/analysis）在此之上构建重试 / 中断 / 进度 / 落盘逻辑。
  *
- * 中断：signal.abort() → provider 迭代器停止；SDK 内部 abort 请求。
+ * 中断：signal.abort → provider 迭代器停止；SDK 内部 abort 请求。
  */
 import type {
   ModelProvider,
@@ -16,14 +16,14 @@ import type {
 import { quirksFor, responsesQuirksFor } from './provider/model-quirks.js'
 import { log } from '../log/index.js'
 
-/** 生成错误（A5：结构化字段与 GenEvent.error 对齐；code 供 failureAction 决策表分流） */
+/** 生成错误（结构化字段与 GenEvent.error 对齐；code 供 failureAction 决策表分流） */
 export class GenError extends Error {
   retryable: boolean
   code?: GenErrorCode
   status?: number
   retryAfterMs?: number
   requestId?: string
-  /** B-12（第六十轮）：失败时网关已返回的 token 用量（如 max_tokens 截断）——runner
+  /** 失败时网关已返回的 token 用量（如 max_tokens 截断）——runner
    *  终态失败路径按可得值入账（此前失败恒记 0，成本口径低估；多数失败响应无 usage，
    *  不携带即 undefined，行为不变） */
   usage?: TokenUsage
@@ -53,23 +53,23 @@ export interface GenResult {
   toolCalls: { id: string; name: string; input: unknown }[]
   usage: TokenUsage
   stopReason: string
-  /** Q-13（第十五轮）：适配器 resolve 后实际上线的输出上限（done 事件透出；无兜底不发
+  /** 适配器 resolve 后实际上线的输出上限（done 事件透出；无兜底不发
    *  的 openai/responses 线为 undefined）——编排层透传落 llm/call（铁律②重放口径） */
   resolvedMaxTokens?: number
   /** 加密推理项（Responses 线缺口 11：reasoning_item 事件收集，chat.ts 组装回传用） */
   reasoningEncrypted?: string
   reasoningItemId?: string
-  /** Z-12（第五十八轮）：成功建流用的是降级参数面（done 事件透出）——落 llm/call 供重放 */
+  /** 成功建流用的是降级参数面（done 事件透出）——落 llm/call 供重放 */
   degraded?: boolean
 }
 
-/** B-2：逐 chunk 挂起时限默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
- *  RC 源码重审 A-8（Opus-5.5 轮）更名：本值原称「首字节超时」，实为**逐 chunk 挂起**
- *  口径（B-2 首字节只是它最常命中的一例，P3-8 流中途挂起同样受此限）——函数/常量层
+/** 逐 chunk 挂起时限默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
+ *  （Opus-5.5 轮）更名：本值原称「首字节超时」，实为**逐 chunk 挂起**
+ *  口径（首字节只是它最常命中的一例，流中途挂起同样受此限）——函数/常量层
  *  随批改为 chunk-stall 命名，避免读代码时误以为「只在首字节生效」。**env 名与事件
  *  schema 字段（firstByteTimeoutMs，events/types.ts）保名**：一个是对外配置面、一个是
  *  已落库的字段形状（重放纪律），改名只到本模块符号层。
- *  P3-1：参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s 不变）——
+ *  ：参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s 不变）——
  *  深度推理模型首 token 可能超过 60s，此前写死导致被误判 TIMEOUT 白废一轮请求 + 吃退避。 */
 const DEFAULT_CHUNK_STALL_TIMEOUT_MS = 60_000
 const CHUNK_STALL_TIMEOUT_ENV = 'CLWRITING_FIRST_BYTE_TIMEOUT_MS'
@@ -85,13 +85,13 @@ export function resolveChunkStallTimeoutMs(): number {
 }
 
 /**
- * 包装 async iterable，对每个 chunk 加超时（B-2：首字节网络挂起 → 快速失败可重试；
- * P3-8：流中途挂起同样超时，防 provider 发部分数据后静默卡死靠 runner 10min 兜底）。
+ * 包装 async iterable，对每个 chunk 加超时（首字节网络挂起 → 快速失败可重试；
+ * 流中途挂起同样超时，防 provider 发部分数据后静默卡死靠 runner 10min 兜底）。
  *
- * RC 源码重审 A-8：原函数名 withFirstByteTimeout 与实现口径不符——计时窗是**每两个
- * 事件之间**，不止首字节（B-2/P3-8 两处语义都靠它）；随批改名，符号面不留误导读点。
+ * RC：原函数名 withFirstByteTimeout 与实现口径不符——计时窗是**每两个
+ * 事件之间**，不止首字节（/两处语义都靠它）；随批改名，符号面不留误导读点。
  *
- * RB-AI-P2-3：新增 onStall 钩子——超时/异常先回调（调用方借此 abort 底层 HTTP），
+ * 新增 onStall 钩子——超时/异常先回调（调用方借此 abort 底层 HTTP），
  * 再做迭代器清理；仅放弃消费不 abort 时，重试期间旧请求继续在途生成计费。
  */
 export async function* withChunkStallTimeout(
@@ -102,22 +102,22 @@ export async function* withChunkStallTimeout(
   const it = source[Symbol.asyncIterator]()
   const stallError = (): GenError =>
     new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })
-  // R0912-D-P3-4 曾把「每 chunk 新建 Promise + setTimeout」收敛为「单 timer + 每 chunk
-  // timer.refresh() 重置」——六轮重评 B101 勘误：Node 语义下 clearTimeout() 之后的
-  // timer.refresh() 是 no-op（timer 已出列，v26.8.1 实测回调永不复活），而下方恰在首个
+  // 曾把「每 chunk 新建 Promise + setTimeout」收敛为「单 timer + 每 chunk
+  // timer.refresh 重置」—— B101 勘误：Node 语义下 clearTimeout 之后的
+  // timer.refresh 是 no-op（timer 已出列，v26.8.1 实测回调永不复活），而下方恰在首个
   // chunk 后 clearTimeout（yield 悬挂期解武装），循环顶的 refresh 自此永远重启不了
   // 计时窗——流中挂起检测自第 2 个 chunk 起静默失效，半死连接只能等 runner 10min 总
   // 超时兜底（可重试的 60s 快速失败退化成不可重试的终态死等）。恢复每 chunk「新
   // timer + 新 deferred」的原实现：分配成本相对 SSE chunk 解析可忽略，且每轮新
   // deferred 使悬挂期误触发也不会污染下一轮 race（单 deferred 方案的真约束，亦是
   // 当初收敛动机的一半——另一半 refresh 重置已被 Node 语义否决）。
-  // R33D-11（三十三轮）：任意退出路径都关源迭代器——原实现只在 done 与自身超时分支
-  // it.return()；消费方（generate/probe）收到适配器 yield 的 error 事件 throw 时，
-  // for-await 调 wrapper.return() 只恢复到 wrapper 的 yield 点、finally 仅 clearTimeout，
+  // 任意退出路径都关源迭代器——原实现只在 done 与自身超时分支
+  // it.return；消费方（generate/probe）收到适配器 yield 的 error 事件 throw 时，
+  // for-await 调 wrapper.return 只恢复到 wrapper 的 yield 点、finally 仅 clearTimeout，
   // 源迭代器（适配器生成器）停在 yield 上无人关闭，其内部 SDK SSE 连接悬挂到服务端 FIN
   //（responses 线「yield error 后 return」写在事件循环体内，四条错误路径全部命中）。
-  // 不 await（Q2 同口径：return() 会排队等挂起的 next() 结算，半死连接下退化死等），
-  // 清理段异常吞掉（M-3 同口径）。
+  // 不 await（同口径：return 会排队等挂起的 next 结算，半死连接下退化死等），
+  // 清理段异常吞掉（同口径）。
   try {
     while (true) {
       let rejectStall!: (e: GenError) => void
@@ -132,28 +132,28 @@ export async function* withChunkStallTimeout(
         if (result.done) { return }
         yield result.value
       } catch (e) {
-        // RC 源码重审 A-8（Opus-5.5 轮）：本分支此前不 clearTimeout——race 已吸收 reject，
+        // （Opus-5.5 轮）：本分支此前不 clearTimeout——race 已吸收 reject，
         // 但计时器仍在（未 unref）挂到超时点才空转回调 rejectStall，最长白挂 60s；且 finally
         // 注释误称「catch 两态均已清」。catch 首行解武装，与成功分支成对，注释随之改口径。
         clearTimeout(timer)
-        // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
-        // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
-        // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
+        // 超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
+        // 不得 `await it.return?.` —— async generator 的 return 会排队等待挂起的 next
+        // 结算；半死连接场景下 next 永不结算 → 60s 快速失败退化 10min 死等。
         // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
-        // RB-AI-P2-3：先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
+        // 先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
         // 只放弃消费不 abort 时旧请求仍服务端继续生成计费
-        // M-3（第八轮）：return() 触发的清理段（内层 SDK 流隐式 return）reject 时若被
-        // void 丢弃即 unhandledRejection 崩主进程（第六轮 stream.ts:186 同型收敛）——
+        // return 触发的清理段（内层 SDK 流隐式 return）reject 时若被
+        // void 丢弃即 unhandledRejection 崩主进程（stream.ts:186 同型收敛）——
         // 吞清理段异常，外层 e 照常上抛走重试链
         onStall?.()
         throw e
       }
     }
   } finally {
-    // RC 源码重审 A-8：本处**没有**存活 timer 可清是这个结构的结论、不是前提——每轮 timer
+    // RC：本处**没有**存活 timer 可清是这个结构的结论、不是前提——每轮 timer
     // 在两条路径成对解武装（race 结算后的 clearTimeout / catch 首行的 clearTimeout），
     // 循环外不存在逃逸轮次；改动上方任一处都需重新校验本前提（勿把本注释当免责声明）。
-    // R33D-11：正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
+    // 正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
     it.return?.().catch(() => { /* 清理段异常不外抛 */ })
   }
 }
@@ -170,7 +170,7 @@ export async function generate(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<GenResult> {
-  // R35-14：quirks 表七家族 toolUse 恒 true，「不支持工具先剥 tools」的前置拦截不存在——
+  // quirks 表七家族 toolUse 恒 true，「不支持工具先剥 tools」的前置拦截不存在——
   // 真防线在适配器 400 降级链末端「剥 tools → 纯文本」兜底（adapter-errors buildDegradeAttempts）
   let text = ''
   const reasoning: string[] = []
@@ -181,12 +181,12 @@ export async function generate(
   const toolCalls: { id: string; name: string; input: unknown }[] = []
   let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let stopReason = 'end_turn'
-  let resolvedMaxTokens: number | undefined // Q-13：done 事件透出的上线输出上限
-  let degraded = false // Z-12：成功建流是否用了降级参数面（done 事件透出）
+  let resolvedMaxTokens: number | undefined // done 事件透出的上线输出上限
+  let degraded = false // 成功建流是否用了降级参数面（done 事件透出）
 
-  // RB-AI-P2-3：per-attempt abort——底层生成拿 attempt.signal（不再是外层 signal 本体）：
-  // - 外层用户/编排 signal abort → 联动 attempt.abort()（行为不变：SDK 断开 + 「已中断」）；
-  // - 首字节/chunk 超时 → onStall 先 attempt.abort()（终止在途 HTTP，服务端停止生成计费）
+  // per-attempt abort——底层生成拿 attempt.signal（不再是外层 signal 本体）：
+  // - 外层用户/编排 signal abort → 联动 attempt.abort（行为不变：SDK 断开 + 「已中断」）；
+  // - 首字节/chunk 超时 → onStall 先 attempt.abort（终止在途 HTTP，服务端停止生成计费）
   //   再抛可重试 GenError 进上层重试——此前只放弃消费迭代器，旧请求最多 3 次重试期间并存 4 条在途
   const attempt = new AbortController()
   const onOuterAbort = (): void => attempt.abort()
@@ -221,7 +221,7 @@ export async function generate(
           if (ev.degraded) degraded = true
           break
         case 'error':
-          // R31-1（三十一轮）：ev.usage 随错装入 GenError.usage（B-12 通道）——
+          // ev.usage 随错装入 GenError.usage（通道）——
           // 终态失败按真实消耗入账（runner 已消费该字段）
           throw new GenError(ev.message, ev.retryable, {
             code: ev.code,
@@ -241,7 +241,7 @@ export async function generate(
 
 /**
  * 简化版：只取纯文本产出（无 tool_use 场景，如 outline）。
- * 等价于 generate() 后取 .text。
+ * 等价于 generate 后取 .text。
  */
 export async function generateText(
   provider: ModelProvider,
@@ -250,10 +250,10 @@ export async function generateText(
   onText?: (delta: string) => void,
 ): Promise<string> {
   const r = await generate(provider, req, signal, onText)
-  // P1-3：纯文本端点截断检查（与 generateTool 对称）
+  // 纯文本端点截断检查（与 generateTool 对称）
   if (r.stopReason === 'max_tokens') {
-    // R61-6（第六十一轮）：截断调用照样烧 token，usage 随错误上抛记账（此前截断即丢账）
-    // R73-3（二十一轮 A-3）：MAX_TOKENS 终态不可重试——文案明示「模型行可配输出上限」出路
+    // 截断调用照样烧 token，usage 随错误上抛记账（此前截断即丢账）
+    // MAX_TOKENS 终态不可重试——文案明示「模型行可配输出上限」出路
     throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return r.text
@@ -270,9 +270,9 @@ export async function generateTool(
   onText?: (delta: string) => void,
 ): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number; degraded?: boolean }> {
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
-  // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
+  // Responses 启用批缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
   const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
-  // R35-14：quirks 表七家族 toolUse 恒 true，P0-2「不支持工具提前拒绝」为死分支已删——
+  // quirks 表七家族 toolUse 恒 true，「不支持工具提前拒绝」为死分支已删——
   // 实际防线 = 适配器 400 降级链（剥 tools 纯文本兜底），此处 q 只服务 toolChoiceMode 翻译
   // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
   let effective: GenRequest = req
@@ -294,35 +294,35 @@ export async function generateTool(
   }
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
-  // R64-5（十二轮）：AA-P3-1「丢弃必须可感知」——本路径只取首个 tool_use，第 2+ 个
+  // 「丢弃必须可感知」——本路径只取首个 tool_use，第 2+ 个
   // 的 input 此前静默丢弃无留痕。chat agent 轮循环不受影响（走 toolCalls 全量）。
   if (r.toolCalls.length > 1) {
     log.warn('gen', `generateTool 收到 ${r.toolCalls.length} 个 tool_use，仅采用首个（${tool?.name ?? 'unnamed'}），其余 ${r.toolCalls.length - 1} 个已丢弃`)
   }
-  // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
-  // R26-1（二十六轮）：tool_use 的 arguments 被截断在中途同样是截断面——适配器把解析
+  // 输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
+  // tool_use 的 arguments 被截断在中途同样是截断面——适配器把解析
   // 失败的截断 JSON 兜成 { _raw }（openai/anthropic 两线同款 catch），此时 tool 存在、
   // stopReason 同为 max_tokens，原判据（!tool）漏接：工具型链路（self-heal/review/
   // analysis/rewrite/relation-mine）把残缺 input 按**成功**入账，MAX_TOKENS 错误码与
   // 「模型行可配 maxTokens」出路全部丢失。判据扩为「撞顶且（无 tool 或首个 tool 的
   // input 带 _raw 降级键）」——_raw 只在 JSON.parse 失败时出现，正常完整产出不受影响。
-  // R27-4（二十七轮）：再补「input 空对象」型——anthropic content_block_stop 收到空
-  // jsonBuf 时兜成 {}（无 _raw 标记，R26-1 判据不中），撞顶截断的 tool 调用按**成功**
+  // 再补「input 空对象」型——anthropic content_block_stop 收到空
+  // jsonBuf 时兜成 {}（无 _raw 标记，判据不中），撞顶截断的 tool 调用按**成功**
   // 带空 input 出场。撞顶与「合法零参调用」不同时出现，max_tokens 门下空 {} 判截断
   const toolInputObj =
     tool !== undefined && tool.input !== null && typeof tool.input === 'object'
       ? (tool.input as Record<string, unknown>)
       : null
   const toolInputTruncated = toolInputObj !== null && '_raw' in toolInputObj
-  // R28-6（二十八轮）：toolInputEmpty 判据的前提不变量——零参 schema 工具（properties: {}，
+  // toolInputEmpty 判据的前提不变量——零参 schema 工具（properties: {}，
   // 现仅 contract/chat.ts 的 chapter_status / harvest_style）**不得走 generateTool**：
   // 它们只出现在 chat agent turns（turns.ts 对 max_tokens 整体拒收、不经本函数），因此
   // 撞顶时本判据不会把零参工具的完整合法调用（input 恒为 {}）误判成截断。不变量的机器锁
   // 见 test/ai/contract.test.ts「零参 schema 工具路由不变量」——新增零参工具须先确认路由。
   const toolInputEmpty = toolInputObj !== null && Object.keys(toolInputObj).length === 0
   if ((!tool || toolInputTruncated || toolInputEmpty) && r.stopReason === 'max_tokens') {
-    // R61-6（第六十一轮）：同 generateText——截断调用 usage 随错误上抛记账
-    // R73-3：同款出路提示（模型行可配输出上限）
+    // 同 generateText——截断调用 usage 随错误上抛记账
+    // 同款出路提示（模型行可配输出上限）
     throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return {
@@ -330,7 +330,7 @@ export async function generateTool(
     text: r.text,
     usage: r.usage,
     stopReason: r.stopReason,
-    // Q-13：透传给编排层（spec.run 回调聚合进 runTask 结果 → llm/call）
+    // 透传给编排层（spec.run 回调聚合进 runTask 结果 → llm/call）
     resolvedMaxTokens: r.resolvedMaxTokens,
     ...(r.degraded ? { degraded: true } : {}),
   }

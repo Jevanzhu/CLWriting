@@ -43,7 +43,7 @@ export async function inferMeta(name: string, docId: string): Promise<InferredMe
   return r.meta
 }
 
-// ── 全书聚合趋势（T1 后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
+// ── 全书聚合趋势（后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
 
 interface ScoreTrendPoint {
   章号: number

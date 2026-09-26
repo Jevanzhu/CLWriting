@@ -29,7 +29,7 @@ const showResolved = ref(false)
 const currentChapNo = computed<number | null>(() => {
   if (!ws.activeDocId) return null
   const entry = doc.get(ws.activeDocId)
-  // P3-㉖（复审-0913-源码）：正文判定走 isBodyKind 单源（原直写前缀双实现）
+  // -㉖（-源码）：正文判定走 isBodyKind 单源（原直写前缀双实现）
   if (!entry || !isBodyKind(entry.path)) return null
   // entry.path 是完整相对路径（写作/正文/N-标题.md）→ 章号从文件名尾段提取
   const name = entry.path.split('/').pop() ?? ''
@@ -55,11 +55,11 @@ const pending = computed(() =>
 const resolved = computed(() => list.value.filter((f) => f.状态 === '已回收'))
 const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废弃'))
 
-// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：未回收/已回收渲染上限——千条级
+// （修复批）：未回收/已回收渲染上限——千条级
 // 伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例
-// （先例 RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// （先例 RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const pendingCap = computed(() => capView(pending.value, RENDER_CAP))
 const resolvedCap = computed(() => capView(resolved.value, RENDER_CAP))
@@ -67,9 +67,9 @@ const resolvedCap = computed(() => capView(resolved.value, RENDER_CAP))
 /** 本章埋设的未回收伏笔（当前章节联动提醒） */
 const currentPlanted = computed(() => pending.value.filter((f) => f.埋设章号 === currentChapNo.value))
 
-// M-11：加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应不覆盖
+// 加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应不覆盖
 // B 的伏笔列表（create 后的 load 同享守卫）。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 async function load(): Promise<void> {
   const gen = loadGen.begin()
@@ -91,9 +91,9 @@ async function load(): Promise<void> {
 async function openFile(file: string): Promise<void> {
   const node = tree.byPath.get(file)
   if (node?.docId) {
-    // 低级项（第六轮）：打开失败不再裸抛——模板点击处理器不接 async 错，
+    // 低级项：打开失败不再裸抛——模板点击处理器不接 async 错，
     // 未捕获 rejection 且无任何提示（对齐 EditorView 的打开编排）
-    // R32-29（三十二轮）：E-2 家族守卫（await 前快照书名 + 复检）——doc.open 在途
+    // 家族守卫（await 前快照书名 + 复检）——doc.open 在途
     // 切书后旧书 docId 不得写进新书 activeDocId
     const bookAtClick = ws.bookName
     try {
@@ -106,7 +106,7 @@ async function openFile(file: string): Promise<void> {
   }
 }
 
-// R75-E-P3d：新建在途锁（TrashPanel restore 的 restoring 锁同款）——按钮无 disabled，
+// 新建在途锁（TrashPanel restore 的 restoring 锁同款）——按钮无 disabled，
 // 双击第二笔与第一笔并发 createDoc 同路径 → 服务端 409/重名冲突 toast 误导作者
 const creating = ref(false)
 async function create(): Promise<void> {
@@ -115,7 +115,7 @@ async function create(): Promise<void> {
   let name = '新伏笔'
   let i = 2
   while (existing.has(name)) name = `新伏笔${i++}`
-  // 低-4（第十轮）：入口捕获 + await 后活源复检（FE-3 类收敛）——createDoc 在途切书后，
+  // 低-4入口捕获 + await 后活源复检（FE-3 类收敛）——createDoc 在途切书后，
   // 旧书续体继续 tree.load/openTab 会顶开 B 书工作台正开的伏笔标签（共享 store 被写入）。
   // 本面板经 SidebarRight 常驻外壳挂载（非 keyed），props.bookName 即路由活书名（无滞后），
   // 再比 doc store 内 live bookName 兜底（对齐 Book.vue 切书编排的权威书名）
@@ -124,21 +124,21 @@ async function create(): Promise<void> {
   try {
     const r = await createDoc(book, { relPath: `设定/伏笔/${name}.md` })
     if (props.bookName !== book || doc.bookName !== book) return // 已切书：放弃后续写操作
-    // R48-24（四十八轮）：书名守卫原只护第一个 await——tree.load（大书秒级）/load 的
+    // 书名守卫原只护第一个 await——tree.load（大书秒级）/load 的
     // await 窗口切书后，byPath 已是新书树，按旧书路径查找可能命中同名文件顶开 B 书
     // 正开的活动文档。tree.load/load 之后、byPath.get 之前各补一次复检
     await tree.load(book)
-    if (props.bookName !== book || doc.bookName !== book) return // R48-24：已切书放弃
+    if (props.bookName !== book || doc.bookName !== book) return // 已切书放弃
     await load()
-    if (props.bookName !== book || doc.bookName !== book) return // R48-24：同上
+    if (props.bookName !== book || doc.bookName !== book) return // 同上
     const fresh = tree.byPath.get(r.path)
     if (fresh?.docId) {
       await doc.open(fresh)
       ws.openTab(fresh.docId)
     }
   } catch (e) {
-    // R75-E-P3c：catch 侧补同款书名复检——成功路径有门（上方），catch 漏配：
-    // createDoc await 窗口切书后，A 书的失败错误会 toast 在 B 书界面上（R70-10 同族）
+    // catch 侧补同款书名复检——成功路径有门（上方），catch 漏配：
+    // createDoc await 窗口切书后，A 书的失败错误会 toast 在 B 书界面上（同族）
     if (props.bookName !== book || doc.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
@@ -194,10 +194,10 @@ watch(() => props.bookName, load, { immediate: true })
         </div>
         <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
       </div>
-      <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
+      <!-- ：RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
       <div v-if="pendingCap.omitted > 0" class="cap-hint">已省略 {{ pendingCap.omitted }} 项</div>
 
-      <!-- 已回收（折叠）。R1010-P3（G6-⑨）：toggle/行补键盘可达——对齐上方未回收行
+      <!-- 已回收（折叠）。（-⑨）：toggle/行补键盘可达——对齐上方未回收行
            的 role=button + tabindex + Enter/Space 契约，鼠标可达即键盘可达 -->
       <div
         v-if="resolved.length"
@@ -229,12 +229,12 @@ watch(() => props.bookName, load, { immediate: true })
             第{{ f.埋设章号 ?? '?' }}章→第{{ f.回收章号 ?? '?' }}章
           </span>
         </div>
-        <!-- R1010c-FE1-P3-2：已回收节同款截断省略提示行 -->
+        <!-- ：已回收节同款截断省略提示行 -->
         <div v-if="resolvedCap.omitted > 0" class="cap-hint">已省略 {{ resolvedCap.omitted }} 项</div>
       </template>
     </div>
 
-    <!-- R33D-29：creating 在途锁有、按钮禁用无 → 对齐 R73-62 惯例（锁+disabled） -->
+    <!-- ：creating 在途锁有、按钮禁用无 → 对齐惯例（锁+disabled） -->
         <button class="fs-add" :disabled="creating" @click="create">
       <Plus :size="13" /> 新建伏笔
     </button>
@@ -290,7 +290,7 @@ watch(() => props.bookName, load, { immediate: true })
   flex-direction: column;
   gap: 1px;
 }
-/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示（弱化色，tree-cap-hint 同语义） */
 .cap-hint {
   padding: 3px 8px;
   font-size: var(--font-size-xxs);

@@ -3,7 +3,7 @@
  * 对话助手 dock（FAB 演进版）：左下角 FAB → 输入框 + 独立「对话」按钮 → 对话框。
  * 「对话」按钮未开时在输入框上方 6px；打开时融入对话框头部左上角（胶囊标签）。
  * 输入框为 Codex 风格（与工作台对话一致）：章节左下 + 模型/推理等级/清空/发送右下。
- * R0912-C2-P3-4（2026-09-12 独立重评修复批）：composer 模板+CSS 与 ChatPanel 双份
+ * （修复批）：composer 模板+CSS 与 ChatPanel 双份
  * 收敛为 chat/ChatComposer.vue（glass 档承载玻璃拟态/70px 输入框等差异，DOM 不变）。
  */
 import { ref, nextTick } from 'vue'
@@ -17,7 +17,7 @@ defineProps<{
   currentChapter?: number
 }>()
 
-/** 消息面板句柄——发送后强制滚底（R48-96：经 ChatPanel 转发调 ChatMessages） */
+/** 消息面板句柄——发送后强制滚底（经 ChatPanel 转发调 ChatMessages） */
 const panelRef = ref<InstanceType<typeof ChatPanel> | null>(null)
 
 /** 输入框是否展开 */
@@ -25,7 +25,7 @@ const fabOpen = ref(false)
 /** 对话框是否打开 */
 const chatOpen = ref(false)
 
-// R48-96（四十八轮）：发送后强制滚底——原回调只开框不滚（R72-11 只接了 ChatPanel
+// 发送后强制滚底——原回调只开框不滚（只接了 ChatPanel
 // 面板路径），dock 场景消息落入视口下方不跟随；开框 + nextTick 后经面板转发滚底
 async function afterPushed(): Promise<void> {
   chatOpen.value = true
@@ -56,15 +56,15 @@ function onExpandChat(): void {
       </div>
     </div>
 
-    <!-- 输入框（Codex 风格，与工作台对话一致；glass=dock 玻璃档，R0912-C2-P3-4）。
-         R0912-3 #11：v-if → v-show——原收起即卸载 ChatComposer，未发送草稿随实例
-         销毁静默丢失（同书内 ChatPanel 输入区常驻，口径不一致）。R48-97「不渲染
+    <!-- 输入框（Codex 风格，与工作台对话一致；glass=dock 玻璃档）。
+ #11：v-if → v-show——原收起即卸载 ChatComposer，未发送草稿随实例
+         销毁静默丢失（同书内 ChatPanel 输入区常驻，口径不一致）。「不渲染
          不实例化」针对的是 dock 场景 ChatPanel 内隐藏 composer 与本输入区双实例
          双监听的潜伏陷阱；本处是 dock 唯一自持 composer，v-show 保实例不产生第二
          实例：隐藏期残留的 document click/keydown 监听以 chapterMenuOpen 为门
          （收起时恒 false）成 no-op，章节跟随 watch 与 ChatPanel 共写同一 store
          单源且幂等，无静默双跑面，故此处豁免。切书跨书残留语义不变：外层
-         :key=bookName 整 dock 销毁重建（r27-chatdock-rekey 锚定）。 -->
+         :key=bookName 整 dock 销毁重建（锚定）。 -->
     <div v-show="fabOpen" class="chat-stack">
       <ChatComposer glass :book-name="bookName" :current-chapter="currentChapter" :on-pushed="afterPushed" />
     </div>
@@ -95,7 +95,7 @@ function onExpandChat(): void {
   --chat-w: calc(min(1020px, calc(100% - 96px)) - 284px);
   --chat-h: min(55vh, 520px);
   /* 输入框距底 + 输入框固定高度：对话框/按钮定位偏移基准
-     R0916-nano-11（四轮处置批）：--composer-min-h 单源本处（dock 布局所有者）——
+     （四轮处置批）：--composer-min-h 单源本处（dock 布局所有者）——
      ChatComposer.glass 档的输入框 min-height 原在彼文件写死 70px，与 --composer-h
      130px 构成跨文件魔法数对（「70 含内边距保证整体 ≤130」只活在彼处注释里）；
      现经 CSS 变量继承下发，约束关系钉在同一处 */
@@ -237,6 +237,6 @@ function onExpandChat(): void {
 
 /* ── 输入框：Codex 风格（与工作台对话一致）──
  * composer 模板与样式（chat-composer/composer-* 族、玻璃档、chapter-menu 阴影覆盖）
- * 已随 R0912-C2-P3-4 收敛至 chat/ChatComposer.vue（glass 档，原值不变）；stack 定位
+ * 已随收敛至 chat/ChatComposer.vue（glass 档，原值不变）；stack 定位
  * 容器（居中、贴底，宽=--chat-w）保留在上文「输入框定位」段。 */
 </style>

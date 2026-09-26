@@ -1,6 +1,6 @@
 /**
  * R0916-6-P3-5（2026-09-16 评审修复批）：check 域 prepared 语句缓存配对 close 回归。
- * 形态镜像 rag 域 r0911-g-p3-4-close-cache.test.ts：node:sqlite 的 StatementSync 强引用
+ * 形态镜像 rag 域 rag-prepared-cache-release.test.ts：node:sqlite 的 StatementSync 强引用
  * 其 DatabaseSync，tree-issues-cache 的 preparedByDb（WeakMap<db, Map<sql, stmt>>）值侧
  * Map → stmt → db 与弱键构成 ephemeron 环——裸 close 后条目不随 GC 消失，每次开/关
  * 滞留 ~0.35KB 线性堆积。修复 = closeTreeIssuesDb（先 preparedByDb.delete 再 close）断链。

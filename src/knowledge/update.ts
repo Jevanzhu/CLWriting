@@ -1,5 +1,5 @@
 /**
- * 知识层更新入口（阶段 23 批 4：迭代建议清偿·D3=a 双步 script，讨论稿建议 8）。
+ * 知识层更新入口（阶段 23 批 4：迭代建议清偿·=a 双步 script，讨论稿建议 8）。
  *
  * 语料回归域沉淀的机检误报规律（test/corpus/checks/*.json 的 expect:"silent" 条目，
  * corpus:commit 产物）此前无正式归宿——本模块给「知识层」接上演化通道：
@@ -51,9 +51,9 @@ interface CorpusEntry {
   expect: 'fire' | 'silent'
 }
 
-/** R65-14（总六十五轮）：本地时区 ISO 时间戳（保持 `2026-08-27T12:00:00.000+08:00`
- *  形态）——此前硬编码 +08:00（Date.now()+8h 再贴 +08:00 后缀），宿主机非 UTC+8 时
- *  时刻与偏移双双错乱。现按 getTimezoneOffset() 实算偏移（该值西正东负，取负得东偏
+/** （总六十五轮）：本地时区 ISO 时间戳（保持 `2026-08-27T12:00:00.000+08:00`
+ *  形态）——此前硬编码 +08:00（Date.now+8h 再贴 +08:00 后缀），宿主机非 UTC+8 时
+ *  时刻与偏移双双错乱。现按 getTimezoneOffset 实算偏移（该值西正东负，取负得东偏
  *  分钟）；offsetMinutes 供测试注入（含负偏移形态），缺省取宿主真实偏移。 */
 export function localIsoTimestamp(ms: number = Date.now(), offsetMinutes: number = -new Date(ms).getTimezoneOffset()): string {
   const sign = offsetMinutes < 0 ? '-' : '+'
@@ -66,7 +66,7 @@ export function localIsoTimestamp(ms: number = Date.now(), offsetMinutes: number
 /** 扫语料回归域（<corpusDir>/*.json）：汇总各 checkId 的误报规律。无 silent 条目的 checkId 不出段。 */
 export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary[] {
   if (!existsSync(corpusDir)) return []
-  // R48-42（四十八轮）：目录 TOCTOU/权限容错——existsSync 与 readdirSync 之间目录被
+  // 目录 TOCTOU/权限容错——existsSync 与 readdirSync 之间目录被
   // 瞬删或权限错误时降级返回 []（对齐 run.ts 归档目录降级口径：「坏文件跳过」的既有
   // 口径同样适用于坏目录；update 是产草稿不是门禁，不因目录炸整轮）
   let names: string[]
@@ -85,12 +85,12 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
     } catch {
       continue // 坏文件跳过：update 是产草稿不是门禁，不因单文件炸整轮
     }
-    // R71-35（总七十一轮）：parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
+    // （总七十一轮）：parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
     // TypeError 崩整轮——对齐「坏文件跳过」注释口径，非数组同样 continue
     if (!Array.isArray(entries)) continue
-    // 重评-0912-2 P3（随 P2-5 同批）：数组元素 null/非对象（手编半写形态）此前在下方
-    // e.expect 处 TypeError 崩整轮汇总——R71-35 只收「非数组」形态，坏项是同族漏网。
-    // 对齐本函数「坏文件跳过」与 R40-16 登记侧坏行降级口径：坏项剔除 + warn 留痕
+    // （随同批）：数组元素 null/非对象（手编半写形态）此前在下方
+    // e.expect 处 TypeError 崩整轮汇总—— 只收「非数组」形态，坏项是同族漏网。
+    // 对齐本函数「坏文件跳过」与登记侧坏行降级口径：坏项剔除 + warn 留痕
     // （不静默），不崩整轮（update 是产草稿不是门禁）；坏项不计入 silent/fire 计数。
     const rows = entries.filter((e) => e !== null && typeof e === 'object')
     const badItems = entries.length - rows.length
@@ -103,7 +103,7 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
       checkId,
       silent: silent.length,
       fire: rows.length - silent.length,
-      // R71-35：缺 excerpt 的条目被滤——此前落 undefined，草稿渲染成「> undefined」
+      // 缺 excerpt 的条目被滤——此前落 undefined，草稿渲染成「> undefined」
       excerpts: silent.filter((e) => typeof e.excerpt === 'string').slice(0, 3).map((e) => e.excerpt),
     })
   }
@@ -141,7 +141,7 @@ export function renderFalsePositiveDraft(summaries: FalsePositiveSummary[], date
 /** 落草稿：`知识层/机检误报-草稿-<date>.md`。返回相对项目根路径。**不动 manifest。** */
 export function writeFalsePositiveDraft(projectRoot: string, corpusDir: string, date: string): string {
   const rel = `${KNOWLEDGE_DIR}/机检误报-草稿-${date}.md`
-  // R62-1：草稿/manifest/定稿注入三处统一走 atomicWriteFile（同目录 tmp+rename）——
+  // 草稿/manifest/定稿注入三处统一走 atomicWriteFile（同目录 tmp+rename）——
   // 此前 writeFileSync 直写，中断留下半截 _manifest.json 会让下次 readKnowledgeManifest
   // 整体校验失败（manifest 是知识层对账单源）。字节口径不变（utf8 串原样落盘）。
   mkdirSync(join(projectRoot, KNOWLEDGE_DIR), { recursive: true })
@@ -172,9 +172,9 @@ interface CommitKnowledgeOpts {
  * （登记实已成功，重试不再撞「不得重复登记」）；issue 波及新 entry 才 ok:false。
  */
 export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
-  // R33-92（三十三轮）：登记整段（读 manifest → 注入 fm → 重写 manifest → 对账）跨进程互斥——
+  // 登记整段（读 manifest → 注入 fm → 重写 manifest → 对账）跨进程互斥——
   // 双实例并发登记 READ-modify-WRITE 互相覆盖丢条目（check-knowledge 反向扫描可检出非静默）；
-  // 5s 超时 fail-closed 报「在途」交调用方重试（与 R69-15 learn 收割同款先例）。
+  // 5s 超时 fail-closed 报「在途」交调用方重试（与 learn 收割同款先例）。
   const release = acquireCrossProcessLockWithTimeout(join(projectRoot, KNOWLEDGE_DIR, '.commit.lock'), 5000)
   if (!release) {
     return { ok: false, issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识文件登记在途（另一进程正在登记），请稍后重试。' }] }
@@ -190,24 +190,24 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
 function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
   const read = readKnowledgeManifest(projectRoot)
   if (!read.ok || read.manifest === undefined) return read
-  // R73-4（二十一轮 A-4）：手编 manifest 缺 entries 字段（readKnowledgeManifest 只验
+  // 手编 manifest 缺 entries 字段（readKnowledgeManifest 只验
   // JSON 合法）此前在下方 manifest.entries.some 处裸 TypeError 崩——读后形状守卫，
   // 复用 validateKnowledgeManifest 的口径报「manifest.entries 必须是数组」
   if (!Array.isArray(read.manifest.entries)) return validateKnowledgeManifest(projectRoot)
   const manifest: KnowledgeManifest = read.manifest
 
-  // R61-2（第六十一轮）：路径闸统一委托 isSafeKnowledgeTarget——此前本处仅
+  // 路径闸统一委托 isSafeKnowledgeTarget——此前本处仅
   // startsWith(KNOWLEDGE_DIR+'/') 前缀判，`知识层/../设定/x.md` 与绝对路径可穿透，
-  // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器 M-7 四轮口径）。
+  // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器四轮口径）。
   if (!isSafeKnowledgeTarget(projectRoot, opts.target)) {
     return { ok: false, issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }] }
   }
-  // R40-16（四十轮）：判重改走 win32 casefold 键（caseFoldKey，R33-97 校验器单源）——
+  // 判重改走 win32 casefold 键（caseFoldKey，校验器单源）——
   // 此前精确字符串比较与校验器口径分裂：win 大小写漂移（`知识层/A.md` vs `知识层/a.md`
   // 同一物理文件）下判重失效，同文件可重登成 manifest 双条目（校验器随后才报重复）。
   // 坏形状行（null/非对象/非字符串 target，手编半写形态）不参与比较：此前 null 条目在
   // `e.target` 处直接 TypeError 崩整个登记；对齐库内坏行跳过降级惯例（document/manifest
-  // parseManifestText / events store listEvents R65-20），跳过须 warn 留痕（不静默），
+  // parseManifestText / events store listEvents ），跳过须 warn 留痕（不静默），
   // 条目本身原样保留进下方全量重写（登记语义不变，坏行仍由 validateKnowledgeManifest
   // 按 issue 上报，不在写入侧静默增删改）。
   const targetKey = caseFoldKey(opts.target)
@@ -242,11 +242,11 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   // front matter 一致性：validateMarkdownMetadata 要求 md 顶层 fm 的 source/license 与
   // manifest 一致——commit 时自动注入/改写这两键（其余 fm 键与正文原样保留），随登记
   // 一体落盘，两边由构造一致；sha256 在注入后实算。
-  // R73-13（二十一轮 A-13）：fm 注入（文件写）与 manifest 写是两笔落盘——此前 manifest
+  // fm 注入（文件写）与 manifest 写是两笔落盘——此前 manifest
   // 写失败会留下「文件已注入 fm、manifest 无条目」的跨文件不一致窗口。两难评估：
   // manifest 先写不可行（sha256 须在注入后实算，先写必错哈希），故选错误面小的
   // 「注入后失败回滚 fm」——回滚后文件与 manifest 同回旧态，两文件保持一致。
-  // R48-39（四十八轮）：读失败（existsSync 后瞬删/权限）包信封返回——原裸抛穿透
+  // 读失败（existsSync 后瞬删/权限）包信封返回——原裸抛穿透
   // KnowledgeManifestReport 契约（调用方拿到的是未声明异常而非 {ok:false} 报告）
   let originalText: string
   try {
@@ -257,10 +257,10 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
       issues: [{ path: opts.target, message: `定稿文件读取失败（可能已被移动或删除）：${errMsg(e)}` }],
     }
   }
-  // R57-H-1（五十七轮）：fm 注入写与注入后哈希读是同一写入链上 manifest 写之前的两个
-  // 失败点——此前裸抛穿透 KnowledgeManifestReport 信封（R48-39 同款契约破坏），且哈希
-  // 读失败时文件已注入 fm、manifest 无条目（R73-13 同款跨文件不一致窗口）。收口口径
-  // 对齐 R73-13：注入失败时文件尚未变更（atomicWriteFile 同目录 tmp+rename 原子，
+  // fm 注入写与注入后哈希读是同一写入链上 manifest 写之前的两个
+  // 失败点——此前裸抛穿透 KnowledgeManifestReport 信封（同款契约破坏），且哈希
+  // 读失败时文件已注入 fm、manifest 无条目（同款跨文件不一致窗口）。收口口径
+  // 对齐：注入失败时文件尚未变更（atomicWriteFile 同目录 tmp+rename 原子，
   // 失败不留半截、亦无半程可回滚），信封报「两文件均保持原态，可重试」；哈希读失败
   // 时已发生注入半程 → 回滚 fm 使文件回旧态，回滚亦失败（同源 IO 故障）不吞——如实
   // 报告残留状态供作者手工还原，保持幂等可重试语义。
@@ -277,7 +277,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   try {
     sha256 = hashFileSha256(filePath)
   } catch (e) {
-    // R57-H-1：注入已落盘而 manifest 未写 → 回滚 fm 注入（文件恢复原文）；回滚自身
+    // 注入已落盘而 manifest 未写 → 回滚 fm 注入（文件恢复原文）；回滚自身
     // 也失败时报错文案注明残留状态（文件含注入两键、manifest 无条目），作者手工还原后重试。
     try {
       atomicWriteFile(filePath, originalText)
@@ -308,17 +308,17 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
     ...(opts.note ? { note: opts.note } : {}),
   }
   manifest.entries = [...manifest.entries, entry]
-  // R65-14：generated_at 用真实本地时区偏移（此前硬编码 +08:00，见 localIsoTimestamp 注释）
+  // generated_at 用真实本地时区偏移（此前硬编码 +08:00，见 localIsoTimestamp 注释）
   manifest.generated_at = opts.now ?? localIsoTimestamp()
 
   try {
-    // R37-43（三十七轮）：manifest 显式 fsync——_manifest.json 是知识层对账单源，
+    // manifest 显式 fsync——_manifest.json 是知识层对账单源，
     // 崩溃窗口丢清单 = 知识目录与清单失配。对齐高价值落盘显式口径先例
-    // （metrics/style.ts N-12 冻结基线、document/trash.ts P2-BE-5 回收站清单）；
-    // atomicWriteFile 缺省本就 fsync=true（T2-5），显式传参意图自明 + 防未来缺省漂移。
+    // （metrics/style.ts 冻结基线、document/trash.ts -BE-5 回收站清单）；
+    // atomicWriteFile 缺省本就 fsync=true，显式传参意图自明 + 防未来缺省漂移。
     atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n', { fsync: true })
   } catch (e) {
-    // R73-13：manifest 写失败 → 回滚 fm 注入（文件恢复原文）。回滚自身也失败（磁盘满等
+    // manifest 写失败 → 回滚 fm 注入（文件恢复原文）。回滚自身也失败（磁盘满等
     // 同源 IO 故障）时不再吞——报错文案注明残留状态，作者可手删 fm 两键后重试。
     try {
       atomicWriteFile(filePath, originalText)
@@ -359,7 +359,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
 }
 
 /** md 顶层 front matter 注入/改写标量键（值原样写行尾；无 fm 则新建块；既有其余键与正文不动）。
- *  平台规范化批（2026-09-03）：R40-17 的宿主行尾/BOM 保真语义随规范形拍板翻转——
+ *  平台规范化批：的宿主行尾/BOM 保真语义随规范形拍板翻转——
  *  输出恒 LF 无 BOM（joinFrontMatter 整体规范化，含正文携带的 \r\n 归一）；CRLF/BOM
  *  存量由启动迁移 v4 归一，外部编辑产物经此写自愈。 */
 function injectFrontMatterKeys(filePath: string, keys: Record<string, string>): void {

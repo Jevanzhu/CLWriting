@@ -1,11 +1,11 @@
 /**
- * 文档 revision 前端算法（T1.4 对拍 src/document/revision.ts + src/fs/hash.ts）。
+ * 文档 revision 前端算法（.4 对拍 src/document/revision.ts + src/fs/hash.ts）。
  *
  * 服务端 revision = sha256(文件原始字节)（hashFile: readFileSync→buffer→sha256）；
  * /file 返回 content = readFileSync(path,'utf-8')（Node utf-8 解码不剥 BOM，﻿ 留串首）。
  * 前端 TextEncoder.encode(content) UTF-8 编码回字节 = 原始字节（round-trip 恒等，含 BOM）→ sha256。
  * 边界：文件含非法 UTF-8 字节时 Node 解码替成 U+FFFD，round-trip 不恒等——.md 正常不触发，
- * T1.4 对拍若发现差异以服务端 hashFile 口径为准调整。
+ * .4 对拍若发现差异以服务端 hashFile 口径为准调整。
  */
 
 const encoder = new TextEncoder()

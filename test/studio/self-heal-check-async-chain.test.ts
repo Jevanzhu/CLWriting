@@ -24,7 +24,7 @@ import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
 
 // 计数器走 vi.hoisted（vi.mock 工厂提升后不触外层未初始化绑定——口径同
-// test/cache/r0911-e-p3-2-scan-summaries-toctou.test.ts 惯例）
+// test/cache/scan-summaries-readdir-toctou.test.ts 惯例）
 const spies = vi.hoisted(() => ({ openCheckDbAsync: 0, driveToEndAsync: 0 }))
 
 vi.mock('../../src/check/run.js', async (importOriginal) => {

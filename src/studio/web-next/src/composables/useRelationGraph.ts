@@ -1,5 +1,5 @@
 /**
- * 关系图共享逻辑（RelationsView 拆分 P2-5）：节点/边状态 + 径向层次布局 + 交互。
+ * 关系图共享逻辑（RelationsView 拆分）：节点/边状态 + 径向层次布局 + 交互。
  * 壳 RelationsView 调 useRelationGraph(bookName) 并 provide('rel-graph')，
  * RelationGraph / RelationDetail 子组件 inject 获取——避免海量 props 透传。
  *
@@ -39,7 +39,7 @@ export interface SimNode {
 }
 interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
 
-// 画布基准与布局常量：O-9（第十三轮）移 shared/relation-layout（纯函数层，可单测）；
+// 画布基准与布局常量：移 shared/relation-layout（纯函数层，可单测）；
 // CX/CY 转发导出（RelationGraph.vue 消费）
 export { CX, CY } from '../shared/relation-layout'
 
@@ -55,7 +55,7 @@ const LEGEND = [
 /** 债务边的弓形高度：同一对角色往往既有关系边又有债务边，直线会完全重合。 */
 const DEBT_BOW = 26
 
-/** 滚轮 deltaY → 缩放倍率（复审-0913-mac适配 P3-8，导出纯函数便于单测）。
+/** 滚轮 deltaY → 缩放倍率（-mac适配，导出纯函数便于单测）。
  *  幅值归一 exp(-deltaY*k)：离散滚轮一格 deltaY≈±100 → ≈1.22 倍（与旧固定步进 1.15
  *  观感接近）；mac 触控板高频小 delta 连发改为平滑缩放，不再一步撞缩放钳制；
  *  捏合手势（ctrlKey 且小 delta）同式自然成立。deltaY 向下滚为正 → 倍率 <1 缩小。 */
@@ -134,7 +134,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   const ui = useUiStore()
   // 关系图自动梳理的全局默认托底（书级未设时生效；ref 初值即硬编码回落，服务端合并同链）
   const prefs = usePrefsStore()
-  // R76-34：切书复检即时源——setup 语境取一次（onMine 事件/异步链里调 useRoute 会脱离
+  // 切书复检即时源——setup 语境取一次（onMine 事件/异步链里调 useRoute 会脱离
   // inject 语境报错）；route.params.name 随导航即时更新，比 doc.bookName（flushDirty 滞后
   // 数秒）可靠
   const route = useRoute()
@@ -210,7 +210,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // ── 径向层次布局 ──────────────────────────────
   // 力导向对 5~10 个节点会退化成随机散点，且每次位置都不同；这里改用
   // 确定性的 BFS 分环，位置稳定且直接表达层次。
-  // O-9（第十三轮）：算法本体抽 shared/relation-layout.ts 纯函数（可独立单测），
+  // 算法本体抽 shared/relation-layout.ts 纯函数（可独立单测），
   // 此处只留「数据 → 算法 → 视口贴合」的编排。
 
   function layoutRadial(): void {
@@ -281,9 +281,9 @@ export function useRelationGraph(bookName: string): RelationGraph {
   const hiddenColors = ref<Set<string>>(new Set())
   async function onMine(): Promise<void> {
     if (mining.value) return
-    // R75-E-P3c：书名入口捕获 + await 后复检（StyleAcceptancePanel M-4 同款）——RelationsView
+    // 书名入口捕获 + await 后复检（StyleAcceptancePanel 同款）——RelationsView
     // 挂 :key=bookName 整树重建，本死实例的 bookName 参数冻结在旧书；梳理可达数分钟，
-    // 在途切书后成败 toast 都会落在新书界面、死续体 load() 还会重拉旧书数据。
+    // 在途切书后成败 toast 都会落在新书界面、死续体 load 还会重拉旧书数据。
     // 活源比 doc store 内 live bookName（Book.vue 切书编排的权威书名，ForeshadowPanel 同款）
     const book = bookName
     mining.value = true
@@ -299,7 +299,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
       }
     } catch (e) {
       // 梳理失败只 toast，不覆盖 err——图主体已渲染成功，页面不应变「载入失败」
-      if (route.params.name !== book) return // R75-E-P3c：A 书的失败 toast 不落 B 书界面（R76-34 改路由参数即时源）
+      if (route.params.name !== book) return // A 书的失败 toast 不落 B 书界面（改路由参数即时源）
       ui.toast(friendlyError(e), 'error')
     } finally {
       mining.value = false
@@ -309,7 +309,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   /** 自动梳理：打开关系图时，若章节增量达阈值则触发。仅探测明确可用才自动（避免失败 toast）。 */
   async function maybeAutoMine(cache?: { chapterCount: number | null; currentChapters: number }): Promise<void> {
     if (mining.value || !cache) return
-    // 四轮重评 P3-18：自动路径仅明确可用（true）才放行——原 === false 判定让探测中
+    // 自动路径仅明确可用（true）才放行——原 === false 判定让探测中
     //（null）也起跑，后端实际不可达时自动梳理变成自动失败 toast；手动 onMine 不受影响
     if (ui.aiAvailable !== true) return
     try {
@@ -561,7 +561,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
       await doc.open(node)
       ws.openTab(node.docId)
     } catch (e) {
-      // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）
+      // -前端：静默吞错收敛（对齐 ForeshadowPanel）
       ui.toast(friendlyError(e), 'error')
     }
   }
@@ -569,7 +569,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // --- 缩放 + 平移 ---
   function onWheel(evt: WheelEvent): void {
     const p = svgPoint(evt)
-    // 复审-0913-mac适配 P3-8：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
+    // -mac适配：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
     // 连发数十事件瞬间撞钳制——改 wheelScale 幅值归一（换算见函数头注）；钳制不动
     const scale = wheelScale(evt.deltaY)
     const nw = Math.max(W * 0.2, Math.min(W * 4, view.value.w * scale))
@@ -583,7 +583,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   let panning = false
   let panStart = { x: 0, y: 0, vx: 0, vy: 0 }
   function onBgDown(evt: MouseEvent): void {
-    if (evt.button !== 0) return // R72-11（二十轮 E-7）：仅左键平移（右键=菜单、中键=自动滚轮）
+    if (evt.button !== 0) return // 仅左键平移（右键=菜单、中键=自动滚轮）
     panning = true
     panStart = { x: evt.clientX, y: evt.clientY, vx: view.value.x, vy: view.value.y }
     window.addEventListener('mousemove', onPanMove)

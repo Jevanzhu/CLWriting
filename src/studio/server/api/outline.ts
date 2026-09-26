@@ -23,20 +23,20 @@ import { countWords } from '../../../format/words.js'
 import { bodyOf, splitFrontMatter } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
-import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R74-4：覆盖留底单源复用
-import { log, errMsg } from '../../../log/index.js' // 复审-0914-优化修复批：errMsg 三目收编
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // /：长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
+import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用
+import { log, errMsg } from '../../../log/index.js' // -：errMsg 三目收编
 
 interface OutlineCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
 }
 
-/** 跑一次大纲生成（runSpec 统一编排）。C3（批 3）：promptFiles 随 llm/call promptMeta 登记。
- *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
+/** 跑一次大纲生成（runSpec 统一编排）。C3promptFiles 随 llm/call promptMeta 登记。
+ *  -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
@@ -45,7 +45,7 @@ async function runOutline(
   ctrl?: AbortController,
 ): Promise<{ ok: true; text: string } | { ok: false; code: string; error: string }> {
   const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, promptFiles, ctrl })
-  // R43-24（四十三轮）：code 透传（不再坍缩 'GEN_FAIL'）——NO_* 配置缺失族此前被
+  // code 透传（不再坍缩 'GEN_FAIL'）——NO_* 配置缺失族此前被
   // 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
   if (!out.ok) return { ok: false, code: out.code, error: out.error }
   const text = out.data.text.trim()
@@ -57,15 +57,15 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   defineRoute('books.outline', {
     method: 'POST',
     path: '/api/books/:name/outline',
-    // R49-8（评审 R49）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
+    // （评审）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='outline:<书名>'，
+    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+    // （c 修复批）中断通道（owner='outline:<书名>'，
     // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
-    // 收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
+    // 收编 runGatedGeneration 单源（-，接法头注见 task-gate.ts）。
     return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
       workDir: ctx.workDir!,
@@ -78,28 +78,28 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 
       const bookRoot = r.bookRoot
       const kind = readKind(bookRoot)
-      // R66-7（十四轮）：prompt 与注入源 files 同源产出——铁律①「模型可见⟺已记录」，
+      // prompt 与注入源 files 同源产出——铁律①「模型可见⟺已记录」，
       // 总纲/设定/账本/前章/卷摘要全部真实注入源进 promptFiles（llm/call promptMeta.files）。
-      // 低-4（第十轮）：userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
+      // 低-4userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
       // 此前端点单独再调一次 volumeProgressOf 只登卷摘要（其余注入源零登记），且与
       // prompt 组装函数内部那次的两次读盘重复——一并收口为单次调用。
       const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
       const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files, ctrl)
-      // R43-24（四十三轮）：按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
+      // 按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
       // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
       // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变。
-      // D4（复审-0914-优化修复批）：三行映射收编 replyGenerationFailure 单源。
+      // 三行映射收编 replyGenerationFailure 单源。
       if (!result.ok) return replyGenerationFailure(res, result)
 
       // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
       const content = canonicalizeText(result.text)
       const outlineDir = join(bookRoot, '工作区')
       const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
-      // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
+      // 确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
       // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
-      // W-P1-3 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
+      // 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
       // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
       // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
       const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
@@ -107,11 +107,11 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const withFm = content.startsWith('---')
         ? content
         : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
-      // R74-4（二十二轮）：覆盖前快照留底（对齐 onboard.ts R71-9 先例）——outline 生成
+      // 覆盖前快照留底（对齐 onboard.ts 先例）——outline 生成
       // 分钟级窗口内作者可经 PUT /file 手改 工作区/细纲.md（files.ts WORKDIR_EDITABLE
       // 白名单恰含此文件，/file 与 outline 闸互不相查），生成完成的覆盖写会把手改静默
       // 丢失（细纲域无版本链）。fail-open：快照失败不阻断主流程（log.warn 留痕——
-      // 生成产物不因留底 IO 抖动丢弃，同 R71-9 取舍）。
+      // 生成产物不因留底 IO 抖动丢弃，同取舍）。
       try {
         snapshotBeforeOverwrite(bookRoot, relPath, withFm || '(空细纲)', 'outline-overwrite', undefined, ctx.userDataPath)
       } catch (e) {
@@ -121,7 +121,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
         mkdirSync(outlineDir, { recursive: true })
         atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
       } catch (e) {
-        // P2-4：API 错误脱敏；复审-0914-优化修复批：errMsg 三目收编
+        // API 错误脱敏；-：errMsg 三目收编
         return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(errMsg(e))}`)
       }
       reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
@@ -130,8 +130,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** R66-7（十四轮）：buildOutlinePromptWithFiles 伴随 files——实际注入源清单（相对书根、注入序去重）。
- *  仿 draft-pipeline 的 DraftPrompt（Q-5 模式）：铁律①「模型可见⟺已记录」——prompt 注入的
+/** buildOutlinePromptWithFiles 伴随 files——实际注入源清单（相对书根、注入序去重）。
+ *  仿 draft-pipeline 的 DraftPrompt（模式）：铁律①「模型可见⟺已记录」——prompt 注入的
  *  每个来源文件都进 files（经 runSpec promptFiles → llm/call promptMeta.files 溯源）。
  *  只列真实入 prompt 的段：空段 = 该源未注入，不登记（promptMeta 可查「本次未注入」）。 */
 interface OutlinePrompt {
@@ -140,10 +140,10 @@ interface OutlinePrompt {
 }
 
 /**
- * R66-7（十四轮）：openLeadSourceFilesOf——「进行中」账本段的注入源文件清单。
+ * openLeadSourceFilesOf——「进行中」账本段的注入源文件清单。
  * 口径复刻 readOpenLeads（enabled 类 = 基础两类 + book.yaml leads.enabled；关系线物理目录
  * 在 大纲/，其余在 布线/；只取「进行中」）——readOpenLeads 返回行集不带路径（process 层
- * 契约，本域不可改），此处独立取 lead._path；**两处口径必须同步改**（RB-IF-P2-5 锚定）。
+ * 契约，本域不可改），此处独立取 lead._path；**两处口径必须同步改**（锚定）。
  */
 function openLeadSourceFilesOf(bookRoot: string): string[] {
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
@@ -163,8 +163,8 @@ function openLeadSourceFilesOf(bookRoot: string): string[] {
 }
 
 /** 组 outline prompt:长篇(总纲+卷进展+前章+章细纲)/短篇(总纲+前章+章纲)分支
- *  低-4（第十轮）：userDataPath 透传 volumeProgressOf（global 默认卷长托底）
- *  R66-7（十四轮）：promptFiles 漏登注入源（只登卷摘要）——改 {prompt, files} 全源登记 */
+ *  低-4userDataPath 透传 volumeProgressOf（global 默认卷长托底）
+ *  ：promptFiles 漏登注入源（只登卷摘要）——改 {prompt, files} 全源登记 */
 export function buildOutlinePromptWithFiles(
   bookRoot: string,
   chapter: number,
@@ -182,7 +182,7 @@ export function buildOutlinePromptWithFiles(
     const parts: string[] = [`## 任务\n为第 ${chapter} 章生成章纲(短篇,单章 8000-20000 字完整开合)。`]
     if (synopsis) {
       parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
-      pushFile('大纲/总纲.md') // R66-7：总纲切片注入 → 登记源文件
+      pushFile('大纲/总纲.md') // 总纲切片注入 → 登记源文件
     }
     const { chapters: recentChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
     const recent = recentChapters
@@ -195,7 +195,7 @@ export function buildOutlinePromptWithFiles(
           .map((c) => `- 第${c.章号}章 ${c.标题}(${c.目标情绪 ?? '?'}/${c.核心反转 ?? '?'})`)
           .join('\n')}`,
       )
-      // R66-7：前章元数据行（章号/标题/目标情绪/核心反转取自各章 fm）→ 登记源章文件
+      // 前章元数据行（章号/标题/目标情绪/核心反转取自各章 fm）→ 登记源章文件
       for (const c of recent) pushFile(c._path ? relative(bookRoot, c._path).replace(/\\/g, '/') : undefined)
     }
     // 连续故事：有对应章号的章纲 → 注入上下文（短篇 prompt 风格不变，增加章纲参考）
@@ -205,10 +205,10 @@ export function buildOutlinePromptWithFiles(
       const co = readSafe(coHit._path)
       if (co) {
         parts.push(`## 本章章纲(情节走向参考)\n${co}`)
-        pushFile(relative(bookRoot, coHit._path).replace(/\\/g, '/')) // R66-7：本章章纲注入源
+        pushFile(relative(bookRoot, coHit._path).replace(/\\/g, '/')) // 本章章纲注入源
       }
     }
-    // R66-7：设定上下文（角色卡+境界体系）经 buildSettingsLayers 取层源文件——
+    // 设定上下文（角色卡+境界体系）经 buildSettingsLayers 取层源文件——
     // buildSettingsContext 只回拼接文本不带源，此处按层取 sources（text 拼接与其完全一致）
     const settingsLayers = buildSettingsLayers(bookRoot)
     const settingsCtx = settingsLayers.map((l) => l.text).join('\n\n')
@@ -216,7 +216,7 @@ export function buildOutlinePromptWithFiles(
       parts.push(settingsCtx)
       for (const layer of settingsLayers) for (const p of layer.sources ?? []) pushFile(p)
     }
-    // 清单检文件链（批 3）：短篇章纲要求产出结构化三段（反转线索表/情绪曲线/伏笔回收），
+    // 清单检文件链：短篇章纲要求产出结构化三段（反转线索表/情绪曲线/伏笔回收），
     // 写稿后 syncChapterOutline 把 细纲.md 同步到大纲/章纲/，清单形式检据此有数据可读。
     // ① 场景声明（与长篇 ① 措辞同源）：要求 AI 单独成段输出「## 场景声明」并用「」标出主场景——
     // 细纲落盘后这是 draft-pipeline readChapterScenes 水源③的数据源（章号门 + 段解析都依赖此格式），
@@ -231,16 +231,16 @@ export function buildOutlinePromptWithFiles(
   const parts: string[] = [`## 任务\n为第 ${chapter} 章生成细纲。`]
   if (synopsis) {
     parts.push(`## 总纲\n${synopsis.slice(0, 1500)}`)
-    pushFile('大纲/总纲.md') // R66-7：总纲切片注入 → 登记源文件
+    pushFile('大纲/总纲.md') // 总纲切片注入 → 登记源文件
   }
 
-  // C3（批 3）当前卷进展——写到几百章时中间视野不能只靠总纲恒量。来源 = 最近
-  // 已完成卷（写作章所在卷的前一卷）的卷摘要（C2 按需生成的产物），≤800 字；
+  // 当前卷进展——写到几百章时中间视野不能只靠总纲恒量。来源 = 最近
+  // 已完成卷（写作章所在卷的前一卷）的卷摘要（按需生成的产物），≤800 字；
   // 缺失则整段省略（promptMeta.files 可查「本次未注入」）
   const progress = volumeProgressOf(bookRoot, chapter, userDataPath)
   if (progress.section) {
     parts.push(progress.section)
-    pushFile(progress.file ?? undefined) // R66-7：卷摘要段注入 → 登记源文件（progress.file 相对书根）
+    pushFile(progress.file ?? undefined) // 卷摘要段注入 → 登记源文件（progress.file 相对书根）
   }
 
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
@@ -254,11 +254,11 @@ export function buildOutlinePromptWithFiles(
         .map((c) => `- 第${c.章号}章 ${c.标题}(${c.钩子类型}/${c.情绪定位})`)
         .join('\n')}`,
     )
-    // R66-7：前章元数据行（章号/标题/钩子类型/情绪定位取自各章 fm）→ 登记源章文件
+    // 前章元数据行（章号/标题/钩子类型/情绪定位取自各章 fm）→ 登记源章文件
     for (const c of recent) pushFile(c._path ? relative(bookRoot, c._path).replace(/\\/g, '/') : undefined)
   }
 
-  // R66-7：设定上下文按层注入并登记源（见短篇分支同款注释）
+  // 设定上下文按层注入并登记源（见短篇分支同款注释）
   const settingsLayers = buildSettingsLayers(bookRoot)
   const settingsCtx = settingsLayers.map((l) => l.text).join('\n\n')
   if (settingsCtx) {
@@ -266,7 +266,7 @@ export function buildOutlinePromptWithFiles(
     for (const layer of settingsLayers) for (const p of layer.sources ?? []) pushFile(p)
   }
 
-  // W-P1-3 左端：注入当前「进行中」账本（已启用类），AI 只能从存量编号中声明推进——
+  // 左端：注入当前「进行中」账本（已启用类），AI 只能从存量编号中声明推进——
   // 让「账本推进声明」从正文 freeform 升级为结构化 `推进:` 行（见 endpoint 解析落 fm）。
   const openLeads = readOpenLeads(bookRoot)
   if (openLeads.length > 0) {
@@ -275,7 +275,7 @@ export function buildOutlinePromptWithFiles(
         .map((l) => `- ${l.编号} ${l.标题}（${l.状态}）`)
         .join('\n')}`,
     )
-    // R66-7：账本行集（编号/标题/状态取自各 lead 文件 fm）→ 登记源账本文件
+    // 账本行集（编号/标题/状态取自各 lead 文件 fm）→ 登记源账本文件
     for (const p of openLeadSourceFilesOf(bookRoot)) pushFile(p)
   }
 
@@ -286,8 +286,8 @@ export function buildOutlinePromptWithFiles(
 }
 
 /**
- * W-P1-3 左端：从细纲 AI 产出解析 `推进:` 声明行 → 账本编号数组。
- * 取全文最后一个 `推进[:：]` 行（细纲正文若出现「推进」一词带冒号，取末尾覆盖写的声明行）。
+ * 左端：从细纲 AI 产出解析 `推进:` 声明行 → 账本编号数组。
+ * 取全文最后一个 `推进[：]` 行（细纲正文若出现「推进」一词带冒号，取末尾覆盖写的声明行）。
  * 编号合法性：必须命中存量进行中账本（readOpenLeads 白名单），防 AI 臆造编号污染两端闭合。
  * 无声明/全非法 → []（显式空声明：两端闭合左侧空，实际有推进时会被 lead-done-not-declared 暴露）。
  */
@@ -320,7 +320,7 @@ function readSafe(fp: string): string {
 }
 
 /**
- * C3（批 3）当前卷进展段：来源 = 最近已完成卷（写作章所在卷的前一卷）的卷摘要。
+ * 当前卷进展段：来源 = 最近已完成卷（写作章所在卷的前一卷）的卷摘要。
  * ≤800 字（slice 硬上限）；剥 fm 只注入正文；缺失 → { section: null, file: null }
  * （整段省略）。file 为相对书根路径（promptMeta.files 登记用）。
  */
@@ -329,10 +329,10 @@ export function volumeProgressOf(
   chapter: number,
   userDataPath: string | null = null,
 ): { section: string | null; file: string | null } {
-  // 低-4（第十轮）：卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
+  // 低-4卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
   // global.json defaultVolumeSize（与其他读配置口径对齐，见 state.ts/overview.ts 先例）；
   // 此前 raw 读 + `?? 50`，全局非 50 且书级未设时会按错卷长注入卷摘要
-  // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+  // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
   // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声按默认卷长取卷
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) {
@@ -343,7 +343,7 @@ export function volumeProgressOf(
   if (vol < 1) return { section: null, file: null }
   const fp = join(bookRoot, '定稿', '摘要', '卷摘要', `${vol}.md`)
   if (!existsSync(fp)) return { section: null, file: null }
-  // R66-27（十四轮）：existsSync→read 间 µs 级竞态删除（回收站/并发删）会让 ENOENT 裸穿
+  // existsSync→read 间 µs 级竞态删除（回收站/并发删）会让 ENOENT 裸穿
   // 端点 dispatch 500——包守卫降级为「卷摘要缺失」整段省略（与上方 existsSync 分支同口径）
   let raw: string
   try {

@@ -6,7 +6,7 @@
  * 走 Vite dev server（5173），proxy /api 到后端，不经此处理。
  */
 import { readFile, stat } from 'node:fs/promises'
-import { createReadStream } from 'node:fs' // R46-12（四十六轮）：GET 静态文件整读改流式
+import { createReadStream } from 'node:fs' // GET 静态文件整读改流式
 import { join, normalize, extname, sep, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { replyError, parseRequestUrl } from './http.js'
@@ -18,7 +18,7 @@ const MIME: Record<string, string> = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  // R59 清偿批（R55-E-2）：补常见安全类型 .txt/.webp/.gif/.woff——此前回落
+  // 清偿批补常见安全类型 .txt/.webp/.gif/.woff——此前回落
   // application/octet-stream，浏览器对未知类型一律变下载。只加常见且无脚本执行面的
   // 类型，映射用标准 MIME 值；.woff2/.svg/.ico 顺检已在表内，不重复。
   '.txt': 'text/plain; charset=utf-8',
@@ -33,7 +33,7 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 }
 
-// R47-21（四十七轮）：SPA fallback 的 index.html 进程内单槽短缓存——此前每个 fallback
+// SPA fallback 的 index.html 进程内单槽短缓存——此前每个 fallback
 // 请求都 readFile 整读入口页（前端路由深链/刷新常态走 fallback，多窗口高频热路径）。
 // TTL 5000ms：命中直接回缓存 Buffer 零读盘，过期/首读刷新读盘。staleness 口径：dev
 // 构建重建后 ≤5s 可见（与 api 层书键 TTL 缓存族同档可接受窗）；响应头逐字不变
@@ -42,10 +42,10 @@ const MIME: Record<string, string> = {
 const SPA_INDEX_TTL_MS = 5000
 let spaIndexCache: { path: string; data: Buffer; ts: number } | null = null
 
-/** 静态响应统一安全头（三处 writeHead 共用单源——R0916-7-P3-11：原三份字典逐字重复，
+/** 静态响应统一安全头（三处 writeHead 共用单源——：原三份字典逐字重复，
  *  改一处漏两处即部分响应缺头）。
- *  - nosniff（R30-23）：禁浏览器 MIME 嗅探，防落盘内容被误判为可执行脚本（X-XSS 一环）。
- *  - XFO + CSP frame-ancestors（R5-P2-1）：本机端口服务防点击劫持——任意网页可 iframe
+ *  - nosniff：禁浏览器 MIME 嗅探，防落盘内容被误判为可执行脚本（X-XSS 一环）。
+ *  - XFO + CSP frame-ancestors：本机端口服务防点击劫持——任意网页可 iframe
  *    嵌本服务页面 + 遮罩诱导点击。双保险：老浏览器认 XFO、新浏览器认 CSP，任一生效即
  *    不渲染于第三方 frame。 */
 const STATIC_SECURITY_HEADERS = {
@@ -58,9 +58,9 @@ const STATIC_SECURITY_HEADERS = {
 // 「请先运行 npm --prefix src/studio/web-next run build」，打包态用户遇 dist 丢失时
 // 看到开发者视角指引（无操作性）且泄漏内部路径。形态判据对齐 worker-async.ts 的
 // src/打包双形态口径（pathname 以 .ts 结尾 = tsx dev / vitest 以源码运行；tsup 打包
-// 后本模块内联为 .js）：src 形态保留 npm 指引（dist 未构建时的真实修复动作，r47/r50
+// 后本模块内联为 .js）：src 形态保留 npm 指引（dist 未构建时的真实修复动作，/
 // 既有钉值测试面不回退）；打包态给通用文案。不用 CLW_DEV_UI 判 dev：宿主 shell 残留
-// env 在打包态不得再生效（R62-45/T43-26 同因），源文件形态判据天然免疫。参数导出供
+// env 在打包态不得再生效（/T43-26 同因），源文件形态判据天然免疫。参数导出供
 // 两形态各自断言（readJson 注入口先例）。
 const DEV_SOURCE_FORM = new URL(import.meta.url).pathname.endsWith('.ts')
 
@@ -75,13 +75,13 @@ export function spaMissingUiMessage(devForm: boolean = DEV_SOURCE_FORM): string 
 export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    // Q-1（第十五轮）：URL 构造包 try/catch——llhttp 接受 absolute-form 请求行（如
+    // URL 构造包 try/catch——llhttp 接受 absolute-form 请求行（如
     // `GET http://[bad HTTP/1.1`），new URL 抛 TypeError 会变 async 回调的未捕获
     // rejection（/api 分支在 index.ts 有 catch，静态分支此前裸奔 → Node ≥15 默认
     // throw 即进程崩溃；红测试：raw socket 畸形请求行，修复前 ERR_INVALID_URL 裸抛）。
     // 与下方 decodeURIComponent 守卫同款：畸形请求回 400，不炸服务。
-    // P3（复审-0914-优化修复批）：本地 try/catch 语义保持，构造收编 http.ts
-    // parseRequestUrl 单源（R-19，base 同为 URL_PARSE_BASE 'http://localhost'，
+    // 本地 try/catch 语义保持，构造收编 http.ts
+    // parseRequestUrl 单源（base 同为 URL_PARSE_BASE 'http://localhost'，
     // 畸形返 null）——pathname 提取口径逐位不变。
     const parsed = parseRequestUrl(req)
     if (!parsed) {
@@ -89,19 +89,19 @@ export function createStaticHandler(rootDir: string) {
       return
     }
     const { pathname } = parsed
-    // dd-P3：静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
+    // dd-静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）
-      // R65-47（总六十五轮）：405 分支同样在 finish 后排空未消费请求体——写方法打到
+      // （总六十五轮）：405 分支同样在 finish 后排空未消费请求体——写方法打到
       // 非 /api 路径时 handler 不读 body 也不 resume，keep-alive 连接因 body 滞留
-      // 被弃。R61-E-1 收口说明：经 index.ts 全量 server 的请求已由入口单挂点统一排空，
+      // 被弃。 收口说明：经 index.ts 全量 server 的请求已由入口单挂点统一排空，
       // 本地钩子不随之删除——createStaticHandler 还会被独立挂上 http.createServer
-      // 复用（static.test.ts R65-47 钉住该契约），单一职责归本模块自身，双重挂载下
+      // 复用（static.test.ts 钉住该契约），单一职责归本模块自身，双重挂载下
       // resume 幂等无副作用。
       res.on('finish', () => {
         if (!req.readableEnded) req.resume()
       })
-      // 重评-6（全库代码重评审 2026-09-05）：405 信封 code 语义化——原借用泛化
+      // -6（全库代码审）：405 信封 code 语义化——原借用泛化
       // 'BAD_INPUT'，改 METHOD_NOT_ALLOWED（客户端可按 method 类错误判别；全库 grep
       // 确认无测试/前端消费旧码，error 人话不变）
       replyError(res, 405, 'METHOD_NOT_ALLOWED', 'Method Not Allowed')
@@ -115,7 +115,7 @@ export function createStaticHandler(rootDir: string) {
       return
     }
 
-    // R1W-12（win 平台专项复审 R1）：win 保留设备名请求拦截（/CON、/nul.txt 等）——
+    // （win 平台专项）：win 保留设备名请求拦截（/CON、/nul.txt 等）——
     // win 上 stat/readFile 可解析到设备（dev 有控制台形态 readFile 挂起等待输入）。
     // 判定口径与 filename.ts/books.ts 保留名族一致（首段 + 尾点尾空格剥离）；打包态
     // vite 产物名恒带内容 hash 永不命中，拦截零误伤。
@@ -140,7 +140,7 @@ export function createStaticHandler(rootDir: string) {
     try {
       const s = await stat(abs)
       const file = s.isDirectory() ? join(abs, 'index.html') : abs
-      // M-9（第十一轮）：canonical 判界（双侧 realpath）——stat 跟随 symlink，字符串前缀
+      // canonical 判界（双侧 realpath）——stat 跟随 symlink，字符串前缀
       // 判界挡不住 dist 内被植入的外指 symlink（本地已可写前提下的任意文件读，低利用面）。
       // 委托 fs/safe-path.resolveWithinRoot（与 books/files 等路径守卫同口径：最终响应文件
       // 两侧 realpath 后重判界；目录 → index.html 后再验，防 symlink 落在 index.html 自身）。
@@ -151,15 +151,15 @@ export function createStaticHandler(rootDir: string) {
         return
       }
       // vite 构建产物在 assets/ 下且文件名带内容 hash → 可长缓存 immutable；
-      // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效（Y-P2-7）。
-      // X-21（第五十六轮）：判定改用规范化后 rel——原用未规范化的 decodedPathname，
+      // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效。
+      // 判定改用规范化后 rel——原用未规范化的 decodedPathname，
       // `/assets/../index.html` 字面前缀命中 /assets/ 却实发 SPA 入口，错拿一年
       // immutable 长缓存。rel 已 normalize（.. 折叠）；分隔符统一回 /（win32
       // normalize 产 \，跨平台判定口径恒为 / 分隔）。
       const cacheable = rel.split(sep).join('/').startsWith('/assets/')
-      // B-21（第六十轮）：补 content-length（RFC 9110 对 HEAD 响应的期望元数据）且
+      // 补 content-length（RFC 9110 对 HEAD 响应的期望元数据）且
       // HEAD 不发 body——此前与 GET 同分支 res.end(data)，整文件读入内存后才丢弃。
-      // 内存核查（2026-08-25 M-P3-09）：HEAD 分支不再 readFile 整读（原整文件读入内存
+      // 内存核查：HEAD 分支不再 readFile 整读（原整文件读入内存
       // 仅为取 data.length 作 content-length，body 本就不发送）——尺寸直接取 L68 stat 的
       // s.size；abs 为目录（实发 index.html）时 s 是目录 stat、size 无意义 → 对最终文件
       // 补一次 stat 取尺寸。GET 分支行为不变（readFile + data.length）。
@@ -176,30 +176,30 @@ export function createStaticHandler(rootDir: string) {
         res.end()
         return
       }
-      // R46-12（四十六轮）：GET 整读改流式——readFile 先把整个文件驻入内存再 res.end，
+      // GET 整读改流式——readFile 先把整个文件驻入内存再 res.end，
       // MB 级 js/字体产物在并发请求下峰值线性叠加；createReadStream 边读边发，内存占用
       // 与文件大小解耦。Content-Length 取已有 stat 的 size（abs 为目录实发 index.html
       // 时 s 是目录 stat、size 无意义，补一次 stat 取实发文件尺寸——与 HEAD 分支同口径）。
       // 流错误处理：流是异步出错（外层 try/catch 接不到）——已写头（headersSent）则
       // destroy(res) 断连（Content-Length 已承诺完整长度，半截响应不能再改状态码）；
-      // 未写头则按 N-3 口径回 500 IO。writeHead 必须等流 'open' 成功后再发——open 阶段
+      // 未写头则按口径回 500 IO。writeHead 必须等流 'open' 成功后再发——open 阶段
       // 失败（EACCES 等）时头未落盘才轮得到 500 信封；先 writeHead 后 pipe 会让
-      // headersSent 恒真、N-3 的 500 分支成死代码（mac 腿实测挂，win 腿 skipIf 拦不到）。
+      // headersSent 恒真、的 500 分支成死代码（mac 腿实测挂，win 腿 skipIf 拦不到）。
       // SPA fallback 的 index.html 保留 readFile（低频小文件，且 fallback 语义依赖
       // throw 进外层 catch）。
       const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
       const stream = createReadStream(safe.abs)
-      // 重评-4（全库代码重评审 2026-09-05）：客户端中途断连（弱网/关页）时流自身
+      // -4（全库代码审）：客户端中途断连（弱网/关页）时流自身
       // 'error' 收不到任何通知，createReadStream 的文件描述符滞留至 GC 才释放——
       // res 'close'（正常 finish 与异常断连都会触发）统一 destroy 源流回收 FD；
       // 已正常结束的流 destroy 是 no-op，无害。
-      // R57-C-1（五十七轮）：本监听必须在 open 回调外同步注册——原注册在 open 回调
+      // 本监听必须在 open 回调外同步注册——原注册在 open 回调
       // 内，res 在 open 触发前已 close（客户端拿到响应头前早断）时迟注册的监听永不
       // 触发，读流 open 后无接管对象也无销毁通道 → FD 悬挂微竞态。同步注册后 close
       // 先到也立即收口。
       res.on('close', () => stream.destroy())
       stream.on('open', () => {
-        // R57-C-1：close 先至已收口的流不再写头/接管——真实 fs 流在 destroy-before-
+        // close 先至已收口的流不再写头/接管——真实 fs 流在 destroy-before-
         // open 下本就不会再发 open，此守卫把该契约显式化（open 竞态迟到也不碰已断连
         // 的 res；destroy 幂等，close/open 双到不产生双重销毁异常）
         if (stream.destroyed) return
@@ -218,20 +218,20 @@ export function createStaticHandler(rootDir: string) {
         else replyError(res, 500, 'IO', '静态文件读取失败')
       })
     } catch (e) {
-      // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
+      // errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
       // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html
       // （存在的文件被静默换成 SPA 入口、无任何报错），现如实回 500
       const err = e as NodeJS.ErrnoException
       if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
-        // R33-62（三十三轮）：err.code 不出网（对齐 index.ts 500 只回泛化文案口径，
-        // 诊断留日志）；R33-58：错误码对齐 'IO' 单一口径
+        // err.code 不出网（对齐 index.ts 500 只回泛化文案口径，
+        // 诊断留日志）；：错误码对齐 'IO' 单一口径
         replyError(res, 500, 'IO', '静态文件读取失败')
         return
       }
-      // SPA fallback：非文件路径回 index.html（前端路由接管；B-21：HEAD 同口径补长度不发 body）
-      // R47-21：index.html 走单槽短缓存（见文件头 spaIndexCache 注释）——TTL 内零读盘
+      // SPA fallback：非文件路径回 index.html（前端路由接管；：HEAD 同口径补长度不发 body）
+      // index.html 走单槽短缓存（见文件头 spaIndexCache 注释）——TTL 内零读盘
       try {
-        // R50-C-4（五十轮）：fallback 同过 M-9 canonical 判界——此前裸
+        // fallback 同过 canonical 判界——此前裸
         // readFile(join(root, 'index.html')) 绕过主路径 resolveWithinRoot 防线，
         // dist/index.html 被换成外指 symlink 时 fallback 直接跟随（主路径 403、
         // fallback 200 放行的分歧行为）；null（外指/断链/realpath 失败）按主路径
@@ -247,7 +247,7 @@ export function createStaticHandler(rootDir: string) {
           data = slot.data // 命中：同实例 Buffer 复用，零读盘
         } else {
           data = await readFile(safe.abs)
-          // ts 记读完成当刻（R42-16 口径——异步读跨 tick，出生即折旧会白吃 TTL 窗）
+          // ts 记读完成当刻（口径——异步读跨 tick，出生即折旧会白吃 TTL 窗）
           spaIndexCache = { path: safe.abs, data, ts: Date.now() }
         }
         res.writeHead(200, {

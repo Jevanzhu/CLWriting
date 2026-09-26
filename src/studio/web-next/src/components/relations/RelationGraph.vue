@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// 关系图主图组件（RelationsView 拆分 P2-5）：SVG 节点/边渲染 + 缩放平移拖拽 + 图例。
+// 关系图主图组件（RelationsView 拆分）：SVG 节点/边渲染 + 缩放平移拖拽 + 图例。
 // 状态与交互逻辑全部在 useRelationGraph composable（provide 注入），本组件只做渲染。
 import { useRelationGraphInjected, CX, CY } from '../../composables/useRelationGraph'
 
 const g = useRelationGraphInjected()
 
-/** R0912-3 #20：边 key 弃 '-' 裸拼接（自由文本名可含 '-'，from/to 分段歧义撞 key）——
+/** #20：边 key 弃 '-' 裸拼接（自由文本名可含 '-'，from/to 分段歧义撞 key）——
  *  \u0000 分隔防拼接歧义（对齐 stores/learn.ts sampleKey/quoteKey 同款口径） */
 function edgeKey(e: { from: string; to: string; kind: string }): string {
   return `${e.from}\u0000${e.to}\u0000${e.kind}`
@@ -32,9 +32,9 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
       <rect x="-9999" y="-9999" width="19998" height="19998" class="bg-rect" />
       <!-- 边：默认就带语义色（弱），聚焦时提到全饱和 -->
       <g class="edges">
-        <!-- R0911b-C2-P3-2：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
+        <!-- ：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
              (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。
-             R0912-3 #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
+ #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
         <g
           v-for="g2 in g.edgeGeoms.value"
           :key="edgeKey(g2.e)"

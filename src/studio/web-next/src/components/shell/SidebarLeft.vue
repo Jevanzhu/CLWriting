@@ -78,7 +78,7 @@ async function onRefresh(): Promise<void> {
   padding-left: 52px;
 }
 /* 桌面版：顶部横排按钮间的空白（含交通灯避让区）可拖动整窗——.is-drag 规则体收敛至
- * 全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改，子件 no-drag 特异性恒压过全局档） */
+ * 全局 styles/utilities.css（重体收敛批，声明逐字未改，子件 no-drag 特异性恒压过全局档） */
 .left-tab {
   width: var(--size-control);
   height: var(--size-control);

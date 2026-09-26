@@ -1,5 +1,5 @@
 /**
- * 条目库 → 注入材料（文风系统重整 S5 预算分配）。
+ * 条目库 → 注入材料（文风系统重整预算分配）。
  *
  * 性价比排序（计划 §注入=预算分配）：
  *   禁词  压成一行「禁用：A、B、C」——几十字，必带
@@ -48,7 +48,7 @@ export function buildStyleEssentials(entries: StyleEntry[], scenes: string[]): s
   const parts: string[] = []
 
   const banned = pickSorted(entries, '禁词', scenes)
-  // R30-15（三十轮）：禁词注入改用与机检 readBannedEntryWords 同源的取词口径
+  // 禁词注入改用与机检 readBannedEntryWords 同源的取词口径
   //（style-entry.bannedEntryWords 逐行拆词）——原把条目正文整段（可含多行说明文本）
   // 直接 join 注入，与机检拆词口径分裂，说明性条目把整段原文塞进 prompt 白烧预算。
   // 现只注入解析出的词；整条解析不出词的条目不注入（机检侧对同一形态已产
@@ -75,8 +75,8 @@ export function buildStyleEssentials(entries: StyleEntry[], scenes: string[]): s
 }
 
 /**
- * 样章挑选（G2 跨场景语义保持）：第一轮每场景各取最强 1 条保代表性，
- * 第二轮按场景序补满 maxCount；通用垫底兜底。
+ * 样章挑选（跨场景语义保持）：每场景各取最强 1 条保代表性，
+ * 按场景序补满 maxCount；通用垫底兜底。
  */
 export function pickSampleEntries(
   entries: StyleEntry[],
@@ -108,9 +108,9 @@ export function pickSampleEntries(
 }
 
 /** 样章条目 → 注入文本：说明作技法指令行（对齐旧样章格式），超长截断。
- *  R72-7（二十轮 C-2）：截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
+ *  ：截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
  *  UTF-16 码元 slice 会把增补平面字符切成半个代理对。
- *  复审-0913-源码 P3-⑨：判据与截断统一码位口径——原判断侧 `e.正文.length`（UTF-16
+ *  -源码 -⑨：判据与截断统一码位口径——原判断侧 `e.正文.length`（UTF-16
  *  码元）与截断侧 Array.from（码位）混用，含 astral 字符的样章恰在边界附近时判据误判
  *  （该截不截 / 不截反截）。 */
 export function sampleEntryText(e: StyleEntry): string {

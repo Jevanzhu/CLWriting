@@ -37,13 +37,13 @@ const menuEl = ref<HTMLElement>()
 const flipX = ref(false)
 const flipY = ref(false)
 
-// 重评2-P3-2（2026-09-09 全量重评 GLM-5.3）：浏览器回退菜单键盘导航（照 FontPicker
-// 重评-P2-2 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
+// 2-：浏览器回退菜单键盘导航（照 FontPicker
+// - 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
 // 纯键盘用户进不了任何菜单项。开启即把焦点移入首项，↑/↓ 循环、Home/End 首尾、
 // Enter/Space 激活、Tab 自然走焦关闭、关闭还焦右键来源；容器另挂 aria-activedescendant
 //（roving 焦点在项上时为冗余保险，焦点若落容器 AT 也能命中高亮项）。桌面端走 Electron
 // 原生 Menu 不渲染本组件，不受影响。子菜单飞出层沿 hover 语义不进 roving 序（与原实现一致）。
-// R1010-P3（G6-⑦）维持登记：浏览器回退版飞出层键盘不可达——Enter 可开层，但 Tab 关
+// （-⑦）维持登记：浏览器回退版飞出层键盘不可达——Enter 可开层，但 Tab 关
 // 菜单、ArrowRight 未接线，飞出项唯一可达路径是鼠标 hover。不修的权衡：桌面端（唯一
 // 生产路径）走 Electron 原生 Menu 全键盘可达，回退版仅 dev/web 模式触达；飞出层接入
 // roving 需 ArrowRight/Left 跨层焦点机（原生 menu 弹层惯例），改动面与本组件「薄回退」
@@ -57,7 +57,7 @@ const activeId = computed(() => {
   const e = navItems.value[activeIdx.value]
   return e ? `cm-i-${e.idx}` : undefined
 })
-/** 打开前焦点元素（关闭时还焦右键来源——FontPicker P2-2「还焦触发钮」同语义） */
+/** 打开前焦点元素（关闭时还焦右键来源——FontPicker 「还焦触发钮」同语义） */
 let prevFocus: HTMLElement | null = null
 
 /** 顶层项导航序（props.items 下标 → 非分隔项序，模板 tabindex/.hl 用；菜单项极少 O(n) 直查） */
@@ -94,8 +94,8 @@ function activateActive(): void {
 }
 
 /** Electron accelerator → 平台可读文本（"CmdOrCtrl+X" → mac "⌘X" / win·linux "Ctrl+X"）。
- *  R33-83（三十三轮）：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
- *  R37-35（三十七轮批E）：平台探测三级兜底——navigator.userAgentData?.platform 是
+ *  ：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
+ * 平台探测三级兜底——navigator.userAgentData?.platform 是
  *  Chromium-only API，老 WebView/非 Chromium 内核无该成员；其后回落 navigator.platform
  *  （已废弃但覆盖面广），再回落 navigator.userAgent 字符串嗅探，探测不再单源落空。 */
 function isMacPlatform(): boolean {
@@ -124,7 +124,7 @@ function measureFlip(): void {
   if (props.y + r.height > window.innerHeight - 8) flipY.value = true
 }
 
-/** R0916-nano-10（四轮处置批）：窗口 resize 跟随重算——原只在开启一刻快照判 flip，
+/** （四轮处置批）：窗口 resize 跟随重算——原只在开启一刻快照判 flip，
  *  此后视口缩小时溢出态不重判（菜单探出屏幕外）；关闭态 no-op。复位→过拍→测量
  *  与开启拍同序（watch 内联保持原时序不抽函数——async 函数包装会多一跳微任务，
  *  把 activeIdx 赋值推出调用方的 nextTick 预算，re2-roving 用例实证）。 */
@@ -140,7 +140,7 @@ watch(
   () => props.visible,
   async (v) => {
     if (!v) {
-      // 重评2-P3-2：关闭收尾——菜单会话仍持有焦点（焦点在菜单内/已落 body）时还焦
+      // 2-：关闭收尾——菜单会话仍持有焦点（焦点在菜单内/已落 body）时还焦
       // 右键来源，防焦点丢在已卸载的菜单上；他处焦点不动（parent 主动关窗等场景）
       const menu = menuEl.value
       const cur = document.activeElement
@@ -157,7 +157,7 @@ watch(
     flipY.value = false
     await nextTick()
     measureFlip()
-    // 重评2-P3-2：开启即把键盘焦点移入首项（roving tabindex；与 flip 复位同一拍完成）
+    // 2-：开启即把键盘焦点移入首项（roving tabindex；与 flip 复位同一拍完成）
     activeIdx.value = navItems.value.length > 0 ? 0 : -1
     focusActive()
   },
@@ -167,11 +167,11 @@ function onKey(e: KeyboardEvent): void {
   if (!props.visible) return // 菜单未开不消费——Esc 落到 useHotkeys
   if (e.key === 'Escape') {
     emit('close')
-    e.preventDefault() // Z-23（第五十八轮）：本层消费 Esc，防同键退专注双效
+    e.preventDefault() // 本层消费 Esc，防同键退专注双效
     return
   }
-  // 重评2-P3-2：方向键/Home/End/Enter/Space roving 导航；IME 组合期让渡输入法
-  //（FontPicker P2-2 同口径）；Tab 不消费仅关闭，焦点走自然次序
+  // 2-：方向键/Home/End/Enter/Space roving 导航；IME 组合期让渡输入法
+  //（FontPicker 同口径）；Tab 不消费仅关闭，焦点走自然次序
   if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -201,7 +201,7 @@ function onKey(e: KeyboardEvent): void {
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  window.addEventListener('resize', recomputeFlip, { passive: true }) // R0916-nano-10
+  window.addEventListener('resize', recomputeFlip, { passive: true })
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
@@ -236,7 +236,7 @@ function onSelect(key: string): void {
             @mouseenter="openSub = item.key"
             @mouseleave="openSub = null"
           >
-            <!-- 重评2-P3-2：顶层项 roving tabindex（高亮项 0 其余 -1）+ id 供 aria-activedescendant -->
+            <!-- 2-：顶层项 roving tabindex（高亮项 0 其余 -1）+ id 供 aria-activedescendant -->
             <button
               class="cm-item cm-has-sub"
               role="menuitem"
@@ -359,7 +359,7 @@ function onSelect(key: string): void {
   opacity: 0.35;
   pointer-events: none;
 }
-/* 重评2-P3-2：键盘高亮项（roving tabindex 焦点所在），与 hover 同视觉；danger 同款 */
+/* 2-：键盘高亮项（roving tabindex 焦点所在），与 hover 同视觉；danger 同款 */
 .cm-item.hl {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
@@ -412,7 +412,7 @@ function onSelect(key: string): void {
   top: -5px;
   min-width: 160px;
   padding: 5px;
-  /* R8B-P2-1（2026-09-09 修复批）：悬停闪关根因——旧 margin-left:4px 把子菜单推出
+  /* 悬停闪关根因——旧 margin-left:4px 把子菜单推出
    * .cm-sub-wrap 边界之外：指针从父项滑向子菜单必经 4px 真空带 → mouseleave 触发
    * openSub=null（子菜单同拍卸载），再进入时已无处可悬。贴 wrap 右缘后该 4px 视觉
    * 间隙由 wrap 的 padding-right 承载（仍在悬停热区内），外观不变、真空带消除。 */

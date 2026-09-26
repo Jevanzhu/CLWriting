@@ -1,6 +1,6 @@
 /**
  * 账本推进声明解析 —— 账本 CLI 接缝修复（兑现层）。
- * （P1-8 架构下沉：从 src/process/lead-updates.ts 移入 check 域，机检账本数据源归位）
+ * （架构下沉：从 src/process/lead-updates.ts 移入 check 域，机检账本数据源归位）
  *
  * `工作区/账本推进.md` 是 AI 写完正文后声明的「本章实际写入的履历行」，与履历段同构
  * （去掉「第N章」——章号隐含为当前定稿章号）：
@@ -27,33 +27,33 @@ export interface ChapterLeadUpdate {
 }
 
 /**
- * 解析 `工作区/账本推进.md`（无文件/空/读失败 → []；X-P2-5 读失败按无推进降级）。
+ * 解析 `工作区/账本推进.md`（无文件/空/读失败 → []；读失败按无推进降级）。
  *
  * 行格式：`- <编号> <动词>：<证据>`（冒号支持全角/半角；非列表行忽略）。
- * 首行约定 `# 第N章 账本推进`（X-P2-6 章节标签，解析时忽略；旧文件无标签同样兼容）。
+ * 首行约定 `# 第N章 账本推进`（章节标签，解析时忽略；旧文件无标签同样兼容）。
  */
 /** 读指定路径的账本推进文件（无文件/空/读失败 → []）。
- *  R0916-6-nano-2（2026-09-16 评审修复批）：头注修账——原注「文件级读取统一走本函数」
+ *  （评审修复批）：头注修账——原注「文件级读取统一走本函数」
  *  失实：本函数 src 生产零调用（生产链统一走 readChapterUpdatesForChapter（Checked），
- *  ff-P1-1 主文件+归档两源），现存消费面仅 test/process 两处。保留理由：它是
- *  readLeadUpdatesAtChecked 的 [] 兜底薄封装（X-P2-5 口径），解析行为测试以它作
- *  「读盘 + 兜底」的最薄入口；生产侧勿新接——降级敏感场景走 Checked 三态版（R31-3），
+ *  ff- 主文件+归档两源），现存消费面仅 test/process 两处。保留理由：它是
+ *  readLeadUpdatesAtChecked 的 [] 兜底薄封装（口径），解析行为测试以它作
+ *  「读盘 + 兜底」的最薄入口；生产侧勿新接——降级敏感场景走 Checked 三态版，
  *  不敏感场景走 ForChapter 两源单源。
- *  R30-17（三十轮）：原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
- *  零生产调用（R66-15 登记的死代码）已删除。
- *  R31-3（三十一轮）：读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
- *  请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持 X-P2-5 的 []
+ *  ：原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
+ *  零生产调用（登记的死代码）已删除。
+ *  ：读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
+ *  请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持的 []
  *  兜底口径。 */
 export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
   return readLeadUpdatesAtChecked(absPath) ?? []
 }
 
 /**
- * R31-3（三十一轮）：读失败三态版 readLeadUpdatesAt——区分「文件不存在」（→ []，
+ * 读失败三态版 readLeadUpdatesAt——区分「文件不存在」（→ []，
  * 语义 = 明确无推进）与「文件在但读失败」（→ null，权限/瞬态占用等，推进清单未知）。
  * 此前读失败按 [] 与「无推进」混同：声明侧有推进而兑现侧读失败时，闭合比对把
  * 「未知」当「已声明未兑现」产 lead-declared-not-done 红，经 LEAD_GATE 硬阻断定稿
- * （把瞬态故障当作者过错）。对齐 outline-leads.ts 声明侧 R70-15 的 known:false 口径
+ * （把瞬态故障当作者过错）。对齐 outline-leads.ts 声明侧的 known:false 口径
  * （读失败跳过闭合，防假红硬阻断）；调用方拿到 null 须跳过闭合并产黄降级（fail-noisy）。
  */
 export function readLeadUpdatesAtChecked(absPath: string): ChapterLeadUpdate[] | null {
@@ -62,41 +62,41 @@ export function readLeadUpdatesAtChecked(absPath: string): ChapterLeadUpdate[] |
   try {
     text = readFileSync(absPath, 'utf-8')
   } catch {
-    return null // R31-3：读失败（并发删/权限）→ null = 推进清单未知，不冒充「无推进」
+    return null // 读失败（并发删/权限）→ null = 推进清单未知，不冒充「无推进」
   }
   return parseLeadUpdateLines(text)
 }
 
-/** R31-3（三十一轮）：本章推进读取结果——updates 为可用清单；unreadable = true 表示
+/** 本章推进读取结果——updates 为可用清单；unreadable = true 表示
  *  至少一个数据源（主文件/归档）存在但读失败，清单不完整，调用方不得据其做闭合判定。 */
 export interface ChapterUpdatesResult {
   updates: ChapterLeadUpdate[]
   unreadable: boolean
 }
 
-/** 声明条目行形状判定（R75-2 节界前瞻用，与下方条目正则同步） */
+/** 声明条目行形状判定（节界前瞻用，与下方条目正则同步） */
 function isLeadUpdateEntryLine(line: string): boolean {
   return /^-\s*\S+\s+[^\s:：]+[:：]\s*.+$/.test(line.trim())
 }
 
 /** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。
- *  R73-23（二十一轮）：对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
+ *  ：对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
  *  手写换行的证据第二行此前被静默丢弃，声明证据与落盘履历（折入后续行）比对失配 →
  *  「声明了没兑现」假红。无条目前的行（标题/首行章标签）不折。
- *  R75-2（二十三轮）：ATX 标题行不再折入上一条证据——手写 `## 备注` 等标题折入后，
+ *  ：ATX 标题行不再折入上一条证据——手写 `## 备注` 等标题折入后，
  *  证据 needle 派生自标题碎片、命中正文必败 →「声明了没兑现」定稿假红。分组标题
  *  （后随条目）跳过；节终标题（后无条目）终断，其后人工备注不再触碰条目数据。与
  *  parseHistory 共用 headingEndsSection 判定，两侧口径不漂移。 */
 export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   const lines = text.split('\n')
-  // R33-6（三十三轮）：分组标题段前折叠抑制——分组标题（后随仍有条目）跳过后，标题
-  // 与首个后随条目之间的普通备注行不得折入上一条证据。R75-2 只护住标题行本身：备注
+  // 分组标题段前折叠抑制——分组标题（后随仍有条目）跳过后，标题
+  // 与首个后随条目之间的普通备注行不得折入上一条证据。 只护住标题行本身：备注
   // 折入会把「证据一」污染成「证据一 手工内容」，evidenceNeedles 必败产「声明了没兑现」
   // 假红，且经 lead-finalize 把污染证据持久写进履历（lead-evidence-missing 转持久红）。
   let skipFoldUntilEntry = false
   for (let i = 0; i < lines.length; i++) {
-    // R28-10（二十八轮）：rawLine 保留原始缩进——嵌套子列表行（真条目的子项）须凭
+    // rawLine 保留原始缩进——嵌套子列表行（真条目的子项）须凭
     // 缩进识别，trimmed 后与顶层格式错行无法区分（见下方 warn 收窄）
     const rawLine = lines[i]!
     const line = rawLine.trim()
@@ -106,25 +106,25 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
       continue
     }
     if (!line.startsWith('-')) {
-      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略；
-      // R33-6：分组标题段前备注行不折入）
+      // 非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略；
+      // 分组标题段前备注行不折入）
       if (!skipFoldUntilEntry && out.length > 0 && line !== '') {
         const prev = out[out.length - 1]!
         prev.证据 = `${prev.证据} ${line}`.trim()
       }
       continue
     }
-    // R28-10 形态先行（R48-4（四十八轮）重排）：`---` 分隔线（`-` 连字符串）与嵌套
+    // 形态先行（重排）：`---` 分隔线（`-` 连字符串）与嵌套
     // 子列表行（原始行带缩进）以 `-` 开头却不构成条目，静默跳过。原实现先无条件重置
     // skipFoldUntilEntry 再判条目，`---` 恰在重置后才 continue——序列「条目 → ATX
-    // 标题（skipFold=true）→ --- → 普通备注行」中备注折入上一节证据（R33-6 守卫被
+    // 标题（skipFold=true）→ --- → 普通备注行」中备注折入上一节证据（守卫被
     // 绕过：evidenceNeedles 命中必败 → lead-declared-not-done 假红硬阻断定稿，且
     // lead-finalize 把污染证据持久写进履历）。重置收窄到真条目/顶层格式错条目，
-    // 两个静默跳过形态维持 skipFold 现值（R48-4 口径）。
-    // 重审-06（2026-09-07 全量代码重审 §四.6）：裸 `---` 分隔线升格为小节边界（与
-    // ATX 标题同待遇）——命中即置 skipFoldUntilEntry = true。R48-4 只堵了「标题→---」
+    // 两个静默跳过形态维持 skipFold 现值（口径）。
+    // （§四.6）：裸 `---` 分隔线升格为小节边界（与
+    // ATX 标题同待遇）——命中即置 skipFoldUntilEntry = true。 只堵了「标题→---」
     // 序（分隔线维持守卫现值），条目直接 → `---` → 自由备注行仍折入上一条证据（同款
-    // 污染链路）。嵌套子列表行维持 R48-4 口径（守卫现值不变——真条目的子项语境）。
+    // 污染链路）。嵌套子列表行维持口径（守卫现值不变——真条目的子项语境）。
     if (/^-+$/.test(line)) {
       skipFoldUntilEntry = true
       continue
@@ -138,7 +138,7 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
       if (!evidence) continue
       out.push({ leadId: m[1]!.trim(), 动词: m[2]!.trim(), 证据: evidence })
     } else {
-      // R26-32（二十六轮）：列表行但条目格式不符（缺「编号 动词：证据」结构）此前
+      // 列表行但条目格式不符（缺「编号 动词：证据」结构）此前
       // 静默丢弃——作者写了推进声明却因格式错误整条失效无迹可查（「声明了没兑现」
       // 假红的隐性来源）。warn 留痕不中断解析（对齐 yaml.ts 无冒号行同款手法）。
       log.warn('lead-updates', `账本推进行格式不符被丢弃（应为「- 编号 动词：证据」）：${line.slice(0, 40)}`)
@@ -148,10 +148,10 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
 }
 
 /** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。
- *  R33D-3（三十三轮）：读入后剥 BOM——带 BOM 文件的首行 `\uFEFF# 第5章` 对
+ *  ：读入后剥 BOM——带 BOM 文件的首行 `\uFEFF# 第5章` 对
  *  `/^#\s*第(\d+)章/` 恒 miss → tag=null → mainIsThisChapter 对任意章为 true，
  *  定稿他章时把标签章推进写成被定稿章履历 + 清空主文件销毁待确认内容
- *  （同库 splitFrontMatter/Q-14 均已剥 BOM，此处补齐单点）。 */
+ *  （同库 splitFrontMatter/均已剥 BOM，此处补齐单点）。 */
 export function readLeadUpdateChapterTag(absPath: string): number | null {
   if (!existsSync(absPath)) return null
   try {
@@ -163,10 +163,10 @@ export function readLeadUpdateChapterTag(absPath: string): number | null {
   }
 }
 
-// ── ff-P1-1 / hh 批 2-1：本章推进单一真相源 ──────────────
+// ── ff- / hh 本章推进单一真相源 ──────────────
 /** 账本推进主文件（常量归一唯一出处——此前 lead-finalize / lead-update-draft 各持一份） */
 export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
-/** 批量连写归档目录（X-P2-6 章节暂存；同上归一） */
+/** 批量连写归档目录（章节暂存；同上归一） */
 export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'
 
 /** 本章推进的读取源：主文件路径 + 本章归档路径 + 主文件是否属于本章。 */
@@ -176,7 +176,7 @@ export function chapterUpdateSources(
 ): { mainPath: string; archivePath: string; mainIsThisChapter: boolean } {
   const mainPath = join(bookRoot, LEAD_UPDATES_FILE)
   // 主文件章节标签=本章 或 无标签旧格式 → 属于本章；批量连写下主文件常载有
-  // 其他章的待确认内容（X-P2-6），此时本章推进在归档。
+  // 其他章的待确认内容，此时本章推进在归档。
   const mainTag = readLeadUpdateChapterTag(mainPath)
   return {
     mainPath,
@@ -187,13 +187,13 @@ export function chapterUpdateSources(
 
 /**
  * 读「本章」全部已声明账本推进 = 主文件（属于本章时）+ 本章归档。
- * ff-P1-1：定稿防吃书闸与履历回写**必须**共用本函数——此前闸只读主文件、回写读
+ * ff-定稿防吃书闸与履历回写**必须**共用本函数——此前闸只读主文件、回写读
  * 主+归档，两源不对称：归档章的推进（批量连写常态）绕过闸直接落履历，「做了没
  * 声明」红失明、「声明已兑现」误阻断，闸对回写将写什么一无所知。
- * R31-3（三十一轮）：读失败（任一在位数据源不可读）维持按 [] 兜底——本函数的既有
+ * 读失败（任一在位数据源不可读）维持按 [] 兜底——本函数的既有
  * 调用方（履历回写 applyLeadUpdates 等 document 域）对「读失败=无推进」不敏感或自带
  * fail-open；两端闭合判定等降级敏感消费走 readChapterUpdatesForChapterChecked（机检侧
- * checkWithDb 与定稿闸 finalGateBlockers——R32-3 后者补齐：非 Checked 读会把「清单
+ * checkWithDb 与定稿闸 finalGateBlockers—— 后者补齐：非 Checked 读会把「清单
  * 不可读」当「零兑现」产假红硬阻断定稿）。
  */
 export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number): ChapterLeadUpdate[] {
@@ -201,7 +201,7 @@ export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number
 }
 
 /**
- * R31-3（三十一轮）：readChapterUpdatesForChapter 的读失败感知版——主文件（属于本章时）
+ * readChapterUpdatesForChapter 的读失败感知版——主文件（属于本章时）
  * 与本章归档两源任一「存在但读失败」→ unreadable:true（updates 为剩余可用部分）。
  * 调用方（checkWithDb 两端闭合）凭 unreadable 跳过闭合比对并产黄降级，不再把
  * 「清单未知」当「已声明未兑现」误报红硬阻断定稿。文件不存在仍属「无推进」已知态。
@@ -221,12 +221,12 @@ export function readChapterUpdatesForChapterChecked(bookRoot: string, chapterNo:
   return { updates: parts.flat(), unreadable }
 }
 
-//（win 线 R33-5 与 R31-3 同因独立修复：兑现侧三态读、读失败跳过两端闭合防
+//（win 线与同因独立修复：兑现侧三态读、读失败跳过两端闭合防
 // lead-declared-not-done 假红硬拦定稿——win 侧 {ok} 形状实现已并入本函数
 // ChapterUpdatesResult 形状，win 侧唯一消费方已随合并改写。）
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。
- *  R63-8（十一轮）：匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会
+ *  ：匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会
  *  整组 miss——混合短引证据「雪落」无声 vs 正文无引号写法，见 leads.ts 头注）。 */
 export function leadEvidenceMatchesBody(body: string, evidence: string): boolean {
   return evidenceNeedles(evidence).some((needle) => body.includes(needle))

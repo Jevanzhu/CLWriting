@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 全局 Toast（细案 T2.4）：右下角堆叠，自动消失——error 5s / 其余 1.8s（时长在 ui.toast
-// 分级，R76-35 注释校正：旧「1.8s」只覆盖非错误级，与实现相悖）。
+// 全局 Toast（细案 .4）：右下角堆叠，自动消失——error 5s / 其余 1.8s（时长在 ui.toast
+// 分级，注释校正：旧「1.8s」只覆盖非错误级，与实现相悖）。
 import { useUiStore } from '../../stores/ui'
 const ui = useUiStore()
 </script>
@@ -8,7 +8,7 @@ const ui = useUiStore()
 <template>
   <Teleport to="body">
     <div class="toast-wrap" role="status" aria-live="polite">
-      <!-- R32-34（三十二轮）：点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
+      <!-- ：点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
       <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind" @click="ui.dismissToast(t.id)">
         {{ t.msg }}
       </div>
@@ -36,13 +36,13 @@ const ui = useUiStore()
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-m);
   animation: clw-appear var(--dur-norm) var(--ease-out);
-  pointer-events: auto; /* R32-34：点击关闭（wrap 透传，本层接管） */
+  pointer-events: auto; /* 点击关闭（wrap 透传，本层接管） */
   cursor: pointer;
 }
 .toast.success {
   color: var(--dv-good);
 }
-/* R30-7（三十轮）：warning 级（半失败提示，如恢复后编辑器刷新失败）用语义警告色 */
+/* warning 级（半失败提示，如恢复后编辑器刷新失败）用语义警告色 */
 .toast.warning {
   color: var(--dv-warn);
 }

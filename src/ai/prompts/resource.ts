@@ -1,5 +1,5 @@
 /**
- * 内置 prompt 资源层（批次 C2 / CS-19 + A6 合流：资源化 + 内容哈希精确匹配迁移）。
+ * 内置 prompt 资源层（批次 / CS-19 + 合流：资源化 + 内容哈希精确匹配迁移）。
  *
  * 模型（借鉴 cherry contentVersion，见 04-调研 §2.1）：
  * - 捆绑源 = resources/prompts/<name>.md，文件体 = 文案 + 恰一个结尾换行；
@@ -8,7 +8,7 @@
  * - versions.json：{ "<file>.md": [哈希...] }（时间序，末位 = 当前）。
  *   内置文案迭代时：改资源文件 → 末位追加新哈希 → 金测夹具同步。
  * - 用户覆盖层（overlay）= <userDataPath>/prompts/<name>.md，存在即优先生效。
- * - 迁移（A6：升级不覆盖用户改动）= migratePromptOverlays：overlay 哈希命中
+ * - 迁移（升级不覆盖用户改动）= migratePromptOverlays：overlay 哈希命中
  *   该文件的任一历史哈希（= 用户从某版内置原样拷贝、未改过）→ 升级为当前内置；
  *   哈希不在历史（= 用户改过）→ 原样保留，绝不覆盖。
  * - 精确匹配（CS-19）= matchBuiltinPrompt：任意 prompt 文本哈希命中历史表 → 定位
@@ -24,7 +24,7 @@ import { atomicWriteFile } from '../../fs/atomic.js'
 import { log, errMsg } from '../../log/index.js'
 
 /** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族）。
- *  R40-6（四十轮）：哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
+ *  ：哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
  *  内置）此前仍可产出两个指纹（canonicalize 的调用方归一挡不住直呼 promptHash 的
  *  路径）。canonicalize 幂等，存量指纹全部由 canonical 文本算得 → 值不变、缓存不失效。 */
 export function promptHash(text: string): string {
@@ -32,13 +32,13 @@ export function promptHash(text: string): string {
 }
 
 /** 规范化：剥 BOM 前缀 + 恰一个结尾换行（文件体带尾换行入库，内存规范文本不带）。
- *  R38-6（三十八轮）：win 老版记事本/部分中文编辑器把 overlay 存成 UTF-8-BOM——
+ *  ：win 老版记事本/部分中文编辑器把 overlay 存成 UTF-8-BOM——
  *  \uFEFF 混进 system prompt 首字符，且 overlay 哈希与内置永不相等 → matchBuiltinPrompt
  *  永判「用户已改」、overlay 永不收口。剥 BOM 后两态合一。 */
 function canonicalize(raw: string): string {
   const noBom = raw.startsWith('\uFEFF') ? raw.slice(1) : raw
-  // R40-6（四十轮）：\r\n→\n 归一——win 手编 overlay（记事本/多数编辑器默认 CRLF）与
-  // LF 内置同文仅行尾异码时产出两个 prompt 指纹（:148 promptHash 与注入 text 同源本
+  // \r\n→\n 归一——win 手编 overlay（记事本/多数编辑器默认 CRLF）与
+  // LF 内置同文仅行尾异码时产出两个 prompt 指纹（148 promptHash 与注入 text 同源本
   // 函数，本机自洽、跨机对账分叉）。归一后同文同哈希；prompt 语义不变（\r\n/\n 对
   // LLM 等价），纯跨平台确定化。存量指纹缓存一次性失效重建属预期：versions.json 历史
   // 表内的 CRLF 形态哈希若存在将不再命中——CRLF overlay 此前本就永判「用户已改」，
@@ -98,7 +98,7 @@ export function overlayPath(userDataPath: string, name: string): string {
   return join(userDataPath, 'prompts', `${name}.md`)
 }
 
-/** R75-A-P3b（批 A）：读 overlay 正文——existsSync 与 readFileSync 之间文件被删/被换成
+/** 读 overlay 正文——existsSync 与 readFileSync 之间文件被删/被换成
  *  目录（TOCTOU）时，裸 ENOENT/EISDIR 会直冒 runSpec 无从定位。收编为带上下文的明确
  *  错误（文件名 + 操作）；fail-fast 语义不变（仍抛，不静默回落内置——「读失败」与
  *  「无 overlay」语义不同，静默回落会让用户的覆盖改动无声失效）。 */
@@ -118,7 +118,7 @@ export function resolvePrompt(
 ): { text: string; hash: string; source: 'builtin' | 'overlay' } {
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
-    // R75-A-P3b：读取经收编助手（见其注释），存在性判定与读取之间被删 → 带路径上下文抛错
+    // 读取经收编助手（见其注释），存在性判定与读取之间被删 → 带路径上下文抛错
     if (existsSync(fp)) {
       const text = canonicalize(readOverlaySync(fp))
       return { text, hash: promptHash(text), source: 'overlay' }
@@ -136,7 +136,7 @@ interface MigrateReport {
 }
 
 /**
- * overlay 升级迁移（A6：内置 prompt 升级不覆盖用户改动）。
+ * overlay 升级迁移（内置 prompt 升级不覆盖用户改动）。
  * 逐个内置名检查 overlay：哈希 ∈ 该文件历史哈希 → 覆写为当前内置（已当前版则跳过写盘）；
  * 否则不动。无 overlay 的名字不参与。
  */
@@ -150,8 +150,8 @@ export function migratePromptOverlays(
     const name = file.replace(/\.md$/, '')
     const fp = overlayPath(userDataPath, name)
     if (!existsSync(fp)) continue
-    // R27-132（二十七轮）：单 overlay 读异常（TOCTOU 被删/被目录占位/EACCES）不再中断
-    // 整轮升级——读经 R75-A-P3b 收编助手拿带路径上下文的错误，逐文件 try/catch warn
+    // 单 overlay 读异常（TOCTOU 被删/被目录占位/EACCES）不再中断
+    // 整轮升级——读经收编助手拿带路径上下文的错误，逐文件 try/catch warn
     // 跳过继续，对齐 v2/v3 迁移「单条目失败不拖死同轮其余条目」的容错口径
     let hash: string
     try {
@@ -167,7 +167,7 @@ export function migratePromptOverlays(
     const builtin = loadBuiltinPrompt(name, registry)
     if (hash === builtin.hash) continue
     mkdirSync(join(userDataPath, 'prompts'), { recursive: true })
-    // 第五轮：走原子写（P1-6A 全仓纪律）——直写半截崩溃后哈希不命中历史表，
+    // 走原子写（-6A 全仓纪律）——直写半截崩溃后哈希不命中历史表，
     // 损坏的 overlay 会被当「用户改过」永久保留
     atomicWriteFile(fp, builtin.text + '\n')
     report.upgraded.push(name)
@@ -188,9 +188,9 @@ export function matchBuiltinPrompt(text: string, registry: PromptRegistry = DEFA
  * runner 入口：systemPrompt 若是某内置 prompt 的（任意历史版本）原文，
  * 换成 overlay/当前内置——旧版内置文本在运行期自动升级，用户 overlay 优先。
  * 非内置文本原样返回（chat 等动态 prompt 零影响）。
- * R69-9（十七轮）：带源版本（resolveBuiltinSystemPromptSourced）额外透出 overlay 命中
+ * 带源版本（resolveBuiltinSystemPromptSourced）额外透出 overlay 命中
  * 的绝对路径——runSpec 据此把 overlay 注入源登记进 promptFiles（铁律①「模型可见⟺已
- * 记录」：overlay 是可变文件，仅入哈希不可重建，与 Y-2 rules 注入段同性质同登记）。
+ * 记录」：overlay 是可变文件，仅入哈希不可重建，与 rules 注入段同性质同登记）。
  */
 export function resolveBuiltinSystemPromptSourced(
   systemPrompt: string | undefined,
@@ -202,7 +202,7 @@ export function resolveBuiltinSystemPromptSourced(
   if (name === null) return { text: systemPrompt }
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
-    // R75-A-P3b：同 resolvePrompt——exists→read 间隙被删时收编为带路径上下文的明确错误
+    // 同 resolvePrompt——exists→read 间隙被删时收编为带路径上下文的明确错误
     if (existsSync(fp)) {
       return { text: canonicalize(readOverlaySync(fp)), overlayFile: fp }
     }

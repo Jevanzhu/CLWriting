@@ -1,5 +1,5 @@
 /**
- * F5 goal 状态机 + todo 快照重放纯函数（DSH-11/DSH-12，第5.2/5.3节）。
+ * goal 状态机 + todo 快照重放纯函数（DSH-11/DSH-12，第5.2/5.3节）。
  *
  * - foldGoals：按 seq 顺序重放 goal/change 事件 → 当前 goal 列表。
  *   每次变更整快照落库（last-write-wins，无增量对账）；clear 是 tombstone——
@@ -51,9 +51,9 @@ function asTodo(raw: unknown): Todo | null {
 }
 
 /**
- * R66-17（十四轮）：fold 输入的 seq 有序化——生产链（audit/chat-history 每请求
+ * fold 输入的 seq 有序化——生产链（audit/chat-history 每请求
  * foldGoals+foldTodos）喂的是 listEvents 产物，已 ORDER BY seq 升序，两个 fold
- * 各自 `[...events].sort()` 全量复制排序纯属防御性开销（长书几万事件每请求两次）。
+ * 各自 `[...events].sort` 全量复制排序纯属防御性开销（长书几万事件每请求两次）。
  * 零拷贝有序检测：升序输入原引用直用；乱序输入（测试直喂）仍走排序副本，语义不变。
  */
 export function inSeqOrder(events: ChatEvent[]): ChatEvent[] {
@@ -98,7 +98,7 @@ export function foldTodos(events: ChatEvent[]): Todo[] {
     const d = ev.data as TodoWritePayload
     if (!Array.isArray(d['todos'])) continue
     const folded = d['todos'].map(asTodo).filter((t): t is Todo => t !== null)
-    // R48-62（四十八轮）：全脏载荷不覆盖——非空载荷折出空表与「显式清空」不可区分，
+    // 全脏载荷不覆盖——非空载荷折出空表与「显式清空」不可区分，
     // 审计会误读为作者清空清单；warn 留痕后保留上一快照（部分脏仍按合法项收敛，不变）
     if (d['todos'].length > 0 && folded.length === 0) {
       log.warn('goal-state', `todo/write 载荷 ${d['todos'].length} 项全部无法解析，保留上一快照（不当作显式清空）`)
@@ -110,7 +110,7 @@ export function foldTodos(events: ChatEvent[]): Todo[] {
 }
 
 /** 单个 goal 快照的当前状态（无事件 → null）。
- *  R62-32：生产链消费 foldGoals 整表，单查仅测试用——测试资产保留。 */
+ *  ：生产链消费 foldGoals 整表，单查仅测试用——测试资产保留。 */
 export function getGoal(events: ChatEvent[], goalId: string): GoalSnapshot | null {
   return foldGoals(events).find((g) => g.id === goalId) ?? null
 }

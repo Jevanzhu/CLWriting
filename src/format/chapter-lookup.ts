@@ -1,5 +1,5 @@
 /**
- * 章号回退 helper 单源（阶段 24 章节结构操作 S2，D3 留洞制）。
+ * 章号回退 helper 单源（阶段 24 章节结构操作，留洞制）。
  *
  * 被合并的源章从正文区消失（软删回收站），其去向记录在目标章 fm `并入`——按名定位族
  * （数字前缀查表）对源章号 miss 时，经本模块回退到目标章正文：历史章号引用（履历行/
@@ -7,7 +7,7 @@
  * 陈旧 `并入` 映射永不被咨询——通用还原的惰性无害语义）。
  *
  * 成本口径（风险登记 3）：mergedIntoMap 走 readChapterDir meta-only 扫描，其
- * (mtimeNs,size) 逐文件 stat 指纹缓存（CC-P1-3）吸收解析成本；本模块不另建 Map 级
+ * (mtimeNs,size) 逐文件 stat 指纹缓存吸收解析成本；本模块不另建 Map 级
  * 目录指纹缓存（实施首步核实既有缓存形态——已有，无需加）。调用方按需构建（仅 miss
  * 时咨询），勿在热路径每请求主动重建。
  */
@@ -21,7 +21,7 @@ import { log } from '../log/index.js'
 
 /**
  * `并入` 登记单源（冲突 warn + 覆盖）——mergedIntoMap 与「同一次读取顺带解析」的
- * 消费方（foreshadow walk，零额外 IO 约束见其 R66-6 指纹缓存契约）共用同一条登记口径。
+ * 消费方（foreshadow walk，零额外 IO 约束见其指纹缓存契约）共用同一条登记口径。
  */
 export function registerMergedInto(map: Map<number, string>, src: number, targetPath: string): void {
   if (map.has(src)) {
@@ -33,7 +33,7 @@ export function registerMergedInto(map: Map<number, string>, src: number, target
 /**
  * 构建 `并入` 映射：源章号 → 目标章绝对路径（readChapterDir 一遍 meta-only 扫描）。
  * 写侧链式折叠单跳化（11 并 12,13 时 11.并入 = [12, 13]，源 13 直接重指向 11），读侧
- * 无递归；盘面出现「目标自身也被并入」的中间态时按单跳值返回（崩溃不变量由 S5 repair
+ * 无递归；盘面出现「目标自身也被并入」的中间态时按单跳值返回（崩溃不变量由 repair
  * 收口，读取侧不做递归解析）。
  * 跨卷重号先例对齐（foreshadow.ts）：两个章都声明吸收同一源章号时 warn 不炸、后扫
  * 覆盖（与 collectChapterTexts 的「足迹按后扫文件计」同口径）。
@@ -84,13 +84,13 @@ export function chapterTextByNumber(bookRoot: string, chapter: number): string |
   return split ? split.body : raw
 }
 
-// ── 阶段 24 结构键保形（S3：组装/强覆盖链的 序/并入 透传）──────────────────
+// ── 阶段 24 结构键保形（组装/强覆盖链的 序/并入 透传）──────────────────
 
 /** 把盘上既有章 fm 的 序/并入 透传进即将强覆盖的内容（saveDraft 锁内回补单源）。
  *  键级保形：incoming fm 已显式含该键则不覆写（显式产出优先）；盘上无键 / 文件不
  *  存在 / incoming 无 fm（裸 md）→ 原样返回。读失败原样返回（保形是防丢键兜底，
  *  不因它拒绝写盘——写侧防线在保存链自身）。
- *  R0915-P3-7（四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件
+ *  （四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件
  *  不存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
  *  缺省 undefined = 自读（preserveStructureFmForChapter 等其余调用方原样）。 */
 export function preserveStructureFmIn(absPath: string, content: string, existingRaw?: Buffer | null): string {

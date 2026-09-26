@@ -8,48 +8,48 @@
  *   1. 「未配置供应商」文案集中一处，不再 6 文件 6 份手抄（改文案只改这里）；
  *   2. mock 快路统一（tryMockTool / mockText 两形态）——self-heal 补上后六条路径齐备；
  *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
- *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
+ *      ：/spawn 等 fire-and-forget 链路可真正中断）。
  */
 import { createProvider, loadProviders, saveProviders, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage, type StopReason } from './provider/index.js'
-// R0916-7-P3-6：provider 运行时端口（降级记忆回调注册面）——组装根经 configureProviderRuntime
+// provider 运行时端口（降级记忆回调注册面）——组装根经 configureProviderRuntime
 // 注入；缺省进程单例即生产口径（provider/index.js 不在本批改动面，故此处直取 store 子模块）
 import { processProviderRuntime, type ProviderRuntime } from './provider/store.js'
 import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveChunkStallTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
-// R0916-7-P3-15：run 回调返回值 stopReason 的值域守卫（三线归一判别联合的运行时表）
+// run 回调返回值 stopReason 的值域守卫（三线归一判别联合的运行时表）
 import { isStopReason } from './provider/stream-finalize.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
-// R0916-6-P3-3：chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
+// chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
 // 无缓存——每次 chat 发送重读，作者改 book.yaml 下一次发送即生效，单文件毫秒级）
 import { readBookConfig } from '../format/yaml.js'
 import { join } from 'node:path'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-// 复审-0914-优化修复批（P3）：openSessionStoreAsync/bookHash 随 mkChain 底层段收编
+// -：openSessionStoreAsync/bookHash 随 mkChain 底层段收编
 // open-chain.ts 单源移除（唯一消费点）
 import { openChainRecorder } from './open-chain.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
-// R-P3-2：失败出口日志留痕需带「动作名」——直接取决策表现值（failure.ts 唯一事实源），
-// 不在 runner 侧维护第二份 code→action 映射（Z-P2-2 单口径化纪律）
+// 失败出口日志留痕需带「动作名」——直接取决策表现值（failure.ts 唯一事实源），
+// 不在 runner 侧维护第二份 code→action 映射（单口径化纪律）
 import { failureAction } from './provider/failure.js'
 import { errMsg, log } from '../log/index.js'
-// RC 源码重审 A-9（Opus-5.5 轮）：超时文案时长格式化单源（shared/text 零依赖惯例）
+// （Opus-5.5 轮）：超时文案时长格式化单源（shared/text 零依赖惯例）
 import { formatTimeoutText } from '../shared/text.js'
 
-/** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
+/** 降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
  *  丢他键」的窗口越小）；失败不标记，下次 persistDegraded 自动重试。
- *  T2 批（生命周期）：键随活跃 userDataPath 走——resolveProvider 换 path 时清掉他 path
+ * 批（生命周期）：键随活跃 userDataPath 走——resolveProvider 换 path 时清掉他 path
  *  的旧键（注册槽同口径重置，单库桌面/测试进程内键空间 = 模型数个位数，天然有界）。 */
 const degradedPersistedKeys = new Set<string>()
 
-/** T2 批：换 userDataPath 时清理他 path 的降级标记——旧 path 键留着只会让进程切回
+/** 批：换 userDataPath 时清理他 path 的降级标记——旧 path 键留着只会让进程切回
  * 旧库时误判「已写一次」跳过落盘（他进程/磁盘可能已改），键空间生命周期与注册槽对齐。
- *  R46-22（四十六轮）复审澄清：本清理只及 memo Set——两个回调 Map 的键是注册闭包
- *  （非「已写一次」标记），按 R65-6/R30-4 的双库并存设计须常驻：B 活跃期间 A 库
+ *  澄清：本清理只及 memo Set——两个回调 Map 的键是注册闭包
+ *  （非「已写一次」标记），按 /的双库并存设计须常驻：B 活跃期间 A 库
  *  provider 的降级记忆仍须经显式 path 路由落 A 的 providers.json，随本函数清键会让
  *  该写静默丢失（分发 miss）。Map 键空间 = 进程内出现过的 userDataPath 数（生产
  *  单进程单 path；测试为个位数临时目录），一项一个闭包，天然有界。 */
@@ -79,13 +79,13 @@ export interface TaskErr {
   code: TaskCode
   error: string
   /**
-   * R37-7（三十七轮）：失败封套同样携带全 attempt 可得用量累计（recordUsageSafe 已按
+   * 失败封套同样携带全 attempt 可得用量累计（recordUsageSafe 已按
    * 次入账 ai-calls，但封套不带则 done 事件消费方拿不到——self-heal 失败分支的
-   * 预算/成本统计漏记失败调用）。口径与 TaskOk.attemptsUsage 一致（R73-10）；无任何
+   * 预算/成本统计漏记失败调用）。口径与 TaskOk.attemptsUsage 一致；无任何
    * attempt 带回 usage 时为 null。取 provider 失败（未跑 attempt）路径不设此字段。
    */
   attemptsUsage?: TokenUsage | null
-  /** R37-7：失败时实际使用的模型 id（tier.model 快照，计价用——与 TaskOk.model 同源） */
+  /** 失败时实际使用的模型 id（tier.model 快照，计价用——与 TaskOk.model 同源） */
   model?: string | null
 }
 
@@ -96,7 +96,7 @@ export interface TaskOk<T> {
   /** 本次生成的 token 用量（run 回调返回值含 usage 字段时自动提取；mock 快路为 null） */
   usage: TokenUsage | null
   /**
-   * R73-10（二十一轮 A-10）：全部 attempt 的用量累计（重试/中断 attempt 的可得 usage
+   * 全部 attempt 的用量累计（重试/中断 attempt 的可得 usage
    * 一并计入；单 attempt 成功时与 usage 相等）。done 事件消费方（self-heal）取本字段
    * 与 ai-calls.json 按次入账口径对齐——修复前 done 只含末次成功 attempt，前端成本
    * 显示偏低。含任一估计入账（estimated）attempt 时整体带 estimated 标记。
@@ -104,15 +104,15 @@ export interface TaskOk<T> {
   attemptsUsage?: TokenUsage | null
   /** 本次调用的唯一标识（贯穿 trace/SSE/记账三路） */
   runId: string
-  /** 低级项（第六轮）：本次实际使用的模型 id（摘要 fm 等落盘留痕用；mock 快路为 null） */
+  /** 低级项：本次实际使用的模型 id（摘要 fm 等落盘留痕用；mock 快路为 null） */
   model: string | null
 }
 
 export type TaskResult<T> = TaskOk<T> | TaskErr
 
-/** B-1/B4：可重试错误的退避重试（策略集中在 retry-policy.ts：指数退避+对称抖动+Retry-After 封顶） */
+/** /：可重试错误的退避重试（策略集中在 retry-policy.ts：指数退避+对称抖动+Retry-After 封顶） */
 const RETRY_POLICY = DEFAULT_RETRY_POLICY
-/** B-2：整体超时默认上限（档位 timeoutMs 可覆盖） */
+/** 整体超时默认上限（档位 timeoutMs 可覆盖） */
 const DEFAULT_TIMEOUT_MS = 600_000 // 10 min
 
 /** 可中断 sleep（abort 到达立即 resolve，不继续等退避）。
@@ -130,7 +130,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * R0916-7-P3-16（评审 P3-16 第二项）：run 回调返回壳的显式类型守卫。
+ * （评审第二项）：run 回调返回壳的显式类型守卫。
  *
  * 此前四处 extract*（usage / stopReason / resolvedMaxTokens / degraded）各写一遍
  * `(data as Record<string, unknown>)['k']` 鸭子类型抽取——形状知识散在四处、无一处校验，
@@ -142,7 +142,7 @@ function runResultShape(data: unknown): Record<string, unknown> | null {
 }
 
 /** 从 run 回调返回值提取 usage（如有 { usage: TokenUsage } 字段）。
- *  R0912-3（2026-09-12 全量重评修复批 #7）：键存在之外加值类型守卫——计量字段非
+ *  （修复批 #7）：键存在之外加值类型守卫——计量字段非
  *  number（字符串/null 等错型）不透传：inputTokens/outputTokens 错型整体视为缺失 →
  *  null 走兜底（行为与缺失一致，防错型入账累加成字符串拼接/NaN 静默烂账）；可选
  *  cache/reasoning 字段错型按缺失丢弃、estimated 非布尔 true 按未标记丢弃（与 calls.ts
@@ -177,7 +177,7 @@ function extractUsage(data: unknown): TokenUsage | null {
 /**
  * 从 run 回调返回值提取 stopReason（归一枚举值）。
  *
- * R0916-7-P3-15：删除「缺字段/未知字符串 → 默认 'end_turn'」的静默兜底——此前 run 回调
+ * 删除「缺字段/未知字符串 → 默认 'end_turn'」的静默兜底——此前 run 回调
  * 未带 stopReason 时（旧调用方/单测桩/壳形状漂移）trace 与 step/end 双双谎报「正常完成」，
  * 截断被当成功记账。现口径：值在 stopReason 值域（provider/types.ts 判别联合）内则原样
  * 透出；域外字符串与非字符串一律显式归 'unknown' 并日志留痕（丢弃必须可感知）。
@@ -197,41 +197,41 @@ function extractStopReason(data: unknown, task: string | undefined): StopReason 
   return 'unknown'
 }
 
-/** Q-13（第十五轮）：从 run 回调返回值提取适配器 resolve 后上线输出上限
+/** 从 run 回调返回值提取适配器 resolve 后上线输出上限
  *  （GenResult → 编排层 T 透传的 resolvedMaxTokens；无兜底不发/early-error → undefined） */
 function extractMaxTokens(data: unknown): number | undefined {
   const n = runResultShape(data)?.['resolvedMaxTokens']
   return typeof n === 'number' && Number.isFinite(n) ? n : undefined
 }
 
-/** Z-12（第五十八轮）：run 回调壳是否带 degraded（适配器降级面成功 → gen 透传） */
+/** run 回调壳是否带 degraded（适配器降级面成功 → gen 透传） */
 function extractDegraded(data: unknown): boolean {
   return runResultShape(data)?.['degraded'] === true
 }
 
-/** R65-6（总六十五轮）：降级回调注册记录由模块级单值改 Map（key=userDataPath）——
+/** （总六十五轮）：降级回调注册记录由模块级单值改 Map（key=userDataPath）——
  *  同进程先后以两个 userDataPath 各建 provider 时，后注册者不再覆盖前者的降级
  *  持久化回调（旧 provider 触发 persistDegraded 会读写另一个配置目录的 providers.json）。
  *  各 path 的回调闭包入 Map；store 单槽承载稳定分发器（模块级函数引用，
- *  重装幂等）。R30-4（三十轮）：分发器升级为显式 path 优先路由——适配器实例由
+ *  重装幂等）。：分发器升级为显式 path 优先路由——适配器实例由
  *  resolveProvider 注入来源 path（经 createProvider 贯穿至降级链），persistDegraded/
  *  lookupDegraded 调用时显式携带，双库并发生成互不劫持（旧实现按「最近 resolve 的
  *  活跃 path」路由，后 resolve 的库会劫持先库的降级读写）；未传 path（旧形态/单测
  *  直调）回落活跃 path（进程内口径 = 活跃库优先，兼容不变）。
- *  R46-22（四十六轮）复审确认：Map 常驻「只建一次」是设计面而非遗漏——双库并存
- *  （R30-4 锁定）要求他 path 的闭包在换 path 后仍可经显式 path 路由命中，故
+ *  确认：Map 常驻「只建一次」是设计面而非遗漏——双库并存
+ *  （锁定）要求他 path 的闭包在换 path 后仍可经显式 path 路由命中，故
  *  pruneDegradedKeys 不清理两 Map（详见该函数注）。 */
 const degradedPersistByPath = new Map<string, (key: string) => void>()
 const degradedLookupByPath = new Map<string, (key: string) => boolean | undefined>()
 let degradedActivePath: string | null = null
 
-/** 测试探针：R65-6 各 userDataPath 降级持久化回调注册表只读视图（验证两 path 并存
+/** 测试探针：各 userDataPath 降级持久化回调注册表只读视图（验证两 path 并存
  *  互不覆盖；生产零调用，与 degradedPersistedKeysForTest 同款口径） */
 export function degradedPersistCallbacksForTest(): ReadonlyMap<string, (key: string) => void> {
   return degradedPersistByPath
 }
 
-/** R65-6：store 单槽里的稳定分发器——R30-4（三十轮）：显式 path 优先、缺省回落活跃
+/** store 单槽里的稳定分发器——：显式 path 优先、缺省回落活跃
  *  path（重装传同一函数引用，幂等） */
 function degradedPersistDispatch(key: string, userDataPath?: string): void {
   const path = userDataPath ?? degradedActivePath
@@ -243,7 +243,7 @@ function degradedLookupDispatch(key: string, userDataPath?: string): boolean | u
   return path !== null ? degradedLookupByPath.get(path)?.(key) : undefined
 }
 
-/** R0916-7-P3-6：provider 运行时端口（组装根注入）——降级记忆的 persist/lookup 注册面
+/** provider 运行时端口（组装根注入）——降级记忆的 persist/lookup 注册面
  *  由端口承载（缺省进程单例）。所有权：端口对象归组装根；本模块只调用不持有。
  *  级联影响如实记：端口是进程级（AI 执行器本身是进程级），多 server 实例共用一份；
  *  生产单 server 进程一份，无差异。 */
@@ -255,7 +255,7 @@ export function configureProviderRuntime(rt: ProviderRuntime): void {
 }
 
 /**
- * mock 快路开关（R0916-7-P3-6）：**组装根唯一选择点**。
+ * mock 快路开关：**组装根唯一选择点**。
  *
  * 此前 runTask 自己读 CLWRITING_DRIVER 环境变量（=== 'mock'）决定文本型快路是否短路
  * ——选择点埋在执行器内、与「用哪个 driver」两处各判一次，且环境变量一旦被子进程/测试
@@ -273,11 +273,11 @@ export function configureRunnerMockFastPath(on: boolean): void {
 }
 
 /** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。
- *  R0916-7-P3-6：注册**入口**改经注入的 provider 运行时端口（缺省进程单例 → 直达
+ *  ：注册**入口**改经注入的 provider 运行时端口（缺省进程单例 → 直达
  *  store 的模块级槽，行为逐位不变）。 */
 function registerDegradedCallbacks(userDataPath: string): void {
   degradedPersistByPath.set(userDataPath, (key) => {
-    // AA-P3-5：W-P2-9 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
+    // 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
     // （load→改→save 的读改写窗口在多书并发 400 时可互相覆盖丢他键；标记命中即跳过，
     //  写频降到每 key 一次）。失败不标记 → 下次 persistDegraded 自动重试。
     const memoKey = `${userDataPath}\u0000${key}`
@@ -289,10 +289,10 @@ function registerDegradedCallbacks(userDataPath: string): void {
       return
     }
     s.modelCaps[key] = { structured: false }
-    // R29-2（二十九轮）：saveProviders 排队段失败现随返回 promise 上抛——降级记忆落盘是
-    // fire-and-forget 侧通道（AA-P3-5 不中断已成功的建流），此处收口拒绝（saveProviders
+    // saveProviders 排队段失败现随返回 promise 上抛——降级记忆落盘是
+    // fire-and-forget 侧通道（不中断已成功的建流），此处收口拒绝（saveProviders
     // 内部已 log.warn 留痕）；快路同步异常照旧落进 persistDegraded 的 try/catch，语义不变
-    // R34D-7（三十四轮）：per-key 标记移入 saveProviders 成功回调——此前置位在 promise
+    // per-key 标记移入 saveProviders 成功回调——此前置位在 promise
     // 落定前，排队段一旦失败本进程内此 key 被永久短路不再重试（与上方「失败不标记」
     // 相悖）；现失败保持未标记自然重试，成功才标。并发双 persist 同 key 幂等无害：
     // 快路同步落盘后第二调用走「读盘已含」分支收口；在途窗口内双 save 亦只是重复写同值
@@ -300,13 +300,13 @@ function registerDegradedCallbacks(userDataPath: string): void {
       .then(() => { degradedPersistedKeys.add(memoKey) })
       .catch(() => { /* 排队段失败已留痕，未标记 → 下轮 persistDegraded 自然重试 */ })
   })
-  // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
+  // 降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
   // 创建时捕获的 store 快照；loadProviders 有 mtime 缓存，高频 stream 代价可忽略
   degradedLookupByPath.set(userDataPath, (key) => {
     const s = loadProviders(userDataPath)
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
-  // R65-6：分发器随注册重装（同一模块级函数引用——幂等）。R42-21（四十二轮）注释对齐
+  // 分发器随注册重装（同一模块级函数引用——幂等）。注释对齐
   // 实况：ProviderRuntime.__resetForTest 清掉实例降级槽后，只有「换 userDataPath 的下一次 resolve」
   // 会走到本函数重接注册（resolveProvider 侧 `degradedActivePath !== userDataPath` 守卫
   // 对同 path 直接跳过，槽保持空——同 path 不重接）；测试需要同 path 重接时直接重新
@@ -317,7 +317,7 @@ function registerDegradedCallbacks(userDataPath: string): void {
 /**
  * 解析当前供应商 provider（统一错误文案）。
  * `ok:false` 时 code 恒为 NO_USERDATA / NO_PROVIDER / NO_MODEL。
- * R75-A-P3a（批 A）：失败结果附带 modelHint——解析中途已拿到的供应商身份
+ * 失败结果附带 modelHint——解析中途已拿到的供应商身份
  * （`provider:<id>`），供失败路径 trace 的 model 桶使用；连供应商都没解析到时缺省
  * （调用方回落 tier 名），不伪造模型名。
  */
@@ -330,9 +330,9 @@ export function resolveProvider(
 ): { ok: true; provider: ModelProvider; tier: TierSlot; providerId: string } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string; modelHint?: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
-  // O-6（第十三轮）：注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
+  // 注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
   // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册。
-  // R65-6（总六十五轮）：注册记录单值 → Map——换 path 重注册时旧 path 的回调不再被
+  // （总六十五轮）：注册记录单值 → Map——换 path 重注册时旧 path 的回调不再被
   // 覆盖丢失（Map 常驻两 path 各自的闭包，store 槽只换稳定分发器）
   if (degradedActivePath !== userDataPath) {
     degradedActivePath = userDataPath
@@ -340,8 +340,8 @@ export function resolveProvider(
     registerDegradedCallbacks(userDataPath)
   }
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
-  // ee-P1-1：loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
-  // GCM 认证失败等场景会直接 throw——与下方 dd-P2 的 createProvider 同为取 provider 的
+  // ee-loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
+  // GCM 认证失败等场景会直接 throw——与下方 dd- 的 createProvider 同为取 provider 的
   // 入口，却裸穿 {ok:false} 封套（此前 step/start 已落成孤儿、API 层变裸 500），
   // 故收进封套同判 NO_PROVIDER。（上方两个降级回调内的 loadProviders 在生成期才执行，
   // 已被 runTask 主 try 包住，保持不动。）
@@ -357,19 +357,19 @@ export function resolveProvider(
     : s.currentId
       ? (s.providers.find((p) => p.id === s.currentId) ?? null)
       : null
-  // R75-A-P3a：currentId 已知但条目缺失（指向已删供应商）→ 身份仍带上（可定位配置错在哪）
+  // currentId 已知但条目缺失（指向已删供应商）→ 身份仍带上（可定位配置错在哪）
   if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG, ...((providerId ?? s.currentId) ? { modelHint: `provider:${providerId ?? s.currentId}` } : {}) }
   // D 档：模型从任务档位取（creative/assistant），档位未配模型时回落 currentModel
   const tier = tierFromStore(s, tierKind)
-  // R75-A-P3a：NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
+  // NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG, modelHint: `provider:${conf.id}` }
   // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
   // store 传入适配器供降级记忆读写（§6.5）。
-  // R30-4（三十轮）：createProvider 携来源 userDataPath——适配器降级记忆读/写按显式
+  // createProvider 携来源 userDataPath——适配器降级记忆读/写按显式
   // path 分发（实例缓存键亦含 path，同 conf 跨 path 不复用实例），双库并发生成时
   // 各库 provider 的降级记忆落在各自的 providers.json。
-  // dd-P2：createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
-  // 停用期的迁移报错曾属此列，2026-08-17 启用批已随注册回接移除）——
+  // dd-createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
+  // 停用期的迁移报错曾属此列，启用批已随注册回接移除）——
   // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
   // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
   try {
@@ -389,12 +389,12 @@ export function resolveProvider(
  * @param opts.register  登记 ctrl → driver（interrupt / isRunning 生效）。生成结束不自动注销——
  *                        isRunning 设 true 表示「本 session 有生成在途」，由下次 role_spawn/新任务刷新或 dispose 兜底。
  * @param opts.run        真实生成。异常统一包成 GEN_FAIL（abort 导致的异常 → ABORTED）。
- * @param opts.onReset    重试前回调——调用方在此推 reset 事件清前端缓冲（B-1：流式重试防重复产出）。
+ * @param opts.onReset    重试前回调——调用方在此推 reset 事件清前端缓冲（流式重试防重复产出）。
  */
 /**
- * P2：建链路事件录制器（userDataPath + bookRoot + task 齐备才建）。
+ * 建链路事件录制器（userDataPath + bookRoot + task 齐备才建）。
  * workspace 会话的 book 标识 = bookHash(bookRoot)（与对话会话的 bookName 隔离，互不干扰）。
- * T2-2：建链失败（入参缺失/库打不开/构造抛错）整段调用零事件落库，是审计黑洞——
+ * 建链失败（入参缺失/库打不开/构造抛错）整段调用零事件落库，是审计黑洞——
  * 落事件本身需要事件库，库正是缺的，故口径为 logger.warn 结构化留痕（可回溯到日志），
  * 不再静默返 null。
  */
@@ -407,9 +407,9 @@ function mkChain(
     log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'missing-args', hasUserDataPath: !!userDataPath, hasBookRoot: !!bookRoot, task: task ?? null }))
     return Promise.resolve(null)
   }
-  // 复审-0914-优化修复批（P3）：「openSessionStoreAsync → workspaceSession → ChainRecorder
+  // -：「openSessionStoreAsync → workspaceSession → ChainRecorder
   // 失败先关库」底层段收编 open-chain.ts 单源（self-heal mkChain 同源）；本侧结构化 warn
-  // 留痕（T2-2 审计黑洞口径）经 onWarn 钩子保留，reason 取值与 JSON 键序逐字不变。
+  // 留痕（审计黑洞口径）经 onWarn 钩子保留，reason 取值与 JSON 键序逐字不变。
   return openChainRecorder(userDataPath, bookRoot, (reason, error) => {
     log.warn(
       'runner',
@@ -445,12 +445,12 @@ export async function runTask<T>(opts: {
   bookRoot?: string
   /** prompt 文本（trace 脱敏用；不传则 promptMeta 为空） */
   promptText?: string
-  /** system prompt 文本（B-P2-2：trace hash 纳入 system prompt，防同 user prompt 不同规则状态 hash 冲突） */
+  /** system prompt 文本（trace hash 纳入 system prompt，防同 user prompt 不同规则状态 hash 冲突） */
   systemPrompt?: string
-  /** C1（批 2）：prompt 引用的材料文件（相对书根）——进 promptMeta.files，
+  /** prompt 引用的材料文件（相对书根）——进 promptMeta.files，
    *  备料注入（章摘要等）「模型可见 ⟺ 已记录」的登记通道 */
   promptFiles?: string[]
-  /** R59 清偿批（R55-C-6）：模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的
+  /** 清偿批模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的
    *  chatTools）——进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
    *  旧调用方不传则无此键（向后兼容） */
   promptTools?: string[]
@@ -459,11 +459,11 @@ export async function runTask<T>(opts: {
 }): Promise<TaskResult<T>> {
   const runId = newRunId()
   const startMs = Date.now()
-  // R65-12（总六十五轮）：llm/call 的 durationMs 只记本 attempt LLM 调用时长——此前为
+  // （总六十五轮）：llm/call 的 durationMs 只记本 attempt LLM 调用时长——此前为
   // 跨 attempt 累计值（含此前失败 attempt + 退避 sleep），重试链的时延/计费统计失真；
   // 每次 attempt 调 run 前重置（trace-stats 百分位 / 计费消费方口径随之校正）
   let attemptStartMs = startMs
-  // R27-1（二十七轮）：attempt 时长终点点快照——trace 内联 Date.now() 时，成功路径
+  // attempt 时长终点点快照——trace 内联 Date.now 时，成功路径
   // 的 recordUsageSafe 记账 IO（含最长 5s 用量文件锁等待）被计入 llm/call durationMs，
   // 时延/计费统计失真。快照在 run 返回/抛出边界取，记账耗时不再入时长
   let attemptEndedMs = startMs
@@ -471,20 +471,20 @@ export async function runTask<T>(opts: {
   const bookRoot = opts.bookRoot
   const task = opts.task
 
-  // P2：链路事件录制器——先于 mock 快路初始化（P3-6：此前 mkChain 在 mock 快路之后才建，
+  // 链路事件录制器——先于 mock 快路初始化（此前 mkChain 在 mock 快路之后才建，
   // mock 命中的回合不产生任何链路事件，审计流里是黑洞；现提前建，快路也记 step/llm）
   let chain: ChainRecorder | null = null
 
-  /** P2：llm/call 事件（替代 trace 文件落盘；bookRoot + task 齐备才记；观测层静默） */
-  // I7（第十一轮）：resolve 解析值落 trace——实际生效的 effort 与 timeoutMs（含
+  /** llm/call 事件（替代 trace 文件落盘；bookRoot + task 齐备才记；观测层静默） */
+  // resolve 解析值落 trace——实际生效的 effort 与 timeoutMs（含
   // DEFAULT_TIMEOUT_MS 回落后的最终值）随 llm/call 落库，铁律②「默认值显式 resolve」
   // 的重放口径补全（此前 trace 仅落 model，重放无法精确重建档位/超时）。mock 快路与
   // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
   let resolvedEffort: string | undefined = undefined
   let resolvedTimeoutMs: number | undefined = undefined
-  // Q-13（第十五轮）：逐 chunk 挂起时限 resolve 值（gen.generate 同源 resolver——env 纯函数，
+  // 逐 chunk 挂起时限 resolve 值（gen.generate 同源 resolver——env 纯函数，
   // 进程内确定性；mock 快路与取 provider 失败路径在 resolve 之前，undefined 不入事件）。
-  // RC 源码重审 A-8：局部变量随 gen.ts 同批更名（chunk-stall 口径），**事件键名
+  // RC：局部变量随 gen.ts 同批更名（chunk-stall 口径），**事件键名
   // firstByteTimeoutMs 不变**——已落库字段形状属重放契约（events/types.ts 同注）。
   let resolvedChunkStallTimeoutMs: number | undefined = undefined
   const trace = (p: {
@@ -507,35 +507,35 @@ export async function runTask<T>(opts: {
         attempt: p.attempt,
         stopReason: p.stopReason,
         usage: p.usage ? toTraceUsage(p.usage) : undefined,
-        durationMs: attemptEndedMs - attemptStartMs, // R65-12：本 attempt 口径；R27-1 终点快照（见声明处注释）
+        durationMs: attemptEndedMs - attemptStartMs, // 本 attempt 口径；终点快照（见声明处注释）
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
-          ? // R59 清偿批（R55-C-6）：promptTools 并入 promptMeta（tools 摘要键）
+          ? // 清偿mptTools 并入 promptMeta（tools 摘要键）
             { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? [], opts.promptTools ?? []) }
           : {}),
         ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
         ...(resolvedEffort !== undefined ? { effort: resolvedEffort } : {}),
         ...(resolvedTimeoutMs !== undefined ? { timeoutMs: resolvedTimeoutMs } : {}),
         ...(p.maxTokens !== undefined ? { maxTokens: p.maxTokens } : {}),
-        // B-2（第六十轮）：degraded 落事件最后一跳——此前 trace 入参带了但未转发进
-        // llmCallEvent（spread 绕过类型检查静默丢弃），Z-12 的贯通实际断在此处
+        // degraded 落事件最后一跳——此前 trace 入参带了但未转发进
+        // llmCallEvent（spread 绕过类型检查静默丢弃），的贯通实际断在此处
         ...(p.degraded ? { degraded: true } : {}),
         ...(resolvedChunkStallTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedChunkStallTimeoutMs } : {}),
-        // R-8（十五轮登记销账）：进程内参数表版本常量——mock 快路/失败路径同样携带
+        // （十五轮登记销账）：进程内参数表版本常量——mock 快路/失败路径同样携带
         //（表版本与调用成败无关，重放漂移检测需要全量覆盖）
         quirksVersion: MODEL_QUIRKS_VERSION,
       }),
     )
   }
 
-  // P3-6：step/start 先落库（mock 快路 / resolveProvider 失败路径在其后各自收尾）
-  // R34D-19（三十四轮）：mkChain 转异步（开库锁等待不阻塞服务事件循环）
+  // step/start 先落库（mock 快路 / resolveProvider 失败路径在其后各自收尾）
+  // mkChain 转异步（开库锁等待不阻塞服务事件循环）
   chain = await mkChain(opts.userDataPath, bookRoot, task)
   if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
   let stepReason: StepEndReason | undefined
 
-  /** mock 快路收尾：step/end + 释放 chain（防 finally 双 close；P3-6 补记链路事件） */
+  /** mock 快路收尾：step/end + 释放 chain（防 finally 双 close；补记链路事件） */
   const finishMock = (): void => {
     stepReason = 'completed'
     if (chain) {
@@ -549,33 +549,33 @@ export async function runTask<T>(opts: {
   if (opts.mockTool) {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
-      // B-11（第六十轮）：mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——此前记 null 而
+      // mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——此前记 null 而
       // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
-      // R0912-3（2026-09-11 修复批）：ctrl 契约对齐真实路径——TaskOk.ctrl 恒为
-      // opts.ctrl ?? 新建（ee-P1-2「TaskOk.ctrl 对外是外部 ctrl」的 mock 半边此前
+      // （修复批）：ctrl 契约对齐真实路径——TaskOk.ctrl 恒为
+      // opts.ctrl ?? 新建（ee-「TaskOk.ctrl 对外是外部 ctrl」的 mock 半边此前
       // 脱钩为无名新控制器）。mock 语义下无行为差，纯契约一致。
       return { ok: true, data: mock as unknown as T, ctrl: opts.ctrl ?? new AbortController(), usage: mock.usage, attemptsUsage: mock.usage, runId, model: null }
     }
   }
-  // mock 快路（文本型）：组装根选定 mock 驱动时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）。
-  // R0916-7-P3-6：判断只认注入的 mockFastPath（原为该环境变量的调用期读取）。
+  // mock 快路（文本型）：组装根选定 mock 驱动时直接返回预定值（守卫位置与 tryMockTool 对称）。
+  // 判断只认注入的 mockFastPath（原为该环境变量的调用期读取）。
   if (opts.mockText !== undefined && mockFastPath) {
-    // R41-5（四十一轮）：usage 对齐工具快路 MOCK_USAGE（B-11 口径）——此前文本快路
+    // usage 对齐工具快路 MOCK_USAGE（口径）——此前文本快路
     // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })
     finishMock()
-    // R0912-3：同上——ctrl 返回外部传入的 opts.ctrl（缺省新建），与真实路径契约对称
+    // 同上——ctrl 返回外部传入的 opts.ctrl（缺省新建），与真实路径契约对称
     return { ok: true, data: opts.mockText, ctrl: opts.ctrl ?? new AbortController(), usage: MOCK_USAGE, attemptsUsage: MOCK_USAGE, runId, model: null }
   }
 
-  // R0916-6-P3-3（评审修复批）：chat 任务按书预算闸——book.yaml budget.chat_max_calls
+  // （评审修复批）：chat 任务按书预算闸——book.yaml budget.chat_max_calls
   // 可选键，未设 = 不限（零行为变化，连账本都不读）；配了则按写稿链同款「次数口径」
   // 在 runTask 入口闸检。写稿链的闸在 self-heal 编排层（checkAiCallBudget 前置两道），
   // chat 无编排层宿主，闸检落 runTask 单点；轮循环每次发送与收尾压缩（finish.ts 同
   // task:'chat'）都过此处，账本 tasks.chat 块本就由两处共用同键累计，闸与账同口径。
-  // RC 全项目重审 P3：mock 快路在上文已短路返回——mock 不入账不计费（与零计费契约
+  // RC 全项目：mock 快路在上文已短路返回——mock 不入账不计费（与零计费契约
   // 自洽），故 mock 会话不过本闸；测试要验证预算闸行为时须用非 mock 档。
   // a7 收缩重试是第二次 runTask，账已记入，重查自然趋紧——与写稿链「重写前重查」同构。
   // 失败出口形态对齐下方 resolveProvider 失败分支（trace + step/end 'error' + 日志留痕
@@ -597,34 +597,34 @@ export async function runTask<T>(opts: {
 
   const r = resolveProvider(opts.userDataPath, tierKind, opts.providerId)
   if (!r.ok) {
-    // R75-A-P3a（批 A）：失败路径 trace 不再记空 model——trace-stats/cost-stats 按 model
+    // 失败路径 trace 不再记空 model——trace-stats/cost-stats 按 model
     // 聚合，'' 落空桶。model 拿不到时至少带可得身份：resolveProvider 已解析到供应商 →
     // provider:<id>；连供应商都没解析到（NO_USERDATA/配置读取失败）→ 档位名 tier:<kind>
     // （tierKind 虽已单列在事件里，model 聚合桶仍需非空可区分值）
     trace({ model: r.modelHint ?? `tier:${tierKind}`, attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: r.code })
-    // P3-6：step/start 已落——失败路径也必须 step/end 收尾（防孤儿 step/start）
+    // step/start 已落——失败路径也必须 step/end 收尾（防孤儿 step/start）
     stepReason = 'error'
     if (chain) {
       chain.add(stepEndEvent(task!, layerForTask(task!), 'error'))
       chain.close()
       chain = null
     }
-    // R-P3-2：配置类失败（NO_USERDATA/NO_PROVIDER/NO_MODEL）日志留痕——此前仅事件库
+    // 配置类失败（NO_USERDATA/NO_PROVIDER/NO_MODEL）日志留痕——此前仅事件库
     // trace（bookRoot+task 齐备才落），日志通道零线索；未触决策表（无 GenError），
     // 不带 action 字段
     log.warn('runner', JSON.stringify({ msg: 'AI 任务取 provider 失败（终态）', task: task ?? null, bookRoot: bookRoot ?? null, code: r.code, error: r.error }))
     return r
   }
 
-  // ee-P1-2：外部 ctrl（opts.ctrl / register / TaskOk.ctrl 的对外契约）与内部 ctrl 分离——
+  // ee-外部 ctrl（opts.ctrl / register / TaskOk.ctrl 的对外契约）与内部 ctrl 分离——
   // 整体超时只 abort 内部 ctrl 终止本次 runTask，不再污染编排级共享 ctrl（self-heal 一个
   // ctrl 跑多章：此前超时 abort 共享 ctrl 后被其 `state.ctrl.signal.aborted` 判吞成用户
   // 中断，超时文案丢失且后续章静默停摆）。外部中断经 forwardAbort 转发进内部 ctrl，
   // 下方运行与 catch 判定全走内部（对外契约不变，abortCause 按触发序区分超时 vs 中断）。
   const external = opts.ctrl ?? new AbortController()
   const ctrl = new AbortController()
-  // P-5（第十四轮）：中断/超时归因按「谁先触发」记录——外部中断闭包与总超时定时器
-  // 各自先登记 abortCause 再 abort()（JS 单线程下登记序 = 触发序）。此前 catch 里只看
+  // 中断/超时归因按「谁先触发」记录——外部中断闭包与总超时定时器
+  // 各自先登记 abortCause 再 abort（JS 单线程下登记序 = 触发序）。此前 catch 里只看
   // timedOut 布尔：用户恰在超时边界主动中断（timer 晚半拍仍触发）会被 trace 记成
   // TIMEOUT_TOTAL——行为（abort/重试豁免/入账）不变，仅修诊断口径。
   let abortCause: 'external' | 'total-timeout' | null = null
@@ -637,7 +637,7 @@ export async function runTask<T>(opts: {
   else external.signal.addEventListener('abort', forwardAbort, { once: true })
   if (opts.register) opts.register(external)
 
-  // B-2：整体超时（档位 timeoutMs 可覆盖默认 10min）——abort 内部 ctrl，由下方 catch 区分超时 vs 用户中断
+  // 整体超时（档位 timeoutMs 可覆盖默认 10min）——abort 内部 ctrl，由下方 catch 区分超时 vs 用户中断
   // tier 复用 resolveProvider 已算出的（不再单独调 resolveTier，省 1 次 loadProviders + vault 解密）
   const tier = r.tier
   const timeoutMs = tier.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -649,12 +649,12 @@ export async function runTask<T>(opts: {
     ctrl.abort()
   }, timeoutMs)
 
-  // 二轮复审（M 项）：记账 IO 防护——记账写库（R46-21 起为 recordUsageBoth 单写段，
+  // （M 项）：记账 IO 防护——记账写库（起为 recordUsageBoth 单写段，
   // 此前 recordTaskUsage/recordAiCall 两段）抛错（磁盘满/库锁/
   // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
   // 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
   // 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
-  // R73-10（二十一轮 A-10）：本助手每次 attempt 恰被调用一次——同点累计全 attempt 可得
+  // 本助手每次 attempt 恰被调用一次——同点累计全 attempt 可得
   // usage（attemptsUsage），done 事件消费方与按次入账的账本口径对齐。
   let attemptsUsage: TokenUsage | null = null
   const accumulateAttemptsUsage = (u: TokenUsage | null): void => {
@@ -671,17 +671,17 @@ export async function runTask<T>(opts: {
     if (u.cacheWriteTokens !== undefined) {
       attemptsUsage.cacheWriteTokens = (attemptsUsage.cacheWriteTokens ?? 0) + u.cacheWriteTokens
     }
-    // R33-20（三十三轮）：reasoningTokens 同口径累计（responses 线观测位此前漏计）
+    // reasoningTokens 同口径累计（responses 线观测位此前漏计）
     if (u.reasoningTokens !== undefined) {
       attemptsUsage.reasoningTokens = (attemptsUsage.reasoningTokens ?? 0) + u.reasoningTokens
     }
-    if (u.estimated) attemptsUsage.estimated = true // R73-1 协同：任一估计 attempt 污染整体标记
+    if (u.estimated) attemptsUsage.estimated = true // 协同：任一估计 attempt 污染整体标记
   }
   const recordUsageSafe = (usage: TokenUsage | null): void => {
     accumulateAttemptsUsage(usage)
     if (!bookRoot) return
     try {
-      // R46-21（四十六轮）：task/chapter 两块合并单写段（recordUsageBoth 一次
+      // task/chapter 两块合并单写段（recordUsageBoth 一次
       // 「锁+读+写+fsync」同改两块）——此前 recordTaskUsage 与 recordAiCall 先后
       // 各一段 RMW，同账本双写纯增争用窗口；cost 仅 chapter 块需要（配价才算，
       // 未配价 undefined=口径不生效，与旧 recordAiCall 调用点一致）
@@ -695,7 +695,7 @@ export async function runTask<T>(opts: {
     }
   }
 
-  // R37-7（三十七轮）：中断/超时封套也带 attemptsUsage——X-P2-10 中断路径已按次入账，
+  // 中断/超时封套也带 attemptsUsage—— 中断路径已按次入账，
   // 封套同步透出（下游 done 事件失败分支并入 usage，不再漏记）
   const timeoutAbort = (): TaskErr => {
     if (abortedByUser()) {
@@ -703,11 +703,11 @@ export async function runTask<T>(opts: {
       // 记录即刷屏）；用户面由调用方 done 事件如实反映
       return { ok: false, code: 'ABORTED', error: '已中断', attemptsUsage, model: tier.model }
     }
-    // R-P3-2：总超时属真实失败（时间预算耗尽）——三处收口（成功边界 abort / catch abort /
+    // 总超时属真实失败（时间预算耗尽）——三处收口（成功边界 abort / catch abort /
     // 退避 sleep 中 abort）共走本函数，日志单点留痕；task/bookRoot 缺省时事件库 llm/call
     // 也不落（mkChain 返 null），本行是日志通道唯一线索
     log.warn('runner', JSON.stringify({ msg: 'AI 任务总超时（终态）', task: task ?? null, bookRoot: bookRoot ?? null, code: 'TIMEOUT_TOTAL', timeoutMs }))
-    // RC 源码重审 A-9（Opus-5.5 轮）：此前写死 `${timeoutMs / 60_000} 分钟`——档位可配
+    // （Opus-5.5 轮）：此前写死 `${timeoutMs / 60_000} 分钟`——档位可配
     // 任意毫秒值，非整分钟配置下作者看到「1.5 分钟」「0.001 分钟」；改走单源格式化
     // （<1s 毫秒 / <60s 秒 / 否则分钟，向下取整——文案是「超过 N」的口径）
     return { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${formatTimeoutText(timeoutMs)}）`, attemptsUsage, model: tier.model }
@@ -716,22 +716,22 @@ export async function runTask<T>(opts: {
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        attemptStartMs = Date.now() // R65-12：每次 attempt 的 LLM 调用起点（不含上一轮退避）
+        attemptStartMs = Date.now() // 每次 attempt 的 LLM 调用起点（不含上一轮退避）
         attemptEndedMs = attemptStartMs
         const data = await opts.run(r.provider, ctrl.signal, r.tier).then(
           (d) => {
-            attemptEndedMs = Date.now() // R27-1：run 返回边界即计时长终点
+            attemptEndedMs = Date.now() // run 返回边界即计时长终点
             return d
           },
           (e) => {
-            attemptEndedMs = Date.now() // R27-1：失败 attempt 时长到抛出边界（不含后续退避 sleep）
+            attemptEndedMs = Date.now() // 失败 attempt 时长到抛出边界（不含后续退避 sleep）
             throw e
           },
         )
-        // O-5（第十三轮）：run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
+        // run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
         // 定时器竞态）——按中断/超时口径收口，不把「成功」契约让给可能被截断的流；
         // 此前靠调用方（self-heal 等）各自二次检查兜底，现收归 runTask 单点，调用方
-        // 幂等检查保留不动。中断路径入账口径随 X-P2-10（真实消耗按次入账）。
+        // 幂等检查保留不动。中断路径入账口径随（真实消耗按次入账）。
         if (ctrl.signal.aborted) {
           const abortedUsage = extractUsage(data)
           recordUsageSafe(abortedUsage)
@@ -740,42 +740,42 @@ export async function runTask<T>(opts: {
           return timeoutAbort()
         }
         const usage = extractUsage(data)
-        // T5：记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
-        // D3（批 5）：配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
+        // 记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
+        // 配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
         recordUsageSafe(usage)
-        // R0916-7-P3-15：stopReason 单次抽取——trace 与 stepReason 同源（原两次调用，
+        // stopReason 单次抽取——trace 与 stepReason 同源（原两次调用，
         // 未知值留痕路径会重复落两行日志）
         const stopReason = extractStopReason(data, task)
         trace({ model: tier.model, attempt, stopReason, usage, ok: true, maxTokens: extractMaxTokens(data), ...(extractDegraded(data) ? { degraded: true } : {}) })
         stepReason = stopReason === 'max_tokens' ? 'max-tokens' : 'completed'
-        // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
+        // ee-TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
         return { ok: true, data, ctrl: external, usage, attemptsUsage, runId, model: tier.model }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
         if (ctrl.signal.aborted) {
-          // X-P2-10：中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
+          // 中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
           // 否则中断重跑可绕过预算闸（task/chapter 两块与成功/重试路径同口径）
-          // R31-8（三十一轮）：abort 边界同拍抛出的 GenError 若携 usage（B-12/R31-1
+          // abort 边界同拍抛出的 GenError 若携 usage（/
           // 载荷通道，如截断随错上抛），按真实消耗入账而非记 0
           const abortUsage = e instanceof GenError && e.usage ? e.usage : null
           recordUsageSafe(abortUsage)
           trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: abortUsage, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
-          // AA-P3-4：step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
+          // step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
           // 'interrupted'（执行被强制中止），用户中断记 'aborted'（审计可区分两类终止）
           stepReason = abortedByUser() ? 'aborted' : 'interrupted'
           return timeoutAbort()
         }
-        // B-1/B4：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
+        // /：可重试（429/5xx/超时/网络，code 命中或布尔兜底）且未超限 → 退避后重试
         if (e instanceof GenError && shouldRetryError(RETRY_POLICY, e) && attempt < RETRY_POLICY.maxRetries) {
           const delay = backoffDelayMs(RETRY_POLICY, attempt + 1, {
             ...(e.retryAfterMs !== undefined ? { providerRetryAfterMs: e.retryAfterMs } : {}),
           })
-          // R34D-1（三十四轮）：失败响应并非必无 usage——截断带 usage 机制（B-12/R31-1）
+          // 失败响应并非必无 usage——截断带 usage 机制（/）
           // 下 GenError.usage 在手即真值，重试两分支（Retry-After 超封顶 / 正常退避）与
           // abort/fail 两分支同口径按可得值入账；无 usage 保持 null 口径不变
-          // R0912-D-P3-2：外层 if 已收窄 e instanceof GenError（:640），冗余前半判定删除
+          // 外层 if 已收窄 e instanceof GenError（640），冗余前半判定删除
           const retryUsage = e.usage ? e.usage : null
-          // B4：服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
+          // 服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
             recordUsageSafe(retryUsage)
             trace({
@@ -786,11 +786,11 @@ export async function runTask<T>(opts: {
               ok: false,
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
-            // R-P3-2：Retry-After 超封顶终态日志留痕——决策表判 'retry' 却被服务端等待值
+            // Retry-After 超封顶终态日志留痕——决策表判 'retry' 却被服务端等待值
             // 否决的出口，此前仅事件库 trace；带决策表动作名 + 服务端值/封顶值可归因
             log.warn('runner', JSON.stringify({ msg: 'Retry-After 超退避封顶，停止重试（终态）', task: task ?? null, bookRoot: bookRoot ?? null, attempt, action: failureAction(e), retryAfterMs: e.retryAfterMs, capMs: RETRY_POLICY.maxDelayMs, error: e.message }))
             stepReason = 'error'
-            // R37-7：Retry-After 终态封套携带 attemptsUsage/model（同终态失败分支口径）
+            // Retry-After 终态封套携带 attemptsUsage/model（同终态失败分支口径）
             return {
               ok: false,
               code: 'GEN_FAIL',
@@ -799,41 +799,41 @@ export async function runTask<T>(opts: {
               model: tier.model,
             }
           }
-          // W-P2-8：重试也是真实 API 消耗——按次入账，
+          // 重试也是真实 API 消耗——按次入账，
           // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
-          // （R34D-1：token 量改按 retryUsage——「失败响应无 usage，token 记 0」系截断带
-          // usage 机制引入前的过期假设，与 abort(:566)/终态失败(:621) 两分支口径对齐）
+          // （token 量改按 retryUsage——「失败响应无 usage，token 记 0」系截断带
+          // usage 机制引入前的过期假设，与 abort(566)/终态失败(621) 两分支口径对齐）
           recordUsageSafe(retryUsage)
-          // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
-          // A5：errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
+          // 失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
+          // errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
           trace({ model: tier.model, attempt, stopReason: 'error', usage: retryUsage, ok: false, errCode: e.code ?? 'RETRYABLE' })
-          // R-P3-2：重试出口日志留痕（决策表 'retry' 动作执行点）——用户面 warning 走
+          // 重试出口日志留痕（决策表 'retry' 动作执行点）——用户面 warning 走
           // onRetry（调用方接线才生效，spawn 链未接），事件库 llm/retry 需 bookRoot+task
           // 齐备；日志通道补底（task/bookRoot/attempt/动作/原因全带，退避风暴可归因）
           log.warn('runner', JSON.stringify({ msg: 'AI 调用失败，按决策表退避重试', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: e.code ?? null, action: failureAction(e), delayMs: delay, error: e.message }))
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
-          // P2：llm/retry 重试记账（先落库后等待）——重试链可重放（R0912-D-P3-2：分支内
+          // llm/retry 重试记账（先落库后等待）——重试链可重放（分支内
           // e 已收窄为 GenError，冗余 instanceof 判定删除）
           chain?.add(llmRetryEvent({ attempt, delayMs: delay, ...(e.code ? { errCode: e.code } : {}) }))
-          chain?.flush() // Z-P2-7：批缓冲下显式落盘，保住「先落库后等待」语义
+          chain?.flush() // 批缓冲下显式落盘，保住「先落库后等待」语义
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
-            // R42-20（四十二轮）：此处不再 trace——上方（N5/A5 处）已对同 attempt 落过
+            // 此处不再 trace——上方（/处）已对同 attempt 落过
             // 'error' 事件，再落 ABORTED 会让 trace-stats/cost-stats 对同一 attempt 双计
-            // （llm/call 是历史聚合唯一真源）；保留 stepReason 终态与 timeoutAbort() 收口
+            // （llm/call 是历史聚合唯一真源）；保留 stepReason 终态与 timeoutAbort 收口
             stepReason = abortedByUser() ? 'aborted' : 'interrupted'
             return timeoutAbort()
           }
           continue
         }
-        // X-P2-10：终态失败的调用同样入账（成功/重试/中断/失败四路同口径，预算闸不再被失败路径绕过）
-        // B-12（第六十轮）：网关已返回 usage 的终态失败（max_tokens 截断随 GenError.usage
+        // 终态失败的调用同样入账（成功/重试/中断/失败四路同口径，预算闸不再被失败路径绕过）
+        // 网关已返回 usage 的终态失败（max_tokens 截断随 GenError.usage
         // 载荷上抛）按可得值入账/入 trace——多数失败响应无 usage，保持 null 口径不变
         const failUsage = e instanceof GenError && e.usage ? e.usage : null
         recordUsageSafe(failUsage)
-        // A5：终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
+        // 终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
         trace({
           model: tier.model,
           attempt,
@@ -843,22 +843,22 @@ export async function runTask<T>(opts: {
           errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
         })
         stepReason = 'error'
-        // R-P3-2：终态失败日志留痕——动作名取决策表现值（author / switch-provider /
-        // shrink-prompt 在 A7 接线前同归终态、重试耗尽时 action 仍为 'retry'，见
+        // 终态失败日志留痕——动作名取决策表现值（author / switch-provider /
+        // shrink-prompt 在接线前同归终态、重试耗尽时 action 仍为 'retry'，见
         // failure.ts 决策表注释）；此前仅事件库 llm/call（chain 缺失时零线索），日志
         // 通道无任何痕迹。非 GenError 异常按 GEN_FAIL 兜底口径记 action:'author'
         log.warn('runner', JSON.stringify({ msg: 'AI 调用终态失败', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: (e instanceof GenError && e.code) || 'GEN_FAIL', action: e instanceof GenError ? failureAction(e) : 'author', error: errMsg(e) }))
-        // R37-7（三十七轮）：终态失败封套携带 attemptsUsage/model——recordUsageSafe 已按
+        // 终态失败封套携带 attemptsUsage/model——recordUsageSafe 已按
         // 次入账 ai-calls，封套同步透出供下游（self-heal 失败分支）并入 done 事件用量
         return { ok: false, code: 'GEN_FAIL', error: errMsg(e), attemptsUsage, model: tier.model }
       }
     }
   } finally {
     clearTimeout(totalTimer)
-    // ee-P1-2：摘掉外部 ctrl 上的转发监听——self-heal 一个 ctrl 跑多章，不摘会在长寿命
+    // ee-摘掉外部 ctrl 上的转发监听——self-heal 一个 ctrl 跑多章，不摘会在长寿命
     // ctrl 上逐章累积 listener 触发 MaxListenersExceededWarning（once 触发后此调用为无害 no-op）
     external.signal.removeEventListener('abort', forwardAbort)
-    // P2：step/end 结构化终止原因（先落库后清理）——五层链路终止可查
+    // step/end 结构化终止原因（先落库后清理）——五层链路终止可查
     if (chain) {
       if (stepReason) chain.add(stepEndEvent(task!, layerForTask(task!), stepReason))
       chain.close()

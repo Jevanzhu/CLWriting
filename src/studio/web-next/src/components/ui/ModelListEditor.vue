@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 模型行编辑器（阶段 14 P9 §7.1，对齐 DSH 四字段 + ModelListEditor 探测交互）。
+ * 模型行编辑器（阶段 14 §7.1，对齐 DSH 四字段 + ModelListEditor 探测交互）。
  * 每行：id（必填/唯一）+ name（可选）；行内展开 contextWindow/maxTokens（K/M 后缀，空 = 不声明）。
  * 「获取模型列表」按 dsh 语义探测端点——用表单当前值（含未保存的 Key，新增卡一趟完成），
  * 编辑卡 Key 留空则回退已存 id 凭据；成功即弹勾选窗（未配置的预勾、已配置的不勾），
@@ -40,7 +40,7 @@ type LocalRow = ModelRowDraft & { _key: number }
 let keySeq = 0
 const rows = ref<LocalRow[]>(props.modelValue.map((r) => ({ ...r, _key: ++keySeq })))
 
-// R37-34（三十七轮批E）：外部 modelValue 变更（如恢复默认/父层整体重置草稿）须重建行
+// 外部 modelValue 变更（如恢复默认/父层整体重置草稿）须重建行
 // 列表——原只在 setup 取初值，外部改 props 后行列表纹丝不动。与「最近一次 emit 的值」
 // 逐行比较（lastEmitted 缓存）：自身 emit 经 v-model 回流的同值不重建，防行内编辑态
 // （展开/输入焦点）被无谓的重建打断
@@ -116,7 +116,7 @@ const fetchHint = computed(() => {
 const busy = ref(false)
 const failure = ref<string>()
 
-// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：armed 单门——探测（fetchModels）
+// （修复批）：armed 单门——探测（fetchModels）
 // 在途时实例卸载（父卡收起/弹窗关闭），迟到的响应续体此前照旧写回死实例的
 // busy/failure/showPicker（低敏写回，非泄漏级）。对齐 style 系 armed /
 // SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
@@ -133,7 +133,7 @@ async function fetchList(): Promise<void> {
   failure.value = undefined
   try {
     const r = await fetchModels(body)
-    if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例（failure/showPicker 同门）
+    if (!armed) return // 卸载后不写回死实例（failure/showPicker 同门）
     if (r.models.length === 0) {
       failure.value = '端点未返回任何模型'
       return
@@ -144,7 +144,7 @@ async function fetchList(): Promise<void> {
     picked.value = new Set(r.models.filter((m) => !known.has(m)))
     showPicker.value = true
   } catch (e) {
-    if (!armed) return // R1010b-FTC-P3-2：失败路径同门
+    if (!armed) return // 失败路径同门
     failure.value = e instanceof Error ? e.message : String(e)
   } finally {
     if (armed) busy.value = false

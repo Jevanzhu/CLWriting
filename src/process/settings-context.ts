@@ -1,10 +1,10 @@
 /**
- * 设定上下文 RAG 注入（P1-8 架构下沉：从 studio/server/api/settings 下沉内核）。
+ * 设定上下文 RAG 注入（架构下沉：从 studio/server/api/settings 下沉内核）。
  *
  * buildSettingsContext：角色卡 + 境界体系 → 上下文摘要（AI 写稿/对话 prompt 注入用）。
  * 供 ai/prompts、ai/orchestrate、studio/server/api/draft 共用。
  *
- * C3（DSH-17 预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档），
+ * （DSH-17 预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档），
  * 供 draft-pipeline 组装预算注入；buildSettingsContext 改为按层拼接，渲染格式不变。
  */
 import { join, basename, relative, sep } from 'node:path'
@@ -14,7 +14,7 @@ import { readRealmDoc } from '../format/realms.js'
 import { isMdFileName } from '../format/filename.js'
 import type { SettingsLayer } from './settings-injection.js'
 
-/** 角色卡(P2 结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
+/** 角色卡(结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
 export interface CharacterCard {
   file: string // 相对 bookRoot
   姓名: string
@@ -31,20 +31,20 @@ function normalizeProjectPath(file: string): string {
 
 // ii 批（评审 #19 残余）：角色卡 stat 级缓存——settings GET / 关系梳理输入每次全量
 // readFile+parseFlat 所有卡（大书几十张卡+长正文，同步 IO 阻塞事件循环）。与 chapters.ts
-// CC-P1-3 同口径：(mtimeMs,size) 命中跳过整读；变化/新增/删除由每轮 readdir 自愈；
-// 返回浅拷贝防调用方 mutate 污染缓存。含 mtime+size 撞车理论窗口（同 CC-P1-3，接受）。
+// 同口径：(mtimeMs,size) 命中跳过整读；变化/新增/删除由每轮 readdir 自愈；
+// 返回浅拷贝防调用方 mutate 污染缓存。含 mtime+size 撞车理论窗口（同，接受）。
 interface CardCacheEntry {
   mtimeMs: number
   size: number
   card: CharacterCard
 }
-/** 内存闸（2026-08-24 审计 C1）：FIFO 上限——缓存值含卡片正文全文，模块级跨书长跑
+/** 内存闸（审计）：FIFO 上限——缓存值含卡片正文全文，模块级跨书长跑
  *  进程只 set 不 delete 无界增长；口径对齐 document/tree.ts probeCache（Map 保插入序、
  *  命中不续位），64 = 单书角色卡常见规模（几十张）的余量，淘汰后下轮 readdir 重读即可。 */
 const CARD_CACHE_MAX = 64
 const cardCache = new Map<string, CardCacheEntry>()
 
-/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用）——清空角色卡缓存；
+/** （修复批）：测试专用导出（零生产调用）——清空角色卡缓存；
  *  生产侧变化由每轮 readdir 的 (mtimeMs,size) 指纹自愈，无需显式清。 */
 export function clearCharacterCardCache(): void {
   cardCache.clear()
@@ -56,7 +56,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   if (!existsSync(dirPath)) return out
   let files: string[]
   try {
-    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
     // .MD 角色卡不进 AI 上下文（本函数是写稿/对话 prompt 设定注入的唯一数据源）
     files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
@@ -92,7 +92,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
       }
     } else {
       // 降级:无 front matter(旧自由 MD),姓名=文件名,正文=全文
-      // R65-32（第六十五轮）：降级分支的二次裸读此前必然再抛（无 fm 与读盘失败混在
+      // 降级分支的二次裸读此前必然再抛（无 fm 与读盘失败混在
       // 同一 else——stat 缓存 miss 后重读盘的 EACCES/TOCTOU 直穿整目录读取）——
       // 包 try/catch 失败跳过该卡，与本函数其余 per-file 容错口径一致
       let text: string
@@ -111,7 +111,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         正文: text.trim(),
       }
     }
-    // FIFO 淘汰最旧（内存闸 2026-08-24 审计 C1；Map 保插入序，与 tree.ts probeCache 同口径）
+    // FIFO 淘汰最旧（内存闸审计；Map 保插入序，与 tree.ts probeCache 同口径）
     if (cardCache.size >= CARD_CACHE_MAX) {
       const oldest = cardCache.keys().next().value
       if (oldest !== undefined) cardCache.delete(oldest)
@@ -119,7 +119,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
     cardCache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, card })
     out.push({ ...card })
   }
-  // 删除自愈（内存闸 2026-08-24 审计 C1）：每轮 readdir 遍历后用 seen 集合清扫本目录内
+  // 删除自愈（内存闸审计）：每轮 readdir 遍历后用 seen 集合清扫本目录内
   // 已不在磁盘的键（对照 chapters.ts readChapterDir 的 seen-set 同款实现）。只匹配
   // dirPath + 分隔符 前缀——缓存为模块级跨目录共享，按本轮 seen 全表清扫会误删其他
   // 书/目录的活跃条目（stat 失败跳过的文件不进 seen，同样被清扫，行为正确）。
@@ -131,7 +131,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
 }
 
 /**
- * 角色层 + 境界层 → 结构化设定层（C3 预算注入用，均 volume 档）。
+ * 角色层 + 境界层 → 结构化设定层（预算注入用，均 volume 档）。
  * 各层 text 渲染格式与原 buildSettingsContext 完全一致（含 '## …' 标题头）。
  */
 export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
@@ -149,7 +149,7 @@ export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
             return `- ${c.姓名}${meta ? `(${meta})` : ''}`
           })
           .join('\n'),
-      // Q-5：角色层源文件（CharacterCard.file 已是相对书根）
+      // 角色层源文件（CharacterCard.file 已是相对书根）
       sources: chars.map((c) => c.file),
     })
   }

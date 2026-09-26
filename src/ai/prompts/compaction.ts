@@ -1,5 +1,5 @@
 /**
- * 历史压缩规划（批次 B1 / CS-7+CS-8 直抄思想；回合判定按 CLWriting 配对版重写）。
+ * 历史压缩规划（批次 / CS-7+CS-8 直抄思想；回合判定按 CLWriting 配对版重写）。
  *
  * cherry 的 groupIntoTurns 按 role:'tool' 判回合；CLWriting 的 tool_result 是
  * user 消息的 content block（Anthropic 风格），配对判定改为：
@@ -60,8 +60,8 @@ export function planCompaction(messages: ChatMsg[], opts: { keepTurns: number })
   }
 }
 
-// R0912-D-P3-1：码点计数零分配（热路径每轮全历史计量不物化数组）。
-// 复审-0914-优化 A2：实现收编 src/shared/text.ts 单源（原本地副本删）。
+// 码点计数零分配（热路径每轮全历史计量不物化数组）。
+// -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
 import { codePointLength } from '../../shared/text.js'
 
 
@@ -88,7 +88,7 @@ interface CompactOutcome {
   /** 被压掉的消息条数（>0 = 发生了压缩；0 = no-op，调用方跳过遮蔽/持久化） */
   summarizedCount: number
   /**
-   * 本次是否因溢出被触发压缩（P3-7 改名：真实含义是「被触发」，不是「仍在溢出」——
+   * 本次是否因溢出被触发压缩（改名：真实含义是「被触发」，不是「仍在溢出」——
    * 压缩成功也返回 true）。true 且 summarizedCount=0 → 摘要失败，fail-open 保留原历史。
    */
   wasOverLimit: boolean
@@ -120,7 +120,7 @@ export async function compactHistory(
   }
   const wrapped = `${CHECKPOINT_PREAMBLE}\n\n${CHECKPOINT_TAG_OPEN}\n${summary.trim()}\n${CHECKPOINT_TAG_CLOSE}`
   // 严格更小：与被压掉的原文比（摘要区含旧存档时一并计入——累计存档必须仍小于累计原文）
-  // R0912-D-P3-1：码点计数走零分配 codePointLength（口径不变）
+  // 码点计数走零分配 codePointLength（口径不变）
   if (codePointLength(wrapped) >= measureMessages(plan.toSummarize)) {
     return { history, summarizedCount: 0, wasOverLimit: true }
   }

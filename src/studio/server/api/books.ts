@@ -1,14 +1,14 @@
 /**
  * 书架 + 单书 + 建书 REST 端点（#12.3 + 5.1）。
  *
- * - GET  /api/books          书架列表（读 books.jsonl）
- * - POST /api/books          建书（doInit；1.5 段 1 表单）
- * - GET  /api/books/:name    单书身份（读该书 book.yaml，含 host）
- * - GET  /api/boot           启动初始态（--book 直进支持）
+ * - GET /api/books 书架列表（读 books.jsonl）
+ * - POST /api/books 建书（doInit；1.5 段 1 表单）
+ * - GET /api/books/:name 单书身份（读该书 book.yaml，含 host）
+ * - GET /api/boot 启动初始态（--book 直进支持）
  *
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  *
- * 拆分沿革（R0916-5h，2026-09-16 ⑤④产品巨件拆分波4）：本单件（870 行）缝 A+B
+ * 拆分沿革（⑤④产品巨件拆分波4）：本单件（870 行）缝 A+B
  * 纯移动拆分——删书路由 books.delete + 删/改名共用的生命周期助手族（forgetBookKeyedCaches
  * 书键缓存整表清理 + shelfGuard 守卫缓存族〔清理体引用 shelfGuardCache，随缝单源迁出，
  * 本残核 books.get 经 getShelfGuard 单向取用〕+ 墓地删除族 + busyGate / 编排 settle /
@@ -16,8 +16,9 @@
  * initialBook / --book 直进指针（setInitialBook）→ api/books-rename.ts（缝 B）。本残核
  * 保留书架列表 / 建书 / 单书身份 / boot 四路由与 BookCtx，registerBookRoutes 残核聚合
  * 保序（books.delete / book.rename 在原位内联调两缝注册函数，路由注册顺序逐字节不变）；
- * 迁出公开导出 __setGraveyardCleanupForTest / __waitForGraveyardCleanupForTest（缝 A）
- * 与 setInitialBook（缝 B）经下方逐名 re-export 桥接，全库消费方 import 面零改动。
+ * 迁出公开导出 setInitialBook（缝 B）经下方逐名 re-export 桥接，全库消费方 import 面
+ * 零改动（缝 A 的墓地清理测试注入口 re-export 已随 收尾删除——清理函数
+ * 改组装根 RouteOverrides 经 BookCtx 注入）。
  * 运行时依赖单向：books→lifecycle、books→rename、rename→lifecycle，无环回引——两缝
  * 对本模块仅 import type BookCtx（编译期擦除）；顶层求值常量随缝单源迁出，残核无跨
  * 模块顶层求值。本头注上方原文全部历史记载原样保留。
@@ -25,36 +26,40 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
-import type { TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入
-import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
+import type { TaskGateInjected } from './task-gate.js' // 闸实例经组装根注入
+import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
 import { reply, replyError, HttpError } from '../http.js'
 import { readBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON } from '../../../install/books.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInitAsync } from '../../../install/init.js'
 import { computeBookSummaryAsync, yieldToEventLoop } from './progress.js'
-// R0916-5h 拆分接线：缝 A/B 注册函数残核聚合保序调用；getShelfGuard / initialBook
+// 拆分接线：缝 A/B 注册函数残核聚合保序调用；getShelfGuard / initialBook
 // 为残核消费的单源助手 / 活绑定状态（两缝文件不回引本模块任何运行时值）
 import { getShelfGuard, registerBookLifecycleRoutes } from './books-lifecycle.js'
 import { registerBookRenameRoutes, initialBook } from './books-rename.js'
 
-// R0916-5h 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
-export { __setGraveyardCleanupForTest, __waitForGraveyardCleanupForTest } from './books-lifecycle.js'
+// 拆分桥接：setInitialBook 逐名 re-export，全库 import 面零改动。
+// （收尾：原同行的墓地清理测试注入口 re-export 随缝删除——清理函数改
+// 组装根 RouteOverrides 经 BookCtx 注入。）
 export { setInitialBook } from './books-rename.js'
 
 export interface BookCtx extends TaskGateInjected {
-  /** R0916-7-P3-6：driver 宿主（session 存取 + 能力面）——组装根注入 */
+  /** driver 宿主（session 存取 + 能力面）——组装根注入 */
   driver: DriverHost
   workDir: string | null
-  /** session token(P0 defense-in-depth,boot 注入前端,写端点校验) */
+  /** session token(defense-in-depth,boot 注入前端,写端点校验) */
   token: string
-  /** RB-SV-P1-1：Origin 是否可信（同源或 dev 白名单）——boot 据此决定是否回传 token */
+  /** Origin 是否可信（同源或 dev 白名单）——boot 据此决定是否回传 token */
   isTrustedOrigin: (origin: string) => boolean
   /** APP 级数据目录（Electron userData / CLI 模式跨平台约定路径）——事件库迁移用 */
   userDataPath: string | null
-  /** A4（批 0）：启动通告投递口——事件库迁移失败等请求期故障进 App 级横幅（可选，
+  /** 启动通告投递口——事件库迁移失败等请求期故障进 App 级横幅（可选，
    *  兼容既有调用方；缺失时仅日志留痕） */
   onStartupNotice?: (kind: string, message: string) => void
+  /** 收尾：删书墓地后台清理函数覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 真删生产口径逐位不变；测试注入受控桩/暂停桩断言墓地行为） */
+  graveyardCleanup?: ((graveAbs: string) => Promise<void>) | null
 }
 
 export function registerBookRoutes(ctx: BookCtx): void {
@@ -72,25 +77,25 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     // 书架卡补摘要：title / 进度(N 章/字数) / 最近编辑。单本损坏不崩整列（摘要降级缺省）。
-    // R33-69（三十三轮）：entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
+    // entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
     // 路径，此处补与删/改路径同强度的越界/symlink 校验（校验强度对称化）；不合法条目
     // 按损坏标记降级（不崩整列）。
-    // R37-3（三十七轮）：逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
+    // 逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
     // 逐书整树扫描单请求冻结事件循环（Electron 内嵌单进程服务 = 桌面卡死），摘要
     // TTL 缓存只降频不减峰（缓存 MISS 的首轮与失效后仍全量）。
-    // R39-16（三十九轮）：resolveWithinRoot + readBookConfig 收进 TTL 缓存（getShelfGuard，
+    // resolveWithinRoot + readBookConfig 收进 TTL 缓存（getShelfGuard，
     // 与摘要同 30s 口径）——两者此前每请求每书重跑（数百次同步 stat/读盘），摘要有缓存
     // 而守卫没有是半收口。
     const books = []
     for (const b of readBooks(ctx.workDir)) {
-      await yieldToEventLoop() // R37-3：书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
+      await yieldToEventLoop() // 书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
       const guard = getShelfGuard(ctx.workDir!, b.path)
       if (guard.damaged) {
         books.push({ ...b, damaged: true, createdAt: b.created_at })
         continue
       }
       try {
-        // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
+        // -BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
         // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
         // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
         const effective = applyGlobalDefaults(guard.config, ctx.userDataPath)
@@ -115,7 +120,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
   })
 
   // 建书（1.5 段 1 表单 → doInit）
-  // R0916-7-P3-13：原 handler 内联 readJson + as 断言——现工目录前置门落 gate（NO_WORKDIR
+  // 原 handler 内联 readJson + as 断言——现工目录前置门落 gate（NO_WORKDIR
   // 仍先于 body 400）、name 形状/合法性等 body 校验落 parse；handler 只拿类型化 input。
   // 书名非法仍回 400 BAD_PATH（HttpError 透传自身码，与迁移前逐位一致）。
   defineRoute('books.post', {
@@ -130,8 +135,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const body = (raw ?? {}) as Record<string, unknown>
       const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
       if (!name) throw new Error('书名不能为空')
-      // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
-      //（复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
+      // 书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
+      // （拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
       // 与跨平台原因披露——行为维持跨平台硬拒不变）
       if (isInvalidBookName(name)) throw new HttpError(400, BOOK_NAME_INVALID_REASON, 'BAD_PATH')
       const genre = typeof body['genre'] === 'string' ? body['genre'].trim() : ''
@@ -150,7 +155,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return { name, genre, kind, leads, host, targetWords, brief }
     },
     handler: async ({ input, gate: workDir }, _req: IncomingMessage, res: ServerResponse) => {
-    // R36-9/R36-26（三十六轮）：建书迁 doInitAsync——doInit 经 appendBook 的同步
+    // /：建书迁 doInitAsync——doInit 经 appendBook 的同步
     // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
     // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
     // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
@@ -181,7 +186,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/books/:name',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      // R72-10（二十轮 D-4）：删 !name 死分支——path 参数 :name 为空的 404 由下方
+      // 删 !name 死分支——path 参数:name 为空的 404 由下方
       // find 未命中统一给出（原并入 NO_WORKDIR 是错误码语义错位）
       const name = params['name']
       if (!ctx.workDir) {
@@ -193,9 +198,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
         replyError(res, 404, 'NOT_FOUND', `没有这本书：${name}`)
         return
       }
-      // 第九轮 L-1：book.yaml 损坏/缺失时回落默认骨架会静默回传空 title——与
+      // book.yaml 损坏/缺失时回落默认骨架会静默回传空 title——与
       // GET /api/books/:name/config 的 500 IO 口径对齐（读失败显式报错，不代答默认身份）
-      // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
+      // 低-2：error 是 ParseError {file,line,message} 对象——直接插值会串成
       // 「[object Object]」，取 .message 展示真实解析错误（与 state.ts 同场景口径）
       const cfgResult = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
       if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
@@ -219,9 +224,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/boot',
     handler: (_, req: IncomingMessage, res: ServerResponse) => {
-    // RB-SV-P1-1：token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
+    // token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
     // Origin（server/index.ts 注入）；外部 Origin 一律不给。initialBook 无敏感性，照常回传。
-    // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程无 Origin 直连
+    // 口径修正：本机进程=同信任域——本地进程无 Origin 直连
     // 本端点即可拿 token，故 token 不承诺防本机进程；其实际作用是把写端点/SSE 可驱动面
     // 收敛到拿到 boot 的客户端，配合 Host/Origin 校验（server/index.ts）防远端网页驱动。
     const origin = req.headers.origin

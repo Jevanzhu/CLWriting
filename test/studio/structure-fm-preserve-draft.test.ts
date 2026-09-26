@@ -5,7 +5,7 @@
  * draft-save 是「AI 产出强覆盖」通道——组装方可能不带 序/并入，saveDraft 锁内写盘前
  * preserveStructureFmIn 对盘上既有键回补，防结构键在强覆盖时静默丢失（self-heal 组装
  * 侧另有显式透传，两道共保）。incoming 已显式含键则不覆写（显式产出优先）。
- * 范式同 r0912-4-draft-save-drain.test.ts（bootStudio + 本地 postDraft fetch 包装）。
+ * 范式同 draft-save-drain-chaining.test.ts（bootStudio + 本地 postDraft fetch 包装）。
  */
 import { writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'

@@ -1,34 +1,34 @@
 /**
- * studio server 启动共享核心（阶段 22 批 U1，微决策 U-3）。
+ * studio server 启动共享核心（阶段 22 批，微决策）。
  *
  * server-main（node 直跑，e2e release-smoke 用）与 server-utility（Electron
  * utilityProcess 子进程入口）两形态的参数组装 / 启动事件信封化收敛到此单一真相源，
- * 反对两入口各自复制参数解析（漂移先例：U-3 立项动机）。
+ * 反对两入口各自复制参数解析（漂移先例：立项动机）。
  *
  * 纯函数 + 依赖注入（startServer/setInitialBook 可换假件），两入口等价性由
  * test/desktop/server-boot.test.ts 锚定。行为红线：缺省值与拆分前逐字不变——
  * --book/--dir/--mirror-console 缺省时 startServer 收到 undefined，
  * 走其内部缺省（不设初始书 / welcome 态 / mirrorConsoleLog=true）。
- * token 例外（E-9b，第五十三轮）：不经 argv（本机 ps 可见），只经 env
+ * token 例外：不经 argv（本机 ps 可见），只经 env
  * CLW_STUDIO_TOKEN 注入；缺省走 startServer 内部 randomUUID 不变。
  */
 import type http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { errMsg } from '../log/index.js' // 复审-0914-优化修复批：错误摘要三目收编单源
+import { errMsg } from '../log/index.js' // -：错误摘要三目收编单源
 import { startServer as defaultStartServer, type StudioServerOptions } from '../studio/server/index.js'
 import { setInitialBook as defaultSetInitialBook } from '../studio/server/api/books.js'
 
 /** argv 解析结果；mirrorConsole 三态（null = 未传 flag，透传 undefined 走 startServer 缺省）。 */
 export interface ParsedServerArgs {
   port: number
-  /** --dir；null = welcome 态（与拆分前 startServer({workDir:null}) 等价，S-8） */
+  /** --dir；null = welcome 态（与拆分前 startServer({workDir:null}) 等价） */
   workDir: string | null
-  /** --user-data；null = 未提供（server-main 形态自行补 defaultUserDataPath()） */
+  /** --user-data；null = 未提供（server-main 形态自行补 defaultUserDataPath） */
   userDataPath: string | null
   /** --book；null = 不设初始书 */
   book: string | null
-  /** token（E-9b：只经 env CLW_STUDIO_TOKEN 注入，不经 argv——ps 可见）；null = 每次随机生成（缺省行为不变） */
+  /** token（只经 env CLW_STUDIO_TOKEN 注入，不经 argv——ps 可见）；null = 每次随机生成（缺省行为不变） */
   token: string | null
   /** --mirror-console 标志；null = 未传 */
   mirrorConsole: boolean | null
@@ -41,10 +41,10 @@ function argValue(argv: string[], flag: string): string | null {
 
 /**
  * 解析 --dir/--user-data/--port/--book/--mirror-console；未识别参数忽略。
- * token 不在 argv 面（E-9b，第五十三轮：argv 本机 ps 可见）——只从 opts.env 的
+ * token 不在 argv 面（argv 本机 ps 可见）——只从 opts.env 的
  * CLW_STUDIO_TOKEN 读（缺省 process.env，两入口零改动）；测试经 opts.env 注入
  * 隔离宿主环境。
- * N-8（第五十四轮）：argv 仍出现 --token（已被 env 注入取代）时经 opts.warn 打
+ * argv 仍出现 --token（已被 env 注入取代）时经 opts.warn 打
  * warn（缺省 console.warn）——不报错不退出，防外部脚本不知情静默拿到随机 token。
  */
 export function parseServerArgs(
@@ -53,7 +53,7 @@ export function parseServerArgs(
     portDefault?: number
     env?: Record<string, string | undefined>
     warn?: (msg: string) => void
-    /** R26-94：--port 非法时的显式报错出口（缺省 console.error + process.exit(2)）；
+    /** --port 非法时的显式报错出口（缺省 console.error + process.exit(2)）；
      *  测试注入捕获件。注入件若不退出，后续按「--port 未提供」回落缺省端口。 */
     fatal?: (msg: string) => void
   },
@@ -68,9 +68,9 @@ export function parseServerArgs(
     warn('--token 已废弃：token 现经 env CLW_STUDIO_TOKEN 注入，argv 上的 --token 将被忽略（本次以 env/随机 token 为准）')
   }
   const portRaw = argValue(argv, '--port')
-  // R26-94（二十六轮）：--port 携带空串/非数值时显式报错退出（人话文案），不再静默
-  // R28-19（二十八轮）：补整数 + 0–65535 界域判定——-1/65536/78.5 均 Number.isFinite，
-  // 旧校验放行后落 server.listen() 同步抛 RangeError，绕开 boot-error 信封（utilityProcess
+  // --port 携带空串/非数值时显式报错退出（人话文案），不再静默
+  // 补整数 + 0–65535 界域判定——-1/65536/78.5 均 Number.isFinite，
+  // 旧校验放行后落 server.listen 同步抛 RangeError，绕开 boot-error 信封（utilityProcess
   // 子进程里成无因由退出，main 侧只见 EXIT 看不到因由）。非法一律走既有 fatal 人话通道。
   let port = NaN
   if (portRaw !== null) {
@@ -92,10 +92,10 @@ export function parseServerArgs(
 }
 
 /**
- * R39-9（三十九轮）：env 侧端口解析（server-main 形态专用）——argv 侧 --port 已有
- * R26-94/R28-19 校验（0–65535 整数 + fatal 人话通道），env CLWRITING_PORT 此前
- * Number() 直透：'abc' → NaN 落 listen(NaN) 同步抛 RangeError 绕开 boot-error
- * 信封；'' → Number('')===0 静默起在随机端口（R26-94 反对的「起在意外端口」同型）。
+ * env 侧端口解析（server-main 形态专用）——argv 侧 --port 已有
+ * /校验（0–65535 整数 + fatal 人话通道），env CLWRITING_PORT 此前
+ * Number 直透：'abc' → NaN 落 listen(NaN) 同步抛 RangeError 绕开 boot-error
+ * 信封；'' → Number('')===0 静默起在随机端口（反对的「起在意外端口」同型）。
  * 口径与 argv 侧一致；env 未设 → 7878 缺省（拆分前逐字不变）。
  */
 export function resolveEnvPort(
@@ -134,7 +134,7 @@ export function describeBootError(err: unknown, port: number): BootErrorEnvelope
   return { code, message: `server 启动失败：${errMsg(err)}` }
 }
 
-/** 静态前端目录：相对编译产物入口（dist/web）派生——打包 asar 与开发态同款（R-6 先例）。 */
+/** 静态前端目录：相对编译产物入口（dist/web）派生——打包 asar 与开发态同款（先例）。 */
 export function deriveStaticDir(moduleUrl: string): string {
   return join(dirname(fileURLToPath(moduleUrl)), '..', 'web')
 }
@@ -142,7 +142,7 @@ export function deriveStaticDir(moduleUrl: string): string {
 interface BootServerDeps {
   /** 缺省真实 startServer；测试注入假件（不 vi.mock 整模块） */
   startServer?: (opts: StudioServerOptions) => http.Server
-  /** 缺省真实 setInitialBook（--book 下沉：child 在 startServer 前调，U-1 附带） */
+  /** 缺省真实 setInitialBook（--book 下沉：child 在 startServer 前调，附带） */
   setInitialBook?: (name: string) => void
 }
 

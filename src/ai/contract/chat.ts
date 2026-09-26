@@ -1,9 +1,9 @@
 /**
- * 对话助手工具集 + 风险分级（方案 §3.4.4 / D6）。
+ * 对话助手工具集 + 风险分级（方案 §3.4.4 / ）。
  *
  * chat 的 toolChoice='auto'——AI 自主决定是否调工具。
- * 并行工具调用（R76-13 口径修正）：支持 parallelControl 的供应商 wire 层发
- * disable_parallel_tool_use（W0）；恒开不可关的供应商（model-quirks
+ * 并行工具调用（口径修正）：支持 parallelControl 的供应商 wire 层发
+ * disable_parallel_tool_use；恒开不可关的供应商（model-quirks
  * parallelControl:false）由执行侧 for 循环逐个串行执行兜底（turns.ts）——行为等价
  * 「一轮最多一个工具调用」。
  *
@@ -16,7 +16,7 @@ import type { ToolDef } from '../provider/types.js'
 /** 工具风险分级 */
 type ToolRisk = 'readonly' | 'write'
 
-/** 工具风险分级（R76-13：未注册工具不进分级——执行侧直接 isError 回填，不再按
+/** 工具风险分级（未注册工具不进分级——执行侧直接 isError 回填，不再按
  *  write 从严弹确认卡；`?? 'write'` 仅作防御性兜底，正常路径不可达） */
 export const TOOL_RISK: Record<string, ToolRisk> = {
   check_chapter: 'readonly',
@@ -51,7 +51,7 @@ export const chatTools: ToolDef[] = [
   {
     name: 'read_chapter',
     description:
-      // 低-4（第十轮）：口径如实——超长正文会被截断（RB-AI-P2-5 上限），不再承诺「完整正文/
+      // 低-4口径如实——超长正文会被截断（上限），不再承诺「完整正文/
       // 取回全文」；全文去处 = 「已省略」通知里的 spill 暂存路径与草稿文件
       '读取指定章节的正文（对话上下文「已省略」时的取回通道）。注意：超长正文只返回开头+结尾（超上限会截断并注明截断量），全文以「已省略」通知里的暂存路径与草稿文件为准。',
     input_schema: {

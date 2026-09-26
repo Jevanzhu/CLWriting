@@ -7,7 +7,7 @@
  * POSIX rename 只需目录写权、写权独立于读权，清空本可实际发生。修复后 compact 走
  * scanUnsettled 可辨信号，读失败整轮放弃（与 N4「有变即弃」同款 best-effort）。
  *
- * 手法：对齐 backlog-r61c1-read-fail-warn.test.ts 的 vi.mock node:fs 注入惯例
+ * 手法：对齐 journal-read-fail-warn.test.ts 的 vi.mock node:fs 注入惯例
  * （vi.hoisted + importOriginal 透传，只劫持 journal 路径的单次 readFileSync）。
  */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'

@@ -1,8 +1,8 @@
 /**
- * 书仓库 scaffold —— 从 init.ts 提取的共享模块（M7 #36 复用边界）。
+ * 书仓库 scaffold —— 从 init.ts 提取的共享模块（#36 复用边界）。
  *
  * init（#30）和 import（#36）都通过这里建书仓库，保证 6.2 目录树、
- * 文风铁律模板完全一致（去 git 版本系统 W0 后不再 git init）。
+ * 文风铁律模板完全一致（去 git 版本系统后不再 git init）。
  *
  * 行为契约：本模块只负责「建书仓库骨架」，不含工作目录 scaffold、
  * 不登记 books.jsonl（那些是 doInit 编排层的事）。
@@ -17,7 +17,7 @@ import { recommendShortChecks } from './data.js'
 import { writeManifest } from '../document/manifest.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
-/** DA-2（第七轮）：占位/骨架产物存在即跳过——半成品恢复复跑 scaffold 时（doInit 幂等
+/** DA-2占位/骨架产物存在即跳过——半成品恢复复跑 scaffold 时（doInit 幂等
  *  续登记），未登记书的设定/大纲/文风区可能已有真实内容（CLI/AI 可操作未登记书），
  *  无条件覆盖会丢稿；book.yaml/清单同理（复跑带不同 opts 不得抹掉已有配置与登记）。 */
 function writeIfAbsent(fp: string, content: string): void {
@@ -47,8 +47,8 @@ interface BookScaffoldOpts {
 export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void {
   mkdirSync(bookRoot, { recursive: true })
 
-  // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，M8 #25）。
-  // DA-2（第七轮）：存在即跳过——半成品恢复复跑可能带不同 opts，不得覆盖已有配置。
+  // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，#25）。
+  // DA-2存在即跳过——半成品恢复复跑可能带不同 opts，不得覆盖已有配置。
   // 全局托底：新书不再烘焙 13 键默认值（style/auto 段、budget.calls_per_chapter、genre
   // 空占位）——写进去 = 书级「永远已设」，global.json 全局默认永远被遮蔽；运行时由
   // applyGlobalDefaults 兜底。例外：短篇 auto.batch_size: 1 是有意的产品默认（逐篇确认
@@ -59,7 +59,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
         // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
         kind: 'short',
         host: opts.host ?? 'cc',
-        // P2-3：短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）——显式覆盖，不走全局托底
+        // 短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）——显式覆盖，不走全局托底
         auto: { batch_size: 1 },
         book: {
           title: opts.name,
@@ -86,7 +86,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   scaffoldDirectories(bookRoot, opts)
 
   // 初始文档清单（去 git：新建书即有清单，状态机/定稿自管的账本基座）。
-  // DA-2（第七轮）：存在即跳过——空清单整写会抹掉半成品阶段已登记的条目
+  // DA-2存在即跳过——空清单整写会抹掉半成品阶段已登记的条目
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(manifestPath)) {
     writeManifest(manifestPath, { version: 1, entries: new Map() })
@@ -98,7 +98,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   }
 }
 
-/** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（M8 #25）。 */
+/** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（#25）。 */
 function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
   if (opts.kind === 'short') {
     scaffoldShortDirectories(bookRoot, opts)
@@ -145,7 +145,7 @@ function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
     mkdirSync(join(bookRoot, '布线', lead), { recursive: true })
   }
 
-  // 文风冷启动占位（O2）：五场景空目录 + 文风铁律骨架
+  // 文风冷启动占位：五场景空目录 + 文风铁律骨架
   scaffoldSharedStyle(bookRoot, opts.genre)
 
   // 工作区（临时区，gitignore）
@@ -153,7 +153,7 @@ function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
 }
 
 /**
- * 短篇集目录布局（M8 #25 第 3 节）：一仓库一短篇集。
+ * 短篇集目录布局（#25 第 3 节）：一仓库一短篇集。
  * 建 写作/正文/（正文章）+ 大纲/章纲/（章纲，与正文不混放）+ 设定/（角色/物品/伏笔/世界观/名册，与长篇同构）
  * + 整集共享 文风/ + 工作区/。
  * 不建 卷纲、布线——短篇无长程载重（设定层与长篇同构，供关系图/机检复用）。
@@ -219,13 +219,13 @@ const PRESET_AI_FLAVOR: { 词: string; 替换: string }[] = [
   { 词: '抽象情绪总结句', 替换: '删，或换成具体动作 / 物件' },
 ]
 
-/** 文风冷启动占位（O2，长短共用——整集/整本书共享笔感/禁词/机检）。 */
+/** 文风冷启动占位（长短共用——整集/整本书共享笔感/禁词/机检）。 */
 function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
   writeIfAbsent(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre))
-  // 条目库骨架 + 预置 AI 味禁词（S5：禁词知识在条目库，铁律纯配置；
+  // 条目库骨架 + 预置 AI 味禁词（禁词知识在条目库，铁律纯配置；
   // 条目目录存在 = 迁移幂等闸生效，新书不再走迁移）。
-  // DA-2（第七轮）：按 类型+正文 去重——半成品恢复复跑不再把预置禁词翻倍
+  // DA-2按 类型+正文 去重——半成品恢复复跑不再把预置禁词翻倍
   const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '禁词')
   const existing = new Set(entries.map((e) => e.正文))
   for (const row of PRESET_AI_FLAVOR) {
@@ -265,7 +265,7 @@ function renderVolumeOutlineExample(): string {
   ].join('\n')
 }
 
-/** 文风铁律模板（S5 瘦身为纯配置：阈值 + 删除分级；禁词知识在条目库）。 */
+/** 文风铁律模板（瘦身为纯配置：阈值 + 删除分级；禁词知识在条目库）。 */
 export function renderStyleRules(_genre: string): string {
   return [
     '# 文风铁律',
@@ -340,7 +340,7 @@ function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEnabled'>
  * 命中返回该目录路径，否则 null。
  *
  * 用途：建书仓库前防护——工作目录不能位于某个 git 仓库内。
- * 去 git 版本系统（W0）后书仓库虽不再 git init，但书文件落进外层 git 仓库
+ * 去 git 版本系统后书仓库虽不再 git init，但书文件落进外层 git 仓库
  * 仍会被其版本控制吞掉（脏状态/被误提交），隔离模型照样被破坏。
  */
 export function findGitAncestor(startDir: string): string | null {

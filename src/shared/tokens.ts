@@ -1,7 +1,7 @@
 /**
- * 输入预算的 token 折算纯函数单源（R0916-7-P3-3：自 process/prepare.ts 下沉 shared）。
+ * 输入预算的 token 折算纯函数单源（自 process/prepare.ts 下沉 shared）。
  *
- * 起因：C4（批 3）的 chars→tokens 系数表与 estimateTokens 原居编排层 process/prepare.ts，
+ * 起因：的 chars→tokens 系数表与 estimateTokens 原居编排层 process/prepare.ts，
  * 而最底层 provider 适配器族（provider/usage-estimate.ts 网关不回 usage 时的兜底折算）
  * 反向依赖编排层——provider→process→ai 的传递依赖把适配器族与编排层卷进同一强连通。
  * 下沉本模块后引用方向恢复单向（provider/process 各自向下引 shared，shared 不引任何上层）。
@@ -12,16 +12,16 @@
 import { codePointLength } from './text.js'
 
 /**
- * C4（批 3）：按模型的 chars→tokens 实测系数表（P8-①）。
+ * 按模型的 chars→tokens 实测系数表（-①）。
  * 校准来源：`npx tsx scripts/calibrate-tokens.ts` 读事件库 llm/call 的
  * promptMeta.chars × usage.input 成对样本，按模型最小二乘拟合——产出报告后
  * 人工把建议值写进本表并注明测定日期与样本量（低频动作，不做运行时配置）。
  * 匹配规则：模型 id 最长前缀命中（如 'claude-sonnet' 覆盖 'claude-sonnet-4-5'）。
  */
 export const TOKEN_COEFFICIENTS: Record<string, number> = {
-  // 测定日期：尚未实测（2026-08-20 建表）。首次跑校准脚本后填入，形如：
-  // 'claude-sonnet': 0.58, // 2026-08-20，n=1234，r=0.97
-  // R26-106（二十六轮·登记不修）：空表是「待校准」状态而非代码欠账——系数必须来自
+  // 测定日期：尚未实测（建表）。首次跑校准脚本后填入，形如：
+  // 'claude-sonnet': 0.58, // ，n=1234，r=0.97
+  // （二十六轮·登记不修）：空表是「待校准」状态而非代码欠账——系数必须来自
   // 真实语料拟合（无值可填，属登记观察项）；语料收集到位后跑 calibrate-tokens.ts 回填。
 }
 
@@ -29,9 +29,9 @@ export const TOKEN_COEFFICIENTS: Record<string, number> = {
 export const DEFAULT_TOKEN_COEFF = 0.6
 
 /** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6。
- *  P-7（第十四轮）：长度按 code points 计（非分配计数器）——与 spill/compaction 全库
+ *  ：长度按 code points 计（非分配计数器）——与 spill/compaction 全库
  *  口径统一；此前 text.length 是 UTF-16 码元，含 emoji/增补平面文本预算估长偏差至多 2 倍。
- *  内存核查（2026-08-25，M-P3-16a）：Array.from(text).length 换 codePointLength——
+ *  内存核查（a）：Array.from(text).length 换 codePointLength——
  *  预算闸每段至少一调，展开数组是 6-10× 瞬态分配，码位语义不变。 */
 export function estimateTokens(text: string, model?: string): number {
   let coeff = DEFAULT_TOKEN_COEFF

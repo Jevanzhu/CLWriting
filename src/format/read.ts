@@ -67,8 +67,8 @@ export function readChapterSummaries(
 
 // ── 成长线语义机检取数（#4 第 4 节）──────────────
 
-/** 读成长线履历（单调/跨度机检的数据源，校验逻辑属 M2）。
- *  R35-3（三十五轮）：补选 backfill 列并映射（对齐 readLeadHistory 的 `回填` 字段
+/** 读成长线履历（单调/跨度机检的数据源，校验逻辑属）。
+ *  ：补选 backfill 列并映射（对齐 readLeadHistory 的 `回填` 字段
  *  口径）——两读取器此前口径分裂，成长线机检拿不到回填标记，后补录的早期低阶跃迁
  *  按 seq 序被判成境界回退假红。 */
 export function readGrowthHistory(

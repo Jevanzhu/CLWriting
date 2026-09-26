@@ -29,11 +29,11 @@ import {
   checkSectionCount,
   checkOpeningNoEnv,
 } from './count.js'
-// P2-A1：parseIronRules 下沉到 format 层（消 format→check 循环依赖）
-// RB-KN-P1-1：改用合并版 readIronRules（铁律 + 条目库禁词）——S5 迁移把禁词知识
+// -：parseIronRules 下沉到 format 层（消 format→check 循环依赖）
+// 改用合并版 readIronRules（铁律 + 条目库禁词）—— 迁移把禁词知识
 // 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
 import { readIronRules } from '../format/iron-rules.js'
-// R0917-6-P3-8：机检热路径固定 SQL 走连接级 prepared 缓存单源
+// 机检热路径固定 SQL 走连接级 prepared 缓存单源
 import { prepared } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
 import { isMdFileName } from '../format/filename.js'
@@ -44,11 +44,11 @@ import { countWords, readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
-// R0916-7-P3-2：账本类配置派生（enabledLeadTypes）迁中立件 leads-config.ts——树红点
+// 账本类配置派生（enabledLeadTypes）迁中立件 leads-config.ts——树红点
 // 聚合族消费它不再牵入本聚合机检模块（解 check/run ↔ check/run-tree-issues 环，见该件头注）
 import { enabledLeadTypes } from './leads-config.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
-// R37-9：章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
+// 章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
 import { log } from '../log/index.js'
 
 /** 机检输入 */
@@ -79,7 +79,7 @@ interface CheckInput {
    */
   maxWrittenChapter?: number
   /**
-   * H-1（2026-08-21）：跳过账本三检的「全书性」条目（章号一致/引文命中/状态闭合）。
+   * 跳过账本三检的「全书性」条目（章号一致/引文命中/状态闭合）。
    * 树红点聚合专用——这些条目吃任意章正文，进章级缓存行会跨章陈旧；聚合侧改为
    * 本书一次计算 + 独立指纹缓存（run.ts collectTreeIssues）。单章机检端点不传
    * （报告完整）。章作用域的两端闭合条目不受影响，恒跑。
@@ -88,13 +88,13 @@ interface CheckInput {
 }
 
 /** 已启用账本类（基础两类 + book.yaml leads.enabled）实现体在 leads-config.ts——
- *  本入口按原导出面透传，消费方 import 面零改动（R0916-7-P3-2）。 */
+ *  本入口按原导出面透传，消费方 import 面零改动。 */
 export { enabledLeadTypes } from './leads-config.js'
 
 /** 生效短篇配置：仅 kind === 'short' 时返回 short 段（无段给空对象，由各检查器的
- *  缺省参数兜底阈值），否则 undefined。重评-P2-4（2026-09-09 全量代码重评）：run.ts
+ *  缺省参数兜底阈值），否则 undefined。-（全量代码）：run.ts
  *  三处后置升红与本文件短篇判定共用本单点——长篇误写 short 段（含 short.strict）
- *  不再触发短篇口径，对齐 R26-13 的 kind==='short' 单源判定。 */
+ *  不再触发短篇口径，对齐的 kind==='short' 单源判定。 */
 export function effectiveShort(config: BookConfig): BookConfig['short'] {
   return config.kind === 'short' ? (config.short ?? {}) : undefined
 }
@@ -112,7 +112,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
 }
 
 /**
- * runAllChecks 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = P3-13）。
+ * runAllChecks 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = ）。
  *
  * 链内唯一让出面 = `yield* checkLeadsFormCore(...)`（全书性条目的冷读建表/逐章核验，
  * 让出点定义见 leads.ts）；其余检查器调用一行不动（正文级纯函数，无悬停面）。计算集合
@@ -121,20 +121,20 @@ export function runAllChecks(input: CheckInput): CheckReport {
 export function* runAllChecksCore(input: CheckInput): Generator<void, CheckReport, unknown> {
   const { db, bookRoot, config, chapter, body, fileName } = input
   const hasWiring = existsSync(join(bookRoot, '布线'))
-  // R26-13（二十六轮）：短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——此前用
+  // 短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——此前用
   // config.short 段存在性判定，两处口径分裂：kind: short 而未写 short 段的书（合法，
   // 全部走缺省阈值）短篇专属机检整体失明；长篇误写 short 段反而跑短篇机检。空对象
   // （无 short 段）时 word_min/word_max 等传 undefined，由 checkPieceWordCount 等
   // 的缺省参数兜底（8000–20000/5 段/300 字，与既有缺省值机制一致）。
-  // 重评-P2-4（2026-09-09 全量代码重评）：判定收口到 effectiveShort，run.ts 后置升红同源。
+  // -（全量代码）：判定收口到 effectiveShort，run.ts 后置升红同源。
   const short = effectiveShort(config)
   const sections: CheckSectionResult[] = []
 
   // 未来章基准：默认取本章自身章号；调用方传了全书最高章号时用它
   // （账本「凭空声称未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）。
   // 注意：这只喂 checkLeadsForm 的未来章判定；collectByproducts 必须用被检章自身章号
-  // （V-P1-4：两者曾共用一个变量，三审的「本章账本变动」错拿了最高已定稿章的履历）。
-  // R69-17（十七轮）：零定稿书时 run.ts 侧已回退全书最高现存章号（maxWrittenChapterOf），
+  // （两者曾共用一个变量，三审的「本章账本变动」错拿了最高已定稿章的履历）。
+  // 零定稿书时 run.ts 侧已回退全书最高现存章号（maxWrittenChapterOf），
   // 本行 ?? chapter.章号 仅剩「调用方未传且无正文扫描结果」的兜底语义。
   const futureBaselineChapter = input.maxWrittenChapter ?? chapter.章号
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
@@ -155,7 +155,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         input.declaredLeadIds,
         input.actualLeadIds,
         input.skipLeadsBookChecks === true,
-        // R69-16（十七轮）：两端闭合红项的 chapter 字段用被检章自身章号——
+        // 两端闭合红项的 chapter 字段用被检章自身章号——
         // futureBaselineChapter 在复检低章时是全书最高定稿章，红项错标最高章。
         chapter.章号,
       ),
@@ -169,7 +169,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         const r = readRealmDoc(realmPath)
         if (r.ok) realmDoc = r.doc
       }
-      // R0917-6-P3-8（2026-09-17 全库源码重评六轮修复批）：本 SQL 恒定不变且每章
+      // （六轮修复批）：本 SQL 恒定不变且每章
       // runAllChecks 都走一次（树红点聚合数百章即数百次重编译），transcription 走
       // shared/sqlite-prepared.ts 连接级缓存；同批另一处 lead_history JOIN 同改。
       const growthIds = (prepared(
@@ -186,11 +186,11 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 文风铁律（禁词红项 + 可量化黄项）
   const ironRules = readIronRules(bookRoot)
 
-  // #10 项 4 禁词（红）—— R73-15：条目库里解析不出任何词的禁词条目产黄项提示
+  // #10 项 4 禁词（红）—— ：条目库里解析不出任何词的禁词条目产黄项提示
   //（此前静默失明：整段说明性正文作 includes 永不命中，作者无从知晓红闸失效）
-  // R0916-6-P3-8（2026-09-16 评审修复批）：input.bannedWords 零消费参数删除（R66-14
+  // （评审修复批）：input.bannedWords 零消费参数删除（
   // 死代码纪律）——生产唯一调用方（run.ts runCheckForDocument）从不传参，禁词恒出自
-  // 铁律侧（readIronRules 合并源，S5 迁移后含条目库禁词）；mergeBannedWords 保留作
+  // 铁律侧（readIronRules 合并源，迁移后含条目库禁词）；mergeBannedWords 保留作
   // 禁词表归一单点（去重/滤空），合并死支随参数一并消失。
   const bannedSection = checkBannedWords(body, mergeBannedWords(ironRules.bannedWords))
   for (const scene of ironRules.unparsedBannedEntries ?? []) {
@@ -204,7 +204,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   sections.push(bannedSection)
 
   // 字数（黄）：有 config.short 用短篇阈值；否则用细纲目标。
-  // R52-E-2：容差百分比可配（book.yaml checks.word_count_tolerance → global 托底；
+  // 容差百分比可配（book.yaml checks.word_count_tolerance → global 托底；
   // undefined 直落引擎默认 30）
   if (short) {
     sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short.word_min, short.word_max))
@@ -212,9 +212,9 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
     sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0, config.checks?.word_count_tolerance))
   }
 
-  // #10 项 6 复读（黄）—— R52-E-2：占比/连续字数双阈值可配（同上生效链，undefined
+  // #10 项 6 复读（黄）—— ：占比/连续字数双阈值可配（同上生效链，undefined
   // 直落引擎默认 0.15 / 200）
-  // R0912-3（2026-09-12 全量重评修复批）：repeat_threshold 是 0-1 占比语义——book 层
+  // （修复批）：repeat_threshold 是 0-1 占比语义——book 层
   // 解析（yaml.ts parsePositiveNumber）只验 >0，手写 1.5 直穿 → rate > 1.5 恒假 =
   // 复读比率口径静默死亡，违反「配置不生效必留痕」纪律。对齐 global 层同键 unitNum
   // 先例（global-defaults.ts 限 (0,1]）在消费点夹紧上界到 1 + warn 留痕（比率恒
@@ -231,12 +231,12 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // checks.imagery_words > 内置种子表（imagery-seed.ts）。?? 链上空数组非 nullish：
   // 入参/书级写了 []（显式关）就停在 [] 不回落种子表；书级非空词表整体替换不合并
   const imageryWords = input.imageryWords ?? config.checks?.imagery_words ?? DEFAULT_IMAGERY_WORDS
-  // R52-E-2：报黄次数阈值可配（undefined 直落引擎默认 3）
+  // 报黄次数阈值可配（undefined 直落引擎默认 3）
   sections.push(checkImagery(body, imageryWords, config.checks?.imagery_threshold))
 
-  // #10 项 8 句式体检（黄）—— X-P2-23：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
+  // #10 项 8 句式体检（黄）—— ：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
   // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总。
-  // R52-E-2：判定长度可配（checks.max_sentence_len 同链；undefined 直落引擎默认 60）
+  // 判定长度可配（checks.max_sentence_len 同链；undefined 直落引擎默认 60）
   if (!(ironRules.maxSentenceLen && ironRules.maxSentenceLen > 0)) {
     sections.push(checkSentenceLength(body, config.checks?.max_sentence_len))
   }
@@ -248,10 +248,10 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   if (hasWiring) {
     const rosterPath = join(bookRoot, '设定', '名册.md')
     sections.push(checkNewNames(body, rosterPath))
-    // 信息差三级供给（B4 批 6，P6-①）：入参 > book.yaml checks.leak_keywords >
+    // 信息差三级供给（批 6，-①）：入参 > book.yaml checks.leak_keywords >
     // 账本 front matter leak_keywords 派生；无内置默认（逐书的秘密无通用词表），
-    // 三级都空 = 空表静默不启用（X-P2-22 语义不变）。
-    // R46-10（四十六轮）：派生与名册解析均已按 stat 指纹缓存（leak-derive.ts /
+    // 三级都空 = 空表静默不启用（语义不变）。
+    // 派生与名册解析均已按 stat 指纹缓存（leak-derive.ts /
     // count.ts）——旧注「布线目录小、md 数十级」与成熟书数百账本的实况漂移，此前
     // 每章整读全部账本 md × 数百章 = 数万次重复文件读；现未变账本只付树级 stat
     sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? deriveLeakKeywords(bookRoot)))
@@ -265,7 +265,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 短篇专属项（#27 第 5.3 节，有 config.short 才跑）：五段节数 + 开头零环境（黄金 300 字）
   if (short) {
     sections.push(checkSectionCount(body, short.section_count))
-    // R29-B7（二十九轮）：opening_env_chars 显式 0 = 作者关闭「开头零环境」检查
+    // opening_env_chars 显式 0 = 作者关闭「开头零环境」检查
     // （与「未设 = 默认 300」区分，解析侧 yaml.ts 只对显式 0 落键）；undefined 走
     // checkOpeningNoEnv 的缺省参数
     if (short.opening_env_chars !== 0) {
@@ -276,7 +276,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
   let pieceList: PieceList | null = null
   if (short && chapter._path) {
-    // R32-15（三十二轮）：章纲定位三口径——① 同名 basename（既有口径）；② 目录内按
+    // 章纲定位三口径——① 同名 basename（既有口径）；② 目录内按
     // fm 章号匹配（正文 4 位补零重命名/存量 3 位章纲不同名时 basename 恒 miss，清单
     // 形式检静默失明）；③ 文件名数字前缀匹配（无 fm 章号的裸文件兜底，覆盖 0005-标题
     // vs 005-标题 类补零差异）。三口径都空 → 黄项提示（缺失不再静默）。
@@ -289,10 +289,10 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
       } else if (existsSync(outlineDir)) {
         const prefixMatch = (f: string): boolean => {
           const m = /^(\d+)[^\d]/.exec(f)
-          return isMdFileName(f) && m !== null && Number(m[1]) === chapter.章号 // R38-9：.MD 章纲不漏配
+          return isMdFileName(f) && m !== null && Number(m[1]) === chapter.章号 // .MD 章纲不漏配
         }
-        // R37-9（三十七轮）：existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，
-        // 同 R65-16 口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时
+        // existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，
+        // 同口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时
         // 直穿炸整次机检——降级空列表 + warn 留痕（三口径都空 → 走既有 manifest
         // 缺失黄项提示，不静默），其余错误码照旧抛（失败可见）
         let byName: string | undefined
@@ -317,7 +317,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         pieceList = r.list
         sections.push(checkPieceListForm(r.list))
       } else {
-        // R62-9：章纲在盘但读取失败（占用/权限/瞬删竞态）不再静默消失——
+        // 章纲在盘但读取失败（占用/权限/瞬删竞态）不再静默消失——
         // manifest-no-reversal/emotion-curve-*/payoff-open 整体跳过且无提示
         sections.push({
           name: '清单形式检',
@@ -332,7 +332,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         })
       }
     } else {
-      // R32-15：本章章纲缺失 → 黄项（此前静默跳过，作者无感知清单形式检没跑）
+      // 本章章纲缺失 → 黄项（此前静默跳过，作者无感知清单形式检没跑）
       sections.push({
         name: '清单形式检',
         items: [
@@ -355,14 +355,14 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
     byproducts = { ...byproducts, pieceListChecks: collectPieceListChecks(pieceList) }
   }
   const report: CheckReport = { sections, byproducts }
-  // R26-13：严格模式同样走统一后的 short 判定（kind==='short' 的书无 short 段时，
+  // 严格模式同样走统一后的 short 判定（kind==='short' 的书无 short 段时，
   // strict 由 applyGlobalDefaults 的保底实例化/defaultShortStrict 托底进来）
   if (input.strictShort || short?.strict) promoteStrictShort(report.sections)
   return report
 }
 
 /** 收集机检顺带产出（#10 第 2 节末）：本章账本变动清单 + 信息差/新专名候选。
- *  checkedChapter = 被检章自身章号（V-P1-4：三审 ledger_checks 据此核对「本章」账本变动，
+ *  checkedChapter = 被检章自身章号（三审 ledger_checks 据此核对「本章」账本变动，
  *  不得用全书最高已定稿章号）。 */
 function collectByproducts(
   sections: CheckSectionResult[],
@@ -381,7 +381,7 @@ function collectByproducts(
 
   // 本章账本变动清单（被检章已入库的履历，按已启用类）
   const placeholders = enabledTypes.map(() => '?').join(',')
-  // R0917-6-P3-8：同款改走 prepared 缓存——变体维度只有 enabledTypes 组合（有界），
+  // 同款改走 prepared 缓存——变体维度只有 enabledTypes 组合（有界），
   // 以拼出的 SQL 串为缓存键各自独立缓存。
   const rows = prepared(
     db,
@@ -408,7 +408,7 @@ const STRICT_SHORT_CHECK_IDS = new Set([
   'piece-word-long',
   'body-parts',
   'simile-density',
-  // R52-E-2（五十二轮）：可配阈值三黄项——阈值改成可配后，写坏/误调（如复读占比配成
+  // 可配阈值三黄项——阈值改成可配后，写坏/误调（如复读占比配成
   // 0.9）在普通模式只表现为「黄项消失」，严格模式下则必须升红拦闸：严格承诺是「机检
   // 全绿才可过定稿闸」，这三项黄了同样不该绿灯放行。word-count 不在此列（长篇项，
   // 严格模式只作用于短篇书，piece-word-* 已覆盖短篇字数语义）
@@ -425,7 +425,7 @@ const STRICT_SHORT_CHECK_IDS = new Set([
   'emotion-curve-strength',
   'emotion-curve-no-reversal',
   'emotion-curve-peak-low',
-  // R51-E-N2（五十一轮）：unreadable/degraded 族——「检查没跑成」（名册/线索表/
+  // unreadable/degraded 族——「检查没跑成」（名册/线索表/
   // 布线文件读不出）与「配置降级」（book.yaml 解析失败按默认配置执行）在严格短篇
   // 下同样升红：严格模式的承诺是「机检全绿才可过定稿闸」，黄项语义（提示性）会让
   // 没跑成的检查绿灯过闸。普通（非严格）模式维持黄项不动。
@@ -436,7 +436,7 @@ const STRICT_SHORT_CHECK_IDS = new Set([
   'book-config-degraded',
 ])
 
-/** R51-E-N2：升红函数导出——run.ts 的三处后置黄项（book-config-degraded /
+/** 升红函数导出——run.ts 的三处后置黄项（book-config-degraded /
  *  lead-updates-unreadable / lead-outline-unreadable）在 report 组装完成**之后**推入，
  *  不过本函数的报告内路径；后置推入点以同款条件（effective strict）调用本函数补齐
  *  「检查没跑成不可绿灯过定稿闸」的严格承诺。 */
@@ -467,7 +467,7 @@ function collectPieceListChecks(list: PieceList): NonNullable<CheckReport['bypro
     })
   }
   for (const payoff of list.伏笔回收) {
-    // R36-30（三十六轮）：payoff 条目 detail 不再无条件复制 location——清单.md 伏笔回收
+    // payoff 条目 detail 不再无条件复制 location——清单.md 伏笔回收
     // 仅承载 伏笔/回收位置/未回收 三字段，无独立「证据指向」列；detail 缺省时回退
     // location（渲染侧既有 c.detail 口径兜底即可），两字段不再强制同值。未回收条目
     // location 为空，detail 显式标记状态（唯一非空信息点）。

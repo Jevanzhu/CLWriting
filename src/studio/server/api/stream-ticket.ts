@@ -1,5 +1,5 @@
 /**
- * SSE 一次性短时效 ticket 端点（T2 批低危项：SSE token 走 URL query 的信道收敛）。
+ * SSE 一次性短时效 ticket 端点（批低危项：SSE token 走 URL query 的信道收敛）。
  *
  * POST /api/stream-ticket → { ticket, expiresInMs }
  *
@@ -7,7 +7,7 @@
  * 进程列表/代理日志。本端点让持有 token 的客户端（POST 走写闸：Origin + 常量时间
  * token 头校验）换取一次性短时效 ticket，SSE 连接改带 `?ticket=`；token 不再出 URL。
  * ticket 一次性（连接校验即消费）+ 60s 过期，仅作「拿到 boot 的客户端」凭据中转，
- * 不承诺防本机进程（ee-P2-12 同源口径）。R0916-7-P3-19：`?token=` 旧通道已两端同删
+ * 不承诺防本机进程（ee- 同源口径）。`?token=` 旧通道已两端同删
  * （服务端拒收、前端换票失败不再回退），SSE 凭据只走 ticket 或 `x-studio-token` 头。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -16,14 +16,14 @@ import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 
 const TICKET_TTL_MS = 60_000
-/** R32-21（三十二轮）：在库票上限——签发无频控时持 token 客户端可无限囤票（内存无界，
+/** 在库票上限——签发无频控时持 token 客户端可无限囤票（内存无界，
  *  60s TTL 只在下次签发/peek 时被顺带清）。上限触顶时逐出最早过期票再签发（一次性票
  *  消费即删，正常客户端每连接 1 票，256 票远超合理并发面；逐出方不破坏既有票的
  *  「最早过期先失效」自然序，被逐出票 peek/consume 均按不存在处理）。 */
 const MAX_TICKETS = 256
 
 /**
- * ticket 库（签发/预检/消费）。R73-49（二十一轮）：per-server 实例化——buildRoutes
+ * ticket 库（签发/预检/消费）。：per-server 实例化——buildRoutes
  * 每次 startServer 经 createStreamTicketStore 新建一份（签发路由与 SSE 消费侧同实例
  * 共享），同进程二次 startServer 旧实例的未过期票不进新实例（原模块级单例跨实例
  * 残留可消费）。生产形态（Electron child 单进程单 server）不触发；server-main/e2e
@@ -33,8 +33,8 @@ export interface StreamTicketStore {
   /** 签发一次性 ticket（POST /api/stream-ticket 已过写闸 = 调用方持有 token） */
   issue(): { ticket: string; expiresInMs: number }
   /**
-   * R65-43（总六十五轮）：预检（不消费）——SSE 鉴权闸需在书域校验（429/404）
-   * 之前判定凭据有效性（R64-27 防书名探测语义），但一次性消费须等全部校验通过后
+   * （总六十五轮）：预检（不消费）——SSE 鉴权闸需在书域校验（429/404）
+   * 之前判定凭据有效性（防书名探测语义），但一次性消费须等全部校验通过后
    * （429/404 不烧票）。存在且未过期即 true；过期顺手清理（与 consume 同口径）。
    */
   peek(ticket: string | undefined): boolean
@@ -57,7 +57,7 @@ export function createStreamTicketStore(): StreamTicketStore {
     issue(): { ticket: string; expiresInMs: number } {
       const now = Date.now()
       pruneExpired(now)
-      // R32-21：触顶逐出最早过期票（Map 迭代序 = 插入序，签发序即过期序——TTL 恒定）
+      // 触顶逐出最早过期票（Map 迭代序 = 插入序，签发序即过期序——TTL 恒定）
       if (tickets.size >= MAX_TICKETS) {
         const oldest = tickets.keys().next().value
         if (oldest !== undefined) tickets.delete(oldest)
@@ -99,7 +99,7 @@ export function registerStreamTicketRoutes(tickets: StreamTicketStore): void {
     path: '/api/stream-ticket',
     handler: (_ctx, req: IncomingMessage, res: ServerResponse) => {
       // 前端无 body 直发 POST——排空请求流（不消费会拖垮 keep-alive 连接复用）
-      // R0916-6-nano：排空加 1MB 上限——此前无限吞，异常超大 body（误用/探测）可拖住
+      // 排空加 1MB 上限——此前无限吞，异常超大 body（误用/探测）可拖住
       // 连接；计数超限即毁连接（fail-closed，正常前端零 body 永不触）
       let drained = 0
       req.on('data', (chunk: Buffer) => {

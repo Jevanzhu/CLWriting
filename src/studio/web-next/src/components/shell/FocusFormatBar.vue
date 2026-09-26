@@ -15,14 +15,14 @@ const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 
-// R70-29（十八轮）：页宽设置 ≥ 视口宽时侧位 ≤0，条会压在正文上——隐藏（FocusStatsBar 同款）
+// 页宽设置 ≥ 视口宽时侧位 ≤0，条会压在正文上——隐藏（FocusStatsBar 同款）
 const vw = ref(window.innerWidth)
 const onVwResize = (): void => {
   vw.value = window.innerWidth
 }
 onMounted(() => window.addEventListener('resize', onVwResize))
 onBeforeUnmount(() => window.removeEventListener('resize', onVwResize))
-const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // R70-29：侧位≤0（页宽≥视口）才隐藏，紧张侧位由 min() 回落窗口右缘
+const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // 侧位≤0（页宽≥视口）才隐藏，紧张侧位由 min 回落窗口右缘
 
 /** 纸宽写入保持当前 scope：书级覆盖存在时继续写书级（SettingsEditor 同语义） */
 const widthBookOnly = computed(() => prefs.bookPageWidth !== null)
@@ -51,7 +51,7 @@ function onPageWidthInput(v: number): void {
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
-      <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+      <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
       <FontPicker class="ffb-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
       <FontPicker class="ffb-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
     </template>

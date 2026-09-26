@@ -1,7 +1,7 @@
 /**
  * 内置静态规则（源 1：writer.ts 三处硬编码归一）。
  *
- * writer.ts:21/42/56 三处「避免AI味」约束字面量搬到此处 toPrompt()，
+ * writer.ts:21/42/56 三处「避免AI味」约束字面量搬到此处 toPrompt，
  * 验收要求 prompts/writer.ts 约束字面量归零。
  */
 import { ruleStripFm, type WritingRule, type RuleViolation } from './types.js'
@@ -29,7 +29,7 @@ const CLICHE_WORDS = [
 export const aiClicheRule: WritingRule = {
   id: 'ai-cliche',
   level: 'yellow',
-  // draft-save 挂载：作者手改落盘的删除信号要走本规则（B5 闭环，W-P2-5）
+  // draft-save 挂载：作者手改落盘的删除信号要走本规则（闭环）
   tasks: ['self-heal', 'spawn-write', 'rewrite', 'draft-save'],
   toPrompt: () => AI_CLICHE_PROMPT,
   check(body: string): RuleViolation[] {

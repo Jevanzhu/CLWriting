@@ -381,3 +381,53 @@ describe('0918独立重评修复批 D005：check-counts walk symlink 防护（ls
     expect(out).toEqual(['inner.test.ts']) // 仅实体路径一份，alias 不扩面
   })
 })
+
+// ── R50-F-2（五十轮评审批，并入档）：walk TOCTOU 容错（ENOENT/ENOTDIR warn 跳过）──
+// 修复前 walk 内 readdirSync/statSync 无容错——扫描间隙目录/条目被并发移走（ENOENT）
+// 或目录被换成文件（ENOTDIR）时裸抛炸脚本（失败方向 fail-closed 不变，但整轮门禁
+// 诊断全损）。修复后两处包 try/catch：ENOENT/ENOTDIR 记 console.warn 跳过，其余
+// 错误码照抛（不吞真故障、不假绿）。原 r50-f2-check-counts-walk.test.ts 的断链
+// symlink 用例与本文件 D005 块重复，并入时去重 1 条（D005 版覆盖三形态更全）。
+describe('R50-F-2（并入档）：check-counts walk TOCTOU 容错', () => {
+  let dirs: string[] = []
+  function tmpDir(): string {
+    const d = mkdtempSync(join(tmpdir(), 'clw-walk-tolerance-'))
+    dirs.push(d)
+    return d
+  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const d of dirs) rmSync(d, { recursive: true, force: true })
+    dirs = []
+  })
+
+  it('目录不存在（readdirSync ENOENT）→ warn 留痕返回空集，不抛', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const missing = join(tmpDir(), 'gone') // 从未创建
+    const out = walk(missing, () => true)
+    expect(out).toEqual([])
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('ENOENT'))).toBe(true)
+  })
+
+  it('目录参数实为文件（readdirSync ENOTDIR）→ warn 留痕返回空集，不抛', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = tmpDir()
+    const fileAsDir = join(d, 'plain.txt')
+    writeFileSync(fileAsDir, 'x')
+    const out = walk(fileAsDir, () => true)
+    expect(out).toEqual([])
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('ENOTDIR'))).toBe(true)
+  })
+
+  it('正常递归收集不受影响（子目录下钻 + pred 过滤 + dotfile 跳过）', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = tmpDir()
+    const sub = join(d, 'test')
+    mkdirSync(sub)
+    writeFileSync(join(sub, 'a.test.ts'), 'x')
+    writeFileSync(join(sub, 'b.md'), 'y')
+    writeFileSync(join(sub, '.hidden.test.ts'), 'z')
+    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+    expect(out).toEqual(['a.test.ts'])
+  })
+})

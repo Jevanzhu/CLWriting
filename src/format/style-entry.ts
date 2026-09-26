@@ -33,7 +33,7 @@ export const SOURCE_RANK: Record<EntrySource, number> = {
 }
 
 /** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单。
- *  R0916-6-nano：现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
+ *  ：现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
  *  style-entry.test.ts 类型钉——留作极性判定单源候选，前端消费接入时启用；
  *  删除须先迁移该测试（自记待清理，同 latestSession 口径）。 */
 export function entryPolarity(kind: EntryKind): '正' | '负' {
@@ -73,8 +73,8 @@ export function readEntry(
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：场景' } }
   }
 
-  // R55-D-1（五十五轮）：数组型未知字段按 string[] 原样承载（对齐 leads.ts R64-17 /
-  // chapters.ts R51-F-6 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
+  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts /
+  // chapters.ts 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
   // 经 writeEntry/addEntry 回写后 stringifyValue 按标量引号化，再解析项内逗号错位
   // 不可逆；stringifyValue 原生支持数组逐项序列化，数组原样承载即往返保真。
   const _raw: Record<string, string | string[]> = {}
@@ -83,7 +83,7 @@ export function readEntry(
   }
 
   const rawSource = map.get('来源')
-  // 重评-20（全库代码重评审 2026-09-05）：标量「标签」归一为单元素数组——「标签」在
+  // （全库代码审）：标量「标签」归一为单元素数组——「标签」在
   // KNOWN_FM_KEYS 里被排除出 _raw，而模型字段此前只在数组形态（`标签: [a, b]`）承载，
   // 作者手写标量形态（`标签: 金句`）两处皆不收：经任一回写路径（writeEntry/addEntry
   // /样章库回写）物理消失，readBannedEntryWords 的 标签?.includes('AI味') 对标量失明
@@ -132,25 +132,25 @@ export function writeEntry(filePath: string, e: StyleEntry): void {
   writeFile(filePath, stringifyFlat(entryToMap(e)), e.正文)
 }
 
-/** R66-20（十四轮）：O_EXCL 排他写（addEntry 排他分支抽出复用）——迁移等「自算序号」
+/** O_EXCL 排他写（addEntry 排他分支抽出复用）——迁移等「自算序号」
  *  的写点此前用 writeEntry（atomic-rename 覆盖语义），双进程同跑播种出同序号时后写
  *  静默互覆前写、丢条目无痕；本入口以排他建文件，EEXIST 返回 false 由调用方
  *  换序号重试（写侧绕开 atomic rename 正是为保排他语义——创建型写入，无旧内容可失）。 */
 export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
   const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
-  // R74-9（七十四轮批 D）：排他写补耐久——此前 'wx' 建文件后 writeFileSync 直 close，
+  // 排他写补耐久——此前 'wx' 建文件后 writeFileSync 直 close，
   // 无 fsync：断电窗口内目录项已落而内容未落盘，重启用 0 字节条目占序号（序号扫描视
   // 其存在、readEntry 解析报错）。换 fs/atomic 的 createFileExclusive（排他+耐久双语义
   // 单源：tmp+fsync+link+目录 fsync）；EEXIST → false 语义不变。
   return createFileExclusive(filePath, text) === 'created'
 }
 
-// ── R46-20（四十六轮）：条目库读取 TTL+mtime 探针缓存 ─────────────────────
+// ── ：条目库读取 TTL+mtime 探针缓存 ─────────────────────
 // 消费面是写稿热路径：book-rules loadAiFlavorRule → rulesPromptParts/applicableRules
 // （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。手法照抄
-// 同路径先例 setting-rule R36-12（TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
+// 同路径先例 setting-rule （TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
 // 「每文件 (mtimeNs,size) 清单」而非目录 mtime——条目常被整文件就地改写（作者编辑器
-// 保存多为 in-place，目录 mtime 不动会漏），r38-batch-e 回归正是「改内容须失效」钉住
+// 保存多为 in-place，目录 mtime 不动会漏），回归正是「改内容须失效」钉住
 // 的形态（iron-rules 侧指纹同为文件级 mtimeMs/size）；TTL（缺省 5s）只兜「同指纹内容
 // 改写」的最坏可见窗（同 mtimeNs+size 的撞窗，chapters.ts 缓存同款取舍）。命中返回
 // entries/errors 数组浅拷贝（调用方 sort/mutate 不污染缓存）；条目对象只读共享。
@@ -166,7 +166,7 @@ interface EntriesCacheEntry {
 
 const entriesCache = new Map<string, EntriesCacheEntry>()
 
-/** R46-20：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族，同 forgetSettingCache
+/** 删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族，同 forgetSettingCache
  *  口径）——缓存键为 `<entriesDir>\u0000<kind|*>`，按 join(bookRoot, ENTRIES_DIR) 前缀
  *  精确清除该书全部 kind 变体（绝对路径前缀无歧义）。 */
 export function forgetEntriesCache(bookRoot: string): void {
@@ -176,7 +176,7 @@ export function forgetEntriesCache(bookRoot: string): void {
   }
 }
 
-/** R46-20：kinds 各目录的「文件名:mtimeNs:size」签名（目录缺失计 '-'；单文件 stat
+/** kinds 各目录的「文件名:mtimeNs:size」签名（目录缺失计 '-'；单文件 stat
  *  失败〔扫描竞态删除〕计不稳定标记，永不与下次相等 → 强制重读，宁多读不脏读）。 */
 function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): string {
   const parts: string[] = []
@@ -207,7 +207,7 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
 /**
  * 读条目库（entriesDir = <bookRoot>/文风/条目）。
  * kind 省略 → 全部四类；目录不存在 → 空（老书未迁移时的正常形态）。
- * R46-20：经 TTL+mtime 探针缓存读取（写稿热路径不再每章每轮全量重读条目目录）。
+ * 经 TTL+mtime 探针缓存读取（写稿热路径不再每章每轮全量重读条目目录）。
  */
 export function readEntries(
   entriesDir: string,
@@ -230,7 +230,7 @@ export function readEntries(
   return r
 }
 
-/** readEntries 原实现（R46-20 拆出为缓存未命中的实读路径，逻辑逐字未动） */
+/** readEntries 原实现（拆出为缓存未命中的实读路径，逻辑逐字未动） */
 function readEntriesUncached(
   entriesDir: string,
   kinds: readonly EntryKind[],
@@ -241,9 +241,9 @@ function readEntriesUncached(
     const dir = join(entriesDir, k)
     let files: string[]
     try {
-      // R2W-8（win 平台专项复审 R2）：扩展名大小写不敏感（R34D-11 家族补齐，对齐
+      // （win 平台专项）：扩展名大小写不敏感（家族补齐，对齐
       // walk-md 口径）——.MD 改名的文风条目此前静默消失（不进注入/禁词）
-      // R48-50（四十八轮）：手写 slice(-3) 判定收口 filename.isMdFileName 单源
+      // 手写 slice(-3) 判定收口 filename.isMdFileName 单源
       // （nextEntrySeq 同文件已用；两口径并存将来漂移）
       files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
     } catch {
@@ -251,7 +251,7 @@ function readEntriesUncached(
     }
     for (const f of files.sort()) {
       const fp = join(dir, f)
-      // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+      // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
       // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整库读取
       let isFile = false
       try {
@@ -273,7 +273,7 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
   const dir = join(entriesDir, kind)
   if (!existsSync(dir)) return 1
   let maxSeq = 0
-  // R59 清偿批（R57-D-4）：existsSync→readdirSync 间隙类型目录被瞬删（TOCTOU）时
+  // 清偿stsSync→readdirSync 间隙类型目录被瞬删（TOCTOU）时
   // ENOENT 裸抛炸调用链（addEntry 入库）——同文件 entriesDirSignature / readEntriesUncached
   // 两处同形态 readdirSync 均有 try/catch 守卫（目录消失按空处理），唯此处漏防；补同款
   // 守卫按空目录降级（序号从 1 起算；落盘真竞态由 addEntry 的 O_EXCL EEXIST 重试兜底）
@@ -284,8 +284,8 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
     return 1
   }
   for (const f of files) {
-    if (!isMdFileName(f) || f.startsWith('._')) continue // R38-9：.MD 不再失明
-    // R1010b-DOC-P3-3：序号解析经 parseSampleFileName 单源（(\d{3,}) 3 位起同修），
+    if (!isMdFileName(f) || f.startsWith('._')) continue // .MD 不再失明
+    // 序号解析经 parseSampleFileName 单源（(\d{3,}) 3 位起同修），
     // 千位序号文件不再被吞千位误判成异场景（同场景续号从 1001 起，不割裂）
     const parsed = parseSampleFileName(f)
     if (parsed && parsed.场景 === scene && parsed.序号 > maxSeq) maxSeq = parsed.序号
@@ -299,25 +299,25 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
  */
 export function addEntry(bookRoot: string, e: StyleEntry): string {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
-  // 场景字段净化：Y-27（第五十七轮）改走 sanitizeChapterTitle 单源（控制字符/非法名
+  // 场景字段净化：改走 sanitizeChapterTitle 单源（控制字符/非法名
   // + 码位 60/字节 120 双封顶）——此前仅替换路径分隔符，AI 或 fm 提供的超长场景名
   // ENAMETOOLONG 抛穿入库
   const scene = sanitizeChapterTitle(e.场景)
   const dir = join(entriesDir, e.类型)
   mkdirSync(dir, { recursive: true })
-  // R64-14（十二轮）：nextEntrySeq 扫盘与写入之间无互斥——跨进程并发取同序号后，
+  // nextEntrySeq 扫盘与写入之间无互斥——跨进程并发取同序号后，
   // writeEntry 的 atomic-rename 语义会静默覆盖同名文件（丢一条）。改 O_EXCL（'wx'）
   // 排他建文件：EEXIST → 序号 +1 重试；写侧绕开 atomic rename 正是为保排他语义
   //（创建型写入，无旧内容可失）。上限 32 次防病态环。
   const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
-  // R69-21（十七轮）：序号扫描同用净化后场景——文件名是 sanitizeChapterTitle(场景)，
+  // 序号扫描同用净化后场景——文件名是 sanitizeChapterTitle(场景)，
   // 此前比对用原始场景，场景含 win 非法字符时序号扫描 miss 同族文件从 1 起数（靠
   // O_EXCL 的 EEXIST 重试自愈，但白耗重试且同场景新旧条目编号割裂）。
   let seq = nextEntrySeq(entriesDir, e.类型, scene)
   for (let attempt = 0; attempt < 32; attempt++) {
     const fileName = `${scene}-${String(seq).padStart(3, '0')}.md`
     const filePath = join(dir, fileName)
-    // R74-9（七十四轮批 D）：本写点同 writeEntryExclusive 补耐久——原裸 'wx' +
+    // 本写点同 writeEntryExclusive 补耐久——原裸 'wx' +
     // writeFileSync + close 无 fsync，断电可留 0 字节条目占序号；改走 createFileExclusive
     // 单源（排他 + fsync + 目录 fsync），EEXIST → 序号 +1 重试语义不变
     if (createFileExclusive(filePath, text) === 'exists') {
@@ -330,7 +330,7 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
 }
 
 /**
- * 禁词行清洗拆词（R73-15 二十一轮自 iron-rules.ts 移驻）——readBannedEntryWords 与
+ * 禁词行清洗拆词（二十一轮自 iron-rules.ts 移驻）——readBannedEntryWords 与
  * 铁律「反和解/硬禁词」段共用同一套清洗（占位行过滤 → 引号词抽取 → 剥列表前缀/括注
  * → 标签冒号行校验 → 顿号/逗号/斜杠/分号劈分 → 占位词过滤）。实现逐字保留，仅函数
  * 随消费方迁文件（iron-rules 原已单向 import 本模块，反向会成环）；导出供两侧调用。
@@ -339,15 +339,15 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   const line = rawLine.trim()
   if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
 
-  // R76-4（二十四轮 B 域）：引号抽取窗口 {2,24} → {1,}，长度约束后移过滤——原下限 2
+  // （二十四轮 B 域）：引号抽取窗口 {2,24} → {1,}，长度约束后移过滤——原下限 2
   // 让单字引号禁词（网文真实规则「禁『了』开头句式」类）不中引号分支、落入兜底清洗后
   // **带引号整行成词**，body.includes('「了」') 永不命中且因「解析成功」不进
-  // unparsedBannedEntries（R73-15 失明提示也不触发），红闸静默失效零提示。现单字照入
+  // unparsedBannedEntries（失明提示也不触发），红闸静默失效零提示。现单字照入
   // 表（fail-noisy：宁可报红让作者改写条目，不静默失明）；>24 字的引号段不是「词」
   // （说明性引文/长禁句），全部超长时返回 [] 交 readBannedEntryWords 的 unparsed 黄项。
   const quoted = [...line.matchAll(/[「『“"]([^」』”"]{1,})[」』”"]/g)].map((m) => m[1]!)
   if (quoted.length > 0) {
-    // R0916-nano-3（四轮处置批）：`words.length > 0 ? words : []` 冗余三元删——filter
+    // （四轮处置批）：`words.length > 0 ? words : []` 冗余三元删——filter
     // 产物本就是数组，空态两者无 observable 差异，直接返回
     return quoted.filter((w) => w.length <= 24)
   }
@@ -374,7 +374,7 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   return cleaned
     .split(/[、，,\/／；;]/)
     .map((part) => part.trim())
-    // R72-8（二十轮 C-6）：占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
+    // 占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
     // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
     // 不一致；词长 ≥2 已挡单字「待」
     .filter(
@@ -386,7 +386,7 @@ export function parseBannedWordsLine(rawLine: string): string[] {
 }
 
 /**
- * R30-15（三十轮）：单条禁词条目正文 → 解析出的禁词数组（多行逐行拆词）。
+ * 单条禁词条目正文 → 解析出的禁词数组（多行逐行拆词）。
  * 取词口径单源——机检侧 readBannedEntryWords 与注入侧 style-inject 的禁用段共用
  * 本函数，两侧词表不再漂移（此前注入侧整段 join 条目正文，说明性多行文本整段
  * 进 prompt，与机检拆词口径分裂）。
@@ -400,11 +400,11 @@ export function bannedEntryWords(entryBody: string): string[] {
 }
 
 /**
- * 条目库硬禁词列表（机检收口 S5：禁词知识在条目库；无条目库 → 空）。
+ * 条目库硬禁词列表（机检收口：禁词知识在条目库；无条目库 → 空）。
  * 「AI味」标签的是软禁词（旧铁律替换表迁移而来）——只注入不机检，
  * 保持旧语义：反和解硬禁词命中报红，AI 味词交给写稿/去味阶段。
  *
- * R73-15（二十一轮 B-2）：此前仅按 \n 拆行、整行当一个词——单行多词（顿号/逗号
+ * 此前仅按 \n 拆行、整行当一个词——单行多词（顿号/逗号
  * 分隔）作 includes 永不命中，禁词红闸对该条目静默全量漏报。现复用
  * parseBannedWordsLine 同套清洗（铁律侧同源口径）：引号词/列表前缀/顿号劈分全认。
  * 解析不出任何词的条目（整段说明性文本）随 unparsed 回报，机检消费面产黄项提示
@@ -416,12 +416,12 @@ export function readBannedEntryWords(bookRoot: string): { words: string[]; unpar
   const unparsed: string[] = []
   for (const e of entries) {
     if (e.标签?.includes('AI味')) continue
-    // Y-23（第五十七轮）：多行正文逐行清洗拆词——手写条目正文常是说明性多行文本，
+    // 多行正文逐行清洗拆词——手写条目正文常是说明性多行文本，
     // 整段当一个词作 includes 永不命中（禁词漏报且无提示）。
-    // R30-15（三十轮）：逐行拆词收编 bannedEntryWords 单源（与注入侧共用）。
+    // 逐行拆词收编 bannedEntryWords 单源（与注入侧共用）。
     const parsed = bannedEntryWords(e.正文)
     if (parsed.length === 0) {
-      // R73-15：整条解析不出词 → 回报场景名留痕（调用方产黄项），不再静默丢条目
+      // 整条解析不出词 → 回报场景名留痕（调用方产黄项），不再静默丢条目
       unparsed.push(e.场景)
       continue
     }

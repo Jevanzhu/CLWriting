@@ -14,8 +14,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 // R75-D-P3b（批 D）：/state 已有 5s TTL 结果缓存——本测验证「落暂停记录后立即可见」，
-// 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
-import { __setStateTtlForTest } from '../../src/studio/server/api/state.js'
+// 组装根 overrides 注入 TTL=0 关缓存保住原即时语义（缓存三态由 state-tree-issues-ttl.test.ts 覆盖）
 
 const BOOK = '暂停透传测试书'
 
@@ -44,17 +43,17 @@ function get(path: string): Promise<{ status: number; json: any }> {
 }
 
 beforeAll(async () => {
-  __setStateTtlForTest(0) // R75-D-P3b：关 TTL 缓存（it1→it2 落盘后需立即可见）
   studio = await bootStudio({
     book: BOOK,
     prefix: 'clw-kk14-',
     dirs: ['工作区/待定稿'],
     bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 暂停透传测试书\nhost: cc\n',
+    // R75-D-P3b：关 TTL 缓存（it1→it2 落盘后需立即可见；原模块级 setter 已删）
+    overrides: { stateTtlMs: 0 },
   })
 })
 
 afterAll(async () => {
-  __setStateTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   await studio.close()
 })
 

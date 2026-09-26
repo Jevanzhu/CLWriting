@@ -1,5 +1,5 @@
 /**
- * 模型 id 归一化管线（批次 D3，学 cherry-studio normalize.ts）。
+ * 模型 id 归一化管线（批次，学 cherry-studio normalize.ts）。
  *
  * 产出三种键（三键索引，供 detectFamily 二道解析 / 未来目录行匹配）：
  * - raw   原文（trim 后）

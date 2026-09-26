@@ -9,7 +9,7 @@
  * - 备料成功：材料文件在盘 + promptFiles 含该路径（原行为保持）。
  *
  * 用 vi.mock 隔离 prepareMaterials（控成败）与 runSpec（观察 promptFiles）；
- * 其余链路（rebuild/机检替身/落盘替身）与 self-heal-f2.test.ts 同款。
+ * 其余链路（rebuild/机检替身/落盘替身）与 self-heal-result-semantics.test.ts 同款。
  */
 import { test, expect, vi, beforeEach } from 'vitest'
 import { join } from 'node:path'

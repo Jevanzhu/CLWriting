@@ -1,19 +1,19 @@
 /**
- * AI 可达性探测端点（G4-a，降级体验）。
+ * AI 可达性探测端点（降级体验）。
  *
  * GET /api/ai-status → { available, reason? }
  *
  * 新架构：探 provider 配置（providers.json 是否有已配置且已探测的当前供应商）。
  * mock 模式永可达；CLWRITING_E2E_AI_DOWN=1 模拟不可达。
  *
- * P0-2：不再缓存——每次实时探测。currentProvider 只是一次 providers.json 读，
+ * 不再缓存——每次实时探测。currentProvider 只是一次 providers.json 读，
  * 代价可忽略；缓存会让「供应商刚配置好」落在 10s 旧结果上，按钮仍置灰。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { DriverHost } from '../driver-port.js' // R0916-7-P3-6：driver 经组装根注入
+import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
-import type { ProviderRuntime } from '../../../ai/provider/store.js' // R0916-7-P3-6：provider 运行时端口（组装根注入）
+import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 
 interface ProbeResult {
   available: boolean
@@ -23,9 +23,9 @@ interface ProbeResult {
 
 interface AiStatusCtx {
   userDataPath: string | null
-  /** R0916-7-P3-6：driver 宿主（mock 选择结果）——组装根注入 */
+  /** driver 宿主（mock 选择结果）——组装根注入 */
   driver: DriverHost
-  /** R0916-7-P3-6：provider 运行时端口——组装根注入 */
+  /** provider 运行时端口——组装根注入 */
   providers: ProviderRuntime
 }
 
@@ -39,7 +39,7 @@ export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
       reply(res, 200, probeAi(ctx, null))
       return
     }
-    // 每次实时探测（P0-2：无缓存，供应商增改/测试/切换后立即可达）
+    // 每次实时探测（无缓存，供应商增改/测试/切换后立即可达）
     reply(res, 200, probeAi(ctx, ctx.userDataPath))
   },
   })
@@ -51,7 +51,7 @@ function probeAi(ctx: AiStatusCtx, userDataPath: string | null): ProbeResult {
   if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
     return { available: false, driver: '', reason: 'e2e: AI 不可达模拟' }
   }
-  // R0916-7-P3-6：mock 判定读注入的 driver.kind（不再读环境变量）
+  // mock 判定读注入的 driver.kind（不再读环境变量）
   if (ctx.driver.kind === 'mock') {
     return { available: true, driver: 'mock' }
   }

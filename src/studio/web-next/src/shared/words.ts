@@ -1,12 +1,12 @@
-// 与服务端共享的字数/章名纯函数（T2.1）：从主仓 src/format/words.ts re-export。
+// 与服务端共享的字数/章名纯函数（.1）：从主仓 src/format/words.ts re-export。
 // words.ts 零 Node 依赖，浏览器端可直接 import；chapters.ts 因 import node:fs 不可跨入。
-// M-4（第十一轮）：chapterFilePrefix（章号补零宽度写侧单源：长篇 4 位/短篇 3 位）同源
+// chapterFilePrefix（章号补零宽度写侧单源：长篇 4 位/短篇 3 位）同源
 // re-export——前端复制/新建与服务端草稿新建/改名共用同一宽度口径。
 export { countWords, parseChapterFileName, chapterFilePrefix } from '../../../../format/words'
 // splitFrontMatter 从 frontmatter-core.ts re-export（零 Node 依赖，服务端/浏览器共用），
 // 消除此前手写 --- 查找逻辑的漂移风险。
 import { splitFrontMatter } from '../../../../format/frontmatter-core'
-// R31-30（三十一轮）：re-export 供视图层取 fmRaw（编辑器为准补笔用，format 直引不外溢）
+// re-export 供视图层取 fmRaw（编辑器为准补笔用，format 直引不外溢）
 export { splitFrontMatter as splitFrontmatter }
 
 /**
@@ -23,7 +23,7 @@ export function stripFrontmatter(content: string): string {
  * 编辑区剥离 fm 后，用户改 body → patch 时用它拼回全文（fm 不动）。
  * 无 fm 或 fm 未闭合 → 返回 body；本体原样保留（含末尾换行，往返一致）。
  * stripLeading：默认 true（剥 body 前导空行——fm/body 分隔空行不重复，供加载/粘贴/
- * 对账等「明确来源」写入口径）；编辑路径必须传 { stripLeading: false } 保前导（R36-6：
+ * 对账等「明确来源」写入口径）；编辑路径必须传 { stripLeading: false } 保前导（
  * 编辑器展示的 body 已剥分隔空行，其前导空行全部是用户有意输入，剥了即造成首次后续
  * 键入时前导被拽回）。
  */
@@ -35,11 +35,11 @@ export function mergeFm(full: string, body: string, opts?: { stripLeading?: bool
 }
 
 /**
- * R75-E-P3f：剥 fm 值两端对称引号（format/frontmatter unquote 的 web-next 镜像，
+ * 剥 fm 值两端对称引号（format/frontmatter unquote 的 web-next 镜像，
  * 该函数未导出且 format 域禁改，故此处单源）。服务端 stringifyValue 对空串/纯数字串/
  * 含特殊字符值加引号落盘（清空值即 `key: ""`），前端读回不剥则表单显示两个引号字符。
- * 双引号单遍解码 \\ \" \n \r（与写侧转义对称，R-11 同口径）；单引号 '' → '；
- * length>=2 守卫防单引号字符值被归一成空（B-16 同款）。
+ * 双引号单遍解码 \\ \" \n \r（与写侧转义对称，同口径）；单引号 '' → '；
+ * length>=2 守卫防单引号字符值被归一成空（同款）。
  */
 function unquoteFmValue(s: string): string {
   if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
@@ -145,7 +145,7 @@ export function isBodyKind(path: string): boolean {
 }
 
 /**
- * 复审-0913-源码 P3-㉕：万字简写单源（≥1 万 → 「X.X万」形态；位数/后缀按面传参表达）。
+ * -源码 -㉕：万字简写单源（≥1 万 → 「X.X万」形态；位数/后缀按面传参表达）。
  * 只收「万」分支——各调用面 <1 万 的兜底（toLocaleString / '0 字' / k 简写）输出各异，
  * 不并入本 helper（各处现有输出逐字节保持，不借收编顺手统一视觉口径）。
  */
@@ -156,7 +156,7 @@ export function formatWanZi(n: number, opts?: { suffix?: string; digits?: number
 }
 
 /**
- * 章节六态「标签 + 状态色」单表（复审-0914-优化修复批 P3 收敛）——此前三处独立维护：
+ * 章节六态「标签 + 状态色」单表（-收敛）——此前三处独立维护：
  * WritingInfoPanel / EditorDocHead 的 STATUS_LABEL（两份逐字相同）与 ChapterTreeItem
  * 的 dotClass（switch 手搓同口径），改一处漏两处的漂移面。三消费方此后委托本表；
  * dot/st 两列并存是既有视觉类名体系的如实保留（树/回收站 dot-green|red|yellow|gray，

@@ -1,6 +1,9 @@
 /**
  * 文风条目库读写单测（文风系统重整 S1）。
  * readEntry/writeEntry 往返、类型兜底、极性推导、序号递增、addEntry 入库。
+ *
+ * 2026-09-26 终扫自 style-entry-y23-y27.test.ts 并入 Y-23/Y-27 两臂（readBannedEntryWords
+ * 多行拆词 / addEntry 场景净化；断言逐条保留、零去重；Y-7 臂归并 style-migrate.test.ts）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs'
@@ -263,3 +266,45 @@ describe('R55-D-1：_raw 数组型未知字段往返保真', () => {
   })
 })
 
+
+// ── Y-23 / Y-27（五十七轮，2026-09-26 终扫自 style-entry-y23-y27.test.ts 并入）────
+describe('Y-23: readBannedEntryWords 多行正文拆词', () => {
+  it('多行说明性正文的禁词条目按行生效（整段当一个词永不命中）', () => {
+    mkdirSync(join(root, ENTRIES_DIR, '禁词'), { recursive: true })
+    writeFileSync(
+      join(root, ENTRIES_DIR, '禁词', 'a.md'),
+      '---\n类型: 禁词\n场景: 通用\n---\n仿佛命运\n无处不在\n',
+    )
+    // R73-15（二十一轮 B-2）：返回形态改 { words, unparsed }——解析不出词的条目
+    // 随 unparsed 回报（场景名留痕，机检消费面产黄项），不再静默失明
+    const { words, unparsed } = readBannedEntryWords(root)
+    expect(words).toContain('仿佛命运')
+    expect(words).toContain('无处不在')
+    // 整段（旧行为）不再是返回项
+    expect(words).not.toContain('仿佛命运\n无处不在')
+    // R73-15：可解析条目不进 unparsed；整段说明性文本条目 → unparsed 留痕
+    expect(unparsed).toEqual([])
+    writeFileSync(
+      join(root, ENTRIES_DIR, '禁词', 'b.md'),
+      // 单行超 24 字且无引号/分隔符 → 拆不出任何合法词条 → unparsed 留痕
+      '---\n类型: 禁词\n场景: 说明段\n---\n这是一整段超过二十四个字长度上限的说明性文字内容因此整体拆不出任何合法词条项。\n',
+    )
+    const r2 = readBannedEntryWords(root)
+    expect(r2.unparsed).toContain('说明段')
+  })
+})
+
+describe('Y-27: addEntry 场景净化', () => {
+  it('超长场景名被码位/字节双封顶，不再 ENAMETOOLONG', () => {
+    const longScene = '战'.repeat(200)
+    const rel = addEntry(root, { 类型: '禁词', 场景: longScene, 来源: '作者标注', 正文: '词' })
+    expect(rel.length).toBeLessThan(200)
+    expect(existsSync(join(root, rel))).toBe(true)
+  })
+
+  it('含路径分隔符的场景仍被替换（既有防护保持）', () => {
+    const rel = addEntry(root, { 类型: '禁词', 场景: '战斗/高级', 来源: '作者标注', 正文: '词' })
+    expect(rel).not.toContain('战斗/高级')
+    expect(existsSync(join(root, rel))).toBe(true)
+  })
+})

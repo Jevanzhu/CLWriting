@@ -28,9 +28,9 @@ export interface BookConfig {
   [k: string]: unknown
 }
 // GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
-// R34D-25：服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 前 4 字节 uint32，
+// 服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 前 4 字节 uint32，
 // 文件缺失为 0），供读改写调用方下次 PUT 带 expectedRevision。
-// R0912-C1-P3-3（2026-09-12 全量重评修复批）：两函数原为同端点双声明（各自 apiJson 一次），
+// （修复批）：两函数原为同端点双声明（各自 apiJson 一次），
 // 端点/解析改动时互为漏改点——现以此函数为唯一实现，getConfig 委托取 .config。
 export async function getConfigWithRevision(
   name: string,
@@ -46,7 +46,7 @@ export async function getConfig(name: string): Promise<BookConfig> {
 }
 
 // PUT /config {config} → 全量写回 book.yaml（须传完整 config，服务端整文件重写）。
-// R34D-25（三十四轮）：expectedRevision 可选乐观锁（对齐 putGlobalPrefs 的 GG-P2-7 契约：
+// expectedRevision 可选乐观锁（对齐 putGlobalPrefs 的契约：
 // 不传 = 直通，向后兼容；传入则随 body 上送，服务端失配回 409，经 apiJson 抛
 // ApiError{status:409, code:REVISION_CONFLICT}——调用方以此拦截「双标签页后写者
 // 静默覆盖先写者」）。服务端批已落地消费：GET 回传内容指纹 revision + PUT 比对
@@ -62,7 +62,7 @@ export async function putConfig(
   })
 }
 
-// GET /words-diary → {date, baseline, delta}（§5.4 基线 + E4 精确增量；delta=null 表示当日无 settled 记录，回退 baseline）。
+// GET /words-diary → {date, baseline, delta}（§5.4 基线 + 精确增量；delta=null 表示当日无 settled 记录，回退 baseline）。
 export async function getWordsDiary(
   name: string,
 ): Promise<{ date: string; baseline: number | null; delta: number | null }> {
@@ -78,7 +78,7 @@ export async function postBaseline(name: string, baseline: number): Promise<void
 }
 
 // POST /api/books { name, kind } → 建书（doInit：目录 + books.jsonl 登记 + book.yaml）。
-// R0911-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：自 useShelf.createBook 的裸
+// （GLM-5.3 修复批）：自 useShelf.createBook 的裸
 // apiJson 调用归置收编至此（全仓端点调用统一归 api/ 层，此处为此前唯一漏网）——签名/
 // 错误处理对齐本文件既有函数：失败（重名/非法书名/无工作目录，400）经 apiJson 统一抛
 // ApiError，由调用方 friendlyError 呈报；调用点行为零变化（原裸调同 payload 同端点）。
@@ -97,7 +97,7 @@ export async function createBook(name: string, kind: 'long' | 'short'): Promise<
 // POST /api/books/:name/rename { name } → 全量改名（磁盘目录 + books.jsonl 登记 + active 指针 +
 // book.yaml title 一起同步）。renamed=false = 同名 no-op（仅 title 回正）；true = 目录已搬家，
 // 前端须把当前书切换到新名（res.name），否则旧名 URL 全部失效。
-// eventsMigrationFailed=true（kk-P1-3）：会话/事件库迁移失败（旧库原地完整保留在旧名 hash 下，
+// eventsMigrationFailed=true：会话/事件库迁移失败（旧库原地完整保留在旧名 hash 下，
 // 数据可找回但不再随新名可达）——改名成功与迁移失败可并存，UI 须出警告而非静默成功。
 interface RenameBookResult {
   ok: true
@@ -113,7 +113,7 @@ export async function renameBook(name: string, newName: string): Promise<RenameB
   })
 }
 
-// ── RAG 接线（cc 批4 P1-8）──────────────────────────────────────────
+// ── RAG 接线（cc 批4 ）──────────────────────────────────────────
 // 建索引是长任务：POST build 后台跑完，前端轮询 GET status。
 // 服务商化：endpoint/model/key 归应用级 RAG 服务商管（api/providers.ts），书只存 provider 引用 + enabled。
 export interface RagStatus {
@@ -122,8 +122,8 @@ export interface RagStatus {
   chunkCount: number
   model: string | null
   /**
-   * R0911b-P2①（win 线）/ R0912-FE-P2-12（mac 线）同题双修取一（merge 2026-09-12）：
-   * 索引三态（api/rag.ts status 端点实测字段，R40-50，此前前端类型漏接）——
+   * ①（win 线）/ （mac 线）同题双修取一（merge ）：
+   * 索引三态（api/rag.ts status 端点实测字段，，此前前端类型漏接）——
    * unbuilt=从未建索引 / cleared=已清空待重建 / built=有索引内容。
    */
   indexState: 'unbuilt' | 'cleared' | 'built'
@@ -133,8 +133,8 @@ export interface RagStatus {
   /** true = 书还在用旧版内联 endpoint/model（未迁移到服务商引用） */
   legacy: boolean
   /**
-   * R0911b-P2①（win 线）/ R0912-FE-P2-12（mac 线）同题双修取一：embedding 模型失配标记
-   * （api/rag.ts R26-16 标记，从未建过索引不算）——已建索引的模型 ≠ 当前生效配置模型，
+   * ①（win 线）/ （mac 线）同题双修取一：embedding 模型失配标记
+   * （api/rag.ts 标记，从未建过索引不算）——已建索引的模型 ≠ 当前生效配置模型，
    * 旧索引无法续建，需走 rebuild 清库重建（前端唯一可达的失配自愈出口，修「失配文案指向
    * rebuild 端点而 GUI 不可达」的断头）。
    */
@@ -152,8 +152,8 @@ export async function triggerRagBuild(name: string): Promise<{ started: true }> 
   })
 }
 
-// R0911b-P2①（win 线）/ R0912-FE-P2-12（mac 线）同题双修取一（2026-09-11 重评-0911b 修复批，
-// merge 2026-09-12）：重建索引——服务端 R26-16 端点，任务闸内先 resetRagIndex 清空既有索引
+// （win 线）/ （mac 线）同题双修取一（b 修复批，
+// merge ）：重建索引——服务端端点，任务闸内先 resetRagIndex 清空既有索引
 // 再后台全新建。嵌入模型/维度失配后 build 只会撞「请重建索引」错误信封（src/rag/index.ts
 // 失配文案指向本端点），rebuild 是 GUI 的程序化出路（此前仅 CLI/手搓 HTTP 可达）。
 // 与 build 同一套任务闸（运行中 409 BUSY）与响应信封。

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // 开书对话·故事梗概卡（巨石批 7c 拆分自 OnboardView）：作者设想输入，AI 据其开书。
-// localStorage 持久化（300ms 防抖）随卡迁移；值经 v-model 与父层双向（gen() 读同一份）。
+// localStorage 持久化（300ms 防抖）随卡迁移；值经 v-model 与父层双向（gen 读同一份）。
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import { PenLine } from 'lucide-vue-next'
-// R30-26（三十轮）：键名改从 shared/storage-keys 单一事实源拼（原局部 PREMISE_KEY 与
-// useShelf 删书清扫各自硬编码同串，写入/清除键名断裂隐患同 R28-3 首开键）
+// 键名改从 shared/storage-keys 单一事实源拼（原局部 PREMISE_KEY 与
+// useShelf 删书清扫各自硬编码同串，写入/清除键名断裂隐患同首开键）
 import { onboardPremiseKey } from '../../shared/storage-keys'
 
 const props = defineProps<{ bookName: string }>()
@@ -30,7 +30,7 @@ onBeforeUnmount(() => {
   if (premiseTimer) {
     clearTimeout(premiseTimer)
     premiseTimer = null
-    // R65-51（E-3）：卸载冲刷在途防抖——输入后 300ms 内离开本卡（切步/关页/前进）时
+    // 卸载冲刷在途防抖——输入后 300ms 内离开本卡（切步/关页/前进）时
     // 修复前最后一次编辑随定时器被清而丢弃，重进回退到旧值
     try {
       localStorage.setItem(onboardPremiseKey(props.bookName), storyPremise.value)

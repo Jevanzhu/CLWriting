@@ -1,5 +1,5 @@
 /**
- * 文风铁律配置解析（第八轮方案 P2-A1：消除 format→check 循环依赖）。
+ * 文风铁律配置解析（方案 -：消除 format→check 循环依赖）。
  *
  * 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。
  * 纯文本解析、零依赖——format 基础层可安全引用（check/count.js 反向依赖 format，
@@ -7,8 +7,8 @@
  */
 import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
-// R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry（readBannedEntryWords 拆词
+import { errMsg, log } from '../log/index.js' // errMsg 收编：错误文案三目单源
+// parseBannedWordsLine 移驻 style-entry（readBannedEntryWords 拆词
 // 复用同套清洗；本文件原已单向 import style-entry，反向会成环——函数随消费方迁移）
 import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
 import { isMdFileName } from './filename.js'
@@ -27,7 +27,7 @@ export interface IronRules {
   avoidSummaryEnding?: boolean
   /** 文风铁律里的反和解/硬禁词清单，命中即红 */
   bannedWords?: string[]
-  /** R73-15（二十一轮）：条目库禁词条目里解析不出任何词的条目场景名——机检消费面
+  /** 条目库禁词条目里解析不出任何词的条目场景名——机检消费面
    *  产黄项提示（禁词红闸对这些条目静默失明，作者须改写为逐行/顿号分词） */
   unparsedBannedEntries?: string[]
 }
@@ -39,12 +39,12 @@ export function parseIronRules(text: string): IronRules {
   if (lenM) rules.maxSentenceLen = Number(lenM[1])
   const stackM = text.match(/形容词连续堆叠上限[:：]\s*(\d+)/)
   if (stackM) {
-    // R27-23（二十七轮）：上限夹取 [0,20]——该值直通 adjStackRegex 的 `{N+1,}` 量词，
+    // 上限夹取 [0,20]——该值直通 adjStackRegex 的 `{N+1,}` 量词，
     // 手滑多打一个 0（如 200）时长「的」串上的嵌套量词回退实测秒级；20 个连续
     // 「X的」单元已远超任何合法散文意图，语义无损
     rules.maxAdjStack = Math.min(Math.max(Number(stackM[1]), 0), 20)
   }
-  // R26-39（二十六轮）：捕获放宽 `\d*\.?\d+%?`——省整数位小数（`对话标签占比: .5`）
+  // 捕获放宽 `\d*\.?\d+%?`——省整数位小数（`对话标签占比: .5`）
   // 此前 `\d+` 要求首位数字整条漏配，阈值静默不生效；`50％`（全角）由 parseRatio 归一
   const tagRatioM = text.match(/对话标签占比[:：]\s*(\d*\.?\d+%?)/)
   if (tagRatioM) rules.maxDialogueTagRatio = parseRatio(tagRatioM[1]!)
@@ -57,14 +57,14 @@ export function parseIronRules(text: string): IronRules {
 }
 
 /**
- * RB-KN-P1-1：读铁律阈值 + 条目库禁词合并——单一真相源（原先 check/runner 私有版
- * 只读铁律不合并条目库，而 S5 迁移已把禁词知识搬进条目库并瘦身铁律，迁移书的
+ * 读铁律阈值 + 条目库禁词合并——单一真相源（原先 check/runner 私有版
+ * 只读铁律不合并条目库，而迁移已把禁词知识搬进条目库并瘦身铁律，迁移书的
  * checkBannedWords 红项因此恒空、禁词拦截与自愈打回整体失效）。
  * metrics/style 与 check/runner 均消费此实现；皆无 → 空规则。
  *
- * R73-31（二十一轮）：(mtimeNs,size)+条目库目录 stat 指纹缓存——runAllChecks 每章
+ * (mtimeNs,size)+条目库目录 stat 指纹缓存——runAllChecks 每章
  * 调用本函数，此前每章「铁律整读 + 禁词条目库全扫全读」（O(章数×条目库) 重复 IO，
- * 树红点聚合数百章书一次聚合全量重读）。同指纹直接回缓存（global-defaults R64-25
+ * 树红点聚合数百章书一次聚合全量重读）。同指纹直接回缓存（global-defaults
  * 同款范式，精度升 mtimeNs 防同毫秒改回同长内容撞缓存）；指纹 = 铁律 md stat +
  * 禁词类型目录 stat 摘要（含文件名 hash——改名不改 stat 也要失效）。命中返回浅拷贝
  * 防调用方 mutate 污染缓存；铁律读失败（TOCTOU）不缓存，下轮重试。
@@ -73,14 +73,14 @@ export function readIronRules(bookRoot: string): IronRules {
   const fp = ironRulesFp(bookRoot)
   const hit = ironRulesCache.get(bookRoot)
   if (hit && hit.fp === fp) {
-    // R27-27（二十七轮）：unparsedBannedEntries 与 bannedWords 同为缓存内可变数组，
+    // unparsedBannedEntries 与 bannedWords 同为缓存内可变数组，
     // 浅拷贝只拷后者——调用方 mutate 前者会污染缓存（与函数头「命中返回浅拷贝防
     // 污染」的承诺不符）；两数组一起拷
     return cloneIronRules(hit.rules)
   }
   const p = join(bookRoot, '文风', '文风铁律.md')
-  // R65-16（十三轮）：existsSync→readFileSync 间隙铁律被瞬删（TOCTOU）时 ENOENT 直穿
-  // 炸机检/文风重扫——读失败按空规则降级 + warn 留痕（对齐 X-P2-5 读失败按无推进降级）
+  // existsSync→readFileSync 间隙铁律被瞬删（TOCTOU）时 ENOENT 直穿
+  // 炸机检/文风重扫——读失败按空规则降级 + warn 留痕（对齐读失败按无推进降级）
   let text: string | null = null
   if (existsSync(p)) {
     try {
@@ -90,7 +90,7 @@ export function readIronRules(bookRoot: string): IronRules {
     }
   }
   const rules = text !== null ? parseIronRules(text) : {}
-  // R73-15（二十一轮）：readBannedEntryWords 改拆词解析并回报「解析不出词」的条目，
+  // readBannedEntryWords 改拆词解析并回报「解析不出词」的条目，
   // 透传给机检消费面产黄项（禁词红闸对这些条目静默失明的留痕）
   const { words: entryWords, unparsed: unparsedEntries } = readBannedEntryWords(bookRoot)
   if (entryWords.length > 0) {
@@ -102,20 +102,20 @@ export function readIronRules(bookRoot: string): IronRules {
   // 铁律读失败（存在但瞬读失败）不缓存降级值——指纹未变会让降级值存活到下次改动
   if (text !== null || !existsSync(p)) {
     ironRulesCache.set(bookRoot, { fp, rules })
-    // 容量纪律（R70-21 同款）：超上限 FIFO 修剪最旧书目录（Map 插入序）
+    // 容量纪律（同款）：超上限 FIFO 修剪最旧书目录（Map 插入序）
     while (ironRulesCache.size > IRON_RULES_CACHE_MAX) {
       const oldest = ironRulesCache.keys().next().value
       if (oldest === undefined) break
       ironRulesCache.delete(oldest)
     }
   }
-  // R27-27（二十七轮）：miss 路径同样回拷贝——此前直接 return rules（缓存对象本体），
+  // miss 路径同样回拷贝——此前直接 return rules（缓存对象本体），
   // 首个调用方 mutate bannedWords/unparsedBannedEntries 污染的是缓存活引用（比命中
   // 路径浅拷贝漏项更深的同型缺陷，回归测试首调 mutate 即复现）
   return cloneIronRules(rules)
 }
 
-/** R27-27（二十七轮）：IronRules 防御性拷贝——数组字段逐个克隆，标量浅拷即可。 */
+/** IronRules 防御性拷贝——数组字段逐个克隆，标量浅拷即可。 */
 function cloneIronRules(r: IronRules): IronRules {
   return {
     ...r,
@@ -124,12 +124,12 @@ function cloneIronRules(r: IronRules): IronRules {
   }
 }
 
-/** R73-31：readIronRules 进程级指纹缓存（bookRoot → 条目）。容量对齐章节元数据缓存
- *  64 书目录纪律（R70-21）；指纹见 ironRulesFp。 */
+/** readIronRules 进程级指纹缓存（bookRoot → 条目）。容量对齐章节元数据缓存
+ *  64 书目录纪律；指纹见 ironRulesFp。 */
 const IRON_RULES_CACHE_MAX = 64
 const ironRulesCache = new Map<string, { fp: string; rules: IronRules }>()
 
-/** 复审-0913-源码 P3-⑩：按书清 readIronRules 指纹缓存——books.ts 删书/改名
+/** -源码 -⑩：按书清 readIronRules 指纹缓存——books.ts 删书/改名
  *  forgetBookKeyedCaches 挂点同族收编（对齐同库 style-entry readEntries /
  *  forgetEntriesCache 先例）：指纹 stat 摘要只覆盖「盘上输入变了」，删书/改名后
  *  同名重建书书键复用、缓存条目成死重，正向清理消灭之。 */
@@ -138,7 +138,7 @@ export function forgetIronRulesCache(bookRoot: string): void {
 }
 
 /**
- * R73-31：readIronRules 全部输入的 stat 指纹——铁律 md (mtimeNs,size) + 禁词条目目录
+ * readIronRules 全部输入的 stat 指纹——铁律 md (mtimeNs,size) + 禁词条目目录
  * （count:size:maxMtimeNs:文件名FNV，目录未装 = 'no-entries'）。禁词条目库是
  * readBannedEntryWords 的读放大源，指纹必须覆盖；文件名入 hash 防「改名不改 stat」。
  * 旧格式指纹与缓存比对天然 miss（一次性重算，语义无损）。
@@ -154,7 +154,7 @@ function ironRulesFp(bookRoot: string): string {
   const dir = join(bookRoot, '文风', '条目', '禁词')
   let entriesFp = 'no-entries'
   try {
-    const names = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // R38-9：.MD 变更须失效缓存（指纹侧同步收口）
+    const names = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // .MD 变更须失效缓存（指纹侧同步收口）
     let size = 0n
     let maxMtime = 0n
     let nameHash = 0x811c9dc5
@@ -178,7 +178,7 @@ function ironRulesFp(bookRoot: string): string {
   return `${ruleFp}|${entriesFp}`
 }
 
-/** R26-39（二十六轮）：占比解析归一——全角「％」此前 Number NaN 静默落 0（阈值 0 =
+/** 占比解析归一——全角「％」此前 Number NaN 静默落 0（阈值 0 =
  *  全量误报）、省整数位小数「.5」被阈值捕获 regex 漏配。归一（％→%）后再解析；
  *  捕获侧 parseIronRules 的 regex 同步放宽为 `\d*\.?\d+%?`。 */
 function parseRatio(raw: string): number {
@@ -188,17 +188,17 @@ function parseRatio(raw: string): number {
   return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
 }
 
-// R59 清偿批（R57-D-3）：禁词段标题读取侧对齐 style-migrate.ts R49-13 删除侧的整行
+// 清偿批禁词段标题读取侧对齐 style-migrate.ts 删除侧的整行
 // 精确锚定口径——旧子串匹配（/反和解/、/硬禁词|禁词清单/）把作者自建的同关键词标题
 // 段（如「## 反和解心得」「## 硬禁词拾遗」）也当禁词段，段内笔记行经
 // parseBannedWordsLine 拆词（引号抽取/顿号劈分全认）混进 bannedWords 红闸误伤正文。
 // 现标题须整行为关键词短语本身（可带模板/清单后缀），仅收窄作者自建标题的误伤面；
 // 裸关键词标题（如「## 硬禁词」）仍命中，真禁词段检出不放宽。「反和解段」族取后缀
-// 可选锚定（主审复核批修正——初版要求全形「反和解段（AI 味防御）」，令 S5 以来
+// 可选锚定（主审复核批修正——初版要求全形「反和解段（AI 味防御）」，令以来
 // style-inject.test.ts 合并契约的裸形「## 反和解段」fixture 转红：裸形是旧子串时代
-// 在野合法形态，且删除侧 R49-13 不删裸形段，读取侧是该书禁词的唯一解析面，锚死全形
+// 在野合法形态，且删除侧不删裸形段，读取侧是该书禁词的唯一解析面，锚死全形
 // 即静默丢禁词）。可选后缀不回退本轮目标：「## 反和解心得」「## 反和解拾遗」仍不命中
-// （关键词短语本身须整行成立）；全形与删除侧 LEGACY_RULES_HEADING_RE 同字面（S5 迁移前
+// （关键词短语本身须整行成立）；全形与删除侧 LEGACY_RULES_HEADING_RE 同字面（迁移前
 // 旧模板标题，未迁移书仍靠本读取侧解析）；两族各一次 extractSection（同函数既有形态：
 // 同级的后一族标题会终断前段，单次扫描拿不到两段，见 checks.test.ts「反和解段解析为
 // 硬禁词」fixture）。
@@ -215,16 +215,16 @@ function parseAntiReconciliationWords(text: string): string[] {
   const words: string[] = []
   for (const section of sections) {
     for (const rawLine of section.split('\n')) {
-      // R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry.ts（实现逐字不变）
+      // parseBannedWordsLine 移驻 style-entry.ts（实现逐字不变）
       words.push(...parseBannedWordsLine(rawLine))
     }
   }
   return [...new Set(words)]
 }
 
-/** R27-20（二十七轮）：段内更深层级子标题（如 ## 硬禁词 下的 ### 网文套话）不再
+/** 段内更深层级子标题（如 ## 硬禁词 下的 ### 网文套话）不再
  *  截断采集——原「inSection 后遇任意标题即 break」把子标题之后的禁词全部丢在门外，
- *  红闸对它们永不命中且零提示（段内已采到词时 R73-15 失明黄项也不触发，双重静默）。
+ *  红闸对它们永不命中且零提示（段内已采到词时失明黄项也不触发，双重静默）。
  *  现仅遇**同级或更高级**标题才终断；更深层级标题行本身不入采集（防标题文字被当词）。
  *  headingLevel 取行首 # 连续数。 */
 function extractSection(text: string, headingRe: RegExp): string {
@@ -233,7 +233,7 @@ function extractSection(text: string, headingRe: RegExp): string {
   let inSection = false
   let sectionLevel = 0
   for (const line of lines) {
-    // 全库重评-0914 P3-12：标题闸放行零空白紧凑标题（`##硬禁词`）——原 `(#{1,6})\s+`
+    // 0914 标题闸放行零空白紧凑标题（`##硬禁词`）——原 `(#{1,6})\s+`
     // 强制空格，上方段锚定正则的 `\s*` 零空白容忍（ANTI_RECON_HEADING_RE/BANNED_LIST_HEADING_RE）
     // 被闸拦截永不生效，紧凑标题段静默失明（段内条目被折入证据不进红闸）。
     // 处方原拟 `(?:\s+|$)` 尾臂对 `##硬禁词` 仍不匹配（`##` 后是「硬」，既非空白也非

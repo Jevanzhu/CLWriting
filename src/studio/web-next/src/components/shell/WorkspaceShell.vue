@@ -9,7 +9,7 @@ import StatusBar from './StatusBar.vue'
 import ChatDock from './ChatDock.vue'
 import FocusFormatBar from './FocusFormatBar.vue'
 import FocusStatsBar from './FocusStatsBar.vue'
-// R42-3/R42-4（四十二轮）：ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog/Toast
+// /：ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog/Toast
 // 五件上移 App.vue 全局挂载（非工作区路由/书库独立窗口也需要），此处不再重复挂载
 import CommandPalette from '../ui/CommandPalette.vue'
 import TooltipHost from '../ui/TooltipHost.vue'
@@ -36,12 +36,12 @@ const tree = useTreeStore()
 const doc = useDocStore()
 const ui = useUiStore()
 useHotkeys()
-// R40-42（四十轮）：专注退出按钮组合键平台文案（win → Ctrl+Shift+F；原 title 写死 ⌘⇧F，
+// 专注退出按钮组合键平台文案（win → Ctrl+Shift+F；原 title 写死 ⌘⇧F，
 // 与 EditorDocHead/TabBar/Ribbon×2 四处 data-tip 同族，共 5 处经 mod-key 单源）
 const focusExitTitle = `退出专注模式（Esc / ${modComboLabel('Mod+Shift+F', usePlatform().platform)}）`
 
-// B-3：max_tokens 截断等非致命警告 → toast 提示。
-// R27-77（二十七轮）：消费面从 WorkbenchView 上移到本常驻层——原 watch 挂在工作台视图，
+// max_tokens 截断等非致命警告 → toast 提示。
+// 消费面从 WorkbenchView 上移到本常驻层——原 watch 挂在工作台视图，
 // 生成中切到编辑器/总览等视图时警告静默滞留（watch 无 immediate，回工作台也不补 toast），
 // 截断类提示失效。外壳随书常驻（Book.vue 全程挂载），任何视图下警告即产即 toast
 const wb = useWorkbenchStore()
@@ -49,16 +49,16 @@ watch(
   () => wb.warning,
   (msg) => {
     if (!msg) return
-    // R0916-7-P3-24：警告走 'warning' 通道（原以 'error' 呈现——max_tokens 截断等
+    // 警告走 'warning' 通道（原以 'error' 呈现——max_tokens 截断等
     // 可继续的非致命提示被作者当成致命失败）
     ui.toast(msg, 'warning')
     wb.warning = null
   },
 )
 
-// P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
+// 全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
 // tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
-// P2-3（全库重评-0914）：消费面自 WorkbenchView 上移本常驻层（R27-77 warning 同款）——
+// （-0914）：消费面自 WorkbenchView 上移本常驻层（warning 同款）——
 // 原 watch 挂工作台视图，全自动写章运行中切到编辑器/总览等视图时视图未挂载，收工
 // 跳转被整链跳过。外壳随书常驻（Book.vue 全程挂载），任何视图下结果即产即转。
 watch(
@@ -66,13 +66,13 @@ watch(
   async (r) => {
     if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
     if (!r.docId) return
-    // Z-24（第五十八轮）：书名入口捕获 + await 后守卫——tree.load 窗口内切书时，
+    // 书名入口捕获 + await 后守卫——tree.load 窗口内切书时，
     // A 书的 openTab/toast 不得落 B 书界面（onSpawn/onAutoWrite 同款纪律）
     const book = props.bookName
     try {
       await tree.load(book)
       if (props.bookName !== book) return
-      refreshCachedDoc(doc, r.docId) // R26-17：openTab 前刷新 clean 缓存（异步，不阻塞跳转）
+      refreshCachedDoc(doc, r.docId) // openTab 前刷新 clean 缓存（异步，不阻塞跳转）
       ws.openTab(r.docId)
       ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
     } catch {
@@ -98,8 +98,8 @@ const dockChapter = computed(() => {
 
 /** 拖拽调整左栏宽度（最小 180px 由 store setLeftWidth 兜底） */
 const leftDragging = ref(false)
-// PM-9（性能与内存专项 2026-09-05）：右缘 4px 热区光标——原 mousemove 每事件
-// getBoundingClientRect() 强制同步布局（144Hz 鼠标 ≈ 144 次 reflow/秒）。改为缓存
+// 右缘 4px 热区光标——原 mousemove 每事件
+// getBoundingClientRect 强制同步布局（144Hz 鼠标 ≈ 144 次 reflow/秒）。改为缓存
 // rect：首次 mousemove 惰性读一次；失效时机 = window resize、scroll（capture 才能接住
 // .ws-view 等不冒泡的后代滚动容器）、mouseenter 重进（覆盖折叠/拖宽后宽度过渡不触发
 // resize/scroll 的场景）、拖拽结束 onUp。光标写入经 rAF 同帧合并取最后一次（值不变
@@ -127,7 +127,7 @@ function onLeftMouseMove(e: MouseEvent): void {
     el.style.cursor = cursor
   })
 }
-// PM-9：rect 失效监听随外壳建立（passive 只读不阻塞滚动），卸载时成对移除
+// rect 失效监听随外壳建立（passive 只读不阻塞滚动），卸载时成对移除
 window.addEventListener('resize', invalidateLeftRect, { passive: true })
 // capture：scroll 不冒泡，capture 才能接住 .ws-view 等后代滚动容器的滚动
 window.addEventListener('scroll', invalidateLeftRect, { capture: true, passive: true })
@@ -153,7 +153,7 @@ function startResizeLeft(e: MouseEvent): void {
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
     leftDragging.value = false
-    invalidateLeftRect() // PM-9：拖宽后 rect 已变，失效待下次 mousemove 重读
+    invalidateLeftRect() // 拖宽后 rect 已变，失效待下次 mousemove 重读
     resizeCleanup = null
   }
   document.addEventListener('mousemove', onMove)
@@ -175,7 +175,7 @@ onUnmounted(() => {
   stopFsWatch()
 })
 
-// PM-9：rect 失效监听与挂起 rAF 随卸载清理（window 级监听不随组件卸载自动移除）
+// rect 失效监听与挂起 rAF 随卸载清理（window 级监听不随组件卸载自动移除）
 onBeforeUnmount(() => {
   window.removeEventListener('resize', invalidateLeftRect)
   window.removeEventListener('scroll', invalidateLeftRect, true)
@@ -226,7 +226,7 @@ onBeforeUnmount(() => {
              本次 +N 字 / 速度 / 本章目标进度；退出时有成果 toast。仅编辑器视图渲染（同上） -->
         <FocusStatsBar v-if="ws.focusMode && ws.activeView === 'editor'" />
         <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock）。
-             R27-76（二十七轮）：挂 :key=bookName 切书即重建——dock 常驻时组件本地 input 跨书残留，
+             ：挂 :key=bookName 切书即重建——dock 常驻时组件本地 input 跨书残留，
              A 书没发出去的文本切到 B 书会直接发进 B 书；重建一并复位展开态（fabOpen/chatOpen） -->
         <ChatDock
           v-if="prefs.get('chatEnabled') && !ws.focusMode && ws.activeView !== 'workbench'"
@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <StatusBar v-show="!ws.focusMode" />
-    <!-- R42-3/R42-4：Toast/ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog 已上移 App.vue -->
+    <!-- /：Toast/ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog 已上移 App.vue -->
     <CommandPalette />
     <TooltipHost />
   </div>
@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-s, 4px);
   background: var(--background-secondary);
   color: var(--text-muted);
-  /* 重评-0914-三轮 P3-9：--font-size-sm 系不存在的 token 名（字号刻度实名 --font-size-s），
+  /* -：--font-size-sm 系不存在的 token 名（字号刻度实名 --font-size-s），
    * 原写法恒走 12px fallback——字号档不随全局缩放（外观「字号」的 --font-size-step 失效）。
    * 改引实名并删自定义 fallback。 */
   font-size: var(--font-size-s);

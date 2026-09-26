@@ -8,7 +8,7 @@
 /** 协议类型——决定走哪种 SDK / 线格式
  *  openai = Chat Completions（/v1/chat/completions）
  *  openai-responses = OpenAI Responses API（/v1/responses，gpt-5/grok 深度用）——
- *  曾随 Z-P2-1 误判停用（2026-08-17 作者澄清本意暂缓非不做），Responses 启用批回接 */
+ *  曾随误判停用（作者澄清本意暂缓非不做），Responses 启用批回接 */
 export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 
 /**
@@ -35,12 +35,12 @@ export interface ProviderConf {
   model?: string // 方案 A：model 移至全局（工作台选），供应商不再绑死；运行时由 resolveProvider 注入实际档位模型
   apiKey: string // 存 userData（见 store.ts）
   /**
-   * 模型行（P9 加性扩展，阶段 14 §7.1）——可选；缺省 = 无模型编辑器覆盖，行为与旧版完全一致。
+   * 模型行（加性扩展，阶段 14 §7.1）——可选；缺省 = 无模型编辑器覆盖，行为与旧版完全一致。
    * 用于自定义网关：手写模型 + 行展开 contextWindow / maxTokens（K/M 输入），空值 = 回落 quirks 表/协议兜底。
    * 行结构开放：未知/未来字段原样存活，编辑不整行重建（DSH 教训）。
    */
   models?: ModelConf[]
-  /** D2（批 5）：provider 级价格表（每百万 token 单价；models[].pricing 同键覆盖）。
+  /** provider 级价格表（每百万 token 单价；models[].pricing 同键覆盖）。
    *  加性可选——未配置时一切行为与从前一致（cost 口径静默不生效）。 */
   pricing?: {
     inputPerMTok?: number
@@ -55,7 +55,7 @@ export interface ProviderConf {
   notes?: string
 }
 
-/** 模型行（阶段 14 §7.1）——P7 已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
+/** 模型行（阶段 14 §7.1）—— 已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
 export interface ModelConf {
   id: string
   /** 显示名（选择器回落显示 id） */
@@ -64,7 +64,7 @@ export interface ModelConf {
   contextWindow?: number
   /** 单次输出上限（token）；缺省 = 未声明（回落 quirks.maxOutputTokens / 协议兜底） */
   maxTokens?: number
-  /** D2（批 5）：模型级价格表（同名键覆盖 provider 级——同网关混挂不同价模型是现实场景） */
+  /** 模型级价格表（同名键覆盖 provider 级——同网关混挂不同价模型是现实场景） */
   pricing?: {
     inputPerMTok?: number
     outputPerMTok?: number
@@ -115,11 +115,11 @@ export interface ProviderCaps {
 /** 推理等级档位（与 reasoning_effort API 参数对齐；并非所有模型都支持全部档位） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-/** 任务档位槽——模型 + 推理等级 + 单次输出上限（Q3 甲：端点按任务类型取档） */
+/** 任务档位槽——模型 + 推理等级 + 单次输出上限（甲：端点按任务类型取档） */
 export interface TierSlot {
   model: string
   effort: EffortLevel
-  /** 整体超时上限 ms（B-2：档位可覆盖默认 10min）；缺省 → runner 默认值 */
+  /** 整体超时上限 ms（档位可覆盖默认 10min）；缺省 → runner 默认值 */
   timeoutMs?: number
 }
 
@@ -198,7 +198,7 @@ export interface ToolDef {
 }
 
 /**
- * R0916-7-P3-15：归一后的停止原因判别联合（三适配器同一产出集合）。
+ * 归一后的停止原因判别联合（三适配器同一产出集合）。
  *
  * 归一动机：此前三线各自透传上游原生拼写（openai 'length'/'tool_calls' 在适配器内
  * 临时改名，anthropic 原样透 'end_turn' 等），runner 只能对 run 回调返回值鸭子类型
@@ -235,7 +235,7 @@ export type GenEvent =
   | { type: 'reasoning_item'; encrypted: string; itemId?: string }
   | { type: 'tool'; id: string; name: string; input: unknown }
   /**
-   * Q-13（第十五轮）：适配器 resolve 后实际上线的输出上限（req.maxTokens → 模型行 →
+   * 适配器 resolve 后实际上线的输出上限（req.maxTokens → 模型行 →
    * quirks 表 → 协议兜底的终值；openai/responses 线无兜底不发时 undefined）——随 done
    * 事件透出，gen 层收集入 GenResult，最终落 llm/call（铁律②重放口径）。early-error
    * 路径无 done → 无值
@@ -243,11 +243,11 @@ export type GenEvent =
   | {
       type: 'done'
       usage: TokenUsage
-      /** R0916-7-P3-15：归一判别值（判别联合 StopReason）——适配器经 stream-finalize
+      /** 归一判别值（判别联合 StopReason）——适配器经 stream-finalize
        *  单点产出，未知线上拼写归 'unknown' 并留痕；不再是任意字符串 */
       stopReason: StopReason
       resolvedMaxTokens?: number
-      /** Z-12（第五十八轮）：本次成功建流用的是降级参数面（剥 structured/剥 tools）——
+      /** 本次成功建流用的是降级参数面（剥 structured/剥 tools）——
        *  适配器降级循环实际发送的参数面与首发不同，不落事件则按事件重放会再 400 */
       degraded?: boolean
     }
@@ -255,29 +255,29 @@ export type GenEvent =
       type: 'error'
       message: string
       retryable: boolean
-      /** A5（DSH-15 LlmFailure 对标）：结构化错误码——决策表 failureAction 的输入 */
+      /** （DSH-15 LlmFailure 对标）：结构化错误码——决策表 failureAction 的输入 */
       code?: GenErrorCode
       /** HTTP 状态码（协议层错误才有） */
       status?: number
-      /** 服务端 Retry-After（毫秒；B4 退避升级时消费） */
+      /** 服务端 Retry-After（毫秒；退避升级时消费） */
       retryAfterMs?: number
       /** 服务端请求 id（OpenAI 兼容 x-request-id / Anthropic request-id，排障用） */
       requestId?: string
-      /** B-12/R31-1（三十一轮）：网关已返回 usage 的终态失败（如传输截断前已收到
+      /** /：网关已返回 usage 的终态失败（如传输截断前已收到
        *  usage chunk）随错上抛——gen 层装入 GenError.usage，runner 终态失败按
-       *  B-12 通道按真实消耗入账，截断不丢计费 */
+       * 通道按真实消耗入账，截断不丢计费 */
       usage?: TokenUsage
     }
 
 /**
- * 结构化错误码（A5）。处置决策表见 provider/failure.ts 的 failureAction：
+ * 结构化错误码。处置决策表见 provider/failure.ts 的 failureAction：
  * 可重试（RATE_LIMIT/SERVER_ERROR/TIMEOUT/NETWORK）/ 换 provider（AUTH/NOT_FOUND/UNSUPPORTED）/
  * 改提示词（CONTEXT_WINDOW_EXCEEDED → 触发压缩裁剪）/ 交作者（BAD_REQUEST/PROTOCOL/UNKNOWN）。
  */
 export type GenErrorCode =
   | 'RATE_LIMIT' // 429
   | 'SERVER_ERROR' // 5xx
-  | 'TIMEOUT' // 首字节/流超时（B-2）
+  | 'TIMEOUT' // 首字节/流超时
   | 'NETWORK' // 连接层失败（SDK APIConnectionError）
   | 'AUTH' // 401/402/403：key 无效 / 无权限 / 欠费
   | 'NOT_FOUND' // 404：模型/端点不存在
@@ -290,9 +290,9 @@ export type GenErrorCode =
   | 'UNKNOWN'
 
 /**
- * 统一 token 用量（批次 D4 补 cache 记账，学 cherry TokenUsage 三分）。
+ * 统一 token 用量（批次补 cache 记账，学 cherry TokenUsage 三分）。
  *
- * inputTokens 口径已归一（M-1）：**不含** cache 命中读量——OpenAI 兼容线
+ * inputTokens 口径已归一：**不含** cache 命中读量——OpenAI 兼容线
  * （Chat/Responses）的 prompt_tokens/input_tokens 原本已含 cached_tokens，
  * 适配器边界处扣减（归一成 Anthropic 语义）；Anthropic 线天然不含，直传。
  * 由此 computeCallCost 四档分计与预算 token 合计（input+output+cacheRead+cacheWrite）
@@ -309,7 +309,7 @@ export interface TokenUsage {
   /** 推理 token 消耗量（Responses 线 usage.output_tokens_details.reasoning_tokens，缺口 8 校准源；已含于 outputTokens） */
   reasoningTokens?: number
   /**
-   * R73-1（二十一轮 A-1）：估计入账标记——网关完成生成（有 finish_reason/stop_reason）
+   * 估计入账标记——网关完成生成（有 finish_reason/stop_reason）
    * 但不回 usage 事件时，input/output 为按库内估算系数（estimateTokens 同源）折算的
    * 估计值而非端点下发值。记账/预算闸按数值照常生效（修复前按 0/0 入账，预算闸对
    * 这类端点永不生效）；成本报表消费方可据此区分实测与估计口径。

@@ -21,7 +21,7 @@ function tempBook(): string {
 }
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
-  __setAiCallsLockTimeoutForTest(5_000) // R43-5：防超时注入泄漏到他用例（r30-batch-a 同款）
+  __setAiCallsLockTimeoutForTest(5_000) // R43-5：防超时注入泄漏到他用例（ai-calls-lock-async 同款）
 })
 
 const CONFIG = { budget: { calls_per_chapter: 3 } } as unknown as BookConfig

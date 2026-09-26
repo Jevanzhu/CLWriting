@@ -1,10 +1,10 @@
 /**
- * 短篇集默认画像与机检阈值——唯一正本（R0912-ds41 P3-6，重评-deepseek-v4.1-flash 修复批）。
+ * 短篇集默认画像与机检阈值——唯一正本（.1-flash 修复批）。
  *
  * 此前 metrics/short-index.ts（DEFAULT_SHORT_CONFIG）与 install/data.ts
  * （DEFAULT_SHORT_CHECKS）各持一份 12 行逐字相同的默认表，面临单侧改动漂移；
  * 收敛到本模块后两消费方各自展开使用，键序与行为不变（防漂移锚测试见
- * test/metrics/r0912-ds41-short-defaults.test.ts）。
+ * test/metrics/short-defaults-single-source.test.ts）。
  *
  * 刻意零内部依赖（对齐 web-next shared/chat-history.ts 的 shared 惯例）：
  * 形状用结构化本地类型（与 format/types.ts BookConfig['short'] 字段同名同型、

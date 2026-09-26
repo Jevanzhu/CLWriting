@@ -1,5 +1,5 @@
 /**
- * API Key 合法性单点（I6，2026-08-22）——「一条 well-formed key 的唯一定义」。
+ * API Key 合法性单点——「一条 well-formed key 的唯一定义」。
  *
  * 口径参照 dsh（deepseek-harness packages/llm/llm/src/api-key.ts）：字符集 = 可打印
  * ASCII 且不含空格——HTTP header 值能逐字承载的集合。这是传输不变量而非某厂商策略：

@@ -1,5 +1,5 @@
 /**
- * RC 源码重审 B-5（Opus-5.5 轮）：对话 SSE 事件分发状态机独立成模块。
+ * （Opus-5.5 轮）：对话 SSE 事件分发状态机独立成模块。
  *
  * 为什么独立：这是 chat store 内最厚的一块纯逻辑——`dispatch` 的 11 个 `chat_*`
  * 事件分支（running/在途气泡索引/工具卡片/回合收尾）加上其操作的消息模型与工具卡片
@@ -18,7 +18,7 @@
  * （currentIdx/pendingReseed/regenPending/regenBook）收进 ChatTurnState 句柄
  * ——store 与状态机共享同一份，读写口不变。
  *
- * R0916-7-P3-27（2026-09-24 全库源码质量评审修复批）：在途回合目标由数组下标
+ * （全库源码质量评审修复批）：在途回合目标由数组下标
  * （currentIdx）改持消息对象的响应式引用（ChatTurnState.current）——下标是派生
  * 信息，任何裁剪/过滤/截断漏重定位就把增量写进别的消息，且 `!` 断言让越界在
  * 类型层不可见；引用天然跟随消息在数组中的位移，写侧显式判空分支取代全部
@@ -27,7 +27,7 @@
 import type { Ref } from 'vue'
 import { str } from './sse-guards'
 import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
-// 复审-0914-优化 A2：码位计数与截断收编根 src/shared/text.ts 单源（跨包引用对齐
+// -优化：码位计数与截断收编根 src/shared/text.ts 单源（跨包引用对齐
 // shared/words.ts 引 format/words 先例；原本地副本删）。
 import { codePointLength, clipByCodePoints } from '../../../../shared/text'
 
@@ -52,15 +52,15 @@ export interface ChatMessage {
   done: boolean
   /** 本回合的工具卡片（按时序） */
   tools: ToolCard[]
-  /** G1：该消息事件 seq（历史种子化时取 seqs[i][0]；实时 SSE 消息无此字段） */
+  /** 该消息事件 seq（历史种子化时取 seqs[i][0]；实时 SSE 消息无此字段） */
   seq?: number
 }
 
-/** 消息列表上限（防长对话内存膨胀；R0912-3 #10：单源 shared/chat-history——原硬编码
+/** 消息列表上限（防长对话内存膨胀；#10：单源 shared/chat-history——原硬编码
  *  200 与 fetchChatHistory 尾窗 limit / ChatMessages 截断提示三处各自为政曾失同步） */
 const MAX_MESSAGES = CHAT_HISTORY_LIMIT
 
-/** 工具入参落存截断上限（码位）。内存闸（2026-08-24 审计 C3）：工具卡 input 是
+/** 工具入参落存截断上限（码位）。内存闸（审计）：工具卡 input 是
  *  整章正文级文本（如 write_chapter 的正文入参），原样入 store 常驻——列表上限只
  *  限消息条数不限体积（200 条 × 全文章节 = MB 级驻留）。落存前统一截到 2000 码位
  *  + … 尾标（方案原文写 ToolCard.summary，以实际字段为准 = input）。 */
@@ -80,7 +80,7 @@ function clipOver(text: string, max: number): string {
   return codePointLength(text) > max ? clipByCodePoints(text, max) + '…' : text
 }
 
-/** 内存闸（2026-08-24 审计 C3；2026-09-24 质量评审 P2-3 收口）：工具入参落存前截断
+/** 内存闸（审计；质量评审收口）：工具入参落存前截断
  *  ——SSE 两条路（chat_tool_pending 追加 / readonly chat_tool 经 ensureTool 补建）与
  *  历史种子化（seedFromHistory 的 tool_use）三处收口。未超闸一律原形落存。
  *  对象走**字段级**截断：额度按键数均分、键结构完整保留——工具卡摘要按字段取值，
@@ -129,10 +129,10 @@ export function nextMsgId(): string {
   return `m${_msgSeq++}`
 }
 
-/** RC 源码重审 B-5：在途回合的宿主状态——原 chat store setup 内的四个可变本地量
+/** RC：在途回合的宿主状态——原 chat store setup 内的四个可变本地量
  *  （currentIdx/pendingReseed/regenPending/regenBook）随事件分发状态机迁入本类型；
  *  store 与状态机共享同一实例（读写口与原本地量逐位等价）。
- *  R0916-7-P3-27：currentIdx（数组下标）改持在途回合气泡的响应式对象引用（current）
+ *  ：currentIdx（数组下标）改持在途回合气泡的响应式对象引用（current）
  *  ——裁剪/过滤/截断后目标自动跟随，不再依赖各变动点手工重定位。 */
 export interface ChatTurnState {
   /** 当前正在填充的 assistant 气泡（chat_text/工具卡的追加目标）。持响应式引用
@@ -140,11 +140,11 @@ export interface ChatTurnState {
    *  chat_turn 建立，chat_done/chat_error/sync 收尾置 null。目标若被移除而未复位，
    *  写侧判空分支使增量落入已出列的僵尸对象——只丢不串（改前下标越界是写进别的消息）。 */
   current: ChatMessage | null
-  /** Y-P2-5：待补种书名（Q-8/R70-30 登记，回合收尾 running 翻 false 后补种） */
+  /** 待补种书名（/登记，回合收尾 running 翻 false 后补种） */
   pendingReseed: string | null
-  /** G1：重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
+  /** 重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
   regenPending: boolean
-  /** G1：重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
+  /** 重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
   regenBook: string | null
 }
 
@@ -168,11 +168,11 @@ export interface ChatDispatchDeps {
   notice: Ref<string | null>
   /** 在途回合宿主状态（与 store 共享） */
   turn: ChatTurnState
-  // R70-30：sync 事件不带书名——延迟取 workspace store 当前书（pinia 惰性激活防循环引用）
+  // sync 事件不带书名——延迟取 workspace store 当前书（pinia 惰性激活防循环引用）
   wsBookName: () => string | null
-  /** G1：best-effort 刷新分支列表（chat_done 收尾用） */
+  /** best-effort 刷新分支列表（chat_done 收尾用） */
   refreshBranches: (bookName: string, gen: number) => void
-  /** 观测现行种子化代（store 的 seedGen.current()——regenPending 复位后刷分支用） */
+  /** 观测现行种子化代（store 的 seedGen.current——regenPending 复位后刷分支用） */
   currentGen: () => number
 }
 
@@ -188,7 +188,7 @@ export interface ChatDispatch {
   trimMessages(): void
 }
 
-/** RC 源码重审 B-5：建事件分发状态机。全部外部状态经 deps 注入（零 pinia 依赖，
+/** RC：建事件分发状态机。全部外部状态经 deps 注入（零 pinia 依赖，
  *  便于脱离 store 直测）；内部实现 = 原 stores/chat.ts 的 dispatch/ensureTool/
  *  updateTool/trimMessages 逐行搬迁（各支路沿革注释随迁）。 */
 export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
@@ -200,16 +200,16 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       case 'sync': {
         // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
         running.value = ev['chatRunning'] === true
-        // 重评2-P2-1（2026-09-09 全量重评 GLM-5.3）修复：重连快照 chatRunning=false = 后端
+        // 2-（GLM-5.3）修复：重连快照 chatRunning=false = 后端
         // 已收尾该回合，是前端漏收 chat_done/chat_error 的兜底信号——对齐 chat_error 的
-        // R-7 口径收尾在途气泡（done + 复位引用），防永久「生成中」+ 后续文本错位；同时
-        // 守住 P2-9 前提「未完成气泡只属于在途回合」（否则此后新回合 + 错过 chat_turn 的
+        // 口径收尾在途气泡（done + 复位引用），防永久「生成中」+ 后续文本错位；同时
+        // 守住前提「未完成气泡只属于在途回合」（否则此后新回合 + 错过 chat_turn 的
         // 重连会把新回合文本追加进旧气泡，跨回合并文）。
         if (!running.value && turn.current) {
           turn.current.done = true
           turn.current = null
         }
-        // AA-P3-8：regenPending 陷阱态恢复——regenPending 只由 chat_done/chat_error 复位，
+        // regenPending 陷阱态恢复——regenPending 只由 chat_done/chat_error 复位，
         // 若 SSE 全断且这两者都没到，防重入标志永久卡死「重新生成」。重连的 sync 是权威
         // 快照：后端不在跑对话（chatRunning=false）→ 那次 regenerate 的回合要么从未启动、
         // 要么已结束（chat_done 已消费掉但前端没收到）→ 必须复位标志，允许再次触发。
@@ -217,7 +217,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
           turn.regenPending = false
           turn.regenBook = null
         }
-        // P2-9：重连时 sync 只补发 chatRunning（0918独立重评修复批 E001 起：chat 腿活跃时
+        // 重连时 sync 只补发 chatRunning（0918修复1 起：chat 腿活跃时
         // 服务端另发 chat_replay_begin + ring 回放重建在途回合，见该分支）——若回合引用
         // 已随回合结束失效，找到最后一个未 done 的 assistant 气泡重建引用（否则 chat_text
         // 增量追加到错误气泡或被静默丢弃）
@@ -232,22 +232,22 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
             }
           }
           turn.current = lastUndone
-          // R70-30（十八轮）：running=true 但无可续气泡（seedHistory 先于 sync 到达的
+          // running=true 但无可续气泡（seedHistory 先于 sync 到达的
           // 时序边界）——在途回合的 chat_text 会因目标为空全部被丢且 chat_done 后无人
-          // 补种（Q-8 只覆盖「clear 时在跑」反向序）；登记 pendingReseed 由回合收尾补种
+          // 补种（只覆盖「clear 时在跑」反向序）；登记 pendingReseed 由回合收尾补种
           //（事件库无损，此处纯展示缺口的自愈）
           if (!lastUndone && wsBookName()) turn.pendingReseed = wsBookName()
         }
         break
       }
       case 'chat_replay_begin': {
-        // 0918独立重评修复批（E001）：SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
+        // 0918修复批（E001）：SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
         // 活跃且 ring 非空时、于回放数组最前发一次（每个新消费者各得一次），随后重放 chat 腿
         // ring（chat_start/chat_turn/chat_text/... 可能从头重建整回合）。此前 chat_turn 无条件
         // push 新气泡：重连回放会在断连前已存在的在途气泡之后再 push 一条 → 气泡重复；ring
         // 截断（cap 溢出）时孤儿气泡永久滞留。rebuild 模式：移除未 done 的 assistant 在途
         // 气泡（不动 done 历史与 user 消息）+ 复位回合引用 + 登记 pendingReseed（复用
-        // R70-30/Q-8 既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
+        // /既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
         // seedHistory(replace:true) 从事件库重播种；ring 截断导致的回合展示不全由此自愈，
         // 与刷新路径同口径）。设计意图：重连后视图状态 = 等价新连接（历史保留，在途回合
         // 由回放重建）。
@@ -255,7 +255,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
           const m = messages.value[i]
           if (m && m.role === 'assistant' && !m.done) {
             messages.value.splice(i, 1)
-            break // P2-9 不变式「未完成气泡只属于在途回合」：至多一条，命中即止
+            break // 不变式「未完成气泡只属于在途回合」：至多一条，命中即止
           }
         }
         // 被移除的正是在途回合气泡——回合引用一并作废（原 currentIdx=-1 同口径）
@@ -275,7 +275,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         // 新回合 = 新 assistant 气泡
         const bubble: ChatMessage = { id: nextMsgId(), role: 'assistant', content: '', done: false, tools: [] }
         messages.value.push(bubble)
-        // R0916-7-P3-27：持数组内读回的响应式代理而非 push 前的原始对象——增量写须
+        // 持数组内读回的响应式代理而非 push 前的原始对象——增量写须
         // 穿过 messages 的深层代理才触达 UI（Vue 对同元素只包一层，两条读路同引用）
         turn.current = messages.value[messages.value.length - 1] ?? null
         // 0918二轮修复批（E103）：推新气泡即修剪——原 trimMessages 只挂在 chat_done /
@@ -298,7 +298,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         const name = str(ev['name'])
         const cur = turn.current
         if (callId && name && cur) {
-          // C3：入参落存前截断（整章正文级 input 不得原样常驻）
+          // 入参落存前截断（整章正文级 input 不得原样常驻）
           cur.tools.push({
             callId,
             name,
@@ -321,7 +321,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       case 'chat_tool_result': {
         const callId = str(ev['callId'])
         if (callId) {
-          // R-6（十五轮登记销账）：失败结果标 failed 对齐种子化路径同口径；
+          // （十五轮登记销账）：失败结果标 failed 对齐种子化路径同口径；
           // cancelled 仅保留给「无 tool_result 回填」的兜底语义（异常中断 ≠ 工具执行失败）
           updateTool(callId, {
             status: ev['ok'] === true ? 'ok' : 'failed',
@@ -344,11 +344,11 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         if (turn.current) {
           turn.current.done = true
         }
-        // P2-9：回合结束即失效回合引用——旧引用指向已 done 气泡会让后续 chat_text
+        // 回合结束即失效回合引用——旧引用指向已 done 气泡会让后续 chat_text
         //（含重连回放重建的新回合）追加错误位置
         turn.current = null
         trimMessages()
-        // G1：重新生成的回合结束 → 复位进行中标志 + best-effort 刷新分支列表（变体计数更新）
+        // 重新生成的回合结束 → 复位进行中标志 + best-effort 刷新分支列表（变体计数更新）
         if (turn.regenPending) {
           turn.regenPending = false
           const book = turn.regenBook
@@ -363,18 +363,18 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         // 0918三拍板批（A006 轻量档）：回显作者原文（服务端回滚后仅存于此，供复制重发；
         // regenerate 回合无 echo 字段——原文本就在历史尾气泡里）
         errorEcho.value = str(ev['echo']) || null
-        // 0918独立重评修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
+        // 0918修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
         // 中断时旧 notice（如「已入队」）随之失效，不得残挂在错误态旁。chat_done 不清：
         // 正常收尾下 notice 可能是刚提示的「已入队，当前对话结束后处理」，清掉会让它在
         // done → 下一回合 chat_start 的间隙提前消失（chat_start 开跑时自清）
         notice.value = null
-        // R-7（第十六轮）：收尾在途气泡（对齐 chat_done 口径）——异常中断时回合引用
+        // 收尾在途气泡（对齐 chat_done 口径）——异常中断时回合引用
         // 指向的未完成 assistant 气泡置 done + 复位引用，防永久「生成中」+ 后续文本错位
         if (turn.current) {
           turn.current.done = true
         }
         turn.current = null
-        // G1：重新生成回合异常中断 → 复位防重入标志（防永久锁死，可再次触发）
+        // 重新生成回合异常中断 → 复位防重入标志（防永久锁死，可再次触发）
         if (turn.regenPending) {
           turn.regenPending = false
           turn.regenBook = null
@@ -382,7 +382,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         break
       }
       case 'notice': {
-        // AA-P3-1：队列超容丢弃最旧消息等非错误提示（与「已加入队列」同通道展示）
+        // 队列超容丢弃最旧消息等非错误提示（与「已加入队列」同通道展示）
         const msg = str(ev['message'])
         if (msg) notice.value = msg
         break
@@ -395,14 +395,14 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
     const cur = turn.current
     if (!cur) return
     if (!cur.tools.some((t) => t.callId === callId)) {
-      // C3：readonly 工具补建卡片同样走截断收口
+      // readonly 工具补建卡片同样走截断收口
       cur.tools.push({ callId, name, input: clipToolInput(input), status: 'pending' })
     }
   }
 
   /** 更新工具卡片状态 */
   function updateTool(callId: string, patch: Partial<ToolCard>): void {
-    // R62-19：反向遍历取最近的同 callId 卡——SSE 的 updateTool 与种子化 applySeedToolResult
+    // 反向遍历取最近的同 callId 卡——SSE 的 updateTool 与种子化 applySeedToolResult
     // 原先一个正向首个、一个反向最近，callId 跨回合重复时同事件打在两张卡上（状态错乱）。
     // 统一反向：新回合的事件精确落回本回合卡片（旧回合卡是历史只读呈现）。
     for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -419,7 +419,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
     if (messages.value.length > MAX_MESSAGES) {
       const cut = messages.value.length - MAX_MESSAGES
       messages.value.splice(0, cut)
-      // R0916-7-P3-27：在途回合目标持对象引用——头部裁剪后引用自动跟随，原
+      // 在途回合目标持对象引用——头部裁剪后引用自动跟随，原
       // 「currentIdx 防御性减 cut」的手工偏移随之退役（漏偏移即增量写错位的根源形态）
     }
   }

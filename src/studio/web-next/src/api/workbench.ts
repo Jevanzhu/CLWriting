@@ -2,11 +2,11 @@ import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 import { bookUrl } from './url'
 
 // 工作台 HTTP 端点（细案 §2.2）。AI 类（spawn/outline）阻塞数十秒，调用方防重复提交。
-// P3-20（全库重评-0914）：原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
+// （-0914）：原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
 // 代码；SSE 在 composables/useSse.ts，服务端另有同名的 SSE 文件）——更名 api/workbench.ts，
 // 全仓导入随批改指（含 22 个测试文件的 mock 路径）。
 
-// A5（复审-0914-优化修复批）：interrupt 15s 档单源（原裸值 15_000 收敛，数值零变化；
+// interrupt 15s 档单源（原裸值 15_000 收敛，数值零变化；
 // 命名对齐 *_TIMEOUT_MS 惯例）。
 const INTERRUPT_TIMEOUT_MS = 15_000
 
@@ -20,16 +20,16 @@ export interface BookState {
   kind?: string
   /** 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位 */
   resumePoint?: 'pre-commit' | 'post-commit-residue'
-  /** 连写暂停元状态（M6 #34 / kk-P1-4）：上次批量连写中途停（escalate/failed/aborted）
+  /** 连写暂停元状态（#34 / kk-）：上次批量连写中途停（escalate/failed/aborted）
    *  且此后未再开批 → 提示从哪章续起；重新开批服务端即清 */
   batchPause?: { atChapter: number; reason: string; detail: string }
   /**
-   * R0912-FE-P2-3（2026-09-11 重评-0911b 修复批）：态 1 崩溃 pending 的 opId 清单透出位
+   * （b 修复批）：态 1 崩溃 pending 的 opId 清单透出位
    * （对应 crashedWrite 体检项 files 字段，journal findUnsettled 的未结算 save pending）。
-   * 服务端 /state payload 组装处（studio/server/api/state.ts）已透出该字段（R0912 修复批），
+   * 服务端 /state payload 组装处（studio/server/api/state.ts）已透出该字段（修复批），
    * WbStateCard 忽略按钮与 WorkbenchView acknowledge 链已消费；字段缺省/空数组时按钮不渲染。
    * opId 即 POST /journal/:opId/acknowledge 的路径参数。
-   * 重评-0912-2 P3（2026-09-12 全量重评修复批）：过期现状注释修账——原文误记「服务端尚未透出、
+   * （修复批）：过期现状注释修账——原文误记「服务端尚未透出、
    * 前端先行接线」，实际服务端已透出且两端已消费。
    */
   crashedPendingOpIds?: string[]
@@ -39,7 +39,7 @@ export async function getState(name: string): Promise<BookState> {
 }
 
 // POST /spawn {role?, prompt?, files?} —— 起角色生成（AI 阻塞）。
-// files：GET /draft-prompt 回传的注入源清单（Q-5 溯源——服务端登记进 promptMeta.files）
+// files：GET /draft-prompt 回传的注入源清单（溯源——服务端登记进 promptMeta.files）
 export async function spawnRole(
   name: string,
   body: { role?: string; prompt?: string; files?: string[] },
@@ -51,7 +51,7 @@ export async function spawnRole(
 }
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）。
-// 0918独立重评修复批（E004）：服务端实际返回 {ok, interrupted}（interrupted=false = 当前
+// 0918修复批（E004）：服务端实际返回 {ok, interrupted}（interrupted=false = 当前
 // 没有在途生成）——原签名丢弃返回体，消费点无法区分「已中断」与「本来就没在跑」，
 // 后者此前误导性提示「已中断」。
 export async function interrupt(name: string): Promise<{ ok: boolean; interrupted: boolean }> {
@@ -64,7 +64,7 @@ export async function interrupt(name: string): Promise<{ ok: boolean; interrupte
 
 // POST /auto-write {chapter, batchSize?} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。
 // fire-and-forget：立即返回，进度经 SSE 的 self_heal_* 事件回流。409 = 本书已在跑。
-// P2-3：batchSize>1 时后端连写多章（中途红项触顶停当前章，不再续写后续）。
+// batchSize>1 时后端连写多章（中途红项触顶停当前章，不再续写后续）。
 export async function autoWrite(
   name: string,
   chapter: number,
@@ -80,7 +80,7 @@ export async function autoWrite(
   )
 }
 
-// POST /journal/:opId/acknowledge → {ok, acknowledged}。R0912-1b（重评-0911c 服务端批
+// POST /journal/:opId/acknowledge → {ok, acknowledged}。（c 服务端批
 // 落端点，本批前端接线）：崩溃 save pending 的人工确认通道——对该 pending appendAborted，
 // 使其不再报 crashedWrite「可能丢字」。幂等：opId 已 settled/不存在/重复确认 →
 // acknowledged:false（确认动作可安全重复点击）；命中 pending → true。
@@ -95,7 +95,7 @@ export async function acknowledgeJournalPending(
 }
 
 // POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
-// docId：清单真 ID 或 legacyId 派生（与树一致，可直接 openTab）；snapshotted：覆写前留了快照（M1）
+// docId：清单真 ID 或 legacyId 派生（与树一致，可直接 openTab）；snapshotted：覆写前留了快照
 interface DraftSaveResult {
   ok: boolean
   path: string
@@ -110,7 +110,7 @@ export async function saveDraft(name: string, chapter: number, content: string):
   })
 }
 
-// GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单，Q-5 随 spawn 回传）
+// GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单，随 spawn 回传）
 export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string; files?: string[] }> {
   return apiJson(`${bookUrl(name, 'draft-prompt')}?chapter=${chapter}`)
 }
@@ -123,7 +123,7 @@ export async function generateOutline(name: string, chapter: number): Promise<vo
   }, 300_000) // 大纲多源合成超时 5 分钟
 }
 
-// W-P1-3 右端：POST /lead-updates {chapter} —— 生成账本推进草稿（AI 草拟，作者定稿时确认回写）
+// 右端：POST /lead-updates {chapter} —— 生成账本推进草稿（AI 草拟，作者定稿时确认回写）
 export async function generateLeadUpdates(name: string, chapter: number): Promise<{ ok: boolean; count: number }> {
   return apiJson(bookUrl(name, 'lead-updates'), {
     method: 'POST',

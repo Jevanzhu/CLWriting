@@ -1,5 +1,5 @@
 /**
- * 能力探测——把 W0 探针产品化为「测试连接」（方案 §四①）。
+ * 能力探测——把探针产品化为「测试连接」（方案 §四①）。
  *
  * caps 不能硬编码：分发出去后我们无法预知用户接什么端点。
  * 探测三项核心能力（连通 / 流式 / tool_use / tool_choice），只发无意义 prompt，
@@ -12,10 +12,10 @@ import type { ProviderConf, ProviderCaps, ProbeResult } from './types.js'
 import { listModels } from './models.js'
 import { redactSecret } from './redact.js'
 
-// createProvider 迁至 registry.ts（批次 D2：声明式注册表 + settings hash 实例缓存）；
+// createProvider 迁至 registry.ts（批次：声明式注册表 + settings hash 实例缓存）；
 // import + re-export（纯 `export {} from` 不建本地绑定，probeCapabilities 引用会 ReferenceError）
 import { createProvider } from './registry.js'
-// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+// -（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 export { createProvider }
 
@@ -25,7 +25,7 @@ export { createProvider }
  * caps 拆两级后服务级在此探测——不需要模型（listModels 即验证连通 + 认证），
  * 流式取列表首个模型发极简请求（流式能力属服务传输层，不依赖具体模型）。
  * 模型级能力（tool_use / tool_choice）由 model-quirks 静态表判定。
- * R42-24（四十二轮）：userDataPath = 探测目标库的配置目录——透传给探测实例
+ * userDataPath = 探测目标库的配置目录——透传给探测实例
  * （createProvider 第三参），适配器降级记忆（persistDegraded/lookupDegraded）按显式
  * path 分发，落探测目标库的 providers.json 而非「活跃库」（此前 undefined 回落
  * runner 侧活跃 path，双库时探测读写错库）。缺省不传 = 旧形态（回落活跃 path，兼容）。
@@ -42,7 +42,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
   const caps: ProviderCaps = { connected: false, streaming: false }
 
   // ① 连通 + 认证：listModels 能拉到列表即算通过（不需要模型）
-  // V-P2-11：listModels 步骤也受 30s 超时约束（与流式探测同款）——不传 signal 时
+  // listModels 步骤也受 30s 超时约束（与流式探测同款）——不传 signal 时
   // SDK 默认超时 10 分钟，网关 TCP 黑洞会让「测试连接」按钮挂死。
   let models: string[] = []
   try {
@@ -68,9 +68,9 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
   const probeModel = conf.model ?? models[0]!
   try {
     let gotDelta = false
-    // R33-21（三十三轮）：bypassCache——探测实例的 model 被换成列表首项，正常生成
+    // bypassCache——探测实例的 model 被换成列表首项，正常生成
     // 永不以此 key 命中；入缓存只会挤占 LRU 容量把正常实例挤出重建。
-    // R42-24（四十二轮）：userDataPath 透传（探测目标库）——降级记忆按显式 path 分发
+    // userDataPath 透传（探测目标库）——降级记忆按显式 path 分发
     const provider = createProvider({ ...conf, model: probeModel }, undefined, userDataPath ?? undefined, { bypassCache: true })
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), 30_000)
@@ -82,7 +82,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
         },
         ctrl.signal,
       )) {
-        // R48-35（四十八轮）：gotDelta 同时认 reasoning 增量——思考模型极简探测常先吐
+        // gotDelta 同时认 reasoning 增量——思考模型极简探测常先吐
         // 思维链，只认 text 会把真流式误判为非流式
         if (ev.type === 'text' || ev.type === 'reasoning') gotDelta = true
         else if (ev.type === 'error') throw new Error(ev.message)
@@ -91,7 +91,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
     } finally {
       clearTimeout(timeout)
     }
-    // R48-35（四十八轮）：streaming 布尔与字段语义（「流式产出（逐字增量可用）」）及
+    // streaming 布尔与字段语义（「流式产出（逐字增量可用）」）及
     // 紧邻 detail 文案对齐——原无条件 true 让伪流式网关（只回终态无 delta）自相矛盾
     caps.streaming = gotDelta
     details.push(gotDelta ? '流式产出正常' : '非流式产出（UI 无逐字显示）')
@@ -100,7 +100,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
     details.push(`流式探测失败：${redactSecret(errMsg(e))}`)
   }
 
-  // Responses 线提示（启用批 R4 缺口 17）：参数语义差异提前告知作者
+  // Responses 线提示（启用批缺口 17）：参数语义差异提前告知作者
   if (conf.protocol === 'openai-responses') {
     details.push('Responses 线提示：stop 序列被忽略；响应不留存（store:false）；effort 参数名按厂商自动适配')
   }

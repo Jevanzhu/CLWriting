@@ -22,7 +22,7 @@ export const APP_DIR_NAME = 'CLWriting'
 export function defaultUserDataPath(): string {
   const p = process.platform
   if (p === 'darwin') return join(homedir(), 'Library', 'Application Support', APP_DIR_NAME)
-  // R38-22（三十八轮）：win 优先取 %APPDATA%（Electron/系统语义同源；企业域文件夹
+  // win 优先取 %APPDATA%（Electron/系统语义同源；企业域文件夹
   // 重定向场景不再脱节），env 未设（极端裁剪环境）回退原硬拼保持确定性。
   if (p === 'win32') {
     const appdata = process.env['APPDATA']
@@ -34,14 +34,14 @@ export function defaultUserDataPath(): string {
 }
 
 /**
- * R1W-7（win 平台专项复审 R1）：路径同一性判定——win 路径大小写不敏感（盘符/目录
+ * （win 平台专项）：路径同一性判定——win 路径大小写不敏感（盘符/目录
  * 大小写经启动器/手工输入可漂移），win32 双侧 toLowerCase 后比较；posix 全等。
  * document/manifest.ts:250 与 knowledge/manifest.ts:20 既有降口径的同族原语，
  * 供 --book 直达路径匹配 / isLibraryDir 等跨来源路径比较点收编。
- * R51-D-2（五十一轮）：折叠面扩至 darwin（与 safe-path.platformCaseFold 单源同批
+ * 折叠面扩至 darwin（与 safe-path.platformCaseFold 单源同批
  * 同口径）——mac 默认卷 APFS 不敏感，字符串口径在 darwin 折叠后与物理语义一致；
  * linux 维持全等（敏感 FS 合法异名共存）。
- * 复审-0913-mac适配 P3-3：darwin 臂叠 NFC 归一——mac APFS 惯存 NFD，外部输入的
+ * -mac适配：darwin 臂叠 NFC 归一——mac APFS 惯存 NFD，外部输入的
  * 分解形路径与 NFC 形态登记指向同一物理目录；win32 维持纯 toLowerCase（NTFS 对
  * NFC/NFD 敏感、是不同文件，不得折叠）；linux 全等不变。
  */
@@ -53,11 +53,11 @@ export function samePath(a: string, b: string): boolean {
 }
 
 /**
- * R44-11（四十四轮）：路径物理同一性判定（dev+ino）——samePath 的物理身份升级版。
+ * 路径物理同一性判定（dev+ino）——samePath 的物理身份升级版。
  * 大小写不敏感卷（win NTFS / mac APFS 默认）上仅大小写不同的两条路径指向同一物理
  * 目录，但 samePath 的字符串口径在 posix 全等不折叠（mac 默认卷恰是「字符串异形、
- * 物理同库」形态，win32 折叠只是凑巧覆盖）。对齐书级改名 R71-8（api/books.ts）与
- * 文档移动 R2W-1（document/service.ts）的 dev+inode 口径：两侧 statSync 成功且
+ * 物理同库」形态，win32 折叠只是凑巧覆盖）。对齐书级改名（api/books.ts）与
+ * 文档移动（document/service.ts）的 dev+inode 口径：两侧 statSync 成功且
  * dev+ino 相等 → 同一物理位置；大小写敏感卷上的异名路径 stat 必给出不同 ino，
  * 天然放行合法异名库。stat 任一失败（ENOENT/EACCES 等）回退 samePath 字符串
  * 口径——磁盘不可探测时维持既有判重面（不比字符串口径更宽）。

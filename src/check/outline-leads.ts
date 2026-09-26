@@ -1,6 +1,6 @@
 /**
  * 大纲推进声明读取 —— 账本左侧（声明侧）数据源。
- * （P1-8 架构下沉：从 src/process/materials.ts 移入 check 域，机检账本数据源归位）
+ * （架构下沉：从 src/process/materials.ts 移入 check 域，机检账本数据源归位）
  *
  * `工作区/细纲.md` front matter 的「推进」字段是结构化声明（本章计划推进的账本编号）。
  * 单值 `推进: 成长线-001` → ['成长线-001']；多值 `推进: [成长线-001, 设定线-001]` → [...]。
@@ -12,11 +12,11 @@ import { readFile, parseFlat } from '../format/frontmatter.js'
 
 /**
  * 读细纲的账本推进声明。
- * @param forChapter 被检章号（V-P2-14）：细纲 front matter 自带章号且与被检章不一致时
+ * @param forChapter 被检章号：细纲 front matter 自带章号且与被检章不一致时
  *   返回 []（声明侧置空，不比对）——细纲是「当前章」覆盖写单文件，树红点聚合复检
  *   旧草稿时，旧章正文对上新章声明会批量误报 lead-declared-not-done。
  *   旧书细纲无章号字段 → 宽容沿用（视为属于被检章）。
- *   R69-2（十七轮）：「置空不比对」的原意是声明未知时跳过两端闭合，但 [] 与「明确
+ *   ：「置空不比对」的原意是声明未知时跳过两端闭合，但 [] 与「明确
  *   未声明」不可区分——调用方要区分须改用 outlineDeclarationForChapter（known 三态）。
  */
 export function readOutlineLeads(bookRoot: string, forChapter?: number): string[] {
@@ -25,7 +25,7 @@ export function readOutlineLeads(bookRoot: string, forChapter?: number): string[
 }
 
 /**
- * R69-2（十七轮）：细纲声明侧三态读取——区分「声明未知」与「明确未声明」。
+ * 细纲声明侧三态读取——区分「声明未知」与「明确未声明」。
  * - known:true + leads —— 细纲属于被检章（或无章号宽容沿用/无细纲），leads 为声明值
  *   （可为空数组 = 明确未声明任何推进，两端闭合照常比对）。
  * - known:false —— 细纲自带章号且 ≠ 被检章：本章声明未知（细纲是覆盖写单文件，
@@ -33,8 +33,8 @@ export function readOutlineLeads(bookRoot: string, forChapter?: number): string[
  *   done-not-declared 方向不可判定——调用方应跳过闭合比对（此前 [] 被当「未声明」，
  *   归档章的实际推进全部误报红并经 LEAD_GATE 硬阻断批量定稿）。
  */
-/** 声明三态（R33D-14 扩展）：known:false 时 reason 区分「读失败」与「属他章」——
- *  机检侧对 read-failed 产 fail-noisy 黄项（对齐兑现侧 R31-3 口径），chapter-mismatch
+/** 声明三态（扩展）：known:false 时 reason 区分「读失败」与「属他章」——
+ *  机检侧对 read-failed 产 fail-noisy 黄项（对齐兑现侧口径），chapter-mismatch
  *  维持静默（批量连写常态，非故障）。 */
 export interface OutlineDeclaration {
   known: boolean
@@ -67,19 +67,19 @@ export function outlineDeclarationForChapter(
 ): OutlineDeclaration {
   const outlinePath = join(bookRoot, '工作区', '细纲.md')
   if (!existsSync(outlinePath)) return { known: true, leads: [] }
-  // R70-15（十八轮）：读失败（瞬态占用/IO 错误）≠「明确未声明」——按声明未知处理跳过
+  // 读失败（瞬态占用/IO 错误）≠「明确未声明」——按声明未知处理跳过
   // 两端闭合，否则瞬态错误会产 lead-done-not-declared 假红并经 LEAD_GATE 硬阻断定稿
   //（把瞬态故障当作者过错）。文件不存在仍属「已细纲、无声明」已知态。
-  // R33D-14：读失败标记 reason:'read-failed'——机检侧产黄项（降级不再静默）。
+  // 读失败标记 reason:'read-failed'——机检侧产黄项（降级不再静默）。
   const r = readFile(outlinePath)
   if (!r.ok) return { known: false, leads: [], reason: 'read-failed' }
   return declarationFromFm(parseFlat(r.fmRaw), forChapter)
 }
 
 /**
- * R32-16（三十二轮）：细纲声明批内 memo——树红点聚合 N 章逐章调
+ * 细纲声明批内 memo——树红点聚合 N 章逐章调
  * outlineDeclarationForChapter 时对同一 工作区/细纲.md 做 N 次 existsSync+read+parse
- * （CC-P1-3 预扫漏项，仅性能）。闭包首调读+parse 一次，其后按章号还原三态判定，
+ * （预扫漏项，仅性能）。闭包首调读+parse 一次，其后按章号还原三态判定，
  * 与逐章现读语义等价（细纲在单请求聚合窗口内变更时由章指纹/纪元兜底重算，不依赖
  * memo 的陈旧值跨请求——闭包生命周期 = 单次聚合请求）。
  */
@@ -96,7 +96,7 @@ export function scanOutlineDeclarationMemo(
         parsed = r.ok ? { ok: true, fm: parseFlat(r.fmRaw) } : { ok: false }
       }
     }
-    if (!parsed.ok) return { known: false, leads: [], reason: 'read-failed' } // R70-15 同口径：读失败 = 声明未知
+    if (!parsed.ok) return { known: false, leads: [], reason: 'read-failed' } // 同口径：读失败 = 声明未知
     return declarationFromFm(parsed.fm, chapterNo)
   }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 书架全屏页（独立窗口或主窗口路由，ShelfGrid 去重 P2-5）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
+// 书架全屏页（独立窗口或主窗口路由，ShelfGrid 去重）：书列表 + 开书 + 新建书表单 + workDir 缺失引导。
 // 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件，hero 卡走 components/shelf/；
 // 本页只保留全屏布局 + hero + IPC 跳转。
 import { onMounted, onBeforeUnmount, computed } from 'vue'
@@ -18,7 +18,7 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
 
 const router = useRouter()
 const { theme, toggle } = useTheme()
-// R37-30（三十七轮批E）：删 hasDesktop 死变量——J5 平台判断收敛到 usePlatform 后残留零消费
+// 删 hasDesktop 死变量—— 平台判断收敛到 usePlatform 后残留零消费
 const { isDesktop, isMac } = usePlatform()
 const {
   shelf, groups, latestBook, viewMode, setView,
@@ -29,9 +29,9 @@ const {
   openBook,
 } = useShelf({
   onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
-  // P1-7b（复审-0914-优化修复批，降级单源）：选书「记 LAST_BOOK_KEY + 跳转」收敛
+  // （-，降级单源）：选书「记 LAST_BOOK_KEY + 跳转」收敛
   // useShelf.openBook——IPC 分支留回调接管：书架独立窗口（win=shelf）走主窗口 IPC
-  // 打开（R42-31：IPC reject 补 catch）；主窗口内返回 false → useShelf 内常规路由跳转
+  // 打开（IPC reject 补 catch）；主窗口内返回 false → useShelf 内常规路由跳转
   openBookViaIpc: (name) => {
     const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
     if (!isShelfWin || !window.clwritingDesktop) return false
@@ -55,10 +55,10 @@ const lastEdited = computed(() => {
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
 
-// Esc：建书 → 批量模式（逐级收）；删除确认弹窗的 Esc 由组件自持（重评-P3-18，
+// Esc：建书 → 批量模式（逐级收）；删除确认弹窗的 Esc 由组件自持（
 // capture 先于本 handler 且 stopPropagation，不会再落到这里）
 function onKeydown(e: KeyboardEvent): void {
-  // R75-E-P3e：IME 组合期 Esc 让渡（CommandPalette R61-3 先例）——搜索框收输入法
+  // IME 组合期 Esc 让渡（CommandPalette 先例）——搜索框收输入法
   // 候选框的 Esc 不应收弹窗/退出批量（isComposing || keyCode 229 单源判据）
   if (isImeComposing(e)) return
   if (e.key === 'Escape') {
@@ -183,7 +183,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         />
         <!-- 0918二轮修复批（F102）：整页书架补渲染帽——与浮层 ShelfModal 同传
              shared/render-cap SHELF_RENDER_CAP=100（原整页不传 = 全量挂载，数百书
-             拖慢挂载 + 入场动画，与浮层 R-P3-4 同族性能论证口径不一）。只裁渲染面：
+             拖慢挂载 + 入场动画，与浮层同族性能论证口径不一）。只裁渲染面：
              搜索/排序/批量全选/头部计数/空态判定（!shelf.books.length）仍面向全量。 -->
         <ShelfGrid
           :groups="groups"
@@ -233,8 +233,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
       var(--background-primary));
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
-     子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改。
-     R49-31（四十九轮）：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
+     子元素 var 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改。
+     ：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
      固定 px 会整段切断「界面字号档」与 win +1px 基准；各值 = 原固定 px + step，
      保持本页相对他页的缩小档差不变。未覆盖的 xxs/root-size 沿用全局（本页未用）。 */
   --font-size-2xl: calc(20px + var(--font-size-step));
@@ -275,9 +275,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .shelf.has-traffic .shelf-titlebar {
   -webkit-app-region: drag;
 }
-/* R33-14（三十三轮）：win 拖拽区——WCO 模式系统只画窗控按钮，拖动区须由页面
+/* win 拖拽区——WCO 模式系统只画窗控按钮，拖动区须由页面
    提供；原拖拽只挂 has-traffic（isMac）致 win 三窗无法拖动。页根标记 = is-desktop
-   （桌面态；is-drag 已归全局 utilities.css 拖拽容器单类，R0913 复核批 P1 修复改名） */
+   （桌面态；is-drag 已归全局 utilities.css 拖拽容器单类，复核批修复改名） */
 .shelf.is-desktop .shelf-titlebar {
   -webkit-app-region: drag;
 }
@@ -291,7 +291,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   animation: clw-fade-up 0.5s var(--ease-out) both;
 }
 /* 品牌徽标（与 Welcome/Library 同语言） */
-/* .head-mark 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
+/* .head-mark 收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
 .head-left {
   display: flex;
   flex-direction: column;
@@ -341,7 +341,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   gap: var(--size-4-2);
 }
-/* ── 搜索 + 排序工具行（P2-PROD-6）── */
+/* ── 搜索 + 排序工具行（-PROD-6）── */
 .shelf-tools {
   display: flex;
   align-items: center;
@@ -372,7 +372,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换（网格/列表）segmented control */
-/* .view-toggle 与 .toggle-btn（P1-7b 复审-0914-优化修复批随批收敛，声明逐字未改）
+/* .view-toggle 与 .toggle-btn（-随批收敛，声明逐字未改）
    均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;

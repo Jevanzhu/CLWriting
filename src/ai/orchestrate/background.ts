@@ -1,5 +1,5 @@
 /**
- * M-2：per-book 后台任务登记——fire-and-forget 逃生口收编。
+ * per-book 后台任务登记——fire-and-forget 逃生口收编。
  *
  * 两处刻意不 await 的后台 AI 任务（失败自留痕、不阻塞触发端点）：
  * - 定稿即生成章摘要（api/documents.ts → afterFinalizeGenerateSummary）；

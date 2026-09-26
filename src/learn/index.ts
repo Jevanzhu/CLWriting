@@ -1,5 +1,5 @@
 /**
- * 文风样章 learn 收割 —— 依据 M7 #38 spec。
+ * 文风样章 learn 收割 —— 依据 #38 spec。
  *
  * 从定稿正文产文风样章/金句候选，作者审核才入库（候选制，品味归人）。
  *
@@ -28,10 +28,10 @@ import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
-import { log } from '../log/index.js' // R43-22（四十三轮）：候选目录清理失败留痕
+import { log } from '../log/index.js' // 候选目录清理失败留痕
 import type { IronRules } from '../format/iron-rules.js'
 import { yieldToEventLoop } from '../async.js'
-// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+// -（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 /** 样章候选 */
@@ -46,7 +46,7 @@ export interface SampleCandidate {
   章号: number
   /** 打分（0-100，借 #10 机检） */
   打分: number
-  /** 技法指令（作者审核时一句话标注「这段学什么」，可空；G5 闭合样章配技法指令） */
+  /** 技法指令（作者审核时一句话标注「这段学什么」，可空；闭合样章配技法指令） */
   技法指令?: string
 }
 
@@ -69,7 +69,7 @@ export interface LearnResult {
   /** 候选明细（供 CLI 交互挑选用） */
   samples?: SampleCandidate[]
   quotes?: QuoteCandidate[]
-  /** H-1（二轮复审）：因未定稿被跳过的章数（草稿不进候选池的可见性口径） */
+  /** 因未定稿被跳过的章数（草稿不进候选池的可见性口径） */
   skippedDrafts?: number
   error?: string
 }
@@ -82,11 +82,11 @@ const CANDIDATE_DIR = '工作区/learn候选'
  *
  * 基础 100 分，扣分项来自 #10：
  * - checkStyleMetrics 项每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味；
- *   R48-38（四十八轮）注释如实化：checkStyleMetrics 产出的 6 类 item level 恒为
+ *   注释如实化：checkStyleMetrics 产出的 6 类 item level 恒为
  *   yellow，原「red 每条 -15」分支永不可达，统一 -5）
  * - checkRepeat 的 yellow 项每条 -10
  * 无加分项（避免硬编码关键词，口径归 #10 机检，作者调铁律阈值能直接影响打分）。
- * R37-41（三十七轮）注释如实化：此前宣称「-10 * rate（复读率比率乘减）」与实现
+ * 注释如实化：此前宣称「-10 * rate（复读率比率乘减）」与实现
  * 不符——实现是扁平每条 -10（checkRepeat 双口径互斥，至多出 1 条 yellow），
  * 扣分不随复读率数值缩放。
  */
@@ -99,10 +99,10 @@ function scoreByChecks(
   let score = 100
 
   const styleResult = checkStyleMetrics(body, rules)
-  // R48-38（四十八轮）：统一每条 -5——checkStyleMetrics 六类 item level 恒 yellow
+  // 统一每条 -5——checkStyleMetrics 六类 item level 恒 yellow
   score -= styleResult.items.length * 5
 
-  // R55-D-2（五十五轮）：书级复读阈值透传（签名口径照机检链 runner.ts 先例）——此前
+  // 书级复读阈值透传（签名口径照机检链 runner.ts 先例）——此前
   // 裸调用落引擎默认 0.15/200，作者在 book.yaml checks 调阈值后收割打分仍按默认漂移，
   // 与头注「口径归 #10 机检、作者调阈值能直接影响打分」不符。未设传 undefined →
   // checkRepeat 默认参数落引擎默认，语义不变。
@@ -116,9 +116,9 @@ function scoreByChecks(
 
 /**
  * learn 收割主流程（产候选，不自动入库）。
- * 场景不做启发式预归（词表伪精度已删，S8）——候选一律「通用」，标注权在作者。
+ * 场景不做启发式预归（词表伪精度已删）——候选一律「通用」，标注权在作者。
  *
- * R72-2（二十轮 A-1）：async 化——全书收割是「逐章同步 IO + 逐段正则打分」的秒级
+ * async 化——全书收割是「逐章同步 IO + 逐段正则打分」的秒级
  * CPU/IO 段，原先在 chat agent 循环（harvest_style 工具）与 HTTP 请求线程（/learn
  * 端点）内同步执行，长书收割期间 utility 进程事件循环整体停摆（同进程全部 SSE 广播、
  * steer 队列、其他书会话卡顿，abort 信号也无法及时处理）。现逐章处理间 await 让出
@@ -126,22 +126,22 @@ function scoreByChecks(
  * ToolExecutor 契约本就支持 Promise（turns.ts executor 调用全带 await），调用方无感。
  */
 
-/** learn 收割跨进程锁等待上限（R30-18 口径：const 导出）。原「内部可变生效值 + 测试
- *  注入钩子」形态随 2026-09-11 精简批退役——钩子全仓零消费（测试已删钩未删），生效值
+/** learn 收割跨进程锁等待上限（口径：const 导出）。原「内部可变生效值 + 测试
+ *  注入钩子」形态随精简批退役——钩子全仓零消费（测试已删钩未删），生效值
  *  失去唯一改写点，读点直用本常量。 */
 export const LEARN_HARVEST_LOCK_TIMEOUT_MS = 5_000
 
-/** RC 源码重审 A-4（Opus-5.5 轮）：learn 收割锁续期周期（毫秒）——本锁是**长临界段**：
+/** （Opus-5.5 轮）：learn 收割锁续期周期（毫秒）——本锁是**长临界段**：
  *  锁内 = 逐章读全书 .md + 逐段打分类 + 重建候选 + ≤15 次 atomicWriteFile 落盘，
  *  大书慢盘整段可超锁原语的活 pid 超龄门槛（MAX_HELD_MS = 10min）。不续期时锁文件
  *  mtime 恒为创建时刻，第二进程（GUI/CLI 双开同书）按「活 pid 超龄且 mtime 无续期」
  *  判 stale 趁机接管并自建锁 → 双方同时持锁，同一本书收割双写候选。续期让活锁的
  *  mtime 恒新，超龄接管只打击真死进程的 pid 复用残留。
- *  30s 档与 R71-3 task-gate / R27-105 摘要锁同款——30s ≪ MAX_HELD_MS（10min），
+ *  30s 档与 task-gate / 摘要锁同款——30s ≪ MAX_HELD_MS（10min），
  *  判定面上的「活锁」恒不超龄；本常量导出供测试断言取锁参数（不依赖墙钟）。 */
 export const LEARN_HARVEST_LOCK_RENEW_MS = 30_000
 
-// R0910-W（2026-09-10 修复批）：候选池有界化——样章/金句候选原随全书合格段持续
+// （修复批）：候选池有界化——样章/金句候选原随全书合格段持续
 // push，末了才 sort+slice，大书峰值可达数万条 snippet 对象（O(全书)）。现循环内即
 // 保有界 top-N 池：每池容量 = 终取数 ×2，越过即按「最终排序口径」裁剪回终取数
 //（稳定排序等值早入者胜，与全量 sort+slice 逐位一致）；峰值降为 O(1)。
@@ -152,13 +152,13 @@ const QUOTE_POOL_CAP = QUOTE_KEEP * 2
 
 /** 样章终排序键：打分降序（稳定 → 等分保 push 序）。循环内裁剪与最终排序共用单源。 */
 const bySampleScore = (a: SampleCandidate, b: SampleCandidate): number => b.打分 - a.打分
-/** 金句终排序键：章号倒序（A5 口径，稳定 → 同章保 push 序）。 */
+/** 金句终排序键：章号倒序（口径，稳定 → 同章保 push 序）。 */
 const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章号 - a.章号
 
-// R0912-2 P3（2026-09-12 全量重评修复批）：码点计数单源——String.length 是 UTF-16
+// （修复批）：码点计数单源——String.length 是 UTF-16
 // 码元，含增补平面字符（emoji/生僻字）的文本 length 偏大（代理对一符双计）被长度
-// 上限误杀。原按 R0912-7 判「不引 process/summary 依赖链」本地实现；复审-0914-优化
-// A2（2026-09-14 修复批）单源下沉零依赖的 src/shared/text.ts 后依赖顾虑消除，本处
+// 上限误杀。原按判「不引 process/summary 依赖链」本地实现；-优化
+// （修复批）单源下沉零依赖的 src/shared/text.ts 后依赖顾虑消除，本处
 // 收编（learn「纯脚本」边界不破——shared/text.ts 零内部依赖）。样章块长与金句句长
 // 两处共用，口径单源。
 import { codePointLength } from '../shared/text.js'
@@ -170,13 +170,13 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   if (!existsSync(bodyDir)) {
     return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: '没有定稿正文可收割。' }
   }
-  // R0912-5（2026-09-11 修复批）：收割锁前移到全书扫描之前——此前先全书扫描（逐章
+  // （修复批）：收割锁前移到全书扫描之前——此前先全书扫描（逐章
   // 读盘 + 打分，长书秒级）末了才取锁，双进程并发收割双方各自白扫一遍全书，败者
   // 整段 CPU/IO 白付。现锁在扫描前取得：并发第二方立即按既有「在途」口径返回
   //（文案/返回形状逐字不变），锁内逻辑不变（扫描 → 候选 → 落盘全临界段）。
-  // R0912-B-P2-1（win 线 2026-09-11 精简批）：锁等待读点直用导出常量——原模块内
+  // （win 线精简批）：锁等待读点直用导出常量——原模块内
   // 可变生效值 learnHarvestLockTimeoutMs 及测试注入钩子已退役（钩子全仓零消费）。
-  // RC 源码重审 A-4（Opus-5.5 轮）：第三参数（锁原语 opts）此前整段缺省 = renewIntervalMs 0
+  // （Opus-5.5 轮）：第三参数（锁原语 opts）此前整段缺省 = renewIntervalMs 0
   //（不续期）——本锁是唯一的「长临界段 + 无续期」调用方（task-gate / 摘要锁 / 实例守卫
   // 均已接线续期），大书慢盘收割越过 10min 超龄线时第二进程会按「活 pid 超龄且无续期」
   // 接管 → 双持锁。此处仅接线既有续期能力，锁原语与判据零改动。
@@ -201,10 +201,10 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   }
 }
 
-/** R0912-5：锁内收割主体（扫描 → 候选 → 落盘；与锁前移前逻辑逐位一致，仅入口收窄形参） */
+/** 锁内收割主体（扫描 → 候选 → 落盘；与锁前移前逻辑逐位一致，仅入口收窄形参） */
 async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<LearnResult> {
   const { chapters, errors } = readChapterDir(bodyDir)
-  // 0918独立重评修复批（A007）：坏章节跳过 + 逐章 warn 留痕（对齐 rag/build.ts 坏文件
+  // 0918修复批（A007）：坏章节跳过 + 逐章 warn 留痕（对齐 rag/build.ts 坏文件
   // 口径）——此前单章解析失败令整轮收割不可用（learn 全家失效），且错误文案只透
   // errors[0].message 不带文件路径无法定位；现在坏章逐条 warn（file+message），其余
   // 章照常收割，全坏才失败（error 注明章数与留痕位置）。
@@ -230,45 +230,45 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   if (cfg.ok && cfg.config.book.title) bookTitle = cfg.config.book.title
 
-  // 铁律阈值 + 条目库禁词（S5 收口：统一走 readIronRules）
+  // 铁律阈值 + 条目库禁词（收口：统一走 readIronRules）
   const ironRules: IronRules = readIronRules(bookRoot)
 
-  // R55-D-2（五十五轮）：书级复读阈值解出一次、打分循环透传（learnFromBook 本就读
+  // 书级复读阈值解出一次、打分循环透传（learnFromBook 本就读
   // book config）；config 读取失败同「未设」——传 undefined 落引擎默认。
   const repeatThreshold = cfg.ok ? cfg.config.checks?.repeat_threshold : undefined
   const repeatCharsThreshold = cfg.ok ? cfg.config.checks?.repeat_chars_threshold : undefined
 
-  // 3. 流式逐章消费（R-P3-3）。H-1（二轮复审）：只收定稿正文（模块契约「从定稿正文产
+  // 3. 流式逐章消费。：只收定稿正文（模块契约「从定稿正文产
   // 候选」）——未定稿草稿/在写章不进候选池（流水线刚写出的段会被勾选入库污染文风基准
-  // 与注入素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
+  // 与注入素材）。判定与导出同一函数（manifest.finalizedPathSet，曾定稿=过）；
   // 旧书无清单 → null 无法判定，保持全量（与导出降级一致）
-  // R-P3-3（评审修复批）：chapterBodies 原把全书正文累积成数组、样章/金句两环各线性
+  // （评审修复批）：chapterBodies 原把全书正文累积成数组、样章/金句两环各线性
   // 遍历一次——大书收割峰值内存 = 全书正文同驻。两消费环均按章自足（产出互不依赖、
   // 候选数组只增小对象），合并为单遍逐章处理：每章读一次（IO 不变），章内完成样章打分
   // 与金句提取后正文即可回收，正文本体峰值从全书降为单章。产出等价：两候选数组的 push 序
   // （章节升序 × 章内原序）与合并前逐一相同，后续排序/截断口径不变；错误语义不变
-  //（readFile 失败/草稿跳过口径同旧读环）。R72-2 的「每章让出事件循环」契约保持。
-  // R0910-W 注释校准：上述「峰值降为单章」只对正文本体成立——候选数组原仍随全书合格段
+  //（readFile 失败/草稿跳过口径同旧读环）。 的「每章让出事件循环」契约保持。
+  // 注释校准：上述「峰值降为单章」只对正文本体成立——候选数组原仍随全书合格段
   // 持续 push、末了才 slice，大书峰值可达数万条 snippet（O(全书)）；现候选池循环内即有界
   //（见 SAMPLE_POOL_CAP/QUOTE_POOL_CAP），两处峰值口径一致降为 O(1)。
   const finalized = finalizedPathSet(bookRoot)
-  // R42-6（四十二轮）：定稿集消费侧建折叠键集（win32 大小写 + NFC，overview.ts R41-2
+  // 定稿集消费侧建折叠键集（win32 大小写 + NFC，overview.ts
   // 同款范式——set 构建一次、比较双侧 docJoinKey）——外部 case-only 改名 / NFD 文件名
-  // 后精确串失配，定稿章被误跳「草稿」流出候选池（H-1 红线破口）
+  // 后精确串失配，定稿章被误跳「草稿」流出候选池（红线破口）
   const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   let skippedDrafts = 0
-  // R-P3-3：成功读入正文的章数（替代旧 chapterBodies.length 的空判据）
+  // 成功读入正文的章数（替代旧 chapterBodies.length 的空判据）
   let readCount = 0
   // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
-  // R0910-W：有界池（容量 = 终取数 ×2）——循环内越界即裁，峰值 O(1)；终取数 SAMPLE_KEEP
+  // 有界池（容量 = 终取数 ×2）——循环内越界即裁，峰值 O(1)；终取数 SAMPLE_KEEP
   const sampleCandidates: SampleCandidate[] = []
   // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
   const quoteCandidates: QuoteCandidate[] = []
   for (const ch of chapters) {
-    await yieldToEventLoop() // R72-2：每章让出事件循环，长书收割不再阻塞同进程其他会话
+    await yieldToEventLoop() // 每章让出事件循环，长书收割不再阻塞同进程其他会话
     const path = ch._path
     if (!path) continue
-    if (finalizedKeys && !finalizedKeys.has(docJoinKey(relative(bookRoot, path)))) { // R42-6：折叠键比较（relPathKey 已归一分隔符）
+    if (finalizedKeys && !finalizedKeys.has(docJoinKey(relative(bookRoot, path)))) { // 折叠键比较（relPathKey 已归一分隔符）
       skippedDrafts++
       continue
     }
@@ -277,11 +277,11 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
     readCount++
     const body = r.body.trim()
     // 样章候选（同章内完成，body 出章即无引用——单遍流式的峰值单位）
-    // R0912-2 P3（2026-09-12 全量重评修复批）：切分正则 `(?:\r?\n){2,}` = 2 个以上
+    // （修复批）：切分正则 `(?:\r?\n){2,}` = 2 个以上
     // 换行单位（可选 \r + \n）——原 `/\n\n+/` 只认连续 LF，CRLF 存量/外部编辑章
     //（\r\n\r\n）切不开、整章成一块超 500 被滤，样章候选静默全灭；混合形态
     //（\r\n\n、\n\r\n）同命中且分隔符整体消费不残留 \r。块长过滤同批由 UTF-16
-    // .length 改码点计数（codePointLength 单源，与金句 R0912-7 同口径）——含
+    // .length 改码点计数（codePointLength 单源，与金句同口径）——含
     // emoji/增补平面字符的段 length 双计偏大被 500 上限误杀。
     const blocks = body.split(/(?:\r?\n){2,}/).filter((b) => {
       const len = codePointLength(b.trim())
@@ -298,23 +298,23 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
         章号: ch.章号,
         打分: score,
       })
-      // R0910-W：越过容量即按终排序口径裁回 SAMPLE_KEEP（保留集合 = 全量稳定排序后
+      // 越过容量即按终排序口径裁回 SAMPLE_KEEP（保留集合 = 全量稳定排序后
       // 前 SAMPLE_KEEP 条，见 bySampleScore 注释）
       if (sampleCandidates.length >= SAMPLE_POOL_CAP) {
         sampleCandidates.sort(bySampleScore)
         sampleCandidates.length = SAMPLE_KEEP
       }
     }
-    // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
-    // R0912-7（2026-09-11 修复批）：长度按码位计（for-of 迭代码点，零分配）——
+    // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——-BE-6）
+    // （修复批）：长度按码位计（for-of 迭代码点，零分配）——
     // String.length 是 UTF-16 码元，含增补平面字符（emoji/生僻字）的句子 length 偏大
-    // 而被 50 上限误杀（代理对一符双计），与全库 code point 口径（P-7/R72-7 族）不一致。
+    // 而被 50 上限误杀（代理对一符双计），与全库 code point 口径（/族）不一致。
     // 阈值语义不变（10/50 码位）；process/summary.ts 的 codePointLength 单源在本批
     // 不引入（其依赖链拖入 AI 编排栈，learn 头注「纯脚本」边界），算法与 summary
     // 实现同构（代理对合 1 计），漂移风险由两处同注钉住。
-    // R0912-2 P3（2026-09-12 全量重评修复批）：内联计数收敛至文件内 codePointLength
+    // （修复批）：内联计数收敛至文件内 codePointLength
     // 单源（同批样章块长过滤引入、与其同口径），算法逐位不变。
-    // R0916-7-P3-3（2026-09-16）：码点口径单源的现址 = src/shared/text.ts（零内部依赖，
+    // 码点口径单源的现址 = src/shared/text.ts（零内部依赖，
     // 本文件头 import 即该模块）；上两注中「process/summary.ts 的 codePointLength」
     // 系旧址（该模块的 re-export 中转已剥除），读作 shared/text.ts。
     const sentences = splitSentences(body).filter((s) => {
@@ -325,7 +325,7 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
       const hasHook = /[忽然竟然居然可是但是]/.test(s)
       const hasEmotion = /[痛爱恨死生泪笑]/.test(s)
       const hasContrast = /[却而]/.test(s)
-      // R0912-G1-P3-5（2026-09-12 独立重评修复批）：布尔式改写 `hasEmotion && (hasHook
+      // （修复批）：布尔式改写 `hasEmotion && (hasHook
       // || hasContrast)`——与原式 `hasHook && hasEmotion || (hasContrast && hasEmotion)`
       // 数学恒等（分配律），情绪位提前短路省两次正则 test；且显式括号消除
       // 「&&/|| 混排无括号」的可读性陷阱，语义零变化。
@@ -336,7 +336,7 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
           出处: `《${bookTitle}》第 ${ch.章号} 章`,
           章号: ch.章号,
         })
-        // R0910-W：同上（容量裁剪口径见 byQuoteChapter 注释）
+        // 同上（容量裁剪口径见 byQuoteChapter 注释）
         if (quoteCandidates.length >= QUOTE_POOL_CAP) {
           quoteCandidates.sort(byQuoteChapter)
           quoteCandidates.length = QUOTE_KEEP
@@ -360,22 +360,22 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
   const topSamples: SampleCandidate[] = sampleCandidates.slice(0, SAMPLE_KEEP)
 
   // 取 top 5（场景不再分桶配额）
-  // A5（五十九轮）：候选按章号倒序再取 top5——章节按章号升序遍历，直接 slice 取的是
+  // 候选按章号倒序再取 top5——章节按章号升序遍历，直接 slice 取的是
   // 章节序最前 5 条，金句候选系统性偏旧；倒序取最新章节的候选（同章内保遍历序，稳定排序）
   quoteCandidates.sort(byQuoteChapter)
   const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, QUOTE_KEEP)
 
   // 6. 落候选到 工作区/learn候选/
-  // R69-15（十七轮）：候选目录 rm+重建整段跨进程互斥——chat 工具（harvest_style 不经
+  // 候选目录 rm+重建整段跨进程互斥——chat 工具（harvest_style 不经
   // 端点 'learn' 闸）与 CLI/他进程并发收割时对同一目录互相 rm 半删/覆盖；5s 超时
-  // fail-closed 报「在途」交调用方提示重试（桌面+CLI 双进程形态 J7 已认可）。
-  // R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，rule-hits 同口径）——
+  // fail-closed 报「在途」交调用方提示重试（桌面+CLI 双进程形态已认可）。
+  // 锁等待异步化（acquireCrossProcessLockAsync，rule-hits 同口径）——
   // 同步 Atomics.wait 微睡会在双进程争用时冻结 utility 进程事件循环（SSE/HTTP 最坏停 5s）。
-  // R0912-5：锁的取得已上移到扫描前（learnFromBook）——本函数全程在锁内跑，落盘段
+  // 锁的取得已上移到扫描前（learnFromBook）——本函数全程在锁内跑，落盘段
   // 不再重复取锁/判超时（互斥覆盖面从「落盘段」扩为「扫描+候选+落盘」全临界段）。
   const candidateRoot = join(bookRoot, CANDIDATE_DIR)
   // 清旧候选（重跑覆盖）
-  // R43-22（四十三轮）：注释改真实口径——force:true 下 ENOENT 不抛（目录不存在是
+  // 注释改真实口径——force:true 下 ENOENT 不抛（目录不存在是
   // 正常态），真正会抛的是 EBUSY/EPERM 半删态（候选 md 被编辑器占用/杀软扫描锁）。
   // 失败留痕：半删目录残留下轮收割覆盖前仍可见，可能含上轮过期候选混入本轮审阅面
   try {

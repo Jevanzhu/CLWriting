@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文风候选箱卡（StyleView 拆分 P2-5 ③ 候选箱段）：四源管线汇流可视化，确认/忽略入库。
+// 文风候选箱卡（StyleView 拆分 ③ 候选箱段）：四源管线汇流可视化，确认/忽略入库。
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Inbox, Sparkles, X, Check, ChevronRight } from 'lucide-vue-next'
@@ -7,7 +7,7 @@ import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
 import EmptyState from '../ui/EmptyState.vue'
-// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-*/.kind-badge/.token-chip
+// （修复批）：.panel/.btn-*/.kind-badge/.token-chip
 // 逐字重复块收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载
 // 非 scoped，组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -21,7 +21,7 @@ const ignored = computed(() => style.candidates.filter((c) => c.状态 === '已�
 const showIgnored = ref(false)
 const harvesting = ref(false)
 const acting = ref<string | null>(null) // 正在确认/忽略的候选路径（防连点）
-// R32-30（三十二轮）：确认/忽略是全局单飞（style.confirm/ignore 串行口径）——原模板只
+// 确认/忽略是全局单飞（style.confirm/ignore 串行口径）——原模板只
 // 禁用在途卡自身（acting === c._path），跨卡按钮可点但入口 `if (acting) return` 静默
 // 无响应（死按钮残余点）。改全部按钮按 acting 非空统一禁用，在途卡有 disabled 态、
 // 跨卡按钮不再可点。
@@ -35,11 +35,11 @@ function evidenceOf(c: StyleCandidateFE): string {
   return parts.join(' · ')
 }
 
-// R26-73（二十六轮）：三处动作 toast 前补书名复检（对齐 StyleAcceptancePanel.onAnalyze
+// 三处动作 toast 前补书名复检（对齐 StyleAcceptancePanel.onAnalyze
 // 的入口捕获模式）——本组件无 bookName prop，守卫读共享 style store 的活书名（StyleView
 // :key 重建后死实例的 store 引用仍活着，store.bookName 已是新书）。收割/确认/忽略在途
 // 切书后，A 书的结果与失败 toast 均不落 B 书界面。
-// R28-25（二十八轮）：书名守卫补 armed 门——路由变更 → StyleView :key 重建 → 子组件
+// 书名守卫补 armed 门——路由变更 → StyleView :key 重建 → 子组件
 // setup → StyleView onMounted 才 style.load（入口同步置 store.bookName）之间存在一个
 // 渲染 tick 窗口，窗口内 store.bookName 仍滞留旧书；死实例在途动作恰在该窗口 settle 时
 // 「bookName 匹配」放行，A 书 toast 落 B 书界面。armed 以路由活书名为代次源即时判定
@@ -55,7 +55,7 @@ async function onHarvest(): Promise<void> {
   harvesting.value = true
   try {
     const r = await style.harvest()
-    if (!armed(book) || style.bookName !== book) return // R28-25：armed 门 + 书名门
+    if (!armed(book) || style.bookName !== book) return // armed 门 + 书名门
     if (r.created > 0) {
       ui.toast(`收割完成：${r.created}条新候选${r.skipped > 0 ? `（${r.skipped}条重复已跳过）` : ''}`, 'success')
     } else {
@@ -137,7 +137,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         </template>
         <div v-else class="cc-text">{{ c.正文 }}</div>
         <div class="cc-actions">
-          <!-- R32-30：acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
+          <!-- ：acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
           <button class="btn-ghost" :disabled="acting !== null" @click="onIgnore(c)">
             <X :size="13" /> 忽略
           </button>
@@ -163,7 +163,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         <div class="cc-top">
           <span class="kind-badge" :data-kind="c.类型">{{ c.类型 }}</span>
           <span class="cc-text-inline">{{ c.正文 }}</span>
-          <!-- R33D-10（三十三轮）：已忽略区同对齐全局单飞口径（R32-30 漏改的兄弟按钮） -->
+          <!-- ：已忽略区同对齐全局单飞口径（漏改的兄弟按钮） -->
           <button class="btn-ghost" :disabled="acting !== null" @click="onConfirm(c)">仍要收录</button>
         </div>
       </div>
@@ -173,9 +173,9 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 
 <style scoped>
 /* .panel/.btn-ghost/.btn-primary 基础族、.token-chip 基础与 .free、.kind-badge 族
- * 已收敛至 style-shared.css（R0912-C2-P3-3 全局装载）；disabled 规则留
+ * 已收敛至 style-shared.css（全局装载）；disabled 规则留
  * 本文件（Entry 原无 disabled、Acceptance disabled 仅 ghost 单选择器，形态不一致不强统一）。
- * .spin 旋转动画随之单源在全局 styles/utilities.css（R0916-7-P3-26，原 1s 本地档已删）。 */
+ * .spin 旋转动画随之单源在全局 styles/utilities.css（原 1s 本地档已删）。 */
 .head-count {
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -311,7 +311,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 }
 
 /* 类型徽标（kind-badge 族）与 .src-dot 均收敛至 style-shared.css
- *（R0912-C2-P3-3 / R0912-3 #14 全局装载）。 */
+ *（/ #14 全局装载）。 */
 
 @media (max-width: 860px) {
   .cc-compare {

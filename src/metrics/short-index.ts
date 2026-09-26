@@ -3,7 +3,7 @@
  *
  * 目标：短篇主链已按单章闭环，本模块只做整集层面的轻量扫描。
  * 数据来自 `写作/正文/`（卷结构，递归）与 `大纲/章纲/<章号>-<标题>.md`——
- * R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：头注原宣称「已定稿」与实现不符
+ * （GLM-5.3 修复批）：头注原宣称「已定稿」与实现不符
  * （scanShortCollection 读全量章节、不做定稿过滤——草稿同入索引），唯一调用方
  * （export 投稿视图）按定稿清单自行二次过滤；新调用方须自带定稿过滤，勿信本层已滤。
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
@@ -17,7 +17,7 @@ import { extractSectionHeadings } from '../format/section-heading.js'
 import { readPieceList } from '../format/manifest.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
-import { log } from '../log/index.js' // R51-B-3：跳章 warn 留痕
+import { log } from '../log/index.js' // 跳章 warn 留痕
 import { SHORT_DEFAULTS } from '../shared/short-defaults.js'
 import { codePointLength } from '../shared/text.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
@@ -92,7 +92,7 @@ interface DistributionItem {
   pieces: number[]
 }
 
-// X-P3a：删除 7 个零引用死接口（ShortDraftGuidance/ShortQualityTrendReport/
+// 删除 7 个零引用死接口（ShortDraftGuidance/ShortQualityTrendReport/
 // ShortSeriesMotifReport/ShortCalibrationReport/ShortBudgetCalibrationReport/
 // ShortRepairPlanIssue/ShortRepairPlanReport）——设计期占位，从未有生产/测试引用
 
@@ -117,11 +117,11 @@ interface ShortSubmissionTemplate {
   sellingPoints: string[]
 }
 
-// R66-25（十四轮）：ShortCalibrationSample / ShortRepairPlanItem 两个零引用死接口
+// ShortCalibrationSample / ShortRepairPlanItem 两个零引用死接口
 // 已删（原 112-129 行——短篇校准/修复计划设计期预留形状，全库 grep 无任何消费方，
 // 属评审登记的 8 处死代码之一；删除后由 tsc 门禁兜底防复活）。
 
-// R0912-ds41（P3-6）：默认表唯一正本收敛至 shared/short-defaults.ts（此前与 install/data.ts
+// 默认表唯一正本收敛至 shared/short-defaults.ts（此前与 install/data.ts
 // 的 DEFAULT_SHORT_CHECKS 各持一份逐字相同的 12 行表，面临单侧改动漂移）；本地别名
 // 保持原类型标注，analyzeShortCollection 的展开用法与键序不变，行为逐字节等价。
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = SHORT_DEFAULTS
@@ -174,10 +174,10 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const 章纲Dir = join(bookRoot, '大纲', '章纲')
   if (!existsSync(bodyDir)) return []
 
-  // R66-24（十四轮）：原走 readChapterDir(includeBody=true) 现读通道（绕开 meta
+  // 原走 readChapterDir(includeBody=true) 现读通道（绕开 meta
   // 缓存、正文不驻留）——短篇集索引随 health/视图反复扫描时每次全书整读零缓存；
   // 改为缓存 meta（readChapterDir 默认 stat 级缓存）+ 缓存 body（readChapterBody
-  // 指纹缓存），未变章节数据零重读。CC-P2-33 的「一次读带出」语义由缓存命中替代。
+  // 指纹缓存），未变章节数据零重读。 的「一次读带出」语义由缓存命中替代。
   const { chapters } = readChapterDir(bodyDir)
   const entries: ShortPieceIndexEntry[] = []
   for (const ch of chapters) {
@@ -185,7 +185,7 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     const name = basename(ch._path)
     const list = readListIfExists(join(章纲Dir, name))
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
-    // R51-B-3（五十一轮）：不可读章跳章 + warn 留痕，对齐同源助手（style.ts
+    // 不可读章跳章 + warn 留痕，对齐同源助手（style.ts
     // scanChapters 读失败 continue 跳章）——原 `?? ''` 降级会产 0 字假条目：章数/
     // 均字数/平台画像（wordMin/wordMax 达标面）与反转分被空正文拉偏且无迹可查。
     // warn 后 continue（report 消费方面对缺章而非假数据）；瞬时 TOCTOU 下次扫描自愈。
@@ -268,9 +268,9 @@ export function formatShortSubmissionView(
 function readListIfExists(path: string): PieceList | null {
   if (!existsSync(path)) return null
   const r = readPieceList(path)
-  // R54-D-1（五十四轮）：在盘但读取失败（占用/权限/瞬删竞态）不再与「不存在」同落
+  // 在盘但读取失败（占用/权限/瞬删竞态）不再与「不存在」同落
   // 静默 null——reversalQuality/结构物件会被系统性低估且零痕迹；warn 口径对齐
-  // check/runner.ts R62-9 黄项（健康报告降级语义本身保留：扫描器不阻断）。
+  // check/runner.ts 黄项（健康报告降级语义本身保留：扫描器不阻断）。
   if (!r.ok) {
     log.warn('metrics', `短篇章纲 ${basename(path)} 读取失败（${r.error.message}），本篇反转质量/结构物件按无章纲计（评估系统性低估）`)
     return null
@@ -363,7 +363,7 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null, body
  *  format/section-heading 单源（剥围栏 + `^##(?!#)[ \t\u3000]*\S` 口径）——原第二套
  *  识别器（`^##\s+`、无围栏剔除）与 check/count.ts 口径分裂：紧排 `##标题` 全量漏识
  *  → anchors 空 → 弱校验分支假 issue「正文缺少 ## 段落锚点」、anchoredSetupCount 记
- *  0；反向围栏代码块内 `## 示例` 被照收 → 假锚点虚增。CRLF 容忍（R36-1 本处第四处）
+ *  0；反向围栏代码块内 `## 示例` 被照收 → 假锚点虚增。CRLF 容忍（本处第四处）
  *  由单源的 `\r` 剥除保持。导出供 CRLF 回归直测。 */
 export function collectBodyAnchors(body: string): string[] {
   return extractSectionHeadings(body)
@@ -377,7 +377,7 @@ function setupHasAnchor(position: string, anchors: string[]): boolean {
   if (anchors.length === 0) return false
   return anchors.some((anchor) => {
     const a = normalize(anchor)
-    // R71-33（总七十一轮）：纯标点/emoji 的锚点标题归一化后为空串——`pos.includes('')`
+    // （总七十一轮）：纯标点/emoji 的锚点标题归一化后为空串——`pos.includes('')`
     // 恒真，会把任何铺垫虚报成已锚定（与 groupBy 空键跳过同口径，匹配前空串短路）
     if (!a) return false
     return a.includes(pos) || pos.includes(a)
@@ -389,7 +389,7 @@ function payoffMatchesSetup(payoff: string, setups: SetupPoint[]): boolean {
   if (!p || isPlaceholder(payoff)) return false
   return setups.some((setup) => {
     const s = normalize(setup.内容)
-    // R71-33：同 setupHasAnchor——铺垫内容归一化空串时 `p.includes('')` 恒真，任何
+    // 同 setupHasAnchor——铺垫内容归一化空串时 `p.includes('')` 恒真，任何
     // 回收条目都虚报 payoffMatched（空串短路，不计匹配）
     if (!s) return false
     return s.includes(p) || p.includes(s)
@@ -474,7 +474,7 @@ function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) 
     .filter((item) => item.value !== '未知')
     // 四轮-D405：并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
     // 标签（中英混排），localeCompare 的排序规则随运行环境 ICU/locale 漂移，同 count
-    // 并列时相对序不稳定（先例：version.ts R0912-5 同款改法）；码元序使并列排序
+    // 并列时相对序不稳定（先例：version.ts 同款改法）；码元序使并列排序
     // 稳定且与 locale 无关。
     .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
     .slice(0, 5)
@@ -584,7 +584,7 @@ function extractObject(text: string): string {
     .replace(/^(开头|中段|尾声|结尾|反转|铺垫|升级)/, '')
     .replace(/[，。！？、；：:]/g, ' ')
     .trim()
-  // P3-9（2026-09-15 四轮重评处置批）：量词与截断对齐码位口径——u 标志使 {1,12} 按
+  // （处置批）：量词与截断对齐码位口径——u 标志使 {1,12} 按
   // 码点计、Array.from 按码点截，增补平面字符（emoji/扩展汉字）恰落第 12 码元边界时
   // 不再劈出孤立代理对；截断体不引 process/summary 的 clipByCodePoints（metrics→process
   // 成环边界，见 shared/text.ts 头注），计数走单源 codePointLength。

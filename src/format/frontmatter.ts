@@ -4,7 +4,7 @@
  * 不是通用 YAML 解析器，只覆盖项目所需的受限子集：
  * - 平铺 key: value（#3#7 主体）
  * - 内联数组 value: [a, b, c]（#5 标签、#6 序列）
- * - 缩进嵌套（#6 境界体系的 体系: / - 名称: / 序列:）
+ * - 缩进嵌套（#6 境界体系的 体系: / - 名称: / 序列）
  *
  * 容错约定（#3 第 8 节）：
  * - 未知字段原样保留、回写不重排顺序
@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { open, readFile as fsReadFile, type FileHandle } from 'node:fs/promises'
 import type { ParseError } from './types.js'
-import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
+import { errMsg, log } from '../log/index.js' // errMsg 收编：错误文案三目单源
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon, hasOpenFrontMatterFence } from './frontmatter-core.js'
@@ -30,7 +30,7 @@ export { splitFrontMatter, bodyOf }
 export function splitInlineArray(inner: string): string[] {
   const out: string[] = []
   let cur = ''
-  // Y-21（第五十七轮）：单引号纳入引号状态机——手写 `['悬疑,推理']` 此前在引号内
+  // 单引号纳入引号状态机——手写 `['悬疑,推理']` 此前在引号内
   // 逗号处错切成两项（序列化端只产双引号，单引号是纯手写入口；unquote 本就双体系对称）
   let inQuote: '"' | "'" | null = null
   for (let i = 0; i < inner.length; i++) {
@@ -53,7 +53,7 @@ export function splitInlineArray(inner: string): string[] {
     cur += c
   }
   out.push(cur.trim())
-  // X-P2-18：数组项与标量对称 unquote——序列化端逐项加引号，解析端不剥则带引号往返错位
+  // 数组项与标量对称 unquote——序列化端逐项加引号，解析端不剥则带引号往返错位
   return out.map((s) => unquote(s))
 }
 
@@ -83,18 +83,18 @@ export function parseValue(raw: string): unknown {
 /** 去掉值两端可选的引号（作者可能写 `标题: "灭门真凶"`）。
  *  双引号包裹时反转义 \"（与 stringifyValue 的 replace(/"/g, '\\"') 对称，
  *  防含引号值每次保存多累积一个反斜杠 → 内容渐进腐化）。
- *  Q-15（第十五轮）：同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。
- *  R-11（第十六轮）：反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
+ *  ：同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。
+ *  ：反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
  *  含字面反斜杠的值（如 C:\new\repo）往返渐进腐化（`\\n` 被二次误解成换行）。 */
 function unquote(s: string): string {
-  // B-16（第六十轮）：length >= 2 守卫——单个 `"` 字符的值 startsWith 与 endsWith
+  // length >= 2 守卫——单个 `"` 字符的值 startsWith 与 endsWith
   // 命中同一字符，slice(1, -1) 会把值归一成空串（`标题: "` → 标题=空）
   if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
     const inner = s.slice(1, -1)
     let out = ''
     for (let i = 0; i < inner.length; i++) {
       const c = inner[i]!
-      // R-11：反斜杠后跟可转义字符 → 单遍解码（不回头重扫，保证与序列化端对称）
+      // 反斜杠后跟可转义字符 → 单遍解码（不回头重扫，保证与序列化端对称）
       if (c === '\\' && i + 1 < inner.length) {
         const n = inner[i + 1]!
         if (n === '"' || n === '\\' || n === 'n' || n === 'r') {
@@ -107,9 +107,9 @@ function unquote(s: string): string {
     }
     return out
   }
-  // B-16：单引号分支同守卫（同一字符命中 startsWith/endsWith 同一陷阱）
+  // 单引号分支同守卫（同一字符命中 startsWith/endsWith 同一陷阱）
   if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
-    // R64-18（十二轮）：还原 '' 转义——YAML 单引号风格以 '' 表示字面单引号，
+    // 还原 '' 转义——YAML 单引号风格以 '' 表示字面单引号，
     // 此前只剥两端，`'it''s'` 读回 `it''s`，系统回写后字面漂移
     return s.slice(1, -1).replace(/''/g, "'")
   }
@@ -120,27 +120,27 @@ function unquote(s: string): string {
 export function stringifyValue(val: unknown): string {
   if (typeof val === 'number') return String(val)
   if (Array.isArray(val)) {
-    // X-P2-18：逐项走标量序列化（含逗号/引号项加引号转义），与解析端 K17 的引号跳过对称——
+    // 逐项走标量序列化（含逗号/引号项加引号转义），与解析端 K17 的引号跳过对称——
     // 此前 join(', ') 直拼，含逗号项序列化后往返错位（["悬疑,推理"] 解析回成两项）
     return '[' + val.map((v) => stringifyValue(v)).join(', ') + ']'
   }
   if (typeof val === 'boolean') return val ? 'true' : 'false'
   const s = String(val)
   // 需要加引号的情形：纯数字串（防被当 int）、空、特殊字符
-  // X-P2-18：补 `,`——内联数组的分隔符本身，含逗号项不引号则解析端切错位
-  // dd-P3：首尾空白也加引号——不引号则往返后空白被 trim 丢失
-  // Q-15（第十五轮）：补 \n\r——含换行值不引号则落盘直接劈断 yaml 行结构（回读静默
+  // 补 `,`——内联数组的分隔符本身，含逗号项不引号则解析端切错位
+  // dd-首尾空白也加引号——不引号则往返后空白被 trim 丢失
+  // 补 \n\r——含换行值不引号则落盘直接劈断 yaml 行结构（回读静默
   // 丢键/错键）；引号内换行以 \n 转义承载（unquote 对称还原），主入口（config 标题）
   // 另有控制字符拒收防线
-  // R-11（第十六轮）：值含反斜杠也须加引号（否则转义序列无处承载，与解析端不对称）
+  // 值含反斜杠也须加引号（否则转义序列无处承载，与解析端不对称）
   if (s === '' || /^-?\d+$/.test(s) || /[:#\[\]{}&*!|>'"%@`,\n\r\\]/.test(s) || /^\s|\s$/.test(s)) {
-    // R-11：先转义反斜杠再转其他——保证 `\\` / `\"` / `\n` / `\r` 与 unquote 单遍解码往返对称
+    // 先转义反斜杠再转其他——保证 `\\` / `\"` / `\n` / `\r` 与 unquote 单遍解码往返对称
     return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"'
   }
   return s
 }
 
-/** 0918独立重评修复批（B010）：fm 平铺值的类型闸——stringifyValue 能忠实往返的形态
+/** 0918修复批（B010）：fm 平铺值的类型闸——stringifyValue 能忠实往返的形态
  *  白名单：string / number（须有限——NaN/Infinity 序列化成字面串读不回原值）/
  *  boolean / 仅含这三种标量的数组。其余形态（null / 对象 / 嵌套数组）经 stringifyValue
  *  会落成 "[object Object]"、"null"、嵌套括号等伪值写坏 fm——写侧入口（updateDocMeta
@@ -163,9 +163,9 @@ export function isFmWritableValue(val: unknown): boolean {
 // ── front matter 提取/包裹 ──────────────────────
 // splitFrontMatter 定义已移至 frontmatter-core.ts，文件顶部 re-export
 
-// E-3（第五十三轮）：剥平铺值行内注释，防注释尾巴进值——`标题: 值 # 备注` 不再把
+// 剥平铺值行内注释，防注释尾巴进值——`标题: 值 # 备注` 不再把
 // 注释尾巴读进值。此前仅 yaml.ts（book.yaml）剥而 parseFlat（章 front matter）不剥，
-// 双 fm 解析口径不一。N-4（第五十四轮）：实现下沉 frontmatter-core.ts（与 yaml.ts
+// 双 fm 解析口径不一。：实现下沉 frontmatter-core.ts（与 yaml.ts
 // stripComment 同一函数，防循环 import 顾虑已随 core 拆出不成立），语义逐字不变。
 // 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
 
@@ -183,25 +183,25 @@ export function parseFlat(
       i++
       continue
     }
-    // R31-2（三十一轮）：键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，见 frontmatter-core）——
+    // 键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，见 frontmatter-core）——
     // 手写全角冒号键行（`章号：152`）此前整行静默跳过，键无声丢失。块标量分支与
     // stripInlineComment 都作用在切分后的值侧，不受切分点改判影响。
     const colonIdx = firstKeyColon(line)
     if (colonIdx === -1) {
-      // R35-22（三十五轮）：无冒号残行 warn 留痕（对齐 yaml.ts R64-24 口径）——此前
+      // 无冒号残行 warn 留痕（对齐 yaml.ts 口径）——此前
       // 静默跳过，手写残句/续行「写了但不生效」无迹可查。warn 不中断解析。
       log.warn('frontmatter', `front matter 无冒号行被丢弃：${trimmed.slice(0, 40)}`)
       i++
       continue
     }
     const key = line.slice(0, colonIdx).trim()
-    // R28-11（二十八轮）：键行行号先记下——块标量分支消费块体会推进 i，重复键 warn
+    // 键行行号先记下——块标量分支消费块体会推进 i，重复键 warn
     // 若直接取 i+1 会指向块体之后（行号失真），报错改用本记录值
     const keyLineNo = i + 1
-    // E-3：值解析前剥行内注释（口径对齐 yaml.ts stripComment），防注释尾巴进值
+    // 值解析前剥行内注释（口径对齐 yaml.ts stripComment），防注释尾巴进值
     const valRaw = stripInlineComment(line.slice(colonIdx + 1).trim())
     // 块标量：key: |（literal，保留换行）或 key: >（folded，换行转空格）
-    // Q-17（第十五轮）：精确匹配放宽为 chomping 变体（`|-`/`|+`/`>-`/`>+`）——手写
+    // 精确匹配放宽为 chomping 变体（`|-`/`|+`/`>-`/`>+`）——手写
     // `钩子: |-` 此前不中块标量分支，值成字面串且缩进块内容混入 fm 伪键；变体统一按
     // 既有 clip 口径取值（strip/keep 的尾换行差不细分——项目内块标量由本模块序列化，
     // 手写场景保正确性即可）
@@ -209,12 +209,12 @@ export function parseFlat(
     if (blockMatch) {
       const folded = blockMatch[1] === '>'
       const block: string[] = []
-      const indents: number[] = [] // E-9d：记录非空行缩进，供最小缩进去缩进
+      const indents: number[] = [] // 记录非空行缩进，供最小缩进去缩进
       i++
       while (i < lines.length) {
         const bl = lines[i]!
         if (bl.trim() === '') {
-          // R48-54（四十八轮）：纯空白行不再一律归一真空行——literal 保留原貌
+          // 纯空白行不再一律归一真空行——literal 保留原貌
           //（去缩进按 minIndent 截断，行内缩进空白不丢）；folded 的空白行按 YAML
           // 语义仍是段落边界（foldSegs 以真空行分段），维持 ''。
           block.push(folded ? '' : (bl.endsWith('\r') ? bl.slice(0, -1) : bl))
@@ -224,20 +224,20 @@ export function parseFlat(
         const indent = bl.length - bl.trimStart().length
         if (indent === 0) break // 回到平铺层（新 key）
         indents.push(indent)
-        // Y-6（第五十七轮）：剥 CRLF 行尾 \r——split('\n') 保留 \r 尾，块行原样入值会
+        // 剥 CRLF 行尾 \r——split('\n') 保留 \r 尾，块行原样入值会
         // 让多行值每行尾嵌 \r（平铺值行有 trim 无此问题，仅块标量中招），写回后形成
         // 混合行尾文件且值本体被污染
         block.push(bl.endsWith('\r') ? bl.slice(0, -1) : bl)
         i++
       }
-      // E-9d（第五十三轮）：以块内非空行**最小缩进**为基准去缩进——此前按每行自身
+      // 以块内非空行**最小缩进**为基准去缩进——此前按每行自身
       // 缩进 slice，块内后续行比首行浅（但仍 >0）时保留多余空白，多行值往返失真；
       // YAML 块标量语义本就是最小缩进决定内容基准
       const minIndent = indents.length > 0 ? Math.min(...indents) : 0
       const dedented = block.map((bl) => (bl === '' ? '' : bl.slice(minIndent)))
-      // Z-20（第五十八轮）：folded 空行 = 段落边界（YAML 语义空行应为换行）——此前
+      // folded 空行 = 段落边界（YAML 语义空行应为换行）——此前
       // join(' ') 把多段值压平成一段；无空行时产出与旧行为一致
-      // 重审-07（2026-09-07 全量代码重审 §四.7）：去掉 join 后的双空格折叠
+      // （§四.7）：去掉 join 后的双空格折叠
       // （`replace(/  +/g, ' ')`）——YAML folded 语义只清**行尾**空白，行内多空格是
       // 字面内容；旧折叠让读改写往返（parseFlat → stringifyFlat）篡改手写多行值。
       // 行尾清理改为逐行 `replace(/ +$/, '')`（join 前剥，折为空格的换行不吞行尾
@@ -254,9 +254,9 @@ export function parseFlat(
         return segs.join('\n')
       }
       const value = folded ? foldSegs(dedented) : dedented.join('\n').replace(/\n+$/, '')
-      // R27-26（二十七轮）：同名键后胜留痕——book.yaml 侧段内子键重复已 fail-loud
-      // （R73-21），章 fm 此前静默覆盖；手改复制粘贴出双「标题:」时前一值无迹消失。
-      // R28-11（二十八轮）：行号用进入块标量消费前记录的 keyLineNo（i 已越过块体，
+      // 同名键后胜留痕——book.yaml 侧段内子键重复已 fail-loud
+      // 章 fm 此前静默覆盖；手改复制粘贴出双「标题:」时前一值无迹消失。
+      // 行号用进入块标量消费前记录的 keyLineNo（i 已越过块体，
       // 直接取 i+1 会指到块后），warn 指向重复键起始行。
       if (result.has(key)) log.warn('frontmatter', `front matter 同名键「${key}」重复（第 ${keyLineNo} 行起），后值覆盖前值`)
       result.set(key, value)
@@ -283,8 +283,8 @@ export function stringifyFlat(map: Map<string, unknown>): string {
   return lines.join('\n')
 }
 
-/** R65-1（十三轮）：平铺 fm 文本级补丁——updateDocMeta/updateChapterMeta 的读改写
- *  此前走 parseFlat→stringifyFlat 整体重排：嵌套段（境界体系的 体系: / - 名称: / 序列:）
+/** 平铺 fm 文本级补丁——updateDocMeta/updateChapterMeta 的读改写
+ *  此前走 parseFlat→stringifyFlat 整体重排：嵌套段（境界体系的 体系: / - 名称: / 序列）
  *  被平铺解析器切成伪平铺键且同名键互相覆盖（多体系仅剩最后一组），回写产物
  *  `体系: ""` 不再匹配 parseRealmSystems 的 /^体系:\s*$/ → 成长线机检静默失明。
  *  补丁只替换目标平铺键的键行（或缺失时追加），其余行（嵌套段/块标量/注释/未知键）
@@ -294,7 +294,7 @@ export function patchFlatFm(
   fmRaw: string,
   updates: Record<string, unknown>,
 ): { ok: true; text: string } | { ok: false; reason: string } {
-  // 平台规范化批（2026-09-03）：输出整体规范形（见函数尾 canonicalizeText）——MP2-4
+  // 平台规范化批输出整体规范形（见函数尾 canonicalizeText）——MP2-4
   // 的「按 fm 原文行尾渲染」语义随规范形拍板翻转；未触碰行携带的 CRLF 残尾一并归一。
   const lines = fmRaw === '' ? [] : fmRaw.split('\n')
   const renderKeyLine = (key: string, val: unknown): string[] => {
@@ -310,7 +310,7 @@ export function patchFlatFm(
   const isTopKey = (line: string): string | null => {
     if (line === '' || line.startsWith('#')) return null
     if (/^\s/.test(line) || line.trimStart().startsWith('- ')) return null
-    // R31-2（三十一轮）：顶层键判定同 parseFlat 双认 `:`/`：`——parseFlat 已认全角键行
+    // 顶层键判定同 parseFlat 双认 `:`/`：`——parseFlat 已认全角键行
     // 而此处不认的话，patchFlatFm 会把该键当不存在走追加分支（同键重复行）。
     const colonIdx = firstKeyColon(line)
     if (colonIdx === -1) return null
@@ -337,7 +337,7 @@ export function patchFlatFm(
       span.push(nxt)
       j++
     }
-    // R73-28（二十一轮）：嵌套判定收紧为「缩进子键/列表项」形态——此前段内任意非空行
+    // 嵌套判定收紧为「缩进子键/列表项」形态——此前段内任意非空行
     //（含注释行）都算嵌套子结构，`标题: 某书` 后跟作者手写注释行时合法更新被过宽拒绝
     //（fail-loud 失真）。纯注释行（任意缩进）/空行不构成嵌套；真嵌套（缩进内容行、
     //  `- ` 列表项）仍拒绝改写（防平铺化红线不变）。
@@ -353,7 +353,7 @@ export function patchFlatFm(
     }
     if (done.has(key)) {
       // 重复同名顶层键（手写脏数据）：首个已改写，后续重复及其子行丢弃防解析歧义。
-      // R51-F-7（五十一轮）：静默丢弃补 warn 留痕（R76-15「写了但不生效无迹可查」
+      // 静默丢弃补 warn 留痕（「写了但不生效无迹可查」
       // 纪律）——作者第二处键值被丢弃后无从知晓，改配置「不生效」无诊断线索。
       log.warn('frontmatter', `patchFlatFm 重复同名顶层键「${key}」：保留首个（已按 updates 改写），后续重复键及其子行已丢弃`)
       i = j
@@ -361,7 +361,7 @@ export function patchFlatFm(
     }
     done.add(key)
     const val = updates[key]
-    // R31-2（三十一轮）：块标量头判定同键位双认口径（isTopKey 同源）
+    // 块标量头判定同键位双认口径（isTopKey 同源）
     const valRaw = line.slice(firstKeyColon(line) + 1).trim()
     const isBlockScalar = /^([|>])[+-]?$/.test(valRaw)
     if (!isBlockScalar && hasNested) {
@@ -386,7 +386,7 @@ export function patchFlatFm(
 
 /** 包裹 front matter + 正文为完整 markdown */
 export function joinFrontMatter(fmText: string, body: string): string {
-  // 平台规范化批（2026-09-03）：整体输出规范形（剥 BOM、行尾归一 LF）——R39-10 的
+  // 平台规范化批：整体输出规范形（剥 BOM、行尾归一 LF）—— 的
   // 「fence/接缝按内容主导行尾」语义随规范形拍板翻转。本函数是 fm+正文写回族的
   // 统一规范闸（service meta 三写点 / writeLead / style-entry / knowledge 注入）：
   // fm/正文携带的 \r\n（外部编辑器造出的 CRLF 文件）随整输出归一——读侧双认容忍
@@ -398,7 +398,7 @@ export function joinFrontMatter(fmText: string, body: string): string {
 // ── 读取/写入文件（容错入口）────────────────────
 
 /** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩）。
- *  R63-7（十一轮）：content 传入时跳过读文件、按预读文本解析——三审端点单次读取
+ *  ：content 传入时跳过读文件、按预读文本解析——三审端点单次读取
  *  取 buffer 后，hash 与机检 body 从同一快照派生（三次独立读文件会来自三个时刻）。 */
 export function readFile(
   filePath: string,
@@ -423,12 +423,12 @@ export function readFile(
   }
   const split = splitFrontMatter(text)
   if (split === null) {
-    // R26-35（二十六轮）：splitFrontMatter 返回 null 有两种成因（无起始 --- / 有起始
+    // splitFrontMatter 返回 null 有两种成因（无起始 --- / 有起始
     // 未闭合），原文案一刀切「未找到起始 ---」失真——未闭合文件被误标，且 draft.ts 的
     // 「缺少 front matter」豁免（无 fm 旧稿/迁移存量合法）regex 恰好把未闭合 fm 也一并
     // 豁免（坏 fm 静默过闸）。区分文案：未闭合改「front matter 未闭合（缺少结尾 ---）」
     // （不再命中豁免，须修复）；无起始的旧文案逐字不变（豁免语义不回归）。
-    // R48-52（四十八轮）：未闭合判定收口 frontmatter-core.hasOpenFrontMatterFence
+    // 未闭合判定收口 frontmatter-core.hasOpenFrontMatterFence
     // 单源（原手写同款正则双源，core 判定漂移时坏 fm 重新混过豁免闸）
     const hasOpenFence = hasOpenFrontMatterFence(text)
     return {
@@ -440,13 +440,13 @@ export function readFile(
       },
     }
   }
-  // 平台规范化批：R39-10 的 BOM 记账（ok 回执带 bom 标记供写回点补回）随规范形拍板
+  // 平台规范化批：的 BOM 记账（ok 回执带 bom 标记供写回点补回）随规范形拍板
   // 移除——书库内文本一律无 BOM，带 BOM 的存量/外部文件经写回族（joinFrontMatter
   // 整体规范化）自愈剥除；splitFrontMatter 读侧剥 BOM 容忍维持。
   return { ok: true, fmRaw: split.fmRaw, body: split.body }
 }
 
-// ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：fm-only 异步限量读 ─────────────
+// ── （-deepseek-v4.1-flash ）：fm-only 异步限量读 ─────────────
 
 /** fm 头读窗口：补全名单类消费面（角色/物品卡的姓名/名称等平铺字段）的 fm 段现实
  *  <1KB，8KB 窗已数倍冗余；窗内未见闭合围栏不做增量续读（宁可简单正确），回退全读
@@ -500,7 +500,7 @@ export async function readFileFmOnly(
   }
 }
 
-/** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee-P1-6 账本写点用 fsync） */
+/** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee- 账本写点用 fsync） */
 export function writeFile(filePath: string, fmText: string, body: string, opts?: { fsync?: boolean }): void {
   atomicWriteFile(filePath, joinFrontMatter(fmText, body), opts)
 }
@@ -508,7 +508,7 @@ export function writeFile(filePath: string, fmText: string, body: string, opts?:
 // ── 境界体系嵌套解析（#6 第 2 节）────────────────
 
 /**
- * 解析境界体系的嵌套结构（体系: / - 名称: / 序列:）。
+ * 解析境界体系的嵌套结构（体系: / - 名称: / 序列）。
  * 这是 front matter 里唯一的嵌套场景，单独处理、不污染平铺解析。
  *
  * 输入 fmRaw 示例：
@@ -525,14 +525,14 @@ interface ParsedRealmSystem {
 
 export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const systems: ParsedRealmSystem[] = []
-  // R36-3（三十六轮）：CRLF 行尾归一（与 leads.ts parseHistory R36-1 同口径）——
+  // CRLF 行尾归一（与 leads.ts parseHistory 同口径）——
   // 名称/序列两处正则对原始行 `$` 锚定匹配且无 m 标志，`\r` 前不认行尾 → CRLF 境界
   // 体系段整体解析为空（成长线境界跳跃/回退红闸失效 + settings-context 注入失明）。
   // 只剥行尾单个 `\r`，不动内容侧空格。
   const lines = fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   let current: ParsedRealmSystem | null = null
   let inRealms = false
-  // R51-F-4（五十一轮）：块式序列留痕闸（每次解析至多 warn 一条，防多体系逐行刷屏）
+  // 块式序列留痕闸（每次解析至多 warn 一条，防多体系逐行刷屏）
   let warnedBlockSeq = false
   const warnBlockSeqOnce = (): void => {
     if (warnedBlockSeq) return
@@ -545,7 +545,7 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
 
   for (const line of lines) {
     // 体系: 段开始
-    // R34D-10（三十四轮）：三处键名冒号双认 `:`/`：`——此前只认半角，是 frontmatter
+    // 三处键名冒号双认 `:`/`：`——此前只认半角，是 frontmatter
     // 消费面唯一拒绝全角冒号的入口（parseFlat 的 firstKeyColon、HISTORY_ENTRY_RE 均
     // 双认），手写全角冒号的境界体系段整体解析为空（成长线机检失明）。
     if (/^体系[：:]\s*$/.test(line.trim())) {
@@ -562,7 +562,7 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
       continue
     }
 
-    // R51-F-4：块式序列内容行（`- 项` 且非 `- 名称:`）——不支持，warn 留痕后跳过
+    // 块式序列内容行（`- 项` 且非 `- 名称:`）——不支持，warn 留痕后跳过
     if (/^\s+-\s+\S/.test(line)) {
       warnBlockSeqOnce()
       continue
@@ -575,7 +575,7 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
       if (Array.isArray(val)) {
         current.序列 = val.map(String)
       } else if (seqMatch[1]!.trim() === '') {
-        // R51-F-4：`序列:` 空值 = 块式序列头——同样留痕（内容行由上方分支接住）
+        // `序列:` 空值 = 块式序列头——同样留痕（内容行由上方分支接住）
         warnBlockSeqOnce()
       }
       continue

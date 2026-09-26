@@ -1,11 +1,11 @@
 /**
- * C4（批 3）token 系数实测校准——拟合逻辑（纯函数，脚本/测试共用）。
+ * token 系数实测校准——拟合逻辑（纯函数，脚本/测试共用）。
  *
  * 模型口径：tokens ≈ coeff × chars（过原点最小二乘：coeff = Σ(c·t) / Σ(c²)）。
  * 过原点而非带截距：chars=0 必然 tokens=0（系统提示外的空 prompt 不存在计量），
  * 且预算闸只需要单系数可解释（「每字多少 token」），带截距反而不利人读。
  * 样本来源：事件库 llm/call 的 promptMeta.chars（系统+用户 prompt 字数）× usage 全口径
- * token（input + cacheRead + cacheWrite，M-1 归一后；calibrate 脚本按此口径喂入——预算
+ * token（input + cacheRead + cacheWrite，归一后；calibrate 脚本按此口径喂入——预算
  * 闸同口径，系数直接可比。注意不是裸 usage.input）。
  */
 
@@ -13,14 +13,14 @@ export interface CalibrationSample {
   model: string
   /** prompt 字数（promptMeta.chars） */
   chars: number
-  /** 输入 token（由调用方喂入；calibrate 脚本喂 M-1 全口径 input+cacheRead+cacheWrite，非裸 usage.input） */
+  /** 输入 token（由调用方喂入；calibrate 脚本喂全口径 input+cacheRead+cacheWrite，非裸 usage.input） */
   inputTokens: number
 }
 
 /**
- * R55-C-2（五十五轮）：校准采样行过滤谓词（事件库 llm/call 原始 data 行 → 是否可入样）。
+ * 校准采样行过滤谓词（事件库 llm/call 原始 data 行 → 是否可入样）。
  * 单源供 calibrate-tokens 脚本与单测共用。两个剔除面：
- * - task === 'chat'：chat 轮 promptMeta.chars 自 Q-11 起只记当轮末条消息
+ * - task === 'chat'：chat 轮 promptMeta.chars 自起只记当轮末条消息
  *   （turns.ts lastMessageFingerprint），多轮 chat 真实输入含 system prompt + 整段
  *   历史，chars 低估数个量级 → 拟合 coeff = Σ(c·t)/Σ(c²) 被系统性推高（虚高）。
  *   多轮任务中唯 chat 如此（spec/finish 等任务 promptText 传全量 prompt），按 task
@@ -99,7 +99,7 @@ export function renderCalibrationReport(fits: Map<string, CoefficientFit>, measu
     '',
     `- 测定日期：${measuredAt}`,
     '- 口径：tokens ≈ coeff × chars（过原点最小二乘；chars = promptMeta.chars，tokens = usage 全口径 input+cacheRead+cacheWrite，M-1 归一后）',
-    // R0916-7-P3-3：系数表已自 process/prepare.ts 下沉 src/shared/tokens.ts（报告指引随之改指）
+    // 系数表已自 process/prepare.ts 下沉 src/shared/tokens.ts（报告指引随之改指）
     '- 建议值写进 src/shared/tokens.ts 的 TOKEN_COEFFICIENTS（注明测定日期与样本量）',
     '',
     '| 模型 | 样本量 | 建议 coeff | 相关 r | chars 范围 |',

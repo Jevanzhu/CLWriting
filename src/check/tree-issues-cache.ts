@@ -1,7 +1,7 @@
 /**
- * A1（批 1）树红点增量缓存——机检结果按章 stat 指纹缓存。
+ * 树红点增量缓存——机检结果按章 stat 指纹缓存。
  *
- * 语义（设计 §二A1）：机检是零 token 纯函数，结果是「章内容 + 全局输入」的确定
+ * 语义（设计 §二）：机检是零 token 纯函数，结果是「章内容 + 全局输入」的确定
  * 函数。缓存命中 = 与全量重算逐字节等价；两层指纹保证这一点：
  *
  * 1. 章级指纹（tree_issues_cache 行键）：正文 (mtime, size) + 裁决信封
@@ -10,11 +10,11 @@
  * 2. 全局纪元（tree_issues_meta.global_fp）：机检还吃章外全局输入——book.yaml /
  *    global.json（配置与托底）、布线（账本 db 源）、大纲/章纲（targetWords）、
  *    工作区/细纲.md（账本推进声明）、设定/境界体系.md（成长线）、文风/、
- *    工作区/账本推进.md + 工作区/.账本推进暂存/（R65-24 两源读取，R66-3 入纪元）、
+ *    工作区/账本推进.md + 工作区/.账本推进暂存/（两源读取，入纪元）、
  *    项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
  *    任一 stat 变化 → 整表清空重查（改配置/定稿/动账本是低频操作，可接受连坐）。
  *    章正文本身不在纪元里——改 1 章只破那 1 章的行指纹，这正是增量的意义。
- * 3. R59 清偿批（R55-D-3）：行级纪元戳（tree_issues_cache.epoch_fp）——双进程并发
+ * 3. 清偿批行级纪元戳（tree_issues_cache.epoch_fp）——双进程并发
  *    校验且轮中全局输入变更时，他进程可按新纪元 sync 清表并写入新纪元行，本进程
  *    （基线仍是旧纪元）按章指纹读行会混入异纪元结果（单轮响应口径混纪元；持久层
  *    由轮后终核兜住不毒化，下一轮自愈）。行记落行时纪元、读侧强制比对：不匹配
@@ -28,7 +28,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
 import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
-// R51-E-N4（五十一轮）：.md 判定走单一真相源（R38-9 大小写不敏感口径，leak-derive/
+// .md 判定走单一真相源（大小写不敏感口径，leak-derive/
 // iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
 import { isMdFileName } from '../format/filename.js'
 import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
@@ -36,24 +36,24 @@ import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 
 /** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
- *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
+ *  a1-v2：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
  *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
 const CHECKER_GENERATION = 'a1-v2'
 
-// 重评-0914-三轮 nano R3-3：连接级 prepared 语句缓存（原 rag/store.ts R46-45 同款
+// - nano ：连接级 prepared 语句缓存（原 rag/store.ts 同款
 // WeakMap<db, Map<sql, stmt>> 形态，prepared 缓存先例自此收编 check 域）——树聚合
 // 每轮只开一次库、循环内数百次对同一固定 SQL 重编译白付。
-// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：实现收编 shared/sqlite-prepared.ts
+// （六轮修复批）：实现收编 shared/sqlite-prepared.ts
 // 单源（原注「模块独立性优先，本文件内自持一份小帮手」的取舍改判——三域同构已各自
-// 踩过 R0911-G-P3-4 ephemeron 环同一根因）。断链序与用法契约单点见单源文件头注；
-// check/runner.ts 的两处裸 db.prepare 本批一并改走 prepared()（同批 P3-8）。
+// 踩过 ephemeron 环同一根因）。断链序与用法契约单点见单源文件头注；
+// check/runner.ts 的两处裸 db.prepare 本批一并改走 prepared（同批）。
 
 /**
- * R0916-6-P3-5（2026-09-16 评审修复批）：带缓存注销的关库——机检缓存库（index.db）
+ * （评审修复批）：带缓存注销的关库——机检缓存库（index.db）
  * 凡有 prepared 调用面的连接一律走本 helper 关库，不得裸关。根因与实测数据同
- * rag/store.ts closeRagDb（R0911-G-P3-4，现收编共享单源）：preparedByDb 值侧 Map →
+ * rag/store.ts closeRagDb（现收编共享单源）：preparedByDb 值侧 Map →
  * stmt → db 与弱键构成 ephemeron 环，close 后条目不随 GC 消失；close 前显式 delete
- * 断链即归零。R0917-6-P3-7 起本文件与 events/rag 两域共用同一份缓存与断链序。
+ * 断链即归零。 起本文件与 events/rag 两域共用同一份缓存与断链序。
  */
 export function closeTreeIssuesDb(db: DatabaseSync): void {
   closeWithPrepared(db)
@@ -65,8 +65,8 @@ interface TreeIssueEntry {
 }
 
 /** 文件指纹 "mtime:size"；不存在 → 'absent'（新出现/消失都构成变化）。
- *  R73-27（二十一轮）：精度从 mtimeMs 升级 mtimeNs（bigint stat）——与章元数据缓存
- *  （chapters.ts CC-P1-3，R62-35 同款）统一到 ns 级：同毫秒内「改回同长内容」此前
+ *  ：精度从 mtimeMs 升级 mtimeNs（bigint stat）——与章元数据缓存
+ *  （chapters.ts ，同款）统一到 ns 级：同毫秒内「改回同长内容」此前
  *  不失效（纪元指纹粒度与章缓存不一致），ns 级撞车窗口收窄到与章缓存同源口径。
  *  指纹串格式随升级变化 → 旧 global_fp 比对必 miss，一次性整表重查（语义无损）。 */
 function fileFp(p: string): string {
@@ -78,21 +78,21 @@ function fileFp(p: string): string {
   }
 }
 
-/** 阶段 52 批 1（P3-12）：dirFpCore 的让出粒度——每计入 N 个 .md 项让出一次。
- *  导出供测试锚（A2 隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
+/** 阶段 52 批 1：dirFpCore 的让出粒度——每计入 N 个 .md 项让出一次。
+ *  导出供测试锚（隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
 export const DIR_FP_YIELD_EVERY = 25
 
 /** 目录树指纹 "count:size:maxMtime:nameHash"（递归**只计 .md 文件**，跳过 ._ 资源文件）。
- *  R51-E-N4（五十一轮）：只计 .md——本指纹的全部消费目录（布线/大纲/章纲/文风/暂存
+ *  ：只计 .md——本指纹的全部消费目录（布线/大纲/章纲/文风/暂存
  *  归档/写作·正文）在机检侧均只吃 .md（rebuild walkMdEach、iron-rules/leak-derive 的
  *  isMdFileName 同源判定），混入的临时文件（编辑器 swap/同步盘半写残留）不是机检输入，
  *  计入只会无谓整表清空（增量缓存永久失效）。指纹串构成变化 → 存量 global_fp 一次性
- *  失效重查（语义无损，R73-27 升级同款）。
- *  nameHash = 相对路径 FNV-1a（2026-08-21 四轮复审）：纯改名 count/size/mtime 全不变，
+ *  失效重查（语义无损，升级同款）。
+ *  nameHash = 相对路径 FNV-1a：纯改名 count/size/mtime 全不变，
  *  但章节文件名是 findChapterFile 章号映射与引文 grep 的输入——改名不失效会让
  *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。
- *  R73-27（二十一轮）：maxMtime 同步升 mtimeNs（同 fileFp 口径）。
- *  阶段 52 批 1（P3-12）：拆生成器核（dirFpCore）单源供同步/async 双驱动——本文件内
+ *  ：maxMtime 同步升 mtimeNs（同 fileFp 口径）。
+ *  阶段 52 批 1：拆生成器核（dirFpCore）单源供同步/async 双驱动——本文件内
  *  全部调用方（fp 族组合核）自此走核（模块内同步包装已无消费方，随之撤除）；导出面
  *  computeTreeIssuesGlobalFp / computeLeadsBookFpFromEpochFp 仍留同步包装，外部调用方
  *  零改动。语义与切片前逐位一致：计数单位 = 计入指纹的 .md 项（真正的工作量 = stat +
@@ -117,7 +117,7 @@ function* dirFpCore(p: string): Generator<void, string, unknown> {
       const fp = join(dir, e.name)
       if (e.isDirectory()) yield* walk(fp, `${prefix}${e.name}/`)
       else if (e.isFile() && isMdFileName(e.name)) {
-        // 阶段 52 批 1：让出点（A2）——每 N 项一次，让出后本项照常处理
+        // 阶段 52 批 1：让出点——每 N 项一次，让出后本项照常处理
         if (++scanned % DIR_FP_YIELD_EVERY === 0) {
           preludeYieldStats.dirFp++
           yield
@@ -147,7 +147,7 @@ function* dirFpCore(p: string): Generator<void, string, unknown> {
  * （applyGlobalDefaults 托底值影响 short.strict 等）。文风/ 含铁律与条目库禁词
  * （readIronRules 合并源）；大纲/章纲 含 targetWords；清单含 maxWritten 基准。
  * 细纲.md 是 declaredLeadIds 的来源（两端闭合左侧）、设定/境界体系.md 是成长线
- * 红项输入（growth-realm-*）、设定/名册.md 是新专名候选输入（R65-17）——此前三者
+ * 红项输入（growth-realm-*）、设定/名册.md 是新专名候选输入——此前三者
  * 漏在纪元外（名册为十三轮补），编辑后树红点/黄项不失效可陈旧。
  */
 export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string | null): string {
@@ -170,11 +170,11 @@ export function* computeTreeIssuesGlobalFpCore(
     yield* dirFpCore(join(bookRoot, '文风')),
     fileFp(join(bookRoot, '工作区', '细纲.md')),
     fileFp(join(bookRoot, '设定', '境界体系.md')),
-    // R65-17（十三轮）：checkNewNames 的名册输入入纪元——此前漏掉，作者改名册后
+    // checkNewNames 的名册输入入纪元——此前漏掉，作者改名册后
     // 章级缓存不失效，新专名候选黄项陈旧（登记表新名被误报/漏报）
     fileFp(join(bookRoot, '设定', '名册.md')),
     fileFp(join(bookRoot, '工作区', '账本推进.md')),
-    // R66-3（十四轮）：R65-24 起机检吃「主文件 + .账本推进暂存 归档」两源，但纪元只含
+    // 起机检吃「主文件 + .账本推进暂存 归档」两源，但纪元只含
     // 主文件 fileFp——归档章被补/改/删而纪元内文件不动时，章级缓存命中陈旧行（假红
     // 残留/漏红）。归档目录 dirFp 入纪元一次性整表失效（对齐周边目录口径，无害）。
     yield* dirFpCore(join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)),
@@ -184,7 +184,7 @@ export function* computeTreeIssuesGlobalFpCore(
 }
 
 /**
- * H-1（2026-08-21）：账本全书性红项（章号一致/引文命中/状态闭合）的缓存指纹。
+ * 账本全书性红项（章号一致/引文命中/状态闭合）的缓存指纹。
  * 这些条目 = 布线 db（纪元已含）× **任意章正文**（引文 grep 按履历章号直读），所以
  * 指纹 = 纪元 + 写作/正文 目录 stat 摘要——改任何一章正文都会失效重算（正确性所需，
  * 与章级行的增量性互不拖累：章级行只含章作用域检查）。存 tree_issues_meta 两个键：
@@ -195,13 +195,13 @@ export function computeLeadsBookFp(bookRoot: string, userDataPath: string | null
 }
 
 /**
- * 复审-0914-优化修复批（F4）：leadsBook 指纹的「基线拼装」形态——已有轮基线纪元
+ * -：leadsBook 指纹的「基线拼装」形态——已有轮基线纪元
  * 指纹（collectTreeIssuesCore 的 epochFp0，rebuild 前算得）时按
  * `${纪元}|${写作/正文 目录指纹}` 拼装，与 computeLeadsBookFp 输出逐字节同构：
  * globalFp 各段与 dirFp 的 `count:size:maxMtime:nameHash`（或 'absent'）均不含 `|`，
  * 分隔无歧义，值域同空间，读侧失效判定（fp 全等比对）不变。聚合的 leadsFp /
- * leadsFpNow（R53-E-1 写前复核）由此免整调 computeTreeIssuesGlobalFp——一次聚合的
- * 全局目录递归 stat 自首（epochFp0）尾（epochFpEnd）各一遍（R47-30 口径至此成立，
+ * leadsFpNow（写前复核）由此免整调 computeTreeIssuesGlobalFp——一次聚合的
+ * 全局目录递归 stat 自首（epochFp0）尾（epochFpEnd）各一遍（口径至此成立，
  * 见 run.ts 待落盘段注）；纪元基线缺席（前算失败为 null）时调用方回落
  * computeLeadsBookFp 全算，非空/null 分支语义保持。
  */
@@ -219,7 +219,7 @@ export function* computeLeadsBookFpFromEpochFpCore(
 }
 
 /** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。
- *  R65-21（十三轮）：两键合并单条 SELECT（key IN 两值一次取回）——原两条独立 SELECT
+ *  ：两键合并单条 SELECT（key IN 两值一次取回）——原两条独立 SELECT
  *  无事务包裹，跨进程写方（writeLeadsBookRed 同事务提交瞬间）可读到撕裂 fp/red 对
  *  （新 fp 配旧 red）。单条语句自带隐式读事务，两行必同快照；不选显式
  *  BEGIN DEFERRED…COMMIT 方案：读侧多持锁徒增 busy 风险，单语句零成本达成同一致性。 */
@@ -250,7 +250,7 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
       db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_red', hasRed ? '1' : '0')
       db.exec('COMMIT')
     } catch (e) {
-      // R64-7（十二轮）：R61-10 同款——裸 ROLLBACK 在事务已自动回亡时抛
+      // 同款——裸 ROLLBACK 在事务已自动回亡时抛
       // "no transaction is active"，次要异常会替代原始病因上抛（吞诊断）
       try {
         db.exec('ROLLBACK')
@@ -267,7 +267,7 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
 /**
  * 纪元对齐：全局指纹变化（或首次）→ 清空缓存表并记录新纪元；返回 true 表示
  * 本次已清（调用方可用于诊断计数）。表结构缺失时补建（幂等）。
- * R47-30（四十七轮）：新增可选 precomputedFp——调用方已算好的纪元指纹直接复用
+ * 新增可选 precomputedFp——调用方已算好的纪元指纹直接复用
  * （collectTreeIssues 把首遍指纹前移后传入，省一遍全树递归 readdir+stat）；
  * 不传则本函数自算，既有调用方/测试零感知。
  */
@@ -289,7 +289,7 @@ export function syncTreeIssuesEpoch(
     db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('global_fp', fp)
     db.exec('COMMIT')
   } catch (e) {
-    // R64-7（十二轮）：R61-10 同款——吞 ROLLBACK 自身异常，原样上抛原始错误
+    // 同款——吞 ROLLBACK 自身异常，原样上抛原始错误
     try {
       db.exec('ROLLBACK')
     } catch {
@@ -301,12 +301,12 @@ export function syncTreeIssuesEpoch(
 }
 
 /** 章级缓存读：三元组 + verdict 指纹 + 纪元全中才命中（NULL 信封按 IS NULL 匹配）。
- *  R49-23：mtimeUs 是正文文件 mtime 的**微秒**整数（run.ts 以 mtimeNs/1000n 传入）。
+ *  ：mtimeUs 是正文文件 mtime 的**微秒**整数（run.ts 以 mtimeNs/1000n 传入）。
  *  SQLite 列名 `mtime_ms` 是建表初期的毫秒命名遗留，量纲以本注释为准——存量
  *  index.db 持久于书仓 .cache/ 且 DDL 只有 CREATE TABLE IF NOT EXISTS（无迁移面），
  *  改列名会令旧库读写静默全失败，故列名不动只正 TS 命名；旧代毫秒行与 µs 值量级
- *  隔离必 miss（R29-B8 口径），无脏读面。
- *  R59 清偿批（R55-D-3）：新增 epochFp 参数——双进程并发校验且轮中全局输入变更时
+ *  隔离必 miss（口径），无脏读面。
+ *  清偿批新增 epochFp 参数——双进程并发校验且轮中全局输入变更时
  *  （他进程按新纪元 sync 清表后写入新纪元行），本进程按章指纹读行可混入异纪元结果
  *  （单轮响应口径混纪元；持久层由轮后终核兜住，下一轮自愈）。行加 epoch_fp 戳后
  *  读侧强制比对：epochFp 为 null（轮基线缺席，无法验证）→ 一律按 miss；不匹配 →
@@ -320,11 +320,11 @@ export function readTreeIssuesCache(
   verdictFp: string | null,
   epochFp: string | null,
 ): TreeIssueEntry | null {
-  // R59 清偿批（R55-D-3）：无纪元锚不读缓存——无法验证行的纪元归属，宁 miss 勿混
+  // 清偿批无纪元锚不读缓存——无法验证行的纪元归属，宁 miss 勿混
   if (epochFp === null) return null
   try {
-    // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
-    // nano R3-3：章循环热路径 SELECT 走连接级 prepared 缓存（原每章重编译）
+    // mtime_ms 列实存 µs（量纲见函数注释；列名不动防存量库静默失效）
+    // nano ：章循环热路径 SELECT 走连接级 prepared 缓存（原每章重编译）
     const row = (
       verdictFp === null
         ? prepared(
@@ -345,8 +345,8 @@ export function readTreeIssuesCache(
 }
 
 /** 章级缓存写（INSERT OR REPLACE：同章新指纹覆盖旧行，不留废行）。
- *  R49-23：mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。
- *  R59 清偿批（R55-D-3）：epochFp 记落行时的全局纪元指纹（run.ts 传轮基线），
+ *  ：mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。
+ *  清偿chFp 记落行时的全局纪元指纹（run.ts 传轮基线），
  *  与读侧比对锚同源；旧行覆盖后即带戳，无需独立回填。 */
 export function writeTreeIssuesCache(
   db: DatabaseSync,
@@ -358,8 +358,8 @@ export function writeTreeIssuesCache(
   epochFp: string,
 ): void {
   try {
-    // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
-    // nano R3-3：INSERT 走连接级 prepared 缓存（批量落盘回退逐行路径逐行调用不再重编译）
+    // mtime_ms 列实存 µs（量纲见函数注释；列名不动防存量库静默失效）
+    // nano ：INSERT 走连接级 prepared 缓存（批量落盘回退逐行路径逐行调用不再重编译）
     prepared(
       db,
       'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
@@ -376,12 +376,12 @@ export interface TreeIssuesCacheRow {
   size: number
   verdictFp: string | null
   value: TreeIssueEntry
-  /** R59 清偿批（R55-D-3）：落行时全局纪元指纹（轮基线），读侧按行比对防混纪元 */
+  /** 清偿批落行时全局纪元指纹（轮基线），读侧按行比对防混纪元 */
   epochFp: string
 }
 
 /**
- * R33D-17（三十三轮）：章缓存批量落盘（单事务包批）——数百章书在纪元失效后一轮聚合
+ * 章缓存批量落盘（单事务包批）——数百章书在纪元失效后一轮聚合
  * 此前逐行独立 INSERT（每行一个隐式事务 = 数百次 WAL commit）。单 BEGIN…COMMIT 包批
  * 语义不变（INSERT OR REPLACE 幂等）；批内任何失败回退逐行（保留逐行 best-effort 语义，
  * 失败行静默放弃下次 miss 重算）。
@@ -424,8 +424,8 @@ export function clearTreeIssuesCacheForBook(bookRoot: string): void {
   } catch {
     /* best-effort */
   } finally {
-    // R0916-6-P3-5：统一走带缓存注销的关库 helper——本连接虽未走 prepared() 入缓存
-    // （只 DDL + DELETE），对齐 rag/store.ts 迁移探测库 R0912-G1-P3-1 同款口径：防
+    // 统一走带缓存注销的关库 helper——本连接虽未走 prepared 入缓存
+    // （只 DDL + DELETE），对齐 rag/store.ts 迁移探测库同款口径：防
     // 未来此段引入 prepared 调用时裸关重新打开 ephemeron 环泄漏面
     closeTreeIssuesDb(db)
   }

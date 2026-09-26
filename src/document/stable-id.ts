@@ -1,12 +1,12 @@
 /**
- * 稳定 ID（W0-1 §4.1）—— 文档的持久身份，path 变化不影响。
+ * 稳定 ID（§4.1）—— 文档的持久身份，path 变化不影响。
  *
  * - 正式 ID：`doc_` / `folder_` + 26 位 Crockford base32 ULID（48bit ms + 80bit 随机）。
  * - legacy：旧文件无 ID 时运行期用 `legacy:<sha256(path)[:16]>` 临时 ID；首次结构性操作时落盘。
  *
  * ULID 实现已下沉到 fs/id.ts（format 层等叶子层可直接 import，不向上依赖 document/）。
  * 此处 re-export 保持既有 import 路径兼容。
- * R0916-nano-9（四轮处置批）：垫片消费面收敛为 document 域（events/store.ts 已改
+ * （四轮处置批）：垫片消费面收敛为 document 域（events/store.ts 已改
  * 直连 fs/id.ts，消除 events→document 跨层边）——新调用点一律直连 fs/id.ts，
  * 勿再经本垫片扩散。
  */

@@ -1,6 +1,6 @@
 /**
  * agent 工具执行注册表（工具面扩展全量）。
- * chat.ts 的 executeChatTool 按 call.name 分派；read_chapter 由批次 C 落地（B3 spill 取回），
+ * chat.ts 的 executeChatTool 按 call.name 分派；read_chapter 由批次 C 落地（spill 取回），
  * 不在本注册表——executeChatTool 已有分支。
  */
 import type { ToolExecutor } from './context.js'

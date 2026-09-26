@@ -1,5 +1,5 @@
 /**
- * 改写 prompt 组装 + 续写拼稿 + 行级 diff（P1-8 架构下沉：从 studio/server/api/rewrite 下沉内核）。
+ * 改写 prompt 组装 + 续写拼稿 + 行级 diff（架构下沉：从 studio/server/api/rewrite 下沉内核）。
  */
 import { wordRange } from './draft-pipeline.js'
 
@@ -10,7 +10,7 @@ export interface DiffLine {
 }
 
 /** 组改写 prompt(local 选段 / whole 整章，AI 自愈 + rewrite 端点共用)。
- *  A4：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。
+ *  ：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。
  *  targetWords：书级 chapter_target_words（applyGlobalDefaults 合并值）——整章重写的字数
  *  区间与首稿链同口径（wordRange ±20%）；缺省回落长短篇硬编码（与首稿链一致）。此前
  *  硬编码 2000-4000/8000-20000，配了目标的书每次自愈/对话重写都被拉回默认区间。 */
@@ -64,7 +64,7 @@ export function buildRewritePrompt(
   return parts.join('\n')
 }
 
-/** 组续写 prompt(M2 续写解选区:全文作语境,只输出续写部分,不复述原文)*/
+/** 组续写 prompt(续写解选区:全文作语境,只输出续写部分,不复述原文)*/
 export function buildAppendPrompt(original: string, instruction: string): string {
   return [
     '## 正文全文(语境)',
@@ -84,19 +84,19 @@ export function appendRewritten(original: string, produced: string): string {
   return base ? `${base}\n\n${produced}` : produced
 }
 
-/** R46-27（四十六轮）：DP 精确路径的两侧总行数上限——LCS 表 O(n·m)，600-800 行即
+/** DP 精确路径的两侧总行数上限——LCS 表 O(n·m)，600-800 行即
  *  数 MB 瞬态、数千行章秒级阻塞，而消费面（rewrite.ts「N 行有改动」计数 + studio 改
  *  写端点展示）在超大输入下只需量级信息。1500 = 常规章（≤20000 字 ≈ 数百行）之上、
  *  病理长文之下的分界；≤1500 走原精确路径（既有测试钉值不破）。 */
 const LINE_DIFF_DP_MAX_TOTAL_LINES = 1500
 
 /** 行级 LCS diff → DiffLine[](export 供测试)
- *  R2W-7（win 平台专项复审 R2）：行级等值剥行尾 \r——CRLF 正文（外部编辑器保存）×
+ *  （win 平台专项）：行级等值剥行尾 \r——CRLF 正文（外部编辑器保存）×
  *  LF AI 产出此前逐行失配，diff 退化成整文件删+加噪块（确认 UI 不可用）。 */
 export function lineDiff(a: string, b: string): DiffLine[] {
   const la = a.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   const lb = b.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
-  // R46-27：两侧总行数超限 → 跳过 DP 走 O(n+m) 粗计（见 coarseLineDiff 注）
+  // 两侧总行数超限 → 跳过 DP 走 O(n+m) 粗计（见 coarseLineDiff 注）
   if (la.length + lb.length > LINE_DIFF_DP_MAX_TOTAL_LINES) {
     return coarseLineDiff(la, lb)
   }
@@ -140,7 +140,7 @@ export function lineDiff(a: string, b: string): DiffLine[] {
 }
 
 /**
- * R46-27：大输入粗计 diff（O(n+m)）——首尾公共前缀/后缀裁剪后，中段按行多重集
+ * 大输入粗计 diff（O(n+m)）——首尾公共前缀/后缀裁剪后，中段按行多重集
  * 对称差近似：非 same 计数 = |a中段| + |b中段| − 2×Σmin(countA,countB)（消费点
  * rewrite.ts 只取 filter(type!=='same').length 作「N 行有改动」文案）。产出条目
  * 保证量的口径（same/增/删条数与粗计一致、文本真实），但删/加/同块按组聚集、

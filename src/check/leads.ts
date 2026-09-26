@@ -20,7 +20,7 @@ import { bodyOf } from '../format/frontmatter-core.js'
 import { chapterNoFromName } from '../format/filename.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
-// RC 全项目重审 P3：固定 SQL 收编连接级 prepared 缓存——R0917-6-P3-8 同批迁移漏网件
+// RC 全项目：固定 SQL 收编连接级 prepared 缓存—— 同批迁移漏网件
 //（runner.ts / tree-issues-cache.ts 已迁，此处每次 checkLeadsBookItems 调用重编译）；
 // 占位符拼接的变体 SQL 以整串为缓存键，变体数有界（enabledTypes 子集数）
 import { prepared } from '../shared/sqlite-prepared.js'
@@ -35,14 +35,14 @@ import { preludeYieldStats } from '../shared/yield-stats.js'
  * @param currentChapter 当前定稿章号（章号一致校验用；复检低章时为全书最高定稿章——
  *   未来章基准，T9b。注意与 closureChapter 语义不同）
  * @param enabledTypes 已启用的账本类（只检这些类，#10 第 1 节原则 4）
- * @param declaredLeadIds 声明侧（undefined = 声明未知/无布线，跳过两端闭合，R69-2）
+ * @param declaredLeadIds 声明侧（undefined = 声明未知/无布线，跳过两端闭合）
  * @param actualLeadIds 兑现侧（undefined 同上）
  * @param skipBookItems 跳过全书性条目（树红点聚合专用，见 checkLeadsBookItems 头注释）
- * @param closureChapter 两端闭合红项的 chapter 字段归属章（R69-16：默认 currentChapter；
+ * @param closureChapter 两端闭合红项的 chapter 字段归属章（默认 currentChapter；
  *   复检低章时 currentChapter 是全书最高定稿章，红项 chapter 若标最高章则在 UI 分组
  *   与误报标记上错指——调用方应传被检章自身章号）
  *
- * 阶段 52 批 2（P3-13）：本函数为同步包装（driveToEnd），实现体 = checkLeadsFormCore
+ * 阶段 52 批 2：本函数为同步包装（driveToEnd），实现体 = checkLeadsFormCore
  * ——单章链 async 孪生经同一核让出（见其注）。既有调用方（runner.ts）零改动。
  */
 export function checkLeadsForm(
@@ -61,7 +61,7 @@ export function checkLeadsForm(
 }
 
 /**
- * checkLeadsForm 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = P3-13）。
+ * checkLeadsForm 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = ）。
  *
  * 全书性条目经 `yield*` 委托 checkLeadsBookItemsCore——冷缓存建章号表 + 逐章整读正文
  * 做引文核验的让出点自此透传到驱动（单章链 async 孪生据此不再整段冻结事件循环）。
@@ -83,7 +83,7 @@ export function* checkLeadsFormCore(
 
   // #3 两端闭合（#3 第 7 节）：细纲声明的本章推进 ⟷ 本章实际写入的履历。
   // 二者均由调用方传入（本章履历定稿后才入库，故不查 db）；任一未提供则跳过。
-  // ee-P1-3：比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
+  // ee-比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
   // （document/finalize.ts）与机检复用同一段代码，避免两处口径漂移后闸门漏拦/误拦。
   if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
     items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, closureChapter ?? currentChapter))
@@ -93,7 +93,7 @@ export function* checkLeadsFormCore(
 }
 
 /**
- * 账本三检的「全书性」条目（H-1 拆分，2026-08-21）：章号一致 a/b + 引文命中 + 状态闭合。
+ * 账本三检的「全书性」条目（拆分）：章号一致 a/b + 引文命中 + 状态闭合。
  *
  * 这些条目的输入是布线 db + **任意章**的正文（引文 grep 按履历章号直读该章正文），
  * 与被检章自身内容无关——却进每章 report 的 hasRed。树红点章级缓存行只按「本章
@@ -103,7 +103,7 @@ export function* checkLeadsFormCore(
  * 用，报告完整）；树红点聚合改为本书一次计算、按「纪元 + 正文目录指纹」单独缓存，
  * 章级缓存行经 skipBookItems 只留章作用域条目（两端闭合：细纲声明 + 本章正文）。
  *
- * 阶段 52 批 1（P3-13）：拆生成器核（checkLeadsBookItemsCore）——聚合侧冷读段（章号表
+ * 阶段 52 批 1：拆生成器核（checkLeadsBookItemsCore）——聚合侧冷读段（章号表
  * 构建 + 逐章正文引文核验）自此在核内悬停让出，单章链经同步包装零改动；计算集合与
  * 上段「全量重算等价」口径逐位不变（切片只改悬停点）。
  */
@@ -116,8 +116,8 @@ export function checkLeadsBookItems(
   return driveToEnd(checkLeadsBookItemsCore(db, bookRoot, currentChapter, enabledTypes))
 }
 
-/** 阶段 52 批 1（P3-13）：全书性红项的让出粒度——章号表构建与履历逐条核验各每 N 项
- *  让出一次。导出供测试锚（A2 隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
+/** 阶段 52 批 1：全书性红项的让出粒度——章号表构建与履历逐条核验各每 N 项
+ *  让出一次。导出供测试锚（隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
 export const LEADS_BOOK_YIELD_EVERY = 25
 
 /**
@@ -142,10 +142,10 @@ export function* checkLeadsBookItemsCore(
 
   const 正文dir = join(bookRoot, '写作', '正文')
 
-  // Z-P2-12：章文件解析 + 正文读取按章号缓存（本次三检作用域）。
+  // 章文件解析 + 正文读取按章号缓存（本次三检作用域）。
   // 此前每条履历证据都递归扫目录 + 整章重读，O(履历数×章数) IO——大书三检显著变慢；
   // 不做跨调用缓存：定稿间正文会变，过期正文会漏报 lead-evidence-miss。
-  // R62-5：章文件定位改一次 walkMdEach 建 章号→路径 查表（首见优先）——此前每新章号
+  // 章文件定位改一次 walkMdEach 建 章号→路径 查表（首见优先）——此前每新章号
   // 一次 walkMdFind 全树扫，深履历大书 O(章数²)（500 章书最多 500 次全树 readdir）。
   // 惰性建表：无履历章号需求时不发生任何目录扫描（与旧路径「无需求不扫」一致）。
   // 阶段 52 批 1：建表循环走 walkMdEachGen 并在项间让出（切片点之一）。
@@ -160,7 +160,7 @@ export function* checkLeadsBookItemsCore(
           yield
         }
         // 前缀数字 == 章号即登记（补零与否不影响判等）；首见优先保 walkMdFind 找到即停语义
-        // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则升格 format/filename.ts
+        // （GLM-5.3 修复批）：窄正则升格 format/filename.ts
         // chapterNoFromName 单源（与 tree 排序同宽容集——`5—标题.md` 不再线索核验缺章）
         const n = chapterNoFromName(name)
         if (n !== null && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
@@ -168,30 +168,30 @@ export function* checkLeadsBookItemsCore(
     }
     return chapterPathMap.get(chapter) ?? null
   }
-  // S2（阶段 24）：并入回退（D3 留洞制）——被合并源章从正文消失，履历行按源章号的
+  // （阶段 24）：并入回退（留洞制）——被合并源章从正文消失，履历行按源章号的
   // 引文核验经 mergedIntoMap 回退到目标章正文（正文命中恒优先；仅 miss 时构建 Map，
   // 闭包内 memo 防「一次三检内多次 miss 反复全书扫」）。回退口径单源 chapter-lookup.ts。
-  // （阶段 52 批 1：本段不在切片面——miss 支路罕见，属 D4 单文件粒度残余。）
+  // （阶段 52 批 1：本段不在切片面——miss 支路罕见，属单文件粒度残余。）
   let mergedInto: Map<number, string> | null = null
   const mergedTargetOf = (chapter: number): string | null => {
     if (mergedInto === null) mergedInto = mergedIntoMap(bookRoot)
     return mergedInto.get(chapter) ?? null
   }
-  // R47-10（四十七轮）：正文读取改走 fs/md-text-cache.ts stat 指纹缓存（此前仅本次
+  // 正文读取改走 fs/md-text-cache.ts stat 指纹缓存（此前仅本次
   // 调用内 Map——每次机检/三审打包按线索履历章号集全量重读各章正文，成熟长篇等效
   // 整读全书）。保留调用内 memo（章号 → body）避免同一章多条履历条目重复 bodyOf。
   const chapterTextCache = new Map<number, string | null>()
   function* chapterTextOf(chapter: number): Generator<void, string | null, unknown> {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
-    // S2：按名 miss → 并入回退目标章路径（回退后仍按同一读取口径处理）
+    // 按名 miss → 并入回退目标章路径（回退后仍按同一读取口径处理）
     const path = (yield* chapterPathOf(chapter)) ?? mergedTargetOf(chapter)
-    // 低级项（第六轮）：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
+    // 低级项：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null
     if (path !== null) {
       const raw = readMdTextCached(path)
       if (raw !== null) {
-        // R26-30（二十六轮）：引文 grep 面改剥 front matter 的 body（与 lead-updates.ts
+        // 引文 grep 面改剥 front matter 的 body（与 lead-updates.ts
         // leadEvidenceMatchesBody 吃 body 同口径）——证据按 spec 只须在正文命中，原文
         // 全文 grep 会把 fm 里的标题/枚举值误当命中（假阴性，红闸失明），也会因证据
         // 恰含「章号: 12」等 fm 形态误判命中。bodyOf 对裸 md 原样返回，无 fm 章不受影响。
@@ -209,7 +209,7 @@ export function* checkLeadsBookItemsCore(
 
     let prevChapter = 0 // 章号单调校验（履历按 seq 排序，非回填章号应不减）
     for (const entry of history) {
-      // 阶段 52 批 1：让出点（A2）——履历逐条核验（含章号表建表/正文整读的间接成本）
+      // 阶段 52 批 1：让出点——履历逐条核验（含章号表建表/正文整读的间接成本）
       if (++entriesScanned % LEADS_BOOK_YIELD_EVERY === 0) {
         preludeYieldStats.leadsBook++
         yield
@@ -238,17 +238,17 @@ export function* checkLeadsBookItemsCore(
       if (!entry.回填) prevChapter = Math.max(prevChapter, entry.章号)
 
       // #2 引文命中：证据须在该章正文 grep 命中
-      // R38-10（三十八轮）：空字符串证据（手写账本「- 第2章 埋下：」冒号后无内容）
-      // 不再被 truthy 门径整条跳过——落 needles.length===0 的 R76-19 unverifiable
+      // 空字符串证据（手写账本「- 第2章 埋下：」冒号后无内容）
+      // 不再被 truthy 门径整条跳过——落 needles.length===0 的 unverifiable
       // 黄项（fail-noisy），与 format/leads.ts 头注「空证据条目照常入模型」宣称对齐
       if (!entry.回填) {
         const text = yield* chapterTextOf(entry.章号)
-        // R63-8：匹配走多候选针串任一命中（单针串的内部闭引号会整组 miss，见 evidenceNeedles 头注）；
+        // 匹配走多候选针串任一命中（单针串的内部闭引号会整组 miss，见 evidenceNeedles 头注）；
         // evidenceCore 仅供红项文案展示
         const evidenceCore = extractEvidenceCore(entry.证据)
         const needles = evidenceNeedles(entry.证据)
         if (text === null) {
-          // 第五轮：章文件缺失（被删/改名失去数字前缀）时不得静默通过——「防吃书」的
+          // 章文件缺失（被删/改名失去数字前缀）时不得静默通过——「防吃书」的
           // 核心红项失明且无任何提示，删章后证据永远无法核验。报黄不报红：正文缺失
           // ≠ 证据不存在（可能是章号写错或文件改名），提示作者处理而非拦截定稿。
           items.push({
@@ -267,7 +267,7 @@ export function* checkLeadsBookItemsCore(
             chapter: entry.章号,
           })
         } else if (needles.length === 0) {
-          // R76-19（二十四轮 B 域）：证据剥引号/清洗后为空（整条证据只是一对空引号或
+          // （二十四轮 B 域）：证据剥引号/清洗后为空（整条证据只是一对空引号或
           // 纯标点）——needles 空使 miss/unverifiable 两不报，引文红闸对该条目静默
           // 失明。改报黄：证据无法核验，请作者补写可检索的引文（假阴性向黄的保守
           // 口径，同章文件缺失分支——不拦截定稿）。
@@ -287,9 +287,9 @@ export function* checkLeadsBookItemsCore(
       const lastEntry = history[history.length - 1]!
       const status = lead['status'] as string
       const type = lead['type'] as string
-      // R27-21（二十七轮）：词表外（错类/错别字）动词不进状态闭合红项——checkStatusClosure
+      // 词表外（错类/错别字）动词不进状态闭合红项——checkStatusClosure
       // 的 RESOLVE/DROP 集是跨类并集，悬念线末动词「突破」（成长线 resolve）会同时产
-      // 「词表外……状态闭合校验对其不生效」黄项和 lead-status-open 红项，R26-31 宣称的
+      // 「词表外……状态闭合校验对其不生效」黄项和 lead-status-open 红项，宣称的
       // 「词表外只黄不红」被并集击穿。判定收窄到本类词表内动词（词表外已有黄项提示，
       // 语义由黄项文案承载）。
       const verbInType = VALID_VERBS_BY_TYPE.get(type)?.has(lastEntry.动词) ?? false
@@ -305,7 +305,7 @@ export function* checkLeadsBookItemsCore(
         (status === '已收尾' || status === '已放弃') &&
         (OPEN_VERBS.has(lastEntry.动词) || ADVANCE_VERBS.has(lastEntry.动词))
       ) {
-        // RB-KN-P2-9：反向漂移——状态已标终态但末条足迹仍是开端/推进动词。原先只检
+        // 反向漂移——状态已标终态但末条足迹仍是开端/推进动词。原先只检
         // 正向（末条收尾 → 状态须翻转），账本被标「已收尾」后又推进的状态漂移无检测。
         // 报黄不报红：作者显式改状态收口是合法场景，提示而非拦截。
         items.push({
@@ -315,7 +315,7 @@ export function* checkLeadsBookItemsCore(
           leadId: id,
         })
       } else if (!(VALID_VERBS_BY_TYPE.get(type)?.has(lastEntry.动词) ?? false)) {
-        // R26-31（二十六轮）：词表外动词黄项提示（对齐 growth-verb-invalid，仅提示
+        // 词表外动词黄项提示（对齐 growth-verb-invalid，仅提示
         // 不判红）——错别字/他类动词此前对状态闭合校验静默失明。
         items.push({
           checkId: 'lead-verb-invalid',
@@ -333,7 +333,7 @@ export function* checkLeadsBookItemsCore(
 /**
  * #3 两端闭合（#3 第 7 节）比对：细纲声明的本章推进 ⟷ 本章实际写入的履历。
  * 声明了没做（lead-declared-not-done）/ 做了没声明（lead-done-not-declared）各成一条红。
- * ee-P1-3 从 checkLeadsForm 抽出为导出纯函数（逻辑逐字保留）：
+ * ee- 从 checkLeadsForm 抽出为导出纯函数（逻辑逐字保留）：
  * 手工/批量定稿的防吃书闸只拦这两条账本结构红，与机检共享同一实现作单一真相源。
  */
 export function leadClosureItems(
@@ -372,9 +372,9 @@ export function leadClosureItems(
 }
 
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。
- *  仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（R63-8 多候选，见下）。 */
+ *  仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（多候选，见下）。 */
 
-// R46-47（四十六轮）：证据引号正则模块常量化（循 R26-47 / R33-31 先例）——
+// 证据引号正则模块常量化（循 / 先例）——
 // extractEvidenceCore / evidenceNeedles 在履历循环里每条证据重编译 2-4 枚，内容只依赖
 // 模块常量（quotes.ts 宽容引号集）与入参无关。带 g 的三枚仅用于 replace（每次重置
 // lastIndex，无跨调用消费态），共享安全；edge 单枚（^单开|单闭$）与 many 枚（^开+|闭+$）
@@ -386,22 +386,22 @@ const EVIDENCE_QUOTED_INNER_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_C
 const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
 
 export function extractEvidenceCore(evidence: string): string {
-  // 优先取引号内的内容（V-P2-12：统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
+  // 优先取引号内的内容（统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
-  // 截断片段致 lead-evidence-miss 误报）。R62-8：宽容字符集收编 quotes.ts 单源导出
+  // 截断片段致 lead-evidence-miss 误报）。：宽容字符集收编 quotes.ts 单源导出
   //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
-  // R46-47：消费模块常量（原每调用 new RegExp 三枚）
+  // 消费模块常量（原每调用 new RegExp 三枚）
   const quoted = evidence.match(EVIDENCE_QUOTED_CORE_RE)
   if (quoted?.[1]) return quoted[1]
-  // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
+  // 否则取前 8 个字符（够 grep）。：短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
   const stripped = evidence
     .replace(EVIDENCE_EDGE_SINGLE_RE, '')
-    // R33-33（三十三轮）：内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
+    // 内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
     // 文案（首/尾剥只处理串端，中间引号漏网）
     .replace(EVIDENCE_ALL_QUOTES_RE, '')
-  // 重评-0912-2 P3（2026-09-12 全量重评修复批）：此前缀截断是 grep 锚口径（export 供
+  // （修复批）：此前缀截断是 grep 锚口径（export 供
   // cli/check 当前章引文命中复用），须按码点取——旧 slice(0, 8) 按 UTF-16 码元截，
   // 增补平面字（如 𠀀，代理对占 2 码元）恰落第 8 边界时锚串截出半个代理对（孤立
   // 代理项），正文 includes 恒 miss → 伪 lead-evidence-miss 红。同文件 :179/:199 与
@@ -410,26 +410,26 @@ export function extractEvidenceCore(evidence: string): string {
 }
 
 /**
- * R63-8（十一轮）：证据的多候选针串——正文命中「任一候选命中即算」。
+ * 证据的多候选针串——正文命中「任一候选命中即算」。
  * 此前匹配单针串（extractEvidenceCore 的剥边引号原串），混合短引证据（如
- * 「雪落」无声——引号内 2 字不满 {4,} 走 Y-22 兜底）的内部闭引号留在针串
+ * 「雪落」无声——引号内 2 字不满 {4,} 走兜底）的内部闭引号留在针串
  * （雪落」无声），正文以无引号形式写同短语时 grep 整组 miss → 误报
  * lead-evidence-miss / 误判「声明未兑现」。候选（去重去空，引号字符集与
  * extractEvidenceCore 同源 quotes.ts 宽容集）：
- * ① 引号内串（长短皆取——Y-22 短引语义补全，长串即原 {4,} 主路径）
+ * ① 引号内串（长短皆取—— 短引语义补全，长串即原 {4,} 主路径）
  * ② 剥边引号原串（正文连引号一起写的形式）
  * ③ 全剥引号串（混合短引的正身：雪落无声）
  */
 export function evidenceNeedles(evidence: string): string[] {
-  // R46-47：消费模块常量（原每调用 new RegExp 三枚；ALL_QUOTES_RE 与上方兜底共用）
+  // 消费模块常量（原每调用 new RegExp 三枚；ALL_QUOTES_RE 与上方兜底共用）
   const inner = EVIDENCE_QUOTED_INNER_RE.exec(evidence)?.[1]
   const edgeStripped = evidence.replace(EVIDENCE_EDGE_MANY_RE, '')
   const allStripped = evidence.replace(EVIDENCE_ALL_QUOTES_RE, '')
   const candidates = [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
-  // R31-13（三十一轮）：针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
+  // 针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
   // 在正文几乎恒命中，兑现判定/引文命中 trivially 通过（防吃书红线漏报向）。候选全被
   // 过滤时回退完整剥引号串 ≥2 才用；仍不达 → 空数组，消费方按既有空针串口径处理
-  //（引文红闸走 R76-19 unverifiable 黄；兑现判定按未命中，fail-noisy 不静默放行）。
+  //（引文红闸走 unverifiable 黄；兑现判定按未命中，fail-noisy 不静默放行）。
   const usable = candidates.filter((s) => [...s].length >= 2)
   if (usable.length > 0) return usable
   return [...allStripped.trim()].length >= 2 ? [allStripped.trim()] : []
@@ -447,7 +447,7 @@ export function evidenceNeedles(evidence: string): string[] {
  * 主角修炼期每次升级都用，不代表线已收尾——状态闭合不强拦（作者显式
  * 标终态由上面的终态漂移黄项兜底）。其余类 resolve 动词（揭晓/修成/收网…）
  * 语义单一：非成长线的收尾动词默认要求「已收尾」。
- * R73-29（二十一轮）：resolve 动词 + 状态「已放弃」= 揭晓后弃线（先把悬念
+ * resolve 动词 + 状态「已放弃」= 揭晓后弃线（先把悬念
  * 揭了、随后整线放弃）是作者显式收口的**合法序列**——此前 `status !== '已收尾'`
  * 一刀切硬拦，作者揭晓后弃线永远挂着 lead-status-open 红项。成长线同步对齐：
  * 突破后弃线同理不再判标错。
@@ -458,7 +458,7 @@ const OPEN_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].open)
 const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].advance))
 const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 
-/** R26-31（二十六轮）：各类合法动词全集（open+advance+resolve+drop，单源派生自
+/** 各类合法动词全集（open+advance+resolve+drop，单源派生自
  *  LEAD_VERBS）——履历末条动词词表外（错别字/误写他类动词）时状态闭合校验对其
  *  既不判红也不提示、静默失明。对齐 growth-verb-invalid 的黄项口径：仅提示不判红。 */
 const VALID_VERBS_BY_TYPE: ReadonlyMap<string, Set<string>> = new Map(
@@ -474,7 +474,7 @@ function checkStatusClosure(lastVerb: string, status: string, leadType?: string)
     return false
   }
   if (DROP_VERBS.has(lastVerb) && status !== '已放弃') return true
-  // R73-29：resolve +「已收尾/已放弃」都算闭合；其余状态（如进行中）仍要求翻转为已收尾
+  // resolve +「已收尾/已放弃」都算闭合；其余状态（如进行中）仍要求翻转为已收尾
   if (RESOLVE_VERBS.has(lastVerb) && status !== '已收尾' && status !== '已放弃') return true
   return false
 }

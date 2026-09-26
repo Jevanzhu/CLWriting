@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// AI 提供方列表（阶段 14 I2 卡片化 + 单卡展开）。
+// AI 提供方列表（阶段 14 卡片化 + 单卡展开）。
 // 行卡壳用 ProviderRow（两行主区：首行身份/状态，次行地址/模型数）；
 // 展开槽 = 行内编辑（父层按 expandedId 互斥传入）；
 // 新增卡打开由父层控制（与列表并列渲染），本组件只发 add 事件。
@@ -29,7 +29,7 @@ const emit = defineEmits<{
   remove: [p: ProviderConfDto]
 }>()
 
-// P3-22（全库重评-0914）：原 configuredRows 构造 {id,name} 行对象，模板只消费 .length
+// （-0914）：原 configuredRows 构造 {id,name} 行对象，模板只消费 .length
 // （映射产物全量丢弃）——收编为纯计数，零行为变化。
 function modelRowCount(p: ProviderConfDto): number {
   return (p.models ?? []).length

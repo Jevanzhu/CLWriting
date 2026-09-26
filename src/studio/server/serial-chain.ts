@@ -1,17 +1,17 @@
 /**
- * 复审-0914-优化修复批（P1-3）：per-key 串行 Promise 链通用件。
+ * -：per-key 串行 Promise 链通用件。
  *
  * 四胞胎同构实现收编单源（各处 R 编号沿革见各消费方文件头注，此处记共性形态）：
- * - documents.ts runInForeshadowSaveChain（重评2-P3-① 伏笔保存串行链）
+ * - documents.ts runInForeshadowSaveChain（2--① 伏笔保存串行链）
  * - documents.ts enqueueStructureOp（阶段 24 章节结构操作串行链）
- * - files.ts enqueueFilePut（B-22 同文件 PUT 串行链）
- * - draft.ts enqueueDraftSave（重评-0912-4 P2-1 draft-save 串行链）
+ * - files.ts enqueueFilePut（同文件 PUT 串行链）
+ * - draft.ts enqueueDraftSave（draft-save 串行链）
  *
  * 链语义（逐位对齐四份原实现）：
  * - `prev.then(unit, unit)`——前驱成败都接续（串行不因单元失败断链）；
  * - 链尾 settled 吞错副本防 unhandled rejection（真实结果/异常经返回的 task 传递，
  *   由单元 await 侧经 dispatch 兜底或原样上抛）；
- * - 链尾自清理——settle 后身份校验 delete（R1010b-SRV-P3-1：settle 窗口内同 key
+ * - 链尾自清理——settle 后身份校验 delete（settle 窗口内同 key
  *   新单元已 set 的新链尾不得误删）。
  *
  * drain 双口径（复刻三份 drainXxxUnder 的键匹配差异，逐位不变）：
@@ -19,7 +19,7 @@
  *   恰等书根的键不存在，原实现只做 startsWith(root+sep)）；
  * - 'exact-or-prefix'：键恰等书根或以 root+sep 开头（draft/structure 链键恰为书根
  *   本体，无尾分隔符，漏恰等分支则 drain 恒 no-op）。
- * 两口径均挂 realpath 兜底前缀（R71-10：workDir 含 symlink 组件（macOS
+ * 两口径均挂 realpath 兜底前缀（workDir 含 symlink 组件（macOS
  * /var→/private/var）时词法前缀永不匹配 realpath 键 → drain no-op；失败回退词法）。
  * 快照式：只等快照时点命中的在途链，drain 窗口内新进单元不等（各消费方由单元体内
  * bookMovedFailure 书注册重验兜底拒绝）。

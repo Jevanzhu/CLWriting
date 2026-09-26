@@ -1,11 +1,11 @@
 /**
- * driver 注入面（R0916-7-P3-6 / R0916-7-P3-16）。
+ * driver 注入面（/）。
  *
  * 组装根（index.ts 的 createStudioServer）**唯一**决定用哪个 driver 实现，并把
  * 「能力面 + 会话存取」作为依赖显式传到各路由；路由侧不再自取进程单例
- *（`getDriver()`/`ensureSession()` 的直调逐点改为经注入面）。
+ *（`getDriver`/`ensureSession` 的直调逐点改为经注入面）。
  *
- * 能力契约（P3-16 收尾）：`src/driver/types.ts` 的 StudioDriver 已**全成员必需**——
+ * 能力契约（收尾）：`src/driver/types.ts` 的 StudioDriver 已**全成员必需**——
  * 缺任一实现即类型错误，`interrupt` 等中断通道族不再以可选成员表达（「mock 不支持
  * 中断」以显式 no-op/常量实现声明，见 mock.ts）。本文件的 DriverCore/DriverExtensions
  * 分层与 bridgeToServiceDriver 的「缺失必需能力补留痕占位」运行时兜底随之删除：
@@ -47,7 +47,7 @@ export interface DriverHost {
  * 生产 driver 宿主（组装根缺省值）。
  *
  * 环境变量 `CLWRITING_DRIVER` 的唯一读取点：选实现 + 决定 mock 快路（kind）都在这里
- * 一次完成，下游一切分支只读 host.kind，不各自读环境（P3-6「mock driver 只在组装根
+ * 一次完成，下游一切分支只读 host.kind，不各自读环境（「mock driver 只在组装根
  * 选择」）。driver 与会话存取经**取值器**转发到进程单例（不在组装时捕获实例：
  * 测试以 vi.mock 替换 driver/index.js 的导出后，宿主仍取到替身）。
  */

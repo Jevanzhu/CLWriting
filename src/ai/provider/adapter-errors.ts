@@ -16,7 +16,7 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
-// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+// -（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 
 /**
@@ -41,8 +41,8 @@ type SdkErrorCtor = abstract new (...args: never[]) => SdkApiError
  * （status undefined），必须在通用 APIError 分支前判定，否则用户中断被误报
  * 「<label> undefined: Request was aborted」、连接失败被归 UNKNOWN。
  *
- * R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：第二参 usage 可选透传——此前
- * B-12/R31-1「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
+ * （六轮修复批）：第二参 usage 可选透传——此前
+ * /「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
  * content_filter 均带），流消费中 SDK 直接 throw（如 mid-stream 连接重置）走本工厂时
  * 无载荷通道：message_start 已实测的 input/cache、latestUsage 闭包值全部丢弃，runner
  * 终态失败路径按 0 入账（真实消耗漏记）。三适配器 catch 分支现把「异常时点可得的最小
@@ -64,8 +64,8 @@ export function makeToErrorEvent(ctors: {
       // 中断不挂 usage：入账口径按「已中断」处理（与既有截断/refusal 上抛面不同族）
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
-    // 连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError（A5）
-    // Y-14（第五十七轮）：retryable 布尔与 failure.ts 决策表对齐（NETWORK → 'retry'）——
+    // 连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError
+    // retryable 布尔与 failure.ts 决策表对齐（NETWORK → 'retry'）——
     // 此前 false 全靠 code 决策表兜住实际重试，若落到布尔兜底分支（mode:'always'）
     // 连接类错误的可重试性会静默翻转
     if (e instanceof APIConnectionError) {
@@ -100,12 +100,12 @@ export interface DegradePlan {
   stripStructured: GenRequest | null
   /** 记忆键（conf.id/model）；未选模型时 null（无处写记忆） */
   degradedKey: string | null
-  /** A3（五十九轮）：首发原始请求——降级判定基准。记忆命中时 attempts[0] 已是剥除版，
-   *  「attempt !== attempts[0]」对首发恒 false 会漏标 degraded（Z-12 重放口径缺口在
+  /** 首发原始请求——降级判定基准。记忆命中时 attempts[0] 已是剥除版，
+   *  「attempt !== attempts[0]」对首发恒 false 会漏标 degraded（重放口径缺口在
    *  记忆命中路径——常态——全部漏标）；适配器改判 attempt !== original，无论首发是否
    *  被记忆剥除，成功建流只要非原始参数面即标降级 */
   original: GenRequest
-  /** R30-4（三十轮）：来源 userDataPath（resolveProvider 经 createProvider 注入）——
+  /** 来源 userDataPath（resolveProvider 经 createProvider 注入）——
    *  降级记忆读/写按显式 path 分发，双库并发生成互不劫持；未传（单测直连适配器）
    *  由 runner 分发器回落活跃 path。 */
   userDataPath?: string
@@ -134,9 +134,9 @@ export function buildDegradeAttempts(
   userDataPath?: string,
 ): DegradePlan {
   const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
-  // 优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，会读到旧记忆，D2）；
+  // 优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，会读到旧记忆）；
   // 未注册查通道（单测直连适配器）→ 回落捕获 store 快照。
-  // R30-4（三十轮）：新鲜读携显式来源 path——双库并发时读各自 providers.json 的记忆
+  // 新鲜读携显式来源 path——双库并发时读各自 providers.json 的记忆
   const degraded = degradedKey
     ? (lookupDegraded(degradedKey, userDataPath) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
     : undefined
@@ -162,11 +162,11 @@ export function buildDegradeAttempts(
 /**
  * 非最后 attempt 的 400 → continue 语义（降级链的续跑闸）。
  * 最后一个 400 必须透传原文——否则真实参数错误被降级链的兜底文案掩盖。
- * R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：真·上下文超限 400 不再续链——
+ * （GLM-5.3 修复批）：真·上下文超限 400 不再续链——
  * 超窗与 structured/tools 形状无关（历史总量超模型窗），剥 tools 重试是纯白耗的
- * 第二次必败调用；立即透传让上层拿 CONTEXT_WINDOW_EXCEEDED 走正路（chat 链 A7
+ * 第二次必败调用；立即透传让上层拿 CONTEXT_WINDOW_EXCEEDED 走正路（chat 链
  * shrink-prompt 自动缩输入 / 生成链终态化）。判定复用 httpStatusToCode 的超窗
- * 短语级正则单源（R42-25/R48-34 收紧口径，不另立文案表）。
+ * 短语级正则单源（/收紧口径，不另立文案表）。
  */
 export function isMidChain400(e: unknown, APIError: SdkErrorCtor, attempt: GenRequest, plan: DegradePlan): boolean {
   if (!(e instanceof APIError && e.status === 400 && attempt !== plan.attempts[plan.attempts.length - 1])) return false
@@ -176,8 +176,8 @@ export function isMidChain400(e: unknown, APIError: SdkErrorCtor, attempt: GenRe
 /**
  * 降级记忆写入：仅当「剥 structured 的重试」建流成功才落盘（防任意 400 误归因污染记忆）；
  * 剥 tools 的 attempt 不写 structured 记忆（归因不同，防污染）。
- * 落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写（D2）。
- * R30-4（三十轮）：落盘携 plan.userDataPath（来源 path）——双库并发时写各自的
+ * 落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写。
+ * 落盘携 plan.userDataPath（来源 path）——双库并发时写各自的
  * providers.json，不再按「最近 resolve 的活跃 path」误路由。
  */
 export function markStructuredDegrade(plan: DegradePlan, attempt: GenRequest, store: ProviderStore | undefined): void {

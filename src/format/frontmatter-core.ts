@@ -5,7 +5,7 @@
  * 仅含 --- 分隔逻辑；值类型推断（parseValue/parseFlat）留在 frontmatter.ts（服务端专用）。
  */
 
-// R47-4（四十七轮）：2-slot 引用 memo——编辑链每击键此前对同一文档内容跑 3 次全文
+// 2-slot 引用 memo——编辑链每击键此前对同一文档内容跑 3 次全文
 // split（EditorView body computed / onBodyChange 的 mergeFm / titleModel watch 的
 // parseFmFields），几十万字文档每次 split = 全文行数组 + 两次 slice/join 物化；同一
 // 击键周期内三处消费的是同一/相邻两个字符串（旧 content 与 patch 后的新 content），
@@ -46,19 +46,19 @@ function splitFrontMatterUncached(
 ): { fmRaw: string; body: string } | null {
   // 去 UTF-8 BOM：带 BOM 的文件 startsWith('---') 失败 → frontmatter 整段丢失（章号/枚举/机检 fm 项全失效）
   const src = content.replace(/^﻿/, '')
-  // R-12（第十六轮）：起始判定收紧为整行精确 ---（容忍 \r 尾）——原先 startsWith('---')
+  // 起始判定收紧为整行精确 ---（容忍 \r 尾）——原先 startsWith('---')
   // 把 `----`/`--- 分隔` 也当 fm 开，与闭合判定 /^---\r?$/ 不对称，裸 md 首行正文被误剥
-  // R54-E-2（五十四轮）：起始/闭合 fence 均容忍尾随空白（[ \t]*）——CommonMark 合法
+  // 起始/闭合 fence 均容忍尾随空白（[ \t]*）——CommonMark 合法
   // 形态 `--- `（编辑器/同步盘常注入）此前整章判「fm 未闭合」，fail-loud 不丢数据但
-  // 误伤面存在；零缩进锚（^---）不变，块标量内缩进 `  ---` 仍不会被误判（Q-16 口径保持）
+  // 误伤面存在；零缩进锚（^---）不变，块标量内缩进 `  ---` 仍不会被误判（口径保持）
   if (!/^---[ \t]*\r?(?:\n|$)/.test(src)) return null
   const lines = src.split('\n')
   // 找闭合 ---
   let endIdx = -1
   for (let i = 1; i < lines.length; i++) {
-    // Q-16（第十五轮）：闭合 --- 判零缩进（容忍 \r 尾）——此前 trim() 会把块标量值内的
+    // 闭合 --- 判零缩进（容忍 \r 尾）——此前 trim 会把块标量值内的
     // 缩进 `  ---` 误判为 fm 结束，多行值写盘再读即截断损坏；零缩进与块缩进（≥1 空格）
-    // 天然错开，无需另判。R54-E-2：尾随空白容忍随起始侧同步（口径见上）
+    // 天然错开，无需另判。：尾随空白容忍随起始侧同步（口径见上）
     if (/^---[ \t]*\r?$/.test(lines[i]!)) {
       endIdx = i
       break
@@ -70,10 +70,10 @@ function splitFrontMatterUncached(
   return { fmRaw, body }
 }
 
-/** R48-52（四十八轮）：「有起始 --- 但无闭合」判定单源——frontmatter.ts readFile 的
+/** 「有起始 --- 但无闭合」判定单源——frontmatter.ts readFile 的
  *  未闭合文案分支此前手写同款正则（双源），本模块起始/闭合判定将来漂移时坏 fm 会
  *  重新混过 draft.ts 的无 fm 豁免闸。与 splitFrontMatterUncached 同口径：去 BOM →
- *  起始整行精确 ---（容忍 \r 尾）→ 找零缩进闭合 ---。R54-E-2：两侧同步容忍尾随空白。 */
+ *  起始整行精确 ---（容忍 \r 尾）→ 找零缩进闭合 ---。：两侧同步容忍尾随空白。 */
 export function hasOpenFrontMatterFence(content: string): boolean {
   const src = content.replace(/^﻿/, '')
   if (!/^---[ \t]*\r?(?:\n|$)/.test(src)) return false
@@ -93,17 +93,17 @@ export function bodyOf(raw: string): string {
 /**
  * 剥值行内注释（单一实现）：`#` 且前面是空白（或行首）即注释起点，引号内 `#` 不剥；
  * `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。
- * N-4（第五十四轮）：原 frontmatter.ts stripInlineComment（E-3，第五十三轮）与
+ * 原 frontmatter.ts stripInlineComment 与
  * yaml.ts stripComment（ii 批）是同算法双份维护——防循环 import 的顾虑已随
  * frontmatter-core.ts 拆出而不成立（core 零依赖，二者均无环），下沉至此共享，
  * 语义逐字不变（引号感知 / # 前空白或行首判定 / URL 字面 # 保留）。
  */
 /**
- * R31-2（三十一轮）：键位冒号探测——双认半角 `:` 与全角 `：`，取先出现者为键值切分点。
+ * 键位冒号探测——双认半角 `:` 与全角 `：`，取先出现者为键值切分点。
  * 此前只认半角冒号：中文键手写全角冒号（`章号：152`、细纲 `推进：[悬念-001]`）整行
  * 被静默跳过（parseFlat/yaml.parseSections 的无冒号分支），键无声丢失 → 整章必填字段
  * 假缺、细纲推进声明失明。键名保留切点前原文（trim 后即正常键名）；值侧内容不动
- * （值含全角冒号不误切——半角键位先出现时切点仍是半角，见回归 r31b-fullwidth-colon）。
+ * （值含全角冒号不误切——半角键位先出现时切点仍是半角，见回归 b-fullwidth-colon）。
  * 返回 -1 = 两式皆无（非键行，维持调用方既有的跳过/warn 路径）。
  */
 export function firstKeyColon(line: string): number {
@@ -133,7 +133,7 @@ export function stripInlineComment(s: string): string {
     }
     if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
   }
-  // B-17（第六十轮）：值内未配对引号（`备注: "中文 # 注释`）——引号状态机永不闭合，
+  // 值内未配对引号（`备注: "中文 # 注释`）——引号状态机永不闭合，
   // 引号后的 # 全被吞进引号语境不剥（fail-safe 方向但注释剥除失效）。行末引号未
   // 闭合 → 回落无引号感知的裸扫；配对引号路径（上方循环自然走完 quote===null）行为不变
   if (quote !== null) {

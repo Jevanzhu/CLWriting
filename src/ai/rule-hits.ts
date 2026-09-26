@@ -1,12 +1,12 @@
 /**
- * 规则命中统计（B3）—— 按书记录「哪条规则最常被违反」。
+ * 规则命中统计—— 按书记录「哪条规则最常被违反」。
  *
  * 写入书库 .cache/rule-hits.json（独立于 ai-trace：规则违规是确定性检测，
  * 不是 AI 调用日志，分开存更干净）。
  *
  * 用途：
- * - B3 统计：trace-stats 聚合透出（工作台可见高频违规）
- * - B4 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
+ * - 统计：trace-stats 聚合透出（工作台可见高频违规）
+ * - 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
  */
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,7 +19,7 @@ import { ruleHitEvent } from '../events/chain-bridge.js'
 import { testableConst } from '../shared/testable.js'
 
 const FILE = 'rule-hits.json'
-/** 每条规则保留最近命中 message 数（B4 前置注入参考） */
+/** 每条规则保留最近命中 message 数（前置注入参考） */
 const RECENT_LIMIT = 5
 
 /** 单条规则的命中统计 */
@@ -30,7 +30,7 @@ export interface RuleHitEntry {
   hits: number
   /** 最后命中时间（ISO） */
   lastHit: string
-  /** 最近命中 message（修复指令，供 B4 前置注入参考） */
+  /** 最近命中 message（修复指令，供前置注入参考） */
   recentMessages: string[]
 }
 
@@ -50,9 +50,9 @@ function readHits(bookRoot: string): RuleHitsMap {
   }
 }
 
-/** R63-6（十一轮）：rule-hits 跨进程锁等待超时（毫秒）——可注入缩短保测试快；
- *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7）。
- *  R32-19（三十二轮）：常量化（journal.ts R30-18 同口径）——export let 可被任一
+/** rule-hits 跨进程锁等待超时（毫秒）——可注入缩短保测试快；
+ *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls ）。
+ *  ：常量化（journal.ts 同口径）——export let 可被任一
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 
@@ -60,14 +60,14 @@ const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 export const [getRuleHitsLockTimeoutMs, __setRuleHitsLockTimeoutForTest] = testableConst(RULE_HITS_LOCK_TIMEOUT_MS)
 
 /** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
- *  R48-29（四十八轮）：task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
+ *  ：task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
  *  author-signal 作者删除信号/self-heal 重写前收集）共用，事件载荷 task 原硬编码
  *  'check'，作者信号与自愈链命中被误归因到 check 任务（按任务聚合 rule/hit 口径失真）。
- *  R63-6（十一轮）：读改写整段进跨进程锁（.cache/rule-hits.json.lock，J7 同款）——
+ *  ：读改写整段进跨进程锁（.cache/rule-hits.json.lock，同款）——
  *  原并发说明只覆盖进程内（同步段单线程天然原子）；CLI 机检与桌面端并发命中同书时
  *  双进程 RMW 交错覆盖丢计数。锁超时按观测层口径降级：warn 留痕跳过文件统计，
  *  事件双写（单一事实源）照常。
- *  R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，calls.ts R30-3
+ *  ：锁等待异步化（acquireCrossProcessLockAsync，calls.ts
  *  同口径）——本函数位于 draft-save/self-heal 热路径，同步 Atomics.wait 微睡会在双
  *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
 export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string, task: string = 'check'): Promise<void> {
@@ -91,18 +91,18 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
         atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
       } catch (e) {
         // 统计是旁路，不影响主流程；但不再空吞——warn 留痕含病因（对齐
-        // prompts/resource.ts 单文件失败 warn 留痕先例；复审-0913-mac适配 通用-3）
+        // prompts/resource.ts 单文件失败 warn 留痕先例； 通用-3）
         log.warn('rule-hits', `rule-hits 落盘失败，本轮文件统计未记（观测层降级；事件双写照常）：${errMsg(e)}`)
       }
     } finally {
       release()
     }
   }
-  // P3 事件化（rule/hit）：可选 userDataPath 时双写事件（审计单一事实源；观测层静默）
+  // 事件化（rule/hit）：可选 userDataPath 时双写事件（审计单一事实源；观测层静默）
   if (userDataPath) {
     let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
       store = await openSessionStoreAsync(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
@@ -114,13 +114,13 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
     } catch {
       // 观测层失败静默
     } finally {
-      // dd-P2：close 挪进 finally——appendEvents 抛错时此前被跳过，句柄泄漏（同 author-signal）
+      // dd-close 挪进 finally——appendEvents 抛错时此前被跳过，句柄泄漏（同 author-signal）
       store?.close()
     }
   }
 }
 
-/** R40-7（四十轮）：单条命中统计的形状校验——.cache/rule-hits.json 无守门（可被手编/
+/** 单条命中统计的形状校验——.cache/rule-hits.json 无守门（可被手编/
  *  半写），readRuleHits 结果经 trace-stats 端点直透前端渲染，坏形状（hits 非数、
  *  recentMessages 非字符串数组等）此前原样上抛，渲染层炸未防御。对齐 readHits 既有
  *  容错惯例（整体 parse 失败 → {} 静默空）：坏条目跳过 + warn 留痕，不抛——统计是
@@ -139,7 +139,7 @@ function isRuleHitEntry(v: unknown): v is RuleHitEntry {
   )
 }
 
-/** 读规则命中统计（按 hits 降序）。R40-7：出口逐条形状校验，坏条目跳过 + warn 留痕。 */
+/** 读规则命中统计（按 hits 降序）。：出口逐条形状校验，坏条目跳过 + warn 留痕。 */
 export function readRuleHits(bookRoot: string): RuleHitEntry[] {
   const out: RuleHitEntry[] = []
   for (const [key, entry] of Object.entries(readHits(bookRoot))) {
@@ -152,7 +152,7 @@ export function readRuleHits(bookRoot: string): RuleHitEntry[] {
   return out.sort((a, b) => b.hits - a.hits)
 }
 
-/** 取 Top-N 高频违规（B4 前置注入用）。无命中 / 文件不存在 → 空数组。 */
+/** 取 Top-N 高频违规（前置注入用）。无命中 / 文件不存在 → 空数组。 */
 export function topRuleHits(bookRoot: string, n: number): RuleHitEntry[] {
   if (!existsSync(hitsPath(bookRoot))) return []
   return readRuleHits(bookRoot).slice(0, n)

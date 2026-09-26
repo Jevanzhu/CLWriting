@@ -14,8 +14,8 @@ export interface RewriteResult {
   diff: DiffLineFE[]
 }
 
-// POST /documents/:docId/rewrite —— 改写直读（M12 B2.1，需 AI）。
-// selection 非空 → local 选段改写；空 → whole 整章改写；append → 续写（只产新增部分，M2）。
+// POST /documents/:docId/rewrite —— 改写直读（M12 .1，需 AI）。
+// selection 非空 → local 选段改写；空 → whole 整章改写；append → 续写（只产新增部分）。
 export async function runRewriteDoc(
   name: string,
   docId: string,
@@ -28,7 +28,7 @@ export async function runRewriteDoc(
   )
 }
 
-// POST /documents/:docId/ai-version —— 改稿轨迹采集（文风S2）：接受改写时上报 AI 版全文。
+// POST /documents/:docId/ai-version —— 改稿轨迹采集（文风）：接受改写时上报 AI 版全文。
 // fire-and-forget 语义：轨迹是旁路证据，失败由调用方静默吞掉，不阻断接受。
 export async function reportAiVersion(name: string, docId: string, content: string): Promise<void> {
   await apiJson(

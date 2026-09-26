@@ -1,5 +1,5 @@
 /**
- * 写稿角色 system prompt（方案 §四③；C2 起资源化——文案唯一源 = resources/prompts/*.md）。
+ * 写稿角色 system prompt（方案 §四③；起资源化——文案唯一源 = resources/prompts/*.md）。
  *
  * 导出名保持不变（specs.ts 等消费方零改动）。段组装机制（PromptSection）见 section.ts，
  * 供新增 prompt 使用；内置文案迭代流程：改资源文件 → 金测夹具同步 → versions.json 追加哈希。

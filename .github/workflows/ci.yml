@@ -187,6 +187,14 @@ jobs:
       - name: 文档篇幅门（check:docs）
         run: npm run check:docs
 
+      # 2026-09-26：源码注释门——注释只留约束 / 不变量 / 平台差 / 语义说明，修复史正本 = git
+      # 历史；批号标签、轮次、日期戳、评审过程词出现在 src 注释即红（与 check:docs 同款
+      #「纪律升门禁」）。扫描器是逐字符状态机，字符串 / 模板串 / 正则字面量内容一律不判为
+      # 注释，故本门不碰生产字面量（历史事故的机器化防线）。test/ 不入扫描面——测试文件
+      # 头注释留批号是允许形态。
+      - name: 源码注释门（check:comments）
+        run: npm run check:comments
+
       # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
       # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 

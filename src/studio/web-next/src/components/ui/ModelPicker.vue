@@ -22,18 +22,18 @@ const emit = defineEmits<{
   adopt: []
 }>()
 
-// 重评2-P3-3（2026-09-09 全量重评 GLM-5.3）：候选清单渲染上限——探测返回的模型清单
+// 2-（GLM-5.3）：候选清单渲染上限——探测返回的模型清单
 // 无条数约束，全量 v-for 挂 DOM 会线性膨胀。对齐 CommandPalette/ChapterTreeItem/
 // RewritePanel 的 RENDER_CAP=100 域内惯例：数据面不动（props.candidates 原样、父层
 // picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const capped = computed(() => capView(props.candidates, RENDER_CAP))
 
-// R37-36（三十七轮批E）：弹层内按 Esc 关闭自身且不外溢——原无任何 Esc 处理，按键直穿
+// 弹层内按 Esc 关闭自身且不外溢——原无任何 Esc 处理，按键直穿
 // 到 window 层的外层 Esc 链（useHotkeys 退专注/SettingsModal 关设置），内层未关外层
 // 先动。document capture + stopPropagation：先于外层 window 冒泡监听收口，本层消费后
-// 外层不再触发（对齐 ConfirmPrompt 的 capture 手法）；IME 组合期 Esc 归输入法（R75-E-P3e）
+// 外层不再触发（对齐 ConfirmPrompt 的 capture 手法）；IME 组合期 Esc 归输入法
 function onKeydown(e: KeyboardEvent): void {
   if (!props.show || e.key !== 'Escape') return
   if (isImeComposing(e)) return
@@ -44,8 +44,8 @@ function onKeydown(e: KeyboardEvent): void {
 onMounted(() => document.addEventListener('keydown', onKeydown, true))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
-// R8B-P2-3（2026-09-09 修复批）：补齐弹窗族唯一缺口——焦点陷阱 + dialog 语义 +
-// 初始聚焦（对齐 ConfirmPrompt/SettingsModal/CreateBookModal R49-32 同族）。
+// （修复批）：补齐弹窗族唯一缺口——焦点陷阱 + dialog 语义 +
+// 初始聚焦（对齐 ConfirmPrompt/SettingsModal/CreateBookModal 同族）。
 // 此前 Tab 直穿到背后表单；trap 落焦到首个可交互元素 = 关闭钮（右上角），
 // 与 ConfirmDeleteModal「危险操作默认聚焦安全项」同向。
 const modalRef = ref<HTMLElement | null>(null)
@@ -66,7 +66,7 @@ useFocusTrap(modalRef)
             <input type="checkbox" :checked="picked.has(c)" @change="emit('toggle', c)" />
             <span>{{ c }}</span>
           </label>
-          <!-- 重评2-P3-3：RENDER_CAP 截断提示行（与 ChapterTreeItem/CommandPalette 尾部省略行同语义） -->
+          <!-- 2-：RENDER_CAP 截断提示行（与 ChapterTreeItem/CommandPalette 尾部省略行同语义） -->
           <div v-if="capped.omitted > 0" class="cap-hint">… 其余 {{ capped.omitted }} 项未渲染</div>
         </div>
         <div class="picker-actions">
@@ -153,7 +153,7 @@ useFocusTrap(modalRef)
 .picker-item:hover {
   background: var(--background-modifier-hover);
 }
-/* 重评2-P3-3：渲染上限省略提示行——纯展示弱化色（对齐 ChapterTreeItem/CommandPalette cap-hint 口径） */
+/* 2-：渲染上限省略提示行——纯展示弱化色（对齐 ChapterTreeItem/CommandPalette cap-hint 口径） */
 .cap-hint {
   padding: 2px 8px;
   font-size: var(--font-size-xxs);

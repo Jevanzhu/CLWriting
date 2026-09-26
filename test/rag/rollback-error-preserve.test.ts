@@ -6,7 +6,7 @@
  * - resetRagIndex（rag/index.ts）：经 mock openRagDb 注入故障 db（index.ts 的四 处
  *   加固同一模板，取清库事务为代表）
  * - ensureNormColumn（rag/store.ts）：函数收 db 形参，直接喂故障 db
- * SAVEPOINT 回滚对（cache/sync.ts syncLead）见 test/cache/r43-sync-savepoint-guard.test.ts
+ * SAVEPOINT 回滚对（cache/sync.ts syncLead）见 test/cache/sync-lead-savepoint-error-guard.test.ts
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'

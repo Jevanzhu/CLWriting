@@ -23,7 +23,7 @@ const props = defineProps<{
   wordCount: number
 }>()
 const title = defineModel<string>('title', { required: true })
-// F2（五十九轮）：标题编辑态上报（聚焦/提交在途=true）——父层 EditorView 的
+// 标题编辑态上报（聚焦/提交在途=true）——父层 EditorView 的
 // titleModel 回写 watch 据此跳过，防未提交的新标题被正文变化静默覆盖
 const emit = defineEmits<{ 'update:titleEditing': [boolean] }>()
 const doc = useDocStore()
@@ -31,7 +31,7 @@ const tree = useTreeStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 const rewrite = useRewriteStore()
-// R40-42（四十轮）：保存按钮 tip 组合键平台文案（win → Ctrl+S；原写死 ⌘S）
+// 保存按钮 tip 组合键平台文案（win → Ctrl+S；原写死 ⌘S）
 const saveTip = `保存（${modComboLabel('Mod+S', usePlatform().platform)}）`
 
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
@@ -51,7 +51,7 @@ const crumbs = computed(() => {
 })
 
 // 章节正文状态（TreeNode.status → 中文标签）
-// 复审-0914-优化修复批 P3：STATUS_LABEL/statusCls switch 本地表删除，委托 shared/words
+// -：STATUS_LABEL/statusCls switch 本地表删除，委托 shared/words
 // CHAPTER_STATUS 单表（与 WritingInfoPanel/ChapterTreeItem 三处同源；未知态回落原 default 档）
 const chapterStatus = computed(() => {
   if (!props.docId) return null
@@ -77,7 +77,7 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
 })
 
 /** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。
- *  R31-33（三十一轮）：conflict 未决时「重试」是死按钮——manual save 携旧
+ *  ：conflict 未决时「重试」是死按钮——manual save 携旧
  *  baselineRevision 必再收 REVISION_CONFLICT；改文案并禁用，出路引到并排的
  *  「重载/覆盖」双按钮。 */
 const saveBtnLabel = computed(() => {
@@ -96,14 +96,14 @@ function onSave(): void {
   void doc.save(e.docId, 'manual')
 }
 
-// 重评-29（全库代码重评审 2026-09-05）：「覆盖」是全库唯一单击即静默丢弃远端版本的
+// （全库代码审）：「覆盖」是全库唯一单击即静默丢弃远端版本的
 // 入口（对照出路①重载丢的是可重拉的远端内容、删章进回收站可恢复），与库内危险操作
 // 确认惯例不一致——useChatComposer 清空对话 / useChapterTreeActions 删章均为
 // ui.ask danger 二次确认后才执行。补同款确认：文案说清「以本地内容为准、丢弃服务器
 // 远端版本」，确认通过才调 doc.overwriteRemote。
 const overwriting = ref(false)
 async function onOverwrite(): Promise<void> {
-  // docId 入口捕获（同 onTitleCommit 的 dd-P2 口径）——await 弹窗期间切换文档后，
+  // docId 入口捕获（同 onTitleCommit 的 dd- 口径）——await 弹窗期间切换文档后，
   // 确认结果仍作用于发起时那条冲突，不写别文档
   const e = entry.value
   if (!e || overwriting.value) return // 确认/覆盖全程防重复触发（连点只开一次弹窗）
@@ -128,7 +128,7 @@ const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
-  // P3-㉖（复审-0913-源码）：正文判定走 isBodyKind 单源（语义同 startsWith('写作/正文/')）
+  // -㉖（-源码）：正文判定走 isBodyKind 单源（语义同 startsWith('写作/正文/')）
   if (!isBodyKind(node.path)) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
   return node.status === 'draft' || node.status === 'revision'
 })
@@ -146,19 +146,19 @@ async function onFinalize(): Promise<void> {
 const { aiActions, runAiAssist } = useAiAssist()
 
 const titleSaving = ref(false)
-// R44-20（四十四轮）：标题提交在途排队——保存进行中（updateChapterMetaDoc + 大书
+// 标题提交在途排队——保存进行中（updateChapterMetaDoc + 大书
 // tree.load 可达秒级）再 blur/Enter 提交时，旧实现直接 return 把二次修改静默丢弃
 //（收尾 titleEditing=false 后父层回写把输入框拽回已落盘旧标题）。改为记 pending 值，
 // 当前保存收尾时自动续提一次（同一保存链），数据不丢。
 const titlePending = ref<string | null>(null)
 function onTitleKeydown(e: KeyboardEvent): void {
-  // R61-3（第六十一轮）：IME 组合期 Enter 让渡——组合期 v-model 是旧标题，放行会以
+  // IME 组合期 Enter 让渡——组合期 v-model 是旧标题，放行会以
   // 缺字标题触发 rename 落盘；守卫通过才 preventDefault（组合期 Enter 归输入法）
   if (isImeComposing(e)) return
   e.preventDefault()
   void onTitleCommit()
 }
-/** 重评2-P3-1（2026-09-09 全量重评 GLM-5.3）：短篇章号占位解析——fm 章号 → 路径提取 → 1
+/** 2-（GLM-5.3）：短篇章号占位解析——fm 章号 → 路径提取 → 1
  *  逐级兜底。原 `Number(fm章号 || 路径提取 || 1)` 的 `||` 作用在操作数上：fm 章号为非数字
  *  串（如 'x'）时 truthy 直取，Number('x')=NaN 穿透 `!== undefined` 检查、经 JSON 序列化
  *  为 null 传 API。改逐级 Number.isFinite 守卫：fm 坏值与原 falsy 兜底（''/0/undefined）
@@ -176,19 +176,19 @@ async function onTitleCommit(): Promise<void> {
     emit('update:titleEditing', false) // 无可提交对象也要脱离编辑态（防守卫永久卡住回写）
     return
   }
-  // R44-20（四十四轮）：在途 → 记 pending 返回（后到者胜），由 finally 收尾时续提。
+  // 在途 → 记 pending 返回（后到者胜），由 finally 收尾时续提。
   // 此处不 emit(false)：续提未落定前保持编辑态，父层 titleModel 回写守卫继续生效，
   // 输入框不闪回已落盘的旧标题；续提自身在途时再 blur 也走此分支继续排队（防重入）
   if (titleSaving.value) {
     titlePending.value = title.value
     return
   }
-  // dd-P2：入口捕获 docId——await（updateChapterMetaDoc + tree.load 大书较慢）期间
+  // dd-入口捕获 docId——await（updateChapterMetaDoc + tree.load 大书较慢）期间
   // 切 tab 后 ws.activeDocId 已指向新文档，届时取 fresh 回填会把新文档的 path/name
   // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
   const id = ws.activeDocId
   const newTitle = title.value.trim() || '未命名'
-  const book = doc.bookName! // Z-25：入口捕获（await 后 doc 缓存可能已随切书清空）；R64-1 需在 try 外供 catch 复检
+  const book = doc.bookName! // 入口捕获（await 后 doc 缓存可能已随切书清空）；需在 try 外供 catch 复检
   const current = parseFmFields(e.content).标题 ?? e.name
   if (newTitle === current) {
     emit('update:titleEditing', false) // 未变化的提交（如 blur 空走）也要脱离编辑态
@@ -197,34 +197,34 @@ async function onTitleCommit(): Promise<void> {
   titleSaving.value = true
   try {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
-    // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
-    // P2-FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
-    // 重评2-P3-1：NaN 穿透修复——见 resolvePieceNum 注释（逐级 isFinite 守卫替代 `||` 链）
+    // fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
+    // FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
+    // 2-：NaN 穿透修复——见 resolvePieceNum 注释（逐级 isFinite 守卫替代 `||` 链）
     const pieceNum = e.role === 'piece-body' ? resolvePieceNum(e.content, e.path) : undefined
     await updateChapterMetaDoc(book, id, {
       标题: newTitle,
       ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
-    // R64-1（十二轮）：书名复检——updateChapterMeta 在途切书后，迟到的 load(A) 后发后至
+    // 书名复检——updateChapterMeta 在途切书后，迟到的 load(A) 后发后至
     // 覆盖 B 书整树（tree.load 的 loadGen 只保「后调者胜」，防不了过期书名的迟到调用）
     if (doc.bookName !== book) return // 已切书：fm 已落盘，树由切书链自刷，不动 B 书树
     await tree.load(book)
     if (ws.activeDocId !== id) return // 已切文档：fm 已落盘，树已全量刷新，放弃对旧条目的回填
     const fresh = tree.byDocId.get(id)
     if (fresh) doc.adoptRenamed(id, fresh.path, fresh.name)
-    // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
+    // refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
     await doc.refresh(id)
-    // P2-FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记。
-    // Q-10（第十五轮）：仅正文干净时清——dirty 时 refresh 保留本地正文，若一并清
+    // FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记。
+    // 仅正文干净时清——dirty 时 refresh 保留本地正文，若一并清
     // conflict，后续 autosave 会以本地正文静默覆盖外部修改，绕过「重载/覆盖」决断
     //（外部版本仅存 .版本 快照可找回）。判定与写口都在 store（clearConflict）。
     doc.clearConflict(id)
   } catch (err) {
-    // R64-1：切书后的错误 toast 不落 B 书界面（fm 操作属 A 书，界面已切走）
+    // 切书后的错误 toast 不落 B 书界面（fm 操作属 A 书，界面已切走）
     if (doc.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
-    // R44-20（四十四轮）：排队续提——取出在途期间排队的二次修改，发起同一保存链。
+    // 排队续提——取出在途期间排队的二次修改，发起同一保存链。
     // 已切文档/切书则放弃（父层 watch 已把 titleModel 重写为别文档标题，续提会把
     // 新文档改名成旧文档的 pending 值）；pending 与已落盘值相同时续提链内的
     //「未变化」早退兜住，不产生多余请求
@@ -235,7 +235,7 @@ async function onTitleCommit(): Promise<void> {
       void onTitleCommit()
       return // 编辑态交由续提链的 finally 收尾
     }
-    emit('update:titleEditing', false) // F2（五十九轮）：提交收尾脱离编辑态（父层恢复回写）
+    emit('update:titleEditing', false) // 提交收尾脱离编辑态（父层恢复回写）
   }
 }
 </script>
@@ -270,9 +270,9 @@ async function onTitleCommit(): Promise<void> {
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
           <template v-if="entry?.conflict">
-            <!-- R32-33（三十二轮）：saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
+            <!-- ：saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
                  （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点）。
-                 重评-29：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
+                 ：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
                  overwriting 覆盖确认弹窗开启 + 覆盖在途全程禁用，防连点重复触发 -->
             <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">重载</button>
             <button class="conflict-btn danger" :disabled="entry.saving || overwriting" @click="onOverwrite">覆盖</button>

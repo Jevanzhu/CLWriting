@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * 总览 ③ 字数曲线面板（hh §八-16 自 OverviewView.vue 拆出，纯搬家）。
- * 面积图 SVG：实线 hairline 网格 + 均章参考线 + 折线端点（M-P3-14 按 tickStep
+ * 面积图 SVG：实线 hairline 网格 + 均章参考线 + 折线端点（按 tickStep
  * 降采样，与 X 轴标签同口径）+ X 轴降采样标签。
  */
 import { computed, useId } from 'vue'
 import { TrendingUp } from 'lucide-vue-next'
 import type { RhythmResult } from '../../api/rhythm'
-// 复审-0913-源码 P3-㉕：万字分支走 shared 单源（k 简写/原值两支非万字族，留本面）
+// -源码 -㉕：万字分支走 shared 单源（k 简写/原值两支非万字族，留本面）
 import { formatWanZi } from '../../shared/words'
 
 const props = defineProps<{
@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 // ── 字数曲线 SVG 尺度（面积图）──
-// R1010-P3（G6-⑥）：渐变 id 实例唯一——写死 "wordAreaGrad" 在多实例并存时
+// （-⑥）：渐变 id 实例唯一——写死 "wordAreaGrad" 在多实例并存时
 // url(#) 解析到文档首个定义（跨图错填色）。当前总览单实例无实害，防组件复用雷。
 const gradId = `word-area-grad-${useId()}`
 const CHART_W = 880
@@ -85,7 +85,7 @@ const wordLineD = computed(() => {
       <TrendingUp :size="14" /> <span>字数曲线</span>
       <span class="head-legend">{{ curve.length }} 章 · 均章 {{ curveAvg.toLocaleString() }} 字</span>
     </div>
-    <!-- R72-11（二十轮 E-9）：删内层空态死分支——外层 v-if="curve.length" 已保证非空，
+    <!-- ：删内层空态死分支——外层 v-if="curve.length" 已保证非空，
          内层反条件 v-if 永不成立（svg 的 v-else 随之删属性） -->
     <svg
       class="chart-svg"
@@ -114,7 +114,7 @@ const wordLineD = computed(() => {
       <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均章 {{ fmtWords(curveAvg) }}</text>
       <!-- 折线 -->
       <path :d="wordLineD" class="word-line" />
-      <!-- 端点（内存核查 2026-08-25 M-P3-14：按 tickStep 降采样——2000 章全量
+      <!-- 端点（内存核查 ：按 tickStep 降采样——2000 章全量
            circle+title ≈4000 节点只靠视觉裁剪不减 DOM；现仅每隔 step 章画点，
            与 X 轴标签同口径，title 悬浮语义保留在画出的点上；折线路径不动） -->
       <template v-for="(p, i) in curve" :key="'dot'+p.no">
@@ -137,10 +137,10 @@ const wordLineD = computed(() => {
 </template>
 
 <style scoped>
-/* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
+/* .panel 基础走全局 style-shared.css（收敛批装载； 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
 /* ══ 字数曲线 SVG（面积图）══ */
-/* 0918独立重评修复批（F004）：删 .empty 死规则——R72-11 删内层空态分支后模板零命中 */
+/* 0918修复批（F004）：删 .empty 死规则—— 删内层空态分支后模板零命中 */
 .chart-svg { width: 100%; height: auto; display: block; }
 .grid-line { stroke: var(--background-modifier-border); stroke-width: 1; }
 .axis-baseline { stroke: var(--background-modifier-border); stroke-width: 1; }

@@ -18,16 +18,16 @@ export async function getBookPrefs(name: string): Promise<BookPrefs> {
   const r = await apiJson<{ prefs: BookPrefs }>(
     bookUrl(name, 'prefs'),
   )
-  // R61-F-2：200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
+  // 200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
   // 原直返 r.prefs 会把 undefined 交给消费侧：workspace.loadBookPrefs 的
   // Object.keys(prefs) 抛 TypeError，且该 rejection 在 setBook 的 void loadBookPrefs
   // 浮空无人接（prefsLoaded 永不置位）。对齐全局侧 stores/prefs init 同款口径
-  //（R51-H-2 同族：缺字段按「空偏好」降级，走迁移/默认布局既有链，不抛不挂）。
+  //（同族：缺字段按「空偏好」降级，走迁移/默认布局既有链，不抛不挂）。
   return r.prefs ?? {}
 }
 
 /**
- * R48-82（四十八轮）备案：书级 prefs 写入不带 expectedRevision（服务端 R36-24 守卫
+ * 备案：书级 prefs 写入不带 expectedRevision（服务端守卫
  * 契约已在，config/global 两级客户端均已接线）——刻意轻量取舍：书级 prefs 全为低价值
  * 布局态（面板宽/开合/活动文档），双窗并发时后写者胜可接受，409 冲突链反而打扰；
  * 若后续 prefs 承载高价值数据需加锁，另立批次接线（服务端零改动）。
@@ -49,7 +49,7 @@ export interface GlobalPrefs {
   uiFontCn?: string
   uiFontEn?: string
   /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大；--font-size-step 整条刻度平移）。
-   *  R0912-3 #8：store 真实读写本键，原靠索引签名过编译，此处补正声明。 */
+   * #8：store 真实读写本键，原靠索引签名过编译，此处补正声明。 */
   uiFontSizeStep?: number
   proseFontCn?: string
   proseFontEn?: string
@@ -73,7 +73,7 @@ export interface GlobalPrefs {
   defaultChapterTargetWords?: number
   /** 短篇严格模式默认（书级 short.strict，仅作用于短篇书） */
   defaultShortStrict?: boolean
-  /** 文风注入强度默认（'light' | 'heavy'；2026-08-19 起唯一生效源：全局，已取消书级覆盖） */
+  /** 文风注入强度默认（'light' | 'heavy'；起唯一生效源：全局，已取消书级覆盖） */
   styleInjection?: 'light' | 'heavy'
   /** 自动确认细纲默认（书级 auto.confirm_outline） */
   autoConfirmOutline?: boolean
@@ -89,7 +89,7 @@ export interface GlobalPrefs {
   ragEnabled?: boolean
   /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
   ragProvider?: string
-  // ── R52-E-2：机检阈值全局托底五键（undefined = 未设，走引擎默认；书级 checks.* 未设才托底）──
+  // ── ：机检阈值全局托底五键（undefined = 未设，走引擎默认；书级 checks.* 未设才托底）──
   /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
   checkRepeatThreshold?: number
   /** 复读最小连续字数（正整数；书级 checks.repeat_chars_threshold） */
@@ -108,7 +108,7 @@ export async function getGlobalPrefs(): Promise<{ prefs: GlobalPrefs; revision: 
   return { prefs: r.prefs, revision: r.revision }
 }
 
-/** GG-P2-7：expectedRevision 可选——服务端乐观并发守卫（不传 = 直通，向后兼容）；
+/** expectedRevision 可选——服务端乐观并发守卫（不传 = 直通，向后兼容）；
  *  成功回传自增后的 revision 供调用方同步，后续写不因陈旧号 409。 */
 export async function putGlobalPrefs(
   prefs: GlobalPrefs,

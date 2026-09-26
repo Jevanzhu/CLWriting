@@ -5,7 +5,7 @@ import { ref, computed, onErrorCaptured } from 'vue'
 import { AlertCircle, RotateCcw } from 'lucide-vue-next'
 
 const error = ref<Error | null>(null)
-// R0912-FE-P3-10（2026-09-11 重评-0911b 修复批）：子树重建代数——「重试」此前仅清
+// （b 修复批）：子树重建代数——「重试」此前仅清
 // error ref：确定性渲染错误（坏数据/坏状态在 store 里）清掉兜底 UI 后原样重渲染原
 // 子树，异常立即复现，「重试」永远无效且作者无从分辨。重试改为 epoch++，keyed 子树
 // 整体重挂（等价 route/docId key 变化的组件重挂机制，不依赖边界外改动）；store 状态
@@ -26,7 +26,7 @@ onErrorCaptured((err) => {
 })
 
 function retry(): void {
-  // R0912-FE-P3-10：记下本次错误再清——若重挂后同 message 再现即为确定性错误
+  // 记下本次错误再清——若重挂后同 message 再现即为确定性错误
   messageBeforeRetry.value = error.value?.message ?? null
   epoch.value++ // 强制子树重建（keyed 重挂）
   error.value = null
@@ -46,7 +46,7 @@ function retry(): void {
       {{ recurredAfterRetry ? '再次重建子树' : '重试' }}
     </button>
   </div>
-  <!-- R0912-FE-P3-10：keyed 子树宿主——epoch 变化强制整树重挂。display:contents 不
+  <!-- ：keyed 子树宿主——epoch 变化强制整树重挂。display:contents 不
        产生布局盒（App 根布局 #app height:100% 直达路由页，与原裸 slot 逐位等价）。 -->
   <div v-else :key="epoch" class="eb-host">
     <slot />
@@ -54,7 +54,7 @@ function retry(): void {
 </template>
 
 <style scoped>
-/* R0912-FE-P3-10：keyed 子树宿主不产生布局盒——App 根布局（#app height:100%）与
+/* keyed 子树宿主不产生布局盒——App 根布局（#app height:100%）与
    原裸 slot 逐位等价，重挂机制零布局影响 */
 .eb-host {
   display: contents;

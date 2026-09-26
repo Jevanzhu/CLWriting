@@ -1,5 +1,5 @@
 /**
- * 改稿轨迹旁路 ref —— 文风系统重整 S2（AI 版落 git，不进历史）。
+ * 改稿轨迹旁路 ref —— 文风系统重整（AI 版落 git，不进历史）。
  *
  * AI 文本  →  refs/clwriting/ai/<docId>/<ulid>（blob ref）
  * 作者定稿 →  正常 commit（不变）
@@ -8,7 +8,7 @@
  * 内容寻址自动去重（AI 版与人版九成相同时 delta 压缩）。
  * rollback.ts 备份 ref（回收/回到N-*）同思路先例。
  *
- * X-P2-3 双后端：v3 新书无 git（不再 init）——git 路径全静默丢轨迹。无 .git 的书库
+ * 双后端：v3 新书无 git（不再 init）——git 路径全静默丢轨迹。无 .git 的书库
  * 落 工作区/.版本/<docId>/<ULID>.md（origin 'ai'，与编辑快照同档案分层保留）。
  * git 书库仍走 ref（含内容寻址去重），两种后端按 .git 存在与 sha 形态分发。
  *
@@ -25,9 +25,9 @@ import {
   writeVersion,
   listVersions,
   readVersion,
-  readVersionMeta, // R62-36：meta-only 读（不加载正文）
+  readVersionMeta, // meta-only 读（不加载正文）
   VERSIONS_DIR_NAME,
-  decodeDocDirName, // R68-4：版本目录名反解（win 编码收口配套）
+  decodeDocDirName, // 版本目录名反解（win 编码收口配套）
 } from '../document/version.js'
 
 const REF_ROOT = 'refs/clwriting/ai'
@@ -44,7 +44,7 @@ function hasGitBackend(bookRoot: string): boolean {
   return existsSync(join(bookRoot, '.git'))
 }
 
-/** 版本档案目录（X-P2-3 无 git 书库的后端） */
+/** 版本档案目录（无 git 书库的后端） */
 function versionsDir(bookRoot: string): string {
   return join(bookRoot, '工作区', VERSIONS_DIR_NAME)
 }
@@ -71,16 +71,16 @@ export function decodeRefSegment(seg: string): string {
   return m ? `legacy:${m[1]}` : seg
 }
 
-/** R65-28（第六十五轮）：meta 读单次调用内去重缓存——listTrackedDocs 扫 工作区/.版本/
+/** meta 读单次调用内去重缓存——listTrackedDocs 扫 工作区/.版本/
  *  逐 doc 逐版 readVersionMeta 的头读盘经此缓存收敛（同一 (dir, docId, versionId)
  *  单次调用内只读一次）；缓存值即 readVersionMeta 原样返回值，结果与逐版直读恒等。 */
 type VersionMetaCache = Map<string, ReturnType<typeof readVersionMeta>>
 
 /** 列全书有轨迹的 docId（候选收割遍历用；无轨迹 → 空）。
- *  R44-13（四十四轮）双轨口径：同步消费面仅收割同步版 harvestStyleCandidates（存量
+ *  双轨口径：同步消费面仅收割同步版 harvestStyleCandidates（存量
  *  测试与等价性对照用）；服务 HTTP 链（style.ts harvest 端点）走异步孪生
  *  listTrackedDocsAsync——git 后端的 for-each-ref 同步 spawnSync 在 git 无响应时
- *  阻塞事件循环最长 15s（R36-5/R37-5 同族），新增消费者按所挂链路选对应孪生。 */
+ *  阻塞事件循环最长 15s（/同族），新增消费者按所挂链路选对应孪生。 */
 export function listTrackedDocs(bookRoot: string): string[] {
   if (hasGitBackend(bookRoot)) {
     const r = git(['for-each-ref', '--format=%(refname)', `${REF_ROOT}/`], bookRoot)
@@ -94,17 +94,17 @@ export function listTrackedDocs(bookRoot: string): string[] {
     }
     return [...docIds]
   }
-  // X-P2-3 版本档案后端：扫 工作区/.版本/ 下含 origin 'ai' 版本的 docId 目录
+  // 版本档案后端：扫 工作区/.版本/ 下含 origin 'ai' 版本的 docId 目录
   const dir = versionsDir(bookRoot)
   if (!existsSync(dir)) return []
-  // R68-4：目录名反解回真实 docId——写侧恒编码（win legacy 冒号防线），原始目录名
+  // 目录名反解回真实 docId——写侧恒编码（win legacy 冒号防线），原始目录名
   //（legacy_abc）与真实 id（legacy:abc）永不相等，文风收割对 legacy 文档静默失明。
   // Set 去重：同一 docId 的字面/编码目录并存（mac 存量+新写）时双目录各扫一遍。
   const out = new Set<string>()
-  const metaCache: VersionMetaCache = new Map() // R65-28：单次调用内去重
-  // R27-48（二十七轮）：existsSync 与 readdirSync 之间目录被并发移除/权限变化时裸抛，
+  const metaCache: VersionMetaCache = new Map() // 单次调用内去重
+  // existsSync 与 readdirSync 之间目录被并发移除/权限变化时裸抛，
   // 违背本模块「失败一律返回 null/空——轨迹是旁路证据，绝不阻断落盘主流程」的自我
-  // 定位（version.ts listVersions 的 R72-6 同款守卫，此处漏配）。
+  // 定位（version.ts listVersions 的同款守卫，此处漏配）。
   let names: string[]
   try {
     names = readdirSync(dir)
@@ -119,10 +119,10 @@ export function listTrackedDocs(bookRoot: string): string[] {
 }
 
 /**
- * listTrackedDocs 的异步孪生（R44-13，四十四轮）——git 路径的 for-each-ref 改走
+ * listTrackedDocs 的异步孪生——git 路径的 for-each-ref 改走
  * gitAsync（spawn + 有界超时，事件循环不冻结）。同步版此前挂在收割异步链顶部
- * （style.ts harvest 端点 → harvestStyleCandidatesAsync 源1），是 R36-5（写侧
- * recordAiVersion）/R37-5（读侧 listAiVersions/readAiVersion）同族漏网：git 无响应
+ * （style.ts harvest 端点 → harvestStyleCandidatesAsync 源1），是（写侧
+ * recordAiVersion）/（读侧 listAiVersions/readAiVersion）同族漏网：git 无响应
  * （网盘挂载 .git/杀软锁）时同步 spawnSync 阻塞事件循环最长 15s。语义与同步版逐位
  * 对齐：失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断主流程；
  * 版本档案路径（无 git 书库）无子进程，原样委托同步版（本地小文件读）。
@@ -167,7 +167,7 @@ export function recordAiVersion(bookRoot: string, docId: string, content: string
 }
 
 /**
- * recordAiVersion 的异步孪生（R36-5，三十六轮）——git 路径改用 gitAsync
+ * recordAiVersion 的异步孪生——git 路径改用 gitAsync
  * （spawn + 有界超时，事件循环不冻结）：同步版两次 spawnSync 在 git 无响应（网盘
  * 挂载 .git/杀软锁）时每次阻塞调用线程最长 15s×2，而本函数挂在服务事件循环的
  * 保存/改稿/连写链（api/draft.ts、api/rewrite.ts、self-heal.ts 每章一次）。
@@ -195,7 +195,7 @@ export async function recordAiVersionAsync(bookRoot: string, docId: string, cont
 }
 
 /** 列某文档全部 AI 版（ulid 升序 = 时间序，末位最新；无轨迹 → 空）。
- *  R65-28：可选 metaCache——收割链（listTrackedDocs → 逐 doc 调用）同一 (dir,
+ *  ：可选 metaCache——收割链（listTrackedDocs → 逐 doc 调用）同一 (dir,
  *  docId, versionId) 的头读盘去重，结果与无缓存恒等。 */
 export function listAiVersions(bookRoot: string, docId: string, metaCache?: VersionMetaCache): AiVersion[] {
   if (hasGitBackend(bookRoot)) {
@@ -211,12 +211,12 @@ export function listAiVersions(bookRoot: string, docId: string, metaCache?: Vers
     out.sort((a, b) => (a.ulid < b.ulid ? -1 : 1))
     return out
   }
-  // X-P2-3 版本档案后端：listVersions 新在前 → 反转为升序（与 git 路径口径一致，末位最新）
+  // 版本档案后端：listVersions 新在前 → 反转为升序（与 git 路径口径一致，末位最新）
   const dir = versionsDir(bookRoot)
   const out: AiVersion[] = []
   for (const v of listVersions(dir, docId)) {
-    // R62-36：只读头部 front matter 判 origin——不整读正文（此前每版全量读盘两遍大海捞针）
-    // R65-28：meta 读经单次调用内去重缓存（命中免重复头读盘）
+    // 只读头部 front matter 判 origin——不整读正文（此前每版全量读盘两遍大海捞针）
+    // meta 读经单次调用内去重缓存（命中免重复头读盘）
     const cacheKey = `${dir}\u0000${docId}\u0000${v.id}`
     let read: ReturnType<typeof readVersionMeta>
     if (metaCache?.has(cacheKey)) {
@@ -232,11 +232,11 @@ export function listAiVersions(bookRoot: string, docId: string, metaCache?: Vers
 }
 
 /**
- * listAiVersions 的异步孪生（R37-5，三十七轮）——git 路径改用 gitAsync（spawn +
+ * listAiVersions 的异步孪生——git 路径改用 gitAsync（spawn +
  * 有界超时，事件循环不冻结）。同步版的 for-each-ref 挂在服务 HTTP 请求链上
  *（author-signal ← draft.ts 落盘端点 / self-heal 每章终稿三连），git 无响应
  *（网盘挂载 .git/杀软锁）时同步 spawnSync 阻塞事件循环最长 15s——写侧
- * recordAiVersion 已在 R36-5 异步化，读侧此处补齐。语义与同步版逐位对齐：
+ * recordAiVersion 已在异步化，读侧此处补齐。语义与同步版逐位对齐：
  * 失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断落盘主流程。
  * 版本档案路径（无 git 书库）无锁无子进程，原样走同步版（本地小文件读）。
  */
@@ -258,7 +258,7 @@ export async function listAiVersionsAsync(bookRoot: string, docId: string, metaC
 }
 
 /**
- * 读某版内容。X-P2-3 起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
+ * 读某版内容。 起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
  * 失败 null。
  */
 export function readAiVersion(bookRoot: string, docId: string, sha: string): string | null {
@@ -271,9 +271,9 @@ export function readAiVersion(bookRoot: string, docId: string, sha: string): str
 }
 
 /**
- * readAiVersion 的异步孪生（R37-5，三十七轮）——git blob 读走 gitAsync（spawn +
+ * readAiVersion 的异步孪生——git blob 读走 gitAsync（spawn +
  * 有界超时），HTTP 请求链上不再同步 spawnSync（与 listAiVersionsAsync 同批收口，
- * 写侧 R36-5 先例）。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
+ * 写侧先例）。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
  * ULID 形态（版本档案本地小文件）保持同步读不变。
  */
 export async function readAiVersionAsync(bookRoot: string, docId: string, sha: string): Promise<string | null> {

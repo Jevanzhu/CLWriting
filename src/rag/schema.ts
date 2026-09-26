@@ -1,5 +1,5 @@
 /**
- * RAG 向量库 schema（per-book .cache/rag.db）—— 依据 M7 #37 spec 第 3 节。
+ * RAG 向量库 schema（per-book .cache/rag.db）—— 依据 #37 spec 第 3 节。
  *
  * 落书仓库内 .cache/ 派生缓存区（与 index.db 同惯例，hh §八-11 迁入；旧书根裸
  * .rag.db 由 openRagDb 启动时自动迁移，见 store.ts resolveRagDbPath）。
@@ -9,9 +9,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** chunks 表 + rag_meta 表 DDL
- *  R37-37（三十七轮）：内部常量，不再导出——全库（生产+测试）零消费方，导出面平白
+ *  ：内部常量，不再导出——全库（生产+测试）零消费方，导出面平白
  *  扩大内部 schema 契约；schema 断言走真实建库路径 createRagTables（见
- *  test/rag/r37-schema-ddl-unexport.test.ts）。 */
+ *  test/rag/schema-ddl-unexport.test.ts）。 */
 const RAG_DDL = [
   `CREATE TABLE IF NOT EXISTS chunks (
     id           INTEGER PRIMARY KEY,
@@ -33,10 +33,10 @@ const RAG_DDL = [
 /** 建 RAG 表（幂等 IF NOT EXISTS） */
 export function createRagTables(db: DatabaseSync): void {
   for (const stmt of RAG_DDL) db.exec(stmt)
-  // V-P2-3：分块唯一键（章号+偏移区间+模型）——中断重跑不得重复 INSERT
+  // 分块唯一键（章号+偏移区间+模型）——中断重跑不得重复 INSERT
   // （重复 embed 费用翻倍、召回重复命中）。存量库可能有历史重复行（直接建唯一索引
   // 会 SQLITE_CONSTRAINT 失败），失败分支先按 MIN(id) 去重再建。
-  // RB-IF-P2-3：仅当错误确因唯一索引约束 + 存量重复行才 DELETE——磁盘满/IO 错误/
+  // 仅当错误确因唯一索引约束 + 存量重复行才 DELETE——磁盘满/IO 错误/
   // 库被锁等原样上抛（故障窗口下盲目 DELETE 会删有效向量数据且无法回滚）。
   try {
     db.exec(

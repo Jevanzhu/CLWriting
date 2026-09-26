@@ -13,8 +13,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
-import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
-// RC 源码重审 B-4 同型补洞：主机变更闸与 /api/providers 同源（api/host-change-guard.ts）
+import { revisionError } from './revision-guard.js' // 三处拷贝收敛单源（原本地实现）
+// RC同型补洞：主机变更闸与 /api/providers 同源（api/host-change-guard.ts）
 import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
@@ -23,7 +23,7 @@ import {
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
-  ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突 → 409 映射
+  ProviderRevisionConflictError, // 0918修复批（D002）：写前基线复验冲突 → 409 映射
   type RagProviderConf,
   type ProviderStore,
 } from '../../../ai/provider/index.js'
@@ -35,12 +35,12 @@ interface RagProvidersCtx {
   userDataPath: string | null
 }
 
-// R29-2（二十九轮）：providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
+// providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
 // saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播），端点侧保存点统一
 // 捕住回 500 WRITE_ERROR 信封（同 /api/providers 的 saveProvidersOr500，两文件各自持有
 // 本地副本避免路由模块互相 import）。当前 void 返回下 await/try-catch 合法且零行为差异。
 // 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
-// 0918独立重评修复批（D002）：写前基线复验冲突（ProviderRevisionConflictError）单列
+// 0918修复批（D002）：写前基线复验冲突（ProviderRevisionConflictError）单列
 // 映射既有 409 REVISION_CONFLICT 信封——与 /api/providers 同款（前置 revisionError 闸
 // 同形态同文案）；排队写窗口内基线漂移时回「刷新重读」语义而非 500。
 async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
@@ -58,7 +58,7 @@ async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: 
 }
 
 /** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
- * hasKey 以 vault 条目存在性推导（I6·P3 口径，与 /api/providers maskProvider 同则） */
+ * hasKey 以 vault 条目存在性推导（口径，与 /api/providers maskProvider 同则） */
 function maskRagProvider(conf: RagProviderConf, vault: Vault | null) {
   return { ...conf, apiKey: '', apiKeyMasked: maskKey(conf.apiKey), hasKey: vault?.keys[conf.id] != null }
 }
@@ -69,7 +69,7 @@ function parseRagInput(
   const name = String(body['name'] ?? '').trim()
   const endpoint = String(body['endpoint'] ?? '').trim()
   const model = String(body['model'] ?? '').trim()
-  // I6（dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留）
+  // （dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留）
   const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
   if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
     return { ok: false, error: apiKeyRefusal('illegalCharacters') }
@@ -98,7 +98,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 新增（apiKey 必填——编辑才允许留空保留）
-  // SRV-N8 机械批 2026-09-15：body 校验移入 parse（失败同 400 BAD_INPUT 同文案，
+  // SRV- 机械6-09-15：body 校验移入 parse（失败同 400 BAD_INPUT 同文案，
   // 响应字节不变）；handler 拿类型化 input
   defineRoute('rag-providers.post', {
     method: 'POST',
@@ -122,7 +122,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       model: input.model,
       apiKey: input.apiKey,
       caps: null,
-      // dd-P3：max+1 防撞号（同 chat providers 口径）
+      // dd-max+1 防撞号（同 chat providers 口径）
       sortIndex: s.ragProviders.reduce((m, p) => Math.max(m, p.sortIndex ?? 0), -1) + 1,
     }
     s.ragProviders.push(conf)
@@ -132,7 +132,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
-  // SRV-N8 机械批：parseRagInput 移入 parse——body 校验先于 409/404 前置门发生（defineRoute
+  // SRV- 机械批：parseRagInput 移入 parse——body 校验先于 409/404 前置门发生（defineRoute
   // 先读 body 后进 handler），既有测试未钉旧优先级（404 用例带合法 body），校验文案逐字保留
   defineRoute('rag-providers.put', {
     method: 'PUT',
@@ -145,7 +145,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     },
     handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    // dd-P2：body 读取/校验已在 parse 段（更先于 loadProviders）——load→mutate→save
+    // dd-body 读取/校验已在 parse 段（更先于 loadProviders）——load→mutate→save
     // 三段同步无 await（单事件循环内原子），防并发丢更新
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(input.expectedRevision, s.revision)
@@ -153,7 +153,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     const target = s.ragProviders.find((p) => p.id === params['id'])
     if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
-    // RC 源码重审 B-4 同型补洞（复核遗留项）：endpoint 主机变更时不得静默沿用已存 Key。
+    // RC同型补洞（复核遗留项）：endpoint 主机变更时不得静默沿用已存 Key。
     // 「apiKey 留空 = 不改」只在同一主机下成立——endpoint 可改为任意主机（误填域名、换
     // 第三方中转站/自建嵌入服务），沿用旧 Key 即把已存凭据发往新地址（下一次嵌入往返就
     // 送达）。判定口径、拒绝码与文案与 /api/providers 同源（host-change-guard.ts，两族
@@ -177,7 +177,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
-  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（P4 无 body
+  // defineRoute parse 迁移跳过（SRV- 机械批）：本端点 body 读取是容错语义（无 body
   // 放行；readJson 非 HttpError 失败兜底 undefined 继续），defineRoute 的 readJson 失败
   // 先于 parse 短路统一回 400——「按空 body 兜底继续」的既有语义在 parse 化后不可表达
   defineRoute('rag-providers.delete', {
@@ -185,7 +185,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     path: '/api/rag-providers/:id',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    // P4：DELETE 无 body 常规场景容错（旧客户端/脚本放行）
+    // DELETE 无 body 常规场景容错（旧客户端/脚本放行）
     let expected: unknown
     try {
       const body = await readJson(req)
@@ -216,24 +216,24 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     const target = snapshot.ragProviders.find((p) => p.id === params['id'])
     if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
-    // R76-28（二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
+    // （二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
     // 可能被 PUT 编辑（endpoint/model/key 变更会清 caps 要求重测）；探测完成后旧快照的
     // connected 直接回写会把「打旧端点/旧 key 探出的结果」盖到新配置上，绕过该不变量。
-    // 对齐 chat 侧 providers.test 的 R75-D-P3c 同型；指纹取连通性相关三字段（name 不影响）。
+    // 对齐 chat 侧 providers.test 的同型；指纹取连通性相关三字段（name 不影响）。
     const probeFp = JSON.stringify([target.endpoint, target.model, target.apiKey])
     const vectors = await embed(target.endpoint, target.model, target.apiKey, ['ping'], { timeoutMs: 15_000 })
     const connected = vectors !== null
-    // dd-P2：embed 是 15s 网络往返——写回前重载重找，探测期间被编辑/删除则不硬写旧克隆
+    // dd-embed 是 15s 网络往返——写回前重载重找，探测期间被编辑/删除则不硬写旧克隆
     const s2 = loadProviders(ctx.userDataPath)
     const fresh = s2.ragProviders.find((p) => p.id === params['id'])
     if (fresh) {
       if (JSON.stringify([fresh.endpoint, fresh.model, fresh.apiKey]) === probeFp) {
         fresh.caps = { connected }
         fresh.capsProbedAt = Date.now()
-        // R29-2（二十九轮）：探测写回同样过保存失败闸
+        // 探测写回同样过保存失败闸
         if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
       } else {
-        // R76-28：探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
+        // 探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
         // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
         log.warn('api', `rag-providers test：探测期间提供方配置已变更，丢弃旧快照 caps 回写（${params['id']}）`)
       }
@@ -241,7 +241,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     reply(res, 200, {
       ok: connected,
       caps: { connected },
-      // R48-21（四十八轮）：探测写回 bump 了 revision 但响应不回传——前端本地 revision
+      // 探测写回 bump 了 revision 但响应不回传——前端本地 revision
       // 滞后，紧接的任意 RAG 写必收 409 弹误导 toast（chat 侧同型已修，RAG 侧漏配）。
       // 回传现行 revision：写回路径 s2 已含 bump；探测期间被并发写/删除未落盘路径，
       // s2（写回前重载）同样如实反映服务端现行值

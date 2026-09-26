@@ -1,14 +1,14 @@
 /**
- * 章节结构操作——拆分编排（S4：干跑 plan / 光标校验 / 执行 apply）。
+ * 章节结构操作——拆分编排（干跑 plan / 光标校验 / 执行 apply）。
  *
- * R0916-5f（2026-09-16，⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
+ * （⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
  * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
- * （《章节结构操作-设计方案-2026-08-30》v3：取号跳定稿/序中值/external-merge 截断
+ * （《章节结构操作-设计方案-》v3：取号跳定稿/序中值/external-merge 截断
  * 留底）。公共底座（读态派生/plan 指纹/取号/事件副录）在 structure-core.ts，本文件
  * 单向依赖之（core←split，无环）；RAG 触点经 StructureRagPort 端口由组合根注入
- * （G5 依赖反转，零 rag import）。
+ * （依赖反转，零 rag import）。
  *
- * 0918独立重评修复批（B001）：applyChapterSplit 的取号段（状态重读→取号→planHash
+ * 0918修复批（B001）：applyChapterSplit 的取号段（状态重读→取号→planHash
  * 复核→截断→新章落位）原无跨请求互斥——两个拆分 apply 并发重叠时各算得同一章号、
  * 目标文件名不同，createDocument 双双成功 → 章号复用。修法 = per-bookRoot 进程内
  * 串行互斥（自实现最小件，链语义对齐 studio/server/serial-chain.ts——document 层
@@ -56,7 +56,7 @@ export interface SplitPlanView {
   path: string
   chapterNo: number
   title: string
-  /** 新章号 = 全书 max+1 再跳已定稿章号（CC-P1-6 篇号永不复用） */
+  /** 新章号 = 全书 max+1 再跳已定稿章号（篇号永不复用） */
   newChapterNo: number
   /** 新章显示序 = 拆分点两侧有效序中值 */
   order: number
@@ -83,7 +83,7 @@ export type SplitApplyResult =
 
 // ── 拆分：干跑 + 执行 ────────────────────────────────────────────────
 
-// 0918独立重评修复批（B001）：per-bookRoot 拆分 apply 串行链（进程内互斥最小件，
+// 0918修复批（B001）：per-bookRoot 拆分 apply 串行链（进程内互斥最小件，
 // 链语义对齐 studio/server/serial-chain.ts 的收编形态——前驱成败都接续、链尾吞错
 // 防 unhandled rejection、settle 后身份校验自清理；document 层不 import studio 层）。
 // 只串取号临界区，不含 plan 干跑；svc.save/createDocument 的跨进程锁在互斥**内**
@@ -153,7 +153,7 @@ export async function planChapterSplit(
     order,
     headWords: countWords(o.text.slice(fmEnd, cursorOffset)),
     tailWords: countWords(tail),
-    // 六轮重评 C101：预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
+    // C101：预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
     // 原 .slice(0, 60) 按码元计数，第 60 码元落在增补平面字符内部时劈出孤立高代理，
     // 确认弹窗渲染尾字符乱码（影响面止于预览显示，不落盘）
     tailPreview: clipByCodePoints(canonicalizeText(tail).trim().replace(/\n+/g, ' '), 60),
@@ -171,7 +171,7 @@ function validateSplitCursor(o: ChapterDiskState, cursorOffset: number): Structu
   if (o.text.slice(cursorOffset).trim().length === 0) {
     return fail('BAD_INPUT', '拆分点之后没有正文内容（光标在章尾空白处）')
   }
-  // 0918独立重评二轮修复批（B101）：UTF-16 代理对边界判定——光标落在高低位代理之间
+  // 0918二轮修复批（B101）：UTF-16 代理对边界判定——光标落在高低位代理之间
   //（CJK 扩展 B 生僻字、emoji 等 astral 字符内部）时，apply 的 slice 切分会把一个
   // 字符劈成两个孤立代理，落盘各编码为 U+FFFD（原章尾 + 新章头同时永久损坏一字，
   // 且恢复重放经同一光标复现损坏）。前端编辑器光标通常在码点边界，此处是后端防线。
@@ -208,7 +208,7 @@ export async function applyChapterSplit(
       `本书结构操作跨进程锁等待超时（${STRUCTURE_OP_LOCK_TIMEOUT_MS}ms）——另一进程可能正在执行拆分/合并，请稍后重试`,
     )
   }
-  // 0918独立重评修复批（B001）：取号临界区（状态重读 → validateSplitCursor → 取号 →
+  // 0918修复批（B001）：取号临界区（状态重读 → validateSplitCursor → 取号 →
   // planHash 复核 → svc.save 截断 → createDocument）整段置于 per-bookRoot 串行互斥内
   // ——并发第二个 apply 在锁内重读取号得新号 → hash 失配 → PLAN_STALE fail-loud
   //（这正是期望行为），章号永不复用。锁作用域内只 await 盘面读写与 svc 既有有界锁
@@ -244,7 +244,7 @@ export async function applyChapterSplit(
         })
         if (!saved.ok) return fail(saved.code, saved.reason)
         // ② 新章落位（与原章同目录——卷归属随原章；文件名 sanitizeFileNamePart +
-        // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批（2026-09-13）：
+        // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批
         // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
         // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
         // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
@@ -252,7 +252,7 @@ export async function applyChapterSplit(
         const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
         const created = await svc.createDocument({ relPath, content: newContent })
         if (!created.ok) {
-          // RC 全项目重审 P3：撤「可重试拆分」指引——原章已截断后重试干跑必
+          // RC 全项目：撤「可重试拆分」指引——原章已截断后重试干跑必
           // PLAN_STALE（planHash 失配）或 BAD_INPUT（光标超出截断后文本），唯一
           // 出路是版本面板恢复原章后再重新发起；指引不可达会误导作者原地空转
           return fail(

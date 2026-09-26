@@ -35,7 +35,7 @@ export function createRouteTable(): RouteTable {
   return []
 }
 
-/** 在指定路由表内执行注册；注册函数仍可直接调用 route()。 */
+/** 在指定路由表内执行注册；注册函数仍可直接调用 route。 */
 export function withRouteTable<T>(routes: RouteTable, fn: () => T): T {
   const prev = activeRoutes
   activeRoutes = routes
@@ -46,17 +46,17 @@ export function withRouteTable<T>(routes: RouteTable, fn: () => T): T {
   }
 }
 
-/** 重评2-P3-③（2026-09-09 全量重评 GLM-5.3）：当前活动路由表只读观测口——schema
+/** 2--③（GLM-5.3）：当前活动路由表只读观测口——schema
  *  注册表按表隔离用（api/schema.ts WeakMap 键，见该文件头注）。只读；改写仍走
  *  withRouteTable。 */
 export function activeRouteTable(): RouteTable {
   return activeRoutes
 }
 
-/** 注册路由：path 如 '/api/books/:id/state'，:xxx 作为参数捕获 */
+/** 注册路由：path 如 '/api/books/:id/state'，xxx 作为参数捕获 */
 export function route(method: string, path: string, handler: Handler): void {
   const keys: string[] = []
-  // 按 / 分段：:param → 捕获组，其余字符转义防正则注入
+  // 按 / 分段：param → 捕获组，其余字符转义防正则注入
   const pattern = path
     .split('/')
     .map((seg) => {
@@ -64,7 +64,7 @@ export function route(method: string, path: string, handler: Handler): void {
         keys.push(seg.slice(1))
         return '([^/]+)'
       }
-      // R51-G-3（五十一轮）：转义集补 `(` `)`——括号在正则里是分组元字符，模板段含
+      // 转义集补 `(` `)`——括号在正则里是分组元字符，模板段含
       // 括号（如字面段 `(已归档)`）此前会变成捕获组：字面 URL 匹配不上，且捕获组
       // 左移 :param 的 m[i+1] 下标让参数错位。与同集 `[]{}` 同理，属防正则注入的
       // 完备性收口（现网无含括号路由，纯埋雷排除）。
@@ -80,9 +80,9 @@ export async function dispatch(
   res: ServerResponse,
   routes: RouteTable = defaultRoutes,
 ): Promise<boolean> {
-  // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径，与各 handler 同源）——
+  // parseRequestUrl 统一解析（/口径，与各 handler 同源）——
   // 畸形请求行（absolute-form 等）此前裸 new URL 抛 TypeError 落进外层 catch 变 500，
-  // 客户端请求问题应归 400 BAD_INPUT（与 static.ts Q-1 同款信封）
+  // 客户端请求问题应归 400 BAD_INPUT（与 static.ts 同款信封）
   const parsed = parseRequestUrl(req)
   if (!parsed) {
     if (!res.headersSent) replyError(res, 400, 'BAD_INPUT', 'bad request')
@@ -93,10 +93,10 @@ export async function dispatch(
     if (r.method !== req.method) continue
     const m = r.regex.exec(pathname)
     if (!m) continue
-    // E2：null-prototype 对象组装 path 参数——防 __proto__/constructor 原型链注入
+    // null-prototype 对象组装 path 参数——防 __proto__/constructor 原型链注入
     // （防御纵深：key 虽来自开发者定义的 path 模板，但 value 是外部 URL 解码，零原型保险）
     const params: Record<string, string> = Object.create(null) as Record<string, string>
-    // AA-P3-10：decode 入 try——路径参数含损坏 % 编码（如 /api/books/%E4%）时
+    // decode 入 try——路径参数含损坏 % 编码（如 /api/books/%%）时
     // decodeURIComponent 抛 URIError；此前在 handler try 外抛出 → 外层 500。
     // 参数解析失败是客户端请求问题 → 归 400（不泄漏内部细节）。
     try {
@@ -112,10 +112,10 @@ export async function dispatch(
     try {
       await r.handler(req, res, params)
     } catch (e) {
-      // Z-P2-9：异常在 dispatch 内兜底后外层 try 接不到，必须在此留诊断日志，
+      // 异常在 dispatch 内兜底后外层 try 接不到，必须在此留诊断日志，
       // 否则 500「内部错误」无从排障（前缀风格对齐 index.ts 的 'unhandled error'）。
-      // M3：日志只记路径段——SSE token 走 query，完整 url 入日志 = 凭证明文留存
-      // 重评-7（全库代码重评审 2026-09-05）：客户端断连（readJson 打 clientAbort
+      // 日志只记路径段——SSE token 走 query，完整 url 入日志 = 凭证明文留存
+      // -7（全库代码审）：客户端断连（readJson 打 clientAbort
       // 标记）是客户端行为非服务端故障——log.error 降 log.info 留痕（原 error 级
       // 把正常断连当故障留噪音）；回包路径不变（写给已断 socket 无实害），其余
       // 错误路径零变更。

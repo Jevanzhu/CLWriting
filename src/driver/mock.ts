@@ -8,12 +8,12 @@
  * 事件总线为广播式：每 stream 消费者独立队列，emit 复制推给所有活跃消费者；
  * 无消费者时事件暂存 pre，首个新消费者接管（与 cc driver 同构，多 SSE 连接各自完整消费）。
  *
- * R62-40：与 cc.ts 的行为分叉点（抽共享总线是大重构，另立项；此处只文档化）：
+ * 与 cc.ts 的行为分叉点（抽共享总线是大重构，另立项；此处只文档化）：
  * - cc 有 execRing（E1b 迟到回放）+ pre/execRing/消费者队列三处上限（MAX_EXEC_RING=200、
- *   MAX_PRE_EVENTS、MAX_CONSUMER_QUEUE=200，M-P2-1 内存核查引入）；mock 无 execRing、
+ *   MAX_PRE_EVENTS、MAX_CONSUMER_QUEUE=200，内存核查引入）；mock 无 execRing、
  *   无队列上限——测试流事件量受控，积压风险忽略不计，刻意保持简单。
  * - startSession 会推一个 init 事件（agents/tools 清单，mock 端点测试用）；cc 不发 init。
- * - mock 的 cancelled 唤醒（B-19）与 cc 同构；emit 复制语义一致。
+ * - mock 的 cancelled 唤醒与 cc 同构；emit 复制语义一致。
  */
 import type {
   Session,
@@ -24,9 +24,9 @@ import type {
 import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
 
 /** 每 session 一个事件总线（广播到所有消费者）。
- *  B-19（第六十轮补修，与 cc.ts 同构）：cancelled——SSE 断开侧经 cancelStream
+ *  （补修，与 cc.ts 同构）：cancelled——SSE 断开侧经 cancelStream
  *  唤醒 park 中的生成器令其自行 return（iter.return 只能在 yield 边界生效）。
- *  M-P2-1（内存核查 2026-08-25，与 cc.ts 同构）：dropNotified——本轮积压已补发过
+ *  （内存核查，与 cc.ts 同构）：dropNotified——本轮积压已补发过
  *  丢事件 notice，队列拉空时复位（每轮积压只告知一次） */
 interface Consumer {
   queue: DriverEvent[]
@@ -35,10 +35,10 @@ interface Consumer {
   dropNotified: boolean
 }
 
-/** B-19：stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
+/** stream 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
 const streamCancels = new WeakMap<AsyncIterable<DriverEvent>, Consumer>()
 
-/** B-19：唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等） */
+/** 唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等） */
 function cancelConsumer(consumer: Consumer): void {
   consumer.cancelled = true
   if (consumer.notify) {
@@ -58,10 +58,10 @@ const channels = new Map<string, Channel>()
 const sessions = new Map<string, Session>()
 let sessionSeq = 0
 
-/** AA-P3-2 同构（cc.ts 同款）：无消费者期间 pre 暂存上限——首个消费者接入前
+/** 同构（cc.ts 同款）：无消费者期间 pre 暂存上限——首个消费者接入前
  *  长流不再无限增堆内存；超出只留最近 N 个（旧事件进 sync 快照兜底） */
 const MAX_PRE_EVENTS = 200
-/** M-P2-1（内存核查 2026-08-25，与 cc.ts 同构）：已连接消费者队列上限——慢速/
+/** （内存核查，与 cc.ts 同构）：已连接消费者队列上限——慢速/
  *  僵尸消费者在长流期间队列不再无限积压；超限丢最旧 + 补发 notice（丢弃可感知） */
 export const MAX_CONSUMER_QUEUE = 200
 
@@ -75,7 +75,7 @@ function channel(id: string): Channel {
 }
 
 function push(id: string, ev: DriverEvent): void {
-  // 低级项（第六轮）：dispose 后的迟到 emit 不复活已删除的 channel（微量资源残留）
+  // 低级项：dispose 后的迟到 emit 不复活已删除的 channel（微量资源残留）
   const ch = channels.get(id)
   if (!ch) return
   if (ch.consumers.size === 0) {
@@ -83,14 +83,14 @@ function push(id: string, ev: DriverEvent): void {
     // （SSE 有 sync 快照兜底，重连不重放历史）
     if (!ch.preTaken) {
       ch.pre.push(ev)
-      // AA-P3-2 同构：pre cap——超出只留最近 N 个（首个消费者只接管最近 N 个）
+      // 同构：pre cap——超出只留最近 N 个（首个消费者只接管最近 N 个）
       if (ch.pre.length > MAX_PRE_EVENTS) ch.pre.shift()
     }
     return
   }
   for (const c of ch.consumers) {
-    // 内存核查（2026-08-25 M-P2-1，与 cc.ts 同构）：消费者队列 cap——超限丢最旧
-    // 腾位；每轮积压首次超限时补发 notice。R73-9（二十一轮 A-9）：notice 走「容量 +1
+    // 内存核查（与 cc.ts 同构）：消费者队列 cap——超限丢最旧
+    // 腾位；每轮积压首次超限时补发 notice。：notice 走「容量 +1
     // 内部槽」——修复前首次溢出连丢 2 条真实事件（先腾位再腾 notice 位）；现在每次
     // 溢出只丢 1 条最旧真实事件（瞬态上限 MAX_CONSUMER_QUEUE+1，与 cc.ts 同构）。
     if (c.queue.length >= MAX_CONSUMER_QUEUE) {
@@ -127,16 +127,16 @@ export const mockDriver: StudioDriver = {
     return session
   },
 
-  // B-19：stream 改工厂形态（生成器主体不变）——创建时在 WeakMap 登记取消句柄
+  // stream 改工厂形态（生成器主体不变）——创建时在 WeakMap 登记取消句柄
   stream(session: Session): AsyncGenerator<DriverEvent> {
     const consumer: Consumer = { queue: [], notify: null, cancelled: false, dropNotified: false }
     const gen = (async function* (): AsyncGenerator<DriverEvent> {
-      // 低级项（第六轮）：已 dispose 的会话不再建 channel（防复活 Map 残留）
+      // 低级项：已 dispose 的会话不再建 channel（防复活 Map 残留）
       if (session.closed) return
       const ch = channel(session.id)
       ch.consumers.add(consumer)
       // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
-      // R-P1-1（与 cc.ts 同构）：pre cap 溢出挤出头部 init 锚时回放以 text 起头，需补清屏锚
+      // （与 cc.ts 同构）：pre cap 溢出挤出头部 init 锚时回放以 text 起头，需补清屏锚
       if (!ch.preTaken && ch.pre.length > 0) {
         if (replayNeedsResetAnchor(ch.pre)) consumer.queue.push(REPLAY_RESET)
         consumer.queue.push(...ch.pre)
@@ -148,11 +148,11 @@ export const mockDriver: StudioDriver = {
           while (consumer.queue.length) {
             yield consumer.queue.shift() as DriverEvent
           }
-          // M-P2-1（内存核查 2026-08-25，与 cc.ts 同构）：队列拉空——复位丢事件告知
+          // （内存核查，与 cc.ts 同构）：队列拉空——复位丢事件告知
           // 标记，下一轮积压再超限时重新补发一次 notice
           consumer.dropNotified = false
           if (session.closed) return
-          // B-19：断开唤醒后的检查点——不再续 park，自行 return（finally 摘除 consumer）
+          // 断开唤醒后的检查点——不再续 park，自行 return（finally 摘除 consumer）
           if (consumer.cancelled) return
           await new Promise<void>((resolve) => {
             consumer.notify = resolve
@@ -184,7 +184,7 @@ export const mockDriver: StudioDriver = {
       }
       channels.delete(session.id)
     }
-    // 低级项（第六轮）：sessions 注销移出 if(ch)——channel 缺席（理论路径）也不留登记
+    // 低级项：sessions 注销移出 if(ch)——channel 缺席（理论路径）也不留登记
     sessions.delete(session.id)
   },
 
@@ -200,7 +200,7 @@ export const mockDriver: StudioDriver = {
     // 同 registerCtrl：mock 无登记，注销亦 noop
   },
 
-  // R0916-7-P3-16 收尾（必需能力接口）：interrupt 由「可选缺席」改为显式 no-op——
+  // 收尾（必需能力接口）：interrupt 由「可选缺席」改为显式 no-op——
   // mock 无可中断生成（无在途 ctrl、无真实请求），noop 不 abort 任何 ctrl、不推
   // interrupted 事件，与可选时代「缺席即消费点跳过」的运行时语义逐位一致
   //（/interrupt 与 watchdog 的中断动作集照旧先走编排闸的 abortSelfHeal/abortChat）。
@@ -214,9 +214,9 @@ export const mockDriver: StudioDriver = {
     return false
   },
 
-  // 0918独立重评修复批（E002）：与 cc 实现接口齐平（StudioDriver 全成员两实现都提供）——
+  // 0918修复批（E002）：与 cc 实现接口齐平（StudioDriver 全成员两实现都提供）——
   // mock 无 ctrl 登记（registerCtrl noop），恒无在途，恒 false。注意 E001 的 chat_replay_begin
-  // 回放锚不在此实现：mock 无 execRing 回放语义（R62-40 行为分叉点已文档化），无锚可插。
+  // 回放锚不在此实现：mock 无 execRing 回放语义（行为分叉点已文档化），无锚可插。
   isWriterRunning(): boolean {
     return false
   },

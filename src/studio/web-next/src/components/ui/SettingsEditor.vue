@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设置 · 编辑器 tab：正文字体/字号/行距为全局正文排版——编辑区、开书对话、草稿卡等
-// 所有正文编辑框同步（2026-09-05 作者确认全局一致）；纸张（宽度/自动保存）。
+// 所有正文编辑框同步（作者确认全局一致）；纸张（宽度/自动保存）。
 import { computed } from 'vue'
 import { usePrefsStore, type PrefKey } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
@@ -13,17 +13,17 @@ import SettingItem from './SettingItem.vue'
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn, systemFonts, fontsLoaded } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
-// 预设组按平台出（2026-09-08 mac 批）：win 雅黑/思源黑，mac 苹方/宋体-简——平台
+// 预设组按平台出（mac 批）：win 雅黑/思源黑，mac 苹方/宋体-简——平台
 // 会话内不变，setup 时定一次
 const prosePresetList = prosePresets()
 
-// 正文排版预设（F 线 2026-09-05）：激活态由四字段派生，手动改任一项即落「自定义」；
-// 应用 = 逐项走既有 setter（apply()/持久化链路复用，无新持久化键）
+// 正文排版预设（F 线）：激活态由四字段派生，手动改任一项即落「自定义」；
+// 应用 = 逐项走既有 setter（apply/持久化链路复用，无新持久化键）
 const activePresetId = computed(() =>
   matchProsePreset({ proseFontCn: prefs.get('proseFontCn'), proseFontEn: prefs.get('proseFontEn'), proseSize: prefs.get('proseSize'), proseLh: prefs.get('proseLh') }),
 )
 function applyPreset(p: ProsePreset): void {
-  // F 线④（2026-09-06）：CN 槽按已装候补落地（如 zh 系统的思源黑体），CSS 直接命中
+  // F 线④：CN 槽按已装候补落地（如 zh 系统的思源黑体），CSS 直接命中
   // 真字体；全未装才回落原名走回退链。激活态由 matchProsePreset 族键比对兜住
   prefs.set('proseFontCn', resolveInstalledFont(systemFonts.value, p.values.proseFontCn))
   prefs.set('proseFontEn', p.values.proseFontEn)
@@ -31,7 +31,7 @@ function applyPreset(p: ProsePreset): void {
   prefs.set('proseLh', p.values.proseLh)
 }
 
-// 预设「未装」徽标（2026-09-06 中优先⑥）：指名族完全不装（含 zh/en 异名与思源/Noto
+// 预设「未装」徽标（中优先⑥）：指名族完全不装（含 zh/en 异名与思源/Noto
 // 双产品）时 chip 挂角标 + tooltip 给下载指引——否则点了是回退渲染，会以为没生效。
 // fontsLoaded 前不判定（IPC 字表未回，避免全量误标）。
 const PRESET_FONT_HINT: Record<string, string> = {
@@ -46,7 +46,7 @@ function presetTitle(p: ProsePreset): string {
   return `${p.desc}｜未安装「${fontDisplayName(p.values.proseFontCn)}」：实际将回退系统无衬线字体；${hint}`
 }
 
-// 预设样张（2026-09-06 中优先⑤）：按每套预设的字体/字号/行距内联渲染并排对比；
+// 预设样张（中优先⑤）：按每套预设的字体/字号/行距内联渲染并排对比；
 // 与编辑区同一拼栈口径（buildProseFontStack），未装字体如实回退展示
 function previewStyle(p: ProsePreset): Record<string, string> {
   return {
@@ -66,7 +66,7 @@ function onAutosaveInput(v: number): void {
 
 /**
  * range 配套数字输入：组件层钳到滑杆范围后经泛型 set 按键写（store 层 clamp 单点不变形）。
- * R72-11（二十轮 E-2）：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 min）
+ * 空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 min）
  */
 function numInput(min: number, max: number, key: PrefKey, e: Event): void {
   const v = parseNumericInput(e)
@@ -106,7 +106,7 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
     </SettingItem>
     <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
       <div class="font-pair">
-        <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+        <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
         <FontPicker class="font-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
         <FontPicker class="font-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
       </div>
@@ -144,7 +144,7 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
 </template>
 
 <style scoped>
-/* 排版预设 chips（F 线 2026-09-05）：胶囊排布，激活态 accent 描边浅底；
+/* 排版预设 chips（F 线）：胶囊排布，激活态 accent 描边浅底；
  * 标签用 --text-normal（win 反糊口径：小字号不挂 muted 灰） */
 .preset-row {
   display: flex;
@@ -187,7 +187,7 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
   color: var(--dv-warn);
   font-size: var(--font-size-xs);
 }
-/* 预设样张（2026-09-06 中优先⑤）：chips 下并排展示，分隔线与 chips 区分；
+/* 预设样张（中优先⑤）：chips 下并排展示，分隔线与 chips 区分；
  * 标签小字号用 --text-normal + 透明度（win 反糊口径：小字号不挂 muted 灰） */
 .preset-preview {
   width: 100%;

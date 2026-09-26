@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 机检面板（M12 块3 B3.2）：本地规则检查，无 AI 依赖，断网可用。
+// 机检面板（M12 块3 .2）：本地规则检查，无 AI 依赖，断网可用。
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
 // 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
 import { computed, watch, markRaw } from 'vue'
@@ -24,23 +24,23 @@ const isCheckable = computed(() => {
   return isBodyKind(node.value.path)
 })
 
-// R59 清偿批（R57-F-2）：红/黄项 v-for 改稳定键——原用 it.checkId 作键，而 checkId
+// 清偿批红/黄项 v-for 改稳定键——原用 it.checkId 作键，而 checkId
 // 是检查器级 id（同检查器多条命中同 id，如 banned-word 多处命中各自成条目），多条
 // 命中时必撞 Vue 重复键；改内容组合键（checkId+消息+leadId+章号，构造单源见
 // shared/issue-keys），同内容条目按出现序 #n 消歧
 const redKeys = computed(() => contentStableKeys(check.redItems.map(checkItemKeyBase)))
 const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkItemKeyBase)))
 
-// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：红/黄项渲染上限——千项级命中全量
+// （修复批）：红/黄项渲染上限——千项级命中全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const redCap = computed(() => capView(check.redItems, RENDER_CAP))
 const yellowCap = computed(() => capView(check.yellowItems, RENDER_CAP))
 
-// R0912-C2-P3-6（2026-09-12 独立重评修复批）：红/黄两组 item 模板逐字重复 → 分组
+// （修复批）：红/黄两组 item 模板逐字重复 → 分组
 // 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
 // DOM；组序红在前黄在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
 // 与 ReviewPanel 结构相似但数据源不同，按评审口径分文件各自 v-for 化、不跨文件抽组件。
@@ -64,12 +64,12 @@ async function runCheck(): Promise<void> {
   if (!check.error) void tree.loadIssues(props.bookName)
 }
 
-// X-P2-15：切文档即清报告（store 注释声称「调用方 clear」但无人调——旧文档红项挂在新文档上）
+// 切文档即清报告（store 注释声称「调用方 clear」但无人调——旧文档红项挂在新文档上）
 watch(docId, () => check.clear())
 
-// B1（批 6）：误报标记——一次确认防误触；按 checkId 幂等（已标灰显）。标记落
+// 误报标记——一次确认防误触；按 checkId 幂等（已标灰显）。标记落
 // check/false-positive 事件 → 语料回归库燃料。
-// 低级项（第六轮）：原生 confirm → ui.ask 统一弹窗（Electron 渲染层禁原生模态且样式割裂）；
+// 低级项：原生 confirm → ui.ask 统一弹窗（Electron 渲染层禁原生模态且样式割裂）；
 // 弹窗 await 期间可切书/切文档——上下文入口捕获，确认后已切走则放弃
 async function flagFalsePositive(checkId: string): Promise<void> {
   const book = props.bookName
@@ -121,7 +121,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         <span>未发现问题</span>
       </div>
 
-      <!-- R0912-C2-P3-6：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
+      <!-- ：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
       <template v-for="g in checkGroups" :key="g.key">
         <div v-if="g.count > 0" class="check-group">
           <div class="group-label" :class="`group-label--${g.tone}`">
@@ -146,7 +146,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
               {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
             </button>
           </div>
-          <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+          <!-- ：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
           <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
         </div>
       </template>
@@ -226,7 +226,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   flex-direction: column;
   gap: 4px;
 }
-/* R0912-3 #13：原同选择器两处分离规则（间隔在 .cap-hint）合并——属性并集、
+/* #13：原同选择器两处分离规则（间隔在 .cap-hint）合并——属性并集、
  * 无重叠声明，级联结果逐字不变 */
 .check-item {
   padding: 6px 8px;
@@ -238,7 +238,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   justify-content: space-between;
   gap: 8px;
 }
-/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示（弱化色，tree-cap-hint 同语义） */
 .cap-hint {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);

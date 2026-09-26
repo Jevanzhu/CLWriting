@@ -36,7 +36,7 @@ describe('引号矩阵 · stripQuotedSpans', () => {
     // 构成 span（内部字符类补排 \n）。旧字符类 [^」』”’] 天然匹配换行，checkBannedWords/
     // checkOpeningNoEnv 对整 body 剥 span 时，某段漏写闭引号会把下文任意闭引号（可隔多段）
     // 之前的全部叙述当对白吞掉，禁词红闸静默漏报（63 字正文剥掉 60 字实测）。跨行回归
-    // 用例见 r30-quote-crossline.test.ts；单行消费方行为逐字不变。
+    // 用例见 quoted-span-dialogue-strip.test.ts（并入档）；单行消费方行为逐字不变。
     ['「第一行\n第二行」尾', '「第一行\n第二行」尾'],
     ['前文“开头\n后文”结束', '前文“开头\n后文”结束'],
   ])('%s → %j', (line, expected) => {
@@ -45,6 +45,27 @@ describe('引号矩阵 · stripQuotedSpans', () => {
 
   it('QUOTED_SPAN_RE 跨体系配对是文档化行为（任一开 + 任一闭）', () => {
     expect(QUOTED_SPAN_RE.test('「混搭”')).toBe(true)
+  })
+
+  // R0912-F-P3-1（并入档；原 r0912-check-fix-batch.test.ts）：2-slot 引用 memo——
+  // 同 body 两次调用返回同一引用（高频调用点零重复分配）；不同 body 各自正确
+  //（被逐出后重算内容仍对），无引号文本原样返回。
+  it('stripQuotedSpans 2-slot memo：同 body 引用相等，不同 body 各自正确', () => {
+    const body = '「对白内容不算叙述。」叙述文本照常保留。'
+    const first = stripQuotedSpans(body)
+    const second = stripQuotedSpans(body)
+    expect(second).toBe(first) // 引用相等 = memo 命中（内容相等由 toBe 同断）
+    expect(first).toBe('叙述文本照常保留。')
+
+    // 不同 body 交替：2 槽逐出后重算，内容仍各自正确
+    const x = '「一」甲'
+    const y = '「二」乙'
+    expect(stripQuotedSpans(x)).toBe('甲')
+    expect(stripQuotedSpans(y)).toBe('乙')
+    expect(stripQuotedSpans(x)).toBe('甲')
+    expect(stripQuotedSpans(y)).toBe('乙')
+    // 无引号文本原样返回
+    expect(stripQuotedSpans('纯叙述无引号。')).toBe('纯叙述无引号。')
   })
 })
 

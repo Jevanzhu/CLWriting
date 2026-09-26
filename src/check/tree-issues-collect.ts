@@ -1,5 +1,5 @@
 /**
- * 树红点聚合的纯决策件 —— R0916-7-P3-2（全项目源码质量与优雅度评审 P3-2）：
+ * 树红点聚合的纯决策件 —— （全项目源码质量与优雅度评审）：
  * collectTreeIssuesCore 原把「清单折叠索引 / 章级条目合并 / 待落盘入列闸」三类判定
  * 内联在同一个生成器里，IO 与判定交织、无从直测。本件承载其中的纯判定（无 IO、
  * 无模块状态），聚合生成器只做遍历与副作用，判定口径逐位保留。
@@ -9,7 +9,7 @@
  */
 import type { ManifestEntry } from '../document/manifest.js'
 import type { DocumentStatus } from '../document/status.js'
-// R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——盘上扫描路径与清单登记路径
+// join 键折叠（win32 大小写 + NFC）——盘上扫描路径与清单登记路径
 // 仅大小写/组合形异时仍可追溯；索引侧与查询侧必须同键
 import { docJoinKey } from '../fs/safe-path.js'
 
@@ -21,7 +21,7 @@ export interface TreeIssueEntry {
 
 /**
  * 章级条目合并——缓存命中路与现算路同口径（唯一差异是 hasRed 的来源）：
- * 展示值 = 章作用域红 ∨ 账本全书性红（H-1 拆分后全书性红项不进章级缓存行，
+ * 展示值 = 章作用域红 ∨ 账本全书性红（拆分后全书性红项不进章级缓存行，
  * 只在展示层合并）；两侧皆假且无 verdict 驳回 → 不入表（返回 null）。
  * 入表判定「mergedRed || verdictRejected」是「树红点只记有 issue 的 docId」契约的落点。
  */
@@ -47,7 +47,7 @@ export interface ChapterCacheRowSignals {
 }
 
 /**
- * A1/R70-14/R32-14：待落盘章缓存行入列闸。四信号缺一不列：
+ * //：待落盘章缓存行入列闸。四信号缺一不列：
  * 机检失败不落（假阴性固化）、缓存不可用不落（无表/纪元同步失败）、无库句柄不落、
  * 纪元基线缺席不落（双进程并发下按他进程新纪元误读旧行）。
  */

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 提供方行卡共享壳（阶段 14 I2，照搬 DSH：仅一个「编辑」入口）。
+ * 提供方行卡共享壳（阶段 14 ，照搬 DSH：仅一个「编辑」入口）。
  * AI 与 RAG 列表共用：主信息槽 + 操作槽 + 展开槽；展开态由父层管理（互斥），
  * 点「编辑」（#actions 槽内）才切换就地展开。
  * 主信息槽为单行结构（名称/徽章/协议 + 右对齐状态），由 providers.css 的
  * .row-line 提供布局；#actions 槽内按钮用 .mini-btn，
- * 其样式经 :slotted() 下发——插槽内容不带本组件 scope id，普通 scoped 选择器够不着。
+ * 其样式经 :slotted 下发——插槽内容不带本组件 scope id，普通 scoped 选择器够不着。
  */
 defineProps<{
   expanded: boolean
@@ -84,7 +84,7 @@ defineProps<{
 }
 
 /* ── 操作图标按钮（28px ghost）：定义在本壳、写给 #actions 槽内容用。
- *    插槽内容挂的是调用方 scope id，必须 :slotted() 才能命中（曾因此整排
+ *    插槽内容挂的是调用方 scope id，必须 :slotted 才能命中（曾因此整排
  *    按钮回落成浏览器原生样式）。 ── */
 :slotted(.mini-btn) {
   display: flex;

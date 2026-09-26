@@ -1,5 +1,5 @@
 /**
- * DocumentService —— 文档保存协议编排（W0-1 §5）+ 结构性操作（W2A §7）。
+ * DocumentService —— 文档保存协议编排（§5）+ 结构性操作（W2A §7）。
  *
  * 统一文档写入入口：UI / AI / CLI 一律经此，保证并发安全 + 崩溃可恢复。
  *
@@ -17,7 +17,7 @@
  *   清单更新 → settled，窗口内崩溃由进门 healthCheck 确定性收口）；软删按
  *   「先登记后移文件」。事务顺序：预检查 → snapshot 留底 → fs 操作
  *  （linkOrRenameExclusive 独占落位）→ 清单同步 → invalidateTreeIndex。结构性操作
- *   触发旧书建清单（W0-1 §4.2）。
+ *   触发旧书建清单（§4.2）。
  *
  * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
  * 崩溃恢复面在 state.ts assembleStatus（findUnsettled + healMovePending + crashedWrite
@@ -58,7 +58,7 @@ import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords } from '../format/words.js'
 import { sanitizeFileNamePart, sanitizeFullFileName } from '../format/filename.js'
 
-/** 保存输入（W0-1 §5.1）。
+/** 保存输入（§5.1）。
  *  content 为 string | Buffer：Buffer 仅「恢复端点原字节档」分支产生（readVersionRaw
  *  原字节透传），原字节直存保证非 UTF-8 档恢复不失真；文本保存方（编辑器/autosave/
  *  外部合并）仍全量 string。 */
@@ -105,7 +105,7 @@ export type CreateResult =
   | { ok: true; docId: string; path: string; revision: `sha256:${string}` }
   | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR' | 'BAD_INPUT'; reason: string }
 
-/** 复制文档输入（E3.3）。relPath 由前端算好章号 +「副本」标题；后端复制源内容到该 path。 */
+/** 复制文档输入（.3）。relPath 由前端算好章号 +「副本」标题；后端复制源内容到该 path。 */
 interface CopyDocumentInput {
   /** 源文档 docId（须在清单登记）。 */
   docId: string
@@ -153,7 +153,7 @@ export interface DocumentServiceOptions {
   /** 注入队列（测试桩）；默认新建 per-docId 串行队列。 */
   queue?: SaveQueue<SaveResult>
   /** 保存链锁等待档覆盖（毫秒，测试注入；缺省 = 生产常量档）——透传 DocContext
-   *  （R0916-7-P3-6：模块级 ForTest 注入口 → per-ctx 组装参数，语义见 doc-context.ts）。 */
+   *  （模块级 ForTest 注入口 → per-ctx 组装参数，语义见 doc-context.ts）。 */
   saveLockTimeoutMs?: number
   /** 元数据 PATCH 链 save 锁等待档覆盖；缺省同上。 */
   metaSaveLockTimeoutMs?: number
@@ -161,7 +161,7 @@ export interface DocumentServiceOptions {
   wiringSaveLockTimeoutMs?: number
 }
 
-/** snapshot 策略（W0-1 §7）：restore/external-merge 覆盖前、定稿章首改前留底，其余
+/** snapshot 策略（§7）：restore/external-merge 覆盖前、定稿章首改前留底，其余
  *  文档改前留底。保存前留底走节流（policy.throttleMinutes），结构性操作（改名/删除）
  *  不节流。
  *  diskContent / words：调用方已整读的原始字节与已算出的旧文字数——透传免二次读盘与
@@ -241,7 +241,7 @@ async function executeSave(
       reason: `保存前清单查询失败（未执行保存，可重试）：${errMsg(e)}`,
     }
   }
-  if (registered !== null && docJoinKey(registered) !== docJoinKey(relPath)) { // R38-14 win 折叠 + R41-2 NFC 归一
+  if (registered !== null && docJoinKey(registered) !== docJoinKey(relPath)) { // win 折叠 + NFC 归一
     return {
       ok: false,
       code: 'REVISION_CONFLICT',
@@ -287,7 +287,7 @@ async function executeSave(
   // 取锁/释放编排（含锁获取自身抛出的收口）单源在 withSaveLocks，锁序与失败语义不变。
   return ctx.withSaveLocks<SaveResult>({
     journalPath,
-    // R0916-7-P3-6：锁档生效值随容器走（per-ctx 组装参数，缺省 = SAVE_LOCK_TIMEOUT_MS 常量档）
+    // 锁档生效值随容器走（per-ctx 组装参数，缺省 = SAVE_LOCK_TIMEOUT_MS 常量档）
     saveTimeoutMs: ctx.saveLockTimeoutMs,
     onSaveLockThrown: (e) => ({
       ok: false,
@@ -314,7 +314,7 @@ async function executeSave(
       }),
     },
     body: async () => {
-    // R28-5 外层 catch（下方）原挂在取锁后的 try 上——主体迁入本闭包后由本内层 try
+    // 外层 catch（下方）原挂在取锁后的 try 上——主体迁入本闭包后由本内层 try
     // 承接同一收口语义（锁内复核与落盘段的意外抛出统一 WRITE_ERROR）。
     try {
     // 锁内复核：路径登记/回收站认领守卫在取锁前已判一次，但等锁窗口内他进程
@@ -383,7 +383,7 @@ async function executeSave(
 
     // 步骤 4：journal pending（只记元数据，防丢字）
     // pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），且失败须走
-    // SaveResult 契约而非直接抛出（抛出会让 save() 变 rejected promise，调用方易
+    // SaveResult 契约而非直接抛出（抛出会让 save 变 rejected promise，调用方易
     // unhandled rejection）。崩溃检测只看 pending 存在性；恢复材料归版本档原件/前端镜像。
     let opId: string
     try {
@@ -404,7 +404,7 @@ async function executeSave(
       // wordDelta 计算须在 atomicWrite 前读旧内容；readFileSync 失败走本内层 catch →
       // journal 标 aborted（而非孤儿 pending 误报崩溃）。strip fm 口径（与前端
       // updateWordCount 一致）。
-      // 步骤 4.5：算字数 delta（E4）——字节档不记增量：GBK 字节无安全文本视图，失真视图
+      // 步骤 4.5：算字数 delta——字节档不记增量：GBK 字节无安全文本视图，失真视图
       // 的字数是伪值，字数日记宁缺毋错（delta 0）。
       // 保存链副本收敛（200 万字书每笔保存峰值副本 15-25× → 显著回落）：
       // ① 新内容单次 Buffer 化（contentBytes）：写盘与 computeRevisionBytes 共用同一份
@@ -509,7 +509,7 @@ async function executeSave(
       // 刚写入的字节即 content（string→utf8 / Buffer 原样，atomicWriteFile 零转换），
       // computeRevisionBytes 派生与盘上最终态恒等。
       const newRev = computeRevisionBytes(contentBytes)
-      // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
+      // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，§4.2）
       // 清单刷新转 best-effort——此时文件已原子落盘，清单只是可重建索引（树扫盘/
       // repairBooks 自愈收编）；它抛（清单锁超时/磁盘满）若落进下方 catch 会返回
       // WRITE_ERROR：保存实际成功却报失败（编辑器误报、重试撞 REVISION_CONFLICT）。
@@ -620,7 +620,7 @@ async function doCreate(ctx: DocContext, input: CreateDocumentInput): Promise<Cr
     }
     return { ok: false, code: 'WRITE_ERROR', reason: `新建失败：${errMsg(e)}` }
   }
-  // 结构性操作触发建清单（W0-1 §4.2）：无清单则建，加 entry
+  // 结构性操作触发建清单（§4.2）：无清单则建，加 entry
   // 登记失败不误报完全失败（文件已落盘，半成品态由树 legacyId 首次结构性操作
   // adoptLegacyDoc 自愈）：warn 留痕 + 降级返回 legacyId(rel)——树扫描自愈产物是
   // legacy:<hash>，返回原 doc_xxx 会让前端持有的身份与磁盘自愈身份分裂（.版本/journal
@@ -715,7 +715,7 @@ async function doCopy(ctx: DocContext, input: CopyDocumentInput): Promise<CopyRe
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
       }
-      // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
+      // 新 docId + 清单登记（结构性操作触发建清单，§4.2）
       const newDocId = generateDocId()
       // 登记收编同 doCreate：登记失败不误报完全失败，降级返回 legacyId（身份连续）
       let registeredDocId = newDocId
@@ -945,7 +945,7 @@ async function doTrash(ctx: DocContext, docId: string): Promise<TrashResult> {
           const fresh = m.entries.get(docId)
           if (fresh) {
             const freshBaseline = trashBaselineOf(fresh)
-            // R0916-6-nano：stringify 全串比较在此成立——两侧皆 trashBaselineOf 同源
+            // stringify 全串比较在此成立——两侧皆 trashBaselineOf 同源
             // 投影（键集与插入序恒同，非任意对象字面量），串不同 = 内容真异；误判
             // 不同也只多一次幂等基线回填，无引入逐字段比较的维护面。
             if (JSON.stringify(freshBaseline) !== JSON.stringify(priorFinalized)) {
@@ -958,7 +958,7 @@ async function doTrash(ctx: DocContext, docId: string): Promise<TrashResult> {
         })
       }
     } catch {
-      // Z-6（第五十八轮）：注释如实化——并无「树重建自动清理」机制（removeEntry 零生产
+      // 注释如实化——并无「树重建自动清理」机制（removeEntry 零生产
       // 调用方、buildTree 只读不修剪）。残留形态=清单条目指向已不存在路径：树不受影响
       // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
       // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
@@ -980,7 +980,7 @@ function defaultContent(): string {
 /** 文档保存服务（绑定 bookRoot）：组装 DocContext + per-docId 串行队列的薄门面，
  *  各操作本体在模块函数（见模块头注「结构」段）。 */
 export class DocumentService {
-  /** 文档层组装根产出的共享设施容器（R0916-7-P3-8）——所有权与生命周期见
+  /** 文档层组装根产出的共享设施容器——所有权与生命周期见
    *  doc-context.ts 头注：一 ctx 绑一书、随本实例存活，外部只经其显式 API 使用，
    *  不得改写其状态（可变状态一律 private）。 */
   readonly ctx: DocContext
@@ -998,7 +998,7 @@ export class DocumentService {
     this.queue = opts.queue ?? new SaveQueue<SaveResult>()
   }
 
-  /** 保存文档（W0-1 §5.2）。docId 稳定 ID，relPath 书仓库相对路径。 */
+  /** 保存文档（§5.2）。docId 稳定 ID，relPath 书仓库相对路径。 */
   save(docId: string, relPath: string, input: SaveDocumentInput): Promise<SaveOutcome> {
     // 预校验（入队前，不依赖并发状态）
     const safe = this.ctx.resolveSafePath(relPath)
@@ -1020,34 +1020,34 @@ export class DocumentService {
 
   /** docId → relPath（含 legacy 兜底：旧文件首次访问时扫盘反查并补登记清单，
    *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。
-   *  残留清偿批（三十四轮）：legacy 收编链全异步（upsertManifestEntryAsync，
+   *  残留清偿acy 收编链全异步（upsertManifestEntryAsync，
    *  withManifestLockAsync 等待）——同步版 resolvePath/lookupPathByDocId/
    *  adoptLegacyDoc/upsertManifestEntry 已删，服务端点不再以同步 withManifestLock
    *  （Atomics.wait）落在事件循环。 */
   async resolvePathAsync(docId: string): Promise<string | null> {
-    // R0916-7-P3-8：收编链本体（含同步孪生删除记账）迁 doc-context.ts，本处为门面转发。
+    // 收编链本体（含同步孪生删除记账）迁 doc-context.ts，本处为门面转发。
     return this.ctx.lookupPathByDocIdAdoptAsync(docId)
   }
 
-  /** 在途/排队中的保存任务数（跨全部 docId；删书/改名前 drain 探询用，第五轮）。 */
+  /** 在途/排队中的保存任务数（跨全部 docId；删书/改名前 drain 探询用）。 */
   inFlightSaves(): number {
     return this.queue.inFlight()
   }
 
-  // R34D-17（三十四轮）：recover() 盘点方法已删——生产零调用（真恢复面 = state.ts
+  // recover 盘点方法已删——生产零调用（真恢复面 = state.ts
   // assembleStatus：findUnsettled + healMovePending + crashedWrite 报文），且它不做
   // healMovePending 与真恢复面行为分叉，「类上有 recover」的假象覆盖了真实恢复链。
   // 未结算断言请直测 journal.findUnsettled（journal.ts 生产原语）。
 
   // ── 结构性操作（W2A §7）──────────────────
-  // R37-15（三十七轮）注释如实化：旧分隔注释「同步实现」是 R31-20/R34D-19 异步化之前
+  // 注释如实化：旧分隔注释「同步实现」是 /异步化之前
   // 的过时口径——本区 create/move/rename/copy/trash 已全异步（磁盘 IO 用同步原语，
   // 清单/journal/回收站锁等待走 withManifestLockAsync 等异步轮询），原子性由跨进程锁
   // 与独占落位（createFileExclusive / linkOrRenameExclusive）承担，不靠「单线程微任务
   // 不交错」（模块头注同轮同款收口）。
 
   /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。
-   *  R34D-19（三十四轮）：doCreate 转异步——清单登记锁等待走 withManifestLockAsync
+   *  ：doCreate 转异步——清单登记锁等待走 withManifestLockAsync
    *  （setTimeout 轮询，事件循环不阻塞）；对外 Promise 契约不变（原本即 Promise 包装）。 */
   async createDocument(input: CreateDocumentInput): Promise<CreateResult> {
     return doCreate(this.ctx, input)
@@ -1066,10 +1066,10 @@ export class DocumentService {
   /** 更新章节元数据（标题/章号）。
    *  - 长篇 chapter：写 fm + 文件名同步 rename（章号4位-标题.md，docId 不变）。
    *  - 短篇 piece-body：写 fm + 文件名同步 rename（章号3位-标题.md，docId 不变）+ 章纲同名跟随。 */
-  // R31-20（三十一轮）：同进程同 docId meta 操作串行链——锁等待让出事件循环后，
+  // 同进程同 docId meta 操作串行链——锁等待让出事件循环后，
   // 同文档第二请求会撞跨进程锁文件的同进程 pid 自锁语义（等满超时 fail-closed）。
   // promise 链串行保持旧同步版「单线程无交错」行为等价（跨进程互斥仍由文件锁承担）。
-  // R0916-7-P3-8：串行链本体迁 DocContext.chainDocMetaOp（每 ctx 实例状态，严禁提为
+  // 串行链本体迁 DocContext.chainDocMetaOp（每 ctx 实例状态，严禁提为
   // 模块级单例——多服务实例会跨实例串态，见 doc-context.ts 头注）。
   updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
     return this.ctx.chainDocMetaOp(docId, () => updateChapterMetaLocked(this.ctx, docId, meta))
@@ -1077,7 +1077,7 @@ export class DocumentService {
 
   /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
    *  与 updateChapterMeta 的区别：不改文件名（卷纲/总纲文件名不按 章号-标题）。 */
-  // R31-20（三十一轮）：同 updateChapterMeta——锁获取异步化；本方法锁内段纯
+  // 同 updateChapterMeta——锁获取异步化；本方法锁内段纯
   // 同步 FS（read/patch/write，无嵌套锁），链串行与 chapter 面统一（同 docId
   // 双 meta 请求不再撞同进程 pid 自锁窗口）。
   updateDocMeta(docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
@@ -1085,18 +1085,18 @@ export class DocumentService {
   }
 
   /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。
-   *  R34D-19（三十四轮）：doCopy 转异步——清单登记锁等待走 withManifestLockAsync；
-   *  对外 Promise 契约不变。R0916-6-P3-14：全程持源 docId save 锁（与 move/rename/
+   *  ：doCopy 转异步——清单登记锁等待走 withManifestLockAsync；
+   *  对外 Promise 契约不变。：全程持源 docId save 锁（与 move/rename/
    *  trash 同族——对端保存/结构操作进行中时等待，而非 ENOENT 误报）。 */
   async copyDocument(input: CopyDocumentInput): Promise<CopyResult> {
     return doCopy(this.ctx, input)
   }
 
   /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；
-   *  GG-P2-6：登记不成则删不成——先写登记成功再移文件）。
-   *  R34D-19（三十四轮）：doTrash 转异步——回收站登记锁（appendTrashEntryAsync）与
+   *  ：登记不成则删不成——先写登记成功再移文件）。
+   *  ：doTrash 转异步——回收站登记锁（appendTrashEntryAsync）与
    *  尾段清单 RMW 锁（withManifestLockAsync）等待均不阻塞服务事件循环，补齐 trash.ts
-   *  同文件 restore/purge 已异步化（R33D-21）的「半异步」残留；对外 Promise 契约不变。 */
+   *  同文件 restore/purge 已异步化的「半异步」残留；对外 Promise 契约不变。 */
   async trashDocument(input: { docId: string }): Promise<TrashResult> {
     return doTrash(this.ctx, input.docId)
   }

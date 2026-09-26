@@ -32,7 +32,7 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
     </SettingItem>
     <SettingItem v-if="hasDesktop" name="界面字体" desc="侧栏与菜单等 UI 文字">
       <div class="font-pair">
-        <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+        <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
         <FontPicker class="font-select" ariaLabel="界面中文字体" :value="prefs.get('uiFontCn')" :fonts="chineseFonts" :default-font="defaultUiFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontCn', $event)" />
         <FontPicker class="font-select" ariaLabel="界面英文字体" :value="prefs.get('uiFontEn')" :fonts="englishFonts" :default-font="defaultUiFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontEn', $event)" />
       </div>

@@ -7,14 +7,14 @@
  */
 import type { TokenUsage } from './provider/types.js'
 
-/** R41-5（四十一轮）：导出供 runner 文本 mock 快路对齐口径——工具快路 trace/TaskOk
- *  携带 100/50（B-11），文本快路此前记 null，同一 mock 会话两种计量口径分叉。 */
+/** 导出供 runner 文本 mock 快路对齐口径——工具快路 trace/TaskOk
+ *  携带 100/50，文本快路此前记 null，同一 mock 会话两种计量口径分叉。 */
 export const MOCK_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 50 }
 
 /** 各 tool 的 mock input（按 toolName 分发）。
- *  R26-27（二十六轮）：导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts
+ *  ：导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts
  *  静态扫 mockTool 调用面 vs 本表键集）——漏键即 mock 模式下漏斗到真实计费调用，
- *  破坏零成本契约（dd-P2 同型事故），此处靠测试门拦漂移。 */
+ *  破坏零成本契约（dd- 同型事故），此处靠测试门拦漂移。 */
 export const MOCK_TOOL_INPUT: Readonly<Record<string, unknown>> = {
   submit_score: { score: 8, verdict: 'mock 体验：节奏稳健', dims: { 爽点: 8, 节奏感: 7, 拖沓: 3 } },
   submit_emotion: { segments: [{ seg: '开头', emotion: 0, label: 'mock 平稳' }, { seg: '高潮', emotion: 2, label: 'mock 高点' }] },
@@ -24,7 +24,7 @@ export const MOCK_TOOL_INPUT: Readonly<Record<string, unknown>> = {
   submit_infer_meta: { 目标情绪: 'mock 从压抑到释然的救赎', 核心反转: 'mock 真相藏在细节里' },
   submit_issues: { issues: [{ category: 'pacing', severity: 'S3', evidence: '正文原句', issue: 'mock 问题', fix: 'mock 修复' }] },
   submit_text: { 正文: '这是 mock 改写后的正文文本，保持了原有的叙事风格。' },
-  // 关系梳理（RELATION_MINE_SPEC 声明的 mock 快路——dd-P2：此前缺键导致 mock 驱动
+  // 关系梳理（RELATION_MINE_SPEC 声明的 mock 快路——dd-此前缺键导致 mock 驱动
   // 下快路永不命中，配了 provider 就在 mock 模式发真实计费调用，破坏零成本契约）
   submit_relations: {
     relations: [

@@ -1,5 +1,5 @@
 /**
- * 三审任务书 + 审查规格阶梯的确定性契约 —— 依据 M4 #20/#22。
+ * 三审任务书 + 审查规格阶梯的确定性契约 —— 依据 #20/#22。
  *
  * 真模型只负责按任务书产出 JSON；降级判定、证据硬闸、问题聚合和验收归一化
  * 必须留在脚本层，避免主流程口头代替三审。
@@ -24,7 +24,7 @@ type ReviewCategory =
   | 'strand'
   | 'ledger'
   | 'safety'
-  // 短篇单章爆破力维（M8 #28 第 4 节）
+  // 短篇单章爆破力维（#28 第 4 节）
   | 'hook'
   | 'emotion_peak'
   | 'reversal'
@@ -38,7 +38,7 @@ interface LedgerCheck {
 }
 
 /**
- * 单章清单核对条目（M8 #28 第 3 节，设定收尾审的清单驱动核对对象）。
+ * 单章清单核对条目（#28 第 3 节，设定收尾审的清单驱动核对对象）。
  *
  * 长篇 ledger_checks 承接机检 byproducts.leadChanges；
  * 短篇无账本，设定收尾审对 清单.md（反转线索表 + 伏笔回收）逐条核对。
@@ -60,7 +60,7 @@ export interface ReviewTask {
   must_run: boolean
   focus: string[]
   ledger_checks: LedgerCheck[]
-  /** 短篇清单核对条目（M8 #28，设定收尾审用；长篇为空） */
+  /** 短篇清单核对条目（#28，设定收尾审用；长篇为空） */
   list_checks?: PieceListCheck[]
   output_contract: {
     json_only: true
@@ -141,9 +141,9 @@ const SEVERITY_RANK: Record<ReviewSeverity, number> = {
  * 长短篇统一按数据存在性条件化：
  * - 基础：reader + editor（恒跑）
  * - 有布线：+ continuity（设定校对，账本清单驱动）
- * - kind==='short'（config.kind，经 hasShort 传入；R28-12 注释口径对齐实装）：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
+ * - kind==='short'（config.kind，经 hasShort 传入；注释口径对齐实装）：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
  *
- * R65-26（十三轮）：默认 hasWiring:false——原 true 是反向兜底（短篇书调用方漏传
+ * 默认 hasWiring:false——原 true 是反向兜底（短篇书调用方漏传
  * opts 时凭空多出 continuity 视角与账本核对）；生产唯一调用方（run.ts buildReviewPacket）
  * 显式传参，缺省 = 无布线的最小任务书（reader + editor）。
  */
@@ -195,7 +195,7 @@ export function buildReviewTasks(
 }
 
 /**
- * 短篇三审任务书（M8 #28 第 2 节，维度重写为单章爆破力）。
+ * 短篇三审任务书（#28 第 2 节，维度重写为单章爆破力）。
  *
  * 三视角围绕「开篇抓人 / 情绪反转到位 / 伏笔收尾不崩」重组，非长篇三视角映射：
  * - 钩子审（hook）：开篇钩子 / 黄金 300 字 / 单章追读牵引 / 表达流畅
@@ -207,7 +207,7 @@ export function buildReviewTasks(
 function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
   // 短篇无账本 byproducts，清单核对条目由调用方经 report 之外的清单解析注入；
   // report.sections 不含清单，这里从 report.byproducts?.pieceListChecks 取（若有）
-  // 复审-0913-源码 P3-⑲：删 as 断言直取——check/types.ts CheckReport.byproducts
+  // -源码 -⑲：删 as 断言直取——check/types.ts CheckReport.byproducts
   // 已含形状一致的 pieceListChecks 字段，断言属冗余（tsc 直取可查）
   const listChecks: PieceListCheck[] = report.byproducts?.pieceListChecks ?? []
 
@@ -240,7 +240,7 @@ function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
   ]
 }
 
-/** 按 M4 #22 选择能诚实执行的最高审查档。lenses 决定 lenses_run（长短混合视角）。 */
+/** 按 #22 选择能诚实执行的最高审查档。lenses 决定 lenses_run（长短混合视角）。 */
 export function selectReviewTier(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
@@ -250,13 +250,13 @@ export function selectReviewTier(input: {
 }): ReviewTierDecision {
   const remaining = Math.max(0, Math.floor(input.remaining_calls))
   const lensesRun = input.lenses
-  // V-P1-8：满审调用数 = 实际视角数（长篇 2-3、短篇 5），不再是硬编码 3——
+  // 满审调用数 = 实际视角数（长篇 2-3、短篇 5），不再是硬编码 3——
   // 短篇满审实际产 5 份 packets，预算闸只校验 3 会让 planned_calls 与分包数自相矛盾，
   // 高风险章「必须满审」的校验同样低估。
   const fullCalls = Math.max(1, lensesRun.length)
 
   if (input.high_risk) {
-    // X-P2-7：高风险章的红线是「禁止降级合审」，不是「必须有并行能力」——顺序满审
+    // 高风险章的红线是「禁止降级合审」，不是「必须有并行能力」——顺序满审
     // （多次独立调用，独立性由分包+分视角保证）与并行满审同构，本端点实现本就是串行循环。
     // 原判定「无并行能力即 fail」与 capabilities 硬编码 false 组合成死端：红项章三审必 500。
     if (remaining < fullCalls) {
@@ -335,7 +335,7 @@ export function selectReviewTier(input: {
 }
 
 /** 合并满审 / 顺序审的多份 issue：同 lens/category/location 去重，取最严。
- *  R73-25（二十一轮）：去重键纳入 issue 摘要——同位置的两条不同问题（如「动机断裂」
+ *  ：去重键纳入 issue 摘要——同位置的两条不同问题（如「动机断裂」
  *  与「时间线矛盾」都在同一段落）此前共用一键，后到条只把 issue/fix 文本丢成空合并
  *  （existing 非空时 `if (existing.issue === '')` 不触发），第二条问题整条蒸发。
  *  现按「同位置且同一句问题描述」才判同一问题合并（severity 取最严/evidence 并集/
@@ -356,7 +356,7 @@ export function aggregateReviewIssues(issues: ReviewIssue[]): ReviewIssue[] {
     }
     existing.blocking = Boolean(existing.blocking || issue.blocking)
     existing.evidence = uniq([...existing.evidence, ...issue.evidence].map((item) => item.trim()).filter(Boolean))
-    // R0916-nano-2（四轮处置批）：issue 补填行删除——去重键已含 issue.trim()（R73-25），
+    // （四轮处置批）：issue 补填行删除——去重键已含 issue.trim，
     // 合并双方 issue 文本恒相等，「existing 空且新条非空」恒不可达（死条件）；
     // fix 不在键内，一空一实可达，补填保留。
     if (existing.fix.trim() === '' && issue.fix.trim() !== '') existing.fix = issue.fix
@@ -389,7 +389,7 @@ export function isBlockingIssue(issue: ReviewIssue): boolean {
   if (issue.blocking) return true
   if (issue.severity === 'S1' || issue.severity === 'S2') return true
   // 长篇 ledger（账本造假）+ 短篇 reversal（反转信息差不成立）/ payoff（伏笔未回收）+ safety 恒阻断
-  // （#20 第 5 节 + M8 #28 第 4 节：这些 category 是「造假/弃坑」级，必阻断）
+  // （#20 第 5 节 + #28 第 4 节：这些 category 是「造假/弃坑」级，必阻断）
   return (
     issue.category === 'ledger' ||
     issue.category === 'reversal' ||

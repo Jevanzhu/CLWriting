@@ -1,11 +1,11 @@
 /**
- * 设定台 REST 端点（#7.5 P1 长篇只读 + P2 角色卡结构化读）。
+ * 设定台 REST 端点（#7.5 长篇只读 + 角色卡结构化读）。
  *
  * GET  /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
  * GET  /api/books/:name/completion-names → 角色姓名 + 物品名称（编辑器补全用）
  *
- * P2 知识层:角色卡 front matter 约定(姓名/身份/目标/境界)+ 正文(性格/外貌/履历自由描述)。
- * 境界体系强结构化(RealmDoc);角色 P2 结构化;时间线自由 MD;关系线从账本。
+ * 知识层:角色卡 front matter 约定(姓名/身份/目标/境界)+ 正文(性格/外貌/履历自由描述)。
+ * 境界体系强结构化(RealmDoc);角色结构化;时间线自由 MD;关系线从账本。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
@@ -21,26 +21,31 @@ import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源（R0916-7-P3-6：走 ctx.gate 实例）
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // /：长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { yieldToEventLoop } from '../../../async.js' // R0917-6-P3-1：扫描段让出原语（rhythm/progress 同源）
+import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（rhythm/progress 同源）
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
+  /** 收尾：settings / completion-names 两缓存 TTL 覆盖档——组装根
+ * RouteOverrides 注入（undefined = 生产口径 5s 逐位不变）。completion-names 沿旧
+ * 回落链：本壳覆盖 → settings 覆盖 → 常量。 */
+  settingsTtlMs?: number | null
+  completionNamesTtlMs?: number | null
 }
 
-/** R42-39（四十二轮）：md 词干剥尾（大小写不敏感）——basename(x, '.md') 只剥精确小写，
+/** md 词干剥尾（大小写不敏感）——basename(x, '.md') 只剥精确小写，
  *  .MD 时兜底名会带扩展名（.MD 文件此前还被本文件三处扫描过滤静默失明，一并收敛）。
- *  对齐 leads.ts R40-11 口径。 */
+ * 对齐 leads.ts 口径。 */
 function mdStem(name: string): string {
   return isMdFileName(name) ? name.slice(0, -3) : basename(name, '.md')
 }
 
 /** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文）。
- *  R0912-ds41（重评-deepseek-v4.1-flash P2-2）：读面异步化 + fm 头读——此前
+ * 读面异步化 + fm 头读——此前
  *  readFile 不带 content 回退 readFileSync 整文件同步读（角色卡正文全进 IO 面，
  *  长篇书库单请求阻塞事件循环百毫秒级），改走 readFileFmOnly（头部限量字节提 fm，
  *  围栏不完整回退全读；解析与错误文案单源不变）。 */
@@ -48,7 +53,7 @@ async function readFmNames(dir: string, field: string): Promise<string[]> {
   const names: string[] = []
   let files: string[]
   try {
-    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    // .md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
     // 目录不存在/读取失败 → 空列表（原 existsSync 前置 + readdirSync try/catch 同口径）
     files = (await readdir(dir)).filter((x) => isMdFileName(x) && !x.startsWith('._'))
   } catch {
@@ -65,15 +70,14 @@ async function readFmNames(dir: string, field: string): Promise<string[]> {
   return names
 }
 
-/** 角色卡读取 + 设定上下文注入已下沉 src/process/settings-context.ts（P1-8 架构治理） */
+/** 角色卡读取 + 设定上下文注入已下沉 src/process/settings-context.ts（架构治理） */
 import { readCharacterCards } from '../../../process/settings-context.js'
 import { log } from '../../../log/index.js'
-import { testableConst } from '../../../shared/testable.js'
 
 export type { CharacterCard } from '../../../process/settings-context.js'
 
-// ── R46-16（四十六轮）：settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
-// 手法照抄同族先例 rhythm.ts / foreshadows.ts（R44-8：探针 + 纯 TTL + FIFO 上限 +
+// ── settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
+// 手法照抄同族先例 rhythm.ts / foreshadows.ts（探针 + 纯 TTL + FIFO 上限 +
 // 书键 forget 挂点）：GET /settings 此前每请求全量重算 settingsLong——境界体系读取 +
 // 角色卡目录整读 + 时间线 md 扫描 + 关系线账本 + relations.json + countChapters 递归
 // 列正文目录，设定台面板打开/轮询反复触发。指纹按本端点实际读面构成：境界体系.md 与
@@ -83,23 +87,19 @@ export type { CharacterCard } from '../../../process/settings-context.js'
 // TTL 与先例同值）。计算是同步单段（无在途并发窗口），缓存壳取先例同款同步形态。
 const SETTINGS_CACHE_TTL_MS = 5000
 const SETTINGS_CACHE_MAX = 32
-/** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
- *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
- *  r0912-ds41-ttl-gates.test.ts（TTL 命中/过期/指纹失效三态门），不再零引用。
- *  重评-0912-4 批并修 deepseek-P2-2 起**同控两壳**：本注入口同时作为 completion-names
- *  壳 TTL 生效值的回落档（该壳自有注入口优先，见下方同族块）。
- *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；
- *  setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getSettingsTtlMs, __setSettingsCacheTtlForTest] = testableConst<number | null>(null)
-/** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。
- *  重评-0912-4 批并修 deepseek-P2-2 起**同清两壳**（completion-names 见下方同族块）。 */
+/** 收尾：__setSettingsCacheTtlForTest / __setCompletionNamesCacheTtlForTest
+ * 删除——TTL 覆盖档改组装根 RouteOverrides 注入（两缓存 getter 的覆盖尾参，随实例
+ * 隔离；completion-names 沿旧回落链「本壳覆盖 → settings 覆盖 → 常量」，由 getter
+ * 调用点以 `completionNamesTtlMs ?? settingsTtlMs` 表达）。 */
+/** 删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。
+ * 批并修 deepseek- 起**同清两壳**（completion-names 见下方同族块）。 */
 export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.forget(bookRoot)
   completionNamesCache.forget(bookRoot)
 }
-/** R0916-7-P3-6 钩子收敛：R46-16/R0912-ds41 的 4 个观测钩子（__settingsScanCountForTest
+/** 钩子收敛：/的 4 个观测钩子（__settingsScanCountForTest
  *  / __completionNamesScanCountForTest 与各自 reset）删除——MISS 计数收编进缓存壳
- *  （ttl-cache.ts 的 stats()），回归用例改读下面导出的两壳实例的 stats()/resetStats()。
+ *  （ttl-cache.ts 的 stats），回归用例改读下面导出的两壳实例的 stats/resetStats。
  *  导出实例即观测面（生产对象，非测试专用 API）。 */
 
 /** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
@@ -121,26 +121,26 @@ function settingsSignature(bookRoot: string): string {
   ].join(',')
 }
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 + FIFO 32；
- *  特记 evictExpiredOnMiss:false——本壳原无 R47-18 过期顺手逐出行，逐条核对后按原
+ *  特记 evictExpiredOnMiss:false——本壳原无过期顺手逐出行，逐条核对后按原
  *  样保留，见 ttl-cache.ts 头部收敛映射表）。 */
-/** R0916-7-P3-6：导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
+/** 导出供回归用例读 stats 观测（MISS 计数收编在壳内）。 */
 export const settingsCache = createTtlProbeCache<string, unknown>({
   name: 'settings',
   keyOf: (k) => k,
   max: SETTINGS_CACHE_MAX,
-  ttl: () => getSettingsTtlMs() ?? SETTINGS_CACHE_TTL_MS,
+  ttl: () => SETTINGS_CACHE_TTL_MS,
   probe: settingsSignature,
   computeSync: (bookRoot) => settingsLong(bookRoot),
-  // R0917-6-P3-1（2026-09-17 全库源码重评六轮修复批）：async 孪生——本端点此前是全域
+  // async 孪生——本端点此前是全域
   // 唯一「MISS 同步全书扫描」的书键端点（同域 search/foreshadows/rhythm/progress/
   // overview 均已落 async 孪生）。MISS 时同步链（境界体系 + 角色卡整目录 + 时间线目录 +
   // 关系线 + 正文目录计数）整段无让出，本地 HTTP 服务端与桌面主进程同事件循环，大书首
-  // 请求会卡住同刻的 SSE/IPC 心跳。让出范式与 rhythmComputeAsync（重评-0914-三轮 P3-2）
+  // 请求会卡住同刻的 SSE/IPC 心跳。让出范式与 rhythmComputeAsync
   // 逐位同款：扫描段前后各让出一次，结果复用同一 computeSync 体（逐位一致），并发 MISS
   // 经 in-flight 去重只扫一次。
-  // 0918独立重评修复批（D001）：上句宣称此前不成立——创建 options 缺 inFlight，去重在
+  // 0918修复批（D001）：上句宣称此前不成立——创建 options 缺 inFlight，去重在
   // ttl-cache.ts 只走 opts.inFlight 分支（同族 search.ts/rhythm.ts/foreshadows.ts 均有），
   // 并发 MISS 各起一个 job 全量重扫。补 inFlight:true 后与宣称逐位一致：同键并发 MISS
   // 合并为同一 Promise（判定段已先行走完命中判定/过期处理，evictExpiredOnMiss:false
@@ -150,40 +150,40 @@ export const settingsCache = createTtlProbeCache<string, unknown>({
   evictExpiredOnMiss: false,
 })
 
-/** R46-16：settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
- *  R0917-6-P3-1：生产路径已改走 async 孪生（下方 getSettingsCachedAsync）；同步版
- *  保留原样作回归测试直测面（rhythm 域 getRhythmCached 同款处置）。 */
-export function getSettingsCached(bookRoot: string): unknown {
-  return settingsCache.getSync(bookRoot)
+/** settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
+ *  ：生产路径已改走 async 孪生（下方 getSettingsCachedAsync）；同步版
+ * 保留原样作回归测试直测面（rhythm 域 getRhythmCached 同款处置）。
+ * 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根 RouteOverrides 经
+ * handler 传入；直测面显式传——undefined = 生产口径 5s）。 */
+export function getSettingsCached(bookRoot: string, ttlOverrideMs?: number | null): unknown {
+  return settingsCache.getSync(bookRoot, ttlOverrideMs ?? undefined)
 }
 
-/** R0917-6-P3-1：缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致（同壳
+/** 缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致（同壳
  *  共 Map 同 TTL 同签名），MISS 时走 settingsLongAsync 让出 + in-flight 去重。
  *  导出供回归测试直测。边界如实记：扫描体内核（readCharacterCards / readChapterDir 等）
  *  仍是单段同步读——本孪生只保证端点 handler 链上不再是「无让出的整段同步链」，
  *  不宣称内核已可中断。 */
-export function getSettingsCachedAsync(bookRoot: string): Promise<unknown> {
-  return settingsCache.get(bookRoot)
+export function getSettingsCachedAsync(bookRoot: string, ttlOverrideMs?: number | null): Promise<unknown> {
+  return settingsCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
-// ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：completion-names「目录指纹 + TTL」缓存壳 ──
-// 手法照抄上方 R46-16 settings 缓存壳（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
+// ── completion-names「目录指纹 + TTL」缓存壳 ──
+// 手法照抄上方 settings 缓存壳（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
 // 无任何缓存键，每次请求两遍全目录 fm 读（切书 + 编辑器 @ 键 5min 补拉反复触发）。
 // 指纹按本端点实际读面构成：设定/角色、设定/物品 两目录 mtime（增删改名落盘可见）；
-// 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与 R46-16 同值，宁多扫不脏读）。
+// 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与 同值，宁多扫不脏读）。
 // 计算体已异步化（事件循环无阻塞段），缓存壳取同款「同步检查 + 异步计算」形态。
-// 重评-0912-4 批并修 deepseek-P2-2 同题在 mac 树独立落地，win 合并批（2026-09-13）
+// 批并修 deepseek- 同题在 mac 树独立落地，win 合并批
 // 收口合成：forget 挂点收编 forgetSettingsCache 同清两壳（删书/改名即时出清，较
-// R0912-ds41 首版「TTL/FIFO 自然出清」收紧）；TTL 生效值链 = 本壳注入口 → settings
+// 首版「TTL/FIFO 自然出清」收紧）；TTL 生效值链 = 本壳注入口 → settings
 // 壳注入口（同控回落档）→ 常量。
 const COMPLETION_NAMES_CACHE_TTL_MS = 5000
 const COMPLETION_NAMES_CACHE_MAX = 32
-/** R0912-ds41：TTL 测试注入口（命名对齐 __setSettingsCacheTtlForTest 先例）。仅测试用。
- *  注 null 回落 settings 壳注入口，再回落常量（win 合并批合成口径）。
- *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖；setter 元组第二位
- *  原名原签名，测试面零感知）。 */
-export const [getCompletionNamesTtlMs, __setCompletionNamesCacheTtlForTest] = testableConst<number | null>(null)
-/** R0912-ds41 回归观测（R0916-7-P3-6 起经导出的壳实例读 stats()，钩子已删；见上方同族注）。 */
+/** 收尾：__setCompletionNamesCacheTtlForTest 删除——TTL 覆盖档改组装根
+ * RouteOverrides 注入（getCompletionNamesCached 覆盖尾参；回落链「本壳覆盖 → settings
+ * 覆盖 → 常量」由调用点 `completionNamesTtlMs ?? settingsTtlMs` 表达，随实例隔离）。 */
+/** 回归观测（起经导出的壳实例读 stats，钩子已删；见上方同族注）。 */
 
 /** completion-names 读面指纹：设定/角色 + 设定/物品 目录 mtime。 */
 function completionNamesSignature(bookRoot: string): string {
@@ -197,19 +197,19 @@ function completionNamesSignature(bookRoot: string): string {
   return [dirSig('设定', '角色'), dirSig('设定', '物品')].join(',')
 }
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 异步计算 + FIFO 32；
- *  特记 evictExpiredOnMiss:false（原无 R47-18 逐出行）+ TTL 链「本壳注入口 → settings
+ *  特记 evictExpiredOnMiss:false（原无逐出行）+ TTL 链「本壳注入口 → settings
  *  壳注入口 → 常量」以闭包原样表达，见 ttl-cache.ts 头部收敛映射表）。
- *  0918独立重评修复批（D001）：补 inFlight:true——本壳计算体全异步（readFmNames
+ * 0918修复批（D001）：补 inFlight:true——本壳计算体全异步（readFmNames
  *  readdir/fm 读），并发 MISS（切书 + 编辑器 @ 补拉同刻触发）此前各扫一遍全目录；
  *  补后同键并发合并为一次扫描（settings 壳同款语义，见上方 D001 注）。 */
-/** R0916-7-P3-6：导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
+/** 导出供回归用例读 stats 观测（MISS 计数收编在壳内）。 */
 export const completionNamesCache = createTtlProbeCache<string, unknown>({
   name: 'completion-names',
   keyOf: (k) => k,
   max: COMPLETION_NAMES_CACHE_MAX,
-  ttl: () => getCompletionNamesTtlMs() ?? getSettingsTtlMs() ?? COMPLETION_NAMES_CACHE_TTL_MS,
+  ttl: () => COMPLETION_NAMES_CACHE_TTL_MS,
   probe: completionNamesSignature,
   computeAsync: async (bookRoot) => {
     const setDir = join(bookRoot, '设定')
@@ -223,33 +223,36 @@ export const completionNamesCache = createTtlProbeCache<string, unknown>({
   evictExpiredOnMiss: false,
 })
 
-/** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测（重评
- *  -0912-4 口径，直调须 await）；R0912-ds41 起读面异步化 + fm 头读。响应体契约
- *  { characters, items } 逐字节不变（键序/结构与改前一致）。 */
-export async function getCompletionNamesCached(bookRoot: string): Promise<unknown> {
-  return completionNamesCache.get(bookRoot)
+/** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测（
+ *  -0912-4 口径，直调须 await）；起读面异步化 + fm 头读。响应体契约
+ * { characters, items } 逐字节不变（键序/结构与改前一致）。
+ * 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根 RouteOverrides 经
+ * handler 以回落链传入；直测面显式传——undefined = 生产口径 5s）。 */
+export async function getCompletionNamesCached(bookRoot: string, ttlOverrideMs?: number | null): Promise<unknown> {
+  return completionNamesCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
   defineRoute('books.settings', {
     method: 'GET',
     path: '/api/books/:name/settings',
-    // R0917-6-P3-1：handler 挂 async 走 async 主路（router dispatch 对 async handler
+    // handler 挂 async 走 async 主路（router dispatch 对 async handler
     // 已有 catch 兜底，rhythm 域同款）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
     const bookRoot = r.bookRoot
-    // R46-16：全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
-    // R0917-6-P3-1：改走 async 孪生（扫描段让出 + in-flight 去重），同步版保留为
+    // 全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
+    // 改走 async 孪生（扫描段让出 + in-flight 去重），同步版保留为
     // 回归测试直测面；响应 schema 逐位不变
-    reply(res, 200, await getSettingsCachedAsync(bookRoot))
+    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+    reply(res, 200, await getSettingsCachedAsync(bookRoot, ctx.settingsTtlMs ?? undefined))
   },
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
-  // R0912-ds41（重评-deepseek-v4.1-flash P2-2）与 重评-0912-4 批并修 deepseek-P2-2
+  // 与 批并修 deepseek-
   // 两树同题独立落地，win 合并批收口合成：走缓存壳（命中即跳过全目录 fm 读）+
   // handler 异步化——扫描体不再同步阻塞事件循环；响应契约不变
   defineRoute('books.completion-names', {
@@ -258,7 +261,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    reply(res, 200, await getCompletionNamesCached(r.bookRoot))
+    // 收尾：TTL 覆盖档经 ctx 逐调用传入（回落链「本壳 → settings → 常量」）
+    reply(res, 200, await getCompletionNamesCached(r.bookRoot, ctx.completionNamesTtlMs ?? ctx.settingsTtlMs ?? undefined))
   },
   })
 
@@ -269,9 +273,9 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    // R75-D-P3a（批 D）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='relations-mine:<书名>'）
-    // ——十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见
+    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+    // -①中断通道（owner='relations-mine:<书名>'）
+    // ——十段复制收编 runGatedGeneration 单源（接法头注见
     // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
     return ctx.gate.runGatedGeneration(res, {
       book: params['name']!,
@@ -280,13 +284,13 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       busyText: '本书正在梳理角色关系，请等待完成后再试',
     }, async (ctrl) => {
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
-      //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
-      // R0916-7-P3-13（输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
+      // （readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
+      // （输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
       // 既有语义，故留内联读取并显式判型（force 仅此一处消费，无第二套校验口径）：
       // ① 闸先于读体——runGatedGeneration 的编排互斥/task 闸 409 必须早于 body 400，
       //    迁 parse 要把闸搬进 gate，而闸包装正本在 task-gate.ts（本批范围外）；
       // ② 容错读取——非 HttpError 的连接层失败按空 body 兜底继续（同 providers.test 的
-      //    R26-63 口径），defineRoute 的 readJson 失败先于 parse 短路回 400，容错不可表达。
+      // 口径），defineRoute 的 readJson 失败先于 parse 短路回 400，容错不可表达。
       const body = (await readJson(req).catch((e: unknown) => {
         if (e instanceof HttpError) throw e
         return {}
@@ -304,12 +308,12 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         userDataPath: ctx.userDataPath,
         bookRoot,
         userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
-        // Z-1（第五十八轮）：聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
+        // 聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
         promptFiles: mined.files,
-        ctrl, // R0912-P2-①：中断通道透传
+        ctrl, // -①：中断通道透传
       })
       if (!out.ok) {
-        // R0912-P2-①：中断收口——ABORTED → 499 人话信封。D4（复审-0914-优化修复批）：
+        // -①：中断收口——ABORTED → 499 人话信封。：
         // 状态映射收编 replyGenerationFailure 单源；本端点文案变体逐位保留（ABORTED 固定
         // 「已中断」非 out.error、其余坍缩 GEN_FAIL 并组装「AI 梳理失败:…」）——经形状
         // 归一喂单源，status 判定（499/500）与信封字节不变。
@@ -319,13 +323,13 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       }
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
       const relations = input?.relations ?? []
-      // R48-77（四十八轮）：零关系也是合法产出——此前空结果不落缓存，下次请求重新
+      // 零关系也是合法产出——此前空结果不落缓存，下次请求重新
       // 烧一遍 AI 费用；且该分支返回 cached:true 语义失真（实为新鲜产出非缓存命中）。
       // 空数组同样落盘，与有产出共用下方写路径，本请求如实标 cached:false
-      // R0912-P3-③：落盘前重验书注册（对齐 style.ts R0911-B-P3-4 现行防线）——runSpec
+      // -③：落盘前重验书注册（对齐 style.ts 现行防线）——runSpec
       // 分钟级 await 窗口内书可能被删/改名，向旧 bookRoot 写 .clwriting/relations.json
       // 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。已删或变化 → 409 BOOK_MOVED。
-      // 并合注（R0912-B-P3-2）：本地同构实现已收敛 book-context.ts bookMovedFailure 单源。
+      // 并合注：本地同构实现已收敛 book-context.ts bookMovedFailure 单源。
       const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
@@ -341,8 +345,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
   })
 }
 
-/** R0917-6-P3-1：async 孪生 MISS 计算体（生产路径）。让出范式同 rhythmComputeAsync /
- *  progress.ts R37-3（扫描段前后各一次），数值与 settingsLong 逐位一致（复用同一体）。 */
+/** async 孪生 MISS 计算体（生产路径）。让出范式同 rhythmComputeAsync /
+ * progress.ts （扫描段前后各一次），数值与 settingsLong 逐位一致（复用同一体）。 */
 async function settingsLongAsync(bookRoot: string): Promise<unknown> {
   await yieldToEventLoop()
   const value = settingsLong(bookRoot)
@@ -361,7 +365,7 @@ function settingsLong(bookRoot: string): unknown {
     if (rr.doc.正文) realm.正文 = rr.doc.正文
   }
 
-  // 角色卡(P2 结构化) / 时间线(自由 MD)
+  // 角色卡(结构化) / 时间线(自由 MD)
   const characters = readCharacterCards(join(setDir, '角色'), bookRoot)
   const timeline = scanFreeMd(join(setDir, '时间线'))
 
@@ -404,8 +408,8 @@ function settingsLong(bookRoot: string): unknown {
 /** AI 关系梳理缓存的相对路径（.clwriting/relations.json）。 */
 const RELATION_CACHE = '.clwriting/relations.json'
 
-// R0912-P3-③（2026-09-11 重评-0911c 修复批）：本端点书注册重验原持本地同构实现
-// relationsBookMoved；并合 R0912-B-P3-2（2026-09-12 第十篇修复批）后收敛到
+// -③：本端点书注册重验原持本地同构实现
+// relationsBookMoved；并合 后收敛到
 // book-context.ts bookMovedFailure 单源（判定口径与人话文案逐字一致），本地拷贝删除。
 
 /** 读 AI 关系梳理缓存（不存在/损坏 → 空）。返回 relations 数组 + 梳理时的章节数（新鲜度判断用）。 */
@@ -432,7 +436,7 @@ function readRelationCache(bookRoot: string): {
 }
 
 /** 组关系梳理输入材料：名册 + 角色卡摘要 + 已写正文节选（防超长，正文截断）。 */
-/** Z-1（第五十八轮）：返回 {text, files}——files 为实际注入源的相对路径清单
+/** 返回 {text, files}——files 为实际注入源的相对路径清单
  *  （铁律①「模型可见⟺已记录」；角色卡按目录登记，与 rules 词表同口径） */
 function buildMineContext(bookRoot: string): { text: string; files: string[] } {
   const parts: string[] = []
@@ -467,7 +471,7 @@ function buildMineContext(bookRoot: string): { text: string; files: string[] } {
     const mdFiles = listMdRecursive(proseDir).slice(0, 8)
     if (mdFiles.length) {
       const excerpts = mdFiles.map((f) => {
-        const rel = relative(bookRoot, f).replace(/\\/g, '/') // P5-数据层（第七轮）：M-4 收口漏点（展示口径统一正斜杠）
+        const rel = relative(bookRoot, f).replace(/\\/g, '/') // -数据层： 收口漏点（展示口径统一正斜杠）
         const t = readFileSync(f, 'utf8').replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ').trim().slice(0, 200)
         files.push(rel)
         return `### ${rel}\n${t}`
@@ -484,8 +488,8 @@ function listMdRecursive(dir: string): string[] {
   if (!existsSync(dir)) return out
   for (const f of readdirSync(dir, { recursive: true })) {
     if (typeof f !== 'string') continue
-    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
-    // R49-7（评审 R49）：recursive readdir 条目含子目录前缀（如 `卷一/._001.md`）——
+    // .md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    // （评审）：recursive readdir 条目含子目录前缀（如 `卷一/._001.md`）——
     // startsWith 只拦顶层，嵌套 AppleDouble 文件漏拦，污染 countChapters 与
     // relations.mine 的正文节选（拼 AI prompt）。改段级判定：任一路径段以 `._`
     // 开头即过滤（win/posix 分隔符都顾）；扁平条目单段，与 overview.ts 等扁平版
@@ -549,7 +553,7 @@ function scanFreeMd(dirPath: string): { 标题: string; 摘要: string }[] {
   if (!existsSync(dirPath)) return out
   let files: string[]
   try {
-    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    // .md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
     files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return out
@@ -565,11 +569,11 @@ function readFreeMd(filePath: string): { 标题: string; 摘要: string } {
   try {
     text = readFileSync(filePath, 'utf8')
   } catch {
-    // R42-39（四十二轮）：剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
+    // 剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
     return { 标题: mdStem(filePath), 摘要: '' }
   }
   const m = text.match(/^#\s+(.+)$/m)
-  // R42-39（四十二轮）：剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
+  // 剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
   const 标题 = m ? m[1]!.trim() : mdStem(filePath)
   const body = text.replace(/^#[^\n]*\n?/m, '').trim()
   const 摘要 = body.slice(0, 120).trim()

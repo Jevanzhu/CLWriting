@@ -2,19 +2,19 @@ import { ref, watch, onUnmounted, toValue, type Ref, type WatchSource } from 'vu
 import { countWords, stripFrontmatter, parseFmFields } from '../shared/words'
 
 /**
- * R46-4/R46-5（四十六轮）：字数统计与 fm 字段解析的 150ms 防抖共享 composable——
- * EditorView wordCount（R39-20）同款口径的推广。countWords（全文正则替换 + 码点展开）
+ * /：字数统计与 fm 字段解析的 150ms 防抖共享 composable——
+ * EditorView wordCount 同款口径的推广。countWords（全文正则替换 + 码点展开）
  * 与 parseFmFields（split('
 ') + join 两趟全文大分配）每击键 O(n)，此前右栏「信息」
  * 面板 / 本章历史 / 专注条 / AI 分析 / 顶栏标题 watch / 工作台流式字数直连每事件重算
  * （长章连续键入或 IME 组合输入下与 CM6 输入处理争预算、抬高 GC 频率；流式生成期
  * 每 text 事件重算更是 O(N²/chunk) 累计）。显示/派生延迟一拍无感。
  *
- * key 源（docId）变化（切文档）即刻重算——R43-17 同款纪律：防抖窗不滞留旧文档值；
+ * key 源（docId）变化（切文档）即刻重算—— 同款纪律：防抖窗不滞留旧文档值；
  * 卸载清定时器；初值取当拍（首屏/挂载即时）。关键时点（如退出专注汇报增量）消费方
- * 可先 flush() 同步取当拍内容重算，防 150ms 窗内低估。
+ * 可先 flush 同步取当拍内容重算，防 150ms 窗内低估。
  *
- * R0916-7-P3-26：本件是字数防抖的唯一入口——EditorView 顶栏的手写副本已换装（R39-20
+ * 本件是字数防抖的唯一入口——EditorView 顶栏的手写副本已换装（
  * 原实现的「单折」），四方消费点（顶栏 / 专注条 / 信息面板 / 本章历史）共用下方单槽记忆。
  */
 
@@ -52,14 +52,14 @@ function debouncedDerived<T>(
 }
 
 /**
- * R0916-7-P3-26（0916-7 批）：字数派生单槽记忆——同一份正文（内容串相等）同口径下只算
+ * （0916-7 批）：字数派生单槽记忆——同一份正文（内容串相等）同口径下只算
  * 一次 countWords。此前 EditorView 顶栏 / FocusStatsBar / WritingInfoPanel / HistoryPanel
  * 四方各自防抖后各跑一遍全文码点展开（MB 级长章每个 150ms 窗口 4 趟 O(n)）；四方 watch
  * 同一 doc.content，同一拍携带同一个内容串，先到者计算、其余命中（见 EditorView 消费点
  * 头注：顶栏内容源已改 entry.content 对齐右栏）。
  *
  * 键只取「内容 + 口径」，docId 不入键：countWords 是内容的纯函数，内容相等结果必同，
- * docId 只决定内容来自哪份文档、不参与计算（R43-17 的「防抖窗不滞留旧文档值」由键源
+ * docId 只决定内容来自哪份文档、不参与计算（的「防抖窗不滞留旧文档值」由键源
  * 变化即刻重算保证，与记忆无关）。刻意用单槽而非按 docId 建 Map——单槽只持有最近一次
  * 计算的内容串引用（该串本就是 doc store 的当前在编内容），按 docId 累积则每个开过的章
  * 都留一份 MB 级字符串、随会话增长不释放。两条不同内容交替（工作台草稿流 vs 编辑器正文）

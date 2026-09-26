@@ -18,7 +18,7 @@ import { friendlyError } from '../../shared/error'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
 //   + 右键菜单（五类）+ inline 新建/重命名 + 删除/移动 + 拖拽移动。
-// Z-P2-10 拆分：纯工具 → shared/chapter-tree.ts；菜单构建 → useTreeMenu；
+// 拆分：纯工具 → shared/chapter-tree.ts；菜单构建 → useTreeMenu；
 //   CRUD 动作 → useChapterTreeActions；本组件只留装配/模板/生命周期。
 
 const props = defineProps<{ bookName: string }>()
@@ -34,8 +34,8 @@ const activePath = computed<string | null>(
   () => (ws.activeDocId ? doc.get(ws.activeDocId)?.path ?? null : null),
 )
 
-// R1010-P3（G6-③）：roving tabindex 停靠行——active 行优先（active 恒在渲染面：
-// RENDER_CAP 滑窗含 active，R55-G-2）；active 不在树（无打开文档/陈旧）回落首行。
+// （-③）：roving tabindex 停靠行——active 行优先（active 恒在渲染面：
+// RENDER_CAP 滑窗含 active）；active 不在树（无打开文档/陈旧）回落首行。
 const tabstopPath = computed<string | null>(() => {
   if (activePath.value && tree.byPath.has(activePath.value)) return activePath.value
   return tree.grouped[0]?.path ?? null
@@ -57,22 +57,22 @@ function toggle(path: string): void {
   const next = new Set(expanded.value)
   if (next.has(path)) next.delete(path)
   else next.add(path)
-  // E-3（二十九轮）：展开/折叠走 setTreeExpanded——置「用户已操作」位，挡住迟到的
-  // loadBookPrefs 回填覆盖（比照 activeDocId 的 R72-11 守卫口径）
+  // 展开/折叠走 setTreeExpanded——置「用户已操作」位，挡住迟到的
+  // loadBookPrefs 回填覆盖（比照 activeDocId 的守卫口径）
   ws.setTreeExpanded([...next])
 }
 
 async function onSelect(node: TreeNode): Promise<void> {
   if (node.isDirectory || !node.docId) return
-  // 重审-G17（2026-09-07 全量代码重审 §四.G17）：切书挂起期跨书守卫——切书链
+  // （§四.G17）：切书挂起期跨书守卫——切书链
   // （flushDirty/确认弹窗挂起段）route 已到新书、本组件 watch 已 load 新树并渲染，
-  // 但 ws.bookName 链尾才 setBook；此窗口点新书树，下方 E-2 快照基线取的是旧书名，
+  // 但 ws.bookName 链尾才 setBook；此窗口点新书树，下方快照基线取的是旧书名，
   // open 落定复检「旧===旧」恒过，新书 docId 开进仍属旧书的工作区（activeDocId/
   // tabs 跨书污染）。前置一致性守卫：树归属（props.bookName）与工作区归属
   // （ws.bookName）不一致即忽略本次点击——链尾 setBook 落定后即可正常点击。
   if (props.bookName !== ws.bookName) return
   openError.value = null
-  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书（新书同名路径命中旧书
+  // await 前快照书名——doc.open 在途切书（新书同名路径命中旧书
   // docId）后不得把旧书文档开进新书工作区
   const bookAtClick = ws.bookName
   try {
@@ -92,8 +92,8 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
 }
 function onBlankContextMenu(e: MouseEvent): void {
   // 节点项 contextmenu 冒泡到此：节点 handler 已设对应菜单，跳过避免被空白菜单覆盖
-  // R1010c-FE1-P3-5（2026-09-10 全量独立复审修复批）：排除 tree-cap-hint 省略提示行——
-  // 其 class 同含 tree-item（ChapterTreeItem R54-G-1 提示行），closest('.tree-item')
+  // （修复批）：排除 tree-cap-hint 省略提示行——
+  // 其 class 同含 tree-item（ChapterTreeItem 提示行），closest('.tree-item')
   // 会把它误当节点吞掉右键，成「节点菜单/空白菜单都出不来」的死区；提示行非节点，
   // 右键应落空白菜单
   if ((e.target as HTMLElement).closest('.tree-item:not(.tree-cap-hint)')) return
@@ -104,13 +104,13 @@ function onBlankContextMenu(e: MouseEvent): void {
   popup(menu.blankItems, e.clientX, e.clientY, (key) => actions.onMenuSelect(key, menuNode.value))
 }
 
-// R26-74（二十六轮）：首开判定改显式 per-book 标记——原 `treeExpanded.length <= 1`
+// 首开判定改显式 per-book 标记——原 `treeExpanded.length <= 1`
 // 启发式会把「作者刻意只留一个展开组」的持久化意图误判为首次打开（切书往返/重开
 // 设置即触发），静默重置成默认展开。标记落 localStorage（刷新后仍生效），同一本书
 // 只在真·首次打开时套默认展开；localStorage 不可用时保守视作非首开（不动作者展开态）。
-// R28-3（二十八轮）：首开键改经 shared/storage-keys 单一事实源拼出（原局部常量
+// 首开键改经 shared/storage-keys 单一事实源拼出（原局部常量
 // 'clw2.tree-first-open.' 为点号形态，而 useShelf 删书清扫硬编码冒号形态致键名
-// 断裂、R26-74 标记删书清不掉——收敛后写入/清除同源，根因详见 useShelf R28-3 注释）
+// 断裂、标记删书清不掉——收敛后写入/清除同源，根因详见 useShelf 注释）
 function consumeFirstOpen(book: string): boolean {
   try {
     const key = treeFirstOpenKey(book)
@@ -125,11 +125,11 @@ function consumeFirstOpen(book: string): boolean {
 watch(
   () => props.bookName,
   async (name, old) => {
-    // N-13（第十二轮）：切书先清内联编辑态——creating/renamePath/metaEditing/draggedPath
+    // 切书先清内联编辑态——creating/renamePath/metaEditing/draggedPath
     // 挂的是旧书路径/docId，留着会在新树渲染出无主输入框/弹窗（immediate 首跑 old 为
     // undefined 时无旧态可清，跳过）
     if (old !== undefined && old !== name) actions.resetInlineState()
-    // E-7（二十九轮）：脏路由 name='' ——前书的树/红点/今日字数展示态一并清掉（原
+    // 脏路由 name='' ——前书的树/红点/今日字数展示态一并清掉（原
     // `if (!name) return` 直接返回，A 书树滞留展示在无书界面）；store 内推代，在途
     // 旧书 load/红点/基线响应落定不回填
     if (!name) {
@@ -138,15 +138,15 @@ watch(
       return
     }
     await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
-    // R65-56（E-8）：load 在途切书守卫——A 书慢 load 落定时书名已换 B，后续 set
+    // load 在途切书守卫——A 书慢 load 落定时书名已换 B，后续 set
     // treeExpanded（按落定时的 grouped 算默认展开）与 ensureBaseline('A')（words 的
     // reqGen 后调者胜——A 反客为主覆盖 B 的今日字数）都会打到 B 头上
     if (props.bookName !== name) return
-    // R35-10：load 失败短路——load catch 只置 error 不清 raw，旧书树滞留时若继续走
+    // load 失败短路——load catch 只置 error 不清 raw，旧书树滞留时若继续走
     // 首开展开/基线，会用旧书总字数给新书 POST 今日基线（words-diary 脏写）。留空错误
     // 提示（模板 err 分支），等窗口回前台重扫或手动刷新恢复。
     if (tree.error) return
-    // 首次打开（显式 per-book 标记，见 R26-74 注释）→ 一级目录 + 写作/正文
+    // 首次打开（显式 per-book 标记，见注释）→ 一级目录 + 写作/正文
     if (consumeFirstOpen(name)) {
       ws.treeExpanded = defaultExpandedDirs(tree.grouped)
     }
@@ -159,7 +159,7 @@ watch(
 // 窗口回前台 → 重扫盘。外部编辑器 / CLI / AI 写的文件不经 invalidateTreeIndex，
 // 服务端树缓存不会自己失效；切回 app 是「想看到最新状态」的最强信号。
 // 节流 2s：避免频繁切窗口时反复触发全盘扫描（buildTree 含 git status + 字数统计）。
-// R59 清偿批（R55-G-3）：维持登记——探针需契约面，待立项。按「版本未变跳过重扫」
+// 清偿批维持登记——探针需契约面，待立项。按「版本未变跳过重扫」
 // 降频不可行：服务端树 revision 是进程级计数（document/tree.ts getBookTreeIndex，
 // ++globalRevision），只在库内 mutation invalidate 重建时递增，外部改盘不推进它——
 // 拿它探「外部有没有改」恒判「没变」，恰好放走的正是本重扫要抓的场景；书根清单
@@ -190,7 +190,7 @@ watch(
     <div v-if="tree.loading" class="hint">加载中…</div>
     <div v-else-if="tree.error" class="hint err">{{ tree.error }}</div>
     <div v-else-if="!tree.grouped.length" class="hint">（无章节）</div>
-    <!-- R1010-P3（G6-③）：tree 语义 + 唯一 Tab 停靠（tabstop 行），行内 roving 见 ChapterTreeItem -->
+    <!-- （-③）：tree 语义 + 唯一 Tab 停靠（tabstop 行），行内 roving 见 ChapterTreeItem -->
     <div v-else class="tree-list" role="tree" aria-label="章节树">
       <ChapterTreeItem
         v-for="n in tree.grouped"
@@ -233,7 +233,7 @@ watch(
       @select="onPopupSelect"
       @close="onPopupClose"
     />
-    <!-- 重评-0912-2 P3：prop 名「标题」→ title（fm 数据键「标题」在弹窗 emit 边界转换，本侧不变） -->
+    <!-- ：prop 名「标题」→ title（fm 数据键「标题」在弹窗 emit 边界转换，本侧不变） -->
     <ChapterMetaDialog
       :model-value="!!actions.metaEditing.value"
       :num="actions.metaEditing.value?.num ?? null"
@@ -242,7 +242,7 @@ watch(
       @update:model-value="(v: boolean) => { if (!v) actions.metaEditing.value = null }"
       @save="actions.onSaveMeta"
     />
-    <!-- 阶段 24（S4）：拆分弹窗（干跑视图 + 标题输入；确认后携 planHash 执行） -->
+    <!-- 阶段 24：拆分弹窗（干跑视图 + 标题输入；确认后携 planHash 执行） -->
     <SplitChapterDialog
       :model-value="!!actions.splitEditing.value"
       :plan="actions.splitEditing.value?.plan ?? null"

@@ -9,7 +9,7 @@ import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
 // 阶段 53：更新提示横幅（有新正式版时提示 + 指路下载）
 import UpdateBanner from './components/ui/UpdateBanner.vue'
-// R42-3/R42-4（四十二轮）：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
+// /：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
 // /welcome、/library、书库独立窗口上 ui.toast 静默失效（switchLibrary 取消原因/
 // openLibraryDir 失败无渲染点）、系统菜单「设置/新建书/导出」（CmdOrCtrl+, / Cmd+N /
 // Cmd+E 经 useAppActions 只置 store 标志位）在非工作区路由整面静默空操作。五件均
@@ -24,24 +24,24 @@ import ExportDialog from './components/ui/ExportDialog.vue'
 const router = useRouter()
 const { dispatch: dispatchAction } = useAppActions()
 const prefs = usePrefsStore()
-// R58-A-1（五十八轮）：订阅句柄提升到 setup 顶层——onBeforeUnmount 此前注册在
+// 订阅句柄提升到 setup 顶层——onBeforeUnmount 此前注册在
 // onMounted 回调体内（该时机无活动组件实例，钩子永不绑定，off 清理成死代码且每次
 // 启动产「no active component instance」dev 告警）；句柄/清理同层注册，全库 on/off
 // 配对口径收齐。
 let offNavigate: (() => void) | undefined
 let offMenuAction: (() => void) | undefined
-type FlushPrefsWindow = Window & { __clwFlushPrefs?: () => void | Promise<void> } // R60-D-1：flushPendingPersist 返回改 Promise<void> 后的契约注记
+type FlushPrefsWindow = Window & { __clwFlushPrefs?: () => void | Promise<void> } // flushPendingPersist 返回改 Promise<void> 后的契约注记
 onMounted(() => {
   // 书架独立窗口（win=shelf）：不 redirect，保持书架页
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
   // 主窗口接收书架窗口的导航（选书 → 主进程转发 → router.push）
-  // R33-88（三十三轮）：监听句柄成对清理（根组件常驻无实害，防御性收口对齐全库口径）
+  // 监听句柄成对清理（根组件常驻无实害，防御性收口对齐全库口径）
   offNavigate = window.clwritingDesktop?.onNavigate((path) => {
     router.push(path)
   })
   // 系统菜单 click → 主进程转发 actionKey → dispatch 到 store 动作（与命令面板同源）
   offMenuAction = window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
-  // R58-B-2（五十八轮）：关窗前全局偏好冲刷钩子——主进程 flushRendererBeforeClose 的
+  // 关窗前全局偏好冲刷钩子——主进程 flushRendererBeforeClose 的
   // 同一 executeJavaScript 表达式内调用（Electron 卸载路径禁同步 XHR，不能靠 beforeunload）；
   // 500ms 防抖窗内的最后一次改动随关窗落盘，不再丢。任何窗口（含书库/书架独立窗）都可用。
   ;(window as FlushPrefsWindow).__clwFlushPrefs = () => prefs.flushPendingPersist()
@@ -50,14 +50,14 @@ onMounted(() => {
   let startBook: string | null = getLastInitialBook()
   if (!startBook) {
     try {
-      startBook = localStorage.getItem(LAST_BOOK_KEY) // R60-D-4：键收敛 storage-keys 单源
+      startBook = localStorage.getItem(LAST_BOOK_KEY) // 键收敛 storage-keys 单源
     } catch {
       /* 忽略 */
     }
   }
-  // R50-D1-2（五十轮）沿革：lastBook 恢复直进曾以裸 location.pathname 判根路径（与初始
+  // 沿革：lastBook 恢复直进曾以裸 location.pathname 判根路径（与初始
   // 导航有竞态），改读路由态；但其「isReady 后 path === '/'」判据在 redirect 路由下失效。
-  // 重评2-P1-1（2026-09-09 全量重评 GLM-5.3）修复：isReady() 在初始导航（含 redirect）
+  // 2-（GLM-5.3）修复：isReady 在初始导航（含 redirect）
   // 完成后 resolve，'/' 已被 router.ts redirect 到 '/shelf'，此刻 currentRoute.path 恒为
   // '/shelf'、'===' 恒假——lastBook 恢复与 --book 首启直进（getLastInitialBook 汇入同
   // 分支）确定性失效。判据更正为「本次由根路径进入」：优先 redirectedFrom?.path === '/'，
@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
     <StartupNoticeBanner />
     <UpdateBanner />
     <router-view />
-    <!-- R42-3/R42-4：全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
+    <!-- /：全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
     <Toast />
     <ConfirmPrompt />
     <SettingsModal />

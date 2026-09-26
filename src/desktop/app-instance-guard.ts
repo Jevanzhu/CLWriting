@@ -1,5 +1,5 @@
 /**
- * 应用实例文件锁守卫（R0913-win P3-13，2026-09-13 全库源码重评 win 适配修复批）。
+ * 应用实例文件锁守卫（win 适配修复批）。
  *
  * Electron requestSingleInstanceLock 在提权差异（管理员/普通用户各开一份）下失效
  * ——锁按会话/提权上下文隔离，两侧各自返回 true → 双开互踩 workdir.json /
@@ -28,9 +28,9 @@ export interface AppInstanceGuard {
   /** true = 本实例放行（文件锁在持 / 同进程已在持 / 锁面异常 fail-open）；
    *  false = 检测到他实例在持（含跨提权形态），调用方应退出 */
   acquired: boolean
-  /** 幂等释放（process.once('exit') 内部退出钩子消费——R0913-win P3-13 批起不再挂
+  /** 幂等释放（process.once('exit') 内部退出钩子消费—— 批起不再挂
    *  will-quit〔与 main.test.ts Electron 假件交互致 worker OOM，如实记档〕；未真持
-   *  锁时为 no-op，生产路径无需调用）。复审-0914-修复批 P3-R2-4：JSDoc 过时指针记正。 */
+   *  锁时为 no-op，生产路径无需调用）。- -：JSDoc 过时指针记正。 */
   release(): void
 }
 

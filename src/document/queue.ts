@@ -1,5 +1,5 @@
 /**
- * 每文档串行保存队列（W0-1 §5.2 步骤 3 / W0-2 §5 第三层互斥）。
+ * 每文档串行保存队列（§5.2 步骤 3 / §5 第三层互斥）。
  *
  * - 每 docId 一条独立串行队列：同文档并发保存串行执行，结果不交错。
  * - requestToken：每 docId 单调递增；旧请求完成时若已有更新请求入队 → superseded=true，
@@ -63,7 +63,7 @@ export class SaveQueue<R> {
   }
 
   /** 在途/排队中的保存任务数（跨全部 docId）。执行中的项已 shift 出 pending、由
-   *  running 单独计——删书/改名前 drain 探询用（第五轮）。 */
+   *  running 单独计——删书/改名前 drain 探询用。 */
   inFlight(): number {
     let n = 0
     for (const q of this.docs.values()) {
@@ -94,7 +94,7 @@ export class SaveQueue<R> {
       )
   }
 
-  /** P-3（第十四轮）：队列排空后回收 docId 条目——per-docId Map 原先永不删除，
+  /** 队列排空后回收 docId 条目——per-docId Map 原先永不删除，
    *  长会话多书下条目随历史 docId 无界累积（每条几十字节，纯卫生）。
    *  maxToken 随条目重置无害——回收时该 docId 无未决 promise，superseded 比较不跨回收窗口。 */
   private afterPump(q: DocQueue<R>): void {
@@ -102,7 +102,7 @@ export class SaveQueue<R> {
     else this.pump(q)
   }
 
-  /** 在册 docId 条目数（P-3 回收行为的测试观测口）。 */
+  /** 在册 docId 条目数（回收行为的测试观测口）。 */
   queuedDocCount(): number {
     return this.docs.size
   }

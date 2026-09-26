@@ -1,5 +1,5 @@
 /**
- * `clwriting init` 逻辑层 —— 依据 M5 #30（GUI 建书入口，CLI 退场后仅剩此消费）。
+ * `clwriting init` 逻辑层 —— 依据 #30（GUI 建书入口，CLI 退场后仅剩此消费）。
  *
  * 装工作目录（非 git）+ 建第一本书（去 git 自管版本的书仓库）→ 登记 books.jsonl。
  * 角色壳 / templates 角色源 / .clwriting/dist 随 CLI 退场不再生成。
@@ -16,7 +16,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
 import type { LeadType } from '../format/types.js'
-import { errMsg } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
+import { errMsg } from '../log/index.js' // errMsg 收编：错误文案三目单源
 
 interface InitOptions {
   /** 工作目录（cwd 或显式指定）；init 在此建书 */
@@ -27,7 +27,7 @@ interface InitOptions {
   genre?: string
   /** 扩展账本类（--leads 直接指定；否则按题材推荐） */
   leads?: readonly string[]
-  /** 长篇/短篇（默认 long；short 细节归 M8） */
+  /** 长篇/短篇（默认 long；short 细节归） */
   kind?: 'long' | 'short'
   /** AI 宿主（决策 12/22，默认 cc；首版只 cc） */
   host?: 'cc' | 'codex'
@@ -59,7 +59,7 @@ const CLWRITING_DIR = '.clwriting'
  * init 主流程（#30 第 5 节 9 步，CLI 退场后收敛为：骨架 + scaffold + 登记）。
  * 非交互：调用方已收集 name/genre/leads；交互式逃生由 CLI 层处理（本函数纯逻辑）。
  *
- * R36-9/R36-26（三十六轮）：主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
+ * /：主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
  * 瞬时段），登记段（books.lock）收口为独立步骤——同步版 doInit 经 appendBook、
  * 异步孪生 doInitAsync 经 appendBookAsync（AcquireAsync：事件循环不阻塞）。
  * GUI 建书端点统一走 doInitAsync；本同步版保留供测试/CLI 残余合法同步面。
@@ -75,16 +75,16 @@ export function doInit(opts: InitOptions): InitResult {
   })
   if (!appendRes.ok) return appendRes
   // 0918二轮修复批（G104）：writeActive 收编进 appendBookLocked 同临界段（books.ts）
-  // ——此前此处锁外裸写 writeActiveGuarded（R44-18 的受控包装随收编拆除），双进程
+  // ——此前此处锁外裸写 writeActiveGuarded（的受控包装随收编拆除），双进程
   // 并发建书最后写者胜；active 写失败的 reason 文案单源迁 books.ts，语义不变。
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
 }
 
 /**
- * doInit 的异步孪生（R36-9/R36-26）——登记段（books.jsonl 读改写）走 appendBookAsync
+ * doInit 的异步孪生（/）——登记段（books.jsonl 读改写）走 appendBookAsync
  * （tryBooksLockAsync：setTimeout 轮询，事件循环不阻塞）。GUI 建书端点
  * （POST /api/books）承载 SSE/全部接口，此前经同步 appendBook 的 Atomics.wait
- * 在双进程争写窗口最坏停 5s（R36-26：CLI 建书同根漏网）。前置各步骤与同步版
+ * 在双进程争写窗口最坏停 5s（CLI 建书同根漏网）。前置各步骤与同步版
  * 逐位同源（doInitSteps 共用，结果恒等）；仅登记锁等待异步化。失败语义不变：
  * { ok:false, reason 人话 }，永不 reject。
  */
@@ -105,22 +105,22 @@ export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
 /** doInit/doInitAsync 共用的登记前主流程（校验/幂等/骨架/scaffold；同步瞬时段）。 */
 function doInitSteps(opts: InitOptions): InitStepOutcome {
   const workDir = resolve(opts.workDir)
-  // 平台规范化批（2026-09-03）：书名 NFC 归一——书名直接用作目录名（books.jsonl 的
+  // 平台规范化批：书名 NFC 归一——书名直接用作目录名（books.jsonl 的
   // name/path 同源），mac 侧输入的 NFD 形态名跨机即「找不到文件」；归一在全部校验与
   // 拼接之前，登记与目录天然一致。存量 NFD 目录无自动归一通路——原注释所称「由启动
-  // 迁移 v4 改名归一」的 v4 已拆除（R42-41 四十二轮更正此失效表述），跨机失联时需
+  // 迁移 v4 改名归一」的 v4 已拆除（四十二轮更正此失效表述），跨机失联时需
   // 手工改名回 NFC 形态。
   const bookName = opts.name.normalize('NFC')
   if (!bookName) return { ok: false, reason: '书名不能为空' }
-  // R74-11（七十四轮批 D）：书名 UTF-8 字节上限显式校验——超长名 mkdir ENAMETOOLONG
+  // 书名 UTF-8 字节上限显式校验——超长名 mkdir ENAMETOOLONG
   // 裸抛破坏 {ok:false,reason} 契约。isInvalidBookName 已收录同判据作单源防御，但其
   // 通用分支的消息不含「过长」语义；本检查须在前，给出专门人话原因（上限推导见
   // books.ts BOOK_NAME_MAX_BYTES 头注，120 字节 ≈ 40 个汉字）
   if (Buffer.byteLength(bookName, 'utf8') > BOOK_NAME_MAX_BYTES) {
     return { ok: false, reason: `书名过长（上限约 ${Math.floor(BOOK_NAME_MAX_BYTES / 3)} 个汉字），请缩短后重试` }
   }
-  // P2-27：逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
-  // （复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集与跨平台原因）
+  // 逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
+  // （-mac适配：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集与跨平台原因）
   if (isInvalidBookName(bookName)) {
     return { ok: false, reason: BOOK_NAME_INVALID_REASON }
   }
@@ -135,12 +135,12 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   }
 
   // 幂等检查：同名书已登记或目录已存在 → 拒绝覆盖。
-  // 低级项（第六轮）：目录存在但「未登记 + 有骨架 + 正文零 .md」判为上次 init 在
+  // 低级项：目录存在但「未登记 + 有骨架 + 正文零 .md」判为上次 init 在
   // scaffold 与登记之间崩掉的半成品——复跑幂等 scaffold（覆盖自身占位）续走登记，
   // 不再把用户卡死在「换个书名或先清空它」。
   const existingBooks = readBooks(workDir)
   const registered = existingBooks.some((b) => b.name === bookName)
-  // R44-11（四十四轮）：目录占用维度补 dev+ino 物理身份防线（appendBookLocked 同源）——
+  // 目录占用维度补 dev+ino 物理身份防线（appendBookLocked 同源）——
   // mac 默认 APFS（大小写不敏感）上《Foo》建后未写正文（半成品）再建《foo》：名字
   // 判重不命中（保严格 ===，书名唯一性语义不变），下方「目录存在但 isResumableHalfScaffold
   // 放行」分支会让幂等 scaffold 覆写他书 book.yaml 后才在登记段被拒——盘面与登记已
@@ -152,9 +152,9 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   if (occupying) {
     return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${bookPath}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
   }
-  // P5-数据层（第七轮）：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
+  // -数据层：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
   // {ok:false,reason} 契约——先行判定给出可读原因
-  // R62-39：existsSync/statSync 之间存在窗口——同步盘/并发 init 下目录恰在两次调用
+  // existsSync/statSync 之间存在窗口——同步盘/并发 init 下目录恰在两次调用
   // 之间被移走/删除时 statSync 裸抛 ENOENT 破坏 {ok:false,reason} 契约，收编为显式原因
   let bookRootIsFile = false
   if (existsSync(bookRoot)) {
@@ -167,7 +167,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   if (bookRootIsFile) {
     return { ok: false, reason: `路径「${bookName}」被同名文件占用（不是目录），换个书名或先移走它` }
   }
-  // L-D2（第八轮）：readdirSync 收编——目录存在但 EACCES（同步盘/备份恢复中的权限
+  // L-D2readdirSync 收编——目录存在但 EACCES（同步盘/备份恢复中的权限
   // 残留）时裸抛同样破坏 {ok:false,reason} 契约（与上方同名文件 ENOTDIR 同族）
   let existingEntries: string[] = []
   if (existsSync(bookRoot)) {
@@ -181,7 +181,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     if (registered || !isResumableHalfScaffold(bookRoot)) {
       return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
     }
-    // G202（0918三轮修复批）：半成品恢复前对账 book.yaml 书名——R44-11 占用判重只查
+    // G202（0918三轮修复批）：半成品恢复前对账 book.yaml 书名—— 占用判重只查
     // 已登记书，半成品（未登记）在大小写不敏感卷上以 case 变体书名重试会复跑幂等
     // scaffold 并按**新名**登记，而盘上目录保持**首试**大小写 → repair 扫盘取盘上
     // 真名/真路径，与登记的 name/path 两处大小写敏感比对全都不匹配 → 新发现分支
@@ -202,7 +202,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   const leadsEnabled: LeadType[] = kind === 'short'
     ? []
     : opts.leads
-      // R48-57（四十八轮）：收编 data.ts sanitizeLeadsEnabled 单源（原本地副本逐位同，
+      // 收编 data.ts sanitizeLeadsEnabled 单源（原本地副本逐位同，
       // 单源侧却「生产零调用反挂测试上」两相反）；opts.leads 为 readonly，展开传参
       ? sanitizeLeadsEnabled([...opts.leads])
       : opts.genre
@@ -211,7 +211,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
 
   // 步骤 5：工作目录骨架（非 git，幂等复用）
   // 步骤 6：书仓库 scaffold（book.yaml + 6.2 目录 + 文风占位 + 初始 manifest——去 git，见 scaffold.ts）
-  // R74-11（七十四轮批 D）：mkdir 族文件系统错误收编——书名/书库深度组合超 win
+  // mkdir 族文件系统错误收编——书名/书库深度组合超 win
   // MAX_PATH（ENAMETOOLONG）、路径段被同名文件占用（ENOTDIR）、权限（EACCES）等
   // 此前从 scaffold 裸抛穿 doInit，破坏 {ok:false,reason} 契约（调用方按 reason 人话
   // 展示，裸 throw 直接炸启动链）；统一收编为可读原因
@@ -223,7 +223,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   }
 
   // 步骤 8：登记 books.jsonl + 设活动书——由调用方（同步 doInit / 异步 doInitAsync）
-  // 完成：登记段持 books.lock（R63-2），同步/异步孪生按调用面分发（R36-9/R36-26
+  // 完成：登记段持 books.lock，同步/异步孪生按调用面分发（/
   // 建书锁异步化：GUI 端点走 doInitAsync → appendBookAsync，事件循环不阻塞）
   return { ready: true, workDir, bookRoot, bookName, bookPath, kind }
 }
@@ -234,7 +234,7 @@ function scaffoldWorkDir(workDir: string): void {
 }
 
 /**
- * 低级项（第六轮）：半成品 scaffold 判定。
+ * 低级项：半成品 scaffold 判定。
  * 判据：有 book.yaml（我们的骨架签名，区分用户自建目录）且 写作/正文 下零 .md
  * （正文是唯一不可再生区——零文件即无用户内容可损失；骨架其余占位均幂等可重建）。
  */
@@ -252,13 +252,13 @@ function countMarkdownFiles(dir: string): number {
   }
   let n = 0
   for (const e of entries) {
-    // 复审-0913-mac适配 P3-1：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
+    // -mac适配：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
     // mac 同步盘 AppleDouble 资源分叉 `._0001-x.md` 被 isMdFileName 误计为正文，
     // 仅剩垃圾伴生文件的目录被误判「有内容」、半成品恢复被拒；语义上正文目录仅含
     // `._` 垃圾即「零正文」（这正是修复目的）
     if (e.name.startsWith('.')) continue
     if (e.isDirectory()) n += countMarkdownFiles(join(dir, e.name))
-    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
     // .MD 正文不计数会让半成品判定漂移（有内容的书被当零正文半成品复跑幂等 scaffold）
     else if (isMdFileName(e.name)) n += 1
   }

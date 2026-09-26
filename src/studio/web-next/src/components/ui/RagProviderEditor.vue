@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// RAG 提供方新增/编辑表单（I1 纯重构拆分自 AiServicePanel + 阶段 14 P6 Key 前端校验）。
+// RAG 提供方新增/编辑表单（纯重构拆分自 AiServicePanel + 阶段 14 Key 前端校验）。
 // 草稿为组件本地状态；校验与 API 写入留在父层（AiServicePanel.saveRag）。
 // 表单骨架/输入/胶囊按钮用 providers.css 共享类。
 import { ref, computed } from 'vue'
@@ -9,7 +9,7 @@ import { apiKeyFailure } from '../../shared/provider-format'
 const props = defineProps<{
   /** 编辑目标（null = 新增）；挂载时快照初始化（与原 v-if 重建语义一致） */
   initial: RagProviderDto | null
-  /** 父层保存在途（R73-62）：校验与 API 写入在父层（AiServicePanel.saveRag），在途锁也在
+  /** 父层保存在途：校验与 API 写入在父层（AiServicePanel.saveRag），在途锁也在
    *  父层——在途时禁保存按钮 + 文案反馈，挡双击第二笔重复提交 */
   saving?: boolean
 }>()
@@ -25,7 +25,7 @@ const form = ref(
     : { name: '', endpoint: '', model: '', apiKey: '' },
 )
 
-/** P6：新增必填且形状校验；编辑留空 = 保留原 key。 */
+/** 新增必填且形状校验；编辑留空 = 保留原 key。 */
 const keyError = computed(() => {
   if (props.initial && !form.value.apiKey) return null
   return apiKeyFailure(form.value.apiKey)
@@ -56,12 +56,12 @@ const keyError = computed(() => {
           class="text-input"
         />
         <span v-if="keyError" class="key-error">{{ keyError }}</span>
-        <!-- A-3（RC 全项目源码重审）：原「vault 加密」为失真断言——保护强度单源见 src/desktop/os-kek.ts（钥匙串通道搁置开关 OS_KEK_SHELVED）与 src/ai/provider/vault-key.ts（混淆级自述），恢复 safeStorage 时须同步改回本行文案及 AiServicePanel 顶部告知段 -->
+        <!-- （RC 全项目）：原「vault 加密」为失真断言——保护强度单源见 src/desktop/os-kek.ts（钥匙串通道搁置开关 OS_KEK_SHELVED）与 src/ai/provider/vault-key.ts（混淆级自述），恢复 safeStorage 时须同步改回本行文案及 AiServicePanel 顶部告知段 -->
         <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（本机保存，留空即保留）</span>
       </div>
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>
-        <!-- R73-62：保存按钮在途禁用 + 文案反馈 -->
+        <!-- ：保存按钮在途禁用 + 文案反馈 -->
         <button class="save-btn" :disabled="saving" @click="emit('save', { ...form })">{{ saving ? '保存中…' : '保存' }}</button>
       </div>
     </div>
@@ -70,8 +70,8 @@ const keyError = computed(() => {
 
 <style scoped>
 /* 表单骨架/输入/胶囊按钮均来自 providers.css 共享类。 */
-/* 凭据状态点（I6·P3）：hasKey 来自服务端 vault 存在性推导（与 AiProviderEditor 同则） */
-/* .key-stored 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
+/* 凭据状态点：hasKey 来自服务端 vault 存在性推导（与 AiProviderEditor 同则） */
+/* .key-stored 收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
 .rag-provider-section {
   display: grid;
   gap: var(--size-4-2);

@@ -4,7 +4,7 @@
  *
  * 背景：P3-14 前锁文件名 = 截断 sha256(action+NUL+book)（单向不可逆），跨进程查「本书
  * 有哪些任务在跑」只能拿 KNOWN_ACTIONS/GATED_ACTIONS 两张注册表逐个哈希探测，于是需要
- * 两张表 + 两份静态对账门（本文件 + test/studio/r0914-gated-actions-audit.test.ts）防漏
+ * 两张表 + 两份静态对账门防漏
  * 登记。文件名改 `${action}.${hash(book)}.lock` 后列目录即可枚举（action 自描述），注册表
  * 与两份对账门随批删除；换来一条新的、同等重要的不变量：
  *

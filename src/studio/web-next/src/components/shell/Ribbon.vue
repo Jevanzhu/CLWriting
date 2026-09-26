@@ -30,7 +30,7 @@ const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 const { isMac, platform } = usePlatform()
-// R40-42（四十轮）：tooltip 组合键平台文案（win → Ctrl+；原静态写死 ⌘B/⌘,）
+// tooltip 组合键平台文案（win → Ctrl+；原静态写死 ⌘B/⌘）
 const treeTip = `章节树（${modComboLabel('Mod+B', platform)}）`
 const settingsTip = `设置（${modComboLabel('Mod+,', platform)}）`
 
@@ -41,12 +41,12 @@ function openShelf(): void {
 // 书库：独立管理窗口（切换/最近/新建书库，进程级操作需单独窗口）
 function openLibraryManager(): void {
   if (window.clwritingDesktop) {
-    // R33D-31（三十三轮）：IPC 失败 toast 交代（窗口创建失败静默 = 点击无响应）
+    // IPC 失败 toast 交代（窗口创建失败静默 = 点击无响应）
     window.clwritingDesktop.openLibraryWindow().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
   } else {
-    // R0912-FE-P3-8（2026-09-11 重评-0911b 修复批）：浏览器版（无 preload 注入）点击
+    // （b 修复批）：浏览器版（无 preload 注入）点击
     // 此前静默无响应——补 else 交代。书库管理是进程级操作（独立窗口），浏览器版无对应
-    // 能力，如实告知而非假装可用（对齐 R33D-31「点击必须有响应」口径）。
+    // 能力，如实告知而非假装可用（对齐 「点击必须有响应」口径）。
     ui.toast('书库管理仅桌面版可用', 'info')
   }
 }

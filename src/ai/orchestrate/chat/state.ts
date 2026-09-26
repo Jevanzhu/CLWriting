@@ -12,9 +12,9 @@ import { log, errMsg } from '../../../log/index.js'
 
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
 
-/** R70-12（十八轮）：对话总超时缺省值——finish.ts 超时文案同源换算（防参数化后
+/** 对话总超时缺省值——finish.ts 超时文案同源换算（防参数化后
  *  文案与实际值漂移）。
- *  R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：CC-P2-2 起 deadlineMs 可注入，
+ *  （修复批）： 起 deadlineMs 可注入，
  *  超时文案改按实际生效 deadline（opts.deadlineMs ?? 本常量，与 chat.ts runChatInner
  *  的 resolve 同式）换算——原「文案按缺省口径展示」声明作废。 */
 export const AGENT_DEADLINE_MS = 30 * 60_000
@@ -22,9 +22,9 @@ export const AGENT_DEADLINE_MS = 30 * 60_000
 export interface ChatRunState {
   ctrl: AbortController
   deadline: number
-  /** CC-P2-2：deadline 定时器已触发——ctrl.abort 的来源区分（用户中断 vs 超时） */
+  /** deadline 定时器已触发——ctrl.abort 的来源区分（用户中断 vs 超时） */
   timedOut?: boolean
-  /** P5-AI（第七轮）：超时终局的确认 callId 集合——turn 循环据此区分「确认超时」与
+  /** 超时终局的确认 callId 集合——turn 循环据此区分「确认超时」与
    *  「作者取消」两文案（原先一律回「作者取消了该操作」，对模型归因误导） */
   confirmTimedOut?: Set<string>
   /** 挂起中的工具确认：callId → resolve */
@@ -46,22 +46,22 @@ export function emit(opts: EmitCarrier, ev: DriverEvent): void {
 // ── 内存级对话历史（per-book，LRU 上限防多书累积） ────
 
 export const histories = new Map<string, ChatMsg[]>()
-// F1-P1：与 histories 并行维护「每条消息 → 事件 seq」映射（压缩遮蔽用，跨 runChat 持久）
+// 与 histories 并行维护「每条消息 → 事件 seq」映射（压缩遮蔽用，跨 runChat 持久）
 export const msgSeqMap = new Map<string, number[][]>()
-// Z-P1-2（G1 写侧谱系）：本书活跃分支 = 最近一次成功 regenerate 的 branchId——
+// （写侧谱系）：本书活跃分支 = 最近一次成功 regenerate 的 branchId——
 // 其后的普通回合事件带该 branchId 进组（续聊归属明确，不摊给所有变体视图）；
 // 仅成功回合激活（失败/中断的半截组已被遮蔽，激活会把续聊归因到幽灵组）；
 // 与 histories 同生命周期：LRU 逐出 / clearChatHistory 一并重置
 export const activeBranchByBook = new Map<string, string>()
-// B2：压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）。
-// 低级项（第六轮）：从 finish.ts 挪入并纳入同生命周期——原进程级 Set 无 LRU/清空挂钩，
+// 压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）。
+// 低级项：从 finish.ts 挪入并纳入同生命周期——原进程级 Set 无 LRU/清空挂钩，
 // 删书/换书后 suppress 标记残留（进程级无界，且幽灵标记会让复活书第一次溢出跳过摘要）
 export const compactionSuppressed = new Set<string>()
 const MAX_HISTORY_BOOKS = 8
 
-/** 取（或建）本书对话历史——命中重插（真 LRU，X-P2-24）。 */
+/** 取（或建）本书对话历史——命中重插（真 LRU）。 */
 export function getHistory(bookName: string): ChatMsg[] {
-  // X-P2-24：命中重插实现真 LRU——Map 按插入序淘汰，get 不重插的话
+  // 命中重插实现真 LRU——Map 按插入序淘汰，get 不重插的话
   // 热点书历史会被只碰过一次的冷书逐出
   const hit = histories.get(bookName)
   if (hit) {
@@ -71,7 +71,7 @@ export function getHistory(bookName: string): ChatMsg[] {
   }
   if (histories.size >= MAX_HISTORY_BOOKS) {
     // 删最旧（Map 保留插入顺序）
-    // 留账（第十轮 低-5）：LRU 逐出可命中「在途对话」的书（须 >8 本并发对话才触发，
+    // 留账（低-5）：LRU 逐出可命中「在途对话」的书（须 >8 本并发对话才触发，
     // 桌面单用户不可达）——在途 runChat 持有 history 数组引用，本轮收尾 histories.set
     // 会自愈重插，在途轮次不受影响；窗口在「逐出后～收尾写回前」的第二次 getHistory
     //（如他处读史/续链重建）会拿到空历史，在途回合的尾部消息不进其视图。不修：
@@ -91,12 +91,12 @@ export function getHistory(bookName: string): ChatMsg[] {
 
 /**
  * 清空本书对话历史（前端"清空对话"时调）。
- * F1-P1：可选传 userDataPath + bookRoot 一并清事件库（无参时只清内存，保持测试兼容）。
- * R34D-19（三十四轮）：转 async——事件库开库走 openSessionStoreAsync（首开锁等待
+ * 可选传 userDataPath + bookRoot 一并清事件库（无参时只清内存，保持测试兼容）。
+ * 转 async——事件库开库走 openSessionStoreAsync（首开锁等待
  * 不阻塞服务事件循环）；无 db 参的纯内存路径（books.ts 改名等）随之变异步但语义
  * 逐位不变（内存清空仍先行，事件库失败降级留痕口径不动）。测试侧未 await 的纯内存
  * 调用照旧工作（内部无 await 短路）。
- * 重评二轮-P3-2：opts.gate 清库前复查闸（见体内注释）；返回值 = 拒清理由（null =
+ * 二轮-opts.gate 清库前复查闸（见体内注释）；返回值 = 拒清理由（null =
  * 已清/纯内存路径），调用方可转 409——既有调用方（books.ts 删书/改名）await 后弃
  * 值不受影响。
  */
@@ -111,10 +111,10 @@ export async function clearChatHistory(
   activeBranchByBook.delete(bookName)
   compactionSuppressed.delete(bookName)
   if (userDataPath && bookRoot) {
-    // Y-P2-7：两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
+    // 两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
     // 此前只清前者，链路事件（step/llm/check）残留；
-    // 低级项（第六轮）：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）。
-    // P5-AI（第七轮）：openSessionStore 本身可抛（库损坏/磁盘满——H-1 同型残留在清史路径），
+    // 低级项：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）。
+    // openSessionStore 本身可抛（库损坏/磁盘满—— 同型残留在清史路径），
     // 内存已清而事件库未清的半完成态若再 500，作者每次重试同样失败无从自助——降级留痕
     let store: ReturnType<typeof openSessionStore>
     try {
@@ -123,16 +123,16 @@ export async function clearChatHistory(
       log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${errMsg(e)}`)
       return null
     }
-    // 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：开库 await 让出窗口后、
+    // 二轮-（二轮 GLM-5.3）：开库 await 让出窗口后、
     // 清库前复查闸（回调由调用方注入，正本 = audit.ts chatClearGateReason 六闸）。窗口
     // 内新起的 chat/spawn/self-heal/三审/task-gate/后台收尾任务在旧形态下照清——任务
     // 收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。拒清时返回理由由调用方
     // 转 409；此处内存已清是良性前置：在途任务持数组引用续写不丢、重开面板从事件库
     // （未清）重放，两侧自愈对齐。无 gate / 纯内存调用（books.ts 改名等）行为不变。
-    // 复审-0914-修复批 P3-R1-1：复查收进 clearBooks 的 try——store.close() 单点收敛
+    // - -：复查收进 clearBooks 的 try——store.close 单点收敛
     //（原拒清分支手写 close 与 finally 重复），gate 回调纯谓词不抛（crossProcess 侧
     // readdirSync 已吞错），异常安全随 try 兜底。
-    // L-A2（第八轮）：clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
+    // L-A2clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
     // 同款降级留痕：内存已清，事件库残留待修复后重清，重试可自愈
     try {
       const blocked = opts?.gate?.() ?? null

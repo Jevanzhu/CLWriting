@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 审计 · 遮蔽差异面板（hh §八-16 自 AuditView.vue 拆出，纯搬家）。
- * 「模型可见 vs 人类可见（含遮蔽）」对照——F1-P5 审计核心：展示遮蔽口径的差异面。
+ * 「模型可见 vs 人类可见（含遮蔽）」对照—— 审计核心：展示遮蔽口径的差异面。
  */
 import { ref, computed } from 'vue'
 import { Eye, EyeOff, User, Bot } from 'lucide-vue-next'
@@ -27,10 +27,10 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
 })
 
-// 重评-P3-16（2026-09-09 全量代码重评）：节点列表渲染无上限——长会话全量挂 DOM。
+// -（全量代码）：节点列表渲染无上限——长会话全量挂 DOM。
 // 对齐 CommandPalette RENDER_CAP=100 域内惯例：数据面不动，只裁渲染面前 100 条 +
 // 尾部省略提示行（与 RewritePanel 同批同口径）。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 </script>
@@ -72,7 +72,7 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 </template>
 
 <style scoped>
-/* R48-89（四十八轮）：字号随母视图 R42-27 迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
+/* 字号随母视图迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
 /* 区段基础（与 AuditView 同式） */
 .sec { margin-bottom: var(--size-4-5); }
 .sec-title {
@@ -84,7 +84,7 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
   flex-wrap: wrap;
 }
 .empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
-/* P3-16：渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
+/* 渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
 .cap-hint { color: var(--text-faint); font-size: var(--font-size-xs); padding: 2px 8px; font-style: italic; }
 
 /* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */

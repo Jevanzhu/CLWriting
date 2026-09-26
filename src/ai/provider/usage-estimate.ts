@@ -1,5 +1,5 @@
 /**
- * R73-1（二十一轮 A-1）：网关吞 usage 时的用量估计原语。
+ * 网关吞 usage 时的用量估计原语。
  *
  * 背景：部分 OpenAI 兼容网关 / Anthropic 中转在流式正常完成（有 finish_reason /
  * stop_reason）但不回 usage。旧口径按 0/0 入账——预算闸 tokens/cost 两指标对这类
@@ -8,7 +8,7 @@
  *
  * 折算系数与备料输入预算闸同源（src/shared/tokens.ts estimateTokens：按模型查
  * 实测系数表、未命中回落中文 0.6 token/字、码位口径）——不复制第二份系数逻辑，
- * 校准脚本产出新系数后此处自动跟随。R0916-7-P3-3：estimateTokens 已自
+ * 校准脚本产出新系数后此处自动跟随。：estimateTokens 已自
  * src/process/prepare.ts 下沉 src/shared/tokens.ts（原 provider→process 反向依赖
  * 是 ai 侧强连通的一条环边；现适配器族只依赖 shared，不再引编排层）。
  */

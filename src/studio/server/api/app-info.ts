@@ -1,5 +1,5 @@
 /**
- * 阶段 53 S2：应用信息端点（`GET /api/app-info`）。
+ * 阶段 53 ：应用信息端点（`GET /api/app-info`）。
  *
  * 只读、无入参、无凭据落地：回 `{ version, update }`——`version` 走 update/check 的
  * 版本单源（env `CLW_APP_VERSION` 优先，缺省回退 package.json），`update` 为进程内

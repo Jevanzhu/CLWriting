@@ -31,7 +31,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
-import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
+import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer, normalizeStopReason } from './stream-finalize.js'
 
@@ -48,7 +48,7 @@ function createClient(conf: ProviderConf): OpenAI {
   return new OpenAI({
     apiKey: conf.apiKey,
     baseURL: normalizeOpenAIBaseUrl(conf.baseUrl),
-    // R31-5（三十一轮）：SDK 内建重试关闭——runner 重试层是唯一重试决策方
+    // SDK 内建重试关闭——runner 重试层是唯一重试决策方
     //（Retry-After/退避都在那）；SDK 默认 maxRetries=2 会叠加放大 HTTP 请求
     //（runTask 4 attempts × SDK 3 = 12 次）且 SDK 退避消耗 60s 首字节窗
     maxRetries: 0,
@@ -56,7 +56,7 @@ function createClient(conf: ProviderConf): OpenAI {
 }
 
 /**
- * 归一化 baseUrl（方案 §4.5 P0）：只去尾部斜杠，**不剥 /v1**。
+ * 归一化 baseUrl（方案 §4.5 ）：只去尾部斜杠，**不剥 /v1**。
  * openai SDK 不自拼 /v1，基址须自带版本路径（官方 https://api.openai.com/v1）；
  * 剥了官方端点 404。anthropic 侧 SDK 自拼 /v1，行为不同（见 anthropic 适配器）。
  */
@@ -72,7 +72,7 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * - user 的 tool_result → **独立** role:'tool' 消息（每个 tool_call 一条）
  * - 同一条 user 含 N 个 tool_result → 展开 N 条 role:'tool'
  *
- * R40-2（四十轮）：echoReasoning 档位消费——历史 assistant 的 reasoning 块是否回写
+ * echoReasoning 档位消费——历史 assistant 的 reasoning 块是否回写
  * reasoning_content 由家族表决定（true=DeepSeek/Kimi/GLM 思考模型多轮硬要求；
  * false=多数族端点无此字段、严格校验入参的会 400）。此前无条件回写：会话中途从
  * true 族端点切到 false 族（OpenAI 官方等），历史回显携带非法字段 → 每次请求持久
@@ -80,7 +80,7 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * 对称，本线为布尔两态。reasoning 块本体在 ChatMsg 内保留（AI 链路守则：模型可见
  * ⟺ 已记录），此处只管 wire 序列化形态。
  *
- * R0916-7-P3-16：按 SDK 消息类型构造（返回值须可直接进 create 的 messages）——
+ * 按 SDK 消息类型构造（返回值须可直接进 create 的 messages）——
  * reasoning_content 用交叉类型表达为厂商扩展，不再整数组断言。
  */
 function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
@@ -113,7 +113,7 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Compl
   // assistant 消息：text + reasoning_content + tool_calls
   if (m.role === 'assistant') {
     // 思维链往返（DeepSeek/Kimi 思考模型硬要求，见方案 §4.2）——reasoning 块写回
-    // reasoning_content；档位由 toParams 按家族表注入（R40-2，见函数头注）。
+    // reasoning_content；档位由 toParams 按家族表注入（见函数头注）。
     // reasoning_content 是 SDK 类型外的厂商扩展（OpenAI 官方端点无此字段）。
     const msg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & { reasoning_content?: string } = {
       role: 'assistant',
@@ -125,7 +125,7 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Compl
     out.push(msg)
   } else {
     // user 消息：纯 text 部分作为 user content；tool_result 展开为独立 role:'tool' 消息
-    // R31-6（三十一轮）：tool 消息先出、文本后出——OpenAI 要求 role:'tool' 紧跟 assistant
+    // tool 消息先出、文本后出——OpenAI 要求 role:'tool' 紧跟 assistant
     // tool_calls，文本插中间会在混合形态下 400；当前链路 tool_result 恒独占 user 消息
     // （responses-adapter 同注），本序修正是防御性口径对齐
     out.push(...toolResults)
@@ -135,7 +135,7 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Compl
 }
 
 /**
- * R0916-7-P3-16：本线 non-SDK 扩展字段——thinking 对象是 DeepSeek 官方双写法
+ * 本线 non-SDK 扩展字段——thinking 对象是 DeepSeek 官方双写法
  * （与 reasoning_effort 并存，方案 §4.1），SDK 类型无此字段，用交叉类型逐字段表达，
  * 不再把整个参数对象造进 Record<string, unknown> 后 `as unknown as` 回来（那会
  * 让 SDK 形状校验整段失效）。
@@ -147,10 +147,10 @@ type OpenAIChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStream
 /** GenRequest → OpenAI ChatCompletionCreateParamsStreaming（导出：测试做类型层可赋性断言） */
 export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams {
   // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数。
-  // R40-2：上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
+  // 上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
   const q = quirksFor(conf.model ?? '')
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
-  // P3-Q7：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
+  // -：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
   if (req.systemPrompt) {
     messages.push({ role: 'system', content: req.systemPrompt })
   }
@@ -159,7 +159,7 @@ export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams 
   }
 
   const params: OpenAIChatParams = {
-    // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
+    // conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错
     model: conf.model ?? '',
     messages,
     stream: true,
@@ -176,13 +176,13 @@ export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams 
     params['tools'] = req.tools.map(toOpenAITool)
   }
 
-  // W-P2-10：toolChoice 存在（含 'auto'）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
-  // RB-AI-P2-4：对齐 anthropic 线（toolChoice 存在即发 disable_parallel_tool_use）——契约 W0
+  // toolChoice 存在（含 'auto'）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
+  // 对齐 anthropic 线（toolChoice 存在即发 disable_parallel_tool_use）——契约
   // 「一轮最多一个工具调用」此前 openai 线仅 forced 才关并行，chat 的 toolChoice='auto' 恒不关。
   // 注意：parallel_tool_calls 是顶层 chat.completions 参数，不是 tool_choice 的子字段。
   if (req.toolChoice && q.parallelControl) params['parallel_tool_calls'] = false
   // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
-  // tool-choice.ts（R0912-D-P3-3 三适配器同构 if 树收敛），此处只留动作 → wire 值发射：
+  // tool-choice.ts（三适配器同构 if 树收敛），此处只留动作 → wire 值发射：
   // force/force-named → 'required' / {type:'function',function:{name}}，auto → 'auto'，
   // none → 不发（prompt 引导兜底）。
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
@@ -245,14 +245,14 @@ interface WireUsage {
   prompt_tokens?: number
   completion_tokens?: number
   prompt_tokens_details?: { cached_tokens?: number }
-  /** R35-19：推理 token 观测位——responses 线已读（output_tokens_details），Chat 线对齐 */
+  /** 推理 token 观测位——responses 线已读（output_tokens_details），Chat 线对齐 */
   completion_tokens_details?: { reasoning_tokens?: number }
 }
 
 /**
- * R36-14（三十六轮）：空 usage 对象（{} 或缺两主字段）不算真实计量。
+ * 空 usage 对象（{} 或缺两主字段）不算真实计量。
  * 此前逐 truthy 判定：网关下发 `usage:{}` 空对象时 latestUsage 落 `{}`，流末
- * toUsage({}) 按 0/0 入账，绕过 R73-1 估计兜底（预算闸 tokens/cost 对该类端点
+ * toUsage({}) 按 0/0 入账，绕过估计兜底（预算闸 tokens/cost 对该类端点
  * 再次失效、成本报表系统性偏低）。此处把空对象等价于「无 usage」——与
  * responses/anthropic 线口径一致（无终止事件时的估计兜底照常生效，estimated 标记
  * 区分估计口径）；末见 wins 语义也顺带防住「真实 usage 后再来空对象」的覆盖。
@@ -262,8 +262,8 @@ function isRealUsage(u: WireUsage | null | undefined): u is WireUsage {
 }
 
 /**
- * usage 线格式 → TokenUsage（D4：prompt_tokens_details.cached_tokens → cacheReadTokens）。
- * M-1：prompt_tokens **已含** cache 命中部分，边界处扣减归一成「inputTokens 不含 cache 读」
+ * usage 线格式 → TokenUsage（prompt_tokens_details.cached_tokens → cacheReadTokens）。
+ * prompt_tokens **已含** cache 命中部分，边界处扣减归一成「inputTokens 不含 cache 读」
  * 的统一口径（Anthropic 语义），下游计价/预算四档分计公式对两协议同时成立；
  * 中转缺 prompt_tokens_details 时 cached=undefined，行为与旧口径一致。
  */
@@ -282,12 +282,12 @@ function toUsage(u: WireUsage | undefined | null): TokenUsage {
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
  * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
- * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——2026-08-17 启用批回接。）
+ * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由—— 启用批回接。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  *
- * R0916-7-P3-11：原另有一个「兼容导出」薄壳 createOpenAIProvider 转调本函数，已删——
+ * 原另有一个「兼容导出」薄壳 createOpenAIProvider 转调本函数，已删——
  * 两个导出同名同义（Provider / ProviderChat），调用方无法从名字判断该用哪个，且薄壳
- * 一度丢 store/userDataPath 两形参（R38-5 修）。名字收成唯一一个。
+ * 一度丢 store/userDataPath 两形参（修）。名字收成唯一一个。
  */
 export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore, userDataPath?: string): ModelProvider {
   const c = client ?? createClient(conf)
@@ -297,24 +297,24 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
     conf,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
-      let degraded = false // Z-12：成功建流是否用了降级参数面（fin.isDegraded 闭包读）
-      // R0916-7-P3-15：本值恒为归一枚举成员——非标网关的未知 finish_reason 在捕获点即
+      let degraded = false // 成功建流是否用了降级参数面（fin.isDegraded 闭包读）
+      // 本值恒为归一枚举成员——非标网关的未知 finish_reason 在捕获点即
       // 由 normalizeStopReason 归 'unknown' 并留痕；初值 'stop' 只在 sawFinishReason 之前
       // 有效，而 done 只在 sawFinishReason 之后发射（见下方收尾分支），故等价于「恒已赋值」
       let pendingStopReason: StopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
-      // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
+      // （六轮修复批）：异常时点用量估计器——toolAccum /
       // latestUsage / outText 三件均声明在 attempt 循环内，外层 catch 取不到；由循环内逐
       // attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入），catch 侧按
       // consumedAny 决定是否消费（未消费 = 建连期异常无消耗，不得估计虚报）
       let errorUsageOf: (() => TokenUsage) | undefined
-      // R0917-6-P3-4：流级「是否曾开始消费」——外层 catch 的 usage 上抛门（循环内
+      // 流级「是否曾开始消费」——外层 catch 的 usage 上抛门（循环内
       // 同名 per-attempt 变量每轮重置判降级续跑，本变量只置位不复位）
       let streamConsumedAny = false
-      // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
+      // resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
       // openai 线无兜底不发 → undefined，与 toParams 上线值同源）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
-      // R0916-7-P3-15：done 发射 / 过滤判错 / 截断估算 / usage 兜底收口单点（三线共用，
+      // done 发射 / 过滤判错 / 截断估算 / usage 兜底收口单点（三线共用，
       // 见 stream-finalize.ts）；本线不设 missingStopReason——done 只在 sawFinishReason
       // 之后发射，该分支 pendingStopReason 恒已由 finish_reason 赋值
       const fin = createStreamFinalizer({
@@ -326,7 +326,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
 
       // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
       // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
-      // R30-4（三十轮）：携来源 userDataPath——降级记忆读/写按显式 path 分发
+      // 携来源 userDataPath——降级记忆读/写按显式 path 分发
       const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 
       try {
@@ -338,29 +338,29 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
           try {
             const stream = await c.chat.completions.create(toParams(conf, attempt), { signal })
             markStructuredDegrade(plan, attempt, store)
-            // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
-            // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
+            // 成功建流用的是非首发（降级）参数面 → done 事件带 degraded
+            // 判据并入降级记忆命中——基准改 plan.original（记忆命中时
             // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
             degraded = attempt !== plan.original
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
             const toolAccum = new Map<number | string, { id: string; name: string; argsBuf: string }>()
-            // R73-1：产出累计（文本/思维链 delta 串联 + tool 参数 JSON 串）——网关吞 usage
+            // 产出累计（文本/思维链 delta 串联 + tool 参数 JSON 串）——网关吞 usage
             // 时按此折算估计用量（usage-estimate.ts 同源系数），不再按 0/0 入账
             const outText: string[] = []
             const outToolText: string[] = []
-            // R26-3：最后可见 usage（逐 chunk 覆盖）——done 延后到流末统一 emit（见循环后注）
+            // 最后可见 usage（逐 chunk 覆盖）——done 延后到流末统一 emit（见循环后注）
             let latestUsage: WireUsage | null = null
-            // R65-9（总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
+            // （总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
             // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
             // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
             let idxlessSeq = 0
             let lastIdxlessKey: string | null = null
-            // R33-22（三十三轮）：兜底 id 流级计数——原每段 finish_reason 从 0 重计，
+            // 兜底 id 流级计数——原每段 finish_reason 从 0 重计，
             // 同流多 finish_reason 段（非标网关）时 call_N 重号撞历史已有 id
             let fallbackToolSeq = 0
-            // R0917-6-P3-4：本 attempt 的异常用量估计器绑定（见流级声明处注释）——末见
-            // usage 优先（网关实测值），否则按累计产出折算；与截断分支（R51-C-1）同源公式
-            // （R0916-7-P3-15：折算走 fin.estimateUsage 单点，在途 toolAccum 一并计入）
+            // 本 attempt 的异常用量估计器绑定（见流级声明处注释）——末见
+            // usage 优先（网关实测值），否则按累计产出折算；与截断分支同源公式
+            // （折算走 fin.estimateUsage 单点，在途 toolAccum 一并计入）
             errorUsageOf = () =>
               latestUsage
                 ? toUsage(latestUsage)
@@ -373,18 +373,18 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   })
             for await (const chunk of stream) {
               consumedAny = true
-              streamConsumedAny = true // R0917-6-P3-4：跨 attempt 置位不复位
+              streamConsumedAny = true // 跨 attempt 置位不复位
               const usage = chunk.usage
               // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
               const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
               const effectiveUsage = usage ?? choiceUsage
-              // 五轮重评修复批（C101）：usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
+              // 修复批（C101）：usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
               // 防空对象覆盖不变）——原只在 usage-only chunk 与 finish_reason chunk 两点
               // 写 latestUsage，「choice 在、finish_reason 不在」的先行 usage chunk（非标
               // 网关把 usage 放首个 content chunk、末 chunk 只带 finish_reason 不重复携带）
               // 被静默丢弃，流末落估计入账（estimated:true），预算闸/成本报表精度受损。
-              // R26-3：不即席 emit——记入 latestUsage，流末统一取最新值 emit（口径不变）
+              // 不即席 emit——记入 latestUsage，流末统一取最新值 emit（口径不变）
               if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
               const choice = chunk.choices?.[0]
               if (!choice) {
@@ -396,7 +396,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
 
               // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
               if (delta?.content) {
-                outText.push(delta.content) // R73-1：产出累计
+                outText.push(delta.content) // 产出累计
                 yield { type: 'text', delta: delta.content }
               }
 
@@ -404,15 +404,15 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
               const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
               if (reasoningDelta) {
-                outText.push(reasoningDelta) // R73-1：产出累计（推理 token 也是真实计费面）
+                outText.push(reasoningDelta) // 产出累计（推理 token 也是真实计费面）
                 yield { type: 'reasoning', delta: reasoningDelta }
               }
 
-              // tool_calls 增量（R37-2：delta 可能为 null——部分网关下发 delta:null 的空
+              // tool_calls 增量（delta 可能为 null——部分网关下发 delta:null 的空
               // chunk（如纯 usage），与上方 content/reasoning 分支同款可选链兜底，防 TypeError 崩断整条流）
               if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
-                  // R65-9：key 决策——有 index 原样；缺 index 时新调用分片（带 id/name）
+                  // key 决策——有 index 原样；缺 index 时新调用分片（带 id/name）
                   // 开新兜底键，续片归并最近兜底键（上一兜底键已被 finish_reason 清空则另开）
                   let key: number | string
                   if (tc.index !== undefined) {
@@ -438,7 +438,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               if (choice.finish_reason) {
                 // 所有 tool_calls 已拼完 → 发出
                 for (const [, acc] of toolAccum) {
-                  // P1-AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
+                  // AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
                   if (acc.name) {
                     let input: unknown
                     if (acc.argsBuf) {
@@ -450,16 +450,16 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                     } else {
                       input = {}
                     }
-                    outToolText.push(acc.name + acc.argsBuf) // R73-1：tool 参数也是真实计费面
-                    // P3-Q5：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
-                    //（R33-22：流级序号，跨 finish_reason 段不重号）
+                    outToolText.push(acc.name + acc.argsBuf) // tool 参数也是真实计费面
+                    // -：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
+                    //（流级序号，跨 finish_reason 段不重号）
                     const id = acc.id || `call_${fallbackToolSeq++}`
                     yield { type: 'tool', id, name: acc.name, input }
                   }
                 }
                 toolAccum.clear()
 
-                // R0916-7-P3-15：终止值在捕获点即归一（'length'→'max_tokens'、
+                // 终止值在捕获点即归一（'length'→'max_tokens'、
                 // 'tool_calls'→'tool_use'；非标拼写归 'unknown' 并留痕）——三线同一值域，
                 // 收尾分支只按归一枚举判定，不再各处临时改名
                 pendingStopReason = normalizeStopReason(choice.finish_reason, 'openai')
@@ -469,26 +469,26 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
-            // R26-3（二十六轮）：done 统一延后到流末尾，取最后可见 usage——原「首见即定」
+            // done 统一延后到流末尾，取最后可见 usage——原「首见即定」
             // 口径（emitDone 幂等门锁首个 usage）：逐 chunk 回 usage 的网关（本适配器明确
             // 要兜的怪形态）会被记成早期部分值，末 chunk 完整 usage 被丢弃，记账系统性
-            // 低估。R27-2（二十七轮）：Anthropic 线已改为同款「末见 wins」（此前该线
+            // 低估。：Anthropic 线已改为同款「末见 wins」（此前该线
             // message_delta 即席 emitDone 锁首值，与本处旧描述正相反），两线口径归一。
-            // R31-1（三十一轮）：emit 前须见过 finish_reason——usage 可随任意 chunk 先行
+            // emit 前须见过 finish_reason——usage 可随任意 chunk 先行
             // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
             // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
             // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
-            // R33-3（三十三轮，win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸——
+            // （三十三轮，win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸——
             // usage-only chunk 只证明「计费上报过」，不证明「生成完成」。违规 include_usage
             // 顺序的非标网关（usage 块先到 + 随后断流）此前经此处以 pendingStopReason 默认
             // 'stop' 把截断流伪装成成功 done，下方 sawFinishReason 截断守卫被整体短路；现在无
-            // 终止事件时 latestUsage 不充当完成证据，走下方 R1 对齐 error 分支。
-            // R33D-2（三十三轮）：content_filter 不是正常完成——finish_reason 归一未覆盖
-            // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线 R1 缺口 2
+            // 终止事件时 latestUsage 不充当完成证据，走下方对齐 error 分支。
+            // content_filter 不是正常完成——finish_reason 归一未覆盖
+            // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线缺口 2
             // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
-            // R36-14：latestUsage 为空的兜底闸——空 usage 对象已在上游 isRealUsage 拦截，
-            // 此处双保险防未来赋值面漏网；为空则落下方 R73-1 估计兜底分支
-            // R0916-7-P3-15：过滤判错与 done 发射收口 fin 单点（过滤块原两份拷贝已删）
+            // latestUsage 为空的兜底闸——空 usage 对象已在上游 isRealUsage 拦截，
+            // 此处双保险防未来赋值面漏网；为空则落下方估计兜底分支
+            // 过滤判错与 done 发射收口 fin 单点（过滤块原两份拷贝已删）
             if (isRealUsage(latestUsage) && sawFinishReason) {
               const usage = toUsage(latestUsage)
               const filtered = fin.filterError(usage, pendingStopReason)
@@ -499,10 +499,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               const ev = fin.done(usage, pendingStopReason)
               if (ev) yield ev
             }
-            // P2-AI-2：流异常收尾（usage 已在上面统一 emit 过则整块跳过）
+            // AI-2：流异常收尾（usage 已在上面统一 emit 过则整块跳过）
             if (!fin.doneEmitted()) {
               if (sawFinishReason) {
-                // R26-25（二十六轮）：残留 tool 事件只在「正常完成但缺 usage」分支补发并
+                // 残留 tool 事件只在「正常完成但缺 usage」分支补发并
                 // 计入产出估计——原口径传输截断分支也先 flush tool 再发 error，gen 层遇
                 // error 必弃事件，序列自相矛盾（纯语义噪音），且截断 tool 参数抬高 output
                 // 估计（该分支本来就不入账，更无意义）。
@@ -510,19 +510,19 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   if (!acc.name) continue
                   let input: unknown
                   try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
-                  outToolText.push(acc.name + acc.argsBuf) // R73-1：残留 tool 参数计入产出累计
+                  outToolText.push(acc.name + acc.argsBuf) // 残留 tool 参数计入产出累计
                   yield { type: 'tool', id: acc.id || `call_${fallbackToolSeq++}`, name: acc.name, input }
                 }
                 toolAccum.clear()
                 // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试
-                //（判错重试对这类网关是全量破坏）。R73-1（二十一轮 A-1）：不再按 0/0 入账
+                //（判错重试对这类网关是全量破坏）。：不再按 0/0 入账
                 //（预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）——按可得信号
                 // 估计入账：output ≈ 累计 delta 文本/tool 参数字符折算（usage-estimate.ts
                 // 与备料 estimateTokens 同源系数），input ≈ 本次请求 prompt 字符折算；
                 // estimated 标记估计口径，runner 记账/self-heal 消费面照常按数值生效。
-                // R0916-7-P3-15：折算走 fin.estimateUsage 单点（reset tool 已入 outToolText）
+                // 折算走 fin.estimateUsage 单点（reset tool 已入 outToolText）
                 const usage = fin.estimateUsage({ req, model: conf.model ?? undefined, outText, outToolText })
-                // R33D-2：无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
+                // 无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
                 const filtered = fin.filterError(usage, pendingStopReason)
                 if (filtered) {
                   yield filtered
@@ -531,21 +531,21 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 const ev = fin.done(usage, pendingStopReason)
                 if (ev) yield ev
               } else {
-                // R1 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
+                // 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
                 // done——真实计费调用不得按成功 0 成本入账。
-                // R31-1（三十一轮）：已见 usage 时随错上抛（B-12 载荷通道）——runner 终态
+                // 已见 usage 时随错上抛（载荷通道）——runner 终态
                 // 失败按真实消耗入账，截断不再丢失已发生的计费。
-                // R51-C-1（五十一轮）：未见 usage 的传输截断同场景估计入账（anthropic
+                // 未见 usage 的传输截断同场景估计入账（anthropic
                 // :441-459 / responses 两线同场景恒带估计）——中转网关断流常连 usage 一并
                 // 截掉，此形态原走零入账，真实消耗记 0 使预算/报表系统性偏低；估计口径与
-                // 上方 R73-1 兄弟分支同源（input 按请求字符折算、output 按累计 delta 文本
-                // 折算、estimated 标记）。tool 残留事件仍不 flush 不计入（R26-25 取舍维持：
+                // 上方兄弟分支同源（input 按请求字符折算、output 按累计 delta 文本
+                // 折算、estimated 标记）。tool 残留事件仍不 flush 不计入（取舍维持：
                 // gen 层遇 error 必弃事件，仅估计入账面按同源公式走）。
-                // R59 清偿批（R55-C-3）：估计折算面并入 toolAccum 残留（name+argsBuf，
+                // 清偿批估计折算面并入 toolAccum 残留（name+argsBuf，
                 // 对齐 anthropic jsonBuf / responses args 两线口径）——「未见 usage 的
                 // 传输截断 + 在途工具调用」复合形态下原只按 delta 文本折算，output 估计
-                // 系统性小幅低估；tool 事件本身仍不 flush（R26-25 取舍不变，只修估计入账面）。
-                // R0916-7-P3-15：估计与截断壳均走 fin 单点（在途 toolAccum 经 pendingToolText 计入）
+                // 系统性小幅低估；tool 事件本身仍不 flush（取舍不变，只修估计入账面）。
+                // 估计与截断壳均走 fin 单点（在途 toolAccum 经 pendingToolText 计入）
                 yield fin.truncatedError(
                   latestUsage
                     ? toUsage(latestUsage)
@@ -570,7 +570,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
         }
         throw lastErr ?? new Error('openai stream: 无可用参数面')
       } catch (e) {
-        // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // （六轮修复批）：流中 SDK 直接 throw（mid-stream
         // 连接重置等）此前恒裸传——消费中已见的 usage chunk 与累计产出随异常蒸发，runner
         // 终态失败按 0 入账（真实计费漏记）。已消费过流才上抛估计（未消费 = 建连期异常，
         // 无消耗不虚报；与 ii-1「消费后不重跑」同源判据）。

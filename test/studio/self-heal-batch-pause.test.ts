@@ -8,7 +8,7 @@
  * 读侧（state.ts buildRecap → StatusRecap.batchPause）由 batch-pause 模块单测与
  * state 既有测试覆盖，此处只验驱动侧落盘行为。
  *
- * 替身模式沿用 self-heal-f2.test.ts：vi.mock checkAiCallBudget（预算闸可控）、
+ * 替身模式沿用 self-heal-result-semantics.test.ts：vi.mock checkAiCallBudget（预算闸可控）、
  * check/save/genFn 注入，双轨工作区（短篇书）。
  */
 import { test, expect, vi, describe, beforeEach, afterEach } from 'vitest'

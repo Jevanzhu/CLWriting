@@ -75,7 +75,7 @@
 证据（亲验）：`.github/workflows/desktop.yml` 以 `tags: ['v*']` 触发、出包前已焊入全部门禁（typecheck/lint/单测/三 check/e2e/release-smoke，工程上佳），但无任何步骤校验 `github.ref_name` 与 `package.json:3` version（1.0.0-rc.1）一致——打 tag `v1.0.0` 忘 bump version 时，产物名（`${productName}-${version}-…`）写 `1.0.0-rc.1` 且工作流照绿，产物与 tag/Release 名错位无门可拦。修法：build:desktop 前加一步 node 内联比对，不一致即红（≈10 行）。
 
 **P2-4【测试工程】测试树已成「评审批次化石层」，语义可导航性受损。**
-证据（亲测）：1171 个 `.test.ts` 中 542 个（46%，保守口径只计 r*/R*/pm*/backlog*/y* 前缀）以轮次号命名；放宽计入单字母批号（a*/w*/p*/re* 等）则 603 个（51%）。文件名记录的是评审批史而非域语义——新增测试难以判断「同行为是否已有锚」（重复覆盖风险），定位某行为的全部守卫需靠 grep。修法：不单独立批，随各域测试触达批渐进语义化改名（如 `r0912-rewrite-draftpath` → `rewrite-draftpath`），新测试立「行为命名」纪律。
+证据（亲测）：1171 个 `.test.ts` 中 542 个（46%，保守口径只计 r*/R*/pm*/backlog*/y* 前缀）以轮次号命名；放宽计入单字母批号（a*/w*/p*/re* 等）则 603 个（51%）。文件名记录的是评审批史而非域语义——新增测试难以判断「同行为是否已有锚」（重复覆盖风险），定位某行为的全部守卫需靠 grep。修法：不单独立批，随各域测试触达批渐进语义化改名（如 `r0912-rewrite-draftpath` → 现行 `rewrite-draftpath-sync`），新测试立「行为命名」纪律。
 
 **P2-5【测试工程】webnext 前端单测 mock 密度过高且深于边界。**
 证据（亲测）：`test/studio/webnext` 266 文件中 187（70%）用 vi.mock（全树均值 30%、ai 域仅 12%）；被 mock 的不止 api 边界（documents 67、client 63），还有**兄弟 store**（stores/ui 43、workspace 27、tree 26）与 node:fs（54 次）。mock 靠路径字符串命中，依赖提升布局一变即「mock 不命中连锁挂」（R61-20 在案先例）；store 互 mock 使状态耦合演进时的改动扇出大。修法：热点 store 互 mock 收敛为状态注入或提取可测纯函数，api 边界 mock 维持。

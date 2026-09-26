@@ -1,5 +1,5 @@
 /**
- * 章节树纯工具函数（Z-P2-10 自 ChapterTreePanel 拆出）。
+ * 章节树纯工具函数（自 ChapterTreePanel 拆出）。
  *
  * 全部为无副作用纯函数：树形态判定、章号/卷号推断、祖先收集、待定稿收集、
  * 默认展开集。输入 TreeNode[]（tree.grouped 或 tree.raw），不依赖组件与响应式。
@@ -16,23 +16,23 @@ const WINDOWS_RESERVED_NAMES = new Set([
 ])
 
 /** 名称校验（原 FileTree.sanitizeName）：空/含路径分隔符/点开头/控制字符 → null。
- *  R71-30（七十一轮）：补 Windows 保留设备名拒收——书库目录可被 Windows 端同步/打开，
+ *  ：补 Windows 保留设备名拒收——书库目录可被 Windows 端同步/打开，
  *  保留名文件在 Win 不可建，落盘后跨端同步即失败；匹配主文件名（首个点前段，
  *  与 Win 实际语义对齐）：CON.md / Com1.tar.md 的主文件名均命中。
- *  R48-81（四十八轮）：补尾随点/空格拒收——Win 文件/目录名不得以 . 或空格结尾
- *  （创建时被系统静默剥除或直接失败），「新建卷」目录名跨端同步到 Win 失败（R71-30
+ *  ：补尾随点/空格拒收——Win 文件/目录名不得以 . 或空格结尾
+ *  （创建时被系统静默剥除或直接失败），「新建卷」目录名跨端同步到 Win 失败（
  *  同风险面漏项）。空格侧：上方 trim 已剥 ASCII 尾随空格（即输入容错），本行实际
  *  拦「点结尾」；文案一并提示两种形态。
- *  R1010c-FE2-P3-1（2026-09-10 全量独立复审修复批）：补拒 Win 文件名非法 ASCII 字符
+ *  （修复批）：补拒 Win 文件名非法 ASCII 字符
  *  : " < > | ? *（/ \ 已由上方路径分隔符拒收，九字符集就此补齐）——mac 侧可建、同步到
- *  Win 即失败（R71-30 同风险面收口）。全角冒号（：）等全角形态不在集内、不受影响。 */
+ *  Win 即失败（同风险面收口）。全角冒号等全角形态不在集内、不受影响。 */
 export function sanitizeName(value: string): string | null {
   const v = value.trim()
   if (!v || /[\/\\]/.test(v) || v.startsWith('.') || /[\x00-\x1f]/.test(v)) return null
   if (/[. ]$/.test(v)) return null
-  // R1010c-FE2-P3-1：Win 非法字符（只拦 ASCII 集内字符，全角：＂＜＞｜？＊不受影响）
+  // Win 非法字符（只拦 ASCII 集内字符，全角：＂＜＞｜？＊不受影响）
   if (/[:"<>|?*]/.test(v)) return null
-  // R71-30：保留名比对主文件名段（con.tar.md 的主文件名是 con），小写比对大小写不敏感
+  // 保留名比对主文件名段（con.tar.md 的主文件名是 con），小写比对大小写不敏感
   const stem = v.split('.')[0]!.toLowerCase()
   if (WINDOWS_RESERVED_NAMES.has(stem)) return null
   return v
@@ -130,7 +130,7 @@ export function pendingChaptersUpToIn(target: TreeNode, rawNodes: TreeNode[]): s
   return out.sort((a, b) => a.no - b.no).map((x) => x.docId)
 }
 
-/** 阶段 24（S4）：正文长篇章按树显示序扁平（grouped 已由服务端 sortTreeByOrder 按
+/** 阶段 24：正文长篇章按树显示序扁平（grouped 已由服务端 sortTreeByOrder 按
  *  fm `序` ?? 章号 排好，深度优先遍历即作者看到的章序；短篇 piece-body 不参与结构
  *  操作——留洞制合并/拆分只对长篇章开放）。 */
 export function bodyChaptersInDisplayOrder(nodes: TreeNode[]): TreeNode[] {

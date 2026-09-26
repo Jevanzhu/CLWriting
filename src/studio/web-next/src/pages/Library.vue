@@ -14,7 +14,7 @@ const { isDesktop: hasDesktop, isMac } = usePlatform()
 const current = ref<string | null>(null)
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
-// 低级项（第六轮）：IPC 失败不再永久「加载中…」——错误态 + 重试出口
+// 低级项：IPC 失败不再永久「加载中…」——错误态 + 重试出口
 const loadError = ref<string | null>(null)
 
 async function load(): Promise<void> {
@@ -40,7 +40,7 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 选库/切库 IPC 交互单点化（复审-0914-优化 E7 → useLibraryIpc；取错口径保真 =
+// 选库/切库 IPC 交互单点化（-优化 → useLibraryIpc；取错口径保真 =
 // friendlyError 归类、切当前书库 no-op，均为本页历史口径）
 const { chooseLibrary, switchTo } = useLibraryIpc({
   formatError: friendlyError,
@@ -49,7 +49,7 @@ const { chooseLibrary, switchTo } = useLibraryIpc({
 
 // 在文件管理器中打开当前书库根目录
 function openDir(): void {
-  // R33D-31：IPC 失败 toast 交代
+  // IPC 失败 toast 交代
   window.clwritingDesktop?.openLibraryDir().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
 }
 </script>
@@ -81,7 +81,7 @@ function openDir(): void {
         <p>书库管理仅在桌面版可用。</p>
       </div>
       <template v-else>
-        <!-- R0912-3 #21：loadError 只来自 load()（交互失败已改 toast），错误态与已加载
+        <!-- #21：loadError 只来自 load（交互失败已改 toast），错误态与已加载
              数据分离显示——补拉失败不再顶掉当前书库/最近列表 -->
         <div v-if="loadError" class="lib-status">
           <p>书库信息加载失败：{{ loadError }}</p>
@@ -151,9 +151,9 @@ function openDir(): void {
 .library.has-traffic .lib-titlebar {
   -webkit-app-region: drag;
 }
-/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注）。页根标记 = is-desktop（桌面态）：
+/* win 拖拽区（同 Shelf.vue 注）。页根标记 = is-desktop（桌面态）：
  * is-drag 已归全局 utilities.css 的真实拖拽容器单类，页根同名会被该规则命中、
- * app-region 继承致整页成拖拽面（R0913 复核批 P1 修复改名） */
+ * app-region 继承致整页成拖拽面（复核批修复改名） */
 .library.is-desktop .lib-titlebar {
   -webkit-app-region: drag;
 }

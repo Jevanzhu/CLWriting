@@ -4,6 +4,10 @@
  * 红线：①update 产草稿不动 manifest；②commit 登记后存量条目逐字节不变
  * （B-18 bookHash 同款口径——仅 generated_at 与新增条目变化）；③commit 拒绝
  * 重复登记 / 路径越界 / 文件不在盘；④登记后对账（validateKnowledgeManifest）必须过。
+ *
+ * 档源：原 r57-update-write-chain.test.ts（R57-H-1）与本文件 R73-13（manifest 写失败
+ * 回滚）同属「登记写入链失败点的信封与回滚」一族，按被测行为并入；断言逐条保留、
+ * 去重 0 条（三个失败点——manifest 写 / fm 注入写 / 注入后哈希读——互不重叠）。
  */
 import { describe, it, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
@@ -20,8 +24,11 @@ import { hashFileSha256, validateKnowledgeManifest } from '../../src/knowledge/m
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // R73-13（二十一轮 A-13）：fm 注入回滚回归注入点——默认直通真实 atomicWriteFile，
-// 仅 atomicGate.failManifestWrite 置位时对 manifest 落盘注入失败（定稿 md 的注入写放行）
-const atomicGate = vi.hoisted(() => ({ failManifestWrite: false }))
+// 仅 atomicGate.failManifestWrite 置位时对 manifest 落盘注入失败（定稿 md 的注入写放行）。
+// R57-H-1 并档：failInjectWrite 对定稿 md 的注入写注入失败（manifest 写放行）——
+// 两个失败点分属不同文件，同闸互不干扰。
+const atomicGate = vi.hoisted(() => ({ failManifestWrite: false, failInjectWrite: false }))
+const hashGate = vi.hoisted(() => ({ failHashRead: false }))
 vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../src/fs/atomic.js')>()
   return {
@@ -30,7 +37,23 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
       if (atomicGate.failManifestWrite && filePath.endsWith('_manifest.json')) {
         throw new Error('模拟 manifest 写失败（R73-13 注入）')
       }
+      if (atomicGate.failInjectWrite && filePath.endsWith('机检误报规律-R57.md')) {
+        throw new Error('模拟 fm 注入写失败（R57-H-1 注入）')
+      }
       return mod.atomicWriteFile(filePath, data, opts)
+    },
+  }
+})
+
+// R57-H-1 并档：注入后的哈希实算注入失败（模拟注入与哈希之间文件不可读）——
+// 默认直通真实实现，validateKnowledgeManifest 对账不受影响
+vi.mock('../../src/knowledge/manifest.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/knowledge/manifest.js')>()
+  return {
+    ...mod,
+    hashFileSha256: (filePath: string) => {
+      if (hashGate.failHashRead) throw new Error('模拟注入后哈希读失败（R57-H-1 注入）')
+      return mod.hashFileSha256(filePath)
     },
   }
 })
@@ -288,6 +311,103 @@ describe('R73-4/R73-13：commit 对手编 manifest 的防御与两笔落盘一�
       } finally {
         atomicGate.failManifestWrite = false
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R57-H-1（五十七轮，并入档）：登记写入链前置失败点的信封收口 ──────────────
+// 写入链（读 manifest → 注入 fm → 实算哈希 → 写 manifest）的回滚/信封保护此前只盖
+// 「manifest 写失败」一点（R73-13）——fm 注入写失败与注入后哈希读失败两个失败点仍
+// 裸抛穿透 KnowledgeManifestReport 信封（R48-39 同款契约破坏：调用方拿到未声明异常
+// 而非 {ok:false}），且哈希读失败时文件已注入 fm、manifest 无条目（R73-13 同款跨文件
+// 不一致窗口）。观测面：两失败点均以 {ok:false, issues[]} 信封返回；注入写失败时零
+// 变更（两文件原态，无半程可回滚）；哈希读失败时回滚 fm 使文件回旧态（幂等可重试）。
+
+const CHAIN_FINAL = '知识层/机检误报规律-R57.md'
+const CHAIN_ORIGINAL = '# 机检误报规律\n## body-parts\n作者归纳……\n'
+
+/** 最小知识层夹具：存量条目 manifest + 定稿文件由各用例自写（对齐 update.test.ts 惯例） */
+function writeChainFixture(): string {
+  const root = mkdtempTracked(join(tmpdir(), 'knowledge-write-chain-'))
+  mkdirSync(join(root, '知识层'), { recursive: true })
+  writeFileSync(join(root, '知识层', '存量.md'), '---\nsource: 旧来源\nlicense: MIT\n---\n\n# 存量\n', 'utf8')
+  const entries = [
+    {
+      target: '知识层/存量.md',
+      source: '旧来源',
+      license: 'MIT',
+      sha256: hashFileSha256(join(root, '知识层', '存量.md')),
+      category: '索引' as const,
+    },
+  ]
+  writeFileSync(
+    join(root, '知识层', '_manifest.json'),
+    JSON.stringify({ version: 1, generated_at: '2026-08-15T00:00:00+08:00', summary: { migrated: 1, deferred: 0, review_assets: 0 }, entries }, null, 2) + '\n',
+    'utf8',
+  )
+  return root
+}
+
+describe('R57-H-1：登记写入链前置失败点的信封收口', () => {
+  it('fm 注入写失败 → {ok:false} 信封返回（修复前裸抛穿透），文件未注入、manifest 零写入（无残留）', () => {
+    const root = writeChainFixture()
+    try {
+      writeFileSync(join(root, CHAIN_FINAL), CHAIN_ORIGINAL, 'utf8')
+      const manifestBefore = readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')
+
+      atomicGate.failInjectWrite = true
+      let report!: ReturnType<typeof commitKnowledgeFile>
+      expect(() => {
+        report = commitKnowledgeFile(root, { target: CHAIN_FINAL, now: '2026-09-06T12:00:00+08:00' })
+      }).not.toThrow()
+      atomicGate.failInjectWrite = false
+
+      expect(report.ok).toBe(false)
+      expect(report.issues).toHaveLength(1)
+      expect(report.issues[0]!.path).toBe(CHAIN_FINAL)
+      expect(report.issues[0]!.message).toContain('front matter 注入失败')
+      expect(report.issues[0]!.message).toContain('可重试')
+      // 无残留：定稿保持原文（未注入 source/license）、manifest 无新条目
+      expect(readFileSync(join(root, CHAIN_FINAL), 'utf8')).toBe(CHAIN_ORIGINAL)
+      expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')).toBe(manifestBefore)
+    } finally {
+      atomicGate.failInjectWrite = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('注入后哈希读失败 → 回滚 fm 注入（文件恢复原文）、manifest 零写入，报错可读可重试', () => {
+    const root = writeChainFixture()
+    try {
+      writeFileSync(join(root, CHAIN_FINAL), CHAIN_ORIGINAL, 'utf8')
+      const manifestBefore = readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')
+
+      hashGate.failHashRead = true
+      const report = commitKnowledgeFile(root, { target: CHAIN_FINAL, now: '2026-09-06T12:00:00+08:00' })
+      hashGate.failHashRead = false
+
+      expect(report.ok).toBe(false)
+      expect(report.issues).toHaveLength(1)
+      expect(report.issues[0]!.message).toContain('哈希')
+      expect(report.issues[0]!.message).toContain('已回滚 front matter 注入')
+      // 回滚后两文件同回旧态（对齐 R73-13 回滚语义），幂等可重试
+      expect(readFileSync(join(root, CHAIN_FINAL), 'utf8')).toBe(CHAIN_ORIGINAL)
+      expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')).toBe(manifestBefore)
+    } finally {
+      hashGate.failHashRead = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('不误伤：注入与哈希均正常 → 照常登记成功（守卫只收口失败路径）', () => {
+    const root = writeChainFixture()
+    try {
+      writeFileSync(join(root, CHAIN_FINAL), CHAIN_ORIGINAL, 'utf8')
+      const report = commitKnowledgeFile(root, { target: CHAIN_FINAL, now: '2026-09-06T12:00:00+08:00' })
+      expect(report.ok, report.issues.map((i) => i.message).join(';')).toBe(true)
+      expect(readFileSync(join(root, CHAIN_FINAL), 'utf8')).toContain('source: 语料回归域')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

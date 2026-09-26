@@ -1,0 +1,132 @@
+/**
+ * D3（内存审计 2026-08-24）：health/style 与 analyze-style 全书扫描 5s TTL 缓存。
+ * 口径对齐 overview.ts stateCache（书键 Map + FIFO + 纯 TTL，无写路径失效挂点）。
+ * TTL 短档经组装根 overrides 注入（原模块级 __set*ForTest setter 已删）。
+ * 验证（mock driver）：
+ * - 命中：5s 内二次调用不重扫——盘上新增章/改正文对结果不可见
+ *   （health/style count 不变、analyze-style envelope.sourceHash 不变）。
+ * - 失效：TTL 到期后重扫——盘上变更可见（count 变化、sourceHash 变化）。
+ */
+import http from 'node:http'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
+
+const BOOK = 'D3测试书'
+let studio: StudioHarness
+let cachedStyleHash = '' // it1 建缓存时 analyze-style 的采样正文 hash（it2 断言变化用）
+
+function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(studio.baseUrl)
+    const r = http.request(
+      {
+        host: u.hostname,
+        port: u.port,
+        path,
+        method,
+        headers: { 'x-studio-token': studio.token },
+      },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('end', () => {
+          let json: unknown = null
+          try {
+            json = JSON.parse(data)
+          } catch {
+            /* 非 JSON */
+          }
+          resolve({ status: res.statusCode ?? 0, json })
+        })
+      },
+    )
+    r.on('error', reject)
+    r.end()
+  })
+}
+
+const CH1_FM = '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n'
+
+beforeAll(async () => {
+  // R62-21：两处 TTL 均注入短档——消除 STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
+  // R76-37（二十四轮 F 域）：300ms→1000ms——「命中」用例首查与二查之间夹着两次
+  // writeFileSync，慢机/CI 卡顿下超 300ms 即缓存过期、二查变重扫（count/hash 变化），
+  // 假红；1000ms 给足裕量，到期侧睡 TTL+500 不受影响。
+  // R0911-G-P1-1c（2026-09-11 修复批）：注入时钟根治两个方向的墙钟依赖——只接管
+  // Date（TTL 判定全部读 Date.now()），setTimeout/HTTP 服务器/真实 I/O 照常真实
+  //（toFake 选择性 fake 先例 p37-write-stall-watchdog）。fake 时钟不随真实耗时流动
+  // →「命中」臂对首查→二查之间的 I/O 时长彻底免疫；到期臂 advanceTimersByTime
+  // (TTL+1) 即时过期（先例 r47-rebuild-probe-ttl 的 3001=3000+1 同款），不再睡
+  // TTL+500=1.5s 真实墙钟（CI 慢机测试段被睡眠拖长，R0911-G-P1-1c macos 腿红族）。
+  // TTL 注入值保持 1000ms 不变。
+  vi.useFakeTimers({ toFake: ['Date'] })
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-d3-ttl-',
+    env: { CLWRITING_DRIVER: 'mock' },
+    // R62-21/R76-37：两处 TTL 组装根注入短档 1000ms（原模块级 setter 已删，改
+    // overrides 通道）；R0911-G-P1-1c 配合 Date fake 免疫首查→二查间 I/O 时长。
+    overrides: { styleScanTtlMs: 1000, styleCorpusTtlMs: 1000 },
+    // 不建 项目/文档清单.jsonl——finalizedPathSet 返 null 走全量口径，章文件直接进扫描样本
+    dirs: ['写作/正文'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: D3测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [{ rel: '写作/正文/0001-开篇.md', content: CH1_FM + '主角登场，初入宗门，一切由此开始。\n' }],
+  })
+})
+
+afterAll(async () => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
+  await studio.close()
+})
+
+describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
+  it('命中：5s 内二次调用不重扫（盘上变更不可见）', async () => {
+    // 建缓存：health（scanChapters 样本）+ analyze-style（采样正文/全文 stats）
+    const first = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)
+    expect(first.status).toBe(200)
+    expect((first.json as { count: number }).count).toBe(1)
+
+    const styleFirst = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
+    expect(styleFirst.status).toBe(200)
+    cachedStyleHash = (styleFirst.json as { envelope: { sourceHash: string } }).envelope.sourceHash
+    expect(cachedStyleHash).toMatch(/^[0-9a-f]{64}$/)
+
+    // 盘上变更：新增章 0002 + 改写章 1 正文（重扫应能见到两者的口径）
+    const bookRoot = studio.bookRoot
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0002-次章.md'),
+      '---\n章号: 2\n标题: 次章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第二章正文登场。\n',
+      'utf8',
+    )
+    writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH1_FM + '主角登场，正文已被作者彻底改写一新。\n', 'utf8')
+
+    // 5s 内二次调用：均命中缓存——count 不变（未见新章）、sourceHash 不变（未见改写正文）
+    const second = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)
+    expect(second.status).toBe(200)
+    expect((second.json as { count: number }).count).toBe(1)
+
+    const styleSecond = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
+    expect(styleSecond.status).toBe(200)
+    expect((styleSecond.json as { envelope: { sourceHash: string } }).envelope.sourceHash).toBe(cachedStyleHash)
+  })
+
+  it('失效：TTL 到期后重扫（盘上变更可见）', async () => {
+    // R62-21：注入 TTL（R76-37 起为 1000ms）→ R0911-G-P1-1c：注入时钟推进 TTL+1
+    // 过期（含余量语义不变：严格大于 TTL 窗）。此前睡 TTL+500=1.5s 真实墙钟，慢机
+    // 拖长 CI 测试段。
+    vi.advanceTimersByTime(1000 + 1)
+
+    const third = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)
+    expect(third.status).toBe(200)
+    expect((third.json as { count: number }).count).toBe(2) // 重扫见到新章 0002
+
+    const styleThird = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
+    expect(styleThird.status).toBe(200)
+    const hash3 = (styleThird.json as { envelope: { sourceHash: string } }).envelope.sourceHash
+    expect(hash3).toMatch(/^[0-9a-f]{64}$/)
+    expect(hash3).not.toBe(cachedStyleHash) // 重扫见到改写正文 + 新章（采样正文 hash 变化）
+  })
+})

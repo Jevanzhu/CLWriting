@@ -1,9 +1,9 @@
 /**
  * 章节结构操作公共底座（读态派生 / plan 指纹 / 折叠拼接 / 事件副录 / 取号）。
  *
- * R0916-5f（2026-09-16，⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
+ * （⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
  * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
- * （《章节结构操作-设计方案-2026-08-30》v3）。本文件承载原「公共形状」段的
+ * （《章节结构操作-设计方案-》v3）。本文件承载原「公共形状」段的
  * StructureFailure / StructureRagPort 与原「内部工具」段全部内容（ChapterDiskState
  * 单读派生 / fail / plan 指纹族 / foldMergedInto / concatChapterBody / bodyStartOffset /
  * recordStructureEvents / maxUsedChapter / finalizedChapterNumbers / skipFinalized /
@@ -20,7 +20,7 @@ import { safeManifestPath } from '../fs/safe-path.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { parseMergedInto, parseOrderOf } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
-// 0918独立重评修复批（B005 尾项）：isMdFileName = 定稿条目章号提取剥 .md 茎单源
+// 0918修复批（B005 尾项）：isMdFileName = 定稿条目章号提取剥 .md 茎单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { layoutOf } from './layout.js'
 import { readManifestStrict } from './manifest.js'
@@ -34,7 +34,7 @@ import { log, errMsg } from '../log/index.js'
 export type StructureFailure = { ok: false; code: string; reason: string }
 
 /**
- * RAG 触点端口（G5 依赖方向守护的接口反转）：document 底座不得 import rag 生成层，
+ * RAG 触点端口（依赖方向守护的接口反转）：document 底座不得 import rag 生成层，
  * 干跑预估与合并后清理由合法调用层（studio/server/api）注入 rag/index 实现。方法名
  * 与被代理函数一致（适配零成本）；等价性由 structure-merge/split 端点级 RAG 用例钉定
  * （经 api 层走真实现，本文件零 rag 依赖可独立单测）。
@@ -50,7 +50,7 @@ export const BODY_PREFIX = '写作/正文/'
 export const VERSIONS_DIR_REL = '工作区/.版本'
 
 /** 单读派生：章文件盘上状态（字节 → revision / UTF-8 判定 / fm+正文 三路同源，
- *  R33D-18/R48-43 消除重复整读与读间 TOCTOU 的同款口径）。 */
+ *  /消除重复整读与读间 TOCTOU 的同款口径）。 */
 export interface ChapterDiskState {
   path: string
   abs: string
@@ -84,7 +84,7 @@ export async function readChapterState(
   if (!path) return fail('NOT_FOUND', `文档ID未在清单登记：${docId}`)
   if (!path.startsWith(BODY_PREFIX)) return fail('BAD_INPUT', `目标不是正文区章文件：${path}`)
   if (layoutOf(path).role !== 'chapter') return fail('BAD_INPUT', `目标不是章文档：${path}`)
-  // 复审-0913-源码 P2-1：清单路径可篡改数据面 defense-in-depth——resolvePathAsync 产出的
+  // -源码：清单路径可篡改数据面 defense-in-depth——resolvePathAsync 产出的
   // path 裸 join 前经 safeManifestPath 收口（越界/非法 → BAD_INPUT 拒收，不留书外探测面）
   const abs = safeManifestPath(bookRoot, path)
   if (!abs) return fail('BAD_INPUT', `清单路径越界或非法：${path}`)
@@ -168,7 +168,7 @@ export async function recordStructureEvents(userDataPath: string | null, bookRoo
 }
 
 /** 全书已用最大章号：正文区文件名章号 + 并入 在档源章号（合并产生的洞也是「已用」，
- *  新章号永不回头填洞——留洞制 D1）。 */
+ *  新章号永不回头填洞——留洞制）。 */
 export function maxUsedChapter(bookRoot: string): number {
   let max = 0
   const bodyDir = join(bookRoot, BODY_PREFIX)
@@ -230,7 +230,7 @@ export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
  *  结构操作（拆分/合并/撤销）带着失配盘面执行会放大重号/错定位，先拒后做；报文
  *  指明修复方向：文件名号为正，改 fm 对齐（或把文件名改回）。最多列 5 处 + 总数。
  *  拍板注：fail-loud 会拦存量失配书的一切结构操作（须先修书）——作者拍板接受
- *  （真开放待拍板 2 之 B004，2026-09-18）。
+ *  （真开放待拍板 2 之 B004）。
  *  只拦「fm 存在且 ≠ 文件名号」的真失配；fm 缺失/无 frontmatter 不拦——三个取号
  *  消费者全按文件名号派生（fm 缺失文件照常占号，保守无险），被操作章自身有
  *  readChapterState 的 BAD_INPUT 兜底，且杂散占位文件（B105 还原失败半完成态的
@@ -252,12 +252,12 @@ export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | n
 /** 已定稿章号集合（manifest finalizedRevision 条目，路径章号派生；state.ts
  *  skipFinalizedChapters 同语义）。strict 读失败上抛——取号错比拒绝执行更贵
  *  （fail-closed；异常穿透 apply 锁释放后由 server 路由顶层兜底 500 ERROR、
- *  message 脱敏——RC 全项目重审 P3 修注：原注「调用方收 WRITE_ERROR 信封」
+ *  message 脱敏——RC 全项目修注：原注「调用方收 WRITE_ERROR 信封」
  *  与实际路由不符，如需信封化须在 plan/apply 入口显式收口，此处按实况记档）。
- *  0918独立重评修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
+ *  0918修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
  *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
  *  漏跳 → 拆分取号可撞定稿章号。
- *  0918独立重评二轮修复批（B102）：isSafeInteger 手工守卫删除——守卫已下沉
+ *  0918二轮修复批（B102）：isSafeInteger 手工守卫删除——守卫已下沉
  *  chapterNoFromName 单源（16+ 位失真大数恒 null），与 manifest.ts 同名函数对齐。 */
 export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const out = new Set<number>()
@@ -273,7 +273,7 @@ export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   return out
 }
 
-/** CC-P1-6：n 起步跳过一切已定稿章号（「篇号永不复用」语义；连续定稿时 n+1 即空闲）。 */
+/** n 起步跳过一切已定稿章号（「篇号永不复用」语义；连续定稿时 n+1 即空闲）。 */
 export function skipFinalized(n: number, finalized: Set<number>): number {
   let next = n
   while (finalized.has(next)) next++

@@ -12,7 +12,7 @@ export function tierOf(score: number): 'a' | 'b' | 'c' {
   return 'c'
 }
 
-/** R48-90（四十八轮）：打分分布统计单源——原 LearnView（概览分布条）与
+/** 打分分布统计单源——原 LearnView（概览分布条）与
  *  SampleCandidateList（头部统计）逐字双实现收编；档位口径随 tierOf 单源走。 */
 export function scoreTierStats(samples: readonly { 打分: number }[]): {
   a: number

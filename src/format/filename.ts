@@ -1,13 +1,13 @@
 /**
- * 写章文件名净化（R-10，第十六轮；win 适配批 2 升格单一真相源，2026-08-27）。
+ * 写章文件名净化（win 适配批 2 升格单一真相源）。
  *
  * AI 产出标题（不可信）可超长（ENAMETOOLONG）或含控制字符/换行（块标量多行标题），
- * 直接拼文件名会在写盘时炸或产生含换行的非法名。对齐导出侧 X-P2-4 口径
+ * 直接拼文件名会在写盘时炸或产生含换行的非法名。对齐导出侧口径
  * （src/export/index.ts：码位 + 字节双封顶），但正文文件名拼接点更长
  * （卷目录 + 4 位章号前缀 + 原子写 tmp 名 +49B 余量），取更紧的常数：
  * 码位 ≤60 / 字节 ≤120，超长截断且不切多字节字符。
  *
- * win 适配批 2（2026-08-27）：本模块升格为全库非法字符净化的单一真相源——
+ * win 适配批 2：本模块升格为全库非法字符净化的单一真相源——
  * 新增 Windows 保留设备名规避（mac 上也是合法目录名，但拷至 win 会被拒）与
  * 尾部点/空格剥离（win 落盘被自动剖，读写名不一致歧义）。mac 同样执行，
  * 保持数据面跨平台一致。既有调用方（style-entry/scene 名、foreshadow、tree、
@@ -58,20 +58,20 @@ function winCompatNamePart(name: string): string {
  * 非空兜底（`未命名`）。供正文/风格库/伏笔/树工具/导出等所有拼文件名点收敛。
  */
 export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: number): string {
-  // R31-17（三十一轮）备案的 NFC 收敛已随平台规范化批（2026-09-03）落地：入口归一 NFC
+  // 备案的 NFC 收敛已随平台规范化批落地：入口归一 NFC
   //（mac APFS 存 NFD、win/NTFS 惯 NFC，同名不同形跨机即「找不到文件」；存量文件由
   // 启动迁移 v4 改名归一）。大小写折叠仍不做——碰撞由调用方章号前缀与 O_EXCL 序号
-  // 兜底（R31-17 原判据维持）。
+  // 兜底（原判据维持）。
 
   const cleaned = title
     .normalize('NFC')
     // 控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
-    // （R32-41：此处历史 eslint-disable no-control-regex 指令已清——规则未启用，指令失效）
+    // （此处历史 eslint-disable no-control-regex 指令已清——规则未启用，指令失效）
     .replace(/[\u0000-\u001f\u007f]/g, '')
     // 非法文件名字符：路径分隔符（防 ../ 越出 bookRoot）等
     .replace(/[\\/:*?"<>|]/g, '_')
     .trim()
-    // X-P2-9：转义 [[ ]] 防止文件名解析成链接文本
+    // 转义 [[ ]] 防止文件名解析成链接文本
     .replace(/\[\[/g, '（')
     .replace(/\]\]/g, '）')
   const out = winCompatNamePart(truncateTitle(cleaned, maxCp, maxBytes))
@@ -84,7 +84,7 @@ export function sanitizeChapterTitle(title: string): string {
 }
 
 /**
- * R33-9（三十三轮）：完整文件名段净化（rename/copy 目标名专用）——同一套非法字符/
+ * 完整文件名段净化（rename/copy 目标名专用）——同一套非法字符/
  * 控制字符/[[ ]] 转义/尾点尾空格/保留设备名纪律，但**不做长度封顶**（长度预算是各
  * 拼接点组合时的责任：updateChapterMeta 等已按 sanitizeChapterTitle 封顶；此处对
  * 「前缀+标题+扩展名」整体再封顶会把前缀/扩展名算进预算产生二次截断 mangle），
@@ -97,11 +97,11 @@ export function sanitizeFullFileName(name: string): string {
   const pre = name.normalize('NFC').replace(/[. ]+$/, '')
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
   let rawStem = m?.[1] ?? pre
-  // R57-D-2（五十七轮）：ext 段消毒字符集对齐词干段同款 [\\/:*?"<>|]——原只替换
+  // ext 段消毒字符集对齐词干段同款 [\\/:*?"<>|]——原只替换
   // 路径分隔符 \ /，win 保留字符落在最后一段点之后（如 a.md:2 的冒号）即漏网留存
   // 进扩展名。ext 以点开头，首点不在替换集内，保留逻辑不动。
   let ext = (m?.[2] ?? '').replace(/[\\/:*?"<>|]/g, '_')
-  // R49-14（评审 R49）：纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
+  // （评审）：纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
   // stem 净化后为空 → 落「未命名」兜底，产出「未命名.gitignore」。stem 为空 = 整名无
   // 词干，按「无扩展名的完整名」处理（stem=pre、ext=''），后续净化/保留名检查/兜底
   // 管线照走（.gitignore 非保留名 → 原样通过）；pre 已剥成空串（''/'...'）不在此列，
@@ -121,7 +121,7 @@ export function sanitizeFullFileName(name: string): string {
 }
 
 /** Markdown 扩展名判定（大小写不敏感）。
- *  R38-9（三十八轮）：`.MD` 大写扩展名家族修复（R34D-11/R2W-8）此前只覆盖 readEntries
+ *  `.MD` 大写扩展名家族修复（/）此前只覆盖 readEntries
  *  一处——样章/金句/禁词指纹/账本 fm 扫描/归档配对/章纲定位共 7 处扫描点仍大小写敏感，
  *  win 资源管理器改名 `.MD` 后对相应消费者静默失明（禁词指纹侧还会让缓存陈旧结果
  *  持续生效）。本 helper 为该家族的单一判定源。 */
@@ -129,26 +129,26 @@ export function isMdFileName(name: string): boolean {
   return name.toLowerCase().endsWith('.md')
 }
 
-/** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：文件名前导章号提取单一真相源——
+/** （GLM-5.3 修复批）：文件名前导章号提取单一真相源——
  *  此前四处各持正则漂移（tree 容忍 -/—/空白/裸尾，leads/foreshadow/summary 仅认 -）：
  *  「树按章号排序认得的章文件」在伏笔足迹/线索核验/摘要自愈三处静默不可见
  *  （如 `5—标题.md`/`5 标题.md`：排序在位、足迹缺章）。统一取 tree 宽容集；
  *  补零宽度无关（0001-x 与 1-x 同判 1）；非数字前缀返回 null。
- *  0918独立重评二轮修复批（B102）：Number.isSafeInteger 守卫下沉本单源——16+ 位纯
- *  数字前缀 Number() 解析成超 2^53 失真浮点（1e20 级），此前单源无守卫而两处消费点
+ *  0918二轮修复批（B102）：Number.isSafeInteger 守卫下沉本单源——16+ 位纯
+ *  数字前缀 Number 解析成超 2^53 失真浮点（1e20 级），此前单源无守卫而两处消费点
  *  （manifest.ts / structure-core.ts finalizedChapterNumbers）各自手工补丁、另两处
  *  （finalize 防吃书闸定位 / service-meta 文件名前缀回落）未补，口径分裂；守卫入单源
- *  后失真大数一律按「无章号」（null）降级（R64-20 words.ts parseChapterFileName
+ *  后失真大数一律按「无章号」（null）降级（words.ts parseChapterFileName
  *  同口径，语义对齐、正则分立维持——words 版须 `-标题` 严格形且零 Node 依赖供浏览器
  *  import，不并）。 */
 export function chapterNoFromName(name: string): number | null {
-  // 阶段 36（R1010c-EN-P2-1 拍板落地，B 档单源扩集）：先剥 .md 扩展再匹配。裸数字名
+  // 阶段 36（拍板落地，B 档单源扩集）：先剥 .md 扩展再匹配。裸数字名
   // （0012.md）此前仅三族消费方自带剥扩展认得（tree stripMd / health 取号下限 /
   // finalizedChapterNumbers 双实现，B005 批），带全名直传的 summary·leads·foreshadow·
   // finalize·draft-path 五处失明，同一文件名口径分裂（对表 test/process/
   // chapter-no-callshape.test.ts）。剥扩展入单源后全消费方拉齐；三族自带剥成幂等
   // 冗余保留不动（零行为面）；words.ts parseChapterFileName 严格形分立维持（浏览器
-  // 侧零 Node 依赖，R64-20 同口径）。仅剥尾部 .md（isMdFileName 大小写不敏感）——
+  // 侧零 Node 依赖，同口径）。仅剥尾部 .md（isMdFileName 大小写不敏感）——
   // 多点形态（005.tar.md 剥后 005.tar → null）与非 md 扩展（5.md.bak → null）不认。
   const stem = isMdFileName(name) ? name.slice(0, -3) : name
   const m = /^(\d+)(?:[-—]|\s|$)/.exec(stem)

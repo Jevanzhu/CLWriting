@@ -43,7 +43,7 @@ const SESSION_END_FLUSH_BUDGET_MS = Number(process.env['CLW_SESSION_END_FLUSH_BU
 /** close/quit 两 flush 链的在途旗（模块级，两链入口均拦下对方在途窗、不起第二链——
  *  分居两处闭包互不可见时会撞出双 flush）。
  *  quitDuringCloseFlush 记「close flush 在途时到达的退出请求」，由 close 链收尾统一
- *  汇入 app.quit()（不直接放行 quit——在途 flush 会被退出连带打断丢保存）。
+ *  汇入 app.quit（不直接放行 quit——在途 flush 会被退出连带打断丢保存）。
  *  复位纪律：随各自链路收尾复位（close 链 destroy/cancel、quit 链 destroy/cancel），
  *  跨 re-bootstrap 不残留。 */
 let closeFlushInFlight = false
@@ -135,7 +135,7 @@ function confirmDiscardFailed(parent: BrowserWindow, count: number): boolean {
  * 流程（两链原序逐位保留）：
  *   flushRendererWithBudget（预算竞速）→ 超时 warn / 无钩子 info 留痕（文案各链注入）
  *   → skipConfirms 停机复查留痕（仅 close 链传）→ conflict 原生确认 → failed 留痕 +
- *   原生确认 → 取消即 onCancel()（复位各自在途旗/丢弃切库意图/回写回滚基线——复位时机
+ *   原生确认 → 取消即 onCancel（复位各自在途旗/丢弃切库意图/回写回滚基线——复位时机
  *   原样）并返回 'cancel'。
  * 返回 'proceed' = 确认全过（或无可确认），调用方接各自收尾（close 链 destroy 单窗、
  * quit 链 appTearingDown + 全窗 destroy）。
@@ -218,7 +218,7 @@ interface ShutdownGateLike {
 export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLifecycleDeps): void {
   const { serverManager } = deps
   // 关窗兜底——首轮 close 先 preventDefault，经渲染层钩子异步 flush（页面未死，异步保存链
-  // 全通）落定/短超时后 destroy() 真正关窗（destroy 不再触发 beforeunload，链路单次不循环）。
+  // 全通）落定/短超时后 destroy 真正关窗（destroy 不再触发 beforeunload，链路单次不循环）。
   // 退出链（before-quit）已先行 flush 并在收口 destroy 全窗，session-end 时间窗有限，两者都直接放行。
   // 在途旗（closeFlushInFlight/quitFlushInFlight）与 quit 汇入旗（quitDuringCloseFlush）为模块级
   // ——两链互查；复位闸随链路收尾统一复位（destroy 后 close 不再触发，复位无副作用），并兼作 quit 汇入点。
@@ -268,7 +268,7 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
         log.error('desktop', '关窗兜底 flush 后 destroy 异常（交退出流程兜底）', err)
       }
       // 复位闸在链路收尾（destroy 后 close 不再触发，复位无副作用）；
-      // close flush 在途时到达的退出请求由此统一汇入 app.quit()——多窗态下
+      // close flush 在途时到达的退出请求由此统一汇入 app.quit——多窗态下
       // window-all-closed 不触发，只能这里补发；单窗态与 window-all-closed 双发
       // 在 before-quit 幂等收敛（quitFlushInFlight/quitViaShutdown 门）。
       closeFlushInFlight = false
@@ -285,10 +285,10 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
     // OS 关机/注销窗口有限——置旗让上方 close 拦截放行直关，不在有限窗口里白等渲染层
     // flush（本条链路的停机兜底以 server 停机指令为准）
     sessionEnding = true
-    // RC 源码重审 A-1（顺序不变量，勿改）：**先落 flush 再下发停机指令**——与 quit 链
+    // RC（顺序不变量，勿改）：**先落 flush 再下发停机指令**——与 quit 链
     // 「先存后停服」同一条不变量（test/desktop/main-close-flush.test.ts 的 before-quit
     // 用例已有顺序锚）。为什么必须这个序：渲染层 flush 要走 executeJavaScript 往返 →
-    // 前端钩子 → fetch PUT，而 shutdownStudio 逐书 abort 后立即 server.close()（不再
+    // 前端钩子 → fetch PUT，而 shutdownStudio 逐书 abort 后立即 server.close（不再
     // accept 新连接）——并行下发时迟到的 PUT 连连接都进不来，自动保存节拍内（默认 30s）
     // 的最后键入静默丢失（「编辑永不静默丢失」红线）。
     // 等待仍有界：flush 预算 2s + shutdown 3.5s 总超时 ≈ 5.5s，仍在观察窗（5s 到点→
@@ -388,13 +388,13 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
 export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerManagerLike): void {
   // 优雅停机在途期间的再次 quit 请求一律 preventDefault——放行直通会在 3.5s 优雅窗口内
   // 强杀 child（在途 chat/self-heal 的 session/end 落库被打断）；首次流程的 finally 会统一
-  // app.quit() 收口。beginShutdown 不复位（runner 生命周期语义），为防拦掉自己的 quit 成
+  // app.quit 收口。beginShutdown 不复位（runner 生命周期语义），为防拦掉自己的 quit 成
   // 死循环，用本地 quitViaShutdown 区分「finally 里我们自己发起的 quit」放行直通。
   // 顺序不变量：退出链先行渲染层 flush，再 shutdown 杀 server——反序则渲染层任何保存
   //（含 close 拦截兜底）都打向已死端口必失败，最后一个 autosave 间隔内的键入随退出静默
   // 丢失。流程：flush（≤CLOSE_FLUSH_BUDGET_MS）→ 冲突未决可原生确认取消退出（不
   // beginShutdown，窗口/server 原样保留）→ beginShutdown → shutdown → 收口 destroy 全窗
-  //（app.quit() 的隐式关窗会走渲染层 beforeunload，preventDefault 类守卫在无监听方时拦死
+  //（app.quit 的隐式关窗会走渲染层 beforeunload，preventDefault 类守卫在无监听方时拦死
   // 退出链）→ quitViaShutdown 放行 quit。
   // quitViaShutdown 是 quit 链私有收口旗，不与 close 链共享；两链共享的在途旗见模块级声明处。
   let quitViaShutdown = false
@@ -408,7 +408,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
     }
     // session-end 在途的级联 quit 直通——OS 关机/注销收尾期
     //（sessionEnding 已置旗、server 已下发停机、渲染层将死）主窗 closed →
-    // app.quit() 会二次进本链：flush 打向已死 server 必落空，conflict/failed 的
+    // app.quit 会二次进本链：flush 打向已死 server 必落空，conflict/failed 的
     // 原生同步确认无人可答（把进程钉死在 OS 收尾窗口内）。session-end 链已完成
     // 尽力而为三件（flush / 存窗口状态 / 停机指令），此处不再起交互链、不
     // preventDefault，放行原生退出（close 拦截已按 sessionEnding 直关放行）。
@@ -418,7 +418,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
     }
     e.preventDefault()
     // close 链 flush 在途——只拦不另起第二链（同窗双
-    // executeJavaScript、极端时序双确认框），置位待 close 链收尾统一汇入 app.quit()
+    // executeJavaScript、极端时序双确认框），置位待 close 链收尾统一汇入 app.quit
     // （close 链 destroy 后补发；单窗态 window-all-closed 同样触发，幂等收敛）。
     // 不直接放行 quit：在途 flush 会被退出连带打断（保存写一半），丢 flush。
     if (closeFlushInFlight) {
@@ -429,9 +429,9 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
     if (quitFlushInFlight || gate.shuttingDown) return
     quitFlushInFlight = true
     void (async () => {
-      // quit 链补存窗口状态——根因：本链收口 destroy() 全窗（下方 finally）不触发
+      // quit 链补存窗口状态——根因：本链收口 destroy 全窗（下方 finally）不触发
       // 'close' 事件（Electron 语义），close 拦截首行的 saveWinState 在本链不达；
-      // 而 Cmd+Q / win 菜单退出 / 崩溃风暴对话框退出 / 切库 relaunch（relaunch() →
+      // 而 Cmd+Q / win 菜单退出 / 崩溃风暴对话框退出 / 切库 relaunch（relaunch →
       // app.quit）全汇入本链——退出前的窗口几何变更会静默丢失（session-end 链同款补存）。
       // 补点在链首：窗口仍存活、任何 flush/确认/destroy 之前；saveWinState 内部已吞错、
       // 幂等（close/session-end 链已存时重写同值），冲突/失败确认取消退出路径多存一次
@@ -468,7 +468,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
         quitFlushInFlight = false
         return // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口
       }
-      // shutdown() 可能 reject（child 已死时 postMessage/kill 抛错等）：不 catch 则
+      // shutdown 可能 reject（child 已死时 postMessage/kill 抛错等）：不 catch 则
       // rejection 成 unhandledRejection（丢现场）、quit 收口悬空。包 try/catch + .catch
       // 记日志，finally 仍 quit——退出收口不因停机失败而挂死。
       try {

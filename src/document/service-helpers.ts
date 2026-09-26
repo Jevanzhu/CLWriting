@@ -1,5 +1,5 @@
 /**
- * 文档服务尾部自由函数集 —— R0916-5e（2026-09-16，⑤④产品巨件拆分波1）自
+ * 文档服务尾部自由函数集 —— （⑤④产品巨件拆分波1）自
  * service.ts 缝 B 拆出（纯移动，零行为变化）。
  *
  * 内容：trashBaselineOf / isSamePhysicalFile / sanitizeCreateSegment /
@@ -17,8 +17,8 @@ import { type TreeNode } from './tree.js'
 import { sanitizeFileNamePart, chapterNoFromName } from '../format/filename.js'
 import { readBookConfig } from '../format/yaml.js'
 
-/** R0912-3（2026-09-12 全量重评 P2-2）：清单条目 → TrashEntry 基线投影单源（W-P2-1
- *  基线 + R27-47 tags/order，status 可派生故不带）——doTrash 的无锁快照与删除 RMW
+/** 清单条目 → TrashEntry 基线投影单源（
+ *  基线 + tags/order，status 可派生故不带）——doTrash 的无锁快照与删除 RMW
  *  锁内新鲜读两处共用同一字段集与键序（键序固定是 JSON.stringify 逐位比对的判据）。 */
 export function trashBaselineOf(e: ManifestEntry): { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } {
   return {
@@ -28,8 +28,8 @@ export function trashBaselineOf(e: ManifestEntry): { finalizedRevision?: string;
   }
 }
 
-/** R2W-1：同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
- *  dev+ino 口径对齐 api/books.ts R71-8。stat 失败（EACCES 等）按「非同文件」保守处理，
+/** 同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
+ *  dev+ino 口径对齐 api/books.ts 。stat 失败（EACCES 等）按「非同文件」保守处理，
  *  走既有冲突收口。 */
 export function isSamePhysicalFile(a: string, b: string): boolean {
   try {
@@ -41,7 +41,7 @@ export function isSamePhysicalFile(a: string, b: string): boolean {
   }
 }
 
-/** R26-55（二十六轮）：createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段
+/** createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段
  *  再原样拼回扩展名（大小写保留），目录段/无扩展名段整体消毒。sanitizeFileNamePart
  *  对空段兜底「未命名」，故 `/.md` 形态落为 `未命名.md`，不产生空段。 */
 export function sanitizeCreateSegment(seg: string): string {
@@ -51,8 +51,8 @@ export function sanitizeCreateSegment(seg: string): string {
   return sanitizeFileNamePart(seg)
 }
 
-/** R40-24（四十轮）：save 新建路径的消毒闸判定——任一**非空**段经 sanitizeCreateSegment
- *  （R26-55 单源）会改写即不合规（保留设备名/尾点/尾空格/控制字符/非法字符段）。
+/** save 新建路径的消毒闸判定——任一**非空**段经 sanitizeCreateSegment
+ *  （单源）会改写即不合规（保留设备名/尾点/尾空格/控制字符/非法字符段）。
  *  空段跳过（'a//b.md' 类冗余分隔符由 resolve 词法折叠，铸名无害，不误拒）；两种
  *  分隔符都切（win 反斜杠 relPath 变体与 posix 口径同判）。 */
 export function isSanitizedCreatePath(relPath: string): boolean {
@@ -68,17 +68,17 @@ export function isPieceBody(relPath: string, bookRoot: string): boolean {
   return cfg.ok ? (cfg.config.kind ?? 'long') === 'short' : false
 }
 
-/** N-11（第十二轮）：fm 章号归一——引号包裹的纯数字串（作者手写/外部工具写回的
+/** fm 章号归一——引号包裹的纯数字串（作者手写/外部工具写回的
  *  `章号: "12"`）与数字同等参与文件名派生；此前 typeof === 'number' 判不过就回落
  *  basename 前缀提取，改标题后章号段静默劣化。非数字（含小数/空/杂串）→ null 走
- *  原回落；仅用于文件名派生，fm 原值不回写（M-2 字节级忠实口径）。 */
+ *  原回落；仅用于文件名派生，fm 原值不回写（字节级忠实口径）。 */
 export function normalizeChapterNo(v: unknown): number | null {
   if (typeof v === 'number' && Number.isInteger(v)) return v
   if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim())
   return null
 }
 
-/** 全库重评-0914 P3-11：章文件名标题段剥离（章号识别收编 chapterNoFromName 单源，
+/** 0914 章文件名标题段剥离（章号识别收编 chapterNoFromName 单源，
  *  format/filename 宽集：`-`/`—`/空白/裸尾均认）——原窄正则 `/^(?:\d+-)?(.+)\.md$/`
  *  只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号落标题）。
  *  命中判定走 chapterNoFromName；剥段 = 首个分隔符（`-`/`—`/空白，与单源分隔集一致）

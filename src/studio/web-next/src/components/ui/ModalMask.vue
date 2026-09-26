@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// 全屏遮罩统一组件（R0916-7-P3-22）：open 即向 ui store 登记、关即注销（⌘P 守卫 /
+// 全屏遮罩统一组件：open 即向 ui store 登记、关即注销（⌘P 守卫 /
 // Esc 让渡 / win 窗控压暗对一切走本组件的遮罩自动生效）；遮罩浓度从 ui store
 // MASK_ALPHA 单源内联上色——各弹窗不再自写 rgba 遮罩 CSS（原「MASK_ALPHA ↔ 组件
 // CSS」双份镜像、靠测试读 CSS 对账的面已删）。
 // 调用方传 :open 而非在本组件上挂 v-if：teleport 之内隔组件边界做挂载/卸载开关，
-// 卸载路径在双窗实例 + body 清空时序下触发 DOM 竞态（r42 回归）——本组件常驻、
+// 卸载路径在双窗实例 + body 清空时序下触发 DOM 竞态（回归）——本组件常驻、
 // 内层 div 的 v-if 与迁移前「Teleport > div v-if」的 DOM 操作序列逐位一致；
 // Teleport 亦由调用方自持（ConfirmPrompt 无 Teleport 惯例，原位渲染不变）。
 import { computed, watch, onUnmounted } from 'vue'

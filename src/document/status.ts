@@ -20,7 +20,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ManifestEntry } from './manifest.js'
 
-/** 文档级六态（W0 §3）。 */
+/** 文档级六态（§3）。 */
 export type DocumentStatus =
   | 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
 
@@ -53,7 +53,7 @@ export function deriveStatus(
 }
 
 /**
- * 读文件 frontmatter `已发布` 字段（published 唯一落盘字段，W0 §3 + §17 决策③）。
+ * 读文件 frontmatter `已发布` 字段（published 唯一落盘字段，§3 + §17 决策③）。
  * 无 frontmatter / 无字段 / 字段非已发布值 / 文件不存在 → false。坏文件容错降级 false。
  */
 export function readPublished(bookRoot: string, relPath: string): boolean {
@@ -62,7 +62,7 @@ export function readPublished(bookRoot: string, relPath: string): boolean {
   const r = readFile(full)
   if (!r.ok) return false
   const fm = parseFlat(r.fmRaw)
-  // 复审-0913-源码 P3-⑥：已发布判定收编 chapters.isPublishedValue 单源（数组形态
+  // -源码 -⑥：已发布判定收编 chapters.isPublishedValue 单源（数组形态
   // ['true'] 亦判已发布，与树 probe / 导出 _raw 解析同口径），消 v === true || v === 'true' 双源
   return isPublishedValue(fm.get('已发布'))
 }

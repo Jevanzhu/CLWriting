@@ -42,7 +42,7 @@ export async function renameChapter(ctx: ToolContext, input: Record<string, unkn
   const relPath = findChapterRel(ctx, chapter)
   if (!relPath) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在，无法重命名。' }
   const oldName = basename(relPath)
-  // R71-17：前缀派生先剥 .md 再 split（对齐 copyChapter 低-6 口径）——无连字符章文件名
+  // 前缀派生先剥 .md 再 split（对齐 copyChapter 低-6 口径）——无连字符章文件名
   // （如「番外.md」，front matter 带章号即合法形态）原先把整个文件名当前缀，产出
   // 「番外.md-新标题.md」双 .md 畸形名，破坏 ^(\d+)- 前缀约定消费者。剥后缀后仍无
   // 连字符 → 无数值前缀可保，新名直接用净化后的新标题；常规 `0001-标题.md` 产物不变。
@@ -64,7 +64,7 @@ export async function copyChapter(ctx: ToolContext, input: Record<string, unknow
   const relPath = findChapterRel(ctx, chapter)
   if (!relPath) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在，无法复制。' }
   const oldName = basename(relPath)
-  // 低-6（第十轮）：文件名派生先剥 .md 再拼「 副本」后缀——对齐前端复制的
+  // 低-6文件名派生先剥 .md 再拼「 副本」后缀——对齐前端复制的
   // `<名> 副本.md` 惯例（useChapterTreeActions 同款）。原先按 split('-')[0] 取前缀再拼，
   // 无连字符章文件名（如「番外.md」，front matter 带章号即合法）会把整个文件名当前缀，
   // 产出「番外.md- 副本.md」双 .md 畸形名；常规 `0001-标题.md` 产物不变。

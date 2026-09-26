@@ -9,7 +9,7 @@
  *
  * R27-131（二十七轮）：汇总为空不再落草稿——原实现无条件 writeFalsePositiveDraft
  * 之后才判空打印「未产草稿」，只有说明行的占位草稿照落盘，对外口径与实际产物不一致。
- * 主体收进 runKnowledgeUpdate（root/date 可注入，直测见 test/scripts/r27-knowledge-update-empty.test.ts）
+ * 主体收进 runKnowledgeUpdate（root/date 可注入，直测见 test/scripts/knowledge-update-empty-summary.test.ts）
  * + 直跑守卫（check-knowledge.ts 同款：被 import 不触发落盘/输出副作用）。
  */
 import { fileURLToPath, pathToFileURL } from 'node:url'

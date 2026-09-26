@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 统一空态组件（P2-4）：图标 + 标题 + 文案 + 可选行动区（默认 slot）。
+// 统一空态组件：图标 + 标题 + 文案 + 可选行动区（默认 slot）。
 // 三档密度：
 //   full    — 门面/全屏（书库空、编辑器空）：图标 48 + 标题 + 副标题 + 按钮
 //   block   — 区域级（learn 收割空态）：图标 40 + 文案
@@ -77,7 +77,7 @@ const iconSize = computed(() =>
   z-index: -1;
 }
 .es-full .es-icon {
-  /* N-14（第十二轮）：clw-float 本就在全局家族；reduced-motion 由 base.css 全局
+  /* clw-float 本就在全局家族；reduced-motion 由 base.css 全局
      兜底统一裁剪（原先局部覆盖与全局重复） */
   animation: clw-float 3.5s var(--ease-std) infinite;
 }

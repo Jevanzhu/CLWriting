@@ -11,6 +11,12 @@
  *   rows 内容（不匹配探针行只计数不产元组）；
  * - recallDetailed 层：正常 buildIndex 后追加一条不匹配 model 行（恰落探针位）+
  *   压低 warnThreshold 触发截断——两条合法命中都在（修复前盲 pop 只剩一条）。
+ *
+ * 2026-09-26 终扫自 re2-p3-truncated-boundary.test.ts 并入（重评2-P3-4，2026-09-09 全量
+ * 重评 GLM-5-3）：truncated 判定对齐 R49-20 pop 侧口径——确实丢弃命中行才 true。边界
+ * 矩阵三象限（恰阈无探针 / 超阈探针非命中 / 探针为命中）收编为文末 describe；第四象限
+ * （表恰 N+1、探针非命中）已由上文 R49-20 recallDetailed 层用例锚定（其 truncated
+ * 断言随该批改 false），零断言去重。
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { rmSync, mkdirSync } from 'node:fs'
@@ -124,5 +130,94 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
     // 修复前：盲 pop 错删第 2 条合法命中 → hits 只剩 1 条
     expect(r.hits).toHaveLength(2)
     expect(r.hits.every((h) => h.章号 === 1)).toBe(true)
+  })
+})
+
+// ── 重评2-P3-4（2026-09-09 全量重评 GLM-5.3，2026-09-26 终扫自
+//    re2-p3-truncated-boundary.test.ts 并入）：truncated 边界——确实丢弃命中行才 true ──
+// recallDetailed 的 truncated 旧判定 `produced > warnThreshold` 在「探针行非命中」时
+// 误报 true——探针行（第 N+1 个产出行）是 model/维度不匹配行而未入 rows（R49-20 口径），
+// 此时零命中被丢，截断信号虚发。修复：判定对齐 R49-20 的 pop 侧口径——确实丢弃命中行
+// （produced 超阈且探针行确为命中、被 pop）才 true。
+
+/** 章节元数据（真实临时书库共用形态） */
+const BOUNDARY_META: ChapterMeta = {
+  章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+  _path: '', _wordCount: 100,
+}
+
+/** 建临时书并写入 N 段正文（每段一块，共 N 块）后返回书根 */
+function setupBoundaryBook(paragraphs: number): string {
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'rag-trunc-boundary-'))
+  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+  const body = Array.from(
+    { length: paragraphs },
+    (_, i) => `第${i + 1}段正文：主角挥剑斩向暗影，剑光如匹练，映出密室深处的古卷记载。`,
+  ).join('\n\n')
+  writeChapter(join(bookRoot, '写作', '正文', '1-第1章.md'), BOUNDARY_META, body)
+  return bookRoot
+}
+
+/** 向库追加一条不匹配 model 的行（模拟混 model 库；插入序最末） */
+function appendMismatchRow(bookRoot: string): void {
+  const db = openRagDb(bookRoot)
+  try {
+    storeChunk(db, {
+      章号: 99, start_offset: 0, end_offset: 10,
+      embedding: Float32Array.from([1, 0, 0]), model: 'other-model',
+    })
+  } finally {
+    db.close()
+  }
+}
+
+describe('重评2-P3-4: truncated 边界矩阵——确实丢弃命中行才 true', () => {
+  let bookRoot = ''
+
+  afterEach(() => {
+    if (bookRoot) rmSync(bookRoot, { recursive: true, force: true })
+    bookRoot = ''
+  })
+
+  it('全表恰为 warnThreshold 行（无探针）→ truncated=false 且 hits 全保留', async () => {
+    bookRoot = setupBoundaryBook(2)
+    const built = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
+    expect(built.ok).toBe(true)
+    expect(built.chunkCount).toBe(2)
+    // warnThreshold=2：produced=2 恰等于阈值，探针行（第 3 产出）不存在
+    const r = await recallDetailed(bookRoot, CONFIG, 'stub-key', '剑光', 5, stubEmbed, 2)
+    expect(r.truncated).toBe(false)
+    expect(r.totalBlocks).toBe(2)
+    expect(r.hits).toHaveLength(2)
+  })
+
+  it('全表超 warnThreshold+1 行但探针行非命中 → truncated=false（零命中被丢，不虚发截断信号）', async () => {
+    bookRoot = setupBoundaryBook(2)
+    const built = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
+    expect(built.ok).toBe(true)
+    expect(built.chunkCount).toBe(2)
+    // 追加两条不匹配行：表 4 行 > warnThreshold+1=3，但第 3 产出行（探针位）非命中
+    // ——扫描早停在产出 3 行处，rows 内 2 条命中一条未丢
+    appendMismatchRow(bookRoot)
+    appendMismatchRow(bookRoot)
+    const r = await recallDetailed(bookRoot, CONFIG, 'stub-key', '剑光', 5, stubEmbed, 2)
+    // 旧判定 produced(3) > warnThreshold(2) 会误报 true（「表更大」变体：未扫到的
+    // 第 4 行不翻转信号——是否本会命中无从判定，截断语义只对确实丢弃的命中负责）
+    expect(r.truncated).toBe(false)
+    expect(r.totalBlocks).toBe(3)
+    expect(r.hits).toHaveLength(2)
+    expect(r.hits.every((h) => h.章号 === 1)).toBe(true)
+  })
+
+  it('探针行为命中（确实 pop 掉一行）→ truncated=true 且 hits ≤ warnThreshold', async () => {
+    bookRoot = setupBoundaryBook(3)
+    const built = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
+    expect(built.ok).toBe(true)
+    expect(built.chunkCount).toBe(3)
+    // warnThreshold=2：produced=3（全命中），探针行（第 3 产出）为命中 → pop + true
+    const r = await recallDetailed(bookRoot, CONFIG, 'stub-key', '剑光', 5, stubEmbed, 2)
+    expect(r.truncated).toBe(true)
+    expect(r.totalBlocks).toBe(3)
+    expect(r.hits).toHaveLength(2) // 探针命中行被 pop，硬截断至 warnThreshold 块
   })
 })

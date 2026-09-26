@@ -7,18 +7,18 @@
  *
  * 原则：检测不出系列 → 保守省略一切可选参数；**不做模型白名单**，
  * 永不拦截用户选任何模型（分发产品原则）。
- * 每项字段注释附官方文档出处（effort 值域调研 2026-08-14 定稿）。
+ * 每项字段注释附官方文档出处（effort 值域调研定稿）。
  */
 import type { EffortLevel } from './types.js'
 import { modelIdKeys } from './normalize.js'
 
 export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi' | 'unknown'
 
-/** R-8（十五轮登记销账）：参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
+/** （十五轮登记销账）：参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
  *  系列前缀判定等表内容影响上线参数与重放口径，表改不 bump 会造成跨版本重放漂移且
  *  无从检测。**规则：本文件任何行为性变更（表项/前缀/翻译/兜底值）必须同步 bump 此
  *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。
- *  R59 清偿批（R55-C-7）：kimi trimStop 补齐「各 ≤32 字节」截断（行为性变更）→ bump。 */
+ *  清偿i trimStop 补齐「各 ≤32 字节」截断（行为性变更）→ bump。 */
 export const MODEL_QUIRKS_VERSION = '2026-09-07.1'
 
 /** 单个键形态上的前缀判定（不做白名单，识别不出即 unknown → 保守省略） */
@@ -34,7 +34,7 @@ function familyByPrefix(m: string): ModelFamily {
 }
 
 /**
- * 判定系列——三键解析（批次 D3，学 cherry findModel「精确 → 保留尺寸 → 尺寸无关」）：
+ * 判定系列——三键解析（批次，学 cherry findModel「精确 → 保留尺寸 → 尺寸无关」）：
  * 原文前缀 → 带尺寸归一键 → 尺寸无关键。归一道解决组织前缀 / 冒号尺寸 / 大小写
  * 变体（`zai-org/glm-4.7`、`gpt-oss:20b`、`deepseek-ai/deepseek-chat`）。
  * 三道全不中 → unknown（宁缺勿错：错误系列比无元数据更糟——参数面发错会 400）。
@@ -49,7 +49,7 @@ export function detectFamily(model: string): ModelFamily {
 }
 
 /**
- * R59 清偿批（R55-C-7）：kimi stop 序列单条 ≤32 字节的 UTF-8 安全截断——按 UTF-16
+ * 清偿i stop 序列单条 ≤32 字节的 UTF-8 安全截断——按 UTF-16
  * 码元 slice 会把多字节序列劈在中间（半字符字节流发给端点）。超限时按 32 字节截断，
  * 截断点做序列完整性判定：恰落在完整序列末尾则原样保留、落在序列中间则丢弃该不
  * 完整序列，保证输出恒为合法 UTF-8 且 ≤32 字节。仓内无「32 字节」截断先例（vault
@@ -91,11 +91,11 @@ function isKimiK3(model: string): boolean {
 }
 
 /**
- * Responses 线（/v1/responses）格式档——家族表内嵌子表（Responses 启用批 R2a）。
+ * Responses 线（/v1/responses）格式档——家族表内嵌子表（Responses 启用批）。
  *
  * 必须保持**纯数据**（无函数维度）：catalog 三件套（catalog.ts / catalog.gen.ts /
- * generate-model-catalog.ts / catalog-sync.test.ts）已随 2026-09-15 拍板快断批删除
- * （Z-P2-4 销账——运行时零消费、脚本全可再生、git 历史可考），原「catalog-sync
+ * generate-model-catalog.ts / catalog-sync.test.ts）已随拍板快断批删除
+ * （销账——运行时零消费、脚本全可再生、git 历史可考），原「catalog-sync
  * 双向校验红线」随之退役；纯数据约束保留（可序列化 / 可快照测试面不变）。
  * 设计定型「格式级 profile × 家族覆盖」（cherry reasoningProfiles 同构），出处见
  * 《Responses格式适配》设计第六节。
@@ -124,7 +124,7 @@ export interface FamilyQuirks {
   // ── 能力维度（模型支持什么）──
 
   /**
-   * 支持原生 function calling。现状（R35-14）：七家族全为 true——gen 层曾有的
+   * 支持原生 function calling。现状：七家族全为 true——gen 层曾有的
    * 「false → 剥 tools / 提前拒绝」前置拦截已删（死分支），不支持工具的实际防线
    * 是适配器 400 降级链（剥 tools 纯文本兜底）；本字段现仅供目录生成消费。
    */
@@ -140,7 +140,7 @@ export interface FamilyQuirks {
   toolChoiceMode: 'named' | 'required' | 'auto' | 'none'
   /**
    * 档位收敛映射（wire 查表，学 cherry-studio effortMap）。
-   * 2026-08-14 定稿：仅 deepseek 有特例映射（anthropic 线真消费）；
+   * 定稿：仅 deepseek 有特例映射（anthropic 线真消费）；
    * 其余厂家全透传，不预演官方折叠（服务端行为）。
    */
   effortMap?: Partial<Record<EffortLevel, EffortLevel>>
@@ -155,7 +155,7 @@ export interface FamilyQuirks {
   /** 输出上限参数名（OpenAI 侧新旧名并存，各家不同） */
   maxTokensKey: 'max_completion_tokens' | 'max_tokens'
   /** effort → reasoning_effort 值；null = 该系列不支持，不发。
-   *  R0916-7-P3-16：返回值收窄为 EffortLevel（表内映射只有透传与 trimEffort 两形态，
+   *  ：返回值收窄为 EffortLevel（表内映射只有透传与 trimEffort 两形态，
    *  产出恒在档位值域内）。SDK 的 ReasoningEffort 是 EffortLevel 的超集，适配器可直接
    *  赋值受 SDK 类型校验——原先返回 string 迫使调用侧整对象双重断言绕开校验。 */
   reasoningEffort(effort: EffortLevel): EffortLevel | null
@@ -190,7 +190,7 @@ export interface FamilyQuirks {
 // ── 档位映射工具 ──
 
 /**
- * DeepSeek 专用 wire 收敛（2026-08-14 定稿唯一特例）。
+ * DeepSeek 专用 wire 收敛（定稿唯一特例）。
  * 出处：cherry-studio deepseek 特例——官方 thinking_mode 折叠 medium/xhigh→high，
  * cherry 有意发 max 直达顶档（注释 "leaving max as the only way to reach the top
  * level"），故 wire 上 medium→high、xhigh→max。其余厂家全透传，不预演折叠。
@@ -344,7 +344,7 @@ export function quirksFor(model: string): FamilyQuirks {
         maxTokensKey: 'max_completion_tokens', // 已弃用 max_tokens
         reasoningEffort: k3 ? (e) => e : () => null,
         thinkingWithEffort: false,
-        // R35-15 登记 / R59 清偿批（R55-C-7）：官方上限「≤5 条且各 ≤32 字节」补齐后者——
+        // 登记 / 清偿批官方上限「≤5 条且各 ≤32 字节」补齐后者——
         // 条数裁剪之外按 UTF-8 字节口径逐条截断（truncateUtf8Bytes32，见其注）；
         // stopSequences 现无生产调用方（仅适配器读），接线前契约先补全
         trimStop: (s) => s.slice(0, 5).map(truncateUtf8Bytes32),
@@ -387,7 +387,7 @@ const FALLBACK_RESPONSES_WIRE: ResponsesWireQuirks = {
 }
 
 /**
- * responses 协议视图（Responses 启用批 R2a，缺口 5「gen 层静默丢弃」消除）：
+ * responses 协议视图（Responses 启用批，缺口 5「gen 层静默丢弃」消除）：
  * 基表 + responsesWire 覆盖 toolChoiceMode / structuredMode 并挂子表。
  *
  * gen 层意图翻译与适配器 toParams 都走本视图——Chat/Anthropic 线走 quirksFor

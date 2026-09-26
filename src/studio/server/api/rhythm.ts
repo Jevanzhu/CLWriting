@@ -12,17 +12,19 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { yieldToEventLoop } from '../../../async.js' // 重评-0914-三轮 P3-2：扫描段让出原语（progress.ts R37-3 同源）
+import { yieldToEventLoop } from '../../../async.js' // -：扫描段让出原语（progress.ts 同源）
 import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
 import { classifyReversal } from '../../../format/reversal-types.js'
 import { log } from '../../../log/index.js'
-import { testableConst } from '../../../shared/testable.js'
 
 interface RhythmCtx {
   workDir: string | null
+  /** 收尾：节奏聚合缓存 TTL 覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 5s 逐位不变） */
+  rhythmTtlMs?: number | null
 }
 
 const HOOK_TYPES: readonly HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
@@ -30,44 +32,38 @@ const HOOK_LEVELS: readonly HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-// ── R44-8（四十四轮）：rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
-// 手法对齐 search.ts R35-7（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
+// ── rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
+// 手法对齐 search.ts （探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
 // 每请求 readBookConfig + rhythmLong 双 readChapterDir（写作/正文 + 大纲/章纲）——
-// 章节元数据虽有 CC-P1-3 stat 级缓存，冷路径（首查/有章变更）仍整读全部章节全文，
+// 章节元数据虽有 stat 级缓存，冷路径（首查/有章变更）仍整读全部章节全文，
 // 节奏面板打开/轮询/切换反复触发。指纹按本端点实际读面构成（versionStatsProbe
-// R37-17 同思路）：book.yaml size:mtime（kind 决定响应形状，单文件内容写不改目录
+// 同思路）：book.yaml size:mtime（kind 决定响应形状，单文件内容写不改目录
 // mtime，必须以文件 stat 入指纹）+ 写作/正文、大纲/章纲 两目录 mtime（增删改名/
 // 同目录 rename 落盘可见）；目录内就地内容改写由 TTL 5s 兜底（宁多扫不脏读）。
 // 计算是同步单段（无在途并发窗口），缓存壳取 getVersionStatsCached 同款同步形态。
 const RHYTHM_CACHE_TTL_MS = 5000
 const RHYTHM_CACHE_MAX = 32
-/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
- *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getRhythmTtlMs, __setRhythmCacheTtlForTest] = testableConst<number | null>(null)
-/** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
+/** 收尾：__setRhythmCacheTtlForTest / __rhythmScanCountForTest（含 reset）
+ * 删除——TTL 覆盖档改组装根 RouteOverrides 注入（getRhythmCached* 覆盖尾参，随实例
+ * 隔离）；MISS 计数收编进缓存壳（stats.misses），观测面 = 下方导出的缓存实例
+ * （生产对象，先例同 analysisOverviewCache）。 */
+/** 删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
 export function forgetRhythmCache(bookRoot: string): void {
   rhythmCache.forget(bookRoot)
 }
-/** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
- *  全量重算（readBookConfig + readChapterDir×2）计数。 */
-export function __rhythmScanCountForTest(): number {
-  return rhythmCache.stats().misses
-}
-export function __resetRhythmScanCountForTest(): void {
-  rhythmCache.resetStats()
-}
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
- *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 +
- *  FIFO 32，见 ttl-cache.ts 头部收敛映射表）。
- *  重评-0914-三轮 P3-2：补 async 主路 + 在途去重（foreshadows.ts PM-1 双轨收口同款
- *  共壳形态：同步孪生保留为回归测试直测面，生产路由挂 async 孪生）——rhythm 是
- *  server 域最后一个 MISS 冷路径无让出的全书扫描端点。 */
-const rhythmCache = createTtlProbeCache<string, unknown>({
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 +
+ * FIFO 32，见 ttl-cache.ts 头部收敛映射表）。
+ * 补 async 主路 + 在途去重（foreshadows.ts 双轨收口同款
+ * 共壳形态：同步孪生保留为回归测试直测面，生产路由挂 async 孪生）——rhythm 是
+ * server 域最后一个 MISS 冷路径无让出的全书扫描端点。
+ * 收尾：导出即观测面（stats.misses 取代 __rhythmScanCountForTest）。 */
+export const rhythmCache = createTtlProbeCache<string, unknown>({
   name: 'rhythm',
   keyOf: (k) => k,
   max: RHYTHM_CACHE_MAX,
-  ttl: () => getRhythmTtlMs() ?? RHYTHM_CACHE_TTL_MS,
+  ttl: () => RHYTHM_CACHE_TTL_MS,
   probe: rhythmSignature,
   computeSync: rhythmCompute,
   computeAsync: rhythmComputeAsync,
@@ -108,23 +104,25 @@ function rhythmSignature(bookRoot: string): string {
   ].join(',')
 }
 
-/** R44-8：rhythm 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
- *  D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件，本函数只剩转发。 */
-export function getRhythmCached(bookRoot: string): unknown {
-  return rhythmCache.getSync(bookRoot)
+/** rhythm 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
+ * 壳体收编 ttl-cache.ts 通用件，本函数只剩转发。
+ * 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根 RouteOverrides 经
+ * handler 传入；直测面显式传——undefined = 生产口径 5s）。 */
+export function getRhythmCached(bookRoot: string, ttlOverrideMs?: number | null): unknown {
+  return rhythmCache.getSync(bookRoot, ttlOverrideMs ?? undefined)
 }
 
-/** 重评-0914-三轮 P3-2：缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致
+/** 缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致
  *  （同壳共 Map 同 TTL 同签名），MISS 时经 getRhythmCachedAsync 走 rhythmComputeAsync
  *  让出 + in-flight 去重（并发 MISS 只算一次）。导出供回归测试直测。 */
-export function getRhythmCachedAsync(bookRoot: string): Promise<unknown> {
-  return rhythmCache.get(bookRoot)
+export function getRhythmCachedAsync(bookRoot: string, ttlOverrideMs?: number | null): Promise<unknown> {
+  return rhythmCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
 /** MISS 计算体（原内联逻辑原样下沉通用件 computeSync；book.yaml 损坏降级留痕等
  *  行为逐位不变）。 */
 function rhythmCompute(bookRoot: string): unknown {
-  // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+  // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
   // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架（kind 缺省 'long'），未判 ok
   // 直接解构 .config 会无声按长篇口径全量重算
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
@@ -135,10 +133,10 @@ function rhythmCompute(bookRoot: string): unknown {
   return config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
 }
 
-/** 重评-0914-三轮 P3-2：async 孪生 MISS 计算体（生产路径）。让出范式同 progress.ts
- *  R37-3（computeBookSummaryUncachedAsync 同款前后包夹）：扫描段前后各让出一次
+/** async 孪生 MISS 计算体（生产路径）。让出范式同 progress.ts
+ * （computeBookSummaryUncachedAsync 同款前后包夹）：扫描段前后各让出一次
  *  （setImmediate 级）。边界如实记：内核 readChapterDir 双目录整读仍是单段同步块
- * （chapters.ts 不在本批允许清单无法内部切分；热路径有 CC-P1-3 stat 级元数据缓存
+ * （chapters.ts 不在本批允许清单无法内部切分；热路径有 stat 级元数据缓存
  *  兜底），本孪生保证端点 handler 不再是「无让出的整段同步链」+ 并发 MISS 经
  *  in-flight 去重只扫一次。结果与同步版逐位一致（复用同一 computeSync 体）。 */
 async function rhythmComputeAsync(bookRoot: string): Promise<unknown> {
@@ -152,17 +150,18 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
   defineRoute('books.rhythm', {
     method: 'GET',
     path: '/api/books/:name/rhythm',
-    // 重评-0914-三轮 P3-2：handler 挂 async 走 async 主路（foreshadows.ts R48-19
-    // 「PM-1 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
+    // handler 挂 async 走 async 主路（foreshadows.ts
+    // 「 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
     // async handler 已有 catch 兜底）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
-    // R44-8：全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
-    // 重评-0914-三轮 P3-2：改走 async 孪生（扫描段让出 + in-flight 去重），
+    // 全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
+    // 改走 async 孪生（扫描段让出 + in-flight 去重），
     // 同步版 getRhythmCached 保留为回归测试直测面；响应 schema 逐位不变
-    reply(res, 200, await getRhythmCachedAsync(r.bookRoot))
+    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+    reply(res, 200, await getRhythmCachedAsync(r.bookRoot, ctx.rhythmTtlMs ?? undefined))
   },
   })
 }
@@ -197,7 +196,7 @@ function rhythmLong(bookRoot: string): unknown {
       emotionDist: countDist(planned.map((c) => c.情绪定位), EMOTIONS),
       sceneDist: countDist(planned.map((c) => c.场景), SCENE_TYPES),
     },
-    // 逐章偏差（D3：章纲↔定稿按章号 join，钩子/情绪/场景跑偏标红）
+    // 逐章偏差（章纲↔定稿按章号 join，钩子/情绪/场景跑偏标红）
     chapterDiff: buildChapterDiff(written, planned),
   }
 }
@@ -314,7 +313,7 @@ function crossCount<T, R extends string, C extends string>(
   return out
 }
 
-// ── 逐章偏差（D3：章纲规划 ↔ 定稿实际 按章号 join）──────────
+// ── 逐章偏差（章纲规划 ↔ 定稿实际 按章号 join）──────────
 
 /** 逐章偏差行：状态 待写(只规划)/即兴(只实际)/对比(两边有)；对比时字段 "规→实"，跑偏标偏差。 */
 export interface ChapterDiffRow {

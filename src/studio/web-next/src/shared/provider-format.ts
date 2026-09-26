@@ -1,5 +1,5 @@
 /** 提供方行卡的共享展示纯函数（AI 与 RAG 列表共用）——自 AiServicePanel 拆出，行为零变更。
- *  P9 起增加模型行容量解析（K/M 后缀）、模型行校验、API Key 前端校验（P6）。
+ * 起增加模型行容量解析（K/M 后缀）、模型行校验、API Key 前端校验。
  */
 import type { ProviderCaps, ModelConfDto } from '../api/providers'
 
@@ -20,7 +20,7 @@ export function timeAgo(ts: number | undefined): string {
   return `${Math.floor(diff / 86400000)} 天前`
 }
 
-// ── P9 §7.1 容量解析（K/M 后缀，DSH 同口径） ──
+// ── §7.1 容量解析（K/M 后缀，DSH 同口径） ──
 
 /** 把 128K / 1.5M / 8192 解析为 token；空串 → undefined；非法 → null。 */
 export function parseCapacity(raw: string): number | null | undefined {
@@ -102,11 +102,11 @@ export function dtoToModelDrafts(rows: ModelConfDto[] | undefined): ModelRowDraf
   }))
 }
 
-// ── P6 API Key 前端校验 ──
+// ── API Key 前端校验 ──
 
 /**
  * API Key 形状校验（新增/编辑共通，服务端 normalizeApiKey 的前端孪生）——返回错误文案，null = 通过。
- * 拒绝：仅空白；charset 外字符（与服务端同口径：不含空格的可打印 ASCII，I6·dsh 对齐——
+ * 拒绝：仅空白；charset 外字符（与服务端同口径：不含空格的可打印 ASCII，·dsh 对齐——
  * 集合外的 key 过不了 HTTP 头，就地拒绝优于上游 opaque 401）；误贴请求头/环境行。
  * 孪生纪律（dsh keep-the-two-in-step）：charset 规则改动须同步 src/ai/provider/api-key.ts。
  */

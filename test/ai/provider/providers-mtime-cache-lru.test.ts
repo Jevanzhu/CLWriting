@@ -10,7 +10,7 @@
  * 全量清除改按键清除（单文件操作不涉他路径条目，他路径命中仍受 mtime 校验兜底）。
  *
  * 命中/重读经 vi.mock node:fs 的 readFileSync 计数观测（passthrough 直通真实实现，
- * 先例 r47-leak-derive-cache.test.ts）——loadProviders 缓存命中路径不再触 readFileSync。
+ * 先例 leak-keywords-derive.test.ts（原 r47-leak-derive-cache））——loadProviders 缓存命中路径不再触 readFileSync。
  * 各 test 的计数以紧邻断言前的 mockClear 为窗（写链内部 bak/复验也走 readFileSync，
  * 不计入窗口）。
  */

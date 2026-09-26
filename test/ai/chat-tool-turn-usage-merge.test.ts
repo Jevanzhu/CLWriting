@@ -1,5 +1,5 @@
 /**
- * （R0916-7 收尾批：文件由批号命名 r35-batch-a.test.ts 改行为命名；用例与断言零改动。）
+ * （R0916-7 收尾批：文件由批号命名 r35-batch-a.test.ts 改行为命名（现 responses-pseudostream-backfill.test.ts）；用例与断言零改动。）
  * R35 第三十五轮评审修复批 A（AI 链路）回归：
  *
  * - R35-1：chat 工具轮 assistant 事件的 usage 漏改 attemptsUsage 合并口径

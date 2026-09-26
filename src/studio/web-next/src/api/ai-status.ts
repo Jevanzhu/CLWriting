@@ -1,6 +1,6 @@
 import { apiJson } from './client'
 
-// AI 可达性（G4 降级）：GET /api/ai-status → { available, driver, reason? }
+// AI 可达性（降级）：GET /api/ai-status → { available, driver, reason? }
 interface AiStatus {
   available: boolean
   driver: string

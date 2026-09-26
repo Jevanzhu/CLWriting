@@ -16,7 +16,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // ── P3（复审-0914-优化修复批）：分组 + 双索引单趟复合派生 ──
+  // ── ：分组 + 双索引单趟复合派生 ──
   // 原 grouped（groupTree 深克隆）/ byPath / byDocId 三个 computed 各自全树行走（克隆
   // ×1 + 遍历 ×2），几百节点量级下合并为「一次 groupTree + 一次行走」同产三面，树刷新
   // 时遍历次数 3 → 2（groupTree 内部克隆遍历含在内）；渲染结果逐字节不变：
@@ -107,7 +107,7 @@ export const useTreeStore = defineStore('tree', () => {
   })
 
   /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。
-   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+   *  ：裸计数器换装 useStaleGuard。 */
   const issuesGen = useStaleGuard()
   async function loadIssues(name: string): Promise<void> {
     const gen = issuesGen.begin()
@@ -120,15 +120,15 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  /** R35-10：raw 当前属主书名（load 成功时置，clear 清）——新书 load 失败时 raw 滞留
+  /** raw 当前属主书名（load 成功时置，clear 清）——新书 load 失败时 raw 滞留
    *  旧书树，words.ensureBaseline 等聚合消费方据此确认字数口径归属，不误用旧树总值。 */
   const ownerBook = ref('')
 
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
    *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。
-   *  E6（复审-0914-优化修复批）：loadGen 裸计数器换装 useStaleGuard。 */
+   *  ：loadGen 裸计数器换装 useStaleGuard。 */
   const loadGen = useStaleGuard()
-  // R46-35（四十六轮）：同书在途 load 台账（手法对齐 doc.ts inflightOpens）——同书并发
+  // 同书在途 load 台账（手法对齐 doc.ts inflightOpens）——同书并发
   // 调用（切书链 + 结构性 mutation 后重载 + 窗口回前台重扫）合并为一次 GET /tree。
   // 值带 refresh 标志做合并判定：在途是重扫（refresh=1）时任何后来者都可搭车（重扫响应
   // 至少与缓存一样新）；在途是缓存读（refresh=0）而本次要求重扫时不合并——缓存响应满足
@@ -154,8 +154,8 @@ export const useTreeStore = defineStore('tree', () => {
       if (loadGen.stale(gen)) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
-      ownerBook.value = name // R35-10：raw 与属主同窗更新（失败路径不清，见 load catch）
-      // E-4（二十九轮）：树刷新成功即对账 doc 缓存新鲜度——树版本推进（重扫盘/结构性
+      ownerBook.value = name // raw 与属主同窗更新（失败路径不清，见 load catch）
+      // 树刷新成功即对账 doc 缓存新鲜度——树版本推进（重扫盘/结构性
       // mutation 重建）后，打开时记录旧版本的 clean 缓存项可能已过期（外部改动），
       // 静默重拉对齐（fire-and-forget，不阻塞树渲染）
       void useDocStore().syncCleanWithTree(name, r.revision ?? '')
@@ -169,13 +169,13 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
-  /** E-7（二十九轮）：清树展示态（脏路由 name='' 时由 ChapterTreePanel 调）——
+  /** 清树展示态（脏路由 name='' 时由 ChapterTreePanel 调）——
    *  前书 raw/红点/错误提示不滞留展示；loadGen/issuesGen 推代，在途旧书 load/红点
    *  响应落定不回填（同库 opGen 纪律）。 */
   function clear(): void {
     loadGen.invalidate()
     issuesGen.invalidate()
-    // R46-35（四十六轮）：在途台账一并清——clear 已推代，在途共享 promise 落定时被 gen 守卫
+    // 在途台账一并清——clear 已推代，在途共享 promise 落定时被 gen 守卫
     // 丢弃（不回填树）；不清则 clear 后同书首调会搭上这条「死」promise，树渲染永远空
     inflightLoads.clear()
     raw.value = []
@@ -183,7 +183,7 @@ export const useTreeStore = defineStore('tree', () => {
     loading.value = false
     error.value = null
     issues.value = {}
-    ownerBook.value = '' // R35-10：树清空即无属主
+    ownerBook.value = '' // 树清空即无属主
   }
 
   return {

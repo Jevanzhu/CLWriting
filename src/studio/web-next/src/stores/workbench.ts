@@ -3,15 +3,15 @@ import { ref } from 'vue'
 import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards'
 
 /**
- * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。
- * T3.2 扩展态机（八阶段/草稿/审稿/rebook 等），T3.1 只做事件分派基础。
+ * 工作台 store（细案 .1 地基）：SSE 事件日志缓冲 + running/connected。
+ * .2 扩展态机（八阶段/草稿/审稿/rebook 等），.1 只做事件分派基础。
  */
 
 /** driver SSE 事件（松类型，按 type 分支取字段；对齐 driver/types.ts DriverEvent）。 */
 interface SseEvent {
   type: string
   _ts: string
-  /** R33-87（三十三轮）：入队序号（store 级单调查）——事件流滑窗渲染的稳定 key 源
+  /** 入队序号（store 级单调查）——事件流滑窗渲染的稳定 key 源
    *  （原 :key=i 随 slice(-200) 滑动逐条漂移，每条新事件触发全量 DOM 文本 patch） */
   _seq: number
   [k: string]: unknown
@@ -27,7 +27,7 @@ interface HealResult {
   path?: string
   error?: string
 }
-/** F-P1-4：SSE 事件字段白名单（拒绝非预期值；白名单常量集中在 sse-guards.ts 的守卫里） */
+/** SSE 事件字段白名单（拒绝非预期值；白名单常量集中在 sse-guards.ts 的守卫里） */
 
 /** 全自动写章进度（self_heal_progress：第 attempt/maxAttempts 次重写 + 剩余红项）。 */
 interface HealProgress {
@@ -44,7 +44,7 @@ function ts(): string {
 const MAX_LOG = 500
 
 /**
- * R0911-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：textOut 正文聚合的前端内存
+ * （GLM-5.3 修复批）：textOut 正文聚合的前端内存
  * 封顶（UTF-16 码元，与 JS string.length 同口径）。此前防线单侧依赖服务端锚契约——
  * 单次生成受 max_tokens 约束、自愈重写有 reset 清缓冲，正常会话远不及封顶；但 SSE
  * 通道异常（网关重放/事件风暴）时 text 事件无界拼接会撑爆渲染层内存，日志侧有
@@ -57,7 +57,7 @@ const MAX_LOG = 500
 const MAX_TEXT_OUT = 1_000_000
 
 /**
- * R30-27（三十轮）：事件日志 type 白名单——空串/未知名事件此前照进 workbench.log，
+ * 事件日志 type 白名单——空串/未知名事件此前照进 workbench.log，
  * 事件流里渲染为裸 type 噪声（未知 type 对作者无意义）。集合口径 = 既有事件处理分支
  * 的全集：dispatch 状态分支（role_spawn / init / done / interrupted / error / text /
  * self_heal 系列 / warning）∪ 事件流渲染分支（WbAdvanced evLabel 的
@@ -86,22 +86,22 @@ const WORKBENCH_LOG_TYPES: ReadonlySet<string> = new Set([
   'review-progress',
 ])
 
-/** R30-27（三十轮）：未知/空 type 事件日志丢弃计数（debug 观测口径——只丢日志不丢
+/** 未知/空 type 事件日志丢弃计数（debug 观测口径——只丢日志不丢
  *  事件，分发行为不变；计数经 console.debug 留痕，便于排查服务端新增事件漏录白名单）
- *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：留痕按 type 去重——高频未知事件
+ *  （GLM-5.3 修复批）：留痕按 type 去重——高频未知事件
  *  （网关新增事件名风暴）不再逐条刷屏，首见留痕、计数照旧累计（降噪不丢总量观测） */
 let droppedLogCount = 0
 const droppedTypesWarned = new Set<string>()
 
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
-  let seq = 0 // R33-87：入队序号（稳定 key）
+  let seq = 0 // 入队序号（稳定 key）
   const log = ref<SseEvent[]>([])
   /** 生成正文聚合（text 事件拼接，草稿保存源）。init/role_spawn 清空（新生成）。 */
   const textOut = ref('')
   /** 生成中（init/role_spawn→true，done/interrupted/error→false）。 */
   const running = ref(false)
-  /** F4（五十九轮）：textOut 不完整水印——SSE 断连窗口内的 text 事件无补发，重连后
+  /** textOut 不完整水印——SSE 断连窗口内的 text 事件无补发，重连后
    *  sync(running=true) 说明生成在途但期间事件已丢，textOut 可能残缺；置位期间阻止
    *  直接保存残文（最小闭环，不做事件重投影）。本轮事件收尾（done/interrupted/error）
    *  时清除——终稿落盘前作者本就会过目，且 .版本 快照可兜底找回。 */
@@ -112,26 +112,26 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const healPhase = ref<'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done' | null>(null)
   const healProgress = ref<HealProgress | null>(null)
   const healResult = ref<HealResult | null>(null)
-  /** P2-3 批量连写进度：total / 已完成章数 / 中途停下的章号（null = 单章或未在跑） */
+  /** 批量连写进度：total / 已完成章数 / 中途停下的章号（null = 单章或未在跑） */
   const batchProgress = ref<{ done: number; total: number; stoppedAt: number | null } | null>(null)
   /** 非致命警告（如 max_tokens 截断）——UI watch 后 toast。null = 无。 */
   const warning = ref<string | null>(null)
 
   /** 分派一条 SSE 事件：追加日志 + 维护 running + 聚合正文。JSON.parse 已由 useSse 完成。 */
   function dispatch(ev: unknown): void {
-    // P2-2：type guard 基础守卫（取代手写 typeof + as Record）
+    // type guard 基础守卫（取代手写 typeof + as Record）
     if (!isSseEvent(ev)) return
     // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
     if (ev.type === 'sync') {
       running.value = ev['running'] === true
-      // F4（五十九轮）：重连快照 running=true ⇔ 断连窗口内有事件丢失（SSE 无补发），
+      // 重连快照 running=true ⇔ 断连窗口内有事件丢失（SSE 无补发），
       // textOut 可能残缺——置不完整水印；running=false 说明生成已收尾，按收尾口径清除
       textIncomplete.value = running.value
-      // Q-4（第十五轮）：sync 只回 running 布尔——断线重连时若批次已在断连窗口内
+      // sync 只回 running 布尔——断线重连时若批次已在断连窗口内
       // 收尾（self_heal_result 丢失），healPhase/batchProgress 原样残留会让界面永久
-      // 卡「正在写稿…」（M-12 只处理了 running 复位）。running=false 且自愈态残留 →
+      // 卡「正在写稿…」（只处理了 running 复位）。running=false 且自愈态残留 →
       // 连带复位 + 中断提示（终局未知，引导从文章树查看）。
-      // 批2-A（2026-09-07 全量代码重审 批2-A）：healResult 一并复位——断连窗口前已到的
+      // 批2-A 批2-A）：healResult 一并复位——断连窗口前已到的
       // 旧章终局卡片与「写章结果未知」提示同屏自相矛盾；终局须以重连后真实事件为准。
       // 注：完成态空闲重连（healPhase/progress/batchProgress 均 null）不进本分支，
       // 终局卡片跨连接存续（对照见 workbench-sync-healresult-reset.test）。
@@ -148,13 +148,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
     const e = { ...ev, _ts: ts(), _seq: ++seq } as SseEvent
-    // R30-27（三十轮）：日志落库前按白名单过滤——未知/空 type 只跳过入库（计数 +
+    // 日志落库前按白名单过滤——未知/空 type 只跳过入库（计数 +
     // console.debug 留痕），后续状态分支照常执行（分发行为零改动）
     if (!WORKBENCH_LOG_TYPES.has(e.type)) {
       droppedLogCount++
-      // R1010-P3：按 type 去重——同型未知事件只首见留痕一次
+      // 按 type 去重——同型未知事件只首见留痕一次
       if (!droppedTypesWarned.has(e.type)) {
-        // R1010b-FE-P3-1（2026-09-10 内存专项重审修复批）：add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
+        // （修复批）：add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
         if (droppedTypesWarned.size >= 64) droppedTypesWarned.clear()
         droppedTypesWarned.add(e.type)
         console.debug(`[workbench] 未入库日志：未知事件 type="${e.type}"（首见留痕，同型去重；累计丢弃 ${droppedLogCount} 条）`)
@@ -180,8 +180,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       batchProgress.value = null
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
-      textIncomplete.value = false // F4（五十九轮）：本轮生成收尾，水印解除
-      // 批2-A（2026-09-07 全量代码重审 批2-A）调查结论：此处**不复位** healResult——
+      textIncomplete.value = false // 本轮生成收尾，水印解除
+      // 批2-A 批2-A）调查结论：此处**不复位** healResult——
       // 服务端 emitResult 先 self_heal_result 后紧接 done（self-heal.ts emitResult），
       // 终局卡片是收工展示面、须跨 done 存续至下一轮 role_spawn/init 清场；done 清了
       // 卡片即永不显示（workbench-selfheal.test「role_spawn 开局」已锁该行为）。断线
@@ -189,9 +189,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     if (e.type === 'text' && typeof e.text === 'string') {
       textOut.value += e.text
-      // R0911-C1-P3-1：超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
+      // 超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
       if (textOut.value.length > MAX_TEXT_OUT) {
-        // R0916-nano-5（四轮处置批）：截断点落在代理对中间时丢掉孤儿低位代理
+        // （四轮处置批）：截断点落在代理对中间时丢掉孤儿低位代理
         //（其高位配对在丢弃段；裸 slice 会把它留给 UI 渲染成替换符）。
         // 判据 = 低位代理区 DC00-DFFF：截在高位之前则整对都在保留段，无需处理。
         const tail = textOut.value.slice(textOut.value.length - MAX_TEXT_OUT)
@@ -201,10 +201,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {
-      // F-P1-4：白名单校验在 isHealPhaseEvent 守卫内（防 SSE 非预期值致 UI 渲染异常）
+      // 白名单校验在 isHealPhaseEvent 守卫内（防 SSE 非预期值致 UI 渲染异常）
       if (isHealPhaseEvent(e)) healPhase.value = e.phase
     } else if (e.type === 'self_heal_progress') {
-      // R72-11（二十轮 F-6）：attempt/maxAttempts 过有限数守卫——NaN/非数值原样直入
+      // attempt/maxAttempts 过有限数守卫——NaN/非数值原样直入
       // UI（sse-guards 白名单纪律同 isHealPhaseEvent 口径）
       const attempt = Number(e.attempt ?? 0)
       const maxAttempts = Number(e.maxAttempts ?? 0)
@@ -227,15 +227,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         healProgress.value = null
       }
     } else if (e.type === 'self_heal_batch') {
-      // P2-3：批量开跑
-      // R26-76（二十六轮）：total 过有限数守卫（对齐下方 progress 分支）——NaN/Infinity
+      // 批量开跑
+      // total 过有限数守卫（对齐下方 progress 分支）——NaN/Infinity
       // 等非法值不写入 UI 态（进度条/「第 N/共 M 章」文案渲染异常）
       const total = Number(e.total ?? 0)
       batchProgress.value = { done: 0, total: Number.isFinite(total) && total > 0 ? total : 0, stoppedAt: null }
     } else if (e.type === 'self_heal_batch_progress') {
-      // P2-3：批量中途停（escalate/预算超限）
-      // R26-76（二十六轮）：done/total/stoppedAt 过有限数守卫——SSE 脏值（字符串数字/
-      // NaN/Infinity）原样直入会让批量进度条与终局文案渲染异常（R72-11 同款口径）
+      // 批量中途停（escalate/预算超限）
+      // done/total/stoppedAt 过有限数守卫——SSE 脏值（字符串数字/
+      // NaN/Infinity）原样直入会让批量进度条与终局文案渲染异常（同款口径）
       const done = Number(e.done ?? 0)
       const total = Number(e.total ?? 0)
       const stoppedAt = e.stoppedAt !== undefined && e.stoppedAt !== null ? Number(e.stoppedAt) : null
@@ -258,10 +258,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     healResult.value = null
     batchProgress.value = null
     warning.value = null
-    // M-12：running 一并复位——切书时不带走旧书在途标志（旧实现残留 true 让新书
+    // running 一并复位——切书时不带走旧书在途标志（旧实现残留 true 让新书
     // 工作台无限显示「生成中」；新书 SSE connect 快照会按服务端真实状态校正）
     running.value = false
-    textIncomplete.value = false // F4（五十九轮）：水印随正文一起清
+    textIncomplete.value = false // 水印随正文一起清
   }
   function setConnected(v: boolean): void {
     connected.value = v

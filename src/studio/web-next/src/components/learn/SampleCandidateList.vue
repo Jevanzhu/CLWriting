@@ -17,11 +17,11 @@ const learn = useLearnStore()
 const filter = ref<'all' | 'a'>('all')
 
 // ── 打分分布统计 ──
-// R48-90（四十八轮）：统计收敛 shared/learn-tier 单源（原与 LearnView 逐字双实现）
+// 统计收敛 shared/learn-tier 单源（原与 LearnView 逐字双实现）
 const scoreStats = computed(() => scoreTierStats(learn.samples))
 
 // ── 样章按场景分组（筛选后、组内打分降序、组间均分降序）──
-// R-P2-6：v-for key 原拼整段正文（`出处\u0000正文`）——巨串逐项比较放大列表 diff 开销，
+// v-for key 原拼整段正文（`出处\u0000正文`）——巨串逐项比较放大列表 diff 开销，
 // 且同组「同出处+同正文」两条候选同 key（Vue duplicate key，diff 边角）。改数据内在键
 // `场景\u0000出处\u0000组内全量下标`：下标在分组 computed 内对排序后的全量 items 编号
 // （非 visibleItems 可见切片下标——展开前后切片恒为前缀延展，键随条目走不错位；下标
@@ -57,23 +57,23 @@ const sampleGroups = computed(() => {
     .sort((a, b) => b.avg - a.avg)
 })
 
-// ── R47-16（四十七轮）：分组渲染上限──
+// ── ：分组渲染上限──
 // 候选每卡含整段正文（reactive 数组 + DOM 双吃），服务端返回量不受前端控制；每组
 // 默认渲染前 50 条，超出「显示剩余 N 条」按需展开（勾选/统计/全选仍面向全量 items，
 // 仅渲染面截断——大书收割数千候选时 DOM 不失控）。
 const GROUP_RENDER_CAP = 50
-// 口径互引（重评-P3-17）：此处直接依赖 Vue 3 对 Set.add 的响应式插桩（无需重赋值）；
+// 口径互引：此处直接依赖 Vue 3 对 Set.add 的响应式插桩（无需重赋值）；
 // ChatMessages.vue 的重赋值写法属防御性惯例，非响应性必需
 const expandedGroups = ref(new Set<string>())
 function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[] {
   if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
-  // 复审-0914-优化修复批 P3：切片样板收敛 shared/render-cap 单源（capView）
+  // -：切片样板收敛 shared/render-cap 单源（capView）
   return capView(g.items, GROUP_RENDER_CAP).view
 }
 function expandGroup(scene: string): void {
   expandedGroups.value.add(scene)
 }
-// R0912-3 #23：expandedGroups 跨收割重置——组件实例随视图常驻，上一轮手动展开的大组
+// #23：expandedGroups 跨收割重置——组件实例随视图常驻，上一轮手动展开的大组
 // 在新收割数据上仍全量渲染；收割跑完（loading 落 false）即清。commit 后列表收缩不推
 // loading，展开态保留
 watch(() => learn.loading, (v, old) => {
@@ -112,7 +112,7 @@ function clearAllPicks(): void {
     </div>
 
     <div v-for="g in sampleGroups" :key="g.场景" class="scene-group">
-      <!-- R72-12（二十轮 E-10）：分组头补键盘可达性（原仅 @click） -->
+      <!-- ：分组头补键盘可达性（原仅 @click） -->
       <div
         class="group-head"
         role="button"
@@ -147,7 +147,7 @@ function clearAllPicks(): void {
           <p class="cand-body">{{ it.s.正文 }}</p>
           <p v-if="it.s.技法指令" class="cand-tech">技法 · {{ it.s.技法指令 }}</p>
         </div>
-        <!-- R47-16：分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
+        <!-- ：分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
         <button
           v-if="g.items.length > GROUP_RENDER_CAP && !expandedGroups.has(g.场景)"
           class="text-btn expand-more"
@@ -332,7 +332,7 @@ function clearAllPicks(): void {
   color: var(--text-normal);
   font-family: var(--prose-font);
   white-space: pre-wrap;
-  /* 内存核查（2026-08-25 M-P3-15）：候选正文默认 6 行截断（纯样式，store 数据
+  /* 内存核查：候选正文默认 6 行截断（纯样式，store 数据
      形态不动；样章是整章级长文，全量渲染放大卡片高度与排版成本） */
   display: -webkit-box;
   -webkit-line-clamp: 6;

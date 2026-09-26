@@ -1,7 +1,7 @@
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
-// 文风系统 API（文风系统重整 S7）：镜像后端 api/style.ts + health/style 契约。
+// 文风系统 API（文风系统重整）：镜像后端 api/style.ts + health/style 契约。
 // 条目库/候选箱/收割/定标全零 AI；AI 语义分析走 api/analysis.ts
 //（源3 由后端 analyze-style 完成时自动落候选，前端无需另调）。
 
@@ -128,7 +128,7 @@ export async function ignoreStyleCandidate(name: string, path: string): Promise<
 
 /** 收割（零 AI）：源1 改稿轨迹比对 + 源2 机检漂移映射 → 候选箱 */
 export async function runStyleHarvest(name: string): Promise<{ created: number; skipped: number }> {
-  // P2-FE-2：全文轨迹比对 CPU 密集，大书可能 10-30s；无超时则 loading 永转
+  // FE-2：全文轨迹比对 CPU 密集，大书可能 10-30s；无超时则 loading 永转
   return apiJson(`${base(name)}/harvest`, { method: 'POST' }, 60_000)
 }
 

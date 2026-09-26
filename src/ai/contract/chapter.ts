@@ -98,9 +98,9 @@ export function assembleChapter(
   const 正文 = typeof o['正文'] === 'string' ? (o['正文'] as string).trim() : ''
   if (!正文) return { ok: false, error: '正文字段为空' }
 
-  // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析，P2-8）
+  // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析）
   const fmVal = (v: unknown): string => String(v ?? '').trim().replace(/[\r\n]+/g, ' ')
-  // R43-3（四十三轮）：值侧再过 stringifyValue 单源——AI 产出的自由文本（标题/目标情绪/
+  // 值侧再过 stringifyValue 单源——AI 产出的自由文本（标题/目标情绪/
   // 核心反转等）含 `#`（被行内注释剥离截断）、`[`/`,`（解析成数组）、`|`/`>`（命中块标量
   // 分支吞后续 fm 行）、纯数字（解析成 number）时此前原样落盘，读回即静默损坏（与系统
   // 正规写侧 frontmatter.ts:276 的 escape-unquote 对称口径在此闭环）。

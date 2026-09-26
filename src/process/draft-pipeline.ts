@@ -1,9 +1,9 @@
 /**
- * 草稿落盘 + 写稿 prompt（P1-8 架构下沉：从 studio/server/api/draft 下沉内核）。
+ * 草稿落盘 + 写稿 prompt（架构下沉：从 studio/server/api/draft 下沉内核）。
  *
  * AI 编排层（self-heal）与 draft 落盘端点共用：
  * - saveDraft：覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹
- * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（C3：世界观/角色/境界共享
+ * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（世界观/角色/境界共享
  *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 要求（长短篇 front matter 分支）
  */
 import { join, basename, dirname, relative, isAbsolute } from 'node:path'
@@ -34,7 +34,7 @@ import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
-/** 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：R66-1 非 UTF-8 覆写拒绝的类型化错误。
+/** （修复批）： 非 UTF-8 覆写拒绝的类型化错误。
  *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
  *  的快照 catch、draft-save 端点）按类型分诊 fail-closed 并透传转码指引；与留底链的
  *  瞬态 IO 错误（EACCES/EBUSY 等）区分——后者是可重试的环境抖动，走各端点自己的口径。 */
@@ -45,10 +45,10 @@ export class NonUtf8TargetError extends Error {
   }
 }
 
-/** R73-32：saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
- *  保存锁（service.ts R72-1）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
+/** saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
+ *  保存锁（service.ts ）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
  *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。
- *  R32-19（三十二轮）：常量化（journal.ts R30-18 同口径）——export let 可被任一
+ *  ：常量化（journal.ts 同口径）——export let 可被任一
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 export const DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
 
@@ -57,28 +57,28 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
 
 /**
  * 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）。
- * Y-3（第五十七轮）：留底失败（可读但读不进 / 快照写失败等 IO 类）**上抛拒绝覆写**——
- * 此前降级 return null 后 saveDraft 照常覆写，M1「作者手改不静默丢失」在 IO 抖动
+ * 留底失败（可读但读不进 / 快照写失败等 IO 类）**上抛拒绝覆写**——
+ * 此前降级 return null 后 saveDraft 照常覆写，「作者手改不静默丢失」在 IO 抖动
  * （跨进程 rename 撞窗 / win AV 短暂锁）下失守。null 仅保留「无需留底」两态：
  * 文件不存在 / 内容相同。
- * R0915-P3-7（四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件不
+ * （四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件不
  * 存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
  * 缺省 undefined = 自读（files/outline/onboard/lead-updates 等其余调用方原样）。
  *
- * R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：**消费方分诊口径单源汇总**——
- * 此前散在 files.ts:189-196 / onboard.ts:209-213 / 本文件 Y-3 三处头注各记一半，评审
- * 建议集中记档（口径本身三处一致，非分歧，故不达 P3）。本函数抛出的失败，各调用方的
+ * （六轮修复批）：**消费方分诊口径单源汇总**——
+ * 此前散在 files.ts:189-196 / onboard.ts:209-213 / 本文件三处头注各记一半，评审
+ * 建议集中记档（口径本身三处一致，非分歧，故不达）。本函数抛出的失败，各调用方的
  * 处置是**有意分叉**的，判据只有一条：**被覆盖内容的唯一性**。
  *  - AI 产物覆写面（saveDraft → self-heal/rewrite/spawn writer）→ **fail-closed 上抛**：
  *    AI 产出可重生成，覆写掉作者手改不可逆；留底失败即拒绝覆写。
- *  - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（R0912-4 P1-1 定：
+ *  - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（定：
  *    NonUtf8TargetError → 400 + 转码指引，其余 IO → 409 WRITE_ERROR 可重试）——原稿与
  *    编辑器内容都在，拒绝保存零损失。
  *  - 结构化表单覆写面（onboard-save、outline、lead-updates）→ **fail-open 留痕继续**
  *    （log.warn + 响应/日志 snapshotted:false）：写的是表单值或派生内容而非自由正文，
  *    丢的手改面窄且作者可重填，阻断保存的代价大于保留旧版本的收益。
  *  - 编辑器保存链（studio server documents-save → document/service.save 的 maybeSnapshot）
- *    → **fail-open 留痕继续**（RC 源码重审 A-5，Opus-5.5 轮补记于此汇总）：正文是作者
+ *    → **fail-open 留痕继续**（Opus-5.5 轮补记于此汇总）：正文是作者
  *    正在写的内容，留底只是「改前留一手」的增量收益，为它拒绝一次正文保存得不偿失——
  *    失败降级为 SaveResult.snapshotDegraded 标记，服务端透出 200 响应，前端弹一次
  *    info 提示（作者可见化，不静默）。判据同上（唯一性）：被覆写的是编辑器自己上一版
@@ -103,12 +103,12 @@ export function snapshotBeforeOverwrite(
     if (existingRaw === null) return null
     raw = existingRaw
   }
-  // R66-1（十四轮）：非 UTF-8 覆写防线（M-5 同族，lead-finalize 同款无条件口径）——
+  // 非 UTF-8 覆写防线（同族，lead-finalize 同款无条件口径）——
   // 旧文件为 GBK 等非 UTF-8 编码时，utf8 读入留底的是含 U+FFFD 的失真快照，覆写后原字节
-  // 任何形式不可恢复（编辑器保存路径 M-5 只拦「乱码回写」，AI 写章链覆写旧文件此前静默
-  // 放行）。fail-closed 上抛拒绝覆写（Y-3 同款语义），提示先转码。
+  // 任何形式不可恢复（编辑器保存路径只拦「乱码回写」，AI 写章链覆写旧文件此前静默
+  // 放行）。fail-closed 上抛拒绝覆写（同款语义），提示先转码。
   if (!isUtf8Bytes(raw)) {
-    // 重评-0912-4 P1-1：改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
+    // 改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
     // 快照 catch 此前与瞬态 IO 一并 fail-open 吞掉，GBK 存量覆盖丢原稿，见该处修复注）
     throw new NonUtf8TargetError(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
   }
@@ -123,8 +123,8 @@ export function snapshotBeforeOverwrite(
       break
     }
   }
-  if (!docId) docId = legacyId(relPath) // X-P2-2：与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
-  // R76-26（二十四轮 C 域）：留底保留策略对齐编辑器保存链——此前不传 policy 落
+  if (!docId) docId = legacyId(relPath) // 与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
+  // （二十四轮 C 域）：留底保留策略对齐编辑器保存链——此前不传 policy 落
   // 硬编码默认（14 天/30 版），作者在 global.json 配的 snapMaxDays/snapMaxCount 只对
   // service.ts maybeSnapshot 生效，两条留底路径的保留口径割裂（AI 覆写快照可能被更紧
   // 的默认策略清掉）。force 语义保留（覆写前必留，不节流），仅 prune 边界统一走全局。
@@ -143,10 +143,10 @@ export function snapshotBeforeOverwrite(
  * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
  * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查。
  *
- * R73-32（二十一轮 C-1）：本函数原先游离于保存协议外（无 per-doc 保存锁、无 journal
+ * 本函数原先游离于保存协议外（无 per-doc 保存锁、无 journal
  * pending、无字数日记、新文件不登记 manifest）——与编辑器保存链（DocumentService.executeSave）
  * 并发时双进程互不知晓，后写者静默覆盖先写者（lost update），且 AI 写章窗口崩溃后无
- * journal 兜底可恢复。现复用 executeSave 的同款并发纪律（editor 保存链 R72-1 同款锁）：
+ * journal 兜底可恢复。现复用 executeSave 的同款并发纪律（editor 保存链同款锁）：
  *   per-doc 保存锁（`<journal>.save.lock`，拿不到=他进程在写，超时拒绝不降级）
  *   → journal pending（含全文快照）→ 覆写留底 → atomic write → journal settled
  *   → 新文件登记 manifest（结构操作建清单口径）→ 字数日记记账。
@@ -154,7 +154,7 @@ export function snapshotBeforeOverwrite(
  * 与 executeSave 的基线校验模型不同（keep 外部返回结构兼容）。
  *
  * 文风改稿轨迹（recordAuthorSignal + recordAiVersion）由调用方在落盘后显式调用，
- * 避免 process/ → ai/ 的向上依赖（P1-ARCH-1 循环依赖修复）。
+ * 避免 process/ → ai/ 的向上依赖（-ARCH-1 循环依赖修复）。
  * 落盘失败向上抛，调用方决定回应。
  */
 export async function saveDraft(
@@ -169,7 +169,7 @@ export async function saveDraft(
   content = canonical
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
-  // Y-3（第五十七轮）：回收站双认领守卫——目标文件在盘且回收站登记仍认领同一路径
+  // 回收站双认领守卫——目标文件在盘且回收站登记仍认领同一路径
   // （restoreTrash 半途崩溃态：文件已 rename 回原位、trash 条目未清）时，此路径的
   // 归属是歧义的（清单/快照/journal 按 docId 认路径，trash 条目也认它），覆写会加深
   // 错乱——中止上抛交作者先在回收站决断。路径不存在的「删后重写」不拦：那是新文件，
@@ -187,24 +187,24 @@ export async function saveDraft(
       break
     }
   }
-  // M3：未登记回落 legacyId(relPath)（与树扫盘/编辑器 openTab 同口径）；R73-32 起该
+  // 未登记回落 legacyId(relPath)（与树扫盘/编辑器 openTab 同口径）；起该
   // id 同时作为 journal/保存锁/字数日记的 key，落盘成功后登记进 manifest（见下）
   const finalDocId = registeredId ?? legacyId(relPath)
   const journalPath = join(bookRoot, '工作区', '.journal', `${encodeDocDirName(finalDocId)}.jsonl`)
-  // R73-32：保存临界段跨进程锁（executeSave R72-1 同款）——per-doc 串行队列只存在于
+  // 保存临界段跨进程锁（executeSave 同款）——per-doc 串行队列只存在于
   // 编辑器链，本链此前对双进程并发零防护。拿不到锁（他进程在写同一 doc 且 5s 未让出）
   // 上抛拒绝：未执行、无数据损伤、调用方（draft-save 端点 / self-heal）可重试。
   // 同进程不自锁：本函数无递归入口；锁内 appendPending 嵌套拿的是另一路径的 journal 锁
   //（save→journal 单向嵌套，与 executeSave 同构，无环）。
-  // R32-5（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync + withManifestLockAsync，
-  // executeSave/meta/finalize 的 R30-3 全仓纪律补齐本漏网点）——同步 Atomics.wait 微睡
+  // 锁等待异步化（acquireCrossProcessLockAsync + withManifestLockAsync，
+  // executeSave/meta/finalize 的全仓纪律补齐本漏网点）——同步 Atomics.wait 微睡
   // 在双进程争用时冻结服务事件循环（SSE/HTTP 最坏停 ≈15s）；保存协议各步原样平移。
   const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, getDraftSaveLockTimeoutMs())
   if (!docSaveLock) {
     throw new Error(`草稿保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试`)
   }
   try {
-    // R33D-20（三十三轮）：锁内复核（executeSave R76-22 纪律对齐）——resolveDraftPath 与
+    // 锁内复核（executeSave 纪律对齐）——resolveDraftPath 与
     // manifest 反查都在取锁前，等锁窗口内他进程 doMoveOrRename 可把登记路径移走；
     // 复核 manifest 登记路径仍等于 relPath，不等 = 世界已变，上抛拒绝（不复活旧路径副本）。
     const liveManifest = readManifest(manifestPath)
@@ -212,7 +212,7 @@ export async function saveDraft(
       if (e.id === finalDocId && e.path !== relPath) {
         throw new Error(`草稿保存目标已变（登记路径 ${e.path} ≠ ${relPath}，等待保存锁期间文档被移动/改名）——请刷新后重试`)
       }
-      // R51-B-2（五十一轮）：复核补反方向——等锁窗内他进程把**另一文档移入同路径**
+      // 复核补反方向——等锁窗内他进程把**另一文档移入同路径**
       // （异 id entry 已认领 relPath）时原复核放行：下方新文件登记分支照常 upsert，
       // 清单出现两条 entry 认领同一路径（docId 反查歧义、树扫描重复节点）。反向命中
       // 与正向同口径上抛拒绝（世界已变），存量清单若本就有重复路径（历史脏数据）则
@@ -221,41 +221,41 @@ export async function saveDraft(
         throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
       }
     }
-    // R0915-P3-7（四轮处置批）：锁内单读派生收口——此前保形/留底/revision 三路各自
-    // 整读同一文件（R33D-18 的「单读」只覆盖 revision/UTF-8/字数三路派生），大稿三读
+    // （四轮处置批）：锁内单读派生收口——此前保形/留底/revision 三路各自
+    // 整读同一文件（的「单读」只覆盖 revision/UTF-8/字数三路派生），大稿三读
     // 纯 I/O 浪费。保存锁内状态权威，一次读盘三路共用：保形吃 Buffer.toString
-    //（GBK 容错口径与原 utf-8 读同款）、留底吃同一 Buffer（isUtf8Bytes 判定与 Y-3
+    //（GBK 容错口径与原 utf-8 读同款）、留底吃同一 Buffer（isUtf8Bytes 判定与
     // 上抛语义不变；读失败上抛时机随读点上提，语义同为 fail-closed）。
     const existing = existsSync(absPath)
     const diskBytes = existing ? readFileSync(absPath) : null
-    // 阶段 24 结构键保形回补（S3）：saveDraft 是「AI 产出强覆盖」通道，组装方
+    // 阶段 24 结构键保形回补：saveDraft 是「AI 产出强覆盖」通道，组装方
     // （self-heal/rewrite/spawn writer）可能不带 序/并入——锁内写盘前对盘上既有键
     // 回补，防结构键在强覆盖时丢失（self-heal 组装侧另有显式透传，两道共保；回补
     // 先于 journal pending 与留底，快照与落盘同带结构键）。incoming 已显式含键则不覆写。
     content = preserveStructureFmIn(absPath, content, diskBytes)
-    // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
+    // 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath, diskBytes)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（只记元数据，防丢字）——
-    // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
-    // R33D-18（三十三轮）：revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
-    //（消除读间 TOCTOU；R27-45/R72-5 先例；P3-7 起读点上提为三路共用）。
-    // R0916-7-P3-8：appendPending 全文实参随形参收窄删除（journal.ts，P3-9 起只记元数据）。
+    // pending 记不上就不能继续写（同口径，fail-closed 上抛，调用方已统一 catch）
+    // revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
+    //（消除读间 TOCTOU；/先例；起读点上提为三路共用）。
+    // appendPending 全文实参随形参收窄删除（journal.ts，起只记元数据）。
     const currentRev = diskBytes ? (hashBytes(diskBytes) as `sha256:${string}`) : null
     const opId = await appendPending(journalPath, finalDocId, currentRev)
     let words: number
     let newRev: `sha256:${string}`
     try {
-      // 步骤 4.5：字数 delta（E4）——写盘前读旧内容（strip fm 口径，与 service.ts 一致）
+      // 步骤 4.5：字数 delta——写盘前读旧内容（strip fm 口径，与 service.ts 一致）
       const wordDelta =
         countWords(bodyOf(content)) - countWords(existing && diskBytes ? bodyOf(diskBytes.toString('utf-8')) : '')
       mkdirSync(dirname(absPath), { recursive: true })
-      // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
+      // fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
       atomicWriteFile(absPath, content, { fsync: true })
       // 步骤 8-10：新 revision → journal settled
       newRev = computeRevision(absPath)
       await appendSettled(journalPath, opId, newRev)
       words = countWords(bodyOf(content))
-      // R73-32：字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeSave P2-BE-4）
+      // 字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeSave -BE-4）
       try {
         appendWordsDelta(bookRoot, todayDate(), wordDelta, finalDocId)
       } catch {
@@ -271,19 +271,19 @@ export async function saveDraft(
       throw e
     }
     // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）。
-    // R46-8（四十六轮）：改走单键失效——indexes.delete 已保证树重建收编新草稿，
+    // 改走单键失效——indexes.delete 已保证树重建收编新草稿，
     // probeCache 只清本章键（新文件为 no-op），不再整书清空（每次 AI 写章保存后
     // 下一次树请求全书重读+重哈希是纯浪费）
     invalidateTreeIndexForContent(bookRoot, relPath)
-    // R73-32：新文件登记 manifest（结构性操作触发建清单，W0-1 §4.2 口径，service
+    // 新文件登记 manifest（结构性操作触发建清单，§4.2 口径，service
     // adoptLegacyDoc/doCreate 同款 upsert）——此前 AI 新建草稿不入清单，docId 永远是
     // legacy 临时身份。登记失败不阻断（文件已落盘，树扫描 adoptLegacyDoc 自愈收口，
-    // doCreate R70-17 同款 warn 留痕）
+    // doCreate 同款 warn 留痕）
     if (registeredId === null) {
       try {
-        // R32-5：清单登记锁同步孪生 → 异步（与保存锁同批异步化，锁内写段不变）
+        // 清单登记锁同步孪生 → 异步（与保存锁同批异步化，锁内写段不变）
         await withManifestLockAsync(manifestPath, () => {
-          // R27-40：RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈收编）
+          // RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈收编）
           const m = existsSync(manifestPath)
             ? readManifestStrict(manifestPath)
             : { version: 1, entries: new Map<string, ManifestEntry>() }
@@ -295,7 +295,7 @@ export async function saveDraft(
         log.warn('draft-pipeline', `草稿落盘后清单登记失败（${relPath}，树扫描将自愈收编）：${errMsg(e)}`)
       }
     }
-    // 清单检文件链（批 3）：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，
+    // 清单检文件链：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，
     // 使 清单形式检（runner.ts:158 按正文同名找章纲）+ pieceListChecks 有数据可读。
     // 短篇正文文件名与章纲同 basename 契约：正文 <章号3位>-<标题>.md → 章纲同名。
     syncChapterOutline(bookRoot, relPath)
@@ -315,14 +315,14 @@ function readSafe(fp: string): string {
 }
 
 /**
- * 清单检文件链（批 3）：短篇写稿后同步 AI 章纲。
+ * 清单检文件链：短篇写稿后同步 AI 章纲。
  *
  * 短篇 清单形式检 按 大纲/章纲/<正文basename> 读章纲（runner.ts:158），
  * 而 outline 端点把章纲写到 工作区/细纲.md（短篇无布线，细纲即章纲）。
  * 写稿落盘（saveDraft，draft-save 端点与 self-heal 共用）后，
  * 若为短篇且 细纲.md 存在 → 复制到 大纲/章纲/<正文basename>，文件名契约对齐。
  *
- * RB-IF-P2-4：仅创建缺失的章纲——已存在且内容与细纲不同视为作者手改，不覆盖
+ * 仅创建缺失的章纲——已存在且内容与细纲不同视为作者手改，不覆盖
  * （正文覆写有 snapshotBeforeOverwrite 留底，章纲原先是静默覆盖，红线不一致）。
  * 无细纲/非短篇/正文非标准章号 → 跳过（不阻断保存）。
  */
@@ -351,7 +351,7 @@ function findChapterOutlinePath(bookRoot: string, chapter: number): string | nul
   return chapters.find((c) => c.章号 === chapter)?._path ?? null
 }
 
-// R48-58（四十八轮）：被删函数（读本章章纲）的孤儿 docstring 原悬空于此，删除——
+// 被删函数（读本章章纲）的孤儿 docstring 原悬空于此，删除——
 // 章纲读取现由 findChapterOutlinePath（上方）与 buildDraftPrompt 直接持路径两路承担
 
 /**
@@ -370,7 +370,7 @@ function scenesOfFmValue(scene: unknown): string[] {
 }
 
 /**
- * 细纲场景声明段的合法场景枚举（kk-P2：与 outline 端点短篇 prompt 的场景枚举同口径——
+ * 细纲场景声明段的合法场景枚举（kk-与 outline 端点短篇 prompt 的场景枚举同口径——
  * 「战斗/对话/抒情/叙事铺陈/爽点高潮」。水源③是 AI 按 prompt 产出的段，段内引号项
  * 过滤到枚举内，防 AI 写解释性引号词（如「此处注意」）被当场景串样章；
  * 水源①②的 fm 字段是作者/AI 结构化声明，不过滤（自定义场景样章目录合法）。
@@ -393,7 +393,7 @@ function scenesOfOutlineBody(body: string): string[] {
   if (start === -1) return []
   /** 行 i 是否仍在场景声明段内（越界或撞上下一个二级标题即出段） */
   const inSection = (i: number): boolean => i < lines.length && !/^##\s/.test(lines[i]!)
-  // 规则 2：段内「」引号项（按行扫描，出现序即主→次场景序）；kk-P2：枚举内才收——
+  // 规则 2：段内「」引号项（按行扫描，出现序即主→次场景序）；kk-枚举内才收——
   // AI 在段内写解释性引号词（非场景枚举值）会被当场景去样章库找目录（静默不命中），过滤之
   const quoted: string[] = []
   for (let i = start + 1; inSection(i); i++) {
@@ -420,7 +420,7 @@ function scenesOfOutlineBody(body: string): string[] {
 
 /**
  * 本章场景声明（文风样章选取的场景水源），三级回退、一级命中即止，全空回落 ['通用']：
- * ① 本章章纲 front matter「场景」——与节奏偏差对照（rhythm D3 章纲↔定稿）、章纲契约同一
+ * ① 本章章纲 front matter「场景」——与节奏偏差对照（rhythm 章纲↔定稿）、章纲契约同一
  *   结构化字段，读它是「数」不是「判」，优先级最高；
  * ② 本章正文 front matter「场景」——重写/续写已存在正文的章时场景跟随实稿
  *   （写作/正文/ 按章号定位本章文件，readChapterDir 与章纲同口径）；
@@ -431,19 +431,19 @@ function scenesOfOutlineBody(body: string): string[] {
  * 都不会碰，须显式点名；条目库路径两写法等价）。
  */
 export function readChapterScenes(bookRoot: string, chapter: number, outlinePath?: string | null): string[] {
-  // R46-25：outlinePath 透传（已解析章纲路径复用，见 readDeclaredChapterScenes 注）
+  // outlinePath 透传（已解析章纲路径复用，见 readDeclaredChapterScenes 注）
   const declared = readDeclaredChapterScenes(bookRoot, chapter, outlinePath)
   return declared.length > 0 ? declared : ['通用']
 }
 
 /**
- * 三级水源的「已声明」判定（无兜底版，kk-P1-2 随导出一并拆出）：
- * materials 的 G3 留痕只对「作者/AI 声明了场景」负责——三级全空（冷启动）时不提示补样章；
+ * 三级水源的「已声明」判定（无兜底版，kk- 随导出一并拆出）：
+ * materials 的留痕只对「作者/AI 声明了场景」负责——三级全空（冷启动）时不提示补样章；
  * 与 readChapterScenes 的 ['通用'] 兜底分离，避免「兜底也被当声明」的误留痕。
  */
 export function readDeclaredChapterScenes(bookRoot: string, chapter: number, outlinePath?: string | null): string[] {
   // 水源①：本章章纲 front matter「场景」
-  // R46-25（四十六轮）：outlinePath 入参可携带已解析的章纲路径（null = 已知不存在，
+  // outlinePath 入参可携带已解析的章纲路径（null = 已知不存在，
   // 跳过解析）——buildDraftPrompt 单次组稿此前在这里与自身各调一次 findChapterOutlinePath
   // （章纲目录 walk 2 次）；传参复用后整条组稿链只 walk 一次章纲目录 + 一次正文目录
   const resolved = outlinePath !== undefined ? outlinePath : findChapterOutlinePath(bookRoot, chapter)
@@ -464,7 +464,7 @@ export function readDeclaredChapterScenes(bookRoot: string, chapter: number, out
     }
   }
   // 水源③：细纲「## 场景声明」段（章号门：fm 章号须与被检章号一致，防别章陈旧细纲串场景；
-  // Number() 归一——端点写的是 int，手写 "1" 带引号也认；缺字段 → NaN 不等 → 门禁不过）
+  // Number 归一——端点写的是 int，手写 "1" 带引号也认；缺字段 → NaN 不等 → 门禁不过）
   const detail = readFile(join(bookRoot, '工作区', '细纲.md'))
   if (detail.ok && Number(parseFlat(detail.fmRaw).get('章号')) === chapter) {
     const scenes = scenesOfOutlineBody(detail.body)
@@ -473,11 +473,11 @@ export function readDeclaredChapterScenes(bookRoot: string, chapter: number, out
   return []
 }
 
-/** 设定注入预算（C3 / DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */
+/** 设定注入预算（/ DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */
 export const SETTINGS_BUDGET_CHARS = 6000
 
 /**
- * 设定注入（C3 预算制，取代 B3 世界观无差别 prune）：
+ * 设定注入（预算制，取代世界观无差别 prune）：
  * 世界观（project 档，预算内全文直入）+ 角色/境界层（volume 档）→ assembleSettingsInjection
  * 按预算分配——超限先丢宽泛层再截断最具体层，in-band 声明指名省略/截断了什么。
  * 章纲不进预算（已单独注入，情节依据优先级最高）。
@@ -494,7 +494,7 @@ function buildSettingsInjection(bookRoot: string, worldView: string): { text: st
   }
   layers.push(...buildSettingsLayers(bookRoot))
   const assembled = assembleSettingsInjection(layers, { maxChars: SETTINGS_BUDGET_CHARS })
-  // Q-5：整层被预算丢弃（omitted）的层其源文件不再计为「模型可见」；截断层部分可见仍计
+  // 整层被预算丢弃（omitted）的层其源文件不再计为「模型可见」；截断层部分可见仍计
   const omitted = new Set(assembled.omitted)
   const sources = layers.filter((l) => !omitted.has(l.name)).flatMap((l) => l.sources ?? [])
   return { text: assembled.text, sources }
@@ -521,7 +521,7 @@ export function wordRange(kind: 'long' | 'short', target: number | undefined): s
  * 全空 → 仅「通用」场景条目候选。
  * （此前硬编码 ['战斗']：样章库场景与本章实际场景不符时永远选不中，注入静默空转——已除。）
  * 无库/无命中 → ''（跳段）。
- * Q-5（第十五轮）：附带源文件清单（相对书根）——可见⟺已记录的文件级溯源。
+ * 附带源文件清单（相对书根）——可见⟺已记录的文件级溯源。
  */
 function buildStyleSampleInjection(
   bookRoot: string,
@@ -530,17 +530,17 @@ function buildStyleSampleInjection(
   outlinePath?: string | null,
 ): { text: string; sources: string[] } {
   const maxTotal = (config?.style?.injection ?? 'light') === 'heavy' ? 3 : 1
-  // R46-25：outlinePath 由 buildDraftPrompt 传入复用（场景水源①不再二次 walk 章纲目录）
+  // outlinePath 由 buildDraftPrompt 传入复用（场景水源①不再二次 walk 章纲目录）
   const picked = pickStyleSamplesWithSources(bookRoot, readChapterScenes(bookRoot, chapter, outlinePath), maxTotal)
   if (picked.length === 0) return { text: '', sources: [] }
   const sources = picked.map((s) => s.path).filter((p): p is string => p !== undefined)
   return { text: `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${picked.map((s) => s.text).join('\n\n')}`, sources }
 }
 
-/** buildDraftPrompt 返回形状（Q-5：伴随 files——实际注入源文件清单，相对书根） */
+/** buildDraftPrompt 返回形状（伴随 files——实际注入源文件清单，相对书根） */
 export interface DraftPrompt {
   prompt: string
-  /** Q-5（第十五轮）：prompt 实际引用的源文件清单（相对书根、注入序去重；只列真实
+  /** prompt 实际引用的源文件清单（相对书根、注入序去重；只列真实
    *  入 prompt 的段——被预算丢弃的设定层不计）。消费链：self-heal → runSpec promptFiles、
    *  GET /draft-prompt 回传前端、POST /spawn 回传透传——「模型可见⟺已记录」文件级溯源 */
   files: string[]
@@ -555,7 +555,7 @@ export function buildDraftPrompt(
   kind: 'long' | 'short',
   config?: BookConfig,
 ): DraftPrompt {
-  // R26-97（二十六轮）：细纲注入加章号门——对齐同文件 readDeclaredChapterScenes 水源③的
+  // 细纲注入加章号门——对齐同文件 readDeclaredChapterScenes 水源③的
   // 解析。细纲是覆盖写的**当前章**文件（outline 端点落盘确定性写 `章号: N`），fm 章号
   // 存在且 ≠ 当前章 = 别章陈旧细纲残留，直接注入会让 AI 按旧章情节写稿（与场景串场
   // 同源的错，写稿侧此前裸放）→ 跳过注入并 log.warn 留痕；files 清单随 outline 置空
@@ -568,7 +568,7 @@ export function buildDraftPrompt(
   const outlineRaw = readSafe(outlinePath)
   let outline = ''
   if (outlineRaw) {
-    // R63-7 content 通道：单次读盘，fm 解析与注入同源
+    // content 通道：单次读盘，fm 解析与注入同源
     const detail = readFile(outlinePath, outlineRaw)
     const declaredNo = detail.ok ? Number(parseFlat(detail.fmRaw).get('章号')) : Number.NaN
     if (Number.isNaN(declaredNo) || declaredNo === chapter) {
@@ -583,13 +583,13 @@ export function buildDraftPrompt(
   const chapterOutline = chapterOutlinePath ? readSafe(chapterOutlinePath) : ''
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   const settingsInjection = buildSettingsInjection(bookRoot, worldView)
-  // R46-25：chapterOutlinePath 下传复用——样章场景水源①不再重复 walk 章纲目录
+  // chapterOutlinePath 下传复用——样章场景水源①不再重复 walk 章纲目录
   // （单次组稿：章纲目录 1 walk + 正文目录 1 walk）
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config, chapterOutlinePath)
   const range = wordRange(kind, config?.book?.chapter_target_words)
-  // Q-5：注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
+  // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win
-  // 返回 \），统一归一——否则注入源清单跨平台分隔符不一致（win 适配 F2 缺陷）。
+  // 返回 \），统一归一——否则注入源清单跨平台分隔符不一致（win 适配缺陷）。
   // p 两种形态：字面 posix rel（'工作区/细纲.md'）与绝对路径（relative/sources）——
   // 绝对路径转相对+posix；字面 rel 已是 posix 原样保留。
   const files: string[] = []
@@ -613,7 +613,7 @@ export function buildDraftPrompt(
     if (settingsInjection.text) parts.push(settingsInjection.text)
     if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
     parts.push(
-      // CC-P2-22：短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
+      // 短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
       // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
       // 守规稿进重写循环两头矛盾。五段名与机检提示文案同口径。
       `## 要求\n只输出第 ${chapter} 章正文（正文以 ## 标题分五段：## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵；段内纯叙事文本，仅段落与空行，禁加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,

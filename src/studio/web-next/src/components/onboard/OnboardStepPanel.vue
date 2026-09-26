@@ -12,7 +12,7 @@ defineProps<{
   lastWords: number
   saving: boolean
   err: string | null
-}>() // R37-30（三十七轮批E）：props 绑定零消费改裸调用
+}>() // props 绑定零消费改裸调用
 const content = defineModel<string>({ required: true })
 const emit = defineEmits<{ gen: []; save: [] }>()
 const ui = useUiStore()
@@ -289,7 +289,7 @@ function isGenerated(step: OnboardStep): boolean {
   background: var(--interactive-accent-hover);
 }
 
-/* .spin 旋转动画单源在全局 utilities.css（R0916-7-P3-26）；此处仅保留本组件特有的强调色 */
+/* .spin 旋转动画单源在全局 utilities.css；此处仅保留本组件特有的强调色 */
 .spin {
   color: var(--text-accent);
 }

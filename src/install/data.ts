@@ -1,5 +1,5 @@
 /**
- * init 题材 → 扩展账本类推荐映射（O3）+ 常量 —— 依据 M5 #30 + 母本账本总表。
+ * init 题材 → 扩展账本类推荐映射+ 常量 —— 依据 #30 + 母本账本总表。
  *
  * 母本第 104-112 行账本总表的「典型题材」列反向推导：
  * - 基础两类（悬念/感情线）恒启用，不列入 leads.enabled（伏笔已独立为设定伏笔系统）
@@ -18,7 +18,7 @@ export const BASE_LEAD_TYPES: readonly LeadType[] = ['悬念', '感情线']
 export const EXTENDED_LEAD_TYPES: readonly LeadType[] = ['布局线', '设定线', '成长线', '关系线']
 
 /**
- * 题材关键词 → 推荐扩展账本类（O3）。
+ * 题材关键词 → 推荐扩展账本类。
  * 关键词匹配（genre 含任一关键词即命中），据母本账本总表反推。
  * 未命中的题材回落空数组（仅基础两类）。
  */
@@ -34,7 +34,7 @@ const GENRE_LEADS_MAP: readonly { keywords: readonly string[]; leads: readonly L
 ]
 
 /**
- * 按题材返回推荐的扩展账本类（O3）。
+ * 按题材返回推荐的扩展账本类。
  * - 关键词匹配：genre 含某组任一关键词即推荐对应扩展类（可多组叠加）
  * - 去重 + 仅返回扩展类（基础两类恒启用、不在本表）
  * - 全未命中 → 空数组（仅基础两类）
@@ -68,7 +68,7 @@ export function sanitizeLeadsEnabled(raw: string[]): LeadType[] {
 
 type ShortCheckConfig = NonNullable<BookConfig['short']>
 
-// R0912-ds41（P3-6）：与 metrics/short-index.ts 共用的默认表已收敛至 shared/short-defaults.ts
+// 与 metrics/short-index.ts 共用的默认表已收敛至 shared/short-defaults.ts
 //（唯一正本）；本地别名保持原类型标注，recommendShortChecks 的展开用法不变，行为逐字节等价。
 const DEFAULT_SHORT_CHECKS: ShortCheckConfig = SHORT_DEFAULTS
 

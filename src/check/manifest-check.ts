@@ -1,5 +1,5 @@
 /**
- * 单篇清单形式检（机检层）—— 依据 M8 #27 第 5 节 + #28 第 3 节分工。
+ * 单篇清单形式检（机检层）—— 依据 #27 第 5 节 + #28 第 3 节分工。
  *
  * 与 #28 设定收尾审分工：
  * - 机检挡**形式**（反转线索 ≥3 铺垫、伏笔回收闭合标记）—— 本文件
@@ -65,10 +65,10 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
       message: '情绪曲线缺少反转段，情绪峰值无锚点',
     })
   }
-  // R30-14（三十轮）：realCurve 混入 NaN/Infinity 强度时 Math.max 得 NaN，`NaN < 8`
+  // realCurve 混入 NaN/Infinity 强度时 Math.max 得 NaN，`NaN < 8`
   // 恒 false → emotion-curve-peak-low 漏判。计算前过滤非有限值：非 1-10 强度（含非
   // 有限）已由上方 emotion-curve-strength 黄项兜底回报，本处只管「有效强度里的峰值」；
-  // 过滤后为空 → Math.max() 得 -Infinity < 8 照报（fail-noisy：曲线全坏不静默放行）。
+  // 过滤后为空 → Math.max 得 -Infinity < 8 照报（fail-noisy：曲线全坏不静默放行）。
   const finiteStrengths = realCurve.map((p) => p.强度).filter((s) => Number.isFinite(s))
   if (realCurve.length > 0 && Math.max(...finiteStrengths) < 8) {
     items.push({

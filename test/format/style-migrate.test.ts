@@ -1,6 +1,10 @@
 /**
  * 文风库迁移单测（文风系统重整 S1）。
  * 样章搬移 / 金句拆条 / 铁律提取+瘦身 / 幂等 / 词去重 / 空书。
+ *
+ * 2026-09-26 终扫自 style-entry-y23-y27.test.ts 并入 Y-7 臂（样章续跑查重，对齐
+ * RB-KN-P2-4 续跑不重写口径；断言保留、夹具收编 makeSample；Y-23/Y-27 臂归并
+ * style-entry.test.ts）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -281,5 +285,25 @@ describe('R49-13: 遗留段判定精确段名锚定（作者同关键词段不�
     expect(Object.keys(second.byKind)).toHaveLength(0)
     const { entries } = readEntries(join(root, ENTRIES_DIR), '禁词')
     expect(entries).toHaveLength(2) // 不因作者段关键词重复提取
+  })
+})
+
+// ── Y-7（五十七轮，2026-09-26 终扫自 style-entry-y23-y27.test.ts 并入）：
+// 样章迁移续跑查重（对齐禁词源 RB-KN-P2-4 续跑不重写口径）────────────────────────
+describe('Y-7: 样章迁移续跑查重', () => {
+  it('条目已写、rmSync 旧源前崩溃（旧源重现）→ 续跑不产出同内容双份，旧源删除', () => {
+    makeSample('战斗', '001', '刀光起落。')
+    const r1 = migrateStyleLibrary(root)
+    expect(r1.byKind['样章']).toBeGreaterThanOrEqual(1)
+    const entriesDir = join(root, ENTRIES_DIR, '样章')
+    const after1 = readdirSync(entriesDir).length
+    // 模拟崩溃残留：旧源重现（真实形态是 rmSync 未执行；此处重建等价）
+    makeSample('战斗', '001', '刀光起落。')
+    writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n\n可量化约束保留段。\n')
+    const r2 = migrateStyleLibrary(root)
+    // 修复前：同内容样章被再写一份（after1 + 1）；修复后：命中 seen 跳写
+    expect(readdirSync(entriesDir).length).toBe(after1)
+    expect(r2.migrated).toBe(0)
+    expect(existsSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'))).toBe(false)
   })
 })

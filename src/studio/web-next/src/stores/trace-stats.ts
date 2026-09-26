@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { getTraceStats, type TraceStats } from '../api/trace-stats'
 
 /**
- * trace-stats 请求协调 store（R0912-FE-P3-4，2026-09-11 重评-0911b 修复批）。
+ * trace-stats 请求协调 store（b 修复批）。
  *
  * 背景：工作台同屏两处各拉一次 GET /trace-stats——WorkbenchView.loadRuleHits（规则命中）
  * 与 WbUsageCard.load（byTask 用量 + getCostStats），api 层无去重，同屏挂载即双发。
@@ -20,7 +20,7 @@ export const useTraceStatsStore = defineStore('trace-stats', () => {
     const running = inflight.get(bookName)
     if (running) return running
     const p = getTraceStats(bookName).finally(() => {
-      // identity 删键（words.ts R46-33 口径）：settle 前台账被清/被新请求顶替时，
+      // identity 删键（words.ts 口径）：settle 前台账被清/被新请求顶替时，
       // 旧 promise 的 finally 不得误删新条目
       if (inflight.get(bookName) === p) inflight.delete(bookName)
     })

@@ -4,7 +4,7 @@
  * collectTreeIssuesCore 原把判定内联在 IO 交织的生成器里（圈复杂度 66），本批切出
  * 「章级条目合并 / 待落盘入列闸 / 清单折叠索引 / 定稿态派生 / 定稿态跳过」五组纯判定
  * ——本用例逐组表驱动覆盖切面分支，是这些判定的语义锚（集成锚见
- * r37-tree-issues-async-yield / r42-join-fold / r47-tree-issues-epoch 等）。
+ * tree-issues-async-parity / join-fold-residuals / tree-issues-epoch-fingerprint 等）。
  */
 import { describe, expect, it } from 'vitest'
 import {

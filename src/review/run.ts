@@ -1,5 +1,5 @@
 /**
- * 三审执行编排 —— 依据 M4 #20/#22。
+ * 三审执行编排 —— 依据 #20/#22。
  *
  * 脚本与宿主职责分离（运行时零依赖、可确定性测试）：
  * - 脚本侧（本模块）：按 tier 决策把任务书 + 章正文 + 账本清单打包成「执行包」，
@@ -31,7 +31,7 @@ import {
   type NormalizedReviewResult,
   type PieceListCheck,
 } from './contract.js'
-// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+// -（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 /** 单视角的执行包：宿主据此调一次模型产出该视角的 issues。 */
@@ -63,11 +63,11 @@ export interface ReviewExecutionPacket {
   fallback: string
   downgrade_reason?: string
   lenses_run: ReviewLens[]
-  /** 预计 AI 调用次数。R30-16（三十轮）注释改正：已改按 lenses 动态——
+  /** 预计 AI 调用次数。注释改正：已改按 lenses 动态——
    *  满审/顺序审 = 实际视角数（lenses_run.length，长篇 2-3、短篇 5），合审 = 1
-   *  （contract.selectReviewTier V-P1-8 口径，不再硬编码 3） */
+   *  （contract.selectReviewTier 口径，不再硬编码 3） */
   planned_calls: number
-  /** 各视角分包。R30-16（三十轮）注释改正：份数按 lenses 动态——满审/顺序审 =
+  /** 各视角分包。注释改正：份数按 lenses 动态——满审/顺序审 =
    *  lenses_run.length 份独立（不再是硬编码 3 份）；合审 = 1 份合并 */
   packets: ReviewLensPacket[]
   /** 输出目录：宿主把各视角 issues JSON 回写到此处 */
@@ -104,7 +104,7 @@ export function buildReviewPacket(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
-  /** 有布线（账本/成长线）→ continuity 视角；kind==='short'（config.kind，R28-12 注释对齐实装）→ 短篇三视角 */
+  /** 有布线（账本/成长线）→ continuity 视角；kind==='short'（config.kind，注释对齐实装）→ 短篇三视角 */
   hasWiring: boolean
   hasShort: boolean
 }): { ok: true; packet: ReviewExecutionPacket; decision: ReviewTierDecision } | { ok: false; reason: string } {
@@ -169,7 +169,7 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
   const listChecks = payoff?.list_checks ?? []
   // 合审锚定 lens：长篇 continuity（账本核对不丢）/ 短篇 payoff（清单核对不丢）
   const anchor = payoff ?? continuity ?? tasks[0]!
-  // R36-29（三十六轮）：焦点首条不再硬编码「覆盖三视角」——合审视角数随任务书动态
+  // 焦点首条不再硬编码「覆盖三视角」——合审视角数随任务书动态
   // （长篇 3 / 短篇 5 / 无布线最小 2），按 tasks.length 生成，文案与实际一致
   const focus = [`合审：覆盖${tasks.length}视角`].concat(tasks.flatMap((t) => t.focus.map((f) => `[${t.title}] ${f}`)))
   return {
@@ -203,7 +203,7 @@ export interface CollectedReview {
   raw_issues: ReviewIssue[]
   /** 归一化结果 */
   normalized: NormalizedReviewResult
-  /** R62-34：审稿单 meta（ledger_check 等）——normalizeReviewResult 不透传 meta，
+  /** 审稿单 meta（ledger_check 等）——normalizeReviewResult 不透传 meta，
    *  此前 ReviewResult.meta 写完即弃（信封/UI 均不可见），随 collected 一并透出 */
   meta: ReviewMeta
   /** tier（用于审稿单元信息） */
@@ -214,7 +214,7 @@ export interface CollectedReview {
   lenses_run: ReviewLens[]
 }
 
-/** R63-4（十一轮）：审稿单不成立时的注入 issue——失败路径（stale/缺视角/坏条目）
+/** 审稿单不成立时的注入 issue——失败路径（stale/缺视角/坏条目）
  *  原先空 issues 过 normalizeReviewResult 得 passed:true（空判据），端点把信封照落、
  *  前端把「采集失败」渲染成「三审通过」——作者按假通过放行从未真正审校的内容。
  *  注入阻断级 issue：normalized.passed 恒 false 且阻断列表可见（evidence 带具体原因）；
@@ -232,7 +232,7 @@ function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue
   }
 }
 
-// R33-42（三十三轮）宣称的「单点收敛」落成现实（R38-12，三十八轮）——原注释宣称
+// 宣称的「单点收敛」落成现实——原注释宣称
 // 收敛为一处具名常量，实际 unsoundCollect 与主函数 incomplete 装配两处仍各自内联
 // `lenses_run[0] ?? 'continuity'`（注释-实现漂移）。提取模块级 helper 供三处共用。
 /** 首视角标签：lenses_run 由 lens 决策表产出恒非空，兜底纯防御。 */
@@ -240,7 +240,7 @@ function primaryLensOf(packet: ReviewExecutionPacket): ReviewLens {
   return packet.lenses_run[0] ?? 'continuity'
 }
 
-/** R29-B11（二十九轮）：漂移阻断返回的共用装配——stale（hash 不符）与「draft_path/
+/** 漂移阻断返回的共用装配——stale（hash 不符）与「draft_path/
  *  draft_hash 恰缺一」（打包半接线）同构：注入阻断 issue + bad_entries 留痕 + ok:false。 */
 function unsoundCollect(
   packet: ReviewExecutionPacket,
@@ -249,7 +249,7 @@ function unsoundCollect(
   badPath: string,
 ): CollectedReview {
   const stale: ReviewResult = {
-    // R63-4：注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
+    // 注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
     issues: [
       incompleteReviewIssue([reason], primaryLensOf(packet)),
     ],
@@ -281,15 +281,15 @@ function unsoundCollect(
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
-  // R33-42（三十三轮）：首视角标签单点收敛——落 R38-12 的 primaryLensOf helper。
+  // 首视角标签单点收敛——落的 primaryLensOf helper。
   const primaryLens: ReviewLens = primaryLensOf(input.packet)
-  // R61-13（第六十一轮）：draft_hash 一致性实装——字段自第五轮声明并随包透传，但
+  // draft_hash 一致性实装——字段自声明并随包透传，但
   // collect 从不校验（死字段）：回收期间草稿漂移（作者回改正文）会让 issues 指向
   // 已不存在的文本。hash 不符/不可读 → 审稿单不成立（同缺视角/坏条目口径）。
-  // R62-34：ledger_check 如实——任一分包带账本核对项才算「已跑」（无布线/账本无变动
+  // ledger_check 如实——任一分包带账本核对项才算「已跑」（无布线/账本无变动
   // 时任务书不带 ledger_checks，此前恒报「已跑」与实际执行面不符）
-  // R29-B11（二十九轮）：恰缺一 = 漂移（fail-closed）——生产链恒双传（studio/server/
-  // api/review.ts R62-33 接线），原实现「缺一即整段跳过校验」让半接线的打包方静默
+  // 恰缺一 = 漂移（fail-closed）——生产链恒双传（studio/server/
+  // api/review.ts 接线），原实现「缺一即整段跳过校验」让半接线的打包方静默
   // 失去漂移守卫；改按漂移同判注入阻断 issue。双缺保留跳过：合法形态（无草稿绑定的
   // 回放/直造 packet，无可校验对象），非漂移信号。
   const ledgerCheckRan = input.packet.packets.some((p) => (p.ledger_checks?.length ?? 0) > 0)
@@ -312,7 +312,7 @@ export function collectReviewIssues(input: {
       actual = null // 读失败（草稿被删/移动）与 hash 不符同判
     }
     if (actual !== input.packet.draft_hash) {
-      //（win 线同因内联展开已由 dev 线 R33D 的 unsoundCollect 辅助函数收编，取辅助调用。）
+      //（win 线同因内联展开已由 dev 线的 unsoundCollect 辅助函数收编，取辅助调用。）
       return unsoundCollect(
         input.packet,
         ledgerCheckRan,
@@ -343,7 +343,7 @@ export function collectReviewIssues(input: {
     try {
       text = readFileSync(fp, 'utf-8')
     } catch (e) {
-      // RB-KN-P2-8：读取失败与解析失败分类——并发删除/权限错误原先也被记成「JSON 损坏」
+      // 读取失败与解析失败分类——并发删除/权限错误原先也被记成「JSON 损坏」
       badEntries.push({
         path: expected.file,
         reason: `issues 文件读取失败：${errMsg(e)}`,
@@ -368,7 +368,7 @@ export function collectReviewIssues(input: {
   }
 
   // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含全部视角（长短篇视角数随任务书动态，buildReviewPacket 决定）
-  // R73-26（二十一轮·登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
+  // （二十一轮·登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
   // ——经核实**本批不可落**：生产链 submit_issues 工具 schema（src/ai/contract/review.ts，
   // B 域禁改范围）没有 lens 字段、审稿 prompt（resources/prompts/review-*.md）也不要求
   // 视角标记，合审 issues 的 lens 全部由 coerceIssue 回落锚视角（lenses_run[0]）——
@@ -384,7 +384,7 @@ export function collectReviewIssues(input: {
     }
   }
 
-  // R63-4：缺视角/坏条目 → 审稿单不成立——normalized 空判据会假 passed:true，
+  // 缺视角/坏条目 → 审稿单不成立——normalized 空判据会假 passed:true，
   // 注入阻断级 issue（见 incompleteReviewIssue 头注）；raw_issues 保持宿主原产不动
   const ok = missingLenses.length === 0 && badEntries.length === 0
   const incompleteReasons: string[] = []
@@ -399,7 +399,7 @@ export function collectReviewIssues(input: {
       effective_tier: input.packet.tier,
       fallback: input.packet.fallback,
       lenses_run: input.packet.lenses_run,
-      ledger_check: ledgerCheckRan ? '已跑' : '跳过', // R62-34：如实（见函数首注释）
+      ledger_check: ledgerCheckRan ? '已跑' : '跳过', // 如实（见函数首注释）
     },
   }
   const normalized = normalizeReviewResult(result)
@@ -456,15 +456,15 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
   const severity = String(o['severity'] ?? '')
   const category = String(o['category'] ?? '')
   if (!isReviewSeverity(severity) || !isReviewCategory(category)) return null
-  // R0916-6-P3-7（2026-09-16 评审修复批）：issue 描述 trim 后为空判格式不符（对齐
-  // severity/category 既有闸风格）——「空描述 + 非空 evidence」此前可成立为 S1/S2
+  // （评审修复批）：issue 描述 trim 后为空判格式不符（对齐
+  // severity/category 既有闸风格）——「空描述 + 非空 evidence」此前可成立为 /
   // blocker（evidence 硬闸在 normalizeReviewResult 只拦空证据、不拦空描述），审稿单
   // 会出现无内容的阻断条。空描述走 extractIssues 既有「issue 格式不符」bad_entries
   // 路径丢弃留痕，不静默。
   const issueText = String(o['issue'] ?? '')
   if (issueText.trim() === '') return null
   const location = String(o['location'] ?? '').trim()
-  // R65-18（十三轮）：evidence 数组项仅接受 string/number（按原语义 String() 收敛）——
+  // evidence 数组项仅接受 string/number（按原语义 String 收敛）——
   // 宿主回写 evidence:[{}] 时 String({}) 得非空 "[object Object]"，对象壳穿透
   // 「空 evidence 的 issue 不成立」硬闸；含其他类型项 → 整条判格式不符走 bad_entries
   let evidence: string[]
@@ -500,7 +500,7 @@ function isReviewSeverity(s: string): s is ReviewIssue['severity'] {
 const CATEGORIES: ReadonlySet<string> = new Set([
   'high_point', 'reader_pull', 'pacing', 'ooc', 'logic', 'consistency',
   'continuity', 'setting', 'timeline', 'strand', 'ledger', 'safety',
-  // 短篇单篇爆破力维（M8 #28 第 4 节）
+  // 短篇单篇爆破力维（#28 第 4 节）
   'hook', 'emotion_peak', 'reversal', 'payoff',
 ])
 function isReviewCategory(c: string): c is ReviewIssue['category'] {
@@ -509,7 +509,7 @@ function isReviewCategory(c: string): c is ReviewIssue['category'] {
 
 const LENSES: ReadonlySet<string> = new Set([
   'reader', 'editor', 'continuity',
-  // 短篇三视角（M8 #28 第 2 节）
+  // 短篇三视角（#28 第 2 节）
   'hook', 'emotion_peak', 'payoff',
 ])
 function isReviewLens(l: string): l is ReviewLens {

@@ -1,5 +1,5 @@
 /**
- * D2（批 5）成本统计端点：GET /api/books/:name/cost-stats。
+ * 成本统计端点：GET /api/books/:name/cost-stats。
  *
  * llm/call 事件 × providers.json 价格表聚合（按日/按章/按任务/累计）；
  * 全书无价格表 → { enabled: false }（前端显示「未配置价格」引导，不显示 0）。
@@ -20,7 +20,7 @@ export function registerCostStatsRoutes(ctx: CostStatsCtx): void {
   defineRoute('books.cost-stats', {
     method: 'GET',
     path: '/api/books/:name/cost-stats',
-    // R34D-19（三十四轮）：aggregateCost 转异步（事件库开库异步孪生），handler 随迁
+    // aggregateCost 转异步（事件库开库异步孪生），handler 随迁
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return

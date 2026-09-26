@@ -12,7 +12,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-/** A1：树红点缓存两表 DDL 单源——DDL_STATEMENTS（全量建表）与
+/** 树红点缓存两表 DDL 单源——DDL_STATEMENTS（全量建表）与
  *  ensureTreeIssuesTables（旧库按需补建）共用；此前双份手抄，改列要同步两处易漂移。
  *  注意：本表与 tree_issues_meta 不在 clearAllTables 清单里——rebuild 全量重建
  *  清空的是「源文件派生索引」，机检缓存按章指纹自行失效，rebuild 不构成失效源
@@ -88,13 +88,13 @@ const DDL_STATEMENTS = [
     value  TEXT NOT NULL
   )`,
 
-  // ── A1（批 1）：树红点增量缓存表（DDL 见 TREE_ISSUES_DDL 单源） ──
+  // ── ：树红点增量缓存表（DDL 见 TREE_ISSUES_DDL 单源） ──
   ...TREE_ISSUES_DDL,
 ] as const
 
-/** A1：树红点缓存表独立 ensure——增量 rebuild 跳过路径不跑 createAllTables，
+/** 树红点缓存表独立 ensure——增量 rebuild 跳过路径不跑 createAllTables，
  *  旧库（本表缺席）按需补建（幂等，IF NOT EXISTS）。
- *  R59 清偿批（R55-D-3）：存量库补 epoch_fp 列（ALTER ADD COLUMN，幂等）——
+ *  清偿批存量库补 epoch_fp 列（ALTER ADD COLUMN，幂等）——
  *  CREATE TABLE IF NOT EXISTS 对已存在的表不生效，旧库缺列时带列名读写会静默
  *  全失败（读 catch 成恒 miss、写静默弃行 = 缓存永久失效）。补列后旧行该列为
  *  NULL，读侧按「epoch 不匹配 = miss」处理，天然一次性失效重算（可接受）。 */

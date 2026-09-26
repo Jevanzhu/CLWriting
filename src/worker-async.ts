@@ -1,5 +1,5 @@
 /**
- * R0912-ds41（重评-deepseek-v4.1-flash P3-5）：三份 Worker 运行器的公共壳单源
+ * （-deepseek-v4.1-flash ）：三份 Worker 运行器的公共壳单源
  * （export/run-async.ts · cache/run-rebuild-async.ts · studio/server/api/
  * style-scan-async.ts——评审记 259 行、两两共同行 32-34 起的大段同构）。
  *
@@ -8,8 +8,8 @@
  * 四路先到者生效，settle 即 terminate 收线程）。各域差异全部参数化留在调用方：
  *  - 默认超时档（导出/重建 120s、扫描 60s）与域内 RunnerOptions 形态；
  *  - 超时/退出的用户可见文案（逐字节保真——io-export-worker 等既有测试钉值）；
- *  - 域语义组合不入壳：rebuild 的同 cachePath 单飞合并（R57-A-1）留在
- *    runRebuildAsync、扫描的 server 在途登记（R0910-W）留在 runStyleScanAsync。
+ *  - 域语义组合不入壳：rebuild 的同 cachePath 单飞合并留在
+ *    runRebuildAsync、扫描的 server 在途登记留在 runStyleScanAsync。
  * 定位对齐 src/async.ts：跨域运行时原语的单源之家。
  */
 import { Worker } from 'node:worker_threads'
@@ -45,12 +45,12 @@ interface WorkerJobSpec {
   timeoutMs: number
   /** 超时文案（用户可见，逐字节保真，有既有测试钉值） */
   timeoutMessage: (timeoutMs: number) => string
-  /** 非错误退出兜底文案（R65-29：'exit' 不触发 'error'，code 为退出码） */
+  /** 非错误退出兜底文案（'exit' 不触发 'error'，code 为退出码） */
   exitMessage: (code: number) => string
 }
 
 /** fork Worker 并等其单条结果消息：成功/失败/超时/退出四路先到者生效（幂等 settle），
- *  其余路径跳过并 terminate 收线程。内存闸（run-async.ts 2026-08-24 审计 A1 同款，
+ *  其余路径跳过并 terminate 收线程。内存闸（run-async.ts 审计同款，
  *  三域同档）：worker 堆上限 1GB——失控只顶 worker OOM（按既有 error 路径上抛），
  *  不再把主进程 RSS 顶到系统爆内存。结果类型<TResult>由调用方标注（worker 回包
  *  无运行时可验形状，与壳化前各域 `(r: TResult) =>` 同口径）。 */
@@ -76,7 +76,7 @@ export function runWorkerJob<TResult>(spec: WorkerJobSpec): Promise<TResult> {
     w.once('message', (r: TResult) => settle(() => resolve(r)))
     w.once('error', (e: Error) => settle(() => reject(e)))
     // worker 非错误退出（resourceLimits abort / 入口显式 process.exit / 致命信号）
-    // 不触发 'error' 事件（R65-29）——Promise 原先悬挂至超时才拒；补 'exit' 监听
+    // 不触发 'error' 事件——Promise 原先悬挂至超时才拒；补 'exit' 监听
     // 直接拒绝（settle 幂等：成功/失败先到者生效，此路径仅兜底）。
     w.once('exit', (code) =>
       settle(() => reject(new Error(spec.exitMessage(code)))),

@@ -41,7 +41,7 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
 }
-/* .view-header.is-drag 拖窗体收敛至全局 styles/utilities.css（P3-10，声明逐字未改） */
+/* .view-header.is-drag 拖窗体收敛至全局 styles/utilities.css（声明逐字未改） */
 .crumbs {
   font-size: var(--font-size-m);
   color: var(--text-faint);

@@ -1,5 +1,5 @@
 /**
- * 文风候选箱 —— 文风系统重整 S4（四源 → 候选 → 作者确认 → 条目库）。
+ * 文风候选箱 —— 文风系统重整（四源 → 候选 → 作者确认 → 条目库）。
  *
  * 「候选制，品味归人」红线：候选永不自动入库，作者确认才 addEntry。
  * 四源：①改稿轨迹（比对层信号）②机检漂移（固定映射表，不耗 AI）
@@ -77,8 +77,8 @@ export function readCandidate(
 
   const source = map.get('来源')
   const status = map.get('状态')
-  // R1010b-DOC-P3-5（全量代码重审与内存专项 2026-09-10）：标量「标签」归一为单元素
-  // 数组——重评-20 同族漏网收编（style-entry readEntry / style readSample 先已修，本处
+  // （与）：标量「标签」归一为单元素
+  // 数组—— 同族漏网收编（style-entry readEntry / style readSample 先已修，本处
   // 漏网）：作者手改标量形态（`标签: 金句`）此前既不进字段（候选模型无 _raw 承载），
   // 确认入库后标签物理消失。归一只发生在解析侧，写回后标量变数组属规范形归一（对齐
   // 两先例同款条件与口径）；空串/缺键不造空数组。
@@ -132,15 +132,15 @@ export function readCandidates(candidatesDir: string): {
   const errors: ParseError[] = []
   let files: string[]
   try {
-    // R41-16（四十一轮）：.md 判定改 isMdFileName（大小写不敏感）——.MD 家族
-    // （R38-9 收编 7 处后）漏网点：win 手改扩展名 .MD 后候选箱对该条目静默失明
+    // .md 判定改 isMdFileName（大小写不敏感）——.MD 家族
+    // （收编 7 处后）漏网点：win 手改扩展名 .MD 后候选箱对该条目静默失明
     files = readdirSync(candidatesDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return { candidates, errors }
   }
   for (const f of files.sort()) {
     const fp = join(candidatesDir, f)
-    // 低-3（第十轮）：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
     // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整箱读取
     let isFile = false
     try {
@@ -184,7 +184,7 @@ export function addCandidate(bookRoot: string, c: StyleCandidate): string {
  * @returns 条目相对路径；候选读不出 → null
  */
 export function confirmCandidate(bookRoot: string, candidateRelPath: string): string | null {
-  // P2-SEC-1 / M-7 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
+  // -SEC-1 / 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
   // ——此前手写 relative 穿越 check 是全库第五套平行实现，无 symlink 防护（API 层已补，
   // 内层再收口防裸调用绕过 + 防后来者照抄弱实现）
   const safe = resolveWithinRoot(bookRoot, candidateRelPath)
@@ -202,7 +202,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
     ...(c.标签 && c.标签.length > 0 ? { 标签: c.标签 } : {}),
     正文: c.正文,
   }
-  // R64-15（十二轮）：内容级去重——addEntry 与 rmSync(候选) 非原子，窗口内崩溃重试
+  // 内容级去重——addEntry 与 rmSync(候选) 非原子，窗口内崩溃重试
   // 会再入一条（序号不同即文件名不同，此前无内容判重）。同类型同场景同正文已存在 →
   // 复用既有条目路径（候选照删，幂等重试安全）。
   const dup = readEntries(join(bookRoot, ENTRIES_DIR), c.类型).entries.find(
@@ -212,7 +212,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
     dup?._path !== undefined
       ? `${ENTRIES_DIR}/${c.类型}/${basename(dup._path)}`
       : addEntry(bookRoot, entry)
-  // R49-15（评审 R49）：删候选收编 rmWithRetry（R40-18「确实要删」原语）——win 杀软/
+  // （评审）：删候选收编 rmWithRetry（「确实要删」原语）——win 杀软/
   // 索引器对刚落盘条目旁的候选文件瞬时锁（EPERM/EBUSY）下裸 rmSync 直败，会把已入库
   // 的确认反转为调用方失败；退避后仍失败仍上抛（错误路径语义不变，仅消瞬时锁误报）。
   rmWithRetry(fp)
@@ -221,7 +221,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
 
 /** 作者忽略：状态落盘为已忽略（保留文件，去重闸靠它记住「别再骚扰」） */
 export function ignoreCandidate(bookRoot: string, candidateRelPath: string): boolean {
-  // M-7 内层收口：同 confirmCandidate——resolveWithinRoot 统一委托（symlink fail-closed）
+  // 内层收口：同 confirmCandidate——resolveWithinRoot 统一委托（symlink fail-closed）
   const safe = resolveWithinRoot(bookRoot, candidateRelPath)
   if (!safe) return false
   const fp = safe.abs
@@ -351,7 +351,7 @@ export function persistCandidates(
   candidates: StyleCandidate[],
 ): { created: string[]; skipped: number } {
   // 查重 key：SOH 分隔符（正文/类型不会含 → 防碰撞），避免 NUL 使文件被工具链当二进制。
-  // 低-2（第十轮）：分隔符此前是源码里的裸 0x01 控制字节——多数查看器不可见，复审时
+  // 低-2分隔符此前是源码里的裸 0x01 控制字节——多数查看器不可见，时
   // 被误判为「实现没有分隔符」；改写成显式 \u0001 转义，运行时字符串逐字节不变
   const key = (kind: string, text: string): string => `${kind}\u0001${text}`
   const existing = new Set<string>()

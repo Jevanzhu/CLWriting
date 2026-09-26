@@ -22,7 +22,7 @@ export function useAiAssist() {
 
   async function runAiAssist(action: { key: string; instruction: string }): Promise<void> {
     const sel = ws.editorGetSelection?.() ?? ''
-    // M2 续写解选区：无选区的续写走 append（空白页/卡壳时刻）；其余动作仍需选区靶点
+    // 续写解选区：无选区的续写走 append（空白页/卡壳时刻）；其余动作仍需选区靶点
     const isAppend = action.key === 'continue' && !sel
     if (!sel && !isAppend) {
       ui.toast('请先选中要操作的文字', 'info')

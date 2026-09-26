@@ -1,5 +1,5 @@
 /**
- * book.yaml 文本级补丁族 —— 自 yaml.ts 拆出（R0916-5e，2026-09-16，⑤④产品巨件拆分
+ * book.yaml 文本级补丁族 —— 自 yaml.ts 拆出（⑤④产品巨件拆分
  * 波1 · 缝 B）。
  *
  * 读改写场景不走 stringifyBookConfig 全量重生成（解析模型只保已知字段，作者的 #
@@ -19,7 +19,7 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { SECTION_SPECS, renderScalar, type ConfigKeySpec } from './yaml-spec.js'
 
 /**
- * 文本级补丁：替换或追加一个顶层段（V-P2-4）。
+ * 文本级补丁：替换或追加一个顶层段。
  *
  * 读改写场景（历史生产例 enableRag 已删，现存直接消费面为补丁族测试）不能走
  * stringifyBookConfig 全量重生成——解析模型只保
@@ -30,13 +30,13 @@ import { SECTION_SPECS, renderScalar, type ConfigKeySpec } from './yaml-spec.js'
  * @param section 顶层段名（如 'rag'）
  * @param body 段体行（不含段头行，如 '  enabled: true'）
  */
-/** Z-7（第五十八轮）：补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
+/** 补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
  *  （`book:\r`）两条件均不中会走追加分支在文件尾造重复段（解析取首个段 → 改动静默丢失）。
  *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。
- *  R37-10（三十七轮）/ R2W-6（win 平台专项复审 R2）双线同旨合并：再补行首 BOM 剥除
+ *  / （win 平台专项）双线同旨合并：再补行首 BOM 剥除
  *  （只剥一次）——文件首键行带 UTF-8 BOM（\uFEFF，记事本「UTF-8 with BOM」保存形态）
  *  时段定位同样失明、误走追加分支造重复段/重复键（下次解析撞 fail-loud 重复守卫，
- *  全书配置降级默认；读侧先例 R33D-3；调用方均为 findIndex 直吃 raw 原文，上游无
+ *  全书配置降级默认；读侧先例；调用方均为 findIndex 直吃 raw 原文，上游无
  *  统一剥除点，故在本函数收口）。 */
 function matchesKeyLine(line: string, key: string): boolean {
   const noBom = line.startsWith('\uFEFF') ? line.slice(1) : line
@@ -45,13 +45,13 @@ function matchesKeyLine(line: string, key: string): boolean {
 }
 
 /**
- * P1-6（复审-0914-优化修复批）：补丁族段定位单源——此前 patchTopSection /
+ * 补丁族段定位单源——此前 patchTopSection /
  * setTopSectionKey / setSectionKeyBlock（yaml.ts 三处）与 migrate-defaults
  * （matchesKeyLineCRLF + topSectionSpan + 段内最小缩进循环）四处逐字重复
  * 「段头扫描 + 段尾扫描 + 段体最小缩进」骨架；现收编本函数，四处改薄壳/委托。
  *
- * 定位边界语义逐位保留（含 R71-4 / Z-7 修复语义）：
- * - 段头：matchesKeyLine——剥行首 BOM（只一次，R37-10/R2W-6）与行尾 \r（Z-7 CRLF
+ * 定位边界语义逐位保留（含 / 修复语义）：
+ * - 段头：matchesKeyLine——剥行首 BOM（只一次，/）与行尾 \r（CRLF
  *   容忍）后全等 `key:` 或前缀 `key: `；
  * - end = 下一个顶层 key（非缩进、非注释、非空行）之前；段到文件尾 = lines.length；
  * - childIndent = 段体内容行（非空、非注释）最小缩进；段体无内容行 = -1。
@@ -90,10 +90,10 @@ export function locateTopSection(lines: readonly string[], section: string): Top
 }
 
 export function patchTopSection(raw: string, section: string, body: string): string {
-  // 平台规范化批（2026-09-03）：输出规范形（LF）——MP2-4 的「新行随原文行尾」语义
+  // 平台规范化批输出规范形——MP2-4 的「新行随原文行尾」语义
   // 随规范形拍板翻转；未触碰行原样保留（含注释），其 CRLF 残尾随整输出归一剥除。
   const lines = raw.split('\n')
-  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
+  const span = locateTopSection(lines, section) // 段定位委托单源
   if (!span) {
     // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）。
     const sectionLines = [`${section}:`, ...body.split('\n')]
@@ -120,7 +120,7 @@ export function patchTopSection(raw: string, section: string, body: string): str
 }
 
 /**
- * GG-P2-8：文本级替换顶层段内单个子键行（只动 `key:` 那一行，段内其余行含未知子键、
+ * 文本级替换顶层段内单个子键行（只动 `key:` 那一行，段内其余行含未知子键、
  * 缩进注释逐字保留；段外内容更是零触碰）。
  *
  * 与 patchTopSection（整段替换）的取舍：改名/单项改值场景单键行替换更小更稳——
@@ -134,7 +134,7 @@ export function patchTopSection(raw: string, section: string, body: string): str
 export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
   // 平台规范化批：输出规范形（LF）——MP2-4 行尾保真语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
-  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
+  const span = locateTopSection(lines, section) // 段定位委托单源
   const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
   if (!span) {
     const sectionLines = [`${section}:`, keyLine(2)]
@@ -149,7 +149,7 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
     return canonicalizeText(lines.join('\n'))
   }
   const pad = ' '.repeat(childIndent)
-  // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
+  // 键行匹配剥 \r（上方 matchesKeyLine 同口径，同族）——CRLF book.yaml 的
   // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」，替换走插入分支残留
   // 旧块成重复段
   const isKeyLine = (l: string): boolean => {
@@ -167,7 +167,7 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
   return canonicalizeText(lines.join('\n'))
 }
 
-// ── kk-P1-5：PUT /config 的文本级补丁写 ──────────
+// ── kk-PUT /config 的文本级补丁写 ──────────
 
 /**
  * 文本级替换/删除/插入段内单个子键块（键行 + 其块列表 `- ` 项 / 嵌套映射子行）。
@@ -188,7 +188,7 @@ export function setSectionKeyBlock(
 ): string {
   // 平台规范化批：输出规范形（LF）——MP2-4 同族连带语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
-  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
+  const span = locateTopSection(lines, section) // 段定位委托单源
   if (!span) {
     if (keyLine === null) return raw
     const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)]
@@ -199,7 +199,7 @@ export function setSectionKeyBlock(
   const { start, end, childIndent } = span
   const pad = ' '.repeat(childIndent === -1 ? 2 : childIndent)
   if (childIndent !== -1) {
-    // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
+    // 键行匹配剥 \r（上方 matchesKeyLine 同口径，同族）——CRLF book.yaml 的
     // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」：删除模式静默丢改
     // （原样返回）、替换模式在段头后再插一份残留重复块
     const isKeyLine = (l: string): boolean => {
@@ -253,9 +253,9 @@ interface ConfigPatchLeaf {
   get: (c: BookConfig) => unknown
 }
 
-// P1-5（复审-0914-优化修复批）：补丁白名单改 schema 表派生（有 get 的键行即补丁叶，
-// 派生序 = 表序 = 历史 stringifyBookConfig 落行序）。历史两次漏登事故（D3+C1+A3
-// 双口径/开关/深度键、R52-E-2 机检阈值五键：parse/stringify 已收而白名单漏登，
+// 补丁白名单改 schema 表派生（有 get 的键行即补丁叶，
+// 派生序 = 表序 = 历史 stringifyBookConfig 落行序）。历史两次漏登事故（++
+// 双口径/开关/深度键、机检阈值五键：parse/stringify 已收而白名单漏登，
 // PUT /config 改这些键会静默不落盘）自此结构性杜绝——parse 收的键表里必有行。
 // leads.thresholds 动态映射无叶键 get（patchBookConfigText 特例块处理）。
 // 派生结果与历史手写登记表逐行等价（无新增/删减），yaml-schema-snapshot 快照锁。
@@ -271,7 +271,7 @@ function leafEquals(a: unknown, b: unknown): boolean {
 }
 
 /**
- * kk-P1-5：PUT /config 的文本级补丁——对比旧解析值与新配置，只重写发生变化的键行，
+ * kk-PUT /config 的文本级补丁——对比旧解析值与新配置，只重写发生变化的键行，
  * 其余原文（作者手写注释、未知段、未知子键、块列表/嵌套块的排版）逐字保留。
  *
  * 此前 PUT 走 stringifyBookConfig 全量重生成，与 migrate-defaults 修掉的红线同款：
@@ -286,7 +286,7 @@ export function patchBookConfigText(raw: string, oldCfg: BookConfig, newCfg: Boo
     text = to === undefined ? setTopScalarKey(text, key, null) : setTopScalarKey(text, key, `${key}: ${renderScalar(to)}`)
   }
   top('spec_version', oldCfg.spec_version, newCfg.spec_version)
-  // Y-25（第五十七轮·登记说明）：short→long 时此处写显式 `kind: long`，与
+  // （登记说明）：short→long 时此处写显式 `kind: long`，与
   // stringifyBookConfig「long 缺省不写」口径不一——文本补丁是单键外科替换，改成
   // 删除行需重排注释邻接结构，风险大于收益；解析侧认 long（语义无损），维持显式写。
   top('kind', oldCfg.kind, newCfg.kind)

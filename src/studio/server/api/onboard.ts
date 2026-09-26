@@ -24,11 +24,11 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
-// P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源；
+// /：长任务门控包装 + 生成失败状态映射单源；
 // onboard-save 仍直连 acquireTaskGate（无 AI 生成段不接包装，闸在 body 校验后占——
 // 入口闸会改 409/400 判序与 driver 假在途面，行为红线不越）
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：门控包装走 ctx.gate（闸实例）
-import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R71-9：覆盖留底单源复用
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 门控包装走 ctx.gate（闸实例）
+import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用
 import { log } from '../../../log/index.js'
 
 interface OnboardCtx extends TaskGateInjected {
@@ -37,7 +37,7 @@ interface OnboardCtx extends TaskGateInjected {
 }
 
 /** 跑一次 onboard 步骤生成（runSpec 统一编排）。
- *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成；
+ *  -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成；
  *  中断码单点归一（ABORTED），其余失败维持既有 GEN_FAIL 坍缩不变。 */
 async function runOnboard(
   userDataPath: string | null,
@@ -83,12 +83,12 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     method: 'POST',
     path: '/api/books/:name/onboard-ai',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    // SRV-（专项精简优化 §五，机械批）：resolveBook 双行样板收编单源
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道——十段复制收编
-    // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts；
+    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+    // （c 修复批）中断通道——十段复制收编
+    // runGatedGeneration 单源（-，接法头注见 task-gate.ts；
     // ownerLabel='onboard' 保留历史注册名 'onboard:<书名>' 字面量——与 action 名
     // 'onboard-ai' 异名，包装缺省拼接不适用）。onboard-save 无 AI 生成段，不接线。
     return ctx.gate.runGatedGeneration(res, {
@@ -98,7 +98,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       busyText: '本书已有 AI 设定任务在跑，请等待完成后再试',
       ownerLabel: 'onboard',
     }, async (ctrl) => {
-      // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
       //（readJson 在 runGatedGeneration 闸内回调——双闸 + ensureSession 先于 body 校验，且占闸覆盖 body 在途窗口）
       const reqBody = await readJson(req)
       const step = String(reqBody['step'] ?? '') as OnboardStep
@@ -107,13 +107,13 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
       /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
       const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
-      // 低级项（第六轮）：自由文本长度上限（对齐 chat 消息 5 万字符口径，stream.ts）——
+      // 低级项：自由文本长度上限（对齐 chat 消息 5 万字符口径，stream.ts）——
       // 无上限时粘贴超大文本直接拼进 prompt，打爆备料预算/模型上下文
       const MAX_FREE_TEXT = 50_000
       if (premise.length > MAX_FREE_TEXT || discussionContext.length > MAX_FREE_TEXT) {
         return replyError(res, 400, 'BAD_INPUT', `premise / discussionContext 过长（上限 ${MAX_FREE_TEXT / 10_000} 万字符）`)
       }
-      // 第五轮：hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
+      // hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
       // 取出函数，join 路径抛 TypeError 落 500（纯客户端输入应 400）
       if (!Object.hasOwn(STEP_PATH, step)) {
         return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
@@ -136,15 +136,15 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       }
 
       const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
-      // R66-7（十四轮）口径明确（铁律①「模型可见⟺已记录」）：本端点 prompt 只注入
+      // 口径明确（铁律①「模型可见⟺已记录」）：本端点 prompt 只注入
       // config 派生值（title/genre/kind，非文件正文）与 premise/discussionContext（用户
       // 请求体自由文本）——两者均非文件注入源，故 runSpec 不传 promptFiles（files 是文件
       // 级溯源通道）；用户文本的凭据 = 请求本身 + llm/call promptMeta 的 chars/hash 指纹。
 
       const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
       if (!result.ok) {
-        // R0912-P2-①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
-        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。D4（复审
+        // -①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
+        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。（
         // -0914-优化修复批）：状态映射收编 replyGenerationFailure 单源（runOnboard 已
         // 把非中断失败坍缩 GEN_FAIL，映射行为不变）。
         return replyGenerationFailure(res, result)
@@ -153,7 +153,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
       const content = canonicalizeText(result.text || '(空产出)')
       const relPath = STEP_PATH[step]
-      // R71-9（总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
+      // （总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
       // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
       // 覆盖会静默丢手改（该域此前无版本链）。复用 draft 侧 snapshotBeforeOverwrite
       // 单源工具（工作区/.版本/<docId>/<ULID>.md，docId 清单反查→legacyId 派生）。
@@ -178,9 +178,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
-  // M-5（SRV-N8 机械批，2026-09-15）：body 形状校验迁 parse——400 BAD_INPUT 信封与
+  // （SRV- 机械批）：body 形状校验迁 parse——400 BAD_INPUT 信封与
   // 原内联路径逐字节同源；step 白名单先于 content 判序保留，闸仍在 body 校验后占
-  //（R69-26 口径不变）；前置 resolveBook 404 无测试钉先后序，照 chat.send 先例迁移
+  //（口径不变）；前置 resolveBook 404 无测试钉先后序，照 chat.send 先例迁移
   defineRoute('books.onboard-save', {
     method: 'POST',
     path: '/api/books/:name/onboard-save',
@@ -188,7 +188,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       const body = (raw ?? {}) as Record<string, unknown>
       const step = String(body['step'] ?? '') as OnboardStep
       if (!Object.hasOwn(STEP_PATH, step)) throw new Error(`step 不支持:${step}`)
-      // R48-20（四十八轮）：空 content 校验——content 缺失/空串此前静默清空设定文件并
+      // 空 content 校验——content 缺失/空串此前静默清空设定文件并
       // 返回 200 假成功；对齐 draft.ts 保存端点先例（400 BAD_INPUT）
       const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
       if (!content.trim()) throw new Error('content 为空')
@@ -199,14 +199,14 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     if (!r) return
     const bookRoot = r.bookRoot
     const relPath = STEP_PATH[input.step]
-    // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存
+    // 并发闸——与 onboard-ai（85）互斥面缺失：双窗口同 step 保存
     // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
     const release = ctx.gate.acquire(params['name']!, 'onboard-save')
     if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
     try {
-      // R26-59（二十六轮）：覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
+      // 覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
       // 目标文件，作者对既有文件的手改此前无版本链、误存即丢。与上方 onboard-ai
-      // （R71-9）同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
+      // 同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
       // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
       let snapshotted = false
       try {

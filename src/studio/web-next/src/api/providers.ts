@@ -2,7 +2,7 @@ import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
-// Responses 启用批（2026-08-17）：协议三选一（openai-responses 曾随 Z-P2-1 误判停用）
+// Responses 启用批：协议三选一（openai-responses 曾随误判停用）
 export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 
@@ -15,7 +15,7 @@ export interface ProviderCaps {
 /** 推理等级档位（与 reasoning_effort API 参数对齐） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-/** 任务档位槽——模型 + 推理等级 + 可选超时（P10，ms） */
+/** 任务档位槽——模型 + 推理等级 + 可选超时（0，ms） */
 export interface TierSlot {
   model: string
   effort: EffortLevel
@@ -30,7 +30,7 @@ export interface TierConfig {
 }
 
 /**
- * 模型行（P9 §7.1 对齐 DSH 四字段）——id 必填 / name 可选 + 行展开 contextWindow / maxTokens。
+ * 模型行（§7.1 对齐 DSH 四字段）——id 必填 / name 可选 + 行展开 contextWindow / maxTokens。
  * 行结构开放：未知字段服务端原样存盘（DSH 教训），前端仅编辑声明的字段。
  */
 export interface ModelConfDto {
@@ -50,17 +50,17 @@ export interface ProviderConfDto {
   model?: string // 方案 A：model 移至全局，供应商不再绑死
   apiKey: string // 返回时为空串（不回传原始 key）
   apiKeyMasked: string
-  /** 凭据状态点（I6·P3）：以 vault 条目存在性推导，非内存明文非空——「已存 Key」显示用 */
+  /** 凭据状态点：以 vault 条目存在性推导，非内存明文非空——「已存 Key」显示用 */
   hasKey: boolean
   models?: ModelConfDto[]
   caps: ProviderCaps | null
   capsProbedAt?: number
   sortIndex?: number
-  /** D2（批 5）：provider 级价格表（每百万 token 单价；未配 = undefined，cost 口径不生效） */
+  /** provider 级价格表（每百万 token 单价；未配 = undefined，cost 口径不生效） */
   pricing?: PricingConfDto
 }
 
-/** 价格表（D2 批 5；models[].pricing 同形状覆盖 provider 级） */
+/** 价格表（批 5；models[].pricing 同形状覆盖 provider 级） */
 interface PricingConfDto {
   inputPerMTok?: number
   outputPerMTok?: number
@@ -74,7 +74,7 @@ export interface ProvidersResponse {
   currentId: string | null
   currentModel: string | null
   tiers: TierConfig
-  /** 并发修订号（P4）：写端点 expectedRevision 依据 */
+  /** 并发修订号：写端点 expectedRevision 依据 */
   revision: number
 }
 
@@ -86,7 +86,7 @@ export async function fetchModels(body: { protocol: Protocol; baseUrl: string; a
   return apiJson('/api/providers/models', {
     method: 'POST',
     json: body,
-  }, API_DEFAULT_TIMEOUT_MS) // 拉模型列表可能慢，30s 超时（原裸值 30_000，A5 收敛）
+  }, API_DEFAULT_TIMEOUT_MS) // 拉模型列表可能慢，30s 超时（原裸值 30_000，收敛）
 }
 
 export async function createProvider(body: {
@@ -117,7 +117,7 @@ export async function updateProvider(
 export async function deleteProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; currentId: string | null; revision: number }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    // json: undefined = 不带体不带头（R0912-C1-P3-4 合并语义，原条件式 headers/body 同此）
+    // json: undefined = 不带体不带头（合并语义，原条件式 headers/body 同此）
     json: expectedRevision !== undefined ? { expectedRevision } : undefined,
   })
 }
@@ -134,7 +134,7 @@ export interface TestResult {
   caps?: ProviderCaps
   details?: string[]
   error?: string
-  /** 探测写回会 bump 服务端 revision——回传供前端 test() 同步（P4 竞态：否则测试后任意写 409） */
+  /** 探测写回会 bump 服务端 revision——回传供前端 test 同步（竞态：否则测试后任意写 409） */
   revision?: number
 }
 
@@ -177,7 +177,7 @@ export interface RagProviderDto {
   model: string
   apiKey: string // 返回时为空串（不回传原始 key）
   apiKeyMasked: string
-  /** 凭据状态点（I6·P3）：以 vault 条目存在性推导（同 ProviderConfDto.hasKey） */
+  /** 凭据状态点：以 vault 条目存在性推导（同 ProviderConfDto.hasKey） */
   hasKey: boolean
   caps: RagProviderCaps | null
   capsProbedAt?: number
@@ -221,7 +221,7 @@ export async function updateRagProvider(
 export async function deleteRagProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; revision: number }> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    // json: undefined = 不带体不带头（R0912-C1-P3-4 合并语义，原条件式 headers/body 同此）
+    // json: undefined = 不带体不带头（合并语义，原条件式 headers/body 同此）
     json: expectedRevision !== undefined ? { expectedRevision } : undefined,
   })
 }
@@ -230,7 +230,7 @@ interface RagTestResult {
   ok: boolean
   caps?: RagProviderCaps
   error?: string
-  /** R48-21（四十八轮）：探测写回 caps 会 bump 服务端 revision——写回发生时随响应
+  /** 探测写回 caps 会 bump 服务端 revision——写回发生时随响应
    *  回传（未写回/探测窗口内配置已变时服务端也回传现行值），前端同步防后续写 409。 */
   revision?: number
 }
@@ -240,10 +240,10 @@ export async function testRagProvider(id: string): Promise<RagTestResult> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}/test`, {
     method: 'POST',
     json: {},
-  }, API_DEFAULT_TIMEOUT_MS) // A5（复审-0914-优化修复批）：原裸值 30_000 收敛，数值零变化
+  }, API_DEFAULT_TIMEOUT_MS) // 原裸值 30_000 收敛，数值零变化
 }
 
-/** D2（批 5）：写 provider 级价格表（独立端点——不影响连通 caps；null = 清除） */
+/** 写 provider 级价格表（独立端点——不影响连通 caps；null = 清除） */
 export async function updateProviderPricing(
   id: string,
   pricing: PricingConfDto | null,

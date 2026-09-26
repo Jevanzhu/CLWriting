@@ -46,9 +46,9 @@ export function checkGrowth(
   if (!realmDoc || realmDoc.体系.length === 0) {
     items.push({
       checkId: 'growth-realm-sequence-missing',
-      // R36-3（三十六轮）：维持 red——境界体系解析失败 = 序列不可用（sequence 全程
+      // 维持 red——境界体系解析失败 = 序列不可用（sequence 全程
       // null），realm-miss/regress/span-exceed 全部静默跳过，成长线红闸整体失效；
-      // red 打回自动写章迫使作者修复（fail-closed，与 R29-6「体系缺失红项语义不同，
+      // red 打回自动写章迫使作者修复（fail-closed，与 「体系缺失红项语义不同，
       // 维持红」口径一致）。文案改为如实描述：文件可能明明有内容（如 CRLF 换行/格式
       // 异常），旧文案「没有可解析的 front matter」误导排障。
       level: 'red',
@@ -61,9 +61,9 @@ export function checkGrowth(
     const history = readGrowthHistory(db, id)
 
     // 取该条目的境界体系名（从缓存读 cur_realm 推断体系，或遍历）
-    // R73-30（二十一轮）：多体系前缀重叠（炼气/炼气期 两体系并存）时此前取首个命中
+    // 多体系前缀重叠（炼气/炼气期 两体系并存）时此前取首个命中
     // 体系，「炼气一层」会错挂到「炼气」系而真实体系是「炼气期」系，后续跃迁全按错
-    // 基准判红。改全序列打分消歧：精确命中 > 最长前缀匹配（任一方向，V-P2-17 语义
+    // 基准判红。改全序列打分消歧：精确命中 > 最长前缀匹配（任一方向，语义
     // 不变），得分同序先到先得。
     let sequence: string[] | null = null
     if (realmDoc && currentRealm) {
@@ -71,10 +71,10 @@ export function checkGrowth(
       for (const sys of realmDoc.体系) {
         let score = 0
         if (sys.序列.includes(currentRealm)) {
-          // V-P2-17：精确命中最高优先
+          // 精确命中最高优先
           score = Number.MAX_SAFE_INTEGER
         } else {
-          // V-P2-17：前缀匹配（任一方向）仍认，但以匹配长度为强度——「炼气一层」对
+          // 前缀匹配（任一方向）仍认，但以匹配长度为强度——「炼气一层」对
           // 「炼气期」系（前缀「炼气」长 2）与「炼气」系（全等前缀长 2）同分时先到
           // 先得；「炼气期一层」对「炼气期」系前缀长 3 > 「炼气」系长 2，正确消歧
           let bestPrefix = 0
@@ -91,7 +91,7 @@ export function checkGrowth(
       }
     }
 
-    // R29-6（二十九轮）：缺「当前境界」红→黄——该条目在新书/未设境界的成长线上恒真，
+    // 缺「当前境界」红→黄——该条目在新书/未设境界的成长线上恒真，
     // 红项会每章把自动写章打回（红项驱动自愈循环，成长线无当前境界不阻断本章叙事）；
     // 降黄后作者面板仍可见（fail-noisy 保留），只有真实的跃迁类红项（回退/超跨/不在
     // 序列）继续打回。体系缺失红项（growth-realm-sequence-missing）语义不同，维持红。
@@ -129,7 +129,7 @@ export function checkGrowth(
         })
       }
       if (GROWTH_TRANSITION_VERBS.has(h.verb) && sequence) {
-        // R35-3（三十五轮）：回填条目不入跃迁序列——回填 seq 必然靠后（后补录），按
+        // 回填条目不入跃迁序列——回填 seq 必然靠后（后补录），按
         // seq 序做单调性/跨度判定会把后补的早期低阶跃迁误判成 growth-regress /
         // growth-span-exceed 假红（回退红项驱动自愈打回没问题的正文）。对齐 leads.ts
         // 账本三检的 `!entry.回填` 豁免口径（动词合法性黄项不豁免，见上方）。
@@ -139,7 +139,7 @@ export function checkGrowth(
         if (realm) {
           transitions.push({ chapter: h.chapter, realm, evidence: h.evidence })
         } else {
-          // R62-2：提取失败不再静默跳过——该条对 growth-regress/span-exceed/realm-miss
+          // 提取失败不再静默跳过——该条对 growth-regress/span-exceed/realm-miss
           // 整体失明且作者得不到「证据缺境界名」任何信号；与 growth-verb-invalid 推黄同口径
           items.push({
             checkId: 'growth-evidence-no-realm',
@@ -157,8 +157,8 @@ export function checkGrowth(
       for (const t of transitions) {
         const idx = realmIndex(sequence, t.realm)
 
-        // R48-36（四十八轮）：原「idx === -1 → growth-realm-miss 红项」分支删除——
-        // invariant：transitions 的 realm 全部来自 extractExactRealmFromEvidence(·, sequence)
+        // 原「idx === -1 → growth-realm-miss 红项」分支删除——
+        // invariant：transitions 的 realm 全部来自 extractExactRealmFromEvidence(sequence)
         // （上方构造处），返回值恒在序列内，realmIndex 不可能 -1，该红项永不可达
         // （提取失败另有 growth-evidence-no-realm 黄项兜底）。
 

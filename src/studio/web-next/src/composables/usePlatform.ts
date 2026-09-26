@@ -1,4 +1,4 @@
-// 统一平台判断（J5，2026-08-31）：把散落的 `hasDesktop = !!window.clwritingDesktop`
+// 统一平台判断：把散落的 `hasDesktop = !!window.clwritingDesktop`
 // 收敛为平台感知。区分三态：浏览器（无 clwritingDesktop）、桌面 mac（darwin）、
 // 桌面 win（win32 等）。UI 主体不受影响，仅平台相关的渲染适配走这套判断。
 //

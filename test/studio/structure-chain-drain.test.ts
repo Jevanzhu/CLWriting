@@ -6,7 +6,7 @@
  * 段首行 bookMovedFailure 单源重验）；books.ts 删书排水段第 5 调用
  * drainStructureChainsUnder 兜「在途链跨墓地 rename 按旧书根重建幽灵目录树」。
  *
- * 断言口径裁决（按实测实现锚定，r0912-4-draft-save-drain 三段式的 structure 变体）：
+ * 断言口径裁决（按实测实现锚定，draft-save-drain-chaining 三段式的 structure 变体）：
  * structure-apply 全程持 acquireTaskGate(name,'structure')（S4 互斥矩阵接线，
  * 'structure' 已入 KNOWN_ACTIONS），而 draft-save 无闸——故删书在途 draft-save 场景
  * 由 drainDraftSaveChainsUnder 等待收尾（draft 测试锁「两 promise 均未 settle」），

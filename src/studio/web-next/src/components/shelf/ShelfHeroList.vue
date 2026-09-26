@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 书架「继续写作」hero 紧凑单行（list 视图）——R0912-C2-P3-5（2026-09-12 独立重评
+ * 书架「继续写作」hero 紧凑单行（list 视图）——（
  * 修复批）：ShelfHeroCard（全屏页）与 ShelfModalHero（弹层）的 hero-list 段模板逐字
  * 同构，收敛为共享子组件（纯结构去重，DOM/类名/事件语义不变；role/tabindex/keydown
- * 键盘可达性 R72-12/R36-23 契约随迁）。
+ * 键盘可达性 /契约随迁）。
  * 两处差异面（全屏页 vs 弹层 grid 容器内）经 variant prop 传：
  * 弹层档 = grid 跨全列 + 次底色 + 紧 padding + 300px 光斑 + 注释级字号；全屏页档反之。
  */

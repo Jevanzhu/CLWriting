@@ -20,7 +20,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
-import { registerStateRoutes, __setStateTtlForTest } from '../../src/studio/server/api/state.js'
+import { registerStateRoutes } from '../../src/studio/server/api/state.js'
 import { appendSettled, findUnsettled } from '../../src/document/journal.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -189,12 +189,11 @@ describe('R0912-1b：journal acknowledge 端点', () => {
 
   it('R0912：GET /state payload 透出 crashedPendingOpIds（FE「忽略此提醒」接线面）', async () => {
     const rig = makeBook('透出书')
-    // R75-D-P3b 的 5s TTL 缓存会吃掉 acknowledge 前后两次 GET 的差异——测试期 TTL 置 0
-    // （本批只验 payload 组装面，缓存语义归 R75-D-P3b 自己的测试），结束恢复默认
-    __setStateTtlForTest(0)
+    // R75-D-P3b 的 5s TTL 缓存会吃掉 acknowledge 前后两次 GET 的差异——注册期 ctx 注入
+    // TTL 置 0（本批只验 payload 组装面，缓存语义归 R75-D-P3b 自己的测试）
     try {
       const stateSchema = withRouteTable(createRouteTable(), () => {
-        registerStateRoutes({ workDir: rig.workDir, userDataPath: null })
+        registerStateRoutes({ workDir: rig.workDir, userDataPath: null, stateTtlMs: 0 })
         return getRouteSchema('books.state')
       })!
       const { req, res, captured } = fakeReqRes()
@@ -210,7 +209,7 @@ describe('R0912-1b：journal acknowledge 端点', () => {
       ack.send({})
       await ackDone
       const stateSchema2 = withRouteTable(createRouteTable(), () => {
-        registerStateRoutes({ workDir: rig.workDir, userDataPath: null })
+        registerStateRoutes({ workDir: rig.workDir, userDataPath: null, stateTtlMs: 0 })
         return getRouteSchema('books.state')
       })!
       const { req: req2, res: res2, captured: captured2 } = fakeReqRes()
@@ -219,7 +218,6 @@ describe('R0912-1b：journal acknowledge 端点', () => {
       const body2 = JSON.parse(captured2.body) as { state: number; crashedPendingOpIds?: string[] }
       expect(body2.crashedPendingOpIds ?? []).not.toContain(rig.opId)
     } finally {
-      __setStateTtlForTest(null)
       rig.cleanup()
     }
   })

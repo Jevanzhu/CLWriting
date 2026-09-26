@@ -1,7 +1,7 @@
 // 主题切换：light / dark（M10 重写，取代旧 8 档色温）。
 // 主题数据由 prefs store 管理（.clwriting/global.json 持久化），useTheme 仅负责
 // DOM 动效（圆形扩散过渡）+ 对外接口。
-// init 由 prefs.init() 在 main.ts mount 前触发（applyTheme 设 :root[data-theme]）。
+// init 由 prefs.init 在 main.ts mount 前触发（applyTheme 设 :root[data-theme]）。
 import { computed } from 'vue'
 import { usePrefsStore } from '../stores/prefs'
 import { THEMES, type ThemeId } from '../types/theme'
@@ -20,7 +20,7 @@ const SWEEP_MS = 400
 /** Awwwards 冲击面：主题切换圆形扩散。
  *  支持且未减弱动效时，新主题从点击点 clip-path 圆形扩散（400ms ease-std）；
  *  否则瞬切。event 缺省时圆心取视口中心。
- *  win 桌面不走特效（2026-09-04 作者拍板）：WCO 窗控条是 DWM 实色带、进不了
+ *  win 桌面不走特效（作者拍板）：WCO 窗控条是 DWM 实色带、进不了
  *  网页合成器，扩散期间窗控色只能按「前沿到达时刻」编排单拍切，帧级错位两轮
  *  实测被打回（先闪烁/延迟、修准反解后仍滞后）——win 放弃特效整体瞬切，窗控
  *  色经 applyTheme→syncOverlayNow 与页面同一刻落定即「一起变」。mac（hiddenInset
@@ -43,7 +43,7 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
     Math.max(y, window.innerHeight - y),
   )
   const t = doc.startViewTransition(() => fn())
-  // R43-9（四十三轮）：ready/finished 补防御 catch——ViewTransition 被抢占（过渡中再切
+  // ready/finished 补防御 catch——ViewTransition 被抢占（过渡中再切
   // 主题/skipTransition 等）时两 promise 按 API 约定 reject：ready 的浮空 .then 成为
   // unhandledRejection。窗控色同步已随 win 瞬切收口（applyTheme 无条件 syncOverlayNow，
   // 原 overlaySweep 挂起机制删除），此处只剩特效自身的异常面。

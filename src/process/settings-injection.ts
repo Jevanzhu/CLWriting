@@ -1,5 +1,5 @@
 /**
- * 设定注入字节预算（C3 / DSH-17 三条思想，纯函数零 IO）。
+ * 设定注入字节预算（/ DSH-17 三条思想，纯函数零 IO）。
  *
  * 借鉴 dsh agent-instructions 的 maxBytes 纪律：
  * - ① 预算必填强制：非正/非有限 → 直接不注入（空串），绝不静默全量；
@@ -22,13 +22,13 @@ export interface SettingsLayer {
   specificity: SettingsSpecificity
   /** 层正文（含调用方给的标题头） */
   text: string
-  /** Q-5（第十五轮）：该层正文实际引用的源文件（相对书根）——「模型可见⟺已记录」
+  /** 该层正文实际引用的源文件（相对书根）——「模型可见⟺已记录」
    *  的文件级溯源通道；assemble 整层丢弃（omitted）的层由调用方过滤后再收集 */
   sources?: string[]
 }
 
 /** code point 量长度（与 prune.ts 同口径，不劈 surrogate pair）。
- *  R0912-F-P3-3（2026-09-12 独立重评修复批）：Array.from(s).length 改零分配计数
+ *  （修复批）：Array.from.length 改零分配计数
  *  循环——原实现对全文逐码点物化一个临时数组（大文本白付一份 O(n) 分配）只为计数；
  *  就地遍历代理对合 1 计，量纲不变。刻意不 import process/summary 的
  *  codePointLength 单源：避免把 AI/summary 栈拖进本模块依赖图，就地 5 行循环。 */
@@ -108,7 +108,7 @@ export function assembleSettingsInjection(
   if (bodyBudget > markerLen + 2) {
     // head+tail 上限：保证 head+tail+marker 严格小于 threshold（prune 配置纪律）
     const avail = bodyBudget - markerLen - 1
-    // 头重脚轻与 B3 接线口径同款（900/200 ≈ 8:2）：设定关键约束多在开头
+    // 头重脚轻与接线口径同款（900/200 ≈ 8:2）：设定关键约束多在开头
     const head = Math.max(1, Math.floor(avail * 0.8))
     const tail = Math.max(1, avail - head)
     parts[t] = pruneTextMiddle(layers[t]!.text, { threshold: bodyBudget, head, tail }) + '\n' + annotation

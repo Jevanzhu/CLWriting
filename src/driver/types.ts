@@ -19,11 +19,11 @@ export interface SessionOptions {}
 export type DriverEvent =
   | { type: 'init'; sessionId: string; agents: string[]; tools: string[] }
   | { type: 'text'; text: string; role?: string }
-  /** 生成重试前清正文缓冲（B-1：流式重试防重复产出） */
+  /** 生成重试前清正文缓冲（流式重试防重复产出） */
   | { type: 'text_reset' }
-  /** 非致命警告（如 max_tokens 截断）——UI toast 提示，不影响生成状态（B-3） */
+  /** 非致命警告（如 max_tokens 截断）——UI toast 提示，不影响生成状态 */
   | { type: 'warning'; message: string }
-  /** 非致命提示（AA-P3-1：如队列超容丢弃最旧消息——信息性告知，非警告） */
+  /** 非致命提示（如队列超容丢弃最旧消息——信息性告知，非警告） */
   | { type: 'notice'; message: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
   | { type: 'usage'; tokens: number; cost?: number }
@@ -31,15 +31,15 @@ export type DriverEvent =
   | { type: 'interrupted'; reason: string }
   | { type: 'review-progress'; lens: string; label: string; phase: 'start' | 'done' }
   // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
-  // P2-3：批量连写新增 phase 分支（chapter_start/chapter_done）+ chapter/done/total 进度字段
-  // X-P1-2：lead_update——账本侧红补生成账本推进草稿（AI 调用，可能数秒~分钟）
+  // 批量连写新增 phase 分支（chapter_start/chapter_done）+ chapter/done/total 进度字段
+  // lead_update——账本侧红补生成账本推进草稿（AI 调用，可能数秒~分钟）
   | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting' | 'lead_update' | 'chapter_start' | 'chapter_done'; attempt?: number; chapter?: number; done?: number; total?: number }
   /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
   | { type: 'self_heal_reset' }
   | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[]; chapter?: number }
-  /** P2-3：批量连写开跑（total=本次连写章数） */
+  /** 批量连写开跑（total=本次连写章数） */
   | { type: 'self_heal_batch'; total: number }
-  /** P2-3：批量中途停（escalate/预算超限）——done=已完成章数,stoppedAt=停下的章号 */
+  /** 批量中途停（escalate/预算超限）——done=已完成章数,stoppedAt=停下的章号 */
   | { type: 'self_heal_batch_progress'; done: number; total: number; stoppedAt: number }
   | {
       type: 'self_heal_result'
@@ -51,8 +51,8 @@ export type DriverEvent =
       path?: string
       error?: string
     }
-  // R73-10（二十一轮 A-10）：usageEstimated——usage 为全 attempt 累计口径（含重试 attempt
-  // 的可得用量，与 ai-calls.json 按次入账对齐）；含估计入账（R73-1 网关吞 usage 折算）时为 true
+  // usageEstimated——usage 为全 attempt 累计口径（含重试 attempt
+  // 的可得用量，与 ai-calls.json 按次入账对齐）；含估计入账（网关吞 usage 折算）时为 true
   | { type: 'done'; usage: number; reason: 'success' | 'cancelled' | 'error'; cost?: number; usageEstimated?: boolean }
   // 对话助手(chat.ts 经 emit 推主 session)
   | { type: 'chat_start' }
@@ -68,7 +68,7 @@ export type DriverEvent =
   // 字典，chat_error 无 recorder.add 路径），供前端「复制重发」；原文须原样往返，
   // 不过 redactSecret（脱敏会破坏复制重发的可用性）
   | { type: 'chat_error'; error: string; echo?: string }
-  // 0918独立重评修复批（E001）：迟到回放的对话腿锚（无载荷）——cc driver execRing 重放
+  // 0918修复批（E001）：迟到回放的对话腿锚（无载荷）——cc driver execRing 重放
   // 在 chat 腿活跃且 ring 非空时于回放最前插入一次；前端据此把后续 chat_* 事件识别为
   // 重放（不在在途气泡上重复建泡）。仅写手腿回放（chat 腿不活跃）不插。合成事件只进
   // 消费者队列（stream 回放路径），不经 driver.emit/push，不入 ring。
@@ -77,10 +77,10 @@ export type DriverEvent =
 /**
  * driver 接口(SSE 基础设施,窄化)。
  *
- * R0916-7-P3-16 收尾（必需能力接口）：全部成员**必需**——缺任一实现即类型错误，
+ * 收尾（必需能力接口）：全部成员**必需**——缺任一实现即类型错误，
  * 消费点不再有「成员缺席 → 静默跳过 / 结构探测降级」的形态（此前 cancelStream/
  * interrupt/isRunning/isWriterRunning/registerCtrl/unregisterCtrl/emit 七个可选成员
- * 就是 P2-1「可选能力被静默丢弃」的病灶）。mock 无可中断生成等「不支持」面以
+ * 就是 「可选能力被静默丢弃」的病灶）。mock 无可中断生成等「不支持」面以
  * 显式 no-op/常量实现声明（语义与旧缺省回落逐位一致），不再以可选字段表达。
  */
 export interface StudioDriver {
@@ -88,8 +88,8 @@ export interface StudioDriver {
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
-  /** B-19（第六十轮补修）：唤醒 park 在内部等待上的 stream 生成器（SSE 断开即回收，
-   *  不再等该书下一 driver 事件才推进 iter.return）——入参为 stream() 的返回值。 */
+  /** （补修）：唤醒 park 在内部等待上的 stream 生成器（SSE 断开即回收，
+   *  不再等该书下一 driver 事件才推进 iter.return）——入参为 stream 的返回值。 */
   cancelStream(iter: AsyncIterable<DriverEvent>): void
   /** 结束会话 */
   dispose(session: Session): void
@@ -98,17 +98,17 @@ export interface StudioDriver {
   interrupt(session: Session): void
   /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。mock 恒 false（无登记面） */
   isRunning(session: Session): boolean
-  /** 0918独立重评修复批（E002）：当前是否有存活的「写手腿」生成——sync 快照收窄口径：
+  /** 0918修复批（E002）：当前是否有存活的「写手腿」生成——sync 快照收窄口径：
    *  排除 `chat:` 前缀 owner 槽位（对话腿 ctrl 全程在册至 finish 注销，isRunning 会被
    *  其置真且 chat 终态不达 workbench.running，快照永不复位）。mock 恒 false。 */
   isWriterRunning(session: Session): boolean
-  /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。
-   *  M-1（第八轮）：owner 标识编排归属（'chat:<book>'/'spawn'/'self-heal'）——同 owner 换新保持
-   *  「先 abort 旧」（P2-6），跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。
-   *  R71-19（十九轮）：chat 侧 owner 带书维度（`chat:<bookName>`）——两本书共享 session
+  /** 登记生成任务的中断控制器——interrupt 据此 abort 真实请求、isRunning 据此判在途。
+   *  ：owner 标识编排归属（'chat:<book>'/'spawn'/'self-heal'）——同 owner 换新保持
+   *  「先 abort 旧」，跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。
+   *  ：chat 侧 owner 带书维度（`chat:<bookName>`）——两本书共享 session
    *  时跨书对话互不抢占；同书摘要与轮循环同槽幂等。mock 为显式 no-op（无可中断生成）。 */
   registerCtrl(session: Session, ctrl: AbortController, owner?: string): void
-  /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。
+  /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」。
    *  mock 为显式 no-op（同 registerCtrl）。 */
   unregisterCtrl(session: Session, ctrl: AbortController): void
   /** 往 session 事件流推自定义事件(编排层回推进度,如 self-heal / review 逐角) */

@@ -60,7 +60,7 @@ export function realmIndex(sequence: string[], realm: string): number {
  * 只接受完整枚举值命中，避免把「筑基初期」误判成枚举里的「筑基」。
  * 一句里出现多个境界时取最靠后的一个，适配「炼气一层→炼气二层」这类写法。
  *
- * R26-40（二十六轮）：命中点**前**边界同样锚定——前邻字符不得是汉字（行首/边界符
+ * 命中点**前**边界同样锚定——前邻字符不得是汉字（行首/边界符
  * 除外），除非紧邻汉字是跃迁连接语素（至/到/入/成/达/于/晋/升/进/凝/结/破/跌/落/
  * 退/返/踏/迈）。防「伪金丹/九转金丹」把「金丹」当命中（伪/转非连接语素 → 拒绝；
  * 若「伪金丹」本身在序列中，其整词命中不受影响且按最靠后优先正确胜出）。连接语素
@@ -88,7 +88,7 @@ export function extractExactRealmFromEvidence(evidence: string, sequence: string
       if (index === -1) break
       const next = evidence[index + realm.length]
       const prev = index > 0 ? evidence[index - 1]! : undefined
-      // R26-40：前邻汉字须是跃迁连接语素（伪金丹/九转金丹 的 伪/转 → 拒绝）
+      // 前邻汉字须是跃迁连接语素（伪金丹/九转金丹 的 伪/转 → 拒绝）
       const prevOk =
         prev === undefined || !isHanziChar(prev) || REALM_LEAD_CONNECTIVES.has(prev)
       if ((next === undefined || isRealmBoundary(next)) && prevOk) matches.push({ realm, index })
@@ -101,7 +101,7 @@ export function extractExactRealmFromEvidence(evidence: string, sequence: string
 }
 
 function isRealmBoundary(char: string): boolean {
-  // R27-22（二十七轮）：补直角/弯引号——正文以「筑基」『金丹』“元婴” 引述境界时，
+  // 补直角/弯引号——正文以「筑基」『金丹』“元婴” 引述境界时，
   // 境界词的后邻是闭合引号，原字符集不含 → 证据提取整类失败（引述恰是设定敏感处）
   return /[\s,，.。;；:：!！?？、）)\]】》〉>（(\[【《〈<\-—→「」『』“”‘’]/.test(char)
 }

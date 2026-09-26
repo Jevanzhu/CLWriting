@@ -10,17 +10,17 @@ import { usePlatform } from '../../composables/usePlatform'
 import { modComboLabel } from '../../shared/mod-key'
 import { isImeComposing } from '../../shared/ime'
 
-// R0912-3 #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
+// #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
 const { isDesktop, isMac, isWin, platform } = usePlatform()
-// R40-42（四十轮）：专注按钮 tip 组合键平台文案（win → Ctrl+Shift+F；原写死 ⌘⇧F）
+// 专注按钮 tip 组合键平台文案（win → Ctrl+Shift+F；原写死 ⌘⇧F）
 const focusKey = modComboLabel('Mod+Shift+F', platform)
 // 左栏可见性（含专注模式覆盖）：关闭/专注时 ws-main 左移到交通灯区，lead 需避让
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
-// 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay（J5）；
+// 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay；
 // 打开时贴角的是右栏自己的 right-topbar（其组件内自行避让），此处避让反而把专注
-// 按钮推离栏缘（2026-08-29 作者反馈「专注按钮位置有问题」根因）
+// 按钮推离栏缘（作者反馈「专注按钮位置有问题」根因）
 const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
 
 // --- 新建下拉菜单（split button caret）---
@@ -32,7 +32,7 @@ const caretRef = ref<HTMLElement | null>(null)
 const hasSynopsis = computed(() => !!tree.byPath.get('大纲/总纲.md'))
 const hasWorldview = computed(() => !!tree.byPath.get('设定/世界观.md'))
 
-// R0916-nano-10（四轮处置批）：下拉浮层坐标跟随窗口 resize 重定位——原只在开启一刻
+// （四轮处置批）：下拉浮层坐标跟随窗口 resize 重定位——原只在开启一刻
 // 快照 caret 的 getBoundingClientRect，此后窗口缩放/分栏变化浮层悬空错位；开启期间
 // 监听 resize（passive）重取锚点，关闭态 no-op。
 function syncDropPos(): void {
@@ -60,9 +60,9 @@ function onDocClick(e: MouseEvent): void {
   if (!t.closest('.new-dropdown') && !t.closest('.tb-caret')) dropdownOpen.value = false
 }
 function onDocKeydown(e: KeyboardEvent): void {
-  // R33-90（三十三轮）：新建下拉补 Esc 关闭路径（原只能点击外部关闭，键盘不可达）
+  // 新建下拉补 Esc 关闭路径（原只能点击外部关闭，键盘不可达）
   if (e.key === 'Escape' && dropdownOpen.value) {
-    // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
+    // IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
     // ModelPicker/SettingsModal/CommandPalette 等先例）——组合期收候选的 Esc 不应连带关闭下拉
     if (isImeComposing(e)) return
     e.preventDefault()
@@ -167,7 +167,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--background-modifier-border);
   overflow: hidden;
 }
-/* 桌面版：空白区可拖动整窗（按钮本身可点）——.is-drag 体收敛至全局 utilities.css（P3-10） */
+/* 桌面版：空白区可拖动整窗（按钮本身可点）——.is-drag 体收敛至全局 utilities.css */
 /* 桌面版交通灯避让：左栏关闭或专注模式时，lead 区整体右移 52px */
 .tabbar.avoid-traffic .tabbar-lead {
   padding-left: 52px;
@@ -179,7 +179,7 @@ onUnmounted(() => {
 }
 /* 最左 lead 区：新建 + 展开左栏。垂直居中；左侧 padding 归零——新建图标在按钮内
  * 距左缘 5px，若再叠加 lead padding 会使「窗沿→图标 12px ≠ 图标→竖线 5px」右侧
- * 显得贴线（2026-08-31 作者反馈），归零后两侧各 5px 对称 */
+ * 显得贴线（作者反馈），归零后两侧各 5px 对称 */
 .tabbar-lead {
   flex-shrink: 0;
   display: flex;
@@ -198,7 +198,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 0 var(--size-4-2);
 }
-/* J5（win 体验面）：右栏关闭时本栏贴窗口右上角，让位 WCO 系统窗控。宽度由
+/* （win 体验面）：右栏关闭时本栏贴窗口右上角，让位 WCO 系统窗控。宽度由
  * env(titlebar-area-*) 注入（Chromium 在 WCO 窗口提供；非 win/浏览器/mac
  * hiddenInset 回退 100vw/0px → padding 0）+ 12px 呼吸间隙（实测 env 恰好贴住
  * 窗控命中区，不留隙即重叠）。右栏打开时不挂类（贴角的是 right-topbar，避让

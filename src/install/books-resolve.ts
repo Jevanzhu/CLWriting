@@ -1,12 +1,12 @@
 /**
- * 工作目录定位 + 书仓库判定 —— 依据 M5 #32（第 4 节）。
+ * 工作目录定位 + 书仓库判定 —— 依据 #32（第 4 节）。
  *
- * R0916-5e（2026-09-16，⑤④产品拆分波1）：自 install/books.ts 缝 B 纯移动拆出——
+ * （⑤④产品拆分波1）：自 install/books.ts 缝 B 纯移动拆出——
  * findWorkDir / isBookRepo 原样随迁（注释随代码走，零行为变化）；books.ts 逐名
  * re-export 桥接，既有消费方 import 面不动。残核（books.jsonl 登记读写 + 锁 +
  * 活动书指针）留在 books.ts。
  *
- * R0916-7-P3-3（2026-09-16 评审修复批）：CLWRITING_DIR 改引 books-store.ts（原引
+ * （评审修复批）：CLWRITING_DIR 改引 books-store.ts（原引
  * books.ts）——本模块自此不回引 books.ts，books ↔ books-resolve 环解开。
  */
 
@@ -23,9 +23,9 @@ import { CLWRITING_DIR } from './books-store.js'
 export function findWorkDir(startDir: string): string | null {
   let dir = resolve(startDir)
   for (;;) {
-    // R71-16（总七十一轮）：existsSync 与 statSync 之间存在窗口——同步盘/并发操作下
+    // （总七十一轮）：existsSync 与 statSync 之间存在窗口——同步盘/并发操作下
     // .clwriting 恰在两次调用之间被移走时 statSync 裸抛 ENOENT 炸穿整个上溯（对齐
-    // init.ts R62-39 同型口径）；按不存在继续上溯
+    // init.ts 同型口径）；按不存在继续上溯
     if (existsSync(join(dir, CLWRITING_DIR))) {
       try {
         if (statSync(join(dir, CLWRITING_DIR)).isDirectory()) {

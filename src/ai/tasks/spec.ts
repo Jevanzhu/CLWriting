@@ -1,8 +1,8 @@
 /**
- * TaskSpec 任务声明 + runSpec 执行器（A1 声明化）。
+ * TaskSpec 任务声明 + runSpec 执行器（声明化）。
  *
  * 收敛 7 条 AI 链路各自手抄的五件套（system/tool/tier/mock/decode 样板），
- * 从每处 20-40 行降至 3 行。声明与执行分离，为 A2 规则挂载提供一等公民。
+ * 从每处 20-40 行降至 3 行。声明与执行分离，为规则挂载提供一等公民。
  *
  * 范围：只收敛静态配置 + 样板消除，不做通用 Pipeline 抽象（YAGNI）。
  */
@@ -29,7 +29,7 @@ export interface TaskSpec {
   tierKind: 'creative' | 'assistant' | 'chat'
   /** 生成模式：'text' → generate（纯文本），'tool' → generateTool（结构化产出） */
   genMode: GenMode
-  /** system prompt（A2 后由规则拼接补充） */
+  /** system prompt（后由规则拼接补充） */
   systemPrompt: string
   /** 工具型：tool 定义 + 名称（genMode='tool' 时必填） */
   tool?: { def: ToolDef; name: string }
@@ -49,7 +49,7 @@ export interface SpecOpts {
   /** 外部传入的 ctrl（如 self-heal 编排级 AbortController）；与 signal 同时传时 ctrl 优先 */
   ctrl?: AbortController
   /**
-   * Z-P1-1：外部中断信号（如 chat 编排级 signal）——内部桥接为 ctrl 传入 runTask，
+   * 外部中断信号（如 chat 编排级 signal）——内部桥接为 ctrl 传入 runTask，
    * 嵌套生成随调用方中断同步中止。调用方只持有 AbortSignal（工具层透传场景）时用这个，
    * 免去各调用点手抄 signal → AbortController 桥接。
    */
@@ -68,7 +68,7 @@ export interface SpecOpts {
   toolOverride?: { def: ToolDef; name: string }
   /** 覆盖 spec.mock（动态场景如 self-heal 的 kind 切换） */
   mockOverride?: { kind: 'tool'; toolName: string } | { kind: 'text'; text: string }
-  /** C1（批 2）：prompt 引用的材料文件（相对书根）——随 llm/call 事件 promptMeta.files
+  /** prompt 引用的材料文件（相对书根）——随 llm/call 事件 promptMeta.files
    *  登记，满足「模型可见 ⟺ 已记录」（备料注入的章摘要等可回溯到源文件） */
   promptFiles?: string[]
 }
@@ -81,23 +81,23 @@ export interface SpecOutput {
   text: string
   /** 停止原因 */
   stopReason: string
-  /** token 用量（V-P2-8：必须回传——runner 据此记 trace/任务账/前端计数；
+  /** token 用量（必须回传——runner 据此记 trace/任务账/前端计数；
    *  此前丢失导致真实链路 usage 全程为 0，只有 mock 路径有值） */
   usage?: TokenUsage
-  /** Q-13（第十五轮）：适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
+  /** 适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
   resolvedMaxTokens?: number
-  /** B-2（第六十轮）：成功建流用的是降级参数面（GenResult.degraded 透传）——runner
-   *  extractDegraded 落 llm/call。Z-12 只修了适配器→gen 半段，三处 run 回调此前不带
+  /** 成功建流用的是降级参数面（GenResult.degraded 透传）——runner
+   *  extractDegraded 落 llm/call。 只修了适配器→gen 半段，三处 run 回调此前不带
    *  该字段，降级面成功的事件记录与真实参数面静默分叉（铁律②重放口径） */
   degraded?: boolean
 }
 
 /**
- * Z-P1-1：signal → AbortController 桥接——runTask 形参是 ctrl（控制器），
+ * signal → AbortController 桥接——runTask 形参是 ctrl（控制器），
  * 而工具层只能拿到编排方的 AbortSignal（chat 把 state.ctrl.signal 下发到 ToolContext），
  * 在此单点桥接，调用方不各抄一份。已 aborted 的信号直接落 abort（不发请求）。
- * 二轮复审（低级）：detach 供 runSpec 收尾摘监听——长寿命编排 signal（chat/self-heal
- * 跨章）上正常完成的调用不摘会在 signal 上逐次累积 listener（ee-P1-2 同构，once 触发后为 no-op）。
+ * （低级）：detach 供 runSpec 收尾摘监听——长寿命编排 signal（chat/self-heal
+ * 跨章）上正常完成的调用不摘会在 signal 上逐次累积 listener（ee- 同构，once 触发后为 no-op）。
  */
 function ctrlFromSignal(signal: AbortSignal): { ctrl: AbortController; detach: () => void } {
   const ctrl = new AbortController()
@@ -117,21 +117,21 @@ export async function runSpec(
   spec: TaskSpec,
   opts: SpecOpts,
 ): Promise<TaskResult<SpecOutput>> {
-  // A2：按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
-  // C2：内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
+  // 按 spec.name 拼接适用规则的 toPrompt（写稿查 AI 味、审稿不查，由挂载关系表达）
+  // 内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
   // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
-  // R69-9（十七轮）：改用带源版本——overlay 命中时把注入源绝对路径登记进 promptFiles
+  // 改用带源版本——overlay 命中时把注入源绝对路径登记进 promptFiles
   // （铁律①「模型可见⟺已记录」：overlay 是书外可变文件，仅入哈希不可重建）
   const resolvedPrompt = resolveBuiltinSystemPromptSourced(
     opts.systemPromptOverride ?? spec.systemPrompt,
     opts.userDataPath ?? undefined,
   )
   const base = resolvedPrompt.text ?? ''
-  // A8（五十九轮）：注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
+  // 注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
   // rulesToPrompt 与 rulesPromptFiles 各自独立读盘，微观窗口注入与登记可撕裂
   const parts = rulesPromptParts(spec.name, opts.bookRoot)
   const systemPrompt = base + parts.prompt
-  // Y-2（第五十七轮）：rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
+  // rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
   // AI味词表条目库与 rule-hits.json 为可变文件，仅入哈希不可重建，登记后事件可溯源）
   const promptFiles = [
     ...new Set([
@@ -144,7 +144,7 @@ export async function runSpec(
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]
 
-  // 二轮复审（低级）：桥接监听随调用收尾摘除——正常完成的调用不再把 listener
+  // （低级）：桥接监听随调用收尾摘除——正常完成的调用不再把 listener
   // 留在 chat/self-heal 的长寿命 signal 上逐次累积
   const bridge = !opts.ctrl && opts.signal ? ctrlFromSignal(opts.signal) : null
   try {
@@ -154,13 +154,13 @@ export async function runSpec(
       task: spec.name,
       bookRoot: opts.bookRoot,
       chapter: opts.chapter,
-      // N-10（第十二轮）：动态 system（内置解析 + rules 拼接终值）落 trace——promptMeta
+      // 动态 system（内置解析 + rules 拼接终值）落 trace——promptMeta
       // 哈希此前只有 userPrompt（铁律②重放口径：resolve 出的最终 system 不进哈希 = 不可
       // 精确重建）；chat 轮（turns.ts）与 checkpoint（finish.ts）已传，此处漏
       systemPrompt,
       promptText: opts.userPrompt,
       promptFiles,
-      // R59 清偿批（R55-C-6）：tool 型 spec 经 generateTool 挂载单工具 schema（模型可见）
+      // 清偿l 型 spec 经 generateTool 挂载单工具 schema（模型可见）
       // ——工具名进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）；文本型
       // 不挂 tools，无此键
       ...(spec.genMode === 'tool' && tool ? { promptTools: [tool.name] } : {}),
@@ -169,7 +169,7 @@ export async function runSpec(
       onReset: opts.onReset,
       onRetry: opts.onRetry,
       ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
-      // R35-20：字面量直接满足 SpecOutput，无需 as unknown as 双重断言
+      // 字面量直接满足 SpecOutput，无需 as unknown as 双重断言
       ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } } : {}),
       run: async (provider, signal, tier) => {
         if (spec.genMode === 'tool' && tool) {
@@ -189,9 +189,9 @@ export async function runSpec(
           opts.onText,
         )
         if (r.stopReason === 'max_tokens') {
-          // B-12（第六十轮）：截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态
+          // 截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态
           // 失败路径按可得值入账（此前 recordUsageSafe(null) 记 0，成本口径低估）
-          // R74-8（二十二轮批 A）：补 code:'MAX_TOKENS'——errCode 口径与 gen.ts 两处
+          // 补 code:'MAX_TOKENS'——errCode 口径与 gen.ts 两处
           // MAX_TOKENS 出口对齐（runner 终态失败按 GenError.code 落 trace errCode，
           // 缺码时笼统记 GEN_FAIL，失败归类统计分不出截断）
           throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })

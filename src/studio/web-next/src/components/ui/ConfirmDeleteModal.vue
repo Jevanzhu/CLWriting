@@ -17,23 +17,23 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-// R37-33（三十七轮批E）：接域内既有焦点圈 useFocusTrap（CommandPrompt/ChapterMetaDialog
+// 接域内既有焦点圈 useFocusTrap（CommandPrompt/ChapterMetaDialog
 // 同族）——Tab 循环不出弹窗、关闭归还焦点；trap 落焦到第一个可交互元素 = 取消按钮，
 // 危险操作默认聚焦安全项（回车/空格直接触发的是「取消」而非「确认删除」）
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-// R8B-P2-5（2026-09-09 修复批）：确认弹窗 chips 全量渲染防 DOM 膨胀（批量全选
+// （修复批）：确认弹窗 chips 全量渲染防 DOM 膨胀（批量全选
 // 千本级时逐名渲染）——前 CHIP_CAP 个 + 尾部「…等 N 部」聚合 chip；顶部计数文案
 // 已是全量（「以下 N 本书」），所见与所删总数认知不受裁剪影响。
 const CHIP_CAP = 50
 const shownNames = computed(() => props.names.slice(0, CHIP_CAP))
 const hiddenCount = computed(() => Math.max(0, props.names.length - CHIP_CAP))
 
-// 重评-P3-18（2026-09-09 全量代码重评）：Esc 原外放宿主 onKeydown 代管——键盘面外放，
-// 组件单独挂载时 Esc 死键。对齐 ConfirmPrompt B-8 模式自持：document capture 监听
+// -（全量代码）：Esc 原外放宿主 onKeydown 代管——键盘面外放，
+// 组件单独挂载时 Esc 死键。对齐 ConfirmPrompt 模式自持：document capture 监听
 // （capture 先于宿主 window bubble），Esc → cancel；stopPropagation 防宿主同键双效
-// （批量模式下确认弹窗的 Esc 不得连带退批量/收层）；IME 组合期让渡（R75-E-P3e 判据）。
+// （批量模式下确认弹窗的 Esc 不得连带退批量/收层）；IME 组合期让渡（判据）。
 // 本组件由宿主 v-if 挂载 = 打开态，监听随挂载启停，无「未打开误伤」面。
 function onKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || isImeComposing(e)) return
@@ -83,7 +83,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   display: flex;
   align-items: center;
   justify-content: center;
-  /* R0916-7-P3-22：浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
+  /* 浓度单一出处 SHELF_DEEP_ALPHA（模板内联上色），此处不再镜像 */
   z-index: 300;
   animation: clw-fade-in var(--dur-fast) var(--ease-out);
 }

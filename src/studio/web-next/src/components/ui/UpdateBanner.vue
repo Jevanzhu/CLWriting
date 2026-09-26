@@ -16,7 +16,7 @@ const DISMISS_KEY = 'clw-update-dismissed'
 function loadDismissed(): string[] {
   try {
     const raw = localStorage.getItem(DISMISS_KEY)
-    // 脏值容错照 R43-11 先例（StartupNoticeBanner 同款）：非数组不炸 + 元素验 string，
+    // 脏值容错照先例（StartupNoticeBanner 同款）：非数组不炸 + 元素验 string，
     // 防手改/损坏的 localStorage 把脏值固化进比对面
     const arr = raw ? (JSON.parse(raw) as unknown) : []
     return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []

@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// 关系图右侧详情卡（RelationsView 拆分 P2-5）：跟随选中节点展示身份/目标/关系列表，
+// 关系图右侧详情卡（RelationsView 拆分）：跟随选中节点展示身份/目标/关系列表，
 // 支持点击关系项跳转选中 + 打开角色卡。状态来自 useRelationGraph provide 注入。
 import { ArrowUpRight, Users } from 'lucide-vue-next'
 import { useRelationGraphInjected } from '../../composables/useRelationGraph'
 
 const g = useRelationGraphInjected()
 
-/** R0912-3 #20：key 弃 '-' 裸拼接（自由文本名可含 '-'，other/kind 分段歧义撞 key）——
+/** #20：key 弃 '-' 裸拼接（自由文本名可含 '-'，other/kind 分段歧义撞 key）——
  *  \u0000 分隔防拼接歧义（对齐 RelationGraph edgeKey / stores/learn.ts 同款口径） */
 function relKey(r: { other: string; kind: string }): string {
   return `${r.other}\u0000${r.kind}`
@@ -32,9 +32,9 @@ function relKey(r: { other: string; kind: string }): string {
       <div v-if="g.selectedRelations.value.length" class="dc-sec">
         <h4 class="dc-sec-h">关系</h4>
         <ul class="dc-rel">
-          <!-- R0911b-C2-P3-2：key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
+          <!-- ：key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
                无向去重后的边表，同选点视角下 (other, kind) 必唯一，即天然稳定键。
-               R0912-3 #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
+ #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
           <li
             v-for="r in g.selectedRelations.value" :key="relKey(r)"
             :class="{ debt: r.kind === 'debt' }"

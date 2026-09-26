@@ -1,12 +1,12 @@
 /**
- * F1 事件溯源——事件类型字典与载荷（P1 子集：对话助手会话）。
+ * 事件溯源——事件类型字典与载荷（子集：对话助手会话）。
  *
- * 三类事件族（映射自 F1 方案 §二，按 P1 范围裁剪）：
+ * 三类事件族（映射自方案 §二，按范围裁剪）：
  * - 边界类（不进 surface）：session/*、turn/*、compaction/*
  * - 消息类（surface-eligible）：user/message、assistant/message、tool/result
  * - 辅助记录：tool/call（审计用，不进 surface——tool_use 已含在 assistant/message 载荷里）
  *
- * P2 再扩展五层链路事件（step/*、llm/call、settings/snapshot 等）。
+ * 再扩展五层链路事件（step/*、llm/call、settings/snapshot 等）。
  */
 
 /** 投影操作：append=追加到可见序列尾；replace=遮蔽闭区间 [start,end] 内全部旧节点 */
@@ -30,22 +30,22 @@ export type EventType =
   // 让「丢事件必留痕」从日志层落进事件流。非 surface（不进 SURFACE_EVENT_TYPES）、
   // 无 surfaceOp：折叠/投影/校验链/前端种子化安全忽略（对齐边界类与 meta 类先例）
   | 'chat_gap'
-  // P2 五层链路事件化（F1 方案 §二 v1）
+  // 五层链路事件化（方案 §二 v1）
   | 'llm/call'
   | 'llm/retry'
   | 'retry/attempt'
   | 'check/report'
-  // B1（批 6）：机检误报标记（作者裁决信号——语料回归库的燃料入口；workspace 会话承载）
+  // 机检误报标记（作者裁决信号——语料回归库的燃料入口；workspace 会话承载）
   | 'check/false-positive'
-  // P3 血缘+检索（F1 方案 §二 v1 + §五 血缘设计）
+  // 血缘+检索（方案 §二 v1 + §五 血缘设计）
   | 'revision/ref'
   | 'settings/snapshot'
-  // G2-1 技能包快照登记（与 settings/snapshot 同载荷形状 {scope, digest}，非 surface 血缘/审计类）
+  // 技能包快照登记（与 settings/snapshot 同载荷形状 {scope, digest}，非 surface 血缘/审计类）
   | 'skills/snapshot'
   | 'foreshadow/change'
   | 'author/signal'
   | 'rule/hit'
-  // F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）
+  // goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）
   | 'goal/change'
   | 'todo/write'
   // 阶段 24 章节结构操作（合并/拆分/撤销合并）——审计副录，挂 workspace 会话，
@@ -54,7 +54,7 @@ export type EventType =
   | 'structure.split'
   | 'structure.merge-undo'
 
-// ── F2：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
+// ── ：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
 // turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
 export const TURN_END_REASONS = [
   'completed',
@@ -111,7 +111,7 @@ export interface ChatEvent {
   shadowStart?: number
   shadowEnd?: number
   /** 血缘：sourceEventSeqs（被遮蔽节点/输入事件 seq 列表）。
-   *  R26-20（二十六轮）语义收窄为「全局 seq」：只由 appendEvents 原样落库路径写入
+   *  语义收窄为「全局 seq」：只由 appendEvents 原样落库路径写入
    *  （compaction/end 遮蔽区间，store.appendEvents），投影校验/审计按全局 seq 读。
    *  批内 0-based 索引血缘走 NewEvent.sourceIdxs（仅 appendEventsResolveLineage 消费，
    *  落库时回写解析为全局 seq 后仍存本字段）——同名双语义陷阱就此按方法拆分闭合。 */
@@ -121,14 +121,14 @@ export interface ChatEvent {
   createdAt: number
 }
 
-// ── P2 五层链路事件载荷（F1 §二 v1 + §六 trace 合并计划）─────────────────────
+// ── 五层链路事件载荷（§二 v1 + §六 trace 合并计划）─────────────────────
 
-/** 五层链路（F2/DSH-8 绑定：每层一个 step）：context/draft/review/self-heal/chat */
+/** 五层链路（/DSH-8 绑定：每层一个 step）：context/draft/review/self-heal/chat */
 export type LayerName = 'context' | 'draft' | 'review' | 'self-heal' | 'chat'
 
-// ── P3 血缘+检索事件载荷（F1 §二 v1 + §五）─────────────────────────────
+// ── 血缘+检索事件载荷（§二 v1 + §五）─────────────────────────────
 
-/** llm/call —— 合并 trace.ts 的 TraceEntry（P2 单一事实源） */
+/** llm/call —— 合并 trace.ts 的 TraceEntry（单一事实源） */
 export interface LlmCallData {
   runId: string
   task: string
@@ -140,27 +140,27 @@ export interface LlmCallData {
   durationMs: number
   ok: boolean
   errCode?: string
-  // R59 清偿批（R55-C-6）：promptMeta 增可选 tools 摘要键（去重排序工具名——chat 每轮
+  // 清偿mptMeta 增可选 tools 摘要键（去重排序工具名——chat 每轮
   // 15 个工具 schema 模型可见，铁律②「模型可见 ⟺ 已记录」契约层补全；旧事件无此键）
   promptMeta?: { chars: number; files: string[]; hash: string; tools?: string[] }
-  /** D2（批 5）：调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
+  /** 调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
    *  旧事件无此键按无章归集） */
   chapter?: number
-  /** I7（第十一轮）：resolve 解析值随事件落库（铁律②「默认值显式 resolve」的重放口径）——
+  /** resolve 解析值随事件落库（铁律②「默认值显式 resolve」的重放口径）——
    *  实际生效的档位 effort 与整体超时 timeoutMs（含 DEFAULT_TIMEOUT_MS 回落后的最终值）。
    *  mock 快路 / 取 provider 失败路径未 resolve，无此两键（重放同样不依赖） */
   effort?: string
   timeoutMs?: number
-  /** Q-13（第十五轮）：resolve 后终值补全——上线输出上限 maxTokens（适配器 done 事件透出
+  /** resolve 后终值补全——上线输出上限 maxTokens（适配器 done 事件透出
    *  经编排层透传；无兜底不发/early-error 无值）与逐 chunk 挂起时限（env resolver 与
-   *  gen.generate 同源；RC 源码重审 A-8 改口径表述——原称「首字节超时」，字段名
+   *  gen.generate 同源；RC改口径表述——原称「首字节超时」，字段名
    *  firstByteTimeoutMs 保名：已落库形状属重放契约，改名只到 gen.ts 符号层）。
    *  mock 快路 / 取 provider 失败路径无此两键 */
   maxTokens?: number
-  /** Z-12（第五十八轮）：成功建流用的是降级参数面（剥 structured/剥 tools）——重放口径 */
+  /** 成功建流用的是降级参数面（剥 structured/剥 tools）——重放口径 */
   degraded?: boolean
   firstByteTimeoutMs?: number
-  /** R-8（十五轮登记销账）：本进程 model-quirks 参数表的 contentVersion——effort→wire
+  /** （十五轮登记销账）：本进程 model-quirks 参数表的 contentVersion——effort→wire
    *  翻译等表内容随版本演进，跨版本重放时据此检测漂移（旧事件无此键 = 表初版前）。
    *  表内容任何变更必须同步 bump MODEL_QUIRKS_VERSION（见 model-quirks.ts 头注） */
   quirksVersion?: string
@@ -173,9 +173,9 @@ export interface LlmRetryData {
   errCode?: string
 }
 
-// ── F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────
+// ── goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────
 
-/** goal 生命周期动词（与伏笔状态机同词汇——F3 foreshadow/change 复用） */
+/** goal 生命周期动词（与伏笔状态机同词汇—— foreshadow/change 复用） */
 export const GOAL_OPERATIONS = [
   'create',
   'edit',
@@ -223,7 +223,7 @@ export interface TodoWriteData {
 
 // ── 阶段 24 章节结构操作事件载荷（审计副录）────────────────────────
 
-/** structure.merge —— 章节合并：源章正文并入目标章 + 源章软删进回收站（留洞制 D1-D5） */
+/** structure.merge —— 章节合并：源章正文并入目标章 + 源章软删进回收站（留洞制） */
 export interface StructureMergeData {
   op: 'merge'
   targetDocId: string

@@ -1,5 +1,5 @@
 /**
- * 进行中账本读取（W-P1-3：outline 左端 + 账本推进右端共用）。
+ * 进行中账本读取（outline 左端 + 账本推进右端共用）。
  *
  * 下沉到 process 层：outline 端点（server）与 self-heal 写稿后生成账本推进（ai/orchestrate）
  * 都依赖此，避免 server → process 依赖方向错误。
@@ -20,7 +20,7 @@ export function readOpenLeads(bookRoot: string): { 编号: string; 标题: strin
   if (cfgResult.ok) for (const t of cfgResult.config.leads.enabled) enabled.add(t)
   const out: { 编号: string; 标题: string; 状态: string }[] = []
   for (const typeName of enabled) {
-    // RB-IF-P2-5：关系线物理目录在 大纲/关系线（历史布局），与 cache/rebuild.ts 同口径——
+    // 关系线物理目录在 大纲/关系线（历史布局），与 cache/rebuild.ts 同口径——
     // 原先只扫 布线/<类型>，启用关系线的书其进行中账本永远进不了推进 prompt。
     const typeDir = join(typeName === '关系线' ? join(bookRoot, '大纲') : join(bookRoot, '布线'), typeName)
     if (!existsSync(typeDir)) continue

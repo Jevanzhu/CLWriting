@@ -18,7 +18,7 @@ import SettingItem from './SettingItem.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
-// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init，设置打开时必已就绪）
 const prefs = usePrefsStore()
 const saveConfig = inject(SAVE_CONFIG_KEY)!
 
@@ -55,10 +55,10 @@ const effSummary = computed(() => {
   return parts.join(' · ')
 })
 
-// R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件
+// 配置加载代守卫（只修了兄弟组件 SettingsBookAnalysis）——本组件
 // 在途旧响应迟到落地 B 书面板后，组开关（onOverrideToggle）以 stale 派生值 eff* 调
 // saveConfig(name=B) → A 的配置值持久写进 B 的 book.yaml（跨书配置污染，同款风险面）。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 
 watch(
@@ -77,7 +77,7 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
-      if (loadGen.stale(gen) || ws.bookName !== name) return // R64-4 双复检：代 + 书名
+      if (loadGen.stale(gen) || ws.bookName !== name) return // 双复检：代 + 书名
       bookKind.value = cfg.kind ?? 'long'
       // raw 形态契约：13 键未设时为 undefined（genre 空串=未设）——只认合法值，脏值按跟随全局展示
       bookGenre.value = cfg.book?.genre ?? ''
@@ -136,8 +136,8 @@ function onBookGenreChange(): void {
   })
 }
 function onBookVolumeSizeInput(e: Event): void {
-  // 重评2-P3-5（2026-09-09 全量重评 GLM-5.3）：对齐兄弟两输入（R36-20）——本 handler 是
-  // R72-11 helper 统一后的残余偏离点（裸 Number + isFinite）。行为等价：`>= 5` 闸下
+  // 2-（GLM-5.3）：对齐兄弟两输入——本 handler 是
+  // helper 统一后的残余偏离点（裸 Number + isFinite）。行为等价：`>= 5` 闸下
   // `Number('')===0` 本就不穿透（0 < 5 → null），改 helper 后空/空白/非法 → null → 清键
   // 口径与 onBookTargetWordsInput 完全一致（含 trim），零行为改动。
   const raw = parseNumericInput(e)
@@ -148,7 +148,7 @@ function onBookVolumeSizeInput(e: Event): void {
   })
 }
 function onBookTargetWordsInput(e: Event): void {
-  // R36-20（三十六轮）：接 R72-11 helper（全库数值输入唯一偏离点）——原 `Number('')===0`
+  // 接 helper（全库数值输入唯一偏离点）——原 `Number('')===0`
   // 穿过 `>= 0` 闸把清空输入写成 0，注释自称「空/非法 = 清键回跟随」与行为相反。
   // 空/非法 → null → 清键回跟随全局；合法数字（含 0 = 显式未设）维持原语义。
   const raw = parseNumericInput(e)
@@ -159,7 +159,7 @@ function onBookTargetWordsInput(e: Event): void {
   })
 }
 function onBookChapterTargetInput(e: Event): void {
-  // R36-20：同 onBookTargetWordsInput——空输入清键而非写 0（R72-11 helper 统一口径）
+  // 同 onBookTargetWordsInput——空输入清键而非写 0（helper 统一口径）
   const raw = parseNumericInput(e)
   bookChapterTargetWords.value = raw !== null && raw >= 0 ? Math.round(raw) : null
   void saveConfig((c) => {

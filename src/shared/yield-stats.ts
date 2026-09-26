@@ -1,13 +1,13 @@
 /**
- * 阶段 52（慢盘面加固 P3-12）：机检链「前奏段」让出计数观察口。
+ * 阶段 52（慢盘面加固）：机检链「前奏段」让出计数观察口。
  *
  * 各切片段（生成器核）每处理 *_YIELD_EVERY 项自增一次——供测试断言「让出确实落在
- * 目标段」（A2 隔离夹具：把目标段喂大、其余段喂小，断言 处理 N 项 ⇒ 让出 ≥ ⌊N/K⌋；
+ * 目标段」（隔离夹具：把目标段喂大、其余段喂小，断言 处理 N 项 ⇒ 让出 ≥ ⌊N/K⌋；
  * 单靠心跳不能区分刀落在哪一段）。生产只增不读，口径同 cache/rebuild.ts 的
  * sourceProbeStats（「测试断言用」）。
  *
  * 落 shared 而非 check：消费方横跨 format/chapters.ts（正文/章纲目录整扫）与
- * check/*，而 format 不得 import check（P2-A1 消环口径）。
+ * check/*，而 format 不得 import check（- 消环口径）。
  */
 export const preludeYieldStats = {
   /** tree-issues-cache.ts dirFpCore：纪元指纹递归 walk（计数单位 = 计入指纹的 .md 项） */
@@ -18,7 +18,7 @@ export const preludeYieldStats = {
   leadUpdatesScan: 0,
   /** leads.ts checkLeadsBookItemsCore：全书性红项（计数单位 = 引文核验的履历条） */
   leadsBook: 0,
-  /** run.ts openCheckDbAsync：rebuild 效应让出档（S3 落） */
+  /** run.ts openCheckDbAsync：rebuild 效应让出档（落） */
   rebuild: 0,
 }
 

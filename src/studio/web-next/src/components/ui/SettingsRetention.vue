@@ -7,11 +7,11 @@ import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import SettingItem from './SettingItem.vue'
 
-// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init，设置打开时必已就绪）
 const prefs = usePrefsStore()
 
 /** 全局默认数值输入（取整后写 store → global.json；clamp 在 store setter 内单点执行）。
- *  R72-11（二十轮 E-2）：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 1） */
+ *  ：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 1） */
 function onGlobalSnapInput(which: 'days' | 'count', e: Event): void {
   const v = parseNumericInput(e)
   if (v === null) return

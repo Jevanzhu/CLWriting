@@ -1,4 +1,4 @@
-// trace-stats 客户端（B3 规则命中统计 + T3 AI 调用指标）。
+// trace-stats 客户端（规则命中统计 + AI 调用指标）。
 import { apiJson } from './client'
 import { bookUrl } from './url'
 
@@ -10,7 +10,7 @@ export interface RuleHitEntry {
   recentMessages: string[]
 }
 
-/** trace-stats 响应（T3 聚合 + B3 ruleHits） */
+/** trace-stats 响应（聚合 + ruleHits） */
 export interface TraceStats {
   total: number
   byTask: Record<string, unknown>

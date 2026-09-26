@@ -1,8 +1,8 @@
 /**
  * 章节树「章节结构操作」子 composable —— 自 useChapterTreeActions.ts 缝 structure 拆出。
  *
- * R0916-5h（2026-09-16，⑤④产品巨件拆分波4）：useChapterTreeActions.ts（901 行）按
- * 缝 structure + create 纯移动拆分。本文件承载缝 structure（阶段 24 S3+S4）：并入
+ * （⑤④产品巨件拆分波4）：useChapterTreeActions.ts（901 行）按
+ * 缝 structure + create 纯移动拆分。本文件承载缝 structure（阶段 24）：并入
  * 上一章 / 撤销并入 / 光标处拆分（干跑 → 确认/弹窗 → 携指纹执行）+ 共用尽力落盘
  * flushUnsaved（仅本族内部消费，保持私有）。状态 ref（splitEditing）与切书守卫
  * （stillIn/failScoped）仍由 useChapterTreeActions 装配后经 deps 传入（refs 与回调
@@ -45,15 +45,15 @@ export function useChapterTreeStructure(deps: {
 }) {
   const { tree, doc, ws, ui, stillIn, failScoped, splitEditing } = deps
 
-  // --- 章节结构操作（阶段 24 S3+S4：并入上一章 / 撤销并入 / 光标拆分）---
+  // --- 章节结构操作（阶段 24：并入上一章 / 撤销并入 / 光标拆分）---
   // 服务端为唯一真相（结构键/回收站/事件），动作前照 doDelete 范式先落盘脏内容——
   // 结构操作以盘上内容为准，脏内容不落盘就动结构会「合并了半章」。
 
   /** 尽力落盘单章未保存内容（waitInflightSave 落定在途保存 → dirty 则静默 autosave，
-   *  origin 用 autosave 同 R48-88：内部步骤非作者动作，不弹「已保存」toast）。
+   *  origin 用 autosave 同：内部步骤非作者动作，不弹「已保存」toast）。
    *  false = 冲突未决或保存失败，调用方中止并提示。 */
   async function flushUnsaved(docId: string): Promise<boolean> {
-    // RC 源码重审 B-2 附批（mac 腿 e2e 首因）：读 dirty 前先落编辑器防抖尾——正文回写
+    // RC附批（mac 腿 e2e 首因）：读 dirty 前先落编辑器防抖尾——正文回写
     // 有 ≤200ms 合并窗，窗内键入只登记未落回 store（dirty 仍 false），不先冲刷则本函数
     // 「既不保存也不报错」就返 true：结构操作随后按盘上缺末段的陈旧内容干跑（拆分干跑
     // 按全文偏移校验即 400 BAD_INPUT，并入则吃半章）。flush 幂等（无待落即 no-op）。
@@ -89,7 +89,7 @@ export function useChapterTreeStructure(deps: {
       const r = await structurePlan(book, prev.docId, { op: 'merge', sourceDocId: node.docId })
       plan = r.plan as MergePlanView
     } catch (e) {
-      failScoped(book, e) // R34D-21：切书后旧书报错不写新书界面
+      failScoped(book, e) // 切书后旧书报错不写新书界面
       return
     }
     if (plan.op !== 'merge') return
@@ -127,17 +127,17 @@ export function useChapterTreeStructure(deps: {
         planHash: plan.planHash,
       })
       if (!stillIn(book)) return
-      // 源章已软删：弃编辑器缓存条目 + 清误报灰显键（对齐 doDelete E-10/R33-13 口径）
+      // 源章已软删：弃编辑器缓存条目 + 清误报灰显键（对齐 doDelete /口径）
       clearFalsePositiveMarksForDoc(book, node.docId)
       doc.discard(node.docId)
       await tree.load(book)
       if (!stillIn(book)) return
-      // 目标章正文已变——打开中的编辑器重对齐基线（对齐 onSaveMeta Y-8，防下次保存
+      // 目标章正文已变——打开中的编辑器重对齐基线（对齐 onSaveMeta ，防下次保存
       // REVISION_CONFLICT：重载丢编辑 / 覆盖静默回退）
       if (doc.get(prev.docId)) await doc.refresh(prev.docId)
       ui.toast(`已并入「${plan.targetTitle}」（源章在回收站，可撤销并入）`, 'success')
     } catch (e) {
-      failScoped(book, e) // R34D-21
+      failScoped(book, e)
     }
   }
 
@@ -157,7 +157,7 @@ export function useChapterTreeStructure(deps: {
     })
     if (!ok) return
     if (!stillIn(book)) return
-    // 复审-0913-源码 P1：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
+    // -源码：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
     // 均先 flushUnsaved）——dirty 目标章直接 undo，随后的 doc.refresh 走 dirty 分支
     // 保住本地合并后正文并与回滚基线对齐，下次保存零冲突把合并后内容写回；而源章已
     // 还原 → 两章内容重复且无提示
@@ -170,11 +170,11 @@ export function useChapterTreeStructure(deps: {
       if (!stillIn(book)) return
       await tree.load(book)
       if (!stillIn(book)) return
-      // 目标章已回滚——打开中的编辑器重对齐基线（Y-8 口径）
+      // 目标章已回滚——打开中的编辑器重对齐基线（口径）
       if (doc.get(node.docId)) await doc.refresh(node.docId)
       ui.toast(`已还原第 ${r.sourceChapterNo} 章（目标章已回滚到合并前版本）`, 'success')
     } catch (e) {
-      failScoped(book, e) // R34D-21
+      failScoped(book, e)
     }
   }
 
@@ -212,7 +212,7 @@ export function useChapterTreeStructure(deps: {
       const r = await structurePlan(book, node.docId, { op: 'split', cursorOffset })
       plan = r.plan as SplitPlanView
     } catch (e) {
-      failScoped(book, e) // R34D-21
+      failScoped(book, e)
       return
     }
     if (plan.op !== 'split') return
@@ -246,7 +246,7 @@ export function useChapterTreeStructure(deps: {
       }
       ui.toast(`已拆分：新章 第 ${r.newChapterNo} 章「${title}」`, 'success')
     } catch (e) {
-      failScoped(book, e) // R34D-21
+      failScoped(book, e)
     }
   }
 

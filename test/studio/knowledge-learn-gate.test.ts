@@ -11,10 +11,9 @@
 import http from 'node:http'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect, afterEach } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
-import { __setLearnTtlForTest } from '../../src/studio/server/api/knowledge.js'
 
 const BOOK = '学习闸测试书'
 let studio: StudioHarness
@@ -60,6 +59,9 @@ beforeAll(async () => {
   studio = await bootStudio({
     book: BOOK,
     prefix: 'clwriting-r66-28-',
+    // learn TTL 短档经组装根 overrides 注入（原模块级 setter 已删）：「失效重扫」
+    // 用例的墙钟依赖收敛到 300/400ms（health.ts R62-21 口径），闸用例不受影响。
+    overrides: { learnTtlMs: 300 },
     // 有定稿正文（无清单 → finalizedPathSet null → 全量收割，learnFromBook ok:true）
     dirs: ['写作/正文'],
     bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 学习闸测试书\n  genre: 玄幻\nhost: cc\n',
@@ -71,12 +73,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  __setLearnTtlForTest(null)
   await studio.close()
-})
-
-afterEach(() => {
-  __setLearnTtlForTest(null)
 })
 
 describe('R66-28: /learn 并发闸', () => {
@@ -95,8 +92,6 @@ describe('R66-28: /learn 并发闸', () => {
 
 describe('R66-28: /learn TTL 缓存', () => {
   it('TTL 内重复请求命中缓存（正文删除后仍 200）；TTL 过期重扫（无正文 → 400）', async () => {
-    // 注入短档 TTL：真实 5s 墙钟依赖会让「失效重扫」用例慢机假红（health.ts R62-21 口径）
-    __setLearnTtlForTest(300)
     const first = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/learn`)
     expect(first.status).toBe(200)
     // 删掉全部正文：TTL 内第二次请求应命中缓存（不重扫 → 仍 200）

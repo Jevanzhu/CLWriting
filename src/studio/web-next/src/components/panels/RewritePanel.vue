@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 改写面板（M12 块2 B2.2/B2.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
+// 改写面板（M12 块2 .2/.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
 // 接受 = patch(docId, rewritten) 写编辑器（dirty，⌘S 保存）；AI 永不直接落盘。
 // 选区改写（local）已接线——runRewrite 经 ws.editorGetSelection 读 CmHost 选区下发（后端按 selection 判模式）。
 import { computed, ref, watch } from 'vue'
@@ -28,11 +28,11 @@ const aiOff = computed(() => ui.aiAvailable === false)
 
 const instruction = ref('')
 
-// R63-9（十一轮）：切文档即清结果（对照 CheckPanel X-P2-15 同款契约）——残留 diff 会
+// 切文档即清结果（对照 CheckPanel 同款契约）——残留 diff 会
 // 禁用改写按钮阻断新文档；正文相同的文档（复制章/空章）基线校验能过，可跨文档误接受
 // 旧文档的改写结果
 watch(docId, () => rewrite.clear())
-// R33-89（三十三轮）：切书清指令（跨文档残留同 P2-2 家族；跨文档由上方 R63-9 保留——
+// 切书清指令（跨文档残留同家族；跨文档由上方保留——
 // 同书换章改写意图常延续，跨书意图不再适用）
 watch(
   () => props.bookName,
@@ -47,10 +47,10 @@ const diffStats = computed(() => {
   return { add: d.filter((x) => x.type === 'add').length, del: d.filter((x) => x.type === 'del').length }
 })
 
-// 重评-P3-16（2026-09-09 全量代码重评）：diff 渲染无上限——整章改写千行级 diff 全量
+// -（全量代码）：diff 渲染无上限——整章改写千行级 diff 全量
 // 挂 DOM（max-height 只裁视觉不减节点）。对齐 CommandPalette RENDER_CAP=100 域内惯例：
 // 数据面不动（diffStats 统计仍面向全量），只裁渲染面前 100 行 + 尾部省略提示行。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const diffCap = computed(() => capView(rewrite.result?.diff ?? [], RENDER_CAP))
 
@@ -63,7 +63,7 @@ async function runRewrite(): Promise<void> {
 
 function accept(): void {
   if (!docId.value) return
-  // R-21（第十六轮）：accept 返回 false（基线漂移拒绝）时不清空指令——作者撤销新编辑
+  // accept 返回 false（基线漂移拒绝）时不清空指令——作者撤销新编辑
   // 后可直接重试，无需重输改写指令
   if (rewrite.accept(props.bookName, docId.value)) instruction.value = ''
 }
@@ -113,8 +113,8 @@ function accept(): void {
           </span>
         </div>
         <div class="rw-diff">
-          <!-- R0911b-C2-P3-2：key 弃纯 index——DiffLineFE 无 id、text 可重复，改「值+序号」复合键
-               （AuditGoalTodoPanel 重评2-P3-4 同款口径）。diff 结果整表替换、行内纯展示无状态，
+          <!-- ：key 弃纯 index——DiffLineFE 无 id、text 可重复，改「值+序号」复合键
+               （AuditGoalTodoPanel 2- 同款口径）。diff 结果整表替换、行内纯展示无状态，
                复合键令内容参与键，零行为改动。 -->
           <div
             v-for="(line, i) in diffCap.view"
@@ -269,7 +269,7 @@ function accept(): void {
 .diff-text {
   color: var(--text-normal);
 }
-/* P3-16：渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
+/* 渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
 .cap-hint {
   padding: 2px 6px;
   font-size: var(--font-size-xxs);

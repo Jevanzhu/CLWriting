@@ -20,9 +20,9 @@
  * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、
  * 每本书独立 try/catch（单本失败 log.warn 不阻断）、汇总 log.info。
  *
- * 平台规范化批·评审补翻（2026-09-03）：整输出再经 canonicalizeText 归一（LF 无 BOM）——
+ * 平台规范化批·评审补翻：整输出再经 canonicalizeText 归一（LF 无 BOM）——
  * 此前自有删行补丁器只做删行，未触碰行的 CRLF 残尾原样保留（与 yaml.ts 补丁族的分叉，
- * 方案 §四 曾记「语义不变」，评审 P3-1 收口改翻）；CRLF/BOM 存量 book.yaml 自此随启动
+ * 方案 §四 曾记「语义不变」，评审收口改翻）；CRLF/BOM 存量 book.yaml 自此随启动
  * 迁移自愈（解析失败的原样返回分支不动——无法安全改写坏文件）。
  */
 
@@ -36,8 +36,8 @@ import { readBooksStrict } from './books.js'
 import { locateTopSection, parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
 
-/** R0916-P3-14（四轮处置批）：book.yaml 迁移锁等待档（ms，测试注入缩短以断言
- *  锁占用 fail-closed 跳过语义）——A4 testableConst 工厂形态（新符号约定）。 */
+/** （四轮处置批）：book.yaml 迁移锁等待档（ms，测试注入缩短以断言
+ *  锁占用 fail-closed 跳过语义）—— testableConst 工厂形态（新符号约定）。 */
 export const [getBookYamlLockTimeoutMs, __setBookYamlLockTimeoutForTest] = testableConst(5_000)
 
 /** 迁移汇总（供测试断言 + 启动日志） */
@@ -67,7 +67,7 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
     try {
       const yamlPath = join(workDir, book.path, 'book.yaml')
       if (!existsSync(yamlPath)) continue // 无 book.yaml 的书（登记残留）跳过不报错
-      // R0916-P3-14（四轮处置批）：RMW 持 `<yamlPath>.lock` 跨进程锁——此前读改写无锁，
+      // （四轮处置批）：RMW 持 `<yamlPath>.lock` 跨进程锁——此前读改写无锁，
       // 双开窗口两端启动迁移并发跑同一本书时后写者整文件覆盖先写者（丢更新面）。
       // 读移进锁内（锁外无先读）；拿不到锁按单本失败收口（fail-closed 不降级裸写，
       // 迁移幂等下次启动重试）。互斥面 = 迁移对迁移（启动双开）；与 settings 等
@@ -123,7 +123,7 @@ function migrateBookYamlText(raw: string): string {
   if (cfg.short?.strict === false) out = deleteSectionKey(out, 'short', 'strict')
 
   // rag 段：仅当恰为 {enabled: false} 纯净态才整段删——带 provider/endpoint/model 的
-  // 是作者真实配置（或旧内联存量），整段删会让 resolve 链落空；candidate_depth（A3 批 7）
+  // 是作者真实配置（或旧内联存量），整段删会让 resolve 链落空；candidate_depth
   // 同属作者配置，带上它整段删会静默丢已配候选深度（启用后回落缺省 20）
   if (
     cfg.rag?.enabled === false &&
@@ -141,7 +141,7 @@ function migrateBookYamlText(raw: string): string {
 // ── 文本操作（照 yaml.ts patchTopSection 的段区间口径）────────
 
 /** 行是否为段内直接子键 `key:`（恰好 childIndent 缩进 + key + 冒号；行尾可带值/注释） */
-/** R37-23（三十七轮）：剥行尾 \r 再判（同 matchesKeyLineCRLF 的 Z-7 口径）——CRLF 文件
+/** 剥行尾 \r 再判（同 matchesKeyLineCRLF 的口径）——CRLF 文件
  *  split('\n') 残留 \r 尾，裸子键行（`  genre:\r`）的 === 比对失配、判定落空 → 删除
  *  no-op 原样返回，迁移静默丢改（幂等重跑也无 diff，作者无感知）。带值形态
  *  （`  genre: ''\r`）startsWith 分支不受行尾影响，本就命中。 */
@@ -159,7 +159,7 @@ function isChildKeyLine(line: string, key: string, childIndent: number): boolean
  */
 function deleteSectionKey(raw: string, section: string, key: string): string {
   const lines = raw.split('\n')
-  const span = locateTopSection(lines, section) // P1-6：段定位委托 yaml.ts 单源
+  const span = locateTopSection(lines, section) // 段定位委托 yaml.ts 单源
   if (!span) return raw
   const body = lines.slice(span.start + 1, span.end)
   // 直接子键缩进 = 段体内最小缩进（嵌套更深的行不是本段的直接子键，绝不能碰）
@@ -182,7 +182,7 @@ function deleteSectionKey(raw: string, section: string, key: string): string {
 /** 删除整个顶层段（段头 + 段体 + 段间空行；0 缩进注释及其紧邻空行不陪葬） */
 function deleteTopSection(raw: string, section: string): string {
   const lines = raw.split('\n')
-  const span = locateTopSection(lines, section) // P1-6：段定位委托 yaml.ts 单源
+  const span = locateTopSection(lines, section) // 段定位委托 yaml.ts 单源
   if (!span) return raw
   const wasLast = span.end >= lines.length
   // 段区间内保留：0 缩进注释（patchTopSection 语义里段区间归段所有，但删除语义下

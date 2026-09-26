@@ -8,9 +8,9 @@
  */
 import { basename } from 'node:path'
 import { stat as statAsync } from 'node:fs/promises'
-// R51-A-5（五十一轮）：路径等值判定单源——win（NTFS）与 mac（默认 APFS）卷大小写
+// 路径等值判定单源——win（NTFS）与 mac（默认 APFS）卷大小写
 // 不敏感，路径经启动器/手工输入/Finder 可 case-only 漂移，字符串全等会把同一书库
-// 劈成两条记录（展示面污染）。samePath 已在 darwin/win32 折叠（R51-D-2 单源）。
+// 劈成两条记录（展示面污染）。samePath 已在 darwin/win32 折叠（单源）。
 import { samePath } from '../fs/user-data-path.js'
 
 interface RecentItem {
@@ -45,7 +45,7 @@ function isRecentItem(v: unknown): v is RecentItem {
 /**
  * 解析 workdir.json 原文为 WorkDirStore（容错）。
  * 损坏 / 缺字段 / 类型不符 → 空存储，不抛异常。
- * R51-A-5（五十一轮）：判重改 samePath 等值——win/mac 大小写不敏感卷上 case-only
+ * 判重改 samePath 等值——win/mac 大小写不敏感卷上 case-only
  * 漂移的同库双条目（如手工改写 workdir.json 或历史版本落盘的异形路径）不再双显；
  * 大小写敏感卷（linux）维持精确全等，合法异名共存不受影响。
  */
@@ -64,7 +64,7 @@ export function parseStore(raw: string): WorkDirStore {
   const recent = recentRaw
     .filter(isRecentItem)
     .filter((r) => {
-      // R51-A-5：samePath 等值判重（上限 5 条，线性扫描无规模面）
+      // samePath 等值判重（上限 5 条，线性扫描无规模面）
       if (seen.some((p) => samePath(p, r.path))) return false
       seen.push(r.path)
       return true
@@ -77,7 +77,7 @@ export function parseStore(raw: string): WorkDirStore {
  * 切换 current：把 newCurrent 设为当前，旧 current（若与新不同）推入 recent 头部。
  * recent 去重（按 path）、剔除等于新 current 的项、截断 MAX_RECENT。
  * 同值切换是 no-op（不把自己塞进 recent）。
- * R51-A-5（五十一轮）：三处等值判定（新旧 current 比较 / recent 剔除 / 判重）改
+ * 三处等值判定（新旧 current 比较 / recent 剔除 / 判重）改
  * samePath——win 大小写漂移下 current 与 recent 同库异形并存、切回时不剔除旧条目
  * 的展示面污染同源收口。注意 current 仍按调用方原样字串落盘（不归一化改写用户数据，
  * 物理身份判定另有 samePhysicalPath 消费面）。
@@ -92,7 +92,7 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
   const recent = candidates
     .filter((r) => !samePath(r.path, newCurrent))
     .filter((r) => {
-      // R51-A-5：samePath 等值判重（同 parseStore）
+      // samePath 等值判重（同 parseStore）
       if (seen.some((p) => samePath(p, r.path))) return false
       seen.push(r.path)
       return true
@@ -101,16 +101,16 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
   return { current: newCurrent, recent }
 }
 
-/** R1010-P2-1：recent 有效性预探超时哨兵（race reject 载体——stat 真实异常带 errno code，唯超时无）。 */
+/** recent 有效性预探超时哨兵（race reject 载体——stat 真实异常带 errno code，唯超时无）。 */
 const RECENT_PROBE_TIMEOUT = Symbol('recent-probe-timeout')
 
 /**
- * P3（复审-0914-优化修复批）：「Promise.race + 超时哨兵 + finally clearTimeout」三处
+ * 「Promise.race + 超时哨兵 + finally clearTimeout」三处
  * 同型（本文件 filterValidRecentBudgeted / main.ts 拆分后 workdir-controller 的
  * probeDirReachable / lifecycle 的 flushRendererWithBudget）收敛单源——本文件零 Electron
  * 依赖可单测，故落此。超时以传入哨兵 reject 后归一为哨兵返回值（区分「超时」与「任务
  * 真实异常」——后者照抛由调用方分诊，与原三处手写 catch 内 `e === 哨兵` 判定逐位等价）；
- * race 落定即 clearTimeout（R54-A-5 计时器卫生收编于此）。
+ * race 落定即 clearTimeout（计时器卫生收编于此）。
  */
 export async function raceWithTimeout<T, S extends symbol>(
   task: Promise<T>,
@@ -142,18 +142,18 @@ export type StatLike = (p: string) => Promise<{ isDirectory(): boolean }>
 /**
  * 过滤掉 recent 中已失效的项 —— 启动时清理一次（current 失效不在本函数处理，由调用方
  * 决定是否弹选择器重选）。
- * R26-93（二十六轮）：目录有效性判定含 isDirectory——existsSync 对「同路径普通文件」
+ * 目录有效性判定含 isDirectory——existsSync 对「同路径普通文件」
  * 也为 true：书库目录被同名文件顶替（误删后重建/解压残留）时该 recent 项不再可用，
  * 却原样保留 → 点击切换后链路把文件路径当书库目录用。
- * R1010-P2-1（2026-09-10 全量重评 GLM-5.3 修复批）：同步 existsSync+statSync 改
+ * （GLM-5.3 修复批）：同步 existsSync+statSync 改
  * 「fs/promises stat + 超时预算」——原实现逐条同步 stat，recent 残留失联网络卷
- * （NAS/SMB 挂载点在而服务器无响应）时启动首读同步冻主进程数十秒（R47-9/R54-A-2/
- * 重审-1 反复修复的同一冻结族，readStore 首读入口漏网——probeDirReachable 防线只护
+ * （NAS/SMB 挂载点在而服务器无响应）时启动首读同步冻主进程数十秒（
+ * -1 反复修复的同一冻结族，readStore 首读入口漏网——probeDirReachable 防线只护
  * current/cwd）。三态分诊（probeDirReachable 同款口径）：
  *   stat 通过且 isDirectory → 保留；确定性快速失败（ENOENT/EACCES/ENOTDIR 等）→ 剔除
  *   （原语义不变，判定窗口内被删/权限按无效处理，不裸抛破坏容错契约）；
  *   超时（失联卷挂死面）→ 跳过判定保留展示——失联不等于失效，择库守卫另有预探拦截
- *   兜底，R48-73「残留只污展示面不产行为错」取舍口径不变。
+ *   兜底，「残留只污展示面不产行为错」取舍口径不变。
  * 逐条独立预算并行探测（recent ≤ MAX_RECENT 条，并行后总预算 = 单条预算，不串行放大
  * 启动延迟）；返回新对象，保序过滤。
  */

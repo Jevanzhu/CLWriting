@@ -9,13 +9,13 @@ import { useProviderStore } from '../stores/provider'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
-// 模块级单例：ChatPanel + ChatDock 共享（P2-N）；首建触发一次 store 装载
+// 模块级单例：ChatPanel + ChatDock 共享（-N）；首建触发一次 store 装载
 let _instance: { tier: ReturnType<typeof _createChatTier> } | null = null
 export function useChatTier() {
   if (!_instance) {
     const tier = _createChatTier()
     _instance = { tier }
-    // P2-10：单例首次创建即加载（不绑 onMounted——组件生命周期与单例无关）
+    // 单例首次创建即加载（不绑 onMounted——组件生命周期与单例无关）
     void tier.refresh()
   }
   return _instance.tier
@@ -35,7 +35,7 @@ function _createChatTier() {
   /** 当前生效推理等级 */
   const activeEffort = computed<EffortLevel>(() => store.chatActiveEffort)
 
-  // R46-34（四十六轮）：refresh 60s TTL 门——切书链（Book.vue）每次无条件 GET /api/providers
+  // refresh 60s TTL 门——切书链（Book.vue）每次无条件 GET /api/providers
   // （chatEnabled=false 亦然），频繁切书纯浪费；距上次成功刷新 <60s 且非强制时跳过重拉。
   // 设置页 AiProvider 面板直走 stores/provider.refreshAll（独立路径），不经过此门不受影响。
   // 成功信号取「providers 非空」近似——store.refresh 静默吞错无法直接分辨，冷启动拉失败

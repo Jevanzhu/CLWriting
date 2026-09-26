@@ -13,7 +13,7 @@ export function useHotkeys(): void {
   const ui = useUiStore()
 
   function onKey(e: KeyboardEvent): void {
-    // B-9（第六十轮）：IME 组合期让渡——组合中按 Esc 是收输入法候选框（keyCode 229 为
+    // IME 组合期让渡——组合中按 Esc 是收输入法候选框（keyCode 229 为
     // 组合期按键兼容判据），此时退出专注会打断写作流且 preventDefault 与 IME 相争
     if (e.isComposing || e.keyCode === 229) return
     // 内嵌层已消费的键让渡：CM 搜索面板等编辑器内 Esc 由 CodeMirror keymap 处理
@@ -33,13 +33,13 @@ export function useHotkeys(): void {
       e.preventDefault()
       if (ws.activeDocId) void doc.save(ws.activeDocId, 'manual')
     } else if (k === 'p' && !e.shiftKey) {
-      // R35-38：任一弹层打开时让渡——面板与弹层同 z-index 时后者后挂载压住前者，
+      // 任一弹层打开时让渡——面板与弹层同 z-index 时后者后挂载压住前者，
       // 再开命令面板会成被遮住的「隐形面板」（同上方 Esc 的让渡口径）
       if (ui.overlayOpen) return
       e.preventDefault()
       ui.openPalette()
     } else if (k === 'f' && !e.shiftKey) {
-      // 复审-0913-mac适配 P3-7：全局 ⌘F 查找——编辑器聚焦时 CM searchKeymap 已消费
+      // -mac适配：全局 ⌘F 查找——编辑器聚焦时 CM searchKeymap 已消费
       //（preventDefault 后事件仍冒泡，上方 defaultPrevented 守卫已让渡，不会双开面板）；
       // 焦点在外时经 APP_FIND_EVENT 桥接 EditorView 打开查找面板，与系统菜单
       //「查找…」同链路；无活动文档时无人消费即安全 no-op

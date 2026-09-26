@@ -1,27 +1,27 @@
 /**
- * R0916-7-P3-20（评审 P3-20）：书会话单源——「进书」是一个有生命周期的对象。
+ * （评审）：书会话单源——「进书」是一个有生命周期的对象。
  *
  * 症结（评审原文）：此前「书会话」没有独立生命周期对象，隔离迟到结果的责任落在每个异步
  * 动作身上——每次 await 后手写 `if (bookName !== book) return`；取消能力（AbortSignal）
  * 写好了却没有接到切书上。本模块把它收敛成一个对象：
  *
- *   BookSession { name, signal, stillIn() }
+ *   BookSession { name, signal, stillIn }
  *
  * - 进书创建（beginBookSession）、离书/切书 abort（endBookSession / 下一个 begin 顶替）；
  * - signal 由 api/client 按「本书 + 文档结构写」接驳（setBookSessionSignal 注），
  *   离书后旧书在途写请求以 AbortError 收口；
- * - stillIn() 是**会话同一性**判定（active === 本会话记录），不是书名比对：会话快照一旦
+ * - stillIn 是**会话同一性**判定（active === 本会话记录），不是书名比对：会话快照一旦
  *   作废（离书/切书顶替/同名重进）就恒假，不可复活。旧写法 `bookName !== book` 只在
  *   书名面上判等，同名重进的回环里「上一段会话」与「这一段会话」无从区分——持快照的
- *   消费方（如 BookSession 的持有者）用 stillIn() 才能表达「本会话是否还是那一段」。
- *   注意区分两个入口：currentBookSession()/bookSessionFor(name) 解析的是**当前在册**
+ *   消费方（如 BookSession 的持有者）用 stillIn 才能表达「本会话是否还是那一段」。
+ *   注意区分两个入口：currentBookSession/bookSessionFor(name) 解析的是**当前在册**
  *   会话（动作入口按书名归属取会话用它，语义 = 「本动作所属的书仍是当前书」）。
  *   调用方（useChapterTreeActions 的 stillIn/failScoped）以它替代散写的书名复检。
  *
  * 生命周期纪律（为什么 abort 不早于冲刷）：abort 只发生在**旧会话的工作已落定**之后——
  * 原地切书由路由提交前的守卫先完成冲刷与决断（useBookSwitchGuard），提交后进书才
  * beginBookSession(新书)（此时 abort 旧会话）；离书到脏路由在 flushDirty 落定后
- * endBookSession()。故切书不会打断冲刷途中的保存请求（PUT 面本就不接驳，双保险）。
+ * endBookSession。故切书不会打断冲刷途中的保存请求（PUT 面本就不接驳，双保险）。
  * 组件卸载**不** abort：关窗/卸载路径的 flushBeforeClose（useUnloadFlush）在途保存不得
  * 被打断，渲染进程销毁时模块随之释放，无需收尾。
  *

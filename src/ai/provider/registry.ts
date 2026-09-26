@@ -1,5 +1,5 @@
 /**
- * 适配器注册表（批次 D2，学 cherry-studio ProviderExtension 注册表）。
+ * 适配器注册表（批次，学 cherry-studio ProviderExtension 注册表）。
  *
  * 声明式条目 `{ name, aliases, create }`——新增协议 = 加一行条目，
  * 不再改 switch；adapterFamily 字符串（协议名 + 别名）成为唯一运行时路由键。
@@ -30,7 +30,7 @@ export interface AdapterEntry {
   /** 别名（中转/网关的 adapterFamily 叫法，小写；解析不出主名时兜底） */
   aliases: readonly string[]
   /** 同步工厂（见文件头「有意分歧」注）；userDataPath 为来源配置目录
-   *  （R30-4：降级记忆通道按显式 path 分发，见 createProvider 注） */
+   *  （降级记忆通道按显式 path 分发，见 createProvider 注） */
   create(conf: ProviderConf, store?: ProviderStore, userDataPath?: string): ModelProvider
 }
 
@@ -47,7 +47,7 @@ export const ADAPTER_REGISTRY: readonly AdapterEntry[] = [
     create: (conf, store, userDataPath) => createOpenAIProviderChat(conf, undefined, store, userDataPath),
   },
   {
-    // Responses 启用批（2026-08-17）回接——曾随 Z-P2-1 误判停用摘除
+    // Responses 启用批回接——曾随误判停用摘除
     name: 'openai-responses',
     aliases: ['openai-responses-api', 'responses'],
     create: (conf, store, userDataPath) => createOpenAIResponsesProvider(conf, undefined, store, userDataPath),
@@ -72,7 +72,7 @@ export function resolveAdapter(key: string): AdapterEntry | null {
  * 查询、protocol/auth/baseUrl/apiKey 决定客户端；models 行影响 maxTokens/contextWindow 解析），
  * 固定字段序 → stringify 稳定。
  * name/notes/caps/sortIndex 等展示字段不入键（不影响适配器行为，入键白白击穿缓存）。
- * R30-4（三十轮）：userDataPath 入键——实例捕获来源 path 供降级记忆通道按 path 分发，
+ * userDataPath 入键——实例捕获来源 path 供降级记忆通道按 path 分发，
  * 同 conf 跨 path 不得复用实例（否则后 resolve 的库会借缓存实例把降级记忆写进他库）。
  */
 function settingsHash(conf: ProviderConf, userDataPath?: string): string {
@@ -113,7 +113,7 @@ function cachePut(hash: string, provider: ModelProvider): void {
   }
 }
 
-/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用）——清实例缓存，防跨用例
+/** （修复批）：测试专用导出（零生产调用）——清实例缓存，防跨用例
  *  串味；生产侧缓存失效由 conf hash 键控自然完成，无需显式清。 */
 export function clearProviderCache(): void {
   _cache.clear()
@@ -131,13 +131,13 @@ export function providerCacheSize(): number {
  * 未命中 → 路由 protocol → create（conf 浅拷贝绑定）→ 入缓存。
  * 降级记忆的新鲜度经 store.lookupDegraded 通道保证（见 store.ts 注释），
  * 不依赖缓存实例捕获的 store 快照。
- * R30-4（三十轮）：userDataPath 为来源配置目录——适配器降级记忆读/写按此显式 path
+ * userDataPath 为来源配置目录——适配器降级记忆读/写按此显式 path
  * 分发（双库并发生成互不劫持，缺省回落 runner 侧活跃 path）；并参与实例缓存键
  * （同 conf 跨 path 不复用实例，见 settingsHash 注）。
  *
- * R33-21（三十三轮）：`opts.bypassCache` 供一次性旁路调用（流式探测把 model 换成
+ * `opts.bypassCache` 供一次性旁路调用（流式探测把 model 换成
  * 列表首项，若入缓存会以「正常生成永不使用的 key」挤占 LRU 容量，把正常实例挤出
- * 重建）——旁路只跳过写入、不驱逐既有条目；读缓存仍命中（R48-31（四十八轮）：
+ * 重建）——旁路只跳过写入、不驱逐既有条目；读缓存仍命中（
  * 原实现连 cacheGet 一并跳过，与本注承诺相反，改为注释/实现一致——同 key 已有
  * 实例时无需重建，读命中语义更优）。
  */
@@ -157,7 +157,7 @@ export function createProvider(
     throw new Error(`未知协议适配器：${String(conf.protocol)}`)
   }
   // 原子绑定：适配器捕获 bound conf，调用方后续 mutate 自己的对象不影响本实例。
-  // R26-22（二十六轮）：models 数组浅拷贝补齐——spread 只拷引用，调用方原地
+  // models 数组浅拷贝补齐——spread 只拷引用，调用方原地
   // mutate conf.models（push/改项）时缓存实例行为漂移而 settingsHash 不变
   //（缓存失效判定与实例状态脱钩）。数组新建浅拷元素（元素被视为不可变值）。
   const bound: ProviderConf = { ...conf, ...(conf.models ? { models: [...conf.models] } : {}) }

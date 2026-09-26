@@ -8,9 +8,12 @@
  *    文案带出留证路径（不再有与处置相反的声称）；
  * ③ 写锁被占 → 本轮跳过、主文件原封不动（修复前恢复段不持锁，可与并发 save 交错覆盖）；
  * ④ 锁内复核 → 取值窗口内主文件已被并发写方修复时不覆盖（不把新配置打回旧 bak 快照）。
+ *
+ * 2026-09-26 终扫自 r2w4-bak-restore-readonly.test.ts 并入（R2W-4，win 平台专项复审 R2）：
+ * ⑤ 只读主文件自愈臂——夹具收编 seedCorruptWithBak，断言逐条保留、零去重。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
@@ -154,5 +157,29 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
     expect(loaded.currentId).toBe('fixed-by-other-writer') // 读到的是并发写方的版本
     expect(readFileSync(FP(), 'utf8')).toBe(FIXED) // 未被旧 bak 快照整态覆盖
     expect(corruptSiblings()).toEqual([]) // 未走留证（没销毁并发写方的文件）
+  })
+
+  // R2W-4（win 平台专项复审 R2）：主文件损坏且只读——修复前 copyFileSync 覆盖写在
+  // win 撞只读 EPERM、posix 撞 EACCES，两平台恢复都失败。修复后「留证改名（win 上对
+  // 只读属性文件 renameSync 实测成功）+ atomicWriteFile 落盘」→ 自愈成功。A-7（RC 源码
+  // 重审）：固定点由「rmQuietly 前置（先删主文件）」迁到「留证改名」——只读主文件自愈
+  // 后仍在 .corrupt-<ts> 留证（原字节可查），删除降为改名失败时的退回口径。
+  it('⑤ 主文件损坏且只读 → 自愈成功（bak 字节落位、bak 保留、原损坏字节留证）', () => {
+    seedCorruptWithBak()
+    const bakBytes = readFileSync(BAK())
+    // 主文件加只读属性（修复前 copyFileSync 对只读目标两平台都失败）
+    chmodSync(FP(), 0o444)
+
+    const loaded = loadProviders(dir)
+    expect(loaded.providers).toEqual([])
+
+    // 主文件已恢复为合法 JSON 且不再只读（后续 save 可写）
+    const restored = JSON.parse(readFileSync(FP(), 'utf8'))
+    expect(restored).toBeTypeOf('object')
+    expect(readFileSync(BAK())).toEqual(bakBytes) // bak 保留
+    // 损坏且只读的主文件被改名留证（而非删除），原字节可查；原名是新文件
+    const siblings = corruptSiblings()
+    expect(siblings).toHaveLength(1)
+    expect(readFileSync(join(dir, siblings[0]!), 'utf8')).toBe(CORRUPT)
   })
 })

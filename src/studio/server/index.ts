@@ -67,9 +67,11 @@ import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 // task-gate 闸实例注入（书库 .clwriting/task-gate/ 锁根 + 闸表/三审登记表随实例；
 // 进程默认实例见 processTaskGate）
 import { createTaskGate, processTaskGate, type TaskGate } from './api/task-gate.js'
+import type { CommitYield } from '../../learn/commit.js'
+import type { ProviderConf, ProbeResult } from '../../ai/provider/index.js'
 import { productionDriverHost, type DriverHost } from './driver-port.js'
 import { processProviderRuntime, type ProviderRuntime } from '../../ai/provider/store.js'
-// mock 快路与 provider 运行时的注入点：选择只在组装根做一次（R0916-7-P3-6）
+// mock 快路与 provider 运行时的注入点：选择只在组装根做一次
 import { configureRunnerMockFastPath } from '../../ai/runner.js'
 import { configureProviderRuntime } from '../../ai/runner.js'
 import { setInitialBook } from './api/books.js'
@@ -81,20 +83,71 @@ import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
 
-/** R0916-7-P3-6（评审 P3-6）：路由组装所需的注入面。
- *  gate/driver/providers 三件均由组装根（createStudioServer）解析后逐路由显式传递——
- *  模块级可变态（闸表/锁根/三审登记、driver 选择、provider 运行时）不再由路由自取。 */
+/** （评审）：路由组装所需的注入面。
+ * gate/driver/providers 三件均由组装根（createStudioServer）解析后逐路由显式传递——
+ * 模块级可变态（闸表/锁根/三审登记、driver 选择、provider 运行时）不再由路由自取。
+ * 收尾：TTL/让出桩/探测桩等测试覆盖档同通道注入（overrides，见下）。 */
 interface RouteDeps {
   gate: TaskGate
   driver: DriverHost
   providers: ProviderRuntime
+  /** 逐路由测试覆盖档（缺省 {} = 生产口径逐位不变；测试经组装根 opts.overrides 注入） */
+  overrides: RouteOverrides
+}
+
+/**
+ * 收尾（评审 「测试缝渗入生产代码」）：各路由端点 TTL 覆盖档 /
+ * 让出桩 / 探测桩的组装根注入面。原 api 层模块级 `__setXxxForTest` / `getXTtlMs`
+ * 三件套与 `getProbeForTest` 全部删除，覆盖档随 server 实例经此处传入：
+ * - 键缺省（undefined）= 生产口径逐位不变，生产组装恒不传；
+ * - 测试在组装时注入（per-server-instance，随实例关闭失效，无跨用例残留）；
+ * - TTL 覆盖档经各 register ctx → ttl-cache 的逐调用覆盖尾参生效；
+ * - 让出桩/清理桩/探测桩经 ctx 在原消费点位直取（窗口位置不变量随注）。
+ */
+export interface RouteOverrides {
+  /** /state 判态缓存 TTL（缺省 5s） */
+  stateTtlMs?: number | null
+  /** /tree-issues 缓存 TTL（缺省 5s） */
+  treeIssuesTtlMs?: number | null
+  /** /health/style 扫描缓存 TTL（缺省 5s） */
+  styleScanTtlMs?: number | null
+  /** analyze-style 文风语料缓存 TTL（缺省 5s） */
+  styleCorpusTtlMs?: number | null
+  /** analysis-overview 聚合缓存 TTL（缺省 5s） */
+  analysisOverviewTtlMs?: number | null
+  /** version-stats 快照统计缓存 TTL（缺省 5s） */
+  versionStatsTtlMs?: number | null
+  /** /overview 整包缓存 TTL（缺省 5s） */
+  overviewTtlMs?: number | null
+  /** /search 缓存 TTL（缺省 5s） */
+  searchTtlMs?: number | null
+  /** /rhythm 聚合缓存 TTL（缺省 5s） */
+  rhythmTtlMs?: number | null
+  /** /foreshadows 足迹缓存 TTL（缺省 5s） */
+  foreshadowTtlMs?: number | null
+  /** /settings 聚合缓存 TTL（缺省 5s） */
+  settingsTtlMs?: number | null
+  /** /completion-names 缓存 TTL（回落链：本档 → settingsTtlMs → 常量 5s） */
+  completionNamesTtlMs?: number | null
+  /** /learn 缓存 TTL（缺省 5s） */
+  learnTtlMs?: number | null
+  /** 导出排队等待超时（缺省 10min） */
+  exportWaitTimeoutMs?: number | null
+  /** 删书墓地后台清理函数（缺省真删） */
+  graveyardCleanup?: ((graveAbs: string) => Promise<void>) | null
+  /** snapshot restore 读体前让出桩（缺省无让出） */
+  snapshotsRestoreYield?: (() => Promise<void>) | null
+  /** learn-commit 让出原语桩（缺省 defaultCommitYield） */
+  learnCommitYield?: CommitYield | null
+  /** provider 探测函数桩（缺省真探测；签名同 透传 userDataPath 口径） */
+  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null
 }
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
- *  注意：注册表按「当前活动路由表」隔离（api/schema.ts WeakMap 键 = RouteTable），
- *  「防跨实例重复声明」由隔离结构本身承担——不得在 withRouteTable 之外调
- *  resetRouteSchemas()（那清的是外层默认表，生产恒空，属无害冗余）；
- *  resetRouteSchemas 函数本身保留（router-schema 测试在用）。 */
+ * 注意：注册表按「当前活动路由表」隔离（api/schema.ts WeakMap 键 = RouteTable），
+ * 「防跨实例重复声明」由隔离结构本身承担——不得在 withRouteTable 之外调
+ * resetRouteSchemas（那清的是外层默认表，生产恒空，属无害冗余）；
+ * resetRouteSchemas 函数本身保留（router-schema 测试在用）。 */
 function buildRoutes(
   workDir: string | null,
   token: string,
@@ -106,6 +159,7 @@ function buildRoutes(
 ): RouteTable {
   const routes = createRouteTable()
   withRouteTable(routes, () => {
+    const ov = deps.overrides
     // 元：AI 可达性探测（editor/ai 共用，降级体验）
     registerAiStatusRoutes({ userDataPath, driver: deps.driver, providers: deps.providers })
     // 元：启动通告——启动链迁移失败 / 事件库迁移失败的用户可见出口
@@ -114,32 +168,33 @@ function buildRoutes(
     registerAppInfoRoutes()
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
-    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add, gate: deps.gate, driver: deps.driver })
+    // 收尾：ov.* 为测试覆盖档（缺省 undefined = 生产口径逐位不变）
+    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add, gate: deps.gate, driver: deps.driver, graveyardCleanup: ov.graveyardCleanup })
     // RAG 建索引/状态端点——buildIndex 生产入口；
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
     registerRagRoutes({ workDir, userDataPath, gate: deps.gate })
     registerRagProviderRoutes({ userDataPath })
-    registerHealthRoutes({ workDir })
+    registerHealthRoutes({ workDir, styleScanTtlMs: ov.styleScanTtlMs })
     registerFileRoutes({ workDir, userDataPath }) // PUT /file 覆盖留底读全局保留策略
-    registerOverviewRoutes({ workDir, userDataPath }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
-    registerRhythmRoutes({ workDir })
-    registerSettingsRoutes({ workDir, userDataPath, gate: deps.gate })
+    registerOverviewRoutes({ workDir, userDataPath, overviewTtlMs: ov.overviewTtlMs }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
+    registerRhythmRoutes({ workDir, rhythmTtlMs: ov.rhythmTtlMs })
+    registerSettingsRoutes({ workDir, userDataPath, gate: deps.gate, settingsTtlMs: ov.settingsTtlMs, completionNamesTtlMs: ov.completionNamesTtlMs })
     registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
-    registerStateRoutes({ workDir, userDataPath }) // 状态机入口过全局托底链（volume_size 等喂生效值）
+    registerStateRoutes({ workDir, userDataPath, stateTtlMs: ov.stateTtlMs }) // 状态机入口过全局托底链（volume_size 等喂生效值）
     // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
-    registerIoRoutes({ workDir, gate: deps.gate })
-    registerKnowledgeRoutes({ workDir, gate: deps.gate })
+    registerIoRoutes({ workDir, gate: deps.gate, exportWaitTimeoutMs: ov.exportWaitTimeoutMs })
+    registerKnowledgeRoutes({ workDir, gate: deps.gate, learnTtlMs: ov.learnTtlMs, learnCommitYield: ov.learnCommitYield })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver }) // 伏笔事件族接线（伏笔文档变更落 foreshadow/change）
-    registerSnapshotRoutes({ workDir, userDataPath, gate: deps.gate }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
-    registerSearchRoutes({ workDir })
-    registerCheckRoutes({ workDir, userDataPath }) // 全局托底：机检 short.strict 吃生效值
-    registerAnalysisRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver, providers: deps.providers })
-    registerForeshadowRoutes({ workDir })
+    registerSnapshotRoutes({ workDir, userDataPath, gate: deps.gate, versionStatsTtlMs: ov.versionStatsTtlMs, snapshotsRestoreYield: ov.snapshotsRestoreYield }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
+    registerSearchRoutes({ workDir, searchTtlMs: ov.searchTtlMs })
+    registerCheckRoutes({ workDir, userDataPath, treeIssuesTtlMs: ov.treeIssuesTtlMs }) // 全局托底：机检 short.strict 吃生效值
+    registerAnalysisRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver, providers: deps.providers, styleCorpusTtlMs: ov.styleCorpusTtlMs, analysisOverviewTtlMs: ov.analysisOverviewTtlMs })
+    registerForeshadowRoutes({ workDir, foreshadowTtlMs: ov.foreshadowTtlMs })
     registerStyleRoutes({ workDir, userDataPath, gate: deps.gate }) // 全局托底：注入强度喂写作链路合并 global.json
-    registerProvidersRoutes({ userDataPath })
+    registerProvidersRoutes({ userDataPath, probeCapabilities: ov.probeCapabilities })
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerCostStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath, gate: deps.gate })
@@ -167,14 +222,14 @@ function buildRoutes(
  * 撞车）静默失闸。豁免面仅两条精确模式：
  * - /api/boot：前端无 token 时的 bootstrap 通道，token 本身由它下发；
  * - /api/books/:name/stream：SSE 端点（EventSource 不能带头），经此处放行后由
- *   stream.ts 自带的凭据闸校验（一次性 ticket / x-studio-token 头，R0916-7-P3-19 起
- *   `?token=` 通道已删）；:name 为单路径段（[^/]+），与 router.ts :param 捕获口径一致。
+ * stream.ts 自带的凭据闸校验（一次性 ticket / x-studio-token 头， 起
+ * `?token=` 通道已删）；name 为单路径段（[^/]+），与 router.ts:param 捕获口径一致。
  * SSE 豁免项引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——此处不手写等价
  * 正则（两处正则字符串耦合时，路由路径改动会令豁免表静默失配）；/api/boot 项本文件
  * 自持（bootstrap 端点注册面不在 stream.ts）。
  * 健康检查无独立顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
  * 本常量须保持导出：test 侧 fetch 包装的豁免抄本同步守卫
- *（test/governance/studio-token-exempt-sync.test.ts）读本正本比对——
+ * （test/governance/studio-token-exempt-sync.test.ts）读本正本比对——
  * 闸消费点仅下方 GET/HEAD token 闸一处。
  */
 export const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, SSE_STREAM_PATH_PATTERN]
@@ -196,14 +251,17 @@ export interface StudioServerOptions {
   /** 日志是否镜像 console——dev/CLI 态 true（看得见）；Electron 打包态
    *  console 输出到无人看见的地方，传 false 只落 JSONL。缺省 true。 */
   mirrorConsoleLog?: boolean
-  /** studio 会话 token（唯一红线豁免）：缺省 randomUUID() 行为不变；
+  /** studio 会话 token（唯一红线豁免）：缺省 randomUUID 行为不变；
    *  Electron 拆分形态由 main 侧 server-manager 持久化注入（跨崩溃重启稳定——前端
    *  token 仅挂载时取一次，换代即写/SSE/心跳永久 403）。协议语义零改动。 */
   studioToken?: string
+  /** 收尾：逐路由测试覆盖档（TTL / 让出桩 / 探测桩 / 墓地清理桩）。
+ * 缺省 = 生产口径逐位不变；测试经组装根注入，随实例隔离（见 RouteOverrides）。 */
+  overrides?: RouteOverrides
 }
 
 /**
- * 组装根依赖（R0916-7-P3-6 显式注入面）。
+ * 组装根依赖（显式注入面）。
  *
  * 所有权与缺省：
  * - `taskGate`：闸实例（锁根 + 进程内闸表 + 三审登记表）。缺省 = 本工厂**新建**一个
@@ -273,7 +331,7 @@ function closeSseThenSettle(
 }
 
 /**
- * 组装并起 server（R0916-7-P3-6 组装根）：迁移/自愈启动链 → 依赖解析 → 路由注册 →
+ * 组装并起 server（组装根）：迁移/自愈启动链 → 依赖解析 → 路由注册 →
  * 监听。deps 缺省即生产口径（driver 宿主读 CLWRITING_DRIVER 选择实现；闸与 provider
  * 运行时按实例新建/进程单例，见 StudioServerDeps）。
  */
@@ -302,7 +360,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     log.error(kind, message, err)
   }
   // 内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
-  // 用户改过的原样保留；A6「升级不覆盖用户改动」的落点）
+  // 用户改过的原样保留；「升级不覆盖用户改动」的落点）
   if (opts.userDataPath) {
     try {
       const r = migratePromptOverlays(opts.userDataPath)
@@ -398,7 +456,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   // v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户
   // 书库（唯一测试库实测已全规范），写路径收口 + 读侧容忍 + NFC 创建点已覆盖全部保证；
   // 「启动即改写用户数据」的长期风险面大于无受众的收益。裁决记档见
-  // Dev/Docs/Archive/书库平台规范化-实施方案-2026-09-03.md §一 D。
+  // Dev/Docs/Archive/书库平台规范化-实施方案-.md §一 D。
   // Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
   // dev Vite(5173) 仅 CLW_DEV_UI/CLW_DEV_CORS 显式开启时注入（scripts/dev-api.ts 设 env，
   // dev:web/dev:app 链路保持可用）——生产态不再放行本地任意监听 5173 的页面。
@@ -409,10 +467,10 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   }
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
   // 本实例书库锁根已随闸实例解析（显式 deps.taskGate 或上方缺省新建时配置）——
-  // 不再有模块级 configureTaskGateLockRoot 调用：锁根归属闸实例（R0916-7-P3-6）。
+  // 不再有模块级 configureTaskGateLockRoot 调用：锁根归属闸实例。
   // ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
   const streamTickets = createStreamTicketStore()
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets, { gate, driver, providers })
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets, { gate, driver, providers, overrides: opts.overrides ?? {} })
   // host 仅限本机回环（本文件头注释），非回环值启动即拒——
   // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；
   // fail-fast 优于逐请求 403 的静默失效。
@@ -490,7 +548,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       replyError(res, 403, 'FORBIDDEN', 'forbidden origin')
       return
     }
-    // 写端点 session token 校验(P0 defense-in-depth):防跨站伪造,无/错 token → 403
+    // 写端点 session token 校验(defense-in-depth):防跨站伪造,无/错 token → 403
     if (isWrite && !safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
       // 文案须保留 'token' 词根（boot-token 回归断言 error 含 'token'）
       replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
@@ -500,8 +558,8 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
     // HEAD 与 GET 同读语义，一并入闸（原只判 GET 则 HEAD /api/* 绕过 token 校验，
     // 响应头同会泄漏资源元数据）。
-    // 与写闸同源校验（x-studio-token 头；query token 通道已全量下线——S7 收窄非豁免
-    // GET 只认头，R0916-7-P3-19 起 SSE 豁免路径的 `?token=` 亦删，凭据只走 ticket/头）、
+    // 与写闸同源校验（x-studio-token 头；query token 通道已全量下线—— 收窄非豁免
+    // GET 只认头， 起 SSE 豁免路径的 `?token=` 亦删，凭据只走 ticket/头）、
     // 常量时间比较、失败 403 FORBIDDEN 同口径。
     // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（不得改回后缀匹配）。
     // API 优先
@@ -510,7 +568,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     // 用 raw url 判前缀会跳过 token 闸，而规范化 pathname 命中 `/api/` → 无凭据进路由
     //（实测 200 无凭据读全部读端点；`%2e%2e` 编码点段同效）。解析失败按非 API 处理。
     // 闸与豁免表用同一规范化口径（WHATWG URL 归一化点段），豁免匹配同步换
-    // apiPathname（new URL().pathname 已剥 query，urlPathOnly 职责内含）。写闸在一切
+    // apiPathname（new URL.pathname 已剥 query，urlPathOnly 职责内含）。写闸在一切
     // 路径判定之前不受影响；SSE 豁免路径自带凭据闸。
     const apiPathname = (() => {
       try {
@@ -527,7 +585,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
         // 全量 /api/* 已带头）；`?token=` 对全部非豁免 GET 通用会让 token 进 URL 的暴露面
         //（进程列表/代理/服务器日志）远超「EventSource 不能带头」的最小必要面。
         // 仅 `?ticket=` 在豁免路径（SSE）放行，由 stream.ts 自身凭据闸校验；
-        // `?token=` 通道已两端同删（R0916-7-P3-19：前后端同包同版发布，无过渡兼容对象）。
+        // `?token=` 通道已两端同删（前后端同包同版发布，无过渡兼容对象）。
         if (!safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
           replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
           return
@@ -609,7 +667,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     if (addr && typeof addr === 'object') {
       allowedOrigins.add(`http://127.0.0.1:${addr.port}`)
       allowedOrigins.add(`http://localhost:${addr.port}`)
-      // 与 Host 白名单（认 [::1]:port）对齐——消两侧不对称漂移点
+      // 与 Host 白名单（认 [:1]:port）对齐——消两侧不对称漂移点
       allowedOrigins.add(`http://[::1]:${addr.port}`)
       listeningPort = addr.port
     }
@@ -629,7 +687,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     // 模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
     closeAllSseConnections()
   })
-  // 关停语义不再是本体里的 server.close 猴补（R0916-7-P3-6）：由句柄 close 承载
+  // 关停语义不再是本体里的 server.close 猴补：由句柄 close 承载
   //（实现体见 closeSseThenSettle；语义与猴补前逐位一致）。startServer 兼容壳再把
   // 它挂回 server.close，供既有调用方（退出链/测试）按 http.Server 形态使用。
   const rawClose = server.close.bind(server)

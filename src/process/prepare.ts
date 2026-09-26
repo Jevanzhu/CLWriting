@@ -25,7 +25,7 @@ import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js
 import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 import { volumeSummaryProvablyStale, volumeSummaryPath } from './summary.js'
-// R0916-7-P3-3：码点计量与 token 折算直引 shared 单源（estimateTokens/TOKEN_COEFFICIENTS
+// 码点计量与 token 折算直引 shared 单源（estimateTokens/TOKEN_COEFFICIENTS
 // 原定义在本文件、codePointLength 原经 ./summary.js 的 re-export 中转——前者被 provider
 // 适配器族反向依赖、后者是环边来源，两者均下沉 shared，本文件不留 re-export 兼容层）
 import { codePointLength } from '../shared/text.js'
@@ -33,12 +33,12 @@ import { estimateTokens } from '../shared/tokens.js'
 import { log, errMsg } from '../log/index.js'
 
 /**
- * W-P2-4：按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
+ * 按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
  * 替代 readChapterDir 全树递归扫描（备料为取一章此前要 stat/读全书所有 md）。
- * 文件名数字前缀走 chapterNoFromName 宽容集（S2 阶段 24 统一：-/—/空白分隔均可，
+ * 文件名数字前缀走 chapterNoFromName 宽容集（阶段 24 统一：-/—/空白分隔均可，
  * `5—标题.md` 形态对 AI 前章读取不再失明——原 parseChapterFileName 窄正则仅认 -，
  * 双向锚定回归见 test/process/prepare.test.ts 前章定位用例族）。找不到 → null。
- * S2：按名 miss → 并入回退目标章路径（前章被并入时，目标章正文结尾即续写衔接点）。
+ * 按名 miss → 并入回退目标章路径（前章被并入时，目标章正文结尾即续写衔接点）。
  * 正确性兜底：卷目录只存在一层（写作/正文/<卷>/），更深嵌套不在此结构内——
  * 若未来出现更深嵌套，此处返回 null 由调用方降级（不产出该段，行为与「无此章」一致）。
  */
@@ -52,7 +52,7 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
       return null
     }
     for (const name of entries) {
-      // R2W-8（win 平台专项复审 R2）：扩展名大小写不敏感（R34D-11 家族补齐，对齐
+      // （win 平台专项）：扩展名大小写不敏感（家族补齐，对齐
       // walk-md 口径）——资源管理器改名 .MD 的章此前对前章正文结尾配段隐形
       if (name.slice(-3).toLowerCase() !== '.md' || name.startsWith('._')) continue
       if (chapterNoFromName(name) === chapterNo) return join(dir, name)
@@ -77,7 +77,7 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
     const inVol = tryFile(join(bodyRoot, v))
     if (inVol) return inVol
   }
-  // S2（阶段 24，D3）：并入回退（正文命中恒优先——回退仅在全 miss 后咨询）
+  // （阶段 24）：并入回退（正文命中恒优先——回退仅在全 miss 后咨询）
   return mergedIntoMap(bookRoot).get(chapterNo) ?? null
 }
 
@@ -93,10 +93,10 @@ interface MaterialSection {
   flexibleRank?: number
   /** 降档版内容（减量保留，#12 第 4 节"按序降档"）；裁剪时先降档、仍超再整段移除 */
   degradedContent?: string
-  /** 低级项（第六轮）：本段注入的章/卷摘要文件（相对书根）——随段登记，预算裁剪
+  /** 低级项：本段注入的章/卷摘要文件（相对书根）——随段登记，预算裁剪
    *  整段移除后由 prepare 统一回收（injectedSummaryFiles 不再虚报注入面） */
   summaryFiles?: string[]
-  /** P5-管线（第七轮）：降档版对应的注入文件清单——降档只保留部分文件时同步收缩
+  /** -管线：降档版对应的注入文件清单——降档只保留部分文件时同步收缩
    *  summaryFiles（「可见⟺记录」红线），未设则降档不动原清单（单文件段降档仍整文件可见） */
   degradedSummaryFiles?: string[]
 }
@@ -113,26 +113,26 @@ export interface PrepareResult {
   trimmed: boolean
   /** 裁剪记录（供留痕） */
   trimLog: string[]
-  /** C1（批 2）：本次实际注入材料的章摘要文件（相对书根）——「模型可见 ⟺ 已记录」
+  /** 本次实际注入材料的章摘要文件（相对书根）——「模型可见 ⟺ 已记录」
    *  的 visible 侧清单，调用方经 runSpec promptFiles → llm/call promptMeta.files 登记 */
   injectedSummaryFiles: string[]
 }
 
-// ── R0916-7-P3-3（2026-09-16 评审修复批）：token 折算单源迁 shared/tokens.ts ──────
-// 本文件原持 TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件（C4 批 3），
+// ── （评审修复批）：token 折算单源迁 shared/tokens.ts ──────
+// 本文件原持 TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件，
 // 被最底层适配器族 ai/provider/usage-estimate.ts 反向引用（provider→编排层传递依赖，
 // 与 ai 侧回引本模块合围成强连通）。三件随迁 src/shared/tokens.ts 单源，本文件不留
 // re-export 兼容层（全库「不留双轨」口径）：消费方（本文件预算闸 / 适配器族）直引新家。
-// R48-56（四十八轮）的 codePointLength 收编注仍成立——其实现早已在 shared/text.ts。
+// 的 codePointLength 收编注仍成立——其实现早已在 shared/text.ts。
 
 /**
  * 取正文末尾至多 maxChars 字，按段落边界（`\n\n`）截断，不切半句。
- * C1 前章正文结尾段用——1500 字全量 / 500 字降档。
+ * 前章正文结尾段用——1500 字全量 / 500 字降档。
  */
 function tailByParagraph(body: string, maxChars: number): string {
   const trimmed = body.trimEnd()
   if (codePointLength(trimmed) <= maxChars) return trimmed
-  // R72-7（二十轮 C-2）：截尾按码位（对齐全库 code point 口径，summary.clipByCodePoints
+  // 截尾按码位（对齐全库 code point 口径，summary.clipByCodePoints
   // 同源语义）——UTF-16 码元 slice(-n) 会把增补平面字符切成半个代理对，边界偏差至多 2 倍
   const tail = Array.from(trimmed).slice(-maxChars).join('')
   // 跳到首个段落边界之后，避免切半句；无边界则原样返回（极长段罕见）
@@ -147,10 +147,10 @@ function tailByParagraph(body: string, maxChars: number): string {
  * @param config book.yaml
  * @param bookRoot 书仓库根
  * @param chapterLeadIds 本章细纲声明推进的账本条目 id（#12 第 2 节#2 源头限流）
- * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 R1 接缝）。
+ * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 接缝）。
  *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
  *        **不传 → 无此段 → 行为与现状逐字节一致**（工单验收红线）。
- * @param sampleScene 文风样章场景。可单值或多值（G2 跨场景）；缺省回落「战斗」，保持旧调用兼容。
+ * @param sampleScene 文风样章场景。可单值或多值（跨场景）；缺省回落「战斗」，保持旧调用兼容。
  */
 export function prepare(
   db: DatabaseSync,
@@ -159,16 +159,16 @@ export function prepare(
   chapterLeadIds: string[],
   ragRecallText?: string,
   sampleScene: string | string[] = '战斗',
-  /** C4（批 3）：写稿模型 id（token 系数按模型查表；未传 = 全局 0.6 兜底，行为与从前一致） */
+  /** 写稿模型 id（token 系数按模型查表；未传 = 全局 0.6 兜底，行为与从前一致） */
   model?: string,
-  /** L-P3（第八轮）：正在写的章号——卷首章上一卷摘要按「写作章推卷」对齐
+  /** 正在写的章号——卷首章上一卷摘要按「写作章推卷」对齐
    *  selfHealVolumeSummary（其收的也是写作章）。快照 currentChapter 是最后定稿章：
    *  写卷首章 N=volumeSize+1 时快照卷号仍是上一卷，门槛不成立 → 本章缺上卷摘要、
    *  晚一章才注入。未传（重写等无章号场景）→ 沿用快照口径（行为与从前一致）。 */
   writingChapter?: number,
 ): PrepareResult {
   // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
-  // 低级项（第六轮）：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）——
+  // 低级项：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）——
   // 备料快照的「已写到第 N 章」与近况复述/判态同口径
   const snapshot = assembleStatus(
     db,
@@ -190,8 +190,8 @@ export function prepare(
   const { estimatedTokens, trimmed } = applyBudgetTrim(config, sections, trimLog, model)
   const text = serializeSections(sections, trimmed, trimLog)
 
-  // C1（批 2）：章摘要注入的 visible 侧清单（相对书根路径）。
-  // 低级项（第六轮）：裁剪整段移除后按存活段重算——段被移除即模型不可见，原先
+  // 章摘要注入的 visible 侧清单（相对书根路径）。
+  // 低级项：裁剪整段移除后按存活段重算——段被移除即模型不可见，原先
   // 留在清单里会虚报注入面（promptMeta.files 与实际 prompt 分裂）
   const injectedSummaryFiles = sections.flatMap((s) => s.summaryFiles ?? [])
 
@@ -214,16 +214,16 @@ function buildEndingsSections(
   const sections: MaterialSection[] = []
 
   // 弹性#1 近章结尾（缩 1-2 章，flexibleRank=1，最后才砍；降档=只留最近 1 章）
-  // C1（批 2）：摘要文件剥 fm 再注入（fm 是程序元数据非内容）；注入文件随段登记进
+  // 摘要文件剥 fm 再注入（fm 是程序元数据非内容）；注入文件随段登记进
   // summaryFiles（visible 侧——promptMeta.files 可回溯；整段被裁时随段回收）
   const recentEndings = readChapterSummaries(db, Math.max(1, snapshot.currentChapter - 1), snapshot.currentChapter)
   if (recentEndings.length > 0) {
     const parts: string[] = []
     const files: string[] = []
     for (const r of recentEndings) {
-      // R48-10（四十八轮）：existsSync→readFileSync TOCTOU 无守卫——readFileSync 抛出
+      // existsSync→readFileSync TOCTOU 无守卫——readFileSync 抛出
       //（win 瞬态 EBUSY/文件刚被删）此前穿上游 catch{} 零留痕，prompt 无声瘦身；
-      // 包 try/catch 降级为「无此文件」+ log.warn（R65-31 口径）
+      // 包 try/catch 降级为「无此文件」+ log.warn（口径）
       if (!isWithinRoot(bookRoot, r.path)) continue
       let raw: string
       try {
@@ -235,7 +235,7 @@ function buildEndingsSections(
       }
       const split = splitFrontMatter(raw)
       parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
-      files.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
+      files.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // 收口：审计记录统一正斜杠口径
     }
     if (parts.length > 0) {
       sections.push({
@@ -245,23 +245,23 @@ function buildEndingsSections(
         flexibleRank: 1,
         degradedContent: parts.slice(-1).join('\n\n'),
         summaryFiles: files,
-        // P5-管线（第七轮）：降档只留最近 1 章结尾，清单同步收缩到同章文件
+        // -管线：降档只留最近 1 章结尾，清单同步收缩到同章文件
         degradedSummaryFiles: files.slice(-1),
       })
     }
   }
 
-  // 弹性#1.5 前章正文结尾（C1：衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
-  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录，W-P2-4——不再全树 readChapterDir）；
+  // 弹性#1.5 前章正文结尾（衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
+  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录，——不再全树 readChapterDir）；
   // 都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
-  // PL-1（第七轮）：前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
-  // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=N-1）拿到的是 N-2
-  // 原文——N-2 已有摘要+原文双份覆盖，真正的前章 N-1 反而只有摘要转述。
+  // PL-1前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
+  // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=）拿到的是
+  // 原文—— 已有摘要+原文双份覆盖，真正的前章反而只有摘要转述。
   // flexibleRank=1.5：比近章结尾摘要（rank 1）先砍、比文风样章（rank 2）后砍；降档=末尾 500 字
   const prevChapterNo = snapshot.currentChapter
   if (prevChapterNo >= 1) {
     let prevBody: string | null = null
-    // W-P2-4：只扫 正文根+卷目录 两层找前一章，不再全树 readChapterDir（为取一章读全书）
+    // 只扫 正文根+卷目录 两层找前一章，不再全树 readChapterDir（为取一章读全书）
     const prevPath = findChapterByNumber(bookRoot, prevChapterNo)
     if (prevPath && isWithinRoot(bookRoot, prevPath)) {
       const r = readFile(prevPath)
@@ -292,7 +292,7 @@ function buildStyleSections(
 ): MaterialSection[] {
   const sections: MaterialSection[] = []
 
-  // 文风（S5 预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
+  // 文风（预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
   // 未迁移书（无条目库）→ 旧行为：铁律全文刚需注入
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const hasEntryLib = existsSync(entriesDir)
@@ -305,7 +305,7 @@ function buildStyleSections(
   } else {
     const ironPath = join(bookRoot, '文风', '文风铁律.md')
     if (existsSync(ironPath)) {
-      // R48-10（四十八轮）：读盘包 try/catch + warn（同近章结尾同编号注）——瞬态读
+      // 读盘包 try/catch + warn（同近章结尾同编号注）——瞬态读
       // 失败此前穿上游 catch{} 零留痕（prompt 无声丢刚需段）；降级为无此段
       let iron: string | null = null
       try {
@@ -324,9 +324,9 @@ function buildStyleSections(
   }
 
   // 弹性#2 文风样章（降浓度，flexibleRank=2；降档=只留 1 段）
-  // 条目库路（S5）与旧样章库路的跨场景挑选见 style-samples.ts（与 draft-prompt 生产链共用）。
+  // 条目库路与旧样章库路的跨场景挑选见 style-samples.ts（与 draft-prompt 生产链共用）。
   // 总量受注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）
-  // 2026-08-19 起文风注入只走全局（已取消书级覆盖）：applyGlobalDefaults 已把 style.injection
+  // 起文风注入只走全局（已取消书级覆盖）：applyGlobalDefaults 已把 style.injection
   // 填成全局值，这里 ?? 'light' 只是直调/测试路径的双保险。
   const maxTotal = (config.style?.injection ?? 'light') === 'heavy' ? 3 : 1
   const sampleParts = pickStyleSamples(bookRoot, scenes, maxTotal)
@@ -410,24 +410,24 @@ function buildOutlookSections(
   const sections: MaterialSection[] = []
 
   // 弹性#3 远期卷摘要（降粗档，flexibleRank=3）。
-  // L-P3（第八轮）：卷号按写作章推（与 selfHealVolumeSummary 同口径）——写卷首章
+  // 卷号按写作章推（与 selfHealVolumeSummary 同口径）——写卷首章
   // N=volumeSize+1 时本章就要上卷摘要，快照口径会晚一章
   const outlookVolume = Math.ceil((writingChapter ?? snapshot.currentChapter) / volumeSize)
   if (outlookVolume > 1) {
-    // R48-56（四十八轮）：路径收口 volumeSummaryPath 单源（原手搓同款字面量，单源
+    // 路径收口 volumeSummaryPath 单源（原手搓同款字面量，单源
     // 改目录时此处漂移）；codePointLength 同批收编（见文件头 import）
     const volSummaryPath = volumeSummaryPath(bookRoot, outlookVolume - 1)
     if (existsSync(volSummaryPath)) {
-      // R27-107（二十七轮）：备料陈旧闸——程序生成（fm 带 sourceHash）且指纹落后于当前
+      // 备料陈旧闸——程序生成（fm 带 sourceHash）且指纹落后于当前
       // 章摘要链 = 可证明过期，不再注入 prompt（宁缺段降级，不喂过期剧情误导续写）；
       // 手写/链不全/读失败等无法证明的形态放行（宁窄勿误杀，判据收在
       // summary.volumeSummaryProvablyStale 单一真相源）。放弃注入即留痕（对齐全库 warn 风格）
       if (volumeSummaryProvablyStale(bookRoot, outlookVolume - 1, volumeSize)) {
         log.warn('prepare', `第 ${outlookVolume - 1} 卷摘要已过期（章摘要链指纹不匹配），本次备料不注入`)
       } else {
-        // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
+        // 卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
         // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
-        // R48-10（四十八轮）：读盘包 try/catch + warn（同前两处同编号注）；降级为无此段
+        // 读盘包 try/catch + warn（同前两处同编号注）；降级为无此段
         let raw: string | null = null
         try {
           raw = readFileSync(volSummaryPath, 'utf-8').trim()
@@ -459,7 +459,7 @@ function buildOutlookSections(
     })
   }
 
-  // #8 RAG 召回（弹性，flexibleRank 5 最先砍，#37 R1 接缝）
+  // #8 RAG 召回（弹性，flexibleRank 5 最先砍，#37 接缝）
   // 不传/空串 → 无此段 → prepare 行为逐字节不变（验收红线）
   if (ragRecallText && ragRecallText.length > 0) {
     sections.push({
@@ -490,7 +490,7 @@ function applyBudgetTrim(
       .filter((s) => !s.essential && s.flexibleRank !== undefined)
       .sort((a, b) => b.flexibleRank! - a.flexibleRank!)
 
-    // 第一轮：有降档版的先降一档（减量保留连贯性）
+    // 有降档版的先降一档（减量保留连贯性）
     for (const s of flexSections) {
       if (totalTokens <= budget) break
       if (s.degradedContent !== undefined && s.content !== s.degradedContent) {
@@ -499,7 +499,7 @@ function applyBudgetTrim(
         // 提前停裁或过度裁剪）
         const before = estimateTokens(s.content, model)
         s.content = s.degradedContent
-        // P5-管线（第七轮）：降档同步收缩 summaryFiles——近章结尾降档只留最近 1 章，
+        // -管线：降档同步收缩 summaryFiles——近章结尾降档只留最近 1 章，
         // 清单若仍登记两章即 promptMeta.files 虚报注入面（「可见⟺记录」红线降档漏网）
         if (s.degradedSummaryFiles) s.summaryFiles = s.degradedSummaryFiles
         totalTokens -= before - estimateTokens(s.content, model)
@@ -508,7 +508,7 @@ function applyBudgetTrim(
       }
     }
 
-    // 第二轮：仍超预算 → 从弹性末位往前整段移除
+    // 仍超预算 → 从弹性末位往前整段移除
     for (const s of flexSections) {
       if (totalTokens <= budget) break
       const idx = sections.indexOf(s)

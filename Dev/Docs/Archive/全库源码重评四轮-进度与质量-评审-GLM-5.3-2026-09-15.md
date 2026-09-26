@@ -47,13 +47,13 @@
 
 - 全量 `vitest run` 在**并发负载下**（评审子代理在途）4/4 确定性 worker OOM，堆分别给默认 ~4GB / 8GB / 36GB 均在 main.test.ts 约第 42 例完成后耗尽（36GB 全耗尽证明非线性慢漏而是失稳后的无界分配）；机器 64GB / 当时空闲 ~49GB，非物理内存不足。
 - **空载可通过**：并行会话 2026-09-15 同树全量实录 1144 文件 = 7285 过 + 70 跳 0 败（370.02s）——同组合、同树、差异仅在并发负载。
-- 同负载条件下另有 2 个时序敏感文件失败（re2-manifest-lock-reentry-async:51 锁探针 / r35-search-cache:R35-7 TTL·mtime），**孤立复跑 10/10 全绿销案**（见 §六）——负载脆性不止一处，main.test.ts 是其中最重的一处。
+- 同负载条件下另有 2 个时序敏感文件失败（re2-manifest-lock-reentry-async:51 锁探针 / search-cache:R35-7 TTL·mtime），**孤立复跑 10/10 全绿销案**（见 §六）——负载脆性不止一处，main.test.ts 是其中最重的一处。
 
 **归因（R9 静态复核后主审采纳，含记正）**：初判「:2065（R0912-3 #35）单用例 mock process.on/exit + forkBehavior='pending' 使重启链失去终止条件 → 无界分配」**不成立，撤回记正**——①该用例真实执行序为第 71/92 位，死于第 42 例时序上不可能由它引爆；②重启链终止条件（`RESTART_MAX_ATTEMPTS=3` 封顶 + backoff + `shutdownStarted` 门 + 假件 kill 即 queueMicrotask exit）全在 manager 闭包态内，mock process.on/exit 不移除它们（R9 逐链追踪 server-manager :424-454/:1005-1127）。**修正归因 = 文件级累积钉死底噪在负载下失稳**：39 次动态重导入 main.js × 每次注册 6 个真实 process 监听器（main.ts:679-681/684/722 共 5 个 + app-instance-guard.ts:57 once('exit') 1 个）≈ 220+ 个永久钉死监听器，整张旧模块图不可 GC（vitest 未开 restoreMocks、无卸载钩子、全树无 process 级 removeAllListeners），叠加 M.windows/forkChildren/logErrors 单调捕获数组与陈旧实例后台链——文件头注 :458-463 自认「陈旧模块的观察窗会在后续用例执行中途触发并 fork 假 child」且仅以 1h env 钉死 session-end 一条路径；forks×4 并发与 rag/check scale GB 级峰值叠加（vitest.config.ts:48-53 记档过 19GB 事故）时 worker 堆失稳耗尽。「空载可过、负载下 4/4 稳定复现」与「累积钉死 + 竞争失稳」形态一致，与「确定性死循环」（空载也该爆）矛盾。台账另有同族前科互证：R0913 win 适配批记档「will-quit 注册与 main.test.ts 假件交互致 worker OOM〔二分定位〕」。引爆的精确分配点未定位，修复时建议 `--heap-prof` 补证。
 
 **后果**：本地 L2 全量门在本机主力环境（win×Node26）负载下不可靠——评审/多代理并行会话正是本项目常态工作形态；且 CI 矩阵排除 win+node26，该组合无任何自动背书（engines 允许 node 26，非不支持）。
 
-**修法建议（R9 三件套 + 主审补）**：①文件级 beforeAll 对 process.on 做「六事件名单过滤」包装（名单内仅捕获、名单外透传——**不可** removeAllListeners，会剥掉 vitest/tinypool 自身通道），afterAll 还原，一处收口整个重导入家族；或 main.ts 暴露 `__testHooks.disposeMain()`（自摘监听器 + stopChild）供 afterEach 调用（r38-exit-guards 静态守卫先例）；②:2065 用例断言后 drain 一拍（等 child2 exit 回执与 stopChild 竞速落定再返回）；③server-manager.test.ts:1416+ 已在单元层覆盖同场景（killNow 直测、无 process spy 栈），main.test.ts 侧可削薄为 wiring 断言；④（披露项）CI 矩阵 win+node26 盲区可择机补腿或 README 披露。
+**修法建议（R9 三件套 + 主审补）**：①文件级 beforeAll 对 process.on 做「六事件名单过滤」包装（名单内仅捕获、名单外透传——**不可** removeAllListeners，会剥掉 vitest/tinypool 自身通道），afterAll 还原，一处收口整个重导入家族；或 main.ts 暴露 `__testHooks.disposeMain()`（自摘监听器 + stopChild）供 afterEach 调用（exit-signal-guards 静态守卫先例）；②:2065 用例断言后 drain 一拍（等 child2 exit 回执与 stopChild 竞速落定再返回）；③server-manager.test.ts:1416+ 已在单元层覆盖同场景（killNow 直测、无 process spy 栈），main.test.ts 侧可削薄为 wiring 断言；④（披露项）CI 矩阵 win+node26 盲区可择机补腿或 README 披露。
 
 ## 四、P3 明细（21 项，全部主审亲验）
 
@@ -120,7 +120,7 @@
 | check:counts / check:packaging / check:knowledge | 过 / 过 / 过 |
 | e2e（playwright，31 spec / 51 用例——R9 盘点与 README 口径逐字吻合：常规 49 + 2 跳系 release-smoke 需 CLWRITING_E2E_RELEASE） | **49 过 + 2 跳（1.0m）** |
 | soak 两段 | OK（8.35→8.33MB / 8.85→8.91MB，上界 24MB） |
-| vitest 全量（除 main.test.ts）· 负载条件 | 1143 文件 = 7190 过 + 70 跳 + **2 败**（re2-manifest-lock-reentry-async:51 / r35-search-cache R35-7）——**孤立复跑 10/10 全绿，判负载时序抖动销案**，非回归 |
+| vitest 全量（除 main.test.ts）· 负载条件 | 1143 文件 = 7190 过 + 70 跳 + **2 败**（re2-manifest-lock-reentry-async:51 / search-cache R35-7）——**孤立复跑 10/10 全绿，判负载时序抖动销案**，非回归 |
 | vitest 全量（含 main.test.ts）· 负载条件 | **4/4 worker OOM**（§三 P2；堆 4/8/36GB 均耗尽） |
 | vitest 全量 · 空载条件 | 引用并行会话同日同树实录：**1144 文件 = 7285 过 + 70 跳 0 败（370.02s）**——本会话未复跑空载全量（负载 OOM 调查已耗 4 次；如实记档，以实录引用为据） |
 

@@ -1,5 +1,5 @@
 /**
- * 大内容外置 spill 低配（批次 B3 / DSH-2 直抄思想；介质拍板：工作区目录 + 事件只记 locator）。
+ * 大内容外置 spill 低配（批次 / DSH-2 直抄思想；介质拍板：工作区目录 + 事件只记 locator）。
  *
  * 语义（dsh spill-policy）：
  * - 超阈值的纯文本落盘（工作区/spills/<内容哈希16>.md，幂等——同内容同名），
@@ -9,7 +9,7 @@
  * - read 防环：本模块只用于 prompt 上下文组装（buildChatContext），不套在 read_chapter
  *   工具结果上——模型取回的全文不再二次外置，read→spill→read 环不存在。
  *
- * 事件侧（spill/ref locator 记账）属 F1-P2/P3 事件族收敛，此处只做 fs 层。
+ * 事件侧（spill/ref locator 记账）属 /事件族收敛，此处只做 fs 层。
  */
 
 import { createHash } from 'node:crypto'
@@ -17,8 +17,8 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs
 import { join } from 'node:path'
 import { atomicWriteFile, rmQuietly } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
-import { log } from '../log/index.js' // R0912-3：写失败节流 warn 留痕
-// R26-96：非分配码位计数单源复用；R0916-7-P3-3 直引实现所在模块（原经 ./summary.js
+import { log } from '../log/index.js' // 写失败节流 warn 留痕
+// 非分配码位计数单源复用；直引实现所在模块（原经 ./summary.js
 // re-export 中转，已剥除）
 import { codePointLength } from '../shared/text.js'
 
@@ -42,7 +42,7 @@ interface SpillOutcome {
 type SpillWriter = (fullText: string) => string | null
 
 /** 落盘到 工作区/spills/<sha256 前 16>.md（内容寻址幂等；目录不存在自动建）。
- *  M-3（第十轮）：meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
+ *  ：meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
  *  spill 归属章号与基线新鲜度，防「转述错章号整章覆写」与「改写后被编辑仍静默覆盖」。
  *  正文文件保持纯文本不变（内容寻址与模型直读语义不动）；sidecar 写失败随整次写入
  *  失败返回 null（无 meta 的 spill 在 apply 侧一律拒绝，不留半保障状态）。 */
@@ -55,13 +55,13 @@ interface SpillMeta {
   baseSha: string
 }
 
-/** R0912-3（2026-09-12 全量重评修复批 B3-28）：写失败 warn 节流窗（每书根至多一条/窗）
+/** （修复）：写失败 warn 节流窗（每书根至多一条/窗）
  *  ——失败常驻（磁盘满/权限/占用）时连发不刷日志；手法同 sweepOldSpillsThrottled 的
  *  Map 时间戳。窗内静默不代表恢复，窗外首败重新留痕。 */
 const SPILL_WARN_THROTTLE_MS = 60 * 1000
 const spillWarnLastAt = new Map<string, number>()
 
-/** R0912-3：写失败分支留痕（书根可归因 + 失败原因 + 降级后果）——此前全链
+/** 写失败分支留痕（书根可归因 + 失败原因 + 降级后果）——此前全链
  *  （本 catch → spillIfLarge null → 全文内联）静默，上下文成本膨胀不可归因。 */
 function warnSpillWriteFailed(bookRoot: string, e: unknown): void {
   const now = Date.now()
@@ -72,10 +72,10 @@ function warnSpillWriteFailed(bookRoot: string, e: unknown): void {
 }
 
 export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
-  // 重评-0914-三轮 P3-7：记录正文已写成的路径——meta sidecar 失败时 best-effort 清理用
+  // -：记录正文已写成的路径——meta sidecar 失败时 best-effort 清理用
   let bodyWritten: string | undefined
   try {
-    // A6（五十九轮）：locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
+    // locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
     // 两次改写产出相同正文（如同一基线重复改写命中缓存/模型复读）时第二次会顶替同名
     // sidecar meta，先前确认通道凭空失效（apply_spill fail-closed 拒绝，形成无效工具往返）。
     // 并入章号+基线后不同基线的同文 spill 各得独立 locator，meta 不再互覆；读侧
@@ -85,25 +85,25 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     if (meta) hash.update(`\n---spill-meta---\n${meta.chapter}\n${meta.baseSha}`, 'utf8')
     const digest = hash.digest('hex').slice(0, 16)
     const dir = join(bookRoot, '工作区', 'spills')
-    // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
+    // kk-原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
     const bodyPath = join(dir, `${digest}.md`)
     atomicWriteFile(bodyPath, text)
     bodyWritten = bodyPath
     if (meta) atomicWriteFile(join(dir, `${digest}.meta.json`), JSON.stringify(meta))
-    // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
+    // L-：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
-    // R0910-W（2026-09-10 修复批）：热写路径不再每次全目录 readdir+逐文件 stat——改经
+    // （修复批）：热写路径不再每次全目录 readdir+逐文件 stat——改经
     // 节流（每小时至多一次，见 SPILL_SWEEP_THROTTLE_MS）；GC 主通道改为生命周期侧显式
     // 调 sweepOldSpills（导出，供 state 的 housekeeping 扫挂点接线；本文件不引 state）。
     sweepOldSpillsThrottled(bookRoot)
     return `工作区/spills/${digest}.md`
   } catch (e) {
-    // 重评-0914-三轮 P3-7：正文写成功而 meta sidecar 失败时，本次降级返 null，正文却成
+    // -：正文写成功而 meta sidecar 失败时，本次降级返 null，正文却成
     // 「无 sidecar 孤儿」（apply 侧一律拒绝、模型侧无 locator 不可达），原先仅靠 TTL GC
     // 收口——此处 best-effort 删刚写的正文收窄窗口。内容寻址幂等：同内容下次成功写入
     // 会原样重建；删失败静默（win 杀软瞬时锁走 rmQuietly，残留仍交 TTL GC 兜底）。
     if (bodyWritten !== undefined) rmQuietly(bodyWritten)
-    warnSpillWriteFailed(bookRoot, e) // R0912-3：降级为全文内联前节流留痕（恰一次/窗）
+    warnSpillWriteFailed(bookRoot, e) // 降级为全文内联前节流留痕（恰一次/窗）
     return null
   }
 }
@@ -112,7 +112,7 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
 const SPILL_LOCATOR_RE = /^工作区\/spills\/[0-9a-f]{16}\.md$/
 
 /**
- * GG-P2-2 读侧：按 locator 取回 spill 全文（apply_spill 落盘通道共用）。
+ * 读侧：按 locator 取回 spill 全文（apply_spill 落盘通道共用）。
  * locator 必须严格匹配内容寻址命名（writeSpillFile 的产物形态）+ isWithinRoot 双保险；
  * 文件不存在/校验不过/读盘失败 → null（调用方按「spill 不存在」语义回应）。
  */
@@ -128,7 +128,7 @@ export function readSpillFile(bookRoot: string, locator: string): string | null 
   }
 }
 
-/** M-3（第十轮）：读 spill 溯源 sidecar。locator 同款白名单；不存在/形状不符 → null
+/** 读 spill 溯源 sidecar。locator 同款白名单；不存在/形状不符 → null
  *  （apply 侧按「无溯源」拒绝，chat 上下文 spill 与手写文件天然走不进确认通道）。 */
 export function readSpillMeta(bookRoot: string, locator: string): SpillMeta | null {
   if (!SPILL_LOCATOR_RE.test(locator)) return null
@@ -151,7 +151,7 @@ function makeNote(omitted: number, locator: string, readTool: string): string {
   return `\n\n（约 ${omitted} 字已省略。全文已存储：${locator}。需要完整内容时调用 ${readTool} 工具取回。）\n\n`
 }
 
-/** R73-43（二十一轮）：正文预览最小预算（code points）——低于它继续砍头砍尾只会产出
+/** 正文预览最小预算（code points）——低于它继续砍头砍尾只会产出
  *  「只剩通知行」的 preview（模型侧失去任何正文线索，工具取回指引失去上下文）。生产
  *  配置（chat 上下文 2000/1200/400）下头尾合计远高于此值，不触发。 */
 const MIN_BODY_PREVIEW_CHARS = 200
@@ -167,7 +167,7 @@ export function spillIfLarge(
   writeSpill: SpillWriter,
   readTool = 'read_chapter',
 ): SpillOutcome {
-  // R26-96（二十六轮）：阈值判定前改非分配码位计数（summary.ts codePointLength 同源，
+  // 阈值判定前改非分配码位计数（summary.ts codePointLength 同源，
   // book-search 已有跨文件复用先例）——原先 Array.from(text) 先把全文展开成码位数组
   // 只为取个数，≤阈值的常态路径也付出 O(n) 临时数组分配；现仅超阈确需头尾切片时才展开。
   // 口径严格不变：代理对算一个码位，与展开结果一致。
@@ -185,7 +185,7 @@ export function spillIfLarge(
   let note = makeNote(total - head - tail, locator, readTool)
   // 预算预留循环：通知行随省略量微变，砍头砍尾后重定价直到装得下（floor 保证收敛）
   while (head + tail + codePointLength(note) > thresholds.maxInlineChars) {
-    // R73-43：正文保底——头尾合计已被砍到最小正文预算（且原文比它长）时不再砍，
+    // 正文保底——头尾合计已被砍到最小正文预算（且原文比它长）时不再砍，
     // 按「配置错误」同型兜底回退原文，绝不产出只剩通知行的 preview
     if (head + tail <= Math.min(total, MIN_BODY_PREVIEW_CHARS)) return { preview: text }
     if (head > 0) head = Math.floor(head * 0.8)
@@ -199,19 +199,19 @@ export function spillIfLarge(
   }
 }
 
-/** L-P8（第八轮）：删除超过 30 天未再写入的 spill 产物（best-effort，失败静默）。
- *  R62-38：判据用 mtime（最后写入时间），注释如实——atime 语义在只读/备份/
+/** L-：删除超过 30 天未再写入的 spill 产物（best-effort，失败静默）。
+ *  ：判据用 mtime（最后写入时间），注释如实——atime 语义在只读/备份/
  *  缓存读场景不可靠，不漏清正在取回的 spill；apply 链另有 baseSha 兜底防误删。
- *  M-3：.meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
+ *  ：.meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
 const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-/** R0910-W（2026-09-10 修复批）：spill 清扫热写路径节流窗——一次写入不再 stat 全目录，
+/** （修复批）：spill 清扫热写路径节流窗——一次写入不再 stat 全目录，
  *  至多每小时扫一遍；显式生命周期清扫（sweepOldSpills）不受此限。 */
 const SPILL_SWEEP_THROTTLE_MS = 60 * 60 * 1000
 const spillSweepLastAt = new Map<string, number>()
 
 /**
- * R0910-W：删除某书 30 天前的 spill（幂等、best-effort，失败静默）——导出供生命周期
+ * 删除某书 30 天前的 spill（幂等、best-effort，失败静默）——导出供生命周期
  * housekeeping 扫（state.ts 的 sweepAbandonedTmpFilesThrottled 挂点）显式调用：原清扫
  * 只在 writeSpillFile 内触发，一本书写完再无编辑时旧 spill 永久残留，仓库内无任何
  * 启动/退出/周期清扫兜底。本函数可安全重复调用（按 mtime 判据、无副作用）。

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设置 · AI 写作页（全局）：AI 对话（对话助手）+ AI 写作（文风注入/自动确认细纲/批量章数/单章上限）。
-// 本页只承载全局层（不依赖当前书）；AI 写作四项 2026-08-19 起已砍书级覆盖（所有书统一），
+// 本页只承载全局层（不依赖当前书）；AI 写作四项起已砍书级覆盖（所有书统一），
 // 生效链 global.json（prefs store）→ 硬编码回落，无书级覆盖——不出现于「本书」页。
 // 分析侧在「智能分析」页；提供方在「服务提供方」页。
 import { usePrefsStore } from '../../stores/prefs'
@@ -9,12 +9,12 @@ import BetaBadge from './BetaBadge.vue'
 import SettingItem from './SettingItem.vue'
 import SettingToggle from './SettingToggle.vue'
 
-// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init，设置打开时必已就绪）
 const prefs = usePrefsStore()
 
 // ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
 
-// R72-11（二十轮 E-2）：数值输入统一走共享 helper——空串不再被 Number('')=0 穿过
+// 数值输入统一走共享 helper——空串不再被 Number('')=0 穿过
 // isFinite 闸后 clamp 成下限
 function onGlobalBatchInput(e: Event): void {
   const v = parseNumericInput(e)

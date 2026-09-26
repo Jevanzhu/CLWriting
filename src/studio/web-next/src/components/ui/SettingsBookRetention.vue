@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 「本书」页 · 定稿版本统计（IA 重组前是 SettingsHistory 的本书部分）。
-// 版本保留策略 2026-08-19 起砍掉书级覆盖——保留天数/数量只走全局（「版本保留」页），
+// 版本保留策略起砍掉书级覆盖——保留天数/数量只走全局（「版本保留」页），
 // 本书页仅保留定稿版本统计与「立即清理」（清理按全局策略执行，同服务端 prune 链）。
 import { ref, watch } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
@@ -23,13 +23,13 @@ async function onPrune(): Promise<void> {
   pruning.value = true
   try {
     const removed = await pruneVersions(name)
-    // R26-72（二十六轮）：toast 前补书名复检（对齐 MetaFormPanel R66-31 口径）——
+    // toast 前补书名复检（对齐 MetaFormPanel 口径）——
     // 清理在途切书后，A 书的成功提示/统计重拉不落 B 书「本书」页
     if (ws.bookName !== name) return
     ui.toast(removed > 0 ? `已清理 ${removed} 个过期版本` : '没有需要清理的版本', 'success')
     await loadVersionStats()
   } catch (e) {
-    // R26-72：失败路径同门（成功路径有门、catch 漏配的同族缺陷）
+    // 失败路径同门（成功路径有门、catch 漏配的同族缺陷）
     if (ws.bookName === name) ui.toast(`清理失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   } finally {
     pruning.value = false
@@ -44,12 +44,12 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const statsGen = useStaleGuard()
 async function loadVersionStats(): Promise<void> {
   const name = ws.bookName
   if (!name) return
-  // L-F6（第八轮）：代守卫——慢响应在途切书后旧书版本统计覆盖 B 书「本书」页展示
+  // L-：代守卫——慢响应在途切书后旧书版本统计覆盖 B 书「本书」页展示
   const gen = statsGen.begin()
   try {
     const r = await getVersionStats(name)

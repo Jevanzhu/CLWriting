@@ -8,7 +8,7 @@
  * - WorkbenchView.onInterrupt：interrupted=false → 同文案（替代误导性「已中断」），
  *   interrupted=true 维持「已中断」；返回体缺省（旧 mock/异常形态）维持原口径不误报。
  *
- * WorkbenchView harness 照 r35-workbench-interrupt-lock.test.ts；ChatPanel 面照
+ * WorkbenchView harness 照 workbench-interrupt-guard.test.ts；ChatPanel 面照
  * chat-panel.test.ts（api/chat + useChatTier mock）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'

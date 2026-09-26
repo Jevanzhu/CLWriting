@@ -1,6 +1,6 @@
 /**
- * R48-11（四十八轮）：rebuild 内核 worker 线程入口（由 run-rebuild-async.ts spawn，
- * 范式对齐 export/export-worker.ts——B-24 同款）。
+ * rebuild 内核 worker 线程入口（由 run-rebuild-async.ts spawn，
+ * 范式对齐 export/export-worker.ts—— 同款）。
  *
  * rebuild 为全同步 IO + 同步 SQLite（node:sqlite 无异步面）——摘要自愈路径此前在
  * 服务进程直调全量重建，清库重扫全书期间事件循环秒级冻结（SSE 心跳/保存停摆）。

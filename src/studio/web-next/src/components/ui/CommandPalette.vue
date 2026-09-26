@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 命令面板（细案 T2.4）：⌘P 弹出。跳章（当前树叶子）+ 动作（主题/栏/专注/设置/书架）。
+// 命令面板（细案 .4）：⌘P 弹出。跳章（当前树叶子）+ 动作（主题/栏/专注/设置/书架）。
 // 模糊搜索 + ↑↓ 选 / 回车执行 / Esc 关。
 import { ref, computed, watch, nextTick } from 'vue'
 import { CornerDownLeft } from 'lucide-vue-next'
@@ -57,7 +57,7 @@ const sel = ref(0)
 const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
   if (!k) return cmds.value
-  // R39-18（三十九轮）：章号参与过滤——`no` 为补零形态（"0345"），同时命中补零
+  // 章号参与过滤——`no` 为补零形态（"0345"），同时命中补零
   // 前缀与去零前缀（输「345」跳 0345 章 / 输「03」匹配 03xx 章族）；k 全零时去零
   // 退化为空串前缀 = 全章匹配，无害。动作项无 no，仅走 label
   const kNorm = k.replace(/^0+/, '')
@@ -67,10 +67,10 @@ const filtered = computed(() => {
       (c.no !== undefined && (c.no.startsWith(k) || c.no.replace(/^0+/, '').startsWith(kNorm))),
   )
 })
-// 内存核查（2026-08-25 M-P3-13）：渲染上限——空查询时全书每章一条全量渲染为 DOM
+// 内存核查：渲染上限——空查询时全书每章一条全量渲染为 DOM
 // （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，
 // 只裁每节渲染条数（≤100）+ 尾部省略提示行。有查询词（过滤）时同样上限防长匹配。
-// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 // 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
 const sections = computed(() => {
@@ -85,9 +85,9 @@ const sections = computed(() => {
       return { ...s, items: cap.view, omitted: cap.omitted } // omitted = 未渲染条数（提示行展示）
     })
 })
-// R61-16（第六十一轮）：键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
+// 键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
 // 条目无 DOM，旧上限（filtered.length-1）会让 ↓ 走进不可见区，Enter 执行看不见的命令。
-// R33-16（三十三轮）：导航域改「已渲染条目的扁平索引数组」（按渲染顺序）——R61-16 的
+// 导航域改「已渲染条目的扁平索引数组」（按渲染顺序）—— 的
 // 「末节末项扁平索引」上限只封右边界：章节节截到 100 条而动作节全渲染时，扁平索引
 // 100~149 的章节未渲染却仍在导航域内（↓ 高亮脱离 DOM、Enter 执行看不见的章节命令，
 // 实测 150 章 + 3 动作第 100 步即入空洞）。
@@ -121,7 +121,7 @@ watch(sel, () => {
 
 async function openDoc(node: TreeNode): Promise<void> {
   if (!node.docId) return
-  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
+  // await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
   // 工作区（新书同名路径命中旧书 docId）
   const bookAtOpen = ws.bookName
   try {
@@ -148,7 +148,7 @@ watch(
 
 function onKey(e: KeyboardEvent): void {
   if (!ui.paletteOpen) return
-  // R61-3（第六十一轮）：IME 组合期让渡——Enter/方向键正在收输入法候选框
+  // IME 组合期让渡——Enter/方向键正在收输入法候选框
   if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -165,7 +165,7 @@ function onKey(e: KeyboardEvent): void {
     }
   } else if (e.key === 'Escape') {
     ui.closePalette()
-    e.preventDefault() // Z-23：本层消费 Esc，防同键退专注双效
+    e.preventDefault() // 本层消费 Esc，防同键退专注双效
   }
 }
 function run(c: Cmd): void {
@@ -176,7 +176,7 @@ function run(c: Cmd): void {
 
 <template>
   <Teleport to="body">
-    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
+    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
          面板内层 @click.stop 未变——遮罩空白处点击 = self 点击，maskClick 语义与原 @click 等价 -->
     <ModalMask :open="ui.paletteOpen" kind="palette" @mask-click="ui.closePalette">
       <div ref="paletteRef" class="palette" role="dialog" aria-modal="true" aria-label="命令面板" tabindex="-1" @click.stop>
@@ -187,7 +187,7 @@ function run(c: Cmd): void {
           placeholder="搜索章节或操作…"
           @keydown="onKey"
         />
-        <!-- R1010c-FE1-P3-4（2026-09-10 全量独立复审修复批）：结果容器 listbox 语义——
+        <!-- （修复批）：结果容器 listbox 语义——
              项 option + aria-selected 对齐 WAI-ARIA listbox 模式（↑↓ 选中态可被读屏播报） -->
         <div class="palette-list" role="listbox" aria-label="命令与章节">
           <div v-for="sec in sections" :key="sec.title" class="palette-group">
@@ -208,7 +208,7 @@ function run(c: Cmd): void {
               </span>
               <CornerDownLeft v-if="i === sel" :size="13" class="pi-enter" />
             </div>
-            <!-- M-P3-13：每节渲染上限外的省略提示（继续输入缩小范围后可见） -->
+            <!-- ：每节渲染上限外的省略提示（继续输入缩小范围后可见） -->
             <div v-if="sec.omitted > 0" class="pg-more">已省略 {{ sec.omitted }} 项，继续输入以缩小范围</div>
           </div>
           <div v-if="!filtered.length" class="palette-empty">无匹配</div>
@@ -272,7 +272,7 @@ function run(c: Cmd): void {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-/* M-P3-13：渲染上限省略提示行 */
+/* 渲染上限省略提示行 */
 .pg-more {
   padding: var(--size-4-1) var(--size-4-3);
   font-size: var(--font-size-xxs);

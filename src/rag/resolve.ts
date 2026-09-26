@@ -8,7 +8,7 @@
  * 两条链 env CLWRITING_RAG_API_KEY 都最高优先（运维覆盖一切落盘 key）。
  *
  * 服务商列表走参数注入（rag 域不 import ai 域，依赖方向干净；调用方从
- * loadProviders().ragProviders 取后传入），因此本函数是纯函数、可直接单测。
+ * loadProviders.ragProviders 取后传入），因此本函数是纯函数、可直接单测。
  */
 import { readApiKey, envRagApiKey, type RagConfig } from './config.js'
 

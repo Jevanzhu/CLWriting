@@ -5,7 +5,7 @@
  * 重试到上限 → 升级 ask 作者（人话，不给堆栈）。
  * 黄项不打回——随草稿进三审。
  *
- * M2 写好状态机，由 `src/ai/orchestrate/self-heal.ts` 接线进 /auto-write 全自动写章闭环。
+ * 写好状态机，由 `src/ai/orchestrate/self-heal.ts` 接线进 /auto-write 全自动写章闭环。
  * （编排器从 api 层迁入 ai/orchestrate 层：解耦 HTTP 语境，api/ 只留端点接线。）
  * 本模块实现「打回判定 + 重试计数 + 超限升级」的控制逻辑。
  */
@@ -61,9 +61,9 @@ export function evaluateRetry(
   }
 }
 
-// O-8（第十三轮）：formatRetryState（三态人话，生产无调用方、仅测试消费的准死代码）已删
+// formatRetryState（三态人话，生产无调用方、仅测试消费的准死代码）已删
 
-// ── A4（DSH-19）：连续相同红项 → 换策略提醒 ──────────
+// ── （DSH-19）：连续相同红项 → 换策略提醒 ──────────
 
 /**
  * 红项集合 canonical key：去重 + 排序后拼接。

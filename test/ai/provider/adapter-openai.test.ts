@@ -143,7 +143,7 @@ describe('OpenAI 适配器', () => {
     // 旧契约：usage 在场即按 done 收口（截断流被伪装成功）；R33-3 收窄——
     // usage-only chunk 只证明计费上报过，无 finish_reason 仍按 R1 传输截断报错
     //（夹具注：无 finish_reason 的「合规 include_usage」对照组见下一条用例；dev 线
-    // r31a-openai-truncation.test.ts 为同契约独立锚定。）
+    // openai-truncation-usage-estimate.test.ts 为同契约独立锚定。）
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ retryable: true, code: 'NETWORK' })
   })

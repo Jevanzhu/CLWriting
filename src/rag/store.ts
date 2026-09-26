@@ -1,5 +1,5 @@
 /**
- * RAG 向量存取 —— 依据 M7 #37 spec 第 3/4/5 节。
+ * RAG 向量存取 —— 依据 #37 spec 第 3/4/5 节。
  *
  * per-book RAG 库（.cache/rag.db）生命周期 + 向量 BLOB 序列化 + 余弦召回。
  * 纯 node:sqlite + 纯 JS 余弦（零依赖，不引向量索引库）。
@@ -20,7 +20,7 @@ export interface RagChunk {
   end_offset: number
   /** Float32Array（从 BLOB 读回） */
   embedding: Float32Array
-  /** A3（批 7）：预存 L2 范数（存量行由 ensureNormColumn 回填；异常缺失时召回侧现算兜底） */
+  /** 预存范数（存量行由 ensureNormColumn 回填；异常缺失时召回侧现算兜底） */
   norm: number | null
   model: string
   indexed_at: string
@@ -36,7 +36,7 @@ interface ChunkInput {
 }
 
 /** Float32Array ↔ Buffer（BLOB 序列化）。
- *  R31-36（三十一轮）登记维持：序列化按 TypedArray 本机字节序（现实宿主 x86/ARM
+ *  登记维持：序列化按 TypedArray 本机字节序（现实宿主 x86/ARM
  *  全小端，无实害面）——显式 littleEndian 需换 DataView 并作废旧库向量（全部 rag.db
  *  重嵌一次），代价远超理论收益；若未来出现大端宿主跨架构迁移需求再立项。 */
 export function float32ToBuffer(arr: Float32Array): Buffer {
@@ -82,7 +82,7 @@ export function resolveRagDbPath(bookRoot: string): string {
   }
   try {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
-    // R65-4（十三轮）：迁移前先 checkpoint——把 WAL 已提交事务并入主库文件，从根上消除
+    // 迁移前先 checkpoint——把 WAL 已提交事务并入主库文件，从根上消除
     // 「主库 rename 成功而 -wal 侧车迁走失败（EBUSY/杀软占用）→ 侧车里已提交事务丢失、
     // 新路径开出空库、全书重嵌入」的窗口。checkpoint 失败不阻断迁移（回落旧行为 +
     // 下方侧车告警兜底）。TRUNCATE 把 wal 清零后，侧车 rename 即使失败也已无数据可丢。
@@ -91,9 +91,9 @@ export function resolveRagDbPath(bookRoot: string): string {
       try {
         legacy.exec('PRAGMA wal_checkpoint(TRUNCATE)')
       } finally {
-        // R0912-G1-P3-1（2026-09-12 独立重评修复批）：close 收编 closeRagDb——迁移探测
-        // 库虽未走 prepared() 入缓存，但统一走带缓存注销的关库 helper（同文件 R0911-G-P3-4
-        // 纪律：RAG 库的 close 一律不走裸 db.close()），防未来此段引入 prepared 调用时
+        // （修复批）：close 收编 closeRagDb——迁移探测
+        // 库虽未走 prepared 入缓存，但统一走带缓存注销的关库 helper（同文件
+        // 纪律：RAG 库的 close 一律不走裸 db.close），防未来此段引入 prepared 调用时
         // 裸 close 重新打开 ephemeron 环泄漏面
         closeRagDb(legacy)
       }
@@ -102,7 +102,7 @@ export function resolveRagDbPath(bookRoot: string): string {
     }
     renameSync(legacyPath, dbPath)
   } catch {
-    // R71-36（总七十一轮）：双进程并发迁移竞态——败者的 rename 撞上胜者已迁移完成时
+    // （总七十一轮）：双进程并发迁移竞态——败者的 rename 撞上胜者已迁移完成时
     // ENOENT，此前无条件回退 legacyPath 会在旧路径（已被胜者迁走）上让 DatabaseSync
     // 重新开出空库，跑完会话 + 残留孤儿库。先复查 dbPath：存在 ⇒ 胜者已迁移完成，
     // 改道用新库；仍不存在才是真未迁移（.cache 建不成等），回退旧路径
@@ -116,9 +116,9 @@ export function resolveRagDbPath(bookRoot: string): string {
       try {
         renameSync(legacyPath + ext, dbPath + ext)
       } catch {
-        // R65-4：不留静默回退——主库已迁而侧车滞留旧处时记 warn（checkpoint 失败 +
+        // 不留静默回退——主库已迁而侧车滞留旧处时记 warn（checkpoint 失败 +
         // rename 失败双降级才会到这；日志至少能看到「迁移丢失」而非「未建过库」）
-        // R66-10（十四轮）：console.warn → log 通道——Electron 生产环境 console 不被采集，
+        // console.warn → log 通道——Electron 生产环境 console 不被采集，
         // 迁移丢失线索必须落文件日志
         log.warn('rag', `迁移侧车失败（${ext}）：${legacyPath}${ext} 滞留旧处，WAL 内已提交数据可能丢失`)
       }
@@ -128,7 +128,7 @@ export function resolveRagDbPath(bookRoot: string): string {
 }
 
 /**
- * R35-13（三十五轮）：库级损坏识别——窄匹配 SQLITE_NOTADB（errcode 26）/ SQLITE_CORRUPT
+ * 库级损坏识别——窄匹配 SQLITE_NOTADB（errcode 26）/ SQLITE_CORRUPT
  *（errcode 11，含扩展码取低 8 位）及其确定性 message 形态；BUSY(5)/IO(10)/约束等绝不
  * 误判为损坏（误判 + 删库 = 把可重试故障升级成整库重嵌）。有 errcode 时只认 errcode，
  * message 兜底仅用于无 errcode 的宿主差异。
@@ -144,23 +144,23 @@ export function isRagDbCorruptionError(e: unknown): boolean {
 }
 
 /** unlink 退避的可重试错误码（deleteRagDbFiles 用）：EPERM/EBUSY + EACCES
- * （R37-39，win FAT 权限变体）；ENOENT 不进重试面——R0912-G1-P3-7 起视为删除
+ * （win FAT 权限变体）；ENOENT 不进重试面—— 起视为删除
  * 已成功（目标状态达成），其余确定性错误零重试原样上抛。 */
 const RETRYABLE_UNLINK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
 
 /**
- * R35-13（三十五轮）：删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
+ * 删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
  * 故障/杀软半写后的非 SQLite 字节流）清表救不了，只能删库重建——.cache/rag.db 是派生
  * 缓存区（schema.ts 自述），可弃可重建语义下删库不丢真数据（重嵌成本除外）。调用方
  * 必须先经 isRagDbCorruptionError 确认损坏，绝不对 busy/IO 等可重试错误删库。
  *
- * R37-39（三十七轮）/ R1W-11（win 平台专项复审 R1）双线同旨合并——unlink 的
+ * / （win 平台专项）双线同旨合并——unlink 的
  * EBUSY/EPERM/EACCES 小退避重试：win 杀毒/索引器瞬时占用 .cache/rag.db 时
  * unlinkSync 直接上抛会把删库自愈链变 500（瞬时占用毫秒级即释放）。本函数取
- * R37-39 实现：3 次重试 × 200ms 固定间隔，本函数在 resetRagIndex 同步链上
+ * 实现：3 次重试 × 200ms 固定间隔，本函数在 resetRagIndex 同步链上
  *（DatabaseSync 同步 API，不可异步化），同步退避先例同 fs/atomic.ts
  * renameWithRetry（Atomics.wait 微睡 + unlink/sleep 可注入测试口，不动生产语义）。
- * 仅瞬时占用码进重试——R0912-G1-P3-7（2026-09-12 独立重评修复批）：ENOENT 视为
+ * 仅瞬时占用码进重试——（修复批）：ENOENT 视为
  * 已成功（existsSync 探测与 unlink 之间的 TOCTOU 窗口内文件被并发删掉 = 删除目标
  * 已达成，不再误报失败；确定性错误照旧不放宽重试）；其余确定性错误立即上抛。
  * 最终仍失败抛带结构化信息的
@@ -191,13 +191,13 @@ export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOption
         break
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code ?? ''
-        // R0912-G1-P3-7：ENOENT = 文件已不在（并发删除赢过了 existsSync 探测的
+        // ENOENT = 文件已不在（并发删除赢过了 existsSync 探测的
         // TOCTOU 窗口）→ 删除目标已达成，视为成功 break（不重试不抛）；其他
         // 确定性错误零重试原样上抛（先例同 renameWithRetry）
         if (code === 'ENOENT') break
         if (!RETRYABLE_UNLINK_CODES.has(code)) throw e
         if (attempt >= retries) {
-          // R37-39：重试耗尽的结构化收口（文件名+code+已重试次数）
+          // 重试耗尽的结构化收口（文件名+code+已重试次数）
           throw new Error(
             `删除 RAG 库文件失败（${fp}，${code}，已重试 ${retries} 次）：文件被占用或权限不足，请关闭占用程序后重试重建索引`,
           )
@@ -216,15 +216,15 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   // 句柄若泄漏，win 上 unlink/rm 全撞 EBUSY/EPERM（deleteRagDbFiles 删库自愈链、
   // 测试 afterEach 清理皆死）；posix unlink 虽可带句柄删除，fd 泄漏同样是伤。
   try {
-    // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
-    // P2-6（全库重评-0914）：N3 同款漏修（对照 events/store.ts firstOpenStore）——
+    // WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
+    // （-0914）： 同款漏修（对照 events/store.ts firstOpenStore）——
     // busy_timeout 必须先于 journal_mode=WAL 设置：WAL 切换在 journal_mode 处需拿写锁，
     // 并发首开 delete 模式库时他进程持锁而 busy_timeout 未设，会立即抛 SQLITE_BUSY。
-    // 并移植 events 侧 N3 的 WAL 切换 8 次线性退避重试（对方事务必然短，数百 ms 内可得
+    // 并移植 events 侧的 WAL 切换 8 次线性退避重试（对方事务必然短，数百 ms 内可得
     // 手；Atomics.wait 微睡形态照搬——node:sqlite 全同步 API，不可异步化）；损坏是确定性
     // 错误立即上抛（本文件既有 isRagDbCorruptionError 窄判定，同 events IR-2 旨：绝不把
     // BUSY/IOERR 误判成损坏送删库链）；journal_mode 已是 wal 则成功短路（exec 撞 BUSY 但
-    // 他进程已完成切换的形态）。重试耗尽即抛（R73-48 同裁定：fail-closed 正确出口）。
+    // 他进程已完成切换的形态）。重试耗尽即抛（同裁定：fail-closed 正确出口）。
     db.exec('PRAGMA busy_timeout = 5000')
     {
       let lastErr: unknown
@@ -247,9 +247,9 @@ export function openRagDb(bookRoot: string): DatabaseSync {
       if (lastErr !== null) throw lastErr
     }
     createRagTables(db)
-    // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
+    // norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
     ensureNormColumn(db)
-    // R0910-W（2026-09-10 修复批）：norm 回填探测的部分索引——ensureNormColumn 每次 open
+    // （修复批）：norm 回填探测的部分索引——ensureNormColumn 每次 open
     // 都跑 `SELECT id, embedding FROM chunks WHERE norm IS NULL`，norm 无索引时全表扫
     //（约 3.5 万块/书），回填完成后（无 NULL 行）仍每次全扫；recallDetailed 一次召回开
     // 库两次，放大为 2× 全表扫。部分索引只收录 norm IS NULL 的行（正常为空），探测降为
@@ -270,17 +270,17 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   return db
 }
 
-// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：prepared 缓存与配对关库收编
-// shared/sqlite-prepared.ts 单源——R46-45 原取舍「与 events/store.ts R46-42 同手法
+// （六轮修复批）：prepared 缓存与配对关库收编
+// shared/sqlite-prepared.ts 单源—— 原取舍「与 events/store.ts 同手法
 //（模块独立性优先，本文件内自持一份小帮手）」本批改判：三域同构已各自踩过同一根因
-//（R0911-G-P3-4 ephemeron 环），独立性收益小于「修一漏二」风险。断链序与用法契约
+//（ephemeron 环），独立性收益小于「修一漏二」风险。断链序与用法契约
 //（只缓存恒定高频 SQL / 关库一律走配对 helper 不得裸 db.close）单点见单源文件头注；
 // 本文件下方各调用点名与行为逐位不变（RAG 召回每次开库两回，是滞留量级最大的重灾区，
-// 故功能实测留本域，见 test/rag/r0911-g-p3-4-close-cache.test.ts）。
+// 故功能实测留本域，见 test/rag/rag-prepared-cache-release.test.ts）。
 
 /**
- * R0911-G-P3-4（2026-09-11 重评修复批）：带缓存注销的关库——RAG 库的 close 一律走本
- * helper，不得裸 `db.close()`。根因与实测数据（裸 .mjs 40k 次 open/close 每次 ~0.35KB
+ * （修复批）：带缓存注销的关库——RAG 库的 close 一律走本
+ * helper，不得裸 `db.close`。根因与实测数据（裸 .mjs 40k 次 open/close 每次 ~0.35KB
  * 线性滞留；close 前显式 delete 断链后 30k 次开/关归零；WAL/busy_timeout/table_info/
  * 部分索引均经 bisect 排除）见共享单源文件头注。
  */
@@ -289,13 +289,13 @@ export function closeRagDb(db: DatabaseSync): void {
 }
 
 /**
- * R0912-G1-P3-3（2026-09-12 独立重评修复批）：安全回滚——SQLite 部分错误
+ * （修复批）：安全回滚——SQLite 部分错误
  *（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
  * active" 会掩蔽原始错误；吞 ROLLBACK 自身异常、调用方继续走自己的原始错误
  * 上抛/返回文案。本文件与 index.ts 共五处同构 try{ROLLBACK}catch{} 收编单源
- *（各处原注释并入本头注：store.ts ensureNormColumn R43-18、index.ts
+ *（各处原注释并入本头注：store.ts ensureNormColumn 、index.ts
  * resetRagIndex / buildIndex 清残留 / commitIndexBatch 续传小事务 / 主提交事务
- * 均 R43-18（四十三轮）R61-10 同款加固）。无事务（began=false 等）时调用无害。
+ * 均  同款加固）。无事务（began=false 等）时调用无害。
  */
 export function safeRollback(db: DatabaseSync): void {
   try {
@@ -305,7 +305,7 @@ export function safeRollback(db: DatabaseSync): void {
   }
 }
 
-/** 向量 L2 范数（A3 预存范数：余弦退化为点积，召回数学量减半） */
+/** 向量范数（预存范数：余弦退化为点积，召回数学量减半） */
 export function l2Norm(vec: Float32Array): number {
   let sum = 0
   for (let i = 0; i < vec.length; i++) sum += vec[i]! * vec[i]!
@@ -313,23 +313,23 @@ export function l2Norm(vec: Float32Array): number {
 }
 
 /**
- * A3（批 7）：chunks.norm 列迁移——旧库无列 → ALTER TABLE 加列；有列但存 NULL
- * （加列后的存量行）→ 逐行算 L2 写回（一次性，打开库时自愈）。幂等：二次打开全
+ * chunks.norm 列迁移——旧库无列 → ALTER TABLE 加列；有列但存 NULL
+ * （加列后的存量行）→ 逐行算写回（一次性，打开库时自愈）。幂等：二次打开全
  * 值在位 → 零写。回填失败（锁/IO）上抛给 openRagDb 调用方（RAG 各入口已有降级）。
- * R65-13（总六十五轮）：去掉「每次 open 都 COUNT 全表」判存在——直接 SELECT NULL 行
+ * （总六十五轮）：去掉「每次 open 都 COUNT 全表」判存在——直接 SELECT NULL 行
  *（无 NULL 时只读不开写事务，不再多扫一遍 COUNT）；回填事务改 BEGIN IMMEDIATE
  *（与 commitIndexBatch 口径一致——deferred BEGIN 到首个 UPDATE 才升写锁，并发开库
  * 仍有 SQLITE_BUSY 窗口；IMMEDIATE 在 busy_timeout 内排队拿写锁）。
- * R46-51（四十六轮）：NULL 行集改游标逐行读（readAllChunks R37-38/内存闸同款降峰
- * 先例）——原 .all() 先把全部待回填行（含 embedding BLOB，200 万字书 3.5 万块 ×
+ * NULL 行集改游标逐行读（readAllChunks /内存闸同款降峰
+ * 先例）——原 .all 先把全部待回填行（含 embedding BLOB，200 万字书 3.5 万块 ×
  * 6KB ≈ 200MB 级）整表物化后才开写，迁移窗内峰值驻留白付。
- * R0916-P3-6（四轮处置批）：游标内 UPDATE 改 id 分页批物化——同连接「SELECT 游标
+ * （四轮处置批）：游标内 UPDATE 改 id 分页批物化——同连接「SELECT 游标
  * 开着 + 循环内 UPDATE 同表」在 SQLite 语义里属未定义面（行可见性无保证，原注的
  * rowid 序论证是实态归纳非契约）；现每批按 `id > 尾行` 取一批物化（查询完成后游标
- * 已关，再开写事务），R46-51 降峰语义不变（每批 ≤ NORM_BACKFILL_BATCH 行 ≈ 3MB
+ * 已关，再开写事务），降峰语义不变（每批 ≤ NORM_BACKFILL_BATCH 行 ≈ 3MB
  * 峰值，远低于 200MB 整表物化）。幂等不变：WHERE norm IS NULL 天然跳过已回填行。
  */
-/** R0916-P3-6：norm 回填分页批大小——每批物化 ≤512 行（embedding ≈3MB 峰值），UPDATE 时无游标在飞 */
+/** norm 回填分页批大小——每批物化 ≤512 行（embedding ≈3MB 峰值），UPDATE 时无游标在飞 */
 const NORM_BACKFILL_BATCH = 512
 
 export function ensureNormColumn(db: DatabaseSync): void {
@@ -338,15 +338,15 @@ export function ensureNormColumn(db: DatabaseSync): void {
     try {
       db.exec('ALTER TABLE chunks ADD COLUMN norm REAL')
     } catch (e) {
-      // R35-44（三十五轮）：双进程并发首升——PRAGMA 探测到 ALTER 之间他进程已加列，
+      // 双进程并发首升——PRAGMA 探测到 ALTER 之间他进程已加列，
       // 本进程 ALTER 撞 duplicate column 视为升级完成（幂等）；其他错误原样上抛
       if (!isDuplicateColumnError(e)) throw e
     }
   }
-  // R0916-P3-6：分页批物化（头注 R0916-P3-6 段）——每批一条已完成查询，UPDATE 时无游标在飞
+  // 分页批物化（头注段）——每批一条已完成查询，UPDATE 时无游标在飞
   const select = prepared(db, 'SELECT id, embedding FROM chunks WHERE norm IS NULL AND id > ? ORDER BY id LIMIT ?')
   const update = prepared(db, 'UPDATE chunks SET norm = ? WHERE id = ?')
-  // R65-13：首行才开写事务（无 NULL 行 → 只读不开 BEGIN IMMEDIATE）
+  // 首行才开写事务（无 NULL 行 → 只读不开 BEGIN IMMEDIATE）
   let began = false
   let lastId = -1
   try {
@@ -367,34 +367,34 @@ export function ensureNormColumn(db: DatabaseSync): void {
     }
     if (began) db.exec('COMMIT')
   } catch (e) {
-    // R43-18（四十三轮）：R61-10 同款加固（events/store.ts 模板）——SQLite 部分错误
+    // 同款加固（events/store.ts 模板）——SQLite 部分错误
     //（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
     // active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛。began=false（首行
     // 读/开事务前抛）无事务可回，跳过。
-    // R0912-G1-P3-3：回滚句收编 safeRollback 单源。
+    // 回滚句收编 safeRollback 单源。
     if (began) safeRollback(db)
     throw e
   }
 }
 
-/** R35-44：duplicate column 错误判定（node:sqlite message「duplicate column name: …」；
+/** duplicate column 错误判定（node:sqlite message「duplicate column name: …」；
  *  窄匹配——其他 ALTER 失败如磁盘满/锁不上当） */
 function isDuplicateColumnError(e: unknown): boolean {
   const msg = (e as { message?: unknown }).message
   return typeof msg === 'string' && /duplicate column/i.test(msg)
 }
 
-/** 存一个块（embedding 序列化为 BLOB；A3 同步预算 L2 范数——余弦退化为点积）。
- *  V-P2-3：INSERT OR REPLACE——(章号, 偏移, 模型) 有唯一键，同块重写幂等不重复。 */
+/** 存一个块（embedding 序列化为 BLOB；同步预算范数——余弦退化为点积）。
+ *  ：INSERT OR REPLACE——(章号, 偏移, 模型) 有唯一键，同块重写幂等不重复。 */
 export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
-  // R34D-32（三十四轮）：入库末道守卫——embedding 含非有限分量（Float32 溢出成
+  // 入库末道守卫——embedding 含非有限分量（Float32 溢出成
   // ±Infinity / NaN）即拒绝写入（fail-closed）：毒行一旦落库即永久（norm=∞、余弦
   // 恒 NaN 挤占 topK 且无告警）。commitIndexBatch 物化点已拦同款，此处为未来新
   // 入库路径兜底；抛错走调用方事务回滚（INDEX 写入失败已回滚可安全重跑口径）
   if (chunk.embedding.some((x) => !Number.isFinite(x))) {
     throw new Error('storeChunk: embedding 含非有限分量（Float32 溢出/NaN），拒绝入库')
   }
-  // R46-45：全书重建 3.5 万次调用的 INSERT 走连接级 prepared 缓存（原每块重编译一次）
+  // 全书重建 3.5 万次调用的 INSERT 走连接级 prepared 缓存（原每块重编译一次）
   const stmt = prepared(
     db,
     `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm)
@@ -413,10 +413,10 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 
 /**
  * 读全部块（全表线性扫描——#37 第 5 节）。
- * R49-19（四十九轮）：头注如实化——生产召回自 R46-9 起走 streamChunkScores（流式打分，
+ * 头注如实化——生产召回自起走 streamChunkScores（流式打分，
  * 向量 BLOB 用完即弃），本函数 src 内零生产调用方，现存消费面仅测试（断言/盘点原语）；
  * 勿再把它接回召回热路径。
- * R37-38（三十七轮）：可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
+ * 可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
  * 语义恒等于全量读后 slice(0, maxChunks)；缺省 undefined = 全读（既有口径不变）。
  * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
  * 700 章 / 3.5 万块 / 1536 维（rag.db ~277MB）单次召回 ~320-350ms，含全表 BLOB 读回 +
@@ -426,12 +426,12 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
  */
 export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] {
   const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, norm, model, indexed_at FROM chunks')
-  // 内存闸（2026-08-24）：改游标逐行读（iterate）——原 stmt.all() 先把全部 embedding
+  // 内存闸：改游标逐行读（iterate）——原 stmt.all 先把全部 embedding
   // BLOB 物化成数组、再 map 复制出第二份 Float32Array，2 万+ 块 × 1536 维时单次召回
   // ~260MB 双份驻留（测试反复调 recall 叠加为 GB 级峰值）；逐行读每行 BLOB 用完即可
   // 回收，峰值约减半。语义不变：产出与原实现逐项一致。
   const out: RagChunk[] = []
-  // R35-40（三十五轮）：存量毒行读取闸——R34D-32 只防新写入，历史毒行召回时余弦恒
+  // 存量毒行读取闸—— 只防新写入，历史毒行召回时余弦恒
   // NaN/失真挤占 topK。两种毒形都剔 + 一次性 warn 留痕（不阻断）：
   // ① norm 非有限（按发现口径留防——node:sqlite 对非有限 REAL 绑定/读回都转 null，
   //    此形当前实际不可达，纯前向防御）；
@@ -445,7 +445,7 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
     id: number; 章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
   }>) {
-    // R37-38（三十七轮）：maxChunks 早停——产出行数达到限额即停，不再把全表 chunk
+    // maxChunks 早停——产出行数达到限额即停，不再把全表 chunk
     // 读进内存（召回调用方只为截断告警时传「告警阈值+1」即够判 truncated，大库数万
     // 行白读）。语义恒等于全量读后 slice(0, maxChunks)，两个前提：
     // ① 行序一致：无 ORDER BY 时 iterate 行序 = rowid 序 = 插入序（SQLite 扫表序），
@@ -461,7 +461,7 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
       continue
     }
     const embedding = bufferToFloat32(r.embedding)
-    // R1010b-CHK-P3-1（2026-09-10 内存专项重审修复批）：BLOB 字节数非 4 倍数/空 BLOB
+    // （修复批）：BLOB 字节数非 4 倍数/空 BLOB
     // → bufferToFloat32 返回空数组。此形外部损坏才可达（storeChunk 写入侧恒 Float32Array，
     // 序列化字节数恒 4 倍数），此前 norm 非 null 的损坏行跳过两个毒形分支照常产出、
     // 下游按「维度不匹配」记账（totalBlocks 虚增、永不触发毒行 warn，作者得不到重建
@@ -492,7 +492,7 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
   return out
 }
 
-/** R46-9（四十六轮）：流式召回扫描的轻量命中元组（不含 embedding——余弦算完即弃）。 */
+/** 流式召回扫描的轻量命中元组（不含 embedding——余弦算完即弃）。 */
 export interface ChunkScoreRow {
   章号: number
   start_offset: number
@@ -501,27 +501,27 @@ export interface ChunkScoreRow {
 }
 
 /**
- * R46-9（四十六轮）：召回的流式打分扫描——逐行读 chunks、当场算余弦、只保留轻量
+ * 召回的流式打分扫描——逐行读 chunks、当场算余弦、只保留轻量
  * 元组（embedding BLOB 用完即可回收），替代「readAllChunks 全量读回 → 全池驻留」。
  * 内存峰值 O(产出元组 × ≈40B)：10 万块截断档 ≈4MB（此前全池向量 590-615MB 跨
  * embed 网络窗（≤30s）驻留，2-3 路并发召回即 OOM/长 GC 风险——100K 阈值的内存账
- * 随延迟账一并入注，见 index.ts R46-9）。
+ * 随延迟账一并入注，见 index.ts ）。
  *
- * 语义与旧链路「readAllChunks(maxRows) → filter(model/维度) → map 余弦（R64-45
+ * 语义与旧链路「readAllChunks(maxRows) → filter(model/维度) → map 余弦（
  * 单源 + 预存范数兜底）→ 稳定 sort」逐位等价：
  * - 行序同为无 ORDER BY 的 rowid 扫表序；元组按行序追加（调用方 sort 的并列分数
  *   次序与旧数组稳定排序一致）；
- * - 毒行剔除不计产出额（R37-38 早停口径一致，毒行 warn 由调用方按计数留痕）；
+ * - 毒行剔除不计产出额（早停口径一致，毒行 warn 由调用方按计数留痕）；
  * - model/维度不匹配行计入 produced（totalBlocks 口径不变）但不产元组；
  * - maxRows 语义 = 产出行数上限（探针行含在产出内，截断剔除由调用方 pop）。
- *   R49-20（评审 R49）：produced 计数先于 model/维度过滤——探针行（第 maxRows 个
+ *   （评审）：produced 计数先于 model/维度过滤——探针行（第 maxRows 个
  *   产出行）可以是不匹配行而**不入 rows**，故附 `lastProducedWasMatch` 供调用方
  *   精确剔除（仅当最后产出行确为命中才 pop，不得盲 pop）。
  *
- * R0912-4（2026-09-11 修复批）：可选 signal——行级 abort 检查点（recallDetailed 中断
+ * （修复批）：可选 signal——行级 abort 检查点（recallDetailed 中断
  * 透传）。同步扫描循环内无法观测「扫描中途」置位的信号（单线程无让出点），但
  * 预先 aborted / embed 窗口内已 aborted 的信号在此即时抛「RAG 召回已中断」，
- * 大库不再白扫；也为未来异步化预留检查点。抛错走 for…of 迭代器收口（return()）。
+ * 大库不再白扫；也为未来异步化预留检查点。抛错走 for…of 迭代器收口（return）。
  */
 export function streamChunkScores(
   db: DatabaseSync,
@@ -530,21 +530,21 @@ export function streamChunkScores(
   maxRows: number,
   signal?: AbortSignal,
 ): { rows: ChunkScoreRow[]; produced: number; poisonRows: number; lastProducedWasMatch: boolean } {
-  // R0912-G1-P3-2（2026-09-12 独立重评修复批）：召回热路径 SELECT 走 prepared 缓存
+  // （修复批）：召回热路径 SELECT 走 prepared 缓存
   //（每次召回都重编译同一全表扫描语句，纯白付；原 db.prepare 改同文件既有 helper）
   const stmt = prepared(db, 'SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
   const qNorm = l2Norm(queryVec)
   const rows: ChunkScoreRow[] = []
   let produced = 0
   let poisonRows = 0
-  // R49-20：最后一条产出行是否为 model/维度匹配行（真入 rows）——不匹配行只计数
+  // 最后一条产出行是否为 model/维度匹配行（真入 rows）——不匹配行只计数
   // 不产元组，截断态下调用方据本标记判定探针行是否占位 rows
   let lastProducedWasMatch = false
   for (const r of stmt.iterate() as Iterable<{
     章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string
   }>) {
-    // R0912-4：行级中断检查点——命中即抛（与 recallDetailed 中断态同一文案）
+    // 行级中断检查点——命中即抛（与 recallDetailed 中断态同一文案）
     if (signal?.aborted) throw new Error('RAG 召回已中断')
     if (produced >= maxRows) break
     if (r.norm !== null && !Number.isFinite(r.norm)) {
@@ -552,9 +552,9 @@ export function streamChunkScores(
       continue
     }
     const embedding = bufferToFloat32(r.embedding)
-    // R1010b-CHK-P3-1（2026-09-10 内存专项重审修复批）：同 readAllChunks——BLOB 字节数
+    // （修复批）：同 readAllChunks——BLOB 字节数
     // 非 4 倍数/空 BLOB（外部损坏才可达，storeChunk 写入侧恒 Float32Array）→ 空数组归
-    // 毒行剔除。必须在 produced++ 之前判：毒行不占产出名额（R37-38 剔毒不计额、R49-20
+    // 毒行剔除。必须在 produced++ 之前判：毒行不占产出名额（剔毒不计额、
     // 探针行口径一致），否则损坏行占 produced 被下游按「维度不匹配」记账（totalBlocks
     // 虚增、poisonRows 恒 0 永不触发调用方毒行 warn）。fail-closed 不变：损坏行本就因
     // 维度失配不进 rows，改判毒行后仍不进。
@@ -571,7 +571,7 @@ export function streamChunkScores(
       lastProducedWasMatch = false
       continue
     }
-    // R64-45 同款：预存范数复用，norm 异常缺失现算兜底
+    // 同款：预存范数复用，norm 异常缺失现算兜底
     const cNorm = r.norm !== null && r.norm > 0 ? r.norm : l2Norm(embedding)
     rows.push({
       章号: r.章号,
@@ -584,10 +584,10 @@ export function streamChunkScores(
   return { rows, produced, poisonRows, lastProducedWasMatch }
 }
 
-/** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
+/** 全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
  *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
 export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {
-  // R0912-G1-P3-2：召回热路径（每次召回读指纹元数据）走 prepared 缓存
+  // 召回热路径（每次召回读指纹元数据）走 prepared 缓存
   const rows = prepared(db, "SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
     .all() as Array<{ key: string; value: string }>
   const out = new Map<number, string>()
@@ -600,27 +600,27 @@ export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string
 
 /** rag_meta 读写（记维度/模型/已索引章号） */
 export function getRagMeta(db: DatabaseSync, key: string): string | null {
-  // R46-45：固定 SQL 走 prepared 缓存
+  // 固定 SQL 走 prepared 缓存
   const stmt = prepared(db, 'SELECT value FROM rag_meta WHERE key = ?')
   const row = stmt.get(key) as { value: string } | undefined
   return row?.value ?? null
 }
 
 export function setRagMeta(db: DatabaseSync, key: string, value: string): void {
-  // R46-45：同上
+  // 同上
   const stmt = prepared(db, 'INSERT OR REPLACE INTO rag_meta (key, value) VALUES (?, ?)')
   stmt.run(key, value)
 }
 
-/** 删 rag_meta 单键（P1-28：清理已删除章的指纹残留） */
+/** 删 rag_meta 单键（清理已删除章的指纹残留） */
 export function deleteRagMeta(db: DatabaseSync, key: string): void {
-  // R46-45：同上
+  // 同上
   prepared(db, 'DELETE FROM rag_meta WHERE key = ?').run(key)
 }
 
-/** 删某章全部向量块（P1-28：已索引章被删后清理残留，防其向量继续参与召回） */
+/** 删某章全部向量块（已索引章被删后清理残留，防其向量继续参与召回） */
 export function deleteChunksByChapter(db: DatabaseSync, 章号: number): void {
-  // R46-45：同上
+  // 同上
   prepared(db, 'DELETE FROM chunks WHERE 章号 = ?').run(章号)
 }
 
@@ -630,9 +630,9 @@ export function countChunksByChapter(db: DatabaseSync, 章号: number): number {
   return row?.n ?? 0
 }
 
-/** 已索引过的章号集合（chunks 去重；P1-28 删除检测用） */
+/** 已索引过的章号集合（chunks 去重；删除检测用） */
 export function getIndexedChapterNumbers(db: DatabaseSync): number[] {
-  // R0912-G1-P3-2：召回/建索引探测热路径走 prepared 缓存
+  // 召回/建索引探测热路径走 prepared 缓存
   const rows = prepared(db, 'SELECT DISTINCT 章号 FROM chunks').all() as Array<{ 章号: number }>
   return rows.map((r) => r.章号)
 }
@@ -647,11 +647,11 @@ export function cosineSimilarity(
   precomputed?: { normA?: number; normB?: number },
 ): number {
   if (a.length !== b.length) return 0
-  // P3-14：长度已判等，Math.min 冗余
+  // 长度已判等，Math.min 冗余
   const len = a.length
-  // R31-34（三十一轮）：预存范数双全时走纯点积分派——召回热路径（index.ts）每次
+  // 预存范数双全时走纯点积分派——召回热路径（index.ts）每次
   // 调用都传 precomputed，原循环仍无条件累加两份范数平方（每维 3 次乘加当 1 次用，
-  // A3/R64-45 宣称的「数学量减半」从未兑现，3.5 万块×1536 维/召回 ≈ 白做 1 亿次
+  // /宣称的「数学量减半」从未兑现，3.5 万块×1536 维/召回 ≈ 白做 1 亿次
   // 浮点）；预存缺失（校准/单测直调）回落全算，语义不变。
   const hasPre = typeof precomputed?.normA === 'number' && typeof precomputed?.normB === 'number'
   let dot = 0
@@ -668,8 +668,8 @@ export function cosineSimilarity(
       normB += b[i]! * b[i]!
     }
   }
-  // R64-45（十二轮）：召回侧（index.ts）此前内联同逻辑且按块缓存范数——合流单源。
-  // precomputed 传**最终 L2 范数**（l2Norm 口径，已开方）；缺省现算，语义与全量余弦一致。
+  // 召回侧（index.ts）此前内联同逻辑且按块缓存范数——合流单源。
+  // precomputed 传**最终范数**（l2Norm 口径，已开方）；缺省现算，语义与全量余弦一致。
   const na = hasPre ? normA : Math.sqrt(normA)
   const nb = hasPre ? normB : Math.sqrt(normB)
   const denom = na * nb

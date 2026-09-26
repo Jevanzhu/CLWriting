@@ -1,7 +1,7 @@
 /**
- * L-P1（第八轮）：带 symlink 环剪枝 + 根界约束的 .md 深度优先查找器。
+ * 带 symlink 环剪枝 + 根界约束的 .md 深度优先查找器。
  *
- * book-search.walkMd（第六轮）修复的同族收口：summary/materials/leads 三处递归找章
+ * book-search.walkMd 修复的同族收口：summary/materials/leads 三处递归找章
  * 此前无 visited（书内 a→b→a symlink 环深递归，靠帧内 try/catch 兜 RangeError 整项
  * 退化 + 大量无效 IO）、也无根界（书内指向书外的 symlink 被跟随，引文命中/摘要正文
  * 会整读外部文件）。统一抽此共享实现：
@@ -10,7 +10,7 @@
  *   （fail-closed，与 safe-path 同向）；
  * - onFile 返回非 undefined 即短路返回（找第一个命中）。
  *
- * N2（五十九轮）：新增 walkMdEach（全量遍历，与 walkMdFind 同源核心）——state
+ * 新增 walkMdEach（全量遍历，与 walkMdFind 同源核心）——state
  * 状态机 / cache rebuild 的正文区目录遍历统一接入此口径，消除四处自带 walk。
  */
 import { readdirSync, realpathSync, type Dirent } from 'node:fs'
@@ -23,7 +23,7 @@ export function walkMdFind<T>(
   startDir: string,
   onFile: (abs: string, name: string) => T | undefined,
 ): T | undefined {
-  // 契约保持：yield realpath 绝对路径（L-P1 既有测试断言 realpath 口径）
+  // 契约保持：yield realpath 绝对路径（既有测试断言 realpath 口径）
   for (const hit of mdFileEntries(startDir, new Set<string>())) {
     const found = onFile(hit.real, hit.name)
     if (found !== undefined) return found
@@ -32,7 +32,7 @@ export function walkMdFind<T>(
 }
 
 /**
- * N2（五十九轮）：全量遍历口径（与 walkMdFind 同源共享实现）——正文区目录遍历
+ * 全量遍历口径（与 walkMdFind 同源共享实现）——正文区目录遍历
  * （state 状态机三个 walk / cache rebuild 的 walkChapters、walkSourceStats）统一
  * 接入：裸 statSync（跟随 symlink）+ 递归无 visited 无根界的旧 walk 对循环 symlink
  * 深递归可 RangeError 崩进门、指向书外的 symlink 被整读参与章号推算。
@@ -47,7 +47,7 @@ export function walkMdEach(
   onFile: (abs: string, name: string) => void,
   visited: Set<string> = new Set<string>(),
 ): void {
-  // N2 产出路径重挂回调用方传入的 startDir 命名空间（realpath 会展开 /var → /private/var
+  // 产出路径重挂回调用方传入的 startDir 命名空间（realpath 会展开 /var → /private/var
   // 等 symlink 前缀，直接产 real 路径会破坏调用方 relative(root, fp) 类相对计算）
   for (const hit of mdFileEntries(startDir, visited)) {
     onFile(hit.abs, hit.name)
@@ -55,7 +55,7 @@ export function walkMdEach(
 }
 
 /**
- * walkMdEach 异步孪生（0918独立重评修复批 C001）：遍历纪律与同步版逐位同源——
+ * walkMdEach 异步孪生（0918修复1）：遍历纪律与同步版逐位同源——
  * Dirent 判型（不跟随 symlink）、realpath 去重环剪枝、根界 = startDir 自身、
  * `._` 资源分叉噪声排除、产出路径重挂回调用方 startDir 命名空间；IO 面（realpath/
  * readdir）走 fs/promises，studio 服务进程事件循环内调用不再冻结。onFile 可返回
@@ -99,7 +99,7 @@ export async function walkMdEachAsync(
       if (e.isDirectory()) {
         await walk(fp)
       } else if (e.isFile() && e.name.slice(-3).toLowerCase() === '.md') {
-        // R34D-11：扩展名匹配大小写不敏感（与同步版同口径）
+        // 扩展名匹配大小写不敏感（与同步版同口径）
         // abs = 重挂回调用方 startDir 命名空间的路径（realpath 展开语义同同步版注）
         await onFile(join(startDir, relative(realRoot, fp)), e.name)
       }
@@ -133,7 +133,7 @@ function* mdFileEntries(
   } catch {
     return
   }
-  // R0916-nano-8（四轮处置批）：walk 签名加 dirReal 可选参——起点直传上方已解析的
+  // （四轮处置批）：walk 签名加 dirReal 可选参——起点直传上方已解析的
   // realRoot，省掉对 startDir 的第二次 realpathSync 系统调用（原 :63 根解析与首帧
   // 重复解析同一路径）；子目录递归不传，行为不变
   const walk = function* (dir: string, dirReal?: string): Generator<{ real: string; abs: string; name: string }, void, void> {
@@ -163,7 +163,7 @@ function* mdFileEntries(
       if (e.isDirectory()) {
         yield* walk(fp)
       } else if (e.isFile() && e.name.slice(-3).toLowerCase() === '.md') {
-        // R34D-11（三十四轮）：扩展名匹配大小写不敏感（win 手工改名 .MD 不再对机检/
+        // 扩展名匹配大小写不敏感（win 手工改名 .MD 不再对机检/
         // 树红点/账本扫描隐形）；热路径用 slice(-3) 小尾串做一次 toLowerCase，免每文件
         // 全名 toLowerCase 分配
         // abs = 重挂回调用方 startDir 命名空间的路径；real = realpath 绝对路径

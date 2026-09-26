@@ -11,6 +11,10 @@
  * chat_error 文案（驱动事件）/ session/end reason（事件库终态实参）/
  * surface user 消息 seq 被 compaction replace 遮蔽（GG-P2-1 幽灵消息口径）/
  * 内存历史回滚到 baseLen（P1-S4/R1a 连续 user 防线）。
+ *
+ * 2026-09-26 终扫自 r1010b-chat-timeout-copy.test.ts 并入（R1010b-AI-P3-3：超时文案按
+ * 实际生效 deadline 换算）——finishTurn 单元臂收编于文末（注入换算 / 45s→1 分钟
+ * 四舍五入 / 缺省 30 分钟三形态；与 runChat 层 ④① 的文案断言互补，零断言去重）。
  */
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +22,8 @@ import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, abortChat, getHistory } from '../../src/ai/orchestrate/chat.js'
+import { finishTurn } from '../../src/ai/orchestrate/chat/finish.js'
+import type { ChatOpts } from '../../src/ai/orchestrate/chat.js'
 import { loadProviders, saveProviders } from '../../src/ai/provider/store.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore } from '../../src/events/store.js'
@@ -376,5 +382,60 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
       (msg) => expect(msg).toBe('对话超时（超过 30 分钟），已停止'),
       'aborted', // CHAT_EXIT_SPEC.timeout 的 mask（timeout 出口终态）
     )
+  })
+})
+
+// ── R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：超时文案按实际生效 deadline 换算 ──
+// 修复前 CHAT_EXIT_SPEC.timeout 恒按缺省 AGENT_DEADLINE_MS（30min）换算——注入短
+// deadline 的对话超时也报「超过 30 分钟」（R70-12 注释自认「文案按缺省口径展示」）。
+// 修复后 finishTurn 按 opts.deadlineMs ?? AGENT_DEADLINE_MS 现算（与 chat.ts
+// runChatInner 的 resolve 同式），mask 终态口径（aborted）不变。
+// 上文 ④① 两用例为 runChat 层文案断言（注入 1s/2s → 0 分钟）；本节为 finishTurn
+// 单元臂，补注入换算 / 分钟四舍五入 / 缺省 30 分钟三形态与 mask 三处一致断言。
+describe('R1010b-AI-P3-3：超时文案按实际生效 deadline 换算（finishTurn 单元臂）', () => {
+  function makeOpts(deadlineMs?: number): { opts: ChatOpts; emitted: DriverEvent[] } {
+    const emitted: DriverEvent[] = []
+    const opts: ChatOpts = {
+      driver: makeFakeDriver({ emitted }),
+      mainSession: { id: 's1', cwd: '.', closed: false },
+      userDataPath: '.',
+      bookRoot: '.',
+      bookName: 'r1010b-timeout-copy',
+      ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+    }
+    return { opts, emitted }
+  }
+
+  function chatError(emitted: DriverEvent[]): string {
+    const err = emitted.find((e) => e.type === 'chat_error') as { error: string } | undefined
+    expect(err).toBeDefined()
+    return err!.error
+  }
+
+  it('注入 deadlineMs → 文案随注入值换算；缺省 → 恒按 30 分钟；mask 终态口径不变', () => {
+    const maskSpy = vi.spyOn(SessionRecorder.prototype, 'closeMaskingAll')
+    try {
+      // 注入 40ms（既有注入形态）→ 按实际值换算，不再谎报 30 分钟
+      const injected = makeOpts(40)
+      finishTurn(injected.opts, [], 0, new SessionRecorder(null, 'r1010b-rec-1'), 'timeout')
+      expect(chatError(injected.emitted)).toBe('对话超时（超过 0 分钟），已停止')
+
+      // 分钟级注入值 → 四舍五入换算（45s → 1 分钟）
+      const minute = makeOpts(45_000)
+      finishTurn(minute.opts, [], 0, new SessionRecorder(null, 'r1010b-rec-2'), 'timeout')
+      expect(chatError(minute.emitted)).toBe('对话超时（超过 1 分钟），已停止')
+
+      // 缺省（生产路径）→ 30 分钟口径不变
+      const def = makeOpts()
+      finishTurn(def.opts, [], 0, new SessionRecorder(null, 'r1010b-rec-3'), 'timeout')
+      expect(chatError(def.emitted)).toBe('对话超时（超过 30 分钟），已停止')
+
+      // 终态 mask 三处一致（session/end 实参），参数化只动文案
+      expect(maskSpy).toHaveBeenNthCalledWith(1, 'aborted')
+      expect(maskSpy).toHaveBeenNthCalledWith(2, 'aborted')
+      expect(maskSpy).toHaveBeenNthCalledWith(3, 'aborted')
+    } finally {
+      maskSpy.mockRestore()
+    }
   })
 })

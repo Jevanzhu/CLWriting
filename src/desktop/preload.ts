@@ -12,7 +12,7 @@ import type { IpcRendererEvent } from 'electron'
 /** 右键菜单 pending 一次性监听（连开新菜单前摘旧，防 channel 广播串到旧回调） */
 let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | null = null
 
-/** R0910-W：待选监听清场（幂等）——主进程因拒绝/不可信 sender/窗口销毁而未回执
+/** 待选监听清场（幂等）——主进程因拒绝/不可信 sender/窗口销毁而未回执
  *  desktop:context-menu 时，once 监听与 pendingMenuSelect 原样常驻到下一次
  *  showContextMenu。窗口 unload 一次性清场兜底；正常回执路径 handler 已自摘，清场为
  *  无害 no-op（正常路径行为完全不变）。 */
@@ -34,9 +34,9 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   platform: process.platform,
   /**
    * 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。
-   * 重评-P3-9（2026-09-09 全量代码重评）：落库失败（saveCurrent 写盘错等）返回
+   * -（全量代码）：落库失败（saveCurrent 写盘错等）返回
    * { ok:false, reason }——与 switchLibrary 的失败信封对称（main.ts open-library
-   * handler R51-A-4 起契约化失败，此前类型声明漏该变体）。
+   * handler 起契约化失败，此前类型声明漏该变体）。
    */
   openLibrary: (): Promise<
     { ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }
@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   openLibraryWindow: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-window'),
   /** 在系统文件管理器中打开当前书库根目录。 */
   openLibraryDir: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-dir'),
-  /** 阶段 53 S3：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+  /** 阶段 53 ：用系统浏览器打开外部链接（更新横幅「去下载」用）。
    *  主进程侧白名单只放行本项目 GitHub 发布页——白名单外回 { ok:false, reason }，
    *  前端据此降级「复制链接」。 */
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; reason: string }> =>
@@ -74,7 +74,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 书架窗口选书 → 通知主窗口打开该工作区并聚焦，关闭书架窗口。 */
   openBook: (name: string): Promise<void> =>
     ipcRenderer.invoke('desktop:open-book', name),
-  /** 订阅主窗口导航事件（书架窗口选书时主进程转发到此，主窗口 router.push）。返回退订函数（Y-P2-7）。 */
+  /** 订阅主窗口导航事件（书架窗口选书时主进程转发到此，主窗口 router.push）。返回退订函数。 */
   onNavigate: (cb: (path: string) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, path: string): void => cb(path)
     ipcRenderer.on('desktop:navigate', handler)
@@ -82,7 +82,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
       ipcRenderer.removeListener('desktop:navigate', handler)
     }
   },
-  /** 订阅系统菜单动作（菜单 click → 主进程转发 actionKey → 前端 dispatch）。返回退订函数（Y-P2-7）。 */
+  /** 订阅系统菜单动作（菜单 click → 主进程转发 actionKey → 前端 dispatch）。返回退订函数。 */
   onMenuAction: (cb: (key: string) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, key: string): void => cb(key)
     ipcRenderer.on('desktop:menu-action', handler)
@@ -95,7 +95,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
     ipcRenderer.invoke('desktop:set-fullscreen', flag),
   /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win 主进程 no-op）。
    *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。
-   *  清偿-titlebar注解对齐（2026-09-09 残留清偿批）：对齐 desktop.d.ts 正本（重评2-P3-④）
+   *  清偿-titlebar注解对齐（残留清偿批）：对齐 desktop.d.ts 正本（2--④）
    *  ——main 侧颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款）；成功/非 win
    *  路径无返回值（undefined），如实标 void、不虚构 {ok:true} 态。 */
   setTitleBarOverlay: (
@@ -110,8 +110,8 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
       ipcRenderer.removeListener('desktop:fullscreen-change', handler)
     }
   },
-  /** 订阅「写作服务已自动重启/自愈成功」广播（重审-3：child 进程换代后渲染层
-   *  sse.resync() 主动重连续用钉住端口；参数=恢复的端口）。返回退订函数。 */
+  /** 订阅「写作服务已自动重启/自愈成功」广播（-3：child 进程换代后渲染层
+   *  sse.resync 主动重连续用钉住端口；参数=恢复的端口）。返回退订函数。 */
   onServerRestarted: (cb: (port: number) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, port: number): void => cb(port)
     ipcRenderer.on('desktop:server-restarted', handler)
@@ -120,13 +120,13 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
     }
   },
   /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null。
-   *  二轮复审（低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
+   *  （低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
    *  窗口级广播，残留监听会收到新菜单的选择串到旧回调（首条消息双投递） */
   showContextMenu: (
     items: Array<Record<string, unknown>>,
     cb: (key: string | null) => void,
   ): void => {
-    clearPendingMenuSelect() // R0910-W：复用清场（摘旧 + 置空），行为同原内联摘除
+    clearPendingMenuSelect() // 复用清场（摘旧 + 置空），行为同原内联摘除
     const handler = (_e: IpcRendererEvent, key: string | null): void => {
       pendingMenuSelect = null
       cb(key)

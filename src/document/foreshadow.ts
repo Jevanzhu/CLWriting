@@ -1,5 +1,5 @@
 /**
- * 伏笔足迹扫描 —— 本地正文 grep，零 AI 成本（伏笔系统整合 T2）。
+ * 伏笔足迹扫描 —— 本地正文 grep，零 AI 成本（伏笔系统整合）。
  *
  * 对每个设定伏笔的「关联词」在 写作/正文/*.md 中做文本搜索，
  * 发现首次命中（=埋设点）、末次命中（=最近提及），计算悬置跨度与风险等级。
@@ -74,7 +74,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
   let files: string[]
   try {
-    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
     // 大写扩展名（.MD）的迁移源被字面过滤滤掉会永久滞留旧目录（迁移是删旧目录数据的
     // 一次性链路，漏迁无自愈通路）
     files = readdirSync(oldDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
@@ -89,7 +89,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
   const result: MigrateResult = { migrated: 0, skipped: 0, details: [] }
   for (const f of files) {
     const oldPath = join(oldDir, f)
-    // legacy：旧档类型「伏笔」非法于现行六类（R73-22 严格校验会全量 skip 拒迁），
+    // legacy：旧档类型「伏笔」非法于现行六类（严格校验会全量 skip 拒迁），
     // 迁移按旧 scheme 容错解析（状态映射由 LEGACY_STATUS_MAP 兜底）
     const r = readLead(oldPath, { legacy: true })
     if (!r.ok) {
@@ -103,9 +103,9 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     const historyLines = lead.履历.length > 0
       ? ['推进记录：', ...lead.履历.map((h) => `- 第${h.章号}章 ${h.动词}：${h.证据}`)].join('\n')
       : '（无推进记录）'
-    // R70-20（十八轮）：值走 stringifyValue——标题含 # 时直拼会被读侧行内注释剥截、
+    // 值走 stringifyValue——标题含 # 时直拼会被读侧行内注释剥截、
     // 含逗号时关联词切分错位；引号化承载与读侧 parseFlat 对称
-    // 重评-P3-20（2026-09-09 全量代码重评）：标题含逗号时关联词改数组单项承载
+    // -（全量代码）：标题含逗号时关联词改数组单项承载
     // （stringifyValue([title])）——引号标量与表单逗号输入落盘同形、读侧仍按词表劈分，
     // 数组形态读回才是整词单项，与「无关联词回落标题」的整词口径对称
     const 关联词fm = /[,，]/.test(title) ? stringifyValue([title]) : stringifyValue(title)
@@ -124,30 +124,30 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       '',
     ].join('\n')
 
-    // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据（N3）
-    // B-P1-5：改原子写，避免迁移过程中断留下半截目标文件
+    // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据
+    // 改原子写，避免迁移过程中断留下半截目标文件
     // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越 + win 非法字符（单源收敛）
     const safeTitle = sanitizeFileNamePart(String(title))
-    // P2-BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
+    // BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
     const safeId = sanitizeFileNamePart(String(lead.编号))
     const targetPath = join(newDir, `${safeId}-${safeTitle}.md`)
-    // R73-39（二十一轮）：existsSync→atomicWriteFile 的 TOCTOU 收口——上方 existsSync
+    // existsSync→atomicWriteFile 的 TOCTOU 收口——上方 existsSync
     // 与落盘之间无互斥，双进程（GUI 与 CLI 迁移链）并发迁移同一伏笔时后到者 rename
     // 静默覆盖先到者已落位的新文件（作者若已编辑即丢修改）。改 createFileExclusive
-    // 惯例（link 不覆盖，EEXIST → 'exists'，B-6/doCreate 同款原语）：EEXIST 走下方
-    // Y-19 续跑语义（视为已迁，只补删旧源，不重写）。
+    // 惯例（link 不覆盖，EEXIST → 'exists'，/doCreate 同款原语）：EEXIST 走下方
+    // 续跑语义（视为已迁，只补删旧源，不重写）。
     const created = createFileExclusive(targetPath, fm)
     if (created === 'exists') {
-      // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
+      // 上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
       // 双跑先到者已落位）——目标已在，视为已迁：不重写（作者可能已编辑新文件，
       // 无条件覆盖会吞掉修改），只补删旧源。
-      // R33-52（三十三轮·改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
-      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破 Y-19/R73-39 既有
+      // （三十三轮·改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
+      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破 /既有
       // 契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，编号前缀唯一性使其在单次
       // 迁移目录内实际不可达，维持原续跑语义（旧源补删）。
-      // R42-40（四十二轮）：删源收编 rmWithRetry——fs/atomic.ts 头注自 R40-18/19 起
+      // 删源收编 rmWithRetry——fs/atomic.ts 头注自 /19 起
       // 宣称收编「伏笔归档清理」的删源点，实现此前未到（仍裸 rmSync）；win 杀软/
-      // 索引器瞬时锁（EPERM/EBUSY）下直败会让已落位的迁移残旧源（下次迁移 Y-19
+      // 索引器瞬时锁（EPERM/EBUSY）下直败会让已落位的迁移残旧源（下次迁移
       // 续跑补删自愈，但迁后首屏旧目录滞留）。退避后仍失败上抛走调用方（启动迁移链
       // 的既有 catch/日志收口），语义与裸 rmSync 时代一致。
       rmWithRetry(oldPath)
@@ -155,7 +155,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)
       continue
     }
-    // R42-40：同上收编（主路径删源）
+    // 同上收编（主路径删源）
     rmWithRetry(oldPath)
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
@@ -174,7 +174,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
 
   let files: string[]
   try {
-    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
     // .MD 伏笔对面板隐形（readForeshadows 是伏笔面板/足迹扫描的唯一数据源）
     files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
@@ -191,24 +191,24 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     }
     const r = readFile(fp)
     const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
-    // R48-45（四十八轮）：剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
-    // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧 R34D-11 早已收编）
+    // 剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
+    // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧早已收编）
     const 标题v = String(map.get('标题') ?? (isMdFileName(f) ? f.slice(0, -3) : f))
-    // 重评-P3-20（2026-09-09 全量代码重评）：数组值逐项直采（String+trim+去空）不劈分——
+    // -（全量代码）：数组值逐项直采（String+trim+去空）不劈分——
     // 旧 String(值) 拼接后再按逗号劈，含逗号项（["悬疑,推理"]）被拆碎；标量维持劈分：
-    // parseFlat 已剥引号，旧迁移批（R70-20）写入的引号标量与表单逗号输入（patchFlatFm
+    // parseFlat 已剥引号，旧迁移批写入的引号标量与表单逗号输入（patchFlatFm
     // → stringifyValue 对含 , 标量同样加引号落盘）读侧同形不可辨，不能借引号免劈。
     const 关联词val = map.get('关联词')
     const 关联词trim = String(关联词val ?? '').trim()
     const 关联词list = Array.isArray(关联词val)
       ? 关联词val.map((s) => String(s).trim()).filter(Boolean)
-      // P3-20 收口·拍板快断批（2026-09-15，作者指令「按建议顺序开工」）：旧迁移存量
+      // 收口·拍板快断批（作者指令「按建议顺序开工」）：旧迁移存量
       // 「关联词 = 标题整词且标题含逗号」读侧不劈分、整词单项——与数组承载及「无关联词
       // 回落标题」的整词口径对称，收回数组化写侧落地前的存量；表单逗号输入 ≠ 标题
       // 整词时维持词表劈分不受影响
       : 关联词trim !== '' && 关联词trim === 标题v.trim() && /[,，]/.test(标题v)
         ? [关联词trim]
-        // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
+        // 中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
         : String(关联词val ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
     items.push({
       file: `设定/伏笔/${f}`,
@@ -269,8 +269,8 @@ const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff
 const RISK_ORDER: Record<ForeshadowTrail['risk'], number> = { 绿: 0, 黄: 1, 红: 2 }
 
 /**
- * 低-5（第十轮）：同标题两条伏笔的足迹合并——命中取并集、首末取极值、风险取最坏。
- * 迁移链 N3 只保证文件名不撞（编号兜底），fm 标题仍可重复；此前 Map 以标题为 key
+ * 低-5同标题两条伏笔的足迹合并——命中取并集、首末取极值、风险取最坏。
+ * 迁移链只保证文件名不撞（编号兜底），fm 标题仍可重复；此前 Map 以标题为 key
  * 直接 set，同名后一条把前一条的足迹整个覆盖（铜锁那条只剩钥匙的足迹）。
  * key 仍用标题不改复合形状：prepare（伏笔提醒）/studio（foreshadows 端点）等存量
  * 读方都是 get(标题)，合并保住「两条足迹都在」的同时旧读法零改动（读侧兼容）。
@@ -293,7 +293,7 @@ function mergeTrails(a: ForeshadowTrail, b: ForeshadowTrail, latestChapter: numb
 /**
  * 扫描全书伏笔足迹（本地 grep，零 AI）。
  *
- * 性能（P2-BE-4）：预建倒排索引——收集全部唯一关键词后，
+ * 性能（-BE-4）：预建倒排索引——收集全部唯一关键词后，
  * 对每章正文用联合正则一次扫完（每章只扫一遍，不再逐伏笔 × 逐关键词 indexOf）。
  * 大书（200 章 × 50 伏笔）耗时从 10M 级字符扫描降到 ≈ 全书总字数。
  *
@@ -317,7 +317,7 @@ export function scanForeshadowTrails(
   return aggregateTrails(chapters, foreshadows, index, latestChapter)
 }
 
-/** 足迹聚合（PM-1 批自 scanForeshadowTrails 提取——同步/异步孪生共用单源，防漂移）：
+/** 足迹聚合（批自 scanForeshadowTrails 提取——同步/异步孪生共用单源，防漂移）：
  *  逐伏笔查倒排索引聚合命中片段 + 风险评级；同标题伏笔合并（mergeTrails）。 */
 function aggregateTrails(
   chapters: Map<number, string>,
@@ -326,7 +326,7 @@ function aggregateTrails(
   latestChapter: number,
 ): Map<string, ForeshadowTrail> {
   const result = new Map<string, ForeshadowTrail>()
-  // 低-5（第十轮）：同标题伏笔合并写入，不再互相覆盖
+  // 低-5同标题伏笔合并写入，不再互相覆盖
   const setTrail = (title: string, trail: ForeshadowTrail): void => {
     const prev = result.get(title)
     result.set(title, prev ? mergeTrails(prev, trail, latestChapter) : trail)
@@ -389,12 +389,12 @@ function aggregateTrails(
 }
 
 /**
- * 构建关键词倒排索引（P2-BE-4）：
+ * 构建关键词倒排索引（-BE-4）：
  * keyword → Map<章号, 位置[]>。
  *
  * 每章正文用联合正则一次扫描，命中全部关键词的位置；
  * 关键词做转义防正则元字符（如「祖父遗物（上）」）。
- * B1（复审-0914-优化修复批）：单章扫描体与异步孪生单源（scanChapterIntoIndex）。
+ * 单章扫描体与异步孪生单源（scanChapterIntoIndex）。
  */
 function buildKeywordIndex(
   chapters: Map<number, string>,
@@ -410,7 +410,7 @@ function buildKeywordIndex(
   return index
 }
 
-/** 单章联合正则扫描入索引（B1，复审-0914-优化修复批）：buildKeywordIndex 与
+/** 单章联合正则扫描入索引：buildKeywordIndex 与
  *  buildKeywordIndexAsync 原逐字重复的 exec 循环抽出单源（含防零宽匹配死循环防御）；
  *  异步版只承担按片让出事件循环的编排。 */
 function scanChapterIntoIndex(
@@ -438,7 +438,7 @@ function scanChapterIntoIndex(
   }
 }
 
-/** 正则元字符转义（关联词可能含「（）」「.」等） */
+/** 正则元字符转义（关联词可能含「」「.」等） */
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -455,7 +455,7 @@ function collectTrailKeywords(foreshadows: ForeshadowEntry[]): Set<string> {
 }
 
 /** 联合正则：`kw1|kw2|...`，一次扫描提取全部命中。无关键词 → null。
- *  P-4（第十四轮）：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
+ *  ：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
  *  永久遮蔽同前缀长词（「玉佩」先匹配，「玉佩锁」无独立命中），风险评级漏检长关联词。 */
 function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
   const keywords = collectTrailKeywords(foreshadows)
@@ -466,13 +466,13 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
   )
 }
 
-// ── PM-1（性能与内存专项·2026-09-05）：足迹扫描异步孪生 ─────────
+// ── ：足迹扫描异步孪生 ─────────
 // 动因：getForeshadowsCached 在缓存 MISS（首开面板/任一保存 bump 目录 mtime）时在
 // 请求线程同步跑全书联合正则扫（200 万字秒级阻塞事件循环，GUI 心跳/保存全被拖住）；
 // 异步孪生把 CPU 重段（buildKeywordIndex 逐章正则）切片让出事件循环（每 25 章
 // setImmediate，Node 请求线程可插步响应其他请求），正文读取段的磁盘 IO 由共享
-// md-text-cache 指纹表吸收（R47-27）。同步版原样保留（行为规格参照 + 回归测试钉），
-// 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——B1（复审-0914-优化修复批）
+// md-text-cache 指纹表吸收。同步版原样保留（行为规格参照 + 回归测试钉），
+// 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——
 // 后两版扫描/收集循环本体亦单源（scanChapterIntoIndex/collectOneChapterFile），
 // 异步孪生只承担按片让出事件循环的编排，等价性由 pm1 测试逐字段断言背书。
 
@@ -480,13 +480,13 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
 const TRAILS_YIELD_EVERY = 25
 
 /** scanForeshadowTrails 的异步孪生：签名/返回/语义逐位一致（aggregateTrails 共用），
- *  差异仅在索引构建按片让出事件循环（见上方 PM-1 块注）。 */
+ *  差异仅在索引构建按片让出事件循环（见上方块注）。 */
 export async function scanForeshadowTrailsAsync(
   bookRoot: string,
   foreshadows: ForeshadowEntry[],
 ): Promise<Map<string, ForeshadowTrail>> {
-  // R48-46（四十八轮）：正文收集段改走异步孪生——索引构建已分片让出（PM-1），但
-  // collectChapterTexts 仍同步整段，冷缓存首开面板（正是 PM-1 动因场景）读取段照样
+  // 正文收集段改走异步孪生——索引构建已分片让出，但
+  // collectChapterTexts 仍同步整段，冷缓存首开面板（正是动因场景）读取段照样
   // 秒级阻塞请求线程；读取段同口径分片让出（下方同编号注）。
   const chapters = await collectChapterTextsAsync(bookRoot)
   const latestChapter = chapters.size > 0 ? Math.max(...chapters.keys()) : 0
@@ -496,8 +496,8 @@ export async function scanForeshadowTrailsAsync(
 
 /** collectChapterTexts 的异步孪生：签名/返回/语义逐位一致（目录枚举仍同步——只收集
  *  路径不读正文，开销为 walk 本身），差异在正文读取段每 TRAILS_YIELD_EVERY 章让出
- *  一次事件循环（R48-46，yieldToEventLoop 复用 PM-1 原语）；读盘由共享 md-text-cache
- *  指纹表吸收（R47-27），热缓存近零成本。B1（复审-0914-优化修复批）：单章收集体与
+ *  一次事件循环（yieldToEventLoop 复用原语）；读盘由共享 md-text-cache
+ *  指纹表吸收，热缓存近零成本。：单章收集体与
  *  同步 walkChapters 单源（collectOneChapterFile），不再互为镜像副本。 */
 async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, string>> {
   const texts = new Map<number, string>()
@@ -513,14 +513,14 @@ async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, s
     if (++processed % TRAILS_YIELD_EVERY === 0) await yieldToEventLoop()
     collectOneChapterFile(texts, merged, abs, name)
   }
-  // S2（阶段 24）：并入源章回退（fillMergedSources 头注——与同步孪生镜像等价）
+  // （阶段 24）：并入源章回退（fillMergedSources 头注——与同步孪生镜像等价）
   fillMergedSources(merged, texts)
   return texts
 }
 
-/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源 + B1 后
+/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源 + 后
  *  scanChapterIntoIndex 单章扫描体共用），章节循环每 TRAILS_YIELD_EVERY 章让出一次
- *  事件循环（PM-1，见块注）。 */
+ *  事件循环（见块注）。 */
 async function buildKeywordIndexAsync(
   chapters: Map<number, string>,
   foreshadows: ForeshadowEntry[],
@@ -539,10 +539,10 @@ async function buildKeywordIndexAsync(
 
 // ── 章节正文收集 ─────────────────────────────────
 
-/** 章正文读取（stat 指纹缓存）。R66-6（十四轮）私有缓存（伏笔足迹/搜索此前每次
+/** 章正文读取（stat 指纹缓存）。私有缓存（伏笔足迹/搜索此前每次
  *  walkMdEach + 逐章 readFile 整读全书正文——200 万字长篇开一次面板即秒级阻塞请求
- *  线程；改指纹缓存后未变章节零重读）于 R47-27（四十七轮）收敛进共享单源
- *  fs/md-text-cache.ts：与 metrics/style.ts R66-24 同款双份驻留合并，check/leads 与
+ *  线程；改指纹缓存后未变章节零重读）于收敛进共享单源
+ *  fs/md-text-cache.ts：与 metrics/style.ts 同款双份驻留合并，check/leads 与
  *  book_search 新消费方共用同一指纹表。降级口径逐字保持：读失败/无 fm/未闭合 fm
  *  → ''（原 readFile !ok 同款）。 */
 function readChapterBodyCached(abs: string): string {
@@ -552,7 +552,7 @@ function readChapterBodyCached(abs: string): string {
   return split ? split.body : ''
 }
 
-/** 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches 接线）——R47-27 后
+/** 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches 接线）—— 后
  *  章正文缓存单源 fs/md-text-cache.ts（键同源 walk 路径），前缀清除委托。 */
 export function forgetChapterTextCacheForBook(bookRoot: string): number {
   return forgetMdTextCacheForBook(bookRoot)
@@ -569,12 +569,12 @@ function collectChapterTexts(bookRoot: string): Map<number, string> {
   return texts
 }
 
-/** S2（阶段 24，D3 留洞制）：并入源章回退——被合并源章的正文经目标章正文呈现
+/** （阶段 24，留洞制）：并入源章回退——被合并源章的正文经目标章正文呈现
  *  （伏笔足迹按章号建倒排索引，源章号的历史提及在合并后仍可命中；latestChapter
  *  随 keys 自然含源章号，staleSpan 口径自洽）。正文已命中（通用还原后）的源章号
  *  不覆盖——正文命中优先，陈旧并入映射不被咨询。
  *  映射来自 walk 内「同一次读取顺带解析」（parseMergedInto + registerMergedInto，
- *  零额外 IO——另起 mergedIntoMap 全扫会让每章多付一次整读，破坏 R66-6
+ *  零额外 IO——另起 mergedIntoMap 全扫会让每章多付一次整读，破坏
  *  「二扫零重读」指纹缓存契约）。同步/异步孪生共用（镜像纪律：改任一侧必须对
  *  另一侧做同款等价核对）。 */
 function fillMergedSources(merged: Map<number, string>, texts: Map<number, string>): void {
@@ -594,12 +594,12 @@ function collectMergedFromRaw(merged: Map<number, string>, raw: string, abs: str
 }
 
 /** 遍历章节目录（含卷子目录）。
- *  B-4（第六十轮）：N2 walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
+ *  ：walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
  *  无 visited 无根界，循环 symlink → 无限递归 RangeError、指向书外的 symlink 整树
  *  .md 按章号整读。接入 walk-md 共享口径（Dirent 不跟随 + realpath visited 剪枝 +
  *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。
- *  S2（阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
- *  零额外 IO——B1（复审-0914-优化修复批）后单章收集体与异步孪生单源
+ *  （阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
+ *  零额外 IO——后单章收集体与异步孪生单源
  *  collectOneChapterFile，不再双侧镜像）。 */
 function walkChapters(dir: string, texts: Map<number, string>, merged: Map<number, string>): void {
   walkMdEach(dir, (abs, name) => {
@@ -607,7 +607,7 @@ function walkChapters(dir: string, texts: Map<number, string>, merged: Map<numbe
   })
 }
 
-/** 单章文件收集（B1，复审-0914-优化修复批）：同步 walkChapters 与异步
+/** 单章文件收集：同步 walkChapters 与异步
  *  collectChapterTextsAsync 原逐字镜像的章号解析/重复告警/并入顺带解析/正文读取
  *  四段抽出单源；重复章号覆盖语义（后者胜）与告警文案逐位不变。 */
 function collectOneChapterFile(
@@ -618,25 +618,25 @@ function collectOneChapterFile(
 ): void {
   const 章号 = chapterNoFromName(name)
   if (章号 === null) return
-  // R65-33（第六十五轮）：跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
+  // 跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
   // 那章算，前一章的证据整章不可见）；保留现覆盖行为，补 warn 可见性供作者核对
   if (texts.has(章号)) {
     log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
   }
-  // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
+  // 并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
   const raw = readMdTextCached(abs)
   if (raw !== null) collectMergedFromRaw(merged, raw, abs)
-  // R66-6（十四轮）：整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
+  // 整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
   texts.set(章号, readChapterBodyCached(abs))
 }
 
-// parseChapterNoFromName 薄委托包装已随 B1（复审-0914-优化修复批）内联删除：
+// parseChapterNoFromName 薄委托包装已随内联删除：
 // 唯一消费方（单源后的 collectOneChapterFile）直呼 chapterNoFromName。沿革见
-// R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则（仅认 -）升格
+// （GLM-5.3 修复批）：窄正则（仅认 -）升格
 // format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
 // 漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章；单源正文本在 format/filename.ts。
 
-// ── F1-P3 伏笔足迹 FTS 检索 ────────────────────────
+// ── 伏笔足迹 FTS 检索 ────────────────────────
 
 /** 伏笔足迹检索命中（「哪章埋了哪章收了」可检索） */
 interface ForeshadowSearchHit {
@@ -651,7 +651,7 @@ interface ForeshadowSearchHit {
  * 伏笔足迹检索：按标题 / 关联词 / 命中片段过滤 scanForeshadowTrails 结果。
  *
  * query 为空 → 全量（按末次命中降序，最近提及在前）。
- * 匹配维度（F3/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
+ * 匹配维度（/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
  *
  * @param bookRoot 书库根
  * @param query 检索词（可选；大小写不敏感）
@@ -663,7 +663,7 @@ export function searchForeshadowTrails(bookRoot: string, query?: string): Foresh
 }
 
 /**
- * R44-8（四十四轮）：searchForeshadowTrails 的过滤体拆出——api/foreshadows.ts 的
+ * searchForeshadowTrails 的过滤体拆出——api/foreshadows.ts 的
  * 「目录指纹 + TTL」缓存壳命中后在已算好的（entries, trails）快照上做 ?q= 过滤，
  * 不再全量重扫；过滤维度/排序与拆出前逐位一致（同一实现双入口，不复制逻辑）。
  */

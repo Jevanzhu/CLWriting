@@ -1,11 +1,11 @@
 /**
- * 重试策略 + 退避公式（批次 B4 / DSH-9 直抄公式）。
+ * 重试策略 + 退避公式（批次 / DSH-9 直抄公式）。
  *
  * - 指数退避：exponent=min(retry-1,1024)；exponential=min(initial*2^exp, max)
- * - 对称抖动：jitter=1-jitterRatio+2*jitterRatio*random()（围绕 1 对称，均值不变）
+ * - 对称抖动：jitter=1-jitterRatio+2*jitterRatio*random（围绕 1 对称，均值不变）
  * - Retry-After 尊重但封顶：服务端值 > maxDelayMs → 不重试（宁可终态也不盲等超长）
  * - 可重试判据：结构化 code 走 failure.ts 决策表（action === 'retry' 才重试——
- *   Z-P2-2 单口径化：本文件不再维护第二份 code 列表）；无 code 时按布尔 retryable
+ * 单口径化：本文件不再维护第二份 code 列表）；无 code 时按布尔 retryable
  *   兜底（mode:'always'——存量错误路径口径不变）
  *
  * 策略常量集中于此（唯一事实源）；未来 provider 表驱动层需要 per-provider 差异时，
@@ -49,9 +49,9 @@ export function backoffDelayMs(
   opts: { providerRetryAfterMs?: number; rng?: () => number } = {},
 ): number | null {
   // 服务端明示等待：直接尊重（封顶内不再叠抖动——抖低会违反服务端要求）。
-  // R72-12（二十轮 A-4 裁定不采纳）：曾试「下限钳到 initialDelayMs」防 Retry-After: 0
+  // （二十轮裁定不采纳）：曾试「下限钳到 initialDelayMs」防 Retry-After: 0
   // 密集重试加剧限流，但既有契约是有意设计——服务端权威值逐字尊重（retry-policy
-  // 0→0 用例 + runner B4 以「服务端值生效」确定性延迟做证据），钳制即毁契约；
+  // 0→0 用例 + runner 以「服务端值生效」确定性延迟做证据），钳制即毁契约；
   // 密集 429 的实际风险由章级调用预算闸兜底，不在此处二次猜度服务端。
   if (opts.providerRetryAfterMs !== undefined) {
     return opts.providerRetryAfterMs > policy.maxDelayMs ? null : opts.providerRetryAfterMs

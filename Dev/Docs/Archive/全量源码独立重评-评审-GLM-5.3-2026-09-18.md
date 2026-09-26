@@ -168,9 +168,9 @@
 - `[P2-G002]` Anthropic 协议线无真 HTTP/SSE 测试形态（test/ai/fake-provider.ts:2-4 只造 OpenAI 兼容格式、test/studio/fixtures.ts:177 硬编码 protocol:'openai'；anthropic-adapter 仅经进程内假 client 间接行使）：anthropic SDK 线级 SSE 解析、/v1/messages 拼接、双认证头阻断只有源码刮取锚。实配 Claude/中转网关用户的实际主链路端到端不触网。建议 fake-provider 加 anthropic 线格式（本地 /v1/messages stub）。
 - `[P2-G003]` web-next .vue 组件层零覆盖核算（vitest.config.ts:87 coverage include 仅 `src/**/*.ts`，SFC script 块不入报告不入门；聚合桶 lines 门 43 远低于域内实况）：views/组件内编排逻辑回归无机器门。建议开启 .vue 插桩或给 views 域立桶。
 - `[P3-G004]` 真定时器有序截止链用例负载敏感窗（test/ai/runner.test.ts:508-525 P-5 三级实定时序、:376-409 R42-20 中断须落入 Retry-After 窗）：满载跑批 setTimeout 次序可翻转，归因断言偶发红。建议 fake timers 或事件驱动同步点。
-- `[P3-G005]` 44% 批次号命名 + 批队文件按轮次聚簇（全量 basename 统计：`^r[0-9]` 542/1221 = 44.4%，放宽批次语缀 47.3%；r26-batch-a.test.ts 一文件混四个不相关主题）：2026-09-16 已立行为命名新规，建议对同名主题散多文件优先归并。
+- `[P3-G005]` 44% 批次号命名 + 批队文件按轮次聚簇（全量 basename 统计：`^r[0-9]` 542/1221 = 44.4%，放宽批次语缀 47.3%；gen-stream-integrity-guards.test.ts（原 r26-batch-a.test.ts）一文件混四个不相关主题）：2026-09-16 已立行为命名新规，建议对同名主题散多文件优先归并。
 - `[P3-G006]` 空洞测试门是「每文件 ≥1 断言」粒度（check-counts.mjs:231-235），恒真断言不在射程；建议口径下沉到每 it 至少一断言。
-- `[P3-G007]` 源码文本刮取式静态锚断言（test/ai/provider/r38-batch-d.test.ts:177-191 slice(indexOf(...)) 钉构造参数与导出签名），格式化/重排即碎或漏；对比 governance 域同类扫描有明确边界论证，此处裸 slice 更脆。
+- `[P3-G007]` 源码文本刮取式静态锚断言（test/ai/provider/provider-usage-pins-and-wire-guards.test.ts（原 r38-batch-d.test.ts:177-191，源码刮取锚已行为化）slice(indexOf(...)) 钉构造参数与导出签名），格式化/重排即碎或漏；对比 governance 域同类扫描有明确边界论证，此处裸 slice 更脆。
 - `[P3-G008]` e2e 单一 workDir 顺序契约的级联脆弱性（playwright.config.ts:23-32 workers:1 + retries:0 + 共享 workDir）：前序 spec 崩溃连坐下游；快照 + spec-order 探针双守卫已到位，新增 spec 建议默认走 short-full-flow 的独立 server+tmp 模式逐步收缩共享依赖面。
 - `[P3-G009]` 注释钉值漂移（playwright.config.ts:16「31-spec 契约」与 ci.yml e2e job 注释「29 spec 串行」落后实测 33，机器门是对的）；另 runner.test.ts:618-619 用 mtime 相等证未写盘属弱预言，宜辅内容指纹。
 
@@ -227,7 +227,7 @@ P3 ×36 由子代理 file:line 锚定、主审抽核（B002/B005/C002/D003/G005 
 
 **待拍板（2，落总览 §五）**：A006 瞬态失败回滚并遮蔽作者输入（改「保留 user 消息」动 P1-S4/R1a「防连续 user 400」既有拍板语义，属产品行为决策）／B004 结构操作入口强制校验 fm 章号 ≡ 文件名前缀（fail-loud 会拒存量失配书的结构操作，产品取舍）。
 
-**缓办（6，理由在案）**：A005 book.yaml mtime 缓存（mtime 粒度与 RMW 正确性风险大于 µs 级收益；读侧高频成本量级本可接受）／B006 拆分两步间健康哨兵（healthCheck 新增探测面宜单立小批）／B008 结构 plan/apply 三重全书扫描（stat 缓存兜底量级可接受，planHash 复核语义依赖重算）／G004 真定时器有序截止链（时序测试改写有回归风险，注册在案负载敏感族本轮不触）／G006 空洞门粒度下沉每 it（门禁收紧或致存量红，需先全树扫描评估）／G007 r38-batch-d 源码刮取锚行为化（测试改写单立）。
+**缓办（6，理由在案）**：A005 book.yaml mtime 缓存（mtime 粒度与 RMW 正确性风险大于 µs 级收益；读侧高频成本量级本可接受）／B006 拆分两步间健康哨兵（healthCheck 新增探测面宜单立小批）／B008 结构 plan/apply 三重全书扫描（stat 缓存兜底量级可接受，planHash 复核语义依赖重算）／G004 真定时器有序截止链（时序测试改写有回归风险，注册在案负载敏感族本轮不触）／G006 空洞门粒度下沉每 it（门禁收紧或致存量红，需先全树扫描评估）／G007 provider-usage-pins-and-wire-guards（原 r38-batch-d）源码刮取锚行为化（测试改写单立）。
 
 ### 批内如实记档
 

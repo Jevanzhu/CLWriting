@@ -1,5 +1,5 @@
 /**
- * 进程存活探测单源（R0916-7-P3-3：自 fs/cross-process-lock.ts 拆出）。
+ * 进程存活探测单源（自 fs/cross-process-lock.ts 拆出）。
  *
  * 起因：存活探测是**通用底座纯函数**（跨进程锁的 stale 判定、events 句柄标记、
  * atomic 的崩溃残留清扫、task-gate 的跨进程占用查询共用同一口径），却与锁实现同处

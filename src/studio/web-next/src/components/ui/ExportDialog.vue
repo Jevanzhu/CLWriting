@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
-// 成功 toast + 关弹窗；失败（B-23：业务失败回 422 错误信封）经 catch 展示信封诊断文案。
+// 导出定稿弹窗（细案 .2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
+// 成功 toast + 关弹窗；失败（业务失败回 422 错误信封）经 catch 展示信封诊断文案。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
 import { exportBook, EXPORT_FORMATS, EXPORT_PLATFORMS, type ExportFormat, type ExportPlatform } from '../../api/io'
@@ -8,7 +8,7 @@ import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
-import { isImeComposing } from '../../shared/ime' // R33-82
+import { isImeComposing } from '../../shared/ime'
 import ModalMask from './ModalMask.vue'
 
 const ui = useUiStore()
@@ -28,17 +28,17 @@ async function run(): Promise<void> {
   const targetBook = ws.bookName
   loading.value = true
   try {
-    // B-23：业务失败（无定稿正文等）由 apiJson 抛 ApiError（信封 error 即诊断），
+    // 业务失败（无定稿正文等）由 apiJson 抛 ApiError（信封 error 即诊断），
     // 成功恒 ok:true——不再有 2xx {ok:false} 域形状分支
     const r = await exportBook(ws.bookName, {
       format: format.value,
       platform: platform.value,
     })
-    // R72-11（二十轮 E-6）：await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
+    // await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
     if (ws.bookName !== targetBook) return
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
-    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：清单缺失时导出兜底不过滤（宁多勿漏，
-    // M-2/PL-2 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
+    // 清偿-导出未过滤提示（残留）：清单缺失时导出兜底不过滤（宁多勿漏，
+    // /PL-2 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
     // 成功面（弹窗即关，结果面 = toast）补 warning 明示；'applied'/缺省免提示
     if (r.finalizedFilter === 'skipped-no-manifest') {
       ui.toast('定稿清单缺失，本次导出未按定稿过滤（含未定稿章）', 'warning')
@@ -50,7 +50,7 @@ async function run(): Promise<void> {
     }
     ui.closeExport()
   } catch (e) {
-    // R26-68（二十六轮）：catch 补切书复检——成功路径（上方）有门，catch 漏配：
+    // catch 补切书复检——成功路径（上方）有门，catch 漏配：
     // 导出（worker 线程数秒）在途切书后，A 书的失败 toast 会弹在 B 书界面上
     if (ws.bookName !== targetBook) return
     ui.toast(friendlyError(e), 'error')
@@ -61,14 +61,14 @@ async function run(): Promise<void> {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
-  // P3-23（全库重评-0914）：Esc 让渡链首行短路——先让高层（ConfirmPrompt capture 期
-  // 已消费并 preventDefault）不被本层重复处理；与 SettingsModal R8C-F1 同款纪律。
+  // Esc 让渡链首行短路——先让高层（ConfirmPrompt capture 期
+  // 已消费并 preventDefault）不被本层重复处理；与 SettingsModal 同款纪律。
   if (e.defaultPrevented) return
-  // R33-82（三十三轮）：IME 组合期让渡（同 SettingsModal）
+  // IME 组合期让渡（同 SettingsModal）
   if (isImeComposing(e)) return
   if (e.key === 'Escape' && ui.exportOpen) {
     ui.closeExport()
-    e.preventDefault() // Z-23：本层消费 Esc，防 useHotkeys 同键退专注双效
+    e.preventDefault() // 本层消费 Esc，防 useHotkeys 同键退专注双效
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -77,7 +77,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.exportOpen" kind="export" @mask-click="ui.closeExport">
       <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1" data-testid="export-dialog">
         <div class="modal-head">

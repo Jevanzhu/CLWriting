@@ -1,5 +1,5 @@
 /**
- * R0912-1（2026-09-11 修复批）：后台 AI 任务的独立中断通道——R0916-7-P3-3（2026-09-16
+ * （修复批）：后台 AI 任务的独立中断通道——（
  * 评审修复批）自 process/summary.ts 独立成模块。
  *
  * 起因：runRegisteredBgTask 原居 process/summary.ts（章/卷摘要生成器），但它是**通用
@@ -39,7 +39,7 @@ export async function runRegisteredBgTask<T>(
   try {
     return await run(ctrl.signal)
   } finally {
-    // settle（成功/失败/中断）即注销——isRunning 归位（cc X-P2-11 口径）；
+    // settle（成功/失败/中断）即注销——isRunning 归位（cc 口径）；
     // 只注销自己：晚到的注销不得抹掉同 session 后来的新登记
     if (registered) driver!.unregisterCtrl?.(session!, ctrl)
   }

@@ -1,9 +1,9 @@
 /**
- * R0910-W：server 层在途外部工作登记（Worker 线程 / SQLite 写收尾）。
+ * server 层在途外部工作登记（Worker 线程 / SQLite 写收尾）。
  *
  * 动因：重建（runRebuildAsync）/ 导出（runExportBookAsync）/ 文风扫描（runStyleScanAsync）
  * 的 Worker 线程此前不受 server 生命周期约束——请求连接可先被客户端断开（页面关闭/
- * 刷新），handler 仍在 await worker，`server.close()` 只等连接清空即回调，worker 仍持
+ * 刷新），handler 仍在 await worker，`server.close` 只等连接清空即回调，worker 仍持
  * `.cache/index.db` 句柄在写盘；调用方（集成测试/e2e）close 后立刻 rmSync 在 Windows
  * 上落 ENOTEMPTY。本表把这类跨线程工作在 server 侧登记，close 收尾（index.ts）与
  * graceful-shutdown 在有界预算内等它 settle（超时放行，与既有 settle 超时同口径）。
@@ -23,12 +23,12 @@ export function trackInFlightWork<T>(p: Promise<T>): Promise<T> {
   return p
 }
 
-/** R0910-W：测试观测钩子——断言登记/清理。 */
+/** 测试观测钩子——断言登记/清理。 */
 export function __getInFlightWorkCount(): number {
   return inFlight.size
 }
 
-/** R0910-W：有界等全部在途外部工作 settle（无在途立即返回；超时放行）。 */
+/** 有界等全部在途外部工作 settle（无在途立即返回；超时放行）。 */
 export async function waitInFlightWorkSettled(timeoutMs: number): Promise<void> {
   if (inFlight.size === 0) return
   const deadline = Date.now() + timeoutMs

@@ -1,5 +1,5 @@
 /**
- * F1-P5 审计只读端点：事件重放 + 遮蔽差异视图数据。
+ * 审计只读端点：事件重放 + 遮蔽差异视图数据。
  *
  * GET /api/books/:name/audit → {
  *   conversation: { events, modelVisible, humanVisible, shadowedCount },
@@ -11,7 +11,7 @@
  *   modelVisible = 模型可见（未遮蔽）、humanVisible = 人类可见（含被遮蔽节点）、
  *   shadowedCount = 被 replace 遮蔽的节点数（人类抄本不被压缩遮蔽抹掉）；
  * - workflowEvents：写作工作流（book = bookHash(bookRoot)）step/llm-call 链路事件；
- * - goals/todos：工作流会话 goal/todo 事件的重放当前态（foldGoals/foldTodos，F5——
+ * - goals/todos：工作流会话 goal/todo 事件的重放当前态（foldGoals/foldTodos，——
  *   self-heal 的修复目标与章节任务清单）。
  *
  * 纯只读（重放纯函数），不产生副作用。
@@ -23,13 +23,13 @@ import { resolveBookOrReply } from '../book-context.js'
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
-// R0916-7-P3-12：清库族六闸收编 task-gate.busyReason 单源——本文件不再自带闸谓词，
+// 清库族六闸收编 task-gate.busyReason 单源——本文件不再自带闸谓词，
 // 也不从 stream.js 反向取 isSpawnRunning（audit ↔ stream 的 import 环随之解开）
-import type { TaskGate, TaskGateInjected } from './task-gate.js' // R0916-7-P3-6：闸实例经组装根注入（chatClearGateReason 为模块级助手，显式接闸）
+import type { TaskGate, TaskGateInjected } from './task-gate.js' // 闸实例经组装根注入（chatClearGateReason 为模块级助手，显式接闸）
 import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
-import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
-// B101（五轮重评修复批）：让出原语 + 让出粒度（域内纪律单源——check/snapshots 同款）
+import { errMsg } from '../../../log/index.js' // errMsg 收编：错误文案三目单源
+// B101（修复批）：让出原语 + 让出粒度（域内纪律单源——check/snapshots 同款）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 
 interface AuditCtx extends TaskGateInjected {
@@ -80,7 +80,7 @@ function toPreview(content: string | unknown[]): string {
 /** 对话审计视图（投影 + 遮蔽差异） */
 interface AuditConversation {
   events: AuditEvent[]
-  /** P3-13：本页截断后的条数（与 eventsTotal 区分，前端可据此判断还有下一页） */
+  /** 本页截断后的条数（与 eventsTotal 区分，前端可据此判断还有下一页） */
   eventsTotal: number
   modelVisible: AuditNode[]
   humanVisible: AuditNode[]
@@ -96,10 +96,10 @@ interface AuditPaging {
 const DEFAULT_PAGE_LIMIT = 500
 
 /** 审计视图（对话 + 工作流 + goal/todo 当前态），纯函数——route 薄接线 + 单测直喂 store。
- *  五轮重评修复批（B101）：改 async——两路全量迭代为同步单 tick 段（iterateEvents 系
+ *  修复批（B101）：改 async——两路全量迭代为同步单 tick 段（iterateEvents 系
  *  同步生成器逐行 JSON.parse），长书每次打开/翻页审计页都全量重放，期间同进程 SSE 心跳/
  *  保存/其它请求停摆（Electron 内嵌单进程 = 桌面整体卡顿）。对齐同域逐块让出纪律
- *  （check.ts R37-3 / snapshots.ts SCAN_YIELD_EVERY），每 25 事件让出一次。 */
+ *  （check.ts / snapshots.ts SCAN_YIELD_EVERY），每 25 事件让出一次。 */
 export async function buildAuditView(
   store: SessionStore,
   bookName: string,
@@ -126,18 +126,18 @@ export async function buildAuditView(
   for (const ev of store.iterateEvents(bookName)) {
     if (inPage(convoTotal)) convoPage.push(ev)
     if (FOLD_INPUT_TYPES.has(ev.type)) convoFold.push(ev)
-    // B101（五轮重评修复批）：同步迭代段按域内纪律逐块让出，长书不再单 tick 冻结事件循环
+    // B101（修复批）：同步迭代段按域内纪律逐块让出，长书不再单 tick 冻结事件循环
     if (++convoTotal % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
   }
   let conversation: AuditConversation | null = null
   if (convoTotal > 0) {
     const nodes = foldSurface(convoFold)
-    // M1（二轮复审）：shadowed 查表一次建 Set——此前每事件线性扫全部 nodes（O(events×nodes)，
+    // shadowed 查表一次建 Set——此前每事件线性扫全部 nodes（O(events×nodes)，
     // 长书几万事件一次请求数十亿次比较，同步阻塞事件循环）；节点 seq 唯一，语义严格等价
     const shadowedSeqs = new Set<number>()
     for (const n of nodes) if (n.shadowed) shadowedSeqs.add(n.seq)
-    // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页。
-    // SV-2（第七轮）：modelVisible/humanVisible 是「遮蔽差异」面板的全量对照数据（首屏需要
+    // events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页。
+    // SV-2modelVisible/humanVisible 是「遮蔽差异」面板的全量对照数据（首屏需要
     // 完整列表），但「加载更多」的每页响应都在重发同一份全量投影（前端只追加 events、丢弃
     // conversation 字段）——后续页省略投影只带 events 切片，长书翻页不再全量出网。
     const firstPage = offset === 0
@@ -185,12 +185,12 @@ export async function buildAuditView(
     data: e.data,
   }))
 
-  // F5：goal/todo 当前态（goal/todo 事件随 self-heal 落工作流会话，重放即得）
+  // goal/todo 当前态（goal/todo 事件随 self-heal 落工作流会话，重放即得）
   return { conversation, workflowEvents, workflowTotal: wsTotal, goals: foldGoals(wsFold), todos: foldTodos(wsFold) }
 }
 
 /** 解析 limit：整型且 1..DEFAULT_PAGE_LIMIT（非法/0/负/超大 → 缺省 500）。
- *  AA-P2-2：分页保护不可被 `limit=999999999` 打穿，零封不被当成「空页」合法值。 */
+ *  ：分页保护不可被 `limit=999999999` 打穿，零封不被当成「空页」合法值。 */
 function limitParam(v: string | null): number {
   if (v === null || v.trim() === '') return DEFAULT_PAGE_LIMIT
   const n = Number(v)
@@ -205,22 +205,22 @@ function offsetParam(v: string | null): number {
   return Number.isInteger(n) && n >= 0 ? n : 0
 }
 
-/** 解析分页参数（AA-P2-2：limit 夹取；offset 语义宽松）——独立导出示可单测 */
+/** 解析分页参数（limit 夹取；offset 语义宽松）——独立导出示可单测 */
 export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | null): AuditPaging {
   return { limit: limitParam(limitRaw), offset: offsetParam(offsetRaw) }
 }
 
 /**
- * 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：清对话（chat/clear）与清
- * 事件史（audit DELETE）共用的拒清理由单源（null = 放行）。闸序沿革：dd-P3
- * （对话运行）→ hh-P1（task-gate 分钟级任务 + self-heal 批量写稿）→ 第九轮 M-1
- * （三审）→ 第五轮（后台收尾 + spawn 手动写稿）→ R29-9（task-gate 并入跨进程锁
+ * 二轮-（二轮 GLM-5.3）：清对话（chat/clear）与清
+ * 事件史（audit DELETE）共用的拒清理由单源（null = 放行）。闸序沿革：dd-
+ * （对话运行）→ hh-（task-gate 分钟级任务 + self-heal 批量写稿）→
+ * （三审）→ （后台收尾 + spawn 手动写稿）→ （task-gate 并入跨进程锁
  * 文件扫描）。原两处各自内联同组闸且只在入口查一次——openSessionStoreAsync /
  * clearChatHistory 内部的 await 让出窗口内新起任务时闸检已过、清库照走，任务收尾
  * 继续向已清 session 追加事件（清不彻底 + 事件复活）。现入口与 await 后清库前各查
  * 一次（本函数两用）。
  *
- * R0916-7-P3-12：六闸本体与序迁入 task-gate 的忙闸矩阵（'clear-chat'/'clear-events'
+ * 六闸本体与序迁入 task-gate 的忙闸矩阵（'clear-chat'/'clear-events'
  * 两行），本函数退为「动作词 → 意图」的薄适配（动作词只剩这两个调用面，故直接判别）。
  * 文案随之统一到矩阵单源（原先各句的字句/尾句差异见矩阵行注释）。
  */
@@ -241,21 +241,21 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       return reply(res, 200, { conversation: null, workflowEvents: [], workflowTotal: 0, goals: [], todos: [] })
     }
 
-    // P3-13 + AA-P2-2：分页参数（limit/offset，默认每页 500 条截断；limit 夹取 1..500）——
+    // + 分页参数（limit/offset，默认每页 500 条截断；limit 夹取 1..500）——
     // 长书几万事件不再一次全量进响应，且客户端不可用超大 limit 打穿截断。
-    // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
+    // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
     const url = parseRequestUrl(req)
     if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const q = url.searchParams
     const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
 
     // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-    // R62-43：userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
+    // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
     // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-    // IR-8（独立重评 2026-09-02）勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+    // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
     //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
     // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
-    // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+    // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
     let store: SessionStore | null
     try {
       store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
@@ -276,7 +276,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
   },
   })
 
-  // 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）：每书事件史清除入口。
+  // 事件保留定版（拍板：全量保留 + 手动清理）：每书事件史清除入口。
   // 对话会话（book=bookName）与工作流会话（book=bookHash）同库不同 book 键——两侧都清；
   // 事件是 append-only 审计数据，清除是作者显式销毁动作，前端二次确认后才调本端点。
   defineRoute('books.audit.delete', {
@@ -285,17 +285,17 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
-    // 重评二轮-P3-2：六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd-P3 /
-    // hh-P1 / 第九轮 M-1 / 第五轮 / R29-9），入口首查 + 开库让出后复查（见下）两用
+    // 二轮-六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd- /
+    // hh- ），入口首查 + 开库让出后复查（见下）两用
     const gate = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
     if (gate) return replyError(res, 409, 'BUSY', gate)
     const bookRoot = r.bookRoot
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
-    // R62-43：userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
-    // IR-8（独立重评 2026-09-02）勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+    // userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
+    // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
     //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
     // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
-    // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+    // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
     let store: SessionStore | null
     try {
       store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
@@ -309,12 +309,12 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     }
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
     try {
-      // 重评二轮-P3-2：开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
+      // 二轮-开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
       // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
-      // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close() 照常收口
+      // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close 照常收口
       const recheck = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
       if (recheck) return replyError(res, 409, 'BUSY', recheck)
-      // 低级项（第六轮）：双键单事务（clearBooks）——两次 clearBook 各自事务，
+      // 低级项：双键单事务（clearBooks）——两次 clearBook 各自事务，
       // 第二键失败时对话侧已提交、工作流侧残留，清除一半
       store.clearBooks([params['name']!, bookHash(bookRoot)])
       reply(res, 200, { ok: true })

@@ -1,5 +1,5 @@
 /**
- * 中文字体族名对齐（2026-09-06，win 字体 F 线④；2026-09-08 mac 预设批扩至双平台）。
+ * 中文字体族名对齐（win 字体 F 线④；mac 预设批扩至双平台）。
  *
  * 背景：win 字体枚举（win-fonts.ts PS 脚本）按 font-list 口径 zh-cn 族名优先、
  * en-us 兜底——中文系统列表里是「微软雅黑/宋体/等线…」，而预设/默认栈存的是英文
@@ -45,7 +45,7 @@ const CN_FONT_CANON: Record<string, string> = {
   霞鹜文楷: 'wenkai',
   'PingFang SC': 'pingfang',
   苹方: 'pingfang',
-  // mac 内置中文族（2026-09-08 mac 预设批）：mac 恒装；zh 系统下 font-list 枚举
+  // mac 内置中文族（mac 预设批）：mac 恒装；zh 系统下 font-list 枚举
   // 返回本地化名（宋体-简/楷体-简/…），与 CSS 用的英文族名同字体互为异名
   'Songti SC': 'songti-sc',
   '宋体-简': 'songti-sc',
@@ -79,7 +79,7 @@ const PROSE_FONT_COGNATES: Record<string, string[]> = {
   'Microsoft YaHei': ['Microsoft YaHei', '微软雅黑'],
   SimSun: ['SimSun', '宋体'],
   'LXGW WenKai': ['LXGW WenKai', '霞鹜文楷'],
-  // mac 预设指名族（2026-09-08）：英文族名在前（CSS 直命中），本地化枚举名兜底
+  // mac 预设指名族：英文族名在前（CSS 直命中），本地化枚举名兜底
   'PingFang SC': ['PingFang SC', '苹方-简', '苹方'],
   'Songti SC': ['Songti SC', '宋体-简'],
   'Kaiti SC': ['Kaiti SC', '楷体-简'],

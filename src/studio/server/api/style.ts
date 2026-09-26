@@ -1,5 +1,5 @@
 /**
- * 文风系统 REST 端点（文风系统重整 S6）：条目库 + 候选箱 + 收割。
+ * 文风系统 REST 端点（文风系统重整）：条目库 + 候选箱 + 收割。
  *
  * GET    /api/books/:name/style/entries              条目列表（首读触发自动迁移，结果附返回供 toast）
  * POST   /api/books/:name/style/entries              新增条目（源4 作者手动直达入库）
@@ -18,9 +18,9 @@ import { join, relative, isAbsolute } from 'node:path'
 import { existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
-import type { TaskGateInjected } from './task-gate.js' // R40-4：收割端点任务闸（R0916-7-P3-6：闸实例经组装根注入）
+import type { TaskGateInjected } from './task-gate.js' // 收割端点任务闸（闸实例经组装根注入）
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
-import { rmWithRetry } from '../../../fs/atomic.js' // R0913-win P3-1：删条目收编 EPERM/EBUSY 退避
+import { rmWithRetry } from '../../../fs/atomic.js' // 删条目收编 EPERM/EBUSY 退避
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
@@ -42,7 +42,7 @@ import {
 import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidatesAsync } from '../../../process/style-harvest.js'
 import { readKind, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { localDayKey, log, errMsg } from '../../../log/index.js'
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
@@ -52,7 +52,7 @@ interface StyleCtx extends TaskGateInjected {
   userDataPath: string | null
 }
 
-/** 服务端今天（候选 创建/过期口径统一在服务端）。R76-31（二十四轮 D 域）：改本地日
+/** 服务端今天（候选 创建/过期口径统一在服务端）。（二十四轮 D 域）：改本地日
  *  ——此前 UTC 切日，东八区 0-8 点确认/忽略的候选记到前一 UTC 日，与 overview 热力图/
  *  日记/成本分桶（localDayKey）打架；口径统一走 log/index 同一函数。 */
 function today(): string {
@@ -62,18 +62,18 @@ function today(): string {
 /** 绝对 _path → 书内相对路径（前端确认/忽略/删除都用相对路径互传） */
 function relPath(bookRoot: string, p: string | undefined): string {
   if (!p) return ''
-  // M-4 收口（第六轮）：归一反斜杠——返回值回传前端后原样回来过 insideDir /
+  // 收口：归一反斜杠——返回值回传前端后原样回来过 insideDir /
   // resolveWithinRoot（正斜杠口径）；Windows 不归一时删条目/确认/忽略全部 400
   return isAbsolute(p) ? relative(bookRoot, p).replace(/\\/g, '/') : p
 }
 
 /** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径、NUL 字节） */
 function insideDir(rel: string, dir: string): boolean {
-  // R39-17（三十九轮）：'..' 判定改段级——整串 includes('..') 把文件名含「..」子串的
+  // '..' 判定改段级——整串 includes('..') 把文件名含「..」子串的
   // 合法条目（safe-path 口径合法，如 `条目/a..b.md`）误杀成 400（删/确认/忽略全不可
   // 用，fail-closed 方向安全但与 safe-path.ts 段级口径漂移）；穿越只可能由独立的
   // 「..」段构成，下方 resolveWithinRoot 仍兜底双侧 realpath。
-  // R0913-win P2-1（2026-09-13 全库源码重评 win 适配修复批）：先归一反斜杠再切段——
+  // （win 适配修复批）：先归一反斜杠再切段——
   // 原实现只按 '/' 切段，win 上 `文风/条目/..\..\设定\x.md` 的 `..` 段（以 \ 分隔）
   // 不被识别而放行；resolveWithinRoot 的 resolve 把 \ 当分隔符折叠后仍在书内 → 同样
   // 放行，「限 条目/候选/ 内」的端点契约失守（可删/搬/写目录以外的书内文件，不越书
@@ -89,15 +89,15 @@ function insideDir(rel: string, dir: string): boolean {
   )
 }
 
-// ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// ── （GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
 // 本文件四个写端点（entries 新增/删除、候选确认/忽略）均无任务闸——重验竞态时序与
-// 防线形态单源见 book-context.ts R0912-B-P3-2 头注（R0912-B-P3-2 起四处本地拷贝
+// 防线形态单源见 book-context.ts 头注（起四处本地拷贝
 // 收敛，直接调用单源 bookMovedFailure）。同文件同步 handler（entries.get 迁移 /
 // baseline.freeze，无 await 窗）与持 'style-harvest' 任务闸的 harvest 均不在竞态面内。
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
-  //（SRV-N8·2026-09-15 机械批：双行样板随收编 resolveBookOrReply 单源）
+  //（SRV-· 机械批：双行样板随收编 resolveBookOrReply 单源）
   const resolveStyleBook = (
     res: ServerResponse,
     params: Record<string, string | undefined>,
@@ -106,7 +106,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     return r ? r.bookRoot : null
   }
 
-  // R0916-7-P3-13：四个带 body 的写端点（entries 新增/删除、候选确认/忽略）此前在
+  // 四个带 body 的写端点（entries 新增/删除、候选确认/忽略）此前在
   // handler 里内联 readJson + as 断言——「找书 404 先于 body 400」是本族的既有错误
   // 优先级（parse 直接声明会把读体提到找书之前），故找书走 gate 前置闸、body 形状与
   // 目录守卫（path 须在 条目/候选 内）走 parse：响应序与迁移前逐位一致（404 → 400 →
@@ -152,7 +152,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       const entry: StyleEntry = {
         类型: kind as EntryKind,
         场景: scene,
-        // 第五轮：hasOwn 防原型链穿透（'constructor' 会经 `in` 命中并写进条目，下游
+        // hasOwn 防原型链穿透（'constructor' 会经 `in` 命中并写进条目，下游
         // SOURCE_RANK[来源] 排序比较器恒 NaN）
         来源: typeof source === 'string' && Object.hasOwn(SOURCE_RANK, source) ? (source as EntrySource) : '作者标注',
         ...(typeof body['说明'] === 'string' && body['说明'].trim() ? { 说明: body['说明'].trim() } : {}),
@@ -163,7 +163,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return entry
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
-    // R0911-B-P3-4：readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
+    // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
     reply(res, 200, { ok: true, path: addEntry(bookRoot, input) })
@@ -183,7 +183,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
     const p = input.path
-    // R0911-B-P3-4：重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
+    // 重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
     // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
@@ -193,9 +193,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!safe) {
       return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
     }
-    // R70-23（十八轮）：目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
+    // 目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
     // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
-    // R71-11（总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
+    // （总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
     // 幂等删除按不存在处理（stat 失败 → recursive:false，force 的 rmSync 对不存在
     // 路径本就无害 no-op，重复 DELETE 200 与 rmSync force 语义一致）
     let recursive = false
@@ -204,7 +204,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     } catch {
       /* 不存在（ENOENT）等 → 幂等删除：非递归 + force 无害通过 */
     }
-    // R0913-win P3-1（退避族）：裸 rmSync 收编 rmWithRetry——win 杀软/索引器对刚
+    // （退避族）：裸 rmSync 收编 rmWithRetry——win 杀软/索引器对刚
     // stat 完的条目瞬时锁定（EPERM/EBUSY）下直败 500；口径同全仓「确实要删」删源点
     //（3×50ms 指数退避，仅 EPERM/EBUSY 重试；ENOENT 等确定性错误立即上抛，幂等
     // 删除语义与 rmSync force 一致）。
@@ -247,11 +247,11 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
     const p = input.path
-    // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
+    // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
     // 书已搬走时旧根 realpath 失败误报 400；时序见 bookMovedFailure 头注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // M-7：补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
+    // 补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
     // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
     if (!resolveWithinRoot(bookRoot, p)) {
       return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
@@ -277,10 +277,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
     const p = input.path
-    // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
+    // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
     const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // M-7：同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
+    // 同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
     if (!resolveWithinRoot(bookRoot, p)) {
       return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
     }
@@ -295,9 +295,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.harvest', {
     method: 'POST',
     path: '/api/books/:name/style/harvest',
-    // R37-5 延伸（三十七轮批 A）：切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
+    // 延伸切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
     // + 有界超时），git 无响应不再同步阻塞事件循环最长 15s
-    // R40-4（四十轮）：补任务闸（learn R66-28 同族）——零 AI 但整树扫描 + 落盘候选箱，
+    // 补任务闸（learn 同族）——零 AI 但整树扫描 + 落盘候选箱，
     // 重复点击双跑双扫互踩查重闸口径；acquireTaskGate 同款 409 BUSY（action 已登记
     // task-gate KNOWN_ACTIONS，跨进程可见）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
@@ -328,7 +328,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const rulesFile = join(bookRoot, '文风', '文风铁律.md')
     const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
     const baseline = readBaseline(bookRoot)
-    // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+    // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
     // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会
     // 无声按硬编码 'light' 回显注入强度
     const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
@@ -358,7 +358,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       const b = freezeBaseline(bookRoot)
       reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
     } catch (e) {
-      // P2-4：API 错误脱敏
+      // API 错误脱敏
       replyError(res, 400, 'NO_SAMPLES', redactSecret(errMsg(e)))
     }
   },

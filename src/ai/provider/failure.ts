@@ -1,12 +1,12 @@
 /**
- * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 A5 / DSH-15 LlmFailure 对标）。
+ * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 / DSH-15 LlmFailure 对标）。
  *
  * 三个适配器的 toErrorEvent 统一走这里；runner 重试按 failureAction 的结果决定动作
- * （retry-policy.shouldRetryError 消费 'retry' 族——Z-P2-2 单口径化后的唯一事实源），
- * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（A7 最小版，
- * 2026-09-09 清偿批：超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
- * 发送处）；switch-provider 亦已接线（0917清库修复批，2026-09-17：chat 编排层主发送
- * 处首发命中换网族且有备用供应商配置时换网重发恰一次，同 turns.ts；R66-11「无消费者」
+ * （retry-policy.shouldRetryError 消费 'retry' 族—— 单口径化后的唯一事实源），
+ * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（最小版，
+ * 清偿批：超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
+ * 发送处）；switch-provider 亦已接线（0917清库修复批，chat 编排层主发送
+ * 处首发命中换网族且有备用供应商配置时换网重发恰一次，同 turns.ts；「无消费者」
  * 自认随之销案；self-heal/spawn/rewrite 等非 chat 路径照旧终态）。
  */
 
@@ -15,7 +15,7 @@ import type { GenErrorCode } from './types.js'
 /** HTTP status + 错误消息 → 错误码（消息启发只用于 400 的超窗识别） */
 export function httpStatusToCode(status: number | undefined, message: string): GenErrorCode {
   if (status === 429) return 'RATE_LIMIT'
-  // R27-6（二十七轮）：408 Request Timeout 命名码 TIMEOUT（复用既有码，无新成员）——
+  // 408 Request Timeout 命名码 TIMEOUT（复用既有码，无新成员）——
   // 此前落 UNKNOWN，failureAction 走 default 终态化 author，请求超时这类瞬时故障
   // 不进重试族（网关侧短暂拥塞即停机，重试即可自愈的面被放大成人工介入）
   if (status === 408) return 'TIMEOUT'
@@ -25,10 +25,10 @@ export function httpStatusToCode(status: number | undefined, message: string): G
   if (status === 400) {
     // 超窗各家文案不一：Anthropic "prompt is too long"、OpenAI "context_length_exceeded"、
     // DeepSeek "maximum context length"——统一归 CONTEXT_WINDOW_EXCEEDED（改提示词信号）
-    // R42-25（四十二轮）：正则收紧为短语级——此前裸 "context" 一词命中会把
+    // 正则收紧为短语级——此前裸 "context" 一词命中会把
     // 「invalid context id」「context is required」等无关 400 误归超窗（shrink-prompt 信号失真）
-    // R48-34（四十八轮）：同款收紧补漏——裸备选 "too long" 会把 "stop sequence too
-    // long"/"name too long" 等请求组装类 400 误归超窗（A7 接线自动缩输入后将错触发
+    // 同款收紧补漏——裸备选 "too long" 会把 "stop sequence too
+    // long"/"name too long" 等请求组装类 400 误归超窗（接线自动缩输入后将错触发
     // 缩窗）；收敛为 prompt/input too long 级短语
     if (/context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|input too long|token.{0,24}(limit|maximum|exceed)/i.test(message)) {
       return 'CONTEXT_WINDOW_EXCEEDED'
@@ -40,7 +40,7 @@ export function httpStatusToCode(status: number | undefined, message: string): G
 
 /**
  * Retry-After 头 → 毫秒。支持秒数与 HTTP-date 两种格式；解析不了返回 undefined（不猜）。
- * 不做封顶/重试决策——尊重与否属 B4 退避升级的策略层。
+ * 不做封顶/重试决策——尊重与否属退避升级的策略层。
  */
 export function parseRetryAfterMs(v: string | undefined): number | undefined {
   if (!v) return undefined
@@ -78,9 +78,9 @@ export function headerErrorFields(headers: unknown): { retryAfterMs?: number; re
 
 /** 失败处置动作（决策表输出） */
 type FailureAction =
-  | 'retry' // 同 provider 退避重试（B4 落地抖动公式）
+  | 'retry' // 同 provider 退避重试（落地抖动公式）
   | 'switch-provider' // 换 provider/模型（凭据/配额/能力问题，重试无意义）
-  | 'shrink-prompt' // 缩输入（超窗 → B1 压缩/裁剪触发信号）
+  | 'shrink-prompt' // 缩输入（超窗 → 压缩/裁剪触发信号）
   | 'author' // 交作者决策（请求组装/协议问题，自动路径到头）
   | 'none' // 非失败（主动中断）
 
@@ -92,13 +92,13 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     case 'TIMEOUT':
     case 'NETWORK':
       return 'retry'
-    // R66-11（十四轮）：switch-provider 至今无消费者——调用侧拿到该动作的实际处理与
+    // switch-provider 至今无消费者——调用侧拿到该动作的实际处理与
     // 终态（author）等同：配额/凭据错不会自动换供应商。勿据返回值断言存在自动降级行为。
-    // A7 最小版（2026-09-09 清偿批）：shrink-prompt 已在 chat 编排层接线（最小版，仅
+    // 最小版（清偿批）：shrink-prompt 已在 chat 编排层接线（最小版，仅
     // 收缩重试恰一次——orchestrate/chat/turns.ts 主模型发送处）；self-heal/spawn/rewrite
     // 等非 chat 路径仍无消费者，runner 内该动作照旧同归终态（author）。
-    // 0917清库修复批（2026-09-17）：上注「switch-provider 无消费者」销案——chat 编排层
-    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次，A7 同款最小
+    // 0917清库修复批上注「switch-provider 无消费者」销案——chat 编排层
+    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次，同款最小
     // 范型；见 turns.ts switch 块与 test/ai/chat-switch-provider.test.ts）。非 chat 路径
     // 照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
     case 'AUTH':
@@ -106,7 +106,7 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     case 'UNSUPPORTED':
       return 'switch-provider'
     case 'CONTEXT_WINDOW_EXCEEDED':
-      // 消费者 = chat 编排层 A7 最小版（见上注）；runner 本身无收缩行为，非 chat 路径照旧终态
+      // 消费者 = chat 编排层最小版（见上注）；runner 本身无收缩行为，非 chat 路径照旧终态
       return 'shrink-prompt'
     case 'ABORTED':
       return 'none'

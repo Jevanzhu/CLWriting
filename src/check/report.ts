@@ -1,7 +1,7 @@
 /**
  * 机检报告产出 —— 依据 #10 第 6/7 节附录。
  *
- * R66-14（十四轮）：formatReport（--brief/--full CLI 文本输出）生产零调用——机检
+ * formatReport（--brief/--full CLI 文本输出）生产零调用——机检
  * 结果的消费面已全部 API 化（studio 端点直读结构化 CheckReport），CLI 分级输出为
  * 下沉遗留，随本轮清理删除（含 ReportMode 类型与 test/check/checks.test.ts 两用例）。
  */

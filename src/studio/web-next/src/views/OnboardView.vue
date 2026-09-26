@@ -23,7 +23,7 @@ const route = useRoute()
 const ui = useUiStore()
 const tree = useTreeStore()
 
-// M-4（第十轮）：路由活书名复检——OnboardView 挂 :key=bookName，切书时本实例被重建、
+// 路由活书名复检——OnboardView 挂 :key=bookName，切书时本实例被重建、
 // 死续体的 props 冻结在旧书（比 props 恒等），await 后只有比路由才能识别已切书
 function stillOn(book: string): boolean {
   return String(route.params.name ?? '') === book
@@ -70,12 +70,12 @@ const progressPct = computed(() => Math.round((generatedCount.value / ALL_STEPS.
 const active = ref<OnboardStep | null>(null)
 const phase = ref<'detail' | 'loading' | 'result'>('detail')
 const content = ref('')
-// R70-27（十八轮）：最近一次生成快照——「重新生成」脏检查用（手改未保存不静默丢稿）
+// 最近一次生成快照——「重新生成」脏检查用（手改未保存不静默丢稿）
 const lastGenerated = ref('')
 const saving = ref(false)
 const err = ref<string | null>(null)
 const lastWords = ref(0)
-// R35-34：gen/save 函数级在途锁（域内 R69-29/R73-63 自设纪律）——双击在下一拍渲染
+// gen/save 函数级在途锁（域内 /自设纪律）——双击在下一拍渲染
 // 前仍可双触发，双生成双计费；loading 相位的按钮置换只覆盖渲染后的窗口
 const genPending = ref(false)
 
@@ -88,8 +88,8 @@ function applyStep(step: OnboardStep): void {
 
 function selectStep(step: OnboardStep): void {
   if (phase.value === 'loading') return
-  // R8a-P2-2（2026-09-09 修复批）：切步骤前脏守卫——result 相位手改未保存内容此前被
-  // 无条件清空丢稿（regenerate 路径 R70-27 有确认，本路径漏配）。有手改先确认
+  // （修复批）：切步骤前脏守卫——result 相位手改未保存内容此前被
+  // 无条件清空丢稿（regenerate 路径有确认，本路径漏配）。有手改先确认
   //（同 doGen 口径），取消则停留原步骤零改动。
   if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
     void ui.ask({
@@ -106,7 +106,7 @@ function selectStep(step: OnboardStep): void {
 }
 
 async function gen(): Promise<void> {
-  if (genPending.value) return // R35-34：在途锁
+  if (genPending.value) return // 在途锁
   if (!active.value) return
   const step = active.value
   genPending.value = true
@@ -118,10 +118,10 @@ async function gen(): Promise<void> {
 }
 
 async function doGen(step: OnboardStep): Promise<void> {
-  // M-4（X-27 补齐）：同 save——入口捕获 + await 后复检，生成在途切书后死实例的
+  // （补齐）：同 save——入口捕获 + await 后复检，生成在途切书后死实例的
   // 迟到 toast/面板状态不再落到新书界面（旧书结果本就该作废）
   const book = props.bookName
-  // R70-27（十八轮）：重新生成前脏检查——result 相位的手改内容（未保存）此前被
+  // 重新生成前脏检查——result 相位的手改内容（未保存）此前被
   // 无条件清空丢稿；与最近一次生成快照比对，有手改先确认
   if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
     const okToRegen = await ui.ask({
@@ -129,9 +129,9 @@ async function doGen(step: OnboardStep): Promise<void> {
       message: '当前内容有你未保存的修改，重新生成将覆盖——继续？',
       confirmText: '重新生成',
     })
-    // R51-I-5（五十一轮）：ask 确认后复检 stillOn——确认弹窗是全局 ui store 态，滞留
+    // ask 确认后复检 stillOn——确认弹窗是全局 ui store 态，滞留
     // 期间切书（本实例已随 :key 重建而死亡）后点确认，死续体照旧走到 onboardAi 发出
-    // 旧书的计费请求。取消与切书同判：不以「已确认」豁免活体复检（M-4 既有口径）。
+    // 旧书的计费请求。取消与切书同判：不以「已确认」豁免活体复检（既有口径）。
     if (!okToRegen) return
     if (!stillOn(book)) return
   }
@@ -155,22 +155,22 @@ async function doGen(step: OnboardStep): Promise<void> {
 }
 
 async function save(): Promise<void> {
-  if (saving.value) return // R35-34：函数级在途锁（按钮 disabled 之外的同拍双触发兜底）
+  if (saving.value) return // 函数级在途锁（按钮 disabled 之外的同拍双触发兜底）
   if (!active.value) return
-  // M-4：入口捕获 + await 后复检——落盘在途切书后，死实例的 tree.load(旧书) 会把
+  // 入口捕获 + await 后复检——落盘在途切书后，死实例的 tree.load(旧书) 会把
   // 旧书目录写进共享 tree store（新书工作台显示旧书章节树）
   const book = props.bookName
   saving.value = true
   try {
     await onboardSave(book, { step: active.value, content: content.value })
     if (!stillOn(book)) return
-    // P3-25（全库重评-0914）：保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
+    // （-0914）：保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
     // 此前只认生成快照，「编辑 → 保存 → 切步骤」常见路径必误报「未保存修改」。
     lastGenerated.value = content.value
     ui.toast('已保存', 'success')
     void tree.load(book)
   } catch (e) {
-    if (!stillOn(book)) return // R64-34（十二轮）：切书后错误 toast 不落 B 书界面（对齐 gen() 的 catch）
+    if (!stillOn(book)) return // 切书后错误 toast 不落 B 书界面（对齐 gen 的 catch）
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   } finally {
@@ -179,7 +179,7 @@ async function save(): Promise<void> {
 }
 
 onMounted(async () => {
-  // M-4：同 save——config/tree 加载在途切书后死实例放弃（新实例自会加载）
+  // 同 save——config/tree 加载在途切书后死实例放弃（新实例自会加载）
   const book = props.bookName
   try {
     const config = await getConfig(book)
@@ -192,7 +192,7 @@ onMounted(async () => {
   }
   if (!stillOn(book)) return
   await tree.load(book)
-  // R48-91（四十八轮）：tree.load 失败不再静默继续——树空时已落盘设定显示 0/N
+  // tree.load 失败不再静默继续——树空时已落盘设定显示 0/N
   // 「未生成」态，诱导作者重跑生成覆盖已有文件（与「错误必达用户」口径不符）。
   // 置错误态（走 OnboardStepPanel 既有 err 红条）并跳过预选
   if (tree.error) {

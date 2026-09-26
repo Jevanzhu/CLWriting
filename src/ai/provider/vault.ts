@@ -76,7 +76,7 @@ function deriveKEK(keyMaterial: Buffer, salt: Buffer, info: string = KEK_INFO): 
 
 // ── AES-256-GCM ──────────────────────────────────────
 
-/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节）；aad 可选绑定上下文（R31-28） */
+/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节）；aad 可选绑定上下文 */
 function sealAESGCM(key: Buffer, plaintext: Buffer, aad?: Buffer): SealedKey {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
@@ -140,11 +140,11 @@ export function createVault(keyMaterial: Buffer, osKeyMaterial?: Buffer | null):
  * 打开已有 vault——版本守卫 + HKDF 派生 KEK + 解封 DEK。
  * v1 按 keyMaterial（内置混淆级通道）；v2 仅按 osKeyMaterial（OS 凭据通道，
  * byApp 已摘除——旧料不再可解，持制品攻击面收口）。
- * 抛 VaultVersionError（版本过高）/ VaultDecryptError（认证失败）/ 
+ * 抛 VaultVersionError（版本过高）/ VaultDecryptError（认证失败）/
  * VaultOsKeyMissingError（v2 而环境无 OS 通道）。
  */
 export function openVault(vault: Vault, keyMaterial: Buffer, osKeyMaterial?: Buffer | null): Buffer {
-  // X-P2-25：版本守卫补下界——v=0/缺失此前放行，走进 GCM 后抛误导性的
+  // 版本守卫补下界——v=0/缺失此前放行，走进 GCM 后抛误导性的
   // 「密文认证失败」（真凶是版本不识别，作者会去重试密钥白折腾）
   if (vault.v > VAULT_VERSION) throw new VaultVersionError(vault.v)
   if (!Number.isInteger(vault.v) || vault.v < 1) {
@@ -153,8 +153,8 @@ export function openVault(vault: Vault, keyMaterial: Buffer, osKeyMaterial?: Buf
   const salt = Buffer.from(vault.salt, 'base64')
   if (vault.v >= 2) {
     if (!osKeyMaterial) {
-      // RC 全项目重审 P2-1：文案必须给真实出路——钥匙串搁置期（os-kek.ts OS_KEK_SHELVED，
-      // 2026-09-20 起在档）桌面应用同样无 OS 通道，「请从桌面应用启动」成死胡同。补齐两态：
+      // RC 全项目：文案必须给真实出路——钥匙串搁置期（os-kek.ts OS_KEK_SHELVED，
+      // 起在档）桌面应用同样无 OS 通道，「请从桌面应用启动」成死胡同。补齐两态：
       // 常态（独立 server / env 未注入）从桌面启动即恢复；搁置期桌面启动仍报此错 → 等通道
       // 恢复，或弃旧凭据重配（providers.json 备份后删除，与 os-kek.ts 损坏分诊文案同出路）。
       throw new VaultOsKeyMissingError(
@@ -186,14 +186,14 @@ export function migrateVaultToOsChannel(vault: Vault, dek: Buffer, osKeyMaterial
 }
 
 /** 用 DEK 加密单个 API Key → SealedKey（IV 每次随机）。
- *  R31-28（三十一轮）：aad 绑定上下文（store 侧传 providerId）——同 DEK 下密文互换
+ *  ：aad 绑定上下文（store 侧传 providerId）——同 DEK 下密文互换
  *  （手改 providers.json 交换两条 SealedKey）GCM 认证不再通过，防 key 定向泄漏。 */
 export function sealKey(dek: Buffer, apiKey: string, aad?: string): SealedKey {
   return sealAESGCM(dek, Buffer.from(apiKey, 'utf8'), aad ? Buffer.from(aad, 'utf8') : undefined)
 }
 
 /** 用 DEK 解密单个 API Key。
- *  R31-28（三十一轮）：返回 { apiKey, legacy }——legacy=true 表示密文未绑 AAD（存量
+ *  ：返回 { apiKey, legacy }——legacy=true 表示密文未绑 AAD（存量
  *  形态，经无 AAD 通道打开），调用方（load）以此置 needsRewrite 自动重封迁移；绑定态
  *  密文用错误 aad 解时两通道均失败 → 抛 VaultDecryptError（互换攻击被拦截）。 */
 export function openKey(dek: Buffer, sealed: SealedKey, aad?: string): { apiKey: string; legacy: boolean } {

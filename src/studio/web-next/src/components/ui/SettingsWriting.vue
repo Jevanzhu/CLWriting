@@ -7,7 +7,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import SettingItem from './SettingItem.vue'
 
-// 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
+// 全局默认值来自 prefs store（main.ts 在 mount 前 await init，设置打开时必已就绪）
 const prefs = usePrefsStore()
 
 // ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
@@ -15,7 +15,7 @@ const prefs = usePrefsStore()
 function onGlobalGenreInput(e: Event): void {
   prefs.set('defaultGenre', (e.target as HTMLInputElement).value)
 }
-// R75-E-P3a：每卷章数改共享 helper——此前 `Number('')===0` 穿过 isFinite 闸，
+// 每卷章数改共享 helper——此前 `Number('')===0` 穿过 isFinite 闸，
 // setDefaultVolumeSize(0) 被 store clamp 静默钳成 5（清空输入框反而落 5）；
 // 空串/非数字不写。目标字数/每章字数不在此列：0 本身是「未设」合法语义
 function onGlobalVolumeSizeInput(e: Event): void {

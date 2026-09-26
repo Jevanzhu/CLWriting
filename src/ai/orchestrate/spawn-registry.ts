@@ -1,9 +1,9 @@
 /**
- * RB-SV-P2-1：per-book spawn 运行闸（与 self-heal 的 running Map 同模式）——
+ * per-book spawn 运行闸（与 self-heal 的 running Map 同模式）——
  * 双标签页时序窗口并发双 spawn 会互相覆写草稿回流。占位在首个 await 前同步完成
  * （比 auto-write 的「检查→await→二次检查」更严，无 TOCTOU 窗口），终态 finally 释放。
  *
- * M-2（第八轮）：从 stream.ts 移驻 ai 层——chat 的嵌套生成工具闸（turns.ts 的
+ * 从 stream.ts 移驻 ai 层——chat 的嵌套生成工具闸（turns.ts 的
  * AI_GEN_TOOLS / write_chapter）需要查 spawn 在途（手动写稿同样按章记账、与
  * 嵌套生成互覆草稿），ai 编排层不得反向 import server 路由层，闸随依赖就位；
  * stream.ts 再导出 isSpawnRunning/__setSpawnRunning，server 侧既有导入（books/

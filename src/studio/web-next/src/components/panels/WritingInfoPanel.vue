@@ -11,7 +11,7 @@ import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/u
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import type { TreeNode } from '../../types/tree'
 import { friendlyError } from '../../shared/error'
-// 复审-0914-优化修复批 P3：六态标签委托 shared/words CHAPTER_STATUS 单表
+// -：六态标签委托 shared/words CHAPTER_STATUS 单表
 import { CHAPTER_STATUS } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
@@ -26,17 +26,17 @@ const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) :
 
 const config = ref<BookConfig>({})
 const err = ref<string | null>(null)
-// M-11：代守卫（reqGen 同款）——本面板常驻右侧栏（不随切书重建），快速切书 A→B 时
+// 代守卫（reqGen 同款）——本面板常驻右侧栏（不随切书重建），快速切书 A→B 时
 // A 的慢响应不把 A 的字数目标/口径落到 B 的进度显示。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const configGen = useStaleGuard()
 watch(
   () => props.bookName,
   async (n) => {
     const gen = configGen.begin()
-    // R34D-27（三十四轮）：切书先清上一书错误——原实现只在失败分支写 err、成功路径
+    // 切书先清上一书错误——原实现只在失败分支写 err、成功路径
     // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-    // 新错误只由本次请求的 catch 按代守卫落位（R33-84 同点位；R48-95（四十八轮）：
+    // 新错误只由本次请求的 catch 按代守卫落位（同点位；：
     // 连续两次 err.value=null 死代码随批删一处保注释）
     err.value = null
     if (!n) return
@@ -44,7 +44,7 @@ watch(
       const c = await getConfig(n)
       if (configGen.stale(gen)) return
       config.value = c
-      err.value = null // R33-84：成功路径同清
+      err.value = null // 成功路径同清
     } catch (e) {
       if (configGen.stale(gen)) return
       err.value = friendlyError(e)
@@ -53,9 +53,9 @@ watch(
   { immediate: true },
 )
 
-// R46-5（四十六轮）：字数与 fm 字段 150ms 防抖——右栏「信息」tab 常驻（三折叠区默认
+// 字数与 fm 字段 150ms 防抖——右栏「信息」tab 常驻（三折叠区默认
 // 展开），此前每击键全文 countWords + parseFmFields 重算（EditorView wordCount
-// R39-20 已防抖的同族成本，右栏链路漏配）；切文档（activeDocId 变）即刻重算
+// 已防抖的同族成本，右栏链路漏配）；切文档（activeDocId 变）即刻重算
 const { count: words } = useDebouncedWordCount(() => entry.value?.content, () => ws.activeDocId)
 const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
 const volumeWords = computed(() => {
@@ -74,7 +74,7 @@ const volumeWords = computed(() => {
   return sum
 })
 // 章级目标优先级：fm「字数目标」> 书级每章字数（book.yaml chapter_target_words）> 全局默认（0=未设，三级同语义）
-// R32-32（三十二轮）：fm 手填非数字（「十万」/「3.5k」）时 Number(v) 得 NaN——NaN 为
+// fm 手填非数字（「十万」/「3.5k」）时 Number(v) 得 NaN——NaN 为
 // falsy 不进 chapterProgress 的 truthy 分支虽显示 0%，但 NaN 传入下游比较/展示面是
 // 「NaN%」隐患；isFinite 过滤后落到书级/全局默认，三级链不受脏 fm 牵连。
 const chapterTarget = computed(() => {
@@ -88,7 +88,7 @@ const chapterProgress = computed(() =>
   chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,
 )
 
-// 复审-0914-优化修复批 P3：STATUS_LABEL 本地表删除，委托 shared/words CHAPTER_STATUS
+// -：STATUS_LABEL 本地表删除，委托 shared/words CHAPTER_STATUS
 const saveLabel = computed(() => {
   const e = entry.value
   if (!e) return '—'

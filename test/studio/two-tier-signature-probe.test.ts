@@ -1,0 +1,190 @@
+/**
+ * R37-17（三十七轮批 D）回归：version-stats / analysis-overview 签名两级探针。
+ *
+ * 修复前：前端 3s 轮询每触发都全量重算盘面签名（versionStatsSignature 递归 lstat
+ * walk / analysisOverviewSignature 每文件 stat）。修复后两级：第一级便宜目录指纹
+ *（manifest stat + 目录 mtime（version-stats 另含 .版本 各直接子目录 mtime））未变
+ * → 跳过全量签名 walk 直接复用；指纹变了才走第二级全量签名（R36-7 原口径）。
+ *
+ * 用 versionStatsCache.stats().signatures / analysisOverviewCache.stats().signatures 观测
+ * 全量签名执行次数（「spy 全量计算」），同 stats().misses 观测结果重算次数（R0916-7-P3-6
+ * 起计数读缓存壳 stats()，原 __*SigCount/ScanCountForTest 钩子已删）。
+ *
+ * 探针覆盖边界（与生产注释同口径，用例固化）：
+ * - 应用侧写路径全是同目录 rename 原子落盘（atomicWriteFile）——rename 替换目录条目
+ *   会刷目录 mtime，一级探针可见（「内容修改仍能探出」的正路径）；
+ * - 外部进程「非 rename 就地直写」一级探针不可见——由 TTL 到期兜底重算（边界用例
+ *   固化：直写后探针命中旧缓存，TTL=0 注入后走全量签名见新值）。
+ *
+ * R44-9（四十四轮）适配：version-stats 的探针纳入 TTL 节流（命中不再每 poll 重付
+ * readdir+stat）——rename 类结构变化在 TTL 窗内同样命中旧值，可见性统一由「TTL 到期
+ * 重探」承担（分析侧 analysisOverviewProbe 未节流，行为不变）。getVersionStatsCached
+ * 同步转 async（MISS 计算体分批让出），调用点补 await。
+ *
+ * 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）适配：上段 R44-9 记档的「分析侧未节流」
+ * 偏差随本批补齐（analysisOverviewProbe 纳入 TTL 节流，照 snapshots 版搭法）——
+ * analysis 侧「re-analyze 即时可见」用例改节流语义：TTL 窗内命中旧值，TTL 到期重探
+ * 后见新值；「就地直写」边界用例行为不变（探针本就不可见，TTL 兜底语义同前）。
+ */
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
+import {
+  getVersionStatsCached,
+  versionStatsCache,
+} from '../../src/studio/server/api/snapshots.js'
+import {
+  getAnalysisOverviewCached,
+  analysisOverviewCache,
+} from '../../src/studio/server/api/analysis.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
+import { generateDocId } from '../../src/document/stable-id.js'
+import { atomicWriteFile } from '../../src/fs/atomic.js'
+import { sleep } from '../helpers/wait-for.js'
+
+let roots: string[] = []
+
+function envOf(payload: unknown): Envelope {
+  return { generatedAt: new Date().toISOString(), model: 'mock', sourceHash: '0'.repeat(64), payload }
+}
+
+/** 建书：manifest 登记 doc_1（定稿）+ .版本/doc_1 一个 pinned 快照。 */
+function makeSnapshotBook(): string {
+  const root = mkdtempTracked(join(tmpdir(), 'r37-probe-vs-'))
+  roots.push(root)
+  const vdir = join(root, '工作区', '.版本', 'doc_1')
+  mkdirSync(vdir, { recursive: true })
+  writeFileSync(join(vdir, 'a.md'), '---\n来源: manual\n永久: true\n---\n定稿内容若干字\n', 'utf-8')
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  const m = readManifest(manifestPath)
+  upsertEntry(m, { id: 'doc_1', nodeType: 'document', path: '写作/正文/0001-雨夜.md', parentId: null })
+  m.entries.get('doc_1')!.finalizedRevision = 'sha256:' + 'a'.repeat(64)
+  writeManifest(manifestPath, m)
+  return root
+}
+
+/** 建书：manifest 登记 doc_1 + score 信封（口径同 analysis-overview-cache）。 */
+function makeAnalysisBook(): string {
+  const root = mkdtempTracked(join(tmpdir(), 'r37-probe-ao-'))
+  roots.push(root)
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  const m = readManifest(manifestPath)
+  const docId1 = generateDocId()
+  upsertEntry(m, { id: docId1, nodeType: 'document', path: '写作/正文/0001-雨夜.md', parentId: null })
+  writeManifest(manifestPath, m)
+  writeAnalysis(root, docId1, 'score', envOf({ score: 8, dims: { 爽点: 8 } }))
+  return root
+}
+
+afterEach(() => {
+  versionStatsCache.resetStats()
+  versionStatsCache.resetStats()
+  analysisOverviewCache.resetStats()
+  analysisOverviewCache.resetStats()
+  for (const r of roots) rmSync(r, { recursive: true, force: true })
+  roots = []
+})
+
+describe('R37-17 version-stats 两级探针', () => {
+  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', async () => {
+    const root = makeSnapshotBook()
+    const r1 = await getVersionStatsCached(root, 60_000)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
+    expect(r1.snapshotCount).toBe(1)
+    const r2 = await getVersionStatsCached(root, 60_000)
+    expect(versionStatsCache.stats().signatures).toBe(1) // 一级命中：递归签名 walk 未跑
+    expect(versionStatsCache.stats().misses).toBe(1)
+    expect(r2).toEqual(r1)
+  })
+
+  it('快照内容原子重写（同目录 rename）：TTL 窗内探针节流命中；TTL 到期重探失配 → 全量签名 + 重算见新值', async () => {
+    const root = makeSnapshotBook()
+    const before = await getVersionStatsCached(root, 60_000)
+    await sleep(5)
+    atomicWriteFile(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n更长的新定稿内容若干字若干字\n')
+    // R44-9：探针节流——rename 已刷 doc_1 目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
+    const throttled = await getVersionStatsCached(root, 60_000)
+    expect(versionStatsCache.stats().signatures).toBe(1)
+    expect(versionStatsCache.stats().misses).toBe(1)
+    expect(throttled.snapshotBytes).toBe(before.snapshotBytes)
+    // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
+    const after = await getVersionStatsCached(root, 0)
+    expect(versionStatsCache.stats().signatures).toBe(2) // 指纹失配 → 全量签名跑了
+    expect(versionStatsCache.stats().misses).toBe(2) // 签名变化 → 重算
+    expect(after.snapshotBytes).toBeGreaterThan(before.snapshotBytes)
+  })
+
+  it('边界：非 rename 就地直写探针不可见（命中旧缓存）；TTL 到期兜底重算见新值', async () => {
+    const root = makeSnapshotBook()
+    const before = await getVersionStatsCached(root, 60_000)
+    await sleep(5)
+    // 就地直写（外部进程形态：writeFileSync 覆写、不经 rename）——目录 mtime 不变
+    writeFileSync(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n短\n', 'utf-8')
+    const stale = await getVersionStatsCached(root)
+    expect(versionStatsCache.stats().signatures).toBe(1) // 一级探针未察觉：签名未跑
+    expect(stale.snapshotBytes).toBe(before.snapshotBytes) // 命中旧缓存（边界如实固化）
+    // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
+    const fresh = await getVersionStatsCached(root, 0)
+    expect(versionStatsCache.stats().signatures).toBe(2)
+    expect(versionStatsCache.stats().misses).toBe(2)
+    expect(fresh.snapshotBytes).toBeLessThan(before.snapshotBytes)
+  })
+})
+
+describe('R37-17 analysis-overview 两级探针', () => {
+  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', async () => {
+    const root = makeAnalysisBook()
+    const r1 = await getAnalysisOverviewCached(root, 60_000)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
+    expect(r1.scoreTrend).toHaveLength(1)
+    const r2 = await getAnalysisOverviewCached(root, 60_000)
+    expect(analysisOverviewCache.stats().signatures).toBe(1) // 一级命中：每文件 stat 签名未跑
+    expect(analysisOverviewCache.stats().misses).toBe(1)
+    expect(r2).toEqual(r1)
+  })
+
+  it('信封原子重写（re-analyze，同目录 rename）：TTL 窗内探针节流命中；TTL 到期重探失配 → 全量签名 + 重算见新值', async () => {
+    const root = makeAnalysisBook()
+    const manifestPath = join(root, '项目', '文档清单.jsonl')
+    const docId = readManifest(manifestPath).entries.keys().next().value as string
+    const before = await getAnalysisOverviewCached(root, 60_000)
+    expect(before.scoreTrend[0]!.score).toBe(8)
+    await sleep(5)
+    writeAnalysis(root, docId, 'score', envOf({ score: 3, dims: { 爽点: 3 } }))
+    // 重评2-P3-④：探针纳入 TTL 节流——rename 已刷分析目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
+    const throttled = await getAnalysisOverviewCached(root, 60_000)
+    expect(analysisOverviewCache.stats().signatures).toBe(1)
+    expect(analysisOverviewCache.stats().misses).toBe(1)
+    expect(throttled.scoreTrend[0]!.score).toBe(8)
+    // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
+    const after = await getAnalysisOverviewCached(root, 0)
+    expect(analysisOverviewCache.stats().signatures).toBe(2)
+    expect(analysisOverviewCache.stats().misses).toBe(2)
+    expect(after.scoreTrend[0]!.score).toBe(3)
+  })
+
+  it('边界：非 rename 就地直写探针不可见（命中旧缓存）；TTL 到期兜底重算见新值', async () => {
+    const root = makeAnalysisBook()
+    const manifestPath = join(root, '项目', '文档清单.jsonl')
+    const docId = readManifest(manifestPath).entries.keys().next().value as string
+    const before = await getAnalysisOverviewCached(root, 60_000)
+    expect(before.scoreTrend[0]!.score).toBe(8)
+    await sleep(5)
+    // 就地直写（外部编辑器形态：writeFileSync 覆写信封、不经 rename）——目录 mtime 不变。
+    // 落盘形状与 writeAnalysis 同构（kind 键嵌套：{ score: Envelope }）
+    writeFileSync(join(root, '项目', '分析', `${docId}.json`), JSON.stringify({ score: envOf({ score: 1, dims: { 爽点: 1 } }) }, null, 2), 'utf-8')
+    const stale = await getAnalysisOverviewCached(root, 60_000)
+    expect(analysisOverviewCache.stats().signatures).toBe(1) // 一级探针未察觉：签名未跑
+    expect(stale.scoreTrend[0]!.score).toBe(8) // 命中旧缓存（边界如实固化）
+    // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
+    const fresh = await getAnalysisOverviewCached(root, 0)
+    expect(analysisOverviewCache.stats().signatures).toBe(2)
+    expect(analysisOverviewCache.stats().misses).toBe(2)
+    expect(fresh.scoreTrend[0]!.score).toBe(1)
+  })
+})

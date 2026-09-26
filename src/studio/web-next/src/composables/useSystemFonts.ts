@@ -5,12 +5,12 @@ import { usePlatform } from './usePlatform'
 import { isFontInstalled } from '../shared/font-names'
 
 const CJK_RE = /[一-鿿㐀-䶿぀-ヿ가-힯]/
-// J5：补 Windows 系统中文字体关键词（微软雅黑/宋体/黑体系）——原表全 mac/思源系，
+// 补 Windows 系统中文字体关键词（微软雅黑/宋体/黑体系）——原表全 mac/思源系，
 // win 内置字体会被错分进「英文字体」组
 const CN_KW =
   /\b(SC|TC|HK|GB|Hans|Hant|Hei|Kai|Heiti|Songti|Kaiti|Yuanti|Libian|Xingkai|Weibei|Baoli|Wawati|Yuppy|Hannotate|HanziPen|Lantinghei|LingWai|FangSong|STHeiti|STSong|STKaiti|STFangsong|STXihei|STXingkai|STXinwei|STHupo|STCaiyun|STZhongsong|Hiragino Sans GB|Source Han Sans|Source Han Serif|Noto Sans SC|Noto Serif SC|Noto Sans CJK|Noto Serif CJK|LXGW WenKai|Microsoft YaHei|SimSun|NSimSun|SimHei|KaiTi|DengXian|YouYuan|LiSu)\b/i
 const FONT_CN_LABEL: Record<string, string> = {
-  // J5：Windows 内置中文字体中文名
+  // Windows 内置中文字体中文名
   'Microsoft YaHei': '微软雅黑', 'Microsoft YaHei UI': '微软雅黑',
   SimSun: '宋体', NSimSun: '新宋体', SimHei: '黑体',
   KaiTi: '楷体', FangSong: '仿宋', DengXian: '等线',
@@ -49,9 +49,9 @@ function fontDisplayName(name: string): string {
   return FONT_CN_LABEL[name] ?? name
 }
 
-// ── 默认字体解析（2026-09-04 作者反馈：字体下拉默认态只显「默认」，看不出默认
+// ── 默认字体解析（作者反馈：字体下拉默认态只显「默认」，看不出默认
 // 究竟是什么字体——按 tokens.css 默认栈 + 已安装列表解析成具体字体名展示）──
-// 2026-09-08 mac 预设批：默认栈/回退尾双平台拆分（此前 win 单栈，mac 上三个 win
+// mac 预设批：默认栈/回退尾双平台拆分（此前 win 单栈，mac 上三个 win
 // 死名全不命中 → 衬线尾裸落浏览器 serif 兜底、无衬线尾裸落 sans-serif）；平台
 // 判定对齐 UI_DEFAULT_STACK 惯例（isWin ? win : mac，浏览器预览态走 mac 观感
 // 基准 = tokens.css :root 口径）。
@@ -66,18 +66,18 @@ export function proseDefaultStack(): readonly string[] {
   return usePlatform().isWin ? PROSE_DEFAULT_STACK_WIN : PROSE_DEFAULT_STACK_MAC
 }
 
-/** 正文回退尾·win 衬线基座（prefs apply() 尾基座；与 tokens.css :root 栈同源） */
+/** 正文回退尾·win 衬线基座（prefs apply 尾基座；与 tokens.css :root 栈同源） */
 export const PROSE_FONT_FALLBACK_WIN = `'${PROSE_DEFAULT_STACK_WIN.map((f) => f).join("', '")}', serif`
 /** 正文回退尾·mac 衬线基座（与 tokens.css darwin 块 --prose-font 同源） */
 export const PROSE_FONT_FALLBACK_MAC = `'${PROSE_DEFAULT_STACK_MAC.map((f) => f).join("', '")}', serif`
 
 /**
  * 无衬线中文回退尾·win（衬线/书卷族之外的中文字体挂此尾——修「选思源黑体预设但未装
- * Noto 时正文静默落宋体」的跨族翻转，F0c② 2026-09-05；win 必装雅黑，实际不触达）。
+ * Noto 时正文静默落宋体」的跨族翻转，F0c②；win 必装雅黑，实际不触达）。
  */
 export const PROSE_FONT_SANS_FALLBACK_WIN = `'Microsoft YaHei', 'DengXian', 'SimHei', sans-serif`
 /**
- * 无衬线中文回退尾·mac（2026-09-08）：苹方恒装兜底；-apple-system 居首让拉丁走 SF
+ * 无衬线中文回退尾·mac：苹方恒装兜底；-apple-system 居首让拉丁走 SF
  * （mac 无恒装拉丁 UI 字体名，对齐 UI_DEFAULT_STACK.mac.en 留空先例）。
  */
 export const PROSE_FONT_SANS_FALLBACK_MAC = `-apple-system, 'PingFang SC', 'Hiragino Sans GB', sans-serif`
@@ -86,15 +86,15 @@ export const PROSE_FONT_SANS_FALLBACK_MAC = `-apple-system, 'PingFang SC', 'Hira
 const CN_SERIF_RE =
   /(宋|明|Song|Ming|Serif|SimSun|NSimSun|Kai|楷|FangSong|仿宋|WenKai|Songti|STSong|STKaiti|STFangsong|STZhongsong)/i
 
-/** 中文正文族判定（衬线/书卷 vs 无衬线）——prefs apply() 与测试共用 */
+/** 中文正文族判定（衬线/书卷 vs 无衬线）——prefs apply 与测试共用 */
 export function isSerifCnFont(name: string): boolean {
   return CN_SERIF_RE.test(name)
 }
 
 /**
- * 正文回退尾（prefs apply() 拼 --prose-font）：CN 槽空时维持衬线基座（出厂空槽口径）；
+ * 正文回退尾（prefs apply 拼 --prose-font）：CN 槽空时维持衬线基座（出厂空槽口径）；
  * 指名中文为衬线/书卷族 → 衬线栈，其余（雅黑/等线/黑体/思源黑/苹方…）→ 无衬线栈。
- * 平台分支（2026-09-08）：两族尾各带 win/mac 双基座，usePlatform 判定（浏览器态走
+ * 平台分支：两族尾各带 win/mac 双基座，usePlatform 判定（浏览器态走
  * mac 侧，与默认栈同口径）。
  */
 export function proseFallbackTail(cnFont: string): string {
@@ -105,7 +105,7 @@ export function proseFallbackTail(cnFont: string): string {
 }
 
 /** 拼字体族：英文字体优先（英文片段），中文字体兜底（中文），最后系统 fallback。
- *  含空格的字体名自动加引号。prefs apply() 与设置预览样张共用（单源）。 */
+ *  含空格的字体名自动加引号。prefs apply 与设置预览样张共用（单源）。 */
 export function buildFontFamily(en: string, cn: string, fallback: string): string {
   const parts: string[] = []
   if (en) parts.push(en.includes(' ') ? `"${en}"` : en)
@@ -114,7 +114,7 @@ export function buildFontFamily(en: string, cn: string, fallback: string): strin
   return parts.join(', ')
 }
 
-/** 正文 --prose-font 完整拼栈（prefs apply() 与设置预览样张共用，单源）：
+/** 正文 --prose-font 完整拼栈（prefs apply 与设置预览样张共用，单源）：
  *  英文优先 + 中文 + 按中文族分族的回退尾。 */
 export function buildProseFontStack(cn: string, en: string): string {
   return buildFontFamily(en, cn, proseFallbackTail(cn))
@@ -136,7 +136,7 @@ let fontsPending: Promise<void> | null = null
 function loadOnce(): Promise<void> {
   if (!window.clwritingDesktop) return Promise.resolve()
   if (!fontsPending) {
-    // R48-84（四十八轮）：挂载并发去重——原布尔标志在 await 后才置位，两组件
+    // 挂载并发去重——原布尔标志在 await 后才置位，两组件
     // 同拍挂载（设置弹窗与外壳同帧消费单例）双双通过入口守卫，getSystemFonts IPC
     // 被并发调两次，违背头注「IPC 只调一次」。改 in-flight promise 去重（对齐 doc
     // store inflightOpens 惯例）；失败清 pending 保留「下次挂载可重试」原语义。
@@ -156,10 +156,10 @@ function loadOnce(): Promise<void> {
 }
 
 /**
- * 启动预热（2026-09-08 作者反馈「字体下拉首开很慢，特别是第一次」）：win 枚举走
+ * 启动预热（作者反馈「字体下拉首开很慢，特别是第一次」）：win 枚举走
  * PowerShell + Add-Type PresentationCore（秒级），此前等首个消费组件挂载（设置弹窗
  * 外观页 / 专注排版条）才发 IPC，首次打开字体下拉要现场等枚举。启动后台提前拉入
- * 本单例，消费时列表已就位。R48-84 在途去重语义保持：预热先起、消费后到即共享同
+ * 本单例，消费时列表已就位。 在途去重语义保持：预热先起、消费后到即共享同
  * 一在途 Promise，IPC 仍只跑一次。延迟接线在渲染入口 main.ts（避开启动 IO 高峰）；
  * 浏览器版无 desktop bridge 由 loadOnce 自判空 no-op。失败走既有「清 pending 可重试
  * + 空表降级」语义，不影响启动。
@@ -180,7 +180,7 @@ export function useSystemFonts() {
   // 必装雅黑/宋体、mac 必装苹方/宋体-简，实际不触达）。列表加载完成前即有栈首
   // 可用，加载后按实装收敛。
   const { isWin } = usePlatform()
-  // F 线④（2026-09-06）：已装判定走族键（zh-cn 枚举中文名/思源双产品异名同族），
+  // F 线④：已装判定走族键（zh-cn 枚举中文名/思源双产品异名同族），
   // zh 系统上默认解析不再退栈首、能落到真实渲染的栈成员
   function resolveDefault(stack: readonly string[]): string {
     return stack.find((f) => isFontInstalled(systemFonts.value, f)) ?? stack[0] ?? ''

@@ -1,7 +1,7 @@
 /**
  * 文风样章选取（prepare 备料与 draft-prompt 生产链共用）。
  *
- * 双路：条目库（文风/条目/，S5 统一模型）优先，走 pickSampleEntries 跨场景语义
+ * 双路：条目库（文风/条目/，统一模型）优先，走 pickSampleEntries 跨场景语义
  * （每场景 1 条保代表 + 主场景补满）；未迁移书走旧样章库（文风/样章库/<场景>/），
  * 同语义手拣。总量由注入档约束（轻 1 段 / 重 3 段，母本第 1.4 节）。
  */
@@ -17,7 +17,7 @@ export function pickStyleSamples(bookRoot: string, scenes: string[], maxTotal: n
   return pickStyleSamplesWithSources(bookRoot, scenes, maxTotal).map((s) => s.text)
 }
 
-/** Q-5（第十五轮）：同选取，附带源文件（相对书根；旧样章库无 _path 时 undefined）
+/** 同选取，附带源文件（相对书根；旧样章库无 _path 时 undefined）
  *  ——draft 链收集进 promptFiles，「模型可见⟺已记录」文件级溯源 */
 export function pickStyleSamplesWithSources(
   bookRoot: string,
@@ -33,11 +33,11 @@ export function pickStyleSamplesWithSources(
       path: e._path ? relative(bookRoot, e._path) : undefined,
     }))
   }
-  // 旧样章库：第一轮每场景各取 1（保证次场景有代表）；第二轮补满到 maxTotal。
-  // R72-8（二十轮 C-3）：补满轮由「只扫主场景」改轮转全场景——主场景条目空/不足预算时
+  // 旧样章库：每场景各取 1（保证次场景有代表）；补满到 maxTotal。
+  // 补满轮由「只扫主场景」改轮转全场景——主场景条目空/不足预算时
   // 原实现拿不满 maxTotal；轮转（场景序=入参序）保持多样性与首轮优先级。
-  // R26-100（二十六轮）：取样前先跨场景去重——场景入参可重复（同一场景出现在多个声明
-  // 位）或两个场景目录互为软链等形态会让同一样章文件被读进多份，第一轮与补满轮都会重复
+  // 取样前先跨场景去重——场景入参可重复（同一场景出现在多个声明
+  // 位）或两个场景目录互为软链等形态会让同一样章文件被读进多份，与补满轮都会重复
   // 注入同一文件；按身份键（_path 优先，无 _path 回落正文全文）Set 去重后再取样。
   const sampleDir = join(bookRoot, '文风', '样章库')
   const seen = new Set<string>()

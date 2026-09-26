@@ -8,7 +8,7 @@ import { useWorkbenchStore } from '../../stores/workbench'
 const wb = useWorkbenchStore()
 
 // 自愈进度人话（阶段 + 第 N/M 次重写 + 剩余红项数）
-// P2-3：批量连写时优先展示「第 X/Y 章」总进度（chapter_start/done + batch_progress）
+// 批量连写时优先展示「第 X/Y 章」总进度（chapter_start/done + batch_progress）
 const healText = computed(() => {
   const p = wb.healProgress
   const bp = wb.batchProgress
@@ -33,14 +33,14 @@ const healDone = computed(() => wb.healResult)
       <span>{{ healText }}</span>
     </div>
     <template v-if="healDone">
-      <!-- W1 终局黄项复查：yellows 空 = 文风已收敛；非空 = 仍剩黄项（建议手改，不 gate） -->
+      <!-- 终局黄项复查：yellows 空 = 文风已收敛；非空 = 仍剩黄项（建议手改，不 gate） -->
       <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
         <CircleCheck :size="16" />
         <div class="heal-detail">
           <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
           <ul v-if="healDone.yellows?.length" class="heal-reds">
-            <!-- R0911b-C2-P3-2：yellows 是 string[] 无 id 且文本可重复，key 弃纯 index 改「值+序号」
-                 复合键（AuditGoalTodoPanel 重评2-P3-4 同款）；终局卡整表替换、li 纯展示无状态，零行为改动。 -->
+            <!-- ：yellows 是 string[] 无 id 且文本可重复，key 弃纯 index 改「值+序号」
+                 复合键（AuditGoalTodoPanel 2- 同款）；终局卡整表替换、li 纯展示无状态，零行为改动。 -->
             <li v-for="(y, i) in healDone.yellows" :key="y + '-' + i">{{ y }}</li>
           </ul>
         </div>
@@ -50,7 +50,7 @@ const healDone = computed(() => wb.healResult)
         <div class="heal-detail">
           <div>AI 已重试到上限仍有待修问题，需要你来定夺</div>
           <ul class="heal-reds">
-            <!-- R0911b-C2-P3-2：reds 同 yellows——string[] 无 id 且文本可重复，「值+序号」复合键。 -->
+            <!-- ：reds 同 yellows——string[] 无 id 且文本可重复，「值+序号」复合键。 -->
             <li v-for="(r, i) in healDone.reds ?? []" :key="r + '-' + i">{{ r }}</li>
           </ul>
         </div>
@@ -94,7 +94,7 @@ const healDone = computed(() => wb.healResult)
   margin-top: 4px;
   border-radius: 50%;
   background: var(--interactive-accent);
-  /* N-14（第十二轮）：局部 heal-pulse 收编全局家族 clw-pulse（reduced-motion 由
+  /* 局部 heal-pulse 收编全局家族 clw-pulse（reduced-motion 由
      base.css 全局兜底统一裁剪，不另设局部覆盖） */
   animation: clw-pulse 1.4s ease-in-out infinite;
   flex-shrink: 0;

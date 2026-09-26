@@ -143,7 +143,7 @@ describe('L-S2（第八轮）：GET /chat/history ?limit= 尾窗', () => {
     expect(j.truncated).toBe(true)
     // 0917清库修复批：截断态 total = 骨架事件行数（含被遮蔽/合成前的原始行，非投影消息数）——
     // 本库 6 行 = 4 投影消息 + 被遮蔽 assistant 1 + compaction/end 1；精确分流口径由
-    // test/ai/pm10-chat-history-tail.test.ts 守门
+    // test/ai/chat-history-tail-window.test.ts 守门
     expect(j.total).toBe(6)
     // 尾窗取尾部：最后一条是收尾 assistant 文本
     const last = j.messages[1] as { role: string; content: unknown }

@@ -1,5 +1,5 @@
 /**
- * P2 五层链路事件桥接（F1 方案 §二 v1 + §六 trace 合并计划）。
+ * 五层链路事件桥接（方案 §二 v1 + §六 trace 合并计划）。
  *
  * 非对话链路事件（step/start、step/end、llm/call、llm/retry、retry/attempt、check/report）
  * 挂每书的 workspace 会话（store.workspaceSession，ws- 前缀）——与对话 turn/session 隔离。
@@ -38,21 +38,21 @@ export function llmCallEvent(data: {
   durationMs: number
   ok: boolean
   errCode?: string
-  // R59 清偿批（R55-C-6）：promptMeta 增可选 tools 摘要键（去重排序工具名，确定性
+  // 清偿mptMeta 增可选 tools 摘要键（去重排序工具名，确定性
   // 可重放；旧事件无此键仍可解析）
   promptMeta?: { chars: number; files: string[]; hash: string; tools?: string[] }
   chapter?: number
-  /** I7（第十一轮）：resolve 解析值（实际生效 effort/timeoutMs）——重放口径，见 LlmCallData */
+  /** resolve 解析值（实际生效 effort/timeoutMs）——重放口径，见 LlmCallData */
   effort?: string
   timeoutMs?: number
-  /** Q-13（第十五轮）：resolve 后终值——上线输出上限（适配器 done 事件透出，编排层
+  /** resolve 后终值——上线输出上限（适配器 done 事件透出，编排层
    *  透传；无兜底不发/early-error 无值）与逐 chunk 挂起时限（env resolver，同 gen.generate
-   *  源；RC 源码重审 A-8 改口径表述，字段名保名，见 LlmCallData 同注） */
+   *  源；RC改口径表述，字段名保名，见 LlmCallData 同注） */
   maxTokens?: number
   firstByteTimeoutMs?: number
-  /** R-8（十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
+  /** （十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
   quirksVersion?: string
-  /** Z-12（第五十八轮）：成功建流用的是降级参数面（剥 structured/剥 tools）——重放按
+  /** 成功建流用的是降级参数面（剥 structured/剥 tools）——重放按
    *  事件重建需知（首发 400 剥面成功的历史，不带此标记重放会再 400） */
   degraded?: boolean
 }): NewEvent {
@@ -63,7 +63,7 @@ export function llmRetryEvent(data: { attempt: number; delayMs: number; errCode?
   return { type: 'llm/retry', data: { ...data } }
 }
 
-/** B1（批 6）：机检误报标记事件。excerpt 为命中区间 ±50 字摘录（语料本身）；
+/** 机检误报标记事件。excerpt 为命中区间 ±50 字摘录（语料本身）；
  *  同章同 checkId 重复标记幂等——append 多条、查询侧按 (chapter, checkId) 取最近一条。 */
 export function checkFalsePositiveEvent(data: {
   checkId: string
@@ -86,9 +86,9 @@ export function checkReportEvent(data: { chapter: number; reds: string[]; yellow
   return { type: 'check/report', data: { ...data } }
 }
 
-// ── P3 血缘+检索事件构造器 ───────────────────────────
+// ── 血缘+检索事件构造器 ───────────────────────────
 
-// R0915-P3-10（四轮处置批）：章号转可选——未选章形态（revisionDigest 在而章号缺，
+// （四轮处置批）：章号转可选——未选章形态（revisionDigest 在而章号缺，
 // 如工作台未选章直接对话）此前被 `?? 0` 伪装成 0；章号 1 起算，0 属无效值，血缘
 // 载荷里出现伪 0 易被误读为真章号。缺省即「无章」语义；消费方（lineage
 // registeredRecords）只读 revision 不读章号，契约放宽零影响。
@@ -108,7 +108,7 @@ export function settingsSnapshotEvent(data: {
   return { type: 'settings/snapshot', data: { ...data } }
 }
 
-/** G2-1 技能包快照登记（镜像 settingsSnapshotEvent；scope 固定 'skills'，载荷同形状 {scope, digest}） */
+/** 技能包快照登记（镜像 settingsSnapshotEvent；scope 固定 'skills'，载荷同形状 {scope, digest}） */
 export function skillsSnapshotEvent(data: { digest: string }): NewEvent {
   return { type: 'skills/snapshot', data: { scope: 'skills', digest: data.digest } }
 }
@@ -129,7 +129,7 @@ export function ruleHitEvent(data: { ruleId: string; task: string; chapter?: num
   return { type: 'rule/hit', data: { ...data } }
 }
 
-// ── F5 goal 状态机 + todo 快照事件构造器 ──────────────────────────
+// ── goal 状态机 + todo 快照事件构造器 ──────────────────────────
 
 export function goalChangeEvent(data: GoalChangeData): NewEvent {
   return { type: 'goal/change', data: { operation: data.operation, goal: data.goal } }
@@ -153,7 +153,7 @@ export function structureMergeUndoEvent(data: StructureMergeUndoData): NewEvent 
   return { type: 'structure.merge-undo', data: { ...data } }
 }
 
-/** task 名 → 五层 layer 映射（F2/DSH-8：五层每层一个 step） */
+/** task 名 → 五层 layer 映射（/DSH-8：五层每层一个 step） */
 export function layerForTask(task: string): LayerName {
   switch (task) {
     case 'chat': return 'chat'
@@ -167,11 +167,11 @@ export function layerForTask(task: string): LayerName {
 }
 
 /** 链路事件录制器：薄封装 store + workspace session；写失败静默（观测层不拖累业务）。
- *  Z-P2-7 批事务：add 只进内存缓冲，凑批/显式 flush/close 时走 appendEvents 单事务落库
+ * 批事务：add 只进内存缓冲，凑批/显式 flush/close 时走 appendEvents 单事务落库
  *  （此前每事件一个 BEGIN/COMMIT，llm/call+retry 高频观测路径每条一次提交）。
  *  退避等待等「先落库后等待」语义点由调用方显式 flush（runner.ts 重试 sleep 前）。 */
 const CHAIN_FLUSH_THRESHOLD = 32
-// O-1（第十三轮）：flush 失败保 buffer 下次重试的累积上限——观测事件越旧价值越低，超限丢最旧
+// flush 失败保 buffer 下次重试的累积上限——观测事件越旧价值越低，超限丢最旧
 const CHAIN_BUFFER_MAX = 256
 
 export class ChainRecorder {
@@ -184,7 +184,7 @@ export class ChainRecorder {
 
   add(ev: NewEvent): void {
     if (!this.store || !this.sessionId) return
-    // R50-A-3（五十轮）：closed 置位后的迟到 add 早退丢弃——close 路径已 best-effort
+    // closed 置位后的迟到 add 早退丢弃——close 路径已 best-effort
     // flush 且 store 已关，此后的 add 再无落库时机，照常入 buffer 只会滞留堆积
     //（至上限后被无声蒸发），flush 若被外部误调还会对已关句柄反复失败 warn。
     // 丢弃并 warn 一次性留痕（丢事件 = 丢「已记录」凭据，铁律①视角须可定位）；
@@ -211,9 +211,9 @@ export class ChainRecorder {
     try {
       this.store.appendEvents(this.sessionId, evs)
     } catch (e) {
-      // 观测层：写失败不炸业务流程（与 appendTrace 一致）。O-1（第十三轮）：
+      // 观测层：写失败不炸业务流程（与 appendTrace 一致）。
       // 失败不整批丢弃——换回 buffer 待下次 flush 重试；持续失败超上限时丢最旧防无限增长
-      // R66-4（十四轮）：写失败完全静默无留痕——持续性故障（SQLITE_BUSY/磁盘满）期间
+      // 写失败完全静默无留痕——持续性故障（SQLITE_BUSY/磁盘满）期间
       // 链路观测事件（llm/call 等）成审计流出黑洞无法定位；warn 留批规模与病因（丢事件
       // = 丢「已记录」凭据，铁律①视角必须留痕），业务流程仍不炸
       log.warn(
@@ -222,8 +222,8 @@ export class ChainRecorder {
       )
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
-        // R59 清偿批（R55-B-4）：截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
-        //（R50-A-3 迟到丢弃 / R66-4 flush 失败 / close 残留均留痕，唯 O-1 的丢最旧
+        // 清偿批截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
+        //（迟到丢弃 / flush 失败 / close 残留均留痕，唯的丢最旧
         // 防无限增长此前静默）：落库持续故障期间被蒸发的事件无从定位，审计黑洞。
         // 先记丢弃数再 slice；观测层留痕不炸业务流程。
         const dropped = this.buffer.length - CHAIN_BUFFER_MAX
@@ -236,17 +236,17 @@ export class ChainRecorder {
     }
   }
 
-  /** R65-3（十三轮）：一次性闸——重复 close 会把 openSessionStore 引用计数再递减一次，
-   *  refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（L-5 同族）。
+  /** 一次性闸——重复 close 会把 openSessionStore 引用计数再递减一次，
+   *  refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（同族）。
    *  当前调用方靠 chain = null 自律防双调，本闸把纪律下沉到 API 自身。 */
   private closed = false
-  /** R50-A-3（五十轮）：closed 后迟到 add 的一次性 warn 标记——首条留痕、后续静默防刷屏 */
+  /** closed 后迟到 add 的一次性 warn 标记——首条留痕、后续静默防刷屏 */
   private closedAddWarned = false
 
   close(): void {
     if (this.closed) return
     this.closed = true
-    // R66-4（十四轮）：close 路径此前 flush 失败后随即关库，buffer 内最多 256 条链路
+    // close 路径此前 flush 失败后随即关库，buffer 内最多 256 条链路
     // 观测事件（llm/call、check/report、goal/todo）无声蒸发——flush 本身已是 best-effort
     // （失败批换回 buffer），close 后再无重试机会：残留条数 warn 留痕（丢事件 = 丢
     // 「已记录」凭据，审计黑洞须可定位），不炸收尾流程
@@ -266,14 +266,14 @@ export class ChainRecorder {
   }
 }
 
-// ── F1-P3 伏笔状态变化登记（foreshadow/change）──────────────────
+// ── 伏笔状态变化登记（foreshadow/change）──────────────────
 
 /** 对比新旧伏笔列表，把状态变化登记为 foreshadow/change 事件（create/edit/complete/block/clear）。
- *  Z-P2-6 接线：字段形状与 document/foreshadow.ts ForeshadowEntry 对齐（标题/状态），
+ * 接线：字段形状与 document/foreshadow.ts ForeshadowEntry 对齐（标题/状态），
  *  由 documents API 的保存/PATCH/新建/软删四个变更点调用（快照-差分）。
  *  store/session 缺失静默跳过。
- *  复审-0913-源码 P3-⑪：差分配对键从 标题 改为 file——ForeshadowEntry 数据模型无编号
- *  字段，盘上唯一身份是相对路径 file（迁移链 N3 只保证文件名不撞，fm 标题可重复，
+ *  -源码 -⑪：差分配对键从 标题 改为 file——ForeshadowEntry 数据模型无编号
+ *  字段，盘上唯一身份是相对路径 file（迁移链只保证文件名不撞，fm 标题可重复，
  *  同文件 低-5 注记在案）；同标题双伏笔此前在标题键 Map 里互相覆盖，后回收的那条的
  *  状态变更被吞（零事件漏记）。file 缺失的宽松调用方回落标题；同键重号首个 warn
  *  一次性留痕（键唯一性破坏 = 配对按后者覆盖退化）。事件载荷仍只带 title，产出形态不变。 */
@@ -320,7 +320,7 @@ export function recordForeshadowChanges(
   try {
     store.appendEvents(sessionId, events)
   } catch (e) {
-    // 观测层：不阻断主流程，但留痕（R67-7：静默吞错与 R66-4 留痕纪律相悖——
+    // 观测层：不阻断主流程，但留痕（静默吞错与留痕纪律相悖——
     // 伏笔变更事件丢失时审计链缺段，无诊断线索可查）
     log.warn('chain-bridge', `伏笔变更事件写入失败（session=${sessionId}，${events.length} 条）：${errMsg(e)}`)
   }

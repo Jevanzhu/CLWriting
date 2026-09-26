@@ -1,5 +1,5 @@
 /**
- * 启动通告端点（迭代方向 A4 / 批 0）。
+ * 启动通告端点（迭代方向 / 批 0）。
  *
  * 启动链迁移失败（migrate-prompts / repair-books / layout-v2/v3 / migrate-defaults …）
  * 此前只有 console.error 一个出口——Electron 打包态 console 输出到无人看见的地方，
@@ -7,7 +7,7 @@
  * App 级横幅（一次性，关闭后不再弹；新通告再出现会再弹）。
  *
  * 通告是进程内存态（随 server 生命周期）：不落库、不重试自动化——数据保全前提下
- * 人工介入优先（方向方案 A4 边界）。
+ * 人工介入优先（方向方案边界）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
@@ -28,7 +28,7 @@ export interface StartupNoticeSink {
 }
 
 /** 每个 server 实例独立的通告收集器（startServer 闭包持有，随实例生命周期）。
- *  R58-B-9（五十八轮）：环形上限 100——通告来源（启动迁移/改名失败等）量级极小，
+ *  ：环形上限 100——通告来源（启动迁移/改名失败等）量级极小，
  *  但理论无界（请求期也可 push）；超限移出最旧保最新可见。 */
 export function createStartupNoticeSink(): StartupNoticeSink {
   const notices: StartupNotice[] = []

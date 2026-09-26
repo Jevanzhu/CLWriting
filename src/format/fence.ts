@@ -1,5 +1,5 @@
 /**
- * markdown 围栏行识别单源 —— R49-2。
+ * markdown 围栏行识别单源 —— 。
  *
  * CommonMark fenced code blocks 口径：围栏行 = 0-3 空格缩进 + ≥3 个 ` 或 ~ 连写
  * （信息串可选）；4+ 空格缩进属 indented code block，不是围栏行。
@@ -8,7 +8,7 @@
  * - check/count.ts checkSectionCount：开/闭栏配对（同类同长才闭栏），围栏行剥除后计节数
  * - export/index.ts purifyBody：``` 简单翻转跳过 #% 剥除（只认反引号，~~~ 不扩大识别）
  *
- * 此前两侧各自手写判定且口径分裂（导出侧 `trimStart().startsWith('```')` 对任意缩进
+ * 此前两侧各自手写判定且口径分裂（导出侧 `trimStart.startsWith('```')` 对任意缩进
  * 翻转），缩进代码块内 ``` 行在导出侧被误当围栏开关，误开栏成对闭合时真实 `#%`
  * 批注被当围栏内容漏进导出稿（机检侧本就是本文件口径，无此病）。
  */
@@ -22,10 +22,10 @@ export interface FenceLineMatch {
 }
 
 /**
- * 判定一行是否 markdown 围栏行（``` / ~~~；0-3 空格缩进；CRLF 尾容忍——R33-1：
+ * 判定一行是否 markdown 围栏行（``` / ~~~；0-3 空格缩进；CRLF 尾容忍——
  * 行尾残 \r 不破匹配，`.` 不匹配 \r 故信息串不含 \r）。非围栏行（含 4+ 空格缩进
  * 的 indented code block 内容）返回 null。
- * R0911-E-P3-5（2026-09-11 全量重评 GLM-5.3 修复批）：缩进字符收紧为纯空格——
+ * （GLM-5.3 修复批）：缩进字符收紧为纯空格——
  * CommonMark 缩进只计空格（tab 按 4 列进 indented code block），原 `\s{0,3}` 把
  * tab 缩进的 ``` 行误判成围栏；tab 不再计入缩进容忍，口径钉死与规范一致。
  */

@@ -3,7 +3,7 @@
  *
  * 样章库/金句库：搬移（迁移后删旧文件，空目录顺手清掉）。
  * 文风铁律：提取（反和解禁词 / AI 味替换表 → 禁词条目）后瘦身为纯配置
- *   （S5 收口：保留可量化约束 + 删除分级，禁词知识归条目库；机检禁词走
+ *   （收口：保留可量化约束 + 删除分级，禁词知识归条目库；机检禁词走
  *   readIronRules 合并条目库，行为不缺失）。
  *
  * 幂等：文风/条目/ 目录已存在 → no-op。
@@ -82,7 +82,7 @@ export function parseAiFlavorRows(text: string): { 词: string; 替换: string }
 }
 
 /** 条目落新库（迁移内部：序号内存计数，避免每写一个都扫盘）。
- *  RB-KN-P2-4：续跑时序号从盘上既有条目之后起——中途崩溃重启不得覆写已迁条目。 */
+ *  ：续跑时序号从盘上既有条目之后起——中途崩溃重启不得覆写已迁条目。 */
 function makeWriter(bookRoot: string, result: StyleMigrateResult) {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const seq = new Map<string, number>()
@@ -97,7 +97,7 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
         continue
       }
       for (const f of files) {
-        // 复审-0913-源码 P3-⑧：序号解析收编 parseSampleFileName 单源（style-entry
+        // -源码 -⑧：序号解析收编 parseSampleFileName 单源（style-entry
         // nextEntrySeq 同款）——手写正则只认小写 .md，.MD 既有条目播种漏记、续跑序号
         // 从头起（编号断裂仅靠 O_EXCL 重试兜底）；大小写剥尾与「3 位起」序号口径与写侧同源。
         const parsed = parseSampleFileName(f)
@@ -111,8 +111,8 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
     /* 条目目录不存在（首次迁移）→ 空播种 */
   }
   return (e: StyleEntry): void => {
-    // B-5（第六十轮）：类型/场景来自旧样章目录名与 fm 字段（磁盘可篡改数据面）——
-    // 消毒后再拼文件名（Y-27 同族漂移：style-entry.addEntry 已走 sanitizeChapterTitle
+    // 类型/场景来自旧样章目录名与 fm 字段（磁盘可篡改数据面）——
+    // 消毒后再拼文件名（同族漂移：style-entry.addEntry 已走 sanitizeChapterTitle
     // 单源，本迁移写点漏网，`../evil` 类场景可越出条目目录落文件）；空结果兜底防
     // `NNN.md` 劣化名。seq key 同步用消毒值——续跑播种从文件名取键，键值一致才防覆写
     const kind = sanitizeChapterTitle(e.类型) || '未分类'
@@ -121,9 +121,9 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
     let n = (seq.get(key) ?? 0) + 1
     const dir = join(entriesDir, kind)
     mkdirSync(dir, { recursive: true })
-    // R66-20（十四轮）：writeEntry 是 atomic-rename 覆盖语义——双进程同跑各自播种出
+    // writeEntry 是 atomic-rename 覆盖语义——双进程同跑各自播种出
     // 同序号时，后写静默互覆前写（丢条目无痕）；改走 O_EXCL 排他写，EEXIST → 序号 +1
-    // 重试（addEntry 排他分支同款），上限 32 次防病态环。续跑播种仍在写入前（RB-KN-P2-4 不变）。
+    // 重试（addEntry 排他分支同款），上限 32 次防病态环。续跑播种仍在写入前（不变）。
     let wrote = false
     for (let attempt = 0; attempt < 32 && !wrote; attempt++) {
       wrote = writeEntryExclusive(join(dir, `${scene}-${String(n).padStart(3, '0')}.md`), e)
@@ -146,7 +146,7 @@ function rmdirIfEmpty(dir: string): void {
   }
 }
 
-/** R71-21：单文件安全读（同库读取族低-3 口径：单文件失败跳过不中断）——
+/** 单文件安全读（同库读取族低-3 口径：单文件失败跳过不中断）——
  *  existsSync→read 间隙文件被删 / 同名目录 EISDIR 等读失败按「无该输入」返回
  *  null（调用方跳过该源），异常不再抛穿 migrateStyleLibrary。 */
 function readTextSafe(p: string): string | null {
@@ -158,7 +158,7 @@ function readTextSafe(p: string): string | null {
 }
 
 /**
- * R49-13（评审 R49）：旧模板遗留段标题的**精确整行锚定**——旧实现两处均为子串匹配
+ * （评审）：旧模板遗留段标题的**精确整行锚定**——旧实现两处均为子串匹配
  * （`/^##[^\n]*(反和解|AI\s*味替换)/m` 与逐行 `/反和解|AI\s*味替换/.test(line)`），
  * 作者自建的「## 反和解心得」等含关键词标题的段会被误判为遗留段删除（docstring
  * 「保守：未知段一律保留」失实）。旧模板确切标题原文以 install/scaffold.ts 旧版
@@ -168,20 +168,20 @@ function readTextSafe(p: string): string | null {
  */
 const LEGACY_RULES_HEADING_RE = /^##\s*(?:反和解段（AI 味防御）|AI\s*味替换参考)\s*$/m
 
-/** RB-KN-P2-4：铁律是否仍含待迁移段（反和解 / AI 味替换）——幂等闸的续跑判定输入 */
+/** 铁律是否仍含待迁移段（反和解 / AI 味替换）——幂等闸的续跑判定输入 */
 function hasLegacyRulesSection(text: string): boolean {
   return LEGACY_RULES_HEADING_RE.test(text)
 }
 
 /**
- * 铁律瘦身（S5）：删「反和解段」「AI 味替换参考」段（知识已入条目库），
+ * 铁律瘦身：删「反和解段」「AI 味替换参考」段（知识已入条目库），
  * 保留头部引言、可量化约束、删除分级及作者自加段（保守：未知段一律保留——
- * R49-13：段名判定按旧模板标题整行精确锚定，作者同关键词标题段不再误删）。
+ * 段名判定按旧模板标题整行精确锚定，作者同关键词标题段不再误删）。
  */
 export function slimIronRules(text: string): string {
   const out: string[] = []
   let dropping = false
-  // R51-F-5（五十一轮）：是否确有遗留段被删的标记——压缩 `\n{3,}` 只服务「删段后
+  // 是否确有遗留段被删的标记——压缩 `\n{3,}` 只服务「删段后
   // 收敛残留空行」这一目的，无段可删时不该动排版（作者手排三连空行被悄悄改写），
   // 也避免调用方 `slimmed !== rulesText` 恒真把「铁律瘦身为纯配置」错记进 details。
   let droppedAny = false
@@ -202,7 +202,7 @@ export function slimIronRules(text: string): string {
 /**
  * 执行迁移。旧源已清且铁律已瘦（或本无旧源）→ no-op。
  * 旧样章库/金句库不存在也算正常（新书或纯手动书），只做铁律提取。
- * RB-KN-P2-4：幂等闸改「旧源是否仍在」判定（对齐 foreshadow 迁移的可续跑范式）——
+ * 幂等闸改「旧源是否仍在」判定（对齐 foreshadow 迁移的可续跑范式）——
  * 原先条目目录存在即 no-op，第 N 条迁移后崩溃的书永远半迁移（剩余旧库文件无人认领）。
  */
 export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
@@ -213,7 +213,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (!existsSync(styleDir)) return result // 无文风目录（异常书），不建库
 
   const rulesFile = join(styleDir, '文风铁律.md')
-  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录按
+  // 读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录按
   // 「无该输入」处理（无遗留段），不再抛穿迁移
   const rulesRaw = readTextSafe(rulesFile)
   const rulesHasLegacy = rulesRaw !== null && hasLegacyRulesSection(rulesRaw)
@@ -226,7 +226,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
 
   const write = makeWriter(bookRoot, result)
 
-  // Y-7（第五十七轮）：样章/金句续跑查重（对齐禁词源 RB-KN-P2-4——修一处漏两处的
+  // 样章/金句续跑查重（对齐禁词源 ——修一处漏两处的
   // 口径不一）：条目写盘成功与旧源 rmSync 之间崩溃后，续跑对同一旧文件再拆再写会产出
   // 同内容双份、重复占据注入预算。键 = 场景 + 正文；命中 = 上次已迁，跳写并照删旧源。
   const seenSample = new Set<string>(
@@ -265,8 +265,8 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           正文: s.正文,
           ...(s._raw ? { _raw: s._raw } : {}),
         })
-        // R0913-win P3（退避族）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁下裸
-        // rmSync 直败会中断本轮迁移（迁移幂等 + Y-7 续跑查重可自愈，但不该无谓报错
+        // （退避族）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁下裸
+        // rmSync 直败会中断本轮迁移（迁移幂等 + 续跑查重可自愈，但不该无谓报错
         // + 旧目录滞留一轮）；口径同全仓「确实要删」删源点。
         if (s._path) rmWithRetry(s._path)
       }
@@ -284,13 +284,13 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (existsSync(quoteDir)) {
     let files: string[] = []
     try {
-      files = readdirSync(quoteDir).filter((f) => isMdFileName(f) && !f.startsWith('._')) // R38-9：.MD 不再失明
+      files = readdirSync(quoteDir).filter((f) => isMdFileName(f) && !f.startsWith('._')) // .MD 不再失明
     } catch {
       /* 读失败按空 */
     }
     for (const f of files) {
       const fp = join(quoteDir, f)
-      // R71-21：同名目录守卫（对齐 style.ts 低-3 的 statSync isFile 写法）——金句库出现
+      // 同名目录守卫（对齐 style.ts 低-3 的 statSync isFile 写法）——金句库出现
       // 名以 .md 结尾的目录时 readdir 会列出，裸 readFileSync 直接 EISDIR 抛穿整次迁移；
       // readdir→read 间隙被删同按「无该输入」跳过（未成功读取的源不 rm，留给续跑）
       let isFile = false
@@ -313,12 +313,12 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           正文: q.正文,
         })) quoteCount++
       }
-      rmWithRetry(fp) // R0913-win P3（退避族）：同上——拆条后删源
+      rmWithRetry(fp) // （退避族）：同上——拆条后删源
     }
     rmdirIfEmpty(quoteDir)
   }
   const quoteFile = join(styleDir, '金句库.md')
-  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
+  // 读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
   // 「无该输入」跳过整源（含 rm：未成功读取的源不删，留给续跑），不再抛穿迁移
   const quoteText = readTextSafe(quoteFile)
   if (quoteText !== null) {
@@ -332,16 +332,16 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
         正文: q.正文,
       })) quoteCount++
     }
-    rmWithRetry(quoteFile) // R0913-win P3（退避族）：同上——导入源删档
+    rmWithRetry(quoteFile) // （退避族）：同上——导入源删档
   }
   if (quoteCount > 0) result.details.push(`金句库 → ${quoteCount} 条样章（标签: 金句）`)
 
   // ── 3. 铁律：提取（反和解禁词 + AI 味替换表 → 禁词条目）→ 瘦身为纯配置 ──
-  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
+  // 读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
   // 「无该输入」跳过铁律源（不提取不瘦身，留给续跑），不再抛穿迁移
   const rulesText = readTextSafe(rulesFile)
   if (rulesText !== null) {
-    // RB-KN-P2-4：续跑去重——条目库已有同文禁词（上次写完条目、瘦身写回前崩溃）不重写
+    // 续跑去重——条目库已有同文禁词（上次写完条目、瘦身写回前崩溃）不重写
     const seen = new Set<string>(
       readEntries(entriesDir, '禁词').entries.map((e) => e.正文.trim()).filter(Boolean),
     )

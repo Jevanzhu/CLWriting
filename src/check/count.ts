@@ -6,7 +6,7 @@
  *
  * 全部零 token 脚本判定。
  *
- * R0916-5e（2026-09-16，⑤④产品巨件拆分波1）：本单件（1144 行）纯移动拆分——
+ * （⑤④产品巨件拆分波1）：本单件（1144 行）纯移动拆分——
  * 对话/名册/禁词/字数/句式/复读族 → count-dialogue.ts（缝 A）；文风可量化/信息差族
  * → count-style.ts（缝 B，DIALOGUE_TAG_RE/对话提示语堆叠正则随其唯一消费方
  * computeStyleMetrics/checkStyleMetrics 落 B）。本文件保留 front matter/高频意象/
@@ -21,7 +21,7 @@
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
-// R0912-3（2026-09-12 全量重评修复批）：章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
+// （修复批）：章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
 import { chapterNoFromName } from '../format/filename.js'
 // G203（0918三轮修复批）：`##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
 // format/section-heading——此前本处与 metrics/collectBodyAnchors 两套识别器口径分裂；
@@ -29,7 +29,7 @@ import { chapterNoFromName } from '../format/filename.js'
 import { extractSectionHeadings } from '../format/section-heading.js'
 import { stripQuotedSpans } from './quotes.js'
 
-// R0916-5e 拆分桥接：迁出导出逐名 re-export，全库 import 面零改动。
+// 拆分桥接：迁出导出逐名 re-export，全库 import 面零改动。
 // 缝 A（count-dialogue.ts）：HANZI 跨缝单源落 A（含 count-style.ts 正则族消费，
 // 「留本残核」经 ESM 环形依赖推演不可行，见 count-style.ts 头注）。
 export {
@@ -65,9 +65,9 @@ export function checkFrontMatter(
   const items: CheckItem[] = []
 
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
-  // R33-30（三十三轮）：路径形态容忍（win 反斜杠直传前缀不失明；现调用方传 basename
+  // 路径形态容忍（win 反斜杠直传前缀不失明；现调用方传 basename
   // 不触发，纯加固）——basename 化后再交单源解析。
-  // R0912-3（2026-09-12 全量重评修复批）：前缀解析收编 format/filename.ts
+  // （修复批）：前缀解析收编 format/filename.ts
   // chapterNoFromName 单源——此前自带窄正则只认 `-` 分隔，`6—标题.md`（tree 排序/
   // 线索核验同宽容集形态）在此解析不出前缀 → fm-chapter-mismatch 对真不一致静默
   // 失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义不变），解析
@@ -82,7 +82,7 @@ export function checkFrontMatter(
     })
   }
 
-  // R73-16（二十一轮 B-3）：必填枚举缺失（钩子类型/钩子强弱/情绪定位）此前在 readChapter
+  // 必填枚举缺失（钩子类型/钩子强弱/情绪定位）此前在 readChapter
   // 静默补默认（悬念钩/中/铺垫），本检查对「缺字段」零红项，与 draft.ts「至少包含」文案相悖。
   // readChapter 现把缺失清单记在 _fmMissing，这里逐字段产红（fm-missing）——「缺字段」与
   // 「写了非法值」（fm-enum，validateEnums）分开呈现，自愈回灌的改法不同。
@@ -105,11 +105,11 @@ export function checkFrontMatter(
 }
 
 /**
- * F7（复审-0914-优化修复批）：子串非重叠计数单源——checkImagery / checkBodyParts
+ * 子串非重叠计数单源——checkImagery / checkBodyParts
  * 两处逐字同构的 indexOf 步进循环收编（步进 needle.length = 不计重叠命中，口径与
  * 原实现逐位一致）。grep 佐证该形态全仓仅此两处，落文件内 helper 不入 shared/text.ts
  * ——单消费域不下沉（避免推测性泛化），第三处出现时再议上移。
- * R0916-5e（2026-09-16 拆分批）：两消费方（checkImagery/checkBodyParts）均留本
+ * （拆分批）：两消费方（checkImagery/checkBodyParts）均留本
  * 残核，helper 随留，不迁不导出。
  */
 function countOccurrences(haystack: string, needle: string): number {
@@ -138,20 +138,20 @@ export function checkImagery(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (imageryWords.length === 0) {
-    // X-P2-22：空表（未启用或显式关）静默跳过——恒久「未启用」黄项只会训练作者
+    // 空表（未启用或显式关）静默跳过——恒久「未启用」黄项只会训练作者
     // 无视机检面板；数据源接线后空表只剩「作者明确关掉」一种来源，仍不产黄
     return { name: '高频意象', items }
   }
-  // R51-E-N5（五十一轮）：计数前剥对白引号 span——禁词（checkBannedWords R29-1①）/
-  // 开头（:1045）同文件均剥，唯本检查吃原文：意象词多为叙述套语，对白里角色说
+  // 计数前剥对白引号 span——禁词（checkBannedWords ①）/
+  // 开头（1045）同文件均剥，唯本检查吃原文：意象词多为叙述套语，对白里角色说
   // 「气氛」「空气」属人物语言非作者叙述套路，对白密集章逐句累加黄项刷屏。
   // stripQuotedSpans 单源（quotes.ts）对齐。
   const prose = stripQuotedSpans(body)
   for (const word of imageryWords) {
     if (!word) continue
-    // F7：计数循环收编 countOccurrences 单源（原与 checkBodyParts 双份逐字同构）
+    // 计数循环收编 countOccurrences 单源（原与 checkBodyParts 双份逐字同构）
     const count = countOccurrences(prose, word)
-    // R26-29（二十六轮）：阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
+    // 阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
     // 的「≤阈 合法、>阈 报黄」语义一致（#27 第 5.3 节同款）；原 `>=` 让恰好踩线的
     // 「3 次整」也报，与身体部位/比喻两项口径分裂。
     if (count > threshold) {
@@ -165,7 +165,7 @@ export function checkImagery(
   return { name: '高频意象', items }
 }
 
-// ── 短篇专属机检项（M8 #27 第 5.3 节，新增）──────────
+// ── 短篇专属机检项（#27 第 5.3 节，新增）──────────
 //
 // 短篇目标函数是单章情绪爆破，4 项专属软约束（吸收点 7.1）：
 // 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
@@ -208,7 +208,7 @@ const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|�
  * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
  * 正文洁净：眼/心脏等堆砌计数超阈报黄（AI 味高发）。
  * 单字「手」单独走 HAND_ACTION_RE 动作语境匹配，避免「对手/高手/随手」误报。
- * R0912-1（2026-09-11 修复批）：计数前剥对白引号 span（对白是角色嘴里的话非作者
+ * （修复批）：计数前剥对白引号 span（对白是角色嘴里的话非作者
  * 叙述，见函数体内注释——同批 checkSimile 对齐）。
  */
 export function checkBodyParts(
@@ -218,22 +218,22 @@ export function checkBodyParts(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
-  // R0912-1（2026-09-11 修复批；win 线同题锚 R0911b-P2④）：计数前剥对白引号 span
-  // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords R29-1①）/
-  // 意象（checkImagery R51-E-N5）/开头环境（checkOpeningNoEnv R29-4）均经剥引号
+  // （修复批；win 线同题锚 ④）：计数前剥对白引号 span
+  // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords ①）/
+  // 意象（checkImagery ）/开头环境（checkOpeningNoEnv ）均经剥引号
   // 统计，唯本检查与 checkSimile 吃原文：对白里角色说「我的眼睛…」是人物语言非
   // 作者叙述堆砌，对白密集章逐次累加黄项刷屏；本项属短篇 strict 升红族（runner.ts
   // STRICT_SHORT_CHECK_IDS 的 body-parts），误报驱动打回重写白烧真调用。单字「手」
   // 的动作语境匹配路径同口径。阈值与升红逻辑零改动，只收窄「哪些文本参与计数」。
-  // 对齐家族约定（R51-E-N5 注释自证「同族均剥」），prose 变量口径同 checkBannedWords。
+  // 对齐家族约定（注释自证「同族均剥」），prose 变量口径同 checkBannedWords。
   const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue
-    // F7：计数循环收编 countOccurrences 单源（原与 checkImagery 双份逐字同构）
+    // 计数循环收编 countOccurrences 单源（原与 checkImagery 双份逐字同构）
     const count = countOccurrences(prose, word)
     if (count > threshold) over.push(`${word}×${count}`)
   }
-  // 单字「手」走动作语境匹配，避免误伤惯用语（R0912-1 / R0911b-P2④：同在剥对白后的叙述面上计数）
+  // 单字「手」走动作语境匹配，避免误伤惯用语（/ ④：同在剥对白后的叙述面上计数）
   const handCount = (prose.match(HAND_ACTION_RE) ?? []).length
   if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
@@ -249,28 +249,28 @@ export function checkBodyParts(
 /**
  * 「像」比喻密度检查（#27 第 5.3 节，🟡 黄）。
  * 比喻泛滥计数：明喻句式超阈报黄。
- * P3-12：此前把所有「像」字都计入比喻统计（含「相像/很像/好像/不像/像他这样的人」
+ * 此前把所有「像」字都计入比喻统计（含「相像/很像/好像/不像/像他这样的人」
  * 等非比喻），误报偏高——现按句式约束：像 + 名词性短语（可带「一样/似的/般」尾缀），
  * 排除非比喻「像」字用法；「像刀/像雪」等短比与「像X一样」长比都计。
  */
-// R-9（十五轮登记销账）：前置排除改零宽 lookbehind——原消费型 (?:^|[^相很好不像]) 会
+// （十五轮登记销账）：前置排除改零宽 lookbehind——原消费型 (?:^|[^相很好不像]) 会
 // 吞掉「像」前一个字符，相邻明喻（如「像刀像雪」）第二个「像」因前字符已被上一命中
 // 消费而漏计（漏报不误报）；lookbehind 语义等价（行首无边=通过、前排他字符=拒绝）。
-// R67-9（十五轮）登记口径：前排他集含「好」是排除高频非比喻「好像」的必要代价——
+// 登记口径：前排他集含「好」是排除高频非比喻「好像」的必要代价——
 // 「恰好像刀」「正好像雪」等真·明喻被一并漏计；本检查为超阈黄项密度统计，漏报向
 // 安全（不误报），且「恰好/正好」+明喻连用占比极低，零 token 边界不做分词级判别。
-// R73-14（二十一轮 B-1）：前排他集再纳入「X像」名词首字（图像/偶像/摄像/录像/影像/
+// 前排他集再纳入「X像」名词首字（图像/偶像/摄像/录像/影像/
 // 照像/画像/音像/映像/实像/虚像/镜像/显像/成像/雕像/塑像/石像/铜像/铁像/玉像/蜡像/
 // 金像/肖像/绣像/头像/佛像/神像/遗像/铸像/拟像/造像/圣像/群像/形象/印像/想像）——此前
 // 词内「像」未排除名词，「他用图像处理软件处理图像数据。」实测命中 2 次、「摄像头
 // 对准了门口」「她是全民偶像明星」各命中 1；短篇 strict 模式下 simile-density 升红
-// 会把无一流比的名物章打回重写烧调用。代价（同 R67-9 登记式取舍）：「拳头像铁锤」
+// 会把无一流比的名物章打回重写烧调用。代价（同登记式取舍）：「拳头像铁锤」
 // 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
 // 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
 // 「挺像样」「很像样」的「像样」非比喻。
-// R0912-1（2026-09-11 修复批）：注释补齐实现口径——下方正则前排他集实含「群」
-// （「群像」），上列 R73-14 词表此前漏列，照注释读会误判正则多收一字。
-// 导出（R51-J-1，五十一轮）：语料收割（scripts/harvest-corpus.ts）对 simile-density
+// （修复批）：注释补齐实现口径——下方正则前排他集实含「群」
+// （「群像」），上列词表此前漏列，照注释读会误判正则多收一字。
+// 导出：语料收割（scripts/harvest-corpus.ts）对 simile-density
 // 复用本正则直扫正文取真实比喻短语作幸存者判定锚——message 只报次数（「像…」是
 // 模板字面量），文案解析提不出锚。单一真相源，防两处正则漂移。
 export const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
@@ -280,13 +280,13 @@ export function checkSimile(
   threshold = 10,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // R0912-1（2026-09-11 修复批；win 线同题锚 R0911b-P2④）：统计前剥对白引号 span
+  // （修复批；win 线同题锚 ④）：统计前剥对白引号 span
   // （禁词/意象/开头/身体部位同款口径，quotes.ts 单源 stripQuotedSpans）——对白里
   // 角色说「像…一样」是人物语言，非作者叙述比喻堆砌；对白密集章虚黄，短篇 strict
   // （runner STRICT_SHORT_CHECK_IDS 的 simile-density）升红会把对白密集章误打回
   // 重写。SIMILE_RE 匹配的是「像…」句式（非特定词表），剥对白后剩余叙述照常命中，
   // 无需改正则；剥引号必须在 checkSimile 调用点做而非收进 SIMILE_RE 本体：
-  // scripts/harvest-corpus.ts 语料收割（R51-J-1）复用本正则直扫原文取真实比喻短语
+  // scripts/harvest-corpus.ts 语料收割复用本正则直扫原文取真实比喻短语
   // 作幸存者判定锚，收割面要原文全量命中（含引号内），改正则会漂移收割锚口径——
   // 单一真相源只保正则本体，剥引号由消费方各自决定。
   const prose = stripQuotedSpans(body)
@@ -310,7 +310,7 @@ export function checkSectionCount(
   body: string,
   expected = 5,
 ): CheckSectionResult {
-  // R34D-12（三十四轮）：section_count 可配置（runner 传 short.section_count），文案
+  // section_count 可配置（runner 传 short.section_count），文案
   // 不得硬编码「五段结构」——配置 ≠5 的 strict 短篇把黄提红后 formatRedForRewrite
   // 喂给自愈重写，重写目标被误导成五段。期望值统一插值 expected；五段节名枚举仅在
   // 缺省 5 段时保留（≠5 臆造不出节名，去枚举按期望节数描述）。
@@ -323,7 +323,7 @@ export function checkSectionCount(
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
   // G203（0918三轮修复批）：剥围栏 + 标题行识别整段收编 format/section-heading 单源
-  //（R26-43/R27-25/R28-2/R28-9/R37-8/R33-1 语义沿革注释随迁彼处文件头注）——此前
+  //（/////语义沿革注释随迁彼处文件头注）——此前
   // 本处手写围栏状态机 + 正则与 metrics/collectBodyAnchors 的第二套识别器口径分裂
   //（紧排 `##标题` 漏识 / 围栏内 `##` 误收），两处消费同源后消除漂移面。节数口径
   // 逐位不变（本函数只用标题数，不用标题文字）。
@@ -333,7 +333,7 @@ export function checkSectionCount(
     // 有 ## 标题：按标题数
     sections = headings.length
   } else if (headings.length === 1) {
-    // RB-KN-P2-7：单标题给准确文案——原本文案说「未使用 ## 标注」失真（作者用了但只有 1 个），
+    // 单标题给准确文案——原本文案说「未使用 ## 标注」失真（作者用了但只有 1 个），
     // 严格模式下被提升为红时误导作者「完全没写标题」
     items.push({
       checkId: 'section-count-heading-missing',
@@ -372,16 +372,16 @@ export function checkOpeningNoEnv(
   envWords: string[] = DEFAULT_ENV_WORDS,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // R29-4（二十九轮）：opening 窗口先剥对白引号 span 再匹配环境词——角色嘴里说的
+  // opening 窗口先剥对白引号 span 再匹配环境词——角色嘴里说的
   // 「今天天气真好」是对白不是环境描写（叙述面），裸匹配此前误报对白密集的开篇。
-  // R33-32（三十三轮）：码点口径（对齐 R73-19）——UTF-16 直接 slice 在含 astral 字符
+  // 码点口径（对齐）——UTF-16 直接 slice 在含 astral 字符
   // 时窗口实际缩短；astral 码点最多占 2 个 UTF-16 单元，先取 openingChars*2 单元再按
   // 码点截断，窗口恒足 openingChars 码点。
-  // 重评-0912-4 P2-5（2026-09-12 全量重评修复批）：剥引号与开窗 swap——原序「先截窗
+  // （修复批）：剥引号与开窗 swap——原序「先截窗
   // 后剥引号」下窗尾截断的半个 span（有开无闭）不被识别，引号内容仍参与匹配；而本项
   // 在 runner.ts STRICT_SHORT_CHECK_IDS 严格升红集内（黄→红拦定稿闸），短篇开篇恰在
   // 窗尾截断对白即误报白烧重写费。现改为**全文先剥再开窗**（stripQuotedSpans 在完整
-  // 正文上识别配对 span，随后才做 R33-32 码点窗），截断半 span 形态根除；窗口语义不变
+  // 正文上识别配对 span，随后才做码点窗），截断半 span 形态根除；窗口语义不变
   //（= 去对白后叙述面的前 openingChars 码点），非对白开篇的命中面逐位不变。
   const opening = [...stripQuotedSpans(body).slice(0, openingChars * 2)].slice(0, openingChars).join('')
   const hits: string[] = []

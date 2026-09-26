@@ -1,5 +1,5 @@
 /**
- * 风格一致规则（A3 软约束三项之三）。
+ * 风格一致规则（软约束三项之三）。
  *
  * 实时读已冻结的风格基线（文风/基线.json），对比当前正文的 7 维文风指纹。
  * 注入侧：告知 AI 贴近基线；检验侧：任一维偏离超 40% 报黄（提示不卡流程）。
@@ -8,7 +8,7 @@
  * - 静态规则对象（方案 A），check 内部实时读基线（不缓存——基线可能写稿中途冻结）
  * - 无基线静默跳过（toPrompt 返回 null、check 返回空数组），不报错不卡流程
  * - 比率维（单句超限占比/复读率/句长方差/对话标签占比）尺度天然与长度无关，
- *   双侧百分比偏离比较；计数维与极值维的口径见 R75-1（正文两段分述）
+ *   双侧百分比偏离比较；计数维与极值维的口径见（正文两段分述）
  * - summaryEnding 为布尔维度：基线 false 但正文 true 报偏离
  * - 对话标签占比保护：无对话行（_dialogueLines===0）时跳过 dialogueTagRatio 维
  */
@@ -19,7 +19,7 @@ import { styleRemedy } from './style-remedy.js'
 /** 偏离阈值：偏离超此比例报黄（40%） */
 const DEVIATION_THRESHOLD = 0.4
 
-/** R75-1（批 A）：计数维密度归一基准——次/千字 */
+/** 计数维密度归一基准——次/千字 */
 const PER_K_CHARS = 1000
 
 /** 数值维配置：名称 + 当前值 + 基线值 + 格式化 + 建议 */
@@ -36,12 +36,12 @@ function pct(v: number): string {
   return `${Math.round(v * 100)}%`
 }
 
-/** R75-1：千字密度格式化（如 1.50 次/千字） */
+/** 千字密度格式化（如 1.50 次/千字） */
 function fmtPerKChars(v: number): string {
   return `${v.toFixed(2)} 次/千字`
 }
 
-/** R75-1：计数维 → 千字密度（hits / charCount × 1000）。
+/** 计数维 → 千字密度（hits / charCount × 1000）。
  *  charCount 缺失（旧 v1 冻结基线无该字段）或非正（空正文）→ null：无法归一，
  *  调用方降级跳过该维（宁缺毋假——比原始计数正是量纲错配假阳的来源）。 */
 function densityPerKChars(hits: number, charCount: number | undefined): number | null {
@@ -97,7 +97,7 @@ export const styleConsistencyRule: WritingRule = {
 
     const rules = readIronRules(ctx.bookRoot)
     // 统计前剥 fm：fm 短行会污染句长/占比指纹（body 含 fm 是规则引擎契约，正文型规则各自剥）
-    // R48-33（四十八轮）：剥一次全 check 统一用——原统计剥 fm 但 styleRemedy 证据
+    // 剥一次全 check 统一用——原统计剥 fm 但 styleRemedy 证据
     // 提取（dimMessage→extractLongSentences 等）传原始 body，fm 长行（摘要/备注）
     // 会被引为「以下句子过长」的证据，产出与正文无关的反馈
     const text = ruleStripFm(body)
@@ -113,12 +113,12 @@ export const styleConsistencyRule: WritingRule = {
     ]
     for (const dim of dims) checkDim(dim, violations, text)
 
-    // R75-1（批 A，量纲错配修复）：ref.overall 是全部样章 join('\n\n') 的拼接语料指纹，
+    // （批 A，量纲错配修复）：ref.overall 是全部样章 join('\n\n') 的拼接语料指纹，
     // 而本规则对比的是单章正文——计数维直接比原始值在样章库 ≥2 条时天然「偏低」
     // 常态超 40% 阈值，机检稳定产出假黄项并流入重写反馈。两维按下述口径分别修：
     //
     // 形容词堆叠（真计数维，随长度近似线性增长）→ 双侧密度比较（次/千字）：正文与
-    // 基线各除以自身 charCount（R75-1 在 FullStyleStats 增量加的归一化因子）再比，
+    // 基线各除以自身 charCount（在 FullStyleStats 增量加的归一化因子）再比，
     // 长度量纲抵消。旧 v1 冻结基线缺 charCount 无法归一 → 降级跳过本维（不比原始
     // 计数——那正是假阳来源；重新冻结基线即恢复密度比较）。去重口径注：拼接语料跨
     // 样章去重使 overall 密度略低于单样章均值，方向保守（略偏「单章偏高」），在

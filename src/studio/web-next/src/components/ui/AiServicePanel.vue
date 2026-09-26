@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // AI 提供方管理面板（设置页「服务提供方」tab 的内容）——编排层。
 // 应用级配置，跨书共享，存 userData/providers.json。
-// 阶段 14 第二步（§6.3 统一 store + I2 卡片化单卡展开 + I5 内嵌新增）：
+// 阶段 14 第二步（§6.3 统一 store + 卡片化单卡展开 + 内嵌新增）：
 // 数据源收敛到 useProviderStore（AI + RAG + 档位 + 模型清单 + revision 单份）；
 // 本层只保留编排态（分页 tab / 展开互斥 / 新增卡 / 档位草稿）与确认弹窗、可达性联动。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
@@ -48,7 +48,7 @@ const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: Tie
 const assistantEnabled = ref(false)
 const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
-// R73-62（E-1）：保存入口在途锁——按钮 disabled 管不住双击/慢网窗口（R70-25 建书在途锁
+// 保存入口在途锁——按钮 disabled 管不住双击/慢网窗口（建书在途锁
 // 同类先例）。新增卡双击会双 POST 落两条同名记录；编辑卡第二笔以陈旧 revision 409 弹
 // 误导性「并发冲突」。锁在编排层（校验/API 写入都在这），经 :saving 下传编辑器禁按钮 + 文案
 const saving = ref(false)
@@ -64,7 +64,7 @@ function syncTierForm(): void {
   chatTierEnabled.value = !!store.tiers.chat?.model
 }
 
-// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：armed 单门——onMounted 的
+// （修复批）：armed 单门——onMounted 的
 // refreshAll 在途时实例卸载（快速切 tab），迟到的 refresh 续体此前照旧写回死实例
 // 档位草稿（低敏写回，非泄漏级）。对齐 style 系 armed / SettingsBookAnalysis 书名
 // 复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径 armed 单门。
@@ -75,7 +75,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   await store.refreshAll()
-  if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
+  if (!armed) return // 卸载后不写回死实例
   syncTierForm()
 })
 
@@ -132,7 +132,7 @@ async function afterProviderModelsSaved(pid: string): Promise<void> {
   if (store.currentId === pid && outOfRangeTiers(declared).length) await alignTiersToDeclared(declared)
 }
 
-/** 保存（新增/展开编辑共用）：P6 Key 前端校验 + P9 模型行校验（非法 abort） */
+/** 保存（新增/展开编辑共用）：Key 前端校验 + 模型行校验（非法 abort） */
 async function save(f: {
   name: string
   protocol: Protocol
@@ -142,7 +142,7 @@ async function save(f: {
   models?: ProviderConfDto['models']
   modelDrafts?: ModelRowDraft[]
 }): Promise<void> {
-  if (saving.value) return // R73-62：在途锁（双击第二笔在入口丢弃）
+  if (saving.value) return // 在途锁（双击第二笔在入口丢弃）
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.baseUrl.trim()) return ui.toast('API 地址必填', 'error')
   if (!editedId.value && !f.apiKey.trim()) return ui.toast('API Key 必填', 'error')
@@ -157,9 +157,9 @@ async function save(f: {
     }
   }
   const input = { name: f.name.trim(), protocol: f.protocol, auth: f.auth, baseUrl: f.baseUrl.trim(), apiKey: f.apiKey, models: f.models }
-  // 0918独立重评修复批（F001）：首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
-  // 两行各读一次 editedId.value，add 在途窗口内用户点行「编辑」改写 editedId 后，:163 重新
-  // 求值走 update 分支，把新增草稿（含 apiKey）写进他行。saveRag（:289 单表达式）同构参照。
+  // 0918修复批（F001）：首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
+  // 两行各读一次 editedId.value，add 在途窗口内用户点行「编辑」改写 editedId 后，163 重新
+  // 求值走 update 分支，把新增草稿（含 apiKey）写进他行。saveRag（289 单表达式）同构参照。
   const editTarget = editedId.value
   saving.value = true
   try {
@@ -169,13 +169,13 @@ async function save(f: {
     const pid = editTarget ?? addId
     closeEdit()
     addOpen.value = false
-    // P0-2：提供方表已变 → 刷新 AI 可达性
+    // 提供方表已变 → 刷新 AI 可达性
     void ui.probeAiStatus()
     await store.refresh()
     syncTierForm()
     if (pid) await afterProviderModelsSaved(pid)
   } finally {
-    saving.value = false // R73-62：成败都解锁（失败停留表单可改后重试）
+    saving.value = false // 成败都解锁（失败停留表单可改后重试）
   }
 }
 
@@ -210,7 +210,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
     if (!ok) return
   }
   // 启用不再要求先测试通过——测试是健康检查，不是启用门槛
-  if (!(await store.activate(p.id))) return // R70-24：失败已 toast 错误，不再叠「已启用」
+  if (!(await store.activate(p.id))) return // 失败已 toast 错误，不再叠「已启用」
   void ui.probeAiStatus()
   ui.toast(`已启用「${p.name}」`, 'success')
   if (declared.length && stale.length) await alignTiersToDeclared(declared)
@@ -240,7 +240,7 @@ function toggleChatTier(on: boolean): void {
 }
 
 async function saveTiers(): Promise<void> {
-  // R75-E-P3b：保存档位入口在途锁——同文件 save()/saveRag() 的 R73-62 写法补齐。
+  // 保存档位入口在途锁——同文件 save/saveRag 的写法补齐。
   // tierSaving 虽有 :disabled 下传，但管不住双击/慢网窗口：第二笔并发 saveTiers 会以
   // 同一草稿双 POST setTiers（revision 双 bump），applyChatTier 亦双发
   if (tierSaving.value) return // 在途锁：双击第二笔在入口丢弃
@@ -280,7 +280,7 @@ function closeRagEdit(): void {
 }
 
 async function saveRag(f: { name: string; endpoint: string; model: string; apiKey: string }): Promise<void> {
-  if (ragSaving.value) return // R73-62：在途锁（同 save）
+  if (ragSaving.value) return // 在途锁（同 save）
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.endpoint.trim()) return ui.toast('嵌入服务地址必填', 'error')
   if (!f.model.trim()) return ui.toast('嵌入模型必填', 'error')
@@ -327,7 +327,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
 
 <template>
   <div class="ai-service-panel">
-    <!-- A-3（RC 全项目源码重审）：Key 保护强度如实告知——AI 与 RAG 两分页共用本单点，勿在分页内各写一份。
+    <!-- （RC 全项目）：Key 保护强度如实告知——AI 与 RAG 两分页共用本单点，勿在分页内各写一份。
          事实单源：① src/desktop/os-kek.ts OS_KEK_SHELVED（钥匙串通道搁置，故搁置期内新配 Key 一律 v1）
          ② src/ai/provider/vault-key.ts 头注威胁模型声明（碎片异或 = 混淆级，非密码学秘密）
          ③ 落盘位置 src/ai/provider/store.ts（providers.json @ userDataPath）。

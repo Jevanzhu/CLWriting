@@ -1,5 +1,5 @@
 /**
- * AI 服务供应商管理端点（方案 §四① + W1.5）。
+ * AI 服务供应商管理端点（方案 §四① + .5）。
  *
  * GET  /api/providers                         → 列表（key 遮蔽）
  * POST /api/providers                         → 新增供应商 → {provider}(key 遮蔽)
@@ -13,8 +13,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError, replyHttpError } from '../http.js'
-import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
-// RC 源码重审 B-4：主机变更闸收敛单源（providers/rag-providers 共用同一判定与文案）
+import { revisionError } from './revision-guard.js' // 三处拷贝收敛单源（原本地实现）
+// RC：主机变更闸收敛单源（providers/rag-providers 共用同一判定与文案）
 import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
@@ -23,7 +23,7 @@ import {
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
-  ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突 → 409 映射
+  ProviderRevisionConflictError, // 0918修复批（D002）：写前基线复验冲突 → 409 映射
   type ProviderConf,
   type ModelConf,
   type Protocol,
@@ -36,28 +36,30 @@ import {
 import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
 import { probeCapabilities as realProbeCapabilities } from '../../../ai/provider/probe.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { log, errMsg } from '../../../log/index.js'
-import { testableConst } from '../../../shared/testable.js'
 
-// R75-D-P3c（批 D）：探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
+// 探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
 // 探测函数，复现「探测 10s+ 窗口内配置被改」竞态（mock driver 的快路探测瞬时完成，
-// 无法天然开出竞态窗）。仅测试用，勿在生产路径调用。
-// R42-24（四十二轮）：签名补第二参 userDataPath（探测目标库）——真探测透传给探测
+// 无法天然开出竞态窗）。
+// 签名补第二参 userDataPath（探测目标库）——真探测透传给探测
 // 实例做降级记忆路由；注入函数少参可赋（TS 逆变兼容，存量 mock 不受影响）
-/** 三件套换装 testableConst 工厂（探测函数覆盖档，null = 走真探测；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getProbeForTest, __setProbeCapabilitiesForTest] = testableConst<((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null>(null)
+// 收尾：模块级 getProbeForTest / __setProbeCapabilitiesForTest 删除——
+// 探测函数改组装根 RouteOverrides 注入（ProvidersCtx.probeCapabilities，随实例隔离，
+// undefined = 真探测生产口径逐位不变；与 ProviderRuntime 端口同一组装根注入通道）。
 
 interface ProvidersCtx {
   userDataPath: string | null
+  /** 收尾：探测函数覆盖档（见上方块注） */
+  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null
 }
 
-// R29-2（二十九轮）：providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
+// providers.json 写入失败不再静默假成功—— 把 store.ts 的
 // saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播，此前仅 log.warn 吞掉），
 // 端点侧保存点统一 try/await 捕住回 500 WRITE_ERROR 信封（磁盘满/权限/锁超时故障下，
 // 此前 200 假成功让作者以为已保存）。当前 void 返回下 await/try-catch 合法且零行为差异，
 // B 落地后语义自动激活。返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
-// 0918独立重评修复批（D002）：saveProvidersLocked 锁内写前 revision 复验失败的
+// 0918修复批（D002）：saveProvidersLocked 锁内写前 revision 复验失败的
 // ProviderRevisionConflictError 单列映射既有 409 REVISION_CONFLICT 信封（与前置
 // revisionError 闸同形态同文案，复用不新增错误码）——排队写窗口内基线漂移时前端拿
 // 到的是「刷新重读」语义而非「写入失败请重试」（重试只会再撞复验闸）。
@@ -93,7 +95,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // 新增（M-5 / SRV-N8 机械批 2026-09-15：body 校验移入 parse，失败同 400 BAD_INPUT
+  // 新增（/ SRV- 机械批：body 校验移入 parse，失败同 400 BAD_INPUT
   // 同文案，响应字节不变；handler 拿类型化 input）
   defineRoute('providers.post', {
     method: 'POST',
@@ -120,12 +122,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       apiKey: input.apiKey,
       ...(input.models !== undefined ? { models: input.models } : {}),
       caps: null,
-      // dd-P3：max+1 防撞号——s.providers.length 在删过中间项后与存量 sortIndex 重复，排序不稳
+      // max+1 防撞号——s.providers.length 在删过中间项后与存量 sortIndex 重复，排序不稳
       sortIndex: nextSortIndex(s.providers.map((p) => p.sortIndex)),
     }
     s.providers.push(conf)
-    // 首个供应商自动设为当前——R72-10（二十轮 D-2 裁定不采纳）：曾试「自动接任同样
-    // 要求 caps 已探测」以对齐 PUT /current 的 P2-6 不变量，但 POST 首条语义是
+    // 首个供应商自动设为当前——（二十轮 裁定不采纳）：曾试「自动接任同样
+    // 要求 caps 已探测」以对齐 PUT /current 的 不变量，但 POST 首条语义是
     // e2e 钉死的引导性产品行为（ai-provider.spec：添加即「当前」徽章，测试连接之前），
     // caps 前置会让首用旅程出现「无当前供应商」空窗。两者并不冲突：caps 不变量管
     // 「手动切换/删任后改派」（防未验证顶掉已验证），空态首条接任是引导性默认，
@@ -136,8 +138,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
-  // SRV-N8 机械批：body 读取/抽取移入 parse（本端点无形状校验，纯抽取零错误翻转）
+  // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被:id 遮蔽则 current 永不命中）
+  // SRV- 机械批：body 读取/抽取移入 parse（本端点无形状校验，纯抽取零错误翻转）
   defineRoute('providers.current', {
     method: 'PUT',
     path: '/api/providers/current',
@@ -155,19 +157,19 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (id && !target) {
       return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
     }
-    // P2-6：未探测不许启用——服务端校验 caps（前端守卫可绕过）
+    // 未探测不许启用——服务端校验 caps（前端守卫可绕过）
     if (target && !target.caps) {
       return replyError(res, 400, 'BAD_INPUT', `供应商「${target.name}」尚未测试连接，请先探测能力`)
     }
     s.currentId = id || null
     if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-    // saveProviders bump revision——回传新值，前端 activate() 同步，否则后续写因陈旧 expectedRevision 409（P4）
+    // saveProviders bump revision——回传新值，前端 activate 同步，否则后续写因陈旧 expectedRevision 409
     reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
   },
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
-  // SRV-N8 机械批：creative/assistant 档位校验移入 parse（失败同 400 BAD_INPUT 同文案）
+  // SRV- 机械批：creative/assistant 档位校验移入 parse（失败同 400 BAD_INPUT 同文案）
   defineRoute('tiers', {
     method: 'PUT',
     path: '/api/tiers',
@@ -209,16 +211,16 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
   // caps 探测改异步不阻塞（结果经后续 GET /providers 刷新）
-  // SRV-N8 机械批：清档/档位两分支判别与校验移入 parse（失败同 400 BAD_INPUT 同文案；
+  // SRV- 机械批：清档/档位两分支判别与校验移入 parse（失败同 400 BAD_INPUT 同文案；
   // 两分支回复形状一致，handler 合并后仍逐字节同参 reply）
   defineRoute('tiers.chat', {
     method: 'PUT',
     path: '/api/tiers/chat',
     parse: (raw) => {
       // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
-      // 第九轮 L-2：readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
+      // readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
       // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
-      // 低-1（第十轮）：清档/解析两分支都以「body 是 JSON 对象」为前提——readJson 只归一
+      // 低-1：清档/解析两分支都以「body 是 JSON 对象」为前提——readJson 只归一
       // 字面 null，数字/布尔/数组/字符串等原语原样透出，`Object.keys(原语).length === 0`
       // 会把 5/true/[]/"" 误判成空对象静默清档（revision 还 bump）。原语一律 400 拒绝
       const body = (raw ?? {}) as Record<string, unknown>
@@ -245,7 +247,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // 编辑（SRV-N8 机械批：parseProviderInput 移入 parse——body 校验先于 409/404 前置门
+  // 编辑（SRV- 机械批：parseProviderInput 移入 parse——body 校验先于 409/404 前置门
   // 发生（defineRoute 先读 body 后进 handler），既有测试未钉旧优先级，校验文案逐字保留）
   defineRoute('providers.put', {
     method: 'PUT',
@@ -259,8 +261,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
-    // dd-P2：body 读取/校验已在 parse 段完成（更先于 loadProviders）——load 与 save 间
-    // 隔着 await readJson 时并发编辑丢更新（前置闸 0918独立重评修复批 D002 收口注：本
+    // body 读取/校验已在 parse 段完成（更先于 loadProviders）——load 与 save 间
+    // 隔着 await readJson 时并发编辑丢更新（前置闸 0918修复2 收口注：本
     // handler 的 load→mutate→save 全同步无 await，同刻并发由写链串行 + 跨进程锁互斥；
     // 排队写窗口内基线漂移由 saveProvidersLocked 锁内写前 revision 复验兜底——漂移即
     // 拒绝落盘，经 saveProvidersOr500 映射 409 REVISION_CONFLICT，前端刷新重读重放）
@@ -271,7 +273,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
 
     const existing = s.providers[idx]!
-    // RC 源码重审 B-4（Opus-5.5 轮）：baseUrl 主机变更时不得静默沿用已存 Key——判定口径、
+    // （Opus-5.5 轮）：baseUrl 主机变更时不得静默沿用已存 Key——判定口径、
     // 拒绝码与文案见 host-change-guard.ts（同源另供 /api/rag-providers，先例 = revision-guard
     // 的三处拷贝收敛）；此处只保留「为什么挂在这个位置」：必须早于下方 newKey 计算与
     // s.providers[idx] 赋值，否则失败路径已把旧 Key 配到新主机上。
@@ -294,12 +296,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       auth: input.auth,
       baseUrl: input.baseUrl,
       apiKey: newKey,
-      // P9：models 未传 = 保留原模型行；传 [] = 清空
+      // models 未传 = 保留原模型行；传 [] = 清空
       models: input.models !== undefined ? input.models : existing.models,
       caps: fieldsChanged ? null : existing.caps,
       capsProbedAt: fieldsChanged ? undefined : existing.capsProbedAt,
     }
-    // P0-3：编辑后 modelCaps 可能不再准确（baseUrl/key 变了）→ 清缓存要求重新探测
+    // 编辑后 modelCaps 可能不再准确（baseUrl/key 变了）→ 清缓存要求重新探测
     if (fieldsChanged) {
       const prefix = `${id}/`
       for (const key of Object.keys(s.modelCaps)) {
@@ -311,9 +313,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // D2（批 5）：provider 级价格表——独立端点而非并入编辑主链路（价格不影响连通性，
+  // provider 级价格表——独立端点而非并入编辑主链路（价格不影响连通性，
   // 不该连带 caps 重置/重新探测；解析也独立：四档单价均为正数或省略，null = 清除）
-  // SRV-N8 机械批：pricing 解析移入 parse（null/缺省 = 清除是合法形态非错误，照旧透传；
+  // SRV- 机械批：pricing 解析移入 parse（null/缺省 = 清除是合法形态非错误，照旧透传；
   // 校验失败同 400 BAD_INPUT 同文案，先于 409/404 前置门发生——本端点无既有测试钉旧优先级）
   defineRoute('providers.pricing', {
     method: 'PUT',
@@ -363,7 +365,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // 删除
-  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（P4 无 body
+  // defineRoute parse 迁移跳过（SRV- 机械批）：本端点 body 读取是容错语义（无 body
   // 放行；readJson 非 HttpError 失败兜底 undefined 继续），defineRoute 的 readJson 失败
   // 先于 parse 短路统一回 400——「按空 body 兜底继续」的既有语义在 parse 化后不可表达
   defineRoute('providers.delete', {
@@ -372,7 +374,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
-    // P4：DELETE 无 body 常规场景容错——有 body 才读 expectedRevision（旧客户端/脚本无 body 放行）
+    // DELETE 无 body 常规场景容错——有 body 才读 expectedRevision（旧客户端/脚本无 body 放行）
     const expected = await readExpectedRevisionOrNull(req)
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(expected, s.revision)
@@ -381,11 +383,11 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
     s.providers.splice(idx, 1)
     if (s.currentId === id) {
-      // P2：回落首项也需校验 caps（与 PUT current 一致——未探测不许启用）
+      // 回落首项也需校验 caps（与 PUT current 一致——未探测不许启用）
       const next = s.providers[0]
       s.currentId = next?.caps ? next.id : null
     }
-    // P0-3：删除供应商时清除其 modelCaps 缓存条目（换端点后不能沿用旧能力判定）
+    // 删除供应商时清除其 modelCaps 缓存条目（换端点后不能沿用旧能力判定）
     const mcPrefix = `${id}/`
     for (const key of Object.keys(s.modelCaps)) {
       if (key.startsWith(mcPrefix)) delete s.modelCaps[key]
@@ -397,10 +399,10 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
   // 获取模型列表（新建传 protocol+baseUrl+apiKey；编辑传 id 用已存储凭据）
-  // SRV-N8 机械批：手输分支的形状抽取/校验移入 parse（id 分支不校验其余字段——沿用
+  // SRV- 机械批：手输分支的形状抽取/校验移入 parse（id 分支不校验其余字段——沿用
   // 旧路径不误伤，凭据仍由 handler 从 store 取）；「必填」检查留在 handler（两分支
   // 合流后判定，与旧序一致）
-  // R0916-7-P3-13：手输分支的 protocol/auth/baseUrl 改由 parseConnectionInput 单源校验
+  // 手输分支的 protocol/auth/baseUrl 改由 parseConnectionInput 单源校验
   // ——此前 protocol/auth 只 as 断言、baseUrl 不校 scheme，非法值原样透给下方 listModels
   // （该端点恰是 scheme 校验注释点名的「打错目标」面）后以 500 GEN_FAIL 收场；现非法
   // protocol / 缺 scheme 就地 400 BAD_INPUT 且文案指明字段（与增/改端点同口径）。
@@ -434,7 +436,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       apiKey = input.apiKey
       auth = input.auth
     }
-    // R0916-7-P3-13：手输分支的 baseUrl/apiKey 形状已在 parse 段过 parseConnectionInput
+    // 手输分支的 baseUrl/apiKey 形状已在 parse 段过 parseConnectionInput
     // （缺 baseUrl 回「baseUrl 必填」），此闸现只兜「id 分支指向的存量配置缺 Key/地址」
     // （手改 providers.json 形态）——两分支合流后判定，文案与旧序一致。
     if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
@@ -442,13 +444,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       const models = await listModels(protocol, baseUrl, apiKey, auth)
       reply(res, 200, { models })
     } catch (e) {
-      // P2-4：错误脱敏
+      // 错误脱敏
       replyError(res, 500, 'GEN_FAIL', `获取模型列表失败：${redactSecret(errMsg(e))}`)
     }
   },
   })
 
-  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（R26-63——
+  // defineRoute parse 迁移跳过（SRV- 机械批）：本端点 body 读取是容错语义（——
   // readJson 非 HttpError 失败按空 body 兜底继续探测），defineRoute 的 readJson 失败先于
   // parse 短路统一回 400，容错路径不可表达，改之即变语义
   defineRoute('providers.test', {
@@ -460,28 +462,29 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
     try {
       // 前端可指定测试模型；未指定则用全局当前模型；都无则回落 conf.model（废弃旧值）
-      //（dd-P2：body 先读；探测是 10s+ 网络往返，load 克隆不能跨它存活——探测后重载再写）
-      // R26-63（二十六轮）：注释对齐实现（选低风险侧，语义是 Z-9 已定的正确口径）——
+      // （body 先读；探测是 10s+ 网络往返，load 克隆不能跨它存活——探测后重载再写）
+      // 注释对齐实现（选低风险侧，语义是 已定的正确口径）——
       // readJson 的空 body 走 resolve({}) 根本不进 catch；协议类错误（坏 JSON 400 / 超限
       // 413，均 HttpError）透传外层统一回信封；本 catch 只容错连接层异常（socket error
       // 非 HttpError）按空 body 兜底继续探测。原注释「只容错无 body/坏 JSON」两处皆失实。
       let body: Record<string, unknown> = {}
       try { body = await readJson(req) } catch (e) {
-        if (e instanceof HttpError) throw e // 坏 JSON 400 / 413 超限等协议类错误透传（Z-9 口径）
+        if (e instanceof HttpError) throw e // 坏 JSON 400 / 413 超限等协议类错误透传（口径）
       }
       const snapshot = loadProviders(ctx.userDataPath)
       const conf = snapshot.providers.find((p) => p.id === id)
       if (!conf) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
       const probeModel = typeof body['model'] === 'string' && body['model']
         ? body['model'] : (snapshot.currentModel ?? conf.model)
-      // R75-D-P3c（批 D）：探测前抓配置指纹——探测是 10s+ 网络往返，窗口内供应商可能被
+      // 探测前抓配置指纹——探测是 10s+ 网络往返，窗口内供应商可能被
       // 编辑（PUT 改 baseUrl/key 后会清 caps 要求重新探测）；探测完成后旧快照的 caps 直接
       // 回写会把「打旧端点/旧 key 探出的能力」盖到新配置上，恰好绕过该不变量（PUT /current
       // 的 caps 校验随之形同虚设）。指纹取 caps 有效性相关四字段（与 PUT 的 fieldsChanged
       // 同源；name/models 改动不影响服务级 caps，不误伤）。
       const probeFp = probeFingerprint(conf)
-      const probe = getProbeForTest() ?? realProbeCapabilities
-      // R42-24（四十二轮）：透传探测目标库 userDataPath——探测实例降级记忆落目标库
+      // 收尾：探测函数经 ctx（组装根 RouteOverrides）注入——undefined 走真探测
+      const probe = ctx.probeCapabilities ?? realProbeCapabilities
+      // 透传探测目标库 userDataPath——探测实例降级记忆落目标库
       // providers.json，不再回落「活跃库」（双库时写错库）
       const { caps, details } = await probe({ ...conf, model: probeModel }, ctx.userDataPath)
       // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
@@ -491,36 +494,36 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         if (probeFingerprint(target) === probeFp) {
           target.caps = caps
           target.capsProbedAt = Date.now()
-          // R29-2（二十九轮）：探测写回同样过保存失败闸（外层 catch 兜不到 WRITE_ERROR 口径）
+          // 探测写回同样过保存失败闸（外层 catch 兜不到 WRITE_ERROR 口径）
           if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
         } else {
-          // R75-D-P3c：探测窗口内配置已变——旧快照 caps 不再描述现配置，丢弃回写并留痕；
+          // 探测窗口内配置已变——旧快照 caps 不再描述现配置，丢弃回写并留痕；
           // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
           log.warn('api', `providers test：探测期间供应商配置已变更，丢弃旧快照 caps 回写（${id}）`)
         }
       }
-      // 探测写回会 bump revision——回传新 revision，前端 test() 同步，
-      // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（P4 竞态）
+      // 探测写回会 bump revision——回传新 revision，前端 test 同步，
+      // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（竞态）
       reply(res, 200, { ok: true, caps, details, revision: s2.revision })
     } catch (e) {
-      // Z-9（第五十八轮）：readJson rethrow 的 HttpError（400 坏 JSON / 413 超限）先透传——
+      // readJson rethrow 的 HttpError（400 坏 JSON / 413 超限）先透传——
       // 此前落进本 catch-all 被包成 500 GEN_FAIL，内层「413 等透传」注释未成立
       if (e instanceof HttpError) return replyHttpError(res, e)
-      // P2-4：错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
+      // 错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
       replyError(res, 500, 'GEN_FAIL', redactSecret(errMsg(e)))
     }
   },
   })
 }
 
-/** 下一可用排序号：max(现有)+1（dd-P3，防删除中间项后 length 撞号） */
+/** 下一可用排序号：max(现有)+1$1防删除中间项后 length 撞号） */
 function nextSortIndex(existing: Array<number | undefined>): number {
   let max = -1
   for (const x of existing) max = Math.max(max, x ?? 0)
   return max + 1
 }
 
-/** R75-D-P3c（批 D）：caps 有效性相关字段指纹（protocol/auth/baseUrl/apiKey）——这四
+/** caps 有效性相关字段指纹（protocol/auth/baseUrl/apiKey）——这四
  *  个字段决定探测目标（服务端点 + 认证），变了则探测出的 caps 不再描述现配置。字段集
  *  与 PUT 端点 fieldsChanged（编辑后清 caps 的判定）同源，两处将来须同步演进。 */
 function probeFingerprint(p: ProviderConf): string {
@@ -528,7 +531,7 @@ function probeFingerprint(p: ProviderConf): string {
 }
 
 /** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
- * hasKey 以 vault 条目存在性推导（I6·P3 口径）：状态不依赖内存明文，半迁移收敛后必然一致 */
+ * hasKey 以 vault 条目存在性推导（口径）：状态不依赖内存明文，半迁移收敛后必然一致 */
 function maskProvider(conf: ProviderConf, vault: Vault | null): ProviderConf & { apiKeyMasked: string; hasKey: boolean } {
   return {
     ...conf,
@@ -538,7 +541,7 @@ function maskProvider(conf: ProviderConf, vault: Vault | null): ProviderConf & {
   }
 }
 
-/** P4：DELETE 无 body 场景的 best-effort 读取（同 POST /providers/:id/test 容错口径） */
+/** DELETE 无 body 场景的 best-effort 读取（同 POST /providers/:id/test 容错口径） */
 async function readExpectedRevisionOrNull(req: IncomingMessage): Promise<unknown> {
   try {
     const body = await readJson(req)
@@ -550,7 +553,7 @@ async function readExpectedRevisionOrNull(req: IncomingMessage): Promise<unknown
 }
 
 /** 解析供应商输入（增/改共用）
- *  P9 §7.1：models 行——id 必填且供应商内唯一（trim 后）；contextWindow / maxTokens 若有须为正整数。
+ * §7.1：models 行——id 必填且供应商内唯一（trim 后）；contextWindow / maxTokens 若有须为正整数。
  *  models 缺省（undefined）= 不改模型行（编辑保留原值 / 新增不设）；传 [] = 清空。
  */
 function parseProviderInput(
@@ -567,7 +570,7 @@ function parseProviderInput(
   return { ...conn, name, models: models === undefined ? undefined : models }
 }
 
-/** 连接参数校验单源（增/改与 /models 手输探测共用）——R0916-7-P3-13：此前只
+/** 连接参数校验单源（增/改与 /models 手输探测共用）—— 此前只
  *  parseProviderInput 侧有校验，/models 对 protocol/auth 直接 as 断言、不校 baseUrl
  *  scheme，非法值原样透给 listModels/probe（打错目标）后以 500 GEN_FAIL 收场；
  *  两处各写一份校验必然漂移，故抽本函数。字段序 / 文案与 parseProviderInput 原实现
@@ -578,7 +581,7 @@ function parseConnectionInput(
   | { ok: true; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string }
   | { ok: false; error: string } {
   const protocolRaw = String(body['protocol'] ?? '')
-  // Responses 启用批（2026-08-17）：openai-responses 恢复放行，三选一校验（曾随 Z-P2-1 误判拒配）
+  // Responses 启用批：openai-responses 恢复放行，三选一校验（曾随 误判拒配）
   const protocol = protocolRaw as Protocol
   if (protocol !== 'anthropic' && protocol !== 'openai' && protocol !== 'openai-responses') {
     return { ok: false, error: 'protocol 需为 anthropic / openai / openai-responses' }
@@ -591,9 +594,9 @@ function parseConnectionInput(
       : protocol === 'anthropic' ? 'anthropic' : 'bearer'
   const baseUrl = String(body['baseUrl'] ?? '').trim()
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
-  // dd-P3：scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
+  // scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
   if (!/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'baseUrl 须以 http(s):// 开头' }
-  // I6（dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留），由调用方按语义处理
+  // （dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留），由调用方按语义处理
   const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
   if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
     return { ok: false, error: apiKeyRefusal('illegalCharacters') }
@@ -643,7 +646,7 @@ function parseTierSlot(raw: Record<string, unknown>): { ok: true; slot: TierSlot
     return { ok: false, error: `effort 需为 ${VALID.join('/')}` }
   }
   const slot: TierSlot = { model, effort: effort as EffortLevel }
-  // P10：timeoutMs 可选——正整数 ms；非法显式拒绝（不静默丢用户输入）
+  // 0：timeoutMs 可选——正整数 ms；非法显式拒绝（不静默丢用户输入）
   if (raw['timeoutMs'] !== undefined && raw['timeoutMs'] !== null) {
     if (typeof raw['timeoutMs'] !== 'number' || !Number.isInteger(raw['timeoutMs']) || raw['timeoutMs'] <= 0) {
       return { ok: false, error: 'timeoutMs 须为正整数毫秒' }

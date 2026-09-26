@@ -1,9 +1,9 @@
 /**
- * 提供方统一 store（阶段 14 §6.3 承接 P2-17）——AI 提供方 + RAG 提供方 + 任务档位 + 对话档合一。
+ * 提供方统一 store（阶段 14 §6.3 承接）——AI 提供方 + RAG 提供方 + 任务档位 + 对话档合一。
  *
  * 收敛前：AiServicePanel（本地 ref）、useChatTier（模块单例）、WorkbenchView 各自独立
  * getProviders/fetchModels，三份 state 三份网络请求，切书/改供应商后可能各不一致。
- * 收敛后：全部读写走此单例 store，一处刷新处处更新；revision（P4）也只在 store 里维护，
+ * 收敛后：全部读写走此单例 store，一处刷新处处更新；revision 也只在 store 里维护，
  * 写端点统一带 expectedRevision（409 冲突提示刷新）。
  */
 import { defineStore } from 'pinia'
@@ -49,12 +49,12 @@ export const useProviderStore = defineStore('provider', () => {
   const currentId = ref<string | null>(null)
   const currentModel = ref<string | null>(null)
   const tiers = ref<TierConfig>({ creative: { model: '', effort: 'xhigh' }, assistant: null, chat: null })
-  /** 并发修订号（P4）：写端点 expectedRevision 依据；响应/409 回来时更新 */
+  /** 并发修订号：写端点 expectedRevision 依据；响应/409 回来时更新 */
   const revision = ref(0)
   const loading = ref(false)
   const testing = ref<string | null>(null)
   const testResults = ref<Map<string, TestResult>>(new Map())
-  /** 测试连接用模型（按提供方分卡独立，V-P2-26） */
+  /** 测试连接用模型（按提供方分卡独立） */
   const probeModels = ref<Map<string, string>>(new Map())
 
   // ── RAG 提供方 ──
@@ -64,7 +64,7 @@ export const useProviderStore = defineStore('provider', () => {
   const ragTestResults = ref<Map<string, { ok: boolean; caps?: { connected: boolean }; error?: string }>>(new Map())
 
   const currentProvider = computed<ProviderConfDto | null>(() => providers.value.find((p) => p.id === currentId.value) ?? null)
-  /** 当前供应商已配置模型行（P9） */
+  /** 当前供应商已配置模型行 */
   const configModels = computed<ModelConfDto[]>(() => currentProvider.value?.models ?? [])
 
   /**
@@ -83,10 +83,10 @@ export const useProviderStore = defineStore('provider', () => {
   /** 对话档有效推理等级 */
   const chatActiveEffort = computed<EffortLevel>(() => (tiers.value.chat?.effort as EffortLevel) || (tiers.value.creative.effort as EffortLevel) || 'low')
 
-  /** refresh 操作代（N-12，第五十四轮，与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据。
-   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（begin/stale/fresh 语义映射见工具注）。 */
+  /** refresh 操作代（与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据。
+   *  ：裸计数器换装 useStaleGuard（begin/stale/fresh 语义映射见工具注）。 */
   const refreshGen = useStaleGuard()
-  /** refreshRag 操作代（X-29，与 refresh 同款但独立计数——refreshAll 并发跑两者，
+  /** refreshRag 操作代（与 refresh 同款但独立计数——refreshAll 并发跑两者，
    *  共用一个计数会互相作废，先返回的那次响应必被后发者顶掉） */
   const refreshRagGen = useStaleGuard()
 
@@ -106,13 +106,13 @@ export const useProviderStore = defineStore('provider', () => {
         chat: d.tiers.chat ? { ...d.tiers.chat } : null,
       }
       revision.value = d.revision
-      // MP2-2（专项重评二轮修复批）：列表收敛——另一窗口删除的提供方，本窗缓存键随
+      // MP2-2（专项二轮修复批）：列表收敛——另一窗口删除的提供方，本窗缓存键随
       // 刷新修剪（本地删除路径 MP-1 已随删清；跨窗删除此前残留到重启，KB 级卫生）。
       const alive = new Set(d.providers.map((p) => p.id))
       for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
       for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
     } catch (e) {
-      // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+      // 降级留痕（-源码）——面板空态可重试，不打扰 UI
       console.warn('[provider] AI 提供方/档位刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (refreshGen.fresh(gen)) loading.value = false
@@ -132,7 +132,7 @@ export const useProviderStore = defineStore('provider', () => {
       const aliveRag = new Set(d.ragProviders.map((p) => p.id))
       for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
     } catch (e) {
-      // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+      // 降级留痕（-源码）——面板空态可重试，不打扰 UI
       console.warn('[provider] RAG 提供方刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (refreshRagGen.fresh(gen)) ragLoading.value = false
@@ -140,7 +140,7 @@ export const useProviderStore = defineStore('provider', () => {
   }
 
   /**
-   * R40-39（四十轮）：写端点 409（多窗 expectedRevision 冲突）恢复链——轻量：重新 GET
+   * 写端点 409（多窗 expectedRevision 冲突）恢复链——轻量：重新 GET
    * 刷新 providers/ragProviders/revision（后续写不再吃陈旧 409）+ 明确提示（对齐 prefs
    * 的 recoverFromConflict 思路但不自动合并/重放：provider 配置整体以远端为准，本窗
    * 表单未提交内容仍在编辑器里，由作者确认后重试）。返回 true = 已按 409 收口（调用
@@ -153,7 +153,7 @@ export const useProviderStore = defineStore('provider', () => {
     return true
   }
 
-  /** E4（复审-0914-优化修复批）：写端点骨架单源——「try { 写 → revision 同步 → 成功
+  /** 写端点骨架单源——「try { 写 → revision 同步 → 成功
    *  toast } catch { 409 走 recover409 恢复链（返回 null 不叠错误 toast）；否则错误
    *  toast }」九写函数（add/update/remove/activate/saveTiers/applyChatTier/addRag/
    *  updateRag/removeRag）收敛于此，函数体只剩业务行。逐位等价锚：
@@ -161,7 +161,7 @@ export const useProviderStore = defineStore('provider', () => {
    *  - failMsg 缺省 friendlyError 直出；applyChatTier 的「回落旧档」前缀经此注入；
    *  - revision 更新时机在 fn 内原位（await 后即时，先于任何 toast/return）；
    *  - 成功返回 fn 的返回值，任何失败路径返回 null（调用方按需转 false / id | null）。
-   *  P3（同批复审-0914）：errText 纯转发别名删除，直用 friendlyError（复审-0913 P3）。 */
+   *  （同批）：errText 纯转发别名删除，直用 friendlyError。 */
   async function guardedWrite<T>(
     fn: () => Promise<T>,
     okMsg?: string,
@@ -172,13 +172,13 @@ export const useProviderStore = defineStore('provider', () => {
       if (okMsg !== undefined) ui.toast(okMsg, 'success')
       return r
     } catch (e) {
-      if (await recover409(e)) return null // R40-39：409 多窗冲突走刷新恢复链
+      if (await recover409(e)) return null // 409 多窗冲突走刷新恢复链
       ui.toast(failMsg(e), 'error')
       return null
     }
   }
 
-  /** 新增提供方（P4：带 expectedRevision）；成功返回新提供方 id，失败返回 null。 */
+  /** 新增提供方（带 expectedRevision）；成功返回新提供方 id，失败返回 null。 */
   async function add(input: { name: string; protocol: ProviderConfDto['protocol']; auth: ProviderConfDto['auth']; baseUrl: string; apiKey: string; models?: ModelConfDto[] }): Promise<string | null> {
     return guardedWrite(async () => {
       const r = await createProvider({ ...input, auth: input.auth, expectedRevision: revision.value })
@@ -192,7 +192,7 @@ export const useProviderStore = defineStore('provider', () => {
     }, '已保存')
   }
 
-  /** 编辑提供方（P4；models 未变可不传 → 服务端保留原行）。 */
+  /** 编辑提供方（models 未变可不传 → 服务端保留原行）。 */
   async function update(id: string, input: { name: string; protocol: ProviderConfDto['protocol']; auth: ProviderConfDto['auth']; baseUrl: string; apiKey: string; models?: ModelConfDto[] }): Promise<boolean> {
     return (
       (await guardedWrite(async () => {
@@ -205,7 +205,7 @@ export const useProviderStore = defineStore('provider', () => {
     )
   }
 
-  /** 删除提供方（P4）；返回成功与否（成功后 currentId 已由响应更新）。 */
+  /** 删除提供方；返回成功与否（成功后 currentId 已由响应更新）。 */
   async function remove(id: string): Promise<boolean> {
     return (
       (await guardedWrite(async () => {
@@ -213,7 +213,7 @@ export const useProviderStore = defineStore('provider', () => {
         providers.value = providers.value.filter((p) => p.id !== id)
         currentId.value = r.currentId
         probeModels.value.delete(id)
-        // MP-1（专项重评）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
+        // MP-1（专项）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
         testResults.value.delete(id)
         revision.value = r.revision
         return true
@@ -221,7 +221,7 @@ export const useProviderStore = defineStore('provider', () => {
     )
   }
 
-  /** 设为当前启用（P2 caps 守卫 + P4）。R70-24（十八轮）：返回是否成功——
+  /** 设为当前启用（caps 守卫 +）。返回是否成功——
    *  调用方（AiServicePanel）此前无条件 toast「已启用」，409/网络失败时同时收到
    *  错误与成功两条矛盾 toast、徽章仍指旧提供方。 */
   async function activate(id: string): Promise<boolean> {
@@ -229,7 +229,7 @@ export const useProviderStore = defineStore('provider', () => {
       (await guardedWrite(async () => {
         const r = await setCurrentProvider(id, revision.value)
         currentId.value = id
-        // PUT /current saveProviders bump revision——同步前端，避免后续写因陈旧 expectedRevision 409（P4）
+        // PUT /current saveProviders bump revision——同步前端，避免后续写因陈旧 expectedRevision 409
         if (typeof r.revision === 'number') revision.value = r.revision
         return true
       })) === true
@@ -244,27 +244,27 @@ export const useProviderStore = defineStore('provider', () => {
       const s = new Map(testResults.value)
       s.set(id, r)
       testResults.value = s
-      // 探测写回 bump 了服务端 revision——同步前端，避免测试后任意写因陈旧 expectedRevision 409（P4）
+      // 探测写回 bump 了服务端 revision——同步前端，避免测试后任意写因陈旧 expectedRevision 409
       if (typeof r.revision === 'number') revision.value = r.revision
       // caps 就地写回 provides[i]，让行卡 caps 徽章（绿/红/未测试）即时回显——
-      // 等价旧 refresh() 的「caps 落库」语义，免整表重拉（此前徽章不刷新，回归被 e2e 命中）
+      // 等价旧 refresh 的「caps 落库」语义，免整表重拉（此前徽章不刷新，回归被 e2e 命中）
       const i = providers.value.findIndex((p) => p.id === id)
       if (i >= 0) {
         providers.value[i] = { ...providers.value[i]!, caps: r.caps ?? null, capsProbedAt: Date.now() }
       }
     } catch (e) {
-      // testProvider 出错即非 ok 结果（P3：errText 壳删除，直用 friendlyError）
+      // testProvider 出错即非 ok 结果（errText 壳删除，直用 friendlyError）
       const s = new Map(testResults.value)
       s.set(id, { ok: false, error: friendlyError(e) })
       testResults.value = s
     } finally {
-      // Y-31（第五十七轮）：按 id 归属清空——A/B 连点时先完成者不得提前清掉
+      // 按 id 归属清空——A/B 连点时先完成者不得提前清掉
       // 后跑者的行内 spinner/按钮态
       if (testing.value === id) testing.value = null
     }
   }
 
-  /** 保存任务档位（创作/助手）+ P4。 */
+  /** 保存任务档位（创作/助手）+。 */
   async function saveTiers(input: { creative: TierSlot; assistant: TierSlot | null }): Promise<boolean> {
     return (
       (await guardedWrite(async () => {
@@ -281,7 +281,7 @@ export const useProviderStore = defineStore('provider', () => {
     )
   }
 
-  /** 对话档切换（写档即生效，不引 full refresh；P4 带 expectedRevision）。 */
+  /** 对话档切换（写档即生效，不引 full refresh；带 expectedRevision）。 */
   async function applyChatTier(slot: TierSlot | null): Promise<void> {
     await guardedWrite(
       async () => {
@@ -324,7 +324,7 @@ export const useProviderStore = defineStore('provider', () => {
       (await guardedWrite(async () => {
         const r = await deleteRagProvider(id, revision.value)
         ragProviders.value = ragProviders.value.filter((p) => p.id !== id)
-        // MP-1（专项重评）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
+        // MP-1（专项）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
         ragTestResults.value.delete(id)
         revision.value = r.revision
         return true
@@ -336,7 +336,7 @@ export const useProviderStore = defineStore('provider', () => {
     ragTesting.value = id
     try {
       const r = await testRagProvider(id)
-      // R48-21（四十八轮）：探测写回 bump 服务端 revision——同步本地防后续 RAG 写
+      // 探测写回 bump 服务端 revision——同步本地防后续 RAG 写
       // 以滞后 revision 必收 409（误导 toast）
       if (typeof r.revision === 'number') revision.value = r.revision
       const m = new Map(ragTestResults.value)
@@ -347,7 +347,7 @@ export const useProviderStore = defineStore('provider', () => {
       m.set(id, { ok: false, error: friendlyError(e) })
       ragTestResults.value = m
     } finally {
-      // Y-31：同 test——按 id 归属清空
+      // 同 test——按 id 归属清空
       if (ragTesting.value === id) ragTesting.value = null
     }
   }

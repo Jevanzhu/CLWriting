@@ -1,10 +1,10 @@
 /**
  * 章节树「新建 / inline 创建」子 composable —— 自 useChapterTreeActions.ts 缝 create 拆出。
  *
- * R0916-5h（2026-09-16，⑤④产品巨件拆分波4）：useChapterTreeActions.ts（901 行）按
+ * （⑤④产品巨件拆分波4）：useChapterTreeActions.ts（901 行）按
  * 缝 structure + create 纯移动拆分。本文件承载缝 create：inline 新建（八类模板）/
  * 单例新建（总纲·世界观）/ TabBar 新建信号分派 / 新建种子与初始模板组装——含
- * 拍板快断批（2026-09-15·阶段 24 批 B 登记项）seed 章号前缀捕获与提交侧拼回链路，
+ * 拍板快断批（阶段 24 登记项）seed 章号前缀捕获与提交侧拼回链路，
  * 逐字节保持。状态 ref（creating）与切书守卫（stillIn/failScoped）、树取值辅助
  * （lastVolumePath/nextChapterNo/volumeCount/bodyPadKind）仍由 useChapterTreeActions
  * 装配后经 deps 传入（refs 与回调原样传递，响应式接线不变）；动作分发/重命名/
@@ -53,7 +53,7 @@ export type Creating = {
   renderDir: string
   fsDir: string
   seed: string
-  /** 拍板快断批（2026-09-15·阶段 24 批 B 登记项）：新建种子的数字前缀（chapter/
+  /** 拍板快断批（阶段 24 登记项）：新建种子的数字前缀（chapter/
    *  chapter-outline 在 startCreate 时捕获）——作者清掉 seed 前缀只填标题时，提交侧
    *  拼回此前缀，堵「文件名无章号 → 取号扫描失明 → fm 章号连号重号」。 */
   seedPrefix: string
@@ -93,12 +93,12 @@ export function useChapterTreeCreate(deps: {
       return
     }
     try {
-      // M-8（第十一轮）：单例新建补初始模板——骨架模板删除后 createDoc 不传 content
+      // 单例新建补初始模板——骨架模板删除后 createDoc 不传 content
       // 落全空文件，新书总纲/世界观无处供给骨架（既有缺口，非删除批回归）
       const template =
         relPath === '大纲/总纲.md' ? synopsisTemplate() : relPath === '设定/世界观.md' ? worldviewTemplate() : undefined
       await createDoc(bookName, { relPath, ...(template !== undefined ? { content: template } : {}) })
-      if (!stillIn(bookName)) return // N-9（第十二轮）：已切书——文件已落 A 书，不动 B 界面
+      if (!stillIn(bookName)) return // 已切书——文件已落 A 书，不动 B 界面
       await tree.load(bookName)
       const fresh = tree.byPath.get(relPath)
       if (fresh?.docId) {
@@ -106,7 +106,7 @@ export function useChapterTreeCreate(deps: {
         ws.openTab(fresh.docId)
       }
     } catch (e) {
-      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
       failScoped(bookName, e)
     }
   }
@@ -143,7 +143,7 @@ export function useChapterTreeCreate(deps: {
         : ''
     const seed =
       kind === 'chapter' || kind === 'chapter-outline'
-        // R34D-26：种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
+        // 种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
         ? `${seedPrefix}未命名`
         : kind === 'volume-outline'
           ? `卷纲_第${volumeCount() + 1}卷`
@@ -152,7 +152,7 @@ export function useChapterTreeCreate(deps: {
     const next = new Set(ws.treeExpanded)
     next.add(renderDir)
     if (ancestors) for (const a of ancestors) next.add(a)
-    // E-3（二十九轮）：新建自动展开随用户动作置「已操作」位（挡迟到 prefs 回填覆盖）
+    // 新建自动展开随用户动作置「已操作」位（挡迟到 prefs 回填覆盖）
     ws.setTreeExpanded([...next])
   }
   async function onCreateCommit(value: string): Promise<void> {
@@ -160,12 +160,12 @@ export function useChapterTreeCreate(deps: {
     if (!c) return
     let name = sanitizeName(value)
     if (!name) {
-      // R71-30（七十一轮）：文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
+      // 文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
       deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
       return
     }
     creating.value = null
-    // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
+    // 拍板快断批（作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
     // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
     // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
     // 作者自填章号形态（「0007-…」/「第7章…」）不覆盖
@@ -174,19 +174,19 @@ export function useChapterTreeCreate(deps: {
     }
     const relPath =
       c.kind === 'volume'
-        // R34D-26：卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
+        // 卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
         //（e2e tree-ops 实证：丢段后首章落正文根、卷节点永不出现——树按目录派生卷）
         ? `${c.fsDir}/${name}/${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名.md`
         : `${c.fsDir}/${name}.md`
-    // 按类型给初始模板（C5，降低空白页阻力）；volume=建卷即建首章，首章空正文即可
+    // 按类型给初始模板（降低空白页阻力）；volume=建卷即建首章，首章空正文即可
     const content = buildCreateContent(c.kind, name, c.seed)
-    // L-F2（第八轮）：await 前捕获书名——创建在途切书后 openTab 会在 B 书树命中同路径
+    // L-F2await 前捕获书名——创建在途切书后 openTab 会在 B 书树命中同路径
     const book = deps.bookName()
     try {
       const r = await createDoc(book, { relPath, ...(content ? { content } : {}) })
       if (!stillIn(book)) return // 已切书：文档已落 A 书，不动 B 界面
       await tree.load(book)
-      // R48-24（四十八轮）：tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
+      // tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
       // B 书树——按 A 书路径查找可能命中 B 书同名文件顶开其正开的活动文档。byPath.get
       // 前补书名复检（doCopy 同步补）
       if (!stillIn(book)) return
@@ -196,7 +196,7 @@ export function useChapterTreeCreate(deps: {
         ws.openTab(fresh.docId)
       }
     } catch (e) {
-      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
       failScoped(book, e)
     }
   }

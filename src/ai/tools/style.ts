@@ -1,7 +1,7 @@
 /**
  * harvest_style：文风收割（write，产候选落 工作区/learn候选，不自动入库）。
  * 复用 learnFromBook（与 CLI 收割同链路；标注权在作者）。
- * R72-2（二十轮 A-1）：learnFromBook 已 async 化（逐章让出事件循环），工具契约
+ * learnFromBook 已 async 化（逐章让出事件循环），工具契约
  * ToolExecutor 支持 Promise，agent 循环调用处本就 await——chat 会话收割期间事件
  * 循环不再停摆（SSE/steer/其他书会话正常响应，abort 信号可及时处理）。
  */

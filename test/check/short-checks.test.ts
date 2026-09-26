@@ -268,3 +268,44 @@ test('R26-43: ##标题（## 后空白可选）计入节数；带空格形态不�
   expect(tight.items[0]!.checkId).toBe('section-count') // 2 节 ≠ 5 → 节数黄项，非 heading-missing
   expect(checkSectionCount('## 开头\nx\n## 铺垫\nx', 5).items[0]!.checkId).toBe('section-count')
 })
+
+// ── R30-14（三十轮，并入档；原 r30-roster-manifest.test.ts）：情绪曲线 NaN 强度
+// 不再吞掉 peak-low。checkPieceListForm 的 Math.max(...强度) 混入 NaN 时得 NaN，
+// `NaN < 8` 恒 false → emotion-curve-peak-low 漏判；修后计算前过滤非有限值。
+// 与本文件上方 checkPieceListForm 基础语义同族，去重 0 条。
+
+/** 五段有效曲线基底（段落/情绪全非占位，含反转段） */
+function curveOf(...strengths: number[]): PieceList {
+  const segments = ['开头钩子', '铺垫', '升级', '反转', '余韵']
+  const emotions = ['惊悚', '疑惧', '紧张', '震惊', '后怕']
+  return {
+    反转线索表: {
+      核心反转: 'x',
+      铺垫点: [
+        { 位置: 'a', 内容: 'x' },
+        { 位置: 'b', 内容: 'x' },
+        { 位置: 'c', 内容: 'x' },
+      ],
+    },
+    情绪曲线: segments.map((段落, i) => ({ 段落, 情绪: emotions[i]!, 强度: strengths[i]! })),
+    伏笔回收: [],
+  }
+}
+
+test('R30-14: realCurve 混入 NaN 强度 → peak-low 不再漏判（有效峰值 6 < 8 照报）', () => {
+  const ids = checkPieceListForm(curveOf(3, 4, 6, NaN, 5)).items.map((i) => i.checkId)
+  expect(ids).toContain('emotion-curve-peak-low')
+  // 非有限强度仍由既有 emotion-curve-strength 黄项兜底回报（两口径衔接）
+  expect(ids).toContain('emotion-curve-strength')
+})
+
+test('R30-14: 混入 NaN 但有效峰值 ≥8 → 不误报 peak-low（强度黄项照报）', () => {
+  const ids = checkPieceListForm(curveOf(3, 4, 6, 9, NaN)).items.map((i) => i.checkId)
+  expect(ids).not.toContain('emotion-curve-peak-low')
+  expect(ids).toContain('emotion-curve-strength')
+})
+
+test('R30-14: 强度全 NaN → 过滤后空集按 fail-noisy 照报 peak-low', () => {
+  const ids = checkPieceListForm(curveOf(NaN, NaN, NaN, NaN, NaN)).items.map((i) => i.checkId)
+  expect(ids).toContain('emotion-curve-peak-low')
+})

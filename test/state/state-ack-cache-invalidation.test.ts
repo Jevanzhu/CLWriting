@@ -8,7 +8,8 @@
  * 先例）；幂等 acknowledged:false 路径不改盘，不挂 forget（缓存语义不变）。
  *
  * 装置（手搭书脚手架 + 假 req/res 直调 handler）照抄 journal-acknowledge-endpoint.test.ts；
- * 测试期把 TTL 拉大（60s），无本修复时第二次 GET 必然命中陈旧缓存，用例确定性。
+ * 注册期经 ctx 把 TTL 拉大（60s，组装根注入；R0916-7-P3-6 起原模块级 setter/has 钩子
+ * 已删，命中观测读 stateCache.has()），无本修复时第二次 GET 必然命中陈旧缓存，用例确定性。
  */
 import { mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,11 +19,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
-import {
-  registerStateRoutes,
-  __setStateTtlForTest,
-  __stateCacheHasForTest,
-} from '../../src/studio/server/api/state.js'
+import { registerStateRoutes, stateCache } from '../../src/studio/server/api/state.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevisionBytes } from '../../src/document/revision.js'
@@ -79,7 +76,8 @@ function makeBook(name: string): {
   )
   const mk = (route: string): NonNullable<ReturnType<typeof getRouteSchema>> =>
     withRouteTable(createRouteTable(), () => {
-      registerStateRoutes({ workDir, userDataPath: null })
+      // TTL 拉大 60s（ctx 注入，注册期定档）：无本修复时第二次 GET 必命中陈旧缓存
+      registerStateRoutes({ workDir, userDataPath: null, stateTtlMs: 60_000 })
       return getRouteSchema(route)
     })!
   return {
@@ -105,15 +103,13 @@ describe('P3-4（全库重评-0914）: acknowledge 后 /state 缓存即时失效
   it('确认成功后缓存已清，紧随的 GET 不再回显已确认的 crashedPendingOpIds', async () => {
     const name = '确认失效书'
     const rig = makeBook(name)
-    // TTL 拉大到 60s：无本修复时第二次 GET 必命中陈旧缓存（回显 opId），用例确定性
-    __setStateTtlForTest(60_000)
     try {
       // 首次 GET：报红 + 缓存落位
       const first = await getState(rig.state, name)
       expect(first.status).toBe(200)
       expect(first.body.state).toBe(1)
       expect(first.body.crashedPendingOpIds).toContain(rig.opId)
-      expect(__stateCacheHasForTest(rig.bookRoot)).toBe(true)
+      expect(stateCache.has(rig.bookRoot)).toBe(true)
 
       // acknowledge 成功
       const ack = fakeReqRes()
@@ -124,13 +120,12 @@ describe('P3-4（全库重评-0914）: acknowledge 后 /state 缓存即时失效
       expect(JSON.parse(ack.captured.body)).toEqual({ ok: true, acknowledged: true })
 
       // 修复锚点：缓存已被 acknowledge 即时清掉
-      expect(__stateCacheHasForTest(rig.bookRoot)).toBe(false)
+      expect(stateCache.has(rig.bookRoot)).toBe(false)
       // 用户可见结果：紧随的 GET 重算，opId 不再回显（修复前撞 5s 陈旧窗会回显）
       const second = await getState(rig.state, name)
       expect(second.status).toBe(200)
       expect(second.body.crashedPendingOpIds ?? []).not.toContain(rig.opId)
     } finally {
-      __setStateTtlForTest(null)
       rig.cleanup()
     }
   })

@@ -1,5 +1,5 @@
 /**
- * 连写暂停元状态（M6 #34）：工作区/待定稿/.auto-batch.json 的 paused 字段读写。
+ * 连写暂停元状态（#34）：工作区/待定稿/.auto-batch.json 的 paused 字段读写。
  *
  * 读侧：state.ts buildRecap 叠加在态 4/8 之上——进书近况提示「连写暂停在第 N 章（原因）」。
  * 写侧（驱动侧接线）：self-heal orchestrateBatch 中途停（escalate/failed/aborted）落暂停记录，
@@ -24,22 +24,22 @@ function pausePath(bookRoot: string): string {
   return join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
 }
 
-/** R73-41 锁等待档（毫秒）：观测元数据，短等即降级（绝不挡写稿主线）。
- *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
- *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
+/** 锁等待档（毫秒）：观测元数据，短等即降级（绝不挡写稿主线）。
+ *  ：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ * 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
 export const PAUSE_LOCK_TIMEOUT_MS = 2_000
 
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
 export const [getPauseLockTimeoutMs, __setBatchPauseLockTimeoutForTest] = testableConst(PAUSE_LOCK_TIMEOUT_MS)
 
 /**
- * R73-41（二十一轮）：.auto-batch.json 的读改写（write/clear 两路都是「读全量 → 改键 →
+ * .auto-batch.json 的读改写（write/clear 两路都是「读全量 → 改键 →
  * 原子重写」）此前无跨进程互斥——GUI self-heal 链与 CLI 批处理并发暂停/清暂停时，
  * 后写者以自己的全量镜像整文件重写，吞掉先写者刚落的键（如清暂停与落暂停交错 →
- * 暂停标记丢失，近况复述口径错）。现 RMW 段套按文件跨进程锁（J7 原语）；拿不到锁
+ * 暂停标记丢失，近况复述口径错）。现 RMW 段套按文件跨进程锁（原语）；拿不到锁
  * 降级裸写 + warn 留痕——本文件是观测性元数据（读写失败本就静默降级），丢一次更新
  * 可接受，不阻断主流程。
- * R33D-1（三十三轮）：锁等待异步化（acquireCrossProcessLockAsync，R30-3/R32-13 同口径）
+ * 锁等待异步化（acquireCrossProcessLockAsync，/同口径）
  * ——本函数被 self-heal（studio 服务进程内编排）直调，同步 Atomics.wait 微睡会在双进程
  * 争用时冻结服务事件循环（SSE/HTTP 最坏停 2s）；锁内写段仍同步（文件 IO 级毫秒）。
  */
@@ -73,7 +73,7 @@ export function readBatchPause(bookRoot: string): BatchPause | undefined {
   }
 }
 
-/** 落暂停记录（覆盖写 paused 键；文件里可能存在的其他键保留）。R33D-1：异步化 */
+/** 落暂停记录（覆盖写 paused 键；文件里可能存在的其他键保留）。：异步化 */
 export async function writeBatchPause(bookRoot: string, p: BatchPause): Promise<void> {
   await withPauseLock(bookRoot, () => {
     const fp = pausePath(bookRoot)
@@ -89,7 +89,7 @@ export async function writeBatchPause(bookRoot: string, p: BatchPause): Promise<
   })
 }
 
-/** 清暂停记录：还有其他键则保留改写，只剩 paused 则删文件；无暂停记录 no-op。R33D-1：异步化 */
+/** 清暂停记录：还有其他键则保留改写，只剩 paused 则删文件；无暂停记录 no-op。：异步化 */
 export async function clearBatchPause(bookRoot: string): Promise<void> {
   await withPauseLock(bookRoot, () => {
     const fp = pausePath(bookRoot)
@@ -98,7 +98,7 @@ export async function clearBatchPause(bookRoot: string): Promise<void> {
     try {
       obj = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
     } catch {
-      // R29-n/C-7（二十九轮）：坏文件不再直接删——先把原文件改名保留为 <名>.corrupt
+      // /：坏文件不再直接删——先把原文件改名保留为 <名>.corrupt
       // 留证（同名已存在则追加时间戳，不覆盖前证），再写全新 { paused: false }。
       // 原 rmSync 会把文件里除 paused 外的其他键（未来扩展的批处理进度等）无痕丢掉；
       // 保留原文既留排查证据也不销毁未知数据。改名失败（占用等）退回旧口径删除重建

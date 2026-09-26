@@ -1,5 +1,5 @@
 /**
- * 书级设定全局托底 —— global.json 全局默认键（含 D3 预算两键 + R52 机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
+ * 书级设定全局托底 —— global.json 全局默认键（含预算两键 + 机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
  *
  * 三层链：book.yaml 书级 → global.json（应用级全局默认）→ GLOBAL_FALLBACK_DEFAULTS（硬编码）。
  * 与快照保留策略（version.ts readGlobalSnapshotPolicy + service.ts snapshotPolicy）同一范式：
@@ -58,11 +58,11 @@ interface GlobalBookDefaults {
   relationMineThreshold?: number
   ragEnabled?: boolean
   ragProvider?: string
-  /** D3（批 5）：单章 token 预算全局默认（无硬编码回落——global 没有就 undefined=不拦） */
+  /** 单章 token 预算全局默认（无硬编码回落——global 没有就 undefined=不拦） */
   tokensPerChapter?: number
-  /** D3（批 5）：单章金额预算全局默认（需配价格表才生效） */
+  /** 单章金额预算全局默认（需配价格表才生效） */
   costPerChapter?: number
-  // ── R52-E-2：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
+  // ── ：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
   // 都未设保持 undefined，runner 吃引擎默认参数值）──
   /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
   checkRepeatThreshold?: number
@@ -76,10 +76,10 @@ interface GlobalBookDefaults {
   checkWordCountTolerance?: number
 }
 
-/** R64-25（十二轮）：指纹缓存——readGlobalBookDefaults 是高频读侧
+/** 指纹缓存——readGlobalBookDefaults 是高频读侧
  *  （每次 config apply 全量读盘 + JSON.parse），同指纹直接回缓存（对照 settings-context
  *  CARD_CACHE 同款）。解析失败不缓存（下次重试）；命中返回浅拷贝防调用方 mutate 污染缓存。
- *  R33D-15（三十三轮）：mtimeMs → mtimeNs（bigint，R73-27 同口径）——同毫秒内等长重写
+ *  ：mtimeMs → mtimeNs（bigint，同口径）——同毫秒内等长重写
  *  （布尔翻转恰等长）此前不失效，global.json 托底 short.strict 等闸门口径漂移；ns 值串
  *  变长与旧代毫秒值空间不相交，天然一次性失效。 */
 const defaultsCache = new Map<string, { mtimeNs: bigint; size: number; val: GlobalBookDefaults }>()
@@ -112,7 +112,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       typeof v === 'string' && v.trim().length > 0 ? v : undefined
     const posInt = (v: unknown): number | undefined =>
       typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined
-    // R52-E-2：复读占比是 0-1 的比例语义（>1 = 比率口径永不命中，检查静默失效，视作非法）
+    // 复读占比是 0-1 的比例语义（>1 = 比率口径永不命中，检查静默失效，视作非法）
     const unitNum = (v: unknown): number | undefined =>
       typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1 ? v : undefined
     // defaultVolumeSize：分卷章数下限 5（少于 5 章不成卷，过小值会让状态机卷判定失真）
@@ -136,7 +136,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       ragProvider: nonEmptyStr(raw['ragProvider']),
       tokensPerChapter: posNum(raw['tokensPerChapter']),
       costPerChapter: posNum(raw['costPerChapter']),
-      // R52-E-2：机检阈值五键——占比限 (0,1]（unitNum），计数类取正整数（posInt），
+      // 机检阈值五键——占比限 (0,1]（unitNum），计数类取正整数（posInt），
       // 容差百分比取正数（posNum）
       checkRepeatThreshold: unitNum(raw['checkRepeatThreshold']),
       checkRepeatCharsThreshold: posInt(raw['checkRepeatCharsThreshold']),
@@ -145,7 +145,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       checkWordCountTolerance: posNum(raw['checkWordCountTolerance']),
     }
     defaultsCache.set(p, { mtimeNs: st.mtimeNs, size: Number(st.size), val })
-    // R58-B-8（五十八轮）：FIFO 上限——键为 userDataPath 全路径，多库/测试临时目录
+    // FIFO 上限——键为 userDataPath 全路径，多库/测试临时目录
     // 场景只增不减；16 个缓存路径远覆盖现实并发，超限丢最旧（Map 保插入序）
     if (defaultsCache.size > 16) {
       const oldest = defaultsCache.keys().next().value
@@ -177,7 +177,7 @@ type EffectiveBookConfig = BookConfig & {
  * 规则：只填「书级未设」的键——书级有值一律保留（本书覆盖优先）；
  * 未设时先 global 有值用 global，再 fallback 有值用 fallback。
  * 无回落的三键（targetWords/chapterTargetWords/ragProvider）：global 没有就保持 undefined。
- * 2026-08-19 起「全局固定」键（不参与书级覆盖，一律取 global → fallback，书级旧值忽略）：
+ * 起「全局固定」键（不参与书级覆盖，一律取 global → fallback，书级旧值忽略）：
  * style.injection、budget.calls_per_chapter、auto.confirm_outline、auto.batch_size——
  * 这些是作者习惯/成本/全局策略，已砍掉本书级选项。
  */
@@ -195,7 +195,7 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
 
   // 全局固定：单章调用上限只走全局（已砍书级覆盖，书级旧值忽略）
   cfg.budget = { ...(cfg.budget ?? {}), calls_per_chapter: g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter }
-  // D3（批 5）：token/金额双口径预算——书级未设回落 global（无硬编码回落；都未设 = 不拦）
+  // token/金额双口径预算——书级未设回落 global（无硬编码回落；都未设 = 不拦）
   if (cfg.budget.tokens_per_chapter === undefined && g.tokensPerChapter !== undefined) {
     cfg.budget.tokens_per_chapter = g.tokensPerChapter
   }
@@ -204,7 +204,7 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   }
 
   // 全局固定：文风注入强度只走全局（styleInjection → 'light'），不再参与书级覆盖。
-  // 决策（2026-08-19）：文风注入砍掉「本书」级选项，全书统一跟随全局——书级旧值忽略，避免
+  // 决策：文风注入砍掉「本书」级选项，全书统一跟随全局——书级旧值忽略，避免
   // 「设置轻、文风页重」双入口漂移（生效链唯一 = 全局，UI 双处同源）。
   cfg.style = { ...(cfg.style ?? {}), injection: g.styleInjection ?? GLOBAL_FALLBACK_DEFAULTS.styleInjection }
 
@@ -223,7 +223,7 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   }
 
   // short.strict：短篇集专属段，未设才回落（长篇无 short 段不强行建段）。
-  // R26-13（二十六轮）：托底口径与 runner 的短篇判定（kind==='short'）同源——
+  // 托底口径与 runner 的短篇判定（kind==='short'）同源——
   // kind: short 而 book.yaml 未写 short 段的书此前 cfg.short 恒 undefined，
   // defaultShortStrict 托底键对它永不生效（runner 的 config.short 存在性判定同样
   // 失明）。现保底实例化 { strict }（本函数只 mutate 运行时副本，绝不写回文件，
@@ -243,7 +243,7 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
     cfg.rag = { ...cfg.rag, provider: g.ragProvider }
   }
 
-  // R52-E-2：机检阈值五键——书级 checks.* 未设才托底 global（无硬编码回落，都未设
+  // 机检阈值五键——书级 checks.* 未设才托底 global（无硬编码回落，都未设
   // 保持 undefined = runner 吃引擎默认参数）。只在有键要填时才实例化 checks 段，
   // 不为空托底凭空造段；词表键（imagery_words/leak_keywords）不参与托底（无全局词表语义）
   const checksFill: NonNullable<BookConfig['checks']> = {}

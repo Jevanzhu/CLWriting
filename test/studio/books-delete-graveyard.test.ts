@@ -13,9 +13,8 @@
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
-import { __waitForGraveyardCleanupForTest } from '../../src/studio/server/api/books.js'
 
 const GRAVEYARD = '.删书墓地'
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
@@ -67,10 +66,12 @@ describe('R73-34 删书墓地', () => {
     expect(existsSync(bookAbs)).toBe(false)
     const registry = JSON.parse('[' + readBooksJsonl().trim().split('\n').join(',') + ']') as Array<{ name?: string }>
     expect(registry.some((e) => e.name === '墓地正常删')).toBe(false)
-    // R35-6：墓地清理已后台化——端点返回不等 rm，等待在途清理收尾后断言最终清空
-    await __waitForGraveyardCleanupForTest()
+    // R35-6：墓地清理已后台化——端点返回不等 rm，轮询墓地终态清空后断言
+    //（原 wait 钩子已删；rmSync 在后台任务内同步执行，清空/消失即收尾）
     const graveDir = join(workDir, GRAVEYARD)
-    expect(existsSync(graveDir) ? readdirSync(graveDir) : []).toEqual([])
+    await vi.waitFor(() => {
+      expect(existsSync(graveDir) ? readdirSync(graveDir) : []).toEqual([])
+    })
   })
 
   it.skipIf(!permsReliable)('墓地清理失败（权限）：删书仍成功收口、登记移除、副本留档墓地', async () => {
@@ -86,14 +87,19 @@ describe('R73-34 删书墓地', () => {
       expect(existsSync(bookAbs)).toBe(false) // 原位无半删态
       const registry = JSON.parse('[' + readBooksJsonl().trim().split('\n').join(',') + ']') as Array<{ name?: string }>
       expect(registry.some((e) => e.name === name)).toBe(false)
-      // R35-6：后台 rm 对 r-x 子目录 unlink EACCES 收尾后断言终态
-      await __waitForGraveyardCleanupForTest()
+      // R35-6：后台 rm 对 r-x 子目录 unlink EACCES 收尾后断言终态（原 wait 钩子已删，
+      // 改 vi.waitFor 轮询；rmSync 同步执行——以「顶层 book.yaml 已越过删除点」为收尾
+      // 判据，防 rm 尚未启动时的早退假绿，断言本体零弱化）
       const graveDir = join(workDir, GRAVEYARD)
-      const left = readdirSync(graveDir)
-      expect(left).toHaveLength(1) // 副本留档待手工恢复
-      // rmSync 中断点：顶层 book.yaml 已删，r-x 的 写作/ 子目录连带内容留档
-      expect(existsSync(join(graveDir, left[0]!, '写作'))).toBe(true)
-      expect(readdirSync(join(graveDir, left[0]!, '写作'))).toContain('正文')
+      let left: string[] = []
+      await vi.waitFor(() => {
+        left = readdirSync(graveDir)
+        expect(left).toHaveLength(1) // 副本留档待手工恢复
+        expect(existsSync(join(graveDir, left[0]!, 'book.yaml'))).toBe(false) // rm 已启动
+        // rmSync 中断点：顶层 book.yaml 已删，r-x 的 写作/ 子目录连带内容留档
+        expect(existsSync(join(graveDir, left[0]!, '写作'))).toBe(true)
+        expect(readdirSync(join(graveDir, left[0]!, '写作'))).toContain('正文')
+      })
     } finally {
       // 还原权限保 afterAll 清理可达（r-x 在墓地副本的嵌套子目录上，需递归还原）
       chmodDirTree(join(workDir, GRAVEYARD))

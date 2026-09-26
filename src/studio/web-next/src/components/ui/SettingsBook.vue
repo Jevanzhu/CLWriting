@@ -2,7 +2,7 @@
 // 设置 · 本书页（单页，IA 重组后不再有页内子标签）：
 // 书名 banner + 基本信息（书名，唯一纯书级项）+ 覆盖组（编辑排版/写作默认/智能分析——各
 // 全局默认已拆到对应独立一级页；编辑排版即纸张宽度/自动保存的书级覆盖，直连 prefs store）
-// + 定稿版本 + 存储。AI 写作与版本保留 2026-08-19 起砍掉书级（一律跟随全局），不再出现在本书页。
+// + 定稿版本 + 存储。AI 写作与版本保留起砍掉书级（一律跟随全局），不再出现在本书页。
 // 覆盖组拆成子组件各自独立拉 config（设置打开时共 3 次 getConfig——本书页 + Analysis + Writing
 // 三个子组件各 1 次，可接受——不引入父级统一状态）。
 // 书名改动走全量改名（POST /rename：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 同步），
@@ -15,7 +15,7 @@ import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
-import { migrateBookKeyedState } from '../../composables/useShelf' // R46-6：改名迁移按书键控状态
+import { migrateBookKeyedState } from '../../composables/useShelf' // 改名迁移按书键控状态
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { usePrefsStore } from '../../stores/prefs'
@@ -54,10 +54,10 @@ function onAsInput(v: number): void {
   prefs.bookAutosaveInterval = v
   prefs.apply()
 }
-// R75-6：书级 num-input（range 配套数字输入）改共享 helper + 组件层钳制——此前
+// 书级 num-input（range 配套数字输入）改共享 helper + 组件层钳制——此前
 // `Number('')===0` 穿透直写 prefs.bookPageWidth（store 的 bookOnly 分支无钳制），
-// apply() 落 `--page-width: 0px` 页宽当场塌掉；空串/非数字不写，合法值钳到滑杆
-// 同款 min/max（纸宽 600-1400、间隔 5-120）。R72-11 五处组件已接 helper，此处是唯一漏点
+// apply 落 `--page-width: 0px` 页宽当场塌掉；空串/非数字不写，合法值钳到滑杆
+// 同款 min/max（纸宽 600-1400、间隔 5-120）。 五处组件已接 helper，此处是唯一漏点
 function onPfwNumChange(e: Event): void {
   const v = parseNumericInput(e)
   if (v === null) return
@@ -78,7 +78,7 @@ const titleBaseline = ref('')
 
 async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
-  // R33D-31（三十三轮）：IPC 失败不再静默（书目录被外部移动等）——toast 交代
+  // IPC 失败不再静默（书目录被外部移动等）——toast 交代
   try {
     await window.clwritingDesktop?.openBookDir(ws.bookName)
   } catch (e) {
@@ -86,10 +86,10 @@ async function openBookDir(): Promise<void> {
   }
 }
 
-// R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件
+// 配置加载代守卫（只修了兄弟组件 SettingsBookAnalysis）——本组件
 // 的 titleBaseline 同样会被在途旧响应污染：A 书在途 getConfig 迟到落地 B 书面板后，
 // 书名框显示 A 书标题并污染改名基线（对齐 SettingsBookAnalysis 的 loadGen + 双复检口径）。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 
 watch(
@@ -105,7 +105,7 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
-      if (loadGen.stale(gen) || ws.bookName !== name) return // R64-4 双复检：代 + 书名
+      if (loadGen.stale(gen) || ws.bookName !== name) return // 双复检：代 + 书名
       bookTitle.value = cfg.book?.title ?? ''
       titleBaseline.value = bookTitle.value
     } catch {
@@ -115,7 +115,7 @@ watch(
   { immediate: true },
 )
 
-// R76-36（二十四轮 E 域）：改名在途锁——改名是重操作（冲排 + 目录/登记/active 搬家 +
+// （二十四轮 E 域）：改名在途锁——改名是重操作（冲排 + 目录/登记/active 搬家 +
 // 事件库迁移），二连发（连点回车/双 change）时第二笔在第一笔进行中对旧名发起 renameBook，
 // 必然 404 或撞半途态（数据无损、体验受损）。在途直接吞掉：成功路径会 router.replace 到
 // 新名整树重挂，输入框随 watch 重载对齐，无需额外提示。
@@ -139,8 +139,8 @@ async function doBookTitleChange(): Promise<void> {
     return
   }
   if (next === titleBaseline.value) return
-  // R35-9：带未决冲突的脏文档不在 flushDirty 清单内（doc store 过滤 conflict 项）也不落盘
-  // ——放行改名后 Z-8「留在本书」回退到已搬走的旧书目录，树/心跳/保存全 404。前置拦截。
+  // 带未决冲突的脏文档不在 flushDirty 清单内（doc store 过滤 conflict 项）也不落盘
+  // ——放行改名后 「留在本书」回退到已搬走的旧书目录，树/心跳/保存全 404。前置拦截。
   const conflicted = doc.conflictedDirtyDocs()
   if (conflicted.length > 0) {
     ui.toast(`有 ${conflicted.length} 篇文档存在未解决的修改冲突，请先处理（重载或覆盖）后再改名`, 'error')
@@ -148,7 +148,7 @@ async function doBookTitleChange(): Promise<void> {
   }
   // 改名 = 磁盘目录+登记+active 一起搬；先落盘未保存的正文编辑，
   // 防目录搬家后旧名 URL 404 导致编辑丢失
-  // R66-34（十四轮）：冲排失败必须中止改名——flushDirty 返回保存失败的 docId 清单，此前
+  // 冲排失败必须中止改名——flushDirty 返回保存失败的 docId 清单，此前
   // 被丢弃照常改名：目录搬走后旧名 URL 404，这些未落盘编辑的救援路径彻底断裂
   const flushFailed = await doc.flushDirty()
   if (flushFailed.length > 0) {
@@ -158,7 +158,7 @@ async function doBookTitleChange(): Promise<void> {
   try {
     const res = await renameBook(name, next)
     titleBaseline.value = res.name
-    // kk-P1-3：改名成功但事件库迁移失败 → 警告而非静默成功（历史对话/审计暂留在旧名下，
+    // kk-改名成功但事件库迁移失败 → 警告而非静默成功（历史对话/审计暂留在旧名下，
     // 服务端已保旧库原地完整，重试改名前先处理在跑任务）
     if (res.eventsMigrationFailed) {
       ui.toast('已改名，但历史对话/事件的迁移失败了（数据仍完整保留，可重试改名恢复关联）', 'error')
@@ -166,7 +166,7 @@ async function doBookTitleChange(): Promise<void> {
       ui.toast('已保存', 'success')
     }
     if (res.renamed && res.name !== name) {
-      // R46-6（四十六轮）：改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
+      // 改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
       // 同族五件的「清理旧名 + 值搬家」：章号记忆 / 失败草稿 / 误报灰显 / 梗概 / 首开
       // 标记（此前改名零迁移，旧名条目成孤儿 + 新名侧功能丢失）
       migrateBookKeyedState(name, res.name)

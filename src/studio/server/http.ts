@@ -4,7 +4,7 @@ import { redactSecret } from '../../ai/provider/redact.js'
 
 const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
-/** RC 源码重审 B-1（Opus-5.5 轮）：带正文的写端点专用上限——默认 1MB 档对「200 万字」
+/** （Opus-5.5 轮）：带正文的写端点专用上限——默认 1MB 档对「200 万字」
  *  级正文远不够（中文 UTF-8 ≈3 字节/字，约 34 万字即撞 1MB → 413），而读取/编辑两侧
  *  无上限、前端 dirty-mirror 还专为 >1M 字符文档设了节流档——前后端规模假设原不一致：
  *  作者导入整本旧稿（>35 万字）后可开可编辑、却永远存不上，autosave 每拍重传整文再失败，
@@ -13,11 +13,11 @@ const JSON_BODY_LIMIT_BYTES = 1024 * 1024
  *  仅正文类端点使用：documents content PUT / documents POST（建文带 content）/ file PUT。 */
 export const CONTENT_BODY_LIMIT_BYTES = 16 * 1024 * 1024
 
-/** R-1（十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
+/** （十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
  * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
 const PAYLOAD_GRACE_MS = 1500
 
-/** R51-G-2（五十一轮）：body 闲置超时——写端点普遍按 CC-P2-9 在 readJson 前**同步占
+/** body 闲置超时——写端点普遍按在 readJson 前**同步占
  * 书级闸**（占闸先于首个 await 以覆盖 body 在途窗口），客户端发完 headers 后悬持
  * body 不发时，该闸最长被悬到 server 层 requestTimeout（300s）才释放，同书全部写
  * 端点在此窗内恒 409。取「闲置」而非「总时长」口径：回环正常 body 亚秒到齐、重存
@@ -38,20 +38,20 @@ export class HttpError extends Error {
   }
 }
 
-/** 重评-7（全库代码重评审 2026-09-05）：客户端断连错误形状——readJson 在请求体读取
+/** -7（全库代码审）：客户端断连错误形状——readJson 在请求体读取
  * 中途识别到客户端断开（ECONNRESET/EPIPE）时给原始错误打的显式标记（不换壳，保留
  * 原始 errno 信息），供 dispatch 兜底判别日志级别。 */
 interface ClientAbortError extends Error {
   clientAbort: true
 }
 
-/** 判定错误是否带客户端断连标记（重评-7）——显式判 true，不误伤伪造形状。 */
+/** 判定错误是否带客户端断连标记（-7）——显式判 true，不误伤伪造形状。 */
 export function isClientAbort(e: unknown): e is ClientAbortError {
   return typeof e === 'object' && e !== null && (e as { clientAbort?: unknown }).clientAbort === true
 }
 
 export function reply(res: ServerResponse, status: number, body: unknown): void {
-  // R5-P2-1（2026-09-09 修复批）：API 成功响应此前无 nosniff——静态面 R30-23 已统一、
+  // （修复批）：API 成功响应此前无 nosniff——静态面已统一、
   // JSON API 面漏网（MIME 嗅探防线不全）。统一补齐后全部响应头（静态/API/SSE）收口
   // 同一防线。
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
@@ -65,9 +65,9 @@ export function reply(res: ServerResponse, status: number, body: unknown): void 
  * 且 grep replyError 即可盘点全部错误点。
  * - error 保留中文人话（前端 toast 展示，client.ts 按 error 优先解析 → 前端零改动）
  * - code 机器可判别（复用既有词表 NO_WORKDIR/NOT_FOUND/BAD_INPUT/BAD_PATH/BUSY/...，
- *   无法归类的用 'ERROR' 兜底，禁止自创同义码；RC 源码重审 B-1 起 413 单独有码
+ *   无法归类的用 'ERROR' 兜底，禁止自创同义码；RC起 413 单独有码
  *   PAYLOAD_TOO_LARGE——前端据此给「拆分文档」出路，不再混同参数校验的 BAD_INPUT）
- * - extra（N-2，第十二轮）：可选诊断扩展字段（如机检失败带 details）——仍走本单一
+ * - extra：可选诊断扩展字段（如机检失败带 details）——仍走本单一
  *   出口，不回退到手拼 reply({ok:false,...}) 混合信封
  */
 export function replyError(
@@ -77,12 +77,12 @@ export function replyError(
   error: string,
   extra?: Record<string, unknown>,
 ): void {
-  // R67-14（十五轮）：错误信封单一出口统一脱敏——各 handler 直透 result.error 的窄
+  // 错误信封单一出口统一脱敏——各 handler 直透 result.error 的窄
   // 路径（非 GenError 逃逸 message）此前靠各点自觉套 redactSecret，8 处直透漏网；
   // 收进本出口后所有非 2xx error 文本一律过 redactSecret（幂等：已脱敏文本再过
   // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据模式不受影响）
   const safeError = redactSecret(error)
-  // R5-P2-1（2026-09-09 修复批）：同 reply——错误信封统一补 nosniff
+  // （修复批）：同 reply——错误信封统一补 nosniff
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify({ code, error: safeError, ...(extra ?? {}) }))
 }
@@ -93,7 +93,7 @@ export function replyHttpError(res: ServerResponse, e: HttpError): void {
 }
 
 /** 常量时间 token 比较，防 timing attack。
- *  0918二轮修复批（D102，独立重评二轮 P3 高价值硬化）：原实现长度不等提前 return
+ *  0918二轮修复批（D102，二轮 高价值硬化）：原实现长度不等提前 return
  *  false——比较耗时与期望值长度相关，向攻击者泄露 secret 长度时序信号（当前 token
  *  恒 UUID 定长无实害，但本原语被 index.ts 写闸与 stream.ts SSE 凭据闸三处复用，按
  *  原语级硬化）。现两侧各先 SHA-256 摘要成 32 字节定长再 timingSafeEqual：长度信道
@@ -106,7 +106,7 @@ export function safeTokenCompare(received: string | string[] | undefined, expect
   return timingSafeEqual(a, b)
 }
 
-/** M3（二轮复审）：日志用的请求路径（去 query）——SSE 会话令牌走 query（EventSource
+/** 日志用的请求路径（去 query）——SSE 会话令牌走 query（EventSource
  * 不能带 header，设计无奈之举），完整 req.url 进错误日志会把全部写端点的凭证明文落
  * app-*.jsonl 留存 7 天；日志被导出/同步/上报排障时凭证随之外流。 */
 export function urlPathOnly(url: string | undefined): string {
@@ -115,15 +115,15 @@ export function urlPathOnly(url: string | undefined): string {
   return i === -1 ? url : url.slice(0, i)
 }
 
-/** R35-30（三十五轮）：req.url 解析 base 单源——本文件 parseRequestUrl 与 server/index.ts
+/** req.url 解析 base 单源——本文件 parseRequestUrl 与 server/index.ts
  *  apiPathname 共用（此前两处字面量数值等价但各自漂移，如 'http://local'）。base 只作
  *  relative 解析锚（pathname 提取不受 host 拼写影响），统一常量仅为消漂移点。 */
 export const URL_PARSE_BASE = 'http://localhost'
 
-/** R-19（第十六轮）：req.url → URL 的统一安全解析（Q-1/N-3 口径收编）。llhttp 接受
+/** req.url → URL 的统一安全解析（/口径收编）。llhttp 接受
  *  absolute-form 等畸形请求行（如 `GET http://[bad HTTP/1.1`），new URL 抛 TypeError
  *  ——各 handler 此前六处裸调各管各。畸形 URL 返 null，调用方回 400 BAD_INPUT 信封
- *  （与 static.ts Q-1 同款）。 */
+ *  （与 static.ts 同款）。 */
 export function parseRequestUrl(req: IncomingMessage): URL | null {
   try {
     return new URL(req.url ?? '/', URL_PARSE_BASE)
@@ -141,14 +141,14 @@ export function readJson(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     // 缓冲按 Buffer 收集、一次性 concat 后再解码：逐 chunk toString 会把跨分块边界的
-    // 多字节 UTF-8 字符（中文正文常态）切成 U+FFFD，造成静默内容损坏（V-P1-1）。
+    // 多字节 UTF-8 字符（中文正文常态）切成 U+FFFD，造成静默内容损坏。
     const chunks: Buffer[] = []
     let size = 0
     let tooLarge = false
-    // R51-G-2（五十一轮）：闲置计时器——readJson 前多路写端点已占书级闸（CC-P2-9），
+    // 闲置计时器——readJson 前多路写端点已占书级闸，
     // body 悬持即闸悬持。进函数即武装（覆盖「headers 到、body 零字节」形态），每个
     // data 字节重置；到点 408 'TIMEOUT'（信封同 replyError 单一出口）+ 宽限 destroy
-    //（R-1 同款：给 408 响应留刷出窗口，close 即清——正常客户端响应送达即收口，
+    //（同款：给 408 响应留刷出窗口，close 即清——正常客户端响应送达即收口，
     // 悬持方到点强制断，不占 FD）。413/error/end/close 各路径随手清计时器，防
     // promise 已 settle 后定时器再武装出跨路径 destroy（会掐断 413 排空窗）。
     let idleTimer: NodeJS.Timeout | null = null
@@ -164,7 +164,7 @@ export function readJson(
         idleTimer = null
         reject(new HttpError(408, '请求体读取超时（长时间无数据推进），请重试', 'TIMEOUT'))
         const grace = setTimeout(() => { req.destroy() }, graceMs)
-        // R0910-W：宽限定时器 unref + 已收口连接即清——req 若在本行前已 close，下方
+        // 宽限定时器 unref + 已收口连接即清——req 若在本行前已 close，下方
         // once('close') 的清理永不触发，未 unref 的定时器会作为活跃句柄存活到 grace 满
         //（清理漏网）；活动请求路径行为不变（close 即清、到点 destroy）。
         grace.unref()
@@ -180,20 +180,20 @@ export function readJson(
       if (size > limitBytes) {
         tooLarge = true
         chunks.length = 0
-        // 超限即拒绝（Y-P2-7）：不等 end，防悬挂连接长期占用 FD。reject 在前，
-        // 上层 catch 后据此回复 413。剩余数据排空丢弃——同步 req.destroy() 会抢在
+        // 超限即拒绝：不等 end，防悬挂连接长期占用 FD。reject 在前，
+        // 上层 catch 后据此回复 413。剩余数据排空丢弃——同步 req.destroy 会抢在
         // 413 响应刷出前掐断 socket（客户端收到 ECONNRESET 而非 413）；排空让
         // 有限请求体自然到 end，连接随响应正常收口，同样不占 FD。
         reject(new HttpError(413, '请求体过大', 'PAYLOAD_TOO_LARGE'))
-        clearIdle() // R51-G-2：413 后计时职责移交 R-1 排空宽限，闲置 destroy 不得再插手
+        clearIdle() // 413 后计时职责移交排空宽限，闲置 destroy 不得再插手
         req.removeAllListeners('data')
         req.resume()
-        // R-1（十五轮登记销账）：排空只是让 413 响应先刷出的宽限，不是义务接收——
+        // （十五轮登记销账）：排空只是让 413 响应先刷出的宽限，不是义务接收——
         // 慢速发送方可长期 dribble 数据占住 socket/FD。宽限到点强制 destroy：本地
         // 回环 413 亚毫秒级已送达，之后断连属预期收口；正常客户端到此早已 end
         // （close 即清定时器，不误伤）。graceMs 可注入，测试用小值保快。
         const grace = setTimeout(() => { req.destroy() }, graceMs)
-        // R0910-W：同 408 宽限——unref + 已收口即清（req 提前 close 时 once('close')
+        // 同 408 宽限——unref + 已收口即清（req 提前 close 时 once('close')
         // 清理漏网，未 unref 的定时器在清理后仍存活）
         grace.unref()
         if (req.destroyed) clearTimeout(grace)
@@ -205,7 +205,7 @@ export function readJson(
     req.on('end', () => {
       // 超限已在 data 中 reject；此处仅防御（promise settle 后重复调用无效）
       if (tooLarge) return
-      clearIdle() // R51-G-2：body 收齐，闲置计时下班（后续 parse 错误走 400 信封）
+      clearIdle() // body 收齐，闲置计时下班（后续 parse 错误走 400 信封）
       const data = Buffer.concat(chunks).toString('utf-8')
       let parsed: unknown
       try {
@@ -215,7 +215,7 @@ export function readJson(
         reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`, 'BAD_INPUT'))
         return
       }
-      // R73-51（二十一轮）：body 统一断言为 JSON object——全部调用方（含 defineRoute
+      // body 统一断言为 JSON object——全部调用方（含 defineRoute
       // 的 parse 声明路由）均按 body['key'] 消费，无一以数组/字符串/数字等原语为契约；
       // 原语此前原样透传，各端点或按空对象静默处理或 TypeError 500，错误信封口径不一。
       // 数组同拒（返回类型 Record<string, unknown> 即契约）；null 已归一为 {} 不受影响
@@ -226,24 +226,24 @@ export function readJson(
       resolve(parsed as Record<string, unknown>)
     })
     req.on('error', (e) => {
-      // 重评-7（全库代码重评审 2026-09-05）：请求体读取中客户端断连（ECONNRESET/
+      // -7（全库代码审）：请求体读取中客户端断连（ECONNRESET/
       // EPIPE）是客户端行为非服务端故障——给原始错误打 clientAbort 标记（不换壳，
       // errno 信息保留），dispatch 兜底据此把 log.error 降 log.info；错误本体与
       // 上层处理路径零变更（不带标记的错误原样透传）。
-      clearIdle() // R51-G-2：断连/读错误后不再计时，防 settled 后跨路径 destroy
+      clearIdle() // 断连/读错误后不再计时，防 settled 后跨路径 destroy
       const code = (e as NodeJS.ErrnoException | undefined)?.code
       if (code === 'ECONNRESET' || code === 'EPIPE') (e as ClientAbortError).clientAbort = true
       reject(e)
     })
     req.once('close', () => {
-      clearIdle() // R51-G-2：连接收口（含客户端中途断开无 error 形态）即清
-      // R55-E-N（五十五轮）：「断开无 error 形态」防御兜底——客户端发部分 body 后干净
-      // 半关闭（socket.end()，无 errno）时部分运行时/形态不触发 'error' 只触发 'close'，
-      // 此前 promise 永不 settle：按 CC-P2-9 在 readJson 前同步占书级闸的端点
+      clearIdle() // 连接收口（含客户端中途断开无 error 形态）即清
+      // 「断开无 error 形态」防御兜底——客户端发部分 body 后干净
+      // 半关闭（socket.end，无 errno）时部分运行时/形态不触发 'error' 只触发 'close'，
+      // 此前 promise 永不 settle：按在 readJson 前同步占书级闸的端点
       //（api/stream.ts holdSpawnGate、api/io.ts acquireTaskGate+跨进程锁文件）try 块
       // 永不退出，闸与锁文件（pid 活着不判 stale）悬挂到进程重启，同书全部写端点恒
       // 409。body 未读完（!readableEnded）即以 clientAbort 标记 reject（对齐上方 error
-      // 路径重评-7 先例，dispatch 兜底据此把日志降为 info 而非 error）；正常收口（end
+      // 路径-7 先例，dispatch 兜底据此把日志降为 info 而非 error）；正常收口（end
       // 先到，readableEnded=true）不进此臂。promise 已 settle（413/408/error 先到）时
       // reject 幂等无效，不另设 settled 闸（413 排空被 destroy 的收口形态即落此空操作臂）。
       if (!req.readableEnded) {

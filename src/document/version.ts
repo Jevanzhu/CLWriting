@@ -3,7 +3,7 @@
  *
  * 由 snapshot.ts 泛化而来：同一套「全文 + front matter 元信息」机制，
  * origin 区分来源（autosave 编辑快照 / finalize 定稿版本 / restore 恢复留底…）。
- * O-12 退役收尾：兼容别名层 snapshot.ts 于 2026-09-11 精简批整删（readGlobalSnapshotPolicy 随批迁入本模块）。
+ * 退役收尾：兼容别名层 snapshot.ts 于精简批整删（readGlobalSnapshotPolicy 随批迁入本模块）。
  *
  * 落点：工作区/.版本/<docId>/<ULID>.md（原 .snapshots 改名 .版本，首次启动自动迁移）。
  * id 即 ULID，含时间戳可排序。用 atomicWriteFile 整文件写（版本是独立文件，非追加日志）。
@@ -34,7 +34,7 @@ export const VERSIONS_DIR_NAME = '.版本'
 export const LEGACY_SNAPSHOTS_DIR_NAME = '.snapshots'
 
 /**
- * docId → 版本子目录名的跨平台映射（win 适配 F4 缺陷修复，2026-08-27）。
+ * docId → 版本子目录名的跨平台映射（win 适配缺陷修复）。
  * stable-id 的 legacy 方案含 `:`（`legacy:<sha256 前 16 位>`），是 Windows 目录名
  * 非法字符——写入端统一编码（`:`→`_`）。两 id 仅差 `:` 与 `_` 才可能碰撞，id 空间
  * （hex/doc_ 前缀）实践中不存在；新写入恒编码保证 win 可建，mac 对无冒号目录名不受影响。
@@ -44,7 +44,7 @@ export function encodeDocDirName(docId: string): string {
 }
 
 /**
- * R68-3/R68-4：docId 编码文件/目录名的反解（journal 文件名、分析文件名、版本目录名
+ * /：docId 编码文件/目录名的反解（journal 文件名、分析文件名、版本目录名
  * 的读侧统一入口）。id 空间三前缀（doc_ / folder_ / legacy:，见 stable-id.ts）保证
  * 无歧义：无冒号且 `legacy_` 开头的名字只能来自编码写入（真 legacy id 恒含 `:`）→
  * 逆推 `legacy:`；含 `:` 的字面名（mac 存量）原样即 docId；其余（doc_/folder_）编码
@@ -59,7 +59,7 @@ export function decodeDocDirName(name: string): string {
  *  字面目录仅 mac 存量库存在（`:` 在 POSIX 文件名合法、win 非法，win 上永不出现）——
  *  编码写入开启前同一 docId 的版本可能分布在两目录（存量在字面、之后在编码），
  *  任何单目录解析都会读写分裂：新版本写入后 list/read 不可见、prune 只扫一侧。
- *  R68-2：purgeTrash 连删版本目录按本函数同款「字面在前、编码在后、同名去重」
+ *  ：purgeTrash 连删版本目录按本函数同款「字面在前、编码在后、同名去重」
  *  口径（trash.ts 内联名称候选——文件名层面同构）。 */
 function docVersionDirs(versionsDir: string, docId: string): string[] {
   const literal = join(versionsDir, docId)
@@ -122,8 +122,8 @@ export const DEFAULT_VERSION_POLICY: VersionPolicy = {
 }
 
 /** 读全局保留策略（userData/global.json 的 snapMaxDays / snapMaxCount，两层链的全局层：
- *  global.json snapMax* → 硬编码默认。R34D-20（三十四轮）校正：book.yaml snapshots
- *  书级段 2026-08-19 起已砍除，不参与解析——三层链旧说法作废）。
+ *  global.json snapMax* → 硬编码默认。校正：book.yaml snapshots
+ *  书级段起已砍除，不参与解析——三层链旧说法作废）。
  *  容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非正整数 → 该项 undefined（上层继续回退）。 */
 export function readGlobalSnapshotPolicy(userDataPath: string | null): { maxDays?: number; maxCount?: number } {
   if (!userDataPath) return {}
@@ -151,16 +151,16 @@ const DAY_MS = 86_400_000
 const FINE_WINDOW_MS = 2 * HOUR_MS
 
 /**
- * P3-14：最新同 origin 版本内容指纹缓存（去重优化）。
+ * 最新同 origin 版本内容指纹缓存（去重优化）。
  * 写版本前的去重此前每次全量读盘扫历史（复杂度随版本数线性涨）；现改为
  * 「指纹缓存命中 O(1) 跳过，冷缓存才读盘比对」。
  *
- * AA-P1-1 修正：缓存值改存「版本 id + fp」，命中需满足两个条件——
- *   ① fp 相等；② 缓存指向的版本 id 仍有效（R34D-15 收紧为「仍是盘上最新同 origin
+ * 修正：缓存值改存「版本 id + fp」，命中需满足两个条件——
+ *   ① fp 相等；② 缓存指向的版本 id 仍有效（收紧为「仍是盘上最新同 origin
  *   版本」，覆盖原「仍在盘」判定——他进程写入更新的同 origin 版本时旧 id 仍在盘但
  *   已非最新，按旧 id 去重会错误跳写、快照链尾部失真）。
  * 版本被 prune 删掉后，缓存必须失效（回到读盘比对）——否则「内容恰好等于被删
- * 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背 W0-1 留底纪律。
+ * 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背留底纪律。
  * 另有第二道防线：pruneVersions 删除时同步失效对应缓存条目。
  * 缓存 key 含 versionsDir + docId + origin，Map 有 size 上限（进程级防缓涨）。
  */
@@ -186,14 +186,14 @@ function trimVersionCache(): void {
   }
 }
 
-/** 写缓存条目 + 超限修剪（AA-P1-1：Map 有 size 上限，防多书长跑缓涨） */
+/** 写缓存条目 + 超限修剪（Map 有 size 上限，防多书长跑缓涨） */
 function setVersionCache(cacheKey: string, entry: VersionFpCacheEntry): void {
   latestOriginHash.set(cacheKey, entry)
   trimVersionCache()
 }
 
 /**
- * R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
+ * 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
  * 接线）——指纹缓存键为 `${versionsDir}\u0000${docId}\u0000${origin}`，versionsDir 由
  * 调用方 join(bookRoot, '工作区', VERSIONS_DIR_NAME) 构造（未 resolve），故按
  * `join(bookRoot, …) + \u0000` 前缀清理即字节对齐（pruneVersions 的 cacheScope 同款
@@ -227,7 +227,7 @@ export function writeVersion(
   // 默认 force=true（兼容旧快照调用方行为——编辑器保存每次都留底；需节流的调用方显式传 force:false）
   const force = options.force ?? true
   // docId 防穿越（与 listVersions/readVersion 一致，write 路径也需校验）
-  // N1（五十九轮）：拒绝不再静默——去重/节流的 null 是合法跳过，但「非法 docId 拒写」
+  // 拒绝不再静默——去重/节流的 null 是合法跳过，但「非法 docId 拒写」
   // 是留底纪律失守（调用方无从区分），至少 warn 留痕供诊断。
   if (!safeDocId(docId)) {
     log.warn('version', `版本留底拒绝非法 docId（含路径分隔符或 ..）：${JSON.stringify(docId)}——调用方留底契约失守`)
@@ -235,12 +235,12 @@ export function writeVersion(
   }
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]
-  // P3-14：去重指纹缓存 key（含 versionsDir 防跨书碰撞）
+  // 去重指纹缓存 key（含 versionsDir 防跨书碰撞）
   const cacheKey = `${versionsDir}\u0000${docId}\u0000${meta.origin}`
   const fp = contentFingerprint(content)
 
   if (latest) {
-    // R48-47（四十八轮）：meta 一遍扫描共用——下方节流/缓存存活/去重三段循环此前
+    // meta 一遍扫描共用——下方节流/缓存存活/去重三段循环此前
     // 各自 readVersionMeta 重扫同一前缀（终止条件同族：首个同 origin / 首个不可读），
     // 长档案高频留底最多 3×N 次头部开读；现一遍收集，三段决策逻辑逐位不变
     //（扫描至首个同 origin 或首个不可读即止，恰为三段循环的可达上界）。
@@ -252,15 +252,15 @@ export function writeVersion(
     }
     // 节流：窗口内已有版本 → 跳过（force 时不限）
     if (!force && policy.throttleMinutes > 0) {
-      // RB-KN-P2-6：节流按 origin 分域（与 X-P2-3 去重语义对齐）——原先按「最新任意
+      // 节流按 origin 分域（与去重语义对齐）——原先按「最新任意
       // origin」版本判窗口，刚写过 finalize/ai 版本后窗口内的 autosave 修改前留底
       // 会被静默吞掉，跨 origin 误节流。
       for (let i = 0; i < metas.length; i++) {
-        // R66-19（十四轮）：节流判定只需 origin——整读 readVersion 把全文读进内存，
-        // 长书高频 autosave 留底每次扫到最新同 origin 前触发多次全文读；改走 R62-36
+        // 节流判定只需 origin——整读 readVersion 把全文读进内存，
+        // 长书高频 autosave 留底每次扫到最新同 origin 前触发多次全文读；改走
         // 已建的 readVersionMeta 头部 bounded read（此三处当年漏迁移）。
         const prevMeta = metas[i]
-        // R73-35（二十一轮）：meta 不可读（头部损坏/截断）视为**无法判定**——continue
+        // meta 不可读（头部损坏/截断）视为**无法判定**——continue
         // 落到更旧版本会把窗口判定锚在错误锚点上（最新版可能恰在窗口内却节流失效/
         // 误节流），fail-open 不节流直接落写（留底宁多勿失，与下方去重循环同口径）。
         if (!prevMeta) break
@@ -270,15 +270,15 @@ export function writeVersion(
         break // 最新同 origin 版本已出窗 → 不节流
       }
     }
-    // X-P2-3：去重按 origin 分域——ai 轨迹（origin 'ai'，X-P2-3 无 git 书库后端）与编辑快照/
+    // 去重按 origin 分域——ai 轨迹（origin 'ai'，无 git 书库后端）与编辑快照/
     // 覆写留底共处同一档案但语义不同：跨 origin 同内容去重会把「覆写留底」吞掉（snapshotted
     // 假 false、恢复点被 ai 记录顶替），反向也会让 ai 轨迹被快照顶掉。只与「最新的同 origin
     // 版本」比对同内容；不同 origin 的内容独立保留（各自受分层/数量策略约束）。
-    // P3-14 + AA-P1-1：先查指纹缓存；命中须同时满足 ① fp 相等 ② 缓存指向的版本 id
-    // 仍是**盘上最新同 origin 版本**（R34D-15 收紧：原校验只验「id 在盘」，双进程下
+    // + 先查指纹缓存；命中须同时满足 ① fp 相等 ② 缓存指向的版本 id
+    // 仍是**盘上最新同 origin 版本**（收紧：原校验只验「id 在盘」，双进程下
     // 他进程已写入更新的同 origin 版本时，旧 id 仍在盘但已非最新——fp 恰与旧版相等
-    // 时错误跳写，快照链尾部失真为旧内容，违背 X-P2-3「只与最新同 origin 比对」的
-    // 去重语义；「id 已被 prune/外部删除」是本校验的子集，AA-P1-1 防线语义不变）。
+    // 时错误跳写，快照链尾部失真为旧内容，违背 「只与最新同 origin 比对」的
+    // 去重语义；「id 已被 prune/外部删除」是本校验的子集，防线语义不变）。
     // 任一不满足 → 缓存失效，落读盘比对。冷缓存直接读盘。校验从新到旧扫至缓存 id
     // 为止：常见单进程路径缓存 id 即 existing[0]（零读盘，优化不回退）；跨 origin
     // 新版至多多读几个头部 bounded read。
@@ -291,8 +291,8 @@ export function writeVersion(
           break
         }
         // 新于缓存 id 的版本逐个验 origin：同 origin 已存在 → 缓存非最新；meta 不可读
-        // → 同源与否无法判定（R73-35 口径）→ 一并按失效处理，回读盘比对兜底。
-        //（R48-47：meta 取自上方一遍扫描结果，扫描止点外的下标视同不可读，语义不变）
+        // → 同源与否无法判定（口径）→ 一并按失效处理，回读盘比对兜底。
+        //（meta 取自上方一遍扫描结果，扫描止点外的下标视同不可读，语义不变）
         const m = i < metas.length ? metas[i] : null
         if (!m || m.meta.origin === meta.origin) break
       }
@@ -304,24 +304,24 @@ export function writeVersion(
       latestOriginHash.delete(cacheKey)
     }
     for (let i = 0; i < metas.length; i++) {
-      // R66-19（十四轮）：origin 过滤先走 meta 头部读——跨 origin 版本不再整读全文
+      // origin 过滤先走 meta 头部读——跨 origin 版本不再整读全文
       //（ai/finalize/autosave 混排的长书，冷缓存落盘比对从 N 次全文读降到 1 次）；
       // 仅最新同 origin 版本需要正文比对才整读（去重语义不变）。
-      //（R48-47：meta 取自上方一遍扫描结果，不再重读）
+      //（meta 取自上方一遍扫描结果，不再重读）
       const prevMeta = metas[i]
-      // R73-35（二十一轮）：meta 不可读（损坏）的同源候选不再 continue 落到更旧版本
+      // meta 不可读（损坏）的同源候选不再 continue 落到更旧版本
       // 比对——恰等旧版时会跳写致快照链尾部失真（最新同 origin 版本的内容既没比对上、
       // 新版本又被吞）。meta 不可读 = 同源与否无法判定 = 去重无法判定，fail-open 直接
-      // 落写（W0-1 留底纪律：宁多留一版，不可静默丢一版）。
+      // 落写（留底纪律：宁多留一版，不可静默丢一版）。
       if (!prevMeta) break
       if (prevMeta.meta.origin !== meta.origin) continue
       const prev = readVersion(versionsDir, docId, existing[i]!.id)
-      // R26-52 + R28-17（二十八轮注释口径修正）：字节档（Buffer）不走 readVersion 的
+      // + （二十八轮注释口径修正）：字节档（Buffer）不走 readVersion 的
       // utf-8 文本回读比对——readVersion 的文本对非 UTF-8 原字节必然失配，比不中；
       // 但内容级去重并未缺席：上方指纹缓存路径（contentFingerprint 对 Buffer 同样
       // 成立，写盘后 setVersionCache 必更新）在 fp 相等且缓存指向版本仍在盘时照样
       // 去重（return null），同内容重复留底仍被跳过、行为无害。此处仅是跳过「文本
-      // 回读比对」这一条路径，W0-1 宁多勿失由 fail-open 分支（meta 不可读 → break
+      // 回读比对」这一条路径，宁多勿失由 fail-open 分支（meta 不可读 → break
       // 落写）与缓存失效回读盘比对继续兜住。
       if (prev && !Buffer.isBuffer(content) && prev.content === content) {
         setVersionCache(cacheKey, { id: existing[i]!.id, fp })
@@ -340,7 +340,7 @@ export function writeVersion(
   if (meta.pinned) front.push('永久: true')
   front.push('---', '')
   const file = join(versionsDir, encodeDocDirName(docId), `${id}.md`)
-  // R26-52（二十六轮）：Buffer 直存字节档——非 UTF-8 源（GBK 旧档）的结构性留底
+  // Buffer 直存字节档——非 UTF-8 源（GBK 旧档）的结构性留底
   //（移动/删除前，service.ts 调用点）若按 utf-8 文本写，U+FFFD 替换符落盘后原字节
   // 永久失真（假留底：正文被覆盖后无任何字节级可恢复副本）。fm 头恒 utf-8，正文段
   // 原字节拼接，快照文件即字节档。
@@ -350,14 +350,14 @@ export function writeVersion(
     Buffer.isBuffer(content) ? Buffer.concat([Buffer.from(frontText, 'utf8'), content]) : frontText + content,
     { fsync: true },
   )
-  // P3-14 + AA-P1-1：写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
+  // + 写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
   // 命中时校验该 id 仍在盘；Map 有 size 上限防缓涨）
   setVersionCache(cacheKey, { id, fp })
-  // R0912-E-P3-2（2026-09-12 独立重评修复批）：prune 复用本函数已 listVersions 的
+  // （修复批）：prune 复用本函数已 listVersions 的
   // existing（补上刚写入的新版本条目 = 与 prune 内部重扫结果恒一致），跳过重复
   // readdir。列表必须按 listVersions 同款比较器排序（新在前）——prune 以「all[0]
   // 最新」为前提做数量兜底截取，裸 append 会把新版本排到队尾被当最旧误删。
-  //（并合批 2026-09-12：比较器收编 compareVersionIdDesc 单源——R0912-5 把 listVersions
+  //（并合6-09-12：比较器收编 compareVersionIdDesc 单源—— 把 listVersions
   // 改字节序后，此处原 localeCompare 同款副本与其漂移，故共用单源。）
   pruneVersions(
     versionsDir,
@@ -369,7 +369,7 @@ export function writeVersion(
   return id
 }
 
-/** R64-12（十二轮）：fm 值单行化消毒——reason 含章节标题，标题带换行时直拼会把后续
+/** fm 值单行化消毒——reason 含章节标题，标题带换行时直拼会把后续
  *  行伪装成 front matter 键值行，版本元数据失真（readVersionMeta 可能 null → 该版本从
  *  AI 轨迹消失）。控制字符折空格收一行；` # `/引号由 stringifyValue 按需引号化兜住
  *  （与解析端 unquote 对称）。 */
@@ -377,11 +377,11 @@ function sanitizeFmLine(s: string): string {
   return s.replace(/[\r\n\t]+/g, ' ').trim()
 }
 
-/** 版本列表单源比较器：id 降序（新在前）。R0912-5（2026-09-11 重评-0911c 修复批）：
+/** 版本列表单源比较器：id 降序（新在前）。（c 修复批）：
  *  localeCompare → 字节序比较——id 是 26 字符 Crockford base32（fs/id.ts，全大写 ASCII：
  *  0-9 在前 A-Z 在后，无小写/重音/多字节），字节序即 ULID 编码序、时间序 = 列表序不再
  *  依赖 locale（localeCompare 的排序规则随运行环境 ICU/locale 漂移，等价类折叠可能扰动
- *  同前缀 id 的相对序）。并合批 2026-09-12 收编单源：R0912-E-P3-2 的 writeVersion
+ *  同前缀 id 的相对序）。并合6-09-12 收编单源： 的 writeVersion
  *  knownList 排序同用本比较器（其注释本就要求「listVersions 同款比较器」），防两处漂移。 */
 function compareVersionIdDesc(a: VersionInfo, b: VersionInfo): number {
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0
@@ -395,7 +395,7 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
   const seen = new Set<string>()
   for (const dir of docVersionDirs(versionsDir, docId)) {
     if (!existsSync(dir)) continue
-    // R72-6（二十轮 B-5）：existsSync→readdirSync 之间并发 purge 落间则 readdir 裸抛，
+    // existsSync→readdirSync 之间并发 purge 落间则 readdir 裸抛，
     // 列表调用整体失败。该目录按空处理（读失败无数据损伤；另一侧目录照常取并集）
     let names: string[]
     try {
@@ -404,7 +404,7 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       continue
     }
     for (const name of names) {
-      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——win 资源管理器
+      // .md 判定收敛 isMdFileName（大小写不敏感）——win 资源管理器
       // 改 .MD 后版本档案列表静默失明；AppleDouble `._` 前缀跳过条件不变。
       // 下方 slice(0, -3) 剥 '.MD' 同为 3 字符，无需改。
       if (name.startsWith('._') || !isMdFileName(name)) continue
@@ -415,7 +415,7 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       out.push({ id, path: join(dir, name) })
     }
   }
-  // R0912-5（2026-09-11 重评-0911c 修复批）：localeCompare → 字节序比较（比较器已上提
+  // （c 修复批）：localeCompare → 字节序比较（比较器已上提
   // compareVersionIdDesc 单源，注释随迁）。降序语义不变。
   return out.sort(compareVersionIdDesc)
 }
@@ -439,8 +439,8 @@ function metaFromMap(map: Map<string, unknown>, id: string): VersionMeta & { tim
 }
 
 /** 读单个版本：剥 front matter → 内容 + 元信息。文件缺失/损坏返回 null。
- *  注意 content 是 utf-8 文本视图：对 R26-52 字节档（非 UTF-8 源按原字节留底）必然
- *  有损（U+FFFD）——字节保真读用 readVersionRaw（R34D-18）。 */
+ *  注意 content 是 utf-8 文本视图：对字节档（非 UTF-8 源按原字节留底）必然
+ *  有损（U+FFFD）——字节保真读用 readVersionRaw。 */
 export function readVersion(
   versionsDir: string,
   docId: string,
@@ -459,7 +459,7 @@ export function readVersion(
 }
 
 /**
- * R62-36：只读版本 front matter（头部），不加载正文——收割判定 origin 用。
+ * 只读版本 front matter（头部），不加载正文——收割判定 origin 用。
  * readVersion 会连同整篇正文一起读进内存（listAiVersions 对非 git 后端逐版全量
  * 整读两遍，长文大海捞针只为拿 origin/原因/字数）；本变体用 bounded read 只取
  * 文件头 4KB（版本 front matter 是文件起始的固定小段，远小于该上界），解析出与
@@ -480,7 +480,7 @@ export function readVersionMeta(
   let head: string
   try {
     // bounded read 只取头部，避免整读大正文入内存
-    // R67-12（十五轮）：4KB → 64KB——超长 frontmatter（异常长的「原因」等 fm 字段，
+    // 4KB → 64KB——超长 frontmatter（异常长的「原因」等 fm 字段，
     // 或历史工具写入的赘余 fm）跨过 4KB 边界时闭合 --- 落在读取窗外，splitFrontMatter
     // 失败整版本被静默跳过；64KB 覆盖一切现实 fm 规模仍保有界（MB 级正文不入内存）
     const HEAD_LIMIT = 65_536
@@ -502,20 +502,20 @@ export function readVersionMeta(
 }
 
 /** 行是否恰为零缩进 fence `---`（容忍尾随 [ \t]* 与 \r 尾）——与 splitFrontMatter 的
- *  闭合判定同口径。R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：补 R54-E-2 尾随
+ *  闭合判定同口径。（GLM-5.3 修复批）：补 尾随
  *  空白容忍——文本侧（frontmatter-core）五十四轮起容忍 `--- `（编辑器/同步盘常注入），
  *  字节层仍只认裸 `---`/`---\r`，同文件两侧判定漂移：文本侧读得的档案字节层读 null。 */
 function isFenceLine(b: Buffer): boolean {
   if (b.length < 3) return false
   if (b[0] !== 0x2d || b[1] !== 0x2d || b[2] !== 0x2d) return false // '---'
   let i = 3
-  while (i < b.length && (b[i] === 0x20 || b[i] === 0x09)) i++ // 尾随 [ \t]*（R54-E-2 同口径）
+  while (i < b.length && (b[i] === 0x20 || b[i] === 0x09)) i++ // 尾随 [ \t]*（同口径）
   return i === b.length || (i === b.length - 1 && b[i] === 0x0d)
 }
 
 /**
  * 字节层剥版本文件的 front matter：fm 头恒 utf-8（writeVersion 写侧保证），正文可为
- * 任意字节（R26-52 字节档）。先整体 utf-8 文本化再 split 的做法对非 UTF-8 正文必有损
+ * 任意字节（字节档）。先整体 utf-8 文本化再 split 的做法对非 UTF-8 正文必有损
  * （U+FFFD 替换不可逆），故闭合 --- 在字节层按行定位——\n 分行对多字节正文无歧义
  * （UTF-8/GBK 等编码的非 ASCII 字节恒 ≥0x80，不与 \n / `-` 碰撞）。判定口径与
  * frontmatter-core 的 splitFrontMatter 对齐：去 UTF-8 BOM、首行整行 ---、闭合行
@@ -545,8 +545,8 @@ function splitVersionFileBytes(buf: Buffer): { fmRaw: string; body: Buffer } | n
 }
 
 /**
- * R34D-18（三十四轮）：字节保真读——正文段原样返回 Buffer，不做法定编码假设。
- * 动机：R26-52 写侧对非 UTF-8 源（GBK 旧档）按原字节留底，但读侧唯一入口
+ * 字节保真读——正文段原样返回 Buffer，不做法定编码假设。
+ * 动机：写侧对非 UTF-8 源（GBK 旧档）按原字节留底，但读侧唯一入口
  * readVersion 走 utf-8 文本化，U+FFFD 替换后原字节读不出（盘上字节在、读出必失真）
  * ——写读不对称使字节档的「恢复」形同虚设。本入口闭合「写入保的字节可无损读出」
  * 不变量：fm 头解析口径与 readVersion 完全一致（metaFromMap 同源），正文零解码。
@@ -575,8 +575,8 @@ export function readVersionRaw(
 }
 
 /** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。
- *  R49-12（评审 R49）：展示信息此前逐版本整读 readVersion（含全文入内存），而 UI 列表
- *  只需 meta——改走 readVersionMeta 头部 bounded read（R62-36/R66-19 同族收编）；仅
+ *  （评审）：展示信息此前逐版本整读 readVersion（含全文入内存），而 UI 列表
+ *  只需 meta——改走 readVersionMeta 头部 bounded read（/同族收编）；仅
  *  meta 头读失败（头部损坏/截断，整读兜底与原口径一致）或 meta 无「字数」字段（旧版本
  *  未记，需 countWords 现算）时才回落整读。对外 VersionEntry 字段与取值口径不变。 */
 export function listVersionEntries(
@@ -623,9 +623,9 @@ export function listVersionEntries(
  * | 总数超 maxCount  | 从最旧删（pinned 不删）|
  *
  * pinned（定稿里程碑）恒保留；头部不可读（是否定稿无法判定）的版本按 pinned 同等
- * 保护不删（R34D-14，宁多勿失——与写侧 R73-35 fail-open 口径同向）。
+ * 保护不删（宁多勿失——与写侧 fail-open 口径同向）。
  *
- * R0912-E-P3-2（2026-09-12 独立重评修复批）：可选 knownList——writeVersion 写入后
+ * （修复批）：可选 knownList——writeVersion 写入后
  * 顺带 prune 的链路此前对刚 listVersions 过的档案再全量扫一遍目录（重复 readdir，
  * 长档案高频留底白付）；调用方传入已知列表时跳过内部 listVersions（列表内容与
  * 重扫结果一致的前提由调用方保证）。其他调用方不传，行为不变（内部现扫）。
@@ -651,13 +651,13 @@ export function pruneVersions(
   const maxAge = policy.maxDays * DAY_MS
 
   for (const s of ascending) {
-    // R66-19（十四轮）：分层清理只判 pinned（meta 字段）——整读 readVersion 把全文
-    // 读进内存只为拿一个布尔位；改 readVersionMeta 头部 bounded read（R62-36 漏迁移），
+    // 分层清理只判 pinned（meta 字段）——整读 readVersion 把全文
+    // 读进内存只为拿一个布尔位；改 readVersionMeta 头部 bounded read（漏迁移），
     // prune 每文档全量扫版本时的全文读归零。
     const meta = readVersionMeta(versionsDir, docId, s.id)
-    // R34D-14（三十四轮）：头部不可读（截断/损坏）⇒ 是否定稿 pinned 无法判定——此前
+    // 头部不可读（截断/损坏）⇒ 是否定稿 pinned 无法判定——此前
     // 落「非 pinned」分支，头部受损的定稿档照样被超期/maxCount 清理删除，「定稿永久
-    // 保留」承诺失守，与写侧 R73-35「meta 不可读 fail-open 落写」的宁多勿失口径相反。
+    // 保留」承诺失守，与写侧 「meta 不可读 fail-open 落写」的宁多勿失口径相反。
     // 删侧同向：无法判定 ⇒ 不删，按 pinned 同等保护（含 maxCount 兜底不裁，防兜底
     // 兜不住再被裁）。注：readVersionMeta 对「文件已被并发删」同样返回 null，此时
     // keep 一个已不存在的 id 无副作用。
@@ -694,7 +694,7 @@ export function pruneVersions(
 
   // 数量兜底：留最新的 maxCount 个；pinned 恒在（all 已按 id 降序 = 新在前）
   if (keep.size > policy.maxCount) {
-    // P2-BE-2：pinned >= maxCount 时 maxCount - pinned.size 为负，slice(0, -N) 返回除末尾 N 个外全部（非空）→ Math.max 兜底
+    // BE-2：pinned >= maxCount 时 maxCount - pinned.size 为负，slice 返回除末尾 N 个外全部（非空）→ Math.max 兜底
     const survivors = all.filter((s) => keep.has(s.id) && !pinned.has(s.id)).slice(0, Math.max(0, policy.maxCount - pinned.size))
     keep.clear()
     for (const s of pinned) keep.add(s)
@@ -702,13 +702,13 @@ export function pruneVersions(
   }
 
   let removed = 0
-  // kk-P2-6：本 doc 缓存条目的 key 前缀（删除版本时同步失效用——头注释承诺的第二道防线）
+  // kk-本 doc 缓存条目的 key 前缀（删除版本时同步失效用——头注释承诺的第二道防线）
   const cacheScope = `${versionsDir}\u0000${docId}\u0000`
   for (const s of all) {
     if (keep.has(s.id)) continue
     try {
-      // 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编 rmWithRetry（fs/atomic.ts
-      // R40-19，R42-10 trash.ts 先例）——win 杀软/索引器瞬时锁（EPERM/EBUSY）下裸
+      // （全库代码审）：逐版本删除收编 rmWithRetry（fs/atomic.ts
+      // trash.ts 先例）——win 杀软/索引器瞬时锁（EPERM/EBUSY）下裸
       // unlinkSync 直败会让本该清掉的旧版本滞留（磁盘占用逐次累积）。rm 注入 unlinkSync
       // 与原裸调逐位同源：ENOENT（已被别处删掉）等确定性错误照旧直抛走 catch，仅
       // EPERM/EBUSY 进 3×50ms 指数退避。
@@ -720,14 +720,14 @@ export function pruneVersions(
       continue
     }
     // 失效指向被删版本的指纹缓存条目（此前未实现：残留缓存会让「内容恰好等于被删
-    // 版本」的强制留底被去重吞掉，违背 W0-1 留底纪律——虽有读盘比对第一道防线，
+    // 版本」的强制留底被去重吞掉，违背留底纪律——虽有读盘比对第一道防线，
     // 但该防线只在写路径顺带查询时触发，删后到下次写之间存在错窗）
     for (const [key, entry] of latestOriginHash) {
       if (key.startsWith(cacheScope) && entry.id === s.id) latestOriginHash.delete(key)
     }
     // macOS AppleDouble 伴生文件一并清理
     try {
-      // 重评-14：伴生删除同收编退避版（rm 注入 unlinkSync 同主删口径——瞬时锁退避
+      // 伴生删除同收编退避版（rm 注入 unlinkSync 同主删口径——瞬时锁退避
       // 自愈，ENOENT「没有就算了」语义不变；退避后仍失败伴生文件无害，随下次 prune 重试）
       rmWithRetry(join(dirname(s.path), `._${s.id}.md`), { rm: (p) => unlinkSync(p) })
     } catch {
@@ -751,13 +751,13 @@ export function migrateVersionsDir(bookRoot: string): boolean {
   if (!existsSync(legacy)) return false
   if (existsSync(target)) return false
   try {
-    // R38-13（三十八轮）：收编 renameWithRetry——win 瞬时占用（杀软/索引器/同步盘）
+    // 收编 renameWithRetry——win 瞬时占用（杀软/索引器/同步盘）
     // 整目录 rename EPERM/EBUSY 时 3×50ms 退避自愈；失败语义不变（warn + false 幂等重试）
     renameWithRetry(legacy, target)
     return true
   } catch (e) {
-    // R29-n/C-6（二十九轮）：迁移失败补 warn 留痕——原静默 return false。
-    // R30-19（三十轮）：文案如实化——旧文称「读取方仍兼容旧位置」不实：listVersions
+    // /：迁移失败补 warn 留痕——原静默 return false。
+    // 文案如实化——旧文称「读取方仍兼容旧位置」不实：listVersions
     // 只读 .版本/，迁移失败时旧位置快照在版本历史中**不可见**（文件仍在盘上，可手工
     // 恢复），按真实后果与处置指引告警。
     log.warn(

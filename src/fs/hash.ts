@@ -3,7 +3,7 @@
  *
  * 底座级通用工具，单源：revision（保存协议并发控制）、gate/confirm（确认哈希）、
  * state（态机校验）、review（草稿哈希）共用同一份字节指纹。
- * 从 gate/confirm 下沉至此（M10 G1），消除 document/revision → gate 的反向依赖。
+ * 从 gate/confirm 下沉至此（M10），消除 document/revision → gate 的反向依赖。
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -14,7 +14,7 @@ export function hashFile(filePath: string): string {
   return 'sha256:' + createHash('sha256').update(buf).digest('hex')
 }
 
-/** 字节指纹（内存字节版，R72-5 / 二十轮 B-10）：与 hashFile 同算法。调用方已持字节
+/** 字节指纹（内存字节版， / 二十轮）：与 hashFile 同算法。调用方已持字节
  *  （如定稿锁内一次读）时免二次读盘，保证指纹与内容严格同源。 */
 export function hashBytes(data: Buffer): string {
   return 'sha256:' + createHash('sha256').update(data).digest('hex')

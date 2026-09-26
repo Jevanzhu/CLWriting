@@ -13,12 +13,12 @@ import { samePath } from '../fs/user-data-path.js'
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
 /** 写入一个 Lead 到 leads 表 + lead_history 表
- *  P3：写语句 .all() 改 .run()（node:sqlite 语义：写语句不该用查询接口）；
- *  重评-0914-三轮 P3-4：leads 主表写并入履历段同一 SAVEPOINT 自包原子——不依赖
+ *  ：写语句 .all 改 .run（node:sqlite 语义：写语句不该用查询接口）；
+ *  -：leads 主表写并入履历段同一 SAVEPOINT 自包原子——不依赖
  *  外层 rebuild 事务（rebuild 挂了 BEGIN 时嵌套 BEGIN 会抛错；SAVEPOINT 可嵌套，
  *  独立调用本函数或在外层事务内调用均成立，中途失败回滚不留半截主表行/履历）。 */
 export function syncLead(db: DatabaseSync, lead: Lead): void {
-  // 重评-0914-三轮 P3-4：leads 主表 INSERT 挪进 SAVEPOINT 内——原先在保存点之外，
+  // -：leads 主表 INSERT 挪进 SAVEPOINT 内——原先在保存点之外，
   // 独立调用（无 rebuild 整体事务兜底）且履历段失败时 leads 已写、lead_history 回滚，
   // 主表与履历半不一致；现主表+履历整段失败全回（保存点名沿用 sync_lead_history 不改）。
   db.exec('SAVEPOINT sync_lead_history')
@@ -59,7 +59,7 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
     })
     db.exec('RELEASE sync_lead_history')
   } catch (err) {
-    // R43-18（四十三轮）：R61-10 同款加固——SAVEPOINT 语义与裸 ROLLBACK 不同：
+    // 同款加固——SAVEPOINT 语义与裸 ROLLBACK 不同：
     // SQLITE_FULL/IOERR 等自动回亡外层事务时连 SAVEPOINT 一并销毁，此时
     // ROLLBACK TO / RELEASE 均抛 "no such savepoint"，会掩蔽原始写错误。
     // 两步整对包裹（首步抛 ⟺ savepoint 已销毁，RELEASE 无从成功）、原始错误上抛
@@ -74,7 +74,7 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
 }
 
 /** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性。
- *  R62-32：生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
+ *  ：生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
  *  新生产链上依赖。 */
 export function loadLeadFromCache(
   db: DatabaseSync,
@@ -114,15 +114,15 @@ export function loadLeadFromCache(
 // ── 章节入库（#7 第 5 节对接 chapters 表）────────
 
 export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
-  // R26-54（二十六轮）：重复章号入库留痕——chapters.number 是 PRIMARY KEY，INSERT OR
+  // 重复章号入库留痕——chapters.number 是 PRIMARY KEY，INSERT OR
   // REPLACE 静默后者胜（legacy 双目录/复制章场景），章节索引与文档树从此漂移且零可见
-  // 性。R48-64（四十八轮）：console.warn 改 log.warn——Electron 生产 console 不被采集
-  //（R66-10 已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
+  // 性。：console.warn 改 log.warn——Electron 生产 console 不被采集
+  //（已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
   // 指中英映射不引数据/域依赖，log 观测面不在此列。
   const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as
     | { path: string }
     | undefined
-  // R0913-win P3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：路径比较收编
+  // （折叠键族， win 适配修复批）：路径比较收编
   // samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的两次入库此前
   // 被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
   if (prev && !samePath(prev.path, ch._path ?? '')) {
@@ -140,7 +140,7 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
     hook_level: ch.钩子强弱 ?? null,
     emotion: ch.情绪定位 ?? null,
     path: ch._path ?? '',
-  }) // P3：写语句用 .run()（.all() 是查询接口）
+  }) // 写语句用 .run（.all 是查询接口）
 }
 
 // ── 摘要入库（#4 第 3 节 summaries 表）────────────
@@ -153,7 +153,7 @@ export function syncSummary(
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`,
-  ).run(scope, ref, path) // P3：写语句用 .run()
+  ).run(scope, ref, path) // 写语句用 .run
 }
 
 // ── meta（重建戳等）─────────────────────────────
@@ -161,7 +161,7 @@ export function syncSummary(
 export function setMeta(db: DatabaseSync, key: string, value: string): void {
   db.prepare(
     `INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`,
-  ).run(key, value) // P3：写语句用 .run()
+  ).run(key, value) // 写语句用 .run
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

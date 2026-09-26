@@ -17,7 +17,7 @@ import { useUnloadFlush } from '../composables/useUnloadFlush'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 
-// RC 源码重审 B-5：本页 setup 只留接线与模板——三段切书守卫状态机 / 关窗刷新卸载冲刷 /
+// RC：本页 setup 只留接线与模板——三段切书守卫状态机 / 关窗刷新卸载冲刷 /
 // 自动保存节拍 / SSE 自愈接线（心跳 + SSE 同挂载点 + 半开看门狗 + 服务重启广播）分别
 // 抽入 composables/{useBookSwitchGuard,useUnloadFlush,useAutosave,useSseSelfHeal}。
 
@@ -30,11 +30,11 @@ const bookName = computed(() => {
   const n = route.params.name
   return n === undefined || n === null ? '' : String(n)
 })
-// 持有 SSE 自愈句柄——切书链尾调 resync() 强制重取连接级 sync 快照（sync 是连接级
+// 持有 SSE 自愈句柄——切书链尾调 resync 强制重取连接级 sync 快照（sync 是连接级
 // 一次性推送，时序见 useBookSwitchGuard 内说明）
 const sse = useSseSelfHeal(() => bookName.value)
 
-// RC 源码重审 B-5：切书链（watch(bookName) 编排 + 三段守卫 + 取消回滚）抽入
+// RC：切书链（watch(bookName) 编排 + 三段守卫 + 取消回滚）抽入
 // useBookSwitchGuard；resync 取 useSseSelfHeal 句柄（心跳与 SSE 同源挂载，防
 // 「SSE 与心跳分处两处」断链——收拢已由 composable 结构保证）。
 useBookSwitchGuard({ bookName, resync: () => sse.resync() })
@@ -51,7 +51,7 @@ watch(
   () => ws.validate(new Set(tree.byDocId.keys()), tree.ownerBook),
 )
 
-// RC 源码重审 B-5：自动保存节拍与关窗/刷新/卸载冲刷各自抽成 composable；本页只负责
+// RC：自动保存节拍与关窗/刷新/卸载冲刷各自抽成 composable；本页只负责
 // 按需挂上。
 useAutosave()
 useUnloadFlush()
@@ -79,7 +79,7 @@ useUnloadFlush()
 </template>
 
 <style scoped>
-/* P3 面板切换：view 间淡入淡出（out-in：旧出完再入新，无重叠布局抖动） */
+/* 面板切换：view 间淡入淡出（out-in：旧出完再入新，无重叠布局抖动） */
 .clw-view-enter-active,
 .clw-view-leave-active {
   transition: opacity var(--dur-fast) var(--ease-out);

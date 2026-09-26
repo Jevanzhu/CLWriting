@@ -6,7 +6,7 @@ import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ModalMask from '../ui/ModalMask.vue'
 
-// 重评-0912-2 P3（2026-09-12 全量重评修复批）：
+// （修复批）：
 // ① prop 名「标题」→ title（全库中文 prop 唯一孤例收敛）；fm 数据键「标题」不随改——
 //    emit save 载荷与调用方 onSaveMeta 仍用「标题」，边界在本件 emit 处转换。
 // ② 模态可及性补齐：role="dialog"/aria-modal/aria-label（全库 8 模态唯一漏的一件），
@@ -27,7 +27,7 @@ const emit = defineEmits<{
 
 const titleInput = ref('')
 const noInput = ref('')
-// R70-28（十八轮）：章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
+// 章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
 // Enter 提交「看似失灵」无任何提示
 const numError = ref('')
 watch(
@@ -36,7 +36,7 @@ watch(
     if (v) {
       titleInput.value = props.title
       noInput.value = props.num === null ? '' : String(props.num)
-      // R71-31（七十一轮）：重开复位错误提示（R70-28 引入面）——置错后取消关闭再开，
+      // 重开复位错误提示（引入面）——置错后取消关闭再开，
       // numError 残留会让作者误以为新弹窗的章号仍非法
       numError.value = ''
     }
@@ -46,7 +46,7 @@ watch(
 
 function onSave(): void {
   const n = Number(noInput.value)
-  // 低-3（第十轮）：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
+  // 低-3章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
   // 从「章号 = 整数编号」特性中脱落（前端拒收 + 服务端 documents.ts 同点位 fail-closed）
   if (!Number.isInteger(n) || n < 1) {
     numError.value = '章号须为 ≥1 的整数'
@@ -59,21 +59,21 @@ function onSave(): void {
 const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
 
-// R35-36：焦点圈（域内既有惯例 useFocusTrap——B-9/R61-3 同族的弹窗可及性配套）：
+// 焦点圈（域内既有惯例 useFocusTrap——/同族的弹窗可及性配套）：
 // 打开时焦点入首个控件，Tab 循环锁在弹窗内，关闭归还焦点
 const dlgRef = ref<HTMLElement | null>(null)
 useFocusTrap(dlgRef)
 
 function onKeySave(e: KeyboardEvent): void {
-  // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
+  // IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
   // 放行会以缺字标题保存并触发 rename）
   if (isImeComposing(e)) return
-  // R49-29（四十九轮）：Enter 目标是按钮时让渡原生激活——容器级 @keydown.enter
+  // Enter 目标是按钮时让渡原生激活——容器级 @keydown.enter
   // 此前抢在按钮 click 前保存，焦点在「取消」钮上按 Enter 变成先保存后取消
   if ((e.target as HTMLElement | null)?.closest('button')) return
   onSave()
 }
-// R35-36：IME 组合期 Esc 让渡（B-9 同族）——组合中按 Esc 是收输入法候选框，放行会误关弹窗
+// IME 组合期 Esc 让渡（同族）——组合中按 Esc 是收输入法候选框，放行会误关弹窗
 function onKeyEsc(e: KeyboardEvent): void {
   if (isImeComposing(e)) return
   emit('update:modelValue', false)
@@ -82,7 +82,7 @@ function onKeyEsc(e: KeyboardEvent): void {
 
 <template>
   <teleport to="body">
-    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
+    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
          遮罩 CSS 与浓度不再本组件自持 -->
     <ModalMask :open="modelValue" kind="chapterMeta" @mask-click="emit('update:modelValue', false)">
       <div

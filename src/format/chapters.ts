@@ -22,12 +22,12 @@ const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', 
 
 const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标', '目标情绪', '核心反转', '序', '并入'])
 
-// ── 阶段 24 结构键归一（留洞制 S2：序/并入 读侧小函数，tree probe 复用）──
+// ── 阶段 24 结构键归一（留洞制：序/并入 读侧小函数，tree probe 复用）──
 
 /**
- * `序` 值归一（S2，D2/D5）：显示排序键。number 直取；字符串 trim 后 Number() 强转
+ * `序` 值归一（/）：显示排序键。number 直取；字符串 trim 后 Number 强转
  * （parseValue 只认纯整数，`序: 12.5` 落字符串——拆分中值是合法主流形态，读侧收编）；
- * 非正有限数（`序: 五`/`序: -3`/空串）按缺省 undefined 处理不报错（值校验 P3 口径）。
+ * 非正有限数（`序: 五`/`序: -3`/空串）按缺省 undefined 处理不报错（值校验口径）。
  * probe 侧传原始捕获串（可能带成对引号），先剥成对引号再走同一强转。
  */
 export function parseOrderOf(v: unknown): number | undefined {
@@ -46,7 +46,7 @@ export function parseOrderOf(v: unknown): number | undefined {
 }
 
 /**
- * `并入` 值归一（S2，D3）：本章吸收的源章号清单 → number[]。
+ * `并入` 值归一：本章吸收的源章号清单 → number[]。
  * 三形态兼容：number → [n]；字符串按 `,`/`、` 双分隔切分逐项强转正整数；数组逐项
  * 同校验（parseFlat 内联数组项为 string）。非法项丢弃，全空/缺字段 → undefined。
  */
@@ -84,7 +84,7 @@ export function parseMergedInto(v: unknown): number[] | undefined {
 }
 
 /**
- * fm `已发布` 值判定单源（S2 随批）：树 probe（parsePublishedValue 原始捕获后调本函数）
+ * fm `已发布` 值判定单源（随批）：树 probe（parsePublishedValue 原始捕获后调本函数）
  * 与导出 `_raw.已发布` 解析（readChapter 容错落 _raw 为 string/string[]）同式——
  * 仅认 true / 'true'（'是'/'1' 等不认，对齐 probe 既有口径）。
  */
@@ -96,9 +96,9 @@ export function isPublishedValue(v: unknown): boolean {
 }
 
 /** 读取章节 md → ChapterMeta（容错）。
- * @param includeBody W-P2-4：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
+ * @param includeBody ：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
  *                    默认缺省不驻留正文，既有调用方零成本。
- * @param content R63-7（十一轮）：预读文本（调用方单次读取的快照）——传入时不再读文件，
+ * @param content ：预读文本（调用方单次读取的快照）——传入时不再读文件，
  *                机检/三审与 hash 从同一快照派生（三审端点三次独立读会来自三个时刻）。 */
 export function readChapter(
   filePath: string,
@@ -110,7 +110,7 @@ export function readChapter(
 
   const map = parseFlat(r.fmRaw)
   const 章号Raw = map.get('章号')
-  // R62-13：章号门槛收敛到 number——front matter 由 AI 产出/作者手改，`章号: 5`（int）
+  // 章号门槛收敛到 number——front matter 由 AI 产出/作者手改，`章号: 5`（int）
   // 与 `章号: "5"`（parseValue 对带引号值 unquote 后回落字符串）都该认；缺字段与
   // 非数字格式（`章号: 五`、`章号: 5.0`）维持错误，但文案区分「缺少」与「格式不符」，
   // 便于 AI 自愈/作者改对（此前带引号整章对本系统隐形——导出 warnings、近况组装、
@@ -126,7 +126,7 @@ export function readChapter(
   } else {
     return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' } }
   }
-  // R31-15（三十一轮）：章号安全守卫——非正整数/超安全整数范围（`章号: -3`、
+  // 章号安全守卫——非正整数/超安全整数范围（`章号: -3`、
   // `章号: 99999999999999999999` 解析成 1e20）此前照收，下游比较/排序/文件名组装
   // 产生荒谬行为；与 parseChapterFileName 的 isSafeInteger 口径对齐（fail-loud，
   // 文案沿用「格式不符」便于 AI 自愈与作者改对）。
@@ -135,7 +135,7 @@ export function readChapter(
   }
 
   // 收集未知字段
-  // R51-F-6（五十一轮）：数组型未知字段按 string[] 原样承载（对齐 leads.ts R64-17
+  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts
   // 参照修法）——此前 String(v) 把数组压成 "a,b" 单串，回写 stringifyValue 按标量
   // 引号化后项内逗号错位（`[a, b]` → `["a,b"]` 往返劈裂）。
   const _raw: Record<string, string | string[]> = {}
@@ -143,7 +143,7 @@ export function readChapter(
     if (!KNOWN_FM_KEYS.has(k)) _raw[k] = Array.isArray(v) ? v : String(v)
   }
 
-  // R73-16（二十一轮 B-3）：必填枚举（钩子类型/钩子强弱/情绪定位）缺字段此前静默补
+  // 必填枚举（钩子类型/钩子强弱/情绪定位）缺字段此前静默补
   // 默认（悬念钩/中/铺垫），机检 fm 检对「缺失」零红项，与 draft.ts「至少包含」文案相悖。
   // 缺失清单记入 _fmMissing，checkFrontMatter 据此产红项（fm-missing）；非法值仍走
   // validateEnums（fm-enum）——「缺字段」与「写了非法值」分开呈现。空串视同缺失。
@@ -156,11 +156,11 @@ export function readChapter(
   requireEnum('钩子强弱')
   requireEnum('情绪定位')
 
-  // R41-14（四十一轮）：枚举默认值改 `||`——`??` 接不住空串，`钩子类型: ''`（手写空
+  // 枚举默认值改 `||`——`??` 接不住空串，`钩子类型: ''`（手写空
   // 值）在 requireEnum 侧已记 fm-missing，值侧却穿透空串 → validateEnums 再报
   // fm-enum 越界，同字段双红矛盾（机检消费方对「缺」与「非法」的改法互斥）。空串
   // 一律落默认，红项只由 fm-missing 承载。枚举合法值均非空串，`||` 语义面精确。
-  // R41-15（四十一轮）：标题单行化——块标量（`标题: |`）多行值直落会让 \n 渗进
+  // 标题单行化——块标量（`标题: |`）多行值直落会让 \n 渗进
   // ChapterMeta.标题 的全部消费面（导出载荷标题行、前端展示、警告文案；文件名侧
   // 虽有 sanitize 剥控制字符兜底，其余消费面无兜底）。读取侧各行 trim 后空格连接
   // 单行收口（folded `>` 形 parseFlat 已折成单行，literal `|` 形在此归一）。
@@ -182,8 +182,8 @@ export function readChapter(
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
   if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
-  // S2（阶段 24）：结构键解析——入 KNOWN_FM_KEYS 后不再落 _raw；`已发布` 仍留 _raw
-  // （fm 重组侧整体保形见 S3，导出侧 D7 published 判据从 _raw 解析）。
+  // （阶段 24）：结构键解析——入 KNOWN_FM_KEYS 后不再落 _raw；`已发布` 仍留 _raw
+  // （fm 重组侧整体保形见，导出侧 published 判据从 _raw 解析）。
   if (map.has('序')) {
     const order = parseOrderOf(map.get('序'))
     if (order !== undefined) chapter.序 = order
@@ -193,7 +193,7 @@ export function readChapter(
     if (merged !== undefined) chapter.并入 = merged
   }
   if (map.has('字数目标')) {
-    // R64-19（十二轮）：Number() 无守卫——手写「三千」→ NaN 落进元数据，区间比较
+    // Number 无守卫——手写「三千」→ NaN 落进元数据，区间比较
     // 恒 false 逐步污染预算/统计。非有限数按「未写」处理，走默认回落链。
     const target = Number(map.get('字数目标'))
     if (Number.isFinite(target)) chapter.字数目标 = target
@@ -226,9 +226,9 @@ export function validateEnums(ch: ChapterMeta): string[] {
   return errs
 }
 
-/** 章号 → 按名定位文件时的全部合法前缀口径（单一真相源，CC-P2-21）。
+/** 章号 → 按名定位文件时的全部合法前缀口径（单一真相源）。
  *  正文目录里三种命名并存：legacy 无补零（5-标题.md）、短篇/存量草稿 3 位补零、
- *  长篇写侧 4 位补零（M-4·第十一轮统一：service 改名 / 前端新建复制 / 草稿新建
+ *  长篇写侧 4 位补零（统一：service 改名 / 前端新建复制 / 草稿新建
  *  一律经 words.chapterFilePrefix 单源，原草稿新建 3 位已对齐 4 位）。按章号定位
  *  文件必须三口径全试——此前 RAG 召回精准读正文只试「无补零 + 4 位」，3 位命名的
  *  章静默返回 null。 */
@@ -237,7 +237,7 @@ export function chapterNamePrefixes(chapter: number): string[] {
 }
 
 /** 扫描目录读所有章节（容错，递归子目录——支持 写作/正文/<卷>/ 结构）。
- * @param includeBody W-P2-4：为 true 时带出 _body（正文原文），导出等「meta+body 都要」的调用方一次读；
+ * @param includeBody ：为 true 时带出 _body（正文原文），导出等「meta+body 都要」的调用方一次读；
  *                     默认缺省（undefined/false）不驻留正文，既有调用方零成本。 */
 export function readChapterDir(
   dirPath: string,
@@ -272,10 +272,10 @@ export function readChapterDirSummary(dirPath: string): {
 }
 
 /**
- * stat 级章节元数据缓存核心（CC-P1-3）：热路径（GET /books、GET /overview、机检、
+ * stat 级章节元数据缓存核心：热路径（GET /books、GET /overview、机检、
  * 树红点聚合等）对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。
  * 此处按 (mtimeNs,size) 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除
- * 由每轮 walk 自愈。R62-35：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
+ * 由每轮 walk 自愈。：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
  * （同 ms 内改回同长内容的撞车窗口收窄到 ns 级，注释同步）。
  * 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）；latest 在同一轮 stat 里
  * 顺带跟踪最新 mtime 的章（readChapterDirSummary 消费），不产生第二次 stat。
@@ -284,15 +284,15 @@ function scanChapterDir(dirPath: string): ChapterDirScan {
   return driveToEnd(scanChapterDirCore(dirPath))
 }
 
-/** CC-P1-3：目录整扫结果（scanChapterDirCore 与其同步包装共用形状）。 */
+/** 目录整扫结果（scanChapterDirCore 与其同步包装共用形状）。 */
 interface ChapterDirScan {
   chapters: ChapterMeta[]
   errors: ParseError[]
   latest: { mtimeMs: number; no: number; title: string } | null
 }
 
-/** 阶段 52 批 1（P3-12）：目录整扫的让出粒度——每枚举 N 个 .md 项让出一次
- *  （含后续 stat/解析失败的项：扫描成本已付）。导出供测试锚（A2 按 K 断言）。 */
+/** 阶段 52 批 1：目录整扫的让出粒度——每枚举 N 个 .md 项让出一次
+ *  （含后续 stat/解析失败的项：扫描成本已付）。导出供测试锚（按 K 断言）。 */
 export const CHAPTER_SCAN_YIELD_EVERY = 25
 
 /**
@@ -302,7 +302,7 @@ export const CHAPTER_SCAN_YIELD_EVERY = 25
  */
 export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDirScan, unknown> {
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
-  // R70-21：FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
+  // FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
   if (!chapterDirCache.has(dirPath) && chapterDirCache.size >= CHAPTER_DIR_CACHE_MAX) {
     const oldest = chapterDirCache.keys().next().value
     if (oldest !== undefined) chapterDirCache.delete(oldest)
@@ -312,11 +312,11 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
   const errors: ParseError[] = []
   const seen = new Set<string>()
   let latest: { mtimeMs: number; no: number; title: string } | null = null
-  // N2（五十九轮）：walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
+  // walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
   // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
   let scanned = 0
   for (const { abs: fp } of walkMdEachGen(dirPath)) {
-    // 阶段 52 批 1：让出点（A2）——每 N 项一次，让出后本项照常处理
+    // 阶段 52 批 1：让出点——每 N 项一次，让出后本项照常处理
     if (++scanned % CHAPTER_SCAN_YIELD_EVERY === 0) {
       preludeYieldStats.chapterScan++
       yield
@@ -331,7 +331,7 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
     const hit = cache.get(fp)
     let chapter: ChapterMeta
     if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
-      chapter = cloneChapter(hit.chapter) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
+      chapter = cloneChapter(hit.chapter) // _raw 一并深拷贝——嵌套 mutate 不污染缓存
     } else {
       const r = readChapter(fp)
       if (!r.ok) {
@@ -343,7 +343,7 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
       chapter = cloneChapter(r.chapter)
     }
     chapters.push(chapter)
-    // R40-53（四十轮）：latest 决胜加章号 tie-break——快速建书/批量写章时相邻章 mtime
+    // latest 决胜加章号 tie-break——快速建书/批量写章时相邻章 mtime
     // 常落同一时钟刻（win 计时器粒度），原严格 > 使先枚举者（章号小）占住 latest，
     // 「最新章」非确定（书架卡显示第59章而全书 60 章的间歇假象）。同刻按章号取大，
     // 语义即「同时刻改动的章里取最新一章」，枚举序无关。
@@ -368,7 +368,7 @@ function readChapterDirUncached(
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
-  // N2（五十九轮）：同缓存版——walk 族收口改走 walk-md 共享口径
+  // 同缓存版——walk 族收口改走 walk-md 共享口径
   walkMdEach(dirPath, (fp) => {
     const r = readChapter(fp, includeBody)
     if (r.ok) chapters.push(r.chapter)
@@ -377,9 +377,9 @@ function readChapterDirUncached(
   return { chapters, errors }
 }
 
-/** CC-P1-3：章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
-/** Z-21（第五十八轮）：缓存章元数据克隆——浅拷贝之上再拷 _raw（嵌套对象与缓存共享
- *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立）；R73-16：_fmMissing 同理。 */
+/** 章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
+/** 缓存章元数据克隆——浅拷贝之上再拷 _raw（嵌套对象与缓存共享
+ *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立）；：_fmMissing 同理。 */
 function cloneChapter(c: ChapterMeta): ChapterMeta {
   return {
     ...c,
@@ -394,20 +394,20 @@ interface ChapterDirEntry {
   chapter: ChapterMeta
 }
 
-/** CC-P1-3：进程级章节元数据缓存（dirPath → 文件路径 → 条目）。
- *  R70-21（十八轮）：FIFO 上限 64 书目录（probeCache 4096/树索引 16 同款纪律）——
+/** 进程级章节元数据缓存（dirPath → 文件路径 → 条目）。
+ *  ：FIFO 上限 64 书目录（probeCache 4096/树索引 16 同款纪律）——
  *  此前无上限，多书长跑缓涨（每章仅 fm 元数据 KB 级，卫生项）。 */
 const CHAPTER_DIR_CACHE_MAX = 64
 const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
 
-/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用；生产侧按书失效走
+/** （修复批）：测试专用导出（零生产调用；生产侧按书失效走
  *  clearChapterDirCacheForBook，正常由每轮 walk 自愈）——清空章节元数据缓存。 */
 export function clearChapterDirCache(): void {
   chapterDirCache.clear()
 }
 
 /**
- * 内存闸（2026-08-24 审计 C2）：按 bookRoot 前缀清理章节元数据缓存——删书/改名时由
+ * 内存闸（审计）：按 bookRoot 前缀清理章节元数据缓存——删书/改名时由
  * books.ts 接线调用（clearChapterDirCache 全清会误伤其他书的活跃条目）。外层键是
  * readChapterDir 的 dirPath 实参，全部调用方均以 join(bookRoot, …) 构造（未 resolve），
  * 故前缀匹配用 bookRoot + 平台分隔符（sep）即可字节对齐、不引入 realpath 归一（两侧
@@ -426,5 +426,5 @@ export function clearChapterDirCacheForBook(bookRoot: string): number {
   return removed
 }
 
-// re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）
+// re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，.1）
 export { countWords, parseChapterFileName } from './words.js'

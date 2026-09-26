@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 可折叠分区：标题条点击 toggle，v-show 展开内容参与外层滚动（非内部固定高滚动）。
-// R34D-30（三十四轮）：可选受控模式（v-model:open）——折叠态原为组件内部 ref，
+// 可选受控模式（v-model:open）——折叠态原为组件内部 ref，
 // 随外层 v-if 卸载重建即归位 defaultOpen（如 SidebarRight 切 tab/切文档），手动
 // 折叠丢失；受控时状态由宿主持有、跨卸载存活。未传 open 的旧用法（WbAdvanced 等）
 // 仍走内部态，行为不变。

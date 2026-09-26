@@ -1,13 +1,13 @@
 /**
- * 机检端点（M12 块3 B3.1，editor 组）：
+ * 机检端点（M12 块3 .1，editor 组）：
  *
  * POST /api/books/:name/documents/:docId/check
  *   docId → 正文文档 → runAllChecks → CheckReport 直返（即算即显，**不落信封**）。
  *
- * 机检执行逻辑已下沉 src/check/run.ts（P1-8 架构治理），此处 re-export 兼容既有调用方
+ * 机检执行逻辑已下沉 src/check/run.ts（架构治理），此处 re-export 兼容既有调用方
  * （三审端点 review.ts、AI 编排层 orchestrate 均从内核直接 import）。
  *
- * 阶段 52 批 2（P3-13）：本端点改走 async 孪生 runCheckForDocumentAsync（rebuild 内核
+ * 阶段 52 批 2：本端点改走 async 孪生 runCheckForDocumentAsync（rebuild 内核
  * 搬 worker + 账本全书性/章纲整扫段分段让出）——慢盘上机检不再整段冻结事件循环，其间
  * SSE 心跳与其它请求照跑；信封/报告面与同步版逐位同款（等价性锚 =
  * test/check/check-chain-async-parity.test.ts）。
@@ -23,16 +23,15 @@ import { resolveBookOrReply, resolveDocFile, bookMovedFailure } from '../book-co
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
-import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字段单源（与 count.ts 口径一致）
+import { HANZI } from '../../../check/count.js' // 堆砌锚点汉字段单源（与 count.ts 口径一致）
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
-import { testableConst } from '../../../shared/testable.js'
 import {
   runCheckForDocumentAsync,
   collectTreeIssuesAsync,
   checkOutcomeStatus,
 } from '../../../check/run.js'
 
-// re-export（P1-8 下沉兼容：既有 import 方零感知）
+// re-export（下沉兼容：既有 import 方零感知）
 export {
   runCheckForDocument,
   runCheckForDocumentAsync,
@@ -44,38 +43,36 @@ interface CheckCtx {
   workDir: string | null
   /** 全局托底：short.strict 等书级未设键回落 global.json（喂机检的生效值） */
   userDataPath: string | null
+  /** 收尾：/tree-issues 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
+ * （undefined = 生产口径 5s 逐位不变） */
+  treeIssuesTtlMs?: number | null
 }
 
-// ── R75-D-P3b（批 D）：/tree-issues 结果 5s TTL 缓存 ─────────────────────
+// ── /tree-issues 结果 5s TTL 缓存 ─────────────────────
 // collectTreeIssues 每请求同步扫全书定稿正文聚合机检 red + verdict 驳回（大书秒级
 // 阻塞事件循环），前端树轮询/反复刷新会反复重扫。缓存口径对齐 health.ts styleScanCache
 //（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效——保存/定稿/verdict 落盘后
 // 最迟 5s 自愈（health.ts 先例同款，避免给每个写端点平添 forget 接线的过度设计）；
-// 书删除/改名的生命周期清理走 forgetTreeIssuesCache（R67-15 forgetBookKeyedCaches 接线）。
-/** R75-D-P3b：删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
+// 书删除/改名的生命周期清理走 forgetTreeIssuesCache（forgetBookKeyedCaches 接线）。
+/** 删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
 export function forgetTreeIssuesCache(bookRoot: string): void {
   treeIssuesCache.forget(bookRoot)
 }
-/** R75-D-P3b 回归观测钩子（先例同 health.ts __styleScanCacheHasForTest）——仅测试用。 */
-export function __treeIssuesCacheHasForTest(bookRoot: string): boolean {
-  return treeIssuesCache.has(bookRoot)
-}
-/** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
- *  恢复默认。仅测试用，勿在生产路径调用。三件套换装 testableConst 工厂（TTL 覆盖档，
- *  null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
-export const [getTreeIssuesTtlMs, __setTreeIssuesTtlForTest] = testableConst<number | null>(null)
+/** 收尾：__treeIssuesCacheHasForTest / __setTreeIssuesTtlForTest 删除——
+ * 缓存实例即观测面（生产对象，先例同 analysisOverviewCache）：has/TTL 覆盖档
+ * （组装根 RouteOverrides 注入，随实例隔离）取代模块级钩子。 */
 const TREE_ISSUES_TTL = 5000
 const TREE_ISSUES_CACHE_MAX = 32
 
-/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
- *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
+/** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
  *  只缓存成功路径由「计算体抛错即不落缓存」承担（collectTreeIssuesAsync 抛错走
  *  dispatch 兜底 500，同原口径），见 ttl-cache.ts 头部收敛映射表）。 */
-const treeIssuesCache = createTtlProbeCache<string, Record<string, unknown>>({
+export const treeIssuesCache = createTtlProbeCache<string, Record<string, unknown>>({
   name: 'tree-issues',
   keyOf: (k) => k,
   max: TREE_ISSUES_CACHE_MAX,
-  ttl: () => getTreeIssuesTtlMs() ?? TREE_ISSUES_TTL,
+  ttl: () => TREE_ISSUES_TTL,
 })
 
 export function registerCheckRoutes(ctx: CheckCtx): void {
@@ -88,7 +85,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      // D2（复审-0914-优化修复批）：docId→清单→安全路径→存在性解析链收编
+      // docId→清单→安全路径→存在性解析链收编
       // resolveDocFile 单源（不读稿——机检由 runCheckForDocument 自读，且机检对象含
       // 非章稿文档）；BAD_PATH variant『文档路径非法』逐字保留
       const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
@@ -96,7 +93,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       const outcome = await runCheckForDocumentAsync(bookRoot, f.absPath, ctx.userDataPath)
       if (!outcome.ok) {
-        // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
+        // 收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
         return replyError(
           res,
           checkOutcomeStatus(outcome.code),
@@ -109,11 +106,11 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     },
   })
 
-  // ── B1（批 6）：机检误报标记 ──────────────────────────────────────
+  // ── 机检误报标记 ──────────────────────────────────────
   // POST /documents/:docId/check-false-positive  body { checkId }
   // excerpt 服务端从正文切（命中区间 ±50 字、上限 200）——不信客户端传任意长文本。
   // 落 check/false-positive 事件（workspace 会话）；同章同 checkId 重复标记幂等
-  //（append 多条；R64-44 注释对齐：查询侧尚未接线——语料回收消费时按
+  // （append 多条； 注释对齐：查询侧尚未接线——语料回收消费时按
   //  (chapter, checkId) 取最近一条，当前全仓无读取方）。
   defineRoute('books.documents.check-false-positive', {
     method: 'POST',
@@ -129,7 +126,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       if (!r) return
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      // D2（复审-0914-优化修复批）：同上收编 resolveDocFile——本端点 NOT_FOUND 文案
+      // 同上收编 resolveDocFile——本端点 NOT_FOUND 文案
       // 为『文档不存在』（无路径后缀），经 opts.missingText 逐字保留
       const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法', missingText: '文档不存在' })
       if (!f.ok) return replyError(res, f.status, f.code, f.message)
@@ -147,15 +144,15 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const excerpt = cutExcerpt(outcome.body, items.map((i) => i.message))
       if (ctx.userDataPath) {
         try {
-          // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+          // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
           const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
           if (store) {
-            // M-6：close 收进 finally——workspaceSession/appendEvents 抛错时旧实现
+            // close 收进 finally——workspaceSession/appendEvents 抛错时旧实现
             // 跳过 close，引用计数单例的本次打开滞留到进程结束
             try {
-              // 重评-0914-三轮 nano R1-2：观测层孤儿事件防线——上方 await 开库（首开锁
+              // nano：观测层孤儿事件防线——上方 await 开库（首开锁
               // 可等）是删书/改名 drain 可跨的让出窗，append 前按 bookMovedFailure 家族
-              // 口径重验书注册（时序见 book-context.ts R0912-B-P3-2 头注），书已搬走即
+              // 口径重验书注册（时序见 book-context.ts 头注），书已搬走即
               // 409 不再对旧捕获路径落 check/false-positive 孤儿事件（本事件现无读取方，
               // 落错书的语料将来也无从回收；family 先例 documents.ts words-diary /
               // knowledge.ts learn 写前重验同款）
@@ -186,30 +183,30 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       if (!r) return
 
       const bookRoot = r.bookRoot
-      // R75-D-P3b：命中短时缓存则跳过全书同步重扫（payload 为纯数据可复用）；R47-18
-      // 过期条目顺手逐出由通用件承担。D1（复审-0914-优化修复批）：壳体收编
+      // 命中短时缓存则跳过全书同步重扫（payload 为纯数据可复用）；
+      // 过期条目顺手逐出由通用件承担。：壳体收编
       // ttl-cache.ts 通用件（计算体闭包 ctx，经 get(key, compute) 逐调用传入）
       const payload = await treeIssuesCache.get(bookRoot, async (root): Promise<Record<string, unknown>> => {
-        // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
-        // R37-3（三十七轮）：改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
+        // 聚合逻辑已下沉内核：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
+        // 改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
         //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
         const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, manifestDegraded } = await collectTreeIssuesAsync(root, (docId) => {
           const reviewEnv = readAnalysis(root, docId, 'review')
           const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
           return v ?? undefined
         }, ctx.userDataPath)
-        // R26-57（二十六轮）：三降级条件收数组全量透出——原三处条件展开同用 `warning`
+        // 三降级条件收数组全量透出——原三处条件展开同用 `warning`
         // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
         // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
         // 双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删，现无前端读者）。
         const warnings: string[] = []
-        // R62-7：账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
+        // 账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
         // 此前静默降级为「无红」，持续性失败期间漏红不可见）
         if (rebuildFailed) warnings.push('机检索引构建失败，仅显示审稿驳回红点')
         if (leadsBookDegraded) warnings.push('账本全书性红项本轮计算失败，账本红点可能缺失')
-        // R65-5（十三轮）：单章机检失败（第三种降级形态，此前零提示）
+        // 单章机检失败（第三种降级形态，此前零提示）
         if (chaptersDegraded > 0) warnings.push(`${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失`)
-        // R0916-6-P2-1：清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
+        // 清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
         // 红点整轮失明不可见；与 rebuildFailed/leadsBookDegraded 同口径）
         if (manifestDegraded) warnings.push('文档清单读取失败，章-账本红点本轮可能缺失')
         return {
@@ -219,19 +216,19 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
             ? { warning: warnings[warnings.length - 1], warnings }
             : {}),
         }
-      })
+      }, ctx.treeIssuesTtlMs ?? undefined)
       reply(res, 200, payload)
     },
   })
 }
 
-/** R61-12（第六十一轮）：命中词正则从引号常量派生（收编单源）——此前手写字符类，
+/** 命中词正则从引号常量派生（收编单源）——此前手写字符类，
  * quotes.ts 补字符时此处漏同步即漂移（本次 ‘’ 即实测漂移点）。 */
 const EXCERPT_QUOTED_RE = new RegExp(`[${QUOTE_OPEN}]([^${QUOTE_CLOSE}]{1,40})[${QUOTE_CLOSE}]`, 'g')
 
 /**
- * B1（批 6）：从正文切命中区间 ±50 字摘录（上限 200）。
- * R64-11：导出供回归测试直接驱动（同 repairOrphanSessions 先例）。
+ * 从正文切命中区间 ±50 字摘录（上限 200）。
+ * 导出供回归测试直接驱动（同 repairOrphanSessions 先例）。
  * 命中词取机检 message 里的引号片段（禁词/意象/复读项均带，字符集由
  * check/quotes.ts 单源派生），在正文里定位首个出现；定位不到（如字数类
  * 无具体词）回落正文开头——摘录仍可作为该章该检查的上下文语料。
@@ -243,7 +240,7 @@ export function cutExcerpt(body: string, messages: string[]): string {
       if (m[1]!) quoted.push(m[1]!)
     }
     // 堆砌类 message 形态：`眼睛×6`（词×次数）——锚点取 × 前的词
-    // R64-11（十二轮）：R62-29 收编第四处——汉字段由 count.ts HANZI 单源派生
+    // 收编第四处——汉字段由 count.ts HANZI 单源派生
     //（基本区 + 扩展 A），硬编码 \u4e00-\u9fff 会漏生僻字人名锚点
     for (const m of msg.matchAll(new RegExp(`([${HANZI}A-Za-z0-9·]{1,20})×\\d+`, 'g'))) {
       if (m[1]!) quoted.push(m[1]!)

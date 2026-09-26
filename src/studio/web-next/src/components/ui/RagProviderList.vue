@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// RAG（嵌入）提供方列表（阶段 14 I2 卡片化 + 单卡展开）。
+// RAG（嵌入）提供方列表（阶段 14 卡片化 + 单卡展开）。
 // 行卡壳用 ProviderRow（两行主区：首行身份/状态，次行服务地址）；
 // 展开槽由父层 scoped slot #row-expand 注入（默认显示 endpoint）。
 // 共享控件语言（分组标题/徽章/胶囊按钮等）见 styles/providers.css。

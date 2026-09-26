@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰；
-// verdict 联动已落地（通过/驳回落信封，B1.3 方案 A）。R1010-P3（G6-⑤）修账：意见点击
+// 三审面板（M12 块1 .2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰；
+// verdict 联动已落地（通过/驳回落信封，.3 方案 A）。（-⑤）修账：意见点击
 // 定位 CodeMirror、进度 SSE 并未实现亦无排期——原「切片3 增强」为过时前瞻宣称，删除。
 import { computed, ref, watch, markRaw } from 'vue'
 import { FileSearch, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Clock } from 'lucide-vue-next'
@@ -29,7 +29,7 @@ const isReviewable = computed(() => {
 const aiOff = computed(() => ui.aiAvailable === false)
 
 // 打开文档 → 读存量信封；切走 → 清空
-// R27-78（二十七轮）：watch 源加 node（tree.byDocId.get(docId)，对齐 EditorView CC-P1-4
+// watch 源加 node（tree.byDocId.get(docId)，对齐 EditorView
 // 同型修法）——进书时 activeDocId 先到、tree.load 后到，仅 watch docId 会在树为空时
 // 触发一次 clear 后静默放弃，树到达后无补偿重试 → 面板滞留「不可审阅」误报
 watch(
@@ -43,21 +43,21 @@ watch(
 
 const blockers = computed(() => review.collected?.normalized.blockers ?? [])
 const warnings = computed(() => review.collected?.normalized.warnings ?? [])
-// R59 清偿批（R57-F-2）：意见列表 v-for 改稳定键——原用位置索引（'b'+i / 'w'+i），
+// 清偿批意见列表 v-for 改稳定键——原用位置索引（'b'+i / 'w'+i），
 // 违库内稳定键惯例；意见条目无 id，以内容组合键替代（构造单源见 shared/issue-keys），
 // 同内容条目按出现序 #n 消歧
 const blockerKeys = computed(() => contentStableKeys(blockers.value.map(reviewIssueKeyBase)))
 const warningKeys = computed(() => contentStableKeys(warnings.value.map(reviewIssueKeyBase)))
-// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：意见渲染上限——千条级意见全量
+// （修复批）：意见渲染上限——千条级意见全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——分组头计数（阻断项/警告项 N）仍面向全量，键表按全量构造（切片与键
-// 按下标仍对齐）。复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源
+// 按下标仍对齐）。-：切片/计数样板收敛 shared/render-cap 单源
 //（capView）。
 const RENDER_CAP = 100
 const blockersCap = computed(() => capView(blockers.value, RENDER_CAP))
 const warningsCap = computed(() => capView(warnings.value, RENDER_CAP))
-// R63-4（十一轮）：passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
+// passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
 // 采集失败（stale/缺视角/坏条目）被渲染成「三审通过，无阻断/警告」，作者按假通过
 // 放行从未真正审校的内容（刷新/重启依旧，已随信封持久化）。后端已同步注入阻断级
 // 「三审未完成」issue（新跑的 collected.blockers 可见原因），此处 ok/bad_entries
@@ -70,7 +70,7 @@ const passed = computed(
     blockers.value.length + warnings.value.length === 0,
 )
 
-// R0912-C2-P3-6（2026-09-12 独立重评修复批）：红/黄两组 item 模板逐字重复 → 分组
+// （修复批）：红/黄两组 item 模板逐字重复 → 分组
 // 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
 // DOM；组序阻断在前警告在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
 const issueGroups = computed(() => [
@@ -86,7 +86,7 @@ const issueGroups = computed(() => [
   },
 ])
 
-/** R63-4：采集失败的人话原因（横幅展示；后端注入的阻断 issue 走 blockers 分组渲染） */
+/** 采集失败的人话原因（横幅展示；后端注入的阻断 issue 走 blockers 分组渲染） */
 const incompleteReason = computed(() => {
   const c = review.collected
   if (!c || c.ok) return ''
@@ -113,7 +113,7 @@ async function runReview(): Promise<void> {
   await review.run(props.bookName, docId.value)
 }
 
-// 作者裁决（B1.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；aiOff 不置灰（作者决策非 AI）
+// 作者裁决（.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；aiOff 不置灰（作者决策非 AI）
 const verdictBadgeClass = computed(() => {
   const v = review.verdict
   if (!v) return 'verdict-pending'
@@ -127,7 +127,7 @@ const verdictBadgeLabel = computed(() => {
 const verdictSaving = ref(false)
 async function setVerdict(approved: boolean): Promise<void> {
   if (!docId.value || verdictSaving.value) return
-  // R66-32（十四轮）：书名入口捕获 + 失败 toast 守卫——await 窗口切书后，
+  // 书名入口捕获 + 失败 toast 守卫——await 窗口切书后，
   // A 书的裁决失败错误会 toast 在 B 书界面上；树红点刷新也按发起时的书
   const book = props.bookName
   verdictSaving.value = true
@@ -136,7 +136,7 @@ async function setVerdict(approved: boolean): Promise<void> {
     // T9b：verdict 变化（驳回/通过）→ 刷新树红点
     void tree.loadIssues(book)
   } catch (e) {
-    // RB-FE-P2-3：后端不可达时给出反馈（原先 unhandled rejection 只进 console，点击无响应）
+    // 后端不可达时给出反馈（原先 unhandled rejection 只进 console，点击无响应）
     if (props.bookName === book) ui.toast(friendlyError(e), 'error')
   } finally {
     verdictSaving.value = false
@@ -147,7 +147,7 @@ function severityClass(s: string): string {
   if (s === 'S1' || s === 'S2') return 'sev-high'
   return 'sev-low'
 }
-/** severity 人话（S1/S2→重点，其余→参考；内部编号不暴露给作者） */
+/** severity 人话（/→重点，其余→参考；内部编号不暴露给作者） */
 function severityLabel(s: string): string {
   return s === 'S1' || s === 'S2' ? '重点' : '参考'
 }
@@ -171,7 +171,7 @@ function severityLabel(s: string): string {
       </button>
     </div>
 
-    <!-- 作者裁决（B1.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；不改文档状态 -->
+    <!-- 作者裁决（.3 方案 A）：通过/驳回 落 review 信封 payload.verdict；不改文档状态 -->
     <div v-if="isReviewable" class="rev-verdict">
       <span class="rev-verdict-badge" :class="verdictBadgeClass">{{ verdictBadgeLabel }}</span>
       <div class="rev-verdict-actions">
@@ -208,7 +208,7 @@ function severityLabel(s: string): string {
         <span>正文已变更，结果可能过期——重新三审。</span>
       </div>
 
-      <!-- R63-4：采集失败显式横幅——修复前 ok:false 的信封被渲染成「三审通过」 -->
+      <!-- ：采集失败显式横幅——修复前 ok:false 的信封被渲染成「三审通过」 -->
       <div v-if="!review.collected.ok" class="rev-stale">
         <AlertCircle :size="13" />
         <span>三审未完成{{ incompleteReason ? '——' + incompleteReason : '' }}，结论不成立，请重跑三审。</span>
@@ -219,7 +219,7 @@ function severityLabel(s: string): string {
         <span>三审通过，无阻断/警告</span>
       </div>
 
-      <!-- R0912-C2-P3-6：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
+      <!-- ：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
       <template v-for="g in issueGroups" :key="g.key">
         <div v-if="g.count > 0" class="rev-group">
           <div class="group-label" :class="`group-label--${g.tone}`">
@@ -241,7 +241,7 @@ function severityLabel(s: string): string {
             <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
             <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
           </div>
-          <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+          <!-- ：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
           <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
         </div>
       </template>
@@ -383,7 +383,7 @@ function severityLabel(s: string): string {
   font-size: var(--font-size-s);
   line-height: 1.5;
 }
-/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示（弱化色，tree-cap-hint 同语义） */
 .cap-hint {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);

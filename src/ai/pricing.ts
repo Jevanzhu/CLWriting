@@ -1,13 +1,13 @@
 /**
- * D2（批 5）价格表与金额口径——providers.json 加性扩展（P9-①）。
+ * 价格表与金额口径——providers.json 加性扩展（-①）。
  *
  * 形状（加性，读侧缺省行为全部不变）：
  *   providers[].pricing?  = { inputPerMTok, outputPerMTok, cacheReadPerMTok?, cacheWritePerMTok?, currency? }
  *   providers[].models[].pricing?  覆盖（读侧缺省 = 继承 provider 级）
  * 单位：每百万 token 单价。同 provider 混挂不同价模型（如 cache 支持差异）是
- * 现实场景——models[] 级覆盖就是为此（P9 拍板①）。
+ * 现实场景——models[] 级覆盖就是为此（拍板①）。
  *
- * 预算口径（D3）：cost 累计假设全书价格币种一致（currency 首个命中者为准，
+ * 预算口径：cost 累计假设全书价格币种一致（currency 首个命中者为准，
  * 币种不同的价格表混用属配置错误，数值比较仍成立但金额不可加总展示）。
  */
 import { statSync } from 'node:fs'
@@ -35,7 +35,7 @@ export function isPriced(p: PricingConf | undefined | null): p is PricingConf {
   )
 }
 
-/** R42-23（四十二轮）：行 pricing 是否含任一已知键（单价族或 currency）——参与浅合并的
+/** 行 pricing 是否含任一已知键（单价族或 currency）——参与浅合并的
  *  判定，与 isPriced（是否计价）解耦：仅设 currency 的行参与合并（currency 生效）但
  *  不单独构成计价。 */
 function hasAnyPricingKey(p: PricingConf | undefined | null): boolean {
@@ -52,13 +52,13 @@ function hasAnyPricingKey(p: PricingConf | undefined | null): boolean {
 /** 模型行 → 价格表合并（models[].pricing 覆盖 provider 级同名键） */
 export function pricingForProvider(provider: ProviderConf | undefined, model: string): PricingConf | null {
   if (!provider) return null
-  // R48-28（四十八轮）：provider 级 base 判定与行侧 R42-23 对齐（hasAnyPricingKey）——
+  // provider 级 base 判定与行侧对齐（hasAnyPricingKey）——
   // 原 isPriced 把「仅声明 currency」的 provider 级价格表整块丢弃，provider 声明
   // currency + 模型行只配单价时币种静默回落 USD（CostStats.currency 标错币种）；
   // 最终计价仍由 isPriced(merged) 把关，仅 currency 不会单独构成计价
   const base = hasAnyPricingKey(provider.pricing) ? provider.pricing : {}
   const row: ModelConf | undefined = provider.models?.find((m) => m.id === model)
-  // R42-23（四十二轮）：行 override 判定放宽——行 pricing 含任一已知键（单价族或 currency）
+  // 行 override 判定放宽——行 pricing 含任一已知键（单价族或 currency）
   // 即参与浅合并。此前 isPriced(row.pricing) 才认，「仅设 currency 无单价」的行被整行丢弃，
   // currency 永不生效；最终仍以 isPriced(merged) 决定计价——只有 currency 的行不计费
   const override = hasAnyPricingKey(row?.pricing) ? row!.pricing : undefined
@@ -74,8 +74,8 @@ export function pricingForProvider(provider: ProviderConf | undefined, model: st
  * currentId 失效或两级皆无 → null（未配价）。
  * 静默容错：providers.json 读失败 → null（价格是增强，不做故障源）。
  */
-// PM-11（性能与内存专项·2026-09-05）：解析结果 memo（providers.json mtime 指纹键控）。
-// loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（P2-SEC-4 副本
+// 解析结果 memo（providers.json mtime 指纹键控）。
+// loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（-SEC-4 副本
 // 纪律，不可共享引用）+ 线性归属查找；每次 token 记账都经此解析，memo 后命中路径仅一次
 // stat。失效：文件 mtime 变（saveProviders 落盘即 bump）；mtime 粒度内连续改写的陈旧窗
 // 与 loadProviders 缓存同级（既有口径）。文件名单源在 provider/store.ts FILE 常量（未
@@ -98,7 +98,7 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
   if (memoHit && memoHit.sig === sig) return memoHit.value
   try {
     const store = loadProviders(userDataPath)
-    // R42-2（四十二轮）：归属查表先在当前启用 provider 的 models[] 内找归属行——双
+    // 归属查表先在当前启用 provider 的 models[] 内找归属行——双
     // provider 挂同模型 id 不同价时按当前启用的那家计价（此前全局首归属 find 固定命中
     // 数组靠前的 provider，切 currentId 后计价不换）；未命中再回落全局首归属 find
     const current = store.providers.find((p) => p.id === store.currentId)

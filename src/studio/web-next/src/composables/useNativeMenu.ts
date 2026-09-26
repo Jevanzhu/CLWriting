@@ -5,7 +5,7 @@
  *
  * 用法：
  *   const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose }
- *     = useNativeMenu()
+ *     = useNativeMenu
  *   function onCtx(e) { popup(items, e.clientX, e.clientY, onSelect) }
  *   // 模板中浏览器回退：
  *   <ContextMenu v-if="!isNative" :visible="menuVisible" ... />

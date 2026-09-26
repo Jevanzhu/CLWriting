@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 书架浮层（ShelfGrid 去重 P2-5）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
+// 书架浮层（ShelfGrid 去重）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
 // 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件，hero 卡走 components/shelf/；
 // 本组件只保留浮层布局 + 关闭逻辑。
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
@@ -34,8 +34,8 @@ const {
     ui.closeShelf()
     router.push(`/book/${encodeURIComponent(name)}`)
   },
-  // R65-54（E-6）：浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
-  // API 全 404），并清最近打开书键（下次启动不再落进已删书；R60-D-4 键收敛单源）
+  // 浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
+  // API 全 404），并清最近打开书键（下次启动不再落进已删书；键收敛单源）
   onDeleted: (names) => {
     // 0918二轮修复批（F101）：vue-router 4 的 route.params 已解码一次——直取 current
     // 比对，勿再 decodeURIComponent。原二次解码对书名含 %（服务端书名校验不拒 %，
@@ -52,17 +52,17 @@ const {
     ui.closeShelf()
     router.replace('/shelf')
   },
-  // P1-7b（复审-0914-优化修复批，降级单源）：选书「记 LAST_BOOK_KEY + 跳转」收敛
+  // b：选书「记 LAST_BOOK_KEY + 跳转」收敛
   // useShelf.openBook——主窗口浮层无 IPC 分支，路由跳转前经钩子先收浮层
   beforeOpenBookNav: () => ui.closeShelf(),
 })
 
-// R37-30（三十七轮批E）：删 hasDesktop 死变量——J5 平台判断收敛到 usePlatform 后残留零消费
+// 删 hasDesktop 死变量—— 平台判断收敛到 usePlatform 后残留零消费
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-// R-P3-4（评审修复批）：大书架渲染上限——浮层一次性全量挂载所有书卡，数百书拖慢挂载
-// （J5 分帧只拆遮罩/面板两帧，不防千书级面板本身超帧预算）。对齐 CommandPalette
+// （评审）：大书架渲染上限——浮层一次性全量挂载所有书卡，数百书拖慢挂载
+// （分帧只拆遮罩/面板两帧，不防千书级面板本身超帧预算）。对齐 CommandPalette
 // RENDER_CAP=100 先例：数据面不动（useShelf groups 的搜索/排序/批量全选/头部总数仍
 // 面向全量），只裁渲染面——每组渲染前 100 张书卡 + 尾部「已省略 N 部」提示行（裁剪
 // 与提示行在 ShelfGrid 内实现，经 render-cap 传入）。搜索过滤后命中 >100 同样截断
@@ -70,7 +70,7 @@ useFocusTrap(modalRef)
 // 0918二轮修复批（F102）：帽值收敛 shared/render-cap SHELF_RENDER_CAP 单源——整页
 // 书架 Shelf.vue 同传该帽（原「整页不传即维持全量」的两壳口径不一随批收口）。
 
-// J5 win 同步拍（2026-09-04）：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
+// win 同步拍：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
 // 遮罩同帧挂载必然把遮罩拖出单帧预算、落后窗控 1-2 帧（作者感知「书架延迟」；进程
 // 冷缓存时更糟）。遮罩独占轻帧先上屏（与窗控压暗同帧扫描输出），书卡面板下一帧再
 // 挂（1 帧 6.9ms 不可感知）。分帧原语必须 afterPaint——单 rAF 的微任务仍在同帧渲染
@@ -84,7 +84,7 @@ watch(
   },
 )
 
-// J5 窗控压暗浓度上报：删除确认/新建子弹窗是本组件私有态，其全屏遮罩叠在书架遮罩
+// 窗控压暗浓度上报：删除确认/新建子弹窗是本组件私有态，其全屏遮罩叠在书架遮罩
 // 之上（浓度见 SHELF_DEEP_ALPHA，与组件 CSS 镜像）——上报后 ui store 并入有效遮罩
 // 浓度，窗控色才能跟上叠层加深。confirmTarget 持续到取消/确认，书架关闭期间上报值
 // 由 maskAlpha 侧按 shelfOpen 折叠，无需在此清理。
@@ -100,29 +100,29 @@ function handleCardClick(name: string): void {
   else openBook(name)
 }
 
-// 选书跳转已收敛 useShelf.openBook（P1-7b 降级单源，复审-0914-优化修复批）——
-// 原「记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）——R60-D-4 键单源」
+// 选书跳转已收敛 useShelf.openBook（降级单源，-）——
+// 原「记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）—— 键单源」
 // 移入 composable，浮层侧经 beforeOpenBookNav 钩子保留「先收浮层再导航」时序
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
-  // R75-E-P3e：IME 组合期 Esc 让渡（CommandPalette R61-3 先例）——搜索框收输入法
+  // IME 组合期 Esc 让渡（CommandPalette 先例）——搜索框收输入法
   // 候选框的 Esc 不应关浮层/收批量（isComposing || keyCode 229 单源判据）
   if (isImeComposing(e)) return
   if (e.key !== 'Escape') return
-  // R42-30（四十二轮）：其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
+  // 其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
   // 剔除自身）：压在书架上方的顶层弹层先收 Esc，本层子态（删除确认/新建/批量）与
   // 收层全部不动、不 preventDefault
   if (ui.overlayOpenExcept('shelf')) return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
   // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效。
-  // 删除确认弹窗的 Esc 已由组件自持（重评-P3-18：capture + stopPropagation，先于
+  // 删除确认弹窗的 Esc 已由组件自持（-：capture + stopPropagation，先于
   // 本 handler 且不再落到这里），此处只剩建书/批量/收层
   let consumed = false
   if (showCreate.value) { showCreate.value = false; consumed = true }
   else if (batchMode.value) { exitBatch(); consumed = true }
   else if (ui.shelfOpen) { ui.closeShelf(); consumed = true }
-  if (consumed) e.preventDefault() // Z-23（第五十八轮）
+  if (consumed) e.preventDefault()
 }
 onMounted(() => {
   shelf.load()
@@ -133,7 +133,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- R0916-7-P3-22：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.shelfOpen" kind="shelf" @mask-click="ui.closeShelf">
       <div v-if="contentReady" ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
         <header class="modal-head">
@@ -315,14 +315,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   gap: var(--size-4-2);
 }
-/* R8B-P2-5（2026-09-09 修复批）：全选覆盖渲染上限之外的书时如实提示——列表按
+/* 全选覆盖渲染上限之外的书时如实提示——列表按
  * SHELF_RENDER_CAP 逐组省略，所见 ≠ 所选全集（删 N 部与列表显示的 M 部认知差） */
 .sel-all-hint {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
   white-space: nowrap;
 }
-/* ── 搜索 + 排序（P2-PROD-6）── */
+/* ── 搜索 + 排序（-PROD-6）── */
 .shelf-search {
   width: 140px;
   padding: 5px 10px;
@@ -347,7 +347,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换 segmented control */
-/* .view-toggle 与 .toggle-btn（P1-7b 复审-0914-优化修复批随批收敛，声明逐字未改）
+/* .view-toggle 与 .toggle-btn
    均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;

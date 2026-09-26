@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 对话输入区 composer（R0912-C2-P3-4，2026-09-12 独立重评修复批：自 ChatPanel 与
+ * 对话输入区 composer（修复批：自 ChatPanel 与
  * ChatDock 的双份模板 + ~150 行 CSS 收敛，纯结构去重——DOM/类名/事件语义不变）。
  * 逻辑层照旧走共享 useChatComposer（勿在本组件重复实现）；发送后回调经 onPushed
  * prop 透传（两消费方滚底/开框行为各异，原语义不变）。
@@ -30,7 +30,7 @@ const props = defineProps<{
 
 const chat = useChatStore()
 
-// R48-97（四十八轮）：原 ChatPanel 的 enabled=!hideComposer 与其模板 v-if 同条件——
+// 原 ChatPanel 的 enabled=!hideComposer 与其模板 v-if 同条件——
 // 抽组件后「不被渲染即不实例化」，enabled 恒 true 语义等价（双活监听面随 v-if 消失）。
 // onPushed 经 props 活值透传（非 setup 快照，防 prop 晚到丢回调）。
 // 章节下拉外层容器的模板 ref：本地声明后传入（vue-tsc 3 起，解构自 composable 的
@@ -98,7 +98,7 @@ const {
           >
             <Square :size="14" />
           </button>
-          <!-- R33D-28：busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
+          <!-- ：busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
           <button
             v-else
             class="chat-send-btn"
@@ -193,7 +193,7 @@ const {
 }
 /* ③ dock 档输入框加高（值单源 ChatDock 的 --composer-min-h——含内边距约束
    dock 整体 ≤ --composer-h:130px；fallback 70px 保独立挂载/测试无 dock 祖先时
-   形态不变。R0916-nano-11） */
+   形态不变。） */
 .chat-composer.glass .chat-input {
   min-height: var(--composer-min-h, 70px);
   box-sizing: border-box;

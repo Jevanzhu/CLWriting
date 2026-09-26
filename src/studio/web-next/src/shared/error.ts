@@ -11,7 +11,7 @@ import { SAVE_TOO_LARGE_MESSAGE } from './save-limits'
 /**
  * 已知技术错误模式 → 友好提示。
  *
- * R40-40（四十轮）：子串匹配收窄——原裸子串（/SSE/、/network/、/429/、/invalid.*key/
+ * 子串匹配收窄——原裸子串（/SSE/、/network/、/429/、/invalid.*key/
  * 等）会把邻近词/数字误归类（assess 含 sse 判成「连接中断」、文案里任意位置的 429 判成
  * 「请求过于频繁」、invalid 与 key 相隔全文任意距离判成「认证失败」）。收窄口径：
  * ① 词边界 \b 锁定独立词；② 数字状态码要求 HTTP 语境（status/code/error/api 前缀或
@@ -38,7 +38,7 @@ const TECH_PATTERNS: ReadonlyArray<{ test: RegExp; tip: string }> = [
   },
 ]
 
-/** 复审-0914-优化修复批（errMsg 面收敛）：原始错误消息提取单源——`e instanceof Error ?
+/** -（errMsg 面收敛）：原始错误消息提取单源——`e instanceof Error ?
  *  e.message : String(e)` 三目的逐字同型收编（chat store / ui store / useChatComposer
  *  三处此前各自裸写）。与 friendlyError 的分工：本函数不做 TECH_PATTERNS 归类改写、
  *  原样透出（「保留原视图/原文」语义的调用方用此）；面向作者的 AI 故障类友好化走
@@ -48,13 +48,13 @@ export function rawErrorMessage(e: unknown): string {
 }
 
 export function friendlyError(e: unknown): string {
-  // RC 源码重审 B-1：413 专用码给「拆分」出路——服务端只知「请求体过大」，不知文种形态
+  // RC：413 专用码给「拆分」出路——服务端只知「请求体过大」，不知文种形态
   //（正文/设定 md 都是长文本），出路上屏须在前端补；预检漏网（如经 /file PUT 的路径）
   // 时由本分支兜底同一句话（文案单源 = shared/save-limits）。
   if (e instanceof ApiError && e.code === 'PAYLOAD_TOO_LARGE') {
     return SAVE_TOO_LARGE_MESSAGE
   }
-  // R40-40（四十轮）：结构化优先——ApiError 携带机器码（服务端 {error, code} 信封或
+  // 结构化优先——ApiError 携带机器码（服务端 {error, code} 信封或
   // 客户端预制超时错）时 message 已是服务端/客户端人话文案，直接透出，不再对信封文案
   // 跑子串猜测：信封里的数字/英文片段（如「第 429 章不存在」的 429、含 model key 名的
   // 校验文案）被子串误归类成 AI 故障类提示，反而掩盖真实原因。无码形态

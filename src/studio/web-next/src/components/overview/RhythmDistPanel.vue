@@ -39,7 +39,7 @@ function distMax(g: DistGroup): number {
   return Math.max(1, ...g.keys.map((k) => Math.max(g.written[k] ?? 0, g.planned[k] ?? 0)))
 }
 
-// R0912-3 #22：短篇无 planned——行尾规划占位「/0」只在长篇渲染
+// #22：短篇无 planned——行尾规划占位「/0」只在长篇渲染
 const isLong = computed(() => props.rhythmData?.kind === 'long')
 </script>
 
@@ -71,9 +71,9 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
 </template>
 
 <style scoped>
-/* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
+/* .panel 基础走全局 style-shared.css（收敛批装载； 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
-/* .head-legend 基础收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
+/* .head-legend 基础收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
 
 /* ══ 节奏分布 ══ */
 .dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }

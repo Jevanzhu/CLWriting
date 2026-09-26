@@ -7,8 +7,10 @@
  * - IV 不复用（§4.2 唯一致命错误）
  * - 密钥不匹配 → VaultDecryptError
  * - 版本守卫 → VaultVersionError（§4.4）
+ * - SealedKey 以 providerId 绑 AAD（2026-09-26 终扫自 r31a-vault-aad.test.ts 并入，
+ *   R31-28 五臂全保留、零去重）
  */
-import { test, expect } from 'vitest'
+import { test, describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
 import { builtinKeyMaterial } from '../../../src/ai/provider/vault-key.js'
 import {
@@ -90,4 +92,43 @@ test('R61-5: builtinKeyMaterial 指纹恒定——IKM 碎片任何静默变更�
   expect(createHash('sha256').update(builtinKeyMaterial()).digest('hex')).toBe(
     '03bb063e10c12c6143f8dc06e312330f7524b2582a353092445c94377ce6d45e',
   )
+})
+
+// ── R31-28（三十一轮）：vault SealedKey 以 providerId 绑 AAD ────────────────────
+// 此前 sealKey/openKey 无 AAD——同 DEK 下把 providers.json 里两条 SealedKey 互换，
+// GCM 认证照过，供应商 A 会把 B 的 key 发往 A 的 baseUrl（key 定向泄漏）。修复后：
+// sealKey 绑 aad（store 传 providerId）；openKey 先走绑定通道、失败落无 AAD 存量通道
+// （legacy=true 由 load 置 needsRewrite 自动重封迁移）；绑定态密文换绑/裸解均失败。
+describe('R31-28：vault AAD 绑定', () => {
+  it('sealKey 绑 aad → 同 aad 打开成功且 legacy=false', () => {
+    const { dek } = createVault(KEY_A)
+    const sealed = sealKey(dek, 'sk-provider-a', 'provider-a')
+    const opened = openKey(dek, sealed, 'provider-a')
+    expect(opened).toEqual({ apiKey: 'sk-provider-a', legacy: false })
+  })
+
+  it('绑定态密文换绑到其他 providerId → 抛 VaultDecryptError（互换攻击被拦截）', () => {
+    const { dek } = createVault(KEY_A)
+    const sealedA = sealKey(dek, 'sk-provider-a', 'provider-a')
+    expect(() => openKey(dek, sealedA, 'provider-b').apiKey).toThrow(VaultDecryptError)
+  })
+
+  it('绑定态密文不带 aad（裸解）→ 抛 VaultDecryptError', () => {
+    const { dek } = createVault(KEY_A)
+    const sealed = sealKey(dek, 'sk-provider-a', 'provider-a')
+    expect(() => openKey(dek, sealed).apiKey).toThrow(VaultDecryptError)
+  })
+
+  it('存量无 AAD 密文 + 带 aad 打开 → legacy=true 兼容通道（load 据此重封迁移）', () => {
+    const { dek } = createVault(KEY_A)
+    const legacySealed = sealKey(dek, 'sk-legacy') // 升级前形态：未绑 AAD
+    const opened = openKey(dek, legacySealed, 'provider-a')
+    expect(opened).toEqual({ apiKey: 'sk-legacy', legacy: true })
+  })
+
+  it('存量密文被替换为他人绑定态密文 → 两通道均失败抛错', () => {
+    const { dek } = createVault(KEY_A)
+    const boundB = sealKey(dek, 'sk-provider-b', 'provider-b')
+    expect(() => openKey(dek, boundB, 'provider-a').apiKey).toThrow(VaultDecryptError)
+  })
 })

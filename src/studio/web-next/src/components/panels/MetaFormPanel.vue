@@ -22,7 +22,7 @@ type FieldDef = {
   placeholder?: string
 }
 
-// R37-30（三十七轮批E）：删 TITLE 死变量——表单标题职责移至 FIELD_DEFS/调用方后残留零消费
+// 删 TITLE 死变量——表单标题职责移至 FIELD_DEFS/调用方后残留零消费
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
   // 章节（写作/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）
@@ -121,30 +121,30 @@ const kind = computed(() => {
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
 
 const fields = ref<Record<string, string>>({})
-// R69-5（十七轮）：最近一次服务端解析快照——「用户改过但未保存」的键（fields ≠ 快照）
+// 最近一次服务端解析快照——「用户改过但未保存」的键（fields ≠ 快照）
 // 在异步 refresh 重灌时保留用户值，不被服务端旧值静默清空（顶栏标题 blur 即提交 →
 // doc.refresh → content 变化触发下方 watch：此前整体重灌，「目标情绪/核心反转」等
-// 编辑中输入被覆盖丢失。对齐 EditorView F2 titleEditing 的编辑中保护思路，但以
+// 编辑中输入被覆盖丢失。对齐 EditorView titleEditing 的编辑中保护思路，但以
 // 脏键比对实现——焦点守卫挡不住「失焦后数秒才到的迟到刷新」）。
 const parsedSnapshot = ref<Record<string, string>>({})
-// R35-35：数值字段非法输入的字段级错误（对齐 R70-28 口径）——此前非有限数字被静默
+// 数值字段非法输入的字段级错误（对齐口径）——此前非有限数字被静默
 // continue 丢弃仍 toast「已保存」；改为标错 + 错误 toast + 不发 PUT（不发半截保存）。
 // 声明须在下方 watch 之前：immediate 首跑即引用（TDZ）。
 const numErrors = ref<Record<string, string>>({})
-// R48-94（四十八轮）：上一拍 dirty 档存——dirty true→false 且 entry 未换 = 本地已被
+// 上一拍 dirty 档存——dirty true→false 且 entry 未换 = 本地已被
 // 丢弃/落定（conflict 重载或保存成功），此时「用户改过」脏键不再权威（重载把本地
 // 丢了，合并分支若保脏键，此后保存会把已弃旧值写回），走整体重灌
 let lastDirty = false
 
-// R49-30（四十九轮）：fm 解析走 useDebouncedFmFields 150ms 防抖共享源（AnalysisPanel/
+// fm 解析走 useDebouncedFmFields 150ms 防抖共享源（AnalysisPanel/
 // EditorView/WritingInfoPanel 同款，此处是最后漏网消费）——watch 直连 parseFmFields
-// 每键 O(n) 全文两趟大分配；防抖核保证 docId 切换即刻重算（R43-17：防抖窗不滞留旧
+// 每键 O(n) 全文两趟大分配；防抖核保证 docId 切换即刻重算（防抖窗不滞留旧
 // 文档值）。watch 重灌与 tagValues 只读展示共用此源，不再各自解析。
 const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
 
 watch(
-  // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
-  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。R49-30 起
+  // doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
+  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。 起
   // 解析源换防抖 fmFields（content 变化进 150ms 防抖窗，同文档回填延迟一拍）；
   // entry 引用变化（切文档）仍即刻分辨走整体重灌分支。
   [entry, fmFields],
@@ -152,13 +152,13 @@ watch(
     if (!e || !kind.value) {
       fields.value = {}
       parsedSnapshot.value = {}
-      numErrors.value = {} // R35-35：切走文档不留前文档的字段错误
+      numErrors.value = {} // 切走文档不留前文档的字段错误
       lastDirty = false
       return
     }
-    // R48-94（四十八轮，合并批收编）：dirty true→false 且 entry 未换 = 本地已被丢弃/
+    // （四十八轮，合并批收编）：dirty true→false 且 entry 未换 = 本地已被丢弃/
     // 落定（conflict 重载或保存成功），脏键不再权威（重载已把本地丢弃，保脏键会把已弃
-    // 旧值写回），走整体重灌。源随 R49-30 用防抖 fmFields（原 R47-1 debContent 实现同功）。
+    // 旧值写回），走整体重灌。源随用防抖 fmFields（原 debContent 实现同功）。
     const localDiscarded = lastDirty && !e.dirty
     const out: Record<string, string> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
@@ -171,12 +171,12 @@ watch(
       parsedSnapshot.value = out
       fields.value = merged
     } else {
-      // 切文档 / 本地已被丢弃（R48-94：conflict 重载等）：整体重灌（脏键不跨状态携带，
+      // 切文档 / 本地已被丢弃（conflict 重载等）：整体重灌（脏键不跨状态携带，
       // 上一文档的脏键不跨文档携带同理）。快照必须克隆——与 fields 共享同一对象时，
       // v-model 写 fields 即同步改快照，「用户改过」永不可判。
       parsedSnapshot.value = { ...out }
       fields.value = out
-      numErrors.value = {} // R35-35：换文档错误不跨文档携带
+      numErrors.value = {} // 换文档错误不跨文档携带
     }
     lastDirty = e.dirty
   },
@@ -195,7 +195,7 @@ const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> 
   ],
 }
 const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
-// R49-30：解析走上方 useDebouncedFmFields 防抖源（原 computed 内每键全文 parseFmFields）
+// 解析走上方 useDebouncedFmFields 防抖源（原 computed 内每键全文 parseFmFields）
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
   const parsed = fmFields.value
@@ -206,8 +206,8 @@ const tagValues = computed<Record<string, string>>(() => {
 
 // 每章字数目标（书级 chapter_target_words ?? 全局默认；0=未设）—— 字数目标字段的 placeholder
 const globalChapterTarget = ref<number | undefined>(undefined)
-// M-11：代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder。
-// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+// 代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder。
+// 裸计数器换装 useStaleGuard。
 const targetGen = useStaleGuard()
 watch(
   () => props.bookName,
@@ -228,17 +228,17 @@ watch(
 const saving = ref(false)
 
 async function onSave(): Promise<void> {
-  // R61-G-1：函数级在途锁——模板 :disabled 只拦鼠标主路径（且 saving 置位在数值校验
+  // 函数级在途锁——模板 :disabled 只拦鼠标主路径（且 saving 置位在数值校验
   // 后），校验到置位间的快速连点/重入会并发两笔 updateDocMeta。对齐 OnboardView/
   // WorkbenchView/HistoryPanel 同款惯例。
   if (saving.value) return
-  // 低级项（第六轮）：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
+  // 低级项：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
   // 已切走，await 后重读会 refresh 他 doc（refresh 内部按当前书名拼路径，旧 docId + 新书
   // 名 = 错文件）、「已保存」提示打在别的书上
   const book = props.bookName
   const docId = ws.activeDocId
   if (!entry.value || !docId || !kind.value) return
-  // R35-35：先全量校验数值字段——非法即中止（本次不发任何 PUT）
+  // 先全量校验数值字段——非法即中止（本次不发任何 PUT）
   const errs: Record<string, string> = {}
   const invalidLabels: string[] = []
   for (const f of FIELD_DEFS[kind.value] ?? []) {
@@ -259,11 +259,11 @@ async function onSave(): Promise<void> {
     const meta: Record<string, unknown> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) {
       const v = fields.value[f.key] ?? ''
-      // R75-E-P3f：清空（''）照发不跳过——此前 skip 掉导致「清空字段不持久化、toast 却报
+      // 清空（''）照发不跳过——此前 skip 掉导致「清空字段不持久化、toast 却报
       // 已保存」的静默谎言。查证服务端（PATCH op=fm → updateDocMeta → patchFlatFm）：'' 是
       // 合法清空值（落 `key: ""`，读回 ''），数值字段落 "" 后消费侧 Number('""')=NaN 按
       // 未设处理（chapters 字数目标跳键 / foreshadow parsePositiveInt → null），安全。
-      // 数值字段非空时已由 R35-35 前置校验保证有限数字：NaN 经 JSON 序列化成 null 落盘
+      // 数值字段非空时已由前置校验保证有限数字：NaN 经 JSON 序列化成 null 落盘
       //（fm 出现 `key: null`）的路径不再可达
       if (f.type === 'number' && v !== '') {
         meta[f.key] = Number(v)
@@ -272,13 +272,13 @@ async function onSave(): Promise<void> {
         meta[f.key] = v
       }
     }
-    // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
+    // refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
     // 此前在此手动 patch 回 body 的守卫已下沉到 doc store
     await updateDocMeta(book, docId, meta)
     if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
     if (props.bookName === book) ui.toast('已保存', 'success')
   } catch (err) {
-    // R66-31（十四轮）：失败路径补书名守卫——成功路径（上方）有门，catch 漏配：
+    // 失败路径补书名守卫——成功路径（上方）有门，catch 漏配：
     // updateDocMeta await 窗口切书后，A 书的保存失败错误会 toast 在 B 书界面上
     if (props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
@@ -323,7 +323,7 @@ async function onSave(): Promise<void> {
           :class="['field-input', { 'field-input-err': numErrors[f.key] }]"
           @input="delete numErrors[f.key]"
         />
-        <!-- R35-35：数值字段非法输入的字段级错误（保存中止时标记，改正输入即清除） -->
+        <!-- ：数值字段非法输入的字段级错误（保存中止时标记，改正输入即清除） -->
         <div v-if="numErrors[f.key]" class="field-err-msg">{{ numErrors[f.key] }}</div>
       </div>
       <button class="save-btn" :disabled="saving" @click="onSave">
@@ -406,7 +406,7 @@ async function onSave(): Promise<void> {
   min-height: 60px;
   line-height: 1.6;
 }
-/* R35-35：字段级错误（数值非法被保存拦截） */
+/* 字段级错误（数值非法被保存拦截） */
 .field-input-err {
   border-color: var(--text-error);
 }

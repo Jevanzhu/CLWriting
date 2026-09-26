@@ -1,16 +1,16 @@
 /**
- * Trace 指标聚合（AI Harness T3）。
+ * Trace 指标聚合（AI Harness ）。
  *
- * 从事件库（读侧单源 llm-call-read，重评2-P3-2 前为本模块私有 readLlmCalls）聚合产出统计 JSON：
+ * 从事件库（读侧单源 llm-call-read，2- 前为本模块私有 readLlmCalls）聚合产出统计 JSON：
  * 按 task 分组的通过率 / 平均 attempt / 耗时 p50-p95 / token 合计与趋势（按天）。
  *
  * 不做 UI（第二波）；本模块只产数据，由 API 端点薄接线透出。
  */
-// 重评2-P3-2（2026-09-09 全量重评 GLM-5.3，AI 域 P3-③）：读侧单源化——原私有
+// 2-（GLM-5.3，AI 域 -③）：读侧单源化——原私有
 // readLlmCalls 与 cost-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: false（无 usage 行也计入，
 // token 按 ?? 0 兜底、行数即调用次数——通过率/耗时维度不依赖 usage）
-// R0910-W（2026-09-10 修复批）：读侧改流式（streamLlmCallRows）——边读边聚合，
+// （修复批）：读侧改流式（streamLlmCallRows）——边读边聚合，
 // 不再物化全量行数组；迭代顺序（seq 升序）与聚合口径不变，结果逐字段相同
 import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 
@@ -51,10 +51,10 @@ function percentile(sorted: number[], p: number): number {
  * @returns 聚合统计（无数据时 total=0）
  */
 export async function aggregateTrace(userDataPath: string | null | undefined, bookRoot: string): Promise<TraceStats> {
-  // 重评2-P3-2：读侧走 llm-call-read 单源（原注释：P2 起 trace 以事件库 llm/call 为
+  // 2-：读侧走 llm-call-read 单源（原注释：起 trace 以事件库 llm/call 为
   // 单一事实源；观测层失败静默 → []；按事件创建时间聚日）。skipMissingUsage: false
   // 即原口径——无 usage 行不跳过，token 按 0 兜底计入。
-  // R0910-W：流式逐行聚合（原先把全量 entries 分组数组堆内存）；分组／按天累加器
+  // 流式逐行聚合（原先把全量 entries 分组数组堆内存）；分组／按天累加器
   // 均为小对象，峰值只与 task/日桶数量相关。读失败丢弃部分结果返回 {total:0}。
   interface TaskAcc {
     count: number

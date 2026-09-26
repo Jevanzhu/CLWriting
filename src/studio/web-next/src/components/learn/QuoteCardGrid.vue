@@ -10,7 +10,7 @@ import { capView } from '../../shared/render-cap'
 
 const learn = useLearnStore()
 
-// ── 金句区渲染上限（四轮重评 P3-19，样板 = SampleCandidateList R47-16 的 capView 手法）──
+// ── 金句区渲染上限（样板 = SampleCandidateList 的 capView 手法）──
 // 金句量不受前端控制，整区 v-for 全量渲染时 DOM 随量线性爆炸；默认渲染前 100 张，
 // 超出「显示剩余 N 条」按需展开（计数/勾选仍面向全量 learn.quotes，仅渲染面截断）。
 const QUOTE_RENDER_CAP = 100
@@ -19,7 +19,7 @@ const visibleQuotes = computed(() => {
   if (expanded.value || learn.quotes.length <= QUOTE_RENDER_CAP) return learn.quotes
   return capView(learn.quotes, QUOTE_RENDER_CAP).view
 })
-// 展开态跨收割重置（R0912-3 #23 同款）：收割跑完（loading 落 false）即清，
+// 展开态跨收割重置（#23 同款）：收割跑完（loading 落 false）即清，
 // 新一轮数据回到 100 张上限；commit 后列表收缩不推 loading，展开态保留
 watch(() => learn.loading, (v, old) => {
   if (old && !v) expanded.value = false
@@ -30,8 +30,8 @@ watch(() => learn.loading, (v, old) => {
   <section v-if="learn.quotes.length" class="sec">
     <h2 class="sec-title">金句候选 <span class="sec-count">{{ learn.quotes.length }}</span></h2>
     <div class="quote-grid">
-      <!-- R72-12（二十轮 E-10）：勾选卡片补键盘可达性（原仅 @click，键盘不可达）
-           R32-31（三十二轮）：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
+      <!-- ：勾选卡片补键盘可达性（原仅 @click，键盘不可达）
+           ：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
            + 勾选联动）——身份计算在 learn store（quoteKey），模板传整对象 -->
       <div
         v-for="q in visibleQuotes"
@@ -112,7 +112,7 @@ watch(() => learn.loading, (v, old) => {
   line-height: 1.7;
   color: var(--text-normal);
   font-family: var(--prose-font);
-  /* 内存核查（2026-08-25 M-P3-15）：金句正文默认 4 行截断（纯样式，store 数据
+  /* 内存核查：金句正文默认 4 行截断（纯样式，store 数据
      形态不动；超长候选正文全量渲染会撑爆网格卡片） */
   display: -webkit-box;
   -webkit-line-clamp: 4;
