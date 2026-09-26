@@ -1,0 +1,15 @@
+# git blame 忽略清单：格式/机械性批量改动，不承载语义决策。
+#
+# 用法（本机一次性配置；建议连同 .gitconfig 的 blame.ignoreRevsFile 一起，让交互式
+# `git blame` 与 IDE 的 blame 视图都默认应用）：
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# CI / 一次性命令可用：git blame --ignore-revs-file .git-blame-ignore-revs <file>
+#
+# 只登记「纯形态、零语义」的整仓提交——注释/缩进/引号/换行这类改动的归属应回到真正
+# 写下该行的人，而不是格式化器。任何含逻辑改动的提交一律不入此表（否则会把真改动
+# 一并藏掉）。格式：# 注释行 + 每行一个完整 commit hash。
+
+# prettier --write 全库一次性归一化（1300 文件 / +26163 −14448 行）。
+# 配置面在同批前一提交，本提交只含格式化产物 + 6 处因格式变化而必须同步的断言/指令调整
+# （详见该提交 message）。
+06e6518f2a1994ab4112931b99880f5e15b3973f
