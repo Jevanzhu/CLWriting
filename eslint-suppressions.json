@@ -128,17 +128,6 @@
       "count": 2
     }
   },
-  "src/ai/runner.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 2
-    },
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
   "src/ai/tools/rewrite.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 4
