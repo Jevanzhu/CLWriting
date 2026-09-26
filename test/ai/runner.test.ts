@@ -10,8 +10,21 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { runTask, resolveProvider, configureRunnerMockFastPath, configureProviderRuntime, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
-import { createProviderRuntime, processProviderRuntime, persistDegraded, registerDegradedPersist } from '../../src/ai/provider/store.js'
+import {
+  runTask,
+  resolveProvider,
+  configureRunnerMockFastPath,
+  configureProviderRuntime,
+  NO_USERDATA_MSG,
+  NO_PROVIDER_MSG,
+  degradedPersistCallbacksForTest,
+} from '../../src/ai/runner.js'
+import {
+  createProviderRuntime,
+  processProviderRuntime,
+  persistDegraded,
+  registerDegradedPersist,
+} from '../../src/ai/provider/store.js'
 import { createProvider } from '../../src/ai/provider/probe.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
@@ -41,7 +54,10 @@ beforeAll(async () => {
   // 探针实测保活 interval 后 5ms 完成）——保活至 close 完成再释放。
   await new Promise<void>((resolve) => {
     const keep = setInterval(() => {}, 50)
-    srv.close(() => { clearInterval(keep); resolve() })
+    srv.close(() => {
+      clearInterval(keep)
+      resolve()
+    })
   })
   REFUSED_BASE_URL = `http://127.0.0.1:${port}`
 })
@@ -617,14 +633,18 @@ describe('R65-6（总六十五轮）降级回调注册 Map 化', () => {
     // 行为：persistDegraded 写活跃 path（udB）的 providers.json，udA 不被误写
     const key = 'prov-test/gpt-4o'
     persistDegraded(key)
-    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({ structured: false })
+    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({
+      structured: false,
+    })
     // resolve 注册时会把文件规范化保存（含空 modelCaps 对象）——按「降级标记键未写入」断言，
     // 而非「文件无 modelCaps 字段」
     expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.[key]).toBeUndefined()
     // 切回 udA：其回调仍在（未被 udB 的注册覆盖丢失）→ 路由回 udA 落盘
     expect(resolveProvider(udA).ok).toBe(true)
     persistDegraded(key)
-    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({ structured: false })
+    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({
+      structured: false,
+    })
   })
 })
 
@@ -692,7 +712,16 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
     // 探测侧建实例形态（probe.ts R42-24：createProvider 携目标库 path + bypassCache）；
     // 适配器降级写 persistDegraded(key, plan.userDataPath) → 显式 path 分发（R30-4 通道）
     createProvider(
-      { id: 'prov-test', name: 'test', protocol: 'openai', auth: 'bearer', baseUrl: REFUSED_BASE_URL, apiKey: 'sk-test', caps: null, model: 'gpt-4o' },
+      {
+        id: 'prov-test',
+        name: 'test',
+        protocol: 'openai',
+        auth: 'bearer',
+        baseUrl: REFUSED_BASE_URL,
+        apiKey: 'sk-test',
+        caps: null,
+        model: 'gpt-4o',
+      },
       undefined,
       udB,
       { bypassCache: true },
@@ -702,7 +731,9 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
     const deadline = Date.now() + 3000
     let landed = false
     while (Date.now() < deadline) {
-      const rawB = JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }
+      const rawB = JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')) as {
+        modelCaps?: Record<string, unknown>
+      }
       if (rawB.modelCaps?.['prov-test/gpt-4o'] !== undefined) {
         landed = true
         break
@@ -710,9 +741,13 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
       await new Promise((r) => setTimeout(r, 20))
     }
     expect(landed).toBe(true)
-    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toEqual({ structured: false })
+    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toEqual({
+      structured: false,
+    })
     // 活跃库 A（修复前 undefined 回落活跃 path 的误写目标）不被写入
-    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toBeUndefined()
+    expect(
+      JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o'],
+    ).toBeUndefined()
   }, 10_000)
 })
 
@@ -743,7 +778,8 @@ describe('R0912-3：usage 值类型守卫（错型走兜底，行为与缺失一
       task: 'r0912-3',
       bookRoot: book,
       chapter: 1,
-      run: () => Promise.resolve({ usage: { inputTokens: '12', outputTokens: null } } as unknown as Record<string, unknown>),
+      run: () =>
+        Promise.resolve({ usage: { inputTokens: '12', outputTokens: null } } as unknown as Record<string, unknown>),
     })
     expect(out.ok).toBe(true)
     if (out.ok) {

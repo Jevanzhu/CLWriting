@@ -75,14 +75,26 @@ const passed = computed(
 // DOM；组序阻断在前警告在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
 const issueGroups = computed(() => [
   {
-    key: 'blockers', label: '阻断项', icon: markRaw(AlertCircle), tone: 'red',
-    count: blockers.value.length, view: blockersCap.value.view,
-    keys: blockerKeys.value, keyPrefix: 'b', omitted: blockersCap.value.omitted,
+    key: 'blockers',
+    label: '阻断项',
+    icon: markRaw(AlertCircle),
+    tone: 'red',
+    count: blockers.value.length,
+    view: blockersCap.value.view,
+    keys: blockerKeys.value,
+    keyPrefix: 'b',
+    omitted: blockersCap.value.omitted,
   },
   {
-    key: 'warnings', label: '警告项', icon: markRaw(AlertTriangle), tone: 'yellow',
-    count: warnings.value.length, view: warningsCap.value.view,
-    keys: warningKeys.value, keyPrefix: 'w', omitted: warningsCap.value.omitted,
+    key: 'warnings',
+    label: '警告项',
+    icon: markRaw(AlertTriangle),
+    tone: 'yellow',
+    count: warnings.value.length,
+    view: warningsCap.value.view,
+    keys: warningKeys.value,
+    keyPrefix: 'w',
+    omitted: warningsCap.value.omitted,
   },
 ])
 
@@ -92,7 +104,8 @@ const incompleteReason = computed(() => {
   if (!c || c.ok) return ''
   const parts: string[] = []
   if (c.missing_lenses.length > 0) parts.push(`缺视角：${c.missing_lenses.map(lensLabel).join('、')}`)
-  if ((c.bad_entries?.length ?? 0) > 0) parts.push(`损坏：${c.bad_entries!.map((e) => `${e.path}（${e.reason}）`).join('；')}`)
+  if ((c.bad_entries?.length ?? 0) > 0)
+    parts.push(`损坏：${c.bad_entries!.map((e) => `${e.path}（${e.reason}）`).join('；')}`)
   return parts.join('；')
 })
 
@@ -180,13 +193,17 @@ function severityLabel(s: string): string {
           :class="{ active: review.verdict?.approved === true }"
           :disabled="verdictSaving"
           @click="setVerdict(true)"
-        >通过</button>
+        >
+          通过
+        </button>
         <button
           class="rev-verdict-btn reject"
           :class="{ active: review.verdict?.approved === false }"
           :disabled="verdictSaving"
           @click="setVerdict(false)"
-        >驳回</button>
+        >
+          驳回
+        </button>
       </div>
     </div>
 
@@ -226,12 +243,7 @@ function severityLabel(s: string): string {
             <component :is="g.icon" :size="13" />
             <span>{{ g.label }}（{{ g.count }}）</span>
           </div>
-          <div
-            v-for="(it, i) in g.view"
-            :key="g.keyPrefix + g.keys[i]"
-            class="rev-item"
-            :class="`rev-item--${g.tone}`"
-          >
+          <div v-for="(it, i) in g.view" :key="g.keyPrefix + g.keys[i]" class="rev-item" :class="`rev-item--${g.tone}`">
             <div class="item-head">
               <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
               <span class="item-lens">{{ lensLabel(it.lens) }}</span>
@@ -247,9 +259,7 @@ function severityLabel(s: string): string {
       </template>
     </template>
 
-    <div v-else-if="!review.loading" class="rev-hint">
-      点击「三审」生成意见（读者审 / 编辑审 / 设定校对）。
-    </div>
+    <div v-else-if="!review.loading" class="rev-hint">点击「三审」生成意见（读者审 / 编辑审 / 设定校对）。</div>
   </section>
 </template>
 

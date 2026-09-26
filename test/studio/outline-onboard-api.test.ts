@@ -31,7 +31,13 @@ let studio: StudioHarness
 let workDir = ''
 let userDataPath = ''
 
-function reqOn(base: string, token: string, method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+function reqOn(
+  base: string,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
     const u = new URL(base)
     const payload = body ? JSON.stringify(body) : ''
@@ -89,7 +95,9 @@ afterAll(async () => {
 
 describe('POST /outline（大纲生成）', () => {
   it('mock 组装 → 200 + mock 文本落盘', async () => {
-    const r = await reqOn(studio.baseUrl, studio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    const r = await reqOn(studio.baseUrl, studio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, {
+      chapter: 1,
+    })
     expect(r.status).toBe(200)
     const body = r.json as { ok: boolean; words: number; path: string }
     expect(body.ok).toBe(true)
@@ -102,7 +110,9 @@ describe('POST /outline（大纲生成）', () => {
 
 describe('POST /onboard-ai（开书引导）', () => {
   it('mock 组装 → 200 + mock 设定落盘', async () => {
-    const r = await reqOn(studio.baseUrl, studio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, { step: 'synopsis' })
+    const r = await reqOn(studio.baseUrl, studio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+      step: 'synopsis',
+    })
     expect(r.status).toBe(200)
     const body = r.json as { ok: boolean; words: number; step: string; path: string }
     expect(body.ok).toBe(true)
@@ -138,7 +148,13 @@ describe('非 mock 组装：mockText 不短路（P0-1 回归）', () => {
   })
 
   it('outline 非 mock + 无 provider → 400 NO_PROVIDER（mockText 不短路，P0-1 回归；R43-24 code 映射）', async () => {
-    const r = await reqOn(realStudio.baseUrl, realStudio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    const r = await reqOn(
+      realStudio.baseUrl,
+      realStudio.token,
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/outline`,
+      { chapter: 1 },
+    )
     // R43-24（四十三轮）：outline 失败封套透传 TaskCode——NO_PROVIDER 族由 500 GEN_FAIL
     // 改映射 400（配置缺失是客户端可处置），文案不变；P0-1 回归语义仍在（非 mock
     // 不走 mockText 短路，真实走到 provider 解析失败）
@@ -149,7 +165,13 @@ describe('非 mock 组装：mockText 不短路（P0-1 回归）', () => {
   })
 
   it('onboard-ai 非 mock + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
-    const r = await reqOn(realStudio.baseUrl, realStudio.token, 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, { step: 'characters' })
+    const r = await reqOn(
+      realStudio.baseUrl,
+      realStudio.token,
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`,
+      { step: 'characters' },
+    )
     expect(r.status).toBe(500)
     expect((r.json as { error: string }).error).toContain('未配置')
   })

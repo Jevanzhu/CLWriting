@@ -82,9 +82,10 @@ describe('R64-2: doBatchFinalize 在途切书不刷新书树', () => {
   it('批量定稿在途切书 → tree.load(旧书) 不调用、toast 不落新书界面', async () => {
     let resolveBatch!: (r: unknown) => void
     batchMock.mockImplementation(
-      () => new Promise((r) => {
-        resolveBatch = r
-      }),
+      () =>
+        new Promise((r) => {
+          resolveBatch = r
+        }),
     )
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
     const p = actions.doBatchFinalize(['doc_1'])
@@ -142,9 +143,10 @@ describe('R64-3: doc.finalize 在途切书不刷新书树', () => {
     doc.setBook('书A')
     let resolveFin!: (r: unknown) => void
     finalizeMock.mockImplementation(
-      () => new Promise((r) => {
-        resolveFin = r
-      }),
+      () =>
+        new Promise((r) => {
+          resolveFin = r
+        }),
     )
     const p = doc.finalize('d1')
     await flushPromises()

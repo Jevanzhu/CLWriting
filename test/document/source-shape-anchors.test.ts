@@ -34,7 +34,9 @@ describe('R40 静态锚：document/export', () => {
     // PM-4（性能与内存专项·2026-09-05）：单次 Buffer 化（contentBytes）与写盘共用同一份
     // 字节——锚从「内联 typeof content 三元」改挂新形，意图不变：新 rev 派生自写入字节
     // 而非写后重读盘。
-    expect(src).toMatch(/const contentBytes = typeof content === 'string' \? Buffer\.from\(content, 'utf-8'\) : content/)
+    expect(src).toMatch(
+      /const contentBytes = typeof content === 'string' \? Buffer\.from\(content, 'utf-8'\) : content/,
+    )
     expect(src).toMatch(/const newRev = computeRevisionBytes\(contentBytes\)/)
     expect(src).not.toMatch(/computeRevisionBytes\(\s*typeof content === 'string'/)
   })
@@ -68,7 +70,9 @@ describe('R40 静态锚：web-next', () => {
     const ribbon = read('studio', 'web-next', 'src', 'components', 'shell', 'Ribbon.vue')
     expect(ribbon).toContain(':data-tip="treeTip"')
     expect(ribbon).toContain(':data-tip="settingsTip"')
-    expect(read('studio', 'web-next', 'src', 'components', 'shell', 'WorkspaceShell.vue')).toContain(':title="focusExitTitle"')
+    expect(read('studio', 'web-next', 'src', 'components', 'shell', 'WorkspaceShell.vue')).toContain(
+      ':title="focusExitTitle"',
+    )
     // 五个文件均不再有静态写死的 ⌘ tip/title
     for (const f of [
       'components/editor/EditorDocHead.vue',

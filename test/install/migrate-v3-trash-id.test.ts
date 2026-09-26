@@ -20,10 +20,11 @@ import { legacyId } from '../../src/document/stable-id.js'
 
 const FINALIZED_REL = '写作/正文/0001-占位.md'
 const FINALIZED_FM = '---\n章号: 1\n标题: 占位\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n占位章正文。\n'
-const MANIFEST_FINALIZED = [
-  '{"version":1,"type":"header"}',
-  '{"id":"doc1","nodeType":"document","path":"写作/正文/0001-占位.md","parentId":null,"finalizedRevision":"sha256:abc","finalizedAt":"2026-01-01T00:00:00Z"}',
-].join('\n') + '\n'
+const MANIFEST_FINALIZED =
+  [
+    '{"version":1,"type":"header"}',
+    '{"id":"doc1","nodeType":"document","path":"写作/正文/0001-占位.md","parentId":null,"finalizedRevision":"sha256:abc","finalizedAt":"2026-01-01T00:00:00Z"}',
+  ].join('\n') + '\n'
 
 let root: string
 

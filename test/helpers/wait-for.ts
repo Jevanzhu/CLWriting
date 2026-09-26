@@ -20,12 +20,7 @@
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
-export async function waitFor(
-  fn: () => boolean,
-  timeoutMs = 3000,
-  intervalMs = 20,
-  label = 'waitFor',
-): Promise<void> {
+export async function waitFor(fn: () => boolean, timeoutMs = 3000, intervalMs = 20, label = 'waitFor'): Promise<void> {
   const start = Date.now()
   while (!fn()) {
     if (Date.now() - start > timeoutMs) throw new Error(`${label} timeout after ${timeoutMs}ms`)

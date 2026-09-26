@@ -44,14 +44,28 @@ vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
 // R0911b-P2①（win）/ R0912-FE-P2-12（mac）同题双修取一：RagStatus 补 indexState/
 // indexModelMismatch 实测字段（api/rag.ts status 契约，R40-50 / R26-16）
 const IDLE_STATUS: RagStatus = {
-  running: false, indexedChapters: 0, chunkCount: 0, model: null,
-  indexState: 'unbuilt', indexModelMismatch: false,
-  ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+  running: false,
+  indexedChapters: 0,
+  chunkCount: 0,
+  model: null,
+  indexState: 'unbuilt',
+  indexModelMismatch: false,
+  ragConfig: {},
+  providerName: null,
+  legacy: false,
+  lastResult: null,
 }
 const RUNNING_STATUS: RagStatus = {
-  running: true, indexedChapters: 0, chunkCount: 0, model: null,
-  indexState: 'built', indexModelMismatch: false,
-  ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+  running: true,
+  indexedChapters: 0,
+  chunkCount: 0,
+  model: null,
+  indexState: 'built',
+  indexModelMismatch: false,
+  ragConfig: {},
+  providerName: null,
+  legacy: false,
+  lastResult: null,
 }
 
 /** KeepAlive 宿主挂载（SettingsModal 同款 keep-alive 语义）；show=false 即「关窗」。 */
@@ -97,7 +111,10 @@ describe('R36-21：onActivated 续轮询「仍激活」复检', () => {
     let pendingResolve!: (s: RagStatus) => void
     mocks.getRagStatus.mockImplementation(() => {
       n++
-      if (n === 4) return new Promise<RagStatus>((res) => { pendingResolve = res })
+      if (n === 4)
+        return new Promise<RagStatus>((res) => {
+          pendingResolve = res
+        })
       return Promise.resolve(n <= 2 ? IDLE_STATUS : RUNNING_STATUS)
     })
 

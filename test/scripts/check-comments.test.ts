@@ -8,12 +8,33 @@
  * 3. allowlist——承重锚注（被测试 readFileSync 断言钉住的注释）按 文件+行内容 放行。
  */
 import { describe, expect, it } from 'vitest'
-// @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { ANCHOR_ALLOWLIST, extractCommentLines, findTagHits, isAllowlisted, TOKEN_EXCEPTIONS } from '../../scripts/check-comments.mjs'
+import {
+  ANCHOR_ALLOWLIST,
+  extractCommentLines,
+  findTagHits,
+  isAllowlisted,
+  TOKEN_EXCEPTIONS,
+  // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
+  // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
+} from '../../scripts/check-comments.mjs'
 
-interface CommentLine { line: number; col: number; endCol: number; text: string }
-interface TagHit { line: number; name: string; match: string; text: string }
-interface HitOpts { file?: string; ext?: string; allowlist?: { file: string; contains: string; why: string }[] }
+interface CommentLine {
+  line: number
+  col: number
+  endCol: number
+  text: string
+}
+interface TagHit {
+  line: number
+  name: string
+  match: string
+  text: string
+}
+interface HitOpts {
+  file?: string
+  ext?: string
+  allowlist?: { file: string; contains: string; why: string }[]
+}
 
 const hits = (content: string, opts: HitOpts = {}): TagHit[] => findTagHits(content, opts)
 
@@ -45,7 +66,7 @@ describe('extractCommentLines：注释抽取与字符串保护', () => {
   })
 
   it('正则字面量内容不进注释（等号后隔空白仍识别正则态）', () => {
-    const src = "const re = /R43\\d/ // 真注 R44"
+    const src = 'const re = /R43\\d/ // 真注 R44'
     expect(extractCommentLines(src).map((l: CommentLine) => l.text)).toEqual(['// 真注 R44'])
   })
 
@@ -110,7 +131,7 @@ describe('allowlist：承重锚注放行', () => {
   const allowlist = [{ file: 'ai/calls.ts', contains: 'R-5（第十六轮）', why: 'test/ai/calls.test.ts 源码锚钉住' }]
 
   it('file + contains 命中即放行（findTagHits 不再报）', () => {
-    const src = "// R-5（第十六轮）：同 bookRoot 写操作经互斥队列串行化\n// R36-5 写侧已异步化"
+    const src = '// R-5（第十六轮）：同 bookRoot 写操作经互斥队列串行化\n// R36-5 写侧已异步化'
     const all = findTagHits(src, { file: 'src/ai/calls.ts', allowlist })
     expect(all.map((h: TagHit) => h.match)).toEqual(['R36-5'])
   })

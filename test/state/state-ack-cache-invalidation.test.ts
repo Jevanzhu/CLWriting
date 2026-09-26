@@ -90,13 +90,19 @@ function makeBook(name: string): {
   }
 }
 
-async function getState(state: NonNullable<ReturnType<typeof getRouteSchema>>, name: string): Promise<{
+async function getState(
+  state: NonNullable<ReturnType<typeof getRouteSchema>>,
+  name: string,
+): Promise<{
   status: number | null
   body: { state: number; crashedPendingOpIds?: string[] }
 }> {
   const { req, res, captured } = fakeReqRes()
   await state.handler({ params: { name }, input: undefined }, req, res)
-  return { status: captured.status, body: JSON.parse(captured.body) as { state: number; crashedPendingOpIds?: string[] } }
+  return {
+    status: captured.status,
+    body: JSON.parse(captured.body) as { state: number; crashedPendingOpIds?: string[] },
+  }
 }
 
 describe('P3-4（全库重评-0914）: acknowledge 后 /state 缓存即时失效', () => {

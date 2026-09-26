@@ -9,10 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterAll } from 'vitest'
-import {
-  tryAcquireCrossProcessLock,
-  acquireCrossProcessLockAsync,
-} from '../../src/fs/cross-process-lock.js'
+import { tryAcquireCrossProcessLock, acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'clwriting-cplock-async-'))
 afterAll(() => {

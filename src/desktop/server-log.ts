@@ -33,7 +33,10 @@ export const MAX_LINE_CHARS = 1 << 20
 export function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
   // 内存闸（审计）：单行超限强制截断的计数告警（stdout/stderr 同口径）
   const warnForced = (side: 'stdout' | 'stderr') => (count: number) =>
-    logger.warn('server-manager', `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`)
+    logger.warn(
+      'server-manager',
+      `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`,
+    )
   // 流错误留痕——原先空回调零痕迹，child 日志链路断裂（流销毁/
   // 管道错等）不可观测；附 err message（非 Error 形态按 String 兜底，同仓 git/ai-track
   // 先例）。不上抛不重试：转发尽力而为语义不变，丢行不丢进程。

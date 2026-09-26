@@ -13,7 +13,10 @@ afterEach(() => {
 
 describe('四轮重评 P3-16: fetchChatHistory messages 归一', () => {
   it('2xx 坏体缺 messages 字段 → 归一为 []（非 undefined，裸取消费方安全）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })),
+    )
     const r = await fetchChatHistory('书A')
     expect(r.messages).toEqual([])
   })

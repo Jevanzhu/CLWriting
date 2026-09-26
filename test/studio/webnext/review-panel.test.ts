@@ -177,7 +177,16 @@ describe('ReviewPanel: 意见分组', () => {
     await flushPromises()
     review.collected = collected({
       normalized: {
-        blockers: [issue({ lens: 'hook', severity: 'S2', location: '第 3 段', evidence: ['甲', '乙'], issue: '钩子断裂', fix: '补一句悬念' })],
+        blockers: [
+          issue({
+            lens: 'hook',
+            severity: 'S2',
+            location: '第 3 段',
+            evidence: ['甲', '乙'],
+            issue: '钩子断裂',
+            fix: '补一句悬念',
+          }),
+        ],
         warnings: [issue({ lens: 'reader', severity: 'S3', issue: '节奏偏慢', fix: '' })],
         invalid_issues: [],
         passed: false,
@@ -242,7 +251,16 @@ describe('ReviewPanel: 意见分组', () => {
       missing_lenses: [],
       bad_entries: [{ path: 'draft.md', reason: '草稿在审阅期间已变更或不可读（draft_hash 不符）' }],
       normalized: {
-        blockers: [issue({ lens: 'continuity', severity: 'S2', evidence: ['草稿在审阅期间已变更或不可读（draft_hash 不符）'], issue: '三审未完成：审稿单不成立，本次「通过」不可采信', fix: '解决失败原因后重跑三审', blocking: true })],
+        blockers: [
+          issue({
+            lens: 'continuity',
+            severity: 'S2',
+            evidence: ['草稿在审阅期间已变更或不可读（draft_hash 不符）'],
+            issue: '三审未完成：审稿单不成立，本次「通过」不可采信',
+            fix: '解决失败原因后重跑三审',
+            blocking: true,
+          }),
+        ],
         warnings: [],
         invalid_issues: [],
         passed: false,
@@ -301,7 +319,11 @@ describe('ReviewPanel: 三审与信封', () => {
 
 describe('ReviewPanel: 作者裁决', () => {
   it('驳回信封 → 徽章「驳回」reject 态；点击通过 → runVerdictDoc + 刷新树红点', async () => {
-    mocks.getReviewEnvelope.mockResolvedValue({ ok: true, envelope: envelope({ verdict: { approved: false, at: 't' } }), stale: false })
+    mocks.getReviewEnvelope.mockResolvedValue({
+      ok: true,
+      envelope: envelope({ verdict: { approved: false, at: 't' } }),
+      stale: false,
+    })
     const tree = useTreeStore()
     const loadIssues = vi.spyOn(tree, 'loadIssues').mockResolvedValue(undefined)
     const w = mountPanel()
@@ -316,7 +338,11 @@ describe('ReviewPanel: 作者裁决', () => {
   })
 
   it('通过信封 → 徽章「通过」pass 态 + active 类', async () => {
-    mocks.getReviewEnvelope.mockResolvedValue({ ok: true, envelope: envelope({ verdict: { approved: true, at: 't' } }), stale: false })
+    mocks.getReviewEnvelope.mockResolvedValue({
+      ok: true,
+      envelope: envelope({ verdict: { approved: true, at: 't' } }),
+      stale: false,
+    })
     const w = mountPanel()
     await flushPromises()
     const badge = w.find('.rev-verdict-badge')

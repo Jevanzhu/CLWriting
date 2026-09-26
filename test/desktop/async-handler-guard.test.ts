@@ -20,9 +20,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const callerFiles = ['src/desktop/ipc.ts', 'src/desktop/main.ts'].map((f) =>
-  readFileSync(join(root, f), 'utf-8'),
-)
+const callerFiles = ['src/desktop/ipc.ts', 'src/desktop/main.ts'].map((f) => readFileSync(join(root, f), 'utf-8'))
 
 for (const fn of ['openShelfWindow', 'openLibraryWindow'] as const) {
   test(`R30-24: ${fn} 全部调用点带 .catch 兜底（无裸浮 async 调用）`, () => {

@@ -43,7 +43,7 @@ interface OverviewCtx {
   /** APP 级数据目录：genre/target_words/volume_size 喂运行时（状态机+完成度）走全局托底链 */
   userDataPath: string | null
   /** 收尾：概览整包缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变；仅整包壳， state 缓存无覆盖面） */
+   * （undefined = 生产口径 5s 逐位不变；仅整包壳， state 缓存无覆盖面） */
   overviewTtlMs?: number | null
 }
 
@@ -129,98 +129,104 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     method: 'GET',
     path: '/api/books/:name/overview',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const entry = r.entry
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const entry = r.entry
 
-    const bookRoot = r.bookRoot
-    // 整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描；过期条目
-    // 顺手逐出（同款）。：壳体收编 ttl-cache.ts
-    // 通用件（探针/命中判定/逐出/「成功态才落缓存」由通用件 + storeIf 承担，时序逐位
-    // 不变；计算体闭包 ctx/entry，经 get(key, compute) 逐调用传入）
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    const computed = await overviewCache.get(bookRoot, async (root): Promise<OverviewCompute> => {
-      // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
-      // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
-      // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
-      // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
-      // recover 合并失同步收口—— 正本契约与
-      // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
-      // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
-      // 真书档案；**损坏**（存在但解析失败）保持 口径 200 降级 + warn 留痕
-      // （回归钉），作者可见诊断、书不因局部损坏整体不可用。
-      const bookYamlPath = join(root, 'book.yaml')
-      const cfgResult = readBookConfig(bookYamlPath)
-      if (!cfgResult.ok) {
-        if (!existsSync(bookYamlPath)) {
-          return { payload: {}, stateOk: false, missingYamlPath: bookYamlPath }
-        }
-        log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
-      }
-      const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
-      const kind = config.kind === 'short' ? 'short' : 'long'
+      const bookRoot = r.bookRoot
+      // 整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描；过期条目
+      // 顺手逐出（同款）。：壳体收编 ttl-cache.ts
+      // 通用件（探针/命中判定/逐出/「成功态才落缓存」由通用件 + storeIf 承担，时序逐位
+      // 不变；计算体闭包 ctx/entry，经 get(key, compute) 逐调用传入）
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      const computed = await overviewCache.get(
+        bookRoot,
+        async (root): Promise<OverviewCompute> => {
+          // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
+          // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
+          // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
+          // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
+          // recover 合并失同步收口—— 正本契约与
+          // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
+          // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
+          // 真书档案；**损坏**（存在但解析失败）保持 口径 200 降级 + warn 留痕
+          // （回归钉），作者可见诊断、书不因局部损坏整体不可用。
+          const bookYamlPath = join(root, 'book.yaml')
+          const cfgResult = readBookConfig(bookYamlPath)
+          if (!cfgResult.ok) {
+            if (!existsSync(bookYamlPath)) {
+              return { payload: {}, stateOk: false, missingYamlPath: bookYamlPath }
+            }
+            log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
+          }
+          const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
+          const kind = config.kind === 'short' ? 'short' : 'long'
 
-      // 状态机（自包含；失败降级 state:0）。：命中短时缓存则跳过全量 rebuild。
-      // state 成功路径标记——降级态（catch state:0）不落整包缓存（
-      //「不缓存失败」口径对整包内的 state 段同样适用）
-      let state: StateOutput
-      let stateOk = false
-      try {
-        state = await overviewStateCache.get(root, async (stateRoot): Promise<StateOutput> => {
-          // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-          // rebuild 走 worker 通道（同 /api/state 接线）——大书
-          // 首进门全量重建卸线程，事件循环不再秒级冻结（SSE 心跳/保存停摆面）
-          const detected = await trackInFlightWork(detectState(stateRoot, config, undefined, { rebuildChannel: 'worker' }))
-          return { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
-        })
-        stateOk = true
-      } catch (e) {
-        // 失败态不落缓存——下一请求立即重试（而非被 TTL 挡住拿假空数据）
-        state = {
-          state: 0,
-          name: '状态机判定失败',
-          // API 错误脱敏
-          detail: { error: redactSecret(errMsg(e)) },
-        }
-      }
+          // 状态机（自包含；失败降级 state:0）。：命中短时缓存则跳过全量 rebuild。
+          // state 成功路径标记——降级态（catch state:0）不落整包缓存（
+          //「不缓存失败」口径对整包内的 state 段同样适用）
+          let state: StateOutput
+          let stateOk = false
+          try {
+            state = await overviewStateCache.get(root, async (stateRoot): Promise<StateOutput> => {
+              // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+              // rebuild 走 worker 通道（同 /api/state 接线）——大书
+              // 首进门全量重建卸线程，事件循环不再秒级冻结（SSE 心跳/保存停摆面）
+              const detected = await trackInFlightWork(
+                detectState(stateRoot, config, undefined, { rebuildChannel: 'worker' }),
+              )
+              return { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
+            })
+            stateOk = true
+          } catch (e) {
+            // 失败态不落缓存——下一请求立即重试（而非被 TTL 挡住拿假空数据）
+            state = {
+              state: 0,
+              name: '状态机判定失败',
+              // API 错误脱敏
+              detail: { error: redactSecret(errMsg(e)) },
+            }
+          }
 
-      // 本 handler 的三个全书投影（timeline / progress / recentDoc）
-      // 此前各自 readChapterDir 扫一遍章目录（三连全扫，2000 章书每次打开总览 = 3 次目录
-      // 遍历 + 2000+ statSync）——改单趟扫描结果三处复用；timeline 的逐章 statSync 让出
-      // 纪律不变。投影缓存（登记）仍不引入（指纹壳的成本/一致性权衡未拍板）。
-      const { chapters: bodyChapters } = readChapterDir(join(root, '写作', '正文'))
-      const timeline = await computeTimeline(root, bodyChapters)
-      const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
-      const payload: Record<string, unknown> = {
-        identity: {
-          name: entry.name,
-          kind: entry.kind,
-          path: entry.path,
-          ...(entry.created_at ? { created_at: entry.created_at } : {}),
-          title: config.book.title,
-          genre: config.book.genre,
-          host: entry.host ?? 'cc',
+          // 本 handler 的三个全书投影（timeline / progress / recentDoc）
+          // 此前各自 readChapterDir 扫一遍章目录（三连全扫，2000 章书每次打开总览 = 3 次目录
+          // 遍历 + 2000+ statSync）——改单趟扫描结果三处复用；timeline 的逐章 statSync 让出
+          // 纪律不变。投影缓存（登记）仍不引入（指纹壳的成本/一致性权衡未拍板）。
+          const { chapters: bodyChapters } = readChapterDir(join(root, '写作', '正文'))
+          const timeline = await computeTimeline(root, bodyChapters)
+          const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
+          const payload: Record<string, unknown> = {
+            identity: {
+              name: entry.name,
+              kind: entry.kind,
+              path: entry.path,
+              ...(entry.created_at ? { created_at: entry.created_at } : {}),
+              title: config.book.title,
+              genre: config.book.genre,
+              host: entry.host ?? 'cc',
+            },
+            progress: withTarget(await computeProgressAsync(root, bodyChapters), config.book.target_words),
+            state,
+            volumes: listVolumes(root),
+            timeline,
+            recentDoc: getRecentDoc(root, bodyChapters),
+            streak: computeStreak(timeline),
+            ...(shortProfile ? { shortProfile } : {}),
+          }
+          return { payload, stateOk }
         },
-        progress: withTarget(await computeProgressAsync(root, bodyChapters), config.book.target_words),
-        state,
-        volumes: listVolumes(root),
-        timeline,
-        recentDoc: getRecentDoc(root, bodyChapters),
-        streak: computeStreak(timeline),
-        ...(shortProfile ? { shortProfile } : {}),
-      }
-      return { payload, stateOk }
-    }, ctx.overviewTtlMs ?? undefined)
-    if (computed.missingYamlPath) {
-      return replyError(
-        res,
-        500,
-        'IO_ERROR',
-        `book.yaml 缺失：${computed.missingYamlPath}（书档案不完整，拒绝以默认配置代答）`,
+        ctx.overviewTtlMs ?? undefined,
       )
-    }
-    reply(res, 200, computed.payload)
-  },
+      if (computed.missingYamlPath) {
+        return replyError(
+          res,
+          500,
+          'IO_ERROR',
+          `book.yaml 缺失：${computed.missingYamlPath}（书档案不完整，拒绝以默认配置代答）`,
+        )
+      }
+      reply(res, 200, computed.payload)
+    },
   })
 }
 
@@ -283,9 +289,7 @@ async function computeTimeline(bookRoot: string, chapters: ChapterMeta[]): Promi
     const day = localDayKey(mtime) // 本地日分桶——与字数日记 todayDate 同口径（此前 UTC 切日，东八区 0-8 点记前一日，热力图/连续天数与日记打架）
     byDay.set(day, (byDay.get(day) ?? 0) + 1)
   }
-  return [...byDay.entries()]
-    .map(([date, count]) => ({ date, count }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  return [...byDay.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date))
 }
 
 /** 最近一章（按章号最大）—— 供总览页"继续写作"入口。：章列表由调用方单趟传入。 */
@@ -318,12 +322,14 @@ function computeStreak(timeline: { date: string; count: number }[]): number {
 }
 
 /** 短篇画像（从 book.yaml.short 提取，总览页缺口分析用） */
-function extractShortProfile(config: BookConfig): {
-  targetEmotions?: string[]
-  targetReversalTypes?: string[]
-  targetEndingFlavors?: string[]
-  seriesMotifs?: string[]
-} | undefined {
+function extractShortProfile(config: BookConfig):
+  | {
+      targetEmotions?: string[]
+      targetReversalTypes?: string[]
+      targetEndingFlavors?: string[]
+      seriesMotifs?: string[]
+    }
+  | undefined {
   const s = config.short
   if (!s) return undefined
   const out: {

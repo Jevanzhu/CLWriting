@@ -83,8 +83,18 @@ const usageOf = (u: Record<string, unknown>): OpenAI.Responses.ResponseUsage =>
   u as unknown as OpenAI.Responses.ResponseUsage
 const respOf = (r: Record<string, unknown>): OpenAI.Responses.Response => r as unknown as OpenAI.Responses.Response
 const deltaEv = (itemId: string | undefined, delta: string): OpenAI.Responses.ResponseFunctionCallArgumentsDeltaEvent =>
-  ({ type: 'response.function_call_arguments.delta', item_id: itemId, delta, output_index: 0 }) as unknown as OpenAI.Responses.ResponseFunctionCallArgumentsDeltaEvent
-const fnCallItem = (o: { id?: string; call_id?: string; name: string; arguments: string }): OpenAI.Responses.ResponseFunctionToolCall =>
+  ({
+    type: 'response.function_call_arguments.delta',
+    item_id: itemId,
+    delta,
+    output_index: 0,
+  }) as unknown as OpenAI.Responses.ResponseFunctionCallArgumentsDeltaEvent
+const fnCallItem = (o: {
+  id?: string
+  call_id?: string
+  name: string
+  arguments: string
+}): OpenAI.Responses.ResponseFunctionToolCall =>
   ({ type: 'function_call', ...o }) as unknown as OpenAI.Responses.ResponseFunctionToolCall
 const msgItem = (text: string): OpenAI.Responses.ResponseOutputItem =>
   ({ type: 'message', content: [{ type: 'output_text', text }] }) as unknown as OpenAI.Responses.ResponseOutputItem
@@ -99,14 +109,23 @@ describe('R0916-7-P3-2 responses-stream：usage 归一与采信', () => {
     expect(toUsage(null)).toEqual({ inputTokens: 0, outputTokens: 0 })
     expect(toUsage(undefined)).toEqual({ inputTokens: 0, outputTokens: 0 })
     expect(
-      toUsage(usageOf({ input_tokens: 100, output_tokens: 7, input_tokens_details: { cached_tokens: 40 }, output_tokens_details: { reasoning_tokens: 3 } })),
+      toUsage(
+        usageOf({
+          input_tokens: 100,
+          output_tokens: 7,
+          input_tokens_details: { cached_tokens: 40 },
+          output_tokens_details: { reasoning_tokens: 3 },
+        }),
+      ),
     ).toEqual({ inputTokens: 60, outputTokens: 7, cacheReadTokens: 40, reasoningTokens: 3 })
     // 扣减不为负（异常网关 cached > input）
-    expect(toUsage(usageOf({ input_tokens: 3, output_tokens: 1, input_tokens_details: { cached_tokens: 5 } }))).toEqual({
-      inputTokens: 0,
-      outputTokens: 1,
-      cacheReadTokens: 5,
-    })
+    expect(toUsage(usageOf({ input_tokens: 3, output_tokens: 1, input_tokens_details: { cached_tokens: 5 } }))).toEqual(
+      {
+        inputTokens: 0,
+        outputTokens: 1,
+        cacheReadTokens: 5,
+      },
+    )
   })
 
   const realCases: [string, OpenAI.Responses.ResponseUsage | null | undefined, boolean][] = [
@@ -193,7 +212,10 @@ describe('R0916-7-P3-2 responses-stream：工具调用累积', () => {
   it('done 直接键命中：权威 arguments 覆盖 delta 累计（R38-7），call_id 优先 id', () => {
     const st = createResponsesStreamAccum()
     applyFunctionCallArgsDelta(st, deltaEv('fc_1', '{"q":1}'))
-    const ev = claimOutputItemFunctionCall(st, fnCallItem({ id: 'fc_1', call_id: 'call_a', name: 'add', arguments: '{"q":2}' }))
+    const ev = claimOutputItemFunctionCall(
+      st,
+      fnCallItem({ id: 'fc_1', call_id: 'call_a', name: 'add', arguments: '{"q":2}' }),
+    )
     expect(ev).toEqual({ type: 'tool', id: 'call_a', name: 'add', input: { q: 2 } })
     expect(st.outToolText).toEqual(['add{"q":2}'])
     expect(st.toolYielded).toBe(true)
@@ -219,7 +241,11 @@ describe('R0916-7-P3-2 responses-stream：工具调用累积', () => {
     expect(claimOutputItemReasoning(st, { type: 'reasoning' } as OpenAI.Responses.ResponseReasoningItem)).toEqual([])
     expect(st.reasoningItemCount).toBe(0)
     expect(
-      claimOutputItemReasoning(st, { type: 'reasoning', id: 'r1', encrypted_content: 'enc' } as OpenAI.Responses.ResponseReasoningItem),
+      claimOutputItemReasoning(st, {
+        type: 'reasoning',
+        id: 'r1',
+        encrypted_content: 'enc',
+      } as OpenAI.Responses.ResponseReasoningItem),
     ).toEqual([{ type: 'reasoning_item', encrypted: 'enc', itemId: 'r1' }])
     expect(st.reasoningItemCount).toBe(1)
   })
@@ -286,7 +312,11 @@ describe('R0916-7-P3-2 responses-stream：completed 终态判决', () => {
   it('伪流回填 text（R35-18）：无 delta 流出时 completed 的 message 项是唯一产出', () => {
     const { ctx, rec } = mkCtx()
     const st = createResponsesStreamAccum()
-    const step = applyCompleted(st, respOf({ output: [msgItem('全文')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }), ctx)
+    const step = applyCompleted(
+      st,
+      respOf({ output: [msgItem('全文')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }),
+      ctx,
+    )
     expect(step.events[0]).toEqual({ type: 'text', delta: '全文' })
     expect(typesOf(step.events)).toEqual(['text', 'done'])
     expect(st.outText).toEqual(['全文'])
@@ -299,7 +329,10 @@ describe('R0916-7-P3-2 responses-stream：completed 终态判决', () => {
     const st = createResponsesStreamAccum()
     const step = applyCompleted(
       st,
-      respOf({ output: [fnCallItem({ call_id: 'c9', name: 'add', arguments: '{"a":1}' })], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }),
+      respOf({
+        output: [fnCallItem({ call_id: 'c9', name: 'add', arguments: '{"a":1}' })],
+        usage: usageOf({ input_tokens: 1, output_tokens: 1 }),
+      }),
       ctx,
     )
     expect(step.events[0]).toEqual({ type: 'tool', id: 'c9', name: 'add', input: { a: 1 } })
@@ -312,7 +345,11 @@ describe('R0916-7-P3-2 responses-stream：completed 终态判决', () => {
     const { ctx } = mkCtx()
     const st = createResponsesStreamAccum()
     applyTextDelta(st, '甲')
-    const step = applyCompleted(st, respOf({ output: [msgItem('甲')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }), ctx)
+    const step = applyCompleted(
+      st,
+      respOf({ output: [msgItem('甲')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }),
+      ctx,
+    )
     expect(typesOf(step.events)).toEqual(['done'])
     expect(st.outText).toEqual(['甲'])
   })
@@ -342,7 +379,11 @@ describe('R0916-7-P3-2 responses-stream：completed 终态判决', () => {
     const { ctx, rec } = mkCtx()
     const st = createResponsesStreamAccum()
     const empty = { type: 'message', content: [] } as unknown as OpenAI.Responses.ResponseOutputItem
-    const step = applyCompleted(st, respOf({ output: [empty], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }), ctx)
+    const step = applyCompleted(
+      st,
+      respOf({ output: [empty], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }),
+      ctx,
+    )
     expect(typesOf(step.events)).toEqual(['done'])
     expect(rec.doneRaw).toEqual(['stop'])
   })
@@ -354,7 +395,10 @@ describe('R0916-7-P3-2 responses-stream：incomplete / failed / error 终态判�
     const st = createResponsesStreamAccum()
     const step = applyIncomplete(
       st,
-      respOf({ incomplete_details: { reason: 'max_output_tokens' }, usage: usageOf({ input_tokens: 9, output_tokens: 3 }) }),
+      respOf({
+        incomplete_details: { reason: 'max_output_tokens' },
+        usage: usageOf({ input_tokens: 9, output_tokens: 3 }),
+      }),
       ctx,
     )
     expect(typesOf(step.events)).toEqual(['done'])
@@ -369,7 +413,11 @@ describe('R0916-7-P3-2 responses-stream：incomplete / failed / error 终态判�
   ])('incomplete(%s) 不得伪装成正常 stop → 终态 error', (reason, message) => {
     const { ctx, rec } = mkCtx()
     const st = createResponsesStreamAccum()
-    const step = applyIncomplete(st, respOf({ incomplete_details: { reason }, usage: usageOf({ input_tokens: 9, output_tokens: 3 }) }), ctx)
+    const step = applyIncomplete(
+      st,
+      respOf({ incomplete_details: { reason }, usage: usageOf({ input_tokens: 9, output_tokens: 3 }) }),
+      ctx,
+    )
     expect(typesOf(step.events)).toEqual(['error'])
     expect(step.stop).toBe(true)
     expect(rec.terminal[0]?.message).toBe(message)
@@ -397,19 +445,23 @@ describe('R0916-7-P3-2 responses-stream：incomplete / failed / error 终态判�
     expect(rec.terminal[0]?.message).toBe('response.failed (status=500)')
   })
 
-  it.each(['completed', 'incomplete', 'failed'] as const)('终态已置（%s）后 failed/error 抖动被忽略——done 不被翻转', (terminal) => {
-    const { ctx, rec } = mkCtx()
-    for (const fire of [
-      (st: ResponsesStreamAccum) => applyFailed(st, respOf({ error: { message: 'x' } }), ctx),
-      (st: ResponsesStreamAccum) => applyStreamError(st, streamEv({ type: 'error', message: 'y' }) as OpenAI.Responses.ResponseErrorEvent, ctx),
-    ]) {
-      const st = createResponsesStreamAccum()
-      st.terminal = terminal
-      const step = fire(st)
-      expect(step).toEqual({ events: [], stop: false })
-    }
-    expect(rec.terminal).toEqual([])
-  })
+  it.each(['completed', 'incomplete', 'failed'] as const)(
+    '终态已置（%s）后 failed/error 抖动被忽略——done 不被翻转',
+    (terminal) => {
+      const { ctx, rec } = mkCtx()
+      for (const fire of [
+        (st: ResponsesStreamAccum) => applyFailed(st, respOf({ error: { message: 'x' } }), ctx),
+        (st: ResponsesStreamAccum) =>
+          applyStreamError(st, streamEv({ type: 'error', message: 'y' }) as OpenAI.Responses.ResponseErrorEvent, ctx),
+      ]) {
+        const st = createResponsesStreamAccum()
+        st.terminal = terminal
+        const step = fire(st)
+        expect(step).toEqual({ events: [], stop: false })
+      }
+      expect(rec.terminal).toEqual([])
+    },
+  )
 
   it('流中 error 事件：终态 error（PROTOCOL）+ 估计 usage；无 message 落默认文案', () => {
     const { ctx, rec } = mkCtx()
@@ -465,7 +517,12 @@ describe('R0916-7-P3-2 responses-stream：单入口分发（产出顺序 = 线�
     ['正文 delta', { type: 'response.output_text.delta', delta: '甲' }, ['text'], false],
     ['推理文本 delta', { type: 'response.reasoning_text.delta', delta: '乙' }, ['reasoning'], false],
     ['推理摘要 delta', { type: 'response.reasoning_summary_text.delta', delta: '丙' }, ['reasoning'], false],
-    ['工具参数 delta（只累积不产出）', { type: 'response.function_call_arguments.delta', item_id: 'fc', delta: '{}' }, [], false],
+    [
+      '工具参数 delta（只累积不产出）',
+      { type: 'response.function_call_arguments.delta', item_id: 'fc', delta: '{}' },
+      [],
+      false,
+    ],
     ['未知事件类型静默跳过', { type: 'response.created' }, [], false],
   ]
   it.each(cases)('%s', (_name, event, expectedTypes, expectedStop) => {
@@ -480,14 +537,28 @@ describe('R0916-7-P3-2 responses-stream：单入口分发（产出顺序 = 线�
     const { ctx } = mkCtx()
     const st = createResponsesStreamAccum()
     expect(
-      typesOf(applyResponsesStreamEvent(st, streamEv({ type: 'response.output_item.done', item: fnCallItem({ id: 'c1', name: 't', arguments: '{}' }) }), ctx).events),
+      typesOf(
+        applyResponsesStreamEvent(
+          st,
+          streamEv({ type: 'response.output_item.done', item: fnCallItem({ id: 'c1', name: 't', arguments: '{}' }) }),
+          ctx,
+        ).events,
+      ),
     ).toEqual(['tool'])
     expect(
       typesOf(
-        applyResponsesStreamEvent(st, streamEv({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'r', encrypted_content: 'e' } }), ctx).events,
+        applyResponsesStreamEvent(
+          st,
+          streamEv({ type: 'response.output_item.done', item: { type: 'reasoning', id: 'r', encrypted_content: 'e' } }),
+          ctx,
+        ).events,
       ),
     ).toEqual(['reasoning_item'])
-    expect(typesOf(applyResponsesStreamEvent(st, streamEv({ type: 'response.output_item.done', item: msgItem('m') }), ctx).events)).toEqual([])
+    expect(
+      typesOf(
+        applyResponsesStreamEvent(st, streamEv({ type: 'response.output_item.done', item: msgItem('m') }), ctx).events,
+      ),
+    ).toEqual([])
   })
 
   it('顺序不变量：先 text 后 completed 的产出序 = 线上序；回填门因已产出而不重复', () => {
@@ -496,7 +567,10 @@ describe('R0916-7-P3-2 responses-stream：单入口分发（产出顺序 = 线�
     const events: GenEvent[] = []
     for (const event of [
       streamEv({ type: 'response.output_text.delta', delta: '甲' }),
-      streamEv({ type: 'response.completed', response: respOf({ output: [msgItem('甲')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }) }),
+      streamEv({
+        type: 'response.completed',
+        response: respOf({ output: [msgItem('甲')], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }),
+      }),
     ]) {
       const step = applyResponsesStreamEvent(st, event, ctx)
       events.push(...step.events)
@@ -512,7 +586,13 @@ describe('R0916-7-P3-2 responses-stream：单入口分发（产出顺序 = 线�
     const events: GenEvent[] = []
     for (const event of [
       streamEv({ type: 'response.output_item.done', item: fnCallItem({ call_id: 'c1', name: 't', arguments: '{}' }) }),
-      streamEv({ type: 'response.completed', response: respOf({ output: [fnCallItem({ call_id: 'c1', name: 't', arguments: '{}' })], usage: usageOf({ input_tokens: 1, output_tokens: 1 }) }) }),
+      streamEv({
+        type: 'response.completed',
+        response: respOf({
+          output: [fnCallItem({ call_id: 'c1', name: 't', arguments: '{}' })],
+          usage: usageOf({ input_tokens: 1, output_tokens: 1 }),
+        }),
+      }),
     ]) {
       events.push(...applyResponsesStreamEvent(st, event, ctx).events)
     }

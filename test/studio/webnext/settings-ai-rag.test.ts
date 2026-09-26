@@ -37,8 +37,24 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.getRagProviders.mockResolvedValue({
     ragProviders: [
-      { id: 'rag-a', name: 'A 家嵌入', endpoint: 'https://a/v1/embeddings', model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-1...abcd', caps: null },
-      { id: 'rag-b', name: 'B 家嵌入', endpoint: 'https://b/v1/embeddings', model: 'embed-b', apiKey: '', apiKeyMasked: 'sk-2...efgh', caps: null },
+      {
+        id: 'rag-a',
+        name: 'A 家嵌入',
+        endpoint: 'https://a/v1/embeddings',
+        model: 'embed-a',
+        apiKey: '',
+        apiKeyMasked: 'sk-1...abcd',
+        caps: null,
+      },
+      {
+        id: 'rag-b',
+        name: 'B 家嵌入',
+        endpoint: 'https://b/v1/embeddings',
+        model: 'embed-b',
+        apiKey: '',
+        apiKeyMasked: 'sk-2...efgh',
+        caps: null,
+      },
     ],
   })
 })

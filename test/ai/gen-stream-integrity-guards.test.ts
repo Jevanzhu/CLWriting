@@ -116,7 +116,10 @@ describe('R26-2: anthropic message_start 缺 input_tokens → 0 兜底（NaN 防
         ]),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -137,7 +140,10 @@ describe('R26-2: anthropic message_start 缺 input_tokens → 0 兜底（NaN 防
         ]),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -155,13 +161,19 @@ describe('R26-4: Responses completed 缺 output 数组但本流已流出内容 �
     const client = {
       responses: {
         create: fakeSend([
-          { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_1', call_id: 'c1', name: 'submit_x', arguments: '{"正文":"完整"}' } },
+          {
+            type: 'response.output_item.done',
+            item: { type: 'function_call', id: 'fc_1', call_id: 'c1', name: 'submit_x', arguments: '{"正文":"完整"}' },
+          },
           // 网关省略 output 数组的缺字段形态（文件头缺口 18 自认）
           { type: 'response.completed', response: { usage: { input_tokens: 3, output_tokens: 2 } } },
         ]),
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     expect(evs.some((e) => e.type === 'tool')).toBe(true)
     const done = evs.find((e) => e.type === 'done')
     expect(done, '修复前此处是 retryable:false 的「空产出」error，token 白烧').toBeDefined()
@@ -179,7 +191,10 @@ describe('R26-4: Responses completed 缺 output 数组但本流已流出内容 �
         ]),
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -193,7 +208,10 @@ describe('R26-4: Responses completed 缺 output 数组但本流已流出内容 �
         create: fakeSend([{ type: 'response.completed', response: { output: [] } }]),
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const err = evs.find((e) => e.type === 'error')
     expect(err).toMatchObject({ retryable: false })
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()

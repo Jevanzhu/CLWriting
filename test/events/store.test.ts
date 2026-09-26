@@ -27,7 +27,7 @@ describe('F1-P1 bookHash', () => {
     expect(bookHash('/books/b')).not.toBe(a)
     expect(a).toMatch(/^[0-9a-f]{16}$/)
   })
-});
+})
 
 describe('F1-P1 store 存取', () => {
   it('userDataPath 为空 → null（退化内存模式）', () => {
@@ -37,7 +37,7 @@ describe('F1-P1 store 存取', () => {
 
   it('appendEvents 落库且 seq 连续；listEvents 按 seq 升序返回', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A', { book: '书A' })
     store.appendEvents(sid, [
       { type: 'session/start', data: { book: '书A' } },
@@ -54,7 +54,7 @@ describe('F1-P1 store 存取', () => {
 
   it('listEvents 可按 sessionId 过滤', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const s1 = store.createSession('书A')
     const s2 = store.createSession('书A')
     store.appendEvents(s1, [{ type: 'user/message', data: { message: 'm1' }, surfaceOp: 'append' }])
@@ -66,11 +66,15 @@ describe('F1-P1 store 存取', () => {
 
   it('O-2（第十三轮）listEvents limit 限量通道：seq 升序取前 N；非法 limit 归全量', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [
       { type: 'session/start', data: {} },
-      ...[1, 2, 3, 4].map((i) => ({ type: 'user/message' as const, data: { message: `m${i}` }, surfaceOp: 'append' as const })),
+      ...[1, 2, 3, 4].map((i) => ({
+        type: 'user/message' as const,
+        data: { message: `m${i}` },
+        surfaceOp: 'append' as const,
+      })),
     ])
     // 书维度限量：取 seq 升序前 3
     expect(store.listEvents('书A', undefined, 3).map((e) => e.seq)).toEqual([1, 2, 3])
@@ -87,7 +91,7 @@ describe('F1-P1 store 存取', () => {
 
   it('B1（2026-08-24）listEvents type 下推：书/会话两维只返回指定类型行，与 limit 可组合', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [
       { type: 'session/start', data: {} },
@@ -106,21 +110,21 @@ describe('F1-P1 store 存取', () => {
 
   it('B3（2026-08-24）打开期抛错（库损坏）→ 上抛不滞留；修复后同路径重开可用', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     store.close()
     const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
     writeFileSync(dbPath, Buffer.from('not a sqlite database at all'.repeat(10)))
     expect(() => openSessionStore(ud, '/books/a')).toThrow()
     // 坏库清走后同路径可开可写——openStores 无残留登记/句柄阻塞
     rmSync(dbPath, { force: true })
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     store2.appendEvents(store2.createSession('书A'), [{ type: 'session/start', data: {} }])
     store2.close()
   })
 
   it('clearBook 清空本书事件与 session', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     expect(store.lastSeq()).toBe(1)
@@ -132,7 +136,7 @@ describe('F1-P1 store 存取', () => {
 
   it('RB-IF-P2-1: clearBook 原子——第二条 DELETE 失败时第一条整体回滚（不留孤儿 events）', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'user/message', data: { message: '审计数据' }, surfaceOp: 'append' }])
     // 用触发器让第二条 DELETE（sessions）必然失败——验证第一条（events）随之回滚
@@ -155,7 +159,7 @@ describe('F1-P1 store 存取', () => {
 
   it('P5-服务端（第七轮）：clearBooks 原子——第二键 DELETE 失败时第一键整体回滚', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     // 双钥匙两 book 键，各挂一条事件
     const s1 = store.createSession('书A')
     store.appendEvents(s1, [{ type: 'user/message', data: { message: '对话侧' }, surfaceOp: 'append' }])
@@ -181,15 +185,15 @@ describe('F1-P1 store 存取', () => {
 
   it('失败事务回滚——appendEvents 抛错后无部分写入', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     // 触发错误：未知 type 不报错（SQLite 不校验），改用 data 为不可序列化对象
     const bad: Record<string, unknown> = {}
-    const cyc: Record<string, unknown> = {};
-    cyc['self'] = cyc;
+    const cyc: Record<string, unknown> = {}
+    cyc['self'] = cyc
     expect(() => store.appendEvents(sid, [{ type: 'user/message', data: cyc, surfaceOp: 'append' }])).toThrow()
     expect(store.listEvents('书A')).toHaveLength(0)
-    void bad;
+    void bad
     store.close()
   })
 })
@@ -210,14 +214,14 @@ function backdateSessions(ud: string, bookRoot: string, ms: number): void {
 describe('F1-P1 启动修复', () => {
   it('陈旧孤儿 session（最后活动已过宽限期）重开库时补 session/end{interrupted}', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: { book: '书A' } }])
     store.appendEvents(sid, [{ type: 'user/message', data: { message: 'crash' }, surfaceOp: 'append' }])
     store.close()
     backdateEvents(ud, '/books/a', 33 * 60 * 1000) // 超过 32 分钟宽限期（R65-19 对齐 AGENT_DEADLINE_MS）
     // 重开库（模拟崩溃后重启）
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     const evs = store2.listEvents('书A')
     const ends = evs.filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1)
@@ -228,14 +232,14 @@ describe('F1-P1 启动修复', () => {
   it('O-7（第十三轮）孤儿修复补 end 时同步 touch sessions.updated_at（不被 latestSession 当新会话选中恢复）', () => {
     const ud = tmpRoot()
     const t0 = Date.now()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
     // 事件与 sessions 双双回拨：修复前 updated_at 停留在创建时刻（t0-11min）
     backdateEvents(ud, '/books/a', 33 * 60 * 1000)
     backdateSessions(ud, '/books/a', 33 * 60 * 1000)
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1) // 修复生效
     // R64-9（十二轮）：补 end 与 touch 解耦——end 事件落修复时刻（≥ t0），
@@ -252,7 +256,7 @@ describe('F1-P1 启动修复', () => {
     // 用 BEFORE UPDATE 触发器 RAISE(ABORT) 模拟第二步抛错：修复事务内
     // INSERT（补 end）成功后 UPDATE 触发 ABORT → ROLLBACK，INSERT 一并回滚
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
@@ -260,59 +264,67 @@ describe('F1-P1 启动修复', () => {
     backdateSessions(ud, '/books/a', 33 * 60 * 1000)
     const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
     const before = new DatabaseSync(dbPath)
-    before.exec("CREATE TRIGGER mock_touch_fail BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'mock touch fail'); END")
-    const updatedAtBefore = (before.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }).updated_at
+    before.exec(
+      "CREATE TRIGGER mock_touch_fail BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'mock touch fail'); END",
+    )
+    const updatedAtBefore = (
+      before.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }
+    ).updated_at
     before.close()
     // 重开库触发修复：touch 抛错 → 事务回滚 → 开库抛出（不静默半态）
     expect(() => openSessionStore(ud, '/books/a')).toThrow('mock touch fail')
     // 半态校验：end 未补（INSERT 已回滚），updated_at 未刷
     const probe = new DatabaseSync(dbPath)
-    const ends = probe.prepare("SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND type = 'session/end'").get(sid) as { n: number }
-    const updatedAtAfter = (probe.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }).updated_at
+    const ends = probe
+      .prepare("SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND type = 'session/end'")
+      .get(sid) as { n: number }
+    const updatedAtAfter = (
+      probe.prepare('SELECT updated_at FROM sessions WHERE session_id = ?').get(sid) as { updated_at: number }
+    ).updated_at
     probe.exec('DROP TRIGGER mock_touch_fail')
     probe.close()
     expect(ends.n).toBe(0)
     expect(updatedAtAfter).toBe(updatedAtBefore)
     // 撤除模拟故障后重开：修复正常补齐（两步同事务原子上线）
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     store2.close()
   })
 
   it('RB-IF-P2-2: 新近活跃的孤儿（伪孤儿，跨进程进行中）不补虚假 end', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: { book: '书A' } }])
     store.appendEvents(sid, [{ type: 'user/message', data: { message: '另一进程进行中' }, surfaceOp: 'append' }])
     store.close()
     // 不回拨：最后活动就在此刻（宽限期内）
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
     store2.close()
   })
 
   it('RB-IF-P2-2: 恰在宽限期边界内（31 分钟前）仍不补（R65-19 窗口随宽限对齐）', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
     backdateEvents(ud, '/books/a', 31 * 60 * 1000)
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
     store2.close()
   })
 
   it('正常收尾的 session 不补 closers', () => {
     const ud = tmpRoot()
-    const store = openSessionStore(ud, '/books/a')!;
+    const store = openSessionStore(ud, '/books/a')!
     const sid = store.createSession('书A')
     store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.appendEvents(sid, [{ type: 'session/end', data: { reason: 'completed' } }])
     store.close()
     backdateEvents(ud, '/books/a', 33 * 60 * 1000)
-    const store2 = openSessionStore(ud, '/books/a')!;
+    const store2 = openSessionStore(ud, '/books/a')!
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     store2.close()
   })
@@ -325,12 +337,12 @@ describe('F1-P1 启动修复', () => {
     const t0 = Date.now()
     vi.useFakeTimers({ now: t0 })
     try {
-      const store = openSessionStore(ud, '/books/a')!;
+      const store = openSessionStore(ud, '/books/a')!
       const sid = store.createSession('书A')
       store.appendEvents(sid, [{ type: 'session/start', data: {} }])
       store.close()
       // 重开：孤儿最后活动 = t0（宽限期内）→ 打开修复跳过
-      const store2 = openSessionStore(ud, '/books/a')!;
+      const store2 = openSessionStore(ud, '/books/a')!
       expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
       // 宽限期过后（库保持打开，长跑进程）：写路径（createSession）触发 TTL 惰性修复
       vi.setSystemTime(t0 + 33 * 60 * 1000)
@@ -380,7 +392,6 @@ describe('F1-P1 启动修复', () => {
     }
   })
 })
-
 
 describe('R65-20（批 B）：listEvents 坏行降级', () => {
   it('单行 data 坏 JSON → 跳过该行 + warn 留 seq，其余行完整返回不抛', () => {

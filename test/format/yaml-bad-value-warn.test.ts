@@ -46,14 +46,9 @@ test('R37-11: host 坏值 warn 留痕且仍落缺省 cc（行为不变）', () =
 test('R37-11: snapshots 两键坏值各自 warn 且整段按未设处理（config.snapshots 不落）', () => {
   const warnSpy = vi.spyOn(log, 'warn')
   try {
-    const parsed = parseBookConfig([
-      'spec_version: 1',
-      'book:',
-      '  title: T',
-      'snapshots:',
-      '  max_days: abc',
-      '  max_count: -3',
-    ].join('\n'))
+    const parsed = parseBookConfig(
+      ['spec_version: 1', 'book:', '  title: T', 'snapshots:', '  max_days: abc', '  max_count: -3'].join('\n'),
+    )
     expect(parsed.ok).toBe(true)
     if (parsed.ok) expect(parsed.config.snapshots).toBeUndefined() // 坏键全忽略 → 段不落
     const warned = warnSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
@@ -69,16 +64,18 @@ test('R37-11: snapshots 两键坏值各自 warn 且整段按未设处理（confi
 test('R37-11: 合法值不触发 warn（既有解析行为零扰动）', () => {
   const warnSpy = vi.spyOn(log, 'warn')
   try {
-    const parsed = parseBookConfig([
-      'spec_version: 1',
-      'kind: short',
-      'host: codex',
-      'book:',
-      '  title: T',
-      'snapshots:',
-      '  max_days: 7',
-      '  max_count: 5',
-    ].join('\n'))
+    const parsed = parseBookConfig(
+      [
+        'spec_version: 1',
+        'kind: short',
+        'host: codex',
+        'book:',
+        '  title: T',
+        'snapshots:',
+        '  max_days: 7',
+        '  max_count: 5',
+      ].join('\n'),
+    )
     expect(parsed.ok).toBe(true)
     if (parsed.ok) {
       expect(parsed.config.kind).toBe('short')

@@ -49,7 +49,11 @@ describe('install/books-store：存储层导出面（R0916-7-P3-3）', () => {
       { name: '乙书', path: '短篇/乙书', kind: 'long' },
     ])
     // 坏行（非 JSON / 缺字段）跳过不崩；BOM 前缀剥除（R40-25）同口径
-    writeFileSync(join(wd, CLWRITING_DIR, 'books.jsonl'), '\uFEFF' + JSON.stringify(entryOf('丙书')) + '\n{坏行\n', 'utf-8')
+    writeFileSync(
+      join(wd, CLWRITING_DIR, 'books.jsonl'),
+      '\uFEFF' + JSON.stringify(entryOf('丙书')) + '\n{坏行\n',
+      'utf-8',
+    )
     expect(readBooks(wd)).toEqual([{ name: '丙书', path: '长篇/丙书', kind: 'long' }])
   })
 

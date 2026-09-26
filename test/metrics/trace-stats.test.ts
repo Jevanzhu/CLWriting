@@ -44,23 +44,21 @@ function writeCall(
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     const sid = store.workspaceSession(bookHash(bookRoot))
-    store.appendEvents(
-      sid,
-      [
-        llmCallEvent({
-          runId: 'r-' + Math.random().toString(36).slice(2),
-          task: p.task,
-          tierKind: 'creative',
-          model: 'm',
-          attempt: p.attempt ?? 0,
-          stopReason: p.ok === false ? 'error' : 'end_turn',
-          usage: p.usage,
-          durationMs: p.durationMs ?? 100,
-          ok: p.ok ?? true,
-          ...(p.errCode ? { errCode: p.errCode } : {}),
-        }),
-      ],
-    )  } finally {
+    store.appendEvents(sid, [
+      llmCallEvent({
+        runId: 'r-' + Math.random().toString(36).slice(2),
+        task: p.task,
+        tierKind: 'creative',
+        model: 'm',
+        attempt: p.attempt ?? 0,
+        stopReason: p.ok === false ? 'error' : 'end_turn',
+        usage: p.usage,
+        durationMs: p.durationMs ?? 100,
+        ok: p.ok ?? true,
+        ...(p.errCode ? { errCode: p.errCode } : {}),
+      }),
+    ])
+  } finally {
     store.close()
   }
 }
@@ -154,4 +152,3 @@ describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
     expect(stats.total).toBe(0)
   })
 })
-

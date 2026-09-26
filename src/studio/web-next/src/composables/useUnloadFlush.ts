@@ -98,15 +98,17 @@ export function useUnloadFlush(): void {
   // flushDirty 内部逐文档 try/catch（save 永不 reject），fire-and-forget 安全，不阻塞卸载
   // flush 失败（仍 dirty 未落盘）时 console.warn 留痕——组件即将销毁，
   // 无处再提示作者，至少留下可回溯的失败证据（.版本 快照是恢复底线）
-  onUnmounted(() =>
-    void doc.flushDirty().then((failed) => {
-      // 卸载路径无界面可弹——flush 等待窗口内落成的 conflict（不在
-      // failed 口径）一并留痕，与卸载时的 failed 同口径（组件已销毁，快照是恢复底线）
-      const conflict = doc.conflictedDirtyDocs()
-      if (failed.length > 0 || conflict.length > 0) {
-        console.warn(`[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}；${conflict.length} 个文档冲突未决: ${conflict.join(', ')}`)
-      }
-    }),
+  onUnmounted(
+    () =>
+      void doc.flushDirty().then((failed) => {
+        // 卸载路径无界面可弹——flush 等待窗口内落成的 conflict（不在
+        // failed 口径）一并留痕，与卸载时的 failed 同口径（组件已销毁，快照是恢复底线）
+        const conflict = doc.conflictedDirtyDocs()
+        if (failed.length > 0 || conflict.length > 0) {
+          console.warn(
+            `[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}；${conflict.length} 个文档冲突未决: ${conflict.join(', ')}`,
+          )
+        }
+      }),
   )
 }
-

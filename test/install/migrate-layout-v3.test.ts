@@ -92,7 +92,9 @@ test('目标已存在（同章号）→ 旧稿回收站，不覆盖', () => {
   // C-4（二十九轮）：originalPath 记「迁移落点」（resolveDraftPath 命中的既有章路径），
   // 不再是已退役的 写作/草稿/ 旧路径
   const trash = listTrash(tmp)
-  expect(trash.some((e) => e.originalPath === '写作/正文/第一卷/001-正式.md' && e.trashedPath === '工作区/.trash/草稿-1.md')).toBe(true)
+  expect(
+    trash.some((e) => e.originalPath === '写作/正文/第一卷/001-正式.md' && e.trashedPath === '工作区/.trash/草稿-1.md'),
+  ).toBe(true)
 })
 
 // ── W-P1-5：定稿防线 throw 不得炸掉启动链路 ────────

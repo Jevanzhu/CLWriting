@@ -37,7 +37,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-r71-style-del-',
     dirs: ['文风/条目/手法'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R71删条目书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R71删条目书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 

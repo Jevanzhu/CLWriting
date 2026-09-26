@@ -10,7 +10,10 @@ import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat
 import { getState, interrupt, autoWrite, saveDraft } from '../../../src/studio/web-next/src/api/workbench'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
-interface Call { url: string; init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 let calls: Call[] = []
 
 function stubFetch(responder: (c: Call) => Response): void {

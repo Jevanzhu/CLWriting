@@ -31,8 +31,14 @@ function makeBook(): string {
     dirs: ['工作区'],
     files: [
       { rel: '写作/正文/0001-开篇.md', content: `---\n章号: 1\n标题: 开篇\n---\n\n${SENTENCE_A}\n` },
-      { rel: '布线/悬念/悬念-001-玉佩.md', content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
-      { rel: '布线/悬念/悬念-002-钟声.md', content: '---\n编号: 悬念-002\n标题: 钟声\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      {
+        rel: '布线/悬念/悬念-001-玉佩.md',
+        content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
+      {
+        rel: '布线/悬念/悬念-002-钟声.md',
+        content: '---\n编号: 悬念-002\n标题: 钟声\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
     ],
   })
   return root
@@ -77,11 +83,7 @@ test('R34D-3: 锁窗内作者删除一条 → 该条既不回写也不进 residu
   const root = makeBook()
   try {
     const main = join(root, '工作区', '账本推进.md')
-    writeFileSync(
-      main,
-      `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`,
-      'utf-8',
-    )
+    writeFileSync(main, `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`, 'utf-8')
     const targets = resolveLeadUpdateTargets(root, 1)
     expect(targets.updates).toHaveLength(2)
     // 锁窗内作者删除 悬念-002 条目
@@ -106,11 +108,7 @@ test('R34D-3: 锁窗内新增条目（布线锁未预取）→ 不落写，走 n
     const targets = resolveLeadUpdateTargets(root, 1)
     expect(targets.files.has('悬念-002')).toBe(false)
     // 锁窗内作者追加 悬念-002 条目（该线的布线锁未在预取集内）
-    writeFileSync(
-      main,
-      `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`,
-      'utf-8',
-    )
+    writeFileSync(main, `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`, 'utf-8')
     const applied = applyLeadUpdatesLocked(1, targets)
     // 已持锁的 001 正常回写；002 不写未持锁文件（fail-closed），走 not-found 留源
     expect(applied).toBe(1)
@@ -130,11 +128,7 @@ test('R34D-3: 未改场景行为不变——快照与盘上一致时照常回写
   const root = makeBook()
   try {
     const main = join(root, '工作区', '账本推进.md')
-    writeFileSync(
-      main,
-      `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`,
-      'utf-8',
-    )
+    writeFileSync(main, `# 第1章 账本推进\n- 悬念-001 递进：${SENTENCE_A}\n- 悬念-002 递进：${SENTENCE_B}\n`, 'utf-8')
     const targets = resolveLeadUpdateTargets(root, 1)
     const applied = applyLeadUpdatesLocked(1, targets)
     expect(applied).toBe(2)

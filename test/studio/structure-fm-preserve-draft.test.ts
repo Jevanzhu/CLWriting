@@ -39,10 +39,7 @@ afterAll(() => studio.close())
 /** 预置第 2 章（fm 含结构键，供强覆盖回补；resolveDraftPath 按 fm 章号定位命中） */
 const CH2 = '写作/正文/第一卷/0002-第2章.md'
 function seedChapter2(): void {
-  writeFileSync(
-    join(studio.bookRoot, CH2),
-    '---\n章号: 2\n标题: 第2章\n序: 7\n并入: [5]\n---\n第2章旧正文。\n',
-  )
+  writeFileSync(join(studio.bookRoot, CH2), '---\n章号: 2\n标题: 第2章\n序: 7\n并入: [5]\n---\n第2章旧正文。\n')
 }
 
 /** 断言前置：取内容 fm 的平铺键值（须有 fm） */

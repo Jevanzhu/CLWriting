@@ -16,7 +16,14 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { withManifestLock, readManifest, writeManifest, upsertEntry, __setManifestLockTimeoutForTest, type Manifest } from '../../src/document/manifest.js'
+import {
+  withManifestLock,
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  __setManifestLockTimeoutForTest,
+  type Manifest,
+} from '../../src/document/manifest.js'
 import { DocumentService } from '../../src/document/service.js'
 import { writeVersion, encodeDocDirName } from '../../src/document/version.js'
 import { listTrash, readTrashManifest } from '../../src/document/trash.js'
@@ -80,7 +87,10 @@ describe('R73-34 / doTrash 残留同名 .trash 不覆盖', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }))
 
   it('上次软删残留的 .trash 文件在位 → 再次软删另存时间戳后缀，旧残留字节不变', async () => {
-    const created = await svc.createDocument({ relPath: '写作/正文/0001-旧稿.md', content: '---\n章号: 1\n标题: 旧稿\n---\n\n正文。\n' })
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0001-旧稿.md',
+      content: '---\n章号: 1\n标题: 旧稿\n---\n\n正文。\n',
+    })
     expect(created.ok).toBe(true)
     if (!created.ok) return
     const docId = created.docId
@@ -103,7 +113,10 @@ describe('R73-34 / doTrash 残留同名 .trash 不覆盖', () => {
   })
 
   it('无残留 → 确定性命名照常（回归不漂移），回收站可见', async () => {
-    const created = await svc.createDocument({ relPath: '写作/正文/0002-新章.md', content: '---\n章号: 2\n标题: 新章\n---\n\n内容。\n' })
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0002-新章.md',
+      content: '---\n章号: 2\n标题: 新章\n---\n\n内容。\n',
+    })
     if (!created.ok) throw new Error('prereq')
     const r = await svc.trashDocument({ docId: created.docId })
     expect(r.ok).toBe(true)
@@ -128,7 +141,9 @@ describe('R73-35 / 版本去重对损坏头部 fail-open 落写', () => {
     writeVersion(versionsDir, 'doc_v1', '内容Y', { origin: 'ai' })
     // 把最新版（v2）头部写坏（readVersionMeta → null，模拟损坏）
     const dir = join(versionsDir, encodeDocDirName('doc_v1'))
-    const ids = readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
+    const ids = readdirSync(dir)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
     writeFileSync(join(dir, ids.at(-1)!), '头部损坏无 front matter', 'utf-8')
 
     // 同旧版内容 X 再留底：修复前 → 损坏版 continue 落到旧版比对命中 → 跳写（返回
@@ -140,10 +155,15 @@ describe('R73-35 / 版本去重对损坏头部 fail-open 落写', () => {
   it('节流窗口：最新版本头部损坏 → 不节流，照常落写', () => {
     writeVersion(versionsDir, 'doc_v2', '第一版', { origin: 'autosave' })
     const dir = join(versionsDir, encodeDocDirName('doc_v2'))
-    const ids = readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
+    const ids = readdirSync(dir)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
     writeFileSync(join(dir, ids.at(-1)!), '损坏头部', 'utf-8')
     const r = writeVersion(
-      versionsDir, 'doc_v2', '第二版不同内容', { origin: 'autosave' },
+      versionsDir,
+      'doc_v2',
+      '第二版不同内容',
+      { origin: 'autosave' },
       { force: false, policy: { maxDays: 3650, maxCount: 1000, throttleMinutes: 30 } },
     )
     expect(r).not.toBeNull()
@@ -170,7 +190,11 @@ describe('R73-39 / 伏笔迁移 TOCTOU 收口', () => {
     // 模拟并发/续跑态：目标已落位且被作者改过
     const newDir = join(root, '设定', '伏笔')
     mkdirSync(newDir, { recursive: true })
-    writeFileSync(join(newDir, '伏笔-031-灭门真凶.md'), '---\n状态: 已回收\n关联词: 焦痕\n标题: 灭门真凶\n---\n\n作者改过的版本\n', 'utf-8')
+    writeFileSync(
+      join(newDir, '伏笔-031-灭门真凶.md'),
+      '---\n状态: 已回收\n关联词: 焦痕\n标题: 灭门真凶\n---\n\n作者改过的版本\n',
+      'utf-8',
+    )
 
     const r = migrateLegacyForeshadows(root)
     expect(r.migrated).toBe(1)
@@ -223,11 +247,18 @@ describe('R73-40 / updateDocMeta 单次读（UTF-8 判据与写回同源）', ()
   })
 
   it('盘上是 GBK 字节 → WRITE_ERROR 拒绝且文件字节不变（判据与写回同源，不回归）', async () => {
-    const created = await svc.createDocument({ relPath: '写作/正文/0004-旧档.md', content: '---\n章号: 4\n标题: 旧档\n---\n\n内容。\n' })
+    const created = await svc.createDocument({
+      relPath: '写作/正文/0004-旧档.md',
+      content: '---\n章号: 4\n标题: 旧档\n---\n\n内容。\n',
+    })
     if (!created.ok) throw new Error('prereq')
     const abs = join(root, '写作/正文/0004-旧档.md')
     // 模拟他进程以 GBK 落盘（「旧档」GBK 双字节非合法 UTF-8 序列）
-    const gbk = Buffer.concat([Buffer.from('---\n标题: ', 'utf-8'), Buffer.from([0xbe, 0xc9, 0xb5, 0xb5]), Buffer.from('\n---\n', 'utf-8')])
+    const gbk = Buffer.concat([
+      Buffer.from('---\n标题: ', 'utf-8'),
+      Buffer.from([0xbe, 0xc9, 0xb5, 0xb5]),
+      Buffer.from('\n---\n', 'utf-8'),
+    ])
     writeFileSync(abs, gbk)
     const before = readFileSync(abs)
     const r = await svc.updateDocMeta(created.docId, { 标题: 'x' })

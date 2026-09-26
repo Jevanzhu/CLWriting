@@ -50,14 +50,11 @@ async function run(req: Omit<GenRequest, 'systemPrompt'> & { systemPrompt?: stri
 
 describe('重审-批2-1：completed 后 trailing error/response.failed 忽略', () => {
   it('completed → error：无 error yield、产出保持成功（done 收尾且唯一）', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '正文增量' },
-        COMPLETED,
-        { type: 'error', message: 'gateway late error' },
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '正文增量' },
+      COMPLETED,
+      { type: 'error', message: 'gateway late error' },
+    ])
     // 修复前：error 事件照常 yield 终态失败（PROTOCOL、retryable:false），成功回合被判失败
     expect(events.some((e) => e.type === 'error')).toBe(false)
     const dones = events.filter((e) => e.type === 'done')
@@ -68,14 +65,11 @@ describe('重审-批2-1：completed 后 trailing error/response.failed 忽略', 
   })
 
   it('completed → response.failed：同款忽略（无 error yield、done 收尾）', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '正文增量' },
-        COMPLETED,
-        { type: 'response.failed', response: { error: { message: 'late failure' } } },
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '正文增量' },
+      COMPLETED,
+      { type: 'response.failed', response: { error: { message: 'late failure' } } },
+    ])
     expect(events.some((e) => e.type === 'error')).toBe(false)
     const dones = events.filter((e) => e.type === 'done')
     expect(dones).toHaveLength(1)
@@ -83,13 +77,10 @@ describe('重审-批2-1：completed 后 trailing error/response.failed 忽略', 
   })
 
   it('回归护栏：无 completed 在前的 error 照常终态失败（PROTOCOL、不重试）', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '半截' },
-        { type: 'error', message: 'mid-stream error' },
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '半截' },
+      { type: 'error', message: 'mid-stream error' },
+    ])
     const err = events.find((e) => e.type === 'error') as { code?: string; retryable?: boolean } | undefined
     expect(err).toBeDefined()
     expect(err!.code).toBe('PROTOCOL')
@@ -116,14 +107,11 @@ describe('R0912-3：incomplete(max_tokens) 后流尾 failed/error 同款忽略',
   }
 
   it('incomplete → response.failed：无 error yield，done(max_tokens) 收尾且唯一', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '正文增量' },
-        INCOMPLETE_MAX,
-        { type: 'response.failed', response: { error: { message: 'late failure' } } },
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '正文增量' },
+      INCOMPLETE_MAX,
+      { type: 'response.failed', response: { error: { message: 'late failure' } } },
+    ])
     // 修复前：terminal 为 'incomplete' 不命中守卫，流尾 failed 照常 yield 终态失败翻转回合
     expect(events.some((e) => e.type === 'error')).toBe(false)
     const dones = events.filter((e) => e.type === 'done')
@@ -134,27 +122,21 @@ describe('R0912-3：incomplete(max_tokens) 后流尾 failed/error 同款忽略',
   })
 
   it('incomplete → error：同款忽略', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '正文增量' },
-        INCOMPLETE_MAX,
-        { type: 'error', message: 'gateway late error' },
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '正文增量' },
+      INCOMPLETE_MAX,
+      { type: 'error', message: 'gateway late error' },
+    ])
     expect(events.some((e) => e.type === 'error')).toBe(false)
     expect(events.filter((e) => e.type === 'done')).toHaveLength(1)
     expect(events.at(-1)!.type).toBe('done')
   })
 
   it('回归护栏：incomplete 正常收尾不受影响（无流尾事件时 done 唯一、usage 不变）', async () => {
-    const events = await run(
-      { messages: [{ role: 'user', content: '继续写' }] },
-      [
-        { type: 'response.output_text.delta', delta: '正文增量' },
-        INCOMPLETE_MAX,
-      ],
-    )
+    const events = await run({ messages: [{ role: 'user', content: '继续写' }] }, [
+      { type: 'response.output_text.delta', delta: '正文增量' },
+      INCOMPLETE_MAX,
+    ])
     expect(events.some((e) => e.type === 'error')).toBe(false)
     const dones = events.filter((e) => e.type === 'done')
     expect(dones).toHaveLength(1)

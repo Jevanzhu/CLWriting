@@ -26,9 +26,7 @@ function jsonRes(status: number, body: unknown = {}): Response {
   })
 }
 
-async function freshClient(): Promise<
-  typeof import('../../../src/studio/web-next/src/api/client')
-> {
+async function freshClient(): Promise<typeof import('../../../src/studio/web-next/src/api/client')> {
   vi.resetModules()
   const c = await import('../../../src/studio/web-next/src/api/client')
   // R64-43（十二轮）：退避注入——真实退避 300+600+1200ms × 5 用例 ≈10s 纯墙钟等待。
@@ -108,9 +106,7 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
         const url = String(input)
         if (url === '/api/boot') {
           bootCalls++
-          return bootCalls > BOOT_ATTEMPTS
-            ? jsonRes(200, { token: 'T2' })
-            : jsonRes(503)
+          return bootCalls > BOOT_ATTEMPTS ? jsonRes(200, { token: 'T2' }) : jsonRes(503)
         }
         pathCalls++
         return jsonRes(403, { error: 'token 无效' }) // 拿到 token 也始终 403

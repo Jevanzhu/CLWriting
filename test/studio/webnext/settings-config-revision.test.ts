@@ -28,12 +28,23 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
 
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({
-    toast: mocks.toast, settingsOpen: true, closeSettings: vi.fn(), confirmState: null,
+    toast: mocks.toast,
+    settingsOpen: true,
+    closeSettings: vi.fn(),
+    confirmState: null,
     // R0916-7-P3-22：SettingsModal 遮罩走 ModalMask，挂载/卸载即登记
     setMaskOpen: vi.fn(),
   })),
   // ModalMask 渲染面从此表读浓度（模块级导出）——mock 面补齐最小形状
-  MASK_ALPHA: { palette: 0.25, settings: 0.45, export: 0.35, shelf: 0.35, confirm: 0.35, chapterMeta: 0.35, splitChapter: 0.35 },
+  MASK_ALPHA: {
+    palette: 0.25,
+    settings: 0.45,
+    export: 0.35,
+    shelf: 0.35,
+    confirm: 0.35,
+    chapterMeta: 0.35,
+    splitChapter: 0.35,
+  },
 }))
 
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
@@ -55,8 +66,14 @@ function mountModal(): { save: SaveConfig; unmount: () => void } {
   const w = mount(SettingsModal, {
     global: {
       stubs: {
-        SettingsAppearance: true, SettingsEditor: true, SettingsWriting: true, SettingsAi: true,
-        SettingsAnalysis: true, SettingsRetention: true, SettingsBook: true, AiServicePanel: true,
+        SettingsAppearance: true,
+        SettingsEditor: true,
+        SettingsWriting: true,
+        SettingsAi: true,
+        SettingsAnalysis: true,
+        SettingsRetention: true,
+        SettingsBook: true,
+        AiServicePanel: true,
         BetaBadge: true,
       },
     },
@@ -99,9 +116,7 @@ describe('R34D-25: SettingsModal saveConfig 乐观锁穿线', () => {
       revision: 7,
     })
     // ApiError 形态（apiJson 对非 2xx 抛 Error 子类，message = 服务端 error 文案）
-    mocks.putConfig.mockRejectedValue(
-      Object.assign(new Error('书籍配置已在其他窗口被修改，请刷新'), { status: 409 }),
-    )
+    mocks.putConfig.mockRejectedValue(Object.assign(new Error('书籍配置已在其他窗口被修改，请刷新'), { status: 409 }))
     const { save, unmount } = mountModal()
 
     await save((cfg) => {

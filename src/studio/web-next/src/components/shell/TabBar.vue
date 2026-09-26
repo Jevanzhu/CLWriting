@@ -92,7 +92,8 @@ onUnmounted(() => {
       <div class="tb-split">
         <button
           class="tb-btn tb-btn-main"
-          data-tip="新建正文" data-tip-dir="bottom"
+          data-tip="新建正文"
+          data-tip-dir="bottom"
           @click="ws.triggerCreate('chapter')"
         >
           <FilePlus :size="17" :stroke-width="1.6" />
@@ -101,18 +102,14 @@ onUnmounted(() => {
           ref="caretRef"
           class="tb-btn tb-caret"
           :class="{ active: dropdownOpen }"
-          data-tip="新建…" data-tip-dir="bottom"
+          data-tip="新建…"
+          data-tip-dir="bottom"
           @click.stop="toggleDropdown"
         >
           <ChevronDown :size="17" :stroke-width="1.6" />
         </button>
       </div>
-      <button
-        v-if="!ws.leftOpen"
-        class="tb-btn"
-        data-tip="展开左栏" data-tip-dir="bottom"
-        @click="ws.toggleLeft()"
-      >
+      <button v-if="!ws.leftOpen" class="tb-btn" data-tip="展开左栏" data-tip-dir="bottom" @click="ws.toggleLeft()">
         <PanelLeft :size="17" :stroke-width="1.6" />
       </button>
     </div>
@@ -127,22 +124,13 @@ onUnmounted(() => {
       >
         <Focus :size="17" :stroke-width="1.6" />
       </button>
-      <button
-        v-show="!ws.rightOpen"
-        class="tb-btn"
-        data-tip="展开右栏" data-tip-dir="bottom"
-        @click="ws.toggleRight()"
-      >
+      <button v-show="!ws.rightOpen" class="tb-btn" data-tip="展开右栏" data-tip-dir="bottom" @click="ws.toggleRight()">
         <PanelRight :size="17" :stroke-width="1.6" />
       </button>
     </div>
     <!-- 下拉菜单（Teleport 到 body 脱离 tabbar overflow:hidden 裁剪） -->
     <Teleport to="body">
-      <div
-        v-if="dropdownOpen"
-        class="new-dropdown"
-        :style="{ left: dropX + 'px', top: dropY + 'px' }"
-      >
+      <div v-if="dropdownOpen" class="new-dropdown" :style="{ left: dropX + 'px', top: dropY + 'px' }">
         <button class="dd-item" @click="pick('chapter')">正文章节</button>
         <div class="dd-sep">大纲</div>
         <button class="dd-item" @click="pick('chapter-outline')">章纲</button>

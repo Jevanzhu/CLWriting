@@ -50,9 +50,7 @@ function makeCase(name: string, src: string): { dir: string; workerUrl: URL } {
 
 describe('D104：rebuild 超时 env 逃生口（CLWRITING_REBUILD_TIMEOUT_MS）', () => {
   it('解析单源：合法档位采用，未设/空白/非数/非正数一律回默认 120s', async () => {
-    const { resolveRebuildTimeoutMs, DEFAULT_REBUILD_TIMEOUT_MS } = await import(
-      '../../src/cache/run-rebuild-async.js'
-    )
+    const { resolveRebuildTimeoutMs, DEFAULT_REBUILD_TIMEOUT_MS } = await import('../../src/cache/run-rebuild-async.js')
     expect(DEFAULT_REBUILD_TIMEOUT_MS).toBe(120_000)
     expect(resolveRebuildTimeoutMs()).toBe(120_000) // 缺省参数 = process.env 当前未设
     expect(resolveRebuildTimeoutMs({})).toBe(120_000) // 未设

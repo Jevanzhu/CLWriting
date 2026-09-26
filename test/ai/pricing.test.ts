@@ -70,10 +70,7 @@ describe('D2 pricing 解析与金额计算', () => {
     )
     expect(overridden).toEqual({ inputPerMTok: 1, outputPerMTok: 15 })
     // 其他模型行不误伤
-    const other = pricingForProvider(
-      baseProvider({ models: [{ id: 'm2', pricing: { inputPerMTok: 1 } }] }),
-      'm1',
-    )
+    const other = pricingForProvider(baseProvider({ models: [{ id: 'm2', pricing: { inputPerMTok: 1 } }] }), 'm1')
     expect(other).toBeNull()
   })
 
@@ -130,7 +127,15 @@ describe('D2 pricing 解析与金额计算', () => {
     const ud = tmpDir('clw-pricing-ud2-')
     const store: ProviderStore = {
       providers: [
-        { id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a', pricing: { inputPerMTok: 3 } },
+        {
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
+          pricing: { inputPerMTok: 3 },
+        },
         { id: 'p2', name: 'B', protocol: 'openai', auth: 'bearer', baseUrl: 'https://b.local', apiKey: 'sk-b' },
       ],
       currentId: 'p2',
@@ -153,8 +158,24 @@ describe('D2 pricing 解析与金额计算', () => {
     const mk = (currentId: string): ProviderStore =>
       ({
         providers: [
-          { id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a', pricing: { inputPerMTok: 3 } },
-          { id: 'p3', name: 'C', protocol: 'openai', auth: 'bearer', baseUrl: 'https://c.local', apiKey: 'sk-c', models: [{ id: 'model-c' }] },
+          {
+            id: 'p1',
+            name: 'A',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://a.local',
+            apiKey: 'sk-a',
+            pricing: { inputPerMTok: 3 },
+          },
+          {
+            id: 'p3',
+            name: 'C',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://c.local',
+            apiKey: 'sk-c',
+            models: [{ id: 'model-c' }],
+          },
         ],
         currentId,
         tiers: { creative: { model: 'model-x', effort: 'high' }, assistant: null, chat: null },
@@ -178,12 +199,22 @@ describe('D2 pricing 解析与金额计算', () => {
       ({
         providers: [
           {
-            id: 'pa', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+            id: 'pa',
+            name: 'A',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://a.local',
+            apiKey: 'sk-a',
             pricing: { inputPerMTok: 1 },
             models: [{ id: 'shared-model', pricing: { inputPerMTok: 1 } }],
           },
           {
-            id: 'pb', name: 'B', protocol: 'openai', auth: 'bearer', baseUrl: 'https://b.local', apiKey: 'sk-b',
+            id: 'pb',
+            name: 'B',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'https://b.local',
+            apiKey: 'sk-b',
             pricing: { inputPerMTok: 5 },
             models: [{ id: 'shared-model', pricing: { inputPerMTok: 5 } }],
           },
@@ -211,7 +242,10 @@ describe('D2 pricing 解析与金额计算', () => {
   it('R42-23：currency-only 行 override 参与合并（currency 生效）；provider 无价时行 currency-only 仍不计费', async () => {
     // provider 级有单价 + 行仅设 currency → 浅合并：currency 生效、单价继承 provider 级
     const merged = pricingForProvider(
-      baseProvider({ pricing: { inputPerMTok: 3, outputPerMTok: 15 }, models: [{ id: 'm1', pricing: { currency: 'EUR' } }] }),
+      baseProvider({
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        models: [{ id: 'm1', pricing: { currency: 'EUR' } }],
+      }),
       'm1',
     )
     expect(merged).toEqual({ inputPerMTok: 3, outputPerMTok: 15, currency: 'EUR' })
@@ -231,7 +265,13 @@ describe('D3 checkAiCallBudget 三口径', () => {
   })
 
   const cfg = (over: Partial<BookConfig['budget']>): BookConfig =>
-    ({ spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, budget: { calls_per_chapter: 8, ...over }, growth: {} }) as BookConfig
+    ({
+      spec_version: 1,
+      book: { title: 't' },
+      leads: { enabled: [] },
+      budget: { calls_per_chapter: 8, ...over },
+      growth: {},
+    }) as BookConfig
 
   function writeRecord(chapter: number, used: number, fields: Record<string, number>): void {
     writeFileSync(
@@ -241,7 +281,12 @@ describe('D3 checkAiCallBudget 三口径', () => {
   }
 
   it('tokens 口径：全口径累计（input+output+cache 读写）超限拦截，人话含出路', async () => {
-    writeRecord(3, 2, { inputTokens: 400_000, outputTokens: 50_000, cacheReadTokens: 100_000, cacheWriteTokens: 50_000 })
+    writeRecord(3, 2, {
+      inputTokens: 400_000,
+      outputTokens: 50_000,
+      cacheReadTokens: 100_000,
+      cacheWriteTokens: 50_000,
+    })
     const r = checkAiCallBudget(root, 3, cfg({ tokens_per_chapter: 500_000 }))
     expect(r.ok).toBe(false)
     if (!r.ok) {
@@ -301,12 +346,16 @@ describe('D3 checkAiCallBudget 三口径', () => {
   it('recordAiCall 金额累计（costUsd 传入时；浮点噪声 1e-10 归一）', async () => {
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.1)
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.2)
-    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as { chapter: { costAccum: number; used: number } }
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { costAccum: number; used: number }
+    }
     expect(raw.chapter.used).toBe(2)
     expect(raw.chapter.costAccum).toBeCloseTo(0.3, 10)
     // 不传 cost → 不累计（已有值保持）
     recordAiCall(root, 5, { inputTokens: 100, outputTokens: 10 })
-    const raw2 = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as { chapter: { costAccum: number } }
+    const raw2 = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { costAccum: number }
+    }
     expect(raw2.chapter.costAccum).toBeCloseTo(0.3, 10)
   })
 })
@@ -320,7 +369,12 @@ describe('D2 cost-stats 聚合', () => {
     const store: ProviderStore = {
       providers: [
         {
-          id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
           pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         },
       ],
@@ -339,22 +393,45 @@ describe('D2 cost-stats 聚合', () => {
         {
           type: 'llm/call',
           data: {
-            runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0,
-            stopReason: 'end', usage: { input: 1_000_000, output: 200_000 }, durationMs: 100, ok: true,
+            runId: 'r1',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 1_000_000, output: 200_000 },
+            durationMs: 100,
+            ok: true,
             chapter: 3,
           },
         },
         {
           type: 'llm/call',
           data: {
-            runId: 'r2', task: 'outline', tierKind: 'creative', model: 'model-unpriced', attempt: 0,
-            stopReason: 'end', usage: { input: 500_000, output: 0 }, durationMs: 50, ok: true,
+            runId: 'r2',
+            task: 'outline',
+            tierKind: 'creative',
+            model: 'model-unpriced',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 500_000, output: 0 },
+            durationMs: 50,
+            ok: true,
           },
         },
         // 失败调用不计费
         {
           type: 'llm/call',
-          data: { runId: 'r3', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'error', durationMs: 10, ok: false },
+          data: {
+            runId: 'r3',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'error',
+            durationMs: 10,
+            ok: false,
+          },
         },
       ])
     } finally {
@@ -383,7 +460,12 @@ describe('D2 cost-stats 聚合', () => {
     const store: ProviderStore = {
       providers: [
         {
-          id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
           pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         },
       ],
@@ -403,15 +485,32 @@ describe('D2 cost-stats 聚合', () => {
         {
           type: 'llm/call',
           data: {
-            runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0,
-            stopReason: 'aborted', usage: { input: 1_000_000, output: 100_000 }, durationMs: 100, ok: false,
+            runId: 'r1',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'aborted',
+            usage: { input: 1_000_000, output: 100_000 },
+            durationMs: 100,
+            ok: false,
             chapter: 7,
           },
         },
         // 失败且无 usage（多数失败响应）——无从折算，仍跳过
         {
           type: 'llm/call',
-          data: { runId: 'r2', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'error', durationMs: 10, ok: false, chapter: 7 },
+          data: {
+            runId: 'r2',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'error',
+            durationMs: 10,
+            ok: false,
+            chapter: 7,
+          },
         },
       ])
     } finally {
@@ -433,7 +532,20 @@ describe('D2 cost-stats 聚合', () => {
     try {
       const sessionId = es.createSession(bookHash(root))
       es.appendEvents(sessionId, [
-        { type: 'llm/call', data: { runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'm', attempt: 0, stopReason: 'end', usage: { input: 100, output: 100 }, durationMs: 1, ok: true } },
+        {
+          type: 'llm/call',
+          data: {
+            runId: 'r1',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'm',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 100, output: 100 },
+            durationMs: 1,
+            ok: true,
+          },
+        },
       ])
     } finally {
       es.close()
@@ -454,7 +566,12 @@ describe('D2 cost-stats 聚合', () => {
     const store: ProviderStore = {
       providers: [
         {
-          id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
           pricing: { inputPerMTok: 3 },
         },
       ],
@@ -469,7 +586,20 @@ describe('D2 cost-stats 聚合', () => {
     try {
       const sessionId = es.createSession(bookHash(root))
       es.appendEvents(sessionId, [
-        { type: 'llm/call', data: { runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'end', usage: { input: 1_000_000, output: 0 }, durationMs: 1, ok: true } },
+        {
+          type: 'llm/call',
+          data: {
+            runId: 'r1',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 1_000_000, output: 0 },
+            durationMs: 1,
+            ok: true,
+          },
+        },
       ])
     } finally {
       es.close()
@@ -480,12 +610,31 @@ describe('D2 cost-stats 聚合', () => {
     // 显式 currency 优先（缺省不覆盖）
     const ud2 = tmpDir('clw-cost-r42b-')
     const root2 = tmpDir('clw-cost-r42b-book-')
-    saveProviders(ud2, withDiskRev(ud2, { ...store, providers: [{ ...store.providers[0]!, pricing: { inputPerMTok: 3, currency: 'EUR' } }] }))
+    saveProviders(
+      ud2,
+      withDiskRev(ud2, {
+        ...store,
+        providers: [{ ...store.providers[0]!, pricing: { inputPerMTok: 3, currency: 'EUR' } }],
+      }),
+    )
     const es2 = openSessionStore(ud2, root2)!
     try {
       const sessionId = es2.createSession(bookHash(root2))
       es2.appendEvents(sessionId, [
-        { type: 'llm/call', data: { runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'end', usage: { input: 1_000_000, output: 0 }, durationMs: 1, ok: true } },
+        {
+          type: 'llm/call',
+          data: {
+            runId: 'r1',
+            task: 'self-heal',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 1_000_000, output: 0 },
+            durationMs: 1,
+            ok: true,
+          },
+        },
       ])
     } finally {
       es2.close()
@@ -500,7 +649,10 @@ describe('D3 budget 双口径键：解析/序列化/global 托底', () => {
   it('book.yaml round-trip：设了才输出，解析保真', async () => {
     const root = tmpDir('clw-budget-yaml-')
     const cfg: BookConfig = {
-      spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {},
+      spec_version: 1,
+      book: { title: 't' },
+      leads: { enabled: [] },
+      growth: {},
       budget: { calls_per_chapter: 8, tokens_per_chapter: 600_000, cost_per_chapter: 1.5 },
     } as BookConfig
     writeBookConfig(join(root, 'book.yaml'), cfg)
@@ -522,11 +674,20 @@ describe('D3 budget 双口径键：解析/序列化/global 托底', () => {
     const merged = applyGlobalDefaults(cfg, ud)
     expect(merged.budget.tokens_per_chapter).toBe(400_000)
     expect(merged.budget.cost_per_chapter).toBe(0.8)
-    const cfg2: BookConfig = { spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {}, budget: { tokens_per_chapter: 900_000 } } as BookConfig
+    const cfg2: BookConfig = {
+      spec_version: 1,
+      book: { title: 't' },
+      leads: { enabled: [] },
+      growth: {},
+      budget: { tokens_per_chapter: 900_000 },
+    } as BookConfig
     const merged2 = applyGlobalDefaults(cfg2, ud)
     expect(merged2.budget.tokens_per_chapter).toBe(900_000)
     // 无 global 无书级 → undefined（不拦）
-    const merged3 = applyGlobalDefaults({ spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {} } as unknown as BookConfig, null)
+    const merged3 = applyGlobalDefaults(
+      { spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {} } as unknown as BookConfig,
+      null,
+    )
     expect(merged3.budget.tokens_per_chapter).toBeUndefined()
   })
 })

@@ -81,7 +81,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     if (sent.kind === 'ended') return false
     const { out, lineageIdx } = sent
     // 逐轮保存合并口径用量（attemptsUsage 优先，同），触顶收尾透出
-    if (out.ok) lastTurnUsage = (out.attemptsUsage ?? out.usage) ?? undefined
+    if (out.ok) lastTurnUsage = out.attemptsUsage ?? out.usage ?? undefined
 
     // 阶段三（轮次收尾与终止判定）：失败面 mask 分流 / max_tokens / 无工具完成面；
     // 工具轮不终结，把成功封套交阶段二

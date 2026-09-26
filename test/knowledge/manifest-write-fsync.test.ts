@@ -74,7 +74,11 @@ describe('R37-43: knowledge manifest 落盘显式 fsync', () => {
 
       // 对照：登记链的 fm 注入写（定稿文件）不扩面断言，但清单写必须带 fsync——
       // 至少存在一次带 { fsync: true } 的落盘调用且指向 manifest
-      expect(atomicCalls.some((c) => c.filePath.endsWith('_manifest.json') && (c.opts as { fsync?: boolean })?.fsync === true)).toBe(true)
+      expect(
+        atomicCalls.some(
+          (c) => c.filePath.endsWith('_manifest.json') && (c.opts as { fsync?: boolean })?.fsync === true,
+        ),
+      ).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

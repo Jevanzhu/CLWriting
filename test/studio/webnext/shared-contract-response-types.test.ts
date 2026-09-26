@@ -21,7 +21,13 @@ import { readFileSync } from 'node:fs'
 import type { FinalizeOk } from '../../../src/shared/contract/documents'
 import type { BatchFinalizeItem, BatchFinalizeOk } from '../../../src/shared/contract/documents'
 import type { FileContentPayload, SaveOk, TrashEntry } from '../../../src/shared/contract/documents'
-import type { MergeApplyOk, MergePlanView, SplitApplyOk, SplitPlanView, StructurePlanOk } from '../../../src/shared/contract/documents'
+import type {
+  MergeApplyOk,
+  MergePlanView,
+  SplitApplyOk,
+  SplitPlanView,
+  StructurePlanOk,
+} from '../../../src/shared/contract/documents'
 import {
   batchFinalizeDocs,
   finalizeDoc,
@@ -40,24 +46,25 @@ const API_DOCUMENTS = 'src/studio/web-next/src/api/documents.ts'
 // 探针即断言语义：`export` 只为过 noUnusedLocals（本文件是测试，导出无消费方也无害）；
 // 断言失败 = Assert<false> 报错，与运行时用例无关。
 type SameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false
-type SameShape<A, B> = SameKeys<A, B> extends true
-  ? [A] extends [B]
-    ? [B] extends [A]
-      ? true
-      : false
-    : false
-  : false
+type SameShape<A, B> =
+  SameKeys<A, B> extends true ? ([A] extends [B] ? ([B] extends [A] ? true : false) : false) : false
 type Assert<T extends true> = T
 
 /** api 层返回类型 = 契约类型（api/documents.ts 不得再声明自己的形状） */
 export type _FinalizeReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof finalizeDoc>>, FinalizeOk>>
-export type _BatchFinalizeReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof batchFinalizeDocs>>, BatchFinalizeOk>>
+export type _BatchFinalizeReturnMatchesContract = Assert<
+  SameShape<Awaited<ReturnType<typeof batchFinalizeDocs>>, BatchFinalizeOk>
+>
 export type _BatchItemMatchesContract = Assert<SameShape<BatchFinalizeOk['results'][number], BatchFinalizeItem>>
-export type _GetContentReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof getContentPayload>>, FileContentPayload>>
+export type _GetContentReturnMatchesContract = Assert<
+  SameShape<Awaited<ReturnType<typeof getContentPayload>>, FileContentPayload>
+>
 export type _SaveReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof saveContent>>, SaveOk>>
 export type _ListTrashReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof listTrash>>, TrashEntry[]>>
 export type _PlanReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof structurePlan>>, StructurePlanOk>>
-export type _ApplyReturnMatchesContract = Assert<SameShape<Awaited<ReturnType<typeof structureApply>>, MergeApplyOk | SplitApplyOk>>
+export type _ApplyReturnMatchesContract = Assert<
+  SameShape<Awaited<ReturnType<typeof structureApply>>, MergeApplyOk | SplitApplyOk>
+>
 
 /** 契约里的干跑视图判别值（对齐探针在 documents.conformance.ts，见下方用例④） */
 export type _PlanViewIsContractShape = Assert<SameShape<MergePlanView['op'], 'merge'>>

@@ -22,11 +22,11 @@ import type { TaskGateInjected } from './task-gate.js' // 长任务并发闸（�
 interface KnowledgeCtx extends TaskGateInjected {
   workDir: string | null
   /** 收尾：/learn 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   learnTtlMs?: number | null
   /** 收尾：learn-commit 让出原语覆盖桩——组装根 RouteOverrides 注入
- * （undefined = 生产口径 defaultCommitYield 逐位不变；测试注入受控桩在让出点做
- * 确定性动作）。让出后的书注册重验在 handler 的包装层（不随桩替换），始终生效。 */
+   * （undefined = 生产口径 defaultCommitYield 逐位不变；测试注入受控桩在让出点做
+   * 确定性动作）。让出后的书注册重验在 handler 的包装层（不随桩替换），始终生效。 */
   learnCommitYield?: CommitYield | null
 }
 
@@ -93,30 +93,30 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     method: 'POST',
     path: '/api/books/:name/learn',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    // handler 内冗余 token 复核删除——
-    // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST（learn-commit 同）
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。：
-    // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
-    // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
-    const release = ctx.gate.acquire(params['name']!, 'learn')
-    if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
-    try {
+      if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      // handler 内冗余 token 复核删除——
+      // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST（learn-commit 同）
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。：
       // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
       // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
-      // TTL 命中/ 过期逐出/storeIf 只缓存成功由通用件
-      // 承担（壳体收编 ttl-cache.ts）
-      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-      const result = await learnCache.get(r.bookRoot, undefined, ctx.learnTtlMs ?? undefined)
-      if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
-      reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
-    } finally {
-      release()
-    }
-  },
+      const release = ctx.gate.acquire(params['name']!, 'learn')
+      if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
+      try {
+        // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。：
+        // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
+        // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
+        // TTL 命中/ 过期逐出/storeIf 只缓存成功由通用件
+        // 承担（壳体收编 ttl-cache.ts）
+        // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+        const result = await learnCache.get(r.bookRoot, undefined, ctx.learnTtlMs ?? undefined)
+        if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
+        reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
+      } finally {
+        release()
+      }
+    },
   })
 
   // learn 入库（作者勾选后调内核 commitSamples/commitQuotes）
@@ -124,49 +124,49 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     method: 'POST',
     path: '/api/books/:name/learn-commit',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    // 冗余 token 复核删除（写闸在路由前已拦，learn 同注）
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const body = await readJson(req)
-    // 2--⑤a：逐项条目数上限（过滤前原始长度判定，超限早拒——不进逐条 commit）
-    const rawSamples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]) : []
-    const rawQuotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]) : []
-    if (rawSamples.length > LEARN_COMMIT_MAX_ITEMS || rawQuotes.length > LEARN_COMMIT_MAX_ITEMS) {
-      return replyError(
-        res,
-        422,
-        'TOO_MANY_ITEMS',
-        `samples/quotes 单次最多各提交 ${LEARN_COMMIT_MAX_ITEMS} 条（本次 samples ${rawSamples.length} 条 / quotes ${rawQuotes.length} 条），请分批提交`,
-      )
-    }
-    const samples = rawSamples.filter(isLearnCandidate<SampleCandidate>)
-    const quotes = rawQuotes.filter(isLearnCandidate<QuoteCandidate>)
-    const bookRoot = r.bookRoot
-    // await readJson 可跨删书/改名的 drain 时点（本端点无任务闸）——
-    // commit 前重验书注册（时序见本文件 bookMovedFailure 头注），防对旧捕获路径落盘
-    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // 批量落盘改走可让出 commit——
-    // 上限 400 条/数组 × 逐条原子写双 fsync 在慢盘可拖出秒级同步段，全程无让出会冻结
-    // SSE 心跳/其它请求；让出缺省每 100 条一次（commit.ts COMMIT_YIELD_EVERY）。
-    // 让出点复合重验：周期让出是新的 await 窗，让出后书已搬走即抛信号中止
-    // 剩余条目（已落条目不回滚，documents.ts 链单元同口径），409 提示重开书重提交。
-    const commitYield = async (): Promise<void> => {
-      // 收尾：让出原语桩经 ctx（组装根 RouteOverrides）注入——undefined =
-      // 生产口径 defaultCommitYield；让出后的书注册重验（下方）不随桩替换，始终生效
-      await (ctx.learnCommitYield ?? defaultCommitYield)()
-      const movedNow = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-      if (movedNow) throw new BookMovedSignal(movedNow.reason)
-    }
-    try {
-      const sampleFiles = samples.length ? await commitSamples(bookRoot, samples, commitYield) : []
-      const quoteFiles = quotes.length ? await commitQuotes(bookRoot, quotes, commitYield) : []
-      reply(res, 200, { ok: true, sampleFiles, quoteFiles })
-    } catch (e) {
-      if (e instanceof BookMovedSignal) return replyError(res, 409, 'BOOK_MOVED', e.message)
-      throw e
-    }
-  },
+      if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      // 冗余 token 复核删除（写闸在路由前已拦，learn 同注）
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const body = await readJson(req)
+      // 2--⑤a：逐项条目数上限（过滤前原始长度判定，超限早拒——不进逐条 commit）
+      const rawSamples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]) : []
+      const rawQuotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]) : []
+      if (rawSamples.length > LEARN_COMMIT_MAX_ITEMS || rawQuotes.length > LEARN_COMMIT_MAX_ITEMS) {
+        return replyError(
+          res,
+          422,
+          'TOO_MANY_ITEMS',
+          `samples/quotes 单次最多各提交 ${LEARN_COMMIT_MAX_ITEMS} 条（本次 samples ${rawSamples.length} 条 / quotes ${rawQuotes.length} 条），请分批提交`,
+        )
+      }
+      const samples = rawSamples.filter(isLearnCandidate<SampleCandidate>)
+      const quotes = rawQuotes.filter(isLearnCandidate<QuoteCandidate>)
+      const bookRoot = r.bookRoot
+      // await readJson 可跨删书/改名的 drain 时点（本端点无任务闸）——
+      // commit 前重验书注册（时序见本文件 bookMovedFailure 头注），防对旧捕获路径落盘
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      // 批量落盘改走可让出 commit——
+      // 上限 400 条/数组 × 逐条原子写双 fsync 在慢盘可拖出秒级同步段，全程无让出会冻结
+      // SSE 心跳/其它请求；让出缺省每 100 条一次（commit.ts COMMIT_YIELD_EVERY）。
+      // 让出点复合重验：周期让出是新的 await 窗，让出后书已搬走即抛信号中止
+      // 剩余条目（已落条目不回滚，documents.ts 链单元同口径），409 提示重开书重提交。
+      const commitYield = async (): Promise<void> => {
+        // 收尾：让出原语桩经 ctx（组装根 RouteOverrides）注入——undefined =
+        // 生产口径 defaultCommitYield；让出后的书注册重验（下方）不随桩替换，始终生效
+        await (ctx.learnCommitYield ?? defaultCommitYield)()
+        const movedNow = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+        if (movedNow) throw new BookMovedSignal(movedNow.reason)
+      }
+      try {
+        const sampleFiles = samples.length ? await commitSamples(bookRoot, samples, commitYield) : []
+        const quoteFiles = quotes.length ? await commitQuotes(bookRoot, quotes, commitYield) : []
+        reply(res, 200, { ok: true, sampleFiles, quoteFiles })
+      } catch (e) {
+        if (e instanceof BookMovedSignal) return replyError(res, 409, 'BOOK_MOVED', e.message)
+        throw e
+      }
+    },
   })
 }

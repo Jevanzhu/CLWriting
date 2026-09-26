@@ -242,18 +242,26 @@ export function aggregateStyleTrend(
     const tagThreshold = baseline?.overall.dialogueTagRatio
       ? Math.min(Math.max(baseline.overall.dialogueTagRatio * 1.3, 0.5), 0.99)
       : 0.5
-    drifts.push(...detectConsecutiveOver(
-      dialogueTagSeries, samples.map((s) => s.num), tagThreshold, window,
-      `对话标签占比连续 ${window}+ 章超 ${Math.round(tagThreshold * 100)}%`,
-      'dialogueTag',
-    ))
+    drifts.push(
+      ...detectConsecutiveOver(
+        dialogueTagSeries,
+        samples.map((s) => s.num),
+        tagThreshold,
+        window,
+        `对话标签占比连续 ${window}+ 章超 ${Math.round(tagThreshold * 100)}%`,
+        'dialogueTag',
+      ),
+    )
     // 结尾总结体：后 1/3 突增报漂移（疑似 AI 接管）
     const third = Math.floor(count / 3)
     if (third > 0) {
       const frontSummary = samples.slice(0, third).filter((s) => s.stats.summaryEnding).length
       const backSummary = samples.slice(-third).filter((s) => s.stats.summaryEnding).length
       if (backSummary > frontSummary && backSummary >= 2) {
-        drifts.push({ metric: 'summaryEnding', message: `结尾总结体后段突增（前 ${third} 章 ${frontSummary} 处 → 后 ${third} 章 ${backSummary} 处），疑似漂移` })
+        drifts.push({
+          metric: 'summaryEnding',
+          message: `结尾总结体后段突增（前 ${third} 章 ${frontSummary} 处 → 后 ${third} 章 ${backSummary} 处），疑似漂移`,
+        })
       }
     }
     // 句长方差逐章攀升
@@ -261,7 +269,10 @@ export function aggregateStyleTrend(
       const frontVar = avg(samples.slice(0, third).map((s) => s.stats.sentenceLenVariance))
       const backVar = avg(samples.slice(-third).map((s) => s.stats.sentenceLenVariance))
       if (backVar > frontVar * 1.5 && backVar - frontVar > 5) {
-        drifts.push({ metric: 'variance', message: `句长方差后段攀升（前段 ${frontVar.toFixed(1)} → 后段 ${backVar.toFixed(1)}），节奏可能变僵` })
+        drifts.push({
+          metric: 'variance',
+          message: `句长方差后段攀升（前段 ${frontVar.toFixed(1)} → 后段 ${backVar.toFixed(1)}），节奏可能变僵`,
+        })
       }
     }
   }
@@ -356,7 +367,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
     let sceneEntries: string[]
     try {
       // 低级项：显式排序——readdir 顺序随平台漂移，冻结基线需跨平台可复现
-      sceneEntries = readdirSync(sampleDir).filter((n) => !n.startsWith('._')).sort()
+      sceneEntries = readdirSync(sampleDir)
+        .filter((n) => !n.startsWith('._'))
+        .sort()
     } catch {
       throw new Error('样章库目录不存在（文风/样章库/），无法冻结基线')
     }
@@ -375,7 +388,9 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
     }
     if (Object.keys(byScene).length === 0) {
       if (invalidSampleCount > 0) {
-        throw new Error('样章库没有有效样章：样章必须放在 文风/样章库/<场景>/<场景>-001.md，且 front matter 至少包含「场景: <场景>」。')
+        throw new Error(
+          '样章库没有有效样章：样章必须放在 文风/样章库/<场景>/<场景>-001.md，且 front matter 至少包含「场景: <场景>」。',
+        )
       }
       throw new Error('样章库为空（无有效样章），无法冻结基线')
     }

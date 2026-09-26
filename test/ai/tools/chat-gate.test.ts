@@ -102,4 +102,3 @@ describe('工具面扩展确认闸', () => {
     expect(events.some((e) => e.type === 'chat_tool_result')).toBe(true)
   })
 })
-

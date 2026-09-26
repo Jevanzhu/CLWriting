@@ -25,7 +25,13 @@ import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
 // -：openSessionStore/openSessionStoreAsync/bookHash 随 mkChain
 // 底层段收编 ai/open-chain.ts 移除（唯一消费点）
-import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
+import {
+  ChainRecorder,
+  checkReportEvent,
+  retryAttemptEvent,
+  goalChangeEvent,
+  todoWriteEvent,
+} from '../../events/chain-bridge.js'
 import { registerBackgroundTask } from './background.js'
 import type { GoalOperation, GoalState, Todo } from '../../events/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../driver/index.js'
@@ -68,9 +74,9 @@ export {
   abortSelfHeal,
 } from './self-heal-registry.js'
 
-
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
-const REWRITE_INSTRUCTION = '按审稿意见逐条修复机检红项；[必须] 为硬性错误必须修，[建议] 为文风黄项不强制但建议采纳。保持正文连贯与既定情节走向。'
+const REWRITE_INSTRUCTION =
+  '按审稿意见逐条修复机检红项；[必须] 为硬性错误必须修，[建议] 为文风黄项不强制但建议采纳。保持正文连贯与既定情节走向。'
 
 export interface SelfHealOpts {
   /** 进度 emit 目标：只 emit，不在其上生成 */
@@ -102,7 +108,12 @@ export interface SelfHealOpts {
   save?: typeof saveDraft
   /** 生成函数注入（单测替身）；缺省用 provider + tool_use 生成。
    *  接收 userPrompt + kind，返回完整 markdown（front matter + 正文）。 */
-  genFn?: (userPrompt: string, kind: 'long' | 'short', signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
+  genFn?: (
+    userPrompt: string,
+    kind: 'long' | 'short',
+    signal: AbortSignal,
+    onText: (delta: string) => void,
+  ) => Promise<string>
   /**
    * ctrl 登记 driver（/interrupt 的 driver.interrupt 与 isRunning 据此对生成期生效）。
    * 四轮-A402（四轮修复批）起 /auto-write 端点（owner
@@ -150,7 +161,11 @@ export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 }
 
 async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
-  const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 }, ...(opts.embedded ? { embedded: true } : {}) }
+  const state: RunState = {
+    ctrl: new AbortController(),
+    usage: { outputTokens: 0, cost: 0 },
+    ...(opts.embedded ? { embedded: true } : {}),
+  }
   // 并发不变量固化——running.set 此前无条件覆盖，若调用方绕过
   // isSelfHealRunning 闸并发调起，旧运行 ctrl 被静默顶掉失去中断通道（abortSelfHeal
   // 只能中止新运行，settling 表项被覆盖）。当前全部生产调用方「先查后调」且检查与
@@ -202,7 +217,13 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     emit(opts, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
     if (isBatch) {
       emit(opts, { type: 'self_heal_batch', total: chapters!.length })
-      emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
+      emit(opts, {
+        type: 'self_heal_phase',
+        phase: 'chapter_start',
+        chapter: chapters![0],
+        done: 0,
+        total: chapters!.length,
+      })
     }
 
     // book.yaml 批头解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
@@ -238,9 +259,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       maxAttempts,
       save,
       kind,
-      check:
-        opts.check ??
-        ((p: string) => driveToEndAsync(checkWithDbCore(bookRoot, p, db, ctx.config))),
+      check: opts.check ?? ((p: string) => driveToEndAsync(checkWithDbCore(bookRoot, p, db, ctx.config))),
       db,
       chain,
       config,
@@ -499,30 +518,38 @@ function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): Chapte
   const goalId = 'self-heal:ch' + chapter
   const goalNow = Date.now()
   const writeTodos = (draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void => {
-    ctx.chain?.add(todoWriteEvent({
-      todos: [
-        { text: '写第' + chapter + '章首稿', state: draft },
-        { text: '机检第' + chapter + '章', state: check },
-        { text: '修复第' + chapter + '章红项', state: fix },
-      ],
-    }))
+    ctx.chain?.add(
+      todoWriteEvent({
+        todos: [
+          { text: '写第' + chapter + '章首稿', state: draft },
+          { text: '机检第' + chapter + '章', state: check },
+          { text: '修复第' + chapter + '章红项', state: fix },
+        ],
+      }),
+    )
   }
-  const writeGoal = (op: GoalOperation, state: GoalState, extra?: { blockedReason?: string; rounds?: number }): void => {
-    ctx.chain?.add(goalChangeEvent({
-      operation: op,
-      goal: {
-        id: goalId,
-        title: '修复第' + chapter + '章红项',
-        state,
-        roundsStarted: extra?.rounds ?? 0,
-        // ctx.maxAttempts 是 ChapterCtx 必有 number（orchestrate
-        // 构造时 ?? 3 兜底），原 `!== undefined` 死条件删——恒取必然侧
-        maxGoalRounds: ctx.maxAttempts,
-        ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
-        createdAt: goalNow,
-        updatedAt: Date.now(),
-      },
-    }))
+  const writeGoal = (
+    op: GoalOperation,
+    state: GoalState,
+    extra?: { blockedReason?: string; rounds?: number },
+  ): void => {
+    ctx.chain?.add(
+      goalChangeEvent({
+        operation: op,
+        goal: {
+          id: goalId,
+          title: '修复第' + chapter + '章红项',
+          state,
+          roundsStarted: extra?.rounds ?? 0,
+          // ctx.maxAttempts 是 ChapterCtx 必有 number（orchestrate
+          // 构造时 ?? 3 兜底），原 `!== undefined` 死条件删——恒取必然侧
+          maxGoalRounds: ctx.maxAttempts,
+          ...(extra?.blockedReason ? { blockedReason: extra.blockedReason } : {}),
+          createdAt: goalNow,
+          updatedAt: Date.now(),
+        },
+      }),
+    )
   }
   const persistFinal = async () => {
     const final = await ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
@@ -545,9 +572,7 @@ async function draftFirstChapter(
   ctx: ChapterCtx,
   chapter: number,
 ): Promise<
-  | { status: 'ok'; text: string; draftPath: string }
-  | { status: 'aborted' }
-  | { status: 'error'; error: string }
+  { status: 'ok'; text: string; draftPath: string } | { status: 'aborted' } | { status: 'error'; error: string }
 > {
   // 预算闸——超限不跑；config 由 orchestrate 解析一次传入
   // 预算闸时序（附带项，口径登记不修）：备料阶段（下方 prepareChapterMaterials）
@@ -607,7 +632,13 @@ function recordRetryAttempt(
   attempt: number,
 ): void {
   if (st.state !== 'pass') {
-    chain?.add(retryAttemptEvent({ attempt, maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts, redIssues: st.redIssues }))
+    chain?.add(
+      retryAttemptEvent({
+        attempt,
+        maxAttempts: st.state === 'retry' ? st.maxAttempts : maxAttempts,
+        redIssues: st.redIssues,
+      }),
+    )
   }
 }
 
@@ -622,10 +653,7 @@ async function rewriteOnce(
   redIssues: string[],
   chapterNo: number,
 ): Promise<
-  | { status: 'ok' }
-  | { status: 'aborted' }
-  | { status: 'error'; error: string }
-  | { status: 'budget'; reason: string }
+  { status: 'ok' } | { status: 'aborted' } | { status: 'error'; error: string } | { status: 'budget'; reason: string }
 > {
   // 预算闸——超限则 escalate，保留当前稿
   const budget2 = checkAiCallBudget(ctx.bookRoot, loop.chapter, ctx.config)
@@ -639,10 +667,7 @@ async function rewriteOnce(
   // task 传 'self-heal'——重写链命中不再误归因 check
   // opts.userDataPath 必有 string，原 `?? undefined` 死表达式删
   await recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath, 'self-heal')
-  const allIssues = [
-    ...redIssues.map((s) => `[必须] ${s}`),
-    ...ruleViolations.map((v) => `[建议] ${v.message}`),
-  ]
+  const allIssues = [...redIssues.map((s) => `[必须] ${s}`), ...ruleViolations.map((v) => `[建议] ${v.message}`)]
 
   // 与上一次机检红项完全相同（第 2 次）→ 换策略提醒；不同则刷新基线
   const redKey = redSetKey(redIssues)
@@ -686,7 +711,10 @@ async function rewriteOnce(
     // 既有出口处置（content 传入 = 纯内存解析，不读盘）。
     const parsed = readDraft(loop.draftPath, loop.current)
     if (parsed.ok && parsed.chapter.章号 !== loop.chapter) {
-      log.warn('self-heal', `重写稿 front matter 章号（${parsed.chapter.章号}）与编排章号（${loop.chapter}）不一致——落盘路径按编排章号解析，机检以实际落盘文件为准`)
+      log.warn(
+        'self-heal',
+        `重写稿 front matter 章号（${parsed.chapter.章号}）与编排章号（${loop.chapter}）不一致——落盘路径按编排章号解析，机检以实际落盘文件为准`,
+      )
     }
   } catch (e) {
     return { status: 'error', error: `重写稿落盘失败：${errMsg(e)}` }
@@ -760,17 +788,36 @@ async function exitPass(
   const yellows = ruleYellows(loop.current, ctx.bookRoot, chapterNo)
   term.writeTodos('completed', 'completed', 'completed')
   term.writeGoal('complete', 'complete', { rounds: loop.attempt })
-  return { chapter: loop.chapter, outcome: 'pass', yellows, docId: final.docId, path: final.relPath, attempts: loop.attempt }
+  return {
+    chapter: loop.chapter,
+    outcome: 'pass',
+    yellows,
+    docId: final.docId,
+    path: final.relPath,
+    attempts: loop.attempt,
+  }
 }
 
 /** 有稿可交的统一出口（ok-escalate / 格式触顶 / 预算超限 / 重写失败四路同构） */
-async function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: string[], blockedReason: string): Promise<ChapterRun> {
+async function exitEscalateBlocked(
+  term: ChapterTerminal,
+  loop: HealLoop,
+  reds: string[],
+  blockedReason: string,
+): Promise<ChapterRun> {
   const pf = await persistFinalGuarded(term, loop)
   if (!pf.ok) return pf.failed
   const final = pf.final
   term.writeTodos('completed', 'completed', 'in_progress')
   term.writeGoal('block', 'blocked', { blockedReason, rounds: loop.attempt })
-  return { chapter: loop.chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: loop.attempt }
+  return {
+    chapter: loop.chapter,
+    outcome: 'escalate',
+    reds,
+    docId: final.docId,
+    path: final.relPath,
+    attempts: loop.attempt,
+  }
 }
 
 /** 机检崩溃出口：goal 落 block 附原因（todo 保持初始表：机检未完成—— 审阅批口径） */
@@ -783,12 +830,7 @@ function exitCheckCrash(term: ChapterTerminal, loop: HealLoop, error: string): C
  * 单章闭环（首稿→机检→重写→全绿/触顶）。批量与单章共用。
  * 返回 pass/escalate 时，终稿已由 save + recordAuthorSignal/recordAiVersion 落盘记录。
  */
-async function runChapter(
-  opts: SelfHealOpts,
-  state: RunState,
-  ctx: ChapterCtx,
-  chapter: number,
-): Promise<ChapterRun> {
+async function runChapter(opts: SelfHealOpts, state: RunState, ctx: ChapterCtx, chapter: number): Promise<ChapterRun> {
   // ① 首稿（预算闸——超限不跑；GG-① 备料接线）
   const first = await draftFirstChapter(opts, state, ctx, chapter)
   if (first.status === 'aborted') return { outcome: 'aborted' }
@@ -859,7 +901,8 @@ async function runChapter(
     // ③ 退回重写（预算超限 escalate 保留当前稿；重写失败 escalate 保留当前已落盘稿）
     const again = await rewriteOnce(opts, state, ctx, loop, reds, redIssues, chapterNo)
     if (again.status === 'aborted') return exitAborted(term)
-    if (again.status === 'budget') return exitEscalateBlocked(term, loop, [...reds, again.reason], [...reds, again.reason].join('；'))
+    if (again.status === 'budget')
+      return exitEscalateBlocked(term, loop, [...reds, again.reason], [...reds, again.reason].join('；'))
     if (again.status !== 'ok') return exitEscalateBlocked(term, loop, [again.error], again.error)
   }
 }
@@ -881,9 +924,9 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
         ? { type: 'self_heal_result', outcome: 'escalate', reds: result.reds, docId: result.docId, path: result.path }
         : result.outcome === 'aborted'
           ? { type: 'self_heal_result', outcome: 'aborted' }
-          // failed 的 error 过 redactSecret（与 stream.ts:216
-          // 同款）——error 源头是 out.error（provider 异常 message），可含凭据痕迹
-          : { type: 'self_heal_result', outcome: 'failed', error: redactSecret(result.error) }
+          : // failed 的 error 过 redactSecret（与 stream.ts:216
+            // 同款）——error 源头是 out.error（provider 异常 message），可含凭据痕迹
+            { type: 'self_heal_result', outcome: 'failed', error: redactSecret(result.error) }
   emit(opts, ev)
   emit(opts, {
     type: 'done',

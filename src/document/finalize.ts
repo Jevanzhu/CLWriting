@@ -25,7 +25,13 @@
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
-import { readManifestDegraded, readManifestStrict, writeManifest, withManifestLock, withManifestLockAsync } from './manifest.js'
+import {
+  readManifestDegraded,
+  readManifestStrict,
+  writeManifest,
+  withManifestLock,
+  withManifestLockAsync,
+} from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
@@ -140,7 +146,18 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
   // 布线回写目标解析（锁外）——定稿在进清单锁前按它预取布线锁
   const wiringTargets = isWiredChapter ? resolveLeadUpdateTargets(bookRoot, chapterNo) : null
 
-  return { bookRoot, docId, manifestPath, relPath, absPath, currentRev, chapterNo, title, isWiredChapter, wiringTargets }
+  return {
+    bookRoot,
+    docId,
+    manifestPath,
+    relPath,
+    absPath,
+    currentRev,
+    chapterNo,
+    title,
+    isWiredChapter,
+    wiringTargets,
+  }
 }
 
 /**
@@ -288,7 +305,11 @@ function finalizeRevisionImpl(bookRoot: string, docId: string): FinalizeOutcome 
   if (pre.isWiredChapter && pre.wiringTargets && pre.wiringTargets.updates.length > 0) {
     const locks = acquireLeadFileLocksSync(pre.wiringTargets.files.values())
     if (locks === null) {
-      return { ok: false, code: 'LEAD_WRITE_ERROR', error: leadLockFailError(pre.wiringTargets, '布线文件锁等待超时（另一进程正在回写/保存该布线文件）') }
+      return {
+        ok: false,
+        code: 'LEAD_WRITE_ERROR',
+        error: leadLockFailError(pre.wiringTargets, '布线文件锁等待超时（另一进程正在回写/保存该布线文件）'),
+      }
     }
     try {
       return withManifestLock(pre.manifestPath, () => finalizeLockedCore(pre))
@@ -321,7 +342,11 @@ async function finalizeRevisionImplAsync(bookRoot: string, docId: string): Promi
   if (pre.isWiredChapter && pre.wiringTargets && pre.wiringTargets.updates.length > 0) {
     const locks = await acquireLeadFileLocksAsync(pre.wiringTargets.files.values())
     if (locks === null) {
-      return { ok: false, code: 'LEAD_WRITE_ERROR', error: leadLockFailError(pre.wiringTargets, '布线文件锁等待超时（另一进程正在回写/保存该布线文件）') }
+      return {
+        ok: false,
+        code: 'LEAD_WRITE_ERROR',
+        error: leadLockFailError(pre.wiringTargets, '布线文件锁等待超时（另一进程正在回写/保存该布线文件）'),
+      }
     }
     try {
       return await withManifestLockAsync(pre.manifestPath, () => finalizeLockedCore(pre))
@@ -362,7 +387,11 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
  * gateDegraded 透出（服务端 API 层透传、前端弹 warning toast），与机检侧
  * pushDegradedYellow（check/run.ts /）口径对称。
  */
-function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number): { blockers: string[]; degraded: string[] } {
+function finalGateBlockers(
+  bookRoot: string,
+  absPath: string,
+  chapterNo: number,
+): { blockers: string[]; degraded: string[] } {
   try {
     const declaration = outlineDeclarationForChapter(bookRoot, chapterNo)
     if (!declaration.known) return { blockers: [], degraded: [] } // 声明未知：闭合比对不可判定，跳过
@@ -382,19 +411,14 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
         degraded: [`第${chapterNo}章账本推进文件读取失败，防吃书闭合比对本轮跳过（已放行定稿）`],
       }
     }
-    const actual = fulfilled.updates
-      .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
-      .map((u) => u.leadId)
+    const actual = fulfilled.updates.filter((u) => leadEvidenceMatchesBody(draft.body, u.证据)).map((u) => u.leadId)
     return { blockers: leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message), degraded: [] }
   } catch (e) {
     // fail-open 留痕——闸门自身故障此前静默返回 [] 放行，「闸门
     // 降级」零痕迹（与 ② state.ts 布线缺失健康项同族：静默失效面至少可观测）。
     // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件，哲学不变）。
     // B103：降级事实再随信封透出（不止日志）。
-    log.warn(
-      'finalize',
-      `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${errMsg(e)}`,
-    )
+    log.warn('finalize', `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${errMsg(e)}`)
     return {
       blockers: [],
       degraded: [`第${chapterNo}章防吃书检查执行异常（${errMsg(e)}），已放行定稿`],

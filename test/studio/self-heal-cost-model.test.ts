@@ -24,7 +24,8 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/ai/tasks/spec.js', () => ({ runSpec: vi.fn() }))
 
-const FM_CH5 = '---\n章号: 5\n标题: 第五章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文内容：山门外玉佩轻响。'
+const FM_CH5 =
+  '---\n章号: 5\n标题: 第五章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文内容：山门外玉佩轻响。'
 
 function greenOutcome(): CheckOutcome {
   return {
@@ -38,14 +39,22 @@ function greenOutcome(): CheckOutcome {
 
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
-    async startSession(cwd: string): Promise<Session> { return { id: 'mock', cwd, closed: false } },
+    async startSession(cwd: string): Promise<Session> {
+      return { id: 'mock', cwd, closed: false }
+    },
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
-    emit(_s, ev): void { emitted.push(ev) },
+    emit(_s, ev): void {
+      emitted.push(ev)
+    },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -99,7 +108,12 @@ test('Y-15: done.cost 按请求时刻模型（TaskOk.model）计价，不随档�
       ok: true,
       // usage 挂 SpecOutput（self-heal 读 out.data.usage——W-P2-7 口径）；
       // model 挂 TaskOk 顶层（请求时刻快照——Y-15 计价源）
-      data: { input: undefined, text: FM_CH5, stopReason: 'tool_use', usage: { inputTokens: 1000, outputTokens: 2000 } },
+      data: {
+        input: undefined,
+        text: FM_CH5,
+        stopReason: 'tool_use',
+        usage: { inputTokens: 1000, outputTokens: 2000 },
+      },
       ctrl: new AbortController(),
       usage: { inputTokens: 1000, outputTokens: 2000 },
       runId: 'y15',

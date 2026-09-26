@@ -39,9 +39,7 @@ export function createRagTables(db: DatabaseSync): void {
   // 仅当错误确因唯一索引约束 + 存量重复行才 DELETE——磁盘满/IO 错误/
   // 库被锁等原样上抛（故障窗口下盲目 DELETE 会删有效向量数据且无法回滚）。
   try {
-    db.exec(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)',
-    )
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)')
   } catch (e) {
     if (!isUniqueConstraintError(e)) throw e
     const dup = db
@@ -53,17 +51,12 @@ export function createRagTables(db: DatabaseSync): void {
     db.exec(
       'DELETE FROM chunks WHERE id NOT IN (SELECT MIN(id) FROM chunks GROUP BY 章号, start_offset, end_offset, model)',
     )
-    db.exec(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)',
-    )
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_unique ON chunks(章号, start_offset, end_offset, model)')
   }
 }
 
 /** 唯一索引约束错误判定（node:sqlite：message「UNIQUE constraint failed: …」/ errcode 2067） */
 function isUniqueConstraintError(e: unknown): boolean {
   const err = e as { message?: unknown; errcode?: unknown }
-  return (
-    (typeof err.message === 'string' && /unique constraint failed/i.test(err.message)) ||
-    err.errcode === 2067
-  )
+  return (typeof err.message === 'string' && /unique constraint failed/i.test(err.message)) || err.errcode === 2067
 }

@@ -194,7 +194,14 @@ async function doBookTitleChange(): Promise<void> {
       <div class="cfg-card-head">基本信息</div>
       <section class="cfg-card">
         <SettingItem name="书名" desc="显示在书架和标题栏">
-          <input v-model="bookTitle" class="text-input" type="text" placeholder="书名" aria-label="书名" @change="onBookTitleChange" />
+          <input
+            v-model="bookTitle"
+            class="text-input"
+            type="text"
+            placeholder="书名"
+            aria-label="书名"
+            @change="onBookTitleChange"
+          />
         </SettingItem>
       </section>
 
@@ -207,18 +214,48 @@ async function doBookTitleChange(): Promise<void> {
           </template>
         </SettingToggle>
         <SettingItem v-if="pfwOverride" sub name="本书纸宽">
-          <input type="range" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? 1020" @input="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
-          <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwNumChange($event)" />
+          <input
+            type="range"
+            min="600"
+            max="1400"
+            step="20"
+            :value="prefs.bookPageWidth ?? 1020"
+            @input="onPfwInput(Number(($event.target as HTMLInputElement).value))"
+          />
+          <input
+            class="num-input"
+            type="number"
+            min="600"
+            max="1400"
+            step="20"
+            :value="prefs.bookPageWidth ?? ''"
+            aria-label="本书纸宽"
+            @change="onPfwNumChange($event)"
+          />
           <span class="val-suffix">px</span>
         </SettingItem>
         <SettingToggle name="自动保存" ariaLabel="本书独立设定自动保存" :checked="asOverride" @change="onAsToggle">
-          <template #desc>
-            当前生效 {{ asEff }}s{{ asOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
-          </template>
+          <template #desc> 当前生效 {{ asEff }}s{{ asOverride ? '（本书独立设定）' : '（跟随全局默认）' }} </template>
         </SettingToggle>
         <SettingItem v-if="asOverride" sub name="本书自动保存间隔">
-          <input type="range" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? 30" @input="onAsInput(Number(($event.target as HTMLInputElement).value))" />
-          <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsNumChange($event)" />
+          <input
+            type="range"
+            min="5"
+            max="120"
+            step="5"
+            :value="prefs.bookAutosaveInterval ?? 30"
+            @input="onAsInput(Number(($event.target as HTMLInputElement).value))"
+          />
+          <input
+            class="num-input"
+            type="number"
+            min="5"
+            max="120"
+            step="5"
+            :value="prefs.bookAutosaveInterval ?? ''"
+            aria-label="本书自动保存间隔"
+            @change="onAsNumChange($event)"
+          />
           <span class="val-suffix">s</span>
         </SettingItem>
       </section>

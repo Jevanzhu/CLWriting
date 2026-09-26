@@ -48,15 +48,17 @@ const CONFIRM_ENV = 'CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM'
  *  Array.prototype.sort 默认码元序，纯小写 ASCII 名下两序恰同，未来混入大小写/
  *  标点的新 spec 时守卫序会与实际执行序分叉而照绿，故显式同基）。 */
 function currentSpecOrder(): string[] {
-  return readdirSync(e2eDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.spec.ts'))
-    .map((entry) => entry.name)
-    // R43-29（四十三轮）：钉显式 locale 'en'——快照序按 en collation 锁定，与 Playwright
-    // 收集序的镜像假设不再随宿主默认 locale（zh-CN/en/…）漂移分叉。排查同款排序：
-    // grep localeCompare 于 scripts/check-counts.mjs 仅命中注释，其 diffSpecOrder 用
-    // 默认 .sort() 且 added/removed 按成员判定（序不进结果），无 localeCompare 调用，
-    // 不需对齐。现快照全为小写 ASCII+连字符名，en 与原默认序一致，重拍前后不变。
-    .sort((a, b) => a.localeCompare(b, 'en'))
+  return (
+    readdirSync(e2eDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.spec.ts'))
+      .map((entry) => entry.name)
+      // R43-29（四十三轮）：钉显式 locale 'en'——快照序按 en collation 锁定，与 Playwright
+      // 收集序的镜像假设不再随宿主默认 locale（zh-CN/en/…）漂移分叉。排查同款排序：
+      // grep localeCompare 于 scripts/check-counts.mjs 仅命中注释，其 diffSpecOrder 用
+      // 默认 .sort() 且 added/removed 按成员判定（序不进结果），无 localeCompare 调用，
+      // 不需对齐。现快照全为小写 ASCII+连字符名，en 与原默认序一致，重拍前后不变。
+      .sort((a, b) => a.localeCompare(b, 'en'))
+  )
 }
 
 /** 读快照为行序；文件不存在返回 null（首拍/快照被误删场景，读失败不再以 ENOENT 裸抛） */
@@ -75,7 +77,8 @@ function diffLines(current: string[], baseline: string[]): string[] {
   const out: string[] = []
   if (added.length > 0) out.push(`  新增：${added.join('、')}`)
   if (removed.length > 0) out.push(`  移除：${removed.join('、')}`)
-  if (added.length === 0 && removed.length === 0) out.push('  集合未变、顺序漂移（移动）——前序 spec 落盘是后序输入，确认移动不破坏依赖链')
+  if (added.length === 0 && removed.length === 0)
+    out.push('  集合未变、顺序漂移（移动）——前序 spec 落盘是后序输入，确认移动不破坏依赖链')
   return out
 }
 
@@ -109,14 +112,8 @@ function enforceSpecOrder(opts: {
     return 'unchanged'
   }
   // 重拍通道（重评-3 两步闸）：快照与当前序一致 → 幂等通过，不写入不打扰
-  if (
-    baseline !== null &&
-    baseline.length === current.length &&
-    baseline.every((name, i) => name === current[i])
-  ) {
-    console.log(
-      `[spec-order-guard] 快照与当前固有顺序一致（${current.length} specs），幂等通过，未写入`,
-    )
+  if (baseline !== null && baseline.length === current.length && baseline.every((name, i) => name === current[i])) {
+    console.log(`[spec-order-guard] 快照与当前固有顺序一致（${current.length} specs），幂等通过，未写入`)
     return 'unchanged'
   }
   if (!confirm) {
@@ -224,7 +221,13 @@ it('重评-3 两步闸：无变化 + 仅 UPDATE → 幂等通过，不写入不�
 describe('R0911-G-P3-3：spec-order reporter 纯函数（运行期探针的比对内核）', () => {
   it('plannedSpecOrderFromSuite：按文件去重保序（跨 spec 多用例只记一次，顺序=allTests 首见序）', () => {
     const mk = (file: string) => ({ location: { file: `/repo/test/e2e/${file}` } })
-    const out = plannedSpecOrderFromSuite([mk('aa.spec.ts'), mk('aa.spec.ts'), mk('cc.spec.ts'), mk('bb.spec.ts'), mk('aa.spec.ts')])
+    const out = plannedSpecOrderFromSuite([
+      mk('aa.spec.ts'),
+      mk('aa.spec.ts'),
+      mk('cc.spec.ts'),
+      mk('bb.spec.ts'),
+      mk('aa.spec.ts'),
+    ])
     expect(out).toEqual(['aa.spec.ts', 'cc.spec.ts', 'bb.spec.ts'])
   })
 
@@ -272,8 +275,7 @@ describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单�
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       try {
         const base = snapshot
-        const drifted =
-          base.length > 1 ? [...base.slice(1), base[0]!] : [...base, 'zz-extra-drift.spec.ts']
+        const drifted = base.length > 1 ? [...base.slice(1), base[0]!] : [...base, 'zz-extra-drift.spec.ts']
         const r = new SpecOrderReporter()
         r.onBegin({}, { allTests: () => mkTests(drifted) })
         // 同上：全量轮 argv 直入 finish（漂移臂在定向豁免之后，豁免不得吞真漂移）
@@ -302,9 +304,7 @@ describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单�
     r.onBegin({}, { allTests: () => mkTests(['only-one.spec.ts']) })
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     try {
-      expect(
-        r.finish(['/n', '/pwt', 'test', 'test/e2e/release-smoke.spec.ts']),
-      ).toBeUndefined()
+      expect(r.finish(['/n', '/pwt', 'test', 'test/e2e/release-smoke.spec.ts'])).toBeUndefined()
       expect(logSpy).toHaveBeenCalledTimes(1)
       expect(logSpy.mock.calls[0]![0]).toContain('跳过顺序比对')
     } finally {

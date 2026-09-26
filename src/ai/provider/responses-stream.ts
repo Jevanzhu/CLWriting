@@ -258,13 +258,14 @@ export function claimOutputItemReasoning(
 ): GenEvent[] {
   if (!item.encrypted_content) return []
   st.reasoningItemCount++
-  return [
-    { type: 'reasoning_item', encrypted: item.encrypted_content, ...(item.id ? { itemId: item.id } : {}) },
-  ]
+  return [{ type: 'reasoning_item', encrypted: item.encrypted_content, ...(item.id ? { itemId: item.id } : {}) }]
 }
 
 /** 伪流式网关的 message 项正文回填（无 text delta 流出时，completed 的 message 项是唯一产出）。 */
-function backfillCompletedText(st: ResponsesStreamAccum, output: readonly OpenAI.Responses.ResponseOutputItem[] | undefined): GenEvent[] {
+function backfillCompletedText(
+  st: ResponsesStreamAccum,
+  output: readonly OpenAI.Responses.ResponseOutputItem[] | undefined,
+): GenEvent[] {
   if (st.textYielded) return []
   const backfill: string[] = []
   for (const it of output ?? []) {
@@ -288,7 +289,10 @@ function backfillCompletedText(st: ResponsesStreamAccum, output: readonly OpenAI
  * arguments 完整串优先、合法 JSON 非对象/畸形 JSON 同落 {_raw}），计费累计同口径；
  * 正常流已 yield 过 tool（toolYielded）时不回填（防重复）。
  */
-function backfillCompletedToolCalls(st: ResponsesStreamAccum, output: readonly OpenAI.Responses.ResponseOutputItem[] | undefined): GenEvent[] {
+function backfillCompletedToolCalls(
+  st: ResponsesStreamAccum,
+  output: readonly OpenAI.Responses.ResponseOutputItem[] | undefined,
+): GenEvent[] {
   if (st.toolYielded) return []
   const events: GenEvent[] = []
   for (const it of output ?? []) {
@@ -296,7 +300,12 @@ function backfillCompletedToolCalls(st: ResponsesStreamAccum, output: readonly O
     const args = it.arguments || ''
     st.outToolText.push(it.name + args) // tool 参数计入产出累计
     st.toolYielded = true
-    events.push({ type: 'tool', id: it.call_id ?? `call_${st.fallbackToolSeq++}`, name: it.name, input: parseToolArgs(args) })
+    events.push({
+      type: 'tool',
+      id: it.call_id ?? `call_${st.fallbackToolSeq++}`,
+      name: it.name,
+      input: parseToolArgs(args),
+    })
   }
   return events
 }
@@ -316,14 +325,15 @@ export function applyCompleted(
   ctx: StreamEventCtx,
 ): StreamStep {
   st.terminal = 'completed'
-  const events = [
-    ...backfillCompletedText(st, response.output),
-    ...backfillCompletedToolCalls(st, response.output),
-  ]
+  const events = [...backfillCompletedText(st, response.output), ...backfillCompletedToolCalls(st, response.output)]
   const hasOutput =
-    st.toolYielded || st.textYielded || Boolean(response.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
+    st.toolYielded ||
+    st.textYielded ||
+    Boolean(response.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
   if (!hasOutput) {
-    events.push(ctx.fin.terminalError('模型返回空产出（Responses completed 无内容项）', resolveUsage(st, response.usage, ctx)))
+    events.push(
+      ctx.fin.terminalError('模型返回空产出（Responses completed 无内容项）', resolveUsage(st, response.usage, ctx)),
+    )
     return { events, stop: true }
   }
   // completed 无 usage（网关不回 usage）→ 估计入账兜底，estimated 标记估计口径
@@ -374,7 +384,10 @@ export function applyFailed(
   if (st.terminal !== 'none') return { events: [], stop: false }
   st.terminal = 'failed'
   const msg = response.error?.message ?? `response.failed (status=${response.status ?? 'unknown'})`
-  return { events: [ctx.fin.terminalError(redactSecret(msg), resolveUsage(st, response.usage, ctx), 'PROTOCOL')], stop: true }
+  return {
+    events: [ctx.fin.terminalError(redactSecret(msg), resolveUsage(st, response.usage, ctx), 'PROTOCOL')],
+    stop: true,
+  }
 }
 
 /** 流中 error 事件（网关 mid-stream error）——同 failed 处理（守卫与 code 口径同上）；无 response 载荷，usage 走估计兜底（标 estimated）。 */
@@ -385,7 +398,12 @@ export function applyStreamError(
 ): StreamStep {
   if (st.terminal !== 'none') return { events: [], stop: false }
   st.terminal = 'failed'
-  return { events: [ctx.fin.terminalError(redactSecret(event.message ?? '流中错误事件'), estimateAttemptUsage(st, ctx), 'PROTOCOL')], stop: true }
+  return {
+    events: [
+      ctx.fin.terminalError(redactSecret(event.message ?? '流中错误事件'), estimateAttemptUsage(st, ctx), 'PROTOCOL'),
+    ],
+    stop: true,
+  }
 }
 
 /**

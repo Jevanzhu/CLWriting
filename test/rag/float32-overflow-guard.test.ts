@@ -43,10 +43,19 @@ describe('R34D-32：Float32 溢出守卫（入库物化点）', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章正文，战斗场景描写充分，主角挥剑。`)
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章正文，战斗场景描写充分，主角挥剑。`,
+      )
     }
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
@@ -97,11 +106,23 @@ describe('R34D-32：storeChunk 入库末道守卫（非有限拒绝写入）', (
         storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: overflow, model: 'm' }),
       ).toThrow('非有限')
       expect(() =>
-        storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.of(NaN, 0.2, 0.3), model: 'm' }),
+        storeChunk(db, {
+          章号: 1,
+          start_offset: 0,
+          end_offset: 10,
+          embedding: Float32Array.of(NaN, 0.2, 0.3),
+          model: 'm',
+        }),
       ).toThrow('非有限')
       expect(readAllChunks(db)).toEqual([]) // 两形态均零入库
       // 合法向量照常写入（守卫不误伤）
-      storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' })
+      storeChunk(db, {
+        章号: 2,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.1, 0.2, 0.3]),
+        model: 'm',
+      })
       expect(readAllChunks(db)).toHaveLength(1)
     } finally {
       db.close()
@@ -115,8 +136,13 @@ describe('R34D-32：recall 查询向量物化守卫', () => {
     bookRoot = join(tmpdir(), `rag-r34d32q-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     const meta: ChapterMeta = {
-      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     writeChapter(join(bookRoot, '写作', '正文', '1-第1章.md'), meta, '第一章正文，战斗场景描写充分，主角挥剑。')
   })

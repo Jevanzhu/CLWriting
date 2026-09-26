@@ -30,8 +30,7 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clwriting-style-api-',
     dirs: ['写作/正文/第一卷'],
-    bookYaml:
-      'spec_version: 1\nkind: long\nbook:\n  title: 文风书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 文风书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     files: [
       // 旧文风资产（首读 GET entries 应触发迁移）
       { rel: '文风/样章库/战斗/战斗-001.md', content: '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。' },
@@ -93,8 +92,7 @@ describe('条目库端点', () => {
 })
 
 describe('收割 + 候选箱端点（源1 闭环）', () => {
-  const AI_TEXT =
-    '他心中涌起一股难以言喻的感动，这一刻他终于明白了坚持的意义，原来所有的付出都是值得的。'
+  const AI_TEXT = '他心中涌起一股难以言喻的感动，这一刻他终于明白了坚持的意义，原来所有的付出都是值得的。'
   const AUTHOR_TEXT =
     '巷口的馄饨摊还亮着一盏昏灯，老板娘往锅里下了最后一把面，蒸汽腾起来，糊住了她半张脸。他数出六个铜板放在案上，没说话。'
 
@@ -153,24 +151,27 @@ describe('收割 + 候选箱端点（源1 闭环）', () => {
   })
 
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('M-7：中间组件符号链接穿越——路径字面在候选目录内但 realpath 越出书库，confirm/ignore 都拒', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'clwriting-style-evil-'))
-    try {
-      writeFileSync(join(outside, 'evil.md'), '---\n场景: 战斗\n---\n逃逸正文', 'utf8')
-      symlinkSync(outside, join(bookRoot, '文风', '候选', '连结'))
-      for (const ep of ['confirm', 'ignore']) {
-        const r = await api(`/style/candidates/${ep}`, {
-          method: 'POST',
-          body: JSON.stringify({ path: '文风/候选/连结/evil.md' }),
-        })
-        expect(r.status).toBe(400)
+  it.skipIf(process.platform === 'win32')(
+    'M-7：中间组件符号链接穿越——路径字面在候选目录内但 realpath 越出书库，confirm/ignore 都拒',
+    async () => {
+      const outside = mkdtempSync(join(tmpdir(), 'clwriting-style-evil-'))
+      try {
+        writeFileSync(join(outside, 'evil.md'), '---\n场景: 战斗\n---\n逃逸正文', 'utf8')
+        symlinkSync(outside, join(bookRoot, '文风', '候选', '连结'))
+        for (const ep of ['confirm', 'ignore']) {
+          const r = await api(`/style/candidates/${ep}`, {
+            method: 'POST',
+            body: JSON.stringify({ path: '文风/候选/连结/evil.md' }),
+          })
+          expect(r.status).toBe(400)
+        }
+        // 逃逸目标文件未被动过（confirm 未搬入条目库 / ignore 未落档）
+        expect(existsSync(join(outside, 'evil.md'))).toBe(true)
+      } finally {
+        rmSync(outside, { recursive: true, force: true })
       }
-      // 逃逸目标文件未被动过（confirm 未搬入条目库 / ignore 未落档）
-      expect(existsSync(join(outside, 'evil.md'))).toBe(true)
-    } finally {
-      rmSync(outside, { recursive: true, force: true })
-    }
-  })
+    },
+  )
 })
 
 describe('定标端点（S7）', () => {

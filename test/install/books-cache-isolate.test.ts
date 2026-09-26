@@ -21,7 +21,10 @@ describe('R0912：books.jsonl 指纹缓存隔离与 appendBookAsync 永不 rejec
     const dir = mkdtempTracked(join(tmpdir(), 'clw-books-cache-'))
     try {
       mkdirSync(join(dir, '.clwriting'))
-      writeFileSync(join(dir, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '甲', path: '甲', kind: 'long' })}\n`)
+      writeFileSync(
+        join(dir, '.clwriting', 'books.jsonl'),
+        `${JSON.stringify({ name: '甲', path: '甲', kind: 'long' })}\n`,
+      )
       const first = readBooksStrict(dir)
       expect(first).toHaveLength(1)
       first!.push({ name: '侵入', path: '侵入', kind: 'long' } as BookEntry)

@@ -106,7 +106,9 @@ function runCommit(bookRoot: string, corpusDir: string) {
 }
 
 test('重评-P2-5: 存量数组含 null 元素 → 不裸崩、人话告警、退出码标红，合法条目照常合并', () => {
-  const { bookRoot, corpusDir, poisoned } = setupArrayPoison(JSON.stringify([{ excerpt: '雪落在了城墙上', expect: 'fire' }, null]))
+  const { bookRoot, corpusDir, poisoned } = setupArrayPoison(
+    JSON.stringify([{ excerpt: '雪落在了城墙上', expect: 'fire' }, null]),
+  )
   const r = runCommit(bookRoot, corpusDir)
   // null 元素此前在此裸 TypeError 崩整轮循环——不再崩，且走 failedExisting 尾部哨兵标红
   expect(r.status).toBe(1)

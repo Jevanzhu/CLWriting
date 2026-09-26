@@ -47,14 +47,16 @@ export function useTreeMenu(
   opts?: { activeDocId?: () => string | null },
 ) {
   /** 桌面版才有「打开所在文件夹」（Electron shell.showItemInFolder 跨平台；浏览器版隐藏） */
-  const hasShowInFolder = computed(
-    () => typeof window !== 'undefined' && !!window.clwritingDesktop?.showInFolder,
-  )
+  const hasShowInFolder = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop?.showInFolder)
 
   /** 目录右键菜单：新建项在前，文件操作（打开所在文件夹）分隔线隔开在后（桌面版）。 */
   function dirMenu(items: MenuItem[]): MenuItem[] {
     if (!hasShowInFolder.value) return items
-    return [...items, { key: 'sep-reveal', label: '', separator: true }, { key: 'reveal-in-folder', label: '打开所在文件夹' }]
+    return [
+      ...items,
+      { key: 'sep-reveal', label: '', separator: true },
+      { key: 'reveal-in-folder', label: '打开所在文件夹' },
+    ]
   }
 
   function buildMenuItems(node: TreeNode): MenuItem[] {

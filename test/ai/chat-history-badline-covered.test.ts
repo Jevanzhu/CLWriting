@@ -21,7 +21,12 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll } from 'vitest'
 import { bookHash, openSessionStore, type NewEvent, type SessionStore } from '../../src/events/store.js'
-import { turnStartEvent, userMessageEvent, assistantMessageEvent, loadHistoryWithSeqs } from '../../src/events/chat-bridge.js'
+import {
+  turnStartEvent,
+  userMessageEvent,
+  assistantMessageEvent,
+  loadHistoryWithSeqs,
+} from '../../src/events/chat-bridge.js'
 import { buildChatHistoryView } from '../../src/studio/server/api/chat-history.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -67,9 +72,11 @@ describe('0918四轮修复批 B403: 坏行降级下「已触底」判定不误�
       {
         const raw = new DatabaseSync(dbPath)
         try {
-          raw.prepare(
-            "INSERT INTO events (session_id, type, data, replace_generation, created_at) VALUES (?, 'turn/start', '{oops', 0, 1)",
-          ).run(sid)
+          raw
+            .prepare(
+              "INSERT INTO events (session_id, type, data, replace_generation, created_at) VALUES (?, 'turn/start', '{oops', 0, 1)",
+            )
+            .run(sid)
         } finally {
           raw.close()
         }
@@ -91,14 +98,21 @@ describe('0918四轮修复批 B403: 坏行降级下「已触底」判定不误�
         ])
         expect(view5.truncated).toBe(false)
         expect(view5.total).toBe(4)
-        expect({ messages: view5.messages, seqs: view5.seqs, truncated: view5.truncated, total: view5.total })
-          .toStrictEqual({ messages: ref5.messages, seqs: ref5.seqs, truncated: ref5.truncated, total: ref5.total })
+        expect({
+          messages: view5.messages,
+          seqs: view5.seqs,
+          truncated: view5.truncated,
+          total: view5.total,
+        }).toStrictEqual({ messages: ref5.messages, seqs: ref5.seqs, truncated: ref5.truncated, total: ref5.total })
 
         // ② limit=2：安全窗截断契约不回归——truncated:true + total=骨架事件行数 41（含坏行）
         const view2 = buildChatHistoryView(store2, '坏行尾窗书', undefined, 2)
         expect(view2.truncated).toBe(true)
         expect(view2.total).toBe(41)
-        expect(view2.messages.map((m) => (typeof m.content === 'string' ? m.content : ''))).toEqual(['尾部 u2', '尾部 a2'])
+        expect(view2.messages.map((m) => (typeof m.content === 'string' ? m.content : ''))).toEqual([
+          '尾部 u2',
+          '尾部 a2',
+        ])
 
         // ③ 全量路径（坏行降级）：4 条消息 + truncated:false，与参照一致
         const full = buildChatHistoryView(store2, '坏行尾窗书')

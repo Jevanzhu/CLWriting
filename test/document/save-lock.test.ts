@@ -67,7 +67,10 @@ describe('R72-1 / 保存临界段跨进程锁', () => {
     if (!r1.ok) throw new Error('prereq')
     const f = join(bookRoot, '写作/正文/0001-开篇.md')
     const r2 = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: '第二版', expectedRevision: r1.revision, operationId: 'op2', origin: 'manual',
+      content: '第二版',
+      expectedRevision: r1.revision,
+      operationId: 'op2',
+      origin: 'manual',
     })
     expect(r2.ok).toBe(true)
     expect(readFileSync(f, 'utf-8')).toBe('第二版')

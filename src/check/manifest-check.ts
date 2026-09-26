@@ -84,7 +84,10 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
     items.push({
       checkId: 'manifest-payoff-open',
       level: 'yellow',
-      message: `伏笔回收有 ${unresolved.length} 处显式标记未回收（${unresolved.map((e) => e.伏笔).slice(0, 3).join('、')}）`,
+      message: `伏笔回收有 ${unresolved.length} 处显式标记未回收（${unresolved
+        .map((e) => e.伏笔)
+        .slice(0, 3)
+        .join('、')}）`,
     })
   }
 

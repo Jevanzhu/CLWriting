@@ -87,7 +87,10 @@ describe('OverviewView 主请求失败即止（R0912-FE-P3-9）', () => {
       streak: 0,
       recentDoc: null,
     })
-    await w.findAll('button').find((b) => b.text().includes('重试'))!.trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('重试'))!
+      .trigger('click')
     await flushPromises()
     expect(mocks.getForeshadows).toHaveBeenCalledWith('测试书')
     w.unmount()
@@ -121,7 +124,10 @@ describe('OverviewView 主请求失败即止（R0912-FE-P3-9）', () => {
 
     // 重试：主请求成功 + 伏笔子请求失败 → 面板置空（原实态：残留旧红/绿统计照渲染）
     mocks.getOverview.mockResolvedValue(overview)
-    await w.findAll('button').find((b) => b.text().includes('重试'))!.trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('重试'))!
+      .trigger('click')
     await flushPromises()
     expect(mocks.getForeshadows).toHaveBeenCalledTimes(1)
     expect(w.find('.fs-n').exists(), '失败置空，不得残留旧统计').toBe(false)

@@ -147,12 +147,7 @@ function withAnalysisLock<T>(filePath: string, fn: () => T): T {
  *  编码文件的 kind，整写把先写的 kind 静默清除；且编码写成功后**锁内删字面源**——读侧
  *  候选序字面在前会让新写被字面旧信封永久遮蔽（verdictFp 取 existingAnalysisPath 的
  *  stat 恒指字面 → 树红点章级缓存永不失效）。删源后读侧权威位收敛编码路径。 */
-export function writeAnalysis(
-  bookRoot: string,
-  docId: string,
-  kind: AnalysisKind,
-  envelope: Envelope,
-): void {
+export function writeAnalysis(bookRoot: string, docId: string, kind: AnalysisKind, envelope: Envelope): void {
   const fp = analysisPath(bookRoot, docId)
   if (!fp) return
   withAnalysisLock(fp, () => writeAnalysisLocked(fp, bookRoot, docId, kind, envelope))
@@ -186,7 +181,13 @@ export async function writeAnalysisAsync(
 
 /** 合并写 RMW 本体（锁由调用方在持）——writeAnalysis（同步壳）与
  *  writeAnalysisAsync（异步壳）共用，防两壳各持一份合并逻辑漂移。 */
-function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: AnalysisKind, envelope: Envelope): void {
+function writeAnalysisLocked(
+  fp: string,
+  bookRoot: string,
+  docId: string,
+  kind: AnalysisKind,
+  envelope: Envelope,
+): void {
   const candidates = analysisPathCandidates(bookRoot, docId) ?? []
   // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
   let raw: Record<string, unknown> = {}
@@ -266,11 +267,7 @@ export function readBookAnalysis(bookRoot: string, kind: AnalysisKind): Envelope
  *  热路径唯一调用点 analyze-style 落盘，迁移本版）；同步版已无任何调用方
  *  （复核 src/scripts/test 全零）→ 删除，不留双版漂移面。超时降级裸写 + warn
  *  留痕口径与 writeAnalysisAsync 逐位同源。 */
-export async function writeBookAnalysisAsync(
-  bookRoot: string,
-  kind: AnalysisKind,
-  envelope: Envelope,
-): Promise<void> {
+export async function writeBookAnalysisAsync(bookRoot: string, kind: AnalysisKind, envelope: Envelope): Promise<void> {
   const fp = analysisBookPath(bookRoot)
   await withAnalysisLockAsync(fp, () => {
     let raw: Record<string, unknown> = {}
@@ -300,9 +297,5 @@ export function isStale(envelope: Envelope, fullContent: string): boolean {
 function isEnvelope(v: unknown): v is Envelope {
   if (typeof v !== 'object' || v === null) return false
   const e = v as Record<string, unknown>
-  return (
-    typeof e.generatedAt === 'string' &&
-    typeof e.model === 'string' &&
-    typeof e.sourceHash === 'string'
-  )
+  return typeof e.generatedAt === 'string' && typeof e.model === 'string' && typeof e.sourceHash === 'string'
 }

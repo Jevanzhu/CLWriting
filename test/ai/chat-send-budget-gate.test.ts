@@ -92,7 +92,7 @@ function readLlmCallHashes(ud: string, bookRoot: string): string[] {
     return store
       .listEvents(bookHash(bookRoot))
       .filter((e) => e.type === 'llm/call')
-      .map((e) => ((e.data as { promptMeta?: { hash?: string } }).promptMeta?.hash ?? ''))
+      .map((e) => (e.data as { promptMeta?: { hash?: string } }).promptMeta?.hash ?? '')
   } finally {
     store.close()
   }
@@ -234,7 +234,9 @@ describe('R55-C-1: runAgentTurns 发送前预切（全链路）', () => {
     expect(hashes[0]).toBe(promptMeta(deps.sys, lastMessageFingerprint(expected)).hash)
 
     // warn 留痕：含前后码点数（口径：历史 X 条约 Y 码点 → 保尾预切）
-    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('120272'))).toBe(true)
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('120272')),
+    ).toBe(true)
   })
 
   it('预算内历史 → no-op 不切（实发全量、无预切 warn）', async () => {
@@ -338,7 +340,11 @@ describe('R57-B-2: 发送预算按模型 contextWindow 显式 resolve（全链�
     expect(convo[0]).toEqual({ role: 'user', content: 'u3' }) // 修复前切在 u1（96k 旧预算）
     expect(convo.length).toBe(4) // u3 + 末回合 3 条
     // warn 反映 resolved 预算（32000）而非硬编码 96000
-    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('超发送预算 32000'))).toBe(true)
+    expect(
+      warnSpy.mock.calls.some(
+        (c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('超发送预算 32000'),
+      ),
+    ).toBe(true)
     // 32k 预算下切后总量（sys 3 + 30068）在预算内 → 无切后复查 warn
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切后复查'))).toBe(false)
     expect(convo.length).toBeLessThan(sent.length)
@@ -366,7 +372,11 @@ describe('R57-B-1: system prompt 计入发送预算', () => {
     expect(convo[0]).toEqual({ role: 'user', content: 'u2' }) // 修复前不切（u0 全量 16 条）
     expect(convo.length).toBe(8) // u2 + 回合2(3) + u3 + 回合3(3)
     // warn 反映 sys 计入后的差额口径
-    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('历史可用 26000'))).toBe(true)
+    expect(
+      warnSpy.mock.calls.some(
+        (c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('历史可用 26000'),
+      ),
+    ).toBe(true)
     // 切后 sys + 实发历史 = 70000 + 20136 = 90136 ≤ 96000 → 无切后复查 warn
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切后复查'))).toBe(false)
   })
@@ -393,7 +403,8 @@ describe('R57-B-1: system prompt 计入发送预算', () => {
     expect(convo.length).toBe(4) // u2 + 末回合 3 条
     expect(
       warnSpy.mock.calls.some(
-        (c) => String(c[1] ?? '').includes('切后复查') && String(c[1]).includes('110068') && String(c[1]).includes('96000'),
+        (c) =>
+          String(c[1] ?? '').includes('切后复查') && String(c[1]).includes('110068') && String(c[1]).includes('96000'),
       ),
     ).toBe(true) // fail-open 语义不变，warn 反映含 sys 真实总量（修复前无任何 warn）
   })

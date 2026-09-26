@@ -93,26 +93,17 @@ describe('拍板快断批 2026-09-15: inline 新建 seed 前缀拼回', () => {
     actions.onNewChapter()
     expect(actions.creating.value?.seedPrefix).toBe('0006-')
     await actions.onCreateCommit('夜行')
-    expect(createMock).toHaveBeenCalledWith(
-      '书A',
-      expect.objectContaining({ relPath: '写作/正文/0006-夜行.md' }),
-    )
+    expect(createMock).toHaveBeenCalledWith('书A', expect.objectContaining({ relPath: '写作/正文/0006-夜行.md' }))
   })
 
   it('作者自填章号形态（数字前缀 / 第N章）→ 不覆盖不双拼', async () => {
     const actions = useChapterTreeActions({ bookName: () => '书A', openError: ref(null) })
     actions.onNewChapter()
     await actions.onCreateCommit('0009-终章')
-    expect(createMock).toHaveBeenCalledWith(
-      '书A',
-      expect.objectContaining({ relPath: '写作/正文/0009-终章.md' }),
-    )
+    expect(createMock).toHaveBeenCalledWith('书A', expect.objectContaining({ relPath: '写作/正文/0009-终章.md' }))
     actions.onNewChapter()
     await actions.onCreateCommit('第7章-重逢')
-    expect(createMock).toHaveBeenCalledWith(
-      '书A',
-      expect.objectContaining({ relPath: '写作/正文/第7章-重逢.md' }),
-    )
+    expect(createMock).toHaveBeenCalledWith('书A', expect.objectContaining({ relPath: '写作/正文/第7章-重逢.md' }))
   })
 
   it('章纲（chapter-outline）同款拼回 → 大纲/章纲/0006-铺垫.md', async () => {
@@ -120,9 +111,6 @@ describe('拍板快断批 2026-09-15: inline 新建 seed 前缀拼回', () => {
     actions.startCreate('chapter-outline', '大纲', '大纲/章纲')
     expect(actions.creating.value?.seedPrefix).toBe('0006-')
     await actions.onCreateCommit('铺垫')
-    expect(createMock).toHaveBeenCalledWith(
-      '书A',
-      expect.objectContaining({ relPath: '大纲/章纲/0006-铺垫.md' }),
-    )
+    expect(createMock).toHaveBeenCalledWith('书A', expect.objectContaining({ relPath: '大纲/章纲/0006-铺垫.md' }))
   })
 })

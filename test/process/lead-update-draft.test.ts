@@ -119,7 +119,9 @@ test('闭环：parseLeadUpdateDraft 产出可被账本推进读取端读回（�
       parsed.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据).join('\n') + '\n',
       'utf-8',
     )
-    expect(readLeadUpdatesAt(join(root, LEAD_UPDATES_FILE))).toEqual([{ leadId: '悬念-001', 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' }])
+    expect(readLeadUpdatesAt(join(root, LEAD_UPDATES_FILE))).toEqual([
+      { leadId: '悬念-001', 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' },
+    ])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -142,11 +144,7 @@ function makeChapter(root: string): void {
 test('archivePendingLeadUpdates: 主文件载其他章条目 → 归档到 .账本推进暂存/第N章.md', () => {
   const root = makeWiringBook()
   try {
-    writeFileSync(
-      join(root, '工作区', '账本推进.md'),
-      '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n', 'utf-8')
     archivePendingLeadUpdates(root, 1)
     // 主文件已被挪走归档，内容原样
     expect(existsSync(join(root, '工作区', '账本推进.md'))).toBe(false)
@@ -203,11 +201,7 @@ test('X-P2-6: generateLeadUpdateDraft（mock）→ 落盘带章节标签；载�
     try {
       makeChapter(root)
       // 主文件先载第 2 章待确认草稿（模拟批量连写上一章未定稿）
-      writeFileSync(
-        join(root, '工作区', '账本推进.md'),
-        '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n',
-        'utf-8',
-      )
+      writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n', 'utf-8')
 
       const r = await generateLeadUpdateDraft(root, 1, null)
       expect(r.ok).toBe(true)

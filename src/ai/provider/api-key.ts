@@ -19,8 +19,7 @@ export type ApiKeyRejection = 'empty' | 'illegalCharacters'
 
 /** 单条已提交 key 的判定。 */
 export type ApiKeyCheck =
-  | { readonly ok: true; readonly value: string }
-  | { readonly ok: false; readonly reason: ApiKeyRejection }
+  { readonly ok: true; readonly value: string } | { readonly ok: false; readonly reason: ApiKeyRejection }
 
 /**
  * 判定一条已提交的 API Key，先静默 trim（首尾空白只有一种读法）。

@@ -3,7 +3,13 @@ import { rmSync, mkdirSync, symlinkSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
-import { readRealmDoc, writeRealmDoc, getRealmSequence, realmIndex, extractExactRealmFromEvidence } from '../../src/format/realms.js'
+import {
+  readRealmDoc,
+  writeRealmDoc,
+  getRealmSequence,
+  realmIndex,
+  extractExactRealmFromEvidence,
+} from '../../src/format/realms.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 文风样章（#5）──────────────────────────────
@@ -12,8 +18,10 @@ test('readSample + writeSample: 往返（含标签数组）', () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, '战斗-001.md')
   const s = {
-    场景: '战斗', 来源: '作者原作' as const,
-    出处: '《北境往事》第12章', 标签: ['短句', '快节奏'],
+    场景: '战斗',
+    来源: '作者原作' as const,
+    出处: '《北境往事》第12章',
+    标签: ['短句', '快节奏'],
     技法指令: '学它的停顿和短句压迫感',
     正文: '刀光没入雪雾的刹那，他听见自己心跳。',
   }
@@ -57,10 +65,14 @@ test('readSamplesByScene: 按场景取、容错', () => {
   const dir = join(root, '文风', '样章库')
   mkdirSync(join(dir, '战斗'), { recursive: true })
   writeSample(join(dir, '战斗', '战斗-001.md'), {
-    场景: '战斗', 来源: '作者原作', 正文: '战斗段一',
+    场景: '战斗',
+    来源: '作者原作',
+    正文: '战斗段一',
   })
   writeSample(join(dir, '战斗', '战斗-002.md'), {
-    场景: '战斗', 来源: '题材范文', 正文: '战斗段二',
+    场景: '战斗',
+    来源: '题材范文',
+    正文: '战斗段二',
   })
   const { samples, errors } = readSamplesByScene(dir, '战斗')
   expect(samples).toHaveLength(2)
@@ -80,19 +92,24 @@ test('readSamplesByScene: 场景目录不存在返回空', () => {
 // （stat 跟随链接取目标，同样 ENOENT，与真实竞态同错误面）。此前裸 statSync 会把
 // 整个场景读取抛穿，对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出', () => {
-  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
-  const dir = join(root, '文风', '样章库')
-  mkdirSync(join(dir, '战斗'), { recursive: true })
-  writeSample(join(dir, '战斗', '战斗-001.md'), {
-    场景: '战斗', 来源: '作者原作', 正文: '战斗段一',
-  })
-  symlinkSync(join(dir, '战斗', 'no-such.md'), join(dir, '战斗', '战斗-002.md'))
-  const { samples, errors } = readSamplesByScene(dir, '战斗')
-  expect(samples).toHaveLength(1)
-  expect(errors).toHaveLength(0)
-  rmSync(root, { recursive: true, force: true })
-})
+test.skipIf(process.platform === 'win32')(
+  '低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出',
+  () => {
+    const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
+    const dir = join(root, '文风', '样章库')
+    mkdirSync(join(dir, '战斗'), { recursive: true })
+    writeSample(join(dir, '战斗', '战斗-001.md'), {
+      场景: '战斗',
+      来源: '作者原作',
+      正文: '战斗段一',
+    })
+    symlinkSync(join(dir, '战斗', 'no-such.md'), join(dir, '战斗', '战斗-002.md'))
+    const { samples, errors } = readSamplesByScene(dir, '战斗')
+    expect(samples).toHaveLength(1)
+    expect(errors).toHaveLength(0)
+    rmSync(root, { recursive: true, force: true })
+  },
+)
 
 test('parseSampleFileName', () => {
   expect(parseSampleFileName('战斗-001.md')).toEqual({ 场景: '战斗', 序号: 1 })

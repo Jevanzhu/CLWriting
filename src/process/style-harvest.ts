@@ -29,12 +29,7 @@ import {
   type DocSignals,
 } from '../format/style-candidate.js'
 import { compareVersions } from '../format/style-compare.js'
-import {
-  scanChapters,
-  scanChaptersAsync,
-  aggregateStyleTrend,
-  readBaseline,
-} from '../metrics/style.js'
+import { scanChapters, scanChaptersAsync, aggregateStyleTrend, readBaseline } from '../metrics/style.js'
 
 /** 样章候选最短段长（与 style-candidate 保持一致） */
 const MIN_SAMPLE_PARA = 50
@@ -131,12 +126,7 @@ export function harvestStyleCandidates(
       const split = splitFrontMatter(raw)
       const body = split ? split.body : raw
       const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
-      const s = collectDocSignals(
-        bookRoot,
-        docId,
-        body,
-        Number.isInteger(chNum) && chNum > 0 ? chNum : undefined,
-      )
+      const s = collectDocSignals(bookRoot, docId, body, Number.isInteger(chNum) && chNum > 0 ? chNum : undefined)
       if (s) signals.push(s)
     }
     candidates.push(...aggregateSignals(signals, today))

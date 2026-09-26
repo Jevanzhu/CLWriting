@@ -31,14 +31,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  getVersionStatsCached,
-  versionStatsCache,
-} from '../../src/studio/server/api/snapshots.js'
-import {
-  getAnalysisOverviewCached,
-  analysisOverviewCache,
-} from '../../src/studio/server/api/analysis.js'
+import { getVersionStatsCached, versionStatsCache } from '../../src/studio/server/api/snapshots.js'
+import { getAnalysisOverviewCached, analysisOverviewCache } from '../../src/studio/server/api/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -105,7 +99,10 @@ describe('R37-17 version-stats 两级探针', () => {
     const root = makeSnapshotBook()
     const before = await getVersionStatsCached(root, 60_000)
     await sleep(5)
-    atomicWriteFile(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n更长的新定稿内容若干字若干字\n')
+    atomicWriteFile(
+      join(root, '工作区', '.版本', 'doc_1', 'a.md'),
+      '---\n来源: manual\n永久: true\n---\n更长的新定稿内容若干字若干字\n',
+    )
     // R44-9：探针节流——rename 已刷 doc_1 目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
     const throttled = await getVersionStatsCached(root, 60_000)
     expect(versionStatsCache.stats().signatures).toBe(1)
@@ -177,7 +174,11 @@ describe('R37-17 analysis-overview 两级探针', () => {
     await sleep(5)
     // 就地直写（外部编辑器形态：writeFileSync 覆写信封、不经 rename）——目录 mtime 不变。
     // 落盘形状与 writeAnalysis 同构（kind 键嵌套：{ score: Envelope }）
-    writeFileSync(join(root, '项目', '分析', `${docId}.json`), JSON.stringify({ score: envOf({ score: 1, dims: { 爽点: 1 } }) }, null, 2), 'utf-8')
+    writeFileSync(
+      join(root, '项目', '分析', `${docId}.json`),
+      JSON.stringify({ score: envOf({ score: 1, dims: { 爽点: 1 } }) }, null, 2),
+      'utf-8',
+    )
     const stale = await getAnalysisOverviewCached(root, 60_000)
     expect(analysisOverviewCache.stats().signatures).toBe(1) // 一级探针未察觉：签名未跑
     expect(stale.scoreTrend[0]!.score).toBe(8) // 命中旧缓存（边界如实固化）

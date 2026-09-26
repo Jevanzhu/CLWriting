@@ -43,11 +43,18 @@ export async function getSettings(name: string): Promise<SettingsResult> {
 }
 
 /** AI 关系梳理：触发 AI 通读材料提炼关系边，落盘缓存。force=true 强制重梳理。 */
-export async function mineRelations(name: string, force = false): Promise<{ ok: boolean; cached: boolean; relations: { from: string; to: string; type: string; note?: string }[] }> {
-  return apiJson(bookUrl(name, 'relations', 'mine'), {
-    method: 'POST',
-    json: { force },
-  }, 120_000) // AI 关系梳理超时 2 分钟
+export async function mineRelations(
+  name: string,
+  force = false,
+): Promise<{ ok: boolean; cached: boolean; relations: { from: string; to: string; type: string; note?: string }[] }> {
+  return apiJson(
+    bookUrl(name, 'relations', 'mine'),
+    {
+      method: 'POST',
+      json: { force },
+    },
+    120_000,
+  ) // AI 关系梳理超时 2 分钟
 }
 
 /** 补全名称列表（编辑器补全用；轻量端点：角色姓名 + 物品名称，只读 fm 不拉正文） */

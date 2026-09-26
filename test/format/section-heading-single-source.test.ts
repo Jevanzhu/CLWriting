@@ -48,14 +48,7 @@ describe('G203（0918三轮修复批）：## 标题识别单源', () => {
   })
 
   it('两侧消费面同源：collectBodyAnchors 与 extractSectionHeadings 逐位一致（紧排不再漏识）', () => {
-    const body = [
-      '## 松排锚点',
-      '##紧排锚点',
-      '```',
-      '## 围栏内示例',
-      '```',
-      '## 尾锚点',
-    ].join('\n')
+    const body = ['## 松排锚点', '##紧排锚点', '```', '## 围栏内示例', '```', '## 尾锚点'].join('\n')
     expect(collectBodyAnchors(body)).toEqual(extractSectionHeadings(body))
     expect(collectBodyAnchors(body)).toEqual(['松排锚点', '紧排锚点', '尾锚点'])
     // 修复前 metrics 侧对紧排形态全量漏识（anchors 空 → 假 issue 面），此处单独钉住

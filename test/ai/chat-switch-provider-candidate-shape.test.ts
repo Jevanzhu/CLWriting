@@ -102,9 +102,7 @@ describe('A104: 换网候选过滤不实例化 provider / 不进 LRU', () => {
     const bookRoot = mkdtempTracked(join(tmpdir(), 'a104-shape-book-'))
     dirs.push(bookRoot)
     const emitted: DriverEvent[] = []
-    const history: ChatMsg[] = [
-      { role: 'user', content: '查玉佩' },
-    ]
+    const history: ChatMsg[] = [{ role: 'user', content: '查玉佩' }]
     const deps = {
       opts: {
         driver: makeFakeDriver({ emitted }),
@@ -123,7 +121,11 @@ describe('A104: 换网候选过滤不实例化 provider / 不进 LRU', () => {
       digests: { settings: 'a104-shape-digest' },
       promptFiles: [],
       revisionPath: undefined,
-      seqs: { msgSeqs: [] as number[][], pendingMsgSeqs: [] as Array<number | number[]>, commitPendingMsgSeqs: () => {} },
+      seqs: {
+        msgSeqs: [] as number[][],
+        pendingMsgSeqs: [] as Array<number | number[]>,
+        commitPendingMsgSeqs: () => {},
+      },
       markCompleted: () => {},
     }
 
@@ -135,7 +137,9 @@ describe('A104: 换网候选过滤不实例化 provider / 不进 LRU', () => {
     expect(emitted.some((e) => e.type === 'chat_done')).toBe(true)
     expect(emitted.some((e) => e.type === 'chat_error')).toBe(false)
     expect(
-      emitted.some((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('已切换备用供应商')),
+      emitted.some(
+        (e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('已切换备用供应商'),
+      ),
     ).toBe(true)
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切换备用 fake-c'))).toBe(true)
 

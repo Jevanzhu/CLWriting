@@ -87,7 +87,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           mkdirSync(dirname(dst), { recursive: true })
           renameWithRetry(srcAbs, dst)
           migrated++
-        } catch (e) { errors.push(`${name}: ${errMsg(e)}`) }
+        } catch (e) {
+          errors.push(`${name}: ${errMsg(e)}`)
+        }
       } else {
         // 目标已存在不再静默跳过——对齐 「未识别文件不再静默
         // 跳过」口径：源文件滞留草稿区成孤儿（v3 布局已退役该目录）作者无从知晓，
@@ -106,7 +108,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           renameWithRetry(srcAbs, dst)
           migrated++
           pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
-        } catch (e) { errors.push(`${name}: ${errMsg(e)}`) }
+        } catch (e) {
+          errors.push(`${name}: ${errMsg(e)}`)
+        }
       } else {
         // 同目标（首篇/首章两源抢 大纲/首章细纲.md）防覆盖跳过
         // 同样记入 errors——两源内容可能不同，静默丢弃后到者有丢稿风险，提示手动核对。
@@ -122,14 +126,20 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       // .md 判定收敛 isMdFileName（大小写不敏感）——语义从「跳过」
       // 变「纳入」：.MD 遗留文件此前静默滞留，现在同样进 errors 提示手动处置
       if (!name.startsWith('.') && isMdFileName(name)) {
-        errors.push(`${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`)
+        errors.push(
+          `${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`,
+        )
       }
       continue
     }
     const chapterNum = Number(m[1])
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined
-    try { content = readFileSync(srcAbs, 'utf-8') } catch { /* 读失败用 undefined */ }
+    try {
+      content = readFileSync(srcAbs, 'utf-8')
+    } catch {
+      /* 读失败用 undefined */
+    }
     // /：回收站条目的 originalPath 取「迁移落点」——先走 forRead
     // 只读口径（跳过已定稿章/坏 fm 的 throw）拿到确定性落点，正式口径 throw 时回收站
     // 条目也记真实落点而非已退役的 写作/草稿/ 旧路径（restore 还原回退役目录即失明）。
@@ -137,7 +147,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     let landingRel = `写作/草稿/${name}`
     try {
       landingRel = resolveDraftPath(bookRoot, chapterNum, content, { forRead: true }).relPath
-    } catch { /* 理论路径：保底退役路径 */ }
+    } catch {
+      /* 理论路径：保底退役路径 */
+    }
     // resolveDraftPath 对已定稿章无条件 throw（防线）——迁移跑在启动链路，
     // throw 冒泡会让 server 起不来且每次启动重演；归入 errors + 冲突稿进回收站，迁移继续。
     let dstRel: string
@@ -149,7 +161,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
         trashDraft(bookRoot, srcAbs, name, landingRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // 旧路径清单条目待清
-      } catch (e2) { errors.push(`${name} → .trash: ${errMsg(e2)}`) }
+      } catch (e2) {
+        errors.push(`${name} → .trash: ${errMsg(e2)}`)
+      }
       continue
     }
     const dstAbs = join(bookRoot, dstRel)
@@ -159,7 +173,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
         trashDraft(bookRoot, srcAbs, name, dstRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // 旧路径清单条目待清
-      } catch (e) { errors.push(`${name} → .trash: ${errMsg(e)}`) }
+      } catch (e) {
+        errors.push(`${name} → .trash: ${errMsg(e)}`)
+      }
       continue
     }
     try {
@@ -201,7 +217,11 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
   }
 
   // 尝试删空草稿目录（仍有文件则保留）
-  try { rmdirSync(draftDir) } catch { /* 非空或其他原因 → 保留 */ }
+  try {
+    rmdirSync(draftDir)
+  } catch {
+    /* 非空或其他原因 → 保留 */
+  }
 
   return { migrated, errors }
 }

@@ -11,7 +11,13 @@ import { test, expect, vi } from 'vitest'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appendBaseline, appendWordsDelta, readBaseline, readTodayDelta, wordsDiaryPath } from '../../src/document/words-diary.js'
+import {
+  appendBaseline,
+  appendWordsDelta,
+  readBaseline,
+  readTodayDelta,
+  wordsDiaryPath,
+} from '../../src/document/words-diary.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { denyRead } from '../helpers/fs-deny.js'
 

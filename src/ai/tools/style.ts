@@ -13,7 +13,13 @@ export async function harvestStyle(ctx: ToolContext, _input: Record<string, unkn
   if (!r.ok) return { ok: false, summary: r.error ?? '文风收割失败。' }
   return {
     ok: true,
-    summary: '文风收割完成：采样 ' + r.sampleCount + ' 段 / 金句候选 ' + r.quoteCount + ' 条，已写入 ' + r.candidateDir + '。请在文风收割界面标注候选（不入库自动归，标注权在作者）。'
+    summary:
+      '文风收割完成：采样 ' +
+      r.sampleCount +
+      ' 段 / 金句候选 ' +
+      r.quoteCount +
+      ' 条，已写入 ' +
+      r.candidateDir +
+      '。请在文风收割界面标注候选（不入库自动归，标注权在作者）。',
   }
 }
-

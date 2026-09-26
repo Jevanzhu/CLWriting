@@ -70,7 +70,11 @@ describe('R41-14: 枚举空串落默认（fm-missing 单红，不再叠加 fm-en
 
 describe('R41-15: 块标量多行标题读取侧单行化', () => {
   it('literal `|` 多行标题 → trim 后空格连接单行（\\n 不落 ChapterMeta.标题）', () => {
-    const fp = writeFm(['章号: 1', '标题: |', '  双线标题上', '  双线标题下', '钩子类型: 悬念钩', '钩子强弱: 中', '情绪定位: 铺垫'].join('\n'))
+    const fp = writeFm(
+      ['章号: 1', '标题: |', '  双线标题上', '  双线标题下', '钩子类型: 悬念钩', '钩子强弱: 中', '情绪定位: 铺垫'].join(
+        '\n',
+      ),
+    )
     try {
       const r = readChapter(fp)
       expect(r.ok).toBe(true)
@@ -83,7 +87,11 @@ describe('R41-15: 块标量多行标题读取侧单行化', () => {
   })
 
   it('folded `>` 多行标题 → parseFlat 已折单行，读取侧维持单行（无回归）', () => {
-    const fp = writeFm(['章号: 1', '标题: >', '  折行标题上', '  折行标题下', '钩子类型: 悬念钩', '钩子强弱: 中', '情绪定位: 铺垫'].join('\n'))
+    const fp = writeFm(
+      ['章号: 1', '标题: >', '  折行标题上', '  折行标题下', '钩子类型: 悬念钩', '钩子强弱: 中', '情绪定位: 铺垫'].join(
+        '\n',
+      ),
+    )
     try {
       const r = readChapter(fp)
       expect(r.ok).toBe(true)

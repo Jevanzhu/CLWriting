@@ -4,14 +4,7 @@ import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables, clearAllTables } from '../../src/cache/schema.js'
-import {
-  syncLead,
-  loadLeadFromCache,
-  syncChapter,
-  syncSummary,
-  setMeta,
-  getMeta,
-} from '../../src/cache/sync.js'
+import { syncLead, loadLeadFromCache, syncChapter, syncSummary, setMeta, getMeta } from '../../src/cache/sync.js'
 import type { Lead } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -24,9 +17,9 @@ function makeDb(): { db: DatabaseSync; dir: string } {
 
 test('createAllTables: 建 5 表成功', () => {
   const { db, dir } = makeDb()
-  const tables = db.prepare(
-    `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
-  ).all() as { name: string }[]
+  const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all() as {
+    name: string
+  }[]
   const names = tables.map((t) => t.name)
   expect(names).toContain('leads')
   expect(names).toContain('lead_history')
@@ -86,8 +79,13 @@ test('syncLead: 成长线特化字段（cur_realm）映射', () => {
 test('syncLead: 幂等（重复写不重复履历）', () => {
   const { db, dir } = makeDb()
   const lead: Lead = {
-    编号: '悬念-001', 标题: 'a', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 1, 动词: '埋下', 证据: 'x' }], _path: 'p',
+    编号: '悬念-001',
+    标题: 'a',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 1, 动词: '埋下', 证据: 'x' }],
+    _path: 'p',
   }
   syncLead(db, lead)
   syncLead(db, lead) // 重复
@@ -100,8 +98,13 @@ test('syncLead: 幂等（重复写不重复履历）', () => {
 test('syncChapter + syncSummary + setMeta', () => {
   const { db, dir } = makeDb()
   syncChapter(db, {
-    章号: 152, 标题: '北境的雪', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '转折', _wordCount: 3200, _path: '定稿/正文/152-北境的雪.md',
+    章号: 152,
+    标题: '北境的雪',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '转折',
+    _wordCount: 3200,
+    _path: '定稿/正文/152-北境的雪.md',
   })
   const ch = db.prepare('SELECT * FROM chapters WHERE number=152').get() as Record<string, unknown>
   expect(ch['title']).toBe('北境的雪')

@@ -32,7 +32,10 @@ function makeProvider(kind: Kind, events: unknown[]): ModelProvider {
     return createAnthropicProvider(CONF, client)
   }
   const client = { responses: { create: fakeSend(events) } } as unknown as OpenAI
-  return createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses', model: 'gpt-5' } as ProviderConf, client)
+  return createOpenAIResponsesProvider(
+    { ...CONF, protocol: 'openai-responses', model: 'gpt-5' } as ProviderConf,
+    client,
+  )
 }
 
 function firstError(evs: GenEvent[]): Extract<GenEvent, { type: 'error' }> {

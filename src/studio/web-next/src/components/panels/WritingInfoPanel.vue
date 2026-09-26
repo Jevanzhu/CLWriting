@@ -56,8 +56,14 @@ watch(
 // 字数与 fm 字段 150ms 防抖——右栏「信息」tab 常驻（三折叠区默认
 // 展开），此前每击键全文 countWords + parseFmFields 重算（EditorView wordCount
 // 已防抖的同族成本，右栏链路漏配）；切文档（activeDocId 变）即刻重算
-const { count: words } = useDebouncedWordCount(() => entry.value?.content, () => ws.activeDocId)
-const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
+const { count: words } = useDebouncedWordCount(
+  () => entry.value?.content,
+  () => ws.activeDocId,
+)
+const { fields: fmFields } = useDebouncedFmFields(
+  () => entry.value?.content,
+  () => ws.activeDocId,
+)
 const volumeWords = computed(() => {
   if (!node.value) return 0
   const m = node.value.path.match(/^写作\/正文\/([^/]+)\//)
@@ -66,7 +72,8 @@ const volumeWords = computed(() => {
   let sum = 0
   const walk = (ns: TreeNode[]) => {
     for (const n of ns) {
-      if (!n.isDirectory && (n.role === 'chapter' || n.role === 'piece-body') && n.path.startsWith(volPrefix)) sum += n.wordCount ?? 0
+      if (!n.isDirectory && (n.role === 'chapter' || n.role === 'piece-body') && n.path.startsWith(volPrefix))
+        sum += n.wordCount ?? 0
       if (n.children.length) walk(n.children)
     }
   }

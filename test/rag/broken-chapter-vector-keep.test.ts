@@ -42,7 +42,11 @@ describe('A-9：坏章不删向量、修复后不重嵌', () => {
   beforeEach(() => {
     bookRoot = join(tmpdir(), `r29-rag-idx-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-    writeChapter(join(bookRoot, '写作', '正文', '1-第1章.md'), meta(1), '第1章的正文段落内容，这是一个对话场景，对话充分展开。')
+    writeChapter(
+      join(bookRoot, '写作', '正文', '1-第1章.md'),
+      meta(1),
+      '第1章的正文段落内容，这是一个对话场景，对话充分展开。',
+    )
     writeChapter(join(bookRoot, '写作', '正文', '2-第2章.md'), meta(2), BODY2)
   })
 
@@ -57,11 +61,7 @@ describe('A-9：坏章不删向量、修复后不重嵌', () => {
     expect(r1.chapterCount).toBe(2)
 
     // 第 2 章 fm 坏（章号格式不符 → readChapter 报错、章从 chapters 缺失）
-    writeFileSync(
-      join(bookRoot, '写作', '正文', '2-第2章.md'),
-      '---\n章号: 五\n标题: 坏章\n---\n\n' + BODY2,
-      'utf-8',
-    )
+    writeFileSync(join(bookRoot, '写作', '正文', '2-第2章.md'), '---\n章号: 五\n标题: 坏章\n---\n\n' + BODY2, 'utf-8')
 
     const r2 = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
     expect(r2.ok).toBe(true)

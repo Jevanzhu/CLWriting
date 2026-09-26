@@ -86,11 +86,7 @@ function makeBook(name: string, bookYaml = 'kind: long\n', rel = `books/${name}`
   mkdirSync(join(root, '项目'), { recursive: true })
   if (bookYaml !== '') writeFileSync(join(root, 'book.yaml'), bookYaml)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    `${JSON.stringify({ name, path: rel })}\n`,
-    { flag: 'a' },
-  )
+  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name, path: rel })}\n`, { flag: 'a' })
   return root
 }
 
@@ -139,7 +135,11 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
     })
     expect(miss.status).toBe(404)
     expect(miss.json.code).toBe('NOT_FOUND')
-    const nw = await noworkReq({ method: 'PUT', path: '/api/books/x/config', body: { config: { book: { title: 'x' } } } })
+    const nw = await noworkReq({
+      method: 'PUT',
+      path: '/api/books/x/config',
+      body: { config: { book: { title: 'x' } } },
+    })
     expect(nw.status).toBe(400)
     expect(nw.json.code).toBe('NO_WORKDIR')
   })
@@ -147,7 +147,12 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
   it('PUT config 缺失 / book.title 非字符串 / 空白标题 → 400 BAD_INPUT 三态', async () => {
     makeBook('配置校验书')
     const p = `/api/books/${encodeURIComponent('配置校验书')}/config`
-    for (const body of [{}, { config: 42 }, { config: { book: { title: 123 } } }, { config: { book: { title: '   ' } } }]) {
+    for (const body of [
+      {},
+      { config: 42 },
+      { config: { book: { title: 123 } } },
+      { config: { book: { title: '   ' } } },
+    ]) {
       const r = await req({ method: 'PUT', path: p, body })
       expect(r.status).toBe(400)
       expect(r.json.code).toBe('BAD_INPUT')
@@ -261,7 +266,11 @@ describe('R1010c-COV-1：draft 端点入参与边界分支', () => {
     })
     expect(miss.status).toBe(404)
     expect(miss.json.code).toBe('NOT_FOUND')
-    const nw = await noworkReq({ method: 'POST', path: '/api/books/x/draft-save', body: { chapter: 1, content: '正文' } })
+    const nw = await noworkReq({
+      method: 'POST',
+      path: '/api/books/x/draft-save',
+      body: { chapter: 1, content: '正文' },
+    })
     expect(nw.status).toBe(400)
     expect(nw.json.code).toBe('NO_WORKDIR')
   })
@@ -312,7 +321,10 @@ describe('R1010c-COV-1：draft 端点入参与边界分支', () => {
 
   it('GET draft-prompt 畸形 URL（非法百分号编码）→ 400 BAD_INPUT', async () => {
     makeBook('草稿prompt书')
-    const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('草稿prompt书')}/draft-prompt?chapter=%zz` })
+    const r = await req({
+      method: 'GET',
+      path: `/api/books/${encodeURIComponent('草稿prompt书')}/draft-prompt?chapter=%zz`,
+    })
     expect(r.status).toBe(400)
     expect(r.json.code).toBe('BAD_INPUT')
   })

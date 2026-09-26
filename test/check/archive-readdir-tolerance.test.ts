@@ -87,9 +87,7 @@ test('R37-9: runner.ts 章纲目录被文件占用（ENOTDIR）机检不炸，�
     // 修复前：三口径兜底 readdirSync ENOTDIR 直穿炸整次机检；修复后降级 manifestPath
     // = null → 走既有 piece-list-outline-missing 黄项（R32-15，不静默）
     const r = runAllChecks({ bookRoot: root, config, chapter, body: '他推开门。', fileName: '001-雪夜.md' })
-    const missing = r.sections
-      .flatMap((s) => s.items)
-      .find((it) => it.checkId === 'piece-list-outline-missing')
+    const missing = r.sections.flatMap((s) => s.items).find((it) => it.checkId === 'piece-list-outline-missing')
     expect(missing).toBeDefined()
     expect(missing!.message).toContain('未找到章纲')
   } finally {

@@ -10,7 +10,17 @@
  * makeBook 按用例现写，.clwriting 目录经 dirs 预建）；userDataDir 由本文件自建自清；
  * req 走无 origin 变体，保留本地、改绑 studio.baseUrl/studio.token。
  */
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, existsSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  existsSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
@@ -32,7 +42,11 @@ function makeBook(name: string): string {
   )
   const bookAbs = join(workDir, '长篇', name)
   mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookAbs, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookAbs, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+    'utf-8',
+  )
   return bookAbs
 }
 
@@ -114,7 +128,12 @@ describe('R73-34 删书墓地', () => {
     // ENOENT 分支回 404 NOT_FOUND（与登记缺失形态同一用户语义）
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
-      JSON.stringify({ name: '幽灵登记书', path: '长篇/幽灵登记书', kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
+      JSON.stringify({
+        name: '幽灵登记书',
+        path: '长篇/幽灵登记书',
+        kind: 'long',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }) + '\n',
       'utf-8',
     )
     const del = await req('DELETE', `/api/books/${encodeURIComponent('幽灵登记书')}`)

@@ -13,7 +13,8 @@ import type { EmbedResult, EmbedOptions } from '../../src/rag/embed.js'
 
 describe('chunkBody', () => {
   it('按双空行分块，记偏移', () => {
-    const body = '第一段内容，这是战斗场景的详细描写，描写很充分。\n\n第二段内容，这是对话场景的详细描写，对话也充分。\n\n第三段。'
+    const body =
+      '第一段内容，这是战斗场景的详细描写，描写很充分。\n\n第二段内容，这是对话场景的详细描写，对话也充分。\n\n第三段。'
     const chunks = chunkBody(body)
     expect(chunks.length).toBeGreaterThanOrEqual(2)
     // 每块有 start/end 偏移
@@ -109,8 +110,13 @@ describe('buildIndex + recall（桩 embed）', () => {
     // 写 2 章
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -171,8 +177,13 @@ describe('buildIndex + recall（桩 embed）', () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
     const meta: ChapterMeta = {
-      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     writeChapter(
       join(bookRoot, '写作', '正文', '1-第1章.md'),
@@ -197,7 +208,13 @@ describe('buildIndex + recall（桩 embed）', () => {
     const db = openRagDb(bookRoot)
     try {
       db.prepare("DELETE FROM rag_meta WHERE key = 'chapter_hash:1'").run()
-      storeChunk(db, { 章号: 1, start_offset: 99990, end_offset: 99999, embedding: new Float32Array([0.1, 0.2, 0.3]), model: 'stub-model' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 99990,
+        end_offset: 99999,
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+        model: 'stub-model',
+      })
     } finally {
       db.close()
     }
@@ -208,7 +225,9 @@ describe('buildIndex + recall（桩 embed）', () => {
 
     const db2 = openRagDb(bookRoot)
     try {
-      const ch1Offsets = readAllChunks(db2).filter((c) => c.章号 === 1).map((c) => c.start_offset)
+      const ch1Offsets = readAllChunks(db2)
+        .filter((c) => c.章号 === 1)
+        .map((c) => c.start_offset)
       expect(ch1Offsets.length).toBeGreaterThan(0)
       expect(ch1Offsets.every((o) => o < 99990)).toBe(true) // 残块已清，只剩现正文偏移
     } finally {
@@ -278,8 +297,13 @@ describe('buildIndex + recall（桩 embed）', () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
     const meta: ChapterMeta = {
-      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     writeChapter(
       join(bookRoot, '写作', '正文', '1-第1章.md'),
@@ -330,8 +354,13 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -346,10 +375,12 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
   })
 
   function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }))
+    return Promise.resolve(
+      texts.map((t) => {
+        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+        return [norm, norm * 0.5, norm * 0.3]
+      }),
+    )
   }
 
   it('游标被重置（模拟崩溃：块已入库但游标未推进）→ 重跑不产生重复块', async () => {
@@ -391,14 +422,18 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
     // 手工制造历史重复：删唯一索引 + 复制行（模拟旧版本库的崩溃遗留）
     const db = new DatabaseSync(join(bookRoot, '.cache', 'rag.db'))
     db.exec('DROP INDEX idx_chunks_unique')
-    db.exec('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) SELECT 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks')
+    db.exec(
+      'INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) SELECT 章号, start_offset, end_offset, embedding, model, indexed_at FROM chunks',
+    )
     db.close()
 
     const db2 = openRagDb(bookRoot) // 迁移入口：去重 + 重建唯一索引
     try {
       expect(readAllChunks(db2).length).toBeGreaterThan(0)
       const row = db2.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
-      const distinct = db2.prepare('SELECT COUNT(*) AS n FROM (SELECT DISTINCT 章号, start_offset, end_offset, model FROM chunks)').get() as { n: number }
+      const distinct = db2
+        .prepare('SELECT COUNT(*) AS n FROM (SELECT DISTINCT 章号, start_offset, end_offset, model FROM chunks)')
+        .get() as { n: number }
       expect(row.n).toBe(distinct.n)
     } finally {
       db2.close()
@@ -408,7 +443,13 @@ describe('buildIndex 去重与事务（V-P2-3）', () => {
   it('storeChunk 同块幂等（INSERT OR REPLACE）', () => {
     const db = openRagDb(bookRoot)
     try {
-      const input = { 章号: 9, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' }
+      const input = {
+        章号: 9,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.1, 0.2, 0.3]),
+        model: 'm',
+      }
       storeChunk(db, input)
       storeChunk(db, input)
       const row = db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
@@ -446,8 +487,13 @@ describe('cc批4（P1-9 分批 / P1-31 空库 / P1-28 删除残留）', () => {
     // 2 章 × 每章 60 块（无空行 6 万字段细分）= 120 块 → 必须 ≥2 批
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, '字'.repeat(60000))
     }
@@ -491,8 +537,13 @@ describe('cc批4（P1-9 分批 / P1-31 空库 / P1-28 删除残留）', () => {
   it('P1-28：已索引章被删 → 重建时清其残留向量与指纹（不再参与召回）', async () => {
     for (const n of [1, 2, 3]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -565,18 +616,29 @@ describe('buildIndex 游标自愈（RB-IF-P1-3）', () => {
   })
 
   function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }))
+    return Promise.resolve(
+      texts.map((t) => {
+        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+        return [norm, norm * 0.5, norm * 0.3]
+      }),
+    )
   }
 
   function addChapter(n: number): void {
     const meta: ChapterMeta = {
-      章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: n,
+      标题: `第${n}章`,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`)
+    writeChapter(
+      join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+      meta,
+      `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
+    )
   }
 
   function cursor(): string | null {
@@ -672,8 +734,13 @@ describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -688,9 +755,7 @@ describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
   })
 
   /** 记账桩：每批按块数回调 onUsage，向量确定性 3 维 */
-  function usageEmbed(
-    _e: string, _m: string, _k: string, texts: string[], opts?: EmbedOptions,
-  ): Promise<EmbedResult> {
+  function usageEmbed(_e: string, _m: string, _k: string, texts: string[], opts?: EmbedOptions): Promise<EmbedResult> {
     opts?.onUsage?.(texts.length)
     return Promise.resolve(texts.map(() => [0.2, 0.5, 0.8]))
   }
@@ -715,7 +780,13 @@ describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
 
   it('R62-27：embed_timeout_ms 从 RagConfig 透传到 build/recall 桩的 options（未配 → undefined 回落内置 30s）', async () => {
     let captured: EmbedOptions | undefined
-    const capture = (_e: string, _m: string, _k: string, texts: string[], opts?: EmbedOptions): Promise<EmbedResult> => {
+    const capture = (
+      _e: string,
+      _m: string,
+      _k: string,
+      texts: string[],
+      opts?: EmbedOptions,
+    ): Promise<EmbedResult> => {
       captured = opts
       return Promise.resolve(texts.map(() => [0.2, 0.5, 0.8]))
     }
@@ -733,10 +804,19 @@ describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
     try {
       mkdirSync(join(bookRoot2, '写作', '正文'), { recursive: true })
       const meta: ChapterMeta = {
-        章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: 1,
+        标题: '第1章',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      writeChapter(join(bookRoot2, '写作', '正文', '1-第1章.md'), meta, '第一章的正文段落内容，这是一个战斗场景，主角挥剑战斗。')
+      writeChapter(
+        join(bookRoot2, '写作', '正文', '1-第1章.md'),
+        meta,
+        '第一章的正文段落内容，这是一个战斗场景，主角挥剑战斗。',
+      )
       await buildIndex(bookRoot2, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'stub-key', capture)
       expect(captured?.timeoutMs).toBeUndefined()
     } finally {
@@ -754,8 +834,13 @@ describe('R73-12：recallDetailed 截断标记上抛', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -770,10 +855,12 @@ describe('R73-12：recallDetailed 截断标记上抛', () => {
   })
 
   function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }))
+    return Promise.resolve(
+      texts.map((t) => {
+        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+        return [norm, norm * 0.5, norm * 0.3]
+      }),
+    )
   }
 
   it('未超阈值：truncated=false，totalBlocks=参与召回块数', async () => {
@@ -804,10 +891,18 @@ describe('R73-5：commitIndexBatch 部分成功续传', () => {
   /** 写 n 段（每段 ≥20 字 → 恰 n 块），段首带章内标记供 embed 调用观测 */
   function writeChapterWithParas(ch: number, paras: number, marker: string): void {
     const meta: ChapterMeta = {
-      章号: ch, 标题: `第${ch}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: ch,
+      标题: `第${ch}章`,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    const body = Array.from({ length: paras }, (_, i) => `${marker}第${i}段：这是一个足够长的段落文本，用于分块与续传行为的回归验证。`).join('\n\n')
+    const body = Array.from(
+      { length: paras },
+      (_, i) => `${marker}第${i}段：这是一个足够长的段落文本，用于分块与续传行为的回归验证。`,
+    ).join('\n\n')
     writeChapter(join(bookRoot, '写作', '正文', `${ch}-第${ch}章.md`), meta, body)
   }
 
@@ -824,10 +919,12 @@ describe('R73-5：commitIndexBatch 部分成功续传', () => {
   })
 
   function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
-    return Promise.resolve(texts.map((t) => {
-      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
-      return [norm, norm * 0.5, norm * 0.3]
-    }))
+    return Promise.resolve(
+      texts.map((t) => {
+        const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+        return [norm, norm * 0.5, norm * 0.3]
+      }),
+    )
   }
 
   it('第 2 批 embed 失败 → 首批覆盖的整章（ch1）续传落库，ch2 半章不提交；错误文案带续传说明', async () => {

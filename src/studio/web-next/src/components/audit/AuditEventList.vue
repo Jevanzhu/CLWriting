@@ -72,7 +72,16 @@ function dataSummary(e: AuditEventFE): string {
   // goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
   if (typeof d['operation'] === 'string' && d['goal'] && typeof d['goal'] === 'object') {
     const g = d['goal'] as { title?: unknown; state?: unknown }
-    return clipByCodePoints([d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim(), 60)
+    return clipByCodePoints(
+      [
+        d['operation'],
+        typeof g.title === 'string' ? g.title : '',
+        typeof g.state === 'string' ? '[' + g.state + ']' : '',
+      ]
+        .join(' ')
+        .trim(),
+      60,
+    )
   }
   if (Array.isArray(d['todos'])) {
     const ts = d['todos'] as { state?: unknown }[]
@@ -151,9 +160,7 @@ function withinDetailLimit(s: string): boolean {
       <div v-if="expanded.has(e.seq)" class="ev-detail">
         <!-- ：懒展开——截断摘要 +「查看完整 JSON」放行钮（原内联全量 stringify） -->
         <pre>{{ detailText(e) }}</pre>
-        <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">
-          查看完整 JSON
-        </button>
+        <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">查看完整 JSON</button>
         <p v-if="detailed && e.sourceSeqs?.length" class="lineage-note">
           血缘引用（sourceSeqs）指向事件：#{{ e.sourceSeqs.join(' #') }} —— 每个引用都可在上方事件流定位。
         </p>
@@ -203,7 +210,10 @@ function withinDetailLimit(s: string): boolean {
   cursor: pointer;
   font-size: var(--font-size-s);
 }
-.load-more:disabled { opacity: 0.55; cursor: default; }
+.load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 .ev-list {
   display: flex;
@@ -240,29 +250,46 @@ function withinDetailLimit(s: string): boolean {
   display: inline-flex;
   padding: 0;
 }
-.ev-seq.shadowed { color: var(--text-error); }
+.ev-seq.shadowed {
+  color: var(--text-error);
+}
 .ev-type {
   font-family: var(--font-monospace);
   color: var(--text-accent);
   font-size: var(--font-size-xs);
 }
-.ev-type.shadowed { color: var(--text-muted); text-decoration: line-through; }
+.ev-type.shadowed {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
 .ev-op {
   font-size: var(--font-size-xs);
   padding: 1px 6px;
   border-radius: 5px;
   border: 1px solid var(--background-modifier-border);
 }
-.ev-op.replace { color: var(--text-error); border-color: var(--text-error); }
-.ev-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-.ev-shadow, .ev-lineage {
+.ev-op.replace {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+.ev-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.ev-shadow,
+.ev-lineage {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
-.ev-shadow { color: var(--text-error); }
+.ev-shadow {
+  color: var(--text-error);
+}
 .ev-detail {
   flex-basis: 100%;
   padding: 6px 0 4px;
@@ -278,7 +305,11 @@ function withinDetailLimit(s: string): boolean {
   white-space: pre-wrap;
   word-break: break-all;
 }
-.lineage-note { font-size: var(--font-size-xs); color: var(--text-muted); margin: 4px 0 0; }
+.lineage-note {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
 /* 「查看完整 JSON」放行钮（次级小按钮，紧贴截断摘要下方；自 AuditView 随逻辑同迁） */
 .ev-full-btn {
   margin-top: 4px;
@@ -290,6 +321,13 @@ function withinDetailLimit(s: string): boolean {
   color: var(--text-muted);
   cursor: pointer;
 }
-.ev-full-btn:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
-.empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
+.ev-full-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  padding: 8px;
+}
 </style>

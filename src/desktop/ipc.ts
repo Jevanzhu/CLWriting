@@ -20,7 +20,12 @@ import { errMsg, log } from '../log/index.js'
 import { getFonts as getSystemFontList } from 'font-list'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // IPC 载荷净化
-import { createSystemFontCache, fontListWithTimeout, darwinFontListCommand, linuxFontListCommand } from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；C201：linux fc-list 自管 spawn
+import {
+  createSystemFontCache,
+  fontListWithTimeout,
+  darwinFontListCommand,
+  linuxFontListCommand,
+} from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；C201：linux fc-list 自管 spawn
 import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import {
@@ -143,9 +148,7 @@ export function isAllowedExternalUrl(url: unknown): url is string {
     return false
   }
   if (parsed.protocol !== 'https:' || parsed.host !== 'github.com') return false
-  return (
-    parsed.pathname === ALLOWED_EXTERNAL_PREFIX || parsed.pathname.startsWith(`${ALLOWED_EXTERNAL_PREFIX}/`)
-  )
+  return parsed.pathname === ALLOWED_EXTERNAL_PREFIX || parsed.pathname.startsWith(`${ALLOWED_EXTERNAL_PREFIX}/`)
 }
 
 /**
@@ -398,7 +401,9 @@ export function registerIpc(): void {
       const item: MenuItemConstructorOptions = {
         label: s.label,
         enabled: s.disabled !== true,
-        click: () => { sendOnce(s.key ?? null) },
+        click: () => {
+          sendOnce(s.key ?? null)
+        },
       }
       if (s.accelerator) item.accelerator = s.accelerator
       if (s.submenu && s.submenu.length) item.submenu = s.submenu.map(build)
@@ -432,46 +437,42 @@ export function registerIpc(): void {
   // ── win 窗控 overlay 颜色随主题──
   // 无框标题栏的系统窗控底色须与顶栏一致（light #f6f6f6 / dark #262626）；主题切换时
   // 渲染层经此 IPC 改发起窗口的 overlay。非 win（含 mac）no-op；参数非字符串忽略。
-  handleTrusted(
-    'desktop:set-titlebar-overlay',
-    (event, ...args: unknown[]) => {
-      const o = args[0] as { color?: unknown; symbolColor?: unknown; dark?: unknown } | undefined
-      // 颜色格式白名单——此前只验 typeof，任意长/任意内容
-      // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
-      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态 + 字面量 'transparent'
-      // （窗控底色改透明后主题切换仍需合法通过），白名单外回显式错误；
-      // 校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
-      //（mac 上也拦，行为一致更简单且可测）
-      // 原 {3,8} 放行 5/7 位非法 hex（如 #12345——Electron 内部
-      // 校验抛错被 catch 吞、深浅色切换静默失效），收紧为 CSS 合法位数集合 3/4/6/8。
-      const hexColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
-      const validColor = (v: unknown): v is string =>
-        v === 'transparent' || (typeof v === 'string' && hexColor.test(v))
-      if (o?.color !== undefined && !validColor(o.color)) {
-        return { ok: false as const, reason: '标题栏底色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
-      }
-      if (o?.symbolColor !== undefined && !validColor(o.symbolColor)) {
-        return { ok: false as const, reason: '标题栏符号色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
-      }
-      // 窗控按钮的底色由 DWM/Chromium 按 nativeTheme 绘制（overlay 透明时尤甚）——
-      // 应用主题切换必须同步系统主题源，否则暗色应用顶着亮色按钮（作者反馈「突兀」）
-      if (typeof o?.dark === 'boolean') {
-        nativeTheme.themeSource = o.dark ? 'dark' : 'light'
-      }
-      if (process.platform !== 'win32') return
-      const win = BrowserWindow.fromWebContents(event.sender)
-      if (!win || win.isDestroyed()) return
-      const patch: { color?: string; symbolColor?: string } = {}
-      if (typeof o?.color === 'string') patch.color = o.color
-      if (typeof o?.symbolColor === 'string') patch.symbolColor = o.symbolColor
-      if (Object.keys(patch).length === 0) return
-      try {
-        win.setTitleBarOverlay(patch)
-      } catch {
-        // WCO 未启用（如 opts 覆盖掉 overlay）时 setTitleBarOverlay 抛错——忽略，
-        // 窗控仍按创建时颜色渲染，属可降级外观项
-      }
-      return // D204（0918三轮修复批）：显式收尾——本 handler 混合返回 {ok:false} 与 void，noImplicitReturns 要求全路径显式
-    },
-  )
+  handleTrusted('desktop:set-titlebar-overlay', (event, ...args: unknown[]) => {
+    const o = args[0] as { color?: unknown; symbolColor?: unknown; dark?: unknown } | undefined
+    // 颜色格式白名单——此前只验 typeof，任意长/任意内容
+    // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
+    // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态 + 字面量 'transparent'
+    // （窗控底色改透明后主题切换仍需合法通过），白名单外回显式错误；
+    // 校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
+    //（mac 上也拦，行为一致更简单且可测）
+    // 原 {3,8} 放行 5/7 位非法 hex（如 #12345——Electron 内部
+    // 校验抛错被 catch 吞、深浅色切换静默失效），收紧为 CSS 合法位数集合 3/4/6/8。
+    const hexColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+    const validColor = (v: unknown): v is string => v === 'transparent' || (typeof v === 'string' && hexColor.test(v))
+    if (o?.color !== undefined && !validColor(o.color)) {
+      return { ok: false as const, reason: '标题栏底色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
+    }
+    if (o?.symbolColor !== undefined && !validColor(o.symbolColor)) {
+      return { ok: false as const, reason: '标题栏符号色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
+    }
+    // 窗控按钮的底色由 DWM/Chromium 按 nativeTheme 绘制（overlay 透明时尤甚）——
+    // 应用主题切换必须同步系统主题源，否则暗色应用顶着亮色按钮（作者反馈「突兀」）
+    if (typeof o?.dark === 'boolean') {
+      nativeTheme.themeSource = o.dark ? 'dark' : 'light'
+    }
+    if (process.platform !== 'win32') return
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    const patch: { color?: string; symbolColor?: string } = {}
+    if (typeof o?.color === 'string') patch.color = o.color
+    if (typeof o?.symbolColor === 'string') patch.symbolColor = o.symbolColor
+    if (Object.keys(patch).length === 0) return
+    try {
+      win.setTitleBarOverlay(patch)
+    } catch {
+      // WCO 未启用（如 opts 覆盖掉 overlay）时 setTitleBarOverlay 抛错——忽略，
+      // 窗控仍按创建时颜色渲染，属可降级外观项
+    }
+    return // D204（0918三轮修复批）：显式收尾——本 handler 混合返回 {ok:false} 与 void，noImplicitReturns 要求全路径显式
+  })
 }

@@ -45,7 +45,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return armFsNamespace('fsp', actual)
 })
 
-
 let root = ''
 
 /** 最小长篇 fixture：布线目录（触发 rebuild 链）+ 1 个好章 + 合法 book.yaml */
@@ -250,9 +249,7 @@ describe('R29-5：book.yaml 解析失败的降级黄项透出', () => {
       const outcome = runCheckForDocument(bookRoot, draftPath, null)
       expect(outcome.ok).toBe(true) // 降级不阻断
       if (!outcome.ok) return
-      const degraded = outcome.report.sections
-        .flatMap((s) => s.items)
-        .find((i) => i.checkId === 'book-config-degraded')
+      const degraded = outcome.report.sections.flatMap((s) => s.items).find((i) => i.checkId === 'book-config-degraded')
       expect(degraded).toBeDefined()
       expect(degraded!.level).toBe('yellow')
       expect(degraded!.message).toContain('降级')
@@ -271,7 +268,9 @@ describe('R29-5：book.yaml 解析失败的降级黄项透出', () => {
       const outcome = runCheckForDocument(bookRoot, draftPath, null)
       expect(outcome.ok).toBe(true)
       if (!outcome.ok) return
-      expect(outcome.report.sections.flatMap((s) => s.items).some((i) => i.checkId === 'book-config-degraded')).toBe(false)
+      expect(outcome.report.sections.flatMap((s) => s.items).some((i) => i.checkId === 'book-config-degraded')).toBe(
+        false,
+      )
     } finally {
       rmSync(bookRoot, { recursive: true, force: true })
     }
@@ -306,7 +305,11 @@ function makeWiringBook(): string {
     '---\n章号: 1\n标题: 夜访\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的钟声在雨夜里连响了三下。\n',
     'utf-8',
   )
-  writeFileSync(join(root, '大纲', '章纲', '001-夜访.md'), '---\n章号: 1\n标题: 夜访\n---\n\n## 反转线索表\n- 核心反转：x\n', 'utf-8')
+  writeFileSync(
+    join(root, '大纲', '章纲', '001-夜访.md'),
+    '---\n章号: 1\n标题: 夜访\n---\n\n## 反转线索表\n- 核心反转：x\n',
+    'utf-8',
+  )
   return root
 }
 

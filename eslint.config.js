@@ -13,7 +13,7 @@
  * test/ 侧 no-explicit-any 显式降为 off——31 处存量 warning 归零，此后 `npx eslint .`
  * 口径为 0 error / 0 warning。
  *
- * 类型感知层与 .vue 面接入（质量债 P3-4 批 6）：
+ * 类型感知层与 .vue 面接入：
  * - 此前 TS 块无 parserOptions.project，`no-floating-promises` 一族类型感知规则根本
  *   不可用——而本仓 fire-and-forget（`void runSelfHeal(...)`）与未 await 的 Promise
  *   写法很常见，正是最该由机器兜底的一类。现接双 tsconfig 工程（根 + web-next 子包），
@@ -32,7 +32,7 @@
  *   卫生的真缺陷类，值得收。
  *
  * 跑：npm run lint（= eslint .，按本配置的 files/ignores 圈定范围）。
- * 格式化门（P3-4 另一半）：prettier.config.mjs + .prettierignore，见 npm run format:check。
+ * 格式化门（本门另一半）：prettier.config.mjs + .prettierignore，见 npm run format:check。
  */
 import tseslint from 'typescript-eslint'
 import vue from 'eslint-plugin-vue'

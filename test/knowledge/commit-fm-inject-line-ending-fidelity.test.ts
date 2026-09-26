@@ -27,7 +27,11 @@ afterEach(() => {
 })
 
 function writeManifest(root: string, entries: unknown[]): void {
-  writeFileSync(join(root, KNOWLEDGE_MANIFEST), JSON.stringify({ version: 1, generated_at: '2026-01-01T00:00:00+08:00', entries }), 'utf-8')
+  writeFileSync(
+    join(root, KNOWLEDGE_MANIFEST),
+    JSON.stringify({ version: 1, generated_at: '2026-01-01T00:00:00+08:00', entries }),
+    'utf-8',
+  )
 }
 
 describe('fm 注入行尾/BOM 规范形（批一翻转）', () => {

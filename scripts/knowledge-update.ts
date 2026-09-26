@@ -46,7 +46,9 @@ function main(): void {
   for (const s of summaries) {
     console.log(`  - ${s.checkId}: 误报 ${s.silent} 条 / 真命中 ${s.fire} 条`)
   }
-  console.log('下一步：人工审核草稿（删孤例、归纳误报语境、文件名去「草稿-<date>-」），然后 npm run knowledge:commit -- <定稿路径>')
+  console.log(
+    '下一步：人工审核草稿（删孤例、归纳误报语境、文件名去「草稿-<date>-」），然后 npm run knowledge:commit -- <定稿路径>',
+  )
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

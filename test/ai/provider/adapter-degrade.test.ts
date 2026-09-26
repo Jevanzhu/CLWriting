@@ -30,16 +30,20 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
             yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
             yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } }
             yield { type: 'content_block_stop', index: 0 }
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
     } as unknown as Anthropic
     // claude 系列 structuredMode=json_schema → 发 format → 400 → 剥 structured 重试
-    const evs = await collect(
-      createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client),
-      { ...REQ, structured: { schema: { type: 'object', properties: {} } } },
-    )
+    const evs = await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), {
+      ...REQ,
+      structured: { schema: { type: 'object', properties: {} } },
+    })
     expect(callCount).toBe(2) // 第一次 400 → 第二次降级成功
     expect(evs.some((e) => e.type === 'text')).toBe(true)
     expect(evs.some((e) => e.type === 'done')).toBe(true)
@@ -56,7 +60,11 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
             throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
           }
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -90,11 +98,17 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
     let callCount = 0
     const client = {
       messages: {
-        create: async () => { callCount++; throw err },
+        create: async () => {
+          callCount++
+          throw err
+        },
       },
     } as unknown as Anthropic
     // claude 系列发 effort（output_config）→ 网关仍 400 → 直接报错（不再剥 effort 重试）
-    const evs = await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), { ...REQ, effort: 'high' })
+    const evs = await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), {
+      ...REQ,
+      effort: 'high',
+    })
     expect(callCount).toBe(1) // 一次即止
     expect(evs[0]).toMatchObject({ type: 'error', retryable: false })
   })
@@ -107,7 +121,11 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
           callCount++
           // unknown 系列表不发 effort → 这里不会 400（验证表驱动后首发即对）
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -136,7 +154,11 @@ describe('A3（五十九轮）：记忆命中首发剥除成功 → done 带 deg
       messages: {
         create: async () =>
           (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })(),
       },
     } as unknown as Anthropic
@@ -163,7 +185,11 @@ describe('A3（五十九轮）：记忆命中首发剥除成功 → done 带 deg
       messages: {
         create: async () =>
           (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })(),
       },
     } as unknown as Anthropic

@@ -18,9 +18,7 @@ test('checks 段：内联列表解析（imagery + leak 两键）', () => {
 })
 
 test('checks 段：块列表写法解析（作者手写友好）', () => {
-  const out = parseBookConfig(
-    BASE + 'checks:\n  imagery_words:\n    - 空气仿佛凝固\n    - 落针可闻\n',
-  )
+  const out = parseBookConfig(BASE + 'checks:\n  imagery_words:\n    - 空气仿佛凝固\n    - 落针可闻\n')
   expect(out.ok).toBe(true)
   expect(out.config.checks?.imagery_words).toEqual(['空气仿佛凝固', '落针可闻'])
 })

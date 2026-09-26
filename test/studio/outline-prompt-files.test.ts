@@ -15,10 +15,7 @@ import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  buildOutlinePromptWithFiles,
-  volumeProgressOf,
-} from '../../src/studio/server/api/outline.js'
+import { buildOutlinePromptWithFiles, volumeProgressOf } from '../../src/studio/server/api/outline.js'
 
 let root = ''
 
@@ -104,11 +101,7 @@ describe('R66-7: outline promptFiles 全源登记（铁律①）', () => {
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 短篇书\nhost: cc\n', 'utf-8')
     mkdirSync(join(root, '大纲'), { recursive: true })
     writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n短篇主线。\n', 'utf-8')
-    makeChapter(
-      join(root, '写作', '正文'),
-      '0001-旧案.md',
-      '章号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n',
-    )
+    makeChapter(join(root, '写作', '正文'), '0001-旧案.md', '章号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n')
     makeChapter(join(root, '大纲', '章纲'), '0002-转折.md', '章号: 2\n标题: 转折\n')
     mkdirSync(join(root, '设定'), { recursive: true })
     writeFileSync(
@@ -119,12 +112,7 @@ describe('R66-7: outline promptFiles 全源登记（铁律①）', () => {
     const { prompt, files } = buildOutlinePromptWithFiles(root, 2, 'short')
     expect(prompt).toContain('短篇主线')
     expect(prompt).toContain('第1章 旧案')
-    expect(files).toEqual([
-      '大纲/总纲.md',
-      '写作/正文/0001-旧案.md',
-      '大纲/章纲/0002-转折.md',
-      '设定/境界体系.md',
-    ])
+    expect(files).toEqual(['大纲/总纲.md', '写作/正文/0001-旧案.md', '大纲/章纲/0002-转折.md', '设定/境界体系.md'])
   })
 
   it('空书：无任何注入源 → files 为空（缺失可从 promptMeta 查「未注入」）', () => {
@@ -137,11 +125,7 @@ describe('R66-7: outline promptFiles 全源登记（铁律①）', () => {
 
 describe('R66-27: volumeProgressOf 读稿守卫', () => {
   it('卷摘要路径被目录占位（existsSync true + read 抛 EISDIR）→ 整段省略不裸穿', () => {
-    writeFileSync(
-      join(root, 'book.yaml'),
-      'spec_version: 1\nkind: long\nbook:\n  title: 守卫书\nhost: cc\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 守卫书\nhost: cc\n', 'utf-8')
     // 建「卷摘要/1.md」为目录：existsSync 命中但 readFileSync 必抛——稳定复现
     // existsSync→read 间读失败的竞态形态（修复前 EISDIR 裸穿端点 500）
     mkdirSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), { recursive: true })

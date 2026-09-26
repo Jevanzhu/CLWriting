@@ -14,7 +14,12 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   regenerateChat: vi.fn(),
 }))
 
-import { fetchChatHistory, fetchChatBranches, regenerateChat, type ChatHistoryMessage } from '../../../src/studio/web-next/src/api/chat'
+import {
+  fetchChatHistory,
+  fetchChatBranches,
+  regenerateChat,
+  type ChatHistoryMessage,
+} from '../../../src/studio/web-next/src/api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 
@@ -439,10 +444,7 @@ describe('G1: regenerate 重新生成', () => {
     seedLocalTurn(chat)
     await chat.regenerate('书A', 5)
     expect(regenMock).toHaveBeenCalledTimes(1)
-    const [name, body] = regenMock.mock.calls[0] as [
-      string,
-      { parentSeq: number; branchId: string; chapter?: number },
-    ]
+    const [name, body] = regenMock.mock.calls[0] as [string, { parentSeq: number; branchId: string; chapter?: number }]
     expect(name).toBe('书A')
     expect(body.parentSeq).toBe(10) // 最后一条真实 user 的事件 seq
     expect(typeof body.branchId).toBe('string')
@@ -520,7 +522,11 @@ describe('G1: regenerate 重新生成', () => {
   })
 
   it('权威历史无可用 user seq → 拒绝（置 error、不发 POST、保留原视图）', async () => {
-    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'assistant', content: '只有回复' }], seqs: [[7]], branchId: null })
+    fetchMock.mockResolvedValueOnce({
+      messages: [{ role: 'assistant', content: '只有回复' }],
+      seqs: [[7]],
+      branchId: null,
+    })
     fetchMock.mockResolvedValueOnce({ messages: SEQ_HISTORY.messages, seqs: [] }) // user 消息无 seq
     const chat = useChatStore()
     seedLocalTurn(chat)

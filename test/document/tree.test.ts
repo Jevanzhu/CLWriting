@@ -13,14 +13,22 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import {
-  scanBookTree, buildTree, getBookTreeIndex, invalidateTreeIndex, probeCachedPublished, probeCachedRevision,
+  scanBookTree,
+  buildTree,
+  getBookTreeIndex,
+  invalidateTreeIndex,
+  probeCachedPublished,
+  probeCachedRevision,
   type TreeNode,
 } from '../../src/document/tree.js'
 
 /** 造书：写作/正文/第一卷/0001 + 大纲/卷纲/第一卷 + 工作区/.journal + 工作区/待定稿（应跳过）。 */
 function makeBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-'))
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+    cwd: root,
+    stdio: 'pipe',
+  })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
@@ -218,25 +226,29 @@ test('probeCachedPublished: fm 引号包 "true" 与 parseFlat 同口径判 publi
   }
 })
 
-test('低级项（第六轮）：同长改写后指纹不复用旧缓存（bigint stat 指纹 + FIFO 上限缓存）', { skip: process.platform === 'win32' }, () => {
-  // Windows NTFS mtime 分辨率不足：同长的 AAAA→BBBB 改写可能落在同一时间戳，
-  // stat 指纹不变 → 缓存误复用。该守卫语义（mtimeNs 级指纹）由 mac/linux CI 腿覆盖
-  // （win 适配批 3：skipIf 不修语义）。
-  const root = mkdtempTracked(join(tmpdir(), 'tree-probe-'))
-  try {
-    const rel = '0001-开篇.md'
-    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nAAAA', 'utf-8')
-    const r1 = probeCachedRevision(root, rel)
-    expect(r1).toMatch(/^sha256:/)
-    // 同长度不同内容改写：stat 指纹（mtimeNs 级）变化 → 重算哈希，不吃旧缓存
-    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nBBBB', 'utf-8')
-    const r2 = probeCachedRevision(root, rel)
-    expect(r2).toMatch(/^sha256:/)
-    expect(r2).not.toBe(r1)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
+test(
+  '低级项（第六轮）：同长改写后指纹不复用旧缓存（bigint stat 指纹 + FIFO 上限缓存）',
+  { skip: process.platform === 'win32' },
+  () => {
+    // Windows NTFS mtime 分辨率不足：同长的 AAAA→BBBB 改写可能落在同一时间戳，
+    // stat 指纹不变 → 缓存误复用。该守卫语义（mtimeNs 级指纹）由 mac/linux CI 腿覆盖
+    // （win 适配批 3：skipIf 不修语义）。
+    const root = mkdtempTracked(join(tmpdir(), 'tree-probe-'))
+    try {
+      const rel = '0001-开篇.md'
+      writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nAAAA', 'utf-8')
+      const r1 = probeCachedRevision(root, rel)
+      expect(r1).toMatch(/^sha256:/)
+      // 同长度不同内容改写：stat 指纹（mtimeNs 级）变化 → 重算哈希，不吃旧缓存
+      writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nBBBB', 'utf-8')
+      const r2 = probeCachedRevision(root, rel)
+      expect(r2).toMatch(/^sha256:/)
+      expect(r2).not.toBe(r1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+)
 
 test('M-5（第十轮）：章号数值优先排序——混补零宽度（5-/003-/020-/099-/0100-）不再字典序错排', () => {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-m5-'))

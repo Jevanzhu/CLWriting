@@ -20,9 +20,8 @@ interface PlatformInfo {
   isWin: boolean
 }
 
-const platform = typeof window !== 'undefined' && window.clwritingDesktop?.platform
-  ? window.clwritingDesktop.platform
-  : null
+const platform =
+  typeof window !== 'undefined' && window.clwritingDesktop?.platform ? window.clwritingDesktop.platform : null
 
 export function usePlatform(): PlatformInfo {
   return {

@@ -61,10 +61,7 @@ type ChapterParseResult = ReturnType<typeof readChapter>
 let chapterCacheMax = CHAPTER_CACHE_MAX
 
 /** 模块级章读缓存（见上方块注释）。 */
-const chapterCache = new Map<
-  string,
-  { mtimeMs: number; size: number; ino: number; parsed: ChapterParseResult }
->()
+const chapterCache = new Map<string, { mtimeMs: number; size: number; ino: number; parsed: ChapterParseResult }>()
 
 /** 命中/未命中计数（测试断言用；生产只增不读）。 */
 const chapterCacheStats = { hits: 0, misses: 0 }
@@ -279,7 +276,14 @@ function tryIncrementalRebuild(
     const recordedMin = getMeta(db, 'source_min_mtime')
     const recordedSum = getMeta(db, 'source_sum_mtime')
     // 旧库无基准（含前 min/前 sum）→ 首次全量
-    if (recorded === null || recordedCount === null || recordedSize === null || recordedMin === null || recordedSum === null) return null
+    if (
+      recorded === null ||
+      recordedCount === null ||
+      recordedSize === null ||
+      recordedMin === null ||
+      recordedSum === null
+    )
+      return null
     // 节流旗只在探测扫描处分流——meta 读取（上方 getMeta）保持每调执行
     const stats = opts?.throttleSourceProbe === true ? walkSourceStatsThrottled(bookRoot) : walkSourceStats(bookRoot)
     if (scannedStats) scannedStats.stats = stats // 透传（增量命中时上游不会消费）
@@ -363,11 +367,7 @@ export interface RebuildResult {
  * @param opts.throttleSourceProbe ：增量探测走 3s TTL 节流（单章机检链
  *   opt-in；取舍与口径见节流块注——其余调用方默认不节流，行为不变）
  */
-export function rebuild(
-  bookRoot: string,
-  cachePath: string,
-  opts?: { throttleSourceProbe?: boolean },
-): RebuildResult {
+export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSourceProbe?: boolean }): RebuildResult {
   // 增量：进门/机检高频路径，源树未变则跳过全量重建（stat 级检测，语义等价）
   const scannedStats: { stats?: SourceStats } = {}
   const incremental = tryIncrementalRebuild(bookRoot, cachePath, opts, scannedStats)
@@ -430,10 +430,7 @@ export function rebuild(
     try {
       db.exec('PRAGMA journal_mode = WAL')
     } catch (walErr) {
-      log.warn(
-        'rebuild',
-        `index.db WAL 切换失败（并发锁窗），回退默认日志模式重建：${errMsg(walErr)}`,
-      )
+      log.warn('rebuild', `index.db WAL 切换失败（并发锁窗），回退默认日志模式重建：${errMsg(walErr)}`)
     }
     db.exec('BEGIN') // 原子重建
   } catch (e) {
@@ -526,12 +523,7 @@ export function rebuild(
  *  ：不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——此前静默
  *  continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。
  *  ：形参改收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
-function scanSummaries(
-  db: DatabaseSync,
-  dir: string,
-  scope: 'chapter' | 'volume',
-  warnings: ParseError[],
-): number {
+function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume', warnings: ParseError[]): number {
   if (!existsSync(dir)) return 0
   let count = 0
   // .endsWith('.md') → isMdFileName（大小写不敏感）——win 资源

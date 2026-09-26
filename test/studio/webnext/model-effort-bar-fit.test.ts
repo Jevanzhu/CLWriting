@@ -15,9 +15,7 @@ import { createPinia, setActivePinia } from 'pinia'
 // api/providers：useChatTier 单例首建即 refresh()，mock 掉防 happy-dom 真发网络请求
 const providerMocks = vi.hoisted(() => ({ getProviders: vi.fn() }))
 vi.mock('../../../src/studio/web-next/src/api/providers', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('../../../src/studio/web-next/src/api/providers')
-  >()
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/providers')>()
   return { ...actual, getProviders: providerMocks.getProviders }
 })
 

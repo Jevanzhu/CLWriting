@@ -19,12 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import {
-  loadProviders,
-  saveProviders,
-  emptySettings,
-  processProviderRuntime,
-} from '../../../src/ai/provider/store.js'
+import { loadProviders, saveProviders, emptySettings, processProviderRuntime } from '../../../src/ai/provider/store.js'
 import type { ProviderConf } from '../../../src/ai/provider/types.js'
 
 vi.mock('node:fs', async (importOriginal) => {

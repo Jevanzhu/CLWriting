@@ -19,8 +19,16 @@ import type { RuleViolation } from '../../src/ai/rules/index.js'
 
 describe('B3 规则命中统计（rule-hits.ts）', () => {
   let bookRoot: string
-  const aiCliche: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频套话「值得一提的是」——删除或替换为具体描写' }
-  const styleHit: RuleViolation = { ruleId: 'style-consistency', level: 'yellow', message: '句长方差 45.2 偏离基线 20.0（偏高 126%），建议调整句式节奏' }
+  const aiCliche: RuleViolation = {
+    ruleId: 'ai-cliche',
+    level: 'yellow',
+    message: 'AI高频套话「值得一提的是」——删除或替换为具体描写',
+  }
+  const styleHit: RuleViolation = {
+    ruleId: 'style-consistency',
+    level: 'yellow',
+    message: '句长方差 45.2 偏离基线 20.0（偏高 126%），建议调整句式节奏',
+  }
 
   beforeAll(() => {
     bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-'))
@@ -69,7 +77,11 @@ describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
   beforeAll(async () => {
     bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-prevention-'))
     // 造一条命中：ai-cliche 已检出 2 次（R32-13：recordRuleHits 异步化）
-    const v: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频套话「不禁」——删除或替换为具体描写' }
+    const v: RuleViolation = {
+      ruleId: 'ai-cliche',
+      level: 'yellow',
+      message: 'AI高频套话「不禁」——删除或替换为具体描写',
+    }
     await recordRuleHits(bookRoot, [v, v])
   })
 

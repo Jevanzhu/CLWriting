@@ -11,33 +11,66 @@ const CN_KW =
   /\b(SC|TC|HK|GB|Hans|Hant|Hei|Kai|Heiti|Songti|Kaiti|Yuanti|Libian|Xingkai|Weibei|Baoli|Wawati|Yuppy|Hannotate|HanziPen|Lantinghei|LingWai|FangSong|STHeiti|STSong|STKaiti|STFangsong|STXihei|STXingkai|STXinwei|STHupo|STCaiyun|STZhongsong|Hiragino Sans GB|Source Han Sans|Source Han Serif|Noto Sans SC|Noto Serif SC|Noto Sans CJK|Noto Serif CJK|LXGW WenKai|Microsoft YaHei|SimSun|NSimSun|SimHei|KaiTi|DengXian|YouYuan|LiSu)\b/i
 const FONT_CN_LABEL: Record<string, string> = {
   // Windows 内置中文字体中文名
-  'Microsoft YaHei': '微软雅黑', 'Microsoft YaHei UI': '微软雅黑',
-  SimSun: '宋体', NSimSun: '新宋体', SimHei: '黑体',
-  KaiTi: '楷体', FangSong: '仿宋', DengXian: '等线',
-  YouYuan: '幼圆', LiSu: '隶书',
-  'PingFang SC': '苹方', 'PingFang TC': '苹方', 'PingFang HK': '苹方',
-  'Heiti SC': '黑体', 'Heiti TC': '黑体', Hei: '黑体',
-  'Songti SC': '宋体', 'Songti TC': '宋体',
-  'Kaiti SC': '楷体', 'Kaiti TC': '楷体', Kai: '楷体',
-  'Yuanti SC': '圆体', 'Yuanti TC': '圆体',
-  'Xingkai SC': '行楷', 'Xingkai TC': '行楷',
-  'Weibei SC': '魏碑', 'Weibei TC': '魏碑',
-  'Libian SC': '隶变', 'Libian TC': '隶变',
-  'Baoli SC': '报隶', 'Baoli TC': '报隶',
-  'Yuppy SC': '雅痞', 'Yuppy TC': '雅痞',
-  'Wawati SC': '娃娃体', 'Wawati TC': '娃娃体',
-  'Hannotate SC': '手札体', 'Hannotate TC': '手札体',
-  'HanziPen SC': '汉字笔', 'HanziPen TC': '汉字笔',
-  'Lantinghei SC': '兰亭黑', 'Lantinghei TC': '兰亭黑',
-  'LingWai SC': '翎外', 'LingWai TC': '翎外',
+  'Microsoft YaHei': '微软雅黑',
+  'Microsoft YaHei UI': '微软雅黑',
+  SimSun: '宋体',
+  NSimSun: '新宋体',
+  SimHei: '黑体',
+  KaiTi: '楷体',
+  FangSong: '仿宋',
+  DengXian: '等线',
+  YouYuan: '幼圆',
+  LiSu: '隶书',
+  'PingFang SC': '苹方',
+  'PingFang TC': '苹方',
+  'PingFang HK': '苹方',
+  'Heiti SC': '黑体',
+  'Heiti TC': '黑体',
+  Hei: '黑体',
+  'Songti SC': '宋体',
+  'Songti TC': '宋体',
+  'Kaiti SC': '楷体',
+  'Kaiti TC': '楷体',
+  Kai: '楷体',
+  'Yuanti SC': '圆体',
+  'Yuanti TC': '圆体',
+  'Xingkai SC': '行楷',
+  'Xingkai TC': '行楷',
+  'Weibei SC': '魏碑',
+  'Weibei TC': '魏碑',
+  'Libian SC': '隶变',
+  'Libian TC': '隶变',
+  'Baoli SC': '报隶',
+  'Baoli TC': '报隶',
+  'Yuppy SC': '雅痞',
+  'Yuppy TC': '雅痞',
+  'Wawati SC': '娃娃体',
+  'Wawati TC': '娃娃体',
+  'Hannotate SC': '手札体',
+  'Hannotate TC': '手札体',
+  'HanziPen SC': '汉字笔',
+  'HanziPen TC': '汉字笔',
+  'Lantinghei SC': '兰亭黑',
+  'Lantinghei TC': '兰亭黑',
+  'LingWai SC': '翎外',
+  'LingWai TC': '翎外',
   'Hiragino Sans GB': '冬青黑体',
-  STHeiti: '华文黑体', STSong: '华文宋体', STKaiti: '华文楷体',
-  STFangsong: '华文仿宋', STXihei: '华文细黑', STXingkai: '华文行楷',
-  STXinwei: '华文新魏', STHupo: '华文琥珀', STCaiyun: '华文彩云',
+  STHeiti: '华文黑体',
+  STSong: '华文宋体',
+  STKaiti: '华文楷体',
+  STFangsong: '华文仿宋',
+  STXihei: '华文细黑',
+  STXingkai: '华文行楷',
+  STXinwei: '华文新魏',
+  STHupo: '华文琥珀',
+  STCaiyun: '华文彩云',
   STZhongsong: '华文中宋',
-  'Source Han Sans SC': '思源黑体', 'Source Han Serif SC': '思源宋体',
-  'Noto Sans SC': '思源黑体', 'Noto Serif SC': '思源宋体',
-  'Noto Sans CJK SC': '思源黑体', 'Noto Serif CJK SC': '思源宋体',
+  'Source Han Sans SC': '思源黑体',
+  'Source Han Serif SC': '思源宋体',
+  'Noto Sans SC': '思源黑体',
+  'Noto Serif SC': '思源宋体',
+  'Noto Sans CJK SC': '思源黑体',
+  'Noto Serif CJK SC': '思源宋体',
   'LXGW WenKai': '霞鹜文楷',
 }
 
@@ -100,8 +133,12 @@ export function isSerifCnFont(name: string): boolean {
 export function proseFallbackTail(cnFont: string): string {
   const { isWin } = usePlatform()
   return cnFont && !isSerifCnFont(cnFont)
-    ? (isWin ? PROSE_FONT_SANS_FALLBACK_WIN : PROSE_FONT_SANS_FALLBACK_MAC)
-    : (isWin ? PROSE_FONT_FALLBACK_WIN : PROSE_FONT_FALLBACK_MAC)
+    ? isWin
+      ? PROSE_FONT_SANS_FALLBACK_WIN
+      : PROSE_FONT_SANS_FALLBACK_MAC
+    : isWin
+      ? PROSE_FONT_FALLBACK_WIN
+      : PROSE_FONT_FALLBACK_MAC
 }
 
 /** 拼字体族：英文字体优先（英文片段），中文字体兜底（中文），最后系统 fallback。
@@ -190,10 +227,16 @@ export function useSystemFonts() {
   const defaultProseFont = computed(() => resolveDefault(proseDefaultStack()))
 
   return {
-    systemFonts, fontsLoaded, chineseFonts, englishFonts, fontDisplayName,
-    defaultUiFontCn, defaultUiFontEn,
+    systemFonts,
+    fontsLoaded,
+    chineseFonts,
+    englishFonts,
+    fontDisplayName,
+    defaultUiFontCn,
+    defaultUiFontEn,
     // 正文栈拉丁字形由 CJK 字体自带（霞鹜/思源含拉丁），中英两槽默认同源
-    defaultProseFontCn: defaultProseFont, defaultProseFontEn: defaultProseFont,
+    defaultProseFontCn: defaultProseFont,
+    defaultProseFontEn: defaultProseFont,
   }
 }
 

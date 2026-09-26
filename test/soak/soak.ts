@@ -164,10 +164,19 @@ const ragRoot = join(tmpdir(), `clw-soak-rag-${Date.now()}-${Math.random().toStr
 mkdirSync(join(ragRoot, '写作', '正文'), { recursive: true })
 for (const n of [1, 2, 3]) {
   const meta: ChapterMeta = {
-    章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-    _path: '', _wordCount: 100,
+    章号: n,
+    标题: `第${n}章`,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
-  writeChapter(join(ragRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章正文，战斗场景描写充分，主角挥剑，剑光如水。`)
+  writeChapter(
+    join(ragRoot, '写作', '正文', `${n}-第${n}章.md`),
+    meta,
+    `第${n}章正文，战斗场景描写充分，主角挥剑，剑光如水。`,
+  )
 }
 const RAG_CONFIG = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
 
@@ -228,8 +237,10 @@ const manifestPath = join(manifestDir, '文档清单.jsonl')
 const seedManifest: Manifest = { version: 1, entries: new Map() }
 for (let i = 0; i < MANIFEST_ROWS; i++) {
   upsertEntry(seedManifest, {
-    id: `d${i}`, nodeType: 'document',
-    path: `写作/正文/${String(i + 1).padStart(4, '0')}-章.md`, parentId: null,
+    id: `d${i}`,
+    nodeType: 'document',
+    path: `写作/正文/${String(i + 1).padStart(4, '0')}-章.md`,
+    parentId: null,
   })
 }
 writeManifest(manifestPath, seedManifest)
@@ -241,8 +252,10 @@ if (readManifestStrict(manifestPath).entries.size !== MANIFEST_ROWS) {
 function manifestRewriteOnce(i: number): void {
   const m = readManifestStrict(manifestPath)
   upsertEntry(m, {
-    id: 'd0', nodeType: 'document',
-    path: `写作/正文/0001-章-v${i % 97}.md`, parentId: null,
+    id: 'd0',
+    nodeType: 'document',
+    path: `写作/正文/0001-章-v${i % 97}.md`,
+    parentId: null,
   })
   writeManifest(manifestPath, m)
 }
@@ -286,8 +299,14 @@ function evBatch(i: number): NewEvent[] {
   return Array.from({ length: EV_BATCH }, (_, k) => ({
     type: 'llm/call',
     data: {
-      runId: `r${i}-${k}`, task: 'soak', tierKind: 'creative', model: 'model-soak', attempt: 0,
-      stopReason: 'end', durationMs: 1, ok: true,
+      runId: `r${i}-${k}`,
+      task: 'soak',
+      tierKind: 'creative',
+      model: 'model-soak',
+      attempt: 0,
+      stopReason: 'end',
+      durationMs: 1,
+      ok: true,
     },
   }))
 }

@@ -62,7 +62,11 @@ describe('批次3 quirks 参数面（方案 §6）', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop', usage: { prompt_tokens: 7, completion_tokens: 3 } }] },
+            {
+              choices: [
+                { delta: { content: 'ok' }, finish_reason: 'stop', usage: { prompt_tokens: 7, completion_tokens: 3 } },
+              ],
+            },
           ]),
         },
       },
@@ -100,7 +104,11 @@ describe('Grok 工具整块 chunk（方案 §6：流式 tool_calls 单 chunk 不
             {
               choices: [
                 {
-                  delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'submit', arguments: '{"a":1,"b":"x"}' } }] },
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: 'call_1', function: { name: 'submit', arguments: '{"a":1,"b":"x"}' } },
+                    ],
+                  },
                   finish_reason: 'tool_calls',
                 },
               ],
@@ -216,15 +224,20 @@ describe('Anthropic tool_choice 表驱动（V-P2-9）', () => {
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
     } as unknown as Anthropic
-    await collect(
-      createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client),
-      { ...REQ, toolChoice: 'tool', toolName: 'submit_chapter' },
-    )
+    await collect(createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client), {
+      ...REQ,
+      toolChoice: 'tool',
+      toolName: 'submit_chapter',
+    })
     expect(captured?.['tool_choice']).toEqual({ type: 'any' })
   })
 
@@ -236,15 +249,19 @@ describe('Anthropic tool_choice 表驱动（V-P2-9）', () => {
           create: async (params: unknown) => {
             results.push((params as Record<string, unknown>)['tool_choice'])
             return (async function* () {
-              yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+              yield {
+                type: 'message_delta',
+                usage: { input_tokens: 1, output_tokens: 1 },
+                delta: { stop_reason: 'end_turn' },
+              }
             })()
           },
         },
       } as unknown as Anthropic
-      await collect(
-        createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client),
-        { ...REQ, toolChoice },
-      )
+      await collect(createAnthropicProvider({ ...CONF, model: 'deepseek-v4-pro' } as ProviderConf, client), {
+        ...REQ,
+        toolChoice,
+      })
     }
     expect(results[0]).toEqual({ type: 'any' })
     expect(results[1]).toEqual({ type: 'auto' })
@@ -257,15 +274,20 @@ describe('Anthropic tool_choice 表驱动（V-P2-9）', () => {
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
     } as unknown as Anthropic
-    await collect(
-      createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client),
-      { ...REQ, toolChoice: 'tool', toolName: 'submit_chapter' },
-    )
+    await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), {
+      ...REQ,
+      toolChoice: 'tool',
+      toolName: 'submit_chapter',
+    })
     // claude 表项 parallelControl:true → 附带 disable_parallel_tool_use，断言取子集
     expect(captured?.['tool_choice']).toMatchObject({ type: 'tool', name: 'submit_chapter' })
   })

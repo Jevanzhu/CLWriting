@@ -21,8 +21,7 @@ import { join } from 'node:path'
 import type { ManifestEntry } from './manifest.js'
 
 /** 文档级六态（§3）。 */
-export type DocumentStatus =
-  | 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
+export type DocumentStatus = 'idea' | 'draft' | 'revision' | 'final' | 'published' | 'archived'
 
 /**
  * 派生单文件 status（纯函数，不判 published）。

@@ -37,7 +37,13 @@ const healDone = computed(() => wb.healResult)
       <div v-if="healDone.outcome === 'pass'" class="heal-row ok">
         <CircleCheck :size="16" />
         <div class="heal-detail">
-          <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
+          <div>
+            {{
+              healDone.yellows?.length
+                ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）`
+                : '校对通过，文风已收敛'
+            }}
+          </div>
           <ul v-if="healDone.yellows?.length" class="heal-reds">
             <!-- ：yellows 是 string[] 无 id 且文本可重复，key 弃纯 index 改「值+序号」
                  复合键（AuditGoalTodoPanel 2- 同款）；终局卡整表替换、li 纯展示无状态，零行为改动。 -->

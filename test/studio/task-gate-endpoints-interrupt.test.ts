@@ -99,7 +99,12 @@ async function assertInterrupt(path: string, body?: unknown, label = '端点'): 
 }
 
 /** 注销臂共享断言：脚本短延时 → 在途窗口可见 → 成功 settle → isRunning 归 false */
-async function assertSettleUnregisters(path: string, body: unknown, expectOk: (json: Record<string, unknown>) => void, label = '端点'): Promise<void> {
+async function assertSettleUnregisters(
+  path: string,
+  body: unknown,
+  expectOk: (json: Record<string, unknown>) => void,
+  label = '端点',
+): Promise<void> {
   const p = post(path, body)
   await waitFor(inFlight, 4000, 20, `${label} ctrl 注册（driver.isRunning 判真）`)
   const r = await p
@@ -123,7 +128,8 @@ beforeAll(async () => {
     env: { CLWRITING_DRIVER: undefined }, // cc driver：registerCtrl/isRunning/interrupt 真实
     // 章节文件（outline/lead-updates 走 readChapterDir；review/analyze/rewrite 经 manifest docId 直读）
     dirs: ['写作/正文', '布线/悬念', '设定', '项目'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0912中断通道书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: [悬念]\nbudget:\n  calls_per_chapter: 8\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R0912中断通道书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: [悬念]\nbudget:\n  calls_per_chapter: 8\n',
     files: [
       {
         rel: '写作/正文/0001-初入宗门.md',
@@ -133,7 +139,8 @@ beforeAll(async () => {
       // 账本（进行中悬念：lead-updates 草拟 + 机检账本核对数据源）
       {
         rel: '布线/悬念/悬念-001-玉佩.md',
-        content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
+        content:
+          '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
       },
       // 名册（relations-mine 梳理材料非空）
       { rel: '设定/名册.md', content: '# 名册\n- 林远：新弟子\n- 赵长老：执剑长老\n' },
@@ -266,7 +273,14 @@ describe('R0912-P2-①: rewrite 中断通道', () => {
   })
 
   it('settle 后注销（isRunning 归 false）', { timeout: 15_000 }, async () => {
-    fake.setScript([{ type: 'tool', name: 'submit_text', input: { 正文: '改写后的正文，与原文完全不同，节奏更紧凑。' }, delayMs: 300 }])
+    fake.setScript([
+      {
+        type: 'tool',
+        name: 'submit_text',
+        input: { 正文: '改写后的正文，与原文完全不同，节奏更紧凑。' },
+        delayMs: 300,
+      },
+    ])
     await assertSettleUnregisters(
       bp(`/documents/${DOC_ID}/rewrite`),
       { instruction: '更紧凑' },

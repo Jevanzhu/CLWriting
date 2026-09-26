@@ -64,7 +64,9 @@ describe('commit 两栏信封：存量坏行不阻断新登记', () => {
     // warn 留痕（成功面不静默吞坏行）
     expect(warn.mock.calls.some((c) => String(c[1]).includes('存量坏行'))).toBe(true)
     // 盘面实态：新条目在 manifest、存量坏行原样保留（写入侧不静默增删改）
-    const after = JSON.parse(readFileSync(join(root, KNOWLEDGE_MANIFEST), 'utf-8')) as { entries: Array<{ target?: unknown }> }
+    const after = JSON.parse(readFileSync(join(root, KNOWLEDGE_MANIFEST), 'utf-8')) as {
+      entries: Array<{ target?: unknown }>
+    }
     expect(after.entries).toHaveLength(3)
     expect(after.entries[0]).toEqual({ target: 123, sha256: 456 })
     expect(after.entries.some((e) => e?.target === finalRel)).toBe(true)

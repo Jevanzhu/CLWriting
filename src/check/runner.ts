@@ -172,10 +172,9 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
       // （六轮修复批）：本 SQL 恒定不变且每章
       // runAllChecks 都走一次（树红点聚合数百章即数百次重编译），transcription 走
       // shared/sqlite-prepared.ts 连接级缓存；同批另一处 lead_history JOIN 同改。
-      const growthIds = (prepared(
-        db,
-        `SELECT id FROM leads WHERE type = '成长线'`,
-      ).all() as { id: string }[]).map((r) => r.id)
+      const growthIds = (prepared(db, `SELECT id FROM leads WHERE type = '成长线'`).all() as { id: string }[]).map(
+        (r) => r.id,
+      )
       sections.push(checkGrowth(db, realmDoc, growthIds, config.growth.realm_span_max ?? 2))
     }
   }
@@ -209,7 +208,13 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   if (short) {
     sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short.word_min, short.word_max))
   } else {
-    sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0, config.checks?.word_count_tolerance))
+    sections.push(
+      checkWordCount(
+        chapter._wordCount ?? countWords(body),
+        input.targetWords ?? 0,
+        config.checks?.word_count_tolerance,
+      ),
+    )
   }
 
   // #10 项 6 复读（黄）—— ：占比/连续字数双阈值可配（同上生效链，undefined
@@ -222,7 +227,10 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 拒绝（非正数 warn 按未设）维持，不在此重复。
   let repeatThreshold = config.checks?.repeat_threshold
   if (repeatThreshold !== undefined && repeatThreshold > 1) {
-    log.warn('check', `checks.repeat_threshold ${repeatThreshold} 超出占比语义 (0,1] 上界，已夹紧为 1（复读率为 0-1 小数；绝对重复字数阈值不受影响）`)
+    log.warn(
+      'check',
+      `checks.repeat_threshold ${repeatThreshold} 超出占比语义 (0,1] 上界，已夹紧为 1（复读率为 0-1 小数；绝对重复字数阈值不受影响）`,
+    )
     repeatThreshold = 1
   }
   sections.push(checkRepeat(body, repeatThreshold, config.checks?.repeat_chars_threshold))
@@ -254,7 +262,9 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
     // 派生与名册解析均已按 stat 指纹缓存（leak-derive.ts /
     // count.ts）——旧注「布线目录小、md 数十级」与成熟书数百账本的实况漂移，此前
     // 每章整读全部账本 md × 数百章 = 数万次重复文件读；现未变账本只付树级 stat
-    sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? deriveLeakKeywords(bookRoot)))
+    sections.push(
+      checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? deriveLeakKeywords(bookRoot)),
+    )
   }
 
   // AI 味检查（通用项，长短篇都跑）：身体部位词堆砌 + 比喻密度。

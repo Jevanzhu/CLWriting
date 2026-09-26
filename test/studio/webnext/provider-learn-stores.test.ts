@@ -153,8 +153,14 @@ describe('MP2-2（专项重评二轮）: refresh/refreshRag 按存活列表收�
     })
     const s = useProviderStore()
     s.providers = [{ id: 'A' }, { id: 'B' }] as never
-    s.testResults = new Map([['A', { ok: true }], ['B', { ok: false }]])
-    s.probeModels = new Map([['A', 'm1'], ['B', 'm2']])
+    s.testResults = new Map([
+      ['A', { ok: true }],
+      ['B', { ok: false }],
+    ])
+    s.probeModels = new Map([
+      ['A', 'm1'],
+      ['B', 'm2'],
+    ])
 
     await s.refresh() // 服务器列表已无 B（另一窗口删除）
 
@@ -167,7 +173,10 @@ describe('MP2-2（专项重评二轮）: refresh/refreshRag 按存活列表收�
     getRagProvidersMock.mockResolvedValue({ ragProviders: [{ id: 'R1' }], revision: 2 })
     const s = useProviderStore()
     s.ragProviders = [{ id: 'R1' }, { id: 'R2' }] as never
-    s.ragTestResults = new Map([['R1', { ok: true }], ['R2', { ok: false }]])
+    s.ragTestResults = new Map([
+      ['R1', { ok: true }],
+      ['R2', { ok: false }],
+    ])
 
     await s.refreshRag()
 

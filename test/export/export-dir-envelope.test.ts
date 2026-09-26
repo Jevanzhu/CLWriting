@@ -42,7 +42,11 @@ function makeLongBook(title: string): string {
 }
 
 function writeLongChapter(root: string, num: number, title: string, body: string): void {
-  writeFileSync(join(root, '写作', '正文', `${num}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n${body}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', `${num}-${title}.md`),
+    `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
+    'utf-8',
+  )
 }
 
 test('R74-2: mkdirSync(导出目录) 抛 EACCES → {ok:false} 信封（不再裸异常上抛）', () => {

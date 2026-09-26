@@ -57,7 +57,9 @@ interface PrefsCtx {
 export function registerPrefsRoutes(ctx: PrefsCtx): void {
   /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码；
    *  ok 分支带回 bookRoot——PUT 侧写前重验要用入口快照做比对） */
-  function prefsPath(name: string): { ok: true; path: string; bookRoot: string } | { ok: false; code: number; errCode: string; error: string } {
+  function prefsPath(
+    name: string,
+  ): { ok: true; path: string; bookRoot: string } | { ok: false; code: number; errCode: string; error: string } {
     const r = resolveBook(ctx.workDir, name)
     if ('error' in r) return { ok: false, code: r.status, errCode: r.code, error: r.error }
     return { ok: true, path: join(r.bookRoot, '.clwriting', 'prefs.json'), bookRoot: r.bookRoot }
@@ -67,72 +69,76 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     method: 'GET',
     path: '/api/books/:name/prefs',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = prefsPath(params['name']!)
-    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
-      // L-S1GET 侧形状校验——PUT 侧已防（坏形状不再扩散），此处对齐：
-      // 数组/标量损坏形状原先裸 as 直接回显出网一轮，现回空对象
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return reply(res, 200, { prefs: {}, revision: 0 })
+      const r = prefsPath(params['name']!)
+      if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
+      if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+        // L-S1GET 侧形状校验——PUT 侧已防（坏形状不再扩散），此处对齐：
+        // 数组/标量损坏形状原先裸 as 直接回显出网一轮，现回空对象
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return reply(res, 200, { prefs: {}, revision: 0 })
+        }
+        // revision 是服务端管理的保留键——从 prefs 剥离单独回传（不混入布局语义），
+        // 供客户端下次 PUT 带 expectedRevision；存量文件无该键视为 0（对齐全局 prefs 口径）
+        const raw = parsed as Record<string, unknown>
+        const { revision, ...prefs } = raw
+        reply(res, 200, { prefs: prefs as BookPrefs, revision: typeof revision === 'number' ? revision : 0 })
+      } catch {
+        reply(res, 200, { prefs: {}, revision: 0 })
       }
-      // revision 是服务端管理的保留键——从 prefs 剥离单独回传（不混入布局语义），
-      // 供客户端下次 PUT 带 expectedRevision；存量文件无该键视为 0（对齐全局 prefs 口径）
-      const raw = parsed as Record<string, unknown>
-      const { revision, ...prefs } = raw
-      reply(res, 200, { prefs: prefs as BookPrefs, revision: typeof revision === 'number' ? revision : 0 })
-    } catch {
-      reply(res, 200, { prefs: {}, revision: 0 })
-    }
-  },
+    },
   })
 
   defineRoute('books.prefs.put', {
     method: 'PUT',
     path: '/api/books/:name/prefs',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = prefsPath(params['name']!)
-    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
-    //（直调 handler 悬持 body 于 readJson——入口快照→窗口→bookMoved 409 判序被钉）
-    const body = await readJson(req)
-    const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
-    // （服务端端点/摘要簇修复批）：readJson 窗口后写前重验书注册
-    //（时序见 bookMovedFailure 头注）；family：config 同款——此前窗口跨越
-    // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
-    const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    try {
-      // 低级项：合并写（对齐 library.prefs.put 口径）——prefs.json 同样
-      // 可能存在端点 payload 之外的使用方（手工/脚本写入的键），整体覆写会静默清键。
-      // 盘上键 ← 客户端键覆盖；无删键场景（前端已知键全量回传）。读盘→写盘在
-      // await readJson 之后全同步，单事件循环内原子
-      let disk: Record<string, unknown> = {}
-      if (existsSync(r.path)) {
-        try {
-          // -服务端：形状校验——prefs.json 内容为数组/字符串/数字（损坏或
-          // 误写）时，{...disk, ...prefs} 会把索引键/字符位混入写回（损坏扩散一轮）
-          const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
-          disk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
-        } catch { /* 文件损坏视作空：本次整体重写（与原直写行为一致） */ }
+      const r = prefsPath(params['name']!)
+      if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
+      // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      //（直调 handler 悬持 body 于 readJson——入口快照→窗口→bookMoved 409 判序被钉）
+      const body = await readJson(req)
+      const prefs = body['prefs']
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs))
+        return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
+      // （服务端端点/摘要簇修复批）：readJson 窗口后写前重验书注册
+      //（时序见 bookMovedFailure 头注）；family：config 同款——此前窗口跨越
+      // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      try {
+        // 低级项：合并写（对齐 library.prefs.put 口径）——prefs.json 同样
+        // 可能存在端点 payload 之外的使用方（手工/脚本写入的键），整体覆写会静默清键。
+        // 盘上键 ← 客户端键覆盖；无删键场景（前端已知键全量回传）。读盘→写盘在
+        // await readJson 之后全同步，单事件循环内原子
+        let disk: Record<string, unknown> = {}
+        if (existsSync(r.path)) {
+          try {
+            // -服务端：形状校验——prefs.json 内容为数组/字符串/数字（损坏或
+            // 误写）时，{...disk, ...prefs} 会把索引键/字符位混入写回（损坏扩散一轮）
+            const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+            disk =
+              parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+          } catch {
+            /* 文件损坏视作空：本次整体重写（与原直写行为一致） */
+          }
+        }
+        // 内容版本乐观锁——revision 保留键（存量无 → 0，每次 PUT +1）比对
+        // expectedRevision（可选，缺失直通向后兼容），失配 409 — 参照全局 prefs 409 链
+        const current = typeof disk.revision === 'number' ? disk.revision : 0
+        const revErr = revisionError(body['expectedRevision'], current, '本书布局')
+        if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+        const next = current + 1
+        mkdirSync(dirname(r.path), { recursive: true })
+        // revision 由服务端计算覆盖（客户端传入的同名键不采信），随布局一起落盘
+        atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
+        reply(res, 200, { ok: true, revision: next })
+      } catch (e) {
+        log.error('api', '写 prefs 失败', e)
+        replyError(res, 500, 'IO_ERROR', '写 prefs 失败')
       }
-      // 内容版本乐观锁——revision 保留键（存量无 → 0，每次 PUT +1）比对
-      // expectedRevision（可选，缺失直通向后兼容），失配 409 — 参照全局 prefs 409 链
-      const current = typeof disk.revision === 'number' ? disk.revision : 0
-      const revErr = revisionError(body['expectedRevision'], current, '本书布局')
-      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-      const next = current + 1
-      mkdirSync(dirname(r.path), { recursive: true })
-      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随布局一起落盘
-      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
-      reply(res, 200, { ok: true, revision: next })
-    } catch (e) {
-      log.error('api', '写 prefs 失败', e)
-      replyError(res, 500, 'IO_ERROR', '写 prefs 失败')
-    }
-  },
+    },
   })
 
   // ── 全局编辑器偏好（userData/global.json，APP 级）──
@@ -148,24 +154,24 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     method: 'GET',
     path: '/api/library/prefs',
     handler: (_, _req: IncomingMessage, res: ServerResponse) => {
-    const r = globalPath()
-    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
-      // L-S1GET 侧形状校验——数组形状解构会把索引键 {"0":..} 混进 prefs 回传
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return reply(res, 200, { prefs: {}, revision: 0 })
+      const r = globalPath()
+      if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
+      if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+        // L-S1GET 侧形状校验——数组形状解构会把索引键 {"0":..} 混进 prefs 回传
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return reply(res, 200, { prefs: {}, revision: 0 })
+        }
+        const raw = parsed as Record<string, unknown>
+        // revision 是服务端管理的保留键——从 prefs 剥离后单独回传（不混入偏好语义），
+        // 供前端下次 PUT 带 expectedRevision；存量文件无该键视为 0
+        const { revision, ...prefs } = raw
+        reply(res, 200, { prefs, revision: typeof revision === 'number' ? revision : 0 })
+      } catch {
+        reply(res, 200, { prefs: {}, revision: 0 })
       }
-      const raw = parsed as Record<string, unknown>
-      // revision 是服务端管理的保留键——从 prefs 剥离后单独回传（不混入偏好语义），
-      // 供前端下次 PUT 带 expectedRevision；存量文件无该键视为 0
-      const { revision, ...prefs } = raw
-      reply(res, 200, { prefs, revision: typeof revision === 'number' ? revision : 0 })
-    } catch {
-      reply(res, 200, { prefs: {}, revision: 0 })
-    }
-  },
+    },
   })
 
   // （SRV- 机械批）：body 形状校验迁 parse——400 BAD_INPUT 信封与
@@ -181,39 +187,42 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       return { prefs: prefs as Record<string, unknown>, expectedRevision: body['expectedRevision'] }
     },
     handler: async ({ input }, _req, res) => {
-    const r = globalPath()
-    if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    // （照 providers dd- 口径）：body 已由 parse 先行读毕——读盘/比对/写盘
-    // 三段必须同步无 await，单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
-    try {
-      let disk: Record<string, unknown> = {}
-      if (existsSync(r.path)) {
-        try {
-          // -服务端：形状校验（与 books.prefs.put 同款）——数组/标量损坏内容
-          // 不混入合并写
-          const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
-          disk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
-        } catch { /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */ }
+      const r = globalPath()
+      if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
+      // （照 providers dd- 口径）：body 已由 parse 先行读毕——读盘/比对/写盘
+      // 三段必须同步无 await，单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
+      try {
+        let disk: Record<string, unknown> = {}
+        if (existsSync(r.path)) {
+          try {
+            // -服务端：形状校验（与 books.prefs.put 同款）——数组/标量损坏内容
+            // 不混入合并写
+            const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
+            disk =
+              parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+          } catch {
+            /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */
+          }
+        }
+        const current = typeof disk.revision === 'number' ? disk.revision : 0
+        const revErr = revisionError(input.expectedRevision, current, '全局偏好')
+        if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+        const next = current + 1
+        mkdirSync(dirname(r.path), { recursive: true })
+        // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘。
+        // 合并写——global.json 存在前端 payload 之外的使用方（按文档手工/脚本
+        // 写入的 tokensPerChapter/costPerChapter 预算键等）。整体覆写会让任何一次面板
+        // 保存（500ms debounce）静默清掉这些键、预算闸随之失效。盘上键 ← 客户端键覆盖；
+        // 客户端无法经此端点显式删键是可接受代价（前端已知键全量回传，无删键场景）。
+        atomicWriteFile(r.path, JSON.stringify({ ...disk, ...input.prefs, revision: next }, null, 2) + '\n')
+        reply(res, 200, { ok: true, revision: next })
+      } catch (e) {
+        log.error('api', '写全局偏好失败', e)
+        // 错误码与书级 prefs 写失败（125）统一 IO_ERROR——同一
+        // 失败形态（落盘 IO 异常）双端点码面漂移（全局 ERROR / 书级 IO_ERROR）使前端
+        // 按码分类的降级/提示路径分叉
+        replyError(res, 500, 'IO_ERROR', '写全局偏好失败')
       }
-      const current = typeof disk.revision === 'number' ? disk.revision : 0
-      const revErr = revisionError(input.expectedRevision, current, '全局偏好')
-      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-      const next = current + 1
-      mkdirSync(dirname(r.path), { recursive: true })
-      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随偏好一起落盘。
-      // 合并写——global.json 存在前端 payload 之外的使用方（按文档手工/脚本
-      // 写入的 tokensPerChapter/costPerChapter 预算键等）。整体覆写会让任何一次面板
-      // 保存（500ms debounce）静默清掉这些键、预算闸随之失效。盘上键 ← 客户端键覆盖；
-      // 客户端无法经此端点显式删键是可接受代价（前端已知键全量回传，无删键场景）。
-      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...input.prefs, revision: next }, null, 2) + '\n')
-      reply(res, 200, { ok: true, revision: next })
-    } catch (e) {
-      log.error('api', '写全局偏好失败', e)
-      // 错误码与书级 prefs 写失败（125）统一 IO_ERROR——同一
-      // 失败形态（落盘 IO 异常）双端点码面漂移（全局 ERROR / 书级 IO_ERROR）使前端
-      // 按码分类的降级/提示路径分叉
-      replyError(res, 500, 'IO_ERROR', '写全局偏好失败')
-    }
-  },
+    },
   })
 }

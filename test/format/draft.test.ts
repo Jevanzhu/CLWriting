@@ -91,8 +91,12 @@ describe('resolveDraftPath V-P1-3 定稿防护', () => {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: computeRevision(join(bookRoot, rel)), finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: computeRevision(join(bookRoot, rel)),
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
 
@@ -115,8 +119,12 @@ describe('resolveDraftPath V-P1-3 定稿防护', () => {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: 'sha256:test-baseline',
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
 
@@ -131,8 +139,12 @@ describe('resolveDraftPath V-P1-3 定稿防护', () => {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: 'sha256:test-baseline',
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
 
@@ -158,8 +170,12 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     const m = readManifest(manifestPath)
     upsertEntry(m, {
       // 防线只看 finalizedRevision 是否在位，测试用合成指纹即可（文件可能已被改名）
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: 'sha256:test-baseline',
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
   }
@@ -212,8 +228,12 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: '写作/正文/0005-第五章.md', parentId: null,
-      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: '写作/正文/0005-第五章.md',
+      parentId: null,
+      finalizedRevision: 'sha256:test-baseline',
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
 

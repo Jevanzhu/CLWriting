@@ -9,12 +9,19 @@ import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
-import { SessionRecorder, userMessageEvent, assistantMessageEvent, sessionStartEvent } from '../../src/events/chat-bridge.js'
+import {
+  SessionRecorder,
+  userMessageEvent,
+  assistantMessageEvent,
+  sessionStartEvent,
+} from '../../src/events/chat-bridge.js'
 import { stepStartEvent, llmCallEvent, goalChangeEvent, todoWriteEvent } from '../../src/events/chain-bridge.js'
 import { buildAuditView, parseAuditPaging } from '../../src/studio/server/api/audit.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-async function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T | Promise<T>): Promise<T> {
+async function withStore<T>(
+  fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T | Promise<T>,
+): Promise<T> {
   const userData = mkdtempTracked(join(tmpdir(), 'audit-'))
   const bookRoot = join(userData, 'books', 'x')
   const store = openSessionStore(userData, bookRoot)!
@@ -30,10 +37,7 @@ describe('F1-P5 buildAuditView', () => {
   it('对话：无遮蔽 → modelVisible = humanVisible，遮蔽数 0', async () => {
     await withStore(async (store) => {
       const sid = store.createSession('conv', { book: 'conv' })
-      store.appendEvents(sid, [
-        userMessageEvent('你好'),
-        assistantMessageEvent('你好呀'),
-      ])
+      store.appendEvents(sid, [userMessageEvent('你好'), assistantMessageEvent('你好呀')])
       const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent')
       expect(conversation).not.toBeNull()
       expect(conversation!.shadowedCount).toBe(0)
@@ -72,7 +76,11 @@ describe('F1-P5 buildAuditView', () => {
       const rec = new SessionRecorder(store, sid)
       rec.add(sessionStartEvent('conv'))
       rec.add(userMessageEvent('如何铺垫伏笔？'))
-      const snapIdx = rec.add({ type: 'settings/snapshot', data: { scope: 'settings', digest: 'abc' }, surfaceOp: 'append' })
+      const snapIdx = rec.add({
+        type: 'settings/snapshot',
+        data: { scope: 'settings', digest: 'abc' },
+        surfaceOp: 'append',
+      })
       rec.add(assistantMessageEvent('埋笔要早。', undefined, undefined, [snapIdx]))
       rec.flush()
 
@@ -114,7 +122,14 @@ describe('F1-P5 buildAuditView', () => {
       store.appendEvents(sid, [
         goalChangeEvent({
           operation: 'create',
-          goal: { id: 'self-heal:ch1', title: '修复第1章红项', state: 'active', roundsStarted: 0, createdAt: 1, updatedAt: 1 },
+          goal: {
+            id: 'self-heal:ch1',
+            title: '修复第1章红项',
+            state: 'active',
+            roundsStarted: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
         }),
         todoWriteEvent({
           todos: [
@@ -125,7 +140,14 @@ describe('F1-P5 buildAuditView', () => {
         }),
         goalChangeEvent({
           operation: 'complete',
-          goal: { id: 'self-heal:ch1', title: '修复第1章红项', state: 'complete', roundsStarted: 1, createdAt: 1, updatedAt: 2 },
+          goal: {
+            id: 'self-heal:ch1',
+            title: '修复第1章红项',
+            state: 'complete',
+            roundsStarted: 1,
+            createdAt: 1,
+            updatedAt: 2,
+          },
         }),
         todoWriteEvent({
           todos: [
@@ -255,4 +277,3 @@ describe('AA-P2-2: limit 夹取（分页保护不可打穿）', () => {
     expect(parseAuditPaging(null, 'x')).toEqual({ limit: 500, offset: 0 })
   })
 })
-

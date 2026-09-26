@@ -189,14 +189,17 @@ describe('migrateStyleLibrary', () => {
   })
 
   // 冒号文件名仅 POSIX 可建（win 上落盘即失败）——skipIf 保原输入，冒号消毒断言不因适配空转
-  it.skipIf(process.platform === 'win32')('B-5: fm 场景含 Windows 非法字符 → 消毒为 _（与 addEntry Y-27 单源同口径）', () => {
-    makeSample('雨夜:追杀', '001', '正文')
-    const result = migrateStyleLibrary(root)
-    expect(result.migrated).toBe(1)
-    const files = readdirSync(join(root, ENTRIES_DIR, '样章'))
-    expect(files).toHaveLength(1)
-    expect(files[0]).toBe('雨夜_追杀-001.md')
-  })
+  it.skipIf(process.platform === 'win32')(
+    'B-5: fm 场景含 Windows 非法字符 → 消毒为 _（与 addEntry Y-27 单源同口径）',
+    () => {
+      makeSample('雨夜:追杀', '001', '正文')
+      const result = migrateStyleLibrary(root)
+      expect(result.migrated).toBe(1)
+      const files = readdirSync(join(root, ENTRIES_DIR, '样章'))
+      expect(files).toHaveLength(1)
+      expect(files[0]).toBe('雨夜_追杀-001.md')
+    },
+  )
 
   it('空文风目录：迁移零条但建骨架（幂等闸生效）', () => {
     const r = migrateStyleLibrary(root)

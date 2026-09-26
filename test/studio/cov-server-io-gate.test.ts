@@ -81,11 +81,9 @@ function makeBookIn(dir: string, name: string): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'kind: long\nbook:\n  title: x\n')
   mkdirSync(join(dir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(dir, '.clwriting', 'books.jsonl'),
-    `${JSON.stringify({ name, path: `books/${name}` })}\n`,
-    { flag: 'a' },
-  )
+  writeFileSync(join(dir, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name, path: `books/${name}` })}\n`, {
+    flag: 'a',
+  })
   return root
 }
 
@@ -219,7 +217,11 @@ describe('R1010c-COV-3：export 端点入参与信封分支', () => {
     const nw = await noworkReq({ method: 'POST', path: '/api/books/x/export', body: { format: 'merged' } })
     expect(nw.status).toBe(400)
     expect(nw.json.code).toBe('NO_WORKDIR')
-    const miss = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('无此书')}/export`, body: { format: 'merged' } })
+    const miss = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('无此书')}/export`,
+      body: { format: 'merged' },
+    })
     expect(miss.status).toBe(404)
     expect(miss.json.code).toBe('NOT_FOUND')
   })

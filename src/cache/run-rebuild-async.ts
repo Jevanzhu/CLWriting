@@ -40,9 +40,7 @@ export const DEFAULT_REBUILD_TIMEOUT_MS = 120_000
 /** 0918二轮修复批（D104）：env 解析单源（导出供直测）：未设/空白/非有限数/非正数一律
  *  回缺省档。生产调用方（state.ts detectState、process/summary.ts 摘要自愈）均不传
  *  opts——本缺省档即 env 到生产链的贯穿点。 */
-export function resolveRebuildTimeoutMs(
-  env: Record<string, string | undefined> = process.env,
-): number {
+export function resolveRebuildTimeoutMs(env: Record<string, string | undefined> = process.env): number {
   const raw = env['CLWRITING_REBUILD_TIMEOUT_MS']
   if (raw === undefined || raw.trim() === '') return DEFAULT_REBUILD_TIMEOUT_MS
   const n = Number(raw)

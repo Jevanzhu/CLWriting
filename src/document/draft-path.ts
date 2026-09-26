@@ -191,7 +191,8 @@ function cnVolumeNum(s: string): number | null {
   // 无「十」：纯个位（N）；有「十」：N十M / 十M / N十 / 十
   if (!s.includes('十')) return s in digits ? digits[s]! : null
   const parts = s.split('十')
-  if (parts.length !== 2 || parts[0] !== '' && !(parts[0]! in digits) || parts[1] !== '' && !(parts[1]! in digits)) return null
+  if (parts.length !== 2 || (parts[0] !== '' && !(parts[0]! in digits)) || (parts[1] !== '' && !(parts[1]! in digits)))
+    return null
   const tens = parts[0] === '' ? 1 : digits[parts[0]!]!
   const ones = parts[1] === '' ? 0 : digits[parts[1]!]!
   return tens * 10 + ones

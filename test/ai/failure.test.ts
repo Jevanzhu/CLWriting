@@ -2,12 +2,7 @@
  * A5（DSH-15）：结构化错误码——status 映射 / Retry-After 解析 / 处置决策表。
  */
 import { test, expect } from 'vitest'
-import {
-  httpStatusToCode,
-  parseRetryAfterMs,
-  headerErrorFields,
-  failureAction,
-} from '../../src/ai/provider/failure.js'
+import { httpStatusToCode, parseRetryAfterMs, headerErrorFields, failureAction } from '../../src/ai/provider/failure.js'
 import type { GenErrorCode } from '../../src/ai/provider/types.js'
 
 test('httpStatusToCode: 状态码 → 错误码全表', () => {

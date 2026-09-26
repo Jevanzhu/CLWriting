@@ -118,8 +118,14 @@ export function submitAnalysis(kind: AnalysisKind): ToolDef {
         input_schema: {
           type: 'object',
           properties: {
-            目标情绪: { type: 'string', description: '本章正文在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）' },
-            核心反转: { type: 'string', description: '本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转留空字符串）' },
+            目标情绪: {
+              type: 'string',
+              description: '本章正文在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
+            },
+            核心反转: {
+              type: 'string',
+              description: '本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转留空字符串）',
+            },
           },
           required: ['目标情绪', '核心反转'],
         },

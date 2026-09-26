@@ -117,11 +117,7 @@ describe('机检前奏段让出计数（A2，三段隔离夹具）', () => {
     const archiveDir = join(root, LEAD_UPDATES_ARCHIVE_DIR)
     mkdirSync(archiveDir, { recursive: true })
     for (let no = 1; no <= 60; no++) {
-      writeFileSync(
-        join(archiveDir, `第${no}章.md`),
-        `- 悬念-001 埋下：「第${no}章的归档推进证据」\n`,
-        'utf-8',
-      )
+      writeFileSync(join(archiveDir, `第${no}章.md`), `- 悬念-001 埋下：「第${no}章的归档推进证据」\n`, 'utf-8')
     }
     const updatesOf = await driveAsync(scanChapterUpdatesByChapterCore(root))
     expect(updatesOf(1).updates).toHaveLength(1) // 配对成功（证明真读到并解析了归档文件）
@@ -139,11 +135,7 @@ describe('机检前奏段让出计数（A2，三段隔离夹具）', () => {
     const archiveDir = join(root, LEAD_UPDATES_ARCHIVE_DIR)
     mkdirSync(archiveDir, { recursive: true })
     for (let no = 1; no <= 3; no++) {
-      writeFileSync(
-        join(archiveDir, `第${no}章.md`),
-        `- 悬念-001 埋下：「第${no}章的归档推进证据」\n`,
-        'utf-8',
-      )
+      writeFileSync(join(archiveDir, `第${no}章.md`), `- 悬念-001 埋下：「第${no}章的归档推进证据」\n`, 'utf-8')
     }
     const syncOf = scanChapterUpdatesByChapter(root)
     const asyncOf = await driveAsync(scanChapterUpdatesByChapterCore(root))

@@ -63,10 +63,10 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
 
 // POST /documents/:docId/review-verdict —— 作者裁决（落 review 信封 payload.verdict，M12 .3 方案 A）
 export async function runVerdictDoc(name: string, docId: string, approved: boolean): Promise<void> {
-  await apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId, 'review-verdict'),
-    { method: 'POST', json: { approved } },
-  )
+  await apiJson<{ ok: true }>(bookUrl(name, 'documents', docId, 'review-verdict'), {
+    method: 'POST',
+    json: { approved },
+  })
 }
 
 // GET /documents/:docId/analysis/review —— 读存量三审信封（无则 null；stale=正文已变更）。
@@ -75,9 +75,7 @@ export async function getReviewEnvelope(
   docId: string,
 ): Promise<{ envelope: ReviewEnvelope; stale: boolean } | null> {
   try {
-    const r = await apiJson<EnvelopeGet>(
-      bookUrl(name, 'documents', docId, 'analysis', 'review'),
-    )
+    const r = await apiJson<EnvelopeGet>(bookUrl(name, 'documents', docId, 'analysis', 'review'))
     return { envelope: r.envelope, stale: r.stale }
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) return null // 确无存量信封

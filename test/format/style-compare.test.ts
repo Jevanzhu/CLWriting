@@ -2,13 +2,7 @@
  * 文风比对层单测（文风系统重整 S3）：n-gram / 词级差极大化 / Jaccard 分层 / 段落配对。
  */
 import { describe, it, expect } from 'vitest'
-import {
-  charNgrams,
-  missingNgrams,
-  similarity,
-  tierOf,
-  compareVersions,
-} from '../../src/format/style-compare.js'
+import { charNgrams, missingNgrams, similarity, tierOf, compareVersions } from '../../src/format/style-compare.js'
 
 describe('charNgrams', () => {
   it('中文 bigram；标点切分不产跨句碎片', () => {
@@ -124,8 +118,7 @@ describe('R65-28: compareVersions 预计算优化数值恒等', () => {
     const auText = [AU_P1, AU_P2, AU_P3].join('\n\n')
     const r = compareVersions(aiText, auText)
     // 参考实现：直接用公开 similarity()（未走预计算路径）逐段重算
-    const refSim = (au: string, ai: string | null): number =>
-      ai === null ? 0 : similarity(ai, au)
+    const refSim = (au: string, ai: string | null): number => (ai === null ? 0 : similarity(ai, au))
     expect(r.paras).toHaveLength(3)
     expect(r.paras[0]!.sim).toBe(refSim(AU_P1, AI_P1))
     expect(r.paras[1]!.sim).toBe(refSim(AU_P2, AI_P2))
@@ -135,7 +128,12 @@ describe('R65-28: compareVersions 预计算优化数值恒等', () => {
 
   it('多段大矩阵（40×40）贪心配对结果与参考贪心一致——预计算不改变配对选择', () => {
     const mk = (seed: number, n: number): string[] =>
-      Array.from({ length: n }, (_, i) => `第${seed}版段落${i}的内容：他沿着城墙走了很久，雪越下越大，脚步声被风吞没。`.slice(0, 20 + ((seed * 7 + i * 3) % 20)))
+      Array.from({ length: n }, (_, i) =>
+        `第${seed}版段落${i}的内容：他沿着城墙走了很久，雪越下越大，脚步声被风吞没。`.slice(
+          0,
+          20 + ((seed * 7 + i * 3) % 20),
+        ),
+      )
     const aiParas = mk(1, 40)
     const auParas = mk(2, 40)
     const r = compareVersions(aiParas.join('\n\n'), auParas.join('\n\n'))

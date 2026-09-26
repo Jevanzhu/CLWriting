@@ -90,7 +90,10 @@ describe('RC B-4：主机变更被拒时拒绝原因上屏', () => {
 
     // 请求确实带着「新主机 + 空 Key」出去（触发服务端闸的那一笔）
     expect(mocks.updateProvider).toHaveBeenCalledTimes(1)
-    expect(mocks.updateProvider.mock.calls[0]![1]).toMatchObject({ baseUrl: 'https://api.host-b.example/v1', apiKey: '' })
+    expect(mocks.updateProvider.mock.calls[0]![1]).toMatchObject({
+      baseUrl: 'https://api.host-b.example/v1',
+      apiKey: '',
+    })
 
     // 文案上屏：ui store 原样透出（friendlyError 对带码 ApiError 直出 message）
     const ui = useUiStore()

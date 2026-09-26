@@ -55,9 +55,7 @@ afterEach(() => {
 
 /** 对 trash manifest 路径的 readFileSync 调用计数（缓存效果观测量） */
 function manifestReadCalls(): number {
-  return vi
-    .mocked(readFileSyncMocked)
-    .mock.calls.filter(([p]) => String(p).endsWith('.trash-manifest.jsonl')).length
+  return vi.mocked(readFileSyncMocked).mock.calls.filter(([p]) => String(p).endsWith('.trash-manifest.jsonl')).length
 }
 
 describe('R0912-E-P3-1: trash 清单单槽指纹缓存', () => {

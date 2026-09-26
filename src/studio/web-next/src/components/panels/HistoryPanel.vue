@@ -25,7 +25,10 @@ const restoring = ref<string | null>(null)
 const current = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 // 当前字数 150ms 防抖（EditorView 同款；此前每击键全文
 // 重算并经 delta 联动快照列表渲染）
-const { count: currentWords } = useDebouncedWordCount(() => current.value?.content, () => ws.activeDocId)
+const { count: currentWords } = useDebouncedWordCount(
+  () => current.value?.content,
+  () => ws.activeDocId,
+)
 
 /** 来源人话（origin 是机器值，界面不露）。 */
 const ORIGIN_LABEL: Record<string, string> = {
@@ -299,7 +302,9 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   color: var(--text-faint);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .row:hover .restore-btn {
   opacity: 1;

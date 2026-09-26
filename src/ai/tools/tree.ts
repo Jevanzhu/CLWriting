@@ -48,9 +48,7 @@ export async function renameChapter(ctx: ToolContext, input: Record<string, unkn
   // 连字符 → 无数值前缀可保，新名直接用净化后的新标题；常规 `0001-标题.md` 产物不变。
   const stem = oldName.endsWith('.md') ? oldName.slice(0, -'.md'.length) : oldName
   const prefix = stem.split('-')[0] ?? ''
-  const newName = prefix === stem
-    ? sanitizeTitle(newTitle) + '.md'
-    : prefix + '-' + sanitizeTitle(newTitle) + '.md'
+  const newName = prefix === stem ? sanitizeTitle(newTitle) + '.md' : prefix + '-' + sanitizeTitle(newTitle) + '.md'
   const docId = chapterToDocId(ctx.bookRoot, chapter)
   if (!docId) return { ok: false, summary: '第 ' + chapter + ' 章清单登记缺失，无法重命名。' }
   const r = await new DocumentService({ bookRoot: ctx.bookRoot }).renameDocument({ docId, newName })
@@ -87,4 +85,3 @@ export async function deleteChapter(ctx: ToolContext, input: Record<string, unkn
   if (!r.ok) return { ok: false, summary: '删除失败：' + r.reason }
   return { ok: true, summary: '已把第 ' + chapter + ' 章移入回收站（可还原）。' }
 }
-

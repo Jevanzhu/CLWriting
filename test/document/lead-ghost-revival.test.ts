@@ -37,7 +37,10 @@ function makeBook(): string {
     prefix: 'r43-lead-ghost-',
     flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
     files: [
-      { rel: LEAD_REL, content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      {
+        rel: LEAD_REL,
+        content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
       { rel: '工作区/账本推进.md', content: '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n' },
     ],
   })

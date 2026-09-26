@@ -52,7 +52,9 @@ if (!existsSync(bookRoot) || !statSync(bookRoot).isDirectory()) {
 //（收割面口径无声漂移），同目录脚本均有人话守卫口径
 const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
 if (!cfgResult.ok) {
-  console.error(`book.yaml 不可用（${cfgResult.error.message}）——语料收割依赖书级配置（账本启用类等），请先补齐 book.yaml 后重试`)
+  console.error(
+    `book.yaml 不可用（${cfgResult.error.message}）——语料收割依赖书级配置（账本启用类等），请先补齐 book.yaml 后重试`,
+  )
   process.exit(1)
 }
 const config = applyGlobalDefaults(cfgResult.config, null)
@@ -263,7 +265,12 @@ mkdirSync(outDir, { recursive: true })
 
 function writeCandidates(file: string, title: string, want: Candidate['verdict']): void {
   const list = candidates.filter((c) => c.verdict === want)
-  const lines = [`# ${title}（${list.length} 条）`, '', '> 勾选（`[ ]` → `[x]`）后运行 `npm run corpus:commit` 固化为仓库回归用例。', '']
+  const lines = [
+    `# ${title}（${list.length} 条）`,
+    '',
+    '> 勾选（`[ ]` → `[x]`）后运行 `npm run corpus:commit` 固化为仓库回归用例。',
+    '',
+  ]
   const byCheck = new Map<string, Candidate[]>()
   for (const c of list) {
     const arr = byCheck.get(c.checkId) ?? []
@@ -287,13 +294,20 @@ writeCandidates('命中候选.md', '命中候选（被作者改写消失）', '�
 
 // imagery 种子误报率统计（B3 前置：>30% 列入剔除候选）
 {
-  const lines = ['# imagery 种子误报率统计', '', '| 种子短语 | 叫了（版本命中） | 作者改掉 | 误报率 | 建议 |', '|---|---|---|---|---|']
+  const lines = [
+    '# imagery 种子误报率统计',
+    '',
+    '| 种子短语 | 叫了（版本命中） | 作者改掉 | 误报率 | 建议 |',
+    '|---|---|---|---|---|',
+  ]
   const phrases = [...imageryStats.keys()].sort()
   for (const p of phrases) {
     const s = imageryStats.get(p)!
     const total = s.survived + s.removed
     const rate = total > 0 ? s.survived / total : 0
-    lines.push(`| ${p} | ${total} | ${s.removed} | ${(rate * 100).toFixed(0)}% | ${rate > 0.3 ? '**>30%，列入剔除候选（改 imagery-seed.ts 走人工提交 + 回归门）**' : '保留' } |`)
+    lines.push(
+      `| ${p} | ${total} | ${s.removed} | ${(rate * 100).toFixed(0)}% | ${rate > 0.3 ? '**>30%，列入剔除候选（改 imagery-seed.ts 走人工提交 + 回归门）**' : '保留'} |`,
+    )
   }
   if (phrases.length === 0) lines.push('|（无 imagery 命中样本）| | | | |')
   atomicWriteFile(join(outDir, '误报率统计.md'), lines.join('\n') + '\n')
@@ -308,7 +322,9 @@ console.log(
 // 重评2-P3-5：计数面扩入现行基准正文兜底读失败（见循环内注）——文案同步，
 // 容错/退出码口径仍 R63-14（部分失败不静默成功，exitCode=1）
 if (failedSnapshots > 0 && firstSnapshotError !== null) {
-  console.error(`[harvest-corpus] 警告：${failedSnapshots} 个版本快照/基准正文判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`)
+  console.error(
+    `[harvest-corpus] 警告：${failedSnapshots} 个版本快照/基准正文判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`,
+  )
   console.error(firstSnapshotError)
   process.exitCode = 1
 }
@@ -336,5 +352,7 @@ if (unanchoredByCheck.size > 0) {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([id, n]) => `${id}×${n}`)
     .join('、')
-  console.warn(`[harvest-corpus] 警告：${total} 个机检命中提取不到关键词锚点，未参与幸存者判定（${parts}）——统计类消息无锚文本属已知形态，意外 checkId 请核对 count.ts message 模板口径`)
+  console.warn(
+    `[harvest-corpus] 警告：${total} 个机检命中提取不到关键词锚点，未参与幸存者判定（${parts}）——统计类消息无锚文本属已知形态，意外 checkId 请核对 count.ts message 模板口径`,
+  )
 }

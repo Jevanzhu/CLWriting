@@ -40,7 +40,9 @@ vi.mock('vue-router', () => ({
 
 // api/stores mock 面与 use-shelf-delete.test.ts 同款（confirmDelete 链的最小依赖）
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: mocks.deleteBook }))
-vi.mock('../../../src/studio/web-next/src/stores/check', () => ({ clearFalsePositiveMarks: mocks.clearFalsePositiveMarks }))
+vi.mock('../../../src/studio/web-next/src/stores/check', () => ({
+  clearFalsePositiveMarks: mocks.clearFalsePositiveMarks,
+}))
 vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
   useShelfStore: vi.fn(() => ({ books: [], load: mocks.shelfLoad })),
 }))
@@ -55,7 +57,9 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 
 // 真用 useShelf、只捕获组件内创建的实例（options + 返回句柄）——断言走完整
 // confirmDelete 链，回调抛错会落 deleteError，比裸调回调更能锚「删除成功却报错」
-const captured = vi.hoisted(() => ({ instance: null as ReturnType<typeof import('../../../src/studio/web-next/src/composables/useShelf').useShelf> | null }))
+const captured = vi.hoisted(() => ({
+  instance: null as ReturnType<typeof import('../../../src/studio/web-next/src/composables/useShelf').useShelf> | null,
+}))
 vi.mock('../../../src/studio/web-next/src/composables/useShelf', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/composables/useShelf')>()
   return {

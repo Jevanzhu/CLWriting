@@ -70,19 +70,24 @@ export async function onboardAi(
   name: string,
   body: { step: OnboardStep; premise?: string; discussionContext?: string },
 ): Promise<OnboardAiResult> {
-  return apiJson<OnboardAiResult>(bookUrl(name, 'onboard-ai'), {
-    method: 'POST',
-    json: body,
-  }, 180_000) // AI 开书对话超时 3 分钟
+  return apiJson<OnboardAiResult>(
+    bookUrl(name, 'onboard-ai'),
+    {
+      method: 'POST',
+      json: body,
+    },
+    180_000,
+  ) // AI 开书对话超时 3 分钟
 }
 
 // POST /onboard-save {step, content}（作者预览改后落盘）
-export async function onboardSave(
-  name: string,
-  body: { step: OnboardStep; content: string },
-): Promise<void> {
-  await apiJson(bookUrl(name, 'onboard-save'), {
-    method: 'POST',
-    json: body,
-  }, API_DEFAULT_TIMEOUT_MS) // 原裸值 30_000 收敛，数值零变化
+export async function onboardSave(name: string, body: { step: OnboardStep; content: string }): Promise<void> {
+  await apiJson(
+    bookUrl(name, 'onboard-save'),
+    {
+      method: 'POST',
+      json: body,
+    },
+    API_DEFAULT_TIMEOUT_MS,
+  ) // 原裸值 30_000 收敛，数值零变化
 }

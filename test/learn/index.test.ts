@@ -194,11 +194,7 @@ function makeBookWithChecks(checksYaml: string): string {
   const root = mkdtempTracked(join(tmpdir(), 'learn-threshold-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(
-    join(root, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: 测试书\n${checksYaml}`,
-    'utf-8',
-  )
+  writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: 测试书\n${checksYaml}`, 'utf-8')
   writeFileSync(
     join(root, '写作', '正文', '0001-定稿章.md'),
     `---\n章号: 1\n标题: 定稿章\n---\n${REPEAT_BODY}`,
@@ -267,16 +263,40 @@ test('R-P3-3: 单遍流式——多章混合书上两路候选逐章对应、草
     mkdirSync(join(root, '项目'), { recursive: true })
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\n', 'utf-8')
     // 第 1 章（定稿·甲）、第 2 章（草稿·乙）、第 3 章（定稿·丙）
-    writeFileSync(join(root, '写作', '正文', '0001-定稿章.md'), `---\n章号: 1\n标题: 定稿章\n---\n${markedBody(CH1_MARK)}`, 'utf-8')
-    writeFileSync(join(root, '写作', '正文', '0002-草稿章.md'), `---\n章号: 2\n标题: 草稿章\n---\n${markedBody(DRAFT_MARK)}`, 'utf-8')
-    writeFileSync(join(root, '写作', '正文', '0003-定稿章.md'), `---\n章号: 3\n标题: 定稿章\n---\n${markedBody(CH3_MARK)}`, 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', '0001-定稿章.md'),
+      `---\n章号: 1\n标题: 定稿章\n---\n${markedBody(CH1_MARK)}`,
+      'utf-8',
+    )
+    writeFileSync(
+      join(root, '写作', '正文', '0002-草稿章.md'),
+      `---\n章号: 2\n标题: 草稿章\n---\n${markedBody(DRAFT_MARK)}`,
+      'utf-8',
+    )
+    writeFileSync(
+      join(root, '写作', '正文', '0003-定稿章.md'),
+      `---\n章号: 3\n标题: 定稿章\n---\n${markedBody(CH3_MARK)}`,
+      'utf-8',
+    )
     writeFileSync(
       join(root, '项目', '文档清单.jsonl'),
       [
         JSON.stringify({ version: 1, type: 'header' }),
-        JSON.stringify({ id: 'd1', nodeType: 'document', path: '写作/正文/0001-定稿章.md', parentId: null, finalizedRevision: 'sha256:x' }),
+        JSON.stringify({
+          id: 'd1',
+          nodeType: 'document',
+          path: '写作/正文/0001-定稿章.md',
+          parentId: null,
+          finalizedRevision: 'sha256:x',
+        }),
         JSON.stringify({ id: 'd2', nodeType: 'document', path: '写作/正文/0002-草稿章.md', parentId: null }),
-        JSON.stringify({ id: 'd3', nodeType: 'document', path: '写作/正文/0003-定稿章.md', parentId: null, finalizedRevision: 'sha256:y' }),
+        JSON.stringify({
+          id: 'd3',
+          nodeType: 'document',
+          path: '写作/正文/0003-定稿章.md',
+          parentId: null,
+          finalizedRevision: 'sha256:y',
+        }),
       ].join('\n') + '\n',
       'utf-8',
     )
@@ -329,4 +349,3 @@ test('R0910-W: 候选数超池容量后裁剪——金句 top5 仍为最新 5 �
     rmSync(root, { recursive: true, force: true })
   }
 })
-

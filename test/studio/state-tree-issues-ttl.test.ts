@@ -89,15 +89,18 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
   })
 }
 
-const CH_FM = (n: number, t: string) => `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
+const CH_FM = (n: number, t: string) =>
+  `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
 
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clw-r75-ttl-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: STATE_BOOK, path: STATE_BOOK, kind: 'short' }) + '\n' +
-      JSON.stringify({ name: TREE_BOOK, path: TREE_BOOK, kind: 'long' }) + '\n',
+    JSON.stringify({ name: STATE_BOOK, path: STATE_BOOK, kind: 'short' }) +
+      '\n' +
+      JSON.stringify({ name: TREE_BOOK, path: TREE_BOOK, kind: 'long' }) +
+      '\n',
   )
   // 判态书：短篇无布线 → 态 7；1 章已定稿（清单 finalizedRevision）→ nextChapter=2。
   // （短篇口径：未定稿篇计入 excludeNames 不推 nextChapter——0001 不登记定稿则
@@ -105,11 +108,21 @@ beforeAll(async () => {
   const stateRoot = join(workDir, STATE_BOOK)
   mkdirSync(join(stateRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(stateRoot, '项目'), { recursive: true })
-  writeFileSync(join(stateRoot, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: R75判态缓存书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(
+    join(stateRoot, 'book.yaml'),
+    'spec_version: 1\nkind: short\nbook:\n  title: R75判态缓存书\n  genre: 玄幻\nhost: cc\n',
+  )
   writeFileSync(join(stateRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场。\n')
   stateManifestPath = join(stateRoot, '项目', '文档清单.jsonl')
   const sm = readManifest(stateManifestPath)
-  upsertEntry(sm, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null, finalizedRevision: 'sha256:' + 'a'.repeat(64), finalizedAt: '2026-08-29T00:00:00.000Z' })
+  upsertEntry(sm, {
+    id: generateDocId(),
+    nodeType: 'document',
+    path: '写作/正文/0001-开篇.md',
+    parentId: null,
+    finalizedRevision: 'sha256:' + 'a'.repeat(64),
+    finalizedAt: '2026-08-29T00:00:00.000Z',
+  })
   writeManifest(stateManifestPath, sm)
 
   // 树红点书：文风硬禁词「玉佩」→ 0001 命中即 red（造法同 tree-issues-api.test.ts）
@@ -117,7 +130,10 @@ beforeAll(async () => {
   mkdirSync(join(treeBookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(treeBookRoot, '项目'), { recursive: true })
   mkdirSync(join(treeBookRoot, '文风'), { recursive: true })
-  writeFileSync(join(treeBookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R75树红点缓存书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
+  writeFileSync(
+    join(treeBookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: R75树红点缓存书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  )
   writeFileSync(join(treeBookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n')
   // R29-1（二十九轮）禁词新口径（前后非汉字边界）夹具适配：玉佩后邻汉字「发」被边界
   // 拦截不再报红——改夹持形态（两侧标点 = 非汉字边界）恢复命中（造法同 tree-issues-api.test.ts）
@@ -168,7 +184,14 @@ describe('R75-D-P3b：GET /state 5s TTL 缓存三态', () => {
     // 盘上变更：新增第 2 章并登记定稿（短篇未定稿篇不推 nextChapter，须同时落清单）
     writeFileSync(join(workDir, STATE_BOOK, '写作', '正文', '0002-次章.md'), CH_FM(2, '次章') + '第二章登场。\n')
     const sm2 = readManifest(stateManifestPath)
-    upsertEntry(sm2, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0002-次章.md', parentId: null, finalizedRevision: 'sha256:' + 'b'.repeat(64), finalizedAt: '2026-08-29T00:00:00.000Z' })
+    upsertEntry(sm2, {
+      id: generateDocId(),
+      nodeType: 'document',
+      path: '写作/正文/0002-次章.md',
+      parentId: null,
+      finalizedRevision: 'sha256:' + 'b'.repeat(64),
+      finalizedAt: '2026-08-29T00:00:00.000Z',
+    })
     writeManifest(stateManifestPath, sm2)
 
     // TTL 内二查：命中缓存——nextChapter 仍为 2（未见新章）

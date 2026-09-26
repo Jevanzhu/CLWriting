@@ -52,7 +52,9 @@ if (!report.ok) {
 // 指向旧伤）——R0912-3 口径：如实报「已写入 + 预存坏行、请先修 manifest」并保持退出码
 // 1（作者按旧提示重试只会撞「已在 manifest」，故仍以非零码促其先修 manifest）。
 if (report.issues.length > 0) {
-  console.error('登记已写入 manifest，但读取对账发现预存坏行（非本次登记引入；重试会报「已在 manifest」），请先修 manifest：')
+  console.error(
+    '登记已写入 manifest，但读取对账发现预存坏行（非本次登记引入；重试会报「已在 manifest」），请先修 manifest：',
+  )
   for (const issue of report.issues) console.error(`  - ${issue.path}: ${issue.message}`)
   process.exit(1)
 }

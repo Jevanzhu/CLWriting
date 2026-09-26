@@ -84,7 +84,10 @@ afterAll(() => studio.close())
 describe('PUT /documents/:docId/content（W1 保存端点）', () => {
   it('新建保存（清单登记 + expectedRevision=null）→ 200 + 落盘', async () => {
     const r = await put('doc_1', {
-      content: '你好', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: '你好',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.status).toBe(200)
     const j = r.json as { ok: boolean; revision: string; superseded: boolean }
@@ -95,7 +98,10 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
 
   it('expectedRevision 不符磁盘 → 409', async () => {
     const r = await put('doc_1', {
-      content: '再次', expectedRevision: 'sha256:deadbeef', operationId: 'op2', origin: 'manual',
+      content: '再次',
+      expectedRevision: 'sha256:deadbeef',
+      operationId: 'op2',
+      origin: 'manual',
     })
     expect(r.status).toBe(409)
     expect((r.json as { code: string }).code).toBe('REVISION_CONFLICT')
@@ -107,14 +113,20 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
 
   it('docId 未在清单登记 → 404', async () => {
     const r = await put('doc_unknown', {
-      content: 'x', expectedRevision: null, operationId: 'op3', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op3',
+      origin: 'manual',
     })
     expect(r.status).toBe(404)
   })
 
   it('只读文档（定稿/摘要）→ 403 CAPABILITY_DENIED', async () => {
     const r = await put('doc_ro', {
-      content: 'x', expectedRevision: null, operationId: 'op4', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op4',
+      origin: 'manual',
     })
     expect(r.status).toBe(403)
     expect((r.json as { code: string }).code).toBe('CAPABILITY_DENIED')

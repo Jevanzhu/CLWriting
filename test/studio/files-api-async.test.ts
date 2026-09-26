@@ -20,9 +20,7 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clwriting-files-async-',
     dirs: ['设定'],
-    files: [
-      { rel: '设定/总纲.md', content: '旧总纲内容' },
-    ],
+    files: [{ rel: '设定/总纲.md', content: '旧总纲内容' }],
     bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 文件异步测试书\n  genre: 玄幻\nhost: cc\n',
   })
 })
@@ -41,7 +39,10 @@ describe('S4: /file 端点异步化后行为契约不回归', () => {
   })
 
   it('GET 不存在文件 → 404（异步 ENOENT 判定）', async () => {
-    const r = await studio.req('GET', `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/不存在.md')}`)
+    const r = await studio.req(
+      'GET',
+      `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/不存在.md')}`,
+    )
     expect(r.status).toBe(404)
   })
 

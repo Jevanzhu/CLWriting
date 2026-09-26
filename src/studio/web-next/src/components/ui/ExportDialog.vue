@@ -79,10 +79,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.exportOpen" kind="export" @mask-click="ui.closeExport">
-      <div ref="modalRef" class="export-modal" role="dialog" aria-modal="true" aria-label="导出" tabindex="-1" data-testid="export-dialog">
+      <div
+        ref="modalRef"
+        class="export-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="导出"
+        tabindex="-1"
+        data-testid="export-dialog"
+      >
         <div class="modal-head">
           <span>导出定稿</span>
-          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" data-testid="export-close" @click="ui.closeExport"><X :size="18" /></button>
+          <button
+            class="close-btn"
+            data-tip="关闭（Esc）"
+            aria-label="关闭"
+            data-tip-dir="bottom"
+            data-testid="export-close"
+            @click="ui.closeExport"
+          >
+            <X :size="18" />
+          </button>
         </div>
         <div class="form-row">
           <label>格式</label>

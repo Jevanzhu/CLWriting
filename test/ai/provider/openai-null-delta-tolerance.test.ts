@@ -47,7 +47,14 @@ describe('R37-2: delta:null 空 chunk 不崩流', () => {
     const evs = await collect(
       { ...REQ, tools: [{ name: 'submit_chapter', description: '', input_schema: { type: 'object' } }] },
       [
-        { choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'submit_chapter', arguments: '{"正文":' } }] }, finish_reason: null }] },
+        {
+          choices: [
+            {
+              delta: { tool_calls: [{ id: 'call_1', function: { name: 'submit_chapter', arguments: '{"正文":' } }] },
+              finish_reason: null,
+            },
+          ],
+        },
         // 部分网关的空占位 chunk：choice 在场但 delta 为 null（修复前此处 TypeError 崩流）
         { choices: [{ delta: null, finish_reason: null }] },
         { choices: [{ delta: { tool_calls: [{ function: { arguments: '"全文"}' } }] }, finish_reason: 'tool_calls' }] },
@@ -62,7 +69,10 @@ describe('R37-2: delta:null 空 chunk 不崩流', () => {
       name: 'submit_chapter',
       input: { 正文: '全文' },
     })
-    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 12, outputTokens: 6 } })
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 12, outputTokens: 6 },
+    })
   })
 
   it('纯文本流夹 delta:null chunk → 文本增量照常、finish 照常收口', async () => {
@@ -77,6 +87,9 @@ describe('R37-2: delta:null 空 chunk 不崩流', () => {
       { type: 'text', delta: '第一' },
       { type: 'text', delta: '段' },
     ])
-    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 3, outputTokens: 2 } })
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 3, outputTokens: 2 },
+    })
   })
 })

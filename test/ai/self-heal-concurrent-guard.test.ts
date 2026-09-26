@@ -36,8 +36,12 @@ function makeHangingDriver(): StudioDriver {
     emit(): void {},
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }

@@ -93,13 +93,10 @@ function requestOn(
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = { 'content-type': 'application/json', ...opts.headers }
     if (body !== undefined) headers['content-length'] = String(Buffer.byteLength(body))
-    const r = http.request(
-      { host: '127.0.0.1', port, method: opts.method, path: opts.path, headers, agent },
-      (res) => {
-        res.resume() // 消费响应体（keep-alive 复用的另一半前提）
-        res.on('end', () => resolve(res.statusCode ?? 0))
-      },
-    )
+    const r = http.request({ host: '127.0.0.1', port, method: opts.method, path: opts.path, headers, agent }, (res) => {
+      res.resume() // 消费响应体（keep-alive 复用的另一半前提）
+      res.on('end', () => resolve(res.statusCode ?? 0))
+    })
     r.on('socket', (s) => sockets.add(s))
     r.on('error', reject)
     r.end(body)
@@ -120,11 +117,35 @@ interface GateCase {
 
 /** 闸拒绝场景表（全部带 body）：覆盖入口六处拒绝路径中经 http 客户端可构造的五处 */
 const GATE_CASES: GateCase[] = [
-  { title: '写 Origin 403', method: 'POST', path: '/api/books/x/rename', headers: { origin: 'http://evil.example' }, expectStatus: 403 },
-  { title: '写 token 403', method: 'POST', path: '/api/books/x/rename', headers: { origin: ALLOWED, 'x-studio-token': 'wrong-token' }, expectStatus: 403 },
+  {
+    title: '写 Origin 403',
+    method: 'POST',
+    path: '/api/books/x/rename',
+    headers: { origin: 'http://evil.example' },
+    expectStatus: 403,
+  },
+  {
+    title: '写 token 403',
+    method: 'POST',
+    path: '/api/books/x/rename',
+    headers: { origin: ALLOWED, 'x-studio-token': 'wrong-token' },
+    expectStatus: 403,
+  },
   { title: 'GET token 403', method: 'GET', path: '/api/books', expectStatus: 403 },
-  { title: 'Host 403', method: 'POST', path: '/api/books/x/rename', headers: { host: 'evil.example:1' }, expectStatus: 403 },
-  { title: 'OPTIONS 204', method: 'OPTIONS', path: '/api/books/x/rename', headers: { origin: ALLOWED }, expectStatus: 204 },
+  {
+    title: 'Host 403',
+    method: 'POST',
+    path: '/api/books/x/rename',
+    headers: { host: 'evil.example:1' },
+    expectStatus: 403,
+  },
+  {
+    title: 'OPTIONS 204',
+    method: 'OPTIONS',
+    path: '/api/books/x/rename',
+    headers: { origin: ALLOWED },
+    expectStatus: 204,
+  },
 ]
 
 describe('R61-E-1：闸拒绝路径带 body → 排空钩子挂载 + keep-alive 连接可复用', () => {

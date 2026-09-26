@@ -52,11 +52,7 @@ export const useStyleStore = defineStore('style', () => {
     bookName.value = name
     loading.value = true
     try {
-      const [er, cr, cfg] = await Promise.all([
-        listStyleEntries(name),
-        listStyleCandidates(name),
-        getStyleConfig(name),
-      ])
+      const [er, cr, cfg] = await Promise.all([listStyleEntries(name), listStyleCandidates(name), getStyleConfig(name)])
       if (reqGen.stale(gen)) return null
       entries.value = er.entries
       entryErrors.value = er.errors.length

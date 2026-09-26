@@ -37,19 +37,13 @@ try {
 }
 `
   let out = ''
-  return spawnNodeEval(script, { onStdout: (c) => (out += c) }).done.then(
-    () => out.trim().split('\n').pop()!,
-  )
+  return spawnNodeEval(script, { onStdout: (c) => (out += c) }).done.then(() => out.trim().split('\n').pop()!)
 }
 
 describe('N3 workspaceSession 并行首开', () => {
   it('三进程并发首开同书 → 同一 ws 会话、库里仅 1 条 ws 行、链路事件 3 条全在', async () => {
     const bookRoot = '/books/n3-race'
-    const sids = await Promise.all([
-      spawnWorker(dir, bookRoot),
-      spawnWorker(dir, bookRoot),
-      spawnWorker(dir, bookRoot),
-    ])
+    const sids = await Promise.all([spawnWorker(dir, bookRoot), spawnWorker(dir, bookRoot), spawnWorker(dir, bookRoot)])
     // 三方拿到同一 ws 会话（BEGIN IMMEDIATE 串行化：后到者拿锁后重查必见先到者已 INSERT 的行）
     expect(new Set(sids).size).toBe(1)
     const db = new DatabaseSync(join(dir, 'clwriting', 'session', bookHash(bookRoot) + '.db'))
@@ -58,9 +52,7 @@ describe('N3 workspaceSession 并行首开', () => {
         .prepare(`SELECT COUNT(*) AS n FROM sessions WHERE book = ? AND session_id LIKE 'ws-%'`)
         .get(bookHash(bookRoot)) as { n: number }
       expect(wsRows.n).toBe(1) // 不分裂
-      const evs = db
-        .prepare(`SELECT COUNT(*) AS n FROM events WHERE type = 'llm/call'`)
-        .get() as { n: number }
+      const evs = db.prepare(`SELECT COUNT(*) AS n FROM events WHERE type = 'llm/call'`).get() as { n: number }
       expect(evs.n).toBe(3) // 三方事件都挂在同一 ws 会话下
     } finally {
       db.close()

@@ -6,13 +6,7 @@
  * 模块级零副作用：app.getPath 只在函数内惰性调用（storePath）——本文件随 main.ts 的
  * import 先于其模块体求值，app.setPath('userData') 必须先行。
  */
-import {
-  app,
-  dialog,
-  type BrowserWindow,
-  type MessageBoxOptions,
-  type OpenDialogOptions,
-} from 'electron'
+import { app, dialog, type BrowserWindow, type MessageBoxOptions, type OpenDialogOptions } from 'electron'
 import { basename, dirname, join, resolve } from 'node:path'
 import { readFileSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises' // 切库可达性预探（异步+超时，不冻主进程）
@@ -203,7 +197,10 @@ function rollbackCancelledSwitch(): void {
   if (!prev) return
   try {
     writeStore(prev)
-    log.info('main', `切库的退出被作者取消：workdir.json 已回写为原书库（${prev.current ?? '未选'}），本会话与下次启动均维持原库`)
+    log.info(
+      'main',
+      `切库的退出被作者取消：workdir.json 已回写为原书库（${prev.current ?? '未选'}），本会话与下次启动均维持原库`,
+    )
   } catch (e) {
     // 回滚写失败不另起错误面（退出取消路径），但必须留痕：持久化面仍指向被取消的
     // 新库，「应用原样保留」跨会话已破——留诊断线索供排查（磁盘满/只读卷同因）
@@ -285,7 +282,10 @@ type DirReachability = 'ok' | 'unreachable' | 'invalid'
  * （CLW_BOOTSTRAP_PROBE_TIMEOUT_MS），与切库 knob 解耦。
  * race/哨兵/clearTimeout 竞速体收编 raceWithTimeout 单源。
  */
-async function probeDirReachable(dir: string, timeoutMs: number = SWITCH_LIBRARY_PROBE_TIMEOUT_MS): Promise<DirReachability> {
+async function probeDirReachable(
+  dir: string,
+  timeoutMs: number = SWITCH_LIBRARY_PROBE_TIMEOUT_MS,
+): Promise<DirReachability> {
   try {
     const r = await raceWithTimeout(stat(dir), timeoutMs, PROBE_TIMEOUT)
     return r === PROBE_TIMEOUT ? 'unreachable' : 'ok'
@@ -389,10 +389,7 @@ async function pickLibrary(): Promise<string | null> {
     // 同款防线补齐「打开书库」入口；probeDirReachable 唯一消费点此前仅在切库链）。
     // 命中即原生错误框明确反馈并留在选择循环重选（封顶兜底）。
     if ((await probeDirReachable(dir)) === 'unreachable') {
-      dialog.showErrorBox(
-        '目录无响应',
-        `「${basename(dir)}」暂不可达（可能是网络卷无响应或已断开），请重新选择。`,
-      )
+      dialog.showErrorBox('目录无响应', `「${basename(dir)}」暂不可达（可能是网络卷无响应或已断开），请重新选择。`)
       continue
     }
     if (isLibraryDir(dir)) {
@@ -516,7 +513,10 @@ async function openLibraryAction(): Promise<boolean> {
   // 清偿批落库改切库链专用包装（快照武装回滚基线），取消退出可回写
   const saveErr = saveCurrentArmingRollback(picked)
   if (saveErr) {
-    dialog.showErrorBox('打开书库目录失败', `${saveErr}\n\n当前书库未切换，应用将继续在原书库上运行。请检查磁盘空间/权限后重试。`)
+    dialog.showErrorBox(
+      '打开书库目录失败',
+      `${saveErr}\n\n当前书库未切换，应用将继续在原书库上运行。请检查磁盘空间/权限后重试。`,
+    )
     return false
   }
   relaunch()

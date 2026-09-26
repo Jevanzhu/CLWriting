@@ -78,9 +78,7 @@ describe('R37-33: ConfirmDeleteModal 焦点圈 + 默认聚焦取消', () => {
     expect(document.activeElement).toBe(btns[0])
 
     // Shift+Tab 从取消（first）→ 包裹到确认删除（last）：Tab 循环不出弹窗
-    btns[0]!.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
-    )
+    btns[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
     await nextTick()
     expect(document.activeElement).toBe(btns[1])
 

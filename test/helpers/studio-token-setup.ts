@@ -74,7 +74,11 @@ export const GET_TOKEN_EXEMPT: readonly RegExp[] = [/^\/api\/boot$/, /^\/api\/bo
       u.pathname.startsWith('/api/') &&
       !GET_TOKEN_EXEMPT.some((re) => re.test(u.pathname)) &&
       !u.searchParams.has('token') && // SSE 等 query 凭据通道：不动
-      (init?.method ?? (typeof input === 'string' || input instanceof URL ? 'GET' : input.method) ?? 'GET').toUpperCase() === 'GET'
+      (
+        init?.method ??
+        (typeof input === 'string' || input instanceof URL ? 'GET' : input.method) ??
+        'GET'
+      ).toUpperCase() === 'GET'
     if (!shouldInject) return origFetch(input as RequestInfo, init)
 
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))

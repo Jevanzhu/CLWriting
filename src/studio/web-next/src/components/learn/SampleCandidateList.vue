@@ -30,9 +30,7 @@ const scoreStats = computed(() => scoreTierStats(learn.samples))
 // 与旧键的全量重渲染等价。
 type KeyedSample = { s: SampleCandidateFE; key: string }
 const sampleGroups = computed(() => {
-  const list = filter.value === 'a'
-    ? learn.samples.filter((s) => s.打分 >= TIER_A)
-    : learn.samples
+  const list = filter.value === 'a' ? learn.samples.filter((s) => s.打分 >= TIER_A) : learn.samples
   const map = new Map<string, SampleCandidateFE[]>()
   for (const s of list) {
     const arr = map.get(s.场景)
@@ -76,9 +74,12 @@ function expandGroup(scene: string): void {
 // #23：expandedGroups 跨收割重置——组件实例随视图常驻，上一轮手动展开的大组
 // 在新收割数据上仍全量渲染；收割跑完（loading 落 false）即清。commit 后列表收缩不推
 // loading，展开态保留
-watch(() => learn.loading, (v, old) => {
-  if (old && !v) expandedGroups.value = new Set()
-})
+watch(
+  () => learn.loading,
+  (v, old) => {
+    if (old && !v) expandedGroups.value = new Set()
+  },
+)
 
 // ── 批量操作 ──
 function selectAllTierA(): void {
@@ -279,12 +280,20 @@ function clearAllPicks(): void {
   border-radius: var(--radius-m);
   background: var(--background-primary);
   padding: var(--size-4-3);
-  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 /* 左竖线按档着色 */
-.cand-card.a { border-left-color: var(--dv-good); }
-.cand-card.b { border-left-color: var(--dv-warn); }
-.cand-card.c { border-left-color: var(--background-modifier-border-active); }
+.cand-card.a {
+  border-left-color: var(--dv-good);
+}
+.cand-card.b {
+  border-left-color: var(--dv-warn);
+}
+.cand-card.c {
+  border-left-color: var(--background-modifier-border-active);
+}
 .cand-card.picked {
   background: var(--background-modifier-active-hover);
   border-color: var(--interactive-accent);

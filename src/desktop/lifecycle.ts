@@ -8,11 +8,7 @@ import { app, dialog, type BrowserWindow } from 'electron'
 import { log } from '../log/index.js'
 import { raceWithTimeout } from './workdir-store.js'
 import { guardClosedCleanup, saveWinState, wins } from './windows.js'
-import {
-  armPendingRelaunchIfAny,
-  discardPendingRelaunch,
-  rollbackCancelledSwitch,
-} from './workdir-controller.js'
+import { armPendingRelaunchIfAny, discardPendingRelaunch, rollbackCancelledSwitch } from './workdir-controller.js'
 
 // ── 退出链共享状态（读写面收敛于本文件）──
 
@@ -63,7 +59,9 @@ const CLOSE_FLUSH_BUDGET_MS = 4_000
  *  prefs store 的 500ms 防抖窗内最后改动随关窗落盘；预冲刷失败吞掉不阻断 doc flush 与关窗。
  *  保持单次 executeJavaScript：execJs 调用次数与返回形状不变（main.test 断言锚定）。
  *  返回 null＝钩子不在或渲染层不可达（非编辑页无 dirty 状态，无兜底可做）。 */
-async function flushRendererBeforeClose(target: BrowserWindow): Promise<{ conflict: string[]; failed: string[] } | null> {
+async function flushRendererBeforeClose(
+  target: BrowserWindow,
+): Promise<{ conflict: string[]; failed: string[] } | null> {
   if (target.isDestroyed()) return null
   try {
     const r = (await target.webContents.executeJavaScript(
@@ -72,7 +70,10 @@ async function flushRendererBeforeClose(target: BrowserWindow): Promise<{ confli
     if (r && typeof r === 'object') {
       const pick = (v: unknown): string[] =>
         Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-      return { conflict: pick((r as { conflict?: unknown }).conflict), failed: pick((r as { failed?: unknown }).failed) }
+      return {
+        conflict: pick((r as { conflict?: unknown }).conflict),
+        failed: pick((r as { failed?: unknown }).failed),
+      }
     }
     return null
   } catch {
@@ -185,7 +186,10 @@ async function runFlushConfirm(win: BrowserWindow, opts: FlushConfirmOpts): Prom
   if (res && res.failed.length > 0 && !win.isDestroyed() && !skipConfirms) {
     // 保存失败（failed = 保存失败的 docId 列表）与冲突同属「flush 未落净」——本链路无法
     // 代存，零消费＝编辑增量静默丢失。先留痕失败清单（只是文档 id，供诊断），再弹原生确认。
-    log.error('desktop', `${opts.failedPrefix} flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`)
+    log.error(
+      'desktop',
+      `${opts.failedPrefix} flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`,
+    )
     if (!confirmDiscardFailed(win, res.failed.length)) {
       opts.onCancel()
       return 'cancel'

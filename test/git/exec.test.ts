@@ -260,19 +260,17 @@ test('RC 源码重审 A-2: 仓库内 core.fsmonitor 命令经统一执行器不�
 
 test('RC 源码重审 A-2: hardenGitArgs 平台分支——fsmonitor 恒关，hooksPath 按平台落 NUL//dev/null', () => {
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-  expect(hardenGitArgs(['status'])).toEqual([
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=NUL', 'status',
-  ])
+  expect(hardenGitArgs(['status'])).toEqual(['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=NUL', 'status'])
   Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-  expect(hardenGitArgs(['status'])).toEqual([
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'status',
-  ])
+  expect(hardenGitArgs(['status'])).toEqual(['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', 'status'])
 })
 
 test('RC 源码重审 A-2: git()/gitAsync() 子进程 argv 均带加固前置；失败信封不外露 -c 噪音', async () => {
   const root = makeGitBook()
   const expectPrefix = [
-    '-c', 'core.fsmonitor=false', '-c',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
     `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
   ]
   try {
@@ -283,7 +281,12 @@ test('RC 源码重审 A-2: git()/gitAsync() 子进程 argv 均带加固前置；
     mockSpawnArgv.mockClear()
     await gitAsync(['for-each-ref', '--format=%(refname)', 'refs/ai/'], root)
     expect(mockSpawnArgv).toHaveBeenCalled()
-    expect(mockSpawnArgv.mock.calls[0]![1]).toEqual([...expectPrefix, 'for-each-ref', '--format=%(refname)', 'refs/ai/'])
+    expect(mockSpawnArgv.mock.calls[0]![1]).toEqual([
+      ...expectPrefix,
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/ai/',
+    ])
 
     // 失败信封用调用方原 args 拼装（作者可见文案里不出现加固参数）
     const r = git(['cat-file', '-p', 'refs/ai/不存在'], root)

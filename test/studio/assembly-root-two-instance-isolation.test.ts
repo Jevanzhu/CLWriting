@@ -32,12 +32,19 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createStudioServer, type StudioServerHandle } from '../../src/studio/server/index.js'
 import { createTaskGate } from '../../src/studio/server/api/task-gate.js'
 import type { DriverHost } from '../../src/studio/server/driver-port.js'
-import { createProviderRuntime, emptySettings, processProviderRuntime, type ProviderRuntime, type ProviderStore } from '../../src/ai/provider/store.js'
+import {
+  createProviderRuntime,
+  emptySettings,
+  processProviderRuntime,
+  type ProviderRuntime,
+  type ProviderStore,
+} from '../../src/ai/provider/store.js'
 import type { DriverEvent, Session } from '../../src/driver/index.js'
 import type { ProviderConf, TierSlot } from '../../src/ai/provider/types.js'
 
 const BOOK = '双实例判据书'
-const BOOK_YAML = 'spec_version: 1\nkind: long\nbook:\n  title: 双实例判据书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n'
+const BOOK_YAML =
+  'spec_version: 1\nkind: long\nbook:\n  title: 双实例判据书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const readSrc = (rel: string): string => readFileSync(`${root}${rel}`, 'utf8')
 
@@ -103,7 +110,13 @@ function makeProviderRuntimeWithProvider(name: string): ProviderRuntime {
   } as unknown as ProviderConf
   const tier: TierSlot = { model: 'judge-model', effort: 'xhigh' }
   return createProviderRuntime({
-    loadProviders: () => ({ ...emptySettings(), providers: [conf], currentId: conf.id, tiers: { creative: tier, assistant: null, chat: null } } as ProviderStore),
+    loadProviders: () =>
+      ({
+        ...emptySettings(),
+        providers: [conf],
+        currentId: conf.id,
+        tiers: { creative: tier, assistant: null, chat: null },
+      }) as ProviderStore,
     currentProvider: () => conf,
     resolveTier: () => tier,
   })
@@ -153,7 +166,13 @@ async function boot(opts: {
   return booted
 }
 
-function req(base: string, token: string, method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
+function req(
+  base: string,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; json: any }> {
   return new Promise((resolve, reject) => {
     const u = new URL(base)
     const payload = body === undefined ? undefined : JSON.stringify(body)
@@ -165,7 +184,9 @@ function req(base: string, token: string, method: string, path: string, body?: u
         method,
         headers: {
           'x-studio-token': token,
-          ...(payload !== undefined ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
+          ...(payload !== undefined
+            ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+            : {}),
         },
       },
       (res) => {
@@ -245,7 +266,11 @@ describe('组装根双实例互不干扰判据（R0916-7-P3-6 收尾）', () => 
 
   it('② driver 选择各随其 deps：ai-status 的 mock 判定与 driver 字段按实例分叉', async () => {
     const a = await boot({ prefix: 'two-inst-drv-a-', kind: 'mock', providers: processProviderRuntime() })
-    const b = await boot({ prefix: 'two-inst-drv-b-', kind: 'cc', providers: makeProviderRuntimeWithProvider('乙供应商') })
+    const b = await boot({
+      prefix: 'two-inst-drv-b-',
+      kind: 'cc',
+      providers: makeProviderRuntimeWithProvider('乙供应商'),
+    })
 
     const ra = await req(a.base, a.token, 'GET', '/api/ai-status')
     expect(ra.json).toEqual({ available: true, driver: 'mock' })
@@ -256,8 +281,16 @@ describe('组装根双实例互不干扰判据（R0916-7-P3-6 收尾）', () => 
   })
 
   it('③ provider 注册表各随其 deps：A 注入含供应商运行时可达，B 空运行时未配置（互不串扰）', async () => {
-    const a = await boot({ prefix: 'two-inst-prov-a-', kind: 'cc', providers: makeProviderRuntimeWithProvider('甲供应商') })
-    const b = await boot({ prefix: 'two-inst-prov-b-', kind: 'cc', providers: createProviderRuntime({ loadProviders: () => emptySettings(), currentProvider: () => null }) })
+    const a = await boot({
+      prefix: 'two-inst-prov-a-',
+      kind: 'cc',
+      providers: makeProviderRuntimeWithProvider('甲供应商'),
+    })
+    const b = await boot({
+      prefix: 'two-inst-prov-b-',
+      kind: 'cc',
+      providers: createProviderRuntime({ loadProviders: () => emptySettings(), currentProvider: () => null }),
+    })
 
     const ra = await req(a.base, a.token, 'GET', '/api/ai-status')
     expect(ra.json).toEqual({ available: true, driver: '甲供应商' })

@@ -20,11 +20,7 @@ import {
   forgetForeshadowCache,
   foreshadowCache,
 } from '../../src/studio/server/api/foreshadows.js'
-import {
-  readMdTextCached,
-  readMdTextCachedAsync,
-  __mdTextCacheTestHooks,
-} from '../../src/fs/md-text-cache.js'
+import { readMdTextCached, readMdTextCachedAsync, __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
 import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
@@ -48,7 +44,11 @@ function makeTree(chapters = 30): string {
   for (let i = 1; i <= chapters; i++) {
     const no = String(i).padStart(4, '0')
     const hit = i % 10 === 0 ? `匣中铜锁轻响，玉佩微凉。（第${i}章）` : `平淡推进的一章，无特殊物件。（第${i}章）`
-    writeFileSync(join(root, '写作', '正文', `${no}-章.md`), `---\n章号: ${i}\n标题: 第${i}章\n---\n\n${hit}\n`, 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', `${no}-章.md`),
+      `---\n章号: ${i}\n标题: 第${i}章\n---\n\n${hit}\n`,
+      'utf-8',
+    )
   }
   return root
 }

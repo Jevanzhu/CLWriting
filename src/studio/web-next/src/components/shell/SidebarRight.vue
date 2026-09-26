@@ -37,8 +37,14 @@ const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。
  *  短篇正文（role=piece-body）与长篇同 path（写作/正文/），按 role 取「短篇」标题。 */
 const FORM_TITLE: Record<string, string> = {
-  chapter: '章节', 'piece-body': '短篇', 'chapter-outline': '章纲', 'volume-outline': '卷纲',
-  synopsis: '总纲', character: '角色', worldview: '世界观', item: '物品',
+  chapter: '章节',
+  'piece-body': '短篇',
+  'chapter-outline': '章纲',
+  'volume-outline': '卷纲',
+  synopsis: '总纲',
+  character: '角色',
+  worldview: '世界观',
+  item: '物品',
 }
 const formSectionTitle = computed(() => {
   if (!ws.activeDocId) return '信息'
@@ -68,12 +74,7 @@ const historyOpen = ref(true)
 <template>
   <div class="sidebar-right">
     <div class="right-topbar" :class="{ 'is-drag': isDesktop, 'wco-avoid': isWin }">
-      <button
-        class="right-tab"
-        data-tip="收起右栏"
-        data-tip-dir="bottom"
-        @click="ws.toggleRight()"
-      >
+      <button class="right-tab" data-tip="收起右栏" data-tip-dir="bottom" @click="ws.toggleRight()">
         <PanelRightClose :size="17" :stroke-width="1.6" />
       </button>
       <div class="right-tabs">
@@ -82,7 +83,8 @@ const historyOpen = ref(true)
           :key="t.key"
           class="right-tab"
           :class="{ active: ws.rightTab === t.key }"
-          :data-tip="t.label" data-tip-dir="bottom"
+          :data-tip="t.label"
+          data-tip-dir="bottom"
           @click="ws.setRightTab(t.key)"
         >
           <component :is="t.icon" :size="17" :stroke-width="1.6" />
@@ -179,7 +181,9 @@ const historyOpen = ref(true)
   background: transparent;
   color: var(--text-icon);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .right-tab:hover {
   background: var(--background-modifier-hover);

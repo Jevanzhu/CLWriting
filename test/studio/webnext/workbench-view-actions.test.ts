@@ -123,7 +123,12 @@ describe('WorkbenchView: 生成动作（R76-8）', () => {
 
   it('生成在途（getDraftPrompt 慢回流）→ Enter 通道同被在途锁挡（R69-29）', async () => {
     let resolvePrompt!: (v: { prompt: string }) => void
-    mocks.getDraftPrompt.mockImplementationOnce(() => new Promise((r) => { resolvePrompt = r }))
+    mocks.getDraftPrompt.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolvePrompt = r
+        }),
+    )
     const w = await mountView()
     await w.find('.prompt-input').setValue('x')
     const click = findBtn(w, '生成')!.trigger('click')
@@ -140,7 +145,12 @@ describe('WorkbenchView: 生成动作（R76-8）', () => {
 
   it('拉上下文期间切书 → spawnRole 不发、toast 不落 B 书界面（FE-9/R70-10）', async () => {
     let resolvePrompt!: (v: { prompt: string }) => void
-    mocks.getDraftPrompt.mockImplementationOnce(() => new Promise((r) => { resolvePrompt = r }))
+    mocks.getDraftPrompt.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolvePrompt = r
+        }),
+    )
     const w = await mountView()
     await w.find('.prompt-input').setValue('x')
     const click = findBtn(w, '生成')!.trigger('click')
@@ -247,9 +257,7 @@ describe('WorkbenchView: 崩溃 pending 忽略通道（R0912-FE-P2-3）', () => 
   it('acknowledge 在途切书 → 迟到结果不落 B 书（R70-10 家族守卫）', async () => {
     mocks.getState.mockResolvedValue(crashedState)
     let resolveAck!: (v: { ok: true; acknowledged: boolean }) => void
-    mocks.acknowledgeJournalPending.mockImplementationOnce(
-      () => new Promise((r) => (resolveAck = r)),
-    )
+    mocks.acknowledgeJournalPending.mockImplementationOnce(() => new Promise((r) => (resolveAck = r)))
     const w = await mountView()
     w.findComponent(WbStateCard).vm.$emit('acknowledge')
     await nextTick()

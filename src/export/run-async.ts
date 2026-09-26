@@ -28,10 +28,7 @@ function resolveWorkerUrl(): URL {
   return resolveSiblingWorkerUrl(import.meta.url, 'export')
 }
 
-export function runExportBookAsync(
-  job: ExportOptions,
-  opts: ExportRunnerOptions = {},
-): Promise<ExportResult> {
+export function runExportBookAsync(job: ExportOptions, opts: ExportRunnerOptions = {}): Promise<ExportResult> {
   return runWorkerJob<ExportResult>({
     job,
     workerUrl: opts.workerUrl ?? resolveWorkerUrl(),

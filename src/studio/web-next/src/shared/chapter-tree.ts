@@ -10,9 +10,28 @@ import { parseChapterFileName } from './words'
 /** Windows 保留设备名（大小写不敏感）：主文件名命中即不可建（CON.md 在 Win 侧同样非法）。
  *  COM1-9 / LPT1-9 为串并口设备名系列；不含 console（普通词，非保留名）。 */
 const WINDOWS_RESERVED_NAMES = new Set([
-  'con', 'prn', 'aux', 'nul',
-  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
-  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
 ])
 
 /** 名称校验（原 FileTree.sanitizeName）：空/含路径分隔符/点开头/控制字符 → null。

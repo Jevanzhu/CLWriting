@@ -80,10 +80,7 @@ export function assembleSettingsInjection(
   // 最具体层（dropOrder 末位）不靠丢腾预算——它是压舱的最后一段。
   const dropOrder = layers
     .map((_, i) => i)
-    .sort(
-      (a, b) =>
-        SPECIFICITY_RANK[layers[a]!.specificity] - SPECIFICITY_RANK[layers[b]!.specificity] || a - b,
-    )
+    .sort((a, b) => SPECIFICITY_RANK[layers[a]!.specificity] - SPECIFICITY_RANK[layers[b]!.specificity] || a - b)
   const parts = layers.map((l) => l.text)
   const omitted: string[] = []
   for (let k = 0; k < dropOrder.length - 1; k++) {

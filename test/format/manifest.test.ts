@@ -258,11 +258,7 @@ test('R26-33: 重复段 warn 并保留首个（后段丢弃，不再静默覆盖
 test('R26-33: 伏笔回收段格式不符行 warn；合法条目不受影响', () => {
   const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
   try {
-    const body = [
-      '## 伏笔回收',
-      '- 玉佩 → 回收于 结尾',
-      '- 这一行缺回收标记',
-    ].join('\n')
+    const body = ['## 伏笔回收', '- 玉佩 → 回收于 结尾', '- 这一行缺回收标记'].join('\n')
     const list = parsePieceListBody(body)
     expect(list.伏笔回收).toHaveLength(1) // 合法条目照常解析
     expect(list.伏笔回收[0]!.伏笔).toBe('玉佩')

@@ -16,7 +16,13 @@ import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 // R0916-7-P3-6：save/meta 布线锁档改 per-ctx 注入（DocContextOptions），模块级 ForTest 钩子删除
-import { __setManifestLockTimeoutForTest, readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
+import {
+  __setManifestLockTimeoutForTest,
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  type Manifest,
+} from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 
 const WIRING_REL = '布线/悬念/悬念-001-灭门.md'

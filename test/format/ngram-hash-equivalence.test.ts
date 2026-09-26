@@ -105,7 +105,26 @@ function buildChineseCorpus(targetChars: number): string {
  *  注入点：第 4/20 句各一次 CROSS_ASTRAL（跨句 astral 聚合）；第 8 句（astral 句）与
  *  第 30 句（纯 BMP 句）各一次 CROSS_BMP（跨路径同短语并桶）。 */
 function buildAstralCorpus(targetUnits: number): string {
-  const pool = ['夜', '色', '沉', '的', '长', '街', '尽', '头', '灯', '火', '😀', '😂', '🤣', '𠮷', '𠀀', '𝓐', '𝓩', '，']
+  const pool = [
+    '夜',
+    '色',
+    '沉',
+    '的',
+    '长',
+    '街',
+    '尽',
+    '头',
+    '灯',
+    '火',
+    '😀',
+    '😂',
+    '🤣',
+    '𠮷',
+    '𠀀',
+    '𝓐',
+    '𝓩',
+    '，',
+  ]
   const sentences: string[] = []
   let written = 0
   while (written < targetUnits) {
@@ -142,7 +161,9 @@ describe('ngramRepeatRate 数值哈希键等价性（PM-7）', () => {
     expect(got.repeatInstances).toBe(3)
     expect(got.repeatChars).toBe(24)
     // 反例：中间句隔断后无任何共享 8-gram → 0
-    expect(expectEquivalent('他大步流星地走了过去。夜风掀动窗纸把灯吹得摇晃。各自独立成句没有共享。', 8).repeatInstances).toBe(0)
+    expect(
+      expectEquivalent('他大步流星地走了过去。夜风掀动窗纸把灯吹得摇晃。各自独立成句没有共享。', 8).repeatInstances,
+    ).toBe(0)
   })
 
   it('跨路径并桶（R31-18 精确语义）：同一 BMP 短语在 astral 句与 BMP 句各一次 → 计 3 处重复', () => {
@@ -215,9 +236,30 @@ describe('ngramRepeatRate 数值哈希键等价性（PM-7）', () => {
   it('随机模糊：混合字母表（含孤立代理/零宽/astral）× n∈{1,2,8,16} × 300 轮全等', () => {
     resetSeed(0x4b7e21)
     const alphabet = [
-      '字', '的', '了', '，', '。', '！', '？', '…', '；', '\n', 'a', 'Z', '0', ' ', '　',
-      '😀', '😂', '𠮷', '𠀀', '𝓐', '\uD800', '\uDC00', // astral 与孤立代理
-      '​', '‍', // ZWSP(200b) / ZWJ(200d)——非空白、不切句，进 gram
+      '字',
+      '的',
+      '了',
+      '，',
+      '。',
+      '！',
+      '？',
+      '…',
+      '；',
+      '\n',
+      'a',
+      'Z',
+      '0',
+      ' ',
+      '　',
+      '😀',
+      '😂',
+      '𠮷',
+      '𠀀',
+      '𝓐',
+      '\uD800',
+      '\uDC00', // astral 与孤立代理
+      '​',
+      '‍', // ZWSP(200b) / ZWJ(200d)——非空白、不切句，进 gram
     ]
     const ns = [1, 2, 8, 16]
     for (let round = 0; round < 300; round++) {
@@ -252,9 +294,7 @@ describe('ngramRepeatRate 数值哈希键性能烟雾（PM-7）', { retry: 2 }, 
   it('5 万字中文语料：新实现耗时低于字符串键参照（min-of-3 取最小防抖动）', () => {
     resetSeed(0x2f6e2b1) // 与等价性用例同种子同语料，先证同体再比时
     const corpus = buildChineseCorpus(50_000)
-    expect(ngramRepeatRate(corpus).repeatInstances).toBe(
-      referenceNgramRepeatRate(corpus).repeatInstances,
-    )
+    expect(ngramRepeatRate(corpus).repeatInstances).toBe(referenceNgramRepeatRate(corpus).repeatInstances)
     const run = (fn: () => unknown) => {
       const t0 = performance.now()
       fn()

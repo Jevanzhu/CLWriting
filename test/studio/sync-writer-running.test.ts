@@ -37,10 +37,10 @@ interface SyncFrame {
 async function readSyncFrame(): Promise<{ frame: SyncFrame; abort: () => void }> {
   const ac = new AbortController()
   // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
-  const r = await fetch(
-    `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream`,
-    { signal: ac.signal, headers: { 'x-studio-token': studio.token } },
-  )
+  const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream`, {
+    signal: ac.signal,
+    headers: { 'x-studio-token': studio.token },
+  })
   expect(r.status).toBe(200)
   const reader = r.body!.getReader()
   const { value } = await reader.read()

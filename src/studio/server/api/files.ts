@@ -58,7 +58,9 @@ const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进
  * 覆写丢原稿面（PUT 侧防线现为 fail-closed 拒存）。encodingSuspect 随响应
  * 透出，前端打开时 toast 告警（web-next doOpen 消费）。
  */
-async function readFileHashed(fp: string): Promise<{ content: string; revision: string; encodingSuspect: boolean } | null> {
+async function readFileHashed(
+  fp: string,
+): Promise<{ content: string; revision: string; encodingSuspect: boolean } | null> {
   let buf: Buffer
   try {
     buf = await readFileAsync(fp)
@@ -97,7 +99,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
         content: read.content,
         revision: read.revision,
         ...(read.encodingSuspect
-          ? { encodingSuspect: true, encodingHint: '该文件不是 UTF-8 编码，内容可能显示为乱码——请先在编辑器外转码为 UTF-8 再编辑保存' }
+          ? {
+              encodingSuspect: true,
+              encodingHint: '该文件不是 UTF-8 编码，内容可能显示为乱码——请先在编辑器外转码为 UTF-8 再编辑保存',
+            }
           : {}),
       })
     },
@@ -178,60 +183,60 @@ export function registerFileRoutes(ctx: FileCtx): void {
           }
         }
         try {
-        // 异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
-        const baseline = await readFileHashed(safe)
-        if (!baseline) return { status: 404, code: 'NOT_FOUND', error: '文件不存在' } as const
-        // 临界段写前重验书注册——readFileHashed 的 await 可跨
-        // renameSync/rmSync（drain 是快照式，快照后新进的 PUT 无闸拦）：书已删/改路径
-        // 后写旧路径，atomicWriteFile 的 mkdir recursive 会重建目录树成孤儿文件，PUT
-        // 却返回 200「已保存」。重验判删除/改名 → 拒写 409，编辑端拿到可读错误重新进书。
-        // （-deepseek-v4.1-flash ）：重验判定与信封文案一并收敛
-        // book-context.ts bookMovedFailure 单源（全库最后一处内联 BOOK_MOVED）——
-        // 单源头注即设计不变量「reason 人话各端点一致」，本端点旧文案是该不变量的
-        // 漏改残留（主审核定：全域仅此一处旧文案、零测试钉值，归一无契约面损伤）。
-        const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-        if (moved) {
-          return { status: 409, code: moved.code, error: moved.reason } as const
-        }
-        if (input.expectedRevision !== undefined && input.expectedRevision !== baseline.revision) {
-          return {
-            status: 409,
-            code: 'REVISION_CONFLICT',
-            error: '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
-          } as const
-        }
-        // 覆盖写前快照留底——PUT /file 直接 atomicWriteFile 覆盖既有
-        // 文件（设定/大纲/细纲等编辑器白名单 .md），旧内容此前无版本链、误存即不可恢复。
-        // 复用 draft 侧 snapshotBeforeOverwrite 单源工具（文件不存在/内容相同 → null 不留）。
-        // （修复批）：原 catch 把**全部**留底失败一并
-        // fail-open 吞掉继续覆盖写——其中非 UTF-8 确定性拒绝被吞 = GBK/Big5 存量
-        // 书在编辑器保存即无快照覆盖丢原稿且返 200（本轮唯一）。现改 fail-closed 分诊
-        //（对齐同函数在 saveDraft 侧的现行口径「留底失败上抛拒绝覆写」，的
-        // fail-open 注记就此废止）：
-        // - NonUtf8TargetError→ 400 + 转码指引文案（确定性失败，重试无意义）；
-        // - 其余留底 IO 失败 → 409 WRITE_ERROR「未执行保存，可重试」——留底失败时覆盖写
-        //   = 无版本兜底的不可逆替换，与「作者手改不静默丢失」红线相抵；拒绝保存零损失
-        //   （原稿与编辑器内容都在），修好 IO 后重试即成功。
-        try {
-          snapshotBeforeOverwrite(bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
-        } catch (e) {
-          if (e instanceof NonUtf8TargetError) {
-            return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message } as const
+          // 异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
+          const baseline = await readFileHashed(safe)
+          if (!baseline) return { status: 404, code: 'NOT_FOUND', error: '文件不存在' } as const
+          // 临界段写前重验书注册——readFileHashed 的 await 可跨
+          // renameSync/rmSync（drain 是快照式，快照后新进的 PUT 无闸拦）：书已删/改路径
+          // 后写旧路径，atomicWriteFile 的 mkdir recursive 会重建目录树成孤儿文件，PUT
+          // 却返回 200「已保存」。重验判删除/改名 → 拒写 409，编辑端拿到可读错误重新进书。
+          // （-deepseek-v4.1-flash ）：重验判定与信封文案一并收敛
+          // book-context.ts bookMovedFailure 单源（全库最后一处内联 BOOK_MOVED）——
+          // 单源头注即设计不变量「reason 人话各端点一致」，本端点旧文案是该不变量的
+          // 漏改残留（主审核定：全域仅此一处旧文案、零测试钉值，归一无契约面损伤）。
+          const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+          if (moved) {
+            return { status: 409, code: moved.code, error: moved.reason } as const
           }
-          log.warn('api', `PUT /file 覆盖前快照留底失败（fail-closed 拒绝保存，可重试）：${safe}`, e)
-          return {
-            status: 409,
-            code: 'WRITE_ERROR',
-            error: `覆盖前快照留底失败，保存已取消（未写入，可重试）：${errMsg(e)}`,
-          } as const
-        }
-        atomicWriteFile(safe, content)
-        // 与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
-        // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈。
-        // 改走单键失效——只清本次改写文件的 probe 键，不再整书清空
-        // 哈希缓存（否则每次编辑器保存后下一次树请求全书重读+重哈希）
-        invalidateTreeIndexForContent(bookRoot, putRel)
-        return { revision: hashContent(content) } as const
+          if (input.expectedRevision !== undefined && input.expectedRevision !== baseline.revision) {
+            return {
+              status: 409,
+              code: 'REVISION_CONFLICT',
+              error: '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
+            } as const
+          }
+          // 覆盖写前快照留底——PUT /file 直接 atomicWriteFile 覆盖既有
+          // 文件（设定/大纲/细纲等编辑器白名单 .md），旧内容此前无版本链、误存即不可恢复。
+          // 复用 draft 侧 snapshotBeforeOverwrite 单源工具（文件不存在/内容相同 → null 不留）。
+          // （修复批）：原 catch 把**全部**留底失败一并
+          // fail-open 吞掉继续覆盖写——其中非 UTF-8 确定性拒绝被吞 = GBK/Big5 存量
+          // 书在编辑器保存即无快照覆盖丢原稿且返 200（本轮唯一）。现改 fail-closed 分诊
+          //（对齐同函数在 saveDraft 侧的现行口径「留底失败上抛拒绝覆写」，的
+          // fail-open 注记就此废止）：
+          // - NonUtf8TargetError→ 400 + 转码指引文案（确定性失败，重试无意义）；
+          // - 其余留底 IO 失败 → 409 WRITE_ERROR「未执行保存，可重试」——留底失败时覆盖写
+          //   = 无版本兜底的不可逆替换，与「作者手改不静默丢失」红线相抵；拒绝保存零损失
+          //   （原稿与编辑器内容都在），修好 IO 后重试即成功。
+          try {
+            snapshotBeforeOverwrite(bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
+          } catch (e) {
+            if (e instanceof NonUtf8TargetError) {
+              return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message } as const
+            }
+            log.warn('api', `PUT /file 覆盖前快照留底失败（fail-closed 拒绝保存，可重试）：${safe}`, e)
+            return {
+              status: 409,
+              code: 'WRITE_ERROR',
+              error: `覆盖前快照留底失败，保存已取消（未写入，可重试）：${errMsg(e)}`,
+            } as const
+          }
+          atomicWriteFile(safe, content)
+          // 与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
+          // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈。
+          // 改走单键失效——只清本次改写文件的 probe 键，不再整书清空
+          // 哈希缓存（否则每次编辑器保存后下一次树请求全书重读+重哈希）
+          invalidateTreeIndexForContent(bookRoot, putRel)
+          return { revision: hashContent(content) } as const
         } finally {
           wiringRelease?.()
         }
@@ -240,13 +245,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
       reply(res, 200, { ok: true, revision: outcome.revision })
     },
   })
-
 }
 
 /** PUT 临界段产出——错误信封（回 4xx/5xx）或成功新指纹。 */
 type FilePutOutcome =
-  | { readonly status: number; readonly code: string; readonly error: string }
-  | { readonly revision: string }
+  { readonly status: number; readonly code: string; readonly error: string } | { readonly revision: string }
 
 /** 同文件 PUT 串行链（key = 绝对安全路径）。
  *  ：enqueue/settled 吞错/链尾自清理四件套收编
@@ -345,4 +348,3 @@ function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
   }
   return null
 }
-

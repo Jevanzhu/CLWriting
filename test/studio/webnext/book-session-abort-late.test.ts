@@ -28,7 +28,9 @@ function fetchHonoringAbort(): void {
     const signal = init?.signal
     return new Promise<Response>((resolve, reject) => {
       pending = { resolve }
-      signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true })
+      signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), {
+        once: true,
+      })
     })
   })
 }
@@ -53,14 +55,21 @@ const docMock = {
 const toastMock = vi.fn()
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({ useTreeStore: vi.fn(() => treeMock) }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({ useDocStore: vi.fn(() => docMock) }))
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({ useUiStore: vi.fn(() => ({ toast: toastMock, ask: vi.fn(async () => true) })) }))
-vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({ useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null) })) }))
+vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
+  useUiStore: vi.fn(() => ({ toast: toastMock, ask: vi.fn(async () => true) })),
+}))
+vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
+  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null) })),
+}))
 
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 
 let currentBook = '书A'
 
-function setup(): { actions: ReturnType<typeof useChapterTreeActions>; openError: ReturnType<typeof ref<string | null>> } {
+function setup(): {
+  actions: ReturnType<typeof useChapterTreeActions>
+  openError: ReturnType<typeof ref<string | null>>
+} {
   const openError = ref<string | null>(null)
   const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
   return { actions, openError }
@@ -122,7 +131,10 @@ describe('R0916-7-P3-20: 迟到结果被 AbortError 吸收（切书即 abort 旧
   it('已切书的非 Abort 迟到错误：会话取不到 → 回落书名复检，依旧静默（R34D-21 语义保持）', async () => {
     // 形态：响应赶在 abort 生效前落定（本桩不挂 abort 监听，模拟「未被取消但已迟到」）
     fetchMock.mockImplementation(
-      () => new Promise<Response>((resolve) => { pending = { resolve } }),
+      () =>
+        new Promise<Response>((resolve) => {
+          pending = { resolve }
+        }),
     )
     beginBookSession('书A')
     const { actions, openError } = setup()

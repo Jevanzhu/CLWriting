@@ -101,7 +101,16 @@ function provider(id: string, name: string): ProviderConfDto {
 }
 
 function ragProvider(id: string, name: string): RagProviderDto {
-  return { id, name, endpoint: `https://${id}.local/v1/embeddings`, model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-e...abcd', hasKey: true, caps: null }
+  return {
+    id,
+    name,
+    endpoint: `https://${id}.local/v1/embeddings`,
+    model: 'embed-a',
+    apiKey: '',
+    apiKeyMasked: 'sk-e...abcd',
+    hasKey: true,
+    caps: null,
+  }
 }
 
 /** 起一个手动放行的 Promise（模拟在途请求） */

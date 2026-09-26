@@ -22,14 +22,16 @@ import {
 import type { ForkRecord } from './server-manager-fixtures.js'
 
 describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
-
   /** 重审-18（2026-09-07 全量代码重审 §四.18）：墙钟越过危险窗的轮询等待——定长
    *  sleep 与真实定时竞速（慢机/事件循环停滞下排程定时迟到即漏检）；小步 poll 持续
    *  让出事件循环，迟到的定时一到期即被处理。since = 危险窗起点（崩溃/排程时刻），
    *  越过 windowMs 后由调用方断言——forkRecords 只增不减，窗内任何时刻落地的多余
    *  fork 都会被终检抓到（语义不弱化）；deadline 5s 到点未越窗即红（防假绿）。 */
   function elapseBeyond(since: number, windowMs: number): Promise<void> {
-    return vi.waitFor(() => expect(Date.now() - since).toBeGreaterThanOrEqual(windowMs), { timeout: 5_000, interval: 10 })
+    return vi.waitFor(() => expect(Date.now() - since).toBeGreaterThanOrEqual(windowMs), {
+      timeout: 5_000,
+      interval: 10,
+    })
   }
 
   /** 起一个 child 并完成握手（fork 在 start 调用内同步发生，取件须在 start 之后） */

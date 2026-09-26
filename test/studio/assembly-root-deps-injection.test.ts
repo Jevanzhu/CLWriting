@@ -29,7 +29,8 @@ import type { DriverEvent, Session } from '../../src/driver/index.js'
 import { settingsCache } from '../../src/studio/server/api/settings.js'
 
 const BOOK = '双装配书'
-const BOOK_YAML = 'spec_version: 1\nkind: long\nbook:\n  title: 双装配书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n'
+const BOOK_YAML =
+  'spec_version: 1\nkind: long\nbook:\n  title: 双装配书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const readSrc = (rel: string): string => readFileSync(`${root}${rel}`, 'utf8')
 
@@ -120,7 +121,13 @@ async function boot(kind: 'cc' | 'mock', prefix: string): Promise<Booted> {
   return booted
 }
 
-function req(base: string, token: string, method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
+function req(
+  base: string,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; json: any }> {
   return new Promise((resolve, reject) => {
     const u = new URL(base)
     const payload = body === undefined ? undefined : JSON.stringify(body)
@@ -132,7 +139,9 @@ function req(base: string, token: string, method: string, path: string, body?: u
         method,
         headers: {
           'x-studio-token': token,
-          ...(payload !== undefined ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
+          ...(payload !== undefined
+            ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+            : {}),
         },
       },
       (res) => {
@@ -258,14 +267,18 @@ describe('R0916-7-P3-6：组装根注入（deps 契约 + 双实例隔离）', ()
       // 反证：环境变量声称 mock，但组装根注入的是 cc 宿主 + 空 provider → mockText 不短路
       process.env['CLWRITING_DRIVER'] = 'mock'
       const cc = await boot('cc', 'p36-cc-')
-      const r1 = await req(cc.base, 'tok-p36-cc-', 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, { step: 'synopsis' })
+      const r1 = await req(cc.base, 'tok-p36-cc-', 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+        step: 'synopsis',
+      })
       expect(r1.status).toBe(500)
       expect(r1.json.error).toContain('未配置')
 
       // 正证：环境变量缺省，但注入 mock 宿主 → mock 快路生效（200 + mock 设定落盘）
       delete process.env['CLWRITING_DRIVER']
       const mock = await boot('mock', 'p36-mock-')
-      const r2 = await req(mock.base, 'tok-p36-mock-', 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, { step: 'synopsis' })
+      const r2 = await req(mock.base, 'tok-p36-mock-', 'POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+        step: 'synopsis',
+      })
       expect(r2.status).toBe(200)
       expect(r2.json.ok).toBe(true)
     } finally {

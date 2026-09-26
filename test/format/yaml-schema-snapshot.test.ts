@@ -360,7 +360,13 @@ const SHORT_CFG: BookConfig = {
   host: 'codex',
   book: { title: '短篇样本', target_words: 60000 },
   leads: { enabled: [] },
-  budget: { tokens_per_chapter: 30000, cost_per_chapter: 0.2, input_per_chapter: 80000, summary_chapter_max: 200, summary_volume_max: 500 },
+  budget: {
+    tokens_per_chapter: 30000,
+    cost_per_chapter: 0.2,
+    input_per_chapter: 80000,
+    summary_chapter_max: 200,
+    summary_volume_max: 500,
+  },
   short: {
     profile: '番茄恐怖',
     target_emotions: ['压抑', '恐惧'],
@@ -512,7 +518,14 @@ const PATCH_SHORT = [
   '',
 ].join('\n')
 
-const LONG_SENTINELS = ['# 头部作者注释', '  unknown_sub: 保留我', '# leads 段前注释', '# 尾部未知段', 'my_custom:', '  foo: bar']
+const LONG_SENTINELS = [
+  '# 头部作者注释',
+  '  unknown_sub: 保留我',
+  '# leads 段前注释',
+  '# 尾部未知段',
+  'my_custom:',
+  '  foo: bar',
+]
 const SHORT_SENTINELS = ['# 短篇头部注释', '# 尾部未知段', 'my_custom:', '  foo: bar']
 
 interface PatchAnchor {
@@ -526,74 +539,432 @@ interface PatchAnchor {
 /** PUT /config 白名单全集（46 叶键 + thresholds 特例 + 3 顶层标量）。
  *  本清单即白名单锁：与 CONFIG_PATCH_LEAVES 派生结果一一对应。 */
 const PATCH_ANCHORS: PatchAnchor[] = [
-  { label: 'spec_version', base: 'long', mutate: (c) => { c.spec_version = 2 } },
-  { label: 'kind(short→long 显式落行)', base: 'short', mutate: (c) => { c.kind = 'long' } },
-  { label: 'host', base: 'long', mutate: (c) => { c.host = 'codex' } },
-  { label: 'book.title', base: 'long', mutate: (c) => { c.book.title = '新书名' } },
-  { label: 'book.genre', base: 'long', mutate: (c) => { c.book.genre = '都市' } },
-  { label: 'book.volume_size', base: 'long', mutate: (c) => { c.book.volume_size = 55 } },
-  { label: 'book.target_words', base: 'long', mutate: (c) => { c.book.target_words = 900000 } },
-  { label: 'book.chapter_target_words', base: 'long', mutate: (c) => { c.book.chapter_target_words = 2500 } },
-  { label: 'leads.enabled', base: 'long', mutate: (c) => { c.leads.enabled = ['成长线', '设定线'] } },
-  { label: 'leads.thresholds(特例块)', base: 'long', mutate: (c) => { c.leads.thresholds = { 悬念: 60, 布局线: 25 } } },
-  { label: 'budget.calls_per_chapter', base: 'long', mutate: (c) => { c.budget.calls_per_chapter = 6 } },
-  { label: 'budget.tokens_per_chapter', base: 'long', mutate: (c) => { c.budget.tokens_per_chapter = 60000 } },
-  { label: 'budget.cost_per_chapter', base: 'long', mutate: (c) => { c.budget.cost_per_chapter = 0.8 } },
-  { label: 'budget.input_per_chapter', base: 'long', mutate: (c) => { c.budget.input_per_chapter = 95000 } },
-  { label: 'budget.summary_chapter_max', base: 'long', mutate: (c) => { c.budget.summary_chapter_max = 250 } },
-  { label: 'budget.summary_volume_max', base: 'long', mutate: (c) => { c.budget.summary_volume_max = 600 } },
-  { label: 'style.injection', base: 'long', mutate: (c) => { c.style!.injection = 'heavy' } },
-  { label: 'summary.auto', base: 'long', mutate: (c) => { c.summary!.auto = false } },
-  { label: 'auto.confirm_outline', base: 'long', mutate: (c) => { c.auto!.confirm_outline = true } },
-  { label: 'auto.batch_size', base: 'long', mutate: (c) => { c.auto!.batch_size = 5 } },
-  { label: 'auto.relation_auto_mine', base: 'long', mutate: (c) => { c.auto!.relation_auto_mine = true } },
-  { label: 'auto.relation_mine_threshold', base: 'long', mutate: (c) => { c.auto!.relation_mine_threshold = 7 } },
-  { label: 'growth.realm_span_max', base: 'long', mutate: (c) => { c.growth.realm_span_max = 4 } },
-  { label: 'checks.imagery_words', base: 'long', mutate: (c) => { c.checks!.imagery_words = ['雪', '刀'] } },
-  { label: 'checks.leak_keywords', base: 'long', mutate: (c) => { c.checks!.leak_keywords = [] } },
-  { label: 'checks.repeat_threshold', base: 'long', mutate: (c) => { c.checks!.repeat_threshold = 0.25 } },
-  { label: 'checks.repeat_chars_threshold', base: 'long', mutate: (c) => { c.checks!.repeat_chars_threshold = 120 } },
-  { label: 'checks.max_sentence_len', base: 'long', mutate: (c) => { c.checks!.max_sentence_len = 80 } },
-  { label: 'checks.imagery_threshold', base: 'long', mutate: (c) => { c.checks!.imagery_threshold = 4 } },
-  { label: 'checks.word_count_tolerance', base: 'long', mutate: (c) => { c.checks!.word_count_tolerance = 25 } },
-  { label: 'rag.enabled', base: 'long', mutate: (c) => { c.rag!.enabled = false } },
-  { label: 'rag.provider(旧内联 endpoint/model 随切删除)', base: 'long', mutate: (c) => {
+  {
+    label: 'spec_version',
+    base: 'long',
+    mutate: (c) => {
+      c.spec_version = 2
+    },
+  },
+  {
+    label: 'kind(short→long 显式落行)',
+    base: 'short',
+    mutate: (c) => {
+      c.kind = 'long'
+    },
+  },
+  {
+    label: 'host',
+    base: 'long',
+    mutate: (c) => {
+      c.host = 'codex'
+    },
+  },
+  {
+    label: 'book.title',
+    base: 'long',
+    mutate: (c) => {
+      c.book.title = '新书名'
+    },
+  },
+  {
+    label: 'book.genre',
+    base: 'long',
+    mutate: (c) => {
+      c.book.genre = '都市'
+    },
+  },
+  {
+    label: 'book.volume_size',
+    base: 'long',
+    mutate: (c) => {
+      c.book.volume_size = 55
+    },
+  },
+  {
+    label: 'book.target_words',
+    base: 'long',
+    mutate: (c) => {
+      c.book.target_words = 900000
+    },
+  },
+  {
+    label: 'book.chapter_target_words',
+    base: 'long',
+    mutate: (c) => {
+      c.book.chapter_target_words = 2500
+    },
+  },
+  {
+    label: 'leads.enabled',
+    base: 'long',
+    mutate: (c) => {
+      c.leads.enabled = ['成长线', '设定线']
+    },
+  },
+  {
+    label: 'leads.thresholds(特例块)',
+    base: 'long',
+    mutate: (c) => {
+      c.leads.thresholds = { 悬念: 60, 布局线: 25 }
+    },
+  },
+  {
+    label: 'budget.calls_per_chapter',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.calls_per_chapter = 6
+    },
+  },
+  {
+    label: 'budget.tokens_per_chapter',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.tokens_per_chapter = 60000
+    },
+  },
+  {
+    label: 'budget.cost_per_chapter',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.cost_per_chapter = 0.8
+    },
+  },
+  {
+    label: 'budget.input_per_chapter',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.input_per_chapter = 95000
+    },
+  },
+  {
+    label: 'budget.summary_chapter_max',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.summary_chapter_max = 250
+    },
+  },
+  {
+    label: 'budget.summary_volume_max',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.summary_volume_max = 600
+    },
+  },
+  {
+    label: 'style.injection',
+    base: 'long',
+    mutate: (c) => {
+      c.style!.injection = 'heavy'
+    },
+  },
+  {
+    label: 'summary.auto',
+    base: 'long',
+    mutate: (c) => {
+      c.summary!.auto = false
+    },
+  },
+  {
+    label: 'auto.confirm_outline',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.confirm_outline = true
+    },
+  },
+  {
+    label: 'auto.batch_size',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.batch_size = 5
+    },
+  },
+  {
+    label: 'auto.relation_auto_mine',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.relation_auto_mine = true
+    },
+  },
+  {
+    label: 'auto.relation_mine_threshold',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.relation_mine_threshold = 7
+    },
+  },
+  {
+    label: 'growth.realm_span_max',
+    base: 'long',
+    mutate: (c) => {
+      c.growth.realm_span_max = 4
+    },
+  },
+  {
+    label: 'checks.imagery_words',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.imagery_words = ['雪', '刀']
+    },
+  },
+  {
+    label: 'checks.leak_keywords',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.leak_keywords = []
+    },
+  },
+  {
+    label: 'checks.repeat_threshold',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.repeat_threshold = 0.25
+    },
+  },
+  {
+    label: 'checks.repeat_chars_threshold',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.repeat_chars_threshold = 120
+    },
+  },
+  {
+    label: 'checks.max_sentence_len',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.max_sentence_len = 80
+    },
+  },
+  {
+    label: 'checks.imagery_threshold',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.imagery_threshold = 4
+    },
+  },
+  {
+    label: 'checks.word_count_tolerance',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.word_count_tolerance = 25
+    },
+  },
+  {
+    label: 'rag.enabled',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.enabled = false
+    },
+  },
+  {
+    label: 'rag.provider(旧内联 endpoint/model 随切删除)',
+    base: 'long',
+    mutate: (c) => {
       c.rag!.provider = 'mySvc'
       c.rag!.endpoint = undefined
       c.rag!.model = undefined
-    } },
-  { label: 'rag.endpoint', base: 'long', mutate: (c) => { c.rag!.endpoint = 'https://new.example.com' } },
-  { label: 'rag.model', base: 'long', mutate: (c) => { c.rag!.model = 'new-model' } },
-  { label: 'rag.candidate_depth', base: 'long', mutate: (c) => { c.rag!.candidate_depth = 25 } },
-  { label: 'rag.embed_timeout_ms', base: 'long', mutate: (c) => { c.rag!.embed_timeout_ms = 60000 } },
-  { label: 'snapshots.max_days', base: 'long', mutate: (c) => { c.snapshots!.max_days = 21 } },
-  { label: 'snapshots.max_count', base: 'long', mutate: (c) => { c.snapshots!.max_count = 40 } },
-  { label: 'short.profile', base: 'short', mutate: (c) => { c.short!.profile = '惊悚快节奏' } },
-  { label: 'short.target_emotions', base: 'short', mutate: (c) => { c.short!.target_emotions = ['恐惧'] } },
-  { label: 'short.target_reversal_types', base: 'short', mutate: (c) => { c.short!.target_reversal_types = ['视角反转'] } },
-  { label: 'short.target_ending_flavors', base: 'short', mutate: (c) => { c.short!.target_ending_flavors = ['反转'] } },
-  { label: 'short.series_motifs', base: 'short', mutate: (c) => { c.short!.series_motifs = ['钟声'] } },
-  { label: 'short.strict', base: 'short', mutate: (c) => { c.short!.strict = true } },
-  { label: 'short.word_min', base: 'short', mutate: (c) => { c.short!.word_min = 5000 } },
-  { label: 'short.word_max', base: 'short', mutate: (c) => { c.short!.word_max = 25000 } },
-  { label: 'short.body_part_threshold', base: 'short', mutate: (c) => { c.short!.body_part_threshold = 2 } },
-  { label: 'short.simile_threshold', base: 'short', mutate: (c) => { c.short!.simile_threshold = 6 } },
-  { label: 'short.section_count', base: 'short', mutate: (c) => { c.short!.section_count = 6 } },
-  { label: 'short.opening_env_chars', base: 'short', mutate: (c) => { c.short!.opening_env_chars = 200 } },
+    },
+  },
+  {
+    label: 'rag.endpoint',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.endpoint = 'https://new.example.com'
+    },
+  },
+  {
+    label: 'rag.model',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.model = 'new-model'
+    },
+  },
+  {
+    label: 'rag.candidate_depth',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.candidate_depth = 25
+    },
+  },
+  {
+    label: 'rag.embed_timeout_ms',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.embed_timeout_ms = 60000
+    },
+  },
+  {
+    label: 'snapshots.max_days',
+    base: 'long',
+    mutate: (c) => {
+      c.snapshots!.max_days = 21
+    },
+  },
+  {
+    label: 'snapshots.max_count',
+    base: 'long',
+    mutate: (c) => {
+      c.snapshots!.max_count = 40
+    },
+  },
+  {
+    label: 'short.profile',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.profile = '惊悚快节奏'
+    },
+  },
+  {
+    label: 'short.target_emotions',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.target_emotions = ['恐惧']
+    },
+  },
+  {
+    label: 'short.target_reversal_types',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.target_reversal_types = ['视角反转']
+    },
+  },
+  {
+    label: 'short.target_ending_flavors',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.target_ending_flavors = ['反转']
+    },
+  },
+  {
+    label: 'short.series_motifs',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.series_motifs = ['钟声']
+    },
+  },
+  {
+    label: 'short.strict',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.strict = true
+    },
+  },
+  {
+    label: 'short.word_min',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.word_min = 5000
+    },
+  },
+  {
+    label: 'short.word_max',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.word_max = 25000
+    },
+  },
+  {
+    label: 'short.body_part_threshold',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.body_part_threshold = 2
+    },
+  },
+  {
+    label: 'short.simile_threshold',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.simile_threshold = 6
+    },
+  },
+  {
+    label: 'short.section_count',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.section_count = 6
+    },
+  },
+  {
+    label: 'short.opening_env_chars',
+    base: 'short',
+    mutate: (c) => {
+      c.short!.opening_env_chars = 200
+    },
+  },
 ]
 
 /** 删方向锚（新值 undefined → 落行删除）；仅可选键（必填键删除语义不成立） */
 const DELETE_ANCHORS: PatchAnchor[] = [
-  { label: 'book.genre → 未设（get 归一删行）', base: 'long', mutate: (c) => { c.book.genre = undefined } },
-  { label: 'style.injection → undefined', base: 'long', mutate: (c) => { delete c.style } },
-  { label: 'summary.auto → undefined', base: 'long', mutate: (c) => { delete c.summary } },
-  { label: 'auto.batch_size → undefined', base: 'long', mutate: (c) => { c.auto!.batch_size = undefined } },
-  { label: 'budget.tokens_per_chapter → undefined', base: 'long', mutate: (c) => { c.budget.tokens_per_chapter = undefined } },
-  { label: 'checks.leak_keywords → undefined', base: 'long', mutate: (c) => { c.checks!.leak_keywords = undefined } },
-  { label: 'rag.endpoint → undefined', base: 'long', mutate: (c) => { c.rag!.endpoint = undefined } },
-  { label: 'rag.candidate_depth → undefined', base: 'long', mutate: (c) => { delete c.rag!.candidate_depth } },
-  { label: 'snapshots.max_count → undefined', base: 'long', mutate: (c) => { c.snapshots!.max_count = undefined } },
-  { label: 'leads.thresholds → undefined（特例块删除）', base: 'long', mutate: (c) => { c.leads.thresholds = undefined } },
+  {
+    label: 'book.genre → 未设（get 归一删行）',
+    base: 'long',
+    mutate: (c) => {
+      c.book.genre = undefined
+    },
+  },
+  {
+    label: 'style.injection → undefined',
+    base: 'long',
+    mutate: (c) => {
+      delete c.style
+    },
+  },
+  {
+    label: 'summary.auto → undefined',
+    base: 'long',
+    mutate: (c) => {
+      delete c.summary
+    },
+  },
+  {
+    label: 'auto.batch_size → undefined',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.batch_size = undefined
+    },
+  },
+  {
+    label: 'budget.tokens_per_chapter → undefined',
+    base: 'long',
+    mutate: (c) => {
+      c.budget.tokens_per_chapter = undefined
+    },
+  },
+  {
+    label: 'checks.leak_keywords → undefined',
+    base: 'long',
+    mutate: (c) => {
+      c.checks!.leak_keywords = undefined
+    },
+  },
+  {
+    label: 'rag.endpoint → undefined',
+    base: 'long',
+    mutate: (c) => {
+      c.rag!.endpoint = undefined
+    },
+  },
+  {
+    label: 'rag.candidate_depth → undefined',
+    base: 'long',
+    mutate: (c) => {
+      delete c.rag!.candidate_depth
+    },
+  },
+  {
+    label: 'snapshots.max_count → undefined',
+    base: 'long',
+    mutate: (c) => {
+      c.snapshots!.max_count = undefined
+    },
+  },
+  {
+    label: 'leads.thresholds → undefined（特例块删除）',
+    base: 'long',
+    mutate: (c) => {
+      c.leads.thresholds = undefined
+    },
+  },
 ]
 
 function runAnchor(a: PatchAnchor): void {

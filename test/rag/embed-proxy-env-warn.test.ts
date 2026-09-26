@@ -26,7 +26,10 @@ const OK_RESP = (): Response =>
 test('HTTPS_PROXY 已设：首次出站前 warn 恰一次（人话提示 + 不回显代理地址），重复调用不刷屏', async () => {
   vi.stubEnv('HTTPS_PROXY', 'http://user:secret@127.0.0.1:7890')
   const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
-  vi.stubGlobal('fetch', vi.fn(async () => OK_RESP()))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => OK_RESP()),
+  )
 
   await expect(embed('https://proxy-env.example/embeddings', 'm', 'k', ['正文'])).resolves.toEqual([[1, 2, 3]])
   await expect(embed('https://proxy-env.example/embeddings', 'm', 'k', ['正文'])).resolves.toEqual([[1, 2, 3]])
@@ -43,7 +46,10 @@ test('HTTPS_PROXY 已设：首次出站前 warn 恰一次（人话提示 + 不�
 test('无任何代理环境变量：正常出站零代理 warn', async () => {
   for (const k of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) vi.stubEnv(k, '')
   const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
-  vi.stubGlobal('fetch', vi.fn(async () => OK_RESP()))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => OK_RESP()),
+  )
 
   await expect(embed('https://no-proxy.example/embeddings', 'm', 'k', ['正文'])).resolves.toEqual([[1, 2, 3]])
   expect(warn.mock.calls.filter((c) => String(c[1]).includes('不支持经代理'))).toHaveLength(0)

@@ -48,15 +48,25 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p1',
+    章号: 1,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p1',
   })
 
   // 写 1 章定稿正文（供 RAG 建索引 + 召回后精准读取切片）
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const meta: ChapterMeta = {
-    章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _path: '', _wordCount: 100,
+    章号: 1,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
   writeChapter(
     join(root, '写作', '正文', '1-前章.md'),
@@ -97,7 +107,9 @@ test('未配 RAG → prepareMaterials 行为与 prepare 逐字节一致', async 
   try {
     // 未配 RAG（默认 book.yaml 无 rag 段）
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [],
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
     })
     expect(r.ragUsed).toBe(false)
     expect(r.ragHitCount).toBe(0)
@@ -114,7 +126,10 @@ test('prepareMaterials: 透传 sampleScene 给文风样章', async () => {
   const { root, workDir, db } = makeBook()
   try {
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], sampleScene: '对话',
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      sampleScene: '对话',
     })
     const styleSection = r.sections.find((s) => s.title === '文风样章')
     expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
@@ -132,14 +147,26 @@ test('G1: 未传 sampleScene + chapter → 水源①章纲 fm「场景」（kk-P
     // 章纲在 大纲/章纲/，fm 声明本章场景为「对话」——与节奏对照同字段
     const od = join(root, '大纲', '章纲')
     mkdirSync(od, { recursive: true })
-    writeChapter(join(od, '0002-夜谈.md'), {
-      章号: 2, 标题: '夜谈', 钩子类型: '悬念钩', 钩子强弱: '中',
-      情绪定位: '铺垫', 场景: '对话', _path: '',
-    }, '主角与对手长谈。')
+    writeChapter(
+      join(od, '0002-夜谈.md'),
+      {
+        章号: 2,
+        标题: '夜谈',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        场景: '对话',
+        _path: '',
+      },
+      '主角与对手长谈。',
+    )
 
     // 不传 sampleScene、传 chapter —— 应从章纲 fm 自动解析出「对话」
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     const styleSection = r.sections.find((s) => s.title === '文风样章')
     expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
@@ -156,13 +183,26 @@ test('G1: 水源②正文 fm「场景」——无章纲时场景跟随实稿（�
   const { root, workDir, db } = makeBook()
   try {
     // 本章无章纲；正文旧稿 fm 声明「对话」
-    writeChapter(join(root, '写作', '正文', '2-旧稿.md'), {
-      章号: 2, 标题: '旧稿', 钩子类型: '悬念钩', 钩子强弱: '中',
-      情绪定位: '铺垫', 场景: '对话', _path: '', _wordCount: 10,
-    }, '旧稿正文。')
+    writeChapter(
+      join(root, '写作', '正文', '2-旧稿.md'),
+      {
+        章号: 2,
+        标题: '旧稿',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        场景: '对话',
+        _path: '',
+        _wordCount: 10,
+      },
+      '旧稿正文。',
+    )
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     const styleSection = r.sections.find((s) => s.title === '文风样章')
     expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
@@ -186,13 +226,19 @@ test('G1: 水源③细纲「## 场景声明」段（前两源空）；章号门�
     )
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir: wd, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir: wd,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     expect(r.sections.find((s) => s.title === '文风样章')).toEqual(expect.objectContaining({ title: '文风样章' }))
 
     // 章号门：细纲 fm 章号≠被检章 → 此水源整体弃用（防别章陈旧细纲串场景）
     const r2 = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir: wd, chapterLeadIds: [], chapter: 5,
+      bookRoot: root,
+      workDir: wd,
+      chapterLeadIds: [],
+      chapter: 5,
     })
     expect(r2.sections.find((s) => s.title === '文风样章')).toBeUndefined()
     expect(r2.styleNote).toBeUndefined()
@@ -211,7 +257,10 @@ test('G1: 三级全空（冷启动）→ 回落「通用」而非「战斗」（
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n本章无场景声明。', 'utf-8')
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir: wd, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir: wd,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     // makeBook 只有「对话」样章：回落「通用」→ 无样章段；「战斗」默认已废 → 同样无段，
     // 但语义上不再假装本章是战斗（通用目录才是查找目标）
@@ -232,7 +281,9 @@ test('legacy: 不传 chapter 的旧调用 → 维持 prepare 内部「战斗」�
     writeFileSync(join(wd, '细纲.md'), '---\n章号: 2\n---\n## 场景声明\n本章主场景:「对话」。', 'utf-8')
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir: wd, chapterLeadIds: [],
+      bookRoot: root,
+      workDir: wd,
+      chapterLeadIds: [],
     })
     expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined() // 战斗无样章
     expect(r.styleNote).toBeUndefined()
@@ -248,13 +299,25 @@ test('G3: 声明场景但无样章 → styleNote 留痕（提示去 learn 补）
     // makeBook 只有「对话」样章；章纲声明「抒情」→ 查无样章 → 留痕
     const od = join(root, '大纲', '章纲')
     mkdirSync(od, { recursive: true })
-    writeChapter(join(od, '0002-抒情章.md'), {
-      章号: 2, 标题: '抒情章', 钩子类型: '情绪钩', 钩子强弱: '中',
-      情绪定位: '铺垫', 场景: '抒情', _path: '',
-    }, '本章抒情。')
+    writeChapter(
+      join(od, '0002-抒情章.md'),
+      {
+        章号: 2,
+        标题: '抒情章',
+        钩子类型: '情绪钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        场景: '抒情',
+        _path: '',
+      },
+      '本章抒情。',
+    )
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined()
     expect(r.styleNote).toBeTypeOf('string')
@@ -277,7 +340,10 @@ test('已配 RAG + key + 命中 → 备料含「RAG 召回」段', async () => {
 
     // prepareMaterials 注入同一个桩 embedFn，让 recall 用确定性向量命中
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], embedFn: stubEmbed,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      embedFn: stubEmbed,
     })
     expect(r.ragUsed).toBe(true)
     expect(r.ragHitCount).toBeGreaterThan(0)
@@ -304,7 +370,10 @@ test('CC-P2-21: 3 位补零命名（草稿新建口径）的章 → 召回后仍
     await buildIndex(root, cfg, 'stub-key', stubEmbed)
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], embedFn: stubEmbed,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      embedFn: stubEmbed,
     })
     expect(r.ragHitCount).toBeGreaterThan(0)
     const ragSection = r.sections.find((s) => s.title === 'RAG 召回')
@@ -327,7 +396,9 @@ test('已配 RAG 但无 key → 降级（无召回段，ragNote 标注）', asyn
     expect(existsSync(join(workDir, '.clwriting', 'rag.secret'))).toBe(false)
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [],
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
     })
     expect(r.ragUsed).toBe(false)
     expect(r.ragNote).toContain('api_key')
@@ -345,10 +416,16 @@ test('服务商化：书存 rag.provider 引用应用级服务商 → 召回可�
     delete process.env.CLWRITING_RAG_API_KEY
     // 应用级服务商 fixture（key 走 vault 落 providers.json）
     const store = emptySettings()
-    store.ragProviders = [{
-      id: 'rag-stub', name: '测试嵌入', endpoint: 'http://stub-prov', model: 'stub-model',
-      apiKey: 'prov-key', caps: null,
-    }]
+    store.ragProviders = [
+      {
+        id: 'rag-stub',
+        name: '测试嵌入',
+        endpoint: 'http://stub-prov',
+        model: 'stub-model',
+        apiKey: 'prov-key',
+        caps: null,
+      },
+    ]
     saveProviders(userData, store)
 
     // 书只存 enabled + provider 引用（服务商化后的新形态）
@@ -359,7 +436,11 @@ test('服务商化：书存 rag.provider 引用应用级服务商 → 召回可�
     await buildIndex(root, { enabled: true, endpoint: 'http://stub-prov', model: 'stub-model' }, 'prov-key', stubEmbed)
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], embedFn: stubEmbed, userDataPath: userData,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      embedFn: stubEmbed,
+      userDataPath: userData,
     })
     expect(r.ragUsed).toBe(true)
     expect(r.ragHitCount).toBeGreaterThan(0)
@@ -379,7 +460,9 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
     delete process.env.CLWRITING_RAG_API_KEY
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [],
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
     })
     // 刚需段必须在（降级只影响 RAG 召回段）
     expect(r.sections.find((s) => s.title === '近况')).toEqual(expect.objectContaining({ title: '近况' }))
@@ -402,16 +485,15 @@ test('低-1（第十轮）：RAG 无命中降级也传 writingChapter——卷�
     // 卷摘要（selfHealVolumeSummary 文件存在即跳过，不触发生成）
     const cfg = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 1 } }
     mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
-    writeFileSync(
-      join(root, '定稿', '摘要', '卷摘要', '1.md'),
-      '---\nvolume: 1\n---\n\n第一卷剧情回顾正文。',
-      'utf-8',
-    )
+    writeFileSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), '---\nvolume: 1\n---\n\n第一卷剧情回顾正文。', 'utf-8')
     // 已配 RAG + key 但不建索引 → recall 空库返回 []（无命中降级分支）
     setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
 
     const r = await prepareMaterials(db, cfg, {
-      bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      chapter: 2,
     })
     expect(r.ragUsed).toBe(false)
     expect(r.ragNote).toContain('无命中')
@@ -431,10 +513,19 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     // 含「乙」→ [0.12,0.4,0.9]，其余（含查询与第 1 章）→ [0.9,0.4,0.12]。
     // 查询与第 1 章同向（余弦 1.0）排首位，第 2 章 ≈0.38 排次位——排序确定性可控
     const meta2: ChapterMeta = {
-      章号: 2, 标题: '次章', 钩子类型: '悬念钩', 钩子强弱: '中',
-      情绪定位: '铺垫', _path: '', _wordCount: 100,
+      章号: 2,
+      标题: '次章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    writeChapter(join(root, '写作', '正文', '2-次章.md'), meta2, '乙字号开头的次章正文，讲述另一方阵营的动向与布局，与首章方向完全不同。')
+    writeChapter(
+      join(root, '写作', '正文', '2-次章.md'),
+      meta2,
+      '乙字号开头的次章正文，讲述另一方阵营的动向与布局，与首章方向完全不同。',
+    )
     const dirEmbed = (_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> =>
       Promise.resolve(texts.map((t) => (t.includes('乙') ? [0.12, 0.4, 0.9] : [0.9, 0.4, 0.12])))
 
@@ -442,10 +533,19 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     await buildIndex(root, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'stub-key', dirEmbed)
 
     // 建索引后整段改写第 1 章 → 指纹过期（它仍是余弦首位命中）
-    writeChapter(join(root, '写作', '正文', '1-前章.md'), {
-      章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-      情绪定位: '铺垫', _path: '', _wordCount: 100,
-    }, '首章内容已被整段改写，指纹与索引时不一致。')
+    writeChapter(
+      join(root, '写作', '正文', '1-前章.md'),
+      {
+        章号: 1,
+        标题: '前章',
+        钩子类型: '悬念钩',
+        钩子强弱: '强',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
+      },
+      '首章内容已被整段改写，指纹与索引时不一致。',
+    )
 
     const yamlPath = join(root, 'book.yaml')
     const patchDepth = (keyLine: string | null): void =>
@@ -454,7 +554,11 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     // candidate_depth: 1 → 只允许校验首位命中章（过期）→ 宁缺毋滥空手而归
     patchDepth('candidate_depth: 1')
     const shallow = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], query: '主线推进', embedFn: dirEmbed,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      query: '主线推进',
+      embedFn: dirEmbed,
     })
     expect(shallow.ragUsed).toBe(false)
     expect(shallow.ragHitCount).toBe(0)
@@ -463,7 +567,11 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     // 去掉该键（缺省 20）→ 次位新鲜章递补 → 命中
     patchDepth(null)
     const deep = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], query: '主线推进', embedFn: dirEmbed,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      query: '主线推进',
+      embedFn: dirEmbed,
     })
     expect(deep.ragUsed).toBe(true)
     expect(deep.ragHitCount).toBeGreaterThan(0)
@@ -490,7 +598,11 @@ test('R0912-4: 编排 signal 预先 aborted → 召回中断降级，embed 零�
     const ctrl = new AbortController()
     ctrl.abort()
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
-      bookRoot: root, workDir, chapterLeadIds: [], embedFn: spyEmbed, signal: ctrl.signal,
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      embedFn: spyEmbed,
+      signal: ctrl.signal,
     })
     // 中断态上抛 → materials 既有 catch 降级（ragNote 留痕带病因、主路径照常 prepare，不 crash）
     expect(r.ragUsed).toBe(false)

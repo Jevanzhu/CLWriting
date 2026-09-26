@@ -98,7 +98,10 @@ function makeEmptyEvidenceBook(): string {
     const entry: ManifestEntry = { id: generateDocId(), nodeType: 'document', path: rel, parentId: null }
     if (no === 3) {
       entry.finalizedRevision =
-        'sha256:' + createHash('sha256').update(readFileSync(join(root, rel))).digest('hex')
+        'sha256:' +
+        createHash('sha256')
+          .update(readFileSync(join(root, rel)))
+          .digest('hex')
     }
     upsertEntry(m, entry)
   }

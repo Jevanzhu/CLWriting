@@ -24,7 +24,9 @@ describe('R43-9: useTheme ViewTransition 被抢占（ready/finished reject）', 
     setActivePinia(createPinia())
     // happy-dom 缺 matchMedia 时补最小替身（只读 .matches）
     if (typeof window.matchMedia !== 'function') {
-      ;(window as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia = () => ({ matches: false })
+      ;(window as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia = () => ({
+        matches: false,
+      })
     }
     const unhandled: unknown[] = []
     const onUnhandled = (e: unknown) => unhandled.push(e)

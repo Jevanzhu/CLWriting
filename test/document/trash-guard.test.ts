@@ -39,8 +39,11 @@ describe('Z-5: trash manifest RMW 持锁', () => {
   it('appendTrashEntry 用后锁文件无残留（锁路径约定锁定）', () => {
     mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
     appendTrashEntry(root, {
-      id: 'd1', originalPath: '写作/正文/0001-a.md', trashedPath: '工作区/.trash/d1-a.md',
-      trashedAt: '2026-08-24T00:00:00Z', role: 'chapter',
+      id: 'd1',
+      originalPath: '写作/正文/0001-a.md',
+      trashedPath: '工作区/.trash/d1-a.md',
+      trashedAt: '2026-08-24T00:00:00Z',
+      role: 'chapter',
     })
     expect(existsSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl.lock'))).toBe(false)
   })
@@ -54,18 +57,26 @@ describe('Z-6: doTrash 尾段残留 → executeSave 复活守卫双条件', () =
     // 模拟 doTrash 崩溃残留：文件已进 .trash、清单条目未删、trash 条目在册
     writeFileSync(join(root, '工作区', '.trash', 'doc_r-a.md'), '旧内容')
     appendTrashEntry(root, {
-      id: 'doc_r', originalPath: '写作/正文/0001-a.md', trashedPath: '工作区/.trash/doc_r-a.md',
-      trashedAt: '2026-08-24T00:00:00Z', role: 'chapter',
+      id: 'doc_r',
+      originalPath: '写作/正文/0001-a.md',
+      trashedPath: '工作区/.trash/doc_r-a.md',
+      trashedAt: '2026-08-24T00:00:00Z',
+      role: 'chapter',
     })
     writeFileSync(
       join(root, '项目', '文档清单.jsonl'),
-      JSON.stringify({ version: 1, type: 'clwriting-manifest' }) + '\n' +
-        JSON.stringify({ id: 'doc_r', nodeType: 'document', path: '写作/正文/0001-a.md', parentId: null }) + '\n',
+      JSON.stringify({ version: 1, type: 'clwriting-manifest' }) +
+        '\n' +
+        JSON.stringify({ id: 'doc_r', nodeType: 'document', path: '写作/正文/0001-a.md', parentId: null }) +
+        '\n',
     )
     const svc = new DocumentService({ bookRoot: root })
     // 修复前：registered !== null 跳过守卫 → 新建式保存成功复活文件
     const r = await svc.save('doc_r', '写作/正文/0001-a.md', {
-      content: '复活内容', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: '复活内容',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
@@ -78,15 +89,21 @@ describe('Z-6: doTrash 尾段残留 → executeSave 复活守卫双条件', () =
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     writeFileSync(join(root, '工作区', '.trash', 'doc_o-a.md'), '---\n章号: 1\n---\n\n旧内容')
     appendTrashEntry(root, {
-      id: 'doc_o', originalPath: '写作/正文/0001-a.md', trashedPath: '工作区/.trash/doc_o-a.md',
-      trashedAt: '2026-08-24T00:00:00Z', role: 'chapter',
+      id: 'doc_o',
+      originalPath: '写作/正文/0001-a.md',
+      trashedPath: '工作区/.trash/doc_o-a.md',
+      trashedAt: '2026-08-24T00:00:00Z',
+      role: 'chapter',
     })
     const rr = await restoreTrash(root, 'doc_o')
     expect(rr.ok).toBe(true)
     const svc = new DocumentService({ bookRoot: root })
     const abs = join(root, '写作', '正文', '0001-a.md')
     const r = await svc.save('doc_o', '写作/正文/0001-a.md', {
-      content: '---\n章号: 1\n---\n\n新内容', expectedRevision: computeRevision(abs), operationId: 'op1', origin: 'manual',
+      content: '---\n章号: 1\n---\n\n新内容',
+      expectedRevision: computeRevision(abs),
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(true)
   })
@@ -99,8 +116,10 @@ describe('Z-13: meta 写入口能力校验', () => {
     writeFileSync(join(root, '定稿', '摘要', 's1.md'), '---\n标题: x\n---\n\n内容')
     writeFileSync(
       join(root, '项目', '文档清单.jsonl'),
-      JSON.stringify({ version: 1, type: 'clwriting-manifest' }) + '\n' +
-        JSON.stringify({ id: 'doc_s1', nodeType: 'document', path: '定稿/摘要/s1.md', parentId: null }) + '\n',
+      JSON.stringify({ version: 1, type: 'clwriting-manifest' }) +
+        '\n' +
+        JSON.stringify({ id: 'doc_s1', nodeType: 'document', path: '定稿/摘要/s1.md', parentId: null }) +
+        '\n',
     )
     const svc = new DocumentService({ bookRoot: root })
     const r = await svc.updateDocMeta('doc_s1', { 标题: 'y' })
@@ -166,7 +185,10 @@ describe('Z-21: chapters 缓存 _raw 深拷贝', () => {
   it('两次 readChapterDir 的 _raw 引用不同（嵌套 mutate 不污染缓存）', () => {
     const bodyDir = join(root, '写作', '正文')
     mkdirSync(bodyDir, { recursive: true })
-    writeFileSync(join(bodyDir, '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n自定义键: v\n---\n\n正文')
+    writeFileSync(
+      join(bodyDir, '0001-开篇.md'),
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n自定义键: v\n---\n\n正文',
+    )
     const a = readChapterDir(bodyDir).chapters[0]! as { _raw?: Record<string, string> }
     const b = readChapterDir(bodyDir).chapters[0]! as { _raw?: Record<string, string> }
     if (a._raw && b._raw) {

@@ -34,9 +34,11 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
     case 'review-progress':
       return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
     case 'self_heal_phase':
-      return ev.phase === 'chapter_start' ? `开始写第 ${ev.chapter} 章（${ev.done}/${ev.total}）`
-        : ev.phase === 'chapter_done' ? `第 ${ev.chapter} 章完成（${ev.done}/${ev.total}）`
-        : `自检进入「${ev.phase}」阶段`
+      return ev.phase === 'chapter_start'
+        ? `开始写第 ${ev.chapter} 章（${ev.done}/${ev.total}）`
+        : ev.phase === 'chapter_done'
+          ? `第 ${ev.chapter} 章完成（${ev.done}/${ev.total}）`
+          : `自检进入「${ev.phase}」阶段`
     case 'self_heal_batch':
       return `批量连写 ${ev.total} 章`
     case 'self_heal_batch_progress':
@@ -80,22 +82,21 @@ const recent = computed(() => wb.log.slice(-200))
   <section class="card">
     <CollapseSection title="高级" :default-open="false">
       <div class="adv-block">
-        <div class="adv-head"><span>事件流</span><span class="muted">{{ wb.log.length }} 条</span></div>
+        <div class="adv-head">
+          <span>事件流</span><span class="muted">{{ wb.log.length }} 条</span>
+        </div>
         <div class="stream">
           <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」开始" size="compact" />
-          <div
-            v-for="ev in recent"
-            :key="ev._seq"
-            class="ev"
-            :class="evKind(ev)"
-          >
+          <div v-for="ev in recent" :key="ev._seq" class="ev" :class="evKind(ev)">
             <span class="ev-ts">{{ ev._ts }}</span>
             <span class="ev-text">{{ evLabel(ev) }}</span>
           </div>
         </div>
       </div>
       <div class="adv-block">
-        <div class="adv-head"><span>规则命中</span><span class="muted">{{ ruleHits.length }} 条</span></div>
+        <div class="adv-head">
+          <span>规则命中</span><span class="muted">{{ ruleHits.length }} 条</span>
+        </div>
         <div v-if="!ruleHits.length" class="muted">暂无规则命中（自动写章重写时统计）</div>
         <div v-for="h in ruleHits" :key="h.ruleId" class="hit">
           <div class="hit-head">

@@ -66,9 +66,7 @@ const TAB_SUBTITLES: Record<Tab, string> = {
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
 /** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 7 页均为 global（跨书共享）。
  * 绑在 settings-content 上即可覆盖整页——本书页内的条目得「本书」徽章，全局页条目得「全局」徽章。 */
-const tabScope = computed<'global' | 'book'>(() =>
-  activeTab.value === 'book' ? 'book' : 'global',
-)
+const tabScope = computed<'global' | 'book'>(() => (activeTab.value === 'book' ? 'book' : 'global'))
 
 const tabComponents = {
   appearance: SettingsAppearance,
@@ -138,13 +136,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.settingsOpen" kind="settings" @mask-click="ui.closeSettings">
-      <div v-if="contentReady" ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
+      <div
+        v-if="contentReady"
+        ref="modalRef"
+        class="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        tabindex="-1"
+      >
         <div class="modal-head">
           <div class="modal-heading">
             <span class="modal-title">设置</span>
             <span class="modal-subtitle">{{ tabSubtitle }}</span>
           </div>
-          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" @click="ui.closeSettings"><X :size="18" /></button>
+          <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" @click="ui.closeSettings">
+            <X :size="18" />
+          </button>
         </div>
         <div class="settings-split">
           <!-- 左侧分类导航 -->

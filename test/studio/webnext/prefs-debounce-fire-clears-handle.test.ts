@@ -80,7 +80,10 @@ describe('R0917-6-P3-3：防抖 fire 后关窗不空写', () => {
     // 持在对象属性上：闭包内赋值不会被 TS 控制流窄化成 null（裸 let 会在下方调用点报 never）
     const pending: { resolve: ((v: { ok: true; revision: number }) => void) | null } = { resolve: null }
     putGlobalPrefsMock.mockImplementation(
-      () => new Promise<{ ok: true; revision: number }>((resolve) => { pending.resolve = resolve }),
+      () =>
+        new Promise<{ ok: true; revision: number }>((resolve) => {
+          pending.resolve = resolve
+        }),
     )
     const prefs = usePrefsStore()
     await prefs.init()
@@ -91,7 +94,9 @@ describe('R0917-6-P3-3：防抖 fire 后关窗不空写', () => {
 
     const flushP = prefs.flushPendingPersist()
     let settled = false
-    void flushP.then(() => { settled = true })
+    void flushP.then(() => {
+      settled = true
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(settled).toBe(false) // 在途未落定 → 关窗链不得完（否则窗口销毁即夭折写入）
 

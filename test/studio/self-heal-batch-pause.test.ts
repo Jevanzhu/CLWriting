@@ -73,8 +73,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -86,11 +90,7 @@ interface Setup {
   workDir: string
 }
 
-function setup(
-  texts: string[],
-  check: (p: string) => CheckOutcome,
-  extra?: Partial<SelfHealOpts>,
-): Setup {
+function setup(texts: string[], check: (p: string) => CheckOutcome, extra?: Partial<SelfHealOpts>): Setup {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
@@ -118,7 +118,12 @@ function setup(
 }
 
 const budgetOk = { ok: true, used: 0, limit: 8 } as const
-const budgetOver = { ok: false, used: 8, limit: 8, reason: '本章已调用 8 次（上限 8）。可临时提高 book.yaml 的 budget.calls_per_chapter' } as const
+const budgetOver = {
+  ok: false,
+  used: 8,
+  limit: 8,
+  reason: '本章已调用 8 次（上限 8）。可临时提高 book.yaml 的 budget.calls_per_chapter',
+} as const
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -165,7 +170,12 @@ describe('M6 #34 连写暂停元状态：驱动侧接线', () => {
   test('批量中止（章2 生成期 abort）→ paused{reason=aborted}', async () => {
     // 章1 绿；章2 genFn 里 abortSelfHeal → 生成后 signal 检查 → aborted 停在章2
     let call = 0
-    const genFn = async (_prompt: string, _kind: 'long' | 'short', _signal: AbortSignal, onText: (d: string) => void) => {
+    const genFn = async (
+      _prompt: string,
+      _kind: 'long' | 'short',
+      _signal: AbortSignal,
+      onText: (d: string) => void,
+    ) => {
       call++
       if (call === 2) abortSelfHeal(BOOK)
       const t = FM + `第${call}章正文`

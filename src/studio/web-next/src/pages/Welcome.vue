@@ -114,10 +114,11 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
-      var(--background-primary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+    var(--background-primary)
+  );
 }
 
 /* ══ 环境氛围层（呼吸光晕，让画面有生命感）══ */
@@ -195,8 +196,14 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   animation: mark-in 0.6s var(--ease-out) both;
 }
 @keyframes mark-in {
-  from { opacity: 0; transform: scale(0.82); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .brand-name {
   margin: 0;
@@ -257,8 +264,11 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
 .entry.primary {
   border: 1px solid transparent;
   background:
-    radial-gradient(ellipse 90% 120% at 100% 0%,
-      color-mix(in srgb, var(--interactive-accent-hover) 34%, transparent), transparent 60%),
+    radial-gradient(
+      ellipse 90% 120% at 100% 0%,
+      color-mix(in srgb, var(--interactive-accent-hover) 34%, transparent),
+      transparent 60%
+    ),
     linear-gradient(135deg, var(--interactive-accent), var(--interactive-accent-hover));
   color: var(--text-on-accent);
   box-shadow:
@@ -328,7 +338,9 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   flex-shrink: 0;
   opacity: 0;
   transform: translateX(-4px);
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 .entry:hover .entry-arrow {
   opacity: 1;
@@ -410,8 +422,13 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
 
 /* 窄屏 */
 @media (max-width: 520px) {
-  .brand-name { font-size: 38px; }
-  .brand-mark { width: 68px; height: 68px; }
+  .brand-name {
+    font-size: 38px;
+  }
+  .brand-mark {
+    width: 68px;
+    height: 68px;
+  }
 }
 
 /* 低级项：最近列表加载失败的重试按钮 */

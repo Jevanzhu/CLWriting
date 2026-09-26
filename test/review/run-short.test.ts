@@ -78,7 +78,15 @@ test('review 打包 short: 读取章号草稿并把清单核对写入执行包',
     writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n', 'utf-8')
     writeChapter(
       join(workDir, '草稿-1.md'),
-      { 章号: 1, 标题: '雪夜来客', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '压抑', 目标情绪: '惊悚', 核心反转: '来客就是死者' },
+      {
+        章号: 1,
+        标题: '雪夜来客',
+        钩子类型: '悬念钩',
+        钩子强弱: '强',
+        情绪定位: '压抑',
+        目标情绪: '惊悚',
+        核心反转: '来客就是死者',
+      },
       ['第一节。', '第二节。', '第三节。', '第四节。', '第五节。'].join('\n\n'),
     )
     const list: PieceList = {
@@ -187,8 +195,13 @@ test('collectReviewIssues short 合审: 单包覆盖三视角不缺', () => {
   // 合审单包：payoff 为锚，覆盖三视角
   const combinedIssues: ReviewIssue[] = [
     {
-      lens: 'payoff', severity: 'S3', category: 'payoff',
-      location: '伏笔', evidence: ['半枚玉佩未回收'], issue: '伏笔弃坑', fix: '补回收',
+      lens: 'payoff',
+      severity: 'S3',
+      category: 'payoff',
+      location: '伏笔',
+      evidence: ['半枚玉佩未回收'],
+      issue: '伏笔弃坑',
+      fix: '补回收',
     },
   ]
   writeFileSync(join(packet.out_dir, COMBINED_ISSUES_FILE), JSON.stringify(combinedIssues), 'utf-8')

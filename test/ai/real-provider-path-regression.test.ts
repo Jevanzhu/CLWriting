@@ -49,20 +49,14 @@ function setup(structuredOk?: boolean): string {
 describe('P0-1：CLWRITING_DRIVER 未设时 mockText 不短路', () => {
   it('mockText 不短路——请求打到 stub，返回 stub 文本而非 mock 值', async () => {
     const ud = setup()
-    const script: FakeResponse[] = [
-      { type: 'text', content: '这是 stub 返回的正文' },
-    ]
+    const script: FakeResponse[] = [{ type: 'text', content: '这是 stub 返回的正文' }]
     fake.setScript(script)
 
     const out = await runTask<string>({
       userDataPath: ud,
       mockText: '## 不该出现的 mock 文本',
       run: (provider, signal) =>
-        generateText(
-          provider,
-          { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generateText(provider, { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     expect(out.ok).toBe(true)
@@ -80,9 +74,7 @@ describe('P0-1：CLWRITING_DRIVER 未设时 mockText 不短路', () => {
 
 describe('P0-2：unknown 系列表驱动行为', () => {
   it('generateTool unknown 系列不拒绝，走生成（requireTool 意图转 auto）', async () => {
-    fake.setScript([
-      { type: 'tool', name: 'test_tool', input: { ok: true }, id: 'call_1' },
-    ])
+    fake.setScript([{ type: 'tool', name: 'test_tool', input: { ok: true }, id: 'call_1' }])
     const ud = setup()
 
     const out = await runTask<{ input: unknown }>({
@@ -148,11 +140,7 @@ describe('stub 脚本复现重试与截断', () => {
     const out = await runTask<string>({
       userDataPath: ud,
       run: (provider, signal) =>
-        generateText(
-          provider,
-          { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generateText(provider, { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     expect(out.ok).toBe(true)
@@ -162,18 +150,12 @@ describe('stub 脚本复现重试与截断', () => {
 
   it('max_tokens 截断 → generateText 抛不可重试 GenError', async () => {
     const ud = setup()
-    fake.setScript([
-      { type: 'max_tokens', partial: '被截断的部分文本' },
-    ])
+    fake.setScript([{ type: 'max_tokens', partial: '被截断的部分文本' }])
 
     const out = await runTask<string>({
       userDataPath: ud,
       run: (provider, signal) =>
-        generateText(
-          provider,
-          { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generateText(provider, { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     // max_tokens → generateText 抛 GenError(retryable=false) → GEN_FAIL
@@ -189,10 +171,13 @@ describe('R64-5：generateTool 收到多个 tool_use → 取首个 + warn 留痕
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
     try {
       fake.setScript([
-        { type: 'tools', calls: [
-          { name: 'test_tool', input: { first: true }, id: 'call_1' },
-          { name: 'test_tool', input: { second: true }, id: 'call_2' },
-        ] },
+        {
+          type: 'tools',
+          calls: [
+            { name: 'test_tool', input: { first: true }, id: 'call_1' },
+            { name: 'test_tool', input: { second: true }, id: 'call_2' },
+          ],
+        },
       ])
       const ud = setup()
 

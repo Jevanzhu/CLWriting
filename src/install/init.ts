@@ -10,7 +10,15 @@
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads, sanitizeLeadsEnabled } from './data.js'
-import { appendBook, appendBookAsync, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES, BOOK_NAME_INVALID_REASON } from './books.js'
+import {
+  appendBook,
+  appendBookAsync,
+  readBooks,
+  bookStoragePath,
+  isInvalidBookName,
+  BOOK_NAME_MAX_BYTES,
+  BOOK_NAME_INVALID_REASON,
+} from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import { readBookConfig } from '../format/yaml.js'
 import { isMdFileName } from '../format/filename.js'
@@ -38,8 +46,7 @@ interface InitOptions {
 }
 
 type InitResult =
-  | { ok: true; workDir: string; bookRoot: string; bookName: string; bookPath: string }
-  | { ok: false; reason: string }
+  { ok: true; workDir: string; bookRoot: string; bookName: string; bookPath: string } | { ok: false; reason: string }
 
 /** 登记前步骤的结果：失败带人话 reason；可登记则带注册/回显所需的全部字段。 */
 type InitStepOutcome =
@@ -146,11 +153,12 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   // 放行」分支会让幂等 scaffold 覆写他书 book.yaml 后才在登记段被拒——盘面与登记已
   // 撕裂。占用判定 stat 失败回退 samePath 字符串口径（posix 全等，不误伤大小写敏感
   // 卷上的合法异名库）；同名条目不参与（名字维度由下方 registered 各档收口）。
-  const occupying = existingBooks.find(
-    (b) => b.name !== bookName && samePhysicalPath(join(workDir, b.path), bookRoot),
-  )
+  const occupying = existingBooks.find((b) => b.name !== bookName && samePhysicalPath(join(workDir, b.path), bookRoot))
   if (occupying) {
-    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${bookPath}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
+    return {
+      ok: false,
+      reason: `已有一本叫「${occupying.name}」的书占用了目录「${bookPath}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的`,
+    }
   }
   // -数据层：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
   // {ok:false,reason} 契约——先行判定给出可读原因
@@ -190,7 +198,10 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     const cfgRead = readBookConfig(join(bookRoot, 'book.yaml'))
     const yamlTitle = cfgRead.config.book.title.trim().normalize('NFC')
     if (yamlTitle !== '' && yamlTitle !== bookName.normalize('NFC')) {
-      return { ok: false, reason: `目录「${bookPath}」已是一本叫「${yamlTitle}」的未完成书（上次初始化未完成登记）——用书名「${yamlTitle}」重试可续建，或先清空该目录` }
+      return {
+        ok: false,
+        reason: `目录「${bookPath}」已是一本叫「${yamlTitle}」的未完成书（上次初始化未完成登记）——用书名「${yamlTitle}」重试可续建，或先清空该目录`,
+      }
     }
     // 半成品 → 落到下方 scaffold 复跑（幂等覆盖自身占位，正文零文件无用户内容可损失）
   }
@@ -199,15 +210,16 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   }
 
   // 确定扩展账本类（显式 > 题材推荐 > 空）。短篇集无长程账本（降级单篇清单 #27），恒空
-  const leadsEnabled: LeadType[] = kind === 'short'
-    ? []
-    : opts.leads
-      // 收编 data.ts sanitizeLeadsEnabled 单源（原本地副本逐位同，
-      // 单源侧却「生产零调用反挂测试上」两相反）；opts.leads 为 readonly，展开传参
-      ? sanitizeLeadsEnabled([...opts.leads])
-      : opts.genre
-        ? matchGenreLeads(opts.genre)
-        : []
+  const leadsEnabled: LeadType[] =
+    kind === 'short'
+      ? []
+      : opts.leads
+        ? // 收编 data.ts sanitizeLeadsEnabled 单源（原本地副本逐位同，
+          // 单源侧却「生产零调用反挂测试上」两相反）；opts.leads 为 readonly，展开传参
+          sanitizeLeadsEnabled([...opts.leads])
+        : opts.genre
+          ? matchGenreLeads(opts.genre)
+          : []
 
   // 步骤 5：工作目录骨架（非 git，幂等复用）
   // 步骤 6：书仓库 scaffold（book.yaml + 6.2 目录 + 文风占位 + 初始 manifest——去 git，见 scaffold.ts）
@@ -217,7 +229,15 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   // 展示，裸 throw 直接炸启动链）；统一收编为可读原因
   try {
     scaffoldWorkDir(workDir)
-    scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
+    scaffoldBookRepo(bookRoot, {
+      name: bookName,
+      genre: opts.genre ?? '',
+      leadsEnabled,
+      kind,
+      host: opts.host,
+      targetWords: opts.targetWords,
+      brief: opts.brief,
+    })
   } catch (e) {
     return { ok: false, reason: `建书目录失败（${errMsg(e)}），请换更短的书名或更浅的书库位置后重试` }
   }

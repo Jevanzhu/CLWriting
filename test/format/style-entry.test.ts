@@ -138,13 +138,16 @@ describe('readEntries / nextEntrySeq / addEntry', () => {
   // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个条目库读取抛穿，
   // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('低-3（第十轮）：类型目录含已消失文件（悬空链接）不抛，其余条目照常读出', () => {
-    addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 正文: 'A' })
-    symlinkSync(join(root, ENTRIES_DIR, '样章', 'no-such.md'), join(root, ENTRIES_DIR, '样章', '战斗-002.md'))
-    const { entries, errors } = readEntries(join(root, ENTRIES_DIR))
-    expect(entries).toHaveLength(1)
-    expect(errors).toHaveLength(0)
-  })
+  it.skipIf(process.platform === 'win32')(
+    '低-3（第十轮）：类型目录含已消失文件（悬空链接）不抛，其余条目照常读出',
+    () => {
+      addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 正文: 'A' })
+      symlinkSync(join(root, ENTRIES_DIR, '样章', 'no-such.md'), join(root, ENTRIES_DIR, '样章', '战斗-002.md'))
+      const { entries, errors } = readEntries(join(root, ENTRIES_DIR))
+      expect(entries).toHaveLength(1)
+      expect(errors).toHaveLength(0)
+    },
+  )
 
   it('序号同场景递增、异场景独立；addEntry 返回相对路径', () => {
     const p1 = addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 正文: 'A' })
@@ -266,15 +269,11 @@ describe('R55-D-1：_raw 数组型未知字段往返保真', () => {
   })
 })
 
-
 // ── Y-23 / Y-27（五十七轮，2026-09-26 终扫自 style-entry-y23-y27.test.ts 并入）────
 describe('Y-23: readBannedEntryWords 多行正文拆词', () => {
   it('多行说明性正文的禁词条目按行生效（整段当一个词永不命中）', () => {
     mkdirSync(join(root, ENTRIES_DIR, '禁词'), { recursive: true })
-    writeFileSync(
-      join(root, ENTRIES_DIR, '禁词', 'a.md'),
-      '---\n类型: 禁词\n场景: 通用\n---\n仿佛命运\n无处不在\n',
-    )
+    writeFileSync(join(root, ENTRIES_DIR, '禁词', 'a.md'), '---\n类型: 禁词\n场景: 通用\n---\n仿佛命运\n无处不在\n')
     // R73-15（二十一轮 B-2）：返回形态改 { words, unparsed }——解析不出词的条目
     // 随 unparsed 回报（场景名留痕，机检消费面产黄项），不再静默失明
     const { words, unparsed } = readBannedEntryWords(root)

@@ -18,10 +18,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  doInitAsync,
-  doInit,
-} from '../../src/install/init.js'
+import { doInitAsync, doInit } from '../../src/install/init.js'
 import {
   appendBookAsync,
   tryBooksLock,

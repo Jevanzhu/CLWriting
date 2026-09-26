@@ -279,7 +279,8 @@ describe('R26-78: probeSseBusy 探测超时', () => {
     const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
-      if (url.endsWith('/stream')) { // R31-32：探测走 header 通道，URL 不带凭据
+      if (url.endsWith('/stream')) {
+        // R31-32：探测走 header 通道，URL 不带凭据
         // 模拟真实 fetch：永不回包，但 abort 信号到达即 reject（超时通道可观察）
         return new Promise<Response>((_, rej) => {
           init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
@@ -424,19 +425,22 @@ describe('R0910-W: 在途 429 探测不跨书切换', () => {
   beforeEach(() => {
     resolveProbe = null
     probeSignal = null
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      // 换票桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连）
-      if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
-      if (url.includes('/stream')) {
-        // 探测：挂起直到用例手动 settle（忽略 abort —— 专测代闸兜底，而非 abort 通道）
-        probeSignal = init?.signal ?? null
-        return new Promise<Response>((res) => {
-          resolveProbe = res
-        })
-      }
-      return new Response('{}')
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        // 换票桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连）
+        if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })
+        if (url.includes('/stream')) {
+          // 探测：挂起直到用例手动 settle（忽略 abort —— 专测代闸兜底，而非 abort 通道）
+          probeSignal = init?.signal ?? null
+          return new Promise<Response>((res) => {
+            resolveProbe = res
+          })
+        }
+        return new Response('{}')
+      }),
+    )
   })
 
   it('切书后在途探测 settle（429）→ 代闸丢弃，不为旧书补发指引', async () => {

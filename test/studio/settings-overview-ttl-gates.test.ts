@@ -16,11 +16,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { sleep } from '../helpers/wait-for.js'
-import {
-  settingsCache,
-  forgetSettingsCache,
-  completionNamesCache,
-} from '../../src/studio/server/api/settings.js'
+import { settingsCache, forgetSettingsCache, completionNamesCache } from '../../src/studio/server/api/settings.js'
 import { overviewCache, forgetOverviewCache } from '../../src/studio/server/api/overview.js'
 
 const BOOK = 'R0912缓存门书'
@@ -40,7 +36,8 @@ beforeAll(async () => {
     // 两壳 TTL 短档经组装根 overrides 注入（原模块级 setter 已删）
     overrides: { settingsTtlMs: 1000, overviewTtlMs: 1000 },
     // book.yaml title 必须与书名一致：启动段 repairBooks 以 title 覆写登记名
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0912缓存门书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R0912缓存门书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     dirs: ['设定/角色', '写作/正文'],
     files: [
       // settings 指纹面：设定/时间线 目录须存在（指纹失效臂往里写文件）
@@ -137,7 +134,8 @@ describe('R0912-ds41：TTL 生效值链中间档（completion 壳自有档缺省
       prefix: 'clw-r0912-ds41-gates-chain-',
       env: { CLWRITING_DRIVER: 'mock' },
       overrides: { settingsTtlMs: 300 },
-      bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0912缓存门书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+      bookYaml:
+        'spec_version: 1\nkind: long\nbook:\n  title: R0912缓存门书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
       dirs: ['设定/角色', '写作/正文'],
       files: [{ rel: '设定/时间线/开篇.md', content: '# 开篇\n主角登场。\n' }],
     })

@@ -39,7 +39,12 @@ vi.mock('../../src/format/draft.js', async (importOriginal) => {
   return { ...actual, readDraft: vi.fn(actual.readDraft) }
 })
 
-import { computeTreeIssuesGlobalFpCore, syncTreeIssuesEpoch, computeTreeIssuesGlobalFp, computeLeadsBookFp } from '../../src/check/tree-issues-cache.js'
+import {
+  computeTreeIssuesGlobalFpCore,
+  syncTreeIssuesEpoch,
+  computeTreeIssuesGlobalFp,
+  computeLeadsBookFp,
+} from '../../src/check/tree-issues-cache.js'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { readDraft } from '../../src/format/draft.js'
 import { collectTreeIssues } from '../../src/check/run.js'
@@ -61,7 +66,11 @@ function makeBook(chapterCount: number): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
     '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
@@ -372,14 +381,22 @@ describe('B-8：章级缓存行指纹 µs 精度', () => {
       mkdirSync(join(root, '布线', '悬念'), { recursive: true })
       mkdirSync(join(root, '写作', '正文'), { recursive: true })
       mkdirSync(join(root, '项目'), { recursive: true })
-      writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 降级书\nhost: cc\nleads:\n  enabled: []\n', 'utf8')
+      writeFileSync(
+        join(root, 'book.yaml'),
+        'spec_version: 1\nkind: long\nbook:\n  title: 降级书\nhost: cc\nleads:\n  enabled: []\n',
+        'utf8',
+      )
       writeFileSync(
         join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
         '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
         'utf-8',
       )
       const draftPath = join(root, '写作', '正文', '001-章一.md')
-      writeFileSync(draftPath, '---\n章号: 1\n标题: 章一\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一句。', 'utf8')
+      writeFileSync(
+        draftPath,
+        '---\n章号: 1\n标题: 章一\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一句。',
+        'utf8',
+      )
       const manifestPath = join(root, '项目', '文档清单.jsonl')
       const m = readManifest(manifestPath)
       upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/001-章一.md', parentId: null })
@@ -393,7 +410,8 @@ describe('B-8：章级缓存行指纹 µs 精度', () => {
       // 直查缓存行：mtime 列应为 µs 级（~1.7e15），与旧毫秒值（~1.7e12）值域隔离
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
-        const row = db.prepare('SELECT mtime_ms FROM tree_issues_cache LIMIT 1').get() as { mtime_ms: number } | undefined
+        const row = db.prepare('SELECT mtime_ms FROM tree_issues_cache LIMIT 1').get() as
+          { mtime_ms: number } | undefined
         expect(row).toBeDefined()
         expect(row!.mtime_ms).toBeGreaterThan(1e15) // µs since epoch
         expect(row!.mtime_ms).toBeLessThan(1e16)

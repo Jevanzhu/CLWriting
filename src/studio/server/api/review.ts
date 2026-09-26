@@ -21,7 +21,13 @@ import { crossProcessHeldTaskGatesFor, REVIEW_BUSY_TEXT, type TaskGateInjected }
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
-import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuarded, bookMovedFailure } from '../book-context.js'
+import {
+  resolveBookOrReply,
+  resolveDocEntry,
+  resolveDocFile,
+  readDraftTextGuarded,
+  bookMovedFailure,
+} from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
@@ -127,7 +133,6 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         return replyError(res, 409, 'REVIEW_BUSY', REVIEW_BUSY_TEXT)
       }
       try {
-
         // 单次读取取 buffer——sourceHash/draftHash/机检 body 三源同拍。
         // 此前三处独立读文件（hash 一读、机检内二读、hash 三读），机检窗口内作者保存
         // 会让两个 hash 无任何单一文件状态与之对应（isStale 误报 / 守卫依赖
@@ -158,16 +163,13 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           )
         }
         const { report, chapter, body } = outcome
-  
+
         // 三审运行时喂值：readBookConfig 结果统一过 applyGlobalDefaults（书级未设回落
         // global.json → 硬编码；budget.calls_per_chapter 喂 remaining_calls，不能是 undefined）。
         // 注释固定口径：本层与 runCheckForDocument 内层是同一 book.yaml 的两次独立
         // 读取——内层损坏时 warn 留诊断并回落 DEFAULT_CONFIG，本层静默回落（.config 永远
         // 有值）；磁盘同文件两次结果一致，刻意不复用内层 config 避免三审层耦合机检内部实现。
-        const config = applyGlobalDefaults(
-          readBookConfig(join(bookRoot, 'book.yaml')).config,
-          ctx.userDataPath,
-        )
+        const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath)
         const hasWiring = existsSync(join(bookRoot, '布线'))
         const hasShort = config.kind === 'short'
 
@@ -176,7 +178,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // sourceHash 同源同拍：字节级 sha256（与 collect 侧重读文件后 createHash 同口径），
         // 三审分钟级窗口内作者改稿即被捕获。：从单次读取的 buffer 派生（三读收口为一读）。
         const draftHash = createHash('sha256').update(draftBuf).digest('hex')
-  
+
         // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
         // docId 段过 encodeDocDirName——legacy id 含 `:`（`legacy:<sha>`），
         // win 目录名非法，原样拼路径 mkdir 恒 ENOENT → legacy 书三审整体 500（e2e
@@ -204,7 +206,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           rmSync(reviewOutDir, { recursive: true, force: true })
           return replyError(res, 500, 'PACKET_FAIL', built.reason)
         }
-  
+
         // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
         try {
           const driver = ctx.driver.driver
@@ -247,7 +249,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             const collected = collectReviewIssues({ packet: built.packet })
             // 信封 model 记实际供应商/模型名（不再写死 'cc'）
             // mock 判定读注入的 driver.kind（不再读环境变量）；供应商/档位读注入端口
-            const prov = ctx.driver.kind === 'mock' ? null : (ctx.userDataPath ? ctx.providers.currentProvider(ctx.userDataPath) : null)
+            const prov =
+              ctx.driver.kind === 'mock'
+                ? null
+                : ctx.userDataPath
+                  ? ctx.providers.currentProvider(ctx.userDataPath)
+                  : null
             // （四轮处置批）：写临界段重验书注册——lens 循环分钟级让出窗内
             // 删书/改名可搬走 bookRoot，照写会在旧路径 mkdir recursive 重建孤儿分析目录
             //（时序与防线形态见 bookMovedFailure 头注；对齐 documents/config 家族接线）。
@@ -394,7 +401,13 @@ async function runLensSpawnLoop(opts: {
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
-    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt, promptFiles: opts.sourceFiles, ctrl: opts.ctrl })
+    const out = await runSpec(reviewSpec(lens), {
+      userDataPath: opts.userDataPath,
+      bookRoot: opts.bookRoot,
+      userPrompt: prompt,
+      promptFiles: opts.sourceFiles,
+      ctrl: opts.ctrl,
+    })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
     const { input, text } = out.data
     // tool_use 产出 → input.issues；降级用 text
@@ -431,7 +444,10 @@ export function buildLensPrompt(
     parts.push(
       checks.length
         ? `## 清单核对(逐条核对反转线索与伏笔回收)\n${checks
-            .map((c) => `- ${c.type === 'reversal' ? '反转' : '伏笔'}｜${c.subject}｜${c.location || '未标注位置'}｜${c.detail}`)
+            .map(
+              (c) =>
+                `- ${c.type === 'reversal' ? '反转' : '伏笔'}｜${c.subject}｜${c.location || '未标注位置'}｜${c.detail}`,
+            )
             .join('\n')}`
         : `## 清单核对\n(本篇无清单条目)`,
     )

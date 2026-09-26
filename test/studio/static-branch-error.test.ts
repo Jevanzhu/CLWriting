@@ -30,8 +30,7 @@ vi.mock('../../src/studio/server/static.ts', async (importOriginal) => {
           // 场景 B：响应已结束（如对已销毁连接的收尾完成后）再抛——修复口径：不重复写头
           res.writeHead(200, { 'content-type': 'text/plain' })
           res.end('done')
-          throw new Error('ERR_STREAM_ALREADY_FINISHED（模拟）：响应结束后异常'
-          )
+          throw new Error('ERR_STREAM_ALREADY_FINISHED（模拟）：响应结束后异常')
         }
         // 场景 A：handler 内部首步即抛（模拟 writeHead 对已销毁连接抛 ERR_STREAM_ALREADY_FINISHED）
         throw new Error('ERR_STREAM_ALREADY_FINISHED（模拟）：未写任何响应即异常')

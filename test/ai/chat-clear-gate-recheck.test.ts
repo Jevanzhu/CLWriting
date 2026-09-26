@@ -56,7 +56,9 @@ function counts(ud: string, bookRoot: string): { chat: number; ws: number } {
 describe('重评二轮-P3-2: clearChatHistory gate 清库前复查', () => {
   it('gate 触发 → 返回拒清理由，双键事件库原样（clearBooks 未执行）', async () => {
     const { ud, bookRoot } = seed()
-    const reason = await clearChatHistory(BOOK, ud, bookRoot, { gate: () => '本书有任务在跑（analyze），先等它完成后再清空对话' })
+    const reason = await clearChatHistory(BOOK, ud, bookRoot, {
+      gate: () => '本书有任务在跑（analyze），先等它完成后再清空对话',
+    })
     expect(reason).toBe('本书有任务在跑（analyze），先等它完成后再清空对话')
     expect(counts(ud, bookRoot)).toEqual({ chat: 1, ws: 1 })
   })

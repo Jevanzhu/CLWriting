@@ -22,7 +22,13 @@
  */
 import process from 'node:process'
 import type http from 'node:http'
-import { parseServerArgs, bootServerFromArgs, describeBootError, deriveStaticDir, resolveEnvPort } from './server-boot.js'
+import {
+  parseServerArgs,
+  bootServerFromArgs,
+  describeBootError,
+  deriveStaticDir,
+  resolveEnvPort,
+} from './server-boot.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { errMsg, log } from '../log/index.js'
 
@@ -30,11 +36,7 @@ import { errMsg, log } from '../log/index.js'
  * node 直跑形态胶水（独立导出以便测试；行为与解耦前逐字一致）。
  * 返回 server 实例（供 installSignalFallback 接线 / 测试断言）。
  */
-export function runServerMain(
-  argv: string[],
-  env: Record<string, string | undefined>,
-  moduleUrl: string,
-): http.Server {
+export function runServerMain(argv: string[], env: Record<string, string | undefined>, moduleUrl: string): http.Server {
   // node 直跑形态缺省与拆分前逐字一致：--port > CLWRITING_PORT > 7878
   // env 值经 resolveEnvPort 校验（非法 fatal 人话退出），NaN/'' 不再透传 listen
   const parsed = parseServerArgs(argv, { portDefault: resolveEnvPort(env) })
@@ -117,7 +119,9 @@ export function installSignalFallback(server: ClosableServer): () => void {
 // 顶层接线——vitest 探针（先例 server-utility.ts）：测试态 import 只留痕不启动
 // （避免真绑端口 + 真注册信号杀测试进程），运行态经导出胶水直跑
 if (process.env['VITEST'] === 'true') {
-  console.error('[server-main][vitest] 测试态 import（预期）：顶层接线跳过，运行态仅供 node dist/desktop/server-main.js 直跑')
+  console.error(
+    '[server-main][vitest] 测试态 import（预期）：顶层接线跳过，运行态仅供 node dist/desktop/server-main.js 直跑',
+  )
 } else {
   installSignalFallback(runServerMain(process.argv, process.env, import.meta.url))
 }

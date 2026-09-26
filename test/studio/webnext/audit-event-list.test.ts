@@ -152,7 +152,12 @@ describe('七轮重评-5：摘要码位截断不劈代理对', () => {
     // '动词 '(3 码元) + 56 BMP = 59 码元，𠮷 恰跨第 60/61 码元——旧 slice 劈半
     const w = mount(AuditEventList, {
       props: {
-        events: [ev({ type: 'goal/change', data: { operation: '动词', goal: { title: '甲'.repeat(56) + '𠮷' + '乙', state: 'open' } } })],
+        events: [
+          ev({
+            type: 'goal/change',
+            data: { operation: '动词', goal: { title: '甲'.repeat(56) + '𠮷' + '乙', state: 'open' } },
+          }),
+        ],
         total: 1,
         loadingMore: false,
         hasMore: false,

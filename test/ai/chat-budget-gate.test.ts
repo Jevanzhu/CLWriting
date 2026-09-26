@@ -258,7 +258,9 @@ describe('chat_max_calls schema 三面形态', () => {
   })
 
   it('短篇只设 chat_max_calls → budget 段保留（R26-10 判定并入该键）', () => {
-    const cfg = parseBookConfig('spec_version: 1\nkind: short\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 3\n')
+    const cfg = parseBookConfig(
+      'spec_version: 1\nkind: short\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 3\n',
+    )
     expect(cfg.ok).toBe(true)
     if (!cfg.ok) return
     const text = stringifyBookConfig(cfg.config)

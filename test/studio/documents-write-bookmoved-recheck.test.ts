@@ -64,7 +64,11 @@ function makeBook(name: string): Rig {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   mkdirSync(join(bookRoot, '设定', '伏笔'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区', '.journal'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`,
+    'utf-8',
+  )
   const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   upsertEntry(m, { id: 'doc_f1', nodeType: 'document', path: '设定/伏笔/伏笔-001.md', parentId: null })
   writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)

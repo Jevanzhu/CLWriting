@@ -11,9 +11,7 @@ import { readFile, writeFile, parseRealmSystems, stringifyRealmSystems } from '.
 import type { RealmDoc, ParseError } from './types.js'
 
 /** 读取 境界体系.md → RealmDoc（容错） */
-export function readRealmDoc(
-  filePath: string,
-): { ok: true; doc: RealmDoc } | { ok: false; error: ParseError } {
+export function readRealmDoc(filePath: string): { ok: true; doc: RealmDoc } | { ok: false; error: ParseError } {
   const r = readFile(filePath)
   if (!r.ok) return r
 
@@ -38,10 +36,7 @@ export function writeRealmDoc(filePath: string, doc: RealmDoc): void {
  * 取某体系序列（成长线机检用，#6 第 4 节）。
  * @returns 序列数组（索引即高低），不存在返回 null
  */
-export function getRealmSequence(
-  doc: RealmDoc,
-  systemName: string,
-): string[] | null {
+export function getRealmSequence(doc: RealmDoc, systemName: string): string[] | null {
   const sys = doc.体系.find((s) => s.名称 === systemName)
   return sys ? sys.序列 : null
 }
@@ -69,7 +64,24 @@ export function realmIndex(sequence: string[], realm: string): number {
  * 假红/漏红双向污染单调性/跨度判定。
  */
 const REALM_LEAD_CONNECTIVES = new Set([
-  '至', '到', '入', '成', '达', '于', '晋', '升', '进', '凝', '结', '破', '跌', '落', '退', '返', '踏', '迈',
+  '至',
+  '到',
+  '入',
+  '成',
+  '达',
+  '于',
+  '晋',
+  '升',
+  '进',
+  '凝',
+  '结',
+  '破',
+  '跌',
+  '落',
+  '退',
+  '返',
+  '踏',
+  '迈',
 ])
 
 /** 汉字判定（基本区 + 扩展 A 区，字面区间与 check/count.ts 的 HANZI 同源；format 域
@@ -89,8 +101,7 @@ export function extractExactRealmFromEvidence(evidence: string, sequence: string
       const next = evidence[index + realm.length]
       const prev = index > 0 ? evidence[index - 1]! : undefined
       // 前邻汉字须是跃迁连接语素（伪金丹/九转金丹 的 伪/转 → 拒绝）
-      const prevOk =
-        prev === undefined || !isHanziChar(prev) || REALM_LEAD_CONNECTIVES.has(prev)
+      const prevOk = prev === undefined || !isHanziChar(prev) || REALM_LEAD_CONNECTIVES.has(prev)
       if ((next === undefined || isRealmBoundary(next)) && prevOk) matches.push({ realm, index })
       start = index + Math.max(realm.length, 1)
     }

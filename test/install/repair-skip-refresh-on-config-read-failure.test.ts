@@ -86,9 +86,7 @@ describe('扫盘对账：book.yaml 读失败 → 跳过该书刷新（保留原�
     const result = repairBooks(wd)
 
     expect(result.changed).toBe(true)
-    expect(readBooks(wd)).toEqual([
-      expect.objectContaining({ name: '星落·修订版', path: '长篇/星落', kind: 'short' }),
-    ])
+    expect(readBooks(wd)).toEqual([expect.objectContaining({ name: '星落·修订版', path: '长篇/星落', kind: 'short' })])
   })
 
   it('登记目录真缺失（ENOENT）→ 照旧报告 missing + hint、登记保留（瞬态纪律不受本修复影响）', () => {

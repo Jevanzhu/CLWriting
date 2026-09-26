@@ -48,7 +48,8 @@ const leadUpdateQueues = new Map<string, Promise<unknown>>()
 const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
 
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
-export const [getLeadUpdateLockTimeoutMs, __setLeadUpdateLockTimeoutForTest] = testableConst(LEAD_UPDATE_LOCK_TIMEOUT_MS)
+export const [getLeadUpdateLockTimeoutMs, __setLeadUpdateLockTimeoutForTest] =
+  testableConst(LEAD_UPDATE_LOCK_TIMEOUT_MS)
 
 async function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): Promise<T> {
   const lockPath = join(bookRoot, LEAD_UPDATES_FILE + '.lock')
@@ -101,7 +102,8 @@ async function generateLeadUpdateDraftInner(
 
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   const hit = chapters.find((c) => c.章号 === chapter)
-  if (!hit?._path) return { ok: false, code: 'not-found', error: '第 ' + chapter + ' 章正文不存在，先写稿再生成账本推进' }
+  if (!hit?._path)
+    return { ok: false, code: 'not-found', error: '第 ' + chapter + ' 章正文不存在，先写稿再生成账本推进' }
 
   const draft = readDraft(hit._path)
   if (!draft.ok) return { ok: false, code: 'not-found', error: draft.reason }
@@ -122,15 +124,23 @@ async function generateLeadUpdateDraftInner(
   // 不进 chapter 块（调用点又绕过 checkAiCallBudget），章内红补生成 + pass 后后台草稿
   // 构成每章 ≤2 次的预算逃逸；对齐 summary.ts generateChapterSummary 的 budgetChapter
   // 口径（runSpec opts.chapter → runTask chapter 块记账）
-  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal, promptFiles, chapter })
+  const out = await runSpec(LEAD_UPDATE_SPEC, {
+    userDataPath,
+    bookRoot,
+    userPrompt: prompt,
+    signal,
+    promptFiles,
+    chapter,
+  })
   if (!out.ok) return { ok: false, code: 'failed', error: out.error }
   const text = out.data.text.trim()
   if (!text) return { ok: false, code: 'failed', error: 'AI 产出为空' }
 
   const updates = parseLeadUpdateDraft(text, bookRoot)
-  const body = updates.length > 0
-    ? updates.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据).join('\n')
-    : '# 本章无账本推进'
+  const body =
+    updates.length > 0
+      ? updates.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据).join('\n')
+      : '# 本章无账本推进'
   try {
     // 批量连写下，主文件可能是上一章（尚未定稿确认）的草稿——先按章归档再写本章，
     // finalize（applyLeadUpdates）按定稿章号从归档回收，防止整链旁路丢确认内容。
@@ -155,7 +165,7 @@ async function generateLeadUpdateDraftInner(
       atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), canonicalizeText(content))
     })
   } catch (e) {
-    return { ok: false, code: 'failed', error: '落盘:' + (errMsg(e)) }
+    return { ok: false, code: 'failed', error: '落盘:' + errMsg(e) }
   }
   return { ok: true, count: updates.length }
 }
@@ -225,7 +235,10 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   } catch (e) {
     log.warn('lead-update-draft', `归档归并后源文件删除失败（${file}）——条目已并入第${tag}章.md`, e)
   }
-  log.info('lead-update-draft', `归档归并 第${tag}章.md：旧 ${merged.oldCount} 条 + 新 ${merged.added} 条 + 覆盖 ${merged.overridden} 条 → ${merged.total} 条`)
+  log.info(
+    'lead-update-draft',
+    `归档归并 第${tag}章.md：旧 ${merged.oldCount} 条 + 新 ${merged.added} 条 + 覆盖 ${merged.overridden} 条 → ${merged.total} 条`,
+  )
 }
 
 /** 归并纯函数：旧条目保序保位（档内同键重复收敛到末次声明），同键新声明覆盖
@@ -291,7 +304,9 @@ export function buildLeadUpdatePrompt(bookRoot: string, chapter: number, body: s
           .map((l) => {
             const type = l.编号.split('-')[0] as keyof typeof LEAD_VERBS
             const verbs = LEAD_VERBS[type]
-            return '- ' + l.编号 + ' ' + l.标题 + '（' + l.状态 + '） 动词:[' + (verbs ? verbs.advance.join('/') : '') + ']'
+            return (
+              '- ' + l.编号 + ' ' + l.标题 + '（' + l.状态 + '） 动词:[' + (verbs ? verbs.advance.join('/') : '') + ']'
+            )
           })
           .join('\n'),
     )

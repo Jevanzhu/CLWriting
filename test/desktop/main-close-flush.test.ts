@@ -171,9 +171,7 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     await new Promise((r) => setImmediate(r))
     expect(M.msgBoxSync.length).toBe(box0) // 修复点：停机窗口内零同步确认（进程不被钉死）
     expect(win.isDestroyed()).toBe(true) // 留痕后照常关窗收口
-    expect(
-      M.logWarns.slice(warn0).some((l) => String((l as unknown[])[1]).includes('跳过冲突/失败确认')),
-    ).toBe(true)
+    expect(M.logWarns.slice(warn0).some((l) => String((l as unknown[])[1]).includes('跳过冲突/失败确认'))).toBe(true)
   })
 
   // RC 源码重审 A-1（Opus-5.5 轮）：session-end 链改序——先等渲染层 flush 落定再下发停机
@@ -231,7 +229,9 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
         expect(child.posted).not.toContainEqual({ type: 'shutdown' }) // 预算内仍在等
         await vi.advanceTimersByTimeAsync(500) // 预算到点
         expect(child.posted).toContainEqual({ type: 'shutdown' }) // 有界收口：仍下发停机
-        expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 未落定'))).toBe(true)
+        expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 未落定'))).toBe(
+          true,
+        )
       } finally {
         vi.useRealTimers()
         if (prevBudget === undefined) delete process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']
@@ -250,7 +250,9 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     win.emit('session-end')
     await new Promise((r) => setImmediate(r))
     expect(M.msgBoxSync.length).toBe(box0) // 停机窗口内不弹原生确认（无人可答）
-    const sessionErrs = M.logErrors.slice(err0).filter((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 落定但未落净'))
+    const sessionErrs = M.logErrors
+      .slice(err0)
+      .filter((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 落定但未落净'))
     expect(sessionErrs.length).toBe(1)
     expect(String((sessionErrs[0] as unknown[])[1])).toContain('冲突 1 个')
     expect(String((sessionErrs[0] as unknown[])[1])).toContain('保存失败 1 个')

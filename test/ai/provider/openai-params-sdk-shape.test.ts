@@ -15,7 +15,11 @@
 import { describe, expect, it } from 'vitest'
 import OpenAI from 'openai'
 import { createOpenAIProviderChat, toParams as toChatParams } from '../../../src/ai/provider/openai-adapter.js'
-import { createOpenAIResponsesProvider, asSdkParams, toParams as toResponsesParams } from '../../../src/ai/provider/responses-adapter.js'
+import {
+  createOpenAIResponsesProvider,
+  asSdkParams,
+  toParams as toResponsesParams,
+} from '../../../src/ai/provider/responses-adapter.js'
 import { CONF, REQ, collect } from './adapter-fixtures.js'
 import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
 
@@ -23,14 +27,18 @@ import type { GenRequest, ProviderConf } from '../../../src/ai/provider/index.js
 
 describe('R0916-7-P3-16：参数构造返回值的类型层可赋性', () => {
   it('openai Chat：toParams 返回值直接就是 SDK 参数类型（无需 as unknown as）', () => {
-    const probe: (conf: ProviderConf, req: GenRequest) => OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = toChatParams
+    const probe: (conf: ProviderConf, req: GenRequest) => OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
+      toChatParams
     expect(typeof probe).toBe('function')
   })
 
   it('responses：toParams + 白名单转换点即 SDK 参数类型（差异仅 tools[].strict）', () => {
-    const conv: (p: ReturnType<typeof toResponsesParams>) => OpenAI.Responses.ResponseCreateParamsStreaming = asSdkParams
-    const probe: (conf: ProviderConf, req: GenRequest) => OpenAI.Responses.ResponseCreateParamsStreaming = (conf, req) =>
-      conv(toResponsesParams(conf, req))
+    const conv: (p: ReturnType<typeof toResponsesParams>) => OpenAI.Responses.ResponseCreateParamsStreaming =
+      asSdkParams
+    const probe: (conf: ProviderConf, req: GenRequest) => OpenAI.Responses.ResponseCreateParamsStreaming = (
+      conf,
+      req,
+    ) => conv(toResponsesParams(conf, req))
     expect(typeof probe).toBe('function')
   })
 })
@@ -46,7 +54,10 @@ function fakeChatClient(): { client: OpenAI; params: Record<string, unknown>[] }
         create: async (p: unknown): Promise<AsyncGenerator<unknown>> => {
           params.push(p as Record<string, unknown>)
           return (async function* () {
-            yield { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }
+            yield {
+              choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }
           })()
         },
       },
@@ -63,7 +74,10 @@ function fakeResponsesClient(): { client: OpenAI; params: Record<string, unknown
       create: async (p: unknown): Promise<AsyncGenerator<unknown>> => {
         params.push(p as Record<string, unknown>)
         return (async function* () {
-          yield { type: 'response.completed', response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } } }
+          yield {
+            type: 'response.completed',
+            response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } },
+          }
         })()
       },
     },
@@ -120,7 +134,9 @@ describe('R0916-7-P3-16：Chat 线参数按 SDK 类型构造后的键形状', ()
   it('实发路径：adapter 传给 SDK 的就是 toParams 的产物（无中间改写，风格与 Responses 线一致）', async () => {
     const { client, params } = fakeChatClient()
     await collect(createOpenAIProviderChat({ ...CONF, model: 'gpt-5' }, client), REQ)
-    expect(JSON.parse(JSON.stringify(params[0]))).toEqual(JSON.parse(JSON.stringify(toChatParams({ ...CONF, model: 'gpt-5' }, REQ))))
+    expect(JSON.parse(JSON.stringify(params[0]))).toEqual(
+      JSON.parse(JSON.stringify(toChatParams({ ...CONF, model: 'gpt-5' }, REQ))),
+    )
   })
 })
 
@@ -143,11 +159,18 @@ describe('R0916-7-P3-16：Responses 线参数按 SDK 类型构造后的键形状
     const tools = built['tools'] as Array<Record<string, unknown>>
     expect(tools).toHaveLength(1)
     expect('strict' in tools[0]!).toBe(false)
-    expect(tools[0]).toMatchObject({ type: 'function', name: 'read_chapter', parameters: { type: 'object', properties: {} } })
+    expect(tools[0]).toMatchObject({
+      type: 'function',
+      name: 'read_chapter',
+      parameters: { type: 'object', properties: {} },
+    })
   })
 
   it('deepseek 家族：effort 落 output_config（非 SDK 扩展字段）；structuredMode=json_object 故不发 text.format', () => {
-    const built = toResponsesParams({ ...RCONF, model: 'deepseek-chat' }, { ...REQ, effort: 'medium', structured: { schema: { type: 'object' } } })
+    const built = toResponsesParams(
+      { ...RCONF, model: 'deepseek-chat' },
+      { ...REQ, effort: 'medium', structured: { schema: { type: 'object' } } },
+    )
     expect(built['output_config']).toEqual({ effort: 'high' }) // trimEffort: medium → high
     expect('reasoning_effort' in built).toBe(false)
     expect('reasoning' in built).toBe(false)
@@ -156,7 +179,9 @@ describe('R0916-7-P3-16：Responses 线参数按 SDK 类型构造后的键形状
 
   it('structured（gpt 族 json_schema）→ text.format 形状不变', () => {
     const built = toResponsesParams(RCONF, { ...REQ, structured: { schema: { type: 'object' } } })
-    expect(built['text']).toEqual({ format: { type: 'json_schema', name: 'output', schema: { type: 'object' }, strict: true } })
+    expect(built['text']).toEqual({
+      format: { type: 'json_schema', name: 'output', schema: { type: 'object' }, strict: true },
+    })
   })
 
   it('grok 家族：effort 落顶层 reasoning_effort（非 SDK 扩展字段）', () => {
@@ -166,7 +191,12 @@ describe('R0916-7-P3-16：Responses 线参数按 SDK 类型构造后的键形状
   })
 
   it('tool_choice 指名为扁平 {type:function,name}（非 Chat 的嵌套形状）', () => {
-    const built = toResponsesParams(RCONF, { ...REQ, toolChoice: 'tool', toolName: 'read_chapter', tools: [TOOL_WITH_DESC] })
+    const built = toResponsesParams(RCONF, {
+      ...REQ,
+      toolChoice: 'tool',
+      toolName: 'read_chapter',
+      tools: [TOOL_WITH_DESC],
+    })
     expect(built['tool_choice']).toEqual({ type: 'function', name: 'read_chapter' })
   })
 

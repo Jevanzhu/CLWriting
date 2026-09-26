@@ -67,7 +67,10 @@ const TAG_FIELDS = [
   { key: '场景', label: '场景' },
 ] as const
 // fm 解析 150ms 防抖（此前每击键 parseFmFields 全文两趟大分配）
-const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => docId.value)
+const { fields: fmFields } = useDebouncedFmFields(
+  () => entry.value?.content,
+  () => docId.value,
+)
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
   const out: Record<string, string> = {}
@@ -126,7 +129,11 @@ async function loadOverview(): Promise<void> {
     overview.value = null
   }
 }
-watch(() => props.bookName, () => void loadOverview(), { immediate: true })
+watch(
+  () => props.bookName,
+  () => void loadOverview(),
+  { immediate: true },
+)
 
 // 体验分均值 + 趋势（后 3 章均值 vs 前 3 章均值 → ↑/↓/→）
 const scoreAvg = computed(() => {

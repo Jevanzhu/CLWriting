@@ -19,7 +19,9 @@ vi.mock('../../../src/studio/web-next/src/api/snapshots', () => ({
   restoreSnapshot: vi.fn(async () => undefined),
 }))
 // doc mock 单例（照 history-restore-dirty 范型：工厂每调返回同一组 spy）
-const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined>(undefined)
+const docEntryRef = ref<
+  { path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined
+>(undefined)
 const docSaveMock = vi.fn(async () => true)
 const docRefreshMock = vi.fn(async (): Promise<boolean> => true)
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
@@ -28,7 +30,9 @@ vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
     save: docSaveMock,
     refresh: docRefreshMock, // R30-7 观察口：组件按其返回值分流 toast
   })),
-  __setEntry: (e: typeof docEntryRef.value) => { docEntryRef.value = e },
+  __setEntry: (e: typeof docEntryRef.value) => {
+    docEntryRef.value = e
+  },
 }))
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
   useWorkspaceStore: vi.fn(() => ({ activeDocId: 'doc_1', openTab: vi.fn() })),

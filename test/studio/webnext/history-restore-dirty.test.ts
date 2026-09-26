@@ -20,7 +20,9 @@ vi.mock('../../../src/studio/web-next/src/api/snapshots', () => ({
 }))
 // doc mock 单例：entry ref + save/refresh spy 全局共享（工厂每调返回新对象会让
 // 断言侧取到的 spy 与组件内不是同一个——Y-31 同坑）
-const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined>(undefined)
+const docEntryRef = ref<
+  { path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined
+>(undefined)
 const docSaveMock = vi.fn(async () => true)
 // R30-7（三十轮）：refresh 契约改为 Promise<boolean>（true=对齐成功）——本文件覆盖成功
 // 口径，默认返 true；失败分流（warning toast）见 history-refresh-toast.test.ts
@@ -31,7 +33,9 @@ vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
     save: docSaveMock, // Y-9 修复点观察口：save 先于 restoreSnapshot 被调用
     refresh: docRefreshMock,
   })),
-  __setEntry: (e: typeof docEntryRef.value) => { docEntryRef.value = e },
+  __setEntry: (e: typeof docEntryRef.value) => {
+    docEntryRef.value = e
+  },
 }))
 // activeDocId 用普通字符串（普通对象无 pinia reactive 解包，ref 在 script 侧不解包
 // 会让 doc.get(ref) miss → onRestore 前置守卫早退）

@@ -11,8 +11,20 @@ import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-// @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { INDEX_FILES, INTRO_FILES, FORBIDDEN_PHRASES, FORBIDDEN_INTRO_PHRASES, isExemptLine, findLongLines, forbiddenPhrasesIn, findDateAnnotations, checkDocsIndex, checkIntroDoc } from '../../scripts/check-docs.mjs'
+import {
+  INDEX_FILES,
+  INTRO_FILES,
+  FORBIDDEN_PHRASES,
+  FORBIDDEN_INTRO_PHRASES,
+  isExemptLine,
+  findLongLines,
+  forbiddenPhrasesIn,
+  findDateAnnotations,
+  checkDocsIndex,
+  checkIntroDoc,
+  // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
+  // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
+} from '../../scripts/check-docs.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 

@@ -242,15 +242,26 @@ describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5�
     const analysisDir = join(bookRoot, '项目', '分析')
     mkdirSync(analysisDir, { recursive: true })
     // 章 1：score 好、emotion 坏（末段 emotion 非数字）
-    writeFileSync(join(analysisDir, `${docId}.json`), JSON.stringify({
-      score: env({ score: 8, dims: { 爽点: 8 } }),
-      emotion: env({ segments: [{ emotion: 1, label: '起' }, { emotion: 'x', label: '伏' }] }),
-    }))
+    writeFileSync(
+      join(analysisDir, `${docId}.json`),
+      JSON.stringify({
+        score: env({ score: 8, dims: { 爽点: 8 } }),
+        emotion: env({
+          segments: [
+            { emotion: 1, label: '起' },
+            { emotion: 'x', label: '伏' },
+          ],
+        }),
+      }),
+    )
     // 章 2：score 坏（score 缺失/非数字）、emotion 好
-    writeFileSync(join(analysisDir, `${docId2}.json`), JSON.stringify({
-      score: env({ dims: { 爽点: 8 } }),
-      emotion: env({ segments: [{ emotion: -1, label: '抑' }] }),
-    }))
+    writeFileSync(
+      join(analysisDir, `${docId2}.json`),
+      JSON.stringify({
+        score: env({ dims: { 爽点: 8 } }),
+        emotion: env({ segments: [{ emotion: -1, label: '抑' }] }),
+      }),
+    )
 
     const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/analysis-overview`)
     expect(r.status).toBe(200)
@@ -272,9 +283,17 @@ describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5�
     const bookRoot = studio.bookRoot
     const analysisDir = join(bookRoot, '项目', '分析')
     // 只重写章 1 的信封为坏形状（segments 非数组）；章 2 的好信封留盘对照
-    writeFileSync(join(analysisDir, `${docId}.json`), JSON.stringify({
-      emotion: { generatedAt: new Date().toISOString(), model: 'mock', sourceHash: '0'.repeat(64), payload: { segments: 'oops' } },
-    }))
+    writeFileSync(
+      join(analysisDir, `${docId}.json`),
+      JSON.stringify({
+        emotion: {
+          generatedAt: new Date().toISOString(),
+          model: 'mock',
+          sourceHash: '0'.repeat(64),
+          payload: { segments: 'oops' },
+        },
+      }),
+    )
     const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/analysis-overview`)
     expect(r.status).toBe(200)
     const j = r.json as { emotionTrend: { 章号: number }[] }

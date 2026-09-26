@@ -31,4 +31,3 @@ describe('chapter_status', () => {
     expect(r.summary).toContain('.cache/index.db')
   })
 })
-

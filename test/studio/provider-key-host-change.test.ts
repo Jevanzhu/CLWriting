@@ -36,7 +36,9 @@ interface ProviderReply {
 }
 
 /** 供应商 body（默认 = 主机 A + Key A；CONF 形状对齐既有 providers 端点用例） */
-function body(over: Partial<{ name: string; protocol: string; auth: string; baseUrl: string; apiKey: string }> = {}): unknown {
+function body(
+  over: Partial<{ name: string; protocol: string; auth: string; baseUrl: string; apiKey: string }> = {},
+): unknown {
   return {
     name: '主机变更用例',
     protocol: 'openai',
@@ -89,7 +91,11 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
     const id = await createProvider()
     const before = diskText()
 
-    const r = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://third-party-relay.example/v1', apiKey: '' }))
+    const r = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://third-party-relay.example/v1', apiKey: '' }),
+    )
     expect(r.status).toBe(400)
     const j = r.json as ProviderReply
     expect(j.code).toBe('API_KEY_REQUIRED_ON_HOST_CHANGE')
@@ -104,7 +110,9 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
 
     // 端点回读：地址仍是主机 A
     const list = await studio.req('GET', '/api/providers')
-    const p = (list.json as { providers: { id: string; baseUrl: string; apiKeyMasked: string }[] }).providers.find((x) => x.id === id)!
+    const p = (list.json as { providers: { id: string; baseUrl: string; apiKeyMasked: string }[] }).providers.find(
+      (x) => x.id === id,
+    )!
     expect(p.baseUrl).toBe(HOST_A)
     expect(p.apiKeyMasked).toBe(MASK_A)
   })
@@ -113,7 +121,11 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
     const id = await createProvider()
     const NEW_KEY = 'sk-beta-BBBB2222'
 
-    const r = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://api.host-b.example/v1', apiKey: NEW_KEY }))
+    const r = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://api.host-b.example/v1', apiKey: NEW_KEY }),
+    )
     expect(r.status).toBe(200)
     const p = (r.json as ProviderReply).provider!
     expect(p.baseUrl).toBe('https://api.host-b.example/v1')
@@ -128,7 +140,11 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
   it('仅改路径（同主机，/v1 → /v2）+ 留空 Key → 200 且保留原 Key（不误伤常见配置）', async () => {
     const id = await createProvider()
 
-    const r = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://api.host-a.example/v2', apiKey: '' }))
+    const r = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://api.host-a.example/v2', apiKey: '' }),
+    )
     expect(r.status).toBe(200)
     const p = (r.json as ProviderReply).provider!
     expect(p.baseUrl).toBe('https://api.host-a.example/v2')
@@ -152,12 +168,20 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
     const id = await createProvider()
 
     // URL 归一化：hostname 大小写不敏感 → 同主机
-    const up = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://API.Host-A.example/v1', apiKey: '' }))
+    const up = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://API.Host-A.example/v1', apiKey: '' }),
+    )
     expect(up.status).toBe(200)
     expect((up.json as ProviderReply).provider!.apiKeyMasked).toBe(MASK_A)
 
     // 查询串/尾斜杠不进 host → 同主机
-    const q = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://api.host-a.example/v1/?x=1', apiKey: '' }))
+    const q = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://api.host-a.example/v1/?x=1', apiKey: '' }),
+    )
     expect(q.status).toBe(200)
     expect(diskKey(id)).toBe(KEY_A)
   })
@@ -166,7 +190,11 @@ describe('RC B-4：主机变更 + 留空 Key 的准入闸', () => {
     const id = await createProvider()
     const before = diskText()
 
-    const r = await studio.req('PUT', `/api/providers/${id}`, body({ baseUrl: 'https://api.host-a.example:8443/v1', apiKey: '' }))
+    const r = await studio.req(
+      'PUT',
+      `/api/providers/${id}`,
+      body({ baseUrl: 'https://api.host-a.example:8443/v1', apiKey: '' }),
+    )
     expect(r.status).toBe(400)
     expect((r.json as ProviderReply).code).toBe('API_KEY_REQUIRED_ON_HOST_CHANGE')
     expect(diskText()).toBe(before)

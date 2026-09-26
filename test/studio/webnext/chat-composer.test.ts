@@ -68,7 +68,12 @@ async function send(w: ReturnType<typeof mountPanel>, text = '你好'): Promise<
 describe('R40-37: 失败回滚按幽灵气泡 id 定位', () => {
   it('send 在途时上下文被追加外来消息 → reject 后外来消息不被 popUser 误弹', async () => {
     let rejectSend!: (e: Error) => void
-    mocks.sendChat.mockImplementation(() => new Promise((_, rej) => { rejectSend = rej }))
+    mocks.sendChat.mockImplementation(
+      () =>
+        new Promise((_, rej) => {
+          rejectSend = rej
+        }),
+    )
     const chat = useChatStore()
     const w = mountPanel()
     await send(w)
@@ -104,7 +109,12 @@ describe('R40-36: 入队成功分支书名复检', () => {
 
   it('await 窗口切书 → 不把入队提示写进 B 书对话区', async () => {
     let resolveSend!: (v: { queued: boolean }) => void
-    mocks.sendChat.mockImplementation(() => new Promise((res) => { resolveSend = res }))
+    mocks.sendChat.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveSend = res
+        }),
+    )
     const chat = useChatStore()
     const w = mountPanel()
     await send(w)

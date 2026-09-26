@@ -36,8 +36,13 @@ describe('R36-16: recallDetailed truncated 信号透出 + recall() 兼容包装�
     bookRoot = join(tmpdir(), `rag-r36-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     const meta: ChapterMeta = {
-      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     // 两段正文 → ≥2 块（warnThreshold=1 时必然触发硬截断）
     writeChapter(

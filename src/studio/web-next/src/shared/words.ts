@@ -107,9 +107,7 @@ export function parseFmFields(content: string): Record<string, string> {
         block.push(bl.slice(indent))
         i++
       }
-      out[key] = folded
-        ? block.join(' ').replace(/  +/g, ' ').replace(/ +$/, '')
-        : block.join('\n').replace(/\n+$/, '')
+      out[key] = folded ? block.join(' ').replace(/  +/g, ' ').replace(/ +$/, '') : block.join('\n').replace(/\n+$/, '')
       continue
     }
     out[key] = unquoteFmValue(valRaw)
@@ -124,9 +122,16 @@ export function parseFmFields(content: string): Record<string, string> {
 export function formKindOf(
   path: string,
 ):
-  | 'chapter' | 'piece-body'
-  | 'chapter-outline' | 'volume-outline' | 'synopsis'
-  | 'character' | 'worldview' | 'item' | 'foreshadow' | null {
+  | 'chapter'
+  | 'piece-body'
+  | 'chapter-outline'
+  | 'volume-outline'
+  | 'synopsis'
+  | 'character'
+  | 'worldview'
+  | 'item'
+  | 'foreshadow'
+  | null {
   if (path.startsWith('写作/正文/')) return 'chapter'
   if (path.startsWith('大纲/章纲/')) return 'chapter-outline'
   if (path.startsWith('大纲/卷纲/')) return 'volume-outline'

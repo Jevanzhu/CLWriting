@@ -20,14 +20,17 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 测试自备 add+commit（exec.addCommit 已随去 git 清理删除）。返回 commit hash。 */
 function commit(root: string, msg: string): { ok: boolean; hash: string } {
-  for (const args of [['add', '-A'], ['commit', '-m', msg], ['rev-parse', 'HEAD']] as string[][]) {
+  for (const args of [
+    ['add', '-A'],
+    ['commit', '-m', msg],
+    ['rev-parse', 'HEAD'],
+  ] as string[][]) {
     const r = git(args, root)
     if (!r.ok) return { ok: false, hash: '' }
     if (args[0] === 'rev-parse') return { ok: true, hash: r.stdout.trim() }
   }
   return { ok: false, hash: '' }
 }
-
 
 let root = ''
 

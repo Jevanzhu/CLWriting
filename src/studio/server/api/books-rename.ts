@@ -22,7 +22,17 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
-import { readBooks, readBooksStrict, bookStoragePath, readActive, writeActive, writeBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON, tryBooksLockAsync } from '../../../install/books.js'
+import {
+  readBooks,
+  readBooksStrict,
+  bookStoragePath,
+  readActive,
+  writeActive,
+  writeBooks,
+  isInvalidBookName,
+  BOOK_NAME_INVALID_REASON,
+  tryBooksLockAsync,
+} from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { forgetService } from './documents.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -38,7 +48,12 @@ import { migrateBookSession, bookHash } from '../../../events/store.js'
 import { forgetRagBuildTask } from './rag.js'
 import { forgetSseCount } from './stream.js'
 import { log } from '../../../log/index.js'
-import { forgetBookKeyedCaches, busyGate, awaitOrchestrationsSettled, drainAndRecheckBookMutation } from './books-lifecycle.js'
+import {
+  forgetBookKeyedCaches,
+  busyGate,
+  awaitOrchestrationsSettled,
+  drainAndRecheckBookMutation,
+} from './books-lifecycle.js'
 import type { BookCtx } from './books.js'
 
 export let initialBook: string | undefined
@@ -175,7 +190,12 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // 目录存在即拒（与入口检查同口径；caseOnly 的 newRoot 即 oldRoot，豁免）
       if (folderMove && !caseOnly && existsSync(newRoot)) {
         const nonEmpty = readdirSync(newRoot).length > 0
-        return replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在${nonEmpty ? '且非空' : '（空目录）'}，换个名字`)
+        return replyError(
+          res,
+          400,
+          'BAD_INPUT',
+          `目录「${newName}」已存在${nonEmpty ? '且非空' : '（空目录）'}，换个名字`,
+        )
       }
 
       // dd-先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
@@ -245,7 +265,10 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       {
         const release = await tryBooksLockAsync(ctx.workDir)
         if (!release) {
-          log.warn('api', `rename: books.jsonl 登记锁获取超时，跳过登记更新（${oldName} → ${newName}）——自愈将重关联兜底`)
+          log.warn(
+            'api',
+            `rename: books.jsonl 登记锁获取超时，跳过登记更新（${oldName} → ${newName}）——自愈将重关联兜底`,
+          )
         } else {
           try {
             const books = readBooksStrict(ctx.workDir)

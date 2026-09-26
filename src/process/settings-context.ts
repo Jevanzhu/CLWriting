@@ -158,9 +158,7 @@ export function buildSettingsLayers(bookRoot: string): SettingsLayer[] {
     layers.push({
       name: '境界体系',
       specificity: 'volume',
-      text:
-        '## 境界体系(成长线机检依据)\n\n' +
-        rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
+      text: '## 境界体系(成长线机检依据)\n\n' + rr.doc.体系.map((s) => `- ${s.名称}: ${s.序列.join(' → ')}`).join('\n'),
       sources: ['设定/境界体系.md'],
     })
   }

@@ -54,9 +54,18 @@ afterAll(async () => {
 })
 
 /** 直调形态的拆分 apply 入参组装（干跑取指纹）。 */
-async function planDirect(docId: string, content: string, marker: string): Promise<{ planHash: string; cursorOffset: number }> {
+async function planDirect(
+  docId: string,
+  content: string,
+  marker: string,
+): Promise<{ planHash: string; cursorOffset: number }> {
   const cursorOffset = content.indexOf(marker)
-  const plan = await planChapterSplit(studio.bookRoot, new DocumentService({ bookRoot: studio.bookRoot }), docId, cursorOffset)
+  const plan = await planChapterSplit(
+    studio.bookRoot,
+    new DocumentService({ bookRoot: studio.bookRoot }),
+    docId,
+    cursorOffset,
+  )
   if (!plan.ok) throw new Error(`干跑失败：${JSON.stringify(plan)}`)
   return { planHash: plan.planHash, cursorOffset }
 }
@@ -97,7 +106,13 @@ describe('0918独立重评修复批 B001: 拆分取号并发互斥', () => {
     const pB = await planDirect(dB, contentB, '乙章后半段迁出标记')
     const svc = new DocumentService({ bookRoot: studio.bookRoot })
     const apply = (docId: string, p: { planHash: string; cursorOffset: number }, title: string) =>
-      applyChapterSplit(studio.bookRoot, svc, null, { docId, title, cursorOffset: p.cursorOffset, planHash: p.planHash }, ragStub)
+      applyChapterSplit(
+        studio.bookRoot,
+        svc,
+        null,
+        { docId, title, cursorOffset: p.cursorOffset, planHash: p.planHash },
+        ragStub,
+      )
 
     // 并发重叠（Promise.all 同拍入队；互斥使其串行过临界段）
     const [rA, rB] = await Promise.all([apply(dA, pA, '甲拆分新章'), apply(dB, pB, '乙拆分新章')])
@@ -132,9 +147,21 @@ describe('0918独立重评修复批 B001: 拆分取号并发互斥', () => {
     const stalePlan = await planDirect(d40, content40, '丁章后半段迁出标记')
     const freshPlan = await planDirect(d41, content41, '戊章后半段迁出标记')
     const svc = new DocumentService({ bookRoot: studio.bookRoot })
-    const first = await applyChapterSplit(studio.bookRoot, svc, null, { docId: d41, title: '戊拆分新章', cursorOffset: freshPlan.cursorOffset, planHash: freshPlan.planHash }, ragStub)
+    const first = await applyChapterSplit(
+      studio.bookRoot,
+      svc,
+      null,
+      { docId: d41, title: '戊拆分新章', cursorOffset: freshPlan.cursorOffset, planHash: freshPlan.planHash },
+      ragStub,
+    )
     expect(first.ok).toBe(true)
-    const replayed = await applyChapterSplit(studio.bookRoot, svc, null, { docId: d40, title: '丁拆分新章', cursorOffset: stalePlan.cursorOffset, planHash: stalePlan.planHash }, ragStub)
+    const replayed = await applyChapterSplit(
+      studio.bookRoot,
+      svc,
+      null,
+      { docId: d40, title: '丁拆分新章', cursorOffset: stalePlan.cursorOffset, planHash: stalePlan.planHash },
+      ragStub,
+    )
     expect(replayed.ok).toBe(false)
     if (!replayed.ok) expect(replayed.code).toBe('PLAN_STALE')
     // 盘面无重复章号（同书累积：含上一用例的 20/21/22）

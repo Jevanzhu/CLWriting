@@ -13,12 +13,18 @@ import type { PieceList } from '../../src/format/types.js'
 // ── checkFrontMatter ────────────────────────────
 
 test('checkFrontMatter: 章号文件名一致通过', () => {
-  const r = checkFrontMatter({ 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }, '第一卷/001-雪夜.md')
+  const r = checkFrontMatter(
+    { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
+    '第一卷/001-雪夜.md',
+  )
   expect(r.items).toHaveLength(0)
 })
 
 test('checkFrontMatter: 章号不一致报红', () => {
-  const r = checkFrontMatter({ 章号: 2, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }, '第一卷/001-雪夜.md')
+  const r = checkFrontMatter(
+    { 章号: 2, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' },
+    '第一卷/001-雪夜.md',
+  )
   expect(r.items).toHaveLength(1)
   expect(r.items[0]!.level).toBe('red')
 })
@@ -61,7 +67,10 @@ test('checkBodyParts: 未超阈通过', () => {
 // ── checkSimile ──────────────────────────────────
 
 test('checkSimile: 明喻句式超阈报黄', () => {
-  const r = checkSimile('像雪花一样飘落。像月光一样清冷。像石头一样沉默。像流水一样绵长。像火焰一样炽热。像薄雾一样朦胧。像刀锋一样锋利。像湖水一样平静。像远山一样巍峨。像灯火一样温暖。像尘埃一样渺小。像星河一样浩瀚。', 10)
+  const r = checkSimile(
+    '像雪花一样飘落。像月光一样清冷。像石头一样沉默。像流水一样绵长。像火焰一样炽热。像薄雾一样朦胧。像刀锋一样锋利。像湖水一样平静。像远山一样巍峨。像灯火一样温暖。像尘埃一样渺小。像星河一样浩瀚。',
+    10,
+  )
   expect(r.items).toHaveLength(1)
   expect(r.items[0]!.message).toContain('12')
 })
@@ -259,7 +268,6 @@ test('checkPieceListForm: 缺核心反转报黄', () => {
   const r = checkPieceListForm(list)
   expect(r.items.some((i) => i.checkId === 'manifest-no-reversal')).toBe(true)
 })
-
 
 // R26-43：`##` 后空白可选——`##标题` 紧排形态此前漏配，全落「未使用 ## 标注」误导文案
 test('R26-43: ##标题（## 后空白可选）计入节数；带空格形态不回归', () => {

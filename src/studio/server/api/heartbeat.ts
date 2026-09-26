@@ -21,21 +21,21 @@ export function registerHeartbeatRoutes(ctx: HeartbeatCtx): void {
     method: 'POST',
     path: '/api/books/:name/heartbeat',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    writeGuiActive(r.bookRoot)
-    reply(res, 200, { ok: true })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      writeGuiActive(r.bookRoot)
+      reply(res, 200, { ok: true })
+    },
   })
 
   defineRoute('books.heartbeat.delete', {
     method: 'DELETE',
     path: '/api/books/:name/heartbeat',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    clearGuiActive(r.bookRoot)
-    reply(res, 200, { ok: true })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      clearGuiActive(r.bookRoot)
+      reply(res, 200, { ok: true })
+    },
   })
 }

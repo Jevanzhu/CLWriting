@@ -16,10 +16,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
-import {
-  undoChapterMerge,
-  type StructureRagPort,
-} from '../../src/document/structure.js'
+import { undoChapterMerge, type StructureRagPort } from '../../src/document/structure.js'
 import { DocumentService } from '../../src/document/service.js'
 
 const BOOK = '撤销择最新测试书'
@@ -57,7 +54,9 @@ afterAll(async () => {
 /** 旧软删条目 trashedAt 回拨到 2000 年——与合并新条目的时序差确定性钉死。 */
 function backdateTrashEntry(bookRoot: string, originalPathSuffix: string): void {
   const p = join(bookRoot, '工作区', '.trash', '.trash-manifest.jsonl')
-  const lines = readFileSync(p, 'utf8').split('\n').filter((l) => l.trim() !== '')
+  const lines = readFileSync(p, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim() !== '')
   const out = lines.map((l) => {
     const e = JSON.parse(l) as { originalPath?: string; trashedAt?: string }
     if (e.originalPath?.endsWith(originalPathSuffix)) {
@@ -75,10 +74,7 @@ async function trashEntries(): Promise<Array<{ id: string; originalPath?: string
 }
 
 async function deleteDoc(docId: string): Promise<void> {
-  const r = await studio.req(
-    'DELETE',
-    `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}`,
-  )
+  const r = await studio.req('DELETE', `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}`)
   expect(r.status).toBe(200)
 }
 

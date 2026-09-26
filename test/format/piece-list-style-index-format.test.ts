@@ -11,11 +11,7 @@ import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import { parseSampleFileName } from '../../src/format/style.js'
 import { nextEntrySeq, addEntry, readEntry } from '../../src/format/style-entry.js'
-import {
-  stringifyPieceList,
-  parsePieceListBody,
-  emptyPieceList,
-} from '../../src/format/piece-list-core.js'
+import { stringifyPieceList, parsePieceListBody, emptyPieceList } from '../../src/format/piece-list-core.js'
 import { readCandidate, confirmCandidate } from '../../src/format/style-candidate.js'
 import type { PieceList, StyleEntry } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -132,10 +128,7 @@ describe('R1010b-DOC-P3-5: 候选箱标量「标签」归一单元素数组', ()
     if (r2.ok) expect(r2.candidate.标签).toBeUndefined()
 
     const none = join(root, 'c4.md')
-    writeFileSync(
-      none,
-      '---\n类型: 手法\n场景: 通用\n来源: 收割\n状态: 待确认\n创建: 2026-09-10\n---\n\n正文\n',
-    )
+    writeFileSync(none, '---\n类型: 手法\n场景: 通用\n来源: 收割\n状态: 待确认\n创建: 2026-09-10\n---\n\n正文\n')
     const r3 = readCandidate(none)
     expect(r3.ok).toBe(true)
     if (r3.ok) expect(r3.candidate.标签).toBeUndefined()

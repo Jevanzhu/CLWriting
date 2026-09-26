@@ -27,8 +27,13 @@ describe('R0911-D-P3-1：buildIndex 增量路径损坏库自愈', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
       writeChapter(
         join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),

@@ -30,9 +30,7 @@ test('R30-15: 说明性禁词条目不再整段进注入段（只注解析出的
 })
 
 test('R30-15: 全部禁词条目都解析不出词 → 禁用段整体跳过（不出「禁用：」空壳）', () => {
-  const entries: StyleEntry[] = [
-    mk({ 类型: '禁词', 正文: '示例条目：待作者补充。' }),
-  ]
+  const entries: StyleEntry[] = [mk({ 类型: '禁词', 正文: '示例条目：待作者补充。' })]
   const text = buildStyleEssentials(entries, ['战斗'])
   expect(text).not.toContain('禁用：')
   expect(text).not.toContain('示例条目')

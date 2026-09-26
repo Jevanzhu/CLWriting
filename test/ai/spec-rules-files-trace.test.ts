@@ -16,7 +16,13 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/gen.js')>()
   return {
     ...actual,
-    generate: vi.fn(async () => ({ text: 'ok', reasoning: '', toolCalls: [], usage: { inputTokens: 5, outputTokens: 3 }, stopReason: 'end_turn' })),
+    generate: vi.fn(async () => ({
+      text: 'ok',
+      reasoning: '',
+      toolCalls: [],
+      usage: { inputTokens: 5, outputTokens: 3 },
+      stopReason: 'end_turn',
+    })),
   }
 })
 
@@ -72,9 +78,11 @@ function readCallFiles(ud: string, bookRoot: string): string[] {
 
 describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
   afterEach(() => {
-    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
-          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-        }
+    try {
+      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    } catch {
+      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+    }
   })
 
   it('AI味词表与 rule-hits 均注入时，两源进 promptMeta.files', async () => {
@@ -91,7 +99,9 @@ describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     writeFileSync(
       join(bookRoot, '.cache', 'rule-hits.json'),
-      JSON.stringify({ 'ai-cliche': { ruleId: 'ai-cliche', hits: 4, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] } }),
+      JSON.stringify({
+        'ai-cliche': { ruleId: 'ai-cliche', hits: 4, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] },
+      }),
     )
 
     const out = await runSpec(TEXT_SPEC, { userDataPath: ud, userPrompt: '写第二章', bookRoot })
@@ -129,9 +139,11 @@ vi.mock('../../src/ai/rule-hits.js', async (importOriginal) => {
 
 describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
   afterEach(() => {
-    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
-          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-        }
+    try {
+      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    } catch {
+      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+    }
     vi.mocked(topRuleHits).mockClear()
   })
 
@@ -147,7 +159,9 @@ describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     writeFileSync(
       join(bookRoot, '.cache', 'rule-hits.json'),
-      JSON.stringify({ 'ai-cliche': { ruleId: 'ai-cliche', hits: 4, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] } }),
+      JSON.stringify({
+        'ai-cliche': { ruleId: 'ai-cliche', hits: 4, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] },
+      }),
     )
     const parts = rulesPromptParts('spawn-write', bookRoot)
     // 两薄壳与单源产物逐字相等——任一侧单独读盘的撕裂窗口不存在
@@ -166,7 +180,9 @@ describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     writeFileSync(
       join(bookRoot, '.cache', 'rule-hits.json'),
-      JSON.stringify({ 'ai-cliche': { ruleId: 'ai-cliche', hits: 2, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] } }),
+      JSON.stringify({
+        'ai-cliche': { ruleId: 'ai-cliche', hits: 2, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] },
+      }),
     )
     const out = await runSpec(TEXT_SPEC, { userDataPath: ud, userPrompt: '写第三章', bookRoot })
     expect(out.ok).toBe(true)

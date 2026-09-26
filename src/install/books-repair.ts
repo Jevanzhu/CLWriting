@@ -54,10 +54,7 @@ export interface RepairResult {
  * 必须显式传 opts.purgeConfirmedMissing（默认关），且仅清「目录确认不存在（ENOENT）」
  * 的条目——瞬态不可读（网络盘离线等 EACCES/EIO）不误清，逐条留日志。
  */
-export function repairBooks(
-  workDir: string,
-  opts?: { purgeConfirmedMissing?: boolean },
-): RepairResult {
+export function repairBooks(workDir: string, opts?: { purgeConfirmedMissing?: boolean }): RepairResult {
   // 读→扫→写整段进跨进程锁；超时跳过本轮（幂等，下次启动重试）
   const release = tryBooksLock(workDir)
   if (!release) {
@@ -114,7 +111,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
     // missing/purge/relink 判定不受影响（该面在下方独立运行）。
     const cfgRead = readBookConfig(join(dir, 'book.yaml'))
     if (!cfgRead.ok) {
-      log.warn('books', `扫盘读取「${relPath}」的 book.yaml 失败（${cfgRead.error.message}），跳过该书本轮登记对账（登记保留原值，下次启动重试）`)
+      log.warn(
+        'books',
+        `扫盘读取「${relPath}」的 book.yaml 失败（${cfgRead.error.message}），跳过该书本轮登记对账（登记保留原值，下次启动重试）`,
+      )
       continue
     }
     const bookName = detectBookName(cfgRead, basename(relPath))
@@ -130,7 +130,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       // 原条目整体保留（kind/created_at 也不半更新——部分更新无法表达「名不可改」的
       // 拒绝语义），作者按日志手动消歧
       if (entry.name !== bookName && rebuilt.some((b) => b !== entry && b.name === bookName)) {
-        log.warn('books', `扫盘发现「${relPath}」的 book.yaml 书名「${bookName}」与已登记的另一本书同名，跳过改名、保留原登记名「${entry.name}」——请手动确认两处书名哪个是要保留的`)
+        log.warn(
+          'books',
+          `扫盘发现「${relPath}」的 book.yaml 书名「${bookName}」与已登记的另一本书同名，跳过改名、保留原登记名「${entry.name}」——请手动确认两处书名哪个是要保留的`,
+        )
         continue
       }
       const nextEntry = {
@@ -146,15 +149,15 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       continue
     }
 
-      const existingIndex = rebuilt.findIndex((b) => b.name === bookName)
-      if (existingIndex >= 0) {
-        const entry = rebuilt[existingIndex]!
-        const oldPath = entry.path
-        // 重关联判定改 isDirConfirmedMissing（stat ENOENT-only）——
-        // 原 !existsSync 把 EACCES 等一切 stat 失败（existsSync 恒返 false）误当
-        // 「旧目录确不存在」走 relink，与幽灵清除同口径：瞬态不可读不重关联，
-        // 登记保留（落下方同名书跳过留痕分支）
-        if (oldPath !== relPath && isDirConfirmedMissing(join(workDir, oldPath))) {
+    const existingIndex = rebuilt.findIndex((b) => b.name === bookName)
+    if (existingIndex >= 0) {
+      const entry = rebuilt[existingIndex]!
+      const oldPath = entry.path
+      // 重关联判定改 isDirConfirmedMissing（stat ENOENT-only）——
+      // 原 !existsSync 把 EACCES 等一切 stat 失败（existsSync 恒返 false）误当
+      // 「旧目录确不存在」走 relink，与幽灵清除同口径：瞬态不可读不重关联，
+      // 登记保留（落下方同名书跳过留痕分支）
+      if (oldPath !== relPath && isDirConfirmedMissing(join(workDir, oldPath))) {
         rebuilt[existingIndex] = {
           ...entry,
           path: relPath,
@@ -166,7 +169,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
         // 同名书跳过留痕——原路径仍存在（两处同名书仓库并存）
         // 时静默 continue，书架对第二处失明且无任何痕迹可查；去重语义不变（仍不重复
         // 登记），仅补 warn 让作者可从日志发现「多出来的同名书目录」自行处理
-        log.warn('books', `扫盘发现同名书「${bookName}」在 ${relPath}（登记路径 ${oldPath} 仍存在），跳过不重复登记——请手动确认两处书目录哪个是要保留的`)
+        log.warn(
+          'books',
+          `扫盘发现同名书「${bookName}」在 ${relPath}（登记路径 ${oldPath} 仍存在），跳过不重复登记——请手动确认两处书目录哪个是要保留的`,
+        )
       }
       continue
     }
@@ -180,7 +186,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
     // 条 path 都在盘上走 path 命中分支永不判重（不可自愈）。判重命中按同款
     // 口径 warn 跳过留痕，交作者手动消歧。
     if (scanned.some((s) => s.name === bookName)) {
-      log.warn('books', `扫盘发现同名书「${bookName}」在 ${relPath}（本轮已发现另一处同名书目录），跳过不重复登记——请手动确认两处书目录哪个是要保留的`)
+      log.warn(
+        'books',
+        `扫盘发现同名书「${bookName}」在 ${relPath}（本轮已发现另一处同名书目录），跳过不重复登记——请手动确认两处书目录哪个是要保留的`,
+      )
       continue
     }
 

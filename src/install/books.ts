@@ -89,11 +89,7 @@ export function isInvalidBookName(name: string): boolean {
   // winCompatNamePart 的 split('.')[0] 口径）——「CON.md」「aux.txt」与裸名同为
   // win 保留设备名（CreateDirectoryW 报 ERROR_INVALID_NAME），此前只剥尾点/尾空格
   // 放行了带扩展名形态。CLOCK$ 随单一真相源补齐。
-  const bare = name
-    .replace(/\.+$/, '')
-    .replace(/\s+$/, '')
-    .split('.')[0]!
-    .toUpperCase()
+  const bare = name.replace(/\.+$/, '').replace(/\s+$/, '').split('.')[0]!.toUpperCase()
   if (/^(CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])$/.test(bare)) return true
   return /[.\s]$/.test(name)
 }
@@ -114,10 +110,7 @@ export function isInvalidBookName(name: string): boolean {
  *  全部是「建书即切活动书」语义（grep 核实无「只登记不切 active」调用点），故
  *  无条件写入不加选项参数。active 写失败按口径报「已建成并登记成功，但
  *  设置当前活动书失败」（登记在盘，从书架手动启用即可）。 */
-export function appendBook(
-  workDir: string,
-  entry: BookEntry,
-): { ok: true } | { ok: false; reason: string } {
+export function appendBook(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
   // 读改写整段进跨进程锁——CLI 与桌面并发建书不交错覆盖丢登记
   // /GUI 建书端点与 CLI 建书统一走下方异步孪生 appendBookAsync
   //（本同步版保留供 CLI 残余/测试合法同步面， 窄面登记口径）
@@ -179,7 +172,10 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   // 文案点名占用书，与既有冲突同义。
   const occupying = books.find((b) => samePhysicalPath(join(workDir, b.path), join(workDir, entry.path)))
   if (occupying) {
-    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
+    return {
+      ok: false,
+      reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的`,
+    }
   }
   // a) 拷贝后追加——books 为缓存边界浅拷贝（readBooksStrict slice 纪律），
   //    以新数组形态交写侧，不与任何共享引用纠缠。
@@ -191,7 +187,10 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
     writeBooks(workDir, next)
   } catch (e) {
     // 0918二轮修复批（G104）顺手收编：错误文案三目改 errMsg 单源（口径）
-    return { ok: false, reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${errMsg(e)}` }
+    return {
+      ok: false,
+      reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${errMsg(e)}`,
+    }
   }
   // 0918二轮修复批（G104）：active 指针写收进本临界段（此前由 doInit/doInitAsync
   // 在锁外调 writeActive——双进程并发建书最后写者胜）。失败语义沿
@@ -261,13 +260,19 @@ function removeBookEntryLocked(workDir: string, name: string): void {
   // CLI/测试同步面无契约），失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
   // 启动 repairBooks 报告，文件系统侧删除不受影响
   try {
-    writeBooks(workDir, books.filter((b) => b.name !== name))
+    writeBooks(
+      workDir,
+      books.filter((b) => b.name !== name),
+    )
     // 活动书被删 → 清指针（下次进书架会提示选书）
     if (readActive(workDir) === name) {
       atomicWriteFile(join(workDir, ACTIVE_FILE), '')
     }
   } catch (e) {
-    log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${errMsg(e)}`)
+    log.warn(
+      'books',
+      `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${errMsg(e)}`,
+    )
   }
 }
 

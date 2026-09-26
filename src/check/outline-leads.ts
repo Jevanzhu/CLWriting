@@ -61,10 +61,7 @@ function declarationFromFm(fm: Map<string, unknown>, forChapter: number | undefi
   return { known: true, leads: [] }
 }
 
-export function outlineDeclarationForChapter(
-  bookRoot: string,
-  forChapter?: number,
-): OutlineDeclaration {
+export function outlineDeclarationForChapter(bookRoot: string, forChapter?: number): OutlineDeclaration {
   const outlinePath = join(bookRoot, '工作区', '细纲.md')
   if (!existsSync(outlinePath)) return { known: true, leads: [] }
   // 读失败（瞬态占用/IO 错误）≠「明确未声明」——按声明未知处理跳过
@@ -83,9 +80,7 @@ export function outlineDeclarationForChapter(
  * 与逐章现读语义等价（细纲在单请求聚合窗口内变更时由章指纹/纪元兜底重算，不依赖
  * memo 的陈旧值跨请求——闭包生命周期 = 单次聚合请求）。
  */
-export function scanOutlineDeclarationMemo(
-  bookRoot: string,
-): (chapterNo: number) => OutlineDeclaration {
+export function scanOutlineDeclarationMemo(bookRoot: string): (chapterNo: number) => OutlineDeclaration {
   const outlinePath = join(bookRoot, '工作区', '细纲.md')
   let parsed: { ok: true; fm: Map<string, unknown> } | { ok: false } | null = null
   return (chapterNo) => {

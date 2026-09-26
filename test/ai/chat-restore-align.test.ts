@@ -30,21 +30,24 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
 
     // 种子：history 3 条，msgSeqs 只有前 2 条的 seq——模拟回合 commit 点 flush 抛错
     // （history 已 push 本轮 user+assistant 而 seq 未追加 → 缺口在尾部）
-    const history = histories.set(
-      book,
-      [
+    const history = histories
+      .set(book, [
         { role: 'user', content: '旧1' },
         { role: 'assistant', content: '旧2' },
         { role: 'assistant', content: '旧3（seq 未知，flush 抛错残留）' },
-      ],
-    ).get(book)!
-    msgSeqMap.set(book, [
-      [10],
-      [11],
-    ])
+      ])
+      .get(book)!
+    msgSeqMap.set(book, [[10], [11]])
 
     const prepared = prepareChatRun(
-      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
+      {
+        driver: makeFakeDriver(),
+        mainSession: { id: 's1', cwd: workDir, closed: false },
+        userDataPath: dirs[1]!,
+        bookRoot: workDir,
+        bookName: book,
+        message: '新消息',
+      },
       null, // mem 模式（store=null）——防御分支在此路径触发
       () => {},
     )
@@ -76,14 +79,17 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
     // 场景：turn 内失败/中断 → finish 把 history 截回 baseLen=1，但已 commit 的
     // 第 2/3 条消息 seq 留在 msgSeqs 尾部（对应事件已被遮蔽 = 死 seq）
     histories.set(book, [{ role: 'user', content: '唯一存活' }])
-    msgSeqMap.set(book, [
-      [10],
-      [21],
-      [22],
-    ])
+    msgSeqMap.set(book, [[10], [21], [22]])
 
     prepareChatRun(
-      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: 'x' },
+      {
+        driver: makeFakeDriver(),
+        mainSession: { id: 's1', cwd: workDir, closed: false },
+        userDataPath: dirs[1]!,
+        bookRoot: workDir,
+        bookName: book,
+        message: 'x',
+      },
       null,
       () => {},
     )
@@ -105,7 +111,14 @@ describe('A7（五十九轮）：flush 返回 null → 清 pending 并补 []（�
     msgSeqMap.delete(book)
 
     const prepared = prepareChatRun(
-      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
+      {
+        driver: makeFakeDriver(),
+        mainSession: { id: 's1', cwd: workDir, closed: false },
+        userDataPath: dirs[1]!,
+        bookRoot: workDir,
+        bookName: book,
+        message: '新消息',
+      },
       null, // mem 模式（store=null）——flush 恒 null
       () => {},
     )

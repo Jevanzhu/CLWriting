@@ -77,7 +77,9 @@ describe('R32-6：删书闸序（busyGate 前置，abort 闸后）', () => {
       expect(vi.mocked(abortChat)).not.toHaveBeenCalled()
       expect(vi.mocked(abortSelfHeal)).not.toHaveBeenCalled()
       // 书未被删
-      expect((await fetch(`${studio.baseUrl}/api/books`, { headers: { 'x-studio-token': studio.token } })).status).toBe(200)
+      expect((await fetch(`${studio.baseUrl}/api/books`, { headers: { 'x-studio-token': studio.token } })).status).toBe(
+        200,
+      )
     } finally {
       release()
       vi.mocked(abortChat).mockClear()

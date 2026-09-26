@@ -51,11 +51,7 @@ export function isBoundsVisibleOnAnyDisplay(
   // 对象且四值均为有限数，非法一律按「不可恢复」语义返回 false 丢弃恢复——与
   // 「过小视为损坏」同一出口，函数不再外抛。
   if (typeof bounds !== 'object' || bounds === null) return false
-  if (
-    ![bounds.x, bounds.y, bounds.width, bounds.height].every(
-      (v) => typeof v === 'number' && Number.isFinite(v),
-    )
-  ) {
+  if (![bounds.x, bounds.y, bounds.width, bounds.height].every((v) => typeof v === 'number' && Number.isFinite(v))) {
     return false
   }
   const { x, y, width, height } = bounds
@@ -80,7 +76,8 @@ export function isBoundsVisibleOnAnyDisplay(
   if (!(width >= minAllowedWidth && height >= minAllowedHeight)) return false
   return displays.some(
     (wa) =>
-      x >= wa.x - tolerance && y >= wa.y - tolerance &&
+      x >= wa.x - tolerance &&
+      y >= wa.y - tolerance &&
       x + width <= wa.x + wa.width + tolerance &&
       y + height <= wa.y + wa.height + tolerance,
   )

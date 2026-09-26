@@ -35,7 +35,10 @@ const BY_TASK = {
     durationP95: 9800,
     totalInputTokens: 1_250_000,
     totalOutputTokens: 48_000,
-    byDay: { '2026-08-18': { count: 5, successRate: 1, tokens: 1 }, '2026-08-19': { count: 7, successRate: 1, tokens: 1 } },
+    byDay: {
+      '2026-08-18': { count: 5, successRate: 1, tokens: 1 },
+      '2026-08-19': { count: 7, successRate: 1, tokens: 1 },
+    },
   },
   outline: {
     count: 3,
@@ -58,7 +61,14 @@ describe('WbUsageCard（D1 批 4）', () => {
 
   it('byTask 渲染：任务行按次数降序 + tokens/P50·P95/成功率', async () => {
     mocks.getTraceStats.mockResolvedValue({ total: 15, byTask: BY_TASK, ruleHits: [] })
-    mocks.getCostStats.mockResolvedValue({ enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    mocks.getCostStats.mockResolvedValue({
+      enabled: false,
+      total: 0,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
     const w = mount(WbUsageCard, { props: { bookName: '测试书' } })
     await flushPromises()
     const text = w.text()
@@ -76,7 +86,14 @@ describe('WbUsageCard（D1 批 4）', () => {
 
   it('空态：无调用记录提示', async () => {
     mocks.getTraceStats.mockResolvedValue({ total: 0, byTask: {}, ruleHits: [] })
-    mocks.getCostStats.mockResolvedValue({ enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    mocks.getCostStats.mockResolvedValue({
+      enabled: false,
+      total: 0,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
     const w = mount(WbUsageCard, { props: { bookName: '测试书' } })
     await flushPromises()
     expect(w.text()).toContain('暂无 AI 调用记录')
@@ -100,7 +117,14 @@ describe('WbUsageCard（D1 批 4）', () => {
     expect(w1.text()).toContain('USD')
     expect(w1.text()).toContain('1 个章节有记账')
 
-    mocks.getCostStats.mockResolvedValue({ enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    mocks.getCostStats.mockResolvedValue({
+      enabled: false,
+      total: 0,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
     const w2 = mount(WbUsageCard, { props: { bookName: '测试书' } })
     await flushPromises()
     expect(w2.text()).toContain('未配置价格表')
@@ -118,8 +142,23 @@ describe('WbUsageCard（D1 批 4）', () => {
   it('切书重拉：bookName prop 变化 → 重取数，旧书用量/金额不残留（Y-P2-3 同类）', async () => {
     mocks.getTraceStats.mockResolvedValueOnce({ total: 15, byTask: BY_TASK, ruleHits: [] })
     mocks.getTraceStats.mockResolvedValueOnce({ total: 2, byTask: { outline: BY_TASK.outline! }, ruleHits: [] })
-    mocks.getCostStats.mockResolvedValueOnce({ enabled: true, currency: 'USD', total: 1.2345, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
-    mocks.getCostStats.mockResolvedValueOnce({ enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    mocks.getCostStats.mockResolvedValueOnce({
+      enabled: true,
+      currency: 'USD',
+      total: 1.2345,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
+    mocks.getCostStats.mockResolvedValueOnce({
+      enabled: false,
+      total: 0,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
 
     const w = mount(WbUsageCard, { props: { bookName: '旧书' } })
     await flushPromises()
@@ -149,9 +188,7 @@ describe('trace-stats store（R0912-FE-P3-4）', () => {
 
   it('同书并发调用共享同一在途请求（工作台同屏两消费方不再双发）', async () => {
     let resolveTrace!: (v: unknown) => void
-    mocks.getTraceStats.mockImplementationOnce(
-      () => new Promise((r) => (resolveTrace = r)),
-    )
+    mocks.getTraceStats.mockImplementationOnce(() => new Promise((r) => (resolveTrace = r)))
     const store = useTraceStatsStore()
     const p1 = store.getStats('测试书')
     const p2 = store.getStats('测试书')

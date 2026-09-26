@@ -30,7 +30,9 @@ describe('工具确认卡的中文名与参数摘要', () => {
   })
 
   it('改名/移动/改写展示新名、目标位置与指令前若干字', () => {
-    expect(toolSummary('rename_chapter', { chapter: 12, newTitle: '雪落无声' }, names)).toBe('第 12 章 北境的雪：改为「雪落无声」')
+    expect(toolSummary('rename_chapter', { chapter: 12, newTitle: '雪落无声' }, names)).toBe(
+      '第 12 章 北境的雪：改为「雪落无声」',
+    )
     expect(toolSummary('move_chapter', { chapter: 12, toDir: '写作/正文/第二卷' }, names)).toBe(
       '第 12 章 北境的雪：移到「写作/正文/第二卷」',
     )

@@ -57,7 +57,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-r75-relmutex-',
     dirs: ['大纲'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R75关系互斥书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R75关系互斥书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 

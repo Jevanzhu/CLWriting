@@ -15,11 +15,12 @@ afterEach(() => {
 })
 
 function stubFetch(status: number): void {
-  globalThis.fetch = vi.fn(async () =>
-    new Response(JSON.stringify({ error: { message: 'no such route' } }), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    }),
+  globalThis.fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ error: { message: 'no such route' } }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      }),
   ) as unknown as typeof fetch
 }
 

@@ -50,7 +50,10 @@ function makeBatchBook(): { root: string; ch2DocId: string } {
   const root = mkdtempTracked(join(tmpdir(), 'clw-r69-batch-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   // 两章正文，都含证据句
-  for (const [num, title] of [[1, '开篇'], [2, '夜行']] as const) {
+  for (const [num, title] of [
+    [1, '开篇'],
+    [2, '夜行'],
+  ] as const) {
     writeFileSync(
       join(root, '写作', '正文', `000${num}-${title}.md`),
       `---\n章号: ${num}\n标题: ${title}\n---\n\n${BODY_SENTENCE}\n`,

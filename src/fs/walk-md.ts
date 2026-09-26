@@ -19,10 +19,7 @@ import { join, relative, isAbsolute } from 'node:path'
 
 const ESCAPE_SEGMENT_RE = /^\.\.([\\/]|$)/
 
-export function walkMdFind<T>(
-  startDir: string,
-  onFile: (abs: string, name: string) => T | undefined,
-): T | undefined {
+export function walkMdFind<T>(startDir: string, onFile: (abs: string, name: string) => T | undefined): T | undefined {
   // 契约保持：yield realpath 绝对路径（既有测试断言 realpath 口径）
   for (const hit of mdFileEntries(startDir, new Set<string>())) {
     const found = onFile(hit.real, hit.name)
@@ -136,7 +133,10 @@ function* mdFileEntries(
   // （四轮处置批）：walk 签名加 dirReal 可选参——起点直传上方已解析的
   // realRoot，省掉对 startDir 的第二次 realpathSync 系统调用（原 :63 根解析与首帧
   // 重复解析同一路径）；子目录递归不传，行为不变
-  const walk = function* (dir: string, dirReal?: string): Generator<{ real: string; abs: string; name: string }, void, void> {
+  const walk = function* (
+    dir: string,
+    dirReal?: string,
+  ): Generator<{ real: string; abs: string; name: string }, void, void> {
     let real: string
     if (dirReal !== undefined) {
       real = dirReal

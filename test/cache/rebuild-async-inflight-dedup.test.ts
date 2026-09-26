@@ -72,7 +72,11 @@ describe('R57-A-1：runRebuildAsync 同 cachePath in-flight 合并', () => {
       const cachePath = join(dir, 'index.db')
       const r1 = await runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 })
       const r2 = await runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 })
-      expect(readFileSync(cachePath + '.marks', 'utf-8').trim().split('\n')).toHaveLength(2)
+      expect(
+        readFileSync(cachePath + '.marks', 'utf-8')
+          .trim()
+          .split('\n'),
+      ).toHaveLength(2)
       expect(r2).not.toBe(r1) // 新一轮起跑，非旧 Promise 复用
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -99,15 +103,19 @@ describe('R57-A-1：runRebuildAsync 同 cachePath in-flight 合并', () => {
     const { dir, workerUrl } = makeCase('failure', EXIT_WORKER)
     try {
       const cachePath = join(dir, 'index.db')
-      await expect(
-        runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 }),
-      ).rejects.toThrow(/已退出/)
-      await expect(
-        runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 }),
-      ).rejects.toThrow(/已退出/)
+      await expect(runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 })).rejects.toThrow(
+        /已退出/,
+      )
+      await expect(runRebuildAsync({ bookRoot: dir, cachePath }, { workerUrl, timeoutMs: 5_000 })).rejects.toThrow(
+        /已退出/,
+      )
       // 两次调用 = 两次 Worker 起跑（首次失败清键后第二次真起跑；修复前本就如此，
       // 钉住「合并不改变失败路径重试语义」）
-      expect(readFileSync(cachePath + '.marks', 'utf-8').trim().split('\n')).toHaveLength(2)
+      expect(
+        readFileSync(cachePath + '.marks', 'utf-8')
+          .trim()
+          .split('\n'),
+      ).toHaveLength(2)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

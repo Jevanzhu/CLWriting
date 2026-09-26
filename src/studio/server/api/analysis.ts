@@ -26,7 +26,15 @@ import { analysisSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
-import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysisAsync, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
+import {
+  readAnalysis,
+  readAnalysisKinds,
+  writeAnalysisAsync,
+  readBookAnalysis,
+  writeBookAnalysisAsync,
+  sourceHashOf,
+  type AnalysisKind,
+} from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { log, localDayKey, errMsg } from '../../../log/index.js' // 候选日键本地日（同 overview/日记口径）；：worker 回落 warn 留痕；-：errMsg 三目收编
 import { safeManifestPath } from '../../../fs/safe-path.js'
@@ -45,7 +53,7 @@ interface AnalysisCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
   /** 收尾：styleCorpus / analysisOverview 两缓存 TTL 覆盖档——组装根
- * RouteOverrides 注入（undefined = 生产口径 5s 逐位不变） */
+   * RouteOverrides 注入（undefined = 生产口径 5s 逐位不变） */
   styleCorpusTtlMs?: number | null
   analysisOverviewTtlMs?: number | null
 }
@@ -172,7 +180,10 @@ function analysisOverviewProbe(bookRoot: string): string {
  * 顺手逐出/FIFO 时序逐位不变，转写注见该件 judge；本文件为 analysis 侧
  * 同族位）。 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根
  * RouteOverrides 经 handler 传入；直测面亦可显式传——undefined = 生产口径 5s）。 */
-export function getAnalysisOverviewCached(bookRoot: string, ttlOverrideMs?: number | null): Promise<AnalysisOverviewResult> {
+export function getAnalysisOverviewCached(
+  bookRoot: string,
+  ttlOverrideMs?: number | null,
+): Promise<AnalysisOverviewResult> {
   return analysisOverviewCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
@@ -267,9 +278,9 @@ async function computeAnalysisOverviewAsync(bookRoot: string): Promise<AnalysisO
         const raw = emotionEnv.payload
         const arr = Array.isArray(raw)
           ? (raw as { emotion: unknown; label: unknown }[])
-          : (Array.isArray((raw as { segments?: unknown }).segments)
-            ? ((raw as { segments: { emotion: unknown; label: unknown }[] }).segments)
-            : [])
+          : Array.isArray((raw as { segments?: unknown }).segments)
+            ? (raw as { segments: { emotion: unknown; label: unknown }[] }).segments
+            : []
         const last = arr.length > 0 ? arr[arr.length - 1]! : undefined // 末段值（章末情绪 = 下章起点）
         if (last && typeof last.emotion === 'number' && typeof last.label === 'string') {
           emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
@@ -380,55 +391,60 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // -①（c ）中断通道接线——十段复制收编
       // runGatedGeneration 单源（-；ctrl 注册名
       // 'analyze:<书名>' 逐位保留，owner 分槽语义见 task-gate.ts 包装头注）。
-      return ctx.gate.runGatedGeneration(res, {
-        book: params['name']!,
-        workDir: ctx.workDir!,
-        action: 'analyze',
-        busyText: '本书已有分析任务在跑，请等待完成后再试',
-      }, async (ctrl) => {
-        const reqBody = await readJson(req)
-        const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
-        if (!ANALYSIS_KINDS.has(kind)) {
-          return replyError(res, 400, 'BAD_KIND', 'kind 需为 score/emotion/hooks/style 之一')
-        }
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'analyze',
+          busyText: '本书已有分析任务在跑，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const reqBody = await readJson(req)
+          const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
+          if (!ANALYSIS_KINDS.has(kind)) {
+            return replyError(res, 400, 'BAD_KIND', 'kind 需为 score/emotion/hooks/style 之一')
+          }
 
-        const bookRoot = r.bookRoot
-        const docId = params['docId'] ?? ''
-        // sourceHash 与进 prompt 的正文单次读取同拍（两读间作者保存
-        // 会让 body 与 sourceHash 对应不同稿）——：解析链
-        // 收编 resolveDraftByDocId 单源（existsSync 后 µs 级竞态删除的 ENOENT 由守卫
-        // 转人话 500 IO_ERROR，不再裸穿 dispatch；单读快照口径随链）。
-        const d = resolveDraftByDocId(bookRoot, docId)
-        if (!d.ok) return replyError(res, d.status, d.code, d.message)
-        const { entry: m, content: draftText, draft } = d
-        const { body, chapter } = draft
-        const sourceHash = sourceHashOf(draftText)
+          const bookRoot = r.bookRoot
+          const docId = params['docId'] ?? ''
+          // sourceHash 与进 prompt 的正文单次读取同拍（两读间作者保存
+          // 会让 body 与 sourceHash 对应不同稿）——：解析链
+          // 收编 resolveDraftByDocId 单源（existsSync 后 µs 级竞态删除的 ENOENT 由守卫
+          // 转人话 500 IO_ERROR，不再裸穿 dispatch；单读快照口径随链）。
+          const d = resolveDraftByDocId(bookRoot, docId)
+          if (!d.ok) return replyError(res, d.status, d.code, d.message)
+          const { entry: m, content: draftText, draft } = d
+          const { body, chapter } = draft
+          const sourceHash = sourceHashOf(draftText)
 
-        // 模型档位在 AI 调用前快照——信封 model 原在完成后二次
-        // resolve，分钟级分析期间切档则溯源失真（stream.ts 已确立请求时刻
-        // 快照口径，此处对齐）
-        const modelAtRequest = ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
-        const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
-        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path], ctrl)
-        if (!result.ok) {
-          // -①：中断收口——ABORTED → 499 人话信封；：
-          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
-          return replyGenerationFailure(res, result)
-        }
-        const payload = result.payload
+          // 模型档位在 AI 调用前快照——信封 model 原在完成后二次
+          // resolve，分钟级分析期间切档则溯源失真（stream.ts 已确立请求时刻
+          // 快照口径，此处对齐）
+          const modelAtRequest =
+            ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
+          const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
+          const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path], ctrl)
+          if (!result.ok) {
+            // -①：中断收口——ABORTED → 499 人话信封；：
+            // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+            return replyGenerationFailure(res, result)
+          }
+          const payload = result.payload
 
-        const envelope = {
-          generatedAt: new Date().toISOString(),
-          model: modelAtRequest,
-          sourceHash, // 进 prompt 时的稿（见上）——与 payload 同源，不重读
-          payload,
-        }
-        // 写信封走异步孪生（锁等待不阻塞服务事件循环）
-        await writeAnalysisAsync(bookRoot, docId, kind, envelope)
-        // 信封落盘 → overview 缓存失效（探针/TTL 兜底）
-        forgetAnalysisOverviewCache(bookRoot)
-        reply(res, 200, { ok: true, envelope })
-      })
+          const envelope = {
+            generatedAt: new Date().toISOString(),
+            model: modelAtRequest,
+            sourceHash, // 进 prompt 时的稿（见上）——与 payload 同源，不重读
+            payload,
+          }
+          // 写信封走异步孪生（锁等待不阻塞服务事件循环）
+          await writeAnalysisAsync(bookRoot, docId, kind, envelope)
+          // 信封落盘 → overview 缓存失效（探针/TTL 兜底）
+          forgetAnalysisOverviewCache(bookRoot)
+          reply(res, 200, { ok: true, envelope })
+        },
+      )
     },
   })
 
@@ -442,54 +458,58 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // + （409 文案逐位保留）+ -①（register/unregister 形态
       // 与 analyze 子端点同款；owner 按 action 分槽='autotag:<书名>'）——十段复制收编
       // runGatedGeneration 单源（-，接法头注见 analyze 处）。
-      return ctx.gate.runGatedGeneration(res, {
-        book: params['name']!,
-        workDir: ctx.workDir!,
-        action: 'autotag',
-        busyText: '本书已在识别章节标签，请等待完成后再试',
-      }, async (ctrl) => {
-        const bookRoot = r.bookRoot
-        const docId = params['docId'] ?? ''
-        // existsSync→readDraft 之间的 TOCTOU（文件恰被移动/删除时
-        // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——（-优化
-        // 修复批）：解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
-        // 文案，模式随链；单读快照口径不变）。
-        const d = resolveDraftByDocId(bookRoot, docId)
-        if (!d.ok) return replyError(res, d.status, d.code, d.message)
-        const { entry: m, draft } = d
-        const { body, chapter } = draft
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'autotag',
+          busyText: '本书已在识别章节标签，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const bookRoot = r.bookRoot
+          const docId = params['docId'] ?? ''
+          // existsSync→readDraft 之间的 TOCTOU（文件恰被移动/删除时
+          // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——（-优化
+          // 修复批）：解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
+          // 文案，模式随链；单读快照口径不变）。
+          const d = resolveDraftByDocId(bookRoot, docId)
+          if (!d.ok) return replyError(res, d.status, d.code, d.message)
+          const { entry: m, draft } = d
+          const { body, chapter } = draft
 
-        const prompt = [
-          '[kind:tags]',
-          '',
-          `## 任务\n对第 ${chapter.章号} 章正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
-          '',
-          `## 正文\n${body}`,
-        ].join('\n')
+          const prompt = [
+            '[kind:tags]',
+            '',
+            `## 任务\n对第 ${chapter.章号} 章正文做章节标签识别（钩子/情绪/场景），只读不改稿。`,
+            '',
+            `## 正文\n${body}`,
+          ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path], ctrl)
-        if (!result.ok) {
-          // -①：中断收口——ABORTED → 499 人话信封；：
-          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
-          return replyGenerationFailure(res, result)
-        }
-        const payload = result.payload as Record<string, unknown>
+          const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path], ctrl)
+          if (!result.ok) {
+            // -①：中断收口——ABORTED → 499 人话信封；：
+            // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+            return replyGenerationFailure(res, result)
+          }
+          const payload = result.payload as Record<string, unknown>
 
-        // 校验：只保留合法选项内的字段（防 AI 产出越界值）
-        const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
-          钩子类型: new Set(['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']),
-          钩子强弱: new Set(['强', '中', '弱']),
-          情绪定位: new Set(['压抑', '铺垫', '小爽', '大爽', '转折']),
-          场景: new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']),
-        }
-        const tags: Record<string, string> = {}
-        for (const key of Object.keys(ALLOWED_TAGS)) {
-          const allowed = ALLOWED_TAGS[key]
-          const v = String(payload[key] ?? '').trim()
-          if (allowed && allowed.has(v)) tags[key] = v
-        }
-        reply(res, 200, { ok: true, tags })
-      })
+          // 校验：只保留合法选项内的字段（防 AI 产出越界值）
+          const ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
+            钩子类型: new Set(['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']),
+            钩子强弱: new Set(['强', '中', '弱']),
+            情绪定位: new Set(['压抑', '铺垫', '小爽', '大爽', '转折']),
+            场景: new Set(['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']),
+          }
+          const tags: Record<string, string> = {}
+          for (const key of Object.keys(ALLOWED_TAGS)) {
+            const allowed = ALLOWED_TAGS[key]
+            const v = String(payload[key] ?? '').trim()
+            if (allowed && allowed.has(v)) tags[key] = v
+          }
+          reply(res, 200, { ok: true, tags })
+        },
+      )
     },
   })
 
@@ -503,46 +523,50 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!r) return
       // + （409 文案逐位保留）+ -①（owner='infer-meta:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源（-，接法头注见 analyze 处）。
-      return ctx.gate.runGatedGeneration(res, {
-        book: params['name']!,
-        workDir: ctx.workDir!,
-        action: 'infer-meta',
-        busyText: '本书已在推断目标情绪，请等待完成后再试',
-      }, async (ctrl) => {
-        const bookRoot = r.bookRoot
-        const docId = params['docId'] ?? ''
-        // 同 autotag——existsSync→readDraft TOCTOU 兜底（模式）；
-        // 解析链收编 resolveDraftByDocId 单源。
-        const d = resolveDraftByDocId(bookRoot, docId)
-        if (!d.ok) return replyError(res, d.status, d.code, d.message)
-        const { entry: m, draft } = d
-        const { body, chapter } = draft
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'infer-meta',
+          busyText: '本书已在推断目标情绪，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const bookRoot = r.bookRoot
+          const docId = params['docId'] ?? ''
+          // 同 autotag——existsSync→readDraft TOCTOU 兜底（模式）；
+          // 解析链收编 resolveDraftByDocId 单源。
+          const d = resolveDraftByDocId(bookRoot, docId)
+          if (!d.ok) return replyError(res, d.status, d.code, d.message)
+          const { entry: m, draft } = d
+          const { body, chapter } = draft
 
-        const prompt = [
-          '[kind:infer_meta]',
-          '',
-          `## 任务\n对第 ${chapter.章号} 章正文做目标情绪与核心反转识别，只读不改稿。`,
-          '- 目标情绪：本章正文最终在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
-          '- 核心反转：本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转的章留空字符串）',
-          '',
-          `## 正文\n${body}`,
-        ].join('\n')
+          const prompt = [
+            '[kind:infer_meta]',
+            '',
+            `## 任务\n对第 ${chapter.章号} 章正文做目标情绪与核心反转识别，只读不改稿。`,
+            '- 目标情绪：本章正文最终在读者心中落地的核心情绪（一句话，如「从压抑到释然的救赎」）',
+            '- 核心反转：本章核心反转点（铺垫→反转→收尾一句话概述；无明显反转的章留空字符串）',
+            '',
+            `## 正文\n${body}`,
+          ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path], ctrl)
-        if (!result.ok) {
-          // -①：中断收口——ABORTED → 499 人话信封；：
-          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
-          return replyGenerationFailure(res, result)
-        }
-        const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
+          const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path], ctrl)
+          if (!result.ok) {
+            // -①：中断收口——ABORTED → 499 人话信封；：
+            // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+            return replyGenerationFailure(res, result)
+          }
+          const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
-        const meta: Record<string, string> = {}
-        const emotion = String(payload.目标情绪 ?? '').trim()
-        const reversal = String(payload.核心反转 ?? '').trim()
-        if (emotion) meta.目标情绪 = emotion
-        if (reversal) meta.核心反转 = reversal
-        reply(res, 200, { ok: true, meta })
-      })
+          const meta: Record<string, string> = {}
+          const emotion = String(payload.目标情绪 ?? '').trim()
+          const reversal = String(payload.核心反转 ?? '').trim()
+          if (emotion) meta.目标情绪 = emotion
+          if (reversal) meta.核心反转 = reversal
+          reply(res, 200, { ok: true, meta })
+        },
+      )
     },
   })
 
@@ -579,126 +603,130 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!r) return
       // + （409 文案逐位保留）+ -①（owner='analyze-style:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源。
-      return ctx.gate.runGatedGeneration(res, {
-        book: params['name']!,
-        workDir: ctx.workDir!,
-        action: 'analyze-style',
-        busyText: '本书正在做文风分析，请等待完成后再试',
-      }, async (ctrl) => {
-        const bookRoot = r.bookRoot
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'analyze-style',
+          busyText: '本书正在做文风分析，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const bookRoot = r.bookRoot
 
-        // 读所有定稿正文章节（按章号排序）
-        const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-        const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
-        if (!sorted.length) return replyError(res, 400, 'NO_CHAPTERS', '无定稿正文章节')
+          // 读所有定稿正文章节（按章号排序）
+          const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+          const sorted = chapters.slice().sort((a, b) => a.章号 - b.章号)
+          if (!sorted.length) return replyError(res, 400, 'NO_CHAPTERS', '无定稿正文章节')
 
-        // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
-        const rules = readIronRules(bookRoot)
-        const recent = sorted.slice(-10)
-        // 命中短时缓存则跳过全书重读（allBodies+join 的重扫）；章集/正文变化最迟 5s 可见
-        // 壳体收编 ttl-cache.ts 通用件——原 过期
-        // 逐出/ 写侧清扫/FIFO 段移入通用件 store（时序逐位不变）
-        // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-        const { fullStats, sampleText } = await styleCorpusCache.get(bookRoot, async (): Promise<StyleCorpusResult> => {
-          // 扫描+统计下沉 worker 线程（export 同款先例）——
-          // computeFullStats 对全书大串（join 又是一次同步大分配）的单段同步 CPU 正是
-          // 0.1-1s 级事件循环停摆面（原注「下沉 worker 改动面大——登记维持」随本批
-          // 清偿：读循环让出 只覆盖了读段）。worker 失败/超时回落进程内同步
-          // （保可用性——退化形态即旧行为，不产生新的失败面）
-          const scanJob: StyleScanJob = {
-            chapters: sorted
-              .filter((ch) => ch._path)
-              .map((ch) => ({ path: ch._path!, 章号: ch.章号, 标题: ch.标题, recent: recent.includes(ch) })),
-            rules,
-          }
-          try {
-            return await runStyleScanAsync(scanJob)
-          } catch (e) {
-            log.warn('api', `文风全书扫描 worker 失败，回落进程内同步路径：${errMsg(e)}`)
-            const allBodies: string[] = []
-            const recentBodies: string[] = []
-            // 回落面的读循环逐块让出（范式）
-            let scanned = 0
-            for (const ch of sorted) {
-              if (!ch._path) continue
-              const draft = readDraft(ch._path)
-              if (!draft.ok) continue
-              allBodies.push(draft.body)
-              if (recent.includes(ch)) {
-                recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+          // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
+          const rules = readIronRules(bookRoot)
+          const recent = sorted.slice(-10)
+          // 命中短时缓存则跳过全书重读（allBodies+join 的重扫）；章集/正文变化最迟 5s 可见
+          // 壳体收编 ttl-cache.ts 通用件——原 过期
+          // 逐出/ 写侧清扫/FIFO 段移入通用件 store（时序逐位不变）
+          // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+          const { fullStats, sampleText } = await styleCorpusCache.get(
+            bookRoot,
+            async (): Promise<StyleCorpusResult> => {
+              // 扫描+统计下沉 worker 线程（export 同款先例）——
+              // computeFullStats 对全书大串（join 又是一次同步大分配）的单段同步 CPU 正是
+              // 0.1-1s 级事件循环停摆面（原注「下沉 worker 改动面大——登记维持」随本批
+              // 清偿：读循环让出 只覆盖了读段）。worker 失败/超时回落进程内同步
+              // （保可用性——退化形态即旧行为，不产生新的失败面）
+              const scanJob: StyleScanJob = {
+                chapters: sorted
+                  .filter((ch) => ch._path)
+                  .map((ch) => ({ path: ch._path!, 章号: ch.章号, 标题: ch.标题, recent: recent.includes(ch) })),
+                rules,
               }
-              if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
-            }
-            return {
-              fullStats: computeFullStats(allBodies.join('\n\n'), rules),
-              sampleText: recentBodies.join('\n\n---\n\n'),
-            }
-          }
-        }, ctx.styleCorpusTtlMs ?? undefined)
-
-        // 同 analyze——模型档位调用前快照（完成后二次 resolve 在
-        // 分钟级分析期间切档则信封溯源失真， 请求时刻口径）
-        const modelAtRequest = ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
-        const prompt = [
-          '[kind:style]',
-          '',
-          `## 任务\n对全书最近 ${recent.length} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
-          '',
-          `## 全文本地 stats（全文 ${sorted.length} 章扫描）\n${JSON.stringify(fullStats)}`,
-          '',
-          `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
-          '',
-          `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
-        ].join('\n')
-
-        // 全书采样注入源登记（相对书根；readChapterDir 的 _path 为绝对路径）
-        const styleSources = recent
-          .filter((ch) => ch._path)
-          .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
-        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources, ctrl)
-        if (!result.ok) {
-          // -①：中断收口——ABORTED → 499 人话信封；
-          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
-          return replyGenerationFailure(res, result)
-        }
-        const payload = result.payload
-
-        const envelope = {
-          generatedAt: new Date().toISOString(),
-          model: modelAtRequest,
-          sourceHash: sourceHashOf(sampleText),
-          payload,
-        }
-        // 全书信封落盘走异步孪生——锁等待 setTimeout 轮询不阻塞事件
-        // 循环（原同步版 Atomics.wait ≤5s 冻结整进程，见 document/analysis.ts 头注）
-        await writeBookAnalysisAsync(bookRoot, 'style', envelope)
-        // 全书信封落盘 → overview 缓存失效（探针/TTL 兜底）
-        forgetAnalysisOverviewCache(bookRoot)
-
-        // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
-        let styleCandidates = 0
-        if (typeof payload === 'object' && payload !== null) {
-          const mapped = mapAnalysisToCandidates(
-            payload as { 口癖?: string[]; 建议?: string[] },
-            // 候选日键本地日——与 style.ts today/overview 热力图同口径（此前
-            // UTC 切日，东八区 0-8 点生成的候选记前一日，查重闸跨日误放行）
-            localDayKey(new Date()),
+              try {
+                return await runStyleScanAsync(scanJob)
+              } catch (e) {
+                log.warn('api', `文风全书扫描 worker 失败，回落进程内同步路径：${errMsg(e)}`)
+                const allBodies: string[] = []
+                const recentBodies: string[] = []
+                // 回落面的读循环逐块让出（范式）
+                let scanned = 0
+                for (const ch of sorted) {
+                  if (!ch._path) continue
+                  const draft = readDraft(ch._path)
+                  if (!draft.ok) continue
+                  allBodies.push(draft.body)
+                  if (recent.includes(ch)) {
+                    recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+                  }
+                  if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
+                }
+                return {
+                  fullStats: computeFullStats(allBodies.join('\n\n'), rules),
+                  sampleText: recentBodies.join('\n\n---\n\n'),
+                }
+              }
+            },
+            ctx.styleCorpusTtlMs ?? undefined,
           )
-          styleCandidates = persistCandidates(bookRoot, mapped).created.length
-        }
-        reply(res, 200, { ok: true, envelope, styleCandidates })
-      })
+
+          // 同 analyze——模型档位调用前快照（完成后二次 resolve 在
+          // 分钟级分析期间切档则信封溯源失真， 请求时刻口径）
+          const modelAtRequest =
+            ctx.driver.kind === 'mock' ? 'mock' : ctx.providers.resolveTier(ctx.userDataPath, 'assistant').model
+          const prompt = [
+            '[kind:style]',
+            '',
+            `## 任务\n对全书最近 ${recent.length} 章做文风总结分析（口癖/重复度/漂移），只读不改稿。`,
+            '',
+            `## 全文本地 stats（全文 ${sorted.length} 章扫描）\n${JSON.stringify(fullStats)}`,
+            '',
+            `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
+            '',
+            `## 最近 ${recent.length} 章采样正文\n${sampleText}`,
+          ].join('\n')
+
+          // 全书采样注入源登记（相对书根；readChapterDir 的 _path 为绝对路径）
+          const styleSources = recent
+            .filter((ch) => ch._path)
+            .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
+          const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources, ctrl)
+          if (!result.ok) {
+            // -①：中断收口——ABORTED → 499 人话信封；
+            // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+            return replyGenerationFailure(res, result)
+          }
+          const payload = result.payload
+
+          const envelope = {
+            generatedAt: new Date().toISOString(),
+            model: modelAtRequest,
+            sourceHash: sourceHashOf(sampleText),
+            payload,
+          }
+          // 全书信封落盘走异步孪生——锁等待 setTimeout 轮询不阻塞事件
+          // 循环（原同步版 Atomics.wait ≤5s 冻结整进程，见 document/analysis.ts 头注）
+          await writeBookAnalysisAsync(bookRoot, 'style', envelope)
+          // 全书信封落盘 → overview 缓存失效（探针/TTL 兜底）
+          forgetAnalysisOverviewCache(bookRoot)
+
+          // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
+          let styleCandidates = 0
+          if (typeof payload === 'object' && payload !== null) {
+            const mapped = mapAnalysisToCandidates(
+              payload as { 口癖?: string[]; 建议?: string[] },
+              // 候选日键本地日——与 style.ts today/overview 热力图同口径（此前
+              // UTC 切日，东八区 0-8 点生成的候选记前一日，查重闸跨日误放行）
+              localDayKey(new Date()),
+            )
+            styleCandidates = persistCandidates(bookRoot, mapped).created.length
+          }
+          reply(res, 200, { ok: true, envelope, styleCandidates })
+        },
+      )
     },
   })
 }
 
 /** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约 + 章纲/stats 为底）。 */
-function buildAnalystPrompt(
-  kind: AnalysisKind,
-  body: string,
-  chapter: ChapterMeta,
-  bookRoot: string,
-): string {
+function buildAnalystPrompt(kind: AnalysisKind, body: string, chapter: ChapterMeta, bookRoot: string): string {
   const parts: string[] = [
     `[kind:${kind}]`,
     '',
@@ -713,7 +741,12 @@ function buildAnalystPrompt(
     // 附本地文风 stats（句长/重复率/口癖命中）+ IronRules（作者基线铁律）为底
     const rules = readIronRules(bookRoot)
     const stats = computeFullStats(body, rules)
-    parts.push('', `## 本地文风 stats\n${JSON.stringify(stats)}`, '', `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`)
+    parts.push(
+      '',
+      `## 本地文风 stats\n${JSON.stringify(stats)}`,
+      '',
+      `## IronRules（作者基线铁律）\n${JSON.stringify(rules)}`,
+    )
   }
   parts.push('', `## 正文\n${body}`)
   return parts.join('\n')

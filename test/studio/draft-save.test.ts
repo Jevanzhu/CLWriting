@@ -89,7 +89,9 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     expect(id).not.toBeNull()
     const files = snapshotFiles(legacyId(shortRel))
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.版本', encodeDocDirName(legacyId(shortRel)), files[0]!), 'utf8')).toContain('第1章草稿')
+    expect(
+      readFileSync(join(root, '工作区', '.版本', encodeDocDirName(legacyId(shortRel)), files[0]!), 'utf8'),
+    ).toContain('第1章草稿')
   })
 })
 
@@ -111,7 +113,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clwriting-draft-api-',
     dirs: ['工作区'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 

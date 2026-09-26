@@ -16,15 +16,37 @@ export async function getTree(
 export interface BookConfig {
   kind?: 'long' | 'short'
   host?: 'cc' | 'codex'
-  book?: { title?: string; genre?: string; volume_size?: number; target_words?: number; chapter_target_words?: number; [k: string]: unknown }
+  book?: {
+    title?: string
+    genre?: string
+    volume_size?: number
+    target_words?: number
+    chapter_target_words?: number
+    [k: string]: unknown
+  }
   budget?: { calls_per_chapter?: number; [k: string]: unknown }
   style?: { injection?: 'light' | 'heavy'; [k: string]: unknown }
-  auto?: { confirm_outline?: boolean; batch_size?: number; relation_auto_mine?: boolean; relation_mine_threshold?: number; [k: string]: unknown }
+  auto?: {
+    confirm_outline?: boolean
+    batch_size?: number
+    relation_auto_mine?: boolean
+    relation_mine_threshold?: number
+    [k: string]: unknown
+  }
   /** 快照保留策略（单章版本回滚）；缺省 = 后端默认 14 天 / 30 个 */
   snapshots?: { max_days?: number; max_count?: number }
   rag?: { enabled?: boolean; provider?: string; endpoint?: string; model?: string; [k: string]: unknown }
   /** 短篇集机检配置（题材预设阈值 + strict 严格模式） */
-  short?: { strict?: boolean; word_min?: number; word_max?: number; body_part_threshold?: number; simile_threshold?: number; section_count?: number; opening_env_chars?: number; [k: string]: unknown }
+  short?: {
+    strict?: boolean
+    word_min?: number
+    word_max?: number
+    body_part_threshold?: number
+    simile_threshold?: number
+    section_count?: number
+    opening_env_chars?: number
+    [k: string]: unknown
+  }
   [k: string]: unknown
 }
 // GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
@@ -32,12 +54,8 @@ export interface BookConfig {
 // 文件缺失为 0），供读改写调用方下次 PUT 带 expectedRevision。
 // （修复批）：两函数原为同端点双声明（各自 apiJson 一次），
 // 端点/解析改动时互为漏改点——现以此函数为唯一实现，getConfig 委托取 .config。
-export async function getConfigWithRevision(
-  name: string,
-): Promise<{ config: BookConfig; revision: number }> {
-  return apiJson<{ config: BookConfig; revision: number }>(
-    bookUrl(name, 'config'),
-  )
+export async function getConfigWithRevision(name: string): Promise<{ config: BookConfig; revision: number }> {
+  return apiJson<{ config: BookConfig; revision: number }>(bookUrl(name, 'config'))
 }
 
 // 只读视图（返回型不变，只读调用方零波及）：委托 getConfigWithRevision 后取 .config。
@@ -51,11 +69,7 @@ export async function getConfig(name: string): Promise<BookConfig> {
 // ApiError{status:409, code:REVISION_CONFLICT}——调用方以此拦截「双标签页后写者
 // 静默覆盖先写者」）。服务端批已落地消费：GET 回传内容指纹 revision + PUT 比对
 // 409（config.ts 同轮实修），SettingsModal 经 getConfigWithRevision 穿线端到端生效。
-export async function putConfig(
-  name: string,
-  config: BookConfig,
-  expectedRevision?: number,
-): Promise<void> {
+export async function putConfig(name: string, config: BookConfig, expectedRevision?: number): Promise<void> {
   await apiJson<{ ok: true }>(bookUrl(name, 'config'), {
     method: 'PUT',
     json: { config, expectedRevision },

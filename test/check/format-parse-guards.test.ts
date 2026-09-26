@@ -129,7 +129,11 @@ test('R31-2: 章 fm 全角冒号键行可读（不再假缺必填字段）', () 
 })
 
 test('R31-2: 半角冒号行为不变 + 值中全角冒号不误切', () => {
-  const r = readChapter(join(tmpdir(), 'nonexist-fm.md'), true, '---\n章号: 8\n标题: 夜行\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n备注: 时间：子夜\n---\n\n正文。\n')
+  const r = readChapter(
+    join(tmpdir(), 'nonexist-fm.md'),
+    true,
+    '---\n章号: 8\n标题: 夜行\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n备注: 时间：子夜\n---\n\n正文。\n',
+  )
   expect(r.ok).toBe(true)
   if (r.ok) {
     expect(r.chapter.章号).toBe(8)
@@ -184,11 +188,20 @@ test('R31-18: astral 字符句走码点取窗（纯 BMP 快路径行为不变）
 // ── R31-15（并入档）：章号安全守卫 ────────────────────────────
 
 test('R31-15: 章号负数/超安全整数 → fail-loud 格式错误', () => {
-  for (const fm of ['---\n章号: -3\n标题: 夜行\n---\n\n正文。\n', '---\n章号: 99999999999999999999\n标题: 夜行\n---\n\n正文。\n']) {
+  for (const fm of [
+    '---\n章号: -3\n标题: 夜行\n---\n\n正文。\n',
+    '---\n章号: 99999999999999999999\n标题: 夜行\n---\n\n正文。\n',
+  ]) {
     const r = readChapter(join(tmpdir(), 'nonexist-fm.md'), true, fm)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.message).toContain('章号格式不符')
   }
   // 合法章号不受影响
-  expect(readChapter(join(tmpdir(), 'nonexist-fm.md'), true, '---\n章号: 1\n标题: 夜行\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n').ok).toBe(true)
+  expect(
+    readChapter(
+      join(tmpdir(), 'nonexist-fm.md'),
+      true,
+      '---\n章号: 1\n标题: 夜行\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n',
+    ).ok,
+  ).toBe(true)
 })

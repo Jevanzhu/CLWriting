@@ -23,7 +23,11 @@ const mutatePath = { file: '' }
 vi.mock('../../src/ai/tasks/spec.js', () => ({
   runSpec: async () => {
     if (mutatePath.file) {
-      writeFileSync(mutatePath.file, readFileSync(mutatePath.file, 'utf-8') + '\n任务运行期间作者补写的一段。\n', 'utf-8')
+      writeFileSync(
+        mutatePath.file,
+        readFileSync(mutatePath.file, 'utf-8') + '\n任务运行期间作者补写的一段。\n',
+        'utf-8',
+      )
       mutatePath.file = '' // 只改一次（review 多 lens 不重复追加）
     }
     return { ok: true as const, data: { input: { score: 8, issues: [] }, text: '' }, usage: null }
@@ -78,7 +82,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  originalContent = '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n'
+  originalContent =
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n'
   studio = await bootStudio({
     book: BOOK,
     prefix: 'clwriting-hash-race-',

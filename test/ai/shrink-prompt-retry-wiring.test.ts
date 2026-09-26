@@ -84,7 +84,11 @@ interface Setup {
   close: () => void
 }
 
-function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>[number], providers?: ProviderStore['providers']): Setup {
+function setup(
+  history: ChatMsg[],
+  script: Parameters<FakeProvider['setScript']>[number],
+  providers?: ProviderStore['providers'],
+): Setup {
   fake.setScript(script)
   const ud = tempUserData()
   dirs.push(ud)
@@ -144,19 +148,29 @@ function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>
   }
 }
 
-function readChainEvents(ud: string, bookRoot: string): Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }> {
+function readChainEvents(
+  ud: string,
+  bookRoot: string,
+): Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }> {
   const store = openSessionStore(ud, bookRoot)!
   try {
-    return store.listEvents(bookHash(bookRoot)) as unknown as Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }>
+    return store.listEvents(bookHash(bookRoot)) as unknown as Array<
+      Record<string, unknown> & { type: string; data: Record<string, unknown> }
+    >
   } finally {
     store.close()
   }
 }
 
-function readChatEvents(ud: string, bookRoot: string): Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }> {
+function readChatEvents(
+  ud: string,
+  bookRoot: string,
+): Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }> {
   const store = openSessionStore(ud, bookRoot)!
   try {
-    return store.listEvents('a7-shrink') as unknown as Array<Record<string, unknown> & { type: string; data: Record<string, unknown> }>
+    return store.listEvents('a7-shrink') as unknown as Array<
+      Record<string, unknown> & { type: string; data: Record<string, unknown> }
+    >
   } finally {
     store.close()
   }
@@ -207,10 +221,15 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       // 留痕：log.warn 带前后码点数；用户面 warning + 正常 done、无 error
       expect(
         warnSpy.mock.calls.some(
-          (c) => String(c[1] ?? '').includes('收缩重试') && String(c[1]).includes('60198') && String(c[1]).includes('40130'),
+          (c) =>
+            String(c[1] ?? '').includes('收缩重试') && String(c[1]).includes('60198') && String(c[1]).includes('40130'),
         ),
       ).toBe(true)
-      expect(s.emitted.some((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('收缩'))).toBe(true)
+      expect(
+        s.emitted.some(
+          (e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('收缩'),
+        ),
+      ).toBe(true)
       expect(s.emitted.some((e) => e.type === 'chat_done')).toBe(true)
       expect(s.emitted.some((e) => e.type === 'chat_error')).toBe(false)
     } finally {
@@ -241,7 +260,9 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       expect(calls.length).toBe(2)
       expect(calls.every((c) => c.data.ok === false && c.data.errCode === 'CONTEXT_WINDOW_EXCEEDED')).toBe(true)
       expect(
-        warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('收缩重试') && String(c[1]).includes('重试后仍超窗')),
+        warnSpy.mock.calls.some(
+          (c) => String(c[1] ?? '').includes('收缩重试') && String(c[1]).includes('重试后仍超窗'),
+        ),
       ).toBe(true)
     } finally {
       s.close()
@@ -288,11 +309,15 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       caps: { connected: true, streaming: true },
       capsProbedAt: Date.now(),
     }))
-    const s = setup(history, [
-      { type: 'error', status: 400, message: OVER_MSG }, // 首发：超窗（收缩信号）
-      { type: 'error', status: 401, message: 'Invalid API key' }, // 收缩重发：AUTH 族（换网信号）
-      { type: 'text', content: '换网后回复。', usage: { input: 100, output: 50 } }, // 换网重发：成功
-    ], providers)
+    const s = setup(
+      history,
+      [
+        { type: 'error', status: 400, message: OVER_MSG }, // 首发：超窗（收缩信号）
+        { type: 'error', status: 401, message: 'Invalid API key' }, // 收缩重发：AUTH 族（换网信号）
+        { type: 'text', content: '换网后回复。', usage: { input: 100, output: 50 } }, // 换网重发：成功
+      ],
+      providers,
+    )
     try {
       const ok = await runAgentTurns(s.deps)
       expect(ok).toBe(true)
@@ -308,10 +333,7 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       // 留痕：两次重试各一条 llm/retry（超窗 + AUTH）；三次发送各自成对落 llm/call，
       // 末次成功且指纹与收缩实发对齐（保尾切点下末条消息不变 → 指纹同值是正确形态）
       const retryEvs = readChatEvents(s.ud, s.bookRoot).filter((e) => e.type === 'llm/retry')
-      expect(retryEvs.map((e) => (e.data as { errCode?: string }).errCode)).toEqual([
-        'CONTEXT_WINDOW_EXCEEDED',
-        'AUTH',
-      ])
+      expect(retryEvs.map((e) => (e.data as { errCode?: string }).errCode)).toEqual(['CONTEXT_WINDOW_EXCEEDED', 'AUTH'])
       const calls = readChainEvents(s.ud, s.bookRoot).filter((e) => e.type === 'llm/call')
       expect(calls.length).toBe(3)
       const tools = chatTools.map((t) => t.name)
@@ -321,8 +343,12 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
 
       // A003：收缩 warning 与换网 warning 之间存在一枚 chat_reset（换网重发前清前端缓冲）
       const idxOf = (pred: (e: DriverEvent) => boolean): number => s.emitted.findIndex(pred)
-      const shrinkWarnIdx = idxOf((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('收缩'))
-      const switchWarnIdx = idxOf((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('已切换备用供应商'))
+      const shrinkWarnIdx = idxOf(
+        (e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('收缩'),
+      )
+      const switchWarnIdx = idxOf(
+        (e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('已切换备用供应商'),
+      )
       const resetIdxs = s.emitted.map((e, i) => (e.type === 'chat_reset' ? i : -1)).filter((i) => i >= 0)
       expect(shrinkWarnIdx).toBeGreaterThanOrEqual(0)
       expect(switchWarnIdx).toBeGreaterThan(shrinkWarnIdx)

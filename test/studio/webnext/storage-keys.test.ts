@@ -18,7 +18,11 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { LAST_BOOK_KEY, onboardPremiseKey, treeFirstOpenKey } from '../../../src/studio/web-next/src/shared/storage-keys'
+import {
+  LAST_BOOK_KEY,
+  onboardPremiseKey,
+  treeFirstOpenKey,
+} from '../../../src/studio/web-next/src/shared/storage-keys'
 import OnboardPremise from '../../../src/studio/web-next/src/components/onboard/OnboardPremise.vue'
 
 const SRC_ROOT = path.resolve(__dirname, '../../../src/studio/web-next/src')
@@ -123,7 +127,9 @@ const mocks = vi.hoisted(() => ({
   shelfLoad: vi.fn(async () => {}),
 }))
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: mocks.deleteBook }))
-vi.mock('../../../src/studio/web-next/src/stores/check', () => ({ clearFalsePositiveMarks: mocks.clearFalsePositiveMarks }))
+vi.mock('../../../src/studio/web-next/src/stores/check', () => ({
+  clearFalsePositiveMarks: mocks.clearFalsePositiveMarks,
+}))
 vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
   useShelfStore: vi.fn(() => ({ books: [], load: mocks.shelfLoad })),
 }))

@@ -41,10 +41,7 @@ const STUDIO_RES = [
   /import\(\s*['"][^'"]*\/studio\//, // 动态 import()（P3-11 增补）
 ]
 /** src/studio/** 的 ai import 匹配（任意相对深度；静态 + 动态，见 P3-11 注）。 */
-const AI_RES = [
-  /from\s+['"](?:\.\.\/)+ai\//,
-  /import\(\s*['"](?:\.\.\/)+ai\//,
-]
+const AI_RES = [/from\s+['"](?:\.\.\/)+ai\//, /import\(\s*['"](?:\.\.\/)+ai\//]
 
 /** P3-11：整文空白归一后跑正则组，返回命中的匹配片段（供违规行输出定位）。 */
 function hitsAny(content: string, res: RegExp[]): string[] {

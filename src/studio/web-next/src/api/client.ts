@@ -271,7 +271,10 @@ export async function apiJson<T>(
   // 外部 signal 的联动监听器引用——settle 后必须摘除，否则 once 监听器在请求结束后仍挂
   // 在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
   let unlinkExternalSignal: (() => void) | undefined
-  timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+  timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   // 计时句柄——401/403 → rebootstrap 等待期停表（boot 重试退避可达 ~16s，计入会让慢恢复
   // 被伪报 TIMEOUT 408）；等待结束重启满额计时
   const gauge: TimeoutGauge = {
@@ -281,7 +284,10 @@ export async function apiJson<T>(
     },
     resume: () => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+      timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, timeoutMs)
     },
   }
   // 外部 signal 联动：外部 abort → 内部也 abort。abort 事件只在 abort 时刻派发一次——
@@ -326,9 +332,7 @@ export async function apiJson<T>(
       // 书会话接驳（上方 setBookSessionSignal 注）——本守卫是该接驳的 AbortError 归类出口，
       // 调用方以 isAbortError 静默吸收。
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
-        throw err instanceof DOMException
-          ? err
-          : new DOMException('This operation was aborted', 'AbortError')
+        throw err instanceof DOMException ? err : new DOMException('This operation was aborted', 'AbortError')
       }
       // 2xx + 非 JSON 体不得静默回 {}——本 API 面服务端统一 JSON 信封、无 200-无体端点，
       // 静默 {} 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误
@@ -351,7 +355,7 @@ export async function apiJson<T>(
       }
       // 有信封 → 沿用服务端人话/机器码；无信封 → 基础设施故障，给可行动提示（dev 提示先起 dev:api）
       const msg = hasEnvelope
-        ? body.error ?? body.code ?? `HTTP ${r.status}`
+        ? (body.error ?? body.code ?? `HTTP ${r.status}`)
         : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
       throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }

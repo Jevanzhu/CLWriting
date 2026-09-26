@@ -7,7 +7,14 @@ import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync, ex
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { recordAiCall, checkAiCallBudget, recordTaskUsage, AI_CALLS_MUTEX_SCOPE_NOTE, AI_CALLS_LOCK_TIMEOUT_MS, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
+import {
+  recordAiCall,
+  checkAiCallBudget,
+  recordTaskUsage,
+  AI_CALLS_MUTEX_SCOPE_NOTE,
+  AI_CALLS_LOCK_TIMEOUT_MS,
+  __setAiCallsLockTimeoutForTest,
+} from '../../src/ai/calls.js'
 import * as callsMod from '../../src/ai/calls.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -36,14 +43,17 @@ describe('recordAiCall 记账', () => {
   })
 
   // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('CC-P2-3: 记账文件权限 0600（atomicWriteFile mode 随临时文件创建，无全局可读窗口）', () => {
-    const root = tempBook()
-    recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
-    recordAiCall(root, 1, { inputTokens: 1, outputTokens: 2 }) // 二次写（覆盖 rename）权限不变
-    const mode = statSync(join(root, '.cache', 'ai-calls.json')).mode & 0o777
-    // POSIX 权限位（Windows 跑不到这里——CI 为 ubuntu/macos）
-    expect(mode).toBe(0o600)
-  })
+  it.skipIf(process.platform === 'win32')(
+    'CC-P2-3: 记账文件权限 0600（atomicWriteFile mode 随临时文件创建，无全局可读窗口）',
+    () => {
+      const root = tempBook()
+      recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
+      recordAiCall(root, 1, { inputTokens: 1, outputTokens: 2 }) // 二次写（覆盖 rename）权限不变
+      const mode = statSync(join(root, '.cache', 'ai-calls.json')).mode & 0o777
+      // POSIX 权限位（Windows 跑不到这里——CI 为 ubuntu/macos）
+      expect(mode).toBe(0o600)
+    },
+  )
 
   it('多次调用累计计数', () => {
     const root = tempBook()
@@ -193,29 +203,32 @@ describe('E-4/E-7：迁移写互斥 + 互斥范围声明', () => {
   })
 
   // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('N-10: 迁移写 IO 失败 → 完成标记未置位，下次 read 可重试（文件不永留旧格式）', () => {
-    const root = tempBook()
-    const fp = join(root, '.cache', 'ai-calls.json')
-    mkdirSync(join(root, '.cache'), { recursive: true })
-    const old = JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n'
-    writeFileSync(fp, old)
-    // 收走 .cache 写权限后读 → 触发迁移写且 IO 必败；此前标记入队即置位且不清，
-    // 迁移永不重试、文件永留旧格式（N-10 修复：失败清标记）
-    chmodSync(join(root, '.cache'), 0o500)
-    try {
-      checkAiCallBudget(root, 5, CONFIG)
-    } finally {
-      chmodSync(join(root, '.cache'), 0o755)
-    }
-    expect(readFileSync(fp, 'utf8')).toBe(old) // 迁移写确实失败（文件仍是旧格式）
-    // 恢复写权限后再读 → 迁移可重试并落地新格式
-    const b = checkAiCallBudget(root, 5, CONFIG)
-    expect(b.ok).toBe(true)
-    if (b.ok) expect(b.used).toBe(2)
-    const rec = JSON.parse(readFileSync(fp, 'utf8'))
-    expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
-    expect(rec.tasks).toEqual({})
-  })
+  it.skipIf(process.platform === 'win32')(
+    'N-10: 迁移写 IO 失败 → 完成标记未置位，下次 read 可重试（文件不永留旧格式）',
+    () => {
+      const root = tempBook()
+      const fp = join(root, '.cache', 'ai-calls.json')
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const old = JSON.stringify({ chapter: 5, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n'
+      writeFileSync(fp, old)
+      // 收走 .cache 写权限后读 → 触发迁移写且 IO 必败；此前标记入队即置位且不清，
+      // 迁移永不重试、文件永留旧格式（N-10 修复：失败清标记）
+      chmodSync(join(root, '.cache'), 0o500)
+      try {
+        checkAiCallBudget(root, 5, CONFIG)
+      } finally {
+        chmodSync(join(root, '.cache'), 0o755)
+      }
+      expect(readFileSync(fp, 'utf8')).toBe(old) // 迁移写确实失败（文件仍是旧格式）
+      // 恢复写权限后再读 → 迁移可重试并落地新格式
+      const b = checkAiCallBudget(root, 5, CONFIG)
+      expect(b.ok).toBe(true)
+      if (b.ok) expect(b.used).toBe(2)
+      const rec = JSON.parse(readFileSync(fp, 'utf8'))
+      expect(rec.chapter).toEqual({ num: 5, used: 2, inputTokens: 100, outputTokens: 200 })
+      expect(rec.tasks).toEqual({})
+    },
+  )
 
   it('E-7: 互斥范围声明已登记（进程内语义 + J7 依赖）', () => {
     expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('J7')
@@ -306,7 +319,10 @@ describe('D4 cache token 记账累计', () => {
     mkdirSync(join(root, '.cache'), { recursive: true })
     writeFileSync(
       join(root, '.cache', 'ai-calls.json'),
-      JSON.stringify({ chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 'x' }, tasks: {} }),
+      JSON.stringify({
+        chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 'x' },
+        tasks: {},
+      }),
       'utf-8',
     )
     const b = checkAiCallBudget(root, 1, CONFIG)

@@ -105,11 +105,9 @@ describe('P2-1（全库重评-0914）: review-verdict 三审运行竞窗闸', ()
   it('三审运行中（runKey=真实 docId 预置）裁决 → 409 REVIEW_RUNNING，且不落 verdict 信封', async () => {
     __setReviewRunning(BOOK, true, docId)
     try {
-      const busy = await req(
-        'POST',
-        `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/review-verdict`,
-        { approved: true },
-      )
+      const busy = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/review-verdict`, {
+        approved: true,
+      })
       expect(busy.status).toBe(409)
       expect((busy.json as { code?: string }).code ?? '').toBe('REVIEW_RUNNING')
       expect((busy.json as { error?: string }).error ?? '').toContain('三审进行中')
@@ -122,11 +120,9 @@ describe('P2-1（全库重评-0914）: review-verdict 三审运行竞窗闸', ()
   })
 
   it('闸释放后裁决 → 200 正常落盘（闸不误伤空闲路径）', async () => {
-    const ok = await req(
-      'POST',
-      `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/review-verdict`,
-      { approved: false },
-    )
+    const ok = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/review-verdict`, {
+      approved: false,
+    })
     expect(ok.status).toBe(200)
     expect((ok.json as { verdict?: { approved?: boolean } }).verdict?.approved).toBe(false)
   })

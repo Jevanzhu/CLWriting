@@ -91,7 +91,10 @@ describe('R51-C-3: anthropic message_delta 合并保留先前 delta 的 cache �
           })(),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -114,7 +117,10 @@ describe('R51-C-3: anthropic message_delta 合并保留先前 delta 的 cache �
           })(),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return

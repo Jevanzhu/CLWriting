@@ -15,7 +15,7 @@
  * 真链路（真起 server + argv/env 透传）由子进程黑盒 test/studio/server-main-error.test.ts
  * 锚定，不在此重复。
  */
-import { describe, it, expect, vi, beforeEach, afterEach , type MockInstance } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import type { ParsedServerArgs } from '../../src/desktop/server-boot.js'
@@ -129,12 +129,10 @@ describe('runServerMain：node 直跑形态装配链', () => {
 /** process.on spy 捕获安装的信号 handler（不真注册到测试进程） */
 function captureSignalHandlers() {
   const captured: Record<string, () => void> = {}
-  const onSpy = vi
-    .spyOn(process, 'on')
-    .mockImplementation(((evt: string, fn: () => void) => {
-      captured[evt] = fn
-      return process
-    }) as never)
+  const onSpy = vi.spyOn(process, 'on').mockImplementation(((evt: string, fn: () => void) => {
+    captured[evt] = fn
+    return process
+  }) as never)
   return { captured, onSpy }
 }
 
@@ -195,9 +193,7 @@ describe('installSignalFallback：信号兜底（M-8/R-20/R1010b-DSK-P3-7）', (
       captured['SIGTERM']!() // 双信号连发：exiting 幂等不二次退
       expect(exitSpy).toHaveBeenCalledTimes(1)
       // log 留痕（log 未 init 时 console 镜像，beforeEach 已静音并捕获）
-      expect(
-        errSpy.mock.calls.some((line) => String(line).includes('server close 失败')),
-      ).toBe(true)
+      expect(errSpy.mock.calls.some((line) => String(line).includes('server close 失败'))).toBe(true)
     } finally {
       onSpy.mockRestore()
     }
@@ -269,9 +265,7 @@ describe('vitest 探针：import 态顶层接线跳过', () => {
       const sigEvents = onSpy.mock.calls.filter(([evt]) => evt === 'SIGINT' || evt === 'SIGTERM')
       expect(sigEvents).toEqual([]) // 不真注册信号（不杀测试进程）
       expect(h.bootCalls).toHaveLength(0) // 不真绑端口（不触 runServerMain）
-      expect(
-        errSpy.mock.calls.some(([line]) => String(line).includes('[server-main][vitest]')),
-      ).toBe(true) // 探针留痕与误用直跑口径可区分
+      expect(errSpy.mock.calls.some(([line]) => String(line).includes('[server-main][vitest]'))).toBe(true) // 探针留痕与误用直跑口径可区分
     } finally {
       onSpy.mockRestore()
     }

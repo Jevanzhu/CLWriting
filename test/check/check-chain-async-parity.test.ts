@@ -19,7 +19,12 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { runCheckForDocument, runCheckForDocumentAsync, __setOpenCheckDbTtlForTest, __resetRebuildDoneAtForTest } from '../../src/check/run.js'
+import {
+  runCheckForDocument,
+  runCheckForDocumentAsync,
+  __setOpenCheckDbTtlForTest,
+  __resetRebuildDoneAtForTest,
+} from '../../src/check/run.js'
 import { preludeYieldStats, __resetPreludeYieldStatsForTest } from '../../src/shared/yield-stats.js'
 import { CHAPTER_SCAN_YIELD_EVERY } from '../../src/format/chapters.js'
 import { LEADS_BOOK_YIELD_EVERY } from '../../src/check/leads.js'
@@ -104,7 +109,11 @@ function makeBook(opts: FixtureOpts = {}): string {
     const entry: ManifestEntry = { id: generateDocId(), nodeType: 'document', path: rel, parentId: null }
     // 末章定稿：maxWrittenChapterOf 取末章（否则履历第 1 章在 3 章书上不成未来章，语义无差）
     if (no === chapters) {
-      entry.finalizedRevision = 'sha256:' + createHash('sha256').update(readFileSync(join(root, rel))).digest('hex')
+      entry.finalizedRevision =
+        'sha256:' +
+        createHash('sha256')
+          .update(readFileSync(join(root, rel)))
+          .digest('hex')
     }
     upsertEntry(m, entry)
   }

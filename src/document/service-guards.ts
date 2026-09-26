@@ -44,7 +44,8 @@ export function isUtf8Bytes(buf: Buffer): boolean {
 export const NON_UTF8_SAVE_REJECT = {
   ok: false as const,
   code: 'WRITE_ERROR' as const,
-  reason: '目标文件不是合法 UTF-8（可能是编辑器以错误编码打开本文件，或外部工具写入了 GBK 等编码）：为防原始内容被乱码覆盖后不可恢复，已拒绝保存——请先将文件转为 UTF-8 再编辑',
+  reason:
+    '目标文件不是合法 UTF-8（可能是编辑器以错误编码打开本文件，或外部工具写入了 GBK 等编码）：为防原始内容被乱码覆盖后不可恢复，已拒绝保存——请先将文件转为 UTF-8 再编辑',
 }
 
 /** 元数据 PATCH 双路径（updateChapterMeta/updateDocMeta）的跨进程

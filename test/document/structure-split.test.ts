@@ -180,7 +180,10 @@ describe('阶段 24 S4: 拆分执行（structure-apply op=split）', () => {
   })
 
   it('cursorOffset 缺失 / 非整数 / 负数 → 400（端点参数校验）', async () => {
-    const d = await createChapter('写作/正文/第一卷/0006-第6章.md', chapterContent(6, '第6章', '第六章正文一段。\n\n第六章第二段。'))
+    const d = await createChapter(
+      '写作/正文/第一卷/0006-第6章.md',
+      chapterContent(6, '第6章', '第六章正文一段。\n\n第六章第二段。'),
+    )
     for (const cursorOffset of [undefined, 1.5, -1]) {
       const r = await studio.req(
         'POST',
@@ -219,7 +222,10 @@ describe('阶段 24 S4: 拆分执行（structure-apply op=split）', () => {
     const d5 = await createChapter('写作/正文/第一卷/0009-第9章.md', chapterContent(9, '第9章', '第九章正文。'))
     await createChapter('写作/正文/第一卷/0010-第10章.md', chapterContent(10, '第10章', '第十章正文。'))
     const d7 = await createChapter('写作/正文/第一卷/0011-第11章.md', chapterContent(11, '第11章', '第十一章正文。'))
-    const f = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(d7)}/finalize`)
+    const f = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(d7)}/finalize`,
+    )
     expect(f.status).toBe(200)
     // 定稿章文件移出盘面（并入/回收后的形态），清单条目保留
     rmSync(join(studio.bookRoot, '写作/正文/第一卷/0011-第11章.md'))

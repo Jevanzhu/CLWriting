@@ -111,7 +111,9 @@ describe('R45-2: manifestLockKey win32 折叠（行为面，r35 重入键先例�
       lockState.requests = []
       let innerRan = false
       withManifestLock(outer, () => {
-        withManifestLock(variant, () => { innerRan = true })
+        withManifestLock(variant, () => {
+          innerRan = true
+        })
       })
       expect(innerRan).toBe(true)
       // 折叠生效：内层命中重入计数，全程只有外层一次物理取锁
@@ -135,9 +137,13 @@ describe('R45-2: manifestLockKey win32 折叠（行为面，r35 重入键先例�
       // 锁成功——两种结局都证明内层未命中重入键（键不同），故吞抛只看取锁请求序列
       try {
         withManifestLock(outer, () => {
-          withManifestLock(variant, () => { /* linux 腿在此执行；mac 腿自锁超时不达 */ })
+          withManifestLock(variant, () => {
+            /* linux 腿在此执行；mac 腿自锁超时不达 */
+          })
         })
-      } catch { /* 见上：自锁超时即「他锁」证据之一 */ }
+      } catch {
+        /* 见上：自锁超时即「他锁」证据之一 */
+      }
       // 首次物理取锁 = 外层；其后全部为变体锁（mac 重试两轮 2 次、linux 1 次，≥1 即可）
       expect(lockState.requests[0]).toBe(`${outer}.lock`)
       expect(lockState.requests.length).toBeGreaterThanOrEqual(2)

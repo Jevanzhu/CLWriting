@@ -141,10 +141,11 @@ describe('R26-77 · beat 超时与在途去重', () => {
   it('beat 挂死 → 10s 超时 abort 置离线（在线信号不再冻结）', async () => {
     vi.useFakeTimers()
     // 模拟真实 fetch：从不回包，但 abort 信号到达即 reject（超时通道可观察）
-    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
-      new Promise<Response>((_, rej) => {
-        init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
-      }),
+    fetchMock.mockImplementation(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        }),
     )
     const book = ref<string | null>('b1')
     const w = mountHeartbeat(book)

@@ -42,7 +42,11 @@ function makeBook(prefix: string): { svc: DocumentService; manifestPath: string 
   mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n初稿正文', 'utf-8')
+  writeFileSync(
+    join(bookRoot, '写作', '正文', '第一卷', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n---\n初稿正文',
+    'utf-8',
+  )
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   writeManifestLines(manifestPath, [
     '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null}',

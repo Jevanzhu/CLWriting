@@ -16,7 +16,18 @@ import { DatabaseSync } from 'node:sqlite'
 import { readRagConfig, readApiKey } from '../../src/rag/config.js'
 import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
-import { openRagDb, ragDbExists, resolveRagDbPath, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
+import {
+  openRagDb,
+  ragDbExists,
+  resolveRagDbPath,
+  storeChunk,
+  readAllChunks,
+  float32ToBuffer,
+  bufferToFloat32,
+  cosineSimilarity,
+  getRagMeta,
+  setRagMeta,
+} from '../../src/rag/store.js'
 
 describe('RAG config（红线 H1：key 不进 git）', () => {
   let bookRoot: string
@@ -177,7 +188,11 @@ describe('resolveRag（服务商化：书级引用 + 应用级服务商 + 旧版
 
   it('旧版内联回落：endpoint/model + rag.secret，legacy=true', () => {
     writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'legacy-key\n', 'utf8')
-    const r = resolveRag({ enabled: true, endpoint: 'https://legacy.example/v1/embeddings', model: 'old-model' }, PROVIDERS, workDir)
+    const r = resolveRag(
+      { enabled: true, endpoint: 'https://legacy.example/v1/embeddings', model: 'old-model' },
+      PROVIDERS,
+      workDir,
+    )
     expect(r).toMatchObject({
       endpoint: 'https://legacy.example/v1/embeddings',
       model: 'old-model',
@@ -294,7 +309,13 @@ describe('RAG 库迁移（hh §八-11：.rag.db → .cache/rag.db）', () => {
   function seedLegacyDb(): void {
     const db = new DatabaseSync(join(bookRoot, '.rag.db'))
     createRagTables(db)
-    storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'legacy-model' })
+    storeChunk(db, {
+      章号: 1,
+      start_offset: 0,
+      end_offset: 42,
+      embedding: new Float32Array([1, 0, 0]),
+      model: 'legacy-model',
+    })
     setRagMeta(db, 'embedding_model', 'legacy-model')
     setRagMeta(db, 'indexed_max_chapter', '1')
     db.close()
@@ -341,7 +362,13 @@ describe('RAG 库迁移（hh §八-11：.rag.db → .cache/rag.db）', () => {
     const live = new DatabaseSync(join(bookRoot, '.rag.db'))
     createRagTables(live)
     live.exec('PRAGMA journal_mode = WAL')
-    storeChunk(live, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'wal-model' })
+    storeChunk(live, {
+      章号: 1,
+      start_offset: 0,
+      end_offset: 42,
+      embedding: new Float32Array([1, 0, 0]),
+      model: 'wal-model',
+    })
     const root2 = join(tmpdir(), `rag-migrate-wal-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(root2, { recursive: true })
     try {
@@ -371,7 +398,13 @@ describe('RAG 库迁移（hh §八-11：.rag.db → .cache/rag.db）', () => {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     const fresh = new DatabaseSync(join(bookRoot, '.cache', 'rag.db'))
     createRagTables(fresh)
-    storeChunk(fresh, { 章号: 9, start_offset: 0, end_offset: 10, embedding: new Float32Array([0, 1, 0]), model: 'new-model' })
+    storeChunk(fresh, {
+      章号: 9,
+      start_offset: 0,
+      end_offset: 10,
+      embedding: new Float32Array([0, 1, 0]),
+      model: 'new-model',
+    })
     fresh.close()
 
     const db = openRagDb(bookRoot)

@@ -94,7 +94,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   border-radius: var(--radius-l);
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 .confirm-head {
   display: flex;
@@ -182,5 +182,4 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 .btn.danger:hover:not(:disabled) {
   filter: brightness(1.1);
 }
-
 </style>

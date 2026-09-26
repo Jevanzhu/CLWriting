@@ -67,7 +67,11 @@ interface GateState {
   reviewRunning: Set<string>
 }
 
-const newGateState = (lockRoot: string | null): GateState => ({ lockRoot, running: new Set(), reviewRunning: new Set() })
+const newGateState = (lockRoot: string | null): GateState => ({
+  lockRoot,
+  running: new Set(),
+  reviewRunning: new Set(),
+})
 
 // dd- 自查修正：action:book 冒号拼接在 heldTaskGatesFor 的后缀匹配下有歧义（闸
 // "分析:A"会让书"A"误判持闸）。MP2-11（专项二轮顺修）注释勘误：首句「书名可含
@@ -94,12 +98,14 @@ export function configureTaskGateLockRoot(dir: string | null): void {
  * 运行中再配多为接线错误（旧锁根下已持有的锁文件从此查询/续期失联）。 */
 function configureLockRootIn(state: GateState, dir: string | null): void {
   if (state.lockRoot !== null && state.lockRoot !== dir) {
-    log.warn('task-gate', `锁根目录被重复配置覆盖：${state.lockRoot} → ${dir}（单实例单锁根契约，运行中改配多为接线错误，旧锁根下在持锁文件将失联）`)
+    log.warn(
+      'task-gate',
+      `锁根目录被重复配置覆盖：${state.lockRoot} → ${dir}（单实例单锁根契约，运行中改配多为接线错误，旧锁根下在持锁文件将失联）`,
+    )
   }
   state.lockRoot = dir
   if (dir) sweepLegacyGateLocks(dir)
 }
-
 
 interface TaskGateOptions {
   /** 显式锁目录（测试注入临时目录用）；缺省用模块级 lockRoot。传 null 强制纯内存。 */
@@ -154,7 +160,10 @@ function sweepLegacyGateLocks(dir: string): void {
     if (!LEGACY_LOCK_NAME_RE.test(name)) continue
     const p = join(dir, name)
     if (queryLockHeld(p)) {
-      log.warn('task-gate', `旧格式任务闸锁在持：${p}（混合版本运行——旧版进程持旧名锁，本侧占闸会一并探测旧名并退让，不双持；旧名不在列目录枚举面内，排障时留意）`)
+      log.warn(
+        'task-gate',
+        `旧格式任务闸锁在持：${p}（混合版本运行——旧版进程持旧名锁，本侧占闸会一并探测旧名并退让，不双持；旧名不在列目录枚举面内，排障时留意）`,
+      )
       continue
     }
     rmWithRetryQuiet(p) // 重试后仍失败静默放弃：残留由下次启动清扫兜底
@@ -225,7 +234,12 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
 /** 迁移期旧名探测——旧格式锁在持 → true（调用方退让）；非在持则顺手
  *  清掉残留（不越积），清理失败留给下次启动清扫。先探存在性：无旧残留是常态，省掉
  *  一次白删（rmSync force 对不存在路径静默成功，但退避壳会为空跑付重试代价）。 */
-function legacyGateHeld(bookName: string, action: string, dir: string, isAlive: ((pid: number) => boolean) | undefined): boolean {
+function legacyGateHeld(
+  bookName: string,
+  action: string,
+  dir: string,
+  isAlive: ((pid: number) => boolean) | undefined,
+): boolean {
   const legacyPath = join(dir, legacyLockFileName(bookName, action))
   if (!existsSync(legacyPath)) return false
   if (queryLockHeld(legacyPath, { isProcessAlive: isAlive ?? defaultIsProcessAlive })) return true
@@ -715,10 +729,7 @@ async function runGatedGenerationIn(
  * rewrite/outline（透传码）共用；settings relations-mine 的文案变体（ABORTED 固定
  * 「已中断」、其余组装「AI 梳理失败:…」）经形状归一后仍走本单源映射。
  */
-export function replyGenerationFailure(
-  res: ServerResponse,
-  fail: { ok: false; code: string; error: string },
-): void {
+export function replyGenerationFailure(res: ServerResponse, fail: { ok: false; code: string; error: string }): void {
   if (fail.code.startsWith('NO_')) return replyError(res, 400, fail.code, fail.error)
   if (fail.code === 'ABORTED') return replyError(res, 499, fail.code, fail.error)
   replyError(res, 500, fail.code, fail.error)
@@ -746,7 +757,11 @@ export interface TaskGate {
   releaseReviewRun(bookName: string, docId: string): void
   busyReason(book: string, intent: BusyIntent, opts?: BusyReasonOptions): string | null
   /** 生成长任务门控包装（编排互斥 + 任务闸 + 中断通道，见实现体头注） */
-  runGatedGeneration(res: ServerResponse, opts: GatedGenerationOptions, fn: (ctrl: AbortController) => Promise<void>): Promise<void>
+  runGatedGeneration(
+    res: ServerResponse,
+    opts: GatedGenerationOptions,
+    fn: (ctrl: AbortController) => Promise<void>,
+  ): Promise<void>
 }
 
 /** 闸实例依赖：锁根（workDir 缺省 → null）与 driver 宿主（会话面 + 中断通道解析）。 */

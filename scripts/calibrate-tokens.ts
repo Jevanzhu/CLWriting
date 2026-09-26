@@ -18,7 +18,12 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { defaultUserDataPath } from '../src/fs/user-data-path.js'
-import { fitCoefficients, renderCalibrationReport, isCalibratableCallRow, type CalibrationSample } from '../src/ai/token-calibration.js'
+import {
+  fitCoefficients,
+  renderCalibrationReport,
+  isCalibratableCallRow,
+  type CalibrationSample,
+} from '../src/ai/token-calibration.js'
 
 // R0912-3 #49：与 verify-responses-relay.ts 严格口径对齐——值缺失/空串/flag 名（`--` 开头）
 // 一律按缺参处理，不误吞下一个 flag 作值
@@ -43,9 +48,7 @@ if (existsSync(sessionDir)) {
       continue // 库损坏/被锁：跳过该书
     }
     try {
-      const rows = db
-        .prepare("SELECT data FROM events WHERE type = 'llm/call'")
-        .all() as Array<{ data: string }>
+      const rows = db.prepare("SELECT data FROM events WHERE type = 'llm/call'").all() as Array<{ data: string }>
       for (const row of rows) {
         try {
           const ev = JSON.parse(row.data) as {
@@ -71,7 +74,9 @@ if (existsSync(sessionDir)) {
     } catch (e) {
       // R64-37（十二轮）：.db 能 open 但 schema 异异（events 表缺失/迁移中）时 prepare
       // 抛错——此前直接崩脚本、后续 .db 全不再扫。计数跳过，末尾汇总提示。
-      console.warn(`[calibrate] 查询失败跳过 ${f}（schema 异异或表缺失）：${e instanceof Error ? e.message : String(e)}`)
+      console.warn(
+        `[calibrate] 查询失败跳过 ${f}（schema 异异或表缺失）：${e instanceof Error ? e.message : String(e)}`,
+      )
     } finally {
       db.close()
     }

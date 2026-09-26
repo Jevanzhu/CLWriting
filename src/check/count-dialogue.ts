@@ -69,10 +69,7 @@ function hasBoundedHit(text: string, word: string): boolean {
  * ③ 单字禁词降级为黄项——单字命中误报面最大（「顿」命中「安顿/顿开」），保留
  *    fail-noisy 可见性（黄项照出）但不再驱动红闸打回。
  */
-export function checkBannedWords(
-  body: string,
-  bannedWords: string[],
-): CheckSectionResult {
+export function checkBannedWords(body: string, bannedWords: string[]): CheckSectionResult {
   const items: CheckItem[] = []
   const prose = stripQuotedSpans(body)
   for (const word of bannedWords) {
@@ -106,14 +103,10 @@ export function checkBannedWords(
  * 字数检查（#10 项 5，🟡 黄）。
  * 偏离细纲目标字数过多 → 提示。
  */
-export function checkWordCount(
-  actualWords: number,
-  targetWords: number,
-  tolerancePct = 30,
-): CheckSectionResult {
+export function checkWordCount(actualWords: number, targetWords: number, tolerancePct = 30): CheckSectionResult {
   const items: CheckItem[] = []
   if (targetWords > 0) {
-    const diff = Math.abs(actualWords - targetWords) / targetWords * 100
+    const diff = (Math.abs(actualWords - targetWords) / targetWords) * 100
     if (diff > tolerancePct) {
       items.push({
         checkId: 'word-count',
@@ -155,7 +148,10 @@ export function checkRepeat(
   // learn 侧 scoreByChecks 等其余调用方。
   let charThreshold = repeatCharThreshold
   if (!Number.isInteger(charThreshold) || charThreshold <= 0) {
-    log.warn('check', `checks.repeat_chars_threshold ${charThreshold} 非正整数（绝对重复字数阈值口径），已回落默认值 ${REPEAT_CHARS_THRESHOLD}`)
+    log.warn(
+      'check',
+      `checks.repeat_chars_threshold ${charThreshold} 非正整数（绝对重复字数阈值口径），已回落默认值 ${REPEAT_CHARS_THRESHOLD}`,
+    )
     charThreshold = REPEAT_CHARS_THRESHOLD
   }
   // 滑窗口径收口到 format/sentences.ngramRepeatRate（与文风重扫共用）
@@ -184,10 +180,7 @@ export function checkRepeat(
  * 句长体检（#10 项 8，🟡 黄）。
  * 句长方差 / 超长句占比。
  */
-export function checkSentenceLength(
-  body: string,
-  maxLen = 60,
-): CheckSectionResult {
+export function checkSentenceLength(body: string, maxLen = 60): CheckSectionResult {
   const items: CheckItem[] = []
   const sentences = splitSentences(body)
   // （评审修复批）：分号句读口径注记——splitSentences 全库
@@ -203,7 +196,7 @@ export function checkSentenceLength(
     items.push({
       checkId: 'sentence-length',
       level: 'yellow',
-      message: `超长句（>${maxLen}字）占比 ${(overlong.length / sentences.length * 100).toFixed(0)}%，句长偏长`,
+      message: `超长句（>${maxLen}字）占比 ${((overlong.length / sentences.length) * 100).toFixed(0)}%，句长偏长`,
     })
   }
   return { name: '句式体检', items }
@@ -214,7 +207,8 @@ export function checkSentenceLength(
  * 引号内是对白内容。启发式词表，覆盖代词/说话动词/常见修饰与数量成分；
  * 叙述动词（看/走/举…）不在表内，叙述行不会被误判为对白。
  */
-const ATTRIBUTION_CHARS = '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
+const ATTRIBUTION_CHARS =
+  '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
 // -：以下守卫族导出——setting-rule.ts 的「只读参照」
 // 抄本纪律已被两次证明失效（抄定后只修 check 侧未同步 ai 域，即
 // 现行实例），自本批起 ai 域删抄本改直接 import（ai→check 单向，quotes.ts/self-heal 先例）。
@@ -245,8 +239,7 @@ export const SPEECH_VERBS = '说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼
  *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。
  *  ：动词段收 SPEECH_VERBS 单源（动词集语义不变，见上）。
  *  -：导出（setting-rule 抄本收编，见 ATTRIBUTION_RE 处注）。 */
-export const SPEECH_ATTRIBUTION_RE =
-  new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
+export const SPEECH_ATTRIBUTION_RE = new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
 
 /**
  * 对白引导词收尾判定（checkNewNames 混排行守卫专用，刻意不复用
@@ -322,10 +315,7 @@ export function parseRosterNames(roster: string): string[] {
  * 独立新角色漏报；现按 parseRosterNames 解析出的名字数组逐名比对，候选与已登记名
  * 完全同名才算已登记。名册缺失/读失败路径不变（见下）。
  */
-export function checkNewNames(
-  body: string,
-  rosterPath: string,
-): CheckSectionResult {
+export function checkNewNames(body: string, rosterPath: string): CheckSectionResult {
   const items: CheckItem[] = []
   if (!existsSync(rosterPath)) return { name: '新专名候选', items }
   // existsSync→readFileSync 间隙名册被瞬删（TOCTOU）时 ENOENT 直穿
@@ -384,7 +374,10 @@ export function checkNewNames(
     if (/[:：]$/.test(line.replace(spanRe, '').replace(/[\s\u3000]/g, ''))) continue
     // 引号外只剩提示语成分（代词/说话动词/语气副词等）→ 整行是对白，
     // 引号片段是对白内容而非专名（此前「住手！」「快走」全报黄项刷屏）
-    const outside = line.replace(spanRe, '').replace(/[\s\u3000]/g, '').replace(punctRe, '')
+    const outside = line
+      .replace(spanRe, '')
+      .replace(/[\s\u3000]/g, '')
+      .replace(punctRe, '')
     if (isAttributionOnly(outside)) continue
     // 人名 + 说话动词的对白归属行同样豁免
     if (SPEECH_ATTRIBUTION_RE.test(outside)) continue

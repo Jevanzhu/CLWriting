@@ -31,21 +31,30 @@ import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 test('R28-2: ### / #### 子标题不计节，## 节标题恰计', () => {
   // 用例①：### 手记 子标题 + 2 个 ## 节标题 → 恰计 2 节（修复前 3 节假黄）
   const body = [
-    '## 开头钩子', '钩子正文。', '',
-    '### 手记', '子标题下的正文，不属于新节。', '',
-    '## 余韵', '余韵正文。',
+    '## 开头钩子',
+    '钩子正文。',
+    '',
+    '### 手记',
+    '子标题下的正文，不属于新节。',
+    '',
+    '## 余韵',
+    '余韵正文。',
   ].join('\n')
   // 期望 2 → 恰好守恒无黄；期望 5 → 文案报「正文 2 节」（不是 3）
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
-  expect(checkSectionCount(body, 5).items.find((it) => it.checkId === 'section-count')?.message)
-    .toContain('正文 2 节')
+  expect(checkSectionCount(body, 5).items.find((it) => it.checkId === 'section-count')?.message).toContain('正文 2 节')
 })
 
 test('R28-2: #### 更深子标题同样不计（R26-43 紧排语义不变）', () => {
   const body = [
-    '##钩子', '紧排标题照计。', '',
-    '#### 深一层', '更深子标题不算新节。', '',
-    '##余韵', '紧排第二节。',
+    '##钩子',
+    '紧排标题照计。',
+    '',
+    '#### 深一层',
+    '更深子标题不算新节。',
+    '',
+    '##余韵',
+    '紧排第二节。',
   ].join('\n')
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
   const r5 = checkSectionCount(body, 5)
@@ -61,13 +70,20 @@ test('R28-2: 裸 ## 行不计为节标题', () => {
 test('R28-9 配套正负对照: 4 节真实缺失仍按 4 报（剥子标题不掩盖真实缺失）', () => {
   // 4 个真 ## + 1 个 ### 子标题 → 报 4 节而非 5
   const body = [
-    '## 一', '正文。', '',
-    '## 二', '正文。', '',
-    '## 三', '### 子标题', '正文。', '',
-    '## 四', '正文。',
+    '## 一',
+    '正文。',
+    '',
+    '## 二',
+    '正文。',
+    '',
+    '## 三',
+    '### 子标题',
+    '正文。',
+    '',
+    '## 四',
+    '正文。',
   ].join('\n')
-  expect(checkSectionCount(body, 5).items.find((it) => it.checkId === 'section-count')?.message)
-    .toContain('正文 4 节')
+  expect(checkSectionCount(body, 5).items.find((it) => it.checkId === 'section-count')?.message).toContain('正文 4 节')
 })
 
 // ── R28-2：短篇 strict 链路级——### 子标题不再提红拦定稿 ─────
@@ -81,11 +97,22 @@ const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩'
 
 // 五段齐整 + 两处 ### 子标题（正文避免环境词/身体部位/比喻，隔离其余 strict 项）
 const fiveSections = [
-  '## 开头钩子', '他推开门，血溅了一地。', '',
-  '## 铺垫', '### 手记', '她把信折了三折，压回枕下。', '',
-  '## 升级', '### 旧账', '刀锋贴上喉咙，他没有退。', '',
-  '## 反转', '原来印章是假的。', '',
-  '## 余韵', '灯灭了。',
+  '## 开头钩子',
+  '他推开门，血溅了一地。',
+  '',
+  '## 铺垫',
+  '### 手记',
+  '她把信折了三折，压回枕下。',
+  '',
+  '## 升级',
+  '### 旧账',
+  '刀锋贴上喉咙，他没有退。',
+  '',
+  '## 反转',
+  '原来印章是假的。',
+  '',
+  '## 余韵',
+  '灯灭了。',
 ].join('\n')
 
 test('R28-2: 短篇 strict 链路——含 ### 子标题的五段稿不产 section-count 红项', () => {
@@ -122,9 +149,7 @@ test('R28-2: strict 链路正负对照——真实 6 节仍提红（闸未被拆
       fileName: '001-雪夜.md',
       strictShort: true,
     })
-    const red = r.sections
-      .flatMap((s) => s.items)
-      .find((it) => it.checkId === 'section-count' && it.level === 'red')
+    const red = r.sections.flatMap((s) => s.items).find((it) => it.checkId === 'section-count' && it.level === 'red')
     expect(red).toBeDefined()
     expect(red!.message).toContain('短篇严格模式')
   } finally {
@@ -136,30 +161,50 @@ test('R28-2: strict 链路正负对照——真实 6 节仍提红（闸未被拆
 
 test('R28-9: ~~~ 开的栏不被 ``` 提前闭合（CommonMark 同类配对）', () => {
   const body = [
-    '~~~', '## 内容甲', '```', '## 内容乙', '~~~', // ``` 不闭 ~~~ 栏，至 ~~~ 才闭合
-    '## 章一', '章一正文。', '',
-    '## 章二', '章二正文。',
+    '~~~',
+    '## 内容甲',
+    '```',
+    '## 内容乙',
+    '~~~', // ``` 不闭 ~~~ 栏，至 ~~~ 才闭合
+    '## 章一',
+    '章一正文。',
+    '',
+    '## 章二',
+    '章二正文。',
   ].join('\n')
   // 栏内两个 ## 不计 → 恰计 2；修复前 ``` 误闭 → 内容乙 泄出计 3 节
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
-  expect(checkSectionCount(body, 3).items.find((it) => it.checkId === 'section-count')?.message)
-    .toContain('正文 2 节')
+  expect(checkSectionCount(body, 3).items.find((it) => it.checkId === 'section-count')?.message).toContain('正文 2 节')
 })
 
 test('R28-9: 围栏内带信息串的 ```js 是内容不是闭栏', () => {
   const body = [
-    '```', '## 示例甲', '``` js', '## 示例乙', '```', // 闭栏行不得带信息串：```js 为内容
-    '## 章一', '章一正文。', '',
-    '## 章二', '章二正文。',
+    '```',
+    '## 示例甲',
+    '``` js',
+    '## 示例乙',
+    '```', // 闭栏行不得带信息串：```js 为内容
+    '## 章一',
+    '章一正文。',
+    '',
+    '## 章二',
+    '章二正文。',
   ].join('\n')
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
 })
 
 test('R28-9: 4 反引号开栏须同长闭栏，3 反引号行是内容', () => {
   const body = [
-    '````', '## 示例甲', '```', '## 示例乙', '````',
-    '## 章一', '章一正文。', '',
-    '## 章二', '章二正文。',
+    '````',
+    '## 示例甲',
+    '```',
+    '## 示例乙',
+    '````',
+    '## 章一',
+    '章一正文。',
+    '',
+    '## 章二',
+    '章二正文。',
   ].join('\n')
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
 })
@@ -175,8 +220,7 @@ test('R37-8: 裸 ## 后跟正文行不计节标题（LF）——恰 2 节不虚�
   // 文末裸 ## + 后继正文行：修复前 `\s*` 吞 \n、`.+` 顶上「正文尾巴」→ 3 节假绿
   const body = '## 一\nx\n## 二\nx\n##\n正文尾巴'
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
-  expect(checkSectionCount(body, 3).items.find((it) => it.checkId === 'section-count')?.message)
-    .toContain('正文 2 节')
+  expect(checkSectionCount(body, 3).items.find((it) => it.checkId === 'section-count')?.message).toContain('正文 2 节')
 })
 
 test('R37-8: 裸 ## 后跟正文行不计（CRLF 同口径）', () => {
@@ -192,11 +236,20 @@ test('R37-8: ## 纯空白收尾行（## \\t ）后跟正文行不计，正文不
 
 test('R37-8: \\r\\n 行尾的正常标题照计，五段 CRLF 稿守恒无黄', () => {
   const body = [
-    '## 开头钩子', '他推开门。', '',
-    '## 铺垫', '她把信折了三折。', '',
-    '## 升级', '刀锋贴上喉咙。', '',
-    '## 反转', '原来印章是假的。', '',
-    '## 余韵', '灯灭了。',
+    '## 开头钩子',
+    '他推开门。',
+    '',
+    '## 铺垫',
+    '她把信折了三折。',
+    '',
+    '## 升级',
+    '刀锋贴上喉咙。',
+    '',
+    '## 反转',
+    '原来印章是假的。',
+    '',
+    '## 余韵',
+    '灯灭了。',
   ].join('\r\n')
   expect(checkSectionCount(body, 5).items).toHaveLength(0)
 })
@@ -205,8 +258,7 @@ test('R37-8: 标题行尾空白（## 标题 \\t ）照计 1 节', () => {
   const body = '## 标题 \t \n正文'
   // 恰 1 个标题 → 走单标题文案分支（不误判成 2 节、也不漏成 0）
   const r = checkSectionCount(body, 5)
-  expect(r.items.find((it) => it.checkId === 'section-count-heading-missing')?.message)
-    .toContain('仅检测到 1 个')
+  expect(r.items.find((it) => it.checkId === 'section-count-heading-missing')?.message).toContain('仅检测到 1 个')
 })
 
 test('R37-8: CRLF 标题行尾空白形态同计（\\r 前的空白不吞行）', () => {
@@ -218,12 +270,25 @@ test('R37-8: CRLF 标题行尾空白形态同计（\\r 前的空白不吞行）'
 
 test('R27-25: checkSectionCount 不计代码围栏内 ## 标题', () => {
   const body = [
-    '## 开头钩子', '钩子正文。', '',
-    '## 铺垫', '铺垫正文。', '',
-    '```md', '## 示例结构一', '## 示例结构二', '```', '',
-    '## 升级', '升级正文。', '',
-    '## 反转', '反转正文。', '',
-    '## 余韵', '余韵正文。',
+    '## 开头钩子',
+    '钩子正文。',
+    '',
+    '## 铺垫',
+    '铺垫正文。',
+    '',
+    '```md',
+    '## 示例结构一',
+    '## 示例结构二',
+    '```',
+    '',
+    '## 升级',
+    '升级正文。',
+    '',
+    '## 反转',
+    '反转正文。',
+    '',
+    '## 余韵',
+    '余韵正文。',
   ].join('\n')
   const r = checkSectionCount(body, 5)
   // 修复前：围栏内 2 个 ## 计入 → 7 节黄项；修复后 5===5 无黄
@@ -231,11 +296,21 @@ test('R27-25: checkSectionCount 不计代码围栏内 ## 标题', () => {
 
   // 对照：真实 4 节（围栏内标题不算数）仍按 4 报黄——剥围栏不掩盖真实缺失
   const body4 = [
-    '## 开头钩子', '钩子正文。', '',
-    '## 铺垫', '铺垫正文。', '',
-    '```md', '## 示例结构一', '```', '',
-    '## 升级', '升级正文。', '',
-    '## 余韵', '余韵正文。',
+    '## 开头钩子',
+    '钩子正文。',
+    '',
+    '## 铺垫',
+    '铺垫正文。',
+    '',
+    '```md',
+    '## 示例结构一',
+    '```',
+    '',
+    '## 升级',
+    '升级正文。',
+    '',
+    '## 余韵',
+    '余韵正文。',
   ].join('\n')
   const r4 = checkSectionCount(body4, 5)
   expect(r4.items.find((it) => it.checkId === 'section-count')?.message).toContain('正文 4 节')
@@ -253,8 +328,25 @@ test('R33-1: CRLF 围栏内 ## 不计节（修复前整体反转），与 LF 同
 test('R33-1: CRLF 带信息串开栏 ```js\\r 与 \\r 闭栏行照常识别', () => {
   // 5 个真节 + 围栏内 1 个 ##：围栏内不计 → 恰 5 节守恒无黄（修复前围栏内 ## 计入 → 6 节假黄）
   const body = [
-    '## 开头钩子', '钩子。', '', '```js', '## 代码内注释示例', 'const a = 1;', '```', '',
-    '## 铺垫', '铺垫。', '', '## 升级', '升级。', '', '## 反转', '反转。', '', '## 余韵', '余韵。',
+    '## 开头钩子',
+    '钩子。',
+    '',
+    '```js',
+    '## 代码内注释示例',
+    'const a = 1;',
+    '```',
+    '',
+    '## 铺垫',
+    '铺垫。',
+    '',
+    '## 升级',
+    '升级。',
+    '',
+    '## 反转',
+    '反转。',
+    '',
+    '## 余韵',
+    '余韵。',
   ].join('\r\n')
   expect(checkSectionCount(body, 5).items).toHaveLength(0)
 })
@@ -262,10 +354,18 @@ test('R33-1: CRLF 带信息串开栏 ```js\\r 与 \\r 闭栏行照常识别', ()
 test('R37-8: 既有语义不回归——紧排 ##标题 照计、### 子标题仍排除、围栏内不计', () => {
   // 紧排（R26-43）+ 更深 # 排除（R28-2）+ 围栏剥除（R27-25/R33-1）三口径锁定
   const body = [
-    '##钩子', '紧排照计。', '',
-    '### 手记', '子标题不算节。', '',
-    '```md', '## 围栏示例', '```', '',
-    '##余韵', '第二节。',
+    '##钩子',
+    '紧排照计。',
+    '',
+    '### 手记',
+    '子标题不算节。',
+    '',
+    '```md',
+    '## 围栏示例',
+    '```',
+    '',
+    '##余韵',
+    '第二节。',
   ].join('\n')
   expect(checkSectionCount(body, 2).items).toHaveLength(0)
 })

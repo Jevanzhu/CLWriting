@@ -16,11 +16,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { syncChapter } from '../../src/cache/sync.js'
 import { createAllTables } from '../../src/cache/schema.js'
-import {
-  readMdTextCached,
-  forgetMdTextCacheForBook,
-  __mdTextCacheTestHooks,
-} from '../../src/fs/md-text-cache.js'
+import { readMdTextCached, forgetMdTextCacheForBook, __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
 import { log } from '../../src/log/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 

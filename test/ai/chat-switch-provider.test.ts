@@ -155,9 +155,7 @@ describe('换网重试（switch-provider 消费者）', () => {
     expect(hasChatDone(events)).toBe(false)
     // 0918独立重评修复批（A004）：「无备用供应商」分支现行文案不变（与「备用均无
     // chat 档」分支如实区分）
-    expect(
-      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('无备用供应商可切换')),
-    ).toBe(true)
+    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('无备用供应商可切换'))).toBe(true)
     warnSpy.mockRestore()
   })
 
@@ -187,12 +185,8 @@ describe('换网重试（switch-provider 消费者）', () => {
     expect(chatTexts(events).join('')).toContain('第二备用回答')
     expect(hasChatDone(events)).toBe(true)
     // 选中的是 fake-c（fake-bad 被预检跳过）——换网留痕 log 带 fallback id
-    expect(
-      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切换备用 fake-c')),
-    ).toBe(true)
-    expect(
-      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('fake-bad')),
-    ).toBe(false)
+    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切换备用 fake-c'))).toBe(true)
+    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('fake-bad'))).toBe(false)
     warnSpy.mockRestore()
   })
 
@@ -222,12 +216,8 @@ describe('换网重试（switch-provider 消费者）', () => {
     expect(chatError(events)).not.toBeNull()
     expect(hasChatDone(events)).toBe(false)
     // 如实文案：与「无备用供应商」区分
-    expect(
-      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('备用供应商均无可用 chat 档')),
-    ).toBe(true)
-    expect(
-      warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('无备用供应商可切换')),
-    ).toBe(false)
+    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('备用供应商均无可用 chat 档'))).toBe(true)
+    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('无备用供应商可切换'))).toBe(false)
     // 不重发 → 无 llm/retry 留痕
     const store = openSessionStore(ud, bookRoot)!
     const evs = store.listEvents('test-switch-none-resolvable')

@@ -138,21 +138,14 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         <div v-else class="cc-text">{{ c.正文 }}</div>
         <div class="cc-actions">
           <!-- ：acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
-          <button class="btn-ghost" :disabled="acting !== null" @click="onIgnore(c)">
-            <X :size="13" /> 忽略
-          </button>
+          <button class="btn-ghost" :disabled="acting !== null" @click="onIgnore(c)"><X :size="13" /> 忽略</button>
           <button class="btn-primary" :disabled="acting !== null" @click="onConfirm(c)">
             <Check :size="13" /> 确认收录
           </button>
         </div>
       </div>
     </div>
-    <EmptyState
-      v-else
-      :icon="Inbox"
-      title="没有待确认的候选"
-      text="写作和改稿会自然积累信号，点「收割」提炼一轮"
-    />
+    <EmptyState v-else :icon="Inbox" title="没有待确认的候选" text="写作和改稿会自然积累信号，点「收割」提炼一轮" />
 
     <button v-if="ignored.length > 0" class="ignored-toggle" @click="showIgnored = !showIgnored">
       <ChevronRight :size="13" :class="{ open: showIgnored }" />
@@ -318,5 +311,4 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
     grid-template-columns: 1fr;
   }
 }
-
 </style>

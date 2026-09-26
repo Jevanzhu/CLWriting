@@ -25,12 +25,10 @@ function presetEvents(): void {
     const sid = store.createSession(BOOK, { book: BOOK })
     store.appendEvents(sid, [
       userMessageEvent('帮我看看第 1 章'),
-      assistantMessageEvent(
-        [
-          { type: 'text', text: '我先检查一下。' },
-          { type: 'tool_use', id: 'tu-1', name: 'check_chapter', input: { chapter: 1 } },
-        ],
-      ),
+      assistantMessageEvent([
+        { type: 'text', text: '我先检查一下。' },
+        { type: 'tool_use', id: 'tu-1', name: 'check_chapter', input: { chapter: 1 } },
+      ]),
       toolResultEvent('tu-1', '全绿，无红项'),
       assistantMessageEvent('第 1 章检查完毕，钩子和节奏都没问题。'),
     ])
@@ -114,7 +112,14 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
       const before = store.lastSeq()
       store.appendEvents(sid, [assistantMessageEvent('这条会被遮蔽')])
       store.appendEvents(sid, [
-        { type: 'compaction/end', data: { reason: 'completed' }, surfaceOp: 'replace', shadowStart: before + 1, shadowEnd: before + 1, sourceSeqs: [before + 1] },
+        {
+          type: 'compaction/end',
+          data: { reason: 'completed' },
+          surfaceOp: 'replace',
+          shadowStart: before + 1,
+          shadowEnd: before + 1,
+          sourceSeqs: [before + 1],
+        },
       ])
     } finally {
       store.close()

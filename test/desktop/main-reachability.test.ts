@@ -112,7 +112,9 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
     win.emit('close', e)
     await new Promise((r) => setImmediate(r))
     expect(win.isDestroyed()).toBe(true)
-    expect(M.logInfos.slice(info0).some((l) => String((l as unknown[])[1]).includes('关窗兜底 flush 无钩子'))).toBe(true)
+    expect(M.logInfos.slice(info0).some((l) => String((l as unknown[])[1]).includes('关窗兜底 flush 无钩子'))).toBe(
+      true,
+    )
   })
 
   it('R54-A-1: quit flush 超时 → warn 留痕后照常收口退出', async () => {
@@ -160,7 +162,10 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
 
   it('R54-A-2: 预探确定性失败（不存在路径）走原契约文案，不误报网络卷不可达', async () => {
     await freshModule()
-    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('not-a-lib-') + '/不存在')) as { ok: boolean; reason?: string }
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('not-a-lib-') + '/不存在')) as {
+      ok: boolean
+      reason?: string
+    }
     expect(r).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
   })
 

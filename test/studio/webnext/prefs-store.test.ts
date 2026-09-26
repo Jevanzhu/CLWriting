@@ -70,7 +70,10 @@ describe('prefs: init 从 API 加载', () => {
   })
 
   it('非空 prefs → 应用到 ref', async () => {
-    getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'dark', proseSize: 20, shelfView: 'list', chatEnabled: true }, revision: 3 })
+    getGlobalPrefsMock.mockResolvedValue({
+      prefs: { theme: 'dark', proseSize: 20, shelfView: 'list', chatEnabled: true },
+      revision: 3,
+    })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.get('theme')).toBe('dark')
@@ -80,7 +83,10 @@ describe('prefs: init 从 API 加载', () => {
   })
 
   it('非法值（负数/0/未知主题）→ 忽略用默认', async () => {
-    getGlobalPrefsMock.mockResolvedValue({ prefs: { theme: 'purple', proseSize: 0, pageWidth: -5 } as never, revision: 0 })
+    getGlobalPrefsMock.mockResolvedValue({
+      prefs: { theme: 'purple', proseSize: 0, pageWidth: -5 } as never,
+      revision: 0,
+    })
     const prefs = usePrefsStore()
     await prefs.init()
     expect(prefs.get('theme')).toBe('light')
@@ -224,16 +230,16 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
     getGlobalPrefsMock.mockResolvedValue({
       prefs: {
         defaultGenre: '玄幻',
-      defaultVolumeSize: 30,
-      defaultTargetWords: 2_000_000,
-      defaultChapterTargetWords: 3000,
-      defaultShortStrict: true,
-      styleInjection: 'heavy',
-      autoConfirmOutline: true,
-      autoBatchSize: 5,
-      callsPerChapter: 12,
-      relationAutoMine: true,
-      relationMineThreshold: 6,
+        defaultVolumeSize: 30,
+        defaultTargetWords: 2_000_000,
+        defaultChapterTargetWords: 3000,
+        defaultShortStrict: true,
+        styleInjection: 'heavy',
+        autoConfirmOutline: true,
+        autoBatchSize: 5,
+        callsPerChapter: 12,
+        relationAutoMine: true,
+        relationMineThreshold: 6,
         ragEnabled: true,
         ragProvider: 'rag-a',
       },
@@ -259,19 +265,19 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
   it('回读守卫：类型/枚举/范围非法值忽略，保持回落', async () => {
     getGlobalPrefsMock.mockResolvedValue({
       prefs: {
-        defaultGenre: '   ',           // 空白串 = 未设
-      defaultVolumeSize: 3,          // < 5 越界
-      defaultTargetWords: -5,        // 负数
-      defaultChapterTargetWords: 0,  // JSON 层只存正整数（0=未设由 ref 初值表达）
-      defaultShortStrict: 'yes',     // 类型错
-      styleInjection: 'x',           // 枚举外
-      autoConfirmOutline: 1,
-      autoBatchSize: 0,
-      callsPerChapter: -1,
-      relationAutoMine: 'on',
-      relationMineThreshold: 0,
-      ragEnabled: 1,
-      ragProvider: 42,
+        defaultGenre: '   ', // 空白串 = 未设
+        defaultVolumeSize: 3, // < 5 越界
+        defaultTargetWords: -5, // 负数
+        defaultChapterTargetWords: 0, // JSON 层只存正整数（0=未设由 ref 初值表达）
+        defaultShortStrict: 'yes', // 类型错
+        styleInjection: 'x', // 枚举外
+        autoConfirmOutline: 1,
+        autoBatchSize: 0,
+        callsPerChapter: -1,
+        relationAutoMine: 'on',
+        relationMineThreshold: 0,
+        ragEnabled: 1,
+        ragProvider: 42,
       } as never,
     })
     const prefs = usePrefsStore()

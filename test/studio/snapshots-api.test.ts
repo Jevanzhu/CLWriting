@@ -209,18 +209,22 @@ describe('快照端点（单章版本回滚）', () => {
   // 此前 statSync 跟随 symlink，指向祖先目录的 symlink 造成无限递归（挂死端点/栈溢出）；
   // 修复后 lstatSync 判定 + symlink 条目跳过（M-9 同族口径）。
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）', async () => {
-    const vdir = join(studio.bookRoot, '工作区', '.版本')
-    mkdirSync(join(vdir, 'doc_loop'), { recursive: true })
-    writeFileSync(join(vdir, 'doc_loop', 'a.md'), '---\n来源: manual\n---\n环内容\n')
-    // symlink 指向祖先目录：修复前 statSync 跟随 → walk 无限递归
-    symlinkSync(vdir, join(vdir, 'doc_loop', 'loop'))
-    const r = await request('GET', api('/version-stats'))
-    expect(r.status).toBe(200)
-    expect((r.json as { snapshotCount: number }).snapshotCount).toBeGreaterThanOrEqual(1)
-    // 清理本用例的环构造，避免影响后续（同文件各用例共享书目录）
-    rmSync(join(vdir, 'doc_loop'), { recursive: true, force: true })
-  }, 10_000)
+  it.skipIf(process.platform === 'win32')(
+    'R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）',
+    async () => {
+      const vdir = join(studio.bookRoot, '工作区', '.版本')
+      mkdirSync(join(vdir, 'doc_loop'), { recursive: true })
+      writeFileSync(join(vdir, 'doc_loop', 'a.md'), '---\n来源: manual\n---\n环内容\n')
+      // symlink 指向祖先目录：修复前 statSync 跟随 → walk 无限递归
+      symlinkSync(vdir, join(vdir, 'doc_loop', 'loop'))
+      const r = await request('GET', api('/version-stats'))
+      expect(r.status).toBe(200)
+      expect((r.json as { snapshotCount: number }).snapshotCount).toBeGreaterThanOrEqual(1)
+      // 清理本用例的环构造，避免影响后续（同文件各用例共享书目录）
+      rmSync(join(vdir, 'doc_loop'), { recursive: true, force: true })
+    },
+    10_000,
+  )
 
   // R26-67（二十六轮）：prune 全程持书级任务闸——闸忙 409 口径对齐 onboard-save 等
   // 同类端点；闸在位使 spawn/auto-write/chat（heldTaskGatesFor 反查）与删书/改名
@@ -250,12 +254,11 @@ describe('快照端点（单章版本回滚）', () => {
     // 「中文」的 GBK 编码字节（0xD6D0 0xCEC4）——非法 UTF-8 序列
     const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
     const { writeVersion } = await import('../../src/document/version.js')
-    const id = writeVersion(
-      join(studio.bookRoot, '工作区', '.版本'),
-      'doc_1',
-      gbk,
-      { origin: 'manual', reason: 'R34D-18 字节档', baseRevision: cur as `sha256:${string}` },
-    )
+    const id = writeVersion(join(studio.bookRoot, '工作区', '.版本'), 'doc_1', gbk, {
+      origin: 'manual',
+      reason: 'R34D-18 字节档',
+      baseRevision: cur as `sha256:${string}`,
+    })
     expect(id).not.toBeNull()
     const r = await request('POST', api(`/documents/doc_1/snapshots/${id}/restore`), {
       expectedRevision: cur,

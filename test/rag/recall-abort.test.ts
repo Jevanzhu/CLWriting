@@ -27,8 +27,20 @@ function makeRagBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r0912-recall-abort-'))
   const db = openRagDb(root)
   try {
-    storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: new Float32Array([0.1, 0.2, 0.3]), model: 'm1' })
-    storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: new Float32Array([0.3, 0.2, 0.1]), model: 'm1' })
+    storeChunk(db, {
+      章号: 1,
+      start_offset: 0,
+      end_offset: 10,
+      embedding: new Float32Array([0.1, 0.2, 0.3]),
+      model: 'm1',
+    })
+    storeChunk(db, {
+      章号: 2,
+      start_offset: 0,
+      end_offset: 10,
+      embedding: new Float32Array([0.3, 0.2, 0.1]),
+      model: 'm1',
+    })
     setRagMeta(db, 'embedding_model', 'm1')
     setRagMeta(db, 'embedding_dim', '3')
   } finally {
@@ -49,9 +61,9 @@ test('R0912-4: signal 预先 aborted → 快速中断，不发起 embed', async 
   }
   const ctrl = new AbortController()
   ctrl.abort()
-  await expect(
-    recallDetailed(root, CFG, 'key', '查询', 5, embedSpy, 100000, { signal: ctrl.signal }),
-  ).rejects.toThrow('RAG 召回已中断')
+  await expect(recallDetailed(root, CFG, 'key', '查询', 5, embedSpy, 100000, { signal: ctrl.signal })).rejects.toThrow(
+    'RAG 召回已中断',
+  )
   expect(embedCalls).toBe(0) // 中断先于网络：embed 一次都没打
 })
 

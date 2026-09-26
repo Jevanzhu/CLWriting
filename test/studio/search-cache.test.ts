@@ -18,11 +18,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { startServerSafe } from '../helpers/safe-port.js'
-import {
-  searchBookCached,
-  forgetSearchCache,
-  searchCache,
-} from '../../src/studio/server/api/search.js'
+import { searchBookCached, forgetSearchCache, searchCache } from '../../src/studio/server/api/search.js'
 
 let root = ''
 
@@ -99,11 +95,14 @@ let httpWorkDir = ''
 function httpGet(path: string): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
-    const req = http.request({ host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } }, (res) => {
-      let data = ''
-      res.on('data', (c) => (data += c.toString('utf8')))
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }))
-    })
+    const req = http.request(
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c.toString('utf8')))
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }))
+      },
+    )
     req.on('error', () => resolve({ status: 0, text: '' }))
     req.end()
   })
@@ -114,13 +113,17 @@ beforeAll(async () => {
   const bookRoot = join(httpWorkDir, '缓存书')
   mkdirSync(join(httpWorkDir, '.clwriting'), { recursive: true })
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(httpWorkDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '缓存书', path: '缓存书', kind: 'long' }) + '\n', 'utf-8')
+  writeFileSync(
+    join(httpWorkDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: '缓存书', path: '缓存书', kind: 'long' }) + '\n',
+    'utf-8',
+  )
   writeFileSync(join(bookRoot, 'book.yaml'), '标题: 缓存书\n', 'utf-8')
   writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '山门外玉佩轻响。', 'utf-8')
   server = await startServerSafe({ workDir: httpWorkDir, port: 0, userDataPath: null })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await httpGet('/api/boot')
-  token = ((JSON.parse(boot.text) as { token?: string }).token) ?? ''
+  token = (JSON.parse(boot.text) as { token?: string }).token ?? ''
 })
 
 afterAll(async () => {
@@ -136,7 +139,9 @@ describe('R35-7 搜索端点 HTTP 正确性', () => {
     const r2 = await httpGet(path)
     expect(r2.status).toBe(200)
     expect(r2.text).toBe(r1.text)
-    const body = JSON.parse(r1.text) as { results: Array<{ path: string; matches: Array<{ line: number; text: string }> }> }
+    const body = JSON.parse(r1.text) as {
+      results: Array<{ path: string; matches: Array<{ line: number; text: string }> }>
+    }
     expect(body.results).toHaveLength(1)
     expect(body.results[0]!.path).toBe('写作/正文/0001-开篇.md')
     expect(body.results[0]!.matches.length).toBeGreaterThan(0)

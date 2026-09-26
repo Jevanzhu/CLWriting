@@ -42,7 +42,12 @@ import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { readBookConfig } from '../format/yaml.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, type Manifest } from '../document/manifest.js'
+import {
+  readManifest,
+  finalizedChapterNumbers,
+  finalizedChapterSetOfBook,
+  type Manifest,
+} from '../document/manifest.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
 import {
@@ -161,9 +166,10 @@ export async function detectState(
       // 'worker' 走卸载层（同步内核原样搬线程，结果经 postMessage 回传，
       // 结构同 RebuildResult；worker 超时 120s/崩溃/异常退出均 reject → 共用下方
       // 既有 catch 降级态 2 报文，语义收敛不变）
-      rebuildResult = opts?.rebuildChannel === 'worker'
-        ? await runRebuildAsync({ bookRoot, cachePath })
-        : rebuild(bookRoot, cachePath)
+      rebuildResult =
+        opts?.rebuildChannel === 'worker'
+          ? await runRebuildAsync({ bookRoot, cachePath })
+          : rebuild(bookRoot, cachePath)
     } catch (e) {
       const msg = errMsg(e)
       return {

@@ -114,7 +114,10 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
     // 留痕取代缘，然后登记新项。
     const prev = state.pending.get(callId)
     if (prev) {
-      log.warn('chat', `确认闸重复登记：tool_use id ${callId} 的挂起确认按「重复 tool_use id，已被同 id 新调用取代」收口`)
+      log.warn(
+        'chat',
+        `确认闸重复登记：tool_use id ${callId} 的挂起确认按「重复 tool_use id，已被同 id 新调用取代」收口`,
+      )
       prev(false)
     }
     state.pending.set(callId, finish)
@@ -228,7 +231,9 @@ export async function executeChatTool(
           return { ok: false, summary: '本书正在改写中（编辑器改写请求在途），无法同时写章——请等本轮改写完成后再试。' }
         }
         // chat 中断时同步中断 self-heal（abortChat 只 abort chat ctrl，self-heal 独立 ctrl 须显式桥接）
-        const onAbort = (): void => { abortSelfHeal(opts.bookName) }
+        const onAbort = (): void => {
+          abortSelfHeal(opts.bookName)
+        }
         ctrl.addEventListener('abort', onAbort)
         // 四轮-A402（四轮修复批）：嵌入式写章以独立 owner
         // （`self-heal:<书名>`，非 `chat:` 前缀）登记编排级 ctrl——修复前不传 register
@@ -385,7 +390,10 @@ function formatCheckResult(outcome: CheckOutcome): { ok: boolean; summary: strin
   const parts: string[] = []
   if (reds.length) parts.push(`${reds.length} 个红项`)
   if (yellows.length) parts.push(`${yellows.length} 个黄项`)
-  const detail = items.slice(0, 5).map((i) => `- [${i.level}] ${i.message}`).join('\n')
+  const detail = items
+    .slice(0, 5)
+    .map((i) => `- [${i.level}] ${i.message}`)
+    .join('\n')
   return {
     ok: reds.length === 0,
     summary: parts.length ? `${parts.join('，')}：\n${detail}` : '机检通过',

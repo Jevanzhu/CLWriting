@@ -15,11 +15,7 @@ export function chapterContent(no: number, title: string, body: string, extraFm 
 }
 
 /** 绑定各测试文件的 studio harness / 书名 / userDataPath，产出 createChapter + structureEvents。 */
-export function bindStructureHelpers(opts: {
-  studio: () => StudioHarness
-  book: string
-  userDataPath: () => string
-}): {
+export function bindStructureHelpers(opts: { studio: () => StudioHarness; book: string; userDataPath: () => string }): {
   createChapter: (rel: string, content: string) => Promise<string>
   structureEvents: (type: string) => Array<Record<string, unknown>>
 } {

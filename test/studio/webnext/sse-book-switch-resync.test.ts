@@ -25,7 +25,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
 }))
@@ -145,7 +147,10 @@ beforeEach(() => {
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
   // 契约②换票桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连）
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+  )
 })
 
 afterEach(() => {
@@ -192,7 +197,10 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
 
     let releaseAsk!: (v: boolean) => void
     const askSpy = vi.spyOn(ui, 'ask').mockImplementation(
-      () => new Promise<boolean>((r) => { releaseAsk = r }),
+      () =>
+        new Promise<boolean>((r) => {
+          releaseAsk = r
+        }),
     )
     routeHolder.route!.params.name = '书B'
     await nextTick()
@@ -233,7 +241,10 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
     doc.patch('d1', '未落盘编辑')
     let releaseSave!: (v: { ok: true; revision: `sha256:${string}` }) => void
     mocks.saveContent.mockImplementationOnce(
-      () => new Promise((r) => { releaseSave = r }),
+      () =>
+        new Promise((r) => {
+          releaseSave = r
+        }),
     )
 
     routeHolder.route!.params.name = '书B'

@@ -56,10 +56,9 @@ describe('C1 assembleSections 语义', () => {
   })
 
   it('{{variable}} 插值：提供的替换，未提供的原样保留', () => {
-    const out = assembleSections(
-      [{ name: 's', order: 0, text: '写第 {{chapter}} 章，{{unknown}} 保留' }],
-      { chapter: '3' },
-    )
+    const out = assembleSections([{ name: 's', order: 0, text: '写第 {{chapter}} 章，{{unknown}} 保留' }], {
+      chapter: '3',
+    })
     expect(out).toBe('写第 3 章，{{unknown}} 保留')
   })
 

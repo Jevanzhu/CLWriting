@@ -36,7 +36,7 @@ vi.mock('node:fs', async (importOriginal) => {
         return { dev: hit.dev, ino: hit.ino, isDirectory: () => true } as never
       }
       return (actual.statSync as (...a: unknown[]) => unknown)(p, ...rest)
-    }) as unknown as typeof import('node:fs')['statSync'],
+    }) as unknown as (typeof import('node:fs'))['statSync'],
   }
 })
 
@@ -80,7 +80,12 @@ describe('R42-35：appendBook 目录占用判重', () => {
     const wd = mkWorkDirWithFooRegOnly()
     try {
       // 同步版（appendBook → appendBookLocked）
-      const syncRes = appendBook(wd, { name: 'foo', path: '长篇/foo', kind: 'long', created_at: '2026-01-02T00:00:00.000Z' })
+      const syncRes = appendBook(wd, {
+        name: 'foo',
+        path: '长篇/foo',
+        kind: 'long',
+        created_at: '2026-01-02T00:00:00.000Z',
+      })
       expect(syncRes.ok).toBe(false)
       expect((syncRes as { ok: false; reason: string }).reason).toContain('Foo')
       expect((syncRes as { ok: false; reason: string }).reason).toContain('换个名字或先删掉旧的')
@@ -106,7 +111,11 @@ describe('R42-35：appendBook 目录占用判重', () => {
     try {
       const res = appendBook(wd, { name: 'foo', path: '长篇/foo', kind: 'long' })
       expect(res.ok).toBe(true)
-      expect(readBooks(wd).map((b) => b.name).sort()).toEqual(['Foo', 'foo'])
+      expect(
+        readBooks(wd)
+          .map((b) => b.name)
+          .sort(),
+      ).toEqual(['Foo', 'foo'])
     } finally {
       rmSync(wd, { recursive: true, force: true })
     }
@@ -141,7 +150,11 @@ describe('R44-11：appendBook 占用判重 dev+ino 物理身份', () => {
     try {
       const res = appendBook(wd, { name: 'foo', path: '长篇/foo', kind: 'long' })
       expect(res.ok).toBe(true)
-      expect(readBooks(wd).map((b) => b.name).sort()).toEqual(['Foo', 'foo'])
+      expect(
+        readBooks(wd)
+          .map((b) => b.name)
+          .sort(),
+      ).toEqual(['Foo', 'foo'])
     } finally {
       rmSync(wd, { recursive: true, force: true })
     }
@@ -225,7 +238,11 @@ describe('R44-11：doInit 半成品放行分支的同款防线', () => {
     try {
       const r = doInit({ workDir: wd, name: 'foo' })
       expect(r.ok).toBe(true)
-      expect(readBooks(wd).map((b) => b.name).sort()).toEqual(['Foo', 'foo'])
+      expect(
+        readBooks(wd)
+          .map((b) => b.name)
+          .sort(),
+      ).toEqual(['Foo', 'foo'])
     } finally {
       rmSync(wd, { recursive: true, force: true })
     }

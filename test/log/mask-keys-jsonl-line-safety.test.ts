@@ -13,9 +13,7 @@ import { maskKeys } from '../../src/log/index.js'
 
 /** 按 emit 的真实次序构造被掩对象：先 JSON.stringify 成单行，再过 maskKeys */
 function maskJsonLine(msg: string): string {
-  return maskKeys(
-    JSON.stringify({ ts: '2026-09-07T00:00:00.000Z', level: 'info', tag: 'server', msg }),
-  )
+  return maskKeys(JSON.stringify({ ts: '2026-09-07T00:00:00.000Z', level: 'info', tag: 'server', msg }))
 }
 
 describe('R59 清偿批（R55-A-4）: maskKeys 值类排除转义引号，JSONL 行保持可解析', () => {

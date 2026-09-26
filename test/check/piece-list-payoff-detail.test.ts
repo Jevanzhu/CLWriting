@@ -29,7 +29,14 @@ function setupOutline(list: PieceList, piecePath: string): void {
 }
 
 function runShortCheck(piecePath: string) {
-  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫', _path: piecePath }
+  const ch: ChapterMeta = {
+    章号: 1,
+    标题: '雪夜',
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '铺垫',
+    _path: piecePath,
+  }
   return runAllChecks({
     bookRoot: tmp,
     config: shortConfig(),

@@ -53,12 +53,13 @@ function writeProviders(userDataPath: string, timeoutMs?: number): void {
 function failureWarns(spy: MockInstance<typeof log.warn>): Array<Record<string, unknown>> {
   return spy.mock.calls
     .map((c) => String(c[1]))
-    .filter((m) =>
-      m.includes('AI 调用终态失败') ||
-      m.includes('按决策表退避重试') ||
-      m.includes('Retry-After 超退避封顶') ||
-      m.includes('总超时') ||
-      m.includes('取 provider 失败'),
+    .filter(
+      (m) =>
+        m.includes('AI 调用终态失败') ||
+        m.includes('按决策表退避重试') ||
+        m.includes('Retry-After 超退避封顶') ||
+        m.includes('总超时') ||
+        m.includes('取 provider 失败'),
     )
     .map((m) => JSON.parse(m) as Record<string, unknown>)
 }

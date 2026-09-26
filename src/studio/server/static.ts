@@ -66,9 +66,7 @@ const DEV_SOURCE_FORM = new URL(import.meta.url).pathname.endsWith('.ts')
 
 /** SPA 入口缺失时的 404 error 文案（单源；devForm 注入仅测试用，缺省取本模块形态） */
 export function spaMissingUiMessage(devForm: boolean = DEV_SOURCE_FORM): string {
-  return devForm
-    ? '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build'
-    : '前端资源缺失，请重新安装应用'
+  return devForm ? '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build' : '前端资源缺失，请重新安装应用'
 }
 
 /** 创建静态托管 handler：rootDir 为前端 dist 绝对路径 */
@@ -168,9 +166,7 @@ export function createStaticHandler(rootDir: string) {
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
           ...STATIC_SECURITY_HEADERS,
-          'cache-control': cacheable
-            ? 'public, max-age=31536000, immutable'
-            : 'no-cache',
+          'cache-control': cacheable ? 'public, max-age=31536000, immutable' : 'no-cache',
           'content-length': String(size),
         })
         res.end()
@@ -206,9 +202,7 @@ export function createStaticHandler(rootDir: string) {
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
           ...STATIC_SECURITY_HEADERS,
-          'cache-control': cacheable
-            ? 'public, max-age=31536000, immutable'
-            : 'no-cache',
+          'cache-control': cacheable ? 'public, max-age=31536000, immutable' : 'no-cache',
           'content-length': String(size),
         })
         stream.pipe(res)

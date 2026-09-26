@@ -26,14 +26,22 @@ vi.mock('../../src/ai/tasks/spec.js', () => ({ runSpec: vi.fn() }))
 
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
-    async startSession(cwd: string): Promise<Session> { return { id: 'mock', cwd, closed: false } },
+    async startSession(cwd: string): Promise<Session> {
+      return { id: 'mock', cwd, closed: false }
+    },
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
-    emit(_s, ev): void { emitted.push(ev) },
+    emit(_s, ev): void {
+      emitted.push(ev)
+    },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -89,7 +97,8 @@ test('R37-7: 首稿生成终态失败 → done 事件并入封套 attemptsUsage�
     })
     const r = await runSelfHeal(makeOpts(userDataPath, workDir, emitted))
     expect(r.outcome).toBe('failed')
-    const done = emitted.find((e) => e.type === 'done') as { usage: number; cost?: number; usageEstimated?: boolean; reason: string } | undefined
+    const done = emitted.find((e) => e.type === 'done') as
+      { usage: number; cost?: number; usageEstimated?: boolean; reason: string } | undefined
     expect(done).toBeDefined()
     // 修复前 usage 恒 0（失败分支不并入）；修复后取封套累计 2000
     expect(done!.usage).toBe(2000)

@@ -158,7 +158,9 @@ function parsePayoffSection(lines: string[], startIdx: number): { entries: Payof
     // 标记）此前静默吞掉——作者写了回收条目却因格式偏差整条失效无迹可查。warn 留痕
     // 不中断解析（非列表行为段内说明文字，合法，仍忽略）。
     if (/^[-*]\s/.test(trimmed)) {
-      warnParse(`章纲「${SECTION_PAYOFF}」行格式不符被丢弃（应为「- 伏笔 → 回收于 位置」或「- 伏笔（未回收）」）：${trimmed.slice(0, 40)}`)
+      warnParse(
+        `章纲「${SECTION_PAYOFF}」行格式不符被丢弃（应为「- 伏笔 → 回收于 位置」或「- 伏笔（未回收）」）：${trimmed.slice(0, 40)}`,
+      )
     }
     i++
   }

@@ -319,12 +319,7 @@ describe('F1-P3 recordForeshadowChanges', () => {
     const store = openSessionStore(ud, bookRoot)!
     try {
       const sessionId = store.workspaceSession(bookHash(bookRoot))
-      recordForeshadowChanges(
-        store,
-        sessionId,
-        [{ 标题: 'A', 状态: '未回收' }],
-        [{ 标题: 'A', 状态: '未回收' }],
-      )
+      recordForeshadowChanges(store, sessionId, [{ 标题: 'A', 状态: '未回收' }], [{ 标题: 'A', 状态: '未回收' }])
       expect(store.listEvents(bookHash(bookRoot))).toHaveLength(0)
       expect(() => recordForeshadowChanges(null, null, [], [])).not.toThrow()
     } finally {
@@ -360,4 +355,3 @@ describe('F1-P3 recordForeshadowChanges', () => {
     }
   })
 })
-

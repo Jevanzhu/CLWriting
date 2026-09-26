@@ -60,73 +60,84 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     // （评审）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-    // （c 修复批）中断通道（owner='outline:<书名>'，
-    // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
-    // 收编 runGatedGeneration 单源（-，接法头注见 task-gate.ts）。
-    return ctx.gate.runGatedGeneration(res, {
-      book: params['name']!,
-      workDir: ctx.workDir!,
-      action: 'outline',
-      busyText: '本书正在生成细纲，请等待完成后再试',
-    }, async (ctrl) => {
-      const body = await readJson(req)
-      const chapter = Number(body['chapter'])
-      if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+      // （c 修复批）中断通道（owner='outline:<书名>'，
+      // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
+      // 收编 runGatedGeneration 单源（-，接法头注见 task-gate.ts）。
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'outline',
+          busyText: '本书正在生成细纲，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const body = await readJson(req)
+          const chapter = Number(body['chapter'])
+          if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-      const bookRoot = r.bookRoot
-      const kind = readKind(bookRoot)
-      // prompt 与注入源 files 同源产出——铁律①「模型可见⟺已记录」，
-      // 总纲/设定/账本/前章/卷摘要全部真实注入源进 promptFiles（llm/call promptMeta.files）。
-      // 低-4userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
-      // 此前端点单独再调一次 volumeProgressOf 只登卷摘要（其余注入源零登记），且与
-      // prompt 组装函数内部那次的两次读盘重复——一并收口为单次调用。
-      const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
+          const bookRoot = r.bookRoot
+          const kind = readKind(bookRoot)
+          // prompt 与注入源 files 同源产出——铁律①「模型可见⟺已记录」，
+          // 总纲/设定/账本/前章/卷摘要全部真实注入源进 promptFiles（llm/call promptMeta.files）。
+          // 低-4userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
+          // 此前端点单独再调一次 volumeProgressOf 只登卷摘要（其余注入源零登记），且与
+          // prompt 组装函数内部那次的两次读盘重复——一并收口为单次调用。
+          const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
 
-      // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
-      const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files, ctrl)
-      // 按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
-      // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
-      // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变。
-      // 三行映射收编 replyGenerationFailure 单源。
-      if (!result.ok) return replyGenerationFailure(res, result)
+          // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
+          const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files, ctrl)
+          // 按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
+          // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
+          // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变。
+          // 三行映射收编 replyGenerationFailure 单源。
+          if (!result.ok) return replyGenerationFailure(res, result)
 
-      // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
-      const content = canonicalizeText(result.text)
-      const outlineDir = join(bookRoot, '工作区')
-      const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
-      // 确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
-      // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
-      // 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
-      // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
-      // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
-      const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
-      const declaredFm = kind === 'long' ? `推进: [${outlineIds.join(', ')}]` : ''
-      const withFm = content.startsWith('---')
-        ? content
-        : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
-      // 覆盖前快照留底（对齐 onboard.ts 先例）——outline 生成
-      // 分钟级窗口内作者可经 PUT /file 手改 工作区/细纲.md（files.ts WORKDIR_EDITABLE
-      // 白名单恰含此文件，/file 与 outline 闸互不相查），生成完成的覆盖写会把手改静默
-      // 丢失（细纲域无版本链）。fail-open：快照失败不阻断主流程（log.warn 留痕——
-      // 生成产物不因留底 IO 抖动丢弃，同取舍）。
-      try {
-        snapshotBeforeOverwrite(bookRoot, relPath, withFm || '(空细纲)', 'outline-overwrite', undefined, ctx.userDataPath)
-      } catch (e) {
-        log.warn('api', `outline 覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
-      }
-      try {
-        mkdirSync(outlineDir, { recursive: true })
-        atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
-      } catch (e) {
-        // API 错误脱敏；-：errMsg 三目收编
-        return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(errMsg(e))}`)
-      }
-      reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
-    })
-  },
+          // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
+          const content = canonicalizeText(result.text)
+          const outlineDir = join(bookRoot, '工作区')
+          const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
+          // 确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此
+          // 校验「细纲是否属于被检章」，树红点聚合复检旧草稿不再被当前章声明误报。
+          // 左端：长篇解析 AI 产出的「推进:」声明行 → 写入 fm 结构化字段（存量编号白名单过滤），
+          // 使 机检两端闭合 左侧（声明侧）从恒空变为有数据；短篇无布线不进此逻辑。
+          // 显式写「推进: []」：作者打开 细纲.md 即可看到「本章未声明推进」的清单缺失提示位。
+          const outlineIds = kind === 'long' ? parseOutlineLeads(content, bookRoot) : []
+          const declaredFm = kind === 'long' ? `推进: [${outlineIds.join(', ')}]` : ''
+          const withFm = content.startsWith('---')
+            ? content
+            : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
+          // 覆盖前快照留底（对齐 onboard.ts 先例）——outline 生成
+          // 分钟级窗口内作者可经 PUT /file 手改 工作区/细纲.md（files.ts WORKDIR_EDITABLE
+          // 白名单恰含此文件，/file 与 outline 闸互不相查），生成完成的覆盖写会把手改静默
+          // 丢失（细纲域无版本链）。fail-open：快照失败不阻断主流程（log.warn 留痕——
+          // 生成产物不因留底 IO 抖动丢弃，同取舍）。
+          try {
+            snapshotBeforeOverwrite(
+              bookRoot,
+              relPath,
+              withFm || '(空细纲)',
+              'outline-overwrite',
+              undefined,
+              ctx.userDataPath,
+            )
+          } catch (e) {
+            log.warn('api', `outline 覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
+          }
+          try {
+            mkdirSync(outlineDir, { recursive: true })
+            atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
+          } catch (e) {
+            // API 错误脱敏；-：errMsg 三目收编
+            return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(errMsg(e))}`)
+          }
+          reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
+        },
+      )
+    },
   })
 }
 

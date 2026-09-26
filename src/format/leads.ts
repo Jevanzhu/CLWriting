@@ -12,30 +12,12 @@ import { join } from 'node:path'
 // 履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates 手法）
 import { log } from '../log/index.js'
 import { isMdFileName } from './filename.js'
-import {
-  readFile,
-  parseFlat,
-  stringifyFlat,
-  joinFrontMatter,
-} from './frontmatter.js'
+import { readFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import type {
-  Lead,
-  LeadEntry,
-  LeadHistoryGroupHeading,
-  LeadType,
-  ParseError,
-} from './types.js'
+import type { Lead, LeadEntry, LeadHistoryGroupHeading, LeadType, ParseError } from './types.js'
 
 /** 账本六类的中文目录名（#3 第 2 节；伏笔已独立为设定伏笔系统） */
-export const LEAD_TYPES: readonly LeadType[] = [
-  '悬念',
-  '感情线',
-  '布局线',
-  '设定线',
-  '成长线',
-  '关系线',
-] as const
+export const LEAD_TYPES: readonly LeadType[] = ['悬念', '感情线', '布局线', '设定线', '成长线', '关系线'] as const
 
 /** #3 第 5 节动词表：每类合法动词（机检用）。
  *  open 开端 → advance 进行中推进（不收尾）→ resolve 收尾 / drop 放弃。
@@ -75,7 +57,7 @@ const HISTORY_ENTRY_LOOSE_RE = /^\s*-\s*第([０-９\d]+)章\s*([^\s:：]+)\s*[�
 
 /** 全角数字 → 半角（防输入法切错致章号进不了账本模型）。 */
 function normalizeDigits(s: string): string {
-  return s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  return s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
 }
 
 /** ATX 标题行（#~###### 后随空白；markdown 标准形态）。 */
@@ -85,11 +67,7 @@ export const ATX_HEADING_RE = /^#{1,6}\s/
  *  标题/文末仍出现条目行 → 分组标题（false：跳过不折入，条目照常解析）；否则为节终
  *  标题（true：终断条目段，其后人工内容归 after 段保真回写）。isEntry 由调用方注入
  *  （履历条目与账本推进声明条目格式不同，共用同一分组判定口径防两侧漂移）。 */
-export function headingEndsSection(
-  lines: string[],
-  headingIdx: number,
-  isEntry: (line: string) => boolean,
-): boolean {
+export function headingEndsSection(lines: string[], headingIdx: number, isEntry: (line: string) => boolean): boolean {
   // （二十四轮 B 域）：连续标题链不再提前终断——原「下一行是标题即判节终」把
   // `## 分组`+`### 详注`+条目 的链式分组首标题误判节终，其下条目整体掉出解析（回写
   // 保真无数据丢失，机检对它们失明）。标题行改为跳过继续找条目：链下仍出现条目 =
@@ -178,7 +156,10 @@ export function parseHistoryWithPreamble(body: string): {
         回填 = true
         证据 = 证据.slice(0, bf.index).trim()
       } else if (/（回填[^）]*）$/.test(证据)) {
-        log.warn('leads', `非系统回填标记形态「${证据.match(/（回填[^）]*）$/)![0]}」保留原文不截断（疑似作者备注，R1-P2-1）`)
+        log.warn(
+          'leads',
+          `非系统回填标记形态「${证据.match(/（回填[^）]*）$/)![0]}」保留原文不截断（疑似作者备注，R1-P2-1）`,
+        )
       }
       entries.push({ 章号, 动词, 证据, ...(回填 ? { 回填 } : {}) })
     } else if (/^\s*-\s*第/.test(line)) {
@@ -281,8 +262,16 @@ function bodyAfterHistory(body: string): string {
 
 /** 已知 front matter 字段（用于区分已知 vs 未知/容错保留） */
 const KNOWN_FM_KEYS = new Set([
-  '编号', '标题', '类型', '状态', '开启章',
-  '境界体系', '当前境界', '父布局线', '欠方', '债主',
+  '编号',
+  '标题',
+  '类型',
+  '状态',
+  '开启章',
+  '境界体系',
+  '当前境界',
+  '父布局线',
+  '欠方',
+  '债主',
 ])
 
 /**
@@ -313,17 +302,35 @@ function parseLeadModel(
   // 严格校验会让存量旧档全部 skip 拒迁（数据滞留旧目录）——迁移侧按旧规则容错解析。
   if (opts?.legacy !== true) {
     const rawType = map.get('类型')
-    if (rawType !== undefined && rawType !== null && String(rawType) !== '' && !(LEAD_TYPES as readonly string[]).includes(String(rawType))) {
+    if (
+      rawType !== undefined &&
+      rawType !== null &&
+      String(rawType) !== '' &&
+      !(LEAD_TYPES as readonly string[]).includes(String(rawType))
+    ) {
       return {
         ok: false,
-        error: { file: filePath, line: 0, message: `「类型」非法：「${String(rawType)}」（合法值：${LEAD_TYPES.join('/')}）` },
+        error: {
+          file: filePath,
+          line: 0,
+          message: `「类型」非法：「${String(rawType)}」（合法值：${LEAD_TYPES.join('/')}）`,
+        },
       }
     }
     const rawStatus = map.get('状态')
-    if (rawStatus !== undefined && rawStatus !== null && String(rawStatus) !== '' && !['进行中', '已收尾', '已放弃'].includes(String(rawStatus))) {
+    if (
+      rawStatus !== undefined &&
+      rawStatus !== null &&
+      String(rawStatus) !== '' &&
+      !['进行中', '已收尾', '已放弃'].includes(String(rawStatus))
+    ) {
       return {
         ok: false,
-        error: { file: filePath, line: 0, message: `「状态」非法：「${String(rawStatus)}」（合法值：进行中/已收尾/已放弃）` },
+        error: {
+          file: filePath,
+          line: 0,
+          message: `「状态」非法：「${String(rawStatus)}」（合法值：进行中/已收尾/已放弃）`,
+        },
       }
     }
   }
@@ -488,9 +495,7 @@ export function writeLead(filePath: string, lead: Lead): void {
  * 扫描某类账本目录，读取所有条目。
  * 容错：单个文件解析失败跳过、计入 errors，不中断整体扫描。
  */
-export function readLeadDir(
-  dirPath: string,
-): { leads: Lead[]; errors: ParseError[] } {
+export function readLeadDir(dirPath: string): { leads: Lead[]; errors: ParseError[] } {
   const leads: Lead[] = []
   const errors: ParseError[] = []
 
@@ -524,7 +529,11 @@ export function readLeadDir(
     const r = readLead(fp)
     if (r.ok) {
       if (r.lead.编号 !== parsedName.编号) {
-        errors.push({ file: fp, line: 0, message: `账本文件名编号「${parsedName.编号}」与 front matter 编号「${r.lead.编号}」不一致` })
+        errors.push({
+          file: fp,
+          line: 0,
+          message: `账本文件名编号「${parsedName.编号}」与 front matter 编号「${r.lead.编号}」不一致`,
+        })
         continue
       }
       leads.push(r.lead)

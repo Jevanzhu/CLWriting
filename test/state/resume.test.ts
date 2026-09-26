@@ -10,7 +10,6 @@ import { makeGitBook, stageIncompleteChapter } from '../helpers/book.js'
 import { detectState, routeState } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 
-
 // ── 态 4 续跑：中断点判定（#13 第 5 节）──────────────
 
 test('态4: 草稿未定稿 → pre-finalize 续写', async () => {

@@ -27,8 +27,13 @@ function makeBook(): { root: string; db: DatabaseSync } {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 150, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p150',
+    章号: 150,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p150',
   })
   return { root, db }
 }
@@ -36,7 +41,10 @@ function makeBook(): { root: string; db: DatabaseSync } {
 /** 写第 150 章正文（文件名形态参数化；正文末尾片段可断言） */
 const writeCh150 = (root: string, fileName: string, body = '宽容形态的前章正文。雪夜收束。') => {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', fileName), `---\n章号: 150\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n${body}\n`)
+  writeFileSync(
+    join(root, '写作', '正文', fileName),
+    `---\n章号: 150\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n${body}\n`,
+  )
 }
 
 const sectionOf = (root: string, db: DatabaseSync) => {

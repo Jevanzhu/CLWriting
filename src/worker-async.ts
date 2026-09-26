@@ -69,18 +69,13 @@ export function runWorkerJob<TResult>(spec: WorkerJobSpec): Promise<TResult> {
       fn()
       void w.terminate()
     }
-    const timer = setTimeout(
-      () => settle(() => reject(new Error(spec.timeoutMessage(spec.timeoutMs)))),
-      spec.timeoutMs,
-    )
+    const timer = setTimeout(() => settle(() => reject(new Error(spec.timeoutMessage(spec.timeoutMs)))), spec.timeoutMs)
     w.once('message', (r: TResult) => settle(() => resolve(r)))
     w.once('error', (e: Error) => settle(() => reject(e)))
     // worker 非错误退出（resourceLimits abort / 入口显式 process.exit / 致命信号）
     // 不触发 'error' 事件——Promise 原先悬挂至超时才拒；补 'exit' 监听
     // 直接拒绝（settle 幂等：成功/失败先到者生效，此路径仅兜底）。
-    w.once('exit', (code) =>
-      settle(() => reject(new Error(spec.exitMessage(code)))),
-    )
+    w.once('exit', (code) => settle(() => reject(new Error(spec.exitMessage(code)))))
     w.postMessage(spec.job)
   })
 }

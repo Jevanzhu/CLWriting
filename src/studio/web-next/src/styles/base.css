@@ -85,7 +85,8 @@ a:hover {
 button {
   font-family: inherit;
   /* P3 动效基线：按钮交互态平滑过渡（组件级可叠加/覆盖） */
-  transition: background-color var(--dur-fast) var(--ease-out),
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out);
@@ -254,16 +255,14 @@ html.theme-instant *::after {
   right: -8%;
   width: 50vw;
   height: 50vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--interactive-accent) 16%, transparent), transparent 68%);
 }
 .glow-bl {
   bottom: -22%;
   left: -12%;
   width: 42vw;
   height: 42vh;
-  background: radial-gradient(circle,
-    color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--interactive-accent) 9%, transparent), transparent 68%);
 }
 
 /* ── chat 章节速选菜单（ChatDock / ChatPanel 共用；ChatDock scoped 覆盖阴影深一档）── */
@@ -302,7 +301,9 @@ html.theme-instant *::after {
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .chapter-menu-item:hover {
@@ -317,8 +318,12 @@ html.theme-instant *::after {
 }
 
 @keyframes chapter-menu-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* tooltip 已迁移到 TooltipHost.vue（全局 Teleport + fixed 定位，不受 overflow 裁切）。

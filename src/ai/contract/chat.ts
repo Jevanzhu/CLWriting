@@ -174,7 +174,8 @@ export const chatTools: ToolDef[] = [
   },
   {
     name: 'apply_spill',
-    description: '把改写工具暂存的全文（工作区/spills/<哈希>.md）落盘为指定章草稿（保留原 front matter，只替换正文；旧稿自动快照）。作者确认保存改写稿时调用。执行前作者需确认。',
+    description:
+      '把改写工具暂存的全文（工作区/spills/<哈希>.md）落盘为指定章草稿（保留原 front matter，只替换正文；旧稿自动快照）。作者确认保存改写稿时调用。执行前作者需确认。',
     input_schema: {
       type: 'object',
       properties: {

@@ -20,9 +20,7 @@ const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法�
 const KNOWN_SOURCES: readonly string[] = ['作者原作', '题材范文', '导入']
 
 /** 读取一个样章 md → StyleSample（容错） */
-export function readSample(
-  filePath: string,
-): { ok: true; sample: StyleSample } | { ok: false; error: ParseError } {
+export function readSample(filePath: string): { ok: true; sample: StyleSample } | { ok: false; error: ParseError } {
   const r = readFile(filePath)
   if (!r.ok) return r
 
@@ -46,11 +44,12 @@ export function readSample(
   // 留痕按缺省「作者原作」处理（对齐 warn+缺省口径）；未写 = 缺省，不 warn。
   const rawSource = map.get('来源')
   const 来源 =
-    typeof rawSource === 'string' && KNOWN_SOURCES.includes(rawSource)
-      ? (rawSource as SampleSource)
-      : undefined
+    typeof rawSource === 'string' && KNOWN_SOURCES.includes(rawSource) ? (rawSource as SampleSource) : undefined
   if (rawSource !== undefined && 来源 === undefined) {
-    log.warn('style', `样章 ${basename(filePath)} 来源值非法（「${String(rawSource)}」，合法：${KNOWN_SOURCES.join('/')}），按「作者原作」处理`)
+    log.warn(
+      'style',
+      `样章 ${basename(filePath)} 来源值非法（「${String(rawSource)}」，合法：${KNOWN_SOURCES.join('/')}），按「作者原作」处理`,
+    )
   }
 
   // （全库代码审）：标量「标签」归一为单元素数组——与
@@ -118,7 +117,9 @@ export function readSamplesByScene(
   try {
     // 低级项：显式排序——readdir 顺序随平台/文件系统漂移，注入与冻结基线
     // 需跨平台可复现（同一书在不同机器产出同一 prompt/基线）
-    files = readdirSync(sceneDir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // .MD 大写扩展名不再失明
+    files = readdirSync(sceneDir)
+      .filter((f) => isMdFileName(f) && !f.startsWith('._'))
+      .sort() // .MD 大写扩展名不再失明
   } catch {
     return { samples, errors } // 场景目录不存在，空
   }
@@ -141,9 +142,7 @@ export function readSamplesByScene(
 }
 
 /** 从文件名提取场景与序号（战斗-001.md → {场景:战斗, 序号:1}） */
-export function parseSampleFileName(
-  fileName: string,
-): { 场景: string; 序号: number } | null {
+export function parseSampleFileName(fileName: string): { 场景: string; 序号: number } | null {
   // 扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
   //（nextEntrySeq 同场景编号割裂，靠 O_EXCL 自愈但新旧编号断裂）
   const base = fileName.replace(/\.[mM][dD]$/, '')

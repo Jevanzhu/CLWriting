@@ -52,8 +52,10 @@ function assertFreshWebDist(): void {
   const builtAt = statSync(indexHtml).mtimeMs
   if (builtAt + 1000 < newestSrc) {
     throw new Error(
-      '[e2e global-setup] dist/web 产物陈旧：index.html（' + new Date(builtAt).toISOString() +
-        '）早于 src/studio/web-next/src 树最新改动（' + new Date(newestSrc).toISOString() +
+      '[e2e global-setup] dist/web 产物陈旧：index.html（' +
+        new Date(builtAt).toISOString() +
+        '）早于 src/studio/web-next/src 树最新改动（' +
+        new Date(newestSrc).toISOString() +
         '）——源码在构建后有改动，跑 `npm run build:web` 重建后再试（`npm run test:e2e` 自带此前置）。',
     )
   }

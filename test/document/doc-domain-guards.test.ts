@@ -46,9 +46,7 @@ vi.mock('node:fs', async (importOriginal) => {
           throw Object.assign(new Error(`EACCES: permission denied, open '${p}'`), { code: 'EACCES' })
         }
       }
-      return encoding === undefined
-        ? actual.readFileSync(p)
-        : actual.readFileSync(p, encoding as 'utf-8')
+      return encoding === undefined ? actual.readFileSync(p) : actual.readFileSync(p, encoding as 'utf-8')
     },
     statSync: (p: string, opts?: { bigint?: boolean }) => {
       if (typeof p === 'string' && p.includes('.trash-manifest.jsonl')) {
@@ -97,8 +95,10 @@ function seedBook(root: string): { abs: string } {
   writeFileSync(abs, '---\n章号: 1\n---\n\n旧内容', 'utf-8')
   writeFileSync(
     join(root, '项目', '文档清单.jsonl'),
-    JSON.stringify({ version: 1, type: 'clwriting-manifest' }) + '\n' +
-      JSON.stringify({ id: 'doc_r42', nodeType: 'document', path: '写作/正文/0001-a.md', parentId: null }) + '\n',
+    JSON.stringify({ version: 1, type: 'clwriting-manifest' }) +
+      '\n' +
+      JSON.stringify({ id: 'doc_r42', nodeType: 'document', path: '写作/正文/0001-a.md', parentId: null }) +
+      '\n',
     'utf-8',
   )
   // 回收站清单存在但为空（合法空表）——守卫 strict 读的 existsSync 门槛通过，读失败臂

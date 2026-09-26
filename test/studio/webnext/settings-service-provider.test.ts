@@ -80,7 +80,16 @@ function provider(id: string, name: string, overrides: Partial<ProviderConfDto> 
 }
 
 function ragProvider(id: string, name: string): RagProviderDto {
-  return { id, name, endpoint: `https://${id}.local/v1/embeddings`, model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-e...abcd', hasKey: true, caps: null }
+  return {
+    id,
+    name,
+    endpoint: `https://${id}.local/v1/embeddings`,
+    model: 'embed-a',
+    apiKey: '',
+    apiKeyMasked: 'sk-e...abcd',
+    hasKey: true,
+    caps: null,
+  }
 }
 
 async function mountPanel(): Promise<ReturnType<typeof mount>> {

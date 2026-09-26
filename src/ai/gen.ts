@@ -6,13 +6,7 @@
  *
  * 中断：signal.abort → provider 迭代器停止；SDK 内部 abort 请求。
  */
-import type {
-  ModelProvider,
-  GenRequest,
-  GenEvent,
-  TokenUsage,
-  GenErrorCode,
-} from './provider/types.js'
+import type { ModelProvider, GenRequest, GenEvent, TokenUsage, GenErrorCode } from './provider/types.js'
 import { quirksFor, responsesQuirksFor } from './provider/model-quirks.js'
 import { log } from '../log/index.js'
 
@@ -129,7 +123,9 @@ export async function* withChunkStallTimeout(
         const result = await Promise.race([it.next(), stalled])
         // yield 悬挂期解武装——慢消费者不计时（与原实现口径一致）；下轮循环顶重建新 timer
         clearTimeout(timer)
-        if (result.done) { return }
+        if (result.done) {
+          return
+        }
         yield result.value
       } catch (e) {
         // （Opus-5.5 轮）：本分支此前不 clearTimeout——race 已吸收 reject，
@@ -154,7 +150,9 @@ export async function* withChunkStallTimeout(
     // 在两条路径成对解武装（race 结算后的 clearTimeout / catch 首行的 clearTimeout），
     // 循环外不存在逃逸轮次；改动上方任一处都需重新校验本前提（勿把本注释当免责声明）。
     // 正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
-    it.return?.().catch(() => { /* 清理段异常不外抛 */ })
+    it.return?.().catch(() => {
+      /* 清理段异常不外抛 */
+    })
   }
 }
 
@@ -236,7 +234,17 @@ export async function generate(
     signal.removeEventListener('abort', onOuterAbort)
   }
 
-  return { text, reasoning: reasoning.join(''), toolCalls, usage, stopReason, resolvedMaxTokens, reasoningEncrypted, reasoningItemId, ...(degraded ? { degraded: true } : {}) }
+  return {
+    text,
+    reasoning: reasoning.join(''),
+    toolCalls,
+    usage,
+    stopReason,
+    resolvedMaxTokens,
+    reasoningEncrypted,
+    reasoningItemId,
+    ...(degraded ? { degraded: true } : {}),
+  }
 }
 
 /**
@@ -254,7 +262,11 @@ export async function generateText(
   if (r.stopReason === 'max_tokens') {
     // 截断调用照样烧 token，usage 随错误上抛记账（此前截断即丢账）
     // MAX_TOKENS 终态不可重试——文案明示「模型行可配输出上限」出路
-    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
+    throw new GenError(
+      'AI 产出达到长度上限被截断，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。',
+      false,
+      { code: 'MAX_TOKENS', usage: r.usage },
+    )
   }
   return r.text
 }
@@ -268,10 +280,20 @@ export async function generateTool(
   req: GenRequest,
   signal: AbortSignal,
   onText?: (delta: string) => void,
-): Promise<{ input: unknown; text: string; usage: TokenUsage; stopReason: string; resolvedMaxTokens?: number; degraded?: boolean }> {
+): Promise<{
+  input: unknown
+  text: string
+  usage: TokenUsage
+  stopReason: string
+  resolvedMaxTokens?: number
+  degraded?: boolean
+}> {
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
   // Responses 启用批缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
-  const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
+  const q =
+    provider.conf.protocol === 'openai-responses'
+      ? responsesQuirksFor(provider.conf.model ?? '')
+      : quirksFor(provider.conf.model ?? '')
   // quirks 表七家族 toolUse 恒 true，「不支持工具提前拒绝」为死分支已删——
   // 实际防线 = 适配器 400 降级链（剥 tools 纯文本兜底），此处 q 只服务 toolChoiceMode 翻译
   // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
@@ -297,7 +319,10 @@ export async function generateTool(
   // 「丢弃必须可感知」——本路径只取首个 tool_use，第 2+ 个
   // 的 input 此前静默丢弃无留痕。chat agent 轮循环不受影响（走 toolCalls 全量）。
   if (r.toolCalls.length > 1) {
-    log.warn('gen', `generateTool 收到 ${r.toolCalls.length} 个 tool_use，仅采用首个（${tool?.name ?? 'unnamed'}），其余 ${r.toolCalls.length - 1} 个已丢弃`)
+    log.warn(
+      'gen',
+      `generateTool 收到 ${r.toolCalls.length} 个 tool_use，仅采用首个（${tool?.name ?? 'unnamed'}），其余 ${r.toolCalls.length - 1} 个已丢弃`,
+    )
   }
   // 输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   // tool_use 的 arguments 被截断在中途同样是截断面——适配器把解析
@@ -323,7 +348,11 @@ export async function generateTool(
   if ((!tool || toolInputTruncated || toolInputEmpty) && r.stopReason === 'max_tokens') {
     // 同 generateText——截断调用 usage 随错误上抛记账
     // 同款出路提示（模型行可配输出上限）
-    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
+    throw new GenError(
+      'AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。',
+      false,
+      { code: 'MAX_TOKENS', usage: r.usage },
+    )
   }
   return {
     input: tool ? tool.input : null,

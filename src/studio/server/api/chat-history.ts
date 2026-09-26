@@ -136,7 +136,8 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       // userData 为空（无事件库）→ 空 messages，不报错（对话区留白可正常发起新对话）
       // 0918修复批（C004）：早退形态补齐五字段契约（与 buildChatHistoryView
       // 正常路径一致）——原缺 truncated/total，前端消费 undefined 误判加载态
-      if (!ctx.userDataPath) return reply(res, 200, { messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
+      if (!ctx.userDataPath)
+        return reply(res, 200, { messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
 
       // GET query 自行解析（defineRoute 纪律：GET 无 body）；?branch= 缺省/空白 → 默认分支
       // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
@@ -157,12 +158,7 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       try {
         store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
       } catch (e) {
-        return replyError(
-          res,
-          500,
-          'STORE_UNAVAILABLE',
-          `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
-        )
+        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
       }
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {

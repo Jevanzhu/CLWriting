@@ -29,7 +29,11 @@ function putGlobalPrefs(): Promise<{ status: number; json: { code?: string; erro
         port: u.port,
         path: '/api/library/prefs',
         method: 'PUT',
-        headers: { 'x-studio-token': token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        headers: {
+          'x-studio-token': token,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
       },
       (res) => {
         let data = ''

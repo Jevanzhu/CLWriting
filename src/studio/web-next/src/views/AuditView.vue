@@ -5,7 +5,14 @@
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle } from 'lucide-vue-next'
-import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type GoalFE, type TodoFE } from '../api/audit'
+import {
+  getAudit,
+  clearAudit,
+  type AuditConversationFE,
+  type AuditEventFE,
+  type GoalFE,
+  type TodoFE,
+} from '../api/audit'
 import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import AuditDiffPanel from '../components/audit/AuditDiffPanel.vue'
@@ -45,10 +52,21 @@ const PAGE_LIMIT = 500
  *  只省绘制不省节点）；到顶停载并提示——完整数据仍在事件库，可清史/换库后再查。 */
 const RENDER_CAP = 2000
 
-const hasMoreConvo = computed(() => convoEvents.value.length < convoTotal.value && convoEvents.value.length < RENDER_CAP)
-const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTotal.value && workflowEvents.value.length < RENDER_CAP)
-const convoCapHit = computed(() => !hasMoreConvo.value && convoEvents.value.length >= RENDER_CAP && convoEvents.value.length < convoTotal.value)
-const workflowCapHit = computed(() => !hasMoreWorkflow.value && workflowEvents.value.length >= RENDER_CAP && workflowEvents.value.length < workflowTotal.value)
+const hasMoreConvo = computed(
+  () => convoEvents.value.length < convoTotal.value && convoEvents.value.length < RENDER_CAP,
+)
+const hasMoreWorkflow = computed(
+  () => workflowEvents.value.length < workflowTotal.value && workflowEvents.value.length < RENDER_CAP,
+)
+const convoCapHit = computed(
+  () => !hasMoreConvo.value && convoEvents.value.length >= RENDER_CAP && convoEvents.value.length < convoTotal.value,
+)
+const workflowCapHit = computed(
+  () =>
+    !hasMoreWorkflow.value &&
+    workflowEvents.value.length >= RENDER_CAP &&
+    workflowEvents.value.length < workflowTotal.value,
+)
 
 // script 层代守卫——load/loadMore 的 await 回调当前被模板禁用态
 // （disabled="loading"）封死（刷新在途时按钮不可点），但禁用态只是 UI 耦合；实例卸载
@@ -206,19 +224,26 @@ async function doClear(): Promise<void> {
       <div class="head-left">
         <h1 class="audit-title">事件审计</h1>
         <span v-if="conversation" class="shadow-hint">
-          <EyeOff :size="13" /> 遮蔽 {{ conversation.shadowedCount }} · 可见
-          {{ conversation.modelVisible.length }} / 人类 {{ conversation.humanVisible.length }}
+          <EyeOff :size="13" /> 遮蔽 {{ conversation.shadowedCount }} · 可见 {{ conversation.modelVisible.length }} /
+          人类 {{ conversation.humanVisible.length }}
         </span>
         <span v-else-if="!loading && !err" class="shadow-hint">本库尚无对话事件</span>
       </div>
       <div class="head-actions">
         <!-- 事件保留定版：每书事件史清理入口（两步确认——销毁不可撤销） -->
-        <button v-if="!confirmClear" class="reload-btn danger" :disabled="loading || clearing" @click="confirmClear = true">
+        <button
+          v-if="!confirmClear"
+          class="reload-btn danger"
+          :disabled="loading || clearing"
+          @click="confirmClear = true"
+        >
           清除事件史…
         </button>
         <template v-else>
           <span class="clear-hint">清除本书全部事件（对话+工作流），不可撤销？</span>
-          <button class="reload-btn danger" :disabled="clearing" @click="doClear">{{ clearing ? '清除中…' : '确认清除' }}</button>
+          <button class="reload-btn danger" :disabled="clearing" @click="doClear">
+            {{ clearing ? '清除中…' : '确认清除' }}
+          </button>
           <button class="reload-btn" :disabled="clearing" @click="confirmClear = false">取消</button>
         </template>
         <button class="reload-btn" :disabled="loading" @click="load">
@@ -237,7 +262,8 @@ async function doClear(): Promise<void> {
           <span v-if="convoTotal > 0" class="tab-total">{{ convoEvents.length }}/{{ convoTotal }}</span>
         </button>
         <button :class="{ on: tab === 'workflow' }" @click="tab = 'workflow'">
-          <GitBranch :size="14" /> 工作流链路（{{ workflowEvents.length }}{{ hasMoreWorkflow ? '/' + workflowTotal : '' }}）
+          <GitBranch :size="14" /> 工作流链路（{{ workflowEvents.length
+          }}{{ hasMoreWorkflow ? '/' + workflowTotal : '' }}）
         </button>
       </div>
 
@@ -249,7 +275,9 @@ async function doClear(): Promise<void> {
 
           <!-- 事件重放（分页累积，含遮蔽标记 + 血缘） -->
           <section class="sec">
-            <h2 class="sec-title">事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）</h2>
+            <h2 class="sec-title">
+              事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）
+            </h2>
             <!-- ：行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列）。
 事件 JSON 懒展开随行模板在子组件内生效 -->
             <AuditEventList
@@ -281,7 +309,9 @@ async function doClear(): Promise<void> {
         <!-- #18：同上——加载失败后不渲染「暂无工作流事件」空态与 (0) 标题；
              有数据时（续页失败/清除失败）仍照常渲染，错误只走横幅 -->
         <section v-if="!err || workflowEvents.length > 0" class="sec">
-          <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
+          <h2 class="sec-title">
+            工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）
+          </h2>
           <!-- ：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
  懒展开同随子组件生效 -->
           <AuditEventList
@@ -352,7 +382,10 @@ async function doClear(): Promise<void> {
   cursor: pointer;
   font-size: var(--font-size-s);
 }
-.reload-btn:disabled { opacity: 0.5; cursor: default; }
+.reload-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .head-actions {
   display: inline-flex;
   align-items: center;
@@ -360,7 +393,10 @@ async function doClear(): Promise<void> {
   flex-wrap: wrap;
 }
 /* 事件保留定版：销毁动作红色 + 确认提示 */
-.reload-btn.danger { color: var(--text-error); border-color: var(--text-error); }
+.reload-btn.danger {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
 .clear-hint {
   color: var(--text-error);
   font-size: var(--font-size-s);
@@ -399,7 +435,9 @@ async function doClear(): Promise<void> {
   font-size: var(--font-size-xs);
   opacity: 0.85;
 }
-.sec { margin-bottom: var(--size-4-5); }
+.sec {
+  margin-bottom: var(--size-4-5);
+}
 .sec-title {
   display: flex;
   align-items: center;
@@ -412,6 +450,13 @@ async function doClear(): Promise<void> {
  * （scoped 隔离，子组件同名类不与本视图互相泄漏）；.empty/.empty.big 本视图仍用，保留。
  * （mac 线，merge 并入）：.ev-full-btn 放行钮样式随懒展开逻辑
  * 同迁子组件。 */
-.empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
-.empty.big { padding: 40px; text-align: center; }
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  padding: 8px;
+}
+.empty.big {
+  padding: 40px;
+  text-align: center;
+}
 </style>

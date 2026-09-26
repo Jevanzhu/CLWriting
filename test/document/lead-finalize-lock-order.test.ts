@@ -22,7 +22,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { armWatchdog } from '../helpers/spawn-node.js'
 import { finalizeRevision, finalizeRevisionAsync } from '../../src/document/finalize.js'
-import { readManifest, writeManifest, upsertEntry, __setManifestLockTimeoutForTest, type Manifest } from '../../src/document/manifest.js'
+import {
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  __setManifestLockTimeoutForTest,
+  type Manifest,
+} from '../../src/document/manifest.js'
 import { __setLeadFinalizeLockTimeoutForTest } from '../../src/document/lead-finalize.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { processBootTime, acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
@@ -44,7 +50,11 @@ function makeWiredBook(): { root: string; docId: string; leadAbs: string; manife
   )
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   const leadAbs = join(root, LEAD_REL)
-  writeFileSync(leadAbs, '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
+  writeFileSync(
+    leadAbs,
+    '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+    'utf-8',
+  )
   mkdirSync(join(root, '工作区'), { recursive: true })
   writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 1\n推进: 悬念-001\n---\n\n本章细纲。\n', 'utf-8')
   writeFileSync(join(root, '工作区', '账本推进.md'), `- 悬念-001 递进：${BODY}\n`, 'utf-8')

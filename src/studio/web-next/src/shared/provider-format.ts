@@ -67,9 +67,15 @@ export function validateModels(
     if (seen.has(id)) return { error: `模型 id「${id}」重复`, index: i, field: 'id' }
     seen.add(id)
     const cw = parseCapacity(row.contextWindowText)
-    if (cw === null) return { error: `第 ${i + 1} 行 contextWindow 格式非法（如 128K / 1.5M / 8192）`, index: i, field: 'contextWindow' }
+    if (cw === null)
+      return {
+        error: `第 ${i + 1} 行 contextWindow 格式非法（如 128K / 1.5M / 8192）`,
+        index: i,
+        field: 'contextWindow',
+      }
     const mt = parseCapacity(row.maxTokensText)
-    if (mt === null) return { error: `第 ${i + 1} 行 maxTokens 格式非法（如 4K / 16384）`, index: i, field: 'maxTokens' }
+    if (mt === null)
+      return { error: `第 ${i + 1} 行 maxTokens 格式非法（如 4K / 16384）`, index: i, field: 'maxTokens' }
   }
   return null
 }

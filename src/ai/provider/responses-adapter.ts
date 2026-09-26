@@ -191,7 +191,11 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
   // 'none' 档），此处只留动作 → wire 值发射：force → 'required'、force-named → 扁平
   // {type:'function',name}、auto → 'auto'，none → 不发（prompt 引导 + 契约层校验重试兜底）。
   if (req.toolChoice) {
-    const intent = resolveToolChoiceIntent({ toolChoiceMode: rw.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    const intent = resolveToolChoiceIntent({
+      toolChoiceMode: rw.toolChoiceMode,
+      toolChoice: req.toolChoice,
+      toolName: req.toolName,
+    })
     if (intent.action === 'force') params['tool_choice'] = 'required'
     else if (intent.action === 'force-named') params['tool_choice'] = { type: 'function', name: intent.name }
     else if (intent.action === 'auto') params['tool_choice'] = 'auto'
@@ -315,7 +319,10 @@ export function createOpenAIResponsesProvider(
             // 多条加密推理项 → 流尾一次性汇总留痕丢弃条数
             //（GenResult.reasoningEncrypted 覆盖式只留末条，前条不再无感消失）
             if (tail.discardedReasoningItems > 0) {
-              log.warn('responses', `单回合收到 ${accum.reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${tail.discardedReasoningItems} 条，chat 回传推理状态以末条为准）`)
+              log.warn(
+                'responses',
+                `单回合收到 ${accum.reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${tail.discardedReasoningItems} 条，chat 回传推理状态以末条为准）`,
+              )
             }
             for (const ev of tail.events) yield ev
             return
@@ -338,9 +345,7 @@ export function createOpenAIResponsesProvider(
   }
 }
 
-
 /** 归一化 baseUrl（方案 §4.5 ）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }
-

@@ -8,7 +8,16 @@ import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readBooks, readActive, appendBook, removeBookEntry, removeBookEntryAsync, readBooksStrict, repairBooks, writeActive } from '../../src/install/books.js'
+import {
+  readBooks,
+  readActive,
+  appendBook,
+  removeBookEntry,
+  removeBookEntryAsync,
+  readBooksStrict,
+  repairBooks,
+  writeActive,
+} from '../../src/install/books.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { denyRead } from '../helpers/fs-deny.js'
 
@@ -23,7 +32,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const { armFsNamespace } = await import('../helpers/fs-deny.js')
   return armFsNamespace('fsp', actual)
 })
-
 
 test('低级项（第六轮）：books.jsonl 读取失败（EISDIR）→ 降级空表，不裸抛', () => {
   const wd = mkdtempTracked(join(tmpdir(), 'books-guard-'))
@@ -131,24 +139,27 @@ test('R0912-3 #33 对照: stat ENOENT（首启无 .clwriting）→ 空表语义�
 // appendBookLocked 收编——写段失败不再裸抛。装置沿用 r0912-books-cache-isolate 的
 // darwin `chflags uchg` 锁死 books.jsonl（读/锁成功、rename 落盘必 EPERM），精确命中
 // 写段 catch；其余平台无精确只锁写不锁读的装置，按平台门跳过
-test.skipIf(process.platform !== 'darwin')('R0912-3 #37: removeBookEntry/Async 写段失败 → 跳过留痕不抛，登记与 active 指针留盘', async () => {
-  const wd = mkdtempTracked(join(tmpdir(), 'books-rmfail-'))
-  const fp = join(wd, '.clwriting', 'books.jsonl')
-  try {
-    mkdirSync(join(wd, '.clwriting'))
-    writeFileSync(fp, `${JSON.stringify({ name: '旧书', path: '旧书', kind: 'long' })}\n`)
-    writeActive(wd, '旧书')
-    execFileSync('chflags', ['uchg', fp])
-    expect(() => removeBookEntry(wd, '旧书')).not.toThrow() // 修复前 EPERM 直穿
-    await expect(removeBookEntryAsync(wd, '旧书')).resolves.toBeUndefined() // 异步孪生同口径
-    expect(readFileSync(fp, 'utf-8')).toContain('旧书') // 登记留盘（幽灵条目由启动 repairBooks 报告）
-    expect(readActive(wd)).toBe('旧书') // 指针不被清：写段失败即中止，不留「登记在、指针丢」半态
-  } finally {
+test.skipIf(process.platform !== 'darwin')(
+  'R0912-3 #37: removeBookEntry/Async 写段失败 → 跳过留痕不抛，登记与 active 指针留盘',
+  async () => {
+    const wd = mkdtempTracked(join(tmpdir(), 'books-rmfail-'))
+    const fp = join(wd, '.clwriting', 'books.jsonl')
     try {
-      execFileSync('chflags', ['nouchg', fp])
-    } catch {
-      /* 清理兜底 */
+      mkdirSync(join(wd, '.clwriting'))
+      writeFileSync(fp, `${JSON.stringify({ name: '旧书', path: '旧书', kind: 'long' })}\n`)
+      writeActive(wd, '旧书')
+      execFileSync('chflags', ['uchg', fp])
+      expect(() => removeBookEntry(wd, '旧书')).not.toThrow() // 修复前 EPERM 直穿
+      await expect(removeBookEntryAsync(wd, '旧书')).resolves.toBeUndefined() // 异步孪生同口径
+      expect(readFileSync(fp, 'utf-8')).toContain('旧书') // 登记留盘（幽灵条目由启动 repairBooks 报告）
+      expect(readActive(wd)).toBe('旧书') // 指针不被清：写段失败即中止，不留「登记在、指针丢」半态
+    } finally {
+      try {
+        execFileSync('chflags', ['nouchg', fp])
+      } catch {
+        /* 清理兜底 */
+      }
+      rmSync(wd, { recursive: true, force: true })
     }
-    rmSync(wd, { recursive: true, force: true })
-  }
-})
+  },
+)

@@ -153,7 +153,9 @@ describe('0918四轮修复批 B401: firstBranchMetaSeq 生成列 + 部分索引'
           session_id TEXT PRIMARY KEY, format_version INTEGER NOT NULL DEFAULT 1,
           book TEXT NOT NULL, header TEXT NOT NULL,
           created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`)
-      old.exec("INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at) VALUES ('s-old', 1, '存量书', '{}', 1, 1)")
+      old.exec(
+        "INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at) VALUES ('s-old', 1, '存量书', '{}', 1, 1)",
+      )
       const ins = old.prepare(
         "INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at) VALUES ('s-old', NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, 0, 1)",
       )
@@ -171,10 +173,15 @@ describe('0918四轮修复批 B401: firstBranchMetaSeq 生成列 + 部分索引'
       try {
         const cols = raw.prepare('PRAGMA table_xinfo(events)').all() as Array<{ name: string }>
         expect(cols.some((c) => c.name === 'has_branch_meta')).toBe(true)
-        const idx = raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_branch_meta'").all()
+        const idx = raw
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_branch_meta'")
+          .all()
         expect(idx).toHaveLength(1)
         // 生成列对新旧行一致求值
-        const vals = raw.prepare('SELECT seq, has_branch_meta FROM events ORDER BY seq').all() as Array<{ seq: number; has_branch_meta: number }>
+        const vals = raw.prepare('SELECT seq, has_branch_meta FROM events ORDER BY seq').all() as Array<{
+          seq: number
+          has_branch_meta: number
+        }>
         expect(vals.map((v) => v.has_branch_meta)).toEqual([0, 1, 0])
       } finally {
         raw.close()

@@ -385,16 +385,8 @@ async function onSaveDraft(): Promise<void> {
   <div class="workbench">
     <!-- 对话 tab 切换（仅 chatEnabled 时显示） -->
     <div v-if="prefs.get('chatEnabled')" class="wb-tabs">
-      <button
-        class="wb-tab"
-        :class="{ active: activeTab === 'write' }"
-        @click="activeTab = 'write'"
-      >写作</button>
-      <button
-        class="wb-tab"
-        :class="{ active: activeTab === 'chat' }"
-        @click="activeTab = 'chat'"
-      >对话</button>
+      <button class="wb-tab" :class="{ active: activeTab === 'write' }" @click="activeTab = 'write'">写作</button>
+      <button class="wb-tab" :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">对话</button>
     </div>
 
     <!-- 对话 tab -->
@@ -407,82 +399,87 @@ async function onSaveDraft(): Promise<void> {
 
     <!-- 写作 tab（默认） -->
     <template v-else>
-    <!-- ：AI 不可达置灰提示 -->
-    <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 服务暂不可用（未配置或连接失败），请在「设置 · 服务提供方」页添加并启用提供方。
-    </div>
-    <!-- 任务档位（只读显示，配置在「设置 · 服务提供方」页） -->
-    <section v-if="tierCreative" class="card model-bar">
-      <span class="model-label">创作档</span>
-      <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
-      <span v-if="tierCreative.model" class="tier-meta">
-        Effort {{ tierCreative.effort }}
-      </span>
-    </section>
-    <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
-    <WbStateCard :state="state" @spawn="onSpawn" @acknowledge="onAcknowledgeCrashed" />
+      <!-- ：AI 不可达置灰提示 -->
+      <div v-if="ui.aiAvailable === false" class="ai-warn">
+        AI 服务暂不可用（未配置或连接失败），请在「设置 · 服务提供方」页添加并启用提供方。
+      </div>
+      <!-- 任务档位（只读显示，配置在「设置 · 服务提供方」页） -->
+      <section v-if="tierCreative" class="card model-bar">
+        <span class="model-label">创作档</span>
+        <span class="tier-model">{{ tierCreative.model || '未配置' }}</span>
+        <span v-if="tierCreative.model" class="tier-meta"> Effort {{ tierCreative.effort }} </span>
+      </section>
+      <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
+      <WbStateCard :state="state" @spawn="onSpawn" @acknowledge="onAcknowledgeCrashed" />
 
-    <!-- D1AI 用量卡片（trace-stats byTask 渲染 + 金额口径） -->
-    <WbUsageCard :book-name="bookName" />
+      <!-- D1AI 用量卡片（trace-stats byTask 渲染 + 金额口径） -->
+      <WbUsageCard :book-name="bookName" />
 
-    <!-- 高级（流程可见：事件流 + 规则命中） -->
-    <WbAdvanced :rule-hits="ruleHits" />
+      <!-- 高级（流程可见：事件流 + 规则命中） -->
+      <WbAdvanced :rule-hits="ruleHits" />
 
-    <!-- 触发生成 -->
-    <section class="card">
-      <!-- （-0914）：state 未载入（null）期生成族按钮禁用——chapter 回落 1，
+      <!-- 触发生成 -->
+      <section class="card">
+        <!-- （-0914）：state 未载入（null）期生成族按钮禁用——chapter 回落 1，
           慢网/失败窗内起生成会把「第 1 章」发成实际进度之外的章。加载失败时 state 保持
           null + 上方错误条展示（fail-closed，切书/重载自动重试）。 -->
-      <div class="spawn-row">
-        <input
-          v-model="prompt"
-          class="prompt-input"
-          placeholder="写作提示（可选，留空用角色默认）"
-          :disabled="genBusy"
-          @keydown.enter="onPromptEnter"
-        />
-        <button v-if="!genBusy" class="btn primary" :disabled="state === null || ui.aiAvailable === false || spawnPending" @click="onSpawn">生成</button>
-        <button v-else class="btn danger" :disabled="interruptPending" @click="onInterrupt">中断</button>
-        <button
-          class="btn"
-          :disabled="state === null || genBusy || ui.aiAvailable === false"
-          title="AI 生成本章细纲（写稿前的语境准备，全自动写章可读）"
-          @click="onOutline"
-        >
-          {{ outlinePending ? '细纲生成中…' : '生成细纲' }}
-        </button>
-        <!-- ：账本推进/全自动写章两钮原挂 v-if="!genBusy"——pending 期
+        <div class="spawn-row">
+          <input
+            v-model="prompt"
+            class="prompt-input"
+            placeholder="写作提示（可选，留空用角色默认）"
+            :disabled="genBusy"
+            @keydown.enter="onPromptEnter"
+          />
+          <button
+            v-if="!genBusy"
+            class="btn primary"
+            :disabled="state === null || ui.aiAvailable === false || spawnPending"
+            @click="onSpawn"
+          >
+            生成
+          </button>
+          <button v-else class="btn danger" :disabled="interruptPending" @click="onInterrupt">中断</button>
+          <button
+            class="btn"
+            :disabled="state === null || genBusy || ui.aiAvailable === false"
+            title="AI 生成本章细纲（写稿前的语境准备，全自动写章可读）"
+            @click="onOutline"
+          >
+            {{ outlinePending ? '细纲生成中…' : '生成细纲' }}
+          </button>
+          <!-- ：账本推进/全自动写章两钮原挂 v-if="!genBusy"——pending 期
              （genBusy 置位）按钮整体消失，「推进草拟中…」「写章启动中…」两段文案成
              死代码不可达。对齐上方「生成细纲」钮的既有口径：恒渲染、genBusy 期禁用，
              在途文案才可达。 -->
-        <button
-          class="btn"
-          :disabled="state === null || genBusy || ui.aiAvailable === false"
-          title="W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md），定稿时确认回写布线履历"
-          @click="onLeadUpdates"
-        >
-          {{ leadUpdatesPending ? '推进草拟中…' : '生成账本推进' }}
-        </button>
-        <button
-          class="btn auto"
-          :disabled="state === null || genBusy || ui.aiAvailable === false"
-          title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
-          @click="onAutoWrite"
-        >
-          <Sparkles :size="14" />
-          {{ autoPending ? '写章启动中…' : '全自动写章' }}
-        </button>
-      </div>
-    </section>
+          <button
+            class="btn"
+            :disabled="state === null || genBusy || ui.aiAvailable === false"
+            title="W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md），定稿时确认回写布线履历"
+            @click="onLeadUpdates"
+          >
+            {{ leadUpdatesPending ? '推进草拟中…' : '生成账本推进' }}
+          </button>
+          <button
+            class="btn auto"
+            :disabled="state === null || genBusy || ui.aiAvailable === false"
+            title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
+            @click="onAutoWrite"
+          >
+            <Sparkles :size="14" />
+            {{ autoPending ? '写章启动中…' : '全自动写章' }}
+          </button>
+        </div>
+      </section>
 
-    <!-- 全自动写章：进度 + 终局（红项只在重试触顶后才流到作者） -->
-    <WbHealCard />
+      <!-- 全自动写章：进度 + 终局（红项只在重试触顶后才流到作者） -->
+      <WbHealCard />
 
-    <!-- 生成正文（默认主区：作者看到的是文章，不是事件日志） -->
-    <!-- ：genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
-    <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" :gen-busy="genBusy" @save="onSaveDraft" />
+      <!-- 生成正文（默认主区：作者看到的是文章，不是事件日志） -->
+      <!-- ：genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
+      <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" :gen-busy="genBusy" @save="onSaveDraft" />
 
-    <div v-if="err" class="err-msg">{{ err }}</div>
+      <div v-if="err" class="err-msg">{{ err }}</div>
     </template>
   </div>
 </template>

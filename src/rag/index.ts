@@ -46,12 +46,7 @@ import {
 import { embed } from './embed.js'
 import type { RagConfig } from './config.js'
 import { log } from '../log/index.js'
-import {
-  embedOptionsFor,
-  ragIndexStateOfOpenDb,
-  dedupeChaptersByNumber,
-  chapterFingerprintFresh,
-} from './build.js'
+import { embedOptionsFor, ragIndexStateOfOpenDb, dedupeChaptersByNumber, chapterFingerprintFresh } from './build.js'
 
 // re-export 桥：拆出件的既有导出面逐名透传，消费方 import 面零改动。
 export { chunkBody, type TextChunk } from './chunk.js'
@@ -189,7 +184,12 @@ export async function recallDetailed(
       // 空库早退附索引三态——「从未建索引」（unbuilt）与「重建清空后可用」
       //（cleared）可区分（此前两者同样静默空手，与损坏库（开库即抛）在消费方视角
       // 不可分辨，排障无从下手）；不烧 API 调用的早退语义不变
-      return { hits: [], truncated: false, totalBlocks: 0, indexState: ragIndexStateOfOpenDb(db) === 'cleared' ? 'cleared' : 'unbuilt' }
+      return {
+        hits: [],
+        truncated: false,
+        totalBlocks: 0,
+        indexState: ragIndexStateOfOpenDb(db) === 'cleared' ? 'cleared' : 'unbuilt',
+      }
     }
     indexedDim = getRagMeta(db, 'embedding_dim')
   } finally {
@@ -237,7 +237,10 @@ export async function recallDetailed(
       // signal 透传进流式打分循环（行级检查点，见 store.ts streamChunkScores）
       const scanned = streamChunkScores(db2, queryVec, config.model, warnThreshold + 1, opts?.signal)
       if (scanned.poisonRows > 0) {
-        log.warn('rag', `RAG 库含 ${scanned.poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
+        log.warn(
+          'rag',
+          `RAG 库含 ${scanned.poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`,
+        )
       }
       totalBlocks = scanned.produced
       if (scanned.produced >= warnThreshold) {
@@ -254,7 +257,10 @@ export async function recallDetailed(
         // 不翻转信号（早停语义已由 warn 日志承载）。
         truncated = scanned.produced > warnThreshold && scanned.lastProducedWasMatch
         if (truncated) scanned.rows.pop()
-        log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
+        log.warn(
+          'rag',
+          `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`,
+        )
       }
       rows = scanned.rows
       // 指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用

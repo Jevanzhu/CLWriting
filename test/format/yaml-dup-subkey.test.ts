@@ -9,13 +9,9 @@ import { test, expect } from 'vitest'
 import { parseBookConfig } from '../../src/format/yaml.js'
 
 test('R57-D-1: budget 段重复子键 → fail-loud（后值不再静默覆盖前值）', () => {
-  const out = parseBookConfig([
-    'spec_version: 1',
-    'budget:',
-    '  calls_per_chapter: 8',
-    '  calls_per_chapter: 9',
-    '',
-  ].join('\n'))
+  const out = parseBookConfig(
+    ['spec_version: 1', 'budget:', '  calls_per_chapter: 8', '  calls_per_chapter: 9', ''].join('\n'),
+  )
   expect(out.ok).toBe(false)
   if (!out.ok) {
     // 报错文案镜像 findChild（R73-21）既有形态，不自创第三种口径
@@ -25,14 +21,9 @@ test('R57-D-1: budget 段重复子键 → fail-loud（后值不再静默覆盖�
 })
 
 test('R57-D-1: leads.thresholds 段重复子键 → fail-loud（后值不再静默覆盖前值）', () => {
-  const out = parseBookConfig([
-    'leads:',
-    '  enabled: [布局线]',
-    '  thresholds:',
-    '    布局线: 20',
-    '    布局线: 50',
-    '',
-  ].join('\n'))
+  const out = parseBookConfig(
+    ['leads:', '  enabled: [布局线]', '  thresholds:', '    布局线: 20', '    布局线: 50', ''].join('\n'),
+  )
   expect(out.ok).toBe(false)
   if (!out.ok) {
     expect(out.error.message).toContain('顶层段「thresholds」内子键「布局线」重复')
@@ -41,18 +32,20 @@ test('R57-D-1: leads.thresholds 段重复子键 → fail-loud（后值不再静�
 })
 
 test('R57-D-1: 无重复子键时行为不变（budget/thresholds 正常解析、后值覆盖面不扩大）', () => {
-  const out = parseBookConfig([
-    'budget:',
-    '  calls_per_chapter: 8',
-    '  input_per_chapter: 80000',
-    '',
-    'leads:',
-    '  enabled: [布局线, 成长线]',
-    '  thresholds:',
-    '    布局线: 20',
-    '    成长线: 50',
-    '',
-  ].join('\n'))
+  const out = parseBookConfig(
+    [
+      'budget:',
+      '  calls_per_chapter: 8',
+      '  input_per_chapter: 80000',
+      '',
+      'leads:',
+      '  enabled: [布局线, 成长线]',
+      '  thresholds:',
+      '    布局线: 20',
+      '    成长线: 50',
+      '',
+    ].join('\n'),
+  )
   expect(out.ok).toBe(true)
   if (out.ok) {
     expect(out.config.budget.calls_per_chapter).toBe(8)

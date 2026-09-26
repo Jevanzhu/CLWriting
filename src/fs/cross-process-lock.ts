@@ -188,10 +188,7 @@ export function queryLockHeld(
  * 非阻塞占锁：成功返回 release（幂等）；锁被活进程持有（或等待超时语义外的调用方
  * 自行决策）返回 null。EEXIST 时做 stale 判定与接管（至多重试一次，防竞态循环）。
  */
-export function tryAcquireCrossProcessLock(
-  lockPath: string,
-  opts?: CrossProcessLockOptions,
-): (() => void) | null {
+export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcessLockOptions): (() => void) | null {
   const isAlive = opts?.isProcessAlive ?? isProcessAlive
   const grace = opts?.staleGraceMs ?? STALE_GRACE_MS
   const jitterMax = opts?.staleTakeoverJitterMs ?? STALE_TAKEOVER_JITTER_MS
@@ -205,7 +202,7 @@ export function tryAcquireCrossProcessLock(
       // 半写残 JSON 锁文件会被对手判「坏锁」接管（双持锁）——循环写满为止
       const payload = JSON.stringify({ pid: process.pid, bootTime: processBootTime() })
       const buf = Buffer.from(payload, 'utf8')
-      for (let off = 0; off < buf.length; ) {
+      for (let off = 0; off < buf.length;) {
         off += writeSync(fd, buf, off, buf.length - off)
       }
       let released = false

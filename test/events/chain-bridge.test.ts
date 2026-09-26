@@ -89,11 +89,28 @@ describe('F1-P2 ChainRecorder', () => {
     // 用真实 store 验证 add 生效（集成点在 chain-events.test.ts，这里验证错误路径静默）
     // 构造一个 appendEvents 抛错的假 store：add/flush/close 不应抛
     const badStore = {
-      appendEvents: () => { throw new Error('disk full') },
-      close: () => { throw new Error('close fail') },
-    } as never;
+      appendEvents: () => {
+        throw new Error('disk full')
+      },
+      close: () => {
+        throw new Error('close fail')
+      },
+    } as never
     const r = new ChainRecorder(badStore, 'ws-x')
-    expect(() => r.add(llmCallEvent({ runId: 'r', task: 't', tierKind: 'creative', model: 'm', attempt: 0, stopReason: 'end_turn', durationMs: 1, ok: true }))).not.toThrow()
+    expect(() =>
+      r.add(
+        llmCallEvent({
+          runId: 'r',
+          task: 't',
+          tierKind: 'creative',
+          model: 'm',
+          attempt: 0,
+          stopReason: 'end_turn',
+          durationMs: 1,
+          ok: true,
+        }),
+      ),
+    ).not.toThrow()
     expect(() => r.close()).not.toThrow()
   })
 
@@ -116,7 +133,18 @@ describe('F1-P2 ChainRecorder', () => {
     const { calls, store } = recordingStore()
     const r = new ChainRecorder(store, 'ws-x')
     r.add(stepStartEvent('chat', 'chat'))
-    r.add(llmCallEvent({ runId: 'r', task: 'chat', tierKind: 'creative', model: 'm', attempt: 0, stopReason: 'end_turn', durationMs: 1, ok: true }))
+    r.add(
+      llmCallEvent({
+        runId: 'r',
+        task: 'chat',
+        tierKind: 'creative',
+        model: 'm',
+        attempt: 0,
+        stopReason: 'end_turn',
+        durationMs: 1,
+        ok: true,
+      }),
+    )
     r.add(stepEndEvent('chat', 'chat', 'completed'))
     expect(calls).toHaveLength(0) // 未 flush 前零事务
     r.close()
@@ -173,7 +201,12 @@ describe('F1-P2 ChainRecorder', () => {
   })
 
   it('O-1（第十三轮）持续失败超上限丢最旧（256 上限防无限增长）', () => {
-    const badStore = { appendEvents: () => { throw new Error('disk full') }, close: () => {} } as never
+    const badStore = {
+      appendEvents: () => {
+        throw new Error('disk full')
+      },
+      close: () => {},
+    } as never
     const r = new ChainRecorder(badStore, 'ws-x')
     for (let i = 0; i < 300; i++) {
       r.add(llmRetryEvent({ attempt: i, delayMs: 1 }))
@@ -186,14 +219,17 @@ describe('F1-P2 ChainRecorder', () => {
     // 通过行为反推内部上限：再成功落一次库，总量 = buffer 现存条数
     const calls: unknown[][] = []
     const store = {
-      appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return [] },
+      appendEvents: (_sid: string, events: unknown[]) => {
+        calls.push(events)
+        return []
+      },
       close: () => {},
     } as never
     ;(r as unknown as { store: unknown }).store = store
     r.close()
     const total = calls.reduce((n, c) => n + (c as unknown[]).length, 0)
     expect(total).toBe(256)
-    const last = (calls[calls.length - 1]! as { data: { attempt: number } }[])
+    const last = calls[calls.length - 1]! as { data: { attempt: number } }[]
     expect(last[last.length - 1]!.data.attempt).toBe(299)
   })
 })
@@ -238,8 +274,12 @@ describe('R66-4: ChainRecorder 写失败留痕（丢事件 = 丢「已记录」�
     try {
       const closed: string[] = []
       const store = {
-        appendEvents: () => { throw new Error('disk full') },
-        close: () => { closed.push('closed') },
+        appendEvents: () => {
+          throw new Error('disk full')
+        },
+        close: () => {
+          closed.push('closed')
+        },
       } as never
       const r = new ChainRecorder(store, 'ws-x')
       r.add(stepStartEvent('chat', 'chat'))
@@ -248,7 +288,11 @@ describe('R66-4: ChainRecorder 写失败留痕（丢事件 = 丢「已记录」�
       // flush 失败 warn（R66-4 第一处）+ close 残留丢弃 warn（第二处）
       const msgs = warn.mock.calls.map((c) => String(c[1]))
       expect(msgs.some((m) => m.includes('ChainRecorder 批落库失败'))).toBe(true)
-      expect(msgs.some((m) => m.includes('ChainRecorder close：残留 2 条') && m.includes('step/start') && m.includes('check/report'))).toBe(true)
+      expect(
+        msgs.some(
+          (m) => m.includes('ChainRecorder close：残留 2 条') && m.includes('step/start') && m.includes('check/report'),
+        ),
+      ).toBe(true)
       expect(closed).toEqual(['closed']) // 留痕不炸收尾：store 照常关闭
     } finally {
       warn.mockRestore()
@@ -260,7 +304,10 @@ describe('R66-4: ChainRecorder 写失败留痕（丢事件 = 丢「已记录」�
     try {
       const calls: unknown[][] = []
       const store = {
-        appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return events.map((_, i) => i + 1) },
+        appendEvents: (_sid: string, events: unknown[]) => {
+          calls.push(events)
+          return events.map((_, i) => i + 1)
+        },
         close: () => {},
       } as never
       const r = new ChainRecorder(store, 'ws-x')
@@ -280,7 +327,10 @@ describe('R50-A-3: ChainRecorder close 后迟到 add 早退（守卫只挡 close
     try {
       const calls: unknown[][] = []
       const store = {
-        appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return events.map((_, i) => i + 1) },
+        appendEvents: (_sid: string, events: unknown[]) => {
+          calls.push(events)
+          return events.map((_, i) => i + 1)
+        },
         close: () => {},
       } as never
       const r = new ChainRecorder(store, 'ws-x')
@@ -351,4 +401,3 @@ describe('F1-P3 血缘事件构造器', () => {
     expect(assistantMessageEvent('ok')).not.toHaveProperty('sourceSeqs')
   })
 })
-

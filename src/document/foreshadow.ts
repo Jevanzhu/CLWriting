@@ -12,7 +12,7 @@
 
 import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
+import { readFile, parseFlat, stringifyValue } from '../format/frontmatter.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readMdTextCached, forgetMdTextCacheForBook } from '../fs/md-text-cache.js'
 import { readLead } from '../format/leads.js'
@@ -100,9 +100,10 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     const lead = r.lead
     const title = lead.标题 || lead.编号
     const status = LEGACY_STATUS_MAP[lead.状态] ?? '未回收'
-    const historyLines = lead.履历.length > 0
-      ? ['推进记录：', ...lead.履历.map((h) => `- 第${h.章号}章 ${h.动词}：${h.证据}`)].join('\n')
-      : '（无推进记录）'
+    const historyLines =
+      lead.履历.length > 0
+        ? ['推进记录：', ...lead.履历.map((h) => `- 第${h.章号}章 ${h.动词}：${h.证据}`)].join('\n')
+        : '（无推进记录）'
     // 值走 stringifyValue——标题含 # 时直拼会被读侧行内注释剥截、
     // 含逗号时关联词切分错位；引号化承载与读侧 parseFlat 对称
     // -（全量代码）：标题含逗号时关联词改数组单项承载
@@ -202,14 +203,17 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     const 关联词trim = String(关联词val ?? '').trim()
     const 关联词list = Array.isArray(关联词val)
       ? 关联词val.map((s) => String(s).trim()).filter(Boolean)
-      // 收口·拍板快断批（作者指令「按建议顺序开工」）：旧迁移存量
-      // 「关联词 = 标题整词且标题含逗号」读侧不劈分、整词单项——与数组承载及「无关联词
-      // 回落标题」的整词口径对称，收回数组化写侧落地前的存量；表单逗号输入 ≠ 标题
-      // 整词时维持词表劈分不受影响
-      : 关联词trim !== '' && 关联词trim === 标题v.trim() && /[,，]/.test(标题v)
+      : // 收口·拍板快断批（作者指令「按建议顺序开工」）：旧迁移存量
+        // 「关联词 = 标题整词且标题含逗号」读侧不劈分、整词单项——与数组承载及「无关联词
+        // 回落标题」的整词口径对称，收回数组化写侧落地前的存量；表单逗号输入 ≠ 标题
+        // 整词时维持词表劈分不受影响
+        关联词trim !== '' && 关联词trim === 标题v.trim() && /[,，]/.test(标题v)
         ? [关联词trim]
-        // 中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
-        : String(关联词val ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+        : // 中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
+          String(关联词val ?? '')
+            .split(/[,，]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
     items.push({
       file: `设定/伏笔/${f}`,
       标题: 标题v,
@@ -278,10 +282,8 @@ const RISK_ORDER: Record<ForeshadowTrail['risk'], number> = { 绿: 0, 黄: 1, �
 function mergeTrails(a: ForeshadowTrail, b: ForeshadowTrail, latestChapter: number): ForeshadowTrail {
   const hits = [...a.hits, ...b.hits].sort((x, y) => x.章号 - y.章号)
   // null = 无埋设章号也无命中，不参与极值比较
-  const min = (x: number | null, y: number | null): number | null =>
-    x === null ? y : y === null ? x : Math.min(x, y)
-  const max = (x: number | null, y: number | null): number | null =>
-    x === null ? y : y === null ? x : Math.max(x, y)
+  const min = (x: number | null, y: number | null): number | null => (x === null ? y : y === null ? x : Math.min(x, y))
+  const max = (x: number | null, y: number | null): number | null => (x === null ? y : y === null ? x : Math.max(x, y))
   const firstHit = min(a.firstHit, b.firstHit)
   const lastHit = max(a.lastHit, b.lastHit)
   // 悬置跨度按合并后的末次提及重算（最远提及决定悬置）
@@ -304,10 +306,7 @@ function mergeTrails(a: ForeshadowTrail, b: ForeshadowTrail, latestChapter: numb
  * @param foreshadows 伏笔列表（来自 readForeshadows）
  * @returns Map<标题, 足迹>（同标题伏笔合并为一条足迹，见 mergeTrails——存量读方按标题 get 不变）
  */
-export function scanForeshadowTrails(
-  bookRoot: string,
-  foreshadows: ForeshadowEntry[],
-): Map<string, ForeshadowTrail> {
+export function scanForeshadowTrails(bookRoot: string, foreshadows: ForeshadowEntry[]): Map<string, ForeshadowTrail> {
   const chapters = collectChapterTexts(bookRoot)
   const latestChapter = chapters.size > 0 ? Math.max(...chapters.keys()) : 0
 
@@ -362,11 +361,8 @@ function aggregateTrails(
           // journal.ts truncateSnapshotHeadTail 切点回退手法；半径语义随之 ±1 码元
           // 浮动，可接受。
           if (start > 0 && isLowSurrogate(text.charCodeAt(start))) start--
-          if (
-            end < text.length &&
-            isHighSurrogate(text.charCodeAt(end - 1)) &&
-            isLowSurrogate(text.charCodeAt(end))
-          ) end--
+          if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end)))
+            end--
           hits.push({ 章号, 命中词: kw, 命中片段: text.slice(start, end) })
         }
       }
@@ -380,8 +376,7 @@ function aggregateTrails(
     const lastHit = trailLast ?? f.埋设章号
     const staleSpan = lastHit !== null ? Math.max(0, latestChapter - lastHit) : 0
     const threshold = RISK_THRESHOLDS[f.重要性] ?? RISK_THRESHOLDS['中']!
-    const risk: '红' | '黄' | '绿' =
-      staleSpan > threshold ? '红' : staleSpan > threshold * 0.7 ? '黄' : '绿'
+    const risk: '红' | '黄' | '绿' = staleSpan > threshold ? '红' : staleSpan > threshold * 0.7 ? '黄' : '绿'
 
     setTrail(f.标题, { hits, firstHit, lastHit, staleSpan, risk })
   }
@@ -413,12 +408,7 @@ function buildKeywordIndex(
 /** 单章联合正则扫描入索引：buildKeywordIndex 与
  *  buildKeywordIndexAsync 原逐字重复的 exec 循环抽出单源（含防零宽匹配死循环防御）；
  *  异步版只承担按片让出事件循环的编排。 */
-function scanChapterIntoIndex(
-  index: Map<string, Map<number, number[]>>,
-  re: RegExp,
-  章号: number,
-  text: string,
-): void {
+function scanChapterIntoIndex(index: Map<string, Map<number, number[]>>, re: RegExp, 章号: number, text: string): void {
   re.lastIndex = 0
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
@@ -461,7 +451,10 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
   const keywords = collectTrailKeywords(foreshadows)
   if (keywords.size === 0) return null
   return new RegExp(
-    [...keywords].map(escapeRegExp).sort((a, b) => b.length - a.length).join('|'),
+    [...keywords]
+      .map(escapeRegExp)
+      .sort((a, b) => b.length - a.length)
+      .join('|'),
     'g',
   )
 }
@@ -621,7 +614,10 @@ function collectOneChapterFile(
   // 跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
   // 那章算，前一章的证据整章不可见）；保留现覆盖行为，补 warn 可见性供作者核对
   if (texts.has(章号)) {
-    log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
+    log.warn(
+      'foreshadow',
+      `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`,
+    )
   }
   // 并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
   const raw = readMdTextCached(abs)

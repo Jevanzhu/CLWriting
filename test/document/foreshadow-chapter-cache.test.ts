@@ -36,7 +36,11 @@ beforeEach(() => {
   const vol = join(root, '写作', '正文', '第一卷')
   mkdirSync(vol, { recursive: true })
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
-  writeFileSync(join(root, '设定', '伏笔', '玉佩.md'), '---\n标题: 玉佩\n状态: 未回收\n重要性: 高\n关联词: 玉佩\n---\n', 'utf-8')
+  writeFileSync(
+    join(root, '设定', '伏笔', '玉佩.md'),
+    '---\n标题: 玉佩\n状态: 未回收\n重要性: 高\n关联词: 玉佩\n---\n',
+    'utf-8',
+  )
   p1 = join(vol, '0001-埋.md')
   p2 = join(vol, '0002-承.md')
   writeFileSync(p1, '---\n章号: 1\n标题: 埋\n---\n他摸了摸胸前的玉佩。\n', 'utf-8')

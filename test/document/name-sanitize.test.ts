@@ -65,29 +65,32 @@ describe('C-3 / 回收站落名消毒', () => {
   // Windows 物理不可能（夹具第一步 writeFileSync 即 ENOENT），「清单登记未消毒名且盘上
   // 同名文件存在」这一前提在 win 上不可构造。skipIf 不修语义：消毒落名逻辑由纯函数
   // 单测（format/filename）与本用例的 mac/Linux CI 腿覆盖。
-  it.skipIf(process.platform === 'win32')('登记路径含非法字符 → .trash 落名消毒，TrashEntry.trashedPath 记真实落位', async () => {
-    // 手工造一个未消毒名的登记文档（POSIX 盘上合法 `?`；清单可篡改数据面不保证消毒）
-    const dir = join(bookRoot, '笔记')
-    mkdirSync(dir, { recursive: true })
-    const rawRel = '笔记/0001-怪?名.md'
-    writeFileSync(join(dir, '0001-怪?名.md'), '---\n标题: x\n---\n\n内容\n', 'utf-8')
-    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-    mkdirSync(dirname(manifestPath), { recursive: true })
-    writeManifest(manifestPath, {
-      version: 1,
-      entries: new Map([['doc_t1', { id: 'doc_t1', nodeType: 'document', path: rawRel, parentId: null }]]),
-    })
-    const r = await svc.trashDocument({ docId: 'doc_t1' })
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-    // 落名消毒：`?` → `_`；登记与盘上落位一致（还原链不断）
-    expect(r.trashedPath).toBe('工作区/.trash/doc_t1-0001-怪_名.md')
-    expect(existsSync(join(bookRoot, ...r.trashedPath.split('/')))).toBe(true)
-    const entry = listTrash(bookRoot).find((e) => e.id === 'doc_t1')
-    expect(entry?.trashedPath).toBe('工作区/.trash/doc_t1-0001-怪_名.md')
-    // 原位文件已移走
-    expect(existsSync(join(dir, '0001-怪?名.md'))).toBe(false)
-    // 时间戳后缀重试链与消毒名同源（回归钉：stem/ext 从消毒名拆分）
-    expect(readFileSync(join(bookRoot, ...r.trashedPath.split('/')), 'utf-8')).toContain('内容')
-  })
+  it.skipIf(process.platform === 'win32')(
+    '登记路径含非法字符 → .trash 落名消毒，TrashEntry.trashedPath 记真实落位',
+    async () => {
+      // 手工造一个未消毒名的登记文档（POSIX 盘上合法 `?`；清单可篡改数据面不保证消毒）
+      const dir = join(bookRoot, '笔记')
+      mkdirSync(dir, { recursive: true })
+      const rawRel = '笔记/0001-怪?名.md'
+      writeFileSync(join(dir, '0001-怪?名.md'), '---\n标题: x\n---\n\n内容\n', 'utf-8')
+      const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+      mkdirSync(dirname(manifestPath), { recursive: true })
+      writeManifest(manifestPath, {
+        version: 1,
+        entries: new Map([['doc_t1', { id: 'doc_t1', nodeType: 'document', path: rawRel, parentId: null }]]),
+      })
+      const r = await svc.trashDocument({ docId: 'doc_t1' })
+      expect(r.ok).toBe(true)
+      if (!r.ok) return
+      // 落名消毒：`?` → `_`；登记与盘上落位一致（还原链不断）
+      expect(r.trashedPath).toBe('工作区/.trash/doc_t1-0001-怪_名.md')
+      expect(existsSync(join(bookRoot, ...r.trashedPath.split('/')))).toBe(true)
+      const entry = listTrash(bookRoot).find((e) => e.id === 'doc_t1')
+      expect(entry?.trashedPath).toBe('工作区/.trash/doc_t1-0001-怪_名.md')
+      // 原位文件已移走
+      expect(existsSync(join(dir, '0001-怪?名.md'))).toBe(false)
+      // 时间戳后缀重试链与消毒名同源（回归钉：stem/ext 从消毒名拆分）
+      expect(readFileSync(join(bookRoot, ...r.trashedPath.split('/')), 'utf-8')).toContain('内容')
+    },
+  )
 })

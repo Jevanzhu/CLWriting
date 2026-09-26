@@ -182,7 +182,11 @@ function onRelationOverrideToggle(on: boolean): void {
     bookAutoMine.value = effAutoMine.value
     bookMineThreshold.value = effMineThreshold.value
     void saveConfig((c) => {
-      c.auto = { ...(c.auto ?? {}), relation_auto_mine: effAutoMine.value, relation_mine_threshold: effMineThreshold.value }
+      c.auto = {
+        ...(c.auto ?? {}),
+        relation_auto_mine: effAutoMine.value,
+        relation_mine_threshold: effMineThreshold.value,
+      }
     })
   } else {
     bookAutoMine.value = null
@@ -431,26 +435,60 @@ onUnmounted(() => {
   <template v-if="bookKind === 'short'">
     <div class="cfg-card-head">AI 机检</div>
     <section class="cfg-card">
-      <SettingToggle name="本书使用独立设定" ariaLabel="AI 机检使用独立设定" :checked="shortOverride" @change="onShortOverrideToggle">
+      <SettingToggle
+        name="本书使用独立设定"
+        ariaLabel="AI 机检使用独立设定"
+        :checked="shortOverride"
+        @change="onShortOverrideToggle"
+      >
         <template #desc>
           当前生效 {{ effShortStrict ? '严格' : '常规' }}{{ shortOverride ? '' : '（跟随全局默认）' }}
         </template>
       </SettingToggle>
-      <SettingToggle v-if="shortOverride" sub name="短篇严格模式" ariaLabel="短篇严格模式" :checked="bookShortStrict ?? effShortStrict" @change="onShortStrictToggle" />
+      <SettingToggle
+        v-if="shortOverride"
+        sub
+        name="短篇严格模式"
+        ariaLabel="短篇严格模式"
+        :checked="bookShortStrict ?? effShortStrict"
+        @change="onShortStrictToggle"
+      />
     </section>
   </template>
 
   <div class="cfg-card-head">关系图 <BetaBadge /></div>
   <section class="cfg-card">
-    <SettingToggle name="本书使用独立设定" ariaLabel="关系图使用独立设定" :checked="relationOverride" @change="onRelationOverrideToggle">
+    <SettingToggle
+      name="本书使用独立设定"
+      ariaLabel="关系图使用独立设定"
+      :checked="relationOverride"
+      @change="onRelationOverrideToggle"
+    >
       <template #desc>
-        当前生效 自动梳理{{ effAutoMine ? '开' : '关' }} · 增量 {{ effMineThreshold }} 章{{ relationOverride ? '' : '（跟随全局默认）' }}
+        当前生效 自动梳理{{ effAutoMine ? '开' : '关' }} · 增量 {{ effMineThreshold }} 章{{
+          relationOverride ? '' : '（跟随全局默认）'
+        }}
       </template>
     </SettingToggle>
     <template v-if="relationOverride">
-      <SettingToggle sub name="自动梳理" ariaLabel="关系图自动梳理" :checked="bookAutoMine ?? effAutoMine" @change="onBookAutoMineToggle" />
+      <SettingToggle
+        sub
+        name="自动梳理"
+        ariaLabel="关系图自动梳理"
+        :checked="bookAutoMine ?? effAutoMine"
+        @change="onBookAutoMineToggle"
+      />
       <SettingItem sub name="章节增量阈值">
-        <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值" :value="bookMineThreshold ?? effMineThreshold" @change="onMineThresholdInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="1"
+          max="20"
+          step="1"
+          aria-label="章节增量阈值"
+          :value="bookMineThreshold ?? effMineThreshold"
+          @change="onMineThresholdInput($event)"
+        />
         <span class="val-suffix">章</span>
       </SettingItem>
     </template>
@@ -458,16 +496,32 @@ onUnmounted(() => {
 
   <div class="cfg-card-head">知识检索 <BetaBadge /></div>
   <section class="cfg-card">
-    <SettingToggle name="本书使用独立设定" ariaLabel="知识检索使用独立设定" :checked="ragOverride" @change="onRagOverrideToggle">
+    <SettingToggle
+      name="本书使用独立设定"
+      ariaLabel="知识检索使用独立设定"
+      :checked="ragOverride"
+      @change="onRagOverrideToggle"
+    >
       <template #desc>
-        当前生效 {{ effRagEnabled ? '已启用' : '未启用' }} · 提供方 {{ ragLegacy ? '旧版内联配置' : providerLabel(effRagProvider) }}{{ ragOverride ? '' : '（跟随全局默认）' }}
+        当前生效 {{ effRagEnabled ? '已启用' : '未启用' }} · 提供方
+        {{ ragLegacy ? '旧版内联配置' : providerLabel(effRagProvider) }}{{ ragOverride ? '' : '（跟随全局默认）' }}
       </template>
     </SettingToggle>
     <template v-if="ragOverride">
-      <SettingToggle sub name="启用检索" ariaLabel="启用知识检索" :checked="bookRagEnabled ?? effRagEnabled" @change="onBookRagToggle" />
+      <SettingToggle
+        sub
+        name="启用检索"
+        ariaLabel="启用知识检索"
+        :checked="bookRagEnabled ?? effRagEnabled"
+        @change="onBookRagToggle"
+      />
       <SettingItem v-if="bookRagEnabled" sub name="检索提供方">
         <template #desc>
-          {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
+          {{
+            ragProviders.length
+              ? '嵌入提供方在「服务提供方」页管理，此处选本书用哪个'
+              : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方'
+          }}
         </template>
         <select
           class="rag-prov-select"
@@ -483,12 +537,22 @@ onUnmounted(() => {
     </template>
     <!-- 建索引：书级生效启用即可建（含跟随全局默认启用）；挂在两组之后（原交互不变） -->
     <div v-if="effRagEnabled" class="rag-build-row">
-      <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
+      <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">
+        {{ ragBuilding ? '构建中…' : '建立索引' }}
+      </button>
       <!-- ①（win 线，骨架）/ （mac 线，merge 并入）：失配/
            失败指向重建时的程序化出路——清库重建（服务端 rebuild）。增量「建立索引」对
            失配索引只会报错，重建是唯一出路；构建中与建立索引同锁禁用（按钮文案保留 mac 线的
            「重建中…」动态反馈，点击后出口可见） -->
-      <button v-if="ragNeedsRebuild" class="save-btn" aria-label="重建索引" @click="startRagRebuild" :disabled="ragBuilding">{{ ragBuilding ? '重建中…' : '重建索引' }}</button>
+      <button
+        v-if="ragNeedsRebuild"
+        class="save-btn"
+        aria-label="重建索引"
+        @click="startRagRebuild"
+        :disabled="ragBuilding"
+      >
+        {{ ragBuilding ? '重建中…' : '重建索引' }}
+      </button>
       <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
       <!-- （mac 线，并合保留）：失配呈现侧提示——服务端 lastResult.error 的失配
            报文含机器端点字样（POST /rag/rebuild），状态文案之外再给一行人话出路与影响面

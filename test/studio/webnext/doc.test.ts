@@ -32,7 +32,7 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
 
-import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents';
+import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents'
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
@@ -431,7 +431,10 @@ describe('P5-前端（第七轮）：save 在途切书 → 成功分支不写新
     doc.patch('d-sw', '改后的内容')
     let resolveSave: (v: SaveOk) => void = () => {}
     vi.mocked(saveContent).mockImplementationOnce(
-      () => new Promise((r) => { resolveSave = r as (v: SaveOk) => void }) as Promise<SaveOk>,
+      () =>
+        new Promise((r) => {
+          resolveSave = r as (v: SaveOk) => void
+        }) as Promise<SaveOk>,
     )
     const p = doc.save('d-sw', 'manual')
     doc.setBook('B书') // 请求在途切书
@@ -447,7 +450,12 @@ describe('Q-3（第十五轮）：flushDirty 循环冲排', () => {
     doc.patch('d-q3', 'b')
     let resolve1!: (v: SaveOk | PromiseLike<SaveOk>) => void
     vi.mocked(saveContent)
-      .mockImplementationOnce(() => new Promise((r) => { resolve1 = r }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolve1 = r
+          }),
+      )
       .mockImplementationOnce(async () => ({ ok: true, revision: 'sha256:2', superseded: false }))
 
     const flushing = doc.flushDirty()

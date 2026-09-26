@@ -18,7 +18,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-foreshadows-async-',
     dirs: ['设定/伏笔', '写作/正文'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 伏笔异步端点书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 伏笔异步端点书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     env: { CLWRITING_DRIVER: 'mock' },
   })
 })

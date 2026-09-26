@@ -9,12 +9,7 @@ import { rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import {
-  loadProviders,
-  saveProviders,
-  emptySettings,
-  tierFromStore,
-} from '../../../src/ai/provider/store.js'
+import { loadProviders, saveProviders, emptySettings, tierFromStore } from '../../../src/ai/provider/store.js'
 import type { ProviderConf } from '../../../src/ai/provider/types.js'
 import type { ProviderStore } from '../../../src/ai/provider/store.js'
 
@@ -114,8 +109,15 @@ test('判据5: 半迁移(vault+明文并存)→vault优先，明文补迁移后�
   // 手动加一个明文 provider + 给 prov-a 留明文残留（模拟写入中断）
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   raw.providers.push({
-    id: 'prov-b', name: '补充', protocol: 'openai', auth: 'bearer',
-    baseUrl: 'https://x.com', model: 'm', apiKey: 'sk-key-b', caps: null, sortIndex: 1,
+    id: 'prov-b',
+    name: '补充',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://x.com',
+    model: 'm',
+    apiKey: 'sk-key-b',
+    caps: null,
+    sortIndex: 1,
   })
   raw.providers[0].apiKey = 'sk-legacy-residue' // prov-a 明文残留
   writeFileSync(FP(), JSON.stringify(raw), 'utf8')
@@ -155,10 +157,7 @@ test('判据6: 同一 store save 两次，vault.keys 密文不同(IV不复用)',
 
 test('判据7: 删除 provider → vault.keys 条目消失', () => {
   const store = emptySettings()
-  store.providers = [
-    makeConf({ id: 'prov-keep', apiKey: 'sk-keep' }),
-    makeConf({ id: 'prov-del', apiKey: 'sk-del' }),
-  ]
+  store.providers = [makeConf({ id: 'prov-keep', apiKey: 'sk-keep' }), makeConf({ id: 'prov-del', apiKey: 'sk-del' })]
   saveProviders(dir, store)
 
   // 删除 prov-del
@@ -253,17 +252,20 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
 // ── ee-P2-1：凭据文件权限 0600 创建即生效（无 umask 窗口）────────
 
 // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）', () => {
-  const store = emptySettings()
-  store.providers = [makeConf({ apiKey: 'sk-mode-first-12345' })]
-  saveProviders(dir, store) // 首次（主文件创建）
-  store.providers[0]!.apiKey = 'sk-mode-second-123'
-  saveProviders(dir, store) // 二次（bak 创建 + 主文件覆盖 rename，权限位不应回退）
+test.skipIf(process.platform === 'win32')(
+  'ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）',
+  () => {
+    const store = emptySettings()
+    store.providers = [makeConf({ apiKey: 'sk-mode-first-12345' })]
+    saveProviders(dir, store) // 首次（主文件创建）
+    store.providers[0]!.apiKey = 'sk-mode-second-123'
+    saveProviders(dir, store) // 二次（bak 创建 + 主文件覆盖 rename，权限位不应回退）
 
-  // POSIX 权限位断言（参照 CC-P2-3 先例 test/ai/calls.test.ts；Windows 不在 CI 矩阵）
-  expect(statSync(FP()).mode & 0o777).toBe(0o600)
-  expect(statSync(join(dir, 'providers.bak.json')).mode & 0o777).toBe(0o600)
-})
+    // POSIX 权限位断言（参照 CC-P2-3 先例 test/ai/calls.test.ts；Windows 不在 CI 矩阵）
+    expect(statSync(FP()).mode & 0o777).toBe(0o600)
+    expect(statSync(join(dir, 'providers.bak.json')).mode & 0o777).toBe(0o600)
+  },
+)
 
 // ── W-P2-9：主文件损坏 → 自动从 bak 恢复 ────────────
 
@@ -396,8 +398,13 @@ test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且
   store.currentId = 'prov-chat'
   store.ragProviders = [
     {
-      id: 'rag-embed-1', name: '嵌入供应商', endpoint: 'https://api.test.com/v1/embeddings',
-      model: 'embed-test', apiKey: 'sk-rag-mixed-0002', caps: null, sortIndex: 0,
+      id: 'rag-embed-1',
+      name: '嵌入供应商',
+      endpoint: 'https://api.test.com/v1/embeddings',
+      model: 'embed-test',
+      apiKey: 'sk-rag-mixed-0002',
+      caps: null,
+      sortIndex: 0,
     },
   ]
   saveProviders(dir, store)
@@ -425,8 +432,13 @@ test('dd-E-P2-2: 删除 chat provider 后再 save/load，rag key 仍在', () => 
   store.providers = [makeConf({ id: 'prov-chat2', apiKey: 'sk-chat-keep-0003' })]
   store.ragProviders = [
     {
-      id: 'rag-embed-2', name: '嵌入供应商', endpoint: 'https://api.test.com/v1/embeddings',
-      model: 'embed-test', apiKey: 'sk-rag-keep-0004', caps: null, sortIndex: 0,
+      id: 'rag-embed-2',
+      name: '嵌入供应商',
+      endpoint: 'https://api.test.com/v1/embeddings',
+      model: 'embed-test',
+      apiKey: 'sk-rag-keep-0004',
+      caps: null,
+      sortIndex: 0,
     },
   ]
   saveProviders(dir, store)

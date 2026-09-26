@@ -36,15 +36,9 @@ beforeAll(() => {
       const n = (v - 1) * CH + c
       const ch = String(n).padStart(4, '0')
       const rel = `写作/正文/${vol}/${ch}-章${n}.md`
-      writeFileSync(
-        join(root, ...rel.split('/')),
-        `---\n章号: ${n}\n标题: 章${n}\n---\n第${n}章正文。`,
-        'utf-8',
-      )
+      writeFileSync(join(root, ...rel.split('/')), `---\n章号: ${n}\n标题: 章${n}\n---\n第${n}章正文。`, 'utf-8')
       chapterFiles.push(join(root, ...rel.split('/')))
-      lines.push(
-        JSON.stringify({ id: `doc_${n}`, nodeType: 'document', path: rel, parentId: null, status: 'final' }),
-      )
+      lines.push(JSON.stringify({ id: `doc_${n}`, nodeType: 'document', path: rel, parentId: null, status: 'final' }))
     }
   }
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -98,7 +92,9 @@ describe('tree 大书性能（§9.3）', () => {
     }
     const baseline = medianOf(baselineSamples)
     const dt = medianOf(buildSamples)
-    console.log(`  buildTree ${VOL * CH} 章(5 次中位): ${dt.toFixed(1)}ms（裸读基线中位 ${baseline.toFixed(1)}ms，帽 ${Math.round(baseline * 20)}ms）`)
+    console.log(
+      `  buildTree ${VOL * CH} 章(5 次中位): ${dt.toFixed(1)}ms（裸读基线中位 ${baseline.toFixed(1)}ms，帽 ${Math.round(baseline * 20)}ms）`,
+    )
     const nodes = buildTree(root)
     expect(countChapters(nodes)).toBe(VOL * CH)
     expect(dt).toBeLessThan(baseline * 20)

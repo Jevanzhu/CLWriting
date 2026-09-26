@@ -32,13 +32,19 @@ describe('R51-H-1: 2xx + 非 JSON 体 → MALFORMED_RESPONSE', () => {
 
   it('204 无体 → 维持空对象口径（HTTP 无体语义合法）', async () => {
     // 204 语义上不允许 body——Response 构造器对非 null body 直接抛错，用 null
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    )
     const body = await apiJson('/api/some-endpoint')
     expect(body).toEqual({})
   })
 
   it('对照：502 空体仍走 LOCAL_API_DOWN（dv-01 不回归）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 502 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 502 })),
+    )
     try {
       await apiJson('/api/health')
       expect.unreachable('应当抛出 ApiError')
@@ -55,7 +61,10 @@ describe('R51-H-1: 2xx + 非 JSON 体 → MALFORMED_RESPONSE', () => {
 // 无合法返回 string/number/boolean 的端点，守卫扩到一切非对象形态。
 describe('E102: 2xx + 裸字面量（true/数字/字符串）→ MALFORMED_RESPONSE', () => {
   it.each(['"ok"', '5', 'true'])('200 体 %s → 抛 ApiError MALFORMED_RESPONSE（修复前穿透）', async (raw) => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(raw, { status: 200 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(raw, { status: 200 })),
+    )
     try {
       await apiJson('/api/books/书A/documents/content')
       expect.unreachable('应当抛出 ApiError')

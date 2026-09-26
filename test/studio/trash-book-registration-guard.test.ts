@@ -44,7 +44,11 @@ function makeBook(name: string): Rig {
   const bookRoot = join(workDir, '长篇', name)
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`,
+    'utf-8',
+  )
   const handlers = withRouteTable(createRouteTable(), () => {
     registerDocumentRoutes({ workDir, userDataPath: null, ...processRouteDeps() })
     return {

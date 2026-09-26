@@ -37,7 +37,14 @@ function setup(): Ctx {
   const globalJson = join(userData, 'global.json')
   writeFileSync(globalJson, '{"snapMaxCount":2,"snapMaxDays":90}')
   const svc = new DocumentService({ bookRoot: root, userDataPath: userData })
-  return { root, userData, svc, rel: '写作/正文/0001-开篇.md', globalJson, versionsDir: join(root, '工作区', VERSIONS_DIR_NAME) }
+  return {
+    root,
+    userData,
+    svc,
+    rel: '写作/正文/0001-开篇.md',
+    globalJson,
+    versionsDir: join(root, '工作区', VERSIONS_DIR_NAME),
+  }
 }
 
 /** 以 restore origin（强制留底，跳过节流）覆盖保存一次，内容各不相同。 */

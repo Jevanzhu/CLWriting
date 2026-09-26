@@ -99,8 +99,7 @@ function activateActive(): void {
  *  Chromium-only API，老 WebView/非 Chromium 内核无该成员；其后回落 navigator.platform
  *  （已废弃但覆盖面广），再回落 navigator.userAgent 字符串嗅探，探测不再单源落空。 */
 function isMacPlatform(): boolean {
-  const uad = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
-    ?.platform
+  const uad = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
   if (uad) return uad.toLowerCase().includes('mac')
   if (navigator.platform) return navigator.platform.toLowerCase().includes('mac')
   return navigator.userAgent.toLowerCase().includes('mac')
@@ -314,12 +313,16 @@ function onSelect(key: string): void {
   background: rgba(252, 252, 252, 0.75);
   backdrop-filter: blur(30px) saturate(1.5);
   -webkit-backdrop-filter: blur(30px) saturate(1.5);
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 12px 44px rgba(0, 0, 0, 0.16);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.1),
+    0 12px 44px rgba(0, 0, 0, 0.16);
 }
 [data-theme='dark'] .cm-menu,
 [data-theme='dark'] .cm-submenu {
-  background: rgba(38, 38, 38, 0.80);
-  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 12px 44px rgba(0, 0, 0, 0.55);
+  background: rgba(38, 38, 38, 0.8);
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 12px 44px rgba(0, 0, 0, 0.55);
 }
 .cm-item {
   display: flex;

@@ -30,7 +30,11 @@ import type { ChapterMeta, RealmDoc } from '../../src/format/types.js'
 
 test('checkFrontMatter: 章号与文件名一致 → 无红', () => {
   const ch: ChapterMeta = {
-    章号: 152, 标题: '北境的雪', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折',
+    章号: 152,
+    标题: '北境的雪',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '转折',
   }
   const r = checkFrontMatter(ch, '152-北境的雪.md')
   expect(r.items).toHaveLength(0)
@@ -38,7 +42,11 @@ test('checkFrontMatter: 章号与文件名一致 → 无红', () => {
 
 test('checkFrontMatter: 章号与文件名不一致 → 红', () => {
   const ch: ChapterMeta = {
-    章号: 153, 标题: '北境的雪', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折',
+    章号: 153,
+    标题: '北境的雪',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '转折',
   }
   const r = checkFrontMatter(ch, '152-北境的雪.md')
   // R50-G-3（五十轮）：去数组序依赖——r.items[0] 假定 mismatch 项恒为首位，检查项
@@ -71,7 +79,9 @@ test('R29-1: 成语裸子串不再命中（前后非汉字边界）', () => {
   const r = checkBannedWords('他做事一丝不苟。', ['一丝'])
   expect(r.items).toHaveLength(0)
   // 对照：标点夹持的同词照报
-  expect(checkBannedWords('他松了手，一丝，只一丝，不甘漏了出来。', ['一丝']).items.some((i) => i.level === 'red')).toBe(true)
+  expect(
+    checkBannedWords('他松了手，一丝，只一丝，不甘漏了出来。', ['一丝']).items.some((i) => i.level === 'red'),
+  ).toBe(true)
 })
 
 // R29-1③（二十九轮）：单字禁词降黄——fail-noisy 可见但不再驱动红闸打回
@@ -83,19 +93,29 @@ test('R29-1: 单字禁词降级为黄项', () => {
 })
 
 test('parseIronRules: 反和解段解析为硬禁词', () => {
-  const rules = parseIronRules([
-    '## 反和解段（AI 味防御）',
-    '- 禁止：轰动体、倒吸凉气、时间静止',
-    '- 「蝼蚁」',
-    '',
-    '## 硬禁词清单',
-    '- 禁词：不知死活的东西 / 天命所归',
-    '- 「会让你们后悔」',
-    '',
-    '## 可量化约束',
-    '- 单句上限字数: 60',
-  ].join('\n'))
-  expect(rules.bannedWords).toEqual(['轰动体', '倒吸凉气', '时间静止', '蝼蚁', '不知死活的东西', '天命所归', '会让你们后悔'])
+  const rules = parseIronRules(
+    [
+      '## 反和解段（AI 味防御）',
+      '- 禁止：轰动体、倒吸凉气、时间静止',
+      '- 「蝼蚁」',
+      '',
+      '## 硬禁词清单',
+      '- 禁词：不知死活的东西 / 天命所归',
+      '- 「会让你们后悔」',
+      '',
+      '## 可量化约束',
+      '- 单句上限字数: 60',
+    ].join('\n'),
+  )
+  expect(rules.bannedWords).toEqual([
+    '轰动体',
+    '倒吸凉气',
+    '时间静止',
+    '蝼蚁',
+    '不知死活的东西',
+    '天命所归',
+    '会让你们后悔',
+  ])
 })
 
 // ── 字数（#10 项 5，黄）──────────────────────────
@@ -115,7 +135,8 @@ test('checkWordCount: 在容差内 → 无黄', () => {
 
 test('checkRepeat: 重复句多 → 黄', () => {
   // 句子需 ≥6 字才计入（checkRepeat 过滤短句）
-  const body = '他大步流星地走了过去。他大步流星地走了过去。他大步流星地走了过去。她轻轻微微地笑了起来。她轻轻微微地笑了起来。这是一句正常的独独立立句子。'
+  const body =
+    '他大步流星地走了过去。他大步流星地走了过去。他大步流星地走了过去。她轻轻微微地笑了起来。她轻轻微微地笑了起来。这是一句正常的独独立立句子。'
   const r = checkRepeat(body, 0.15)
   expect(r.items.length).toBeGreaterThanOrEqual(1)
   expect(r.items[0]!.level).toBe('yellow')
@@ -129,13 +150,18 @@ test('checkGrowth: 境界回退 → 红', () => {
   createAllTables(db)
 
   syncLead(db, {
-    编号: '成长线-003', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-003',
+    标题: '修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '金丹',
     履历: [
       { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
       { 章号: 20, 动词: '突破', 证据: '突破至金丹' },
       { 章号: 30, 动词: '突破', 证据: '跌落至炼气' }, // 回退
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
 
   const realmDoc: RealmDoc = {
@@ -152,12 +178,17 @@ test('checkGrowth: 正常跃迁不报红', () => {
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: 'x',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '筑基',
     履历: [
       { 章号: 5, 动词: '起步', 证据: '炼气' },
       { 章号: 20, 动词: '突破', 证据: '突破至筑基' },
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
@@ -171,9 +202,14 @@ test('checkGrowth: 成长线启用但境界序列缺失 → 红项阻断，不�
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: '修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '炼气一层',
-    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至金丹' }], _path: 'p',
+    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至金丹' }],
+    _path: 'p',
   })
   const r = checkGrowth(db, { 体系: [] }, ['成长线-001'], 2)
   expect(r.items.some((i) => i.checkId === 'growth-realm-sequence-missing' && i.level === 'red')).toBe(true)
@@ -188,8 +224,13 @@ test('checkGrowth: 有境界体系但成长线缺当前境界 → 黄项提示�
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至筑基' }], _path: 'p',
+    编号: '成长线-001',
+    标题: '修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至筑基' }],
+    _path: 'p',
   })
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
@@ -205,9 +246,14 @@ test('checkGrowth: 成长线非法履历动词 → 黄项告警', () => {
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: '修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '炼气一层',
-    履历: [{ 章号: 5, 动词: '乱升', 证据: '乱升至炼气四层' }], _path: 'p',
+    履历: [{ 章号: 5, 动词: '乱升', 证据: '乱升至炼气四层' }],
+    _path: 'p',
   })
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气一层', '炼气四层'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
@@ -221,11 +267,7 @@ test('checkGrowth: 成长线非法履历动词 → 黄项告警', () => {
 
 test('formatRedForRewrite: 红项清单', () => {
   const report = {
-    sections: [
-      { name: '禁词', items: [
-        { checkId: 'banned-word', level: 'red' as const, message: '命中「废话」' },
-      ]},
-    ],
+    sections: [{ name: '禁词', items: [{ checkId: 'banned-word', level: 'red' as const, message: '命中「废话」' }] }],
   }
   expect(formatRedForRewrite(report)).toContain('命中「废话」')
   // 无红返回空
@@ -237,10 +279,13 @@ test('formatRedForRewrite: 红项清单', () => {
 test('hasRed + getRedItems', () => {
   const report = {
     sections: [
-      { name: '禁词', items: [
-        { checkId: 'banned-word', level: 'red' as const, message: 'x' },
-        { checkId: 'repeat', level: 'yellow' as const, message: 'y' },
-      ]},
+      {
+        name: '禁词',
+        items: [
+          { checkId: 'banned-word', level: 'red' as const, message: 'x' },
+          { checkId: 'repeat', level: 'yellow' as const, message: 'y' },
+        ],
+      },
     ],
   }
   expect(hasRed(report)).toBe(true)
@@ -263,8 +308,13 @@ test('checkLeadsForm: 引文命中正文 → 无红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
@@ -276,8 +326,13 @@ test('checkLeadsForm: 假引文（正文未命中）→ 红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
@@ -290,11 +345,16 @@ test('checkLeadsForm: 同章多条证据（一命中一未命中）→ 恰一条
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '写作', '正文', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
     履历: [
       { 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }, // 命中
       { 章号: 12, 动词: '推进', 证据: '不存在的句子' }, // 未命中（走同章缓存）
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   const misses = r.items.filter((i) => i.checkId === 'lead-evidence-miss')
@@ -311,8 +371,13 @@ test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n完全无关的正文内容。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
@@ -323,10 +388,19 @@ test('checkLeadsForm: 卷子目录布局（第一卷/）下假引文仍被检出
 test('checkLeadsForm: 卷子目录布局下引文命中正文 → 无红', () => {
   const { root, db } = makeLeadsBook()
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '第一卷', '12-灭门.md'), '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '第一卷', '12-灭门.md'),
+    '---\n章号: 12\n---\n那道焦痕在烛火下泛着暗红。',
+    'utf-8',
+  )
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
@@ -337,8 +411,13 @@ test('checkLeadsForm: 卷子目录布局下引文命中正文 → 无红', () =>
 test('checkLeadsForm: 履历声称未来章 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 99, 动词: '埋下', 证据: 'xx' }], _path: 'p',
+    编号: '悬念-031',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 99, 动词: '埋下', 证据: 'xx' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 10, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-chapter-future')).toBe(true)
@@ -349,11 +428,16 @@ test('checkLeadsForm: 履历声称未来章 → 红', () => {
 test('checkLeadsForm: 履历章号乱序 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
     履历: [
       { 章号: 20, 动词: '埋下', 证据: 'a' },
       { 章号: 10, 动词: '推进', 证据: 'b' }, // 乱序：10 < 20
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 30, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-chapter-disorder')).toBe(true)
@@ -364,7 +448,11 @@ test('checkLeadsForm: 履历章号乱序 → 红', () => {
 test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    编号: '悬念-031',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
     履历: [{ 章号: 5, 动词: '揭晓', 证据: 'a' }], // 末条"揭晓"是悬念收尾，但状态仍"进行中"
     _path: 'p',
   })
@@ -377,7 +465,11 @@ test('checkLeadsForm: 状态与末条动词不一致 → 红', () => {
 test('RB-KN-P2-9: 反向漂移——状态已标终态但末条仍是推进动词 → 黄（lead-status-drift）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-032', 标题: 'x', 类型: '悬念', 状态: '已收尾', 开启章: 1,
+    编号: '悬念-032',
+    标题: 'x',
+    类型: '悬念',
+    状态: '已收尾',
+    开启章: 1,
     履历: [{ 章号: 5, 动词: '递进', 证据: 'a' }], // 已标收尾但足迹仍在推进
     _path: 'p',
   })
@@ -395,7 +487,11 @@ test('RB-KN-P2-9: 反向漂移——状态已标终态但末条仍是推进动�
 test('RB-KN-P2-9: 状态终态 + 末条收尾动词（一致）→ 无漂移项', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-033', 标题: 'x', 类型: '悬念', 状态: '已收尾', 开启章: 1,
+    编号: '悬念-033',
+    标题: 'x',
+    类型: '悬念',
+    状态: '已收尾',
+    开启章: 1,
     履历: [{ 章号: 5, 动词: '揭晓', 证据: 'a' }],
     _path: 'p',
   })
@@ -408,7 +504,11 @@ test('RB-KN-P2-9: 状态终态 + 末条收尾动词（一致）→ 无漂移项'
 test('checkLeadsForm: 成长线 resolve 动词（突破/跃迁）末条 + 状态进行中 → 不报（阶段性升级合理）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: 'x',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     履历: [{ 章号: 5, 动词: '跃迁', 证据: 'a' }], // 成长线跃迁是常态化升级，进行中合理
     _path: 'p',
   })
@@ -421,7 +521,11 @@ test('checkLeadsForm: 成长线 resolve 动词（突破/跃迁）末条 + 状态
 test('checkLeadsForm: 成长线 resolve 末条 + 状态已放弃 → 不报（R73-29：突破后弃线是合法闭合）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '成长线-002', 标题: 'x', 类型: '成长线', 状态: '已放弃', 开启章: 1,
+    编号: '成长线-002',
+    标题: 'x',
+    类型: '成长线',
+    状态: '已放弃',
+    开启章: 1,
     履历: [{ 章号: 5, 动词: '突破', 证据: 'a' }], // R73-29：resolve + 已放弃 = 先行收尾再弃线，不算矛盾
     _path: 'p',
   })
@@ -434,7 +538,11 @@ test('checkLeadsForm: 成长线 resolve 末条 + 状态已放弃 → 不报（R7
 test('checkLeadsForm: 成长线 advance 动词（稳进/实战）合法 → 无黄项', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '成长线-003', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-003',
+    标题: 'x',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     履历: [
       { 章号: 1, 动词: '起步', 证据: 'a' },
       { 章号: 2, 动词: '稳进', 证据: 'a' },
@@ -452,8 +560,13 @@ test('checkLeadsForm: 两端闭合——声明了没做 / 做了没声明', () =
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '写作', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
+    编号: '悬念-031',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }],
+    _path: 'p',
   })
   // declared = [悬念-001]（声明推进但没写），actual = [悬念-031]（写了没声明）
   const r = checkLeadsForm(db, root, 10, ['悬念'], ['悬念-001'], ['悬念-031'])
@@ -467,8 +580,13 @@ test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
   const { root, db } = makeLeadsBook()
   writeFileSync(join(root, '写作', '正文', '10-x.md'), '---\n章号: 10\n---\n焦痕。', 'utf-8')
   syncLead(db, {
-    编号: '悬念-031', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }], _path: 'p',
+    编号: '悬念-031',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 10, 动词: '推进', 证据: '焦痕' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 10, ['悬念'], ['悬念-031'], ['悬念-031'])
   expect(r.items.filter((i) => i.level === 'red')).toHaveLength(0)
@@ -515,11 +633,7 @@ test('G4: scaffold 文风铁律能激活机检（5 阈值全解析）+ S5 纯配
 })
 
 test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () => {
-  const rules = parseIronRules([
-    '对话标签占比: 50%',
-    '排比连续数: 2',
-    '结尾总结体: 禁止',
-  ].join('\n'))
+  const rules = parseIronRules(['对话标签占比: 50%', '排比连续数: 2', '结尾总结体: 禁止'].join('\n'))
   expect(rules.maxDialogueTagRatio).toBe(0.5)
   expect(rules.maxParallelStreak).toBe(2)
   expect(rules.avoidSummaryEnding).toBe(true)
@@ -540,10 +654,7 @@ test('parseIronRules + checkStyleMetrics: 去 AI 味扩展维度 → 黄', () =>
 })
 
 test('checkStyleMetrics: 顿号分隔形容词堆叠 + 扩展总结体 → 黄', () => {
-  const rules = parseIronRules([
-    '形容词连续堆叠上限: 3',
-    '结尾总结体: 禁止',
-  ].join('\n'))
+  const rules = parseIronRules(['形容词连续堆叠上限: 3', '结尾总结体: 禁止'].join('\n'))
   const body = [
     '幽暗的、冰冷的、古老的、腐朽的气息从门缝里漫出来。',
     '这一战让沈砚终于明白，所谓修行的真谛从来不是退让。',
@@ -556,16 +667,10 @@ test('checkStyleMetrics: 顿号分隔形容词堆叠 + 扩展总结体 → 黄',
 test('AA-P3-6 金测: 结尾总结体——动作/画面收束不误报，真总结体不漏报', () => {
   const rules = parseIronRules('结尾总结体: 禁止')
   // 误报基线：动作/物件/画面收束（无触发+收束配对）→ 不报
-  const sceneEnding = [
-    '他松开手，刀锋贴着地面滑出一线火光。',
-    '北风掀开帘子，把桌上的灯吹灭了。',
-  ].join('\n')
+  const sceneEnding = ['他松开手，刀锋贴着地面滑出一线火光。', '北风掀开帘子，把桌上的灯吹灭了。'].join('\n')
   expect(checkStyleMetrics(sceneEnding, rules).items.some((i) => i.checkId === 'style-summary-ending')).toBe(false)
   // 漏报基线：真·总结体（触发词 + 收束词同段，跨行也命中）→ 报
-  const summaryEnding = [
-    '这一刻他终于明白，',
-    '所谓命运，不过是自己给的答案。',
-  ].join('\n')
+  const summaryEnding = ['这一刻他终于明白，', '所谓命运，不过是自己给的答案。'].join('\n')
   expect(checkStyleMetrics(summaryEnding, rules).items.some((i) => i.checkId === 'style-summary-ending')).toBe(true)
 })
 
@@ -582,12 +687,17 @@ test('checkGrowth: 跃迁证据提取不到境界名 → 黄 growth-evidence-no-
     const db = new DatabaseSync(join(dir, 'index.db'))
     createAllTables(db)
     syncLead(db, {
-      编号: '成长线-004', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+      编号: '成长线-004',
+      标题: 'x',
+      类型: '成长线',
+      状态: '进行中',
+      开启章: 1,
       当前境界: '筑基',
       履历: [
         { 章号: 5, 动词: '突破', 证据: '一举踏入新境' }, // 无序列内确切境界名
         { 章号: 20, 动词: '突破', 证据: '突破至筑基' },
-      ], _path: 'p',
+      ],
+      _path: 'p',
     })
     const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
     const r = checkGrowth(db, realmDoc, ['成长线-004'], 2)
@@ -600,7 +710,6 @@ test('checkGrowth: 跃迁证据提取不到境界名 → 黄 growth-evidence-no-
     rmSync(dir, { recursive: true, force: true })
   }
 })
-
 
 // ── 二十六轮修复批 B 回归（R26-11/29/30/31/32/39）────────
 
@@ -647,8 +756,13 @@ test('R26-30: 证据只存在于 front matter → lead-evidence-miss（全文 gr
     'utf-8',
   )
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 12, ['悬念'])
   expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
@@ -660,8 +774,13 @@ test('R26-30: 证据只存在于 front matter → lead-evidence-miss（全文 gr
 test('R26-31: 词表外末条动词 → lead-verb-invalid 黄项；合法动词不产黄', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
-    编号: '悬念-001', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 1, 动词: '乱写', 证据: '证据句' }], _path: 'p',
+    编号: '悬念-001',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 1, 动词: '乱写', 证据: '证据句' }],
+    _path: 'p',
   })
   const r = checkLeadsForm(db, root, 1, ['悬念'])
   const bad = r.items.find((i) => i.checkId === 'lead-verb-invalid')
@@ -671,8 +790,13 @@ test('R26-31: 词表外末条动词 → lead-verb-invalid 黄项；合法动词�
   // 对照：合法动词（埋下=悬念.open）不产词表外黄项
   const { root: root2, db: db2 } = makeLeadsBook()
   syncLead(db2, {
-    编号: '悬念-002', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 1, 动词: '设下', 证据: '证据句' }], _path: 'p', // 设下 = 悬念.open（表内动词）
+    编号: '悬念-002',
+    标题: 'x',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 1, 动词: '设下', 证据: '证据句' }],
+    _path: 'p', // 设下 = 悬念.open（表内动词）
   })
   const ok = checkLeadsForm(db2, root2, 1, ['悬念'])
   expect(ok.items.some((i) => i.checkId === 'lead-verb-invalid')).toBe(false)

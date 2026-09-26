@@ -11,7 +11,15 @@ import FontPicker from './FontPicker.vue'
 import SettingItem from './SettingItem.vue'
 
 const prefs = usePrefsStore()
-const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn, systemFonts, fontsLoaded } = useSystemFonts()
+const {
+  chineseFonts,
+  englishFonts,
+  fontDisplayName,
+  defaultProseFontCn,
+  defaultProseFontEn,
+  systemFonts,
+  fontsLoaded,
+} = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 // 预设组按平台出（mac 批）：win 雅黑/思源黑，mac 苹方/宋体-简——平台
 // 会话内不变，setup 时定一次
@@ -20,7 +28,12 @@ const prosePresetList = prosePresets()
 // 正文排版预设（F 线）：激活态由四字段派生，手动改任一项即落「自定义」；
 // 应用 = 逐项走既有 setter（apply/持久化链路复用，无新持久化键）
 const activePresetId = computed(() =>
-  matchProsePreset({ proseFontCn: prefs.get('proseFontCn'), proseFontEn: prefs.get('proseFontEn'), proseSize: prefs.get('proseSize'), proseLh: prefs.get('proseLh') }),
+  matchProsePreset({
+    proseFontCn: prefs.get('proseFontCn'),
+    proseFontEn: prefs.get('proseFontEn'),
+    proseSize: prefs.get('proseSize'),
+    proseLh: prefs.get('proseLh'),
+  }),
 )
 function applyPreset(p: ProsePreset): void {
   // F 线④：CN 槽按已装候补落地（如 zh 系统的思源黑体），CSS 直接命中
@@ -78,68 +91,145 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
 <template>
   <!-- 单根包裹：见 SettingsBook.vue 说明 -->
   <div class="settings-tab">
-  <div class="cfg-card-head">字体</div>
-  <section class="cfg-card">
-    <SettingItem name="排版预设" desc="成组方案一键切换；手动调整任一项后变为自定义">
-      <div class="preset-wrap">
-        <div class="preset-row" role="group" aria-label="正文排版预设">
-          <button
-            v-for="p in prosePresetList"
-            :key="p.id"
-            type="button"
-            class="preset-chip"
-            :class="{ active: activePresetId === p.id }"
-            :title="presetTitle(p)"
-            @click="applyPreset(p)"
-          >
-            {{ p.label }}<span v-if="presetMissing(p)" class="preset-missing">· 未装</span>
-          </button>
-          <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
-        </div>
-        <div class="preset-preview" role="group" aria-label="排版预设样张">
-          <div v-for="p in prosePresetList" :key="'pv-' + p.id" class="preset-preview-row">
-            <span class="preset-preview-label">{{ p.label }}</span>
-            <span class="preset-preview-sample" :style="previewStyle(p)">永和九年，岁在癸丑。ABCD 1234</span>
+    <div class="cfg-card-head">字体</div>
+    <section class="cfg-card">
+      <SettingItem name="排版预设" desc="成组方案一键切换；手动调整任一项后变为自定义">
+        <div class="preset-wrap">
+          <div class="preset-row" role="group" aria-label="正文排版预设">
+            <button
+              v-for="p in prosePresetList"
+              :key="p.id"
+              type="button"
+              class="preset-chip"
+              :class="{ active: activePresetId === p.id }"
+              :title="presetTitle(p)"
+              @click="applyPreset(p)"
+            >
+              {{ p.label }}<span v-if="presetMissing(p)" class="preset-missing">· 未装</span>
+            </button>
+            <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
+          </div>
+          <div class="preset-preview" role="group" aria-label="排版预设样张">
+            <div v-for="p in prosePresetList" :key="'pv-' + p.id" class="preset-preview-row">
+              <span class="preset-preview-label">{{ p.label }}</span>
+              <span class="preset-preview-sample" :style="previewStyle(p)">永和九年，岁在癸丑。ABCD 1234</span>
+            </div>
           </div>
         </div>
-      </div>
-    </SettingItem>
-    <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
-      <div class="font-pair">
-        <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-        <FontPicker class="font-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
-        <FontPicker class="font-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
-      </div>
-    </SettingItem>
-  </section>
+      </SettingItem>
+      <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
+        <div class="font-pair">
+          <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+          <FontPicker
+            class="font-select"
+            ariaLabel="正文中文字体"
+            :value="prefs.get('proseFontCn')"
+            :fonts="chineseFonts"
+            :default-font="defaultProseFontCn"
+            placeholder="中文 · 默认"
+            :display="fontDisplayName"
+            @change="prefs.set('proseFontCn', $event)"
+          />
+          <FontPicker
+            class="font-select"
+            ariaLabel="正文英文字体"
+            :value="prefs.get('proseFontEn')"
+            :fonts="englishFonts"
+            :default-font="defaultProseFontEn"
+            placeholder="英文 · 默认"
+            :display="fontDisplayName"
+            @change="prefs.set('proseFontEn', $event)"
+          />
+        </div>
+      </SettingItem>
+    </section>
 
-  <div class="cfg-card-head">排版</div>
-  <section class="cfg-card">
-    <SettingItem name="正文字号" desc="所有正文编辑框文字大小">
-      <input type="range" min="13" max="24" :value="prefs.get('proseSize')" @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="13" max="24" step="0.5" :value="prefs.get('proseSize')" @change="numInput(13, 24, 'proseSize', $event)" />
-      <span class="val-suffix">px</span>
-    </SettingItem>
-    <SettingItem name="行距" desc="所有正文编辑框行间距倍数">
-      <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')" @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')" @change="numInput(1.4, 2.4, 'proseLh', $event)" />
-      <span class="val-suffix">×</span>
-    </SettingItem>
-  </section>
+    <div class="cfg-card-head">排版</div>
+    <section class="cfg-card">
+      <SettingItem name="正文字号" desc="所有正文编辑框文字大小">
+        <input
+          type="range"
+          min="13"
+          max="24"
+          :value="prefs.get('proseSize')"
+          @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))"
+        />
+        <input
+          class="val-input"
+          type="number"
+          min="13"
+          max="24"
+          step="0.5"
+          :value="prefs.get('proseSize')"
+          @change="numInput(13, 24, 'proseSize', $event)"
+        />
+        <span class="val-suffix">px</span>
+      </SettingItem>
+      <SettingItem name="行距" desc="所有正文编辑框行间距倍数">
+        <input
+          type="range"
+          min="1.4"
+          max="2.4"
+          step="0.05"
+          :value="prefs.get('proseLh')"
+          @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))"
+        />
+        <input
+          class="val-input"
+          type="number"
+          min="1.4"
+          max="2.4"
+          step="0.05"
+          :value="prefs.get('proseLh')"
+          @change="numInput(1.4, 2.4, 'proseLh', $event)"
+        />
+        <span class="val-suffix">×</span>
+      </SettingItem>
+    </section>
 
-  <div class="cfg-card-head">纸张</div>
-  <section class="cfg-card">
-    <SettingItem name="纸张宽度" desc="写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）">
-      <input type="range" min="600" max="1400" step="20" :value="prefs.get('pageWidth')" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.get('pageWidth')" @change="numInput(600, 1400, 'pageWidth', $event)" />
-      <span class="val-suffix">px</span>
-    </SettingItem>
-    <SettingItem name="自动保存" desc="编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）">
-      <input type="range" min="5" max="120" step="5" :value="prefs.get('autosaveInterval')" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
-      <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.get('autosaveInterval')" @change="numInput(5, 120, 'autosaveInterval', $event)" />
-      <span class="val-suffix">s</span>
-    </SettingItem>
-  </section>
+    <div class="cfg-card-head">纸张</div>
+    <section class="cfg-card">
+      <SettingItem name="纸张宽度" desc="写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）">
+        <input
+          type="range"
+          min="600"
+          max="1400"
+          step="20"
+          :value="prefs.get('pageWidth')"
+          @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))"
+        />
+        <input
+          class="val-input"
+          type="number"
+          min="600"
+          max="1400"
+          step="20"
+          :value="prefs.get('pageWidth')"
+          @change="numInput(600, 1400, 'pageWidth', $event)"
+        />
+        <span class="val-suffix">px</span>
+      </SettingItem>
+      <SettingItem name="自动保存" desc="编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）">
+        <input
+          type="range"
+          min="5"
+          max="120"
+          step="5"
+          :value="prefs.get('autosaveInterval')"
+          @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))"
+        />
+        <input
+          class="val-input"
+          type="number"
+          min="5"
+          max="120"
+          step="5"
+          :value="prefs.get('autosaveInterval')"
+          @change="numInput(5, 120, 'autosaveInterval', $event)"
+        />
+        <span class="val-suffix">s</span>
+      </SettingItem>
+    </section>
   </div>
 </template>
 
@@ -161,7 +251,9 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
   font-size: var(--font-size-s);
   line-height: 1.6;
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 .preset-chip:hover {
   border-color: var(--interactive-accent);

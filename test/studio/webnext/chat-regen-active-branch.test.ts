@@ -18,7 +18,12 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   regenerateChat: vi.fn(),
 }))
 
-import { fetchChatHistory, fetchChatBranches, regenerateChat, type ChatHistoryMessage } from '../../../src/studio/web-next/src/api/chat'
+import {
+  fetchChatHistory,
+  fetchChatBranches,
+  regenerateChat,
+  type ChatHistoryMessage,
+} from '../../../src/studio/web-next/src/api/chat'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 
 const fetchMock = fetchChatHistory as ReturnType<typeof vi.fn>

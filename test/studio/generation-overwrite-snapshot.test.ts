@@ -48,7 +48,8 @@ beforeAll(async () => {
       { rel: '大纲/总纲.md', content: ONBOARD_OLD },
       { rel: '工作区/细纲.md', content: OUTLINE_OLD },
     ],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 生成快照书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 生成快照书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     userDataPath,
     env: { CLWRITING_DRIVER: 'mock' },
   })

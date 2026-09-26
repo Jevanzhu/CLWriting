@@ -16,17 +16,23 @@ async function listen(srv: Server): Promise<number> {
   return typeof addr === 'object' && addr ? addr.port : 0
 }
 
-function postJson(port: number, path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
+function postJson(
+  port: number,
+  path: string,
+  body: unknown,
+): Promise<{ status: number; json: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const req = fetch(`http://127.0.0.1:${port}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
-    req.then(async (resp) => {
-      const json = (await resp.json()) as Record<string, unknown>
-      resolve({ status: resp.status, json })
-    }).catch(reject)
+    req
+      .then(async (resp) => {
+        const json = (await resp.json()) as Record<string, unknown>
+        resolve({ status: resp.status, json })
+      })
+      .catch(reject)
   })
 }
 
@@ -48,7 +54,9 @@ describe('E2: route schema 单点声明', () => {
         res.end(JSON.stringify({ name: params['name'], n: input.n }))
       },
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     // 合法请求
     const ok = await postJson(port, '/e2/book-a/echo', { n: 3 })
@@ -67,7 +75,9 @@ describe('E2: route schema 单点声明', () => {
   it('defineRoute：重复声明拒绝；getRouteSchema 查注册表', () => {
     expect(() =>
       defineRoute('e2.echo', {
-        method: 'POST', path: '/e2/x', handler: async () => {},
+        method: 'POST',
+        path: '/e2/x',
+        handler: async () => {},
       }),
     ).toThrow('route 重复声明')
     const schema = getRouteSchema('e2.echo')
@@ -80,7 +90,9 @@ describe('E2: route schema 单点声明', () => {
   it('dispatch path 参数 null-proto：__proto__ 键不触发原型链', async () => {
     // 直接构造含 __proto__ 的 path 参数请求——路由表匹配不到该 path（正常业务路由无此模板），
     // 重点验证 params 组装对象为 null-prototype，__proto__ 赋值不污染 Object.prototype
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const resp = await fetch(`http://127.0.0.1:${port}/e2/__proto__/echo`, {
       method: 'POST',
@@ -98,9 +110,7 @@ describe('E2: route schema 单点声明', () => {
     // （buildRoutes 形态：reset 在 withRouteTable 外、注册在表内——index.ts 口径）
     const t1 = createRouteTable()
     const t2 = createRouteTable()
-    withRouteTable(t1, () =>
-      defineRoute('re2.inst1', { method: 'GET', path: '/re2/inst1', handler: async () => {} }),
-    )
+    withRouteTable(t1, () => defineRoute('re2.inst1', { method: 'GET', path: '/re2/inst1', handler: async () => {} }))
     withRouteTable(t2, () => {
       resetRouteSchemas() // 第二实例建表前的既有 reset 调用（修前会清空第一实例注册视图）
       defineRoute('re2.inst2', { method: 'GET', path: '/re2/inst2', handler: async () => {} })
@@ -109,9 +119,9 @@ describe('E2: route schema 单点声明', () => {
     withRouteTable(t1, () => {
       expect(getRouteSchema('re2.inst1')).not.toBeNull()
       expect(getRouteSchema('re2.inst2')).toBeNull()
-      expect(() =>
-        defineRoute('re2.inst1', { method: 'GET', path: '/re2/dup', handler: async () => {} }),
-      ).toThrow('route 重复声明')
+      expect(() => defineRoute('re2.inst1', { method: 'GET', path: '/re2/dup', handler: async () => {} })).toThrow(
+        'route 重复声明',
+      )
     })
     // 第二实例：对称成立
     withRouteTable(t2, () => {
@@ -123,7 +133,9 @@ describe('E2: route schema 单点声明', () => {
   it('AA-P3-10: 路径参数损坏 % 编码 → 400 统一信封（不再 500）', async () => {
     // decodeURIComponent('%E4%') 抛 URIError——此前 decode 在 handler try 外，
     // URIError 逃出 dispatch → 外层 catch → 500；现 decode 入 try，解析失败归 400。
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const resp = await fetch(`http://127.0.0.1:${port}/e2/%E4%/echo`, {
       method: 'POST',
@@ -146,7 +158,9 @@ describe('E2: route schema 单点声明', () => {
     })
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const srv = createServer((req, res) => { void dispatch(req, res) })
+      const srv = createServer((req, res) => {
+        void dispatch(req, res)
+      })
       const port = await listen(srv)
       const resp = await fetch(`http://127.0.0.1:${port}/e2/boom`)
       // 客户端只见 500 信封（敏感 detail 不外泄）；hh §八-12 统一 {code, error}
@@ -186,7 +200,9 @@ describe('E2: route schema 单点声明', () => {
         res.end(JSON.stringify({ n: input.n, tag: gate.tag }))
       },
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const ok = await postJson(port, '/e2/gate/order', { n: 7 })
     expect(ok.status).toBe(200)
@@ -209,9 +225,13 @@ describe('E2: route schema 单点声明', () => {
         calls.push('parse')
         throw new Error('不该到这里')
       },
-      handler: async () => { calls.push('handler') },
+      handler: async () => {
+        calls.push('handler')
+      },
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const busy = await postJson(port, '/e2/gate/block', { n: -1 }) // 体也非法：闸先拦则只见 409
     expect(busy.status).toBe(409)
@@ -226,11 +246,22 @@ describe('E2: route schema 单点声明', () => {
     defineRoute('e2.gate.cleanup-parse', {
       method: 'POST',
       path: '/e2/gate/cleanup-parse',
-      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('release') } }),
-      parse: () => { throw new Error('体不合法') },
-      handler: async () => { handlerCalls += 1 },
+      gate: () => ({
+        value: { tag: 'g' },
+        cleanup: () => {
+          cleanups.push('release')
+        },
+      }),
+      parse: () => {
+        throw new Error('体不合法')
+      },
+      handler: async () => {
+        handlerCalls += 1
+      },
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const bad = await postJson(port, '/e2/gate/cleanup-parse', {})
     expect(bad.status).toBe(400)
@@ -245,7 +276,12 @@ describe('E2: route schema 单点声明', () => {
     defineRoute('e2.gate.cleanup-ok', {
       method: 'POST',
       path: '/e2/gate/cleanup-ok',
-      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('ok') } }),
+      gate: () => ({
+        value: { tag: 'g' },
+        cleanup: () => {
+          cleanups.push('ok')
+        },
+      }),
       handler: async (_ctx, _req, res) => {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ ok: true }))
@@ -254,10 +290,19 @@ describe('E2: route schema 单点声明', () => {
     defineRoute('e2.gate.cleanup-throw', {
       method: 'POST',
       path: '/e2/gate/cleanup-throw',
-      gate: () => ({ value: { tag: 'g' }, cleanup: () => { cleanups.push('throw') } }),
-      handler: async () => { throw new Error('handler 爆炸') },
+      gate: () => ({
+        value: { tag: 'g' },
+        cleanup: () => {
+          cleanups.push('throw')
+        },
+      }),
+      handler: async () => {
+        throw new Error('handler 爆炸')
+      },
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
@@ -274,16 +319,22 @@ describe('E2: route schema 单点声明', () => {
     defineRoute('e2.gate.thrown', {
       method: 'POST',
       path: '/e2/gate/thrown',
-      gate: () => { throw new Error('闸内普通错') },
+      gate: () => {
+        throw new Error('闸内普通错')
+      },
       handler: async () => {},
     })
     defineRoute('e2.gate.http-error', {
       method: 'POST',
       path: '/e2/gate/http-error',
-      gate: () => { throw new HttpError(413, '请求体过大', 'PAYLOAD_TOO_LARGE') },
+      gate: () => {
+        throw new HttpError(413, '请求体过大', 'PAYLOAD_TOO_LARGE')
+      },
       handler: async () => {},
     })
-    const srv = createServer((req, res) => { void dispatch(req, res) })
+    const srv = createServer((req, res) => {
+      void dispatch(req, res)
+    })
     const port = await listen(srv)
     const plain = await postJson(port, '/e2/gate/thrown', {})
     expect(plain.status).toBe(400)
@@ -294,4 +345,3 @@ describe('E2: route schema 单点声明', () => {
     srv.close()
   })
 })
-

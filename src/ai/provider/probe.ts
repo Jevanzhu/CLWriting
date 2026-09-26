@@ -71,7 +71,9 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
     // bypassCache——探测实例的 model 被换成列表首项，正常生成
     // 永不以此 key 命中；入缓存只会挤占 LRU 容量把正常实例挤出重建。
     // userDataPath 透传（探测目标库）——降级记忆按显式 path 分发
-    const provider = createProvider({ ...conf, model: probeModel }, undefined, userDataPath ?? undefined, { bypassCache: true })
+    const provider = createProvider({ ...conf, model: probeModel }, undefined, userDataPath ?? undefined, {
+      bypassCache: true,
+    })
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), 30_000)
     try {

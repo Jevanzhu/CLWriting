@@ -34,7 +34,13 @@ import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
 import { stripInlineComment, firstKeyColon } from './frontmatter-core.js'
 import { log } from '../log/index.js'
-import { SECTION_SPECS, SECTION_BY_NAME, PARSE_SECTION_ORDER, parseSectionSpec, parseFiniteNumber } from './yaml-spec.js'
+import {
+  SECTION_SPECS,
+  SECTION_BY_NAME,
+  PARSE_SECTION_ORDER,
+  parseSectionSpec,
+  parseFiniteNumber,
+} from './yaml-spec.js'
 
 // ── 默认值（#9 第 3 节，待 beta 的给占位）────────
 //
@@ -74,7 +80,10 @@ function parseSections(text: string): RawSection[] {
   const stack: RawSection[] = [] // 按缩进维护
   const listNodes: RawSection[] = [] // 收集了块列表项的节点（循环后统一拼值）
   const make = (indent: number, key: string, value: string): RawSection => ({
-    indent, key, value, children: [],
+    indent,
+    key,
+    value,
+    children: [],
   })
 
   // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测
@@ -91,14 +100,20 @@ function parseSections(text: string): RawSection[] {
     // 段挂靠类问题难排查；留痕不中断解析。
     if (!tabWarned && line.slice(0, indent).includes('\t')) {
       tabWarned = true
-      log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`)
+      log.warn(
+        'book.yaml',
+        `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`,
+      )
     }
     // 四轮-D403：缩进含全角空格（U+3000）时 warn 一次—— tab 同款口径：
     // U+3000 同为 trimStart 认可的空白，按字符数凑合可解析（计数维持现状，与 tab
     // 同待遇），但作者无从知晓文件混入了全角空格、段挂靠类问题难排查；留痕不中断。
     if (!wideSpaceWarned && line.slice(0, indent).includes('\u3000')) {
       wideSpaceWarned = true
-      log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含全角空格 U+3000（本协议为 2 空格缩进），已按字符数解析；建议改用半角空格`)
+      log.warn(
+        'book.yaml',
+        `book.yaml 第 ${lineNo + 1} 行缩进含全角空格 U+3000（本协议为 2 空格缩进），已按字符数解析；建议改用半角空格`,
+      )
     }
     const content = line.trim()
     // ii 批（ff ）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
@@ -118,7 +133,10 @@ function parseSections(text: string): RawSection[] {
         // 解析，列表项被拼进段 value 后所有子键读取全部落空（如 leads: 下直接
         // `- 主线`，作者意图是 leads.enabled，实际 enabled 无声丢失）。留痕不中断。
         if (parent.indent === 0) {
-          log.warn('yaml', `book.yaml 段头「${parent.key}:」直挂块列表（${content.slice(0, 40)}）——该段按子键解析，列表值不会被子键读到；如需列表请落到列表型子键下（如 leads: 的 enabled:）`)
+          log.warn(
+            'yaml',
+            `book.yaml 段头「${parent.key}:」直挂块列表（${content.slice(0, 40)}）——该段按子键解析，列表值不会被子键读到；如需列表请落到列表型子键下（如 leads: 的 enabled:）`,
+          )
         }
         parent.listItems = [...(parent.listItems ?? []), item]
         if (!listNodes.includes(parent)) listNodes.push(parent)
@@ -191,7 +209,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     }
     seenKeys.add(r.key)
   }
-  const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
+  const cfg: BookConfig = {
+    ...DEFAULT_CONFIG,
+    book: { ...DEFAULT_CONFIG.book },
+    leads: { ...DEFAULT_CONFIG.leads },
+    budget: { ...DEFAULT_CONFIG.budget },
+    growth: { ...DEFAULT_CONFIG.growth },
+  }
   const find = (key: string) => roots.find((r) => r.key === key)
 
   // spec_version 非法值 warn 留痕（维持回落 1）——此前
@@ -324,5 +348,11 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
 
 // ── 拆分桥接：yaml-patch.ts 既有导出面原名 re-export，
 //    全库消费方 import 路径零改动（仍从 format/yaml.js 取用）──
-export { locateTopSection, patchTopSection, setTopSectionKey, setSectionKeyBlock, patchBookConfigText } from './yaml-patch.js'
+export {
+  locateTopSection,
+  patchTopSection,
+  setTopSectionKey,
+  setSectionKeyBlock,
+  patchBookConfigText,
+} from './yaml-patch.js'
 export type { TopSectionSpan } from './yaml-patch.js'

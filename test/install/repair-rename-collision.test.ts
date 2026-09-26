@@ -59,7 +59,9 @@ describe('R44-6：repairBooks path 命中改名撞另一书 → 跳过 + warn，
     expect(result.relinked).toHaveLength(0)
     expect(result.missing).toHaveLength(0)
     // 本轮无变更（跳过不算 updated）→ books.jsonl 未被整写，盘上原样
-    const lines = readFileSync(join(wd, '.clwriting', 'books.jsonl'), 'utf-8').trim().split('\n')
+    const lines = readFileSync(join(wd, '.clwriting', 'books.jsonl'), 'utf-8')
+      .trim()
+      .split('\n')
     expect(lines).toHaveLength(2)
     // R74-10 同款 warn：点名新名、原登记名与书目录
     expect(warns.length).toBe(1)

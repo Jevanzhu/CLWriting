@@ -189,7 +189,11 @@ describe('A101: 小上下文模型下 historyBudget 下限随预算收缩', () =
     expect(measureHistoryPoints(convoMsgs)).toBe(12_136)
     expect(measureHistoryPoints(convoMsgs)).toBeLessThanOrEqual(15_000)
     // 预防线 warn 反映收缩后的真实预算（修复前零 warn——防线未触发即静默超窗）
-    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('超发送预算 15000'))).toBe(true)
+    expect(
+      warnSpy.mock.calls.some(
+        (c) => String(c[1] ?? '').includes('发送前体量防线') && String(c[1]).includes('超发送预算 15000'),
+      ),
+    ).toBe(true)
     // 切后总量（sys 3 + 12136）在预算内 → 无切后复查 warn（fail-open 语义不变）
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('切后复查'))).toBe(false)
   })
@@ -222,7 +226,11 @@ describe('A101: 小上下文模型下 historyBudget 下限随预算收缩', () =
     expect(convo[0]).toEqual({ role: 'user', content: 'u1' })
     // 核心断言：收缩重试预算 = ⌊historyBudget/2⌋ 随收缩后的 8000 取半（4000），
     // 首发历史预算 = 8000（≤ sendBudget）；修复前 warn 自证 20000/10000（> 8000）
-    expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('首发历史预算 8000') && String(c[1]).includes('重试预算 4000'))).toBe(true)
+    expect(
+      warnSpy.mock.calls.some(
+        (c) => String(c[1] ?? '').includes('首发历史预算 8000') && String(c[1]).includes('重试预算 4000'),
+      ),
+    ).toBe(true)
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('首发历史预算 20000'))).toBe(false)
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('重试预算 10000'))).toBe(false)
   })

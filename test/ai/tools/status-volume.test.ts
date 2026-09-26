@@ -31,8 +31,13 @@ beforeEach(() => {
   createAllTables(db)
   for (let n = 1; n <= 10; n++) {
     syncChapter(db, {
-      章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '强',
-      情绪定位: '铺垫', _wordCount: 2000, _path: `p${n}`,
+      章号: n,
+      标题: `第${n}章`,
+      钩子类型: '悬念钩',
+      钩子强弱: '强',
+      情绪定位: '铺垫',
+      _wordCount: 2000,
+      _path: `p${n}`,
     })
   }
   db.close()
@@ -55,11 +60,7 @@ beforeEach(() => {
   writeManifest(manifestPath, manifest)
   // 书库级 global.json：defaultVolumeSize=5（下界；10 % 5 === 0 → 卷号跳变最锐利）
   userDataPath = mkdtempTracked(join(tmpdir(), 'clwriting-gg26tool-'))
-  writeFileSync(
-    join(userDataPath, 'global.json'),
-    JSON.stringify({ defaultVolumeSize: 5 }),
-    'utf8',
-  )
+  writeFileSync(join(userDataPath, 'global.json'), JSON.stringify({ defaultVolumeSize: 5 }), 'utf8')
 })
 
 afterEach(() => {
@@ -86,8 +87,13 @@ describe('chapter_status 卷号全局托底（GG-P2-6）', () => {
     // 「已写到第 N 章」仍停在第 10 章（与近况复述/判态同口径）
     const db = new DatabaseSync(join(bookRoot, '.cache', 'index.db'))
     syncChapter(db, {
-      章号: 11, 标题: '第11章', 钩子类型: '悬念钩', 钩子强弱: '强',
-      情绪定位: '铺垫', _wordCount: 2000, _path: 'p11',
+      章号: 11,
+      标题: '第11章',
+      钩子类型: '悬念钩',
+      钩子强弱: '强',
+      情绪定位: '铺垫',
+      _wordCount: 2000,
+      _path: 'p11',
     })
     db.close()
     const r = chapterStatus({ bookRoot, bookName: LONG_BOOK, userDataPath }, {})

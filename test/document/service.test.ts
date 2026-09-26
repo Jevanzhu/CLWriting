@@ -82,11 +82,17 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('覆盖保存（expectedRevision=当前）→ ok + 新 revision', async () => {
     const r1 = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'hello',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     if (!r1.ok) throw new Error('prereq')
     const r2 = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'world', expectedRevision: r1.revision, operationId: 'op2', origin: 'manual',
+      content: 'world',
+      expectedRevision: r1.revision,
+      operationId: 'op2',
+      origin: 'manual',
     })
     expect(r2.ok).toBe(true)
     if (r2.ok) expect(r2.revision).not.toBe(r1.revision)
@@ -95,10 +101,16 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('expectedRevision=null 撞已有文件 → REVISION_CONFLICT', async () => {
     await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'a', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'a',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'b', expectedRevision: null, operationId: 'op2', origin: 'manual',
+      content: 'b',
+      expectedRevision: null,
+      operationId: 'op2',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
@@ -106,10 +118,16 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('expectedRevision 不符磁盘 → REVISION_CONFLICT', async () => {
     await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'a', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'a',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'b', expectedRevision: 'sha256:deadbeef', operationId: 'op2', origin: 'manual',
+      content: 'b',
+      expectedRevision: 'sha256:deadbeef',
+      operationId: 'op2',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
@@ -229,7 +247,10 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('低级项（第六轮）：GBK 只污染 fm 区（body 纯 ASCII）→ updateChapterMeta 同样拒绝，原始字节一字不动', async () => {
     // 原判据只查 body：fm 区 GBK 标题读入 U+FFFD 但 body 干净 → 放行后 fm 往返把乱码写回
-    const r0 = await svc.createDocument({ relPath: '写作/正文/0002-风起.md', content: '---\n章号: 2\n标题: 风起\n---\nplain ascii body' })
+    const r0 = await svc.createDocument({
+      relPath: '写作/正文/0002-风起.md',
+      content: '---\n章号: 2\n标题: 风起\n---\nplain ascii body',
+    })
     if (!r0.ok) throw new Error('prereq')
     const fp = join(bookRoot, '写作/正文/0002-风起.md')
     const gbkFm = Buffer.concat([
@@ -264,7 +285,10 @@ describe('DocumentService / 保存协议主路径', () => {
   })
 
   it('DA-1（第七轮）：盘上合法 UTF-8（含真实 � 字符）→ updateDocMeta 放行（升级判据消除误拒）', async () => {
-    const r0 = await svc.createDocument({ relPath: '大纲/卷纲/第一卷.md', content: '---\nvolume: 1\n---\n\uFFFD 卷内既有要点' })
+    const r0 = await svc.createDocument({
+      relPath: '大纲/卷纲/第一卷.md',
+      content: '---\nvolume: 1\n---\n\uFFFD 卷内既有要点',
+    })
     if (!r0.ok) throw new Error('prereq')
     const r = await svc.updateDocMeta(r0.docId, { 备注: '已校' })
     expect(r.ok).toBe(true) // 原字符串判据会把合法 UTF-8 的真实 � 误判为乱码而拒写
@@ -272,7 +296,10 @@ describe('DocumentService / 保存协议主路径', () => {
   })
 
   it('低级项（第六轮）：盘上合法 UTF-8（body 含真实 �）→ updateChapterMeta 放行，与 save 主路径 M-5 同口径', async () => {
-    const r0 = await svc.createDocument({ relPath: '写作/正文/0003-开篇.md', content: '---\n章号: 3\n标题: 开篇\n---\n\uFFFD 旧内容' })
+    const r0 = await svc.createDocument({
+      relPath: '写作/正文/0003-开篇.md',
+      content: '---\n章号: 3\n标题: 开篇\n---\n\uFFFD 旧内容',
+    })
     if (!r0.ok) throw new Error('prereq')
     const r = await svc.updateChapterMeta(r0.docId, { 标题: '改题' })
     expect(r.ok).toBe(true)
@@ -300,7 +327,10 @@ describe('DocumentService / 保存协议主路径', () => {
   })
 
   it('M-2: rename 成功路径不受回写影响（fm 新值 + 新文件名，行为不变）', async () => {
-    const r0 = await svc.createDocument({ relPath: '写作/正文/0001-旧章.md', content: '---\n章号: 1\n标题: 旧章\n---\n正文' })
+    const r0 = await svc.createDocument({
+      relPath: '写作/正文/0001-旧章.md',
+      content: '---\n章号: 1\n标题: 旧章\n---\n正文',
+    })
     if (!r0.ok) throw new Error('prereq')
     const r = await svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
     expect(r.ok).toBe(true)
@@ -315,7 +345,10 @@ describe('DocumentService / 保存协议主路径', () => {
     // 占住 journal 文件路径（目录）→ appendPending 抛 EISDIR（模拟磁盘满/权限类故障）
     mkdirSync(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'), { recursive: true })
     const r = await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'hello',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
@@ -326,7 +359,10 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('路径越出（.. 穿越）→ PATH_ESCAPE，不落盘', async () => {
     const r = await svc.save('doc_x', '../../../etc/passwd', {
-      content: 'x', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('PATH_ESCAPE')
@@ -334,7 +370,10 @@ describe('DocumentService / 保存协议主路径', () => {
 
   it('只读文档（定稿/摘要）→ CAPABILITY_DENIED', async () => {
     const r = await svc.save('doc_s', '定稿/摘要/0001.md', {
-      content: 'x', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('CAPABILITY_DENIED')
@@ -352,7 +391,10 @@ describe('DocumentService / 保存协议主路径', () => {
       '工作区/spills/a1b2c3d4e5f60718.md',
     ]) {
       const r = await svc.save('doc_p1', relPath, {
-        content: '伪造 pending', expectedRevision: null, operationId: 'op-p1', origin: 'manual',
+        content: '伪造 pending',
+        expectedRevision: null,
+        operationId: 'op-p1',
+        origin: 'manual',
       })
       expect(r.ok, relPath).toBe(false)
       if (!r.ok) expect(r.code, relPath).toBe('CAPABILITY_DENIED')
@@ -369,7 +411,10 @@ describe('DocumentService / 保存协议主路径', () => {
     if (!m.ok) expect(m.code).toBe('CAPABILITY_DENIED')
     // 对照：工作区作者确认位（细纲）不在 deny 清单——legacy 语义维持
     const w = await svc.save('doc_p1w', '工作区/细纲.md', {
-      content: '推进声明', expectedRevision: null, operationId: 'op-p1w', origin: 'manual',
+      content: '推进声明',
+      expectedRevision: null,
+      operationId: 'op-p1w',
+      origin: 'manual',
     })
     expect(w.ok).toBe(true)
   })
@@ -377,13 +422,19 @@ describe('DocumentService / 保存协议主路径', () => {
   it('save settled 记今日字数 delta（E4：新建 + 修改累加，strip fm 口径）', async () => {
     // 新建 save（expectedRevision null）→ delta = 新内容正文字数（fm 已剥）
     const r0 = await svc.save('doc_w', '写作/正文/0001-初稿.md', {
-      content: '---\n标题: x\n---\n你好世界', expectedRevision: null, operationId: 'op-d1', origin: 'manual',
+      content: '---\n标题: x\n---\n你好世界',
+      expectedRevision: null,
+      operationId: 'op-d1',
+      origin: 'manual',
     })
     if (!r0.ok) throw new Error('prereq r0')
     expect(readTodayDelta(bookRoot, todayDate())).toBe(4) // 「你好世界」4 字
     // 修改 save → delta = 新旧差（新增「再见」2 字）
     const r1 = await svc.save('doc_w', '写作/正文/0001-初稿.md', {
-      content: '---\n标题: x\n---\n你好世界再见', expectedRevision: r0.revision, operationId: 'op-d2', origin: 'manual',
+      content: '---\n标题: x\n---\n你好世界再见',
+      expectedRevision: r0.revision,
+      operationId: 'op-d2',
+      origin: 'manual',
     })
     expect(r1.ok).toBe(true)
     expect(readTodayDelta(bookRoot, todayDate())).toBe(6) // 累计 4 + 2
@@ -402,7 +453,10 @@ describe('DocumentService / journal 与崩溃恢复', () => {
 
   it('保存成功后 journal pending+settled 成对，无未结算', async () => {
     await svc.save('doc_1', '写作/正文/0001.md', {
-      content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'hello',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     // R34D-17：svc.recover() 假象面已删——直测生产原语 findUnsettled（state.ts 恢复链同源）
     expect(findUnsettled(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'))).toEqual([])
@@ -422,7 +476,11 @@ describe('DocumentService / journal 与崩溃恢复', () => {
     const jp = join(bookRoot, '工作区', '.journal', 'doc_z.jsonl')
     const opId = await appendPending(jp, 'doc_z', null)
     // 手动追加 aborted
-    writeFileSync(jp, JSON.stringify({ opId, ts: new Date().toISOString(), status: 'aborted', reason: 'boom' }) + '\n', { flag: 'a' })
+    writeFileSync(
+      jp,
+      JSON.stringify({ opId, ts: new Date().toISOString(), status: 'aborted', reason: 'boom' }) + '\n',
+      { flag: 'a' },
+    )
     expect(findUnsettled(jp)).toEqual([])
   })
 })
@@ -440,7 +498,10 @@ describe('DocumentService / 串行', () => {
   it('同 doc 并发保存串行，内容最终为最后一次', async () => {
     const ps = ['一', '二', '三'].map((c, i) =>
       svc.save('doc_1', '写作/正文/0001.md', {
-        content: c, expectedRevision: null, operationId: `op${i}`, origin: 'manual',
+        content: c,
+        expectedRevision: null,
+        operationId: `op${i}`,
+        origin: 'manual',
       }),
     )
     const results = await Promise.all(ps)
@@ -457,8 +518,18 @@ describe('DocumentService / 串行', () => {
     // 若出现跨 doc 串行/阻塞，doc_b 无法完成，本用例以超时红暴露（非永真断言）。
     const q = new GatedSaveQueue()
     const gated = new DocumentService({ bookRoot, queue: q })
-    const pa = gated.save('doc_a', '写作/正文/0001.md', { content: 'a', expectedRevision: null, operationId: 'opa', origin: 'manual' })
-    const pb = await gated.save('doc_b', '写作/正文/0002.md', { content: 'b', expectedRevision: null, operationId: 'opb', origin: 'manual' })
+    const pa = gated.save('doc_a', '写作/正文/0001.md', {
+      content: 'a',
+      expectedRevision: null,
+      operationId: 'opa',
+      origin: 'manual',
+    })
+    const pb = await gated.save('doc_b', '写作/正文/0002.md', {
+      content: 'b',
+      expectedRevision: null,
+      operationId: 'opb',
+      origin: 'manual',
+    })
     // doc_b 完整落盘时 doc_a 仍被闸住（run 已启动未放行）——并发重叠的终态证据
     expect(pb.ok).toBe(true)
     expect(q.aRan).toBe(true)
@@ -489,7 +560,10 @@ describe('DocumentService / snapshot 触发', () => {
     writeFileSync(f, '原文', 'utf-8')
     const base = hashFile(f) as `sha256:${string}`
     await svc.save('doc_1', '写作/正文/0001-开篇.md', {
-      content: '改后', expectedRevision: base, operationId: 'op1', origin: 'manual',
+      content: '改后',
+      expectedRevision: base,
+      operationId: 'op1',
+      origin: 'manual',
     })
     const snapDir = join(bookRoot, '工作区', '.版本', 'doc_1')
     expect(existsSync(snapDir)).toBe(true)
@@ -497,7 +571,10 @@ describe('DocumentService / snapshot 触发', () => {
 
   it('origin=manual 新建（非 chapter 覆盖）→ 不建快照', async () => {
     await svc.save('doc_1', '素材/灵感.md', {
-      content: '新', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: '新',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     const snapDir = join(bookRoot, '工作区', '.版本', 'doc_1')
     expect(existsSync(snapDir)).toBe(false)
@@ -525,7 +602,10 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
     if (!renamed.ok) throw new Error('prereq rename')
 
     const r = await svc.save(created.docId, '写作/正文/0001-开篇.md', {
-      content: '迟到的新建内容', expectedRevision: null, operationId: 'op-late', origin: 'autosave',
+      content: '迟到的新建内容',
+      expectedRevision: null,
+      operationId: 'op-late',
+      origin: 'autosave',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('REVISION_CONFLICT')
@@ -539,7 +619,10 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
     if (!trashed.ok) throw new Error('prereq trash')
 
     const r = await svc.save(created.docId, '写作/正文/0003-雪夜.md', {
-      content: '迟到内容', expectedRevision: null, operationId: 'op-late2', origin: 'autosave',
+      content: '迟到内容',
+      expectedRevision: null,
+      operationId: 'op-late2',
+      origin: 'autosave',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) {
@@ -554,7 +637,10 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
     if (!created.ok) throw new Error('prereq create')
     await svc.renameDocument({ docId: created.docId, newName: '0006-新名.md' })
     const r = await svc.save(created.docId, '写作/正文/0006-新名.md', {
-      content: 'b', expectedRevision: created.revision, operationId: 'op-follow', origin: 'manual',
+      content: 'b',
+      expectedRevision: created.revision,
+      operationId: 'op-follow',
+      origin: 'manual',
     })
     expect(r.ok).toBe(true)
     expect(readFileSync(join(bookRoot, '写作/正文/0006-新名.md'), 'utf-8')).toBe('b')
@@ -564,7 +650,10 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
     const created = await svc.createDocument({ relPath: '写作/正文/0007-常例.md', content: 'a' })
     if (!created.ok) throw new Error('prereq create')
     const r = await svc.save(created.docId, '写作/正文/0007-常例.md', {
-      content: 'b', expectedRevision: created.revision, operationId: 'op-ok', origin: 'manual',
+      content: 'b',
+      expectedRevision: created.revision,
+      operationId: 'op-ok',
+      origin: 'manual',
     })
     expect(r.ok).toBe(true)
   })

@@ -107,7 +107,9 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
 
     prefs.set('theme', 'dark')
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     putMock.mockImplementationOnce(() => gate.then(() => Promise.reject(conflict409())))
     getMock.mockResolvedValueOnce({ prefs: { theme: 'light', shelfView: 'list' }, revision: 1 })
 
@@ -121,15 +123,9 @@ describe('prefs: 409 恢复——远端垫底 + 本窗未落盘修改重放（R3
     for (let i = 0; i < 5; i++) await Promise.resolve()
 
     // 第 2 笔 = 409 重试：合并本窗脏字段（theme/shelfView 均为本窗修改）+ 远端 rev
-    expect(putMock.mock.calls[1]).toEqual([
-      expect.objectContaining({ theme: 'dark', shelfView: 'list' }),
-      1,
-    ])
+    expect(putMock.mock.calls[1]).toEqual([expect.objectContaining({ theme: 'dark', shelfView: 'list' }), 1])
     // 第 3 笔 = 排队保存：重试成功后以最新 revision（2）发出，不再吃 409
-    expect(putMock.mock.calls[2]).toEqual([
-      expect.objectContaining({ theme: 'dark', shelfView: 'list' }),
-      2,
-    ])
+    expect(putMock.mock.calls[2]).toEqual([expect.objectContaining({ theme: 'dark', shelfView: 'list' }), 2])
   })
 
   it('无本窗脏字段 → 恢复整体采纳远端（远端垫底语义不回归）', async () => {

@@ -18,14 +18,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 type FontsBridge = { getSystemFonts: () => Promise<string[]> }
 
-async function importFresh(): Promise<
-  typeof import('../../../src/studio/web-next/src/composables/useSystemFonts')
-> {
+async function importFresh(): Promise<typeof import('../../../src/studio/web-next/src/composables/useSystemFonts')> {
   vi.resetModules()
   return await import('../../../src/studio/web-next/src/composables/useSystemFonts')
 }
 
-const WIN = (window as unknown as { clwritingDesktop?: FontsBridge })
+const WIN = window as unknown as { clwritingDesktop?: FontsBridge }
 
 let bridge: FontsBridge
 let savedDesktop: FontsBridge | undefined
@@ -71,9 +69,7 @@ describe('字体表启动预热（prewarmSystemFonts）', () => {
 
   it('③ 失败：Promise 不 reject、清 pending 可重试、fontsLoaded 不置位、console.error 留痕', async () => {
     let fail = true
-    bridge.getSystemFonts = vi.fn(() =>
-      fail ? Promise.reject(new Error('boom')) : Promise.resolve(['KaiTi']),
-    )
+    bridge.getSystemFonts = vi.fn(() => (fail ? Promise.reject(new Error('boom')) : Promise.resolve(['KaiTi'])))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const m = await importFresh()
     await expect(m.prewarmSystemFonts()).resolves.toBeUndefined()

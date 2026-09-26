@@ -43,7 +43,14 @@ function makeWorkDir(): string {
 }
 
 function registry(): BookEntry[] {
-  return JSON.parse('[' + readFileSync(join(workDir, '.clwriting', 'books.jsonl'), 'utf-8').trim().split('\n').join(',') + ']') as BookEntry[]
+  return JSON.parse(
+    '[' +
+      readFileSync(join(workDir, '.clwriting', 'books.jsonl'), 'utf-8')
+        .trim()
+        .split('\n')
+        .join(',') +
+      ']',
+  ) as BookEntry[]
 }
 
 afterEach(() => {
@@ -102,7 +109,11 @@ describe('R35-28 repairBooks 幽灵条目', () => {
     writeBooks(workDir, [{ name: '搬家书', path: '长篇/搬家书', kind: 'long' }])
     // 目录仍在书库但换了位置（长篇/新家），book.yaml title = 搬家书 → 自愈按名重关联
     mkdirSync(join(workDir, '长篇', '新家'), { recursive: true })
-    writeFileSync(join(workDir, '长篇', '新家', 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 搬家书\nhost: cc\n', 'utf-8')
+    writeFileSync(
+      join(workDir, '长篇', '新家', 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 搬家书\nhost: cc\n',
+      'utf-8',
+    )
     const r = repairBooks(workDir, { purgeConfirmedMissing: true })
     expect(r.relinked).toEqual([{ name: '搬家书', from: '长篇/搬家书', to: '长篇/新家' }])
     expect(r.purged).toBeUndefined()
@@ -116,7 +127,11 @@ describe('R35-28 repairBooks 幽灵条目', () => {
     // 抛 EACCES——修复前 relink 判定用 !existsSync（一切 stat 失败恒返 false）会把
     // EACCES 误当「旧目录确不存在」重写登记 path；修复后 ENOENT-only 同 R35-28 口径
     mkdirSync(join(workDir, '长篇', '新家'), { recursive: true })
-    writeFileSync(join(workDir, '长篇', '新家', 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 搬家书\nhost: cc\n', 'utf-8')
+    writeFileSync(
+      join(workDir, '长篇', '新家', 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 搬家书\nhost: cc\n',
+      'utf-8',
+    )
     FAIL.oldPathStat = join(workDir, '长篇', '搬家书')
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const r = repairBooks(workDir, { purgeConfirmedMissing: true })
@@ -131,7 +146,11 @@ describe('R35-28 repairBooks 幽灵条目', () => {
   it('登记完好时显式清除参数不产生任何副作用（无 hint、无 purged、changed=false）', () => {
     makeWorkDir()
     mkdirSync(join(workDir, '长篇', '完好书'), { recursive: true })
-    writeFileSync(join(workDir, '长篇', '完好书', 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 完好书\nhost: cc\n', 'utf-8')
+    writeFileSync(
+      join(workDir, '长篇', '完好书', 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 完好书\nhost: cc\n',
+      'utf-8',
+    )
     // created_at 预置（repair 会从 book.yaml mtime 补 created_at——不留会误报 changed）
     writeBooks(workDir, [{ name: '完好书', path: '长篇/完好书', kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }])
     const r = repairBooks(workDir, { purgeConfirmedMissing: true })

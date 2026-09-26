@@ -71,8 +71,13 @@ describe('新书冷启动：空书/仅一章/空语料/首稿链路', () => {
     try {
       const rel = '写作/正文/001-第1章.md'
       const meta: ChapterMeta = {
-        章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 0,
+        章号: 1,
+        标题: '第1章',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 0,
       }
       writeChapter(join(root, rel), meta, '少年背起行囊走出山门，长街灯火次第亮起。\n')
       const m = readManifest(join(root, '项目', '文档清单.jsonl'))

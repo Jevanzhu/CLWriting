@@ -104,9 +104,8 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    [CTRL_BOOK, RACE_BOOK, EVENT_BOOK]
-      .map((name) => JSON.stringify({ name, path: name, kind: 'long' }))
-      .join('\n') + '\n',
+    [CTRL_BOOK, RACE_BOOK, EVENT_BOOK].map((name) => JSON.stringify({ name, path: name, kind: 'long' })).join('\n') +
+      '\n',
   )
   for (const name of [CTRL_BOOK, RACE_BOOK, EVENT_BOOK]) {
     const bookRoot = join(workDir, name)

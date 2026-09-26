@@ -71,11 +71,7 @@ describe('R36-7 version-stats 缓存', () => {
     const before = await getVersionStatsCached(root, 60_000)
     expect(before.snapshotCount).toBe(1)
     await sleep(5)
-    writeFileSync(
-      join(root, '工作区', '.版本', 'doc_1', 'b.md'),
-      '---\n来源: manual\n---\n后续内容\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '.版本', 'doc_1', 'b.md'), '---\n来源: manual\n---\n后续内容\n', 'utf-8')
     // R44-9：探针纳入 TTL 节流——窗内命中不重扫（即时失效收敛为 ≤TTL 窗，头注记档）
     const throttled = await getVersionStatsCached(root, 60_000)
     expect(versionStatsCache.stats().misses).toBe(1)

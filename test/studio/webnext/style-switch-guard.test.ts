@@ -95,7 +95,10 @@ describe('R28-25：StyleCandidateBox 窗口期动作吞掉（armed 门）', () =
     vi.spyOn(style, 'harvest').mockReturnValue(req.promise)
 
     const wrapper = mount(StyleCandidateBox)
-    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('收割'))!
+      .trigger('click')
 
     // 复现窗口：路由切书瞬间 store.bookName 尚未跟进（StyleView 重建 → onMounted 才 load）
     mockRoute.params.name = '书B'
@@ -114,7 +117,10 @@ describe('R28-25：StyleCandidateBox 窗口期动作吞掉（armed 门）', () =
     vi.spyOn(style, 'harvest').mockReturnValue(req.promise)
 
     const wrapper = mount(StyleCandidateBox)
-    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('收割'))!
+      .trigger('click')
     mockRoute.params.name = '书B'
     req.reject(new Error('收割失败'))
     await flushPromises()
@@ -151,11 +157,17 @@ describe('R28-25：StyleCandidateBox 窗口期动作吞掉（armed 门）', () =
     vi.spyOn(style, 'confirm').mockResolvedValue(undefined)
 
     const wrapper = mount(StyleCandidateBox)
-    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('收割'))!
+      .trigger('click')
     await flushPromises()
     expect(ui.toasts.some((t) => t.msg.includes('收割完成'))).toBe(true)
 
-    await wrapper.findAll('button').find((b) => b.text().includes('确认收录'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('确认收录'))!
+      .trigger('click')
     await flushPromises()
     expect(ui.toasts.some((t) => t.msg.includes('已收录'))).toBe(true)
     wrapper.unmount()
@@ -175,7 +187,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     vi.spyOn(ui, 'ask').mockReturnValue(askReq.promise)
 
     const wrapper = mount(StyleBaselineCard, { props: { bookName: '书A' } })
-    await wrapper.findAll('button').find((b) => b.text().includes('重新建立'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('重新建立'))!
+      .trigger('click')
 
     mockRoute.params.name = '书B' // 弹窗滞留期间切书（store 滞留 A）
     askReq.resolve(true)
@@ -196,7 +211,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     vi.spyOn(ui, 'ask').mockResolvedValue(true)
 
     const wrapper = mount(StyleBaselineCard, { props: { bookName: '书A' } })
-    await wrapper.findAll('button').find((b) => b.text().includes('重新建立'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('重新建立'))!
+      .trigger('click')
     await flushPromises() // ask 已过、freeze 在途
 
     mockRoute.params.name = '书B'
@@ -220,7 +238,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     await wrapper.find('button.rules-toggle').trigger('click') // 展开铁律编辑
     await flushPromises()
     await wrapper.find('textarea.rules-textarea').setValue('新的铁律') // 置脏
-    await wrapper.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('保存'))!
+      .trigger('click')
     expect(docsMocks.putContent).toHaveBeenCalledWith('书A', '文风/文风铁律.md', '新的铁律', 'r1')
 
     mockRoute.params.name = '书B' // 保存 settle 恰在窗口
@@ -244,7 +265,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     await wrapper.find('button.rules-toggle').trigger('click')
     await flushPromises()
     await wrapper.find('textarea.rules-textarea').setValue('新的铁律')
-    await wrapper.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('保存'))!
+      .trigger('click')
 
     mockRoute.params.name = '书B'
     putReq.reject(new Error('磁盘满'))
@@ -267,7 +291,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     await wrapper.find('button.rules-toggle').trigger('click')
     await flushPromises()
     await wrapper.find('textarea.rules-textarea').setValue('新的铁律')
-    await wrapper.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('保存'))!
+      .trigger('click')
     await flushPromises()
     expect(ui.toasts.some((t) => t.msg.includes('文风铁律已保存'))).toBe(true)
     expect(loadSpy).toHaveBeenCalledWith('书A')
@@ -276,7 +303,10 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     style.config = configWithBaseline()
     await flushPromises() // 等 baseline 出现（重新建立按钮可用）
     vi.spyOn(style, 'freeze').mockResolvedValue(undefined)
-    await wrapper.findAll('button').find((b) => b.text().includes('重新建立'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('重新建立'))!
+      .trigger('click')
     await flushPromises()
     expect(ui.toasts.some((t) => t.msg.includes('文风基准已建立'))).toBe(true)
     wrapper.unmount()

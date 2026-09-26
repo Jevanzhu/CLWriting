@@ -119,11 +119,7 @@ export function visibleInjectionsFromDigests(d: {
  * @param chapter 作者选定的章号（可选；未选则只注入设定不注入正文）
  * @param opts 用户数据根（DSH-18：技巧包用户根发现用；缺省只扫项目根 + 捆绑根）
  */
-export function buildChatContext(
-  bookRoot: string,
-  chapter?: number,
-  opts?: { userDataPath?: string },
-): ChatContext {
+export function buildChatContext(bookRoot: string, chapter?: number, opts?: { userDataPath?: string }): ChatContext {
   const settings = buildSettingsContext(bookRoot)
   let currentChapter: string | undefined
   const files: string[] = []
@@ -191,7 +187,8 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
       // ——原 body.length/slice 按 UTF-16 码元计，截断点恰落代理对（emoji/扩展区汉字）
       // 中间产出孤立代理进 system prompt，且合计帽提前误触发；仓内同族截断
       // （clipByCodePoints/codePointLength）均已收码点口径，此处单源接入。
-      if (codePointLength(body) > KNOWLEDGE_FILE_CAP) body = `${clipByCodePoints(body, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
+      if (codePointLength(body) > KNOWLEDGE_FILE_CAP)
+        body = `${clipByCodePoints(body, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
       const bodyLen = codePointLength(body)
       if (total + bodyLen > KNOWLEDGE_TOTAL_CAP) break
       total += bodyLen
@@ -249,7 +246,10 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
       log.warn('chat', `trimHistory：历史 ${history.length} 条无任何纯文本 user 边界可对齐，无法安全截断（全量携带）`)
       return history
     }
-    log.warn('chat', `trimHistory：纯文本 user 边界不足（${turnBoundaries}/${window}），按码点预算回落截断 ${history.length} → ${history.length - cut} 条`)
+    log.warn(
+      'chat',
+      `trimHistory：纯文本 user 边界不足（${turnBoundaries}/${window}），按码点预算回落截断 ${history.length} → ${history.length - cut} 条`,
+    )
     return history.slice(cut)
   }
 
@@ -435,9 +435,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
       const blocks = (m.content as ContentBlock[]).filter(
         (b) => b.type !== 'tool_use' || (answeredToolUseIds.has(b.id) && !droppedToolResultIds.has(b.id)),
       )
-      const hasPayload = blocks.some(
-        (b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''),
-      )
+      const hasPayload = blocks.some((b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''))
       if (!hasPayload) continue
       if (blocks.length !== (m.content as ContentBlock[]).length) msg = { ...m, content: blocks }
     }

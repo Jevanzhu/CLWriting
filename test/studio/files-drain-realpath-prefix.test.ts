@@ -54,7 +54,10 @@ beforeAll(async () => {
   )
   const bookRoot = join(realRoot, BOOK)
   mkdirSync(join(bookRoot, '设定'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R71排空书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: R71排空书\n  genre: 玄幻\nhost: cc\n',
+  )
   server = await startServerSafe({ port: 0, workDir: linkRoot })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
@@ -86,9 +89,13 @@ describe('R71-10: symlink workDir 下 PUT 链能被 drain', () => {
       writeFileSync(filePath, 'x'.repeat(96 * 1024 * 1024))
 
       // 发出 PUT（不等响应）；轮询观测钩子直到链键出现（= 已入列且临界段在途）
-      const putP = req('PUT', `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`, {
-        content: '新总纲内容',
-      })
+      const putP = req(
+        'PUT',
+        `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`,
+        {
+          content: '新总纲内容',
+        },
+      )
       let keys: readonly string[] = []
       for (let i = 0; i < 2000; i++) {
         keys = __filePutChainKeysForTest()

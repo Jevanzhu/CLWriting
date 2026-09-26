@@ -37,7 +37,9 @@ function sessionDbPath(userDataPath: string, bookRoot: string): string {
 }
 
 const tableNames = (db: DatabaseSync): string[] =>
-  (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((r) => r.name)
+  (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+    (r) => r.name,
+  )
 
 describe('R0916-7-P3-2 applyOpenPragmas（打开期 PRAGMA + WAL）', () => {
   it('busy_timeout=5000 且 journal_mode=wal；重复调用幂等（不抛）', () => {
@@ -106,9 +108,9 @@ describe('R0916-7-P3-2 createEventsSchema（首开 DDL）', () => {
         JSON.stringify({ message: 'y' }),
         2,
       )
-      const flags = (db.prepare('SELECT has_branch_meta AS h FROM events ORDER BY seq').all() as Array<{ h: number }>).map(
-        (r) => r.h,
-      )
+      const flags = (
+        db.prepare('SELECT has_branch_meta AS h FROM events ORDER BY seq').all() as Array<{ h: number }>
+      ).map((r) => r.h)
       expect(flags).toEqual([1, 0])
       expect(() => createEventsSchema(db)).not.toThrow() // 已在位不再重跑 ALTER（duplicate column 不犯）
     } finally {
@@ -201,7 +203,9 @@ describe('R0916-7-P3-2 首开装配（DDL + 开口标记接线）', () => {
         probe.close()
       }
       const sid = store!.createSession('装配书', { book: '装配书' })
-      expect(store!.appendEvents(sid, [{ type: 'user/message', data: { message: 'hi' }, surfaceOp: 'append' }])).toHaveLength(1)
+      expect(
+        store!.appendEvents(sid, [{ type: 'user/message', data: { message: 'hi' }, surfaceOp: 'append' }]),
+      ).toHaveLength(1)
     } finally {
       store!.close()
     }

@@ -17,7 +17,14 @@ import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
-import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
+import {
+  readManifestStrict,
+  writeManifest,
+  upsertEntry,
+  withManifestLock,
+  withManifestLockAsync,
+  type ManifestEntry,
+} from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
 import { analysisPathCandidates } from './analysis.js'
 import { type DocumentRole } from './layout.js'
@@ -47,12 +54,9 @@ export interface TrashEntry {
 }
 
 export type RestoreResult =
-  | { ok: true; id: string; path: string }
-  | { ok: false; code: 'NOT_FOUND' | 'OCCUPIED' | 'WRITE_ERROR'; reason: string }
+  { ok: true; id: string; path: string } | { ok: false; code: 'NOT_FOUND' | 'OCCUPIED' | 'WRITE_ERROR'; reason: string }
 
-type PurgeResult =
-  | { ok: true; id: string }
-  | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; reason: string }
+type PurgeResult = { ok: true; id: string } | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; reason: string }
 
 const TRASH_DIR_REL = '工作区/.trash'
 const TRASH_MANIFEST_REL = '工作区/.trash/.trash-manifest.jsonl'
@@ -78,9 +82,7 @@ function sameRestoreCopy(a: string, b: string): 'byte-equal' | 'fingerprint-equa
   try {
     const sa = statSync(a)
     const sb = statSync(b)
-    return sa.size === sb.size && Math.floor(sa.mtimeMs) === Math.floor(sb.mtimeMs)
-      ? 'fingerprint-equal'
-      : 'different'
+    return sa.size === sb.size && Math.floor(sa.mtimeMs) === Math.floor(sb.mtimeMs) ? 'fingerprint-equal' : 'different'
   } catch {
     return 'different'
   }
@@ -207,7 +209,10 @@ const DOCUMENT_ROLES: readonly DocumentRole[] = [
 export function parseDocumentRole(v: unknown): DocumentRole {
   if (v === undefined || v === null) return 'note'
   if (typeof v === 'string' && (DOCUMENT_ROLES as readonly string[]).includes(v)) return v as DocumentRole
-  log.warn('trash', JSON.stringify({ msg: '回收站条目 role 非法（回落 note）', role: typeof v === 'string' ? v : typeof v }))
+  log.warn(
+    'trash',
+    JSON.stringify({ msg: '回收站条目 role 非法（回落 note）', role: typeof v === 'string' ? v : typeof v }),
+  )
   return 'note'
 }
 
@@ -298,7 +303,10 @@ export async function appendTrashEntryAsync(bookRoot: string, entry: TrashEntry)
  *  本次写入者。 */
 export async function removeTrashEntryAsync(bookRoot: string, id: string): Promise<void> {
   await withManifestLockAsync(trashManifestPath(bookRoot), () => {
-    writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id))
+    writeTrashManifest(
+      bookRoot,
+      readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
+    )
   })
 }
 
@@ -319,7 +327,9 @@ export function listTrash(bookRoot: string): TrashEntry[] {
  *  catch 接住留痕），不在死书残骸上重建登记。 */
 function throwIfTrashManifestGone(bookRoot: string): void {
   if (!existsSync(trashManifestPath(bookRoot))) {
-    throw new Error(`回收站清单已不在（${trashManifestPath(bookRoot)}）——书可能已被删除或移走，放弃清单写回，不在死书残骸上重建登记`)
+    throw new Error(
+      `回收站清单已不在（${trashManifestPath(bookRoot)}）——书可能已被删除或移走，放弃清单写回，不在死书残骸上重建登记`,
+    )
   }
 }
 
@@ -470,7 +480,10 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
         parentId: null,
         // 恢复时带回定稿基线，还原定稿态（防线/状态机/手改检测都依赖它）
         ...(entry.finalizedRevision
-          ? { finalizedRevision: entry.finalizedRevision, ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}) }
+          ? {
+              finalizedRevision: entry.finalizedRevision,
+              ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}),
+            }
           : {}),
         // tags/order 随还原带回清单（删→还原一轮不再静默清零用户标注/排序）
         ...(entry.tags && entry.tags.length > 0 ? { tags: entry.tags } : {}),
@@ -485,7 +498,11 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
     // 并无自动补录——树扫盘的兜底登记只认 legacy: 前缀（adoptLegacyDoc），doc_ 正式
     // ID 无法凭 docId 反查路径。此处 warn 留痕（不再静默）：版本目录 工作区/.版本/<docId>/
     // 与 journal 仍以原 docId 可考，可按 path 对账手工补录清单行。
-    log.warn('trash', `恢复 ${id} 后清单登记失败（文件已回 ${entry.originalPath}）：${errMsg(e)}——docId 身份断链，需手工补录`, e instanceof Error ? e : undefined)
+    log.warn(
+      'trash',
+      `恢复 ${id} 后清单登记失败（文件已回 ${entry.originalPath}）：${errMsg(e)}——docId 身份断链，需手工补录`,
+      e instanceof Error ? e : undefined,
+    )
   }
 
   // 条目移除收进 upsert 成功分支——此前无论清单登记成败都删条目，
@@ -500,9 +517,13 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
         // H502：同上——条目移除写回前回收站清单在位复评，死书不重建 .trash 清单（0b 空清单
         // 也是重建）；上抛走下方 silent catch（死书面条目残留即随残骸，无害）
         throwIfTrashManifestGone(bookRoot)
-        writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // RMW strict 读
+        writeTrashManifest(
+          bookRoot,
+          readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
+        ) // RMW strict 读
       })
-    } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
+    } catch {
+      /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
     }
   }
 }
@@ -596,9 +617,14 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       // H502：锁等待窗内书可能已被删/移走——缺失按合法空读口径 + 取锁 mkdir 复活祖先链，
       // 死书面会「成功」写出 0b 空清单；写回前在位复评弃写
       throwIfTrashManifestGone(bookRoot)
-      writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // RMW strict 读
+      writeTrashManifest(
+        bookRoot,
+        readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
+      ) // RMW strict 读
     })
-  } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }
+  } catch {
+    /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */
+  }
   return { ok: true, id }
 }
 

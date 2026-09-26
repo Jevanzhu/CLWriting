@@ -12,16 +12,7 @@
  *   sweepAbandonedTmpFiles 清死 pid 陈锁、不清活 pid/年轻锁/非锁指纹、跳过 .git。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import {
- 
-  rmSync,
-  mkdirSync,
-  writeFileSync,
-  existsSync,
-  readFileSync,
-  readdirSync,
-  utimesSync,
-} from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'

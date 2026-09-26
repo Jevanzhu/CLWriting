@@ -144,9 +144,13 @@ describe('R38-3：electron-builder.yml mac identity 为 "-"（打包配置契约
   it('mac 块 identity = "-"（真 ad-hoc 密封；null = 完全跳过签名，语义不同）', () => {
     // 保留理由：electron-builder 的签名行为是构建期语义，无进程级行为可断言——配置
     // 契约是该面唯一可锚形态（源码文本断言处置批注记：契约门类保留）。
+    // 断言口径：取 YAML 标量值而非整行字面量——'-' 与 "-" 是同一个标量（格式化门统一
+    // 单引号），钉字面量会让「格式归一」这类无害改动假红；语义面（值为 '-'、且非 null
+    // 的「完全跳过签名」）逐位保留。
     const builderYml = readFileSync(join(import.meta.dirname, '../../electron-builder.yml'), 'utf-8')
     const macBlock = builderYml.slice(builderYml.indexOf('\nmac:'), builderYml.indexOf('\nwin:'))
-    expect(macBlock).toMatch(/^  identity: "-"$/m)
-    expect(macBlock).not.toMatch(/^  identity: null$/m)
+    const identityScalar = macBlock.match(/^ {2}identity: (.+)$/m)?.[1]?.trim()
+    expect(identityScalar).toMatch(/^['"]-['"]$/)
+    expect(identityScalar).not.toBe('null')
   })
 })

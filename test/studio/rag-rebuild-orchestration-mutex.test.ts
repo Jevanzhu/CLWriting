@@ -23,7 +23,8 @@ beforeAll(async () => {
     prefix: 'clw-r0915-rebuild-gate-',
     env: { CLWRITING_DRIVER: 'mock' },
     // book.yaml title 必须与书名一致：启动段 repairBooks 以 title 覆写登记名
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0915重建闸书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R0915重建闸书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     dirs: ['工作区'],
   })
 })

@@ -37,7 +37,11 @@ function makeLongBook(title: string): string {
 }
 
 function writeLongChapter(root: string, num: number, title: string, body: string): void {
-  writeFileSync(join(root, '写作', '正文', `${num}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n${body}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', `${num}-${title}.md`),
+    `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
+    'utf-8',
+  )
 }
 
 test('R67-10: split 循环中单章写入失败 → {ok:false} 人话错误带章上下文（不再裸异常穿透）', () => {

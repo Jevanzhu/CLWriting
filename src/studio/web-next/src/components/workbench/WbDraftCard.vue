@@ -67,7 +67,9 @@ onBeforeUnmount(() => {
         class="btn primary"
         :disabled="!wb.textOut.trim() || wb.textIncomplete || saving || genBusy"
         @click="emit('save')"
-      >{{ genBusy ? '生成中，暂不能存草稿' : saving ? '存草稿中…' : '存草稿并编辑' }}</button>
+      >
+        {{ genBusy ? '生成中，暂不能存草稿' : saving ? '存草稿中…' : '存草稿并编辑' }}
+      </button>
       <span v-if="wb.textIncomplete" class="muted incomplete">重连同步中，正文可能不完整</span>
       <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>
     </div>

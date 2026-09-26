@@ -122,7 +122,9 @@ export async function readChapterState(
 
 /** plan 指纹：参数 + 双方 fm/正文哈希——apply 复核防 TOCTOU（干跑确认窗口内世界已变即拒）。 */
 export function mergePlanHash(target: ChapterDiskState, source: ChapterDiskState, mergedInto: number[]): string {
-  return sha256Hex(JSON.stringify({ op: 'merge', t: target.path, s: source.path, tr: target.rev, sr: source.rev, m: mergedInto }))
+  return sha256Hex(
+    JSON.stringify({ op: 'merge', t: target.path, s: source.path, tr: target.rev, sr: source.rev, m: mergedInto }),
+  )
 }
 
 export function splitPlanHash(o: ChapterDiskState, cursorOffset: number, newChapterNo: number, order: number): string {
@@ -150,7 +152,11 @@ export function bodyStartOffset(text: string): number {
 }
 
 /** 事件副录（审计层）：写失败 warn 不阻断主流程（文件本位——盘上状态是权威）。 */
-export async function recordStructureEvents(userDataPath: string | null, bookRoot: string, events: NewEvent[]): Promise<void> {
+export async function recordStructureEvents(
+  userDataPath: string | null,
+  bookRoot: string,
+  events: NewEvent[],
+): Promise<void> {
   if (!userDataPath || events.length === 0) return
   let store: SessionStore | null = null
   try {
@@ -163,7 +169,10 @@ export async function recordStructureEvents(userDataPath: string | null, bookRoo
       store.close()
     }
   } catch (e) {
-    log.warn('structure', `结构操作事件副录失败（${events.map((e2) => e2.type).join(',')}，审计链缺段；盘上状态不受影响）：${errMsg(e)}`)
+    log.warn(
+      'structure',
+      `结构操作事件副录失败（${events.map((e2) => e2.type).join(',')}，审计链缺段；盘上状态不受影响）：${errMsg(e)}`,
+    )
   }
 }
 

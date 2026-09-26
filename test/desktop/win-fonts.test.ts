@@ -12,7 +12,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { listWindowsFonts, parseRegFontsQueryOutput, decodeRegOutput, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
+import {
+  listWindowsFonts,
+  parseRegFontsQueryOutput,
+  decodeRegOutput,
+  type FontSpawn,
+  type FontSpawnChild,
+} from '../../src/desktop/win-fonts.js'
 import { __resetFontListBreakerForTest } from '../../src/desktop/font-cache.js'
 
 // R48-74（四十八轮）：listWindowsFonts 内部套进程级会话熔断（font-cache 模块级失败

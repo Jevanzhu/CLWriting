@@ -21,7 +21,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { parseLeadUpdateLines, readChapterUpdatesForChapterChecked, readLeadUpdateChapterTag } from '../../src/check/lead-updates.js'
+import {
+  parseLeadUpdateLines,
+  readChapterUpdatesForChapterChecked,
+  readLeadUpdateChapterTag,
+} from '../../src/check/lead-updates.js'
 import { evidenceNeedles } from '../../src/check/leads.js'
 
 // ── R48-4：标题后 `---` 分隔线不再绕过守卫 ───────────────────────
@@ -68,11 +72,7 @@ test('R48-4: 无标题场景 `---` 后备注不折入（重审-06 修正旧钉�
 // ── 重审-06：裸 `---` 分隔线（无 ATX 标题前置）视作小节边界 ────────
 
 test('重审-06: 条目 → 裸 `---` → 备注行——备注不折入、条目原样（现状折入 → 红）', () => {
-  const text = [
-    '- 成长线-001 突破：他终于迈出了那一步',
-    '---',
-    '分隔线后的手写备注不得污染证据',
-  ].join('\n')
+  const text = ['- 成长线-001 突破：他终于迈出了那一步', '---', '分隔线后的手写备注不得污染证据'].join('\n')
   const out = parseLeadUpdateLines(text)
   expect(out).toHaveLength(1)
   expect(out[0]!.证据).toBe('他终于迈出了那一步')

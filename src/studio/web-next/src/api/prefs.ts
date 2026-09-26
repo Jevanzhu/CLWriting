@@ -15,9 +15,7 @@ export interface BookPrefs {
 }
 
 export async function getBookPrefs(name: string): Promise<BookPrefs> {
-  const r = await apiJson<{ prefs: BookPrefs }>(
-    bookUrl(name, 'prefs'),
-  )
+  const r = await apiJson<{ prefs: BookPrefs }>(bookUrl(name, 'prefs'))
   // 200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
   // 原直返 r.prefs 会把 undefined 交给消费侧：workspace.loadBookPrefs 的
   // Object.keys(prefs) 抛 TypeError，且该 rejection 在 setBook 的 void loadBookPrefs

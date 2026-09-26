@@ -38,7 +38,10 @@ function dialog(): DOMWrapper<Element> {
 describe('低-3（第十轮）：章号必须为正整数', () => {
   it('小数 3.5 → 不 emit save、弹窗不关闭（文件名不得落成 03.5-…）', async () => {
     await dialog().find('input[type="number"]').setValue('3.5')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
 
     expect(wrapper!.emitted('save')).toBeUndefined()
@@ -48,9 +51,15 @@ describe('低-3（第十轮）：章号必须为正整数', () => {
   it('0 / 负数同样拒收 → 不 emit save', async () => {
     const num = dialog().find('input[type="number"]')
     await num.setValue('0')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await num.setValue('-2')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
 
     expect(wrapper!.emitted('save')).toBeUndefined()
@@ -58,7 +67,10 @@ describe('低-3（第十轮）：章号必须为正整数', () => {
 
   it('整数 4 → 守卫不误伤：emit save {标题, num:4} 并关闭弹窗', async () => {
     await dialog().find('input[type="number"]').setValue('4')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
 
     expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 4 }]])
@@ -71,10 +83,10 @@ describe('低-3（第十轮）：章号必须为正整数', () => {
 // target 命中 button 的让渡（按钮走原生 click 激活）。
 describe('R49-29：Enter 落点在按钮上让渡，不在输入框上照常保存', () => {
   it('keydown 目标是「取消」按钮 → 不触发 save（按钮语义归原生 click）', async () => {
-    const cancelBtn = dialog().findAll('button').find((b) => b.text() === '取消')!
-    cancelBtn.element.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
+    const cancelBtn = dialog()
+      .findAll('button')
+      .find((b) => b.text() === '取消')!
+    cancelBtn.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
 
     expect(wrapper!.emitted('save')).toBeUndefined()
@@ -83,10 +95,10 @@ describe('R49-29：Enter 落点在按钮上让渡，不在输入框上照常保�
 
   it('keydown 目标是「保存」按钮 → 同样不重复触发 save（原生 click 才是唯一入口）', async () => {
     await dialog().find('input[type="number"]').setValue('4')
-    const saveBtn = dialog().findAll('button').find((b) => b.text() === '保存')!
-    saveBtn.element.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
+    const saveBtn = dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+    saveBtn.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
 
     // 容器守卫让渡后，此 keydown 本身不产生 save（无原生激活的测试环境下零 emit）
@@ -100,9 +112,7 @@ describe('R49-29：Enter 落点在按钮上让渡，不在输入框上照常保�
   it('对照：Enter 在输入框上（target 非 button）→ 照常保存', async () => {
     const num = dialog().find('input[type="number"]')
     await num.setValue('4')
-    num.element.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
+    num.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
 
     expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 4 }]])

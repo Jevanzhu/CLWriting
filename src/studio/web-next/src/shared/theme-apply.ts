@@ -45,7 +45,9 @@ export function createThemeApply(theme: Ref<ThemeId>) {
   function overlayColorsFor(alpha: number): { color: string; symbolColor: string; dark: boolean } {
     const dark = theme.value === 'dark'
     const bg = dark ? 0x26 : 0xf6
-    const ch = Math.round(bg * (1 - alpha)).toString(16).padStart(2, '0')
+    const ch = Math.round(bg * (1 - alpha))
+      .toString(16)
+      .padStart(2, '0')
     return { color: `#${ch}${ch}${ch}`, symbolColor: dark ? '#c8c8c8' : '#666666', dark }
   }
   /** 下发窗控色。非 win32 短路（测试/浏览器态）。 */

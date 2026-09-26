@@ -97,7 +97,10 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
     )
     const bookRoot = join(workDir, BOOK)
     mkdirSync(join(bookRoot, '项目'), { recursive: true })
-    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 信封测试书\n  genre: 玄幻\nhost: cc\n')
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 信封测试书\n  genre: 玄幻\nhost: cc\n',
+    )
     // 登记一个真实文档（磁盘文件真实存在——create 撞它测 ALREADY_EXISTS。
     // 注意用 写作/ 树：启动迁移（migrateFinalizedRevisions）会把未定稿书的 定稿/ 文件挪回 写作/）
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
@@ -125,7 +128,9 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
   }
 
   it('create 撞已存在文件 → 409 {code: ALREADY_EXISTS, error: 人话 reason}', async () => {
-    const resp = await call('POST', `/api/books/${encodeURIComponent(BOOK)}/documents`, { relPath: '写作/正文/0001-开篇.md' })
+    const resp = await call('POST', `/api/books/${encodeURIComponent(BOOK)}/documents`, {
+      relPath: '写作/正文/0001-开篇.md',
+    })
     expect(resp.status).toBe(409)
     expect(resp.headers.get('content-type')).toContain('application/json')
     const j = (await resp.json()) as Record<string, unknown>
@@ -135,7 +140,10 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
   })
 
   it('patch 未知 docId → 404 {code: NOT_FOUND, error: reason}（信封而非裸 result）', async () => {
-    const resp = await call('PATCH', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_unknown000000000000`, { op: 'rename', newName: '改名' })
+    const resp = await call('PATCH', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_unknown000000000000`, {
+      op: 'rename',
+      newName: '改名',
+    })
     expect(resp.status).toBe(404)
     const j = (await resp.json()) as Record<string, unknown>
     expect(j['code']).toBe('NOT_FOUND')
@@ -144,7 +152,9 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
   })
 
   it('copy 未知 docId → 404 信封', async () => {
-    const resp = await call('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_unknown000000000000/copy`, { relPath: '写作/正文/0002-副本.md' })
+    const resp = await call('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_unknown000000000000/copy`, {
+      relPath: '写作/正文/0002-副本.md',
+    })
     expect(resp.status).toBe(404)
     expect(((await resp.json()) as Record<string, unknown>)['code']).toBe('NOT_FOUND')
   })

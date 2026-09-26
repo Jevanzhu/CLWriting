@@ -172,28 +172,66 @@ function onBookChapterTargetInput(e: Event): void {
 <template>
   <div class="cfg-card-head">写作默认</div>
   <section class="cfg-card">
-    <SettingToggle name="本书使用独立设定" ariaLabel="本书使用独立设定" :checked="bookOverride" @change="onOverrideToggle">
-      <template #desc>
-        当前生效 {{ effSummary }}{{ bookOverride ? '' : '（跟随全局默认）' }}
-      </template>
+    <SettingToggle
+      name="本书使用独立设定"
+      ariaLabel="本书使用独立设定"
+      :checked="bookOverride"
+      @change="onOverrideToggle"
+    >
+      <template #desc> 当前生效 {{ effSummary }}{{ bookOverride ? '' : '（跟随全局默认）' }} </template>
     </SettingToggle>
     <template v-if="bookOverride">
       <SettingItem sub name="题材">
         <label class="genre-field">
           <LibraryBig :size="14" aria-hidden="true" />
-          <input v-model="bookGenre" class="text-input" type="text" placeholder="如：东方玄幻、都市异能" aria-label="题材" @change="onBookGenreChange" />
+          <input
+            v-model="bookGenre"
+            class="text-input"
+            type="text"
+            placeholder="如：东方玄幻、都市异能"
+            aria-label="题材"
+            @change="onBookGenreChange"
+          />
         </label>
       </SettingItem>
       <SettingItem v-if="bookKind !== 'short'" sub name="每卷章数">
-        <input class="num-input" type="number" min="5" max="100" step="1" placeholder="未设" aria-label="每卷章数" :value="bookVolumeSize ?? ''" @change="onBookVolumeSizeInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="5"
+          max="100"
+          step="1"
+          placeholder="未设"
+          aria-label="每卷章数"
+          :value="bookVolumeSize ?? ''"
+          @change="onBookVolumeSizeInput($event)"
+        />
         <span class="val-suffix">章</span>
       </SettingItem>
       <SettingItem sub name="目标字数">
-        <input class="num-input" type="number" min="0" step="1000" placeholder="未设" aria-label="目标字数" :value="bookTargetWords ?? ''" @change="onBookTargetWordsInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="0"
+          step="1000"
+          placeholder="未设"
+          aria-label="目标字数"
+          :value="bookTargetWords ?? ''"
+          @change="onBookTargetWordsInput($event)"
+        />
         <span class="val-suffix">字</span>
       </SettingItem>
       <SettingItem sub name="每章字数">
-        <input class="num-input" type="number" min="0" step="100" placeholder="未设" aria-label="每章字数" :value="bookChapterTargetWords ?? ''" @change="onBookChapterTargetInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="0"
+          step="100"
+          placeholder="未设"
+          aria-label="每章字数"
+          :value="bookChapterTargetWords ?? ''"
+          @change="onBookChapterTargetInput($event)"
+        />
         <span class="val-suffix">字</span>
       </SettingItem>
     </template>

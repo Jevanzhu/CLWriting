@@ -39,8 +39,14 @@ describe('R75-5 crossProcessHeldTaskGatesFor 单元语义', () => {
     const dir = freshDir()
     mkdirSync(dir, { recursive: true })
     // 模拟进程 A 已 O_EXCL 创建的锁文件：pid 取本进程（探测必活）——等价他进程在持
-    writeFileSync(join(dir, lockName('rag-build', '跨进程查询书')), JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
-    writeFileSync(join(dir, lockName('analyze', '跨进程查询书')), JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
+    writeFileSync(
+      join(dir, lockName('rag-build', '跨进程查询书')),
+      JSON.stringify({ pid: process.pid, bootTime: Date.now() }),
+    )
+    writeFileSync(
+      join(dir, lockName('analyze', '跨进程查询书')),
+      JSON.stringify({ pid: process.pid, bootTime: Date.now() }),
+    )
     // 别的书的同名 action 锁不应混入
     writeFileSync(join(dir, lockName('analyze', '别的书')), JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
     expect(crossProcessHeldTaskGatesFor('跨进程查询书', { lockDir: dir }).sort()).toEqual(['analyze', 'rag-build'])
@@ -121,7 +127,10 @@ function registerBook(name: string): string {
   writeFileSync(booksFile, JSON.stringify({ name, path: name, kind: 'long' }) + '\n', { flag: 'a' })
   const bookRoot = join(workDir, name)
   mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+  )
   return bookRoot
 }
 

@@ -92,14 +92,16 @@ function selectStep(step: OnboardStep): void {
   // 无条件清空丢稿（regenerate 路径有确认，本路径漏配）。有手改先确认
   //（同 doGen 口径），取消则停留原步骤零改动。
   if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
-    void ui.ask({
-      title: '切换步骤将丢弃未保存修改',
-      message: '当前步骤的内容有你未保存的修改，切换到其他步骤将丢失——继续？',
-      confirmText: '丢弃修改',
-      danger: true,
-    }).then((ok) => {
-      if (ok) applyStep(step)
-    })
+    void ui
+      .ask({
+        title: '切换步骤将丢弃未保存修改',
+        message: '当前步骤的内容有你未保存的修改，切换到其他步骤将丢失——继续？',
+        confirmText: '丢弃修改',
+        danger: true,
+      })
+      .then((ok) => {
+        if (ok) applyStep(step)
+      })
     return
   }
   applyStep(step)
@@ -206,9 +208,7 @@ onMounted(async () => {
 
 <template>
   <div class="onboard">
-    <div v-if="ui.aiAvailable === false" class="ai-warn">
-      AI 服务暂不可用，请在设置中检查 AI 配置。
-    </div>
+    <div v-if="ui.aiAvailable === false" class="ai-warn">AI 服务暂不可用，请在设置中检查 AI 配置。</div>
 
     <!-- Hero（渐变头，与总览页同语言） -->
     <section class="ob-hero">
@@ -270,11 +270,16 @@ onMounted(async () => {
 /* ══ Hero ══ */
 .ob-hero {
   background:
-    radial-gradient(ellipse 70% 100% at 100% 0%,
-      color-mix(in srgb, var(--interactive-accent) 12%, transparent), transparent 65%),
-    linear-gradient(135deg,
+    radial-gradient(
+      ellipse 70% 100% at 100% 0%,
+      color-mix(in srgb, var(--interactive-accent) 12%, transparent),
+      transparent 65%
+    ),
+    linear-gradient(
+      135deg,
       color-mix(in srgb, var(--interactive-accent) 5%, var(--background-primary)),
-      var(--background-primary));
+      var(--background-primary)
+    );
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   padding: 22px 26px 16px;

@@ -72,13 +72,7 @@ test('IR-5：未闭合围栏后的批注不再泄漏（按无围栏重剥）', (
 
 test('IR-5 回归：闭合围栏的代码字面量仍保留（N-6 契约不回归）', () => {
   const root = makeLongBook('好围栏书')
-  const body = [
-    '开场#% 批注一',
-    '```js',
-    "const key = '#%not-comment'",
-    '```',
-    '收尾#% 批注二',
-  ].join('\n')
+  const body = ['开场#% 批注一', '```js', "const key = '#%not-comment'", '```', '收尾#% 批注二'].join('\n')
   writeLongChapter(root, 1, '好围栏章', body)
   try {
     const merged = exportMerged(root, '好围栏书')

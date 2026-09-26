@@ -44,7 +44,10 @@ function registerDoc(root: string, rel: string, finalizedRevision?: string): str
   const m = readManifest(mp)
   const id = generateDocId()
   upsertEntry(m, {
-    id, nodeType: 'document', path: rel, parentId: null,
+    id,
+    nodeType: 'document',
+    path: rel,
+    parentId: null,
     ...(finalizedRevision ? { finalizedRevision, finalizedAt: new Date().toISOString() } : {}),
   })
   writeManifest(mp, m)
@@ -67,10 +70,16 @@ function makeCheckBook(): { root: string; docIds: Record<number, string> } {
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-密室之主.md'),
-    '---\n编号: 悬念-001\n标题: 密室之主\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第2章 埋下：「' + EVIDENCE + '」\n',
+    '---\n编号: 悬念-001\n标题: 密室之主\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第2章 埋下：「' +
+      EVIDENCE +
+      '」\n',
     'utf-8',
   )
   const chapterBody = (no: number): string => {
@@ -114,7 +123,8 @@ test('R42-5: win32 钉平台——case-only 改名定稿章后 maxWritten 基准
 // 与清单键全量失配、基准走 R69-17 回退抬高，断言恒败。posix 折叠语义由 CI ubuntu/macos
 // 腿真实宿主覆盖；同文件其余 posix 腿不经过 relative()+归一化链，不受此失真影响。
 test.skipIf(process.platform === 'win32')(
-  'R42-5: posix 钉平台——不折叠（口径维持）：失配仍在，基准低估形态可观测', () => {
+  'R42-5: posix 钉平台——不折叠（口径维持）：失配仍在，基准低估形态可观测',
+  () => {
     pinPlatform('linux')
     const { root, docIds } = makeCheckBook()
     try {
@@ -136,7 +146,11 @@ function makeLearnBook(): string {
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\n', 'utf-8')
-  writeFileSync(join(root, '写作', '正文', '001-finale.md'), `---\n章号: 1\n标题: 定稿章\n---\n${QUALIFYING_BODY}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '001-finale.md'),
+    `---\n章号: 1\n标题: 定稿章\n---\n${QUALIFYING_BODY}`,
+    'utf-8',
+  )
   registerDoc(root, '写作/正文/001-Finale.md', 'sha256:x') // 登记拼写与盘上仅大小写异；finalizedPathSet 只看有无基线
   return root
 }
@@ -174,7 +188,11 @@ function makeMetricsBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r42-metrics-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '001-finale.md'), '---\n章号: 1\n标题: 定稿章\n---\n山门外落了整夜的雨，灯火次第亮起。', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '001-finale.md'),
+    '---\n章号: 1\n标题: 定稿章\n---\n山门外落了整夜的雨，灯火次第亮起。',
+    'utf-8',
+  )
   registerDoc(root, '写作/正文/001-Finale.md', 'sha256:x')
   return root
 }
@@ -211,8 +229,16 @@ function makeSearchBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'r42-search-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '001-finale.md'), `---\n章号: 1\n标题: 定稿章\n---\n${EVIDENCE}忽然亮了一下。`, 'utf-8')
-  writeFileSync(join(root, '写作', '正文', '002-draft.md'), `---\n章号: 2\n标题: 草稿章\n---\n草稿也提到${EVIDENCE}。`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '001-finale.md'),
+    `---\n章号: 1\n标题: 定稿章\n---\n${EVIDENCE}忽然亮了一下。`,
+    'utf-8',
+  )
+  writeFileSync(
+    join(root, '写作', '正文', '002-draft.md'),
+    `---\n章号: 2\n标题: 草稿章\n---\n草稿也提到${EVIDENCE}。`,
+    'utf-8',
+  )
   registerDoc(root, '写作/正文/001-Finale.md', 'sha256:x') // 定稿（登记拼写大小写异于盘上）
   registerDoc(root, '写作/正文/002-draft.md') // 草稿：定稿 scope 下必被滤（对照项）
   return root
@@ -265,7 +291,8 @@ async function recapOf(root: string): Promise<{ currentChapter: number; state: n
 }
 
 test.skipIf(process.platform === 'linux')(
-  'R42-8: win32 钉平台——case-variant 定稿篇不被误列「未定稿」，recap 已写章数不低估', async () => {
+  'R42-8: win32 钉平台——case-variant 定稿篇不被误列「未定稿」，recap 已写章数不低估',
+  async () => {
     pinPlatform('win32')
     const root = makeShortBook()
     try {
@@ -279,7 +306,8 @@ test.skipIf(process.platform === 'linux')(
 )
 
 test.skipIf(process.platform === 'linux')(
-  'R42-8: posix 钉平台——不折叠：case-variant 篇被列「未定稿」，已写章数低估形态可观测（口径维持）', async () => {
+  'R42-8: posix 钉平台——不折叠：case-variant 篇被列「未定稿」，已写章数低估形态可观测（口径维持）',
+  async () => {
     pinPlatform('linux')
     const root = makeShortBook()
     try {

@@ -38,10 +38,7 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
   }
   const x = event?.clientX ?? window.innerWidth / 2
   const y = event?.clientY ?? window.innerHeight / 2
-  const endRadius = Math.hypot(
-    Math.max(x, window.innerWidth - x),
-    Math.max(y, window.innerHeight - y),
-  )
+  const endRadius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
   const t = doc.startViewTransition(() => fn())
   // ready/finished 补防御 catch——ViewTransition 被抢占（过渡中再切
   // 主题/skipTransition 等）时两 promise 按 API 约定 reject：ready 的浮空 .then 成为

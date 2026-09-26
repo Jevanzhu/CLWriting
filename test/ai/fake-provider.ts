@@ -25,7 +25,9 @@ export type FakeResponse =
   | ({ type: 'text'; content: string; usage?: FakeUsage } & { delayMs?: number })
   | ({ type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage } & { delayMs?: number })
   // R64-5：单响应多 tool_use（index 0..n-1 顺序吐出）——驱动 generateTool 丢弃告警路径
-  | ({ type: 'tools'; calls: Array<{ name: string; input: unknown; id?: string }>; usage?: FakeUsage } & { delayMs?: number })
+  | ({ type: 'tools'; calls: Array<{ name: string; input: unknown; id?: string }>; usage?: FakeUsage } & {
+      delayMs?: number
+    })
   // R34D-9：传输截断形态——内容增量 + usage 尾包，无 finish_reason 即断流
   //（适配器按 R31-1 判传输截断，随错上抛已见 usage → 驱动 runTask 重试链带 usage 分支）
   | ({ type: 'truncated'; content: string; usage?: FakeUsage } & { delayMs?: number })
@@ -132,24 +134,33 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
         })
         // usage 尾包（include_usage 模式：空 choices + usage）
-        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [],
+          usage: { prompt_tokens: usage.input, completion_tokens: usage.output },
+        })
       } else if (resp.type === 'tool') {
         // tool_use 增量（一次性吐完 arguments）
         writeChunk({
           id: 'fake-chatcmpl',
           object: 'chat.completion.chunk',
-          choices: [{
-            index: 0,
-            delta: {
-              tool_calls: [{
-                index: 0,
-                id: resp.id ?? `call_${callIdx - 1}`,
-                type: 'function',
-                function: { name: resp.name, arguments: JSON.stringify(resp.input) },
-              }],
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: resp.id ?? `call_${callIdx - 1}`,
+                    type: 'function',
+                    function: { name: resp.name, arguments: JSON.stringify(resp.input) },
+                  },
+                ],
+              },
+              finish_reason: null,
             },
-            finish_reason: null,
-          }],
+          ],
         })
         // finish
         writeChunk({
@@ -158,7 +169,12 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
         })
         // usage 尾包
-        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [],
+          usage: { prompt_tokens: usage.input, completion_tokens: usage.output },
+        })
       } else if (resp.type === 'tools') {
         // R64-5：多 tool_use——每块一个 delta（index 递增），finish 'tool_calls' + usage 尾包
         for (let i = 0; i < resp.calls.length; i++) {
@@ -166,18 +182,22 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           writeChunk({
             id: 'fake-chatcmpl',
             object: 'chat.completion.chunk',
-            choices: [{
-              index: 0,
-              delta: {
-                tool_calls: [{
-                  index: i,
-                  id: c.id ?? `call_${callIdx - 1}_${i}`,
-                  type: 'function',
-                  function: { name: c.name, arguments: JSON.stringify(c.input) },
-                }],
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: [
+                    {
+                      index: i,
+                      id: c.id ?? `call_${callIdx - 1}_${i}`,
+                      type: 'function',
+                      function: { name: c.name, arguments: JSON.stringify(c.input) },
+                    },
+                  ],
+                },
+                finish_reason: null,
               },
-              finish_reason: null,
-            }],
+            ],
           })
         }
         writeChunk({
@@ -185,7 +205,12 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           object: 'chat.completion.chunk',
           choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
         })
-        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [],
+          usage: { prompt_tokens: usage.input, completion_tokens: usage.output },
+        })
       } else if (resp.type === 'truncated') {
         // R34D-9：截断流——只有内容增量 + usage 尾包，finish_reason 永不到达（R31-1 形态）
         writeChunk({
@@ -193,7 +218,12 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           object: 'chat.completion.chunk',
           choices: [{ index: 0, delta: { content: resp.content }, finish_reason: null }],
         })
-        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [],
+          usage: { prompt_tokens: usage.input, completion_tokens: usage.output },
+        })
       } else if (resp.type === 'max_tokens') {
         // 部分文本 + finish_reason: length
         writeChunk({
@@ -206,7 +236,12 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           object: 'chat.completion.chunk',
           choices: [{ index: 0, delta: {}, finish_reason: 'length' }],
         })
-        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [],
+          usage: { prompt_tokens: usage.input, completion_tokens: usage.output },
+        })
       }
 
       res.write('data: [DONE]\n\n')
@@ -216,24 +251,21 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    listenSafe(server).then(
-      () => {
-        const addr = server.address() as AddressInfo
-        resolve({
-          url: `http://127.0.0.1:${addr.port}/v1`,
-          close: () => new Promise<void>((r) => server.close(() => r())),
-          setScript: (responses) => {
-            script = responses
-            callIdx = 0
-            reqCount = 0
-            lastRequestBody = null
-          },
-          requestCount: () => reqCount,
-          lastBody: () => lastRequestBody,
-        })
-      },
-      reject,
-    )
+    listenSafe(server).then(() => {
+      const addr = server.address() as AddressInfo
+      resolve({
+        url: `http://127.0.0.1:${addr.port}/v1`,
+        close: () => new Promise<void>((r) => server.close(() => r())),
+        setScript: (responses) => {
+          script = responses
+          callIdx = 0
+          reqCount = 0
+          lastRequestBody = null
+        },
+        requestCount: () => reqCount,
+        lastBody: () => lastRequestBody,
+      })
+    }, reject)
   })
 }
 
@@ -292,7 +324,9 @@ export interface FakeAnthropicProvider {
  *
  * @param initialScript 初始响应脚本；用尽后重复最后一条
  */
-export function createFakeAnthropicProvider(initialScript: AnthropicFakeResponse[] = []): Promise<FakeAnthropicProvider> {
+export function createFakeAnthropicProvider(
+  initialScript: AnthropicFakeResponse[] = [],
+): Promise<FakeAnthropicProvider> {
   let script = initialScript
   let callIdx = 0
   let reqCount = 0
@@ -376,8 +410,16 @@ export function createFakeAnthropicProvider(initialScript: AnthropicFakeResponse
       }
       // 文本块三连（start → text_delta → stop）
       const textBlock = (text: string): void => {
-        writeEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
-        writeEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
+        writeEvent('content_block_start', {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '' },
+        })
+        writeEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text },
+        })
         writeEvent('content_block_stop', { type: 'content_block_stop', index: 0 })
       }
       // message_delta：stop_reason + usage.output（适配器 N6 缓存 stop_reason、R27-2 末见 usage）
@@ -409,9 +451,17 @@ export function createFakeAnthropicProvider(initialScript: AnthropicFakeResponse
         })
         const json = JSON.stringify(resp.input)
         const cut = Math.max(1, Math.ceil(json.length / 2))
-        writeEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json.slice(0, cut) } })
+        writeEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: json.slice(0, cut) },
+        })
         if (json.length > cut) {
-          writeEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: json.slice(cut) } })
+          writeEvent('content_block_delta', {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: json.slice(cut) },
+          })
         }
         writeEvent('content_block_stop', { type: 'content_block_stop', index: 0 })
         messageDelta('tool_use')
@@ -429,25 +479,22 @@ export function createFakeAnthropicProvider(initialScript: AnthropicFakeResponse
 
   return new Promise((resolve, reject) => {
     server.on('error', reject)
-    listenSafe(server).then(
-      () => {
-        const addr = server.address() as AddressInfo
-        resolve({
-          url: `http://127.0.0.1:${addr.port}/v1`,
-          close: () => new Promise<void>((r) => server.close(() => r())),
-          setScript: (responses) => {
-            script = responses
-            callIdx = 0
-            reqCount = 0
-            lastRequestBody = null
-            lastHeaders = null
-          },
-          requestCount: () => reqCount,
-          lastBody: () => lastRequestBody,
-          lastHeaders: () => lastHeaders,
-        })
-      },
-      reject,
-    )
+    listenSafe(server).then(() => {
+      const addr = server.address() as AddressInfo
+      resolve({
+        url: `http://127.0.0.1:${addr.port}/v1`,
+        close: () => new Promise<void>((r) => server.close(() => r())),
+        setScript: (responses) => {
+          script = responses
+          callIdx = 0
+          reqCount = 0
+          lastRequestBody = null
+          lastHeaders = null
+        },
+        requestCount: () => reqCount,
+        lastBody: () => lastRequestBody,
+        lastHeaders: () => lastHeaders,
+      })
+    }, reject)
   })
 }

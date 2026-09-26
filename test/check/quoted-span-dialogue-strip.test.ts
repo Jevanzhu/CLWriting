@@ -70,7 +70,10 @@ describe('checkBodyParts 剥对白', () => {
 
   it('「手」动作语境路径同口径：对白内伸手不计数，对白外照计', () => {
     // 全部动作「手」在引号内 → 不报
-    expect(checkBodyParts('「他伸手接住。」「她握住手不放。」「抬手示意。」「抓手要紧。」「挥手作别。」「摊手无奈。」').items).toEqual([])
+    expect(
+      checkBodyParts('「他伸手接住。」「她握住手不放。」「抬手示意。」「抓手要紧。」「挥手作别。」「摊手无奈。」')
+        .items,
+    ).toEqual([])
     // 对白外 6 处动作「手」> 阈 5 → 照报
     const r = checkBodyParts('他伸手接住。她握住手不放。抬手示意。抓手要紧。挥手作别。摊手无奈。')
     expect(r.items).toHaveLength(1)
@@ -234,7 +237,12 @@ describe('checkOpeningNoEnv 开头窗口剥对白', () => {
 
     // 对照：窗内完整对白被剥除后，叙述面窗口语义不变——环境词在剥后前 300 码点之外不报
     //（对白 7 码点 + 叙述过渡 15 码点 → 「天气」起于剥后码点 303，窗外）
-    const envBeyondWindow = '风平浪静'.repeat(72) + '「无关对白。」' + '他翻身上马，驰向远方，看天边。' + '天气骤变，狂风大作。' + '策马扬鞭'.repeat(50)
+    const envBeyondWindow =
+      '风平浪静'.repeat(72) +
+      '「无关对白。」' +
+      '他翻身上马，驰向远方，看天边。' +
+      '天气骤变，狂风大作。' +
+      '策马扬鞭'.repeat(50)
     expect(checkOpeningNoEnv(envBeyondWindow).items).toHaveLength(0)
 
     // 正面锚：剥后叙述面窗内环境词照常命中（防线不失效）

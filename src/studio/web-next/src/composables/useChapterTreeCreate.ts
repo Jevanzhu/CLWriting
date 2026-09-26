@@ -39,14 +39,7 @@ type WorkspaceStore = ReturnType<typeof useWorkspaceStore>
 type UiStore = ReturnType<typeof useUiStore>
 
 export type CreatingKind =
-  | 'chapter'
-  | 'chapter-outline'
-  | 'volume-outline'
-  | 'character'
-  | 'item'
-  | 'foreshadow'
-  | 'volume'
-  | 'doc'
+  'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc'
 
 export type Creating = {
   kind: CreatingKind
@@ -138,13 +131,11 @@ export function useChapterTreeCreate(deps: {
       return
     }
     const seedPrefix =
-      kind === 'chapter' || kind === 'chapter-outline'
-        ? chapterFilePrefix(nextChapterNo(), bodyPadKind())
-        : ''
+      kind === 'chapter' || kind === 'chapter-outline' ? chapterFilePrefix(nextChapterNo(), bodyPadKind()) : ''
     const seed =
       kind === 'chapter' || kind === 'chapter-outline'
-        // 种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
-        ? `${seedPrefix}未命名`
+        ? // 种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
+          `${seedPrefix}未命名`
         : kind === 'volume-outline'
           ? `卷纲_第${volumeCount() + 1}卷`
           : ''
@@ -161,7 +152,8 @@ export function useChapterTreeCreate(deps: {
     let name = sanitizeName(value)
     if (!name) {
       // 文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
-      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
+      deps.openError.value =
+        '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
       return
     }
     creating.value = null
@@ -169,14 +161,18 @@ export function useChapterTreeCreate(deps: {
     // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
     // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
     // 作者自填章号形态（「0007-…」/「第7章…」）不覆盖
-    if ((c.kind === 'chapter' || c.kind === 'chapter-outline') && c.seedPrefix !== '' && extractChapterNo(name) === null) {
+    if (
+      (c.kind === 'chapter' || c.kind === 'chapter-outline') &&
+      c.seedPrefix !== '' &&
+      extractChapterNo(name) === null
+    ) {
       name = `${c.seedPrefix}${name}`
     }
     const relPath =
       c.kind === 'volume'
-        // 卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
-        //（e2e tree-ops 实证：丢段后首章落正文根、卷节点永不出现——树按目录派生卷）
-        ? `${c.fsDir}/${name}/${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名.md`
+        ? // 卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
+          //（e2e tree-ops 实证：丢段后首章落正文根、卷节点永不出现——树按目录派生卷）
+          `${c.fsDir}/${name}/${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名.md`
         : `${c.fsDir}/${name}.md`
     // 按类型给初始模板（降低空白页阻力）；volume=建卷即建首章，首章空正文即可
     const content = buildCreateContent(c.kind, name, c.seed)

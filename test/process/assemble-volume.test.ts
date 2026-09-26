@@ -26,8 +26,13 @@ function makeDb(maxN: number): { db: DatabaseSync; dir: string } {
   createAllTables(db)
   for (let n = 1; n <= maxN; n++) {
     syncChapter(db, {
-      章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '强',
-      情绪定位: '铺垫', _wordCount: 2000, _path: `p${n}`,
+      章号: n,
+      标题: `第${n}章`,
+      钩子类型: '悬念钩',
+      钩子强弱: '强',
+      情绪定位: '铺垫',
+      _wordCount: 2000,
+      _path: `p${n}`,
     })
   }
   return { db, dir }

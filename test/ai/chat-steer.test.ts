@@ -77,7 +77,10 @@ describe('E1a: steer 入队与续链', () => {
     // 自动续链：两个 chat_done
     await waitFor(() => events.filter((e) => e.type === 'chat_done').length >= 2, 6000)
     expect(events.filter((e) => e.type === 'chat_start').length).toBe(2)
-    const texts = events.filter((e) => e.type === 'chat_text').map((e) => (e as { text: string }).text).join('')
+    const texts = events
+      .filter((e) => e.type === 'chat_text')
+      .map((e) => (e as { text: string }).text)
+      .join('')
     expect(texts).toContain('第一轮回复')
     expect(texts).toContain('第二轮回复')
     expect(isChatRunning(bookName)).toBe(false)
@@ -101,7 +104,12 @@ describe('E1a: steer 入队与续链', () => {
     await waitFor(() => !isChatRunning(bookName))
     await sleep(200) // 给足续链窗口
     expect(events.some((e) => e.type === 'chat_done')).toBe(false)
-    expect(events.filter((e) => e.type === 'chat_text').map((e) => (e as { text: string }).text).join('')).not.toContain('第二轮')
+    expect(
+      events
+        .filter((e) => e.type === 'chat_text')
+        .map((e) => (e as { text: string }).text)
+        .join(''),
+    ).not.toContain('第二轮')
   })
 
   it('无运行直接启动（不排队）', async () => {
@@ -290,10 +298,11 @@ describe('RB-AI-P2-1: 续链字段污染', () => {
       expect(regen!.data['branchId']).toBe('q1')
       expect(regen!.data['parentSeq']).toBe(userSeq)
       // 不得出现空消息事件（降级路径的痕迹）
-      expect(evs.filter((e) => e.type === 'user/message').every((e) => String(e.data['message'] ?? '') !== '')).toBe(true)
+      expect(evs.filter((e) => e.type === 'user/message').every((e) => String(e.data['message'] ?? '') !== '')).toBe(
+        true,
+      )
     } finally {
       store.close()
     }
   }, 15_000)
 })
-

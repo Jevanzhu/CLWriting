@@ -6,12 +6,7 @@
  * 本文件钉：解析合法收值 / 坏值 warn 按未设 / round-trip 保真 / patchBookConfigText 落盘。
  */
 import { test, expect, vi } from 'vitest'
-import {
-  parseBookConfig,
-  stringifyBookConfig,
-  patchBookConfigText,
-  DEFAULT_CONFIG,
-} from '../../src/format/yaml.js'
+import { parseBookConfig, stringifyBookConfig, patchBookConfigText, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { log } from '../../src/log/index.js'
 
 const BOOK_HEAD = 'spec_version: 1\nbook:\n  title: T\n'
@@ -72,7 +67,13 @@ test('R52-E-2: 坏值（非数字/负数/零）→ warn 留痕按未设，好键
 
 test('R52-E-2: round-trip——parse → stringify → parse 五键保真', () => {
   const first = parseBookConfig(
-    yamlWithChecks(['repeat_threshold: 0.25', 'repeat_chars_threshold: 250', 'max_sentence_len: 90', 'imagery_threshold: 6', 'word_count_tolerance: 45']),
+    yamlWithChecks([
+      'repeat_threshold: 0.25',
+      'repeat_chars_threshold: 250',
+      'max_sentence_len: 90',
+      'imagery_threshold: 6',
+      'word_count_tolerance: 45',
+    ]),
   )
   expect(first.ok).toBe(true)
   if (!first.ok) return

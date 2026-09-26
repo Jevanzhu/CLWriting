@@ -49,7 +49,9 @@ it('search 正常查询：200 + 命中行（parseRequestUrl 换轨不回退）',
     'x-studio-token': token,
   })
   expect(r.status).toBe(200)
-  const body = JSON.parse(r.text) as { results: Array<{ path: string; matches: Array<{ line: number; text: string }> }> }
+  const body = JSON.parse(r.text) as {
+    results: Array<{ path: string; matches: Array<{ line: number; text: string }> }>
+  }
   expect(body.results.length).toBeGreaterThan(0)
   expect(body.results[0]!.matches.length).toBeGreaterThan(0)
 })

@@ -28,7 +28,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: mocks.updateChapterMetaDoc,
@@ -69,7 +71,9 @@ vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', async () =>
 })
 // R29-10：Book.vue 切书链尾调 resync()——mock 返回带 resync 的句柄
 vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn(() => ({ resync: vi.fn() })) }))
-vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({ useChatTier: vi.fn(() => ({ refresh: vi.fn() })) }))
+vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({
+  useChatTier: vi.fn(() => ({ refresh: vi.fn() })),
+}))
 
 // 可变路由 mock：params.name 即「当前书」。reactive 代理经 hoisted 持有者暴露——
 // 测试必须通过代理改值（直改原始对象不触发 Vue 依赖收集，Book.vue 的 watch 不感知）
@@ -154,7 +158,9 @@ describe('R37-1: flushDirty 先落定在途保存再扫描', () => {
     await openDirty('d1')
     const doc = useDocStore()
     let release!: (v: { ok: true; revision: string; superseded: boolean }) => void
-    const gate = new Promise<{ ok: true; revision: string; superseded: boolean }>((r) => { release = r })
+    const gate = new Promise<{ ok: true; revision: string; superseded: boolean }>((r) => {
+      release = r
+    })
     mocks.saveContent.mockImplementationOnce(() => gate)
 
     const saveP = doc.save('d1', 'manual') // 在途保存（saving=true、dirty=true）
@@ -188,7 +194,9 @@ describe('R37-1: flushDirty 先落定在途保存再扫描', () => {
     await openDirty('d3')
     const doc = useDocStore()
     let rejectFirst!: (e: Error) => void
-    const gate = new Promise<never>((_, rej) => { rejectFirst = rej })
+    const gate = new Promise<never>((_, rej) => {
+      rejectFirst = rej
+    })
     mocks.saveContent.mockImplementationOnce(() => gate)
     mocks.saveContent.mockRejectedValueOnce(new Error('重试也失败'))
 
@@ -207,7 +215,9 @@ describe('R37-1: flushDirty 先落定在途保存再扫描', () => {
     await openDirty('d4')
     const doc = useDocStore()
     let release!: (v: { ok: true; revision: string; superseded: boolean }) => void
-    const gate = new Promise<{ ok: true; revision: string; superseded: boolean }>((r) => { release = r })
+    const gate = new Promise<{ ok: true; revision: string; superseded: boolean }>((r) => {
+      release = r
+    })
     mocks.saveContent.mockImplementationOnce(() => gate)
     mocks.saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:r2', superseded: false })
 
@@ -321,7 +331,9 @@ describe('R37-1: Book.vue 切书守卫——flush 等待窗口内落成的 confl
 
     let settle!: () => void
     const gate = conflict
-      ? new Promise<never>((_, rej) => { settle = () => rej(new ApiError('conflict', 409, 'REVISION_CONFLICT')) })
+      ? new Promise<never>((_, rej) => {
+          settle = () => rej(new ApiError('conflict', 409, 'REVISION_CONFLICT'))
+        })
       : new Promise<{ ok: true; revision: string; superseded: boolean }>((res) => {
           settle = () => res({ ok: true, revision: 'sha256:x', superseded: false })
         })

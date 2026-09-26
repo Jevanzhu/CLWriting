@@ -18,7 +18,12 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readChapterDir, readChapterDirSummary, clearChapterDirCache, clearChapterDirCacheForBook } from '../../src/format/chapters.js'
+import {
+  readChapterDir,
+  readChapterDirSummary,
+  clearChapterDirCache,
+  clearChapterDirCacheForBook,
+} from '../../src/format/chapters.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
@@ -36,7 +41,11 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
 
   function writeChapter(no: number, title: string, body: string): string {
     const fp = join(dir, '正文', `${String(no).padStart(3, '0')}-${title}.md`)
-    writeFileSync(fp, `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`, 'utf8')
+    writeFileSync(
+      fp,
+      `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`,
+      'utf8',
+    )
     return fp
   }
 
@@ -61,7 +70,11 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
 
     // 同字节改写（甲→乙，utf8 同长度）+ utimes 恢复 mtime → (mtime,size) 未变 → 命中旧缓存。
     // 这是与 probeCache 同口径的理论撞车窗口，恰好反向证明「未变文件走 stat 命中不整读」。
-    writeFileSync(fp, '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n乙正文。\n', 'utf8')
+    writeFileSync(
+      fp,
+      '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n乙正文。\n',
+      'utf8',
+    )
     utimesSync(fp, st.atime, st.mtime)
     const after = readChapterDir(bodyDir)
     expect(after.chapters[0]!._wordCount).toBe(before.chapters[0]!._wordCount)
@@ -74,7 +87,11 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
     readChapterDir(bodyDir, true) // 预热（若错误缓存 includeBody，此处会缓存旧 body）
 
     // 同字节改写 + 恢复 mtime → 现读路径必须读到新内容（不走缓存判定）
-    writeFileSync(fp, '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n乙正文。\n', 'utf8')
+    writeFileSync(
+      fp,
+      '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n乙正文。\n',
+      'utf8',
+    )
     utimesSync(fp, st.atime, st.mtime)
     const again = readChapterDir(bodyDir, true)
     expect(again.chapters[0]!._body).toContain('乙正文。')
@@ -159,7 +176,11 @@ describe('readChapterDirSummary 单轮扫描摘要（win 平台专项）', () =>
 
   function writeChapter(no: number, title: string, body: string): string {
     const fp = join(dir, '正文', `${String(no).padStart(3, '0')}-${title}.md`)
-    writeFileSync(fp, `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`, 'utf8')
+    writeFileSync(
+      fp,
+      `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`,
+      'utf8',
+    )
     return fp
   }
 
@@ -209,7 +230,12 @@ describe('readChapterDirSummary 单轮扫描摘要（win 平台专项）', () =>
 
   it('空目录/不存在目录 → 全零兜底', () => {
     const bodyDir = makeDir()
-    expect(readChapterDirSummary(join(bodyDir, '不存在'))).toEqual({ chapters: 0, words: 0, lastEdited: null, latestChapter: null })
+    expect(readChapterDirSummary(join(bodyDir, '不存在'))).toEqual({
+      chapters: 0,
+      words: 0,
+      lastEdited: null,
+      latestChapter: null,
+    })
   })
 
   it('与 readChapterDir 共享同一轮 stat 缓存：未变文件摘要不整读（内容变化后跟随）', () => {

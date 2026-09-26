@@ -24,7 +24,10 @@ const RCONF: ProviderConf = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
-async function collect(prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> }, req: GenRequest): Promise<GenEvent[]> {
+async function collect(
+  prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> },
+  req: GenRequest,
+): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -56,9 +59,7 @@ describe('R34D-8：completed 空产出 error 随错上抛 usage', () => {
   })
 
   it('completed 无内容项且无 usage → error 携估计值（estimated，input 按请求折算）', async () => {
-    const client = fakeResponsesClient([
-      { type: 'response.completed', response: {} },
-    ])
+    const client = fakeResponsesClient([{ type: 'response.completed', response: {} }])
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = evs.find((e) => e.type === 'error') as Extract<GenEvent, { type: 'error' }> | undefined

@@ -76,11 +76,7 @@ function isGenerated(step: OnboardStep): boolean {
           <span class="ph-title">{{ STEP_LABEL[active] }}</span>
           <span class="status done">完成 · {{ lastWords }} 字</span>
         </div>
-        <textarea
-          v-model="content"
-          class="content-edit"
-          placeholder="可编辑后保存"
-        ></textarea>
+        <textarea v-model="content" class="content-edit" placeholder="可编辑后保存"></textarea>
         <div class="actions">
           <button class="btn primary" :disabled="saving" @click="emit('save')">
             {{ saving ? '保存中…' : '保存' }}

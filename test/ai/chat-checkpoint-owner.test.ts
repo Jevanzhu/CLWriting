@@ -62,7 +62,11 @@ interface RegEntry {
   ctrl: AbortController
   owner: string | undefined
 }
-function makeRecordingDriver(events: DriverEvent[], regs: RegEntry[], slots: Map<string, AbortController>): StudioDriver {
+function makeRecordingDriver(
+  events: DriverEvent[],
+  regs: RegEntry[],
+  slots: Map<string, AbortController>,
+): StudioDriver {
   return {
     async startSession(cwd: string): Promise<Session> {
       return { id: 'ckpt-owner-s', cwd, closed: false }
@@ -74,8 +78,12 @@ function makeRecordingDriver(events: DriverEvent[], regs: RegEntry[], slots: Map
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(_s: Session, ctrl: AbortController, owner?: string): void {
       regs.push({ ctrl, owner })
       const own = owner ?? ''
@@ -165,29 +173,33 @@ describe('低-1（第十轮）：checkpoint 摘要 registerCtrl 的 owner 分槽
     expect(chatCtrl.signal.aborted).toBe(false)
   })
 
-  it('R71-19（十九轮）：跨书 register 同 session 不同槽——后书对话不 abort 前书在途 ctrl', { timeout: 15_000 }, async () => {
-    // 两本书共享同一 mainSession 的形态：owner 带书维度前，后书 register 落同一个
-    // 'chat' 槽触发 P2-6「换新先 abort 旧」，前书在途 ctrl 被静默掐断。
-    const events: DriverEvent[] = []
-    const regs: RegEntry[] = []
-    const slots = new Map<string, AbortController>()
-    const driver = makeRecordingDriver(events, regs, slots)
-    const session = { id: 'ckpt-owner-s', cwd: workDir, closed: false }
+  it(
+    'R71-19（十九轮）：跨书 register 同 session 不同槽——后书对话不 abort 前书在途 ctrl',
+    { timeout: 15_000 },
+    async () => {
+      // 两本书共享同一 mainSession 的形态：owner 带书维度前，后书 register 落同一个
+      // 'chat' 槽触发 P2-6「换新先 abort 旧」，前书在途 ctrl 被静默掐断。
+      const events: DriverEvent[] = []
+      const regs: RegEntry[] = []
+      const slots = new Map<string, AbortController>()
+      const driver = makeRecordingDriver(events, regs, slots)
+      const session = { id: 'ckpt-owner-s', cwd: workDir, closed: false }
 
-    const bookACtrl = new AbortController()
-    driver.registerCtrl!(session, bookACtrl, 'chat:书甲')
-    const bookBCtrl = new AbortController()
-    driver.registerCtrl!(session, bookBCtrl, 'chat:书乙')
+      const bookACtrl = new AbortController()
+      driver.registerCtrl!(session, bookACtrl, 'chat:书甲')
+      const bookBCtrl = new AbortController()
+      driver.registerCtrl!(session, bookBCtrl, 'chat:书乙')
 
-    // 分槽并存：后书 register 不 abort 前书；前书 ctrl 可独立寻址中断
-    expect(bookACtrl.signal.aborted).toBe(false)
-    expect(bookBCtrl.signal.aborted).toBe(false)
-    bookACtrl.abort()
-    expect(bookBCtrl.signal.aborted).toBe(false)
-    // 同书换新（同槽）仍保持 P2-6「先 abort 旧」——轮循环/摘要的既定语义
-    const bookANew = new AbortController()
-    driver.registerCtrl!(session, bookANew, 'chat:书甲')
-    expect(bookANew.signal.aborted).toBe(false)
-    expect(regs.map((r) => r.owner)).toEqual(['chat:书甲', 'chat:书乙', 'chat:书甲'])
-  })
+      // 分槽并存：后书 register 不 abort 前书；前书 ctrl 可独立寻址中断
+      expect(bookACtrl.signal.aborted).toBe(false)
+      expect(bookBCtrl.signal.aborted).toBe(false)
+      bookACtrl.abort()
+      expect(bookBCtrl.signal.aborted).toBe(false)
+      // 同书换新（同槽）仍保持 P2-6「先 abort 旧」——轮循环/摘要的既定语义
+      const bookANew = new AbortController()
+      driver.registerCtrl!(session, bookANew, 'chat:书甲')
+      expect(bookANew.signal.aborted).toBe(false)
+      expect(regs.map((r) => r.owner)).toEqual(['chat:书甲', 'chat:书乙', 'chat:书甲'])
+    },
+  )
 })

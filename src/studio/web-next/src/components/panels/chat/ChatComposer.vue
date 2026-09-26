@@ -37,10 +37,18 @@ const chat = useChatStore()
 // 绑定绑到字符串 ref 不再计入 noUnusedLocals 读取——详见 useChatComposer 同名参数注）
 const chapterWrapRef = ref<HTMLElement | null>(null)
 const {
-  input, sending, busy, chatRunning, selectedChapter,
+  input,
+  sending,
+  busy,
+  chatRunning,
+  selectedChapter,
   chapterMenuOpen,
-  handleSend, handleKeydown, stopChat, handleClear,
-  toggleChapterMenu, selectChapter,
+  handleSend,
+  handleKeydown,
+  stopChat,
+  handleClear,
+  toggleChapterMenu,
+  selectChapter,
 } = useChatComposer(
   () => props.bookName,
   () => props.currentChapter,
@@ -68,43 +76,48 @@ const {
       <div class="composer-footer">
         <div class="composer-foot-left">
           <div ref="chapterWrapRef" class="composer-chapter-wrap">
-            <button type="button" class="composer-chapter" :class="{ on: selectedChapter !== undefined }" @click="toggleChapterMenu">
+            <button
+              type="button"
+              class="composer-chapter"
+              :class="{ on: selectedChapter !== undefined }"
+              @click="toggleChapterMenu"
+            >
               <BookOpen :size="14" />
               <span>{{ selectedChapter !== undefined ? `第 ${selectedChapter} 章` : '全书' }}</span>
               <ChevronDown :size="10" />
             </button>
             <div v-if="chapterMenuOpen" class="chapter-menu">
-              <button type="button" class="chapter-menu-item" :class="{ active: selectedChapter === undefined }" @click="selectChapter(undefined)">全书</button>
-              <button v-if="currentChapter" type="button" class="chapter-menu-item" :class="{ active: selectedChapter === currentChapter }" @click="selectChapter(currentChapter)">第 {{ currentChapter }} 章</button>
+              <button
+                type="button"
+                class="chapter-menu-item"
+                :class="{ active: selectedChapter === undefined }"
+                @click="selectChapter(undefined)"
+              >
+                全书
+              </button>
+              <button
+                v-if="currentChapter"
+                type="button"
+                class="chapter-menu-item"
+                :class="{ active: selectedChapter === currentChapter }"
+                @click="selectChapter(currentChapter)"
+              >
+                第 {{ currentChapter }} 章
+              </button>
             </div>
           </div>
           <span class="composer-hint">Enter 发送 · Shift+Enter 换行</span>
         </div>
         <div class="composer-actions">
           <ModelEffortBar />
-          <button
-            v-if="chat.hasMessages"
-            class="composer-clear"
-            title="清空对话"
-            @click="handleClear"
-          >
+          <button v-if="chat.hasMessages" class="composer-clear" title="清空对话" @click="handleClear">
             <Trash2 :size="13" />
           </button>
-          <button
-            v-if="chatRunning"
-            class="chat-stop-btn"
-            title="停止"
-            @click="stopChat"
-          >
+          <button v-if="chatRunning" class="chat-stop-btn" title="停止" @click="stopChat">
             <Square :size="14" />
           </button>
           <!-- ：busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
-          <button
-            v-else
-            class="chat-send-btn"
-            :disabled="!input.trim() || busy || sending"
-            @click="handleSend"
-          >
+          <button v-else class="chat-send-btn" :disabled="!input.trim() || busy || sending" @click="handleSend">
             <Send :size="15" />
           </button>
         </div>
@@ -128,14 +141,18 @@ const {
   border-radius: var(--radius-l);
   background: var(--background-primary);
   box-shadow: var(--shadow-s);
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .composer-box:hover {
   border-color: var(--background-modifier-border-hover);
 }
 .composer-box:focus-within {
   border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 14%, transparent), var(--shadow-s);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 14%, transparent),
+    var(--shadow-s);
 }
 /* ① dock 玻璃档 box：与对话框/按钮同透明度（原 ChatDock 值原样） */
 .chat-composer.glass .composer-box {
@@ -167,7 +184,9 @@ const {
   font-size: var(--font-size-xs);
   font-family: inherit;
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .composer-chapter:hover {
   border-color: var(--background-modifier-border-hover);
@@ -243,7 +262,9 @@ const {
   border: none;
   cursor: pointer;
   border-radius: var(--radius-s);
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .composer-clear:hover {
   color: var(--text-normal);
@@ -261,7 +282,9 @@ const {
   background: var(--dv-bad);
   color: var(--text-on-accent);
   cursor: pointer;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 .chat-stop-btn:hover {
   opacity: 0.9;
@@ -279,7 +302,10 @@ const {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   cursor: pointer;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .chat-send-btn:hover:not(:disabled) {
   opacity: 0.9;

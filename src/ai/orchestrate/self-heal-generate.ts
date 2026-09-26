@@ -25,10 +25,7 @@ import type { TokenUsage } from '../provider/types.js'
 import type { SelfHealOpts } from './self-heal.js'
 import type { RunState } from './self-heal-registry.js'
 
-type SpawnResult =
-  | { status: 'ok'; text: string }
-  | { status: 'aborted' }
-  | { status: 'error'; error: string }
+type SpawnResult = { status: 'ok'; text: string } | { status: 'aborted' } | { status: 'error'; error: string }
 
 /**
  * 生成入口：优先用注入的 genFn（单测），否则用 provider + tool_use。

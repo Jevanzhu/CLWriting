@@ -11,14 +11,26 @@ import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 let studio: StudioHarness
 
 /** 手动发 HTTP 请求(可设任意 Origin header,绕过 fetch forbidden header 限制) */
-function rawRequest(method: string, path: string, origin: string | null): Promise<{ status: number; acao: string | null }> {
+function rawRequest(
+  method: string,
+  path: string,
+  origin: string | null,
+): Promise<{ status: number; acao: string | null }> {
   return new Promise((resolve) => {
     const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: { ...(origin ? { origin } : {}), 'x-studio-token': studio.token } },
+      {
+        host: u.hostname,
+        port: u.port,
+        path,
+        method,
+        headers: { ...(origin ? { origin } : {}), 'x-studio-token': studio.token },
+      },
       (res) => {
         res.resume()
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, acao: res.headers['access-control-allow-origin'] ?? null }))
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, acao: res.headers['access-control-allow-origin'] ?? null }),
+        )
       },
     )
     req.on('error', () => resolve({ status: 0, acao: null }))
@@ -57,7 +69,11 @@ describe('P0 CORS 安全边界', () => {
   })
 
   it('PUT 恶意 Origin → 403(防跨站写)', async () => {
-    const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('测试书')}/settings/character`, 'http://evil.com')
+    const r = await rawRequest(
+      'PUT',
+      `/api/books/${encodeURIComponent('测试书')}/settings/character`,
+      'http://evil.com',
+    )
     expect(r.status).toBe(403)
   })
 

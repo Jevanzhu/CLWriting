@@ -36,8 +36,9 @@ function makeOpts(message?: string, regenerate?: boolean): ChatOpts {
 }
 
 function emitted(opts: ChatOpts): ChatErrorEvent[] {
-  return ((opts as unknown as { __events: DriverEvent[] }).__events
-    .filter((e) => e.type === 'chat_error')) as ChatErrorEvent[]
+  return (opts as unknown as { __events: DriverEvent[] }).__events.filter(
+    (e) => e.type === 'chat_error',
+  ) as ChatErrorEvent[]
 }
 
 const HISTORY = (): ChatMsg[] => [{ role: 'user', content: '旧消息' }]

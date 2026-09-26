@@ -43,18 +43,22 @@ function storeWith(recent: Array<{ path: string; label: string }>, current: stri
 
 describe('R26-93：filterValidRecentBudgeted 目录有效性', () => {
   it('存在目录保留；不存在剔除（原语义保留）', async () => {
-    const r = await filterValidRecentBudgeted(storeWith([
-      { path: realDir, label: '真书库' },
-      { path: missing, label: '已消失' },
-    ]))
+    const r = await filterValidRecentBudgeted(
+      storeWith([
+        { path: realDir, label: '真书库' },
+        { path: missing, label: '已消失' },
+      ]),
+    )
     expect(r.recent.map((x) => x.path)).toEqual([realDir])
   })
 
   it('核心回归：路径是普通文件（非目录）→ 剔除（修复前 existsSync 误判有效）', async () => {
-    const r = await filterValidRecentBudgeted(storeWith([
-      { path: fileImpostor, label: '顶替文件' },
-      { path: realDir, label: '真书库' },
-    ]))
+    const r = await filterValidRecentBudgeted(
+      storeWith([
+        { path: fileImpostor, label: '顶替文件' },
+        { path: realDir, label: '真书库' },
+      ]),
+    )
     expect(r.recent.map((x) => x.path)).toEqual([realDir])
   })
 
@@ -65,7 +69,12 @@ describe('R26-93：filterValidRecentBudgeted 目录有效性', () => {
   })
 
   it('全部失效 → recent 清空不抛；空存储直通', async () => {
-    const r = await filterValidRecentBudgeted(storeWith([{ path: missing, label: 'x' }, { path: fileImpostor, label: 'y' }]))
+    const r = await filterValidRecentBudgeted(
+      storeWith([
+        { path: missing, label: 'x' },
+        { path: fileImpostor, label: 'y' },
+      ]),
+    )
     expect(r.recent).toEqual([])
     expect((await filterValidRecentBudgeted(emptyStore())).recent).toEqual([])
   })

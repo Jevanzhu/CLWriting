@@ -15,12 +15,18 @@ afterEach(() => {
 
 describe('apiJson · 本地 API 未连接（无信封 5xx）', () => {
   it('502 空体 → 抛「本地服务未连接」而非裸 HTTP 502', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 502 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 502 })),
+    )
     await expect(apiJson('/api/health')).rejects.toThrow('本地服务未连接，请确认 API 服务已启动')
   })
 
   it('502 空体 → ApiError 带 LOCAL_API_DOWN 码与 502 状态', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 502 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 502 })),
+    )
     try {
       await apiJson('/api/health')
       expect.unreachable('应当抛出 ApiError')
@@ -33,7 +39,10 @@ describe('apiJson · 本地 API 未连接（无信封 5xx）', () => {
   })
 
   it('503 裸文本体 → 同样按本地未连接处理（非我们信封）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('Bad Gateway', { status: 503 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Bad Gateway', { status: 503 })),
+    )
     await expect(apiJson('/api/health')).rejects.toThrow('本地服务未连接，请确认 API 服务已启动')
   })
 })
@@ -84,7 +93,10 @@ describe('apiJson · 服务端 {code,error} 信封（回归不变）', () => {
 // 修复：null 体上抛 MALFORMED_RESPONSE；204（HTTP 语义无体合法）维持空对象口径。
 describe('apiJson · 2xx 字面量 null 体（重评二轮-P3-3）', () => {
   it('200 + 体「null」→ 抛 ApiError MALFORMED_RESPONSE（不静默穿透 null）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } })),
+    )
     try {
       await apiJson('/api/health')
       expect.unreachable('null 体应当抛出 ApiError')
@@ -98,7 +110,10 @@ describe('apiJson · 2xx 字面量 null 体（重评二轮-P3-3）', () => {
   })
 
   it('204 无体 → 维持空对象口径（null 防御不误伤 HTTP 语义无体合法形态）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 204 })),
+    )
     await expect(apiJson('/api/health')).resolves.toEqual({})
   })
 })
@@ -110,16 +125,22 @@ describe('apiJson · 2xx 字面量 null 体（重评二轮-P3-3）', () => {
 
 /** 模拟 fetch 规范行为：signal abort 时以 AbortError 结束（挂起中不发真实请求） */
 function fetchRejectsOnAbort() {
-  return vi.fn((_path: unknown, init?: RequestInit) =>
-    new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')))
-    }),
+  return vi.fn(
+    (_path: unknown, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('This operation was aborted', 'AbortError')),
+        )
+      }),
   )
 }
 
 describe('apiJson · 外部 signal 监听器生命周期（低-6 第十轮）', () => {
   it('请求成功 settle 后摘除 once abort 监听器', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+    )
     const external = new AbortController()
     const addSpy = vi.spyOn(external.signal, 'addEventListener')
     const removeSpy = vi.spyOn(external.signal, 'removeEventListener')
@@ -152,7 +173,9 @@ describe('apiJson · 外部 signal 监听器生命周期（低-6 第十轮）', 
     const p = apiJson('/api/health', { signal: external.signal }, 5_000)
     external.abort()
     const err = await p.then(
-      () => { throw new Error('应当拒绝') },
+      () => {
+        throw new Error('应当拒绝')
+      },
       (e: unknown) => e,
     )
     expect((err as Error).name).toBe('AbortError')
@@ -181,7 +204,9 @@ describe('apiJson · 预 abort signal（M-6 第十轮，第九轮 L-4 回归）'
     external.abort() // 调用前已中止
 
     const err = await apiJson('/api/health', { signal: external.signal }, 15_000).then(
-      () => { throw new Error('预中止 signal 应立即拒绝') },
+      () => {
+        throw new Error('预中止 signal 应立即拒绝')
+      },
       (e: unknown) => e,
     )
     expect((err as Error).name).toBe('AbortError') // AbortError 语义，不伪装超时

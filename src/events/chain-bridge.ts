@@ -74,11 +74,7 @@ export function checkFalsePositiveEvent(data: {
   return { type: 'check/false-positive', data: { ...data } }
 }
 
-export function retryAttemptEvent(data: {
-  attempt: number;
-  maxAttempts: number;
-  redIssues?: string[];
-}): NewEvent {
+export function retryAttemptEvent(data: { attempt: number; maxAttempts: number; redIssues?: string[] }): NewEvent {
   return { type: 'retry/attempt', data: { ...data } }
 }
 
@@ -92,19 +88,11 @@ export function checkReportEvent(data: { chapter: number; reds: string[]; yellow
 // 如工作台未选章直接对话）此前被 `?? 0` 伪装成 0；章号 1 起算，0 属无效值，血缘
 // 载荷里出现伪 0 易被误读为真章号。缺省即「无章」语义；消费方（lineage
 // registeredRecords）只读 revision 不读章号，契约放宽零影响。
-export function revisionRefEvent(data: {
-  chapter?: number
-  revision: string
-  path: string
-}): NewEvent {
+export function revisionRefEvent(data: { chapter?: number; revision: string; path: string }): NewEvent {
   return { type: 'revision/ref', data: { ...data } }
 }
 
-export function settingsSnapshotEvent(data: {
-  scope: string
-  version?: string
-  digest: string
-}): NewEvent {
+export function settingsSnapshotEvent(data: { scope: string; version?: string; digest: string }): NewEvent {
   return { type: 'settings/snapshot', data: { ...data } }
 }
 
@@ -156,13 +144,18 @@ export function structureMergeUndoEvent(data: StructureMergeUndoData): NewEvent 
 /** task 名 → 五层 layer 映射（/DSH-8：五层每层一个 step） */
 export function layerForTask(task: string): LayerName {
   switch (task) {
-    case 'chat': return 'chat'
+    case 'chat':
+      return 'chat'
     case 'spawn-write':
-    case 'rewrite': return 'draft'
+    case 'rewrite':
+      return 'draft'
     case 'review':
-    case 'analysis': return 'review'
-    case 'self-heal': return 'self-heal'
-    default: return 'context' // outline/onboard/lead-updates/relation-mine 等
+    case 'analysis':
+      return 'review'
+    case 'self-heal':
+      return 'self-heal'
+    default:
+      return 'context' // outline/onboard/lead-updates/relation-mine 等
   }
 }
 
@@ -216,10 +209,7 @@ export class ChainRecorder {
       // 写失败完全静默无留痕——持续性故障（SQLITE_BUSY/磁盘满）期间
       // 链路观测事件（llm/call 等）成审计流出黑洞无法定位；warn 留批规模与病因（丢事件
       // = 丢「已记录」凭据，铁律①视角必须留痕），业务流程仍不炸
-      log.warn(
-        'events',
-        `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${errMsg(e)}`,
-      )
+      log.warn('events', `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${errMsg(e)}`)
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
         // 清偿批截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
@@ -293,7 +283,10 @@ export function recordForeshadowChanges(
       const k = keyOf(e)
       if (seen.has(k)) {
         dupWarned = true
-        log.warn('chain-bridge', `伏笔差分键重号（${e.file ? `file=${e.file}` : `标题「${e.标题}」`}）——伏笔身份应唯一，变更配对按后者覆盖退化`)
+        log.warn(
+          'chain-bridge',
+          `伏笔差分键重号（${e.file ? `file=${e.file}` : `标题「${e.标题}」`}）——伏笔身份应唯一，变更配对按后者覆盖退化`,
+        )
         return
       }
       seen.add(k)
@@ -325,4 +318,3 @@ export function recordForeshadowChanges(
     log.warn('chain-bridge', `伏笔变更事件写入失败（session=${sessionId}，${events.length} 条）：${errMsg(e)}`)
   }
 }
-

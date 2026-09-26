@@ -34,10 +34,7 @@ beforeEach(() => {
 })
 
 function mountHost(modelValue = '正文'): ReturnType<typeof mount> {
-  return mount(
-    CmHost,
-    { props: { modelValue, mode: 'text', historyKey: 'd1' }, attachTo: document.body },
-  )
+  return mount(CmHost, { props: { modelValue, mode: 'text', historyKey: 'd1' }, attachTo: document.body })
 }
 
 function viewOf(w: ReturnType<typeof mount>): EditorView {

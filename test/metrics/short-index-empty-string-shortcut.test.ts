@@ -23,15 +23,19 @@ test('R71-33: 纯标点锚点标题不虚报 anchoredSetupCount（空串短路�
     const bodyDir = join(root, '写作', '正文', '第一卷')
     mkdirSync(bodyDir, { recursive: true })
     // 正文锚点标题全是标点/emoji——normalize 后空串；铺垫位置是真实文字
-    writeChapter(join(bodyDir, name), {
-      章号: seq,
-      标题: '空锚',
-      钩子类型: '悬念钩',
-      钩子强弱: '中',
-      情绪定位: '压抑',
-      目标情绪: '惊悚',
-      核心反转: '来客就是死者',
-    }, `## ！！\n\n正文。门外没有脚印。\n\n## 🌑🌑\n\n脚印消失了。`)
+    writeChapter(
+      join(bodyDir, name),
+      {
+        章号: seq,
+        标题: '空锚',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '压抑',
+        目标情绪: '惊悚',
+        核心反转: '来客就是死者',
+      },
+      `## ！！\n\n正文。门外没有脚印。\n\n## 🌑🌑\n\n脚印消失了。`,
+    )
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
     writePieceList(join(root, '大纲', '章纲', name), {
       反转线索表: {
@@ -59,15 +63,19 @@ test('R71-33: 纯标点铺垫内容不虚报 payoffMatched（空串短路）', (
     const name = `00${++seq}-空铺.md`
     const bodyDir = join(root, '写作', '正文', '第一卷')
     mkdirSync(bodyDir, { recursive: true })
-    writeChapter(join(bodyDir, name), {
-      章号: seq,
-      标题: '空铺',
-      钩子类型: '悬念钩',
-      钩子强弱: '中',
-      情绪定位: '压抑',
-      目标情绪: '惊悚',
-      核心反转: '来客就是死者',
-    }, '门外没有脚印。')
+    writeChapter(
+      join(bodyDir, name),
+      {
+        章号: seq,
+        标题: '空铺',
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '压抑',
+        目标情绪: '惊悚',
+        核心反转: '来客就是死者',
+      },
+      '门外没有脚印。',
+    )
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
     writePieceList(join(root, '大纲', '章纲', name), {
       反转线索表: {

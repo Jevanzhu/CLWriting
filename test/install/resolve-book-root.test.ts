@@ -104,10 +104,7 @@ test('readBooks: 坏行跳过不崩', () => {
   makeWorkDir(wd)
   writeFileSync(
     join(wd, '.clwriting', 'books.jsonl'),
-    '{"name":"A","path":"A","kind":"long"}\n' +
-      '这不是JSON\n' +
-      '{"name":"B","path":"B","kind":"short"}\n' +
-      '\n',
+    '{"name":"A","path":"A","kind":"long"}\n' + '这不是JSON\n' + '{"name":"B","path":"B","kind":"short"}\n' + '\n',
     'utf-8',
   )
   const books = readBooks(wd)

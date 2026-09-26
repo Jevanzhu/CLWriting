@@ -19,7 +19,13 @@ import type { ParseError } from './types.js'
 import { errMsg, log } from '../log/index.js' // errMsg 收编：错误文案三目单源
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
-import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon, hasOpenFrontMatterFence } from './frontmatter-core.js'
+import {
+  splitFrontMatter,
+  bodyOf,
+  stripInlineComment,
+  firstKeyColon,
+  hasOpenFrontMatterFence,
+} from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
 
@@ -151,10 +157,7 @@ export function isFmWritableValue(val: unknown): boolean {
   if (typeof val === 'boolean') return true
   if (Array.isArray(val)) {
     return val.every(
-      (v) =>
-        typeof v === 'string' ||
-        (typeof v === 'number' && Number.isFinite(v)) ||
-        typeof v === 'boolean',
+      (v) => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean',
     )
   }
   return false
@@ -170,9 +173,7 @@ export function isFmWritableValue(val: unknown): boolean {
 // 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
 
 /** 平铺 front matter → 有序 Map（保留插入顺序；支持块标量 `key: |`/`>` 多行值） */
-export function parseFlat(
-  fmRaw: string,
-): Map<string, unknown> {
+export function parseFlat(fmRaw: string): Map<string, unknown> {
   const result = new Map<string, unknown>()
   const lines = fmRaw.split('\n')
   let i = 0
@@ -217,7 +218,7 @@ export function parseFlat(
           // 纯空白行不再一律归一真空行——literal 保留原貌
           //（去缩进按 minIndent 截断，行内缩进空白不丢）；folded 的空白行按 YAML
           // 语义仍是段落边界（foldSegs 以真空行分段），维持 ''。
-          block.push(folded ? '' : (bl.endsWith('\r') ? bl.slice(0, -1) : bl))
+          block.push(folded ? '' : bl.endsWith('\r') ? bl.slice(0, -1) : bl)
           i++
           continue
         }
@@ -247,7 +248,10 @@ export function parseFlat(
         let cur: string[] = []
         for (const bl of bls) {
           if (bl === '') {
-            if (cur.length) { segs.push(cur.join(' ').replace(/ +$/, '')); cur = [] }
+            if (cur.length) {
+              segs.push(cur.join(' ').replace(/ +$/, ''))
+              cur = []
+            }
           } else cur.push(bl.replace(/ +$/, ''))
         }
         if (cur.length) segs.push(cur.join(' ').replace(/ +$/, ''))
@@ -258,7 +262,8 @@ export function parseFlat(
       // 章 fm 此前静默覆盖；手改复制粘贴出双「标题:」时前一值无迹消失。
       // 行号用进入块标量消费前记录的 keyLineNo（i 已越过块体，
       // 直接取 i+1 会指到块后），warn 指向重复键起始行。
-      if (result.has(key)) log.warn('frontmatter', `front matter 同名键「${key}」重复（第 ${keyLineNo} 行起），后值覆盖前值`)
+      if (result.has(key))
+        log.warn('frontmatter', `front matter 同名键「${key}」重复（第 ${keyLineNo} 行起），后值覆盖前值`)
       result.set(key, value)
       continue
     }
@@ -355,7 +360,10 @@ export function patchFlatFm(
       // 重复同名顶层键（手写脏数据）：首个已改写，后续重复及其子行丢弃防解析歧义。
       // 静默丢弃补 warn 留痕（「写了但不生效无迹可查」
       // 纪律）——作者第二处键值被丢弃后无从知晓，改配置「不生效」无诊断线索。
-      log.warn('frontmatter', `patchFlatFm 重复同名顶层键「${key}」：保留首个（已按 updates 改写），后续重复键及其子行已丢弃`)
+      log.warn(
+        'frontmatter',
+        `patchFlatFm 重复同名顶层键「${key}」：保留首个（已按 updates 改写），后续重复键及其子行已丢弃`,
+      )
       i = j
       continue
     }

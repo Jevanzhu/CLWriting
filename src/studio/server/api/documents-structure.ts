@@ -40,7 +40,13 @@ import {
 import { cleanupRagAfterMerge, estimateRagChunkCount } from '../../../rag/index.js'
 import { invalidateBookSummary } from './progress.js'
 // 基建段回引单源 core（见文件头注依赖方向）
-import { enqueueStructureOp, getOrCreateService, structStatus, structureBusyGuarded, type DocumentCtx } from './documents-core.js'
+import {
+  enqueueStructureOp,
+  getOrCreateService,
+  structStatus,
+  structureBusyGuarded,
+  type DocumentCtx,
+} from './documents-core.js'
 
 /** 阶段 24：structure 的 RAG 触点端口实例（干跑预估 + 合并/撤销/拆分后清理）。 */
 const structureRag: StructureRagPort = { cleanupRagAfterMerge, estimateRagChunkCount }
@@ -109,8 +115,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
         // 链内首行书注册重验（readJson await 窗口内书可被删/改名）
         type ApplyOutcome =
-          | { status: number; code: string; error: string }
-          | { result: MergeApplyResult | SplitApplyResult }
+          { status: number; code: string; error: string } | { result: MergeApplyResult | SplitApplyResult }
         const outcome = await enqueueStructureOp(r.bookRoot, async (): Promise<ApplyOutcome> => {
           const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
           if (moved) return { status: structStatus(moved.code), code: moved.code, error: moved.reason }
@@ -186,7 +191,8 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         if (typeof body.planHash === 'string') hints.planHash = body.planHash
         const docId = params['docId'] ?? ''
         const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-        type UndoOutcome = { status: number; code: string; error: string } | { result: Awaited<ReturnType<typeof undoChapterMerge>> }
+        type UndoOutcome =
+          { status: number; code: string; error: string } | { result: Awaited<ReturnType<typeof undoChapterMerge>> }
         const outcome = await enqueueStructureOp(r.bookRoot, async (): Promise<UndoOutcome> => {
           const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
           if (moved) return { status: structStatus(moved.code), code: moved.code, error: moved.reason }

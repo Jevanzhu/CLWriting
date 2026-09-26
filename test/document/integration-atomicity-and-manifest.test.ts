@@ -5,7 +5,6 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
- 
   mkdirSync,
   rmSync,
   writeFileSync,
@@ -41,7 +40,10 @@ describe('W1 / 原子性与路径安全', () => {
     chmodSync(roDir, 0o555)
     try {
       const r = await svc.save('doc_x', '素材/x.md', {
-        content: '新内容', expectedRevision: base, operationId: 'op1', origin: 'manual',
+        content: '新内容',
+        expectedRevision: base,
+        operationId: 'op1',
+        origin: 'manual',
       })
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
@@ -57,7 +59,10 @@ describe('W1 / 原子性与路径安全', () => {
     mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
     symlinkSync('/etc/passwd', join(bookRoot, '定稿', '正文', 'link.md'))
     const r = await svc.save('doc_l', '定稿/正文/link.md', {
-      content: 'x', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('PATH_ESCAPE')
@@ -76,7 +81,10 @@ describe('W1 / 清单与快照策略', () => {
 
   it('旧书无清单，保存成功但不创建清单（保存不算结构性操作）', async () => {
     const r = await svc.save('doc_1', '素材/x.md', {
-      content: 'x', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: 'x',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     expect(r.ok).toBe(true)
     expect(existsSync(join(bookRoot, '项目', '文档清单.jsonl'))).toBe(false)
@@ -88,7 +96,10 @@ describe('W1 / 清单与快照策略', () => {
     writeFileSync(f, '原文')
     const base = hashFile(f) as `sha256:${string}`
     await svc.save('doc_r', '素材/r.md', {
-      content: '恢复版', expectedRevision: base, operationId: 'op1', origin: 'restore',
+      content: '恢复版',
+      expectedRevision: base,
+      operationId: 'op1',
+      origin: 'restore',
     })
     const snapDir = join(bookRoot, '工作区', '.版本', 'doc_r')
     expect(existsSync(snapDir)).toBe(true)
@@ -112,10 +123,16 @@ describe('W1 / superseded 传播', () => {
     // Y-16 后 freeze 已删：save() 入队前全同步，背靠背两次入队天然保证
     // 第一个 run（微任务启动）完成前第二个已入队（maxToken=2）
     const p1 = svc.save('doc_s', '素材/s.md', {
-      content: '一', expectedRevision: null, operationId: 'op1', origin: 'manual',
+      content: '一',
+      expectedRevision: null,
+      operationId: 'op1',
+      origin: 'manual',
     })
     const p2 = svc.save('doc_s', '素材/s.md', {
-      content: '二', expectedRevision: null, operationId: 'op2', origin: 'manual',
+      content: '二',
+      expectedRevision: null,
+      operationId: 'op2',
+      origin: 'manual',
     })
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.ok).toBe(true)

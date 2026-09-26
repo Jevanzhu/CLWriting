@@ -10,12 +10,7 @@
  * 无消费者时事件暂存 pre，首个新消费者接管（兼容「emit 在 stream 前」时序）。
  * 多 SSE 连接（前端 + 调试）各自完整消费，事件不被单消费者 shift 分散（Bug A 修复）。
  */
-import type {
-  Session,
-  SessionOptions,
-  DriverEvent,
-  StudioDriver,
-} from './types.js'
+import type { Session, SessionOptions, DriverEvent, StudioDriver } from './types.js'
 import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
 
 /** 单个 stream 消费者：独立队列 + 挂起等待句柄。

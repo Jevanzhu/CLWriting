@@ -62,7 +62,13 @@ test('R64-13：purgeTrash 连删 工作区/.版本/<docId>/（pinned 快照不�
   writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
   writeFileSync(
     join(root, '工作区', '.trash', '.trash-manifest.jsonl'),
-    JSON.stringify({ id: 'doc_a', originalPath: '写作/正文/0001-旧稿.md', trashedPath: '工作区/.trash/doc_a-旧稿.md', trashedAt: '', role: 'chapter' }) + '\n',
+    JSON.stringify({
+      id: 'doc_a',
+      originalPath: '写作/正文/0001-旧稿.md',
+      trashedPath: '工作区/.trash/doc_a-旧稿.md',
+      trashedAt: '',
+      role: 'chapter',
+    }) + '\n',
     'utf-8',
   )
   const verDir = join(root, '工作区', VERSIONS_DIR_NAME, 'doc_a')
@@ -92,7 +98,13 @@ test('R64-14：目标序号已被并发占位 → O_EXCL 重试落下一序号�
 
 test('R64-15：同内容候选重复确认 → 复用既有条目，不产生重复', () => {
   const c: StyleCandidate = {
-    类型: '样章', 场景: '通用', 来源: '改稿行为', 正文: '同一段正文。', 状态: '待确认', 创建: '2026-08-26', 章号: 7,
+    类型: '样章',
+    场景: '通用',
+    来源: '改稿行为',
+    正文: '同一段正文。',
+    状态: '待确认',
+    创建: '2026-08-26',
+    章号: 7,
   }
   const first = confirmCandidate(root, addCandidate(root, c))
   expect(first).toBe(`${ENTRIES_DIR}/样章/通用-001.md`)
@@ -140,20 +152,24 @@ test('R64-17：多行证据续行折空格并入上一条（不丢）', () => {
 test('R64-17：数组型未知字段 _raw 按 string[] 承载，writeLead 往返不错位', () => {
   const fp = join(root, '布线', '悬念', '悬念-001.md')
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  writeFileSync(fp, [
-    '---',
-    '编号: 悬念-001',
-    '标题: 双线钥匙',
-    '类型: 悬念',
-    '状态: 进行中',
-    '开启章: 1',
-    '友人: ["甲,乙", 丙]',
-    '---',
-    '',
-    '## 履历',
-    '',
-    '- 第1章 埋下：抽屉里有把旧钥匙',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 悬念-001',
+      '标题: 双线钥匙',
+      '类型: 悬念',
+      '状态: 进行中',
+      '开启章: 1',
+      '友人: ["甲,乙", 丙]',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '- 第1章 埋下：抽屉里有把旧钥匙',
+    ].join('\n'),
+    'utf-8',
+  )
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -170,7 +186,7 @@ test('R64-17：数组型未知字段 _raw 按 string[] 承载，writeLead 往返
 
 // ── R64-18：unquote '' 还原 ──────────────────────
 
-test('R64-18：单引号值 `\'it\'\'s\'` → it\'s（往返不再漂移）', () => {
+test("R64-18：单引号值 `'it''s'` → it's（往返不再漂移）", () => {
   const map = parseFlat("标题: 'it''s'")
   expect(map.get('标题')).toBe("it's")
 })
@@ -179,7 +195,11 @@ test('R64-18：单引号值 `\'it\'\'s\'` → it\'s（往返不再漂移）', ()
 
 test('R64-19：`字数目标: 三千` → 字段按未写处理（不落 NaN）', () => {
   const fp = join(root, '0001-章.md')
-  writeFileSync(fp, ['---', '章号: 1', '标题: 试章', '钩子类型: 悬念钩', '字数目标: 三千', '---', '', '正文'].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    ['---', '章号: 1', '标题: 试章', '钩子类型: 悬念钩', '字数目标: 三千', '---', '', '正文'].join('\n'),
+    'utf-8',
+  )
   const r = readChapter(fp)
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.chapter.字数目标).toBeUndefined()
@@ -198,7 +218,13 @@ test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', 'doc_b-手记.md'), '回收内容', 'utf-8')
   const manifestLine = (orig: string) =>
-    JSON.stringify({ id: 'doc_b', originalPath: orig, trashedPath: '工作区/.trash/doc_b-手记.md', trashedAt: '', role: 'chapter' }) + '\n'
+    JSON.stringify({
+      id: 'doc_b',
+      originalPath: orig,
+      trashedPath: '工作区/.trash/doc_b-手记.md',
+      trashedAt: '',
+      role: 'chapter',
+    }) + '\n'
   const writeManifestLine = (orig: string) =>
     writeFileSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl'), manifestLine(orig), 'utf-8')
 
@@ -225,7 +251,14 @@ test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；
 // Windows 无 POSIX 权限位（chmod 仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('R64-22：opts.mode 落到产物（0o600）', () => {
   const fp = join(root, 'out', 'merged.md')
-  atomicWriteStream(fp, (append) => { append('第一段\n'); append('第二段\n') }, { mode: 0o600 })
+  atomicWriteStream(
+    fp,
+    (append) => {
+      append('第一段\n')
+      append('第二段\n')
+    },
+    { mode: 0o600 },
+  )
   expect(readFileSync(fp, 'utf-8')).toBe('第一段\n第二段\n')
   expect(statSync(fp).mode & 0o777).toBe(0o600)
   // 不传 mode：默认不受影响（umask 口径，仅断言可写可读）

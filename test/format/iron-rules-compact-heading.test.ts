@@ -10,14 +10,7 @@ import { parseIronRules } from '../../src/format/iron-rules.js'
 
 test('r0914b P3-12: 紧凑标题 `##硬禁词` 段条目可采集（锚定正则零空白容忍生效）', () => {
   const rules = parseIronRules(
-    [
-      '##硬禁词',
-      '- 禁词：轰动体 / 倒吸凉气',
-      '- 「时间静止」',
-      '',
-      '## 可量化约束',
-      '- 单句上限字数: 60',
-    ].join('\n'),
+    ['##硬禁词', '- 禁词：轰动体 / 倒吸凉气', '- 「时间静止」', '', '## 可量化约束', '- 单句上限字数: 60'].join('\n'),
   )
   // 紧凑段标题下的条目全部采集；后继同级标题（带空格形态）照旧段终，不污染
   expect(rules.bannedWords).toEqual(['轰动体', '倒吸凉气', '时间静止'])
@@ -34,15 +27,7 @@ test('r0914b P3-12: 紧凑 `##反和解段（AI 味防御）` 与裸形 `##反�
 })
 
 test('r0914b P3-12: 段内紧凑同级标题按段终处理（不再折入证据）', () => {
-  const rules = parseIronRules(
-    [
-      '## 硬禁词清单',
-      '- 禁词：轰动体',
-      '',
-      '##其他段',
-      '- 「倒吸凉气」',
-    ].join('\n'),
-  )
+  const rules = parseIronRules(['## 硬禁词清单', '- 禁词：轰动体', '', '##其他段', '- 「倒吸凉气」'].join('\n'))
   // 同级紧凑标题（level 2 <= sectionLevel 2）终断前段，其后条目不入采集
   expect(rules.bannedWords).toEqual(['轰动体'])
 })

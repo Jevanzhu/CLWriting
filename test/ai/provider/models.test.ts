@@ -12,7 +12,9 @@ describe('normalizeBaseUrl 协议分流（方案 §4.5 P0）', () => {
     expect(normalizeBaseUrl('https://api.deepseek.com', 'openai')).toBe('https://api.deepseek.com')
     expect(normalizeBaseUrl('https://api.x.ai/v1/', 'openai')).toBe('https://api.x.ai/v1')
     // GLM 多级路径带 /v1 也保留
-    expect(normalizeBaseUrl('https://open.bigmodel.cn/api/paas/v4', 'openai')).toBe('https://open.bigmodel.cn/api/paas/v4')
+    expect(normalizeBaseUrl('https://open.bigmodel.cn/api/paas/v4', 'openai')).toBe(
+      'https://open.bigmodel.cn/api/paas/v4',
+    )
   })
 
   it('anthropic：去尾斜杠 + 剥尾部 /v1（SDK 自拼 /v1/messages）', () => {
@@ -21,8 +23,12 @@ describe('normalizeBaseUrl 协议分流（方案 §4.5 P0）', () => {
     expect(normalizeBaseUrl('https://api.anthropic.com/v1', 'anthropic')).toBe('https://api.anthropic.com')
     expect(normalizeBaseUrl('https://api.anthropic.com/v1/', 'anthropic')).toBe('https://api.anthropic.com')
     // 兼容端点（DeepSeek / GLM / Kimi）
-    expect(normalizeBaseUrl('https://api.deepseek.com/anthropic', 'anthropic')).toBe('https://api.deepseek.com/anthropic')
-    expect(normalizeBaseUrl('https://api.moonshot.cn/anthropic/', 'anthropic')).toBe('https://api.moonshot.cn/anthropic')
+    expect(normalizeBaseUrl('https://api.deepseek.com/anthropic', 'anthropic')).toBe(
+      'https://api.deepseek.com/anthropic',
+    )
+    expect(normalizeBaseUrl('https://api.moonshot.cn/anthropic/', 'anthropic')).toBe(
+      'https://api.moonshot.cn/anthropic',
+    )
   })
 
   it('多级路径尾部 /v1 也剥（anthropic）', () => {

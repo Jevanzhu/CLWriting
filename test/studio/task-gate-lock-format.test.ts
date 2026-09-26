@@ -19,7 +19,12 @@ import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterAll } from 'vitest'
-import { acquireTaskGate, crossProcessHeldTaskGatesFor, lockFileName, configureTaskGateLockRoot } from '../../src/studio/server/api/task-gate.js'
+import {
+  acquireTaskGate,
+  crossProcessHeldTaskGatesFor,
+  lockFileName,
+  configureTaskGateLockRoot,
+} from '../../src/studio/server/api/task-gate.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const BOOK = '枚举书'

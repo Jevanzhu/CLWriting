@@ -13,7 +13,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { verifyVisibleSampled } from '../../src/ai/orchestrate/chat/turns-visibility.js'
 import { visibleInjectionsFromDigests } from '../../src/ai/prompts/chat.js'
 
-const D = { settings: 'dg-settings-01', revision: 'dg-revision-01', skills: 'dg-skills-01', knowledge: 'dg-knowledge-01' }
+const D = {
+  settings: 'dg-settings-01',
+  revision: 'dg-revision-01',
+  skills: 'dg-skills-01',
+  knowledge: 'dg-knowledge-01',
+}
 // knowledge 登记事件形状 = settingsSnapshotEvent({ scope: 'knowledge', digest })（turns.ts 同源）
 const recorded = [
   { type: 'settings/snapshot', data: { scope: 'settings', digest: D.settings } },
@@ -50,10 +55,7 @@ describe('A201（0918三轮修复批）：knowledge 进可见性校验链', () =
   it('knowledge 未注入（undefined）→ 不进可见清单、不算缺失（条件注入口径）', () => {
     process.env['CLW_VERIFY_VISIBLE'] = '1'
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    verifyVisibleSampled(
-      { settings: D.settings, revision: D.revision, skills: D.skills },
-      recorded.slice(0, 3),
-    )
+    verifyVisibleSampled({ settings: D.settings, revision: D.revision, skills: D.skills }, recorded.slice(0, 3))
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -62,8 +64,6 @@ describe('A201（0918三轮修复批）：knowledge 进可见性校验链', () =
       { scope: 'settings', digest: D.settings },
       { scope: 'knowledge', digest: D.knowledge },
     ])
-    expect(visibleInjectionsFromDigests({ settings: D.settings })).toEqual([
-      { scope: 'settings', digest: D.settings },
-    ])
+    expect(visibleInjectionsFromDigests({ settings: D.settings })).toEqual([{ scope: 'settings', digest: D.settings }])
   })
 })

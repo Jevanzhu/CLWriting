@@ -43,7 +43,11 @@ function makeBook(name: string): Rig {
   )
   const bookRoot = join(workDir, '长篇', name)
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`,
+    'utf-8',
+  )
   const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   upsertEntry(m, { id: 'doc_v1', nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
   writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)

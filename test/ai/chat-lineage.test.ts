@@ -143,7 +143,9 @@ describe('F1-P4 chat 重新生成（分支）', () => {
       expect(evs2.filter((e) => e.type === 'user/message')).toHaveLength(1)
 
       // 分支可切换：新变体带 branchId → 分支树可识别；普通消息无 branchId（线性兜底）
-      const branch = evs2.find((e) => e.type === 'assistant/message' && (e.data as { branchId?: string }).branchId === 'r1')
+      const branch = evs2.find(
+        (e) => e.type === 'assistant/message' && (e.data as { branchId?: string }).branchId === 'r1',
+      )
       expect(branch).toBeDefined()
       expect((branch!.data as { branchId?: string }).branchId).toBe('r1')
       // 第一版 assistant 无 branchId（普通线性消息）

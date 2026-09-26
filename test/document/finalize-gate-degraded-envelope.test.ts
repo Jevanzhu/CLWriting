@@ -30,7 +30,10 @@ function makeBook(): { root: string; docId: string } {
     dirs: ['工作区'],
     files: [
       { rel: '写作/正文/0001-开篇.md', content: `---\n章号: 1\n标题: 开篇\n---\n\n${BODY_SENTENCE}\n` },
-      { rel: '布线/悬念/悬念-001-玉佩.md', content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      {
+        rel: '布线/悬念/悬念-001-玉佩.md',
+        content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
       { rel: '工作区/细纲.md', content: '---\n章号: 1\n推进: 悬念-001\n---\n\n本章细纲。\n' },
     ],
   })

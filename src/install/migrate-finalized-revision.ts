@@ -116,7 +116,10 @@ function normalizePorcelainPath(raw: string, isRename = false): string {
     let inQuote = false
     for (let i = 0; i < p.length - 3; i++) {
       const c = p[i]
-      if (c === '\\') { i++; continue } // 转义字符（含 \"）跳过
+      if (c === '\\') {
+        i++
+        continue
+      } // 转义字符（含 \"）跳过
       if (c === '"') inQuote = !inQuote
       if (!inQuote && p.slice(i, i + 4) === ' -> ') {
         p = p.slice(i + 4)

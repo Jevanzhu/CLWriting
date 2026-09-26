@@ -41,7 +41,10 @@ describe('R0911-G-P3-4: events prepared 缓存滞留——结构契约', () => {
   it('events 域不裸关且委托单源：store.ts 零裸 db.close() + closeEventsDb 走 closeWithPrepared', () => {
     // 裸关（含 helper 体内）即断链序流通路：ephemeron 环断不开，滞留复发
     const bare = [...stripComments(storeSrc).matchAll(/\bdb\.close\(\)/g)]
-    expect(bare, `裸 close 点位：${bare.map((m) => storeSrc.slice(0, m.index).split(String.fromCharCode(10)).length).join(', ')}`).toHaveLength(0)
+    expect(
+      bare,
+      `裸 close 点位：${bare.map((m) => storeSrc.slice(0, m.index).split(String.fromCharCode(10)).length).join(', ')}`,
+    ).toHaveLength(0)
     expect(stripComments(storeSrc)).toContain('closeWithPrepared(db)')
   })
 })

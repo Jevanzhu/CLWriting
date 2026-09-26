@@ -7,7 +7,13 @@ import { rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseBookConfig } from '../../src/format/yaml.js'
-import { parseHistory, parseHistoryWithPreamble, stringifyHistory, readLead, writeLead } from '../../src/format/leads.js'
+import {
+  parseHistory,
+  parseHistoryWithPreamble,
+  stringifyHistory,
+  readLead,
+  writeLead,
+} from '../../src/format/leads.js'
 import { hasOpenFrontMatterFence } from '../../src/format/frontmatter-core.js'
 import { parseFlat, stringifyFlat } from '../../src/format/frontmatter.js'
 import { charNgrams, missingNgrams } from '../../src/format/style-compare.js'
@@ -28,14 +34,9 @@ test('R48-7: 手写 rag 段仅含 embed_timeout_ms → 整段不再被丢（enab
 
 test('R48-8: parseHistoryWithPreamble 收集标题与首条间散文；节终散文一并兜住', () => {
   // 散文在标题与首条之间 → 收集
-  const body = [
-    '## 履历',
-    '',
-    '作者手写在履历开头的备忘。',
-    '',
-    '- 第012章 埋下：焦痕',
-    '续行折入仍归上一条',
-  ].join('\n')
+  const body = ['## 履历', '', '作者手写在履历开头的备忘。', '', '- 第012章 埋下：焦痕', '续行折入仍归上一条'].join(
+    '\n',
+  )
   const { entries, preamble } = parseHistoryWithPreamble(body)
   expect(preamble).toBe('作者手写在履历开头的备忘。')
   expect(entries).toHaveLength(1)
@@ -54,21 +55,25 @@ test('R48-8: readLead → writeLead 往返保真履历前散文（此前回写�
   const dir = mkdtempTracked(join(tmpdir(), 'r48-preamble-'))
   const fp = join(dir, '悬念-031-灭门真凶.md')
   try {
-    writeFileSync(fp, [
-      '---',
-      '编号: 悬念-031',
-      '标题: 灭门真凶',
-      '类型: 悬念',
-      '状态: 进行中',
-      '开启章: 12',
-      '---',
-      '',
-      '## 履历',
-      '',
-      '此线每隔十章须回看一次节奏。',
-      '',
-      '- 第012章 埋下：焦痕',
-    ].join('\n'), 'utf-8')
+    writeFileSync(
+      fp,
+      [
+        '---',
+        '编号: 悬念-031',
+        '标题: 灭门真凶',
+        '类型: 悬念',
+        '状态: 进行中',
+        '开启章: 12',
+        '---',
+        '',
+        '## 履历',
+        '',
+        '此线每隔十章须回看一次节奏。',
+        '',
+        '- 第012章 埋下：焦痕',
+      ].join('\n'),
+      'utf-8',
+    )
 
     const r1 = readLead(fp)
     expect(r1.ok).toBe(true)

@@ -78,7 +78,8 @@ beforeEach(() => {
         ticketCalls++
         if (ticketMode === 'deny') return new Response('no', { status: 401 })
         const token = new Headers(init?.headers).get('x-studio-token')
-        if (ticketMode === 'ok' || token === 'T1') return new Response(JSON.stringify({ ticket: 'K-good' }), { status: 200 })
+        if (ticketMode === 'ok' || token === 'T1')
+          return new Response(JSON.stringify({ ticket: 'K-good' }), { status: 200 })
         return new Response('no', { status: 401 })
       }
       if (url.includes('/stream')) return new Response('no', { status: probeStatus })

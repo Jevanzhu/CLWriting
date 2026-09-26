@@ -56,7 +56,10 @@ function makeBook(): { root: string; literal: string; encoded: string } {
 }
 
 const reviewEnv: Envelope = {
-  generatedAt: '2026-09-10T00:00:00.000Z', model: 'm1', sourceHash: 'a'.repeat(64), payload: { verdict: '通过' },
+  generatedAt: '2026-09-10T00:00:00.000Z',
+  model: 'm1',
+  sourceHash: 'a'.repeat(64),
+  payload: { verdict: '通过' },
 }
 
 test('R0911-E-P3-3: 删字面旧源必经 rmWithRetry，瞬时占用（EPERM 一次）退避后删净不滞留', () => {
@@ -67,7 +70,10 @@ test('R0911-E-P3-3: 删字面旧源必经 rmWithRetry，瞬时占用（EPERM 一
   SPY.epermBudget.set(literal, 1) // 首删瞬时占用一次（win 杀软语义的平台无关模拟）
 
   writeAnalysis(root, 'legacy:abc', 'score', {
-    generatedAt: '2026-09-11T00:00:00.000Z', model: 'm2', sourceHash: 'b'.repeat(64), payload: { 体验分: 9 },
+    generatedAt: '2026-09-11T00:00:00.000Z',
+    model: 'm2',
+    sourceHash: 'b'.repeat(64),
+    payload: { 体验分: 9 },
   })
 
   // 路由锚定：删源必经 rmWithRetry（回退裸 rmSync 则 spy 零调用即红）
@@ -88,7 +94,10 @@ test('R0911-E-P3-3: 持续占用（退避耗尽仍失败）→ 既有收口不�
 
   expect(() =>
     writeAnalysis(root, 'legacy:abc', 'score', {
-      generatedAt: '2026-09-11T00:00:00.000Z', model: 'm2', sourceHash: 'b'.repeat(64), payload: { 体验分: 9 },
+      generatedAt: '2026-09-11T00:00:00.000Z',
+      model: 'm2',
+      sourceHash: 'b'.repeat(64),
+      payload: { 体验分: 9 },
     }),
   ).not.toThrow()
 
@@ -98,7 +107,10 @@ test('R0911-E-P3-3: 持续占用（退避耗尽仍失败）→ 既有收口不�
   // 占用释放后（预算清零）下次写重试删 → 迁移收口
   SPY.epermBudget.delete(literal)
   writeAnalysis(root, 'legacy:abc', 'hooks', {
-    generatedAt: '2026-09-11T00:00:01.000Z', model: 'm2', sourceHash: 'b'.repeat(64), payload: { 密度: 1 },
+    generatedAt: '2026-09-11T00:00:01.000Z',
+    model: 'm2',
+    sourceHash: 'b'.repeat(64),
+    payload: { 密度: 1 },
   })
   expect(existsSync(literal)).toBe(false)
   expect(readAnalysisKinds(root, 'legacy:abc', ['score', 'hooks']).hooks?.model).toBe('m2')

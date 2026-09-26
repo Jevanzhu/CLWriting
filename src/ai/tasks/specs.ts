@@ -10,11 +10,7 @@ import type { TaskSpec } from './spec.js'
 import { REWRITER_SYSTEM, writerSystem } from '../prompts/index.js'
 import { ANALYST_SYSTEM } from '../prompts/analyst.js'
 import { reviewSystem } from '../prompts/review.js'
-import {
-  submitText,
-  chapterTool,
-  chapterToolName,
-} from '../contract/index.js'
+import { submitText, chapterTool, chapterToolName } from '../contract/index.js'
 import { submitRelations, RELATIONS_TOOL_NAME } from '../contract/relations.js'
 import { submitAnalysis, analysisToolName, type AnalysisKind } from '../contract/analysis.js'
 import { submitIssues, ISSUES_TOOL_NAME } from '../contract/review.js'
@@ -67,7 +63,10 @@ export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
 - 只依据给定正文，不臆造、不评论、不复述全文。
 - 每行一句以内，总长遵守调用方给的字数上限。
 - 直接输出三行，不加标题、不加多余说明。`,
-  mock: { kind: 'text', text: '- 情节推进：林远初入宗门，玉佩初显异象。\n- 账本变动：无。\n- 章尾钩子：血中之物苏醒在即。' },
+  mock: {
+    kind: 'text',
+    text: '- 情节推进：林远初入宗门，玉佩初显异象。\n- 账本变动：无。\n- 章尾钩子：血中之物苏醒在即。',
+  },
 }
 
 /** 卷摘要生成从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
@@ -82,7 +81,10 @@ export const SUMMARY_VOLUME_SPEC: TaskSpec = {
 - 只依据给定章摘要，不臆造、不补充新信息。
 - 总长遵守调用方给的字数上限。
 - 直接输出卷摘要正文，不加标题、不加多余说明。`,
-  mock: { kind: 'text', text: '本卷：林远入宗历练，玉佩之谜初启，与长老一脉结怨；悬念-001 埋下并推进一次；卷尾宗门大比在即。' },
+  mock: {
+    kind: 'text',
+    text: '本卷：林远入宗历练，玉佩之谜初启，与长老一脉结怨；悬念-001 埋下并推进一次；卷尾宗门大比在即。',
+  },
 }
 
 /**

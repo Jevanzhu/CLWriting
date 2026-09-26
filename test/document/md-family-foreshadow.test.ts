@@ -41,7 +41,20 @@ describe('R44-7：.MD 大写扩展名家族 5 落点', () => {
     mkdirSync(join(root, '大纲', '伏笔'), { recursive: true })
     writeFileSync(
       join(root, '大纲', '伏笔', '伏笔-012-暗号.MD'),
-      ['---', '编号: 伏笔-012', '标题: 暗号', '类型: 悬念', '状态: 进行中', '开启章: 3', '---', '', '## 履历', '', '- 第3章 埋下：初次提到暗号', ''].join('\n'),
+      [
+        '---',
+        '编号: 伏笔-012',
+        '标题: 暗号',
+        '类型: 悬念',
+        '状态: 进行中',
+        '开启章: 3',
+        '---',
+        '',
+        '## 履历',
+        '',
+        '- 第3章 埋下：初次提到暗号',
+        '',
+      ].join('\n'),
       'utf-8',
     )
     const r = migrateLegacyForeshadows(root)
@@ -66,11 +79,7 @@ describe('R44-7：.MD 大写扩展名家族 5 落点', () => {
 
   it('readCharacterCards：.MD 角色卡进 AI 上下文数据源', () => {
     mkdirSync(join(root, '设定', '角色'), { recursive: true })
-    writeFileSync(
-      join(root, '设定', '角色', '林九.MD'),
-      '---\n姓名: 林九\n身份: 剑客\n---\n\n佩剑行走。',
-      'utf-8',
-    )
+    writeFileSync(join(root, '设定', '角色', '林九.MD'), '---\n姓名: 林九\n身份: 剑客\n---\n\n佩剑行走。', 'utf-8')
     const cards = readCharacterCards(join(root, '设定', '角色'), root)
     expect(cards).toHaveLength(1)
     expect(cards[0]!.姓名).toBe('林九')

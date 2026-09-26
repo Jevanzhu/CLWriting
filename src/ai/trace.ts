@@ -31,7 +31,12 @@ export function newRunId(): string {
 }
 
 /** 计算 prompt 的脱敏元信息（tools：模型可见工具名清单，挂 tools 的调用传） */
-export function promptMeta(systemPrompt: string, userPrompt: string, files: string[] = [], tools: string[] = []): PromptMeta {
+export function promptMeta(
+  systemPrompt: string,
+  userPrompt: string,
+  files: string[] = [],
+  tools: string[] = [],
+): PromptMeta {
   const full = systemPrompt + userPrompt
   // 两段直接拼接进 hash 时 ("ab","c") 与 ("a","bc") 同 hash——相邻
   // 字段边界不可辨，审计指纹歧义。hash 输入前置 systemPrompt 长度前缀（len:full），
@@ -41,7 +46,7 @@ export function promptMeta(systemPrompt: string, userPrompt: string, files: stri
   // 侧（usage-estimate→estimateTokens）按码位折算，校准拟合（用 chars）与估算应用
   // 两侧口径对齐；代理对密集（emoji）文本下两侧系数不再有系统偏差。
   let chars = 0
-  for (let i = 0; i < full.length; ) {
+  for (let i = 0; i < full.length;) {
     const cp = full.codePointAt(i)!
     chars++
     i += cp > 0xffff ? 2 : 1
@@ -61,7 +66,14 @@ export function promptMeta(systemPrompt: string, userPrompt: string, files: stri
  *  RC 全项目：补 estimated / reasoningTokens 两可选键——此前仅落 ai-calls.json 账本
  *  （calls.ts 粘性标记 / reasoning 计量），事件库（trace-stats/cost-stats 聚合源与重放
  *  对账面）无法区分实测/估计口径，两口径分叉。加性透传，无两键的 usage 输出形不变。 */
-export function toTraceUsage(usage: TokenUsage | null): { input: number; output: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; estimated?: boolean } {
+export function toTraceUsage(usage: TokenUsage | null): {
+  input: number
+  output: number
+  cacheRead?: number
+  cacheWrite?: number
+  reasoningTokens?: number
+  estimated?: boolean
+} {
   if (!usage) return { input: 0, output: 0 }
   return {
     input: usage.inputTokens,

@@ -15,35 +15,39 @@ import {
 test('readBookConfig: 完整解析（#9 第 2 节）', () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
-  writeFileSync(fp, [
-    'spec_version: 1',
-    '',
-    'book:',
-    '  title: 北境往事',
-    '  genre: 玄幻',
-    '  volume_size: 40',
-    '',
-    'leads:',
-    '  enabled: [布局线, 设定线, 成长线]',
-    '  thresholds:',
-    '    成长线: 50',
-    '',
-    'budget:',
-    '  calls_per_chapter: 8',
-    '  input_per_chapter: 80000',
-    '  summary_chapter_max: 200',
-    '  summary_volume_max: 500',
-    '',
-    'style:',
-    '  injection: light',
-    '',
-    'auto:',
-    '  confirm_outline: false',
-    '  batch_size: 8',
-    '',
-    'growth:',
-    '  realm_span_max: 2',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      'spec_version: 1',
+      '',
+      'book:',
+      '  title: 北境往事',
+      '  genre: 玄幻',
+      '  volume_size: 40',
+      '',
+      'leads:',
+      '  enabled: [布局线, 设定线, 成长线]',
+      '  thresholds:',
+      '    成长线: 50',
+      '',
+      'budget:',
+      '  calls_per_chapter: 8',
+      '  input_per_chapter: 80000',
+      '  summary_chapter_max: 200',
+      '  summary_volume_max: 500',
+      '',
+      'style:',
+      '  injection: light',
+      '',
+      'auto:',
+      '  confirm_outline: false',
+      '  batch_size: 8',
+      '',
+      'growth:',
+      '  realm_span_max: 2',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
@@ -92,7 +96,11 @@ test('rag 段：provider 引用往返；设 provider 时不再写旧内联 endpo
   if (r.ok) expect(r.config.rag).toMatchObject({ enabled: true, provider: 'rag-abc123' })
 
   // 旧版内联形态仍可解析（存量书兼容）
-  writeFileSync(fp, raw.replace('  provider: rag-abc123', '  endpoint: https://x/v1/embeddings\n  model: embed-m'), 'utf8')
+  writeFileSync(
+    fp,
+    raw.replace('  provider: rag-abc123', '  endpoint: https://x/v1/embeddings\n  model: embed-m'),
+    'utf8',
+  )
   r = readBookConfig(fp)
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.config.rag).toMatchObject({ enabled: true, endpoint: 'https://x/v1/embeddings', model: 'embed-m' })
@@ -167,17 +175,21 @@ test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落�
   const fp = join(dir, 'book.yaml')
   // growth.realm_span_max 不在本例：R73-20 起该字段坏值/非正数 fail-loud（见下例），
   // 不再走「坏值=未设」回落契约
-  writeFileSync(fp, [
-    'spec_version: abc',
-    'leads:',
-    '  thresholds:',
-    '    成长线: nope',
-    'budget:',
-    '  calls_per_chapter: abc',
-    '  input_per_chapter: 90000',
-    'auto:',
-    '  batch_size: nope',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      'spec_version: abc',
+      'leads:',
+      '  thresholds:',
+      '    成长线: nope',
+      'budget:',
+      '  calls_per_chapter: abc',
+      '  input_per_chapter: 90000',
+      'auto:',
+      '  batch_size: nope',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
@@ -289,31 +301,31 @@ test('snapshots 段：非正数值忽略（回落代码默认）', () => {
 // ── V-P2-4：patchTopSection 文本级段补丁（读改写保注释/未知段）────────
 
 test('patchTopSection: 替换中间段，前后原文逐字保留', () => {
-    const raw = 'a: 1\n# 注释\nrag:\n  enabled: false\n\nb: 2\n'
-    const out = patchTopSection(raw, 'rag', '  enabled: true\n  model: m')
-    expect(out).toBe('a: 1\n# 注释\nrag:\n  enabled: true\n  model: m\n\nb: 2\n')
-  })
+  const raw = 'a: 1\n# 注释\nrag:\n  enabled: false\n\nb: 2\n'
+  const out = patchTopSection(raw, 'rag', '  enabled: true\n  model: m')
+  expect(out).toBe('a: 1\n# 注释\nrag:\n  enabled: true\n  model: m\n\nb: 2\n')
+})
 
 test('patchTopSection: 段不存在 → 追加（空行分隔）', () => {
-    const raw = 'a: 1\n'
-    const out = patchTopSection(raw, 'rag', '  enabled: true')
-    expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
-  })
+  const raw = 'a: 1\n'
+  const out = patchTopSection(raw, 'rag', '  enabled: true')
+  expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
+})
 
 test('patchTopSection: 空文件 → 纯新段', () => {
-    expect(patchTopSection('', 'rag', '  enabled: true')).toBe('rag:\n  enabled: true\n')
-  })
+  expect(patchTopSection('', 'rag', '  enabled: true')).toBe('rag:\n  enabled: true\n')
+})
 
 test('patchTopSection: 段内注释被替换（段区间归段所有），段外注释保留', () => {
-    const raw = '# 外注释\nrag:\n# 段内注释\n  enabled: false\nhost: cc\n'
-    const out = patchTopSection(raw, 'rag', '  enabled: true')
-    expect(out).toBe('# 外注释\nrag:\n  enabled: true\nhost: cc\n')
-  })
+  const raw = '# 外注释\nrag:\n# 段内注释\n  enabled: false\nhost: cc\n'
+  const out = patchTopSection(raw, 'rag', '  enabled: true')
+  expect(out).toBe('# 外注释\nrag:\n  enabled: true\nhost: cc\n')
+})
 
 test('patchTopSection: 无尾换行文件 → 补齐结构', () => {
-    const out = patchTopSection('a: 1', 'rag', '  enabled: true')
-    expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
-  })
+  const out = patchTopSection('a: 1', 'rag', '  enabled: true')
+  expect(out).toBe('a: 1\n\nrag:\n  enabled: true\n')
+})
 
 // ── dd-P2：块式列表项（`- xxx` 无冒号行）不再被静默丢弃 ──
 
@@ -351,25 +363,30 @@ test('readBookConfig: 块式列表项含逗号时精确解析（ii 批逐项转�
   // ii 批前裸 join：项含半角逗号 → 拼出的内联数组多切一刀（已知边界只断言不炸）；
   // 现逐项走 stringifyValue 转义，含逗号/括号/引号项往返精确。
   // 用 short.target_emotions 测（任意字符串数组；leads.enabled 有账本类白名单会过滤测试值）
-  writeFileSync(fp, 'spec_version: 1\nkind: short\nbook:\n  title: T\nshort:\n  profile: p\n  target_emotions:\n    - 惊悚\n    - 悬疑,推理\n    - [带括号]\n')
+  writeFileSync(
+    fp,
+    'spec_version: 1\nkind: short\nbook:\n  title: T\nshort:\n  profile: p\n  target_emotions:\n    - 惊悚\n    - 悬疑,推理\n    - [带括号]\n',
+  )
   const cfg = readBookConfig(fp).config
   expect(cfg.short?.target_emotions).toEqual(['惊悚', '悬疑,推理', '[带括号]'])
   rmSync(dir, { recursive: true, force: true })
 })
 
 test('readBookConfig: 行内注释剥离（ii 批）——空白前置 # 起注释，引号内/紧贴字的 # 保留', () => {
-  const out = parseBookConfig([
-    'spec_version: 1',
-    'kind: long',
-    'book:',
-    '  title: 北境往事 # 首部',
-    '  genre: "玄幻 # 悬" # 注释',
-    'rag:',
-    '  enabled: false',
-    '  endpoint: http://rag.local:8080/x#frag',
-    'host: cc',
-    '',
-  ].join('\n'))
+  const out = parseBookConfig(
+    [
+      'spec_version: 1',
+      'kind: long',
+      'book:',
+      '  title: 北境往事 # 首部',
+      '  genre: "玄幻 # 悬" # 注释',
+      'rag:',
+      '  enabled: false',
+      '  endpoint: http://rag.local:8080/x#frag',
+      'host: cc',
+      '',
+    ].join('\n'),
+  )
   expect(out.ok).toBe(true)
   expect(out.config.book.title).toBe('北境往事')
   expect(out.config.book.genre).toBe('玄幻 # 悬')
@@ -401,24 +418,28 @@ test('全局托底: 无键新文件 roundtrip 不新增 13 键（未设语义存
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-global-'))
   const fp = join(dir, 'book.yaml')
   // 新 scaffold 产物：无 genre 空占位、无 style/auto 段、budget 无 calls_per_chapter
-  writeFileSync(fp, [
-    'spec_version: 1',
-    'host: cc',
-    'book:',
-    '  title: 新书',
-    '',
-    'leads:',
-    '  enabled: []',
-    '',
-    'budget:',
-    '  input_per_chapter: 80000',
-    '  summary_chapter_max: 200',
-    '  summary_volume_max: 500',
-    '',
-    'growth:',
-    '  realm_span_max: 2',
-    '',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      'spec_version: 1',
+      'host: cc',
+      'book:',
+      '  title: 新书',
+      '',
+      'leads:',
+      '  enabled: []',
+      '',
+      'budget:',
+      '  input_per_chapter: 80000',
+      '  summary_chapter_max: 200',
+      '  summary_volume_max: 500',
+      '',
+      'growth:',
+      '  realm_span_max: 2',
+      '',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
@@ -493,10 +514,10 @@ test('全局托底: 有键旧文件 roundtrip 零 diff（值不变照写）', ()
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('全局托底: genre 空串归一 undefined（`genre: \'\'` 与缺失同义）', () => {
+test("全局托底: genre 空串归一 undefined（`genre: ''` 与缺失同义）", () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-global3-'))
   const fp = join(dir, 'book.yaml')
-  writeFileSync(fp, 'spec_version: 1\nbook:\n  title: 空题材\n  genre: \'\'\n', 'utf-8')
+  writeFileSync(fp, "spec_version: 1\nbook:\n  title: 空题材\n  genre: ''\n", 'utf-8')
   const r = readBookConfig(fp)
   expect(r.ok).toBe(true)
   if (r.ok) {
@@ -529,36 +550,37 @@ test('parseBookConfig: readBookConfig 的字符串版（坏文本返默认 + 错
 import { patchBookConfigText, setSectionKeyBlock } from '../../src/format/yaml.js'
 
 /** 手写风格基线：注释、行尾注释、块列表、嵌套映射、未知子键、未知段俱全 */
-const PATCH_BASE = [
-  'spec_version: 1',
-  'host: cc',
-  '',
-  '# 作者注释：本书定位',
-  'book:',
-  '  title: 旧书名',
-  '  genre: 玄幻',
-  '  volume_size: 40   # 行尾注释',
-  '  unknown_sub: 保留我',
-  '',
-  'leads:',
-  '  enabled:',
-  '    - 悬念',
-  '    - 感情线',
-  '  thresholds:',
-  '    悬念: 40',
-  '',
-  '# 未知段整段保留',
-  'my_custom:',
-  '  foo: bar',
-  '',
-  'rag:',
-  '  enabled: true',
-  '  endpoint: https://old.example.com',
-  '  model: old-model',
-  '',
-  'budget:',
-  '  calls_per_chapter: 8',
-].join('\n') + '\n'
+const PATCH_BASE =
+  [
+    'spec_version: 1',
+    'host: cc',
+    '',
+    '# 作者注释：本书定位',
+    'book:',
+    '  title: 旧书名',
+    '  genre: 玄幻',
+    '  volume_size: 40   # 行尾注释',
+    '  unknown_sub: 保留我',
+    '',
+    'leads:',
+    '  enabled:',
+    '    - 悬念',
+    '    - 感情线',
+    '  thresholds:',
+    '    悬念: 40',
+    '',
+    '# 未知段整段保留',
+    'my_custom:',
+    '  foo: bar',
+    '',
+    'rag:',
+    '  enabled: true',
+    '  endpoint: https://old.example.com',
+    '  model: old-model',
+    '',
+    'budget:',
+    '  calls_per_chapter: 8',
+  ].join('\n') + '\n'
 
 function parseBase(): { raw: string; cfg: ReturnType<typeof parseBookConfig>['config'] } {
   const parsed = parseBookConfig(PATCH_BASE)
@@ -723,8 +745,9 @@ test('kk-P1-5: 补丁后语义保全——重解析等于新配置关键值', ()
 
 test('setSectionKeyBlock: 删除模式键不存在 → 原样返回；空段插入用 2 空格惯例', () => {
   expect(setSectionKeyBlock('book:\n  title: T\n', 'book', 'genre', null)).toBe('book:\n  title: T\n')
-  expect(setSectionKeyBlock('book:\n  title: T\n', 'checks', 'imagery_words', 'imagery_words: [月]'))
-    .toBe('book:\n  title: T\n\nchecks:\n  imagery_words: [月]\n')
+  expect(setSectionKeyBlock('book:\n  title: T\n', 'checks', 'imagery_words', 'imagery_words: [月]')).toBe(
+    'book:\n  title: T\n\nchecks:\n  imagery_words: [月]\n',
+  )
 })
 
 // ── 二十六轮修复批 B 回归 ────────────────────────
@@ -735,7 +758,12 @@ test('R26-10: 短篇仅设 tokens/cost_per_chapter 时 budget 段保留（string
   const cfg = {
     ...DEFAULT_CONFIG,
     kind: 'short' as const,
-    budget: { ...DEFAULT_CONFIG.budget, calls_per_chapter: undefined, tokens_per_chapter: 50000, cost_per_chapter: 0.5 },
+    budget: {
+      ...DEFAULT_CONFIG.budget,
+      calls_per_chapter: undefined,
+      tokens_per_chapter: 50000,
+      cost_per_chapter: 0.5,
+    },
   }
   const text = stringifyBookConfig(cfg)
   expect(text).toContain('budget:')
@@ -758,18 +786,20 @@ test('R26-10: 短篇仅设 tokens/cost_per_chapter 时 budget 段保留（string
 test('R26-12: 布尔键宽松解析——yes/True/1 收，Off 收 false，非法值 warn + 按未设', () => {
   const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
   try {
-    const r = parseBookConfig([
-      'kind: short',
-      'short:',
-      '  strict: yes',
-      'summary:',
-      '  auto: True',
-      'rag:',
-      '  enabled: 1',
-      'auto:',
-      '  confirm_outline: maybe',
-      '  relation_auto_mine: Off',
-    ].join('\n'))
+    const r = parseBookConfig(
+      [
+        'kind: short',
+        'short:',
+        '  strict: yes',
+        'summary:',
+        '  auto: True',
+        'rag:',
+        '  enabled: 1',
+        'auto:',
+        '  confirm_outline: maybe',
+        '  relation_auto_mine: Off',
+      ].join('\n'),
+    )
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.config.short?.strict).toBe(true) // yes → true

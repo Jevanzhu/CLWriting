@@ -112,7 +112,9 @@ function fmtDate(iso: string): string {
         <template v-if="style.trend && style.trend.count > 0">
           <div class="ab-meta">
             基于{{ style.trend.count }}{{ unit }}定稿 ·
-            {{ style.trend.baseline ? `对照 ${fmtDate(style.trend.baseline.frozenAt)} 基准` : '无基准（仅检测当前值）' }}
+            {{
+              style.trend.baseline ? `对照 ${fmtDate(style.trend.baseline.frozenAt)} 基准` : '无基准（仅检测当前值）'
+            }}
           </div>
           <div class="spark-rows">
             <div class="spark-row">
@@ -145,7 +147,9 @@ function fmtDate(iso: string): string {
           <div v-if="style.trend.drifts.length > 0" class="drift-list">
             <!-- ：漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
               （metrics/style.ts detectConsecutiveOver 单发 + 固定推送各一次），metric 即行身份 -->
-            <div v-for="d in style.trend.drifts" :key="d.metric" class="drift-item"><TriangleAlert :size="11" /> {{ d.message }}</div>
+            <div v-for="d in style.trend.drifts" :key="d.metric" class="drift-item">
+              <TriangleAlert :size="11" /> {{ d.message }}
+            </div>
           </div>
           <div v-else class="ab-ok">未发现文风偏差</div>
         </template>
@@ -341,5 +345,4 @@ function fmtDate(iso: string): string {
   left: 2px;
   color: var(--text-accent);
 }
-
 </style>

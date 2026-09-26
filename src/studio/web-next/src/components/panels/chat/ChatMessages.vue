@@ -7,7 +7,26 @@
  * composer 实例 props 传入，dock 双实例下与用户实际选择分裂）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
-import { PenLine, ShieldCheck, Search, BookOpen, Scissors, Trash2, Copy, FolderInput, Type, ScrollText, Sparkles, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
+import {
+  PenLine,
+  ShieldCheck,
+  Search,
+  BookOpen,
+  Scissors,
+  Trash2,
+  Copy,
+  FolderInput,
+  Type,
+  ScrollText,
+  Sparkles,
+  AlertCircle,
+  Loader2,
+  MessageSquareText,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+} from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../../stores/chat'
 import { useTreeStore } from '../../../stores/tree'
 import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'
@@ -205,9 +224,7 @@ const variantGroups = computed(() => {
   for (const b of branches) {
     let variants = variantsByParent.get(b.parentSeq)
     if (!variants) {
-      variants = branches
-        .filter((x) => x.parentSeq === b.parentSeq)
-        .sort((x, y) => x.rootSeq - y.rootSeq)
+      variants = branches.filter((x) => x.parentSeq === b.parentSeq).sort((x, y) => x.rootSeq - y.rootSeq)
       variantsByParent.set(b.parentSeq, variants)
     }
     const index = variants.findIndex((v) => v.branchId === b.branchId)
@@ -335,8 +352,18 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 
           <!-- 确认按钮（仅本卡在途才禁用——其他待确认卡可并行确认） -->
           <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
-            <button class="chat-confirm-no" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, false)">取消</button>
-            <button class="chat-confirm-yes" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, true)">
+            <button
+              class="chat-confirm-no"
+              :disabled="confirmingCallIds.has(tool.callId)"
+              @click="handleConfirm(tool.callId, false)"
+            >
+              取消
+            </button>
+            <button
+              class="chat-confirm-yes"
+              :disabled="confirmingCallIds.has(tool.callId)"
+              @click="handleConfirm(tool.callId, true)"
+            >
               <Loader2 v-if="confirmingCallIds.has(tool.callId)" :size="12" class="spin" />
               确认执行
             </button>
@@ -471,10 +498,18 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   font-size: var(--font-size-s);
   background: var(--background-secondary);
 }
-.tool-pending { border-left-color: var(--dv-warn); }
-.tool-running { border-left-color: var(--interactive-accent); }
-.tool-ok { border-left-color: var(--dv-good); }
-.tool-failed { border-left-color: var(--dv-bad); }
+.tool-pending {
+  border-left-color: var(--dv-warn);
+}
+.tool-running {
+  border-left-color: var(--interactive-accent);
+}
+.tool-ok {
+  border-left-color: var(--dv-good);
+}
+.tool-failed {
+  border-left-color: var(--dv-bad);
+}
 
 .chat-tool-head {
   display: flex;
@@ -595,7 +630,10 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   font-size: var(--font-size-xs);
   font-family: inherit;
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 .echo-copy-btn:hover {
   color: var(--text-normal);
@@ -644,7 +682,9 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   border-radius: var(--radius-s);
   color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .chat-variant-btn:hover:not(:disabled) {
   background: var(--background-modifier-hover);
@@ -675,7 +715,10 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   font-size: var(--font-size-xs);
   font-family: inherit;
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 .chat-regen-btn:hover:not(:disabled) {
   border-color: var(--background-modifier-border-hover);

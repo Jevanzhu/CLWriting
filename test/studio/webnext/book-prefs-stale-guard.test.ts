@@ -75,7 +75,10 @@ describe('R61-F-1: 切书窗内旧书 prefs 迟到失败不清新书书级覆盖
     bookPrefs.set('book-b', { pageWidth: 800, autosaveInterval: 45 })
     let rejectA!: (e: unknown) => void
     vi.mocked(getBookPrefs).mockImplementationOnce(
-      () => new Promise<Record<string, unknown>>((_res, rej) => { rejectA = rej }),
+      () =>
+        new Promise<Record<string, unknown>>((_res, rej) => {
+          rejectA = rej
+        }),
     )
     const ws = useWorkspaceStore()
     const ps = usePrefsStore()

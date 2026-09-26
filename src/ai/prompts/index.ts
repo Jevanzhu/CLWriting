@@ -1,9 +1,4 @@
-export {
-  WRITER_SYSTEM_LONG,
-  WRITER_SYSTEM_SHORT,
-  REWRITER_SYSTEM,
-  writerSystem,
-} from './writer.js'
+export { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem } from './writer.js'
 export { ANALYST_SYSTEM } from './analyst.js'
 export { REVIEW_SYSTEMS, reviewSystem } from './review.js'
 // PromptSection 命名段注册表（新 prompt 组装用；内置文案已资源化，见 resource.ts）

@@ -14,12 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  aiClicheRule,
-  rulesToPrompt,
-  collectRuleViolations,
-  loadAiFlavorRule,
-} from '../../src/ai/rules/index.js'
+import { aiClicheRule, rulesToPrompt, collectRuleViolations, loadAiFlavorRule } from '../../src/ai/rules/index.js'
 import { addEntry, ENTRIES_DIR } from '../../src/format/style-entry.js'
 
 describe('A2 WritingRule 规则层', () => {
@@ -68,7 +63,7 @@ describe('A2 WritingRule 规则层', () => {
   })
 
   describe('collectRuleViolations（检验侧）', () => {
-    it('对含「值得一提的是」的正文检出违规，ruleId=\'ai-cliche\'，level=\'yellow\'', () => {
+    it("对含「值得一提的是」的正文检出违规，ruleId='ai-cliche'，level='yellow'", () => {
       // bookRoot 空串 → applicableRules 只返回内置静态规则（不读条目库）
       const violations = collectRuleViolations('值得一提的是效果很好', 'rewrite', '')
       const hit = violations.find((v) => v.ruleId === 'ai-cliche')
@@ -118,7 +113,7 @@ describe('A2 WritingRule 规则层', () => {
       if (bookRoot) rmSync(bookRoot, { recursive: true, force: true })
     })
 
-    it("loadAiFlavorRule(bookRoot).toPrompt({ bookRoot }) 返回含「某AI味词」", () => {
+    it('loadAiFlavorRule(bookRoot).toPrompt({ bookRoot }) 返回含「某AI味词」', () => {
       const rule = loadAiFlavorRule(bookRoot)
       const text = rule.toPrompt({ bookRoot })
       expect(text).toContain('某AI味词')

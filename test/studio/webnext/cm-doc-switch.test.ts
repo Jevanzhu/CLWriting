@@ -32,10 +32,7 @@ beforeEach(() => {
 })
 
 function mountHost(modelValue = '第一章的正文内容'): ReturnType<typeof mount> {
-  return mount(
-    CmHost,
-    { props: { modelValue, historyKey: 'd1', mode: 'text' }, attachTo: document.body },
-  )
+  return mount(CmHost, { props: { modelValue, historyKey: 'd1', mode: 'text' }, attachTo: document.body })
 }
 
 function contentEl(w: ReturnType<typeof mount>): HTMLElement {

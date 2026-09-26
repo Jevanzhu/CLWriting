@@ -52,4 +52,3 @@ export function readChapterBody(bookRoot: string, chapter: number): string | nul
   const r = readDraft(join(bookRoot, relPath))
   return r.ok ? r.body : null
 }
-

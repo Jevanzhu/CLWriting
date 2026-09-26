@@ -20,7 +20,20 @@ const HOOK_LEVELS: HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标', '目标情绪', '核心反转', '序', '并入'])
+const KNOWN_FM_KEYS = new Set([
+  '章号',
+  '标题',
+  '钩子类型',
+  '钩子强弱',
+  '情绪定位',
+  '场景',
+  '时间锚点',
+  '字数目标',
+  '目标情绪',
+  '核心反转',
+  '序',
+  '并入',
+])
 
 // ── 阶段 24 结构键归一（留洞制：序/并入 读侧小函数，tree probe 复用）──
 
@@ -124,14 +137,20 @@ export function readChapter(
     // 纯数字字符串收敛为 number（含前导/尾随空白；合法 range 由调用方/机检把关）
     章号 = Number(章号Raw.trim())
   } else {
-    return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' } }
+    return {
+      ok: false,
+      error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' },
+    }
   }
   // 章号安全守卫——非正整数/超安全整数范围（`章号: -3`、
   // `章号: 99999999999999999999` 解析成 1e20）此前照收，下游比较/排序/文件名组装
   // 产生荒谬行为；与 parseChapterFileName 的 isSafeInteger 口径对齐（fail-loud，
   // 文案沿用「格式不符」便于 AI 自愈与作者改对）。
   if (!Number.isSafeInteger(章号) || 章号 < 1) {
-    return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期正整数，实际为「' + String(章号Raw) + '」）' } }
+    return {
+      ok: false,
+      error: { file: filePath, line: 0, message: '章号格式不符（预期正整数，实际为「' + String(章号Raw) + '」）' },
+    }
   }
 
   // 收集未知字段

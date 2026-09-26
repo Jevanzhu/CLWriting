@@ -77,7 +77,16 @@ export function foldGoals(events: ChatEvent[]): GoalSnapshot[] {
     if (ev.type !== 'goal/change') continue
     const d = ev.data as GoalChangePayload
     const op = d['operation']
-    if (op !== 'create' && op !== 'edit' && op !== 'pause' && op !== 'resume' && op !== 'complete' && op !== 'block' && op !== 'clear') continue
+    if (
+      op !== 'create' &&
+      op !== 'edit' &&
+      op !== 'pause' &&
+      op !== 'resume' &&
+      op !== 'complete' &&
+      op !== 'block' &&
+      op !== 'clear'
+    )
+      continue
     const goal = asGoal(d['goal'])
     if (!goal) continue
     if (op === 'clear') {

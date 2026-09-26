@@ -82,7 +82,11 @@ interface RouteSchemaInfo {
   gate?: (arg: GateArg) => unknown
   parse?: (raw: unknown) => unknown
   bodyLimit?: number
-  handler: (ctx: { params: Record<string, string>; input: unknown; gate?: unknown }, req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  handler: (
+    ctx: { params: Record<string, string>; input: unknown; gate?: unknown },
+    req: IncomingMessage,
+    res: ServerResponse,
+  ) => void | Promise<void>
 }
 
 /** 注册表（Map：天然防原型链注入）。2--③（GLM-5.3）：
@@ -169,4 +173,3 @@ export function getRouteSchema(name: string): RouteSchemaInfo | null {
   const registered = registryFor(activeRouteTable())
   return registered.has(name) ? (registered.get(name) as RouteSchemaInfo) : null
 }
-

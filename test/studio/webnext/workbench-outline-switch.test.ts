@@ -52,7 +52,14 @@ function mountView() {
   return mount(WorkbenchView, {
     props: { bookName: '书A' },
     global: {
-      stubs: { ChatPanel: true, WbStateCard: true, WbDraftCard: true, WbAdvanced: true, WbHealCard: true, WbUsageCard: true },
+      stubs: {
+        ChatPanel: true,
+        WbStateCard: true,
+        WbDraftCard: true,
+        WbAdvanced: true,
+        WbHealCard: true,
+        WbUsageCard: true,
+      },
     },
   })
 }

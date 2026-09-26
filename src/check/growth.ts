@@ -52,7 +52,8 @@ export function checkGrowth(
       // 维持红」口径一致）。文案改为如实描述：文件可能明明有内容（如 CRLF 换行/格式
       // 异常），旧文案「没有可解析的 front matter」误导排障。
       level: 'red',
-      message: '已启用成长线，但未解析出有效的境界体系（设定/境界体系.md 缺少「体系/序列」，或 front matter 内容/换行格式异常），境界跳跃/回退检测未生效。',
+      message:
+        '已启用成长线，但未解析出有效的境界体系（设定/境界体系.md 缺少「体系/序列」，或 front matter 内容/换行格式异常），境界跳跃/回退检测未生效。',
     })
   }
 
@@ -80,7 +81,8 @@ export function checkGrowth(
           let bestPrefix = 0
           for (const realm of sys.序列) {
             if (currentRealm.startsWith(realm) && realm.length > bestPrefix) bestPrefix = realm.length
-            else if (realm.startsWith(currentRealm) && currentRealm.length > bestPrefix) bestPrefix = currentRealm.length
+            else if (realm.startsWith(currentRealm) && currentRealm.length > bestPrefix)
+              bestPrefix = currentRealm.length
           }
           score = bestPrefix
         }

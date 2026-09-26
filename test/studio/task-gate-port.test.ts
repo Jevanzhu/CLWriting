@@ -10,7 +10,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { acquireTaskGateViaPort, registerTaskGateProvider, resetTaskGateProviderForTest } from '../../src/ai/orchestrate/task-gate-port.js'
+import {
+  acquireTaskGateViaPort,
+  registerTaskGateProvider,
+  resetTaskGateProviderForTest,
+} from '../../src/ai/orchestrate/task-gate-port.js'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const readSrc = (rel: string): string => readFileSync(`${root}${rel}`, 'utf8')

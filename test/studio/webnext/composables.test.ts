@@ -60,14 +60,20 @@ beforeEach(() => {
 
 describe('useChatComposer', () => {
   it('handleSend 空输入不发送', async () => {
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     await c.handleSend()
     expect(sendMock).not.toHaveBeenCalled()
   })
 
   it('handleSend 发送文本 + 清空输入 + 附带章节', async () => {
     sendMock.mockResolvedValue({})
-    const c = useChatComposer(() => '书', () => 3)
+    const c = useChatComposer(
+      () => '书',
+      () => 3,
+    )
     c.input.value = '帮我看看第三章'
     await c.handleSend()
     expect(sendMock).toHaveBeenCalledWith('书', { message: '帮我看看第三章', chapter: 3 })
@@ -77,7 +83,10 @@ describe('useChatComposer', () => {
 
   it('handleSend 失败 → popUser + error 设置（input 已清空不回填）', async () => {
     sendMock.mockRejectedValue(new Error('网络错误'))
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     // R40-37 契约演进：失败回滚按幽灵气泡 id 定位（popUser 仅当末条=本次幽灵气泡）。
     // pushUser 走真 store 动作落真实幽灵气泡（mock 掉它气泡就不存在，回滚按契约不弹）；
@@ -97,7 +106,10 @@ describe('useChatComposer', () => {
     sendMock.mockImplementation(
       () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('慢失败')), 10)),
     )
-    const c = useChatComposer(() => current, () => undefined)
+    const c = useChatComposer(
+      () => current,
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.popUser = vi.fn()
     c.input.value = '给A的消息'
@@ -111,7 +123,10 @@ describe('useChatComposer', () => {
 
   it('handleKeydown Enter 不 Shift → 发送并 preventDefault', async () => {
     sendMock.mockResolvedValue({})
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     c.input.value = 'x'
     const e = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true })
     const spy = vi.spyOn(e, 'preventDefault')
@@ -125,7 +140,10 @@ describe('useChatComposer', () => {
   // 放行会把不含刚打中文的旧值消息发出去（触发一轮真实 AI 调用）
   it('R61-3: 组合期 Enter（isComposing）不发送；组合结束后真实 Enter 正常发送', async () => {
     sendMock.mockResolvedValue({})
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     c.input.value = '帮我写'
     c.handleKeydown(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, isComposing: true }))
     await Promise.resolve()
@@ -138,7 +156,10 @@ describe('useChatComposer', () => {
 
   it('handleClear 确认后清空历史 + chat.clear（CC-P2-16 起 danger 二次确认）', async () => {
     clearMock.mockResolvedValue({})
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.clear = vi.fn()
     const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
@@ -151,7 +172,10 @@ describe('useChatComposer', () => {
   })
 
   it('handleClear 取消 → 不删服务端历史（CC-P2-16）', async () => {
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.clear = vi.fn()
     const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
@@ -166,7 +190,10 @@ describe('useChatComposer', () => {
   // 按确认时的当前书发请求——弹窗按 A 书提问、用户切到 B 后确认，会删掉 B 书的服务端历史
   it('M-8: handleClear 弹窗滞留期间切书 → 确认后中止（不删服务端历史、不清本地对话区）', async () => {
     let current = 'A书'
-    const c = useChatComposer(() => current, () => undefined)
+    const c = useChatComposer(
+      () => current,
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.clear = vi.fn()
     const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
@@ -184,7 +211,10 @@ describe('useChatComposer', () => {
       current = 'B书' // 请求已发出（目标书 A 已捕获）——在途期间切书
       return new Promise((resolve) => setTimeout(() => resolve({}), 10))
     })
-    const c = useChatComposer(() => current, () => undefined)
+    const c = useChatComposer(
+      () => current,
+      () => undefined,
+    )
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
     chat.clear = vi.fn()
     const ui = (await import('../../../src/studio/web-next/src/stores/ui')).useUiStore()
@@ -196,7 +226,10 @@ describe('useChatComposer', () => {
   })
 
   it('selectChapter 切换选中章节 + 关菜单', () => {
-    const c = useChatComposer(() => '书', () => undefined)
+    const c = useChatComposer(
+      () => '书',
+      () => undefined,
+    )
     c.toggleChapterMenu()
     expect(c.chapterMenuOpen.value).toBe(true)
     c.selectChapter(5)

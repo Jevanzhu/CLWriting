@@ -172,7 +172,13 @@ function onExpandChat(): void {
   color: var(--text-muted);
   font-size: var(--font-size-s);
   cursor: pointer;
-  transition: left var(--dur-norm) var(--ease-out), bottom var(--dur-norm) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition:
+    left var(--dur-norm) var(--ease-out),
+    bottom var(--dur-norm) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 .chat-expand:hover {
   box-shadow: var(--shadow-l);

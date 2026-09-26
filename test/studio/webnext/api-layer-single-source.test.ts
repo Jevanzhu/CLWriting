@@ -53,6 +53,8 @@ describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
 
   it('工具展示面单源：ChatMessages 的中文名/摘要取自根 tool-meta.ts', () => {
     const src = readFileSync(CHAT_MESSAGES, 'utf8')
-    expect(src).toContain("import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'")
+    expect(src).toContain(
+      "import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'",
+    )
   })
 })

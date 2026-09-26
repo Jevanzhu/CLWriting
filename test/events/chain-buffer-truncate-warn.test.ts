@@ -29,9 +29,7 @@ describe('R59 清偿批（R55-B-4）: 缓冲超限截断丢弃必留痕', () => 
     const r = new ChainRecorder(badStore(), 'ws-x')
     for (let i = 0; i < 288; i++) r.add(llmRetryEvent({ attempt: i, delayMs: 1 }))
     // 288 > 256：截断必已发生（每条 add 触发的失败 flush 回塞后超限切片）
-    const truncateWarns = warn.mock.calls.filter((c) =>
-      c.some((a) => typeof a === 'string' && a.includes('丢弃')),
-    )
+    const truncateWarns = warn.mock.calls.filter((c) => c.some((a) => typeof a === 'string' && a.includes('丢弃')))
     expect(truncateWarns.length, '截断丢弃应有 warn 留痕（修复前零留痕）').toBeGreaterThan(0)
     for (const c of truncateWarns) {
       const msg = c.filter((a) => typeof a === 'string').join(' ')

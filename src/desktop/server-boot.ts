@@ -60,12 +60,16 @@ export function parseServerArgs(
 ): ParsedServerArgs {
   const env = opts?.env ?? process.env
   const warn = opts?.warn ?? ((msg: string) => console.warn(msg))
-  const fatal = opts?.fatal ?? ((msg: string) => {
-    console.error(msg)
-    process.exit(2)
-  })
+  const fatal =
+    opts?.fatal ??
+    ((msg: string) => {
+      console.error(msg)
+      process.exit(2)
+    })
   if (argv.includes('--token')) {
-    warn('--token 已废弃：token 现经 env CLW_STUDIO_TOKEN 注入，argv 上的 --token 将被忽略（本次以 env/随机 token 为准）')
+    warn(
+      '--token 已废弃：token 现经 env CLW_STUDIO_TOKEN 注入，argv 上的 --token 将被忽略（本次以 env/随机 token 为准）',
+    )
   }
   const portRaw = argValue(argv, '--port')
   // --port 携带空串/非数值时显式报错退出（人话文案），不再静默

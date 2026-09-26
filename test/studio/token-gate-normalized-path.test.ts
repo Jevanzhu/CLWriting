@@ -22,7 +22,11 @@ let baseUrl = ''
 let server: http.Server | undefined
 let token = ''
 
-function rawRequest(method: string, path: string, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
+function rawRequest(
+  method: string,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {

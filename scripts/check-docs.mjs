@@ -47,9 +47,7 @@ export const INDEX_FILES = [
 // ─ 介绍面清单与上限 ─────────────────────────────────────────────────
 // 根 README = 对外门面：项目是什么 / 怎么装 / 怎么跑 / 技术栈 / 许可证。
 // 实测精简后 14.6K（含徽章、命令块、介绍长句），上限留白至 20K。
-export const INTRO_FILES = [
-  { path: 'README.md', maxLine: 1400, maxBytes: 20000, label: '根 README.md（对外介绍面）' },
-]
+export const INTRO_FILES = [{ path: 'README.md', maxLine: 1400, maxBytes: 20000, label: '根 README.md（对外介绍面）' }]
 
 // ── 实录链签名短语（出现即红，两个面通用）────────────────────────────
 // 旧实录的独特语料：只有「把历批跑门日志堆进文档」才会写出这些串。正常行文不会用到。

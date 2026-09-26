@@ -50,10 +50,18 @@ function onNameEnter(e: KeyboardEvent): void {
     <div ref="modalRef" class="create-modal" role="dialog" aria-modal="true" aria-label="新建书" tabindex="-1">
       <h3>新建书</h3>
       <div class="kind-picker">
-        <button type="button" :class="['kind-btn', { active: props.kind === 'long' }]" @click="emit('update:kind', 'long')">
+        <button
+          type="button"
+          :class="['kind-btn', { active: props.kind === 'long' }]"
+          @click="emit('update:kind', 'long')"
+        >
           长篇
         </button>
-        <button type="button" :class="['kind-btn', { active: props.kind === 'short' }]" @click="emit('update:kind', 'short')">
+        <button
+          type="button"
+          :class="['kind-btn', { active: props.kind === 'short' }]"
+          @click="emit('update:kind', 'short')"
+        >
           短篇
         </button>
       </div>
@@ -117,7 +125,9 @@ function onNameEnter(e: KeyboardEvent): void {
   color: var(--text-muted);
   font-size: var(--font-size-s);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .kind-btn.active {
   background: var(--background-primary);

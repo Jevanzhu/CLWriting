@@ -81,12 +81,18 @@ export function startStallWatchdog(o: {
       aborted = true
       // -随批修正：宽限时长展示单位错配——ORCH_STALL_GRACE_MS(60s) 除以 60_000 却标
       // 「s」，日志误显「若 1s 内仍不收尾」（实际宽限 60s）；改按秒换算
-      log.warn('api', `「${o.bookName}」${o.label}超过 ${ORCH_STALL_WATCHDOG_MS / 60_000} 分钟无任何进度事件，疑似编排器挂起，已自动中止（等同作者中断）；若 ${ORCH_STALL_GRACE_MS / 1000}s 内仍不收尾将强制释放并发闸`)
+      log.warn(
+        'api',
+        `「${o.bookName}」${o.label}超过 ${ORCH_STALL_WATCHDOG_MS / 60_000} 分钟无任何进度事件，疑似编排器挂起，已自动中止（等同作者中断）；若 ${ORCH_STALL_GRACE_MS / 1000}s 内仍不收尾将强制释放并发闸`,
+      )
       o.abortLikeUser()
       grace = setTimeout(() => {
         grace = undefined
         if (done || !o.gateHeld()) return // 宽限内已收尾放闸 → 无副作用
-        log.warn('api', `「${o.bookName}」${o.label}自动中止后仍占用并发闸（疑似挂死），已强制释放——底层任务未中断，迟到结果按既有迟到覆盖口径处理`)
+        log.warn(
+          'api',
+          `「${o.bookName}」${o.label}自动中止后仍占用并发闸（疑似挂死），已强制释放——底层任务未中断，迟到结果按既有迟到覆盖口径处理`,
+        )
         o.forceRelease()
       }, ORCH_STALL_GRACE_MS)
       grace.unref?.()

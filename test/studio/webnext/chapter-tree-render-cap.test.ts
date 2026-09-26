@@ -95,9 +95,7 @@ describe('R55-G-2: cap 窗口含 active 项的滑窗', () => {
   it('150 章 + active=第 3 章 → 保持现状前 100（第 150 章不在窗口）', () => {
     const children = Array.from({ length: 150 }, (_, i) => chapterNode(i + 1))
     const wrapper = mountTree(children, '写作/正文/0003-第3章.md')
-    const paths = wrapper
-      .findAllComponents(ChapterTreeItem)
-      .map((w) => w.props('node').path as string)
+    const paths = wrapper.findAllComponents(ChapterTreeItem).map((w) => w.props('node').path as string)
     expect(paths).toContain('写作/正文/0003-第3章.md')
     expect(paths).toContain('写作/正文/0001-第1章.md') // 前 100 不变
     expect(paths).not.toContain('写作/正文/0150-第150章.md')

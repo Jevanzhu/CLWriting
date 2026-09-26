@@ -21,7 +21,9 @@ const rewriteMock = vi.hoisted(() => ({
 }))
 
 // workspace mock 需响应式（R63-9 watch(docId) 才能触发）——reactive 代理存 hoisted 槽供用例改值
-const wsMock = vi.hoisted(() => ({ state: null as unknown as { activeDocId: string | null; editorGetSelection: unknown } }))
+const wsMock = vi.hoisted(() => ({
+  state: null as unknown as { activeDocId: string | null; editorGetSelection: unknown },
+}))
 
 vi.mock('../../../src/studio/web-next/src/stores/rewrite', () => ({
   useRewriteStore: () => rewriteMock,
@@ -59,7 +61,13 @@ beforeEach(() => {
 
 describe('R-21: accept 被拒时保留指令', () => {
   it('accept 返回 false（基线漂移拒绝）→ instruction 不清空', async () => {
-    rewriteMock.result = { ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [{ type: 'same', text: 'x' }] }
+    rewriteMock.result = {
+      ok: true,
+      mode: 'whole',
+      original: '旧',
+      rewritten: '新',
+      diff: [{ type: 'same', text: 'x' }],
+    }
     rewriteMock.accept.mockReturnValue(false)
     const w = mountPanel()
     await flushPromises()
@@ -73,7 +81,13 @@ describe('R-21: accept 被拒时保留指令', () => {
   })
 
   it('accept 成功 → instruction 清空（守卫不误伤常规路径）', async () => {
-    rewriteMock.result = { ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [{ type: 'same', text: 'x' }] }
+    rewriteMock.result = {
+      ok: true,
+      mode: 'whole',
+      original: '旧',
+      rewritten: '新',
+      diff: [{ type: 'same', text: 'x' }],
+    }
     rewriteMock.accept.mockReturnValue(true)
     const w = mountPanel()
     await flushPromises()
@@ -87,7 +101,13 @@ describe('R-21: accept 被拒时保留指令', () => {
 
 describe('R63-9: 切文档清空改写结果（CheckPanel X-P2-15 同款契约）', () => {
   it('docId 切换 → rewrite.clear()——残留 diff 不跨文档（不阻断新文档；正文相同文档不可跨文档接受）', async () => {
-    rewriteMock.result = { ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [{ type: 'same', text: 'x' }] }
+    rewriteMock.result = {
+      ok: true,
+      mode: 'whole',
+      original: '旧',
+      rewritten: '新',
+      diff: [{ type: 'same', text: 'x' }],
+    }
     const w = mountPanel()
     await flushPromises()
     // 残留 diff 在场（接受按钮可见）→ 切文档 → 必须清
@@ -98,7 +118,13 @@ describe('R63-9: 切文档清空改写结果（CheckPanel X-P2-15 同款契约�
   })
 
   it('文档不变 → 不误清（clear 零调用）', async () => {
-    rewriteMock.result = { ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [{ type: 'same', text: 'x' }] }
+    rewriteMock.result = {
+      ok: true,
+      mode: 'whole',
+      original: '旧',
+      rewritten: '新',
+      diff: [{ type: 'same', text: 'x' }],
+    }
     const w = mountPanel()
     await flushPromises()
     await nextTick()

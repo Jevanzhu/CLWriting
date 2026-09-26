@@ -25,7 +25,10 @@ import { log } from '../log/index.js'
  */
 export function registerMergedInto(map: Map<number, string>, src: number, targetPath: string): void {
   if (map.has(src)) {
-    log.warn('chapter-lookup', `并入映射冲突：源章 ${src} 同时被 ${map.get(src)} 与 ${targetPath} 吸收（后扫覆盖——请核对 并入 登记）`)
+    log.warn(
+      'chapter-lookup',
+      `并入映射冲突：源章 ${src} 同时被 ${map.get(src)} 与 ${targetPath} 吸收（后扫覆盖——请核对 并入 登记）`,
+    )
   }
   map.set(src, targetPath)
 }
@@ -62,9 +65,7 @@ export function chapterPathByNumber(bookRoot: string, chapter: number): string |
   const bodyDir = join(bookRoot, '写作', '正文')
   if (existsSync(bodyDir)) {
     const prefixes = chapterNamePrefixes(chapter)
-    const hit = walkMdFind(bodyDir, (abs, name) =>
-      prefixes.some((p) => name.startsWith(p)) ? abs : undefined,
-    )
+    const hit = walkMdFind(bodyDir, (abs, name) => (prefixes.some((p) => name.startsWith(p)) ? abs : undefined))
     if (hit !== undefined) return hit
   }
   return mergedIntoMap(bookRoot).get(chapter) ?? null

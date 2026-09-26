@@ -65,7 +65,13 @@ describe('fs/lock-file：serializedLockedWrite 导出面（R0916-7-P3-3）', () 
     const inflight = new Promise<void>((res) => (releaseInflight = res))
     const chains = new Map<string, Promise<unknown>>([['k', inflight]])
 
-    const p = serializedLockedWrite(chains, 'k', lockPath, () => order.push('queued'), optsOf({ returnInflight: false }))
+    const p = serializedLockedWrite(
+      chains,
+      'k',
+      lockPath,
+      () => order.push('queued'),
+      optsOf({ returnInflight: false }),
+    )
     expect(p).toBeUndefined()
     releaseInflight()
     // 排队段为微任务链执行（await 让出后可见）
@@ -102,7 +108,13 @@ describe('fs/lock-file：serializedLockedWrite 导出面（R0916-7-P3-3）', () 
     const onUnhandled = (e: unknown): void => void unhandled.push(e)
     process.on('unhandledRejection', onUnhandled)
     try {
-      const r = serializedLockedWrite(new Map(), 'k', lockPath, () => {}, optsOf({ lockTimeoutMs: () => 1, returnInflight: false }))
+      const r = serializedLockedWrite(
+        new Map(),
+        'k',
+        lockPath,
+        () => {},
+        optsOf({ lockTimeoutMs: () => 1, returnInflight: false }),
+      )
       expect(r).toBeUndefined()
       // 让排队/在途微任务链跑完（在途段失败走旁挂 warn，不逃逸为 unhandled）
       await new Promise((res) => setTimeout(res, 50))

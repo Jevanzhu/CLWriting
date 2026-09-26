@@ -25,11 +25,7 @@ let token = ''
 const workDir = mkdtempSync(join(tmpdir(), 'clw-z1-'))
 const userDataPath = mkdtempSync(join(tmpdir(), 'clw-z1-ud-'))
 
-function req(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<{ status: number; text: string }> {
+function req(method: string, path: string, body?: unknown): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
     const payload = body === undefined ? undefined : JSON.stringify(body)
@@ -40,7 +36,9 @@ function req(
         path,
         method,
         headers: {
-          ...(payload ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } : {}),
+          ...(payload
+            ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) }
+            : {}),
           'x-studio-token': token,
         },
       },
@@ -61,17 +59,32 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), '标题: 书Z\n')
-  writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外玉佩轻响。')
+  writeFileSync(
+    join(bookRoot, '写作', '正文', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外玉佩轻响。',
+  )
   writeFileSync(
     join(bookRoot, '项目', '文档清单.jsonl'),
-    JSON.stringify({ version: 1, type: 'clwriting-manifest' }) + '\n' +
-      JSON.stringify({ id: 'doc_z1', nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null }) + '\n',
+    JSON.stringify({ version: 1, type: 'clwriting-manifest' }) +
+      '\n' +
+      JSON.stringify({ id: 'doc_z1', nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null }) +
+      '\n',
   )
   // provider 指向不可达端口：runTask 错误尝试照落 llm/call（promptMeta 恒随）
   writeFileSync(
     join(userDataPath, 'providers.json'),
     JSON.stringify({
-      providers: [{ id: 'p1', name: 'dead', protocol: 'openai', auth: 'bearer', baseUrl: 'http://127.0.0.1:1', apiKey: 'sk-x', caps: { connected: true, streaming: true } }],
+      providers: [
+        {
+          id: 'p1',
+          name: 'dead',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'http://127.0.0.1:1',
+          apiKey: 'sk-x',
+          caps: { connected: true, streaming: true },
+        },
+      ],
       currentId: 'p1',
       currentModel: 'm1',
     }),
@@ -79,7 +92,7 @@ beforeAll(async () => {
   server = await startServerSafe({ workDir, port: 0, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await req('GET', '/api/boot')
-  token = ((boot.text.match(/"token":"([^"]+)"/)) ?? [])[1] ?? ''
+  token = (boot.text.match(/"token":"([^"]+)"/) ?? [])[1] ?? ''
 })
 afterAll(() => {
   server?.close()
@@ -93,12 +106,15 @@ afterAll(() => {
 
 describe('Z-1/Z-4: /rewrite 端点登记与章预算', () => {
   it('llm/call 事件 promptMeta.files 含正文源 + chapter 落 1', async () => {
-    const r = await req('POST', `/api/books/${encodeURIComponent('书Z')}/documents/doc_z1/rewrite`, { instruction: '更紧凑' })
+    const r = await req('POST', `/api/books/${encodeURIComponent('书Z')}/documents/doc_z1/rewrite`, {
+      instruction: '更紧凑',
+    })
     // 不可达 provider → 500 GEN_FAIL（业务失败不影响登记断言）
     expect(r.status).toBe(500)
     const store = openSessionStore(userDataPath, join(workDir, '书Z'))!
     const evs = store.listEvents(bookHash(join(workDir, '书Z')))
-    const call = evs.find((e) => e.type === 'llm/call') as { data: { promptMeta?: { files?: string[] }; chapter?: number } } | undefined
+    const call = evs.find((e) => e.type === 'llm/call') as
+      { data: { promptMeta?: { files?: string[] }; chapter?: number } } | undefined
     expect(call).toBeDefined()
     expect(call!.data.promptMeta!.files).toContain('写作/正文/0001-开篇.md') // Z-1
     expect(call!.data.chapter).toBe(1) // Z-4

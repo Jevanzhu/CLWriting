@@ -73,10 +73,7 @@ export function indexEntriesByPath(manifest: Map<string, ManifestEntry>): Map<st
  * 定稿态派生（#6：published 判定走 stat 级探针，惰性求值）——探针只在 base 为 'final'
  * 时问一次（final 以外无 published 面）；探针经参数传入而非就地调用，判定可直测。
  */
-export function treeChapterAggregationStatus(
-  base: DocumentStatus,
-  probePublished: () => boolean,
-): DocumentStatus {
+export function treeChapterAggregationStatus(base: DocumentStatus, probePublished: () => boolean): DocumentStatus {
   return base === 'final' && probePublished() ? 'published' : base
 }
 

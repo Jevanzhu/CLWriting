@@ -11,7 +11,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { writeBatchPause, clearBatchPause, readBatchPause, __setBatchPauseLockTimeoutForTest } from '../../src/state/batch-pause.js'
+import {
+  writeBatchPause,
+  clearBatchPause,
+  readBatchPause,
+  __setBatchPauseLockTimeoutForTest,
+} from '../../src/state/batch-pause.js'
 import { log } from '../../src/log/index.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'

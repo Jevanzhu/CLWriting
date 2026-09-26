@@ -15,8 +15,17 @@ import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
 /** 外壳子组件全部桩化（本文件只钉 warning 消费面的 toast 类型与一次性语义） */
 const SHELL_CHILDREN = [
-  'Ribbon', 'SidebarLeft', 'SidebarRight', 'TabBar', 'ViewHeader', 'StatusBar',
-  'ChatDock', 'FocusFormatBar', 'FocusStatsBar', 'CommandPalette', 'TooltipHost',
+  'Ribbon',
+  'SidebarLeft',
+  'SidebarRight',
+  'TabBar',
+  'ViewHeader',
+  'StatusBar',
+  'ChatDock',
+  'FocusFormatBar',
+  'FocusStatsBar',
+  'CommandPalette',
+  'TooltipHost',
 ]
 function mountShell() {
   return mount(WorkspaceShell, {

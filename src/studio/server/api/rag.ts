@@ -41,10 +41,7 @@ interface RagCtx extends TaskGateInjected {
 }
 
 /** 后台建索引任务表（bookName → 状态）。同书同一时刻仅一个任务（task-gate 保证）。 */
-const ragBuildTasks = new Map<
-  string,
-  { running: boolean; startedAt: string; lastResult?: BuildIndexResult }
->()
+const ragBuildTasks = new Map<string, { running: boolean; startedAt: string; lastResult?: BuildIndexResult }>()
 
 // 后台 rag-build 总时长 watchdog 上限（10min）——io.ts
 // export waiter 先例口径：建索引是分钟级长任务，10min 已极宽。buildIndex 挂死（上游
@@ -134,10 +131,18 @@ function startRagBuild(
         ragBuildTasks.set(bookName, {
           running: false,
           startedAt: '',
-          lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: `建索引超时（超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾），并发闸已释放——底层任务未中断、可能稍后仍会落库；可重试或重启` },
+          lastResult: {
+            ok: false,
+            chunkCount: 0,
+            chapterCount: 0,
+            error: `建索引超时（超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾），并发闸已释放——底层任务未中断、可能稍后仍会落库；可重试或重启`,
+          },
         })
       }
-      log.warn('rag', `「${bookName}」建索引超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾，已释放任务闸并标记失败（底层任务不中断，迟到结果会覆盖本标记）——可重试或重启`)
+      log.warn(
+        'rag',
+        `「${bookName}」建索引超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾，已释放任务闸并标记失败（底层任务不中断，迟到结果会覆盖本标记）——可重试或重启`,
+      )
     }, RAG_BUILD_WATCHDOG_MS)
     watchdog.unref?.()
     // embed_timeout_ms 从书级 ragConfig 透传（此前字面量漏带，书里配了超时恒不生效）
@@ -146,7 +151,18 @@ function startRagBuild(
     // close 后立刻 rmSync 在 Windows 撞建索引仍持 .rag.db 句柄的 ENOTEMPTY 面
     //（io.ts/style-scan/detectState 同族均已接线，此处补齐）。登记不改变
     // fire-and-forget 语义：promise 原样返回，下方 then/catch/finally 链原样挂接。
-    void trackInFlightWork(buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, embed_timeout_ms: config.embed_timeout_ms }, resolved.apiKey))
+    void trackInFlightWork(
+      buildIndex(
+        bookRoot,
+        {
+          enabled: true,
+          endpoint: resolved.endpoint,
+          model: resolved.model,
+          embed_timeout_ms: config.embed_timeout_ms,
+        },
+        resolved.apiKey,
+      ),
+    )
       .then((result) => {
         // 书已删/改名出注册表 → 不复活任务条目（见上方 bookAlive 注释）
         if (bookAlive()) ragBuildTasks.set(bookName, { running: false, startedAt: '', lastResult: result })
@@ -181,107 +197,107 @@ export function registerRagRoutes(ctx: RagCtx): void {
     method: 'GET',
     path: '/api/books/:name/rag/status',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const bookRoot = r.bookRoot
-    const task = ragBuildTasks.get(params['name']!)
-    const running = task?.running ?? false
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const bookRoot = r.bookRoot
+      const task = ragBuildTasks.get(params['name']!)
+      const running = task?.running ?? false
 
-    // 读 RAG 库现状（可能从未建过 → 全零）。块数用 COUNT 而非全表 BLOB 读回，
-    // 大库（3.5 万块）下 status 轮询也不做重活。
-    let indexedChapters = 0
-    let chunkCount = 0
-    let model: string | null = null
-    // 索引三态透出——unbuilt（从未建/recall 落空建的空库）/ cleared
-    //（resetRagIndex 清表不删文件的「已清空可用」）/ built（有任一索引内容）。损坏态
-    // 走下方 500 RAG_DB_CORRUPT（本就不混淆）；前端可据 unbuilt vs cleared 引导不同
-    // 文案（「未建索引去建」vs「已重置可重建」）
-    let indexState: 'unbuilt' | 'cleared' | 'built' = 'unbuilt'
-    // hh §八-11：库已迁 .cache/rag.db；存在性探测走 openRagDb 同源 helper——
-    // 旧库还在未迁移时也不误报「未建索引」（随后 openRagDb 内完成迁移）
-    if (ragDbExists(bookRoot)) {
-      // 库文件级损坏（断电/磁盘故障/杀软半写后的非 SQLite 字节流）
-      // 此前 openRagDb 原样上抛 → dispatch 兜底裸 500，作者无从得知出路；回结构化
-      // 错误 + 重建指引（rebuild 端点的 resetRagIndex 已能删库自愈）。busy/IO 等非
-      // 损坏错误不吞，照旧走兜底
-      let db: DatabaseSync
-      try {
-        db = openRagDb(bookRoot)
-      } catch (e) {
-        if (!isRagDbCorruptionError(e)) throw e
-        return replyError(
-          res,
-          500,
-          'RAG_DB_CORRUPT',
-          'RAG 索引库文件损坏，已无法读取——请执行重建索引（POST /api/books/:name/rag/rebuild），将从当前正文全新建库',
-        )
-      }
-      try {
-        chunkCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n
-        model = getRagMeta(db, 'embedding_model')
-        const maxCh = getRagMeta(db, 'indexed_max_chapter')
-        indexedChapters = maxCh ? Number(maxCh) : 0
-        // 与 rag/index.ts ragIndexStateOfOpenDb 同口径（块/模型/游标任一在位 =
-        // built；否则 reset 标记区分 cleared/unbuilt）——不引 ragIndexState 二次开库，
-        // 本处已持打开的 db 就地判（零块章建库只有指纹+游标也算 built）
-        if (chunkCount > 0 || model !== null || indexedChapters > 0) {
-          indexState = 'built'
-        } else if (getRagMeta(db, RAG_RESET_MARKER_KEY) !== null) {
-          indexState = 'cleared'
+      // 读 RAG 库现状（可能从未建过 → 全零）。块数用 COUNT 而非全表 BLOB 读回，
+      // 大库（3.5 万块）下 status 轮询也不做重活。
+      let indexedChapters = 0
+      let chunkCount = 0
+      let model: string | null = null
+      // 索引三态透出——unbuilt（从未建/recall 落空建的空库）/ cleared
+      //（resetRagIndex 清表不删文件的「已清空可用」）/ built（有任一索引内容）。损坏态
+      // 走下方 500 RAG_DB_CORRUPT（本就不混淆）；前端可据 unbuilt vs cleared 引导不同
+      // 文案（「未建索引去建」vs「已重置可重建」）
+      let indexState: 'unbuilt' | 'cleared' | 'built' = 'unbuilt'
+      // hh §八-11：库已迁 .cache/rag.db；存在性探测走 openRagDb 同源 helper——
+      // 旧库还在未迁移时也不误报「未建索引」（随后 openRagDb 内完成迁移）
+      if (ragDbExists(bookRoot)) {
+        // 库文件级损坏（断电/磁盘故障/杀软半写后的非 SQLite 字节流）
+        // 此前 openRagDb 原样上抛 → dispatch 兜底裸 500，作者无从得知出路；回结构化
+        // 错误 + 重建指引（rebuild 端点的 resetRagIndex 已能删库自愈）。busy/IO 等非
+        // 损坏错误不吞，照旧走兜底
+        let db: DatabaseSync
+        try {
+          db = openRagDb(bookRoot)
+        } catch (e) {
+          if (!isRagDbCorruptionError(e)) throw e
+          return replyError(
+            res,
+            500,
+            'RAG_DB_CORRUPT',
+            'RAG 索引库文件损坏，已无法读取——请执行重建索引（POST /api/books/:name/rag/rebuild），将从当前正文全新建库',
+          )
         }
-      } finally {
-        // RAG 库关闭走缓存注销 helper（裸 close 每次开/关滞留一份
-        // prepared 缓存 Map+语句包装，本端点属前端轮询路径）——见 rag/store.ts closeRagDb
-        closeRagDb(db)
+        try {
+          chunkCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n
+          model = getRagMeta(db, 'embedding_model')
+          const maxCh = getRagMeta(db, 'indexed_max_chapter')
+          indexedChapters = maxCh ? Number(maxCh) : 0
+          // 与 rag/index.ts ragIndexStateOfOpenDb 同口径（块/模型/游标任一在位 =
+          // built；否则 reset 标记区分 cleared/unbuilt）——不引 ragIndexState 二次开库，
+          // 本处已持打开的 db 就地判（零块章建库只有指纹+游标也算 built）
+          if (chunkCount > 0 || model !== null || indexedChapters > 0) {
+            indexState = 'built'
+          } else if (getRagMeta(db, RAG_RESET_MARKER_KEY) !== null) {
+            indexState = 'cleared'
+          }
+        } finally {
+          // RAG 库关闭走缓存注销 helper（裸 close 每次开/关滞留一份
+          // prepared 缓存 Map+语句包装，本端点属前端轮询路径）——见 rag/store.ts closeRagDb
+          closeRagDb(db)
+        }
       }
-    }
-    // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。
-    // 全局托底：读生效配置（enabled/provider 书级未设回落 global.json）
-    const ragConfig = readRagConfig(bookRoot, ctx.userDataPath)
-    // r.workDir 替代 ctx.workDir! 裸断言（resolveBook 成功臂已证非 null）
-    const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), r.workDir)
-    // 失配透出——已建索引的 embedding 模型与当前生效配置模型不一致
-    // 时标 true（从未建过索引 model=null 不算失配），消费方据此引导走 POST /rag/rebuild；
-    // 维度失配（模型同名但向量维度变过）配置侧无从比对，仍由 buildIndex 错误信封透出。
-    const indexModelMismatch = model !== null && resolved !== null && resolved.model !== model
-    reply(res, 200, {
-      running,
-      indexedChapters,
-      chunkCount,
-      model,
-      indexState,
-      ragConfig,
-      providerName: resolved?.providerName ?? null,
-      legacy: resolved?.legacy ?? false,
-      indexModelMismatch,
-      lastResult: task?.lastResult ?? null,
-    })
-  },
+      // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。
+      // 全局托底：读生效配置（enabled/provider 书级未设回落 global.json）
+      const ragConfig = readRagConfig(bookRoot, ctx.userDataPath)
+      // r.workDir 替代 ctx.workDir! 裸断言（resolveBook 成功臂已证非 null）
+      const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), r.workDir)
+      // 失配透出——已建索引的 embedding 模型与当前生效配置模型不一致
+      // 时标 true（从未建过索引 model=null 不算失配），消费方据此引导走 POST /rag/rebuild；
+      // 维度失配（模型同名但向量维度变过）配置侧无从比对，仍由 buildIndex 错误信封透出。
+      const indexModelMismatch = model !== null && resolved !== null && resolved.model !== model
+      reply(res, 200, {
+        running,
+        indexedChapters,
+        chunkCount,
+        model,
+        indexState,
+        ragConfig,
+        providerName: resolved?.providerName ?? null,
+        legacy: resolved?.legacy ?? false,
+        indexModelMismatch,
+        lastResult: task?.lastResult ?? null,
+      })
+    },
   })
 
   defineRoute('books.rag.build', {
     method: 'POST',
     path: '/api/books/:name/rag/build',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // （六轮修复批）：编排互斥预检——本端点原只占
-    // 自身 'rag-build' 闸，缺同族 rebuild / prune 的 orchestrationBusyFor 前置查询（互斥
-    // 矩阵缺一角）。build 对索引库只增行、现行无实害，但补齐后「AI 编排在途 → 409」在
-    // rag 三端点（build/rebuild/prune）口径一致，后续 build 增改写面时不留雷。文案/码
-    // 与 rebuild 逐字节一致（同源 orchestrationBusyFor 返回值直出）。
-    const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    const bookRoot = r.bookRoot
-    const start = startRagBuild(ctx.gate, params['name']!, bookRoot, r.workDir, ctx.userDataPath)
-    if (!start.ok) {
-      // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT。
-      // 低级项：状态码由结构化 code 判定——原按文案子串 includes('运行中') 判，
-      // 文案一改即误判（文案属人机交互资产，不该承担协议语义）
-      return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
-    }
-    reply(res, 200, { started: true })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // （六轮修复批）：编排互斥预检——本端点原只占
+      // 自身 'rag-build' 闸，缺同族 rebuild / prune 的 orchestrationBusyFor 前置查询（互斥
+      // 矩阵缺一角）。build 对索引库只增行、现行无实害，但补齐后「AI 编排在途 → 409」在
+      // rag 三端点（build/rebuild/prune）口径一致，后续 build 增改写面时不留雷。文案/码
+      // 与 rebuild 逐字节一致（同源 orchestrationBusyFor 返回值直出）。
+      const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
+      const bookRoot = r.bookRoot
+      const start = startRagBuild(ctx.gate, params['name']!, bookRoot, r.workDir, ctx.userDataPath)
+      if (!start.ok) {
+        // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT。
+        // 低级项：状态码由结构化 code 判定——原按文案子串 includes('运行中') 判，
+        // 文案一改即误判（文案属人机交互资产，不该承担协议语义）
+        return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
+      }
+      reply(res, 200, { started: true })
+    },
   })
 
   // 重建索引端点——与 build 同一套任务闸（'rag-build'，运行中 409）
@@ -291,16 +307,18 @@ export function registerRagRoutes(ctx: RagCtx): void {
     method: 'POST',
     path: '/api/books/:name/rag/rebuild',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // -（登记备查 → 机械批处置）：rebuild 清库面对齐
-    // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
-    // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
-    const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    const start = startRagBuild(ctx.gate, params['name']!, r.bookRoot, r.workDir, ctx.userDataPath, { resetIndexFirst: true })
-    if (!start.ok) return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
-    reply(res, 200, { started: true, reset: true })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // -（登记备查 → 机械批处置）：rebuild 清库面对齐
+      // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
+      // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
+      const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
+      const start = startRagBuild(ctx.gate, params['name']!, r.bookRoot, r.workDir, ctx.userDataPath, {
+        resetIndexFirst: true,
+      })
+      if (!start.ok) return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
+      reply(res, 200, { started: true, reset: true })
+    },
   })
 }

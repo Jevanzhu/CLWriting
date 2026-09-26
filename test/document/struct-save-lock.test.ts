@@ -74,7 +74,10 @@ test('R0912-2: 持 save 锁期间 doTrash fail-closed（文件未动、未进回
 
 test('R0912-2: 持 save 锁期间 renameDocument/moveDocument fail-closed（文件未动）；释放后可用', async () => {
   const svc = new DocumentService({ bookRoot })
-  const c = await svc.createDocument({ relPath: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n---\n正文' })
+  const c = await svc.createDocument({
+    relPath: '写作/正文/0001-开篇.md',
+    content: '---\n章号: 1\n标题: 开篇\n---\n正文',
+  })
   if (!c.ok) throw new Error('prereq create')
   register(c.docId, '写作/正文/0001-开篇.md')
   const abs = join(bookRoot, '写作/正文/0001-开篇.md')

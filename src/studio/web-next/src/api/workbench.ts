@@ -44,10 +44,14 @@ export async function spawnRole(
   name: string,
   body: { role?: string; prompt?: string; files?: string[] },
 ): Promise<void> {
-  await apiJson(bookUrl(name, 'spawn'), {
-    method: 'POST',
-    json: body,
-  }, 120_000) // 角色生成超时 2 分钟
+  await apiJson(
+    bookUrl(name, 'spawn'),
+    {
+      method: 'POST',
+      json: body,
+    },
+    120_000,
+  ) // 角色生成超时 2 分钟
 }
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）。
@@ -88,10 +92,7 @@ export async function acknowledgeJournalPending(
   name: string,
   opId: string,
 ): Promise<{ ok: true; acknowledged: boolean }> {
-  return apiJson<{ ok: true; acknowledged: boolean }>(
-    bookUrl(name, 'journal', opId, 'acknowledge'),
-    { method: 'POST' },
-  )
+  return apiJson<{ ok: true; acknowledged: boolean }>(bookUrl(name, 'journal', opId, 'acknowledge'), { method: 'POST' })
 }
 
 // POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
@@ -117,16 +118,24 @@ export async function getDraftPrompt(name: string, chapter: number): Promise<{ p
 
 // POST /outline {chapter} —— 大纲生成（AI 阻塞，多源合成）
 export async function generateOutline(name: string, chapter: number): Promise<void> {
-  await apiJson(bookUrl(name, 'outline'), {
-    method: 'POST',
-    json: { chapter },
-  }, 300_000) // 大纲多源合成超时 5 分钟
+  await apiJson(
+    bookUrl(name, 'outline'),
+    {
+      method: 'POST',
+      json: { chapter },
+    },
+    300_000,
+  ) // 大纲多源合成超时 5 分钟
 }
 
 // 右端：POST /lead-updates {chapter} —— 生成账本推进草稿（AI 草拟，作者定稿时确认回写）
 export async function generateLeadUpdates(name: string, chapter: number): Promise<{ ok: boolean; count: number }> {
-  return apiJson(bookUrl(name, 'lead-updates'), {
-    method: 'POST',
-    json: { chapter },
-  }, 300_000)
+  return apiJson(
+    bookUrl(name, 'lead-updates'),
+    {
+      method: 'POST',
+      json: { chapter },
+    },
+    300_000,
+  )
 }

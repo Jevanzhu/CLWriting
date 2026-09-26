@@ -16,9 +16,7 @@ function jsonRes(status: number, body: unknown = {}): Response {
   })
 }
 
-async function freshClient(): Promise<
-  typeof import('../../../src/studio/web-next/src/api/client')
-> {
+async function freshClient(): Promise<typeof import('../../../src/studio/web-next/src/api/client')> {
   vi.resetModules()
   return import('../../../src/studio/web-next/src/api/client')
 }

@@ -81,10 +81,18 @@ const emit = defineEmits<{
   pointer-events: none;
 }
 .hero-list--page::before {
-  background: radial-gradient(400px circle at var(--mx, 30%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
+  background: radial-gradient(
+    400px circle at var(--mx, 30%) var(--my, 50%),
+    color-mix(in srgb, var(--text-accent) 8%, transparent),
+    transparent 50%
+  );
 }
 .hero-list--modal::before {
-  background: radial-gradient(300px circle at var(--mx, 30%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
+  background: radial-gradient(
+    300px circle at var(--mx, 30%) var(--my, 50%),
+    color-mix(in srgb, var(--text-accent) 8%, transparent),
+    transparent 50%
+  );
 }
 .hero-list:hover::before {
   opacity: 1;

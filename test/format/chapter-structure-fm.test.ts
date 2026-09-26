@@ -140,7 +140,7 @@ describe('S2 parseOrderOf / parseMergedInto / isPublishedValue 纯函数', () =>
     expect(parseMergedInto(undefined)).toBeUndefined()
   })
 
-  it('isPublishedValue：仅认 true/\'true\'（树 probe 与导出 _raw 同式）', () => {
+  it("isPublishedValue：仅认 true/'true'（树 probe 与导出 _raw 同式）", () => {
     expect(isPublishedValue(true)).toBe(true)
     expect(isPublishedValue('true')).toBe(true)
     expect(isPublishedValue(['true'])).toBe(true)

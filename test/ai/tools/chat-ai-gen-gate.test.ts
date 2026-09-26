@@ -159,24 +159,28 @@ describe('M-1: AI 生成类 chat 工具与 self-heal 互斥', () => {
 // spill→apply_spill 落盘，两条确认通道互不知晓对方已改基线）。
 
 describe('低-2（第十轮）：chat 改写工具与 /rewrite 端点 task-gate 互斥', () => {
-  it('端点 rewrite 闸在途 → chat 侧 rewrite_chapter 被拒（fail-closed 给可读 summary）', { timeout: 15_000 }, async () => {
-    const release = acquireTaskGate('ai-gen-gate', 'rewrite')
-    expect(release).not.toBeNull()
-    try {
-      const events = await runConfirmedToolChat([
-        { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
-        { type: 'text', content: '知道了。' },
-      ])
-      const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
-      expect(result?.summary).toContain('正在改写')
-      // 未发生嵌套改写：无 spill 产物
-      expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(false)
-    } finally {
-      release!()
-    }
-    // 释放后放行（闸不残留——同书名后续用例/端点不被误伤）
-    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
-  })
+  it(
+    '端点 rewrite 闸在途 → chat 侧 rewrite_chapter 被拒（fail-closed 给可读 summary）',
+    { timeout: 15_000 },
+    async () => {
+      const release = acquireTaskGate('ai-gen-gate', 'rewrite')
+      expect(release).not.toBeNull()
+      try {
+        const events = await runConfirmedToolChat([
+          { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
+          { type: 'text', content: '知道了。' },
+        ])
+        const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+        expect(result?.summary).toContain('正在改写')
+        // 未发生嵌套改写：无 spill 产物
+        expect(existsSync(join(bookRoot, '工作区', 'spills'))).toBe(false)
+      } finally {
+        release!()
+      }
+      // 释放后放行（闸不残留——同书名后续用例/端点不被误伤）
+      expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+    },
+  )
 
   // R69-13（十七轮）：apply_spill 并入 REWRITE_GATE_TOOLS——确认落盘通道同样写章草稿，
   // 此前只靠 sha 落盘前复验压窗（复验后 saveDraft 前的并发写仍是后写赢）。
@@ -234,64 +238,76 @@ describe('低-2（第十轮）：chat 改写工具与 /rewrite 端点 task-gate 
 // write_chapter 全程持有同一把 'rewrite' 闸：一侧持闸另一侧 acquire 即 null。
 
 describe('R66-2: write_chapter 与 /rewrite 端点 task-gate 跨侧互斥', () => {
-  it('端点 rewrite 闸在途 → chat 侧 write_chapter 被拒（fail-closed，未触发 self-heal）', { timeout: 15_000 }, async () => {
-    vi.mocked(runSelfHeal).mockClear()
-    const release = acquireTaskGate('ai-gen-gate', 'rewrite') // 模拟编辑器 /rewrite 端点持闸在途
-    expect(release).not.toBeNull()
-    try {
-      const events = await runConfirmedToolChat([
-        { type: 'tool', name: 'write_chapter', input: { chapter: 1 } },
-        { type: 'text', content: '知道了。' },
-      ])
-      const result = events.find((e) => e.type === 'chat_tool_result') as { ok?: boolean; summary?: string } | undefined
-      // 拒绝原因说清另一侧在改稿（AI 据此告知作者，而非误判失败重试）
-      expect(result?.ok).toBe(false)
-      expect(result?.summary).toContain('正在改写')
-      // fail-closed：闸被占即未起 self-heal（无写章副作用）
-      expect(runSelfHeal).not.toHaveBeenCalled()
-    } finally {
-      release!()
-    }
-    // 释放后不残留（同书名后续写章/改写不被永久误伤）
-    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
-  })
+  it(
+    '端点 rewrite 闸在途 → chat 侧 write_chapter 被拒（fail-closed，未触发 self-heal）',
+    { timeout: 15_000 },
+    async () => {
+      vi.mocked(runSelfHeal).mockClear()
+      const release = acquireTaskGate('ai-gen-gate', 'rewrite') // 模拟编辑器 /rewrite 端点持闸在途
+      expect(release).not.toBeNull()
+      try {
+        const events = await runConfirmedToolChat([
+          { type: 'tool', name: 'write_chapter', input: { chapter: 1 } },
+          { type: 'text', content: '知道了。' },
+        ])
+        const result = events.find((e) => e.type === 'chat_tool_result') as
+          { ok?: boolean; summary?: string } | undefined
+        // 拒绝原因说清另一侧在改稿（AI 据此告知作者，而非误判失败重试）
+        expect(result?.ok).toBe(false)
+        expect(result?.summary).toContain('正在改写')
+        // fail-closed：闸被占即未起 self-heal（无写章副作用）
+        expect(runSelfHeal).not.toHaveBeenCalled()
+      } finally {
+        release!()
+      }
+      // 释放后不残留（同书名后续写章/改写不被永久误伤）
+      expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+    },
+  )
 
-  it('chat 侧 write_chapter 在途 → 持有同把闸（端点此刻 acquire 为 null → 409；收尾释放）', { timeout: 15_000 }, async () => {
-    vi.mocked(runSelfHeal).mockClear()
-    // self-heal 挂起在途窗口：确认放行后 write_chapter 拿闸并进入 self-heal，手动 resolve 收尾
-    let resolveHeal!: (r: SelfHealOutcome) => void
-    vi.mocked(runSelfHeal).mockImplementation(
-      () => new Promise<SelfHealOutcome>((res) => { resolveHeal = res }),
-    )
-    const events: DriverEvent[] = []
-    const driver = makeFakeDriver({ emitted: events })
-    fake.setScript([
-      { type: 'tool', name: 'write_chapter', input: { chapter: 1 } },
-      { type: 'text', content: '写好了。' },
-    ])
-    const chatPromise = runChat({
-      driver,
-      mainSession: { id: 's1', cwd: workDir, closed: false },
-      userDataPath: setup(),
-      bookRoot,
-      bookName: 'ai-gen-gate',
-      message: '执行工具',
-      confirmTimeoutMs: 5000,
-    })
-    await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
-    const pending = events.find((e) => e.type === 'chat_tool_pending') as { callId: string } | undefined
-    resolveChatConfirm('ai-gen-gate', pending!.callId, true)
-    // 确认放行 → write_chapter 执行即拿闸；self-heal 挂起期间闸被 chat 侧持有
-    await waitFor(() => isTaskGateHeld('ai-gen-gate', 'rewrite'))
-    expect(runSelfHeal).toHaveBeenCalledTimes(1)
-    // 反向对称：此刻编辑器 /rewrite 端点 acquireTaskGate 得 null（端点回 409 BUSY）
-    expect(acquireTaskGate('ai-gen-gate', 'rewrite')).toBeNull()
-    resolveHeal({ outcome: 'pass', chapter: 1, docId: 'doc-1', path: '工作区/草稿-1.md', attempts: 1, yellows: [] })
-    await chatPromise
-    // 工具收尾释放闸（不泄漏——端点/后续写章不被永久卡死）
-    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
-    const result = events.find((e) => e.type === 'chat_tool_result') as { ok?: boolean; summary?: string } | undefined
-    expect(result?.ok).toBe(true)
-    expect(result?.summary).toContain('第1章已生成')
-  })
+  it(
+    'chat 侧 write_chapter 在途 → 持有同把闸（端点此刻 acquire 为 null → 409；收尾释放）',
+    { timeout: 15_000 },
+    async () => {
+      vi.mocked(runSelfHeal).mockClear()
+      // self-heal 挂起在途窗口：确认放行后 write_chapter 拿闸并进入 self-heal，手动 resolve 收尾
+      let resolveHeal!: (r: SelfHealOutcome) => void
+      vi.mocked(runSelfHeal).mockImplementation(
+        () =>
+          new Promise<SelfHealOutcome>((res) => {
+            resolveHeal = res
+          }),
+      )
+      const events: DriverEvent[] = []
+      const driver = makeFakeDriver({ emitted: events })
+      fake.setScript([
+        { type: 'tool', name: 'write_chapter', input: { chapter: 1 } },
+        { type: 'text', content: '写好了。' },
+      ])
+      const chatPromise = runChat({
+        driver,
+        mainSession: { id: 's1', cwd: workDir, closed: false },
+        userDataPath: setup(),
+        bookRoot,
+        bookName: 'ai-gen-gate',
+        message: '执行工具',
+        confirmTimeoutMs: 5000,
+      })
+      await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
+      const pending = events.find((e) => e.type === 'chat_tool_pending') as { callId: string } | undefined
+      resolveChatConfirm('ai-gen-gate', pending!.callId, true)
+      // 确认放行 → write_chapter 执行即拿闸；self-heal 挂起期间闸被 chat 侧持有
+      await waitFor(() => isTaskGateHeld('ai-gen-gate', 'rewrite'))
+      expect(runSelfHeal).toHaveBeenCalledTimes(1)
+      // 反向对称：此刻编辑器 /rewrite 端点 acquireTaskGate 得 null（端点回 409 BUSY）
+      expect(acquireTaskGate('ai-gen-gate', 'rewrite')).toBeNull()
+      resolveHeal({ outcome: 'pass', chapter: 1, docId: 'doc-1', path: '工作区/草稿-1.md', attempts: 1, yellows: [] })
+      await chatPromise
+      // 工具收尾释放闸（不泄漏——端点/后续写章不被永久卡死）
+      expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+      const result = events.find((e) => e.type === 'chat_tool_result') as { ok?: boolean; summary?: string } | undefined
+      expect(result?.ok).toBe(true)
+      expect(result?.summary).toContain('第1章已生成')
+    },
+  )
 })

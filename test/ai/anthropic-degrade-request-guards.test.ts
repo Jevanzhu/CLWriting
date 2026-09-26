@@ -83,7 +83,11 @@ function fakeDegradeClient(): { client: Anthropic; calls: () => number } {
           throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
         }
         return (async function* () {
-          yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          yield {
+            type: 'message_delta',
+            usage: { input_tokens: 1, output_tokens: 1 },
+            delta: { stop_reason: 'end_turn' },
+          }
         })()
       },
     },
@@ -111,9 +115,13 @@ describe('R30-4：降级记忆显式 path 贯穿（双库并存互不劫持）',
     const evs = await collect(prov, REQ_STRUCTURED)
     expect(evs.some((e) => e.type === 'done')).toBe(true) // 400 → 剥 structured 重试成功
     const key = 'prov-a/claude-sonnet-5'
-    const capsA = (JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }).modelCaps
+    const capsA = (
+      JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }
+    ).modelCaps
     expect(capsA?.[key]).toEqual({ structured: false }) // 落在 A（旧实现落 B）
-    const capsB = (JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }).modelCaps
+    const capsB = (
+      JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }
+    ).modelCaps
     expect(capsB?.[key]).toBeUndefined() // B 不被误写
   }, 15_000)
 
@@ -142,7 +150,11 @@ function captureClient(): { client: Anthropic; paramsList: Array<Record<string, 
       create: async (params: unknown) => {
         paramsList.push(params as Record<string, unknown>)
         return (async function* () {
-          yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          yield {
+            type: 'message_delta',
+            usage: { input_tokens: 1, output_tokens: 1 },
+            delta: { stop_reason: 'end_turn' },
+          }
         })()
       },
     },
@@ -178,12 +190,21 @@ describe('R30-10：仅 reasoning 的 assistant 消息从请求历史剔除', () 
       systemPrompt: '',
       messages: [
         { role: 'user', content: '问' },
-        { role: 'assistant', content: [{ type: 'reasoning', text: '推理' }, { type: 'text', text: '回答' }] },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: '推理' },
+            { type: 'text', text: '回答' },
+          ],
+        },
         { role: 'user', content: '再问' },
       ],
     }
     await collect(createAnthropicProvider(CONF_A, client), req)
-    const messages = paramsList[0]!['messages'] as Array<{ role: string; content: Array<{ type: string; text?: string }> }>
+    const messages = paramsList[0]!['messages'] as Array<{
+      role: string
+      content: Array<{ type: string; text?: string }>
+    }>
     expect(messages).toHaveLength(3)
     expect(messages[1]!.role).toBe('assistant')
     expect(messages[1]!.content).toEqual([{ type: 'text', text: '回答' }])

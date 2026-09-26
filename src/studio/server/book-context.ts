@@ -134,9 +134,7 @@ export const DRAFT_UNREADABLE_TEXT = '读不到正文文件（可能已被移动
 export type DocResolveFailure = { ok: false; status: number; code: string; message: string }
 
 /** resolveDocFile 成功形状：清单条目 + 绝对安全路径（调用方再自行读稿/传机检）。 */
-export type DocFileResolution =
-  | { ok: true; entry: ManifestEntry; absPath: string }
-  | DocResolveFailure
+export type DocFileResolution = { ok: true; entry: ManifestEntry; absPath: string } | DocResolveFailure
 
 /**
  * docId → 清单条目 → 安全路径 → 存在性（不读稿）。失败档文案见上节头注；
@@ -198,9 +196,7 @@ export function resolveDraftByDocId(
 }
 
 /** readDraftTextGuarded 成功形状：字节 buffer + utf-8 文本同源（review 主审 hash 用 buffer）。 */
-export type GuardedRead =
-  | { ok: true; buf: Buffer; text: string }
-  | DocResolveFailure
+export type GuardedRead = { ok: true; buf: Buffer; text: string } | DocResolveFailure
 
 /**
  * 裸读文件 + TOCTOU 500 守卫单源（review :145 主审单读 / verdict :324 兜底

@@ -32,8 +32,12 @@ test('V-P1-4: 三审账本变动 = 被检章自身的履历（不是最高已定
     mkdirSync(join(root, '布线'), { recursive: true }) // hasWiring → 走账本 byproducts
     const db = new DatabaseSync(':memory:')
     createAllTables(db)
-    db.prepare(`INSERT INTO leads (id, type, title, status, opened_at, path) VALUES ('悬念-001', '悬念', 't', '进行中', 0, 'p')`).run()
-    const insert = db.prepare(`INSERT INTO lead_history (lead_id, seq, chapter, verb, evidence, backfill) VALUES (?, ?, ?, ?, ?, 0)`)
+    db.prepare(
+      `INSERT INTO leads (id, type, title, status, opened_at, path) VALUES ('悬念-001', '悬念', 't', '进行中', 0, 'p')`,
+    ).run()
+    const insert = db.prepare(
+      `INSERT INTO lead_history (lead_id, seq, chapter, verb, evidence, backfill) VALUES (?, ?, ?, ?, ?, 0)`,
+    )
     insert.run('悬念-001', 1, 3, '推进', '第三章证据') // 最高已定稿章（maxWrittenChapter）
     insert.run('悬念-001', 2, 5, '推进', '第五章证据') // 被检章
 
@@ -63,7 +67,11 @@ test('V-P1-5: checkWithDb 用真实文件名 → 章号≠文件名报红', () =
     writeBookConfig(join(root, 'book.yaml'), CONFIG)
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     const abs = join(root, '写作', '正文', '007-标题.md') // 文件名 007，fm 章号 6
-    writeFileSync(abs, '---\n章号: 6\n标题: 标题\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。', 'utf-8')
+    writeFileSync(
+      abs,
+      '---\n章号: 6\n标题: 标题\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。',
+      'utf-8',
+    )
 
     const outcome = checkWithDb(root, abs, null, CONFIG)
     expect(outcome.ok).toBe(true)
@@ -143,7 +151,12 @@ test('V-P1-8: 短篇 5 视角满审需 5 次调用（预算 3 只能合审）', 
 test('V-P1-8: 长篇基础二视角满审 calls = 2', () => {
   const report: CheckReport = { sections: [], byproducts: {} }
   const lenses = buildReviewTasks(report, { hasWiring: false, hasShort: false }).map((t) => t.lens)
-  const d = selectReviewTier({ capabilities: { parallel_subagents: true, multiple_calls: true }, remaining_calls: 2, high_risk: false, lenses })
+  const d = selectReviewTier({
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 2,
+    high_risk: false,
+    lenses,
+  })
   expect(d.ok).toBe(true)
   if (d.ok) {
     expect(d.tier).toBe('full')
@@ -157,10 +170,11 @@ test('V-P2-17: 当前境界为序列枚举的细化（炼气一层）→ 不误�
   const { checkGrowth } = await import('../../src/check/growth.js')
   const db = new DatabaseSync(':memory:')
   createAllTables(db)
-  db.prepare(`INSERT INTO leads (id, type, title, status, opened_at, cur_realm, path) VALUES ('成长线-001', '成长线', 't', '进行中', 0, '炼气一层', 'p')`).run()
+  db.prepare(
+    `INSERT INTO leads (id, type, title, status, opened_at, cur_realm, path) VALUES ('成长线-001', '成长线', 't', '进行中', 0, '炼气一层', 'p')`,
+  ).run()
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修为', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
   expect(r.items.some((i) => i.checkId === 'growth-realm-miss')).toBe(false) // 修复前：精确 includes 误报红
   db.close()
 })
-

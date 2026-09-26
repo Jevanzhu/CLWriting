@@ -26,7 +26,10 @@ describe('R73-36 / 定稿基线迁移 safe-path 校验', () => {
     writeFileSync(outsideFile, '书仓库外的文件内容', 'utf-8')
     // 合法 clean 章节文件 + git 仓库（已提交 → porcelain 空 → 不在脏集）
     writeFileSync(join(root, '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n\n正文。\n', 'utf-8')
-    execSync('git init -q && git add -A && git -c user.email=t@t.io -c user.name=t commit -qm init', { cwd: root, stdio: 'ignore' })
+    execSync('git init -q && git add -A && git -c user.email=t@t.io -c user.name=t commit -qm init', {
+      cwd: root,
+      stdio: 'ignore',
+    })
   })
   afterEach(() => {
     rmSync(root, { recursive: true, force: true })
@@ -54,6 +57,8 @@ describe('R73-36 / 定稿基线迁移 safe-path 校验', () => {
     seedManifest(outsideFile)
     const n = migrateFinalizedRevisions(root)
     expect(n).toBe(1)
-    expect(readManifest(join(root, '项目', '文档清单.jsonl')).entries.get('doc_evil')?.finalizedRevision).toBeUndefined()
+    expect(
+      readManifest(join(root, '项目', '文档清单.jsonl')).entries.get('doc_evil')?.finalizedRevision,
+    ).toBeUndefined()
   })
 })

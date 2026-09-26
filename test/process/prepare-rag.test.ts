@@ -26,12 +26,22 @@ function makeBook(): { root: string; db: DatabaseSync } {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 10, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p10',
+    章号: 10,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p10',
   })
   syncLead(db, {
-    编号: '悬念-001', 标题: '秘密', 类型: '悬念', 状态: '进行中', 开启章: 1,
-    履历: [{ 章号: 1, 动词: '埋下', 证据: '线索' }], _path: 'p',
+    编号: '悬念-001',
+    标题: '秘密',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [{ 章号: 1, 动词: '埋下', 证据: '线索' }],
+    _path: 'p',
   })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '## 反和解\n禁止和解\n', 'utf-8')

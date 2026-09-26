@@ -13,7 +13,10 @@
  *  等效单边界（见 b-sentences-ellipsis 回归）。 */
 export function splitSentences(body: string, includeColon = false): string[] {
   const re = includeColon ? /[。！？；…!?\n]/ : /[。！？…!?\n]/
-  return body.split(re).map((s) => s.trim()).filter((s) => s.length > 0)
+  return body
+    .split(re)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
 }
 
 /**
@@ -51,7 +54,10 @@ export function splitSentences(body: string, includeColon = false): string[] {
  * Number.MAX_SAFE_INTEGER（2^53−1），双精度整数精确表示、无舍入暗坑（用满 64 位
  * 会溢出安全整数域，BigInt 则慢一个量级，均不取）。
  */
-export function ngramRepeatRate(body: string, n = 8): { rate: number; total: number; repeatInstances: number; repeatChars: number } {
+export function ngramRepeatRate(
+  body: string,
+  n = 8,
+): { rate: number; total: number; repeatInstances: number; repeatChars: number } {
   const sentences = splitSentences(body).filter((s) => s.length >= n)
   const counts = new Map<number, number>()
   let total = 0
@@ -75,7 +81,7 @@ export function ngramRepeatRate(body: string, n = 8): { rate: number; total: num
   for (const s of sentences) {
     if (ASTRAL_CHAR_RE.test(s)) {
       const cps: number[] = []
-      for (let i = 0; i < s.length; ) {
+      for (let i = 0; i < s.length;) {
         const cp = s.codePointAt(i)!
         cps.push(cp)
         i += cp > 0xffff ? 2 : 1

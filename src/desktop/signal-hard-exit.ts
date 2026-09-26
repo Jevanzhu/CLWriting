@@ -34,7 +34,10 @@ export function createRepeatedSignalExit(deps: RepeatedSignalExitDeps): (signal:
   const seen = new Set<string>()
   return (signal: string): void => {
     if (seen.has(signal)) {
-      log.error('desktop', `信号 ${signal} 在优雅停机在途时重复到达——跳过优雅链直接硬退出（在途 server child 已同步 kill）`)
+      log.error(
+        'desktop',
+        `信号 ${signal} 在优雅停机在途时重复到达——跳过优雅链直接硬退出（在途 server child 已同步 kill）`,
+      )
       deps.killNow()
       deps.exit(1)
       return

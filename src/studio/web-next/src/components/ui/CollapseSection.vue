@@ -8,10 +8,10 @@ import { computed, ref } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import BetaBadge from './BetaBadge.vue'
 
-const props = withDefaults(
-  defineProps<{ title: string; beta?: boolean; defaultOpen?: boolean; open?: boolean }>(),
-  { defaultOpen: true, open: undefined },
-)
+const props = withDefaults(defineProps<{ title: string; beta?: boolean; defaultOpen?: boolean; open?: boolean }>(), {
+  defaultOpen: true,
+  open: undefined,
+})
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 // 内部态：非受控时唯一事实源；受控时仅兜底（显示以 props.open 为准）
 const innerOpen = ref(props.defaultOpen)

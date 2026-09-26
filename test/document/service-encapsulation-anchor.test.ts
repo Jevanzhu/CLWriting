@@ -74,7 +74,8 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
     for (const f of collectSources(join(SRC_ROOT, 'document'))) {
       const raw = readFileSync(f, 'utf-8')
       // 标记行形态（注释前缀后紧跟 @internal）——散文里提及 `@internal` 的历史记账不算
-      if (raw.split('\n').some((l) => /^\s*(?:\/\*\*|\*|\/\/)\s*@internal\b/.test(l))) offenders.push(`${f.replace(REPO_ROOT, '')}: 标记行`)
+      if (raw.split('\n').some((l) => /^\s*(?:\/\*\*|\*|\/\/)\s*@internal\b/.test(l)))
+        offenders.push(`${f.replace(REPO_ROOT, '')}: 标记行`)
       if (stripComments(raw).includes('@internal')) offenders.push(`${f.replace(REPO_ROOT, '')}: 代码面`)
     }
     expect(offenders).toEqual([])
@@ -117,7 +118,9 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
   it('设施单源：journal 路径只经 ctx.journalPathOf（操作文件不再手拼 `.jsonl`）', () => {
     for (const rel of ['service.ts', 'service-meta.ts', 'service-move.ts']) {
       const code = stripComments(readFileSync(join(SRC_ROOT, 'document', rel), 'utf-8'))
-      expect(code, `${rel} 手拼 journal 路径（应走 ctx.journalPathOf）`).not.toMatch(/encodeDocDirName\([^)]*\)\}\.jsonl/)
+      expect(code, `${rel} 手拼 journal 路径（应走 ctx.journalPathOf）`).not.toMatch(
+        /encodeDocDirName\([^)]*\)\}\.jsonl/,
+      )
       expect(code, `${rel} 缺 ctx.journalPathOf 接线`).toContain('journalPathOf(')
     }
   })
@@ -127,7 +130,9 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
     for (const field of ['globalPolicyCache', 'docWordsCache', 'metaOpChains']) {
       expect(ctxCode, `${field} 未标 private`).toMatch(new RegExp(`private\\s+${field}\\b`))
     }
-    const hits = collectSources(SRC_ROOT).filter((f) => /new DocContext\(/.test(stripComments(readFileSync(f, 'utf-8'))))
+    const hits = collectSources(SRC_ROOT).filter((f) =>
+      /new DocContext\(/.test(stripComments(readFileSync(f, 'utf-8'))),
+    )
     expect(hits).toEqual([DOCUMENT_SERVICE_PATH]) // 平台无关比较（win 反斜杠不参与断言）
   })
 
@@ -146,7 +151,10 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
         expect(code, `${rel} 仍引用已删锁档缝 ${name}（应读 ctx 锁档字段）`).not.toContain(name)
       }
     }
-    expect(stripComments(readFileSync(join(SRC_ROOT, 'document', 'service.ts'), 'utf-8')), 'executeSave 锁档未接 ctx.saveLockTimeoutMs').toContain('ctx.saveLockTimeoutMs')
+    expect(
+      stripComments(readFileSync(join(SRC_ROOT, 'document', 'service.ts'), 'utf-8')),
+      'executeSave 锁档未接 ctx.saveLockTimeoutMs',
+    ).toContain('ctx.saveLockTimeoutMs')
     // 定义面：service-guards 不再持有 META/WIRING 的 ForTest 注入口（STRUCT 因 studio
     // 组装点内建 service 消费而保留，见其注——不在本断言面）。
     const guardsCode = stripComments(readFileSync(join(SRC_ROOT, 'document', 'service-guards.ts'), 'utf-8'))

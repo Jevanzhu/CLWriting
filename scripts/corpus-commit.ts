@@ -61,7 +61,9 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
         .split(/[\\/]/)
         .some((part) => /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(part.split('.')[0]!))
       if (/[\\/]|[<>:"|?*]|\.\./.test(id) || reservedDevice) {
-        console.error(`[corpus:commit] checkId 含路径段/非法字符（/ \ .. : < > " | ? *）或为保留设备名，拒绝入库：${id}`)
+        console.error(
+          `[corpus:commit] checkId 含路径段/非法字符（/ \ .. : < > " | ? *）或为保留设备名，拒绝入库：${id}`,
+        )
         rejectedCheckIds++
         checkId = ''
       } else {
@@ -100,7 +102,9 @@ const falsePos = parseFile(join(bookRoot, '工作区', '语料候选', '误报�
 const hits = parseFile(join(bookRoot, '工作区', '语料候选', '命中候选.md'), 'fire')
 const all = [...falsePos, ...hits]
 if (droppedExcerpts > 0) {
-  console.warn(`[corpus:commit] ${droppedExcerpts} 行勾选条目未被解析（见上方逐行警告）——修复候选 md 后再提交，否则静默丢条`)
+  console.warn(
+    `[corpus:commit] ${droppedExcerpts} 行勾选条目未被解析（见上方逐行警告）——修复候选 md 后再提交，否则静默丢条`,
+  )
 }
 if (all.length === 0) {
   // R34D-6（三十四轮）：空集早退不得绕过尾部退出码哨兵——此前此处无条件 exit(0)，
@@ -146,7 +150,9 @@ for (const [checkId, entries] of byCheck) {
     // 口径——旧代码直透 `.map`，非数组裸 TypeError 崩整轮合并循环（后续 checkId 一并
     // 不落盘），且崩溃栈无人话指引。防住后跳过本档、原样保留、计数进尾部标红哨兵。
     if (!Array.isArray(parsed)) {
-      console.error(`[corpus:commit] 存量语料是合法 JSON 但不是数组（实为 ${parsed === null ? 'null' : typeof parsed}），跳过合并（原文件保持原样，请手工修档后重跑）：${fp}`)
+      console.error(
+        `[corpus:commit] 存量语料是合法 JSON 但不是数组（实为 ${parsed === null ? 'null' : typeof parsed}），跳过合并（原文件保持原样，请手工修档后重跑）：${fp}`,
+      )
       failedExisting++
       continue
     }

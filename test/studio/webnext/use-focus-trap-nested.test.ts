@@ -22,10 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
-import {
-  useFocusTrap,
-  __focusTrapActiveCountForTest,
-} from '../../../src/studio/web-next/src/composables/useFocusTrap'
+import { useFocusTrap, __focusTrapActiveCountForTest } from '../../../src/studio/web-next/src/composables/useFocusTrap'
 
 const Harness = defineComponent({
   setup() {

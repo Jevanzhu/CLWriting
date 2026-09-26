@@ -68,14 +68,8 @@ describe('readCharacterCards(P2 结构化读)', () => {
 
 describe('buildSettingsContext(RAG 注入)', () => {
   it('角色 + 境界 → 两段注入', () => {
-    writeFileSync(
-      join(root, '设定', '角色', '林远.md'),
-      '---\n姓名: 林远\n身份: 弟子\n境界: 练气\n---\n正文',
-    )
-    writeFileSync(
-      join(root, '设定', '境界体系.md'),
-      '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明',
-    )
+    writeFileSync(join(root, '设定', '角色', '林远.md'), '---\n姓名: 林远\n身份: 弟子\n境界: 练气\n---\n正文')
+    writeFileSync(join(root, '设定', '境界体系.md'), '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明')
     const ctx = buildSettingsContext(root)
     expect(ctx).toContain('角色设定')
     expect(ctx).toContain('林远')

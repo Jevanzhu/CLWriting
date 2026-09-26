@@ -76,18 +76,13 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
 /** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性。
  *  ：生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
  *  新生产链上依赖。 */
-export function loadLeadFromCache(
-  db: DatabaseSync,
-  id: string,
-): Lead | null {
-  const row = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined
+export function loadLeadFromCache(db: DatabaseSync, id: string): Lead | null {
+  const row = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as Record<string, unknown> | undefined
   if (!row) return null
 
-  const historyRows = db.prepare(
-    'SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq',
-  ).all(id) as Record<string, unknown>[]
+  const historyRows = db
+    .prepare('SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq')
+    .all(id) as Record<string, unknown>[]
 
   const lead: Lead = {
     编号: row['id'] as string,
@@ -119,14 +114,15 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   // 性。：console.warn 改 log.warn——Electron 生产 console 不被采集
   //（已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
   // 指中英映射不引数据/域依赖，log 观测面不在此列。
-  const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as
-    | { path: string }
-    | undefined
+  const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as { path: string } | undefined
   // （折叠键族， win 适配修复批）：路径比较收编
   // samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的两次入库此前
   // 被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
   if (prev && !samePath(prev.path, ch._path ?? '')) {
-    log.warn('cache', `章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`)
+    log.warn(
+      'cache',
+      `章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`,
+    )
   }
   db.prepare(
     `INSERT OR REPLACE INTO chapters
@@ -145,28 +141,17 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
 
 // ── 摘要入库（#4 第 3 节 summaries 表）────────────
 
-export function syncSummary(
-  db: DatabaseSync,
-  scope: 'chapter' | 'volume',
-  ref: number,
-  path: string,
-): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`,
-  ).run(scope, ref, path) // 写语句用 .run
+export function syncSummary(db: DatabaseSync, scope: 'chapter' | 'volume', ref: number, path: string): void {
+  db.prepare(`INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`).run(scope, ref, path) // 写语句用 .run
 }
 
 // ── meta（重建戳等）─────────────────────────────
 
 export function setMeta(db: DatabaseSync, key: string, value: string): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`,
-  ).run(key, value) // 写语句用 .run
+  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(key, value) // 写语句用 .run
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
   return row?.value ?? null
 }

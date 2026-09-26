@@ -63,7 +63,9 @@ export const useProviderStore = defineStore('provider', () => {
   const ragTesting = ref<string | null>(null)
   const ragTestResults = ref<Map<string, { ok: boolean; caps?: { connected: boolean }; error?: string }>>(new Map())
 
-  const currentProvider = computed<ProviderConfDto | null>(() => providers.value.find((p) => p.id === currentId.value) ?? null)
+  const currentProvider = computed<ProviderConfDto | null>(
+    () => providers.value.find((p) => p.id === currentId.value) ?? null,
+  )
   /** 当前供应商已配置模型行 */
   const configModels = computed<ModelConfDto[]>(() => currentProvider.value?.models ?? [])
 
@@ -74,14 +76,16 @@ export const useProviderStore = defineStore('provider', () => {
   const currentModels = computed<ModelOption[]>(() =>
     configModels.value.map((m) => ({
       value: m.id,
-      label: (typeof m.name === 'string' && m.name) ? m.name : m.id,
+      label: typeof m.name === 'string' && m.name ? m.name : m.id,
     })),
   )
 
   /** 对话档有效模型（对话档优先，回落创作档） */
   const chatActiveModel = computed(() => tiers.value.chat?.model || tiers.value.creative.model || '')
   /** 对话档有效推理等级 */
-  const chatActiveEffort = computed<EffortLevel>(() => (tiers.value.chat?.effort as EffortLevel) || (tiers.value.creative.effort as EffortLevel) || 'low')
+  const chatActiveEffort = computed<EffortLevel>(
+    () => (tiers.value.chat?.effort as EffortLevel) || (tiers.value.creative.effort as EffortLevel) || 'low',
+  )
 
   /** refresh 操作代（与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据。
    *  ：裸计数器换装 useStaleGuard（begin/stale/fresh 语义映射见工具注）。 */
@@ -179,7 +183,14 @@ export const useProviderStore = defineStore('provider', () => {
   }
 
   /** 新增提供方（带 expectedRevision）；成功返回新提供方 id，失败返回 null。 */
-  async function add(input: { name: string; protocol: ProviderConfDto['protocol']; auth: ProviderConfDto['auth']; baseUrl: string; apiKey: string; models?: ModelConfDto[] }): Promise<string | null> {
+  async function add(input: {
+    name: string
+    protocol: ProviderConfDto['protocol']
+    auth: ProviderConfDto['auth']
+    baseUrl: string
+    apiKey: string
+    models?: ModelConfDto[]
+  }): Promise<string | null> {
     return guardedWrite(async () => {
       const r = await createProvider({ ...input, auth: input.auth, expectedRevision: revision.value })
       providers.value.push(r.provider)
@@ -193,7 +204,17 @@ export const useProviderStore = defineStore('provider', () => {
   }
 
   /** 编辑提供方（models 未变可不传 → 服务端保留原行）。 */
-  async function update(id: string, input: { name: string; protocol: ProviderConfDto['protocol']; auth: ProviderConfDto['auth']; baseUrl: string; apiKey: string; models?: ModelConfDto[] }): Promise<boolean> {
+  async function update(
+    id: string,
+    input: {
+      name: string
+      protocol: ProviderConfDto['protocol']
+      auth: ProviderConfDto['auth']
+      baseUrl: string
+      apiKey: string
+      models?: ModelConfDto[]
+    },
+  ): Promise<boolean> {
     return (
       (await guardedWrite(async () => {
         const r = await updateProvider(id, { ...input, auth: input.auth, expectedRevision: revision.value })
@@ -307,7 +328,10 @@ export const useProviderStore = defineStore('provider', () => {
     )
   }
 
-  async function updateRag(id: string, input: { name: string; endpoint: string; model: string; apiKey: string }): Promise<boolean> {
+  async function updateRag(
+    id: string,
+    input: { name: string; endpoint: string; model: string; apiKey: string },
+  ): Promise<boolean> {
     return (
       (await guardedWrite(async () => {
         const r = await updateRagProvider(id, { ...input, expectedRevision: revision.value })
@@ -359,12 +383,39 @@ export const useProviderStore = defineStore('provider', () => {
 
   return {
     // state
-    providers, currentId, currentModel, tiers, revision, loading, testing, testResults, probeModels,
-    ragProviders, ragLoading, ragTesting, ragTestResults,
+    providers,
+    currentId,
+    currentModel,
+    tiers,
+    revision,
+    loading,
+    testing,
+    testResults,
+    probeModels,
+    ragProviders,
+    ragLoading,
+    ragTesting,
+    ragTestResults,
     // getters
-    currentProvider, configModels, currentModels, chatActiveModel, chatActiveEffort,
+    currentProvider,
+    configModels,
+    currentModels,
+    chatActiveModel,
+    chatActiveEffort,
     // actions
-    refresh, refreshRag, refreshAll, add, update, remove, activate, test, saveTiers, applyChatTier,
-    addRag, updateRag, removeRag, testRag,
+    refresh,
+    refreshRag,
+    refreshAll,
+    add,
+    update,
+    remove,
+    activate,
+    test,
+    saveTiers,
+    applyChatTier,
+    addRag,
+    updateRag,
+    removeRag,
+    testRag,
   }
 })

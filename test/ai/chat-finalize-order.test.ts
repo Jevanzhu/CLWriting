@@ -37,10 +37,7 @@ const state: ChatRunState = {
 const history: ChatMsg[] = Array.from({ length: 12 }, (_, i) =>
   i % 2 === 0 ? { role: 'user', content: `问题${i}` } : { role: 'assistant', content: `回答${i}` },
 )
-const compacted: ChatMsg[] = [
-  { role: 'user', content: '<checkpoint>累计摘要</checkpoint>' },
-  ...history.slice(5),
-]
+const compacted: ChatMsg[] = [{ role: 'user', content: '<checkpoint>累计摘要</checkpoint>' }, ...history.slice(5)]
 
 function makeRecorder(closeImpl: () => number | null): SessionRecorder {
   return { close: vi.fn(closeImpl) } as unknown as SessionRecorder
@@ -98,7 +95,14 @@ describe('N-6（第十二轮）：finalizeHistory 压缩分支先算后切', () 
     histories.set(book, history)
     compactHistoryMock.mockResolvedValueOnce({ history: compacted, summarizedCount: 5, wasOverLimit: true })
 
-    await finalizeHistory(opts, history, seqs, makeRecorder(() => null), 'sys', state)
+    await finalizeHistory(
+      opts,
+      history,
+      seqs,
+      makeRecorder(() => null),
+      'sys',
+      state,
+    )
 
     expect(msgSeqMap.get(book)).toEqual([[], [105], [106], [107], [108], [109], [110], [111]])
     expect(histories.get(book)).toBe(compacted)
@@ -114,7 +118,9 @@ describe('R65-2（十三轮）：硬截断分支 close 先行（suppress 短路�
   function longFixture() {
     const n = 24
     const h = Array.from({ length: n }, (_, i) =>
-      i % 2 === 0 ? { role: 'user' as const, content: `长对话问题${i}` } : { role: 'assistant' as const, content: `长对话回答${i}` },
+      i % 2 === 0
+        ? { role: 'user' as const, content: `长对话问题${i}` }
+        : { role: 'assistant' as const, content: `长对话回答${i}` },
     )
     const q = Array.from({ length: n }, (_, i) => [100 + i])
     return { h, q }

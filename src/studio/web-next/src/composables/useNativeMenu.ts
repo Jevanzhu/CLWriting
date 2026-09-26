@@ -14,8 +14,7 @@ import { ref } from 'vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 
 export function useNativeMenu() {
-  const isNative =
-    typeof window !== 'undefined' && !!window.clwritingDesktop?.showContextMenu
+  const isNative = typeof window !== 'undefined' && !!window.clwritingDesktop?.showContextMenu
 
   // 浏览器回退用的自定义菜单状态
   const menuVisible = ref(false)
@@ -34,12 +33,9 @@ export function useNativeMenu() {
    */
   function popup(items: MenuItem[], x: number, y: number, onSelect: (key: string) => void): void {
     if (isNative) {
-      window.clwritingDesktop!.showContextMenu(
-        items,
-        (key: string | null) => {
-          if (key) onSelect(key)
-        },
-      )
+      window.clwritingDesktop!.showContextMenu(items, (key: string | null) => {
+        if (key) onSelect(key)
+      })
     } else {
       pendingSelect = onSelect
       menuItems.value = items

@@ -13,13 +13,7 @@ import { test, expect } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  readLead,
-  writeLead,
-  parseHistory,
-  stringifyHistory,
-  readLeadDir,
-} from '../../src/format/leads.js'
+import { readLead, writeLead, parseHistory, stringifyHistory, readLeadDir } from '../../src/format/leads.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const FM = '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 12\n---\n'
@@ -97,7 +91,10 @@ test('R34D-2: parse→stringify 往返保真（畸形行内容不丢、不拼进
 test('R34D-2: readLead→writeLead 全链回写，畸形行声明不丢失且 after 段保真', () => {
   const dir = mkdtempTracked(join(tmpdir(), 'r34d-leads-'))
   const fp = join(dir, '悬念-001-灭门真凶.md')
-  writeFileSync(fp, FM + `
+  writeFileSync(
+    fp,
+    FM +
+      `
 ## 履历
 
 - 第012章 埋下：林家祠堂的焦痕。
@@ -105,7 +102,9 @@ test('R34D-2: readLead→writeLead 全链回写，畸形行声明不丢失且 af
 
 ## 手记
 作者备注。
-`, 'utf-8')
+`,
+    'utf-8',
+  )
   try {
     const r = readLead(fp)
     expect(r.ok).toBe(true)

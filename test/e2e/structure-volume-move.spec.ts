@@ -46,14 +46,7 @@
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-import {
-  gotoBook,
-  ctxOn,
-  hoverSubmenu,
-  clickSubmenuItem,
-  createChapter,
-  deleteChapter,
-} from './tree-actions.js'
+import { gotoBook, ctxOn, hoverSubmenu, clickSubmenuItem, createChapter, deleteChapter } from './tree-actions.js'
 
 /**
  * 右键「写作」组新建正文卷（卷 seed 为空直接填名）。收尾断言锚定卷行（目录行恒有
@@ -140,13 +133,11 @@ test('跨卷移动：乙移入卷 + 显示序随树重排（卷优先分组实�
   // 显示序实测钉（头注①）：卷优先分组 DFS——卷内章渲染在散章之前，乙（卷内）在
   // 甲（散章）上方。任务预设「甲仍在乙前方」与实测相反；未改产品码按实测钉，
   // 「显示序是否应跨卷按 fm 序全局排」留作者拍板。
-  const domGap = await page
-    .locator('.tree-list')
-    .evaluate((el) => {
-      // Array.from 非 spread：tsconfig lib 无 DOM.Iterable，NodeListOf 不可展开
-      const texts = Array.from(el.querySelectorAll('.tree-item')).map((n) => n.textContent ?? '')
-      return texts.findIndex((t) => t.includes('e2e卷移乙')) - texts.findIndex((t) => t.includes('e2e卷移甲'))
-    })
+  const domGap = await page.locator('.tree-list').evaluate((el) => {
+    // Array.from 非 spread：tsconfig lib 无 DOM.Iterable，NodeListOf 不可展开
+    const texts = Array.from(el.querySelectorAll('.tree-item')).map((n) => n.textContent ?? '')
+    return texts.findIndex((t) => t.includes('e2e卷移乙')) - texts.findIndex((t) => t.includes('e2e卷移甲'))
+  })
   expect(domGap).toBeLessThan(0)
 })
 

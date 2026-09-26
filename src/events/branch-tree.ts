@@ -256,4 +256,3 @@ export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEven
   }
   return seq.filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
 }
-

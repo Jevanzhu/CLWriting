@@ -15,8 +15,8 @@ const epoch = ref(0)
 /** 上一次「重试」前的错误消息（null = 本次错误是首次捕获，非重试后复现）。 */
 const messageBeforeRetry = ref<string | null>(null)
 /** 重试后复现（同 message 再次捕获）→ 展示「重载窗口」口径。 */
-const recurredAfterRetry = computed(() =>
-  error.value !== null && messageBeforeRetry.value !== null && error.value.message === messageBeforeRetry.value,
+const recurredAfterRetry = computed(
+  () => error.value !== null && messageBeforeRetry.value !== null && error.value.message === messageBeforeRetry.value,
 )
 
 onErrorCaptured((err) => {

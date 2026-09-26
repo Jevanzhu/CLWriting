@@ -14,20 +14,21 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { Plus, RefreshCw, Loader2 } from 'lucide-vue-next'
 import type { Protocol } from '../../api/providers'
 import { fetchModels } from '../../api/providers'
-import {
-  type ModelRowDraft,
-} from '../../shared/provider-format'
+import { type ModelRowDraft } from '../../shared/provider-format'
 import ModelRow from './ModelRow.vue'
 import ModelPicker from './ModelPicker.vue'
 
-const props = withDefaults(defineProps<{
-  /** 外部模型行草稿（受控：父层保存前也读这里） */
-  modelValue: ModelRowDraft[]
-  /** 探测目标（dsh ProbeTarget）：表单现值优先（含未保存 Key）；编辑卡可回退已存 id */
-  probe: { id?: string; protocol: Protocol; baseUrl: string; apiKey: string }
-  /** 是否禁用（如保存中） */
-  disabled?: boolean
-}>(), { disabled: false })
+const props = withDefaults(
+  defineProps<{
+    /** 外部模型行草稿（受控：父层保存前也读这里） */
+    modelValue: ModelRowDraft[]
+    /** 探测目标（dsh ProbeTarget）：表单现值优先（含未保存 Key）；编辑卡可回退已存 id */
+    probe: { id?: string; protocol: Protocol; baseUrl: string; apiKey: string }
+    /** 是否禁用（如保存中） */
+    disabled?: boolean
+  }>(),
+  { disabled: false },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [rows: ModelRowDraft[]]
@@ -108,9 +109,7 @@ const probeBody = computed<Parameters<typeof fetchModels>[0] | null>(() => {
 /** 不可探测时的按钮提示（dsh probeBlocked：理由就地说，不发注定失败的请求） */
 const fetchHint = computed(() => {
   if (probeBody.value) return undefined
-  return props.probe.baseUrl
-    ? '填写 API Key 后可获取（编辑已有卡也可留空，用已存 Key）'
-    : '填写 API 地址后可获取'
+  return props.probe.baseUrl ? '填写 API Key 后可获取（编辑已有卡也可留空，用已存 Key）' : '填写 API 地址后可获取'
 })
 
 const busy = ref(false)
@@ -186,12 +185,7 @@ function adoptPicked(): void {
     <div class="models-header">
       <span class="models-title">模型行（可选——声明后覆盖该模型的容量）</span>
       <div class="models-actions">
-        <button
-          class="chip-btn"
-          :disabled="disabled || busy || !probeBody"
-          :data-tip="fetchHint"
-          @click="fetchList"
-        >
+        <button class="chip-btn" :disabled="disabled || busy || !probeBody" :data-tip="fetchHint" @click="fetchList">
           <Loader2 v-if="busy" :size="13" class="spin" />
           <RefreshCw v-else :size="13" />
           {{ busy ? '获取中…' : '获取模型列表' }}
@@ -215,9 +209,7 @@ function adoptPicked(): void {
       @remove="removeRow(i)"
     />
 
-    <button class="add-row-btn" :disabled="disabled" @click="addRow">
-      <Plus :size="13" /> 添加模型行
-    </button>
+    <button class="add-row-btn" :disabled="disabled" @click="addRow"><Plus :size="13" /> 添加模型行</button>
 
     <ModelPicker
       :show="showPicker"
@@ -299,7 +291,9 @@ function adoptPicked(): void {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 .add-row-btn:hover:not(:disabled) {
   color: var(--text-normal);

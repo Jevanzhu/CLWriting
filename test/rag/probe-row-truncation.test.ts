@@ -56,10 +56,34 @@ describe('R49-20 store 层：streamChunkScores 探针行标记', () => {
     try {
       // 行序 = 插入序（rowid 扫表序）：A1, A2, B1(mismatch), A3
       // maxRows=3 时 B1 恰为第 3 个产出行（探针位），A3 不再读
-      storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([1, 0, 0]), model: 'm-a' })
-      storeChunk(db, { 章号: 1, start_offset: 10, end_offset: 20, embedding: Float32Array.from([0, 1, 0]), model: 'm-a' })
-      storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0, 0, 1]), model: 'm-b' })
-      storeChunk(db, { 章号: 3, start_offset: 0, end_offset: 10, embedding: Float32Array.from([1, 1, 0]), model: 'm-a' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([1, 0, 0]),
+        model: 'm-a',
+      })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 10,
+        end_offset: 20,
+        embedding: Float32Array.from([0, 1, 0]),
+        model: 'm-a',
+      })
+      storeChunk(db, {
+        章号: 2,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0, 0, 1]),
+        model: 'm-b',
+      })
+      storeChunk(db, {
+        章号: 3,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([1, 1, 0]),
+        model: 'm-a',
+      })
       const scanned = streamChunkScores(db, Float32Array.from([1, 0, 0]), 'm-a', 3)
       expect(scanned.produced).toBe(3) // B1 不匹配也计入 produced（totalBlocks 口径不变）
       expect(scanned.rows).toHaveLength(2) // 探针行 B1 未入 rows；A3 未读到
@@ -73,9 +97,27 @@ describe('R49-20 store 层：streamChunkScores 探针行标记', () => {
     bookRoot = mkdtempTracked(join(tmpdir(), 'rag-r49-store-'))
     const db = openRagDb(bookRoot)
     try {
-      storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([1, 0, 0]), model: 'm-a' })
-      storeChunk(db, { 章号: 1, start_offset: 10, end_offset: 20, embedding: Float32Array.from([0, 1, 0]), model: 'm-a' })
-      storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0, 0, 1]), model: 'm-b' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([1, 0, 0]),
+        model: 'm-a',
+      })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 10,
+        end_offset: 20,
+        embedding: Float32Array.from([0, 1, 0]),
+        model: 'm-a',
+      })
+      storeChunk(db, {
+        章号: 2,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0, 0, 1]),
+        model: 'm-b',
+      })
       const scanned = streamChunkScores(db, Float32Array.from([1, 0, 0]), 'm-a', 2)
       expect(scanned.produced).toBe(2)
       expect(scanned.rows).toHaveLength(2)
@@ -98,8 +140,13 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
     bookRoot = mkdtempTracked(join(tmpdir(), 'rag-r49-recall-'))
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     const meta: ChapterMeta = {
-      章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     // 两段正文 → 恰 2 块（warnThreshold=2 时第 3 个产出行 = 探针位）
     writeChapter(
@@ -114,8 +161,11 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
     const db = openRagDb(bookRoot)
     try {
       storeChunk(db, {
-        章号: 99, start_offset: 0, end_offset: 10,
-        embedding: Float32Array.from([1, 0, 0]), model: 'other-model',
+        章号: 99,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([1, 0, 0]),
+        model: 'other-model',
       })
     } finally {
       db.close()
@@ -142,8 +192,13 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
 
 /** 章节元数据（真实临时书库共用形态） */
 const BOUNDARY_META: ChapterMeta = {
-  章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-  _path: '', _wordCount: 100,
+  章号: 1,
+  标题: '第1章',
+  钩子类型: '悬念钩',
+  钩子强弱: '中',
+  情绪定位: '铺垫',
+  _path: '',
+  _wordCount: 100,
 }
 
 /** 建临时书并写入 N 段正文（每段一块，共 N 块）后返回书根 */
@@ -163,8 +218,11 @@ function appendMismatchRow(bookRoot: string): void {
   const db = openRagDb(bookRoot)
   try {
     storeChunk(db, {
-      章号: 99, start_offset: 0, end_offset: 10,
-      embedding: Float32Array.from([1, 0, 0]), model: 'other-model',
+      章号: 99,
+      start_offset: 0,
+      end_offset: 10,
+      embedding: Float32Array.from([1, 0, 0]),
+      model: 'other-model',
     })
   } finally {
     db.close()

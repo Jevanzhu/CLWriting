@@ -18,8 +18,7 @@ import { runCheckForDocument } from '../../src/check/run.js'
 import type { CheckReport } from '../../src/check/types.js'
 
 /** 收集全报告 checkId */
-const allCheckIds = (report: CheckReport): string[] =>
-  report.sections.flatMap((s) => s.items.map((i) => i.checkId))
+const allCheckIds = (report: CheckReport): string[] => report.sections.flatMap((s) => s.items.map((i) => i.checkId))
 
 describe('S2 maxWrittenChapterOf 并入感知（缓存重建假红回归）', () => {
   it('合并最高定稿章后：lead-chapter-future 零假红 + 源章号引文经回退命中', () => {

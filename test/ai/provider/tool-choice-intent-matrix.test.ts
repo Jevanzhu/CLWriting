@@ -19,9 +19,7 @@ function expectCell(
   toolName: string | undefined,
   expected: ToolChoiceIntent,
 ): void {
-  expect(
-    resolveToolChoiceIntent({ toolChoiceMode: mode, toolChoice, toolName }),
-  ).toEqual(expected)
+  expect(resolveToolChoiceIntent({ toolChoiceMode: mode, toolChoice, toolName })).toEqual(expected)
 }
 
 describe('R0912-3：resolveToolChoiceIntent 全组合空间（mode × intent × toolName）', () => {

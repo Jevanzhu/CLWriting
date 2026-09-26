@@ -21,7 +21,12 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
 import { finalizedChapterNumbers } from '../../src/document/structure-core.js'
-import { readManifest, writeManifest, upsertEntry, finalizedChapterNumbers as finalizedChapterNumbersFromManifest } from '../../src/document/manifest.js'
+import {
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  finalizedChapterNumbers as finalizedChapterNumbersFromManifest,
+} from '../../src/document/manifest.js'
 
 const BOOK = '定稿裸名跳号测试书'
 const REL11 = '写作/正文/第一卷/0011-第11章.md'
@@ -69,7 +74,9 @@ describe('0918独立重评修复批 B005 尾项: 定稿章号集认裸数字名'
     // structure-core 版（拆分取号 skipFinalized 面）
     expect(finalizedChapterNumbers(studio.bookRoot).has(12)).toBe(true)
     // manifest 版（state.ts/recap.ts nextChapter 与 assembleStatus 面）
-    expect(finalizedChapterNumbersFromManifest(readManifest(join(studio.bookRoot, '项目', '文档清单.jsonl'))).has(12)).toBe(true)
+    expect(
+      finalizedChapterNumbersFromManifest(readManifest(join(studio.bookRoot, '项目', '文档清单.jsonl'))).has(12),
+    ).toBe(true)
   })
 
   it('拆分取号跳过定稿裸名 12 取 13（plan+apply 全链，落盘 0013 不落 0012）', async () => {
@@ -85,7 +92,12 @@ describe('0918独立重评修复批 B005 尾项: 定稿章号集认裸数字名'
     const apply = await studio.req(
       'POST',
       `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(d11)}/structure-apply`,
-      { op: 'split', title: '跳号新章', cursorOffset: cursor, planHash: (plan.json as { plan: { planHash: string } }).plan.planHash },
+      {
+        op: 'split',
+        title: '跳号新章',
+        cursorOffset: cursor,
+        planHash: (plan.json as { plan: { planHash: string } }).plan.planHash,
+      },
     )
     expect(apply.status).toBe(200)
     expect((apply.json as { newChapterNo: number }).newChapterNo).toBe(13)

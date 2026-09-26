@@ -31,7 +31,7 @@ interface StateCtx {
   /** APP 级数据目录：状态机入口的全局托底链读 global.json 用 */
   userDataPath: string | null
   /** 收尾：/state 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变；测试经 deps 注入短档消除真实墙钟依赖） */
+   * （undefined = 生产口径 5s 逐位不变；测试经 deps 注入短档消除真实墙钟依赖） */
   stateTtlMs?: number | null
 }
 
@@ -68,68 +68,75 @@ export function registerStateRoutes(ctx: StateCtx): void {
     method: 'GET',
     path: '/api/books/:name/state',
     handler: async ({ params }, _req, res) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    const bookRoot = r.bookRoot
-    // 命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；
-    // 过期条目顺手逐出与「只缓存成功路径」由通用件承担（计算体抛错即不落缓存，同
-    // 原 try/catch 口径）。：壳体收编 ttl-cache.ts 通用件。
-    try {
-      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入——
-      // undefined = 生产口径 5s；缺失覆盖下命中/逐出时序与改前逐位一致
-      const payload = await stateCache.get(bookRoot, async (root): Promise<Record<string, unknown>> => {
-        // enter 的等价展开（见文件头注释），差异仅在读出的 config 过
-        // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
-        // 卷号用生效值：书级未设时 global.json 书库级默认不再断链
-        const cfgResult = readBookConfig(join(root, 'book.yaml'))
-        // 同款：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
-        if (!cfgResult.ok) {
-          log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
-        }
-        const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
-        const manifest = readManifest(join(root, '项目', '文档清单.jsonl'))
-        // 与 enter 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，-BE-4）
-        // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-        // rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
-        // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结
-        const detected = await trackInFlightWork(detectState(root, config, manifest, { rebuildChannel: 'worker' }))
-        const act = routeState(detected)
-        const recap = buildRecap(root, config, detected, manifest)
-        // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter
-        const d = detected
-        const nextChapter =
-          d.state === 7 ? d.nextChapter : d.state === 4 ? d.chapterNum : recap.nextChapter
-        return {
-          state: act.state,
-          stateName: STATE_NAMES[act.state],
-          humanMsg: act.humanMsg,
-          action: act.action,
-          nextChapter,
-          kind: config.kind ?? 'long',
-          // 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位（前端据此分流按钮）
-          resumePoint: d.state === 4 ? d.resumePoint : undefined,
-          // 连写暂停元状态（#34）透传——buildRecap 已产出但此前在响应组装处被
-          // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
-          ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
-          // （c + FE 接线）：态 1 crashedWrite 的 opId 透出——前端
-          // 「忽略此提醒」按钮据此调 POST /api/books/:name/journal/:opId/acknowledge
-          // （幽灵红消解闭环的人工半边）。取全部 crashedWrite issue 的 files（opId）
-          // 扁平去重；非态 1 无 issues 恒缺省（可选字段契约，前端条件渲染）。
-          ...(d.state === 1
-            ? { crashedPendingOpIds: [...new Set(d.issues.flatMap((i) => (i.kind === 'crashedWrite' ? (i.files ?? []) : [])))] }
-            : {}),
-        }
-      }, ctx.stateTtlMs ?? undefined)
-      reply(res, 200, payload)
-    } catch (e) {
-      // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
-      // 500 不直透原始 message（可含文件路径等内部 detail，与
-      // index.ts「500 只回泛化文案」口径对齐）；全量诊断经 log.error 留服务端日志。
-      log.error('state', `state 聚合失败：${redactSecret(errMsg(e))}`, e instanceof Error ? e : undefined)
-      replyError(res, 500, 'ERROR', '状态聚合失败（详见服务端日志）')
-    }
-  },
+      const bookRoot = r.bookRoot
+      // 命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；
+      // 过期条目顺手逐出与「只缓存成功路径」由通用件承担（计算体抛错即不落缓存，同
+      // 原 try/catch 口径）。：壳体收编 ttl-cache.ts 通用件。
+      try {
+        // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入——
+        // undefined = 生产口径 5s；缺失覆盖下命中/逐出时序与改前逐位一致
+        const payload = await stateCache.get(
+          bookRoot,
+          async (root): Promise<Record<string, unknown>> => {
+            // enter 的等价展开（见文件头注释），差异仅在读出的 config 过
+            // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
+            // 卷号用生效值：书级未设时 global.json 书库级默认不再断链
+            const cfgResult = readBookConfig(join(root, 'book.yaml'))
+            // 同款：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
+            if (!cfgResult.ok) {
+              log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
+            }
+            const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
+            const manifest = readManifest(join(root, '项目', '文档清单.jsonl'))
+            // 与 enter 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，-BE-4）
+            // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+            // rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
+            // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结
+            const detected = await trackInFlightWork(detectState(root, config, manifest, { rebuildChannel: 'worker' }))
+            const act = routeState(detected)
+            const recap = buildRecap(root, config, detected, manifest)
+            // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter
+            const d = detected
+            const nextChapter = d.state === 7 ? d.nextChapter : d.state === 4 ? d.chapterNum : recap.nextChapter
+            return {
+              state: act.state,
+              stateName: STATE_NAMES[act.state],
+              humanMsg: act.humanMsg,
+              action: act.action,
+              nextChapter,
+              kind: config.kind ?? 'long',
+              // 态 4 续写断点：pre-commit=续写；post-commit-residue=重新定位（前端据此分流按钮）
+              resumePoint: d.state === 4 ? d.resumePoint : undefined,
+              // 连写暂停元状态（#34）透传——buildRecap 已产出但此前在响应组装处被
+              // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
+              ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
+              // （c + FE 接线）：态 1 crashedWrite 的 opId 透出——前端
+              // 「忽略此提醒」按钮据此调 POST /api/books/:name/journal/:opId/acknowledge
+              // （幽灵红消解闭环的人工半边）。取全部 crashedWrite issue 的 files（opId）
+              // 扁平去重；非态 1 无 issues 恒缺省（可选字段契约，前端条件渲染）。
+              ...(d.state === 1
+                ? {
+                    crashedPendingOpIds: [
+                      ...new Set(d.issues.flatMap((i) => (i.kind === 'crashedWrite' ? (i.files ?? []) : []))),
+                    ],
+                  }
+                : {}),
+            }
+          },
+          ctx.stateTtlMs ?? undefined,
+        )
+        reply(res, 200, payload)
+      } catch (e) {
+        // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
+        // 500 不直透原始 message（可含文件路径等内部 detail，与
+        // index.ts「500 只回泛化文案」口径对齐）；全量诊断经 log.error 留服务端日志。
+        log.error('state', `state 聚合失败：${redactSecret(errMsg(e))}`, e instanceof Error ? e : undefined)
+        replyError(res, 500, 'ERROR', '状态聚合失败（详见服务端日志）')
+      }
+    },
   })
 
   // ── （c ）：崩溃 pending 人工确认通道 ─────────
@@ -186,7 +193,11 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
-        await appendAborted(targetFile, opId, '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）')
+        await appendAborted(
+          targetFile,
+          opId,
+          '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）',
+        )
       } catch (e) {
         log.error('state', `journal acknowledge 落账失败：${redactSecret(errMsg(e))}`)
         replyError(res, 500, 'WRITE_ERROR', '崩溃提示清除失败（journal 落账未完成），请重试')

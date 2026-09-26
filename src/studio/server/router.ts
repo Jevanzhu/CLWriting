@@ -12,11 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { HttpError, replyError, replyHttpError, urlPathOnly, parseRequestUrl, isClientAbort } from './http.js'
 import { log } from '../../log/index.js'
 
-type Handler = (
-  req: IncomingMessage,
-  res: ServerResponse,
-  params: Record<string, string>,
-) => void | Promise<void>
+type Handler = (req: IncomingMessage, res: ServerResponse, params: Record<string, string>) => void | Promise<void>
 
 interface Route {
   method: string

@@ -24,14 +24,14 @@ export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
     path: '/api/books/:name/trace-stats',
     // aggregateTrace 转异步（事件库开库异步孪生），handler 随迁
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    const bookRoot = r.bookRoot
-    // 从事件库 llm/call 派生（接口不变；userDataPath 缺失 → total=0）
-    const stats = await aggregateTrace(ctx.userDataPath, bookRoot)
-    // 规则命中统计（按 hits 降序）
-    reply(res, 200, { ...stats, ruleHits: readRuleHits(bookRoot) })
-  },
+      const bookRoot = r.bookRoot
+      // 从事件库 llm/call 派生（接口不变；userDataPath 缺失 → total=0）
+      const stats = await aggregateTrace(ctx.userDataPath, bookRoot)
+      // 规则命中统计（按 hits 降序）
+      reply(res, 200, { ...stats, ruleHits: readRuleHits(bookRoot) })
+    },
   })
 }

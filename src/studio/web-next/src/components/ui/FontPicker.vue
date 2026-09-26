@@ -231,7 +231,14 @@ onBeforeUnmount(() => {
     >
       <span class="fp-label">{{ value ? display(value) : defaultLabel }}</span>
       <svg class="fp-caret" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M3 6l5 5 5-5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </button>
     <Teleport to="body">
@@ -282,7 +289,7 @@ onBeforeUnmount(() => {
     :aria-label="ariaLabel"
     :value="value"
     :style="{ fontFamily: value || defaultFont || 'inherit' }"
-    @change="emit('change', (($event.target) as HTMLSelectElement).value)"
+    @change="emit('change', ($event.target as HTMLSelectElement).value)"
   >
     <option value="">{{ defaultFont ? `默认 · ${display(defaultFont)}` : placeholder }}</option>
     <option v-for="f in fonts" :key="f" :value="f" :style="{ fontFamily: f }">{{ display(f) }}</option>

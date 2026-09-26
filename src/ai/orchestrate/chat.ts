@@ -265,9 +265,7 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
     store = null
     emit(opts, {
       type: 'notice',
-      message: `事件库打开失败，本次对话将不留审计记录（重启应用或检查磁盘后重试）：${
-        errMsg(e)
-      }`,
+      message: `事件库打开失败，本次对话将不留审计记录（重启应用或检查磁盘后重试）：${errMsg(e)}`,
     })
   }
   // recorder 提前声明——异常路径 finally 兜底 dispose（注销活跃登记，防孤儿修复误伤）

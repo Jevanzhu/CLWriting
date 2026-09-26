@@ -74,7 +74,7 @@ function readLlmCallHashes(ud: string, bookRoot: string): string[] {
     return store
       .listEvents(bookHash(bookRoot))
       .filter((e) => e.type === 'llm/call')
-      .map((e) => ((e.data as { promptMeta?: { hash?: string } }).promptMeta?.hash ?? ''))
+      .map((e) => (e.data as { promptMeta?: { hash?: string } }).promptMeta?.hash ?? '')
   } finally {
     store.close()
   }

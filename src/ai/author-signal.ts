@@ -42,8 +42,7 @@ export async function recordAuthorSignal(
   if (!deleted.trim()) return
 
   // 只统计套话类规则（作者删掉的 AI 味片段 = 信号）
-  const violations = collectRuleViolations(deleted, task, bookRoot)
-    .filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
+  const violations = collectRuleViolations(deleted, task, bookRoot).filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
   // 随 recordRuleHits 异步化（锁等待不再冻结服务事件循环）
   // task 传 'author-signal'——作者删除信号命中不再误归因 check
   await recordRuleHits(bookRoot, violations, userDataPath, 'author-signal')

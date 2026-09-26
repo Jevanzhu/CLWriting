@@ -17,7 +17,13 @@ import type { useTreeStore } from '../stores/tree'
 import type { useUiStore } from '../stores/ui'
 import type { useWorkspaceStore } from '../stores/workspace'
 import type { TreeNode } from '../types/tree'
-import { structurePlan, structureApply, structureMergeUndo, type MergePlanView, type SplitPlanView } from '../api/documents'
+import {
+  structurePlan,
+  structureApply,
+  structureMergeUndo,
+  type MergePlanView,
+  type SplitPlanView,
+} from '../api/documents'
 import { splitFrontmatter } from '../shared/words'
 import { flushBodyWriteback } from '../shared/body-writeback'
 import { prevBodyChapterInDisplayOrder } from '../shared/chapter-tree'
@@ -203,9 +209,7 @@ export function useChapterTreeStructure(deps: {
     // 同源换算（splitFrontmatter 单源，两端口径一致）
     const content = doc.get(node.docId)?.content ?? ''
     const split = splitFrontmatter(content)
-    const bodyStart = split
-      ? content.length - split.body.length + (split.body.startsWith('\n') ? 1 : 0)
-      : 0
+    const bodyStart = split ? content.length - split.body.length + (split.body.startsWith('\n') ? 1 : 0) : 0
     const cursorOffset = bodyStart + editorOffset
     let plan: SplitPlanView
     try {

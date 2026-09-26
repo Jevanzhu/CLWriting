@@ -21,7 +21,8 @@ const props = defineProps<{
   tabstopPath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
-  creatingKind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc' | null
+  creatingKind:
+    'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc' | null
   creatingSeed: string
   /** inline 重命名输入框：path 命中则替代 label。 */
   renamePath: string | null
@@ -70,8 +71,7 @@ function dotClass(status?: string): string {
 }
 
 const isOpen = () => props.expanded.has(props.node.path)
-const isCreatingHere = () =>
-  props.creatingDirPath === props.node.path && props.node.isDirectory && isOpen()
+const isCreatingHere = () => props.creatingDirPath === props.node.path && props.node.isDirectory && isOpen()
 const isRenaming = () => props.renamePath === props.node.path
 
 // 原生拖拽必须在 dragstart 内同步写 dataTransfer——Firefox 等
@@ -250,11 +250,7 @@ watch(
       </span>
       <span class="label">{{ node.name }}</span>
       <span v-if="node.status === 'published'" class="badge">·已发</span>
-      <span
-        v-if="tree.issuePaths.has(node.path)"
-        class="issue-dot"
-        data-tip="有校对红项或审稿驳回"
-      ></span>
+      <span v-if="tree.issuePaths.has(node.path)" class="issue-dot" data-tip="有校对红项或审稿驳回"></span>
     </div>
 
     <!-- 子节点 + 新建输入框（-③：group 语义包裹，display:contents 不改排版） -->
@@ -407,8 +403,13 @@ watch(
   animation: issue-pulse 1.6s ease-in-out 3;
 }
 @keyframes issue-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .inline-input {
   flex: 1;

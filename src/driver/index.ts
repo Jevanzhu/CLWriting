@@ -7,12 +7,7 @@ import type { Session, StudioDriver } from './types.js'
 import { mockDriver } from './mock.js'
 import { ccDriver } from './cc.js'
 
-export type {
-  Session,
-  SessionOptions,
-  DriverEvent,
-  StudioDriver,
-} from './types.js'
+export type { Session, SessionOptions, DriverEvent, StudioDriver } from './types.js'
 
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()

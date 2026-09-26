@@ -24,7 +24,10 @@ function makeBook(): { root: string } {
     flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
     dirs: ['工作区'],
     files: [
-      { rel: '布线/悬念/悬念-001-灭门真凶.md', content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      {
+        rel: '布线/悬念/悬念-001-灭门真凶.md',
+        content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
     ],
   })
   return { root }
@@ -33,11 +36,7 @@ function makeBook(): { root: string } {
 test('applyLeadUpdates: 消费账本推进 → 回写履历 + 清空文件', async () => {
   const { root } = makeBook()
   try {
-    writeFileSync(
-      join(root, '工作区', '账本推进.md'),
-      '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n', 'utf-8')
     const n = await applyLeadUpdates(root, 3)
     expect(n).toBe(1)
 
@@ -57,11 +56,7 @@ test('applyLeadUpdates: 消费账本推进 → 回写履历 + 清空文件', asy
 test('applyLeadUpdates: 同 章号+动词+证据 重复定稿不重复追加', async () => {
   const { root } = makeBook()
   try {
-    writeFileSync(
-      join(root, '工作区', '账本推进.md'),
-      '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n', 'utf-8')
     await applyLeadUpdates(root, 3)
     // 再次写入同样内容（作者改稿重新定稿）→ 已被清空，无新条目
     const n2 = await applyLeadUpdates(root, 3)
@@ -225,7 +220,11 @@ test('X-P2-8: 作者显式终态不被 advance/其他动词覆盖（仅 进行�
   try {
     // 作者已手动标终态的线 + 一条 advance 动词 → 状态不动（派生只作用于 进行中）
     const p = join(root, '布线', '悬念', '悬念-001-灭门真凶.md')
-    writeFileSync(p, '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 已收尾\n开启章: 1\n---\n\n## 履历\n', 'utf-8')
+    writeFileSync(
+      p,
+      '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 已收尾\n开启章: 1\n---\n\n## 履历\n',
+      'utf-8',
+    )
     writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：新的线索。\n', 'utf-8')
     expect(await applyLeadUpdates(root, 3)).toBe(1)
     const r = readLead(p)

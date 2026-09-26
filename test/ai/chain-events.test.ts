@@ -183,7 +183,11 @@ describe('F1-P2 runTask 链事件', () => {
       const ud = tempUserData()
       writeProviders(ud)
       const root = tempBookRoot()
-      const out = await runTask<{ stopReason: string; usage: { inputTokens: number; outputTokens: number }; resolvedMaxTokens?: number }>({
+      const out = await runTask<{
+        stopReason: string
+        usage: { inputTokens: number; outputTokens: number }
+        resolvedMaxTokens?: number
+      }>({
         userDataPath: ud,
         bookRoot: root,
         task: 'chat',
@@ -244,7 +248,7 @@ describe('F1-P2 runTask 链事件', () => {
       run: () => {
         calls++
         if (calls < 2) throw new GenError('429 limit', true)
-        return Promise.resolve('ok');
+        return Promise.resolve('ok')
       },
     })
     expect(out.ok).toBe(true)
@@ -279,8 +283,14 @@ describe('F1-P2 runTask 链事件', () => {
     expect(out.ok).toBe(true)
     const callsEv = readChainEvents(ud, root).filter((e) => e.type === 'llm/call')
     expect(callsEv).toHaveLength(2)
-    const failEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === false)!.data as { attempt: number; durationMs: number }
-    const okEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === true)!.data as { attempt: number; durationMs: number }
+    const failEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === false)!.data as {
+      attempt: number
+      durationMs: number
+    }
+    const okEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === true)!.data as {
+      attempt: number
+      durationMs: number
+    }
     expect(failEv.attempt).toBe(0)
     expect(okEv.attempt).toBe(1)
     // 两次 run 都是即时 resolve/reject → 本 attempt 窗口 ≈ 0；旧口径下 okEv 会 ≥ 300（退避窗计入）
@@ -340,7 +350,10 @@ describe('F1-P2 runTask 链事件', () => {
       ctrl,
       run: (_, signal) =>
         new Promise<string>((_resolve, reject) => {
-          if (signal.aborted) { reject(new Error('aborted')); return }
+          if (signal.aborted) {
+            reject(new Error('aborted'))
+            return
+          }
           signal.addEventListener('abort', () => reject(new Error('aborted')))
         }),
     })
@@ -391,7 +404,6 @@ describe('F1-P2 runTask 链事件', () => {
   }, 10_000)
 })
 
-
 describe('T2-2 建链失败审计留痕（mkChain 不再静默）', () => {
   it('task 缺失（建链入参不齐）→ logger.warn 结构化留痕，本次调用零链路事件', async () => {
     const logMod = await import('../../src/log/index.js')
@@ -400,7 +412,11 @@ describe('T2-2 建链失败审计留痕（mkChain 不再静默）', () => {
       const ud = tempUserData()
       writeProviders(ud)
       // task 不传：修复前整段调用零事件零日志（审计黑洞）
-      const out = await runTask<string>({ userDataPath: ud, bookRoot: tempBookRoot(), run: () => Promise.resolve('ok') })
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot: tempBookRoot(),
+        run: () => Promise.resolve('ok'),
+      })
       expect(out.ok).toBe(true)
       // R0916-7-P3-15：本用例只锁「建链失败恰一条留痕」——修复批起 run 回调返回壳的
       // stopReason 缺失另有一条留痕（'AI 任务返回值的 stopReason 非值域成员'），

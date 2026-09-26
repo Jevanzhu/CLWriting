@@ -10,11 +10,7 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import {
-  closeTreeIssuesDb,
-  readTreeIssuesCache,
-  writeTreeIssuesCache,
-} from '../../src/check/tree-issues-cache.js'
+import { closeTreeIssuesDb, readTreeIssuesCache, writeTreeIssuesCache } from '../../src/check/tree-issues-cache.js'
 import { ensureTreeIssuesTables } from '../../src/cache/schema.js'
 
 const here = join(import.meta.dirname, '../../src')
@@ -25,7 +21,10 @@ describe('R0916-6-P3-5: tree-issues prepared 缓存配对 close——结构契�
   // 确实委托单源」两条（三域同构三份测试的重复锚点合一的落点之一）。
   it('单源本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
     const src = readFileSync(join(here, 'shared/sqlite-prepared.ts'), 'utf8')
-    const m = /export function closeWithPrepared\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(src)
+    const m =
+      /export function closeWithPrepared\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(
+        src,
+      )
     expect(m, 'closeWithPrepared 必须先摘缓存再关库').not.toBeNull()
   })
 
@@ -40,7 +39,10 @@ describe('R0916-6-P3-5: tree-issues prepared 缓存配对 close——结构契�
     // 摘除 helper 本体后再扫：closeTreeIssuesDb 内的 db.close() 是全文件唯一合法落点
     const withoutHelper = src.replace(/export function closeTreeIssuesDb\(db: DatabaseSync\): void \{[\s\S]*?\n\}/, '')
     const bare = [...withoutHelper.matchAll(/\bdb\.close\(\)/g)]
-    expect(bare, `裸 close 点位（行号）：${bare.map((m) => withoutHelper.slice(0, m.index).split('\n').length).join(', ')}`).toHaveLength(0)
+    expect(
+      bare,
+      `裸 close 点位（行号）：${bare.map((m) => withoutHelper.slice(0, m.index).split('\n').length).join(', ')}`,
+    ).toHaveLength(0)
   })
 })
 

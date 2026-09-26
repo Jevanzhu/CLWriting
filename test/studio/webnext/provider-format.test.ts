@@ -110,10 +110,7 @@ describe('dto ↔ 草稿互转（P9 回填/提交）', () => {
     expect(dto[1]).toMatchObject({ id: 'b', maxTokens: 4 * 1024 })
   })
   it('dtoToModelDrafts ↔ modelDraftToDto 往返（已填字段无损）', () => {
-    const src = [
-      { id: 'a', name: 'A', contextWindow: 128 * 1024, maxTokens: 4096 },
-      { id: 'b' },
-    ]
+    const src = [{ id: 'a', name: 'A', contextWindow: 128 * 1024, maxTokens: 4096 }, { id: 'b' }]
     const back = modelDraftToDto(dtoToModelDrafts(src))
     expect(back).toEqual(src)
   })

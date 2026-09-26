@@ -90,7 +90,10 @@ export async function killProcAwaitEscalating(
   if (pid === undefined) return // 无 pid（未 spawn 成功/窗口内已退出）：维持原「超时放行」口径
   try {
     process.kill(pid, 'SIGKILL')
-    logger.warn('server-manager', `${context}：kill 后 ${killWaitMs}ms 仍未退出（SIGTERM 疑似被吞），已升级 SIGKILL 强杀（pid=${pid}）`)
+    logger.warn(
+      'server-manager',
+      `${context}：kill 后 ${killWaitMs}ms 仍未退出（SIGTERM 疑似被吞），已升级 SIGKILL 强杀（pid=${pid}）`,
+    )
   } catch (e) {
     logger.warn('server-manager', `${context}：SIGKILL 升级失败（child 可能已自行退出）：${errMsg(e)}`)
   }
@@ -131,13 +134,7 @@ export function handshake(
           const exited = new Promise<void>((resolveExit) => {
             proc.once('exit', () => resolveExit())
           })
-          void killProcAwaitEscalating(
-            proc,
-            exited,
-            'studio server 握手超时',
-            killWaitMs,
-            logger,
-          ).finally(() =>
+          void killProcAwaitEscalating(proc, exited, 'studio server 握手超时', killWaitMs, logger).finally(() =>
             rejectRaw(new ServerBootError('HANDSHAKE_TIMEOUT', 'studio server 子进程启动握手超时（30s 无 ready）')),
           )
         }),

@@ -61,7 +61,10 @@ afterEach(() => {
 describe('shelf: 加载书架', () => {
   it('load 成功 → books 填充 + workDirMissing false', async () => {
     listMock.mockResolvedValue({
-      books: [{ name: '长篇1', kind: 'long' }, { name: '短篇集1', kind: 'short' }],
+      books: [
+        { name: '长篇1', kind: 'long' },
+        { name: '短篇集1', kind: 'short' },
+      ],
       workDir: true,
     })
     const s = useShelfStore()

@@ -125,9 +125,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
 
     // 窗口内保存启动：doSave 首行同步置 e.saving=true，PUT 在途
     let resolveSave!: (v: SaveOk) => void
-    vi.mocked(saveContent).mockReturnValueOnce(
-      new Promise<SaveOk>((r) => (resolveSave = r)),
-    )
+    vi.mocked(saveContent).mockReturnValueOnce(new Promise<SaveOk>((r) => (resolveSave = r)))
     const saveP = doc.save('d1', 'manual')
 
     resolveGet('旧内容') // 迟到的服务端旧内容（保存前拍的快照）
@@ -150,9 +148,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
     doc.patch('d1', '作者新编辑')
 
     let resolveSave!: (v: SaveOk) => void
-    vi.mocked(saveContent).mockReturnValueOnce(
-      new Promise<SaveOk>((r) => (resolveSave = r)),
-    )
+    vi.mocked(saveContent).mockReturnValueOnce(new Promise<SaveOk>((r) => (resolveSave = r)))
     const saveP = doc.save('d1', 'manual') // saving = true
 
     const getCalls = vi.mocked(getContent).mock.calls.length

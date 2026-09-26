@@ -36,16 +36,13 @@ async function onRefresh(): Promise<void> {
       <button
         v-if="ws.leftPanel === 'tree'"
         class="left-tab refresh-tree"
-        data-tip="刷新目录" data-tip-dir="bottom"
+        data-tip="刷新目录"
+        data-tip-dir="bottom"
         @click="onRefresh()"
       >
         <RefreshCw :size="17" :stroke-width="1.6" :class="{ spin: refreshing }" />
       </button>
-      <button
-        class="left-tab collapse-left"
-        data-tip="收起左栏" data-tip-dir="bottom"
-        @click="ws.toggleLeft()"
-      >
+      <button class="left-tab collapse-left" data-tip="收起左栏" data-tip-dir="bottom" @click="ws.toggleLeft()">
         <PanelLeftClose :size="17" :stroke-width="1.6" />
       </button>
     </div>

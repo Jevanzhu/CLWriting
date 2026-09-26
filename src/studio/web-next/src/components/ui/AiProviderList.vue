@@ -61,12 +61,7 @@ function protocolLabel(p: ProviderConfDto): string {
 
   <template v-else>
     <div class="provider-list">
-      <ProviderRow
-        v-for="p in providers"
-        :key="p.id"
-        :expanded="expandedId === p.id"
-        :active="p.id === currentId"
-      >
+      <ProviderRow v-for="p in providers" :key="p.id" :expanded="expandedId === p.id" :active="p.id === currentId">
         <template #main>
           <!-- 单行：名称 + 当前徽章 + 协议接口名 + 模型数（淡字，有配置才显示）+ 右对齐状态 -->
           <div class="row-line">
@@ -75,7 +70,9 @@ function protocolLabel(p: ProviderConfDto): string {
             <span class="tag" :class="`proto-${p.protocol}`">{{ protocolLabel(p) }}</span>
             <span v-if="(p.models ?? []).length" class="row-count">{{ (p.models ?? []).length }} 个模型行</span>
             <span class="provider-status">
-              <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{ capsBadge(p.caps)?.text }}</span>
+              <span v-if="p.caps" class="caps-badge" :class="capsBadge(p.caps)?.cls">{{
+                capsBadge(p.caps)?.text
+              }}</span>
               <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
               <span v-if="!p.caps" class="unchecked-hint">未测试</span>
             </span>

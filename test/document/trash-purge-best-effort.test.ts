@@ -34,7 +34,13 @@ function makeTrashedBook(): string {
   writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
   writeFileSync(
     join(root, '工作区', '.trash', '.trash-manifest.jsonl'),
-    JSON.stringify({ id: 'doc_a', originalPath: '写作/正文/0001-旧稿.md', trashedPath: '工作区/.trash/doc_a-旧稿.md', trashedAt: '', role: 'chapter' }) + '\n',
+    JSON.stringify({
+      id: 'doc_a',
+      originalPath: '写作/正文/0001-旧稿.md',
+      trashedPath: '工作区/.trash/doc_a-旧稿.md',
+      trashedAt: '',
+      role: 'chapter',
+    }) + '\n',
     'utf-8',
   )
   return root

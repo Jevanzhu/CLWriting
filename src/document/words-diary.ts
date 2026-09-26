@@ -101,12 +101,7 @@ interface WordsDeltaEntry {
  * 单行损失仅影响当日字数统计的个位精度——统计口径本就是「今日字数基线方案」的近似
  * （§5.4 精度限制已认）。加锁反而给每次保存平添一次锁文件创建/删除开销。
  */
-export function appendWordsDelta(
-  bookRoot: string,
-  date: string,
-  delta: number,
-  docId?: string,
-): void {
+export function appendWordsDelta(bookRoot: string, date: string, delta: number, docId?: string): void {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   const entry: WordsDeltaEntry = { date, delta, ts: new Date().toISOString() }
   if (docId) entry.docId = docId

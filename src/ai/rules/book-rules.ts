@@ -42,9 +42,7 @@ export function loadAiFlavorRule(bookRoot: string): WritingRule {
         .map((w) => ({
           ruleId: 'ai-flavor-words',
           level: 'yellow' as const,
-          message: w.hint
-            ? `AI味词「${w.word}」——${w.hint}`
-            : `AI味词「${w.word}」——删除或替换`,
+          message: w.hint ? `AI味词「${w.word}」——${w.hint}` : `AI味词「${w.word}」——删除或替换`,
         }))
     },
   }

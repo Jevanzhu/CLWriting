@@ -84,7 +84,9 @@ describe('R27-107: 卷摘要备料陈旧闸', () => {
         expect(r.sections.find((s) => s.title === '第2卷摘要')).toBeUndefined()
         expect(r.injectedSummaryFiles).not.toContain('定稿/摘要/卷摘要/2.md')
         // 放弃注入即留痕（对齐全库 warn 风格）
-        expect(warn.mock.calls.some((c) => String(c[0]).includes('[prepare]') && String(c[0]).includes('已过期'))).toBe(true)
+        expect(warn.mock.calls.some((c) => String(c[0]).includes('[prepare]') && String(c[0]).includes('已过期'))).toBe(
+          true,
+        )
       } finally {
         warn.mockRestore()
       }
@@ -159,7 +161,9 @@ describe('R27-107: 「已过期但链不全」交集路径留痕', () => {
         // 修复前：chain null 与 fresh 合用一个 return——静默放弃无留痕
         const vol = await selfHealVolumeSummary(root, null, DEFAULT_CONFIG, 150) // 卷 3 写作中 → 上一卷 = 第 2 卷
         expect(vol).toBeNull()
-        expect(warn.mock.calls.some((c) => String(c[0]).includes('[summary]') && String(c[0]).includes('链不全'))).toBe(true)
+        expect(warn.mock.calls.some((c) => String(c[0]).includes('[summary]') && String(c[0]).includes('链不全'))).toBe(
+          true,
+        )
       } finally {
         warn.mockRestore()
       }

@@ -148,9 +148,7 @@ function seedTree(): void {
       name: '写作',
       isDirectory: true,
       role: '',
-      children: [
-        { path: '写作/正文', name: '正文', isDirectory: true, role: '', children: [leaf] },
-      ],
+      children: [{ path: '写作/正文', name: '正文', isDirectory: true, role: '', children: [leaf] }],
     },
   ]
 }
@@ -247,19 +245,22 @@ describe('R66-30/31/32: 三面板失败 toast 书名守卫（失败面表驱动�
     expect(useUiStore().toasts).toHaveLength(0) // 修复点：错误不打在 B 书上
   })
 
-  it.each(panelGuardCases)('$label 失败仍在原书 → error toast（对照组，守卫不误伤）', async ({ mountAndAct, api, err }) => {
-    const d = deferredReject()
-    api.mockImplementation(
-      () =>
-        new Promise((_res, rej) => {
-          d.reject = rej
-        }),
-    )
-    await mountAndAct('书甲')
-    d.reject(new Error(err))
-    await flushPromises()
-    expect(useUiStore().toasts.at(-1)?.kind).toBe('error')
-  })
+  it.each(panelGuardCases)(
+    '$label 失败仍在原书 → error toast（对照组，守卫不误伤）',
+    async ({ mountAndAct, api, err }) => {
+      const d = deferredReject()
+      api.mockImplementation(
+        () =>
+          new Promise((_res, rej) => {
+            d.reject = rej
+          }),
+      )
+      await mountAndAct('书甲')
+      d.reject(new Error(err))
+      await flushPromises()
+      expect(useUiStore().toasts.at(-1)?.kind).toBe('error')
+    },
+  )
 })
 
 // ── R66-33：发送失败 + 切书 → 失败草稿回切回填 ────────

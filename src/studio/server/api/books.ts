@@ -58,7 +58,7 @@ export interface BookCtx extends TaskGateInjected {
    *  兼容既有调用方；缺失时仅日志留痕） */
   onStartupNotice?: (kind: string, message: string) => void
   /** 收尾：删书墓地后台清理函数覆盖档——组装根 RouteOverrides 注入
- * （undefined = 真删生产口径逐位不变；测试注入受控桩/暂停桩断言墓地行为） */
+   * （undefined = 真删生产口径逐位不变；测试注入受控桩/暂停桩断言墓地行为） */
   graveyardCleanup?: ((graveAbs: string) => Promise<void>) | null
 }
 
@@ -68,55 +68,55 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/books',
     handler: async (_, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) {
-      reply(res, 200, {
-        books: [],
-        workDir: false,
-        hint: '当前目录不是 CLWriting 工作目录。请在工作目录（含 .clwriting/）下启动 studio。',
-      })
-      return
-    }
-    // 书架卡补摘要：title / 进度(N 章/字数) / 最近编辑。单本损坏不崩整列（摘要降级缺省）。
-    // entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
-    // 路径，此处补与删/改路径同强度的越界/symlink 校验（校验强度对称化）；不合法条目
-    // 按损坏标记降级（不崩整列）。
-    // 逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
-    // 逐书整树扫描单请求冻结事件循环（Electron 内嵌单进程服务 = 桌面卡死），摘要
-    // TTL 缓存只降频不减峰（缓存 MISS 的首轮与失效后仍全量）。
-    // resolveWithinRoot + readBookConfig 收进 TTL 缓存（getShelfGuard，
-    // 与摘要同 30s 口径）——两者此前每请求每书重跑（数百次同步 stat/读盘），摘要有缓存
-    // 而守卫没有是半收口。
-    const books = []
-    for (const b of readBooks(ctx.workDir)) {
-      await yieldToEventLoop() // 书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
-      const guard = getShelfGuard(ctx.workDir!, b.path)
-      if (guard.damaged) {
-        books.push({ ...b, damaged: true, createdAt: b.created_at })
-        continue
-      }
-      try {
-        // -BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
-        // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
-        // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
-        const effective = applyGlobalDefaults(guard.config, ctx.userDataPath)
-        const summary = await computeBookSummaryAsync(guard.bookRoot)
-        books.push({
-          ...b,
-          title: effective.book.title,
-          chapters: summary.chapters,
-          words: summary.words,
-          lastEdited: summary.lastEdited,
-          targetWords: effective.book.target_words,
-          latestChapter: summary.latestChapter,
-          createdAt: b.created_at,
+      if (!ctx.workDir) {
+        reply(res, 200, {
+          books: [],
+          workDir: false,
+          hint: '当前目录不是 CLWriting 工作目录。请在工作目录（含 .clwriting/）下启动 studio。',
         })
-      } catch {
-        // 书仓库损坏/缺 book.yaml：保留登记原样 + 显式损坏标记（前端容错）
-        books.push({ ...b, damaged: true, createdAt: b.created_at })
+        return
       }
-    }
-    reply(res, 200, { books, workDir: true })
-  },
+      // 书架卡补摘要：title / 进度(N 章/字数) / 最近编辑。单本损坏不崩整列（摘要降级缺省）。
+      // entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
+      // 路径，此处补与删/改路径同强度的越界/symlink 校验（校验强度对称化）；不合法条目
+      // 按损坏标记降级（不崩整列）。
+      // 逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
+      // 逐书整树扫描单请求冻结事件循环（Electron 内嵌单进程服务 = 桌面卡死），摘要
+      // TTL 缓存只降频不减峰（缓存 MISS 的首轮与失效后仍全量）。
+      // resolveWithinRoot + readBookConfig 收进 TTL 缓存（getShelfGuard，
+      // 与摘要同 30s 口径）——两者此前每请求每书重跑（数百次同步 stat/读盘），摘要有缓存
+      // 而守卫没有是半收口。
+      const books = []
+      for (const b of readBooks(ctx.workDir)) {
+        await yieldToEventLoop() // 书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
+        const guard = getShelfGuard(ctx.workDir!, b.path)
+        if (guard.damaged) {
+          books.push({ ...b, damaged: true, createdAt: b.created_at })
+          continue
+        }
+        try {
+          // -BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
+          // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
+          // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
+          const effective = applyGlobalDefaults(guard.config, ctx.userDataPath)
+          const summary = await computeBookSummaryAsync(guard.bookRoot)
+          books.push({
+            ...b,
+            title: effective.book.title,
+            chapters: summary.chapters,
+            words: summary.words,
+            lastEdited: summary.lastEdited,
+            targetWords: effective.book.target_words,
+            latestChapter: summary.latestChapter,
+            createdAt: b.created_at,
+          })
+        } catch {
+          // 书仓库损坏/缺 book.yaml：保留登记原样 + 显式损坏标记（前端容错）
+          books.push({ ...b, damaged: true, createdAt: b.created_at })
+        }
+      }
+      reply(res, 200, { books, workDir: true })
+    },
   })
 
   // 建书（1.5 段 1 表单 → doInit）
@@ -155,26 +155,26 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return { name, genre, kind, leads, host, targetWords, brief }
     },
     handler: async ({ input, gate: workDir }, _req: IncomingMessage, res: ServerResponse) => {
-    // /：建书迁 doInitAsync——doInit 经 appendBook 的同步
-    // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
-    // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
-    // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
-    const result = await doInitAsync({
-      workDir,
-      name: input.name,
-      genre: input.genre || undefined,
-      leads: input.leads,
-      kind: input.kind,
-      host: input.host,
-      targetWords: input.targetWords,
-      brief: input.brief,
-    })
-    if (!result.ok) {
-      replyError(res, 400, 'BAD_INPUT', result.reason)
-      return
-    }
-    reply(res, 200, { name: result.bookName, kind: input.kind, path: result.bookPath })
-  },
+      // /：建书迁 doInitAsync——doInit 经 appendBook 的同步
+      // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
+      // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
+      // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
+      const result = await doInitAsync({
+        workDir,
+        name: input.name,
+        genre: input.genre || undefined,
+        leads: input.leads,
+        kind: input.kind,
+        host: input.host,
+        targetWords: input.targetWords,
+        brief: input.brief,
+      })
+      if (!result.ok) {
+        replyError(res, 400, 'BAD_INPUT', result.reason)
+        return
+      }
+      reply(res, 200, { name: result.bookName, kind: input.kind, path: result.bookPath })
+    },
   })
 
   registerBookLifecycleRoutes(ctx)
@@ -224,14 +224,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/boot',
     handler: (_, req: IncomingMessage, res: ServerResponse) => {
-    // token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
-    // Origin（server/index.ts 注入）；外部 Origin 一律不给。initialBook 无敏感性，照常回传。
-    // 口径修正：本机进程=同信任域——本地进程无 Origin 直连
-    // 本端点即可拿 token，故 token 不承诺防本机进程；其实际作用是把写端点/SSE 可驱动面
-    // 收敛到拿到 boot 的客户端，配合 Host/Origin 校验（server/index.ts）防远端网页驱动。
-    const origin = req.headers.origin
-    const trusted = !origin || ctx.isTrustedOrigin(origin)
-    reply(res, 200, trusted ? { initialBook, token: ctx.token } : { initialBook })
-  },
+      // token 仅在可信时回传——无 Origin（本机直连 curl/测试）或同源/dev 白名单
+      // Origin（server/index.ts 注入）；外部 Origin 一律不给。initialBook 无敏感性，照常回传。
+      // 口径修正：本机进程=同信任域——本地进程无 Origin 直连
+      // 本端点即可拿 token，故 token 不承诺防本机进程；其实际作用是把写端点/SSE 可驱动面
+      // 收敛到拿到 boot 的客户端，配合 Host/Origin 校验（server/index.ts）防远端网页驱动。
+      const origin = req.headers.origin
+      const trusted = !origin || ctx.isTrustedOrigin(origin)
+      reply(res, 200, trusted ? { initialBook, token: ctx.token } : { initialBook })
+    },
   })
 }

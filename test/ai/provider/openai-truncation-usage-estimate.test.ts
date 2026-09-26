@@ -99,9 +99,20 @@ describe('R55-C-3：截断估计并入 toolAccum 残留', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'book_search', arguments: '' } }] }, finish_reason: null }] },
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'book_search', arguments: '' } }] },
+                  finish_reason: null,
+                },
+              ],
+            },
             // 流在此正常结束——无 finish_reason 也无 usage（网关断流），toolAccum 残留在途调用
-            { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: longArgs } }] }, finish_reason: null }] },
+            {
+              choices: [
+                { delta: { tool_calls: [{ index: 0, function: { arguments: longArgs } }] }, finish_reason: null },
+              ],
+            },
           ]),
         },
       },

@@ -41,7 +41,12 @@ const keyError = computed(() => {
       </div>
       <div class="form-row">
         <label>嵌入服务地址</label>
-        <input v-model="form.endpoint" type="text" placeholder="https://api.example.com/v1/embeddings（完整 URL）" class="text-input" />
+        <input
+          v-model="form.endpoint"
+          type="text"
+          placeholder="https://api.example.com/v1/embeddings（完整 URL）"
+          class="text-input"
+        />
       </div>
       <div class="form-row">
         <label>嵌入模型</label>
@@ -62,7 +67,9 @@ const keyError = computed(() => {
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>
         <!-- ：保存按钮在途禁用 + 文案反馈 -->
-        <button class="save-btn" :disabled="saving" @click="emit('save', { ...form })">{{ saving ? '保存中…' : '保存' }}</button>
+        <button class="save-btn" :disabled="saving" @click="emit('save', { ...form })">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
       </div>
     </div>
   </div>

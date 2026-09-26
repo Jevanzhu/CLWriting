@@ -93,12 +93,17 @@ describe('R0910-W：server.close 自包含化', () => {
     const token = ((await (await fetch(`${base}/api/boot`)).json()) as { token: string }).token
     const ac = new AbortController()
     // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
-    const r = await fetch(
-      `${base}/api/books/${encodeURIComponent(BOOK)}/stream`,
-      { signal: ac.signal, headers: { 'x-studio-token': token } },
-    )
+    const r = await fetch(`${base}/api/books/${encodeURIComponent(BOOK)}/stream`, {
+      signal: ac.signal,
+      headers: { 'x-studio-token': token },
+    })
     expect(r.status).toBe(200)
-    void r.body?.getReader().read().catch(() => { /* abort 后忽略 */ })
+    void r.body
+      ?.getReader()
+      .read()
+      .catch(() => {
+        /* abort 后忽略 */
+      })
     // 重评-0914-三轮 P3-12：连接登记到达假定改就绪探针轮询（固定 sleep(50) 在慢机上
     // 可能早于服务端登记完成 → 假红；waitFor 单源语义见 helpers/wait-for.ts）
     await waitFor(() => __getSseConnections().get(BOOK) === 1, 3000, 5, 'SSE 连接登记')
@@ -116,7 +121,11 @@ describe('R0910-W：server.close 自包含化', () => {
 // 影响前序 close 用例的等待时长）。
 describe('R0910-W：等待有界', () => {
   it('未 settle 的登记项：有界放行，不无限期阻塞', async () => {
-    trackInFlightWork(new Promise<void>(() => { /* 永不 settle */ }))
+    trackInFlightWork(
+      new Promise<void>(() => {
+        /* 永不 settle */
+      }),
+    )
     const t0 = Date.now()
     await waitInFlightWorkSettled(120)
     const elapsed = Date.now() - t0

@@ -146,49 +146,56 @@ describe('migrateBookSession', () => {
   // busy（NTFS 文件共享语义，无法截断他句柄打开的文件）——迁移按设计 fail-closed 拒绝
   // （checkpoint 忙 → 整体放弃，源库原地完整，无数据丢失方向）。「他连接持库时仍可折叠
   // 迁移」这一守卫语义由 macOS/Linux CI 腿覆盖（J0 win 适配实测定性）
-  it.skipIf(process.platform === 'win32')('checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整', async () => {
-    const ud = tmpRoot()
-    const oldRoot = '/books/折甲'
-    const newRoot = '/books/折乙'
-    const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
-    const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+  it.skipIf(process.platform === 'win32')(
+    'checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整',
+    async () => {
+      const ud = tmpRoot()
+      const oldRoot = '/books/折甲'
+      const newRoot = '/books/折乙'
+      const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
+      const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
 
-    // R64-8（十二轮）：单例连接收口（refs>0 不再强迁）——未 checkpoint 写入改由
-    // 旁路裸连接制造：建库写数据 → close（折进主库）→ 裸连接追加新行且不 checkpoint，
-    // 新行唯一副本落 -wal；主库单文件拷走只读打开查不到该行，证明副本确在侧车。
-    // 迁移若不折叠 WAL 就搬文件（或搬丢侧车），该行即全损
-    const store = openSessionStore(ud, oldRoot)!
-    const sid = store.createSession('折甲')
-    store.appendEvents(sid, [{ type: 'user/message', data: { message: '种子数据' }, surfaceOp: 'append' }])
-    store.close()
-    const writer = new DatabaseSync(oldDb)
-    writer.prepare(
-      `INSERT INTO events (session_id, type, data, replace_generation, created_at)
+      // R64-8（十二轮）：单例连接收口（refs>0 不再强迁）——未 checkpoint 写入改由
+      // 旁路裸连接制造：建库写数据 → close（折进主库）→ 裸连接追加新行且不 checkpoint，
+      // 新行唯一副本落 -wal；主库单文件拷走只读打开查不到该行，证明副本确在侧车。
+      // 迁移若不折叠 WAL 就搬文件（或搬丢侧车），该行即全损
+      const store = openSessionStore(ud, oldRoot)!
+      const sid = store.createSession('折甲')
+      store.appendEvents(sid, [{ type: 'user/message', data: { message: '种子数据' }, surfaceOp: 'append' }])
+      store.close()
+      const writer = new DatabaseSync(oldDb)
+      writer
+        .prepare(
+          `INSERT INTO events (session_id, type, data, replace_generation, created_at)
        VALUES (?, 'user/message', ?, 0, ?)`,
-    ).run(sid, JSON.stringify({ message: '折叠数据' }), Date.now())
-    const mainOnlyCopy = join(ud, 'main-only-copy.db')
-    copyFileSync(oldDb, mainOnlyCopy)
-    const ro = new DatabaseSync(mainOnlyCopy, { readOnly: true })
-    const inMain = ro.prepare("SELECT COUNT(*) AS n FROM events WHERE data LIKE '%折叠数据%'").get() as { n: number }
-    expect(inMain.n).toBe(0) // 主库查不到：唯一副本在 -wal
-    ro.close()
-    rmSync(mainOnlyCopy)
+        )
+        .run(sid, JSON.stringify({ message: '折叠数据' }), Date.now())
+      const mainOnlyCopy = join(ud, 'main-only-copy.db')
+      copyFileSync(oldDb, mainOnlyCopy)
+      const ro = new DatabaseSync(mainOnlyCopy, { readOnly: true })
+      const inMain = ro.prepare("SELECT COUNT(*) AS n FROM events WHERE data LIKE '%折叠数据%'").get() as { n: number }
+      expect(inMain.n).toBe(0) // 主库查不到：唯一副本在 -wal
+      ro.close()
+      rmSync(mainOnlyCopy)
 
-    // 迁移成功：WAL 在搬移前经显式 TRUNCATE 折叠进主库（见 store.ts 5.1-3）——
-    // writer 仍开着（跨进程忘关的连接），已提交无持锁 → checkpoint 可折叠
-    expect(await migrateBookSession(ud, oldRoot, newRoot, '折甲', '折乙')).toBe(true)
-    // 旧位置整体清空（不留孤儿侧车），新位置数据完整、旧钥匙查不到
-    expect(existsSync(oldDb)).toBe(false)
-    expect(existsSync(oldDb + '-wal')).toBe(false)
-    expect(existsSync(oldDb + '-shm')).toBe(false)
-    expect(existsSync(newDb)).toBe(true)
-    const migrated = openSessionStore(ud, newRoot)!
-    // 折叠数据（-wal 唯一副本的那行）在新位置可读
-    expect(migrated.listEvents('折乙').some((e) => (e.data as { message?: string }).message === '折叠数据')).toBe(true)
-    expect(migrated.listEvents('折甲')).toEqual([])
-    migrated.close()
-    writer.close()
-  })
+      // 迁移成功：WAL 在搬移前经显式 TRUNCATE 折叠进主库（见 store.ts 5.1-3）——
+      // writer 仍开着（跨进程忘关的连接），已提交无持锁 → checkpoint 可折叠
+      expect(await migrateBookSession(ud, oldRoot, newRoot, '折甲', '折乙')).toBe(true)
+      // 旧位置整体清空（不留孤儿侧车），新位置数据完整、旧钥匙查不到
+      expect(existsSync(oldDb)).toBe(false)
+      expect(existsSync(oldDb + '-wal')).toBe(false)
+      expect(existsSync(oldDb + '-shm')).toBe(false)
+      expect(existsSync(newDb)).toBe(true)
+      const migrated = openSessionStore(ud, newRoot)!
+      // 折叠数据（-wal 唯一副本的那行）在新位置可读
+      expect(migrated.listEvents('折乙').some((e) => (e.data as { message?: string }).message === '折叠数据')).toBe(
+        true,
+      )
+      expect(migrated.listEvents('折甲')).toEqual([])
+      migrated.close()
+      writer.close()
+    },
+  )
 
   it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', async () => {
     const ud = tmpRoot()
@@ -229,7 +236,8 @@ describe('migrateBookSession', () => {
     expect(() => store.close()).not.toThrow()
   })
 
-  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', async () => {    const ud = tmpRoot()
+  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', async () => {
+    const ud = tmpRoot()
     const oldRoot = '/books/碰甲'
     const newRoot = '/books/碰乙'
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
@@ -250,10 +258,14 @@ describe('migrateBookSession', () => {
     expect(await migrateBookSession(ud, oldRoot, newRoot, '碰甲', '碰乙')).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     const probeOld = new DatabaseSync(oldDb)
-    expect((probeOld.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
+    expect(
+      (probeOld.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n,
+    ).toBe(1)
     probeOld.close()
     const probeNew = new DatabaseSync(newDb)
-    expect((probeNew.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
+    expect(
+      (probeNew.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n,
+    ).toBe(1)
     probeNew.close()
   })
 
@@ -284,7 +296,7 @@ describe('migrateBookSession', () => {
     expect(existsSync(newDb)).toBe(true)
     // 窗内事实：新库钥匙仍旧名——新名下两头都查不到（「消失」形态）
     const half = new DatabaseSync(newDb)
-    const oldKeyRows = half.prepare("SELECT COUNT(*) AS n FROM sessions WHERE book = ?").get('愈甲') as { n: number }
+    const oldKeyRows = half.prepare('SELECT COUNT(*) AS n FROM sessions WHERE book = ?').get('愈甲') as { n: number }
     half.close()
     expect(oldKeyRows.n).toBeGreaterThan(0)
 

@@ -48,9 +48,7 @@ function lockedVersion(lockDir: string, name: string): string {
   }
   const entry = lock.packages?.[`node_modules/${name}`]
   if (!entry?.version) {
-    throw new Error(
-      `${lockDir} 的 package-lock.json 缺 node_modules/${name} 条目——依赖布局漂移，守卫入口失效`,
-    )
+    throw new Error(`${lockDir} 的 package-lock.json 缺 node_modules/${name} 条目——依赖布局漂移，守卫入口失效`)
   }
   return entry.version
 }

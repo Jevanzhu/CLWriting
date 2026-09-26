@@ -94,7 +94,7 @@ describe('formatWanZi（复审-0913-源码 P3-㉕：万字简写单源）', () =
     expect(formatWanZi(30000, { digits: 0 })).toBe('3万')
     expect(formatWanZi(45000, { digits: 0 })).toBe('5万')
   })
-  it('suffix: \' 万字\'（useShelf formatWords 口径，空格随参保留）', () => {
+  it("suffix: ' 万字'（useShelf formatWords 口径，空格随参保留）", () => {
     expect(formatWanZi(23456, { suffix: ' 万字' })).toBe('2.3 万字')
   })
 })

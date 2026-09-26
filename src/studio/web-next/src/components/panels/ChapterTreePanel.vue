@@ -30,9 +30,7 @@ const ws = useWorkspaceStore()
 const expanded = computed<Set<string>>(() => new Set(ws.treeExpanded))
 const openError = ref<string | null>(null)
 
-const activePath = computed<string | null>(
-  () => (ws.activeDocId ? doc.get(ws.activeDocId)?.path ?? null : null),
-)
+const activePath = computed<string | null>(() => (ws.activeDocId ? (doc.get(ws.activeDocId)?.path ?? null) : null))
 
 // （-③）：roving tabindex 停靠行——active 行优先（active 恒在渲染面：
 // RENDER_CAP 滑窗含 active）；active 不在树（无打开文档/陈旧）回落首行。
@@ -239,14 +237,22 @@ watch(
       :num="actions.metaEditing.value?.num ?? null"
       :title="actions.metaEditing.value?.标题 ?? ''"
       :is-piece="actions.metaEditing.value?.isPiece ?? false"
-      @update:model-value="(v: boolean) => { if (!v) actions.metaEditing.value = null }"
+      @update:model-value="
+        (v: boolean) => {
+          if (!v) actions.metaEditing.value = null
+        }
+      "
       @save="actions.onSaveMeta"
     />
     <!-- 阶段 24：拆分弹窗（干跑视图 + 标题输入；确认后携 planHash 执行） -->
     <SplitChapterDialog
       :model-value="!!actions.splitEditing.value"
       :plan="actions.splitEditing.value?.plan ?? null"
-      @update:model-value="(v: boolean) => { if (!v) actions.splitEditing.value = null }"
+      @update:model-value="
+        (v: boolean) => {
+          if (!v) actions.splitEditing.value = null
+        }
+      "
       @confirm="actions.onSplitCommit"
     />
   </div>
@@ -298,8 +304,16 @@ watch(
   border-radius: 50%;
   flex-shrink: 0;
 }
-.lg-dot.c-green { background: var(--dv-good); }
-.lg-dot.c-yellow { background: var(--text-warning); }
-.lg-dot.c-red { background: var(--text-error); }
-.lg-dot.c-gray { background: var(--text-faint); }
+.lg-dot.c-green {
+  background: var(--dv-good);
+}
+.lg-dot.c-yellow {
+  background: var(--text-warning);
+}
+.lg-dot.c-red {
+  background: var(--text-error);
+}
+.lg-dot.c-gray {
+  background: var(--text-faint);
+}
 </style>

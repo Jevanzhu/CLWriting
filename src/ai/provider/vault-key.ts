@@ -28,15 +28,9 @@
  */
 
 /** 碎片 A——分散在常量池中的固定字节（单独无意义） */
-const SHARD_A = Buffer.from(
-  '7a9c3f1e8b4d2065adfe3c187b629044ca1e7d3058bf2a963710ec4d9f8a3b71',
-  'hex',
-)
+const SHARD_A = Buffer.from('7a9c3f1e8b4d2065adfe3c187b629044ca1e7d3058bf2a963710ec4d9f8a3b71', 'hex')
 /** 碎片 B——与 A 异或后才是完整 IKM */
-const SHARD_B = Buffer.from(
-  '2e5b8a07c1f9354a96d0637e2f4a17bca0e89c5fbe14096b8d3a725f6c05d486',
-  'hex',
-)
+const SHARD_B = Buffer.from('2e5b8a07c1f9354a96d0637e2f4a17bca0e89c5fbe14096b8d3a725f6c05d486', 'hex')
 /** 命名空间隔离串——防止与其他应用的 IKM 碰撞 */
 const NAMESPACE = 'clwriting::credential-vault::fixed-seed'
 

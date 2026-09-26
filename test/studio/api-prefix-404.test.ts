@@ -38,16 +38,14 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Resp> 
   const withToken = { 'x-studio-token': token, ...headers }
   return new Promise((resolve, reject) => {
     const u = new URL(baseUrl)
-    http.request(
-      { host: u.hostname, port: u.port, path, method: 'GET', headers: withToken },
-      (res) => {
+    http
+      .request({ host: u.hostname, port: u.port, path, method: 'GET', headers: withToken }, (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf8')))
         res.on('end', () =>
           resolve({ status: res.statusCode ?? 0, contentType: String(res.headers['content-type'] ?? ''), text: data }),
         )
-      },
-    )
+      })
       .on('error', reject)
       .end()
   })

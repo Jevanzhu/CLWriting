@@ -16,13 +16,33 @@ const root = fileURLToPath(new URL('../../', import.meta.url)) // R62-58
 
 /** 编辑器/底座模块（禁止 import AI 生成层）。review 归编辑器辅助，同守。 */
 const EDITOR_BASE = [
-  'document', 'fs', 'format', 'cache', 'git',
-  'export', 'import', 'install', 'metrics', 'impact', 'check', 'review',
+  'document',
+  'fs',
+  'format',
+  'cache',
+  'git',
+  'export',
+  'import',
+  'install',
+  'metrics',
+  'impact',
+  'check',
+  'review',
 ]
 /** AI 生成层模块（被禁目标）。 */
 const AI_LAYER = [
-  'ai', 'auto', 'driver', 'finalize', 'gate', 'knowledge', 'learn',
-  'process', 'rag', 'reconcile', 'session', 'state',
+  'ai',
+  'auto',
+  'driver',
+  'finalize',
+  'gate',
+  'knowledge',
+  'learn',
+  'process',
+  'rag',
+  'reconcile',
+  'session',
+  'state',
 ]
 
 /**
@@ -94,9 +114,6 @@ describe('G5 依赖方向守护', () => {
         stale.push(`${key}  ← import 已消失，可从白名单移除（视为已治理）`)
       }
     }
-    expect(
-      stale,
-      'KNOWN 白名单有条目已过时（对应 import 已治理，应移除以反映现状）:\n' + stale.join('\n'),
-    ).toEqual([])
+    expect(stale, 'KNOWN 白名单有条目已过时（对应 import 已治理，应移除以反映现状）:\n' + stale.join('\n')).toEqual([])
   })
 })

@@ -26,9 +26,7 @@ const notices = ref<StartupNotice[]>([])
 const dismissed = ref<string[]>(loadDismissed())
 
 /** 未Dismissed 的通告（指纹 = kind@ts，精确到条） */
-const visible = computed(() =>
-  notices.value.filter((n) => !dismissed.value.includes(`${n.kind}@${n.ts}`)),
-)
+const visible = computed(() => notices.value.filter((n) => !dismissed.value.includes(`${n.kind}@${n.ts}`)))
 
 onMounted(async () => {
   try {

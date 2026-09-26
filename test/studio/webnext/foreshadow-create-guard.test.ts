@@ -75,7 +75,13 @@ describe('低-4（第十轮）：新建伏笔在途切书 → 放弃后续写操
     const wrapper = mount(ForeshadowPanel, { props: { bookName: '书A' } })
     await flushPromises()
 
-    docApiMocks.createDoc.mockResolvedValue({ ok: true, path: '设定/伏笔/新伏笔.md', words: 0, docId: 'doc_f1', snapshotted: false })
+    docApiMocks.createDoc.mockResolvedValue({
+      ok: true,
+      path: '设定/伏笔/新伏笔.md',
+      words: 0,
+      docId: 'doc_f1',
+      snapshotted: false,
+    })
     await wrapper.find('.fs-add').trigger('click')
     await flushPromises()
 

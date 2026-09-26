@@ -32,10 +32,7 @@ interface BootstrapRunner {
   readonly shuttingDown: boolean
 }
 
-export function createBootstrapRunner(
-  deps: BootstrapRunnerDeps,
-  bootstrap: () => Promise<void>,
-): BootstrapRunner {
+export function createBootstrapRunner(deps: BootstrapRunnerDeps, bootstrap: () => Promise<void>): BootstrapRunner {
   let bootstrapping = false
   let shutdownStarted = false
   return {

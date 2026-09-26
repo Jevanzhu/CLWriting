@@ -53,32 +53,33 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   // 空占位）——写进去 = 书级「永远已设」，global.json 全局默认永远被遮蔽；运行时由
   // applyGlobalDefaults 兜底。例外：短篇 auto.batch_size: 1 是有意的产品默认（逐篇确认
   // 再续写），与全局默认（长篇连写 8 章）语义不同，保留显式值。
-  const config: BookConfig = opts.kind === 'short'
-    ? {
-        ...DEFAULT_CONFIG,
-        // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
-        kind: 'short',
-        host: opts.host ?? 'cc',
-        // 短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）——显式覆盖，不走全局托底
-        auto: { batch_size: 1 },
-        book: {
-          title: opts.name,
-          // genre 行仅当 opts.genre 非空才写（空串占位会盖住 global.json defaultGenre）
-          ...(opts.genre ? { genre: opts.genre } : {}),
-          ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
-        },
-        short: recommendShortChecks(opts.genre),
-      }
-    : {
-        ...DEFAULT_CONFIG,
-        host: opts.host ?? 'cc',
-        book: {
-          title: opts.name,
-          ...(opts.genre ? { genre: opts.genre } : {}),
-          ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
-        },
-        leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
-      }
+  const config: BookConfig =
+    opts.kind === 'short'
+      ? {
+          ...DEFAULT_CONFIG,
+          // 短篇集精简：无 leads.enabled（账本降级单章章纲 #27）、无 growth（无成长线）
+          kind: 'short',
+          host: opts.host ?? 'cc',
+          // 短篇默认单篇（逐篇确认再续写；长篇才默认连写 8 章）——显式覆盖，不走全局托底
+          auto: { batch_size: 1 },
+          book: {
+            title: opts.name,
+            // genre 行仅当 opts.genre 非空才写（空串占位会盖住 global.json defaultGenre）
+            ...(opts.genre ? { genre: opts.genre } : {}),
+            ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
+          },
+          short: recommendShortChecks(opts.genre),
+        }
+      : {
+          ...DEFAULT_CONFIG,
+          host: opts.host ?? 'cc',
+          book: {
+            title: opts.name,
+            ...(opts.genre ? { genre: opts.genre } : {}),
+            ...(opts.targetWords ? { target_words: opts.targetWords } : {}),
+          },
+          leads: { ...DEFAULT_CONFIG.leads, enabled: opts.leadsEnabled },
+        }
   const configPath = join(bookRoot, 'book.yaml')
   if (!existsSync(configPath)) writeBookConfig(configPath, config)
 
@@ -318,7 +319,21 @@ function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEnabled'>
   const isCultivation = /玄幻|仙侠|修仙|修真/.test(opts.genre)
   const systemName = isCultivation ? '修真境界' : '成长阶段'
   const sequence = isCultivation
-    ? ['炼气一层', '炼气二层', '炼气三层', '炼气四层', '炼气五层', '炼气六层', '炼气七层', '炼气八层', '炼气九层', '筑基', '金丹', '元婴', '化神']
+    ? [
+        '炼气一层',
+        '炼气二层',
+        '炼气三层',
+        '炼气四层',
+        '炼气五层',
+        '炼气六层',
+        '炼气七层',
+        '炼气八层',
+        '炼气九层',
+        '筑基',
+        '金丹',
+        '元婴',
+        '化神',
+      ]
     : ['起步', '小成', '大成', '圆满']
 
   return [

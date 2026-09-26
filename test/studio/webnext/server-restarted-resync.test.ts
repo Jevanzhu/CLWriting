@@ -132,7 +132,10 @@ beforeEach(() => {
   mocks.apiFetch.mockResolvedValue(new Response('{}', { status: 200 })) // 心跳成功拍（不与看门狗交织）
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 }))) // 换票桩 200（R0916-7-P3-19 起 404 即换票失败、不回退开连）
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+  ) // 换票桩 200（R0916-7-P3-19 起 404 即换票失败、不回退开连）
   ;(window as unknown as Record<string, unknown>)['clwritingDesktop'] = {
     onServerRestarted: desktop.onServerRestarted,
   }

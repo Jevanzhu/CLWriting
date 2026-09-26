@@ -23,7 +23,13 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-function providersDto(ids: string[]): { providers: { id: string }[]; currentId: string | null; currentModel: string | null; tiers: { creative: { model: string; effort: string } }; revision: number } {
+function providersDto(ids: string[]): {
+  providers: { id: string }[]
+  currentId: string | null
+  currentModel: string | null
+  tiers: { creative: { model: string; effort: string } }
+  revision: number
+} {
   return {
     providers: ids.map((id) => ({ id })),
     currentId: ids[0] ?? null,

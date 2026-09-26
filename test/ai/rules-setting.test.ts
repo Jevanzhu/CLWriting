@@ -46,11 +46,7 @@ describe('A3 settingConsistencyRule（设定一致规则）', () => {
       // 建 设定/角色/角色-001.md，front matter 含 姓名:林远
       const roleDir = join(bookRoot, '设定', '角色')
       mkdirSync(roleDir, { recursive: true })
-      writeFileSync(
-        join(roleDir, '角色-001.md'),
-        '---\n姓名: 林远\n---\n角色正文',
-        'utf-8',
-      )
+      writeFileSync(join(roleDir, '角色-001.md'), '---\n姓名: 林远\n---\n角色正文', 'utf-8')
     })
 
     afterAll(() => {
@@ -63,14 +59,14 @@ describe('A3 settingConsistencyRule（设定一致规则）', () => {
       expect(text).toContain('设定一致')
     })
 
-    it("正文含引号内未登记专名「张三」→ check 报黄，message 含「张三」", () => {
+    it('正文含引号内未登记专名「张三」→ check 报黄，message 含「张三」', () => {
       const violations = settingConsistencyRule.check('林远看着「张三」走过来', { bookRoot })
       expect(violations.length).toBeGreaterThanOrEqual(1)
       const hit = violations.find((v) => v.message.includes('张三'))
       expect(hit).toEqual(expect.objectContaining({ ruleId: 'setting-consistency', level: 'yellow' }))
     })
 
-    it("正文含已登记名「林远」→ check 不报该名", () => {
+    it('正文含已登记名「林远」→ check 不报该名', () => {
       const violations = settingConsistencyRule.check('「林远」走了过来', { bookRoot })
       const hit = violations.find((v) => v.message.includes('林远'))
       expect(hit).toBeUndefined()
@@ -92,16 +88,7 @@ describe('R48-3（四十八轮）：check 域口径对齐（check/count.ts check
     // 名册面：标题/列表/括注/顿号多形态（parseRosterNamesLocal 解析口径）
     writeFileSync(
       join(bookRoot, '设定', '名册.md'),
-      [
-        '# 名册',
-        '',
-        '## 主要人物',
-        '- 林晚晴（女主）',
-        '- 沈青梧、苏牧野',
-        '',
-        '已登记：赵无咎',
-        '',
-      ].join('\n'),
+      ['# 名册', '', '## 主要人物', '- 林晚晴（女主）', '- 沈青梧、苏牧野', '', '已登记：赵无咎', ''].join('\n'),
       'utf-8',
     )
   })

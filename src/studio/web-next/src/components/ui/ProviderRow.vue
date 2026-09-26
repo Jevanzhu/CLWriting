@@ -41,8 +41,11 @@ defineProps<{
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
   background: var(--background-primary);
-  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 .provider-row:hover {
   border-color: var(--background-modifier-border-hover);
@@ -98,7 +101,9 @@ defineProps<{
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 :slotted(.mini-btn:hover) {
   background: var(--background-modifier-hover);

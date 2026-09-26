@@ -16,12 +16,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  parseHistory,
-  parseHistoryWithPreamble,
-  readLead,
-  writeLead,
-} from '../../src/format/leads.js'
+import { parseHistory, parseHistoryWithPreamble, readLead, writeLead } from '../../src/format/leads.js'
 import { resolveDraftPath } from '../../src/document/draft-path.js'
 
 let tmp = ''
@@ -37,13 +32,7 @@ function scaffold(): string {
 
 describe('R51-F-1：履历分组标题解析与还原', () => {
   it('条目间分组标题 → groupHeadings 收录（挂靠其后首条），entries 不受影响', () => {
-    const body = [
-      '## 履历',
-      '',
-      '- 第012章 埋下：焦痕',
-      '### 第二幕',
-      '- 第015章 递进：血字',
-    ].join('\n')
+    const body = ['## 履历', '', '- 第012章 埋下：焦痕', '### 第二幕', '- 第015章 递进：血字'].join('\n')
     const r = parseHistoryWithPreamble(body)
     expect(r.entries).toHaveLength(2)
     expect(r.entries[0]).toMatchObject({ 章号: 12, 动词: '埋下' })
@@ -69,14 +58,7 @@ describe('R51-F-1：履历分组标题解析与还原', () => {
   })
 
   it('节终标题（后无条目）不进分组槽——仍归 bodyAfterHistory，无双收', () => {
-    const body = [
-      '## 履历',
-      '',
-      '- 第012章 埋下：焦痕',
-      '',
-      '### 手记',
-      '作者备注内容',
-    ].join('\n')
+    const body = ['## 履历', '', '- 第012章 埋下：焦痕', '', '### 手记', '作者备注内容'].join('\n')
     const fp = join(scaffold(), '悬念-031-试.md')
     writeFileSync(fp, `---\n编号: 悬念-031\n标题: 试\n---\n\n${body}\n`, 'utf8')
     const r = readLead(fp)
@@ -131,13 +113,7 @@ describe('R51-F-1：履历分组标题解析与还原', () => {
   })
 
   it('首条条目前的分组标题挂 beforeEntry=0，还原顺序 = preamble 之后、首条之前', () => {
-    const body = [
-      '## 履历',
-      '',
-      '手写散文一句。',
-      '### 第一卷',
-      '- 第003章 设下：银簪',
-    ].join('\n')
+    const body = ['## 履历', '', '手写散文一句。', '### 第一卷', '- 第003章 设下：银簪'].join('\n')
     const text = parseHistoryWithPreamble(body)
     expect(text.preamble).toBe('手写散文一句。')
     expect(text.groupHeadings).toEqual([{ beforeEntry: 0, line: '### 第一卷' }])
@@ -151,21 +127,14 @@ describe('R51-F-2：定稿章号匹配限正文路径', () => {
 
   function writeManifestLines(root: string, entries: unknown[]): void {
     mkdirSync(join(root, '项目'), { recursive: true })
-    const lines = [
-      JSON.stringify({ version: 1, type: 'header' }),
-      ...entries.map((e) => JSON.stringify(e)),
-    ]
+    const lines = [JSON.stringify({ version: 1, type: 'header' }), ...entries.map((e) => JSON.stringify(e))]
     writeFileSync(join(root, MANIFEST_REL), lines.join('\n') + '\n', 'utf8')
   }
 
   function scaffoldBookWithChapter12(): string {
     const root = scaffold()
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
-    writeFileSync(
-      join(root, '写作', '正文', '0012-示例章.md'),
-      '---\n章号: 12\n标题: 示例章\n---\n\n正文。',
-      'utf8',
-    )
+    writeFileSync(join(root, '写作', '正文', '0012-示例章.md'), '---\n章号: 12\n标题: 示例章\n---\n\n正文。', 'utf8')
     return root
   }
 

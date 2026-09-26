@@ -153,7 +153,12 @@ describe('R43-13: 失真章号（非安全整数）不入 allChapters / 三类�
     const docIdBad = generateDocId()
     upsertEntry(m, { id: docIdOk, nodeType: 'document', path: '写作/正文/0005-正常章.md', parentId: null })
     // 17 个 9：parseInt → 1e17（超 2^53 失真浮点，非安全整数）
-    upsertEntry(m, { id: docIdBad, nodeType: 'document', path: `写作/正文/${'9'.repeat(17)}-超长数字名.md`, parentId: null })
+    upsertEntry(m, {
+      id: docIdBad,
+      nodeType: 'document',
+      path: `写作/正文/${'9'.repeat(17)}-超长数字名.md`,
+      parentId: null,
+    })
     writeManifest(manifestPath, m)
     writeAnalysis(root, docIdOk, 'score', env({ score: 8, dims: { 爽点: 8 } }))
     writeAnalysis(root, docIdBad, 'score', env({ score: 6, dims: { 爽点: 6 } }))

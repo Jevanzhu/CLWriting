@@ -71,7 +71,9 @@ test('R0912-3 #30: repeat_threshold 1.5 → 夹紧 1 + warn 留痕（不再无�
     // 夹紧为 1（而非按未设回落 0.15）：比率口径保持关（0.967 ≤ 1）、绝对阈百万 → repeat 静默
     expect(repeatItems(r)).toHaveLength(0)
     // 留痕：越界 warn 点名键与夹紧动作（修复前 1.5 直穿无任何痕迹）
-    const hits = warnSpy.mock.calls.filter((c) => String(c[1]).includes('repeat_threshold') && String(c[1]).includes('夹紧'))
+    const hits = warnSpy.mock.calls.filter(
+      (c) => String(c[1]).includes('repeat_threshold') && String(c[1]).includes('夹紧'),
+    )
     expect(hits).toHaveLength(1)
   } finally {
     warnSpy.mockRestore()
@@ -86,13 +88,17 @@ test('R0912-3 #30: repeat_threshold 0.5 合法值原样生效；边界 1 不夹�
     // 0.5 在 (0,1] 内 → 原样：比率口径 0.967 > 0.5 照常报黄，零 warn
     const cfg = structuredClone(DEFAULT_CONFIG)
     cfg.checks = { repeat_threshold: 0.5 }
-    const rep = repeatItems(runAllChecks({ bookRoot: tmp, config: cfg, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' }))
+    const rep = repeatItems(
+      runAllChecks({ bookRoot: tmp, config: cfg, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' }),
+    )
     expect(rep).toHaveLength(1)
     expect(rep[0]!.message).toContain('复读率')
     // 边界 1 恰合法（(0,1] 含 1）→ 不夹紧、零 warn
     const cfg1 = structuredClone(DEFAULT_CONFIG)
     cfg1.checks = { repeat_threshold: 1, repeat_chars_threshold: 1_000_000 }
-    expect(repeatItems(runAllChecks({ bookRoot: tmp, config: cfg1, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' }))).toHaveLength(0)
+    expect(
+      repeatItems(runAllChecks({ bookRoot: tmp, config: cfg1, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' })),
+    ).toHaveLength(0)
     expect(warnSpy.mock.calls.filter((c) => String(c[1]).includes('repeat_threshold'))).toHaveLength(0)
   } finally {
     warnSpy.mockRestore()

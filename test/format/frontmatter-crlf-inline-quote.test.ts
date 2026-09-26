@@ -35,7 +35,7 @@ describe('Y-21: splitInlineArray 单引号', () => {
 
   it('双引号既有行为保持 + 单双混用各自成对', () => {
     expect(parseValue('["A,B", C]')).toEqual(['A,B', 'C'])
-    expect(parseValue("['A,B', \"C,D\"]")).toEqual(['A,B', 'C,D'])
+    expect(parseValue('[\'A,B\', "C,D"]')).toEqual(['A,B', 'C,D'])
   })
 
   it('引号外普通逗号照切（既有行为）', () => {

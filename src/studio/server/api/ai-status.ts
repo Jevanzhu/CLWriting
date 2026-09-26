@@ -34,14 +34,14 @@ export function registerAiStatusRoutes(ctx: AiStatusCtx): void {
     method: 'GET',
     path: '/api/ai-status',
     handler: (_, _req: IncomingMessage, res: ServerResponse) => {
-    // e2e AI-DOWN：跳全部逻辑直接判定
-    if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
-      reply(res, 200, probeAi(ctx, null))
-      return
-    }
-    // 每次实时探测（无缓存，供应商增改/测试/切换后立即可达）
-    reply(res, 200, probeAi(ctx, ctx.userDataPath))
-  },
+      // e2e AI-DOWN：跳全部逻辑直接判定
+      if (process.env.CLWRITING_E2E_AI_DOWN === '1') {
+        reply(res, 200, probeAi(ctx, null))
+        return
+      }
+      // 每次实时探测（无缓存，供应商增改/测试/切换后立即可达）
+      reply(res, 200, probeAi(ctx, ctx.userDataPath))
+    },
   })
 }
 

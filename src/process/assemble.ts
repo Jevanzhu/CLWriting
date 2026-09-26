@@ -11,9 +11,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import {
-  readStaleLeads,
-} from '../format/read.js'
+import { readStaleLeads } from '../format/read.js'
 // 0918修复批（C003）：本文件四处裸 db.prepare 收编 prepared 连接级缓存
 // （SQL 文本固定；check/runner.ts 同款，单源 shared/sqlite-prepared.ts）
 import { prepared } from '../shared/sqlite-prepared.js'

@@ -24,7 +24,10 @@ import {
 } from '../../../src/studio/web-next/src/api/documents'
 import { boot, ApiError } from '../../../src/studio/web-next/src/api/client'
 
-interface Call { url: string; init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 
 let calls: Call[] = []
 function stubFetch(responder: (c: Call) => Response): void {
@@ -106,7 +109,9 @@ describe('documents api · 写', () => {
       expectedRevision: null,
       operationId: 'op',
     }).then(
-      () => { throw new Error('应抛出') },
+      () => {
+        throw new Error('应抛出')
+      },
       (e: unknown) => e,
     )
     expect(err).toBeInstanceOf(ApiError)
@@ -172,7 +177,15 @@ describe('documents api · 树 CRUD 与批量定稿（X-6 补缺）', () => {
   })
 
   it('batchFinalizeDocs：POST batch-finalize，body 只带 docIds 数组', async () => {
-    stubFetch(() => ok({ ok: true, results: [{ docId: 'd1', ok: true }, { docId: 'd2', ok: false, error: 'x' }] }))
+    stubFetch(() =>
+      ok({
+        ok: true,
+        results: [
+          { docId: 'd1', ok: true },
+          { docId: 'd2', ok: false, error: 'x' },
+        ],
+      }),
+    )
     const r = await batchFinalizeDocs('书A', ['d1', 'd2'])
     expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/documents/batch-finalize`)
     expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ docIds: ['d1', 'd2'] })

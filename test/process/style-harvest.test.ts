@@ -23,10 +23,7 @@ function makeBook(): void {
     join(root, '写作', '正文', '001-雨夜.md'),
     '---\n章号: 1\n标题: 雨夜\n---\n## 开头\n\n门外没有脚印。\n\n## 反转\n\n来客笑了。',
   )
-  writeFileSync(
-    join(root, '文风', '文风铁律.md'),
-    '# 文风铁律\n- 正文纯文本\n- 对话标签占比 < 30%\n',
-  )
+  writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n- 正文纯文本\n- 对话标签占比 < 30%\n')
 }
 
 test('空书（无正文/无铁律）：安全返回空候选', () => {

@@ -10,14 +10,28 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-// @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, walk } from '../../scripts/check-counts.mjs'
+import {
+  stripComments,
+  stripStrings,
+  countE2eCases,
+  findOnlyOrSkipViolations,
+  sanitizeForCount,
+  posixRelPath,
+  findAssertionFreeTestFiles,
+  missingPageErrorWiring,
+  sharedRuntimeVersionDrift,
+  walk,
+  // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
+  // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
+} from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
     // win 形态：walk 产出带盘符反斜杠的绝对路径，剥 root 后须归一为 posix 相对路径
     expect(posixRelPath('C:\\repo\\', 'C:\\repo\\test\\e2e\\a.spec.ts')).toBe('test/e2e/a.spec.ts')
-    expect(posixRelPath('G:\\02^Workspace\\repo\\', 'G:\\02^Workspace\\repo\\test\\e2e\\b.spec.ts')).toBe('test/e2e/b.spec.ts')
+    expect(posixRelPath('G:\\02^Workspace\\repo\\', 'G:\\02^Workspace\\repo\\test\\e2e\\b.spec.ts')).toBe(
+      'test/e2e/b.spec.ts',
+    )
     // posix 形态原样通过（mac/linux 不回归）
     expect(posixRelPath('/home/u/repo/', '/home/u/repo/test/e2e/c.spec.ts')).toBe('test/e2e/c.spec.ts')
     // 快照语义：归一化后与 posix 快照名单可互相命中
@@ -102,7 +116,10 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
 
   it('R65-59（F-3）：无条件 .skip.each 参数化组检出——整组静默跳过同是门禁假绿', () => {
     expect(findOnlyOrSkipViolations("it.skip.each([1, 2])('参数化 %d', (n) => {})")).toEqual({ only: 0, uncondSkip: 1 })
-    expect(findOnlyOrSkipViolations("test.skip.each([{ a: 1 }])('用例 %o', (v) => {})")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations("test.skip.each([{ a: 1 }])('用例 %o', (v) => {})")).toEqual({
+      only: 0,
+      uncondSkip: 1,
+    })
     // 与 only 门同口径：注释/字符串里的形态不误报
     expect(findOnlyOrSkipViolations("// it.skip.each([1])('注释', (n) => {})")).toEqual({ only: 0, uncondSkip: 0 })
   })
@@ -115,9 +132,9 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
       findOnlyOrSkipViolations("it.skip.each(buildPairs(1, 2))('参数化 %d', ([a, b]) => { expect(a).toBe(b) })"),
     ).toEqual({ only: 0, uncondSkip: 1 })
     // 参数内多处嵌套（map/filter 链）同样命中
-    expect(
-      findOnlyOrSkipViolations("test.skip.each(Object.keys(m).filter(f))('用例 %s', (k) => {})").uncondSkip,
-    ).toBe(1)
+    expect(findOnlyOrSkipViolations("test.skip.each(Object.keys(m).filter(f))('用例 %s', (k) => {})").uncondSkip).toBe(
+      1,
+    )
     // 既有形态不回退：数组参数照旧；无第二调用（非标题串形态）不误报
     expect(findOnlyOrSkipViolations("it.skip.each([1, 2])('参数化 %d', (n) => {})").uncondSkip).toBe(1)
     expect(findOnlyOrSkipViolations('test.skip.each(cases)').uncondSkip).toBe(0)
@@ -164,7 +181,7 @@ describe('R73-78：模板串 ${} 嵌套净化（计数漂移防线）', () => {
 
   it('嵌套断裂不再虚增用例计数（旧口径把残留 `test(` 数成真用例 → 漂移为 2）', () => {
     // 旧正则：第一对反引号在嵌套模板前闭合，残留片段中的 `test(` 被数成真用例
-    const src = 'const s = `x ${ tag(`test(`) } y`;\ntest(\'真用例\', () => {})'
+    const src = "const s = `x ${ tag(`test(`) } y`;\ntest('真用例', () => {})"
     expect(countE2eCases(src)).toBe(1)
   })
 
@@ -206,9 +223,9 @@ describe('R76-40：空洞测试门（数断言不数声明）', () => {
     const hollow = [
       "describe('g', () => {",
       "  it('空壳', () => {})",
-      "})",
+      '})',
       "const doc = 'expect(1).toBe(1)'",
-      "// expect(x) 注释样例",
+      '// expect(x) 注释样例',
     ].join('\n')
     expect(findAssertionFreeTestFiles([{ relPath: 'test/hollow.test.ts', src: hollow }])).toEqual([
       'test/hollow.test.ts',
@@ -227,7 +244,7 @@ describe('R76-6：e2e pageerror 接线静态门', () => {
       "import { attachPageErrorBaseline } from './page-error-baseline'",
       "test('x', async ({ page }) => {",
       "  attachPageErrorBaseline(page, 'x')",
-      "})",
+      '})',
     ].join('\n')
     expect(missingPageErrorWiring([{ relPath: 'test/e2e/x.spec.ts', src: wired }])).toEqual([])
   })
@@ -238,9 +255,7 @@ describe('R76-6：e2e pageerror 接线静态门', () => {
       "const s = 'attachPageErrorBaseline('",
       "test('x', async ({ page }) => { await page.goto('/') })",
     ].join('\n')
-    expect(missingPageErrorWiring([{ relPath: 'test/e2e/y.spec.ts', src: unwired }])).toEqual([
-      'test/e2e/y.spec.ts',
-    ])
+    expect(missingPageErrorWiring([{ relPath: 'test/e2e/y.spec.ts', src: unwired }])).toEqual(['test/e2e/y.spec.ts'])
   })
 
   it('豁免名单（无浏览器页面的 spec）跳过——显式登记制', () => {
@@ -275,15 +290,27 @@ describe('R54-E-3: 常量真值 test.skip(true) 检出', () => {
 // R1010c-TL-P2-2（2026-09-10 全量独立复审修复批）：双包共享运行时版本对账纯函数直测——
 // 修复前 vue 已实际漂移（根 3.5.38 ↔ 子包 3.5.40）无任何门会红；本门防再漂。
 describe('R1010c-TL-P2-2: sharedRuntimeVersionDrift 双包共享运行时对账', () => {
-  const rootLock = { 'node_modules/vue': { version: '3.5.42' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+  const rootLock = {
+    'node_modules/vue': { version: '3.5.42' },
+    'node_modules/pinia': { version: '3.0.4' },
+    'node_modules/@vitejs/plugin-vue': { version: '6.0.8' },
+  }
 
   it('两侧齐备且版本一致 → 无漂移', () => {
-    const webLock = { 'node_modules/vue': { version: '3.5.42' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+    const webLock = {
+      'node_modules/vue': { version: '3.5.42' },
+      'node_modules/pinia': { version: '3.0.4' },
+      'node_modules/@vitejs/plugin-vue': { version: '6.0.8' },
+    }
     expect(sharedRuntimeVersionDrift(rootLock, webLock)).toEqual([])
   })
 
   it('同包异版 → 逐项报漂移（含包名与两侧版本）', () => {
-    const webLock = { 'node_modules/vue': { version: '3.5.40' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+    const webLock = {
+      'node_modules/vue': { version: '3.5.40' },
+      'node_modules/pinia': { version: '3.0.4' },
+      'node_modules/@vitejs/plugin-vue': { version: '6.0.8' },
+    }
     expect(sharedRuntimeVersionDrift(rootLock, webLock)).toEqual(['vue: 根 3.5.42 ↔ web-next 3.5.40'])
   })
 
@@ -338,36 +365,42 @@ describe('0918独立重评修复批 D005：check-counts walk symlink 防护（ls
   })
 
   // Windows 无 symlink 常规权限（需开发者模式，symlinkSync 直建 EPERM），macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('目录环 symlink：walk 不炸门（ELOOP 不再触达）、symlink 跳过、实体文件照常收集', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const d = tmpDir()
-    const a = join(d, 'a')
-    const b = join(d, 'b')
-    mkdirSync(a)
-    mkdirSync(b)
-    writeFileSync(join(a, 'real.test.ts'), 'x')
-    writeFileSync(join(b, 'plain.md'), 'y')
-    // 环：a/loop → b，b/loop → a（修复前 walk(a) → statSync 跟随 loop → 撞内核 symlink
-    // 上限裸抛 ELOOP 炸门，mac 实测）
-    symlinkSync(b, join(a, 'loop'))
-    symlinkSync(a, join(b, 'loop'))
+  it.skipIf(process.platform === 'win32')(
+    '目录环 symlink：walk 不炸门（ELOOP 不再触达）、symlink 跳过、实体文件照常收集',
+    () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const d = tmpDir()
+      const a = join(d, 'a')
+      const b = join(d, 'b')
+      mkdirSync(a)
+      mkdirSync(b)
+      writeFileSync(join(a, 'real.test.ts'), 'x')
+      writeFileSync(join(b, 'plain.md'), 'y')
+      // 环：a/loop → b，b/loop → a（修复前 walk(a) → statSync 跟随 loop → 撞内核 symlink
+      // 上限裸抛 ELOOP 炸门，mac 实测）
+      symlinkSync(b, join(a, 'loop'))
+      symlinkSync(a, join(b, 'loop'))
 
-    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
-    expect(out).toEqual(['real.test.ts']) // 实体文件收齐，环未跟随、门不炸
-  })
+      const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+      expect(out).toEqual(['real.test.ts']) // 实体文件收齐，环未跟随、门不炸
+    },
+  )
 
-  it.skipIf(process.platform === 'win32')('断链 symlink 与指向文件/自指 symlink：一律跳过并 warn 留痕，其余条目不受影响', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const d = tmpDir()
-    writeFileSync(join(d, 'keep.test.ts'), 'x')
-    symlinkSync(join(d, 'gone-target'), join(d, 'broken.test.ts')) // 断链（目标不存在）
-    symlinkSync(join(d, 'keep.test.ts'), join(d, 'file-link.test.ts')) // 指向文件（修复前会被收集，虚增计数）
-    symlinkSync(d, join(d, 'self-loop')) // 自指目录环
+  it.skipIf(process.platform === 'win32')(
+    '断链 symlink 与指向文件/自指 symlink：一律跳过并 warn 留痕，其余条目不受影响',
+    () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const d = tmpDir()
+      writeFileSync(join(d, 'keep.test.ts'), 'x')
+      symlinkSync(join(d, 'gone-target'), join(d, 'broken.test.ts')) // 断链（目标不存在）
+      symlinkSync(join(d, 'keep.test.ts'), join(d, 'file-link.test.ts')) // 指向文件（修复前会被收集，虚增计数）
+      symlinkSync(d, join(d, 'self-loop')) // 自指目录环
 
-    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
-    expect(out).toEqual(['keep.test.ts']) // 三个 symlink 全跳过：断链不炸、文件链接不虚增、自指不下钻
-    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('symlink'))).toBe(true)
-  })
+      const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+      expect(out).toEqual(['keep.test.ts']) // 三个 symlink 全跳过：断链不炸、文件链接不虚增、自指不下钻
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('symlink'))).toBe(true)
+    },
+  )
 
   it.skipIf(process.platform === 'win32')('指向目录的 symlink 不下钻：目标子树实体文件不重复收集', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})

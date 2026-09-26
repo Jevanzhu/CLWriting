@@ -151,8 +151,7 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
       return { rec: null, corrupt: true }
     }
     // cache 记账字段可选——存在则必须是数字（与同口径，坏条目按损坏处理）
-    const cacheNum = (v: unknown): number | undefined =>
-      v === undefined ? undefined : typeof v === 'number' ? v : NaN
+    const cacheNum = (v: unknown): number | undefined => (v === undefined ? undefined : typeof v === 'number' ? v : NaN)
     // tasks 逐条校验形状——盲 cast 遇坏条目（used 非数字）会让后续
     // 累加变 NaN 静默烂账，且绕过「损坏保守阻断」承诺；坏条目按损坏处理
     //（dd-字段存在但非对象〔如被写成字符串〕同样按损坏处理，不静默取空）
@@ -161,7 +160,12 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
       if (typeof raw['tasks'] !== 'object') return { rec: null, corrupt: true }
       for (const [k, v] of Object.entries(raw['tasks'] as Record<string, unknown>)) {
         const t = v as Partial<TaskUsage> | null
-        if (!t || typeof t.used !== 'number' || typeof t.inputTokens !== 'number' || typeof t.outputTokens !== 'number') {
+        if (
+          !t ||
+          typeof t.used !== 'number' ||
+          typeof t.inputTokens !== 'number' ||
+          typeof t.outputTokens !== 'number'
+        ) {
           return { rec: null, corrupt: true }
         }
         const cr = cacheNum(t.cacheReadTokens)
@@ -364,7 +368,8 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
       ok: false,
       used: 0,
       limit,
-      reason: 'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
+      reason:
+        'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
     }
   }
   // 显式 0/负数 = 「一次都不许调」——`??` 全局托底只兜 undefined/null
@@ -431,7 +436,9 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
     used: rec.chapter.used,
     limit,
     ...(limitTokens !== undefined ? { usedTokens: totalTokens, limitTokens } : {}),
-    ...(limitCost !== undefined && rec.chapter.costAccum !== undefined ? { usedCost: rec.chapter.costAccum, limitCost } : {}),
+    ...(limitCost !== undefined && rec.chapter.costAccum !== undefined
+      ? { usedCost: rec.chapter.costAccum, limitCost }
+      : {}),
   }
 }
 
@@ -484,7 +491,10 @@ function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage
     return
   }
   if (!rec || rec.chapter.num !== chapter) {
-    const fresh: CallRecord = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: rec?.tasks ?? {} }
+    const fresh: CallRecord = {
+      chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 },
+      tasks: rec?.tasks ?? {},
+    }
     applyCall(fresh, usage, costUsd)
     writeRecord(bookRoot, fresh)
     return
@@ -556,7 +566,8 @@ export function checkAiTaskCallBudget(
     return {
       ok: false,
       used: 0,
-      reason: 'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
+      reason:
+        'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
     }
   }
   const used = rec?.tasks[task]?.used ?? 0
@@ -658,7 +669,10 @@ function recordUsageBothLocked(
   // chapter 块（与 recordAiCallLocked 逐字段一致：换章 fresh 重置 chapter、tasks 保留）
   if (chapter !== undefined) {
     if (!rec || rec.chapter.num !== chapter) {
-      const fresh: CallRecord = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: base.tasks }
+      const fresh: CallRecord = {
+        chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 },
+        tasks: base.tasks,
+      }
       applyCall(fresh, usage, costUsd)
       writeRecord(bookRoot, fresh)
       return

@@ -77,7 +77,9 @@ describe('H-1: 事件库打开失败不死锁（降级内存模式）', () => {
     expect(isChatRunning(bookName)).toBe(false)
 
     // 降级可感知：作者收到「本次对话不留审计记录」提示
-    const notice = events.find((e) => e.type === 'notice' && String((e as { message?: unknown }).message ?? '').includes('事件库打开失败'))
+    const notice = events.find(
+      (e) => e.type === 'notice' && String((e as { message?: unknown }).message ?? '').includes('事件库打开失败'),
+    )
     expect(notice).toBeTruthy()
 
     // 队列链未死：再次发送直接启动（若锁泄漏，这里只会返回 'queued' 且永不消费）

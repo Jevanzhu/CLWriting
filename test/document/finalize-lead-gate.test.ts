@@ -34,10 +34,16 @@ interface WiredBookOpts {
  */
 function makeBook(opts: WiredBookOpts = {}): { root: string; docId: string } {
   const files: Array<{ rel: string; content: string }> = [
-    { rel: '写作/正文/0001-开篇.md', content: `---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${BODY_SENTENCE}\n` },
+    {
+      rel: '写作/正文/0001-开篇.md',
+      content: `---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${BODY_SENTENCE}\n`,
+    },
   ]
   if (opts.wiring !== false) {
-    files.push({ rel: '布线/悬念/悬念-001-玉佩.md', content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' })
+    files.push({
+      rel: '布线/悬念/悬念-001-玉佩.md',
+      content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+    })
   }
   if (opts.outlineLeads !== undefined) {
     // null = 写细纲但无「推进」字段（声明侧为空）
@@ -165,55 +171,54 @@ test('ee-P1-3: 无布线书 / 非正文文档 → 不触发闸（正常定稿）
 // ── ee-P1-4：账本回写先于定稿基线 ────────────────────────────────────
 
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('ee-P1-4: 账本回写失败 → LEAD_WRITE_ERROR 且基线未写；恢复后重试成功（丢失窗口封死）', () => {
-  const { root, docId } = makeBook({ outlineLeads: '悬念-001' })
-  const leadDir = join(root, '布线', '悬念')
-  try {
-    writeFileSync(join(root, '工作区', '账本推进.md'), `- 悬念-001 递进：${BODY_SENTENCE}\n`, 'utf-8')
-    // 布线/悬念 只读 → writeLead 的 tmp 落盘 EACCES → 回写抛错（模拟磁盘满/权限故障）
-    chmodSync(leadDir, 0o555)
-    let r: ReturnType<typeof finalizeRevision>
+test.skipIf(process.platform === 'win32')(
+  'ee-P1-4: 账本回写失败 → LEAD_WRITE_ERROR 且基线未写；恢复后重试成功（丢失窗口封死）',
+  () => {
+    const { root, docId } = makeBook({ outlineLeads: '悬念-001' })
+    const leadDir = join(root, '布线', '悬念')
     try {
-      r = finalizeRevision(root, docId)
-    } finally {
-      chmodSync(leadDir, 0o755) // macOS：恢复权限，防后续 rmSync 失败
-    }
-    expect(r.ok).toBe(false)
-    if (r.ok) return
-    expect(r.code).toBe('LEAD_WRITE_ERROR')
-    // R30-5（三十轮）：布线锁改由定稿入口在进清单锁**前**预取——只读目录下取锁自身
-    // EACCES 也走同一 LEAD_WRITE_ERROR 通道（旧文案「账本履历回写失败」→ 预取失败文案）
-    expect(r.error).toContain('账本履历回写布线锁预取失败')
-    expect(r.error).toContain('定稿未生效')
-    // 关键断言：manifest 基线未落盘（旧序下基线已写 → 下次定稿 skipped 永不再回写）
-    const e1 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
-    expect(e1.finalizedRevision).toBeUndefined()
+      writeFileSync(join(root, '工作区', '账本推进.md'), `- 悬念-001 递进：${BODY_SENTENCE}\n`, 'utf-8')
+      // 布线/悬念 只读 → writeLead 的 tmp 落盘 EACCES → 回写抛错（模拟磁盘满/权限故障）
+      chmodSync(leadDir, 0o555)
+      let r: ReturnType<typeof finalizeRevision>
+      try {
+        r = finalizeRevision(root, docId)
+      } finally {
+        chmodSync(leadDir, 0o755) // macOS：恢复权限，防后续 rmSync 失败
+      }
+      expect(r.ok).toBe(false)
+      if (r.ok) return
+      expect(r.code).toBe('LEAD_WRITE_ERROR')
+      // R30-5（三十轮）：布线锁改由定稿入口在进清单锁**前**预取——只读目录下取锁自身
+      // EACCES 也走同一 LEAD_WRITE_ERROR 通道（旧文案「账本履历回写失败」→ 预取失败文案）
+      expect(r.error).toContain('账本履历回写布线锁预取失败')
+      expect(r.error).toContain('定稿未生效')
+      // 关键断言：manifest 基线未落盘（旧序下基线已写 → 下次定稿 skipped 永不再回写）
+      const e1 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
+      expect(e1.finalizedRevision).toBeUndefined()
 
-    // 恢复后重试同一文件 → 成功且履历包含该条
-    const r2 = finalizeRevision(root, docId)
-    expect(r2.ok).toBe(true)
-    const lead = readLead(join(leadDir, '悬念-001-玉佩.md'))
-    expect(lead.ok).toBe(true)
-    if (lead.ok) {
-      expect(lead.lead.履历).toEqual([{ 章号: 1, 动词: '递进', 证据: BODY_SENTENCE }])
+      // 恢复后重试同一文件 → 成功且履历包含该条
+      const r2 = finalizeRevision(root, docId)
+      expect(r2.ok).toBe(true)
+      const lead = readLead(join(leadDir, '悬念-001-玉佩.md'))
+      expect(lead.ok).toBe(true)
+      if (lead.ok) {
+        expect(lead.lead.履历).toEqual([{ 章号: 1, 动词: '递进', 证据: BODY_SENTENCE }])
+      }
+      const e2 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
+      expect(typeof e2.finalizedRevision).toBe('string')
+    } finally {
+      chmodSync(leadDir, 0o755) // 双保险：中途 expect 失败也不留只读目录
+      rmSync(root, { recursive: true, force: true })
     }
-    const e2 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
-    expect(typeof e2.finalizedRevision).toBe('string')
-  } finally {
-    chmodSync(leadDir, 0o755) // 双保险：中途 expect 失败也不留只读目录
-    rmSync(root, { recursive: true, force: true })
-  }
-})
+  },
+)
 
 // ── ff-P1-1：闸与回写读取源单源化（归档章不再旁路） ──────────────────
 
 /** 批量连写形态：主文件载有**其他章**待确认条目（标签=第2章），本章推进在归档。 */
 function seedBatchArchive(root: string, archiveLine: string): void {
-  writeFileSync(
-    join(root, '工作区', '账本推进.md'),
-    '# 第2章 账本推进\n- 悬念-002 递进：别章待确认的证据。\n',
-    'utf-8',
-  )
+  writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n- 悬念-002 递进：别章待确认的证据。\n', 'utf-8')
   mkdirSync(join(root, '工作区', '.账本推进暂存'), { recursive: true })
   writeFileSync(join(root, '工作区', '.账本推进暂存', '第1章.md'), `# 第1章 账本推进\n${archiveLine}\n`, 'utf-8')
 }

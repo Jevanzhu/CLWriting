@@ -26,8 +26,14 @@ import SettingsModal from '../../../src/studio/web-next/src/components/ui/Settin
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
 const TAB_STUBS = {
-  SettingsAppearance: true, SettingsEditor: true, SettingsWriting: true, SettingsAi: true,
-  SettingsAnalysis: true, SettingsRetention: true, SettingsBook: true, AiServicePanel: true,
+  SettingsAppearance: true,
+  SettingsEditor: true,
+  SettingsWriting: true,
+  SettingsAi: true,
+  SettingsAnalysis: true,
+  SettingsRetention: true,
+  SettingsBook: true,
+  AiServicePanel: true,
   BetaBadge: true,
 }
 

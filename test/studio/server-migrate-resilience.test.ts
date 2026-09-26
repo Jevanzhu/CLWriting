@@ -31,7 +31,10 @@ beforeAll(async () => {
   )
   for (const n of [GOOD, BAD]) {
     mkdirSync(join(workDir, n), { recursive: true })
-    writeFileSync(join(workDir, n, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${n}\n  genre: 玄幻\nhost: cc\n`)
+    writeFileSync(
+      join(workDir, n, 'book.yaml'),
+      `spec_version: 1\nkind: long\nbook:\n  title: ${n}\n  genre: 玄幻\nhost: cc\n`,
+    )
   }
   // 坏书：写作/草稿 存在但不可读——migrateLayoutV3 的 readdirSync 在 existsSync 之后裸抛
   mkdirSync(join(workDir, BAD, '写作', '草稿'), { recursive: true })

@@ -59,7 +59,8 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
   popup(items, e.clientX, e.clientY, (key) => {
     if (key === 'open') emit('open', name)
     // IPC 失败 toast 交代
-    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name).catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
+    else if (key === 'folder')
+      window.clwritingDesktop?.openBookDir(name).catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
     else if (key === 'delete') emit('delete-request', [name])
   })
 }
@@ -107,9 +108,7 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
         />
       </div>
       <!-- ：渲染上限截断提示行（与 CommandPalette 尾部省略行同语义；分组头计数仍显全量） -->
-      <div v-if="omittedCount(grp) > 0" class="cap-hint">
-        已省略 {{ omittedCount(grp) }} 部，搜索书名可缩小范围
-      </div>
+      <div v-if="omittedCount(grp) > 0" class="cap-hint">已省略 {{ omittedCount(grp) }} 部，搜索书名可缩小范围</div>
     </section>
   </div>
 

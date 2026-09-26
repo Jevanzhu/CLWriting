@@ -137,8 +137,18 @@ export const useCheckStore = defineStore('check', () => {
   }
 
   return {
-    report, loading, error, hasRed, redItems, yellowItems, run, clear,
-    flagging, flagged, flagError, flagFalsePositive,
+    report,
+    loading,
+    error,
+    hasRed,
+    redItems,
+    yellowItems,
+    run,
+    clear,
+    flagging,
+    flagged,
+    flagError,
+    flagFalsePositive,
   }
 })
 

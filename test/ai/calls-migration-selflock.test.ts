@@ -17,11 +17,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import {
-  recordTaskUsage,
-  recordAiCall,
-  __setAiCallsLockTimeoutForTest,
-} from '../../src/ai/calls.js'
+import { recordTaskUsage, recordAiCall, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
 
 const root = mkdtempSync(join(tmpdir(), 'clwriting-calls-selflock-'))
 beforeAll(() => {

@@ -38,9 +38,29 @@ function truncateTitle(input: string, maxCp = CHAPTER_TITLE_MAX_CP, maxBytes = C
 /** Windows HTTP 保留设备名前缀（win 适配批 2）。这些名字本身是合法目录名，但
  *  拷到 Windows 会被文件系统拒绝；新写入数据面预留规避（加 `_` 前缀）。 */
 export const RESERVED_WIN = new Set([
-  'CON', 'PRN', 'AUX', 'NUL', 'CLOCK$',
-  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'CLOCK$',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
 ])
 
 /** 对已净化标题做 Windows 兼容再处理：尾点/尾空格剥离 + 保留设备名避让。
@@ -110,12 +130,12 @@ export function sanitizeFullFileName(name: string): string {
     rawStem = pre
     ext = ''
   }
-  const stem = (rawStem
+  const stem = rawStem
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/[\\/:*?"<>|]/g, '_')
     .trim()
     .replace(/\[\[/g, '（')
-    .replace(/\]\]/g, '）'))
+    .replace(/\]\]/g, '）')
   const compat = winCompatNamePart(stem)
   return (compat === '' ? '未命名' : compat) + ext
 }

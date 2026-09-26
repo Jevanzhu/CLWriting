@@ -26,14 +26,16 @@ function toCrlf(text: string): string {
 // ── parseRealmSystems：CRLF 名称/序列行解析 ───────
 
 test('R36-3: CRLF front matter 的两套境界体系（名称+序列）完整解析', () => {
-  const fmRaw = toCrlf([
-    '体系:',
-    '  - 名称: 修真境界',
-    '    序列: [炼气, 筑基, 金丹]',
-    '  - 名称: 武者等级',
-    '    序列: [后天, 先天]',
-    '',
-  ].join('\n'))
+  const fmRaw = toCrlf(
+    [
+      '体系:',
+      '  - 名称: 修真境界',
+      '    序列: [炼气, 筑基, 金丹]',
+      '  - 名称: 武者等级',
+      '    序列: [后天, 先天]',
+      '',
+    ].join('\n'),
+  )
   const systems = parseRealmSystems(fmRaw)
   expect(systems).toHaveLength(2)
   expect(systems[0]).toEqual({ 名称: '修真境界', 序列: ['炼气', '筑基', '金丹'] })
@@ -58,15 +60,7 @@ test('R36-3: 真实 CRLF 设定/境界体系.md 读出完整 RealmDoc', () => {
   const fp = join(dir, '境界体系.md')
   writeFileSync(
     fp,
-    toCrlf([
-      '---',
-      '体系:',
-      '  - 名称: 修真境界',
-      '    序列: [炼气, 筑基, 金丹]',
-      '---',
-      '修真说明。',
-      '',
-    ].join('\n')),
+    toCrlf(['---', '体系:', '  - 名称: 修真境界', '    序列: [炼气, 筑基, 金丹]', '---', '修真说明。', ''].join('\n')),
     'utf-8',
   )
   try {
@@ -87,18 +81,21 @@ test('R36-3: CRLF 境界体系下成长线回退红项照常触发（判级不�
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-003', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-003',
+    标题: '修为',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '金丹',
     履历: [
       { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
       { 章号: 20, 动词: '突破', 证据: '突破至金丹' },
       { 章号: 30, 动词: '突破', 证据: '跌落至炼气' }, // 回退
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
   const realmDoc = {
-    体系: [
-      { 名称: '修真境界', 序列: ['炼气', '筑基', '金丹', '元婴'] },
-    ],
+    体系: [{ 名称: '修真境界', 序列: ['炼气', '筑基', '金丹', '元婴'] }],
     正文: '说明',
   }
   const r = checkGrowth(db, realmDoc, ['成长线-003'], 2)
@@ -115,12 +112,17 @@ test('R36-3: 正常跃迁在 CRLF 来源下不误红，体系缺失兜底不为�
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: 'x',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '筑基',
     履历: [
       { 章号: 5, 动词: '起步', 证据: '炼气' },
       { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
-    ], _path: 'p',
+    ],
+    _path: 'p',
   })
   const realmDoc = { 体系: [{ 名称: '修真境界', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
@@ -136,9 +138,14 @@ test('R36-3: 体系解析失败兜底红项文案如实描述（内容或换行�
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
-    编号: '成长线-001', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+    编号: '成长线-001',
+    标题: 'x',
+    类型: '成长线',
+    状态: '进行中',
+    开启章: 1,
     当前境界: '炼气',
-    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至筑基' }], _path: 'p',
+    履历: [{ 章号: 5, 动词: '突破', 证据: '突破至筑基' }],
+    _path: 'p',
   })
   const r = checkGrowth(db, { 体系: [] }, ['成长线-001'], 2)
   const item = r.items.find((i) => i.checkId === 'growth-realm-sequence-missing')

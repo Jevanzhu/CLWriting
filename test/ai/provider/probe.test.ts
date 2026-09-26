@@ -36,7 +36,9 @@ function conf(over: Partial<ProviderConf> = {}): ProviderConf {
 }
 
 /** 假 provider：按 events 依次产事件，末尾补 done */
-function fakeProvider(events: Array<{ type: 'text' | 'tool' | 'error'; name?: string; message?: string }>): ModelProvider {
+function fakeProvider(
+  events: Array<{ type: 'text' | 'tool' | 'error'; name?: string; message?: string }>,
+): ModelProvider {
   const stream = async function* (): AsyncGenerator<GenEvent> {
     for (const ev of events) {
       if (ev.type === 'text') yield { type: 'text', delta: 'x' }

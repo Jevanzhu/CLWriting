@@ -4,15 +4,9 @@ import vue from '@vitejs/plugin-vue'
 
 const rootPinia = fileURLToPath(new URL('./node_modules/pinia', import.meta.url))
 const rootVue = fileURLToPath(new URL('./node_modules/vue', import.meta.url))
-const rootVueReactivity = fileURLToPath(
-  new URL('./node_modules/@vue/reactivity', import.meta.url),
-)
-const rootVueRuntimeCore = fileURLToPath(
-  new URL('./node_modules/@vue/runtime-core', import.meta.url),
-)
-const rootVueRuntimeDom = fileURLToPath(
-  new URL('./node_modules/@vue/runtime-dom', import.meta.url),
-)
+const rootVueReactivity = fileURLToPath(new URL('./node_modules/@vue/reactivity', import.meta.url))
+const rootVueRuntimeCore = fileURLToPath(new URL('./node_modules/@vue/runtime-core', import.meta.url))
+const rootVueRuntimeDom = fileURLToPath(new URL('./node_modules/@vue/runtime-dom', import.meta.url))
 const rootVueShared = fileURLToPath(new URL('./node_modules/@vue/shared', import.meta.url))
 
 // CodeMirror 家族安装在 web-next 嵌套 node_modules（根测试目录解析不到）——钉到
@@ -114,7 +108,14 @@ export default defineConfig({
       // coverage 时 macOS AppleDouble 伴生文件（._*.ts）被 include 'src/**/*.ts' 命中，
       // 以 0% 进分桶拉低阈值。正常检出零命中（仓库在内置盘），故 governance 反向守卫
       // 的 EXCLUDE 抄本无需随动（其文件集扫描不涉 ._ 文件，口径不受影响）。
-      exclude: ['src/**/*.d.ts', '**/node_modules/**', '**/._*', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
+      exclude: [
+        'src/**/*.d.ts',
+        '**/node_modules/**',
+        '**/._*',
+        'src/studio/web-next/vite.config.ts',
+        'src/studio/web-next/src/types/tree.ts',
+        'src/studio/web-next/src/{main,router}.ts',
+      ],
       // vitest 5 升级批（阶段 39）：coverage-v8 v5 计数语义变化——同测试集同源码下全桶
       // 系统性下移（明细 = 阶段 39 批记）。阶段 43（coverage 修账批）：CI ubuntu·24 首跑
       // 实测落地重定——「win 为 ubuntu 下界」假设对 electron 平台门域不成立（win 跑

@@ -33,13 +33,19 @@ function installFetch(): void {
     const signal = init?.signal
     if (signal?.aborted) return Promise.reject(new DOMException('This operation was aborted', 'AbortError'))
     return new Promise((_resolve, reject) => {
-      signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true })
+      signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), {
+        once: true,
+      })
     })
   })
 }
 
 /** 请求结局（本文件只关心「是否以 AbortError 收口」）。 */
-const settle = (p: Promise<unknown>): Promise<unknown> => p.then(() => null, (e: unknown) => e)
+const settle = (p: Promise<unknown>): Promise<unknown> =>
+  p.then(
+    () => null,
+    (e: unknown) => e,
+  )
 
 beforeEach(() => {
   vi.clearAllMocks()

@@ -18,7 +18,9 @@ vi.mock('../../../src/studio/web-next/src/api/analysis', () => ({
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   updateDocMeta: vi.fn(async () => undefined),
 }))
-const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string } | undefined>(undefined)
+const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string } | undefined>(
+  undefined,
+)
 const docPatchMock = vi.fn()
 const docRefreshMock = vi.fn(async () => {})
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
@@ -52,7 +54,12 @@ beforeEach(() => {
 
 describe('Z-2: 分析期间键入不被旧正文回拼覆盖', () => {
   it('analyzeTags：refresh 被调、patch 不被调（无 T0 回拼）', async () => {
-    docEntryRef.value = { path: '写作/正文/0001-a.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n新键入的内容', dirty: true, baselineRevision: 'r0' }
+    docEntryRef.value = {
+      path: '写作/正文/0001-a.md',
+      content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n新键入的内容',
+      dirty: true,
+      baselineRevision: 'r0',
+    }
     const w = mount(AnalysisPanel, { props: { bookName: '书A' } })
     await flushPromises()
     // 点「分析标签」按钮（带 loading 态的那个）

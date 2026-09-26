@@ -121,10 +121,7 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
 
   let landed = false
   for (const p of chapterFiles) {
-    const file = await page.request.get(
-      `${BASE}/api/books/长篇测试书/file?file=${encodeURIComponent(p)}`,
-      stateHeaders,
-    )
+    const file = await page.request.get(`${BASE}/api/books/长篇测试书/file?file=${encodeURIComponent(p)}`, stateHeaders)
     expect(file.status(), `读回 ${p}`).toBe(200)
     const body = (await file.json()) as { content: string }
     if (body.content.includes('mock 自动写章')) landed = true

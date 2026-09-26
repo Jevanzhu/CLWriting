@@ -35,22 +35,25 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
         <!-- ：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
              (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。
  #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
-        <g
-          v-for="g2 in g.edgeGeoms.value"
-          :key="edgeKey(g2.e)"
-          :class="{ dim: g.edgeDim(g2.e) }"
-        >
+        <g v-for="g2 in g.edgeGeoms.value" :key="edgeKey(g2.e)" :class="{ dim: g.edgeDim(g2.e) }">
           <path
             :d="g2.d"
-            class="edge" :class="{ debt: g2.e.kind === 'debt', active: g.edgeActive(g2.e) }"
+            class="edge"
+            :class="{ debt: g2.e.kind === 'debt', active: g.edgeActive(g2.e) }"
             :style="{ stroke: g.edgeColor(g2.e) }"
           />
           <text
-            :x="g2.mx" :y="g2.my"
-            class="edge-label" :class="{ active: g.edgeActive(g2.e) }"
+            :x="g2.mx"
+            :y="g2.my"
+            class="edge-label"
+            :class="{ active: g.edgeActive(g2.e) }"
             :style="{ fill: g.edgeColor(g2.e) }"
-            text-anchor="middle" dy="0.32em"
-          >{{ g2.e.type }}<title v-if="g2.e.note">{{ g2.e.note }}</title></text>
+            text-anchor="middle"
+            dy="0.32em"
+          >
+            {{ g2.e.type }}
+            <title v-if="g2.e.note">{{ g2.e.note }}</title>
+          </text>
         </g>
       </g>
       <!-- 节点：胶囊内嵌角色名（名字即节点） -->
@@ -60,9 +63,13 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
           :key="n.id"
           class="node-g"
           :class="{
-            dim: g.isDim(n.id), hover: g.hoverId.value === n.id, selected: g.selectedId.value === n.id,
-            clickable: n.hasCard && !!n.file, center: n.isCenter,
-            'no-card': !n.hasCard, dragging: g.dragId.value === n.id,
+            dim: g.isDim(n.id),
+            hover: g.hoverId.value === n.id,
+            selected: g.selectedId.value === n.id,
+            clickable: n.hasCard && !!n.file,
+            center: n.isCenter,
+            'no-card': !n.hasCard,
+            dragging: g.dragId.value === n.id,
           }"
           :style="{
             transform: `translate(${n.x}px, ${n.y}px)`,
@@ -76,31 +83,42 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
         >
           <!-- 选中态外环（默认透明，hover/选中浮现） -->
           <rect
-            :x="-(g.nodeW(n) + 10) / 2" :y="-(g.nodeH(n) + 10) / 2"
-            :width="g.nodeW(n) + 10" :height="g.nodeH(n) + 10"
+            :x="-(g.nodeW(n) + 10) / 2"
+            :y="-(g.nodeH(n) + 10) / 2"
+            :width="g.nodeW(n) + 10"
+            :height="g.nodeH(n) + 10"
             :rx="(g.nodeH(n) + 10) / 2"
             class="node-halo"
           />
           <!-- 胶囊本体（不透明填充盖住穿过的边线） -->
           <rect
-            :x="-g.nodeW(n) / 2" :y="-g.nodeH(n) / 2"
-            :width="g.nodeW(n)" :height="g.nodeH(n)"
+            :x="-g.nodeW(n) / 2"
+            :y="-g.nodeH(n) / 2"
+            :width="g.nodeW(n)"
+            :height="g.nodeH(n)"
             :rx="g.nodeRx(n)"
             class="node"
           />
           <text
-            x="0" y="0"
-            class="node-label" :style="{ fontSize: `${g.nodeFontSize(n)}px` }"
-            text-anchor="middle" dominant-baseline="central"
-          >{{ n.id }}</text>
+            x="0"
+            y="0"
+            class="node-label"
+            :style="{ fontSize: `${g.nodeFontSize(n)}px` }"
+            text-anchor="middle"
+            dominant-baseline="central"
+          >
+            {{ n.id }}
+          </text>
         </g>
       </g>
     </svg>
     <!-- 图例：压成一行 chips，浮在图底部，不再占据竖向空间 -->
     <div class="legend">
       <span
-        v-for="l in g.activeLegend.value" :key="l.label"
-        class="lg clickable" :class="{ off: g.hiddenColors.value.has(l.color) }"
+        v-for="l in g.activeLegend.value"
+        :key="l.label"
+        class="lg clickable"
+        :class="{ off: g.hiddenColors.value.has(l.color) }"
         @click="g.toggleColor(l.color)"
       >
         <i class="lg-line" :style="{ background: l.color }"></i>{{ l.label }}
@@ -171,11 +189,7 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
 /* 债务：虚线，与「对立」同色但线型不同 —— 图例里也得看得出这个区别 */
 .lg-line.debt {
   background: none;
-  background-image: repeating-linear-gradient(
-    to right,
-    currentColor 0 4px,
-    transparent 4px 7px
-  );
+  background-image: repeating-linear-gradient(to right, currentColor 0 4px, transparent 4px 7px);
 }
 .graph {
   width: 100%;
@@ -201,7 +215,8 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
   stroke-width: 1.5;
   /* 默认就上语义色（弱），聚焦时提到全饱和——「灰线一片」是旧版最大的问题 */
   stroke-opacity: 0.32;
-  transition: opacity var(--dur-fast) var(--ease-out),
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
     stroke-opacity var(--dur-fast) var(--ease-out),
     stroke-width var(--dur-fast) var(--ease-out);
 }
@@ -245,7 +260,9 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
   stroke: var(--nc);
   stroke-width: 1.5;
   cursor: grab;
-  transition: opacity var(--dur-fast) var(--ease-out), fill var(--dur-fast) var(--ease-out);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    fill var(--dur-fast) var(--ease-out);
 }
 .node-g.center .node {
   fill: var(--nc);

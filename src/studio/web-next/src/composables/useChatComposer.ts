@@ -212,7 +212,9 @@ export function useChatComposer(
       // 0918修复批（E004）：interrupted=false = 当前没有在途生成（对话可能恰已
       // 收尾）——给反馈，不再静默。r 缺省（异常形态/旧 mock）不误报
       if (r && r.interrupted === false) useUiStore().toast('当前没有正在进行的生成', 'info')
-    } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
   }
 
   async function handleClear(): Promise<void> {
@@ -242,9 +244,17 @@ export function useChatComposer(
   }
 
   return {
-    input, sending, busy, chatRunning, selectedChapter,
+    input,
+    sending,
+    busy,
+    chatRunning,
+    selectedChapter,
     chapterMenuOpen,
-    handleSend, handleKeydown, stopChat, handleClear,
-    toggleChapterMenu, selectChapter,
+    handleSend,
+    handleKeydown,
+    stopChat,
+    handleClear,
+    toggleChapterMenu,
+    selectChapter,
   }
 }

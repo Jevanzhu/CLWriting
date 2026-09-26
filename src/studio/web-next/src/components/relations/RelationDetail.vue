@@ -22,8 +22,12 @@ function relKey(r: { other: string; kind: string }): string {
       </div>
       <template v-if="g.selectedCard.value">
         <div class="dc-tags">
-          <span v-if="g.selectedCard.value.境界" class="dc-tag"><span class="dc-tag-k">境界</span>{{ g.selectedCard.value.境界 }}</span>
-          <span v-if="g.selectedCard.value.身份" class="dc-tag"><span class="dc-tag-k">身份</span>{{ g.selectedCard.value.身份 }}</span>
+          <span v-if="g.selectedCard.value.境界" class="dc-tag"
+            ><span class="dc-tag-k">境界</span>{{ g.selectedCard.value.境界 }}</span
+          >
+          <span v-if="g.selectedCard.value.身份" class="dc-tag"
+            ><span class="dc-tag-k">身份</span>{{ g.selectedCard.value.身份 }}</span
+          >
         </div>
         <p v-if="g.selectedCard.value.目标" class="dc-goal">{{ g.selectedCard.value.目标 }}</p>
       </template>
@@ -36,7 +40,8 @@ function relKey(r: { other: string; kind: string }): string {
                无向去重后的边表，同选点视角下 (other, kind) 必唯一，即天然稳定键。
  #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
           <li
-            v-for="r in g.selectedRelations.value" :key="relKey(r)"
+            v-for="r in g.selectedRelations.value"
+            :key="relKey(r)"
             :class="{ debt: r.kind === 'debt' }"
             @click="g.selectNode(r.other)"
           >
@@ -49,7 +54,11 @@ function relKey(r: { other: string; kind: string }): string {
         </ul>
       </div>
 
-      <button v-if="g.selectedNode.value.hasCard && g.selectedNode.value.file" class="dc-open" @click="g.openCharacter(g.selectedNode.value)">
+      <button
+        v-if="g.selectedNode.value.hasCard && g.selectedNode.value.file"
+        class="dc-open"
+        @click="g.openCharacter(g.selectedNode.value)"
+      >
         打开角色卡 <ArrowUpRight :size="13" />
       </button>
     </template>

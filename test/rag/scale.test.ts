@@ -57,7 +57,23 @@ const PLANTED_MARKER = '锚点段落甲乙丙丁'
 const RECALL_BOUND_MS = 4_000 * (process.env.CI ? 2 : 1)
 
 /** 造词池（确定性文本生成用，内容语义不影响测试——向量由文本哈希决定） */
-const WORDS = ['山峦', '风雪', '剑光', '长街', '灯火', '故人', '旧梦', '孤城', '烟雨', '残阳', '铁骑', '夜色', '荒原', '潮声', '星火']
+const WORDS = [
+  '山峦',
+  '风雪',
+  '剑光',
+  '长街',
+  '灯火',
+  '故人',
+  '旧梦',
+  '孤城',
+  '烟雨',
+  '残阳',
+  '铁骑',
+  '夜色',
+  '荒原',
+  '潮声',
+  '星火',
+]
 
 /** FNV-1a 字符串哈希（确定性，跨运行/跨平台一致） */
 function fnv1a(s: string): number {
@@ -102,10 +118,7 @@ function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise
 }
 
 /** 生成一章正文：40~130 字/段、双空行分段，含可选植入段（返回正文 + 植入信息） */
-function makeChapterBody(
-  chapterNumber: number,
-  plant: boolean,
-): { body: string; plantedText: string | null } {
+function makeChapterBody(chapterNumber: number, plant: boolean): { body: string; plantedText: string | null } {
   const rng = mulberry32(chapterNumber * 2654435761)
   const paragraphs: string[] = []
   let plantedText: string | null = null
@@ -156,8 +169,13 @@ describe('RAG 召回规模界值（200 万字目标场景）', () => {
         if (p) plantedText = p
         totalChars += body.length
         const meta: ChapterMeta = {
-          章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-          _path: '', _wordCount: 0,
+          章号: n,
+          标题: `第${n}章`,
+          钩子类型: '悬念钩',
+          钩子强弱: '中',
+          情绪定位: '铺垫',
+          _path: '',
+          _wordCount: 0,
         }
         writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, body)
       }
@@ -211,8 +229,8 @@ describe('RAG 召回规模界值（200 万字目标场景）', () => {
     const best = Math.min(...durations)
     console.log(
       `[rag-scale] ${CHAPTERS} 章 / ${(totalChars / 10000).toFixed(1)} 万字 / ${chunkCount} 块 / ${VECTOR_DIM} 维` +
-      `｜召回耗时 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${best.toFixed(0)}ms）` +
-      `｜rag.db ${((statSync(join(bookRoot, '.cache', 'rag.db')).size) / 1024 / 1024).toFixed(1)}MB`,
+        `｜召回耗时 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${best.toFixed(0)}ms）` +
+        `｜rag.db ${(statSync(join(bookRoot, '.cache', 'rag.db')).size / 1024 / 1024).toFixed(1)}MB`,
     )
     expect(best).toBeLessThan(RECALL_BOUND_MS)
   })

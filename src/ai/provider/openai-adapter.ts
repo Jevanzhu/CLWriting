@@ -119,7 +119,10 @@ function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): OpenAI.Chat.Compl
       role: 'assistant',
       content: textParts.join('') || null,
     }
-    const reasoning = (m.content as ContentBlock[]).filter((b) => b.type === 'reasoning').map((b) => b.text).join('')
+    const reasoning = (m.content as ContentBlock[])
+      .filter((b) => b.type === 'reasoning')
+      .map((b) => b.text)
+      .join('')
     if (reasoning && echoReasoning) msg['reasoning_content'] = reasoning
     if (toolCalls.length > 0) msg['tool_calls'] = toolCalls
     out.push(msg)
@@ -186,7 +189,11 @@ export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams 
   // force/force-named → 'required' / {type:'function',function:{name}}，auto → 'auto'，
   // none → 不发（prompt 引导兜底）。
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
-    const intent = resolveToolChoiceIntent({ toolChoiceMode: q.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    const intent = resolveToolChoiceIntent({
+      toolChoiceMode: q.toolChoiceMode,
+      toolChoice: req.toolChoice,
+      toolName: req.toolName,
+    })
     if (intent.action === 'force') {
       params['tool_choice'] = 'required'
     } else if (intent.action === 'force-named') {
@@ -289,7 +296,12 @@ function toUsage(u: WireUsage | undefined | null): TokenUsage {
  * 两个导出同名同义（Provider / ProviderChat），调用方无法从名字判断该用哪个，且薄壳
  * 一度丢 store/userDataPath 两形参（修）。名字收成唯一一个。
  */
-export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore, userDataPath?: string): ModelProvider {
+export function createOpenAIProviderChat(
+  conf: ProviderConf,
+  client?: OpenAI,
+  store?: ProviderStore,
+  userDataPath?: string,
+): ModelProvider {
   const c = client ?? createClient(conf)
   const q = quirksFor(conf.model ?? '')
 
@@ -509,7 +521,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 for (const [, acc] of toolAccum) {
                   if (!acc.name) continue
                   let input: unknown
-                  try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
+                  try {
+                    input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {}
+                  } catch {
+                    input = { _raw: acc.argsBuf }
+                  }
                   outToolText.push(acc.name + acc.argsBuf) // 残留 tool 参数计入产出累计
                   yield { type: 'tool', id: acc.id || `call_${fallbackToolSeq++}`, name: acc.name, input }
                 }
@@ -579,4 +595,3 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
     },
   }
 }
-

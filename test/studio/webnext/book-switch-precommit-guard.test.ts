@@ -36,7 +36,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: mocks.updateChapterMetaDoc,
@@ -84,11 +86,19 @@ vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', async () =>
   const { ref } = await import('vue')
   return { useHeartbeat: vi.fn(), heartbeatFailStreak: ref(0) }
 })
-vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn(() => ({ resync: mocks.resync })) }))
-vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({ useChatTier: vi.fn(() => ({ refresh: mocks.refreshTier })) }))
+vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({
+  useSse: vi.fn(() => ({ resync: mocks.resync })),
+}))
+vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({
+  useChatTier: vi.fn(() => ({ refresh: mocks.refreshTier })),
+}))
 
 import Book from '../../../src/studio/web-next/src/pages/Book.vue'
-import { bookSessionFor, currentBookSession, endBookSession } from '../../../src/studio/web-next/src/composables/useBookSession'
+import {
+  bookSessionFor,
+  currentBookSession,
+  endBookSession,
+} from '../../../src/studio/web-next/src/composables/useBookSession'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 import { useWorkbenchStore } from '../../../src/studio/web-next/src/stores/workbench'
@@ -155,7 +165,10 @@ beforeEach(async () => {
   const Host = defineComponent({
     name: 'RouterViewHarness',
     setup() {
-      provide(matchedRouteKey, computed(() => router.currentRoute.value.matched[0]))
+      provide(
+        matchedRouteKey,
+        computed(() => router.currentRoute.value.matched[0]),
+      )
       provide(routeLocationKey, routeState as unknown as RouteLocationNormalizedLoaded)
       return () => h(Book)
     },

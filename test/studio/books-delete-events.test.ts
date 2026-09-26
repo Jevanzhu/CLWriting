@@ -47,18 +47,28 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: `长篇/${BOOK}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n' +
-      JSON.stringify({ name: BOOK2, path: `长篇/${BOOK2}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
+    JSON.stringify({ name: BOOK, path: `长篇/${BOOK}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) +
+      '\n' +
+      JSON.stringify({ name: BOOK2, path: `长篇/${BOOK2}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) +
+      '\n',
     'utf-8',
   )
   writeFileSync(join(workDir, '.clwriting', 'active'), BOOK + '\n', 'utf-8')
   const bookAbs = join(workDir, '长篇', BOOK)
   mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookAbs, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookAbs, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
+    'utf-8',
+  )
   // 第二本：M-2 接线用（删书等待在途后台任务）
   const bookAbs2 = join(workDir, '长篇', BOOK2)
   mkdirSync(join(bookAbs2, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookAbs2, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK2}\n  genre: 玄幻\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookAbs2, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK2}\n  genre: 玄幻\nhost: cc\n`,
+    'utf-8',
+  )
 
   // 播种旧书事件：对话会话（book=书名）+ 工作区会话（book=bookHash，ws- 前缀口径）
   const store = openSessionStore(userDataDir, bookAbs)

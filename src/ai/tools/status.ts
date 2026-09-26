@@ -26,7 +26,7 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     // 抛 SQLITE_BUSY，等锁而非失败。busy_timeout 是连接级设置，只读连接可设
     db.exec('PRAGMA busy_timeout = 5000')
   } catch (e) {
-    return { ok: false, summary: '打开书缓存失败：' + (errMsg(e)) }
+    return { ok: false, summary: '打开书缓存失败：' + errMsg(e) }
   }
   try {
     const cfg = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
@@ -37,17 +37,11 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     // 低级项：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿），
     // 与判态/近况复述/备料同口径
     const eff = applyGlobalDefaults(cfg.config, ctx.userDataPath)
-    const snapshot = assembleStatus(
-      db,
-      eff,
-      eff.book.volume_size ?? 50,
-      finalizedChapterSetOfBook(ctx.bookRoot),
-    )
+    const snapshot = assembleStatus(db, eff, eff.book.volume_size ?? 50, finalizedChapterSetOfBook(ctx.bookRoot))
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {
-    return { ok: false, summary: '读取章节状态失败：' + (errMsg(e)) }
+    return { ok: false, summary: '读取章节状态失败：' + errMsg(e) }
   } finally {
     db.close()
   }
 }
-

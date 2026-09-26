@@ -5,7 +5,13 @@
  * 「mac 同样执行，保持数据面跨平台一致」口径在所有平台生效）。
  */
 import { describe, expect, it } from 'vitest'
-import { RESERVED_WIN, sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName, chapterNoFromName } from '../../src/format/filename.js'
+import {
+  RESERVED_WIN,
+  sanitizeChapterTitle,
+  sanitizeFileNamePart,
+  sanitizeFullFileName,
+  chapterNoFromName,
+} from '../../src/format/filename.js'
 
 describe('非法字符与穿越', () => {
   it('win 非法字符集全替换 _（含路径分隔符，防 ../ 越出 bookRoot）', () => {
@@ -77,7 +83,11 @@ describe('RESERVED_WIN 契约锚定', () => {
   it('保留设备名全集（CON/PRN/AUX/NUL/CLOCK$ + COM1-9 + LPT1-9，共 23 项）', () => {
     expect([...RESERVED_WIN].sort()).toEqual(
       [
-        'CON', 'PRN', 'AUX', 'NUL', 'CLOCK$',
+        'CON',
+        'PRN',
+        'AUX',
+        'NUL',
+        'CLOCK$',
         ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
         ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
       ].sort(),

@@ -16,10 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  getAnalysisOverviewCached,
-  analysisOverviewCache,
-} from '../../src/studio/server/api/analysis.js'
+import { getAnalysisOverviewCached, analysisOverviewCache } from '../../src/studio/server/api/analysis.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -41,7 +38,12 @@ function makeBook(docCount: number): string {
   })
   for (let no = 1; no <= docCount; no++) {
     const docId = generateDocId()
-    upsertEntry(m, { id: docId, nodeType: 'document', path: `写作/正文/${String(no).padStart(4, '0')}-第${no}章.md`, parentId: null })
+    upsertEntry(m, {
+      id: docId,
+      nodeType: 'document',
+      path: `写作/正文/${String(no).padStart(4, '0')}-第${no}章.md`,
+      parentId: null,
+    })
     writeAnalysis(root, docId, 'score', env(5 + (no % 3)))
   }
   writeManifest(manifestPath, m)

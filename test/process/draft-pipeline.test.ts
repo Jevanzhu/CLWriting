@@ -16,7 +16,12 @@ import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { buildDraftPrompt, SETTINGS_BUDGET_CHARS, snapshotBeforeOverwrite, saveDraft } from '../../src/process/draft-pipeline.js'
+import {
+  buildDraftPrompt,
+  SETTINGS_BUDGET_CHARS,
+  snapshotBeforeOverwrite,
+  saveDraft,
+} from '../../src/process/draft-pipeline.js'
 
 /** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——既有断言全部针对 prompt 文本；
  *  files 清单的回归见「Q-5 注入源清单」describe（新用例直用原函数取双字段）。 */
@@ -27,7 +32,10 @@ import type { BookConfig } from '../../src/format/types.js'
 function cfg(over: { chapterTarget?: number; injection?: 'light' | 'heavy' }): BookConfig {
   return {
     spec_version: 1,
-    book: { title: '测试书', ...(over.chapterTarget !== undefined ? { chapter_target_words: over.chapterTarget } : {}) },
+    book: {
+      title: '测试书',
+      ...(over.chapterTarget !== undefined ? { chapter_target_words: over.chapterTarget } : {}),
+    },
     leads: { enabled: [] },
     budget: {},
     growth: {},
@@ -102,10 +110,7 @@ describe('buildDraftPrompt: 设定预算注入（C3 / DSH-17）', () => {
     mkdirSync(join(dir, '设定', '角色'), { recursive: true })
     writeFileSync(join(dir, '设定', '世界观.md'), '修仙世界，灵气复苏')
     writeFileSync(join(dir, '设定', '角色', '林远.md'), '---\n姓名: 林远\n身份: 清虚门弟子\n境界: 练气\n---\n正文')
-    writeFileSync(
-      join(dir, '设定', '境界体系.md'),
-      '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明',
-    )
+    writeFileSync(join(dir, '设定', '境界体系.md'), '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明')
     const p = buildPrompt(dir, 1, 'long')
     expect(p).toContain('## 世界观(本书设定,保持设定一致)')
     expect(p).toContain('## 角色设定(供参考,保持人物一致)')
@@ -283,7 +288,10 @@ describe('readChapterScenes: 场景水源三级回退（① 章纲 fm → ② �
   function makeSampleLibrary(scenes: string[]): void {
     for (const sc of scenes) {
       mkdirSync(join(dir, '文风', '样章库', sc), { recursive: true })
-      writeFileSync(join(dir, '文风', '样章库', sc, `${sc}-001.md`), `---\n场景: ${sc}\n来源: 作者原作\n---\n${sc}样章正文`)
+      writeFileSync(
+        join(dir, '文风', '样章库', sc, `${sc}-001.md`),
+        `---\n场景: ${sc}\n来源: 作者原作\n---\n${sc}样章正文`,
+      )
     }
   }
 
@@ -291,7 +299,10 @@ describe('readChapterScenes: 场景水源三级回退（① 章纲 fm → ② �
   function makeChapterOutline(scene: string | null): void {
     mkdirSync(join(dir, '大纲', '章纲'), { recursive: true })
     const fmScene = scene === null ? '' : `场景: ${scene}\n`
-    writeFileSync(join(dir, '大纲', '章纲', '0001-开篇.md'), `---\n章号: 1\n标题: 开篇\n${fmScene}---\n\n本章情节要点。`)
+    writeFileSync(
+      join(dir, '大纲', '章纲', '0001-开篇.md'),
+      `---\n章号: 1\n标题: 开篇\n${fmScene}---\n\n本章情节要点。`,
+    )
   }
 
   /** 建第 1 章正文（scene 传 null → 不写「场景」字段，模拟水源②无声明；写作/正文/ 与生产同位） */
@@ -305,7 +316,10 @@ describe('readChapterScenes: 场景水源三级回退（① 章纲 fm → ② �
   function makeDetailedOutline(chapterNo: number, sceneSection?: string): void {
     mkdirSync(join(dir, '工作区'), { recursive: true })
     const section = sceneSection ? `\n${sceneSection}\n` : ''
-    writeFileSync(join(dir, '工作区', '细纲.md'), `---\n章号: ${chapterNo}\n---\n\n## 情节骨架\n开篇/发展/收尾。${section}`)
+    writeFileSync(
+      join(dir, '工作区', '细纲.md'),
+      `---\n章号: ${chapterNo}\n---\n\n## 情节骨架\n开篇/发展/收尾。${section}`,
+    )
   }
 
   it('水源①命中：章纲 fm「场景」→ 样章按它选', () => {
@@ -414,7 +428,10 @@ describe('buildDraftPrompt: Q-5 注入源清单', () => {
     writeFileSync(join(dir, '设定', '角色', '林远.md'), '---\n姓名: 林远\n身份: 弟子\n境界: 练气\n---\n正文')
     writeFileSync(join(dir, '设定', '境界体系.md'), '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基]\n---\n说明')
     mkdirSync(join(dir, '文风', '样章库', '战斗'), { recursive: true })
-    writeFileSync(join(dir, '文风', '样章库', '战斗', '战斗-001.md'), '---\n场景: 战斗\n来源: 作者原作\n---\n样章正文甲')
+    writeFileSync(
+      join(dir, '文风', '样章库', '战斗', '战斗-001.md'),
+      '---\n场景: 战斗\n来源: 作者原作\n---\n样章正文甲',
+    )
   }
 
   it('全源书 → files 按注入序列出全部实际注入源（细纲→章纲→材料→设定层→样章）', () => {
@@ -494,10 +511,20 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     // miss 早退 null；预读路径落新版本必 truthy——writeVersion 同内容快照会去重
     // 返回 null，故探针须换旧内容以区分两臂）
     rmSync(join(dir, rel))
-    const snap2 = snapshotBeforeOverwrite(dir, rel, '又新内容', undefined, undefined, null, Buffer.from('另一段旧内容', 'utf-8'))
+    const snap2 = snapshotBeforeOverwrite(
+      dir,
+      rel,
+      '又新内容',
+      undefined,
+      undefined,
+      null,
+      Buffer.from('另一段旧内容', 'utf-8'),
+    )
     expect(snap2).toBeTruthy()
     // 预读 GBK Buffer → R66-1 防线与自读形态一致上抛
-    expect(() => snapshotBeforeOverwrite(dir, rel, 'x', undefined, undefined, null, Buffer.from([0xb7, 0xe7]))).toThrow('不是 UTF-8')
+    expect(() => snapshotBeforeOverwrite(dir, rel, 'x', undefined, undefined, null, Buffer.from([0xb7, 0xe7]))).toThrow(
+      '不是 UTF-8',
+    )
   })
 
   it('saveDraft 集成：case2 文件名相撞的 GBK 旧文件 → 拒绝落盘且字节不变（撤防线本用例红）', async () => {

@@ -55,14 +55,22 @@ function makeSave(): typeof saveDraft {
 
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
-    async startSession(cwd: string): Promise<Session> { return { id: 'mock', cwd, closed: false } },
+    async startSession(cwd: string): Promise<Session> {
+      return { id: 'mock', cwd, closed: false }
+    },
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
-    emit(_s, ev): void { emitted.push(ev) },
+    emit(_s, ev): void {
+      emitted.push(ev)
+    },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -92,7 +100,10 @@ test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pas
       bookRoot,
       bookName: BOOK,
       chapter: 1,
-      check: () => { checks++; return checks === 1 ? redOutcome() : greenOutcome() },
+      check: () => {
+        checks++
+        return checks === 1 ? redOutcome() : greenOutcome()
+      },
       save: makeSave(),
       genFn: makeGenFn(['第一稿', '第二稿']),
     }
@@ -104,11 +115,11 @@ test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pas
     // 首检红（第 1 稿）→ 重写 → 次检绿（第 2 稿）：两轮机检各一条 check/report，一次打回一次 retry/attempt
     expect(types.filter((t) => t === 'check/report')).toHaveLength(2)
     expect(types.filter((t) => t === 'retry/attempt')).toHaveLength(1)
-    const first = evs.find((e) => e.type === 'check/report')!;
+    const first = evs.find((e) => e.type === 'check/report')!
     expect(first.data).toMatchObject({ chapter: 1, reds: ['命中禁词「顿时」'] })
-    const attempt = evs.find((e) => e.type === 'retry/attempt')!;
-    expect(attempt.data).toMatchObject({ attempt: 0, maxAttempts: 3 });
-    const attemptData = attempt.data as { redIssues?: string[] };
+    const attempt = evs.find((e) => e.type === 'retry/attempt')!
+    expect(attempt.data).toMatchObject({ attempt: 0, maxAttempts: 3 })
+    const attemptData = attempt.data as { redIssues?: string[] }
     expect(attemptData.redIssues).toEqual(['命中禁词「顿时」'])
   } finally {
     rmSync(ud, { recursive: true, force: true })
@@ -176,7 +187,10 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
       bookRoot,
       bookName: BOOK,
       chapter: 1,
-      check: () => { checks++; return checks === 1 ? redOutcome() : greenOutcome() },
+      check: () => {
+        checks++
+        return checks === 1 ? redOutcome() : greenOutcome()
+      },
       save: makeSave(),
       genFn: makeGenFn(['第一稿', '第二稿']),
     }
@@ -187,8 +201,16 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
     // goal：create（首稿后，active）→ complete（pass）
     const goals = evs.filter((e) => e.type === 'goal/change')
     expect(goals.map((e) => (e.data as { operation: string }).operation)).toEqual(['create', 'complete'])
-    const created = goals[0]!.data as { goal: { id: string; title: string; state: string; roundsStarted: number; maxGoalRounds: number } }
-    expect(created.goal).toMatchObject({ id: 'self-heal:ch1', title: '修复第1章红项', state: 'active', roundsStarted: 0, maxGoalRounds: 3 })
+    const created = goals[0]!.data as {
+      goal: { id: string; title: string; state: string; roundsStarted: number; maxGoalRounds: number }
+    }
+    expect(created.goal).toMatchObject({
+      id: 'self-heal:ch1',
+      title: '修复第1章红项',
+      state: 'active',
+      roundsStarted: 0,
+      maxGoalRounds: 3,
+    })
     const completed = goals[1]!.data as { goal: { state: string; roundsStarted: number } }
     expect(completed.goal.state).toBe('complete')
     expect(completed.goal.roundsStarted).toBe(1)
@@ -216,7 +238,10 @@ test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）'
       bookRoot,
       bookName: BOOK,
       chapter: 1,
-      check: () => { abortSelfHeal(BOOK); return redOutcome() },
+      check: () => {
+        abortSelfHeal(BOOK)
+        return redOutcome()
+      },
       save: makeSave(),
       genFn: makeGenFn(['第一稿', '第二稿']),
     }
@@ -263,4 +288,3 @@ test('F5 审阅批：机检崩溃（CHECK_ERROR）→ goal block 附原因（非
     rmSync(ud, { recursive: true, force: true })
   }
 })
-

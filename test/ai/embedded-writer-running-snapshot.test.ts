@@ -91,57 +91,65 @@ afterAll(async () => {
 })
 
 describe('四轮-A402: chat 内嵌写章期间 sync 快照写手腿在途', () => {
-  it('执行期间 isWriterRunning=true、结束后 false；chat: 前缀排除口径不翻转（E002 语义保持）', { timeout: 30_000 }, async () => {
-    // 模拟 turns.ts 的 chat 腿登记（`chat:<书>` owner 全程在册）——先钉 E002 边界
-    const chatLeg = new AbortController()
-    ccDriver.registerCtrl!(ccSession, chatLeg, `chat:${SHORT_BOOK}`)
-    expect(ccDriver.isWriterRunning!(ccSession)).toBe(false) // 仅对话腿 = 假忙修复语义不翻转
-    expect(ccDriver.isRunning!(ccSession)).toBe(true)
+  it(
+    '执行期间 isWriterRunning=true、结束后 false；chat: 前缀排除口径不翻转（E002 语义保持）',
+    { timeout: 30_000 },
+    async () => {
+      // 模拟 turns.ts 的 chat 腿登记（`chat:<书>` owner 全程在册）——先钉 E002 边界
+      const chatLeg = new AbortController()
+      ccDriver.registerCtrl!(ccSession, chatLeg, `chat:${SHORT_BOOK}`)
+      expect(ccDriver.isWriterRunning!(ccSession)).toBe(false) // 仅对话腿 = 假忙修复语义不翻转
+      expect(ccDriver.isRunning!(ccSession)).toBe(true)
 
-    // 首稿生成挂住在途窗口（delayMs）；重写轮（脚本重复末条）不再挂
-    fake.setScript([
-      { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT, delayMs: 1500 },
-      { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT },
-    ])
+      // 首稿生成挂住在途窗口（delayMs）；重写轮（脚本重复末条）不再挂
+      fake.setScript([
+        { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT, delayMs: 1500 },
+        { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT },
+      ])
 
-    const ctrl = new AbortController()
-    const tool = executeChatTool({ id: 'c1', name: 'write_chapter', input: { chapter: 5 } }, opts, ctrl.signal)
-    // 生成请求已到 stub（runTask 先 register 后发请求）→ 写手腿在册（修复前全程假空闲）
-    await waitFor(() => fake.requestCount() >= 1)
-    expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
-    expect(isSelfHealRunning(SHORT_BOOK)).toBe(true)
+      const ctrl = new AbortController()
+      const tool = executeChatTool({ id: 'c1', name: 'write_chapter', input: { chapter: 5 } }, opts, ctrl.signal)
+      // 生成请求已到 stub（runTask 先 register 后发请求）→ 写手腿在册（修复前全程假空闲）
+      await waitFor(() => fake.requestCount() >= 1)
+      expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
+      expect(isSelfHealRunning(SHORT_BOOK)).toBe(true)
 
-    // 短篇机检字数红 → 3 轮重写触顶 escalate（B-P1-6：escalate 亦 ok——章已落盘）
-    const r = await tool
-    expect(r.ok).toBe(true)
-    // settle 后注销：快照归 false（写手腿收尾，仅剩 chat 腿）
-    expect(ccDriver.isWriterRunning!(ccSession)).toBe(false)
-    expect(ccDriver.isRunning!(ccSession)).toBe(true) // chat 腿仍在册
-    expect(isSelfHealRunning(SHORT_BOOK)).toBe(false)
-    ccDriver.unregisterCtrl!(ccSession, chatLeg)
-    expect(ccDriver.isRunning!(ccSession)).toBe(false)
-  })
+      // 短篇机检字数红 → 3 轮重写触顶 escalate（B-P1-6：escalate 亦 ok——章已落盘）
+      const r = await tool
+      expect(r.ok).toBe(true)
+      // settle 后注销：快照归 false（写手腿收尾，仅剩 chat 腿）
+      expect(ccDriver.isWriterRunning!(ccSession)).toBe(false)
+      expect(ccDriver.isRunning!(ccSession)).toBe(true) // chat 腿仍在册
+      expect(isSelfHealRunning(SHORT_BOOK)).toBe(false)
+      ccDriver.unregisterCtrl!(ccSession, chatLeg)
+      expect(ccDriver.isRunning!(ccSession)).toBe(false)
+    },
+  )
 
-  it('/interrupt 全停：在册 self-heal 槽与 chat 腿同中止，槽位即注销（全停语义不变）', { timeout: 30_000 }, async () => {
-    fake.setScript([
-      { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT, delayMs: 8_000 }, // 长挂制造在途窗口
-    ])
-    const chatLeg = new AbortController()
-    ccDriver.registerCtrl!(ccSession, chatLeg, `chat:${SHORT_BOOK}`)
+  it(
+    '/interrupt 全停：在册 self-heal 槽与 chat 腿同中止，槽位即注销（全停语义不变）',
+    { timeout: 30_000 },
+    async () => {
+      fake.setScript([
+        { type: 'tool', name: 'submit_chapter', input: CHAPTER_INPUT, delayMs: 8_000 }, // 长挂制造在途窗口
+      ])
+      const chatLeg = new AbortController()
+      ccDriver.registerCtrl!(ccSession, chatLeg, `chat:${SHORT_BOOK}`)
 
-    const ctrl = new AbortController()
-    const tool = executeChatTool({ id: 'c2', name: 'write_chapter', input: { chapter: 6 } }, opts, ctrl.signal)
-    await waitFor(() => fake.requestCount() >= 1)
-    expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
+      const ctrl = new AbortController()
+      const tool = executeChatTool({ id: 'c2', name: 'write_chapter', input: { chapter: 6 } }, opts, ctrl.signal)
+      await waitFor(() => fake.requestCount() >= 1)
+      expect(ccDriver.isWriterRunning!(ccSession)).toBe(true)
 
-    // /interrupt → cc interrupt → abortAllCtrls + 全槽注销
-    ccDriver.interrupt!(ccSession)
-    const r = await tool
-    expect(r.ok).toBe(false)
-    expect(r.summary).toBe('写章已中断。')
-    expect(chatLeg.signal.aborted).toBe(true) // chat 腿同被中止（全停）
-    expect(isSelfHealRunning(SHORT_BOOK)).toBe(false)
-    expect(ccDriver.isRunning!(ccSession)).toBe(false)
-    expect(ccDriver.isWriterRunning!(ccSession)).toBe(false)
-  })
+      // /interrupt → cc interrupt → abortAllCtrls + 全槽注销
+      ccDriver.interrupt!(ccSession)
+      const r = await tool
+      expect(r.ok).toBe(false)
+      expect(r.summary).toBe('写章已中断。')
+      expect(chatLeg.signal.aborted).toBe(true) // chat 腿同被中止（全停）
+      expect(isSelfHealRunning(SHORT_BOOK)).toBe(false)
+      expect(ccDriver.isRunning!(ccSession)).toBe(false)
+      expect(ccDriver.isWriterRunning!(ccSession)).toBe(false)
+    },
+  )
 })

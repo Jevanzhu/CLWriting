@@ -83,13 +83,7 @@ test('E001: 两腿都活跃 → 恰一枚锚、位于全部回放前（chat 段 
     if (r.done) throw new Error('回放不完整')
     got.push(r.value)
   }
-  expect(got.map((e) => e.type)).toEqual([
-    'chat_replay_begin',
-    'chat_start',
-    'chat_text',
-    'role_spawn',
-    'text',
-  ])
+  expect(got.map((e) => e.type)).toEqual(['chat_replay_begin', 'chat_start', 'chat_text', 'role_spawn', 'text'])
   // 恰一枚：全序列仅首枚
   expect(got.filter((e) => e.type === 'chat_replay_begin')).toHaveLength(1)
   await pendingA

@@ -119,10 +119,10 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
   it('章数翻倍 → 调用次数不变（O(N²) → O(N)）', () => {
     const root = makeBook(6)
     try {
-        readChapterDirMock.mockClear()
-        const { issues } = collectTreeIssues(root, () => undefined)
-        expect(Object.keys(issues)).toHaveLength(6)
-        expect(callCount()).toBe(2)
+      readChapterDirMock.mockClear()
+      const { issues } = collectTreeIssues(root, () => undefined)
+      expect(Object.keys(issues)).toHaveLength(6)
+      expect(callCount()).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -188,9 +188,7 @@ describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
     const root = makeBook(3)
     try {
       const m = readManifest(join(root, '项目', '文档清单.jsonl'))
-      const docIds = [...m.entries.entries()]
-        .filter(([, e]) => e.nodeType === 'document')
-        .map(([id]) => id)
+      const docIds = [...m.entries.entries()].filter(([, e]) => e.nodeType === 'document').map(([id]) => id)
       // 与 api/check.ts tree-issues 端点同款回线：verdict 来自 review 信封
       const verdictOf = (docId: string): { approved: boolean } | undefined => {
         const env = readAnalysis(root, docId, 'review')
@@ -254,9 +252,7 @@ describe('collectTreeIssues 缺陷修复回归（二轮复审）', () => {
       // 第一轮：003 章读稿瞬态失败（模拟 SQLITE_BUSY/ENOENT 竞态类异常出口）——
       // issues 不含 003（可见的临时缺失），且关键是不写它的缓存
       readDraftMock.mockImplementation((p: string) =>
-        p.includes('003')
-          ? ({ ok: false, reason: '瞬态读稿失败' } as ReturnType<typeof readDraft>)
-          : orig(p),
+        p.includes('003') ? ({ ok: false, reason: '瞬态读稿失败' } as ReturnType<typeof readDraft>) : orig(p),
       )
       const first = collectTreeIssues(root, () => undefined)
       expect(Object.keys(first.issues)).toHaveLength(4)

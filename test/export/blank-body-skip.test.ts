@@ -24,7 +24,11 @@ function makeLongBook(title: string): string {
 }
 
 function writeChapterFile(root: string, num: number, title: string, body: string): void {
-  writeFileSync(join(root, '写作', '正文', `${num}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n${body}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', `${num}-${title}.md`),
+    `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
+    'utf-8',
+  )
 }
 
 test('R51-F-7a: 全空白正文章 → 记警告跳过，不计章数、不出空壳', () => {

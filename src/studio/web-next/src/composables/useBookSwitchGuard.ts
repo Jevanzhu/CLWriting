@@ -154,7 +154,11 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
    *  /「留在本书」语义逐字不变，回滚改由调用方按路径决定）。返回 'dropped' = 作者确认丢弃
    *  （调用方继续切换）；'cancelled' = 作者选择留在原书；'stale' = 弹窗 await 窗内轮回作废
    *  （仅传了 gen 时判定——提交前守卫无轮次面，传 null）。 */
-  async function askDrop(opts: { gen: number | null; title: string; message: string }): Promise<'dropped' | 'cancelled' | 'stale'> {
+  async function askDrop(opts: {
+    gen: number | null
+    title: string
+    message: string
+  }): Promise<'dropped' | 'cancelled' | 'stale'> {
     const drop = await ui.ask({
       title: opts.title,
       message: opts.message,
@@ -284,63 +288,75 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   })
 
   // ── ② 提交后的 watch（预决断移交 / 脏路由 / 不可前移入口的最小回滚）────────────
-  watch(bookName, async (n) => {
-    // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
-    const gen = bookGen.begin()
-    // 同书重入短路——守卫取消分支 router.replace 回原书会再次触发
-    // 本 watch，此时书并未变化，workbench.clear/flushDirty/setBook/各 store clear 全是
-    // 零收益动作（clear 还会误清原书工作台态）。n===lastBook 直接返回，不重复清。
-    // 口径收窄——「原封」仅对冲突拒绝路径成立（其取消点在
-    // 下方 workbench.clear 之前）；路径（flush 失败拒绝）弹窗前 workbench.clear 已
-    // 执行，回退后原书 workbench 态（textOut/healPhase 等）不保留——这是既有口径
-    // （clear 提前防双 spawn 窗），非本短路新增损失；其余 store 均在 clear 之后、未动。
-    // 首载 lastBook==='' 不受影响：路由书名经归空串时 n==='' 与 lastBook 初值
-    // 相等，但首载时各 store 本就是初值，短路等价于原「清一遍空状态」，无行为差异。
-    if (n === lastBook) return
-    // 脏路由（name=''，手输坏 URL / 上位页面异常跳转）提前分支——
-    // 残存 dirty 属前书，先落盘再按现有切书口径清各 store，防前书数据滞留展示。
-    // 不走下方 /确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
-    // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
-    if (!n) {
-      workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
-      const failedEmpty = await doc.flushDirty()
-      if (bookGen.stale(gen)) return // 挂起期间路由又变：交新轮回处理
-      // flush 等待窗口内在途保存可能落成 conflict——这类条目不在
-      // failed 口径内（flushDirty 的扫描排除 conflict 项），一并留痕防静默
-      const conflictEmpty = doc.conflictedDirtyDocs()
-      if (failedEmpty.length > 0 || conflictEmpty.length > 0) {
-        console.warn(`[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}；${conflictEmpty.length} 个文档冲突未决: ${conflictEmpty.join(', ')}`)
+  watch(
+    bookName,
+    async (n) => {
+      // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
+      const gen = bookGen.begin()
+      // 同书重入短路——守卫取消分支 router.replace 回原书会再次触发
+      // 本 watch，此时书并未变化，workbench.clear/flushDirty/setBook/各 store clear 全是
+      // 零收益动作（clear 还会误清原书工作台态）。n===lastBook 直接返回，不重复清。
+      // 口径收窄——「原封」仅对冲突拒绝路径成立（其取消点在
+      // 下方 workbench.clear 之前）；路径（flush 失败拒绝）弹窗前 workbench.clear 已
+      // 执行，回退后原书 workbench 态（textOut/healPhase 等）不保留——这是既有口径
+      // （clear 提前防双 spawn 窗），非本短路新增损失；其余 store 均在 clear 之后、未动。
+      // 首载 lastBook==='' 不受影响：路由书名经归空串时 n==='' 与 lastBook 初值
+      // 相等，但首载时各 store 本就是初值，短路等价于原「清一遍空状态」，无行为差异。
+      if (n === lastBook) return
+      // 脏路由（name=''，手输坏 URL / 上位页面异常跳转）提前分支——
+      // 残存 dirty 属前书，先落盘再按现有切书口径清各 store，防前书数据滞留展示。
+      // 不走下方 /确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
+      // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
+      if (!n) {
+        workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
+        const failedEmpty = await doc.flushDirty()
+        if (bookGen.stale(gen)) return // 挂起期间路由又变：交新轮回处理
+        // flush 等待窗口内在途保存可能落成 conflict——这类条目不在
+        // failed 口径内（flushDirty 的扫描排除 conflict 项），一并留痕防静默
+        const conflictEmpty = doc.conflictedDirtyDocs()
+        if (failedEmpty.length > 0 || conflictEmpty.length > 0) {
+          console.warn(
+            `[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}；${conflictEmpty.length} 个文档冲突未决: ${conflictEmpty.join(', ')}`,
+          )
+        }
+        lastBook = ''
+        doc.setBook('')
+        ws.setBook('')
+        // 六件清空收敛 clearEventStores 单源（时序不变）
+        clearEventStores()
+        // 离书——冲刷已落定（上方 await），作废在册书会话并 abort 其信号
+        // （在途本书写请求统一以 AbortError 收口）。卸载体面另有 flushBeforeClose（关窗），
+        // 不经此处，故不早 abort。
+        endBookSession()
+        return
       }
-      lastBook = ''
-      doc.setBook('')
-      ws.setBook('')
-      // 六件清空收敛 clearEventStores 单源（时序不变）
-      clearEventStores()
-      // 离书——冲刷已落定（上方 await），作废在册书会话并 abort 其信号
-      // （在途本书写请求统一以 AbortError 收口）。卸载体面另有 flushBeforeClose（关窗），
-      // 不经此处，故不早 abort。
-      endBookSession()
-      return
-    }
-    // 预决断移交——本轮切书（原地切书）已由提交前守卫完成冲刷与三段决断，
-    // 本拍只做状态转移：不重复弹窗、不再有回滚面（取消的那次根本没提交路由，进不到这里）。
-    // 标记目标不符即作废（导航被别的守卫拦下/被后发导航顶替时的残值），照下方兜底路径走。
-    if (preConfirmed === n) {
+      // 预决断移交——本轮切书（原地切书）已由提交前守卫完成冲刷与三段决断，
+      // 本拍只做状态转移：不重复弹窗、不再有回滚面（取消的那次根本没提交路由，进不到这里）。
+      // 标记目标不符即作废（导航被别的守卫拦下/被后发导航顶替时的残值），照下方兜底路径走。
+      if (preConfirmed === n) {
+        preConfirmed = ''
+        beginSwitch(n)
+        enterBook(n, gen)
+        return
+      }
       preConfirmed = ''
-      beginSwitch(n)
+      // （如实记档，不许假装前移）：走到这里 = 路由提交时机在本批文件面内无法
+      // 前移的入口——重挂进书（/book/A → /shelf → /book/B）在 Book.vue 未挂载时就已提交路由，
+      // 提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
+      // 回滚（取消 → revertToPrevBook），而非「确认与冲刷后再提交」。
+      // 注：当前代码里该路径的 prevBook 近乎恒为 ''（离书时分支已 doc.setBook('')），
+      // //三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。
+      const prevBook = lastBook || doc.bookName || ''
+      const verdict = await flushAndAdjudicate({
+        mode: 'committed',
+        gen,
+        prevBook,
+        target: n,
+        onApproved: () => beginSwitch(n),
+      })
+      if (verdict !== 'ok') return
       enterBook(n, gen)
-      return
-    }
-    preConfirmed = ''
-    // （如实记档，不许假装前移）：走到这里 = 路由提交时机在本批文件面内无法
-    // 前移的入口——重挂进书（/book/A → /shelf → /book/B）在 Book.vue 未挂载时就已提交路由，
-    // 提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
-    // 回滚（取消 → revertToPrevBook），而非「确认与冲刷后再提交」。
-    // 注：当前代码里该路径的 prevBook 近乎恒为 ''（离书时分支已 doc.setBook('')），
-    // //三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。
-    const prevBook = lastBook || doc.bookName || ''
-    const verdict = await flushAndAdjudicate({ mode: 'committed', gen, prevBook, target: n, onApproved: () => beginSwitch(n) })
-    if (verdict !== 'ok') return
-    enterBook(n, gen)
-  }, { immediate: true })
+    },
+    { immediate: true },
+  )
 }

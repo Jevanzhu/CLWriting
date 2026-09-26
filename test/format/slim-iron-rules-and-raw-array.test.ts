@@ -26,7 +26,8 @@ describe('R51-F-5: slimIronRules 压缩空行条件化', () => {
       '旧内容',
       '',
       '## 可量化约束',
-      '阈值。'].join('\n')
+      '阈值。',
+    ].join('\n')
     const slim = slimIronRules(text)
     expect(slim).not.toContain('旧内容')
     expect(slim).not.toMatch(/\n{3,}/) // 三连空行被收敛
@@ -49,19 +50,22 @@ describe('R51-F-6: 章 _raw 数组型未知字段原样承载', () => {
     const dir = mkdtempTracked(join(tmpdir(), 'r51-f6-'))
     try {
       const fp = join(dir, '0001-测试.md')
-      writeFileSync(fp, [
-        '---',
-        '章号: 1',
-        '标题: 测试',
-        '钩子类型: 危机钩',
-        '钩子强弱: 中',
-        '情绪定位: 铺垫',
-        '自定义数组: [悬疑, 推理]', // 未知字段（数组）
-        '自定义标量: 纯文本', // 未知字段（标量）
-        '---',
-        '',
-        '正文。',
-      ].join('\n'))
+      writeFileSync(
+        fp,
+        [
+          '---',
+          '章号: 1',
+          '标题: 测试',
+          '钩子类型: 危机钩',
+          '钩子强弱: 中',
+          '情绪定位: 铺垫',
+          '自定义数组: [悬疑, 推理]', // 未知字段（数组）
+          '自定义标量: 纯文本', // 未知字段（标量）
+          '---',
+          '',
+          '正文。',
+        ].join('\n'),
+      )
       const r = readChapter(fp)
       expect(r.ok).toBe(true)
       if (!r.ok) return

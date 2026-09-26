@@ -47,43 +47,47 @@ describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attempts
     await fake.close()
   })
 
-  it('工具轮 + 截断重试：工具轮 assistant 事件 usage = 全 attempt 合并（修复前为末 attempt 单次值）', { timeout: 20_000 }, async () => {
-    const ud = tempUserData()
-    dirs.push(ud)
-    withFakeProvider(ud, fake.url)
-    const bookRoot = makeDualTrackWorkdir()
-    dirs.push(bookRoot)
-    const events: DriverEvent[] = []
-    // 第 1 attempt：截断流（usage {10,1} 随 NETWORK 错上抛）→ runTask 退避重试；
-    // 第 2 attempt：工具调用完成（usage {100,50}）；第 2 轮：文本收尾（usage {200,60}）
-    fake.setScript([
-      { type: 'truncated', content: '半截', usage: { input: 10, output: 1 } },
-      { type: 'tool', name: 'book_search', input: { query: '玉佩' }, usage: { input: 100, output: 50 } },
-      { type: 'text', content: '最终回复。', usage: { input: 200, output: 60 } },
-    ])
-    await runChat({
-      driver: makeFakeDriver({ emitted: events }),
-      mainSession: { id: 's1', cwd: bookRoot, closed: false },
-      userDataPath: ud,
-      bookRoot,
-      bookName: 'r35-tool-usage',
-      message: '第 3 章写得如何？',
-    })
-    expect(fake.requestCount()).toBe(3) // 线缆级证据：工具轮确曾截断重试
+  it(
+    '工具轮 + 截断重试：工具轮 assistant 事件 usage = 全 attempt 合并（修复前为末 attempt 单次值）',
+    { timeout: 20_000 },
+    async () => {
+      const ud = tempUserData()
+      dirs.push(ud)
+      withFakeProvider(ud, fake.url)
+      const bookRoot = makeDualTrackWorkdir()
+      dirs.push(bookRoot)
+      const events: DriverEvent[] = []
+      // 第 1 attempt：截断流（usage {10,1} 随 NETWORK 错上抛）→ runTask 退避重试；
+      // 第 2 attempt：工具调用完成（usage {100,50}）；第 2 轮：文本收尾（usage {200,60}）
+      fake.setScript([
+        { type: 'truncated', content: '半截', usage: { input: 10, output: 1 } },
+        { type: 'tool', name: 'book_search', input: { query: '玉佩' }, usage: { input: 100, output: 50 } },
+        { type: 'text', content: '最终回复。', usage: { input: 200, output: 60 } },
+      ])
+      await runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'r35-tool-usage',
+        message: '第 3 章写得如何？',
+      })
+      expect(fake.requestCount()).toBe(3) // 线缆级证据：工具轮确曾截断重试
 
-    const store = openSessionStore(ud, bookRoot)!
-    const evs = store.listEvents('r35-tool-usage')
-    store.close()
-    const assts = evs.filter((e) => e.type === 'assistant/message')
-    expect(assts).toHaveLength(2)
-    // 首条 assistant = 工具轮（tool_use block 在载荷里）
-    expect(Array.isArray(assts[0]!.data['message'])).toBe(true)
-    expect(assts[0]!.data['stopReason']).toBe('tool_use')
-    // 修复前 = {100,50}（末 attempt 单次值）；修复后与按次入账的合并口径一致
-    expect(assts[0]!.data['usage']).toEqual({ inputTokens: 110, outputTokens: 51 })
-    // 末条 assistant（无工具完成轮，未重试）= 单 attempt 原值，口径不受影响
-    expect(assts[1]!.data['usage']).toEqual({ inputTokens: 200, outputTokens: 60 })
-  })
+      const store = openSessionStore(ud, bookRoot)!
+      const evs = store.listEvents('r35-tool-usage')
+      store.close()
+      const assts = evs.filter((e) => e.type === 'assistant/message')
+      expect(assts).toHaveLength(2)
+      // 首条 assistant = 工具轮（tool_use block 在载荷里）
+      expect(Array.isArray(assts[0]!.data['message'])).toBe(true)
+      expect(assts[0]!.data['stopReason']).toBe('tool_use')
+      // 修复前 = {100,50}（末 attempt 单次值）；修复后与按次入账的合并口径一致
+      expect(assts[0]!.data['usage']).toEqual({ inputTokens: 110, outputTokens: 51 })
+      // 末条 assistant（无工具完成轮，未重试）= 单 attempt 原值，口径不受影响
+      expect(assts[1]!.data['usage']).toEqual({ inputTokens: 200, outputTokens: 60 })
+    },
+  )
 })
 
 describe('R35-2：checkpoint 摘要调用的 usage/stopReason 进账本与 llm/call', () => {
@@ -136,40 +140,48 @@ describe('R35-2：checkpoint 摘要调用的 usage/stopReason 进账本与 llm/c
     }
   }
 
-  it('正常摘要：摘要 llm/call 携带 usage 与真实 stopReason，tasks 块计入摘要 token（修复前 usage 整链丢弃）', { timeout: 20_000 }, async () => {
-    fake.setScript([
-      { type: 'text', content: '本回合的答复。', usage: { input: 100, output: 40 } },
-      { type: 'text', content: '摘要：作者推进到第 1 卷，玉佩悬念已埋。', usage: { input: 300, output: 20 } },
-    ])
-    const { bookRoot, llmCalls } = await runWithOverflow('r35-ckpt-usage')
+  it(
+    '正常摘要：摘要 llm/call 携带 usage 与真实 stopReason，tasks 块计入摘要 token（修复前 usage 整链丢弃）',
+    { timeout: 20_000 },
+    async () => {
+      fake.setScript([
+        { type: 'text', content: '本回合的答复。', usage: { input: 100, output: 40 } },
+        { type: 'text', content: '摘要：作者推进到第 1 卷，玉佩悬念已埋。', usage: { input: 300, output: 20 } },
+      ])
+      const { bookRoot, llmCalls } = await runWithOverflow('r35-ckpt-usage')
 
-    expect(llmCalls).toHaveLength(2) // 轮循环 + 摘要
-    const summary = llmCalls[1]!
-    // 修复前：usage undefined（run 回调不带 → extractUsage null）+ stopReason 恒 'end_turn'
-    expect(summary['usage']).toEqual({ input: 300, output: 20 })
-    expect(summary['stopReason']).toBe('stop')
+      expect(llmCalls).toHaveLength(2) // 轮循环 + 摘要
+      const summary = llmCalls[1]!
+      // 修复前：usage undefined（run 回调不带 → extractUsage null）+ stopReason 恒 'end_turn'
+      expect(summary['usage']).toEqual({ input: 300, output: 20 })
+      expect(summary['stopReason']).toBe('stop')
 
-    // 账本：tasks['chat'] 两笔全入（轮循环 + 摘要）——修复前摘要 token 被丢弃只入轮循环
-    const rec = JSON.parse(readFileSync(join(bookRoot, '.cache', 'ai-calls.json'), 'utf8')) as {
-      tasks: Record<string, { used: number; inputTokens: number; outputTokens: number }>
-    }
-    expect(rec.tasks['chat']).toEqual(expect.objectContaining({ used: 2, inputTokens: 400, outputTokens: 60 }))
-  })
+      // 账本：tasks['chat'] 两笔全入（轮循环 + 摘要）——修复前摘要 token 被丢弃只入轮循环
+      const rec = JSON.parse(readFileSync(join(bookRoot, '.cache', 'ai-calls.json'), 'utf8')) as {
+        tasks: Record<string, { used: number; inputTokens: number; outputTokens: number }>
+      }
+      expect(rec.tasks['chat']).toEqual(expect.objectContaining({ used: 2, inputTokens: 400, outputTokens: 60 }))
+    },
+  )
 
-  it('摘要被 max_tokens 截断：stopReason 如实记 max_tokens + 截断 usage 入账（修复前谎记 end_turn）', { timeout: 20_000 }, async () => {
-    fake.setScript([
-      { type: 'text', content: '本回合的答复。' },
-      { type: 'max_tokens', partial: '摘要写到一半', usage: { input: 300, output: 5000 } },
-    ])
-    const { llmCalls, stepEnds } = await runWithOverflow('r35-ckpt-trunc')
-    expect(llmCalls).toHaveLength(2)
-    const summary = llmCalls[1]!
-    // 修复前：run 回调不含 stopReason → extractStopReason 兜底 'end_turn'（谎报正常完成）
-    expect(summary['stopReason']).toBe('max_tokens')
-    expect(summary['usage']).toEqual({ input: 300, output: 5000 })
-    // 摘要 runTask 收尾的 step/end 同口径（修复前恒 'completed'）
-    expect(stepEnds.at(-1)!['reason']).toBe('max-tokens')
-  })
+  it(
+    '摘要被 max_tokens 截断：stopReason 如实记 max_tokens + 截断 usage 入账（修复前谎记 end_turn）',
+    { timeout: 20_000 },
+    async () => {
+      fake.setScript([
+        { type: 'text', content: '本回合的答复。' },
+        { type: 'max_tokens', partial: '摘要写到一半', usage: { input: 300, output: 5000 } },
+      ])
+      const { llmCalls, stepEnds } = await runWithOverflow('r35-ckpt-trunc')
+      expect(llmCalls).toHaveLength(2)
+      const summary = llmCalls[1]!
+      // 修复前：run 回调不含 stopReason → extractStopReason 兜底 'end_turn'（谎报正常完成）
+      expect(summary['stopReason']).toBe('max_tokens')
+      expect(summary['usage']).toEqual({ input: 300, output: 5000 })
+      // 摘要 runTask 收尾的 step/end 同口径（修复前恒 'completed'）
+      expect(stepEnds.at(-1)!['reason']).toBe('max-tokens')
+    },
+  )
 })
 
 describe('R35-16：chapter 块 token 字段坏值判 corrupt（与 tasks 块读校验对称）', () => {

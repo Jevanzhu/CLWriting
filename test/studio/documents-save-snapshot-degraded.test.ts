@@ -44,18 +44,17 @@ beforeAll(async () => {
 afterAll(() => studio.close())
 
 function put(body: Record<string, unknown>): Promise<{ status: number; json: unknown }> {
-  return studio.req(
-    'PUT',
-    `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(DOC)}/content`,
-    body,
-  )
+  return studio.req('PUT', `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(DOC)}/content`, body)
 }
 
 describe('A-5 跨层：content PUT 的留底降级信封', () => {
   it('对照：.版本 健康 → 200 且响应不含 snapshotDegraded', async () => {
     const abs = join(studio.bookRoot, REL)
     const r = await put({
-      content: NEW, expectedRevision: computeRevision(abs), operationId: 'op-a5-ok', origin: 'manual',
+      content: NEW,
+      expectedRevision: computeRevision(abs),
+      operationId: 'op-a5-ok',
+      origin: 'manual',
     })
     expect(r.status).toBe(200)
     const j = r.json as { ok: boolean; revision: string; snapshotDegraded?: boolean }
@@ -75,7 +74,10 @@ describe('A-5 跨层：content PUT 的留底降级信封', () => {
 
     const abs = join(studio.bookRoot, REL)
     const r = await put({
-      content: NEWER, expectedRevision: computeRevision(abs), operationId: 'op-a5-deg', origin: 'manual',
+      content: NEWER,
+      expectedRevision: computeRevision(abs),
+      operationId: 'op-a5-deg',
+      origin: 'manual',
     })
     expect(r.status).toBe(200) // 修复点：旧形态此处 500 WRITE_ERROR（正文一字未写）
     const j = r.json as { ok: boolean; revision: string; snapshotDegraded?: boolean }

@@ -70,7 +70,12 @@ describe('语料回归域坏形状防御', () => {
     // 修复前：e.expect 在 null 项上 TypeError 崩整轮汇总
     writeFileSync(
       join(corpusDir, 'bad-items.json'),
-      JSON.stringify([null, { excerpt: '山门外落了整夜的风雪。', expect: 'silent' }, 42, { excerpt: '排比。', expect: 'fire' }]),
+      JSON.stringify([
+        null,
+        { excerpt: '山门外落了整夜的风雪。', expect: 'silent' },
+        42,
+        { excerpt: '排比。', expect: 'fire' },
+      ]),
       'utf8',
     )
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})

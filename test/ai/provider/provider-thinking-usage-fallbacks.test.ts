@@ -69,7 +69,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
           { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '，再展开' } },
           { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-abc123' } },
           { type: 'content_block_stop', index: 0 },
-          { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_01', name: 'submit_chapter' } },
+          {
+            type: 'content_block_start',
+            index: 1,
+            content_block: { type: 'tool_use', id: 'toolu_01', name: 'submit_chapter' },
+          },
           { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"chapter":1}' } },
           { type: 'content_block_stop', index: 1 },
           { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
@@ -104,7 +108,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
     const client = {
       messages: {
         create: fakeSend([
-          { type: 'content_block_start', index: 0, content_block: { type: 'redacted_thinking', data: 'base64-encrypted-data' } },
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'redacted_thinking', data: 'base64-encrypted-data' },
+          },
           { type: 'content_block_stop', index: 0 },
           { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
           { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '正文产出' } },
@@ -131,7 +139,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -154,7 +166,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -175,7 +191,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -195,7 +215,11 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
         create: async (params: unknown) => {
           captured = params as Record<string, unknown>
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
@@ -217,7 +241,7 @@ describe('R36-2: Anthropic 流侧思考增量透出 + claude+effort 显式禁思
       tools: [{ name: 'read_chapter', description: 'd', input_schema: { type: 'object', properties: {} } }],
       effort: 'xhigh',
     })
-    const messages = (captured!['messages'] as Record<string, unknown>[])
+    const messages = captured!['messages'] as Record<string, unknown>[]
     const asst = messages.find((m) => m['role'] === 'assistant')
     expect(asst).toBeDefined()
     // reasoning 块剥除后：content = [text, tool_use]，无思考块也无空壳
@@ -258,7 +282,10 @@ describe('R36-14: openai 线 usage:{} 空对象走 R73-1 估计兜底（不入 0
         completions: {
           create: fakeSend([
             { choices: [{ index: 0, delta: { content: '正文' }, finish_reason: null }] },
-            { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 7 } },
+            {
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 12, completion_tokens: 7 },
+            },
             { choices: [], usage: {} }, // 修复前：latestUsage 被 {} 覆盖 → done 0/0
           ]),
         },
@@ -315,7 +342,10 @@ describe('R1010-P3: responses 线工具参数合法 JSON 非对象 → {_raw} �
     const client = {
       responses: {
         create: fakeSend([
-          { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_9', name: 'tool_a', arguments: '123' } },
+          {
+            type: 'response.output_item.done',
+            item: { type: 'function_call', call_id: 'call_9', name: 'tool_a', arguments: '123' },
+          },
           { type: 'response.completed', response: { usage: { input_tokens: 5, output_tokens: 4 } } },
         ]),
       },
@@ -336,7 +366,10 @@ describe('R1010-P3: responses 线工具参数合法 JSON 非对象 → {_raw} �
     const client = {
       responses: {
         create: fakeSend([
-          { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_8', name: 'tool_b', arguments: '{"q":1}' } },
+          {
+            type: 'response.output_item.done',
+            item: { type: 'function_call', call_id: 'call_8', name: 'tool_b', arguments: '{"q":1}' },
+          },
           { type: 'response.completed', response: { usage: { input_tokens: 5, output_tokens: 4 } } },
         ]),
       },

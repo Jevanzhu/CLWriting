@@ -75,7 +75,10 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
       const release = acquireCrossProcessLockWithTimeout(`${yamlPath}.lock`, getBookYamlLockTimeoutMs())
       if (!release) {
         failed++
-        log.warn('migrate-defaults', `${book.name}: book.yaml 锁获取超时（他进程持有），跳过本书本次迁移（幂等，下次启动重试）`)
+        log.warn(
+          'migrate-defaults',
+          `${book.name}: book.yaml 锁获取超时（他进程持有），跳过本书本次迁移（幂等，下次启动重试）`,
+        )
         continue
       }
       try {
@@ -169,8 +172,7 @@ function deleteSectionKey(raw: string, section: string, key: string): string {
   if (kept.length === body.length) return raw // 没命中（key 行不在）——原样返回（幂等源）
 
   // 段内还有内容行（含缩进注释）→ 保留段头，仅抽掉目标行
-  const isContent = (l: string): boolean =>
-    l.trim() !== '' && !(!/^\s/.test(l) && l.trimStart().startsWith('#'))
+  const isContent = (l: string): boolean => l.trim() !== '' && !(!/^\s/.test(l) && l.trimStart().startsWith('#'))
   if (kept.some(isContent)) {
     lines.splice(span.start + 1, body.length, ...kept)
     return lines.join('\n')

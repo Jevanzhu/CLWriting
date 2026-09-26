@@ -39,14 +39,18 @@ const { createChapter, structureEvents } = bindStructureHelpers({
 })
 
 beforeAll(async () => {
-  userDataPath = join(await import('node:os').then((m) => m.tmpdir()), `clw-struct-crash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+  userDataPath = join(
+    await import('node:os').then((m) => m.tmpdir()),
+    `clw-struct-crash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  )
   mkdirSync(userDataPath, { recursive: true })
   studio = await bootStudio({
     book: BOOK,
     prefix: 'clw-struct-crash-',
     userDataPath,
     dirs: ['写作/正文/第一卷', '工作区', '布线'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 结构崩溃书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 结构崩溃书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 
@@ -74,11 +78,7 @@ function structurePendingCount(d: Awaited<ReturnType<typeof detect>>): number {
 }
 
 /** 占源章 save 锁 + 收短结构锁超时后发起 apply——trash 段超时失败，盘面留在①后形态。 */
-async function crashAfterStep1(
-  targetDocId: string,
-  sourceDocId: string,
-  sourceRel: string,
-): Promise<void> {
+async function crashAfterStep1(targetDocId: string, sourceDocId: string, sourceRel: string): Promise<void> {
   const planRes = await studio.req(
     'POST',
     `/api/books/${ENC}/documents/${encodeURIComponent(targetDocId)}/structure-plan`,
@@ -127,11 +127,11 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
 
     // 收敛路径 A：apply 重跑（①后形态不查 planHash，同参即可）→ 幂等续跑补完收尾
     __setStructSaveLockTimeoutForTest(5_000)
-    const r2 = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
-      { op: 'merge', sourceDocId: s, planHash: 'stale-hash-ignored' },
-    )
+    const r2 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+      op: 'merge',
+      sourceDocId: s,
+      planHash: 'stale-hash-ignored',
+    })
     expect(r2.status).toBe(200)
     expect((r2.json as { ok: boolean }).ok).toBe(true)
     expect((r2.json as { mergedInto: number[] }).mergedInto).toEqual([2])
@@ -157,11 +157,7 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
     expect(structurePendingCount(await detect())).toBe(1)
 
     __setStructSaveLockTimeoutForTest(5_000)
-    const undo = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/merge-undo`,
-      {},
-    )
+    const undo = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/merge-undo`, {})
     expect(undo.status).toBe(200)
     const uj = undo.json as Record<string, unknown>
     expect(uj['ok']).toBe(true)
@@ -181,17 +177,16 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
     const srcContent = '---\n章号: 6\n标题: 第6章\n---\n\n第六章正文。\n'
     const t = await createChapter(rel5, '---\n章号: 5\n标题: 第5章\n---\n\n第五章正文。\n')
     const s = await createChapter(rel6, srcContent)
-    const planRes = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`,
-      { op: 'merge', sourceDocId: s },
-    )
+    const planRes = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`, {
+      op: 'merge',
+      sourceDocId: s,
+    })
     const planHash = (planRes.json as { plan: { planHash: string } }).plan.planHash
-    const ok1 = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
-      { op: 'merge', sourceDocId: s, planHash },
-    )
+    const ok1 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+      op: 'merge',
+      sourceDocId: s,
+      planHash,
+    })
     expect(ok1.status).toBe(200)
     expect(structurePendingCount(await detect())).toBe(0) // 正常完成态零报文
 
@@ -204,11 +199,11 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
     expect(structurePendingCount(await detect())).toBe(1) // 并入 所指章存活 = violation
 
     // apply 重跑 → 回收站条目形态（readChapterState(源) 前的分流）→ alreadyTrashed 跳软删
-    const r2 = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
-      { op: 'merge', sourceDocId: s, planHash },
-    )
+    const r2 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+      op: 'merge',
+      sourceDocId: s,
+      planHash,
+    })
     expect(r2.status).toBe(200)
     expect((r2.json as { ok: boolean }).ok).toBe(true)
     expect((r2.json as { mergedInto: number[] }).mergedInto).toEqual([6])
@@ -223,43 +218,39 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
     const rel8 = '写作/正文/第一卷/0008-第8章.md'
     const t = await createChapter(rel7, '---\n章号: 7\n标题: 第7章\n---\n\n第七章。\n')
     const s = await createChapter(rel8, '---\n章号: 8\n标题: 第8章\n---\n\n第八章。\n')
-    const planRes = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`,
-      { op: 'merge', sourceDocId: s },
-    )
+    const planRes = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`, {
+      op: 'merge',
+      sourceDocId: s,
+    })
     const planHash = (planRes.json as { plan: { planHash: string } }).plan.planHash
     expect(
       (
-        await studio.req(
-          'POST',
-          `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
-          { op: 'merge', sourceDocId: s, planHash },
-        )
+        await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+          op: 'merge',
+          sourceDocId: s,
+          planHash,
+        })
       ).status,
     ).toBe(200)
     expect(
-      (
-        await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/merge-undo`, {})
-      ).status,
+      (await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/merge-undo`, {})).status,
     ).toBe(200)
     // ②后真回收站形态：9/10 合并完成（源文件在 .trash、不在正文）→ 清单条目形态核查
     const rel9 = '写作/正文/第一卷/0009-第9章.md'
     const rel10 = '写作/正文/第一卷/0010-第10章.md'
     const t9 = await createChapter(rel9, '---\n章号: 9\n标题: 第9章\n---\n\n第九章。\n')
     const s10 = await createChapter(rel10, '---\n章号: 10\n标题: 第10章\n---\n\n第十章。\n')
-    const p2 = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t9)}/structure-plan`,
-      { op: 'merge', sourceDocId: s10 },
-    )
+    const p2 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t9)}/structure-plan`, {
+      op: 'merge',
+      sourceDocId: s10,
+    })
     expect(
       (
-        await studio.req(
-          'POST',
-          `/api/books/${ENC}/documents/${encodeURIComponent(t9)}/structure-apply`,
-          { op: 'merge', sourceDocId: s10, planHash: (p2.json as { plan: { planHash: string } }).plan.planHash },
-        )
+        await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t9)}/structure-apply`, {
+          op: 'merge',
+          sourceDocId: s10,
+          planHash: (p2.json as { plan: { planHash: string } }).plan.planHash,
+        })
       ).status,
     ).toBe(200)
     expect(listTrash(studio.bookRoot).some((e) => e.id === s10)).toBe(true)

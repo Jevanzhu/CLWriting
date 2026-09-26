@@ -220,8 +220,8 @@ describe('chat.ts', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
       { role: 'assistant', content: 'a0' },
-      { role: 'assistant', content: '' },           // 空文本 → 剔除
-      { role: 'assistant', content: [] },           // 空块数组 → 剔除
+      { role: 'assistant', content: '' }, // 空文本 → 剔除
+      { role: 'assistant', content: [] }, // 空块数组 → 剔除
       { role: 'user', content: 'u1' },
     ]
     const out = sanitizeHistory(msgs)
@@ -232,9 +232,9 @@ describe('chat.ts', () => {
   it('sanitizeHistory 连续同 role → 插互补角色占位保持交替（#3b 兜底）', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
-      { role: 'user', content: 'u1' },              // 连续 user
+      { role: 'user', content: 'u1' }, // 连续 user
       { role: 'assistant', content: 'a0' },
-      { role: 'assistant', content: 'a1' },         // 连续 assistant
+      { role: 'assistant', content: 'a1' }, // 连续 assistant
     ]
     const out = sanitizeHistory(msgs)
     // u0/u1 之间插 assistant 占位、a0/a1 之间插 user 占位 → 共 6 条且严格交替
@@ -259,7 +259,13 @@ describe('chat.ts', () => {
   it('sanitizeHistory assistant 混合消息保留 reasoning 块（openai echoReasoning 回传硬要求）', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
-      { role: 'assistant', content: [{ type: 'reasoning', text: 'r' }, { type: 'text', text: 'a0' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'r' },
+          { type: 'text', text: 'a0' },
+        ],
+      },
       { role: 'user', content: 'u1' },
     ]
     const out = sanitizeHistory(msgs)
@@ -274,7 +280,13 @@ describe('chat.ts', () => {
   it('sanitizeHistory 尾部孤儿 tool_use（中断残留无 tool_result 回应）→ 从块中剔除', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
-      { role: 'assistant', content: [{ type: 'text', text: 'a0' }, { type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'a0' },
+          { type: 'tool_use', id: 't1', name: 'x', input: {} },
+        ],
+      },
       { role: 'user', content: 'u1' },
     ]
     const out = sanitizeHistory(msgs)
@@ -286,7 +298,13 @@ describe('chat.ts', () => {
   it('sanitizeHistory reasoning + 孤儿 tool_use 且无 text → 整条剔除', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },
-      { role: 'assistant', content: [{ type: 'reasoning', text: 'r' }, { type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'r' },
+          { type: 'tool_use', id: 't1', name: 'x', input: {} },
+        ],
+      },
       { role: 'user', content: 'u1' },
     ]
     const out = sanitizeHistory(msgs)
@@ -333,8 +351,20 @@ describe('chat.ts', () => {
 
   it('B-13：病态 result 消息混有 text 块 → text 保留，同 id 的迟到 tool_use 仍剔除', () => {
     const msgs: ChatMsg[] = [
-      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }, { type: 'text', text: '旁白' }] },
-      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }, { type: 'text', text: 'a0' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', toolUseId: 't1', content: 'r' },
+          { type: 'text', text: '旁白' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 't1', name: 'x', input: {} },
+          { type: 'text', text: 'a0' },
+        ],
+      },
       { role: 'user', content: 'u1' },
     ]
     const out = sanitizeHistory(msgs)
@@ -361,8 +391,8 @@ describe('chat.ts', () => {
 
   it('sanitizeHistory 首条非 user（悬空 assistant）→ 剔除', () => {
     const msgs: ChatMsg[] = [
-      { role: 'assistant', content: 'a0' },         // 首条悬空
-      { role: 'assistant', content: 'a1' },         // 连续 assistant（也会被占位）
+      { role: 'assistant', content: 'a0' }, // 首条悬空
+      { role: 'assistant', content: 'a1' }, // 连续 assistant（也会被占位）
       { role: 'user', content: 'u0' },
     ]
     const out = sanitizeHistory(msgs)

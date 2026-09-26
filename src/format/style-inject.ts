@@ -78,11 +78,7 @@ export function buildStyleEssentials(entries: StyleEntry[], scenes: string[]): s
  * 样章挑选（跨场景语义保持）：每场景各取最强 1 条保代表性，
  * 按场景序补满 maxCount；通用垫底兜底。
  */
-export function pickSampleEntries(
-  entries: StyleEntry[],
-  scenes: string[],
-  maxCount: number,
-): StyleEntry[] {
+export function pickSampleEntries(entries: StyleEntry[], scenes: string[], maxCount: number): StyleEntry[] {
   const sorted = pickSorted(entries, '样章', scenes)
   // 按场景命中序分组（保持组内强度序）
   const groups = new Map<number, StyleEntry[]>()
@@ -115,9 +111,6 @@ export function pickSampleEntries(
  *  （该截不截 / 不截反截）。 */
 export function sampleEntryText(e: StyleEntry): string {
   const cps = Array.from(e.正文)
-  const body =
-    cps.length > SAMPLE_INJECT_MAX
-      ? `${cps.slice(0, SAMPLE_INJECT_MAX).join('')}……`
-      : e.正文
+  const body = cps.length > SAMPLE_INJECT_MAX ? `${cps.slice(0, SAMPLE_INJECT_MAX).join('')}……` : e.正文
   return e.说明 ? `技法指令：${e.说明}\n${body}` : body
 }

@@ -27,11 +27,7 @@ export type RetryState =
  * @param attempt 已完成的重写次数(首检传 0)
  * @param maxAttempts 最大重写次数(默认 3)
  */
-export function evaluateRetry(
-  report: CheckReport,
-  attempt: number,
-  maxAttempts = 3,
-): RetryState {
+export function evaluateRetry(report: CheckReport, attempt: number, maxAttempts = 3): RetryState {
   // 无红项 → 放行
   if (!hasRed(report)) {
     return { state: 'pass' }

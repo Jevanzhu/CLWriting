@@ -8,10 +8,7 @@ import { test, expect } from 'vitest'
 import { writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  readGlobalBookDefaults,
-  applyGlobalDefaults,
-} from '../../src/format/global-defaults.js'
+import { readGlobalBookDefaults, applyGlobalDefaults } from '../../src/format/global-defaults.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 

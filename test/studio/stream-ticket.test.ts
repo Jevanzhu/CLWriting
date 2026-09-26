@@ -55,7 +55,11 @@ function openStream(query: string, extraHeaders: Record<string, string> = {}): P
 }
 
 /** 带 token 头的 POST（与前端 fetchStreamTicket 同形：无 body）；base/token 可指定实例 */
-function postTicketOn(base: string, tok: string, withToken: boolean): Promise<{ status: number; json: { ticket?: string; expiresInMs?: number } }> {
+function postTicketOn(
+  base: string,
+  tok: string,
+  withToken: boolean,
+): Promise<{ status: number; json: { ticket?: string; expiresInMs?: number } }> {
   return new Promise((resolve, reject) => {
     const u = new URL(base)
     const headers: Record<string, string> = { origin: base }

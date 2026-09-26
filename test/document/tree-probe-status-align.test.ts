@@ -27,9 +27,7 @@ test('r0914b P3-13: 树 probe 与 status 已发布判定两形态对齐（行内
     ]
     for (const [name, text] of cases) {
       writeFileSync(join(root, name), text, 'utf-8')
-      expect(probeCachedPublished(root, name), `${name} 树判定应与 status 判定相等`).toBe(
-        readPublished(root, name),
-      )
+      expect(probeCachedPublished(root, name), `${name} 树判定应与 status 判定相等`).toBe(readPublished(root, name))
     }
     // 真值语义落定：前两形态都是「已发布」，对照形态否
     expect(probeCachedPublished(root, '0001-注.md')).toBe(true)
@@ -48,19 +46,11 @@ test('r0914b P3-13: `序` 带行内注释不再落缺省（与 readChapter parse
   try {
     const { buildTree } = await import('../../src/document/tree.js')
     // probe 仅对 chapter 角色跑——文件须落 写作/正文/ 下
-    writeFileSync(
-      join(root, '写作正文占位'),
-      '',
-      'utf-8',
-    )
+    writeFileSync(join(root, '写作正文占位'), '', 'utf-8')
     rmSync(join(root, '写作正文占位'))
     const { mkdirSync: mk } = await import('node:fs')
     mk(join(root, '写作', '正文'), { recursive: true })
-    writeFileSync(
-      join(root, '写作', '正文', '0001-序.md'),
-      '---\n章号: 1\n序: 3 # 排序备注\n---\n正文',
-      'utf-8',
-    )
+    writeFileSync(join(root, '写作', '正文', '0001-序.md'), '---\n章号: 1\n序: 3 # 排序备注\n---\n正文', 'utf-8')
     const find = (nodes: TreeNode[], path: string): TreeNode | null => {
       for (const n of nodes) {
         if (n.path === path) return n

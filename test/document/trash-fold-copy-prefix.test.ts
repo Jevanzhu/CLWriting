@@ -56,7 +56,11 @@ afterEach(() => {
 
 function makeBook(): string {
   // name:'.' = 原盘面 root 即临时目录（无书名子层）
-  const { root } = scaffoldBook({ prefix: 'clw-r51-d-', flatRoot: true, files: [{ rel: '写作/正文/0001-开篇.md', content: '正文内容' }] })
+  const { root } = scaffoldBook({
+    prefix: 'clw-r51-d-',
+    flatRoot: true,
+    files: [{ rel: '写作/正文/0001-开篇.md', content: '正文内容' }],
+  })
   return root
 }
 
@@ -105,30 +109,30 @@ describe('R51-D-1: trash 前缀校验施加于规范化 rel（穿越/symlink 变
   // R56-P2-3：win 非特权/非开发者模式进程 symlinkSync 物理不可能（EPERM）——
   // J3 批「无防护 symlink 14 文件」skipIf(win) 同族；用例验证的 realpath 归一
   // 防线由 posix CI 腿（macos/ubuntu）守护。
-  it.skipIf(process.platform === 'win32')('purge：.trash 内 symlink 指书内正文 → realpath 归一后 rel 不在 .trash，拒', async () => {
-    const root = makeBook()
-    try {
-      mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
-      symlinkSync(
-        join(root, '写作', '正文', '0001-开篇.md'),
-        join(root, '工作区', '.trash', 'doc_link-开篇.md'),
-      )
-      appendTrashEntry(root, {
-        id: 'doc_link',
-        originalPath: '写作/正文/0001-开篇.md',
-        trashedPath: '工作区/.trash/doc_link-开篇.md',
-        trashedAt: '2026-08-24T00:00:00Z',
-        role: 'chapter',
-      })
-      const r = await purgeTrash(root, 'doc_link')
-      expect(r.ok).toBe(false)
-      if (!r.ok) expect(r.code).toBe('NOT_FOUND')
-      // 原实现：.abs 走 realpath 落正文本体 → 正文被物理删（回归红）
-      expect(existsSync(join(root, '写作', '正文', '0001-开篇.md'))).toBe(true)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
+  it.skipIf(process.platform === 'win32')(
+    'purge：.trash 内 symlink 指书内正文 → realpath 归一后 rel 不在 .trash，拒',
+    async () => {
+      const root = makeBook()
+      try {
+        mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
+        symlinkSync(join(root, '写作', '正文', '0001-开篇.md'), join(root, '工作区', '.trash', 'doc_link-开篇.md'))
+        appendTrashEntry(root, {
+          id: 'doc_link',
+          originalPath: '写作/正文/0001-开篇.md',
+          trashedPath: '工作区/.trash/doc_link-开篇.md',
+          trashedAt: '2026-08-24T00:00:00Z',
+          role: 'chapter',
+        })
+        const r = await purgeTrash(root, 'doc_link')
+        expect(r.ok).toBe(false)
+        if (!r.ok) expect(r.code).toBe('NOT_FOUND')
+        // 原实现：.abs 走 realpath 落正文本体 → 正文被物理删（回归红）
+        expect(existsSync(join(root, '写作', '正文', '0001-开篇.md'))).toBe(true)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
 })
 
 describe('R51-D-2: 折叠面扩至 darwin（platformCaseFold / samePath / 清单锁重入）', () => {
@@ -155,7 +159,9 @@ describe('R51-D-2: 折叠面扩至 darwin（platformCaseFold / samePath / 清单
       lockState.requests = []
       let innerRan = false
       withManifestLock(outer, () => {
-        withManifestLock(variant, () => { innerRan = true })
+        withManifestLock(variant, () => {
+          innerRan = true
+        })
       })
       expect(innerRan).toBe(true)
       // 折叠生效：内层命中重入计数，全程只有外层一次物理取锁

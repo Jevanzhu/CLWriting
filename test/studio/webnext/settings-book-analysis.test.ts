@@ -66,14 +66,37 @@ beforeEach(() => {
   // raw 形态：13 键未设时为 undefined（genre 空串=未设）——书级全跟随时的最小 config
   mocks.getConfig.mockResolvedValue({ kind: 'long', book: { title: '测试书' } } satisfies BookConfig)
   mocks.getRagStatus.mockResolvedValue({
-    running: false, indexedChapters: 0, chunkCount: 0, model: null,
-    indexState: 'unbuilt', indexModelMismatch: false,
-    ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+    running: false,
+    indexedChapters: 0,
+    chunkCount: 0,
+    model: null,
+    indexState: 'unbuilt',
+    indexModelMismatch: false,
+    ragConfig: {},
+    providerName: null,
+    legacy: false,
+    lastResult: null,
   })
   mocks.getRagProviders.mockResolvedValue({
     ragProviders: [
-      { id: 'rag-a', name: 'A 家嵌入', endpoint: 'https://a/v1/embeddings', model: 'embed-a', apiKey: '', apiKeyMasked: 'sk-1...abcd', caps: null },
-      { id: 'rag-b', name: 'B 家嵌入', endpoint: 'https://b/v1/embeddings', model: 'embed-b', apiKey: '', apiKeyMasked: 'sk-2...efgh', caps: null },
+      {
+        id: 'rag-a',
+        name: 'A 家嵌入',
+        endpoint: 'https://a/v1/embeddings',
+        model: 'embed-a',
+        apiKey: '',
+        apiKeyMasked: 'sk-1...abcd',
+        caps: null,
+      },
+      {
+        id: 'rag-b',
+        name: 'B 家嵌入',
+        endpoint: 'https://b/v1/embeddings',
+        model: 'embed-b',
+        apiKey: '',
+        apiKeyMasked: 'sk-2...efgh',
+        caps: null,
+      },
     ],
   })
 })
@@ -102,7 +125,9 @@ describe('SettingsBookAnalysis 知识检索（本书组）', () => {
     expect((wrapper.find('input[aria-label="知识检索使用独立设定"]').element as HTMLInputElement).checked).toBe(true)
     const run = captureMutator()
     await wrapper.find('input[aria-label="知识检索使用独立设定"]').setValue(false)
-    const cfg = { rag: { enabled: true, provider: 'rag-b', endpoint: 'https://legacy', model: 'old-model' } } as BookConfig
+    const cfg = {
+      rag: { enabled: true, provider: 'rag-b', endpoint: 'https://legacy', model: 'old-model' },
+    } as BookConfig
     run(cfg)
     expect(cfg.rag?.enabled).toBeUndefined()
     expect(cfg.rag?.provider).toBeUndefined()
@@ -230,9 +255,16 @@ describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
 
   it('indexModelMismatch=true → 失配提示 + 「重建索引」按钮渲染', async () => {
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
-      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
-      lastResult: null, indexState: 'built', indexModelMismatch: true,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 20,
+      model: 'old-embed',
+      ragConfig: { enabled: true },
+      providerName: 'rag-a',
+      legacy: false,
+      lastResult: null,
+      indexState: 'built',
+      indexModelMismatch: true,
     })
     const wrapper = await mountOpen()
     expect(wrapper.text()).toContain('嵌入模型与现有索引不一致')
@@ -243,10 +275,16 @@ describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
 
   it('未失配 → 不出现重建钮与失配提示（build 主路径零变化）', async () => {
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 20, model: 'embed-a',
-      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 20,
+      model: 'embed-a',
+      ragConfig: { enabled: true },
+      providerName: 'rag-a',
+      legacy: false,
       lastResult: { ok: true, chunkCount: 20, chapterCount: 3 },
-      indexState: 'built', indexModelMismatch: false,
+      indexState: 'built',
+      indexModelMismatch: false,
     })
     const wrapper = await mountOpen()
     expect(wrapper.text()).not.toContain('嵌入模型与现有索引不一致')
@@ -256,9 +294,16 @@ describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
 
   it('点「重建索引」→ triggerRagRebuild(书名) + 重建中状态（R28-22 触发记忆置位）', async () => {
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
-      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
-      lastResult: null, indexState: 'built', indexModelMismatch: true,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 20,
+      model: 'old-embed',
+      ragConfig: { enabled: true },
+      providerName: 'rag-a',
+      legacy: false,
+      lastResult: null,
+      indexState: 'built',
+      indexModelMismatch: true,
     })
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     const wrapper = await mountOpen()
@@ -275,9 +320,16 @@ describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
 
   it('triggerRagRebuild 失败 → toast + 按钮解禁（R33-81 在途锁失败复位）', async () => {
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
-      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
-      lastResult: null, indexState: 'built', indexModelMismatch: true,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 20,
+      model: 'old-embed',
+      ragConfig: { enabled: true },
+      providerName: 'rag-a',
+      legacy: false,
+      lastResult: null,
+      indexState: 'built',
+      indexModelMismatch: true,
     })
     mocks.triggerRagRebuild.mockRejectedValue(new Error('重建失败'))
     const toastSpy = vi.spyOn(useUiStore(), 'toast')
@@ -492,8 +544,14 @@ describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await �
         })
       }
       return Promise.resolve({
-        running: false, indexedChapters: 9, chunkCount: 40, model: null,
-        ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+        running: false,
+        indexedChapters: 9,
+        chunkCount: 40,
+        model: null,
+        ragConfig: {},
+        providerName: null,
+        legacy: false,
+        lastResult: null,
       })
     })
     const wrapper = mount(SettingsBookAnalysis, {
@@ -506,8 +564,14 @@ describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await �
 
     // 甲书状态迟到（已索引 3 章）——修复前会覆盖乙书面板
     resolveA({
-      running: false, indexedChapters: 3, chunkCount: 12, model: null,
-      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: null,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
+      lastResult: null,
     })
     await flushPromises()
     expect(wrapper.find('.rag-status').text()).toContain('已索引 9 章')
@@ -561,8 +625,14 @@ describe('R26-14（二十六轮）：RAG 轮询连续失败终态', () => {
     // #6 成功（running，归零）、#7..#10 败 → 第 10 次轮询失败才触终态
     let n = 0
     const runningStatus = {
-      running: true, indexedChapters: 0, chunkCount: 0, model: null,
-      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+      running: true,
+      indexedChapters: 0,
+      chunkCount: 0,
+      model: null,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
+      lastResult: null,
     }
     mocks.getRagStatus.mockImplementation(() => {
       n++
@@ -704,9 +774,16 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
-      indexState: 'built', indexModelMismatch: true,
-      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-a',
+      indexState: 'built',
+      indexModelMismatch: true,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
+      lastResult: null,
     })
     return mountOpen()
   }
@@ -723,9 +800,15 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false) // 构建中不提示
 
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 0, chunkCount: 0, model: 'embed-a',
-      indexState: 'built', indexModelMismatch: false,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 0,
+      chunkCount: 0,
+      model: 'embed-a',
+      indexState: 'built',
+      indexModelMismatch: false,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
     })
     vi.advanceTimersByTime(1500)
@@ -745,9 +828,15 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
   it('非本组件触发的失败（打开页面即读到 lastResult 失败）→ 不提示（不误报）', async () => {
     usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 0, chunkCount: 0, model: null,
-      indexState: 'unbuilt', indexModelMismatch: false,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 0,
+      chunkCount: 0,
+      model: null,
+      indexState: 'unbuilt',
+      indexModelMismatch: false,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '历史失败' },
     })
     const wrapper = await mountOpen()
@@ -765,9 +854,15 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     await flushPromises()
 
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: null,
-      indexState: 'built', indexModelMismatch: false,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: null,
+      indexState: 'built',
+      indexModelMismatch: false,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
     })
     vi.advanceTimersByTime(1500)
@@ -785,9 +880,15 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     await flushPromises()
 
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
-      indexState: 'built', indexModelMismatch: false,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-a',
+      indexState: 'built',
+      indexModelMismatch: false,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: true, chunkCount: 12, chapterCount: 3 },
     })
     vi.advanceTimersByTime(1500)
@@ -808,9 +909,15 @@ describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', (
     ws.bookName = '甲书'
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
-      indexState: 'built', indexModelMismatch: true,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-a',
+      indexState: 'built',
+      indexModelMismatch: true,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入失败' },
     })
     const wrapper = mount(SettingsBookAnalysis, {
@@ -846,9 +953,16 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
     usePrefsStore().set('ragEnabled', true)
     mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
-      indexState: 'built', indexModelMismatch: true,
-      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-old',
+      indexState: 'built',
+      indexModelMismatch: true,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
+      lastResult: null,
     })
     const wrapper = await mountOpen()
 
@@ -872,9 +986,15 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
   it('普通失败（错误不指向重建）→ 重建按钮不出现', async () => {
     usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 0, chunkCount: 0, model: null,
-      indexState: 'unbuilt', indexModelMismatch: false,
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 0,
+      chunkCount: 0,
+      model: null,
+      indexState: 'unbuilt',
+      indexModelMismatch: false,
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
     })
     const wrapper = await mountOpen()
@@ -885,11 +1005,19 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
   it('build 失败且错误指向重建（维度失配 R26-16 文案）→ 重建按钮出现（错误信封出路）', async () => {
     usePrefsStore().set('ragEnabled', true)
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
-      indexState: 'built', indexModelMismatch: false, // 维度失配：模型同名，标记不亮
-      ragConfig: {}, providerName: null, legacy: false,
+      running: false,
+      indexedChapters: 3,
+      chunkCount: 12,
+      model: 'embed-old',
+      indexState: 'built',
+      indexModelMismatch: false, // 维度失配：模型同名，标记不亮
+      ragConfig: {},
+      providerName: null,
+      legacy: false,
       lastResult: {
-        ok: false, chunkCount: 0, chapterCount: 0,
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
         error: 'embedding 维度与现有索引不一致（现有：1024，当前：1536），请重建索引（POST /rag/rebuild）后重试。',
       },
     })

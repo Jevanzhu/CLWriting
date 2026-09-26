@@ -12,9 +12,7 @@ test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入�
   const report: CheckReport = {
     sections: [],
     byproducts: {
-      leadChanges: [
-        { leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
-      ],
+      leadChanges: [{ leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' }],
     },
   }
 

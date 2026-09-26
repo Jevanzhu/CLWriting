@@ -26,7 +26,7 @@ import {
 interface ForeshadowCtx {
   workDir: string | null
   /** 收尾：伏笔足迹缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   foreshadowTtlMs?: number | null
 }
 
@@ -116,7 +116,10 @@ export function getForeshadowsCached(bookRoot: string, ttlOverrideMs?: number | 
 /** 缓存壳的异步孪生$1端点生产路径）：命中语义与同步版逐位一致（同缓存
  *  同 TTL 同签名），MISS 时经 scanForeshadowTrailsAsync 切片让出事件循环（200 万字
  *  全书正则扫不再整段冻结请求线程），并以 in-flight 去重合并并发 MISS。 */
-export function getForeshadowsCachedAsync(bookRoot: string, ttlOverrideMs?: number | null): Promise<ForeshadowSnapshot> {
+export function getForeshadowsCachedAsync(
+  bookRoot: string,
+  ttlOverrideMs?: number | null,
+): Promise<ForeshadowSnapshot> {
   return foreshadowCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
@@ -128,26 +131,30 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
     // （评审）：本 handler 实际消费请求 URL（parseRequestUrl）——参数名去
     // `_` 前缀（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const bookRoot = r.bookRoot
-    // ?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
-    // parseRequestUrl 统一解析（/ 口径）——畸形 URL → 400 BAD_INPUT
-    const url = parseRequestUrl(req)
-    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
-    const q = url.searchParams.get('q') ?? undefined
-    // 全量扫描走缓存壳；?q= 在快照上过滤（缓存命中不重扫）
-    // 只交付了 getForeshadowsCachedAsync 函数，本 handler
-    // 此前仍调同步版——「端点改走 async」的收口声称失实，随批补齐（异步切片让出 +
-    // in-flight 去重自此真正上路；router dispatch 对 async handler 已有 catch 兜底）
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    const snapshot = await getForeshadowsCachedAsync(bookRoot, ctx.foreshadowTtlMs ?? undefined)
-    if (q) {
-      reply(res, 200, filterForeshadowTrails(snapshot.entries, snapshot.trails, q))
-      return
-    }
-    const { entries, trails } = snapshot
-    reply(res, 200, entries.map((e) => ({ ...e, 足迹: trails.get(e.标题) ?? null })))
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const bookRoot = r.bookRoot
+      // ?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
+      // parseRequestUrl 统一解析（/ 口径）——畸形 URL → 400 BAD_INPUT
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const q = url.searchParams.get('q') ?? undefined
+      // 全量扫描走缓存壳；?q= 在快照上过滤（缓存命中不重扫）
+      // 只交付了 getForeshadowsCachedAsync 函数，本 handler
+      // 此前仍调同步版——「端点改走 async」的收口声称失实，随批补齐（异步切片让出 +
+      // in-flight 去重自此真正上路；router dispatch 对 async handler 已有 catch 兜底）
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      const snapshot = await getForeshadowsCachedAsync(bookRoot, ctx.foreshadowTtlMs ?? undefined)
+      if (q) {
+        reply(res, 200, filterForeshadowTrails(snapshot.entries, snapshot.trails, q))
+        return
+      }
+      const { entries, trails } = snapshot
+      reply(
+        res,
+        200,
+        entries.map((e) => ({ ...e, 足迹: trails.get(e.标题) ?? null })),
+      )
+    },
   })
 }

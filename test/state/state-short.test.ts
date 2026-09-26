@@ -38,13 +38,21 @@ function finalizePiece(root: string, num: number, title: string): void {
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   const rel = `写作/正文/第一卷/${String(num).padStart(3, '0')}-${title}.md`
   const abs = join(root, rel)
-  writeFileSync(abs, `---\n章号: ${num}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${num}章正文。\n`, 'utf-8')
+  writeFileSync(
+    abs,
+    `---\n章号: ${num}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${num}章正文。\n`,
+    'utf-8',
+  )
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   mkdirSync(join(root, '项目'), { recursive: true })
   const m = readManifest(manifestPath)
   upsertEntry(m, {
-    id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-    finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+    id: generateDocId(),
+    nodeType: 'document',
+    path: rel,
+    parentId: null,
+    finalizedRevision: computeRevision(abs),
+    finalizedAt: new Date().toISOString(),
   })
   writeManifest(manifestPath, m)
 }
@@ -54,7 +62,11 @@ test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/�
   try {
     // 改已定稿篇的正文（未 commit）→ 态 3 手改
     finalizePiece(root, 1, '雪夜')
-    writeFileSync(join(root, '写作', '正文', '第一卷', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n改过的正文。\n', 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', '第一卷', '001-雪夜.md'),
+      '---\n章号: 1\n标题: 雪夜\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n改过的正文。\n',
+      'utf-8',
+    )
 
     const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(3)
@@ -73,7 +85,11 @@ test('short 态 4: 工作区有半截草稿（正文草稿+细纲+.confirm）但
     writeFileSync(join(workDir, '细纲.md'), '第2章细纲', 'utf-8')
     mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
     writeFileSync(join(root, '写作', '正文', '第一卷', '002-草稿.md'), '第2章草稿', 'utf-8')
-    writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
+    writeFileSync(
+      join(workDir, '.confirm.json'),
+      JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }),
+      'utf-8',
+    )
 
     const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)
@@ -93,7 +109,11 @@ test('short 态 4: 工作区半截草稿 + 已定稿 → 态 4 post-finalize-res
     // 工作区残留第 2 篇的草稿/.confirm（post-finalize residue）；正文保持定稿内容不动
     const workDir = join(root, '工作区')
     writeFileSync(join(workDir, '细纲.md'), '第2章细纲', 'utf-8')
-    writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
+    writeFileSync(
+      join(workDir, '.confirm.json'),
+      JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }),
+      'utf-8',
+    )
 
     const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)

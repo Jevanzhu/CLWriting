@@ -80,16 +80,12 @@ export interface AnalysisOverview {
 
 // GET /analysis-overview —— 全书聚合趋势（体验分/情绪/钩子逐章 + 全书文风）。
 export async function getAnalysisOverview(name: string): Promise<AnalysisOverview> {
-  return apiJson<AnalysisOverview & { ok: true }>(
-    bookUrl(name, 'analysis-overview'),
-  )
+  return apiJson<AnalysisOverview & { ok: true }>(bookUrl(name, 'analysis-overview'))
 }
 
 // POST /analyze-style —— 全书文风分析（全文 stats + 最近 10 章采样 → AI）。
 // 完成时后端把口癖/建议转为候选（源3），styleCandidates 为新落候选数。
-export async function runStyleAnalysis(
-  name: string,
-): Promise<{ envelope: EnvelopeFE; styleCandidates: number }> {
+export async function runStyleAnalysis(name: string): Promise<{ envelope: EnvelopeFE; styleCandidates: number }> {
   const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
     bookUrl(name, 'analyze-style'),
     { method: 'POST', json: {} },

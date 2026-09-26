@@ -37,7 +37,11 @@ function makeBook(): string {
   for (let no = 1; no <= 2; no++) {
     const pad = String(no).padStart(3, '0')
     const p = join(root, '写作', '正文', `${pad}-第${no}章.md`)
-    writeFileSync(p, `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`, 'utf-8')
+    writeFileSync(
+      p,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`,
+      'utf-8',
+    )
     const id = generateDocId()
     upsertEntry(m, { id, nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
     const e = m.entries.get(id)!
@@ -48,12 +52,19 @@ function makeBook(): string {
   return root
 }
 
-const bodyOf = (root: string, no: number): string => join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
+const bodyOf = (root: string, no: number): string =>
+  join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
 
 test('R-2: 章摘要 promptFiles 登记正文路径（注入源），非输出文件', async () => {
   const root = makeBook()
   try {
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok).toBe(true)
     const { runSpec } = await import('../../src/ai/tasks/spec.js')
     const opts = vi.mocked(runSpec).mock.calls[0]![1] as unknown as { promptFiles?: string[] }
@@ -68,7 +79,13 @@ test('R-2: 卷摘要 promptFiles 登记实际注入的章摘要文件列表，�
   const root = makeBook()
   try {
     for (const ch of [1, 2]) {
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: ch, bodyAbsPath: bodyOf(root, ch) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: ch,
+        bodyAbsPath: bodyOf(root, ch),
+      })
       expect(r.ok).toBe(true)
     }
     const { runSpec } = await import('../../src/ai/tasks/spec.js')

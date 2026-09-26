@@ -29,7 +29,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: mocks.updateChapterMetaDoc,
@@ -188,9 +190,10 @@ describe('R64-1（十二轮）：标题提交在途切书 → 迟到的 load(旧
     // 标题提交挂起（updateChapterMetaDoc 在途）
     let resolveMeta!: (r: unknown) => void
     mocks.updateChapterMetaDoc.mockImplementation(
-      () => new Promise((r) => {
-        resolveMeta = r
-      }),
+      () =>
+        new Promise((r) => {
+          resolveMeta = r
+        }),
     )
     const input = w.find('input.bar-title')
     await input.trigger('focus')
@@ -225,7 +228,10 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
     // 第一次提交挂起（updateChapterMetaDoc 在途），模拟大书 tree.load 秒级窗口
     let resolveMeta1!: (r: unknown) => void
     mocks.updateChapterMetaDoc.mockImplementationOnce(
-      () => new Promise((r) => { resolveMeta1 = r }),
+      () =>
+        new Promise((r) => {
+          resolveMeta1 = r
+        }),
     )
     mocks.updateChapterMetaDoc.mockResolvedValueOnce({ ok: true }) // 续提链即刻成功
 
@@ -263,7 +269,9 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
 
     expect(mocks.updateChapterMetaDoc).toHaveBeenCalledTimes(2)
     expect(mocks.updateChapterMetaDoc).toHaveBeenLastCalledWith(
-      BOOK, 'd1', expect.objectContaining({ 标题: '第二次标题' }),
+      BOOK,
+      'd1',
+      expect.objectContaining({ 标题: '第二次标题' }),
     )
     expect(w.find('.page-title').text()).toBe('第二次标题')
 
@@ -285,7 +293,10 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
 
     let resolveMeta1!: (r: unknown) => void
     mocks.updateChapterMetaDoc.mockImplementationOnce(
-      () => new Promise((r) => { resolveMeta1 = r }),
+      () =>
+        new Promise((r) => {
+          resolveMeta1 = r
+        }),
     )
 
     const w = mount(EditorView, { props: { docId: 'd1' } })
@@ -319,7 +330,10 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
 
     let resolveMeta1!: (r: unknown) => void
     mocks.updateChapterMetaDoc.mockImplementationOnce(
-      () => new Promise((r) => { resolveMeta1 = r }),
+      () =>
+        new Promise((r) => {
+          resolveMeta1 = r
+        }),
     )
 
     const w = mount(EditorView, { props: { docId: 'd1' } })

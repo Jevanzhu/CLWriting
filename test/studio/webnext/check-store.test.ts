@@ -31,7 +31,9 @@ function stubLocalStorage(): Map<string, string> {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
-    get length() { return store.size },
+    get length() {
+      return store.size
+    },
     key: (i: number) => [...store.keys()][i] ?? null,
   })
   return store
@@ -80,16 +82,18 @@ describe('check: 触发机检', () => {
 describe('check: 红/黄项分组', () => {
   it('redItems / yellowItems 正确过滤', async () => {
     checkMock.mockResolvedValue({
-      ok: true, hasRed: true,
+      ok: true,
+      hasRed: true,
       report: {
         sections: [
-          { name: 'S1', items: [
-            { checkId: 'a', level: 'red', message: '红1' },
-            { checkId: 'b', level: 'yellow', message: '黄1' },
-          ]},
-          { name: 'S2', items: [
-            { checkId: 'c', level: 'red', message: '红2' },
-          ]},
+          {
+            name: 'S1',
+            items: [
+              { checkId: 'a', level: 'red', message: '红1' },
+              { checkId: 'b', level: 'yellow', message: '黄1' },
+            ],
+          },
+          { name: 'S2', items: [{ checkId: 'c', level: 'red', message: '红2' }] },
         ],
       },
     })
@@ -181,7 +185,11 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     checkMock.mockResolvedValue({ ok: true, hasRed: true, report: { sections: [] } })
     // markFalsePositive 挂起：给竞态留窗口
     let release!: (v: { ok: boolean }) => void
-    fpMock.mockReturnValue(new Promise<{ ok: boolean }>((r) => { release = r }))
+    fpMock.mockReturnValue(
+      new Promise<{ ok: boolean }>((r) => {
+        release = r
+      }),
+    )
     const s = useCheckStore()
     await s.run('book1', 'doc_1')
 
@@ -218,7 +226,9 @@ describe('check: R-1 clear 在途 run 不卡 loading', () => {
     stubLocalStorage()
     let release!: (v: { ok: boolean; hasRed: boolean; report: unknown }) => void
     checkMock.mockReturnValue(
-      new Promise<{ ok: boolean; hasRed: boolean; report: unknown }>((r) => { release = r }),
+      new Promise<{ ok: boolean; hasRed: boolean; report: unknown }>((r) => {
+        release = r
+      }),
     )
     const s = useCheckStore()
     const p = s.run('book1', 'doc_1')

@@ -14,7 +14,12 @@ import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../studio/fixtur
 // '/tmp/clwriting-test'，每次跑泄漏双书仓库；per-test 包 trackTempDir（fixtures.ts
 // 本体因 Playwright global-setup 复用不动），userDataPath 改 tempUserData 唯一目录
 import { trackTempDir } from '../helpers/temp-dir.js'
-import { runSelfHeal, isSelfHealRunning, waitSelfHealSettled, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
+import {
+  runSelfHeal,
+  isSelfHealRunning,
+  waitSelfHealSettled,
+  type SelfHealOpts,
+} from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -49,7 +54,10 @@ function redOutcome(msg = '命中禁词「顿时」'): CheckOutcome {
   }
 }
 
-interface SaveCall { content: string; origin?: string }
+interface SaveCall {
+  content: string
+  origin?: string
+}
 
 function makeSave(calls: SaveCall[]): typeof saveDraft {
   return async (_bookRoot, _chapter, content, opts) => {
@@ -60,14 +68,22 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
 
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
-    async startSession(cwd: string): Promise<Session> { return { id: 'mock', cwd, closed: false } },
+    async startSession(cwd: string): Promise<Session> {
+      return { id: 'mock', cwd, closed: false }
+    },
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
-    emit(_s, ev): void { emitted.push(ev) },
+    emit(_s, ev): void {
+      emitted.push(ev)
+    },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -89,11 +105,7 @@ interface Setup {
   saves: SaveCall[]
 }
 
-function setup(
-  texts: string[],
-  check: (p: string) => CheckOutcome,
-  extra?: Partial<SelfHealOpts>,
-): Setup {
+function setup(texts: string[], check: (p: string) => CheckOutcome, extra?: Partial<SelfHealOpts>): Setup {
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
@@ -120,7 +132,12 @@ function evTypes(emitted: DriverEvent[]): string[] {
 }
 
 const budgetOk = { ok: true, used: 0, limit: 8 } as const
-const budgetOver = { ok: false, used: 8, limit: 8, reason: '本章已调用 8 次（上限 8）。可临时提高 book.yaml 的 budget.calls_per_chapter' } as const
+const budgetOver = {
+  ok: false,
+  used: 8,
+  limit: 8,
+  reason: '本章已调用 8 次（上限 8）。可临时提高 book.yaml 的 budget.calls_per_chapter',
+} as const
 
 beforeEach(() => {
   vi.mocked(checkAiCallBudget).mockReset()
@@ -178,7 +195,8 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
     expect(r.outcome).toBe('failed')
     if (r.outcome === 'failed') expect(r.error).toContain('上限')
     // 停在第一章（done=0）
-    const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as { done?: number; stoppedAt?: number } | undefined
+    const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as
+      { done?: number; stoppedAt?: number } | undefined
     expect(bp).toBeTruthy()
     expect(bp?.done).toBe(0)
     expect(bp?.stoppedAt).toBe(1)
@@ -186,9 +204,7 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
 
   test('单章重写预算超限 → escalate（有稿可交，保留当前稿）', async () => {
     // 首稿 budget 正常 → 首稿红 → 重写前 budget 超限 → escalate
-    vi.mocked(checkAiCallBudget)
-      .mockReturnValueOnce(budgetOk)
-      .mockReturnValueOnce(budgetOver)
+    vi.mocked(checkAiCallBudget).mockReturnValueOnce(budgetOk).mockReturnValueOnce(budgetOver)
     const { opts, emitted } = setup([FM + '首稿'], () => redOutcome())
     const r = await runSelfHeal(opts)
 
@@ -209,11 +225,9 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
       .mockReturnValueOnce(budgetOver) // 章2 重写
     const seq = [greenOutcome(), redOutcome('二章禁词'), redOutcome('二章禁词')]
     let i = 0
-    const { opts, emitted } = setup(
-      [FM + '一章', FM + '二章'],
-      () => seq[Math.min(i++, seq.length - 1)]!,
-      { chapters: [1, 2] },
-    )
+    const { opts, emitted } = setup([FM + '一章', FM + '二章'], () => seq[Math.min(i++, seq.length - 1)]!, {
+      chapters: [1, 2],
+    })
     const r = await runSelfHeal(opts)
 
     expect(r.outcome).toBe('escalate')

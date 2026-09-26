@@ -12,14 +12,9 @@ import { log } from '../../src/log/index.js'
 test('R51-F-4: 块式序列体系段 → 序列按空处理 + warn 留痕（每次解析至多一条）', () => {
   const warnSpy = vi.spyOn(log, 'warn')
   try {
-    const fmRaw = [
-      '体系:',
-      '  - 名称: 修真境界',
-      '    序列:',
-      '      - 炼气',
-      '      - 筑基',
-      '      - 金丹',
-    ].join('\n')
+    const fmRaw = ['体系:', '  - 名称: 修真境界', '    序列:', '      - 炼气', '      - 筑基', '      - 金丹'].join(
+      '\n',
+    )
     const systems = parseRealmSystems(fmRaw)
     // 不支持仍不支持：名称收到、序列为空（修复前后行为一致）
     expect(systems).toHaveLength(1)

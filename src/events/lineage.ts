@@ -69,4 +69,3 @@ export function verifyVisibleRecorded(visible: VisibleInjection[], events: ChatE
 export function recordedSnapshots(events: ChatEvent[]): { scope: string; digest: string; seq: number }[] {
   return registeredRecords(events)
 }
-

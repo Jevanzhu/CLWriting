@@ -77,7 +77,9 @@ vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', async () =>
 })
 // R29-10：useSseSelfHeal 持有 useSse 返回值并在切书链尾调 resync()——mock 返回带 resync 的句柄
 vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn(() => ({ resync: vi.fn() })) }))
-vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({ useChatTier: vi.fn(() => ({ refresh: vi.fn() })) }))
+vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({
+  useChatTier: vi.fn(() => ({ refresh: vi.fn() })),
+}))
 
 const routeHolder = vi.hoisted(() => ({ route: null as { params: { name: string } } | null }))
 const routerMock = vi.hoisted(() => ({ replace: vi.fn() }))

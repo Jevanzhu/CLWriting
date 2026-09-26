@@ -17,11 +17,7 @@
  *   不受影响（彼处无固定代理前提）。
  */
 import { describe, it, expect, vi } from 'vitest'
-import {
-  DEV_API_PORT_ENV,
-  DEV_API_DEFAULT_PORT,
-  resolveDevApiPort,
-} from '../../src/studio/server/dev-port.js'
+import { DEV_API_PORT_ENV, DEV_API_DEFAULT_PORT, resolveDevApiPort } from '../../src/studio/server/dev-port.js'
 
 describe('resolveDevApiPort：env 单源与缺省', () => {
   it('未设 env → 缺省 7878（与 Vite 代理目标一致）', () => {
@@ -56,12 +52,10 @@ describe("resolveDevApiPort：'0' 拒绝（dev 链路防静默失联）", () => 
     // 依赖手工对称还原；spy 的 mockRestore 单点收口（断言中途抛错也走 finally）。
     const exits: Array<number | string | undefined> = []
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation(((code?: number | string | undefined) => {
-        exits.push(code)
-        throw new Error('EXIT_SENTINEL')
-      }) as never)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | undefined) => {
+      exits.push(code)
+      throw new Error('EXIT_SENTINEL')
+    }) as never)
     try {
       expect(() => resolveDevApiPort({ [DEV_API_PORT_ENV]: '0' })).toThrow('EXIT_SENTINEL')
       expect(exits).toEqual([2])

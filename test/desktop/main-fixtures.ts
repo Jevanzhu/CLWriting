@@ -193,7 +193,11 @@ vi.mock('electron', () => {
       M_hoisted.forkChildren.push(this as unknown as Record<string, any>)
       queueMicrotask(() => {
         if (M_hoisted.forkBehavior === 'boot-error') {
-          this.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: '端口 0 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口' })
+          this.emit('message', {
+            type: 'boot-error',
+            code: 'EADDRINUSE',
+            message: '端口 0 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口',
+          })
           this.emit('exit', 1)
         } else if (M_hoisted.forkBehavior === 'pending') {
           // 握手挂起形态：不回任何消息（stopChild 的 settle 竞速窗无法按时收口）
@@ -275,20 +279,16 @@ vi.mock('electron', () => {
       // 假件给固定版号供 fork env 注入面断言
       getVersion: () => M_hoisted.appVersion,
     },
-    BrowserWindow: Object.assign(
-      class extends FakeWin {},
-      {
-        // R0910-W：优先经 _wc 反查（走 webContents Getter 会在 closed+抛错模式下误炸）；
-        // 直构的裸 win 假件（无 _wc）回落 webContents 属性，兼容两种形态。
-        fromWebContents: (wc: unknown) =>
-          M_hoisted.windows.find((w) => (w._wc ?? w.webContents) === wc) ?? null,
-        getFocusedWindow: () => M_hoisted.focusedWin,
-        // 0918二轮修复批（C105）：getAllWindows 假件（对齐真实 API 面，返回未销毁窗；
-        // action() 首窗回退在 C105 修复前是唯一消费点——修复后生产零调用，仅供回归
-        // 用例复刻「修复前回退首窗」的对照形态）。
-        getAllWindows: () => M_hoisted.windows.filter((w) => !w.closed),
-      },
-    ),
+    BrowserWindow: Object.assign(class extends FakeWin {}, {
+      // R0910-W：优先经 _wc 反查（走 webContents Getter 会在 closed+抛错模式下误炸）；
+      // 直构的裸 win 假件（无 _wc）回落 webContents 属性，兼容两种形态。
+      fromWebContents: (wc: unknown) => M_hoisted.windows.find((w) => (w._wc ?? w.webContents) === wc) ?? null,
+      getFocusedWindow: () => M_hoisted.focusedWin,
+      // 0918二轮修复批（C105）：getAllWindows 假件（对齐真实 API 面，返回未销毁窗；
+      // action() 首窗回退在 C105 修复前是唯一消费点——修复后生产零调用，仅供回归
+      // 用例复刻「修复前回退首窗」的对照形态）。
+      getAllWindows: () => M_hoisted.windows.filter((w) => !w.closed),
+    }),
     session: {
       defaultSession: {
         webRequest: {
@@ -374,8 +374,7 @@ vi.mock('electron', () => {
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M_hoisted.userData,
   // R1W-7：isLibraryDir/--book 路径匹配收编的同一性原语（win 小写降口径；mock 同语义）
-  samePath: (a: string, b: string) =>
-    process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b,
+  samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({
   // 复审-0914-优化修复批：desktop 域错误摘要三目收编 errMsg（同语义假件，保持 mock 面完整）
@@ -518,7 +517,6 @@ export function mainWin(): Record<string, any> {
 // 掩盖了 resetModules 换实例后仍锚 M.windows[0] 的假绿）。缺省改取最新存活工厂窗——
 // 各调用点的当前实例登记窗（fresh module 主窗 / 首实例存活窗），显式传参形态不变。
 export function trustedEvent(wc?: Record<string, any>): Record<string, any> {
-  const sender =
-    wc ?? [...M.windows].reverse().find((w) => !w.isDestroyed())?.webContents ?? mainWin().webContents
+  const sender = wc ?? [...M.windows].reverse().find((w) => !w.isDestroyed())?.webContents ?? mainWin().webContents
   return { sender, senderFrame: sender.mainFrame }
 }

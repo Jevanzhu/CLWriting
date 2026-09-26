@@ -28,10 +28,13 @@ test('embed: 请求超时会 abort 并返回 null（降级不抛）', async () =
 })
 
 test('embed: 正常响应返回向量', async () => {
-  const fetchMock = vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  ))
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   await expect(embed('https://example.invalid/embeddings', 'm', 'k', ['正文'])).resolves.toEqual([[1, 2, 3]])
@@ -40,15 +43,18 @@ test('embed: 正常响应返回向量', async () => {
 // ── R62-3：index 归位（OpenAI 兼容协议 data[] 数组顺序无契约，乱序端点按位对齐会错配） ──
 
 test('R62-3：端点乱序返回（index 1 在前）→ 按 index 归位对齐输入序（修复前按位错配，向量永久配错块毒化索引）', async () => {
-  const fetchMock = vi.fn(async () => new Response(
-    JSON.stringify({
-      data: [
-        { embedding: [9, 9, 9], index: 1 },
-        { embedding: [1, 1, 1], index: 0 },
-      ],
-    }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  ))
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            { embedding: [9, 9, 9], index: 1 },
+            { embedding: [1, 1, 1], index: 0 },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   await expect(embed('https://shuffle.example/embeddings', 'm', 'k', ['甲文', '乙文'])).resolves.toEqual([
@@ -58,10 +64,13 @@ test('R62-3：端点乱序返回（index 1 在前）→ 按 index 归位对齐�
 })
 
 test('R62-3：全部条目不带 index → 回落按位对齐（非标端点兼容，与旧行为一致）', async () => {
-  const fetchMock = vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 1, 1] }, { embedding: [9, 9, 9] }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  ))
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ data: [{ embedding: [1, 1, 1] }, { embedding: [9, 9, 9] }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   await expect(embed('https://no-index.example/embeddings', 'm', 'k', ['甲文', '乙文'])).resolves.toEqual([
@@ -71,16 +80,33 @@ test('R62-3：全部条目不带 index → 回落按位对齐（非标端点兼�
 })
 
 test('R62-3：index 重复留洞 → null；index 形态混杂（部分带部分不带）→ null', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 1, 1], index: 0 }, { embedding: [9, 9, 9], index: 0 }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              { embedding: [1, 1, 1], index: 0 },
+              { embedding: [9, 9, 9], index: 0 },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    ),
+  )
   await expect(embed('https://dup-index.example/embeddings', 'm', 'k', ['甲文', '乙文'])).resolves.toBeNull()
 
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 1, 1], index: 0 }, { embedding: [9, 9, 9] }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ embedding: [1, 1, 1], index: 0 }, { embedding: [9, 9, 9] }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ),
+  )
   await expect(embed('https://mixed-index.example/embeddings', 'm', 'k', ['甲文', '乙文'])).resolves.toBeNull()
 })
 
@@ -88,30 +114,43 @@ test('R62-3：index 重复留洞 → null；index 形态混杂（部分带部分
 
 test('R62-4：usage.prompt_tokens → onUsage 回调一次；响应无 usage 段不回调', async () => {
   const onUsage = vi.fn()
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 2, 3] }], usage: { prompt_tokens: 123 } }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )))
-  await expect(
-    embed('https://usage.example/embeddings', 'm', 'k', ['正文'], { onUsage }),
-  ).resolves.toEqual([[1, 2, 3]])
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ embedding: [1, 2, 3] }], usage: { prompt_tokens: 123 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ),
+  )
+  await expect(embed('https://usage.example/embeddings', 'm', 'k', ['正文'], { onUsage })).resolves.toEqual([[1, 2, 3]])
   expect(onUsage).toHaveBeenCalledTimes(1)
   expect(onUsage).toHaveBeenCalledWith(123)
 
   const onUsage2 = vi.fn()
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(
-    JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )))
-  await expect(
-    embed('https://usage.example/embeddings', 'm', 'k', ['正文'], { onUsage: onUsage2 }),
-  ).resolves.toEqual([[1, 2, 3]])
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    ),
+  )
+  await expect(embed('https://usage.example/embeddings', 'm', 'k', ['正文'], { onUsage: onUsage2 })).resolves.toEqual([
+    [1, 2, 3],
+  ])
   expect(onUsage2).not.toHaveBeenCalled()
 })
 
 test('R62-4：HTTP 失败 log.warn 留痕 + 同端点 60s 去抖（两次失败只留痕一次）', async () => {
   const warn = vi.spyOn(log, 'warn')
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response('boom', { status: 500 })),
+  )
 
   await expect(embed('https://fail-dedup.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
   await expect(embed('https://fail-dedup.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
@@ -125,7 +164,10 @@ test('R62-4：HTTP 失败 log.warn 留痕 + 同端点 60s 去抖（两次失败�
 
 test('C104：HTTP 失败路径取消响应体（连接回池）', async () => {
   const cancel = vi.fn(async () => {})
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, body: { cancel } }) as unknown as Response))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: false, status: 503, body: { cancel } }) as unknown as Response),
+  )
   await expect(embed('https://fail-cancel.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
   expect(cancel).toHaveBeenCalledTimes(1)
 })
@@ -134,7 +176,10 @@ test('C104：cancel 拒绝不阻断失败返回（best-effort 兜底）', async 
   const cancel = vi.fn(async () => {
     throw new Error('stream already cancelled')
   })
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 429, body: { cancel } }) as unknown as Response))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: false, status: 429, body: { cancel } }) as unknown as Response),
+  )
   await expect(embed('https://fail-cancel-reject.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
   expect(cancel).toHaveBeenCalledTimes(1)
 })

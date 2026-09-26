@@ -33,11 +33,35 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
     <SettingItem v-if="hasDesktop" name="界面字体" desc="侧栏与菜单等 UI 文字">
       <div class="font-pair">
         <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-        <FontPicker class="font-select" ariaLabel="界面中文字体" :value="prefs.get('uiFontCn')" :fonts="chineseFonts" :default-font="defaultUiFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontCn', $event)" />
-        <FontPicker class="font-select" ariaLabel="界面英文字体" :value="prefs.get('uiFontEn')" :fonts="englishFonts" :default-font="defaultUiFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('uiFontEn', $event)" />
+        <FontPicker
+          class="font-select"
+          ariaLabel="界面中文字体"
+          :value="prefs.get('uiFontCn')"
+          :fonts="chineseFonts"
+          :default-font="defaultUiFontCn"
+          placeholder="中文 · 默认"
+          :display="fontDisplayName"
+          @change="prefs.set('uiFontCn', $event)"
+        />
+        <FontPicker
+          class="font-select"
+          ariaLabel="界面英文字体"
+          :value="prefs.get('uiFontEn')"
+          :fonts="englishFonts"
+          :default-font="defaultUiFontEn"
+          placeholder="英文 · 默认"
+          :display="fontDisplayName"
+          @change="prefs.set('uiFontEn', $event)"
+        />
       </div>
     </SettingItem>
-    <SettingToggle name="紧凑模式" desc="收窄侧栏间距，列表显示更多内容" ariaLabel="紧凑模式" :checked="prefs.get('compact')" @change="prefs.set('compact', $event)" />
+    <SettingToggle
+      name="紧凑模式"
+      desc="收窄侧栏间距，列表显示更多内容"
+      ariaLabel="紧凑模式"
+      :checked="prefs.get('compact')"
+      @change="prefs.set('compact', $event)"
+    />
     <SettingItem name="书架视图" desc="书架的显示方式">
       <div class="seg">
         <button :class="{ on: prefs.get('shelfView') === 'grid' }" @click="prefs.set('shelfView', 'grid')">网格</button>

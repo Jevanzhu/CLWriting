@@ -35,7 +35,11 @@ const readMock = vi.mocked(readFileSync)
 
 function writeWiringDoc(root: string, name: string, fm: string): void {
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  writeFileSync(join(root, '布线', '悬念', name), `---\n编号: 悬念-001\n标题: 密室之主\n类型: 悬念\n状态: 进行中\n开启章: 1\n${fm}\n---\n\n正文无关。\n`, 'utf-8')
+  writeFileSync(
+    join(root, '布线', '悬念', name),
+    `---\n编号: 悬念-001\n标题: 密室之主\n类型: 悬念\n状态: 进行中\n开启章: 1\n${fm}\n---\n\n正文无关。\n`,
+    'utf-8',
+  )
 }
 
 function writeWiringDocIn(root: string, sub: string, name: string, fm: string): void {

@@ -42,7 +42,12 @@ describe('F1-P1 loadHistoryWithSeqs', () => {
       { type: 'user/message', data: { message: 'u1' }, surfaceOp: 'append' },
       {
         type: 'assistant/message',
-        data: { message: [{ type: 'text', text: 'a1' }, { type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+        data: {
+          message: [
+            { type: 'text', text: 'a1' },
+            { type: 'tool_use', id: 't1', name: 'x', input: {} },
+          ],
+        },
         surfaceOp: 'append',
       },
       { type: 'tool/result', data: { callId: 't1', content: 'r1' }, surfaceOp: 'append' },
@@ -50,7 +55,10 @@ describe('F1-P1 loadHistoryWithSeqs', () => {
     const restored = loadHistoryWithSeqs(store.listEvents('书A'))
     expect(restored.msgs).toHaveLength(3)
     expect(restored.msgs[0]).toEqual({ role: 'user', content: 'u1' })
-    expect(restored.msgs[2]).toEqual({ role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r1', isError: false }] })
+    expect(restored.msgs[2]).toEqual({
+      role: 'user',
+      content: [{ type: 'tool_result', toolUseId: 't1', content: 'r1', isError: false }],
+    })
     // seq 映射：3 条消息 → [[2],[3],[4]]
     expect(restored.seqsPerMsg).toEqual([[2], [3], [4]])
     store.close()
@@ -85,13 +93,13 @@ describe('F1-P1 SessionRecorder', () => {
     const rec = new SessionRecorder(store, sid)
     rec.add(sessionStartEvent('书A'))
     const uIdx = rec.add(userMessageEvent('hi'))
-    const r1 = rec.flush()!;
+    const r1 = rec.flush()!
     expect(r1).toEqual({ first: 1, last: 2, seqs: [1, 2] }) // R65-23：flush 透出批内真实 seq 数组
     expect(rec.allSessionSeqs()).toEqual([1, 2])
     // uIdx 是批次内 0-based 序号（user/message 是第 2 个事件 → idx=1）；真实 seq 直索引
     expect(r1.seqs[uIdx]).toBe(2)
     const aIdx = rec.add(assistantMessageEvent('reply'))
-    const r2 = rec.flush()!;
+    const r2 = rec.flush()!
     expect(r2).toEqual({ first: 3, last: 3, seqs: [3] })
     expect(r2.seqs[aIdx]).toBe(3)
     expect(rec.allSessionSeqs()).toEqual([1, 2, 3])
@@ -177,9 +185,9 @@ describe('F1-P1 SessionRecorder', () => {
       expect(archive).toBeDefined()
       expect(archiveSeq).toBe(archive!.seq) // 指向自身的 compaction/end 事件
       // 外来行确实插在了 compaction 事件紧邻位置（证明并发窗口存在），archiveSeq 未取到它
-      const foreign = other.prepare(
-        `SELECT MIN(seq) AS m, MAX(seq) AS m2 FROM events WHERE session_id = 'other-window' AND type = 'note'`,
-      ).get() as { m: number; m2: number }
+      const foreign = other
+        .prepare(`SELECT MIN(seq) AS m, MAX(seq) AS m2 FROM events WHERE session_id = 'other-window' AND type = 'note'`)
+        .get() as { m: number; m2: number }
       expect(foreign.m2!).toBeGreaterThanOrEqual(archive!.seq - 1)
       expect(archiveSeq).not.toBe(foreign.m2!)
     } finally {
@@ -201,7 +209,7 @@ describe('F1-P1 SessionRecorder', () => {
     rec.add(toolCallEvent('t1', 'check_chapter', { chapter: 3 }))
     const trIdx = rec.add(toolResultEvent('t1', '全绿'))
     rec.add(turnEndEvent(1, 'completed'))
-    const r2 = rec.flush()!;
+    const r2 = rec.flush()!
     expect(r2.seqs[aIdx]).toBe(4)
     expect(r2.seqs[trIdx]).toBe(6)
     store.close()
@@ -230,7 +238,6 @@ describe('重评-P3-2：内存模式 flush 清批内累积', () => {
     expect(inner.pending).toHaveLength(0)
   })
 })
-
 
 // ── R62-10/R62-11（第六十二轮）──────────────────────────
 

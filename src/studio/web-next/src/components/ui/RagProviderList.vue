@@ -45,18 +45,16 @@ const emit = defineEmits<{
 
   <template v-else>
     <div class="provider-list">
-      <ProviderRow
-        v-for="p in ragProviders"
-        :key="p.id"
-        :expanded="expandedId === p.id"
-      >
+      <ProviderRow v-for="p in ragProviders" :key="p.id" :expanded="expandedId === p.id">
         <template #main>
           <!-- 单行：名称 + 嵌入模型 + 右对齐状态（地址不占行——编辑卡里可查） -->
           <div class="row-line">
             <span class="provider-row-name">{{ p.name }}</span>
             <span class="model-tag" :data-tip="p.model">{{ p.model }}</span>
             <span class="provider-status">
-              <span v-if="p.caps" class="caps-badge" :class="p.caps.connected ? 'ok' : 'bad'">{{ p.caps.connected ? '已连接' : '连接失败' }}</span>
+              <span v-if="p.caps" class="caps-badge" :class="p.caps.connected ? 'ok' : 'bad'">{{
+                p.caps.connected ? '已连接' : '连接失败'
+              }}</span>
               <span v-if="p.caps?.connected" class="probed-at">{{ timeAgo(p.capsProbedAt) }}</span>
               <span v-if="!p.caps" class="unchecked-hint">未测试</span>
             </span>
@@ -64,7 +62,13 @@ const emit = defineEmits<{
         </template>
 
         <template #actions>
-          <button class="mini-btn" :class="{ testing: ragTesting === p.id }" :disabled="ragTesting === p.id" data-tip="测试连接" @click="emit('test', p)">
+          <button
+            class="mini-btn"
+            :class="{ testing: ragTesting === p.id }"
+            :disabled="ragTesting === p.id"
+            data-tip="测试连接"
+            @click="emit('test', p)"
+          >
             <Loader2 v-if="ragTesting === p.id" :size="13" class="spin" />
             <Zap v-else :size="13" />
           </button>

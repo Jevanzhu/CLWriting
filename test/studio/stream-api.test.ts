@@ -17,7 +17,12 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { processRouteDeps } from './helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { startServerSafe } from '../helpers/safe-port.js'
-import { isSpawnRunning, __setSpawnRunning, registerStreamRoutes, SSE_STREAM_PATH_PATTERN } from '../../src/studio/server/api/stream.js'
+import {
+  isSpawnRunning,
+  __setSpawnRunning,
+  registerStreamRoutes,
+  SSE_STREAM_PATH_PATTERN,
+} from '../../src/studio/server/api/stream.js'
 import { createStreamTicketStore } from '../../src/studio/server/api/stream-ticket.js' // R73-49：registerStreamRoutes 的 ctx 需实例票库
 import { createRouteTable, withRouteTable, dispatch } from '../../src/studio/server/router.js'
 import { resetRouteSchemas, getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -89,8 +94,10 @@ beforeAll(async () => {
     join(workDir, '.clwriting', 'books.jsonl'),
     // S5（五十九轮）：IDLE_BOOK 专用——全书全程无 session/SSE/编排触碰，验 /interrupt
     // 空闲 no-op 不隐式建会话
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
-      JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) + '\n',
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+      '\n' +
+      JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) +
+      '\n',
   )
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(workDir, IDLE_BOOK), { recursive: true })
@@ -254,9 +261,16 @@ describe('E-5 SSE 端点畸形 URL 回 400', () => {
       headersSent: false,
       body: '',
       headers: {} as Record<string, unknown>,
-      setHeader(k: string, v: unknown) { r.headers[k] = v },
-      writeHead(code: number, h: Record<string, unknown>) { r.statusCode = code; Object.assign(r.headers, h ?? {}) },
-      end(chunk?: unknown) { if (chunk) r.body += String(chunk) },
+      setHeader(k: string, v: unknown) {
+        r.headers[k] = v
+      },
+      writeHead(code: number, h: Record<string, unknown>) {
+        r.statusCode = code
+        Object.assign(r.headers, h ?? {})
+      },
+      end(chunk?: unknown) {
+        if (chunk) r.body += String(chunk)
+      },
     }
     return r
   }
@@ -264,10 +278,22 @@ describe('E-5 SSE 端点畸形 URL 回 400', () => {
   it('dispatch 层：畸形 absolute-form req.url → 400 BAD_INPUT 信封（非 500）', async () => {
     const routes = createRouteTable()
     resetRouteSchemas()
-    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() }))
+    withRouteTable(routes, () =>
+      registerStreamRoutes({
+        workDir,
+        userDataPath,
+        studioToken: token,
+        tickets: createStreamTicketStore(),
+        ...processRouteDeps(),
+      }),
+    )
     const res = fakeRes()
     const matched = await dispatch(
-      { method: 'GET', url: 'http://[bad/api/books/x/stream', headers: {} } as unknown as import('node:http').IncomingMessage,
+      {
+        method: 'GET',
+        url: 'http://[bad/api/books/x/stream',
+        headers: {},
+      } as unknown as import('node:http').IncomingMessage,
       res as unknown as import('node:http').ServerResponse,
       routes,
     )
@@ -279,7 +305,15 @@ describe('E-5 SSE 端点畸形 URL 回 400', () => {
   it('stream handler 层：畸形 req.url → 400 BAD_INPUT 而非抛 TypeError（修复前裸 new URL 抛错 → 500）', async () => {
     const routes = createRouteTable()
     resetRouteSchemas()
-    withRouteTable(routes, () => registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() }))
+    withRouteTable(routes, () =>
+      registerStreamRoutes({
+        workDir,
+        userDataPath,
+        studioToken: token,
+        tickets: createStreamTicketStore(),
+        ...processRouteDeps(),
+      }),
+    )
     // 从路由表取出 SSE 路由，直接调 handler（绕过 dispatch 的前置 parse，
     // 专验 E-5 修复点：handler 自身对畸形 URL 的兜底）
     const streamRoute = routes.find((r) => r.method === 'GET' && r.regex.test('/api/books/x/stream'))
@@ -307,12 +341,17 @@ describe('ee-P2-11 删书/改名查 /spawn 在途闸', () => {
   function registerBook(name: string): string {
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
-      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
-        JSON.stringify({ name, path: `长篇/${name}`, kind: 'long' }) + '\n',
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+        '\n' +
+        JSON.stringify({ name, path: `长篇/${name}`, kind: 'long' }) +
+        '\n',
     )
     const bookRoot = join(workDir, '长篇', name)
     mkdirSync(bookRoot, { recursive: true })
-    writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`)
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+    )
     return bookRoot
   }
 
@@ -369,8 +408,10 @@ describe('S5: /interrupt 无运行 → 成功 no-op，不隐式建会话', () =>
     // IDLE_BOOK（幂等；目录/book.yaml beforeAll 已备）
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
-      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
-        JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) + '\n',
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+        '\n' +
+        JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) +
+        '\n',
     )
     expect(getSession(IDLE_BOOK)).toBeNull() // 前置：该书确无会话
     const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent(IDLE_BOOK)}/interrupt` })
@@ -407,7 +448,13 @@ describe('R0912-P3-⑥: SSE 端点路径模式单源', () => {
     const routes = createRouteTable()
     resetRouteSchemas()
     withRouteTable(routes, () => {
-      registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore(), ...processRouteDeps() })
+      registerStreamRoutes({
+        workDir,
+        userDataPath,
+        studioToken: token,
+        tickets: createStreamTicketStore(),
+        ...processRouteDeps(),
+      })
       const schema = getRouteSchema('books.stream')
       expect(schema).not.toBeNull()
       // 路由模板的具体形（:name 取单段样例）必被豁免模式命中——两处失配即静默失闸/漏豁免

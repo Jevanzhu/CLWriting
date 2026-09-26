@@ -227,9 +227,7 @@ describe('R1010c-FE1-P3-2: ForeshadowPanel 未回收/已回收渲染上限', () 
   }
 
   it('130 未回收 → 只渲染前 100 行 + 「已省略 30 项」；统计行仍 130（数据面不动）', async () => {
-    mocks.getForeshadows.mockResolvedValue(
-      Array.from({ length: 130 }, (_, i) => foreshadow(i + 1, '未回收')),
-    )
+    mocks.getForeshadows.mockResolvedValue(Array.from({ length: 130 }, (_, i) => foreshadow(i + 1, '未回收')))
     const w = mount(ForeshadowPanel, { props: { bookName: '书A' } })
     await flushPromises()
     expect(w.findAll('.fs-item.pending')).toHaveLength(100)

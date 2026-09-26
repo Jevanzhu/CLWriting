@@ -16,4 +16,3 @@ export async function leadUpdate(ctx: ToolContext, input: Record<string, unknown
   if (!r.ok) return { ok: false, summary: r.error }
   return { ok: true, summary: '已生成第 ' + chapter + ' 章账本推进（' + r.count + ' 条履历）。' }
 }
-

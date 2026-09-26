@@ -105,9 +105,7 @@ describe('settings hash 实例缓存', () => {
   })
 
   it('LRU 上限 8：第 9 个配置逐出最旧，近期访问的保留', () => {
-    const providers = Array.from({ length: 9 }, (_, i) =>
-      createProvider({ ...CONF, id: `p${i}`, apiKey: `sk-${i}` }),
-    )
+    const providers = Array.from({ length: 9 }, (_, i) => createProvider({ ...CONF, id: `p${i}`, apiKey: `sk-${i}` }))
     expect(providerCacheSize()).toBe(8)
     // p0 最旧被逐出 → 再取会新建；p8 最新仍在
     expect(createProvider({ ...CONF, id: 'p0', apiKey: 'sk-0' })).not.toBe(providers[0])
@@ -145,13 +143,21 @@ describe('降级记忆新鲜读（缓存实例不读旧快照）', () => {
             throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
           }
           return (async function* () {
-            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+            yield {
+              type: 'message_delta',
+              usage: { input_tokens: 1, output_tokens: 1 },
+              delta: { stop_reason: 'end_turn' },
+            }
           })()
         },
       },
     } as unknown as Parameters<typeof createAnthropicProvider>[1]
 
-    const req: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], structured: { schema: {} } }
+    const req: GenRequest = {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+      structured: { schema: {} },
+    }
     const collect = async (prov: ReturnType<typeof createAnthropicProvider>): Promise<GenEvent[]> => {
       const out: GenEvent[] = []
       for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)

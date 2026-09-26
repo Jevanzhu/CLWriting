@@ -25,7 +25,7 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 })
 // R0916-6-P2-5：ui store 不再 mock——真件（本文件不断言 toast，副作用无害；纪律见 helpers/real-stores）
 
-import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents';
+import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 

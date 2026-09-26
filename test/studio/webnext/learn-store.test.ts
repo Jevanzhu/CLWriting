@@ -205,10 +205,10 @@ describe('learn: 切书竞态（M-3 reqGen 守卫）', () => {
 describe('learn: R-1 clear 在途 harvest 不卡 loading', () => {
   it('harvest 在途 → clear → 迟到响应 settle → loading 为 false（按钮可再触发）', async () => {
     let releaseA!: () => void
-    const gate = new Promise<void>((r) => { releaseA = r })
-    learnMock.mockImplementationOnce(() =>
-      gate.then(() => ({ samples: [], quotes: [] })),
-    )
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    learnMock.mockImplementationOnce(() => gate.then(() => ({ samples: [], quotes: [] })))
     const s = useLearnStore()
     const p = s.harvest('bookA')
     expect(s.loading).toBe(true)
@@ -259,7 +259,9 @@ describe('learn: R0912-3 P2-3 lastHarvestRan 收割已跑判据', () => {
 describe('learn: R0912-3 #16 函数级在途锁', () => {
   it('harvest 在途同帧双发 → 只调一次 API', async () => {
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     learnMock.mockImplementationOnce(() => gate.then(() => ({ samples: [], quotes: [] })))
     const s = useLearnStore()
     const p1 = s.harvest('book1')
@@ -277,10 +279,10 @@ describe('learn: R0912-3 #16 函数级在途锁', () => {
     s.toggleSample(S('b1', 'c'))
 
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
-    commitMock.mockImplementationOnce(() =>
-      gate.then(() => ({ ok: true, sampleFiles: ['f1.md'], quoteFiles: [] })),
-    )
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    commitMock.mockImplementationOnce(() => gate.then(() => ({ ok: true, sampleFiles: ['f1.md'], quoteFiles: [] })))
     const p1 = s.commit('book1')
     const p2 = s.commit('book1') // 在途第二笔：直接返回
     release()

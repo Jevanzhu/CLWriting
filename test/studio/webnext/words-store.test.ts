@@ -63,10 +63,14 @@ describe('words: R-23 postBaseline 前后代守卫', () => {
     diaryMock.mockResolvedValueOnce({ date: TODAY, delta: null, baseline: null })
     let releaseA!: (v: { ok: boolean }) => void
     let markPosted!: () => void
-    const posted = new Promise<void>((r) => { markPosted = r })
+    const posted = new Promise<void>((r) => {
+      markPosted = r
+    })
     postMock.mockImplementationOnce(() => {
       markPosted()
-      return new Promise<{ ok: boolean }>((r) => { releaseA = r })
+      return new Promise<{ ok: boolean }>((r) => {
+        releaseA = r
+      })
     })
     const s = useWordsStore()
     const pA = s.ensureBaseline('bookA')
@@ -90,7 +94,12 @@ describe('words: R-23 postBaseline 前后代守卫', () => {
 describe('words: R46-33（四十六轮）同书在途合并', () => {
   it('同书并发 ensureBaseline → 共享一次 GET（批量落盘 N 文档并发 save settle 只打一次 /words-diary）', async () => {
     let release!: (v: { date: string; delta: number | null; baseline: number | null }) => void
-    diaryMock.mockImplementationOnce(() => new Promise((r) => { release = r }))
+    diaryMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = r
+        }),
+    )
     const s = useWordsStore()
     const p1 = s.ensureBaseline('bookA')
     const p2 = s.ensureBaseline('bookA')
@@ -103,7 +112,12 @@ describe('words: R46-33（四十六轮）同书在途合并', () => {
 
   it('reset 清在途台账——推代后的死 promise 不被复用，同书重调发新请求且旧迟到响应不污染', async () => {
     let release!: (v: { date: string; delta: number | null; baseline: number | null }) => void
-    diaryMock.mockImplementationOnce(() => new Promise((r) => { release = r }))
+    diaryMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = r
+        }),
+    )
     const s = useWordsStore()
     const p1 = s.ensureBaseline('bookA')
     s.reset() // E-7 脏路由离开：推代 + 清台账
@@ -128,7 +142,10 @@ describe('words: R65-49（E-1）切书清态 + 失败降级清 delta', () => {
     // 切 B：B 的 diary 挂起——入口清态须同步生效（todayWords 回 0，而非拿 A 的 delta）
     let releaseB!: (v: { date: string; delta: number | null; baseline: number | null }) => void
     diaryMock.mockImplementationOnce(
-      () => new Promise((r) => { releaseB = r }),
+      () =>
+        new Promise((r) => {
+          releaseB = r
+        }),
     )
     const pB = s.ensureBaseline('bookB')
     expect(s.todayDelta).toBe(null)
@@ -143,7 +160,10 @@ describe('words: R65-49（E-1）切书清态 + 失败降级清 delta', () => {
 
     // 同书 save 刷新（B 重调）不清态：刷新在途仍显示上次结果，不闪 0
     diaryMock.mockImplementationOnce(
-      () => new Promise((r) => { releaseB = r }),
+      () =>
+        new Promise((r) => {
+          releaseB = r
+        }),
     )
     const pB2 = s.ensureBaseline('bookB')
     expect(s.todayWords).toBe(5)

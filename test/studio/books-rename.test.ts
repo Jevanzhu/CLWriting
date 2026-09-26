@@ -116,7 +116,10 @@ describe('POST /api/books/:name/rename 全量改名', () => {
     mkdirSync(root, { recursive: true })
     // 登记追加（readBooks 每请求读盘，beforeAll 已写的两行之上补第三本）
     const reg = join(workDir, '.clwriting', 'books.jsonl')
-    writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n')
+    writeFileSync(
+      reg,
+      readFileSync(reg, 'utf8') + JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n',
+    )
     const rich =
       [
         'spec_version: 1',

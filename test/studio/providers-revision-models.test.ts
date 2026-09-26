@@ -175,7 +175,11 @@ describe('P4 revision（乐观并发）', () => {
     expect(c.status).toBe(200)
     expect(typeof c.json.revision).toBe('number')
     expect(c.json.revision).toBe(upd.json.revision + 1)
-    const after = await req<{ revision: number }>({ method: 'PUT', path: `/api/providers/${id}`, body: { ...CONF, name: 'current 后改名', expectedRevision: c.json.revision } })
+    const after = await req<{ revision: number }>({
+      method: 'PUT',
+      path: `/api/providers/${id}`,
+      body: { ...CONF, name: 'current 后改名', expectedRevision: c.json.revision },
+    })
     expect(after.status).toBe(200)
   })
 })
@@ -187,17 +191,16 @@ describe('P9 模型行', () => {
       path: '/api/providers',
       body: {
         ...CONF,
-        models: [
-          { id: 'gpt-5', name: 'GPT-5', contextWindow: 400 * 1024, maxTokens: 128 * 1024 },
-          { id: 'kimi-k2' },
-        ],
+        models: [{ id: 'gpt-5', name: 'GPT-5', contextWindow: 400 * 1024, maxTokens: 128 * 1024 }, { id: 'kimi-k2' }],
       },
     })
     expect(a.status).toBe(200)
     const id = a.json.provider.id
 
     // 落盘可回读
-    const g = await req<{ providers: { id: string; models?: { id: string; name?: string; contextWindow?: number; maxTokens?: number }[] }[] }>({
+    const g = await req<{
+      providers: { id: string; models?: { id: string; name?: string; contextWindow?: number; maxTokens?: number }[] }[]
+    }>({
       method: 'GET',
       path: '/api/providers',
     })

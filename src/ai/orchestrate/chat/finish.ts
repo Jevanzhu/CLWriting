@@ -120,7 +120,13 @@ async function summarizeCheckpoint(
   // 此前两字段被整链丢弃（usage null 不进账、截断时 stopReason 谎记 end_turn）
   // （GLM-5.3 修复批）：泛型补 degraded?: boolean—— 透传
   // （132/:135 两分支返回 degraded）早已写进回调返回值，类型面未声明对调用方不可见
-  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number; degraded?: boolean; usage: TokenUsage; stopReason: string }>({
+  const out = await runTask<{
+    text: string | null
+    resolvedMaxTokens?: number
+    degraded?: boolean
+    usage: TokenUsage
+    stopReason: string
+  }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
     task: 'chat',
@@ -144,7 +150,10 @@ async function summarizeCheckpoint(
     onReset: () => emit(opts, { type: 'chat_reset' }),
     // error 拼接前过 redactSecret（口径，对齐 turns.ts onRetry 同款）
     onRetry: (attempt, error) =>
-      emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
+      emit(opts, {
+        type: 'warning',
+        message: `历史压缩摘要生成异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…`,
+      }),
     run: async (provider, signal, tier) => {
       const r = await generate(
         provider,
@@ -158,10 +167,23 @@ async function summarizeCheckpoint(
         },
         signal,
       )
-      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
+      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0)
+        return {
+          text: null,
+          resolvedMaxTokens: r.resolvedMaxTokens,
+          degraded: r.degraded,
+          usage: r.usage,
+          stopReason: r.stopReason,
+        }
       const t = r.text.trim()
       // degraded 透传（两分支同补——runner extractDegraded 落 llm/call）
-      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
+      return {
+        text: t === '' ? null : t,
+        resolvedMaxTokens: r.resolvedMaxTokens,
+        degraded: r.degraded,
+        usage: r.usage,
+        stopReason: r.stopReason,
+      }
     },
   })
   return out.ok ? out.data.text : null

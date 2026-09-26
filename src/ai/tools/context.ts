@@ -25,4 +25,3 @@ export interface ToolResult {
 }
 
 export type ToolExecutor = (ctx: ToolContext, input: Record<string, unknown>) => Promise<ToolResult> | ToolResult
-

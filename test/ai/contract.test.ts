@@ -6,25 +6,21 @@
  * R28-6（二十八轮）：并入 contract/chat.ts 零参工具路由不变量锁（见文末 describe）。
  */
 import { describe, expect, it } from 'vitest'
-import {
-  assembleChapter,
-  chapterTool,
-  chapterToolName,
-  submitText,
-} from '../../src/ai/contract/chapter.js'
+import { assembleChapter, chapterTool, chapterToolName, submitText } from '../../src/ai/contract/chapter.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
-import {
-  RELATION_MINE_SPEC,
-  REWRITE_SPEC,
-  analysisSpec,
-  reviewSpec,
-  selfHealSpec,
-} from '../../src/ai/tasks/specs.js'
+import { RELATION_MINE_SPEC, REWRITE_SPEC, analysisSpec, reviewSpec, selfHealSpec } from '../../src/ai/tasks/specs.js'
 
 describe('assembleChapter 长篇', () => {
   it('结构化字段 → 宿主拼装 fm + 正文', () => {
     const r = assembleChapter(
-      { 标题: '矿井深处', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '压抑', 场景: '战斗', 正文: '正文段落。\n\n第二段。' },
+      {
+        标题: '矿井深处',
+        钩子类型: '悬念钩',
+        钩子强弱: '强',
+        情绪定位: '压抑',
+        场景: '战斗',
+        正文: '正文段落。\n\n第二段。',
+      },
       7,
     )
     expect(r.ok).toBe(true)

@@ -88,13 +88,15 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     method: 'GET',
     path: '/api/rag-providers',
     handler: (_, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const s = loadProviders(ctx.userDataPath)
-    reply(res, 200, {
-      ragProviders: s.ragProviders.map((p) => maskRagProvider(p, s.vault)).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
-      revision: s.revision,
-    })
-  },
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+      const s = loadProviders(ctx.userDataPath)
+      reply(res, 200, {
+        ragProviders: s.ragProviders
+          .map((p) => maskRagProvider(p, s.vault))
+          .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
+        revision: s.revision,
+      })
+    },
   })
 
   // 新增（apiKey 必填——编辑才允许留空保留）
@@ -111,24 +113,24 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       return { ...parsed, expectedRevision: body['expectedRevision'] }
     },
     handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(input.expectedRevision, s.revision)
-    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-    const conf: RagProviderConf = {
-      id: newRagProviderId(),
-      name: input.name,
-      endpoint: input.endpoint,
-      model: input.model,
-      apiKey: input.apiKey,
-      caps: null,
-      // dd-max+1 防撞号（同 chat providers 口径）
-      sortIndex: s.ragProviders.reduce((m, p) => Math.max(m, p.sortIndex ?? 0), -1) + 1,
-    }
-    s.ragProviders.push(conf)
-    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-    reply(res, 200, { provider: maskRagProvider(conf, s.vault), revision: s.revision })
-  },
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+      const s = loadProviders(ctx.userDataPath)
+      const revErr = revisionError(input.expectedRevision, s.revision)
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+      const conf: RagProviderConf = {
+        id: newRagProviderId(),
+        name: input.name,
+        endpoint: input.endpoint,
+        model: input.model,
+        apiKey: input.apiKey,
+        caps: null,
+        // dd-max+1 防撞号（同 chat providers 口径）
+        sortIndex: s.ragProviders.reduce((m, p) => Math.max(m, p.sortIndex ?? 0), -1) + 1,
+      }
+      s.ragProviders.push(conf)
+      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
+      reply(res, 200, { provider: maskRagProvider(conf, s.vault), revision: s.revision })
+    },
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
@@ -144,36 +146,36 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       return { ...parsed, expectedRevision: body['expectedRevision'] }
     },
     handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    // dd-body 读取/校验已在 parse 段（更先于 loadProviders）——load→mutate→save
-    // 三段同步无 await（单事件循环内原子），防并发丢更新
-    const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(input.expectedRevision, s.revision)
-    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-    const target = s.ragProviders.find((p) => p.id === params['id'])
-    if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+      // dd-body 读取/校验已在 parse 段（更先于 loadProviders）——load→mutate→save
+      // 三段同步无 await（单事件循环内原子），防并发丢更新
+      const s = loadProviders(ctx.userDataPath)
+      const revErr = revisionError(input.expectedRevision, s.revision)
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+      const target = s.ragProviders.find((p) => p.id === params['id'])
+      if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
-    // RC同型补洞（复核遗留项）：endpoint 主机变更时不得静默沿用已存 Key。
-    // 「apiKey 留空 = 不改」只在同一主机下成立——endpoint 可改为任意主机（误填域名、换
-    // 第三方中转站/自建嵌入服务），沿用旧 Key 即把已存凭据发往新地址（下一次嵌入往返就
-    // 送达）。判定口径、拒绝码与文案与 /api/providers 同源（host-change-guard.ts，两族
-    // 端点逐字同则）。必须早于下方 target.* 赋值：否则失败路径已把旧 Key 配到新主机上。
-    if (!input.apiKey && !sameEndpointHost(target.endpoint, input.endpoint)) {
-      return replyError(res, 400, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE)
-    }
-    const endpointChanged = input.endpoint !== target.endpoint
-    const modelChanged = input.model !== target.model
-    target.name = input.name
-    target.endpoint = input.endpoint
-    target.model = input.model
-    if (input.apiKey) target.apiKey = input.apiKey
-    if (endpointChanged || modelChanged) {
-      target.caps = null
-      target.capsProbedAt = undefined
-    }
-    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-    reply(res, 200, { provider: maskRagProvider(target, s.vault), revision: s.revision })
-  },
+      // RC同型补洞（复核遗留项）：endpoint 主机变更时不得静默沿用已存 Key。
+      // 「apiKey 留空 = 不改」只在同一主机下成立——endpoint 可改为任意主机（误填域名、换
+      // 第三方中转站/自建嵌入服务），沿用旧 Key 即把已存凭据发往新地址（下一次嵌入往返就
+      // 送达）。判定口径、拒绝码与文案与 /api/providers 同源（host-change-guard.ts，两族
+      // 端点逐字同则）。必须早于下方 target.* 赋值：否则失败路径已把旧 Key 配到新主机上。
+      if (!input.apiKey && !sameEndpointHost(target.endpoint, input.endpoint)) {
+        return replyError(res, 400, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE)
+      }
+      const endpointChanged = input.endpoint !== target.endpoint
+      const modelChanged = input.model !== target.model
+      target.name = input.name
+      target.endpoint = input.endpoint
+      target.model = input.model
+      if (input.apiKey) target.apiKey = input.apiKey
+      if (endpointChanged || modelChanged) {
+        target.caps = null
+        target.capsProbedAt = undefined
+      }
+      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
+      reply(res, 200, { provider: maskRagProvider(target, s.vault), revision: s.revision })
+    },
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
@@ -184,25 +186,25 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     method: 'DELETE',
     path: '/api/rag-providers/:id',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    // DELETE 无 body 常规场景容错（旧客户端/脚本放行）
-    let expected: unknown
-    try {
-      const body = await readJson(req)
-      expected = body['expectedRevision']
-    } catch (e) {
-      if (e instanceof HttpError) throw e
-      expected = undefined
-    }
-    const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(expected, s.revision)
-    if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-    const idx = s.ragProviders.findIndex((p) => p.id === params['id'])
-    if (idx === -1) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
-    s.ragProviders.splice(idx, 1)
-    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-    reply(res, 200, { ok: true, revision: s.revision })
-  },
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+      // DELETE 无 body 常规场景容错（旧客户端/脚本放行）
+      let expected: unknown
+      try {
+        const body = await readJson(req)
+        expected = body['expectedRevision']
+      } catch (e) {
+        if (e instanceof HttpError) throw e
+        expected = undefined
+      }
+      const s = loadProviders(ctx.userDataPath)
+      const revErr = revisionError(expected, s.revision)
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+      const idx = s.ragProviders.findIndex((p) => p.id === params['id'])
+      if (idx === -1) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
+      s.ragProviders.splice(idx, 1)
+      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
+      reply(res, 200, { ok: true, revision: s.revision })
+    },
   })
 
   // 测试连接：真实 embed 一次 'ping'（15s）——embed 失败返回 null 不带原因，
@@ -211,43 +213,43 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     method: 'POST',
     path: '/api/rag-providers/:id/test',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const snapshot = loadProviders(ctx.userDataPath)
-    const target = snapshot.ragProviders.find((p) => p.id === params['id'])
-    if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
+      const snapshot = loadProviders(ctx.userDataPath)
+      const target = snapshot.ragProviders.find((p) => p.id === params['id'])
+      if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
-    // （二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
-    // 可能被 PUT 编辑（endpoint/model/key 变更会清 caps 要求重测）；探测完成后旧快照的
-    // connected 直接回写会把「打旧端点/旧 key 探出的结果」盖到新配置上，绕过该不变量。
-    // 对齐 chat 侧 providers.test 的同型；指纹取连通性相关三字段（name 不影响）。
-    const probeFp = JSON.stringify([target.endpoint, target.model, target.apiKey])
-    const vectors = await embed(target.endpoint, target.model, target.apiKey, ['ping'], { timeoutMs: 15_000 })
-    const connected = vectors !== null
-    // dd-embed 是 15s 网络往返——写回前重载重找，探测期间被编辑/删除则不硬写旧克隆
-    const s2 = loadProviders(ctx.userDataPath)
-    const fresh = s2.ragProviders.find((p) => p.id === params['id'])
-    if (fresh) {
-      if (JSON.stringify([fresh.endpoint, fresh.model, fresh.apiKey]) === probeFp) {
-        fresh.caps = { connected }
-        fresh.capsProbedAt = Date.now()
-        // 探测写回同样过保存失败闸
-        if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
-      } else {
-        // 探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
-        // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
-        log.warn('api', `rag-providers test：探测期间提供方配置已变更，丢弃旧快照 caps 回写（${params['id']}）`)
+      // （二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
+      // 可能被 PUT 编辑（endpoint/model/key 变更会清 caps 要求重测）；探测完成后旧快照的
+      // connected 直接回写会把「打旧端点/旧 key 探出的结果」盖到新配置上，绕过该不变量。
+      // 对齐 chat 侧 providers.test 的同型；指纹取连通性相关三字段（name 不影响）。
+      const probeFp = JSON.stringify([target.endpoint, target.model, target.apiKey])
+      const vectors = await embed(target.endpoint, target.model, target.apiKey, ['ping'], { timeoutMs: 15_000 })
+      const connected = vectors !== null
+      // dd-embed 是 15s 网络往返——写回前重载重找，探测期间被编辑/删除则不硬写旧克隆
+      const s2 = loadProviders(ctx.userDataPath)
+      const fresh = s2.ragProviders.find((p) => p.id === params['id'])
+      if (fresh) {
+        if (JSON.stringify([fresh.endpoint, fresh.model, fresh.apiKey]) === probeFp) {
+          fresh.caps = { connected }
+          fresh.capsProbedAt = Date.now()
+          // 探测写回同样过保存失败闸
+          if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
+        } else {
+          // 探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
+          // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
+          log.warn('api', `rag-providers test：探测期间提供方配置已变更，丢弃旧快照 caps 回写（${params['id']}）`)
+        }
       }
-    }
-    reply(res, 200, {
-      ok: connected,
-      caps: { connected },
-      // 探测写回 bump 了 revision 但响应不回传——前端本地 revision
-      // 滞后，紧接的任意 RAG 写必收 409 弹误导 toast（chat 侧同型已修，RAG 侧漏配）。
-      // 回传现行 revision：写回路径 s2 已含 bump；探测期间被并发写/删除未落盘路径，
-      // s2（写回前重载）同样如实反映服务端现行值
-      revision: s2.revision,
-      ...(connected ? {} : { error: '嵌入端点调用失败：请检查地址 / API Key / 模型名' }),
-    })
-  },
+      reply(res, 200, {
+        ok: connected,
+        caps: { connected },
+        // 探测写回 bump 了 revision 但响应不回传——前端本地 revision
+        // 滞后，紧接的任意 RAG 写必收 409 弹误导 toast（chat 侧同型已修，RAG 侧漏配）。
+        // 回传现行 revision：写回路径 s2 已含 bump；探测期间被并发写/删除未落盘路径，
+        // s2（写回前重载）同样如实反映服务端现行值
+        revision: s2.revision,
+        ...(connected ? {} : { error: '嵌入端点调用失败：请检查地址 / API Key / 模型名' }),
+      })
+    },
   })
 }

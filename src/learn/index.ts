@@ -163,7 +163,6 @@ const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章�
 // 两处共用，口径单源。
 import { codePointLength } from '../shared/text.js'
 
-
 export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
   const bodyDir = join(bookRoot, '写作', '正文')
@@ -268,7 +267,8 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
     await yieldToEventLoop() // 每章让出事件循环，长书收割不再阻塞同进程其他会话
     const path = ch._path
     if (!path) continue
-    if (finalizedKeys && !finalizedKeys.has(docJoinKey(relative(bookRoot, path)))) { // 折叠键比较（relPathKey 已归一分隔符）
+    if (finalizedKeys && !finalizedKeys.has(docJoinKey(relative(bookRoot, path)))) {
+      // 折叠键比较（relPathKey 已归一分隔符）
       skippedDrafts++
       continue
     }

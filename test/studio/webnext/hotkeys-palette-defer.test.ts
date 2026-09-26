@@ -17,7 +17,12 @@ import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panel
 import SplitChapterDialog from '../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue'
 import type { SplitPlanView } from '../../../src/studio/web-next/src/api/documents'
 
-const Host = defineComponent({ setup: () => { useHotkeys(); return () => '' } })
+const Host = defineComponent({
+  setup: () => {
+    useHotkeys()
+    return () => ''
+  },
+})
 
 function pressCmdP(): KeyboardEvent {
   const e = new KeyboardEvent('keydown', { key: 'p', metaKey: true, cancelable: true })
@@ -76,8 +81,19 @@ describe('R0916-7-P3-22: 章节属性/拆分对话框开着按 ⌘P 不再弹面
     mount(Host)
     const ui = useUiStore()
     const plan: SplitPlanView = {
-      ok: true, op: 'split', docId: 'd1', path: '正文/第3章.md', chapterNo: 3, title: '第3章', newChapterNo: 9,
-      order: 3.5, headWords: 100, tailWords: 200, tailPreview: '', publishedWarning: false, planHash: 'h',
+      ok: true,
+      op: 'split',
+      docId: 'd1',
+      path: '正文/第3章.md',
+      chapterNo: 3,
+      title: '第3章',
+      newChapterNo: 9,
+      order: 3.5,
+      headWords: 100,
+      tailWords: 200,
+      tailPreview: '',
+      publishedWarning: false,
+      planHash: 'h',
     }
     const dlg = mount(SplitChapterDialog, { props: { modelValue: true, plan } })
     await nextTick()

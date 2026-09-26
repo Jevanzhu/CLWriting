@@ -178,10 +178,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
  * 贴近 文风铁律.md 的可量化硬约束：单句上限 / 形容词堆叠 / 对话提示语（#5 第 8 节）。
  * 阈值来自铁律；缺省项不检。零 token 启发式，只报不拦（ask 不 deny）。
  */
-export function checkStyleMetrics(
-  body: string,
-  rules: IronRules,
-): CheckSectionResult {
+export function checkStyleMetrics(body: string, rules: IronRules): CheckSectionResult {
   const stats = computeStyleMetrics(body, rules)
   const items: CheckItem[] = []
 
@@ -224,10 +221,7 @@ export function checkStyleMetrics(
   // 参与计数」（对白外命中数不变）。注意剥引号后 X地道 的引语标点 lookahead 只剩
   // ： 可命中（「」『“ 已随 span 剥除），与占比项 DIALOGUE_TAG_RE 的锚定环境一致。
   const tagProse = stripQuotedSpans(body)
-  const tagHits = [
-    ...(tagProse.match(DIALOGUE_TAG_SHUO_RE) ?? []),
-    ...(tagProse.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
-  ]
+  const tagHits = [...(tagProse.match(DIALOGUE_TAG_SHUO_RE) ?? []), ...(tagProse.match(DIALOGUE_TAG_DIDAO_RE) ?? [])]
   if (tagHits.length) {
     for (const t of new Set(tagHits)) {
       items.push({
@@ -239,7 +233,11 @@ export function checkStyleMetrics(
   }
 
   // 对话标签占比：用 stats 算好的 ratio（口径与原实现一致，分母=对话行数）
-  if (rules.maxDialogueTagRatio !== undefined && stats.dialogueTagRatio > rules.maxDialogueTagRatio && stats._dialogueLines > 0) {
+  if (
+    rules.maxDialogueTagRatio !== undefined &&
+    stats.dialogueTagRatio > rules.maxDialogueTagRatio &&
+    stats._dialogueLines > 0
+  ) {
     items.push({
       checkId: 'style-dialogue-tag-ratio',
       level: 'yellow',
@@ -254,7 +252,11 @@ export function checkStyleMetrics(
   // prefix」把 computeStyleMetrics 已跑过的同构排比循环再跑一遍，此前 _sentencesWithColon
   // 复用只省了 splitSentences、逐句 regex 仍在重付；parallelStreakMax > 阈时该字段必有值
   //（max 由同一 streak 序列取 max），`?? ''` 仅为异源构造 stats 的防御（与原未越界初值同形）。
-  if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
+  if (
+    rules.maxParallelStreak !== undefined &&
+    rules.maxParallelStreak > 0 &&
+    stats.parallelStreakMax > rules.maxParallelStreak
+  ) {
     const hitPrefix = stats._parallelStreakHitPrefix ?? ''
     items.push({
       checkId: 'style-parallel-streak',
@@ -327,12 +329,73 @@ const PARALLEL_PREFIX_RE = new RegExp(`^[${HANZI}]{2}`, 'u')
  */
 const POSSESSIVE_HEADS = new Set([
   // 人称代词（含复数/反身）
-  '他', '她', '它', '我', '你', '您', '他们', '她们', '它们', '我们', '你们', '咱们', '自己', '别人', '他人',
+  '他',
+  '她',
+  '它',
+  '我',
+  '你',
+  '您',
+  '他们',
+  '她们',
+  '它们',
+  '我们',
+  '你们',
+  '咱们',
+  '自己',
+  '别人',
+  '他人',
   // 亲属/师门/主仆称谓（网文领属链高发词）
-  '父亲', '母亲', '爸爸', '妈妈', '爹', '娘', '爷爷', '奶奶', '外公', '外婆', '姥爷', '姥姥',
-  '哥哥', '姐姐', '弟弟', '妹妹', '兄长', '兄弟', '姐妹', '大哥', '大姐', '堂哥', '堂弟', '表哥', '表妹',
-  '叔叔', '伯伯', '舅舅', '姑姑', '姨母', '婶婶', '儿子', '女儿', '孩子', '家人', '家族', '族人',
-  '师父', '师傅', '老师', '师兄', '师姐', '师弟', '师妹', '主人', '老爷', '少爷', '夫人', '娘子', '前辈', '晚辈',
+  '父亲',
+  '母亲',
+  '爸爸',
+  '妈妈',
+  '爹',
+  '娘',
+  '爷爷',
+  '奶奶',
+  '外公',
+  '外婆',
+  '姥爷',
+  '姥姥',
+  '哥哥',
+  '姐姐',
+  '弟弟',
+  '妹妹',
+  '兄长',
+  '兄弟',
+  '姐妹',
+  '大哥',
+  '大姐',
+  '堂哥',
+  '堂弟',
+  '表哥',
+  '表妹',
+  '叔叔',
+  '伯伯',
+  '舅舅',
+  '姑姑',
+  '姨母',
+  '婶婶',
+  '儿子',
+  '女儿',
+  '孩子',
+  '家人',
+  '家族',
+  '族人',
+  '师父',
+  '师傅',
+  '老师',
+  '师兄',
+  '师姐',
+  '师弟',
+  '师妹',
+  '主人',
+  '老爷',
+  '少爷',
+  '夫人',
+  '娘子',
+  '前辈',
+  '晚辈',
 ])
 
 /** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true。
@@ -361,10 +424,7 @@ function summaryEndingRegex(): RegExp {
  * book.yaml checks.leak_keywords；无内置默认（逐书的秘密无通用词表），
  * 未设 = 空表静默不启用。入参 readonly——与 checkImagery 同口径。
  */
-export function checkInfoLeak(
-  body: string,
-  leakKeywords: readonly string[] = [],
-): CheckSectionResult {
+export function checkInfoLeak(body: string, leakKeywords: readonly string[] = []): CheckSectionResult {
   const items: CheckItem[] = []
   if (leakKeywords.length === 0) {
     // 空表（未配置）静默跳过——恒久「未启用」黄项只会训练作者无视机检面板；

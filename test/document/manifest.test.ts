@@ -3,7 +3,16 @@ import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet, finalizedChapterNumbers } from '../../src/document/manifest.js'
+import {
+  readManifest,
+  readManifestStrict,
+  writeManifest,
+  upsertEntry,
+  removeEntry,
+  finalizedChapterSetOfBook,
+  finalizedPathSet,
+  finalizedChapterNumbers,
+} from '../../src/document/manifest.js'
 import { denyRead } from '../helpers/fs-deny.js'
 
 // win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
@@ -17,7 +26,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const { armFsNamespace } = await import('../helpers/fs-deny.js')
   return armFsNamespace('fsp', actual)
 })
-
 
 describe('manifest', () => {
   let dir: string
@@ -37,7 +45,10 @@ describe('manifest', () => {
   it('写 + 读 往返一致', () => {
     const f = join(dir, '清单.jsonl')
     const entries = new Map([
-      ['doc_1', { id: 'doc_1', nodeType: 'document' as const, path: 'a.md', parentId: null, status: 'draft', tags: ['x'] }],
+      [
+        'doc_1',
+        { id: 'doc_1', nodeType: 'document' as const, path: 'a.md', parentId: null, status: 'draft', tags: ['x'] },
+      ],
     ])
     writeManifest(f, { version: 1, entries })
     const r = readManifest(f)
@@ -116,7 +127,10 @@ describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefine
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
-      writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
+      writeFileSync(
+        fp,
+        '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n',
+      )
       const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod 0o000）
       try {
         expect(finalizedChapterSetOfBook(root)).toBeUndefined()
@@ -147,7 +161,10 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
-      writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
+      writeFileSync(
+        fp,
+        '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n',
+      )
       const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod 0o000）
       try {
         expect(finalizedPathSet(root)).toBeNull()
@@ -218,11 +235,38 @@ describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败�
 describe('R43-13: finalizedChapterNumbers 失真章号不入集合', () => {
   it('16+ 位数字名（Number 解析超 2^53 失真）不入定稿章号集合；安全整数照常提取', () => {
     const entries = new Map([
-      ['doc_ok', { id: 'doc_ok', nodeType: 'document' as const, path: '写作/正文/0003-雨夜.md', parentId: null, finalizedRevision: 'sha256:a' }],
+      [
+        'doc_ok',
+        {
+          id: 'doc_ok',
+          nodeType: 'document' as const,
+          path: '写作/正文/0003-雨夜.md',
+          parentId: null,
+          finalizedRevision: 'sha256:a',
+        },
+      ],
       // 17 位数字：Number('12345678901234567') → 12345678901234568（失真且非安全整数）
-      ['doc_bad', { id: 'doc_bad', nodeType: 'document' as const, path: '写作/正文/12345678901234567-超长数字名.md', parentId: null, finalizedRevision: 'sha256:b' }],
+      [
+        'doc_bad',
+        {
+          id: 'doc_bad',
+          nodeType: 'document' as const,
+          path: '写作/正文/12345678901234567-超长数字名.md',
+          parentId: null,
+          finalizedRevision: 'sha256:b',
+        },
+      ],
       // 15 位数字：仍在 2^53 内，安全整数照常入集合（守卫不误伤边界内的合法章号）
-      ['doc_edge', { id: 'doc_edge', nodeType: 'document' as const, path: '写作/正文/999999999999999-边界.md', parentId: null, finalizedRevision: 'sha256:c' }],
+      [
+        'doc_edge',
+        {
+          id: 'doc_edge',
+          nodeType: 'document' as const,
+          path: '写作/正文/999999999999999-边界.md',
+          parentId: null,
+          finalizedRevision: 'sha256:c',
+        },
+      ],
       // 未定稿文档不入集合（既有口径对照）
       ['doc_draft', { id: 'doc_draft', nodeType: 'document' as const, path: '写作/正文/0004-草稿.md', parentId: null }],
     ])

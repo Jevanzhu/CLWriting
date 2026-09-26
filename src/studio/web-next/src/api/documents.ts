@@ -41,9 +41,7 @@ export type {
 // 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
 // doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被防线 400 拒绝）。
 export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
-  return apiJson<FileContentPayload>(
-    `${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`,
-  )
+  return apiJson<FileContentPayload>(`${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`)
 }
 
 // PUT /file?file=<path> ← {content}（路径寻址写全文；文件须已存在）。
@@ -56,16 +54,13 @@ export async function putContent(
   content: string,
   expectedRevision?: string,
 ): Promise<{ revision: string }> {
-  return apiJson<{ ok: true; revision: string }>(
-    `${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`,
-    {
-      method: 'PUT',
-      json: {
-        content,
-        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
-      },
+  return apiJson<{ ok: true; revision: string }>(`${bookUrl(name, 'file')}?file=${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    json: {
+      content,
+      ...(expectedRevision !== undefined ? { expectedRevision } : {}),
     },
-  )
+  })
 }
 
 // PUT /documents/:docId/content —— 乐观锁保存（细案 §2.1 保存协议）。
@@ -97,10 +92,7 @@ export async function saveContent(
 // --- 树 CRUD（细案 §2.1）---
 
 // POST /documents（新建；建卷即建首章靠 relPath 含 <卷>/<首章>.md）。
-export async function createDoc(
-  name: string,
-  body: { relPath: string; content?: string },
-): Promise<CreateOk> {
+export async function createDoc(name: string, body: { relPath: string; content?: string }): Promise<CreateOk> {
   return apiJson<CreateOk>(bookUrl(name, 'documents'), {
     method: 'POST',
     json: body,
@@ -109,46 +101,25 @@ export async function createDoc(
 
 // POST /documents/:docId/copy（.3：复制源内容到新 relPath；章号前端算，标题加「副本」）。
 // 返回同 createDoc（新 docId + path + revision）；源未登记 legacy → 404，前端提示。
-export async function copyDoc(
-  name: string,
-  docId: string,
-  relPath: string,
-): Promise<CreateOk> {
-  return apiJson<CreateOk>(
-    bookUrl(name, 'documents', docId, 'copy'),
-    {
-      method: 'POST',
-      json: { relPath },
-    },
-  )
+export async function copyDoc(name: string, docId: string, relPath: string): Promise<CreateOk> {
+  return apiJson<CreateOk>(bookUrl(name, 'documents', docId, 'copy'), {
+    method: 'POST',
+    json: { relPath },
+  })
 }
 
 // PATCH /documents/:docId（rename / move；legacy:docId 会 404，前端提示）。
-export async function renameDoc(
-  name: string,
-  docId: string,
-  newName: string,
-): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId),
-    {
-      method: 'PATCH',
-      json: { op: 'rename', newName },
-    },
-  )
+export async function renameDoc(name: string, docId: string, newName: string): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>(bookUrl(name, 'documents', docId), {
+    method: 'PATCH',
+    json: { op: 'rename', newName },
+  })
 }
-export async function moveDoc(
-  name: string,
-  docId: string,
-  toDir: string,
-): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId),
-    {
-      method: 'PATCH',
-      json: { op: 'move', toDir },
-    },
-  )
+export async function moveDoc(name: string, docId: string, toDir: string): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>(bookUrl(name, 'documents', docId), {
+    method: 'PATCH',
+    json: { op: 'move', toDir },
+  })
 }
 
 // PATCH /documents/:docId op=meta（块2.2：更新章节/短篇元数据 标题/章号；写 fm + 路径同步 rename）。
@@ -157,44 +128,28 @@ export async function updateChapterMetaDoc(
   docId: string,
   meta: { 标题?: string; 章号?: number },
 ): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId),
-    {
-      method: 'PATCH',
-      json: { op: 'meta', ...meta },
-    },
-  )
+  return apiJson<{ ok: true }>(bookUrl(name, 'documents', docId), {
+    method: 'PATCH',
+    json: { op: 'meta', ...meta },
+  })
 }
 
 // PATCH /documents/:docId op=fm（块3.1：通用 fm 字段更新，卷纲/总纲用；不联动文件名）。
-export async function updateDocMeta(
-  name: string,
-  docId: string,
-  meta: Record<string, unknown>,
-): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId),
-    {
-      method: 'PATCH',
-      json: { op: 'fm', meta },
-    },
-  )
+export async function updateDocMeta(name: string, docId: string, meta: Record<string, unknown>): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>(bookUrl(name, 'documents', docId), {
+    method: 'PATCH',
+    json: { op: 'fm', meta },
+  })
 }
 
 // DELETE /documents/:docId（软删 → 回收站）。
 export async function deleteDoc(name: string, docId: string): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'documents', docId),
-    { method: 'DELETE' },
-  )
+  return apiJson<{ ok: true }>(bookUrl(name, 'documents', docId), { method: 'DELETE' })
 }
 
 // POST /documents/:docId/finalize —— 定稿确认（revision → final，git commit 锁定版本）。
 export async function finalizeDoc(name: string, docId: string): Promise<FinalizeOk> {
-  return apiJson<FinalizeOk>(
-    bookUrl(name, 'documents', docId, 'finalize'),
-    { method: 'POST' },
-  )
+  return apiJson<FinalizeOk>(bookUrl(name, 'documents', docId, 'finalize'), { method: 'POST' })
 }
 
 // POST /documents/batch-finalize —— 批量定稿（-PROD-2）。
@@ -221,10 +176,7 @@ export async function structurePlan(
   docId: string,
   body: { op: 'merge'; sourceDocId: string } | { op: 'split'; cursorOffset: number },
 ): Promise<StructurePlanOk> {
-  return apiJson<StructurePlanOk>(
-    bookUrl(name, 'documents', docId, 'structure-plan'),
-    { method: 'POST', json: body },
-  )
+  return apiJson<StructurePlanOk>(bookUrl(name, 'documents', docId, 'structure-plan'), { method: 'POST', json: body })
 }
 
 // POST /documents/:docId/structure-apply —— 携干跑指纹执行（服务端锁前重算比对，
@@ -265,20 +217,12 @@ export async function structureMergeUndo(
 
 // --- 回收站 ---
 export async function listTrash(name: string): Promise<TrashEntry[]> {
-  const r = await apiJson<{ entries: TrashEntry[] }>(
-    bookUrl(name, 'trash'),
-  )
+  const r = await apiJson<{ entries: TrashEntry[] }>(bookUrl(name, 'trash'))
   return r.entries ?? []
 }
 export async function restoreTrash(name: string, id: string): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'trash', id, 'restore'),
-    { method: 'POST' },
-  )
+  return apiJson<{ ok: true }>(bookUrl(name, 'trash', id, 'restore'), { method: 'POST' })
 }
 export async function purgeTrash(name: string, id: string): Promise<{ ok: true }> {
-  return apiJson<{ ok: true }>(
-    bookUrl(name, 'trash', id),
-    { method: 'DELETE' },
-  )
+  return apiJson<{ ok: true }>(bookUrl(name, 'trash', id), { method: 'DELETE' })
 }

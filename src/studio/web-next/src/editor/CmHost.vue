@@ -28,15 +28,15 @@ export interface CmHostHandle {
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { defaultKeymap, history, historyKeymap, isolateHistory, undo, redo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
-import {
-  HighlightStyle,
-  bracketMatching,
-  foldKeymap,
-  indentOnInput,
-  syntaxHighlighting,
-} from '@codemirror/language'
+import { HighlightStyle, bracketMatching, foldKeymap, indentOnInput, syntaxHighlighting } from '@codemirror/language'
 import { highlightSelectionMatches, searchKeymap, openSearchPanel } from '@codemirror/search'
-import { autocompletion, startCompletion, completionKeymap, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
+import {
+  autocompletion,
+  startCompletion,
+  completionKeymap,
+  type CompletionContext,
+  type CompletionResult,
+} from '@codemirror/autocomplete'
 import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
@@ -56,7 +56,13 @@ import {
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 
-const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean; historyKey?: string }>()
+const props = defineProps<{
+  modelValue: string
+  mode: 'text' | 'md'
+  readonly?: boolean
+  typewriter?: boolean
+  historyKey?: string
+}>()
 // 0918修复批（F003）：删 selectionChange 死契约——声明 + emit 全 src 零消费者
 //（grep 含模板 @selection-change 形态核实），声明只留 update:modelValue
 const emit = defineEmits<{
@@ -87,7 +93,12 @@ const editorTheme = EditorView.theme({
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: 'var(--prose-font)', lineHeight: 'var(--prose-lh)' },
-  '.cm-content': { caretColor: 'var(--text-accent)', padding: '0', maxWidth: 'var(--prose-max-width, 720px)', margin: '0 auto' },
+  '.cm-content': {
+    caretColor: 'var(--text-accent)',
+    padding: '0',
+    maxWidth: 'var(--prose-max-width, 720px)',
+    margin: '0 auto',
+  },
   '.cm-line': { padding: '0' },
   '.cm-activeLine': { backgroundColor: 'var(--background-modifier-hover)' },
   // Autocomplete tooltip 美化（圆角卡片 + 阴影 + 选中高亮）
@@ -152,12 +163,19 @@ const editorSetup: Extension[] = [
         return true
       },
     },
-    ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
   ]),
 ]
 
 // 补全名称：输入 @ 自动触发 或 Cmd+I 手动触发
-interface NameEntry { label: string; detail: string }
+interface NameEntry {
+  label: string
+  detail: string
+}
 const completionEntries = ref<NameEntry[]>([])
 /** 补全名称响应 → 条目表（切书拉取与 TTL 补拉两处消费点单源，原两段
  *  map 逐字重复；detail 是「角色/物品」两分段的界面文案，两处须同形）。 */
@@ -414,44 +432,41 @@ function applyDocSwitch(v: string): void {
     annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],
   })
 }
-watch(
-  [() => props.modelValue, () => props.historyKey],
-  ([v, key]) => {
-    if (!view) return
-    const docSwitch = key !== lastHistoryKey
-    const prevKey = lastHistoryKey
-    lastHistoryKey = key
-    if (!docSwitch) {
-      // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
-      // 判据改 lastLocalEmit（本视图最近一次 emit 的同一字符串）——本视图
-      // emit 引起的变化 v 恒等于 lastLocalEmit（免 doc.toString 全文拷贝）；外部
-      // 变化（SSE/refresh/store patch）v 是新串 → 走替换。doc 与 lastLocalEmit 的
-      // 不变式由两条更新路径共同维持（本视图 emit / applyExternalReplace 后的
-      // update 监听都会刷新 lastLocalEmit）
-      if (v !== lastLocalEmit) {
-        // 组合输入中不立即替换——挂起到 compositionend 后
-        //（挂起登记仅标记「有待应用的外部变更」，应用时取当下最新 modelValue）
-        if (view.composing || composing) {
-          pendingExternal = v
-          return
-        }
-        applyExternalReplace(v)
+watch([() => props.modelValue, () => props.historyKey], ([v, key]) => {
+  if (!view) return
+  const docSwitch = key !== lastHistoryKey
+  const prevKey = lastHistoryKey
+  lastHistoryKey = key
+  if (!docSwitch) {
+    // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
+    // 判据改 lastLocalEmit（本视图最近一次 emit 的同一字符串）——本视图
+    // emit 引起的变化 v 恒等于 lastLocalEmit（免 doc.toString 全文拷贝）；外部
+    // 变化（SSE/refresh/store patch）v 是新串 → 走替换。doc 与 lastLocalEmit 的
+    // 不变式由两条更新路径共同维持（本视图 emit / applyExternalReplace 后的
+    // update 监听都会刷新 lastLocalEmit）
+    if (v !== lastLocalEmit) {
+      // 组合输入中不立即替换——挂起到 compositionend 后
+      //（挂起登记仅标记「有待应用的外部变更」，应用时取当下最新 modelValue）
+      if (view.composing || composing) {
+        pendingExternal = v
+        return
       }
-      return
+      applyExternalReplace(v)
     }
-    // 组合期切章挂起（对齐上方同文档分支的 composing 守卫）——
-    // 不立即派发替换（打断 IME 组合丢字），登记挂起待 compositionend 消费；
-    // lastHistoryKey 回退旧 key：挂起未生效，后续触发仍按切文档判据刷新挂起值。
-    // 挂起窗口内本视图的输入 emit 已抑制（见 mount 侧 updateListener）——父层 entry
-    // 已指向新章，照常回写会把旧章文本整段写进新章（跨章污染）。
-    if (view.composing || composing) {
-      pendingDocSwitch = { v, key }
-      lastHistoryKey = prevKey
-      return
-    }
-    applyDocSwitch(v)
-  },
-)
+    return
+  }
+  // 组合期切章挂起（对齐上方同文档分支的 composing 守卫）——
+  // 不立即派发替换（打断 IME 组合丢字），登记挂起待 compositionend 消费；
+  // lastHistoryKey 回退旧 key：挂起未生效，后续触发仍按切文档判据刷新挂起值。
+  // 挂起窗口内本视图的输入 emit 已抑制（见 mount 侧 updateListener）——父层 entry
+  // 已指向新章，照常回写会把旧章文本整段写进新章（跨章污染）。
+  if (view.composing || composing) {
+    pendingDocSwitch = { v, key }
+    lastHistoryKey = prevKey
+    return
+  }
+  applyDocSwitch(v)
+})
 
 // 补全名称列表（从设定 API 加载：角色名 + 物品名；@ / Cmd+I 触发用）
 // 请求序号防竞态（快速切书时旧请求晚于新请求 resolve 不覆盖）
@@ -463,7 +478,10 @@ const compReqGen = useStaleGuard()
 watch(
   () => ws.bookName,
   async (name) => {
-    if (!name || props.readonly) { completionEntries.value = []; return }
+    if (!name || props.readonly) {
+      completionEntries.value = []
+      return
+    }
     const myId = compReqGen.begin()
     try {
       const r = await getCompletionNames(name)
@@ -576,7 +594,11 @@ async function clipboardCopy(): Promise<void> {
   if (!view) return
   const sel = view.state.selection.main
   if (sel.from === sel.to) return
-  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { useUiStore().toast('剪贴板权限被拒绝，复制未生效', 'error') /* 不再静默 */ }
+  try {
+    await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to))
+  } catch {
+    useUiStore().toast('剪贴板权限被拒绝，复制未生效', 'error') /* 不再静默 */
+  }
   view.focus()
 }
 /** 粘贴：从剪贴板读取并替换选区 */
@@ -585,8 +607,14 @@ async function clipboardPaste(): Promise<void> {
   try {
     const text = await navigator.clipboard.readText()
     const sel = view.state.selection.main
-    view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from + text.length }, scrollIntoView: true })
-  } catch { useUiStore().toast('剪贴板权限被拒绝，粘贴未生效', 'error') /* 不再静默 */ }
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: text },
+      selection: { anchor: sel.from + text.length },
+      scrollIntoView: true,
+    })
+  } catch {
+    useUiStore().toast('剪贴板权限被拒绝，粘贴未生效', 'error') /* 不再静默 */
+  }
   view.focus()
 }
 /** 全选 */
@@ -616,7 +644,19 @@ function openSearch(): void {
 // getSelectionRect 移除——浮动工具栏方案未落地，全库零消费方
 //（迁移残留死导出，eslint 存量 warn 关联项随触碰顺清）；落地时按本批 git 史取回。
 // 显式标注暴露面（类型单源见上方 CmHostHandle）——漏暴露/签名不符即编译期报错。
-defineExpose<CmHostHandle>({ insertText, getSelection, hasSelection, getCursorOffset, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
+defineExpose<CmHostHandle>({
+  insertText,
+  getSelection,
+  hasSelection,
+  getCursorOffset,
+  clipboardCut,
+  clipboardCopy,
+  clipboardPaste,
+  selectAll,
+  undoAction,
+  redoAction,
+  openSearch,
+})
 
 // 销毁后置 null——compositionend 已排定的 setTimeout 与挂起的
 // watch 回调靠 `if (!view) return` 短路，不留对 destroyed view 的 dispatch

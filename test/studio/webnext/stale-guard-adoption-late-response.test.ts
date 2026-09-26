@@ -28,9 +28,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
-  getContentPayload: vi.fn(
-    async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) }),
-  ),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: vi.fn(),
@@ -102,9 +102,7 @@ describe('R0916-7-P3-26: EditorView 顶栏书类型请求代（原 kindReqId）'
     const slowA = new Promise<{ kind: string }>((r) => {
       releaseA = r
     })
-    mocks.getConfig.mockImplementation((name: string) =>
-      name === '书A' ? slowA : Promise.resolve({ kind: 'short' }),
-    )
+    mocks.getConfig.mockImplementation((name: string) => (name === '书A' ? slowA : Promise.resolve({ kind: 'short' })))
 
     doc.setBook('书A')
     await doc.open(tree.byDocId.get('d1')!)

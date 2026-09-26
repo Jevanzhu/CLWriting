@@ -80,7 +80,8 @@ beforeAll(async () => {
     // styleCorpus TTL 短档经组装根 overrides 注入（原模块级 setter 已删）
     overrides: { styleCorpusTtlMs: TTL_MS },
     dirs: ['写作/正文'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R42语料书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R42语料书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     files: Array.from({ length: CHAPTERS }, (_, i) => ({
       rel: `写作/正文/${chapterFile(i + 1)}`,
       content: `${chapterFm(i + 1)}第${i + 1}章原始正文，主角稳步推进。\n`,

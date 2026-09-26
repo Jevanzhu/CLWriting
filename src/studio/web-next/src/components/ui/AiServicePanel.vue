@@ -106,8 +106,10 @@ function setProbeModel(id: string, model: string): void {
 function outOfRangeTiers(declared: string[]): string[] {
   const out: string[] = []
   if (tierForm.value.creative.model && !declared.includes(tierForm.value.creative.model)) out.push('创作档')
-  if (assistantEnabled.value && tierForm.value.assistant?.model && !declared.includes(tierForm.value.assistant.model)) out.push('助手档')
-  if (chatTierEnabled.value && tierForm.value.chat?.model && !declared.includes(tierForm.value.chat.model)) out.push('对话档')
+  if (assistantEnabled.value && tierForm.value.assistant?.model && !declared.includes(tierForm.value.assistant.model))
+    out.push('助手档')
+  if (chatTierEnabled.value && tierForm.value.chat?.model && !declared.includes(tierForm.value.chat.model))
+    out.push('对话档')
   return out
 }
 
@@ -115,9 +117,12 @@ function outOfRangeTiers(declared: string[]): string[] {
 async function alignTiersToDeclared(declared: string[]): Promise<void> {
   const fallback = declared[0]
   if (!fallback) return
-  if (tierForm.value.creative.model && !declared.includes(tierForm.value.creative.model)) tierForm.value.creative.model = fallback
-  if (assistantEnabled.value && tierForm.value.assistant?.model && !declared.includes(tierForm.value.assistant.model)) tierForm.value.assistant.model = fallback
-  if (chatTierEnabled.value && tierForm.value.chat?.model && !declared.includes(tierForm.value.chat.model)) tierForm.value.chat.model = fallback
+  if (tierForm.value.creative.model && !declared.includes(tierForm.value.creative.model))
+    tierForm.value.creative.model = fallback
+  if (assistantEnabled.value && tierForm.value.assistant?.model && !declared.includes(tierForm.value.assistant.model))
+    tierForm.value.assistant.model = fallback
+  if (chatTierEnabled.value && tierForm.value.chat?.model && !declared.includes(tierForm.value.chat.model))
+    tierForm.value.chat.model = fallback
   await saveTiers()
 }
 
@@ -152,11 +157,19 @@ async function save(f: {
     const err = validateModels(f.modelDrafts)
     if (err) {
       const which = err.index + 1
-      const field = err.field === 'id' ? '模型 id' : err.field === 'contextWindow' ? 'Context Window' : 'Max Output Tokens'
+      const field =
+        err.field === 'id' ? '模型 id' : err.field === 'contextWindow' ? 'Context Window' : 'Max Output Tokens'
       return ui.toast(`第 ${which} 行 ${field}：${err.error}`, 'error')
     }
   }
-  const input = { name: f.name.trim(), protocol: f.protocol, auth: f.auth, baseUrl: f.baseUrl.trim(), apiKey: f.apiKey, models: f.models }
+  const input = {
+    name: f.name.trim(),
+    protocol: f.protocol,
+    auth: f.auth,
+    baseUrl: f.baseUrl.trim(),
+    apiKey: f.apiKey,
+    models: f.models,
+  }
   // 0918修复批（F001）：首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
   // 两行各读一次 editedId.value，add 在途窗口内用户点行「编辑」改写 editedId 后，163 重新
   // 求值走 update 分支，把新增草稿（含 apiKey）写进他行。saveRag（289 单表达式）同构参照。
@@ -324,7 +337,6 @@ async function testRag(p: RagProviderDto): Promise<void> {
 }
 </script>
 
-
 <template>
   <div class="ai-service-panel">
     <!-- （RC 全项目）：Key 保护强度如实告知——AI 与 RAG 两分页共用本单点，勿在分页内各写一份。
@@ -332,15 +344,30 @@ async function testRag(p: RagProviderDto): Promise<void> {
          ② src/ai/provider/vault-key.ts 头注威胁模型声明（碎片异或 = 混淆级，非密码学秘密）
          ③ 落盘位置 src/ai/provider/store.ts（providers.json @ userDataPath）。
          恢复 safeStorage（OS_KEK_SHELVED 改 false）时须同步改回本段与两个编辑器的 .key-stored 文案。 -->
-    <p class="group-intro">API Key 保存在本机应用数据目录的 providers.json，目前仅做混淆级保护——不是加密存储，也不由钥匙串托管；请勿把该数据目录放进同步盘或公开备份。</p>
+    <p class="group-intro">
+      API Key 保存在本机应用数据目录的
+      providers.json，目前仅做混淆级保护——不是加密存储，也不由钥匙串托管；请勿把该数据目录放进同步盘或公开备份。
+    </p>
 
     <!-- 内部分页：AI 提供方 / RAG 提供方（柔光分段切换）——列表始终可见，编辑/新增就地展开 -->
     <div class="panel-tabs" role="tablist" aria-label="提供方分页">
-      <button class="panel-tab" :class="{ on: panelTab === 'ai' }" role="tab" :aria-selected="panelTab === 'ai'" @click="panelTab = 'ai'">
+      <button
+        class="panel-tab"
+        :class="{ on: panelTab === 'ai' }"
+        role="tab"
+        :aria-selected="panelTab === 'ai'"
+        @click="panelTab = 'ai'"
+      >
         <span class="tab-icon"><MessageSquare :size="15" /></span>
         <span>AI 提供方</span>
       </button>
-      <button class="panel-tab" :class="{ on: panelTab === 'rag' }" role="tab" :aria-selected="panelTab === 'rag'" @click="panelTab = 'rag'">
+      <button
+        class="panel-tab"
+        :class="{ on: panelTab === 'rag' }"
+        role="tab"
+        :aria-selected="panelTab === 'rag'"
+        @click="panelTab = 'rag'"
+      >
         <span class="tab-icon"><Database :size="15" /></span>
         <span>RAG 提供方</span>
       </button>
@@ -375,7 +402,9 @@ async function testRag(p: RagProviderDto): Promise<void> {
             />
           </div>
           <div v-else class="row-expand-preview">
-            <span v-if="(p.models ?? []).length" class="row-expand-model-count">{{ (p.models ?? []).length }} 个模型行</span>
+            <span v-if="(p.models ?? []).length" class="row-expand-model-count"
+              >{{ (p.models ?? []).length }} 个模型行</span
+            >
             <span v-else class="row-expand-placeholder">展开编辑配置</span>
           </div>
         </template>
@@ -383,12 +412,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
 
       <!-- 新增卡（DSH addBlock）：列表保持可见，卡内嵌空白编辑器 -->
       <div v-if="addOpen" class="add-provider-card">
-        <AiProviderEditor
-          :initial="null"
-          :saving="saving"
-          @save="save"
-          @cancel="addOpen = false"
-        />
+        <AiProviderEditor :initial="null" :saving="saving" @save="save" @cancel="addOpen = false" />
       </div>
 
       <!-- 任务档位 -->
@@ -467,7 +491,11 @@ async function testRag(p: RagProviderDto): Promise<void> {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .panel-tab:hover {
   color: var(--text-accent);

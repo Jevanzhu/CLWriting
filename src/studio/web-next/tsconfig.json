@@ -9,30 +9,18 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "jsx": "preserve",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "vite/client"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
     "useDefineForClassFields": true,
     "verbatimModuleSyntax": true,
     "paths": {
-      "vue": [
-        "../../../node_modules/vue"
-      ],
+      "vue": ["../../../node_modules/vue"],
       "@codemirror/state": ["./node_modules/@codemirror/state"],
       "@codemirror/view": ["./node_modules/@codemirror/view"]
     }
   },
-  "include": [
-    "src",
-    "vite.config.ts",
-    "../../../test/studio/webnext"
-  ]
+  "include": ["src", "vite.config.ts", "../../../test/studio/webnext"]
 }

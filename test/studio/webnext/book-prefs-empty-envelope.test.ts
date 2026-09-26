@@ -23,7 +23,10 @@ afterEach(() => {
 
 describe('R61-F-2: getBookPrefs 200 空信封兜底', () => {
   it('200 体 {}（缺 prefs 键）→ 返回 {} 而非 undefined（修复前直返 undefined）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })),
+    )
     const prefs = await getBookPrefs(BOOK)
     expect(prefs).toEqual({})
   })

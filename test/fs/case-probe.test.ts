@@ -8,7 +8,10 @@ import { describe, expect, it } from 'vitest'
 import { probeCaseSensitive, type CaseProbeDeps } from '../../src/fs/case-probe.js'
 
 /** 记录式假 fs：writes/existing 可编程。 */
-function fakeDeps(opts: { upperVisible: boolean; throwOnWrite?: boolean }): CaseProbeDeps & { removed: string[]; written: string[] } {
+function fakeDeps(opts: {
+  upperVisible: boolean
+  throwOnWrite?: boolean
+}): CaseProbeDeps & { removed: string[]; written: string[] } {
   const written: string[] = []
   const removed: string[] = []
   return {

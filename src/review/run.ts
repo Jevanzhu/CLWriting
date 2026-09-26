@@ -250,9 +250,7 @@ function unsoundCollect(
 ): CollectedReview {
   const stale: ReviewResult = {
     // 注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
-    issues: [
-      incompleteReviewIssue([reason], primaryLensOf(packet)),
-    ],
+    issues: [incompleteReviewIssue([reason], primaryLensOf(packet))],
     summary: '',
     meta: {
       requested_tier: packet.requested_tier,
@@ -278,9 +276,7 @@ function unsoundCollect(
   }
 }
 
-export function collectReviewIssues(input: {
-  packet: ReviewExecutionPacket
-}): CollectedReview {
+export function collectReviewIssues(input: { packet: ReviewExecutionPacket }): CollectedReview {
   // 首视角标签单点收敛——落的 primaryLensOf helper。
   const primaryLens: ReviewLens = primaryLensOf(input.packet)
   // draft_hash 一致性实装——字段自声明并随包透传，但
@@ -498,19 +494,36 @@ function isReviewSeverity(s: string): s is ReviewIssue['severity'] {
 }
 
 const CATEGORIES: ReadonlySet<string> = new Set([
-  'high_point', 'reader_pull', 'pacing', 'ooc', 'logic', 'consistency',
-  'continuity', 'setting', 'timeline', 'strand', 'ledger', 'safety',
+  'high_point',
+  'reader_pull',
+  'pacing',
+  'ooc',
+  'logic',
+  'consistency',
+  'continuity',
+  'setting',
+  'timeline',
+  'strand',
+  'ledger',
+  'safety',
   // 短篇单篇爆破力维（#28 第 4 节）
-  'hook', 'emotion_peak', 'reversal', 'payoff',
+  'hook',
+  'emotion_peak',
+  'reversal',
+  'payoff',
 ])
 function isReviewCategory(c: string): c is ReviewIssue['category'] {
   return CATEGORIES.has(c)
 }
 
 const LENSES: ReadonlySet<string> = new Set([
-  'reader', 'editor', 'continuity',
+  'reader',
+  'editor',
+  'continuity',
   // 短篇三视角（#28 第 2 节）
-  'hook', 'emotion_peak', 'payoff',
+  'hook',
+  'emotion_peak',
+  'payoff',
 ])
 function isReviewLens(l: string): l is ReviewLens {
   return LENSES.has(l)

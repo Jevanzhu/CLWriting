@@ -10,7 +10,7 @@
  *
  * 桩结构对齐 sse-ticket.test.ts（MockES + fetch stub + settle/failClosed 泵）。
  */
-import { describe, it, expect, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref, nextTick } from 'vue'
 
@@ -56,12 +56,15 @@ beforeEach(() => {
   MockES.instances = []
   probeStatus = 401
   vi.stubGlobal('EventSource', MockES)
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
-    if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }))
-    if (url.includes('/stream')) return new Response('no', { status: probeStatus })
-    return new Response('{}')
-  }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/api/stream-ticket')) return new Response(JSON.stringify({ ticket: 'tk' }))
+      if (url.includes('/stream')) return new Response('no', { status: probeStatus })
+      return new Response('{}')
+    }),
+  )
 })
 
 afterEach(() => {

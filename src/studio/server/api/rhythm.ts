@@ -23,7 +23,7 @@ import { log } from '../../../log/index.js'
 interface RhythmCtx {
   workDir: string | null
   /** 收尾：节奏聚合缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   rhythmTtlMs?: number | null
 }
 
@@ -154,15 +154,15 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
     // 「 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
     // async handler 已有 catch 兜底）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    // 全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
-    // 改走 async 孪生（扫描段让出 + in-flight 去重），
-    // 同步版 getRhythmCached 保留为回归测试直测面；响应 schema 逐位不变
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    reply(res, 200, await getRhythmCachedAsync(r.bookRoot, ctx.rhythmTtlMs ?? undefined))
-  },
+      // 全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
+      // 改走 async 孪生（扫描段让出 + in-flight 去重），
+      // 同步版 getRhythmCached 保留为回归测试直测面；响应 schema 逐位不变
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      reply(res, 200, await getRhythmCachedAsync(r.bookRoot, ctx.rhythmTtlMs ?? undefined))
+    },
   })
 }
 
@@ -180,21 +180,51 @@ function rhythmLong(bookRoot: string): unknown {
     // 已写节奏（写作/正文）
     written: {
       count: written.length,
-      hookTypeDist: countDist(written.map((c) => c.钩子类型), HOOK_TYPES),
-      hookLevelDist: countDist(written.map((c) => c.钩子强弱), HOOK_LEVELS),
-      emotionDist: countDist(written.map((c) => c.情绪定位), EMOTIONS),
-      sceneDist: countDist(written.map((c) => c.场景), SCENE_TYPES),
+      hookTypeDist: countDist(
+        written.map((c) => c.钩子类型),
+        HOOK_TYPES,
+      ),
+      hookLevelDist: countDist(
+        written.map((c) => c.钩子强弱),
+        HOOK_LEVELS,
+      ),
+      emotionDist: countDist(
+        written.map((c) => c.情绪定位),
+        EMOTIONS,
+      ),
+      sceneDist: countDist(
+        written.map((c) => c.场景),
+        SCENE_TYPES,
+      ),
       // 场景 × 情绪增强矩阵（#7.4 增强区）
-      sceneEmotion: crossCount(written, SCENE_TYPES, EMOTIONS, (c) => c.场景, (c) => c.情绪定位),
+      sceneEmotion: crossCount(
+        written,
+        SCENE_TYPES,
+        EMOTIONS,
+        (c) => c.场景,
+        (c) => c.情绪定位,
+      ),
     },
     // 规划节奏（大纲/章纲，块4 节奏预测）
     planned: {
       count: planned.length,
       targetWords: planned.reduce((s, c) => s + (c.字数目标 ?? 0), 0),
-      hookTypeDist: countDist(planned.map((c) => c.钩子类型), HOOK_TYPES),
-      hookLevelDist: countDist(planned.map((c) => c.钩子强弱), HOOK_LEVELS),
-      emotionDist: countDist(planned.map((c) => c.情绪定位), EMOTIONS),
-      sceneDist: countDist(planned.map((c) => c.场景), SCENE_TYPES),
+      hookTypeDist: countDist(
+        planned.map((c) => c.钩子类型),
+        HOOK_TYPES,
+      ),
+      hookLevelDist: countDist(
+        planned.map((c) => c.钩子强弱),
+        HOOK_LEVELS,
+      ),
+      emotionDist: countDist(
+        planned.map((c) => c.情绪定位),
+        EMOTIONS,
+      ),
+      sceneDist: countDist(
+        planned.map((c) => c.场景),
+        SCENE_TYPES,
+      ),
     },
     // 逐章偏差（章纲↔定稿按章号 join，钩子/情绪/场景跑偏标红）
     chapterDiff: buildChapterDiff(written, planned),
@@ -212,17 +242,27 @@ function rhythmShort(bookRoot: string, config: BookConfig): unknown {
     emotionDist: countDynamic(chapters.map((c) => c.目标情绪)),
     reversalGap: buildReversalGap(chapters, config),
     reversalUnrecognized: countUnrecognized(chapters, config),
-    reversals: chapters
-      .filter((c) => c.核心反转)
-      .map((c) => ({ 章号: c.章号, 标题: c.标题, 核心反转: c.核心反转! })),
+    reversals: chapters.filter((c) => c.核心反转).map((c) => ({ 章号: c.章号, 标题: c.标题, 核心反转: c.核心反转! })),
     ...(hasHookData
       ? {
           written: {
             count: chapters.length,
-            hookTypeDist: countDist(chapters.map((c) => c.钩子类型), HOOK_TYPES),
-            hookLevelDist: countDist(chapters.map((c) => c.钩子强弱), HOOK_LEVELS),
-            emotionDist: countDist(chapters.map((c) => c.情绪定位), EMOTIONS),
-            sceneDist: countDist(chapters.map((c) => c.场景), SCENE_TYPES),
+            hookTypeDist: countDist(
+              chapters.map((c) => c.钩子类型),
+              HOOK_TYPES,
+            ),
+            hookLevelDist: countDist(
+              chapters.map((c) => c.钩子强弱),
+              HOOK_LEVELS,
+            ),
+            emotionDist: countDist(
+              chapters.map((c) => c.情绪定位),
+              EMOTIONS,
+            ),
+            sceneDist: countDist(
+              chapters.map((c) => c.场景),
+              SCENE_TYPES,
+            ),
           },
         }
       : {}),
@@ -358,10 +398,7 @@ function buildChapterDiff(written: ChapterMeta[], planned: ChapterMeta[]): Chapt
         情绪定位偏差: isDiff(p.情绪定位, w.情绪定位),
         场景: diffText(p.场景, w.场景),
         场景偏差: isDiff(p.场景, w.场景),
-        字数:
-          p.字数目标 != null || w._wordCount != null
-            ? `${p.字数目标 ?? '—'}/${w._wordCount ?? '—'}`
-            : undefined,
+        字数: p.字数目标 != null || w._wordCount != null ? `${p.字数目标 ?? '—'}/${w._wordCount ?? '—'}` : undefined,
       })
     } else if (p) {
       rows.push({

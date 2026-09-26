@@ -22,15 +22,19 @@ function makePiece(root: string, num: number, title: string, ending: string): vo
   const name = `${String(num).padStart(3, '0')}-${title}.md`
   const bodyDir = join(root, '写作', '正文', '第一卷')
   mkdirSync(bodyDir, { recursive: true })
-  writeChapter(join(bodyDir, name), {
-    章号: num,
-    标题: title,
-    钩子类型: '悬念钩',
-    钩子强弱: '中',
-    情绪定位: '压抑',
-    目标情绪: '惊悚',
-    核心反转: '来客就是死者',
-  }, `正文 ${title}`)
+  writeChapter(
+    join(bodyDir, name),
+    {
+      章号: num,
+      标题: title,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '压抑',
+      目标情绪: '惊悚',
+      核心反转: '来客就是死者',
+    },
+    `正文 ${title}`,
+  )
   const list: PieceList = {
     反转线索表: {
       核心反转: '来客就是死者',
@@ -73,7 +77,10 @@ test('四轮-D405: count 优先级不变——高 count 恒在前，并列才看
     const entries = scanShortCollection(root)
     const report = analyzeShortCollection(entries)
     const endings = report.planning.endingFlavors
-    expect(endings.map((d) => [d.value, d.count])).toEqual([['B口味', 2], ['a口味', 1]])
+    expect(endings.map((d) => [d.value, d.count])).toEqual([
+      ['B口味', 2],
+      ['a口味', 1],
+    ])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -31,14 +31,7 @@ import { builtinKeyMaterial } from './vault-key.js'
 // 0918三拍板批（KEK v2）：OS 凭据通道 IKM（env CLW_OS_KEK 解析，主进程 safeStorage 产出）
 import { osKeyMaterial } from './os-kek.js'
 import { errMsg, log } from '../../log/index.js'
-import {
-  createVault,
-  openVault,
-  sealKey,
-  openKey,
-  migrateVaultToOsChannel,
-  type Vault,
-} from './vault.js'
+import { createVault, openVault, sealKey, openKey, migrateVaultToOsChannel, type Vault } from './vault.js'
 
 const FILE = 'providers.json'
 
@@ -163,9 +156,18 @@ function defaultTiers(model: string | null): TierConfig {
 
 /** 空 store（首次启动 / 文件缺失时） */
 export function emptySettings(): ProviderStore {
-  return { providers: [], currentId: null, currentModel: null, modelCaps: {}, tiers: defaultTiers(null), ragProviders: [], revision: 0, vault: null, dek: null }
+  return {
+    providers: [],
+    currentId: null,
+    currentModel: null,
+    modelCaps: {},
+    tiers: defaultTiers(null),
+    ragProviders: [],
+    revision: 0,
+    vault: null,
+    dek: null,
+  }
 }
-
 
 /** 磁盘文件结构——providers 不含 apiKey，密文统一在 vault.keys */
 interface DiskFormat {
@@ -234,8 +236,7 @@ function isMainLoadable(fp: string): boolean {
 function tryRestoreFromBak(fp: string, bakFp: string, fsDeps: ProvidersRestoreFsDeps = {}): string | null {
   const readBak = fsDeps.readBak ?? ((p: string) => readFileSync(p))
   const writeMain =
-    fsDeps.writeMain ??
-    ((p: string, bytes: Buffer) => atomicWriteFile(p, bytes, { fsync: true, mode: 0o600 }))
+    fsDeps.writeMain ?? ((p: string, bytes: Buffer) => atomicWriteFile(p, bytes, { fsync: true, mode: 0o600 }))
 
   // ① 先读后删：bak 缺失/不可读 → 直接返回原因，绝不触碰主文件（修复前此步在
   // rmQuietly 之后——bak 读失败时主文件已被删，「损坏文件保留」的文案因此为假）
@@ -375,7 +376,9 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
       // 先 rmQuietly(fp)，该声称只对「bak 缺失/不可读、写锁被占」两条前置失败分支为真
       // （现在它们才真的不触碰主文件）；进入「留证 + 写回」段后失败时原字节在
       // <fp>.corrupt-<ts>，路径由 bakErr 带出（不再声称留在原名可手动恢复）。
-      throw new Error(`providers.json 解析失败，文件可能损坏（备份恢复亦失败）：${e instanceof Error ? e.message : ''}${bakErr ? '；bak: ' + bakErr : ''}`)
+      throw new Error(
+        `providers.json 解析失败，文件可能损坏（备份恢复亦失败）：${e instanceof Error ? e.message : ''}${bakErr ? '；bak: ' + bakErr : ''}`,
+      )
     }
     try {
       raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
@@ -447,7 +450,17 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     needsRewrite = true
   }
 
-  const store: ProviderStore = { providers, currentId: raw.currentId ?? null, currentModel: raw.currentModel ?? null, modelCaps: raw.modelCaps ?? {}, tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null), ragProviders, revision: raw.revision ?? 0, vault, dek }
+  const store: ProviderStore = {
+    providers,
+    currentId: raw.currentId ?? null,
+    currentModel: raw.currentModel ?? null,
+    modelCaps: raw.modelCaps ?? {},
+    tiers: raw.tiers ?? defaultTiers(raw.currentModel ?? null),
+    ragProviders,
+    revision: raw.revision ?? 0,
+    vault,
+    dek,
+  }
 
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
@@ -465,7 +478,9 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     } else {
       r.then(
         () => overwriteBakIfCiphertextRoundtrip(fp, bakFp, providers, ragProviders),
-        () => { /* 排队段失败已留痕（serializedLockedWrite 旁挂 warn），迁移写不向 load 异步上抛；bak 保持现状 */ },
+        () => {
+          /* 排队段失败已留痕（serializedLockedWrite 旁挂 warn），迁移写不向 load 异步上抛；bak 保持现状 */
+        },
       )
     }
   }
@@ -473,7 +488,9 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
   // 更新 mtime 缓存（四轮-A404：cachePut 入 LRU，原 `_cache = { path, store, mtime }`）
   try {
     cachePut(fp, store, statSync(fp).mtimeMs)
-  } catch { /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */ }
+  } catch {
+    /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */
+  }
 
   // AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
   // 否则调用方（API 端点）直接 mutate store 后 saveProviders 前，未保存的中间态会泄漏给后续 loadProviders
@@ -674,7 +691,16 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
     return { ...p, apiKey: undefined } as Omit<RagProviderConf, 'apiKey'>
   })
 
-  const disk: DiskFormat = { providers: diskProviders, currentId: store.currentId, currentModel: store.currentModel, modelCaps: store.modelCaps, tiers: store.tiers, ragProviders: diskRagProviders, revision: (store.revision ?? 0) + 1, vault }
+  const disk: DiskFormat = {
+    providers: diskProviders,
+    currentId: store.currentId,
+    currentModel: store.currentModel,
+    modelCaps: store.modelCaps,
+    tiers: store.tiers,
+    ragProviders: diskRagProviders,
+    revision: (store.revision ?? 0) + 1,
+    vault,
+  }
   // 写前 +1，内存 store 同步（调用方随后刷新时读到新号）
   store.revision = disk.revision!
   const json = JSON.stringify(disk, null, 2) + '\n'

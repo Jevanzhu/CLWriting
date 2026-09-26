@@ -36,14 +36,24 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     // 目标情绪/核心反转（短篇目标函数）+ 钩子/情绪/场景（连续故事可选，对齐 chapter-outline）
     { key: '目标情绪', label: '目标情绪', type: 'text' },
     { key: '核心反转', label: '核心反转', type: 'text' },
-    { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
+    {
+      key: '钩子类型',
+      label: '钩子类型',
+      type: 'select',
+      options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'],
+    },
     { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
     { key: '情绪定位', label: '情绪定位', type: 'select', options: ['', '压抑', '铺垫', '小爽', '大爽', '转折'] },
     { key: '场景', label: '场景', type: 'select', options: ['', '战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'chapter-outline': [
-    { key: '钩子类型', label: '钩子类型', type: 'select', options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'] },
+    {
+      key: '钩子类型',
+      label: '钩子类型',
+      type: 'select',
+      options: ['', '危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩'],
+    },
     { key: '钩子强弱', label: '钩子强弱', type: 'select', options: ['', '强', '中', '弱'] },
     { key: '情绪定位', label: '情绪定位', type: 'select', options: ['', '压抑', '铺垫', '小爽', '大爽', '转折'] },
     { key: '场景', label: '场景', type: 'select', options: ['', '战斗', '对话', '抒情', '叙事铺陈', '爽点高潮'] },
@@ -140,7 +150,10 @@ let lastDirty = false
 // EditorView/WritingInfoPanel 同款，此处是最后漏网消费）——watch 直连 parseFmFields
 // 每键 O(n) 全文两趟大分配；防抖核保证 docId 切换即刻重算（防抖窗不滞留旧
 // 文档值）。watch 重灌与 tagValues 只读展示共用此源，不再各自解析。
-const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
+const { fields: fmFields } = useDebouncedFmFields(
+  () => entry.value?.content,
+  () => ws.activeDocId,
+)
 
 watch(
   // doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
@@ -194,7 +207,7 @@ const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> 
     { key: '场景', label: '场景' },
   ],
 }
-const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
+const tagFields = computed(() => (kind.value ? (TAG_FIELDS_BY_KIND[kind.value] ?? []) : []))
 // 解析走上方 useDebouncedFmFields 防抖源（原 computed 内每键全文 parseFmFields）
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
@@ -309,17 +322,14 @@ async function onSave(): Promise<void> {
         <select v-if="f.type === 'select'" v-model="fields[f.key]" class="field-input">
           <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt || '（未选）' }}</option>
         </select>
-        <textarea
-          v-else-if="f.type === 'textarea'"
-          v-model="fields[f.key]"
-          class="field-input area"
-          rows="3"
-        />
+        <textarea v-else-if="f.type === 'textarea'" v-model="fields[f.key]" class="field-input area" rows="3" />
         <input
           v-else
           v-model="fields[f.key]"
           :type="f.type"
-          :placeholder="f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder"
+          :placeholder="
+            f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder
+          "
           :class="['field-input', { 'field-input-err': numErrors[f.key] }]"
           @input="delete numErrors[f.key]"
         />
@@ -393,7 +403,8 @@ async function onSave(): Promise<void> {
   background: var(--background-secondary);
   color: var(--text-normal);
   font-family: inherit;
-  transition: border-color var(--dur-fast) var(--ease-out),
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
 }
 .field-input:focus {

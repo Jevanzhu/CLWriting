@@ -174,22 +174,25 @@ test('X-21: /assets/../index.html → 实发 SPA 入口 no-cache（穿越字面�
 
 // M-9（第十一轮）：canonical 双侧 realpath 判界——dist 被植入外指 symlink 不得读出
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）', async () => {
-  const outside = mkdtempSync(join(tmpdir(), 'clwriting-static-out-'))
-  try {
-    writeFileSync(join(outside, 'secret.txt'), 'secret-content-should-not-leak')
-    // 字面前缀合法（dist 内）、stat 跟随 symlink 到 root 外——旧字符串前缀判界放行
-    symlinkSync(join(outside, 'secret.txt'), join(root, 'leak.txt'))
+test.skipIf(process.platform === 'win32')(
+  'M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）',
+  async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'clwriting-static-out-'))
+    try {
+      writeFileSync(join(outside, 'secret.txt'), 'secret-content-should-not-leak')
+      // 字面前缀合法（dist 内）、stat 跟随 symlink 到 root 外——旧字符串前缀判界放行
+      symlinkSync(join(outside, 'secret.txt'), join(root, 'leak.txt'))
 
-    const res = await fetch(`${baseUrl}/leak.txt`)
-    expect(res.status).toBe(403)
-    const body = await res.text()
-    expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
-    expect(body).not.toContain('secret')
-  } finally {
-    rmSync(outside, { recursive: true, force: true })
-  }
-})
+      const res = await fetch(`${baseUrl}/leak.txt`)
+      expect(res.status).toBe(403)
+      const body = await res.text()
+      expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+      expect(body).not.toContain('secret')
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  },
+)
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('M-9: root 内部 symlink（合法用途）仍正常服务', async () => {
@@ -329,8 +332,7 @@ test('重评-6: 405 分支信封 code 为 METHOD_NOT_ALLOWED（非泛化 BAD_INP
 // 源流 spy destroy——res 发 'close' 断言源流被销毁。
 test('重评-4: 客户端中途断连（res close）→ 源流 destroy（FD 不滞留至 GC）', async () => {
   writeFileSync(join(root, 'big.js'), 'x'.repeat(256 * 1024))
-  const { createReadStream: realCreateReadStream } =
-    await vi.importActual<typeof import('node:fs')>('node:fs')
+  const { createReadStream: realCreateReadStream } = await vi.importActual<typeof import('node:fs')>('node:fs')
   let source: import('node:fs').ReadStream | undefined
   let destroySpy: MockInstance | undefined
   createReadStreamMock.mockImplementationOnce((path, options) => {

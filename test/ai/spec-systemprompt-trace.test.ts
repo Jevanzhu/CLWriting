@@ -20,7 +20,13 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/gen.js')>()
   return {
     ...actual,
-    generate: vi.fn(async () => ({ text: 'ok', reasoning: '', toolCalls: [], usage: { inputTokens: 5, outputTokens: 3 }, stopReason: 'end_turn' })),
+    generate: vi.fn(async () => ({
+      text: 'ok',
+      reasoning: '',
+      toolCalls: [],
+      usage: { inputTokens: 5, outputTokens: 3 },
+      stopReason: 'end_turn',
+    })),
   }
 })
 
@@ -72,9 +78,11 @@ function hash16(full: string): string {
 
 describe('N-10（第十二轮）：runSpec 动态 system 进 trace promptMeta', () => {
   afterEach(() => {
-    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
-          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-        }
+    try {
+      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    } catch {
+      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+    }
   })
 
   it('llm/call 的 promptMeta.hash 哈希了 system 终值 + userPrompt（不只 userPrompt）', async () => {
@@ -93,8 +101,7 @@ describe('N-10（第十二轮）：runSpec 动态 system 进 trace promptMeta', 
     const store = openSessionStore(ud, bookRoot)!
     const evs = store.listEvents(bookHash(bookRoot))
     const call = evs.find((e) => e.type === 'llm/call') as
-      | { data: { promptMeta?: { hash: string; chars: number } } }
-      | undefined
+      { data: { promptMeta?: { hash: string; chars: number } } } | undefined
     expect(call).toBeDefined()
     // 修复点：哈希 = sha256(system + user) 前 16 位；R66-8（十四轮）起 hash 输入
     // 前置 systemPrompt 长度前缀（len:full）消字段边界歧义——同 N-10 断言同口径

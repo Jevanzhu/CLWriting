@@ -3,10 +3,30 @@
  * 锁行为：主角居中、BFS 分环、二环挂父扇区、孤立角色最外环、确定性（同输入同输出）。
  */
 import { describe, it, expect } from 'vitest'
-import { computeRadialLayout, pickCenter, ringRadius, CX, CY, RING_R1, MIN_ARC, type RadialLayoutNode } from '../../../src/studio/web-next/src/shared/relation-layout'
+import {
+  computeRadialLayout,
+  pickCenter,
+  ringRadius,
+  CX,
+  CY,
+  RING_R1,
+  MIN_ARC,
+  type RadialLayoutNode,
+} from '../../../src/studio/web-next/src/shared/relation-layout'
 
 function mkNode(id: string, degree: number, 身份?: string): RadialLayoutNode {
-  return { id, x: 0, y: 0, homeX: 0, homeY: 0, ring: -1, angle: 0, degree, isCenter: false, card: 身份 ? { 身份 } : undefined }
+  return {
+    id,
+    x: 0,
+    y: 0,
+    homeX: 0,
+    homeY: 0,
+    ring: -1,
+    angle: 0,
+    degree,
+    isCenter: false,
+    card: 身份 ? { 身份 } : undefined,
+  }
 }
 
 describe('O-9 relation-layout', () => {
@@ -29,10 +49,14 @@ describe('O-9 relation-layout', () => {
     const b = mkNode('直连B', 1)
     const c = mkNode('隔一跳C', 1)
     const ns = [a, b, c]
-    computeRadialLayout(ns, [
-      { from: '主角', to: '直连B' },
-      { from: '直连B', to: '隔一跳C' },
-    ], () => '同辈')
+    computeRadialLayout(
+      ns,
+      [
+        { from: '主角', to: '直连B' },
+        { from: '直连B', to: '隔一跳C' },
+      ],
+      () => '同辈',
+    )
     expect(a.isCenter).toBe(true)
     expect(a.ring).toBe(0)
     expect(a.homeX).toBe(CX)
@@ -50,11 +74,15 @@ describe('O-9 relation-layout', () => {
     const b = mkNode('父', 1)
     const c1 = mkNode('子1', 0)
     const c2 = mkNode('子2', 0)
-    computeRadialLayout([a, b, c1, c2], [
-      { from: '主角', to: '父' },
-      { from: '父', to: '子1' },
-      { from: '父', to: '子2' },
-    ], () => '同辈')
+    computeRadialLayout(
+      [a, b, c1, c2],
+      [
+        { from: '主角', to: '父' },
+        { from: '父', to: '子1' },
+        { from: '父', to: '子2' },
+      ],
+      () => '同辈',
+    )
     expect(b.ring).toBe(1)
     expect(c1.ring).toBe(2)
     expect(c2.ring).toBe(2)
@@ -76,17 +104,13 @@ describe('O-9 relation-layout', () => {
   })
 
   it('确定性：同输入两次布局结果逐字段一致', () => {
-    const mk = () => [
-      mkNode('主角', 2, '主角'),
-      mkNode('甲', 1),
-      mkNode('乙', 1),
-      mkNode('丙', 0),
-    ]
+    const mk = () => [mkNode('主角', 2, '主角'), mkNode('甲', 1), mkNode('乙', 1), mkNode('丙', 0)]
     const edges = [
       { from: '主角', to: '甲' },
       { from: '甲', to: '乙' },
     ]
-    const n1 = mk(); const n2 = mk()
+    const n1 = mk()
+    const n2 = mk()
     computeRadialLayout(n1, edges, (a, _b) => (a === '主角' ? '同辈' : ''))
     computeRadialLayout(n2, edges, (a, _b) => (a === '主角' ? '同辈' : ''))
     for (let i = 0; i < n1.length; i++) {

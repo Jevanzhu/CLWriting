@@ -70,7 +70,12 @@ export const [getRuleHitsLockTimeoutMs, __setRuleHitsLockTimeoutForTest] = testa
  *  ：锁等待异步化（acquireCrossProcessLockAsync，calls.ts
  *  同口径）——本函数位于 draft-save/self-heal 热路径，同步 Atomics.wait 微睡会在双
  *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
-export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string, task: string = 'check'): Promise<void> {
+export async function recordRuleHits(
+  bookRoot: string,
+  violations: RuleViolation[],
+  userDataPath?: string,
+  task: string = 'check',
+): Promise<void> {
   if (!violations.length) return
   const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, getRuleHitsLockTimeoutMs())
   if (!release) {

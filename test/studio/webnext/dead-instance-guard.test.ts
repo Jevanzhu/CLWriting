@@ -312,7 +312,10 @@ describe('R26-73（二十六轮）：StyleCandidateBox 动作 toast 书名复检
     vi.spyOn(style, 'harvest').mockReturnValue(req.promise)
 
     const wrapper = mount(StyleCandidateBox)
-    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('收割'))!
+      .trigger('click')
     style.bookName = '书B'
     req.reject(new Error('收割失败'))
     await flushPromises()
@@ -322,7 +325,10 @@ describe('R26-73（二十六轮）：StyleCandidateBox 动作 toast 书名复检
     // 已是书B，对照路径把路由 mock 对齐到书B，代表活书会话内的失败照常提示）
     mockRoute.params.name = '书B'
     vi.spyOn(style, 'harvest').mockRejectedValue(new Error('收割失败'))
-    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('收割'))!
+      .trigger('click')
     await flushPromises()
     expect(ui.toasts.some((t) => t.msg.includes('收割失败'))).toBe(true)
     wrapper.unmount()
@@ -385,7 +391,9 @@ describe('R26-68（二十六轮）：ExportDialog catch 切书复检', () => {
     await flushPromises()
 
     expect(ui.toasts.some((t) => t.msg.includes('导出完成') && t.kind === 'success')).toBe(true)
-    expect(ui.toasts.some((t) => t.msg.includes('定稿清单缺失') && t.msg.includes('未按定稿过滤') && t.kind === 'warning')).toBe(true)
+    expect(
+      ui.toasts.some((t) => t.msg.includes('定稿清单缺失') && t.msg.includes('未按定稿过滤') && t.kind === 'warning'),
+    ).toBe(true)
     expect(ui.exportOpen).toBe(false) // 成功照常关弹窗
     wrapper.unmount()
   })

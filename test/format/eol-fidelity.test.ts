@@ -63,7 +63,9 @@ describe('MP2-4→批一：setTopSectionKey 行尾规范形', () => {
 
   it('LF 文件回归锚：输出字节不变', () => {
     expect(setTopSectionKey('book:\n  title: 甲\n', 'book', 'title', '乙')).toBe('book:\n  title: 乙\n')
-    expect(setTopSectionKey('book:\n  title: 甲\n', 'book', 'genre', '玄幻')).toBe('book:\n  genre: 玄幻\n  title: 甲\n')
+    expect(setTopSectionKey('book:\n  title: 甲\n', 'book', 'genre', '玄幻')).toBe(
+      'book:\n  genre: 玄幻\n  title: 甲\n',
+    )
   })
 })
 

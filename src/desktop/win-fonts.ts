@@ -105,9 +105,7 @@ export function parseRegFontsQueryOutput(out: string): string[] {
   for (const raw of out.replace(/^\uFEFF/, '').split('\n')) {
     const m = /^(.+?)\s{2,}REG_SZ(?:\s|$)/.exec(raw.trimEnd())
     if (!m) continue
-    const regName = m[1]!
-      .replace(/\s*\((?:TrueType|OpenType|Bitmap|Vector)(?:\s+Variable)?\)$/i, '')
-      .trim()
+    const regName = m[1]!.replace(/\s*\((?:TrueType|OpenType|Bitmap|Vector)(?:\s+Variable)?\)$/i, '').trim()
     if (regName === '' || regName.startsWith('(')) continue // (默认)/(Default) 等非字体值
     const f = bareFontName(regName)
     if (f !== '') fonts.add(f)

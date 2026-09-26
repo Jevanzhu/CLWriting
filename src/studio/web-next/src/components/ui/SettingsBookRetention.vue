@@ -85,7 +85,9 @@ watch(
         <span class="backup-summary">{{ versionStats.pinnedCount }} 个</span>
       </SettingItem>
       <SettingItem name="当前快照占用" desc="编辑快照（非定稿）占用的磁盘空间">
-        <span class="backup-summary">{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span>
+        <span class="backup-summary"
+          >{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span
+        >
       </SettingItem>
       <SettingItem name="清理过期快照" desc="按全局保留规则删除超期/超量的编辑快照（定稿版本永久保留）">
         <button class="link-btn danger" :disabled="pruning" @click="onPrune">

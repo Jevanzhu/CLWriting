@@ -177,10 +177,7 @@ describe('R1010b-FE-P3-2: onRenameCommit 清旧 docId 误报灰显键', () => {
     apiDocuments.renameDoc.mockResolvedValue(undefined)
     const oldKey = seedFpKey('doc_1', '["chk-1"]')
     const siblingKey = seedFpKey('doc_10', '["chk-2"]') // R60-D-3 精确等值口径：doc_10 不得被误删
-    stores.tree.raw = [
-      makeNode('写作/正文/0001-旧标题.md', 'doc_1'),
-      makeNode('写作/正文/0010-兄弟.md', 'doc_10'),
-    ]
+    stores.tree.raw = [makeNode('写作/正文/0001-旧标题.md', 'doc_1'), makeNode('写作/正文/0010-兄弟.md', 'doc_10')]
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
     actions.renamePath.value = '写作/正文/0001-旧标题.md'
     await actions.onRenameCommit('写作/正文/0001-旧标题.md', '新标题')

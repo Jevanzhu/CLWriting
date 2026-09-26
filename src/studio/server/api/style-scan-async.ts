@@ -31,15 +31,14 @@ function resolveWorkerUrl(): URL {
   return resolveSiblingWorkerUrl(import.meta.url, 'analysis')
 }
 
-export function runStyleScanAsync(
-  job: StyleScanJob,
-  opts: StyleScanRunnerOptions = {},
-): Promise<StyleScanResult> {
-  return trackInFlightWork(runWorkerJob<StyleScanResult>({
-    job,
-    workerUrl: opts.workerUrl ?? resolveWorkerUrl(),
-    timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    timeoutMessage: (t) => `文风全书扫描超时（上限 ${t}ms），已终止扫描工作线程`,
-    exitMessage: (code) => `文风扫描工作线程已退出（exit code=${code}），未返回扫描结果`,
-  }))
+export function runStyleScanAsync(job: StyleScanJob, opts: StyleScanRunnerOptions = {}): Promise<StyleScanResult> {
+  return trackInFlightWork(
+    runWorkerJob<StyleScanResult>({
+      job,
+      workerUrl: opts.workerUrl ?? resolveWorkerUrl(),
+      timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      timeoutMessage: (t) => `文风全书扫描超时（上限 ${t}ms），已终止扫描工作线程`,
+      exitMessage: (code) => `文风扫描工作线程已退出（exit code=${code}），未返回扫描结果`,
+    }),
+  )
 }

@@ -231,10 +231,7 @@ describe('POST /documents/batch-finalize（P2-PROD-2）', () => {
     // R64-41（十二轮）：固定 80ms 窗口改轮询确认——慢机/压机下回环延迟超 80ms 时
     // handler1 尚未占闸，请求 2 先抢闸返回 200（409 假红）。轮询服务器侧闸状态
     // （请求 2 打 BUSY 前必然已占），最多等 2s；仍不占则按原断言失败暴露。
-    const busy = await pollUntil(
-      async () => (await postBatch([ch2DocId])).status === 409,
-      2000,
-    )
+    const busy = await pollUntil(async () => (await postBatch([ch2DocId])).status === 409, 2000)
     expect(busy).toBe(true)
     const r1 = await p1
     expect(r1.status).toBe(200)

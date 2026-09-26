@@ -51,8 +51,13 @@ afterEach(() => {
 
 function writeChapterAbs(n: number, body: string): void {
   const meta: ChapterMeta = {
-    章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-    _path: '', _wordCount: 100,
+    章号: n,
+    标题: `第${n}章`,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
   writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, body)
 }
@@ -162,14 +167,7 @@ describe('A3 惰性指纹校验', () => {
   it('candidate_depth 可覆盖（P4：缺省 20；设 2 → 校验章数 ≤ 2）', async () => {
     await buildIndex(bookRoot, CONFIG, 'stub-key', hashEmbed)
     readFileMock.mockClear()
-    const hits = await recall(
-      bookRoot,
-      { ...CONFIG, candidate_depth: 2 },
-      'stub-key',
-      chapterBody(13),
-      5,
-      hashEmbed,
-    )
+    const hits = await recall(bookRoot, { ...CONFIG, candidate_depth: 2 }, 'stub-key', chapterBody(13), 5, hashEmbed)
     // 深度 2：最多校验 2 章 → 最多收 2 章的块（每章 1 块 → ≤2 条）
     expect(hits.length).toBeLessThanOrEqual(2)
     expect(bodyFileReads()).toBeLessThanOrEqual(2)
@@ -224,7 +222,11 @@ describe('A3 预存范数与迁移', () => {
       end_offset INTEGER NOT NULL, embedding BLOB NOT NULL, model TEXT NOT NULL, indexed_at TEXT NOT NULL)`)
     legacy.exec(`CREATE TABLE rag_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
     const vec = Float32Array.from([3, 4])
-    legacy.prepare('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) VALUES (1, 0, 10, ?, ?, ?)').run(float32ToBuffer(vec), 'stub-model', new Date().toISOString())
+    legacy
+      .prepare(
+        'INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) VALUES (1, 0, 10, ?, ?, ?)',
+      )
+      .run(float32ToBuffer(vec), 'stub-model', new Date().toISOString())
     legacy.close()
     // openRagDb → ALTER 加列 + 回填 L2(3,4,0)=5
     const db = openRagDb(bookRoot)
@@ -247,10 +249,13 @@ describe('A3 预存范数与迁移', () => {
       end_offset INTEGER NOT NULL, embedding BLOB NOT NULL, model TEXT NOT NULL, indexed_at TEXT NOT NULL,
       norm REAL)`)
     db.exec(`CREATE TABLE rag_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
-    db.prepare('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm) VALUES (1, 0, 10, ?, ?, ?, ?)').run(float32ToBuffer(Float32Array.from([3, 4])), 'm', new Date().toISOString(), 5)
+    db.prepare(
+      'INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm) VALUES (1, 0, 10, ?, ?, ?, ?)',
+    ).run(float32ToBuffer(Float32Array.from([3, 4])), 'm', new Date().toISOString(), 5)
     const execSpy = vi.spyOn(db, 'exec')
     const prepareSpy = vi.spyOn(db, 'prepare')
-    const countScans = (): number => prepareSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('COUNT')).length
+    const countScans = (): number =>
+      prepareSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('COUNT')).length
     try {
       // norm 全在位 → 只读自检，不开写事务（旧实现也进 COUNT 全表扫描）
       ensureNormColumn(db)
@@ -260,7 +265,9 @@ describe('A3 预存范数与迁移', () => {
       db.prepare('UPDATE chunks SET norm = NULL').run()
       execSpy.mockClear()
       ensureNormColumn(db)
-      expect(execSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.startsWith('BEGIN'))).toEqual(['BEGIN IMMEDIATE'])
+      expect(execSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.startsWith('BEGIN'))).toEqual([
+        'BEGIN IMMEDIATE',
+      ])
       expect(countScans()).toBe(0)
       expect((db.prepare('SELECT norm FROM chunks').get() as { norm: number }).norm).toBeCloseTo(5, 6)
       // 幂等：再跑一次回到零写分支

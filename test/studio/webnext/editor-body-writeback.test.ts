@@ -84,7 +84,15 @@ const OK: SaveOk = { ok: true, revision: 'sha256:x', superseded: false }
 let contents: Record<string, string>
 
 function makeNode(path: string, docId: string): TreeNode {
-  return { path, name: path.split('/').pop()!, isDirectory: false, role: 'chapter', docId, status: 'draft', children: [] }
+  return {
+    path,
+    name: path.split('/').pop()!,
+    isDirectory: false,
+    role: 'chapter',
+    docId,
+    status: 'draft',
+    children: [],
+  }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -315,7 +323,10 @@ describe('B-2 回写队列单元（跨档登记 / 注销语义）', () => {
     scheduleBodyWriteback('d2', 'B') // 跨档：先落旧档槽内最新值
     expect(seen).toEqual([['d1', 'A2']])
     flushBodyWriteback()
-    expect(seen).toEqual([['d1', 'A2'], ['d2', 'B']])
+    expect(seen).toEqual([
+      ['d1', 'A2'],
+      ['d2', 'B'],
+    ])
     vi.advanceTimersByTime(1000)
     expect(seen).toHaveLength(2) // 幂等：到点不重复落回
     expect(hasPendingBodyWriteback()).toBe(false)

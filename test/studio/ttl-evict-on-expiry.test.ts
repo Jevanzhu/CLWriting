@@ -41,7 +41,8 @@ let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
-const CH_FM = (n: number, t: string) => `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
+const CH_FM = (n: number, t: string) =>
+  `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
 
 async function get(path: string): Promise<{ status: number; json: any }> {
   const r = await fetch(`${baseUrl}${path}`, { headers: { 'x-studio-token': token } })
@@ -66,18 +67,26 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: STATE_BOOK, path: STATE_BOOK, kind: 'short' }) + '\n' +
-      JSON.stringify({ name: HEALTH_BOOK, path: HEALTH_BOOK, kind: 'long' }) + '\n',
+    JSON.stringify({ name: STATE_BOOK, path: STATE_BOOK, kind: 'short' }) +
+      '\n' +
+      JSON.stringify({ name: HEALTH_BOOK, path: HEALTH_BOOK, kind: 'long' }) +
+      '\n',
   )
   // 判态书：短篇无布线，book.yaml 即可判态（态 7）
   const stateRoot = join(workDir, STATE_BOOK)
   mkdirSync(join(stateRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(stateRoot, '项目'), { recursive: true })
-  writeFileSync(join(stateRoot, 'book.yaml'), `spec_version: 1\nkind: short\nbook:\n  title: ${STATE_BOOK}\n  genre: 玄幻\nhost: cc\n`)
+  writeFileSync(
+    join(stateRoot, 'book.yaml'),
+    `spec_version: 1\nkind: short\nbook:\n  title: ${STATE_BOOK}\n  genre: 玄幻\nhost: cc\n`,
+  )
   // 体检书：1 章定稿正文 → scanChapters 样本非空
   const healthRoot = join(workDir, HEALTH_BOOK)
   mkdirSync(join(healthRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(healthRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${HEALTH_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
+  writeFileSync(
+    join(healthRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${HEALTH_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+  )
   writeFileSync(join(healthRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，初入宗门。\n')
 
   // TTL 注入短档（先例 state-tree-issues-ttl：1000ms 档；R0911-G-P1-1c 起到期侧

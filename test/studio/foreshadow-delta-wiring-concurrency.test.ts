@@ -140,10 +140,12 @@ describe('清偿-伏笔接线×4：链外快照读残留收口后并发交叠不
     // 链外形态：双方快照基线同取变更前状态，后落库差分把先落库者变更一并计入（4 事件）。
     const [ra, rb] = await Promise.all([
       request('PATCH', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs1`, {
-        op: 'fm', meta: { 状态: '已回收' },
+        op: 'fm',
+        meta: { 状态: '已回收' },
       }),
       request('PATCH', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs2`, {
-        op: 'fm', meta: { 状态: '已回收' },
+        op: 'fm',
+        meta: { 状态: '已回收' },
       }),
     ])
     expect(ra.status).toBe(200)

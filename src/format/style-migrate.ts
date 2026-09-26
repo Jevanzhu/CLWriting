@@ -230,8 +230,8 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   // 口径不一）：条目写盘成功与旧源 rmSync 之间崩溃后，续跑对同一旧文件再拆再写会产出
   // 同内容双份、重复占据注入预算。键 = 场景 + 正文；命中 = 上次已迁，跳写并照删旧源。
   const seenSample = new Set<string>(
-    readEntries(entriesDir, '样章').entries
-      .map((e) => `${e.场景}\u0001${e.正文.trim()}`)
+    readEntries(entriesDir, '样章')
+      .entries.map((e) => `${e.场景}\u0001${e.正文.trim()}`)
       .filter((k) => !k.endsWith('\u0001')),
   )
   const dupOrWrite = (e: StyleEntry): boolean => {
@@ -304,14 +304,17 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
       if (text === null) continue
       const scene = f.slice(0, -3)
       for (const q of parseQuoteEntries(text)) {
-        if (dupOrWrite({
-          类型: '样章',
-          场景: scene,
-          来源: '收割',
-          标签: ['金句'],
-          ...(q.出处 ? { 出处: q.出处 } : {}),
-          正文: q.正文,
-        })) quoteCount++
+        if (
+          dupOrWrite({
+            类型: '样章',
+            场景: scene,
+            来源: '收割',
+            标签: ['金句'],
+            ...(q.出处 ? { 出处: q.出处 } : {}),
+            正文: q.正文,
+          })
+        )
+          quoteCount++
       }
       rmWithRetry(fp) // （退避族）：同上——拆条后删源
     }
@@ -323,14 +326,17 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   const quoteText = readTextSafe(quoteFile)
   if (quoteText !== null) {
     for (const q of parseQuoteEntries(quoteText)) {
-      if (dupOrWrite({
-        类型: '样章',
-        场景: '通用',
-        来源: '导入',
-        标签: ['金句'],
-        ...(q.出处 ? { 出处: q.出处 } : {}),
-        正文: q.正文,
-      })) quoteCount++
+      if (
+        dupOrWrite({
+          类型: '样章',
+          场景: '通用',
+          来源: '导入',
+          标签: ['金句'],
+          ...(q.出处 ? { 出处: q.出处 } : {}),
+          正文: q.正文,
+        })
+      )
+        quoteCount++
     }
     rmWithRetry(quoteFile) // （退避族）：同上——导入源删档
   }
@@ -343,7 +349,9 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (rulesText !== null) {
     // 续跑去重——条目库已有同文禁词（上次写完条目、瘦身写回前崩溃）不重写
     const seen = new Set<string>(
-      readEntries(entriesDir, '禁词').entries.map((e) => e.正文.trim()).filter(Boolean),
+      readEntries(entriesDir, '禁词')
+        .entries.map((e) => e.正文.trim())
+        .filter(Boolean),
     )
     const banned = parseIronRules(rulesText).bannedWords ?? []
     for (const word of banned) {

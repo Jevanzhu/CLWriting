@@ -38,12 +38,28 @@ import { log, errMsg } from '../log/index.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
 import { safeRowToEvent, type Row, type SessionRow } from './store-rows.js'
-import { MIGRATED_EXT, sweepOpenMarkers, registerOpenMarker, touchOpenMarker, releaseOpenMarker } from './store-open-markers.js'
-import { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, acquireMigrateLockPairAsync } from './store-migrate.js'
+import {
+  MIGRATED_EXT,
+  sweepOpenMarkers,
+  registerOpenMarker,
+  touchOpenMarker,
+  releaseOpenMarker,
+} from './store-open-markers.js'
+import {
+  bookHash,
+  sessionMigrateLockPath,
+  getSessionMigrateLockTimeoutMs,
+  acquireMigrateLockPairAsync,
+} from './store-migrate.js'
 import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
 
 // 桥：迁出缝的公开名逐名再导出（类型走 export type），消费方 import 面零改动
-export { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForTest } from './store-migrate.js'
+export {
+  bookHash,
+  sessionMigrateLockPath,
+  getSessionMigrateLockTimeoutMs,
+  __setSessionMigrateLockTimeoutForTest,
+} from './store-migrate.js'
 export type { SessionRow } from './store-rows.js'
 
 // sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
@@ -113,7 +129,10 @@ export interface SessionStore {
    *  恢复历史的旧 seq，不能按 session 过滤。返回：①与 [from,to] 相交的既有
    *  compaction/end 遮蔽区间；②该区间内的表面类候选事件行（type+data JSON 串，
    *  供调用侧按投影口径判「曾可见」）。 */
-  maskSelfCheckData(from: number, to: number): {
+  maskSelfCheckData(
+    from: number,
+    to: number,
+  ): {
     intervals: Array<{ start: number; end: number }>
     rows: Array<{ seq: number; type: string; data: string }>
   }
@@ -213,12 +232,12 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
        AND e.session_id > ?
      GROUP BY e.session_id
      ORDER BY e.session_id
-     LIMIT ${BATCH_SIZE}`
-  );
+     LIMIT ${BATCH_SIZE}`,
+  )
   const ins = db.prepare(
     `INSERT INTO events (session_id, type, data, replace_generation, created_at)
-     VALUES (?, 'session/end', ?, 0, ?)`
-  );
+     VALUES (?, 'session/end', ?, 0, ?)`,
+  )
   // 补 end 后同步 touch sessions.updated_at——否则孤儿会话仍以旧
   // updated_at 被 latestSession 选中恢复（补了 end 却还被视为最新活跃会话）。
   // touch 与补 end 解耦——touch 用会话真实 last_at 而非修复时刻：
@@ -234,14 +253,19 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   const recheck = db.prepare(
     `SELECT SUM(CASE WHEN type = 'session/start' THEN 1 ELSE 0 END) AS starts,
             SUM(CASE WHEN type = 'session/end' THEN 1 ELSE 0 END) AS ends
-     FROM events WHERE session_id = ?`
+     FROM events WHERE session_id = ?`,
   )
   const now = Date.now()
   let attempted = 0
   const errors: Array<{ session_id: string; err: unknown }> = []
   let lastSessionId = ''
   for (;;) {
-    const orphans = stmt.all(lastSessionId) as Array<{ session_id: string; starts: number; ends: number; last_at: number | null }>
+    const orphans = stmt.all(lastSessionId) as Array<{
+      session_id: string
+      starts: number
+      ends: number
+      last_at: number | null
+    }>
     if (orphans.length === 0) break
     lastSessionId = orphans[orphans.length - 1]!.session_id
     for (const o of orphans) {
@@ -282,7 +306,9 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
     if (orphans.length < BATCH_SIZE) break
   }
   if (errors.length > 0) {
-    const summary = errors.map((e) => `${e.session_id}: ${e.err instanceof Error ? e.err.message : String(e.err)}`).join('；')
+    const summary = errors
+      .map((e) => `${e.session_id}: ${e.err instanceof Error ? e.err.message : String(e.err)}`)
+      .join('；')
     if (attempted > 0 && errors.length === attempted) {
       // 全部失败 = 系统性故障（库损坏/磁盘满）——上抛让打开方感知（旧语义）。
       // 聚合上抛——原只抛首个病因，N 个会话的 N 种病因被降级单条。
@@ -437,12 +463,12 @@ export function clearStaleMigrationTombstone(bookRoot: string, dbPath: string): 
       'events',
       `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——保留墓碑并拒绝在旧路径重建空库，请人工核对迁移目标（合法形：${'{ to: <新库绝对路径>, at: <毫秒> }'}）`,
     )
-    throw new Error(`事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`)
+    throw new Error(
+      `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`,
+    )
   }
   if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
-    throw new Error(
-      `事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`,
-    )
+    throw new Error(`事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`)
   }
   try {
     rmSync(dbPath + MIGRATED_EXT, { force: true })
@@ -505,8 +531,8 @@ export function createEventsSchema(db: DatabaseSync): void {
       source_seqs  TEXT,
       replace_generation INTEGER NOT NULL DEFAULT 0,
       created_at   INTEGER NOT NULL
-    )`
-  );
+    )`,
+  )
   db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
   // ── 0918四轮修复批（B401）：分支元数据检索列 + 部分索引 ──
   // firstBranchMetaSeq 原 `data LIKE '%"branchId"%' OR LIKE '%"parentSeq"%'` 谓词无
@@ -538,15 +564,18 @@ export function createEventsSchema(db: DatabaseSync): void {
       header      TEXT NOT NULL,
       created_at   INTEGER NOT NULL,
       updated_at   INTEGER NOT NULL
-    )`
-  );
+    )`,
+  )
 }
 
 /** 首开全流程（建目录 + 开库 + PRAGMA/WAL + DDL + 孤儿修复 +
  *  开口标记登记）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——此刻尚未登记
  *  openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级 null 继续跑，
  *  句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）。 */
-function openEventsDbWithDdl(dir: string, dbPath: string): { db: DatabaseSync; markerTimer: ReturnType<typeof setInterval> } {
+function openEventsDbWithDdl(
+  dir: string,
+  dbPath: string,
+): { db: DatabaseSync; markerTimer: ReturnType<typeof setInterval> } {
   mkdirSync(dir, { recursive: true })
   const db = new DatabaseSync(dbPath)
   try {
@@ -657,8 +686,9 @@ function* queryEventRows(
     // listEvents 在表达式内同步排干生成器、语句生命周期不越出单次调用，保留缓存收益。
     // streaming 路径的编译成本（µs 级）相对全表扫描可忽略（readAllChunks 同款先例）。
     const sql = `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
-    const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
-      .iterate(...args) as unknown as Iterable<Row>
+    const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql)).iterate(
+      ...args,
+    ) as unknown as Iterable<Row>
     for (const r of rows) {
       const ev = safeRowToEvent(r, label)
       if (ev) yield ev
@@ -672,8 +702,9 @@ function* queryEventRows(
   const sql = `SELECT * FROM events
      WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
      ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
-  const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
-    .iterate(...args) as unknown as Iterable<Row>
+  const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql)).iterate(
+    ...args,
+  ) as unknown as Iterable<Row>
   for (const r of rows) {
     const ev = safeRowToEvent(r, label)
     if (ev) yield ev
@@ -681,7 +712,9 @@ function* queryEventRows(
 }
 /** 写入面方法族：会话创建 + 事件批写（自巨型对象字面量按职责切出；
  *  方法体逐字未动，仅把原闭包捕获的 db 改为显式上下文）。 */
-function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' | 'appendEvents' | 'appendEventsResolveLineage'> {
+function createWriteMethods(
+  ctx: StoreCtx,
+): Pick<SessionStore, 'createSession' | 'appendEvents' | 'appendEventsResolveLineage'> {
   const db = ctx.db
   return {
     createSession(book: string, header?: Record<string, unknown>): string {
@@ -692,7 +725,7 @@ function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' |
       prepared(
         db,
         `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
-         VALUES (?, 1, ?, ?, ?, ?)`
+         VALUES (?, 1, ?, ?, ?, ?)`,
       ).run(sid, book, JSON.stringify(header ?? {}), now, now)
       return sid
     },
@@ -704,17 +737,26 @@ function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' |
       const ins = prepared(
         db,
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) RETURNING seq`
-      );
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) RETURNING seq`,
+      )
       const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
       // sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
       // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
       return withEventsTx(db, () => {
         const seqs: number[] = []
         for (const e of evs) {
-          const row = ins.get(sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
-            e.surfaceOp ?? null, e.shadowStart ?? null, e.shadowEnd ?? null,
-            e.sourceSeqs ? JSON.stringify(e.sourceSeqs) : null, now) as { seq: number }
+          const row = ins.get(
+            sessionId,
+            e.turn ?? null,
+            e.step ?? null,
+            e.type,
+            JSON.stringify(e.data),
+            e.surfaceOp ?? null,
+            e.shadowStart ?? null,
+            e.shadowEnd ?? null,
+            e.sourceSeqs ? JSON.stringify(e.sourceSeqs) : null,
+            now,
+          ) as { seq: number }
           seqs.push(row.seq)
         }
         touch.run(now, sessionId)
@@ -729,7 +771,7 @@ function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' |
       const ins = prepared(
         db,
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?) RETURNING seq`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?) RETURNING seq`,
       )
       const upd = prepared(db, 'UPDATE events SET source_seqs = ? WHERE session_id = ? AND seq = ?')
       const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
@@ -737,8 +779,15 @@ function createWriteMethods(ctx: StoreCtx): Pick<SessionStore, 'createSession' |
         const seqs: number[] = []
         for (const e of evs) {
           const row = ins.get(
-            sessionId, e.turn ?? null, e.step ?? null, e.type, JSON.stringify(e.data),
-            e.surfaceOp ?? null, e.shadowStart ?? null, e.shadowEnd ?? null, now,
+            sessionId,
+            e.turn ?? null,
+            e.step ?? null,
+            e.type,
+            JSON.stringify(e.data),
+            e.surfaceOp ?? null,
+            e.shadowStart ?? null,
+            e.shadowEnd ?? null,
+            now,
           ) as { seq: number }
           seqs.push(row.seq)
         }
@@ -864,7 +913,7 @@ function createSessionQueryMethods(
         // SELECT+INSERT 固定对走 prepared 缓存（每链路事件写均经此）
         const row = prepared(
           db,
-          `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`
+          `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`,
         ).get(book) as { session_id: string } | undefined
         if (row) {
           db.exec('COMMIT')
@@ -875,7 +924,7 @@ function createSessionQueryMethods(
         prepared(
           db,
           `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
-           VALUES (?, 1, ?, ?, ?, ?)`
+           VALUES (?, 1, ?, ?, ?, ?)`,
         ).run(sid, book, JSON.stringify({ kind: 'workspace' }), now, now)
         db.exec('COMMIT')
         return sid
@@ -899,7 +948,7 @@ function createSessionQueryMethods(
       // 绕过全库统一 helper；本函数当前零生产调用，导出保留）
       const r = prepared(
         db,
-        `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`
+        `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
       ).get(book) as SessionRow | undefined
       return r ?? null
     },
@@ -927,8 +976,7 @@ function createSessionQueryMethods(
           `SELECT shadow_start AS start, shadow_end AS end FROM events
            WHERE surface_op = 'replace' AND shadow_start IS NOT NULL AND shadow_end IS NOT NULL
              AND shadow_start <= ? AND shadow_end >= ?`,
-        )
-          .all(to, from) as Array<{ start: number; end: number }>
+        ).all(to, from) as Array<{ start: number; end: number }>
       ).map((r) => ({ start: r.start, end: r.end }))
       const surfaceTypes = [...SURFACE_EVENT_TYPES]
       const ph = surfaceTypes.map(() => '?').join(',')
@@ -950,10 +998,9 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
       // 0918修复批（C002）：两条固定 DELETE 收编 prepared 连接级缓存
       withEventsTx(db, () => {
-        prepared(
-          db,
-          `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
-        ).run(book)
+        prepared(db, `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`).run(
+          book,
+        )
         prepared(db, 'DELETE FROM sessions WHERE book = ?').run(book)
       })
     },
@@ -966,7 +1013,7 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
         // prepared 取缓存（原每 book 每轮重编译两条固定 DELETE）
         const delEvents = prepared(
           db,
-          `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
+          `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`,
         )
         const delSessions = prepared(db, 'DELETE FROM sessions WHERE book = ?')
         for (const book of books) {
@@ -1221,10 +1268,17 @@ export async function migrateBookSession(
       try {
         rmSync(oldDb + MIGRATED_EXT, { force: true })
       } catch (e2) {
-        log.error('events', `迁移回滚后墓碑清除失败（${oldDb + MIGRATED_EXT}）——残留碑不影响旧库打开，下次迁移时覆盖`, e2)
+        log.error(
+          'events',
+          `迁移回滚后墓碑清除失败（${oldDb + MIGRATED_EXT}）——残留碑不影响旧库打开，下次迁移时覆盖`,
+          e2,
+        )
       }
     } else {
-      log.error('events', `迁移回滚不完整，保留墓碑（${oldDb + MIGRATED_EXT}）——迟来首开将 fail-closed 拒建空库，请人工核对 ${oldDb} 与 ${newDb}`)
+      log.error(
+        'events',
+        `迁移回滚不完整，保留墓碑（${oldDb + MIGRATED_EXT}）——迟来首开将 fail-closed 拒建空库，请人工核对 ${oldDb} 与 ${newDb}`,
+      )
     }
     log.error('events', '事件库迁移失败（已回滚，源库原地完整可找回）', e)
     return false
@@ -1233,4 +1287,3 @@ export async function migrateBookSession(
     releaseMigrateLock()
   }
 }
-

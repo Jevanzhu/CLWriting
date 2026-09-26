@@ -34,9 +34,11 @@ vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
   useWorkspaceStore: vi.fn(() => wsMock.state),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => ({ byDocId: new Map([['doc_1', { path: '写作/正文/0001-a.md' }]]) }) ),
+  useTreeStore: vi.fn(() => ({ byDocId: new Map([['doc_1', { path: '写作/正文/0001-a.md' }]]) })),
 }))
-const uiMock = vi.hoisted(() => ({ state: null as unknown as { aiAvailable: boolean; toast: ReturnType<typeof vi.fn> } }))
+const uiMock = vi.hoisted(() => ({
+  state: null as unknown as { aiAvailable: boolean; toast: ReturnType<typeof vi.fn> },
+}))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => uiMock.state),
 }))

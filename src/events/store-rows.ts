@@ -28,10 +28,18 @@ export interface SessionRow {
 }
 
 export interface Row {
-  seq: number; session_id: string; turn: number | null; step: number | null;
-  type: string; data: string; surface_op: string | null;
-  shadow_start: number | null; shadow_end: number | null;
-  source_seqs: string | null; replace_generation: number; created_at: number;
+  seq: number
+  session_id: string
+  turn: number | null
+  step: number | null
+  type: string
+  data: string
+  surface_op: string | null
+  shadow_start: number | null
+  shadow_end: number | null
+  source_seqs: string | null
+  replace_generation: number
+  created_at: number
 }
 
 function rowToEvent(r: Row): ChatEvent {

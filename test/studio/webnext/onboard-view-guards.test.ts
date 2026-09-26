@@ -105,7 +105,12 @@ describe('R35-34: OnboardView gen/save 在途锁', () => {
     const w = mountView()
     await flushPromises() // onMounted：getConfig + tree.load → 首个未生成步（synopsis）选中
     let resolveAi!: (v: { content: string; words: number }) => void
-    mocks.onboardAi.mockImplementationOnce(() => new Promise((r) => { resolveAi = r }))
+    mocks.onboardAi.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveAi = r
+        }),
+    )
 
     const panel = w.findComponent(OnboardStepPanel)
     panel.vm.$emit('gen')
@@ -131,7 +136,12 @@ describe('R35-34: OnboardView gen/save 在途锁', () => {
     await flushPromises()
 
     let resolveSave!: () => void
-    mocks.onboardSave.mockImplementationOnce(() => new Promise<void>((r) => { resolveSave = r }))
+    mocks.onboardSave.mockImplementationOnce(
+      () =>
+        new Promise<void>((r) => {
+          resolveSave = r
+        }),
+    )
     panel.vm.$emit('save')
     await nextTick()
     panel.vm.$emit('save') // 在途窗口第二拍：函数锁拦截
@@ -223,7 +233,10 @@ describe('R51-I-5: 重新生成确认弹窗滞留切书', () => {
 
     let resolveAsk!: (v: boolean) => void
     vi.spyOn(useUiStore(), 'ask').mockImplementationOnce(
-      () => new Promise<boolean>((r) => { resolveAsk = r }),
+      () =>
+        new Promise<boolean>((r) => {
+          resolveAsk = r
+        }),
     )
     panel.vm.$emit('gen') // 走 doGen → 脏检查 → ui.ask 挂起
     await flushPromises()

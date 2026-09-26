@@ -96,10 +96,7 @@ describe('R34D-18：readVersionRaw 字节保真读', () => {
     const id = writeVersion(dir, docId, body, { origin: 'manual' })
     expect(id).not.toBeNull()
     // 手工重写档案头：起始/闭合 fence 均带尾随空白（起始 [ \t]、闭合 [ \t]\r 混合形态）
-    writeFileSync(
-      join(dir, docId, `${id}.md`),
-      `--- \n版本ID: ${id}\n来源: manual\n---\t\r\n${body}`,
-    )
+    writeFileSync(join(dir, docId, `${id}.md`), `--- \n版本ID: ${id}\n来源: manual\n---\t\r\n${body}`)
     const raw = readVersionRaw(dir, docId, id!)
     expect(raw).not.toBeNull()
     expect(raw!.content.toString('utf-8')).toBe(body)

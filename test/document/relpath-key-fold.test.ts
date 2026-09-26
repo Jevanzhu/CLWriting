@@ -95,7 +95,9 @@ describe('R38-18: 启动迁移链退避收编（目录级机制扫描）', () =>
 
   it('install/ 全目录零裸 renameSync 调用（目录级扫描——新增文件自动在射程内）', () => {
     const dir = join(srcRoot, 'install')
-    const files = (readdirSync(dir, { recursive: true, encoding: 'utf-8' }) as string[]).filter((f) => f.endsWith('.ts'))
+    const files = (readdirSync(dir, { recursive: true, encoding: 'utf-8' }) as string[]).filter((f) =>
+      f.endsWith('.ts'),
+    )
     expect(files.length).toBeGreaterThan(0) // 扫描面非空（防目录改名后断言空转）
     for (const f of files) {
       const code = codeOf(readFileSync(join(dir, f), 'utf-8'))

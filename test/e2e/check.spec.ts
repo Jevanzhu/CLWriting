@@ -19,8 +19,7 @@ import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-bas
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 const CHAPTER_1 = (): string =>
   join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '写作', '正文', '0001-初入宗门.md')
-const ROSTER = (): string =>
-  join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '设定', '名册.md')
+const ROSTER = (): string => join(process.env['CLWRITING_E2E_WORKDIR']!, '长篇', '长篇测试书', '设定', '名册.md')
 
 let origChapter: string
 let rosterExisted: boolean

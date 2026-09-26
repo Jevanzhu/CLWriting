@@ -37,11 +37,18 @@ const lastWarnAt = new Map<string, number>()
 let proxyEnvWarned = false
 function warnProxyEnvOnce(): void {
   if (proxyEnvWarned) return
-  const hasProxyEnv =
-    !!(process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy)
+  const hasProxyEnv = !!(
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy
+  )
   if (!hasProxyEnv) return
   proxyEnvWarned = true
-  log.warn('rag', '检测到代理环境变量（HTTPS_PROXY/HTTP_PROXY 系），但当前版本出站请求不支持经代理——中转端点可直连，官方端点需网络可达（代理支持待后续版本）')
+  log.warn(
+    'rag',
+    '检测到代理环境变量（HTTPS_PROXY/HTTP_PROXY 系），但当前版本出站请求不支持经代理——中转端点可直连，官方端点需网络可达（代理支持待后续版本）',
+  )
 }
 
 function warnEmbedFailure(endpoint: string, reason: string): void {
@@ -82,9 +89,7 @@ export async function embed(
 
   const timeoutMs = options.timeoutMs ?? 30_000
   const controller = timeoutMs > 0 ? new AbortController() : null
-  const timer = controller
-    ? setTimeout(() => controller.abort(), timeoutMs)
-    : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
 
   try {
     const resp = await fetch(endpoint, {

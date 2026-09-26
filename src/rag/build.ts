@@ -303,7 +303,10 @@ export async function buildIndex(
     if (n !== undefined) brokenChapterNums.add(n)
   }
   if (brokenChapterNums.size > 0) {
-    log.warn('rag', `${brokenChapterNums.size} 章正文 frontmatter 解析失败（章号：${[...brokenChapterNums].sort((a, b) => a - b).join('、')}）——本轮索引跳过且保留其既有向量，修复后自动恢复`)
+    log.warn(
+      'rag',
+      `${brokenChapterNums.size} 章正文 frontmatter 解析失败（章号：${[...brokenChapterNums].sort((a, b) => a - b).join('、')}）——本轮索引跳过且保留其既有向量，修复后自动恢复`,
+    )
   }
 
   // （GLM-5.3 修复批）：增量路径对齐同文件 reset/
@@ -468,7 +471,16 @@ export async function buildIndex(
     // 低章号时不回退（更高章仍已索引），读失败时不越过失败章
     const cursorTarget = Math.max(indexedMax, chapterHashes.size > 0 ? Math.max(...chapterHashes.keys()) : 0)
 
-    const committed = await commitIndexBatch(db, config, allChunks, chapterHashes, cursorTarget, embedFn, apiKey, embedOptionsFor(bookRoot, config))
+    const committed = await commitIndexBatch(
+      db,
+      config,
+      allChunks,
+      chapterHashes,
+      cursorTarget,
+      embedFn,
+      apiKey,
+      embedOptionsFor(bookRoot, config),
+    )
     if (!committed.ok && readFailAt !== null) {
       // 读失败与 embed 失败叠加时并列两成因——此前直接透传
       // embed 失败信封，「第 N 章正文读取失败」被丢弃（作者只见 embed 报错，修好端点
@@ -562,7 +574,10 @@ async function commitIndexBatch(
       }
     }
     if (batchVec.length !== batchTexts.length || batchVec.some((v) => v.length !== refDim)) {
-      log.warn('rag', `embedding 批响应条数/维度异常（期望 ${batchTexts.length} 行 × ${refDim ?? '?'} 维，实得 ${batchVec.length} 行）——该批起不入库，已成功部分续传`)
+      log.warn(
+        'rag',
+        `embedding 批响应条数/维度异常（期望 ${batchTexts.length} 行 × ${refDim ?? '?'} 维，实得 ${batchVec.length} 行）——该批起不入库，已成功部分续传`,
+      )
       failedAt = i
       break
     }

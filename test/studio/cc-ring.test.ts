@@ -231,4 +231,3 @@ test('execRing 分桶: interrupted 全停——两腿齐关，迟到消费者零
   await pendingA
   ccDriver.dispose(session)
 })
-

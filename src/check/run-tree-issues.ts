@@ -347,7 +347,16 @@ function* loadTreeIssuesInputs(
     log.warn('check', `章文件解析失败（树红点对该章失明）：${pe.file}——${pe.message}`)
   }
   const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters, manifest)
-  return { bodyDir, bodyChapters, chaptersParseDegraded, pathToDocId, entryByPath, manifestDegraded, maxWritten, cacheEnabled }
+  return {
+    bodyDir,
+    bodyChapters,
+    chaptersParseDegraded,
+    pathToDocId,
+    entryByPath,
+    manifestDegraded,
+    maxWritten,
+    cacheEnabled,
+  }
 }
 
 /** 账本全书性红项段产物（本书一次算 + 独立指纹缓存）。 */
@@ -378,9 +387,10 @@ function* computeLeadsBookRed(
       // computeTreeIssuesGlobalFp，聚合的全局目录递归 stat 自此首（epochFp0）尾
       // （epochFpEnd）各一遍（口径成立，见下方待落盘段注）；基线缺席（前算
       // 失败为 null）回落全算，非空/null 分支语义保持。
-      const leadsFp = epochFp0 !== null
-        ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
-        : computeLeadsBookFp(bookRoot, userDataPath)
+      const leadsFp =
+        epochFp0 !== null
+          ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
+          : computeLeadsBookFp(bookRoot, userDataPath)
       const cachedRed = readLeadsBookRed(db, leadsFp)
       if (cachedRed !== null) {
         leadsBookRed = cachedRed
@@ -401,9 +411,10 @@ function* computeLeadsBookRed(
         // 轮基线纪元、全局输入一变读侧 leadsFp 必全等失配 miss 自愈重算（readLeadsBookRed
         // 的 fp 比对即失效判定，语义不变；mtimeNs 粒度下旧 fp 值不可复现，无脏读面）
         // ——两分支下轮都付同一次重算，仅少留一行必然失效的单键值。
-        const leadsFpNow = epochFp0 !== null
-          ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
-          : computeLeadsBookFp(bookRoot, userDataPath)
+        const leadsFpNow =
+          epochFp0 !== null
+            ? yield* computeLeadsBookFpFromEpochFpCore(bookRoot, epochFp0)
+            : computeLeadsBookFp(bookRoot, userDataPath)
         if (leadsFpNow === leadsFp) {
           writeLeadsBookRed(db, leadsFp, leadsBookRed)
         } else {
@@ -586,8 +597,22 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       // 窗口内纪元变了则本轮不落缓存（下轮重算）。：比较用轮内缓存值。
       // 直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）。
       // 轮内缓存值即基线 epochFp0（轮前复核遍已消重），入列闸 = 基线存在。
-      if (shouldQueueChapterCacheRow({ checkFailed, cacheEnabled, hasDb: db !== null, hasEpochBaseline: epochFp0 !== null })) {
-        pendingCacheWrites.push({ relPath, chapterFp, size: chapterSt.size, verdictFp, value: { hasRed, verdictRejected }, epochFp: epochFp0! })
+      if (
+        shouldQueueChapterCacheRow({
+          checkFailed,
+          cacheEnabled,
+          hasDb: db !== null,
+          hasEpochBaseline: epochFp0 !== null,
+        })
+      ) {
+        pendingCacheWrites.push({
+          relPath,
+          chapterFp,
+          size: chapterSt.size,
+          verdictFp,
+          value: { hasRed, verdictRejected },
+          epochFp: epochFp0!,
+        })
       }
       const entryValue = treeIssuesChapterEntry(hasRed, verdictRejected, leadsBookRed)
       if (entryValue) issues[docId] = entryValue
@@ -645,7 +670,14 @@ function* collectTreeIssuesCore(
   try {
     const inputs = yield* loadTreeIssuesInputs(pre, bookRoot, userDataPath ?? null)
     const leads = yield* computeLeadsBookRed(pre, inputs.maxWritten, bookRoot, userDataPath ?? null)
-    const chapters = yield* collectChapterRedDots({ bookRoot, userDataPath: userDataPath ?? null, pre, inputs, leadsBookRed: leads.leadsBookRed, readReviewVerdict })
+    const chapters = yield* collectChapterRedDots({
+      bookRoot,
+      userDataPath: userDataPath ?? null,
+      pre,
+      inputs,
+      leadsBookRed: leads.leadsBookRed,
+      readReviewVerdict,
+    })
     return assembleTreeIssuesResult({
       issues: chapters.issues,
       rebuildFailed: pre.rebuildFailed,

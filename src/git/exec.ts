@@ -23,9 +23,7 @@ import { testableConst } from '../shared/testable.js'
 // ── 统一 git 执行器（#16 第 3 节）──────────────────
 
 /** git 调用结果：成功带 stdout，失败带人话 */
-type GitResult =
-  | { ok: true; stdout: string }
-  | { ok: false; humanMsg: string; stderr?: string }
+type GitResult = { ok: true; stdout: string } | { ok: false; humanMsg: string; stderr?: string }
 
 /**
  * git 单次调用超时：仓库锁 / 交互提示 / 挂载盘无响应时 spawnSync 会永久阻塞
@@ -102,8 +100,10 @@ const GIT_MAX_BUFFER = 64 * 1024 * 1024
  */
 export function hardenGitArgs(args: string[]): string[] {
   return [
-    '-c', 'core.fsmonitor=false',
-    '-c', `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
     ...args,
   ]
 }
@@ -150,7 +150,10 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   // git 本身失败，与普通失败混流会让静默降级（空表/跳过迁移）无从定位；抬高 maxBuffer
   // 后理论不可达，真触顶时 log.warn 供诊断。
   if (errCode === 'ENOBUFS') {
-    log.warn('git', `git 输出超限（ENOBUFS，${args.join(' ')}）：子进程 stdout 超 maxBuffer ${GIT_MAX_BUFFER} 字节被截断，结果按失败返回`)
+    log.warn(
+      'git',
+      `git 输出超限（ENOBUFS，${args.join(' ')}）：子进程 stdout 超 maxBuffer ${GIT_MAX_BUFFER} 字节被截断，结果按失败返回`,
+    )
   }
   return {
     ok: false,
@@ -274,10 +277,7 @@ export function gitAsync(
         ok: false,
         // 同款：ENOENT（找不到 git 可执行）特判人话
         // -mac适配：文案按平台分支（与同步 git 共用 gitMissingHint 单源）
-        humanMsg:
-          code === 'ENOENT'
-            ? gitMissingHint()
-            : `git 操作失败（${args.join(' ')}）：${err.message}`,
+        humanMsg: code === 'ENOENT' ? gitMissingHint() : `git 操作失败（${args.join(' ')}）：${err.message}`,
         stderr: err.message,
       })
     })
@@ -379,11 +379,19 @@ export function scanCloudCopies(bookRoot: string): string[] {
       // 暂存同理不扫。跳过在 patterns 判定前，`._*` 伴生不因目录面扩大而误入候选
       //（顶层/内容区的 `._*` 维持既有「报为副本」口径不变）。
       if (
-        e.name === '.git' || e.name === 'node_modules' || e.name === '.cache' ||
-        e.name === '.版本' || e.name === '.trash' ||
-        e.name === '.journal' || e.name === '.snapshots' || e.name === '.账本推进暂存' ||
-        e.name === 'spills' || e.name === '待定稿' || e.name === '导出'
-      ) continue
+        e.name === '.git' ||
+        e.name === 'node_modules' ||
+        e.name === '.cache' ||
+        e.name === '.版本' ||
+        e.name === '.trash' ||
+        e.name === '.journal' ||
+        e.name === '.snapshots' ||
+        e.name === '.账本推进暂存' ||
+        e.name === 'spills' ||
+        e.name === '待定稿' ||
+        e.name === '导出'
+      )
+        continue
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         walk(full)

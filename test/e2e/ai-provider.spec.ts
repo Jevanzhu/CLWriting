@@ -120,7 +120,9 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await expect(card.locator('.current-badge')).toContainText('当前')
 
   // 后端 ai-status 即刻可达（P0-2 无缓存）
-  const j = await (await page.request.get(`${BASE}/api/ai-status`, { headers: { 'x-studio-token': studioToken } })).json()
+  const j = await (
+    await page.request.get(`${BASE}/api/ai-status`, { headers: { 'x-studio-token': studioToken } })
+  ).json()
   expect(j).toMatchObject({ available: true })
 
   // —— RAG 提供方：切到面板内「RAG 提供方」分页管理 ——
@@ -149,14 +151,18 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   const ragGroup = page.locator('.cfg-card-head', { hasText: '知识检索' }).locator(' + .cfg-card')
   await ragGroup.locator('.setting-item', { hasText: '本书使用独立设定' }).locator('.switch').click()
   await ragGroup.locator('.setting-item', { hasText: '启用检索' }).locator('.switch').click()
-  const ragList = await (await page.request.get(`${BASE}/api/rag-providers`, { headers: { 'x-studio-token': studioToken } })).json()
+  const ragList = await (
+    await page.request.get(`${BASE}/api/rag-providers`, { headers: { 'x-studio-token': studioToken } })
+  ).json()
   expect(ragList.ragProviders).toHaveLength(1)
   await ragGroup.locator('.rag-prov-select').selectOption(ragList.ragProviders[0].id)
 
   // GET 信封是 {config}；saveConfig 的 PUT 串行但在途，用 poll 等落盘
   await expect
     .poll(async () => {
-      const c = await (await page.request.get(`${BASE}/api/books/长篇测试书/config`, { headers: { 'x-studio-token': studioToken } })).json()
+      const c = await (
+        await page.request.get(`${BASE}/api/books/长篇测试书/config`, { headers: { 'x-studio-token': studioToken } })
+      ).json()
       return c.config?.rag ?? null
     })
     .toMatchObject({ enabled: true, provider: ragList.ragProviders[0].id })
@@ -193,7 +199,9 @@ test('Responses 协议三选一：添加 openai-responses 供应商保存成功'
   await expect(card.locator('.tag')).toHaveText('Responses')
 
   // 持久化核验：GET /api/providers 返回该条目且 protocol 字段保真
-  const j = await (await page.request.get(`${BASE}/api/providers`, { headers: { 'x-studio-token': studioToken } })).json()
+  const j = await (
+    await page.request.get(`${BASE}/api/providers`, { headers: { 'x-studio-token': studioToken } })
+  ).json()
   const saved = j.providers.find((p: { name: string }) => p.name === 'Responses 官方')
   expect(saved).toMatchObject({ protocol: 'openai-responses', auth: 'bearer' })
   expect(saved.apiKey).toBe('')

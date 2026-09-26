@@ -60,7 +60,11 @@ function prov(id: string, apiKey: string): ProviderStore['providers'][number] {
 }
 
 function diskVault(fp: string): { v: number; dek: Record<string, unknown>; keys: Record<string, unknown> } {
-  return (JSON.parse(readFileSync(fp, 'utf8')) as { vault: { v: number; dek: Record<string, unknown>; keys: Record<string, unknown> } }).vault
+  return (
+    JSON.parse(readFileSync(fp, 'utf8')) as {
+      vault: { v: number; dek: Record<string, unknown>; keys: Record<string, unknown> }
+    }
+  ).vault
 }
 
 describe('KEK v2：providers.json OS 通道迁移链', () => {
@@ -95,7 +99,16 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
     store.providers = [prov('p1', 'sk-chat'), prov('p2', 'sk-chat2')]
     // 连带修（0918三轮修复批）：原字面量误用 chat 形态字段（protocol/auth/baseUrl），
     // RagProviderConf 无此三键 → tsc TS2353；改合法形状（endpoint/caps），断言面零变
-    store.ragProviders = [{ id: 'r1', name: 'r1', endpoint: 'https://example.invalid/v1/embeddings', model: 'embed-x', apiKey: 'sk-embed', caps: null }]
+    store.ragProviders = [
+      {
+        id: 'r1',
+        name: 'r1',
+        endpoint: 'https://example.invalid/v1/embeddings',
+        model: 'embed-x',
+        apiKey: 'sk-embed',
+        caps: null,
+      },
+    ]
     saveProviders(ud, store)
 
     process.env['CLW_OS_KEK'] = OS_KEK_HEX

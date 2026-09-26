@@ -56,12 +56,7 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
       try {
         store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
       } catch (e) {
-        return replyError(
-          res,
-          500,
-          'STORE_UNAVAILABLE',
-          `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
-        )
+        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
       }
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {

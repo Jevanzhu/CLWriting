@@ -27,13 +27,15 @@ afterEach(() => {
 const writeCh = (rel: string, chapter: number, title: string, body: string, fmExtra = '') => {
   const abs = join(root, rel)
   mkdirSync(join(abs, '..'), { recursive: true })
-  writeFileSync(abs, `---\n章号: ${chapter}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n${body}\n`)
+  writeFileSync(
+    abs,
+    `---\n章号: ${chapter}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n${body}\n`,
+  )
   return abs
 }
 
 /** walkMdFind 产 realpath（mac /var → /private/var），与 root 拼接路径对齐后比较 */
-const samePath = (a: string | null, b: string): boolean =>
-  a !== null && realpathSync(a) === realpathSync(b)
+const samePath = (a: string | null, b: string): boolean => a !== null && realpathSync(a) === realpathSync(b)
 
 describe('S2 mergedIntoMap：并入映射构建', () => {
   it('目标章 并入 数组逐项登记（源章号 → 目标章路径）；无 并入 章不登记', () => {

@@ -67,10 +67,7 @@ const NEW_KIND_BY_KEY: Record<string, 'chapter-outline' | 'volume-outline' | 'ch
   'new-foreshadow': 'foreshadow',
 }
 
-export function useChapterTreeActions(deps: {
-  bookName: () => string
-  openError: Ref<string | null>
-}) {
+export function useChapterTreeActions(deps: { bookName: () => string; openError: Ref<string | null> }) {
   const tree = useTreeStore()
   const doc = useDocStore()
   const ws = useWorkspaceStore()
@@ -158,12 +155,10 @@ export function useChapterTreeActions(deps: {
     else if (key === 'rename') renamePath.value = node.path
     else if (key === 'finalize') {
       if (node.docId) void doc.finalize(node.docId)
-    }
-    else if (key === 'batch-finalize') {
+    } else if (key === 'batch-finalize') {
       const docIds = pendingChaptersUpTo(node)
       if (docIds.length) void doBatchFinalize(docIds)
-    }
-    else if (key === 'meta') {
+    } else if (key === 'meta') {
       const isPiece = node.role === 'piece-body'
       // 短篇/长篇均从文件名提取编号+标题（短篇 写作/正文/N-标题.md，长篇 写作/正文/[卷/]N-标题.md）
       // 注意：TreeNode.path 是完整相对路径（写作/正文/N-标题.md），章号只能从 name 提取（与 pendingChaptersUpTo 一致）
@@ -210,7 +205,9 @@ export function useChapterTreeActions(deps: {
         : ''
       ui.toast(
         `已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${
-          failed ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failed > 1 ? `（等 ${failed} 项）` : ''}` : ''
+          failed
+            ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failed > 1 ? `（等 ${failed} 项）` : ''}`
+            : ''
         }${degradedNote}`,
         failed ? 'error' : degradedItems.length ? 'warning' : 'success',
       )
@@ -524,28 +521,22 @@ export function useChapterTreeActions(deps: {
   }
 
   // ── 拆分接线：新建/结构子 composable（refs 与守卫经 deps 原样传入）──
-  const {
-    onNewChapter,
-    createSingleton,
-    dispatchCreate,
-    startCreate,
-    onCreateCommit,
-    onCreateCancel,
-  } = useChapterTreeCreate({
-    bookName: deps.bookName,
-    openError: deps.openError,
-    tree,
-    doc,
-    ws,
-    ui,
-    stillIn,
-    failScoped,
-    creating,
-    lastVolumePath,
-    nextChapterNo,
-    volumeCount,
-    bodyPadKind,
-  })
+  const { onNewChapter, createSingleton, dispatchCreate, startCreate, onCreateCommit, onCreateCancel } =
+    useChapterTreeCreate({
+      bookName: deps.bookName,
+      openError: deps.openError,
+      tree,
+      doc,
+      ws,
+      ui,
+      stillIn,
+      failScoped,
+      creating,
+      lastVolumePath,
+      nextChapterNo,
+      volumeCount,
+      bodyPadKind,
+    })
   const { doMergeIntoPrev, doMergeUndo, doSplitHere, onSplitCommit } = useChapterTreeStructure({
     bookName: deps.bookName,
     openError: deps.openError,

@@ -19,11 +19,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  readKnowledgeManifest,
-  validateKnowledgeManifest,
-  KNOWLEDGE_MANIFEST,
-} from '../../src/knowledge/manifest.js'
+import { readKnowledgeManifest, validateKnowledgeManifest, KNOWLEDGE_MANIFEST } from '../../src/knowledge/manifest.js'
 import { commitKnowledgeFile } from '../../src/knowledge/update.js'
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'

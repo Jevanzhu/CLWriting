@@ -81,9 +81,15 @@ vi.mock('../../../src/studio/web-next/src/composables/useChapterTreeActions', ()
   }),
 }))
 vi.mock('../../../src/studio/web-next/src/components/ui/ContextMenu.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue', () => ({
+  default: { template: '<div />' },
+}))
+vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({
+  default: { template: '<div />' },
+}))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({
+  default: { template: '<div />' },
+}))
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 

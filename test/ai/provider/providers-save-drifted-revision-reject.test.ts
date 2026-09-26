@@ -62,7 +62,14 @@ function driftDiskByOtherWriter(): void {
     providers: Array<Record<string, unknown> & { id: string }>
   }
   raw.revision += 1
-  raw.providers.push({ id: 'other-writer', name: '他写方', protocol: 'openai', auth: 'bearer', baseUrl: 'https://other.example.com', sortIndex: 99 })
+  raw.providers.push({
+    id: 'other-writer',
+    name: '他写方',
+    protocol: 'openai',
+    auth: 'bearer',
+    baseUrl: 'https://other.example.com',
+    sortIndex: 99,
+  })
   writeFileSync(FP(), JSON.stringify(raw, null, 2), 'utf8')
 }
 
@@ -155,7 +162,11 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
 
   it('legacy 文件无 revision 键：load 基线 0 = 盘上 0，save 照常写（兼容不破）', () => {
     const conf = makeConf({ id: 'legacy-a', apiKey: 'sk-legacy-secret' })
-    writeFileSync(FP(), JSON.stringify({ providers: [{ ...conf, apiKey: undefined }], currentId: 'legacy-a' }, null, 2), 'utf8')
+    writeFileSync(
+      FP(),
+      JSON.stringify({ providers: [{ ...conf, apiKey: undefined }], currentId: 'legacy-a' }, null, 2),
+      'utf8',
+    )
     const s = loadProviders(dir)
     expect(s.revision).toBe(0)
     saveProviders(dir, s) // 盘上无 revision 键 → 0，基线一致 → 放行

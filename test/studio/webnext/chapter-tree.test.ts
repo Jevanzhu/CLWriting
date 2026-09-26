@@ -108,7 +108,10 @@ describe('树派生计数与定位', () => {
     const t = fixtureTree()
     const ch2 = mustFind(t.grouped, '写作/正文/第一卷/0002-迷雾.md')
     const targets = moveToTargetsFor(ch2, t.grouped)
-    expect(targets).toEqual([{ label: '正文根', dir: '写作/正文' }, { label: '第二卷', dir: '写作/正文/第二卷' }])
+    expect(targets).toEqual([
+      { label: '正文根', dir: '写作/正文' },
+      { label: '第二卷', dir: '写作/正文/第二卷' },
+    ])
   })
 })
 
@@ -191,7 +194,13 @@ describe('useTreeMenu 菜单构建', () => {
     expect(keys).not.toContain('reveal-in-folder')
   })
   test('短篇 piece-body → 篇章信息（非章节信息），无移动/副本', () => {
-    const piece = node({ path: '写作/正文/001-短篇.md', name: '001-短篇.md', docId: 'p1', role: 'piece-body', status: 'draft' })
+    const piece = node({
+      path: '写作/正文/001-短篇.md',
+      name: '001-短篇.md',
+      docId: 'p1',
+      role: 'piece-body',
+      status: 'draft',
+    })
     const keys = menu.buildMenuItems(piece).map((i) => i.key)
     expect(keys).toContain('meta')
     expect(keys).toContain('finalize')

@@ -393,7 +393,9 @@ function enqueueWrite(line: string): void {
             // fail-open：落盘失败（磁盘满/目录被删）降级 stderr 直写保这条留痕可见；
             // 泵继续（catch 已吞），后续写入照常尝试。错误码随行带出（丢行可归因）。
             // 直写不走 console API——测试收尾窗竞态见文件头注（vitest#11153）。
-            process.stderr.write(`[log] 落盘失败（${e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : String(e)}），降级 stderr：${pending}\n`)
+            process.stderr.write(
+              `[log] 落盘失败（${e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.message) : String(e)}），降级 stderr：${pending}\n`,
+            )
           }
         }
       } finally {

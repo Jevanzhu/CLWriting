@@ -74,7 +74,7 @@ describe('F1-P1 会话落库', () => {
     const ud = setup()
     await runOne(ud, 'evt-a', '第一轮问题')
 
-    const store = openSessionStore(ud, bookRoot)!;
+    const store = openSessionStore(ud, bookRoot)!
     const evs = store.listEvents('evt-a')
     store.close()
     // 事件序列：session/start, turn/start, user/message, assistant/message, turn/end, session/end
@@ -127,7 +127,7 @@ describe('F1-P1 压缩走遮蔽', () => {
       fake.setScript([{ type: 'text', content: '第' + i + '轮回复' }])
       await runOne(ud, 'evt-c', '第' + i + '轮问题' + String.fromCharCode(64 + i) + '细节'.repeat(60))
     }
-    const store = openSessionStore(ud, bookRoot)!;
+    const store = openSessionStore(ud, bookRoot)!
     const evs = store.listEvents('evt-c')
     store.close()
     const compactions = evs.filter((e) => e.type === 'compaction/end' && e.surfaceOp === 'replace')
@@ -372,7 +372,6 @@ describe('F1-P4 regenerate 回合分支元数据（G1 接线修复回归）', ()
   })
 })
 
-
 describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一）', () => {
   it('regenerate 成功 → 其后普通回合的 user/assistant 事件带 branchId 进组；切其他变体时续聊被正确排除', async () => {
     const ud = setup()
@@ -391,9 +390,9 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     let rewriteSeq: number
     {
       const store = openSessionStore(ud, bookRoot)!
-      rewriteSeq = store.listEvents('z-lineage').find(
-        (e) => e.type === 'assistant/message' && e.data['message'] === '重写版回复。',
-      )!.seq
+      rewriteSeq = store
+        .listEvents('z-lineage')
+        .find((e) => e.type === 'assistant/message' && e.data['message'] === '重写版回复。')!.seq
       store.close()
     }
 
@@ -461,9 +460,9 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     let contUserSeq: number
     {
       const store = openSessionStore(ud, bookRoot)!
-      contUserSeq = store.listEvents('r63-chain').find(
-        (e) => e.type === 'user/message' && e.data['message'] === '续聊问题',
-      )!.seq
+      contUserSeq = store
+        .listEvents('r63-chain')
+        .find((e) => e.type === 'user/message' && e.data['message'] === '续聊问题')!.seq
       store.close()
     }
     fake.setScript([{ type: 'text', content: '重答续聊。' }])

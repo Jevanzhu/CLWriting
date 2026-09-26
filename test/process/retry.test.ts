@@ -4,19 +4,23 @@ import type { CheckReport } from '../../src/check/types.js'
 
 function redReport(msg = '命中禁词'): CheckReport {
   return {
-    sections: [{
-      name: '禁词',
-      items: [{ checkId: 'banned-word', level: 'red', message: msg }],
-    }],
+    sections: [
+      {
+        name: '禁词',
+        items: [{ checkId: 'banned-word', level: 'red', message: msg }],
+      },
+    ],
   }
 }
 
 function yellowReport(): CheckReport {
   return {
-    sections: [{
-      name: '复读',
-      items: [{ checkId: 'repeat', level: 'yellow', message: '复读3处' }],
-    }],
+    sections: [
+      {
+        name: '复读',
+        items: [{ checkId: 'repeat', level: 'yellow', message: '复读3处' }],
+      },
+    ],
   }
 }
 

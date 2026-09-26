@@ -43,7 +43,14 @@ test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) 
   // 本 test 核心是 selection 读取链路（editorGetSelection→getSelection→后端 local）。
   await page.evaluate(() => {
     const content = document.querySelector('.cm-content') as unknown as {
-      cmTile?: { root?: { view?: { dispatch: (s: { selection: { anchor: number; head: number } }) => void; state: { doc: { length: number } } } } }
+      cmTile?: {
+        root?: {
+          view?: {
+            dispatch: (s: { selection: { anchor: number; head: number } }) => void
+            state: { doc: { length: number } }
+          }
+        }
+      }
     }
     const view = content?.cmTile?.root?.view
     if (!view) return

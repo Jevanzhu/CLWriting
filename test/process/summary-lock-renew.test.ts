@@ -82,7 +82,13 @@ describe('R27-105: 摘要锁续期接线', () => {
         'utf-8',
       )
       state.holdChapter = true
-      const p = generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: body })
+      const p = generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: body,
+      })
       const lockPath = join(root, '工作区', '.摘要锁-章1.lock') // R28-14：锁名补 .lock 后缀
       await waitForLock(lockPath)
       const m0 = Math.floor(statSync(lockPath).mtimeMs)
@@ -119,7 +125,13 @@ describe('R27-105: 摘要锁续期接线', () => {
         const e = m.entries.get(id)!
         e.finalizedRevision = computeRevision(body)
         e.finalizedAt = new Date().toISOString()
-        const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: no, bodyAbsPath: body })
+        const r = await generateChapterSummary({
+          bookRoot: root,
+          userDataPath: null,
+          config: DEFAULT_CONFIG,
+          chapter: no,
+          bodyAbsPath: body,
+        })
         expect(r.ok).toBe(true)
         expect(existsSync(chapterSummaryPath(root, no))).toBe(true)
       }

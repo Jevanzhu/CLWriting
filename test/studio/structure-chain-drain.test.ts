@@ -32,7 +32,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-struct-drain-',
     dirs: ['写作/正文/第一卷', '工作区'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 结构链排水书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 结构链排水书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 
@@ -131,11 +132,11 @@ describe('阶段 24（S3/S4）: structure 串行链与删书排水', () => {
   })
 
   it('书已删后迟到 structure-apply → 入口 404（resolveBook 守卫，不写旧键）', async () => {
-    const r = await studio.req(
-      'POST',
-      `/api/books/${encodeURIComponent(BOOK)}/documents/doc_late/structure-apply`,
-      { op: 'merge', sourceDocId: 'doc_gone', planHash: 'p' },
-    )
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_late/structure-apply`, {
+      op: 'merge',
+      sourceDocId: 'doc_gone',
+      planHash: 'p',
+    })
     expect(r.status).toBe(404)
     expect(existsSync(join(studio.workDir, BOOK))).toBe(false)
   })

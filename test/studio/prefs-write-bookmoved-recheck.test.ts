@@ -37,7 +37,11 @@ function makeBook(name: string): Rig {
   )
   const bookRoot = join(workDir, '长篇', name)
   mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`,
+    'utf-8',
+  )
   const handlers = withRouteTable(createRouteTable(), () => {
     registerPrefsRoutes({ workDir, userDataPath: null })
     return { prefsPut: getRouteSchema('books.prefs.put')! }

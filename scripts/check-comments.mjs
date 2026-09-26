@@ -43,11 +43,15 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-/** 扫描的根配置文件（构建配置同病：构建期注释曾数倍于代码）。 */
+/**
+ * 扫描的根配置文件（构建配置同病：构建期注释曾数倍于代码）。
+ * prettier.config.mjs 同属根配置面——工具链配置的注释同样只该写约束与取值依据。
+ */
 export const ROOT_CONFIG_FILES = [
   'tsup.config.ts',
   'vitest.config.ts',
   'eslint.config.js',
+  'prettier.config.mjs',
   'playwright.config.ts',
 ]
 
@@ -91,8 +95,44 @@ export const ANCHOR_ALLOWLIST = []
 
 // 正则字面量起判位置：上一有效符号在这些字符后、或上一完整词是这些关键字时，
 // `/` 开正则态而非除法。（`return /re/` vs `a / b` 的经典歧义启发式。）
-const REGEX_AFTER = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '~', '^', '<', '>', '\n'])
-const REGEX_KEYWORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'do', 'else', 'yield', 'await', 'instanceof'])
+const REGEX_AFTER = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '~',
+  '^',
+  '<',
+  '>',
+  '\n',
+])
+const REGEX_KEYWORDS = new Set([
+  'return',
+  'typeof',
+  'case',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'do',
+  'else',
+  'yield',
+  'await',
+  'instanceof',
+])
 
 /**
  * 逐字符状态机：抽出每行的注释片段。字符串 / 模板串 / 正则字面量内容一律不算注释。
@@ -268,7 +308,7 @@ export function extractCommentLines(text, ext = '.ts') {
           i += 2
           continue
         }
-        if (text[i] === '/' ) {
+        if (text[i] === '/') {
           i++
           break
         }
@@ -309,7 +349,10 @@ export function extractCommentLines(text, ext = '.ts') {
 export function isAllowlisted(file, lineText, allowlist = ANCHOR_ALLOWLIST) {
   return allowlist.some(
     (a) =>
-      (file === a.file || file.endsWith(sep + a.file) || file.endsWith('/' + a.file) || file.replace(/^src\//, '') === a.file) &&
+      (file === a.file ||
+        file.endsWith(sep + a.file) ||
+        file.endsWith('/' + a.file) ||
+        file.replace(/^src\//, '') === a.file) &&
       lineText.includes(a.contains),
   )
 }

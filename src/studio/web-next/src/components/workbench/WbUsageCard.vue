@@ -61,10 +61,7 @@ async function load(): Promise<void> {
   const gen = loadGen.begin()
   loaded.value = false
   try {
-    const [trace, costR] = await Promise.all([
-      traceStats.getStats(props.bookName),
-      loadCost(props.bookName),
-    ])
+    const [trace, costR] = await Promise.all([traceStats.getStats(props.bookName), loadCost(props.bookName)])
     if (loadGen.stale(gen)) return
     if (!armed) return // 卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
@@ -89,7 +86,10 @@ async function load(): Promise<void> {
 onMounted(() => void load())
 // 同类：切书组件实例复用（WorkbenchView 不加 :key），此前仅挂载拉一次，
 // 旧书的调用量/金额会残留挂在新书工作台——金额属敏感数据错位
-watch(() => props.bookName, () => void load())
+watch(
+  () => props.bookName,
+  () => void load(),
+)
 
 const tasks = computed(() =>
   Object.entries(byTask.value)
@@ -112,7 +112,10 @@ const trend = computed(() => {
       byDay[day] = (byDay[day] ?? 0) + d.count
     }
   }
-  return Object.keys(byDay).sort().slice(-14).map((day) => ({ day, count: byDay[day]! }))
+  return Object.keys(byDay)
+    .sort()
+    .slice(-14)
+    .map((day) => ({ day, count: byDay[day]! }))
 })
 
 const trendMax = computed(() => Math.max(1, ...trend.value.map((t) => t.count)))
@@ -157,7 +160,13 @@ function fmtMs(n: number): string {
 
       <table class="usage-table">
         <thead>
-          <tr><th>任务</th><th>次数</th><th>tokens</th><th>P50 / P95</th><th>成功率</th></tr>
+          <tr>
+            <th>任务</th>
+            <th>次数</th>
+            <th>tokens</th>
+            <th>P50 / P95</th>
+            <th>成功率</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="t in tasks" :key="t.task">

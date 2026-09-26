@@ -40,11 +40,15 @@ async function collectOpenAI(client: OpenAI, req: GenRequest): Promise<GenEvent[
 describe('R33-3: openai 线 usage-only chunk 不充当完成证据', () => {
   it('usage 块提前 + 无 finish_reason 断流 → 报传输截断错误，不发 done（修复前假 done stop）', async () => {
     const client = {
-      chat: { completions: { create: fakeSend([
-        { choices: [{ delta: { content: '写到一半的正文' }, finish_reason: null }] },
-        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } }, // usage 先行
-        // 随后断流：无 finish_reason chunk
-      ]) } },
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { content: '写到一半的正文' }, finish_reason: null }] },
+            { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } }, // usage 先行
+            // 随后断流：无 finish_reason chunk
+          ]),
+        },
+      },
     } as unknown as OpenAI
     const evs = await collectOpenAI(client, { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
@@ -53,10 +57,14 @@ describe('R33-3: openai 线 usage-only chunk 不充当完成证据', () => {
 
   it('合规 include_usage（finish_reason 先到、usage-only 垫后）→ done 正常带实测 usage', async () => {
     const client = {
-      chat: { completions: { create: fakeSend([
-        { choices: [{ delta: { content: '完整正文。' }, finish_reason: 'stop' }] },
-        { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } },
-      ]) } },
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { content: '完整正文。' }, finish_reason: 'stop' }] },
+            { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } },
+          ]),
+        },
+      },
     } as unknown as OpenAI
     const evs = await collectOpenAI(client, { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
     const done = evs.find((e) => e.type === 'done')
@@ -73,15 +81,25 @@ describe('R33-4: anthropic 线末条 delta 缺 output_tokens 不清零', () => {
 
   it('两条 message_delta：首条带 output 50，末条缺该字段 → done 保留 50（修复前 0）', async () => {
     const client = {
-      messages: { create: fakeSend([
-        { type: 'message_start', message: { usage: { input_tokens: 100 } } },
-        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '正文' } },
-        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 110, output_tokens: 50 } },
-        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 110 } }, // 缺 output_tokens
-      ]) },
+      messages: {
+        create: fakeSend([
+          { type: 'message_start', message: { usage: { input_tokens: 100 } } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '正文' } },
+          {
+            type: 'message_delta',
+            delta: { stop_reason: 'end_turn' },
+            usage: { input_tokens: 110, output_tokens: 50 },
+          },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 110 } }, // 缺 output_tokens
+        ]),
+      },
     } as unknown as Anthropic
     const evs: GenEvent[] = []
-    for await (const ev of createAnthropicProvider(ACONF, client).stream({ systemPrompt: 'sys', messages: [{ role: 'user', content: '问' }] }, new AbortController().signal)) evs.push(ev)
+    for await (const ev of createAnthropicProvider(ACONF, client).stream(
+      { systemPrompt: 'sys', messages: [{ role: 'user', content: '问' }] },
+      new AbortController().signal,
+    ))
+      evs.push(ev)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return

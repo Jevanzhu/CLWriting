@@ -32,22 +32,19 @@ function rawRequest(
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const u = new URL(baseUrl)
-    const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers },
-      (res) => {
-        let data = ''
-        res.on('data', (c) => (data += c.toString('utf-8')))
-        res.on('end', () => {
-          let json: Record<string, unknown> = {}
-          try {
-            json = JSON.parse(data) as Record<string, unknown>
-          } catch {
-            /* 非 JSON */
-          }
-          resolve({ status: res.statusCode ?? 0, json })
-        })
-      },
-    )
+    const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
+      let data = ''
+      res.on('data', (c) => (data += c.toString('utf-8')))
+      res.on('end', () => {
+        let json: Record<string, unknown> = {}
+        try {
+          json = JSON.parse(data) as Record<string, unknown>
+        } catch {
+          /* 非 JSON */
+        }
+        resolve({ status: res.statusCode ?? 0, json })
+      })
+    })
     req.on('error', reject)
     if (body) req.write(body)
     req.end()
@@ -70,7 +67,10 @@ beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-boot-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   mkdirSync(join(workDir, '测试书'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '测试书', path: '测试书', kind: 'long' }) + '\n')
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: '测试书', path: '测试书', kind: 'long' }) + '\n',
+  )
 })
 
 afterAll(async () => {
@@ -192,7 +192,7 @@ describe('R64-30（十二轮）：initialBook 生命周期随 server close 复�
       JSON.stringify({ name: '书A', path: '书A', kind: 'long' }) + '\n',
     )
     const boot = async (base: string): Promise<{ initialBook?: string }> =>
-      ((await (await fetch(`${base}/api/boot`)).json()) as { initialBook?: string })
+      (await (await fetch(`${base}/api/boot`)).json()) as { initialBook?: string }
     try {
       setInitialBook('书A')
       const s1 = await startServerSafe({ port: 0, workDir: workDir2 })

@@ -23,10 +23,7 @@ let workDir = ''
 let baseUrl = ''
 let token = ''
 
-function patchMeta(
-  docId: string,
-  meta: Record<string, unknown>,
-): Promise<{ status: number; json: unknown }> {
+function patchMeta(docId: string, meta: Record<string, unknown>): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
     const u = new URL(baseUrl)
     const req = http.request(
@@ -113,10 +110,7 @@ describe('阶段 24：op=meta 不摘 序/并入 结构键', () => {
   it('章 fm 含 序: 7 + 并入: [5] → 更新 标题（含 rename 链）→ 落盘两键仍在、值不变', async () => {
     // 独立夹具（不动 doc_1 既有链）：新章文件 + legacyId 收编（lookup 扫盘反查登记）
     const rel = '写作/正文/0002-合并目标.md'
-    writeFileSync(
-      join(workDir, BOOK, rel),
-      '---\n章号: 2\n标题: 合并目标\n序: 7\n并入: [5]\n---\n合并目标正文。\n',
-    )
+    writeFileSync(join(workDir, BOOK, rel), '---\n章号: 2\n标题: 合并目标\n序: 7\n并入: [5]\n---\n合并目标正文。\n')
     const r = await patchMeta(legacyId(rel), { 标题: '合并目标改' })
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)

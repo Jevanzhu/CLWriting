@@ -88,8 +88,13 @@ beforeAll(async () => {
   token = studio.token
   for (const n of [1, 2]) {
     const meta: ChapterMeta = {
-      章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: n,
+      标题: `第${n}章`,
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
     writeChapter(
       join(studio.bookRoot, '写作', '正文', `${n}-第${n}章.md`),
@@ -108,7 +113,13 @@ describe('RAG 接线（P1-8 服务商化）', () => {
   it('status 初始态：未建过索引 → 全零 + lastResult null', async () => {
     const r = await api('/rag/status')
     expect(r.status).toBe(200)
-    expect(r.json).toMatchObject({ running: false, indexedChapters: 0, chunkCount: 0, lastResult: null, providerName: null })
+    expect(r.json).toMatchObject({
+      running: false,
+      indexedChapters: 0,
+      chunkCount: 0,
+      lastResult: null,
+      providerName: null,
+    })
   })
 
   it('build 未配置 RAG（book.yaml 无 rag 段）→ 400 前置校验', async () => {
@@ -136,7 +147,12 @@ describe('RAG 接线（P1-8 服务商化）', () => {
     // 造一个 RAG 服务商（key 走 vault，模型名与旧索引一致避免触发重建拦截）
     const create = await gapi('/api/rag-providers', {
       method: 'POST',
-      body: JSON.stringify({ name: '测试嵌入', endpoint: 'http://stub-prov', model: 'stub-model', apiKey: 'sk-rag-test-123' }),
+      body: JSON.stringify({
+        name: '测试嵌入',
+        endpoint: 'http://stub-prov',
+        model: 'stub-model',
+        apiKey: 'sk-rag-test-123',
+      }),
     })
     expect(create.status).toBe(200)
     const providerId = (create.json['provider'] as { id: string }).id
@@ -182,10 +198,19 @@ describe('RAG 接线（P1-8 服务商化）', () => {
       `spec_version: 1\nkind: long\nbook:\n  title: ${LEGACY}\n  genre: 玄幻\nhost: cc\n`,
       'utf8',
     )
-    appendFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: LEGACY, path: LEGACY, kind: 'long' }) + '\n')
+    appendFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: LEGACY, path: LEGACY, kind: 'long' }) + '\n',
+    )
     const db = new DatabaseSync(join(legacyRoot, '.rag.db'))
     createRagTables(db)
-    storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'legacy-model' })
+    storeChunk(db, {
+      章号: 1,
+      start_offset: 0,
+      end_offset: 42,
+      embedding: new Float32Array([1, 0, 0]),
+      model: 'legacy-model',
+    })
     setRagMeta(db, 'embedding_model', 'legacy-model')
     setRagMeta(db, 'indexed_max_chapter', '3')
     db.close()

@@ -31,7 +31,13 @@ import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { removeBookEntryAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
 // /：伏笔保存串行链 drain + 按书 forget
-import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain, drainStructureChainsUnder } from './documents.js'
+import {
+  forgetService,
+  drainDocumentSaves,
+  drainForeshadowSaveChains,
+  forgetForeshadowSaveChain,
+  drainStructureChainsUnder,
+} from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { drainDraftSaveChainsUnder } from './draft.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -140,9 +146,7 @@ export function forgetBookKeyedCaches(bookRoot: string): void {
 // 多窗口时每轮数百次同步 stat。与书架摘要同 TTL 口径：book.yaml 变更/书被外部移动
 // 最迟 30s 可见（与摘要 staleness 语义一致）；应用内删书/改名经 forgetBookKeyedCaches
 // 即时失效。容量 FIFO 128 对齐 probeCache 惯例（书数常态远小于此，仅防异常增长）。
-type ShelfGuardValue =
-  | { damaged: true }
-  | { damaged: false; bookRoot: string; config: BookConfig }
+type ShelfGuardValue = { damaged: true } | { damaged: false; bookRoot: string; config: BookConfig }
 const SHELF_GUARD_TTL_MS = 30_000
 const SHELF_GUARD_MAX = 128
 
@@ -258,7 +262,12 @@ export function busyGate(gate: TaskGate, name: string, verb: '删' | '改名'): 
  *    分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
  * - （三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
  *    后台摘要任务此前可绕过复查，对已删路径收尾写（对齐 settle 三条件口径）。 */
-export async function drainAndRecheckBookMutation(gate: TaskGate, bookRoot: string, name: string, verb: '删' | '改名'): Promise<{ error: string } | null> {
+export async function drainAndRecheckBookMutation(
+  gate: TaskGate,
+  bookRoot: string,
+  name: string,
+  verb: '删' | '改名',
+): Promise<{ error: string } | null> {
   await drainDocumentSaves(bookRoot)
   await drainFilePutChainsUnder(bookRoot)
   await drainForeshadowSaveChains(bookRoot)
@@ -267,7 +276,9 @@ export async function drainAndRecheckBookMutation(gate: TaskGate, bookRoot: stri
   if (isChatRunning(name) || isSelfHealRunning(name)) {
     return { error: `本书有对话/写稿在途启动，已中止${verb === '删' ? '删除' : '改名'}——请等它完成或中断后重试` }
   }
-  return busyGate(gate, name, verb) ?? (hasBackgroundTasks(name) ? { error: `本书后台任务进行中，请稍后再${verb}` } : null)
+  return (
+    busyGate(gate, name, verb) ?? (hasBackgroundTasks(name) ? { error: `本书后台任务进行中，请稍后再${verb}` } : null)
+  )
 }
 
 export function registerBookLifecycleRoutes(ctx: BookCtx): void {
@@ -276,43 +287,43 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
     method: 'DELETE',
     path: '/api/books/:name',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) {
-      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-      return
-    }
-    const name = params['name'] ?? ''
-    // SRV-：resolveBook 双行样板收编单源
-    const r = resolveBookOrReply(ctx.workDir, name, res)
-    if (!r) return
-    const entry = r.entry
-    //  ：三闸联合检查（busyGate 集中各闸口径）
-    // 闸检查前置（对齐 rename 路径 序）——此前先 abort 后过闸，
-    // 闸拒绝（409，如 spawn/三审/任务闸在持）时在途对话/嵌套写稿已被不可逆中断，作者
-    // 只是想删书却被顺带杀掉别的在途任务还删不成。abort 移到闸后：闸忙直接 409，
-    // 零副作用；闸过才中断 chat/self-heal 走删除。
-    const busy = busyGate(ctx.gate, name, '删')
-    if (busy) {
-      return replyError(res, 409, 'BUSY', busy.error)
-    }
-    // 先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
-    // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
-    const hadSelfHeal = isSelfHealRunning(name)
-    if (hadSelfHeal) abortSelfHeal(name)
-    const hadChat = isChatRunning(name)
-    if (hadChat) abortChat(name)
-    // #7：等被中断的编排收尾后再动磁盘/事件库——straggler 的 session/end 与链路
-    // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）。
-    // 接线收口：后台任务须独立判定——定稿章摘要等 fire-and-forget 常发生在
-    // 无 chat/self-heal 在途时（hadSelfHeal/hadChat 均 false），漏判会让摘要任务
-    // 对已删路径重建孤儿目录
-    if (hadSelfHeal || hadChat || hasBackgroundTasks(name)) await awaitOrchestrationsSettled(name)
-    // 五连 drain + 闸后复查收编 drainAndRecheckBookMutation
-    // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（
-    // /阶段 24 五 drain + 复查，沿革与顺序见 helper 头注）。
-    const blocked = await drainAndRecheckBookMutation(ctx.gate, join(ctx.workDir, entry.path), name, '删')
-    if (blocked) {
-      return replyError(res, 409, 'BUSY', blocked.error)
-    }
+      if (!ctx.workDir) {
+        replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+        return
+      }
+      const name = params['name'] ?? ''
+      // SRV-：resolveBook 双行样板收编单源
+      const r = resolveBookOrReply(ctx.workDir, name, res)
+      if (!r) return
+      const entry = r.entry
+      //  ：三闸联合检查（busyGate 集中各闸口径）
+      // 闸检查前置（对齐 rename 路径 序）——此前先 abort 后过闸，
+      // 闸拒绝（409，如 spawn/三审/任务闸在持）时在途对话/嵌套写稿已被不可逆中断，作者
+      // 只是想删书却被顺带杀掉别的在途任务还删不成。abort 移到闸后：闸忙直接 409，
+      // 零副作用；闸过才中断 chat/self-heal 走删除。
+      const busy = busyGate(ctx.gate, name, '删')
+      if (busy) {
+        return replyError(res, 409, 'BUSY', busy.error)
+      }
+      // 先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
+      // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
+      const hadSelfHeal = isSelfHealRunning(name)
+      if (hadSelfHeal) abortSelfHeal(name)
+      const hadChat = isChatRunning(name)
+      if (hadChat) abortChat(name)
+      // #7：等被中断的编排收尾后再动磁盘/事件库——straggler 的 session/end 与链路
+      // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）。
+      // 接线收口：后台任务须独立判定——定稿章摘要等 fire-and-forget 常发生在
+      // 无 chat/self-heal 在途时（hadSelfHeal/hadChat 均 false），漏判会让摘要任务
+      // 对已删路径重建孤儿目录
+      if (hadSelfHeal || hadChat || hasBackgroundTasks(name)) await awaitOrchestrationsSettled(name)
+      // 五连 drain + 闸后复查收编 drainAndRecheckBookMutation
+      // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（
+      // /阶段 24 五 drain + 复查，沿革与顺序见 helper 头注）。
+      const blocked = await drainAndRecheckBookMutation(ctx.gate, join(ctx.workDir, entry.path), name, '删')
+      if (blocked) {
+        return replyError(res, 409, 'BUSY', blocked.error)
+      }
       // 删书目录：整目录原子改名入墓地（含 git 历史）；物理清理移交后台
       const bookAbs = join(ctx.workDir, entry.path)
       // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
@@ -404,6 +415,6 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       }
       forgetRagBuildTask(name) // 模块级索引任务表随删书清理
       reply(res, 200, { ok: true, name })
-  },
+    },
   })
 }

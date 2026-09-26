@@ -34,7 +34,9 @@ vi.mock('../../src/ai/calls.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/calls.js')>()
   const busyWait = vi.fn(() => {
     const end = Date.now() + 80
-    while (Date.now() < end) { /* 同步忙等：制造可断言的记账 IO 延迟 */ }
+    while (Date.now() < end) {
+      /* 同步忙等：制造可断言的记账 IO 延迟 */
+    }
   })
   return {
     ...actual,
@@ -75,7 +77,17 @@ describe('R27-1: llm/call durationMs 排除 recordUsageSafe 记账耗时', () =>
     writeFileSync(
       join(ud, 'providers.json'),
       JSON.stringify({
-        providers: [{ id: 'prov-test', name: 'test', protocol: 'openai', auth: 'bearer', baseUrl: 'http://localhost:1', apiKey: 'sk-test', caps: { connected: true, streaming: true } }],
+        providers: [
+          {
+            id: 'prov-test',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'sk-test',
+            caps: { connected: true, streaming: true },
+          },
+        ],
         currentId: 'prov-test',
         currentModel: 'gpt-4o',
       }),
@@ -121,7 +133,10 @@ describe('R27-2: anthropic 多 message_delta usage 末见 wins', () => {
         ]),
       },
     } as unknown as import('@anthropic-ai/sdk').default
-    const evs = await collect(createAnthropicProvider(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(CONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const dones = evs.filter((e) => e.type === 'done')
     expect(dones).toHaveLength(1)
     if (dones[0]?.type !== 'done') return
@@ -139,7 +154,10 @@ describe('R27-2: anthropic 多 message_delta usage 末见 wins', () => {
         ]),
       },
     } as unknown as import('@anthropic-ai/sdk').default
-    const evs = await collect(createAnthropicProvider(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(CONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     if (done?.type !== 'done') return expect(done).toBeDefined()
     expect(done.usage.inputTokens).toBe(10)
@@ -156,7 +174,10 @@ describe('R27-2: anthropic 多 message_delta usage 末见 wins', () => {
         ]),
       },
     } as unknown as import('@anthropic-ai/sdk').default
-    const evs = await collect(createAnthropicProvider(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(CONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     if (done?.type !== 'done') return expect(done).toBeDefined()
     expect(done.usage.estimated).toBe(true)

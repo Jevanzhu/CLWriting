@@ -46,10 +46,17 @@ describe('R35-42：候选深度耗尽 continue——已验证 fresh 章的后续
     ]
     for (const [n, marks] of chapters) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      const body = marks.map((mk) => `${mk} ${mk.slice(1)}分相似段，这一段正文足够长以通过二十字的分块过滤门槛。`).join('\n\n')
+      const body = marks
+        .map((mk) => `${mk} ${mk.slice(1)}分相似段，这一段正文足够长以通过二十字的分块过滤门槛。`)
+        .join('\n\n')
       writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, body)
     }
   })

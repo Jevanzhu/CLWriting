@@ -8,7 +8,12 @@
 import type { ChatMsg } from '../../provider/types.js'
 import type { SessionStore } from '../../../events/store.js'
 import { selectBranch, selectBranchTo } from '../../../events/branch-tree.js'
-import { SessionRecorder, sessionStartEvent, userMessageEvent, loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
+import {
+  SessionRecorder,
+  sessionStartEvent,
+  userMessageEvent,
+  loadHistoryWithSeqs,
+} from '../../../events/chat-bridge.js'
 import { digest16 } from '../../../events/lineage.js'
 import { buildChatContext, chatSystem } from '../../prompts/chat.js'
 import type { ChatOpts } from '../chat.js'
@@ -87,11 +92,17 @@ export function prepareChatRun(
     // seq 对不上（降级期间产生）则截到最后一条 user 之后——至少不给模型「上文已有答案」。
     let cut = -1
     for (let i = 0; i < Math.min(msgSeqs.length, history.length); i++) {
-      if (msgSeqs[i]!.includes(opts.regenerate.parentSeq)) { cut = i; break }
+      if (msgSeqs[i]!.includes(opts.regenerate.parentSeq)) {
+        cut = i
+        break
+      }
     }
     if (cut < 0) {
       for (let i = history.length - 1; i >= 0; i--) {
-        if (history[i]!.role === 'user') { cut = i; break }
+        if (history[i]!.role === 'user') {
+          cut = i
+          break
+        }
       }
     }
     if (cut >= 0) {
@@ -189,5 +200,15 @@ export function prepareChatRun(
   }
 
   emit(opts, { type: 'chat_start' })
-  return { history, sys, recorder, baseLen, turnBranch, digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest, knowledge: knowledgeDigest }, promptFiles: ctx.files, revisionPath: ctx.chapterFile, seqs }
+  return {
+    history,
+    sys,
+    recorder,
+    baseLen,
+    turnBranch,
+    digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest, knowledge: knowledgeDigest },
+    promptFiles: ctx.files,
+    revisionPath: ctx.chapterFile,
+    seqs,
+  }
 }

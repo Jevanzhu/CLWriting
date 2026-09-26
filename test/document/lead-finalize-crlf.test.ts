@@ -47,11 +47,7 @@ function makeBook(): { root: string } {
 test('R36-1: CRLF 账本经定稿回写——既有履历保留 + 新条目追加（不物理清空）', async () => {
   const { root } = makeBook()
   try {
-    writeFileSync(
-      join(root, '工作区', '账本推进.md'),
-      '- 悬念-001 递进：门前雪地脚印。\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：门前雪地脚印。\n', 'utf-8')
     const n = await applyLeadUpdates(root, 30)
     expect(n).toBe(1)
 
@@ -78,11 +74,7 @@ test('R36-1: 账本推进源与账本文件双 CRLF——全链归一并回写',
   const { root } = makeBook()
   try {
     // 账本推进.md 本身 CRLF（lead-updates 解析层先 trim 本就安全，此处证全链）
-    writeFileSync(
-      join(root, '工作区', '账本推进.md'),
-      '- 悬念-001 递进：门前雪地脚印。\r\n',
-      'utf-8',
-    )
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：门前雪地脚印。\r\n', 'utf-8')
     const n = await applyLeadUpdates(root, 30)
     expect(n).toBe(1)
 

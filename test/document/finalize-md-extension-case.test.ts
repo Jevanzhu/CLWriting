@@ -20,7 +20,10 @@ test('四轮-D404: `.MD` 扩展名回退标题不带尾巴（fm 无 标题 → b
     flatRoot: true,
     files: [
       // fm 无 标题 键 → 定稿标题走 basenameNoExt(relPath) 回退
-      { rel: '写作/正文/0001-第一章.MD', content: '---\n章号: 1\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文而已。\n' },
+      {
+        rel: '写作/正文/0001-第一章.MD',
+        content: '---\n章号: 1\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文而已。\n',
+      },
     ],
   })
   const manifestPath = join(root, '项目', '文档清单.jsonl')

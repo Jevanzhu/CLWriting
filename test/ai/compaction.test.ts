@@ -20,7 +20,10 @@ const toolPair = (id: string): ChatMsg[] => [
 describe('groupIntoTurns（配对版）', () => {
   it('纯文本往返：一问一答各成一回合的一半', () => {
     const msgs = [u('问1'), a('答1'), u('问2'), a('答2')]
-    expect(groupIntoTurns(msgs)).toEqual([[u('问1'), a('答1')], [u('问2'), a('答2')]])
+    expect(groupIntoTurns(msgs)).toEqual([
+      [u('问1'), a('答1')],
+      [u('问2'), a('答2')],
+    ])
   })
 
   it('tool_use 与 tool_result 留在同一回合（切进中间 = Anthropic 400）', () => {
@@ -111,7 +114,11 @@ describe('compactHistory（纪律）', () => {
 
   it('成功：摘要以 user 消息插入（PREAMBLE + tag 包裹），toKeep 原样保留', async () => {
     const history = mkLong(12)
-    const out = await compactHistory(history, { keepTurns: 10 }, () => '1. Primary Request and Intent（作者想推进第3卷）…')
+    const out = await compactHistory(
+      history,
+      { keepTurns: 10 },
+      () => '1. Primary Request and Intent（作者想推进第3卷）…',
+    )
     expect(out.summarizedCount).toBe(4) // 回合1+回合2 各 2 条
     expect(out.history).not.toBe(history)
     expect(out.history.length).toBe(1 + 20)

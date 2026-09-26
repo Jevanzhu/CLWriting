@@ -70,7 +70,9 @@ describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
     const sensitive: string[] = []
     let scanned = 0
     for (const dir of dirs) {
-      const files = (readdirSync(dir, { recursive: true, encoding: 'utf-8' }) as string[]).filter((f) => f.endsWith('.ts'))
+      const files = (readdirSync(dir, { recursive: true, encoding: 'utf-8' }) as string[]).filter((f) =>
+        f.endsWith('.ts'),
+      )
       scanned += files.length
       for (const f of files) {
         const code = strip(readFileSync(join(dir, f), 'utf-8'))
@@ -78,12 +80,16 @@ describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
           // 允许的唯一形态：先 toLowerCase() 再 endsWith（大小写不敏感判定的就地写法）；
           // 其余（裸 endsWith('.md') / 未折叠变量）即大小写敏感残留
           const before = code.slice(Math.max(0, m.index - 20), m.index)
-          if (!before.includes('toLowerCase()')) sensitive.push(`${f}:${code.slice(0, m.index).split(String.fromCharCode(10)).length}`)
+          if (!before.includes('toLowerCase()'))
+            sensitive.push(`${f}:${code.slice(0, m.index).split(String.fromCharCode(10)).length}`)
         }
       }
     }
     expect(scanned).toBeGreaterThan(10) // 扫描面非空（防目录改名后断言空转）
-    expect(sensitive, `.md 过滤应走 filename.isMdFileName 单源或 toLowerCase 就地折叠；残留：${sensitive.join(', ')}`).toEqual([])
+    expect(
+      sensitive,
+      `.md 过滤应走 filename.isMdFileName 单源或 toLowerCase 就地折叠；残留：${sensitive.join(', ')}`,
+    ).toEqual([])
   })
 })
 
@@ -118,7 +124,10 @@ function makeEmptyStringEvidenceBook(): string {
     const entry: ManifestEntry = { id: generateDocId(), nodeType: 'document', path: rel, parentId: null }
     if (no === 3) {
       entry.finalizedRevision =
-        'sha256:' + createHash('sha256').update(readFileSync(join(root, rel))).digest('hex')
+        'sha256:' +
+        createHash('sha256')
+          .update(readFileSync(join(root, rel)))
+          .digest('hex')
     }
     upsertEntry(m, entry)
   }

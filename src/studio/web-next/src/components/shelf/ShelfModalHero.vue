@@ -72,14 +72,21 @@ const emit = defineEmits<{
   box-shadow: var(--shadow-s);
   cursor: pointer;
   overflow: hidden;
-  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
+  transition:
+    transform var(--dur-norm) var(--ease-out),
+    box-shadow var(--dur-norm) var(--ease-out),
+    border-color var(--dur-norm) var(--ease-out);
 }
 .hero-card::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(400px circle at var(--mx, 30%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 10%, transparent), transparent 50%);
+  background: radial-gradient(
+    400px circle at var(--mx, 30%) var(--my, 50%),
+    color-mix(in srgb, var(--text-accent) 10%, transparent),
+    transparent 50%
+  );
   opacity: 0;
   transition: opacity var(--dur-norm) var(--ease-out);
   pointer-events: none;
@@ -108,7 +115,9 @@ const emit = defineEmits<{
   color: var(--text-accent);
   opacity: 0;
   transform: translateX(-4px);
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+  transition:
+    opacity var(--dur-norm) var(--ease-out),
+    transform var(--dur-norm) var(--ease-out);
 }
 .hero-card:hover .hero-arrow {
   opacity: 1;

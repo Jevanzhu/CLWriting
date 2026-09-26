@@ -159,7 +159,10 @@ export function foldSurface(events: ChatEvent[], prefixSeq?: number): SurfaceNod
  * 投影 → ChatMsg[]（可直接喂 sanitizeHistory/generate）。
  * 连续 tool/result 节点合并为一条 user(tool_result blocks) 消息，与内存版历史等价。
  */
-export function deriveMessages(events: ChatEvent[], prefixSeq?: number): Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> {
+export function deriveMessages(
+  events: ChatEvent[],
+  prefixSeq?: number,
+): Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> {
   const nodes = foldSurface(events, prefixSeq).filter((n) => !n.shadowed)
   const out: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }> = []
   let pendingTool: ContentBlock[] = []
@@ -363,7 +366,11 @@ export function todoWriteStep(ev: ChatEvent): ValidationIssue[] {
   if (!Array.isArray(todos)) return [{ seq: ev.seq, message: 'todo/write 缺 todos 数组' }]
   for (const t of todos) {
     const td = t as Record<string, unknown> | null
-    if (!td || typeof td['text'] !== 'string' || (td['state'] !== 'pending' && td['state'] !== 'in_progress' && td['state'] !== 'completed')) {
+    if (
+      !td ||
+      typeof td['text'] !== 'string' ||
+      (td['state'] !== 'pending' && td['state'] !== 'in_progress' && td['state'] !== 'completed')
+    ) {
       return [{ seq: ev.seq, message: 'todo/write 含非法条目' }]
     }
   }

@@ -179,17 +179,19 @@ export function withFakeProvider(
 ): void {
   const protocol = opts?.protocol ?? 'openai'
   const store: ProviderStore = {
-    providers: [{
-      id: 'fake-prov',
-      name: 'fake',
-      protocol,
-      auth: protocol === 'anthropic' ? 'anthropic' : 'bearer',
-      baseUrl: fakeUrl,
-      model: 'fake-model',
-      apiKey: 'sk-fake-key',
-      caps: { connected: true, streaming: true },
-      capsProbedAt: Date.now(),
-    }],
+    providers: [
+      {
+        id: 'fake-prov',
+        name: 'fake',
+        protocol,
+        auth: protocol === 'anthropic' ? 'anthropic' : 'bearer',
+        baseUrl: fakeUrl,
+        model: 'fake-model',
+        apiKey: 'sk-fake-key',
+        caps: { connected: true, streaming: true },
+        capsProbedAt: Date.now(),
+      },
+    ],
     currentId: 'fake-prov',
     currentModel: 'fake-model',
     modelCaps: structuredOk === false ? { 'fake-prov/fake-model': { structured: false } } : {},

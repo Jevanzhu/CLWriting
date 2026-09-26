@@ -141,9 +141,7 @@ export function computeRadialLayout(
       }
       const pa = nodeById.get(pid)?.angle ?? 0
       kids.forEach((n, i) => {
-        n.angle = kids.length === 1
-          ? pa
-          : pa - CHILD_SPREAD / 2 + (i / (kids.length - 1)) * CHILD_SPREAD
+        n.angle = kids.length === 1 ? pa : pa - CHILD_SPREAD / 2 + (i / (kids.length - 1)) * CHILD_SPREAD
         n.homeX = CX + rad * Math.cos(n.angle)
         n.homeY = CY + rad * Math.sin(n.angle)
       })

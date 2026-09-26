@@ -31,15 +31,23 @@ afterEach(() => {
 
 function writeCh(ch: number, body: string): void {
   const meta: ChapterMeta = {
-    章号: ch, 标题: `第${ch}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-    _path: '', _wordCount: 100,
+    章号: ch,
+    标题: `第${ch}章`,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
   writeChapter(join(bookRoot, '写作', '正文', `${ch}-第${ch}章.md`), meta, body)
 }
 
 /** 写 n 段（每段 ≥20 字 → 恰 n 块），段首带章内标记供 embed 调用观测 */
 function paras(_ch: number, n: number, marker: string): string {
-  return Array.from({ length: n }, (_, i) => `${marker}第${i}段：这是一个足够长的段落文本，用于分块与续传行为的回归验证。`).join('\n\n')
+  return Array.from(
+    { length: n },
+    (_, i) => `${marker}第${i}段：这是一个足够长的段落文本，用于分块与续传行为的回归验证。`,
+  ).join('\n\n')
 }
 
 /** 桩 embed：文本首字符 charCode 归一化 3 维向量（确定性，不联网） */

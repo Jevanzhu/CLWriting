@@ -26,7 +26,11 @@ function makeLongBook(): string {
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('N2: rebuild 正文区 symlink 环不崩，正常章照常入库', () => {
   const root = makeLongBook()
-  writeFileSync(join(root, '写作', '正文', '0001-第一章.md'), '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-第一章.md'),
+    '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n',
+    'utf-8',
+  )
   mkdirSync(join(root, '写作', '正文', 'b'), { recursive: true })
   symlinkSync(join(root, '写作', '正文', 'b'), join(root, '写作', '正文', 'a'))
   symlinkSync(join(root, '写作', '正文', 'a'), join(root, '写作', '正文', 'b', 'a'))
@@ -40,9 +44,17 @@ test.skipIf(process.platform === 'win32')('N2: rebuild 正文区 symlink 环不�
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('N2: rebuild 不跟随指向书外的 symlink 章（不入库、不抬计数）', () => {
   const root = makeLongBook()
-  writeFileSync(join(root, '写作', '正文', '0001-第一章.md'), '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-第一章.md'),
+    '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n',
+    'utf-8',
+  )
   const outside = mkdtempTracked(join(tmpdir(), 'n2-rb-outside-'))
-  writeFileSync(join(outside, '0002-外链.md'), '---\n章号: 2\n标题: 外链\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n书外内容。\n', 'utf-8')
+  writeFileSync(
+    join(outside, '0002-外链.md'),
+    '---\n章号: 2\n标题: 外链\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n书外内容。\n',
+    'utf-8',
+  )
   symlinkSync(join(outside, '0002-外链.md'), join(root, '写作', '正文', '0002-外链.md'))
   const r = rebuild(root, join(root, '.cache', 'index.db'))
   expect(r.chapterCount).toBe(1) // 书外 symlink 不整读入库

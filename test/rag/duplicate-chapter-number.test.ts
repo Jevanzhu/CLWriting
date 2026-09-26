@@ -38,20 +38,47 @@ describe('R35-43：重复章号——保目录序（walk 序）首个 + warn + r
     // 同章号两文件：1-乙卷.md 先写盘 → 目录序（walk 序）在前 → 保留乙卷（R54-E-1
     // 勘误：保留口径是目录序首个而非路径字典序——本例字典序乙<甲恰与 walk 序同向）
     const metaYi: ChapterMeta = {
-      章号: 1, 标题: '乙卷', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '乙卷',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    writeChapter(join(bookRoot, '写作', '正文', '1-乙卷.md'), metaYi, '乙卷独有的正文段落内容，用于验证重复章号只保留路径首个文件参与建索引。')
+    writeChapter(
+      join(bookRoot, '写作', '正文', '1-乙卷.md'),
+      metaYi,
+      '乙卷独有的正文段落内容，用于验证重复章号只保留路径首个文件参与建索引。',
+    )
     const metaJia: ChapterMeta = {
-      章号: 1, 标题: '甲卷', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 1,
+      标题: '甲卷',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    writeChapter(join(bookRoot, '写作', '正文', '1-甲卷.md'), metaJia, '甲卷独有的正文段落内容，重复章号的后到文件不应参与索引产生错位偏移。')
+    writeChapter(
+      join(bookRoot, '写作', '正文', '1-甲卷.md'),
+      metaJia,
+      '甲卷独有的正文段落内容，重复章号的后到文件不应参与索引产生错位偏移。',
+    )
     const meta2: ChapterMeta = {
-      章号: 2, 标题: '第2章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-      _path: '', _wordCount: 100,
+      章号: 2,
+      标题: '第2章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
     }
-    writeChapter(join(bookRoot, '写作', '正文', '2-第2章.md'), meta2, '第二章的正文段落内容，这是一个战斗场景，主角挥剑战斗。')
+    writeChapter(
+      join(bookRoot, '写作', '正文', '2-第2章.md'),
+      meta2,
+      '第二章的正文段落内容，这是一个战斗场景，主角挥剑战斗。',
+    )
   })
 
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))

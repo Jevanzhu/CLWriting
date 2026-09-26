@@ -98,7 +98,11 @@ function exitAfterShutdown(child: FakeChild, delayMs: number): void {
   }
 }
 
-async function startReady(manager: ReturnType<typeof createStudioServerManager>, forkRecords: ForkRecord[], port: number): Promise<void> {
+async function startReady(
+  manager: ReturnType<typeof createStudioServerManager>,
+  forkRecords: ForkRecord[],
+  port: number,
+): Promise<void> {
   const p1 = manager.start({ workDir: '/w', userDataPath: mkUserData() })
   forkRecords[0]!.child.emit('message', { type: 'ready', port })
   await p1

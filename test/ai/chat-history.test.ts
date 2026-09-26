@@ -50,9 +50,7 @@ describe('Q-11 lastMessageFingerprint', () => {
     // 首轮：user 文本 → 原文即指纹
     expect(lastMessageFingerprint([{ role: 'user', content: '帮我看看第 1 章' }])).toBe('帮我看看第 1 章')
     // 工具轮：末条为 tool_result blocks → 确定性 JSON 序列化（含 isError）
-    const blocks: ContentBlock[] = [
-      { type: 'tool_result', toolUseId: 'tu-1', content: '全绿', isError: false },
-    ]
+    const blocks: ContentBlock[] = [{ type: 'tool_result', toolUseId: 'tu-1', content: '全绿', isError: false }]
     const fp = lastMessageFingerprint([
       { role: 'user', content: '帮我看看第 1 章' },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'check_chapter', input: { chapter: 1 } }] },

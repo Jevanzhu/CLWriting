@@ -78,7 +78,9 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`  ❌  端口 ${PORT} 已被占用（EADDRINUSE）——可能已有一个 dev-api 在跑。`)
     console.error(`     请先停掉占用进程（lsof -i :${PORT}），或设 CLW_DEV_API_PORT=<其他端口> 后重试；`)
-    console.error(`     换端口后需同步改 src/studio/web-next/vite.config.ts 的 /api 代理目标，否则 dev 页面连不上后端。`)
+    console.error(
+      `     换端口后需同步改 src/studio/web-next/vite.config.ts 的 /api 代理目标，否则 dev 页面连不上后端。`,
+    )
   } else {
     console.error(`  ❌  API server 启动失败：${err.message}`)
     console.error(err)

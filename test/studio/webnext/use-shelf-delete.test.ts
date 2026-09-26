@@ -20,7 +20,9 @@ const mocks = vi.hoisted(() => ({
   shelfLoad: vi.fn(async () => {}),
 }))
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: mocks.deleteBook }))
-vi.mock('../../../src/studio/web-next/src/stores/check', () => ({ clearFalsePositiveMarks: mocks.clearFalsePositiveMarks }))
+vi.mock('../../../src/studio/web-next/src/stores/check', () => ({
+  clearFalsePositiveMarks: mocks.clearFalsePositiveMarks,
+}))
 vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
   useShelfStore: vi.fn(() => ({ books: [], load: mocks.shelfLoad })),
 }))
@@ -194,9 +196,7 @@ describe('R71-26: confirmDelete 部分失败后重试——已删书 404 视为�
   })
 
   it('非 404 错误照旧中断：重试遇 500 仍记失败、弹窗保留（守卫不放宽）', async () => {
-    mocks.deleteBook
-      .mockRejectedValueOnce(notFound())
-      .mockRejectedValueOnce(new ApiError('服务异常', 500, 'INTERNAL'))
+    mocks.deleteBook.mockRejectedValueOnce(notFound()).mockRejectedValueOnce(new ApiError('服务异常', 500, 'INTERNAL'))
     const s = useShelf()
     s.requestDelete(['书A', '书B'])
     await s.confirmDelete()

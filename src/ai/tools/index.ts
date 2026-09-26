@@ -26,4 +26,3 @@ export const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   lead_update: leadUpdate,
   harvest_style: harvestStyle,
 }
-

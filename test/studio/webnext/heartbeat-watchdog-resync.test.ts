@@ -122,7 +122,10 @@ beforeEach(() => {
   MockES.instances = []
   vi.stubGlobal('EventSource', MockES)
   // R0916-7-P3-19：换票桩 200 {ticket}（回退通道已删，404 桩即换票失败、不再回退开连）
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ticket: 'tk' }) })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ticket: 'tk' }) })),
+  )
   vi.useFakeTimers()
 })
 

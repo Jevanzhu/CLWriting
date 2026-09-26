@@ -37,7 +37,12 @@ describe('R50-D1-1: TabBar 新建下拉 Esc 的 IME 组合期让渡', () => {
     expect(document.body.querySelector('.new-dropdown')).not.toBeNull()
 
     // IME 组合期 Esc（收候选）：让渡输入法——不关闭、不消费
-    const composingEsc = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+    const composingEsc = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    })
     document.body.dispatchEvent(composingEsc)
     await Promise.resolve()
     expect(document.body.querySelector('.new-dropdown')).not.toBeNull() // 修复点：不关闭
@@ -64,7 +69,12 @@ describe('R50-D1-1: FontPicker（win 自绘浮层）Esc 的 IME 组合期让渡'
     expect((menu as HTMLElement).style.display).not.toBe('none')
 
     // IME 组合期 Esc：capture 监听让渡——不关闭、不消费（防打断输入法候选）
-    const composingEsc = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+    const composingEsc = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    })
     document.body.dispatchEvent(composingEsc)
     await Promise.resolve()
     expect((menu as HTMLElement).style.display).not.toBe('none') // 修复点：不关闭

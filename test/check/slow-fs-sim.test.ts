@@ -114,9 +114,10 @@ function makeBook(
     'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: [悬念]\n',
     'utf-8',
   )
-  const history = historyEntries > 0
-    ? Array.from({ length: historyEntries }, () => `- 第1章 埋下：「${EVIDENCE}」`).join('\n') + '\n'
-    : ''
+  const history =
+    historyEntries > 0
+      ? Array.from({ length: historyEntries }, () => `- 第1章 埋下：「${EVIDENCE}」`).join('\n') + '\n'
+      : ''
   for (let i = 1; i <= wiringCount; i++) {
     const no = String(i).padStart(3, '0')
     // 履历只喂首条账本（其余留空）：单章链履历段的输入集中一处，条目数 = historyEntries

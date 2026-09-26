@@ -68,9 +68,7 @@ async function openCleanDoc(): Promise<{ doc: ReturnType<typeof useDocStore>; tr
  *  r2（revision 推进 + syncCleanWithTree(book, 'r2') 同窗发起） */
 function startSync(doc: ReturnType<typeof useDocStore>, tree: ReturnType<typeof useTreeStore>): () => Promise<void> {
   let release!: () => void
-  vi.mocked(getContent).mockImplementationOnce(
-    () => new Promise((r) => (release = () => r(NEW_CONTENT))),
-  )
+  vi.mocked(getContent).mockImplementationOnce(() => new Promise((r) => (release = () => r(NEW_CONTENT))))
   tree.revision = 'r2' // 本批触发源（load 落定 r2）
   const p = doc.syncCleanWithTree(BOOK, 'r2') // 本批 curRev = 'r2'
   return async () => {

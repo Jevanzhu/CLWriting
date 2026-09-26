@@ -55,7 +55,10 @@ beforeEach(() => {
   // 鉴权契约②：连接前先 POST /api/stream-ticket 换票（多一个异步 hop）——统一桩 200
   // {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连；本文件断言口径
   // 改为「带 ticket 连接」）
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+  )
 })
 
 /** 泵微任务链：让 doConnect 的「re-boot → 换票（404 回退）→ new EventSource」链走到位 */
@@ -121,9 +124,7 @@ describe('N-3 · SSE token null 自愈', () => {
   it('re-bootstrap 在途时切书 → 悬挂的旧 doConnect 不再开连（connectGen 守卫）', async () => {
     // 每次调用各挂一个 pending promise，收集 resolver 便于统一/分别 settle
     const pending: (() => void)[] = []
-    mocks.rebootstrap.mockImplementation(
-      () => new Promise<void>((r) => pending.push(r)),
-    )
+    mocks.rebootstrap.mockImplementation(() => new Promise<void>((r) => pending.push(r)))
     const name = ref('书A')
     useSse(name)
     await nextTick()

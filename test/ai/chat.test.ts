@@ -61,9 +61,7 @@ import { waitFor } from '../helpers/wait-for.js'
 
 describe('W2: 单轮纯文本', () => {
   it('AI 回复无工具调用 → chat_done', async () => {
-    fake.setScript([
-      { type: 'text', content: '主角应该选择谈判。' },
-    ])
+    fake.setScript([{ type: 'text', content: '主角应该选择谈判。' }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
@@ -203,7 +201,9 @@ describe('Q1: runChat 并发锁不泄漏', () => {
   it('buildChatContext 抛异常 → 锁释放，后续对话不 409', async () => {
     // mock buildChatContext 抛读盘异常（Q1 复现路径：readCharacterCards 降级 readFileSync 抛）
     const mock = vi.spyOn(await import('../../src/ai/prompts/chat.js'), 'buildChatContext')
-    mock.mockImplementation(() => { throw new Error('模拟读盘异常') })
+    mock.mockImplementation(() => {
+      throw new Error('模拟读盘异常')
+    })
 
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })

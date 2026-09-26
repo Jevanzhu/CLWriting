@@ -121,12 +121,7 @@ const QUOTED_NAME_RE = new RegExp(
 // - /：check/count.ts 守卫族单源直引（抄本删除，沿革见上方块注）。
 // 在 check 侧补的增补平面区段 + u 标志随 parseRosterNames 单源自动生效——
 // Ext-B 生僻字名册名自本批起进入 registered 集合，两检不再两结论。
-import {
-  ATTRIBUTION_RE,
-  SPEECH_ATTRIBUTION_RE,
-  DIALOGUE_GUIDE_RE,
-  parseRosterNames,
-} from '../../check/count.js'
+import { ATTRIBUTION_RE, SPEECH_ATTRIBUTION_RE, DIALOGUE_GUIDE_RE, parseRosterNames } from '../../check/count.js'
 // 同款：候选名长度窗按码点计（代理对合 1 计）——UTF-16 .length 对 astral
 // 字一符计 2。check 侧 :472 同口径单源（shared/text.ts）。
 import { codePointLength } from '../../shared/text.js'
@@ -139,10 +134,7 @@ const INNER_OPEN_RE = new RegExp(`[${QUOTE_OPEN}]`)
 
 /** 引号外残留标点剥除（span 已整体移除后，行内残留的孤引号/括号/句读不参与
  *  「提示语成分」整行豁免判定） */
-const OUTSIDE_PUNCT_RE = new RegExp(
-  `[${QUOTE_OPEN}${QUOTE_CLOSE_LENIENT}${SPAN_PUNCT}「」『』]`,
-  'gu',
-)
+const OUTSIDE_PUNCT_RE = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE_LENIENT}${SPAN_PUNCT}「」『』]`, 'gu')
 
 /** 书库设定数据：离散名称 + 名册全文 */
 interface SettingData {

@@ -3,26 +3,14 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  hashFileSha256,
-  validateKnowledgeManifest,
-  type KnowledgeManifest,
-} from '../../src/knowledge/manifest.js'
+import { hashFileSha256, validateKnowledgeManifest, type KnowledgeManifest } from '../../src/knowledge/manifest.js'
 
 function makeKnowledgeProject(): string {
   const root = mkdtempTracked(join(tmpdir(), 'clwriting-knowledge-'))
   mkdirSync(join(root, '知识层', '题材'), { recursive: true })
   writeFileSync(
     join(root, '知识层', '题材', 'README.md'),
-    [
-      '---',
-      'source: fixture-source',
-      'license: MIT',
-      '---',
-      '',
-      '# 题材',
-      '',
-    ].join('\n'),
+    ['---', 'source: fixture-source', 'license: MIT', '---', '', '# 题材', ''].join('\n'),
     'utf-8',
   )
   writeManifest(root, {

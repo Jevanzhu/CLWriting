@@ -150,18 +150,29 @@ function post(path: string, body?: unknown): Promise<{ status: number; json: any
   })
 }
 
-const CH_FM = (n: number, t: string) => `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
+const CH_FM = (n: number, t: string) =>
+  `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
 
 /** 短篇判态书夹具（1 定稿章 → 态 7 / nextChapter=2；追加定稿章推 nextChapter） */
 function makeShortStateBook(name: string): { manifestPath: string } {
   const root = join(workDir, name)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: short\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`)
+  writeFileSync(
+    join(root, 'book.yaml'),
+    `spec_version: 1\nkind: short\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+  )
   writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场。\n')
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
-  upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null, finalizedRevision: 'sha256:' + 'a'.repeat(64), finalizedAt: '2026-08-29T00:00:00.000Z' })
+  upsertEntry(m, {
+    id: generateDocId(),
+    nodeType: 'document',
+    path: '写作/正文/0001-开篇.md',
+    parentId: null,
+    finalizedRevision: 'sha256:' + 'a'.repeat(64),
+    finalizedAt: '2026-08-29T00:00:00.000Z',
+  })
   writeManifest(manifestPath, m)
   return { manifestPath }
 }
@@ -170,7 +181,14 @@ function makeShortStateBook(name: string): { manifestPath: string } {
 function addFinalizedChapter(manifestPath: string, bookRoot: string, no: number, title: string, content: string): void {
   writeFileSync(join(bookRoot, '写作', '正文', `000${no}-${title}.md`), CH_FM(no, title) + content + '\n')
   const m = readManifest(manifestPath)
-  upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: `写作/正文/000${no}-${title}.md`, parentId: null, finalizedRevision: 'sha256:' + 'b'.repeat(64), finalizedAt: '2026-08-29T00:00:00.000Z' })
+  upsertEntry(m, {
+    id: generateDocId(),
+    nodeType: 'document',
+    path: `写作/正文/000${no}-${title}.md`,
+    parentId: null,
+    finalizedRevision: 'sha256:' + 'b'.repeat(64),
+    finalizedAt: '2026-08-29T00:00:00.000Z',
+  })
   writeManifest(manifestPath, m)
 }
 
@@ -202,7 +220,10 @@ beforeAll(async () => {
   mkdirSync(join(treeBookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(treeBookRoot, '项目'), { recursive: true })
   mkdirSync(join(treeBookRoot, '文风'), { recursive: true })
-  writeFileSync(join(treeBookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${TREE_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
+  writeFileSync(
+    join(treeBookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${TREE_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+  )
   writeFileSync(join(treeBookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n')
   writeFileSync(join(treeBookRoot, '写作', '正文', '0001-红章.md'), CH_FM(1, '红章') + '主角登场，玉佩，通体发亮。\n')
   const tm = readManifest(join(treeBookRoot, '项目', '文档清单.jsonl'))
@@ -213,14 +234,26 @@ beforeAll(async () => {
   // 文风书（d3 先例：不建清单 → finalizedPathSet null 全量口径，章文件直接进样本）
   const styleRoot = join(workDir, STYLE_BOOK)
   mkdirSync(join(styleRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(styleRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${STYLE_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
-  writeFileSync(join(styleRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，初入宗门，一切由此开始。\n')
+  writeFileSync(
+    join(styleRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${STYLE_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+  )
+  writeFileSync(
+    join(styleRoot, '写作', '正文', '0001-开篇.md'),
+    CH_FM(1, '开篇') + '主角登场，初入宗门，一切由此开始。\n',
+  )
 
   // 收割书：金句特征句（hasHook 忽然/竟然 + hasEmotion 泪/恨；10-50 字单句各 1 条）
   const learnRoot = join(workDir, LEARN_BOOK)
   mkdirSync(join(learnRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(learnRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${LEARN_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
-  writeFileSync(join(learnRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场。\n他忽然停住脚步，泪水落了下来。\n')
+  writeFileSync(
+    join(learnRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${LEARN_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+  )
+  writeFileSync(
+    join(learnRoot, '写作', '正文', '0001-开篇.md'),
+    CH_FM(1, '开篇') + '主角登场。\n他忽然停住脚步，泪水落了下来。\n',
+  )
 
   // 注入时钟（r75/R0911-G-P1-1c 先例：只接管 Date）；五处 TTL 短档经组装根
   // overrides 注入（原模块级 __set*ForTest setter 已删）

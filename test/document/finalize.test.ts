@@ -19,7 +19,11 @@ function makeBook(): { root: string; docId: string } {
     prefix: 'finalize-',
     flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
     files: [
-      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n' },
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content:
+          '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
+      },
     ],
   })
   const manifestPath = join(root, '项目', '文档清单.jsonl')
@@ -48,7 +52,9 @@ test('revision→final：改文件后定稿 → manifest 基线更新 + 状态�
 
   // 定稿后改文件 → revision 态
   writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '改了内容\n', 'utf-8')
-  expect(deriveStatus('写作/正文/0001-开篇.md', e, computeRevision(join(root, '写作', '正文', '0001-开篇.md')))).toBe('revision')
+  expect(deriveStatus('写作/正文/0001-开篇.md', e, computeRevision(join(root, '写作', '正文', '0001-开篇.md')))).toBe(
+    'revision',
+  )
 
   // 再定稿 → final（基线更新为新指纹）
   const r2 = finalizeRevision(root, docId)
@@ -56,7 +62,9 @@ test('revision→final：改文件后定稿 → manifest 基线更新 + 状态�
   if (!r2.ok) return
   expect(r2.skipped).toBe(false)
   const e2 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
-  expect(deriveStatus('写作/正文/0001-开篇.md', e2, computeRevision(join(root, '写作', '正文', '0001-开篇.md')))).toBe('final')
+  expect(deriveStatus('写作/正文/0001-开篇.md', e2, computeRevision(join(root, '写作', '正文', '0001-开篇.md')))).toBe(
+    'final',
+  )
   rmSync(root, { recursive: true, force: true })
 })
 

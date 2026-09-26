@@ -31,9 +31,7 @@ const dismissed = ref<string[]>(loadDismissed())
 const copied = ref(false)
 
 /** 有更新且该版本未被关闭过 */
-const visible = computed(
-  () => latest.value !== null && !dismissed.value.includes(latest.value.version),
-)
+const visible = computed(() => latest.value !== null && !dismissed.value.includes(latest.value.version))
 
 onMounted(async () => {
   try {

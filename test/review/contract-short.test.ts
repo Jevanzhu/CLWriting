@@ -59,12 +59,22 @@ test('短篇三视角：hasShort 时 buildReviewTasks 补 hook/emotion_peak/payo
 
 test('isBlockingIssue: reversal/payoff 恒阻断', () => {
   const reversal: ReviewIssue = {
-    lens: 'emotion_peak', severity: 'S3', category: 'reversal',
-    location: 'l1', evidence: ['e'], issue: '反转无铺垫', fix: '补铺垫',
+    lens: 'emotion_peak',
+    severity: 'S3',
+    category: 'reversal',
+    location: 'l1',
+    evidence: ['e'],
+    issue: '反转无铺垫',
+    fix: '补铺垫',
   }
   const payoff: ReviewIssue = {
-    lens: 'payoff', severity: 'S3', category: 'payoff',
-    location: 'l2', evidence: ['e'], issue: '伏笔未回收', fix: '补回收',
+    lens: 'payoff',
+    severity: 'S3',
+    category: 'payoff',
+    location: 'l2',
+    evidence: ['e'],
+    issue: '伏笔未回收',
+    fix: '补回收',
   }
   expect(isBlockingIssue(reversal)).toBe(true)
   expect(isBlockingIssue(payoff)).toBe(true)
@@ -72,8 +82,13 @@ test('isBlockingIssue: reversal/payoff 恒阻断', () => {
 
 test('isBlockingIssue: ledger 长篇仍阻断（零回归）', () => {
   const ledger: ReviewIssue = {
-    lens: 'continuity', severity: 'S3', category: 'ledger',
-    location: 'l1', evidence: ['e'], issue: '账本造假', fix: 'x',
+    lens: 'continuity',
+    severity: 'S3',
+    category: 'ledger',
+    location: 'l1',
+    evidence: ['e'],
+    issue: '账本造假',
+    fix: 'x',
   }
   expect(isBlockingIssue(ledger)).toBe(true)
 })

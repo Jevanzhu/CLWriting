@@ -23,11 +23,32 @@ const router = useRouter()
 const ui = useUiStore()
 const { theme, toggle } = useTheme()
 const {
-  shelf, groups, latestBook, viewMode, setView,
-  query, sortBy, setSortBy,
-  showCreate, newName, newKind, creating, createError, createBook,
-  batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
-  confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
+  shelf,
+  groups,
+  latestBook,
+  viewMode,
+  setView,
+  query,
+  sortBy,
+  setSortBy,
+  showCreate,
+  newName,
+  newKind,
+  creating,
+  createError,
+  createBook,
+  batchMode,
+  selected,
+  toggleSelect,
+  selectAll,
+  enterBatch,
+  exitBatch,
+  confirmTarget,
+  deleting,
+  deleteError,
+  requestDelete,
+  confirmDelete,
+  cancelDelete,
   openBook,
 } = useShelf({
   onCreated: (name) => {
@@ -48,7 +69,9 @@ const {
     if (!names.includes(current)) return
     try {
       if (localStorage.getItem(LAST_BOOK_KEY) === current) localStorage.removeItem(LAST_BOOK_KEY)
-    } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
     ui.closeShelf()
     router.replace('/shelf')
   },
@@ -119,9 +142,16 @@ function onKeydown(e: KeyboardEvent): void {
   // 删除确认弹窗的 Esc 已由组件自持（-：capture + stopPropagation，先于
   // 本 handler 且不再落到这里），此处只剩建书/批量/收层
   let consumed = false
-  if (showCreate.value) { showCreate.value = false; consumed = true }
-  else if (batchMode.value) { exitBatch(); consumed = true }
-  else if (ui.shelfOpen) { ui.closeShelf(); consumed = true }
+  if (showCreate.value) {
+    showCreate.value = false
+    consumed = true
+  } else if (batchMode.value) {
+    exitBatch()
+    consumed = true
+  } else if (ui.shelfOpen) {
+    ui.closeShelf()
+    consumed = true
+  }
   if (consumed) e.preventDefault()
 }
 onMounted(() => {
@@ -135,7 +165,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.shelfOpen" kind="shelf" @mask-click="ui.closeShelf">
-      <div v-if="contentReady" ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
+      <div
+        v-if="contentReady"
+        ref="modalRef"
+        class="shelf-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="书库"
+        tabindex="-1"
+      >
         <header class="modal-head">
           <div class="head-left">
             <h2 class="head-title">书架</h2>
@@ -144,13 +182,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <div class="head-actions">
             <template v-if="!batchMode">
-              <input
-                v-model="query"
-                class="shelf-search"
-                type="search"
-                placeholder="搜索书名…"
-                aria-label="搜索书名"
-              />
+              <input v-model="query" class="shelf-search" type="search" placeholder="搜索书名…" aria-label="搜索书名" />
               <select
                 class="shelf-sort"
                 :value="sortBy"
@@ -165,7 +197,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <button
                   class="toggle-btn"
                   :class="{ active: viewMode === 'grid' }"
-                  data-tip="网格视图" data-tip-dir="bottom"
+                  data-tip="网格视图"
+                  data-tip-dir="bottom"
                   @click="setView('grid')"
                 >
                   <LayoutGrid :size="15" />
@@ -173,7 +206,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <button
                   class="toggle-btn"
                   :class="{ active: viewMode === 'list' }"
-                  data-tip="列表视图" data-tip-dir="bottom"
+                  data-tip="列表视图"
+                  data-tip-dir="bottom"
                   @click="setView('list')"
                 >
                   <List :size="15" />
@@ -182,21 +216,29 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <button
                 v-if="shelf.books.length"
                 class="btn batch-enter"
-                data-tip="批量管理" data-tip-dir="bottom"
+                data-tip="批量管理"
+                data-tip-dir="bottom"
                 @click="enterBatch"
               >
                 <CheckSquare :size="14" /> 管理
               </button>
               <button
                 class="btn icon"
-                :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'" data-tip-dir="bottom"
+                :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
+                data-tip-dir="bottom"
                 @click="toggle($event)"
               >
                 <Moon v-if="theme === 'light'" :size="16" />
                 <Sun v-else :size="16" />
               </button>
               <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
-              <button class="close-btn" data-tip="关闭（Esc）" aria-label="关闭" data-tip-dir="bottom" @click="ui.closeShelf">
+              <button
+                class="close-btn"
+                data-tip="关闭（Esc）"
+                aria-label="关闭"
+                data-tip-dir="bottom"
+                @click="ui.closeShelf"
+              >
                 <X :size="18" />
               </button>
             </template>
@@ -226,12 +268,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
           </div>
           <div v-else class="groups-grid">
-            <ShelfModalHero
-              v-if="latestBook && !batchMode"
-              :book="latestBook"
-              :view-mode="viewMode"
-              @open="openBook"
-            />
+            <ShelfModalHero v-if="latestBook && !batchMode" :book="latestBook" :view-mode="viewMode" @open="openBook" />
             <ShelfGrid
               :groups="groups"
               :render-cap="SHELF_RENDER_CAP"

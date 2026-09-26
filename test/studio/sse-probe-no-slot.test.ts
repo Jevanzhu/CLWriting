@@ -41,7 +41,10 @@ beforeAll(async () => {
   })
   // 补登记第二本书（bootStudio 只写单条 books.jsonl）
   const reg = join(studio.workDir, '.clwriting', 'books.jsonl')
-  writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name: FULL_BOOK, path: FULL_BOOK, kind: 'long' }) + '\n')
+  writeFileSync(
+    reg,
+    readFileSync(reg, 'utf8') + JSON.stringify({ name: FULL_BOOK, path: FULL_BOOK, kind: 'long' }) + '\n',
+  )
   mkdirSync(join(studio.workDir, FULL_BOOK), { recursive: true })
   writeFileSync(
     join(studio.workDir, FULL_BOOK, 'book.yaml'),
@@ -80,7 +83,12 @@ async function openStream(name: string, headers: Record<string, string> = {}, qu
     headers: { 'x-studio-token': studio.token, ...headers },
     signal: ac.signal,
   })
-  readers.push(r.body?.getReader().read().catch(() => undefined) ?? Promise.resolve())
+  readers.push(
+    r.body
+      ?.getReader()
+      .read()
+      .catch(() => undefined) ?? Promise.resolve(),
+  )
   return r.status
 }
 
@@ -96,7 +104,8 @@ function rawStatus(method: 'HEAD' | 'GET', path: string, headers: Record<string,
     const u = new URL(studio.baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
       resolve(res.statusCode ?? 0)
-      if (method === 'GET') req.destroy() // SSE 长连接不回 body end：拿到状态码即断
+      if (method === 'GET')
+        req.destroy() // SSE 长连接不回 body end：拿到状态码即断
       else res.resume()
     })
     req.on('error', () => reject(new Error('raw request error')))

@@ -13,18 +13,13 @@
 
 import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
-import {
-  parsePieceListBody,
-  stringifyPieceList,
-} from './piece-list-core.js'
+import { parsePieceListBody, stringifyPieceList } from './piece-list-core.js'
 import type { PieceList, ParseError } from './types.js'
 
 export { emptyPieceList, parsePieceListBody, stringifyPieceList } from './piece-list-core.js'
 
 /** 读取章纲.md → PieceList（容错：文件不存在/空 → 默认空章纲） */
-export function readPieceList(
-  filePath: string,
-): { ok: true; list: PieceList } | { ok: false; error: ParseError } {
+export function readPieceList(filePath: string): { ok: true; list: PieceList } | { ok: false; error: ParseError } {
   let content: string
   try {
     // 章纲.md 无 front matter，全文即正文

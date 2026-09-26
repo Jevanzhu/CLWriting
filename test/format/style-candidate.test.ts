@@ -107,15 +107,18 @@ describe('候选读写往返', () => {
   // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个候选箱读取抛穿，
   // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('低-3（第十轮）：候选目录含已消失文件（悬空链接）不抛，其余候选照常读出', () => {
-    const dir = join(root, CANDIDATES_DIR)
-    addCandidate(root, sampleCandidate) // 自建候选目录
-    symlinkSync(join(dir, 'no-such.md'), join(dir, '已消失.md'))
-    expect(() => readCandidates(dir)).not.toThrow()
-    const { candidates, errors } = readCandidates(dir)
-    expect(candidates).toHaveLength(1)
-    expect(errors).toHaveLength(0)
-  })
+  it.skipIf(process.platform === 'win32')(
+    '低-3（第十轮）：候选目录含已消失文件（悬空链接）不抛，其余候选照常读出',
+    () => {
+      const dir = join(root, CANDIDATES_DIR)
+      addCandidate(root, sampleCandidate) // 自建候选目录
+      symlinkSync(join(dir, 'no-such.md'), join(dir, '已消失.md'))
+      expect(() => readCandidates(dir)).not.toThrow()
+      const { candidates, errors } = readCandidates(dir)
+      expect(candidates).toHaveLength(1)
+      expect(errors).toHaveLength(0)
+    },
+  )
 })
 
 describe('effectiveStatus 过期', () => {
@@ -152,27 +155,30 @@ describe('确认 / 忽略', () => {
   })
 
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('M-7：穿越 / 书外绝对路径 / symlink 越出 → confirm null + ignore false（内层统一委托 resolveWithinRoot）', () => {
-    // 字面穿越
-    expect(confirmCandidate(root, '../outside.md')).toBeNull()
-    expect(ignoreCandidate(root, '文风/候选/../../outside.md')).toBe(false)
-    // 书外绝对路径
-    expect(confirmCandidate(root, '/etc/passwd')).toBeNull()
-    // symlink：字面路径在候选目录内、realpath 指向书外——旧手写 relative 检查放行，
-    // confirm 会把书外文件内容读入条目库
-    const outside = join(root, '..', 'clwriting-candidate-outside.md')
-    writeFileSync(outside, '书外内容', 'utf8')
-    const linkRel = addCandidate(root, sampleCandidate)
-    rmSync(join(root, linkRel))
-    symlinkSync(outside, join(root, linkRel))
-    try {
-      expect(confirmCandidate(root, linkRel)).toBeNull()
-      expect(ignoreCandidate(root, linkRel)).toBe(false)
-      expect(existsSync(outside)).toBe(true) // 书外目标未被触碰
-    } finally {
-      rmSync(outside, { force: true })
-    }
-  })
+  it.skipIf(process.platform === 'win32')(
+    'M-7：穿越 / 书外绝对路径 / symlink 越出 → confirm null + ignore false（内层统一委托 resolveWithinRoot）',
+    () => {
+      // 字面穿越
+      expect(confirmCandidate(root, '../outside.md')).toBeNull()
+      expect(ignoreCandidate(root, '文风/候选/../../outside.md')).toBe(false)
+      // 书外绝对路径
+      expect(confirmCandidate(root, '/etc/passwd')).toBeNull()
+      // symlink：字面路径在候选目录内、realpath 指向书外——旧手写 relative 检查放行，
+      // confirm 会把书外文件内容读入条目库
+      const outside = join(root, '..', 'clwriting-candidate-outside.md')
+      writeFileSync(outside, '书外内容', 'utf8')
+      const linkRel = addCandidate(root, sampleCandidate)
+      rmSync(join(root, linkRel))
+      symlinkSync(outside, join(root, linkRel))
+      try {
+        expect(confirmCandidate(root, linkRel)).toBeNull()
+        expect(ignoreCandidate(root, linkRel)).toBe(false)
+        expect(existsSync(outside)).toBe(true) // 书外目标未被触碰
+      } finally {
+        rmSync(outside, { force: true })
+      }
+    },
+  )
 })
 
 describe('源1 · 改稿轨迹', () => {
@@ -180,8 +186,7 @@ describe('源1 · 改稿轨迹', () => {
   const P1_AI =
     '他深吸一口气，推开大门。院子里静得出奇，落叶铺了一地，墙角的灯笼在风里轻轻摇晃，映出一圈昏黄的光。他放轻脚步，沿着回廊往里走，每一步都踩在自己的心跳上。'
   const P1_AU = P1_AI.replace('他深吸一口气，', '他顿了顿，')
-  const P2_AI =
-    '他心中涌起一股难以言喻的感动，这一刻他终于明白了坚持的意义，原来所有的付出都是值得的。'
+  const P2_AI = '他心中涌起一股难以言喻的感动，这一刻他终于明白了坚持的意义，原来所有的付出都是值得的。'
   const P2_AU =
     '巷口的馄饨摊还亮着一盏昏灯，老板娘往锅里下了最后一把面，蒸汽腾起来，糊住了她半张脸。他数出六个铜板放在案上，没说话。'
 
@@ -244,10 +249,7 @@ describe('源2 / 源3 转换', () => {
   })
 
   it('分析转换：口癖→禁词、建议→手法、空串滤除', () => {
-    const out = mapAnalysisToCandidates(
-      { 口癖: ['竟然', '  ', '仿佛'], 建议: ['开头别用天气起手'] },
-      '2026-07-31',
-    )
+    const out = mapAnalysisToCandidates({ 口癖: ['竟然', '  ', '仿佛'], 建议: ['开头别用天气起手'] }, '2026-07-31')
     expect(out.filter((c) => c.类型 === '禁词').map((c) => c.正文)).toEqual(['竟然', '仿佛'])
     expect(out.filter((c) => c.类型 === '手法')).toHaveLength(1)
   })
@@ -290,7 +292,12 @@ describe('persistCandidates 查重闸', () => {
   // 用前缀类型模拟该潜伏形状，SOH 分隔后两键必不相等
   it('低-2（第十轮）：查重 key 有 SOH 分隔——前缀类型与「类型+正文」裸拼接不碰撞', () => {
     const full: StyleCandidate = {
-      ...sampleCandidate, 类型: '样章', 正文: '手法', 章号: undefined, 相似度: undefined, AI版: undefined,
+      ...sampleCandidate,
+      类型: '样章',
+      正文: '手法',
+      章号: undefined,
+      相似度: undefined,
+      AI版: undefined,
     }
     const prefix = { ...full, 类型: '样' as EntryKind, 正文: '章手法' }
     const r = persistCandidates(root, [full, prefix])

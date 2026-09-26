@@ -32,10 +32,11 @@ function fitSelect(el: HTMLSelectElement | null): void {
 
 watch(
   () => [tier.activeModel, tier.activeEffort],
-  () => nextTick(() => {
-    fitSelect(modelSelect.value)
-    fitSelect(effortSelect.value)
-  }),
+  () =>
+    nextTick(() => {
+      fitSelect(modelSelect.value)
+      fitSelect(effortSelect.value)
+    }),
 )
 onMounted(() => {
   nextTick(() => {
@@ -56,7 +57,9 @@ onMounted(() => {
         :disabled="tier.tierLoading"
         @change="tier.onModelChange"
       >
-        <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">{{ tier.activeModel }}</option>
+        <option v-if="tier.activeModel && !tier.models.includes(tier.activeModel)" :value="tier.activeModel">
+          {{ tier.activeModel }}
+        </option>
         <option value="" disabled>选择模型</option>
         <option v-for="m in tier.modelsOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
       </select>
@@ -94,7 +97,9 @@ onMounted(() => {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .composer-chip:hover {
   background: var(--background-modifier-hover);

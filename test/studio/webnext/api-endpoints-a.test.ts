@@ -38,7 +38,10 @@ import { runCheck, markFalsePositive } from '../../../src/studio/web-next/src/ap
 import { runLearn, runLearnCommit } from '../../../src/studio/web-next/src/api/learn'
 import { boot, ApiError } from '../../../src/studio/web-next/src/api/client'
 
-interface Call { url: string; init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 
 let calls: Call[] = []
 function stubFetch(responder: (c: Call) => Response): void {
@@ -177,11 +180,12 @@ describe('api 书级操作 · books/shelf', () => {
       expectedRevision: 7, // 修复点：乐观锁版本随负载上送（不传 = 直通，向后兼容）
     })
     // 服务端失配回 409（双标签页后写者拦截）→ ApiError{status:409, code} 供调用方决断
-    stubFetch(() =>
-      new Response(JSON.stringify({ error: '配置已被其他窗口修改', code: 'REVISION_CONFLICT' }), {
-        status: 409,
-        headers: { 'content-type': 'application/json' },
-      }),
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ error: '配置已被其他窗口修改', code: 'REVISION_CONFLICT' }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }),
     )
     const err: unknown = await putConfig('书 A', { kind: 'long', book: { title: '再' } }, 6).catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)

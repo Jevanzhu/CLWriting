@@ -123,7 +123,10 @@ describe('R0912-3: move toDir 拒绝 .. / . 段（R51-D-3 doCopy 同族）', () 
     expect(bad.ok).toBe(false)
     // 注册路径上的正常保存不受拒绝移动影响（对照：畸形键落账时 registered≠盘上路径，保存恒 REVISION_CONFLICT）
     const s0 = await svc.save(docId, `笔记/${name}`, {
-      content: '拒绝后原路径保存', expectedRevision: computeRevision(join(bookRoot, '笔记', name)), operationId: 'op-r0912-0', origin: 'manual',
+      content: '拒绝后原路径保存',
+      expectedRevision: computeRevision(join(bookRoot, '笔记', name)),
+      operationId: 'op-r0912-0',
+      origin: 'manual',
     })
     expect(s0.ok).toBe(true)
     const good = await svc.moveDocument({ docId, toDir: '素材' })
@@ -132,7 +135,10 @@ describe('R0912-3: move toDir 拒绝 .. / . 段（R51-D-3 doCopy 同族）', () 
     expect(registeredPath(docId)).toBe(`素材/${name}`)
     // 合法移动后新注册路径保存同样成立（registered === 盘上路径，docJoinKey 命中）
     const s1 = await svc.save(docId, `素材/${name}`, {
-      content: '合法移动后保存', expectedRevision: computeRevision(join(bookRoot, '素材', name)), operationId: 'op-r0912-1', origin: 'manual',
+      content: '合法移动后保存',
+      expectedRevision: computeRevision(join(bookRoot, '素材', name)),
+      operationId: 'op-r0912-1',
+      origin: 'manual',
     })
     expect(s1.ok).toBe(true)
     expect(existsSync(join(bookRoot, '素材', name))).toBe(true)

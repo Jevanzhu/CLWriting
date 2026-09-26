@@ -19,20 +19,25 @@ const g = useRelationGraph(props.bookName)
       关系图载入失败：{{ g.err.value }}
       <button class="btn" @click="g.load">重试</button>
     </div>
-    <div v-else-if="!g.nodeCount.value" class="state-block">
-      无角色数据。先在「设定 / 角色」建角色卡。
-    </div>
+    <div v-else-if="!g.nodeCount.value" class="state-block">无角色数据。先在「设定 / 角色」建角色卡。</div>
     <div v-else class="rel">
       <!-- 顶部工具栏 -->
       <header class="rel-bar">
         <div class="rel-bar-left">
           <h2 class="rel-title">关系网络 <BetaBadge /></h2>
           <span class="rel-count">
-            <span class="kc">{{ g.visibleNodes.value.length }}</span><template v-if="g.hiddenCount.value > 0">/{{ g.nodeCount.value }}</template> 角色
+            <span class="kc">{{ g.visibleNodes.value.length }}</span
+            ><template v-if="g.hiddenCount.value > 0">/{{ g.nodeCount.value }}</template> 角色
             <span class="sep">·</span>
             <span class="kc">{{ g.edgeCount.value }}</span> 关系
-            <template v-if="g.debtCount.value"><span class="sep">·</span><span class="kc">{{ g.debtCount.value }}</span> 债务</template>
-            <button v-if="g.hiddenCount.value > 0" class="show-all-btn" @click="g.showOrphans.value = !g.showOrphans.value">
+            <template v-if="g.debtCount.value"
+              ><span class="sep">·</span><span class="kc">{{ g.debtCount.value }}</span> 债务</template
+            >
+            <button
+              v-if="g.hiddenCount.value > 0"
+              class="show-all-btn"
+              @click="g.showOrphans.value = !g.showOrphans.value"
+            >
               {{ g.showOrphans.value ? '收起' : `+${g.hiddenCount.value}无关系` }}
             </button>
           </span>

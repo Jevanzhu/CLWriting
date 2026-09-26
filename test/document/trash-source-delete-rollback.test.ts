@@ -150,7 +150,10 @@ test('重评-13: 回滚删回收站副本持续 EPERM → 重试耗尽 warn 留�
   // 删源与回滚删回收站副本均持续占用（非瞬时形态）
   vi.mocked(rmSyncMocked).mockImplementation((...args) => {
     const p = args[0]
-    if (typeof p === 'string' && ((p.includes('正文') && p.endsWith('0001-开篇.md')) || (p.includes('.trash') && p.endsWith('.md')))) {
+    if (
+      typeof p === 'string' &&
+      ((p.includes('正文') && p.endsWith('0001-开篇.md')) || (p.includes('.trash') && p.endsWith('.md')))
+    ) {
       throw errOf('EPERM')
     }
     return actualFs.rmSync(...args)
@@ -197,7 +200,11 @@ describe('doTrash 删源失败回滚（R1W-3，真实 OS 占用夹具，win 专�
         // PowerShell 持句柄（FileShare.Read = 他人可读、禁写禁删），开妥后落 marker
         child = spawn(
           'powershell',
-          ['-NoProfile', '-Command', `$f=[System.IO.File]::Open('${fp.replace(/'/g, "''")}','Open','Read','Read'); Set-Content -Path '${marker}' -Value '1'; Start-Sleep 15; $f.Close()`],
+          [
+            '-NoProfile',
+            '-Command',
+            `$f=[System.IO.File]::Open('${fp.replace(/'/g, "''")}','Open','Read','Read'); Set-Content -Path '${marker}' -Value '1'; Start-Sleep 15; $f.Close()`,
+          ],
           { windowsHide: true, stdio: 'ignore' },
         )
         // 轮询等句柄就绪（powershell 冷启动 ~1s）
@@ -238,21 +245,18 @@ describe('doTrash 删源失败回滚（R1W-3，真实 OS 占用夹具，win 专�
     },
   )
 
-  it.skipIf(process.platform === 'win32')(
-    'posix 对照：同夹具正常软删，happy path 不受影响',
-    async () => {
-      const { root, svc } = makeR1w3Svc()
-      try {
-        mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
-        const relPath = '设定/伏笔/神秘印记.md'
-        const fp = join(root, relPath)
-        writeFileSync(fp, '---\n标题: 神秘印记\n---\n正文', 'utf-8')
-        const r = await svc.trashDocument({ docId: legacyId(relPath) })
-        expect(r.ok).toBe(true)
-        expect(existsSync(fp)).toBe(false)
-      } finally {
-        rmSync(root, { recursive: true, force: true })
-      }
-    },
-  )
+  it.skipIf(process.platform === 'win32')('posix 对照：同夹具正常软删，happy path 不受影响', async () => {
+    const { root, svc } = makeR1w3Svc()
+    try {
+      mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
+      const relPath = '设定/伏笔/神秘印记.md'
+      const fp = join(root, relPath)
+      writeFileSync(fp, '---\n标题: 神秘印记\n---\n正文', 'utf-8')
+      const r = await svc.trashDocument({ docId: legacyId(relPath) })
+      expect(r.ok).toBe(true)
+      expect(existsSync(fp)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

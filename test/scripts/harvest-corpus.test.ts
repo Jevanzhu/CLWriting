@@ -26,12 +26,12 @@ test('R30-29: 章级解析失败 → 统计带 failedChapters 计数 + warn 汇�
   const root = join(mkdtempTracked(join(tmpdir(), 'harvest-corpus-')), '青萍集')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集', '  genre: 玄幻'].join('\n'), 'utf-8')
   writeFileSync(
-    join(root, '写作', '正文', '0001-好章.md'),
-    '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。',
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 青萍集', '  genre: 玄幻'].join('\n'),
     'utf-8',
   )
+  writeFileSync(join(root, '写作', '正文', '0001-好章.md'), '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
   // 坏章：有 front matter 但缺必填「章号」→ readChapterDir 收进 errors（原因可断言）
   writeFileSync(join(root, '写作', '正文', '0002-坏章.md'), '---\n标题: 坏章\n---\n正文。', 'utf-8')
   writeFileSync(
@@ -71,12 +71,12 @@ test('R34D-31: 干净书（零章级失败、零快照失败）→ 退出码 0 �
   const root = join(mkdtempTracked(join(tmpdir(), 'harvest-corpus-')), '青萍集净')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集净', '  genre: 玄幻'].join('\n'), 'utf-8')
   writeFileSync(
-    join(root, '写作', '正文', '0001-好章.md'),
-    '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。',
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 青萍集净', '  genre: 玄幻'].join('\n'),
     'utf-8',
   )
+  writeFileSync(join(root, '写作', '正文', '0001-好章.md'), '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
   writeFileSync(
     join(root, '项目', '文档清单.jsonl'),
     [
@@ -138,7 +138,11 @@ test('重评2-P3-5: 章文件 TOCTOU 读失败 → R63-14 口径告警 + exit 1 
   const root = join(dir, '青萍集移章')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集移章', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 青萍集移章', '  genre: 玄幻'].join('\n'),
+    'utf-8',
+  )
   const chapterPath = join(root, '写作', '正文', '0001-好章.md')
   writeFileSync(chapterPath, '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
   writeFileSync(
@@ -207,7 +211,11 @@ test('R0912-3: 文档清单缺失 → 人话报错 + exit 1 + 不产出候选文
   const dir = mkdtempTracked(join(tmpdir(), 'harvest-corpus-'))
   const root = join(dir, '青萍集无清单')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集无清单', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 青萍集无清单', '  genre: 玄幻'].join('\n'),
+    'utf-8',
+  )
   writeFileSync(join(root, '写作', '正文', '0001-好章.md'), '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
   // 故意不写 项目/文档清单.jsonl——早退点在 rebuild/开库之后、产出段之前
   try {
@@ -267,9 +275,17 @@ function makeKeywordBook(): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   mkdirSync(join(root, '工作区', '.版本', 'chap-1'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 雪泥集', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 雪泥集', '  genre: 玄幻'].join('\n'),
+    'utf-8',
+  )
   // 铁律阈值：点火 style-sentence-overlong（12）与 style-parallel-streak（2）
-  writeFileSync(join(root, '文风', '文风铁律.md'), ['# 文风铁律', '', '单句上限字数: 12', '排比连续数: 2', ''].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, '文风', '文风铁律.md'),
+    ['# 文风铁律', '', '单句上限字数: 12', '排比连续数: 2', ''].join('\n'),
+    'utf-8',
+  )
   writeFileSync(
     join(root, '写作', '正文', '0001-雪夜.md'),
     `---\n章号: 1\n标题: 雪夜\n---\n${KEYWORD_FINAL_BODY}`,
@@ -332,7 +348,11 @@ test('R51-J-1: 干净书零命中 → 无锚点告警不出现', () => {
   const root = join(mkdtempTracked(join(tmpdir(), 'harvest-corpus-')), '净本')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 净本', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    ['spec_version: 1', 'book:', '  title: 净本', '  genre: 玄幻'].join('\n'),
+    'utf-8',
+  )
   writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n雪落在了城墙上。', 'utf-8')
   writeFileSync(
     join(root, '项目', '文档清单.jsonl'),

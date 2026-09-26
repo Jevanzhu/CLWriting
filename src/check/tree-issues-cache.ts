@@ -247,7 +247,10 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
     db.exec('BEGIN')
     try {
       db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_fp', fp)
-      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_red', hasRed ? '1' : '0')
+      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run(
+        'leads_book_red',
+        hasRed ? '1' : '0',
+      )
       db.exec('COMMIT')
     } catch (e) {
       // 同款——裸 ROLLBACK 在事务已自动回亡时抛
@@ -280,8 +283,7 @@ export function syncTreeIssuesEpoch(
   ensureTreeIssuesTables(db)
   const fp = precomputedFp ?? computeTreeIssuesGlobalFp(bookRoot, userDataPath)
   const row = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('global_fp') as
-    | { value: string }
-    | undefined
+    { value: string } | undefined
   if (row?.value === fp) return false
   db.exec('BEGIN')
   try {
@@ -397,7 +399,11 @@ export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCach
     db.exec('COMMIT')
   } catch {
     // 批失败回退逐行（best-effort 口径不变）
-    try { db.exec('ROLLBACK') } catch { /* 未开成功事务/已自动回滚：忽略 */ }
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 未开成功事务/已自动回滚：忽略 */
+    }
     for (const r of rows) writeTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, r.value, r.epochFp)
   }
 }

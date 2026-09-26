@@ -122,7 +122,9 @@ describe('POST /documents/:docId/review-verdict（M12 B1.3 方案 A）', () => {
     expect((r.json as { verdict: { approved: boolean } }).verdict.approved).toBe(false)
     // 读回确认覆盖
     const g = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analysis/review`)
-    expect((g.json as { envelope: { payload: { verdict: { approved: boolean } } } }).envelope.payload.verdict.approved).toBe(false)
+    expect(
+      (g.json as { envelope: { payload: { verdict: { approved: boolean } } } }).envelope.payload.verdict.approved,
+    ).toBe(false)
   })
 
   it('未登记 docId → 404', async () => {

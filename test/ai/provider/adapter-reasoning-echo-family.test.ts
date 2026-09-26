@@ -25,7 +25,10 @@ const CONF = {
   caps: null,
 } as ProviderConf
 
-async function collect(conf: ProviderConf, req: GenRequest): Promise<{ events: GenEvent[]; sent: Record<string, unknown> | undefined }> {
+async function collect(
+  conf: ProviderConf,
+  req: GenRequest,
+): Promise<{ events: GenEvent[]; sent: Record<string, unknown> | undefined }> {
   let sent: Record<string, unknown> | undefined
   const client = {
     chat: {

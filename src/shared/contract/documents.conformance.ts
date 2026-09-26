@@ -19,24 +19,13 @@ import type {
   MergeUndoResult,
 } from '../../document/structure-merge.js'
 import type { SplitApplyResult, SplitPlanView as DocSplitPlanView } from '../../document/structure-split.js'
-import type {
-  MergeApplyOk,
-  MergePlanView,
-  MergeUndoOk,
-  SplitApplyOk,
-  SplitPlanView,
-} from './documents.js'
+import type { MergeApplyOk, MergePlanView, MergeUndoOk, SplitApplyOk, SplitPlanView } from './documents.js'
 
 /** 逐字段等价：键集相等（抓「新增/删除字段」——含可选字段，双向可赋值抓不到它，
  *  `A extends B` 对 B 的**可选**新字段恒真）+ 双向可赋值（抓字段类型/判别值变化）。 */
 type SameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false
-type SameShape<A, B> = SameKeys<A, B> extends true
-  ? [A] extends [B]
-    ? [B] extends [A]
-      ? true
-      : false
-    : false
-  : false
+type SameShape<A, B> =
+  SameKeys<A, B> extends true ? ([A] extends [B] ? ([B] extends [A] ? true : false) : false) : false
 
 type Assert<T extends true> = T
 

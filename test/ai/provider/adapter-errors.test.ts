@@ -37,8 +37,12 @@ const anthropicToErrorEvent = makeToErrorEvent({
 })
 
 // 降级记忆的查/写是模块级通道——用例间必须清空，防泄漏串扰
-beforeEach(() => { processProviderRuntime().__resetForTest() })
-afterEach(() => { processProviderRuntime().__resetForTest() })
+beforeEach(() => {
+  processProviderRuntime().__resetForTest()
+})
+afterEach(() => {
+  processProviderRuntime().__resetForTest()
+})
 
 describe('makeToErrorEvent 五分支', () => {
   it('APIUserAbortError → ABORTED「已中断」（子类须先于 APIError 判定）', () => {
@@ -51,7 +55,9 @@ describe('makeToErrorEvent 五分支', () => {
   })
 
   it('APIConnectionError → NETWORK 可重试（Y-14：布尔与决策表对齐），message 脱敏', () => {
-    const e = new OpenAI.APIConnectionError({ message: 'fetch failed: https://gw.test/v1?api_key=sk-abcdefghijklmnopqrst' })
+    const e = new OpenAI.APIConnectionError({
+      message: 'fetch failed: https://gw.test/v1?api_key=sk-abcdefghijklmnopqrst',
+    })
     const ev = openaiToErrorEvent(e)
     // Y-14（第五十七轮）：retryable 改 true——failure.ts 决策表 NETWORK → 'retry'，
     // 此前 false 全靠 code 兜住，布尔兜底分支（mode:'always'）会静默翻转不重试
@@ -134,7 +140,12 @@ describe('buildDegradeAttempts 四分支（attempts 顺序与条件逐项保持�
     expect(plan.attempts).toHaveLength(3)
     expect(plan.attempts[0]).toBe(REQ_ST)
     expect(plan.attempts[1]).toMatchObject({ structured: undefined, tools: REQ_ST.tools })
-    expect(plan.attempts[2]).toMatchObject({ structured: REQ_ST.structured, tools: undefined, toolChoice: undefined, toolName: undefined })
+    expect(plan.attempts[2]).toMatchObject({
+      structured: REQ_ST.structured,
+      tools: undefined,
+      toolChoice: undefined,
+      toolName: undefined,
+    })
   })
 
   it('structured + tools 记忆命中（查通道）→ 首发即剥 structured', () => {
@@ -147,10 +158,15 @@ describe('buildDegradeAttempts 四分支（attempts 顺序与条件逐项保持�
 
   it('structured + tools 记忆命中（store 快照回落）→ 同上', () => {
     const store: ProviderStore = {
-      providers: [], currentId: null, currentModel: null,
+      providers: [],
+      currentId: null,
+      currentModel: null,
       modelCaps: { 'p1/m1': { structured: false } },
       tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
-      ragProviders: [], revision: 0, vault: null, dek: null,
+      ragProviders: [],
+      revision: 0,
+      vault: null,
+      dek: null,
     }
     const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, store)
     expect(plan.attempts).toHaveLength(2)
@@ -206,10 +222,24 @@ describe('isMidChain400 续跑闸', () => {
 
   it('非 400（500）与非 APIError → false（不做降级续跑）', () => {
     const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, undefined)
-    expect(isMidChain400(new OpenAI.APIError(500, { message: 'x' }, 'x', undefined), OpenAI.APIError, plan.attempts[0]!, plan)).toBe(false)
+    expect(
+      isMidChain400(
+        new OpenAI.APIError(500, { message: 'x' }, 'x', undefined),
+        OpenAI.APIError,
+        plan.attempts[0]!,
+        plan,
+      ),
+    ).toBe(false)
     expect(isMidChain400(new Error('400-ish'), OpenAI.APIError, plan.attempts[0]!, plan)).toBe(false)
     // 另一家 SDK 的 APIError 不得误判（构造函数传参隔离两线）
-    expect(isMidChain400(new OpenAI.APIError(400, { message: 'bad' }, 'bad', undefined), Anthropic.APIError, plan.attempts[0]!, plan)).toBe(false)
+    expect(
+      isMidChain400(
+        new OpenAI.APIError(400, { message: 'bad' }, 'bad', undefined),
+        Anthropic.APIError,
+        plan.attempts[0]!,
+        plan,
+      ),
+    ).toBe(false)
   })
 
   // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：真·上下文超限 400 不续链——
@@ -223,7 +253,14 @@ describe('isMidChain400 续跑闸', () => {
       'maximum context length is 65536 tokens', // DeepSeek
     ]
     for (const msg of cases) {
-      expect(isMidChain400(new OpenAI.APIError(400, { message: msg }, msg, undefined), OpenAI.APIError, plan.attempts[0]!, plan)).toBe(false)
+      expect(
+        isMidChain400(
+          new OpenAI.APIError(400, { message: msg }, msg, undefined),
+          OpenAI.APIError,
+          plan.attempts[0]!,
+          plan,
+        ),
+      ).toBe(false)
     }
     // 组装类 400（含 "context" 词根但非超窗短语）维持续链语义不变
     const unrelated = new OpenAI.APIError(400, { message: 'invalid context id' }, 'invalid context id', undefined)
@@ -242,15 +279,23 @@ describe('markStructuredDegrade 记忆写入', () => {
 
   function emptyStore(): ProviderStore {
     return {
-      providers: [], currentId: null, currentModel: null, modelCaps: {},
+      providers: [],
+      currentId: null,
+      currentModel: null,
+      modelCaps: {},
       tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
-      ragProviders: [], revision: 0, vault: null, dek: null,
+      ragProviders: [],
+      revision: 0,
+      vault: null,
+      dek: null,
     }
   }
 
   it('剥 structured 的 attempt 建流成功 → 双写（store 快照 + persist 通道）', () => {
     const persisted: string[] = []
-    registerDegradedPersist((key) => { persisted.push(key) })
+    registerDegradedPersist((key) => {
+      persisted.push(key)
+    })
     const store = emptyStore()
     const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, store)
     markStructuredDegrade(plan, plan.attempts[1]!, store)
@@ -260,7 +305,9 @@ describe('markStructuredDegrade 记忆写入', () => {
 
   it('首发原样与剥 tools 的 attempt 都不写 structured 记忆（归因不同，防污染）', () => {
     const persisted: string[] = []
-    registerDegradedPersist((key) => { persisted.push(key) })
+    registerDegradedPersist((key) => {
+      persisted.push(key)
+    })
     const store = emptyStore()
     const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, store)
     markStructuredDegrade(plan, plan.attempts[0]!, store)

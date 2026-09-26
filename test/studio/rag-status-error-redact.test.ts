@@ -27,7 +27,9 @@ vi.mock('../../src/rag/index.js', async (importOriginal) => {
     ...orig,
     buildIndex: () =>
       Promise.reject(
-        new Error('上游 embed 失败 https://api.example.com/v1/embed?api_key=sk-live-aaaaaaaaaaaaaaaa 上游返回：sk-abcdef0123456789ab'),
+        new Error(
+          '上游 embed 失败 https://api.example.com/v1/embed?api_key=sk-live-aaaaaaaaaaaaaaaa 上游返回：sk-abcdef0123456789ab',
+        ),
       ),
   }
 })

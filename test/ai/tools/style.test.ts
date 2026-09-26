@@ -31,4 +31,3 @@ describe('harvest_style', () => {
     expect(r.summary).toContain('文风收割')
   })
 })
-

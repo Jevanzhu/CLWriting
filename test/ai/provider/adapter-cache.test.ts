@@ -19,7 +19,10 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
       messages: {
         create: fakeSend([
           // Anthropic 口径：input_tokens 不含 cache，cache_read/cache_creation 独立字段
-          { type: 'message_start', message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } } },
+          {
+            type: 'message_start',
+            message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } },
+          },
           { type: 'message_delta', usage: { output_tokens: 5 }, delta: { stop_reason: 'end_turn' } },
         ]),
       },
@@ -35,8 +38,20 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
     const client = {
       messages: {
         create: fakeSend([
-          { type: 'message_start', message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } } },
-          { type: 'message_delta', usage: { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 80, cache_creation_input_tokens: 20 }, delta: { stop_reason: 'end_turn' } },
+          {
+            type: 'message_start',
+            message: { usage: { input_tokens: 100, cache_read_input_tokens: 60, cache_creation_input_tokens: 20 } },
+          },
+          {
+            type: 'message_delta',
+            usage: {
+              input_tokens: 100,
+              output_tokens: 5,
+              cache_read_input_tokens: 80,
+              cache_creation_input_tokens: 20,
+            },
+            delta: { stop_reason: 'end_turn' },
+          },
         ]),
       },
     } as unknown as Anthropic
@@ -66,12 +81,21 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 40 } } },
+            {
+              choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 50, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 40 } },
+            },
           ]),
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(
+      createOpenAIProviderChat(
+        { ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf,
+        client,
+      ),
+      REQ,
+    )
     // prompt_tokens 已含 cache 命中 → inputTokens=50-40=10（Anthropic 口径），cacheReadTokens 单列；
     // 修复前 inputTokens:50 + cacheReadTokens:40 双计（成本/预算口径虚高一个命中量）
     expect(evs.find((e) => e.type === 'done')).toMatchObject({
@@ -85,12 +109,26 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         completions: {
           create: fakeSend([
             // usage 挂在 choices[0]（§4.4 Kimi 文档矛盾形态）
-            { choices: [{ delta: { content: 'x' }, finish_reason: 'stop', usage: { prompt_tokens: 9, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 7 } } }] },
+            {
+              choices: [
+                {
+                  delta: { content: 'x' },
+                  finish_reason: 'stop',
+                  usage: { prompt_tokens: 9, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 7 } },
+                },
+              ],
+            },
           ]),
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(
+      createOpenAIProviderChat(
+        { ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf,
+        client,
+      ),
+      REQ,
+    )
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { cacheReadTokens: 7 } })
   })
 
@@ -103,7 +141,13 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(
+      createOpenAIProviderChat(
+        { ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf,
+        client,
+      ),
+      REQ,
+    )
     // 修复前：兜底 emitDone({0,0},'stop') → 真实计费调用按成功 0 成本入账
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
@@ -117,7 +161,13 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
+    const evs = await collect(
+      createOpenAIProviderChat(
+        { ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf,
+        client,
+      ),
+      REQ,
+    )
     // R73-1：网关完成但不回 usage——判错重试对这类网关是全量破坏，仍放行；但不再按
     // 0/0 入账（预算闸 tokens/cost 对该类端点永不生效）——input/output 按请求/产出
     // 字符折算（'hi' 与 '完整' 各 2 码位 × 0.6 → ceil = 2），estimated 标记估计口径

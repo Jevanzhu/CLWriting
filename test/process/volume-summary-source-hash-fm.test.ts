@@ -56,7 +56,11 @@ function makeBook(): string {
   for (let no = 1; no <= 2; no++) {
     const pad = String(no).padStart(3, '0')
     const p = join(root, '写作', '正文', `${pad}-第${no}章.md`)
-    writeFileSync(p, `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`, 'utf-8')
+    writeFileSync(
+      p,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`,
+      'utf-8',
+    )
     const id = generateDocId()
     upsertEntry(m, { id, nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
     const e = m.entries.get(id)!
@@ -67,13 +71,20 @@ function makeBook(): string {
   return root
 }
 
-const bodyOf = (root: string, no: number): string => join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
+const bodyOf = (root: string, no: number): string =>
+  join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
 
 /** 章摘要链就绪（mock 生成章 1/2）→ 返回生效配置 */
 async function readyChain(root: string) {
   const config = effectiveConfig(root, null)
   for (const ch of [1, 2]) {
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config, chapter: ch, bodyAbsPath: bodyOf(root, ch) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config,
+      chapter: ch,
+      bodyAbsPath: bodyOf(root, ch),
+    })
     expect(r.ok).toBe(true)
   }
   return config

@@ -156,7 +156,13 @@ export function buildDegradeAttempts(
   } else {
     attempts = [req]
   }
-  return { attempts, stripStructured, degradedKey, original: req, ...(userDataPath !== undefined ? { userDataPath } : {}) }
+  return {
+    attempts,
+    stripStructured,
+    degradedKey,
+    original: req,
+    ...(userDataPath !== undefined ? { userDataPath } : {}),
+  }
 }
 
 /**

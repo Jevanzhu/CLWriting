@@ -50,8 +50,10 @@ beforeAll(async () => {
   )
   writeFileSync(
     join(studio.workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
-      JSON.stringify({ name: BOOK_B, path: BOOK_B, kind: 'long' }) + '\n',
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+      '\n' +
+      JSON.stringify({ name: BOOK_B, path: BOOK_B, kind: 'long' }) +
+      '\n',
   )
 })
 

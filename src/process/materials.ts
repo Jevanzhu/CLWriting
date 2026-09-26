@@ -181,7 +181,9 @@ interface PrepareMaterialsResult extends PrepareResult {
 function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: string } {
   if (scenes.length === 0) return {}
   if (base.sections.some((s) => s.title === '文风样章')) return {}
-  return { styleNote: `场景「${scenes.join('、')}」无样章，文风未对齐，可运行 learn 收割补（范文回落待知识层补数据）。` }
+  return {
+    styleNote: `场景「${scenes.join('、')}」无样章，文风未对齐，可运行 learn 收割补（范文回落待知识层补数据）。`,
+  }
 }
 
 /**
@@ -190,7 +192,10 @@ function styleNoteOf(scenes: string[], base: PrepareResult): { styleNote?: strin
  * 此前备料链读细纲 fm「场景」字段——全仓无生产写入方（outline 端点只写 章号/推进），
  * 恒空 → prepare 回落硬编码「战斗」，文风样章场景与本章实际场景脱节；/特性未生效。
  */
-function resolveScenes(bookRoot: string, opts: PrepareMaterialsOptions): { sampleScene: string[] | undefined; declaredScenes: string[] } {
+function resolveScenes(
+  bookRoot: string,
+  opts: PrepareMaterialsOptions,
+): { sampleScene: string[] | undefined; declaredScenes: string[] } {
   // 显式入参优先（测试/调用方覆盖）；未传 chapter 的旧调用维持「不推导」→ prepare 自行回落
   if (opts.sampleScene !== undefined) {
     const arr = Array.isArray(opts.sampleScene) ? opts.sampleScene : [opts.sampleScene]
@@ -226,7 +231,13 @@ export async function prepareMaterials(
   let summaryGenerated: string[] = []
   if (opts.chapter !== undefined) {
     try {
-      summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
+      summaryGenerated = await selfHealRecentChapterSummaries(
+        bookRoot,
+        opts.userDataPath ?? null,
+        config,
+        opts.chapter,
+        opts.signal,
+      )
     } catch (e) {
       // 静默降级改 warn 留痕——此前「补漏失败静默」把 ENOENT/权限类
       // 持续性故障埋进零痕迹（自愈循环断链无观测），备料降级语义不变
@@ -259,7 +270,14 @@ export async function prepareMaterials(
 
   if (!resolved.apiKey) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
-    return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ragNote: '未配 RAG api_key（召回降级，主路径不受影响）', ...styleNoteOf(declaredScenes, base) }
+    return {
+      ...base,
+      ragUsed: false,
+      ragHitCount: 0,
+      summaryGenerated,
+      ragNote: '未配 RAG api_key（召回降级，主路径不受影响）',
+      ...styleNoteOf(declaredScenes, base),
+    }
   }
 
   // 召回 query：显式 > 默认「本章推进条目编号 + 近况章节」> 书名（兜底召回与本书相关的片段）
@@ -279,7 +297,13 @@ export async function prepareMaterials(
   try {
     rec = await recallDetailed(
       bookRoot,
-      { enabled: true, endpoint: resolved.endpoint, model: resolved.model, candidate_depth: ragConfig.candidate_depth, embed_timeout_ms: ragConfig.embed_timeout_ms },
+      {
+        enabled: true,
+        endpoint: resolved.endpoint,
+        model: resolved.model,
+        candidate_depth: ragConfig.candidate_depth,
+        embed_timeout_ms: ragConfig.embed_timeout_ms,
+      },
       resolved.apiKey,
       query,
       opts.topK ?? 5,

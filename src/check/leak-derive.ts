@@ -97,7 +97,8 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
       const fp = join(dir, e.name)
       if (e.isDirectory()) {
         walk(fp)
-      } else if (e.isFile() && isMdFileName(e.name)) { // .MD 账本 fm 不再漏收
+      } else if (e.isFile() && isMdFileName(e.name)) {
+        // .MD 账本 fm 不再漏收
         try {
           const raw = readFileSync(fp, 'utf8')
           // 改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，

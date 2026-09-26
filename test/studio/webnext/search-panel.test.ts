@@ -27,7 +27,17 @@ const storeMocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: () => ({
     byPath: new Map([
-      ['写作/正文/1-一.md', { path: '写作/正文/1-一.md', name: '1-一', isDirectory: false, role: 'piece-body', children: [], docId: 'doc-1' }],
+      [
+        '写作/正文/1-一.md',
+        {
+          path: '写作/正文/1-一.md',
+          name: '1-一',
+          isDirectory: false,
+          role: 'piece-body',
+          children: [],
+          docId: 'doc-1',
+        },
+      ],
     ]),
   }),
 }))
@@ -65,7 +75,12 @@ describe('M-7: SearchPanel 切书清残留', () => {
 
   it('在途搜索响应在切书后到达 → 不渲染（gen 作废）', async () => {
     let release: ((v: unknown) => void) | null = null
-    mocks.search.mockImplementation(() => new Promise((res) => { release = res }))
+    mocks.search.mockImplementation(
+      () =>
+        new Promise((res) => {
+          release = res
+        }),
+    )
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     await w.find('input').setValue('关键词')
     await w.find('input').trigger('keydown.enter')
@@ -79,7 +94,12 @@ describe('M-7: SearchPanel 切书清残留', () => {
   // R-1/R-24（第十六轮）：切书推代 + finally 查代把 loading 永久卡 true——搜索框「搜索中…」不消失
   it('在途搜索切书 → loading 立即复位（迟到响应 settle 后仍为 false）', async () => {
     let release: ((v: unknown) => void) | null = null
-    mocks.search.mockImplementation(() => new Promise((res) => { release = res }))
+    mocks.search.mockImplementation(
+      () =>
+        new Promise((res) => {
+          release = res
+        }),
+    )
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     await w.find('input').setValue('关键词')
     await w.find('input').trigger('keydown.enter')

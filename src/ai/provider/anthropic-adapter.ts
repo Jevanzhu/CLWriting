@@ -57,9 +57,7 @@ const toErrorEvent = makeToErrorEvent({
  */
 function createClient(conf: ProviderConf): Anthropic {
   const auth = conf.auth ?? 'anthropic'
-  return new Anthropic(
-    anthropicClientOpts(normalizeAnthropicBaseUrl(conf.baseUrl), conf.apiKey, auth),
-  )
+  return new Anthropic(anthropicClientOpts(normalizeAnthropicBaseUrl(conf.baseUrl), conf.apiKey, auth))
 }
 
 /**
@@ -96,25 +94,30 @@ function toolInputForAnthropic(input: unknown): Record<string, unknown> {
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
-  const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
-    // 0914 空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
-    // 透传，正确性隐式依赖上游 sanitizeHistory 防线（记档的耦合）；防御内置后
-    // 该耦合解除。跳过后整消息无块 → 走下方空数组 → null 的剔除路径兜住
-    if (b.type === 'text') return b.text === '' ? [] : [{ type: 'text', text: b.text }]
-    // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
-    // 记档：正确性曾依赖上游 sanitizeHistory 先剥离——若未来上游
-    // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）；
-    // 0914 空 text 块防御已内置（见上），该隐式耦合解除
-    if (b.type === 'reasoning') return []
-    // 注：Anthropic 扩展思考块的完整回传（带签名 thinking 块）需要
-    // 在 ContentBlock 增加 thinking/redacted_thinking 变体 + gen/turns 侧签名载道——
-    // 类型扩展会击穿 usage-estimate.flattenMsgContent 的 exhaust 分支（该文件不在本轮
-    // 可修清单），故回传侧零透传维持；防 400 由 toParams 的 claude+effort 显式禁思考
-    //（主防线）+ 上一条 reasoning 块丢弃（次防线）承担，完整回传留待跨批接通。
-    if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: toolInputForAnthropic(b.input) }]
-    // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
-    return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
-  })
+  const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap(
+    (b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
+      // 0914 空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
+      // 透传，正确性隐式依赖上游 sanitizeHistory 防线（记档的耦合）；防御内置后
+      // 该耦合解除。跳过后整消息无块 → 走下方空数组 → null 的剔除路径兜住
+      if (b.type === 'text') return b.text === '' ? [] : [{ type: 'text', text: b.text }]
+      // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
+      // 记档：正确性曾依赖上游 sanitizeHistory 先剥离——若未来上游
+      // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）；
+      // 0914 空 text 块防御已内置（见上），该隐式耦合解除
+      if (b.type === 'reasoning') return []
+      // 注：Anthropic 扩展思考块的完整回传（带签名 thinking 块）需要
+      // 在 ContentBlock 增加 thinking/redacted_thinking 变体 + gen/turns 侧签名载道——
+      // 类型扩展会击穿 usage-estimate.flattenMsgContent 的 exhaust 分支（该文件不在本轮
+      // 可修清单），故回传侧零透传维持；防 400 由 toParams 的 claude+effort 显式禁思考
+      //（主防线）+ 上一条 reasoning 块丢弃（次防线）承担，完整回传留待跨批接通。
+      if (b.type === 'tool_use')
+        return [{ type: 'tool_use', id: b.id, name: b.name, input: toolInputForAnthropic(b.input) }]
+      // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
+      return [
+        { type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) },
+      ]
+    },
+  )
   // 全 reasoning 消息 flatMap 产出空数组 → null（toParams 过滤剔除）
   if (blocks.length === 0) return null
   return { role: m.role, content: blocks }
@@ -157,7 +160,11 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   // none → 不发。#12：disable_parallel_tool_use 仅 parallelControl 为真才发
   const dptu = q.parallelControl ? { disable_parallel_tool_use: true } : {}
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
-    const intent = resolveToolChoiceIntent({ toolChoiceMode: q.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    const intent = resolveToolChoiceIntent({
+      toolChoiceMode: q.toolChoiceMode,
+      toolChoice: req.toolChoice,
+      toolName: req.toolName,
+    })
     if (intent.action === 'force') {
       // named 档 = 'any' 原样；required 档 = 指名意图降级为 any（deepseek 400 防线）
       params['tool_choice'] = { type: 'any', ...dptu }
@@ -219,7 +226,12 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, store?: ProviderStore, userDataPath?: string): ModelProvider {
+export function createAnthropicProvider(
+  conf: ProviderConf,
+  client?: Anthropic,
+  store?: ProviderStore,
+  userDataPath?: string,
+): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
@@ -383,7 +395,8 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               // 缓存 stop_reason（即使无 usage 也不丢）——。：捕获点即归一
               // （本线原生值即归一值；非标拼写归 'unknown' 并留痕），done/llm-call 的重放
               // 口径自此收敛到判别联合，不再受登记的「三线命名未归一」影响
-              if (event.delta?.stop_reason) pendingStopReason = normalizeStopReason(event.delta.stop_reason, 'anthropic')
+              if (event.delta?.stop_reason)
+                pendingStopReason = normalizeStopReason(event.delta.stop_reason, 'anthropic')
               // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存）。
               // 「末见 wins」——此前 message_delta 即席 emitDone（幂等门锁
               // 首个 usage），逐 delta 回 usage 的网关被记成早期部分值、末 delta 完整值被丢，
@@ -404,8 +417,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                 // cache 计量（computeCallCost 缓存档计 0）。对齐本 merge 内 input/output
                 // 的「delta 值 ?? 前值 ?? 起始值」次序：delta 在位优先，缺失保留前值，
                 // message_start 兜底殿后。
-                const cacheRead = event.usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
-                const cacheWrite = event.usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
+                const cacheRead =
+                  event.usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
+                const cacheWrite =
+                  event.usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
                 // 末见 wins 改逐字段 merge——此前 input 有
                 // inputTokensFromStart 兜底、cache 两档有 message_start 兜底，唯
                 // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（本文件
@@ -483,4 +498,3 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
     },
   }
 }
-

@@ -51,11 +51,7 @@ vi.mock('node:fs', async (importOriginal) => {
     writeFileSync: ((p, ...rest) => {
       const r = (actual.writeFileSync as typeof writeFileSync)(p, ...rest)
       const data = rest[0]
-      if (
-        actualFs.armOnBodyManifestWrite &&
-        typeof data === 'string' &&
-        data.includes('写作/正文/001-新标题.md')
-      ) {
+      if (actualFs.armOnBodyManifestWrite && typeof data === 'string' && data.includes('写作/正文/001-新标题.md')) {
         actualFs.failManifestRead = true
         actualFs.armOnBodyManifestWrite = false // 单发：武装一次即撤闸
       }
@@ -82,7 +78,11 @@ afterEach(() => {
 async function makeShortBook(): Promise<{ root: string; svc: DocumentService; docId: string }> {
   const root = mkdtempTracked(join(tmpdir(), 'r37-piece-'))
   roots.push(root)
-  writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short', book: { title: '测试书', genre: '玄幻' } })
+  writeBookConfig(join(root, 'book.yaml'), {
+    ...DEFAULT_CONFIG,
+    kind: 'short',
+    book: { title: '测试书', genre: '玄幻' },
+  })
   mkdirSync(join(root, '工作区'), { recursive: true })
   const svc = new DocumentService({ bookRoot: root })
   const c = await svc.createDocument({
@@ -121,7 +121,10 @@ test('R37-13: 未登记章纲随正文改名（独占落位 + 旧名清理 + 内
 
 test('R37-13: 已登记章纲走 doMoveOrRename（清单 path 同步更新）', async () => {
   const { root, svc, docId } = await makeShortBook()
-  const p = await svc.createDocument({ relPath: '大纲/章纲/0001-旧标题.md', content: '---\n标题: 旧标题\n---\n\n登记章纲。' })
+  const p = await svc.createDocument({
+    relPath: '大纲/章纲/0001-旧标题.md',
+    content: '---\n标题: 旧标题\n---\n\n登记章纲。',
+  })
   if (!p.ok) throw new Error('prereq create 章纲失败')
 
   const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
@@ -235,7 +238,10 @@ test('重评-13: 回滚删新位持续 EPERM → 重试耗尽吞错留孤儿副�
 // ── 重评-0912-4 P2-2（2026-09-12 全量重评修复批）：章纲命中读 strict 化 ──
 test('重评-0912-4 P2-2: 章纲命中读撞瞬态锁占（strict 抛）→ 滞留旧名不走裸兜底，正文改名不受阻断', async () => {
   const { root, svc, docId } = await makeShortBook()
-  const p = await svc.createDocument({ relPath: '大纲/章纲/0001-旧标题.md', content: '---\n标题: 旧标题\n---\n\n登记章纲。' })
+  const p = await svc.createDocument({
+    relPath: '大纲/章纲/0001-旧标题.md',
+    content: '---\n标题: 旧标题\n---\n\n登记章纲。',
+  })
   if (!p.ok) throw new Error('prereq create 章纲失败')
   actualFs.failManifestRead = false // prereq 期间的清单写已武装标记 → 复位，只打本次改名流内 RMW 写之后的同步读点
   actualFs.armOnBodyManifestWrite = true // 撤闸：本次改名流的清单 RMW 写（内容含新正文 path）落盘即武装

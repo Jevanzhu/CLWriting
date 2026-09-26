@@ -39,7 +39,10 @@ function makeWiringBook(章纲目标?: number): string {
     'utf-8',
   )
   // 章纲（带 字数目标）
-  const fm = 章纲目标 !== undefined ? '---\n章号: 1\n标题: 夜访\n字数目标: ' + 章纲目标 + '\n---\n\n## 反转线索表\n' : '---\n章号: 1\n标题: 夜访\n---\n\n## 反转线索表\n'
+  const fm =
+    章纲目标 !== undefined
+      ? '---\n章号: 1\n标题: 夜访\n字数目标: ' + 章纲目标 + '\n---\n\n## 反转线索表\n'
+      : '---\n章号: 1\n标题: 夜访\n---\n\n## 反转线索表\n'
   writeFileSync(join(root, '大纲', '章纲', '001-夜访.md'), fm + '- 核心反转：x\n', 'utf-8')
   return root
 }
@@ -127,7 +130,11 @@ test('R65-24（批 B）：批量连写归档章——主文件属他章时，本
     writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章\n- 悬念-002 递进：他章的推进内容。\n', 'utf-8')
     // 本章推进已归档：.账本推进暂存/第1章.md（证据命中正文「钟声」句）
     mkdirSync(join(root, '工作区', '.账本推进暂存'), { recursive: true })
-    writeFileSync(join(root, '工作区', '.账本推进暂存', '第1章.md'), '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。\n', 'utf-8')
+    writeFileSync(
+      join(root, '工作区', '.账本推进暂存', '第1章.md'),
+      '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。\n',
+      'utf-8',
+    )
 
     const outcome = runCheckForDocument(root, join(root, '写作', '正文', '001-夜访.md'))
     expect(outcome.ok).toBe(true)

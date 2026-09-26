@@ -37,7 +37,13 @@ export interface SimNode {
   file?: string
   card?: CharacterCard
 }
-interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
+interface SimEdge {
+  from: string
+  to: string
+  type: string
+  kind: 'relation' | 'debt'
+  note?: string
+}
 
 // 画布基准与布局常量：移 shared/relation-layout（纯函数层，可单测）；
 // CX/CY 转发导出（RelationGraph.vue 消费）
@@ -156,8 +162,18 @@ export function useRelationGraph(bookName: string): RelationGraph {
       let n = byId.get(id)
       if (!n) {
         n = {
-          id, x: CX, y: CY, homeX: CX, homeY: CY,
-          ring: 0, angle: 0, degree: 0, isCenter: false, hasCard, file, card,
+          id,
+          x: CX,
+          y: CY,
+          homeX: CX,
+          homeY: CY,
+          ring: 0,
+          angle: 0,
+          degree: 0,
+          isCenter: false,
+          hasCard,
+          file,
+          card,
         }
         byId.set(id, n)
       } else if (card && !n.card) {
@@ -174,8 +190,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
     // 直接建边会得到两条完全重合的线：度数翻倍、标签叠画。按无向对去重。
     const valid: SimEdge[] = []
     const seen = new Set<string>()
-    const pairKey = (a: string, b: string, kind: string): string =>
-      `${a < b ? `${a} ${b}` : `${b} ${a}`} ${kind}`
+    const pairKey = (a: string, b: string, kind: string): string => `${a < b ? `${a} ${b}` : `${b} ${a}`} ${kind}`
     for (const r of rels) {
       if (!r.from || !r.to || r.from === r.to) continue
       const k = pairKey(r.from, r.to, 'relation')
@@ -221,9 +236,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
 
   /** 中心与某节点之间的关系类型（环 1 排序用；无边 → 空串）。 */
   function edgeTypeOf(a: string, b: string): string {
-    const e = edges.value.find(
-      (x) => (x.from === a && x.to === b) || (x.from === b && x.to === a),
-    )
+    const e = edges.value.find((x) => (x.from === a && x.to === b) || (x.from === b && x.to === a))
     return e?.type ?? ''
   }
 
@@ -231,7 +244,10 @@ export function useRelationGraph(bookName: string): RelationGraph {
   function fitView(): void {
     const ns = nodes.value
     if (!ns.length) return
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity
     for (const n of ns) {
       const hw = nodeW(n) / 2
       const hh = nodeH(n) / 2
@@ -391,24 +407,24 @@ export function useRelationGraph(bookName: string): RelationGraph {
     return edges.value
       .filter((e) => visIds.has(e.from) && visIds.has(e.to) && !hiddenColors.value.has(edgeColor(e)))
       .map((e) => {
-      const x1 = nodeX(e.from)
-      const y1 = nodeY(e.from)
-      const x2 = nodeX(e.to)
-      const y2 = nodeY(e.to)
-      if (e.kind !== 'debt') {
-        return { e, d: `M${x1},${y1}L${x2},${y2}`, mx: (x1 + x2) / 2, my: (y1 + y2) / 2 }
-      }
-      const len = Math.max(1, Math.hypot(x2 - x1, y2 - y1))
-      // 控制点沿中垂线外推 2×BOW，二次贝塞尔的弧顶恰好落在 1×BOW 处
-      const ox = (-(y2 - y1) / len) * DEBT_BOW * 2
-      const oy = ((x2 - x1) / len) * DEBT_BOW * 2
-      return {
-        e,
-        d: `M${x1},${y1}Q${(x1 + x2) / 2 + ox},${(y1 + y2) / 2 + oy} ${x2},${y2}`,
-        mx: (x1 + x2) / 2 + ox / 2,
-        my: (y1 + y2) / 2 + oy / 2,
-      }
-    })
+        const x1 = nodeX(e.from)
+        const y1 = nodeY(e.from)
+        const x2 = nodeX(e.to)
+        const y2 = nodeY(e.to)
+        if (e.kind !== 'debt') {
+          return { e, d: `M${x1},${y1}L${x2},${y2}`, mx: (x1 + x2) / 2, my: (y1 + y2) / 2 }
+        }
+        const len = Math.max(1, Math.hypot(x2 - x1, y2 - y1))
+        // 控制点沿中垂线外推 2×BOW，二次贝塞尔的弧顶恰好落在 1×BOW 处
+        const ox = (-(y2 - y1) / len) * DEBT_BOW * 2
+        const oy = ((x2 - x1) / len) * DEBT_BOW * 2
+        return {
+          e,
+          d: `M${x1},${y1}Q${(x1 + x2) / 2 + ox},${(y1 + y2) / 2 + oy} ${x2},${y2}`,
+          mx: (x1 + x2) / 2 + ox / 2,
+          my: (y1 + y2) / 2 + oy / 2,
+        }
+      })
   })
 
   // 焦点 = 悬停（临时探索）优先，否则选中（详情卡所指）
@@ -442,9 +458,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
     return s
   })
   /** 图例过滤后仍可见的边（用于计算有效 degree / 孤立判定） */
-  const effectiveEdges = computed(() =>
-    edges.value.filter((e) => !hiddenColors.value.has(edgeColor(e))),
-  )
+  const effectiveEdges = computed(() => edges.value.filter((e) => !hiddenColors.value.has(edgeColor(e))))
   /** 可见节点：默认隐藏孤立（含因图例过滤变孤立的），搜索时只留匹配+邻居 */
   const visibleNodes = computed(() => {
     const visEdgeIds = new Set(effectiveEdges.value.flatMap((e) => [e.from, e.to]))
@@ -482,8 +496,22 @@ export function useRelationGraph(bookName: string): RelationGraph {
     if (!id) return []
     const out: { other: string; type: string; kind: 'relation' | 'debt'; hasCard: boolean; note?: string }[] = []
     for (const e of edges.value) {
-      if (e.from === id) out.push({ other: e.to, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.to)?.hasCard ?? false, note: e.note })
-      else if (e.to === id) out.push({ other: e.from, type: e.type, kind: e.kind, hasCard: byIdMap.value.get(e.from)?.hasCard ?? false, note: e.note })
+      if (e.from === id)
+        out.push({
+          other: e.to,
+          type: e.type,
+          kind: e.kind,
+          hasCard: byIdMap.value.get(e.to)?.hasCard ?? false,
+          note: e.note,
+        })
+      else if (e.to === id)
+        out.push({
+          other: e.from,
+          type: e.type,
+          kind: e.kind,
+          hasCard: byIdMap.value.get(e.from)?.hasCard ?? false,
+          note: e.note,
+        })
     }
     return out
   })
@@ -635,20 +663,56 @@ export function useRelationGraph(bookName: string): RelationGraph {
 
   /** 图例只列本图真正出现的语义色（activeLegend 过滤） */
   const activeLegend = computed(() => {
-    const used = new Set(
-      edges.value.filter((e) => e.kind === 'relation').map((e) => edgeColor(e)),
-    )
+    const used = new Set(edges.value.filter((e) => e.kind === 'relation').map((e) => edgeColor(e)))
     return LEGEND.filter((l) => used.has(l.color))
   })
 
   const graph: RelationGraph = {
-    nodes, edges, loading, err,
-    searchQuery, showOrphans, hiddenColors, visibleNodes, hiddenCount,
-    hoverId, selectedId, dragId, selectedNode, selectedCard, selectedRelations,
-    view, viewBoxStr, edgeGeoms, nodeCount, edgeCount, debtCount, activeLegend,
-    svgRef, bindSvg, onWheel, onBgDown, onNodeDown, onNodeDblClick, resetView, selectNode, toggleColor,
-    isDim, edgeDim, edgeActive, nodeFontSize, nodeH, nodeW, nodeRx, nodeColor, edgeColor, relColor,
-    mining, onMine, openCharacter, load,
+    nodes,
+    edges,
+    loading,
+    err,
+    searchQuery,
+    showOrphans,
+    hiddenColors,
+    visibleNodes,
+    hiddenCount,
+    hoverId,
+    selectedId,
+    dragId,
+    selectedNode,
+    selectedCard,
+    selectedRelations,
+    view,
+    viewBoxStr,
+    edgeGeoms,
+    nodeCount,
+    edgeCount,
+    debtCount,
+    activeLegend,
+    svgRef,
+    bindSvg,
+    onWheel,
+    onBgDown,
+    onNodeDown,
+    onNodeDblClick,
+    resetView,
+    selectNode,
+    toggleColor,
+    isDim,
+    edgeDim,
+    edgeActive,
+    nodeFontSize,
+    nodeH,
+    nodeW,
+    nodeRx,
+    nodeColor,
+    edgeColor,
+    relColor,
+    mining,
+    onMine,
+    openCharacter,
+    load,
   }
   provide(KEY, graph)
   return graph

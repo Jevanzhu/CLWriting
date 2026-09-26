@@ -89,7 +89,8 @@ export function parseContextMenuSpecs(
     }
     const item: ContextMenuSpec = { label: r['label'], disabled: r['disabled'] === true }
     if (rawKey !== null) item.key = rawKey
-    if (typeof r['accelerator'] === 'string' && ACCELERATOR_RE.test(r['accelerator'])) item.accelerator = r['accelerator']
+    if (typeof r['accelerator'] === 'string' && ACCELERATOR_RE.test(r['accelerator']))
+      item.accelerator = r['accelerator']
     // 先扣本项额度再下钻——递归进门时才能看到已扣的真实余量（后扣会让每层嵌套
     // 都按满预算准入、层层各自吃满 200，总量闸失效）
     budget.left--

@@ -20,7 +20,12 @@
 import { existsSync, readdirSync, statSync, type Dirent, type Stats } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { caseFoldKey, validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
+import {
+  caseFoldKey,
+  validateKnowledgeManifest,
+  KNOWLEDGE_DIR,
+  type KnowledgeManifest,
+} from '../src/knowledge/manifest.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
@@ -93,7 +98,7 @@ function collectKnowledgeAssetFiles(dir: string): string[] {
 export function scanUnregisteredKnowledgeAssets(
   projectRoot: string,
   manifestOrEntries: KnowledgeManifest | KnowledgeManifest['entries'] | undefined,
-  rootDir: string = KNOWLEDGE_DIR
+  rootDir: string = KNOWLEDGE_DIR,
 ): string[] {
   // R0912-3（2026-09-12 全量重评 #40）：登记面比对收敛 caseFoldKey 单源（校验器/登记侧
   // 判重同源），NFC 先于折叠（platformCaseFold 硬性不变量「不含 NFC」，同 docJoinKey
@@ -102,8 +107,8 @@ export function scanUnregisteredKnowledgeAssets(
   // （坏形状行）维持原行为：不折叠、恒不匹配（报未登记，交由正向校验器上报）。
   const registered = new Set(
     (Array.isArray(manifestOrEntries) ? manifestOrEntries : (manifestOrEntries?.entries ?? [])).map((e) =>
-      typeof e.target === 'string' ? caseFoldKey(toNfcName(e.target)) : e.target
-    )
+      typeof e.target === 'string' ? caseFoldKey(toNfcName(e.target)) : e.target,
+    ),
   )
   const knowledgeRoot = join(projectRoot, rootDir)
   if (!existsSync(knowledgeRoot)) return []

@@ -65,10 +65,12 @@ test('repairBooks: books.jsonl 缺失 → 扫描长篇/短篇分组目录重建�
 
   const result = repairBooks(wd)
   expect(result.changed).toBe(true)
-  expect(readBooks(wd)).toEqual(expect.arrayContaining([
-    expect.objectContaining({ name: '长书', path: '长篇/长书', kind: 'long' }),
-    expect.objectContaining({ name: '短集', path: '短篇/短集', kind: 'short' }),
-  ]))
+  expect(readBooks(wd)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: '长书', path: '长篇/长书', kind: 'long' }),
+      expect.objectContaining({ name: '短集', path: '短篇/短集', kind: 'short' }),
+    ]),
+  )
 
   rmSync(wd, { recursive: true, force: true })
 })
@@ -128,9 +130,7 @@ test('repairBooks: 书目录移动/改名 → 按 book.yaml 书名自动重关�
   const result = repairBooks(wd)
   expect(result.missing).toHaveLength(0)
   expect(result.relinked).toEqual([{ name: '书X', from: '书X', to: '移动后的书X' }])
-  expect(readBooks(wd)).toEqual([
-    expect.objectContaining({ name: '书X', path: '移动后的书X', kind: 'long' }),
-  ])
+  expect(readBooks(wd)).toEqual([expect.objectContaining({ name: '书X', path: '移动后的书X', kind: 'long' })])
 
   rmSync(wd, { recursive: true, force: true })
 })
@@ -147,9 +147,7 @@ test('repairBooks: book.yaml title 改名但目录未动 → 更新原登记，�
   const result = repairBooks(wd)
   expect(result.changed).toBe(true)
   expect(result.rebuilt).toHaveLength(1)
-  expect(readBooks(wd)).toEqual([
-    expect.objectContaining({ name: '新书名', path: '书X', kind: 'long' }),
-  ])
+  expect(readBooks(wd)).toEqual([expect.objectContaining({ name: '新书名', path: '书X', kind: 'long' })])
 
   rmSync(wd, { recursive: true, force: true })
 })

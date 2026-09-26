@@ -13,7 +13,11 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { generateChapterSummary, chapterSummaryPath, __setSummaryGenerateLockTimeoutForTest } from '../../src/process/summary.js'
+import {
+  generateChapterSummary,
+  chapterSummaryPath,
+  __setSummaryGenerateLockTimeoutForTest,
+} from '../../src/process/summary.js'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { scaffoldBook } from '../helpers/book.js'
@@ -50,7 +54,10 @@ function makeBook(): string {
     prefix: 'clw-r26-sumlock-',
     flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
     files: [
-      { rel: '写作/正文/001-第1章.md', content: '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第1章正文。\n' },
+      {
+        rel: '写作/正文/001-第1章.md',
+        content: '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第1章正文。\n',
+      },
     ],
   })
   return root
@@ -67,7 +74,13 @@ describe('R26-19: 章摘要跨进程锁', () => {
       const lockPath = join(root, '工作区', '.摘要锁-章1.lock')
       mkdirSync(join(root, '工作区'), { recursive: true })
       writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: Date.now() }), 'utf-8')
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       expect(r.ok).toBe(true)
       expect(r.ok && r.skipped).toBe(true) // 语义=他人正在生成/已完成，非失败
       if (r.ok) expect(r.path).toBe(chapterSummaryPath(root, 1))
@@ -81,11 +94,23 @@ describe('R26-19: 章摘要跨进程锁', () => {
   test('锁空闲正常路径不回归：生成落盘 skipped=false；再调走 fresh 短路 skipped=true；锁不残留', async () => {
     const root = makeBook()
     try {
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       expect(r.ok && !r.skipped).toBe(true)
       expect(state.calls).toBe(1)
       expect(existsSync(chapterSummaryPath(root, 1))).toBe(true)
-      const again = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const again = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       expect(again.ok && again.skipped).toBe(true)
       expect(state.calls).toBe(1) // fresh 短路不调 AI
       // 锁释放干净：锁文件不残留（他进程下次首调零等待）
@@ -99,11 +124,23 @@ describe('R26-19: 章摘要跨进程锁', () => {
     const root = makeBook()
     try {
       state.hold = true // 首调用进入挂起的 AI 调用（在途窗口），随后显式放行
-      const first = generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const first = generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       // 等首调用进入挂起的 AI 调用（在途窗口）——轮询桩计数翻转而非固定实睡（P3-5：
       // 30ms 定长睡慢腿假红——未进桩即发第二调用，dedup 未建立 → calls=2）
       await vi.waitFor(() => expect(state.calls).toBe(1))
-      const second = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const second = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       expect(second.ok && second.skipped).toBe(true)
       expect(state.calls).toBe(1)
       state.release!()
@@ -122,7 +159,13 @@ describe('R26-19: 章摘要跨进程锁', () => {
     const root = makeBook()
     try {
       state.hold = true
-      const p = generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const p = generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       const lockDir = join(root, '工作区')
       let lockName = ''
       // 轮询到锁文件落盘（拿锁成功的观测锚），非固定实睡（P3-5；形态同 summary-lock-renew
@@ -160,7 +203,13 @@ describe('R26-19: 章摘要跨进程锁', () => {
       mkdirSync(join(root, '工作区'), { recursive: true })
       writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: Date.now() }), 'utf-8')
       const t0 = Date.now()
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root),
+      })
       expect(r.ok && r.skipped).toBe(true) // 语义不变：他人正在生成，非失败
       expect(state.calls).toBe(0) // 未碰 AI
       expect(Date.now() - t0).toBeLessThan(100) // 修复前 5s 同步等待档会稳红

@@ -39,7 +39,9 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
     const release = tryAcquireCrossProcessLock(`${callsFp}.lock`)
     expect(release).not.toBeNull()
     let timerFired = false
-    setTimeout(() => { timerFired = true }, 30)
+    setTimeout(() => {
+      timerFired = true
+    }, 30)
     // 锁被占 → 进入异步轮询等待，同步立即返回（不冻结事件循环）
     recordAiCall(bookRoot, 3, { inputTokens: 7, outputTokens: 9 })
     // 等待窗口内事件循环可响应（P3-5：轮询定时器翻转替代 sleep(60) 定长窗；实现若
@@ -49,7 +51,9 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
     release!()
     // 释放后在途写段落地（异步轮询 20ms 级拿到锁）
     await vi.waitFor(() => expect(existsSync(callsFp)).toBe(true))
-    const rec = JSON.parse(readFileSync(callsFp, 'utf8')) as { chapter: { num: number; used: number; inputTokens: number; outputTokens: number } }
+    const rec = JSON.parse(readFileSync(callsFp, 'utf8')) as {
+      chapter: { num: number; used: number; inputTokens: number; outputTokens: number }
+    }
     expect(rec.chapter).toMatchObject({ num: 3, used: 1, inputTokens: 7, outputTokens: 9 })
   }, 15_000)
 
@@ -61,7 +65,9 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
     expect(release).not.toBeNull()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let timerFired = false
-    setTimeout(() => { timerFired = true }, 20)
+    setTimeout(() => {
+      timerFired = true
+    }, 20)
     // 超时路径不再同步抛（在途 promise rejection 由 serializedWrite 旁挂留痕处理）
     expect(() => recordAiCall(bookRoot, 3, { inputTokens: 1, outputTokens: 1 })).not.toThrow()
     // 等待期间事件循环可响应（同上：轮询定时器翻转替代 sleep(40) 定长窗）
@@ -114,10 +120,19 @@ describe('R30-3：providers.json 跨进程锁等待改异步', () => {
     const release = tryAcquireCrossProcessLock(`${fp}.lock`)
     expect(release).not.toBeNull()
     let timerFired = false
-    setTimeout(() => { timerFired = true }, 30)
+    setTimeout(() => {
+      timerFired = true
+    }, 30)
     const p = saveProviders(dir, storeOf('prov-r30'))
     let settled = false
-    void p.then(() => { settled = true }, () => { settled = true })
+    void p.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      },
+    )
     // 等待窗口内事件循环可响应（同上：轮询定时器翻转替代 sleep(60) 定长窗）
     await vi.waitFor(() => expect(timerFired).toBe(true))
     expect(settled).toBe(false) // 锁未放 → 写段在途

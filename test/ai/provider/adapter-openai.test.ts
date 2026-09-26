@@ -40,7 +40,11 @@ describe('OpenAI 适配器', () => {
             {
               choices: [
                 {
-                  delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'submit_chapter', arguments: '{"标题":' } }] },
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: 'call_1', function: { name: 'submit_chapter', arguments: '{"标题":' } },
+                    ],
+                  },
                   finish_reason: null,
                 },
               ],
@@ -70,8 +74,22 @@ describe('OpenAI 适配器', () => {
         completions: {
           create: fakeSend([
             // 两条不带 index 的 tool_call（各一个整块分片，网关缺省 index 的常见形态）
-            { choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":1}' } }] }, finish_reason: null }] },
-            { choices: [{ delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{"b":2}' } }] }, finish_reason: 'tool_calls' }] },
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":1}' } }] },
+                  finish_reason: null,
+                },
+              ],
+            },
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{"b":2}' } }] },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            },
           ]),
         },
       },
@@ -88,10 +106,24 @@ describe('OpenAI 适配器', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":' } }] }, finish_reason: null }] },
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":' } }] },
+                  finish_reason: null,
+                },
+              ],
+            },
             // 续片不带 index/id/name → 归并 call_1 的兜底键（不得另开键劈碎参数）
             { choices: [{ delta: { tool_calls: [{ function: { arguments: '1}' } }] }, finish_reason: null }] },
-            { choices: [{ delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] },
+            {
+              choices: [
+                {
+                  delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{}' } }] },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            },
           ]),
         },
       },
@@ -113,7 +145,12 @@ describe('OpenAI 适配器', () => {
             calls += 1
             return (async function* () {
               yield { choices: [{ delta: { content: '半截' }, finish_reason: null }] }
-              throw new OpenAI.APIError(400, { type: 'error', message: 'mid-stream bad request' }, 'bad request', undefined)
+              throw new OpenAI.APIError(
+                400,
+                { type: 'error', message: 'mid-stream bad request' },
+                'bad request',
+                undefined,
+              )
             })()
           },
         },
@@ -160,7 +197,10 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProviderChat(CONF, client), REQ)
-    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 8, outputTokens: 4 } })
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 8, outputTokens: 4 },
+    })
   })
 
   // 五轮重评修复批（C101）：usage 随先行 content chunk 到（choice 在、finish_reason 不在）、
@@ -171,7 +211,10 @@ describe('OpenAI 适配器', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { content: 'x' }, finish_reason: null }], usage: { prompt_tokens: 7, completion_tokens: 3 } },
+            {
+              choices: [{ delta: { content: 'x' }, finish_reason: null }],
+              usage: { prompt_tokens: 7, completion_tokens: 3 },
+            },
             { choices: [{ delta: {}, finish_reason: 'stop' }] },
           ]),
         },

@@ -120,7 +120,13 @@ describe('R51-I-4: 存草稿入口的生成中闸', () => {
   it('非生成态 → 闸放行（saveDraft 照发，不误伤常规保存）', async () => {
     vi.spyOn(useProviderStore(), 'refresh').mockResolvedValue(undefined)
     vi.spyOn(useTreeStore(), 'load').mockResolvedValue(undefined)
-    mocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0002-x.md', docId: 'doc_2', words: 7, snapshotted: false })
+    mocks.saveDraft.mockResolvedValue({
+      ok: true,
+      path: '写作/正文/0002-x.md',
+      docId: 'doc_2',
+      words: 7,
+      snapshotted: false,
+    })
     const wb = useWorkbenchStore()
     const w = await mountView()
     wb.textOut = '完整正文'

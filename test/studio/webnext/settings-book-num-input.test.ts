@@ -55,7 +55,11 @@ async function mountOpen() {
 }
 
 /** 触发 num-input 的 change（@change 语义——setValue 只发 input 事件，不够） */
-async function changeTo(wrapper: Awaited<ReturnType<typeof mountOpen>>, selector: string, value: string): Promise<void> {
+async function changeTo(
+  wrapper: Awaited<ReturnType<typeof mountOpen>>,
+  selector: string,
+  value: string,
+): Promise<void> {
   const input = wrapper.find(selector)
   ;(input.element as HTMLInputElement).value = value
   await input.trigger('change')

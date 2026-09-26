@@ -102,23 +102,27 @@ test('迁移：旧默认值键被删，非默认值保留，注释/未知段原�
 })
 
 test('迁移：作者改过的值不删（值 ≠ 旧默认 = 有意设置）', () => {
-  const fp = makeBook('改过的书', '长篇/改过的书', [
-    'spec_version: 1',
-    'book:',
-    '  title: 改过的书',
-    '  genre: 玄幻', // 非空：保留
-    '',
-    'budget:',
-    '  calls_per_chapter: 6', // ≠8：保留
-    '',
-    'style:',
-    '  injection: heavy', // ≠light：保留
-    '',
-    'auto:',
-    '  confirm_outline: true', // ≠false：保留
-    '  batch_size: 8', // ===8：删
-    '',
-  ].join('\n'))
+  const fp = makeBook(
+    '改过的书',
+    '长篇/改过的书',
+    [
+      'spec_version: 1',
+      'book:',
+      '  title: 改过的书',
+      '  genre: 玄幻', // 非空：保留
+      '',
+      'budget:',
+      '  calls_per_chapter: 6', // ≠8：保留
+      '',
+      'style:',
+      '  injection: heavy', // ≠light：保留
+      '',
+      'auto:',
+      '  confirm_outline: true', // ≠false：保留
+      '  batch_size: 8', // ===8：删
+      '',
+    ].join('\n'),
+  )
   const r = migrateBookDefaults(tmp)
   expect(r.changed).toBe(1)
   const after = read(fp)
@@ -130,20 +134,24 @@ test('迁移：作者改过的值不删（值 ≠ 旧默认 = 有意设置）', 
 })
 
 test('迁移：短篇 batch_size: 1 是有意产品默认，不删', () => {
-  const fp = makeBook('短篇集', '短篇/短篇集', [
-    'spec_version: 1',
-    'kind: short',
-    'book:',
-    '  title: 夜语集',
-    "  genre: ''", // 空占位：删
-    '',
-    'short:',
-    '  strict: false', // ===旧默认：删
-    '',
-    'auto:',
-    '  batch_size: 1', // 短篇逐篇确认：保留
-    '',
-  ].join('\n'))
+  const fp = makeBook(
+    '短篇集',
+    '短篇/短篇集',
+    [
+      'spec_version: 1',
+      'kind: short',
+      'book:',
+      '  title: 夜语集',
+      "  genre: ''", // 空占位：删
+      '',
+      'short:',
+      '  strict: false', // ===旧默认：删
+      '',
+      'auto:',
+      '  batch_size: 1', // 短篇逐篇确认：保留
+      '',
+    ].join('\n'),
+  )
   migrateBookDefaults(tmp)
   const after = read(fp)
   expect(after).toContain('batch_size: 1')
@@ -152,36 +160,33 @@ test('迁移：短篇 batch_size: 1 是有意产品默认，不删', () => {
 })
 
 test('迁移：rag 段恰为 {enabled:false} 纯净态才整段删；带配置的保留', () => {
-  const pure = makeBook('纯净rag', '长篇/纯净rag', [
-    'spec_version: 1',
-    'book:',
-    '  title: 纯净rag',
-    '',
-    'rag:',
-    '  enabled: false',
-    '',
-  ].join('\n'))
-  const configured = makeBook('配置rag', '长篇/配置rag', [
-    'spec_version: 1',
-    'book:',
-    '  title: 配置rag',
-    '',
-    'rag:',
-    '  enabled: false',
-    '  provider: rag-abc', // 有服务商引用：整段保留
-    '',
-  ].join('\n'))
+  const pure = makeBook(
+    '纯净rag',
+    '长篇/纯净rag',
+    ['spec_version: 1', 'book:', '  title: 纯净rag', '', 'rag:', '  enabled: false', ''].join('\n'),
+  )
+  const configured = makeBook(
+    '配置rag',
+    '长篇/配置rag',
+    [
+      'spec_version: 1',
+      'book:',
+      '  title: 配置rag',
+      '',
+      'rag:',
+      '  enabled: false',
+      '  provider: rag-abc', // 有服务商引用：整段保留
+      '',
+    ].join('\n'),
+  )
   // 二轮复审：只配 candidate_depth（A3 批 7 书级键）也非纯净态——整段删会静默丢候选深度
-  const depthOnly = makeBook('深度rag', '长篇/深度rag', [
-    'spec_version: 1',
-    'book:',
-    '  title: 深度rag',
-    '',
-    'rag:',
-    '  enabled: false',
-    '  candidate_depth: 30',
-    '',
-  ].join('\n'))
+  const depthOnly = makeBook(
+    '深度rag',
+    '长篇/深度rag',
+    ['spec_version: 1', 'book:', '  title: 深度rag', '', 'rag:', '  enabled: false', '  candidate_depth: 30', ''].join(
+      '\n',
+    ),
+  )
   migrateBookDefaults(tmp)
   expect(read(pure)).not.toMatch(/^rag:/m)
   expect(read(configured)).toContain('rag:')
@@ -217,16 +222,20 @@ test('迁移：无 book.yaml 的登记残留书跳过不报错', () => {
 })
 
 test('迁移：段变空只剩段内注释时保头保注释（注释不陪葬）', () => {
-  const fp = makeBook('注释书', '长篇/注释书', [
-    'spec_version: 1',
-    'book:',
-    '  title: 注释书',
-    '',
-    'style:',
-    '  # 作者解释为什么用轻注入',
-    '  injection: light',
-    '',
-  ].join('\n'))
+  const fp = makeBook(
+    '注释书',
+    '长篇/注释书',
+    [
+      'spec_version: 1',
+      'book:',
+      '  title: 注释书',
+      '',
+      'style:',
+      '  # 作者解释为什么用轻注入',
+      '  injection: light',
+      '',
+    ].join('\n'),
+  )
   migrateBookDefaults(tmp)
   const after = read(fp)
   // injection 是旧默认被删；段内注释保留 + 段头保留（yaml 合法空段）
@@ -236,18 +245,22 @@ test('迁移：段变空只剩段内注释时保头保注释（注释不陪葬�
 })
 
 test('迁移：整段删除后段间空行归整（无双空行、结尾不堆积）', () => {
-  const fp = makeBook('空行书', '长篇/空行书', [
-    'spec_version: 1',
-    'book:',
-    '  title: 空行书',
-    '',
-    'style:',
-    '  injection: light',
-    '',
-    'growth:',
-    '  realm_span_max: 2',
-    '',
-  ].join('\n'))
+  const fp = makeBook(
+    '空行书',
+    '长篇/空行书',
+    [
+      'spec_version: 1',
+      'book:',
+      '  title: 空行书',
+      '',
+      'style:',
+      '  injection: light',
+      '',
+      'growth:',
+      '  realm_span_max: 2',
+      '',
+    ].join('\n'),
+  )
   migrateBookDefaults(tmp)
   const after = read(fp)
   expect(after).not.toContain('style:')

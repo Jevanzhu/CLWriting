@@ -25,7 +25,9 @@ const rewriteMock = vi.hoisted(() => ({
   reject: vi.fn(),
   clear: vi.fn(),
 }))
-const wsMock = vi.hoisted(() => ({ state: null as unknown as { activeDocId: string | null; editorGetSelection: unknown } }))
+const wsMock = vi.hoisted(() => ({
+  state: null as unknown as { activeDocId: string | null; editorGetSelection: unknown },
+}))
 
 vi.mock('../../../src/studio/web-next/src/stores/rewrite', () => ({
   useRewriteStore: () => rewriteMock,

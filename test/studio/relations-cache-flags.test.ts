@@ -83,7 +83,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-r50-c3-',
     dirs: ['设定'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R50空关系书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R50空关系书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     // 名册非空 → buildMineContext 有材料可梳理（过 400 BAD_INPUT 材料闸）
     files: [{ rel: '设定/名册.md', content: '- 林远：主角\n' }],
   })

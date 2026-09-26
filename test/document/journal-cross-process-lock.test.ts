@@ -57,7 +57,8 @@ describe('journal 跨进程锁（J7）', () => {
     const jp = join(dir, 'compact-held.jsonl')
     // 造一个超阈值的 journal（settled 行占字节）
     let text = ''
-    for (let i = 0; i < 200; i++) text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
+    for (let i = 0; i < 200; i++)
+      text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
     while (text.length < JOURNAL_COMPACT_BYTES + 1024) text += text
     writeFileSync(jp, text)
     const sizeBefore = readFileSync(jp, 'utf8').length
@@ -85,7 +86,8 @@ describe('journal 跨进程锁（J7）', () => {
   it('无锁竞争 → append+settled 后 compact 正常压缩（无 pending 残留）', async () => {
     const jp = join(dir, 'compact-normal.jsonl')
     let text = ''
-    for (let i = 0; i < 200; i++) text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
+    for (let i = 0; i < 200; i++)
+      text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
     while (text.length < JOURNAL_COMPACT_BYTES + 1024) text += text
     writeFileSync(jp, text)
     const opId = await appendPending(jp, 'doc-1', null)

@@ -88,7 +88,9 @@ describe('R36-12 setting-rule TTL 缓存', () => {
     roots.push(root)
     pinMtimesT1(root)
     // 初载：「玄铁」未登记 → 报黄
-    expect(settingConsistencyRule.check('「玄铁」现身', { bookRoot: root }).some((v) => v.message.includes('玄铁'))).toBe(true)
+    expect(
+      settingConsistencyRule.check('「玄铁」现身', { bookRoot: root }).some((v) => v.message.includes('玄铁')),
+    ).toBe(true)
     expect(__settingLoadCountForTest()).toBe(1)
 
     mkdirSync(join(root, '设定', '物品'), { recursive: true })
@@ -98,7 +100,9 @@ describe('R36-12 setting-rule TTL 缓存', () => {
     utimesSync(join(root, '设定'), t2, t2)
     utimesSync(join(root, '设定', '物品'), t2, t2)
     // 修复前：缓存/无缓存但陈旧——重读后「玄铁」已登记 → 不再报
-    expect(settingConsistencyRule.check('「玄铁」现身', { bookRoot: root }).some((v) => v.message.includes('玄铁'))).toBe(false)
+    expect(
+      settingConsistencyRule.check('「玄铁」现身', { bookRoot: root }).some((v) => v.message.includes('玄铁')),
+    ).toBe(false)
     expect(__settingLoadCountForTest()).toBe(2) // 结构变更触发失效重读
   })
 
@@ -107,15 +111,21 @@ describe('R36-12 setting-rule TTL 缓存', () => {
     roots.push(root)
     pinMtimesT1(root)
     // 初载：名册 A 版含「阿黄」，不含「阿花」
-    expect(settingConsistencyRule.check('「阿黄」在旁', { bookRoot: root }).some((v) => v.message.includes('阿黄'))).toBe(false)
-    expect(settingConsistencyRule.check('「阿花」在旁', { bookRoot: root }).some((v) => v.message.includes('阿花'))).toBe(true)
+    expect(
+      settingConsistencyRule.check('「阿黄」在旁', { bookRoot: root }).some((v) => v.message.includes('阿黄')),
+    ).toBe(false)
+    expect(
+      settingConsistencyRule.check('「阿花」在旁', { bookRoot: root }).some((v) => v.message.includes('阿花')),
+    ).toBe(true)
     expect(__settingLoadCountForTest()).toBe(1)
 
     // 只改内容不改目录条目（名册.md 已存在，writeFileSync 原地覆写——目录 mtime 不动）
     writeFileSync(join(root, '设定', '名册.md'), '阿花\n', 'utf-8')
     // 文件探针臂：仅名册.md mtime 钉到 T2（目录保持 T1——隔离证明失效来自文件探针）
     utimesSync(join(root, '设定', '名册.md'), new Date(T2), new Date(T2))
-    expect(settingConsistencyRule.check('「阿花」在旁', { bookRoot: root }).some((v) => v.message.includes('阿花'))).toBe(false)
+    expect(
+      settingConsistencyRule.check('「阿花」在旁', { bookRoot: root }).some((v) => v.message.includes('阿花')),
+    ).toBe(false)
     expect(__settingLoadCountForTest()).toBe(2) // 文件 mtime 探针触发失效（不靠 TTL）
   })
 

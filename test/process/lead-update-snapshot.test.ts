@@ -104,11 +104,7 @@ test('R74-4: 他章草稿先被 rename 归档保全 → 不再重复留底（快
     const root = makeBook()
     try {
       // 他章标签 → archive 先 rename 归档（内容已保全），主文件不存在 → 覆盖留底 no-op
-      writeFileSync(
-        join(root, '工作区', '账本推进.md'),
-        '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n',
-        'utf-8',
-      )
+      writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n- 悬念-001 递进：上一章证据。\n', 'utf-8')
       const r = await generateLeadUpdateDraft(root, 1, null)
       expect(r.ok).toBe(true)
 

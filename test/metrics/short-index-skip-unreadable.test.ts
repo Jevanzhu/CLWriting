@@ -28,9 +28,9 @@ test('R51-B-3: 不可读章跳章不产 0 字假条目 + warn 留痕；可读章
     mkdirFixtures(bodyDir)
     // TOCTOU/读失败注入：0002 缓存读入口返回 null（文件消失/读失败形态），0001 透传真读
     const actualRead = mdCache.readMdTextCached
-    const readSpy = vi.spyOn(mdCache, 'readMdTextCached').mockImplementation(
-      (fp: string) => (fp.endsWith('0002-坏章.md') ? null : actualRead(fp)),
-    )
+    const readSpy = vi
+      .spyOn(mdCache, 'readMdTextCached')
+      .mockImplementation((fp: string) => (fp.endsWith('0002-坏章.md') ? null : actualRead(fp)))
     try {
       const entries = scanShortCollection(root)
       // 跳章口径（同 style.ts scanChapters）：坏章不产 0 字假条目
@@ -51,24 +51,36 @@ test('R51-B-3: 不可读章跳章不产 0 字假条目 + warn 留痕；可读章
 
 function mkdirFixtures(bodyDir: string): void {
   mkdirSync(bodyDir, { recursive: true })
-  writeChapter(join(bodyDir, '0001-好章.md'), {
-    章号: 1, 标题: '好章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '压抑',
-    目标情绪: '惊悚', 核心反转: '来客就是死者',
-  }, '门外没有脚印。他退了半步。')
+  writeChapter(
+    join(bodyDir, '0001-好章.md'),
+    {
+      章号: 1,
+      标题: '好章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '压抑',
+      目标情绪: '惊悚',
+      核心反转: '来客就是死者',
+    },
+    '门外没有脚印。他退了半步。',
+  )
   // 坏章本身 fm 合法（否则 readChapterDir 层就剔除、到不了 short-index 循环）——
   // 不可读性由 spy 在读入口注入（见上）
-  writeFileSync(join(bodyDir, '0002-坏章.md'), [
-    '---',
-    '章号: 2',
-    '标题: 坏章',
-    '钩子类型: 悬念钩',
-    '钩子强弱: 中',
-    '情绪定位: 压抑',
-    '---',
-    '',
-    '正文照常。',
-    '',
-  ].join('\n'))
+  writeFileSync(
+    join(bodyDir, '0002-坏章.md'),
+    [
+      '---',
+      '章号: 2',
+      '标题: 坏章',
+      '钩子类型: 悬念钩',
+      '钩子强弱: 中',
+      '情绪定位: 压抑',
+      '---',
+      '',
+      '正文照常。',
+      '',
+    ].join('\n'),
+  )
 }
 
 // R54-D-1（五十四轮）：章纲在盘但读取失败 → warn 留痕——此前与「不存在」同落静默

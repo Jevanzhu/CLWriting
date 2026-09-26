@@ -23,7 +23,7 @@ import type { TaskGateInjected } from './task-gate.js' // export 并发闸（闸
 interface IoCtx extends TaskGateInjected {
   workDir: string | null
   /** 收尾：导出排队等待超时覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 10min 逐位不变） */
+   * （undefined = 生产口径 10min 逐位不变） */
   exportWaitTimeoutMs?: number | null
 }
 
@@ -121,63 +121,73 @@ export function registerIoRoutes(ctx: IoCtx): void {
     method: 'POST',
     path: '/api/books/:name/export',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    // handler 内冗余 token 复核删除——
-    // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST，此处重复
-    // 校验误导安全模型分层判断（其余写 handler 均无此行）
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // export 并发闸（acquireTaskGate 同款）——双击并发 exportBook 会
-    // rmSync 同一导出目录互删 → ENOENT 500。同步占位（无 TOCTOU）、finally 释放，
-    // 并发第二请求 409（与 analyze/batch-finalize 闸同口径）。闸留本进程持闸跨
-    // await（worker 执行期间仍占闸，并发语义不变）。
-    const release = ctx.gate.acquire(params['name']!, 'export')
-    if (!release) return replyError(res, 409, 'BUSY', '本书已有导出任务在跑，请等待完成后再试')
-    let releaseGlobal: (() => void) | null = null
-    try {
-      const body = await readJson(req)
-      // 显式非法值回 400（与全域 fail-fast 口径一致）；缺省
-      //（undefined）保留回落 both/generic（兼容不带参调用方）
-      const formatRaw = body['format'] === undefined ? 'both' : String(body['format'])
-      if (!EXPORT_FORMATS.has(formatRaw)) {
-        return replyError(res, 400, 'BAD_INPUT', `非法导出格式「${formatRaw}」，允许：${[...EXPORT_FORMATS].join(' / ')}`)
+      if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      // handler 内冗余 token 复核删除——
+      // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST，此处重复
+      // 校验误导安全模型分层判断（其余写 handler 均无此行）
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // export 并发闸（acquireTaskGate 同款）——双击并发 exportBook 会
+      // rmSync 同一导出目录互删 → ENOENT 500。同步占位（无 TOCTOU）、finally 释放，
+      // 并发第二请求 409（与 analyze/batch-finalize 闸同口径）。闸留本进程持闸跨
+      // await（worker 执行期间仍占闸，并发语义不变）。
+      const release = ctx.gate.acquire(params['name']!, 'export')
+      if (!release) return replyError(res, 409, 'BUSY', '本书已有导出任务在跑，请等待完成后再试')
+      let releaseGlobal: (() => void) | null = null
+      try {
+        const body = await readJson(req)
+        // 显式非法值回 400（与全域 fail-fast 口径一致）；缺省
+        //（undefined）保留回落 both/generic（兼容不带参调用方）
+        const formatRaw = body['format'] === undefined ? 'both' : String(body['format'])
+        if (!EXPORT_FORMATS.has(formatRaw)) {
+          return replyError(
+            res,
+            400,
+            'BAD_INPUT',
+            `非法导出格式「${formatRaw}」，允许：${[...EXPORT_FORMATS].join(' / ')}`,
+          )
+        }
+        const platformRaw = body['platform'] === undefined ? 'generic' : String(body['platform'])
+        if (!PLATFORMS.has(platformRaw)) {
+          return replyError(
+            res,
+            400,
+            'BAD_INPUT',
+            `非法导出平台「${platformRaw}」，允许：${[...PLATFORMS].join(' / ')}`,
+          )
+        }
+        const format: ExportFormat = formatRaw as ExportFormat
+        const platform: ExportPlatform = platformRaw as ExportPlatform
+        // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入
+        releaseGlobal = await acquireExportSlot(ctx.exportWaitTimeoutMs ?? undefined)
+        const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform }))
+        // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
+        // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
+        // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。
+        // ii 批：成功负载为域形状（chapterCount/unit/files），不透传 CLI 进程信封
+        if (!result.ok) return replyError(res, 422, 'EXPORT_FAILED', result.error ?? '导出失败')
+        reply(res, 200, {
+          ok: true,
+          chapterCount: result.chapterCount,
+          unit: result.unit,
+          files: result.files,
+          // 清偿-导出未过滤提示：透传定稿过滤标记——
+          // 清单缺失兜底导出（含未定稿章）时前端据此明示
+          finalizedFilter: result.finalizedFilter,
+          // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带
+          // 但信封漏发，前端无法提示「已跳过 N 个草稿章」
+          skippedDrafts: result.skippedDrafts,
+        })
+      } catch (e) {
+        // 排队超限/超时给 503 信封（可重试），不再直穿 500 兜底
+        if (e instanceof ExportSlotWaitError) {
+          return replyError(res, 503, 'BUSY', e.message)
+        }
+        throw e
+      } finally {
+        releaseGlobal?.()
+        release()
       }
-      const platformRaw = body['platform'] === undefined ? 'generic' : String(body['platform'])
-      if (!PLATFORMS.has(platformRaw)) {
-        return replyError(res, 400, 'BAD_INPUT', `非法导出平台「${platformRaw}」，允许：${[...PLATFORMS].join(' / ')}`)
-      }
-      const format: ExportFormat = formatRaw as ExportFormat
-      const platform: ExportPlatform = platformRaw as ExportPlatform
-      // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入
-      releaseGlobal = await acquireExportSlot(ctx.exportWaitTimeoutMs ?? undefined)
-      const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform }))
-      // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
-      // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
-      // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。
-      // ii 批：成功负载为域形状（chapterCount/unit/files），不透传 CLI 进程信封
-      if (!result.ok) return replyError(res, 422, 'EXPORT_FAILED', result.error ?? '导出失败')
-      reply(res, 200, {
-        ok: true,
-        chapterCount: result.chapterCount,
-        unit: result.unit,
-        files: result.files,
-        // 清偿-导出未过滤提示：透传定稿过滤标记——
-        // 清单缺失兜底导出（含未定稿章）时前端据此明示
-        finalizedFilter: result.finalizedFilter,
-        // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带
-        // 但信封漏发，前端无法提示「已跳过 N 个草稿章」
-        skippedDrafts: result.skippedDrafts,
-      })
-    } catch (e) {
-      // 排队超限/超时给 503 信封（可重试），不再直穿 500 兜底
-      if (e instanceof ExportSlotWaitError) {
-        return replyError(res, 503, 'BUSY', e.message)
-      }
-      throw e
-    } finally {
-      releaseGlobal?.()
-      release()
-    }
-  },
+    },
   })
 }

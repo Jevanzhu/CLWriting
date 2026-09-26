@@ -209,12 +209,7 @@ export const useDocStore = defineStore('doc', () => {
     const saved = mirror.readDirtyMirror(book, docId)
     if (saved) {
       const entry = docs.value.get(docId)
-      if (
-        entry &&
-        saved.content !== content &&
-        saved.baseRev !== null &&
-        saved.baseRev === baselineRevision
-      ) {
+      if (entry && saved.content !== content && saved.baseRev !== null && saved.baseRev === baselineRevision) {
         entry.content = saved.content
         entry.dirty = true
         useUiStore().toast('检测到上次未保存的编辑，已恢复', 'info')
@@ -276,11 +271,7 @@ export const useDocStore = defineStore('doc', () => {
    *  排队链等待轮次有上限（_waitRounds，同 flushDirty 的 FLUSH_WAIT_INFLIGHT_MAX_ROUNDS
    *  防活锁口径）——在途落定后又立刻出现新在途且条目持续置脏的极端交叠下尾递归无界；
    *  超限仍 saving → return false 交 autosaveTick 兜底（dirty 保持，下一节拍重扫）。 */
-  async function save(
-    docId: string,
-    origin: 'manual' | 'autosave' = 'manual',
-    _waitRounds = 0,
-  ): Promise<boolean> {
+  async function save(docId: string, origin: 'manual' | 'autosave' = 'manual', _waitRounds = 0): Promise<boolean> {
     // RC：快照前先落编辑器防抖尾（shared/body-writeback）——编辑器正文回写
     // 有 ≤200ms 合并窗，不落尾则本笔快照缺窗内最后一段键入（⌘S 存下的内容比屏幕少），
     // 且该条目此刻可能尚未置脏而整笔被跳过。flush 幂等（无编辑器在场/无待落输入即
@@ -373,10 +364,7 @@ export const useDocStore = defineStore('doc', () => {
         // 随条目生命周期，切书/重开复位）——autosave 每 30s 一拍，不设闸会刷屏。
         if (r.snapshotDegraded && !e.snapshotDegradedNotified) {
           e.snapshotDegradedNotified = true
-          useUiStore().toast(
-            '本次未生成版本留底（工作区/.版本 不可写？），版本历史可能有缺口——正文已保存',
-            'info',
-          )
+          useUiStore().toast('本次未生成版本留底（工作区/.版本 不可写？），版本历史可能有缺口——正文已保存', 'info')
         }
       }
       return true
@@ -431,12 +419,7 @@ export const useDocStore = defineStore('doc', () => {
       // 重开）；③在途保存（快照语义已被保存链接管）；④窗口内新键入（content 偏离决断
       // 时刻快照）。放弃时 conflict 不清，冲突横幅仍在，由作者对「新键入 + 远端已变」
       // 重新决断。
-      if (
-        bookName.value !== book ||
-        docs.value.get(docId) !== e ||
-        e.saving ||
-        e.content !== contentAtEntry
-      ) {
+      if (bookName.value !== book || docs.value.get(docId) !== e || e.saving || e.content !== contentAtEntry) {
         return
       }
       e.content = content
@@ -589,9 +572,7 @@ export const useDocStore = defineStore('doc', () => {
         e.mode = modeOf(node.path)
       }
     }
-    const stale = [...docs.value.values()].filter(
-      (e) => e.treeRev !== curRev && !e.dirty && !e.conflict && !e.saving,
-    )
+    const stale = [...docs.value.values()].filter((e) => e.treeRev !== curRev && !e.dirty && !e.conflict && !e.saving)
     await Promise.all(
       stale.map(async (e) => {
         try {
@@ -712,9 +693,7 @@ export const useDocStore = defineStore('doc', () => {
         await Promise.allSettled(inflight)
         continue
       }
-      const dirty = [...docs.value.values()].filter(
-        (e) => e.dirty && !e.saving && !e.conflict && !failed.has(e.docId),
-      )
+      const dirty = [...docs.value.values()].filter((e) => e.dirty && !e.saving && !e.conflict && !failed.has(e.docId))
       if (dirty.length === 0) return [...failed]
       waitRounds = 0 // 发生了实际保存：纯等待计数重新起算（连续纯等待才计上限）
       await Promise.all(
@@ -774,5 +753,28 @@ export const useDocStore = defineStore('doc', () => {
   // 清扫，属主按 payload 精确判定）供文档改名（useChapterTree 的 onRenameCommit /
   // onSaveMeta）、删书（useShelf.confirmDelete）等外部链调用，键格式与降级惯例收敛在
   // shared/dirty-mirror，不再各链自拼 `clw:dirty-mirror:` 键。
-  return { docs, bookName, setBook, get, open, patch, adoptRenamed, clearConflict, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard, clearDirtyMirror: mirror.clearDirtyMirror, clearBookMirrors: mirror.clearBookMirrors }
+  return {
+    docs,
+    bookName,
+    setBook,
+    get,
+    open,
+    patch,
+    adoptRenamed,
+    clearConflict,
+    save,
+    waitInflightSave,
+    reloadFromRemote,
+    overwriteRemote,
+    refresh,
+    syncCleanWithTree,
+    finalize,
+    conflictedDirtyDocs,
+    flushDirty,
+    flushBeforeClose,
+    autosaveTick,
+    discard,
+    clearDirtyMirror: mirror.clearDirtyMirror,
+    clearBookMirrors: mirror.clearBookMirrors,
+  }
 })

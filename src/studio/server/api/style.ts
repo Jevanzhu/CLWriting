@@ -15,7 +15,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { existsSync, readFileSync , statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import type { TaskGateInjected } from './task-gate.js' // 收割端点任务闸（闸实例经组装根注入）
@@ -25,13 +25,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
 import { readBaseline, freezeBaseline } from '../../../metrics/style.js'
-import {
-  readEntries,
-  addEntry,
-  ENTRIES_DIR,
-  ENTRY_KINDS,
-  SOURCE_RANK,
-} from '../../../format/style-entry.js'
+import { readEntries, addEntry, ENTRIES_DIR, ENTRY_KINDS, SOURCE_RANK } from '../../../format/style-entry.js'
 import {
   readCandidates,
   effectiveStatus,
@@ -81,12 +75,7 @@ function insideDir(rel: string, dir: string): boolean {
   // 先归一反斜杠，此处对齐；归一只影响守卫切段——实际 FS 操作仍走原 rel（posix 上
   // \ 是合法文件名字符，resolveWithinRoot 按字面解析语义不变）。
   const norm = rel.replace(/\\/g, '/')
-  return (
-    norm.startsWith(`${dir}/`) &&
-    !norm.split('/').includes('..') &&
-    !norm.includes('\0') &&
-    !isAbsolute(norm)
-  )
+  return norm.startsWith(`${dir}/`) && !norm.split('/').includes('..') && !norm.includes('\0') && !isAbsolute(norm)
 }
 
 // ── （GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
@@ -98,10 +87,7 @@ function insideDir(rel: string, dir: string): boolean {
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
   //（SRV-· 机械批：双行样板随收编 resolveBookOrReply 单源）
-  const resolveStyleBook = (
-    res: ServerResponse,
-    params: Record<string, string | undefined>,
-  ): string | null => {
+  const resolveStyleBook = (res: ServerResponse, params: Record<string, string | undefined>): string | null => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     return r ? r.bookRoot : null
   }
@@ -121,17 +107,17 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     method: 'GET',
     path: '/api/books/:name/style/entries',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const migration = migrateStyleLibrary(bookRoot)
-    const { entries, errors } = readEntries(join(bookRoot, ENTRIES_DIR))
-    reply(res, 200, {
-      ok: true,
-      entries: entries.map((e) => ({ ...e, _path: relPath(bookRoot, e._path) })),
-      errors,
-      migration: migration.migrated > 0 ? migration : null,
-    })
-  },
+      const bookRoot = resolveStyleBook(res, params)
+      if (!bookRoot) return
+      const migration = migrateStyleLibrary(bookRoot)
+      const { entries, errors } = readEntries(join(bookRoot, ENTRIES_DIR))
+      reply(res, 200, {
+        ok: true,
+        entries: entries.map((e) => ({ ...e, _path: relPath(bookRoot, e._path) })),
+        errors,
+        migration: migration.migrated > 0 ? migration : null,
+      })
+    },
   })
 
   // 新增条目（源4 作者手动：选中存样章/反例、条目库直接新增）
@@ -163,11 +149,11 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return entry
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
-    // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
-    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    reply(res, 200, { ok: true, path: addEntry(bookRoot, input) })
-  },
+      // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      reply(res, 200, { ok: true, path: addEntry(bookRoot, input) })
+    },
   })
 
   // 删条目（限 文风/条目/ 内）
@@ -182,35 +168,35 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return { path }
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
-    const p = input.path
-    // 重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
-    // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
-    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // 批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
-    // （防 entry.path 中间组件是符号链接 → rmSync 删到书库外；realpath 抛 → fail-closed 拒删）
-    const safe = resolveWithinRoot(bookRoot, p)
-    if (!safe) {
-      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
-    }
-    // 目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
-    // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
-    // （总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
-    // 幂等删除按不存在处理（stat 失败 → recursive:false，force 的 rmSync 对不存在
-    // 路径本就无害 no-op，重复 DELETE 200 与 rmSync force 语义一致）
-    let recursive = false
-    try {
-      recursive = statSync(safe.abs).isDirectory()
-    } catch {
-      /* 不存在（ENOENT）等 → 幂等删除：非递归 + force 无害通过 */
-    }
-    // （退避族）：裸 rmSync 收编 rmWithRetry——win 杀软/索引器对刚
-    // stat 完的条目瞬时锁定（EPERM/EBUSY）下直败 500；口径同全仓「确实要删」删源点
-    //（3×50ms 指数退避，仅 EPERM/EBUSY 重试；ENOENT 等确定性错误立即上抛，幂等
-    // 删除语义与 rmSync force 一致）。
-    rmWithRetry(safe.abs, { recursive })
-    reply(res, 200, { ok: true })
-  },
+      const p = input.path
+      // 重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
+      // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      // 批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
+      // （防 entry.path 中间组件是符号链接 → rmSync 删到书库外；realpath 抛 → fail-closed 拒删）
+      const safe = resolveWithinRoot(bookRoot, p)
+      if (!safe) {
+        return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
+      }
+      // 目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
+      // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
+      // （总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
+      // 幂等删除按不存在处理（stat 失败 → recursive:false，force 的 rmSync 对不存在
+      // 路径本就无害 no-op，重复 DELETE 200 与 rmSync force 语义一致）
+      let recursive = false
+      try {
+        recursive = statSync(safe.abs).isDirectory()
+      } catch {
+        /* 不存在（ENOENT）等 → 幂等删除：非递归 + force 无害通过 */
+      }
+      // （退避族）：裸 rmSync 收编 rmWithRetry——win 杀软/索引器对刚
+      // stat 完的条目瞬时锁定（EPERM/EBUSY）下直败 500；口径同全仓「确实要删」删源点
+      //（3×50ms 指数退避，仅 EPERM/EBUSY 重试；ENOENT 等确定性错误立即上抛，幂等
+      // 删除语义与 rmSync force 一致）。
+      rmWithRetry(safe.abs, { recursive })
+      reply(res, 200, { ok: true })
+    },
   })
 
   // 候选列表（状态经 30 天过期呈现；文件不动，已忽略可翻出）
@@ -218,20 +204,20 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     method: 'GET',
     path: '/api/books/:name/style/candidates',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const t = today()
-    const { candidates, errors } = readCandidates(join(bookRoot, CANDIDATES_DIR))
-    reply(res, 200, {
-      ok: true,
-      candidates: candidates.map((c) => ({
-        ...c,
-        状态: effectiveStatus(c, t),
-        _path: relPath(bookRoot, c._path),
-      })),
-      errors,
-    })
-  },
+      const bookRoot = resolveStyleBook(res, params)
+      if (!bookRoot) return
+      const t = today()
+      const { candidates, errors } = readCandidates(join(bookRoot, CANDIDATES_DIR))
+      reply(res, 200, {
+        ok: true,
+        candidates: candidates.map((c) => ({
+          ...c,
+          状态: effectiveStatus(c, t),
+          _path: relPath(bookRoot, c._path),
+        })),
+        errors,
+      })
+    },
   })
 
   // 确认候选 → 条目库
@@ -246,22 +232,22 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return { path }
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
-    const p = input.path
-    // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
-    // 书已搬走时旧根 realpath 失败误报 400；时序见 bookMovedFailure 头注）
-    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // 补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
-    // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
-    if (!resolveWithinRoot(bookRoot, p)) {
-      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
-    }
-    const entryPath = confirmCandidate(bookRoot, p)
-    if (entryPath === null) {
-      return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
-    }
-    reply(res, 200, { ok: true, entryPath })
-  },
+      const p = input.path
+      // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
+      // 书已搬走时旧根 realpath 失败误报 400；时序见 bookMovedFailure 头注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      // 补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
+      // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
+      if (!resolveWithinRoot(bookRoot, p)) {
+        return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
+      }
+      const entryPath = confirmCandidate(bookRoot, p)
+      if (entryPath === null) {
+        return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
+      }
+      reply(res, 200, { ok: true, entryPath })
+    },
   })
 
   // 忽略候选（落盘留档）
@@ -276,19 +262,19 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       return { path }
     },
     handler: async ({ params, input, gate: bookRoot }, _req: IncomingMessage, res: ServerResponse) => {
-    const p = input.path
-    // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
-    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    // 同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
-    if (!resolveWithinRoot(bookRoot, p)) {
-      return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
-    }
-    if (!ignoreCandidate(bookRoot, p)) {
-      return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
-    }
-    reply(res, 200, { ok: true })
-  },
+      const p = input.path
+      // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
+      // 同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
+      if (!resolveWithinRoot(bookRoot, p)) {
+        return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
+      }
+      if (!ignoreCandidate(bookRoot, p)) {
+        return replyError(res, 404, 'NOT_FOUND', '候选不存在或已损坏')
+      }
+      reply(res, 200, { ok: true })
+    },
   })
 
   // 收割（零 AI：源1 轨迹比对 + 源2 漂移映射；查重闸保证可重复点）
@@ -301,19 +287,19 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     // 重复点击双跑双扫互踩查重闸口径；acquireTaskGate 同款 409 BUSY（action 已登记
     // task-gate KNOWN_ACTIONS，跨进程可见）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const releaseGate = ctx.gate.acquire(params['name']!, 'style-harvest')
-    if (!releaseGate) {
-      return replyError(res, 409, 'BUSY', '本书风格收割进行中，请等它完成后再点')
-    }
-    try {
-      const r = await harvestStyleCandidatesAsync(bookRoot, readKind(bookRoot), today())
-      reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
-    } finally {
-      releaseGate()
-    }
-  },
+      const bookRoot = resolveStyleBook(res, params)
+      if (!bookRoot) return
+      const releaseGate = ctx.gate.acquire(params['name']!, 'style-harvest')
+      if (!releaseGate) {
+        return replyError(res, 409, 'BUSY', '本书风格收割进行中，请等它完成后再点')
+      }
+      try {
+        const r = await harvestStyleCandidatesAsync(bookRoot, readKind(bookRoot), today())
+        reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+      } finally {
+        releaseGate()
+      }
+    },
   })
 
   // 定标数据：铁律阈值（纯配置本身，不合并条目禁词）+ 基线摘要 + 注入强度。
@@ -323,28 +309,28 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     method: 'GET',
     path: '/api/books/:name/style/config',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    const rulesFile = join(bookRoot, '文风', '文风铁律.md')
-    const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
-    const baseline = readBaseline(bookRoot)
-    // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
-    // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会
-    // 无声按硬编码 'light' 回显注入强度
-    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) {
-      log.warn('style', `book.yaml 解析降级: ${cfgResult.error.message}`)
-    }
-    const injection = applyGlobalDefaults(cfgResult.config, ctx.userDataPath).style.injection
-    reply(res, 200, {
-      ok: true,
-      rules,
-      baseline: baseline
-        ? { frozenAt: baseline.frozenAt, frozenFrom: baseline.frozenFrom, scenes: Object.keys(baseline.byScene) }
-        : null,
-      injection,
-    })
-  },
+      const bookRoot = resolveStyleBook(res, params)
+      if (!bookRoot) return
+      const rulesFile = join(bookRoot, '文风', '文风铁律.md')
+      const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
+      const baseline = readBaseline(bookRoot)
+      // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
+      // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会
+      // 无声按硬编码 'light' 回显注入强度
+      const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+      if (!cfgResult.ok) {
+        log.warn('style', `book.yaml 解析降级: ${cfgResult.error.message}`)
+      }
+      const injection = applyGlobalDefaults(cfgResult.config, ctx.userDataPath).style.injection
+      reply(res, 200, {
+        ok: true,
+        rules,
+        baseline: baseline
+          ? { frozenAt: baseline.frozenAt, frozenFrom: baseline.frozenFrom, scenes: Object.keys(baseline.byScene) }
+          : null,
+        injection,
+      })
+    },
   })
 
   // 重新冻结基线（条目库样章按场景算指纹；无样章 → 400 诚实报错）
@@ -352,15 +338,18 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     method: 'POST',
     path: '/api/books/:name/style/baseline/freeze',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const bookRoot = resolveStyleBook(res, params)
-    if (!bookRoot) return
-    try {
-      const b = freezeBaseline(bookRoot)
-      reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
-    } catch (e) {
-      // API 错误脱敏
-      replyError(res, 400, 'NO_SAMPLES', redactSecret(errMsg(e)))
-    }
-  },
+      const bookRoot = resolveStyleBook(res, params)
+      if (!bookRoot) return
+      try {
+        const b = freezeBaseline(bookRoot)
+        reply(res, 200, {
+          ok: true,
+          baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) },
+        })
+      } catch (e) {
+        // API 错误脱敏
+        replyError(res, 400, 'NO_SAMPLES', redactSecret(errMsg(e)))
+      }
+    },
   })
 }

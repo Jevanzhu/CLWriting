@@ -113,11 +113,7 @@ export function __resetRebuildDoneAtForTest(): void {
 }
 
 /** 前奏参数化（头注见上方类型别名块）与 async 孪生共用。 */
-export function openCheckDb(
-  bookRoot: string,
-  hasWiring: boolean,
-  opts: OpenCheckDbOpts,
-): OpenCheckDbResult {
+export function openCheckDb(bookRoot: string, hasWiring: boolean, opts: OpenCheckDbOpts): OpenCheckDbResult {
   // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
   if (!hasWiring) return { db: null, rebuildFailed: false }
   const cachePath = join(bookRoot, '.cache', 'index.db')
@@ -254,9 +250,7 @@ function pushDegradedYellow(
   chapter?: number,
 ): void {
   const item: CheckItem =
-    chapter === undefined
-      ? { checkId, level: 'yellow', message }
-      : { checkId, level: 'yellow', message, chapter }
+    chapter === undefined ? { checkId, level: 'yellow', message } : { checkId, level: 'yellow', message, chapter }
   report.sections.push({ name, items: [item] })
   // 后置推入不过 runner 的报告内升红路径——严格短篇下
   // degraded/unreadable 族同升红（「配置降级/检查没跑成」不可绿灯过定稿闸）。
@@ -414,7 +408,8 @@ export function* maxWrittenChapterOfCore(
     // 单章路径自读清单——读失败降级留痕（行为不变：仍按空表继续，
     // 定稿基线缺失仅本轮 maxWritten 低估；树聚合侧同源降级已有旗标透出端点层）
     const r = readManifestDegraded(join(bookRoot, '项目', '文档清单.jsonl'))
-    if (r.degraded) log.warn('check', `文档清单读取失败（${r.degraded.code}），已定稿基准降级为空（maxWritten 可能低估）`)
+    if (r.degraded)
+      log.warn('check', `文档清单读取失败（${r.degraded.code}），已定稿基准降级为空（maxWritten 可能低估）`)
     entries = r.manifest.entries
   }
   const finalized = new Set<string>()
@@ -541,10 +536,7 @@ export function* scanChapterUpdatesByChapterCore(
     const mainActive = mainTag === null || mainTag === chapterNo
     const archive = archiveByChapter.get(chapterNo)
     return {
-      updates: [
-        ...(mainActive ? mainResult.updates : []),
-        ...(archive?.updates ?? []),
-      ],
+      updates: [...(mainActive ? mainResult.updates : []), ...(archive?.updates ?? [])],
       unreadable: (mainActive && mainResult.unreadable) || (archive?.unreadable ?? false),
     }
   }
@@ -597,7 +589,9 @@ export function* checkWithDbCore(
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     // 优化：无布线时账本检查不运行，跳过全书扫描
     const maxChapter = hasWiring
-      ? (batch ? batch.maxWrittenChapter : (yield* maxWrittenChapterOfCore(bookRoot)))
+      ? batch
+        ? batch.maxWrittenChapter
+        : yield* maxWrittenChapterOfCore(bookRoot)
       : batch?.maxWrittenChapter
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
@@ -607,7 +601,8 @@ export function* checkWithDbCore(
     // 不再把「未知」当「未声明」误报 lead-done-not-declared（曾硬阻断批量定稿闸）。
     // batch 预扫闭包优先（细纲单文件批内 memo）；未传 batch（单章 check 端点）现读
     const declaration = useLeads
-      ? (batch?.outlineDeclarationFor?.(draft.chapter.章号) ?? outlineDeclarationForChapter(bookRoot, draft.chapter.章号))
+      ? (batch?.outlineDeclarationFor?.(draft.chapter.章号) ??
+        outlineDeclarationForChapter(bookRoot, draft.chapter.章号))
       : undefined
     const declaredLeadIds = declaration?.known ? declaration.leads : undefined
     // 实际侧同口径按被检章过滤（声明侧同向）——
@@ -621,13 +616,13 @@ export function* checkWithDbCore(
     // 防把瞬态故障当作者过错产 lead-declared-not-done 假红硬阻断定稿），黄项降级见下方。
     //（win 线同因独立修复，口径一致，合并取本侧 ChapterUpdatesResult 形状。）
     const updatesResult = useLeads
-      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapterChecked(bookRoot, draft.chapter.章号))
+      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ??
+        readChapterUpdatesForChapterChecked(bookRoot, draft.chapter.章号))
       : undefined
-    const actualLeadIds = updatesResult && !updatesResult.unreadable
-      ? updatesResult.updates
-          .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
-          .map((u) => u.leadId)
-      : undefined
+    const actualLeadIds =
+      updatesResult && !updatesResult.unreadable
+        ? updatesResult.updates.filter((u) => leadEvidenceMatchesBody(draft.body, u.证据)).map((u) => u.leadId)
+        : undefined
     // word-count 黄项数据源接线——章纲（大纲/章纲/）fm 字数目标 已入 ChapterMeta，
     // 正文 ChapterMeta 无此字段（宿主写稿不产），按章号查同章章纲取 字数目标 作 targetWords。
     // 未设（无章纲 / 无 字数目标）→ undefined → 检查器 targetWords 0 → 不检也不提示（决策 C 第 3 条）。

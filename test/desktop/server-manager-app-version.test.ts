@@ -51,9 +51,7 @@ describe('阶段 53 S2：CLW_APP_VERSION 下发', () => {
       const { forkRecords, manager } = mkHarness()
       const p = manager.start({ workDir: null, userDataPath: mkUserData(), appVersion: '1.0.0' })
       const env = childEnv(forkRecords[0]!)
-      expect(Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_APP_VERSION')).toEqual([
-        'CLW_APP_VERSION',
-      ])
+      expect(Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_APP_VERSION')).toEqual(['CLW_APP_VERSION'])
       expect(env['CLW_APP_VERSION']).toBe('1.0.0')
       expect(Object.values(env)).not.toContain('stale-lower-residue')
       forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })

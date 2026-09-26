@@ -71,7 +71,11 @@ export function makeGitBook(opts?: { withCache?: boolean }): string {
     const db = new DatabaseSync(join(root, '.cache', 'index.db'))
     createAllTables(db)
     syncLead(db, {
-      编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 1,
+      编号: '悬念-031',
+      标题: '灭门真凶',
+      类型: '悬念',
+      状态: '进行中',
+      开启章: 1,
       履历: [{ 章号: 1, 动词: '埋下', 证据: '焦痕' }],
       _path: join(root, '布线', '悬念', '悬念-031-灭门真凶.md'),
     })
@@ -114,8 +118,12 @@ export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean
     // 定稿基线 = 当前指纹（去 git 后正文 = final，不误判态 4 草稿）
     const m = readManifest(manifestPath)
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: computeRevision(abs),
+      finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
     if (commitEach) {

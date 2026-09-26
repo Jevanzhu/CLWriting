@@ -47,7 +47,10 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' + JSON.stringify({ name: SHORT_BOOK, path: SHORT_BOOK, kind: 'short' }) + '\n',
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+      '\n' +
+      JSON.stringify({ name: SHORT_BOOK, path: SHORT_BOOK, kind: 'short' }) +
+      '\n',
   )
   const bookRoot = join(workDir, BOOK)
   mkdirSync(bookRoot, { recursive: true })

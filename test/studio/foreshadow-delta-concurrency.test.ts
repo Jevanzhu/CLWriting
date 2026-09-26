@@ -46,10 +46,7 @@ function revOf(relPath: string): `sha256:${string}` {
   return computeRevision(join(studio.bookRoot, relPath))
 }
 
-function putContent(
-  docId: string,
-  body: Record<string, unknown>,
-): Promise<{ status: number; json: unknown }> {
+function putContent(docId: string, body: Record<string, unknown>): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
     const u = new URL(studio.baseUrl)
     const payload = JSON.stringify(body)

@@ -113,108 +113,119 @@ async function assertExit(
 }
 
 describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
-  it('④ timeout：deadline 在 generate 在途时触发 → aborted 终态 + 超时文案 + 遮蔽 + 回滚', { timeout: 10_000 }, async () => {
-    // 2026-09-17 CI 复验批裕量放宽（原 40ms/800ms）：deadline 必须在 generate 起跑之后
-    // 在途时触发——慢机（CI win runner 全套 24 分钟）上 40ms 可能在 generate 起跑前
-    // 到期走错出口；1s/5s 保持同一形态（deadline ≪ 响应延迟），文案换算 Math.round
-    // (1000/60000)=0 分钟不变，断言语义零漂移
-    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 5000 }])
-    const ud = setup()
-    await assertExit(
-      'exit-timeout-gen',
-      ud,
-      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 1000 → 0 分钟）
-      (msg) => expect(msg).toBe('对话超时（超过 0 分钟），已停止'),
-      'aborted',
-      { deadlineMs: 1000 },
-    )
-  })
+  it(
+    '④ timeout：deadline 在 generate 在途时触发 → aborted 终态 + 超时文案 + 遮蔽 + 回滚',
+    { timeout: 10_000 },
+    async () => {
+      // 2026-09-17 CI 复验批裕量放宽（原 40ms/800ms）：deadline 必须在 generate 起跑之后
+      // 在途时触发——慢机（CI win runner 全套 24 分钟）上 40ms 可能在 generate 起跑前
+      // 到期走错出口；1s/5s 保持同一形态（deadline ≪ 响应延迟），文案换算 Math.round
+      // (1000/60000)=0 分钟不变，断言语义零漂移
+      fake.setScript([{ type: 'text', content: '慢响应', delayMs: 5000 }])
+      const ud = setup()
+      await assertExit(
+        'exit-timeout-gen',
+        ud,
+        // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 1000 → 0 分钟）
+        (msg) => expect(msg).toBe('对话超时（超过 0 分钟），已停止'),
+        'aborted',
+        { deadlineMs: 1000 },
+      )
+    },
+  )
 
-  it('① timeout：deadline 在确认闸等待期间触发（轮首中止 + timedOut）→ 同 timeout 口径', { timeout: 10_000 }, async () => {
-    // 2026-09-17 CI 复验批裕量放宽（原 deadlineMs: 120）：deadline 必须在工具调用挂上
-    // 确认闸**之后**触发，工具才有 tool/result 可归因「确认超时」——CI win runner 上
-    // 120ms 在确认闸挂起前到期 → 轮首中止时工具未执行、tool/result 缺失（实测
-    // undefined 红）。2s ≪ confirmTimeoutMs 8000 维持「deadline 先赢」形态，慢机到达
-    // 确认闸的实测裕量 ~4×；文案换算 Math.round(2000/60000)=0 分钟不变
-    fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
-    const ud = setup()
-    const events: DriverEvent[] = []
-    await runChat({
-      driver: makeFakeDriver({ emitted: events }),
-      mainSession: { id: 's1', cwd: bookRoot, closed: false },
-      userDataPath: ud,
-      bookRoot,
-      bookName: 'exit-timeout-confirm',
-      message: '出口走查',
-      confirmTimeoutMs: 8000,
-      deadlineMs: 2000,
-    })
-    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 2000 → 0 分钟）
-    expect(err?.error).toBe('对话超时（超过 0 分钟），已停止')
-    const store = openSessionStore(ud, bookRoot)!
-    try {
-      const evs = store.listEvents('exit-timeout-confirm')
-      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('aborted')
-      // M-6（第十一轮）：deadline 触发的 abort 放行确认闸 → 工具结果归因「确认超时」而非
-      // 「作者取消了该操作」（P5-AI·第七轮只修确认闸自身超时，deadline 场景漏——瞬时归因误导）
-      const toolResult = evs.find((e) => e.type === 'tool/result') as { data: { content: string } } | undefined
-      expect(toolResult?.data.content).toBe('确认超时，本次操作未执行（可重发指令）。')
-    } finally {
-      store.close()
-    }
-  })
+  it(
+    '① timeout：deadline 在确认闸等待期间触发（轮首中止 + timedOut）→ 同 timeout 口径',
+    { timeout: 10_000 },
+    async () => {
+      // 2026-09-17 CI 复验批裕量放宽（原 deadlineMs: 120）：deadline 必须在工具调用挂上
+      // 确认闸**之后**触发，工具才有 tool/result 可归因「确认超时」——CI win runner 上
+      // 120ms 在确认闸挂起前到期 → 轮首中止时工具未执行、tool/result 缺失（实测
+      // undefined 红）。2s ≪ confirmTimeoutMs 8000 维持「deadline 先赢」形态，慢机到达
+      // 确认闸的实测裕量 ~4×；文案换算 Math.round(2000/60000)=0 分钟不变
+      fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
+      const ud = setup()
+      const events: DriverEvent[] = []
+      await runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'exit-timeout-confirm',
+        message: '出口走查',
+        confirmTimeoutMs: 8000,
+        deadlineMs: 2000,
+      })
+      const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 2000 → 0 分钟）
+      expect(err?.error).toBe('对话超时（超过 0 分钟），已停止')
+      const store = openSessionStore(ud, bookRoot)!
+      try {
+        const evs = store.listEvents('exit-timeout-confirm')
+        expect(
+          (evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason,
+        ).toBe('aborted')
+        // M-6（第十一轮）：deadline 触发的 abort 放行确认闸 → 工具结果归因「确认超时」而非
+        // 「作者取消了该操作」（P5-AI·第七轮只修确认闸自身超时，deadline 场景漏——瞬时归因误导）
+        const toolResult = evs.find((e) => e.type === 'tool/result') as { data: { content: string } } | undefined
+        expect(toolResult?.data.content).toBe('确认超时，本次操作未执行（可重发指令）。')
+      } finally {
+        store.close()
+      }
+    },
+  )
 
-  it('② interrupted：确认闸挂起时用户 abortChat → interrupted 终态 + 已中断文案 + 遮蔽 + 回滚', { timeout: 10_000 }, async () => {
-    fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
-    const ud = setup()
-    const events: DriverEvent[] = []
-    const p = runChat({
-      driver: makeFakeDriver({ emitted: events }),
-      mainSession: { id: 's1', cwd: bookRoot, closed: false },
-      userDataPath: ud,
-      bookRoot,
-      bookName: 'exit-interrupted',
-      message: '出口走查',
-      confirmTimeoutMs: 8000,
-    })
-    // 工具挂起确认闸（此时未 abort、未超时）→ 用户中断 → waitConfirm 放行取消 → 轮首中止
-    await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
-    abortChat('exit-interrupted')
-    await p
+  it(
+    '② interrupted：确认闸挂起时用户 abortChat → interrupted 终态 + 已中断文案 + 遮蔽 + 回滚',
+    { timeout: 10_000 },
+    async () => {
+      fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
+      const ud = setup()
+      const events: DriverEvent[] = []
+      const p = runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'exit-interrupted',
+        message: '出口走查',
+        confirmTimeoutMs: 8000,
+      })
+      // 工具挂起确认闸（此时未 abort、未超时）→ 用户中断 → waitConfirm 放行取消 → 轮首中止
+      await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
+      abortChat('exit-interrupted')
+      await p
 
-    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    expect(err?.error).toBe('已中断')
-    const store = openSessionStore(ud, bookRoot)!
-    try {
-      const evs = store.listEvents('exit-interrupted')
-      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('interrupted')
-      const userSeq = (evs.find((e) => e.type === 'user/message') as ChatEvent | undefined)?.seq
-      expect(
-        evs.some(
-          (e) =>
-            e.type === 'compaction/end' &&
-            e.shadowStart !== undefined &&
-            e.shadowEnd !== undefined &&
-            e.shadowStart <= userSeq! &&
-            userSeq! <= e.shadowEnd,
-        ),
-      ).toBe(true)
-    } finally {
-      store.close()
-    }
-    expect(getHistory('exit-interrupted').length).toBe(0)
-  })
+      const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+      expect(err?.error).toBe('已中断')
+      const store = openSessionStore(ud, bookRoot)!
+      try {
+        const evs = store.listEvents('exit-interrupted')
+        expect(
+          (evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason,
+        ).toBe('interrupted')
+        const userSeq = (evs.find((e) => e.type === 'user/message') as ChatEvent | undefined)?.seq
+        expect(
+          evs.some(
+            (e) =>
+              e.type === 'compaction/end' &&
+              e.shadowStart !== undefined &&
+              e.shadowEnd !== undefined &&
+              e.shadowStart <= userSeq! &&
+              userSeq! <= e.shadowEnd,
+          ),
+        ).toBe(true)
+      } finally {
+        store.close()
+      }
+      expect(getHistory('exit-interrupted').length).toBe(0)
+    },
+  )
 
   it('⑤ error：provider 400 → error 终态 + 错误透传文案 + 遮蔽 + 回滚', { timeout: 10_000 }, async () => {
     fake.setScript([{ type: 'error', status: 400, message: 'boom-exitwalk' }])
     const ud = setup()
-    await assertExit(
-      'exit-error',
-      ud,
-      (msg) => expect(msg).toContain('OpenAI API 400'),
-      'error',
-    )
+    await assertExit('exit-error', ud, (msg) => expect(msg).toContain('OpenAI API 400'), 'error')
   })
 
   it('⑥ max-tokens：截断保护 → max-tokens 终态 + 固定文案 + 遮蔽 + 回滚', { timeout: 10_000 }, async () => {
@@ -245,7 +256,9 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     const store = openSessionStore(ud, bookRoot)!
     try {
       const evs = store.listEvents('exit-success')
-      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('completed')
+      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe(
+        'completed',
+      )
       expect(evs.some((e) => e.type === 'compaction/end')).toBe(false)
     } finally {
       store.close()
@@ -255,134 +268,154 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
 
   // ── M-1（第十一轮）：回合 commit 点 flush 异常收编 finishTurn ──────────
 
-  it('M-1：flush 抛错（磁盘满/血缘越界模拟）→ 收编失败出口：回滚 + 遮蔽 + chat_error，不留内存/库分裂', { timeout: 10_000 }, async () => {
-    fake.setScript([{ type: 'text', content: '正常回复，但落库时炸。' }])
-    const ud = setup()
-    const events: DriverEvent[] = []
-    // 首次 flush（无工具完成路径的回合 commit 点）抛错一次；closeMaskingAll 内部的
-    // 第二次 flush 走原实现——遮蔽链本身健康时可正常收口（回滚 + 遮蔽 + 文案三件齐）
-    const spy = vi.spyOn(SessionRecorder.prototype, 'flush').mockImplementationOnce(() => {
-      throw new Error('disk full (mock)')
-    })
-    try {
-      await runChat({
-        driver: makeFakeDriver({ emitted: events }),
-        mainSession: { id: 's1', cwd: bookRoot, closed: false },
-        userDataPath: ud,
-        bookRoot,
-        bookName: 'exit-flush-once',
-        message: '出口走查',
+  it(
+    'M-1：flush 抛错（磁盘满/血缘越界模拟）→ 收编失败出口：回滚 + 遮蔽 + chat_error，不留内存/库分裂',
+    { timeout: 10_000 },
+    async () => {
+      fake.setScript([{ type: 'text', content: '正常回复，但落库时炸。' }])
+      const ud = setup()
+      const events: DriverEvent[] = []
+      // 首次 flush（无工具完成路径的回合 commit 点）抛错一次；closeMaskingAll 内部的
+      // 第二次 flush 走原实现——遮蔽链本身健康时可正常收口（回滚 + 遮蔽 + 文案三件齐）
+      const spy = vi.spyOn(SessionRecorder.prototype, 'flush').mockImplementationOnce(() => {
+        throw new Error('disk full (mock)')
       })
-    } finally {
-      spy.mockRestore()
-    }
+      try {
+        await runChat({
+          driver: makeFakeDriver({ emitted: events }),
+          mainSession: { id: 's1', cwd: bookRoot, closed: false },
+          userDataPath: ud,
+          bookRoot,
+          bookName: 'exit-flush-once',
+          message: '出口走查',
+        })
+      } finally {
+        spy.mockRestore()
+      }
 
-    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    expect(err?.error).toContain('事件记录落库失败')
-    expect(err?.error).toContain('disk full (mock)')
-    const store = openSessionStore(ud, bookRoot)!
-    try {
-      const evs = store.listEvents('exit-flush-once')
-      // 遮蔽仍完成（closeMaskingAll 内第二次 flush 原实现成功）→ error 终态 + user 被盖
-      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('error')
-      const userSeq = (evs.find((e) => e.type === 'user/message') as ChatEvent | undefined)?.seq
-      expect(userSeq).toBeDefined()
-      expect(
-        evs.some(
-          (e) =>
-            e.type === 'compaction/end' &&
-            e.shadowStart !== undefined &&
-            e.shadowEnd !== undefined &&
-            e.shadowStart <= userSeq! &&
-            userSeq! <= e.shadowEnd,
-        ),
-      ).toBe(true)
-    } finally {
-      store.close()
-    }
-    // 历史回滚：不留「已 push 消息驻内存而事件未落库」的铁律①破口（下次对话模型可见但不可回溯）
-    expect(getHistory('exit-flush-once').length).toBe(0)
-  })
+      const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+      expect(err?.error).toContain('事件记录落库失败')
+      expect(err?.error).toContain('disk full (mock)')
+      const store = openSessionStore(ud, bookRoot)!
+      try {
+        const evs = store.listEvents('exit-flush-once')
+        // 遮蔽仍完成（closeMaskingAll 内第二次 flush 原实现成功）→ error 终态 + user 被盖
+        expect(
+          (evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason,
+        ).toBe('error')
+        const userSeq = (evs.find((e) => e.type === 'user/message') as ChatEvent | undefined)?.seq
+        expect(userSeq).toBeDefined()
+        expect(
+          evs.some(
+            (e) =>
+              e.type === 'compaction/end' &&
+              e.shadowStart !== undefined &&
+              e.shadowEnd !== undefined &&
+              e.shadowStart <= userSeq! &&
+              userSeq! <= e.shadowEnd,
+          ),
+        ).toBe(true)
+      } finally {
+        store.close()
+      }
+      // 历史回滚：不留「已 push 消息驻内存而事件未落库」的铁律①破口（下次对话模型可见但不可回溯）
+      expect(getHistory('exit-flush-once').length).toBe(0)
+    },
+  )
 
-  it('M-1：DB 持续故障（flush 恒抛）→ 遮蔽降级不二次抛：chat_error 仍送达、runChat 正常收尾、历史回滚', { timeout: 10_000 }, async () => {
-    fake.setScript([{ type: 'text', content: '落库一直炸。' }])
-    const ud = setup()
-    const events: DriverEvent[] = []
-    const spy = vi.spyOn(SessionRecorder.prototype, 'flush').mockImplementation(() => {
-      throw new Error('db broken (mock)')
-    })
-    try {
-      await runChat({
-        driver: makeFakeDriver({ emitted: events }),
-        mainSession: { id: 's1', cwd: bookRoot, closed: false },
-        userDataPath: ud,
-        bookRoot,
-        bookName: 'exit-flush-always',
-        message: '出口走查',
+  it(
+    'M-1：DB 持续故障（flush 恒抛）→ 遮蔽降级不二次抛：chat_error 仍送达、runChat 正常收尾、历史回滚',
+    { timeout: 10_000 },
+    async () => {
+      fake.setScript([{ type: 'text', content: '落库一直炸。' }])
+      const ud = setup()
+      const events: DriverEvent[] = []
+      const spy = vi.spyOn(SessionRecorder.prototype, 'flush').mockImplementation(() => {
+        throw new Error('db broken (mock)')
       })
-    } finally {
-      spy.mockRestore()
-    }
+      try {
+        await runChat({
+          driver: makeFakeDriver({ emitted: events }),
+          mainSession: { id: 's1', cwd: bookRoot, closed: false },
+          userDataPath: ud,
+          bookRoot,
+          bookName: 'exit-flush-always',
+          message: '出口走查',
+        })
+      } finally {
+        spy.mockRestore()
+      }
 
-    // finishTurn 自身不得再抛（closeMaskingAll 随之抛错的场景降级留痕）——chat_error 走
-    // 驱动事件而非裸异常穿到 sendChatMessage 的 .catch（那是 error 事件，非 chat_error）
-    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    expect(err?.error).toContain('事件记录落库失败')
-    expect(events.some((e) => e.type === 'error')).toBe(false)
-    expect(getHistory('exit-flush-always').length).toBe(0)
-  })
+      // finishTurn 自身不得再抛（closeMaskingAll 随之抛错的场景降级留痕）——chat_error 走
+      // 驱动事件而非裸异常穿到 sendChatMessage 的 .catch（那是 error 事件，非 chat_error）
+      const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+      expect(err?.error).toContain('事件记录落库失败')
+      expect(events.some((e) => e.type === 'error')).toBe(false)
+      expect(getHistory('exit-flush-always').length).toBe(0)
+    },
+  )
 
   // ── R42-26（四十二轮）：!ok 出口终态 mask 按 out.code 分流 ─────────────
   // generate 在途的中断/档位超时此前一律落 { error }（mask 'error'），与轮首 :427 口径
   //（timeout/interrupted）失真；现 ABORTED→'interrupted'、TIMEOUT_TOTAL→'timeout'
 
-  it('R42-26：generate 在途用户中断（out.code=ABORTED）→ interrupted 终态 + 已中断文案', { timeout: 10_000 }, async () => {
-    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
-    const ud = setup()
-    const events: DriverEvent[] = []
-    const p = runChat({
-      driver: makeFakeDriver({ emitted: events }),
-      mainSession: { id: 's1', cwd: bookRoot, closed: false },
-      userDataPath: ud,
-      bookRoot,
-      bookName: 'exit-r42-aborted',
-      message: '出口走查',
-    })
-    // 请求已在途（generate 进行中）→ 用户中断 → runTask ABORTED → finishTurn 'interrupted'
-    await waitFor(() => fake.requestCount() > 0)
-    abortChat('exit-r42-aborted')
-    await p
+  it(
+    'R42-26：generate 在途用户中断（out.code=ABORTED）→ interrupted 终态 + 已中断文案',
+    { timeout: 10_000 },
+    async () => {
+      fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
+      const ud = setup()
+      const events: DriverEvent[] = []
+      const p = runChat({
+        driver: makeFakeDriver({ emitted: events }),
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'exit-r42-aborted',
+        message: '出口走查',
+      })
+      // 请求已在途（generate 进行中）→ 用户中断 → runTask ABORTED → finishTurn 'interrupted'
+      await waitFor(() => fake.requestCount() > 0)
+      abortChat('exit-r42-aborted')
+      await p
 
-    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    expect(err?.error).toBe('已中断')
-    const store = openSessionStore(ud, bookRoot)!
-    try {
-      const evs = store.listEvents('exit-r42-aborted')
-      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('interrupted')
-    } finally {
-      store.close()
-    }
-    expect(getHistory('exit-r42-aborted').length).toBe(0)
-  })
+      const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+      expect(err?.error).toBe('已中断')
+      const store = openSessionStore(ud, bookRoot)!
+      try {
+        const evs = store.listEvents('exit-r42-aborted')
+        expect(
+          (evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason,
+        ).toBe('interrupted')
+      } finally {
+        store.close()
+      }
+      expect(getHistory('exit-r42-aborted').length).toBe(0)
+    },
+  )
 
-  it('R42-26：档位超时（out.code=TIMEOUT_TOTAL）→ timeout 出口（mask aborted）+ 超时文案', { timeout: 10_000 }, async () => {
-    // chat 档位带 60ms 总超时——runTask 档位超时返回 TIMEOUT_TOTAL（非 chat deadline 的
-    // timedOut 路径），finishTurn 按 out.code 分流到 'timeout'
-    const ud = tempUserData()
-    dirs.push(ud)
-    withFakeProvider(ud, fake.url)
-    const s = loadProviders(ud)
-    s.tiers.chat = { model: 'fake-model', effort: 'medium', timeoutMs: 60 }
-    saveProviders(ud, s)
+  it(
+    'R42-26：档位超时（out.code=TIMEOUT_TOTAL）→ timeout 出口（mask aborted）+ 超时文案',
+    { timeout: 10_000 },
+    async () => {
+      // chat 档位带 60ms 总超时——runTask 档位超时返回 TIMEOUT_TOTAL（非 chat deadline 的
+      // timedOut 路径），finishTurn 按 out.code 分流到 'timeout'
+      const ud = tempUserData()
+      dirs.push(ud)
+      withFakeProvider(ud, fake.url)
+      const s = loadProviders(ud)
+      s.tiers.chat = { model: 'fake-model', effort: 'medium', timeoutMs: 60 }
+      saveProviders(ud, s)
 
-    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
-    await assertExit(
-      'exit-r42-tier-timeout',
-      ud,
-      (msg) => expect(msg).toBe('对话超时（超过 30 分钟），已停止'),
-      'aborted', // CHAT_EXIT_SPEC.timeout 的 mask（timeout 出口终态）
-    )
-  })
+      fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
+      await assertExit(
+        'exit-r42-tier-timeout',
+        ud,
+        (msg) => expect(msg).toBe('对话超时（超过 30 分钟），已停止'),
+        'aborted', // CHAT_EXIT_SPEC.timeout 的 mask（timeout 出口终态）
+      )
+    },
+  )
 })
 
 // ── R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：超时文案按实际生效 deadline 换算 ──

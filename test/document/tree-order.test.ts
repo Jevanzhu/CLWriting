@@ -24,7 +24,10 @@ afterEach(() => {
 const writeCh = (rel: string, chapter: number, title: string, fmExtra = '') => {
   const abs = join(root, rel)
   mkdirSync(join(abs, '..'), { recursive: true })
-  writeFileSync(abs, `---\n章号: ${chapter}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n\n正文。\n`)
+  writeFileSync(
+    abs,
+    `---\n章号: ${chapter}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n\n正文。\n`,
+  )
 }
 
 const chapterNamesUnder = (path: string): string[] => {

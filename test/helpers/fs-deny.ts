@@ -70,7 +70,20 @@ const SYSCALL_BY_OP: Readonly<Record<string, string>> = {
 
 /** 包装的同步命名空间函数集（utimesSync/existsSync 有意不包装：posix chmod 拒读
  *  语义下存在性探测照常成功，多个用例显式依赖「stat/exists 可用、读被拒」形态）。 */
-const WRAP_SYNC = ['readFileSync', 'readdirSync', 'writeFileSync', 'appendFileSync', 'openSync', 'renameSync', 'linkSync', 'rmSync', 'unlinkSync', 'rmdirSync', 'statSync', 'createReadStream'] as const
+const WRAP_SYNC = [
+  'readFileSync',
+  'readdirSync',
+  'writeFileSync',
+  'appendFileSync',
+  'openSync',
+  'renameSync',
+  'linkSync',
+  'rmSync',
+  'unlinkSync',
+  'rmdirSync',
+  'statSync',
+  'createReadStream',
+] as const
 /** 包装的 promises 命名空间函数集。 */
 const WRAP_FSP = ['readFile', 'readdir', 'writeFile', 'appendFile', 'open', 'rename', 'rm', 'stat'] as const
 
@@ -151,9 +164,7 @@ export function denyFs(targets: string | readonly string[], opts: FsDenyOptions 
   const list = (Array.isArray(targets) ? targets : [targets]).map((t) => resolve(t))
   if (process.platform === 'win32') {
     const ops = new Set(opts.ops ?? ['fs:readFileSync', 'fsp:readFile'])
-    const missing = [...ops]
-      .map((op) => op.split(':')[0] as 'fs' | 'fsp')
-      .filter((ns) => !armed.has(ns))
+    const missing = [...ops].map((op) => op.split(':')[0] as 'fs' | 'fsp').filter((ns) => !armed.has(ns))
     if (missing.length !== 0) {
       throw new Error(
         `fs-deny: win32 注入要求测试文件先对 [${[...new Set(missing)].join(', ')}] 声明 ` +
@@ -174,9 +185,7 @@ export function denyFs(targets: string | readonly string[], opts: FsDenyOptions 
   // 依赖祖先 +x：deny 须深先（chmod 子路径时父尚未锁），restore 须浅先（解锁任何路径
   // 前其祖先须已还原）——按路径深度定序，与传入顺序解耦；平坦目标集排序为恒等。
   const depth = (p: string): number => p.split(sep).length
-  const saved = list
-    .map((t) => ({ t, mode: realFs.statSync(t).mode & 0o777 }))
-    .sort((a, b) => depth(b.t) - depth(a.t))
+  const saved = list.map((t) => ({ t, mode: realFs.statSync(t).mode & 0o777 })).sort((a, b) => depth(b.t) - depth(a.t))
   const denyMode = opts.posixMode ?? 0o000
   for (const s of saved) realFs.chmodSync(s.t, denyMode)
   return {
@@ -201,7 +210,16 @@ export function denyDirList(dir: string, opts: FsDenyOptions = {}): FsDenyGuard 
  *  会偏离 posix 语义；确需拒新建子目录的用例经 opts.ops 显式加 'fs:mkdirSync'。 */
 export function denyWriteUnder(dir: string, opts: FsDenyOptions = {}): FsDenyGuard {
   return denyFs(dir, {
-    ops: ['fs:writeFileSync', 'fs:appendFileSync', 'fs:openSync', 'fs:linkSync', 'fs:renameSync', 'fsp:writeFile', 'fsp:open', 'fsp:rename'],
+    ops: [
+      'fs:writeFileSync',
+      'fs:appendFileSync',
+      'fs:openSync',
+      'fs:linkSync',
+      'fs:renameSync',
+      'fsp:writeFile',
+      'fsp:open',
+      'fsp:rename',
+    ],
     children: true,
     ...opts,
   })

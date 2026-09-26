@@ -17,9 +17,7 @@ const shelfMocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/api/shelf', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('../../../src/studio/web-next/src/api/shelf')
-  >()
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/shelf')>()
   return { ...actual, listBooks: shelfMocks.listBooks, deleteBook: shelfMocks.deleteBook }
 })
 // vue-router 双注册（R61-20）：web-next 组件解析自己的 node_modules/vue-router，

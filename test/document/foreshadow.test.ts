@@ -8,7 +8,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync 
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { readForeshadows, scanForeshadowTrails, migrateLegacyForeshadows, searchForeshadowTrails } from '../../src/document/foreshadow.js'
+import {
+  readForeshadows,
+  scanForeshadowTrails,
+  migrateLegacyForeshadows,
+  searchForeshadowTrails,
+} from '../../src/document/foreshadow.js'
 
 let root: string
 
@@ -32,7 +37,9 @@ function writeChapter(章号: number, title: string, body: string): void {
 function writeForeshadow(title: string, fm: Record<string, string> = {}, body = ''): void {
   const dir = join(root, '设定', '伏笔')
   mkdirSync(dir, { recursive: true })
-  const fmLines = Object.entries({ 标题: title, ...fm }).map(([k, v]) => `${k}: ${v}`).join('\n')
+  const fmLines = Object.entries({ 标题: title, ...fm })
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
   writeFileSync(join(dir, `${title}.md`), `---\n${fmLines}\n---\n${body}\n`, 'utf-8')
 }
 
@@ -377,7 +384,9 @@ describe('低-5（第十轮）：同标题伏笔 trail 不互相覆盖', () => {
   function writeNamedForeshadow(file: string, fm: Record<string, string>): void {
     const dir = join(root, '设定', '伏笔')
     mkdirSync(dir, { recursive: true })
-    const fmLines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join('\n')
+    const fmLines = Object.entries(fm)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n')
     writeFileSync(join(dir, file), `---\n${fmLines}\n---\n`, 'utf-8')
   }
 
@@ -466,11 +475,17 @@ describe('R65-33: 重复章号 warn', () => {
       writeChapter(1, '开篇', '第一卷第一章：玉佩在雨夜里连响了三下。')
       const vol2 = join(root, '写作', '正文', '第二卷')
       mkdirSync(vol2, { recursive: true })
-      writeFileSync(join(vol2, '0001-重名章.md'), '---\n章号: 1\n标题: 重名章\n---\n第二卷第一章：剑鸣声起。\n', 'utf-8')
+      writeFileSync(
+        join(vol2, '0001-重名章.md'),
+        '---\n章号: 1\n标题: 重名章\n---\n第二卷第一章：剑鸣声起。\n',
+        'utf-8',
+      )
       writeForeshadow('玉佩', { 关联词: '玉佩', 重要性: '中' }, '伏笔正文。')
       const trails = scanForeshadowTrails(root, readForeshadows(root))
       // 覆盖行为保留：足迹按后扫文件（第二卷）计
-      expect(trails.get('玉佩')!.hits.every((h) => h.命中片段.includes('第二卷第一章') || !h.命中片段.includes('玉佩'))).toBe(true)
+      expect(
+        trails.get('玉佩')!.hits.every((h) => h.命中片段.includes('第二卷第一章') || !h.命中片段.includes('玉佩')),
+      ).toBe(true)
       // 可见性：重复章号 warn 已发出（含章号与冲突文件名）
       const msgs = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
       expect(msgs).toContain('重复章号 1')

@@ -85,7 +85,12 @@ const LONG_REQ = { systemPrompt: '', messages: [{ role: 'user' as const, content
 
 /** openai Chat 线：内容 delta + finish_reason + 实测 usage 一 chunk 收尾 */
 function openaiEvents(finishReason: string): unknown[] {
-  return [{ choices: [{ delta: { content: '正文' }, finish_reason: finishReason }], usage: { prompt_tokens: 3, completion_tokens: 2 } }]
+  return [
+    {
+      choices: [{ delta: { content: '正文' }, finish_reason: finishReason }],
+      usage: { prompt_tokens: 3, completion_tokens: 2 },
+    },
+  ]
 }
 
 /** anthropic 线：message_start + text delta + message_delta（含 stop_reason 与 usage） */
@@ -127,7 +132,10 @@ function makeProvider(kind: 'openai' | 'anthropic' | 'responses', events: unknow
     return createAnthropicProvider(CONF, client)
   }
   const client = { responses: { create: fakeSend(events) } } as unknown as OpenAI
-  return createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses', model: 'gpt-5' } as ProviderConf, client)
+  return createOpenAIResponsesProvider(
+    { ...CONF, protocol: 'openai-responses', model: 'gpt-5' } as ProviderConf,
+    client,
+  )
 }
 
 /** 取 done 事件的 stopReason（缺 done 即用例失败） */
@@ -138,28 +146,118 @@ function doneStopReason(evs: GenEvent[]): string {
 }
 
 describe('三线 done.stopReason 逐线判别（含未知值路径）', () => {
-  const CASES: Array<{ kind: 'openai' | 'anthropic' | 'responses'; label: string; events: unknown[]; expected: StopReason; trail: boolean }> = [
+  const CASES: Array<{
+    kind: 'openai' | 'anthropic' | 'responses'
+    label: string
+    events: unknown[]
+    expected: StopReason
+    trail: boolean
+  }> = [
     { kind: 'openai', label: "finish_reason='stop'", events: openaiEvents('stop'), expected: 'stop', trail: false },
-    { kind: 'openai', label: "finish_reason='length' → max_tokens", events: openaiEvents('length'), expected: 'max_tokens', trail: false },
-    { kind: 'openai', label: "finish_reason='tool_calls' → tool_use", events: openaiEvents('tool_calls'), expected: 'tool_use', trail: false },
-    { kind: 'openai', label: "finish_reason='function_call'（遗留值保留）", events: openaiEvents('function_call'), expected: 'function_call', trail: false },
-    { kind: 'openai', label: '非标 finish_reason → unknown', events: openaiEvents('eos'), expected: 'unknown', trail: true },
-    { kind: 'anthropic', label: "stop_reason='end_turn'", events: anthropicEvents('end_turn'), expected: 'end_turn', trail: false },
-    { kind: 'anthropic', label: "stop_reason='max_tokens'", events: anthropicEvents('max_tokens'), expected: 'max_tokens', trail: false },
-    { kind: 'anthropic', label: "stop_reason='tool_use'", events: anthropicEvents('tool_use'), expected: 'tool_use', trail: false },
-    { kind: 'anthropic', label: "stop_reason='stop_sequence'", events: anthropicEvents('stop_sequence'), expected: 'stop_sequence', trail: false },
-    { kind: 'anthropic', label: "stop_reason='pause_turn'", events: anthropicEvents('pause_turn'), expected: 'pause_turn', trail: false },
-    { kind: 'anthropic', label: '非标 stop_reason → unknown', events: anthropicEvents('mystery_stop'), expected: 'unknown', trail: true },
+    {
+      kind: 'openai',
+      label: "finish_reason='length' → max_tokens",
+      events: openaiEvents('length'),
+      expected: 'max_tokens',
+      trail: false,
+    },
+    {
+      kind: 'openai',
+      label: "finish_reason='tool_calls' → tool_use",
+      events: openaiEvents('tool_calls'),
+      expected: 'tool_use',
+      trail: false,
+    },
+    {
+      kind: 'openai',
+      label: "finish_reason='function_call'（遗留值保留）",
+      events: openaiEvents('function_call'),
+      expected: 'function_call',
+      trail: false,
+    },
+    {
+      kind: 'openai',
+      label: '非标 finish_reason → unknown',
+      events: openaiEvents('eos'),
+      expected: 'unknown',
+      trail: true,
+    },
+    {
+      kind: 'anthropic',
+      label: "stop_reason='end_turn'",
+      events: anthropicEvents('end_turn'),
+      expected: 'end_turn',
+      trail: false,
+    },
+    {
+      kind: 'anthropic',
+      label: "stop_reason='max_tokens'",
+      events: anthropicEvents('max_tokens'),
+      expected: 'max_tokens',
+      trail: false,
+    },
+    {
+      kind: 'anthropic',
+      label: "stop_reason='tool_use'",
+      events: anthropicEvents('tool_use'),
+      expected: 'tool_use',
+      trail: false,
+    },
+    {
+      kind: 'anthropic',
+      label: "stop_reason='stop_sequence'",
+      events: anthropicEvents('stop_sequence'),
+      expected: 'stop_sequence',
+      trail: false,
+    },
+    {
+      kind: 'anthropic',
+      label: "stop_reason='pause_turn'",
+      events: anthropicEvents('pause_turn'),
+      expected: 'pause_turn',
+      trail: false,
+    },
+    {
+      kind: 'anthropic',
+      label: '非标 stop_reason → unknown',
+      events: anthropicEvents('mystery_stop'),
+      expected: 'unknown',
+      trail: true,
+    },
     // 本线协议口径：usage 已到但不带 stop_reason = 回合正常结束（显式 missingStopReason，非静默兜底）
-    { kind: 'anthropic', label: 'usage 到但无 stop_reason → end_turn（协议默认，无留痕）', events: anthropicEvents(null), expected: 'end_turn', trail: false },
-    { kind: 'responses', label: 'completed + message 项 → stop', events: responsesCompletedItems(false), expected: 'stop', trail: false },
-    { kind: 'responses', label: 'completed + function_call 项 → tool_use', events: responsesCompletedItems(true), expected: 'tool_use', trail: false },
+    {
+      kind: 'anthropic',
+      label: 'usage 到但无 stop_reason → end_turn（协议默认，无留痕）',
+      events: anthropicEvents(null),
+      expected: 'end_turn',
+      trail: false,
+    },
+    {
+      kind: 'responses',
+      label: 'completed + message 项 → stop',
+      events: responsesCompletedItems(false),
+      expected: 'stop',
+      trail: false,
+    },
+    {
+      kind: 'responses',
+      label: 'completed + function_call 项 → tool_use',
+      events: responsesCompletedItems(true),
+      expected: 'tool_use',
+      trail: false,
+    },
     {
       kind: 'responses',
       label: 'incomplete(max_output_tokens) → max_tokens',
       events: [
         { type: 'response.output_text.delta', delta: '半截正文' },
-        { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' }, usage: { input_tokens: 4, output_tokens: 3 } } },
+        {
+          type: 'response.incomplete',
+          response: {
+            incomplete_details: { reason: 'max_output_tokens' },
+            usage: { input_tokens: 4, output_tokens: 3 },
+          },
+        },
       ],
       expected: 'max_tokens',
       trail: false,

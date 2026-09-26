@@ -57,7 +57,11 @@ describe('W2: 轮数触顶', () => {
   it('连吐 21 个 tool → 第 20 轮后停，补收尾文案', async () => {
     // 21 个 tool 响应（超出 MAX_AGENT_TURNS=20）
     fake.setScript(
-      Array.from({ length: 21 }, (_, i) => ({ type: 'tool' as const, name: 'check_chapter', input: { chapter: i + 1 } })),
+      Array.from({ length: 21 }, (_, i) => ({
+        type: 'tool' as const,
+        name: 'check_chapter',
+        input: { chapter: i + 1 },
+      })),
     )
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
@@ -81,7 +85,11 @@ describe('W2: 轮数触顶', () => {
 
   it('CC-P2-1: 触顶收尾记 turn 20 终态——最后一轮（turn 19）不再被重复收尾', async () => {
     fake.setScript(
-      Array.from({ length: 21 }, (_, i) => ({ type: 'tool' as const, name: 'check_chapter', input: { chapter: i + 1 } })),
+      Array.from({ length: 21 }, (_, i) => ({
+        type: 'tool' as const,
+        name: 'check_chapter',
+        input: { chapter: i + 1 },
+      })),
     )
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
@@ -115,9 +123,7 @@ describe('W2: 轮数触顶', () => {
     // （同跑 check/scale 500 章规模测试等 CPU 峰），deadline 在 chat_tool_pending
     // 事件发出前即到点（run 32742346585，「挂起确已发生」断言红）。放宽到 2s：
     // 工具派发有充足余量，仍 << 60s 确认超时，测试意图（超时落在 await 点上）不变。
-    fake.setScript([
-      { type: 'tool', name: 'rename_chapter', input: { chapter: 1, title: '新标题' } },
-    ])
+    fake.setScript([{ type: 'tool', name: 'rename_chapter', input: { chapter: 1, title: '新标题' } }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
     const ud = setup()

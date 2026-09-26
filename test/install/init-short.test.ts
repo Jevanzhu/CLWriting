@@ -16,8 +16,12 @@ import { readBookConfig } from '../../src/format/yaml.js'
 
 const ORIG_CWD = process.cwd()
 
-beforeEach(() => { process.chdir(ORIG_CWD) })
-afterEach(() => { process.chdir(ORIG_CWD) })
+beforeEach(() => {
+  process.chdir(ORIG_CWD)
+})
+afterEach(() => {
+  process.chdir(ORIG_CWD)
+})
 
 test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 设定/ + 共享文风 + 工作区），不建长程载重', () => {
   const wd = mkdtempTracked(join(tmpdir(), 'init-short-'))

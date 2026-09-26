@@ -86,8 +86,7 @@ if (appBin) {
 // headless Linux（CI/root）下 Chromium 沙箱不可用（无 SUID helper / 无用户命名空间），
 // 会以 "SUID sandbox helper binary… not configured correctly" 直接退出。只在确需时补
 // --no-sandbox：平台为 linux 且（CI 环境或 root）。Windows/macOS 本地不传，保持真沙箱。
-const needNoSandbox =
-  process.platform === 'linux' && (Boolean(process.env['CI']) || process.getuid?.() === 0)
+const needNoSandbox = process.platform === 'linux' && (Boolean(process.env['CI']) || process.getuid?.() === 0)
 // R0911-G-P3-2：打包态直起二进制（CLW_SMOKE_WINDOW_CYCLE 等契约 env 照注）；开发态
 // 维持原 node electron/cli.js 形态（--no-sandbox 仅 dev 直跑面需要，打包态不传）。
 const child = appBin
@@ -104,11 +103,7 @@ const child = appBin
     })
   : spawn(
       process.execPath,
-      [
-        join(root, 'node_modules', 'electron', 'cli.js'),
-        ...(needNoSandbox ? ['--no-sandbox'] : []),
-        '.',
-      ],
+      [join(root, 'node_modules', 'electron', 'cli.js'), ...(needNoSandbox ? ['--no-sandbox'] : []), '.'],
       {
         cwd: root,
         env: {
@@ -203,10 +198,7 @@ child.on('error', (e) => finish(1, `无法启动 Electron：${e.message}`))
 child.on('close', (code, signal) => {
   if (settled) return
   // 进程已退出但未观测到成功标记——按失败收口并带现场。
-  finish(
-    1,
-    `Electron 进程在标记出现前退出（exit=${code ?? 'null'} signal=${signal ?? 'null'}）`,
-  )
+  finish(1, `Electron 进程在标记出现前退出（exit=${code ?? 'null'} signal=${signal ?? 'null'}）`)
 })
 
 // 自身被杀（CI 取消/超时）时兜底清理子进程树，避免孤儿持端口。

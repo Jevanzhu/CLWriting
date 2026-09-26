@@ -17,7 +17,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { detectState } from '../../src/state/state.js'
-import { __setManifestLockTimeoutForTest, MANIFEST_LOCK_TIMEOUT_MS, readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import {
+  __setManifestLockTimeoutForTest,
+  MANIFEST_LOCK_TIMEOUT_MS,
+  readManifest,
+  writeManifest,
+  upsertEntry,
+} from '../../src/document/manifest.js'
 import { appendMovePending, findUnsettled } from '../../src/document/journal.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'

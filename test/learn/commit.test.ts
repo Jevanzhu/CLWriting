@@ -50,7 +50,12 @@ describe('commit 批量落盘周期让出', () => {
   /** 计数桩：记录每次让出（不真让出——本节只锚次数/时机与落盘完整性） */
   function countingYield(): { fn: CommitYield; calls: () => number } {
     let n = 0
-    return { fn: async () => { n++ }, calls: () => n }
+    return {
+      fn: async () => {
+        n++
+      },
+      calls: () => n,
+    }
   }
 
   /** n 条互异样章候选（指纹互异：正文含序号） */
@@ -75,7 +80,12 @@ describe('commit 批量落盘周期让出', () => {
     })
 
     test('粒度边界：99 → 0 次；100 → 0 次（批尾不再让）；101 → 1 次；200 → 1 次', async () => {
-      for (const [n, expectedYields] of [[99, 0], [100, 0], [101, 1], [200, 1]] as const) {
+      for (const [n, expectedYields] of [
+        [99, 0],
+        [100, 0],
+        [101, 1],
+        [200, 1],
+      ] as const) {
         const bookRoot = mkdtempTracked(join(tmpdir(), 'r0911-yield-edge-'))
         const stub = countingYield()
         const out = await commitSamples(bookRoot, samples(n), stub.fn)
@@ -90,7 +100,12 @@ describe('commit 批量落盘周期让出', () => {
       const stub = countingYield()
       const out = await commitQuotes(
         bookRoot,
-        Array.from({ length: 400 }, (_, i) => ({ 场景: '对话', 正文: `金句${i}`, 出处: `《测试》第 ${i + 1} 章`, 章号: i + 1 })),
+        Array.from({ length: 400 }, (_, i) => ({
+          场景: '对话',
+          正文: `金句${i}`,
+          出处: `《测试》第 ${i + 1} 章`,
+          章号: i + 1,
+        })),
         stub.fn,
       )
       expect(stub.calls()).toBe(3)

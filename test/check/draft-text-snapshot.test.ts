@@ -35,7 +35,11 @@ test('runCheckForDocument opts.draftText → chapter/body 取快照（盘上文�
   const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-r63-7-check-'))
   const draftPath = join(bookRoot, '0001-盘上版.md')
   try {
-    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 快照书\nhost: cc\nleads:\n  enabled: []\n', 'utf8')
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 快照书\nhost: cc\nleads:\n  enabled: []\n',
+      'utf8',
+    )
     writeFileSync(draftPath, FM1 + '盘上正文。', 'utf8')
 
     // 不传快照（既有口径回归）：读盘上文件

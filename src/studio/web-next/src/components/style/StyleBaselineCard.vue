@@ -186,7 +186,9 @@ async function saveRules(): Promise<void> {
         <span class="a-chip">单句 ≤{{ rules.maxSentenceLen ?? '—' }} 字</span>
         <span class="a-chip">形容词堆叠 ≤{{ rules.maxAdjStack ?? '—' }}</span>
         <span class="a-chip">
-          对话标签 ≤{{ rules.maxDialogueTagRatio !== undefined ? Math.round(rules.maxDialogueTagRatio * 100) + '%' : '—' }}
+          对话标签 ≤{{
+            rules.maxDialogueTagRatio !== undefined ? Math.round(rules.maxDialogueTagRatio * 100) + '%' : '—'
+          }}
         </span>
         <span class="a-chip">排比连续 ≤{{ rules.maxParallelStreak ?? '—' }}</span>
         <span class="a-chip">结尾总结体 {{ rules.avoidSummaryEnding ? '避免' : '不检' }}</span>
@@ -328,5 +330,4 @@ async function saveRules(): Promise<void> {
 .rules-textarea:focus {
   border-color: var(--interactive-accent);
 }
-
 </style>

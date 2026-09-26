@@ -22,7 +22,14 @@ import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
-import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
+import {
+  listVersionEntries,
+  readVersion,
+  readVersionRaw,
+  pruneVersions,
+  DEFAULT_VERSION_POLICY,
+  readGlobalSnapshotPolicy,
+} from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // docId 白名单校验共享（不内联手写）
 import { isUtf8Bytes } from '../../../document/service-guards.js' // 字节档判定共享（防线同源口径）；：转发桥删除，直引正本
@@ -41,10 +48,10 @@ interface SnapshotCtx extends TaskGateInjected {
   /** APP 级数据目录（Electron userData / CLI 约定路径）：global.json 存全局保留策略 */
   userDataPath: string | null
   /** 收尾：version-stats 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   versionStatsTtlMs?: number | null
   /** 收尾：restore 读体前让出桩——组装根 RouteOverrides 注入（undefined =
- * 无让出，生产口径逐位不变；测试在让出窗口内确定性改盘复现竞态） */
+   * 无让出，生产口径逐位不变；测试在让出窗口内确定性改盘复现竞态） */
   snapshotsRestoreYield?: (() => Promise<void>) | null
 }
 
@@ -58,7 +65,9 @@ async function resolveDoc(
   name: string | undefined,
   docId: string,
   userDataPath: string | null = null,
-): Promise<{ bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string }> {
+): Promise<
+  { bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string }
+> {
   const r = resolveBook(workDir, name)
   if ('error' in r) return r
   const bookRoot = r.bookRoot
@@ -78,9 +87,7 @@ async function resolveDoc(
  * （范式，先例 analysis.ts 读循环）——此前 MISS 时递归 lstat + 逐快照
  *  .md 同步整读判 pinned，大书数千快照单 tick 冻结事件循环（SSE 心跳/保存同停）。
  *  统计口径与同步版逐位一致。 */
-async function scanVersionsDirAsync(
-  dir: string,
-): Promise<{ count: number; bytes: number; pinnedCount: number }> {
+async function scanVersionsDirAsync(dir: string): Promise<{ count: number; bytes: number; pinnedCount: number }> {
   let count = 0
   let bytes = 0
   let pinnedCount = 0
@@ -457,9 +464,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         replyError(res, 404, 'NOT_FOUND', '版本不存在')
         return false
       }
-      const content: string | Buffer = isUtf8Bytes(snap.content)
-        ? snap.content.toString('utf-8')
-        : snap.content
+      const content: string | Buffer = isUtf8Bytes(snap.content) ? snap.content.toString('utf-8') : snap.content
 
       // 让出注入口仍在读体之前（起随前置门留在 gate 内）：测试据「读体
       // 窗口」改盘/[改名]确定性复现竞态，窗口位置不变量见 SnapshotCtx.snapshotsRestoreYield
@@ -470,27 +475,26 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     },
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
-      const expectedRevision =
-        typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
+      const expectedRevision = typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
       if (expectedRevision === null) throw new Error('expectedRevision 必填')
       return { expectedRevision }
     },
     handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
-    const { docId, r, snap, content } = gate
-    // 二轮-：readJson 窗口后写前重验书
-    // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
-    // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
-    // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
-    const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
+      const { docId, r, snap, content } = gate
+      // 二轮-：readJson 窗口后写前重验书
+      // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
+      // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
+      // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
 
-    const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
-      content,
-      expectedRevision: input.expectedRevision,
-      operationId: ulid(),
-      origin: 'restore',
-      reason: `恢复到 ${new Date(snap.meta.time).toLocaleString('zh-CN')} 的版本`,
-    })
+      const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
+        content,
+        expectedRevision: input.expectedRevision,
+        operationId: ulid(),
+        origin: 'restore',
+        reason: `恢复到 ${new Date(snap.meta.time).toLocaleString('zh-CN')} 的版本`,
+      })
       if (!outcome.ok) {
         const status = outcome.code === 'REVISION_CONFLICT' ? 409 : 400
         // 收编 replyError 单一出口（去掉 ok:false 冗余位）

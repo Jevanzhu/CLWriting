@@ -39,7 +39,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-r0912-4-draftdrain-',
     dirs: ['写作/正文/第一卷', '工作区'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 草稿竞态测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 草稿竞态测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
 })
 

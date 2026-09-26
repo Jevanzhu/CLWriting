@@ -31,23 +31,20 @@ const M = vi.hoisted(() => ({
   errors: [] as unknown[][],
 }))
 
-vi.mock(
-  'node:fs',
-  async (importOriginal) => {
-    const actual = await importOriginal<typeof import('node:fs')>()
-    return {
-      ...actual,
-      readFileSync: (path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
-        if (F.failRead && String(path).endsWith('workdir.json')) {
-          throw Object.assign(new Error(`EACCES: permission denied, open '${String(path)}'（假件）`), {
-            code: 'EACCES',
-          })
-        }
-        return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest)
-      },
-    }
-  },
-)
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    readFileSync: (path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+      if (F.failRead && String(path).endsWith('workdir.json')) {
+        throw Object.assign(new Error(`EACCES: permission denied, open '${String(path)}'（假件）`), {
+          code: 'EACCES',
+        })
+      }
+      return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest)
+    },
+  }
+})
 vi.mock('electron', () => ({
   app: { getPath: (): string => M.userData },
   dialog: {},

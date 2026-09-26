@@ -46,14 +46,26 @@ const yellowCap = computed(() => capView(check.yellowItems, RENDER_CAP))
 // 与 ReviewPanel 结构相似但数据源不同，按评审口径分文件各自 v-for 化、不跨文件抽组件。
 const checkGroups = computed(() => [
   {
-    key: 'red', label: '红项', icon: markRaw(AlertCircle), tone: 'red',
-    count: check.redItems.length, view: redCap.value.view,
-    keys: redKeys.value, keyPrefix: 'r', omitted: redCap.value.omitted,
+    key: 'red',
+    label: '红项',
+    icon: markRaw(AlertCircle),
+    tone: 'red',
+    count: check.redItems.length,
+    view: redCap.value.view,
+    keys: redKeys.value,
+    keyPrefix: 'r',
+    omitted: redCap.value.omitted,
   },
   {
-    key: 'yellow', label: '黄项', icon: markRaw(AlertTriangle), tone: 'yellow',
-    count: check.yellowItems.length, view: yellowCap.value.view,
-    keys: yellowKeys.value, keyPrefix: 'y', omitted: yellowCap.value.omitted,
+    key: 'yellow',
+    label: '黄项',
+    icon: markRaw(AlertTriangle),
+    tone: 'yellow',
+    count: check.yellowItems.length,
+    view: yellowCap.value.view,
+    keys: yellowKeys.value,
+    keyPrefix: 'y',
+    omitted: yellowCap.value.omitted,
   },
 ])
 
@@ -93,19 +105,13 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         <ShieldCheck :size="14" />
         <span class="check-title">本地校对</span>
       </div>
-      <button
-        class="check-run-btn"
-        :disabled="!isCheckable || check.loading"
-        @click="runCheck"
-      >
+      <button class="check-run-btn" :disabled="!isCheckable || check.loading" @click="runCheck">
         <RefreshCw :size="13" :class="{ spin: check.loading }" />
         <span>{{ check.loading ? '检查中…' : '校对' }}</span>
       </button>
     </div>
 
-    <div v-if="!isCheckable" class="check-hint">
-      校对仅适用于正文 / 草稿文档。
-    </div>
+    <div v-if="!isCheckable" class="check-hint">校对仅适用于正文 / 草稿文档。</div>
 
     <div v-else-if="check.error" class="check-error">
       <AlertCircle :size="14" />
@@ -113,10 +119,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
     </div>
 
     <template v-else-if="check.report">
-      <div
-        v-if="check.redItems.length === 0 && check.yellowItems.length === 0"
-        class="check-clean"
-      >
+      <div v-if="check.redItems.length === 0 && check.yellowItems.length === 0" class="check-clean">
         <CircleCheck :size="16" />
         <span>未发现问题</span>
       </div>
@@ -154,9 +157,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
       <div v-if="check.flagError" class="check-hint fp-error">{{ check.flagError }}</div>
     </template>
 
-    <div v-else class="check-hint">
-      点击「校对」检查当前文档（禁词 / 复读 / 句式 / 字数 / 设定连贯…）。
-    </div>
+    <div v-else class="check-hint">点击「校对」检查当前文档（禁词 / 复读 / 句式 / 字数 / 设定连贯…）。</div>
   </section>
 </template>
 

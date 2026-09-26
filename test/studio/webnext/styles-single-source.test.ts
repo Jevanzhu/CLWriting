@@ -27,7 +27,13 @@ function collectFiles(dir: string = SRC): string[] {
       out.push(...collectFiles(full))
       continue
     }
-    if (/\.(vue|css)$/.test(name)) out.push(full.slice(SRC.length + 1).split('\\').join('/'))
+    if (/\.(vue|css)$/.test(name))
+      out.push(
+        full
+          .slice(SRC.length + 1)
+          .split('\\')
+          .join('/'),
+      )
     else if (name === 'main.ts') out.push(name)
   }
   return out

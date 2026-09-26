@@ -26,52 +26,54 @@ function electronBinary(): string {
   return require('electron') as unknown as string
 }
 
-const canRunRealElectron =
-  process.platform === 'win32' || process.platform === 'darwin' || Boolean(process.env.DISPLAY)
+const canRunRealElectron = process.platform === 'win32' || process.platform === 'darwin' || Boolean(process.env.DISPLAY)
 
 describe.skipIf(!canRunRealElectron)('R44-2 实机: close 拦截 + 异步 flush 落盘（真引擎零 stub）', () => {
-  test('beforeunload 窗口外的异步 fetch 在拦截 close 下送达，destroy 前服务端收到 PUT', { timeout: 60_000 }, async () => {
-    // 本地 HTTP：页面 + PUT /save 收集面（同源 fetch，无 CORS 变量）
-    const puts: string[] = []
-    const server: Server = await new Promise((resolve) => {
-      const s = createServer((req, res) => {
-        if (req.method === 'GET' && req.url === '/page') {
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-          // 页面模拟 Book 页钩子（生产形态见 stores/doc.ts flushBeforeClose +
-          // pages/Book.vue 注册）：异步 fetch，不在 beforeunload 里发任何请求
-          res.end(`<!doctype html><html><body><script>
+  test(
+    'beforeunload 窗口外的异步 fetch 在拦截 close 下送达，destroy 前服务端收到 PUT',
+    { timeout: 60_000 },
+    async () => {
+      // 本地 HTTP：页面 + PUT /save 收集面（同源 fetch，无 CORS 变量）
+      const puts: string[] = []
+      const server: Server = await new Promise((resolve) => {
+        const s = createServer((req, res) => {
+          if (req.method === 'GET' && req.url === '/page') {
+            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+            // 页面模拟 Book 页钩子（生产形态见 stores/doc.ts flushBeforeClose +
+            // pages/Book.vue 注册）：异步 fetch，不在 beforeunload 里发任何请求
+            res.end(`<!doctype html><html><body><script>
             window.__DIRTY__ = 'DIRTY-CONTENT-r44-marker'
             window.__clwFlushBeforeClose = async () => {
               await fetch('/save', { method: 'PUT', body: window.__DIRTY__ })
               return { failed: [], conflict: [] }
             }
           </script></body></html>`)
-          return
-        }
-        if (req.method === 'PUT' && req.url === '/save') {
-          const chunks: Buffer[] = []
-          req.on('data', (c) => chunks.push(c as Buffer))
-          req.on('end', () => {
-            puts.push(Buffer.concat(chunks).toString('utf8'))
-            res.writeHead(204)
-            res.end()
-          })
-          return
-        }
-        res.writeHead(404)
-        res.end()
+            return
+          }
+          if (req.method === 'PUT' && req.url === '/save') {
+            const chunks: Buffer[] = []
+            req.on('data', (c) => chunks.push(c as Buffer))
+            req.on('end', () => {
+              puts.push(Buffer.concat(chunks).toString('utf8'))
+              res.writeHead(204)
+              res.end()
+            })
+            return
+          }
+          res.writeHead(404)
+          res.end()
+        })
+        listenSafe(s).then(() => resolve(s))
       })
-      listenSafe(s).then(() => resolve(s))
-    })
-    const port = (server.address() as { port: number }).port
+      const port = (server.address() as { port: number }).port
 
-    // fixture：复刻 src/desktop/main.ts 的 close 拦截链（preventDefault →
-    // executeJavaScript flush → destroy），驱动后自行退出
-    const dir = await mkdtemp(join(tmpdir(), 'r44-close-flush-'))
-    const fixture = join(dir, 'main.js')
-    await writeFile(
-      fixture,
-      `const { app, BrowserWindow } = require('electron')
+      // fixture：复刻 src/desktop/main.ts 的 close 拦截链（preventDefault →
+      // executeJavaScript flush → destroy），驱动后自行退出
+      const dir = await mkdtemp(join(tmpdir(), 'r44-close-flush-'))
+      const fixture = join(dir, 'main.js')
+      await writeFile(
+        fixture,
+        `const { app, BrowserWindow } = require('electron')
 const base = process.argv[process.argv.length - 1]
 app.whenReady().then(() => {
   const win = new BrowserWindow({ show: false })
@@ -100,30 +102,31 @@ app.whenReady().then(() => {
   win.loadURL(base + '/page').then(() => setTimeout(() => win.close(), 300))
 })
 `,
-      'utf8',
-    )
+        'utf8',
+      )
 
-    let child: ChildProcess | undefined
-    try {
-      child = spawn(electronBinary(), [fixture, `http://127.0.0.1:${port}`], {
-        stdio: 'ignore',
-        windowsHide: true,
-      })
-      const exitCode = await new Promise<number | null>((resolve) => {
-        child!.once('exit', (code) => resolve(code))
-        // 兜底：30s 未退（fixture 挂死形态）杀掉按失败处理
-        setTimeout(() => {
-          if (child?.exitCode === null) child?.kill()
-          resolve(-1)
-        }, 30_000)
-      })
-      expect(exitCode, 'fixture 应正常退出（exit 0）').toBe(0)
-      // 修复锚点：拦截窗口内异步 fetch 真实送达（修复前的同步 XHR 形态此处为空）
-      expect(puts).toEqual(['DIRTY-CONTENT-r44-marker'])
-    } finally {
-      child?.kill()
-      await rm(dir, { recursive: true, force: true })
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
-  })
+      let child: ChildProcess | undefined
+      try {
+        child = spawn(electronBinary(), [fixture, `http://127.0.0.1:${port}`], {
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+        const exitCode = await new Promise<number | null>((resolve) => {
+          child!.once('exit', (code) => resolve(code))
+          // 兜底：30s 未退（fixture 挂死形态）杀掉按失败处理
+          setTimeout(() => {
+            if (child?.exitCode === null) child?.kill()
+            resolve(-1)
+          }, 30_000)
+        })
+        expect(exitCode, 'fixture 应正常退出（exit 0）').toBe(0)
+        // 修复锚点：拦截窗口内异步 fetch 真实送达（修复前的同步 XHR 形态此处为空）
+        expect(puts).toEqual(['DIRTY-CONTENT-r44-marker'])
+      } finally {
+        child?.kill()
+        await rm(dir, { recursive: true, force: true })
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
+    },
+  )
 })

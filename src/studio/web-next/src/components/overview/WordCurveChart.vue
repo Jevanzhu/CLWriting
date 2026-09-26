@@ -21,7 +21,7 @@ const gradId = `word-area-grad-${useId()}`
 const CHART_W = 880
 const CHART_H = 180
 const PAD_BOTTOM = 24 // 章号标签
-const PAD_LEFT = 38   // Y 轴刻度标签
+const PAD_LEFT = 38 // Y 轴刻度标签
 const DRAW_W = CHART_W - PAD_LEFT
 /** 字数曲线点（长短篇统一：章号 → no）。 */
 const curve = computed<{ no: number; 标题: string; 字数: number }[]>(() => {
@@ -96,14 +96,16 @@ const wordLineD = computed(() => {
     >
       <defs>
         <linearGradient :id="gradId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" style="stop-color: var(--interactive-accent); stop-opacity: 0.2;" />
-          <stop offset="100%" style="stop-color: var(--interactive-accent); stop-opacity: 0.01;" />
+          <stop offset="0%" style="stop-color: var(--interactive-accent); stop-opacity: 0.2" />
+          <stop offset="100%" style="stop-color: var(--interactive-accent); stop-opacity: 0.01" />
         </linearGradient>
       </defs>
       <!-- Y 轴实线网格 -->
       <g v-for="(t, idx) in Y_TICKS" :key="idx">
         <line :x1="PAD_LEFT" :x2="CHART_W" :y1="barY(maxWords * t)" :y2="barY(maxWords * t)" class="grid-line" />
-        <text :x="PAD_LEFT - 8" :y="barY(maxWords * t) + 3" class="grid-label" text-anchor="end">{{ fmtWords(maxWords * t) }}</text>
+        <text :x="PAD_LEFT - 8" :y="barY(maxWords * t) + 3" class="grid-label" text-anchor="end">
+          {{ fmtWords(maxWords * t) }}
+        </text>
       </g>
       <!-- 基线 -->
       <line :x1="PAD_LEFT" :x2="CHART_W" :y1="CHART_H - PAD_BOTTOM" :y2="CHART_H - PAD_BOTTOM" class="axis-baseline" />
@@ -117,20 +119,22 @@ const wordLineD = computed(() => {
       <!-- 端点（内存核查 ：按 tickStep 降采样——2000 章全量
            circle+title ≈4000 节点只靠视觉裁剪不减 DOM；现仅每隔 step 章画点，
            与 X 轴标签同口径，title 悬浮语义保留在画出的点上；折线路径不动） -->
-      <template v-for="(p, i) in curve" :key="'dot'+p.no">
+      <template v-for="(p, i) in curve" :key="'dot' + p.no">
         <circle v-if="i % tickStep === 0" :cx="ptX(i, curve.length)" :cy="barY(p.字数)" r="2.5" class="word-dot">
           <title>第{{ p.no }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
         </circle>
       </template>
       <!-- X 轴编号（按 tickStep 降采样，长篇也保留横轴参照）-->
-      <template v-for="(p, i) in curve" :key="'wl'+p.no">
+      <template v-for="(p, i) in curve" :key="'wl' + p.no">
         <text
           v-if="i % tickStep === 0"
           :x="ptX(i, curve.length)"
           :y="CHART_H - 8"
           class="axis-label-x"
           text-anchor="middle"
-        >{{ p.no }}</text>
+        >
+          {{ p.no }}
+        </text>
       </template>
     </svg>
   </section>
@@ -141,13 +145,48 @@ const wordLineD = computed(() => {
 
 /* ══ 字数曲线 SVG（面积图）══ */
 /* 0918修复批（F004）：删 .empty 死规则—— 删内层空态分支后模板零命中 */
-.chart-svg { width: 100%; height: auto; display: block; }
-.grid-line { stroke: var(--background-modifier-border); stroke-width: 1; }
-.axis-baseline { stroke: var(--background-modifier-border); stroke-width: 1; }
-.grid-label { fill: var(--text-faint); font-size: var(--font-size-xxs); font-variant-numeric: tabular-nums; }
-.axis-label-x { fill: var(--text-faint); font-size: 9px; }
-.word-line { fill: none; stroke: var(--interactive-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.word-dot { fill: var(--interactive-accent); stroke: var(--background-primary); stroke-width: 1.5; }
-.avg-line { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray:  4 3; opacity: 0.6; }
-.avg-text { fill: var(--text-faint); font-size: var(--font-size-xxs); }
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.grid-line {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.axis-baseline {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.grid-label {
+  fill: var(--text-faint);
+  font-size: var(--font-size-xxs);
+  font-variant-numeric: tabular-nums;
+}
+.axis-label-x {
+  fill: var(--text-faint);
+  font-size: 9px;
+}
+.word-line {
+  fill: none;
+  stroke: var(--interactive-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.word-dot {
+  fill: var(--interactive-accent);
+  stroke: var(--background-primary);
+  stroke-width: 1.5;
+}
+.avg-line {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+.avg-text {
+  fill: var(--text-faint);
+  font-size: var(--font-size-xxs);
+}
 </style>

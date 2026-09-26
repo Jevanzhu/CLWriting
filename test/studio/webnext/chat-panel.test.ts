@@ -78,10 +78,7 @@ describe('ChatPanel: 发送交互', () => {
     const textarea = w.find('.chat-input')
     await textarea.setValue('你好')
     await textarea.trigger('keydown', { key: 'Enter' })
-    expect(mocks.sendChat).toHaveBeenCalledWith(
-      'test-book',
-      expect.objectContaining({ message: '你好' }),
-    )
+    expect(mocks.sendChat).toHaveBeenCalledWith('test-book', expect.objectContaining({ message: '你好' }))
   })
 
   it('Shift+Enter → 不调 sendChat（换行）', async () => {
@@ -214,9 +211,7 @@ describe('ChatPanel: 变体切换器（G1）', () => {
   it('仅单变体组（无兄弟分支）→ 不渲染切换器', async () => {
     const chat = useChatStore()
     seedBranched(chat, 2)
-    chat.branches = [
-      { branchId: 'b1', messageCount: 1, rootSeq: 2, lastSeq: 2, isDefault: true, parentSeq: 1 },
-    ]
+    chat.branches = [{ branchId: 'b1', messageCount: 1, rootSeq: 2, lastSeq: 2, isDefault: true, parentSeq: 1 }]
     const w = mountPanel()
     await nextTick()
     expect(w.find('.chat-variant').exists()).toBe(false)
@@ -378,7 +373,9 @@ describe('ChatMessages: 工具确认卡展示参数', () => {
       role: 'assistant',
       content: '',
       done: true,
-      tools: [{ callId: 'c1', name: 'rename_chapter', input: { chapter: 12, newTitle: '雪落无声' }, status: 'pending' }],
+      tools: [
+        { callId: 'c1', name: 'rename_chapter', input: { chapter: 12, newTitle: '雪落无声' }, status: 'pending' },
+      ],
     })
     const w = mountPanel()
     await nextTick()

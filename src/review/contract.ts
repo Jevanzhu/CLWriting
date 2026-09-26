@@ -269,7 +269,15 @@ export function selectReviewTier(input: {
       }
     }
     if (input.capabilities.parallel_subagents) {
-      return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+      return {
+        ok: true,
+        requested_tier: 'full',
+        tier: 'full',
+        calls: fullCalls,
+        fallback: '无',
+        lenses_run: lensesRun,
+        ledger_check: '已跑',
+      }
     }
     if (input.capabilities.multiple_calls) {
       return {
@@ -288,12 +296,21 @@ export function selectReviewTier(input: {
       requested_tier: 'full',
       calls: fullCalls,
       fallback: '风险章满审跑不了',
-      reason: '高风险章（机检有红项）禁止降级合审，但当前宿主不支持多次独立调用；请先修复红项（或跑全自动写章自愈）再审。',
+      reason:
+        '高风险章（机检有红项）禁止降级合审，但当前宿主不支持多次独立调用；请先修复红项（或跑全自动写章自愈）再审。',
     }
   }
 
   if (input.capabilities.parallel_subagents && remaining >= fullCalls) {
-    return { ok: true, requested_tier: 'full', tier: 'full', calls: fullCalls, fallback: '无', lenses_run: lensesRun, ledger_check: '已跑' }
+    return {
+      ok: true,
+      requested_tier: 'full',
+      tier: 'full',
+      calls: fullCalls,
+      fallback: '无',
+      lenses_run: lensesRun,
+      ledger_check: '已跑',
+    }
   }
 
   if (!input.capabilities.parallel_subagents && input.capabilities.multiple_calls && remaining >= fullCalls) {

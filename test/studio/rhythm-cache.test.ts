@@ -30,7 +30,11 @@ function makeLongBook(): string {
   roots.push(root)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 节奏缓存书\n  genre: 玄幻\nhost: cc\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 节奏缓存书\n  genre: 玄幻\nhost: cc\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '写作', '正文', '0001-开篇.md'),
     '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一二三\n',
@@ -92,7 +96,11 @@ describe('R44-8 rhythm 缓存壳', () => {
     expect(before.kind).toBe('long')
     await sleep(5)
     // book.yaml 是单文件内容写（目录 mtime 不变）——必须由文件 size:mtime 探出
-    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 节奏缓存书\n  genre: 玄幻\nhost: cc\n', 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      'spec_version: 1\nkind: short\nbook:\n  title: 节奏缓存书\n  genre: 玄幻\nhost: cc\n',
+      'utf-8',
+    )
     const after = getRhythmCached(root, 60_000) as { kind: string }
     expect(rhythmCache.stats().misses).toBe(2) // book.yaml stat 变 → 重扫
     expect(after.kind).toBe('short')
@@ -116,7 +124,11 @@ describe('R44-8 rhythm 缓存壳', () => {
 describe('P3-2 rhythm async 孪生（双轨）', () => {
   it('async 主路 MISS 计数入同壳，结果与同步版逐位一致；同步版命中 async 已算结果', async () => {
     const root = makeLongBook()
-    const a = (await getRhythmCachedAsync(root, 60_000)) as { kind: string; written: { count: number }; planned: { count: number } }
+    const a = (await getRhythmCachedAsync(root, 60_000)) as {
+      kind: string
+      written: { count: number }
+      planned: { count: number }
+    }
     expect(rhythmCache.stats().misses).toBe(1)
     expect(a.kind).toBe('long')
     expect(a.written.count).toBe(2)

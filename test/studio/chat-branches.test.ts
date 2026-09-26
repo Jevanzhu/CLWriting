@@ -33,7 +33,10 @@ let bareBaseUrl = ''
 function makeBook(dir: string, name: string): void {
   const bookRoot = join(dir, name)
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`)
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+  )
   const jsonl = join(dir, '.clwriting', 'books.jsonl')
   writeFileSync(jsonl, JSON.stringify({ name, path: name, kind: 'long' }) + '\n', { flag: 'a' })
 }
@@ -46,8 +49,14 @@ function presetBranchBook(): void {
     store.appendEvents(sid, [
       userMessageEvent('第 3 章写得如何？'), // seq1（user 无分支字段）
       assistantMessageEvent('初版评价：节奏偏慢。', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b1' }), // seq2
-      assistantMessageEvent('同组第二次：钩子偏弱。', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b1' }), // seq3
-      assistantMessageEvent('新组回答：整体不错，结尾稍急。', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b2' }), // seq4
+      assistantMessageEvent('同组第二次：钩子偏弱。', undefined, undefined, undefined, {
+        parentSeq: 1,
+        branchId: 'b1',
+      }), // seq3
+      assistantMessageEvent('新组回答：整体不错，结尾稍急。', undefined, undefined, undefined, {
+        parentSeq: 1,
+        branchId: 'b2',
+      }), // seq4
     ])
   } finally {
     store.close()
@@ -61,7 +70,8 @@ function presetLinearBook(): void {
     const sid = store.createSession(LINEAR_BOOK, { book: LINEAR_BOOK })
     store.appendEvents(sid, [
       userMessageEvent('帮我检查全书'), // seq1
-      assistantMessageEvent([ // seq2
+      assistantMessageEvent([
+        // seq2
         { type: 'text', text: '我查两项。' },
         { type: 'tool_use', id: 'tu-1', name: 'check_outline', input: {} },
         { type: 'tool_use', id: 'tu-2', name: 'check_rhythm', input: {} },

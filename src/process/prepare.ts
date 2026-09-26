@@ -68,7 +68,11 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
   let volDirs: string[]
   try {
     volDirs = readdirSync(bodyRoot).filter((n) => {
-      try { return statSync(join(bodyRoot, n)).isDirectory() } catch { return false }
+      try {
+        return statSync(join(bodyRoot, n)).isDirectory()
+      } catch {
+        return false
+      }
     })
   } catch {
     return mergedIntoMap(bookRoot).get(chapterNo) ?? null
@@ -170,12 +174,7 @@ export function prepare(
   // 编排层：各段组装 → 预算裁剪 → 序列化（子函数见下）
   // 低级项：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）——
   // 备料快照的「已写到第 N 章」与近况复述/判态同口径
-  const snapshot = assembleStatus(
-    db,
-    config,
-    config.book.volume_size ?? 50,
-    finalizedChapterSetOfBook(bookRoot),
-  )
+  const snapshot = assembleStatus(db, config, config.book.volume_size ?? 50, finalizedChapterSetOfBook(bookRoot))
   const scenes = Array.isArray(sampleScene) ? sampleScene : [sampleScene]
 
   const sections: MaterialSection[] = [
@@ -183,7 +182,14 @@ export function prepare(
     ...buildLedgerSection(db, chapterLeadIds),
     ...buildStyleSections(bookRoot, config, scenes),
     ...buildEndingsSections(db, bookRoot, snapshot),
-    ...buildOutlookSections(bookRoot, snapshot, chapterLeadIds, ragRecallText, config.book.volume_size ?? 50, writingChapter),
+    ...buildOutlookSections(
+      bookRoot,
+      snapshot,
+      chapterLeadIds,
+      ragRecallText,
+      config.book.volume_size ?? 50,
+      writingChapter,
+    ),
   ]
 
   const trimLog: string[] = []
@@ -285,11 +291,7 @@ function buildEndingsSections(
 }
 
 /** #3 文风（刚需）+ 弹性#2 文风样章 + 弹性#2b 伏笔提醒 */
-function buildStyleSections(
-  bookRoot: string,
-  config: BookConfig,
-  scenes: string[],
-): MaterialSection[] {
+function buildStyleSections(bookRoot: string, config: BookConfig, scenes: string[]): MaterialSection[] {
   const sections: MaterialSection[] = []
 
   // 文风（预算分配）：条目库存在 → 禁词/手法/反例便宜段必带，铁律纯配置不注入；
@@ -372,11 +374,13 @@ function buildStyleSections(
 
 /** #1 近况（刚需——AI 必须知道写到哪里了） */
 function buildStatusSection(snapshot: ReturnType<typeof assembleStatus>): MaterialSection[] {
-  return [{
-    title: '近况',
-    content: formatStatus(snapshot),
-    essential: true,
-  }]
+  return [
+    {
+      title: '近况',
+      content: formatStatus(snapshot),
+      essential: true,
+    },
+  ]
 }
 
 /** #2 本章账本推进条目（刚需——#12 第 2 节#2 源头限流：只取本章涉及的） */
@@ -391,11 +395,13 @@ function buildLedgerSection(db: DatabaseSync, chapterLeadIds: string[]): Materia
       parts.push(`  第${h.章号}章 ${h.动词}：${h.证据}`)
     }
   }
-  return [{
-    title: '本章推进的账本',
-    content: parts.join('\n'),
-    essential: true,
-  }]
+  return [
+    {
+      title: '本章推进的账本',
+      content: parts.join('\n'),
+      essential: true,
+    },
+  ]
 }
 
 /** 弹性#3 远期卷摘要 + 弹性#4 非本章预警 + #8 RAG 召回（flexibleRank 3/4/5） */
@@ -525,11 +531,7 @@ function applyBudgetTrim(
 }
 
 /** 合并文本 + 头部留痕 */
-function serializeSections(
-  sections: MaterialSection[],
-  trimmed: boolean,
-  trimLog: string[],
-): string {
+function serializeSections(sections: MaterialSection[], trimmed: boolean, trimLog: string[]): string {
   const lines: string[] = []
   if (trimmed) {
     lines.push(`> ⚠ 因预算裁剪：${trimLog.join('、')}。可运行 read 补充。`)

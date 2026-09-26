@@ -38,8 +38,14 @@ function makeBook(): string {
 
 function meta(章号: number, 标题: string, extra?: Partial<ChapterMeta>): ChapterMeta {
   return {
-    章号, 标题, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
-    _path: '', _wordCount: 10, ...extra,
+    章号,
+    标题,
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 10,
+    ...extra,
   }
 }
 

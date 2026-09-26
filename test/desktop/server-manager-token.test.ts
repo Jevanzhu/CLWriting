@@ -8,13 +8,7 @@
 import { describe, it, expect, afterAll, vi } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  mkHarness,
-  mkUserData,
-  envToken,
-  UUID_RE,
-  cleanupServerManagerTmpDirs,
-} from './server-manager-fixtures.js'
+import { mkHarness, mkUserData, envToken, UUID_RE, cleanupServerManagerTmpDirs } from './server-manager-fixtures.js'
 
 describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
   it('首启生成 + 原子持久化 studio-token.json；跨 manager（跨 main 重启）token 不变', async () => {

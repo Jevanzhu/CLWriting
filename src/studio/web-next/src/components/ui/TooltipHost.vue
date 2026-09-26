@@ -5,7 +5,12 @@
 // 容器内被裁切的问题。方向 + 边缘检测自动避让视口边界。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 
-interface TipState { text: string; x: number; y: number; dir: string }
+interface TipState {
+  text: string
+  x: number
+  y: number
+  dir: string
+}
 
 /** tooltip 估宽按码位分类累加——全角（CJK 区段 >0x2e80）每字约
  *  13px、其它（ASCII/半角）约 7px，另加 padding 16px（font-size-s≈12px 口径不变）。
@@ -127,12 +132,9 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="tip"
-      class="tip-host"
-      :class="tip.dir"
-      :style="{ left: tip.x + 'px', top: tip.y + 'px' }"
-    >{{ tip.text }}</div>
+    <div v-if="tip" class="tip-host" :class="tip.dir" :style="{ left: tip.x + 'px', top: tip.y + 'px' }">
+      {{ tip.text }}
+    </div>
   </Teleport>
 </template>
 

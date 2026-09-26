@@ -22,10 +22,7 @@ import { test, expect } from 'vitest'
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  afterFinalizeGenerateSummary,
-  afterFinalizeGenerateSummaryBatch,
-} from '../../src/process/summary.js'
+import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../src/process/summary.js'
 // R0916-7-P3-3：后台任务 ctrl 登记原语迁 process/bg-task.ts（原 summary.js，无兼容层）
 import { runRegisteredBgTask } from '../../src/process/bg-task.js'
 import { ccDriver } from '../../src/driver/cc.js'
@@ -67,8 +64,12 @@ function makeRecordingDriver(): {
     emit(_s: Session, _ev: DriverEvent): void {},
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(session, ctrl, owner) {
       registered.push({ session, ctrl, owner })
     },
@@ -107,8 +108,12 @@ test('R0912-1: 真实 ccDriver——interrupt(session)（/interrupt 同路径）
     emit(_s: Session, _ev: DriverEvent): void {},
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl: (s, c, o) => ccDriver.registerCtrl?.(s, c, o),
     unregisterCtrl: (s, c) => {
       unregistered.push(c)
@@ -189,8 +194,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }

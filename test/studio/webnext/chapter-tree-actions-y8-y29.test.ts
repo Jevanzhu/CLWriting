@@ -28,7 +28,10 @@ const treeMock = {
   load: vi.fn(async () => {}),
   updateWordCount: vi.fn(),
 }
-interface DocEntryLike { path: string; dirty: boolean }
+interface DocEntryLike {
+  path: string
+  dirty: boolean
+}
 const docMock = {
   get: vi.fn((_id: string): DocEntryLike | undefined => undefined),
   open: vi.fn(),
@@ -68,7 +71,9 @@ beforeEach(() => {
 })
 
 function setup(openDoc?: { path: string }): ReturnType<typeof useChapterTreeActions> {
-  const e = openDoc ? ({ path: openDoc.path, dirty: false } as { path: string; dirty: boolean } | undefined) : (undefined as unknown as { path: string; dirty: boolean } | undefined)
+  const e = openDoc
+    ? ({ path: openDoc.path, dirty: false } as { path: string; dirty: boolean } | undefined)
+    : (undefined as unknown as { path: string; dirty: boolean } | undefined)
   docMock.get.mockImplementation((id: string) => (id === 'doc_1' ? e : undefined))
   treeMock.byDocId.set('doc_1', { path: '写作/正文/第一卷/0005-新标题.md' })
   return useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })

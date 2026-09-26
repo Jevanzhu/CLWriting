@@ -12,7 +12,11 @@ vi.mock('../../../src/studio/web-next/src/composables/usePlatform', () => ({
   usePlatform: () => ({ isDesktop: true, platform: 'win32', isMac: false, isWin: true }),
 }))
 
-import { PROSE_PRESETS_WIN, PROSE_PRESETS_MAC, matchProsePreset } from '../../../src/studio/web-next/src/shared/prose-presets'
+import {
+  PROSE_PRESETS_WIN,
+  PROSE_PRESETS_MAC,
+  matchProsePreset,
+} from '../../../src/studio/web-next/src/shared/prose-presets'
 
 const PROSE_PRESETS = PROSE_PRESETS_WIN
 const FACTORY = { proseFontCn: '', proseFontEn: '', proseSize: 17, proseLh: 1.5 }
@@ -83,16 +87,26 @@ describe('正文排版预设（win 组）', () => {
   })
 
   it('宋体·经典已移除：SimSun/Georgia/18/1.6 组合落「自定义」，不再有预设命中', () => {
-    expect(matchProsePreset({ proseFontCn: 'SimSun', proseFontEn: 'Georgia', proseSize: 18, proseLh: 1.6 })).toBe('custom')
+    expect(matchProsePreset({ proseFontCn: 'SimSun', proseFontEn: 'Georgia', proseSize: 18, proseLh: 1.6 })).toBe(
+      'custom',
+    )
     expect(PROSE_PRESETS.some((p) => p.values.proseFontCn === 'SimSun')).toBe(false)
   })
 
   it('族键身份匹配：异名同族命中（zh 中文名、思源/Noto 双产品均归同族）', () => {
-    expect(matchProsePreset({ proseFontCn: '微软雅黑', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('default')
-    expect(matchProsePreset({ proseFontCn: '思源黑体', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('noto-sans')
-    expect(matchProsePreset({ proseFontCn: 'Source Han Sans SC', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('noto-sans')
+    expect(matchProsePreset({ proseFontCn: '微软雅黑', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe(
+      'default',
+    )
+    expect(matchProsePreset({ proseFontCn: '思源黑体', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe(
+      'noto-sans',
+    )
+    expect(
+      matchProsePreset({ proseFontCn: 'Source Han Sans SC', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 }),
+    ).toBe('noto-sans')
     // 异族不误命中
-    expect(matchProsePreset({ proseFontCn: 'SimHei', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('custom')
+    expect(matchProsePreset({ proseFontCn: 'SimHei', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe(
+      'custom',
+    )
   })
 })
 

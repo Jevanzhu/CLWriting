@@ -37,7 +37,7 @@ async function planMerge(targetDocId: string, sourceDocId: string): Promise<stri
     { op: 'merge', sourceDocId },
   )
   expect(r.status).toBe(200)
-  return ((r.json as { plan: Record<string, unknown> }).plan['planHash'] as string)
+  return (r.json as { plan: Record<string, unknown> }).plan['planHash'] as string
 }
 
 async function applyMerge(targetDocId: string, sourceDocId: string, planHash: string): Promise<void> {

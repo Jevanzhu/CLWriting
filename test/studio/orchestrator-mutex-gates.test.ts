@@ -222,7 +222,9 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
     vi.mocked(isChatRunning).mockReturnValue(true)
     try {
       // docId 故意取未登记值——闸先于文档解析，命中即 409（未进入改写生成段）
-      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/r0912-doc/rewrite`, { instruction: '润色' })
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/r0912-doc/rewrite`, {
+        instruction: '润色',
+      })
       expect(r.status).toBe(409)
       const j = r.json as { code: string; error: string }
       expect(j.code).toBe('BUSY')

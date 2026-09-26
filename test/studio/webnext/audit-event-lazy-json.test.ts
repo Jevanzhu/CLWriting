@@ -105,7 +105,10 @@ describe('AuditView 事件 JSON 懒展开（R0912-FE-P3-11）', () => {
     await w.findAll('.ev-row')[1]!.find('.ev-full-btn').trigger('click')
     expect(w.findAll('.ev-row')[1]!.find('pre').text()).toContain(BIG_TAIL)
     // 刷新：getAudit 重新 resolve（新 data 对象）
-    await w.findAll('button').find((b) => b.text().includes('刷新'))!.trigger('click')
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('刷新'))!
+      .trigger('click')
     await flushPromises()
     await w.findAll('.ev-toggle')[1]!.trigger('click')
     const row = w.findAll('.ev-row')[1]!

@@ -41,9 +41,7 @@ const RULE_LABEL: Record<string, string> = {
  * bookRoot 为空时只返回内置静态规则。
  */
 export function applicableRules(task: string, bookRoot?: string): WritingRule[] {
-  const all = bookRoot
-    ? [...STATIC_RULES, loadAiFlavorRule(bookRoot)]
-    : [...STATIC_RULES]
+  const all = bookRoot ? [...STATIC_RULES, loadAiFlavorRule(bookRoot)] : [...STATIC_RULES]
   return all.filter((r) => r.tasks.includes(task))
 }
 

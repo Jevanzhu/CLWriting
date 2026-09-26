@@ -33,9 +33,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
-  getContentPayload: vi.fn(
-    async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) }),
-  ),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: vi.fn(),

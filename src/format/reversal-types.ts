@@ -46,7 +46,10 @@ const IDENTITY_WORDS = ['真实身份', '替身', '冒充', '伪装', '假扮', 
 
 /** normalize：去空白 + 常见标点（对齐 metrics 层 short-index.ts normalize） */
 function normalize(value: string): string {
-  return value.replace(/\s+/g, '').replace(/[，。！？、；：:「」"'（）()]/g, '').trim()
+  return value
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：:「」"'（）()]/g, '')
+    .trim()
 }
 
 /**

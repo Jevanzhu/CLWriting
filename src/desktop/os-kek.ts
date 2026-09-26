@@ -61,7 +61,9 @@ export interface RosettaProbeDeps {
  * （翻译运行时）——/Library/Apple 族为稳态判据（macOS 26 实测 /System 族不落盘），
  * /System/Library/CoreServices/Rosetta 为旧版兜底。
  */
-export function isRosettaTranslated(deps: RosettaProbeDeps = { arch: () => process.arch, exists: existsSync }): boolean {
+export function isRosettaTranslated(
+  deps: RosettaProbeDeps = { arch: () => process.arch, exists: existsSync },
+): boolean {
   if (deps.arch() !== 'x64') return false
   return (
     deps.exists('/Library/Apple/usr/share/rosetta') ||
@@ -125,7 +127,10 @@ export function loadOrGenerateOsKek(userDataPath: string, deps: OsKekDeps = {}):
     }
     if (!safeStorage.isEncryptionAvailable()) {
       // C404①：linux 无钥匙串等环境常态也留痕——「v2 vault 为何回落内置通道」可诊断
-      log.warn('desktop', `safeStorage 加密通道不可用（无钥匙串/未受支持后端）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）`)
+      log.warn(
+        'desktop',
+        `safeStorage 加密通道不可用（无钥匙串/未受支持后端）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）`,
+      )
       return null
     }
     const fp = join(userDataPath, OS_KEK_FILE)
@@ -142,7 +147,10 @@ export function loadOrGenerateOsKek(userDataPath: string, deps: OsKekDeps = {}):
       }
       // 无 v2 凭据（providers.json 不存在 / vault v1 内置通道）→ 旧 IKM 零消费者，重建
       // 无损：不手删旧文件，直接走下方生成路径原子写顶替
-      log.warn('desktop', `os-kek.json 损坏不可解（${sealed.cause}）：${fp}，且 providers.json 无 v2 凭据（重建无损）——已重建 os-kek.json`)
+      log.warn(
+        'desktop',
+        `os-kek.json 损坏不可解（${sealed.cause}）：${fp}，且 providers.json 无 v2 凭据（重建无损）——已重建 os-kek.json`,
+      )
     } else if (v2VaultPresent(userDataPath)) {
       // 修复批（D101）：**丢失**形态同判（C404② 对称面）——os-kek.json 缺失
       //（清理工具误删 / 跨机迁移只拷了 providers.json）且 providers.json 持 v2 凭据时，

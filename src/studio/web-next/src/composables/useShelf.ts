@@ -197,9 +197,7 @@ export function useShelf(options?: {
   /** 按搜索词过滤 + 排序后的完整书列表 */
   const filteredBooks = computed(() => {
     const q = query.value.trim().toLowerCase()
-    const books = q
-      ? shelf.books.filter((b) => (b.title ?? b.name).toLowerCase().includes(q))
-      : [...shelf.books]
+    const books = q ? shelf.books.filter((b) => (b.title ?? b.name).toLowerCase().includes(q)) : [...shelf.books]
     switch (sortBy.value) {
       case 'name':
         return books.sort((a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name, 'zh-CN'))

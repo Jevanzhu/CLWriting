@@ -31,18 +31,8 @@
  *   ④ 结论——该中转用于 openai-responses 协议：可用 / 受限 / 不可用。
  */
 import process from 'node:process'
-import {
-  createOpenAIResponsesProvider,
-  detectFamily,
-  responsesQuirksFor,
-} from '../src/ai/provider/index.js'
-import type {
-  ContentBlock,
-  GenRequest,
-  ModelProvider,
-  ProviderConf,
-  TokenUsage,
-} from '../src/ai/provider/index.js'
+import { createOpenAIResponsesProvider, detectFamily, responsesQuirksFor } from '../src/ai/provider/index.js'
+import type { ContentBlock, GenRequest, ModelProvider, ProviderConf, TokenUsage } from '../src/ai/provider/index.js'
 // D202（0918三轮修复批）：ErrInfo/errBrief/trunc 单源 scripts/relay-error-brief.ts
 // ——errBrief 的 message 出口统一过 redactSecret（中转网关 4xx 报错常回显含 key 的
 // 请求 URL，直出可把凭据打进终端/CI 日志，与头注「输出永不回显完整 key」承诺相悖）；
@@ -53,9 +43,13 @@ const TIMEOUT_MS = 90_000
 const DEFAULT_MODEL = 'gpt-5'
 
 function usage(): void {
-  console.log('用法：CLW_RELAY_API_KEY=<key> npx tsx scripts/verify-responses-relay.ts --base-url <url> [--model <model>] [--api-key <key>]')
+  console.log(
+    '用法：CLW_RELAY_API_KEY=<key> npx tsx scripts/verify-responses-relay.ts --base-url <url> [--model <model>] [--api-key <key>]',
+  )
   console.log('  --base-url  中转网关基地址（OpenAI 兼容根，如 https://relay.example.com/v1）')
-  console.log('  --api-key   中转 API Key（兼容保留；推荐 env CLW_RELAY_API_KEY——argv 明文 ps 可见；输出只显示掩码，绝不回显全文）')
+  console.log(
+    '  --api-key   中转 API Key（兼容保留；推荐 env CLW_RELAY_API_KEY——argv 明文 ps 可见；输出只显示掩码，绝不回显全文）',
+  )
   console.log('  --model     模型名，缺省 gpt-5')
   console.log('缺 key（env 与 --api-key 均无）或 --base-url 时仅打印本用法并以 0 退出，不发任何请求。')
 }
@@ -74,7 +68,8 @@ function argValue(flag: string): string | null {
 
 const baseUrl = argValue('--base-url')
 // R61-15：env 优先，argv 兜底（兼容存量）；argv 传入时告警留痕
-const envKey = process.env.CLW_RELAY_API_KEY && process.env.CLW_RELAY_API_KEY !== '' ? process.env.CLW_RELAY_API_KEY : null
+const envKey =
+  process.env.CLW_RELAY_API_KEY && process.env.CLW_RELAY_API_KEY !== '' ? process.env.CLW_RELAY_API_KEY : null
 const argvKey = argValue('--api-key')
 if (argvKey !== null) {
   console.warn('[warn] --api-key 经 argv 传入（ps 可见）；建议改用 env CLW_RELAY_API_KEY')
@@ -350,9 +345,7 @@ const reach2 = r2
 console.log(`① 可达性：${reach1}；${reach2}`)
 
 // ② 参数容受
-const named = [...namedParams(r1.error), ...namedParams(r2?.error ?? null)].filter(
-  (v, i, a) => a.indexOf(v) === i,
-)
+const named = [...namedParams(r1.error), ...namedParams(r2?.error ?? null)].filter((v, i, a) => a.indexOf(v) === i)
 let tolerance: string
 if (named.length > 0) tolerance = `拒收——400 报错指名：${named.join('、')}`
 else if (r1.tool) tolerance = '容忍——store:false / include / parallel_tool_calls:false 实际下发未见 400'
@@ -403,8 +396,5 @@ if (continuation.startsWith('关') && q.responsesWire.echoReasoning === 'encrypt
   reasons.push('推理延续丢失')
 }
 const verdict = !r1.tool && r1.error ? '不可用' : reasons.length > 0 ? '受限' : '可用'
-const tail =
-  verdict === '可用'
-    ? '两轮全通，加密推理项透传且回插被接受'
-    : reasons.join('；')
+const tail = verdict === '可用' ? '两轮全通，加密推理项透传且回插被接受' : reasons.join('；')
 console.log(`④ 结论：该中转用于 openai-responses 协议：${verdict}——${tail}`)

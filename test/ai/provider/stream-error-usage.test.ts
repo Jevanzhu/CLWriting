@@ -41,7 +41,10 @@ describe('anthropic 线：流中 SDK 抛错随错上抛 usage', () => {
       messages: {
         create: throwAfter(
           [
-            { type: 'message_start', message: { usage: { input_tokens: 11, cache_read_input_tokens: 5, cache_creation_input_tokens: 2 } } },
+            {
+              type: 'message_start',
+              message: { usage: { input_tokens: 11, cache_read_input_tokens: 5, cache_creation_input_tokens: 2 } },
+            },
             { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
             { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '半截正文' } },
           ],

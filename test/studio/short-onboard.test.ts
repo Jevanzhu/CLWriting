@@ -152,7 +152,11 @@ describe('P0-1 短篇手测·机器可验部分', () => {
     const s = await api(`/api/books/${enc(BOOK)}/documents/${docId}/content`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content: body, expectedRevision: (d as unknown as { revision: string }).revision, operationId: 'probe-op-1' }),
+      body: JSON.stringify({
+        content: body,
+        expectedRevision: (d as unknown as { revision: string }).revision,
+        operationId: 'probe-op-1',
+      }),
     })
     expect(s.status).toBe(200)
     // 机检：fm 合法（钩子/情绪枚举正确）→ 无红项

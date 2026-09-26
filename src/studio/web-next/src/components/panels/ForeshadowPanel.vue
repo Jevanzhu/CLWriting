@@ -152,9 +152,7 @@ watch(() => props.bookName, load, { immediate: true })
 <template>
   <div class="fs-panel">
     <!-- 当前章节联动提醒 -->
-    <div v-if="currentPlanted.length" class="fs-current-hint">
-      本章埋设 {{ currentPlanted.length }} 个未回收伏笔
-    </div>
+    <div v-if="currentPlanted.length" class="fs-current-hint">本章埋设 {{ currentPlanted.length }} 个未回收伏笔</div>
 
     <!-- 统计行 -->
     <div v-if="list.length" class="fs-stats">
@@ -225,9 +223,7 @@ watch(() => props.bookName, load, { immediate: true })
         >
           <Check :size="14" class="fs-icon" />
           <span class="fs-title">{{ f.标题 }}</span>
-          <span class="fs-meta resolved-meta">
-            第{{ f.埋设章号 ?? '?' }}章→第{{ f.回收章号 ?? '?' }}章
-          </span>
+          <span class="fs-meta resolved-meta"> 第{{ f.埋设章号 ?? '?' }}章→第{{ f.回收章号 ?? '?' }}章 </span>
         </div>
         <!-- ：已回收节同款截断省略提示行 -->
         <div v-if="resolvedCap.omitted > 0" class="cap-hint">已省略 {{ resolvedCap.omitted }} 项</div>
@@ -235,9 +231,7 @@ watch(() => props.bookName, load, { immediate: true })
     </div>
 
     <!-- ：creating 在途锁有、按钮禁用无 → 对齐惯例（锁+disabled） -->
-        <button class="fs-add" :disabled="creating" @click="create">
-      <Plus :size="13" /> 新建伏笔
-    </button>
+    <button class="fs-add" :disabled="creating" @click="create"><Plus :size="13" /> 新建伏笔</button>
   </div>
 </template>
 
@@ -259,16 +253,24 @@ watch(() => props.bookName, load, { immediate: true })
   padding: 0 4px 8px;
   font-size: var(--font-size-xs);
 }
-.stat-pending { color: var(--text-error); }
-.stat-resolved { color: var(--dv-good); }
-.stat-abandoned { color: var(--text-faint); }
+.stat-pending {
+  color: var(--text-error);
+}
+.stat-resolved {
+  color: var(--dv-good);
+}
+.stat-abandoned {
+  color: var(--text-faint);
+}
 
 .hint {
   padding: 8px;
   font-size: var(--font-size-s);
   color: var(--text-faint);
 }
-.hint.err { color: var(--text-error); }
+.hint.err {
+  color: var(--text-error);
+}
 
 .fs-empty {
   text-align: center;
@@ -334,9 +336,15 @@ watch(() => props.bookName, load, { immediate: true })
 .fs-trail {
   font-size: var(--font-size-xxs);
 }
-.fs-trail.risk-红 { color: var(--text-error); }
-.fs-trail.risk-黄 { color: var(--text-warning); }
-.fs-trail.risk-绿 { color: var(--text-faint); }
+.fs-trail.risk-红 {
+  color: var(--text-error);
+}
+.fs-trail.risk-黄 {
+  color: var(--text-warning);
+}
+.fs-trail.risk-绿 {
+  color: var(--text-faint);
+}
 .resolved {
   opacity: 0.55;
 }
@@ -363,9 +371,18 @@ watch(() => props.bookName, load, { immediate: true })
   padding: 1px 4px;
   border-radius: var(--radius-s);
 }
-.p-高 { color: var(--text-error); background: color-mix(in srgb, var(--text-error) 10%, transparent); }
-.p-中 { color: var(--text-warning); background: color-mix(in srgb, var(--text-warning) 10%, transparent); }
-.p-低 { color: var(--text-faint); background: var(--background-modifier-hover); }
+.p-高 {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
+.p-中 {
+  color: var(--text-warning);
+  background: color-mix(in srgb, var(--text-warning) 10%, transparent);
+}
+.p-低 {
+  color: var(--text-faint);
+  background: var(--background-modifier-hover);
+}
 .fs-chap {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);

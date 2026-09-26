@@ -22,7 +22,11 @@ function makeTree(): string {
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '导出'), { recursive: true })
   mkdirSync(join(root, 'node_modules'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '0001-雨夜.md'), '---\n章号: 1\n标题: 雨夜\n---\n\n烛火摇曳，林远推门。\n', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-雨夜.md'),
+    '---\n章号: 1\n标题: 雨夜\n---\n\n烛火摇曳，林远推门。\n',
+    'utf-8',
+  )
   writeFileSync(join(root, '写作', '正文', '第一卷', '0002-晨光.md'), '烛火熄了。\n', 'utf-8')
   writeFileSync(join(root, '设定', '人物.md'), '林远，佩玉少年。\n', 'utf-8')
   writeFileSync(join(root, '设定', '伏笔', '玉佩.md'), '烛火下玉佩微烫。\n', 'utf-8')

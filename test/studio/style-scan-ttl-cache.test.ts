@@ -71,8 +71,7 @@ beforeAll(async () => {
     overrides: { styleScanTtlMs: 1000, styleCorpusTtlMs: 1000 },
     // 不建 项目/文档清单.jsonl——finalizedPathSet 返 null 走全量口径，章文件直接进扫描样本
     dirs: ['写作/正文'],
-    bookYaml:
-      'spec_version: 1\nkind: long\nbook:\n  title: D3测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: D3测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     files: [{ rel: '写作/正文/0001-开篇.md', content: CH1_FM + '主角登场，初入宗门，一切由此开始。\n' }],
   })
 })
@@ -101,7 +100,11 @@ describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
       '---\n章号: 2\n标题: 次章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第二章正文登场。\n',
       'utf8',
     )
-    writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH1_FM + '主角登场，正文已被作者彻底改写一新。\n', 'utf8')
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0001-开篇.md'),
+      CH1_FM + '主角登场，正文已被作者彻底改写一新。\n',
+      'utf8',
+    )
 
     // 5s 内二次调用：均命中缓存——count 不变（未见新章）、sourceHash 不变（未见改写正文）
     const second = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)

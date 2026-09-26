@@ -51,7 +51,11 @@ describe('R65-7：apply_spill 落盘前 sha 复验（竞态窗口收口）', () 
     writeFileSync(chapterPath, rawBefore.replace('玉佩', '古镜'), 'utf8')
     const bodyAfter = readFileSync(chapterPath, 'utf8').split('---').pop()!.trim()
     const produced = '基于旧基线的改写稿。' + '内容。'.repeat(50)
-    const locator = writeSpillFile(bookRoot, produced, { kind: 'rewrite' as const, chapter: 1, baseSha: sha(bodyBefore) })!
+    const locator = writeSpillFile(bookRoot, produced, {
+      kind: 'rewrite' as const,
+      chapter: 1,
+      baseSha: sha(bodyBefore),
+    })!
     // 读序模拟：初次校验读到旧基线（sha 过）；落盘前复验读到被改写后的正文（sha 失配）
     vi.mocked(readChapterBody).mockReturnValueOnce(bodyBefore).mockReturnValueOnce(bodyAfter)
     const r = await applySpill(ctx(), { chapter: 1, locator })

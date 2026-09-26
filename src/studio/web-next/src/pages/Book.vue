@@ -46,9 +46,8 @@ useBookSwitchGuard({ bookName, resync: () => sse.resync() })
 // （等尺寸切书不再漏校验）。
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-watch(
-  [() => tree.byDocId.size, bookName, () => tree.ownerBook],
-  () => ws.validate(new Set(tree.byDocId.keys()), tree.ownerBook),
+watch([() => tree.byDocId.size, bookName, () => tree.ownerBook], () =>
+  ws.validate(new Set(tree.byDocId.keys()), tree.ownerBook),
 )
 
 // RC：自动保存节拍与关窗/刷新/卸载冲刷各自抽成 composable；本页只负责

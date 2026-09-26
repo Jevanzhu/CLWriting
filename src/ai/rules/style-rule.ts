@@ -107,8 +107,20 @@ export const styleConsistencyRule: WritingRule = {
 
     // 3 个比率维（对话标签占比单独处理）：尺度与文本长度天然无关，双侧比较
     const dims: NumericDim[] = [
-      { name: '单句超限占比', current: stats.overlongRatio, ref: ref.overlongRatio, fmt: pct, advice: '建议拆分长句、控制单句长度' },
-      { name: '句长方差', current: stats.sentenceLenVariance, ref: ref.sentenceLenVariance, fmt: (v) => v.toFixed(1), advice: '建议调整句式节奏' },
+      {
+        name: '单句超限占比',
+        current: stats.overlongRatio,
+        ref: ref.overlongRatio,
+        fmt: pct,
+        advice: '建议拆分长句、控制单句长度',
+      },
+      {
+        name: '句长方差',
+        current: stats.sentenceLenVariance,
+        ref: ref.sentenceLenVariance,
+        fmt: (v) => v.toFixed(1),
+        advice: '建议调整句式节奏',
+      },
       { name: '复读率', current: stats.repeatRate, ref: ref.repeatRate, fmt: pct, advice: '建议替换重复句式' },
     ]
     for (const dim of dims) checkDim(dim, violations, text)
@@ -141,7 +153,13 @@ export const styleConsistencyRule: WritingRule = {
     // 铁律 maxParallelStreak 的红黄项兜底（checkStyleMetrics），低侧放弃不损覆盖。
     if (stats.parallelStreakMax > ref.parallelStreakMax) {
       checkDim(
-        { name: '排比连续度', current: stats.parallelStreakMax, ref: ref.parallelStreakMax, fmt: String, advice: '建议打散排比句式' },
+        {
+          name: '排比连续度',
+          current: stats.parallelStreakMax,
+          ref: ref.parallelStreakMax,
+          fmt: String,
+          advice: '建议打散排比句式',
+        },
         violations,
         text,
       )
@@ -150,7 +168,13 @@ export const styleConsistencyRule: WritingRule = {
     // 对话标签占比保护：无对话行时跳过（无对话不该报风格偏离）
     if (stats._dialogueLines > 0) {
       checkDim(
-        { name: '对话标签占比', current: stats.dialogueTagRatio, ref: ref.dialogueTagRatio, fmt: pct, advice: '建议调整对话标签写法' },
+        {
+          name: '对话标签占比',
+          current: stats.dialogueTagRatio,
+          ref: ref.dialogueTagRatio,
+          fmt: pct,
+          advice: '建议调整对话标签写法',
+        },
         violations,
         text,
       )

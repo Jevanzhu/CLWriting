@@ -43,7 +43,9 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         headers: {
           'x-studio-token': studio.token,
           origin: studio.baseUrl,
-          ...(payload ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } : {}),
+          ...(payload
+            ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) }
+            : {}),
         },
       },
       (res) => {
@@ -96,7 +98,10 @@ describe('R0912-P2-疑似: /spawn、/auto-write、/chat 任务闸含跨进程面
   it('他进程 outline 闸在持 → /spawn 409（文案含 action）；锁删除后放行 200', async () => {
     const lockPath = holdCrossProcessGate('outline', BOOK)
     try {
-      const busy = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/spawn`, { role: 'writer', prompt: '写第一章' })
+      const busy = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/spawn`, {
+        role: 'writer',
+        prompt: '写第一章',
+      })
       expect(busy.status).toBe(409)
       expect((busy.json as { code?: string }).code).toBe('BUSY')
       expect(String((busy.json as { error?: string }).error)).toContain('outline')

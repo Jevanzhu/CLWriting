@@ -69,4 +69,3 @@ describe('book_search', () => {
     expect(line.slice(0, 61).endsWith('😀')).toBe(false)
   })
 })
-

@@ -88,4 +88,3 @@ describe('F1-P2 workspaceSession', () => {
     }
   })
 })
-

@@ -487,7 +487,10 @@ describe('workspace · 关窗冲刷书级 prefs（R0911-C1-P3-3）', () => {
     await nextTick() // 同上：等防抖计时器排上
     vi.mocked(putBookPrefs).mockRejectedValueOnce(new Error('网络断了'))
     await ws.flushPendingBookPrefs()
-    expect(toastSpy).toHaveBeenCalledWith('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+    expect(toastSpy).toHaveBeenCalledWith(
+      '本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试',
+      'warning',
+    )
     // 冲刷链吞错不 reject（关窗钩子不被打断）
   })
 })
@@ -501,14 +504,18 @@ describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）'
     ws.setBook(BOOK)
     await flush()
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     vi.mocked(putBookPrefs).mockImplementationOnce(() => gate)
     ws.openTab('d-inflight')
     await nextTick()
     await vi.advanceTimersByTimeAsync(500) // 防抖 fire → PUT 出手（受控 promise 挂起 = 在途）
     vi.mocked(putBookPrefs).mockClear()
     let settled = false
-    const flushing = ws.flushPendingBookPrefs().then(() => { settled = true })
+    const flushing = ws.flushPendingBookPrefs().then(() => {
+      settled = true
+    })
     await drain()
     expect(settled).toBe(false) // 在途未落定：冲刷不放行（修复前此处即空返回）
     release()
@@ -521,9 +528,14 @@ describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）'
     ws.setBook(BOOK)
     await flush()
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     const calls: string[] = []
-    vi.mocked(putBookPrefs).mockImplementationOnce(() => { calls.push('first'); return gate })
+    vi.mocked(putBookPrefs).mockImplementationOnce(() => {
+      calls.push('first')
+      return gate
+    })
     ws.openTab('d-first')
     await nextTick()
     await vi.advanceTimersByTimeAsync(500) // 第一笔 PUT 出手（在途）
@@ -588,7 +600,12 @@ describe('workspace · 插入信号（R0916-7-P3-24 一次性令牌）', () => {
   it('同文本两次 requestInsert（各隔一拍，模拟真实点击）→ watcher 均触发（同值短路不再可能）', async () => {
     const ws = useWorkspaceStore()
     const seen: unknown[] = []
-    const stop = watch(() => ws.pendingInsert, (cmd) => { if (cmd) seen.push(cmd) })
+    const stop = watch(
+      () => ws.pendingInsert,
+      (cmd) => {
+        if (cmd) seen.push(cmd)
+      },
+    )
     ws.requestInsert('玉佩')
     await nextTick() // 第一次点击的消费拍
     const first = ws.pendingInsert

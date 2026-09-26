@@ -17,7 +17,11 @@ const h = vi.hoisted(() => {
   const sentinelServer = { __sentinel: 'server' }
   return {
     sentinelServer,
-    bootCalls: [] as { parsed: unknown; staticDir: unknown; cb: { onReady: (p: number) => void; onBootError: (e: Error) => void } }[],
+    bootCalls: [] as {
+      parsed: unknown
+      staticDir: unknown
+      cb: { onReady: (p: number) => void; onBootError: (e: Error) => void }
+    }[],
     bootBehavior: 'ok' as 'ok' | 'error',
     readyPort: 45678,
     shutdownCalls: [] as { getWorkDir: () => string | null; server: unknown }[],
@@ -129,7 +133,11 @@ describe('批 U2：runUtilityEntry 握手与 shutdown 指令', () => {
     runUtilityEntry(port, mkParsed({ port: 7878 }))
     await flush()
     expect(port.posted).toEqual([
-      { type: 'boot-error', code: 'EADDRINUSE', message: '端口 7878 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口' },
+      {
+        type: 'boot-error',
+        code: 'EADDRINUSE',
+        message: '端口 7878 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口',
+      },
     ])
     expect(exitSpy).toHaveBeenCalledWith(1)
   })
@@ -231,12 +239,10 @@ describe('P3：无 parentPort 探针区分（vitest 测试态 vs 误用直跑）
 describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', () => {
   it('两个 handler 各自：log.error 留痕（tag=server-utility）+ 让一轮后 exit(1)', async () => {
     const captured: Record<string, (reasonOrErr: unknown) => void> = {}
-    const onSpy = vi
-      .spyOn(process, 'on')
-      .mockImplementation(((evt: string, fn: (a: unknown) => void) => {
-        if (evt === 'uncaughtException' || evt === 'unhandledRejection') captured[evt] = fn
-        return process
-      }) as never)
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((evt: string, fn: (a: unknown) => void) => {
+      if (evt === 'uncaughtException' || evt === 'unhandledRejection') captured[evt] = fn
+      return process
+    }) as never)
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
     // log 未 init 时为 console 镜像（emit error 级走 console.error）
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -254,7 +260,9 @@ describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', ()
       expect(exitSpy).toHaveBeenCalledWith(1)
       // log 未 init 时 console.error 镜像一行 `[tag] msg` + err——断言首参含 tag 与事件名
       expect(
-        errSpy.mock.calls.some(([line]) => String(line).includes('server-utility') && String(line).includes('unhandledRejection')),
+        errSpy.mock.calls.some(
+          ([line]) => String(line).includes('server-utility') && String(line).includes('unhandledRejection'),
+        ),
       ).toBe(true)
 
       exitSpy.mockClear()
@@ -264,7 +272,9 @@ describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', ()
       await new Promise((r) => setImmediate(r))
       expect(exitSpy).toHaveBeenCalledWith(1)
       expect(
-        errSpy.mock.calls.some(([line]) => String(line).includes('server-utility') && String(line).includes('uncaughtException')),
+        errSpy.mock.calls.some(
+          ([line]) => String(line).includes('server-utility') && String(line).includes('uncaughtException'),
+        ),
       ).toBe(true)
     } finally {
       onSpy.mockRestore()
@@ -278,7 +288,9 @@ describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', ()
     try {
       vi.resetModules()
       await import('../../src/desktop/server-utility.js')
-      const fatalEvents = onSpy.mock.calls.filter(([evt]) => evt === 'uncaughtException' || evt === 'unhandledRejection')
+      const fatalEvents = onSpy.mock.calls.filter(
+        ([evt]) => evt === 'uncaughtException' || evt === 'unhandledRejection',
+      )
       expect(fatalEvents).toEqual([]) // 测试态 import 不注册（不杀 worker）
     } finally {
       onSpy.mockRestore()

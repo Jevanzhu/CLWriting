@@ -37,13 +37,9 @@ import { log } from '../../src/log/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const TAG_RULES = parseIronRules('对话标签占比: 50%')
-const FULL_RULES = parseIronRules([
-  '单句上限字数: 30',
-  '形容词连续堆叠上限: 2',
-  '对话标签占比: 50%',
-  '排比连续数: 2',
-  '结尾总结体: 禁止',
-].join('\n'))
+const FULL_RULES = parseIronRules(
+  ['单句上限字数: 30', '形容词连续堆叠上限: 2', '对话标签占比: 50%', '排比连续数: 2', '结尾总结体: 禁止'].join('\n'),
+)
 
 // ── 纯统计函数 ─────────────────────────────────────
 
@@ -142,11 +138,15 @@ test('M-11: scanChapters 只收清单在册的定稿章（草稿不计入）', (
   const root = makeLongBookWithDrift(4, 999)
   mkdirSync(join(root, '项目'), { recursive: true })
   // 只 2、4 章登记 finalizedRevision；1 章不在清单、3 章在册未定稿
-  writeFileSync(join(root, '项目', '文档清单.jsonl'), [
-    '{"id":"d2","nodeType":"document","path":"写作/正文/2-第2章.md","parentId":null,"finalizedRevision":"r1"}',
-    '{"id":"d3","nodeType":"document","path":"写作/正文/3-第3章.md","parentId":null}',
-    '{"id":"d4","nodeType":"document","path":"写作/正文/4-第4章.md","parentId":null,"finalizedRevision":"r1"}',
-  ].join('\n') + '\n', 'utf-8')
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      '{"id":"d2","nodeType":"document","path":"写作/正文/2-第2章.md","parentId":null,"finalizedRevision":"r1"}',
+      '{"id":"d3","nodeType":"document","path":"写作/正文/3-第3章.md","parentId":null}',
+      '{"id":"d4","nodeType":"document","path":"写作/正文/4-第4章.md","parentId":null,"finalizedRevision":"r1"}',
+    ].join('\n') + '\n',
+    'utf-8',
+  )
   const samples = scanChapters(root)
   expect(samples.map((s: ChapterSample) => s.num)).toEqual([2, 4])
   rmSync(root, { recursive: true, force: true })
@@ -176,9 +176,20 @@ test('aggregateStyleTrend: 基线存在时漂移阈值用基线对照值', () =>
   const samples = scanChapters(root)
   // 基线对话标签占比很低 → 阈值被抬高到 max(0.2*1.3, 0.5)=0.5，后段 100% 仍超
   const baseline = {
-    version: 1, frozenAt: 't', frozenFrom: 'test',
+    version: 1,
+    frozenAt: 't',
+    frozenFrom: 'test',
     byScene: {},
-    overall: { overlongRatio: 0, adjStackHits: 0, dialogueTagRatio: 0.2, parallelStreakMax: 0, summaryEnding: false, sentenceLenVariance: 10, repeatRate: 0.05, _dialogueLines: 0 },
+    overall: {
+      overlongRatio: 0,
+      adjStackHits: 0,
+      dialogueTagRatio: 0.2,
+      parallelStreakMax: 0,
+      summaryEnding: false,
+      sentenceLenVariance: 10,
+      repeatRate: 0.05,
+      _dialogueLines: 0,
+    },
   }
   const trend = aggregateStyleTrend(samples, 'long', baseline, { driftWindow: 5 })
   expect(trend.drifts.some((d) => d.message.includes('对话标签'))).toBe(true)
@@ -219,10 +230,14 @@ function makeBookWithSamples(): string {
   mkdirSync(join(root, '文风', '样章库', '对话'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
   writeSample(join(root, '文风', '样章库', '战斗', '战斗-001.md'), {
-    场景: '战斗', 来源: '作者原作', 正文: '刀光闪过。他挥剑。鲜血飞溅。敌人倒下。',
+    场景: '战斗',
+    来源: '作者原作',
+    正文: '刀光闪过。他挥剑。鲜血飞溅。敌人倒下。',
   })
   writeSample(join(root, '文风', '样章库', '对话', '对话-001.md'), {
-    场景: '对话', 来源: '作者原作', 正文: '「你来了。」\n「我来了。」\n两人对视。',
+    场景: '对话',
+    来源: '作者原作',
+    正文: '「你来了。」\n「我来了。」\n两人对视。',
   })
   return root
 }
@@ -256,7 +271,9 @@ test('freezeBaseline: 幂等重跑（覆盖，learn 新样章后指纹变）', (
   expect(b1.byScene['战斗']).toBeTypeOf('object')
   // 再加一个战斗样章 → overall 字符总量变，复读率指纹应随之更新
   writeSample(join(root, '文风', '样章库', '战斗', '战斗-002.md'), {
-    场景: '战斗', 来源: '导入', 正文: '第二场战斗完全不同的节奏内容，剑气纵横千里。',
+    场景: '战斗',
+    来源: '导入',
+    正文: '第二场战斗完全不同的节奏内容，剑气纵横千里。',
   })
   const varianceBefore = b1.overall.sentenceLenVariance
   freezeBaseline(root)
@@ -273,7 +290,7 @@ test('R75-1: computeFullStats 带 charCount 因子；freezeBaseline 持久化、
   // 因子口径：码点数（代理对合 1 计）——含 emoji 的正文 charCount < UTF-16 length
   const stats = computeFullStats('他推开门。😀😀😀 桌上摆着凉茶。', TAG_RULES)
   expect(stats.charCount).toBeDefined()
-  expect(stats.charCount).toBe([...('他推开门。😀😀😀 桌上摆着凉茶。')].length)
+  expect(stats.charCount).toBe([...'他推开门。😀😀😀 桌上摆着凉茶。'].length)
 
   // 冻结产物持久化因子（overall + byScene 都带）
   const root = makeBookWithSamples()
@@ -290,7 +307,13 @@ test('R75-1: computeFullStats 带 charCount 因子；freezeBaseline 持久化、
   delete legacyOverall.charCount
   writeFileSync(
     baselinePath(legacy),
-    JSON.stringify({ version: 1, frozenAt: '2026-01-01T00:00:00.000Z', frozenFrom: 'legacy', byScene: {}, overall: legacyOverall }),
+    JSON.stringify({
+      version: 1,
+      frozenAt: '2026-01-01T00:00:00.000Z',
+      frozenFrom: 'legacy',
+      byScene: {},
+      overall: legacyOverall,
+    }),
     'utf-8',
   )
   const lb = readBaseline(legacy)!

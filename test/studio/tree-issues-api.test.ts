@@ -95,8 +95,22 @@ beforeAll(async () => {
   verdictDocId = generateDocId()
   // 0001/0002 登记定稿基线但内容已改（基线 ≠ 当前指纹）→ revision 态，聚合逻辑覆盖「定稿后改动」场景
   //（去 git 不再用 git init + staged 制造 dirty；基线存在也触发幂等闸跳过 migrateFinalizedRevisions）
-  upsertEntry(m, { id: redDocId, nodeType: 'document', path: '写作/正文/0001-红章.md', parentId: null, finalizedRevision: 'sha256:baseline-v0', finalizedAt: '2026-07-25T00:00:00Z' })
-  upsertEntry(m, { id: verdictDocId, nodeType: 'document', path: '写作/正文/0002-净章.md', parentId: null, finalizedRevision: 'sha256:baseline-v0', finalizedAt: '2026-07-25T00:00:00Z' })
+  upsertEntry(m, {
+    id: redDocId,
+    nodeType: 'document',
+    path: '写作/正文/0001-红章.md',
+    parentId: null,
+    finalizedRevision: 'sha256:baseline-v0',
+    finalizedAt: '2026-07-25T00:00:00Z',
+  })
+  upsertEntry(m, {
+    id: verdictDocId,
+    nodeType: 'document',
+    path: '写作/正文/0002-净章.md',
+    parentId: null,
+    finalizedRevision: 'sha256:baseline-v0',
+    finalizedAt: '2026-07-25T00:00:00Z',
+  })
   writeManifest(manifestPath, m)
 
   // tree-issues 后端跳过定稿态（final/published）；无 finalizedRevision → 树红点聚合仍机检

@@ -217,8 +217,7 @@ export function setSectionKeyBlock(
         if ((l.trimStart().startsWith('- ') && ind >= childIndent) || ind > childIndent) blockEnd++
         else break
       }
-      const replacement =
-        keyLine === null ? [] : [pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)]
+      const replacement = keyLine === null ? [] : [pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)]
       lines.splice(i, blockEnd - i, ...replacement)
       return canonicalizeText(lines.join('\n'))
     }
@@ -283,7 +282,8 @@ export function patchBookConfigText(raw: string, oldCfg: BookConfig, newCfg: Boo
   let text = raw
   const top = (key: string, from: unknown, to: unknown): void => {
     if (leafEquals(from, to)) return
-    text = to === undefined ? setTopScalarKey(text, key, null) : setTopScalarKey(text, key, `${key}: ${renderScalar(to)}`)
+    text =
+      to === undefined ? setTopScalarKey(text, key, null) : setTopScalarKey(text, key, `${key}: ${renderScalar(to)}`)
   }
   top('spec_version', oldCfg.spec_version, newCfg.spec_version)
   // （登记说明）：short→long 时此处写显式 `kind: long`，与
@@ -296,7 +296,12 @@ export function patchBookConfigText(raw: string, oldCfg: BookConfig, newCfg: Boo
     const from = leaf.get(oldCfg)
     const to = leaf.get(newCfg)
     if (leafEquals(from, to)) continue
-    text = setSectionKeyBlock(text, leaf.section, leaf.key, to === undefined ? null : `${leaf.key}: ${renderScalar(to)}`)
+    text = setSectionKeyBlock(
+      text,
+      leaf.section,
+      leaf.key,
+      to === undefined ? null : `${leaf.key}: ${renderScalar(to)}`,
+    )
   }
 
   // thresholds 嵌套映射：键行 + 子行整块换（含删除）

@@ -57,9 +57,18 @@ afterAll(async () => {
 })
 
 /** 直调形态的拆分 apply 入参组装（干跑取指纹）。 */
-async function planDirect(docId: string, content: string, marker: string): Promise<{ planHash: string; cursorOffset: number }> {
+async function planDirect(
+  docId: string,
+  content: string,
+  marker: string,
+): Promise<{ planHash: string; cursorOffset: number }> {
   const cursorOffset = content.indexOf(marker)
-  const plan = await planChapterSplit(studio.bookRoot, new DocumentService({ bookRoot: studio.bookRoot }), docId, cursorOffset)
+  const plan = await planChapterSplit(
+    studio.bookRoot,
+    new DocumentService({ bookRoot: studio.bookRoot }),
+    docId,
+    cursorOffset,
+  )
   if (!plan.ok) throw new Error(`干跑失败：${JSON.stringify(plan)}`)
   return { planHash: plan.planHash, cursorOffset }
 }

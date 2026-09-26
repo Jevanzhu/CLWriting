@@ -33,7 +33,11 @@ describe('流式导出产物等价', () => {
   }
 
   function writeChapter(root: string, num: number, title: string, body: string): void {
-    writeFileSync(join(root, '写作', '正文', `${num}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n${body}`, 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', `${num}-${title}.md`),
+      `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
+      'utf-8',
+    )
   }
 
   test('A1 流式化：both 导出产物与原构造式字节恒等（含批注剥除路径）', () => {

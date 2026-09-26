@@ -40,7 +40,10 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
 function makeWorkdirWithBook(): string {
   const workDir = mkdtempTracked(join(tmpdir(), 'r27-sweep-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '清扫书', path: '清扫书', kind: 'long' }) + '\n')
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: '清扫书', path: '清扫书', kind: 'long' }) + '\n',
+  )
   const cacheDir = join(workDir, '清扫书', '.cache', 'review-doc1')
   mkdirSync(cacheDir, { recursive: true })
   writeFileSync(join(cacheDir, 'x.md'), '三审中间产物', 'utf8')
@@ -89,10 +92,17 @@ beforeAll(async () => {
   const { startServerSafe } = await import('../helpers/safe-port.js')
   apiWorkDir = mkdtempSync(join(tmpdir(), 'r27-batchc-api-'))
   mkdirSync(join(apiWorkDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(apiWorkDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
+  writeFileSync(
+    join(apiWorkDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+  )
   const bookRoot = join(apiWorkDir, BOOK)
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 互斥测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n', 'utf8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 互斥测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    'utf8',
+  )
   server = await startServerSafe({ port: 0, workDir: apiWorkDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
@@ -125,7 +135,10 @@ describe('R27-61: draft-save self-heal 互斥', () => {
 
 describe('R27-64: chat/confirm 补书存在性校验', () => {
   test('书不存在 → 404「没有这本书」（非「未找到待确认调用」）', async () => {
-    const r = await post('/api/books/%E4%B8%8D%E5%AD%98%E5%9C%A8%E7%9A%84%E4%B9%A6/chat/confirm', { callId: 'c1', ok: true })
+    const r = await post('/api/books/%E4%B8%8D%E5%AD%98%E5%9C%A8%E7%9A%84%E4%B9%A6/chat/confirm', {
+      callId: 'c1',
+      ok: true,
+    })
     expect(r.status).toBe(404)
     expect(String(r.json['error'] ?? r.json['message'] ?? '')).toContain('没有这本书')
   })
@@ -194,7 +207,14 @@ describe('R27-63: commitSamples/commitQuotes 幂等', () => {
   // async（批量落盘周期让出）——本组单条路径，await 即原语义，幂等断言不变
   test('同场景同正文二次提交 → 不落新文件、返回既有路径', async () => {
     const bookRoot = mkdtempTracked(join(tmpdir(), 'r27-learn-'))
-    const pick = { 章号: 1, 打分: 5, 场景: '战斗', 技法指令: '学短句压迫感', 出处: '《测试》第1章', 正文: '刀光没入雪雾。' }
+    const pick = {
+      章号: 1,
+      打分: 5,
+      场景: '战斗',
+      技法指令: '学短句压迫感',
+      出处: '《测试》第1章',
+      正文: '刀光没入雪雾。',
+    }
     const first = await commitSamples(bookRoot, [pick])
     expect(first).toHaveLength(1)
     const second = await commitSamples(bookRoot, [pick])

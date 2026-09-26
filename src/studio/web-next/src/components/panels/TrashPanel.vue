@@ -113,7 +113,11 @@ function basename(path: string): string {
   return seg.replace(/\.md$/, '')
 }
 
-watch(() => props.bookName, () => load(), { immediate: true })
+watch(
+  () => props.bookName,
+  () => load(),
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -137,10 +141,22 @@ watch(() => props.bookName, () => load(), { immediate: true })
         <div class="item-actions">
           <!-- ：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
                ：purge 同款在途禁用 -->
-                  <button class="action-btn" data-tip="恢复" data-tip-dir="right" :disabled="restoring !== null" @click="restore(e.id)">
+          <button
+            class="action-btn"
+            data-tip="恢复"
+            data-tip-dir="right"
+            :disabled="restoring !== null"
+            @click="restore(e.id)"
+          >
             <RotateCcw :size="13" />
           </button>
-          <button class="action-btn danger" data-tip="永久删除" data-tip-dir="right" :disabled="purging !== null" @click="purge(e.id)">
+          <button
+            class="action-btn danger"
+            data-tip="永久删除"
+            data-tip-dir="right"
+            :disabled="purging !== null"
+            @click="purge(e.id)"
+          >
             <Trash2 :size="13" />
           </button>
         </div>
@@ -236,7 +252,9 @@ watch(() => props.bookName, () => load(), { immediate: true })
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 .action-btn:hover {
   color: var(--text-accent);

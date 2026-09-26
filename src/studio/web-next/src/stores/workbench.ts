@@ -135,10 +135,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 旧章终局卡片与「写章结果未知」提示同屏自相矛盾；终局须以重连后真实事件为准。
       // 注：完成态空闲重连（healPhase/progress/batchProgress 均 null）不进本分支，
       // 终局卡片跨连接存续（对照见 workbench-sync-healresult-reset.test）。
-      if (
-        !running.value &&
-        (healPhase.value !== null || healProgress.value !== null || batchProgress.value !== null)
-      ) {
+      if (!running.value && (healPhase.value !== null || healProgress.value !== null || batchProgress.value !== null)) {
         healPhase.value = null
         healProgress.value = null
         batchProgress.value = null
@@ -157,7 +154,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         // （修复批）：add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
         if (droppedTypesWarned.size >= 64) droppedTypesWarned.clear()
         droppedTypesWarned.add(e.type)
-        console.debug(`[workbench] 未入库日志：未知事件 type="${e.type}"（首见留痕，同型去重；累计丢弃 ${droppedLogCount} 条）`)
+        console.debug(
+          `[workbench] 未入库日志：未知事件 type="${e.type}"（首见留痕，同型去重；累计丢弃 ${droppedLogCount} 条）`,
+        )
       }
     } else {
       log.value.push(e)

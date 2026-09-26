@@ -63,7 +63,9 @@ describe('io api · 导出', () => {
         }),
     )
     const err = await exportBook('书A', { format: 'merged' }).then(
-      () => { throw new Error('应抛出') },
+      () => {
+        throw new Error('应抛出')
+      },
       (e: unknown) => e,
     )
     expect(err).toBeInstanceOf(ApiError)
@@ -81,7 +83,9 @@ describe('io api · 导出', () => {
         }),
     )
     const err = await exportBook('书A', { format: 'merged' }).then(
-      () => { throw new Error('应抛出') },
+      () => {
+        throw new Error('应抛出')
+      },
       (e: unknown) => e,
     )
     expect(err).toBeInstanceOf(ApiError)

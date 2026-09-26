@@ -115,7 +115,7 @@ export function loadHistoryWithSeqs(events: ChatEvent[]): RestoredHistory {
     msgs.push({ role: 'user', content: blocks })
     seqsPerMsg.push(curTool.map((n) => n.seq))
     curTool = []
-  };
+  }
 
   for (const n of nodes) {
     if (n.kind === 'tool-result') {
@@ -222,9 +222,10 @@ export class SessionRecorder {
         // 口径：被裁段首项若为旧标记，其 dropped 累加进新标记，且旧标记本身不计入本轮
         // 被丢事件条数（凭据延续，不是凭据丢失）。标记只由本路径垫在批首，add 只追加
         // 到尾，故旧标记若在必居 droppedEvs[0]。
-        const prevGapDropped = droppedEvs[0]?.type === 'chat_gap' && typeof droppedEvs[0].data['dropped'] === 'number'
-          ? (droppedEvs[0].data['dropped'] as number)
-          : null
+        const prevGapDropped =
+          droppedEvs[0]?.type === 'chat_gap' && typeof droppedEvs[0].data['dropped'] === 'number'
+            ? (droppedEvs[0].data['dropped'] as number)
+            : null
         const realDropped = prevGapDropped !== null ? dropped - 1 : dropped
         // B406（0918四轮修复批）：丢弃时补断链标记事件入流——被丢事件已永久丢失
         //（「已记录」凭据出现缺口），此前只有日志留痕，事件流本身无声不连续（压缩
@@ -242,7 +243,13 @@ export class SessionRecorder {
           gapMarker,
           ...this.pending.slice(dropped).map((ev) =>
             ev.sourceIdxs
-              ? { ...ev, sourceIdxs: ev.sourceIdxs.map((i) => i - dropped).filter((i) => i >= 0).map((i) => i + 1) }
+              ? {
+                  ...ev,
+                  sourceIdxs: ev.sourceIdxs
+                    .map((i) => i - dropped)
+                    .filter((i) => i >= 0)
+                    .map((i) => i + 1),
+                }
               : ev,
           ),
         ]
@@ -360,7 +367,10 @@ export class SessionRecorder {
           )
         }
         if (chk.rows.length === 0) {
-          log.warn('events', `compaction 遮蔽区间 [${s.start},${s.end}] 内无任何曾可见（表面类）事件——违反遮蔽只盖「曾可见」节点契约`)
+          log.warn(
+            'events',
+            `compaction 遮蔽区间 [${s.start},${s.end}] 内无任何曾可见（表面类）事件——违反遮蔽只盖「曾可见」节点契约`,
+          )
         }
       }
       // 存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）。
@@ -381,9 +391,7 @@ export class SessionRecorder {
         batch.push({ type: 'compaction/start', data: { count: s.end - s.start + 1 } })
         batch.push({
           type: 'compaction/end',
-          ...(carry && summary !== undefined
-            ? { data: { reason, message: summary } }
-            : { data: { reason } }),
+          ...(carry && summary !== undefined ? { data: { reason, message: summary } } : { data: { reason } }),
           surfaceOp: 'replace',
           shadowStart: s.start,
           shadowEnd: s.end,
@@ -416,4 +424,3 @@ export class SessionRecorder {
     this.store = null
   }
 }
-

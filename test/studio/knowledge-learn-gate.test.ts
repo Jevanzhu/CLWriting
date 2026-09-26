@@ -66,7 +66,11 @@ beforeAll(async () => {
     dirs: ['写作/正文'],
     bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 学习闸测试书\n  genre: 玄幻\nhost: cc\n',
     files: [
-      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n' },
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content:
+          '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n',
+      },
     ],
   })
   workDir = studio.workDir

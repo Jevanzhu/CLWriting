@@ -55,7 +55,10 @@ export function parseBuilderFiles(yamlText) {
     const line = raw.trim()
     if (line === '' || line.startsWith('#')) continue
     if (!inFiles) {
-      if (/^files:\s*$/.test(line)) { inFiles = true; continue }
+      if (/^files:\s*$/.test(line)) {
+        inFiles = true
+        continue
+      }
       continue
     }
     if (line.startsWith('- ')) {
@@ -106,7 +109,9 @@ export function problemsForElectronBuilderAppleDouble(files) {
     return found
   }
   if (!files.some((entry) => entry === '!**/._*')) {
-    found.push('electron-builder.yml files 缺 AppleDouble 否定模式（!**/._*）——外置卷 ._ 伴生文件会进 asar（全库重评-0914 P3-10 回潮）')
+    found.push(
+      'electron-builder.yml files 缺 AppleDouble 否定模式（!**/._*）——外置卷 ._ 伴生文件会进 asar（全库重评-0914 P3-10 回潮）',
+    )
   }
   return found
 }
@@ -128,7 +133,9 @@ export function problemsForElectronBuilderNodeModulesExclusion(files) {
     return found
   }
   if (!files.some((entry) => entry === '!node_modules/**')) {
-    found.push('electron-builder.yml files 缺 node_modules 全排除模式（!node_modules/**）——冗余依赖整树回装 asar、装机体回涨（0917清库修复批回潮）')
+    found.push(
+      'electron-builder.yml files 缺 node_modules 全排除模式（!node_modules/**）——冗余依赖整树回装 asar、装机体回涨（0917清库修复批回潮）',
+    )
   }
   return found
 }
@@ -176,7 +183,9 @@ export function problemsForDepsNoExternal(dependencies, noExternal) {
   }
   for (const dep of deps) {
     if (!list.includes(dep)) {
-      found.push(`package.json dependencies 的 ${dep} 不在 tsup noExternal 清单——asar 已排除 node_modules，打包态该裸 import 必炸 ERR_MODULE_NOT_FOUND（rc.0 假绿链回潮；补 noExternal 或显式 external 并注明）`)
+      found.push(
+        `package.json dependencies 的 ${dep} 不在 tsup noExternal 清单——asar 已排除 node_modules，打包态该裸 import 必炸 ERR_MODULE_NOT_FOUND（rc.0 假绿链回潮；补 noExternal 或显式 external 并注明）`,
+      )
     }
   }
   return found
@@ -196,7 +205,9 @@ export function problemsForDepsVersionSync(rootDeps, subDeps) {
     const va = a[name]
     const vb = b[name]
     if (va !== undefined && vb !== undefined && va !== vb) {
-      found.push(`根包与 web-next 子包的 ${name} 版本声明分叉（根 ${va} / 子 ${vb}）——测试面（钉根副本）与构建面（子包副本）静默分叉（RC 全项目重审 P3-15）`)
+      found.push(
+        `根包与 web-next 子包的 ${name} 版本声明分叉（根 ${va} / 子 ${vb}）——测试面（钉根副本）与构建面（子包副本）静默分叉（RC 全项目重审 P3-15）`,
+      )
     }
   }
   return found
@@ -268,7 +279,9 @@ export function parseBuilderAsarUnpack(yamlText) {
 export function problemsForElectronBuilderAsarUnpack(items) {
   const found = []
   if (!Array.isArray(items) || items.length === 0) {
-    found.push('electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）')
+    found.push(
+      'electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）',
+    )
     return found
   }
   // 可命中 dist/desktop/fontlist 的模式族（R0912 两线并集：两星斜杠根锚定 / 显式 dist/
@@ -277,11 +290,17 @@ export function problemsForElectronBuilderAsarUnpack(items) {
   const hits = (entry) => {
     if (typeof entry !== 'string') return false
     const norm = entry.replace(/\/\*\*(?:\/\*)?$/, '')
-    return norm === '**/desktop/fontlist' || norm === 'dist/desktop/fontlist' || norm === 'dist'
-      || entry.startsWith('dist/desktop/fontlist/')
+    return (
+      norm === '**/desktop/fontlist' ||
+      norm === 'dist/desktop/fontlist' ||
+      norm === 'dist' ||
+      entry.startsWith('dist/desktop/fontlist/')
+    )
   }
   if (!items.some(hits)) {
-    found.push('electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮；R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中，为无效外置）')
+    found.push(
+      'electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮；R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中，为无效外置）',
+    )
   }
   return found
 }
@@ -298,7 +317,9 @@ export function problemsForDistFontList(distDesktopDir, platform) {
     // R0912（重评-0911c P3/G）：两态文案——本机 dist 陈旧（工作树半新态）与拷贝链
     // 失效（真回潮）此前不可区分，误导排障方向（R0911 修复后本地首跑曾因陈旧 dist
     // 伪红）。fail-closed 方向不变：两种形态都要求先重跑 build 再复检。
-    found.push(`darwin dist 已构建但缺 ${bin}——dist 陈旧（先 npm run build 重新构建再复检）或 tsup onSuccess 拷贝步骤失效（回潮）`)
+    found.push(
+      `darwin dist 已构建但缺 ${bin}——dist 陈旧（先 npm run build 重新构建再复检）或 tsup onSuccess 拷贝步骤失效（回潮）`,
+    )
     return found
   }
   try {

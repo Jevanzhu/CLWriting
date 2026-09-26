@@ -14,7 +14,9 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../../src/ai/tools/index.js', () => ({
   TOOL_EXECUTORS: {
     book_search: () => {
-      throw new Error('上游网关拒绝：https://api.example.com/v1/chat?api_key=sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456')
+      throw new Error(
+        '上游网关拒绝：https://api.example.com/v1/chat?api_key=sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
+      )
     },
     chapter_status: (): never => {
       throw '非 Error 抛出（String(e) 路径）：Bearer sk-abcdefghijklmnop1234567890'
@@ -41,7 +43,11 @@ function makeOpts(): ChatOpts {
 
 describe('R55-C-4: executeChatTool 兜底 catch 脱敏', () => {
   it('Error.message 含 URL query param 形态 key → 文案已脱敏（原文不外溢）', async () => {
-    const r = await executeChatTool({ id: 'c1', name: 'book_search', input: {} }, makeOpts(), new AbortController().signal)
+    const r = await executeChatTool(
+      { id: 'c1', name: 'book_search', input: {} },
+      makeOpts(),
+      new AbortController().signal,
+    )
     expect(r.ok).toBe(false)
     expect(r.summary.startsWith('执行失败：')).toBe(true)
     expect(r.summary).not.toContain(SECRET_URL_KEY)
@@ -49,7 +55,11 @@ describe('R55-C-4: executeChatTool 兜底 catch 脱敏', () => {
   })
 
   it('非 Error 抛出（String(e) 路径）含 Bearer key → 文案同样已脱敏', async () => {
-    const r = await executeChatTool({ id: 'c2', name: 'chapter_status', input: {} }, makeOpts(), new AbortController().signal)
+    const r = await executeChatTool(
+      { id: 'c2', name: 'chapter_status', input: {} },
+      makeOpts(),
+      new AbortController().signal,
+    )
     expect(r.ok).toBe(false)
     expect(r.summary.startsWith('执行失败：')).toBe(true)
     expect(r.summary).not.toContain(SECRET_BEARER_KEY)

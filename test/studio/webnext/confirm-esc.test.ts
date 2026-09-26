@@ -78,7 +78,12 @@ describe('B-8: ConfirmPrompt Esc 消费', () => {
     const p = ui.ask({ title: '删除书', message: '确认？' })
 
     // IME 组合期 Esc（收候选/取消组字）：让渡输入法——不关弹窗、不 preventDefault
-    const composingEsc = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+    const composingEsc = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    })
     document.dispatchEvent(composingEsc)
     expect(composingEsc.defaultPrevented).toBe(false) // Esc 归输入法消费
     expect(ui.confirmState).not.toBeNull() // 修复点：不连带取消确认框

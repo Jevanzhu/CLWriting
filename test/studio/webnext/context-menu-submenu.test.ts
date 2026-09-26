@@ -18,7 +18,14 @@ import ContextMenu from '../../../src/studio/web-next/src/components/ui/ContextM
 
 const ITEMS = [
   { key: 'open', label: '打开' },
-  { key: 'share', label: '分享', submenu: [{ key: 'copy', label: '复制链接' }, { key: 'mail', label: '邮件' }] },
+  {
+    key: 'share',
+    label: '分享',
+    submenu: [
+      { key: 'copy', label: '复制链接' },
+      { key: 'mail', label: '邮件' },
+    ],
+  },
 ]
 
 function mountMenu() {

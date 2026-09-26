@@ -86,23 +86,29 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
   await page.keyboard.insertText('\n'.repeat(300) + '末行标记')
   await expect(page.locator('.cm-activeLine')).toContainText('末行标记')
 
-  const get = () => page.evaluate(() => {
-    const scroller = document.querySelector('.cm-scroller') as HTMLElement
-    const content = document.querySelector('.cm-content') as HTMLElement
-    const active = document.querySelector('.cm-activeLine') as HTMLElement
-    const lines = Array.from(content.querySelectorAll('.cm-line')) as HTMLElement[]
-    const idx = lines.indexOf(active)
-    const sr = scroller.getBoundingClientRect()
-    const ar = active.getBoundingClientRect()
-    const op = (d: number): string => (idx - d >= 0 ? getComputedStyle(lines[idx - d]!).opacity : '-1')
-    return {
-      drift: Math.round(ar.top + ar.height / 2 - (sr.top + sr.height / 2)),
-      paddingTop: getComputedStyle(content).paddingTop,
-      paddingBottom: getComputedStyle(content).paddingBottom,
-      transition: getComputedStyle(active).transitionDuration,
-      op1: op(1), op2: op(2), op3: op(3), op5: op(5), op8: op(8), op12: op(12),
-    }
-  })
+  const get = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('.cm-scroller') as HTMLElement
+      const content = document.querySelector('.cm-content') as HTMLElement
+      const active = document.querySelector('.cm-activeLine') as HTMLElement
+      const lines = Array.from(content.querySelectorAll('.cm-line')) as HTMLElement[]
+      const idx = lines.indexOf(active)
+      const sr = scroller.getBoundingClientRect()
+      const ar = active.getBoundingClientRect()
+      const op = (d: number): string => (idx - d >= 0 ? getComputedStyle(lines[idx - d]!).opacity : '-1')
+      return {
+        drift: Math.round(ar.top + ar.height / 2 - (sr.top + sr.height / 2)),
+        paddingTop: getComputedStyle(content).paddingTop,
+        paddingBottom: getComputedStyle(content).paddingBottom,
+        transition: getComputedStyle(active).transitionDuration,
+        op1: op(1),
+        op2: op(2),
+        op3: op(3),
+        op5: op(5),
+        op8: op(8),
+        op12: op(12),
+      }
+    })
 
   // 滚动居中：当前行中心与滚动容器中心偏差 ≤40px；上下半屏余量非 0（首行/文末都可居中）
   const m = await get()
@@ -164,9 +170,7 @@ test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 �
         const b1 = await statsBar.boundingBox()
         await page.waitForTimeout(50)
         const b2 = await statsBar.boundingBox()
-        return (
-          !!b1 && !!b2 && b1.x === b2.x && b1.y === b2.y && b1.width === b2.width && b1.height === b2.height
-        )
+        return !!b1 && !!b2 && b1.x === b2.x && b1.y === b2.y && b1.width === b2.width && b1.height === b2.height
       },
       { timeout: 3_000, message: '专注统计条布局未静置' },
     )

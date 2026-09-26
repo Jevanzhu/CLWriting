@@ -23,7 +23,15 @@ import { log } from '../log/index.js'
 /** budget 段 parse 面键序——历史 BUDGET_KEYS 白名单序。
  *  warn 输出顺序锁此旧序；与 stringify 落行序不同（见 SECTION_SPECS 表行序），如实
  *  参数化不抹平（parseKeyOrder 覆写）。 */
-const BUDGET_PARSE_ORDER = ['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter', 'chat_max_calls'] as const
+const BUDGET_PARSE_ORDER = [
+  'calls_per_chapter',
+  'input_per_chapter',
+  'summary_chapter_max',
+  'summary_volume_max',
+  'tokens_per_chapter',
+  'cost_per_chapter',
+  'chat_max_calls',
+] as const
 
 /** 短篇 budget 段输出判定——条件键三键（calls + 双口径 tokens/cost）
  *  任一已设即输出段；全未设整段省略（缺省语义，回落运行时合并层）。此前外层条件只认
@@ -114,7 +122,10 @@ const failClosedNumParse =
     const v = parsePositiveNumber(node.value)
     if (v !== undefined && Number.isInteger(v)) ctx.bucket[key] = v
     else {
-      log.warn('book.yaml', `${section}.${key} 值非正整数（「${node.value.trim()}」），已按 fail-closed 落 0（chat AI 调用全部阻断），请修正为正整数或删除该键`)
+      log.warn(
+        'book.yaml',
+        `${section}.${key} 值非正整数（「${node.value.trim()}」），已按 fail-closed 落 0（chat AI 调用全部阻断），请修正为正整数或删除该键`,
+      )
       ctx.bucket[key] = 0
     }
   }
@@ -136,7 +147,10 @@ const shortArrParse =
   (node: RawSection, ctx: ParseCtx): void => {
     const value = parseValue(node.value)
     if (Array.isArray(value)) {
-      const items = value.map(String).map((v) => v.trim()).filter(Boolean)
+      const items = value
+        .map(String)
+        .map((v) => v.trim())
+        .filter(Boolean)
       if (items.length > 0) ctx.bucket[key] = items
     }
   }
@@ -188,7 +202,8 @@ const snapshotNumParse =
   (node: RawSection, ctx: ParseCtx): void => {
     const v = parseFiniteNumber(node.value, 0)
     if (v > 0) ctx.bucket[key] = v
-    else log.warn('book.yaml', `snapshots.${key} 值非正数（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+    else
+      log.warn('book.yaml', `snapshots.${key} 值非正数（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
   }
 
 // ── 键行 stringify 面工厂 ──
@@ -235,9 +250,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
           if (genre !== '') ctx.bucket.genre = genre
         },
         emit: (cfg) =>
-          cfg.book.genre !== undefined && cfg.book.genre !== ''
-            ? [`  genre: ${stringifyValue(cfg.book.genre)}`]
-            : [],
+          cfg.book.genre !== undefined && cfg.book.genre !== '' ? [`  genre: ${stringifyValue(cfg.book.genre)}`] : [],
         get: (c) => (c.book.genre === '' ? undefined : c.book.genre),
       },
       {
@@ -247,7 +260,11 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
           // 坏值静默忽略补 warn（kind/host 与阈值族
           // 同文件留痕纪律——「配置写了但不生效」须有迹可查，否则字数规划静默失真）
           if (Number.isSafeInteger(volumeSize) && volumeSize > 0) ctx.bucket.volume_size = volumeSize
-          else log.warn('book.yaml', `book.volume_size 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+          else
+            log.warn(
+              'book.yaml',
+              `book.volume_size 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`,
+            )
         },
         emit: (cfg) => (cfg.book.volume_size !== undefined ? [`  volume_size: ${cfg.book.volume_size}`] : []),
         get: (c) => c.book.volume_size,
@@ -258,7 +275,11 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         parse: (node, ctx) => {
           const targetWords = parseFiniteNumber(node.value, NaN)
           if (Number.isFinite(targetWords) && targetWords > 0) ctx.bucket.target_words = targetWords
-          else log.warn('book.yaml', `book.target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+          else
+            log.warn(
+              'book.yaml',
+              `book.target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`,
+            )
         },
         emit: (cfg) => (cfg.book.target_words !== undefined ? [`  target_words: ${cfg.book.target_words}`] : []),
         get: (c) => c.book.target_words,
@@ -270,9 +291,16 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         parse: (node, ctx) => {
           const v = parseFiniteNumber(node.value, 0)
           if (Number.isFinite(v) && v > 0) ctx.bucket.chapter_target_words = v
-          else log.warn('book.yaml', `book.chapter_target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+          else
+            log.warn(
+              'book.yaml',
+              `book.chapter_target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`,
+            )
         },
-        emit: (cfg) => (cfg.book.chapter_target_words !== undefined ? [`  chapter_target_words: ${cfg.book.chapter_target_words}`] : []),
+        emit: (cfg) =>
+          cfg.book.chapter_target_words !== undefined
+            ? [`  chapter_target_words: ${cfg.book.chapter_target_words}`]
+            : [],
         get: (c) => c.book.chapter_target_words,
       },
     ],
@@ -318,7 +346,8 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
             // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
             const num = parsePositiveNumber(c.value)
             if (num !== undefined) thresholds[c.key] = num
-            else log.warn('book.yaml', `leads.thresholds.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
+            else
+              log.warn('book.yaml', `leads.thresholds.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
           }
           if (Object.keys(thresholds).length > 0) ctx.bucket.thresholds = thresholds
         },
@@ -369,7 +398,8 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       {
         key: 'summary_chapter_max',
         parse: positiveNumParse('budget', 'summary_chapter_max'),
-        emit: (cfg) => (cfg.kind !== 'short' ? [`  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`] : []),
+        emit: (cfg) =>
+          cfg.kind !== 'short' ? [`  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`] : [],
         get: (c) => c.budget.summary_chapter_max,
       },
       {
@@ -437,10 +467,30 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         emit: (cfg) => (cfg.short?.profile ? [`  profile: ${stringifyValue(cfg.short.profile)}`] : []),
         get: (c) => c.short?.profile,
       },
-      { key: 'target_emotions', parse: shortArrParse('target_emotions'), emit: scalarLeafEmit('target_emotions', (c) => c.short?.target_emotions), get: (c) => c.short?.target_emotions },
-      { key: 'target_reversal_types', parse: shortArrParse('target_reversal_types'), emit: scalarLeafEmit('target_reversal_types', (c) => c.short?.target_reversal_types), get: (c) => c.short?.target_reversal_types },
-      { key: 'target_ending_flavors', parse: shortArrParse('target_ending_flavors'), emit: scalarLeafEmit('target_ending_flavors', (c) => c.short?.target_ending_flavors), get: (c) => c.short?.target_ending_flavors },
-      { key: 'series_motifs', parse: shortArrParse('series_motifs'), emit: scalarLeafEmit('series_motifs', (c) => c.short?.series_motifs), get: (c) => c.short?.series_motifs },
+      {
+        key: 'target_emotions',
+        parse: shortArrParse('target_emotions'),
+        emit: scalarLeafEmit('target_emotions', (c) => c.short?.target_emotions),
+        get: (c) => c.short?.target_emotions,
+      },
+      {
+        key: 'target_reversal_types',
+        parse: shortArrParse('target_reversal_types'),
+        emit: scalarLeafEmit('target_reversal_types', (c) => c.short?.target_reversal_types),
+        get: (c) => c.short?.target_reversal_types,
+      },
+      {
+        key: 'target_ending_flavors',
+        parse: shortArrParse('target_ending_flavors'),
+        emit: scalarLeafEmit('target_ending_flavors', (c) => c.short?.target_ending_flavors),
+        get: (c) => c.short?.target_ending_flavors,
+      },
+      {
+        key: 'series_motifs',
+        parse: shortArrParse('series_motifs'),
+        emit: scalarLeafEmit('series_motifs', (c) => c.short?.series_motifs),
+        get: (c) => c.short?.series_motifs,
+      },
       {
         // parseStrictBool 收口（原 `String === 'true'` 把 strict: yes
         // 解析成 false 反向开关）；非法值 warn + 按未设（回落 defaultShortStrict 托底链）。
@@ -451,12 +501,42 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         emit: (cfg) => (cfg.short?.strict !== undefined ? [`  strict: ${cfg.short.strict}`] : []),
         get: (c) => c.short?.strict,
       },
-      { key: 'word_min', parse: shortNumParse('word_min'), emit: scalarLeafEmit('word_min', (c) => c.short?.word_min), get: (c) => c.short?.word_min },
-      { key: 'word_max', parse: shortNumParse('word_max'), emit: scalarLeafEmit('word_max', (c) => c.short?.word_max), get: (c) => c.short?.word_max },
-      { key: 'body_part_threshold', parse: shortNumParse('body_part_threshold'), emit: scalarLeafEmit('body_part_threshold', (c) => c.short?.body_part_threshold), get: (c) => c.short?.body_part_threshold },
-      { key: 'simile_threshold', parse: shortNumParse('simile_threshold'), emit: scalarLeafEmit('simile_threshold', (c) => c.short?.simile_threshold), get: (c) => c.short?.simile_threshold },
-      { key: 'section_count', parse: shortNumParse('section_count'), emit: scalarLeafEmit('section_count', (c) => c.short?.section_count), get: (c) => c.short?.section_count },
-      { key: 'opening_env_chars', parse: shortNumParse('opening_env_chars'), emit: scalarLeafEmit('opening_env_chars', (c) => c.short?.opening_env_chars), get: (c) => c.short?.opening_env_chars },
+      {
+        key: 'word_min',
+        parse: shortNumParse('word_min'),
+        emit: scalarLeafEmit('word_min', (c) => c.short?.word_min),
+        get: (c) => c.short?.word_min,
+      },
+      {
+        key: 'word_max',
+        parse: shortNumParse('word_max'),
+        emit: scalarLeafEmit('word_max', (c) => c.short?.word_max),
+        get: (c) => c.short?.word_max,
+      },
+      {
+        key: 'body_part_threshold',
+        parse: shortNumParse('body_part_threshold'),
+        emit: scalarLeafEmit('body_part_threshold', (c) => c.short?.body_part_threshold),
+        get: (c) => c.short?.body_part_threshold,
+      },
+      {
+        key: 'simile_threshold',
+        parse: shortNumParse('simile_threshold'),
+        emit: scalarLeafEmit('simile_threshold', (c) => c.short?.simile_threshold),
+        get: (c) => c.short?.simile_threshold,
+      },
+      {
+        key: 'section_count',
+        parse: shortNumParse('section_count'),
+        emit: scalarLeafEmit('section_count', (c) => c.short?.section_count),
+        get: (c) => c.short?.section_count,
+      },
+      {
+        key: 'opening_env_chars',
+        parse: shortNumParse('opening_env_chars'),
+        emit: scalarLeafEmit('opening_env_chars', (c) => c.short?.opening_env_chars),
+        get: (c) => c.short?.opening_env_chars,
+      },
     ],
   },
   {
@@ -469,7 +549,8 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         // parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
         key: 'confirm_outline',
         parse: strictBoolParse('confirm_outline', 'auto.confirm_outline'),
-        emit: (cfg) => (cfg.auto?.confirm_outline !== undefined ? [`  confirm_outline: ${cfg.auto.confirm_outline}`] : []),
+        emit: (cfg) =>
+          cfg.auto?.confirm_outline !== undefined ? [`  confirm_outline: ${cfg.auto.confirm_outline}`] : [],
         get: (c) => c.auto?.confirm_outline,
       },
       {
@@ -485,7 +566,8 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         // parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
         key: 'relation_auto_mine',
         parse: strictBoolParse('relation_auto_mine', 'auto.relation_auto_mine'),
-        emit: (cfg) => (cfg.auto?.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
+        emit: (cfg) =>
+          cfg.auto?.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : [],
         get: (c) => c.auto?.relation_auto_mine,
       },
       {
@@ -512,7 +594,9 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         parse: (node, ctx) => {
           const v = parseFiniteNumber(node.value, NaN)
           if (!Number.isFinite(v) || v <= 0) {
-            throw new Error(`growth.realm_span_max 必须为正数（实际「${node.value.trim()}」），请修正 book.yaml 的 growth 段`)
+            throw new Error(
+              `growth.realm_span_max 必须为正数（实际「${node.value.trim()}」），请修正 book.yaml 的 growth 段`,
+            )
           }
           ctx.bucket.realm_span_max = v
         },
@@ -529,16 +613,51 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
     // 整段未设不落段（现有仓库零改动红线）。写法照 auto 段的条件输出范式
     gate: (_cfg, body) => body.length > 0,
     keys: [
-      { key: 'imagery_words', parse: checksWordListParse('imagery_words'), emit: scalarLeafEmit('imagery_words', (c) => c.checks?.imagery_words), get: (c) => c.checks?.imagery_words },
-      { key: 'leak_keywords', parse: checksWordListParse('leak_keywords'), emit: scalarLeafEmit('leak_keywords', (c) => c.checks?.leak_keywords), get: (c) => c.checks?.leak_keywords },
+      {
+        key: 'imagery_words',
+        parse: checksWordListParse('imagery_words'),
+        emit: scalarLeafEmit('imagery_words', (c) => c.checks?.imagery_words),
+        get: (c) => c.checks?.imagery_words,
+      },
+      {
+        key: 'leak_keywords',
+        parse: checksWordListParse('leak_keywords'),
+        emit: scalarLeafEmit('leak_keywords', (c) => c.checks?.leak_keywords),
+        get: (c) => c.checks?.leak_keywords,
+      },
       // 机检阈值五键——此前解析面不认（作者手写被静默丢弃，按引擎
       // 默认值执行，配置链路断裂）。正数校验 + 非法值 warn 按未设（口径，回落
       // 全局链/引擎默认即可，不 fail-loud：调参面写坏不阻断写作）
-      { key: 'repeat_threshold', parse: positiveNumParse('checks', 'repeat_threshold'), emit: scalarLeafEmit('repeat_threshold', (c) => c.checks?.repeat_threshold), get: (c) => c.checks?.repeat_threshold },
-      { key: 'repeat_chars_threshold', parse: positiveNumParse('checks', 'repeat_chars_threshold'), emit: scalarLeafEmit('repeat_chars_threshold', (c) => c.checks?.repeat_chars_threshold), get: (c) => c.checks?.repeat_chars_threshold },
-      { key: 'max_sentence_len', parse: positiveNumParse('checks', 'max_sentence_len'), emit: scalarLeafEmit('max_sentence_len', (c) => c.checks?.max_sentence_len), get: (c) => c.checks?.max_sentence_len },
-      { key: 'imagery_threshold', parse: positiveNumParse('checks', 'imagery_threshold'), emit: scalarLeafEmit('imagery_threshold', (c) => c.checks?.imagery_threshold), get: (c) => c.checks?.imagery_threshold },
-      { key: 'word_count_tolerance', parse: positiveNumParse('checks', 'word_count_tolerance'), emit: scalarLeafEmit('word_count_tolerance', (c) => c.checks?.word_count_tolerance), get: (c) => c.checks?.word_count_tolerance },
+      {
+        key: 'repeat_threshold',
+        parse: positiveNumParse('checks', 'repeat_threshold'),
+        emit: scalarLeafEmit('repeat_threshold', (c) => c.checks?.repeat_threshold),
+        get: (c) => c.checks?.repeat_threshold,
+      },
+      {
+        key: 'repeat_chars_threshold',
+        parse: positiveNumParse('checks', 'repeat_chars_threshold'),
+        emit: scalarLeafEmit('repeat_chars_threshold', (c) => c.checks?.repeat_chars_threshold),
+        get: (c) => c.checks?.repeat_chars_threshold,
+      },
+      {
+        key: 'max_sentence_len',
+        parse: positiveNumParse('checks', 'max_sentence_len'),
+        emit: scalarLeafEmit('max_sentence_len', (c) => c.checks?.max_sentence_len),
+        get: (c) => c.checks?.max_sentence_len,
+      },
+      {
+        key: 'imagery_threshold',
+        parse: positiveNumParse('checks', 'imagery_threshold'),
+        emit: scalarLeafEmit('imagery_threshold', (c) => c.checks?.imagery_threshold),
+        get: (c) => c.checks?.imagery_threshold,
+      },
+      {
+        key: 'word_count_tolerance',
+        parse: positiveNumParse('checks', 'word_count_tolerance'),
+        emit: scalarLeafEmit('word_count_tolerance', (c) => c.checks?.word_count_tolerance),
+        get: (c) => c.checks?.word_count_tolerance,
+      },
     ],
   },
   {
@@ -566,7 +685,14 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         if (v !== undefined) ragEnabled = v
         else warnBadBool('rag.enabled', en.value)
       }
-      if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0) || (Number.isInteger(embedTimeout) && embedTimeout > 0)) {
+      if (
+        en ||
+        pv ||
+        ep ||
+        md ||
+        (Number.isInteger(depth) && depth > 0) ||
+        (Number.isInteger(embedTimeout) && embedTimeout > 0)
+      ) {
         cfg.rag = {
           enabled: ragEnabled,
           ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
@@ -580,15 +706,43 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       }
     },
     keys: [
-      { key: 'enabled', emit: (cfg) => (cfg.rag != null ? [`  enabled: ${cfg.rag.enabled}`] : []), get: (c) => c.rag?.enabled },
+      {
+        key: 'enabled',
+        emit: (cfg) => (cfg.rag != null ? [`  enabled: ${cfg.rag.enabled}`] : []),
+        get: (c) => c.rag?.enabled,
+      },
       // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清
-      { key: 'provider', emit: (cfg) => (cfg.rag?.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []), get: (c) => c.rag?.provider },
-      { key: 'endpoint', emit: (cfg) => (cfg.rag != null && !cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []), get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
-      { key: 'model', emit: (cfg) => (cfg.rag != null && !cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []), get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
+      {
+        key: 'provider',
+        emit: (cfg) => (cfg.rag?.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []),
+        get: (c) => c.rag?.provider,
+      },
+      {
+        key: 'endpoint',
+        emit: (cfg) =>
+          cfg.rag != null && !cfg.rag.provider && cfg.rag.endpoint
+            ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`]
+            : [],
+        get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint),
+      },
+      {
+        key: 'model',
+        emit: (cfg) =>
+          cfg.rag != null && !cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : [],
+        get: (c) => (c.rag?.provider ? undefined : c.rag?.model),
+      },
       // candidate_depth随段输出——漏写则 PUT /config 解析失败回退分支走本函数全量
       // 重生成时，已配的候选深度被静默抹掉（补丁白名单已认该键，两路口径须一致）
-      { key: 'candidate_depth', emit: scalarLeafEmit('candidate_depth', (c) => c.rag?.candidate_depth), get: (c) => c.rag?.candidate_depth },
-      { key: 'embed_timeout_ms', emit: scalarLeafEmit('embed_timeout_ms', (c) => c.rag?.embed_timeout_ms), get: (c) => c.rag?.embed_timeout_ms },
+      {
+        key: 'candidate_depth',
+        emit: scalarLeafEmit('candidate_depth', (c) => c.rag?.candidate_depth),
+        get: (c) => c.rag?.candidate_depth,
+      },
+      {
+        key: 'embed_timeout_ms',
+        emit: scalarLeafEmit('embed_timeout_ms', (c) => c.rag?.embed_timeout_ms),
+        get: (c) => c.rag?.embed_timeout_ms,
+      },
     ],
   },
   {
@@ -596,10 +750,21 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
     parseKind: 'bucket',
     // 快照保留策略（单章版本回滚）：缺省不写字段 → 用代码默认值；段门/键行照条件输出
     // 范式（缺省不输出——现有仓库零改动红线）
-    gate: (cfg) => cfg.snapshots != null && (cfg.snapshots.max_days !== undefined || cfg.snapshots.max_count !== undefined),
+    gate: (cfg) =>
+      cfg.snapshots != null && (cfg.snapshots.max_days !== undefined || cfg.snapshots.max_count !== undefined),
     keys: [
-      { key: 'max_days', parse: snapshotNumParse('max_days'), emit: scalarLeafEmit('max_days', (c) => c.snapshots?.max_days), get: (c) => c.snapshots?.max_days },
-      { key: 'max_count', parse: snapshotNumParse('max_count'), emit: scalarLeafEmit('max_count', (c) => c.snapshots?.max_count), get: (c) => c.snapshots?.max_count },
+      {
+        key: 'max_days',
+        parse: snapshotNumParse('max_days'),
+        emit: scalarLeafEmit('max_days', (c) => c.snapshots?.max_days),
+        get: (c) => c.snapshots?.max_days,
+      },
+      {
+        key: 'max_count',
+        parse: snapshotNumParse('max_count'),
+        emit: scalarLeafEmit('max_count', (c) => c.snapshots?.max_count),
+        get: (c) => c.snapshots?.max_count,
+      },
     ],
   },
 ]
@@ -608,7 +773,19 @@ export const SECTION_BY_NAME: ReadonlyMap<string, ConfigSectionSpec> = new Map(S
 
 /** parse 面段序（历史 sectionsToConfig 处理序：snapshots 先于 rag——warn/报错触发顺序
  *  锁旧序；stringify 段序 = 表序，rag 先于 snapshots）。 */
-export const PARSE_SECTION_ORDER: readonly string[] = ['book', 'leads', 'budget', 'style', 'summary', 'short', 'auto', 'growth', 'checks', 'snapshots', 'rag']
+export const PARSE_SECTION_ORDER: readonly string[] = [
+  'book',
+  'leads',
+  'budget',
+  'style',
+  'summary',
+  'short',
+  'auto',
+  'growth',
+  'checks',
+  'snapshots',
+  'rag',
+]
 
 /** 段解析驱动（表派生）：逐键 findChild（段内重复 fail-loud）+ 键行 parse；
  *  bucket 段非空才整段赋（style/summary/short/auto/checks/snapshots 语义）。 */
@@ -618,7 +795,8 @@ export function parseSectionSpec(spec: ConfigSectionSpec, sectionNode: RawSectio
     return
   }
   const cfgBag = cfg as unknown as Record<string, unknown>
-  const bucket: Record<string, unknown> = spec.parseKind === 'flat' ? (cfgBag[spec.name] as Record<string, unknown>) : {}
+  const bucket: Record<string, unknown> =
+    spec.parseKind === 'flat' ? (cfgBag[spec.name] as Record<string, unknown>) : {}
   for (const key of spec.parseKeyOrder ?? spec.keys.map((k) => k.key)) {
     const row = spec.keys.find((k) => k.key === key)
     if (row?.parse === undefined) continue
@@ -680,7 +858,10 @@ function parseStrictBool(raw: string): boolean | undefined {
 
 /** 布尔键非法值 warn 留痕（tag/句式对齐本文件口径），按未设处理。 */
 function warnBadBool(key: string, raw: string): void {
-  log.warn('book.yaml', `${key} 值非合法布尔（「${raw.trim()}」，合法：true/false/yes/no/on/off/1/0），已忽略（按未设处理，回落缺省）`)
+  log.warn(
+    'book.yaml',
+    `${key} 值非合法布尔（「${raw.trim()}」，合法：true/false/yes/no/on/off/1/0），已忽略（按未设处理，回落缺省）`,
+  )
 }
 
 export function renderScalar(v: unknown): string {

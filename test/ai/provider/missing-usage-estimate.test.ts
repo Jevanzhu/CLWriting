@@ -76,12 +76,33 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
       chat: {
         completions: {
           create: fakeSend([
-            { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'submit_chapter', arguments: '{"标题":"第一章","正文":"慢慢写完这一章的全部内容,足够长"}' } }] }, finish_reason: 'tool_calls' }] },
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call_1',
+                        function: {
+                          name: 'submit_chapter',
+                          arguments: '{"标题":"第一章","正文":"慢慢写完这一章的全部内容,足够长"}',
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            },
           ]),
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIProviderChat(CONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -98,7 +119,10 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
         },
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIProviderChat(CONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIProviderChat(CONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     expect(evs.find((e) => e.type === 'done')).toBeUndefined()
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ retryable: true, code: 'NETWORK' })
   })
@@ -117,7 +141,11 @@ describe('R73-1: Anthropic 线网关吞 usage → 估计入账', () => {
       },
     } as unknown as Anthropic
     const evs: GenEvent[] = []
-    for await (const ev of createAnthropicProvider(ACONF, client).stream({ systemPrompt: 'sys', messages: [{ role: 'user', content: '问' }] }, new AbortController().signal)) evs.push(ev)
+    for await (const ev of createAnthropicProvider(ACONF, client).stream(
+      { systemPrompt: 'sys', messages: [{ role: 'user', content: '问' }] },
+      new AbortController().signal,
+    ))
+      evs.push(ev)
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -133,14 +161,22 @@ describe('R73-1: Anthropic 线网关吞 usage → 估计入账', () => {
         create: fakeSend([
           { type: 'message_start', message: { usage: { input_tokens: 42 } } },
           { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'submit_chapter' } },
-          { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"正文":"内容足够长的一段正文"}' } },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"正文":"内容足够长的一段正文"}' },
+          },
           { type: 'content_block_stop', index: 0 },
           { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
         ]),
       },
     } as unknown as Anthropic
     const evs: GenEvent[] = []
-    for await (const ev of createAnthropicProvider(ACONF, client).stream({ systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }, new AbortController().signal)) evs.push(ev)
+    for await (const ev of createAnthropicProvider(ACONF, client).stream(
+      { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] },
+      new AbortController().signal,
+    ))
+      evs.push(ev)
     const tool = evs.find((e) => e.type === 'tool')
     expect(tool).toBeDefined()
     const done = evs.find((e) => e.type === 'done')
@@ -185,11 +221,17 @@ describe('R74-1: Responses 线终止事件无 usage → 估计入账', () => {
     const client = {
       responses: {
         create: fakeSend([
-          { type: 'response.completed', response: { output: [{ type: 'message' }], usage: { input_tokens: 3, output_tokens: 2 } } },
+          {
+            type: 'response.completed',
+            response: { output: [{ type: 'message' }], usage: { input_tokens: 3, output_tokens: 2 } },
+          },
         ]),
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toMatchObject({ usage: { inputTokens: 3, outputTokens: 2 } })
     if (done?.type !== 'done') return
@@ -202,11 +244,17 @@ describe('R74-1: Responses 线终止事件无 usage → 估计入账', () => {
         create: fakeSend([
           // 截断发生在 function_call 参数增量中途：无 output_item.done，残留 toolAccum
           { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"正文":"写到一半被截断' },
-          { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' }, usage: null } },
+          {
+            type: 'response.incomplete',
+            response: { incomplete_details: { reason: 'max_output_tokens' }, usage: null },
+          },
         ]),
       },
     } as unknown as OpenAI
-    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -226,13 +274,19 @@ describe('R74-7: Anthropic 兜底路径保留 message_start 实测 cache 两档'
     const client = {
       messages: {
         create: fakeSend([
-          { type: 'message_start', message: { usage: { input_tokens: 42, cache_read_input_tokens: 100, cache_creation_input_tokens: 50 } } },
+          {
+            type: 'message_start',
+            message: { usage: { input_tokens: 42, cache_read_input_tokens: 100, cache_creation_input_tokens: 50 } },
+          },
           { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '正文产出' } },
           { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
         ]),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
@@ -254,7 +308,10 @@ describe('R74-7: Anthropic 兜底路径保留 message_start 实测 cache 两档'
         ]),
       },
     } as unknown as Anthropic
-    const evs = await collect(createAnthropicProvider(ACONF, client), { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] })
+    const evs = await collect(createAnthropicProvider(ACONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return

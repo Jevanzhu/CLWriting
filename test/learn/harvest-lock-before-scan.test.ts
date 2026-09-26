@@ -13,11 +13,7 @@ import { test, expect, vi } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  learnFromBook,
-  LEARN_HARVEST_LOCK_TIMEOUT_MS,
-  LEARN_HARVEST_LOCK_RENEW_MS,
-} from '../../src/learn/index.js'
+import { learnFromBook, LEARN_HARVEST_LOCK_TIMEOUT_MS, LEARN_HARVEST_LOCK_RENEW_MS } from '../../src/learn/index.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -55,7 +51,11 @@ function makeBook(opts?: { emptyBody?: boolean; brokenChapter?: boolean }): stri
     writeFileSync(join(root, '写作', '正文', '坏章.md'), '---\n章号: 不是数字\n标题: 坏章\n---\n正文', 'utf-8')
     return root
   }
-  writeFileSync(join(root, '写作', '正文', '0001-定稿章.md'), `---\n章号: 1\n标题: 定稿章\n---\n${QUALIFYING_BODY}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-定稿章.md'),
+    `---\n章号: 1\n标题: 定稿章\n---\n${QUALIFYING_BODY}`,
+    'utf-8',
+  )
   return root
 }
 

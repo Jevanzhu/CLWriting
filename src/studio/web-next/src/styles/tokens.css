@@ -6,9 +6,9 @@
 :root,
 [data-theme='light'] {
   /* 背景 */
-  --background-primary: #ffffff;            /* 编辑区/内容底 */
-  --background-secondary: #f6f6f6;          /* 侧栏/ribbon 底 */
-  --background-secondary-alt: #ececec;      /* 激活侧栏项底 */
+  --background-primary: #ffffff; /* 编辑区/内容底 */
+  --background-secondary: #f6f6f6; /* 侧栏/ribbon 底 */
+  --background-secondary-alt: #ececec; /* 激活侧栏项底 */
   --background-modifier-border: #e0e0e0;
   --background-modifier-border-hover: #c8c8c8;
   --background-modifier-border-active: #b0b0b0;
@@ -17,7 +17,7 @@
   /* 文本 */
   --text-normal: #222222;
   --text-muted: #555555;
-  --text-icon: #6f6f6f;                     /* 工具栏图标 idle：介于 muted/faint，配 2px 锐线 */
+  --text-icon: #6f6f6f; /* 工具栏图标 idle：介于 muted/faint，配 2px 锐线 */
   --text-faint: #999999;
   --text-accent: #705dcf;
   --text-on-accent: #ffffff;
@@ -57,10 +57,10 @@
   --size-tabbar: 32px;
   --size-statusbar: 24px;
   /* 交互控件尺寸（图标钮 / 侧栏宽）：组件零散硬编码收敛至此，按平台适配 */
-  --size-control: 26px;      /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮）——三栏统一容器 */
-  --size-control-sm: 26px;   /* 窄图标按钮（右栏 tab 组） */
-  --size-ribbon-btn: 32px;   /* Ribbon 图标列按钮 */
-  --size-side-right: 260px;  /* 右栏固定宽度 */
+  --size-control: 26px; /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮）——三栏统一容器 */
+  --size-control-sm: 26px; /* 窄图标按钮（右栏 tab 组） */
+  --size-ribbon-btn: 32px; /* Ribbon 图标列按钮 */
+  --size-side-right: 260px; /* 右栏固定宽度 */
   /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
   --size-4-2: 8px;
@@ -94,21 +94,21 @@
   --dur-slow: 320ms;
   /* dataviz 调色板（第二批）—— categorical(Okabe-Ito 色盲安全) + diverging + sequential + 语义。
      categorical 编号命名不绑语义，组件层映射；div/seq 引用型跨主题自动适配。 */
-  --cat-1: #D55E00;   /* 朱红 — 紧张/对立（敌对·债务） */
-  --cat-2: #E69F00;   /* 暖橙 — 从属 */
-  --cat-3: #009E73;   /* 蓝绿 — 同辈/友善 */
-  --cat-4: #0072B2;   /* 蓝 — 沉稳/长辈 */
-  --cat-5: #CC79A7;   /* 玫红 — 亲密 */
-  --cat-6: #56B4E9;   /* 天蓝 — 备用 */
-  --div-pos: var(--cat-2);                          /* diverging 正（橙）*/
-  --div-zero: var(--background-modifier-border);    /* diverging 零（灰）*/
-  --div-neg: var(--cat-4);                          /* diverging 负（蓝）*/
+  --cat-1: #d55e00; /* 朱红 — 紧张/对立（敌对·债务） */
+  --cat-2: #e69f00; /* 暖橙 — 从属 */
+  --cat-3: #009e73; /* 蓝绿 — 同辈/友善 */
+  --cat-4: #0072b2; /* 蓝 — 沉稳/长辈 */
+  --cat-5: #cc79a7; /* 玫红 — 亲密 */
+  --cat-6: #56b4e9; /* 天蓝 — 备用 */
+  --div-pos: var(--cat-2); /* diverging 正（橙）*/
+  --div-zero: var(--background-modifier-border); /* diverging 零（灰）*/
+  --div-neg: var(--cat-4); /* diverging 负（蓝）*/
   --seq-1: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
   --seq-2: color-mix(in srgb, var(--interactive-accent) 50%, transparent);
   --seq-3: color-mix(in srgb, var(--interactive-accent) 75%, transparent);
   --seq-4: var(--interactive-accent);
-  --dv-good: #4e9d68;   /* 语义正向（收编 AnalysisPanel 预留 --color-green） */
-  --dv-warn: #d97706;   /* 语义警告（收编 --color-orange） */
+  --dv-good: #4e9d68; /* 语义正向（收编 AnalysisPanel 预留 --color-green） */
+  --dv-warn: #d97706; /* 语义警告（收编 --color-orange） */
   --dv-bad: var(--text-error);
 }
 
@@ -130,8 +130,8 @@
    * 2026-09-06 评审实证：PresentationCore 枚举只见 Variable Display/Text/Small
    * 变体、无裸族名，但 Electron/DirectWrite 侧 document.fonts.check('17px
    * "Segoe UI Variable"') = true——CSS 族名可命中，首项有效，保留。 */
-  --font-ui: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
-    'Segoe UI Emoji', sans-serif;
+  --font-ui:
+    'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, 'Segoe UI Emoji', sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
   /* UI 字号档基准与 :root 同 0px——J5 曾 +1px 作 ClearType hinting 补偿（灰度渲染
    * 时代小字发虚），F0（2026-09-05）找回 win 原生子像素渲染后撤销，无平台偏移，
@@ -150,8 +150,7 @@
 }
 
 :root[data-platform='darwin'] {
-  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   /* 正文默认栈·mac（2026-09-08 mac 预设批）：:root 栈尾 SimSun 是 win 族（mac 不装），
    * 此前 mac 空槽默认态经三个 win 死名裸落浏览器 serif 兜底；显式落 Songti SC（恒装）。
@@ -186,13 +185,12 @@
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.6);
   /* dataviz 暗主题：categorical 提亮（暗底可辨）+ 语义提亮；div/seq 引用型自动适配不重述 */
-  --cat-1: #FF7B45;
-  --cat-2: #FFBC40;
-  --cat-3: #2EDD9E;
-  --cat-4: #5BB4F0;
-  --cat-5: #E09BC8;
-  --cat-6: #7DD0F5;
+  --cat-1: #ff7b45;
+  --cat-2: #ffbc40;
+  --cat-3: #2edd9e;
+  --cat-4: #5bb4f0;
+  --cat-5: #e09bc8;
+  --cat-6: #7dd0f5;
   --dv-good: #5cb87a;
   --dv-warn: #e8a847;
 }
-

@@ -28,7 +28,16 @@ import { deadPid } from '../helpers/dead-pid.js'
 function liveOtherPid(): { pid: number; stop: () => void } {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' })
   child.unref()
-  return { pid: child.pid ?? deadPid(), stop: () => { try { child.kill() } catch { /* 已退出 */ } } }
+  return {
+    pid: child.pid ?? deadPid(),
+    stop: () => {
+      try {
+        child.kill()
+      } catch {
+        /* 已退出 */
+      }
+    },
+  }
 }
 
 let root: string

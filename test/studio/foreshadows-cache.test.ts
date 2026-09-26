@@ -42,8 +42,16 @@ function makeTree(): string {
     'utf-8',
   )
   // 章文件须带 front matter（format readFile 对无 fm 文件按解析失败处理，正文为空）
-  writeFileSync(join(root, '写作', '正文', '0001-雨夜.md'), '---\n章号: 1\n标题: 雨夜\n---\n\n雨夜里，铜锁在匣中轻响。\n', 'utf-8')
-  writeFileSync(join(root, '写作', '正文', '0002-晨光.md'), '---\n章号: 2\n标题: 晨光\n---\n\n晨光下，玉佩映出微光。\n', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-雨夜.md'),
+    '---\n章号: 1\n标题: 雨夜\n---\n\n雨夜里，铜锁在匣中轻响。\n',
+    'utf-8',
+  )
+  writeFileSync(
+    join(root, '写作', '正文', '0002-晨光.md'),
+    '---\n章号: 2\n标题: 晨光\n---\n\n晨光下，玉佩映出微光。\n',
+    'utf-8',
+  )
   return root
 }
 
@@ -71,7 +79,11 @@ describe('R44-8 foreshadows 缓存壳', () => {
     getForeshadowsCached(root, 60_000)
     expect(foreshadowCache.stats().misses).toBe(1)
     await sleep(5) // 让目录 mtime 跨过同毫秒档，指纹必然失配
-    writeFileSync(join(root, '写作', '正文', '0003-重逢.md'), '---\n章号: 3\n标题: 重逢\n---\n\n重逢时，铜锁再次出现。\n', 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', '0003-重逢.md'),
+      '---\n章号: 3\n标题: 重逢\n---\n\n重逢时，铜锁再次出现。\n',
+      'utf-8',
+    )
     const s2 = getForeshadowsCached(root, 60_000)
     expect(foreshadowCache.stats().misses).toBe(2) // 写作/正文 mtime 变 → 重扫
     expect(s2.trails.get('铜锁')!.hits.map((h) => h.章号)).toEqual([1, 2, 3]) // 新章足迹可见

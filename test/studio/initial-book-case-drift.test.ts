@@ -24,13 +24,10 @@ afterAll(() => {
 })
 
 describe('resolveInitialBook 路径大小写漂移（R1W-7）', () => {
-  it.skipIf(process.platform !== 'win32')(
-    'win：目录大小写漂移 → 路径命中登记书',
-    () => {
-      expect(resolveInitialBook(workDir, join(workDir, 'libs', 'mybook'))).toBe('MyBook')
-      expect(resolveInitialBook(workDir, 'Libs/MYBOOK')).toBe('MyBook')
-    },
-  )
+  it.skipIf(process.platform !== 'win32')('win：目录大小写漂移 → 路径命中登记书', () => {
+    expect(resolveInitialBook(workDir, join(workDir, 'libs', 'mybook'))).toBe('MyBook')
+    expect(resolveInitialBook(workDir, 'Libs/MYBOOK')).toBe('MyBook')
+  })
 
   it('精确大小写 → 路径命中（跨平台）', () => {
     expect(resolveInitialBook(workDir, join(workDir, 'Libs', 'MyBook'))).toBe('MyBook')

@@ -39,7 +39,9 @@ export function loadCorpusFrom(dir: string): Map<string, CorpusEntry[]> {
     } catch (e) {
       // R63-11：坏文件不再静默跳过——动态用例数下降会被 check:counts 绊红，但信号
       // 是数字失配而非语料门坏（排障误导）；此处 warn 指名文件与原因
-      console.warn(`[corpus] 语料文件解析失败，跳过该文件（不入门但不静默）：${f}（${e instanceof Error ? e.message : String(e)}）`)
+      console.warn(
+        `[corpus] 语料文件解析失败，跳过该文件（不入门但不静默）：${f}（${e instanceof Error ? e.message : String(e)}）`,
+      )
     }
   }
   return out
@@ -54,7 +56,10 @@ let bookRoot = ''
 beforeAll(() => {
   bookRoot = mkdtempSync(join(tmpdir(), 'clw-corpus-gate-'))
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 语料门\nhost: cc\nleads:\n  enabled: []\n')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 语料门\nhost: cc\nleads:\n  enabled: []\n',
+  )
   // G-1（二十轮）：铁律加禁词段——banned-word 语料门原先只能 silent 断言（fixture 无
   // 禁词 → checkBannedWords 恒空，fire 侧零覆盖）；禁词在位后 fire/silent 双向有效。
   // 禁词避开既有 body-parts 语料（已核对不含下列词）与含「待」字（解析器滤除）。
@@ -96,7 +101,9 @@ const corpus = loadCorpusFrom(CORPUS_DIR)
 // 单文件坏 JSON 的容错 warn 保留（装载器既有口径）。
 if (!existsSync(CORPUS_DIR)) {
   test('B3 语料回归门哨兵：语料目录必须在库（否则 golden-master 门整组静默失效）', () => {
-    throw new Error(`语料目录缺失：${CORPUS_DIR}——golden-master 门已整组失效，请恢复 test/corpus/checks/（清空语料须同步下线本哨兵）`)
+    throw new Error(
+      `语料目录缺失：${CORPUS_DIR}——golden-master 门已整组失效，请恢复 test/corpus/checks/（清空语料须同步下线本哨兵）`,
+    )
   })
 }
 

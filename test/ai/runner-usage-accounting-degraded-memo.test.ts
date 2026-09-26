@@ -114,7 +114,10 @@ describe('R34D-1：重试分支随 GenError.usage 入账/入 trace（不再硬�
     expect(out.ok).toBe(true)
     const callsEv = readChainEvents(ud, root).filter((e) => e.type === 'llm/call')
     expect(callsEv).toHaveLength(2)
-    const fail = callsEv.find((e) => (e.data as { ok?: boolean }).ok === false)!.data as { attempt: number; usage?: { input: number; output: number } }
+    const fail = callsEv.find((e) => (e.data as { ok?: boolean }).ok === false)!.data as {
+      attempt: number
+      usage?: { input: number; output: number }
+    }
     expect(fail.attempt).toBe(0)
     // 修复前该事件 usage 为 undefined（硬记 null → llmCallEvent 落 undefined）
     expect(fail.usage).toEqual({ input: 10, output: 5 })
@@ -130,7 +133,11 @@ describe('R34D-1：重试分支随 GenError.usage 入账/入 trace（不再硬�
       task: 'self-heal',
       run: () => {
         // retryAfterMs 120s > maxDelayMs 30s → 不重试（终态），走 Retry-After 超封顶分支
-        throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 120_000, usage: { inputTokens: 7, outputTokens: 3 } })
+        throw new GenError('429 limit', true, {
+          code: 'RATE_LIMIT',
+          retryAfterMs: 120_000,
+          usage: { inputTokens: 7, outputTokens: 3 },
+        })
       },
     })
     expect(out).toMatchObject({ ok: false, code: 'GEN_FAIL' })
@@ -244,8 +251,12 @@ describe('R34D-9：assistant/message 事件与 chat_done 同用 attemptsUsage �
         },
         cancelStream(): void {},
         interrupt(): void {},
-        isRunning(): boolean { return false },
-        isWriterRunning(): boolean { return false },
+        isRunning(): boolean {
+          return false
+        },
+        isWriterRunning(): boolean {
+          return false
+        },
         registerCtrl(): void {},
         unregisterCtrl(): void {},
       } satisfies StudioDriver,
@@ -279,7 +290,8 @@ describe('R34D-9：assistant/message 事件与 chat_done 同用 attemptsUsage �
     expect(asst!.data['usage']).toEqual({ inputTokens: 110, outputTokens: 51 })
     expect(asst!.data['stopReason']).toBe('stop')
 
-    const done = events.find((e) => e.type === 'chat_done') as { inputTokens?: number; outputTokens?: number } | undefined
+    const done = events.find((e) => e.type === 'chat_done') as
+      { inputTokens?: number; outputTokens?: number } | undefined
     expect(done).toBeDefined()
     expect(done?.inputTokens).toBe(110)
     expect(done?.outputTokens).toBe(51)

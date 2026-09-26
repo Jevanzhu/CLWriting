@@ -37,15 +37,25 @@ function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p1',
+    章号: 1,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p1',
   })
 
   // 定稿正文 ≥2 段 → ≥2 块（warnThreshold=1 时必然触发硬截断）
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const meta: ChapterMeta = {
-    章号: 1, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _path: '', _wordCount: 100,
+    章号: 1,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
   writeChapter(
     join(root, '写作', '正文', '1-前章.md'),
@@ -71,7 +81,11 @@ function stubEmbed(_ep: string, _m: string, _k: string, texts: string[]): Promis
  *  stringifyValue 同款引号口径）；key 落 .clwriting/rag.secret（key + '\n'，读侧 trim）。 */
 function setupRag(root: string, workDir: string, opts: { endpoint: string; model: string; apiKey: string }): void {
   const raw = readFileSync(join(root, 'book.yaml'), 'utf-8')
-  const body = ['  enabled: true', `  endpoint: ${stringifyValue(opts.endpoint)}`, `  model: ${stringifyValue(opts.model)}`].join('\n')
+  const body = [
+    '  enabled: true',
+    `  endpoint: ${stringifyValue(opts.endpoint)}`,
+    `  model: ${stringifyValue(opts.model)}`,
+  ].join('\n')
   writeFileSync(join(root, 'book.yaml'), patchTopSection(raw, 'rag', body))
   writeFileSync(join(workDir, '.clwriting', 'rag.secret'), opts.apiKey + '\n', 'utf-8')
 }

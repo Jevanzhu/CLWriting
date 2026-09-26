@@ -62,9 +62,7 @@ describe('E105: manual save 排队链轮次上限', () => {
     const doc = await openDirty()
     // 受控 saveContent：每次调用登记当前轮的手动 resolve（极端形态驱动器）
     let resolveSave!: (v: typeof OK) => void
-    vi.mocked(saveContent).mockImplementation(
-      () => new Promise<typeof OK>((r) => (resolveSave = r)),
-    )
+    vi.mocked(saveContent).mockImplementation(() => new Promise<typeof OK>((r) => (resolveSave = r)))
 
     const pAutosave = doc.save('d1', 'autosave') // A1 在途（快照 'b'）
     const pManual = doc.save('d1') // ⌘S：排队链入口（等待 A1）

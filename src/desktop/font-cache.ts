@@ -77,7 +77,8 @@ export const [getFontListTimeoutMs, __setFontListTimeoutForTest] = testableConst
 const FONT_PROBE_BREAKER_THRESHOLD = 2
 
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知），生产恒用常量档。 */
-export const [getFontProbeBreakerThreshold, __setFontProbeBreakerThresholdForTest] = testableConst(FONT_PROBE_BREAKER_THRESHOLD)
+export const [getFontProbeBreakerThreshold, __setFontProbeBreakerThresholdForTest] =
+  testableConst(FONT_PROBE_BREAKER_THRESHOLD)
 
 /** 连续失败计数（模块级 = 进程级：会话内系统字体环境只有一份，跨 cache 实例共享）。 */
 let fontProbeConsecutiveFailures = 0
@@ -190,7 +191,7 @@ interface SpawnCollectKillParams {
   /** spawn error 打「启动面」标记（fontListSetupFailure，font-list 回落链消费）；win 侧不标。 */
   markSetupFailure?: boolean
   /** close(0) 结算的 stdout 解码；缺省 UTF-8（toString('utf8')）。
- * 重评二轮-：reg.exe 等按控制台 OEM 码页
+   * 重评二轮-：reg.exe 等按控制台 OEM 码页
    *  落字节的命令需注入码页感知解码（严格 UTF-8 试解失败回落 GBK，见 win-fonts.ts
    *  decodeRegOutput）——骨架原固定 toString('utf8') 把 zh-CN 机器 reg 输出的中文字体名
    *  整面解成 U+FFFD（本机字节级实证）。PS/fontlist 通道自设 UTF-8 输出不注入，缺省
@@ -262,7 +263,9 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
       settled = true
       if (code !== 0) {
         const errText = Buffer.concat(errParts).toString('utf8').trim()
-        reject(new Error(`${p.exitCodeErrorPrefix}退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`))
+        reject(
+          new Error(`${p.exitCodeErrorPrefix}退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`),
+        )
         return
       }
       const out = Buffer.concat(outParts)

@@ -130,7 +130,10 @@ describe('阶段 24 S3: 合并干跑（structure-plan）', () => {
   // 同口径钉住码位截断（clipByCodePoints 单源 shared/text.ts）。
   it('源章正文为增补平面字符：sourcePreview 按码位截断、不劈代理对', async () => {
     const ASTRAL = '\u{20BB7}' // 𠮷（CJK 扩展 B，单字符 2 码元）
-    const t = await createChapter('写作/正文/第一卷/0041-第41章.md', chapterContent(41, '第41章', '目标章正文，段落完整。'))
+    const t = await createChapter(
+      '写作/正文/第一卷/0041-第41章.md',
+      chapterContent(41, '第41章', '目标章正文，段落完整。'),
+    )
     const s = await createChapter('写作/正文/第一卷/0042-第42章.md', chapterContent(42, '第42章', ASTRAL.repeat(80)))
     const plan = await planMerge(t, s)
     expect(plan['sourcePreview']).toBe(ASTRAL.repeat(60)) // 旧码元口径此处会劈出孤立高代理
@@ -479,9 +482,7 @@ describe('复审-0913-源码 P2-1: 清单路径防线（safeManifestPath 收口�
     expect(apply.status).toBe(400)
     expect(apply.json['code']).toBe('BAD_INPUT')
     // 拒收即盘面不动：目标章未被并入
-    expect(readFileSync(join(studio.bookRoot, rel1), 'utf8')).toBe(
-      chapterContent(33, '第33章', '第三十三章正文。'),
-    )
+    expect(readFileSync(join(studio.bookRoot, rel1), 'utf8')).toBe(chapterContent(33, '第33章', '第三十三章正文。'))
   })
 
   it('目标章清单 path 越界 → plan 400 BAD_INPUT（正常路径行为由既有用例全绿钉定）', async () => {

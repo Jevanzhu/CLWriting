@@ -52,7 +52,9 @@ function dialog(): DOMWrapper<Element> {
 
 /** 确认按钮（文案「拆分」——标题必填守卫的落点） */
 function confirmBtn(): DOMWrapper<Element> {
-  const b = dialog().findAll('button').find((x) => x.text() === '拆分')
+  const b = dialog()
+    .findAll('button')
+    .find((x) => x.text() === '拆分')
   if (!b) throw new Error('确认按钮缺失')
   return b
 }
@@ -101,7 +103,9 @@ describe('阶段 24（S4）：关闭动线（Esc / 取消）', () => {
   })
 
   it('取消按钮 → 同样 emit update:modelValue false', async () => {
-    const cancel = dialog().findAll('button').find((b) => b.text() === '取消')!
+    const cancel = dialog()
+      .findAll('button')
+      .find((b) => b.text() === '取消')!
     await cancel.trigger('click')
     await flushPromises()
     expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
@@ -112,9 +116,7 @@ describe('阶段 24（S4）：Enter 提交 / IME 让渡（R61-3 / R49-29 同款�
   it('Enter 落在输入框上（target 非 button）→ 提交，title trim 生效', async () => {
     const input = dialog().find('input')
     await input.setValue(' 新章 ')
-    input.element.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
+    input.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
     expect(wrapper!.emitted('confirm')).toEqual([['新章']])
   })
@@ -134,10 +136,10 @@ describe('阶段 24（S4）：Enter 提交 / IME 让渡（R61-3 / R49-29 同款�
 
   it('Enter 落在按钮上（target 命中 button）→ 让渡原生激活，不重复提交', async () => {
     await dialog().find('input').setValue(' 新章 ')
-    const cancel = dialog().findAll('button').find((b) => b.text() === '取消')!
-    cancel.element.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
+    const cancel = dialog()
+      .findAll('button')
+      .find((b) => b.text() === '取消')!
+    cancel.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flushPromises()
     // 容器守卫让渡后，此 keydown 不产生 confirm / 关闭（原生 click 才是按钮唯一入口）
     expect(wrapper!.emitted('confirm')).toBeUndefined()

@@ -118,8 +118,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
     // defaultVolumeSize：分卷章数下限 5（少于 5 章不成卷，过小值会让状态机卷判定失真）
     const intAtLeast = (v: unknown, min: number, max: number): number | undefined =>
       typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : undefined
-    const injection = (v: unknown): 'light' | 'heavy' | undefined =>
-      v === 'light' || v === 'heavy' ? v : undefined
+    const injection = (v: unknown): 'light' | 'heavy' | undefined => (v === 'light' || v === 'heavy' ? v : undefined)
     const val: GlobalBookDefaults = {
       defaultGenre: nonEmptyStr(raw['defaultGenre']),
       defaultVolumeSize: intAtLeast(raw['defaultVolumeSize'], 5, Number.MAX_SAFE_INTEGER),
@@ -194,7 +193,10 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   if (cfg.book.chapter_target_words === undefined) cfg.book.chapter_target_words = g.defaultChapterTargetWords
 
   // 全局固定：单章调用上限只走全局（已砍书级覆盖，书级旧值忽略）
-  cfg.budget = { ...(cfg.budget ?? {}), calls_per_chapter: g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter }
+  cfg.budget = {
+    ...(cfg.budget ?? {}),
+    calls_per_chapter: g.callsPerChapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter,
+  }
   // token/金额双口径预算——书级未设回落 global（无硬编码回落；都未设 = 不拦）
   if (cfg.budget.tokens_per_chapter === undefined && g.tokensPerChapter !== undefined) {
     cfg.budget.tokens_per_chapter = g.tokensPerChapter
@@ -216,10 +218,16 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   }
   // 关系图（自动梳理/增量阈值）仍保留书级覆盖：属于书内分析策略
   if (cfg.auto?.relation_auto_mine === undefined) {
-    cfg.auto = { ...(cfg.auto ?? {}), relation_auto_mine: g.relationAutoMine ?? GLOBAL_FALLBACK_DEFAULTS.relationAutoMine }
+    cfg.auto = {
+      ...(cfg.auto ?? {}),
+      relation_auto_mine: g.relationAutoMine ?? GLOBAL_FALLBACK_DEFAULTS.relationAutoMine,
+    }
   }
   if (cfg.auto?.relation_mine_threshold === undefined) {
-    cfg.auto = { ...(cfg.auto ?? {}), relation_mine_threshold: g.relationMineThreshold ?? GLOBAL_FALLBACK_DEFAULTS.relationMineThreshold }
+    cfg.auto = {
+      ...(cfg.auto ?? {}),
+      relation_mine_threshold: g.relationMineThreshold ?? GLOBAL_FALLBACK_DEFAULTS.relationMineThreshold,
+    }
   }
 
   // short.strict：短篇集专属段，未设才回落（长篇无 short 段不强行建段）。

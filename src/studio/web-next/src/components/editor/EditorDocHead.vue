@@ -57,7 +57,7 @@ const chapterStatus = computed(() => {
   if (!props.docId) return null
   const node = tree.byDocId.get(props.docId)
   const s = node?.status
-  return s ? CHAPTER_STATUS[s]?.label ?? null : null
+  return s ? (CHAPTER_STATUS[s]?.label ?? null) : null
 })
 // 状态色（和章节树六态对齐）：final·published 绿 / revision 红 / draft 黄 / 其余灰
 const statusCls = computed(() => {
@@ -274,8 +274,12 @@ async function onTitleCommit(): Promise<void> {
                  （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点）。
                  ：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
                  overwriting 覆盖确认弹窗开启 + 覆盖在途全程禁用，防连点重复触发 -->
-            <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">重载</button>
-            <button class="conflict-btn danger" :disabled="entry.saving || overwriting" @click="onOverwrite">覆盖</button>
+            <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">
+              重载
+            </button>
+            <button class="conflict-btn danger" :disabled="entry.saving || overwriting" @click="onOverwrite">
+              覆盖
+            </button>
           </template>
           <div v-if="isReviewable" class="ai-group">
             <button
@@ -466,7 +470,9 @@ async function onTitleCommit(): Promise<void> {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 /* 定稿按钮：revision 态提示色，与「保存」（写文件）对偶——定稿=锁定版本 */
 .finalize-btn {
@@ -535,8 +541,13 @@ async function onTitleCommit(): Promise<void> {
   color: var(--text-muted);
   cursor: pointer;
 }
-.conflict-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
-.conflict-btn.danger:hover { color: var(--text-error); }
+.conflict-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.conflict-btn.danger:hover {
+  color: var(--text-error);
+}
 
 /* AI 按钮 */
 .ai-group {
@@ -575,5 +586,4 @@ async function onTitleCommit(): Promise<void> {
   margin: 0 4px;
   animation: clw-spin 0.9s linear infinite;
 }
-
 </style>

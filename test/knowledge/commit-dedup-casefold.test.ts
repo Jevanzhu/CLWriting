@@ -37,7 +37,11 @@ afterEach(() => {
 function writeManifest(root: string, entries: unknown[]): void {
   // version: 1 必填——commitKnowledgeFile 末尾走 validateKnowledgeManifest 对账，
   // 缺 version 会被对账拒绝（ok:false + 「manifest.version 必须是 1」），与被测语义无关
-  writeFileSync(join(root, KNOWLEDGE_MANIFEST), JSON.stringify({ version: 1, generated_at: '2026-01-01T00:00:00+08:00', entries }), 'utf-8')
+  writeFileSync(
+    join(root, KNOWLEDGE_MANIFEST),
+    JSON.stringify({ version: 1, generated_at: '2026-01-01T00:00:00+08:00', entries }),
+    'utf-8',
+  )
 }
 
 const SEED_ENTRY = {

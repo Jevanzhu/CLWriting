@@ -60,24 +60,27 @@ describe('R66-20: 迁移条目写入 O_EXCL 排他', () => {
 
   // Windows 文件名禁 ':'——fixture「打斗:x」在 win 上建不出（mkdir EINVAL），撞名净化
   // 语义（':' → '_' 序号排他）由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('同净化目标的两场景撞名 → 序号排他递增（两条都在盘，旧实现的互覆丢条不再发生）', () => {
-    // '打斗:x' 与 '打斗_x' 经 sanitizeChapterTitle 净化后同名（':' → '_'）——
-    // 播种按原始 key 分开计数，第二个写点必然撞上第一个的 打斗_x-001.md：
-    // 旧 writeEntry 覆盖语义 → 第一条被第二条静默互覆；排他写 → 递增到 002 保双份
-    makeSample('打斗:x', '第一条样章正文')
-    makeSample('打斗_x', '第二条样章正文')
+  it.skipIf(process.platform === 'win32')(
+    '同净化目标的两场景撞名 → 序号排他递增（两条都在盘，旧实现的互覆丢条不再发生）',
+    () => {
+      // '打斗:x' 与 '打斗_x' 经 sanitizeChapterTitle 净化后同名（':' → '_'）——
+      // 播种按原始 key 分开计数，第二个写点必然撞上第一个的 打斗_x-001.md：
+      // 旧 writeEntry 覆盖语义 → 第一条被第二条静默互覆；排他写 → 递增到 002 保双份
+      makeSample('打斗:x', '第一条样章正文')
+      makeSample('打斗_x', '第二条样章正文')
 
-    const result = migrateStyleLibrary(root)
-    expect(result.migrated).toBe(2)
+      const result = migrateStyleLibrary(root)
+      expect(result.migrated).toBe(2)
 
-    const entriesDir = join(root, ENTRIES_DIR, '样章')
-    const names = readdirSync(entriesDir).sort()
-    expect(names).toEqual(['打斗_x-001.md', '打斗_x-002.md']) // 撞名递增，无第三文件
+      const entriesDir = join(root, ENTRIES_DIR, '样章')
+      const names = readdirSync(entriesDir).sort()
+      expect(names).toEqual(['打斗_x-001.md', '打斗_x-002.md']) // 撞名递增，无第三文件
 
-    const bodies = names.map((n) => readBody(join(entriesDir, n)))
-    expect(bodies).toContain('第一条样章正文') // 旧实现此处只剩第二条（第一条被互覆）
-    expect(bodies).toContain('第二条样章正文')
-  })
+      const bodies = names.map((n) => readBody(join(entriesDir, n)))
+      expect(bodies).toContain('第一条样章正文') // 旧实现此处只剩第二条（第一条被互覆）
+      expect(bodies).toContain('第二条样章正文')
+    },
+  )
 
   it('既有条目不被迁移覆写（续跑播种语义不回退）', () => {
     // 预置已迁条目（含作者改过的正文）+ 旧源仍在 → 续跑只补新序号，不动既有文件

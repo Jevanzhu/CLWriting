@@ -105,11 +105,7 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
     const owner = current?.models?.some((m) => m.id === model)
       ? current
       : store.providers.find((p) => p.models?.some((m) => m.id === model))
-    const resolved = owner
-      ? pricingForProvider(owner, model)
-      : current
-        ? pricingForProvider(current, model)
-        : null
+    const resolved = owner ? pricingForProvider(owner, model) : current ? pricingForProvider(current, model) : null
     if (pricingMemo.size >= PRICING_MEMO_MAX) {
       const oldest = pricingMemo.keys().next().value
       if (oldest !== undefined) pricingMemo.delete(oldest)
@@ -124,7 +120,8 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
 /** 单次调用金额（按价格表四档分计；未配价的档位不计费=0） */
 export function computeCallCost(
   pricing: PricingConf | null,
-  usage: Pick<TokenUsage, 'inputTokens' | 'outputTokens'> & Partial<Pick<TokenUsage, 'cacheReadTokens' | 'cacheWriteTokens'>>,
+  usage: Pick<TokenUsage, 'inputTokens' | 'outputTokens'> &
+    Partial<Pick<TokenUsage, 'cacheReadTokens' | 'cacheWriteTokens'>>,
 ): number | null {
   if (!pricing) return null
   const cost =

@@ -13,9 +13,7 @@ import { readChapter } from './chapters.js'
 import type { ChapterMeta } from './types.js'
 import { errMsg } from '../log/index.js' // errMsg 收编：错误文案三目单源
 
-type ReadDraftResult =
-  | { ok: true; chapter: ChapterMeta; body: string }
-  | { ok: false; reason: string }
+type ReadDraftResult = { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string }
 
 /**
  * 读正文区文件 → ChapterMeta + body。

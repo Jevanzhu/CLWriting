@@ -14,7 +14,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
-import { acquireTaskGate, isTaskGateHeld, heldTaskGatesFor, lockFileName } from '../../src/studio/server/api/task-gate.js'
+import {
+  acquireTaskGate,
+  isTaskGateHeld,
+  heldTaskGatesFor,
+  lockFileName,
+} from '../../src/studio/server/api/task-gate.js'
 
 const BOOK = '闸测试书'
 let studio: StudioHarness
@@ -65,8 +70,7 @@ beforeAll(async () => {
     userDataPath,
     env: { CLWRITING_DRIVER: 'mock' },
     dirs: ['大纲', '写作/正文'],
-    bookYaml:
-      'spec_version: 1\nkind: long\nbook:\n  title: 闸测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 闸测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   })
   workDir = studio.workDir
 })
@@ -147,7 +151,10 @@ describe('T2-4 task-gate 跨进程文件锁', () => {
 
   it('锁文件被存活进程持有 → acquire 返回 null（模拟另一进程持锁，本进程 Set 看不见）', () => {
     // 手写 lockfile = 另一进程已 O_EXCL 创建（pid 取本进程——探测必活）
-    writeFileSync(join(lockDir, lockName('analyze', '跨进程书')), JSON.stringify({ pid: process.pid, bootTime: Date.now() }))
+    writeFileSync(
+      join(lockDir, lockName('analyze', '跨进程书')),
+      JSON.stringify({ pid: process.pid, bootTime: Date.now() }),
+    )
     const r = acquireTaskGate('跨进程书', 'analyze', { lockDir, isProcessAlive: () => true })
     expect(r).toBeNull()
     expect(isTaskGateHeld('跨进程书', 'analyze')).toBe(false) // 未误登进本进程 Set
@@ -176,7 +183,11 @@ describe('T2-4 task-gate 跨进程文件锁', () => {
   it('锁文件损坏（空文件）→ 视同 stale 可接管', () => {
     writeFileSync(join(lockDir, lockName('autotag', '跨进程书')), '')
     // J7 年轻锁宽限（500ms）内空锁视为「写 pid 在途」不接管——回拨 mtime 制造超龄半写
-    utimesSync(join(lockDir, lockName('autotag', '跨进程书')), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    utimesSync(
+      join(lockDir, lockName('autotag', '跨进程书')),
+      new Date(Date.now() - 60_000),
+      new Date(Date.now() - 60_000),
+    )
     const r = acquireTaskGate('跨进程书', 'autotag', { lockDir, isProcessAlive: () => true })
     expect(r).not.toBeNull()
     r!()
@@ -238,12 +249,17 @@ describe('端点并发闸接线（409）', () => {
     const NAME = '闸改名测试书'
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
-      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
-        JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n',
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) +
+        '\n' +
+        JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) +
+        '\n',
     )
     const bookRoot = join(workDir, '长篇', NAME)
     mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 闸改名测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 闸改名测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    )
 
     const release = acquireTaskGate(NAME, 'analyze')
     expect(release).not.toBeNull()

@@ -181,7 +181,11 @@ describe('kk-P2-15：书级 prefs 错误分支', () => {
 
   it('PUT 合法偏好 → 200 且 GET 回读一致（错误分支的正向对照）', async () => {
     makeBook('书C', 'kind: long\n')
-    const put = await req({ method: 'PUT', path: `/api/books/${encodeURIComponent('书C')}/prefs`, body: { prefs: { leftWidth: 260 } } })
+    const put = await req({
+      method: 'PUT',
+      path: `/api/books/${encodeURIComponent('书C')}/prefs`,
+      body: { prefs: { leftWidth: 260 } },
+    })
     expect(put.status).toBe(200)
     expect(put.json.ok).toBe(true)
     const got = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('书C')}/prefs` })
@@ -310,7 +314,17 @@ describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {
     writeProvidersFile({
       currentId: 'p1',
       currentModel: 'm1',
-      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: null }],
+      providers: [
+        {
+          id: 'p1',
+          name: '我的中转',
+          protocol: 'anthropic',
+          auth: 'bearer',
+          baseUrl: 'http://x',
+          apiKey: 'k',
+          caps: null,
+        },
+      ],
     })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(false)
@@ -322,7 +336,17 @@ describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {
     writeProvidersFile({
       currentId: 'p1',
       currentModel: '',
-      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
+      providers: [
+        {
+          id: 'p1',
+          name: '我的中转',
+          protocol: 'anthropic',
+          auth: 'bearer',
+          baseUrl: 'http://x',
+          apiKey: 'k',
+          caps: { connected: true, streaming: true },
+        },
+      ],
     })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(false)
@@ -333,7 +357,17 @@ describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {
     writeProvidersFile({
       currentId: 'p1',
       currentModel: 'm1',
-      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
+      providers: [
+        {
+          id: 'p1',
+          name: '我的中转',
+          protocol: 'anthropic',
+          auth: 'bearer',
+          baseUrl: 'http://x',
+          apiKey: 'k',
+          caps: { connected: true, streaming: true },
+        },
+      ],
     })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(true)

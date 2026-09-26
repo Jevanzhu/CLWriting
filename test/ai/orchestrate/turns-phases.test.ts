@@ -44,7 +44,14 @@ const UNKNOWN_TOOL = '不存在的工具_r0916_7'
 function okOut(data: Partial<ChatGeneration> = {}): TaskOk<ChatGeneration> {
   return {
     ok: true,
-    data: { text: '', toolCalls: [], stopReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 }, reasoning: '', ...data },
+    data: {
+      text: '',
+      toolCalls: [],
+      stopReason: 'stop',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      reasoning: '',
+      ...data,
+    },
     ctrl: new AbortController(),
     usage: { inputTokens: 1, outputTokens: 1 },
     runId: 'run-1',
@@ -136,7 +143,12 @@ describe('R0916-7-P3-2 turns-phases：单轮终态分流（纯判定）', () => 
     ['deadline 触发的 abort（timedOut 置位）优先归超时', errOut('ABORTED'), true, 'timeout'],
     ['GEN_FAIL 等其余失败透传文案', errOut('GEN_FAIL'), false, 'error'],
     ['max_tokens 截断出口', okOut({ stopReason: 'max_tokens' }), false, 'max-tokens'],
-    ['max_tokens 且带工具（半截入参绝不执行）', okOut({ stopReason: 'max_tokens', toolCalls: [toolCall] }), false, 'max-tokens'],
+    [
+      'max_tokens 且带工具（半截入参绝不执行）',
+      okOut({ stopReason: 'max_tokens', toolCalls: [toolCall] }),
+      false,
+      'max-tokens',
+    ],
     ['无工具调用 → 完成面', okOut(), false, 'no-tools'],
     ['有工具调用 → 交工具段', okOut({ toolCalls: [toolCall] }), false, 'tools'],
   ]
@@ -157,7 +169,10 @@ describe('R0916-7-P3-2 turns-phases：轮首常量与末条指纹', () => {
   it('lastMessageFingerprint：空历史 / 纯文本 / blocks 序列化', () => {
     expect(lastMessageFingerprint([])).toBe('')
     expect(lastMessageFingerprint([{ role: 'user', content: '甲' }])).toBe('甲')
-    const blocks: ChatMsg = { role: 'user', content: [{ type: 'tool_result', toolUseId: 'c1', content: 'r', isError: false }] }
+    const blocks: ChatMsg = {
+      role: 'user',
+      content: [{ type: 'tool_result', toolUseId: 'c1', content: 'r', isError: false }],
+    }
     expect(lastMessageFingerprint([blocks])).toBe(JSON.stringify(blocks.content))
   })
 })
@@ -165,7 +180,11 @@ describe('R0916-7-P3-2 turns-phases：轮首常量与末条指纹', () => {
 describe('R0916-7-P3-2 turns-phases：阶段二工具派发与回填（顺序不变量）', () => {
   it('未知工具：直接 isError 回填，不弹确认卡；history 顺序 assistant → user(tool_result)', async () => {
     const h = mkHarness()
-    const out = okOut({ text: '正文', reasoning: '理由', toolCalls: [{ id: 'c1', name: UNKNOWN_TOOL, input: { a: 1 } }] })
+    const out = okOut({
+      text: '正文',
+      reasoning: '理由',
+      toolCalls: [{ id: 'c1', name: UNKNOWN_TOOL, input: { a: 1 } }],
+    })
     const completedOk = await runToolTurn({ deps: h.deps, turn: 1, out, lineageIdx: [9], flushTurnEvents: () => true })
 
     expect(completedOk).toBe(true)
@@ -255,7 +274,13 @@ describe('R0916-7-P3-2 turns-phases：阶段三收尾与失败面 mask 分流', 
   it('deadline 触发的 abort（timedOut 置位）按超时收口（与轮首分支同文案）', async () => {
     const h = mkHarness()
     h.state.timedOut = true
-    const closure = await closeAgentTurn({ deps: h.deps, turn: 3, out: errOut('ABORTED'), lineageIdx: [], flushTurnEvents: () => true })
+    const closure = await closeAgentTurn({
+      deps: h.deps,
+      turn: 3,
+      out: errOut('ABORTED'),
+      lineageIdx: [],
+      flushTurnEvents: () => true,
+    })
     expect(closure).toEqual({ ended: true, completedOk: false })
     expect(h.masks).toEqual(['aborted'])
     expect(String(h.emitted[0]?.['error'])).toMatch(/^对话超时（超过 \d+ 分钟），已停止$/)
@@ -263,7 +288,13 @@ describe('R0916-7-P3-2 turns-phases：阶段三收尾与失败面 mask 分流', 
 
   it('max_tokens 截断面：回滚 + mask max-tokens（半截文本不入 history，K12）', async () => {
     const h = mkHarness()
-    const closure = await closeAgentTurn({ deps: h.deps, turn: 3, out: okOut({ stopReason: 'max_tokens' }), lineageIdx: [], flushTurnEvents: () => true })
+    const closure = await closeAgentTurn({
+      deps: h.deps,
+      turn: 3,
+      out: okOut({ stopReason: 'max_tokens' }),
+      lineageIdx: [],
+      flushTurnEvents: () => true,
+    })
     expect(closure).toEqual({ ended: true, completedOk: false })
     expect(h.masks).toEqual(['max-tokens'])
     expect(h.history.length).toBe(1)
@@ -301,7 +332,13 @@ describe('R0916-7-P3-2 turns-phases：阶段三收尾与失败面 mask 分流', 
 
   it('无工具完成面：reasoning 为空 → 纯文本入历史', async () => {
     const h = mkHarness()
-    await closeAgentTurn({ deps: h.deps, turn: 3, out: okOut({ text: '甲' }), lineageIdx: [], flushTurnEvents: () => false })
+    await closeAgentTurn({
+      deps: h.deps,
+      turn: 3,
+      out: okOut({ text: '甲' }),
+      lineageIdx: [],
+      flushTurnEvents: () => false,
+    })
     expect(h.history[3]?.content).toBe('甲')
   })
 })

@@ -74,7 +74,11 @@ beforeAll(async () => {
   )
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
-  writeFileSync(join(bookRoot, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+  writeFileSync(
+    join(bookRoot, '写作', '正文', '第一卷', '0001-开篇.md'),
+    '---\n章号: 1\n标题: 开篇\n---\n正文',
+    'utf-8',
+  )
   mkdirSync(join(bookRoot, '大纲', '卷纲'), { recursive: true })
   writeFileSync(join(bookRoot, '大纲', '卷纲', '第一卷.md'), '# 第一卷纲', 'utf-8')
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
@@ -86,8 +90,14 @@ beforeAll(async () => {
       '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null,"status":"final"}',
     ].join('\n') + '\n',
   )
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 文件树测试书\n  genre: 玄幻\nhost: cc\n')
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false && git add -A && git commit -m init', { cwd: bookRoot, stdio: 'pipe' })
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 文件树测试书\n  genre: 玄幻\nhost: cc\n',
+  )
+  execSync(
+    'git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false && git add -A && git commit -m init',
+    { cwd: bookRoot, stdio: 'pipe' },
+  )
 
   server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`

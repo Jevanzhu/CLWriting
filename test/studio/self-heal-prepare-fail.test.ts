@@ -27,7 +27,8 @@ import type { saveDraft } from '../../src/studio/server/api/draft.js'
 vi.mock('../../src/process/materials.js', () => ({ prepareMaterials: vi.fn() }))
 vi.mock('../../src/ai/tasks/spec.js', () => ({ runSpec: vi.fn() }))
 
-const FM_CH5 = '---\n章号: 5\n标题: 第五章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文内容：山门外玉佩轻响。'
+const FM_CH5 =
+  '---\n章号: 5\n标题: 第五章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文内容：山门外玉佩轻响。'
 
 function greenOutcome(): CheckOutcome {
   return {
@@ -41,14 +42,22 @@ function greenOutcome(): CheckOutcome {
 
 function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
   return {
-    async startSession(cwd: string): Promise<Session> { return { id: 'mock', cwd, closed: false } },
+    async startSession(cwd: string): Promise<Session> {
+      return { id: 'mock', cwd, closed: false }
+    },
     async *stream(): AsyncGenerator<DriverEvent> {},
     dispose(): void {},
-    emit(_s, ev): void { emitted.push(ev) },
+    emit(_s, ev): void {
+      emitted.push(ev)
+    },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -106,7 +115,9 @@ test('R-4: 备料失败 → 旧材料文件被清 + promptFiles 不含材料路�
     expect(existsSync(join(bookRoot, '工作区', '本章写作材料.md'))).toBe(false)
 
     // (b) 溯源不虚报：首稿 runSpec 的 promptFiles 不含材料路径
-    const first = vi.mocked(runSpec).mock.calls.find((c) => (c[1] as { promptFiles?: string[] }).promptFiles !== undefined)
+    const first = vi
+      .mocked(runSpec)
+      .mock.calls.find((c) => (c[1] as { promptFiles?: string[] }).promptFiles !== undefined)
     expect(first).toBeDefined()
     const pf = (first![1] as { promptFiles?: string[] }).promptFiles
     expect(pf).not.toContain('工作区/本章写作材料.md')
@@ -123,7 +134,9 @@ test('R-4: 备料成功 → 材料落盘 + promptFiles 含材料路径（原行�
     const r = await runSelfHeal(opts)
     expect(r.outcome).toBe('pass')
     expect(readFileSync(join(bookRoot, '工作区', '本章写作材料.md'), 'utf-8')).toBe('本章备料材料')
-    const first = vi.mocked(runSpec).mock.calls.find((c) => (c[1] as { promptFiles?: string[] }).promptFiles !== undefined)
+    const first = vi
+      .mocked(runSpec)
+      .mock.calls.find((c) => (c[1] as { promptFiles?: string[] }).promptFiles !== undefined)
     expect(first).toBeDefined()
     expect((first![1] as { promptFiles?: string[] }).promptFiles).toContain('工作区/本章写作材料.md')
   } finally {

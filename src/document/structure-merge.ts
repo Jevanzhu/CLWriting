@@ -94,7 +94,14 @@ export type MergeApplyResult =
   | StructureFailure
 
 export type MergeUndoResult =
-  | { ok: true; targetDocId: string; sourceDocId: string; sourceChapterNo: number; trashEntryId: string; planHash: string }
+  | {
+      ok: true
+      targetDocId: string
+      sourceDocId: string
+      sourceChapterNo: number
+      trashEntryId: string
+      planHash: string
+    }
   | StructureFailure
 
 // ── 合并：干跑 ───────────────────────────────────────────────────────
@@ -205,7 +212,10 @@ export async function applyChapterMerge(
     // 0918修复批（B005 尾项）：章号提取走剥茎单源 chapterNoFromEntryPath
     const no = chapterNoFromEntryPath(trashEntry.originalPath)
     if (no === null || !t.并入.includes(no)) {
-      return fail('NOT_MERGE_STATE', `回收站条目与目标章 fm 并入 不对应（章号 ${no ?? '无法解析'}，并入 = ${t.并入.join(',') || '空'}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`)
+      return fail(
+        'NOT_MERGE_STATE',
+        `回收站条目与目标章 fm 并入 不对应（章号 ${no ?? '无法解析'}，并入 = ${t.并入.join(',') || '空'}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`,
+      )
     }
     const rollbackSnapshotId = newestVersionWithoutSource(bookRoot, input.targetDocId, no) ?? undefined
     const resumed = resumedMergeApplyResult(input, t, no, t.并入, rollbackSnapshotId)
@@ -224,7 +234,10 @@ export async function applyChapterMerge(
     // -源码：s.abs 已是 readChapterState 经 safeManifestPath 收口的派生，
     // 不再二次裸 join
     if (!existsSync(s.abs)) {
-      return fail('NOT_MERGE_STATE', `目标章 fm 并入 已含第${s.章号}章，但源章既不在正文也不在回收站（半成态疑似已被人工处置）——请先「撤销合并」清理 fm，或手工修正 并入 登记`)
+      return fail(
+        'NOT_MERGE_STATE',
+        `目标章 fm 并入 已含第${s.章号}章，但源章既不在正文也不在回收站（半成态疑似已被人工处置）——请先「撤销合并」清理 fm，或手工修正 并入 登记`,
+      )
     }
     const rollbackSnapshotId = newestVersionWithoutSource(bookRoot, input.targetDocId, s.章号) ?? undefined
     const resumed = resumedMergeApplyResult(input, t, s.章号, mergedInto, rollbackSnapshotId)
@@ -237,7 +250,10 @@ export async function applyChapterMerge(
     return fail('PLAN_STALE', '干跑后正文已变化（或章文件被移动/改名），请重新预览确认后再执行')
   }
   if (!isUtf8Bytes(t.bytes) || !isUtf8Bytes(s.bytes)) {
-    return fail('NOT_UTF8_TARGET', '合并涉及非 UTF-8 编码的存量章（GBK 等旧档），拼接会失真——请先在编辑器外转码为 UTF-8 再操作')
+    return fail(
+      'NOT_UTF8_TARGET',
+      '合并涉及非 UTF-8 编码的存量章（GBK 等旧档），拼接会失真——请先在编辑器外转码为 UTF-8 再操作',
+    )
   }
   // ① 目标章正文并入：新 fm = patchFlatFm(原 fm, {并入})（其余键行逐字节保形，含
   // _raw 已发布）+ 拼接正文；external-merge 强制留底快照 = rollbackSnapshotId。
@@ -302,7 +318,10 @@ async function finishMerge(
   // 作者（fail-closed：既不误判已软删跳过，也不落「进回收站失败」重试空转）
   const srcAbs = trashEntry === undefined ? null : safeManifestPath(bookRoot, trashEntry.originalPath)
   if (trashEntry !== undefined && srcAbs === null) {
-    return fail('NOT_MERGE_STATE', `回收站条目 originalPath 越界或非法（${trashEntry.originalPath}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`)
+    return fail(
+      'NOT_MERGE_STATE',
+      `回收站条目 originalPath 越界或非法（${trashEntry.originalPath}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`,
+    )
   }
   const alreadyTrashed = srcAbs !== null && !existsSync(srcAbs)
   if (!alreadyTrashed) {
@@ -621,11 +640,7 @@ export async function undoChapterMerge(
     return finishUndo(bookRoot, userDataPath, targetDocId, t.章号, half, half.rollbackSnapshotId, rag)
   }
   let loc: MergeUndoLocator | null = null
-  if (
-    hints?.sourceDocId !== undefined &&
-    hints.sourceChapterNo !== undefined &&
-    hints.trashEntryId !== undefined
-  ) {
+  if (hints?.sourceDocId !== undefined && hints.sourceChapterNo !== undefined && hints.trashEntryId !== undefined) {
     loc = {
       sourceDocId: hints.sourceDocId,
       sourceChapterNo: hints.sourceChapterNo,
@@ -645,7 +660,10 @@ export async function undoChapterMerge(
     return fail('NOT_MERGE_STATE', '找不到可撤销的合并记录（事件副录缺失且回收站无对应条目）')
   }
   if (!t.并入.includes(loc.sourceChapterNo)) {
-    return fail('NOT_MERGE_STATE', `目标章 fm 并入（${t.并入.join(',')}）不含源章 ${loc.sourceChapterNo}——盘面与合并记录不符，请人工核对`)
+    return fail(
+      'NOT_MERGE_STATE',
+      `目标章 fm 并入（${t.并入.join(',')}）不含源章 ${loc.sourceChapterNo}——盘面与合并记录不符，请人工核对`,
+    )
   }
   const versionsDir = join(bookRoot, VERSIONS_DIR_REL)
   // rollbackSnapshotId 缺失/读取失败时版本推演兜底（推演自带「并入 不含源」校验）
@@ -654,7 +672,10 @@ export async function undoChapterMerge(
     rollbackId = newestVersionWithoutSource(bookRoot, targetDocId, loc.sourceChapterNo) ?? undefined
   }
   if (rollbackId === undefined) {
-    return fail('UNDO_NO_SNAPSHOT', '找不到合并前的留底版本（快照缺失），无法自动回滚——请在版本面板手工恢复合并前版本，再从回收站还原源章')
+    return fail(
+      'UNDO_NO_SNAPSHOT',
+      '找不到合并前的留底版本（快照缺失），无法自动回滚——请在版本面板手工恢复合并前版本，再从回收站还原源章',
+    )
   }
   const snap = readVersionRaw(versionsDir, targetDocId, rollbackId)
   if (!snap) return fail('UNDO_NO_SNAPSHOT', `留底版本 ${rollbackId} 读取失败`)

@@ -120,7 +120,10 @@ describe('R43-6: .bak 影子写 fsync 口径（兜底恢复源不掉电失守）
       writeManifest(f, m)
       // .bak 影子写的 tmp 必须走到 fsyncSync——该调用点若重回 { fsync: false }，
       // 全程不会出现任何 .bak 路径的 fsync，本臂即红。
-      expect(AT.fsyncPaths.some((p) => p.includes('.bak')), `未观测到 .bak 的 fsync；实际 fsync 路径：${AT.fsyncPaths.join(', ')}`).toBe(true)
+      expect(
+        AT.fsyncPaths.some((p) => p.includes('.bak')),
+        `未观测到 .bak 的 fsync；实际 fsync 路径：${AT.fsyncPaths.join(', ')}`,
+      ).toBe(true)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

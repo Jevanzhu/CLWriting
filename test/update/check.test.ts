@@ -139,7 +139,12 @@ describe('runUpdateCheckOnce 静默失败面（不抛、不置结果）', () => 
     ['非 200（500）', okFetch({}, { status: 500 }).fn],
     ['限速 403', okFetch({}, { status: 403 }).fn],
     ['畸形 JSON（非数组）', okFetch({ message: 'Not Found' }).fn],
-    ['网络抛错', (async () => { throw new Error('ENOTFOUND') }) as unknown as typeof fetch],
+    [
+      '网络抛错',
+      (async () => {
+        throw new Error('ENOTFOUND')
+      }) as unknown as typeof fetch,
+    ],
   ]
 
   for (const [name, fn] of cases) {

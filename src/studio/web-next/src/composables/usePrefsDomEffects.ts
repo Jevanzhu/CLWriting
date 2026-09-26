@@ -43,7 +43,10 @@ export function createPrefsDomEffects(deps: PrefsDomEffectDeps) {
     // 恒零加数 baseStep 已删，写值与删前逐位一致。
     r.style.setProperty('--font-size-step', `${deps.uiFontSizeStep.value}px`)
     if (deps.uiFontCn.value || deps.uiFontEn.value) {
-      r.style.setProperty('--font-ui', buildFontFamily(deps.uiFontEn.value, deps.uiFontCn.value, 'system-ui, sans-serif'))
+      r.style.setProperty(
+        '--font-ui',
+        buildFontFamily(deps.uiFontEn.value, deps.uiFontCn.value, 'system-ui, sans-serif'),
+      )
     } else {
       r.style.removeProperty('--font-ui')
     }

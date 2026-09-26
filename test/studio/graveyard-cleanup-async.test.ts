@@ -33,7 +33,11 @@ function makeBook(name: string): string {
   )
   const bookAbs = join(workDir, '长篇', name)
   mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookAbs, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookAbs, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+    'utf-8',
+  )
   return bookAbs
 }
 

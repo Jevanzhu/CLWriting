@@ -31,8 +31,8 @@ interface SettingsCtx extends TaskGateInjected {
   workDir: string | null
   userDataPath: string | null
   /** 收尾：settings / completion-names 两缓存 TTL 覆盖档——组装根
- * RouteOverrides 注入（undefined = 生产口径 5s 逐位不变）。completion-names 沿旧
- * 回落链：本壳覆盖 → settings 覆盖 → 常量。 */
+   * RouteOverrides 注入（undefined = 生产口径 5s 逐位不变）。completion-names 沿旧
+   * 回落链：本壳覆盖 → settings 覆盖 → 常量。 */
   settingsTtlMs?: number | null
   completionNamesTtlMs?: number | null
 }
@@ -66,7 +66,9 @@ async function readFmNames(dir: string, field: string): Promise<string[]> {
       const n = String(map.get(field) ?? mdStem(f))
       if (n) names.push(n)
     }
-  } catch { /* 单项意外失败 → 保留已收集名单（原整体 try/catch 同口径） */ }
+  } catch {
+    /* 单项意外失败 → 保留已收集名单（原整体 try/catch 同口径） */
+  }
   return names
 }
 
@@ -239,16 +241,16 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     // handler 挂 async 走 async 主路（router dispatch 对 async handler
     // 已有 catch 兜底，rhythm 域同款）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    const bookRoot = r.bookRoot
-    // 全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
-    // 改走 async 孪生（扫描段让出 + in-flight 去重），同步版保留为
-    // 回归测试直测面；响应 schema 逐位不变
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    reply(res, 200, await getSettingsCachedAsync(bookRoot, ctx.settingsTtlMs ?? undefined))
-  },
+      const bookRoot = r.bookRoot
+      // 全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
+      // 改走 async 孪生（扫描段让出 + in-flight 去重），同步版保留为
+      // 回归测试直测面；响应 schema 逐位不变
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      reply(res, 200, await getSettingsCachedAsync(bookRoot, ctx.settingsTtlMs ?? undefined))
+    },
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
@@ -259,11 +261,15 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     method: 'GET',
     path: '/api/books/:name/completion-names',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 收尾：TTL 覆盖档经 ctx 逐调用传入（回落链「本壳 → settings → 常量」）
-    reply(res, 200, await getCompletionNamesCached(r.bookRoot, ctx.completionNamesTtlMs ?? ctx.settingsTtlMs ?? undefined))
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 收尾：TTL 覆盖档经 ctx 逐调用传入（回落链「本壳 → settings → 常量」）
+      reply(
+        res,
+        200,
+        await getCompletionNamesCached(r.bookRoot, ctx.completionNamesTtlMs ?? ctx.settingsTtlMs ?? undefined),
+      )
+    },
   })
 
   // AI 关系梳理：通读名册/角色卡/正文，提炼关系边 → 落盘 .clwriting/relations.json
@@ -271,77 +277,86 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     method: 'POST',
     path: '/api/books/:name/relations/mine',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-    // -①中断通道（owner='relations-mine:<书名>'）
-    // ——十段复制收编 runGatedGeneration 单源（接法头注见
-    // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
-    return ctx.gate.runGatedGeneration(res, {
-      book: params['name']!,
-      workDir: ctx.workDir!,
-      action: 'relations-mine',
-      busyText: '本书正在梳理角色关系，请等待完成后再试',
-    }, async (ctrl) => {
-      // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
-      // （readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
-      // （输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
-      // 既有语义，故留内联读取并显式判型（force 仅此一处消费，无第二套校验口径）：
-      // ① 闸先于读体——runGatedGeneration 的编排互斥/task 闸 409 必须早于 body 400，
-      //    迁 parse 要把闸搬进 gate，而闸包装正本在 task-gate.ts（本批范围外）；
-      // ② 容错读取——非 HttpError 的连接层失败按空 body 兜底继续（同 providers.test 的
-      // 口径），defineRoute 的 readJson 失败先于 parse 短路回 400，容错不可表达。
-      const body = (await readJson(req).catch((e: unknown) => {
-        if (e instanceof HttpError) throw e
-        return {}
-      })) as { force?: boolean }
-      const force = body?.force === true
-      const bookRoot = r.bookRoot
-      const cachePath = join(bookRoot, RELATION_CACHE)
-      if (!force && existsSync(cachePath)) {
-        return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
-      }
-      const mined = buildMineContext(bookRoot)
-      const context = mined.text
-      if (!context.trim()) return replyError(res, 400, 'BAD_INPUT', '没有可梳理的材料（名册/角色卡/正文均空）')
-      const out = await runSpec(RELATION_MINE_SPEC, {
-        userDataPath: ctx.userDataPath,
-        bookRoot,
-        userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
-        // 聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
-        promptFiles: mined.files,
-        ctrl, // -①：中断通道透传
-      })
-      if (!out.ok) {
-        // -①：中断收口——ABORTED → 499 人话信封。：
-        // 状态映射收编 replyGenerationFailure 单源；本端点文案变体逐位保留（ABORTED 固定
-        // 「已中断」非 out.error、其余坍缩 GEN_FAIL 并组装「AI 梳理失败:…」）——经形状
-        // 归一喂单源，status 判定（499/500）与信封字节不变。
-        return replyGenerationFailure(res, out.code === 'ABORTED'
-          ? { ok: false, code: 'ABORTED', error: '已中断' }
-          : { ok: false, code: 'GEN_FAIL', error: `AI 梳理失败:${out.error}` })
-      }
-      const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
-      const relations = input?.relations ?? []
-      // 零关系也是合法产出——此前空结果不落缓存，下次请求重新
-      // 烧一遍 AI 费用；且该分支返回 cached:true 语义失真（实为新鲜产出非缓存命中）。
-      // 空数组同样落盘，与有产出共用下方写路径，本请求如实标 cached:false
-      // -③：落盘前重验书注册（对齐 style.ts 现行防线）——runSpec
-      // 分钟级 await 窗口内书可能被删/改名，向旧 bookRoot 写 .clwriting/relations.json
-      // 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。已删或变化 → 409 BOOK_MOVED。
-      // 并合注：本地同构实现已收敛 book-context.ts bookMovedFailure 单源。
-      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-      if (moved) return replyError(res, 409, moved.code, moved.reason)
-      try {
-        mkdirSync(dirname(cachePath), { recursive: true })
-        atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
-      } catch (e) {
-        log.error('api', '落盘缓存失败（角色关系）', e)
-        return replyError(res, 500, 'IO_ERROR', '落盘缓存失败')
-      }
-      reply(res, 200, { ok: true, cached: false, relations })
-    })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+      // -①中断通道（owner='relations-mine:<书名>'）
+      // ——十段复制收编 runGatedGeneration 单源（接法头注见
+      // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'relations-mine',
+          busyText: '本书正在梳理角色关系，请等待完成后再试',
+        },
+        async (ctrl) => {
+          // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
+          // （readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
+          // （输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
+          // 既有语义，故留内联读取并显式判型（force 仅此一处消费，无第二套校验口径）：
+          // ① 闸先于读体——runGatedGeneration 的编排互斥/task 闸 409 必须早于 body 400，
+          //    迁 parse 要把闸搬进 gate，而闸包装正本在 task-gate.ts（本批范围外）；
+          // ② 容错读取——非 HttpError 的连接层失败按空 body 兜底继续（同 providers.test 的
+          // 口径），defineRoute 的 readJson 失败先于 parse 短路回 400，容错不可表达。
+          const body = (await readJson(req).catch((e: unknown) => {
+            if (e instanceof HttpError) throw e
+            return {}
+          })) as { force?: boolean }
+          const force = body?.force === true
+          const bookRoot = r.bookRoot
+          const cachePath = join(bookRoot, RELATION_CACHE)
+          if (!force && existsSync(cachePath)) {
+            return reply(res, 200, { ok: true, cached: true, relations: readRelationCache(bookRoot).relations })
+          }
+          const mined = buildMineContext(bookRoot)
+          const context = mined.text
+          if (!context.trim()) return replyError(res, 400, 'BAD_INPUT', '没有可梳理的材料（名册/角色卡/正文均空）')
+          const out = await runSpec(RELATION_MINE_SPEC, {
+            userDataPath: ctx.userDataPath,
+            bookRoot,
+            userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
+            // 聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
+            promptFiles: mined.files,
+            ctrl, // -①：中断通道透传
+          })
+          if (!out.ok) {
+            // -①：中断收口——ABORTED → 499 人话信封。：
+            // 状态映射收编 replyGenerationFailure 单源；本端点文案变体逐位保留（ABORTED 固定
+            // 「已中断」非 out.error、其余坍缩 GEN_FAIL 并组装「AI 梳理失败:…」）——经形状
+            // 归一喂单源，status 判定（499/500）与信封字节不变。
+            return replyGenerationFailure(
+              res,
+              out.code === 'ABORTED'
+                ? { ok: false, code: 'ABORTED', error: '已中断' }
+                : { ok: false, code: 'GEN_FAIL', error: `AI 梳理失败:${out.error}` },
+            )
+          }
+          const input = out.data.input as {
+            relations?: { from: string; to: string; type: string; note?: string }[]
+          } | null
+          const relations = input?.relations ?? []
+          // 零关系也是合法产出——此前空结果不落缓存，下次请求重新
+          // 烧一遍 AI 费用；且该分支返回 cached:true 语义失真（实为新鲜产出非缓存命中）。
+          // 空数组同样落盘，与有产出共用下方写路径，本请求如实标 cached:false
+          // -③：落盘前重验书注册（对齐 style.ts 现行防线）——runSpec
+          // 分钟级 await 窗口内书可能被删/改名，向旧 bookRoot 写 .clwriting/relations.json
+          // 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。已删或变化 → 409 BOOK_MOVED。
+          // 并合注：本地同构实现已收敛 book-context.ts bookMovedFailure 单源。
+          const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+          if (moved) return replyError(res, 409, moved.code, moved.reason)
+          try {
+            mkdirSync(dirname(cachePath), { recursive: true })
+            atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
+          } catch (e) {
+            log.error('api', '落盘缓存失败（角色关系）', e)
+            return replyError(res, 500, 'IO_ERROR', '落盘缓存失败')
+          }
+          reply(res, 200, { ok: true, cached: false, relations })
+        },
+      )
+    },
   })
 }
 
@@ -400,7 +415,12 @@ function settingsLong(bookRoot: string): unknown {
   }
 
   return {
-    kind: 'long' as const, realm, characters, timeline, debtGraph, characterRelations,
+    kind: 'long' as const,
+    realm,
+    characters,
+    timeline,
+    debtGraph,
+    characterRelations,
     relationCache: { chapterCount: relCache.chapterCount, currentChapters: countChapters(bookRoot) },
   }
 }
@@ -424,7 +444,8 @@ function readRelationCache(bookRoot: string): {
     if (!Array.isArray(d?.relations)) return { relations: [], chapterCount: null }
     const relations = d.relations.filter(
       (e: unknown): e is { from: string; to: string; type: string; note?: string } =>
-        !!e && typeof (e as { from?: unknown }).from === 'string' &&
+        !!e &&
+        typeof (e as { from?: unknown }).from === 'string' &&
         typeof (e as { to?: unknown }).to === 'string' &&
         typeof (e as { type?: unknown }).type === 'string',
     )
@@ -472,7 +493,11 @@ function buildMineContext(bookRoot: string): { text: string; files: string[] } {
     if (mdFiles.length) {
       const excerpts = mdFiles.map((f) => {
         const rel = relative(bookRoot, f).replace(/\\/g, '/') // -数据层： 收口漏点（展示口径统一正斜杠）
-        const t = readFileSync(f, 'utf8').replace(/^---[\s\S]*?---/, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+        const t = readFileSync(f, 'utf8')
+          .replace(/^---[\s\S]*?---/, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 200)
         files.push(rel)
         return `### ${rel}\n${t}`
       })

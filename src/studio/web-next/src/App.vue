@@ -66,8 +66,7 @@ onMounted(() => {
     const book = startBook
     void router.isReady().then(() => {
       const enteredFromRoot =
-        router.currentRoute.value.redirectedFrom?.path === '/' ||
-        router.currentRoute.value.path === '/'
+        router.currentRoute.value.redirectedFrom?.path === '/' || router.currentRoute.value.path === '/'
       if (enteredFromRoot) {
         router.replace(`/book/${encodeURIComponent(book)}`)
       }

@@ -39,7 +39,11 @@ function makeBook(chapterCount: number): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
     '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
@@ -79,7 +83,8 @@ describe('A1 golden 对照：缓存路径 ≡ 全量重算（逐字节一致）'
       const manifestPath = join(root, '项目', '文档清单.jsonl')
       const m = readManifest(manifestPath)
       const docEntries = [...m.entries.entries()].filter(([, e]) => e.nodeType === 'document')
-      const docOf = (chapterFile: string): string => docEntries.find(([, e]) => e.path === `写作/正文/${chapterFile}`)![0]
+      const docOf = (chapterFile: string): string =>
+        docEntries.find(([, e]) => e.path === `写作/正文/${chapterFile}`)![0]
 
       // ① 改 3 章正文（第 1 章消除红源 / 第 4 章换新红源 / 第 6 章触碰不改内容语义）
       writeFileSync(
@@ -154,8 +159,19 @@ describe('tree-issues-cache 模块单元', () => {
       try {
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 首次：清+记
         // R59 清偿批（R55-D-3）：读写新增行级纪元锚参数（'ep-a' 任取非空串，读写同锚）
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, { hasRed: true, verdictRejected: false }, 'ep-a')
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-a')).toEqual({ hasRed: true, verdictRejected: false })
+        writeTreeIssuesCache(
+          db,
+          '写作/正文/001-第1章.md',
+          111,
+          222,
+          null,
+          { hasRed: true, verdictRejected: false },
+          'ep-a',
+        )
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-a')).toEqual({
+          hasRed: true,
+          verdictRejected: false,
+        })
         // 指纹不符（size 变）→ miss
         expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 333, null, 'ep-a')).toBeNull()
         // 有信封指纹查无信封行 → miss（NULL ≠ 值）
@@ -294,7 +310,15 @@ describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
         syncTreeIssuesEpoch(db, root, null) // 建表 + 记纪元
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null, { hasRed: false, verdictRejected: false }, 'ep-a') // 种一行：BEFORE DELETE 按行触发，空表不炸
+        writeTreeIssuesCache(
+          db,
+          '写作/正文/001-第1章.md',
+          1,
+          1,
+          null,
+          { hasRed: false, verdictRejected: false },
+          'ep-a',
+        ) // 种一行：BEFORE DELETE 按行触发，空表不炸
         // 触发器在事务首句（DELETE）抛 RAISE(ROLLBACK)——事务随之整体回亡，
         // 随后的 db.exec('ROLLBACK') 会抛 "no transaction is active"
         db.exec(
@@ -353,7 +377,11 @@ function makeEpochColumnBook(): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
     '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
@@ -407,9 +435,20 @@ describe('R55-D-3：章级缓存行纪元戳', () => {
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
         syncTreeIssuesEpoch(db, root, null)
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, { hasRed: true, verdictRejected: false }, 'ep-A')
+        writeTreeIssuesCache(
+          db,
+          '写作/正文/001-第1章.md',
+          111,
+          222,
+          null,
+          { hasRed: true, verdictRejected: false },
+          'ep-A',
+        )
         // 同锚命中
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-A')).toEqual({ hasRed: true, verdictRejected: false })
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-A')).toEqual({
+          hasRed: true,
+          verdictRejected: false,
+        })
         // 异锚 miss（他进程新纪元行不被旧基线误读——本修复的核心面）
         expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-B')).toBeNull()
         // 无锚 miss（基线缺席时宁重算勿混纪元）
@@ -466,8 +505,19 @@ describe('R55-D-3：章级缓存行纪元戳', () => {
         expect(() => ensureTreeIssuesTables(db)).not.toThrow()
         // 旧行（NULL 戳）按 miss；新写行带戳可读
         expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 7, 8, null, 'ep-A')).toBeNull()
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 7, 8, null, { hasRed: false, verdictRejected: false }, 'ep-A')
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 7, 8, null, 'ep-A')).toEqual({ hasRed: false, verdictRejected: false })
+        writeTreeIssuesCache(
+          db,
+          '写作/正文/001-第1章.md',
+          7,
+          8,
+          null,
+          { hasRed: false, verdictRejected: false },
+          'ep-A',
+        )
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 7, 8, null, 'ep-A')).toEqual({
+          hasRed: false,
+          verdictRejected: false,
+        })
       } finally {
         db.close()
       }

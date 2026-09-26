@@ -105,7 +105,12 @@ describe('R35-39: WorkbenchView 中断在途锁', () => {
   it('在途窗口双击 → interrupt 只发一次；期间按钮 disabled；完成后解锁 + toast', async () => {
     const toastSpy = recordToasts(useUiStore())
     let resolveInterrupt!: () => void
-    streamMocks.interrupt.mockImplementationOnce(() => new Promise<void>((r) => { resolveInterrupt = r }))
+    streamMocks.interrupt.mockImplementationOnce(
+      () =>
+        new Promise<void>((r) => {
+          resolveInterrupt = r
+        }),
+    )
     const w = (await mountWithGenBusy('书A')).wrapper
 
     const click = interruptBtn(w).trigger('click')

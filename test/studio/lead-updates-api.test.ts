@@ -64,10 +64,18 @@ beforeAll(async () => {
     userDataPath,
     env: { CLWRITING_DRIVER: 'mock' },
     dirs: ['写作/正文', '布线/悬念', '大纲', '工作区'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 账本推进书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 账本推进书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     files: [
-      { rel: '布线/悬念/悬念-001-灭门真凶.md', content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
-      { rel: '写作/正文/001-夜访.md', content: '---\n章号: 1\n标题: 夜访\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的钟声在雨夜里连响了三下。\n' },
+      {
+        rel: '布线/悬念/悬念-001-灭门真凶.md',
+        content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
+      },
+      {
+        rel: '写作/正文/001-夜访.md',
+        content:
+          '---\n章号: 1\n标题: 夜访\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的钟声在雨夜里连响了三下。\n',
+      },
     ],
   })
   workDir = studio.workDir
@@ -103,7 +111,11 @@ describe('POST /lead-updates（账本推进生成）', () => {
     const shortName = '短篇书'
     const bookRoot = join(workDir, shortName)
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 短篇书\nhost: cc\n', 'utf8')
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: short\nbook:\n  title: 短篇书\nhost: cc\n',
+      'utf8',
+    )
     writeFileSync(
       join(workDir, '.clwriting', 'books.jsonl'),
       JSON.stringify({ name: shortName, path: shortName, kind: 'short' }) + '\n',

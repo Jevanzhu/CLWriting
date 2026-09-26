@@ -51,11 +51,19 @@ test('shouldRetryError: 无 code 按布尔 retryable 兜底（mode:always——�
 
 test('shouldRetryError ≡ failureAction==retry：全错误码族逐一对照（防两套口径再分叉）', () => {
   const codes = [
-    'RATE_LIMIT', 'SERVER_ERROR', 'TIMEOUT', 'NETWORK', // retry 族
-    'AUTH', 'NOT_FOUND', 'UNSUPPORTED', // switch-provider 族
+    'RATE_LIMIT',
+    'SERVER_ERROR',
+    'TIMEOUT',
+    'NETWORK', // retry 族
+    'AUTH',
+    'NOT_FOUND',
+    'UNSUPPORTED', // switch-provider 族
     'CONTEXT_WINDOW_EXCEEDED', // shrink-prompt 族
     'ABORTED', // none 族
-    'MAX_TOKENS', 'BAD_REQUEST', 'PROTOCOL', 'UNKNOWN', // author 族（retryable 兜底）
+    'MAX_TOKENS',
+    'BAD_REQUEST',
+    'PROTOCOL',
+    'UNKNOWN', // author 族（retryable 兜底）
   ] as const
   for (const code of codes) {
     for (const retryable of [true, false]) {

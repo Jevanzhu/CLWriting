@@ -20,9 +20,7 @@ const learn = useLearnStore()
 const tree = useTreeStore()
 
 // 定稿正文章节数（引导提示用）
-const chapterCount = computed(
-  () => [...tree.byDocId.values()].filter((n) => isBodyKind(n.path)).length,
-)
+const chapterCount = computed(() => [...tree.byDocId.values()].filter((n) => isBodyKind(n.path)).length)
 
 // ── 打分分布统计 ──
 // 统计收敛 shared/learn-tier 单源（原与 SampleCandidateList 逐字双实现）
@@ -33,7 +31,12 @@ const sceneCount = computed(() => new Set(learn.samples.map((s) => s.场景)).si
 
 // ── 入库反馈条（可关闭，新结果时自动恢复）──
 const commitDismissed = ref(false)
-watch(() => learn.commitMessage, () => { commitDismissed.value = false })
+watch(
+  () => learn.commitMessage,
+  () => {
+    commitDismissed.value = false
+  },
+)
 const showCommit = computed(() => !!learn.commitMessage && !commitDismissed.value)
 
 async function onHarvest(): Promise<void> {
@@ -91,9 +94,13 @@ async function onCommit(): Promise<void> {
     <EmptyState
       v-if="!learn.hasResult && !learn.loading && !learn.error"
       :icon="learn.lastHarvestRan ? PackageCheck : GraduationCap"
-      :text="learn.lastHarvestRan
-        ? '这次没有合格候选——定稿正文得分普遍偏低，或缺少有特色的短句。'
-        : chapterCount > 0 ? `点击「收割候选」分析 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
+      :text="
+        learn.lastHarvestRan
+          ? '这次没有合格候选——定稿正文得分普遍偏低，或缺少有特色的短句。'
+          : chapterCount > 0
+            ? `点击「收割候选」分析 ${chapterCount} 章定稿正文。`
+            : '当前没有定稿正文可收割——先写正文并定稿。'
+      "
       class="learn-empty"
     />
 
@@ -300,5 +307,4 @@ async function onCommit(): Promise<void> {
   color: var(--text-muted);
   white-space: nowrap;
 }
-
 </style>

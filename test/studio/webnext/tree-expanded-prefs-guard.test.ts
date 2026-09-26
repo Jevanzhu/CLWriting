@@ -40,7 +40,10 @@ describe('E-3: loadBookPrefs 回填 treeExpanded 的用户已操作守卫', () =
     // 书A：getBookPrefs 挂起 → 用户先动展开态 → prefs 迟到
     let releaseA!: (v: { treeExpanded?: string[] }) => void
     mocks.getBookPrefs.mockImplementationOnce(
-      () => new Promise((r) => { releaseA = r }),
+      () =>
+        new Promise((r) => {
+          releaseA = r
+        }),
     )
     ws.setBook('书A')
     ws.setTreeExpanded(['我的卷']) // 用户操作（展开/折叠唯一入口）

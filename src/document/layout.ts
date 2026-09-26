@@ -23,10 +23,19 @@ import { normalizeWinSeparators } from '../fs/safe-path.js'
  *  'piece-body'——短篇由消费方读 book.yaml(kind) 判定。该枚举位是历史 wire 兼容
  *  保留（前端仍有判定分支），勿在新代码依赖它。 */
 export type DocumentRole =
-  | 'chapter' | 'piece-body' | 'chapter-outline'
-  | 'outline' | 'volume-outline'
-  | 'setting' | 'ledger' | 'style' | 'introduction'
-  | 'draft' | 'material' | 'note' | 'discard'
+  | 'chapter'
+  | 'piece-body'
+  | 'chapter-outline'
+  | 'outline'
+  | 'volume-outline'
+  | 'setting'
+  | 'ledger'
+  | 'style'
+  | 'introduction'
+  | 'draft'
+  | 'material'
+  | 'note'
+  | 'discard'
 
 /** 文档能力（§2 capabilities）。aiPropose 冻结期恒 false。 */
 export interface Capabilities {
@@ -67,8 +76,14 @@ const LEDGER_DIRS = new Set<string>(LEAD_TYPES)
  *  文档 CRUD 此前可按路径直达写/删导出产物（产物可再生危害低，但属内部簿记——导出
  *  专用通道维护，拒绝外部 CRUD 直达）。 */
 const WORKSPACE_INTERNAL_DIR_PREFIXES = [
-  '工作区/.journal/', '工作区/.trash/', '工作区/.版本/', '工作区/.snapshots/',
-  '工作区/.账本推进暂存/', '工作区/spills/', '工作区/待定稿/', '工作区/导出/',
+  '工作区/.journal/',
+  '工作区/.trash/',
+  '工作区/.版本/',
+  '工作区/.snapshots/',
+  '工作区/.账本推进暂存/',
+  '工作区/spills/',
+  '工作区/待定稿/',
+  '工作区/导出/',
 ]
 
 /** 书根系统文件/目录——文档清单、book 元数据、确认位、AI 记账、

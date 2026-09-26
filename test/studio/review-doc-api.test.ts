@@ -126,7 +126,9 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
     // 信封落盘：项目/分析/<docId>.json 含 review kind
     const envPath = join(bookRoot, '项目', '分析', `${chapterDocId}.json`)
     expect(existsSync(envPath)).toBe(true)
-    const env = JSON.parse(readFileSync(envPath, 'utf-8')) as { review: { sourceHash: string; payload: { collected: unknown; incomplete?: boolean } } }
+    const env = JSON.parse(readFileSync(envPath, 'utf-8')) as {
+      review: { sourceHash: string; payload: { collected: unknown; incomplete?: boolean } }
+    }
     expect(env.review).toBeTypeOf('object')
     // R63-4：采集成立（ok:true）→ 信封无 incomplete 标记（ok:false 时打标——单测见
     // test/review/run.test.ts R63-4 两例，端点写点是一行条件展开）
@@ -147,7 +149,13 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
       const j = r.json as {
         ok: boolean
         lenses: string[]
-        collected: { ok: boolean; tier: string; lenses_run: string[]; collected_lenses: string[]; missing_lenses: string[] }
+        collected: {
+          ok: boolean
+          tier: string
+          lenses_run: string[]
+          collected_lenses: string[]
+          missing_lenses: string[]
+        }
       }
       expect(j.ok).toBe(true)
       expect(j.collected.tier).toBe('combined')

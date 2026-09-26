@@ -85,12 +85,13 @@ export async function aggregateCost(userDataPath: string | null | undefined, boo
       }
       pricedSeen.add(e.model)
       if (!currency) currency = pricing.currency
-      const cost = computeCallCost(pricing, {
-        inputTokens: e.usageIn,
-        outputTokens: e.usageOut,
-        ...(e.cacheRead !== undefined ? { cacheReadTokens: e.cacheRead } : {}),
-        ...(e.cacheWrite !== undefined ? { cacheWriteTokens: e.cacheWrite } : {}),
-      }) ?? 0
+      const cost =
+        computeCallCost(pricing, {
+          inputTokens: e.usageIn,
+          outputTokens: e.usageOut,
+          ...(e.cacheRead !== undefined ? { cacheReadTokens: e.cacheRead } : {}),
+          ...(e.cacheWrite !== undefined ? { cacheWriteTokens: e.cacheWrite } : {}),
+        }) ?? 0
       stats.total = Math.round((stats.total + cost) * 1e10) / 1e10
       bump(stats.byDay, e.day, cost)
       bump(stats.byTask, e.task, cost)

@@ -15,12 +15,7 @@
  * - startSession 会推一个 init 事件（agents/tools 清单，mock 端点测试用）；cc 不发 init。
  * - mock 的 cancelled 唤醒与 cc 同构；emit 复制语义一致。
  */
-import type {
-  Session,
-  SessionOptions,
-  DriverEvent,
-  StudioDriver,
-} from './types.js'
+import type { Session, SessionOptions, DriverEvent, StudioDriver } from './types.js'
 import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
 
 /** 每 session 一个事件总线（广播到所有消费者）。

@@ -83,98 +83,122 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     method: 'POST',
     path: '/api/books/:name/onboard-ai',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    // SRV-（专项精简优化 §五，机械批）：resolveBook 双行样板收编单源
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-    // （c 修复批）中断通道——十段复制收编
-    // runGatedGeneration 单源（-，接法头注见 task-gate.ts；
-    // ownerLabel='onboard' 保留历史注册名 'onboard:<书名>' 字面量——与 action 名
-    // 'onboard-ai' 异名，包装缺省拼接不适用）。onboard-save 无 AI 生成段，不接线。
-    return ctx.gate.runGatedGeneration(res, {
-      book: params['name']!,
-      workDir: ctx.workDir!,
-      action: 'onboard-ai',
-      busyText: '本书已有 AI 设定任务在跑，请等待完成后再试',
-      ownerLabel: 'onboard',
-    }, async (ctrl) => {
-      // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
-      //（readJson 在 runGatedGeneration 闸内回调——双闸 + ensureSession 先于 body 校验，且占闸覆盖 body 在途窗口）
-      const reqBody = await readJson(req)
-      const step = String(reqBody['step'] ?? '') as OnboardStep
-      /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
-      const discussionContext =
-        typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
-      /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
-      const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
-      // 低级项：自由文本长度上限（对齐 chat 消息 5 万字符口径，stream.ts）——
-      // 无上限时粘贴超大文本直接拼进 prompt，打爆备料预算/模型上下文
-      const MAX_FREE_TEXT = 50_000
-      if (premise.length > MAX_FREE_TEXT || discussionContext.length > MAX_FREE_TEXT) {
-        return replyError(res, 400, 'BAD_INPUT', `premise / discussionContext 过长（上限 ${MAX_FREE_TEXT / 10_000} 万字符）`)
-      }
-      // hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
-      // 取出函数，join 路径抛 TypeError 落 500（纯客户端输入应 400）
-      if (!Object.hasOwn(STEP_PATH, step)) {
-        return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
-      }
+      // SRV-（专项精简优化 §五，机械批）：resolveBook 双行样板收编单源
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+      // （c 修复批）中断通道——十段复制收编
+      // runGatedGeneration 单源（-，接法头注见 task-gate.ts；
+      // ownerLabel='onboard' 保留历史注册名 'onboard:<书名>' 字面量——与 action 名
+      // 'onboard-ai' 异名，包装缺省拼接不适用）。onboard-save 无 AI 生成段，不接线。
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'onboard-ai',
+          busyText: '本书已有 AI 设定任务在跑，请等待完成后再试',
+          ownerLabel: 'onboard',
+        },
+        async (ctrl) => {
+          // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+          //（readJson 在 runGatedGeneration 闸内回调——双闸 + ensureSession 先于 body 校验，且占闸覆盖 body 在途窗口）
+          const reqBody = await readJson(req)
+          const step = String(reqBody['step'] ?? '') as OnboardStep
+          /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
+          const discussionContext =
+            typeof reqBody['discussionContext'] === 'string' ? reqBody['discussionContext'].trim() : ''
+          /** 作者梗概（开书依据，各步据此推导，勿臆造梗概外的核心设定） */
+          const premise = typeof reqBody['premise'] === 'string' ? reqBody['premise'].trim() : ''
+          // 低级项：自由文本长度上限（对齐 chat 消息 5 万字符口径，stream.ts）——
+          // 无上限时粘贴超大文本直接拼进 prompt，打爆备料预算/模型上下文
+          const MAX_FREE_TEXT = 50_000
+          if (premise.length > MAX_FREE_TEXT || discussionContext.length > MAX_FREE_TEXT) {
+            return replyError(
+              res,
+              400,
+              'BAD_INPUT',
+              `premise / discussionContext 过长（上限 ${MAX_FREE_TEXT / 10_000} 万字符）`,
+            )
+          }
+          // hasOwn 防 `in` 的原型链穿透——'constructor'/'__proto__' 会命中且
+          // 取出函数，join 路径抛 TypeError 落 500（纯客户端输入应 400）
+          if (!Object.hasOwn(STEP_PATH, step)) {
+            return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
+          }
 
-      const bookRoot = r.bookRoot
-      const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-      if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', '读 book.yaml 失败')
-      // 全局托底：genre 喂 onboard AI prompt（运行时值）——书级未设回落 global.json
-      // defaultGenre → ''，AI 设定生成拿到的是有效题材而非 undefined
-      const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
-      const title = config.book.title
-      const genre = config.book.genre
-      const kind = config.kind ?? 'long'
-      const leadsEnabled = config.leads?.enabled ?? []
+          const bookRoot = r.bookRoot
+          const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+          if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', '读 book.yaml 失败')
+          // 全局托底：genre 喂 onboard AI prompt（运行时值）——书级未设回落 global.json
+          // defaultGenre → ''，AI 设定生成拿到的是有效题材而非 undefined
+          const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
+          const title = config.book.title
+          const genre = config.book.genre
+          const kind = config.kind ?? 'long'
+          const leadsEnabled = config.leads?.enabled ?? []
 
-      // realm 仅成长线书
-      if (step === 'realm' && !leadsEnabled.includes('成长线')) {
-        return replyError(res, 400, 'BAD_INPUT', 'realm 步仅成长线书(book.yaml leads 未启用成长线)')
-      }
+          // realm 仅成长线书
+          if (step === 'realm' && !leadsEnabled.includes('成长线')) {
+            return replyError(res, 400, 'BAD_INPUT', 'realm 步仅成长线书(book.yaml leads 未启用成长线)')
+          }
 
-      const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
-      // 口径明确（铁律①「模型可见⟺已记录」）：本端点 prompt 只注入
-      // config 派生值（title/genre/kind，非文件正文）与 premise/discussionContext（用户
-      // 请求体自由文本）——两者均非文件注入源，故 runSpec 不传 promptFiles（files 是文件
-      // 级溯源通道）；用户文本的凭据 = 请求本身 + llm/call promptMeta 的 chars/hash 指纹。
+          const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
+          // 口径明确（铁律①「模型可见⟺已记录」）：本端点 prompt 只注入
+          // config 派生值（title/genre/kind，非文件正文）与 premise/discussionContext（用户
+          // 请求体自由文本）——两者均非文件注入源，故 runSpec 不传 promptFiles（files 是文件
+          // 级溯源通道）；用户文本的凭据 = 请求本身 + llm/call promptMeta 的 chars/hash 指纹。
 
-      const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
-      if (!result.ok) {
-        // -①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
-        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。（
-        // -0914-优化修复批）：状态映射收编 replyGenerationFailure 单源（runOnboard 已
-        // 把非中断失败坍缩 GEN_FAIL，映射行为不变）。
-        return replyGenerationFailure(res, result)
-      }
+          const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
+          if (!result.ok) {
+            // -①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
+            // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。（
+            // -0914-优化修复批）：状态映射收编 replyGenerationFailure 单源（runOnboard 已
+            // 把非中断失败坍缩 GEN_FAIL，映射行为不变）。
+            return replyGenerationFailure(res, result)
+          }
 
-      // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
-      const content = canonicalizeText(result.text || '(空产出)')
-      const relPath = STEP_PATH[step]
-      // （总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
-      // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
-      // 覆盖会静默丢手改（该域此前无版本链）。复用 draft 侧 snapshotBeforeOverwrite
-      // 单源工具（工作区/.版本/<docId>/<ULID>.md，docId 清单反查→legacyId 派生）。
-      // 快照失败不阻断主流程（fail-open 记 log.warn——生成产物不因留底 IO 抖动丢弃）；
-      // 成功经响应 snapshotted 字段留痕
-      let snapshotted = false
-      try {
-        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-ai-overwrite', undefined, ctx.userDataPath) !== null
-      } catch (e) {
-        log.warn('api', `onboard-ai 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
-      }
-      try {
-        mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-        atomicWriteFile(join(bookRoot, relPath), content)
-      } catch (e) {
-        log.error('api', `onboard 落盘失败（${step}）`, e)
-        return replyError(res, 500, 'IO_ERROR', '落盘失败')
-      }
-      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content, ...(snapshotted ? { snapshotted: true } : {}) })
-    })
-  },
+          // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
+          const content = canonicalizeText(result.text || '(空产出)')
+          const relPath = STEP_PATH[step]
+          // （总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
+          // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
+          // 覆盖会静默丢手改（该域此前无版本链）。复用 draft 侧 snapshotBeforeOverwrite
+          // 单源工具（工作区/.版本/<docId>/<ULID>.md，docId 清单反查→legacyId 派生）。
+          // 快照失败不阻断主流程（fail-open 记 log.warn——生成产物不因留底 IO 抖动丢弃）；
+          // 成功经响应 snapshotted 字段留痕
+          let snapshotted = false
+          try {
+            snapshotted =
+              snapshotBeforeOverwrite(
+                bookRoot,
+                relPath,
+                content,
+                'onboard-ai-overwrite',
+                undefined,
+                ctx.userDataPath,
+              ) !== null
+          } catch (e) {
+            log.warn('api', `onboard-ai 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
+          }
+          try {
+            mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
+            atomicWriteFile(join(bookRoot, relPath), content)
+          } catch (e) {
+            log.error('api', `onboard 落盘失败（${step}）`, e)
+            return replyError(res, 500, 'IO_ERROR', '落盘失败')
+          }
+          reply(res, 200, {
+            ok: true,
+            step,
+            path: relPath,
+            words: countWords(bodyOf(content)),
+            content,
+            ...(snapshotted ? { snapshotted: true } : {}),
+          })
+        },
+      )
+    },
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
@@ -195,37 +219,51 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       return { step, content }
     },
     handler: async ({ params, input }, _req, res) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const bookRoot = r.bookRoot
-    const relPath = STEP_PATH[input.step]
-    // 并发闸——与 onboard-ai（85）互斥面缺失：双窗口同 step 保存
-    // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
-    const release = ctx.gate.acquire(params['name']!, 'onboard-save')
-    if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
-    try {
-      // 覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
-      // 目标文件，作者对既有文件的手改此前无版本链、误存即丢。与上方 onboard-ai
-      // 同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
-      // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
-      let snapshotted = false
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const bookRoot = r.bookRoot
+      const relPath = STEP_PATH[input.step]
+      // 并发闸——与 onboard-ai（85）互斥面缺失：双窗口同 step 保存
+      // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
+      const release = ctx.gate.acquire(params['name']!, 'onboard-save')
+      if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
       try {
-        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, input.content, 'onboard-save-overwrite', undefined, ctx.userDataPath) !== null
-      } catch (e) {
-        log.warn('api', `onboard-save 覆盖前快照失败（${input.step}，fail-open 继续落盘）`, e)
+        // 覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
+        // 目标文件，作者对既有文件的手改此前无版本链、误存即丢。与上方 onboard-ai
+        // 同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
+        // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
+        let snapshotted = false
+        try {
+          snapshotted =
+            snapshotBeforeOverwrite(
+              bookRoot,
+              relPath,
+              input.content,
+              'onboard-save-overwrite',
+              undefined,
+              ctx.userDataPath,
+            ) !== null
+        } catch (e) {
+          log.warn('api', `onboard-save 覆盖前快照失败（${input.step}，fail-open 继续落盘）`, e)
+        }
+        try {
+          mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
+          atomicWriteFile(join(bookRoot, relPath), input.content)
+        } catch (e) {
+          log.error('api', `onboard-save 落盘失败（${input.step}）`, e)
+          return replyError(res, 500, 'IO_ERROR', '落盘失败')
+        }
+        reply(res, 200, {
+          ok: true,
+          step: input.step,
+          path: relPath,
+          words: countWords(bodyOf(input.content)),
+          ...(snapshotted ? { snapshotted: true } : {}),
+        })
+      } finally {
+        release()
       }
-      try {
-        mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-        atomicWriteFile(join(bookRoot, relPath), input.content)
-      } catch (e) {
-        log.error('api', `onboard-save 落盘失败（${input.step}）`, e)
-        return replyError(res, 500, 'IO_ERROR', '落盘失败')
-      }
-      reply(res, 200, { ok: true, step: input.step, path: relPath, words: countWords(bodyOf(input.content)), ...(snapshotted ? { snapshotted: true } : {}) })
-    } finally {
-      release()
-    }
-  },
+    },
   })
 }
 
@@ -239,9 +277,7 @@ function buildOnboardPrompt(
   discussionContext = '',
 ): string {
   const ctx = `题材:${genre}  书名:《${title}》  篇幅:${kind === 'short' ? '短篇集' : '长篇'}`
-  const intro = premise
-    ? `\n\n## 作者梗概(开书依据,据此展开,勿臆造梗概外的核心设定)\n${premise}`
-    : ''
+  const intro = premise ? `\n\n## 作者梗概(开书依据,据此展开,勿臆造梗概外的核心设定)\n${premise}` : ''
   const discuss = discussionContext
     ? `\n\n## 既有讨论(作者已和 AI 讨论的设定,据其整理,勿臆造讨论外的细节)\n${discussionContext}`
     : ''

@@ -131,7 +131,9 @@ describe('typewriterExt：焦点渐隐（分带 line 装饰）', () => {
     const view = makeLongView(false, 22)
     try {
       typeAt(view, 8)
-      expect(view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4')).toHaveLength(0)
+      expect(
+        view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4'),
+      ).toHaveLength(0)
     } finally {
       view.destroy()
     }
@@ -147,7 +149,8 @@ describe('typewriterExt：浏览态全亮（渐隐只在写作位）', () => {
   }
   /** 全文中的渐隐行数（浏览态 = 0，全亮） */
   function fadeCount(view: EditorView): number {
-    return view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4').length
+    return view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4')
+      .length
   }
   function typeAt(view: EditorView, line: number): void {
     const pos = view.state.doc.line(line).from

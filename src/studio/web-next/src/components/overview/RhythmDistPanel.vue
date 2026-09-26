@@ -16,7 +16,12 @@ const HOOK_TYPES = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择�
 const EMOTIONS = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-interface DistGroup { title: string; keys: string[]; written: RhythmDist; planned: RhythmDist }
+interface DistGroup {
+  title: string
+  keys: string[]
+  written: RhythmDist
+  planned: RhythmDist
+}
 const distGroups = computed<DistGroup[]>(() => {
   const d = props.rhythmData
   if (!d) return []
@@ -47,7 +52,9 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
   <section v-if="distGroups.length" class="panel">
     <div class="panel-head">
       <BarChart3 :size="14" /> <span>节奏分布</span>
-      <span v-if="rhythmData?.kind === 'long'" class="head-legend">柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span>
+      <span v-if="rhythmData?.kind === 'long'" class="head-legend"
+        >柱 已写 · 线 规划 · {{ rhythmData.written.count }}/{{ rhythmData.planned.count }} 章</span
+      >
       <span v-else class="head-legend">柱 已写 · {{ rhythmData?.written?.count ?? 0 }} 章</span>
     </div>
     <div class="dist-grid">
@@ -56,14 +63,17 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
         <div v-for="k in g.keys" :key="k" class="dist-row">
           <span class="dist-key">{{ k }}</span>
           <div class="dist-bar">
-            <div class="dist-written" :style="{ width: ((g.written[k] ?? 0) / distMax(g) * 100) + '%' }"></div>
+            <div class="dist-written" :style="{ width: ((g.written[k] ?? 0) / distMax(g)) * 100 + '%' }"></div>
             <div
               v-if="(g.planned[k] ?? 0) > 0"
               class="dist-target"
-              :style="{ left: ((g.planned[k] ?? 0) / distMax(g) * 100) + '%' }"
+              :style="{ left: ((g.planned[k] ?? 0) / distMax(g)) * 100 + '%' }"
             ></div>
           </div>
-          <span class="dist-val">{{ g.written[k] ?? 0 }}<template v-if="isLong"><span class="sep">/</span>{{ g.planned[k] ?? 0 }}</template></span>
+          <span class="dist-val"
+            >{{ g.written[k] ?? 0
+            }}<template v-if="isLong"><span class="sep">/</span>{{ g.planned[k] ?? 0 }}</template></span
+          >
         </div>
       </div>
     </div>
@@ -76,18 +86,71 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
 /* .head-legend 基础收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
 
 /* ══ 节奏分布 ══ */
-.dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }
-.dist-group { display: flex; flex-direction: column; gap: 8px; }
-.dist-title { font-size: var(--font-size-s); font-weight: 600; color: var(--text-normal); padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid var(--background-modifier-border); }
-.dist-row { display: grid; grid-template-columns: 56px 1fr 38px; align-items: center; gap: var(--size-4-2); }
-.dist-key { font-size: var(--font-size-xs); color: var(--text-muted); }
-.dist-bar { position: relative; height: 14px; display: flex; align-items: center; background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent); border-radius: 4px; }
-.dist-written { height: 8px; background: var(--interactive-accent); border-radius: 3px; transition: width var(--dur-slow) var(--ease-out); }
-.dist-target { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text-muted); border-radius: 1px; transform: translateX(-1px); }
-.dist-val { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
-.dist-val .sep { margin: 0 2px; opacity: 0.5; }
+.dist-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--size-4-5);
+}
+.dist-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dist-title {
+  font-size: var(--font-size-s);
+  font-weight: 600;
+  color: var(--text-normal);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.dist-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 38px;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.dist-key {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.dist-bar {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
+  border-radius: 4px;
+}
+.dist-written {
+  height: 8px;
+  background: var(--interactive-accent);
+  border-radius: 3px;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.dist-target {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  transform: translateX(-1px);
+}
+.dist-val {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dist-val .sep {
+  margin: 0 2px;
+  opacity: 0.5;
+}
 
 @media (max-width: 600px) {
-  .dist-grid { grid-template-columns: 1fr; }
+  .dist-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

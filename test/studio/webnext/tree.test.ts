@@ -47,9 +47,7 @@ function sampleRaw(): TreeNode[] {
     ]),
     dir('大纲', [leaf('大纲/总纲.md', 'doc5'), leaf('大纲/分卷纲.md', 'doc6')]),
     dir('设定', [leaf('设定/人物.md', 'doc3'), leaf('设定/名册.md', 'doc-mingce')]),
-    dir('布线', [
-      dir('布线/悬念', [leaf('布线/悬念/悬念-001-x.md', 'doc10')]),
-    ]),
+    dir('布线', [dir('布线/悬念', [leaf('布线/悬念/悬念-001-x.md', 'doc10')])]),
     // 根级散文件（后端未过滤，前端应过滤）
     leaf('book.yaml', ''),
     leaf('.gitignore', ''),
@@ -95,7 +93,12 @@ describe('tree · load', () => {
   it('R46-35（四十六轮）：在途 refresh=0 时 refresh=1 不搭车（后发者胜）；在途 refresh=1 时后来者搭车', async () => {
     // 在途缓存读（refresh=0）挂起，重扫（refresh=1）并发到达
     let releaseCache!: (v: { nodes: TreeNode[]; revision: string; validatedAt: string }) => void
-    vi.mocked(getTree).mockImplementationOnce(() => new Promise((r) => { releaseCache = r }))
+    vi.mocked(getTree).mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          releaseCache = r
+        }),
+    )
     vi.mocked(getTree).mockResolvedValueOnce({ nodes: sampleRaw(), revision: 'r2', validatedAt: '' })
     const tree = useTreeStore()
     const pCache = tree.load(BOOK)
@@ -181,7 +184,14 @@ describe('tree · 索引', () => {
 
 describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', () => {
   function wleaf(path: string, role: string, wordCount: number): TreeNode {
-    return { path, name: path.split('/').pop()!.replace(/\.md$/, ''), isDirectory: false, role, wordCount, children: [] } as TreeNode
+    return {
+      path,
+      name: path.split('/').pop()!.replace(/\.md$/, ''),
+      isDirectory: false,
+      role,
+      wordCount,
+      children: [],
+    } as TreeNode
   }
   function rawWords(): TreeNode[] {
     return [

@@ -161,9 +161,7 @@ test('parseRealmSystems: 嵌套体系数组', () => {
 })
 
 test('stringifyRealmSystems: 往返', () => {
-  const systems = [
-    { 名称: '修真境界', 序列: ['炼气', '筑基'] },
-  ]
+  const systems = [{ 名称: '修真境界', 序列: ['炼气', '筑基'] }]
   const text = stringifyRealmSystems(systems)
   const reparsed = parseRealmSystems(text)
   expect(reparsed).toEqual(systems)
@@ -304,11 +302,7 @@ test('R28-11: parseFlat 块标量同名键重复 warn 行号指向键行', () =>
 })
 
 test('X-P2-18: 数组逐项序列化——含逗号/引号/纯数字/空项往返不丢', () => {
-  const cases: unknown[][] = [
-    ['科幻', '悬疑,推理', '带"引号"', '123', ''],
-    ['a', 'b'],
-    [],
-  ]
+  const cases: unknown[][] = [['科幻', '悬疑,推理', '带"引号"', '123', ''], ['a', 'b'], []]
   for (const arr of cases) {
     expect(parseValue(stringifyValue(arr))).toEqual(arr)
   }
@@ -424,10 +418,10 @@ test('N-4: 双入口（parseFlat / readBookConfig）行内注释剥除行为一�
   const dir = mkdtempTracked(join(tmpdir(), 'n4-双入口-'))
   try {
     const values = [
-      '甲 # 注',        // 常规行内注释
+      '甲 # 注', // 常规行内注释
       '"含 # 号 # 注"', // 引号内 # 不剥
-      'http://x#y',     // # 前无空白 → 字面保留
-      "'a # b' # 注",   // 单引号内不剥，引号外剥
+      'http://x#y', // # 前无空白 → 字面保留
+      "'a # b' # 注", // 单引号内不剥，引号外剥
     ]
     for (const v of values) {
       const fmVal = parseFlat(`标题: ${v}`).get('标题')

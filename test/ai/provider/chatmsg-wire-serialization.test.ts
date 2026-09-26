@@ -35,7 +35,11 @@ function captureAnthropic(): Anthropic {
     messages: {
       create: async function* (params: Record<string, unknown>): AsyncGenerator<unknown> {
         captured = params
-        yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+        yield {
+          type: 'message_delta',
+          usage: { input_tokens: 1, output_tokens: 1 },
+          delta: { stop_reason: 'end_turn' },
+        }
       },
     },
   } as unknown as Anthropic
@@ -66,7 +70,9 @@ function captureOpenAI(): OpenAI {
 async function runAnthropic(req: GenRequest, model = CONF.model): Promise<Record<string, unknown>> {
   const client = captureAnthropic()
   const prov = createAnthropicProvider({ ...CONF, model } as ProviderConf, client)
-  for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
+  for await (const _ev of prov.stream(req, new AbortController().signal)) {
+    void _ev
+  }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }
 
@@ -74,7 +80,9 @@ async function runAnthropic(req: GenRequest, model = CONF.model): Promise<Record
 async function runOpenAI(req: GenRequest): Promise<Record<string, unknown>> {
   const client = captureOpenAI()
   const prov = createOpenAIProviderChat(CONF, client)
-  for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
+  for await (const _ev of prov.stream(req, new AbortController().signal)) {
+    void _ev
+  }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }
 
@@ -109,7 +117,9 @@ function captureResponses(): OpenAI {
 async function runResponses(req: GenRequest): Promise<Record<string, unknown>> {
   const client = captureResponses()
   const prov = createOpenAIResponsesProvider(RCONF, client)
-  for await (const _ev of prov.stream(req, new AbortController().signal)) { void _ev }
+  for await (const _ev of prov.stream(req, new AbortController().signal)) {
+    void _ev
+  }
   return (client as unknown as { _captured: Record<string, unknown> })._captured
 }
 
@@ -154,9 +164,7 @@ describe('W0: block 数组 → Anthropic 线格式', () => {
       },
       {
         role: 'user',
-        content: [
-          { type: 'tool_result', toolUseId: 'toolu_1', content: '机检全绿' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: 'toolu_1', content: '机检全绿' }],
       },
     ]
     const params = await runAnthropic({ systemPrompt: '', messages })
@@ -171,9 +179,7 @@ describe('W0: block 数组 → Anthropic 线格式', () => {
 
     // user 消息：tool_result block（toolUseId → tool_use_id）
     expect(out[2]!.role).toBe('user')
-    expect(out[2]!.content).toEqual([
-      { type: 'tool_result', tool_use_id: 'toolu_1', content: '机检全绿' },
-    ])
+    expect(out[2]!.content).toEqual([{ type: 'tool_result', tool_use_id: 'toolu_1', content: '机检全绿' }])
   })
 
   it('tool_result isError → is_error: true', async () => {
@@ -213,11 +219,18 @@ describe('W0: block 数组 → Anthropic 线格式', () => {
   // （deepseek 走 anthropic 端点时硬编码 json_schema 会 400「格式有问题」）
   it('claude 系列 structured → output_config.format.json_schema', async () => {
     const params = await runAnthropic(
-      { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }], structured: { schema: { type: 'object', properties: { a: { type: 'string' } } } } },
+      {
+        systemPrompt: '',
+        messages: [{ role: 'user', content: 'hi' }],
+        structured: { schema: { type: 'object', properties: { a: { type: 'string' } } } },
+      },
       'claude-sonnet-5',
     )
     const oc = params['output_config'] as Record<string, unknown>
-    expect(oc['format']).toEqual({ type: 'json_schema', schema: { type: 'object', properties: { a: { type: 'string' } } } })
+    expect(oc['format']).toEqual({
+      type: 'json_schema',
+      schema: { type: 'object', properties: { a: { type: 'string' } } },
+    })
   })
 
   it('deepseek 系列 structured → output_config.format.json_object（不带 schema）', async () => {
@@ -384,9 +397,7 @@ describe('W0: 工具往返 → Responses 线格式', () => {
       },
       {
         role: 'user',
-        content: [
-          { type: 'tool_result', toolUseId: 'call_1', content: '机检全绿' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: 'call_1', content: '机检全绿' }],
       },
     ]
     const params = await runResponses({ systemPrompt: '', messages })
@@ -466,7 +477,13 @@ describe('W0: Responses 线 stop / tools / effort / tool_choice', () => {
     const params = await runResponses({
       systemPrompt: '',
       messages: [{ role: 'user', content: 'hi' }],
-      tools: [{ name: 'check_chapter', description: '机检章节', input_schema: { type: 'object', properties: { chapter: { type: 'number' } } } }],
+      tools: [
+        {
+          name: 'check_chapter',
+          description: '机检章节',
+          input_schema: { type: 'object', properties: { chapter: { type: 'number' } } },
+        },
+      ],
       effort: 'high',
     })
     // 缺口 11 前半：store:false + 工具调用 → include 让响应携带加密推理项

@@ -22,13 +22,21 @@ function makeBook(): string {
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 登记书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 登记书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
     '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
     'utf-8',
   )
-  writeFileSync(join(root, '写作', '正文', '0001-夜雨.md'), '---\n章号: 1\n标题: 夜雨\n---\n\n焦痕在烛火下泛着暗红。\n', 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-夜雨.md'),
+    '---\n章号: 1\n标题: 夜雨\n---\n\n焦痕在烛火下泛着暗红。\n',
+    'utf-8',
+  )
   return root
 }
 

@@ -58,9 +58,7 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
         expect(ui.overlayOpen).toBe(true)
         const el = w.find(`.${MASK_DOM_CLASS[kind]}`)
         expect(el.exists(), `kind=${kind} 的遮罩未渲染`).toBe(true)
-        expect(el.attributes('style')).toMatch(
-          new RegExp(`rgba\\(0,\\s*0,\\s*0,\\s*${MASK_ALPHA[kind]}\\)`),
-        )
+        expect(el.attributes('style')).toMatch(new RegExp(`rgba\\(0,\\s*0,\\s*0,\\s*${MASK_ALPHA[kind]}\\)`))
       } finally {
         w.unmount() // 登记位随卸载注销，不污染后续用例
         expect(ui.overlayOpen).toBe(false)
@@ -71,9 +69,7 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
   it('迁移弹窗源码零 rgba 镜像、旧遮罩选择器不回流（只减不增锁）', () => {
     const noMirror = (file: string, cls: string) => {
       const src = readFileSync(resolve(ROOT, file), 'utf-8')
-      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(
-        new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`),
-      )
+      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`))
     }
     noMirror('CommandPalette.vue', 'palette-mask')
     noMirror('ExportDialog.vue', 'modal-mask')
@@ -84,9 +80,7 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
     // settings-shared.css 的全局 .modal-mask 整块收编 ModalMask（连选择器一起走）
     expect(readFileSync(resolve(ROOT, 'settings-shared.css'), 'utf-8')).not.toContain('.modal-mask')
     // ModalMask 自身不写死档位——浓度只能经 MASK_ALPHA 注入（模板内联插值除外）
-    expect(readFileSync(resolve(ROOT, 'ModalMask.vue'), 'utf-8')).not.toMatch(
-      /rgba\(0,\s*0,\s*0,\s*0\.\d/,
-    )
+    expect(readFileSync(resolve(ROOT, 'ModalMask.vue'), 'utf-8')).not.toMatch(/rgba\(0,\s*0,\s*0,\s*0\.\d/)
   })
 
   it('书架子弹窗遮罩（ShelfModal 私有叠层）渲染面 = SHELF_DEEP_ALPHA，源码零镜像', () => {
@@ -94,9 +88,7 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
     // overlayStates 登记表；浓度同样单源——模板内联自 SHELF_DEEP_ALPHA，组件 CSS 零镜像
     const noMirror = (file: string, cls: string) => {
       const src = readFileSync(resolve(ROOT, file), 'utf-8')
-      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(
-        new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`),
-      )
+      expect(src, `${file} 不应再持有 .${cls} 的 rgba 浓度`).not.toMatch(new RegExp(`\\.${cls}\\s*\\{[^}]*rgba\\(`))
     }
     noMirror('ConfirmDeleteModal.vue', 'confirm-overlay')
     noMirror('CreateBookModal.vue', 'create-overlay')
@@ -109,9 +101,7 @@ describe('J5-1: 遮罩浓度单源（ModalMask 渲染面 = MASK_ALPHA；组件 C
       // 本组件自持 Teleport（落 body），断言从 body 取
       const el = document.body.querySelector('.confirm-overlay')
       expect(el, '确认删除遮罩未渲染').not.toBeNull()
-      expect(el!.getAttribute('style')).toContain(
-        `rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.confirmDelete})`,
-      )
+      expect(el!.getAttribute('style')).toContain(`rgba(0, 0, 0, ${SHELF_DEEP_ALPHA.confirmDelete})`)
     } finally {
       confirm.unmount()
     }
@@ -244,8 +234,19 @@ describe('R0916-7-P3-22: 章节属性/拆分对话框入遮罩登记（⌘P 守�
       props: {
         modelValue: true,
         plan: {
-          ok: true, op: 'split', docId: 'd1', path: '正文/第3章.md', chapterNo: 3, title: '第3章', newChapterNo: 9,
-          order: 3.5, headWords: 100, tailWords: 200, tailPreview: '', publishedWarning: false, planHash: 'h',
+          ok: true,
+          op: 'split',
+          docId: 'd1',
+          path: '正文/第3章.md',
+          chapterNo: 3,
+          title: '第3章',
+          newChapterNo: 9,
+          order: 3.5,
+          headWords: 100,
+          tailWords: 200,
+          tailPreview: '',
+          publishedWarning: false,
+          planHash: 'h',
         },
       },
     })
@@ -260,10 +261,7 @@ describe('R0916-7-P3-22: 章节属性/拆分对话框入遮罩登记（⌘P 守�
 
 describe('J5-6: win 遮罩瞬切（base.css 覆盖名单与全屏遮罩类对齐）', () => {
   it('win32 animation:none 名单覆盖全部全屏遮罩类（新增遮罩须入名单）', () => {
-    const css = readFileSync(
-      resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'),
-      'utf-8',
-    )
+    const css = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'), 'utf-8')
     const m = css.match(/:root\[data-platform='win32'\]([^{}]+)\{[^}]*animation:\s*none/)
     expect(m).toBeTruthy()
     const list = m![1]
@@ -280,33 +278,21 @@ describe('J5-6: win 遮罩瞬切（base.css 覆盖名单与全屏遮罩类对齐
     }
   })
   it('theme-instant 全局过渡压制在位（win 翻转拍页面单帧换血与窗控同拍）', () => {
-    const css = readFileSync(
-      resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'),
-      'utf-8',
-    )
+    const css = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'), 'utf-8')
     // prefs.applyTheme 挂/摘 .theme-instant 依赖这条 CSS 存在——改名须两处同步
     expect(css).toMatch(/html\.theme-instant[^{}]*\{[^}]*transition:\s*none\s*!important/)
-    const prefsSrc = readFileSync(
-      resolve(__dirname, '../../../src/studio/web-next/src/stores/prefs.ts'),
-      'utf-8',
-    )
+    const prefsSrc = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/stores/prefs.ts'), 'utf-8')
     expect(prefsSrc).toContain("classList.add('theme-instant')")
     expect(prefsSrc).toContain("classList.remove('theme-instant')")
   })
   it('书架/设置弹层分帧延挂（afterPaint 真分帧，遮罩轻帧与窗控同帧扫描输出）', () => {
     // 144Hz 帧预算 6.9ms：重内容与遮罩同帧挂载必超预算、落后窗控 1-2 帧。
     // 分帧原语必须是 afterPaint（单 rAF 的微任务仍在同帧渲染管线内，等于没分）
-    const util = readFileSync(
-      resolve(__dirname, '../../../src/studio/web-next/src/shared/after-paint.ts'),
-      'utf-8',
-    )
+    const util = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/shared/after-paint.ts'), 'utf-8')
     expect(util).toContain('requestAnimationFrame')
     expect(util).toContain('setTimeout')
     for (const f of ['SettingsModal.vue', 'ShelfModal.vue']) {
-      const src = readFileSync(
-        resolve(__dirname, '../../../src/studio/web-next/src/components/ui', f),
-        'utf-8',
-      )
+      const src = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/components/ui', f), 'utf-8')
       expect(src).toContain('afterPaint')
       expect(src).toMatch(/v-if="contentReady"/)
     }
@@ -314,13 +300,8 @@ describe('J5-6: win 遮罩瞬切（base.css 覆盖名单与全屏遮罩类对齐
   it('独立整页拖拽区 win 实色底带与窗控基础色贴合（书库/首启/书架窗）', () => {
     // 窗控条 = --background-secondary 实色，条底透明透 primary 渐变则两档 token
     // 恒差一级（作者反馈「书库管理窗控颜色不同步」）。新增独立整页须入名单。
-    const css = readFileSync(
-      resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'),
-      'utf-8',
-    )
-    const m = css.match(
-      /:root\[data-platform='win32'\]([^{}]+)\{[^}]*background:\s*var\(--background-secondary\)/,
-    )
+    const css = readFileSync(resolve(__dirname, '../../../src/studio/web-next/src/styles/base.css'), 'utf-8')
+    const m = css.match(/:root\[data-platform='win32'\]([^{}]+)\{[^}]*background:\s*var\(--background-secondary\)/)
     expect(m).toBeTruthy()
     for (const cls of ['.lib-titlebar', '.welcome-titlebar', '.shelf-titlebar']) {
       expect(m![1]).toContain(cls)
@@ -332,8 +313,9 @@ describe('J5-5: win 主题切换瞬切（不做扩散特效；页面先变、窗
   it('win 平台 toggle 不走 ViewTransition，窗控色在翻转帧绘制完成后落下', async () => {
     // happy-dom 缺 matchMedia 时补最小替身（只读 .matches）
     if (typeof window.matchMedia !== 'function') {
-      ;(window as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia =
-        () => ({ matches: false })
+      ;(window as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia = () => ({
+        matches: false,
+      })
     }
     setActivePinia(createPinia())
     const overlay = vi.fn()
@@ -357,9 +339,7 @@ describe('J5-5: win 主题切换瞬切（不做扩散特效；页面先变、窗
       expect(document.documentElement.classList.contains('theme-instant')).toBe(true) // 翻转拍过渡压制在挂
       // 窗控色延到翻转帧扫描输出之后（双 rAF，144Hz 下页面先变、窗控跟随 ≤1 帧，
       // 见 prefs.applyTheme 注释）——冲排两帧后断言落定
-      await new Promise<void>((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => r())),
-      )
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
       await new Promise<void>((r) => setTimeout(r, 0))
       expect(document.documentElement.classList.contains('theme-instant')).toBe(false) // 翻转帧已绘制完，过渡恢复
       expect(overlay).toHaveBeenCalledTimes(1)

@@ -30,9 +30,10 @@ export function isSseEvent(ev: unknown): ev is { type: string; [k: string]: unkn
 type HealPhaseName = 'drafting' | 'checking' | 'rewriting' | 'chapter_start' | 'chapter_done'
 
 /** self_heal_phase 事件守卫：phase 白名单校验 + 类型收窄 */
-export function isHealPhaseEvent(
-  ev: { type: string; [k: string]: unknown },
-): ev is { type: 'self_heal_phase'; phase: HealPhaseName } {
+export function isHealPhaseEvent(ev: {
+  type: string
+  [k: string]: unknown
+}): ev is { type: 'self_heal_phase'; phase: HealPhaseName } {
   if (ev.type !== 'self_heal_phase') return false
   const p = ev.phase
   return p === 'drafting' || p === 'checking' || p === 'rewriting' || p === 'chapter_start' || p === 'chapter_done'
@@ -42,9 +43,7 @@ export function isHealPhaseEvent(
 type HealOutcomeName = 'pass' | 'escalate' | 'aborted' | 'failed'
 
 /** self_heal_result 事件守卫：outcome 白名单 + 可选字符串数组/字符串字段收窄 */
-export function isHealResultEvent(
-  ev: { type: string; [k: string]: unknown },
-): ev is {
+export function isHealResultEvent(ev: { type: string; [k: string]: unknown }): ev is {
   type: 'self_heal_result'
   outcome: HealOutcomeName
   reds?: string[]

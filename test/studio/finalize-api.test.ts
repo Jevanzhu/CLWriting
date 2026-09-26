@@ -99,7 +99,11 @@ afterAll(async () => {
 describe('POST /documents/:docId/finalize（P1 定稿确认）', () => {
   it('revision 态正文 → 200 skipped:false，commit 后 git 干净', async () => {
     // 改脏 → revision 态
-    writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n修改后的正文。\n', 'utf8')
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0001-开篇.md'),
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n修改后的正文。\n',
+      'utf8',
+    )
     const r = await postFinalize(ch1DocId)
     expect(r.status).toBe(200)
     const j = r.json as { ok: boolean; status: string; skipped: boolean }

@@ -71,12 +71,13 @@ export function extractLongSentences(body: string, maxLen = DEFAULT_MAX_SENTENCE
   // 长度与截断改码位口径（clipByCodePoints/codePointLength）——
   // 原 UTF-16 .length/.slice 在增补平面字符（emoji 等 4 字节码点）边界会把代理对
   // 劈成孤立 U+FFFD（与 summary 裁剪 /同族，本处漏网）
-  const overlong = splitSentences(body)
-    .filter((s) => codePointLength(s) > maxLen)
+  const overlong = splitSentences(body).filter((s) => codePointLength(s) > maxLen)
   // 按长度降序取前 3
   const top3 = overlong.sort((a, b) => codePointLength(b) - codePointLength(a)).slice(0, 3)
   // 截断到 30 字 + ……
-  return top3.map((s) => (codePointLength(s) > LONG_SENTENCE_TRUNCATE ? `${clipByCodePoints(s, LONG_SENTENCE_TRUNCATE)}……` : s))
+  return top3.map((s) =>
+    codePointLength(s) > LONG_SENTENCE_TRUNCATE ? `${clipByCodePoints(s, LONG_SENTENCE_TRUNCATE)}……` : s,
+  )
 }
 
 /**
@@ -111,36 +112,22 @@ export function extractSummaryEnding(body: string): string | null {
  * - 单句超限占比 → 超长句原文（extractLongSentences）
  * - 其他（形容词堆叠 / 排比连续度 / 对话标签占比）→ 静态建议（取 advice 参数）
  */
-export function styleRemedy(
-  dimName: string,
-  current: number,
-  ref: number,
-  body: string,
-  advice = '',
-): string {
+export function styleRemedy(dimName: string, current: number, ref: number, body: string, advice = ''): string {
   switch (dimName) {
     case '复读率': {
       const phrases = extractRepeatPhrases(body)
-      return phrases.length > 0
-        ? `以下词组重复出现：${phrases.join('、')}，各保留一次`
-        : '降低句式重复'
+      return phrases.length > 0 ? `以下词组重复出现：${phrases.join('、')}，各保留一次` : '降低句式重复'
     }
     case '结尾总结体': {
       const sentence = extractSummaryEnding(body)
-      return sentence !== null
-        ? `删去段末总结句：「${sentence}」，让场景直接切出`
-        : '检查结尾是否有总结性语句'
+      return sentence !== null ? `删去段末总结句：「${sentence}」，让场景直接切出` : '检查结尾是否有总结性语句'
     }
     case '句长方差':
       // 偏低 → 句式太均（需要拆长句加短句）；偏高 → 句式太散（需要交替）
-      return current < ref
-        ? '把长句拆开，段落里混入三五字的短句'
-        : '增加长短句交替，避免句式过于跳跃'
+      return current < ref ? '把长句拆开，段落里混入三五字的短句' : '增加长短句交替，避免句式过于跳跃'
     case '单句超限占比': {
       const longSents = extractLongSentences(body)
-      return longSents.length > 0
-        ? `以下句子过长建议拆分：${longSents.join('、')}`
-        : '建议拆分长句、控制单句长度'
+      return longSents.length > 0 ? `以下句子过长建议拆分：${longSents.join('、')}` : '建议拆分长句、控制单句长度'
     }
     default:
       return advice || '建议调整'

@@ -87,13 +87,21 @@ test('N1: 合法 docId 的 rename 照常成功（守卫不误伤）', async () =
 test('N1: writeVersion 非法 docId → null 且 warn 留痕（不再静默）', async () => {
   const logsDir = join(tmpRoot(), 'logs')
   initLogging({ logsDir, mirrorConsole: false })
-  const out = writeVersion(join(logsDir, '版本'), '../../evil', '内容', { origin: 'manual', reason: '移动前留底', baseRevision: null })
+  const out = writeVersion(join(logsDir, '版本'), '../../evil', '内容', {
+    origin: 'manual',
+    reason: '移动前留底',
+    baseRevision: null,
+  })
   expect(out).toBeNull()
   await flushLogsForTest()
   const lines: string[] = []
   for (const f of readdirSync(logsDir)) {
     if (!f.endsWith('.jsonl')) continue
-    lines.push(...readFileSync(join(logsDir, f), 'utf8').split('\n').filter((l) => l.trim()))
+    lines.push(
+      ...readFileSync(join(logsDir, f), 'utf8')
+        .split('\n')
+        .filter((l) => l.trim()),
+    )
   }
   expect(lines.some((l) => l.includes('非法 docId'))).toBe(true)
   // 日志目录本身无越出（dirname(logsDir/版本, ...) 不会因非法 docId 逃逸写文件）

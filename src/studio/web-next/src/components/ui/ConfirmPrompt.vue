@@ -32,18 +32,22 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
        内层 v-if 自持窄化——:open 传参不做模板窄化，删掉它下方 confirmState 各字段访问
        会在 vue-tsc 下报「可能为 null」 -->
   <ModalMask :open="!!ui.confirmState" kind="confirm" @mask-click="ui.resolveConfirm(false)">
-    <div v-if="ui.confirmState" ref="modalRef" class="cp-modal" role="dialog" aria-modal="true" aria-label="确认" tabindex="-1">
+    <div
+      v-if="ui.confirmState"
+      ref="modalRef"
+      class="cp-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="确认"
+      tabindex="-1"
+    >
       <div class="cp-title">{{ ui.confirmState.title }}</div>
       <div class="cp-body">{{ ui.confirmState.message }}</div>
       <div class="cp-actions">
         <button class="btn" @click="ui.resolveConfirm(false)">
           {{ ui.confirmState.cancelText ?? '取消' }}
         </button>
-        <button
-          class="btn"
-          :class="{ danger: ui.confirmState.danger }"
-          @click="ui.resolveConfirm(true)"
-        >
+        <button class="btn" :class="{ danger: ui.confirmState.danger }" @click="ui.resolveConfirm(true)">
           {{ ui.confirmState.confirmText ?? '确认' }}
         </button>
       </div>
@@ -89,7 +93,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   background: var(--background-primary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
 .btn:hover {
   background: var(--background-modifier-hover);

@@ -17,9 +17,7 @@ const props = withDefaults(
   { size: 'block' },
 )
 
-const iconSize = computed(() =>
-  props.size === 'full' ? 48 : props.size === 'compact' ? 14 : 40,
-)
+const iconSize = computed(() => (props.size === 'full' ? 48 : props.size === 'compact' ? 14 : 40))
 </script>
 
 <template>

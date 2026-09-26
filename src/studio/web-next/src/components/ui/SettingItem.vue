@@ -22,7 +22,9 @@ defineProps<{
   <div class="setting-item" :class="{ sub }">
     <div class="setting-item-info">
       <div class="setting-item-name">{{ name }}</div>
-      <div v-if="desc || $slots.desc" class="setting-item-desc"><slot name="desc">{{ desc }}</slot></div>
+      <div v-if="desc || $slots.desc" class="setting-item-desc">
+        <slot name="desc">{{ desc }}</slot>
+      </div>
     </div>
     <div class="setting-item-control">
       <slot />

@@ -101,7 +101,10 @@ beforeAll(async () => {
           ].join('\n') + '\n',
       },
       // 伏笔初始内容（未回收）
-      { rel: '设定/伏笔/古剑.md', content: '---\n标题: 古剑\n状态: 未回收\n重要性: 高\n关联词: 古剑\n---\n\n主角佩剑藏机关。\n' },
+      {
+        rel: '设定/伏笔/古剑.md',
+        content: '---\n标题: 古剑\n状态: 未回收\n重要性: 高\n关联词: 古剑\n---\n\n主角佩剑藏机关。\n',
+      },
       { rel: '写作/正文/0001-开篇.md', content: '开篇。\n' },
     ],
   })
@@ -116,7 +119,10 @@ afterAll(async () => {
 describe('Z-P2-6 伏笔事件族接线', () => {
   it('非伏笔文档保存 → 零事件（对照组）', async () => {
     const r = await request('PUT', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_ch1/content`, {
-      content: '开篇改。\n', expectedRevision: revOf('写作/正文/0001-开篇.md'), operationId: 'op-ch1', origin: 'manual',
+      content: '开篇改。\n',
+      expectedRevision: revOf('写作/正文/0001-开篇.md'),
+      operationId: 'op-ch1',
+      origin: 'manual',
     })
     expect(r.status).toBe(200)
     expect(foreshadowEvents()).toHaveLength(0)
@@ -125,7 +131,9 @@ describe('Z-P2-6 伏笔事件族接线', () => {
   it('伏笔保存改状态（未回收→已回收）→ foreshadow/change{complete}', async () => {
     const r = await request('PUT', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs1/content`, {
       content: '---\n标题: 古剑\n状态: 已回收\n重要性: 高\n关联词: 古剑\n---\n\n主角佩剑藏机关。\n',
-      expectedRevision: revOf('设定/伏笔/古剑.md'), operationId: 'op-fs1', origin: 'manual',
+      expectedRevision: revOf('设定/伏笔/古剑.md'),
+      operationId: 'op-fs1',
+      origin: 'manual',
     })
     expect(r.status).toBe(200)
     expect(foreshadowEvents()).toEqual([{ operation: 'complete', title: '古剑' }])
@@ -134,7 +142,9 @@ describe('Z-P2-6 伏笔事件族接线', () => {
   it('同状态保存（无变化）→ 不追加事件（差分去噪）', async () => {
     const r = await request('PUT', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs1/content`, {
       content: '---\n标题: 古剑\n状态: 已回收\n重要性: 高\n关联词: 古剑\n---\n\n机关已开。\n',
-      expectedRevision: revOf('设定/伏笔/古剑.md'), operationId: 'op-fs2', origin: 'manual',
+      expectedRevision: revOf('设定/伏笔/古剑.md'),
+      operationId: 'op-fs2',
+      origin: 'manual',
     })
     expect(r.status).toBe(200)
     expect(foreshadowEvents()).toHaveLength(1) // 仍只有上一条 complete
@@ -142,7 +152,8 @@ describe('Z-P2-6 伏笔事件族接线', () => {
 
   it('PATCH fm 改状态（已回收→已废弃）→ foreshadow/change{block}', async () => {
     const r = await request('PATCH', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_fs1`, {
-      op: 'fm', meta: { 状态: '已废弃' },
+      op: 'fm',
+      meta: { 状态: '已废弃' },
     })
     expect(r.status).toBe(200)
     expect(foreshadowEvents()).toEqual([

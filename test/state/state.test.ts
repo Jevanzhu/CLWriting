@@ -69,8 +69,12 @@ test('detectState: 已定稿文件有手改 → 态 3', async () => {
   const m = readManifest(manifestPath)
   const docId = generateDocId()
   upsertEntry(m, {
-    id: docId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null,
-    finalizedRevision: computeRevision(bodyPath), finalizedAt: new Date().toISOString(),
+    id: docId,
+    nodeType: 'document',
+    path: '写作/正文/0001-开篇.md',
+    parentId: null,
+    finalizedRevision: computeRevision(bodyPath),
+    finalizedAt: new Date().toISOString(),
   })
   writeManifest(manifestPath, m)
 
@@ -252,7 +256,11 @@ async function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): Promise<
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const rel = fileExists === 'old' ? oldRel : fileExists === 'new' ? newRel : null
   if (rel) {
-    writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+    writeFileSync(
+      join(root, rel),
+      '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n',
+      'utf-8',
+    )
   }
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -312,7 +320,11 @@ test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 d
   const newRel = '写作/正文/0002-开篇.md'
   const newAbs = join(root, newRel)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(newAbs, '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+  writeFileSync(
+    newAbs,
+    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n',
+    'utf-8',
+  )
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   mkdirSync(join(root, '项目'), { recursive: true })
   const m = readManifest(manifestPath)

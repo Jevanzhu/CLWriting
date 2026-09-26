@@ -37,12 +37,9 @@ function makeWiringBook(): string {
 test('parseOutlineLeads: 解析最后一行 推进:，白名单过滤（臆造/已收尾剔除）', () => {
   const root = makeWiringBook()
   try {
-    const text = [
-      '# 本章细纲',
-      '场景：叙事铺陈',
-      '推进: 悬念-001, 悬念-999',
-      '正文里也提到推进：但这不是声明行',
-    ].join('\n')
+    const text = ['# 本章细纲', '场景：叙事铺陈', '推进: 悬念-001, 悬念-999', '正文里也提到推进：但这不是声明行'].join(
+      '\n',
+    )
     // 最后匹配的 推进: 行是「正文里也提到推进：...」——它含冒号但不是行首，正则 ^ 不匹配
     const out = parseOutlineLeads(text, root)
     expect(out).toEqual(['悬念-001'])
@@ -93,7 +90,11 @@ test('闭环：parseOutlineLeads 产出可直接写 fm → readOutlineLeads 读�
 function makeVolumeBook(bookYamlExtra: string, userDataPath?: string): { root: string; ud: string | null } {
   const root = mkdtempTracked(join(tmpdir(), 'outline-vol-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: 卷书\n${bookYamlExtra}host: cc\n`, 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: 卷书\n${bookYamlExtra}host: cc\n`,
+    'utf-8',
+  )
   mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
   writeFileSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), '# 第 1 卷\n\n第一卷的进展摘要。\n', 'utf-8')
   let ud: string | null = null

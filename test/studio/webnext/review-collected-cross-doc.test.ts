@@ -29,7 +29,12 @@ const collectedB = { ok: true, collected_lenses: ['editor'], missing_lenses: [] 
 
 function envelopeOf(collected: unknown, verdict?: unknown) {
   return {
-    envelope: { generatedAt: 't', model: 'm', sourceHash: 'h', payload: { collected, ...(verdict ? { verdict } : {}) } },
+    envelope: {
+      generatedAt: 't',
+      model: 'm',
+      sourceHash: 'h',
+      payload: { collected, ...(verdict ? { verdict } : {}) },
+    },
     stale: false,
   }
 }

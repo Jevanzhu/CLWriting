@@ -240,7 +240,11 @@ export function listAiVersions(bookRoot: string, docId: string, metaCache?: Vers
  * 失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断落盘主流程。
  * 版本档案路径（无 git 书库）无锁无子进程，原样走同步版（本地小文件读）。
  */
-export async function listAiVersionsAsync(bookRoot: string, docId: string, metaCache?: VersionMetaCache): Promise<AiVersion[]> {
+export async function listAiVersionsAsync(
+  bookRoot: string,
+  docId: string,
+  metaCache?: VersionMetaCache,
+): Promise<AiVersion[]> {
   if (!hasGitBackend(bookRoot)) {
     return listAiVersions(bookRoot, docId, metaCache)
   }
@@ -284,5 +288,3 @@ export async function readAiVersionAsync(bookRoot: string, docId: string, sha: s
   const r = await gitAsync(['cat-file', '-p', sha], bookRoot)
   return r.ok ? r.stdout : null
 }
-
-

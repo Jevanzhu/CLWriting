@@ -30,7 +30,11 @@ describe('R43-18: syncLead——SAVEPOINT 回滚对自吞异常，原始写错�
       },
       prepare(sql: string): { run: (...a: unknown[]) => unknown } {
         if (sql.includes('INSERT INTO lead_history')) {
-          return { run: () => { throw new Error('SQLITE_FULL: database or disk is full') } }
+          return {
+            run: () => {
+              throw new Error('SQLITE_FULL: database or disk is full')
+            },
+          }
         }
         return { run: () => undefined }
       },

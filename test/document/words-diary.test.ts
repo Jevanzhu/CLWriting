@@ -6,7 +6,14 @@ import { test, expect } from 'vitest'
 import { rmSync, readFileSync, existsSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readBaseline, appendBaseline, readTodayDelta, appendWordsDelta, todayDate, wordsDiaryPath } from '../../src/document/words-diary.js'
+import {
+  readBaseline,
+  appendBaseline,
+  readTodayDelta,
+  appendWordsDelta,
+  todayDate,
+  wordsDiaryPath,
+} from '../../src/document/words-diary.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('readBaseline: 无日记返 null', () => {

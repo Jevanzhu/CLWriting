@@ -56,7 +56,8 @@ function openLibraryManager(): void {
   <div class="ribbon" :class="{ 'has-traffic': isMac }">
     <div class="ribbon-group">
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.leftPanel === 'tree' }"
         :data-tip="treeTip"
         @click="ws.setLeftPanel('tree')"
@@ -64,7 +65,8 @@ function openLibraryManager(): void {
         <ListTree :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.leftPanel === 'search' }"
         data-tip="搜索"
         @click="ws.setLeftPanel('search')"
@@ -73,7 +75,8 @@ function openLibraryManager(): void {
       </button>
       <div class="ribbon-sep" />
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'overview' }"
         data-tip="总览（进度 / 节奏 / 伏笔 / 文风）"
         @click="ws.setActiveView('overview')"
@@ -81,7 +84,8 @@ function openLibraryManager(): void {
         <LayoutGrid :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'relations' }"
         data-tip="角色关系图 Beta"
         @click="ws.setActiveView('relations')"
@@ -90,7 +94,8 @@ function openLibraryManager(): void {
       </button>
       <div class="ribbon-sep" />
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'onboard' }"
         data-tip="开书对话 Beta"
         @click="ws.setActiveView('onboard')"
@@ -98,7 +103,8 @@ function openLibraryManager(): void {
         <Compass :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'workbench' }"
         data-tip="AI 工作台 Beta"
         @click="ws.setActiveView('workbench')"
@@ -106,7 +112,8 @@ function openLibraryManager(): void {
         <Wrench :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'style' }"
         data-tip="文风 Beta"
         @click="ws.setActiveView('style')"
@@ -114,7 +121,8 @@ function openLibraryManager(): void {
         <Feather :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.activeView === 'audit' }"
         data-tip="事件审计（重放 / 遮蔽差异）"
         @click="ws.setActiveView('audit')"
@@ -125,7 +133,8 @@ function openLibraryManager(): void {
 
     <div class="ribbon-group">
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :class="{ on: ws.leftPanel === 'trash' }"
         data-tip="回收站"
         @click="ws.setLeftPanel('trash')"
@@ -146,7 +155,8 @@ function openLibraryManager(): void {
         <Settings :size="20" :stroke-width="1.6" />
       </button>
       <button
-        class="rbtn" data-tip-dir="right"
+        class="rbtn"
+        data-tip-dir="right"
         :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
         @click="toggle($event)"
       >

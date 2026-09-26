@@ -113,7 +113,10 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     // 不镜像 stdout，冒烟步重定向的是进程标准流
     console.log(`[CLW_SMOKE] renderer-crash reason=${details.reason} reload=${crashes <= RENDERER_CRASH_MAX_RELOADS}`)
     if (crashes > RENDERER_CRASH_MAX_RELOADS) {
-      log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`)
+      log.error(
+        'desktop',
+        `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`,
+      )
       if (!win.isDestroyed()) {
         // 连带（批 D 代理范围外上报、主评审收口）：崩溃提示页 loadURL 同为
         // 无人 catch 的 promise（data: URL 失败概率极低但同类）——接日志防丢诊断
@@ -125,7 +128,10 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
       }
       return
     }
-    log.error('desktop', `渲染进程崩溃（${label}，${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${crashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`)
+    log.error(
+      'desktop',
+      `渲染进程崩溃（${label}，${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${crashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`,
+    )
     if (!win.isDestroyed()) win.webContents.reload()
   })
   // did-finish-load 后延迟复位崩溃计数——渲染层真正稳定（存活满
@@ -154,7 +160,10 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     }
     loadFails++
     if (loadFails > RENDERER_LOADFAIL_MAX_RETRIES) {
-      log.error('desktop', `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——载提示页等待人工处理`)
+      log.error(
+        'desktop',
+        `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——载提示页等待人工处理`,
+      )
       // 0918二轮修复批（C101）：封顶不再白屏滞留——对齐 render-process-gone 封顶口径
       // （同款：loadURL promise 接日志防丢诊断）
       if (!win.isDestroyed()) {
@@ -167,7 +176,10 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
       return
     }
     const delay = Math.min(RENDERER_LOADFAIL_BACKOFF_BASE_MS * 2 ** (loadFails - 1), RENDERER_LOADFAIL_BACKOFF_CAP_MS)
-    log.error('desktop', `主框架加载失败（${label}，code=${errorCode}），${delay}ms 后重载重试（第 ${loadFails}/${RENDERER_LOADFAIL_MAX_RETRIES} 次）`)
+    log.error(
+      'desktop',
+      `主框架加载失败（${label}，code=${errorCode}），${delay}ms 后重载重试（第 ${loadFails}/${RENDERER_LOADFAIL_MAX_RETRIES} 次）`,
+    )
     failLoadTimer = setTimeout(() => {
       failLoadTimer = null
       if (!win.isDestroyed()) win.webContents.reload()
@@ -338,18 +350,17 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // dev 环境变量防线——本文件全部 CLW_DEV_UI 读取统一收紧为
   // 「!!env && !app.isPackaged」形态：宿主 shell 残留的 CLW_DEV_UI=1 在打包态不得再
   // 触发 dev 代理（setProxy direct:// 属开发期行为，与 HMR 同源同门）
-  if (!!process.env['CLW_DEV_UI'] && !app.isPackaged) { // bracket 统一风格
+  if (!!process.env['CLW_DEV_UI'] && !app.isPackaged) {
+    // bracket 统一风格
     // 记账供 loadURL 前 await（同值幂等，重复设置无害）
     // setProxy 返回 promise 此前无人 catch——设置失败成
     // unhandledRejection 丢诊断（且 await 方拿到 rejected promise 会二次炸穿书架/
     // 书库窗口加载链）；接日志吞错降级（按系统代理继续，SSE 断流风险留日志可查）
     // nano ：let 导出改访问器后经 setter 写入（写点唯一）
     setDevProxyApplied(
-      win.webContents.session
-        .setProxy({ proxyRules: 'direct://' })
-        .catch((e) => {
-          log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
-        }),
+      win.webContents.session.setProxy({ proxyRules: 'direct://' }).catch((e) => {
+        log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
+      }),
     )
   }
   return win
@@ -376,7 +387,13 @@ function loadWinState(): WinState | null {
     // （workAreaSize-80/-8）一直按工作区算，校验却按含任务栏/Dock 的整屏：存档底部
     // 压在任务栏区（整屏含、工作区外）此前判有效、恢复即压条。容差 200px 原样保留
     //（轻微出界照旧放行），只多拦「越工作区 >200px」的真离屏态，正常存档不受影响。
-    if (isBoundsVisibleOnAnyDisplay(s.bounds, screen.getAllDisplays().map((d) => d.workArea))) return s
+    if (
+      isBoundsVisibleOnAnyDisplay(
+        s.bounds,
+        screen.getAllDisplays().map((d) => d.workArea),
+      )
+    )
+      return s
   } catch {
     /* 无文件或损坏 → 默认 */
   }

@@ -92,10 +92,14 @@ test.skipIf(process.platform === 'win32')(
   60_000,
 )
 
-test.skipIf(process.platform === 'win32')('R0912-3: 干净 manifest → 成功文案不变、退出码 0（防两态区分误伤成功路径）', () => {
-  const sandbox = setup([])
-  const r = run(sandbox)
-  expect(r.status).toBe(0)
-  expect(r.stdout).toContain('已登记：知识层/定稿-试.md')
-  expect(r.stderr).toBe('')
-}, 60_000)
+test.skipIf(process.platform === 'win32')(
+  'R0912-3: 干净 manifest → 成功文案不变、退出码 0（防两态区分误伤成功路径）',
+  () => {
+    const sandbox = setup([])
+    const r = run(sandbox)
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('已登记：知识层/定稿-试.md')
+    expect(r.stderr).toBe('')
+  },
+  60_000,
+)

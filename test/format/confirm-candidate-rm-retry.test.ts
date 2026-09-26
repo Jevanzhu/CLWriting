@@ -24,11 +24,7 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
   }
 })
 
-import {
-  addCandidate,
-  confirmCandidate,
-  type StyleCandidate,
-} from '../../src/format/style-candidate.js'
+import { addCandidate, confirmCandidate, type StyleCandidate } from '../../src/format/style-candidate.js'
 import { readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 

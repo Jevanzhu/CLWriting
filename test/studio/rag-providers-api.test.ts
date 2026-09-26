@@ -1,7 +1,7 @@
 /**
  * RAG（嵌入）服务商管理端点集成测（应用级多服务商，书按 rag.provider 引用）。
  *
- * 覆盖：CRUD 往返 / GET 脱敏（apiKey 空串 + masked）/ 落盘无明文 key（vault）/ 
+ * 覆盖：CRUD 往返 / GET 脱敏（apiKey 空串 + masked）/ 落盘无明文 key（vault）/
  * 创建必填校验（含 http(s) 前缀）/ 编辑留空 key 保留 / endpoint 变更清 caps /
  * test 路由（embed 桩成功/失败翻转 caps）。
  */
@@ -55,17 +55,28 @@ describe('RAG 服务商管理端点', () => {
   })
 
   it('POST 创建：四字段必填 + endpoint 须 http(s)', async () => {
-    const noKey = await api('/api/rag-providers', { method: 'POST', body: JSON.stringify({ name: 'a', endpoint: 'https://e/x', model: 'm', apiKey: '' }) })
+    const noKey = await api('/api/rag-providers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'a', endpoint: 'https://e/x', model: 'm', apiKey: '' }),
+    })
     expect(noKey.status).toBe(400)
     expect(String(noKey.json['error'])).toContain('apiKey 必填')
 
-    const badUrl = await api('/api/rag-providers', { method: 'POST', body: JSON.stringify({ name: 'a', endpoint: 'ftp://e', model: 'm', apiKey: 'k' }) })
+    const badUrl = await api('/api/rag-providers', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'a', endpoint: 'ftp://e', model: 'm', apiKey: 'k' }),
+    })
     expect(badUrl.status).toBe(400)
     expect(String(badUrl.json['error'])).toContain('http(s)')
 
     const ok = await api('/api/rag-providers', {
       method: 'POST',
-      body: JSON.stringify({ name: '测试嵌入', endpoint: 'https://stub.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: 'sk-rag-test-123456' }),
+      body: JSON.stringify({
+        name: '测试嵌入',
+        endpoint: 'https://stub.example/v1/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: 'sk-rag-test-123456',
+      }),
     })
     expect(ok.status).toBe(200)
     const p = ok.json['provider'] as Record<string, unknown>
@@ -81,7 +92,10 @@ describe('RAG 服务商管理端点', () => {
     expect(existsSync(fp)).toBe(true)
     const raw = readFileSync(fp, 'utf8')
     expect(raw).not.toContain('sk-rag-test-123456')
-    const disk = JSON.parse(raw) as { ragProviders: Array<{ id: string; apiKey?: string }>; vault: { keys: Record<string, unknown> } }
+    const disk = JSON.parse(raw) as {
+      ragProviders: Array<{ id: string; apiKey?: string }>
+      vault: { keys: Record<string, unknown> }
+    }
     expect(disk.ragProviders).toHaveLength(1)
     expect(disk.ragProviders[0]!.apiKey).toBeUndefined()
     expect(Object.keys(disk.vault.keys)).toHaveLength(1)
@@ -101,7 +115,9 @@ describe('RAG 服务商管理端点', () => {
 
     // 列表回读 caps 已落库
     const after = await api('/api/rag-providers')
-    expect(((after.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['caps'])).toMatchObject({ connected: true })
+    expect((after.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['caps']).toMatchObject({
+      connected: true,
+    })
   })
 
   it('test 失败 → caps.connected=false（embed 桩翻转）', async () => {
@@ -125,18 +141,28 @@ describe('RAG 服务商管理端点', () => {
     // 只改名（endpoint/model 不变，key 空）→ caps 保留
     const keep = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '改名', endpoint: 'https://stub.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
+      body: JSON.stringify({
+        name: '改名',
+        endpoint: 'https://stub.example/v1/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: '',
+      }),
     })
     expect(keep.status).toBe(200)
     expect((keep.json['provider'] as Record<string, unknown>)['caps']).toMatchObject({ connected: true })
     // key 仍有效：落盘仍无明文 + 掩码不变（原 key 未被空串覆盖）
     const afterKeep = await api('/api/rag-providers')
-    expect(((afterKeep.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['apiKeyMasked'])).toBe('sk-r...3456')
+    expect((afterKeep.json['ragProviders'] as Array<Record<string, unknown>>)[0]!['apiKeyMasked']).toBe('sk-r...3456')
 
     // 换 endpoint（同主机换路径，RC 源码重审 B-4 补洞后：同主机才允许留空 key）→ caps 清空（要求重测）
     const change = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '改名', endpoint: 'https://stub.example/v2/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
+      body: JSON.stringify({
+        name: '改名',
+        endpoint: 'https://stub.example/v2/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: '',
+      }),
     })
     expect(change.status).toBe(200)
     expect((change.json['provider'] as Record<string, unknown>)['caps']).toBeNull()
@@ -153,7 +179,12 @@ describe('RAG 服务商管理端点', () => {
     // 换主机（stub.example → evil.example）+ 空 Key → 拒（不静默沿用旧 Key 外流）
     const blocked = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '迁站', endpoint: 'https://evil.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: '' }),
+      body: JSON.stringify({
+        name: '迁站',
+        endpoint: 'https://evil.example/v1/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: '',
+      }),
     })
     expect(blocked.status).toBe(400)
     expect(blocked.json['code']).toBe('API_KEY_REQUIRED_ON_HOST_CHANGE')
@@ -167,7 +198,12 @@ describe('RAG 服务商管理端点', () => {
     // 同请求显式带 Key → 正常放行（作者改主机的正路）
     const ok = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '迁站', endpoint: 'https://evil.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: 'sk-new-host-987654' }),
+      body: JSON.stringify({
+        name: '迁站',
+        endpoint: 'https://evil.example/v1/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: 'sk-new-host-987654',
+      }),
     })
     expect(ok.status).toBe(200)
     const afterOk = (await api('/api/rag-providers')).json['ragProviders'] as Array<Record<string, unknown>>
@@ -177,14 +213,22 @@ describe('RAG 服务商管理端点', () => {
     // 复原：换回原主机 + 重填原 key（后续用例共用同一服务商）
     const restore = await api(`/api/rag-providers/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: '测试嵌入', endpoint: 'https://stub.example/v1/embeddings', model: 'text-embedding-3-small', apiKey: 'sk-rag-test-123456' }),
+      body: JSON.stringify({
+        name: '测试嵌入',
+        endpoint: 'https://stub.example/v1/embeddings',
+        model: 'text-embedding-3-small',
+        apiKey: 'sk-rag-test-123456',
+      }),
     })
     expect(restore.status).toBe(200)
     expect(readFileSync(join(userData, 'providers.json'), 'utf8')).not.toContain('sk-rag-test-123456')
   })
 
   it('PUT / DELETE 不存在的 id → 404', async () => {
-    const put = await api('/api/rag-providers/rag-none', { method: 'PUT', body: JSON.stringify({ name: 'x', endpoint: 'https://e', model: 'm', apiKey: '' }) })
+    const put = await api('/api/rag-providers/rag-none', {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'x', endpoint: 'https://e', model: 'm', apiKey: '' }),
+    })
     expect(put.status).toBe(404)
     const del = await api('/api/rag-providers/rag-none', { method: 'DELETE' })
     expect(del.status).toBe(404)
@@ -201,7 +245,10 @@ describe('RAG 服务商管理端点', () => {
     const after = await api('/api/rag-providers')
     expect(after.json['ragProviders']).toEqual([])
 
-    const disk = JSON.parse(readFileSync(join(userData, 'providers.json'), 'utf8')) as { ragProviders: unknown[]; vault: { keys: Record<string, unknown> } }
+    const disk = JSON.parse(readFileSync(join(userData, 'providers.json'), 'utf8')) as {
+      ragProviders: unknown[]
+      vault: { keys: Record<string, unknown> }
+    }
     expect(disk.ragProviders).toEqual([])
     expect(Object.keys(disk.vault.keys)).toHaveLength(0)
   })
@@ -223,7 +270,12 @@ describe('RAG 服务商 API Key 单点 + hasKey 状态点（I6·dsh）', () => {
   it('POST 合法 key（首尾空白 trim）→ hasKey=true；GET 列表同 vault 推导', async () => {
     const ok = await api('/api/rag-providers', {
       method: 'POST',
-      body: JSON.stringify({ name: 'I6嵌入', endpoint: 'https://stub.example/v1/embeddings', model: 'm2', apiKey: '  sk-rag-i6-123456  ' }),
+      body: JSON.stringify({
+        name: 'I6嵌入',
+        endpoint: 'https://stub.example/v1/embeddings',
+        model: 'm2',
+        apiKey: '  sk-rag-i6-123456  ',
+      }),
     })
     expect(ok.status).toBe(200)
     expect((ok.json['provider'] as Record<string, unknown>)['hasKey']).toBe(true)

@@ -307,7 +307,8 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         // 状态码而生（429/403/404 区分），换票失败无状态码证据可探；429 指引面在
         // ticket 正常而 SSE 连接闸拒绝的既有路径不受影响。
         epoch.backoffStep += 1
-        const delay = epoch.backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (epoch.backoffStep - 1), MAX_BACKOFF_MS)
+        const delay =
+          epoch.backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (epoch.backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(safeDoConnect, delay)
         return
       }
@@ -352,7 +353,8 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         // 事件丢失到重连 sync）。403 票失效类换票即愈：doConnect 每轮重取新票，首档
         // 立即重连；失败仍持续则自第 2 档起 4s/8s/… 指数退避（不造重试风暴）。429 连接
         // 数上限同走首档立即试一次——服务端预检拒绝代价低，probeSseBusy 已另行指引。
-        const delay = epoch.backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (epoch.backoffStep - 1), MAX_BACKOFF_MS)
+        const delay =
+          epoch.backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (epoch.backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(safeDoConnect, delay)
         if (failClosed) void probeSseBusy() // fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
@@ -431,4 +433,3 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   onUnmounted(() => disconnect())
   return { resync }
 }
-

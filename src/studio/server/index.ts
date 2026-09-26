@@ -169,7 +169,16 @@ function buildRoutes(
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     // 收尾：ov.* 为测试覆盖档（缺省 undefined = 生产口径逐位不变）
-    registerBookRoutes({ workDir, token, isTrustedOrigin, userDataPath, onStartupNotice: sink.add, gate: deps.gate, driver: deps.driver, graveyardCleanup: ov.graveyardCleanup })
+    registerBookRoutes({
+      workDir,
+      token,
+      isTrustedOrigin,
+      userDataPath,
+      onStartupNotice: sink.add,
+      gate: deps.gate,
+      driver: deps.driver,
+      graveyardCleanup: ov.graveyardCleanup,
+    })
     // RAG 建索引/状态端点——buildIndex 生产入口；
     // 服务商化：书级引用 + 应用级 RAG 服务商（providers.json ragProviders 段）
     registerRagRoutes({ workDir, userDataPath, gate: deps.gate })
@@ -178,20 +187,45 @@ function buildRoutes(
     registerFileRoutes({ workDir, userDataPath }) // PUT /file 覆盖留底读全局保留策略
     registerOverviewRoutes({ workDir, userDataPath, overviewTtlMs: ov.overviewTtlMs }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir, rhythmTtlMs: ov.rhythmTtlMs })
-    registerSettingsRoutes({ workDir, userDataPath, gate: deps.gate, settingsTtlMs: ov.settingsTtlMs, completionNamesTtlMs: ov.completionNamesTtlMs })
+    registerSettingsRoutes({
+      workDir,
+      userDataPath,
+      gate: deps.gate,
+      settingsTtlMs: ov.settingsTtlMs,
+      completionNamesTtlMs: ov.completionNamesTtlMs,
+    })
     registerDraftRoutes({ workDir, userDataPath })
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath, stateTtlMs: ov.stateTtlMs }) // 状态机入口过全局托底链（volume_size 等喂生效值）
     // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
     registerIoRoutes({ workDir, gate: deps.gate, exportWaitTimeoutMs: ov.exportWaitTimeoutMs })
-    registerKnowledgeRoutes({ workDir, gate: deps.gate, learnTtlMs: ov.learnTtlMs, learnCommitYield: ov.learnCommitYield })
+    registerKnowledgeRoutes({
+      workDir,
+      gate: deps.gate,
+      learnTtlMs: ov.learnTtlMs,
+      learnCommitYield: ov.learnCommitYield,
+    })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver }) // 伏笔事件族接线（伏笔文档变更落 foreshadow/change）
-    registerSnapshotRoutes({ workDir, userDataPath, gate: deps.gate, versionStatsTtlMs: ov.versionStatsTtlMs, snapshotsRestoreYield: ov.snapshotsRestoreYield }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
+    registerSnapshotRoutes({
+      workDir,
+      userDataPath,
+      gate: deps.gate,
+      versionStatsTtlMs: ov.versionStatsTtlMs,
+      snapshotsRestoreYield: ov.snapshotsRestoreYield,
+    }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）
     registerSearchRoutes({ workDir, searchTtlMs: ov.searchTtlMs })
     registerCheckRoutes({ workDir, userDataPath, treeIssuesTtlMs: ov.treeIssuesTtlMs }) // 全局托底：机检 short.strict 吃生效值
-    registerAnalysisRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver, providers: deps.providers, styleCorpusTtlMs: ov.styleCorpusTtlMs, analysisOverviewTtlMs: ov.analysisOverviewTtlMs })
+    registerAnalysisRoutes({
+      workDir,
+      userDataPath,
+      gate: deps.gate,
+      driver: deps.driver,
+      providers: deps.providers,
+      styleCorpusTtlMs: ov.styleCorpusTtlMs,
+      analysisOverviewTtlMs: ov.analysisOverviewTtlMs,
+    })
     registerForeshadowRoutes({ workDir, foreshadowTtlMs: ov.foreshadowTtlMs })
     registerStyleRoutes({ workDir, userDataPath, gate: deps.gate }) // 全局托底：注入强度喂写作链路合并 global.json
     registerProvidersRoutes({ userDataPath, probeCapabilities: ov.probeCapabilities })
@@ -204,7 +238,14 @@ function buildRoutes(
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
     // ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
     // 票不跨 server 实例残留/消费（对齐路由表 per-server 生命周期）
-    registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets, gate: deps.gate, driver: deps.driver })
+    registerStreamRoutes({
+      workDir,
+      userDataPath,
+      studioToken: token,
+      tickets: streamTickets,
+      gate: deps.gate,
+      driver: deps.driver,
+    })
     registerChatRoutes({ workDir, userDataPath, gate: deps.gate, driver: deps.driver }) // chat.send/confirm/regenerate/clear
     registerStreamTicketRoutes(streamTickets) // SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
     registerOutlineRoutes({ workDir, userDataPath, gate: deps.gate })
@@ -256,7 +297,7 @@ export interface StudioServerOptions {
    *  token 仅挂载时取一次，换代即写/SSE/心跳永久 403）。协议语义零改动。 */
   studioToken?: string
   /** 收尾：逐路由测试覆盖档（TTL / 让出桩 / 探测桩 / 墓地清理桩）。
- * 缺省 = 生产口径逐位不变；测试经组装根注入，随实例隔离（见 RouteOverrides）。 */
+   * 缺省 = 生产口径逐位不变；测试经组装根注入，随实例隔离（见 RouteOverrides）。 */
   overrides?: RouteOverrides
 }
 
@@ -309,7 +350,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
   const gate = processTaskGate()
   // 本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
   gate.configureLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
-  const handle = createStudioServer(opts, { taskGate: gate, driver: productionDriverHost(), providers: processProviderRuntime() })
+  const handle = createStudioServer(opts, {
+    taskGate: gate,
+    driver: productionDriverHost(),
+    providers: processProviderRuntime(),
+  })
   // 兼容形态：把句柄的 close 语义挂到 server 对象上（见 StudioServerHandle.close 注释）
   const rawClose = handle.server.close.bind(handle.server)
   handle.server.close = ((cb?: (err?: Error) => void) => {
@@ -320,10 +365,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
 }
 
 /** 关停收尾（句柄与兼容壳共用的实现体）：断 SSE → close → 有界等 Worker settle → 回调。 */
-function closeSseThenSettle(
-  rawClose: (cb?: (err?: Error) => void) => http.Server,
-  cb?: (err?: Error) => void,
-): void {
+function closeSseThenSettle(rawClose: (cb?: (err?: Error) => void) => http.Server, cb?: (err?: Error) => void): void {
   closeAllSseConnections()
   rawClose((err?: Error) => {
     void waitInFlightWorkSettled(CLOSE_FLUSH_BUDGET_MS).finally(() => cb?.(err))
@@ -342,7 +384,9 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   // - driver：显式传入者胜；缺省生产宿主（环境变量唯一读取点在此宿主内）
   // - provider 运行时：显式传入者胜；缺省进程单例。注入给 AI 执行器的回调注册面 + mock 快路
   const driver = deps.driver ?? productionDriverHost()
-  const gate = deps.taskGate ?? createTaskGate({ lockRoot: opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null, driver })
+  const gate =
+    deps.taskGate ??
+    createTaskGate({ lockRoot: opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null, driver })
   const providers = deps.providers ?? processProviderRuntime()
   configureProviderRuntime(providers)
   configureRunnerMockFastPath(driver.kind === 'mock')
@@ -419,11 +463,17 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       try {
         const v2Result = migrateLayoutV2(bookPath)
         if (v2Result.errors.length > 0) {
-          noticeOrLog('migrate-layout-v2', `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`)
+          noticeOrLog(
+            'migrate-layout-v2',
+            `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`,
+          )
         }
         const v3Result = migrateLayoutV3(bookPath)
         if (v3Result.errors.length > 0) {
-          noticeOrLog('migrate-layout-v3', `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`)
+          noticeOrLog(
+            'migrate-layout-v3',
+            `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`,
+          )
         }
         // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
         migrateVersionsDir(bookPath)
@@ -470,7 +520,15 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   // 不再有模块级 configureTaskGateLockRoot 调用：锁根归属闸实例。
   // ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
   const streamTickets = createStreamTicketStore()
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets, { gate, driver, providers, overrides: opts.overrides ?? {} })
+  const routes = buildRoutes(
+    opts.workDir ?? null,
+    studioToken,
+    opts.userDataPath ?? null,
+    isTrustedOrigin,
+    sink,
+    streamTickets,
+    { gate, driver, providers, overrides: opts.overrides ?? {} },
+  )
   // host 仅限本机回环（本文件头注释），非回环值启动即拒——
   // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；
   // fail-fast 优于逐请求 403 的静默失效。
@@ -513,7 +571,12 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     {
       // reqHost 命名与外层监听 host 区分——两者同名异义（请求头 vs 监听参数）易读混
       const reqHost = req.headers.host
-      if (listeningPort === 0 || (reqHost !== `127.0.0.1:${listeningPort}` && reqHost !== `localhost:${listeningPort}` && reqHost !== `[::1]:${listeningPort}`)) {
+      if (
+        listeningPort === 0 ||
+        (reqHost !== `127.0.0.1:${listeningPort}` &&
+          reqHost !== `localhost:${listeningPort}` &&
+          reqHost !== `[::1]:${listeningPort}`)
+      ) {
         replyError(res, 403, 'FORBIDDEN', 'forbidden host')
         return
       }

@@ -57,7 +57,9 @@ afterAll(async () => {
 /** 指定源章条目 trashedAt 回拨到 2000 年——与后并条目的时序差确定性钉死。 */
 function backdateTrashEntry(bookRoot: string, originalPathSuffix: string): void {
   const p = join(bookRoot, '工作区', '.trash', '.trash-manifest.jsonl')
-  const lines = readFileSync(p, 'utf8').split('\n').filter((l) => l.trim() !== '')
+  const lines = readFileSync(p, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim() !== '')
   const out = lines.map((l) => {
     const e = JSON.parse(l) as { originalPath?: string; trashedAt?: string }
     if (e.originalPath?.endsWith(originalPathSuffix)) {

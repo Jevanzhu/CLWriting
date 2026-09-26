@@ -46,8 +46,12 @@ const reversalUnrecognized = computed(() => {
   <section v-if="emotionGap || reversalGap || seriesMotifs.length" class="panel">
     <div class="panel-head">
       <BarChart3 :size="14" /> <span>画像缺口</span>
-      <span v-if="emotionGap" class="head-legend">{{ emotionGap.filter((g) => !g.missing).length }}/{{ emotionGap.length }} 情绪已覆盖</span>
-      <span v-if="reversalGap" class="head-legend">{{ reversalGap.filter((g) => !g.missing).length }}/{{ reversalGap.length }} 反转已覆盖</span>
+      <span v-if="emotionGap" class="head-legend"
+        >{{ emotionGap.filter((g) => !g.missing).length }}/{{ emotionGap.length }} 情绪已覆盖</span
+      >
+      <span v-if="reversalGap" class="head-legend"
+        >{{ reversalGap.filter((g) => !g.missing).length }}/{{ reversalGap.length }} 反转已覆盖</span
+      >
     </div>
     <!-- 情绪覆盖 -->
     <div v-if="emotionGap" class="gap-rows">
@@ -88,17 +92,76 @@ const reversalUnrecognized = computed(() => {
 /* .head-legend 基础收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
 
 /* ══ 短篇画像缺口 ══ */
-.gap-rows { display: flex; flex-direction: column; gap: 8px; }
-.gap-row { display: grid; grid-template-columns: 72px 1fr 44px; align-items: center; gap: var(--size-4-2); }
-.gap-label { font-size: var(--font-size-xs); color: var(--text-muted); }
-.gap-bar { position: relative; height: 8px; background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent); border-radius: 4px; }
-.gap-fill { height: 100%; background: var(--interactive-accent); border-radius: 4px; transition: width var(--dur-slow) var(--ease-out); }
-.gap-row.is-missing .gap-fill { background: var(--text-warning); box-shadow: 0 0 6px color-mix(in srgb, var(--text-warning) 40%, transparent); }
-.gap-count { font-size: var(--font-size-xs); color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
-.gap-count.is-zero { color: var(--text-warning); font-weight: 600; }
-.gap-unrecognized { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-xxs); color: var(--text-faint); margin-top: 2px; }
-.motif-section { margin-top: 14px; display: flex; align-items: center; gap: var(--size-4-2); }
-.motif-label { font-size: var(--font-size-xs); color: var(--text-faint); flex-shrink: 0; }
-.motif-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.motif-tag { font-size: var(--font-size-xs); padding: 1px 10px; border-radius: 8px; background: color-mix(in srgb, var(--interactive-accent) 10%, transparent); color: var(--text-accent); }
+.gap-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gap-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 44px;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.gap-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+.gap-bar {
+  position: relative;
+  height: 8px;
+  background: color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
+  border-radius: 4px;
+}
+.gap-fill {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 4px;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.gap-row.is-missing .gap-fill {
+  background: var(--text-warning);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--text-warning) 40%, transparent);
+}
+.gap-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.gap-count.is-zero {
+  color: var(--text-warning);
+  font-weight: 600;
+}
+.gap-unrecognized {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.motif-section {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.motif-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.motif-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.motif-tag {
+  font-size: var(--font-size-xs);
+  padding: 1px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  color: var(--text-accent);
+}
 </style>

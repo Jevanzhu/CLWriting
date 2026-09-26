@@ -96,9 +96,7 @@ describe('R73-64: 工具确认按 callId 防重（同卡防重、跨卡并行）
 
   it('失败重试：c1 确认失败（非 404）后同卡可再点', async () => {
     const { ApiError } = await import('../../../src/studio/web-next/src/api/client')
-    mocks.confirmTool
-      .mockRejectedValueOnce(new ApiError('boom', 500))
-      .mockResolvedValueOnce({})
+    mocks.confirmTool.mockRejectedValueOnce(new ApiError('boom', 500)).mockResolvedValueOnce({})
     const { w } = mountTwoPending()
     await nextTick()
 

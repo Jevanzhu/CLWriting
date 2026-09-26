@@ -49,7 +49,7 @@ export interface TtlProbeCacheOptions<K, V> {
   /** FIFO 容量：插新键前 size ≥ max 逐最旧（Map 插入序；set 覆写不重排行——与既有各份逐位一致） */
   max: number
   /** 生效 TTL——每次判定现取（生产口径恒为端点常量；模块级覆盖档已随
- * 收尾删除，测试覆盖改走 get/getSync 的逐调用覆盖尾参） */
+   * 收尾删除，测试覆盖改走 get/getSync 的逐调用覆盖尾参） */
   ttl: () => number
   /** 单级探针：stat 指纹/目录签名，每次 get 现算（先于命中判定——既有各份口径：探针
    *  在扫描**前**取值，扫描期间落盘的变更使签名失配，下次按失效重算，宁多扫不脏读）。
@@ -90,19 +90,18 @@ interface TtlCacheEntry<V> {
 }
 
 type TtlJudgment<V> =
-  | { action: 'hit'; value: V }
-  | { action: 'compute'; sig?: string; probe?: string; probeTs?: number }
+  { action: 'hit'; value: V } | { action: 'compute'; sig?: string; probe?: string; probeTs?: number }
 
 export interface TtlProbeCache<K, V> {
   readonly name: string
   /** 异步取：命中返回缓存值；MISS 走 计数→计算→(sweep)→FIFO→落缓存。compute 可在
- * 创建时给（options.computeAsync，纯 bookRoot 派生计算体）或逐调用给（闭包
- * per-request 上下文——styleCorpus 章列表/规则、state/overview userDataPath 等同款），
- * 逐调用优先；两者都缺 → 拒绝。ttlOverrideMs = 逐调用 TTL 覆盖档（
- * 收尾：组装根 RouteOverrides 经端点 ctx 传入；undefined/null = 生产口径 opts.ttl）。 */
+   * 创建时给（options.computeAsync，纯 bookRoot 派生计算体）或逐调用给（闭包
+   * per-request 上下文——styleCorpus 章列表/规则、state/overview userDataPath 等同款），
+   * 逐调用优先；两者都缺 → 拒绝。ttlOverrideMs = 逐调用 TTL 覆盖档（
+   * 收尾：组装根 RouteOverrides 经端点 ctx 传入；undefined/null = 生产口径 opts.ttl）。 */
   get(key: K, computeAsync?: (key: K) => Promise<V>, ttlOverrideMs?: number | null): Promise<V>
   /** 同步取（computeSync 必备）：判定/计算全同步单段（既有同步壳同形态，无在途窗口）。
- * ttlOverrideMs = 逐调用 TTL 覆盖档（语义同 get）。 */
+   * ttlOverrideMs = 逐调用 TTL 覆盖档（语义同 get）。 */
   getSync(key: K, ttlOverrideMs?: number | null): V
   /** 删书/改名失效挂点：精确键删（books.ts forgetBookKeyedCaches 家族同款） */
   forget(key: K): void
@@ -157,7 +156,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
   }
 
   /** 命中判定（全同步段）：probe 未变 && 未过 TTL（两级形态见 转写注）。
- * ttlOverrideMs 逐调用覆盖档（undefined/null = opts.ttl 生产口径）。 */
+   * ttlOverrideMs 逐调用覆盖档（undefined/null = opts.ttl 生产口径）。 */
   function judge(key: K, ttlOverrideMs?: number | null): TtlJudgment<V> {
     const now = Date.now()
     const ttl = ttlOverrideMs ?? opts.ttl()
@@ -198,9 +197,14 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
   }
 
   /** 落缓存（storeIf 不满足即静默跳过）：(sweep) → FIFO 逐最旧 → set（ts 取写入当刻）。
- * ttlOverrideMs = 逐调用覆盖档（仅 sweepExpiredOnWrite 的生效 TTL 判定消费，与
- * judge 同源——sweep 窗与命中窗按同一覆盖档判定，不出现两档各判的倒挂）。 */
-  function store(key: K, j: Extract<TtlJudgment<V>, { action: 'compute' }>, value: V, ttlOverrideMs?: number | null): void {
+   * ttlOverrideMs = 逐调用覆盖档（仅 sweepExpiredOnWrite 的生效 TTL 判定消费，与
+   * judge 同源——sweep 窗与命中窗按同一覆盖档判定，不出现两档各判的倒挂）。 */
+  function store(
+    key: K,
+    j: Extract<TtlJudgment<V>, { action: 'compute' }>,
+    value: V,
+    ttlOverrideMs?: number | null,
+  ): void {
     if (opts.storeIf && !opts.storeIf(value)) return
     if (opts.sweepExpiredOnWrite) {
       const sweepTtl = ttlOverrideMs ?? opts.ttl()
@@ -248,9 +252,11 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
         inflight.set(opts.keyOf(key), job)
         // 收尾自清（catch 先落避免 job 被拒时清理链 unhandled rejection；拒绝仍按常
         // 送达真实调用方——路由层统一错误面）
-        job.catch(() => {}).then(() => {
-          inflight.delete(opts.keyOf(key))
-        })
+        job
+          .catch(() => {})
+          .then(() => {
+            inflight.delete(opts.keyOf(key))
+          })
       }
       return job
     },

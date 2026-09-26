@@ -54,7 +54,11 @@ beforeAll(async () => {
   )
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n', 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
+    'utf-8',
+  )
   // R70-5：auto-write/chat 端点要求 ctx.userDataPath（缺省 400 NO_USERDATA 先于闸检查）
   mkdirSync(join(workDir, 'userData'), { recursive: true })
   server = await startServerSafe({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
@@ -115,7 +119,9 @@ describe('R67-14: replyError 错误信封单源脱敏', () => {
   }
 
   it('错误文本中的 API Key 形态被清洗（裸 key / URL query / Bearer）', () => {
-    const r = callReplyError(`请求失败: sk-abcdef0123456789abcdef01 和 https://gw.example.com/v1?api_key=topsecret123 以及 Bearer eyJhbGciOi.9999`)
+    const r = callReplyError(
+      `请求失败: sk-abcdef0123456789abcdef01 和 https://gw.example.com/v1?api_key=topsecret123 以及 Bearer eyJhbGciOi.9999`,
+    )
     const env = JSON.parse(r.body) as { error: string }
     expect(env.error).not.toContain('sk-abcdef0123456789abcdef01')
     expect(env.error).not.toContain('topsecret123')
@@ -159,7 +165,11 @@ describe('R70-3/R70-5: 互斥矩阵补角（rewrite×spawn 反向 / auto-write·
     appendFileSync(join(workDir, '.clwriting', 'books.jsonl'), line)
     const root2 = join(workDir, BOOK2)
     mkdirSync(join(root2, '写作', '正文'), { recursive: true })
-    writeFileSync(join(root2, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${BOOK2}`, '  genre: 玄幻'].join('\n') + '\n', 'utf-8')
+    writeFileSync(
+      join(root2, 'book.yaml'),
+      ['spec_version: 1', 'book:', `  title: ${BOOK2}`, '  genre: 玄幻'].join('\n') + '\n',
+      'utf-8',
+    )
   })
 
   it('R70-3：spawn 在途 → POST /documents/:id/rewrite 409 BUSY（手动写稿文案）', async () => {

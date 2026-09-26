@@ -125,13 +125,28 @@ describe('layout / P-1（第十四轮）内部簿记与系统路径 deny', () =>
   })
 
   it('书根系统文件/目录命中清单', () => {
-    for (const p of ['.confirm.json', 'book.yaml', '项目/文档清单.jsonl', '.cache/ai-calls.json', '.git/config', '.clwriting/rag.secret', 'node_modules/x/y.js']) {
+    for (const p of [
+      '.confirm.json',
+      'book.yaml',
+      '项目/文档清单.jsonl',
+      '.cache/ai-calls.json',
+      '.git/config',
+      '.clwriting/rag.secret',
+      'node_modules/x/y.js',
+    ]) {
       expect(isInternalBookPath(p), p).toBe(true)
     }
   })
 
   it('作者可编辑面不误伤：工作区确认位 / 笔记 / 素材 / 正文 / 设定', () => {
-    for (const p of ['工作区/细纲.md', '工作区/账本推进.md', '笔记/随手.md', '素材/灵感.md', '写作/正文/0001-开篇.md', '设定/世界观.md']) {
+    for (const p of [
+      '工作区/细纲.md',
+      '工作区/账本推进.md',
+      '笔记/随手.md',
+      '素材/灵感.md',
+      '写作/正文/0001-开篇.md',
+      '设定/世界观.md',
+    ]) {
       expect(isInternalBookPath(p), p).toBe(false)
     }
   })

@@ -17,10 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  getAnalysisOverviewCached,
-  analysisOverviewCache,
-} from '../../src/studio/server/api/analysis.js'
+import { getAnalysisOverviewCached, analysisOverviewCache } from '../../src/studio/server/api/analysis.js'
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'

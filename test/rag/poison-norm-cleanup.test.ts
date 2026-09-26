@@ -36,10 +36,19 @@ describe('R35-40：存量毒行剔除（readAllChunks 读取闸）', () => {
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章正文，战斗场景描写充分，主角挥剑。`)
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章正文，战斗场景描写充分，主角挥剑。`,
+      )
     }
   })
 

@@ -29,7 +29,13 @@ import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapte
 import { listModels, normalizeBaseUrl } from '../../../src/ai/provider/models.js'
 import { resolveProvider } from '../../../src/ai/runner.js'
 import { saveProviders } from '../../../src/ai/provider/store.js'
-import { migratePromptOverlays, overlayPath, promptHash, resolvePrompt, type PromptRegistry } from '../../../src/ai/prompts/resource.js'
+import {
+  migratePromptOverlays,
+  overlayPath,
+  promptHash,
+  resolvePrompt,
+  type PromptRegistry,
+} from '../../../src/ai/prompts/resource.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../../src/ai/provider/index.js'
 
 // vi.mock('openai')：默认导出换捕获构造参数的桩类（models.list 乱序两行 → 排序出口），
@@ -170,7 +176,12 @@ describe('R38-7: responses 线 tool 参数 done 项权威值优先', () => {
           // done 项携带服务端权威完整串
           {
             type: 'response.output_item.done',
-            item: { type: 'function_call', call_id: 'call_a', name: 'tool_a', arguments: '{"chapter":1,"body":"正文"}' },
+            item: {
+              type: 'function_call',
+              call_id: 'call_a',
+              name: 'tool_a',
+              arguments: '{"chapter":1,"body":"正文"}',
+            },
           },
           { type: 'response.completed', response: { usage: { input_tokens: 5, output_tokens: 4 } } },
         ]),
@@ -256,7 +267,10 @@ describe('R38-5: createOpenAIProviderChat 透传 store/userDataPath（降级记�
                 throw new OpenAI.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
               }
               return (async function* () {
-                yield { choices: [{ delta: { content: '正文产出' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }
+                yield {
+                  choices: [{ delta: { content: '正文产出' }, finish_reason: 'stop' }],
+                  usage: { prompt_tokens: 1, completion_tokens: 1 },
+                }
               })()
             },
           },
@@ -268,7 +282,9 @@ describe('R38-5: createOpenAIProviderChat 透传 store/userDataPath（降级记�
       expect(evs.some((e) => e.type === 'done')).toBe(true) // 400 → 剥 structured 重试成功
       expect(calls).toBe(2) // 首发 json_schema 400 + 降级剥除重试
       // 修复点：userDataPath 透传 → 降级记忆写回该库 providers.json
-      const caps = (JSON.parse(readFileSync(join(ud, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }).modelCaps
+      const caps = (
+        JSON.parse(readFileSync(join(ud, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }
+      ).modelCaps
       expect(caps?.['t1/gpt-5']).toEqual({ structured: false })
     } finally {
       rmSync(ud, { recursive: true, force: true })

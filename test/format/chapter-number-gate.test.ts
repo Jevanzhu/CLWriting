@@ -8,10 +8,13 @@ import { join } from 'node:path'
 // 此前整章对本系统隐形（readChapter 硬判 number），现收敛为 number。
 describe('R62-13 章号收敛', () => {
   let dir: string
-  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), 'clwriting-r6213-')) })
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'clwriting-r6213-'))
+  })
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-  const fm = (章号line: string) => '---\n' + 章号line + '\n标题: 测试\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文'
+  const fm = (章号line: string) =>
+    '---\n' + 章号line + '\n标题: 测试\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文'
 
   it('int 章号 1 正常解析', () => {
     writeFileSync(join(dir, '1.md'), fm('章号: 1'), 'utf8')
@@ -49,7 +52,11 @@ describe('R62-13 章号收敛', () => {
   })
 
   it('缺失章号报「缺少」', () => {
-    writeFileSync(join(dir, '6.md'), '---\n标题: 无章号\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文', 'utf8')
+    writeFileSync(
+      join(dir, '6.md'),
+      '---\n标题: 无章号\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文',
+      'utf8',
+    )
     const r = readChapter(join(dir, '6.md'))
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.message).toContain('缺少')

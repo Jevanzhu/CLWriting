@@ -27,7 +27,15 @@ const uiMock = {
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => uiMock),
   // ModalMask 渲染面从此表读浓度——mock 面补齐最小形状
-  MASK_ALPHA: { palette: 0.25, settings: 0.45, export: 0.35, shelf: 0.35, confirm: 0.35, chapterMeta: 0.35, splitChapter: 0.35 },
+  MASK_ALPHA: {
+    palette: 0.25,
+    settings: 0.45,
+    export: 0.35,
+    shelf: 0.35,
+    confirm: 0.35,
+    chapterMeta: 0.35,
+    splitChapter: 0.35,
+  },
 }))
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
 

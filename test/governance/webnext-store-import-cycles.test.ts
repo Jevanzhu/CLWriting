@@ -79,12 +79,7 @@ const canonical = (cycle: string[]): string => cycle.join('→')
  * 本批全量枚举实得四组——第四组 doc→words→tree→doc（words 挂 tree、doc 挂 words 复合
  * 而成）属同款「函数内延迟取实例」安全模式，一并登记；治理后从此处移除。
  */
-const KNOWN_CYCLES = new Set<string>([
-  'prefs→ui→prefs',
-  'doc→workspace→doc',
-  'doc→tree→doc',
-  'doc→words→tree→doc',
-])
+const KNOWN_CYCLES = new Set<string>(['prefs→ui→prefs', 'doc→workspace→doc', 'doc→tree→doc', 'doc→words→tree→doc'])
 
 describe('R0916-6-P3-2: web-next store 模块环守护', () => {
   it('无未知环（新环即红：函数内延迟 useXxxStore() 或拆单向模块）', () => {
@@ -102,9 +97,6 @@ describe('R0916-6-P3-2: web-next store 模块环守护', () => {
   it('KNOWN_CYCLES 白名单逐条仍真实存在（防白名单变僵尸，已解环应清理登记）', () => {
     const found = new Set(findCycles(buildGraph()).map(canonical))
     const stale = [...KNOWN_CYCLES].filter((c) => !found.has(c))
-    expect(
-      stale,
-      'KNOWN_CYCLES 有条目对应的环已不存在（已治理），请从白名单移除:\n' + stale.join('\n'),
-    ).toEqual([])
+    expect(stale, 'KNOWN_CYCLES 有条目对应的环已不存在（已治理），请从白名单移除:\n' + stale.join('\n')).toEqual([])
   })
 })

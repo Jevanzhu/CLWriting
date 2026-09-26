@@ -86,10 +86,13 @@ describe('R-P3-4：ShelfGrid 渲染上限（renderCap 裁剪 + 尾部提示行�
   it('多组各自独立裁剪（长篇/短篇并排各带自己的省略计数）', () => {
     const mk = (n: number, kind: 'long' | 'short') =>
       Array.from({ length: n }, (_, i) => ({ ...book(`${kind}-${i}`), kind }))
-    const wrapper = mountGrid([
-      { title: '长篇', books: mk(3, 'long') },
-      { title: '短篇', books: mk(4, 'short') },
-    ], 2)
+    const wrapper = mountGrid(
+      [
+        { title: '长篇', books: mk(3, 'long') },
+        { title: '短篇', books: mk(4, 'short') },
+      ],
+      2,
+    )
     expect(wrapper.findAll('.book-card')).toHaveLength(4)
     const hints = wrapper.findAll('.cap-hint').map((h) => h.text())
     expect(hints).toHaveLength(2)

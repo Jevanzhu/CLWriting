@@ -68,24 +68,11 @@ export const TURN_END_REASONS = [
 export type TurnEndReason = (typeof TURN_END_REASONS)[number]
 
 // step/end：单次任务调用收敛（六种；step 无轮数概念）
-export const STEP_END_REASONS = [
-  'completed',
-  'aborted',
-  'blocked',
-  'error',
-  'max-tokens',
-  'interrupted',
-] as const
+export const STEP_END_REASONS = ['completed', 'aborted', 'blocked', 'error', 'max-tokens', 'interrupted'] as const
 export type StepEndReason = (typeof STEP_END_REASONS)[number]
 
 // session/end：整会话结束（max-tokens = 回复截断导致会话提前终止）
-export const SESSION_END_REASONS = [
-  'completed',
-  'interrupted',
-  'aborted',
-  'error',
-  'max-tokens',
-] as const
+export const SESSION_END_REASONS = ['completed', 'interrupted', 'aborted', 'error', 'max-tokens'] as const
 export type SessionEndReason = (typeof SESSION_END_REASONS)[number]
 
 /** 可上 surface 的事件类型（投影只处理这三类） */
@@ -176,15 +163,7 @@ export interface LlmRetryData {
 // ── goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────
 
 /** goal 生命周期动词（与伏笔状态机同词汇—— foreshadow/change 复用） */
-export const GOAL_OPERATIONS = [
-  'create',
-  'edit',
-  'pause',
-  'resume',
-  'complete',
-  'block',
-  'clear',
-] as const
+export const GOAL_OPERATIONS = ['create', 'edit', 'pause', 'resume', 'complete', 'block', 'clear'] as const
 export type GoalOperation = (typeof GOAL_OPERATIONS)[number]
 
 /** goal 状态 */

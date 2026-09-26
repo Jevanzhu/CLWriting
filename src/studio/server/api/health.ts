@@ -15,7 +15,7 @@ import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSampl
 interface HealthCtx {
   workDir: string | null
   /** 收尾：文风扫描缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   styleScanTtlMs?: number | null
 }
 
@@ -54,16 +54,16 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     method: 'GET',
     path: '/api/books/:name/health/style',
     handler: async ({ params }, _req, res) => {
-    // SRV-：resolveBook 双行样板收编单源
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const kind = readKind(r.bookRoot)
-    // 命中短时缓存则跳过全书扫描（samples 为纯数据可复用；聚合与基线读取廉价，每次现算）
-    // miss 扫描切异步孪生——同步 scanChapters 在 200 万字大书上
-    // 秒级冻结事件循环（同族漏网点），逐 25 章让出对齐 analysis/learn 范式
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    const samples = await styleScanCache.get(r.bookRoot, undefined, ctx.styleScanTtlMs ?? undefined)
-    reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
-  },
+      // SRV-：resolveBook 双行样板收编单源
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const kind = readKind(r.bookRoot)
+      // 命中短时缓存则跳过全书扫描（samples 为纯数据可复用；聚合与基线读取廉价，每次现算）
+      // miss 扫描切异步孪生——同步 scanChapters 在 200 万字大书上
+      // 秒级冻结事件循环（同族漏网点），逐 25 章让出对齐 analysis/learn 范式
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      const samples = await styleScanCache.get(r.bookRoot, undefined, ctx.styleScanTtlMs ?? undefined)
+      reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
+    },
   })
 }

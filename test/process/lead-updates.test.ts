@@ -9,7 +9,12 @@ import { test, expect } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { leadEvidenceMatchesBody, parseLeadUpdateLines, readLeadUpdatesAt, LEAD_UPDATES_FILE } from '../../src/check/lead-updates.js'
+import {
+  leadEvidenceMatchesBody,
+  parseLeadUpdateLines,
+  readLeadUpdatesAt,
+  LEAD_UPDATES_FILE,
+} from '../../src/check/lead-updates.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -42,7 +47,9 @@ test('readLeadUpdatesAt: 半角冒号 + 忽略非列表行', () => {
     const wsDir = join(wd, '工作区')
     mkdirSync(wsDir, { recursive: true })
     writeFileSync(join(wsDir, '账本推进.md'), '# 本章推进\n说明文字一行\n- 悬念-002 埋下: 桌上多了一封信\n', 'utf-8')
-    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([{ leadId: '悬念-002', 动词: '埋下', 证据: '桌上多了一封信' }])
+    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([
+      { leadId: '悬念-002', 动词: '埋下', 证据: '桌上多了一封信' },
+    ])
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }
@@ -95,18 +102,10 @@ test('readOutlineLeads: 多值 / 单值 / 缺省', () => {
 // ── R75-2（二十三轮）：ATX 标题不折入声明证据（「声明了没兑现」定稿假红防线） ──
 
 test('parseLeadUpdateLines: 节终标题行不折入上一条证据，其后人工备注不再触碰条目', () => {
-  const text = [
-    '- 悬念-001 埋下：焦痕在烛火下泛着暗红。',
-    '',
-    '## 备注',
-    '',
-    '作者备注：下章揭晓。',
-  ].join('\n')
+  const text = ['- 悬念-001 埋下：焦痕在烛火下泛着暗红。', '', '## 备注', '', '作者备注：下章揭晓。'].join('\n')
   // 此前「## 备注」「作者备注：下章揭晓。」都被 R73-23 续行折拼进上一条证据——
   // 证据 needle 命中正文必败 → 定稿闸「声明了没兑现」假红
-  expect(parseLeadUpdateLines(text)).toEqual([
-    { leadId: '悬念-001', 动词: '埋下', 证据: '焦痕在烛火下泛着暗红。' },
-  ])
+  expect(parseLeadUpdateLines(text)).toEqual([{ leadId: '悬念-001', 动词: '埋下', 证据: '焦痕在烛火下泛着暗红。' }])
 })
 
 test('parseLeadUpdateLines: 首行章标签维持忽略；分组标题跳过、后随条目照常解析', () => {

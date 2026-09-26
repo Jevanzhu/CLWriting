@@ -21,10 +21,7 @@ import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../studio/fixtur
 //（fixtures.ts 本体因 Playwright global-setup 复用不动），userDataPath 改唯一临时目录
 import { trackTempDir } from '../helpers/temp-dir.js'
 import { makeFakeDriver } from './fake-driver.js'
-import {
-  runSelfHeal,
-  type SelfHealOpts,
-} from '../../src/ai/orchestrate/self-heal.js'
+import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -86,7 +83,11 @@ function makeBook(): string {
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
   writeFileSync(
     join(bookRoot, '文风', '基线.json'),
-    JSON.stringify({ version: 1, frozenAt: '2026-01-01T00:00:00.000Z', frozenFrom: 'w1-fixture', byScene: {}, overall: baseline }, null, 2),
+    JSON.stringify(
+      { version: 1, frozenAt: '2026-01-01T00:00:00.000Z', frozenFrom: 'w1-fixture', byScene: {}, overall: baseline },
+      null,
+      2,
+    ),
     'utf-8',
   )
   writeFileSync(
@@ -167,7 +168,15 @@ test('W1 端到端：AI 味稿检出黄 → 修复指令 → 二稿收敛 → pa
 test('W1 规则收敛：初稿 3 维偏离 → 二稿 0 维（7 维距离收窄）', () => {
   const bookRoot = makeBook()
   const rules = readIronRules(bookRoot)
-  const baseline = { overlongRatio: 0, adjStackHits: 0, dialogueTagRatio: 0, parallelStreakMax: 0, summaryEnding: false, sentenceLenVariance: 112.8, repeatRate: 0 }
+  const baseline = {
+    overlongRatio: 0,
+    adjStackHits: 0,
+    dialogueTagRatio: 0,
+    parallelStreakMax: 0,
+    summaryEnding: false,
+    sentenceLenVariance: 112.8,
+    repeatRate: 0,
+  }
 
   const aiStats = computeFullStats(AI_TEXT, rules)
   const cleanStats = computeFullStats(CLEAN_TEXT, rules)

@@ -43,7 +43,10 @@ function corruptFm(rel: string, content: string): void {
   writeFileSync(join(studio.bookRoot, rel), content)
 }
 
-async function planMerge(targetDocId: string, sourceDocId: string): Promise<{ status: number; json: Record<string, unknown> }> {
+async function planMerge(
+  targetDocId: string,
+  sourceDocId: string,
+): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await studio.req(
     'POST',
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(targetDocId)}/structure-plan`,
@@ -52,7 +55,10 @@ async function planMerge(targetDocId: string, sourceDocId: string): Promise<{ st
   return { status: r.status, json: r.json as Record<string, unknown> }
 }
 
-async function applyMerge(targetDocId: string, sourceDocId: string): Promise<{ status: number; json: Record<string, unknown> }> {
+async function applyMerge(
+  targetDocId: string,
+  sourceDocId: string,
+): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await studio.req(
     'POST',
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(targetDocId)}/structure-apply`,
@@ -61,7 +67,10 @@ async function applyMerge(targetDocId: string, sourceDocId: string): Promise<{ s
   return { status: r.status, json: r.json as Record<string, unknown> }
 }
 
-async function planSplit(docId: string, cursorOffset = 999): Promise<{ status: number; json: Record<string, unknown> }> {
+async function planSplit(
+  docId: string,
+  cursorOffset = 999,
+): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await studio.req(
     'POST',
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}/structure-plan`,
@@ -124,10 +133,7 @@ describe('B004: 结构操作入口章号一致性闸', () => {
 
   it('② fm ≡ 文件名失配 → 五入口全部 409 CHAPTER_NO_MISMATCH + 修复方向报文', async () => {
     // 直写构造：文件名 0090，fm 章号 7（外部改名未同步 fm 的典型形态）
-    corruptFm(
-      '写作/正文/第一卷/0090-第90章.md',
-      chapterContent(7, '第90章', '第九十章正文。'),
-    )
+    corruptFm('写作/正文/第一卷/0090-第90章.md', chapterContent(7, '第90章', '第九十章正文。'))
     const gate = (r: { status: number; json: Record<string, unknown> }): void => {
       expect(r.status).toBe(409)
       expect(r.json['code']).toBe('CHAPTER_NO_MISMATCH')

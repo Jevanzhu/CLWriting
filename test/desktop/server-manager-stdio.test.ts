@@ -110,7 +110,11 @@ describe('D1: splitLines 单行缓冲上限（纯函数直测）', () => {
     const out = new PassThrough()
     const lines: string[] = []
     const warns: number[] = []
-    splitLines(out, (l) => lines.push(l), (n) => warns.push(n))
+    splitLines(
+      out,
+      (l) => lines.push(l),
+      (n) => warns.push(n),
+    )
     out.write('a'.repeat(MAX_LINE_CHARS + 50)) // 超 1MB 无换行（\r 型进度条同型）
     await vi.waitFor(() => expect(lines).toHaveLength(1))
     expect(lines[0]).toHaveLength(MAX_LINE_CHARS) // 截为恰好 1MB
@@ -127,7 +131,11 @@ describe('D1: splitLines 单行缓冲上限（纯函数直测）', () => {
     const out = new PassThrough()
     const lines: string[] = []
     const warns: number[] = []
-    splitLines(out, (l) => lines.push(l), (n) => warns.push(n))
+    splitLines(
+      out,
+      (l) => lines.push(l),
+      (n) => warns.push(n),
+    )
     out.write('hello ')
     out.write('world\nsecond\n\n')
     await flushStreams()
@@ -213,7 +221,11 @@ describe('R50-A-4: exit 冲刷接线（manager 全链路）', () => {
     await flushStreams()
     child.emit('exit', 1) // 崩溃退出：exit 处理路径 flush
     await flushMicrotasks()
-    expect(cap.lines.some((l) => l.level === 'warn' && l.tag === 'server-proc' && l.msg === '(node:4242) FATAL: segmentation fault')).toBe(true)
+    expect(
+      cap.lines.some(
+        (l) => l.level === 'warn' && l.tag === 'server-proc' && l.msg === '(node:4242) FATAL: segmentation fault',
+      ),
+    ).toBe(true)
     await manager.stopChild() // 取消挂起重启（timer unref 不拖 worker，显式收口保净）
   })
 })

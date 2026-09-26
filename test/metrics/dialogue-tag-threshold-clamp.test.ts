@@ -28,15 +28,25 @@ function sample(num: number, dialogueTagRatio: number): ChapterSample {
 
 /** 10 章样本：前 5 章占比 0.1，后 5 章（6-10）满标签 1.0（漂移段，恰一窗长） */
 function samplesWithDrift(): ChapterSample[] {
-  return [1, 2, 3, 4, 5].map((n) => sample(n, 0.1))
-    .concat([6, 7, 8, 9, 10].map((n) => sample(n, 1.0)))
+  return [1, 2, 3, 4, 5].map((n) => sample(n, 0.1)).concat([6, 7, 8, 9, 10].map((n) => sample(n, 1.0)))
 }
 
 test('四轮-D402: 基线 0.8 的高基线书连续超阈章仍可触发漂移（阈值 clamp 0.99）', () => {
   const baseline = {
-    version: 1, frozenAt: 't', frozenFrom: 'test',
+    version: 1,
+    frozenAt: 't',
+    frozenFrom: 'test',
     byScene: {},
-    overall: { overlongRatio: 0, adjStackHits: 0, dialogueTagRatio: 0.8, parallelStreakMax: 0, summaryEnding: false, sentenceLenVariance: 10, repeatRate: 0.05, _dialogueLines: 0 },
+    overall: {
+      overlongRatio: 0,
+      adjStackHits: 0,
+      dialogueTagRatio: 0.8,
+      parallelStreakMax: 0,
+      summaryEnding: false,
+      sentenceLenVariance: 10,
+      repeatRate: 0.05,
+      _dialogueLines: 0,
+    },
   }
   const trend = aggregateStyleTrend(samplesWithDrift(), 'long', baseline, { driftWindow: 5 })
   const tagDrift = trend.drifts.find((d) => d.metric === 'dialogueTag')
@@ -49,9 +59,20 @@ test('四轮-D402: 基线 0.8 的高基线书连续超阈章仍可触发漂移�
 
 test('四轮-D402: 低基线行为不变——阈值仍 max(基线×1.3, 0.5)，clamp 不抬高', () => {
   const baseline = {
-    version: 1, frozenAt: 't', frozenFrom: 'test',
+    version: 1,
+    frozenAt: 't',
+    frozenFrom: 'test',
     byScene: {},
-    overall: { overlongRatio: 0, adjStackHits: 0, dialogueTagRatio: 0.2, parallelStreakMax: 0, summaryEnding: false, sentenceLenVariance: 10, repeatRate: 0.05, _dialogueLines: 0 },
+    overall: {
+      overlongRatio: 0,
+      adjStackHits: 0,
+      dialogueTagRatio: 0.2,
+      parallelStreakMax: 0,
+      summaryEnding: false,
+      sentenceLenVariance: 10,
+      repeatRate: 0.05,
+      _dialogueLines: 0,
+    },
   }
   const trend = aggregateStyleTrend(samplesWithDrift(), 'long', baseline, { driftWindow: 5 })
   const tagDrift = trend.drifts.find((d) => d.metric === 'dialogueTag')

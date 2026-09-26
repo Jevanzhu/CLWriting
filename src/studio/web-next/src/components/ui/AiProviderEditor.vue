@@ -23,7 +23,17 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  save: [form: { name: string; protocol: Protocol; auth: AuthStrategy; baseUrl: string; apiKey: string; models: ModelConfDto[]; modelDrafts: ModelRowDraft[] }]
+  save: [
+    form: {
+      name: string
+      protocol: Protocol
+      auth: AuthStrategy
+      baseUrl: string
+      apiKey: string
+      models: ModelConfDto[]
+      modelDrafts: ModelRowDraft[]
+    },
+  ]
   cancel: []
   /** 测试模型选择变更（父层写 store.probeModels） */
   'probe-model': [model: string]
@@ -76,9 +86,7 @@ const probe = computed(() => ({
 
 // ── 测试模型下拉（编辑卡）：选项 = 我们声明的模型行（不向端点拉清单）；
 //    没声明模型行时只有「默认」一项（后端回落全局当前模型） ──
-const testModelOptions = computed(() =>
-  Array.from(new Set(modelDrafts.value.map((r) => r.id.trim()).filter(Boolean))),
-)
+const testModelOptions = computed(() => Array.from(new Set(modelDrafts.value.map((r) => r.id.trim()).filter(Boolean))))
 
 function submit(): void {
   emit('save', {
@@ -127,7 +135,12 @@ async function savePricing(clear = false): Promise<void> {
       pricingError.value = '单价需为非负数字'
       return
     }
-    if (pricing && ![pricing.inputPerMTok, pricing.outputPerMTok, pricing.cacheReadPerMTok, pricing.cacheWritePerMTok].some((v) => v !== undefined)) {
+    if (
+      pricing &&
+      ![pricing.inputPerMTok, pricing.outputPerMTok, pricing.cacheReadPerMTok, pricing.cacheWritePerMTok].some(
+        (v) => v !== undefined,
+      )
+    ) {
       pricingState.value = 'error'
       pricingError.value = '至少填一个单价（或点「清除价格」）'
       return
@@ -201,7 +214,11 @@ async function savePricing(clear = false): Promise<void> {
             >
               <span class="proto-brand">OpenAI</span><span class="proto-name">Responses</span>
             </button>
-            <button class="protocol-btn" :class="{ on: form.protocol === 'anthropic' }" @click="selectProtocol('anthropic')">
+            <button
+              class="protocol-btn"
+              :class="{ on: form.protocol === 'anthropic' }"
+              @click="selectProtocol('anthropic')"
+            >
               <span class="proto-brand">Anthropic</span><span class="proto-name">Messages</span>
             </button>
           </div>
@@ -216,11 +233,7 @@ async function savePricing(clear = false): Promise<void> {
         </div>
 
         <!-- 模型行编辑器（§7.1；探测自持：表单现值 → 勾选弹窗） -->
-        <ModelListEditor
-          :model-value="modelDrafts"
-          :probe="probe"
-          @update:model-value="onModelDrafts"
-        />
+        <ModelListEditor :model-value="modelDrafts" :probe="probe" @update:model-value="onModelDrafts" />
 
         <!-- 价格表：每百万 token 单价；配价后用量面板显示金额、预算可用 cost 口径 -->
         <div v-if="initial" class="pricing-block">
@@ -230,17 +243,32 @@ async function savePricing(clear = false): Promise<void> {
             <span v-else class="pricing-off">未配置（不显示金额）</span>
           </div>
           <div class="pricing-grid">
-            <label>输入<input v-model="pricingForm.inputPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
-            <label>输出<input v-model="pricingForm.outputPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
-            <label>缓存读<input v-model="pricingForm.cacheReadPerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
-            <label>缓存写<input v-model="pricingForm.cacheWritePerMTok" type="text" inputmode="decimal" placeholder="—" /></label>
+            <label
+              >输入<input v-model="pricingForm.inputPerMTok" type="text" inputmode="decimal" placeholder="—"
+            /></label>
+            <label
+              >输出<input v-model="pricingForm.outputPerMTok" type="text" inputmode="decimal" placeholder="—"
+            /></label>
+            <label
+              >缓存读<input v-model="pricingForm.cacheReadPerMTok" type="text" inputmode="decimal" placeholder="—"
+            /></label>
+            <label
+              >缓存写<input v-model="pricingForm.cacheWritePerMTok" type="text" inputmode="decimal" placeholder="—"
+            /></label>
             <label>币种<input v-model="pricingForm.currency" type="text" placeholder="USD" /></label>
           </div>
           <div class="pricing-actions">
             <button class="save-btn" :disabled="pricingState === 'saving'" @click="savePricing(false)">
               {{ pricingState === 'saving' ? '保存中…' : '保存价格' }}
             </button>
-            <button v-if="pricingConfigured" class="cancel-btn" :disabled="pricingState === 'saving'" @click="savePricing(true)">清除价格</button>
+            <button
+              v-if="pricingConfigured"
+              class="cancel-btn"
+              :disabled="pricingState === 'saving'"
+              @click="savePricing(true)"
+            >
+              清除价格
+            </button>
             <span v-if="pricingState === 'saved'" class="pricing-ok">已保存</span>
             <span v-else-if="pricingState === 'error'" class="key-error">{{ pricingError }}</span>
           </div>
@@ -338,7 +366,9 @@ async function savePricing(clear = false): Promise<void> {
   cursor: pointer;
   list-style: none;
   user-select: none;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .adv-summary:hover {
   background: var(--background-modifier-hover);

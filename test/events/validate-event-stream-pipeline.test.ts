@@ -25,7 +25,12 @@ import {
 import type { ValidateCursor } from '../../src/events/projection.js'
 import type { ChatEvent } from '../../src/events/types.js'
 
-function ev(seq: number, type: ChatEvent['type'], data: Record<string, unknown>, extra: Partial<ChatEvent> = {}): ChatEvent {
+function ev(
+  seq: number,
+  type: ChatEvent['type'],
+  data: Record<string, unknown>,
+  extra: Partial<ChatEvent> = {},
+): ChatEvent {
   return { seq, sessionId: 's1', type, data, createdAt: 1, replaceGeneration: 0, ...extra }
 }
 
@@ -55,7 +60,9 @@ describe('R0916-7-P3-2 段一：序号与因果步', () => {
     const issues = shadowCoverageStep(ev(4, 'compaction/end', { reason: 'completed' }, carrier), cur)
     expect(msgs(issues)).toEqual(['遮蔽区间 [1,3] 含未可见 seq（区间 3 个，可见仅 2 个）'])
     // 区间形状非法（缺端点 / start>end）：形状步已报，本步静默（避免同病灶双报）
-    expect(shadowCoverageStep(ev(4, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 2, shadowEnd: 1 }), cur)).toEqual([])
+    expect(
+      shadowCoverageStep(ev(4, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 2, shadowEnd: 1 }), cur),
+    ).toEqual([])
     expect(shadowCoverageStep(ev(4, 'compaction/end', {}, { surfaceOp: 'replace' }), cur)).toEqual([])
     // 非载体事件直通
     expect(shadowCoverageStep(ev(4, 'user/message', {}, { surfaceOp: 'append' }), cur)).toEqual([])
@@ -75,12 +82,15 @@ describe('R0916-7-P3-2 段一：序号与因果步', () => {
       'sourceSeqs 未覆盖被遮蔽节点 2',
     ])
     // 区间端点缺失：仅血缘自身问题（覆盖校验无从谈起）
-    expect(
-      msgs(sourceSeqsStep(ev(3, 'compaction/end', {}, { surfaceOp: 'replace', sourceSeqs: [3] }), cur)),
-    ).toEqual(['sourceSeqs 含不小于当前 seq 的 3'])
+    expect(msgs(sourceSeqsStep(ev(3, 'compaction/end', {}, { surfaceOp: 'replace', sourceSeqs: [3] }), cur))).toEqual([
+      'sourceSeqs 含不小于当前 seq 的 3',
+    ])
     // 合法血缘（覆盖区间内可见节点、全部早于当前 seq、无重复）→ 零问题
     expect(
-      sourceSeqsStep(ev(3, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] }), cur),
+      sourceSeqsStep(
+        ev(3, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] }),
+        cur,
+      ),
     ).toEqual([])
   })
 
@@ -89,14 +99,22 @@ describe('R0916-7-P3-2 段一：序号与因果步', () => {
     cur.visibleSeqs.add(1)
     cur.visibleSeqs.add(2)
     advanceVisibleStep(
-      ev(3, 'compaction/end', { message: '存档摘要' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+      ev(
+        3,
+        'compaction/end',
+        { message: '存档摘要' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] },
+      ),
       cur,
     )
     expect([...cur.visibleSeqs].sort((a, b) => a - b)).toEqual([2, 3]) // 1 被遮蔽移除，3（存档）加入
     // 无存档内容时不占可见位
     const cur2 = createValidateCursor()
     cur2.visibleSeqs.add(1)
-    advanceVisibleStep(ev(3, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }), cur2)
+    advanceVisibleStep(
+      ev(3, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+      cur2,
+    )
     expect([...cur2.visibleSeqs]).toEqual([])
     // empty usage 壳（空 content 的 assistant）不进可见集——后续遮蔽它不算「已可见」
     const cur3 = createValidateCursor()
@@ -109,7 +127,9 @@ describe('R0916-7-P3-2 段一：序号与因果步', () => {
 
 describe('R0916-7-P3-2 段二：形状步', () => {
   it('surfaceOpStep：禁带 / 必带 / 普通 surface 禁 replace / 载体必须 replace 四条各归位', () => {
-    expect(msgs(surfaceOpStep(ev(1, 'turn/start', {}, { surfaceOp: 'append' })))).toEqual(['非 surface 事件禁带 surfaceOp'])
+    expect(msgs(surfaceOpStep(ev(1, 'turn/start', {}, { surfaceOp: 'append' })))).toEqual([
+      '非 surface 事件禁带 surfaceOp',
+    ])
     expect(msgs(surfaceOpStep(ev(1, 'user/message', { message: 'x' })))).toEqual(['surface 事件必须带 surfaceOp'])
     expect(msgs(surfaceOpStep(ev(1, 'user/message', { message: 'x' }, { surfaceOp: 'replace' })))).toEqual([
       '普通 surface 事件禁带 surfaceOp=replace（replace 载体仅 compaction/end）',
@@ -124,14 +144,26 @@ describe('R0916-7-P3-2 段二：形状步', () => {
 
   it('goalSnapshotStep / todoWriteStep / snapshotPayloadStep / shadowIntervalStep：形状判定逐条', () => {
     expect(msgs(goalSnapshotStep(ev(1, 'goal/change', { operation: 'add' })))).toEqual(['goal/change 缺 goal 快照'])
-    expect(msgs(goalSnapshotStep(ev(1, 'goal/change', { goal: { id: 'g1' } })))).toEqual(['goal/change 快照缺 id/title', 'goal/change 快照非法 state'])
+    expect(msgs(goalSnapshotStep(ev(1, 'goal/change', { goal: { id: 'g1' } })))).toEqual([
+      'goal/change 快照缺 id/title',
+      'goal/change 快照非法 state',
+    ])
     expect(goalSnapshotStep(ev(1, 'goal/change', { goal: { id: 'g', title: 't', state: 'active' } }))).toEqual([])
     expect(goalSnapshotStep(ev(1, 'turn/start', {}))).toEqual([])
 
     expect(msgs(todoWriteStep(ev(1, 'todo/write', {})))).toEqual(['todo/write 缺 todos 数组'])
-    expect(msgs(todoWriteStep(ev(1, 'todo/write', { todos: [{ text: 'a', state: 'pending' }, { text: 'b', state: 'bogus' }] })))).toEqual([
-      'todo/write 含非法条目',
-    ])
+    expect(
+      msgs(
+        todoWriteStep(
+          ev(1, 'todo/write', {
+            todos: [
+              { text: 'a', state: 'pending' },
+              { text: 'b', state: 'bogus' },
+            ],
+          }),
+        ),
+      ),
+    ).toEqual(['todo/write 含非法条目'])
     expect(todoWriteStep(ev(1, 'todo/write', { todos: [{ text: 'a', state: 'in_progress' }] }))).toEqual([])
 
     expect(msgs(snapshotPayloadStep(ev(1, 'settings/snapshot', { scope: 'global' })))).toEqual([
@@ -146,10 +178,12 @@ describe('R0916-7-P3-2 段二：形状步', () => {
     expect(msgs(shadowIntervalStep(ev(1, 'compaction/end', {}, { surfaceOp: 'replace' })))).toEqual([
       'compaction/end 缺 shadowStart/shadowEnd',
     ])
-    expect(msgs(shadowIntervalStep(ev(1, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 2, shadowEnd: 1 })))).toEqual([
-      'shadowStart > shadowEnd',
-    ])
-    expect(shadowIntervalStep(ev(1, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2 }))).toEqual([])
+    expect(
+      msgs(shadowIntervalStep(ev(1, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 2, shadowEnd: 1 }))),
+    ).toEqual(['shadowStart > shadowEnd'])
+    expect(
+      shadowIntervalStep(ev(1, 'compaction/end', {}, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2 })),
+    ).toEqual([])
   })
 })
 
@@ -157,7 +191,9 @@ describe('R0916-7-P3-2 段三：载荷语义步', () => {
   it('endReasonStep：三种终止事件的受控词表；非字符串 reason 容忍（不报）', () => {
     expect(msgs(endReasonStep(ev(1, 'turn/end', { reason: 'timeout' })))).toEqual(['turn/end 非法终止原因: timeout'])
     expect(msgs(endReasonStep(ev(1, 'step/end', { reason: 'whatever' })))).toEqual(['step/end 非法终止原因: whatever'])
-    expect(msgs(endReasonStep(ev(1, 'session/end', { reason: 'failed' })))).toEqual(['session/end 非法终止原因: failed'])
+    expect(msgs(endReasonStep(ev(1, 'session/end', { reason: 'failed' })))).toEqual([
+      'session/end 非法终止原因: failed',
+    ])
     expect(endReasonStep(ev(1, 'turn/end', { reason: 'max-turns' }))).toEqual([])
     expect(endReasonStep(ev(1, 'session/end', { reason: 'completed' }))).toEqual([])
     // 容忍面：reason 非字符串 / 非终止事件 → 零问题
@@ -166,7 +202,9 @@ describe('R0916-7-P3-2 段三：载荷语义步', () => {
   })
 
   it('goalOperationStep：受控词表判定；非字符串 operation 容忍', () => {
-    expect(msgs(goalOperationStep(ev(1, 'goal/change', { operation: 'bogus' })))).toEqual(['goal/change 非法 operation: bogus'])
+    expect(msgs(goalOperationStep(ev(1, 'goal/change', { operation: 'bogus' })))).toEqual([
+      'goal/change 非法 operation: bogus',
+    ])
     expect(goalOperationStep(ev(1, 'goal/change', { operation: 'create' }))).toEqual([])
     expect(goalOperationStep(ev(1, 'goal/change', { operation: 7 }))).toEqual([])
     expect(goalOperationStep(ev(1, 'todo/write', {}))).toEqual([])
@@ -200,7 +238,12 @@ describe('R0916-7-P3-2 步骤顺序契约（问题报告次序 = 对外行为）
     const issues = validateEventStream([
       ev(1, 'user/message', { message: 'a' }), // 缺 surfaceOp
       ev(1, 'turn/end', { reason: 'bogus' }, { surfaceOp: 'append' }), // 重复 seq（先报）→ 载体形状 → 非法原因
-      ev(2, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+      ev(
+        2,
+        'compaction/end',
+        { reason: 'completed' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] },
+      ),
     ])
     expect(msgs(issues)).toEqual([
       'surface 事件必须带 surfaceOp',

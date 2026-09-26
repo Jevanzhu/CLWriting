@@ -10,14 +10,7 @@ import { useStaleGuard } from '../composables/useStaleGuard'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观/伏笔（TabBar 下拉 → ChapterTreePanel 执行）。 */
 export type CreateKind =
-  | 'chapter'
-  | 'chapter-outline'
-  | 'volume-outline'
-  | 'synopsis'
-  | 'character'
-  | 'item'
-  | 'worldview'
-  | 'foreshadow'
+  'chapter' | 'chapter-outline' | 'volume-outline' | 'synopsis' | 'character' | 'item' | 'worldview' | 'foreshadow'
 
 /** 左栏活动面板（联合类型单源——ref 初值与 setter 形参此前各写一遍
  *  字面量联合，改一处漏一处编译器不报，收成别名两处共引）。 */
@@ -196,7 +189,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           if (Array.isArray(arr)) prefs.treeExpanded = arr.filter((x): x is string => typeof x === 'string')
         }
         migrated = Object.keys(prefs).length > 0
-      } catch { /* 损坏降级 */ }
+      } catch {
+        /* 损坏降级 */
+      }
       if (migrated) {
         void putBookPrefs(bookName.value, prefs).catch(() => {})
         // 迁移后清旧键（对齐 prefs store 的 clearLegacyLocalStorage 手法）——
@@ -205,7 +200,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           localStorage.removeItem('clw2.ui-prefs')
           localStorage.removeItem(`clw2.workspace.${bookName.value}`)
           localStorage.removeItem(`clw2.filetree.${bookName.value}`)
-        } catch { /* localStorage 不可用降级 */ }
+        } catch {
+          /* localStorage 不可用降级 */
+        }
       }
     }
 
@@ -213,7 +210,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (typeof prefs.leftWidth === 'number' && prefs.leftWidth >= 180) leftWidth.value = prefs.leftWidth
     if (typeof prefs.leftOpen === 'boolean') leftOpen.value = prefs.leftOpen
     if (typeof prefs.rightOpen === 'boolean') rightOpen.value = prefs.rightOpen
-    if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash') leftPanel.value = prefs.leftPanel
+    if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash')
+      leftPanel.value = prefs.leftPanel
     // prefs 迟到回填仅在当前未打开文档时生效——用户已点开另一
     // 文档后被覆盖回 prefs 记录（既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
     if (activeDocId.value === null) activeDocId.value = prefs.activeDocId ?? null
@@ -227,8 +225,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     //（服务端 JSON 可表达 1e999→Infinity；手改 prefs.json 可得 0/负数）：autosave
     // 零/负间隔此前仅靠 Book.vue max 事后兜底，pageWidth 非法值直产非法 CSS
     // 宽度。非法值按「无书级覆盖」（null，全局值托底）处理，与字段缺失同口径。
-    const posNum = (v: unknown): number | null =>
-      typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null
+    const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
     ps.bookPageWidth = posNum(prefs.pageWidth)
     ps.bookAutosaveInterval = posNum(prefs.autosaveInterval)
     ps.apply()
@@ -294,7 +291,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    *  钩子「冲刷完成才销毁窗口」的语义自此覆盖刚 fire 出去的那笔写，不随窗夭折。
    */
   async function flushPendingBookPrefs(): Promise<void> {
-    if (bookPrefsInFlight) await bookPrefsInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
+    if (bookPrefsInFlight)
+      await bookPrefsInFlight.catch(() => {
+        /* 在途失败已消化，此处不重试 */
+      })
     if (!debounceTimer) return
     clearTimeout(debounceTimer)
     debounceTimer = null
@@ -306,8 +306,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (watchStop) watchStop()
     const ps = usePrefsStore()
     watchStop = watch(
-      [leftWidth, leftOpen, rightOpen, leftPanel, activeDocId, treeExpanded,
-       () => ps.bookPageWidth, () => ps.bookAutosaveInterval],
+      [
+        leftWidth,
+        leftOpen,
+        rightOpen,
+        leftPanel,
+        activeDocId,
+        treeExpanded,
+        () => ps.bookPageWidth,
+        () => ps.bookAutosaveInterval,
+      ],
       () => {
         if (!prefsLoaded || !bookName.value) return
         if (debounceTimer) clearTimeout(debounceTimer)

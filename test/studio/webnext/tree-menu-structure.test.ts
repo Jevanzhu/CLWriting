@@ -54,7 +54,13 @@ function volumeFixture(): { grouped: TreeNode[]; raw: TreeNode[]; ch1: TreeNode;
 function crossVolumeFixture(): TreeNode[] {
   const bing = node({ path: '写作/正文/第一卷/0009-丙.md', name: '0009-丙.md', docId: 'dBin', status: 'draft' })
   const wu = node({ path: '写作/正文/第二卷/0005-戊.md', name: '0005-戊.md', docId: 'dWu', status: 'draft' })
-  const piece = node({ path: '写作/正文/0002-短篇.md', name: '0002-短篇.md', docId: 'dP', role: 'piece-body', status: 'draft' })
+  const piece = node({
+    path: '写作/正文/0002-短篇.md',
+    name: '0002-短篇.md',
+    docId: 'dP',
+    role: 'piece-body',
+    status: 'draft',
+  })
   const vol1 = node({ path: '写作/正文/第一卷', name: '第一卷', isDirectory: true, children: [bing] })
   const vol2 = node({ path: '写作/正文/第二卷', name: '第二卷', isDirectory: true, children: [wu] })
   const bodyRoot = node({ path: '写作/正文', name: '正文', isDirectory: true, children: [vol1, vol2, piece] })
@@ -95,7 +101,13 @@ describe('useTreeMenu 结构操作组（阶段 24 S4）', () => {
   })
 
   test('短篇 piece-body → 结构三动作全无（留洞制合并/拆分只对长篇章开放；activeDocId 命中也不出 split-here）', () => {
-    const piece = node({ path: '写作/正文/0005-短篇.md', name: '0005-短篇.md', docId: 'pdoc', role: 'piece-body', status: 'draft' })
+    const piece = node({
+      path: '写作/正文/0005-短篇.md',
+      name: '0005-短篇.md',
+      docId: 'pdoc',
+      role: 'piece-body',
+      status: 'draft',
+    })
     const pieceMenu = useTreeMenu(() => ({ grouped: [piece], raw: [piece] }), { activeDocId: () => 'pdoc' })
     const keys = pieceMenu.buildMenuItems(piece).map((i) => i.key)
     expect(keys).not.toContain('merge-into-prev')

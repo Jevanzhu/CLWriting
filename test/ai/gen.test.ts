@@ -82,11 +82,7 @@ describe('generate', () => {
   })
 
   it('无 done 事件正常结束，usage 默认 0', async () => {
-    const r = await generate(
-      provider([{ type: 'text', delta: 'x' }]),
-      { systemPrompt: '', messages: [] },
-      signal(),
-    )
+    const r = await generate(provider([{ type: 'text', delta: 'x' }]), { systemPrompt: '', messages: [] }, signal())
     expect(r.text).toBe('x')
     expect(r.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
   })
@@ -95,7 +91,10 @@ describe('generate', () => {
 describe('generateText / generateTool 简化路径', () => {
   it('generateText 只取纯文本', async () => {
     const t = await generateText(
-      provider([{ type: 'text', delta: '细纲' }, { type: 'done', usage: USAGE, stopReason: 'end_turn' }]),
+      provider([
+        { type: 'text', delta: '细纲' },
+        { type: 'done', usage: USAGE, stopReason: 'end_turn' },
+      ]),
       { systemPrompt: '', messages: [] },
       signal(),
     )
@@ -111,9 +110,10 @@ describe('generateText / generateTool 简化路径', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
       },
     }
-    await expect(
-      generateText(p, { systemPrompt: '', messages: [] }, signal()),
-    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
+    await expect(generateText(p, { systemPrompt: '', messages: [] }, signal())).rejects.toMatchObject({
+      name: 'GenError',
+      retryable: false,
+    })
   })
 
   // R61-6（第六十一轮）：截断调用照样烧 token——GenError 载荷须带 usage 供记账
@@ -125,9 +125,7 @@ describe('generateText / generateTool 简化路径', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
       },
     }
-    await expect(
-      generateText(p, { systemPrompt: '', messages: [] }, signal()),
-    ).rejects.toMatchObject({ usage: USAGE })
+    await expect(generateText(p, { systemPrompt: '', messages: [] }, signal())).rejects.toMatchObject({ usage: USAGE })
 
     const p2: ModelProvider = {
       conf: CONF,
@@ -136,21 +134,25 @@ describe('generateText / generateTool 简化路径', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
       },
     }
-    await expect(
-      generateTool(p2, { systemPrompt: '', messages: [] }, signal()),
-    ).rejects.toMatchObject({ usage: USAGE })
+    await expect(generateTool(p2, { systemPrompt: '', messages: [] }, signal())).rejects.toMatchObject({ usage: USAGE })
   })
 
   it('generateTool 取第一个 tool 的 input；无 tool 时 input=null 回退 text', async () => {
     const a = await generateTool(
-      provider([{ type: 'tool', id: 't2', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),
+      provider([
+        { type: 'tool', id: 't2', name: 'submit_chapter', input: { 正文: 'y' } },
+        { type: 'done', usage: USAGE, stopReason: 'tool_use' },
+      ]),
       { systemPrompt: '', messages: [] },
       signal(),
     )
     expect(a.input).toEqual({ 正文: 'y' })
 
     const b = await generateTool(
-      provider([{ type: 'text', delta: '自由文本' }, { type: 'done', usage: USAGE, stopReason: 'end_turn' }]),
+      provider([
+        { type: 'text', delta: '自由文本' },
+        { type: 'done', usage: USAGE, stopReason: 'end_turn' },
+      ]),
       { systemPrompt: '', messages: [] },
       signal(),
     )
@@ -220,9 +222,10 @@ describe('generateText / generateTool 简化路径', () => {
         yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
       },
     }
-    await expect(
-      generateTool(p, { systemPrompt: '', messages: [] }, signal()),
-    ).rejects.toMatchObject({ name: 'GenError', retryable: false })
+    await expect(generateTool(p, { systemPrompt: '', messages: [] }, signal())).rejects.toMatchObject({
+      name: 'GenError',
+      retryable: false,
+    })
   })
 })
 
@@ -265,9 +268,14 @@ describe('B-2 逐 chunk 挂起超时（wrapper 原名 withFirstByteTimeout，RC 
     const slow: AsyncIterable<GenEvent> = {
       [Symbol.asyncIterator]() {
         return {
-          next: () => new Promise<IteratorResult<GenEvent>>((r) =>
-            setTimeout(() => r({ done: false, value: { type: 'text', delta: 'late' } }), 500)),
-          return: () => { returnCalled = true; return Promise.resolve({ done: true, value: undefined }) },
+          next: () =>
+            new Promise<IteratorResult<GenEvent>>((r) =>
+              setTimeout(() => r({ done: false, value: { type: 'text', delta: 'late' } }), 500),
+            ),
+          return: () => {
+            returnCalled = true
+            return Promise.resolve({ done: true, value: undefined })
+          },
         }
       },
     }
@@ -285,7 +293,10 @@ describe('B-2 逐 chunk 挂起超时（wrapper 原名 withFirstByteTimeout，RC 
         return {
           // next() 永不结算——模拟「服务器接受连接但不发数据」的半死场景
           next: () => new Promise<IteratorResult<GenEvent>>(() => {}),
-          return: () => { returnCalled = true; return new Promise<IteratorResult<GenEvent>>(() => {}) },
+          return: () => {
+            returnCalled = true
+            return new Promise<IteratorResult<GenEvent>>(() => {})
+          },
         }
       },
     }
@@ -309,7 +320,9 @@ describe('B-2 逐 chunk 挂起超时（wrapper 原名 withFirstByteTimeout，RC 
         await new Promise<never>(() => {}) // 此后静默挂死（连接半死：发部分数据后卡住）
       },
     }
-    const iter = withChunkStallTimeout(halfDead, 20, () => { stalledCb++ })
+    const iter = withChunkStallTimeout(halfDead, 20, () => {
+      stalledCb++
+    })
     const first = await iter.next()
     expect(first.done).toBe(false)
     expect(first.value.type).toBe('text')
@@ -407,7 +420,9 @@ describe('RB-AI-P2-3 超时 abort 底层 signal', () => {
       async *stream(_req, signal) {
         seen = signal
         // 底层感知 abort 即报错（模拟 SDK 的 AbortError 路径）
-        await new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted-underlying'))))
+        await new Promise((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(new Error('aborted-underlying'))),
+        )
       },
     }
     const ctrl = new AbortController()
@@ -422,7 +437,10 @@ describe('RB-AI-P2-3 超时 abort 底层 signal', () => {
 describe('B-3 stopReason 传递', () => {
   it('generateTool 返回值含 stopReason（max_tokens 截断可检测）', async () => {
     const r = await generateTool(
-      provider([{ type: 'tool', id: 't3', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'max_tokens' }]),
+      provider([
+        { type: 'tool', id: 't3', name: 'submit_chapter', input: { 正文: 'y' } },
+        { type: 'done', usage: USAGE, stopReason: 'max_tokens' },
+      ]),
       { systemPrompt: '', messages: [] },
       signal(),
     )

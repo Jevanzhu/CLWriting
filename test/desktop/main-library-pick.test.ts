@@ -227,9 +227,7 @@ describe('R0912-A-P3-5: bootstrap recent 过滤 await 窗并发写不被内存�
       // readStore().current——仅回填 recent 即 libB；整对象赋值回潮即 null（内存面回滚）
       expect(M.ipcHandle['desktop:get-current']!(trustedEvent())).toBe(libB)
       // recent 照常回填（过滤语义本身不变）
-      expect(M.ipcHandle['desktop:get-recent']!(trustedEvent())).toEqual([
-        { path: recentDir, label: '旧recent' },
-      ])
+      expect(M.ipcHandle['desktop:get-recent']!(trustedEvent())).toEqual([{ path: recentDir, label: '旧recent' }])
     } finally {
       vi.doUnmock('../../src/desktop/workdir-store.js')
       vi.resetModules()

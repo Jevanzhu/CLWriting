@@ -29,18 +29,35 @@ let userDataPath = ''
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clw-e2e-batchfin-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+  )
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 批量定稿e2e书\n  genre: 玄幻\nhost: cc\n', 'utf8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 批量定稿e2e书\n  genre: 玄幻\nhost: cc\n',
+    'utf8',
+  )
   // 2 章正文（manifest 预设旧 finalizedRevision ≠ 当前指纹 → 初始即 revision 态供批量定稿）
-  for (const [no, title] of [[1, '开篇'], [2, '转折']] as const) {
-    writeFileSync(join(bookRoot, '写作', '正文', `000${no}-${title}.md`), `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文${no}\n`, 'utf8')
+  for (const [no, title] of [
+    [1, '开篇'],
+    [2, '转折'],
+  ] as const) {
+    writeFileSync(
+      join(bookRoot, '写作', '正文', `000${no}-${title}.md`),
+      `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文${no}\n`,
+      'utf8',
+    )
   }
   // manifest 登记 + 旧定稿基线 → revision 态（deriveStatus：finRev 存在且 ≠ 当前指纹）
   const m = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  for (const [no, title] of [[1, '开篇'], [2, '转折']] as const) {
+  for (const [no, title] of [
+    [1, '开篇'],
+    [2, '转折'],
+  ] as const) {
     upsertEntry(m, {
       id: generateDocId(),
       nodeType: 'document',

@@ -147,7 +147,10 @@ describe('DELETE /api/books/:name/audit（事件保留定版：手动清理）',
 
     let release!: () => void
     const gate = new Promise<void>((resolve) => (release = resolve))
-    const neverReject = gate.then(() => undefined, () => undefined)
+    const neverReject = gate.then(
+      () => undefined,
+      () => undefined,
+    )
     registerBackgroundTask(BOOK, neverReject)
     try {
       const busy = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)

@@ -27,7 +27,13 @@ import { normalizeWinSeparators, platformCaseFold, resolveWithinRoot } from '../
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { toNfcName } from '../fs/text-canonical.js'
 import { isInternalBookPath } from './layout.js'
-import { readManifestStrict, upsertEntry, withManifestLockAsync, writeManifest, type ManifestEntry } from './manifest.js'
+import {
+  readManifestStrict,
+  upsertEntry,
+  withManifestLockAsync,
+  writeManifest,
+  type ManifestEntry,
+} from './manifest.js'
 import { DEFAULT_VERSION_POLICY, encodeDocDirName, readGlobalSnapshotPolicy, type VersionPolicy } from './version.js'
 import { scanBookTree } from './tree.js'
 import { findByLegacyId } from './service-helpers.js'
@@ -213,7 +219,9 @@ export class DocContext {
    *  链删除——本函数成为清单登记唯一实现。 */
   async upsertManifestEntryAsync(docId: string, relPath: string): Promise<void> {
     await withManifestLockAsync(this.manifestPath, () => {
-      const m = existsSync(this.manifestPath) ? readManifestStrict(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
+      const m = existsSync(this.manifestPath)
+        ? readManifestStrict(this.manifestPath)
+        : { version: 1, entries: new Map<string, ManifestEntry>() }
       upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
       mkdirSync(dirname(this.manifestPath), { recursive: true })
       writeManifest(this.manifestPath, m)
@@ -337,9 +345,11 @@ export class DocContext {
     const prev = this.metaOpChains.get(docId) ?? Promise.resolve()
     const p = prev.then(fn, fn)
     this.metaOpChains.set(docId, p)
-    void p.catch(() => {}).finally(() => {
-      if (this.metaOpChains.get(docId) === p) this.metaOpChains.delete(docId)
-    })
+    void p
+      .catch(() => {})
+      .finally(() => {
+        if (this.metaOpChains.get(docId) === p) this.metaOpChains.delete(docId)
+      })
     return p
   }
 }

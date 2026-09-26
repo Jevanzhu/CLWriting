@@ -25,12 +25,7 @@ import {
   harvestStyleCandidates,
   harvestStyleCandidatesAsync,
 } from '../../src/process/style-harvest.js'
-import {
-  listTrackedDocs,
-  listTrackedDocsAsync,
-  recordAiVersion,
-  recordAiVersionAsync,
-} from '../../src/git/ai-track.js'
+import { listTrackedDocs, listTrackedDocsAsync, recordAiVersion, recordAiVersionAsync } from '../../src/git/ai-track.js'
 import { __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { readCandidates, CANDIDATES_DIR } from '../../src/format/style-candidate.js'
@@ -145,16 +140,13 @@ describe('收割源1 读取改道 md-text-cache（口径不变）', () => {
 
   it('缓存未命中/命中两轮收割产物逐位一致（读取改道不换输出口径）', async () => {
     makeBookSkeleton(root)
-    writeFileSync(
-      join(root, '写作', '正文', '001-雨夜.md'),
-      `---\n章号: 1\n标题: 雨夜\n---\n\n${AUTHOR_BODY}`,
-    )
+    writeFileSync(join(root, '写作', '正文', '001-雨夜.md'), `---\n章号: 1\n标题: 雨夜\n---\n\n${AUTHOR_BODY}`)
     recordAiVersion(root, legacyId('写作/正文/001-雨夜.md'), AI_TEXT)
 
     // 机器可复现字段比对（created 含 ulid 文件名，两轮必然不同——同 R44-13 口径）
     const pick = (): string[] =>
-      readCandidates(join(root, CANDIDATES_DIR)).candidates
-        .map((c) =>
+      readCandidates(join(root, CANDIDATES_DIR))
+        .candidates.map((c) =>
           JSON.stringify([c.类型, c.场景, c.来源, c.正文, c.状态, c.创建, c.章号, c.相似度, c.AI版]),
         )
         .sort()
@@ -203,10 +195,7 @@ describe('收割链轨迹枚举异步化（全程零 spawnSync）', () => {
     mkdirSync(join(dir, '写作', '正文'), { recursive: true })
     mkdirSync(join(dir, '文风'), { recursive: true })
     writeFileSync(join(dir, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 异步收割\n')
-    writeFileSync(
-      join(dir, '写作', '正文', '001-雨夜.md'),
-      `---\n章号: 1\n标题: 雨夜\n---\n\n${AUTHOR_BODY}`,
-    )
+    writeFileSync(join(dir, '写作', '正文', '001-雨夜.md'), `---\n章号: 1\n标题: 雨夜\n---\n\n${AUTHOR_BODY}`)
     writeFileSync(join(dir, '文风', '文风铁律.md'), '# 文风铁律\n- 正文纯文本\n')
     initGitRepo(dir)
     const docId = legacyId('写作/正文/001-雨夜.md')
@@ -237,7 +226,11 @@ describe('收割链轨迹枚举异步化（全程零 spawnSync）', () => {
       expect(mockSpawnSync).toHaveBeenCalledTimes(0) // 修复点：git 后端枚举不再同步 spawnSync
       expect(mockSpawn).toHaveBeenCalledTimes(1) // 恰好一次异步 spawn（for-each-ref）
       expect(mockSpawn.mock.calls[0]![0]).toBe('git')
-      expect(gitArgsOf(mockSpawn.mock.calls[0]![1] as string[])).toEqual(['for-each-ref', '--format=%(refname)', 'refs/clwriting/ai/'])
+      expect(gitArgsOf(mockSpawn.mock.calls[0]![1] as string[])).toEqual([
+        'for-each-ref',
+        '--format=%(refname)',
+        'refs/clwriting/ai/',
+      ])
     })
 
     it('失败面：坏 .git → resolve 空表，永不 reject（旁路证据不阻断主流程）', async () => {
@@ -275,7 +268,9 @@ describe('收割链轨迹枚举异步化（全程零 spawnSync）', () => {
       expect(mockSpawnSync).toHaveBeenCalledTimes(0) // 修复点：源1 顶部枚举不再漏网
       // 轨迹枚举的 for-each-ref（%(refname) 单列格式）确实经异步 spawn 发出
       const trackedListCall = mockSpawn.mock.calls.find(
-        (c) => c[0] === 'git' && gitArgsOf(c[1] as string[]).join(' ') === 'for-each-ref --format=%(refname) refs/clwriting/ai/',
+        (c) =>
+          c[0] === 'git' &&
+          gitArgsOf(c[1] as string[]).join(' ') === 'for-each-ref --format=%(refname) refs/clwriting/ai/',
       )
       expect(trackedListCall).toBeDefined()
       expect(r.created.length).toBeGreaterThanOrEqual(1) // 轨迹确实被枚举到（gap 段成样章候选）
@@ -299,9 +294,7 @@ describe('收割链轨迹枚举异步化（全程零 spawnSync）', () => {
         const pick = (bookRoot: string): string[] => {
           const cs = readCandidates(join(bookRoot, CANDIDATES_DIR)).candidates
           return cs
-            .map((c) =>
-              JSON.stringify([c.类型, c.场景, c.来源, c.正文, c.状态, c.创建, c.章号, c.相似度, c.AI版]),
-            )
+            .map((c) => JSON.stringify([c.类型, c.场景, c.来源, c.正文, c.状态, c.创建, c.章号, c.相似度, c.AI版]))
             .sort()
         }
         expect(pick(bookB)).toEqual(pick(bookA))

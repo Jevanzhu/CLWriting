@@ -33,7 +33,9 @@ test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedL
   const root = makeGitBookWithChapters(2, FAST_CHAPTER_FIXTURE)
   // 篡改清单：某定稿条目 path 指向书仓库外（safeManifestPath 拒 → abs===null 分支）
   const manifestPath = join(root, '项目', '文档清单.jsonl')
-  const lines = readFileSync(manifestPath, 'utf8').split('\n').filter((l: string) => l.trim())
+  const lines = readFileSync(manifestPath, 'utf8')
+    .split('\n')
+    .filter((l: string) => l.trim())
   const rewritten = lines.map((l: string) => {
     if (l.includes('0001-')) {
       const obj = JSON.parse(l) as { path: string }
@@ -46,7 +48,9 @@ test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedL
   const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return
-  expect(d.issues.some((i) => i.kind === 'finalizedLost' && i.files?.includes('写作/正文/../../../outside.md'))).toBe(true)
+  expect(d.issues.some((i) => i.kind === 'finalizedLost' && i.files?.includes('写作/正文/../../../outside.md'))).toBe(
+    true,
+  )
   rmSync(root, { recursive: true, force: true })
 })
 

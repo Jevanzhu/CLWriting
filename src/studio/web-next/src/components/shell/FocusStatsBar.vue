@@ -34,8 +34,14 @@ const docId = computed(() => ws.activeDocId)
 const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 // 字数与 fm 字段 150ms 防抖（EditorView 同款——专注条常驻，
 // 此前每击键全文重算；首笔起钟 words watch 随防抖延一拍，会话计时精度无感）
-const { count: words, flush: flushWords } = useDebouncedWordCount(() => entry.value?.content, () => docId.value)
-const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => docId.value)
+const { count: words, flush: flushWords } = useDebouncedWordCount(
+  () => entry.value?.content,
+  () => docId.value,
+)
+const { fields: fmFields } = useDebouncedFmFields(
+  () => entry.value?.content,
+  () => docId.value,
+)
 
 // ── 会话快照（每章口径；重进专注各重开一段会话）──
 /** 基线：文档到位时锁存当前字数（空章留 null——首笔从旧字数 0 锁，见 words watch） */
@@ -82,9 +88,13 @@ watch(words, (w, old) => {
   if (firstChangeAt === null) firstChangeAt = Date.now()
   now.value = Date.now()
 })
-onMounted(() => { now.value = Date.now() })
+onMounted(() => {
+  now.value = Date.now()
+})
 // 速度随时间流逝下降：5s 心跳刷新显示（无输入也有意义——均速在摊薄）
-const ticker = setInterval(() => { now.value = Date.now() }, 5000)
+const ticker = setInterval(() => {
+  now.value = Date.now()
+}, 5000)
 onBeforeUnmount(() => clearInterval(ticker))
 
 // ── 章目标（三级同语义，WritingInfoPanel 同链）──
@@ -101,7 +111,9 @@ watch(
     try {
       const c = await getConfig(n)
       if (configReqGen.fresh(gen)) config.value = c
-    } catch { /* 读不到配置：目标区退到 fm/全局默认解析 */ }
+    } catch {
+      /* 读不到配置：目标区退到 fm/全局默认解析 */
+    }
   },
   { immediate: true },
 )
@@ -151,9 +163,17 @@ watch(
       <div class="fsb-sep" />
       <div class="fsb-item">
         <span class="fsb-label">本章</span>
-        <span class="fsb-main">{{ words.toLocaleString() }}<i class="fsb-sub">/{{ chapterTarget.toLocaleString() }}</i></span>
+        <span class="fsb-main"
+          >{{ words.toLocaleString() }}<i class="fsb-sub">/{{ chapterTarget.toLocaleString() }}</i></span
+        >
       </div>
-      <div class="fsb-progress" role="progressbar" :aria-valuenow="chapterProgress" aria-valuemin="0" aria-valuemax="100">
+      <div
+        class="fsb-progress"
+        role="progressbar"
+        :aria-valuenow="chapterProgress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
         <i class="fsb-bar" :style="{ width: `${chapterProgress}%` }" />
       </div>
       <div class="fsb-pct">{{ chapterProgress }}%</div>
@@ -170,7 +190,13 @@ watch(
  * label/value 可读），条右缘恒 = 纸张左缘 - 12px。宽窗（边距充足）条宽维持 150px 不变。 */
 .focus-stats-bar {
   position: absolute;
-  left: max(var(--size-4-2, 8px), calc(50% - var(--page-width, 1020px) / 2 - var(--size-4-3, 12px) - min(150px, calc(50% - var(--page-width, 1020px) / 2 - 20px))));
+  left: max(
+    var(--size-4-2, 8px),
+    calc(
+      50% - var(--page-width, 1020px) / 2 - var(--size-4-3, 12px) -
+        min(150px, calc(50% - var(--page-width, 1020px) / 2 - 20px))
+    )
+  );
   top: 50%;
   transform: translateY(-50%);
   z-index: 5;

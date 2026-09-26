@@ -95,19 +95,30 @@ export const TOOL_META: Record<string, ToolMeta> = {
   move_chapter: {
     label: '移动章节',
     risk: 'write',
-    summarize: (input, chapterName) => withChapter(input, chapterName, strField(input, 'toDir') ? `移到「${clip(strField(input, 'toDir')!)}」` : ''),
+    summarize: (input, chapterName) =>
+      withChapter(input, chapterName, strField(input, 'toDir') ? `移到「${clip(strField(input, 'toDir')!)}」` : ''),
   },
   rename_chapter: {
     label: '重命名章节',
     risk: 'write',
-    summarize: (input, chapterName) => withChapter(input, chapterName, strField(input, 'newTitle') ? `改为「${clip(strField(input, 'newTitle')!)}」` : ''),
+    summarize: (input, chapterName) =>
+      withChapter(
+        input,
+        chapterName,
+        strField(input, 'newTitle') ? `改为「${clip(strField(input, 'newTitle')!)}」` : '',
+      ),
   },
   copy_chapter: { label: '复制章节', risk: 'write', summarize: chapterOnly },
   delete_chapter: { label: '删除章节（移入回收站）', risk: 'write', summarize: chapterOnly },
   rewrite_chapter: {
     label: '改写整章',
     risk: 'write',
-    summarize: (input, chapterName) => withChapter(input, chapterName, strField(input, 'instruction') ? `指令：${clip(strField(input, 'instruction')!)}` : ''),
+    summarize: (input, chapterName) =>
+      withChapter(
+        input,
+        chapterName,
+        strField(input, 'instruction') ? `指令：${clip(strField(input, 'instruction')!)}` : '',
+      ),
   },
   rewrite_selection: {
     label: '改写选段',
@@ -124,7 +135,8 @@ export const TOOL_META: Record<string, ToolMeta> = {
   apply_spill: {
     label: '落盘改写稿',
     risk: 'write',
-    summarize: (input, chapterName) => withChapter(input, chapterName, strField(input, 'locator') ? `来源「${clip(strField(input, 'locator')!)}」` : ''),
+    summarize: (input, chapterName) =>
+      withChapter(input, chapterName, strField(input, 'locator') ? `来源「${clip(strField(input, 'locator')!)}」` : ''),
   },
   lead_update: { label: '生成账本推进', risk: 'write', summarize: chapterOnly },
   harvest_style: { label: '收割文风候选', risk: 'write', summarize: () => '' },

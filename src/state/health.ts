@@ -28,7 +28,15 @@ import { queryLockHeld } from '../fs/cross-process-lock.js'
 // （修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
 // 30 天 TTL），与 tmp 清扫同窗节流执行（见 sweepAbandonedTmpFilesThrottled）
 import { sweepOldSpills } from '../process/spill.js'
-import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending, type JournalPending } from '../document/journal.js'
+import {
+  appendAborted,
+  appendSettled,
+  findUnsettled,
+  isMovePending,
+  type JournalAnyPending,
+  type JournalMovePending,
+  type JournalPending,
+} from '../document/journal.js'
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -36,7 +44,13 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 // 0918修复批（B005）：maxFileNameChapter 取号下限切 chapterNoFromName 单源
 //（原窄正则 parseChapterFileName 对裸数字名失明）；isMdFileName = 扩展剥离单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
-import { readManifest, readManifestStrict, writeManifest, withManifestLockAsync, type Manifest } from '../document/manifest.js'
+import {
+  readManifest,
+  readManifestStrict,
+  writeManifest,
+  withManifestLockAsync,
+  type Manifest,
+} from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { detectStructureViolations } from '../document/structure.js'
@@ -189,7 +203,10 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
             // 释放后下次进门自愈）；同函数 healMovePending 删旧已用 rmWithRetry（口径
             // 对齐）。退避后仍失败照走既有 catch「维持原报红」路径，语义不变。
             renameWithRetry(journalFile, dst)
-            log.info('state', `孤儿 journal 已归档（文档已删除且无盘上路径）：${name} → ${dst}，如需恢复可手工改名回 .jsonl`)
+            log.info(
+              'state',
+              `孤儿 journal 已归档（文档已删除且无盘上路径）：${name} → ${dst}，如需恢复可手工改名回 .jsonl`,
+            )
             continue
           } catch {
             // 归档失败（占用等）：维持原报红路径
@@ -324,7 +341,8 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     if (readable && docEntries === 0 && maxFileNameChapter(join(bookRoot, '写作', '正文')) > 0) {
       issues.push({
         kind: 'manifestEmpty',
-        humanMsg: '文档清单在册可读却没有任何文档记录，而正文区存在章节文件——清单可能被外部清空或损坏，定稿防覆盖闸已失效。',
+        humanMsg:
+          '文档清单在册可读却没有任何文档记录，而正文区存在章节文件——清单可能被外部清空或损坏，定稿防覆盖闸已失效。',
         fix: '从 项目/文档清单.jsonl.bak（上一份好内容的影子副本）恢复清单；恢复后重进本书，再核对定稿章是否齐全。',
         files: ['项目/文档清单.jsonl'],
       })
@@ -531,7 +549,12 @@ interface OrphanSnapshot {
 }
 
 function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
-  const snap: OrphanSnapshot = { manifestFailed: false, manifestIds: new Set(), trashFailed: false, trashIds: new Set() }
+  const snap: OrphanSnapshot = {
+    manifestFailed: false,
+    manifestIds: new Set(),
+    trashFailed: false,
+    trashIds: new Set(),
+  }
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   try {
     if (existsSync(manifestPath)) snap.manifestIds = new Set(readManifest(manifestPath).entries.keys())
@@ -552,7 +575,12 @@ function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
  *  ：清单/回收站改用循环头快照——此前每个 journal 文件各整读一次，
  *  O(journal 数 × 清单条目数) 全同步；快照语义 = 原「以盘上为准」的循环头时点。
  *  ：pending 改由调用方传入（journal 单次整读共享），本函数不再自读。 */
-function isOrphanJournal(bookRoot: string, docId: string, snapshot: OrphanSnapshot, pending: JournalAnyPending[]): boolean {
+function isOrphanJournal(
+  bookRoot: string,
+  docId: string,
+  snapshot: OrphanSnapshot,
+  pending: JournalAnyPending[],
+): boolean {
   if (snapshot.manifestFailed) return false // 清单读失败：不确定 → 不归档
   if (snapshot.manifestIds.has(docId)) return false
   if (snapshot.trashFailed) return false // 回收站清单读失败：不确定 → 不归档
@@ -628,7 +656,10 @@ async function reconcileSavePending(
     log.warn('state', `save 类 pending 自动消解 settled 写失败（${rel}，维持报红待下次进门重试）：${errMsg(e)}`)
     return 'crashed'
   }
-  log.info('state', `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`)
+  log.info(
+    'state',
+    `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`,
+  )
   return 'settled'
 }
 
@@ -673,9 +704,7 @@ export function detectIncompleteWorkdir(bookRoot: string, manifest: Manifest): n
       // 强转，手改 `"chapter": "12"` 让字符串穿透（566 宽松比较放行、严格等判定恒
       // false），`3.5` 非整数照收；对齐全库章号入口口径（format/chapters.ts:58）
       chapterNum =
-        typeof rec.chapter === 'number' && Number.isSafeInteger(rec.chapter) && rec.chapter > 0
-          ? rec.chapter
-          : 0
+        typeof rec.chapter === 'number' && Number.isSafeInteger(rec.chapter) && rec.chapter > 0 ? rec.chapter : 0
     } catch {
       // 坏的 .confirm.json 不影响判定（当无章号）
     }

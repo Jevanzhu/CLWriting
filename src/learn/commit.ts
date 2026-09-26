@@ -54,7 +54,10 @@ function existingSampleFps(bookRoot: string): Map<string, string> {
       // 把它当未命中，同内容条目绕过去重静默再入库（幂等宣称失效、条目库重复计权且
       // 零留痕）；对齐本函数族去重命中留痕口径
       if (!e._path) {
-        log.warn('learn', `样章条目缺 _path，该条指纹未入去重表（同内容再入库不去重）：${e.场景 || e.说明 || '(未知条目)'}`)
+        log.warn(
+          'learn',
+          `样章条目缺 _path，该条指纹未入去重表（同内容再入库不去重）：${e.场景 || e.说明 || '(未知条目)'}`,
+        )
         continue
       }
       const kind = Array.isArray(e.标签) && e.标签.includes('金句') ? '句' : '样'

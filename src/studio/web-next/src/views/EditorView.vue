@@ -13,11 +13,7 @@ import { getConfig } from '../api/books'
 import { mergeFm, formKindOf, isBodyKind, splitFrontmatter } from '../shared/words'
 import { useDebouncedFmFields, useDebouncedWordCount } from '../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../composables/useStaleGuard'
-import {
-  registerBodyWriteback,
-  scheduleBodyWriteback,
-  flushBodyWriteback,
-} from '../shared/body-writeback'
+import { registerBodyWriteback, scheduleBodyWriteback, flushBodyWriteback } from '../shared/body-writeback'
 // 暴露面类型由 CmHost 单源导出（原为本文件手写复制的 CmHostExposed）
 import CmHost, { type CmHostHandle } from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
@@ -125,7 +121,11 @@ function onBodyChange(next: string): void {
 // 窗口的键入随切档静默丢失（红线：编辑永不静默丢失）。用 flush:'sync' 而非默认 pre：
 // sync 在 props 落定瞬间执行，判据只看槽内 docId（见 shared/body-writeback.ts 头注③），
 // 序不依赖调度器的 pre 队列排序。同档内 props.docId 不变则本 watch 不触发（无开销）。
-watch(() => props.docId, () => flushBodyWriteback(), { flush: 'sync' })
+watch(
+  () => props.docId,
+  () => flushBodyWriteback(),
+  { flush: 'sync' },
+)
 // 字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
 // 字数统计防抖 150ms——countWords 全文码点展开每击键 O(n)（超大
@@ -136,13 +136,19 @@ watch(() => props.docId, () => flushBodyWriteback(), { flush: 'sync' })
 // HistoryPanel 同源同参，共享件内的单槽记忆据此把同一份正文的每窗口计算收成一遍。
 // 由此产生的唯一口径差：非表单目录的 md 若开头有 --- 围栏，此前顶栏把 fm 头计入而
 // 右栏/树不计（树口径见 stores/doc.ts 的 stripFrontmatter），现统一为不计。
-const { count: wordCount } = useDebouncedWordCount(() => entry.value?.content, () => props.docId)
+const { count: wordCount } = useDebouncedWordCount(
+  () => entry.value?.content,
+  () => props.docId,
+)
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
 // 标题 fm 解析 150ms 防抖（parseFmFields 每击键全文 split/join
 // 两趟大分配——wordCount 同族）；编辑守卫与切文档即时语义不变
-const { fields: titleFmFields } = useDebouncedFmFields(() => entry.value?.content, () => props.docId)
+const { fields: titleFmFields } = useDebouncedFmFields(
+  () => entry.value?.content,
+  () => props.docId,
+)
 // 标题编辑守卫——标题框聚焦（新标题未提交）或提交在途期间，watch 源
 // entry.content 的任何变化（正文键入/refresh）不得回写 titleModel，否则未提交的新标题
 // 被静默覆盖。切文档时强制脱离编辑态（输入框随文档切换失效，提交通道已不可能）。
@@ -161,9 +167,7 @@ watch(
 const { aiActions, runAiAssist } = useAiAssist()
 // 右键 AI 动作按指令 key 取用——原按下标硬编码（aiActions[0..3]）与指令表
 // 顺序隐式耦合，重排即静默错动作。零行为变更（当前顺序下动作映射不变）。
-const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(
-  aiActions.map((a) => [a.key, a]),
-)
+const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(aiActions.map((a) => [a.key, a]))
 
 // 暴露面类型改引 CmHost 导出的 CmHostHandle（原为手写复制的
 // CmHostExposed）。import 面保持 `, { type CmHostHandle }` 形态——类型擦除后运行时
@@ -196,7 +200,7 @@ function buildCtxItems(hasSel: boolean): MenuItem[] {
     items.push({
       key: 'ai',
       label: 'AI 辅助',
-      submenu: aiActions.map(a => ({
+      submenu: aiActions.map((a) => ({
         key: `ai-${a.key}`,
         label: a.label,
         disabled: !hasSel,
@@ -214,13 +218,27 @@ async function onCtxSelect(key: string): Promise<void> {
     return
   }
   switch (key) {
-    case 'cut': await cmHost.value?.clipboardCut(); break
-    case 'copy': await cmHost.value?.clipboardCopy(); break
-    case 'paste': await cmHost.value?.clipboardPaste(); break
-    case 'undo': cmHost.value?.undoAction(); break
-    case 'redo': cmHost.value?.redoAction(); break
-    case 'selectAll': cmHost.value?.selectAll(); break
-    case 'find': cmHost.value?.openSearch(); break
+    case 'cut':
+      await cmHost.value?.clipboardCut()
+      break
+    case 'copy':
+      await cmHost.value?.clipboardCopy()
+      break
+    case 'paste':
+      await cmHost.value?.clipboardPaste()
+      break
+    case 'undo':
+      cmHost.value?.undoAction()
+      break
+    case 'redo':
+      cmHost.value?.redoAction()
+      break
+    case 'selectAll':
+      cmHost.value?.selectAll()
+      break
+    case 'find':
+      cmHost.value?.openSearch()
+      break
   }
 }
 
@@ -236,7 +254,11 @@ function tryConsumeInsert(): void {
   if (text === null) return
   cmHost.value.insertText(text)
 }
-watch(() => ws.pendingInsert, () => tryConsumeInsert(), { immediate: true })
+watch(
+  () => ws.pendingInsert,
+  () => tryConsumeInsert(),
+  { immediate: true },
+)
 
 watch(
   // 同时挂 docId 和 tree.byDocId——恢复持久化 activeDocId 时 getBookPrefs（快）
@@ -299,12 +321,19 @@ onUnmounted(() => {
 <template>
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view" :class="{ 'editor-focus': ws.focusMode }">
-    <EditorDocHead v-if="!ws.focusMode" v-model:title="titleModel" :doc-id="docId" :book-kind="bookKind" :word-count="wordCount" @update:title-editing="titleEditing = $event" />
+    <EditorDocHead
+      v-if="!ws.focusMode"
+      v-model:title="titleModel"
+      :doc-id="docId"
+      :book-kind="bookKind"
+      :word-count="wordCount"
+      @update:title-editing="titleEditing = $event"
+    />
     <div class="doc-body">
       <div class="doc-page">
         <!-- 标题居中（只读展示，编辑入口在顶栏）；专注模式下隐藏 -->
         <div v-if="!ws.focusMode" class="page-title-area">
-          <span class="page-title">{{ isChapter ? (titleModel || '未命名') : entry.name }}</span>
+          <span class="page-title">{{ isChapter ? titleModel || '未命名' : entry.name }}</span>
         </div>
         <!-- 正文编辑器 -->
         <div class="page-editor" @contextmenu.prevent="onContextMenu">

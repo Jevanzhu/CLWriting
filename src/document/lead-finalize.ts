@@ -49,7 +49,8 @@ export const LEAD_FINALIZE_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
 /** 三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
-export const [getLeadFinalizeLockTimeoutMs, __setLeadFinalizeLockTimeoutForTest] = testableConst(LEAD_FINALIZE_LOCK_TIMEOUT_MS)
+export const [getLeadFinalizeLockTimeoutMs, __setLeadFinalizeLockTimeoutForTest] =
+  testableConst(LEAD_FINALIZE_LOCK_TIMEOUT_MS)
 
 /**
  * 本章待回写条目与其目标布线文件的解析结果——定稿布线预取锁与
@@ -225,10 +226,7 @@ export async function applyLeadUpdates(bookRoot: string, chapterNo: number): Pro
  *（finalize.ts）。两侧同名布线锁互斥，且对清单锁的获取序一致，之前的
  * 「定稿持清单锁再取布线锁」反向交叉对（与保存链构成 ABBA 等待）已消除。
  */
-export function applyLeadUpdatesLocked(
-  chapterNo: number,
-  targets: LeadUpdateTargets,
-): number {
+export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTargets): number {
   let applied = 0
   /** 通道扩展：未回写条目带原因——警告文本按原因给准确的处置指引。 */
   const unresolved: { u: ChapterLeadUpdate; why: 'not-found' | 'non-utf8' }[] = []
@@ -278,9 +276,7 @@ export function applyLeadUpdatesLocked(
     }
     const lead = reread.lead
     // 去重：同 章号+动词+证据 已在履历中（内容未变重复定稿）→ 跳过
-    const dup = lead.履历.some(
-      (e) => e.章号 === chapterNo && e.动词 === u.动词 && e.证据 === u.证据,
-    )
+    const dup = lead.履历.some((e) => e.章号 === chapterNo && e.动词 === u.动词 && e.证据 === u.证据)
     if (dup) continue
     // 定稿回写的编码防线——盘上非 UTF-8（如 GBK 布线文件，utf-8 读入
     // 即乱码）时拒绝写回：线索文件不在快照留底范围、writeVersion 只为被定稿章建档，
@@ -388,7 +384,8 @@ function unresolvedText(
   unresolved: { u: ChapterLeadUpdate; why: 'not-found' | 'non-utf8' | 'lock-timeout' }[],
 ): string {
   const hints: Record<(typeof unresolved)[number]['why'], string> = {
-    'not-found': '编号在布线/大纲中查无此线（线索可能已被删除，或编号有误）——修正编号或恢复线索文件后，下次定稿本章会自动重试回写',
+    'not-found':
+      '编号在布线/大纲中查无此线（线索可能已被删除，或编号有误）——修正编号或恢复线索文件后，下次定稿本章会自动重试回写',
     'non-utf8': '线索文件不是 UTF-8 编码（如 GBK），回写会损坏原文已拒绝——转码为 UTF-8 后，下次定稿本章会自动重试回写',
     'lock-timeout': '布线文件回写锁等待超时（另一进程正在写入该线索），为防覆盖未回写——下次定稿本章会自动重试回写',
   }
@@ -405,7 +402,10 @@ function unresolvedText(
 }
 
 /** 按 编号 在候选目录中找账本条目文件（无则 null）。 */
-function findLeadFile(dirs: string[], leadId: string): { filePath: string; lead: import('../format/types.js').Lead } | null {
+function findLeadFile(
+  dirs: string[],
+  leadId: string,
+): { filePath: string; lead: import('../format/types.js').Lead } | null {
   for (const dir of dirs) {
     if (!existsSync(dir)) continue
     const { leads } = readLeadDir(dir)

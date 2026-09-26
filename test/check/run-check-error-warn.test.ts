@@ -38,7 +38,11 @@ const FM = '---\n章号: 1\n标题: 首章\n钩子类型: 悬念钩\n钩子强�
 test('重审-11: 机检内部抛错 → CHECK_ERROR 信封不变 + log.warn 带文档路径（现状零留痕 → 红）', () => {
   const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-r11-check-'))
   const draftPath = join(bookRoot, '0001-首章.md')
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 留痕书\nhost: cc\nleads:\n  enabled: []\n', 'utf8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 留痕书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf8',
+  )
   writeFileSync(draftPath, FM + '首章正文。', 'utf8')
   const warnSpy = vi.spyOn(log, 'warn')
   try {

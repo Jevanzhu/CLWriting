@@ -43,7 +43,10 @@ function registerDoc(root: string, rel: string, finalized = false): string {
   const m = readManifest(mp)
   const id = generateDocId()
   upsertEntry(m, {
-    id, nodeType: 'document', path: rel, parentId: null,
+    id,
+    nodeType: 'document',
+    path: rel,
+    parentId: null,
     ...(finalized ? { finalizedRevision: 'deadbeef', finalizedAt: new Date().toISOString() } : {}), // 登记辅助（未用真实 revision，不涉状态机）
   })
   writeManifest(mp, m)
@@ -96,7 +99,8 @@ test('R41-2: docJoinKey 单元语义（posix 保大小写 / win32 折叠 / NFC �
 //（mac 默认卷/win NTFS 均大小写不敏感；linux 字节敏感查不到 → finalizedLost 分支，
 // 与本缺陷正交），linux 腿跳过。
 test.skipIf(process.platform === 'linux')(
-  'R41-2: 定稿章外部 case-only 改名后（win 语义）进门不再误报中断', async () => {
+  'R41-2: 定稿章外部 case-only 改名后（win 语义）进门不再误报中断',
+  async () => {
     if (process.platform !== 'win32') {
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     }
@@ -104,12 +108,20 @@ test.skipIf(process.platform === 'linux')(
     try {
       // 定稿 001-Pian.md（fm 章号 1）→ 外部改名 001-pian.md，清单仍登记旧拼写
       const abs = join(root, '写作', '正文', '001-Pian.md')
-      writeFileSync(abs, '---\n章号: 1\n标题: 外传\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n第1篇正文。', 'utf8')
+      writeFileSync(
+        abs,
+        '---\n章号: 1\n标题: 外传\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n第1篇正文。',
+        'utf8',
+      )
       const mp = join(root, '项目', '文档清单.jsonl')
       const m = readManifest(mp)
       upsertEntry(m, {
-        id: generateDocId(), nodeType: 'document', path: '写作/正文/001-Pian.md', parentId: null,
-        finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+        id: generateDocId(),
+        nodeType: 'document',
+        path: '写作/正文/001-Pian.md',
+        parentId: null,
+        finalizedRevision: computeRevision(abs),
+        finalizedAt: new Date().toISOString(),
       })
       writeManifest(mp, m)
       renameSync(abs, join(root, '写作', '正文', '001-pian.md'))

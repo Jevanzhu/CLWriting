@@ -15,9 +15,7 @@ export interface SnapshotEntry {
 
 // GET /documents/:docId/snapshots → 版本列表（新的在前）
 export async function listSnapshots(name: string, docId: string): Promise<SnapshotEntry[]> {
-  const r = await apiJson<{ entries: SnapshotEntry[] }>(
-    bookUrl(name, 'documents', docId, 'snapshots'),
-  )
+  const r = await apiJson<{ entries: SnapshotEntry[] }>(bookUrl(name, 'documents', docId, 'snapshots'))
   // 防御性兜底——类型必选，但 2xx 坏体（字段缺省形态）可达 undefined，
   // 裸取会让「版本列表非数组」在调用方炸出（空列表 = 安全降级）
   return r.entries ?? []
@@ -25,9 +23,7 @@ export async function listSnapshots(name: string, docId: string): Promise<Snapsh
 
 // GET /documents/:docId/snapshots/:id → 单个版本内容（预览）
 export async function readSnapshot(name: string, docId: string, id: string): Promise<string> {
-  const r = await apiJson<{ content: string }>(
-    bookUrl(name, 'documents', docId, 'snapshots', id),
-  )
+  const r = await apiJson<{ content: string }>(bookUrl(name, 'documents', docId, 'snapshots', id))
   return r.content
 }
 
@@ -38,13 +34,10 @@ export async function restoreSnapshot(
   id: string,
   expectedRevision: string,
 ): Promise<{ revision: string; content: string }> {
-  return apiJson(
-    bookUrl(name, 'documents', docId, 'snapshots', id, 'restore'),
-    {
-      method: 'POST',
-      json: { expectedRevision },
-    },
-  )
+  return apiJson(bookUrl(name, 'documents', docId, 'snapshots', id, 'restore'), {
+    method: 'POST',
+    json: { expectedRevision },
+  })
 }
 
 /** 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数。 */
@@ -57,9 +50,7 @@ export interface VersionStats {
 
 // GET /api/books/:name/version-stats → 版本历史 tab 统计
 export async function getVersionStats(name: string): Promise<VersionStats> {
-  const r = await apiJson<{ ok: true } & VersionStats>(
-    bookUrl(name, 'version-stats'),
-  )
+  const r = await apiJson<{ ok: true } & VersionStats>(bookUrl(name, 'version-stats'))
   return {
     snapshotBytes: r.snapshotBytes,
     snapshotCount: r.snapshotCount,
@@ -70,9 +61,6 @@ export async function getVersionStats(name: string): Promise<VersionStats> {
 
 // POST /api/books/:name/versions/prune → 立即清理过期编辑快照（pinned 定稿版本保留）
 export async function pruneVersions(name: string): Promise<number> {
-  const r = await apiJson<{ removed: number }>(
-    bookUrl(name, 'versions', 'prune'),
-    { method: 'POST' },
-  )
+  const r = await apiJson<{ removed: number }>(bookUrl(name, 'versions', 'prune'), { method: 'POST' })
   return r.removed
 }

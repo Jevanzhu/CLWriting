@@ -174,7 +174,9 @@ export function readManifestStrict(filePath: string): Manifest {
     if (sig !== null) manifestCacheSet(filePath, sig, r.manifest)
     return copyManifest(r.manifest)
   }
-  throw new Error(`文档清单读取失败（${r.code ?? '未知错误'}）：${filePath}——已拒绝以空清单重写整文件（R27-40 防丢登记）`)
+  throw new Error(
+    `文档清单读取失败（${r.code ?? '未知错误'}）：${filePath}——已拒绝以空清单重写整文件（R27-40 防丢登记）`,
+  )
 }
 
 /** 文本 → Manifest（readManifest/readManifestStrict 共用解析体） */
@@ -367,7 +369,9 @@ function manifestLockKey(manifestPath: string): string {
   let p = manifestPath
   try {
     p = resolve(manifestPath)
-  } catch { /* resolve 失败保原值（畸形路径本就会在 acquire 处失败） */ }
+  } catch {
+    /* resolve 失败保原值（畸形路径本就会在 acquire 处失败） */
+  }
   p = p.replace(/[\\/]+/g, '/')
   return platformCaseFold(p)
 }
@@ -499,7 +503,10 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
       // 轮次在 ALS 上下文内执行——排队 fn 自身的嵌套 async 重入同受防御
       const turn = held.tail.then(() => manifestLockReentryAls.run(lockKey, invoke))
       // 链尾吞前序异常：本排队者失败不阻断后序排队者与持锁释放，错误只递给本调用方
-      held.tail = turn.then(() => {}, () => {})
+      held.tail = turn.then(
+        () => {},
+        () => {},
+      )
       return await turn
     }
     held.depth++
@@ -510,7 +517,10 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
         //（不可回退），完成挂入 tail——保住释放/后续排队者等它（声明边界，函数头注③）
         const settle = r as Promise<T>
         const gated = held.tail.then(() => settle)
-        held.tail = gated.then(() => {}, () => {})
+        held.tail = gated.then(
+          () => {},
+          () => {},
+        )
         return await gated
       }
       return await r
@@ -530,7 +540,10 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
       // fn 执行期携带持锁 key 上下文——其体内（含 await 后续体）嵌套
       // 的 async 同 key 重入在重入分支被 fail-loud 拦截。
       const run = (async () => manifestLockReentryAls.run(lockKey, fn))()
-      held.tail = run.then(() => {}, () => {})
+      held.tail = run.then(
+        () => {},
+        () => {},
+      )
       try {
         return await run
       } finally {

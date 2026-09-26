@@ -54,7 +54,7 @@ test('B-7: opening_env_chars 显式 0 = 关闭检查（落键 0，区别于未�
   }
 })
 
-test('B-7: opening_env_chars 写空（非显式 0）→ warn 按未设（Number(\'\')=0 不得冒充关检）', () => {
+test("B-7: opening_env_chars 写空（非显式 0）→ warn 按未设（Number('')=0 不得冒充关检）", () => {
   const { warns, restore } = captureWarn()
   try {
     const r = parseBookConfig(SHORT_PREFIX + 'short:\n  opening_env_chars: \n')

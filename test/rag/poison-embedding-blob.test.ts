@@ -41,8 +41,20 @@ describe('R1010b-CHK-P3-1：坏长度 embedding BLOB 归毒行（store 层直测
   function seedTwoChunks(corruptBlobSql: string): void {
     const db = openRagDb(bookRoot)
     try {
-      storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' })
-      storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.2, 0.4, 0.6]), model: 'm' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.1, 0.2, 0.3]),
+        model: 'm',
+      })
+      storeChunk(db, {
+        章号: 2,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.2, 0.4, 0.6]),
+        model: 'm',
+      })
       db.exec(`UPDATE chunks SET embedding = ${corruptBlobSql} WHERE 章号 = 1`) // norm 保持原非 null 值——正是「norm 非 null 但向量序列化损坏」形态
     } finally {
       db.close()
@@ -106,10 +118,19 @@ describe('R1010b-CHK-P3-1：recall 全链（buildIndex 装置 + UPDATE 坏行）
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章正文，战斗场景描写充分，主角挥剑。`)
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章正文，战斗场景描写充分，主角挥剑。`,
+      )
     }
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))

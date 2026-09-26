@@ -21,11 +21,32 @@ const { theme, toggle } = useTheme()
 // 删 hasDesktop 死变量—— 平台判断收敛到 usePlatform 后残留零消费
 const { isDesktop, isMac } = usePlatform()
 const {
-  shelf, groups, latestBook, viewMode, setView,
-  query, sortBy, setSortBy,
-  showCreate, newName, newKind, creating, createError, createBook,
-  batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
-  confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
+  shelf,
+  groups,
+  latestBook,
+  viewMode,
+  setView,
+  query,
+  sortBy,
+  setSortBy,
+  showCreate,
+  newName,
+  newKind,
+  creating,
+  createError,
+  createBook,
+  batchMode,
+  selected,
+  toggleSelect,
+  selectAll,
+  enterBatch,
+  exitBatch,
+  confirmTarget,
+  deleting,
+  deleteError,
+  requestDelete,
+  confirmDelete,
+  cancelDelete,
   openBook,
 } = useShelf({
   onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
@@ -49,9 +70,7 @@ function handleCardClick(name: string): void {
 // Awwwards 冲击面：hero 数据条展示创作概况
 const totalWords = computed(() => shelf.books.reduce((s, b) => s + (b.words ?? 0), 0))
 const lastEdited = computed(() => {
-  const ts = shelf.books
-    .map((b) => (b.lastEdited ? new Date(b.lastEdited).getTime() : 0))
-    .filter(Boolean)
+  const ts = shelf.books.map((b) => (b.lastEdited ? new Date(b.lastEdited).getTime() : 0)).filter(Boolean)
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
 
@@ -88,18 +107,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <div class="head-mark"><BookOpen :size="24" /></div>
           <h1 class="head-title">书架</h1>
           <p v-if="shelf.books.length" class="head-sub">
-            <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span><span class="sub-num">{{ formatWords(totalWords) }}</span><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
+            <span class="sub-num">{{ shelf.books.length }}</span> 部<span class="dot">·</span
+            ><span class="sub-num">{{ formatWords(totalWords) }}</span
+            ><template v-if="lastEdited"><span class="dot">·</span>最近 {{ formatRelative(lastEdited) }}</template>
           </p>
           <p v-else class="head-sub">开启你的长篇之旅</p>
         </div>
         <div class="shelf-tools" v-if="shelf.books.length && !batchMode">
-          <input
-            v-model="query"
-            class="shelf-search"
-            type="search"
-            placeholder="搜索书名…"
-            aria-label="搜索书名"
-          />
+          <input v-model="query" class="shelf-search" type="search" placeholder="搜索书名…" aria-label="搜索书名" />
           <select
             class="shelf-sort"
             :value="sortBy"
@@ -131,19 +146,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <List :size="15" />
               </button>
             </div>
-            <button
-              v-if="shelf.books.length"
-              class="btn batch-enter"
-              data-tip="批量管理"
-              @click="enterBatch"
-            >
+            <button v-if="shelf.books.length" class="btn batch-enter" data-tip="批量管理" @click="enterBatch">
               <CheckSquare :size="14" /> 管理
             </button>
-            <button
-              class="btn icon"
-              :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
-              @click="toggle($event)"
-            >
+            <button class="btn icon" :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'" @click="toggle($event)">
               <Moon v-if="theme === 'light'" :size="16" />
               <Sun v-else :size="16" />
             </button>
@@ -175,12 +181,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <button class="btn primary" @click="showCreate = true"><Plus :size="14" /> 新建书</button>
       </EmptyState>
       <template v-else>
-        <ShelfHeroCard
-          v-if="latestBook && !batchMode"
-          :book="latestBook"
-          :view-mode="viewMode"
-          @open="openBook"
-        />
+        <ShelfHeroCard v-if="latestBook && !batchMode" :book="latestBook" :view-mode="viewMode" @open="openBook" />
         <!-- 0918二轮修复批（F102）：整页书架补渲染帽——与浮层 ShelfModal 同传
              shared/render-cap SHELF_RENDER_CAP=100（原整页不传 = 全量挂载，数百书
              拖慢挂载 + 入场动画，与浮层同族性能论证口径不一）。只裁渲染面：
@@ -228,10 +229,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
-      var(--background-primary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+    var(--background-primary)
+  );
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
      子元素 var 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改。
      ：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
@@ -448,5 +450,4 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 /* 光晕静态（opacity 固定动画中值）：无限 opacity/scale 呼吸会驱动整窗持续出帧
  * （实测闲置 GPU ~10% + renderer ~5% CPU），radial-gradient 本身已柔和，无动画必要 */
-
 </style>

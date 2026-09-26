@@ -36,11 +36,16 @@ describe('批 U1：parseServerArgs', () => {
   it('全参数解析', () => {
     const p = parseServerArgs(
       [
-        'node', 'x.js',
-        '--dir', '/books/lib',
-        '--user-data', '/ud',
-        '--port', '8123',
-        '--book', '书A',
+        'node',
+        'x.js',
+        '--dir',
+        '/books/lib',
+        '--user-data',
+        '/ud',
+        '--port',
+        '8123',
+        '--book',
+        '书A',
         '--mirror-console',
       ],
       // E-9b：token 只经 env 注入（隔离宿主环境，不走 process.env 缺省）
@@ -101,7 +106,7 @@ describe('批 U1：parseServerArgs', () => {
     expect(r.port).toBe(0)
   })
 
-  it('--port 空串 → fatal 报错（Number(\'\')===0 的静默随机端口形态已收口）', () => {
+  it("--port 空串 → fatal 报错（Number('')===0 的静默随机端口形态已收口）", () => {
     const fatal = vi.fn()
     parseServerArgs(['x', '--port', ''], { fatal })
     expect(fatal).toHaveBeenCalledTimes(1)

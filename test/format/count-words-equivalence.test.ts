@@ -25,10 +25,21 @@ function referenceCountWords(body: string): number {
 
 /** ECMAScript \s 白名单全集（WhiteSpace ∪ LineTerminator，25 码位） */
 const JS_WHITESPACE = [
-  0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020,
-  0x00a0, 0x1680,
+  0x0009,
+  0x000a,
+  0x000b,
+  0x000c,
+  0x000d,
+  0x0020,
+  0x00a0,
+  0x1680,
   ...Array.from({ length: 0x200a - 0x2000 + 1 }, (_, i) => 0x2000 + i),
-  0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+  0x2028,
+  0x2029,
+  0x202f,
+  0x205f,
+  0x3000,
+  0xfeff,
 ] as number[]
 
 describe('countWords 单遍重写等价性（PM-2）', () => {
@@ -111,11 +122,41 @@ describe('countWords 单遍重写等价性（PM-2）', () => {
       return seed / 0x7fffffff
     }
     const alphabet = [
-      '字', '的', '了', '，', '。', '——', '……', 'a', 'Z', '0',
-      '#', '>', '*', '_', '`', '~', '-', '[', ']', '(', ')', '!',
-      ' ', '\t', '\n', '　', ' ', ' ', // 普通/NBSP/表意空格/en-space
-      '👍', '𠀀', '😂', '\uD800', '\uDC00', // astral 与孤立代理
-      '​', '‍', // ZWSP(200b) / ZWJ(200d)——不属 \s，必不剥
+      '字',
+      '的',
+      '了',
+      '，',
+      '。',
+      '——',
+      '……',
+      'a',
+      'Z',
+      '0',
+      '#',
+      '>',
+      '*',
+      '_',
+      '`',
+      '~',
+      '-',
+      '[',
+      ']',
+      '(',
+      ')',
+      '!',
+      ' ',
+      '\t',
+      '\n',
+      '　',
+      ' ',
+      ' ', // 普通/NBSP/表意空格/en-space
+      '👍',
+      '𠀀',
+      '😂',
+      '\uD800',
+      '\uDC00', // astral 与孤立代理
+      '​',
+      '‍', // ZWSP(200b) / ZWJ(200d)——不属 \s，必不剥
     ]
     for (let round = 0; round < 200; round++) {
       const len = 1 + Math.floor(rand() * 300)
@@ -125,9 +166,7 @@ describe('countWords 单遍重写等价性（PM-2）', () => {
       const want = referenceCountWords(s)
       if (got !== want) {
         // 失败时给出可复现切片（前 80 码元）
-        throw new Error(
-          `round ${round} 不等：got=${got} want=${want} slice=${JSON.stringify(s.slice(0, 80))}`,
-        )
+        throw new Error(`round ${round} 不等：got=${got} want=${want} slice=${JSON.stringify(s.slice(0, 80))}`)
       }
     }
   })

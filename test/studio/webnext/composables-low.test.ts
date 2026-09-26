@@ -182,7 +182,10 @@ describe('useSse', () => {
   // 统一桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败、不再回退 ?token= 开连），
   // 并在断言前用 settle 泵完「换票 → new EventSource」微任务链。
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+    )
   })
   async function settle(): Promise<void> {
     for (let i = 0; i < 20; i++) await Promise.resolve()

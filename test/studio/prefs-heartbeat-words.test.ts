@@ -83,7 +83,10 @@ describe('GET/PUT /api/books/:name/prefs', () => {
     expect(put.status).toBe(200)
     // R36-24：响应带自增 revision（存量文件损坏视作 0 → 本次 1）；expectedRevision 不带则直通
     expect(put.json).toEqual({ ok: true, revision: 1 })
-    expect(JSON.parse(readFileSync(join(bookRoot, '.clwriting', 'prefs.json'), 'utf8'))).toEqual({ ...prefs, revision: 1 })
+    expect(JSON.parse(readFileSync(join(bookRoot, '.clwriting', 'prefs.json'), 'utf8'))).toEqual({
+      ...prefs,
+      revision: 1,
+    })
     const get = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
     expect(get.json).toEqual({ prefs, revision: 1 })
   })

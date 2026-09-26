@@ -25,11 +25,7 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
 import { HANZI } from '../../../check/count.js' // 堆砌锚点汉字段单源（与 count.ts 口径一致）
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
-import {
-  runCheckForDocumentAsync,
-  collectTreeIssuesAsync,
-  checkOutcomeStatus,
-} from '../../../check/run.js'
+import { runCheckForDocumentAsync, collectTreeIssuesAsync, checkOutcomeStatus } from '../../../check/run.js'
 
 // re-export（下沉兼容：既有 import 方零感知）
 export {
@@ -44,7 +40,7 @@ interface CheckCtx {
   /** 全局托底：short.strict 等书级未设键回落 global.json（喂机检的生效值） */
   userDataPath: string | null
   /** 收尾：/tree-issues 缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   treeIssuesTtlMs?: number | null
 }
 
@@ -138,10 +134,18 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       if (!outcome.ok) return replyError(res, checkOutcomeStatus(outcome.code), outcome.code, outcome.error)
       const items = outcome.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === checkId)
       if (items.length === 0) {
-        return replyError(res, 409, 'CONFLICT', `当前机检结果中没有 checkId=${checkId} 的命中（可能已修复，刷新机检后再标）`)
+        return replyError(
+          res,
+          409,
+          'CONFLICT',
+          `当前机检结果中没有 checkId=${checkId} 的命中（可能已修复，刷新机检后再标）`,
+        )
       }
 
-      const excerpt = cutExcerpt(outcome.body, items.map((i) => i.message))
+      const excerpt = cutExcerpt(
+        outcome.body,
+        items.map((i) => i.message),
+      )
       if (ctx.userDataPath) {
         try {
           // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
@@ -159,7 +163,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
               const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
               if (moved) return replyError(res, 409, moved.code, moved.reason)
               const sessionId = store.workspaceSession(bookHash(bookRoot))
-              store.appendEvents(sessionId, [checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId })])
+              store.appendEvents(sessionId, [
+                checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId }),
+              ])
             } finally {
               store.close()
             }
@@ -186,37 +192,44 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       // 命中短时缓存则跳过全书同步重扫（payload 为纯数据可复用）；
       // 过期条目顺手逐出由通用件承担。：壳体收编
       // ttl-cache.ts 通用件（计算体闭包 ctx，经 get(key, compute) 逐调用传入）
-      const payload = await treeIssuesCache.get(bookRoot, async (root): Promise<Record<string, unknown>> => {
-        // 聚合逻辑已下沉内核：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
-        // 改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
-        //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
-        const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, manifestDegraded } = await collectTreeIssuesAsync(root, (docId) => {
-          const reviewEnv = readAnalysis(root, docId, 'review')
-          const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
-          return v ?? undefined
-        }, ctx.userDataPath)
-        // 三降级条件收数组全量透出——原三处条件展开同用 `warning`
-        // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
-        // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
-        // 双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删，现无前端读者）。
-        const warnings: string[] = []
-        // 账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
-        // 此前静默降级为「无红」，持续性失败期间漏红不可见）
-        if (rebuildFailed) warnings.push('机检索引构建失败，仅显示审稿驳回红点')
-        if (leadsBookDegraded) warnings.push('账本全书性红项本轮计算失败，账本红点可能缺失')
-        // 单章机检失败（第三种降级形态，此前零提示）
-        if (chaptersDegraded > 0) warnings.push(`${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失`)
-        // 清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
-        // 红点整轮失明不可见；与 rebuildFailed/leadsBookDegraded 同口径）
-        if (manifestDegraded) warnings.push('文档清单读取失败，章-账本红点本轮可能缺失')
-        return {
-          ok: true,
-          issues,
-          ...(warnings.length > 0
-            ? { warning: warnings[warnings.length - 1], warnings }
-            : {}),
-        }
-      }, ctx.treeIssuesTtlMs ?? undefined)
+      const payload = await treeIssuesCache.get(
+        bookRoot,
+        async (root): Promise<Record<string, unknown>> => {
+          // 聚合逻辑已下沉内核：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
+          // 改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
+          //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
+          const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, manifestDegraded } =
+            await collectTreeIssuesAsync(
+              root,
+              (docId) => {
+                const reviewEnv = readAnalysis(root, docId, 'review')
+                const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
+                return v ?? undefined
+              },
+              ctx.userDataPath,
+            )
+          // 三降级条件收数组全量透出——原三处条件展开同用 `warning`
+          // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
+          // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
+          // 双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删，现无前端读者）。
+          const warnings: string[] = []
+          // 账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
+          // 此前静默降级为「无红」，持续性失败期间漏红不可见）
+          if (rebuildFailed) warnings.push('机检索引构建失败，仅显示审稿驳回红点')
+          if (leadsBookDegraded) warnings.push('账本全书性红项本轮计算失败，账本红点可能缺失')
+          // 单章机检失败（第三种降级形态，此前零提示）
+          if (chaptersDegraded > 0) warnings.push(`${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失`)
+          // 清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
+          // 红点整轮失明不可见；与 rebuildFailed/leadsBookDegraded 同口径）
+          if (manifestDegraded) warnings.push('文档清单读取失败，章-账本红点本轮可能缺失')
+          return {
+            ok: true,
+            issues,
+            ...(warnings.length > 0 ? { warning: warnings[warnings.length - 1], warnings } : {}),
+          }
+        },
+        ctx.treeIssuesTtlMs ?? undefined,
+      )
       reply(res, 200, payload)
     },
   })

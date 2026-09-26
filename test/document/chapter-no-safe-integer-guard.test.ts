@@ -18,7 +18,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chapterNoFromName } from '../../src/format/filename.js'
-import { readManifest, writeManifest, upsertEntry, finalizedChapterNumbers as finalizedFromManifest } from '../../src/document/manifest.js'
+import {
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  finalizedChapterNumbers as finalizedFromManifest,
+} from '../../src/document/manifest.js'
 import { finalizedChapterNumbers as finalizedFromRoot } from '../../src/document/structure-core.js'
 import { finalizeRevision } from '../../src/document/finalize.js'
 import { listVersions, readVersionMeta, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -45,8 +50,20 @@ test('B102 消费点：定稿章号集合（清单形/书根形）失真条目�
     mkdirSync(join(root, '项目'), { recursive: true })
     const manifestPath = join(root, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)
-    upsertEntry(m, { id: 'doc-huge', nodeType: 'document', path: '写作/正文/99999999999999999999-天文.md', parentId: null, finalizedRevision: 'sha256:x' })
-    upsertEntry(m, { id: 'doc-ok', nodeType: 'document', path: '写作/正文/0012-正常.md', parentId: null, finalizedRevision: 'sha256:y' })
+    upsertEntry(m, {
+      id: 'doc-huge',
+      nodeType: 'document',
+      path: '写作/正文/99999999999999999999-天文.md',
+      parentId: null,
+      finalizedRevision: 'sha256:x',
+    })
+    upsertEntry(m, {
+      id: 'doc-ok',
+      nodeType: 'document',
+      path: '写作/正文/0012-正常.md',
+      parentId: null,
+      finalizedRevision: 'sha256:y',
+    })
     writeManifest(manifestPath, m)
     const set1 = readManifest(manifestPath) // 回读走盘上事实
     expect(finalizedFromManifest(set1)).toEqual(new Set([12]))

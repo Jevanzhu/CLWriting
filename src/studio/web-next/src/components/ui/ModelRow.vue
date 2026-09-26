@@ -7,13 +7,16 @@
 import { Trash2, ChevronRight } from 'lucide-vue-next'
 import type { ModelRowDraft } from '../../shared/provider-format'
 
-withDefaults(defineProps<{
-  /** 本行草稿（父层 LocalRow 含 _key，结构满足 ModelRowDraft 即可） */
-  row: ModelRowDraft
-  /** 容量区展开态（父层按稳定 _key 记录） */
-  expanded: boolean
-  disabled?: boolean
-}>(), { disabled: false })
+withDefaults(
+  defineProps<{
+    /** 本行草稿（父层 LocalRow 含 _key，结构满足 ModelRowDraft 即可） */
+    row: ModelRowDraft
+    /** 容量区展开态（父层按稳定 _key 记录） */
+    expanded: boolean
+    disabled?: boolean
+  }>(),
+  { disabled: false },
+)
 
 const emit = defineEmits<{
   change: [patch: Partial<ModelRowDraft>]
@@ -115,7 +118,10 @@ const emit = defineEmits<{
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform 120ms ease;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform 120ms ease;
 }
 .row-icon-btn:hover:not(:disabled) {
   background: var(--background-modifier-hover);
@@ -164,7 +170,9 @@ const emit = defineEmits<{
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .compact-input:focus {
   outline: none;

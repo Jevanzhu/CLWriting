@@ -190,7 +190,13 @@ async function setSignal(signal: BusySignal, book: string): Promise<() => Promis
     case 'background': {
       let release!: () => void
       const gate = new Promise<void>((r) => (release = r))
-      registerBackgroundTask(book, gate.then(() => undefined, () => undefined))
+      registerBackgroundTask(
+        book,
+        gate.then(
+          () => undefined,
+          () => undefined,
+        ),
+      )
       return async () => {
         release()
         await waitBackgroundTasks(book)
@@ -225,7 +231,8 @@ beforeAll(async () => {
     userDataPath,
     env: { CLWRITING_DRIVER: 'mock' }, // 放行臂落到 mock 快路（不起真实 provider）
     dirs: ['写作/正文'],
-    bookYaml: ['spec_version: 1', 'kind: long', 'book:', `  title: ${BOOK}`, '  genre: 玄幻', 'host: cc'].join('\n') + '\n',
+    bookYaml:
+      ['spec_version: 1', 'kind: long', 'book:', `  title: ${BOOK}`, '  genre: 玄幻', 'host: cc'].join('\n') + '\n',
   })
   // 只预建对照书：一次性删/改名书由各自放行臂逐格现建（建-用-销，重复建会同名 400）
   const r = await studio.req('POST', '/api/books', { name: OTHER, kind: 'long', genre: '玄幻' })
@@ -288,7 +295,10 @@ const PROBES: ProbeRow[] = [
     code: 'BUSY',
     blocked: () => studio.req('POST', `/api/books/${enc(BOOK)}/spawn`, { role: 'writer', prompt: '写第一章' }),
     // 放行臂用空 prompt 落 400（不真起写手）
-    pass: { run: () => studio.req('POST', `/api/books/${enc(BOOK)}/spawn`, { role: 'writer', prompt: '' }), status: 400 },
+    pass: {
+      run: () => studio.req('POST', `/api/books/${enc(BOOK)}/spawn`, { role: 'writer', prompt: '' }),
+      status: 400,
+    },
   },
   {
     intent: 'auto-write',
@@ -314,10 +324,19 @@ const PROBES: ProbeRow[] = [
     intent: 'structure',
     code: 'BUSY',
     blocked: () =>
-      studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/structure-apply`, { op: 'merge', sourceDocId: 's', planHash: 'p' }),
+      studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/structure-apply`, {
+        op: 'merge',
+        sourceDocId: 's',
+        planHash: 'p',
+      }),
     // 放行臂：dummy docId 越过忙闸 → 文档解析 404（忙闸不是这里的第一道门）
     pass: {
-      run: () => studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/structure-apply`, { op: 'merge', sourceDocId: 's', planHash: 'p' }),
+      run: () =>
+        studio.req('POST', `/api/books/${enc(BOOK)}/documents/x/structure-apply`, {
+          op: 'merge',
+          sourceDocId: 's',
+          planHash: 'p',
+        }),
       status: 404,
     },
   },
@@ -328,7 +347,9 @@ const PROBES: ProbeRow[] = [
     // 放行臂：每格新建一次性书再删（他书闸不该拦本书删除）
     pass: {
       run: async () => {
-        expect((await studio.req('POST', '/api/books', { name: THROWAWAY_DEL, kind: 'long', genre: '玄幻' })).status).toBe(200)
+        expect(
+          (await studio.req('POST', '/api/books', { name: THROWAWAY_DEL, kind: 'long', genre: '玄幻' })).status,
+        ).toBe(200)
         return studio.req('DELETE', `/api/books/${enc(THROWAWAY_DEL)}`)
       },
       status: 200,
@@ -341,8 +362,12 @@ const PROBES: ProbeRow[] = [
     // 放行臂：改名会搬目录且目标名已存在即 400——每格现建一次性书 + 逐格唯一目标名
     pass: {
       run: async (signal) => {
-        expect((await studio.req('POST', '/api/books', { name: THROWAWAY_RENAME, kind: 'long', genre: '玄幻' })).status).toBe(200)
-        return studio.req('POST', `/api/books/${enc(THROWAWAY_RENAME)}/rename`, { name: `矩阵一次性改名新名-${signal}` })
+        expect(
+          (await studio.req('POST', '/api/books', { name: THROWAWAY_RENAME, kind: 'long', genre: '玄幻' })).status,
+        ).toBe(200)
+        return studio.req('POST', `/api/books/${enc(THROWAWAY_RENAME)}/rename`, {
+          name: `矩阵一次性改名新名-${signal}`,
+        })
       },
       status: 200,
     },

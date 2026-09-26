@@ -37,7 +37,10 @@ describe('R71-31: 重开弹窗 numError 复位', () => {
   it('打开→置错→取消关闭→再开 → 错误提示不残留', async () => {
     // 置错：小数章号触发 R70-28 字段级反馈
     await dialog().find('input[type="number"]').setValue('3.5')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.num-error')).not.toBeNull() // 错误提示已展示
 
@@ -52,7 +55,10 @@ describe('R71-31: 重开弹窗 numError 复位', () => {
     expect(document.body.querySelector('.num-error')).toBeNull()
 
     // 直接保存合法：无残留错误阻挡（章号回填 3）
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
     expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 3 }]])
   })
@@ -60,7 +66,10 @@ describe('R71-31: 重开弹窗 numError 复位', () => {
   it('打开→置错→esc 关闭→再开 → 同样复位（关闭路径无关）', async () => {
     // 注：值取 -2——v-model 对 type=number 自动转数字，0 会因 falsy 触发按钮 disabled
     await dialog().find('input[type="number"]').setValue('-2')
-    await dialog().findAll('button').find((b) => b.text() === '保存')!.trigger('click')
+    await dialog()
+      .findAll('button')
+      .find((b) => b.text() === '保存')!
+      .trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.num-error')).not.toBeNull()
 

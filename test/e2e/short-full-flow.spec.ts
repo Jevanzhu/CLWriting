@@ -88,7 +88,9 @@ test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 �
   // 跑「短篇专属 → 首章细纲」一步：生成 + 保存
   await page.locator('.rail-item', { hasText: '首章细纲' }).click()
   await page.locator('.btn.primary', { hasText: '生成' }).click()
-  await expect(page.locator('.ob-panel textarea, .ob-panel .cm-content, .ob-panel .editor-area').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.ob-panel textarea, .ob-panel .cm-content, .ob-panel .editor-area').first()).toBeVisible({
+    timeout: 15_000,
+  })
   // 生成后保存
   await page.locator('.btn.primary', { hasText: '保存' }).click()
   await expect(page.getByText('已保存')).toBeVisible({ timeout: 10_000 })
@@ -112,9 +114,11 @@ test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 �
   const fs = await import('node:fs')
   const findAllMd = (dir: string): string[] =>
     fs.existsSync(dir)
-      ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-          e.isDirectory() ? findAllMd(join(dir, e.name)) : e.name.endsWith('.md') ? [join(dir, e.name)] : [],
-        )
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) =>
+            e.isDirectory() ? findAllMd(join(dir, e.name)) : e.name.endsWith('.md') ? [join(dir, e.name)] : [],
+          )
       : []
   const bodyFiles = findAllMd(bodyDir)
   expect(bodyFiles.length).toBeGreaterThan(0)

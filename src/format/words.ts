@@ -19,11 +19,43 @@
  *  的 ill-formed 行为）。等价性由 test/format/count-words-equivalence.test.ts 内嵌
  *  旧实现逐位断言钉死（200 轮混合模糊 + 大文档冒烟）。 */
 const STRIP_CODE_SET: ReadonlySet<number> = new Set<number>([
-  0x23, 0x3e, 0x2a, 0x5f, 0x60, 0x7e, 0x2d, 0x5b, 0x5d, 0x28, 0x29, 0x21, // #>*_`~-[]!
-  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, // \t\n\v\f\r 与空格
-  0xa0, 0x1680, // \s：NBSP / OGHAM SPACE MARK
-  0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, // \s：EN QUAD..HAIR SPACE（注意 0x200b-0x200d 零宽符不在 \s，勿混入）
-  0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff, // \s：LS / PS / NNBSP / MATHEMATICAL SPACE / IDEOGRAPHIC SPACE / BOM
+  0x23,
+  0x3e,
+  0x2a,
+  0x5f,
+  0x60,
+  0x7e,
+  0x2d,
+  0x5b,
+  0x5d,
+  0x28,
+  0x29,
+  0x21, // #>*_`~-[]!
+  0x09,
+  0x0a,
+  0x0b,
+  0x0c,
+  0x0d,
+  0x20, // \t\n\v\f\r 与空格
+  0xa0,
+  0x1680, // \s：NBSP / OGHAM SPACE MARK
+  0x2000,
+  0x2001,
+  0x2002,
+  0x2003,
+  0x2004,
+  0x2005,
+  0x2006,
+  0x2007,
+  0x2008,
+  0x2009,
+  0x200a, // \s：EN QUAD..HAIR SPACE（注意 0x200b-0x200d 零宽符不在 \s，勿混入）
+  0x2028,
+  0x2029,
+  0x202f,
+  0x205f,
+  0x3000,
+  0xfeff, // \s：LS / PS / NNBSP / MATHEMATICAL SPACE / IDEOGRAPHIC SPACE / BOM
 ])
 
 export function countWords(body: string): number {
@@ -61,9 +93,7 @@ function stripMd(fileName: string): string {
  *  0918二轮修复批（B102）：守卫语义与 filename.ts chapterNoFromName 单源
  *  对齐（单源同批下沉同款 isSafeInteger 守卫）；正则维持分立不强并——本版须
  *  `数字-标题` 严格形（连带产出标题段）且本文件零 Node 依赖供浏览器 import。 */
-export function parseChapterFileName(
-  fileName: string,
-): { 章号: number; 标题: string } | null {
+export function parseChapterFileName(fileName: string): { 章号: number; 标题: string } | null {
   const base = stripMd(fileName)
   const m = base.match(/^(\d+)-(.+)$/)
   if (!m) return null

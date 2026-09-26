@@ -114,20 +114,24 @@ test('readLead: 未知字段容错保留', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '悬念-031.md')
   // 手工写一个含未知字段的文件
-  writeFileSync(fp, [
-    '---',
-    '编号: 悬念-031',
-    '标题: 灭门真凶',
-    '类型: 悬念',
-    '状态: 进行中',
-    '开启章: 12',
-    '自定义备注: 作者手写的备注',
-    '---',
-    '',
-    '## 履历',
-    '',
-    '- 第012章 埋下：焦痕',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 悬念-031',
+      '标题: 灭门真凶',
+      '类型: 悬念',
+      '状态: 进行中',
+      '开启章: 12',
+      '自定义备注: 作者手写的备注',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '- 第012章 埋下：焦痕',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readLead(fp)
   expect(r.ok).toBe(true)
@@ -141,19 +145,23 @@ test('B202（0918三轮修复批）：手写空值「类型:」「状态:」回�
   const dir = makeTmpBook()
   const fp = join(dir, '悬念-032-空值账本.md')
   // 手写 fm：枚举字段键在、值为空——校验段豁免空串（空视同缺省回落），实现须对齐
-  writeFileSync(fp, [
-    '---',
-    '编号: 悬念-032',
-    '标题: 空值账本',
-    '类型:',
-    '状态:',
-    '开启章: 3',
-    '---',
-    '',
-    '## 履历',
-    '',
-    '- 第003章 埋下：焦痕',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 悬念-032',
+      '标题: 空值账本',
+      '类型:',
+      '状态:',
+      '开启章: 3',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '- 第003章 埋下：焦痕',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readLead(fp)
   expect(r.ok).toBe(true)
@@ -167,21 +175,25 @@ test('B202（0918三轮修复批）：手写空值「类型:」「状态:」回�
 test('writeLead: 保留履历前的人工说明正文', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '设定线-001-噬灵玉.md')
-  writeFileSync(fp, [
-    '---',
-    '编号: 设定线-001',
-    '标题: 噬灵玉',
-    '类型: 设定线',
-    '状态: 进行中',
-    '开启章: 1',
-    '---',
-    '',
-    '噬灵玉是母亲遗物，可以吞噬炼化外物灵气。',
-    '',
-    '## 履历',
-    '',
-    '- 第001章 树立：玉佩初醒',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 设定线-001',
+      '标题: 噬灵玉',
+      '类型: 设定线',
+      '状态: 进行中',
+      '开启章: 1',
+      '---',
+      '',
+      '噬灵玉是母亲遗物，可以吞噬炼化外物灵气。',
+      '',
+      '## 履历',
+      '',
+      '- 第001章 树立：玉佩初醒',
+    ].join('\n'),
+    'utf-8',
+  )
 
   const r = readLead(fp)
   expect(r.ok).toBe(true)
@@ -239,10 +251,20 @@ test('readLeadDir: 扫描目录、容错跳过坏文件', () => {
 
   // 写两个好的、一个坏的
   writeLead(join(悬念dir, '悬念-001-a.md'), {
-    编号: '悬念-001', 标题: 'a', 类型: '悬念', 状态: '进行中', 开启章: 1, 履历: [],
+    编号: '悬念-001',
+    标题: 'a',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 1,
+    履历: [],
   })
   writeLead(join(悬念dir, '悬念-002-b.md'), {
-    编号: '悬念-002', 标题: 'b', 类型: '悬念', 状态: '进行中', 开启章: 5, 履历: [],
+    编号: '悬念-002',
+    标题: 'b',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 5,
+    履历: [],
   })
   writeFileSync(join(悬念dir, '悬念-099-坏.md'), '坏的', 'utf-8')
 
@@ -256,17 +278,13 @@ test('readLeadDir: 文件名缺标题后缀时报错，避免履历落盘静默�
   const dir = makeTmpBook()
   const 设定dir = join(dir, '设定线')
   mkdirSync(设定dir)
-  writeFileSync(join(设定dir, '设定线-001.md'), [
-    '---',
-    '编号: 设定线-001',
-    '标题: 噬灵玉',
-    '类型: 设定线',
-    '状态: 进行中',
-    '开启章: 1',
-    '---',
-    '',
-    '## 履历',
-  ].join('\n'), 'utf-8')
+  writeFileSync(
+    join(设定dir, '设定线-001.md'),
+    ['---', '编号: 设定线-001', '标题: 噬灵玉', '类型: 设定线', '状态: 进行中', '开启章: 1', '---', '', '## 履历'].join(
+      '\n',
+    ),
+    'utf-8',
+  )
 
   const { leads, errors } = readLeadDir(设定dir)
   expect(leads).toHaveLength(0)
@@ -342,7 +360,20 @@ test('writeLead: 无尾段时回写不引入空段（与旧格式字节等价语
   const fp = join(dir, '悬念-002-狗.md')
   writeFileSync(
     fp,
-    ['---', '编号: 悬念-002', '标题: 狗', '类型: 悬念', '状态: 进行中', '开启章: 47', '---', '', '## 履历', '', '- 第047章 埋下：狗没叫。', ''].join('\n'),
+    [
+      '---',
+      '编号: 悬念-002',
+      '标题: 狗',
+      '类型: 悬念',
+      '状态: 进行中',
+      '开启章: 47',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '- 第047章 埋下：狗没叫。',
+      '',
+    ].join('\n'),
   )
   const r = readLead(fp)
   expect(r.ok).toBe(true)
@@ -390,10 +421,7 @@ test('readLead: 缺字段维持默认回落（存量手写账本兼容）；lega
   const dir = makeTmpBook()
   // 缺类型/状态 → 默认回落（R73-22 不改缺字段语义）
   const fpMissing = join(dir, '悬念-005-缺字段.md')
-  writeFileSync(
-    fpMissing,
-    ['---', '编号: 悬念-005', '标题: 缺字段', '---', '', '## 履历', ''].join('\n'),
-  )
+  writeFileSync(fpMissing, ['---', '编号: 悬念-005', '标题: 缺字段', '---', '', '## 履历', ''].join('\n'))
   const rMissing = readLead(fpMissing)
   expect(rMissing.ok).toBe(true)
   if (rMissing.ok) {
@@ -404,7 +432,20 @@ test('readLead: 缺字段维持默认回落（存量手写账本兼容）；lega
   const fpLegacy = join(dir, '伏笔-031-灭门真凶.md')
   writeFileSync(
     fpLegacy,
-    ['---', '编号: 伏笔-031', '标题: 灭门真凶', '类型: 伏笔', '状态: 进行中', '开启章: 1', '---', '', '## 履历', '', '- 第001章 埋下：焦痕', ''].join('\n'),
+    [
+      '---',
+      '编号: 伏笔-031',
+      '标题: 灭门真凶',
+      '类型: 伏笔',
+      '状态: 进行中',
+      '开启章: 1',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '- 第001章 埋下：焦痕',
+      '',
+    ].join('\n'),
   )
   expect(readLead(fpLegacy).ok).toBe(false) // 现行口径仍 fail-loud
   const rLegacy = readLead(fpLegacy, { legacy: true })
@@ -503,12 +544,23 @@ test('R75-2: 节终标题后的人工内容回写保真（readLead→writeLead �
 test('R75-2: 空履历 + 尾段（`## 履历` 后直接 `## 备注`）after 段维持保真', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '悬念-007-空履历.md')
-  writeFileSync(fp, [
-    '---', '编号: 悬念-007', '标题: 空履历', '类型: 悬念', '状态: 进行中', '---', '',
-    '## 履历', '',
-    '## 备注', '',
-    '只有备注没有条目。',
-  ].join('\n'))
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 悬念-007',
+      '标题: 空履历',
+      '类型: 悬念',
+      '状态: 进行中',
+      '---',
+      '',
+      '## 履历',
+      '',
+      '## 备注',
+      '',
+      '只有备注没有条目。',
+    ].join('\n'),
+  )
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -523,9 +575,21 @@ test('R75-2: 空履历 + 尾段（`## 履历` 后直接 `## 备注`）after 段�
 test('R75-2: 开启章 非数值回落 0（NaN 防线，对齐 chapters.ts R64-19 口径）', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '悬念-008-乱数.md')
-  writeFileSync(fp, [
-    '---', '编号: 悬念-008', '标题: 乱数', '类型: 悬念', '状态: 进行中', '开启章: 十二', '---', '', '## 履历', '',
-  ].join('\n'))
+  writeFileSync(
+    fp,
+    [
+      '---',
+      '编号: 悬念-008',
+      '标题: 乱数',
+      '类型: 悬念',
+      '状态: 进行中',
+      '开启章: 十二',
+      '---',
+      '',
+      '## 履历',
+      '',
+    ].join('\n'),
+  )
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.lead.开启章).toBe(0)
@@ -543,9 +607,21 @@ test('复审-0913-P2: 开启章 负数/小数回落 0（正整数守卫，对齐
     ]
     for (const c of cases) {
       const fp = join(dir, `${c.id}-${c.name}.md`)
-      writeFileSync(fp, [
-        '---', `编号: ${c.id}`, `标题: ${c.name}`, '类型: 悬念', '状态: 进行中', `开启章: ${c.raw}`, '---', '', '## 履历', '',
-      ].join('\n'))
+      writeFileSync(
+        fp,
+        [
+          '---',
+          `编号: ${c.id}`,
+          `标题: ${c.name}`,
+          '类型: 悬念',
+          '状态: 进行中',
+          `开启章: ${c.raw}`,
+          '---',
+          '',
+          '## 履历',
+          '',
+        ].join('\n'),
+      )
       const r = readLead(fp)
       expect(r.ok).toBe(true)
       if (r.ok) expect(r.lead.开启章).toBe(0)
@@ -558,9 +634,12 @@ test('复审-0913-P2: 开启章 负数/小数回落 0（正整数守卫，对齐
 test('复审-0913-P2: 开启章 正常正整数值不受守卫影响（语义不变面）', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '悬念-011-正章.md')
-  writeFileSync(fp, [
-    '---', '编号: 悬念-011', '标题: 正章', '类型: 悬念', '状态: 进行中', '开启章: 47', '---', '', '## 履历', '',
-  ].join('\n'))
+  writeFileSync(
+    fp,
+    ['---', '编号: 悬念-011', '标题: 正章', '类型: 悬念', '状态: 进行中', '开启章: 47', '---', '', '## 履历', ''].join(
+      '\n',
+    ),
+  )
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.lead.开启章).toBe(47)

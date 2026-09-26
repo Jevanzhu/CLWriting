@@ -83,11 +83,7 @@ type RawLine = { [k: string]: unknown }
  *  ——三个调用方（document/service.ts、document/service-meta.ts、process/draft-pipeline.ts）
  *  的全文实参同步删净，其中 service.ts 的 `byteRestore ? '' : content` 转义随之消失
  *  （原转义只是「字节档不落失真文本视图」的历史残留，收窄后无对象可指）。 */
-export async function appendPending(
-  journalPath: string,
-  docId: string,
-  baseRevision: Revision,
-): Promise<string> {
+export async function appendPending(journalPath: string, docId: string, baseRevision: Revision): Promise<string> {
   const entry: JournalPending = {
     opId: ulid(),
     docId,
@@ -120,11 +116,7 @@ export async function appendMovePending(
 }
 
 /** 追加 settled 行，标记某 opId 已成功落盘。 */
-export async function appendSettled(
-  journalPath: string,
-  opId: string,
-  newRevision: `sha256:${string}`,
-): Promise<void> {
+export async function appendSettled(journalPath: string, opId: string, newRevision: `sha256:${string}`): Promise<void> {
   const entry: JournalSettled = {
     opId,
     ts: new Date().toISOString(),
@@ -154,9 +146,7 @@ export async function appendAborted(journalPath: string, opId: string, reason: s
  * 清空 journal，见读失败必须整轮放弃（POSIX rename 只需目录写权，可独立于文件读权
  * 存在）。非法行跳过。
  */
-function scanUnsettled(
-  journalPath: string,
-): { ok: true; items: JournalAnyPending[] } | { ok: false; cause: string } {
+function scanUnsettled(journalPath: string): { ok: true; items: JournalAnyPending[] } | { ok: false; cause: string } {
   if (!existsSync(journalPath)) return { ok: true, items: [] }
   let text: string
   try {
@@ -229,10 +219,7 @@ function scanUnsettled(
 export function findUnsettled(journalPath: string): JournalAnyPending[] {
   const scan = scanUnsettled(journalPath)
   if (!scan.ok) {
-    log.warn(
-      'journal',
-      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${scan.cause}`,
-    )
+    log.warn('journal', `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${scan.cause}`)
     return []
   }
   return scan.items

@@ -38,7 +38,12 @@ import {
   getStyleTrend,
 } from '../../../src/studio/web-next/src/api/style'
 import { useStyleStore } from '../../../src/studio/web-next/src/stores/style'
-import type { StyleEntryFE, StyleCandidateFE, StyleConfigFE, StyleTrendFE } from '../../../src/studio/web-next/src/api/style'
+import type {
+  StyleEntryFE,
+  StyleCandidateFE,
+  StyleConfigFE,
+  StyleTrendFE,
+} from '../../../src/studio/web-next/src/api/style'
 
 const listEntriesMock = listStyleEntries as ReturnType<typeof vi.fn>
 const listCandidatesMock = listStyleCandidates as ReturnType<typeof vi.fn>
@@ -57,7 +62,16 @@ function entry(path: string, kind: string): StyleEntryFE {
   return { _path: path, 类型: kind, 场景: '', 说明: '', 标签: [], 创建: '', 来源: '作者标注', 正文: '' } as StyleEntryFE
 }
 function candidate(path: string, status: string): StyleCandidateFE {
-  return { _path: path, 状态: status, 来源: '收割', 说明: '', 创建: '', 类型: '样章', 场景: '', 正文: '' } as StyleCandidateFE
+  return {
+    _path: path,
+    状态: status,
+    来源: '收割',
+    说明: '',
+    创建: '',
+    类型: '样章',
+    场景: '',
+    正文: '',
+  } as StyleCandidateFE
 }
 function config(): StyleConfigFE {
   return { baseline: null, 条目标签: [], 候选源: [] } as unknown as StyleConfigFE
@@ -157,7 +171,11 @@ describe('style: 候选箱确认/忽略', () => {
     await style.load(BOOK)
 
     confirmCandidateMock.mockResolvedValue({ ok: true })
-    listEntriesMock.mockResolvedValueOnce({ entries: [entry('from-candidate.md', '手法')], errors: [], migration: null })
+    listEntriesMock.mockResolvedValueOnce({
+      entries: [entry('from-candidate.md', '手法')],
+      errors: [],
+      migration: null,
+    })
     await style.confirm('c1.md')
 
     expect(confirmCandidateMock).toHaveBeenCalledWith(BOOK, 'c1.md')
@@ -228,7 +246,12 @@ describe('style: 收割 / 定标 / 趋势', () => {
 
     // freeze 挂起期间切书（clear + load B 重建 config）
     let release: ((v: { baseline: unknown }) => void) | null = null
-    freezeMock.mockImplementation(() => new Promise((res) => { release = res }))
+    freezeMock.mockImplementation(
+      () =>
+        new Promise((res) => {
+          release = res
+        }),
+    )
     const pending = style.freeze()
     style.clear()
     await style.load('书B')

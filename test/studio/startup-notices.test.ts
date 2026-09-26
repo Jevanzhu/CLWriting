@@ -51,10 +51,7 @@ function makeWorkdir(withBrokenBook: boolean): string {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   const name = withBrokenBook ? '坏书' : '好书'
   const path = withBrokenBook ? `坏/${name}` : `好/${name}`
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name, path, kind: 'short' }) + '\n',
-  )
+  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name, path, kind: 'short' }) + '\n')
   const bookRoot = join(workDir, path)
   mkdirSync(bookRoot, { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 测试书\n')

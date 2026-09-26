@@ -68,8 +68,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -107,15 +111,29 @@ describe('A102: 批量连写章边界重读 book config', () => {
     const yamlPath = join(bookRoot, 'book.yaml')
     const yaml0 = readFileSync(yamlPath, 'utf8')
     expect(yaml0).toContain('calls_per_chapter: 8')
-    writeFileSync(yamlPath, yaml0.replace('budget:\n  calls_per_chapter: 8\n', 'budget:\n  calls_per_chapter: 8\n  tokens_per_chapter: 6000\n'))
+    writeFileSync(
+      yamlPath,
+      yaml0.replace(
+        'budget:\n  calls_per_chapter: 8\n',
+        'budget:\n  calls_per_chapter: 8\n  tokens_per_chapter: 6000\n',
+      ),
+    )
 
     const emitted: DriverEvent[] = []
     let genCount = 0
     // 章 1 生成期间（批中）作者把 budget.tokens_per_chapter 6000 → 3000——章 2 预算闸应见 3000
-    const genFn = async (_prompt: string, _kind: 'long' | 'short', _signal: AbortSignal, onText: (d: string) => void) => {
+    const genFn = async (
+      _prompt: string,
+      _kind: 'long' | 'short',
+      _signal: AbortSignal,
+      onText: (d: string) => void,
+    ) => {
       genCount++
       if (genCount === 1) {
-        writeFileSync(yamlPath, readFileSync(yamlPath, 'utf8').replace('tokens_per_chapter: 6000', 'tokens_per_chapter: 3000'))
+        writeFileSync(
+          yamlPath,
+          readFileSync(yamlPath, 'utf8').replace('tokens_per_chapter: 6000', 'tokens_per_chapter: 3000'),
+        )
       }
       const t = FM + `第${genCount}章正文`
       if (onText) onText(t)

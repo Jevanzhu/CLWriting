@@ -118,9 +118,7 @@ async function onRemove(path: string, text: string): Promise<void> {
         >
           <GraduationCap :size="13" /> 批量收割
         </button>
-        <button class="btn-primary" @click="adding = !adding">
-          <Plus :size="13" /> 新增
-        </button>
+        <button class="btn-primary" @click="adding = !adding"><Plus :size="13" /> 新增</button>
       </div>
     </div>
 
@@ -130,7 +128,11 @@ async function onRemove(path: string, text: string): Promise<void> {
           <option v-for="k in ENTRY_KINDS" :key="k" :value="k">{{ k }}</option>
         </select>
         <input v-model="draft.场景" class="af-input" placeholder="场景（留空=通用）" />
-        <input v-model="draft.说明" class="af-input af-grow" placeholder="说明（可选，样章的技法指令/禁词的替换方向）" />
+        <input
+          v-model="draft.说明"
+          class="af-input af-grow"
+          placeholder="说明（可选，样章的技法指令/禁词的替换方向）"
+        />
       </div>
       <textarea
         v-model="draft.正文"
@@ -367,5 +369,4 @@ async function onRemove(path: string, text: string): Promise<void> {
 
 /* 类型徽标（kind-badge 族）、通用按钮与 .src-dot 均收敛至 style-shared.css
  *（/ #14 全局装载）。 */
-
 </style>

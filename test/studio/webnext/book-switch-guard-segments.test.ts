@@ -29,7 +29,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
 }))
@@ -127,7 +129,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   bookNameSrc = ref('书A')
   // 可写 computed：状态机侧仍是 ComputedRef（同真实调用方的 bookName），测试侧可拨值
-  bookName = computed({ get: () => bookNameSrc.value, set: (v: string) => { bookNameSrc.value = v } })
+  bookName = computed({
+    get: () => bookNameSrc.value,
+    set: (v: string) => {
+      bookNameSrc.value = v
+    },
+  })
   resync = vi.fn<() => void>()
   mocks.getContent.mockResolvedValue('内容')
   mocks.saveContent.mockResolvedValue({ ok: true, revision: `sha256:${'b'.repeat(64)}`, superseded: false })
@@ -154,7 +161,7 @@ describe('RC B-5: 切书守卫——首载与脏路由分支', () => {
     w.unmount()
   })
 
-  it('脏路由 name=\'\' → 先落盘前书 dirty 再清各 store，且不走 Z-8/F1 弹窗（E-7）', async () => {
+  it("脏路由 name='' → 先落盘前书 dirty 再清各 store，且不走 Z-8/F1 弹窗（E-7）", async () => {
     const doc = useDocStore()
     const wb = useWorkbenchStore()
     const ui = useUiStore()
@@ -315,7 +322,12 @@ describe('RC B-5: 切书守卫——重入短路、防乱序与链尾 resync', (
 
     await seedDirty('d1')
     let releaseSave!: (v: { ok: true; revision: `sha256:${string}` }) => void
-    mocks.saveContent.mockImplementationOnce(() => new Promise((r) => { releaseSave = r }))
+    mocks.saveContent.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          releaseSave = r
+        }),
+    )
 
     bookName.value = '书B'
     await flushPromises() // B 链挂在 flushDirty（save 在途）
@@ -334,7 +346,12 @@ describe('RC B-5: 切书守卫——重入短路、防乱序与链尾 resync', (
     const doc = useDocStore()
     const ui = useUiStore()
     const asks: Array<(v: boolean) => void> = []
-    vi.spyOn(ui, 'ask').mockImplementation(() => new Promise<boolean>((r) => { asks.push(r) }))
+    vi.spyOn(ui, 'ask').mockImplementation(
+      () =>
+        new Promise<boolean>((r) => {
+          asks.push(r)
+        }),
+    )
     const w = mountGuard()
     await flushPromises()
 

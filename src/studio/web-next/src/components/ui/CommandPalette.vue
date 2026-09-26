@@ -179,14 +179,16 @@ function run(c: Cmd): void {
     <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
          面板内层 @click.stop 未变——遮罩空白处点击 = self 点击，maskClick 语义与原 @click 等价 -->
     <ModalMask :open="ui.paletteOpen" kind="palette" @mask-click="ui.closePalette">
-      <div ref="paletteRef" class="palette" role="dialog" aria-modal="true" aria-label="命令面板" tabindex="-1" @click.stop>
-        <input
-          ref="inp"
-          v-model="q"
-          class="palette-input"
-          placeholder="搜索章节或操作…"
-          @keydown="onKey"
-        />
+      <div
+        ref="paletteRef"
+        class="palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+        tabindex="-1"
+        @click.stop
+      >
+        <input ref="inp" v-model="q" class="palette-input" placeholder="搜索章节或操作…" @keydown="onKey" />
         <!-- （修复批）：结果容器 listbox 语义——
              项 option + aria-selected 对齐 WAI-ARIA listbox 模式（↑↓ 选中态可被读屏播报） -->
         <div class="palette-list" role="listbox" aria-label="命令与章节">

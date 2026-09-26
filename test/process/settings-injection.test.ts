@@ -25,7 +25,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return armFsNamespace('fsp', actual)
 })
 
-
 /** 造指定 code point 长度的中文文本（带锚点字符，断言层去留用） */
 function cn(anchor: string, len: number): string {
   return anchor.repeat(len)
@@ -156,9 +155,7 @@ test('病态小预算：声明行本身就装不下 → 显式不注入，丢/�
 })
 
 test('code point 度量——emoji 计 1 不劈 surrogate pair', () => {
-  const layers: SettingsLayer[] = [
-    { name: '本章设定', specificity: 'chapter', text: '😀'.repeat(80) },
-  ]
+  const layers: SettingsLayer[] = [{ name: '本章设定', specificity: 'chapter', text: '😀'.repeat(80) }]
   // 预算 60：'😀'×80 按 code point 计 80 超预算 → 截断（若按 UTF-16 单元计是 160）
   const r = assembleSettingsInjection(layers, { maxChars: 60 })
   expect(r.truncated).toEqual(['本章设定'])

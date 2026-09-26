@@ -33,7 +33,14 @@ export type DriverEvent =
   // 全自动写章自愈闭环(self-heal.ts 经 emit 推主 session,/stream 转发前端)
   // 批量连写新增 phase 分支（chapter_start/chapter_done）+ chapter/done/total 进度字段
   // lead_update——账本侧红补生成账本推进草稿（AI 调用，可能数秒~分钟）
-  | { type: 'self_heal_phase'; phase: 'drafting' | 'checking' | 'rewriting' | 'lead_update' | 'chapter_start' | 'chapter_done'; attempt?: number; chapter?: number; done?: number; total?: number }
+  | {
+      type: 'self_heal_phase'
+      phase: 'drafting' | 'checking' | 'rewriting' | 'lead_update' | 'chapter_start' | 'chapter_done'
+      attempt?: number
+      chapter?: number
+      done?: number
+      total?: number
+    }
   /** 新一轮整章重写开始:前端清正文缓冲(整章重写是完整替换稿,不清会拼接多份) */
   | { type: 'self_heal_reset' }
   | { type: 'self_heal_progress'; attempt: number; maxAttempts: number; remaining: string[]; chapter?: number }

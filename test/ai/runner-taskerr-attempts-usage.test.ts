@@ -72,7 +72,8 @@ describe('R37-7: TaskErr 失败封套携带 attemptsUsage', () => {
       userDataPath: ud,
       run: () => {
         calls++
-        if (calls <= 2) throw new GenError('429 limit', true, { code: 'RATE_LIMIT', usage: { inputTokens: 10, outputTokens: 4 } })
+        if (calls <= 2)
+          throw new GenError('429 limit', true, { code: 'RATE_LIMIT', usage: { inputTokens: 10, outputTokens: 4 } })
         throw new GenError('400 bad request', false, { code: 'MAX_TOKENS', usage: { inputTokens: 7, outputTokens: 2 } })
       },
     })

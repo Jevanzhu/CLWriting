@@ -79,7 +79,9 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   })
 
   it('PUT 无 X-Studio-Token(Origin 白名单)→ 403', async () => {
-    const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, { origin: studio.baseUrl })
+    const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, {
+      origin: studio.baseUrl,
+    })
     expect(r.status).toBe(403)
   })
 
@@ -103,28 +105,43 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
 
   // P0-1 守护：PATCH 方法必须走 isWrite 校验（2026-08-10 评审发现 isWrite 曾遗漏 PATCH）
   it('PATCH 无 X-Studio-Token → 403', async () => {
-    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
-      origin: studio.baseUrl,
-      'content-type': 'application/json',
-    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    const r = await rawRequest(
+      'PATCH',
+      `/api/books/${encodeURIComponent('t')}/documents/doc_x`,
+      {
+        origin: studio.baseUrl,
+        'content-type': 'application/json',
+      },
+      JSON.stringify({ op: 'rename', newName: 'y' }),
+    )
     expect(r.status).toBe(403)
   })
 
   it('PATCH 错 token → 403', async () => {
-    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
-      origin: studio.baseUrl,
-      'content-type': 'application/json',
-      'x-studio-token': 'wrong-token',
-    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    const r = await rawRequest(
+      'PATCH',
+      `/api/books/${encodeURIComponent('t')}/documents/doc_x`,
+      {
+        origin: studio.baseUrl,
+        'content-type': 'application/json',
+        'x-studio-token': 'wrong-token',
+      },
+      JSON.stringify({ op: 'rename', newName: 'y' }),
+    )
     expect(r.status).toBe(403)
   })
 
   it('PATCH 对 token → 非 403(过 token 门进 dispatch)', async () => {
-    const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('x')}/documents/doc_x`, {
-      origin: studio.baseUrl,
-      'content-type': 'application/json',
-      'x-studio-token': studio.token,
-    }, JSON.stringify({ op: 'rename', newName: 'y' }))
+    const r = await rawRequest(
+      'PATCH',
+      `/api/books/${encodeURIComponent('x')}/documents/doc_x`,
+      {
+        origin: studio.baseUrl,
+        'content-type': 'application/json',
+        'x-studio-token': studio.token,
+      },
+      JSON.stringify({ op: 'rename', newName: 'y' }),
+    )
     // R50-G-1（五十轮）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；对齐同文件
     // :109-111 PUT 用例已收紧口径，显式圈定过门后的合法状态集（书 'x' 不存在 → 404）
     expect([400, 404, 422]).toContain(r.status)
@@ -241,7 +258,9 @@ describe('X-20: absolute-form 请求行入口拒绝', () => {
 function extractGetRoutePaths(): string[] {
   const apiDir = join(import.meta.dirname, '../../src/studio/server/api')
   const files = [
-    ...readdirSync(apiDir).filter((f) => f.endsWith('.ts')).map((f) => join(apiDir, f)),
+    ...readdirSync(apiDir)
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => join(apiDir, f)),
     join(import.meta.dirname, '../../src/studio/server/index.ts'),
   ]
   const paths = new Set<string>()

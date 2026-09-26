@@ -30,12 +30,16 @@ test('R0916-6-nano-1: repeat_chars_threshold 0.5 → 夹紧回落默认 200 + wa
     const cfg = structuredClone(DEFAULT_CONFIG)
     // 比率阈 1 关比率口径，专看绝对字数口径的夹紧
     cfg.checks = { repeat_threshold: 1, repeat_chars_threshold: 0.5 }
-    const items = repeatItems(runAllChecks({ bookRoot: tmp, config: cfg, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' }))
+    const items = repeatItems(
+      runAllChecks({ bookRoot: tmp, config: cfg, chapter: CH, body: REP_BODY, fileName: '001-雪夜.md' }),
+    )
     // 回落到默认 200（而非 0.5 恒真形态）——message 注明回落后的实际阈值
     expect(items).toHaveLength(1)
     expect(items[0]!.message).toContain('超绝对阈值 200 字')
     // 留痕：warn 点名键与回落动作
-    const hits = warnSpy.mock.calls.filter((c) => String(c[1]).includes('repeat_chars_threshold') && String(c[1]).includes('回落'))
+    const hits = warnSpy.mock.calls.filter(
+      (c) => String(c[1]).includes('repeat_chars_threshold') && String(c[1]).includes('回落'),
+    )
     expect(hits).toHaveLength(1)
   } finally {
     warnSpy.mockRestore()

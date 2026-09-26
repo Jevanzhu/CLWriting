@@ -14,12 +14,7 @@ import { makeDualTrackWorkdir, SHORT_BOOK, LONG_BOOK, tempUserData } from '../st
 // 复用不能改，per-test 包 trackTempDir）；userDataPath 弃固定共享 '/tmp/clwriting-test'
 // 改 tempUserData 唯一目录（fixtures.ts:199 口径）+ 登记清算
 import { trackTempDir } from '../helpers/temp-dir.js'
-import {
-  runSelfHeal,
-  isSelfHealRunning,
-  abortSelfHeal,
-  type SelfHealOpts,
-} from '../../src/ai/orchestrate/self-heal.js'
+import { runSelfHeal, isSelfHealRunning, abortSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 // R0916-7-P3-6：mock 快路的组装期注入点（生产由 createStudioServer 装配；本文件不起
 // 服务，直接驱动 runSelfHeal，故在用例内装配——见 X-P1-2 两条的注入注释）
@@ -83,8 +78,12 @@ function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -114,11 +113,7 @@ interface Setup {
   bookRoot: string
 }
 
-function setup(
-  texts: string[],
-  check: (p: string) => CheckOutcome,
-  extra?: Partial<SelfHealOpts>,
-): Setup {
+function setup(texts: string[], check: (p: string) => CheckOutcome, extra?: Partial<SelfHealOpts>): Setup {
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
@@ -193,10 +188,7 @@ test('先红后绿：1 次重写且 prompt 带红项明细 → pass', async () =
 test('B2：黄项修复指令（规则违规）拼入重写 prompt', async () => {
   const seq: CheckOutcome[] = [redOutcome('命中禁词「顿时」'), greenOutcome()]
   let i = 0
-  const { opts, prompts } = setup(
-    [`${FM}初稿值得一提的是`, `${FM}改好的稿`],
-    () => seq[i++] ?? greenOutcome(),
-  )
+  const { opts, prompts } = setup([`${FM}初稿值得一提的是`, `${FM}改好的稿`], () => seq[i++] ?? greenOutcome())
   await runSelfHeal(opts)
 
   expect(prompts).toHaveLength(2)
@@ -256,10 +248,7 @@ test('落盘：草稿文件内容 = 最后一次产出', async () => {
 })
 
 test('fm 不合规（NOT_CHAPTER）当红项回灌，不是直接失败', async () => {
-  const seq: CheckOutcome[] = [
-    { ok: false, code: 'NOT_CHAPTER', error: '缺 front matter 字段：章号' },
-    greenOutcome(),
-  ]
+  const seq: CheckOutcome[] = [{ ok: false, code: 'NOT_CHAPTER', error: '缺 front matter 字段：章号' }, greenOutcome()]
   let i = 0
   const { opts, prompts } = setup([`${FM}无fm稿`, `${FM}补好fm`], () => seq[i++] ?? greenOutcome())
   const r = await runSelfHeal(opts)
@@ -341,11 +330,9 @@ test('text 事件转发主 session（前端逐字产出）', async () => {
 // ── P2-3：批量连写 ──────────────────────────────
 
 test('批量：2 章全绿 → 每章 pass，进度事件带 done/total', async () => {
-  const { opts, prompts, emitted, saves } = setup(
-    [`${FM}第一章正文`, `${FM}第二章正文`],
-    () => greenOutcome(),
-    { chapters: [1, 2] },
-  )
+  const { opts, prompts, emitted, saves } = setup([`${FM}第一章正文`, `${FM}第二章正文`], () => greenOutcome(), {
+    chapters: [1, 2],
+  })
   const r = await runSelfHeal(opts)
 
   expect(r.outcome).toBe('pass')
@@ -367,7 +354,12 @@ test('批量：2 章全绿 → 每章 pass，进度事件带 done/total', async 
 
 test('批量：中途 escalate → 停后续章 + 发 batch_progress', async () => {
   // 章1 绿；章2 恒红（触顶 escalate）
-  const seq: CheckOutcome[] = [greenOutcome(), redOutcome('第二章禁词'), redOutcome('第二章禁词'), redOutcome('第二章禁词')]
+  const seq: CheckOutcome[] = [
+    greenOutcome(),
+    redOutcome('第二章禁词'),
+    redOutcome('第二章禁词'),
+    redOutcome('第二章禁词'),
+  ]
   let i = 0
   const { opts, prompts, emitted } = setup(
     [`${FM}一章`, `${FM}二章初稿`, `${FM}二章重写1`, `${FM}二章重写2`, `${FM}二章重写3`],
@@ -426,7 +418,10 @@ function leadRedOutcome(): CheckOutcome {
     ok: true,
     report: {
       sections: [
-        { name: '账本', items: [{ checkId: 'lead-declared-not-done', level: 'red', message: '悬念-001 细纲声明推进但正文未兑现' }] },
+        {
+          name: '账本',
+          items: [{ checkId: 'lead-declared-not-done', level: 'red', message: '悬念-001 细纲声明推进但正文未兑现' }],
+        },
       ],
     },
     hasRed: true,
@@ -471,9 +466,7 @@ test('X-P1-2：账本侧红 → 补生成账本推进草稿后复查真绿（不
   try {
     const seq: CheckOutcome[] = [leadRedOutcome(), greenOutcome()]
     let i = 0
-    const { opts, emitted, prompts, bookRoot } = setupLongBook(() =>
-      seq[Math.min(i++, seq.length - 1)]!,
-    )
+    const { opts, emitted, prompts, bookRoot } = setupLongBook(() => seq[Math.min(i++, seq.length - 1)]!)
     const r = await runSelfHeal(opts)
 
     // 补生成后复查真绿 → pass，正文零重写（重写修不了账本侧红）

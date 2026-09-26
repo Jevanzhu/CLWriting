@@ -34,7 +34,10 @@ describe('F5 foldGoals', () => {
     nextSeq = 1
     const events = [
       ev('goal/change', { operation: 'create', goal: goal({ id: 'g1', title: '修完第三章红项' }) }),
-      ev('goal/change', { operation: 'edit', goal: goal({ id: 'g1', title: '修完第三章红项（含黄项）', roundsStarted: 1 }) }),
+      ev('goal/change', {
+        operation: 'edit',
+        goal: goal({ id: 'g1', title: '修完第三章红项（含黄项）', roundsStarted: 1 }),
+      }),
     ]
     const goals = foldGoals(events)
     expect(goals).toHaveLength(1)
@@ -45,7 +48,11 @@ describe('F5 foldGoals', () => {
   it('状态机：create → pause → resume → block → complete 按序覆盖 state', () => {
     nextSeq = 1
     const mk = (state: GoalSnapshot['state']): ChatEvent =>
-      ev('goal/change', { operation: state === 'active' ? 'create' : state === 'paused' ? 'pause' : state === 'blocked' ? 'block' : 'resume', goal: goal({ id: 'g1', title: 't', state }) })
+      ev('goal/change', {
+        operation:
+          state === 'active' ? 'create' : state === 'paused' ? 'pause' : state === 'blocked' ? 'block' : 'resume',
+        goal: goal({ id: 'g1', title: 't', state }),
+      })
     const events = [
       mk('active'),
       mk('paused'),
@@ -81,10 +88,7 @@ describe('F5 foldGoals', () => {
 
   it('非 goal/change 事件不影响 fold', () => {
     nextSeq = 1
-    const events = [
-      ev('todo/write', { todos: [] }),
-      ev('step/start', { task: 'x', layer: 'draft' }),
-    ]
+    const events = [ev('todo/write', { todos: [] }), ev('step/start', { task: 'x', layer: 'draft' })]
     expect(foldGoals(events)).toEqual([])
   })
 })
@@ -94,7 +98,9 @@ describe('F5 foldTodos', () => {
     nextSeq = 1
     const events = [
       ev('todo/write', { todos: [todo('写首稿', 'pending'), todo('机检', 'pending')] }),
-      ev('todo/write', { todos: [todo('写首稿', 'completed'), todo('机检', 'in_progress'), todo('修复红项', 'pending')] }),
+      ev('todo/write', {
+        todos: [todo('写首稿', 'completed'), todo('机检', 'in_progress'), todo('修复红项', 'pending')],
+      }),
     ]
     const todos = foldTodos(events)
     expect(todos.map((t) => t.text)).toEqual(['写首稿', '机检', '修复红项'])
@@ -103,10 +109,7 @@ describe('F5 foldTodos', () => {
 
   it('空表 = 清空', () => {
     nextSeq = 1
-    const events = [
-      ev('todo/write', { todos: [todo('写首稿', 'pending')] }),
-      ev('todo/write', { todos: [] }),
-    ]
+    const events = [ev('todo/write', { todos: [todo('写首稿', 'pending')] }), ev('todo/write', { todos: [] })]
     expect(foldTodos(events)).toEqual([])
   })
 
@@ -114,12 +117,7 @@ describe('F5 foldTodos', () => {
     nextSeq = 1
     const events = [
       ev('todo/write', {
-        todos: [
-          todo('好的', 'pending'),
-          { text: '缺状态' },
-          { text: '坏状态', state: 'done' },
-          { state: 'completed' },
-        ],
+        todos: [todo('好的', 'pending'), { text: '缺状态' }, { text: '坏状态', state: 'done' }, { state: 'completed' }],
       }),
     ]
     const todos = foldTodos(events)
@@ -137,7 +135,7 @@ describe('F5 构造器 + 校验', () => {
 
     const te = todoWriteEvent({ todos: [todo('a', 'pending')] })
     expect(te.type).toBe('todo/write')
-    expect((te.data['todos'] as Todo[])).toHaveLength(1)
+    expect(te.data['todos'] as Todo[]).toHaveLength(1)
   })
 
   it('validateEventStream：合法 goal/todo 通过；非法 operation / 缺快照 / 坏条目报问题', () => {

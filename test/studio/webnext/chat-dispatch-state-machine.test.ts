@@ -32,7 +32,7 @@ function setup(over?: { bookName?: string | null; gen?: number }) {
   const errorEcho = ref<string | null>(null)
   const notice = ref<string | null>(null)
   const turn = createChatTurnState()
-  const wsBookName = vi.fn((): string | null => over?.bookName === undefined ? '书A' : over.bookName)
+  const wsBookName = vi.fn((): string | null => (over?.bookName === undefined ? '书A' : over.bookName))
   const refreshBranches = vi.fn()
   const currentGen = vi.fn(() => over?.gen ?? 7)
   const d = createChatDispatch({

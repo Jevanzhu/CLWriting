@@ -69,7 +69,12 @@ test('R37-16: 未改章第二次 rebuild 命中指纹缓存，改章新内容生
   expect(firstCounts.get(2)).toBeGreaterThan(0)
 
   // 改第 1 章正文（更长内容 → word_count 必变）；显式推 mtime 防同毫秒指纹碰撞
-  writeChapter(join(root, '写作', '正文'), 1, '初雪', '北境下了三天三夜的雪，林晚在城头远眺，想起当年旧事，心中百感交集，久久不能平息。')
+  writeChapter(
+    join(root, '写作', '正文'),
+    1,
+    '初雪',
+    '北境下了三天三夜的雪，林晚在城头远眺，想起当年旧事，心中百感交集，久久不能平息。',
+  )
   const later = new Date(Date.now() + 60_000)
   utimesSync(ch1, later, later)
 

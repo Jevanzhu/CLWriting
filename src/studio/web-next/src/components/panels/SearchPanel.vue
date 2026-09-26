@@ -116,13 +116,7 @@ async function open(path: string): Promise<void> {
   <div class="search-panel">
     <div class="side-title">搜索</div>
     <div class="search-input">
-      <input
-        v-model="q"
-        type="search"
-        placeholder="全书搜索…"
-        aria-label="全书搜索"
-        @keydown.enter="onEnterKey"
-      />
+      <input v-model="q" type="search" placeholder="全书搜索…" aria-label="全书搜索" @keydown.enter="onEnterKey" />
       <select v-model="scope" aria-label="搜索范围" @change="run">
         <option v-for="s in SCOPES" :key="s.v" :value="s.v">{{ s.label }}</option>
       </select>
@@ -148,11 +142,7 @@ async function open(path: string): Promise<void> {
           <div class="result-path">{{ hit.path }}</div>
           <!-- ：命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
             行号在单文件命中列表内唯一；原索引 key 在结果更新时错位复用 DOM -->
-          <div
-            v-for="m in hit.matches.slice(0, 3)"
-            :key="m.line"
-            class="result-line"
-          >
+          <div v-for="m in hit.matches.slice(0, 3)" :key="m.line" class="result-line">
             <span class="ln">{{ m.line }}</span>
             <span class="text">{{ m.text }}</span>
           </div>

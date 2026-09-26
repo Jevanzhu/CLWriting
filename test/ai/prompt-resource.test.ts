@@ -45,7 +45,10 @@ const NAMES = [
 
 describe('C2 一致性（离线重算）', () => {
   it('versions.json：每键有文件、末位哈希 = 当前文件哈希（内容哈希版本戳不失真）', () => {
-    const versions = JSON.parse(readFileSync(bundledResource('prompts', 'versions.json'), 'utf8')) as Record<string, string[]>
+    const versions = JSON.parse(readFileSync(bundledResource('prompts', 'versions.json'), 'utf8')) as Record<
+      string,
+      string[]
+    >
     expect(Object.keys(versions).sort()).toEqual(NAMES.map((n) => `${n}.md`).sort())
     for (const [file, hashes] of Object.entries(versions)) {
       const raw = readFileSync(bundledResource('prompts', file), 'utf8')
@@ -94,7 +97,9 @@ describe('C2 overlay 解析', () => {
       mkdirSync(overlayPath(ud, 'writer-long')) // 路径被目录占位：exists ✓ / read ✗
       // resolvePrompt：抛错须含「用户覆盖」+ overlay 路径（可定位），且确实抛（fail-fast 保留）
       expect(() => resolvePrompt('writer-long', ud)).toThrow(/用户覆盖/)
-      expect(() => resolvePrompt('writer-long', ud)).toThrow(new RegExp(overlayPath(ud, 'writer-long').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      expect(() => resolvePrompt('writer-long', ud)).toThrow(
+        new RegExp(overlayPath(ud, 'writer-long').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      )
       // resolveBuiltinSystemPromptSourced（runSpec 同款入口）：同款收编
       const builtin = loadBuiltinPrompt('writer-long')
       expect(() => resolveBuiltinSystemPromptSourced(builtin.text, ud)).toThrow(/用户覆盖/)

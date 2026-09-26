@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -16,7 +16,11 @@
         align-items: center;
         justify-content: center;
         gap: 14px;
-        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
         color: #6b7280;
         background: #fafafa;
       }
@@ -29,11 +33,19 @@
         animation: boot-spin 0.9s linear infinite;
       }
       @keyframes boot-spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
       @media (prefers-color-scheme: dark) {
-        #boot-shell { background: #17171a; color: #9ca3af; }
-        #boot-shell .boot-spinner { border-color: #3f3f46; border-top-color: #818cf8; }
+        #boot-shell {
+          background: #17171a;
+          color: #9ca3af;
+        }
+        #boot-shell .boot-spinner {
+          border-color: #3f3f46;
+          border-top-color: #818cf8;
+        }
       }
     </style>
   </head>

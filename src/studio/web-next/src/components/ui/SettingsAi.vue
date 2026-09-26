@@ -31,24 +31,64 @@ function onGlobalCallsInput(e: Event): void {
   <div class="settings-tab">
     <div class="cfg-card-head">AI 对话 <BetaBadge /></div>
     <section class="cfg-card">
-      <SettingToggle name="对话助手" desc="在工作台显示对话面板，可与 AI 讨论剧情、机检章节" ariaLabel="对话助手" :checked="prefs.get('chatEnabled')" @change="prefs.set('chatEnabled', $event)" />
+      <SettingToggle
+        name="对话助手"
+        desc="在工作台显示对话面板，可与 AI 讨论剧情、机检章节"
+        ariaLabel="对话助手"
+        :checked="prefs.get('chatEnabled')"
+        @change="prefs.set('chatEnabled', $event)"
+      />
     </section>
 
     <div class="cfg-card-head">AI 写作 <BetaBadge /></div>
     <section class="cfg-card">
       <SettingItem name="文风注入" desc="AI 写正文时遵循文风铁律的强度（所有书统一）">
         <div class="seg">
-          <button :class="{ on: prefs.get('styleInjection') === 'light' }" @click="prefs.set('styleInjection', 'light')">轻</button>
-          <button :class="{ on: prefs.get('styleInjection') === 'heavy' }" @click="prefs.set('styleInjection', 'heavy')">重</button>
+          <button
+            :class="{ on: prefs.get('styleInjection') === 'light' }"
+            @click="prefs.set('styleInjection', 'light')"
+          >
+            轻
+          </button>
+          <button
+            :class="{ on: prefs.get('styleInjection') === 'heavy' }"
+            @click="prefs.set('styleInjection', 'heavy')"
+          >
+            重
+          </button>
         </div>
       </SettingItem>
-      <SettingToggle name="自动确认细纲" desc="AI 生成细纲后自动确认，无需手动点确认（所有书统一）" ariaLabel="自动确认细纲（全局默认）" :checked="prefs.get('autoConfirmOutline')" @change="prefs.set('autoConfirmOutline', $event)" />
+      <SettingToggle
+        name="自动确认细纲"
+        desc="AI 生成细纲后自动确认，无需手动点确认（所有书统一）"
+        ariaLabel="自动确认细纲（全局默认）"
+        :checked="prefs.get('autoConfirmOutline')"
+        @change="prefs.set('autoConfirmOutline', $event)"
+      />
       <SettingItem name="批量写作章数" desc="一次自动写作流程连续写的章数，中途红项触顶会停在当前章（所有书统一）">
-        <input class="num-input" type="number" min="1" max="20" step="1" aria-label="批量写作章数（全局默认）" :value="prefs.get('aiBatchSize')" @change="onGlobalBatchInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="1"
+          max="20"
+          step="1"
+          aria-label="批量写作章数（全局默认）"
+          :value="prefs.get('aiBatchSize')"
+          @change="onGlobalBatchInput($event)"
+        />
         <span class="val-suffix">章</span>
       </SettingItem>
       <SettingItem name="单章调用上限" desc="每章 AI 辅助的最大调用次数，防止成本失控（所有书统一）">
-        <input class="num-input" type="number" min="1" max="50" step="1" aria-label="单章调用上限（全局默认）" :value="prefs.get('callsPerChapter')" @change="onGlobalCallsInput($event)" />
+        <input
+          class="num-input"
+          type="number"
+          min="1"
+          max="50"
+          step="1"
+          aria-label="单章调用上限（全局默认）"
+          :value="prefs.get('callsPerChapter')"
+          @change="onGlobalCallsInput($event)"
+        />
         <span class="val-suffix">次</span>
       </SettingItem>
     </section>

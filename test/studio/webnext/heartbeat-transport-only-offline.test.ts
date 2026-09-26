@@ -19,7 +19,11 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   getToken: tokenMock,
 }))
 
-import { useHeartbeat, serverOnline, heartbeatFailStreak } from '../../../src/studio/web-next/src/composables/useHeartbeat'
+import {
+  useHeartbeat,
+  serverOnline,
+  heartbeatFailStreak,
+} from '../../../src/studio/web-next/src/composables/useHeartbeat'
 
 /** 挂一个调用 useHeartbeat 的组件（沿 heartbeat-lifecycle 手法） */
 function mountHeartbeat(bookName: Ref<string | null>) {

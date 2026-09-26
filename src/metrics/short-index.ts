@@ -253,7 +253,9 @@ export function formatShortSubmissionView(
   lines.push('| 章号 | 标题 | 字数 | 情绪 | 反转类型 | 结尾味道 | 一句卖点 |')
   lines.push('| --- | --- | ---: | --- | --- | --- | --- |')
   for (const item of items) {
-    lines.push(`| ${String(item.num).padStart(3, '0')} | ${escapeTable(item.title)} | ${item.words} | ${escapeTable(item.targetEmotion)} | ${escapeTable(item.reversalType)} | ${escapeTable(item.endingFlavor)} | ${escapeTable(item.pitch)} |`)
+    lines.push(
+      `| ${String(item.num).padStart(3, '0')} | ${escapeTable(item.title)} | ${item.words} | ${escapeTable(item.targetEmotion)} | ${escapeTable(item.reversalType)} | ${escapeTable(item.endingFlavor)} | ${escapeTable(item.pitch)} |`,
+    )
   }
   lines.push('')
   lines.push('## 策划分布')
@@ -272,7 +274,10 @@ function readListIfExists(path: string): PieceList | null {
   // 静默 null——reversalQuality/结构物件会被系统性低估且零痕迹；warn 口径对齐
   // check/runner.ts 黄项（健康报告降级语义本身保留：扫描器不阻断）。
   if (!r.ok) {
-    log.warn('metrics', `短篇章纲 ${basename(path)} 读取失败（${r.error.message}），本篇反转质量/结构物件按无章纲计（评估系统性低估）`)
+    log.warn(
+      'metrics',
+      `短篇章纲 ${basename(path)} 读取失败（${r.error.message}），本篇反转质量/结构物件按无章纲计（评估系统性低估）`,
+    )
     return null
   }
   return r.list
@@ -280,10 +285,7 @@ function readListIfExists(path: string): PieceList | null {
 
 function collectStructureObjects(list: PieceList | null): string[] {
   if (!list) return []
-  const raw = [
-    ...list.伏笔回收.map((p) => p.伏笔),
-    ...list.反转线索表.铺垫点.map((p) => p.内容),
-  ]
+  const raw = [...list.伏笔回收.map((p) => p.伏笔), ...list.反转线索表.铺垫点.map((p) => p.内容)]
   const objects = raw.map(extractObject).filter((v) => v.length > 0)
   return [...new Set(objects)].slice(0, 6)
 }
@@ -317,7 +319,8 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null, body
   if (uniqueSetupCount < 3) issues.push(`有效铺垫点 ${uniqueSetupCount}/3，不足以支撑公平反转`)
   if (anchors.length > 0) {
     score += Math.min(10, anchoredSetupCount * 3)
-    if (anchoredSetupCount < Math.min(3, realSetups.length)) issues.push(`铺垫正文锚点 ${anchoredSetupCount}/${realSetups.length}，位置回指不足`)
+    if (anchoredSetupCount < Math.min(3, realSetups.length))
+      issues.push(`铺垫正文锚点 ${anchoredSetupCount}/${realSetups.length}，位置回指不足`)
   } else if (realSetups.length > 0) {
     score += 4
     issues.push('正文缺少 ## 段落锚点，铺垫位置只能做弱校验')
@@ -414,8 +417,10 @@ function analyzePlatformProfile(
   const planning = analyzePlanningView(entries)
   const avgWords = avg(entries.map((entry) => entry.wordCount))
   const weakReversals = entries.filter((entry) => entry.reversalQuality.grade === '弱').length
-  if (entries.length > 0 && avgWords > (config.word_max ?? 20000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆章或压缩铺陈。`)
-  if (entries.length > 0 && avgWords < (config.word_min ?? 8000)) notes.push(`平均字数 ${avgWords.toFixed(0)} 低于画像下限，反转前因后果可能偏薄。`)
+  if (entries.length > 0 && avgWords > (config.word_max ?? 20000))
+    notes.push(`平均字数 ${avgWords.toFixed(0)} 超过画像上限，适合拆章或压缩铺陈。`)
+  if (entries.length > 0 && avgWords < (config.word_min ?? 8000))
+    notes.push(`平均字数 ${avgWords.toFixed(0)} 低于画像下限，反转前因后果可能偏薄。`)
   if (weakReversals > 0) notes.push(`${weakReversals} 章反转质量偏弱，优先补铺垫/回收/峰值。`)
   if (notes.length === 0) notes.push('当前样本与画像约束基本贴合，可继续观察分布重复。')
   return {
@@ -465,24 +470,29 @@ function analyzePlanningView(entries: ShortPieceIndexEntry[]): ShortPlanningView
 
 function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) => string): DistributionItem[] {
   const grouped = groupBy(items, (item) => normalize(valueOf(item)))
-  return [...grouped.entries()]
-    .map(([_, group]) => ({
-      value: cleanValue(valueOf(group[0]!)) || '未知',
-      count: group.length,
-      pieces: [...new Set(group.map((item) => item.num))],
-    }))
-    .filter((item) => item.value !== '未知')
-    // 四轮-D405：并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
-    // 标签（中英混排），localeCompare 的排序规则随运行环境 ICU/locale 漂移，同 count
-    // 并列时相对序不稳定（先例：version.ts 同款改法）；码元序使并列排序
-    // 稳定且与 locale 无关。
-    .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
-    .slice(0, 5)
+  return (
+    [...grouped.entries()]
+      .map(([_, group]) => ({
+        value: cleanValue(valueOf(group[0]!)) || '未知',
+        count: group.length,
+        pieces: [...new Set(group.map((item) => item.num))],
+      }))
+      .filter((item) => item.value !== '未知')
+      // 四轮-D405：并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
+      // 标签（中英混排），localeCompare 的排序规则随运行环境 ICU/locale 漂移，同 count
+      // 并列时相对序不稳定（先例：version.ts 同款改法）；码元序使并列排序
+      // 稳定且与 locale 无关。
+      .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+      .slice(0, 5)
+  )
 }
 
 function formatDistribution(items: DistributionItem[]): string {
   if (items.length === 0) return '暂无'
-  return items.slice(0, 3).map((item) => `${item.value}×${item.count}`).join(' / ')
+  return items
+    .slice(0, 3)
+    .map((item) => `${item.value}×${item.count}`)
+    .join(' / ')
 }
 
 function missingTargets(distributionItems: DistributionItem[], targets: string[]): string[] {
@@ -523,12 +533,14 @@ function recentRepeatRisks(
   const values = recent.map((entry) => entry[field]).filter((v) => v.length > 0 && v !== '未知')
   if (values.length !== 3) return []
   if (new Set(values).size !== 1) return []
-  return [{
-    kind: 'recent-repeat',
-    field,
-    message: `最近 3 章${label}都为「${values[0]}」`,
-    pieces: recent.map((entry) => entry.num),
-  }]
+  return [
+    {
+      kind: 'recent-repeat',
+      field,
+      message: `最近 3 章${label}都为「${values[0]}」`,
+      pieces: recent.map((entry) => entry.num),
+    },
+  ]
 }
 
 function collectionRepeatRisk(
@@ -608,7 +620,10 @@ function cleanValue(value: string | undefined): string {
 }
 
 function normalize(value: string): string {
-  return value.replace(/\s+/g, '').replace(/[，。！？、；：:「」"'（）()]/g, '').trim()
+  return value
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：:「」"'（）()]/g, '')
+    .trim()
 }
 
 function isPlaceholder(value: string | undefined): boolean {
@@ -624,4 +639,3 @@ function avg(nums: number[]): number {
   if (nums.length === 0) return 0
   return nums.reduce((sum, n) => sum + n, 0) / nums.length
 }
-

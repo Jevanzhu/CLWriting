@@ -51,16 +51,16 @@ export interface SearchMatch {
 
 export interface SearchHit {
   /** 相对 bookRoot 的路径（正斜杠） */
-  path: string;
-  matches: SearchMatch[];
+  path: string
+  matches: SearchMatch[]
   /** 该文件命中总数超过单文件上限（20）——matches 为截断视图，
    *  UI 可据此提示「仅显示前 20 处」（此前截断静默无提示） */
-  hasMore?: boolean;
+  hasMore?: boolean
 }
 
 export interface SearchOutcome {
-  results: SearchHit[];
-  truncated?: boolean;
+  results: SearchHit[]
+  truncated?: boolean
 }
 
 /** bookRoot 归一化——去尾部路径分隔符；根形态（'/'、'C:\'、空串）原样返回，

@@ -46,11 +46,7 @@ describe('SaveQueue', () => {
       active--
       return 'ok'
     }
-    await Promise.all([
-      q.enqueue({ docId: 'a', run }),
-      q.enqueue({ docId: 'b', run }),
-      q.enqueue({ docId: 'c', run }),
-    ])
+    await Promise.all([q.enqueue({ docId: 'a', run }), q.enqueue({ docId: 'b', run }), q.enqueue({ docId: 'c', run })])
     expect(maxActive).toBe(3)
   })
 
@@ -79,9 +75,12 @@ describe('SaveQueue', () => {
 
   it('run 抛错：reject 且不阻断后续请求', async () => {
     const q = new SaveQueue<string>()
-    const p1 = q.enqueue({ docId: 'd', run: async () => {
-      throw new Error('boom')
-    } })
+    const p1 = q.enqueue({
+      docId: 'd',
+      run: async () => {
+        throw new Error('boom')
+      },
+    })
     const p2 = q.enqueue({ docId: 'd', run: async () => 'after' })
     await expect(p1).rejects.toThrow('boom')
     const r2 = await p2
@@ -105,7 +104,9 @@ describe('SaveQueue / P-3（第十四轮）条目回收', () => {
   it('多 docId 并存时只回收已排空者；在跑/排队中的保留', async () => {
     const q = new SaveQueue<string>()
     let resolveA!: (v: string) => void
-    const pendingA = new Promise<string>((r) => { resolveA = r })
+    const pendingA = new Promise<string>((r) => {
+      resolveA = r
+    })
     const p1 = q.enqueue({ docId: 'a', run: () => pendingA })
     const pb = await q.enqueue({ docId: 'b', run: async () => 'done-b' })
     expect(pb.result).toBe('done-b')

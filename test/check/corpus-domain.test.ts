@@ -49,13 +49,19 @@ function makeBook(chapters: number, opts: { wiring?: boolean; leakFm?: string } 
   }
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 语料测试书\nhost: cc\nleads:\n  enabled: []\n')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 语料测试书\nhost: cc\nleads:\n  enabled: []\n',
+  )
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   for (let no = 1; no <= chapters; no++) {
     const pad = String(no).padStart(3, '0')
     const p = join(root, '写作', '正文', `${pad}-第${no}章.md`)
-    writeFileSync(p, `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。她的眼睛望着他，眼睛里映着火光，眼睛发烫，眼睛深处藏着话，那双眼睛像星火。\n`)
+    writeFileSync(
+      p,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。她的眼睛望着他，眼睛里映着火光，眼睛发烫，眼睛深处藏着话，那双眼睛像星火。\n`,
+    )
     upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
   }
   writeManifest(manifestPath, m)
@@ -120,7 +126,10 @@ describe('B1 误报标记端点', () => {
   it('POST check-false-positive：事件落库（服务端切 excerpt ±50）、无命中 409、重复幂等', async () => {
     const workDir = tmpDir('clw-fp-wd-')
     mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-    writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '语料测试书', path: '语料测试书', kind: 'long' }) + '\n')
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: '语料测试书', path: '语料测试书', kind: 'long' }) + '\n',
+    )
     const bookRoot = makeBook(1)
     // workDir 下建同名书目录链接式布局：直接把书放进 workDir
     rmSync(join(workDir, '语料测试书'), { recursive: true, force: true })
@@ -190,10 +199,15 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     const docId = docIdOf(root, '001-第1章.md')
     const versionsDir = join(root, '工作区', VERSIONS_DIR_NAME)
     // 版本 A（旧稿）：身体部位词堆砌（眼睛×6）
-    writeVersion(versionsDir, docId, '她的眼睛望着他，眼睛里映着火光，眼睛发烫，眼睛深处藏着话，那双眼睛像星火，眼睛之外再无他物。\n', {
-      origin: 'ai-draft',
-      reason: '旧稿',
-    })
+    writeVersion(
+      versionsDir,
+      docId,
+      '她的眼睛望着他，眼睛里映着火光，眼睛发烫，眼睛深处藏着话，那双眼睛像星火，眼睛之外再无他物。\n',
+      {
+        origin: 'ai-draft',
+        reason: '旧稿',
+      },
+    )
     // 定稿正文把「眼睛」清理成 1 次 → 该命中「被改掉」⇒ 命中候选
     writeFileSync(
       join(root, '写作', '正文', '001-第1章.md'),
@@ -261,7 +275,8 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     expect(entries2.length).toBe(entries.length)
   })
 
-  it('幸存者基准锚定 pinned finalize 版本——正文文件定稿后再改不改变判定', () => {    // 原实现拿现行正文文件当定稿基准：定稿后作者继续起草（命中词又被改掉）会把
+  it('幸存者基准锚定 pinned finalize 版本——正文文件定稿后再改不改变判定', () => {
+    // 原实现拿现行正文文件当定稿基准：定稿后作者继续起草（命中词又被改掉）会把
     // 「定稿时幸存」误判成「被作者改掉」。基准应是最后一次定稿内容（pinned
     // finalize 版本），从未定稿才退化为现行文件。
     const root = makeBook(1)

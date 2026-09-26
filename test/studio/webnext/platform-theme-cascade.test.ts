@@ -16,8 +16,15 @@ import { fileURLToPath } from 'node:url'
 
 const cssPath = join(
   dirname(fileURLToPath(import.meta.url)),
-  '..', '..', '..',
-  'src', 'studio', 'web-next', 'src', 'styles', 'tokens.css',
+  '..',
+  '..',
+  '..',
+  'src',
+  'studio',
+  'web-next',
+  'src',
+  'styles',
+  'tokens.css',
 )
 const css = readFileSync(cssPath, 'utf-8')
 

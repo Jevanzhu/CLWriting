@@ -30,9 +30,10 @@ function completedEvent(): unknown {
 }
 
 /** 假 Responses SDK 客户端：c.responses.create 形状（fakeSend 同款手法 + 入参捕获 + 按调用序可抛） */
-function fakeResponsesClient(
-  handle: (params: unknown, call: number) => unknown[],
-): { client: OpenAI; params: Record<string, unknown>[] } {
+function fakeResponsesClient(handle: (params: unknown, call: number) => unknown[]): {
+  client: OpenAI
+  params: Record<string, unknown>[]
+} {
   const params: Record<string, unknown>[] = []
   let call = 0
   const client = {
@@ -146,7 +147,10 @@ describe('Responses 适配器（R1-R4）', () => {
   // C103 对照组：正常流已 yield 过 tool（output_item.done 臂）→ completed 回填不重复
   it('C103 正常流 tool 已产出 → completed 不重复回填', async () => {
     const { client } = fakeResponsesClient(() => [
-      { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_y', name: 'toolA', arguments: '{"a":1}' } },
+      {
+        type: 'response.output_item.done',
+        item: { type: 'function_call', call_id: 'call_y', name: 'toolA', arguments: '{"a":1}' },
+      },
       {
         type: 'response.completed',
         response: {
@@ -237,15 +241,12 @@ describe('Responses 适配器（R1-R4）', () => {
   it('T9 tool_choice：gpt any→required / tool→指名；deepseek tool→required', async () => {
     const mk = async (model: string, toolChoice: 'any' | 'tool', toolName?: string): Promise<unknown> => {
       const { client, params } = fakeResponsesClient(() => [completedEvent()])
-      await collect(
-        createOpenAIResponsesProvider({ ...RCONF, model }, client),
-        {
-          ...REQ,
-          toolChoice,
-          ...(toolName ? { toolName } : {}),
-          tools: [{ name: 'submit_chapter', description: '交章', input_schema: { type: 'object', properties: {} } }],
-        },
-      )
+      await collect(createOpenAIResponsesProvider({ ...RCONF, model }, client), {
+        ...REQ,
+        toolChoice,
+        ...(toolName ? { toolName } : {}),
+        tools: [{ name: 'submit_chapter', description: '交章', input_schema: { type: 'object', properties: {} } }],
+      })
       return params[0]!['tool_choice']
     }
     expect(await mk('gpt-5', 'any')).toBe('required')
@@ -331,16 +332,13 @@ describe('Responses 适配器（R1-R4）', () => {
       if (call === 1) {
         throw new OpenAI.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
       }
-      return [
-        { type: 'response.output_text.delta', delta: 'ok' },
-        completedEvent(),
-      ]
+      return [{ type: 'response.output_text.delta', delta: 'ok' }, completedEvent()]
     })
     const store = emptyResponsesStore()
-    const evs = await collect(
-      createOpenAIResponsesProvider(RCONF, client, store),
-      { ...REQ, structured: { schema: { type: 'object' } } },
-    )
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client, store), {
+      ...REQ,
+      structured: { schema: { type: 'object' } },
+    })
     expect(params).toHaveLength(2)
     expect('text' in params[0]!).toBe(true) // 首发 gpt（json_schema 档）带 text.format
     expect('text' in params[1]!).toBe(false) // 降级剥除 structured
@@ -360,7 +358,12 @@ describe('Responses 适配器（R1-R4）', () => {
           calls += 1
           return (async function* () {
             yield { type: 'response.output_text.delta', delta: '半截' }
-            throw new OpenAI.APIError(400, { type: 'error', message: 'mid-stream bad request' }, 'bad request', undefined)
+            throw new OpenAI.APIError(
+              400,
+              { type: 'error', message: 'mid-stream bad request' },
+              'bad request',
+              undefined,
+            )
           })()
         },
       },
@@ -391,11 +394,19 @@ describe('Responses 适配器（R1-R4）', () => {
       return { provider, seen }
     }
     const gpt = capture('gpt-5')
-    await generateTool(gpt.provider, { ...REQ, requireTool: true, toolName: 'submit_chapter' }, new AbortController().signal)
+    await generateTool(
+      gpt.provider,
+      { ...REQ, requireTool: true, toolName: 'submit_chapter' },
+      new AbortController().signal,
+    )
     expect(gpt.seen[0]?.toolChoice).toBe('tool')
 
     const ds = capture('deepseek-v4')
-    await generateTool(ds.provider, { ...REQ, requireTool: true, toolName: 'submit_chapter' }, new AbortController().signal)
+    await generateTool(
+      ds.provider,
+      { ...REQ, requireTool: true, toolName: 'submit_chapter' },
+      new AbortController().signal,
+    )
     expect(ds.seen[0]?.toolChoice).toBe('any')
   })
 
@@ -429,7 +440,10 @@ describe('Responses 适配器（R1-R4）', () => {
       fcDone('fc_2', 'call_2', 'toolB'),
       {
         type: 'response.completed',
-        response: { output: [{ type: 'function_call' }, { type: 'function_call' }], usage: { input_tokens: 1, output_tokens: 1 } },
+        response: {
+          output: [{ type: 'function_call' }, { type: 'function_call' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
       },
     ])
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)

@@ -29,7 +29,11 @@ test('kind: 无 kind 字段 → config.kind 为 undefined（缺省 = long）', (
 test('kind: 显式 short → config.kind = short', () => {
   const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
-    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: short\n\nbook:\n  title: 集\n  genre: 悬疑\n', 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      'spec_version: 1\nkind: short\n\nbook:\n  title: 集\n  genre: 悬疑\n',
+      'utf-8',
+    )
     const r = readBookConfig(join(root, 'book.yaml'))
     expect(r.ok).toBe(true)
     expect(r.config.kind).toBe('short')
@@ -41,7 +45,11 @@ test('kind: 显式 short → config.kind = short', () => {
 test('kind: 坏值（kind: middle）→ 忽略，config.kind 为 undefined', () => {
   const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
-    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: middle\n\nbook:\n  title: 集\n  genre: 悬疑\n', 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      'spec_version: 1\nkind: middle\n\nbook:\n  title: 集\n  genre: 悬疑\n',
+      'utf-8',
+    )
     const r = readBookConfig(join(root, 'book.yaml'))
     expect(r.ok).toBe(true)
     expect(r.config.kind).toBeUndefined() // 非法值忽略
@@ -115,7 +123,11 @@ test('short.strict: 短篇严格模式可读写，长篇不输出 short 段', ()
     const back = readBookConfig(join(root, 'book.yaml')).config
     expect(back.short?.strict).toBe(true)
 
-    const longYaml = stringifyBookConfig({ ...DEFAULT_CONFIG, short: { strict: true }, book: { title: '长', genre: '玄幻' } })
+    const longYaml = stringifyBookConfig({
+      ...DEFAULT_CONFIG,
+      short: { strict: true },
+      book: { title: '长', genre: '玄幻' },
+    })
     expect(longYaml).not.toContain('short:')
   } finally {
     rmSync(root, { recursive: true, force: true })

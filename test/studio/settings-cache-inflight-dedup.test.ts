@@ -81,14 +81,8 @@ describe('0918独立重评修复批 D001：settings/completion-names 并发 MISS
     const root = freshBookRoot()
     mkdirSync(join(root, '设定', '角色'), { recursive: true })
     mkdirSync(join(root, '设定', '物品'), { recursive: true })
-    writeFileSync(
-      join(root, '设定', '角色', '林远.md'),
-      '---\n姓名: 林远\n身份: 主角\n---\n正文。',
-    )
-    writeFileSync(
-      join(root, '设定', '物品', '红伞.md'),
-      '---\n名称: 红伞\n---\n道具。',
-    )
+    writeFileSync(join(root, '设定', '角色', '林远.md'), '---\n姓名: 林远\n身份: 主角\n---\n正文。')
+    writeFileSync(join(root, '设定', '物品', '红伞.md'), '---\n名称: 红伞\n---\n道具。')
     const [a, b] = await Promise.all([getCompletionNamesCached(root), getCompletionNamesCached(root)])
     expect(completionNamesCache.stats().misses).toBe(1)
     expect(a).toEqual({ characters: ['林远'], items: ['红伞'] })

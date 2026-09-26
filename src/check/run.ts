@@ -37,9 +37,4 @@ export {
   checkOutcomeStatus,
 } from './run-single-doc.js'
 
-export type {
-  CheckOutcome,
-  OpenCheckDbOpts,
-  OpenCheckDbResult,
-  BatchCheckContext,
-} from './run-single-doc.js'
+export type { CheckOutcome, OpenCheckDbOpts, OpenCheckDbResult, BatchCheckContext } from './run-single-doc.js'

@@ -29,7 +29,11 @@ function makeBook(): string {
 
 /** 写 manifest + 资产文件（target: content）；readKnowledgeManifest 只 parse 不校验字段，
  *  条目补最小合法形状（source/license/sha256）走生产同构形状 */
-function seedKnowledge(bookRoot: string, files: Record<string, string>, entries: Array<{ target: string; category?: string }>): void {
+function seedKnowledge(
+  bookRoot: string,
+  files: Record<string, string>,
+  entries: Array<{ target: string; category?: string }>,
+): void {
   for (const [target, content] of Object.entries(files)) {
     const abs = join(bookRoot, target)
     mkdirSync(join(abs, '..'), { recursive: true })
@@ -114,7 +118,9 @@ describe('知识层方法论注入（buildChatContext）', () => {
     // 1999 BMP 码点 + astral 𝄞（U+1D11E，UTF-16 占 2 码元）+ 1 BMP：
     // 码元口径 slice(0,2000) 恰把 𝄞 劈半产出孤立高代理；码点口径截断保头 2000 码点含完整 𝄞
     const long = '好'.repeat(1999) + '\u{1D11E}' + '尾'
-    seedKnowledge(root, { '知识层/方法论/含表情.md': long }, [{ target: '知识层/方法论/含表情.md', category: '方法论' }])
+    seedKnowledge(root, { '知识层/方法论/含表情.md': long }, [
+      { target: '知识层/方法论/含表情.md', category: '方法论' },
+    ])
     const ctx = buildChatContext(root)
     expect(ctx.knowledge).toBeDefined()
     expect(ctx.knowledge).toContain('…（超长截断）')
@@ -123,15 +129,12 @@ describe('知识层方法论注入（buildChatContext）', () => {
     expect(lone.test(ctx.knowledge!), '不得有孤立代理项').toBe(false)
   })
 
-  it('防越界 fail-closed：target 越出书根跳过，不注入也不崩', () => {    const root = makeBook()
-    seedKnowledge(
-      root,
-      { '知识层/方法论/合法.md': '合法资产。' },
-      [
-        { target: '../逃逸.md', category: '方法论' },
-        { target: '知识层/方法论/合法.md', category: '方法论' },
-      ],
-    )
+  it('防越界 fail-closed：target 越出书根跳过，不注入也不崩', () => {
+    const root = makeBook()
+    seedKnowledge(root, { '知识层/方法论/合法.md': '合法资产。' }, [
+      { target: '../逃逸.md', category: '方法论' },
+      { target: '知识层/方法论/合法.md', category: '方法论' },
+    ])
     const ctx = buildChatContext(root)
     expect(ctx.knowledge).toBeDefined()
     expect(ctx.knowledge).toContain('合法资产')
@@ -143,7 +146,9 @@ describe('知识层方法论注入（buildChatContext）', () => {
     expect(buildChatContext(bare).knowledge).toBeUndefined()
 
     const noMethod = makeBook()
-    seedKnowledge(noMethod, { '知识层/题材/都市.md': '都市题材。' }, [{ target: '知识层/题材/都市.md', category: '题材' }])
+    seedKnowledge(noMethod, { '知识层/题材/都市.md': '都市题材。' }, [
+      { target: '知识层/题材/都市.md', category: '题材' },
+    ])
     expect(buildChatContext(noMethod).knowledge).toBeUndefined()
 
     const missing = makeBook()

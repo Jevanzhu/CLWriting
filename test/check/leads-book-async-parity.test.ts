@@ -65,9 +65,7 @@ function makeBook(chapters: number, historyEntries: number, evidenceInCh2: boole
     const pad = String(no).padStart(3, '0')
     const rel = `写作/正文/${pad}-第${no}章.md`
     const body =
-      no === 2 && evidenceInCh2
-        ? `夜色里，${EVIDENCE}忽然亮了一下。\n`
-        : `第${no}章的叙述文本，山门外落了整夜的雨。\n`
+      no === 2 && evidenceInCh2 ? `夜色里，${EVIDENCE}忽然亮了一下。\n` : `第${no}章的叙述文本，山门外落了整夜的雨。\n`
     writeFileSync(
       join(root, rel),
       `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}`,
@@ -77,7 +75,10 @@ function makeBook(chapters: number, historyEntries: number, evidenceInCh2: boole
     // 末章定稿：manifest 基线 = 当前内容指纹 → deriveStatus 判 final，maxWrittenChapterOf 取末章
     if (no === chapters) {
       entry.finalizedRevision =
-        'sha256:' + createHash('sha256').update(readFileSync(join(root, rel))).digest('hex')
+        'sha256:' +
+        createHash('sha256')
+          .update(readFileSync(join(root, rel)))
+          .digest('hex')
     }
     upsertEntry(m, entry)
   }

@@ -30,7 +30,11 @@ export function httpStatusToCode(status: number | undefined, message: string): G
     // 同款收紧补漏——裸备选 "too long" 会把 "stop sequence too
     // long"/"name too long" 等请求组装类 400 误归超窗（接线自动缩输入后将错触发
     // 缩窗）；收敛为 prompt/input too long 级短语
-    if (/context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|input too long|token.{0,24}(limit|maximum|exceed)/i.test(message)) {
+    if (
+      /context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|input too long|token.{0,24}(limit|maximum|exceed)/i.test(
+        message,
+      )
+    ) {
       return 'CONTEXT_WINDOW_EXCEEDED'
     }
     return 'BAD_REQUEST'
@@ -68,8 +72,7 @@ function headerValue(headers: unknown, name: string): string | undefined {
 /** SDK 错误的 headers → {retryAfterMs?, requestId?}（展开进 error 事件用） */
 export function headerErrorFields(headers: unknown): { retryAfterMs?: number; requestId?: string } {
   const retryAfter = parseRetryAfterMs(headerValue(headers, 'retry-after'))
-  const requestId =
-    headerValue(headers, 'x-request-id') ?? headerValue(headers, 'request-id')
+  const requestId = headerValue(headers, 'x-request-id') ?? headerValue(headers, 'request-id')
   return {
     ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}),
     ...(requestId !== undefined && requestId !== '' ? { requestId } : {}),

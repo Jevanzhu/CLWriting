@@ -102,7 +102,13 @@ describe('低-2（第十轮）：存草稿在途切书 → B 书工作台不残�
   it('未切书 → 守卫不误伤：徽标照常显示「N 字已存」', async () => {
     const wb = useWorkbenchStore()
     wb.textOut = '正文若干字'
-    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+    streamMocks.saveDraft.mockResolvedValue({
+      ok: true,
+      path: '写作/正文/0003-x.md',
+      words: 5,
+      docId: 'doc_9',
+      snapshotted: false,
+    })
 
     const wrapper = mount(WorkbenchView, {
       props: { bookName: '书A' },
@@ -130,7 +136,13 @@ describe('低-2（第十轮）：存草稿在途切书 → B 书工作台不残�
     const ws = useWorkspaceStore()
     const openTabSpy = vi.spyOn(ws, 'openTab').mockImplementation(() => {})
     wb.textOut = '正文若干字'
-    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+    streamMocks.saveDraft.mockResolvedValue({
+      ok: true,
+      path: '写作/正文/0003-x.md',
+      words: 5,
+      docId: 'doc_9',
+      snapshotted: false,
+    })
     const treeReq = pending<void>()
     vi.spyOn(useTreeStore(), 'load').mockImplementation(() => treeReq.promise)
 
@@ -159,7 +171,13 @@ describe('低-2（第十轮）：存草稿在途切书 → B 书工作台不残�
     const ws = useWorkspaceStore()
     const openTabSpy = vi.spyOn(ws, 'openTab').mockImplementation(() => {})
     wb.textOut = '正文若干字'
-    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+    streamMocks.saveDraft.mockResolvedValue({
+      ok: true,
+      path: '写作/正文/0003-x.md',
+      words: 5,
+      docId: 'doc_9',
+      snapshotted: false,
+    })
 
     const wrapper = mount(WorkbenchView, {
       props: { bookName: '书A' },

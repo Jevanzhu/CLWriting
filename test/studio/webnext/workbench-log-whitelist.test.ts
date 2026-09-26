@@ -54,7 +54,10 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', MockES)
   // 鉴权契约②：换票端点统一桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败——不再
   // 回退 ?token= 开连，本文件聚焦日志过滤，给一张有效票让连接链走通）
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+  )
   vi.useFakeTimers()
 })
 
@@ -107,8 +110,7 @@ describe('R30-27: 未知/空 type 事件不进 workbench.log', () => {
     expect(wb.log).toHaveLength(0)
     expect(dbg).toHaveBeenCalledTimes(2)
     // 计数是模块级累计口径（跨 store 实例共享，含前序用例的丢弃）——断言相对递增
-    const countOf = (i: number) =>
-      Number(String(dbg.mock.calls[i]![0]).match(/累计丢弃 (\d+) 条/)?.[1])
+    const countOf = (i: number) => Number(String(dbg.mock.calls[i]![0]).match(/累计丢弃 (\d+) 条/)?.[1])
     expect(countOf(1)).toBe(countOf(0) + 1)
     dbg.mockRestore()
   })

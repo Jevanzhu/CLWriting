@@ -21,14 +21,19 @@ const visibleQuotes = computed(() => {
 })
 // 展开态跨收割重置（#23 同款）：收割跑完（loading 落 false）即清，
 // 新一轮数据回到 100 张上限；commit 后列表收缩不推 loading，展开态保留
-watch(() => learn.loading, (v, old) => {
-  if (old && !v) expanded.value = false
-})
+watch(
+  () => learn.loading,
+  (v, old) => {
+    if (old && !v) expanded.value = false
+  },
+)
 </script>
 
 <template>
   <section v-if="learn.quotes.length" class="sec">
-    <h2 class="sec-title">金句候选 <span class="sec-count">{{ learn.quotes.length }}</span></h2>
+    <h2 class="sec-title">
+      金句候选 <span class="sec-count">{{ learn.quotes.length }}</span>
+    </h2>
     <div class="quote-grid">
       <!-- ：勾选卡片补键盘可达性（原仅 @click，键盘不可达）
            ：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key

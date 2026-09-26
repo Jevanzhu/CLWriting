@@ -24,7 +24,11 @@ const CASES: Array<[string, string[], string]> = [
   ['书A', ['documents', 'batch-finalize'], '/api/books/%E4%B9%A6A/documents/batch-finalize'],
   ['书C', ['trash', 'id-1', 'restore'], '/api/books/%E4%B9%A6C/trash/id-1/restore'],
   // 需编码字符：空格 / 斜杠 / `+&?#`——书名与段各自整值编码（斜杠不当作路径分隔）
-  ['我的 书/名', ['documents', 'd/1', 'content'], '/api/books/%E6%88%91%E7%9A%84%20%E4%B9%A6%2F%E5%90%8D/documents/d%2F1/content'],
+  [
+    '我的 书/名',
+    ['documents', 'd/1', 'content'],
+    '/api/books/%E6%88%91%E7%9A%84%20%E4%B9%A6%2F%E5%90%8D/documents/d%2F1/content',
+  ],
   ['书+&?#', ['file'], '/api/books/%E4%B9%A6%2B%26%3F%23/file'],
   // 空书名照旧编码为空段（不特殊处理——调用方不该传空，口径如实钉住）
   ['', ['trash'], '/api/books//trash'],
@@ -44,10 +48,7 @@ describe('R0916-7-P3-26: bookUrl 书级 URL 单源', () => {
     const files = readdirSync(API_DIR)
       .filter((f) => f.endsWith('.ts') && f !== 'url.ts') // url.ts = 单源本体，模板在它这里
       .map((f) => join(API_DIR, f))
-      .concat([
-        'src/studio/web-next/src/composables/useHeartbeat.ts',
-        'src/studio/web-next/src/composables/useSse.ts',
-      ])
+      .concat(['src/studio/web-next/src/composables/useHeartbeat.ts', 'src/studio/web-next/src/composables/useSse.ts'])
     const offenders: string[] = []
     for (const f of files) {
       const src = readFileSync(f, 'utf8')

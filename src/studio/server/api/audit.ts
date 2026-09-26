@@ -71,7 +71,7 @@ function toPreview(content: string | unknown[]): string {
     return content.length > PREVIEW_MAX ? content.slice(0, PREVIEW_MAX) + '…' : content
   }
   const parts = (content as { type: string; text?: string }[]).map((b) =>
-    b.type === 'text' ? b.text ?? '' : '[' + b.type + ']',
+    b.type === 'text' ? (b.text ?? '') : '[' + b.type + ']',
   )
   const s = parts.join(' ').trim()
   return s.length > PREVIEW_MAX ? s.slice(0, PREVIEW_MAX) + '…' : s
@@ -105,7 +105,13 @@ export async function buildAuditView(
   bookName: string,
   bookRoot: string,
   paging: AuditPaging = { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
-): Promise<{ conversation: AuditConversation | null; workflowEvents: AuditEvent[]; workflowTotal: number; goals: GoalSnapshot[]; todos: Todo[] }> {
+): Promise<{
+  conversation: AuditConversation | null
+  workflowEvents: AuditEvent[]
+  workflowTotal: number
+  goals: GoalSnapshot[]
+  todos: Todo[]
+}> {
   // ── 0918四轮修复批（B402）：全量物化改流式 iterateEvents ──
   // 原两次 store.listEvents 全量物化（含大载荷 llm/call 的 workflow 流逐行 JSON.parse
   // 成对象数组后只取一页）。改单趟流式：只持有①页窗口内条目（≤ limit）与②折叠实需
@@ -158,7 +164,13 @@ export async function buildAuditView(
             .map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: false, preview: toPreview(n.content) }))
         : [],
       humanVisible: firstPage
-        ? nodes.map((n) => ({ seq: n.seq, kind: n.kind, role: n.role, shadowed: n.shadowed, preview: toPreview(n.content) }))
+        ? nodes.map((n) => ({
+            seq: n.seq,
+            kind: n.kind,
+            role: n.role,
+            shadowed: n.shadowed,
+            preview: toPreview(n.content),
+          }))
         : [],
       shadowedCount: nodes.filter((n) => n.shadowed).length,
     }
@@ -224,7 +236,11 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
  * 两行），本函数退为「动作词 → 意图」的薄适配（动作词只剩这两个调用面，故直接判别）。
  * 文案随之统一到矩阵单源（原先各句的字句/尾句差异见矩阵行注释）。
  */
-export function chatClearGateReason(gate: TaskGate, bookName: string, action: '清空对话' | '清除事件史'): string | null {
+export function chatClearGateReason(
+  gate: TaskGate,
+  bookName: string,
+  action: '清空对话' | '清除事件史',
+): string | null {
   return gate.busyReason(bookName, action === '清空对话' ? 'clear-chat' : 'clear-events')
 }
 
@@ -233,47 +249,42 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     method: 'GET',
     path: '/api/books/:name/audit',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const bookName = params['name']!
-    const bookRoot = r.bookRoot
-    if (!ctx.userDataPath) {
-      return reply(res, 200, { conversation: null, workflowEvents: [], workflowTotal: 0, goals: [], todos: [] })
-    }
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const bookName = params['name']!
+      const bookRoot = r.bookRoot
+      if (!ctx.userDataPath) {
+        return reply(res, 200, { conversation: null, workflowEvents: [], workflowTotal: 0, goals: [], todos: [] })
+      }
 
-    // + 分页参数（limit/offset，默认每页 500 条截断；limit 夹取 1..500）——
-    // 长书几万事件不再一次全量进响应，且客户端不可用超大 limit 打穿截断。
-    // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
-    const url = parseRequestUrl(req)
-    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
-    const q = url.searchParams
-    const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
+      // + 分页参数（limit/offset，默认每页 500 条截断；limit 夹取 1..500）——
+      // 长书几万事件不再一次全量进响应，且客户端不可用超大 limit 打穿截断。
+      // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const q = url.searchParams
+      const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
 
-    // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-    // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
-    // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-    // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
-    //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-    // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
-    // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
-    let store: SessionStore | null
-    try {
-      store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
-    } catch (e) {
-      return replyError(
-        res,
-        500,
-        'STORE_UNAVAILABLE',
-        `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
-      )
-    }
-    if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
-    try {
-      reply(res, 200, await buildAuditView(store, bookName, bookRoot, paging))
-    } finally {
-      store.close()
-    }
-  },
+      // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
+      // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
+      // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
+      // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
+      // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
+      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      let store: SessionStore | null
+      try {
+        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
+      } catch (e) {
+        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
+      }
+      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
+      try {
+        reply(res, 200, await buildAuditView(store, bookName, bookRoot, paging))
+      } finally {
+        store.close()
+      }
+    },
   })
 
   // 事件保留定版（拍板：全量保留 + 手动清理）：每书事件史清除入口。
@@ -283,45 +294,39 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     method: 'DELETE',
     path: '/api/books/:name/audit',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 二轮-六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd- /
-    // hh- ），入口首查 + 开库让出后复查（见下）两用
-    const gate = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
-    if (gate) return replyError(res, 409, 'BUSY', gate)
-    const bookRoot = r.bookRoot
-    if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
-    // userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
-    // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
-    //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-    // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
-    // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
-    let store: SessionStore | null
-    try {
-      store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
-    } catch (e) {
-      return replyError(
-        res,
-        500,
-        'STORE_UNAVAILABLE',
-        `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
-      )
-    }
-    if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
-    try {
-      // 二轮-开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
-      // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
-      // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close 照常收口
-      const recheck = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
-      if (recheck) return replyError(res, 409, 'BUSY', recheck)
-      // 低级项：双键单事务（clearBooks）——两次 clearBook 各自事务，
-      // 第二键失败时对话侧已提交、工作流侧残留，清除一半
-      store.clearBooks([params['name']!, bookHash(bookRoot)])
-      reply(res, 200, { ok: true })
-    } finally {
-      store.close()
-    }
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 二轮-六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd- /
+      // hh- ），入口首查 + 开库让出后复查（见下）两用
+      const gate = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
+      if (gate) return replyError(res, 409, 'BUSY', gate)
+      const bookRoot = r.bookRoot
+      if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
+      // userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
+      // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
+      // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
+      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      let store: SessionStore | null
+      try {
+        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
+      } catch (e) {
+        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
+      }
+      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
+      try {
+        // 二轮-开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
+        // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
+        // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close 照常收口
+        const recheck = chatClearGateReason(ctx.gate, params['name']!, '清除事件史')
+        if (recheck) return replyError(res, 409, 'BUSY', recheck)
+        // 低级项：双键单事务（clearBooks）——两次 clearBook 各自事务，
+        // 第二键失败时对话侧已提交、工作流侧残留，清除一半
+        store.clearBooks([params['name']!, bookHash(bookRoot)])
+        reply(res, 200, { ok: true })
+      } finally {
+        store.close()
+      }
+    },
   })
 }
-

@@ -33,7 +33,11 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
-import { collectTreeIssues, __setLeadsBookDegradeForTest, __setChapterCheckDegradeForTest } from '../../src/check/run.js'
+import {
+  collectTreeIssues,
+  __setLeadsBookDegradeForTest,
+  __setChapterCheckDegradeForTest,
+} from '../../src/check/run.js'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { checkLeadsBookItems } from '../../src/check/leads.js'
 import { __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
@@ -86,7 +90,10 @@ function makeBook(evidenceInCh2: boolean, finalizeCh3 = true): { root: string; d
     // maxWrittenChapterOf 取到 3（履历第 2 章不算未来章）
     if (finalizeCh3 && no === 3) {
       entry.finalizedRevision =
-        'sha256:' + createHash('sha256').update(readFileSync(join(root, rel))).digest('hex')
+        'sha256:' +
+        createHash('sha256')
+          .update(readFileSync(join(root, rel)))
+          .digest('hex')
     }
     upsertEntry(m, entry)
   }

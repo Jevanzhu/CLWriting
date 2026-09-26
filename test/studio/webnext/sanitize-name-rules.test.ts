@@ -14,9 +14,7 @@ import { sanitizeName } from '../../../src/studio/web-next/src/shared/chapter-tr
 const treeMock = {
   byPath: new Map<string, { docId: string }>(),
   byDocId: new Map<string, { path: string }>(),
-  grouped: [
-    { path: '大纲', name: '大纲', isDirectory: true, role: '', children: [], docId: null },
-  ] as never[],
+  grouped: [{ path: '大纲', name: '大纲', isDirectory: true, role: '', children: [], docId: null }] as never[],
   raw: [] as never[],
   load: vi.fn(async () => {}),
   updateWordCount: vi.fn(),
@@ -50,7 +48,12 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
   // E-3（二十九轮）：startCreate 自动展开改走 setTreeExpanded——mock 补该动作
-  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null), treeExpanded: [], setTreeExpanded: vi.fn() })),
+  useWorkspaceStore: vi.fn(() => ({
+    openTab: vi.fn(),
+    activeDocId: ref(null),
+    treeExpanded: [],
+    setTreeExpanded: vi.fn(),
+  })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => treeMock),
@@ -68,12 +71,22 @@ beforeEach(() => {
 
 describe('R71-30: sanitizeName 拒收 Windows 保留名（主文件名段、大小写不敏感）', () => {
   // 拒收：裸名 + 带扩展（含多段扩展——主文件名段命中即非法）
-  it.each(['con.md', 'CON', 'Con', 'cOn', 'NUL', 'nul.md', 'PRN.md', 'aux.tar.gz', 'Com1.tar.md', 'com3', 'lpt9.md', 'LPT1'])(
-    '「%s」被拒（null）',
-    (name) => {
-      expect(sanitizeName(name)).toBeNull()
-    },
-  )
+  it.each([
+    'con.md',
+    'CON',
+    'Con',
+    'cOn',
+    'NUL',
+    'nul.md',
+    'PRN.md',
+    'aux.tar.gz',
+    'Com1.tar.md',
+    'com3',
+    'lpt9.md',
+    'LPT1',
+  ])('「%s」被拒（null）', (name) => {
+    expect(sanitizeName(name)).toBeNull()
+  })
 
   // 放行：console 不在保留表；中文正常；前后空白照旧 trim
   it.each([

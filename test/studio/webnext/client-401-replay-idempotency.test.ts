@@ -24,9 +24,7 @@ function jsonRes(status: number, body: unknown = {}): Response {
   })
 }
 
-async function freshClient(): Promise<
-  typeof import('../../../src/studio/web-next/src/api/client')
-> {
+async function freshClient(): Promise<typeof import('../../../src/studio/web-next/src/api/client')> {
   vi.resetModules()
   const c = await import('../../../src/studio/web-next/src/api/client')
   // R64-43：退避注入点换 no-op sleep——boot 若走重试不垫真实墙钟等待
@@ -140,9 +138,7 @@ describe('E106: 401 重放仅限幂等面', () => {
     const c = await freshClient()
     stubBootThen([401])
     await c.boot()
-    await expect(
-      c.apiJson('/api/books/书A/chat', { method: 'POST', json: { message: 'hi' } }),
-    ).rejects.toMatchObject({
+    await expect(c.apiJson('/api/books/书A/chat', { method: 'POST', json: { message: 'hi' } })).rejects.toMatchObject({
       status: 401,
       code: 'UNAUTHORIZED',
       message: 'token 无效', // 未发生重放——重审-15 的 AUTH_BROKEN 统一文案不触发

@@ -154,7 +154,9 @@ function ironRulesFp(bookRoot: string): string {
   const dir = join(bookRoot, '文风', '条目', '禁词')
   let entriesFp = 'no-entries'
   try {
-    const names = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // .MD 变更须失效缓存（指纹侧同步收口）
+    const names = readdirSync(dir)
+      .filter((f) => isMdFileName(f) && !f.startsWith('._'))
+      .sort() // .MD 变更须失效缓存（指纹侧同步收口）
     let size = 0n
     let maxMtime = 0n
     let nameHash = 0x811c9dc5
@@ -206,10 +208,9 @@ const ANTI_RECON_HEADING_RE = /^##\s*反和解段(?:（AI 味防御）)?\s*$/
 const BANNED_LIST_HEADING_RE = /^##\s*(?:硬禁词清单|硬禁词|禁词清单|禁词)\s*$/
 
 function parseAntiReconciliationWords(text: string): string[] {
-  const sections = [
-    extractSection(text, ANTI_RECON_HEADING_RE),
-    extractSection(text, BANNED_LIST_HEADING_RE),
-  ].filter((section) => section.length > 0)
+  const sections = [extractSection(text, ANTI_RECON_HEADING_RE), extractSection(text, BANNED_LIST_HEADING_RE)].filter(
+    (section) => section.length > 0,
+  )
   if (sections.length === 0) return []
 
   const words: string[] = []

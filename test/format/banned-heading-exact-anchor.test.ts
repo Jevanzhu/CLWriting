@@ -61,9 +61,7 @@ describe('R57-D-3: 禁词段标题整行精确锚定（作者同关键词段不�
   })
 
   it('裸关键词标题（## 硬禁词）仍是禁词段', () => {
-    const rules = parseIronRules(
-      ['## 硬禁词', '- 禁词：不知死活的东西 / 天命所归'].join('\n'),
-    )
+    const rules = parseIronRules(['## 硬禁词', '- 禁词：不知死活的东西 / 天命所归'].join('\n'))
     expect(rules.bannedWords).toEqual(['不知死活的东西', '天命所归'])
   })
 
@@ -73,14 +71,7 @@ describe('R57-D-3: 禁词段标题整行精确锚定（作者同关键词段不�
     // ANTI_RECON_HEADING_RE 锚死全形令其静默丢失，后缀改可选后须两形皆收。
     // 同锚仍排除作者自建段：「## 反和解心得」不入表。
     const rules = parseIronRules(
-      [
-        '## 反和解段',
-        '- 「势不两立」',
-        '',
-        '## 反和解心得',
-        '',
-        '- 参考「暖场」的写法',
-      ].join('\n'),
+      ['## 反和解段', '- 「势不两立」', '', '## 反和解心得', '', '- 参考「暖场」的写法'].join('\n'),
     )
     expect(rules.bannedWords).toEqual(['势不两立'])
   })

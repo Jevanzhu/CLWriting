@@ -12,7 +12,15 @@ defineProps<{
 
 /** goal 状态 → 中文标签 */
 function goalStateLabel(s: string): string {
-  return s === 'active' ? '进行中' : s === 'paused' ? '已暂停' : s === 'blocked' ? '被阻断' : s === 'complete' ? '已完成' : s
+  return s === 'active'
+    ? '进行中'
+    : s === 'paused'
+      ? '已暂停'
+      : s === 'blocked'
+        ? '被阻断'
+        : s === 'complete'
+          ? '已完成'
+          : s
 }
 </script>
 
@@ -43,7 +51,9 @@ function goalStateLabel(s: string): string {
 <style scoped>
 /* 字号随母视图迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
 /* 区段基础（与 AuditView 同式） */
-.sec { margin-bottom: var(--size-4-5); }
+.sec {
+  margin-bottom: var(--size-4-5);
+}
 .sec-title {
   display: flex;
   align-items: center;
@@ -79,11 +89,25 @@ function goalStateLabel(s: string): string {
   color: var(--text-muted);
   white-space: nowrap;
 }
-.goal-state[data-state='active'] { color: var(--text-accent); border-color: var(--text-accent); }
-.goal-state[data-state='blocked'] { color: var(--text-error); border-color: var(--text-error); }
-.goal-state[data-state='complete'] { color: var(--dv-good); border-color: var(--dv-good); }
-.goal-title { font-weight: 600; }
-.goal-meta { color: var(--text-muted); font-size: var(--font-size-xs); }
+.goal-state[data-state='active'] {
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.goal-state[data-state='blocked'] {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+.goal-state[data-state='complete'] {
+  color: var(--dv-good);
+  border-color: var(--dv-good);
+}
+.goal-title {
+  font-weight: 600;
+}
+.goal-meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
 .todo-list {
   display: flex;
   flex-wrap: wrap;
@@ -97,6 +121,10 @@ function goalStateLabel(s: string): string {
   background: var(--background-secondary);
   color: var(--text-normal);
 }
-.todo-item[data-state='completed'] { color: var(--text-muted); }
-.todo-item[data-state='in_progress'] { border-color: var(--text-accent); }
+.todo-item[data-state='completed'] {
+  color: var(--text-muted);
+}
+.todo-item[data-state='in_progress'] {
+  border-color: var(--text-accent);
+}
 </style>

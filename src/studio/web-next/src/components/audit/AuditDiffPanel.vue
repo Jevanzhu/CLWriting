@@ -40,21 +40,14 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
     <h2 class="sec-title">
       遮蔽差异
       <span class="audit-seg">
-        <button :class="{ on: diffMode === 'model' }" @click="diffMode = 'model'">
-          <Eye :size="13" /> 模型可见
-        </button>
+        <button :class="{ on: diffMode === 'model' }" @click="diffMode = 'model'"><Eye :size="13" /> 模型可见</button>
         <button :class="{ on: diffMode === 'human' }" @click="diffMode = 'human'">
           <EyeOff :size="13" /> 人类可见（含遮蔽）
         </button>
       </span>
     </h2>
     <div class="diff-list">
-      <div
-        v-for="n in nodeCap.view"
-        :key="n.seq"
-        class="diff-row"
-        :class="{ shadowed: n.shadowed }"
-      >
+      <div v-for="n in nodeCap.view" :key="n.seq" class="diff-row" :class="{ shadowed: n.shadowed }">
         <span class="seq">#{{ n.seq }}</span>
         <span class="role" :class="n.role">
           <User v-if="roleIcon(n) === 'user'" :size="12" />
@@ -74,7 +67,9 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 <style scoped>
 /* 字号随母视图迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
 /* 区段基础（与 AuditView 同式） */
-.sec { margin-bottom: var(--size-4-5); }
+.sec {
+  margin-bottom: var(--size-4-5);
+}
 .sec-title {
   display: flex;
   align-items: center;
@@ -83,9 +78,18 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-.empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
+.empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  padding: 8px;
+}
 /* 渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
-.cap-hint { color: var(--text-faint); font-size: var(--font-size-xs); padding: 2px 8px; font-style: italic; }
+.cap-hint {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  padding: 2px 8px;
+  font-style: italic;
+}
 
 /* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */
 .audit-seg {
@@ -142,8 +146,16 @@ const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
   text-transform: capitalize;
   font-size: var(--font-size-xs);
 }
-.kind { color: var(--text-muted); font-size: var(--font-size-xs); }
-.preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .shadowed-mark {
   display: inline-flex;
   align-items: center;

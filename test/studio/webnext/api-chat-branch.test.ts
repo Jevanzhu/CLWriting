@@ -21,7 +21,10 @@ function lastUrl(): string {
 
 describe('低-1（第十轮）：fetchChatHistory branchId 只编码一次', () => {
   it('字母数字与 -/_（br-1_9）→ 原样入 URL，无 %25 双重编码残迹', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ messages: [] }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ messages: [] }))),
+    )
     await fetchChatHistory('书A', 'br-1_9')
     expect(lastUrl()).toContain('branch=br-1_9')
     // 双重编码的指纹是 % 被再编成 %25（旧实现对任何需编码字符都会产生）
@@ -30,7 +33,10 @@ describe('低-1（第十轮）：fetchChatHistory branchId 只编码一次', () 
   })
 
   it('含空格的分支号 → 只编码一次（branch=br-1_9+1），不再是 br%25201', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ messages: [] }))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ messages: [] }))),
+    )
     await fetchChatHistory('书A', 'br-1_9 1')
     // URLSearchParams 单次序列化：空格 → '+'；旧实现双编后此处是 br-1_9%25201
     expect(lastUrl()).toContain('branch=br-1_9+1')

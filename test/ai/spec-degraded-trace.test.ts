@@ -89,9 +89,11 @@ function readLlmCalls(ud: string, bookRoot: string): LlmCallEvent[] {
 describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/call 全链', () => {
   afterEach(() => {
     generateMock.mockReset()
-    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
-          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
-        }
+    try {
+      for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    } catch {
+      // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+    }
   })
 
   it('B-2：降级参数面成功 → runSpec 回调带 degraded → llm/call 事件带 degraded:true（三断点全闭合）', async () => {
@@ -100,7 +102,9 @@ describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/ca
     const bookRoot = tempDir('clw-b2-book-')
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     generateMock.mockResolvedValue({
-      text: 'ok', reasoning: '', toolCalls: [],
+      text: 'ok',
+      reasoning: '',
+      toolCalls: [],
       usage: { inputTokens: 5, outputTokens: 3 },
       stopReason: 'end_turn',
       degraded: true,
@@ -123,7 +127,9 @@ describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/ca
     const bookRoot = tempDir('clw-b2c-book-')
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     generateMock.mockResolvedValue({
-      text: 'ok', reasoning: '', toolCalls: [],
+      text: 'ok',
+      reasoning: '',
+      toolCalls: [],
       usage: { inputTokens: 5, outputTokens: 3 },
       stopReason: 'end_turn',
     })
@@ -141,7 +147,9 @@ describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/ca
     const bookRoot = tempDir('clw-b12-book-')
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
     generateMock.mockResolvedValue({
-      text: '截断的半截产出', reasoning: '', toolCalls: [],
+      text: '截断的半截产出',
+      reasoning: '',
+      toolCalls: [],
       usage: { inputTokens: 1200, outputTokens: 4096 },
       stopReason: 'max_tokens',
     })

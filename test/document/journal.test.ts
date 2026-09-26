@@ -28,7 +28,15 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-import { __setJournalCompactBytesForTest, appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, JOURNAL_COMPACT_BYTES } from '../../src/document/journal.js'
+import {
+  __setJournalCompactBytesForTest,
+  appendAborted,
+  appendMovePending,
+  appendPending,
+  appendSettled,
+  findUnsettled,
+  JOURNAL_COMPACT_BYTES,
+} from '../../src/document/journal.js'
 
 const SHA = (s: string) => s as `sha256:${string}`
 

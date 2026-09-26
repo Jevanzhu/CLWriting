@@ -12,10 +12,7 @@ import type { GenRequest } from './types.js'
 
 /** 判别联合：force-named 才带 name（适配器发射点收窄为 string，无需非空断言） */
 export type ToolChoiceIntent =
-  | { action: 'force-named'; name: string }
-  | { action: 'force' }
-  | { action: 'auto' }
-  | { action: 'none' }
+  { action: 'force-named'; name: string } | { action: 'force' } | { action: 'auto' } | { action: 'none' }
 
 /**
  * 解析 tool_choice 意图（分档决策单源）：

@@ -94,10 +94,7 @@ test('用量卡表格态：自种 autotag 事件 → 表格 + ≥1 行任务数�
   // 种事件：0001 的 autotag（mock driver）→ llm calls 库记一条本书事件（本 spec 私有
   // userDataPath，不受共享环境影响；autotag 不写盘——返回 tags 由前端落 fm）。
   // docId 直接读私有 workDir 的文档清单（fs 可达，免多一跳 API）
-  const manifest = readFileSync(
-    join(workDir, '长篇', '长篇测试书', '项目', '文档清单.jsonl'),
-    'utf-8',
-  )
+  const manifest = readFileSync(join(workDir, '长篇', '长篇测试书', '项目', '文档清单.jsonl'), 'utf-8')
   const docId = manifest
     .split('\n')
     .filter((l) => l.trim())

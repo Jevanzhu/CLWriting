@@ -17,10 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  getVersionStatsCached,
-  versionStatsCache,
-} from '../../src/studio/server/api/snapshots.js'
+import { getVersionStatsCached, versionStatsCache } from '../../src/studio/server/api/snapshots.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { sleep } from '../helpers/wait-for.js'
 

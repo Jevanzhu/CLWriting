@@ -795,7 +795,10 @@ function scheduleRestart(ctx: ManagerCtx): void {
   }
   state.attempts++
   const waitMs = nextBackoffMs(state.attempts, cfg.backoffMs)
-  cfg.logger.warn('server-manager', `studio server 子进程异常退出，${waitMs}ms 后自动重启（第 ${state.attempts}/${RESTART_MAX_ATTEMPTS} 次）`)
+  cfg.logger.warn(
+    'server-manager',
+    `studio server 子进程异常退出，${waitMs}ms 后自动重启（第 ${state.attempts}/${RESTART_MAX_ATTEMPTS} 次）`,
+  )
   const timer = setTimeout(() => {
     transition(ctx, { ev: 'backoff-fire' }) // 到点先摘定时器（相位回派生值），再进重启判定
     void doRestart(ctx)
@@ -1185,7 +1188,8 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
       transition(ctx, { ev: 'stop-clear' })
       state.attempts = 0
     },
-    successLog: (got) => cfg.logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`),
+    successLog: (got) =>
+      cfg.logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`),
     failLog: (e) => cfg.logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e),
   })
 }

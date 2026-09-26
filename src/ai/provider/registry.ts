@@ -60,11 +60,7 @@ export const ADAPTER_REGISTRY: readonly AdapterEntry[] = [
  */
 export function resolveAdapter(key: string): AdapterEntry | null {
   const k = key.trim().toLowerCase()
-  return (
-    ADAPTER_REGISTRY.find((e) => e.name === k) ??
-    ADAPTER_REGISTRY.find((e) => e.aliases.includes(k)) ??
-    null
-  )
+  return ADAPTER_REGISTRY.find((e) => e.name === k) ?? ADAPTER_REGISTRY.find((e) => e.aliases.includes(k)) ?? null
 }
 
 /**

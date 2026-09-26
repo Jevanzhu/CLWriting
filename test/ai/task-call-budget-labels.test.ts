@@ -28,7 +28,9 @@ function tempBook(record: { tasks: Record<string, number> }): string {
   return d
 }
 
-afterEach(() => { /* mkdtempTracked 自管清理 */ })
+afterEach(() => {
+  /* mkdtempTracked 自管清理 */
+})
 
 describe('R0917-6-P3-5：checkAiTaskCallBudget 文案参数化', () => {
   it('缺省调用（chat 口径）：两条 reason 与改前逐字节一致', () => {
@@ -36,12 +38,16 @@ describe('R0917-6-P3-5：checkAiTaskCallBudget 文案参数化', () => {
     const zero = checkAiTaskCallBudget(root, 'chat', 0)
     expect(zero.ok).toBe(false)
     if (!zero.ok) {
-      expect(zero.reason).toBe('chat 调用上限为 0（budget.chat_max_calls），按「一次都不许调」拦截。如需恢复对话请把 book.yaml 的 budget.chat_max_calls 调回正数')
+      expect(zero.reason).toBe(
+        'chat 调用上限为 0（budget.chat_max_calls），按「一次都不许调」拦截。如需恢复对话请把 book.yaml 的 budget.chat_max_calls 调回正数',
+      )
     }
     const over = checkAiTaskCallBudget(root, 'chat', 2)
     expect(over.ok).toBe(false)
     if (!over.ok) {
-      expect(over.reason).toBe('本书对话已调用 3 次（上限 2，budget.chat_max_calls）。可临时提高 book.yaml 的 budget.chat_max_calls，或降低对话/压缩频率')
+      expect(over.reason).toBe(
+        '本书对话已调用 3 次（上限 2，budget.chat_max_calls）。可临时提高 book.yaml 的 budget.chat_max_calls，或降低对话/压缩频率',
+      )
     }
   })
 

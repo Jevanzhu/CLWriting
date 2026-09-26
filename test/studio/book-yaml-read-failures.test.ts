@@ -84,8 +84,9 @@ afterAll(() => {
 
 /** 按模块 tag 断言留痕（log.warn(tag, 'book.yaml 解析降级: ...')）。 */
 function warnCallsWithTag(tag: string): string[] {
-  return vi.mocked(log.warn).mock.calls
-    .filter((c) => c[0] === tag)
+  return vi
+    .mocked(log.warn)
+    .mock.calls.filter((c) => c[0] === tag)
     .map((c) => String(c[1] ?? ''))
 }
 

@@ -115,11 +115,7 @@ describe('R0912-1b：journal acknowledge 端点', () => {
       if (before.state === 1) expect(before.issues.some((i) => i.kind === 'crashedWrite')).toBe(true)
 
       const { req, res, send, captured } = fakeReqRes()
-      const done = rig.ack.handler(
-        { params: { name: '确认书', opId: rig.opId }, input: undefined },
-        req,
-        res,
-      )
+      const done = rig.ack.handler({ params: { name: '确认书', opId: rig.opId }, input: undefined }, req, res)
       send({}) // POST 空体（parse 未声明，body 不被读）
       await done
       expect(captured.status).toBe(200)
@@ -137,7 +133,11 @@ describe('R0912-1b：journal acknowledge 端点', () => {
     const rig = makeBook('不存在书')
     try {
       const { req, res, send, captured } = fakeReqRes()
-      const done = rig.ack.handler({ params: { name: '不存在书', opId: 'OPNOPE000000000000000000' }, input: undefined }, req, res)
+      const done = rig.ack.handler(
+        { params: { name: '不存在书', opId: 'OPNOPE000000000000000000' }, input: undefined },
+        req,
+        res,
+      )
       send({})
       await done
       expect(captured.status).toBe(200)
@@ -205,7 +205,11 @@ describe('R0912-1b：journal acknowledge 端点', () => {
       expect(body.crashedPendingOpIds).toContain(rig.opId)
       // acknowledge 后复查：opId 消失（消解闭环贯通到 payload 面）
       const ack = fakeReqRes()
-      const ackDone = rig.ack.handler({ params: { name: '透出书', opId: rig.opId }, input: undefined }, ack.req, ack.res)
+      const ackDone = rig.ack.handler(
+        { params: { name: '透出书', opId: rig.opId }, input: undefined },
+        ack.req,
+        ack.res,
+      )
       ack.send({})
       await ackDone
       const stateSchema2 = withRouteTable(createRouteTable(), () => {

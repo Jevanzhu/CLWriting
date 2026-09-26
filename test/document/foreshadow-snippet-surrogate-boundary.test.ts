@@ -29,7 +29,9 @@ function writeChapter(章号: number, title: string, body: string): void {
 function writeForeshadow(title: string, fm: Record<string, string> = {}): void {
   const dir = join(root, '设定', '伏笔')
   mkdirSync(dir, { recursive: true })
-  const fmLines = Object.entries({ 标题: title, ...fm }).map(([k, v]) => `${k}: ${v}`).join('\n')
+  const fmLines = Object.entries({ 标题: title, ...fm })
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')
   writeFileSync(join(dir, `${title}.md`), `---\n${fmLines}\n---\n`, 'utf-8')
 }
 

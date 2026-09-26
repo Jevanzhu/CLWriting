@@ -80,7 +80,10 @@ describe('learn 文风收割端点（#8.3）', () => {
       正文: `「样本${i}。」`,
       出处: `《收割测试书》第 ${i + 1} 章`,
     }))
-    for (const body of [{ samples: items, quotes: [] }, { samples: [], quotes: items }]) {
+    for (const body of [
+      { samples: items, quotes: [] },
+      { samples: [], quotes: items },
+    ]) {
       const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/learn-commit`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },

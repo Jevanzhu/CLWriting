@@ -32,8 +32,10 @@ beforeAll(() => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: '书甲', path: '书甲', kind: 'long' }) + '\n' +
-      JSON.stringify({ name: '书乙', path: '书乙', kind: 'long' }) + '\n',
+    JSON.stringify({ name: '书甲', path: '书甲', kind: 'long' }) +
+      '\n' +
+      JSON.stringify({ name: '书乙', path: '书乙', kind: 'long' }) +
+      '\n',
   )
 })
 
@@ -92,7 +94,11 @@ describe('RB-SV-P2-6 + R-20 定时器 unref', () => {
   it('R-20: shutdownStudio 创建的兜底超时定时器全部 unref', async () => {
     const probes: { unrefCalled: boolean }[] = []
     const orig = globalThis.setTimeout.bind(globalThis)
-    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: (...a: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: (...a: unknown[]) => void,
+      ms?: number,
+      ...rest: unknown[]
+    ) => {
       const t = orig(fn, ms, ...rest) as NodeJS.Timeout
       const p = { unrefCalled: false }
       probes.push(p)

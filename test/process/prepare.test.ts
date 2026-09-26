@@ -26,12 +26,22 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
   createAllTables(db)
 
   syncChapter(db, {
-    章号: 150, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p150',
+    章号: 150,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p150',
   })
   syncLead(db, {
-    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
-    履历: [{ 章号: 12, 动词: '埋下', 证据: '焦痕' }], _path: 'p',
+    编号: '悬念-031',
+    标题: '灭门真凶',
+    类型: '悬念',
+    状态: '进行中',
+    开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '焦痕' }],
+    _path: 'p',
   })
 
   // 文风铁律
@@ -40,11 +50,17 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
 
   // 文风样章
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
-  writeFileSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'),
-    '---\n场景: 战斗\n来源: 作者原作\n技法指令: 学它的停顿\n---\n刀光没入雪雾。', 'utf-8')
+  writeFileSync(
+    join(root, '文风', '样章库', '战斗', '战斗-001.md'),
+    '---\n场景: 战斗\n来源: 作者原作\n技法指令: 学它的停顿\n---\n刀光没入雪雾。',
+    'utf-8',
+  )
   mkdirSync(join(root, '文风', '样章库', '对话'), { recursive: true })
-  writeFileSync(join(root, '文风', '样章库', '对话', '对话-001.md'),
-    '---\n场景: 对话\n来源: 作者原作\n技法指令: 学它的留白\n---\n她沉默了一会儿，说：你早就知道。', 'utf-8')
+  writeFileSync(
+    join(root, '文风', '样章库', '对话', '对话-001.md'),
+    '---\n场景: 对话\n来源: 作者原作\n技法指令: 学它的留白\n---\n她沉默了一会儿，说：你早就知道。',
+    'utf-8',
+  )
 
   // 章摘要
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
@@ -80,8 +96,11 @@ test('M-7: 卷摘要剥 fm 注入 + 文件登记', () => {
   const { root, db } = makeBookWithMaterial()
   // 章号 150 → 当前卷 3 → 注入第 2 卷摘要
   mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
-  writeFileSync(join(root, '定稿', '摘要', '卷摘要', '2.md'),
-    '---\nvolume: 2\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第二卷剧情回顾正文。', 'utf-8')
+  writeFileSync(
+    join(root, '定稿', '摘要', '卷摘要', '2.md'),
+    '---\nvolume: 2\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第二卷剧情回顾正文。',
+    'utf-8',
+  )
   const r = prepare(db, DEFAULT_CONFIG, root, [])
   const sec = r.sections.find((s) => s.title === '第2卷摘要')
   expect(sec).toBeTruthy()
@@ -101,8 +120,11 @@ test('L-P3: 写卷首章（writingChapter=volumeSize+1）→ 本章即注入上�
   // 旧快照口径 ceil(150/50)=3 → 门槛「>1」成立但找「第 2 卷」而非「第 3 卷」——
   // selfHealVolumeSummary(151) 生成的是第 3 卷，本章注入不到
   mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
-  writeFileSync(join(root, '定稿', '摘要', '卷摘要', '3.md'),
-    '---\nvolume: 3\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第三卷剧情回顾正文。', 'utf-8')
+  writeFileSync(
+    join(root, '定稿', '摘要', '卷摘要', '3.md'),
+    '---\nvolume: 3\ngeneratedAt: 2026-08-21T00:00:00.000Z\nmodel: summary-volume\nsourceHash: sha256:old\n---\n\n第三卷剧情回顾正文。',
+    'utf-8',
+  )
   const r = prepare(db, DEFAULT_CONFIG, root, [], undefined, '战斗', undefined, 151)
   const sec = r.sections.find((s) => s.title === '第3卷摘要')
   expect(sec).toBeTruthy()
@@ -161,7 +183,8 @@ test('G2: 多场景注入（heavy）→ 主场景优先 + 次场景补', () => {
   // makeBookWithMaterial 各场景仅 1 样章，再给主场景「战斗」补 1 段，验证主优先填满
   writeFileSync(
     join(root, '文风', '样章库', '战斗', '战斗-002.md'),
-    '---\n场景: 战斗\n来源: 作者原作\n---\n第二段战斗：长枪破阵。', 'utf-8',
+    '---\n场景: 战斗\n来源: 作者原作\n---\n第二段战斗：长枪破阵。',
+    'utf-8',
   )
   const cfg: BookConfig = { ...DEFAULT_CONFIG, style: { injection: 'heavy' } }
   // 主场景=战斗，次场景=对话
@@ -194,8 +217,13 @@ test('prepare: 近况卷号使用 book.volume_size', () => {
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 31, 标题: '第三十一章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 1000, _path: 'p31',
+    章号: 31,
+    标题: '第三十一章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 1000,
+    _path: 'p31',
   })
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 30 } }
   const r = prepare(db, cfg, root, [])
@@ -221,15 +249,21 @@ test('#8: 非默认 token 系数下，降档/移除扣减与累计同 model 口�
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 10, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 1000, _path: 'p10',
+    章号: 10,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 1000,
+    _path: 'p10',
   })
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
   const big = '刀'.repeat(1000)
   for (let i = 1; i <= 3; i++) {
     writeFileSync(
       join(root, '文风', '样章库', '战斗', `战斗-00${i}.md`),
-      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`, 'utf-8',
+      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`,
+      'utf-8',
     )
   }
   // 注入非默认系数（>0.6）：修复前降档/移除两轮漏传 model 按 0.6 扣减，累计虚高
@@ -260,8 +294,13 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
   syncChapter(db, {
-    章号: 10, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 1000, _path: 'p10',
+    章号: 10,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 1000,
+    _path: 'p10',
   })
   // 3 个大样章（heavy 注入 3 段，制造超预算）
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
@@ -269,7 +308,8 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
   for (let i = 1; i <= 3; i++) {
     writeFileSync(
       join(root, '文风', '样章库', '战斗', `战斗-00${i}.md`),
-      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`, 'utf-8',
+      `---\n场景: 战斗\n来源: 作者原作\n---\n${big}`,
+      'utf-8',
     )
   }
   // heavy 浓度 + 中等预算（够降档后、不够全量）
@@ -350,8 +390,13 @@ test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
   const db2 = new DatabaseSync(join(root2, '.cache', 'index.db'))
   createAllTables(db2)
   syncChapter(db2, {
-    章号: 1, 标题: '第一章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 1000, _path: 'p1',
+    章号: 1,
+    标题: '第一章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 1000,
+    _path: 'p1',
   })
   const r2 = prepare(db2, DEFAULT_CONFIG, root2, [])
   expect(r2.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()

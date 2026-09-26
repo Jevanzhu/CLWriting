@@ -55,7 +55,10 @@ interface CorpusEntry {
  *  形态）——此前硬编码 +08:00（Date.now+8h 再贴 +08:00 后缀），宿主机非 UTC+8 时
  *  时刻与偏移双双错乱。现按 getTimezoneOffset 实算偏移（该值西正东负，取负得东偏
  *  分钟）；offsetMinutes 供测试注入（含负偏移形态），缺省取宿主真实偏移。 */
-export function localIsoTimestamp(ms: number = Date.now(), offsetMinutes: number = -new Date(ms).getTimezoneOffset()): string {
+export function localIsoTimestamp(
+  ms: number = Date.now(),
+  offsetMinutes: number = -new Date(ms).getTimezoneOffset(),
+): string {
   const sign = offsetMinutes < 0 ? '-' : '+'
   const abs = Math.abs(offsetMinutes)
   // 本地墙钟 = UTC 时刻 + 东偏 → ms 加偏移后取 toISOString 的日期时间部分再贴偏移
@@ -104,7 +107,10 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
       silent: silent.length,
       fire: rows.length - silent.length,
       // 缺 excerpt 的条目被滤——此前落 undefined，草稿渲染成「> undefined」
-      excerpts: silent.filter((e) => typeof e.excerpt === 'string').slice(0, 3).map((e) => e.excerpt),
+      excerpts: silent
+        .filter((e) => typeof e.excerpt === 'string')
+        .slice(0, 3)
+        .map((e) => e.excerpt),
     })
   }
   return out
@@ -177,7 +183,10 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
   // 5s 超时 fail-closed 报「在途」交调用方重试（与 learn 收割同款先例）。
   const release = acquireCrossProcessLockWithTimeout(join(projectRoot, KNOWLEDGE_DIR, '.commit.lock'), 5000)
   if (!release) {
-    return { ok: false, issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识文件登记在途（另一进程正在登记），请稍后重试。' }] }
+    return {
+      ok: false,
+      issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识文件登记在途（另一进程正在登记），请稍后重试。' }],
+    }
   }
   try {
     return commitKnowledgeFileLocked(projectRoot, opts)
@@ -200,7 +209,10 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   // startsWith(KNOWLEDGE_DIR+'/') 前缀判，`知识层/../设定/x.md` 与绝对路径可穿透，
   // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器四轮口径）。
   if (!isSafeKnowledgeTarget(projectRoot, opts.target)) {
-    return { ok: false, issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }] }
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }],
+    }
   }
   // 判重改走 win32 casefold 键（caseFoldKey，校验器单源）——
   // 此前精确字符串比较与校验器口径分裂：win 大小写漂移（`知识层/A.md` vs `知识层/a.md`
@@ -222,7 +234,10 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
     }
   }
   if (badRows > 0) {
-    log.warn('knowledge', `知识层 manifest 存在 ${badRows} 条坏形状条目（null/缺字符串 target），判重已跳过这些行——条目原样保留，待 validateKnowledgeManifest 上报修复`)
+    log.warn(
+      'knowledge',
+      `知识层 manifest 存在 ${badRows} 条坏形状条目（null/缺字符串 target），判重已跳过这些行——条目原样保留，待 validateKnowledgeManifest 上报修复`,
+    )
   }
   const filePath = join(projectRoot, opts.target)
   if (!existsSync(filePath)) {
@@ -237,7 +252,10 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   // 必填」打回 ok:false，与「不得重复登记」互相矛盾（重试永死）。坏则不写（fm 注入
   // 与 manifest 重写均未发生，盘面零变化）。
   if (!source || !license) {
-    return { ok: false, issues: [{ path: opts.target, message: 'source 与 license 必填（新条目自身形状校验，未写入）' }] }
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: 'source 与 license 必填（新条目自身形状校验，未写入）' }],
+    }
   }
   // front matter 一致性：validateMarkdownMetadata 要求 md 顶层 fm 的 source/license 与
   // manifest 一致——commit 时自动注入/改写这两键（其余 fm 键与正文原样保留），随登记
@@ -294,7 +312,12 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
     }
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `注入后哈希计算失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}` }],
+      issues: [
+        {
+          path: opts.target,
+          message: `注入后哈希计算失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}`,
+        },
+      ],
     }
   }
 
@@ -335,7 +358,12 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
     }
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}` }],
+      issues: [
+        {
+          path: opts.target,
+          message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}`,
+        },
+      ],
     }
   }
   // 0918二轮修复批（G105）：写入后对账分两栏——issue 只指向**存量坏行**（与新 entry

@@ -44,10 +44,15 @@ describe('Z-9: providers.test 坏 JSON → 400', () => {
       const payload = '{not-json'
       const rr = http.request(
         {
-          host: u.hostname, port: u.port,
+          host: u.hostname,
+          port: u.port,
           path: `/api/providers/xxx/test`,
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'content-length': String(payload.length), 'x-studio-token': token },
+          headers: {
+            'content-type': 'application/json',
+            'content-length': String(payload.length),
+            'x-studio-token': token,
+          },
         },
         (res) => {
           let d = ''

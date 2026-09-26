@@ -95,7 +95,8 @@ test('R52-E-2: 比率阈抬高后绝对口径兜底——repeat_chars_threshold 
 
 // ── max_sentence_len（句式体检判定长度）──────────────
 
-const LONG1 = '夜色渐深山道弯弯他提着灯笼慢慢往前走心里惦记着家里生病的母亲脚步却不敢停下半夜的风吹得灯笼摇晃不定远处偶尔传来几声犬吠让这条路显得更长了。' // 68 字
+const LONG1 =
+  '夜色渐深山道弯弯他提着灯笼慢慢往前走心里惦记着家里生病的母亲脚步却不敢停下半夜的风吹得灯笼摇晃不定远处偶尔传来几声犬吠让这条路显得更长了。' // 68 字
 const SENT_BODY = `${LONG1}\n他到家了。` // 2 句中超长 1 句 = 50% > 20%
 
 test('R52-E-2: 句长默认 60 报黄；checks.max_sentence_len 放宽后不报', () => {
@@ -171,7 +172,7 @@ test('R52-E-2: promoteStrictShort 升红 repeat/sentence-length/imagery-overuse�
 
 // ── B-7（并入档）：opening_env_chars 显式 0 = 关闭「开头零环境」检查 ──
 
-function runShortForOpeningEnv(shortCfg: NonNullable<typeof DEFAULT_CONFIG['short']>): string[] {
+function runShortForOpeningEnv(shortCfg: NonNullable<(typeof DEFAULT_CONFIG)['short']>): string[] {
   const bookRoot = mkdtempTracked(join(tmpdir(), 'check-thr-opening-env-'))
   try {
     return runAllChecks({

@@ -16,7 +16,12 @@ import { describe, expect, it } from 'vitest'
 import { foldSurface, deriveMessages } from '../../src/events/projection.js'
 import type { ChatEvent } from '../../src/events/types.js'
 
-function ev(seq: number, type: ChatEvent['type'], data: Record<string, unknown>, extra: Partial<ChatEvent> = {}): ChatEvent {
+function ev(
+  seq: number,
+  type: ChatEvent['type'],
+  data: Record<string, unknown>,
+  extra: Partial<ChatEvent> = {},
+): ChatEvent {
   return { seq, sessionId: 's1', type, data, createdAt: 1, replaceGeneration: 0, ...extra }
 }
 
@@ -30,9 +35,19 @@ describe('R27-106: foldSurface 存档插入位序按 seq 判定', () => {
       ev(1, 'user/message', { message: 'u1' }, { surfaceOp: 'append' }),
       ev(2, 'assistant/message', { message: 'a2' }, { surfaceOp: 'append' }),
       ev(3, 'assistant/message', { message: 'a3' }, { surfaceOp: 'append' }),
-      ev(4, 'compaction/end', { reason: 'completed', message: '存档A（早期回合）' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] }),
+      ev(
+        4,
+        'compaction/end',
+        { reason: 'completed', message: '存档A（早期回合）' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] },
+      ),
       ev(5, 'user/message', { message: 'u5' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '存档B（第3条）' }, { surfaceOp: 'replace', shadowStart: 3, shadowEnd: 3, sourceSeqs: [3] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '存档B（第3条）' },
+        { surfaceOp: 'replace', shadowStart: 3, shadowEnd: 3, sourceSeqs: [3] },
+      ),
     ]
     const nodes = foldSurface(events)
     // 非遮蔽节点序：存档A（seq4）仍在存档B（seq6）之前，u5（seq5）在末尾——数组位序
@@ -51,13 +66,23 @@ describe('R27-106: foldSurface 存档插入位序按 seq 判定', () => {
     // P-15 对照（锁定）：可见节点晚于区间尾 → 存档插到该节点之前
     const inRange: ChatEvent[] = [
       ev(5, 'user/message', { message: '后来的' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '更早回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 3, sourceSeqs: [1, 2, 3] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '更早回合的存档摘要' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 3, sourceSeqs: [1, 2, 3] },
+      ),
     ]
     expect(foldSurface(inRange).map((n) => n.seq)).toEqual([6, 5])
     // P-15 兜底（锁定）：全部可见节点早于区间 → 存档追加尾部
     const fallback: ChatEvent[] = [
       ev(2, 'user/message', { message: '更早的可见消息' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '后续不可见回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 4, shadowEnd: 5, sourceSeqs: [4, 5] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '后续不可见回合的存档摘要' },
+        { surfaceOp: 'replace', shadowStart: 4, shadowEnd: 5, sourceSeqs: [4, 5] },
+      ),
     ]
     expect(foldSurface(fallback).map((n) => n.seq)).toEqual([2, 6])
   })
@@ -69,9 +94,19 @@ describe('R27-106: foldSurface 存档插入位序按 seq 判定', () => {
       ev(1, 'user/message', { message: 'u1' }, { surfaceOp: 'append' }),
       ev(2, 'assistant/message', { message: 'a2' }, { surfaceOp: 'append' }),
       ev(3, 'assistant/message', { message: 'a3' }, { surfaceOp: 'append' }),
-      ev(4, 'compaction/end', { reason: 'completed', message: '存档A' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] }),
+      ev(
+        4,
+        'compaction/end',
+        { reason: 'completed', message: '存档A' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 2, sourceSeqs: [1, 2] },
+      ),
       ev(5, 'user/message', { message: 'u5' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '存档B' }, { surfaceOp: 'replace', shadowStart: 3, shadowEnd: 4, sourceSeqs: [3, 4] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '存档B' },
+        { surfaceOp: 'replace', shadowStart: 3, shadowEnd: 4, sourceSeqs: [3, 4] },
+      ),
     ]
     const nodes = foldSurface(events)
     expect(nodes.filter((n) => !n.shadowed).map((n) => n.seq)).toEqual([6, 5])

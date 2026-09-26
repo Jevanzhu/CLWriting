@@ -17,11 +17,7 @@ import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import {
-  loadProviders,
-  saveProviders,
-  emptySettings,
-} from '../../../src/ai/provider/store.js'
+import { loadProviders, saveProviders, emptySettings } from '../../../src/ai/provider/store.js'
 import { tryAcquireCrossProcessLock } from '../../../src/fs/cross-process-lock.js'
 
 const CORRUPT = '{ broken json !!!'

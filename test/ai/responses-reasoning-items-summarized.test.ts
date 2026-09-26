@@ -39,7 +39,11 @@ function scriptedResponses(events: unknown[]): OpenAI {
 async function run(events: unknown[]): Promise<GenEvent[]> {
   const prov = createOpenAIResponsesProvider(RCONF, scriptedResponses(events))
   const out: GenEvent[] = []
-  for await (const ev of prov.stream({ systemPrompt: '', messages: [{ role: 'user', content: '你好' }] } as GenRequest, new AbortController().signal)) out.push(ev)
+  for await (const ev of prov.stream(
+    { systemPrompt: '', messages: [{ role: 'user', content: '你好' }] } as GenRequest,
+    new AbortController().signal,
+  ))
+    out.push(ev)
   return out
 }
 

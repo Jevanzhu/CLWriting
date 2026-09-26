@@ -27,7 +27,11 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
-import { exceedsSaveBodyLimit, SAVE_TOO_LARGE_MESSAGE, MAX_SAVE_BODY_BYTES } from '../../../src/studio/web-next/src/shared/save-limits'
+import {
+  exceedsSaveBodyLimit,
+  SAVE_TOO_LARGE_MESSAGE,
+  MAX_SAVE_BODY_BYTES,
+} from '../../../src/studio/web-next/src/shared/save-limits'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 const OK = { ok: true as const, revision: 'sha256:x' as const, superseded: false }

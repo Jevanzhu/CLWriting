@@ -12,8 +12,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-// @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForElectronBuilderNodeModulesExclusion, problemsForDistFontList, parseTsupNoExternal, problemsForDepsNoExternal, problemsForDepsVersionSync } from '../../scripts/check-packaging.mjs'
+import {
+  problemsForPackageFiles,
+  parseBuilderFiles,
+  problemsForElectronBuilderFiles,
+  parseBuilderAsarUnpack,
+  problemsForElectronBuilderAsarUnpack,
+  problemsForElectronBuilderNodeModulesExclusion,
+  problemsForDistFontList,
+  parseTsupNoExternal,
+  problemsForDepsNoExternal,
+  problemsForDepsVersionSync,
+  // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
+  // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
+} from '../../scripts/check-packaging.mjs'
 
 const scriptPath = fileURLToPath(new URL('../../scripts/check-packaging.mjs', import.meta.url))
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -150,7 +162,9 @@ describe('R0911-A-P2-1：problemsForDistFontList（darwin dist 实存门，注�
 // 本门锁 files 含 '!node_modules/**'（精确钉形态：收窄形态漏子层即红）。
 describe('单立清账批：electron-builder.yml node_modules 全排除项断言', () => {
   it('含 !node_modules/** → 无问题（多余成员/其他否定模式不误报）', () => {
-    expect(problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', 'resources/**/*', '!**/._*', '!node_modules/**'])).toEqual([])
+    expect(
+      problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', 'resources/**/*', '!**/._*', '!node_modules/**']),
+    ).toEqual([])
   })
   it('排除项缺失 / 被收窄（漏子层形态）→ 必红（0917清库修复批回潮）', () => {
     expect(problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', 'resources/**/*'])).toHaveLength(1)
@@ -180,8 +194,17 @@ describe('RC 重审 P2-2：parseTsupNoExternal / problemsForDepsNoExternal', () 
     expect(parseTsupNoExternal('noExternal: DEPS // 表达式形态')).toEqual([])
   })
   it('deps ⊆ noExternal → 无问题；漏收一个 → 红且点名', () => {
-    expect(problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', openai: '^2' }, ['@anthropic-ai/sdk', 'openai', 'font-list'])).toEqual([])
-    const problems = problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', 'new-dep': '^3' }, ['@anthropic-ai/sdk', 'openai'])
+    expect(
+      problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', openai: '^2' }, [
+        '@anthropic-ai/sdk',
+        'openai',
+        'font-list',
+      ]),
+    ).toEqual([])
+    const problems = problemsForDepsNoExternal({ '@anthropic-ai/sdk': '^1', 'new-dep': '^3' }, [
+      '@anthropic-ai/sdk',
+      'openai',
+    ])
     expect(problems).toHaveLength(1)
     expect(String(problems[0])).toContain('new-dep')
     expect(String(problems[0])).toContain('noExternal')
@@ -213,8 +236,10 @@ describe('RC 重审 P3-15：problemsForDepsVersionSync（双包同名依赖声�
   it('真实仓库面：根包与 web-next 子包交集声明一致（typescript 漂移已随批对齐）', () => {
     const rootPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
     const subPkg = JSON.parse(readFileSync(join(root, 'src/studio/web-next/package.json'), 'utf8'))
-    const merge = (p: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) =>
-      ({ ...(p.dependencies ?? {}), ...(p.devDependencies ?? {}) })
+    const merge = (p: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }) => ({
+      ...(p.dependencies ?? {}),
+      ...(p.devDependencies ?? {}),
+    })
     expect(problemsForDepsVersionSync(merge(rootPkg), merge(subPkg))).toEqual([])
   })
 })

@@ -18,7 +18,6 @@ const canSymlink = (() => {
   }
 })()
 
-
 let tmp: string
 beforeEach(() => {
   tmp = mkdtempTracked(join(tmpdir(), 'clw-migrate-v2-'))
@@ -156,19 +155,22 @@ test('R65-38: 同名文件静默跳过 → push 到 errors（孤儿留痕）；�
   expect(readFileSync(join(tmp, '写作', '正文', '0001-冲突.md'), 'utf-8')).toBe('新目录已有内容')
 })
 
-test.skipIf(!canSymlink)('R65-38: statSync 抛错（dangling symlink 源 + 同名目标在位）→ 记 warn 跳过该条，同目录后续文件继续迁', () => {
-  mkdirSync(join(tmp, '定稿', '正文'), { recursive: true })
-  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
-  // 坏条目：源是 dangling symlink（statSync 跟随 → ENOENT），目标同名文件已存在
-  // → 进入同名分支的 statSync 即抛（修复前直穿外层 catch，同目录剩余条目整段跳过）
-  symlinkSync(join(tmp, '不存在.md'), join(tmp, '定稿', '正文', '0000-坏链.md'))
-  write('写作/正文/0000-坏链.md', '目标在位')
-  write('定稿/正文/0001-后续.md', '后续文件')
-  const r = migrateLayoutV2(tmp)
-  expect(r.errors.some((e) => e.includes('0000-坏链.md') && e.includes('stat 失败'))).toBe(true)
-  // 关键回归：坏条目之后的文件仍被迁移（修复前被跳过）
-  expect(has('写作/正文/0001-后续.md')).toBe(true)
-})
+test.skipIf(!canSymlink)(
+  'R65-38: statSync 抛错（dangling symlink 源 + 同名目标在位）→ 记 warn 跳过该条，同目录后续文件继续迁',
+  () => {
+    mkdirSync(join(tmp, '定稿', '正文'), { recursive: true })
+    mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+    // 坏条目：源是 dangling symlink（statSync 跟随 → ENOENT），目标同名文件已存在
+    // → 进入同名分支的 statSync 即抛（修复前直穿外层 catch，同目录剩余条目整段跳过）
+    symlinkSync(join(tmp, '不存在.md'), join(tmp, '定稿', '正文', '0000-坏链.md'))
+    write('写作/正文/0000-坏链.md', '目标在位')
+    write('定稿/正文/0001-后续.md', '后续文件')
+    const r = migrateLayoutV2(tmp)
+    expect(r.errors.some((e) => e.includes('0000-坏链.md') && e.includes('stat 失败'))).toBe(true)
+    // 关键回归：坏条目之后的文件仍被迁移（修复前被跳过）
+    expect(has('写作/正文/0001-后续.md')).toBe(true)
+  },
+)
 
 // ── 复审-0913-mac适配 P3-1：点前缀条目不搬移/不虚增计数 ──────────
 
@@ -258,7 +260,9 @@ test('R27-136: moveDrafts 同名跳过记 errors（对齐 moveTree R65-38① 口
 
   const r = migrateLayoutV2(dir)
   // 同名跳过留痕（修复前纯静默 continue，孤儿无告警）
-  expect(r.errors.some((e) => e.includes('同名跳过') && e.includes('工作区/草稿-1.md') && e.includes('写作/草稿/草稿-1.md'))).toBe(true)
+  expect(
+    r.errors.some((e) => e.includes('同名跳过') && e.includes('工作区/草稿-1.md') && e.includes('写作/草稿/草稿-1.md')),
+  ).toBe(true)
   // 双份内容均未被覆盖
   expect(readFileSync(join(dir, '工作区', '草稿-1.md'), 'utf-8')).toBe('旧目录孤儿')
   expect(readFileSync(join(dir, '写作', '草稿', '草稿-1.md'), 'utf-8')).toBe('已在目标位')

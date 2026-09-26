@@ -12,7 +12,13 @@ import { buildDegradeAttempts } from '../../src/ai/provider/adapter-errors.js'
 describe('Z-12: 降级链参数面存在性', () => {
   it('structured 模式下 attempts 含首发 + 剥除面', () => {
     const plan = buildDegradeAttempts(
-      { systemPrompt: 's', messages: [], structured: { name: 'x' }, tools: [{ name: 't', description: 'd', input_schema: {} }], maxTokens: 100 } as never,
+      {
+        systemPrompt: 's',
+        messages: [],
+        structured: { name: 'x' },
+        tools: [{ name: 't', description: 'd', input_schema: {} }],
+        maxTokens: 100,
+      } as never,
       'json_schema',
       { id: 'p', model: 'm' },
       undefined,

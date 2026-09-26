@@ -40,7 +40,10 @@ import {
 } from '../../../src/studio/web-next/src/api/providers'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
-interface Call { url: string; init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 
 let calls: Call[] = []
 function stubFetch(responder: (c: Call) => Response): void {

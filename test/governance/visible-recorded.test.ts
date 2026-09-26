@@ -24,7 +24,12 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from
 import { createFakeProvider, type FakeProvider } from '../ai/fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
-import { buildChatContext, visibleInjections, visibleInjectionsFromDigests, type ChatContext } from '../../src/ai/prompts/chat.js'
+import {
+  buildChatContext,
+  visibleInjections,
+  visibleInjectionsFromDigests,
+  type ChatContext,
+} from '../../src/ai/prompts/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { digest16, verifyVisibleRecorded, type VisibleInjection } from '../../src/events/lineage.js'
 import type { ChatEvent } from '../../src/events/types.js'
@@ -72,8 +77,12 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
     },
     cancelStream(): void {},
     interrupt(): void {},
-    isRunning(): boolean { return false },
-    isWriterRunning(): boolean { return false },
+    isRunning(): boolean {
+      return false
+    },
+    isWriterRunning(): boolean {
+      return false
+    },
     registerCtrl(): void {},
     unregisterCtrl(): void {},
   }
@@ -304,8 +313,6 @@ describe('R66-9: 可见清单单源一致性（visibleInjections ↔ FromDigests
 
   it('条件注入缺席（无章/无技巧）→ 两入口仍一致（settings 恒在）', () => {
     const bare: ChatContext = { settings: '只有设定', files: [] }
-    expect(visibleInjectionsFromDigests({ settings: digest16('只有设定') })).toEqual(
-      visibleInjections(bare),
-    )
+    expect(visibleInjectionsFromDigests({ settings: digest16('只有设定') })).toEqual(visibleInjections(bare))
   })
 })

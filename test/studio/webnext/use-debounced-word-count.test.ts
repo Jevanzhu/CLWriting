@@ -43,9 +43,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
-  getContentPayload: vi.fn(
-    async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) }),
-  ),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: vi.fn(),
@@ -186,7 +186,10 @@ describe('R1010c-FE2-P3-6: useDebouncedWordCount', () => {
     const key = ref('doc-a')
     let r: ReturnType<typeof useDebouncedWordCount> | undefined
     mountWith(() => {
-      r = useDebouncedWordCount(() => src.value, () => key.value)
+      r = useDebouncedWordCount(
+        () => src.value,
+        () => key.value,
+      )
     })
     src.value = '甲文档改'
     await nextTick()
@@ -246,7 +249,11 @@ describe('R1010c-FE2-P3-6: useDebouncedWordCount', () => {
     let raw: ReturnType<typeof useDebouncedWordCount> | undefined
     mountWith(() => {
       stripped = useDebouncedWordCount(() => src.value)
-      raw = useDebouncedWordCount(() => src.value, () => undefined, { stripFm: false })
+      raw = useDebouncedWordCount(
+        () => src.value,
+        () => undefined,
+        { stripFm: false },
+      )
     })
     // 期望值用同源 countWords 计算（不复制剥 fm 口径）
     expect(stripped!.count.value).toBe(countWords('正文一二三'))
@@ -279,7 +286,10 @@ describe('R1010c-FE2-P3-6: useDebouncedFmFields', () => {
     const key = ref('doc-a')
     let r: ReturnType<typeof useDebouncedFmFields> | undefined
     mountWith(() => {
-      r = useDebouncedFmFields(() => src.value, () => key.value)
+      r = useDebouncedFmFields(
+        () => src.value,
+        () => key.value,
+      )
     })
     src.value = '---\ntitle: 上卷改\n---\n\n正文'
     await nextTick()

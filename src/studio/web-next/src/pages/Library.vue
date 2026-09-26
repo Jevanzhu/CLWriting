@@ -105,11 +105,7 @@ function openDir(): void {
           <p v-if="!recents.length" class="empty">暂无其他书库</p>
           <ul v-else class="recent-list">
             <li v-for="r in recents" :key="r.path">
-              <button
-                class="recent-item"
-                :class="{ active: r.path === current }"
-                @click="switchTo(r.path)"
-              >
+              <button class="recent-item" :class="{ active: r.path === current }" @click="switchTo(r.path)">
                 <div class="item-info">
                   <span class="item-label">{{ r.label }}</span>
                   <span class="item-path" :title="r.path">{{ r.path }}</span>
@@ -132,10 +128,11 @@ function openDir(): void {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    linear-gradient(135deg,
-      color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
-      var(--background-primary));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
+    var(--background-primary)
+  );
 }
 
 /* 光晕静态（opacity 固定动画中值）：无限 opacity/scale 呼吸会驱动整窗持续出帧
@@ -380,5 +377,4 @@ function openDir(): void {
 }
 
 /* 入场动画 */
-
 </style>

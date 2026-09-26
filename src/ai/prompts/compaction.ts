@@ -64,7 +64,6 @@ export function planCompaction(messages: ChatMsg[], opts: { keepTurns: number })
 // -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
 import { codePointLength } from '../../shared/text.js'
 
-
 /** 计量消息占用的 code point 数（严格更小校验的口径；tool_use 入参按 64 粗估） */
 function measureMessages(msgs: ChatMsg[]): number {
   let n = 0

@@ -110,11 +110,7 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
     'utf-8',
   )
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(root, '写作', '正文', '1-雪夜.md'),
-    '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。',
-    'utf-8',
-  )
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
   try {
     const r = exportBook({ bookRoot: root, format: 'both' })
     expect(r.ok).toBe(true)
@@ -143,7 +139,13 @@ test('exportBook: 新平台只需注册模板表即生效（配置化，无需�
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
   // 注册一个新平台（模拟新增平台只需加模板表一项）
-  const custom = { platform: 'custom', label: '自定义平台', titleStyle: '自定义标题风格', introLength: '99-199 字', sellingPoints: ['自定义卖点'] }
+  const custom = {
+    platform: 'custom',
+    label: '自定义平台',
+    titleStyle: '自定义标题风格',
+    introLength: '99-199 字',
+    sellingPoints: ['自定义卖点'],
+  }
   SUBMISSION_TEMPLATES.custom = custom
   try {
     const r = exportBook({ bookRoot: root, format: 'merged', platform: 'custom' })
@@ -184,7 +186,11 @@ test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
 test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平台旧书名产物同属拿错稿风险一并清', () => {
   const root = mkdtempTracked(join(tmpdir(), 'export-subm-clear-'))
   const writeCfg = (title: string): void => {
-    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'),
+      'utf-8',
+    )
   }
   writeCfg('旧名书')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -211,7 +217,11 @@ test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平�
 test('exportBook: 书名以平台 label 结尾时 generic 旧产物照清；各平台当前产物精确保留', () => {
   const root = mkdtempTracked(join(tmpdir(), 'export-subm-label-'))
   const writeCfg = (title: string): void => {
-    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'),
+      'utf-8',
+    )
   }
   writeCfg('夜航-公众号')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -236,11 +246,7 @@ test('exportBook: 书名以平台 label 结尾时 generic 旧产物照清；各�
 
 test('exportBook: 无定稿目录 → ok:false', () => {
   const root = mkdtempTracked(join(tmpdir(), 'export-nodir-'))
-  writeFileSync(
-    join(root, 'book.yaml'),
-    ['spec_version: 1', 'book:', '  title: 空书'].join('\n'),
-    'utf-8',
-  )
+  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 空书'].join('\n'), 'utf-8')
   try {
     const r = exportBook({ bookRoot: root })
     expect(r.ok).toBe(false)
@@ -466,7 +472,11 @@ test('第五轮: 书改名后 merged 导出 → 旧「全本-旧书名.md」被�
     expect(first.ok).toBe(true)
     expect(existsSync(join(root, '工作区', '导出', '全本-旧书名.md'))).toBe(true)
     // 改书名再导出：同前缀旧文件视为过期产物
-    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 新书名', '  genre: 玄幻'].join('\n'), 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'book:', '  title: 新书名', '  genre: 玄幻'].join('\n'),
+      'utf-8',
+    )
     const r = exportBook({ bookRoot: root, format: 'merged' })
     expect(r.ok).toBe(true)
     const entries = readdirSync(join(root, '工作区', '导出'))
@@ -539,12 +549,7 @@ test('重评-P3-19: 首处合法字面 #% 不掩护行内后续紧贴真批注�
 
 test('重评-P3-19: 纯字面量多 #% 行不误剥；CRLF 行批注照剥且行尾不残 \\r', () => {
   const root = makeLongBook('多字面书')
-  writeLongChapter(
-    root,
-    1,
-    '多字面',
-    '达标线 #%=95% 才放行\r\n正文甲#%贴附批注\r\n底线 #%=80% 保底',
-  )
+  writeLongChapter(root, 1, '多字面', '达标线 #%=95% 才放行\r\n正文甲#%贴附批注\r\n底线 #%=80% 保底')
   try {
     exportBook({ bookRoot: root, format: 'merged' })
     const merged = readFileSync(join(root, '工作区', '导出', '全本-多字面书.md'), 'utf-8')
@@ -670,7 +675,9 @@ test('R65-27: 改书名再导出 → 旧「全本-」产物归档进 导出/.旧
     expect(r.ok).toBe(true)
     // 旧产物归档进 .旧版/ 且内容原样（未被销毁）
     expect(existsSync(oldPath)).toBe(false)
-    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '全本-旧书名.md'), 'utf-8')).toBe('作者手改过的导出稿内容')
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '全本-旧书名.md'), 'utf-8')).toBe(
+      '作者手改过的导出稿内容',
+    )
     // 新产物在位
     expect(existsSync(join(root, '工作区', '导出', '全本-新书名.md'))).toBe(true)
   } finally {
@@ -682,7 +689,11 @@ test('R65-27: 归档同名冲突 → 追加序号后缀保双份', () => {
   const root = makeLongBook('书名A')
   writeLongChapter(root, 1, '第一章', '正文一。')
   const writeCfg = (title: string): void => {
-    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'), 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),
+      'utf-8',
+    )
   }
   try {
     writeCfg('书名A')
@@ -705,7 +716,11 @@ test('R65-27: 归档同名冲突 → 追加序号后缀保双份', () => {
 test('R65-27: 短篇投稿视图旧产物同口径归档（改书名后旧「投稿视图-」进 .旧版/ 不销毁）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'export-subm-archive-'))
   const writeCfg = (title: string): void => {
-    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'),
+      'utf-8',
+    )
   }
   writeCfg('旧名短篇')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -716,7 +731,9 @@ test('R65-27: 短篇投稿视图旧产物同口径归档（改书名后旧「投
     writeCfg('新名短篇')
     exportBook({ bookRoot: root, format: 'merged' })
     expect(existsSync(join(root, '工作区', '导出', '投稿视图-旧名短篇.md'))).toBe(false)
-    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '投稿视图-旧名短篇.md'), 'utf-8')).toBe('作者改过的投稿稿')
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '投稿视图-旧名短篇.md'), 'utf-8')).toBe(
+      '作者改过的投稿稿',
+    )
     expect(existsSync(join(root, '工作区', '导出', '投稿视图-新名短篇.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -737,7 +754,9 @@ test('R67-1: 再导出时旧 分章/ 整目录归档进 .旧版/ 不再 rmSync �
     const r = exportBook({ bookRoot: root, format: 'both' })
     expect(r.ok).toBe(true)
     // 手改稿整目录归档进 .旧版/分章/ 且内容原样（同名章新产物会重建同名文件，以内容判）
-    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '分章', '0001-第一章.md'), 'utf-8')).toBe('作者手改过的分章稿')
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '分章', '0001-第一章.md'), 'utf-8')).toBe(
+      '作者手改过的分章稿',
+    )
     // 新分章产物在位且为第二版
     expect(readFileSync(join(root, '工作区', '导出', '分章', '0001-第一章.md'), 'utf-8')).toContain('第二版正文')
   } finally {

@@ -48,7 +48,10 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', MockES)
   // 鉴权契约②：换票端点统一桩 200 {ticket}（R0916-7-P3-19 起 404 桩即换票失败——不再
   // 回退 ?token= 开连，本文件聚焦退避纪元，给一张有效票让连接链走通）
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ ticket: 'tk' }), { status: 200 })),
+  )
   vi.useFakeTimers()
 })
 

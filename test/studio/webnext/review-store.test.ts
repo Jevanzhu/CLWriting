@@ -26,9 +26,19 @@ beforeEach(() => {
 describe('review: 发起三审', () => {
   it('run 成功 → collected + envelope 填充', async () => {
     reviewMock.mockResolvedValue({
-      ok: true, lenses: ['reader', 'editor'], collected: { ok: true, collected_lenses: ['reader'], missing_lenses: ['editor'] },
+      ok: true,
+      lenses: ['reader', 'editor'],
+      collected: { ok: true, collected_lenses: ['reader'], missing_lenses: ['editor'] },
     })
-    envelopeMock.mockResolvedValue({ envelope: { generatedAt: '2026-01-01', model: 'm', sourceHash: 'h', payload: { collected: { ok: true, collected_lenses: [], missing_lenses: [] } } }, stale: false })
+    envelopeMock.mockResolvedValue({
+      envelope: {
+        generatedAt: '2026-01-01',
+        model: 'm',
+        sourceHash: 'h',
+        payload: { collected: { ok: true, collected_lenses: [], missing_lenses: [] } },
+      },
+      stale: false,
+    })
     const s = useReviewStore()
     await s.run('book1', 'doc_1')
     expect(s.collected).not.toBeNull()
@@ -51,7 +61,12 @@ describe('review: 发起三审', () => {
 describe('review: 读存量信封', () => {
   it('loadEnvelope 有信封 → 填充 envelope + stale', async () => {
     envelopeMock.mockResolvedValue({
-      envelope: { generatedAt: 't', model: 'm', sourceHash: 'h', payload: { collected: { ok: true, collected_lenses: ['reader'], missing_lenses: [] } } },
+      envelope: {
+        generatedAt: 't',
+        model: 'm',
+        sourceHash: 'h',
+        payload: { collected: { ok: true, collected_lenses: ['reader'], missing_lenses: [] } },
+      },
       stale: true,
     })
     const s = useReviewStore()
@@ -72,7 +87,15 @@ describe('review: 作者裁决', () => {
   it('setVerdict → 调 runVerdictDoc + reload envelope', async () => {
     verdictMock.mockResolvedValue(undefined)
     envelopeMock.mockResolvedValue({
-      envelope: { generatedAt: 't2', model: 'm', sourceHash: 'h2', payload: { collected: { ok: true, collected_lenses: [], missing_lenses: [] }, verdict: { approved: true, at: 'now' } } },
+      envelope: {
+        generatedAt: 't2',
+        model: 'm',
+        sourceHash: 'h2',
+        payload: {
+          collected: { ok: true, collected_lenses: [], missing_lenses: [] },
+          verdict: { approved: true, at: 'now' },
+        },
+      },
       stale: false,
     })
     const s = useReviewStore()
@@ -85,7 +108,11 @@ describe('review: 作者裁决', () => {
 
 describe('review: clear', () => {
   it('clear → 全部重置', async () => {
-    reviewMock.mockResolvedValue({ ok: true, lenses: [], collected: { ok: true, collected_lenses: [], missing_lenses: [] } })
+    reviewMock.mockResolvedValue({
+      ok: true,
+      lenses: [],
+      collected: { ok: true, collected_lenses: [], missing_lenses: [] },
+    })
     envelopeMock.mockResolvedValue({ envelope: null, stale: false })
     const s = useReviewStore()
     await s.run('book1', 'doc_1')
@@ -102,7 +129,11 @@ describe('review: clear', () => {
 describe('review: R-1 clear 在途 run 不卡 loading', () => {
   it('run 在途 → clear → 迟到响应 settle → loading 为 false（按钮可再触发）', async () => {
     let release!: (v: unknown) => void
-    reviewMock.mockReturnValue(new Promise((r) => { release = r }))
+    reviewMock.mockReturnValue(
+      new Promise((r) => {
+        release = r
+      }),
+    )
     const s = useReviewStore()
     const p = s.run('book1', 'doc_1')
     expect(s.loading).toBe(true)

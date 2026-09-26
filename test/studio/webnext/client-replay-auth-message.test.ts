@@ -22,9 +22,7 @@ function jsonRes(status: number, body: unknown = {}): Response {
   })
 }
 
-async function freshClient(): Promise<
-  typeof import('../../../src/studio/web-next/src/api/client')
-> {
+async function freshClient(): Promise<typeof import('../../../src/studio/web-next/src/api/client')> {
   vi.resetModules()
   const c = await import('../../../src/studio/web-next/src/api/client')
   // R64-43：退避注入点换 no-op sleep——boot 若走重试不垫真实墙钟等待

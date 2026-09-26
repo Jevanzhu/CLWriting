@@ -17,11 +17,22 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, type Manifest } from '../document/manifest.js'
+import {
+  readManifest,
+  finalizedChapterNumbers,
+  finalizedChapterSetOfBook,
+  type Manifest,
+} from '../document/manifest.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig } from '../format/types.js'
 import type { BookState, DetectedState } from './state.js'
-import { skipFinalizedChapters, unfinishedPieceNames, maxFileNameChapter, volumeSizeOf, DEFAULT_VOLUME_SIZE } from './health.js'
+import {
+  skipFinalizedChapters,
+  unfinishedPieceNames,
+  maxFileNameChapter,
+  volumeSizeOf,
+  DEFAULT_VOLUME_SIZE,
+} from './health.js'
 
 /** 读 .auto-batch.json 的 paused 字段（#34 暂停元状态）——实现移 batch-pause.ts（写侧 self-heal 共用）。 */
 
@@ -51,7 +62,12 @@ export interface StatusRecap {
  * 组装近况复述（#15 第 4 节）。
  * 去 git：确认复述（lastConfirm）原依赖 commit trailer，已随 git 移除——定稿留痕改由版本档案（.版本）承载。
  */
-export function buildRecap(bookRoot: string, config: BookConfig, detected: DetectedState, manifest?: Manifest): StatusRecap {
+export function buildRecap(
+  bookRoot: string,
+  config: BookConfig,
+  detected: DetectedState,
+  manifest?: Manifest,
+): StatusRecap {
   // enter 已读的 manifest 复用，避免与 detectState 双读（-BE-4）
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const snapshot = readRecapSnapshot(bookRoot, config, detected, m)

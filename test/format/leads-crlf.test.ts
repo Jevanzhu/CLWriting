@@ -90,12 +90,15 @@ test('R36-1: CRLF 账本 readLead→writeLead 往返条目全部保留（定稿�
   const dir = mkdtempTracked(join(tmpdir(), 'r36-leads-crlf-'))
   const fp = join(dir, '悬念-001-灭门真凶.md')
   // 整文件 CRLF（front matter + 履历段；与 win 记事本/同步盘转码形态一致）
-  const content = toCrlf(FM + `## 履历
+  const content = toCrlf(
+    FM +
+      `## 履历
 
 - 第012章 埋下：林家祠堂的焦痕。
 - 第020章 递进：管家提到狗没叫。
 - 第030章 递进：门前雪地脚印。
-`)
+`,
+  )
   writeFileSync(fp, content, 'utf-8')
   try {
     const r = readLead(fp)

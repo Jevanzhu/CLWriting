@@ -39,19 +39,13 @@ describe('friendlyError · 裸 HTTP 状态 vs AI 服务文案', () => {
   })
 
   it('AI 提供方 overloaded/503/502 文案 → 仍映射「AI 服务繁忙，请稍后重试」', () => {
-    expect(friendlyError(new Error('OpenAI 503: The server is overloaded'))).toBe(
-      'AI 服务繁忙，请稍后重试',
-    )
-    expect(friendlyError(new Error('DeepSeek API 502: upstream error'))).toBe(
-      'AI 服务繁忙，请稍后重试',
-    )
+    expect(friendlyError(new Error('OpenAI 503: The server is overloaded'))).toBe('AI 服务繁忙，请稍后重试')
+    expect(friendlyError(new Error('DeepSeek API 502: upstream error'))).toBe('AI 服务繁忙，请稍后重试')
   })
 
   it('既有模式不回归：timeout / 429 / 网络 / 未知', () => {
     expect(friendlyError(new Error('request timed out after 60s'))).toBe('请求超时，请重试')
-    expect(friendlyError(new Error('OpenAI 429 rate limit exceeded'))).toBe(
-      '请求过于频繁，请稍后重试',
-    )
+    expect(friendlyError(new Error('OpenAI 429 rate limit exceeded'))).toBe('请求过于频繁，请稍后重试')
     expect(friendlyError(new Error('fetch failed: ECONNREFUSED'))).toBe(NET_TIP)
     expect(friendlyError(new Error('一些未知中文错误'))).toBe('一些未知中文错误')
   })

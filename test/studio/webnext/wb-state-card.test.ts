@@ -25,7 +25,14 @@ function mountCard(state: BookState | null) {
 
 describe('WbStateCard · R0912-FE-P2-2：volume-review 文案对齐', () => {
   it('state 5 → 按钮不再叫「卷复盘」，改「继续写作（下一章）」+ title 注明规划中', () => {
-    const w = mountCard(stateOf({ state: 5, stateName: '卷末', action: 'volume-review', humanMsg: '第 2 卷写完了，建议做卷复盘（节奏/线收束/伏笔回收）再开下一卷。' }))
+    const w = mountCard(
+      stateOf({
+        state: 5,
+        stateName: '卷末',
+        action: 'volume-review',
+        humanMsg: '第 2 卷写完了，建议做卷复盘（节奏/线收束/伏笔回收）再开下一卷。',
+      }),
+    )
     const btn = w.findAll('button').find((b) => b.text().includes('下一章'))
     expect(btn).toBeDefined()
     expect(btn!.text()).toBe('继续写作（下一章）')

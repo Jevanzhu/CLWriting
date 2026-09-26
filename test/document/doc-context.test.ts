@@ -27,7 +27,11 @@ import { join, dirname } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { DocContext } from '../../src/document/doc-context.js'
 // R0916-7-P3-6：锁档常量（生产默认值单源）——缺省档逐位锚定
-import { META_SAVE_LOCK_TIMEOUT_MS, WIRING_SAVE_LOCK_TIMEOUT_MS, SAVE_LOCK_TIMEOUT_MS } from '../../src/document/service-guards.js'
+import {
+  META_SAVE_LOCK_TIMEOUT_MS,
+  WIRING_SAVE_LOCK_TIMEOUT_MS,
+  SAVE_LOCK_TIMEOUT_MS,
+} from '../../src/document/service-guards.js'
 import { DEFAULT_VERSION_POLICY, encodeDocDirName } from '../../src/document/version.js'
 import { readManifest, upsertEntry, writeManifest } from '../../src/document/manifest.js'
 import { legacyId } from '../../src/document/stable-id.js'
@@ -118,7 +122,11 @@ describe('R0916-7-P3-8: DocContext 组装与显式设施', () => {
     const journalPath = ctx.journalPathOf('doc_busy')
     mkdirSync(dirname(journalPath), { recursive: true })
     // 活 pid 探针锁（与锁基建落盘格式一致，同 r30-timeout-consts 手法）
-    writeFileSync(`${journalPath}.save.lock`, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
+    writeFileSync(
+      `${journalPath}.save.lock`,
+      JSON.stringify({ pid: process.pid, bootTime: processBootTime() }),
+      'utf-8',
+    )
     let ran = false
     const out = await ctx.withSaveLocks({
       journalPath,
@@ -143,7 +151,12 @@ describe('R0916-7-P3-8: DocContext 组装与显式设施', () => {
     expect(ctx.wiringSaveLockTimeoutMs).toBe(WIRING_SAVE_LOCK_TIMEOUT_MS)
     expect(ctx.wiringSaveLockTimeoutMs).toBe(5_000)
     // 注入档在构造期生效且实例期内恒定（readonly 字段，无运行期改写通道）
-    const short = new DocContext({ bookRoot: root, saveLockTimeoutMs: 1_000, metaSaveLockTimeoutMs: 150, wiringSaveLockTimeoutMs: 80 })
+    const short = new DocContext({
+      bookRoot: root,
+      saveLockTimeoutMs: 1_000,
+      metaSaveLockTimeoutMs: 150,
+      wiringSaveLockTimeoutMs: 80,
+    })
     expect(short.saveLockTimeoutMs).toBe(1_000)
     expect(short.metaSaveLockTimeoutMs).toBe(150)
     expect(short.wiringSaveLockTimeoutMs).toBe(80)
@@ -184,7 +197,11 @@ describe('R0916-7-P3-8: DocContext 组装与显式设施', () => {
     try {
       writeFileSync(join(userData, 'global.json'), '{"snapMaxCount":2,"snapMaxDays":90}')
       const withUd = new DocContext({ bookRoot: root, userDataPath: userData })
-      expect(withUd.snapshotPolicy()).toEqual({ maxDays: 90, maxCount: 2, throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes })
+      expect(withUd.snapshotPolicy()).toEqual({
+        maxDays: 90,
+        maxCount: 2,
+        throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
+      })
       // 无 global.json / 无 userDataPath → 全默认档
       expect(ctx.snapshotPolicy()).toEqual(DEFAULT_VERSION_POLICY)
     } finally {

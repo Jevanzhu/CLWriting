@@ -31,7 +31,10 @@ const CONF = {
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
-async function collect(prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> }, req: GenRequest): Promise<GenEvent[]> {
+async function collect(
+  prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> },
+  req: GenRequest,
+): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -54,7 +57,10 @@ describe('R33D-2：content_filter / refusal 不再伪装正常完成', () => {
         completions: {
           create: fakeSend([
             { choices: [{ delta: { content: '半截' }, finish_reason: null }] },
-            { choices: [{ delta: {}, finish_reason: 'content_filter' }], usage: { prompt_tokens: 8, completion_tokens: 2 } },
+            {
+              choices: [{ delta: {}, finish_reason: 'content_filter' }],
+              usage: { prompt_tokens: 8, completion_tokens: 2 },
+            },
           ]),
         },
       },
@@ -117,7 +123,10 @@ describe('R33D-2：content_filter / refusal 不再伪装正常完成', () => {
       },
     } as unknown as Anthropic
     // 折算系数按字符量估计——REQ 太短估出 0，用足够长的输入验证非零估计
-    const longReq: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '请写一段足够长的正文来验证折算估计。'.repeat(20) }] }
+    const longReq: GenRequest = {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: '请写一段足够长的正文来验证折算估计。'.repeat(20) }],
+    }
     const evs = await collect(createAnthropicProvider(CONF, client), longReq)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
     const err = findError(evs)
@@ -201,9 +210,15 @@ describe('R33D-12：responses done 项双缺 id → 兜底序号 id', () => {
       { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call' } },
       { type: 'response.function_call_arguments.delta', item_id: '', output_index: 0, delta: '{"q":1}' },
       { type: 'response.output_item.done', output_index: 0, item: { type: 'function_call', name: 'search' } },
-      { type: 'response.completed', response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } } },
+      {
+        type: 'response.completed',
+        response: { output: [{ type: 'message' }], usage: { input_tokens: 1, output_tokens: 1 } },
+      },
     ])
-    const evs = await collect(createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses', model: 'gpt-5' }, client), REQ)
+    const evs = await collect(
+      createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses', model: 'gpt-5' }, client),
+      REQ,
+    )
     const tool = evs.find((e) => e.type === 'tool') as Extract<GenEvent, { type: 'tool' }> | undefined
     expect(tool).toBeDefined()
     expect(tool!.id).toBeTruthy()

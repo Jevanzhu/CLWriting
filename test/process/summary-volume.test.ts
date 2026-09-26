@@ -74,7 +74,11 @@ function makeBook(chapters: number, finalizedN: number, volumeSize = 2): string 
   for (let no = 1; no <= chapters; no++) {
     const pad = String(no).padStart(3, '0')
     const p = join(root, '写作', '正文', `${pad}-第${no}章.md`)
-    writeFileSync(p, `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`, 'utf-8')
+    writeFileSync(
+      p,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文。\n`,
+      'utf-8',
+    )
     const id = generateDocId()
     upsertEntry(m, { id, nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
     if (no <= finalizedN) {
@@ -87,11 +91,18 @@ function makeBook(chapters: number, finalizedN: number, volumeSize = 2): string 
   return root
 }
 
-const bodyOf = (root: string, no: number): string => join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
+const bodyOf = (root: string, no: number): string =>
+  join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
 
 async function genChapterSummaries(root: string, config: BookConfig, chapters: number[]): Promise<void> {
   for (const ch of chapters) {
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config, chapter: ch, bodyAbsPath: bodyOf(root, ch) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config,
+      chapter: ch,
+      bodyAbsPath: bodyOf(root, ch),
+    })
     expect(r.ok).toBe(true)
   }
 }
@@ -217,7 +228,8 @@ describe('C4 token 系数', () => {
   it('fitCoefficients：过原点最小二乘 + 样本不足不给建议 + 脏样本过滤', () => {
     const samples: CalibrationSample[] = []
     // model-a：coeff=0.5 的 40 个干净样本
-    for (let i = 1; i <= 40; i++) samples.push({ model: 'model-a', chars: i * 100, inputTokens: Math.round(i * 100 * 0.5) })
+    for (let i = 1; i <= 40; i++)
+      samples.push({ model: 'model-a', chars: i * 100, inputTokens: Math.round(i * 100 * 0.5) })
     // model-b：只有 5 个样本（< 30 → coeff null）
     for (let i = 1; i <= 5; i++) samples.push({ model: 'model-b', chars: i * 100, inputTokens: i * 60 })
     // 脏样本：chars=0 / tokens=0 丢弃

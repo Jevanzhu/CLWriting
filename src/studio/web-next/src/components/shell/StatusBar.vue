@@ -35,7 +35,9 @@ const connText = computed(() => {
     </div>
     <div class="status-right">
       <span v-if="tree.totalWords" class="status-words">
-        全书 {{ tree.totalWords.toLocaleString() }}<span class="sep">·</span>今日 +{{ words.todayWords.toLocaleString() }}
+        全书 {{ tree.totalWords.toLocaleString() }}<span class="sep">·</span>今日 +{{
+          words.todayWords.toLocaleString()
+        }}
       </span>
       <span v-if="tree.totalWords" class="sep">·</span>
       <span>{{ themeName() }}</span>

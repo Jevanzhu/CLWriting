@@ -48,7 +48,13 @@ describe('E-9: textOut 清空 → draftSaved 徽标随清', () => {
   it('存草稿后再次生成（textOut 复位空）→ 「N 字已存」徽标消失', async () => {
     const wb = useWorkbenchStore()
     wb.textOut = '正文若干字'
-    mocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+    mocks.saveDraft.mockResolvedValue({
+      ok: true,
+      path: '写作/正文/0003-x.md',
+      words: 5,
+      docId: 'doc_9',
+      snapshotted: false,
+    })
 
     const w = mount(WorkbenchView, {
       props: { bookName: '书A' },

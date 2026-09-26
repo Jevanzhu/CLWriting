@@ -119,9 +119,31 @@ function setupActions(): {
   node1: TreeNode
   node2: TreeNode
 } {
-  const node1: TreeNode = { path: '写作/正文/第一卷/0001-甲.md', name: '0001-甲.md', isDirectory: false, role: 'chapter', children: [], docId: 'doc1', status: 'draft' }
-  const node2: TreeNode = { path: '写作/正文/第一卷/0002-乙.md', name: '0002-乙.md', isDirectory: false, role: 'chapter', children: [], docId: 'doc2', status: 'draft' }
-  const vol1: TreeNode = { path: '写作/正文/第一卷', name: '第一卷', isDirectory: true, role: '', children: [node1, node2] }
+  const node1: TreeNode = {
+    path: '写作/正文/第一卷/0001-甲.md',
+    name: '0001-甲.md',
+    isDirectory: false,
+    role: 'chapter',
+    children: [],
+    docId: 'doc1',
+    status: 'draft',
+  }
+  const node2: TreeNode = {
+    path: '写作/正文/第一卷/0002-乙.md',
+    name: '0002-乙.md',
+    isDirectory: false,
+    role: 'chapter',
+    children: [],
+    docId: 'doc2',
+    status: 'draft',
+  }
+  const vol1: TreeNode = {
+    path: '写作/正文/第一卷',
+    name: '第一卷',
+    isDirectory: true,
+    role: '',
+    children: [node1, node2],
+  }
   const bodyRoot: TreeNode = { path: '写作/正文', name: '正文', isDirectory: true, role: '', children: [vol1] }
   const writeRoot: TreeNode = { path: '写作', name: '写作', isDirectory: true, role: '', children: [bodyRoot] }
   treeMock.grouped = [writeRoot]
@@ -194,9 +216,7 @@ describe('doMergeUndo（复审-0913-P1：undo 前置落盘）', () => {
     // 调用序断言：落盘（flushUnsaved 首步 = waitInflightSave）先于 undo 请求——
     // dirty 目标章不落盘就 undo，refresh 的 dirty 分支会保旧正文，两章内容重复
     expect(docMock.waitInflightSave).toHaveBeenCalledWith('doc1')
-    expect(docMock.waitInflightSave.mock.invocationCallOrder[0]).toBeLessThan(
-      undoMock.mock.invocationCallOrder[0]!,
-    )
+    expect(docMock.waitInflightSave.mock.invocationCallOrder[0]).toBeLessThan(undoMock.mock.invocationCallOrder[0]!)
     expect(treeMock.load).toHaveBeenCalledWith('书名')
   })
 

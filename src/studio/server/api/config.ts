@@ -51,78 +51,81 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     method: 'GET',
     path: '/api/books/:name/config',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
-    // 低-2error 是 ParseError {file,line,message} 对象——直接插值会串成
-    // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
-    if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
-    // 内容指纹随 GET 回传，供前端下次 PUT 带 expectedRevision
-    reply(res, 200, { config: (cfgResult as { config: BookConfig }).config, revision: yamlRevision(join(r.bookRoot, 'book.yaml')) })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
+      // 低-2error 是 ParseError {file,line,message} 对象——直接插值会串成
+      // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
+      if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
+      // 内容指纹随 GET 回传，供前端下次 PUT 带 expectedRevision
+      reply(res, 200, {
+        config: (cfgResult as { config: BookConfig }).config,
+        revision: yamlRevision(join(r.bookRoot, 'book.yaml')),
+      })
+    },
   })
 
   defineRoute('books.config.put', {
     method: 'PUT',
     path: '/api/books/:name/config',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const body = await readJson(req)
-    const config = body['config'] as BookConfig | undefined
-    if (!config || typeof config !== 'object') return replyError(res, 400, 'BAD_INPUT', 'config 必填')
-    // 结构校验：防畸形 config 写出损坏的 book.yaml
-    if (typeof config.book?.title !== 'string' || !config.book.title.trim()) {
-      return replyError(res, 400, 'BAD_INPUT', 'config.book.title 必填且须为非空字符串')
-    }
-    // 拒含控制字符的标题——含换行标题落盘后 book.yaml 行结构破坏
-    // （回读静默丢键/错键）；yaml 层的引号转义是纵深防线，入口直接拒收最稳
-    if (/[\u0000-\u001f\u007f]/.test(config.book.title)) {
-      return replyError(res, 400, 'BAD_INPUT', 'config.book.title 不能包含换行等控制字符')
-    }
-    // 已知数值键的类型+下界校验（简版白名单）——此前负数/非有限
-    // 值可落 book.yaml（下游容错不崩但配置面失真）。未列字段维持透传（book.yaml 扩展面）
-    const numericChecks: Array<[string, unknown, number]> = [
-      ['book.target_words', config.book?.target_words, 0],
-      ['book.chapter_target_words', config.book?.chapter_target_words, 0],
-      ['budget.calls_per_chapter', config.budget?.calls_per_chapter, 0],
-      ['auto.batch_size', config.auto?.batch_size, 1],
-      ['snapshots.max_days', config.snapshots?.max_days, 1],
-      ['snapshots.max_count', config.snapshots?.max_count, 1],
-    ]
-    for (const [key, v, min] of numericChecks) {
-      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < min)) {
-        return replyError(res, 400, 'BAD_INPUT', `config.${key} 须为 ≥${min} 的有限数值`)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const body = await readJson(req)
+      const config = body['config'] as BookConfig | undefined
+      if (!config || typeof config !== 'object') return replyError(res, 400, 'BAD_INPUT', 'config 必填')
+      // 结构校验：防畸形 config 写出损坏的 book.yaml
+      if (typeof config.book?.title !== 'string' || !config.book.title.trim()) {
+        return replyError(res, 400, 'BAD_INPUT', 'config.book.title 必填且须为非空字符串')
       }
-    }
-    // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
-    const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
-    if (moved) return replyError(res, 409, moved.code, moved.reason)
-    try {
-      const yamlPath = join(r.bookRoot, 'book.yaml')
-      // 读盘/指纹比对/写盘三段同步无 await（单事件循环原子口径）——
-      // 失配 409 早于一切写动作，双标签页后写者不再静默覆盖先写者
-      const current = yamlRevision(yamlPath)
-      const revErr = revisionError(body['expectedRevision'], current, '书籍配置')
-      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-      // kk-文本级补丁写——此前 stringifyBookConfig 全量重生成会丢作者手写
-      // 注释/未知段/未知子键（migrate-defaults 同款红线）。现文件读不出或解析失败
-      // 时回落全量重生成（与旧行为一致，配置仍能保存）
-      let yaml: string
+      // 拒含控制字符的标题——含换行标题落盘后 book.yaml 行结构破坏
+      // （回读静默丢键/错键）；yaml 层的引号转义是纵深防线，入口直接拒收最稳
+      if (/[\u0000-\u001f\u007f]/.test(config.book.title)) {
+        return replyError(res, 400, 'BAD_INPUT', 'config.book.title 不能包含换行等控制字符')
+      }
+      // 已知数值键的类型+下界校验（简版白名单）——此前负数/非有限
+      // 值可落 book.yaml（下游容错不崩但配置面失真）。未列字段维持透传（book.yaml 扩展面）
+      const numericChecks: Array<[string, unknown, number]> = [
+        ['book.target_words', config.book?.target_words, 0],
+        ['book.chapter_target_words', config.book?.chapter_target_words, 0],
+        ['budget.calls_per_chapter', config.budget?.calls_per_chapter, 0],
+        ['auto.batch_size', config.auto?.batch_size, 1],
+        ['snapshots.max_days', config.snapshots?.max_days, 1],
+        ['snapshots.max_count', config.snapshots?.max_count, 1],
+      ]
+      for (const [key, v, min] of numericChecks) {
+        if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < min)) {
+          return replyError(res, 400, 'BAD_INPUT', `config.${key} 须为 ≥${min} 的有限数值`)
+        }
+      }
+      // readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
-        const raw = readFileSync(yamlPath, 'utf8')
-        const parsed = parseBookConfig(raw, yamlPath)
-        yaml = parsed.ok ? patchBookConfigText(raw, parsed.config, config) : stringifyBookConfig(config)
-      } catch {
-        yaml = stringifyBookConfig(config)
+        const yamlPath = join(r.bookRoot, 'book.yaml')
+        // 读盘/指纹比对/写盘三段同步无 await（单事件循环原子口径）——
+        // 失配 409 早于一切写动作，双标签页后写者不再静默覆盖先写者
+        const current = yamlRevision(yamlPath)
+        const revErr = revisionError(body['expectedRevision'], current, '书籍配置')
+        if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+        // kk-文本级补丁写——此前 stringifyBookConfig 全量重生成会丢作者手写
+        // 注释/未知段/未知子键（migrate-defaults 同款红线）。现文件读不出或解析失败
+        // 时回落全量重生成（与旧行为一致，配置仍能保存）
+        let yaml: string
+        try {
+          const raw = readFileSync(yamlPath, 'utf8')
+          const parsed = parseBookConfig(raw, yamlPath)
+          yaml = parsed.ok ? patchBookConfigText(raw, parsed.config, config) : stringifyBookConfig(config)
+        } catch {
+          yaml = stringifyBookConfig(config)
+        }
+        atomicWriteFile(yamlPath, yaml)
+        // 回传写入后指纹（下次保存的 expectedRevision 基线）
+        reply(res, 200, { ok: true, revision: createHash('sha256').update(yaml).digest().readUInt32BE(0) })
+      } catch (e) {
+        log.error('api', '写 book.yaml 失败', e)
+        return replyError(res, 500, 'IO_ERROR', '写 book.yaml 失败')
       }
-      atomicWriteFile(yamlPath, yaml)
-      // 回传写入后指纹（下次保存的 expectedRevision 基线）
-      reply(res, 200, { ok: true, revision: createHash('sha256').update(yaml).digest().readUInt32BE(0) })
-    } catch (e) {
-      log.error('api', '写 book.yaml 失败', e)
-      return replyError(res, 500, 'IO_ERROR', '写 book.yaml 失败')
-    }
-  },
+    },
   })
 }

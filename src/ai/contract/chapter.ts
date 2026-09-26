@@ -99,7 +99,10 @@ export function assembleChapter(
   if (!正文) return { ok: false, error: '正文字段为空' }
 
   // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析）
-  const fmVal = (v: unknown): string => String(v ?? '').trim().replace(/[\r\n]+/g, ' ')
+  const fmVal = (v: unknown): string =>
+    String(v ?? '')
+      .trim()
+      .replace(/[\r\n]+/g, ' ')
   // 值侧再过 stringifyValue 单源——AI 产出的自由文本（标题/目标情绪/
   // 核心反转等）含 `#`（被行内注释剥离截断）、`[`/`,`（解析成数组）、`|`/`>`（命中块标量
   // 分支吞后续 fm 行）、纯数字（解析成 number）时此前原样落盘，读回即静默损坏（与系统

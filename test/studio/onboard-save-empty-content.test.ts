@@ -19,7 +19,8 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clw-onboard-empty-',
     dirs: ['大纲'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: onboard空内容书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: onboard空内容书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     env: { CLWRITING_DRIVER: 'mock' },
   })
 })

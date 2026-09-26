@@ -28,18 +28,24 @@ afterEach(() => {
 const addChapter = (no: number, title: string, body: string, fmExtra = '') => {
   const rel = `写作/正文/${String(no).padStart(4, '0')}-${title}.md`
   const abs = join(root, rel)
-  writeFileSync(abs, `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n\n${body}\n`)
+  writeFileSync(
+    abs,
+    `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n${fmExtra}---\n\n${body}\n`,
+  )
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   upsertEntry(m, {
-    id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-    finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+    id: generateDocId(),
+    nodeType: 'document',
+    path: rel,
+    parentId: null,
+    finalizedRevision: computeRevision(abs),
+    finalizedAt: new Date().toISOString(),
   })
   writeManifest(manifestPath, m)
 }
 
-const splitDirNames = (): string[] =>
-  readdirSync(join(root, '工作区', '导出', '分章')).sort()
+const splitDirNames = (): string[] => readdirSync(join(root, '工作区', '导出', '分章')).sort()
 
 describe('S2 导出排序与 D7 分流', () => {
   it('sortKey 排序：`序: 2.5`（拆分新章中值）在分章产物中插到 1 与 2 之间', () => {
@@ -71,8 +77,12 @@ describe('S2 导出排序与 D7 分流', () => {
     const r = exportBook({ bookRoot: root, format: 'split' })
     expect(r.ok).toBe(true)
     expect(splitDirNames()).toEqual([
-      '0001-甲.md', '0002-乙.md', '0003-丙.md',
-      '0004-丁.md', '0005-己.md', '0006-戊.md',
+      '0001-甲.md',
+      '0002-乙.md',
+      '0003-丙.md',
+      '0004-丁.md',
+      '0005-己.md',
+      '0006-戊.md',
     ])
   })
 

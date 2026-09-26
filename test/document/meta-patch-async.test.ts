@@ -3,7 +3,7 @@
  *
  * - R31-20 [P3]：updateChapterMeta / updateDocMeta 的 save/布线/清单锁等待此前为
  *   Atomics.wait 同步睡（最坏 ≈20s 冻结服务进程事件循环，与 R30-6 异步化 executeSave/
-   * finalize 的理由正面冲突）。修复后：取锁等待走 acquireCrossProcessLockAsync
+ * finalize 的理由正面冲突）。修复后：取锁等待走 acquireCrossProcessLockAsync
  *   （setTimeout 轮询）/ withManifestLockAsync，锁内临界段保持全同步 FS；同进程同
  *   docId 并发经 chainDocMetaOp promise 链串行（防锁文件同 pid 自锁窗口）。
  *   探针法：锁被占用时启动 PATCH（不 await），事件循环定时器须照常触发。
@@ -47,7 +47,10 @@ function holdLock(targetAbs: string): void {
 
 describe('R31-20: meta PATCH 锁等待不阻塞事件循环（探针改轮询等待，无定长实睡）', () => {
   it('updateChapterMeta 等锁期间定时器照常触发（探针），锁释放后保存成功', async () => {
-    const c = await svc.createDocument({ relPath: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文' })
+    const c = await svc.createDocument({
+      relPath: '写作/正文/0001-开篇.md',
+      content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文',
+    })
     if (!c.ok) throw new Error('prereq create 失败')
     const saveLock = join(bookRoot, '工作区', '.journal', `${c.docId}.jsonl.save.lock`)
     holdLock(saveLock)
@@ -56,7 +59,9 @@ describe('R31-20: meta PATCH 锁等待不阻塞事件循环（探针改轮询等
       // 探针：等锁窗口（300ms）内 50ms 定时器必须触发——同步 Atomics.wait 形态下
       // 事件循环冻结至锁等待结束，waitFor 的轮询到解冻后才恢复、已超 90ms 预算 → 超时红
       let probe = false
-      setTimeout(() => { probe = true }, 50)
+      setTimeout(() => {
+        probe = true
+      }, 50)
       await vi.waitFor(() => expect(probe).toBe(true), { timeout: 90 })
       // 释放锁 → 等待中的 PATCH 正常完成
       unlinkSync(`${saveLock}.lock`)
@@ -75,7 +80,9 @@ describe('R31-20: meta PATCH 锁等待不阻塞事件循环（探针改轮询等
     try {
       const p = svc.updateDocMeta(c.docId, { 状态: '草稿' })
       let probe = false
-      setTimeout(() => { probe = true }, 50)
+      setTimeout(() => {
+        probe = true
+      }, 50)
       await vi.waitFor(() => expect(probe).toBe(true), { timeout: 90 })
       unlinkSync(`${saveLock}.lock`)
       const r = await p

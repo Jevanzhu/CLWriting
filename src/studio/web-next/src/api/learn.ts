@@ -55,9 +55,5 @@ export async function runLearnCommit(
   // 入库为纯文件写（候选已在内存），但兜底超时仍须与收割同档
   // 60s——无超时的请求挂死时调用方 loading 永转（大书候选 payload 大，弱机慢盘同受
   // 10-30s 量级影响，与 runLearn 同口径）
-  return apiJson<LearnCommitResultFE>(
-    bookUrl(name, 'learn-commit'),
-    { method: 'POST', json: body },
-    60_000,
-  )
+  return apiJson<LearnCommitResultFE>(bookUrl(name, 'learn-commit'), { method: 'POST', json: body }, 60_000)
 }

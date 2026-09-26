@@ -62,7 +62,14 @@ vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => treeMock),
 }))
 
-import { createDoc, renameDoc, moveDoc, copyDoc, deleteDoc, updateChapterMetaDoc } from '../../../src/studio/web-next/src/api/documents'
+import {
+  createDoc,
+  renameDoc,
+  moveDoc,
+  copyDoc,
+  deleteDoc,
+  updateChapterMetaDoc,
+} from '../../../src/studio/web-next/src/api/documents'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
@@ -136,7 +143,13 @@ describe('R34D-21: 七动作 catch 补切书守卫（A 书报错不落 B 书界�
     [
       'onCreateCommit',
       (a) => {
-        a.creating.value = { kind: 'chapter', renderDir: '写作', fsDir: '写作/正文', seed: '0002-未命名', seedPrefix: '0002-' }
+        a.creating.value = {
+          kind: 'chapter',
+          renderDir: '写作',
+          fsDir: '写作/正文',
+          seed: '0002-未命名',
+          seedPrefix: '0002-',
+        }
         return a.onCreateCommit('0002-风起')
       },
       createMock,
@@ -186,7 +199,14 @@ describe('R34D-26: 补零口径统一 chapterFilePrefix 单源（长篇 4 位 / 
 
   it('startCreate 章节种子按本书口径补零（修复前 3-未命名 完全不补零）', async () => {
     treeMock.grouped = [
-      { path: '写作', name: '写作', isDirectory: true, role: 'dir', docId: null, children: [bodyFile('写作/正文/0002-雪.md')] },
+      {
+        path: '写作',
+        name: '写作',
+        isDirectory: true,
+        role: 'dir',
+        docId: null,
+        children: [bodyFile('写作/正文/0002-雪.md')],
+      },
     ]
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
     actions.startCreate('chapter', '写作', '写作/正文')

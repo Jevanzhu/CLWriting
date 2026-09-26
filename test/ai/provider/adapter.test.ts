@@ -45,7 +45,11 @@ describe('Anthropic 适配器', () => {
         create: fakeSend([
           { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'submit_chapter' } },
           { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"标题":' } },
-          { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '"x","正文":"y"}' } },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '"x","正文":"y"}' },
+          },
           { type: 'content_block_stop', index: 0 },
           { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'tool_use' } },
         ]),

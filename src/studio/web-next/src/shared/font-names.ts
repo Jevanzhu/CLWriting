@@ -56,7 +56,7 @@ const CN_FONT_CANON: Record<string, string> = {
   // 冬青黑体：mac 中文系统完整本地化名「冬青黑体简体中文」，短名「冬青黑体」同键
   'Hiragino Sans GB': 'hiragino-sans-gb',
   冬青黑体: 'hiragino-sans-gb',
-  '冬青黑体简体中文': 'hiragino-sans-gb',
+  冬青黑体简体中文: 'hiragino-sans-gb',
   '苹方-简': 'pingfang',
 }
 

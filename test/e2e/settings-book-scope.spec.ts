@@ -30,7 +30,12 @@ test('设置：仅本书入口移本书页 —— 字体与排版页无「仅本
   await expect(page.locator('.settings-content').getByText('编辑排版')).toBeVisible()
   const pfwSwitch = page.locator('input[aria-label="本书独立设定纸张宽度"]')
   await expect(pfwSwitch).toHaveCount(1)
-  await expect(page.locator('.settings-content').getByText(/跟随全局默认/).first()).toBeVisible()
+  await expect(
+    page
+      .locator('.settings-content')
+      .getByText(/跟随全局默认/)
+      .first(),
+  ).toBeVisible()
 
   // 开启纸宽开关 → 出现本书纸宽子项（原生 checkbox 视觉隐藏，点击可见的 switch-slider 经 label 触发）
   const slider = () => page.locator('label.switch', { has: pfwSwitch }).locator('.switch-slider')
@@ -43,5 +48,10 @@ test('设置：仅本书入口移本书页 —— 字体与排版页无「仅本
   // 关闭开关 → 子项消失，回到「跟随全局默认」（书级覆盖已移除）
   await slider().click()
   await expect(bookW).toBeHidden()
-  await expect(page.locator('.settings-content').getByText(/跟随全局默认/).first()).toBeVisible()
+  await expect(
+    page
+      .locator('.settings-content')
+      .getByText(/跟随全局默认/)
+      .first(),
+  ).toBeVisible()
 })

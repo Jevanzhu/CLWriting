@@ -56,11 +56,7 @@ describe('0918独立重评修复批 B010: updateDocMeta fm 值类型闸', () => 
 
   it('null / 嵌套数组 / NaN → BAD_INPUT（未执行修改）', async () => {
     scaffold()
-    for (const bad of [
-      { 空值: null },
-      { 嵌套: [[1, 2]] },
-      { 非数: Number.NaN },
-    ]) {
+    for (const bad of [{ 空值: null }, { 嵌套: [[1, 2]] }, { 非数: Number.NaN }]) {
       const r = await svc.updateDocMeta('doc_1', bad)
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.code).toBe('BAD_INPUT')

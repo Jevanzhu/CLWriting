@@ -54,7 +54,9 @@ describe('parseContextMenuSpecs', () => {
     let deep: unknown = { label: '底层' }
     for (let i = 0; i < 50_000; i++) deep = { label: `层${i}`, submenu: [deep] }
     let r: ReturnType<typeof parseContextMenuSpecs>
-    expect(() => { r = parseContextMenuSpecs([deep]) }).not.toThrow()
+    expect(() => {
+      r = parseContextMenuSpecs([deep])
+    }).not.toThrow()
     let edges = 0
     let cur = r![0]!
     while (cur.submenu && cur.submenu.length > 0) {

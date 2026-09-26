@@ -62,7 +62,8 @@ for (const f of files) {
   for (const m of src.matchAll(CALL_RE)) sites.push({ site: `${relative(root, f)} → ${m[1]}`, action: m[1]! })
   gatedOccurrences += [...src.matchAll(GATED_OCCUR_RE)].length
   for (const m of src.matchAll(GATED_CALL_RE)) {
-    for (const a of m[1]!.matchAll(GATED_ACTION_RE)) sites.push({ site: `${relative(root, f)} → gated ${a[1]}`, action: a[1]! })
+    for (const a of m[1]!.matchAll(GATED_ACTION_RE))
+      sites.push({ site: `${relative(root, f)} → gated ${a[1]}`, action: a[1]! })
   }
 }
 
@@ -86,14 +87,10 @@ describe('R0916-7-P3-14：任务闸 action 字面量治理门', () => {
   it('每个调用点都以字符串字面量占闸（无动态 action / 无签名漂移）', () => {
     // 直接占闸面的出现次数 == 字面量捕获数
     const direct = sites.filter((s) => !s.site.includes('→ gated ')).length
-    expect(
-      direct,
-      '存在未被字面量正则捕获的 acquireTaskGate 调用点（动态 action 变量或签名变化）',
-    ).toBe(occurrences)
+    expect(direct, '存在未被字面量正则捕获的 acquireTaskGate 调用点（动态 action 变量或签名变化）').toBe(occurrences)
     const gated = sites.filter((s) => s.site.includes('→ gated ')).length
-    expect(
-      gated,
-      '存在未被字面量正则捕获的 runGatedGeneration 调用点（动态 action / opts 形状变化）',
-    ).toBe(gatedOccurrences)
+    expect(gated, '存在未被字面量正则捕获的 runGatedGeneration 调用点（动态 action / opts 形状变化）').toBe(
+      gatedOccurrences,
+    )
   })
 })

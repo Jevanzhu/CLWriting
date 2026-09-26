@@ -64,7 +64,6 @@ export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 import { codePointLength, clipByCodePoints } from '../shared/text.js'
 import { testableConst } from '../shared/testable.js'
 
-
 /** 章摘要目录（相对书根）。（总七十一轮）：posix 字面量——join 消费点
  *  （chapterSummaryPath/mkdirSync）会自动归一到平台分隔符，而相对路径消费点
  *  （promptFiles/留痕）要求与全库 posix 归一口径（draft-pipeline ）一致 */
@@ -166,9 +165,7 @@ interface GenerateChapterSummaryOpts {
   signal?: AbortSignal
 }
 
-type GenerateSummaryResult =
-  | { ok: true; path: string; skipped: boolean }
-  | { ok: false; error: string }
+type GenerateSummaryResult = { ok: true; path: string; skipped: boolean } | { ok: false; error: string }
 
 /** 同章在途去重：批量定稿并发触发 / 自愈与定稿钩子同时命中时不重复调用 */
 const inFlight = new Set<string>()
@@ -340,7 +337,12 @@ function summaryAutoEnabled(config: BookConfig): boolean {
  */
 /** 单次定稿摘要执行（单发/批量串行链共用；异常由调用方包裹留痕）
  *  ：signal 可选——后台任务独立 ctrl 的信号，中断时在途 AI 调用即时收口 */
-async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | null, docId: string, signal?: AbortSignal): Promise<void> {
+async function runFinalizeSummaryOnce(
+  bookRoot: string,
+  userDataPath: string | null,
+  docId: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const config = effectiveConfig(bookRoot, userDataPath)
   if (!summaryAutoEnabled(config)) return
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -627,12 +629,9 @@ export async function generateVolumeSummary(opts: {
       .sort((a, b) => a - b)
       .map((ch) => `【第 ${ch} 章】${chain.get(ch)}`)
       .join('\n')
-    const userPrompt = [
-      `请为第 ${volume} 卷写卷摘要（总长 ≤ ${budget} 字）。`,
-      '',
-      '## 本卷章摘要链',
-      chainText,
-    ].join('\n')
+    const userPrompt = [`请为第 ${volume} 卷写卷摘要（总长 ≤ ${budget} 字）。`, '', '## 本卷章摘要链', chainText].join(
+      '\n',
+    )
     const out = await runSpec(SUMMARY_VOLUME_SPEC, {
       userDataPath: opts.userDataPath,
       userPrompt,
@@ -714,7 +713,13 @@ export async function selfHealVolumeSummary(
     }
     if (m[1] === volumeChainFingerprint(chain)) return null
   }
-  const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume, ...(signal ? { signal } : {}) })
+  const r = await generateVolumeSummary({
+    bookRoot,
+    userDataPath,
+    config,
+    volume: targetVolume,
+    ...(signal ? { signal } : {}),
+  })
   if (r.ok) return volumeSummaryRelPath(targetVolume)
   log.warn('summary', `上一卷（第 ${targetVolume} 卷）摘要按需生成失败：${r.error}`)
   return null

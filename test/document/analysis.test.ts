@@ -59,7 +59,12 @@ test('readAnalysis: 损坏文件 → null', () => {
 test('isStale: 正文变更触发过期；fm 改动不触发（sourceHash 基于 strip fm 后正文）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'analysis-'))
   const content = '---\n标题: x\n---\n正文内容'
-  writeAnalysis(root, 'doc_a', 'score', { generatedAt: 't', model: 'm', sourceHash: sourceHashOf(content), payload: null })
+  writeAnalysis(root, 'doc_a', 'score', {
+    generatedAt: 't',
+    model: 'm',
+    sourceHash: sourceHashOf(content),
+    payload: null,
+  })
   const env = readAnalysis(root, 'doc_a', 'score')!
   expect(isStale(env, content)).toBe(false)
   // fm 标题改 → 不过期

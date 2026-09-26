@@ -69,16 +69,13 @@ describe('R77-5 批 G：encrypted 三码点（出站 include / 入站透出 / �
   })
 
   it('② output_item.done(reasoning+encrypted_content+id) → reasoning_item 事件带 itemId 透出', async () => {
-    const { events } = await run(
-      { messages: [{ role: 'user', content: '帮我查第5章' }] },
-      [
-        {
-          type: 'response.output_item.done',
-          item: { type: 'reasoning', id: 'rs_1', encrypted_content: 'ENC-PAYLOAD' },
-        },
-        COMPLETED,
-      ],
-    )
+    const { events } = await run({ messages: [{ role: 'user', content: '帮我查第5章' }] }, [
+      {
+        type: 'response.output_item.done',
+        item: { type: 'reasoning', id: 'rs_1', encrypted_content: 'ENC-PAYLOAD' },
+      },
+      COMPLETED,
+    ])
     expect(events.find((e) => e.type === 'reasoning_item')).toEqual({
       type: 'reasoning_item',
       encrypted: 'ENC-PAYLOAD',
@@ -87,13 +84,10 @@ describe('R77-5 批 G：encrypted 三码点（出站 include / 入站透出 / �
   })
 
   it('② reasoning 项无 id → itemId 缺省透出（不炸不丢）', async () => {
-    const { events } = await run(
-      { messages: [{ role: 'user', content: '帮我查第5章' }] },
-      [
-        { type: 'response.output_item.done', item: { type: 'reasoning', encrypted_content: 'ENC-NOID' } },
-        COMPLETED,
-      ],
-    )
+    const { events } = await run({ messages: [{ role: 'user', content: '帮我查第5章' }] }, [
+      { type: 'response.output_item.done', item: { type: 'reasoning', encrypted_content: 'ENC-NOID' } },
+      COMPLETED,
+    ])
     expect(events.find((e) => e.type === 'reasoning_item')).toEqual({
       type: 'reasoning_item',
       encrypted: 'ENC-NOID',
@@ -101,13 +95,10 @@ describe('R77-5 批 G：encrypted 三码点（出站 include / 入站透出 / �
   })
 
   it('② reasoning 项无 encrypted_content → 不透出 reasoning_item（普通推理项非载体）', async () => {
-    const { events } = await run(
-      { messages: [{ role: 'user', content: '帮我查第5章' }] },
-      [
-        { type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_plain' } },
-        COMPLETED,
-      ],
-    )
+    const { events } = await run({ messages: [{ role: 'user', content: '帮我查第5章' }] }, [
+      { type: 'response.output_item.done', item: { type: 'reasoning', id: 'rs_plain' } },
+      COMPLETED,
+    ])
     expect(events.some((e) => e.type === 'reasoning_item')).toBe(false)
   })
 

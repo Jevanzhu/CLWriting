@@ -10,11 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import {
-  configureTaskGateLockRoot,
-  acquireTaskGate,
-  isTaskGateHeld,
-} from '../../src/studio/server/api/task-gate.js'
+import { configureTaskGateLockRoot, acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
 import { log } from '../../src/log/index.js'
 
 let dirs: string[] = []

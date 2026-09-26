@@ -51,59 +51,17 @@ export function chapterOutlineTemplate(章号: number, 标题: string): string {
 
 /** 卷纲：本卷主线/支线/节奏点 结构（卷号从现有卷数推断）。 */
 export function volumeOutlineTemplate(卷号: number): string {
-  return [
-    `## 第${卷号}卷`,
-    '',
-    '### 本卷主线',
-    '',
-    '',
-    '### 支线',
-    '',
-    '',
-    '### 节奏点',
-    '',
-    '',
-  ].join('\n')
+  return [`## 第${卷号}卷`, '', '### 本卷主线', '', '', '### 支线', '', '', '### 节奏点', '', ''].join('\n')
 }
 
 /** 总纲：全书大纲骨架（单例文件，固定 大纲/总纲.md，createSingleton 专用）。 */
 export function synopsisTemplate(): string {
-  return [
-    '# 总纲',
-    '',
-    '## 主题',
-    '',
-    '',
-    '## 主线',
-    '',
-    '',
-    '## 卷目',
-    '',
-    '',
-    '## 风格',
-    '',
-    '',
-  ].join('\n')
+  return ['# 总纲', '', '## 主题', '', '', '## 主线', '', '', '## 卷目', '', '', '## 风格', '', ''].join('\n')
 }
 
 /** 世界观：地理/势力/规则/历史 骨架（单例文件，固定 设定/世界观.md，createSingleton 专用）。 */
 export function worldviewTemplate(): string {
-  return [
-    '# 世界观',
-    '',
-    '## 地理',
-    '',
-    '',
-    '## 势力',
-    '',
-    '',
-    '## 规则',
-    '',
-    '',
-    '## 历史',
-    '',
-    '',
-  ].join('\n')
+  return ['# 世界观', '', '## 地理', '', '', '## 势力', '', '', '## 规则', '', '', '## 历史', '', ''].join('\n')
 }
 
 /** 角色卡：front matter（姓名/身份/目标/境界/关系）+ 自由描述区。 */
@@ -131,20 +89,7 @@ export function characterTemplate(姓名: string): string {
 
 /** 物品：front matter（名称/类型/持有者）+ 描述区。 */
 export function itemTemplate(名称: string): string {
-  return [
-    '---',
-    `名称: ${名称}`,
-    '类型: ',
-    '持有者: ',
-    '---',
-    '',
-    '## 描述',
-    '',
-    '',
-    '## 相关剧情',
-    '',
-    '',
-  ].join('\n')
+  return ['---', `名称: ${名称}`, '类型: ', '持有者: ', '---', '', '## 描述', '', '', '## 相关剧情', '', ''].join('\n')
 }
 
 /** 伏笔：front matter（类型/状态/埋设章号）+ 内容描述。 */

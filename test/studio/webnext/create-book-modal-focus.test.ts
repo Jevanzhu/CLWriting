@@ -17,10 +17,10 @@ beforeEach(() => {
 
 function mountModal() {
   // name 非空：创建按钮不 disabled（disabled 元素不可聚焦，Tab 圈会退化）
-  return mount(
-    CreateBookModal,
-    { props: { name: '雪中', kind: 'long' as const, creating: false, error: null }, attachTo: document.body },
-  )
+  return mount(CreateBookModal, {
+    props: { name: '雪中', kind: 'long' as const, creating: false, error: null },
+    attachTo: document.body,
+  })
 }
 
 describe('R49-32: CreateBookModal 焦点圈 + dialog 语义', () => {
@@ -55,9 +55,7 @@ describe('R49-32: CreateBookModal 焦点圈 + dialog 语义', () => {
     expect(document.activeElement).toBe(first)
 
     // Shift+Tab 从第一个（长篇）→ 包裹到最后一个（创建）：循环锁在弹窗内
-    first.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
-    )
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
     await nextTick()
     expect(document.activeElement).toBe(last)
 

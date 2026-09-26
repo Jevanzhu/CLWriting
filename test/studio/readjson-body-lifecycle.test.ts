@@ -144,12 +144,16 @@ describe('R55-E-N：真实 socket 部分后 end()（干净 FIN）→ settle + �
     // 端点侧观测面（对齐 api/io.ts /export 的「同步占闸 → try { await readJson } finally 释放」序）
     let settleInfo: Record<string, unknown> | null = null
     let onSettle: () => void = () => {}
-    const settled = new Promise<void>((r) => { onSettle = r })
+    const settled = new Promise<void>((r) => {
+      onSettle = r
+    })
 
     // 服务侧就绪旗：handler 进入 readJson 前置位——客户端 await 后再 FIN（原 sleep(30)
     // 固定垫改 armed 握手，waitForBodyArmed 同口径的 socket 形态）
     let onArmed: () => void = () => {}
-    const serverArmed = new Promise<void>((r) => { onArmed = r })
+    const serverArmed = new Promise<void>((r) => {
+      onArmed = r
+    })
 
     const server = http.createServer(async (req, res) => {
       const release = acquireTaskGate(BOOK, 'export', { lockDir: null }) // 纯内存闸（测试注入 lockDir: null）
@@ -182,14 +186,18 @@ describe('R55-E-N：真实 socket 部分后 end()（干净 FIN）→ settle + �
     // 原生 net 客户端：headers + 部分 body，服务侧 armed 后干净半关闭（FIN，无 RST）
     const sock = net.connect(port, '127.0.0.1')
     let resp = ''
-    sock.on('data', (d) => { resp += String(d) })
+    sock.on('data', (d) => {
+      resp += String(d)
+    })
     sock.on('error', () => {})
     sock.write('POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n{"partial":')
     await serverArmed
     sock.end()
 
     // readJson 必须在 2s 内 settle（修复前悬挂形态下此处超时跑红）
-    const timeout = sleep(2000).then(() => { throw new Error('R55-E-N：readJson 2s 内未 settle（悬挂）') })
+    const timeout = sleep(2000).then(() => {
+      throw new Error('R55-E-N：readJson 2s 内未 settle（悬挂）')
+    })
     await Promise.race([settled, timeout])
 
     expect(settleInfo!.settled).toBe('reject')

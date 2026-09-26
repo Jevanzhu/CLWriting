@@ -26,15 +26,7 @@
  * 开发：npm run dev:electron（build:web + tsup + electron .；未打包非 HMR 同走拆分形态）
  * 打包：electron-builder（dist/web + dist/desktop/{main,server-utility,preload} 进 asar）
  */
-import {
-  app,
-  BrowserWindow,
-  session,
-  screen,
-  dialog,
-  Menu,
-  type MenuItemConstructorOptions,
-} from 'electron'
+import { app, BrowserWindow, session, screen, dialog, Menu, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
@@ -46,11 +38,7 @@ import { registerIpc } from './ipc.js' // -：IPC 注册面拆出
 import { createRepeatedSignalExit } from './signal-hard-exit.js' // 0918二轮修复批（C107）：重复信号硬退出口
 import { acquireAppInstanceGuard } from './app-instance-guard.js' // 提权差异双开文件锁防线（win线并树随行）
 import { defaultWindowSize } from './window-state.js' // 首启缺省尺寸/创建下限单源（纯函数，零 Electron 依赖）
-import {
-  attachMainWindowLifecycle,
-  registerQuitChain,
-  isAppTearingDown,
-} from './lifecycle.js' // -：退出链拆出
+import { attachMainWindowLifecycle, registerQuitChain, isAppTearingDown } from './lifecycle.js' // -：退出链拆出
 import {
   createSecureWindow,
   loadWinState,
@@ -149,7 +137,10 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
       // 不弹框打断前台应用）；聚焦不受预探影响，保持尾部同步执行。
       void (async () => {
         if ((await probeDirReachable(workDir)) === 'unreachable') {
-          log.warn('main', `second-instance 带 --book=${ref}，但书库目录暂不可达（可能是网络卷无响应或已断开）——已忽略直达`)
+          log.warn(
+            'main',
+            `second-instance 带 --book=${ref}，但书库目录暂不可达（可能是网络卷无响应或已断开）——已忽略直达`,
+          )
           return
         }
         // 0914目录预探通过 ≠ 同步扫描安全——resolveInitialBook
@@ -161,7 +152,10 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
         // 缺文件本就降级空表，交由既有「无此登记书」留痕路径收口。预探后瞬断的 TOCTOU
         // 残窗仍在（同族防线既定取舍：冻结面从恒现路径收窄为预探后瞬断窗）。
         if ((await probeDirReachable(join(workDir, '.clwriting', 'books.jsonl'))) === 'unreachable') {
-          log.warn('main', `second-instance 带 --book=${ref}，但书库登记文件暂不可读（可能是网络卷无响应或已断开）——已忽略直达`)
+          log.warn(
+            'main',
+            `second-instance 带 --book=${ref}，但书库登记文件暂不可读（可能是网络卷无响应或已断开）——已忽略直达`,
+          )
           return
         }
         const name = resolveInitialBook(workDir, ref)
@@ -349,7 +343,10 @@ async function bootstrap(): Promise<void> {
     if ((await probeDirReachable(process.cwd(), BOOTSTRAP_PROBE_TIMEOUT_MS)) !== 'unreachable') {
       workDir = findWorkDir(process.cwd())
     } else {
-      dialog.showErrorBox('运行目录无响应', '应用运行目录暂不可达（可能位于已断开的网络卷），本次启动进入引导页；恢复挂载后重启应用即可。')
+      dialog.showErrorBox(
+        '运行目录无响应',
+        '应用运行目录暂不可达（可能位于已断开的网络卷），本次启动进入引导页；恢复挂载后重启应用即可。',
+      )
     }
   }
   // -服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
@@ -463,7 +460,10 @@ async function bootstrap(): Promise<void> {
   }
   // 改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
   // 完全不可见（终端无人看、又不进 JSONL 日志）
-  log.info('desktop', `CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${wins.appUrl}${needsWelcome ? '/welcome' : ''}`)
+  log.info(
+    'desktop',
+    `CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${wins.appUrl}${needsWelcome ? '/welcome' : ''}`,
+  )
   // 启动完成的结构化标记——desktop.yml 启动冒烟 grep 此判定用
   // （一行 ASCII、无中文措辞依赖）。直写 console：打包态 log.* 只落 JSONL 不镜像
   // stdout，冒烟步重定向的是进程标准流
@@ -604,8 +604,22 @@ function buildMenu(): void {
         // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
         // 同 ipc handler 口径——async 工厂 promise 接日志防
         // unhandledRejection（click 回调与 invoke 回调同款裸浮调用面）
-        { label: '书架', click: () => { openShelfWindow().catch((e) => { log.error('desktop', '书架窗口打开失败', e) }) } },
-        { label: '书库管理', click: () => { openLibraryWindow().catch((e) => { log.error('desktop', '书库管理窗口打开失败', e) }) } },
+        {
+          label: '书架',
+          click: () => {
+            openShelfWindow().catch((e) => {
+              log.error('desktop', '书架窗口打开失败', e)
+            })
+          },
+        },
+        {
+          label: '书库管理',
+          click: () => {
+            openLibraryWindow().catch((e) => {
+              log.error('desktop', '书库管理窗口打开失败', e)
+            })
+          },
+        },
       ],
     },
     // macOS 的「关于」在 app 菜单；非 mac 单独「帮助」菜单承载
@@ -632,31 +646,34 @@ function buildMenu(): void {
 // 全注册（瞬态起 server child/开窗/写 workdir.json），文件锁防线要关闭的语义层竞态重开。
 // 双标志与门与顶部 :235 同款（guard 异常时 fail-open 返回 acquired:true，放行语义不变）。
 if (gotSingleInstanceLock && appInstanceGuard.acquired) {
-  app.whenReady().then(() => {
-    // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）；
-    // 判据同 isDevUi（打包态恒注入 CSP，宿主残留 CLW_DEV_UI 不放行跳过）
-    if (!isDevUi()) {
-      session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
-        cb({
-          responseHeaders: {
-            ..._d.responseHeaders,
-            'Content-Security-Policy': [CLW_CSP],
-          },
+  app
+    .whenReady()
+    .then(() => {
+      // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）；
+      // 判据同 isDevUi（打包态恒注入 CSP，宿主残留 CLW_DEV_UI 不放行跳过）
+      if (!isDevUi()) {
+        session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
+          cb({
+            responseHeaders: {
+              ..._d.responseHeaders,
+              'Content-Security-Policy': [CLW_CSP],
+            },
+          })
         })
+      }
+      registerIpc()
+      buildMenu()
+      runBootstrap((e) => {
+        log.error('desktop', `启动失败：${errMsg(e)}`, e)
+        app.quit()
       })
-    }
-    registerIpc()
-    buildMenu()
-    runBootstrap((e) => {
-      log.error('desktop', `启动失败：${errMsg(e)}`, e)
+    })
+    .catch((e) => {
+      // -服务端：whenReady 回调同步段抛错原先变 unhandledRejection，绕过
+      // runBootstrap 的错误通道（app 挂无窗口态）——链尾兜底走同一出路
+      log.error('desktop', `whenReady 回调失败：${errMsg(e)}`, e)
       app.quit()
     })
-  }).catch((e) => {
-    // -服务端：whenReady 回调同步段抛错原先变 unhandledRejection，绕过
-    // runBootstrap 的错误通道（app 挂无窗口态）——链尾兜底走同一出路
-    log.error('desktop', `whenReady 回调失败：${errMsg(e)}`, e)
-    app.quit()
-  })
 
   // bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
   // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双 server child）；
@@ -667,8 +684,7 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
       // （打包修复批）：child 已崩但退避重启在途时 isRunning 为 false——原判据
       // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（语义旁路）；补
       // hasPendingRestart 使「重试前关旧」覆盖重启在途窗口
-      getStudioServer: () =>
-        serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null,
+      getStudioServer: () => (serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null),
     },
     () => bootstrap(),
   )

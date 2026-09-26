@@ -35,7 +35,6 @@ const canSymlink = (() => {
   }
 })()
 
-
 function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
   const root = mkdtempTracked(join(tmpdir(), 'pipe-low-'))
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
@@ -44,14 +43,22 @@ function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
   const db = new DatabaseSync(dbPath)
   createAllTables(db)
   syncChapter(db, {
-    章号: 150, 标题: '前章', 钩子类型: '悬念钩', 钩子强弱: '强',
-    情绪定位: '铺垫', _wordCount: 3000, _path: 'p150',
+    章号: 150,
+    标题: '前章',
+    钩子类型: '悬念钩',
+    钩子强弱: '强',
+    情绪定位: '铺垫',
+    _wordCount: 3000,
+    _path: 'p150',
   })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '## 反和解\n禁止强行和解', 'utf-8')
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
-  writeFileSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'),
-    '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。', 'utf-8')
+  writeFileSync(
+    join(root, '文风', '样章库', '战斗', '战斗-001.md'),
+    '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。',
+    'utf-8',
+  )
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
   writeFileSync(join(root, '定稿', '摘要', '章摘要', '150.md'), '前章内容回顾。', 'utf-8')
   syncSummary(db, 'chapter', 150, join(root, '定稿', '摘要', '章摘要', '150.md'))
@@ -97,8 +104,13 @@ test('低级项（第六轮）：assembleStatus 传入定稿集 → currentChapt
     // 1、2 已定稿；3 是写作中的草稿（写稿即入缓存 chapters 表）
     for (const n of [1, 2, 3]) {
       syncChapter(db, {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '强',
-        情绪定位: '铺垫', _wordCount: 100, _path: `p${n}`,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '强',
+        情绪定位: '铺垫',
+        _wordCount: 100,
+        _path: `p${n}`,
       })
     }
     expect(assembleStatus(db, DEFAULT_CONFIG, 50, new Set([1, 2])).currentChapter).toBe(2)
@@ -116,16 +128,20 @@ test('低级项（第六轮）：book.yaml rag 段缺 enabled 键 → 不整段�
   const root = mkdtempTracked(join(tmpdir(), 'yaml-rag-'))
   try {
     const fp = join(root, 'book.yaml')
-    writeFileSync(fp, [
-      'spec_version: 1',
-      'kind: long',
-      'book:',
-      '  title: 测试书',
-      'rag:',
-      '  provider: milvus',
-      '  endpoint: http://127.0.0.1:19530',
-      '  model: bge-m3',
-    ].join('\n'), 'utf-8')
+    writeFileSync(
+      fp,
+      [
+        'spec_version: 1',
+        'kind: long',
+        'book:',
+        '  title: 测试书',
+        'rag:',
+        '  provider: milvus',
+        '  endpoint: http://127.0.0.1:19530',
+        '  model: bge-m3',
+      ].join('\n'),
+      'utf-8',
+    )
     const r = readBookConfig(fp)
     expect(r.ok).toBe(true)
     expect(r.config.rag).toBeDefined()
@@ -133,15 +149,19 @@ test('低级项（第六轮）：book.yaml rag 段缺 enabled 键 → 不整段�
     expect(r.config.rag?.provider).toBe('milvus')
 
     // 显式 enabled: false 才关
-    writeFileSync(fp, [
-      'spec_version: 1',
-      'kind: long',
-      'book:',
-      '  title: 测试书',
-      'rag:',
-      '  enabled: false',
-      '  provider: milvus',
-    ].join('\n'), 'utf-8')
+    writeFileSync(
+      fp,
+      [
+        'spec_version: 1',
+        'kind: long',
+        'book:',
+        '  title: 测试书',
+        'rag:',
+        '  enabled: false',
+        '  provider: milvus',
+      ].join('\n'),
+      'utf-8',
+    )
     const r2 = readBookConfig(fp)
     expect(r2.ok).toBe(true)
     expect(r2.config.rag?.enabled).toBe(false)
@@ -154,16 +174,20 @@ test('低级项（第六轮）：YAML 块列表项含冒号 → 按列表项文�
   const root = mkdtempTracked(join(tmpdir(), 'yaml-list-'))
   try {
     const fp = join(root, 'book.yaml')
-    writeFileSync(fp, [
-      'spec_version: 1',
-      'kind: short',
-      'book:',
-      '  title: 短篇集',
-      'short:',
-      '  target_emotions:',
-      '    - 惊悚: 高',
-      '    - 悬疑',
-    ].join('\n'), 'utf-8')
+    writeFileSync(
+      fp,
+      [
+        'spec_version: 1',
+        'kind: short',
+        'book:',
+        '  title: 短篇集',
+        'short:',
+        '  target_emotions:',
+        '    - 惊悚: 高',
+        '    - 悬疑',
+      ].join('\n'),
+      'utf-8',
+    )
     const r = readBookConfig(fp)
     expect(r.ok).toBe(true)
     expect(r.config.short?.target_emotions).toContain('惊悚: 高')
@@ -191,30 +215,33 @@ test('低级项（第六轮）：样章库读取按文件名排序（跨平台�
 })
 
 // Windows 建 symlink 需开发者模式（无防护 symlinkSync 直建 EPERM），该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）', () => {
-  const root = mkdtempTracked(join(tmpdir(), 'search-symlink-'))
-  const outside = mkdtempTracked(join(tmpdir(), 'outside-'))
-  try {
-    const bodyDir = join(root, '写作', '正文')
-    mkdirSync(bodyDir, { recursive: true })
-    writeFileSync(join(bodyDir, '0001-在内.md'), '内部命中 needle', 'utf-8')
+test.skipIf(process.platform === 'win32')(
+  '低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）',
+  () => {
+    const root = mkdtempTracked(join(tmpdir(), 'search-symlink-'))
+    const outside = mkdtempTracked(join(tmpdir(), 'outside-'))
+    try {
+      const bodyDir = join(root, '写作', '正文')
+      mkdirSync(bodyDir, { recursive: true })
+      writeFileSync(join(bodyDir, '0001-在内.md'), '内部命中 needle', 'utf-8')
 
-    // 书外目录 + 书外文件（均含同一关键词）
-    mkdirSync(join(outside, 'dir'), { recursive: true })
-    writeFileSync(join(outside, 'dir', 'secret.md'), '外部机密 needle', 'utf-8')
-    writeFileSync(join(outside, 'secret.md'), '外部机密文件 needle', 'utf-8')
+      // 书外目录 + 书外文件（均含同一关键词）
+      mkdirSync(join(outside, 'dir'), { recursive: true })
+      writeFileSync(join(outside, 'dir', 'secret.md'), '外部机密 needle', 'utf-8')
+      writeFileSync(join(outside, 'secret.md'), '外部机密文件 needle', 'utf-8')
 
-    symlinkSync(join(outside, 'dir'), join(bodyDir, '外链目录'))
-    symlinkSync(join(outside, 'secret.md'), join(bodyDir, '0002-外链.md'))
+      symlinkSync(join(outside, 'dir'), join(bodyDir, '外链目录'))
+      symlinkSync(join(outside, 'secret.md'), join(bodyDir, '0002-外链.md'))
 
-    const out = searchBook(root, 'needle', 'all')
-    const paths = out.results.map((h) => h.path)
-    expect(paths).toEqual(['写作/正文/0001-在内.md'])
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-    rmSync(outside, { recursive: true, force: true })
-  }
-})
+      const out = searchBook(root, 'needle', 'all')
+      const paths = out.results.map((h) => h.path)
+      expect(paths).toEqual(['写作/正文/0001-在内.md'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+      rmSync(outside, { recursive: true, force: true })
+    }
+  },
+)
 
 test.skipIf(!canSymlink)('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'search-cycle-'))

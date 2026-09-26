@@ -104,7 +104,10 @@ describe('R51-J-4：语料回归门 checkId 存在性守卫', () => {
       ).toBe(true)
     }
     // 语料非空哨兵：至少 1 个 checkId 被引用（空目录 = 门与守卫双双空转，须显式知悉）
-    expect(referenced.length, '语料目录为空：golden-master 门无覆盖面，请先 corpus:harvest 自举或确认清空是有意为之').toBeGreaterThan(0)
+    expect(
+      referenced.length,
+      '语料目录为空：golden-master 门无覆盖面，请先 corpus:harvest 自举或确认清空是有意为之',
+    ).toBeGreaterThan(0)
   })
 
   it('已知清单自身无重复项（清单是契约快照，重复项即维护失误）', () => {

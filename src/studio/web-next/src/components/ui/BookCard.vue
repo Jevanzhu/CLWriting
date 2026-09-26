@@ -1,11 +1,6 @@
-/**
- * 书卡组件：grid（卡片）/ list（表格行）双模式。
- * 尺寸差异通过 CSS 变量参数化——全屏页设大值，浮层用紧凑默认值。
- *
- * 变量覆盖点（外壳 :deep 或祖先设值）：
- * --shelf-card-pad / --shelf-card-radius / --shelf-card-min-h
- * --shelf-list-cols
- */
+/** * 书卡组件：grid（卡片）/ list（表格行）双模式。 * 尺寸差异通过 CSS 变量参数化——全屏页设大值，浮层用紧凑默认值。 * *
+变量覆盖点（外壳 :deep 或祖先设值）： * --shelf-card-pad / --shelf-card-radius / --shelf-card-min-h * --shelf-list-cols
+*/
 <script setup lang="ts">
 import { ArrowRight, CheckCircle2, Circle } from 'lucide-vue-next'
 import { formatWords, formatRelative } from '../../composables/useShelf'
@@ -35,7 +30,7 @@ defineEmits<{
     v-if="variant === 'grid'"
     class="book-card"
     :class="{ batch: batchMode, selected }"
-    :style="index !== undefined ? { animationDelay: (index * 40) + 'ms' } : undefined"
+    :style="index !== undefined ? { animationDelay: index * 40 + 'ms' } : undefined"
     @mousemove="$emit('move', $event)"
     @click="$emit('click', book.name)"
     @contextmenu.prevent="$emit('contextmenu', $event)"
@@ -100,7 +95,9 @@ defineEmits<{
 .book-card.selected,
 .list-row.selected {
   border-color: var(--text-accent);
-  box-shadow: 0 0 0 1px var(--text-accent), var(--shadow-s);
+  box-shadow:
+    0 0 0 1px var(--text-accent),
+    var(--shadow-s);
 }
 /* 批量模式下标题右移避让 checkmark */
 .book-card.batch .book-title {
@@ -126,7 +123,10 @@ defineEmits<{
   color: var(--text-normal);
   overflow: hidden;
   animation: var(--shelf-card-anim, none);
-  transition: transform var(--dur-norm) var(--ease-out), box-shadow var(--dur-norm) var(--ease-out), border-color var(--dur-norm) var(--ease-out);
+  transition:
+    transform var(--dur-norm) var(--ease-out),
+    box-shadow var(--dur-norm) var(--ease-out),
+    border-color var(--dur-norm) var(--ease-out);
 }
 /* Linear 招牌 glow：hover 时鼠标位置发出 accent 色柔和光晕 */
 .book-card::before {
@@ -134,7 +134,11 @@ defineEmits<{
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 14%, transparent), transparent 45%);
+  background: radial-gradient(
+    420px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--text-accent) 14%, transparent),
+    transparent 45%
+  );
   opacity: 0;
   transition: opacity var(--dur-norm) var(--ease-out);
   pointer-events: none;
@@ -155,7 +159,9 @@ defineEmits<{
   color: var(--text-accent);
   opacity: 0;
   transform: translateX(-4px);
-  transition: opacity var(--dur-norm) var(--ease-out), transform var(--dur-norm) var(--ease-out);
+  transition:
+    opacity var(--dur-norm) var(--ease-out),
+    transform var(--dur-norm) var(--ease-out);
 }
 .book-card:hover .card-arrow {
   opacity: 1;
@@ -221,7 +227,11 @@ defineEmits<{
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--text-accent) 8%, transparent), transparent 50%);
+  background: radial-gradient(
+    300px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--text-accent) 8%, transparent),
+    transparent 50%
+  );
   opacity: 0;
   transition: opacity var(--dur-norm) var(--ease-out);
   pointer-events: none;

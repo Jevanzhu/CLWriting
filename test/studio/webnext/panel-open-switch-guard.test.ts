@@ -33,7 +33,9 @@ vi.mock('../../../src/studio/web-next/src/api/search', () => ({ search: mocks.se
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
-  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({
+    content: await mocks.getContent(...a),
+  })),
   saveContent: mocks.saveContent,
   finalizeDoc: vi.fn(),
 }))
@@ -94,7 +96,12 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     useDocStore().setBook('书A')
     tree.raw = [makeNode('d1')] // 直接播种树索引（byPath 派生）
     let release!: (v: string) => void
-    mocks.getContent.mockImplementationOnce(() => new Promise<string>((r) => { release = r }))
+    mocks.getContent.mockImplementationOnce(
+      () =>
+        new Promise<string>((r) => {
+          release = r
+        }),
+    )
 
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     mocks.search.mockResolvedValue({
@@ -183,8 +190,12 @@ vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue'
     template: '<button class="ci" @click="$emit(\'select\', node)"></button>',
   },
 }))
-vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({ default: { template: '<div />' } }))
-vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({
+  default: { template: '<div />' },
+}))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({
+  default: { template: '<div />' },
+}))
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
@@ -197,7 +208,12 @@ describe('E-2: ChapterTreePanel.onSelect 在途切书 → 跳过 openTab', () =>
     ws.setBook('书A')
     useDocStore().setBook('书A') // P3-21：doc.doOpen fail-closed 前置种子（同上）
     let release!: (v: string) => void
-    mocks.getContent.mockImplementationOnce(() => new Promise<string>((r) => { release = r }))
+    mocks.getContent.mockImplementationOnce(
+      () =>
+        new Promise<string>((r) => {
+          release = r
+        }),
+    )
 
     const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
     await flushPromises() // immediate watch → tree.load('书A') 落定，节点渲染
@@ -253,8 +269,8 @@ describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置
   })
 })
 
-describe('E-7: ChapterTreePanel 脏路由 name=\'\' → 清树/红点/今日字数展示态', () => {
-  it('bookName 变 \'\' → tree.raw/issues 清空、words 展示态复位', async () => {
+describe("E-7: ChapterTreePanel 脏路由 name='' → 清树/红点/今日字数展示态", () => {
+  it("bookName 变 '' → tree.raw/issues 清空、words 展示态复位", async () => {
     const ws = useWorkspaceStore()
     ws.setBook('书A')
     mocks.getTreeIssues.mockResolvedValue({ issues: { d1: { red: 1 } }, warning: null })
@@ -286,7 +302,10 @@ describe('E-7: ChapterTreePanel 脏路由 name=\'\' → 清树/红点/今日字�
     ws.setBook('书A')
     let releaseTree!: (v: { nodes: TreeNode[]; revision: string }) => void
     mocks.getTree.mockImplementationOnce(
-      () => new Promise((r) => { releaseTree = r }),
+      () =>
+        new Promise((r) => {
+          releaseTree = r
+        }),
     )
     const tree = useTreeStore()
     const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
@@ -345,8 +364,8 @@ import { useWorkbenchStore } from '../../../src/studio/web-next/src/stores/workb
 import { useCheckStore } from '../../../src/studio/web-next/src/stores/check'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
-describe('E-7: Book.vue 脏路由 name=\'\' → 先落盘 dirty 再清各 store', () => {
-  it('name=\'\' → flushDirty 落盘 + doc/工作台/各 store 清空，不弹切书确认', async () => {
+describe("E-7: Book.vue 脏路由 name='' → 先落盘 dirty 再清各 store", () => {
+  it("name='' → flushDirty 落盘 + doc/工作台/各 store 清空，不弹切书确认", async () => {
     const w = mount(Book)
     await flushPromises()
 

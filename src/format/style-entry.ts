@@ -185,7 +185,9 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
     let files: string[]
     try {
       // 过滤口径与 readEntries 本体逐字一致（探针漏看一个文件 = 该文件改写不失效）
-      files = readdirSync(dir).filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._')).sort()
+      files = readdirSync(dir)
+        .filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
+        .sort()
     } catch {
       parts.push('-') // 类型目录不存在
       continue
@@ -209,10 +211,7 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
  * kind 省略 → 全部四类；目录不存在 → 空（老书未迁移时的正常形态）。
  * 经 TTL+mtime 探针缓存读取（写稿热路径不再每章每轮全量重读条目目录）。
  */
-export function readEntries(
-  entriesDir: string,
-  kind?: EntryKind,
-): { entries: StyleEntry[]; errors: ParseError[] } {
+export function readEntries(entriesDir: string, kind?: EntryKind): { entries: StyleEntry[]; errors: ParseError[] } {
   const kinds = kind ? [kind] : ENTRY_KINDS
   const key = `${entriesDir}\u0000${kind ?? '*'}`
   const sig = entriesDirSignature(entriesDir, kinds)
@@ -371,18 +370,18 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   }
 
   if (!cleaned) return []
-  return cleaned
-    .split(/[、，,\/／；;]/)
-    .map((part) => part.trim())
-    // 占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
-    // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
-    // 不一致；词长 ≥2 已挡单字「待」
-    .filter(
-      (word) =>
-        word.length >= 2 &&
-        word.length <= 24 &&
-        !/^(待补|待定|待填|待写|待确认|待作者补|示例|非硬禁词)/.test(word),
-    )
+  return (
+    cleaned
+      .split(/[、，,\/／；;]/)
+      .map((part) => part.trim())
+      // 占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
+      // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
+      // 不一致；词长 ≥2 已挡单字「待」
+      .filter(
+        (word) =>
+          word.length >= 2 && word.length <= 24 && !/^(待补|待定|待填|待写|待确认|待作者补|示例|非硬禁词)/.test(word),
+      )
+  )
 }
 
 /**

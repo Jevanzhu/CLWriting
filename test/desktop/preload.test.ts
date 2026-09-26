@@ -123,10 +123,9 @@ describe('kk-P2-8：preload 订阅通道', () => {
 
   it('showContextMenu：send 载荷 + once 回传 key', () => {
     const got: Array<string | null> = []
-    ;(M.exposed!['showContextMenu']! as (
-      items: Array<Record<string, unknown>>,
-      cb: (k: string | null) => void,
-    ) => void)([{ label: '复制', key: 'copy' }], (k) => got.push(k))
+    ;(
+      M.exposed!['showContextMenu']! as (items: Array<Record<string, unknown>>, cb: (k: string | null) => void) => void
+    )([{ label: '复制', key: 'copy' }], (k) => got.push(k))
     expect(M.sent[M.sent.length - 1]!).toEqual(['desktop:context-menu', [{ label: '复制', key: 'copy' }]])
     M.onceHandlers['desktop:context-menu-select']![0]!({}, 'copy')
     expect(got).toEqual(['copy'])
@@ -136,10 +135,9 @@ describe('kk-P2-8：preload 订阅通道', () => {
   // 监听与 pendingMenuSelect 原样常驻到下一次 showContextMenu（泄漏）。窗口 unload 兜底清场。
   it('R0910-W: 窗口 unload 清场 pending once 监听（主进程不回执形态）', () => {
     const before = M.removed.length
-    ;(M.exposed!['showContextMenu']! as (
-      items: Array<Record<string, unknown>>,
-      cb: (k: string | null) => void,
-    ) => void)([{ label: '复制', key: 'copy' }], vi.fn())
+    ;(
+      M.exposed!['showContextMenu']! as (items: Array<Record<string, unknown>>, cb: (k: string | null) => void) => void
+    )([{ label: '复制', key: 'copy' }], vi.fn())
     const handler = M.onceHandlers['desktop:context-menu-select']!.at(-1)!
     expect(unloadListeners.length, 'import 期应挂 window unload 清场监听').toBeGreaterThan(0)
     for (const fn of unloadListeners) fn() // 触发 unload
@@ -149,10 +147,9 @@ describe('kk-P2-8：preload 订阅通道', () => {
     ).toBe(true)
     // 清场已把 pendingMenuSelect 置空：再次 showContextMenu 不再重复摘旧
     const removedAfterUnload = M.removed.length
-    ;(M.exposed!['showContextMenu']! as (
-      items: Array<Record<string, unknown>>,
-      cb: (k: string | null) => void,
-    ) => void)([{ label: '粘贴', key: 'paste' }], vi.fn())
+    ;(
+      M.exposed!['showContextMenu']! as (items: Array<Record<string, unknown>>, cb: (k: string | null) => void) => void
+    )([{ label: '粘贴', key: 'paste' }], vi.fn())
     expect(M.removed.length).toBe(removedAfterUnload)
   })
 })

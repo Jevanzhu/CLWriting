@@ -127,7 +127,9 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       expect(load(ud)).toBeNull()
-      expect(readFileSync(join(ud, 'os-kek.json'), 'utf8'), 'v2 凭据在位：不重建（重建 = 永久不可解）').toBe(sealedBefore)
+      expect(readFileSync(join(ud, 'os-kek.json'), 'utf8'), 'v2 凭据在位：不重建（重建 = 永久不可解）').toBe(
+        sealedBefore,
+      )
       expect(warnSpy.mock.calls.some(([line]) => String(line).includes('不重建'))).toBe(true)
     } finally {
       warnSpy.mockRestore()

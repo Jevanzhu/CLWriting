@@ -17,7 +17,9 @@ import { spawnSync } from 'node:child_process'
 
 const args = process.argv.slice(2)
 if (args.length === 0) {
-  console.error('[test-related] 未传改动文件——用法：npm run test:related -- <改动文件>…（零参数是用法错误，不静默空跑）')
+  console.error(
+    '[test-related] 未传改动文件——用法：npm run test:related -- <改动文件>…（零参数是用法错误，不静默空跑）',
+  )
   process.exit(1)
 }
 const missing = args.filter((a) => !a.startsWith('-') && !existsSync(resolve(process.cwd(), a)))
@@ -42,7 +44,9 @@ process.stderr.write(r.stderr ?? '')
 const code = r.status ?? 1
 // ③ 路径存在但与测试图无关 → vitest 仍可能退出 0（静默空跑根形态），输出扫描兜底
 if (code === 0 && /no test files found/i.test(out)) {
-  console.error('[test-related] vitest 报 "No test files found" 且退出 0——路径与测试图无关（静默空跑），按失败处理；如确要跑请核对文件或直接用 npm test')
+  console.error(
+    '[test-related] vitest 报 "No test files found" 且退出 0——路径与测试图无关（静默空跑），按失败处理；如确要跑请核对文件或直接用 npm test',
+  )
   process.exit(1)
 }
 process.exit(code)

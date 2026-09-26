@@ -32,7 +32,9 @@ const capDrivers: [string, StudioDriver, number][] = [
 
 /** 推进 iter 直到它 park 在内部 await。返回**对象包裹**的悬置 next()——async 函数
  *  返回裸 Promise 会被展平，调用方 await 会变成等生成器自身 settle（无事件即挂死） */
-async function untilParked(iter: AsyncGenerator<DriverEvent>): Promise<{ parked: Promise<IteratorResult<DriverEvent>> }> {
+async function untilParked(
+  iter: AsyncGenerator<DriverEvent>,
+): Promise<{ parked: Promise<IteratorResult<DriverEvent>> }> {
   let pending = iter.next()
   for (;;) {
     const raced = await Promise.race([
@@ -147,9 +149,7 @@ describe.each(capDrivers)('M-P2-1: %s 已连接消费者队列上限', (_name, d
       // R73-9（二十一轮 A-9）：notice 走「容量 +1 内部槽」——真实事件仍精确封顶
       // maxQueue，notice 是 +1 槽（修复前 notice 挤占真实事件位，首轮溢出连丢 2 条真实事件）
       expect(collected).toHaveLength(maxQueue + 1)
-      const texts = collected
-        .filter((e) => e.type === 'text')
-        .map((e) => (e as { text: string }).text)
+      const texts = collected.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)
       expect(texts).toHaveLength(maxQueue) // 真实事件恰好 maxQueue 条（每次溢出只丢 1 条最旧）
       expect(texts).not.toContain('ev-0') // 最旧已丢（修复前 ev-0 仍在队首）
       expect(texts).toContain(`ev-${total - 1}`) // 最新事件照常送达

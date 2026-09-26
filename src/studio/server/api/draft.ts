@@ -79,60 +79,60 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     method: 'POST',
     path: '/api/books/:name/draft-save',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    // 编排互斥补齐——self-heal 写章在途时同章 draft-save 放行
-    // = 后写赢覆盖自愈产物（有 snapshotBeforeOverwrite 留底故定级）。对齐 rewrite.ts
-    // /同款双查口径；draft-save 是 writer 产出的落盘通道，spawn 侧经
-    // driver 内部走同函数不经本端点，故只查 self-heal 面
-    if (isSelfHealRunning(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再保存草稿')
-    }
-
-    const body = await readJson(req)
-    const chapter = Number(body['chapter'])
-    if (!Number.isInteger(chapter) || chapter < 1) {
-      return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
-    }
-    const content = typeof body['content'] === 'string' ? (body['content'] as string) : ''
-    if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
-
-    const bookRoot = r.bookRoot
-    // 落盘入 per-book 串行链（上方头注）——临界段先 bookMovedFailure
-    // 单源重验（readJson await 窗口内书可能已删/改名，裸写旧 bookRoot = 幽灵目录 + 假成功）
-    // 再 saveDraft。非 UTF-8 存量覆盖拒绝（NonUtf8TargetError）透传 400 + 转码指引，
-    // 不再 generic 化成 500「落盘失败」（同族口径）。
-    const outcome = await enqueueDraftSave(bookRoot, async (): Promise<DraftSaveOutcome> => {
-      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
-      if (moved) return { status: 409, code: moved.code, error: moved.reason }
-      try {
-        // saveDraft/recordAuthorSignal 已异步化（保存锁等待不再冻结事件循环）
-        const saved = await saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
-        // 文风改稿轨迹（-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
-        await recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
-        // recordAiVersion 迁异步孪生——原同步 spawnSync git 两连
-        // （hash-object+update-ref）在 git 无响应时拖住事件循环最长 15s×2（注释
-        // 宣称异步化的同 try 块漏网点现收口）；失败 resolve null 不阻断落盘
-        await recordAiVersionAsync(bookRoot, saved.docId, content)
-        return { saved }
-      } catch (e) {
-        if (e instanceof NonUtf8TargetError) {
-          return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message }
-        }
-        log.error('api', `落盘失败（章 ${chapter}）`, e)
-        return { status: 500, code: 'IO_ERROR', error: '落盘失败' }
+      // 编排互斥补齐——self-heal 写章在途时同章 draft-save 放行
+      // = 后写赢覆盖自愈产物（有 snapshotBeforeOverwrite 留底故定级）。对齐 rewrite.ts
+      // /同款双查口径；draft-save 是 writer 产出的落盘通道，spawn 侧经
+      // driver 内部走同函数不经本端点，故只查 self-heal 面
+      if (isSelfHealRunning(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再保存草稿')
       }
-    })
-    if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
-    reply(res, 200, {
-      ok: true,
-      path: outcome.saved.relPath,
-      words: outcome.saved.words,
-      docId: outcome.saved.docId,
-      snapshotted: outcome.saved.snapshotted,
-    })
-  },
+
+      const body = await readJson(req)
+      const chapter = Number(body['chapter'])
+      if (!Number.isInteger(chapter) || chapter < 1) {
+        return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+      }
+      const content = typeof body['content'] === 'string' ? (body['content'] as string) : ''
+      if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
+
+      const bookRoot = r.bookRoot
+      // 落盘入 per-book 串行链（上方头注）——临界段先 bookMovedFailure
+      // 单源重验（readJson await 窗口内书可能已删/改名，裸写旧 bookRoot = 幽灵目录 + 假成功）
+      // 再 saveDraft。非 UTF-8 存量覆盖拒绝（NonUtf8TargetError）透传 400 + 转码指引，
+      // 不再 generic 化成 500「落盘失败」（同族口径）。
+      const outcome = await enqueueDraftSave(bookRoot, async (): Promise<DraftSaveOutcome> => {
+        const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+        if (moved) return { status: 409, code: moved.code, error: moved.reason }
+        try {
+          // saveDraft/recordAuthorSignal 已异步化（保存锁等待不再冻结事件循环）
+          const saved = await saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
+          // 文风改稿轨迹（-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
+          await recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
+          // recordAiVersion 迁异步孪生——原同步 spawnSync git 两连
+          // （hash-object+update-ref）在 git 无响应时拖住事件循环最长 15s×2（注释
+          // 宣称异步化的同 try 块漏网点现收口）；失败 resolve null 不阻断落盘
+          await recordAiVersionAsync(bookRoot, saved.docId, content)
+          return { saved }
+        } catch (e) {
+          if (e instanceof NonUtf8TargetError) {
+            return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message }
+          }
+          log.error('api', `落盘失败（章 ${chapter}）`, e)
+          return { status: 500, code: 'IO_ERROR', error: '落盘失败' }
+        }
+      })
+      if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
+      reply(res, 200, {
+        ok: true,
+        path: outcome.saved.relPath,
+        words: outcome.saved.words,
+        docId: outcome.saved.docId,
+        snapshotted: outcome.saved.snapshotted,
+      })
+    },
   })
 
   // 组 draft prompt(读细纲+备料,长短篇分支,方案 6.6)——前端 draftWrite 拉取后 POST /spawn
@@ -140,26 +140,26 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     method: 'GET',
     path: '/api/books/:name/draft-prompt',
     handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
-    const url = parseRequestUrl(req)
-    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
-    const chapter = Number(url.searchParams.get('chapter') ?? '1')
-    if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
-    const bookRoot = r.bookRoot
-    // 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
-    // book.yaml 损坏静默降级留痕（对齐 state.ts 口径——
-    // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 无声回落）
-    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-    if (!cfgResult.ok) {
-      log.warn('draft', `book.yaml 解析降级: ${cfgResult.error.message}`)
-    }
-    const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath ?? null)
-    // files = prompt 实际注入源清单——前端随 prompt 回传 POST /spawn
-    // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合
-    const d = buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config)
-    reply(res, 200, { prompt: d.prompt, files: d.files })
-  },
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const chapter = Number(url.searchParams.get('chapter') ?? '1')
+      if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+      const bookRoot = r.bookRoot
+      // 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
+      // book.yaml 损坏静默降级留痕（对齐 state.ts 口径——
+      // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 无声回落）
+      const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+      if (!cfgResult.ok) {
+        log.warn('draft', `book.yaml 解析降级: ${cfgResult.error.message}`)
+      }
+      const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath ?? null)
+      // files = prompt 实际注入源清单——前端随 prompt 回传 POST /spawn
+      // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合
+      const d = buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config)
+      reply(res, 200, { prompt: d.prompt, files: d.files })
+    },
   })
 }

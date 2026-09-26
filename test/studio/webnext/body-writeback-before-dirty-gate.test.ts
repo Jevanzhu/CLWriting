@@ -96,7 +96,14 @@ const BOOK = '书A'
 const WINDOWED = '窗内新键入的末段'
 
 function node(docId: string): TreeNode {
-  return { path: `写作/正文/${docId}.md`, name: `${docId}.md`, isDirectory: false, role: 'chapter', docId, children: [] } as unknown as TreeNode
+  return {
+    path: `写作/正文/${docId}.md`,
+    name: `${docId}.md`,
+    isDirectory: false,
+    role: 'chapter',
+    docId,
+    children: [],
+  } as unknown as TreeNode
 }
 
 /** 构造「防抖窗内」态：登记一笔正文输入但不等到点——commit 复刻 EditorView 的落回

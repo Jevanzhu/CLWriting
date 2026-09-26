@@ -24,12 +24,14 @@ vi.mock('vue-router', () => ({
 }))
 
 import { useHotkeys } from '../../../src/studio/web-next/src/composables/useHotkeys'
-import {
-  useAppActions,
-  APP_FIND_EVENT,
-} from '../../../src/studio/web-next/src/composables/useAppActions'
+import { useAppActions, APP_FIND_EVENT } from '../../../src/studio/web-next/src/composables/useAppActions'
 
-const HotkeysHost = defineComponent({ setup: () => { useHotkeys(); return () => '' } })
+const HotkeysHost = defineComponent({
+  setup: () => {
+    useHotkeys()
+    return () => ''
+  },
+})
 
 function pressCmdF(init: KeyboardEventInit = {}): KeyboardEvent {
   const e = new KeyboardEvent('keydown', { key: 'f', metaKey: true, cancelable: true, ...init })
@@ -39,7 +41,9 @@ function pressCmdF(init: KeyboardEventInit = {}): KeyboardEvent {
 
 /** 收集 APP_FIND_EVENT 的临时监听（返回退订，对齐 preload onMenuAction 口径）。 */
 function listenFind(events: Event[]): () => void {
-  const onFind = (e: Event): void => { events.push(e) }
+  const onFind = (e: Event): void => {
+    events.push(e)
+  }
   window.addEventListener(APP_FIND_EVENT, onFind)
   return () => window.removeEventListener(APP_FIND_EVENT, onFind)
 }

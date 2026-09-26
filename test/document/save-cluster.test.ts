@@ -60,7 +60,12 @@ describe('PM-3/4/6 保存链回归', () => {
   it('P3-9: 超大章（>256KB 正文）保存 → pending 行仍只含元数据，journal 尺寸与正文规模解耦', async () => {
     const bigBody = '山'.repeat(300_000) // ≈900KB UTF-8：原 256KB 快照闸的触发域
     const big = '---\n标题: 开篇\n章号: 1\n---\n' + bigBody
-    const r = await svc.save(docId, relPath, { content: big, expectedRevision: computeRevision(absPath), operationId: 'op-big-' + String(seq++), origin: 'manual' })
+    const r = await svc.save(docId, relPath, {
+      content: big,
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-big-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r.ok).toBe(true)
 
     const text = readFileSync(journalPath, 'utf-8')
@@ -79,7 +84,12 @@ describe('PM-3/4/6 保存链回归', () => {
   it('P3-9: 常规章保存 → 同样无内容字段（新旧形态唯一差别是少了快照，元数据口径全一致）', async () => {
     const small = '---\n标题: 开篇\n章号: 1\n---\n新正文一段话，不长。'
     const baseRevision = computeRevision(absPath) // 保存前基线（pending.baseRevision 语义）
-    const r = await svc.save(docId, relPath, { content: small, expectedRevision: baseRevision, operationId: 'op-small-' + String(seq++), origin: 'manual' })
+    const r = await svc.save(docId, relPath, {
+      content: small,
+      expectedRevision: baseRevision,
+      operationId: 'op-small-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r.ok).toBe(true)
     const text = readFileSync(journalPath, 'utf-8')
     const parsed = JSON.parse(pendingLineOf(text)) as Record<string, unknown>
@@ -100,7 +110,12 @@ describe('PM-3/4/6 保存链回归', () => {
 
     // 第一笔：旧文 = create 的 v1，未命中缓存（首笔）→ delta1 = w(v2)-w(v1)
     const v2 = body(50)
-    const r1 = await svc.save(docId, relPath, { content: v2, expectedRevision: computeRevision(absPath), operationId: 'op-v2-' + String(seq++), origin: 'manual' })
+    const r1 = await svc.save(docId, relPath, {
+      content: v2,
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-v2-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r1.ok).toBe(true)
     const delta1 = readTodayDelta(bookRoot, date)
     expect(delta1).toBe(w(v2) - w(v1))
@@ -108,7 +123,12 @@ describe('PM-3/4/6 保存链回归', () => {
     // 第二笔紧接：旧文字数必须命中 revision 键控缓存（若缓存返回陈旧值，此处 delta 即错）。
     // readTodayDelta 是当日累计和：两笔后 = w(v3)-w(v1)
     const v3 = body(80)
-    const r2 = await svc.save(docId, relPath, { content: v3, expectedRevision: computeRevision(absPath), operationId: 'op-v3-' + String(seq++), origin: 'manual' })
+    const r2 = await svc.save(docId, relPath, {
+      content: v3,
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-v3-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r2.ok).toBe(true)
     expect(readTodayDelta(bookRoot, date)).toBe(w(v3) - w(v1))
 
@@ -116,21 +136,36 @@ describe('PM-3/4/6 保存链回归', () => {
     const v4ext = body(120)
     writeFileSync(absPath, v4ext)
     const v5 = body(150)
-    const r3 = await svc.save(docId, relPath, { content: v5, expectedRevision: computeRevision(absPath), operationId: 'op-v5-' + String(seq++), origin: 'manual' })
+    const r3 = await svc.save(docId, relPath, {
+      content: v5,
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-v5-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r3.ok).toBe(true)
-    expect(readTodayDelta(bookRoot, date)).toBe((w(v5) - w(v4ext)) + (w(v3) - w(v2)) + (w(v2) - w(v1)))
+    expect(readTodayDelta(bookRoot, date)).toBe(w(v5) - w(v4ext) + (w(v3) - w(v2)) + (w(v2) - w(v1)))
 
     // 字节档恢复：delta 恒 0（R34D-18 口径不回归）
-    const r4 = await svc.save(docId, relPath, { content: readFileSync(absPath), expectedRevision: computeRevision(absPath), operationId: 'op-restore-' + String(seq++), origin: 'restore' })
+    const r4 = await svc.save(docId, relPath, {
+      content: readFileSync(absPath),
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-restore-' + String(seq++),
+      origin: 'restore',
+    })
     expect(r4.ok).toBe(true)
-    expect(readTodayDelta(bookRoot, date)).toBe((w(v5) - w(v4ext)) + (w(v3) - w(v2)) + (w(v2) - w(v1)))
+    expect(readTodayDelta(bookRoot, date)).toBe(w(v5) - w(v4ext) + (w(v3) - w(v2)) + (w(v2) - w(v1)))
   })
 
   // ── PM-6：留底携带 words + 读侧头读快路径 / 存量兜底 ────────
 
   it('PM-6: 保存留底带 words（countWords 兜底不触发），无字数存量版本仍回落兜底', async () => {
     const v2 = '---\n标题: 开篇\n章号: 1\n---\n' + '新'.repeat(30)
-    const r = await svc.save(docId, relPath, { content: v2, expectedRevision: computeRevision(absPath), operationId: 'op-v2-' + String(seq++), origin: 'manual' })
+    const r = await svc.save(docId, relPath, {
+      content: v2,
+      expectedRevision: computeRevision(absPath),
+      operationId: 'op-v2-' + String(seq++),
+      origin: 'manual',
+    })
     expect(r.ok).toBe(true)
     const snapshotsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
     // 快路径：本批写入的版本全部带字数——countWords 兜底一触发（抛错）即失败

@@ -46,10 +46,21 @@ import {
 } from '../../prompts/chat.js'
 import { log } from '../../../log/index.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
-import { turnStartEvent, turnEndEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../../events/chat-bridge.js'
+import {
+  turnStartEvent,
+  turnEndEvent,
+  assistantMessageEvent,
+  toolCallEvent,
+  toolResultEvent,
+} from '../../../events/chat-bridge.js'
 // 最小版（清偿批）：llm/retry 留痕——超窗收缩重试复用 runner 重试留痕事件
 // 形态（events/types.ts LlmRetryData；落 chat 会话库，runner 链路库的 llm/retry 不变）
-import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent, llmRetryEvent } from '../../../events/chain-bridge.js'
+import {
+  settingsSnapshotEvent,
+  revisionRefEvent,
+  skillsSnapshotEvent,
+  llmRetryEvent,
+} from '../../../events/chain-bridge.js'
 import type { NewEvent } from '../../../events/store.js'
 import type { ChatOpts } from '../chat.js'
 import { emit, activeBranchByBook, type ChatRunState } from './state.js'
@@ -124,9 +135,7 @@ export interface ChatGeneration {
 export type ChatSendOut = TaskResult<ChatGeneration>
 
 /** 阶段一产物：轮首已终结（中止/超时，finishTurn 已收口）或已拿到发送结果。 */
-export type TurnSend =
-  | { kind: 'ended' }
-  | { kind: 'sent'; out: ChatSendOut; lineageIdx: number[] }
+export type TurnSend = { kind: 'ended' } | { kind: 'sent'; out: ChatSendOut; lineageIdx: number[] }
 
 // ── 阶段一：单轮发起 ─────────────────────────────────────────────────────────
 
@@ -138,14 +147,15 @@ export type TurnSend =
  * @param sendBudget 发送预算（按档位模型 contextWindow 显式 resolve 上提出
  *   轮循环——本段只消费，不重复解析 providers 表）
  */
-export async function initiateAgentTurn(args: {
-  deps: TurnDeps
-  turn: number
-  sendBudget: number
-}): Promise<TurnSend> {
+export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; sendBudget: number }): Promise<TurnSend> {
   const { deps, turn, sendBudget } = args
   const { opts, state, history, recorder, sys } = deps
-  const { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest, knowledge: knowledgeDigest } = deps.digests
+  const {
+    settings: settingsDigest,
+    revision: revisionDigest,
+    skills: skillsDigest,
+    knowledge: knowledgeDigest,
+  } = deps.digests
 
   if (state.ctrl.signal.aborted) {
     // - 回滚 + 遮蔽在 finishTurn 内；：deadline 定时器触发的 abort
@@ -173,7 +183,15 @@ export async function initiateAgentTurn(args: {
     // path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链。
     // （四轮处置批）：未选章不再 `?? 0` 伪装成无效章号——章号缺省即「无章」
     // 显式语义（构造器已放宽可选，消费方只读 revision）。
-    lineageIdx.push(addLineage(revisionRefEvent({ ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}), revision: revisionDigest, path: deps.revisionPath ?? '' })))
+    lineageIdx.push(
+      addLineage(
+        revisionRefEvent({
+          ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
+          revision: revisionDigest,
+          path: deps.revisionPath ?? '',
+        }),
+      ),
+    )
   }
   // 技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
   if (skillsDigest !== undefined) {
@@ -223,10 +241,16 @@ export async function initiateAgentTurn(args: {
   if (sendPoints > historyBudget) {
     const cut = budgetTailCut(sanitized, historyBudget)
     if (cut === null) {
-      log.warn('chat', `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），但无纯文本 user 边界可对齐、无法安全预切（原样发送）`)
+      log.warn(
+        'chat',
+        `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），但无纯文本 user 边界可对齐、无法安全预切（原样发送）`,
+      )
     } else {
       toSend = sanitized.slice(cut)
-      log.warn('chat', `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），保尾预切 → ${toSend.length} 条约 ${measureHistoryPoints(toSend)} 码点`)
+      log.warn(
+        'chat',
+        `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），保尾预切 → ${toSend.length} 条约 ${measureHistoryPoints(toSend)} 码点`,
+      )
     }
   }
   // 切后复查——sys 计入后仍有三形态可越线：sys 超大挤到下限、
@@ -235,7 +259,10 @@ export async function initiateAgentTurn(args: {
   // 收缩重试兜底（接线前仅 warn 可观测、会话卡死）。
   const sentPoints = toSend === sanitized ? sendPoints : measureHistoryPoints(toSend)
   if (sysPoints + sentPoints > sendBudget) {
-    log.warn('chat', `chat 发送前体量防线：切后复查——system prompt 约 ${sysPoints} + 实发历史 ${toSend.length} 条约 ${sentPoints} 码点，合计 ${sysPoints + sentPoints} 仍超发送预算 ${sendBudget}（fail-open 原样发送；越线超窗 400 由下方 A7 最小版收缩重试兜底）`)
+    log.warn(
+      'chat',
+      `chat 发送前体量防线：切后复查——system prompt 约 ${sysPoints} + 实发历史 ${toSend.length} 条约 ${sentPoints} 码点，合计 ${sysPoints + sentPoints} 仍超发送预算 ${sendBudget}（fail-open 原样发送；越线超窗 400 由下方 A7 最小版收缩重试兜底）`,
+    )
   }
 
   // ── 最小版（清偿批）：shrink-prompt 消费者（chat 编排层主模型发送处）──
@@ -377,18 +404,30 @@ export async function initiateAgentTurn(args: {
     // 重试守卫：无法安全切（null）或重切未严格小于首发（单肥回合兜底保最近一整回合
     // 的病态形态）→ 重发同量载荷必再败，不白烧一次调用，直接按终态路径收口
     if (retryToSend !== null && retryPoints < sentPoints) {
-      log.warn('chat', `chat 发送超窗收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，按重试预算 ${retryBudget}（首发历史预算 ${historyBudget} 之半）保尾重切 → ${retryToSend.length} 条约 ${retryPoints} 码点，重试一次`)
+      log.warn(
+        'chat',
+        `chat 发送超窗收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，按重试预算 ${retryBudget}（首发历史预算 ${historyBudget} 之半）保尾重切 → ${retryToSend.length} 条约 ${retryPoints} 码点，重试一次`,
+      )
       recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: 'CONTEXT_WINDOW_EXCEEDED' }), turn })
       emit(opts, { type: 'chat_reset' })
-      emit(opts, { type: 'warning', message: `上下文超限，已自动收缩对话历史（约 ${sentPoints} → ${retryPoints} 码点）后重试。` })
+      emit(opts, {
+        type: 'warning',
+        message: `上下文超限，已自动收缩对话历史（约 ${sentPoints} → ${retryPoints} 码点）后重试。`,
+      })
       // 0918修复批（A001）：收缩重发实际执行处同步 effectiveToSend（换网重发取此值）
       effectiveToSend = retryToSend
       out = await sendTurn(retryToSend, lastMessageFingerprint(retryToSend))
       if (!out.ok && ctxOverflow) {
-        log.warn('chat', `chat 发送收缩重试后仍超窗（A7 最小版）：重试发送 ${retryToSend.length} 条约 ${retryPoints} 码点仍回 CONTEXT_WINDOW_EXCEEDED，按现行终态路径收口（错误面不变）`)
+        log.warn(
+          'chat',
+          `chat 发送收缩重试后仍超窗（A7 最小版）：重试发送 ${retryToSend.length} 条约 ${retryPoints} 码点仍回 CONTEXT_WINDOW_EXCEEDED，按现行终态路径收口（错误面不变）`,
+        )
       }
     } else {
-      log.warn('chat', `chat 发送超窗且无法收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，重试预算 ${retryBudget} 下${retryCut === null ? '无纯文本 user 边界可对齐、无法安全重切' : `重切后约 ${retryPoints} 码点不严格小于首发`}，直接按终态路径收口`)
+      log.warn(
+        'chat',
+        `chat 发送超窗且无法收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，重试预算 ${retryBudget} 下${retryCut === null ? '无纯文本 user 边界可对齐、无法安全重切' : `重切后约 ${retryPoints} 码点不严格小于首发`}，直接按终态路径收口`,
+      )
     }
   }
 
@@ -430,17 +469,26 @@ export async function initiateAgentTurn(args: {
       fallbackId = undefined
     }
     if (fallbackId) {
-      log.warn('chat', `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`)
+      log.warn(
+        'chat',
+        `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`,
+      )
       recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: failedCode }), turn })
       // 0918修复批（A003）：重发前清前端对话缓冲——换网重发是独立的第二次完整
       // 发送，防异常形态下 chat_text 重复拼接（对齐上方分支同款防御；正常为 no-op）
       emit(opts, { type: 'chat_reset' })
-      emit(opts, { type: 'warning', message: `AI 供应商请求失败（${redactSecret(failedCode)}），已切换备用供应商重试。` })
+      emit(opts, {
+        type: 'warning',
+        message: `AI 供应商请求失败（${redactSecret(failedCode)}），已切换备用供应商重试。`,
+      })
       // 0918修复批（A001）：实发取 effectiveToSend（无收缩链路 = toSend 本身
       // 行为不变；收缩后换网组合 = 收缩后载荷），指纹同步按实发重算
       out = await sendTurn(effectiveToSend, lastMessageFingerprint(effectiveToSend), fallbackId)
     } else if (hasCandidate) {
-      log.warn('chat', `chat 发送回 ${failedCode} 且备用供应商均无可用 chat 档（0918独立重评修复批 A004），按现行终态路径收口`)
+      log.warn(
+        'chat',
+        `chat 发送回 ${failedCode} 且备用供应商均无可用 chat 档（0918独立重评修复批 A004），按现行终态路径收口`,
+      )
     } else {
       log.warn('chat', `chat 发送回 ${failedCode} 且无备用供应商可切换（0917清库修复批），按现行终态路径收口`)
     }
@@ -479,9 +527,7 @@ export function judgeTurnTermination(out: ChatSendOut, timedOut: boolean): TurnT
 
 /** 阶段三产物：本回合是否终结 + 完成口径（E1a 续链：正常完成才 true）；
  *  未终结（工具轮）时把已收窄的成功封套交给阶段二，避免调用方再判 `out.ok`。 */
-export type TurnClosure =
-  | { ended: true; completedOk: boolean }
-  | { ended: false; out: ChatSendOut & { ok: true } }
+export type TurnClosure = { ended: true; completedOk: boolean } | { ended: false; out: ChatSendOut & { ok: true } }
 
 /**
  * 轮次收尾与终止判定：失败面/截断面经 finishTurn 收口（回滚 + 遮蔽 + chat_error）；
@@ -529,7 +575,9 @@ export async function closeAgentTurn(args: {
     blocks.push({
       type: 'reasoning',
       text: reasoning,
-      ...(reasoningEncrypted ? { encrypted: reasoningEncrypted, ...(reasoningItemId ? { itemId: reasoningItemId } : {}) } : {}),
+      ...(reasoningEncrypted
+        ? { encrypted: reasoningEncrypted, ...(reasoningItemId ? { itemId: reasoningItemId } : {}) }
+        : {}),
     })
     asstContent = blocks
   } else {
@@ -539,7 +587,17 @@ export async function closeAgentTurn(args: {
   // 记录 assistant 事件 + 回合收尾 + 落库
   // assistant 事件同下方 chat_done 改 attemptsUsage 优先的
   // 合并口径——重试链回合 out.usage 只是末 attempt 单次值，事件用量被系统性低估
-  seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, (out.attemptsUsage ?? out.usage) ?? undefined, stopReason, lineageIdx, turnBranch)))
+  seqs.pendingMsgSeqs.push(
+    recorder.add(
+      assistantMessageEvent(
+        asstContent,
+        out.attemptsUsage ?? out.usage ?? undefined,
+        stopReason,
+        lineageIdx,
+        turnBranch,
+      ),
+    ),
+  )
   recorder.add(turnEndEvent(turn, 'completed'))
   if (!flushTurnEvents()) return { ended: true, completedOk: false }
   // attemptsUsage 优先——runTask 内部重试链（429/5xx 退避）时
@@ -626,7 +684,9 @@ export async function runToolTurn(args: {
     asstBlocks.push({
       type: 'reasoning',
       text: reasoning,
-      ...(reasoningEncrypted ? { encrypted: reasoningEncrypted, ...(reasoningItemId ? { itemId: reasoningItemId } : {}) } : {}),
+      ...(reasoningEncrypted
+        ? { encrypted: reasoningEncrypted, ...(reasoningItemId ? { itemId: reasoningItemId } : {}) }
+        : {}),
     })
   }
   for (const c of toolCalls) {
@@ -636,7 +696,17 @@ export async function runToolTurn(args: {
   // assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
   // 与无工具路径同款 attemptsUsage 优先的合并口径——工具轮
   // 截断重试时 out.usage 只是末 attempt 单次值，事件用量与 ai-calls 按次入账分裂
-  seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, (out.attemptsUsage ?? out.usage) ?? undefined, stopReason, lineageIdx, turnBranch)))
+  seqs.pendingMsgSeqs.push(
+    recorder.add(
+      assistantMessageEvent(
+        asstBlocks,
+        out.attemptsUsage ?? out.usage ?? undefined,
+        stopReason,
+        lineageIdx,
+        turnBranch,
+      ),
+    ),
+  )
   for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
   // 执行工具 + 结果按 tool_result block 回填

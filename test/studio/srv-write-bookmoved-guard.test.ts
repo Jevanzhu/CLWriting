@@ -54,12 +54,20 @@ function makeBook(name: string): Rig {
   )
   const bookRoot = join(workDir, '长篇', name)
   mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`,
+    'utf-8',
+  )
   const table = createRouteTable()
   const handlers = withRouteTable(table, () => {
     // R0911b-B-P3-2：KnowledgeCtx token 死字段删除，注入随之去 token；
     // learnCommitYield 走委托壳（未置位回落生产口径 defaultCommitYield）
-    registerKnowledgeRoutes({ workDir, learnCommitYield: () => (learnCommitYieldFn ?? defaultCommitYield)(), ...processRouteDeps() })
+    registerKnowledgeRoutes({
+      workDir,
+      learnCommitYield: () => (learnCommitYieldFn ?? defaultCommitYield)(),
+      ...processRouteDeps(),
+    })
     registerStyleRoutes({ workDir, userDataPath: null, ...processRouteDeps() })
     registerConfigRoutes({ workDir })
     return {

@@ -22,7 +22,11 @@
  */
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest'
-import { createFakeAnthropicProvider, type FakeAnthropicProvider, type AnthropicFakeResponse } from '../fake-provider.js'
+import {
+  createFakeAnthropicProvider,
+  type FakeAnthropicProvider,
+  type AnthropicFakeResponse,
+} from '../fake-provider.js'
 import { withFakeProvider, tempUserData } from '../../studio/fixtures.js'
 import { runTask } from '../../../src/ai/runner.js'
 import { generateText, generateTool, generate } from '../../../src/ai/gen.js'
@@ -68,11 +72,7 @@ describe('Anthropic 真线：纯文本流端到端', () => {
       // P0-1 同款守卫：mockText 形状随泛型 T（driver 非 mock 时不短路，请求必打 stub）
       mockText: { text: '## 不该出现的 mock 文本', stopReason: 'mock' },
       run: (provider, signal) =>
-        generate(
-          provider,
-          { systemPrompt: '测试系统提示', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generate(provider, { systemPrompt: '测试系统提示', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     expect(out.ok).toBe(true)
@@ -149,11 +149,7 @@ describe('Anthropic 真线：max_tokens 截断', () => {
     const out = await runTask<string>({
       userDataPath: ud,
       run: (provider, signal) =>
-        generateText(
-          provider,
-          { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generateText(provider, { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     expect(out.ok).toBe(false)
@@ -179,11 +175,7 @@ describe('Anthropic 真线：流中 SSE error 事件', () => {
     const out = await runTask<string>({
       userDataPath: ud,
       run: (provider, signal) =>
-        generateText(
-          provider,
-          { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] },
-          signal,
-        ),
+        generateText(provider, { systemPrompt: '', messages: [{ role: 'user', content: 'test' }] }, signal),
     })
 
     expect(out.ok).toBe(false)

@@ -67,7 +67,11 @@ describe('R0916-7-P3-9：journal pending 只记元数据', () => {
   })
 
   it('旧格式 journal（含全文快照 content/degraded）仍被 findUnsettled 检出并给出 baseRevision', () => {
-    writeFileSync(j, legacyPendingLine('legacy-1', '崩溃前的全文快照') + legacyPendingLine('legacy-2', '降级档头尾截断…片段', true), 'utf-8')
+    writeFileSync(
+      j,
+      legacyPendingLine('legacy-1', '崩溃前的全文快照') + legacyPendingLine('legacy-2', '降级档头尾截断…片段', true),
+      'utf-8',
+    )
     const u = findUnsettled(j)
     expect(u.map((p) => p.opId).sort()).toEqual(['legacy-1', 'legacy-2'])
     // 复核判据（health.reconcileSavePending）读的字段仍在

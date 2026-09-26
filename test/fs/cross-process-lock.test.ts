@@ -11,10 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chmodSync } from 'node:fs'
 import { describe, it, expect, afterAll, beforeEach, vi } from 'vitest'
-import {
-  tryAcquireCrossProcessLock,
-  acquireCrossProcessLockWithTimeout,
-} from '../../src/fs/cross-process-lock.js'
+import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 
 // R43-25 收口回归（2026-09-04）：openSync 'wx' 的瞬态 EPERM 注入面——win delete-pending
 // 窗口/杀软瞬时握锁形态。mock 工厂透传全部原实现，仅 openSync 按计数器前 N 次 'wx'
@@ -64,7 +61,10 @@ vi.mock('node:fs', async (importOriginal) => {
           return (actual.renameSync as (a: string, b: string) => void)(from, to)
         } catch (e) {
           if (recreate) {
-            ;(actual.writeFileSync as (p: string, d: string) => void)(from, JSON.stringify({ pid: process.pid, bootTime: 0 }))
+            ;(actual.writeFileSync as (p: string, d: string) => void)(
+              from,
+              JSON.stringify({ pid: process.pid, bootTime: 0 }),
+            )
           }
           throw e
         }
@@ -205,9 +205,9 @@ describe('tryAcquireCrossProcessLock', () => {
     const p = lp('stale-takeover-eperm-exhaust')
     writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
     fsState.renameEpermLeft = 99 // 持续占用（非瞬时形态）
-    expect(() =>
-      tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 }),
-    ).toThrowError(/EPERM/)
+    expect(() => tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 })).toThrowError(
+      /EPERM/,
+    )
     fsState.renameEpermLeft = 0 // 收尾放行，手工清走残留死锁文件（认领改名从未成功）
     rmSync(p, { force: true })
   })

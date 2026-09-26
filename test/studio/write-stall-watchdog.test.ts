@@ -21,7 +21,7 @@
  * 独立 tmp 目录 + 自清（服务侧只消费绝对路径，语义等价）；post 走裸 node:http
  * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi , type MockInstance } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi, type MockInstance } from 'vitest'
 import http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,11 +29,7 @@ import { join } from 'node:path'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { log } from '../../src/log/index.js'
 import type { StudioDriver, Session, DriverEvent } from '../../src/driver/index.js'
-import {
-  ORCH_STALL_WATCHDOG_MS,
-  ORCH_STALL_GRACE_MS,
-  runWriterSpawn,
-} from '../../src/studio/server/api/stream.js'
+import { ORCH_STALL_WATCHDOG_MS, ORCH_STALL_GRACE_MS, runWriterSpawn } from '../../src/studio/server/api/stream.js'
 import { holdSpawnGate, releaseSpawnGate, isSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
 // R0912-P2-④：self-heal 侧强释放/settle 的 ctrl 注册观测面——auto-write 路径经
 // getDriver() 拿到的就是本文件共享的 mockDriver 单例（noop 桩），spy 即可观测注册/注销
@@ -41,11 +37,7 @@ import { mockDriver } from '../../src/driver/mock.js'
 // 被测模块的 mock 面（下方 vi.mock 生效后，这些导入即假件）
 // R1010c-SRV-P3-1：stream.ts 强释放改调生产命名导出 forceReleaseSelfHealRunning，
 // 本测试的观测面随之从测试别名 __setSelfHealRunningForTest 切到新导出
-import {
-  abortSelfHeal,
-  isSelfHealRunning,
-  forceReleaseSelfHealRunning,
-} from '../../src/ai/orchestrate/self-heal.js'
+import { abortSelfHeal, isSelfHealRunning, forceReleaseSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
 
 // ---- 假 self-heal 编排器状态（vi.hoisted 保证 mock 工厂先行可用）----
 const shFake = vi.hoisted(() => {

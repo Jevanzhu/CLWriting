@@ -71,7 +71,9 @@ function seedDoc(content: string): DocEntry {
   }
 }
 
-async function mountPanel(content = '---\n钩子类型: 危机钩\n字数目标: 3000\n---\n章纲正文'): Promise<ReturnType<typeof mount>> {
+async function mountPanel(
+  content = '---\n钩子类型: 危机钩\n字数目标: 3000\n---\n章纲正文',
+): Promise<ReturnType<typeof mount>> {
   const doc = useDocStore()
   doc.docs.set('d1', seedDoc(content))
   useWorkspaceStore().activeDocId = 'd1'

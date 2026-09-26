@@ -26,37 +26,41 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     // （评审）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-    // （c 修复批）中断通道（owner='lead-updates:<书名>'，
-    // ctrl.signal 沿 process 层既有形参透传）——十段复制收编 runGatedGeneration
-    // 单源（-，接法头注见 task-gate.ts）。
-    return ctx.gate.runGatedGeneration(res, {
-      book: params['name']!,
-      workDir: ctx.workDir!,
-      action: 'lead-updates',
-      busyText: '本书正在草拟账本推进，请等待完成后再试',
-    }, async (ctrl) => {
-      const body = await readJson(req)
-      const chapter = Number(body['chapter'])
-      if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+      // （c 修复批）中断通道（owner='lead-updates:<书名>'，
+      // ctrl.signal 沿 process 层既有形参透传）——十段复制收编 runGatedGeneration
+      // 单源（-，接法头注见 task-gate.ts）。
+      return ctx.gate.runGatedGeneration(
+        res,
+        {
+          book: params['name']!,
+          workDir: ctx.workDir!,
+          action: 'lead-updates',
+          busyText: '本书正在草拟账本推进，请等待完成后再试',
+        },
+        async (ctrl) => {
+          const body = await readJson(req)
+          const chapter = Number(body['chapter'])
+          if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-      const bookRoot = r.bookRoot
-      // 复用共享生成函数（self-heal 写稿完成后也走这里），业务拒绝/落盘错误统一在此映射
-      const result = await generateLeadUpdateDraft(bookRoot, chapter, ctx.userDataPath, ctrl.signal)
-      if (!result.ok) {
-        // -①：中断收口——process 层把 runSpec 的 ABORTED 坍缩为 failed，此处按
-        // ctrl 信号如实映射 499 人话信封（对齐 outline/rewrite 既有 ABORTED→499 先例；
-        // 本端点映射基于 process 层 result.code 分档，语义变体保留端点本地）
-        if (ctrl.signal.aborted) return replyError(res, 499, 'ABORTED', '已中断')
-        // rejected(业务拒绝)→400 BAD_INPUT；not-found(章不存在)→404 NOT_FOUND；其余 →500 ERROR
-        const status = result.code === 'rejected' ? 400 : result.code === 'not-found' ? 404 : 500
-        const code = result.code === 'rejected' ? 'BAD_INPUT' : result.code === 'not-found' ? 'NOT_FOUND' : 'ERROR'
-        return replyError(res, status, code, result.error)
-      }
-      reply(res, 200, { ok: true, path: '工作区/账本推进.md', count: result.count })
-    })
-  },
+          const bookRoot = r.bookRoot
+          // 复用共享生成函数（self-heal 写稿完成后也走这里），业务拒绝/落盘错误统一在此映射
+          const result = await generateLeadUpdateDraft(bookRoot, chapter, ctx.userDataPath, ctrl.signal)
+          if (!result.ok) {
+            // -①：中断收口——process 层把 runSpec 的 ABORTED 坍缩为 failed，此处按
+            // ctrl 信号如实映射 499 人话信封（对齐 outline/rewrite 既有 ABORTED→499 先例；
+            // 本端点映射基于 process 层 result.code 分档，语义变体保留端点本地）
+            if (ctrl.signal.aborted) return replyError(res, 499, 'ABORTED', '已中断')
+            // rejected(业务拒绝)→400 BAD_INPUT；not-found(章不存在)→404 NOT_FOUND；其余 →500 ERROR
+            const status = result.code === 'rejected' ? 400 : result.code === 'not-found' ? 404 : 500
+            const code = result.code === 'rejected' ? 'BAD_INPUT' : result.code === 'not-found' ? 'NOT_FOUND' : 'ERROR'
+            return replyError(res, status, code, result.error)
+          }
+          reply(res, 200, { ok: true, path: '工作区/账本推进.md', count: result.count })
+        },
+      )
+    },
   })
 }

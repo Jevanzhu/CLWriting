@@ -18,9 +18,7 @@ function makeBook(enabled: string[]): string {
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   writeFileSync(
     join(root, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 测试\nhost: cc\nleads:\n  enabled: [' +
-      enabled.join(', ') +
-      ']\n',
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试\nhost: cc\nleads:\n  enabled: [' + enabled.join(', ') + ']\n',
     'utf-8',
   )
   return root
@@ -32,8 +30,13 @@ test('RB-IF-P2-5: 启用关系线 → 大纲/关系线 的进行中账本进入�
     const 关系dir = join(root, '大纲', '关系线')
     mkdirSync(关系dir, { recursive: true })
     writeLead(join(关系dir, '关系线-001-师徒债.md'), {
-      编号: '关系线-001', 标题: '师徒债', 类型: '关系线', 状态: '进行中', 开启章: 1,
-      欠方: '林晚', 债主: '师尊',
+      编号: '关系线-001',
+      标题: '师徒债',
+      类型: '关系线',
+      状态: '进行中',
+      开启章: 1,
+      欠方: '林晚',
+      债主: '师尊',
       履历: [{ 章号: 1, 动词: '结下', 证据: '一碗罚酒' }],
     })
     const open = readOpenLeads(root)
@@ -50,11 +53,19 @@ test('readOpenLeads: 基础类（布线/悬念）行为不回归 + 已收尾不�
   try {
     const 悬念dir = join(root, '布线', '悬念')
     writeLead(join(悬念dir, '悬念-001-夜行者.md'), {
-      编号: '悬念-001', 标题: '夜行者', 类型: '悬念', 状态: '进行中', 开启章: 1,
+      编号: '悬念-001',
+      标题: '夜行者',
+      类型: '悬念',
+      状态: '进行中',
+      开启章: 1,
       履历: [{ 章号: 1, 动词: '设下', 证据: '雨夜敲门' }],
     })
     writeLead(join(悬念dir, '悬念-002-旧案.md'), {
-      编号: '悬念-002', 标题: '旧案', 类型: '悬念', 状态: '已收尾', 开启章: 1,
+      编号: '悬念-002',
+      标题: '旧案',
+      类型: '悬念',
+      状态: '已收尾',
+      开启章: 1,
       履历: [
         { 章号: 1, 动词: '设下', 证据: '卷宗' },
         { 章号: 5, 动词: '揭晓', 证据: '翻案' },

@@ -100,7 +100,13 @@ function buildRoutes(): (method: 'GET' | 'POST', path: string) => RouteTable[num
   const routes = createRouteTable()
   resetRouteSchemas()
   withRouteTable(routes, () => {
-    registerStreamRoutes({ workDir, userDataPath, studioToken: 'r26-token', tickets: createStreamTicketStore(), ...processRouteDeps() })
+    registerStreamRoutes({
+      workDir,
+      userDataPath,
+      studioToken: 'r26-token',
+      tickets: createStreamTicketStore(),
+      ...processRouteDeps(),
+    })
     registerChatRoutes({ workDir, userDataPath, ...processRouteDeps() }) // D3：chat/confirm 本体已迁 chat.ts
   })
   return (method, path) => {

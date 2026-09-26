@@ -56,14 +56,8 @@ describe('listSkills：三根 rank 覆盖序', () => {
       '---\nname: 场景描写\nwhenToUse: 项目版提示\n---\n项目正文',
     )
     // 低 rank 独有包：用户独有 + 捆绑独有
-    writeFileSync(
-      join(userDataPath, 'skills', '对话节奏.md'),
-      '---\nname: 对话节奏\nwhenToUse: 用户独有\n---\n对话',
-    )
-    writeFileSync(
-      join(bundledRoot, 'skills', '黄金三章.md'),
-      '---\nname: 黄金三章\nwhenToUse: 捆绑独有\n---\n黄金',
-    )
+    writeFileSync(join(userDataPath, 'skills', '对话节奏.md'), '---\nname: 对话节奏\nwhenToUse: 用户独有\n---\n对话')
+    writeFileSync(join(bundledRoot, 'skills', '黄金三章.md'), '---\nname: 黄金三章\nwhenToUse: 捆绑独有\n---\n黄金')
 
     const metas = listSkills({ bookRoot, userDataPath })
     expect(metas.map((m) => m.name)).toEqual(['场景描写', '对话节奏', '黄金三章']) // name 排序稳定
@@ -77,14 +71,8 @@ describe('listSkills：三根 rank 覆盖序', () => {
   })
 
   it('无用户根时同名包：项目 > 捆绑', () => {
-    writeFileSync(
-      join(bundledRoot, 'skills', '场景描写.md'),
-      '---\nname: 场景描写\nwhenToUse: 捆绑版\n---\n捆绑',
-    )
-    writeFileSync(
-      join(bookRoot, '设定', '技巧', '场景描写.md'),
-      '---\nname: 场景描写\nwhenToUse: 项目版\n---\n项目',
-    )
+    writeFileSync(join(bundledRoot, 'skills', '场景描写.md'), '---\nname: 场景描写\nwhenToUse: 捆绑版\n---\n捆绑')
+    writeFileSync(join(bookRoot, '设定', '技巧', '场景描写.md'), '---\nname: 场景描写\nwhenToUse: 项目版\n---\n项目')
     const metas = listSkills({ bookRoot }) // 不传 userDataPath
     expect(metas).toHaveLength(1)
     expect(metas[0]).toMatchObject({ source: 'project', whenToUse: '项目版' })
@@ -177,14 +165,8 @@ describe('formatSkillIndex', () => {
 
 describe('loadSkill', () => {
   it('命中 → meta（高 rank）+ 剥离 fm 的正文', () => {
-    writeFileSync(
-      join(bundledRoot, 'skills', '场景描写.md'),
-      '---\nname: 场景描写\n---\n捆绑正文',
-    )
-    writeFileSync(
-      join(bookRoot, '设定', '技巧', '场景描写.md'),
-      '---\nname: 场景描写\n---\n\n项目正文\n\n',
-    )
+    writeFileSync(join(bundledRoot, 'skills', '场景描写.md'), '---\nname: 场景描写\n---\n捆绑正文')
+    writeFileSync(join(bookRoot, '设定', '技巧', '场景描写.md'), '---\nname: 场景描写\n---\n\n项目正文\n\n')
     const r = loadSkill('场景描写', { bookRoot, userDataPath })
     expect(r).not.toBeNull()
     expect(r!.meta.source).toBe('project')

@@ -86,7 +86,13 @@ describe('0918独立重评修复批 B003: 合并续跑判定 trash 清单 strict
     const beforeT = targetText(relT)
     trashMock.mode = 'all'
     const svc = new DocumentService({ bookRoot: studio.bookRoot })
-    const r = await applyChapterMerge(studio.bookRoot, svc, null, { targetDocId: t, sourceDocId: s, planHash: '任意（入口即拒）' }, ragStub)
+    const r = await applyChapterMerge(
+      studio.bookRoot,
+      svc,
+      null,
+      { targetDocId: t, sourceDocId: s, planHash: '任意（入口即拒）' },
+      ragStub,
+    )
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.code).toBe('WRITE_ERROR')
@@ -106,7 +112,13 @@ describe('0918独立重评修复批 B003: 合并续跑判定 trash 清单 strict
     writeFileSync(join(studio.bookRoot, relT), chapterContent(90, '崩溃目标', '目标章正文。', '并入: [91]\n'), 'utf8')
     trashMock.mode = 'second' // 第 1 次（apply 入口）放行空清单，第 2 次（finishMerge 自查）失败
     const svc = new DocumentService({ bookRoot: studio.bookRoot })
-    const r = await applyChapterMerge(studio.bookRoot, svc, null, { targetDocId: t, sourceDocId: s, planHash: '任意（①后形态跳过指纹复核）' }, ragStub)
+    const r = await applyChapterMerge(
+      studio.bookRoot,
+      svc,
+      null,
+      { targetDocId: t, sourceDocId: s, planHash: '任意（①后形态跳过指纹复核）' },
+      ragStub,
+    )
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.code).toBe('WRITE_ERROR')

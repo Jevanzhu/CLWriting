@@ -132,18 +132,18 @@ export function registerChatRoutes(ctx: ChatCtx): void {
       return { callId, ok }
     },
     handler: async ({ params, input }, _req, res) => {
-    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    const bookName = params['name']!
-    // 补 resolveBook——chat 族（send/regenerate）都有书存在性
-    // 校验，唯本端点漏挂：书名打错/书已删时落到下方 404「未找到待确认的工具调用」，
-    // 语义误导排障（书不存在 ≠ 调用不存在）
-    const r = resolveBookOrReply(ctx.workDir, bookName, res)
-    if (!r) return
+      if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      const bookName = params['name']!
+      // 补 resolveBook——chat 族（send/regenerate）都有书存在性
+      // 校验，唯本端点漏挂：书名打错/书已删时落到下方 404「未找到待确认的工具调用」，
+      // 语义误导排障（书不存在 ≠ 调用不存在）
+      const r = resolveBookOrReply(ctx.workDir, bookName, res)
+      if (!r) return
 
-    const found = resolveChatConfirm(bookName, input.callId, input.ok)
-    if (!found) return replyError(res, 404, 'NOT_FOUND', '未找到待确认的工具调用（已超时或已取消）')
-    reply(res, 200, { ok: true })
-  },
+      const found = resolveChatConfirm(bookName, input.callId, input.ok)
+      if (!found) return replyError(res, 404, 'NOT_FOUND', '未找到待确认的工具调用（已超时或已取消）')
+      reply(res, 200, { ok: true })
+    },
   })
 
   // 重新生成上一条回复——parentSeq = 触发 user 的全局 seq，branchId = 变体组
@@ -151,53 +151,55 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     method: 'POST',
     path: '/api/books/:name/chat/regenerate',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
-    const bookName = params['name']!
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
-    // regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
-    // 补嵌套写章豁免——chat 自己的 write_chapter 工具在途时
-    // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把 regenerate
-    // 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）。
-    // -⑤：闸组抽 helper 单点化（与 chat.send 同源，语义详见 chatEntryGateError 注释）。
-    const gateErr = chatEntryGateError(ctx.gate, bookName)
-    if (gateErr) return replyError(res, 409, 'BUSY', gateErr)
-    // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
-    //（orchestrator-mutex-gates 钉「闸先于 body 校验」：self-heal 在途 + 空 body → 409 非 400）
-    const body = await readJson(req)
-    const rawParentSeq = Number(body['parentSeq'])
-    if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
-    const branchId = String(body['branchId'] ?? '').trim()
-    if (!branchId) return replyError(res, 400, 'BAD_INPUT', 'branchId 必填')
-    const rawChapter = body['chapter']
-    const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
-    if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
+      const bookName = params['name']!
+      if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
+      // regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
+      // 补嵌套写章豁免——chat 自己的 write_chapter 工具在途时
+      // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把 regenerate
+      // 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）。
+      // -⑤：闸组抽 helper 单点化（与 chat.send 同源，语义详见 chatEntryGateError 注释）。
+      const gateErr = chatEntryGateError(ctx.gate, bookName)
+      if (gateErr) return replyError(res, 409, 'BUSY', gateErr)
+      // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      //（orchestrator-mutex-gates 钉「闸先于 body 校验」：self-heal 在途 + 空 body → 409 非 400）
+      const body = await readJson(req)
+      const rawParentSeq = Number(body['parentSeq'])
+      if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1)
+        return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
+      const branchId = String(body['branchId'] ?? '').trim()
+      if (!branchId) return replyError(res, 400, 'BAD_INPUT', 'branchId 必填')
+      const rawChapter = body['chapter']
+      const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
+      if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1))
+        return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-    // 此处二次检查嵌套豁免（readJson await 期间嵌套标记可能才落下）。
-    // -⑤：中段复检历史上只查编排两闸（引入时未含任务闸面），以
-    // taskGate:false 保真——任务闸窗口由 ensureSession 后的终检覆盖，不改拒绝时序。
-    const gateErrMid = chatEntryGateError(ctx.gate, bookName, { taskGate: false })
-    if (gateErrMid) return replyError(res, 409, 'BUSY', gateErrMid)
-    const mainSession = await ctx.driver.ensureSession(bookName, ctx.workDir!)
-    // 二次检查移到 ensureSession 之后（与 chat.send 完全同序）——
-    // 此前排在 await 之前（注释却宣称「await 后二次检查」），让出窗口内他标签页 /spawn
-    // 占闸启动写手，regenerate 续体无复查直接 sendChatMessage（内含嵌套生成工具）→
-    // 双写手互覆草稿/预算章块（互斥矩阵要防的场景）
-    // 复检同款嵌套豁免（嵌套标记可能在 await 期间才落下，同 chat.send ）
-    const gateErrRecheck = chatEntryGateError(ctx.gate, bookName)
-    if (gateErrRecheck) return replyError(res, 409, 'BUSY', gateErrRecheck)
-    const driver = ctx.driver.driver
-    const outcome = sendChatMessage({
-      driver,
-      mainSession,
-      userDataPath: ctx.userDataPath!,
-      bookRoot: r.bookRoot,
-      bookName,
-      regenerate: { parentSeq: rawParentSeq, branchId },
-      ...(chapter !== undefined ? { chapter } : {}),
-    })
-    reply(res, 200, { ok: true, queued: outcome === 'queued' })
-  },
+      // 此处二次检查嵌套豁免（readJson await 期间嵌套标记可能才落下）。
+      // -⑤：中段复检历史上只查编排两闸（引入时未含任务闸面），以
+      // taskGate:false 保真——任务闸窗口由 ensureSession 后的终检覆盖，不改拒绝时序。
+      const gateErrMid = chatEntryGateError(ctx.gate, bookName, { taskGate: false })
+      if (gateErrMid) return replyError(res, 409, 'BUSY', gateErrMid)
+      const mainSession = await ctx.driver.ensureSession(bookName, ctx.workDir!)
+      // 二次检查移到 ensureSession 之后（与 chat.send 完全同序）——
+      // 此前排在 await 之前（注释却宣称「await 后二次检查」），让出窗口内他标签页 /spawn
+      // 占闸启动写手，regenerate 续体无复查直接 sendChatMessage（内含嵌套生成工具）→
+      // 双写手互覆草稿/预算章块（互斥矩阵要防的场景）
+      // 复检同款嵌套豁免（嵌套标记可能在 await 期间才落下，同 chat.send ）
+      const gateErrRecheck = chatEntryGateError(ctx.gate, bookName)
+      if (gateErrRecheck) return replyError(res, 409, 'BUSY', gateErrRecheck)
+      const driver = ctx.driver.driver
+      const outcome = sendChatMessage({
+        driver,
+        mainSession,
+        userDataPath: ctx.userDataPath!,
+        bookRoot: r.bookRoot,
+        bookName,
+        regenerate: { parentSeq: rawParentSeq, branchId },
+        ...(chapter !== undefined ? { chapter } : {}),
+      })
+      reply(res, 200, { ok: true, queued: outcome === 'queued' })
+    },
   })
 
   // 清空本书对话历史（前端"清空对话"时调）
@@ -205,29 +207,29 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     method: 'POST',
     path: '/api/books/:name/chat/clear',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    const bookName = params['name']!
-    // 二轮-（win线并树随行）：六闸收编 audit.ts chatClearGateReason 单源（沿革见
-    // 其头注——dd- hh- ），入口首查 + 清库前复查
-    //（经 clearChatHistory 的 gate 回调，见下）两用
-    const gate = chatClearGateReason(ctx.gate, bookName, '清空对话')
-    if (gate) return replyError(res, 409, 'BUSY', gate)
-    // （低级）：resolveBook 统一解析——旧 readBooks.find 对不存在的书
-    // 静默落「只清内存」假成功（200），事件库原样残留；现与全文件其余路由同 404 口径
-    const r = resolveBookOrReply(ctx.workDir, bookName, res)
-    if (!r) return
-    // 清内存 + 清事件库
-    // clearChatHistory 转异步（事件库开库异步孪生）
-    // 二轮-传闸回调——开库让出窗口内新起任务时在 clearBooks 之前复查拒清，
-    // 返回非 null 即已拒（内存清空是良性前置，详见 state.ts 体内注释）；任务收尾不再
-    // 向已清 session 追加事件
-    const blocked = await clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot, {
-      gate: () => chatClearGateReason(ctx.gate, bookName, '清空对话'),
-    })
-    if (blocked) return replyError(res, 409, 'BUSY', blocked)
-    // 清空对话 = 本书对话上下文整体销毁 → per-book SSE 计数一并清理
-    forgetSseCount(bookName)
-    reply(res, 200, { ok: true })
-  },
+      if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      const bookName = params['name']!
+      // 二轮-（win线并树随行）：六闸收编 audit.ts chatClearGateReason 单源（沿革见
+      // 其头注——dd- hh- ），入口首查 + 清库前复查
+      //（经 clearChatHistory 的 gate 回调，见下）两用
+      const gate = chatClearGateReason(ctx.gate, bookName, '清空对话')
+      if (gate) return replyError(res, 409, 'BUSY', gate)
+      // （低级）：resolveBook 统一解析——旧 readBooks.find 对不存在的书
+      // 静默落「只清内存」假成功（200），事件库原样残留；现与全文件其余路由同 404 口径
+      const r = resolveBookOrReply(ctx.workDir, bookName, res)
+      if (!r) return
+      // 清内存 + 清事件库
+      // clearChatHistory 转异步（事件库开库异步孪生）
+      // 二轮-传闸回调——开库让出窗口内新起任务时在 clearBooks 之前复查拒清，
+      // 返回非 null 即已拒（内存清空是良性前置，详见 state.ts 体内注释）；任务收尾不再
+      // 向已清 session 追加事件
+      const blocked = await clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot, {
+        gate: () => chatClearGateReason(ctx.gate, bookName, '清空对话'),
+      })
+      if (blocked) return replyError(res, 409, 'BUSY', blocked)
+      // 清空对话 = 本书对话上下文整体销毁 → per-book SSE 计数一并清理
+      forgetSseCount(bookName)
+      reply(res, 200, { ok: true })
+    },
   })
 }

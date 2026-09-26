@@ -45,9 +45,11 @@ function seedOrphan(db: DatabaseSync, sid: string, book: string): void {
 }
 
 function endCount(db: DatabaseSync, sid: string): number {
-  return (db.prepare(
-    `SELECT COUNT(*) AS c FROM events WHERE session_id = ? AND type = 'session/end'`,
-  ).get(sid) as { c: number }).c
+  return (
+    db.prepare(`SELECT COUNT(*) AS c FROM events WHERE session_id = ? AND type = 'session/end'`).get(sid) as {
+      c: number
+    }
+  ).c
 }
 
 describe('P3 repairOrphanSessions 单会话失败不中断', () => {
@@ -67,11 +69,13 @@ describe('P3 repairOrphanSessions 单会话失败不中断', () => {
       expect(endCount(db, 's-bad')).toBe(0)
       // O-7 + R64-9（十二轮）：补 end 落修复时刻（> OLD），touch 则用会话真实
       // last_at（= OLD）——两者解耦，updated_at 不冒充「修复时刻」为「活动时刻」
-      const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-good'`).get() as { updated_at: number }
+      const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-good'`).get() as {
+        updated_at: number
+      }
       expect(row.updated_at).toBe(OLD)
-      const endRow = db.prepare(
-        `SELECT created_at FROM events WHERE session_id = 's-good' AND type = 'session/end'`,
-      ).get() as { created_at: number }
+      const endRow = db
+        .prepare(`SELECT created_at FROM events WHERE session_id = 's-good' AND type = 'session/end'`)
+        .get() as { created_at: number }
       expect(endRow.created_at).toBeGreaterThan(OLD)
     } finally {
       db.close()
@@ -126,7 +130,9 @@ describe('R67-6（十五轮）TOCTOU：他进程在 SELECT 与事务之间补了
       // 恰一个 end（他进程的）：旧实现复核缺席会再补一个成对 end
       expect(endCount(db, 's-r67')).toBe(1)
       // 本进程 touch 未跑（复核跳过路径不写 sessions）——updated_at 保持种子值
-      const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-r67'`).get() as { updated_at: number }
+      const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-r67'`).get() as {
+        updated_at: number
+      }
       expect(row.updated_at).toBe(OLD)
     } finally {
       other.close()

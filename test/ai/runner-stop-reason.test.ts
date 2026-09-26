@@ -53,7 +53,10 @@ function writeProviders(userDataPath: string): void {
 }
 
 /** 取本次调用的 llm/call 与 step/end（成功路径各恰一条） */
-function readCallAndStep(userDataPath: string, bookRoot: string): { call: Record<string, unknown>; stepEnd: Record<string, unknown> } {
+function readCallAndStep(
+  userDataPath: string,
+  bookRoot: string,
+): { call: Record<string, unknown>; stepEnd: Record<string, unknown> } {
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     const evs = store.listEvents(bookHash(bookRoot))
@@ -74,7 +77,9 @@ function stopReasonWarns(spy: MockInstance<typeof log.warn>): Array<Record<strin
     .map((m) => JSON.parse(m) as Record<string, unknown>)
 }
 
-async function runWithResult(data: unknown): Promise<{ call: Record<string, unknown>; stepEnd: Record<string, unknown> }> {
+async function runWithResult(
+  data: unknown,
+): Promise<{ call: Record<string, unknown>; stepEnd: Record<string, unknown> }> {
   const ud = tempUserData()
   writeProviders(ud)
   const root = tempBookRoot()
@@ -96,7 +101,10 @@ afterEach(() => {
 describe('R0916-7-P3-15：runTask 抽 stopReason（无静默兜底）', () => {
   it("值域内原样透出（'max_tokens' → llm/call + step/end 'max-tokens'）", async () => {
     const spy = vi.spyOn(log, 'warn')
-    const { call, stepEnd } = await runWithResult({ stopReason: 'max_tokens', usage: { inputTokens: 5, outputTokens: 9 } })
+    const { call, stepEnd } = await runWithResult({
+      stopReason: 'max_tokens',
+      usage: { inputTokens: 5, outputTokens: 9 },
+    })
     expect(call['stopReason']).toBe('max_tokens')
     expect(stepEnd['reason']).toBe('max-tokens')
     expect(stopReasonWarns(spy)).toHaveLength(0)

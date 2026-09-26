@@ -20,7 +20,12 @@ import { readBookConfig } from '../format/yaml.js'
 /** 清单条目 → TrashEntry 基线投影单源（
  *  基线 + tags/order，status 可派生故不带）——doTrash 的无锁快照与删除 RMW
  *  锁内新鲜读两处共用同一字段集与键序（键序固定是 JSON.stringify 逐位比对的判据）。 */
-export function trashBaselineOf(e: ManifestEntry): { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } {
+export function trashBaselineOf(e: ManifestEntry): {
+  finalizedRevision?: string
+  finalizedAt?: string
+  tags?: string[]
+  order?: number
+} {
   return {
     ...(e.finalizedRevision ? { finalizedRevision: e.finalizedRevision, finalizedAt: e.finalizedAt } : {}),
     ...(e.tags && e.tags.length > 0 ? { tags: e.tags } : {}),
@@ -56,9 +61,7 @@ export function sanitizeCreateSegment(seg: string): string {
  *  空段跳过（'a//b.md' 类冗余分隔符由 resolve 词法折叠，铸名无害，不误拒）；两种
  *  分隔符都切（win 反斜杠 relPath 变体与 posix 口径同判）。 */
 export function isSanitizedCreatePath(relPath: string): boolean {
-  return relPath
-    .split(/[\\/]/)
-    .every((seg) => seg === '' || sanitizeCreateSegment(seg) === seg)
+  return relPath.split(/[\\/]/).every((seg) => seg === '' || sanitizeCreateSegment(seg) === seg)
 }
 
 /** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */

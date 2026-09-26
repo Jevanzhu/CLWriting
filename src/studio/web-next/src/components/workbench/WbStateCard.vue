@@ -92,7 +92,9 @@ const crashedPendingOpIds = computed<string[]>(() =>
         :disabled="wb.running || ui.aiAvailable === false"
         :title="currentAction.title"
         @click="emit('spawn')"
-      >{{ currentAction.label }}</button>
+      >
+        {{ currentAction.label }}
+      </button>
     </div>
   </section>
 </template>

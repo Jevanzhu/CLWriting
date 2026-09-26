@@ -207,7 +207,10 @@ describe('R0916-7-P3-2 逐章现读（readUnitBody）', () => {
     expect(warnings.at(-1)).toContain('正文读取失败')
     // 非 UTF-8（GBK 字节）
     const gbk = join(root, '写作', '正文', '0010-gbk.md')
-    writeFileSync(gbk, Buffer.concat([Buffer.from('---\n章号: 10\n标题: gbk\n---\n', 'utf-8'), Buffer.from([0xc7, 0xeb, 0xb4, 0xcb])]))
+    writeFileSync(
+      gbk,
+      Buffer.concat([Buffer.from('---\n章号: 10\n标题: gbk\n---\n', 'utf-8'), Buffer.from([0xc7, 0xeb, 0xb4, 0xcb])]),
+    )
     expect(readUnitBody(root, unit(10, 'gbk', gbk), warnings)).toBeNull()
     expect(warnings.at(-1)).toContain('不是 UTF-8')
     // 全空白正文（trim 口径）
@@ -275,7 +278,9 @@ describe('R0916-7-P3-2 阶段五·写出（writeExportProducts）', () => {
     const warnings: string[] = []
     const layout = prepareExportLayout({ bookRoot: root, bookTitle: '分段书', doMerged: true, doSplit: true, warnings })
     if (!layout.ok) throw new Error('备目录失败')
-    const filtered = [1, 2].map((n) => unit(n, n === 1 ? '甲' : '乙', join(root, '写作', '正文', `000${n}-${n === 1 ? '甲' : '乙'}.md`)))
+    const filtered = [1, 2].map((n) =>
+      unit(n, n === 1 ? '甲' : '乙', join(root, '写作', '正文', `000${n}-${n === 1 ? '甲' : '乙'}.md`)),
+    )
     for (const [i, u] of filtered.entries()) u.displayNum = i + 1
     const run: ExportRun = {
       bookRoot: root,

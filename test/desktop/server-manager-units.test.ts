@@ -103,17 +103,21 @@ describe('R0916-7-P3-2 启动前置：buildChildArgs 纯组装', () => {
   })
 
   it('可选面：workDir/book/mirrorConsole 就位即追加，缺省不追加', () => {
-    const full = buildChildArgs(
-      { workDir: '/wd', userDataPath: '/ud', book: '书名', mirrorConsole: true },
+    const full = buildChildArgs({ workDir: '/wd', userDataPath: '/ud', book: '书名', mirrorConsole: true }, '51999')
+    expect(full).toEqual([
+      '--user-data',
+      '/ud',
+      '--port',
       '51999',
-    )
-    expect(full).toEqual(['--user-data', '/ud', '--port', '51999', '--dir', '/wd', '--book', '书名', '--mirror-console'])
+      '--dir',
+      '/wd',
+      '--book',
+      '书名',
+      '--mirror-console',
+    ])
 
     const bare: false | null | undefined = null
-    const noBook = buildChildArgs(
-      { workDir: '/wd', userDataPath: '/ud', book: bare, mirrorConsole: false },
-      '0',
-    )
+    const noBook = buildChildArgs({ workDir: '/wd', userDataPath: '/ud', book: bare, mirrorConsole: false }, '0')
     expect(noBook).toEqual(['--user-data', '/ud', '--port', '0', '--dir', '/wd'])
   })
 

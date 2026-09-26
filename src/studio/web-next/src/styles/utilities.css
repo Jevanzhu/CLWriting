@@ -108,7 +108,9 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .toggle-btn:hover {
   color: var(--text-normal);
@@ -145,7 +147,9 @@
   border-radius: var(--radius-m);
   background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
   color: var(--text-accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent), var(--shadow-m),
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
+    var(--shadow-m),
     0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 

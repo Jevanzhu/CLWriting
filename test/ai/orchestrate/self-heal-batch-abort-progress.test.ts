@@ -47,7 +47,11 @@ const save: typeof saveDraft = async (_root, _ch, content) => ({
   snapshotted: false,
 })
 
-function makeOpts(emitted: DriverEvent[], genFn: NonNullable<SelfHealOpts['genFn']>, check: (p: string) => CheckOutcome): SelfHealOpts {
+function makeOpts(
+  emitted: DriverEvent[],
+  genFn: NonNullable<SelfHealOpts['genFn']>,
+  check: (p: string) => CheckOutcome,
+): SelfHealOpts {
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   return {
@@ -85,7 +89,8 @@ test('章1 生成中 abort（runChapter 返回 aborted）→ 发 batch_progress 
 
   expect(r.outcome).toBe('aborted')
   // 修复前：abort 分支只 recordPause 不发事件，前端批量进度缺终点
-  const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as { done?: number; total?: number; stoppedAt?: number } | undefined
+  const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as
+    { done?: number; total?: number; stoppedAt?: number } | undefined
   expect(bp).toBeTruthy()
   expect(bp?.done).toBe(0) // 已完成 0 章
   expect(bp?.total).toBe(2)
@@ -110,7 +115,8 @@ test('章1 完成、章2 开跑前 abort（章前检查分支）→ 发 batch_pr
   const r = await runSelfHeal(opts)
 
   expect(r.outcome).toBe('aborted')
-  const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as { done?: number; total?: number; stoppedAt?: number } | undefined
+  const bp = emitted.find((e) => e.type === 'self_heal_batch_progress') as
+    { done?: number; total?: number; stoppedAt?: number } | undefined
   expect(bp).toBeTruthy()
   expect(bp?.done).toBe(1) // 章1 已完成
   expect(bp?.total).toBe(2)

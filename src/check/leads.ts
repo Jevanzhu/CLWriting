@@ -56,7 +56,16 @@ export function checkLeadsForm(
   closureChapter?: number,
 ): CheckSectionResult {
   return driveToEnd(
-    checkLeadsFormCore(db, bookRoot, currentChapter, enabledTypes, declaredLeadIds, actualLeadIds, skipBookItems, closureChapter),
+    checkLeadsFormCore(
+      db,
+      bookRoot,
+      currentChapter,
+      enabledTypes,
+      declaredLeadIds,
+      actualLeadIds,
+      skipBookItems,
+      closureChapter,
+    ),
   )
 }
 
@@ -135,10 +144,9 @@ export function* checkLeadsBookItemsCore(
 
   // 取所有已启用类的 open 条目
   const placeholders = enabledTypes.map(() => '?').join(',')
-  const leads = prepared(
-    db,
-    `SELECT id, type, title, status FROM leads WHERE type IN (${placeholders})`,
-  ).all(...enabledTypes) as Record<string, unknown>[]
+  const leads = prepared(db, `SELECT id, type, title, status FROM leads WHERE type IN (${placeholders})`).all(
+    ...enabledTypes,
+  ) as Record<string, unknown>[]
 
   const 正文dir = join(bookRoot, '写作', '正文')
 
@@ -379,10 +387,14 @@ export function leadClosureItems(
 // 模块常量（quotes.ts 宽容引号集）与入参无关。带 g 的三枚仅用于 replace（每次重置
 // lastIndex，无跨调用消费态），共享安全；edge 单枚（^单开|单闭$）与 many 枚（^开+|闭+$）
 // 语义不同（剥单层边引 vs 剥多层边引），各自独立保留。
-const EVIDENCE_QUOTED_CORE_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`)
+const EVIDENCE_QUOTED_CORE_RE = new RegExp(
+  `[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`,
+)
 const EVIDENCE_EDGE_SINGLE_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g')
 const EVIDENCE_ALL_QUOTES_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g')
-const EVIDENCE_QUOTED_INNER_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`)
+const EVIDENCE_QUOTED_INNER_RE = new RegExp(
+  `[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`,
+)
 const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
 
 export function extractEvidenceCore(evidence: string): string {
@@ -425,7 +437,13 @@ export function evidenceNeedles(evidence: string): string[] {
   const inner = EVIDENCE_QUOTED_INNER_RE.exec(evidence)?.[1]
   const edgeStripped = evidence.replace(EVIDENCE_EDGE_MANY_RE, '')
   const allStripped = evidence.replace(EVIDENCE_ALL_QUOTES_RE, '')
-  const candidates = [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
+  const candidates = [
+    ...new Set(
+      [inner, edgeStripped, allStripped]
+        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .map((s) => s.trim()),
+    ),
+  ]
   // 针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
   // 在正文几乎恒命中，兑现判定/引文命中 trivially 通过（防吃书红线漏报向）。候选全被
   // 过滤时回退完整剥引号串 ≥2 才用；仍不达 → 空数组，消费方按既有空针串口径处理

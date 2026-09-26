@@ -46,7 +46,7 @@ export function registerStartupNoticeRoutes(ctx: { sink: StartupNoticeSink }): v
     method: 'GET',
     path: '/api/startup-notices',
     handler: (_, _req: IncomingMessage, res: ServerResponse) => {
-    reply(res, 200, { notices: ctx.sink.notices })
-  },
+      reply(res, 200, { notices: ctx.sink.notices })
+    },
   })
 }

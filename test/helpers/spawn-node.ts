@@ -34,7 +34,10 @@ export function armWatchdog(child: ChildProcess, timeoutMs = 60_000): void {
  * 返回 done：退出码 0 → resolve；非零 → reject（带 stderr 前 500 字符摘要）；
  * 看门狗触发 → SIGKILL 后按非零 reject。
  */
-export function spawnNodeEval(script: string, opts: SpawnNodeEvalOptions = {}): { child: ChildProcess; done: Promise<number> } {
+export function spawnNodeEval(
+  script: string,
+  opts: SpawnNodeEvalOptions = {},
+): { child: ChildProcess; done: Promise<number> } {
   const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], {
     stdio: ['ignore', 'pipe', 'pipe'],
   })

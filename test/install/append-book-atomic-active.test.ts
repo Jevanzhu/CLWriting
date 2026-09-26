@@ -20,7 +20,11 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../src/fs/atomic.js')>()
   return {
     ...mod,
-    atomicWriteFile: (filePath: string, data: string | Uint8Array, opts?: Parameters<typeof mod.atomicWriteFile>[2]) => {
+    atomicWriteFile: (
+      filePath: string,
+      data: string | Uint8Array,
+      opts?: Parameters<typeof mod.atomicWriteFile>[2],
+    ) => {
       if (gate.activeWriteThrows && String(filePath).endsWith('active')) {
         const e = new Error('EACCES: permission denied, open active') as NodeJS.ErrnoException
         e.code = 'EACCES'

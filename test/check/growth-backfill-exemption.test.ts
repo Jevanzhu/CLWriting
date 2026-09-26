@@ -36,13 +36,18 @@ test('R35-3: 尾插回填条目（后补早期低阶跃迁）不产 growth-regre
   try {
     // seq 序：筑基(10) → 金丹(20) → 回补第 5 章炼气跃迁（seq 靠后、章号靠前）
     syncLead(db, {
-      编号: '成长线-035', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+      编号: '成长线-035',
+      标题: '修为',
+      类型: '成长线',
+      状态: '进行中',
+      开启章: 1,
       当前境界: '金丹',
       履历: [
         { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
         { 章号: 20, 动词: '突破', 证据: '突破至金丹' },
         { 章号: 5, 动词: '突破', 证据: '突破至炼气', 回填: true },
-      ], _path: 'p',
+      ],
+      _path: 'p',
     })
     const r = checkGrowth(db, REALM_DOC, ['成长线-035'], 2)
     expect(r.items.some((i) => i.checkId === 'growth-regress')).toBe(false)
@@ -58,13 +63,18 @@ test('R35-3: 对照组——同一履历去掉回填标记照产 growth-regress�
   const { dir, db } = openDb()
   try {
     syncLead(db, {
-      编号: '成长线-036', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+      编号: '成长线-036',
+      标题: '修为',
+      类型: '成长线',
+      状态: '进行中',
+      开启章: 1,
       当前境界: '金丹',
       履历: [
         { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
         { 章号: 20, 动词: '突破', 证据: '突破至金丹' },
         { 章号: 5, 动词: '突破', 证据: '突破至炼气' },
-      ], _path: 'p',
+      ],
+      _path: 'p',
     })
     const r = checkGrowth(db, REALM_DOC, ['成长线-036'], 2)
     const regress = r.items.find((i) => i.checkId === 'growth-regress')
@@ -80,13 +90,18 @@ test('R35-3: readGrowthHistory 映射 backfill 列（对齐 readLeadHistory 的�
   const { dir, db } = openDb()
   try {
     syncLead(db, {
-      编号: '成长线-037', 标题: '修为', 类型: '成长线', 状态: '进行中', 开启章: 1,
+      编号: '成长线-037',
+      标题: '修为',
+      类型: '成长线',
+      状态: '进行中',
+      开启章: 1,
       当前境界: '筑基',
       履历: [
         { 章号: 5, 动词: '起步', 证据: '炼气' },
         { 章号: 10, 动词: '突破', 证据: '突破至筑基' },
         { 章号: 3, 动词: '实战', 证据: '炼气小成', 回填: true },
-      ], _path: 'p',
+      ],
+      _path: 'p',
     })
     const h = readGrowthHistory(db, '成长线-037')
     expect(h).toHaveLength(3)
@@ -120,7 +135,11 @@ test('R35-3: 账本三检回填豁免锁——回填条目不产 future/disorder
   try {
     createAllTables(db)
     syncLead(db, {
-      编号: '悬念-035', 标题: '密室', 类型: '悬念', 状态: '进行中', 开启章: 1,
+      编号: '悬念-035',
+      标题: '密室',
+      类型: '悬念',
+      状态: '进行中',
+      开启章: 1,
       履历: [
         // 正常条目：章号 ≤ currentChapter、序内、引文在正文命中 → 全绿基准
         { 章号: 30, 动词: '设下', 证据: '雪夜灯影之下真相浮出水面' },
@@ -128,7 +147,8 @@ test('R35-3: 账本三检回填豁免锁——回填条目不产 future/disorder
         { 章号: 999, 动词: '揭晓', 证据: '无关证据', 回填: true },
         // 回填章号乱序（5 < 30）→ lead-chapter-disorder 豁免；引文无从命中 → evidence 豁免
         { 章号: 5, 动词: '递进', 证据: '正文里没有的句子', 回填: true },
-      ], _path: 'p',
+      ],
+      _path: 'p',
     })
     const items = checkLeadsBookItems(db, root, 30, ['悬念'])
     expect(items.some((i) => i.checkId === 'lead-chapter-future')).toBe(false)
@@ -150,7 +170,11 @@ test('R35-3: 账本三检对照组——非回填的未来章声称照产 lead-c
   try {
     createAllTables(db)
     syncLead(db, {
-      编号: '悬念-036', 标题: '密室', 类型: '悬念', 状态: '进行中', 开启章: 1,
+      编号: '悬念-036',
+      标题: '密室',
+      类型: '悬念',
+      状态: '进行中',
+      开启章: 1,
       履历: [{ 章号: 999, 动词: '揭晓', 证据: '无关证据' }],
       _path: 'p',
     })

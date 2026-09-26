@@ -44,8 +44,13 @@ describe('O-4 createBootstrapRunner', () => {
     const { deps } = makeDeps()
     let runs = 0
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
-    const runner = createBootstrapRunner(deps, async () => { runs++; await gate })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const runner = createBootstrapRunner(deps, async () => {
+      runs++
+      await gate
+    })
     runner.runBootstrap()
     runner.runBootstrap() // 进行中：被挡
     expect(runs).toBe(1)
@@ -109,7 +114,9 @@ describe('O-4 createBootstrapRunner', () => {
   it('低-8：beginShutdown 置位后 runBootstrap 直通；二次置位返回 false（二次 quit 直通）', async () => {
     const { deps } = makeDeps()
     let runs = 0
-    const runner = createBootstrapRunner(deps, async () => { runs++ })
+    const runner = createBootstrapRunner(deps, async () => {
+      runs++
+    })
     expect(runner.beginShutdown()).toBe(true) // 首次：进入优雅退出
     expect(runner.beginShutdown()).toBe(false) // 二次 quit：直通不再 preventDefault
     expect(runner.shuttingDown).toBe(true)
@@ -148,9 +155,13 @@ describe('O-4 createBootstrapRunner', () => {
     const { deps, state } = ctx
     let runs = 0
     let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
     state.server = { close: () => gate }
-    const runner = createBootstrapRunner(deps, async () => { runs++ })
+    const runner = createBootstrapRunner(deps, async () => {
+      runs++
+    })
     runner.runBootstrap()
     runner.runBootstrap() // close 在途（bootstrapping 已占门）：被挡
     expect(runs).toBe(0)

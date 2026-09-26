@@ -67,11 +67,7 @@ describe('copy_chapter', () => {
   })
 
   it('低-6（第十轮）：常规名 0005-标题.md 复制 → 0005-标题 副本.md（单一 .md 结尾）', async () => {
-    writeFileSync(
-      join(bookRoot, '写作/正文', '0005-标题.md'),
-      '---\n章号: 5\n标题: 标题\n---\n第五章正文。',
-      'utf8',
-    )
+    writeFileSync(join(bookRoot, '写作/正文', '0005-标题.md'), '---\n章号: 5\n标题: 标题\n---\n第五章正文。', 'utf8')
     const r = await copyChapter(ctx(), { chapter: 5 })
     expect(r.ok).toBe(true)
     expect(existsSync(join(bookRoot, '写作/正文/0005-标题 副本.md'))).toBe(true)
@@ -113,4 +109,3 @@ describe('入参校验', () => {
     }
   })
 })
-

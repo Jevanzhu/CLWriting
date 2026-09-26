@@ -176,8 +176,7 @@ function purifyBody(body: string): string {
         for (let i = line.indexOf('#%'); i !== -1; i = line.indexOf('#%', i + 1)) {
           const marker =
             line.slice(0, i).trim() === '' ||
-            (!/\s/.test(line[i - 1]!) &&
-              (CJK_CHAR_RE.test(line[i - 1]!) || CJK_LEAD_RE.test(line.slice(i + 2))))
+            (!/\s/.test(line[i - 1]!) && (CJK_CHAR_RE.test(line[i - 1]!) || CJK_LEAD_RE.test(line.slice(i + 2))))
           if (marker) {
             cut = i
             break
@@ -253,9 +252,7 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
   } catch (e) {
     // 通用-1留痕补病因（e.message）——通用文案让作者无从判断
     // 失败原因（EACCES/EBUSY/…）；对齐本文件其余 catch 的 message 口径，语义不变
-    warnings.push(
-      `旧产物 ${oldName} 归档失败（${errMsg(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`,
-    )
+    warnings.push(`旧产物 ${oldName} 归档失败（${errMsg(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
     return false
   }
 }
@@ -359,8 +356,7 @@ export function filterFinalizedUnits(
   const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // 升 docJoinKey（+NFC 归一）
   // 清偿-导出未过滤提示（残留清偿批）：过滤是否生效的显式标记（见
   // ExportResult.finalizedFilter 注）——自此以下各构造点（含失败信封）一律携带
-  const finalizedFilter: ExportResult['finalizedFilter'] =
-    finalizedPaths === null ? 'skipped-no-manifest' : 'applied'
+  const finalizedFilter: ExportResult['finalizedFilter'] = finalizedPaths === null ? 'skipped-no-manifest' : 'applied'
   let skippedDrafts = 0
   const filtered: ExportUnit[] =
     finalizedPaths !== null
@@ -623,7 +619,9 @@ export function prepareExportLayout(args: {
         let n = 2
         while (existsSync(join(exportDir, `分章-${n}`))) n++
         splitTargetDirName = `分章-${n}`
-        warnings.push(`分章目录归档失败（原目录已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）；本次产物改写入 ${splitTargetDirName}/，不覆写原目录`)
+        warnings.push(
+          `分章目录归档失败（原目录已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）；本次产物改写入 ${splitTargetDirName}/，不覆写原目录`,
+        )
       }
     }
     // 连带（批 B 代理范围外上报、主评审收口）：分章目录重建 mkdir 同在主信封
@@ -652,7 +650,10 @@ export function writeSplitUnit(
     //（原内联 padStart(4) 未走写侧单源，家族）；文案章号引用维持本地章号。
     const display = unit.displayNum ?? unit.num
     const prefix = chapterFilePrefix(display, 'chapter')
-    const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
+    const baseName = sanitizeFileName(
+      unit.title,
+      FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'),
+    )
     // 同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
     // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
@@ -667,7 +668,9 @@ export function writeSplitUnit(
       let n = 2
       while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
       finalName = `${prefix}${baseName}-${n}.md`
-      run.warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
+      run.warnings.push(
+        `分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`,
+      )
     }
     splitUsed.add(finalName)
     atomicWriteFile(join(plan.exportDir, plan.splitTargetDirName, finalName), payloadOf(unit.title, body))
@@ -798,10 +801,7 @@ export function writeSubmissionView(args: {
     const entries = scanShortCollection(bookRoot).filter((e) => writtenNums.has(e.num))
     // 同名投稿视图先归档再覆盖（与 merged 同族修法，哲学补齐）
     // 归档失败改序号兜底名，不覆写（同 merged 侧口径）
-    if (
-      existsSync(join(exportDir, submissionName)) &&
-      !archiveOldExport(exportDir, submissionName, warnings)
-    ) {
+    if (existsSync(join(exportDir, submissionName)) && !archiveOldExport(exportDir, submissionName, warnings)) {
       targetName = nextFreeName(exportDir, submissionName)
       warnings.push(`本次产物改写入 ${targetName}，不覆写原产物`)
     }

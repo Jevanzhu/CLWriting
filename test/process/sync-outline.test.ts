@@ -23,7 +23,11 @@ function makeBook(kind: 'long' | 'short'): string {
     'spec_version: 1\nkind: ' + kind + '\nbook:\n  title: 测试\nhost: cc\n',
     'utf-8',
   )
-  writeFileSync(join(root, '工作区', '细纲.md'), '## 反转线索表\n- 核心反转：来客就是死者\n- [开头] 尸体敲门\n', 'utf-8')
+  writeFileSync(
+    join(root, '工作区', '细纲.md'),
+    '## 反转线索表\n- 核心反转：来客就是死者\n- [开头] 尸体敲门\n',
+    'utf-8',
+  )
   return root
 }
 

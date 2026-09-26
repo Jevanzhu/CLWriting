@@ -65,10 +65,14 @@ test('编译产物齐备（Electron 壳 bundle + server 入口 + web 静态）',
 
 test('编译产物 server 起服务：boot/书架/静态前端全链路', async () => {
   smokeWorkDir = makeDualTrackWorkdir()
-  child = spawn(process.execPath, [join('dist', 'desktop', 'server-main.js'), '--dir', smokeWorkDir, '--port', String(PORT)], {
-    env: { ...process.env, CLWRITING_DRIVER: 'mock' },
-    stdio: 'pipe',
-  })
+  child = spawn(
+    process.execPath,
+    [join('dist', 'desktop', 'server-main.js'), '--dir', smokeWorkDir, '--port', String(PORT)],
+    {
+      env: { ...process.env, CLWRITING_DRIVER: 'mock' },
+      stdio: 'pipe',
+    },
+  )
   let stderr = ''
   child.stderr?.on('data', (d) => {
     stderr += String(d)

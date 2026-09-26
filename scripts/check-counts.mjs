@@ -64,13 +64,28 @@ function skipTemplateLiteral(src, at) {
   let i = at + 1
   while (i < src.length) {
     const c = src[i]
-    if (c === '\\') { i += 2; continue }
+    if (c === '\\') {
+      i += 2
+      continue
+    }
     if (depth === 0) {
       if (c === '`') return i
-      if (c === '$' && src[i + 1] === '{') { depth = 1; i += 2; continue }
+      if (c === '$' && src[i + 1] === '{') {
+        depth = 1
+        i += 2
+        continue
+      }
     } else {
-      if (c === '{') { depth++; i++; continue }
-      if (c === '}') { depth--; i++; continue }
+      if (c === '{') {
+        depth++
+        i++
+        continue
+      }
+      if (c === '}') {
+        depth--
+        i++
+        continue
+      }
       if (c === "'" || c === '"') {
         // 表达式内的普通字符串：串内反引号/${} 不参与模板定界，整串跳过
         const q = c
@@ -110,18 +125,33 @@ export function stripStrings(src) {
       let j = i + 1
       let closed = false
       while (j < n) {
-        if (src[j] === '\\') { j += 2; continue }
-        if (src[j] === c) { closed = true; break }
+        if (src[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (src[j] === c) {
+          closed = true
+          break
+        }
         if (src[j] === '\n') break
         j++
       }
-      if (closed) { out += '""'; i = j + 1 }
-      else { out += src.slice(i, j); i = j } // 未闭合：原样保留（旧正则同口径）
+      if (closed) {
+        out += '""'
+        i = j + 1
+      } else {
+        out += src.slice(i, j)
+        i = j
+      } // 未闭合：原样保留（旧正则同口径）
       continue
     }
     if (c === '`') {
       const close = skipTemplateLiteral(src, i)
-      if (close !== -1) { out += '""'; i = close + 1; continue }
+      if (close !== -1) {
+        out += '""'
+        i = close + 1
+        continue
+      }
       out += c // 未闭合模板：原样保留（旧正则不匹配未闭合串）
       i++
       continue
@@ -339,7 +369,9 @@ function loadSpecOrderSnapshot() {
     console.error('\ncheck:counts 失败：spec 顺序快照缺失/不可读（R28-28 fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
     console.error(`  读失败原因：${e.message ?? String(e)}`)
-    console.error('  若为首次建立或有意重排，跑守卫两步闸重拍（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
+    console.error(
+      '  若为首次建立或有意重排，跑守卫两步闸重拍（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）',
+    )
     process.exit(1)
   }
   const lines = raw
@@ -349,12 +381,16 @@ function loadSpecOrderSnapshot() {
   if (lines.length === 0) {
     console.error('\ncheck:counts 失败：spec 顺序快照为空，当不了契约基线（R28-28 fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
-    console.error('  重拍两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
+    console.error(
+      '  重拍两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）',
+    )
     process.exit(1)
   }
   const bad = lines.filter((line) => !/^[\w.-]+\.spec\.ts$/.test(line))
   if (bad.length > 0) {
-    console.error('\ncheck:counts 失败：spec 顺序快照含不合规行（须为 *.spec.ts 裸文件名，每行一个）（R28-28 fail-closed）——')
+    console.error(
+      '\ncheck:counts 失败：spec 顺序快照含不合规行（须为 *.spec.ts 裸文件名，每行一个）（R28-28 fail-closed）——',
+    )
     for (const b of bad) console.error('  - ' + b)
     process.exit(1)
   }
@@ -397,7 +433,11 @@ export function posixRelPath(root, fp) {
 // 0918四轮修复批（G411）：清单补 typescript——根 devDependencies ^5.5.0 与子包
 // ^5.6.0 声明范围漂移无门可拦（两把 lock 实装版本失配时 tsc 门与 vite 构建消费
 // 不同编译器副本，同「测试/构建运行时分裂」族面）；两 lock 实装一致时门绿不扰。
-export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkgs = ['vue', 'pinia', '@vitejs/plugin-vue', 'vue-router', 'typescript']) {
+export function sharedRuntimeVersionDrift(
+  rootLockPackages,
+  webLockPackages,
+  pkgs = ['vue', 'pinia', '@vitejs/plugin-vue', 'vue-router', 'typescript'],
+) {
   const drift = []
   for (const p of pkgs) {
     const a = rootLockPackages[`node_modules/${p}`]?.version
@@ -450,9 +490,15 @@ function main() {
   )
   if (specAdded.length > 0 || specRemoved.length > 0) {
     console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配（R66-37）——')
-    console.error('  spec 按 workers:1 localeCompare 序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。')
-    console.error('  唯一真相源 = test/e2e/spec-order.snapshot.txt；新增/改名 spec 前请确认其序位不破坏前序 spec 的落盘依赖，再重拍快照：')
-    console.error('  重拍走守卫两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
+    console.error(
+      '  spec 按 workers:1 localeCompare 序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。',
+    )
+    console.error(
+      '  唯一真相源 = test/e2e/spec-order.snapshot.txt；新增/改名 spec 前请确认其序位不破坏前序 spec 的落盘依赖，再重拍快照：',
+    )
+    console.error(
+      '  重拍走守卫两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）',
+    )
     for (const p of specAdded) console.error('  + 新增（当前在跑，快照缺）: ' + p)
     for (const p of specRemoved) console.error('  - 移除（快照有，当前缺）: ' + p)
     process.exit(1)
@@ -466,7 +512,9 @@ function main() {
     if (n > 0) onlyHits.push(`${posixRelPath(root, fp)}（${n} 处）`)
   }
   if (onlyHits.length > 0) {
-    console.error('\ncheck:counts 失败：发现 .only 或无条件 .skip 用例（提交前移除——其余用例会被静默跳过，门禁假绿；环境门条件式 skip 可豁免）：')
+    console.error(
+      '\ncheck:counts 失败：发现 .only 或无条件 .skip 用例（提交前移除——其余用例会被静默跳过，门禁假绿；环境门条件式 skip 可豁免）：',
+    )
     for (const h of onlyHits) console.error('  - ' + h)
     process.exit(1)
   }
@@ -477,8 +525,10 @@ function main() {
   )
   if (pageerrorMissing.length > 0) {
     console.error('\ncheck:counts 失败：e2e spec 未接 pageerror 基线（R76-6）——')
-    console.error('  渲染层未捕获异常只有接了 attachPageErrorBaseline 才会让用例红（R75-7），漏接=该 spec 异常被断言偶然通过掩盖。')
-    console.error('  在首个 page 动作前接线：attachPageErrorBaseline(page, \'<spec 文件名去 .spec.ts>\')；')
+    console.error(
+      '  渲染层未捕获异常只有接了 attachPageErrorBaseline 才会让用例红（R75-7），漏接=该 spec 异常被断言偶然通过掩盖。',
+    )
+    console.error("  在首个 page 动作前接线：attachPageErrorBaseline(page, '<spec 文件名去 .spec.ts>')；")
     console.error('  无浏览器页面的 spec 须在 PAGEERROR_WIRING_EXEMPT 登记理由：')
     for (const p of pageerrorMissing) console.error('  - ' + p)
     process.exit(1)
@@ -546,7 +596,8 @@ function main() {
 
   // R1010c-TL-P2-2：双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
   const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}
-  const webLock = JSON.parse(readFileSync(join(root, 'src', 'studio', 'web-next', 'package-lock.json'), 'utf8')).packages ?? {}
+  const webLock =
+    JSON.parse(readFileSync(join(root, 'src', 'studio', 'web-next', 'package-lock.json'), 'utf8')).packages ?? {}
   const drift = sharedRuntimeVersionDrift(rootLock, webLock)
   if (drift.length > 0) {
     for (const d of drift) {
@@ -554,7 +605,9 @@ function main() {
     }
   }
 
-  console.log(`实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`)
+  console.log(
+    `实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`,
+  )
 
   if (mismatch.length > 0) {
     console.error('\ncheck:counts 失配（README 数字漂移，修 README 后再提交）：')

@@ -67,13 +67,7 @@ test('R49-2：缩进代码块（4 空格）内 ``` 行不再当围栏开关，�
 
 test('R49-2 对照：顶格围栏内 #% 代码字面量仍保留（N-6 契约不回退）', () => {
   const root = makeLongBook('顶格围栏书')
-  const body = [
-    '开场#% 批注',
-    '```',
-    "const tip = '#% 代码字面'",
-    '```',
-    '收尾#% 批注',
-  ].join('\n')
+  const body = ['开场#% 批注', '```', "const tip = '#% 代码字面'", '```', '收尾#% 批注'].join('\n')
   writeLongChapter(root, 1, '顶格围栏章', body)
   try {
     const merged = exportMerged(root, '顶格围栏书')

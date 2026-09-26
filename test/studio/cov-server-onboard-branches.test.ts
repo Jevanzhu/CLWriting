@@ -74,11 +74,9 @@ function makeBook(name: string, bookYaml: string): string {
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), bookYaml)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    `${JSON.stringify({ name, path: `books/${name}` })}\n`,
-    { flag: 'a' },
-  )
+  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name, path: `books/${name}` })}\n`, {
+    flag: 'a',
+  })
   return root
 }
 
@@ -109,7 +107,11 @@ afterAll(async () => {
 
 describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
   it('不存在的书 → 404 NOT_FOUND', async () => {
-    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('无此书')}/onboard-ai`, body: { step: 'synopsis' } })
+    const r = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('无此书')}/onboard-ai`,
+      body: { step: 'synopsis' },
+    })
     expect(r.status).toBe(404)
     expect(r.json.code).toBe('NOT_FOUND')
   })
@@ -117,7 +119,11 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
   it('本书闸已被占 → 409 BUSY', async () => {
     const release = acquireTaskGate('设定长篇', 'onboard-ai')
     try {
-      const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`, body: { step: 'synopsis' } })
+      const r = await req({
+        method: 'POST',
+        path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`,
+        body: { step: 'synopsis' },
+      })
       expect(r.status).toBe(409)
       expect(r.json.code).toBe('BUSY')
       expect(r.json.error).toContain('AI 设定任务')
@@ -138,14 +144,22 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
 
   it('book.yaml 损坏 → 500 IO_ERROR 读 book.yaml 失败', async () => {
     makeBook('设定坏配置书', 'kind: long\n  孤儿子行\n')
-    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('设定坏配置书')}/onboard-ai`, body: { step: 'synopsis' } })
+    const r = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('设定坏配置书')}/onboard-ai`,
+      body: { step: 'synopsis' },
+    })
     expect(r.status).toBe(500)
     expect(r.json.code).toBe('IO_ERROR')
     expect(r.json.error).toContain('book.yaml')
   })
 
   it('realm 步非成长线书 → 400 BAD_INPUT', async () => {
-    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`, body: { step: 'realm' } })
+    const r = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('设定长篇')}/onboard-ai`,
+      body: { step: 'realm' },
+    })
     expect(r.status).toBe(400)
     expect(r.json.code).toBe('BAD_INPUT')
     expect(r.json.error).toContain('成长线')
@@ -198,7 +212,11 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
   })
 
   it('短篇 first-outline → 200 落盘 大纲/首章细纲.md', async () => {
-    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('短篇书')}/onboard-ai`, body: { step: 'first-outline' } })
+    const r = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('短篇书')}/onboard-ai`,
+      body: { step: 'first-outline' },
+    })
     expect(r.status).toBe(200)
     expect(r.json.path).toBe('大纲/首章细纲.md')
   })
@@ -206,7 +224,11 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
   it('目标文件被目录占位 → 落盘失败 500 IO_ERROR', async () => {
     const root = makeBook('设定占位书', LONG)
     mkdirSync(join(root, '设定', '名册.md'), { recursive: true })
-    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent('设定占位书')}/onboard-ai`, body: { step: 'characters' } })
+    const r = await req({
+      method: 'POST',
+      path: `/api/books/${encodeURIComponent('设定占位书')}/onboard-ai`,
+      body: { step: 'characters' },
+    })
     expect(r.status).toBe(500)
     expect(r.json.code).toBe('IO_ERROR')
     expect(r.json.error).toContain('落盘失败')
@@ -255,12 +277,20 @@ describe('R1010c-COV-2：onboard-save 分支', () => {
   it('首存 → 200 无 snapshotted（空文件无留底）；再存 → 200 snapshotted:true（覆盖留底）', async () => {
     makeBook('保存留底书', LONG)
     const p = `/api/books/${encodeURIComponent('保存留底书')}/onboard-save`
-    const first = await req({ method: 'POST', path: p, body: { step: 'style-rules', content: '# 铁律一\n- 正文纯文本' } })
+    const first = await req({
+      method: 'POST',
+      path: p,
+      body: { step: 'style-rules', content: '# 铁律一\n- 正文纯文本' },
+    })
     expect(first.status).toBe(200)
     expect(first.json.ok).toBe(true)
     expect(first.json.path).toBe('文风/文风铁律.md')
     expect(first.json.snapshotted).toBeUndefined()
-    const second = await req({ method: 'POST', path: p, body: { step: 'style-rules', content: '# 铁律二\n- 对话标签 < 30%' } })
+    const second = await req({
+      method: 'POST',
+      path: p,
+      body: { step: 'style-rules', content: '# 铁律二\n- 对话标签 < 30%' },
+    })
     expect(second.status).toBe(200)
     expect(second.json.snapshotted).toBe(true)
     const saved = readFileSync(join(workDir, 'books', '保存留底书', '文风', '文风铁律.md'), 'utf8')

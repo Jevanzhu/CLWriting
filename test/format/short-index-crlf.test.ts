@@ -9,24 +9,13 @@ import { test, expect } from 'vitest'
 import { collectBodyAnchors } from '../../src/metrics/short-index.js'
 
 test('R36-1: CRLF 正文的 ## 锚点全部采出（修复前为空）', () => {
-  const bodyCrlf = [
-    '## 第一幕',
-    '正文行一。',
-    '## 第二幕',
-    '正文行二。',
-    '### 子节（不采，## 级才锚）',
-  ].join('\r\n')
+  const bodyCrlf = ['## 第一幕', '正文行一。', '## 第二幕', '正文行二。', '### 子节（不采，## 级才锚）'].join('\r\n')
   const anchors = collectBodyAnchors(bodyCrlf)
   expect(anchors).toEqual(['第一幕', '第二幕'])
 })
 
 test('R36-1: LF 与 CRLF 锚点采集结果逐位一致（防退化）', () => {
-  const bodyLf = [
-    '## 第一幕',
-    '正文行一。',
-    '## 第二幕',
-    '正文行二。',
-  ].join('\n')
+  const bodyLf = ['## 第一幕', '正文行一。', '## 第二幕', '正文行二。'].join('\n')
   expect(collectBodyAnchors(bodyLf.split('\n').join('\r\n'))).toEqual(collectBodyAnchors(bodyLf))
 })
 

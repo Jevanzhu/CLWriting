@@ -177,8 +177,7 @@ interface DeleteRagDbFilesOptions {
 export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOptions): void {
   const doUnlink = opts?.unlink ?? ((fp: string) => unlinkSync(fp))
   // Atomics.wait 同步微睡（Node 主线程合法；单次退避 200ms，不阻塞事件循环可观时长）
-  const sleep =
-    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const sleep = opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
   const retries = opts?.retries ?? 3
   const delayMs = opts?.delayMs ?? 200
   const dbPath = resolveRagDbPath(bookRoot)
@@ -442,8 +441,14 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
   //    交召回侧现算兜底（见 index.ts）。
   let poisonRows = 0
   for (const r of stmt.iterate() as Iterable<{
-    id: number; 章号: number; start_offset: number; end_offset: number
-    embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
+    id: number
+    章号: number
+    start_offset: number
+    end_offset: number
+    embedding: Uint8Array
+    norm: number | null
+    model: string
+    indexed_at: string
   }>) {
     // maxChunks 早停——产出行数达到限额即停，不再把全表 chunk
     // 读进内存（召回调用方只为截断告警时传「告警阈值+1」即够判 truncated，大库数万
@@ -487,7 +492,10 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
     })
   }
   if (poisonRows > 0) {
-    log.warn('rag', `RAG 库含 ${poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
+    log.warn(
+      'rag',
+      `RAG 库含 ${poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`,
+    )
   }
   return out
 }
@@ -541,8 +549,12 @@ export function streamChunkScores(
   // 不产元组，截断态下调用方据本标记判定探针行是否占位 rows
   let lastProducedWasMatch = false
   for (const r of stmt.iterate() as Iterable<{
-    章号: number; start_offset: number; end_offset: number
-    embedding: Uint8Array; norm: number | null; model: string
+    章号: number
+    start_offset: number
+    end_offset: number
+    embedding: Uint8Array
+    norm: number | null
+    model: string
   }>) {
     // 行级中断检查点——命中即抛（与 recallDetailed 中断态同一文案）
     if (signal?.aborted) throw new Error('RAG 召回已中断')
@@ -588,8 +600,10 @@ export function streamChunkScores(
  *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
 export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {
   // 召回热路径（每次召回读指纹元数据）走 prepared 缓存
-  const rows = prepared(db, "SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
-    .all() as Array<{ key: string; value: string }>
+  const rows = prepared(db, "SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'").all() as Array<{
+    key: string
+    value: string
+  }>
   const out = new Map<number, string>()
   for (const r of rows) {
     const n = Number(r.key.slice('chapter_hash:'.length))

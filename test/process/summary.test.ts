@@ -72,13 +72,21 @@ function makeBook(chapters: number, finalized = 0): string {
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 摘要测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 摘要测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   for (let no = 1; no <= chapters; no++) {
     const pad = String(no).padStart(3, '0')
     const p = join(root, '写作', '正文', `${pad}-第${no}章.md`)
-    writeFileSync(p, `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文：山门外的玉佩在雨夜里连响了三下。\n`, 'utf-8')
+    writeFileSync(
+      p,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第${no}章正文：山门外的玉佩在雨夜里连响了三下。\n`,
+      'utf-8',
+    )
     const id = generateDocId()
     upsertEntry(m, { id, nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
     if (no <= finalized) {
@@ -91,12 +99,19 @@ function makeBook(chapters: number, finalized = 0): string {
   return root
 }
 
-const bodyOf = (root: string, no: number): string => join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
+const bodyOf = (root: string, no: number): string =>
+  join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
 
 describe('generateChapterSummary（C1 批 2）', () => {
   it('生成落盘：纯数字文件名 + fm {chapter, generatedAt, model, sourceHash 绑定正文指纹}', async () => {
     const root = makeBook(1)
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.skipped).toBe(false)
@@ -113,7 +128,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
   it('预算硬截断：产出超 summary_chapter_max → 落盘 ≤ 上限（R53-B-2：省略号计入预算）', async () => {
     const root = makeBook(1)
     const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, summary_chapter_max: 10 } }
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: cfg,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok).toBe(true)
     const body = readChapterSummaryBody(root, 1)!
     // 修复前：10 码位 + '…' = 11 超预算；修复后 9 + '…' = 10 恰在预算内
@@ -123,9 +144,21 @@ describe('generateChapterSummary（C1 批 2）', () => {
 
   it('fresh 跳过：已有且 sourceHash 相符 → skipped 不调 AI', async () => {
     const root = makeBook(1)
-    const first = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const first = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(first.ok && !first.skipped).toBe(true)
-    const again = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const again = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(again.ok && again.skipped).toBe(true)
   })
 
@@ -133,17 +166,35 @@ describe('generateChapterSummary（C1 批 2）', () => {
     const root = makeBook(1)
     delete process.env['CLWRITING_DRIVER']
     configureRunnerMockFastPath(false) // mock 快路随环境变量一并关（选择点在组装根）
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok).toBe(false)
     expect(existsSync(chapterSummaryPath(root, 1))).toBe(false)
   })
 
   it('sourceHash 过期判定：正文后改 → stale → 重新生成绑新指纹', async () => {
     const root = makeBook(1)
-    await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     appendFileSync(bodyOf(root, 1), '\n新一段剧情。\n')
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('stale')
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok && !r.skipped).toBe(true)
     expect(readChapterSummaryBody(root, 1)).toBeTruthy()
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
@@ -155,7 +206,10 @@ describe('generateChapterSummary（C1 批 2）', () => {
     const root = makeBook(1)
     const hash = computeRevision(bodyOf(root, 1))
     mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
-    writeFileSync(chapterSummaryPath(root, 1), `\ufeff---\r\nchapter: 1\r\nsourceHash: ${hash}\r\n---\r\n\r\nBOM 摘要正文。\r\n`)
+    writeFileSync(
+      chapterSummaryPath(root, 1),
+      `\ufeff---\r\nchapter: 1\r\nsourceHash: ${hash}\r\n---\r\n\r\nBOM 摘要正文。\r\n`,
+    )
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
     appendFileSync(bodyOf(root, 1), '\n正文后改。\n')
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('stale')
@@ -167,7 +221,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
   // computeRevision 裸抛 ENOENT 穿出自愈循环被 materials 静默吞掉，补漏断链零痕迹）
   it('R32-20: 正文消失（TOCTOU）→ chapterSummaryState 返回 missing 不抛', async () => {
     const root = makeBook(1)
-    await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     // 变体 a：路径已不存在（定稿章在扫描与判定间被移删）
     const gone = join(root, '写作', '正文', '999-消失.md')
     expect(chapterSummaryState(root, 1, gone)).toBe('missing')
@@ -186,7 +246,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
       // 在 𠮷（U+20BB7，两个码元）中间切一刀，留下孤立高代理 \ud867 落盘
       spec.mock = { kind: 'text', text: 'ab𠮷cd' }
       const cfg = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, summary_chapter_max: 3 } }
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: cfg,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root, 1),
+      })
       expect(r.ok && !r.skipped).toBe(true)
       const body = readChapterSummaryBody(root, 1)!
       expect(body).toBe('ab\u2026')
@@ -205,7 +271,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
       // 追加省略号；码位口径 5 ≤ 5 不截断
       spec.mock = { kind: 'text', text: 'ab\u{20BB7}cd' }
       const cfg = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, summary_chapter_max: 5 } }
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: cfg,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root, 1),
+      })
       expect(r.ok && !r.skipped).toBe(true)
       const body = readChapterSummaryBody(root, 1)!
       expect(body).toBe('ab\u{20BB7}cd')
@@ -229,7 +301,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
       // 产出超回落预算（200）→ 硬截断 199 + '…'（R53-B-2：省略号计入预算，总长恰 200）
       spec.mock = { kind: 'text', text: '字'.repeat(SUMMARY_CHAPTER_MAX_FALLBACK + 50) }
       const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { calls_per_chapter: 3 } } // 摘要预算未设
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: cfg, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: cfg,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root, 1),
+      })
       expect(r.ok && !r.skipped).toBe(true)
       const body = readChapterSummaryBody(root, 1)!
       expect([...body].length).toBe(SUMMARY_CHAPTER_MAX_FALLBACK)
@@ -243,7 +321,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
     mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
     writeFileSync(chapterSummaryPath(root, 1), '作者手写的第 1 章小结。\n', 'utf-8')
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
-    const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    const r = await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     expect(r.ok && r.skipped).toBe(true)
     expect(readFileSync(chapterSummaryPath(root, 1), 'utf-8')).toContain('作者手写')
   })
@@ -264,7 +348,13 @@ describe('generateChapterSummary（C1 批 2）', () => {
           return orig.text
         },
       }
-      const r = await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+      const r = await generateChapterSummary({
+        bookRoot: root,
+        userDataPath: null,
+        config: DEFAULT_CONFIG,
+        chapter: 1,
+        bodyAbsPath: bodyOf(root, 1),
+      })
       expect(r.ok).toBe(true)
     } finally {
       spec.mock = orig
@@ -379,8 +469,12 @@ describe('批量定稿串行摘要链 afterFinalizeGenerateSummaryBatch（第五
       unregisterCtrl(_s: Session, _c: AbortController): void {},
       cancelStream(): void {},
       interrupt(): void {},
-      isRunning(): boolean { return false },
-      isWriterRunning(): boolean { return false },
+      isRunning(): boolean {
+        return false
+      },
+      isWriterRunning(): boolean {
+        return false
+      },
     }
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     try {
@@ -400,7 +494,13 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
     // PL-2（第七轮）：定稿口径下清单在册零定稿 → currentChapter=0 不注入摘要——
     // 夹具对齐生产语义（章摘要随定稿生成），第 1 章定稿
     const root = makeBook(1, 1)
-    await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    await generateChapterSummary({
+      bookRoot: root,
+      userDataPath: null,
+      config: DEFAULT_CONFIG,
+      chapter: 1,
+      bodyAbsPath: bodyOf(root, 1),
+    })
     // rebuild 让摘要进 index.db（生成器自愈路径内部已做；这里独立走 rebuild 同口径）
     const { rebuild } = await import('../../src/cache/rebuild.js')
     rebuild(root, join(root, '.cache', 'index.db'))

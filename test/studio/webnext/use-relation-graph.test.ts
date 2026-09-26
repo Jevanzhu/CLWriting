@@ -38,7 +38,9 @@ vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: vi.fn(() => ({
     open: mocks.docOpen,
     // R75-E-P3c：getter 保活源（mid-flight 改 docState.bookName 守卫即时可见）
-    get bookName() { return mocks.docState.bookName },
+    get bookName() {
+      return mocks.docState.bookName
+    },
   })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
@@ -49,7 +51,12 @@ vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   // P3-18：getter 保活源（改 mocks.uiState.aiAvailable 即时可见）
-  useUiStore: vi.fn(() => ({ toast: mocks.toast, get aiAvailable() { return mocks.uiState.aiAvailable } })),
+  useUiStore: vi.fn(() => ({
+    toast: mocks.toast,
+    get aiAvailable() {
+      return mocks.uiState.aiAvailable
+    },
+  })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ relationAutoMine: false, relationMineThreshold: 20 })),
@@ -168,7 +175,11 @@ describe('useRelationGraph: AI 梳理', () => {
   it('成功 → success toast + 重新加载图', async () => {
     const g = useRelationGraph('测试书')
     await g.load()
-    mocks.mineRelations.mockResolvedValueOnce({ ok: true, cached: false, relations: [{ from: 'A', to: 'B', type: '同门' }] })
+    mocks.mineRelations.mockResolvedValueOnce({
+      ok: true,
+      cached: false,
+      relations: [{ from: 'A', to: 'B', type: '同门' }],
+    })
     await g.onMine()
     expect(mocks.mineRelations).toHaveBeenCalledWith('测试书', true)
     expect(mocks.toast).toHaveBeenCalledWith('AI 已梳理 1 条关系', 'success')
@@ -254,7 +265,11 @@ describe('useRelationGraph: 自动梳理门（四轮重评 P3-18）', () => {
     mocks.uiState.aiAvailable = true
     mocks.getSettings.mockResolvedValueOnce(autoFixture())
     mocks.getConfig.mockResolvedValueOnce({ auto: { relation_auto_mine: true, relation_mine_threshold: 1 } })
-    mocks.mineRelations.mockResolvedValueOnce({ ok: true, cached: false, relations: [{ from: 'A', to: 'B', type: '同门' }] })
+    mocks.mineRelations.mockResolvedValueOnce({
+      ok: true,
+      cached: false,
+      relations: [{ from: 'A', to: 'B', type: '同门' }],
+    })
     await g.load()
     await new Promise((r) => setTimeout(r, 0))
     expect(mocks.mineRelations).toHaveBeenCalledTimes(1)

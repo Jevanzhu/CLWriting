@@ -73,11 +73,9 @@ describe('低级项（第六轮）：书级 prefs 合并写', () => {
     writeFileSync(prefsPath, JSON.stringify({ customScriptKey: 'keep-me', leftWidth: 220 }, null, 2), 'utf8')
 
     // 前端只回传自己已知的键
-    const w = await req<{ ok: boolean }>(
-      'PUT',
-      `/api/books/${encodeURIComponent(BOOK)}/prefs`,
-      { prefs: { leftWidth: 260, leftOpen: true } },
-    )
+    const w = await req<{ ok: boolean }>('PUT', `/api/books/${encodeURIComponent(BOOK)}/prefs`, {
+      prefs: { leftWidth: 260, leftOpen: true },
+    })
     expect(w.status).toBe(200)
     expect(w.json.ok).toBe(true)
 
@@ -90,30 +88,27 @@ describe('低级项（第六轮）：书级 prefs 合并写', () => {
 
 describe('低级项（第六轮）：onboard-ai 自由文本长度上限', () => {
   it('premise 超 5 万字符 → 400，不进 prompt', async () => {
-    const r = await req<{ error: string }>(
-      'POST',
-      `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`,
-      { step: 'synopsis', premise: 'x'.repeat(50_001) },
-    )
+    const r = await req<{ error: string }>('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+      step: 'synopsis',
+      premise: 'x'.repeat(50_001),
+    })
     expect(r.status).toBe(400)
     expect(r.json.error).toContain('过长')
   })
 
   it('discussionContext 超限同口径 400；正常长度不受影响（走 step 校验，不到 AI）', async () => {
-    const r = await req<{ error: string }>(
-      'POST',
-      `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`,
-      { step: 'synopsis', discussionContext: 'y'.repeat(50_001) },
-    )
+    const r = await req<{ error: string }>('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+      step: 'synopsis',
+      discussionContext: 'y'.repeat(50_001),
+    })
     expect(r.status).toBe(400)
     expect(r.json.error).toContain('过长')
 
     // 正常长度自由文本 + 非法 step：长度闸放行、命中 step 校验（证明上限不打扰正常路径）
-    const ok = await req<{ error: string }>(
-      'POST',
-      `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`,
-      { step: 'bad-step', premise: '一个正常的梗概' },
-    )
+    const ok = await req<{ error: string }>('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-ai`, {
+      step: 'bad-step',
+      premise: '一个正常的梗概',
+    })
     expect(ok.status).toBe(400)
     expect(ok.json.error).toContain('step 不支持')
   })

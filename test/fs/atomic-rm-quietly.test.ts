@@ -15,12 +15,24 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 describe('rmQuietly（R1W-1）', () => {
   it('注入 rm 抛 EBUSY → 静默吞掉，不向调用方反抛', () => {
     const err = Object.assign(new Error('mock EBUSY'), { code: 'EBUSY' })
-    expect(() => rmQuietly('whatever.tmp', { rm: () => { throw err } })).not.toThrow()
+    expect(() =>
+      rmQuietly('whatever.tmp', {
+        rm: () => {
+          throw err
+        },
+      }),
+    ).not.toThrow()
   })
 
   it('注入 rm 抛 EPERM → 同样静默（清理路径永不反噬）', () => {
     const err = Object.assign(new Error('mock EPERM'), { code: 'EPERM' })
-    expect(() => rmQuietly('whatever.tmp', { rm: () => { throw err } })).not.toThrow()
+    expect(() =>
+      rmQuietly('whatever.tmp', {
+        rm: () => {
+          throw err
+        },
+      }),
+    ).not.toThrow()
   })
 
   it('真 fs：存在文件正常删除', () => {

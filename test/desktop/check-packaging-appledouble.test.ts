@@ -17,12 +17,14 @@ const root = fileURLToPath(new URL('../../', import.meta.url))
 
 describe('全库重评-0914 P3-10：electron-builder.yml AppleDouble 排除项门', () => {
   it('parseBuilderFiles：剥引号后否定模式原样入列（YAML 合法的引号形态）', () => {
-    const yml = 'files:\n  - dist/**/*\n  - \'!**/._*\'\nasar: true\n'
+    const yml = "files:\n  - dist/**/*\n  - '!**/._*'\nasar: true\n"
     expect(parseBuilderFiles(yml)).toEqual(['dist/**/*', '!**/._*'])
   })
 
   it('含 !**/._* → 无问题；缺之 → 一条问题点名排除模式', () => {
-    expect(problemsForElectronBuilderAppleDouble(['dist/**/*', 'resources/**/*', 'package.json', '!**/._*'])).toEqual([])
+    expect(problemsForElectronBuilderAppleDouble(['dist/**/*', 'resources/**/*', 'package.json', '!**/._*'])).toEqual(
+      [],
+    )
     const problems = problemsForElectronBuilderAppleDouble(['dist/**/*', 'resources/**/*', 'package.json'])
     expect(problems).toHaveLength(1)
     expect(String(problems[0])).toContain('!**/._*')

@@ -30,7 +30,10 @@ const RCONF: ProviderConf = { ...CONF, protocol: 'openai-responses', model: 'gpt
 
 const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 'hi' }] }
 
-async function collect(prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> }, req: GenRequest): Promise<GenEvent[]> {
+async function collect(
+  prov: { stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> },
+  req: GenRequest,
+): Promise<GenEvent[]> {
   const out: GenEvent[] = []
   for await (const ev of prov.stream(req, new AbortController().signal)) out.push(ev)
   return out
@@ -51,7 +54,10 @@ describe('R32-1：anthropic 截断 error 随错上抛 usage', () => {
     const client = {
       messages: {
         create: fakeSend([
-          { type: 'message_start', message: { usage: { input_tokens: 12, cache_read_input_tokens: 7, cache_creation_input_tokens: 3 } } },
+          {
+            type: 'message_start',
+            message: { usage: { input_tokens: 12, cache_read_input_tokens: 7, cache_creation_input_tokens: 3 } },
+          },
           { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
           { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '半截' } },
           { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '正文' } },
@@ -103,7 +109,10 @@ describe('R32-2：responses 线四条错误路径随错上抛 usage', () => {
   it('incomplete(content_filter) 带 usage → error 携上游真值', async () => {
     const client = fakeResponsesClient([
       { type: 'response.output_text.delta', delta: '半截' },
-      { type: 'response.incomplete', response: { incomplete_details: { reason: 'content_filter' }, usage: { input_tokens: 15, output_tokens: 5 } } },
+      {
+        type: 'response.incomplete',
+        response: { incomplete_details: { reason: 'content_filter' }, usage: { input_tokens: 15, output_tokens: 5 } },
+      },
     ])
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
     expect(evs.some((e) => e.type === 'done')).toBe(false)
@@ -127,7 +136,10 @@ describe('R32-2：responses 线四条错误路径随错上抛 usage', () => {
 
   it('response.failed 带 response.usage → error 携上游真值', async () => {
     const client = fakeResponsesClient([
-      { type: 'response.failed', response: { error: { code: 'server_error', message: 'boom' }, usage: { input_tokens: 9, output_tokens: 4 } } },
+      {
+        type: 'response.failed',
+        response: { error: { code: 'server_error', message: 'boom' }, usage: { input_tokens: 9, output_tokens: 4 } },
+      },
     ])
     const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
     const err = findError(evs)
@@ -149,7 +161,11 @@ describe('R32-2：responses 线四条错误路径随错上抛 usage', () => {
 
   it('无终止事件（截断兜底）→ NETWORK error 携估计值（含残留 tool 参数并入产出）', async () => {
     const client = fakeResponsesClient([
-      { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'call-1', name: 'search' } },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item: { type: 'function_call', call_id: 'call-1', name: 'search' },
+      },
       { type: 'response.function_call_arguments.delta', item_id: 'fc1', output_index: 0, delta: '{"q":"风起"}' },
       // 无 output_item.done、无任何终止事件——流直接结束
     ])

@@ -172,7 +172,11 @@ describe('R44-12: shutdown 短预算放弃挂起握手', () => {
 // child 按启动失败收口（S1 同款）。「shutdown 开始后绝不 fork 出存活 child」锁定。
 describe('重评-P3-8: 换轮 stopActiveChild 窗口内并发 shutdown 不清停机门', () => {
   it('start-with-active 的 kill 等待窗内并发 shutdown → 新 child fork 即杀（SHUTDOWN reject），停机链上无存活 child', async () => {
-    const { forkRecords, manager } = mkHarness({ shutdownSettleBudgetMs: 5_000, shutdownTotalMs: 5_000, killWaitMs: 200 })
+    const { forkRecords, manager } = mkHarness({
+      shutdownSettleBudgetMs: 5_000,
+      shutdownTotalMs: 5_000,
+      killWaitMs: 200,
+    })
     const ud = mkUserData()
     // 1) 首启建 active child
     const first = manager.start({ workDir: '/w', userDataPath: ud })
@@ -222,7 +226,6 @@ describe('重评-P3-8: 换轮 stopActiveChild 窗口内并发 shutdown 不清停
 // 修复后预算内未收口即放弃等握手、对在途 fork 就地 kill（同 shutdown 收口原语）；
 // 正常路径（握手毫秒级）语义不变（S1 既有用例覆盖）。
 describe('R49-4: stopChild 短预算放弃挂起握手', () => {
-
   it('崩溃重启链：重启握手挂起时 stopChild 在预算内收口（kill 在途 fork，不排程新重启）', async () => {
     const { forkRecords, manager } = mkHarness({
       shutdownSettleBudgetMs: 50,
@@ -329,7 +332,11 @@ describe('R0912-3 #34: 停机期在途 fork 的 kill 等待/升级纪律', () =>
   })
 
   it('对照：TERM 正常收殓（exit 及时到达）→ 不升级 SIGKILL，SHUTDOWN reject 快速保留', async () => {
-    const { forkRecords, manager } = mkHarness({ shutdownSettleBudgetMs: 5_000, shutdownTotalMs: 5_000, killWaitMs: 200 })
+    const { forkRecords, manager } = mkHarness({
+      shutdownSettleBudgetMs: 5_000,
+      shutdownTotalMs: 5_000,
+      killWaitMs: 200,
+    })
     const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
     try {
       const ud = mkUserData()

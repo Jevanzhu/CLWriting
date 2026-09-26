@@ -69,7 +69,11 @@ describe('R43-18: ensureNormColumn——norm 回填事务同款加固', () => {
           return { all: () => (batchLeft-- > 0 ? [{ id: 1, embedding: new Uint8Array(8) }] : []) }
         }
         if (sql.startsWith('UPDATE chunks SET norm')) {
-          return { run: () => { throw new Error('SQLITE_IOERR: disk I/O error') } }
+          return {
+            run: () => {
+              throw new Error('SQLITE_IOERR: disk I/O error')
+            },
+          }
         }
         throw new Error(`unexpected prepare: ${sql}`)
       },

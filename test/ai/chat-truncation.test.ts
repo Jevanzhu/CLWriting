@@ -50,9 +50,7 @@ function setup(): string {
 
 describe('W2: max_tokens 截断保护', () => {
   it('max_tokens 响应 → chat_error，不执行工具', async () => {
-    fake.setScript([
-      { type: 'max_tokens', partial: '半截回复' },
-    ])
+    fake.setScript([{ type: 'max_tokens', partial: '半截回复' }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
     const ud = setup()

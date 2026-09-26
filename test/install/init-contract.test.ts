@@ -34,7 +34,7 @@ vi.mock('node:fs', async (importOriginal) => {
         throw e
       }
       return (actual.mkdirSync as (...a: unknown[]) => unknown)(p, ...rest)
-    }) as unknown as typeof import('node:fs')['mkdirSync'],
+    }) as unknown as (typeof import('node:fs'))['mkdirSync'],
   }
 })
 
@@ -49,7 +49,7 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
         throw e
       }
       return (actual.atomicWriteFile as (...a: unknown[]) => void)(filePath, data, ...rest)
-    }) as unknown as typeof import('../../src/fs/atomic.js')['atomicWriteFile'],
+    }) as unknown as (typeof import('../../src/fs/atomic.js'))['atomicWriteFile'],
   }
 })
 
@@ -149,7 +149,9 @@ describe('R44-18②：tryBooksLock(Async) 的 mkdirSync 抛错收编为获取锁
     try {
       MOCK.mkdirThrows = true
       let thrown: unknown = null
-      let release: Awaited<ReturnType<typeof tryBooksLockAsync>> = 'unset' as unknown as Awaited<ReturnType<typeof tryBooksLockAsync>>
+      let release: Awaited<ReturnType<typeof tryBooksLockAsync>> = 'unset' as unknown as Awaited<
+        ReturnType<typeof tryBooksLockAsync>
+      >
       try {
         release = await tryBooksLockAsync(wd)
       } catch (e) {

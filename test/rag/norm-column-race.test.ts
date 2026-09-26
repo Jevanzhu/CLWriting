@@ -41,7 +41,13 @@ describe('R35-44：ensureNormColumn duplicate column 竞态幂等', () => {
   it('探测谎报无列、ALTER 撞 duplicate column（他进程已加列）→ 不上抛、数据无损', () => {
     const db = openRagDb(bookRoot) // norm 列已由本次首升建好
     try {
-      storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.1, 0.2, 0.3]),
+        model: 'm',
+      })
       expect(() => ensureNormColumn(lyingTableInfo(db))).not.toThrow()
       expect(readAllChunks(db)).toHaveLength(1)
     } finally {

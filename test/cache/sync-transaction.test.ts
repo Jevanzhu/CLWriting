@@ -71,10 +71,13 @@ test('履历 DELETE+INSERT 中途失败 → SAVEPOINT 回滚，旧履历保留',
      WHEN NEW.evidence = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END`,
   )
   expect(() =>
-    syncLead(db, leadOf([
-      { 章号: 2, 动词: '推进', 证据: '新证据' },
-      { 章号: 3, 动词: '回收', 证据: 'boom' },
-    ])),
+    syncLead(
+      db,
+      leadOf([
+        { 章号: 2, 动词: '推进', 证据: '新证据' },
+        { 章号: 3, 动词: '回收', 证据: 'boom' },
+      ]),
+    ),
   ).toThrow('boom')
   // SAVEPOINT 回滚：DELETE 未生效，旧履历原样（非半截）
   const loaded = loadLeadFromCache(db, '悬念-001')
@@ -93,9 +96,7 @@ test('履历段失败 → leads 主表不留半写行（新 lead 无残留）', 
   )
   // 新 lead（leads 无既有行）：首条履历即触发 ABORT → 整段 SAVEPOINT 回滚，
   // leads 表不得残留「有主表行、无履历」的半写态
-  expect(() =>
-    syncLead(db, leadOf([{ 章号: 1, 动词: '埋下', 证据: 'boom' }])),
-  ).toThrow('boom')
+  expect(() => syncLead(db, leadOf([{ 章号: 1, 动词: '埋下', 证据: 'boom' }]))).toThrow('boom')
   expect(loadLeadFromCache(db, '悬念-001')).toBeNull()
   expect(db.prepare('SELECT COUNT(*) AS n FROM lead_history').get()).toEqual({ n: 0 })
   db.close()

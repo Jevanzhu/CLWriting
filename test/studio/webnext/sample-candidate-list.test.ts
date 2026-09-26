@@ -52,9 +52,7 @@ function sample(场景: string, 出处: string, 正文: string, 打分: number):
 
 /** console.warn 中是否出现 duplicate key 告警（Vue keyed diff 更新期文案） */
 function hasDuplicateKeyWarn(warnSpy: MockInstance<typeof console.warn>): boolean {
-  return warnSpy.mock.calls.some(
-    (c) => typeof c[0] === 'string' && c[0].includes('Duplicate keys'),
-  )
+  return warnSpy.mock.calls.some((c) => typeof c[0] === 'string' && c[0].includes('Duplicate keys'))
 }
 
 // ── R0912-3 #23：expandedGroups 跨收割重置 ────────────────────────
@@ -142,15 +140,12 @@ describe('R-P2-6：候选卡 v-for 键组内唯一（不含整章正文）', () 
   it('分组展开（渲染上限前缀 → 全量）后键仍唯一——切片延展不错位', async () => {
     const learn = useLearnStore()
     // 超过 GROUP_RENDER_CAP=50：造 55 条同场景同出处候选（打分互异稳定排序）
-    learn.samples = Array.from({ length: 55 }, (_, i) =>
-      sample('战斗', '《书》第1章', `第${i}条正文`, 100 - i),
-    )
+    learn.samples = Array.from({ length: 55 }, (_, i) => sample('战斗', '《书》第1章', `第${i}条正文`, 100 - i))
     const wrapper = mount(SampleCandidateList)
     expect(wrapper.findAll('.cand-card')).toHaveLength(50) // 默认截断
     await wrapper.find('.expand-more').trigger('click')
     expect(wrapper.findAll('.cand-card')).toHaveLength(55)
-    const groups = (wrapper.vm as unknown as { sampleGroups: { items: { key: string }[] }[] })
-      .sampleGroups
+    const groups = (wrapper.vm as unknown as { sampleGroups: { items: { key: string }[] }[] }).sampleGroups
     const keys = groups[0]!.items.map((it) => it.key)
     expect(new Set(keys).size).toBe(55)
     wrapper.unmount()

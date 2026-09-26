@@ -26,7 +26,10 @@ function preflight(origin: string): Promise<{ status: number; methods: string | 
       (res) => {
         res.resume()
         res.on('end', () =>
-          resolve({ status: res.statusCode ?? 0, methods: (res.headers['access-control-allow-methods'] as string | undefined) ?? null }),
+          resolve({
+            status: res.statusCode ?? 0,
+            methods: (res.headers['access-control-allow-methods'] as string | undefined) ?? null,
+          }),
         )
       },
     )

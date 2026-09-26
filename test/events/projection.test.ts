@@ -5,7 +5,12 @@ import { describe, expect, it } from 'vitest'
 import { foldSurface, deriveMessages, validateEventStream, sortEvents } from '../../src/events/projection.js'
 import type { ChatEvent } from '../../src/events/types.js'
 
-function ev(seq: number, type: ChatEvent['type'], data: Record<string, unknown>, extra: Partial<ChatEvent> = {}): ChatEvent {
+function ev(
+  seq: number,
+  type: ChatEvent['type'],
+  data: Record<string, unknown>,
+  extra: Partial<ChatEvent> = {},
+): ChatEvent {
   return { seq, sessionId: 's1', type, data, createdAt: 1, replaceGeneration: 0, ...extra }
 }
 
@@ -24,9 +29,17 @@ describe('F1-P1 deriveMessages', () => {
   it('连续 tool/result 合并为一条 user(tool_result blocks) 消息', () => {
     const events: ChatEvent[] = [
       ev(1, 'user/message', { message: '检查第三章' }, { surfaceOp: 'append' }),
-      ev(2, 'assistant/message', {
-        message: [{ type: 'text', text: '我来检查' }, { type: 'tool_use', id: 't1', name: 'check_chapter', input: { chapter: 3 } }],
-      }, { surfaceOp: 'append' }),
+      ev(
+        2,
+        'assistant/message',
+        {
+          message: [
+            { type: 'text', text: '我来检查' },
+            { type: 'tool_use', id: 't1', name: 'check_chapter', input: { chapter: 3 } },
+          ],
+        },
+        { surfaceOp: 'append' },
+      ),
       ev(3, 'tool/result', { callId: 't1', content: '机检全绿', isError: false }, { surfaceOp: 'append' }),
       ev(4, 'tool/result', { callId: 't2', content: '有 2 个红项', isError: true }, { surfaceOp: 'append' }),
       ev(5, 'assistant/message', { message: '检查完毕' }, { surfaceOp: 'append' }),
@@ -38,10 +51,13 @@ describe('F1-P1 deriveMessages', () => {
       { type: 'text', text: '我来检查' },
       { type: 'tool_use', id: 't1', name: 'check_chapter', input: { chapter: 3 } },
     ])
-    expect(msgs[2]).toEqual({ role: 'user', content: [
-      { type: 'tool_result', toolUseId: 't1', content: '机检全绿', isError: false },
-      { type: 'tool_result', toolUseId: 't2', content: '有 2 个红项', isError: true },
-    ] })
+    expect(msgs[2]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'tool_result', toolUseId: 't1', content: '机检全绿', isError: false },
+        { type: 'tool_result', toolUseId: 't2', content: '有 2 个红项', isError: true },
+      ],
+    })
     expect(msgs[3]).toEqual({ role: 'assistant', content: '检查完毕' })
   })
 
@@ -69,7 +85,12 @@ describe('F1-P1 replace 遮蔽（压缩走遮蔽）', () => {
       ev(3, 'user/message', { message: '旧2' }, { surfaceOp: 'append' }),
       ev(4, 'assistant/message', { message: '旧回复2' }, { surfaceOp: 'append' }),
       ev(5, 'user/message', { message: '新问题' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 4, sourceSeqs: [1, 2, 3, 4] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 4, sourceSeqs: [1, 2, 3, 4] },
+      ),
     ]
     // 遮蔽后投影只留新消息
     expect(deriveMessages(events)).toEqual([{ role: 'user', content: '新问题' }])
@@ -83,7 +104,12 @@ describe('F1-P1 replace 遮蔽（压缩走遮蔽）', () => {
     const events: ChatEvent[] = [
       ev(1, 'user/message', { message: '旧1' }, { surfaceOp: 'append' }),
       ev(2, 'user/message', { message: '新' }, { surfaceOp: 'append' }),
-      ev(3, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+      ev(
+        3,
+        'compaction/end',
+        { reason: 'completed' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] },
+      ),
     ]
     expect(deriveMessages(events, 2)).toEqual([
       { role: 'user', content: '旧1' },
@@ -99,7 +125,12 @@ describe('F1-P1 replace 遮蔽（压缩走遮蔽）', () => {
     // 对照：「节点晚于区间尾」走 insertAt=i 分支——存档插在该节点之前（区间语义）。
     const events: ChatEvent[] = [
       ev(2, 'user/message', { message: '更早的可见消息' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '后续不可见回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 4, shadowEnd: 5, sourceSeqs: [4, 5] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '后续不可见回合的存档摘要' },
+        { surfaceOp: 'replace', shadowStart: 4, shadowEnd: 5, sourceSeqs: [4, 5] },
+      ),
     ]
     const nodes = foldSurface(events)
     expect(nodes.map((n) => n.seq)).toEqual([2, 6])
@@ -114,7 +145,12 @@ describe('F1-P1 replace 遮蔽（压缩走遮蔽）', () => {
   it('P-15 对照：可见节点晚于遮蔽区间尾 → 存档消息插到该节点之前（区间语义，非兜底）', () => {
     const events: ChatEvent[] = [
       ev(5, 'user/message', { message: '后来的' }, { surfaceOp: 'append' }),
-      ev(6, 'compaction/end', { reason: 'completed', message: '更早回合的存档摘要' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 3, sourceSeqs: [1, 2, 3] }),
+      ev(
+        6,
+        'compaction/end',
+        { reason: 'completed', message: '更早回合的存档摘要' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 3, sourceSeqs: [1, 2, 3] },
+      ),
     ]
     const nodes = foldSurface(events)
     expect(nodes.map((n) => n.seq)).toEqual([6, 5])
@@ -136,7 +172,12 @@ describe('F1-P1 校验链', () => {
     // 遮蔽未可见 seq（5 未出现）
     const r1 = [
       ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }),
-      ev(2, 'compaction/end', { reason: 'x' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 5, sourceSeqs: [1, 2, 3, 4, 5] }),
+      ev(
+        2,
+        'compaction/end',
+        { reason: 'x' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 5, sourceSeqs: [1, 2, 3, 4, 5] },
+      ),
     ]
     expect(validateEventStream(r1).some((i) => i.message.includes('未可见'))).toBe(true)
     // start > end
@@ -174,7 +215,10 @@ describe('F1-P1 校验链', () => {
   })
 
   it('seq 重复 / sourceSeqs 含未来 seq → 报问题', () => {
-    const dup = [ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }), ev(1, 'user/message', { message: 'b' }, { surfaceOp: 'append' })]
+    const dup = [
+      ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }),
+      ev(1, 'user/message', { message: 'b' }, { surfaceOp: 'append' }),
+    ]
     expect(validateEventStream(dup).some((i) => i.message.includes('重复'))).toBe(true)
     const future = [
       ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }),
@@ -196,14 +240,18 @@ describe('F1-P1 校验链', () => {
   })
 })
 
-
 // R62-31：遮蔽区间校验 O(visible)——脏数据 shadowEnd=1e9 此前逐 seq 线性扫十亿次挂死
 // 校验链；改对 visibleSeqs 做区间包含判断后快速完成并如实报错。
 describe('R62-31：遮蔽区间校验 O(visible)', () => {
   it('shadowEnd=1e9 的 compaction/end → 校验快速完成并报「含未可见 seq」', () => {
     const events: ChatEvent[] = [
       ev(1, 'user/message', { message: 'u' }, { surfaceOp: 'append' }),
-      ev(2, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1_000_000_000, sourceSeqs: [1] }),
+      ev(
+        2,
+        'compaction/end',
+        { reason: 'completed' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1_000_000_000, sourceSeqs: [1] },
+      ),
     ]
     const t0 = Date.now()
     const issues = validateEventStream(events)
@@ -256,7 +304,12 @@ describe('R54-B-3: 普通 surface 事件禁带 replace', () => {
     // 合法载体（compaction/end replace）不受新闸影响——整流零 issue
     const ok: ChatEvent[] = [
       ev(1, 'user/message', { message: 'u' }, { surfaceOp: 'append' }),
-      ev(2, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+      ev(
+        2,
+        'compaction/end',
+        { reason: 'completed' },
+        { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] },
+      ),
     ]
     expect(validateEventStream(ok)).toEqual([])
   })

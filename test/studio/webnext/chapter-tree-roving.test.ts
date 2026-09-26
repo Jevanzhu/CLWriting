@@ -62,7 +62,7 @@ describe('R1010-P3 G6-②：目录拖拽落下 toast 明示（不再静默丢弃
   })
 
   it('拖目录（无 docId 源）→ info toast + 不触发 moveDoc', async () => {
-    treeMock.byPath.set('写作/正文/第一卷', { })
+    treeMock.byPath.set('写作/正文/第一卷', {})
     const actions = useChapterTreeActions({ bookName: () => '书', openError: ref(null) })
     actions.draggedPath.value = '写作/正文/第一卷'
     await actions.onDrop('写作/正文/第二卷')
@@ -87,21 +87,39 @@ import ChapterTreeItem from '../../../src/studio/web-next/src/components/panels/
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 const ch1: TreeNode = {
-  path: '写作/正文/0001-开篇.md', name: '0001-开篇.md', isDirectory: false,
-  role: 'chapter', children: [], status: 'draft', docId: 'd1',
+  path: '写作/正文/0001-开篇.md',
+  name: '0001-开篇.md',
+  isDirectory: false,
+  role: 'chapter',
+  children: [],
+  status: 'draft',
+  docId: 'd1',
 }
 const vol2: TreeNode = {
-  path: '写作/正文/第二卷', name: '第二卷', isDirectory: true, role: 'group',
-  children: [], status: 'draft',
+  path: '写作/正文/第二卷',
+  name: '第二卷',
+  isDirectory: true,
+  role: 'group',
+  children: [],
+  status: 'draft',
 }
 const ch3: TreeNode = {
-  path: '写作/正文/第二卷/0003-风暴.md', name: '0003-风暴.md', isDirectory: false,
-  role: 'chapter', children: [], status: 'draft', docId: 'd3',
+  path: '写作/正文/第二卷/0003-风暴.md',
+  name: '0003-风暴.md',
+  isDirectory: false,
+  role: 'chapter',
+  children: [],
+  status: 'draft',
+  docId: 'd3',
 }
 vol2.children = [ch3]
 const bodyRoot: TreeNode = {
-  path: '写作/正文', name: '正文', isDirectory: true, role: 'group',
-  children: [ch1, vol2], status: 'draft',
+  path: '写作/正文',
+  name: '正文',
+  isDirectory: true,
+  role: 'group',
+  children: [ch1, vol2],
+  status: 'draft',
 }
 
 /** 挂载在带 role=tree 的宿主 div 下（onTreeKeyDown 经 closest 找树根） */
@@ -167,7 +185,9 @@ describe('R1010-P3 G6-③：树 roving tabindex + 方向键导航', () => {
     row(wrapper, '写作/正文/第二卷').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(document.activeElement).toBe(row(wrapper, '写作/正文/第二卷/0003-风暴.md'))
     // ↑ 回第二卷
-    row(wrapper, '写作/正文/第二卷/0003-风暴.md').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    row(wrapper, '写作/正文/第二卷/0003-风暴.md').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
+    )
     expect(document.activeElement).toBe(row(wrapper, '写作/正文/第二卷'))
     wrapper.unmount()
   })

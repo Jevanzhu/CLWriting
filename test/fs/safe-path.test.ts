@@ -127,31 +127,37 @@ describe('resolveWithinRoot', () => {
   })
 
   // win 真实 FS 上 `\` 是真分隔符（join/resolve 皆拆层），本用例语义仅 posix 成立
-  it.skipIf(process.platform === 'win32')('复审-0913-mac适配 P3-2: 字面含 \\ 的文件名 rel 保持原样（posix 不再扭曲为 / 形态）', () => {
-    // posix 层 `\` 是合法文件名字符——mac 上外部创建的 `a\b.md` 此前 rel 被归一成
-    // `a/b.md`（与磁盘名失配）；收窄 win32-only 后字面保留。win 臂由 r45-casefold-keys
-    // 的 relPathKey 精确键值钉定（本机 posix 直接构造真实文件验证 rel 全链）
-    const p = join(dir, 'a\\b.md')
-    writeFileSync(p, 'x')
-    const existed = resolveWithinRoot(dir, 'a\\b.md')
-    expect(existed).not.toBeNull()
-    expect(existed!.rel).toBe('a\\b.md')
-    // 不存在目标（新建场景）同口径
-    const fresh = resolveWithinRoot(dir, '素材\\笔记.md')
-    expect(fresh).not.toBeNull()
-    expect(fresh!.rel).toBe('素材\\笔记.md')
-  })
+  it.skipIf(process.platform === 'win32')(
+    '复审-0913-mac适配 P3-2: 字面含 \\ 的文件名 rel 保持原样（posix 不再扭曲为 / 形态）',
+    () => {
+      // posix 层 `\` 是合法文件名字符——mac 上外部创建的 `a\b.md` 此前 rel 被归一成
+      // `a/b.md`（与磁盘名失配）；收窄 win32-only 后字面保留。win 臂由 r45-casefold-keys
+      // 的 relPathKey 精确键值钉定（本机 posix 直接构造真实文件验证 rel 全链）
+      const p = join(dir, 'a\\b.md')
+      writeFileSync(p, 'x')
+      const existed = resolveWithinRoot(dir, 'a\\b.md')
+      expect(existed).not.toBeNull()
+      expect(existed!.rel).toBe('a\\b.md')
+      // 不存在目标（新建场景）同口径
+      const fresh = resolveWithinRoot(dir, '素材\\笔记.md')
+      expect(fresh).not.toBeNull()
+      expect(fresh!.rel).toBe('素材\\笔记.md')
+    },
+  )
 
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('symlink 指向 root 外 → null（双侧 realpath 消解 /var→/private/var 前缀差）', () => {
-    symlinkSync(tmpdir(), join(dir, 'evil'))
-    writeFileSync(join(tmpdir(), 'secret-rwr.md'), 'test')
-    try {
-      expect(resolveWithinRoot(dir, 'evil/secret-rwr.md')).toBeNull()
-    } finally {
-      rmSync(join(tmpdir(), 'secret-rwr.md'), { force: true })
-    }
-  })
+  it.skipIf(process.platform === 'win32')(
+    'symlink 指向 root 外 → null（双侧 realpath 消解 /var→/private/var 前缀差）',
+    () => {
+      symlinkSync(tmpdir(), join(dir, 'evil'))
+      writeFileSync(join(tmpdir(), 'secret-rwr.md'), 'test')
+      try {
+        expect(resolveWithinRoot(dir, 'evil/secret-rwr.md')).toBeNull()
+      } finally {
+        rmSync(join(tmpdir(), 'secret-rwr.md'), { force: true })
+      }
+    },
+  )
 })
 
 describe('L-D1（第八轮）：isWithinRoot 段级越出判定（与 resolveWithinRoot 同口径）', () => {

@@ -24,7 +24,10 @@ export function submitRelations(): ToolDef {
             properties: {
               from: { type: 'string', description: '角色 A 姓名(须与材料中的姓名一致)' },
               to: { type: 'string', description: '角色 B 姓名(须与材料中的姓名一致)' },
-              type: { type: 'string', description: '关系类型,完整有区分度的短语(师徒/仇敌/旧时婚约/挚友/道侣/血契…),不用单字' },
+              type: {
+                type: 'string',
+                description: '关系类型,完整有区分度的短语(师徒/仇敌/旧时婚约/挚友/道侣/血契…),不用单字',
+              },
               note: { type: 'string', description: '一句话关系说明/依据(可选)' },
             },
             required: ['from', 'to', 'type'],

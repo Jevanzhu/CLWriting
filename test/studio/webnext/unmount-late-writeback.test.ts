@@ -149,7 +149,15 @@ describe('R1010b-FTC-P3-2: WbUsageCard load 卸载不写回', () => {
   it('取数在途卸载 → 迟到响应不写回死实例（byTask/total/cost/loaded 全门）', async () => {
     const req = pending<{ total: number; byTask: Record<string, unknown>; ruleHits: string[] }>()
     usageMocks.getTraceStats.mockReturnValue(req.promise)
-    usageMocks.getCostStats.mockResolvedValue({ enabled: true, currency: 'USD', total: 9.9, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] })
+    usageMocks.getCostStats.mockResolvedValue({
+      enabled: true,
+      currency: 'USD',
+      total: 9.9,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+    })
 
     wrapper = mount(WbUsageCard, { props: { bookName: '测试书' } })
     await nextTick() // onMounted load 已发起（请求在途）

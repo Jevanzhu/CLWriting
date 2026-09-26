@@ -199,12 +199,10 @@ describe('kk-P2-8：退出与边界分支', () => {
   // mock（真退会杀 worker），先例 R44-17（main-window-resilience.test.ts）。
   it('C107（0918二轮修复批）：同型信号第二次 → killNow + exit(1) 硬退；首次仍走 app.quit 优雅链', async () => {
     const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
-    const onSpy = vi
-      .spyOn(process, 'on')
-      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
-        ;(registered[String(evt)] ??= []).push(fn)
-        return process
-      }) as never)
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+      ;(registered[String(evt)] ??= []).push(fn)
+      return process
+    }) as never)
     // 真 exit 会杀死 vitest worker——mock 掉只断言调用（R44-17 手法）
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
     try {
@@ -228,9 +226,7 @@ describe('kk-P2-8：退出与边界分支', () => {
       h!() // 第二次同型：硬退出口
       expect(child['killed']).toBeGreaterThan(killed0) // killNow 先行（在途 child 同步 kill）
       expect(exitSpy).toHaveBeenCalledWith(1)
-      expect(
-        M.logErrors.slice(err0).some((l) => String((l as unknown[])[1]).includes('SIGINT')),
-      ).toBe(true) // 硬退留痕
+      expect(M.logErrors.slice(err0).some((l) => String((l as unknown[])[1]).includes('SIGINT'))).toBe(true) // 硬退留痕
     } finally {
       exitSpy.mockRestore()
       onSpy.mockRestore()
@@ -259,7 +255,10 @@ describe('kk-P2-8：退出与边界分支', () => {
       expect(M.forkChildren.length).toBe(forks0 + 1)
       // 4 轮崩溃：前 3 轮各触发一次自动重启（退避 0ms/5s/15s），第 4 轮转封顶
       for (let i = 0; i < 4; i++) {
-        ;(M.forkChildren[M.forkChildren.length - 1] as unknown as { emit: (e: string, c: number) => void }).emit('exit', 1)
+        ;(M.forkChildren[M.forkChildren.length - 1] as unknown as { emit: (e: string, c: number) => void }).emit(
+          'exit',
+          1,
+        )
         await vi.advanceTimersByTimeAsync(16_000) // 覆盖当轮最长退避 15s（稳定窗口 5min 远未到）
       }
       expect(M.forkChildren.length).toBe(forks0 + 4) // 首启 + 3 次重启，封顶后无第 5 次
@@ -336,7 +335,8 @@ describe('kk-P2-8：退出与边界分支', () => {
     const backup = readFileSync(join(M.userData, 'workdir.json'), 'utf-8')
     rmSync(join(M.userData, 'workdir.json'))
     // 记住上一轮 token（studio-token.json 已在 userData）
-    const tokenBefore = (JSON.parse(readFileSync(join(M.userData, 'studio-token.json'), 'utf-8')) as { token: string }).token
+    const tokenBefore = (JSON.parse(readFileSync(join(M.userData, 'studio-token.json'), 'utf-8')) as { token: string })
+      .token
     vi.resetModules()
     await import('../../src/desktop/main.js')
     await new Promise((r) => setImmediate(r))
@@ -404,7 +404,10 @@ describe('kk-P2-8：退出与边界分支', () => {
     await new Promise((r) => setImmediate(r))
     const win = M.windows[windows0]!
     expect(win, 'fresh 模块应已开主窗').toBeTruthy()
-    const h = win.webContents.handlers['render-process-gone']![0]! as (e: unknown, d: { reason: string; exitCode: number }) => void
+    const h = win.webContents.handlers['render-process-gone']![0]! as (
+      e: unknown,
+      d: { reason: string; exitCode: number },
+    ) => void
     for (let i = 0; i < 3; i++) h({}, { reason: 'oom', exitCode: 5 })
     expect(win.webContents.reloaded).toBe(3) // 封顶前逐次自愈 reload
     const loaded0 = win.loaded.length
@@ -428,7 +431,10 @@ describe('kk-P2-8：退出与边界分支', () => {
       await new Promise((r) => setImmediate(r))
       const win = M.windows[windows0]!
       expect(win, 'fresh 模块应已开主窗').toBeTruthy()
-      const gone = win.webContents.handlers['render-process-gone']![0]! as (e: unknown, d: { reason: string; exitCode: number }) => void
+      const gone = win.webContents.handlers['render-process-gone']![0]! as (
+        e: unknown,
+        d: { reason: string; exitCode: number },
+      ) => void
       for (let i = 0; i < 3; i++) gone({}, { reason: 'oom', exitCode: 5 })
       expect(win.webContents.reloaded).toBe(3)
       // reload 成功 → did-finish-load；存活过 5 分钟稳定窗口 → 计数清零

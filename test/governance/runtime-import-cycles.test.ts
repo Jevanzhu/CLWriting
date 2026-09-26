@@ -147,7 +147,9 @@ function findSccs(graph: Map<string, Set<string>>): string[][] {
   for (const start of graph.keys()) {
     if (index.has(start)) continue
     // 显式栈（节点 → 待处理邻居迭代器位置）
-    const work: Array<{ node: string; iter: Iterator<string> }> = [{ node: start, iter: (graph.get(start) ?? new Set()).values() }]
+    const work: Array<{ node: string; iter: Iterator<string> }> = [
+      { node: start, iter: (graph.get(start) ?? new Set()).values() },
+    ]
     index.set(start, counter)
     low.set(start, counter)
     counter++
@@ -212,20 +214,36 @@ const SOLVED_EDGES: Array<{ from: string; to: string; why: string }> = [
   // ① fs 文件环：atomic 只为取 isProcessAlive 而引 lock，lock 又引 atomic 的重试原语
   { from: 'src/fs/atomic.ts', to: 'src/fs/cross-process-lock.ts', why: 'isProcessAlive 已拆至 fs/process-alive.ts' },
   // ② ai 强连通的环边：适配器族（gateway 用量估算）反向依赖编排层取 estimateTokens
-  { from: 'src/ai/provider/usage-estimate.ts', to: 'src/process/prepare.ts', why: 'estimateTokens 已下沉 shared/tokens.ts' },
+  {
+    from: 'src/ai/provider/usage-estimate.ts',
+    to: 'src/process/prepare.ts',
+    why: 'estimateTokens 已下沉 shared/tokens.ts',
+  },
   // ③ ai 强连通的环边：风格修复规则经 process/summary 的 re-export 中转取码点工具
   { from: 'src/ai/rules/style-remedy.ts', to: 'src/process/summary.ts', why: 'codePoint 工具直引 shared/text.ts' },
   // ④ install 环的两条回引边：repair/resolve 回引 books.ts 取存储原语与常量
   { from: 'src/install/books-repair.ts', to: 'src/install/books.ts', why: '存储层已下沉 install/books-store.ts' },
-  { from: 'src/install/books-resolve.ts', to: 'src/install/books.ts', why: 'CLWRITING_DIR 已下沉 install/books-store.ts' },
+  {
+    from: 'src/install/books-resolve.ts',
+    to: 'src/install/books.ts',
+    why: 'CLWRITING_DIR 已下沉 install/books-store.ts',
+  },
   // ⑤ 同根因剥除的转运边（非环边但同为「通用工具放错模块」的中转层）
   { from: 'src/ai/prompts/chat.ts', to: 'src/process/summary.ts', why: 'clipByCodePoints 直引 shared/text.ts' },
   { from: 'src/ai/tools/search.ts', to: 'src/process/summary.ts', why: 'clipByCodePoints 直引 shared/text.ts' },
   { from: 'src/ai/tools/rewrite.ts', to: 'src/process/summary.ts', why: '码点工具直引 shared/text.ts' },
   { from: 'src/process/book-search.ts', to: 'src/process/summary.ts', why: 'clipByCodePoints 直引 shared/text.ts' },
   { from: 'src/process/spill.ts', to: 'src/process/summary.ts', why: 'codePointLength 直引 shared/text.ts' },
-  { from: 'src/ai/orchestrate/self-heal.ts', to: 'src/process/summary.ts', why: 'runRegisteredBgTask 已独立为 process/bg-task.ts' },
-  { from: 'src/ai/provider/store.ts', to: 'src/ai/calls.ts', why: '锁写原语已迁 fs/lock-file.ts（设置域不再经记账模块借用）' },
+  {
+    from: 'src/ai/orchestrate/self-heal.ts',
+    to: 'src/process/summary.ts',
+    why: 'runRegisteredBgTask 已独立为 process/bg-task.ts',
+  },
+  {
+    from: 'src/ai/provider/store.ts',
+    to: 'src/ai/calls.ts',
+    why: '锁写原语已迁 fs/lock-file.ts（设置域不再经记账模块借用）',
+  },
 ]
 
 /**
@@ -238,7 +256,12 @@ const SOLVED_EDGES: Array<{ from: string; to: string; why: string }> = [
  * 「工具下沉真家 + 依赖单向化」解环，不要把它们登记进冻结清单。
  */
 const FROZEN_CYCLES: ReadonlySet<string> = new Set([
-  cycleKey(['src/studio/web-next/src/stores/doc.ts', 'src/studio/web-next/src/stores/tree.ts', 'src/studio/web-next/src/stores/workspace.ts', 'src/studio/web-next/src/stores/words.ts']),
+  cycleKey([
+    'src/studio/web-next/src/stores/doc.ts',
+    'src/studio/web-next/src/stores/tree.ts',
+    'src/studio/web-next/src/stores/workspace.ts',
+    'src/studio/web-next/src/stores/words.ts',
+  ]),
   cycleKey(['src/studio/web-next/src/stores/prefs.ts', 'src/studio/web-next/src/stores/ui.ts']),
 ])
 
@@ -261,9 +284,17 @@ const DYNAMIC_IMPORTS: ReadonlySet<string> = new Set([
  */
 const FORBIDDEN_TRANSIT: Array<{ from: string; symbols: string[]; home: string }> = [
   { from: 'src/process/summary.ts', symbols: ['codePointLength', 'clipByCodePoints'], home: 'src/shared/text.ts' },
-  { from: 'src/process/prepare.ts', symbols: ['estimateTokens', 'TOKEN_COEFFICIENTS', 'DEFAULT_TOKEN_COEFF'], home: 'src/shared/tokens.ts' },
+  {
+    from: 'src/process/prepare.ts',
+    symbols: ['estimateTokens', 'TOKEN_COEFFICIENTS', 'DEFAULT_TOKEN_COEFF'],
+    home: 'src/shared/tokens.ts',
+  },
   { from: 'src/process/summary.ts', symbols: ['runRegisteredBgTask'], home: 'src/process/bg-task.ts' },
-  { from: 'src/ai/calls.ts', symbols: ['serializedLockedWrite', 'SerializedLockedWriteOpts'], home: 'src/fs/lock-file.ts' },
+  {
+    from: 'src/ai/calls.ts',
+    symbols: ['serializedLockedWrite', 'SerializedLockedWriteOpts'],
+    home: 'src/fs/lock-file.ts',
+  },
 ]
 
 /** 扫描「从 from 模块 import 了表内符号」的 import 语句（含多行）；返回违规行描述。 */
@@ -276,14 +307,16 @@ function scanTransitViolations(): string[] {
     for (const rule of FORBIDDEN_TRANSIT) {
       const ruleFrom = norm(join(root, rule.from))
       // 该文件的 import/export 语句里是否有指向 rule.from 的说明符
-      const stmtRe = /(?:^|\n)[ \t]*(?:import|export)\s+(?!type\b)((?:(?!(?:^|\n)[ \t]*(?:import|export)\s)[\s\S])*?)from\s*['"]([^'"]+)['"]/g
+      const stmtRe =
+        /(?:^|\n)[ \t]*(?:import|export)\s+(?!type\b)((?:(?!(?:^|\n)[ \t]*(?:import|export)\s)[\s\S])*?)from\s*['"]([^'"]+)['"]/g
       let m: RegExpExecArray | null
       while ((m = stmtRe.exec(src))) {
         const clause = m[1]!
         const to = resolveSpec(f, m[2]!)
         if (to !== ruleFrom) continue
         const hit = rule.symbols.filter((s) => new RegExp(`\\b${s}\\b`).test(clause))
-        if (hit.length > 0) violations.push(`${fromRel} 仍从 ${rule.from} 引 ${hit.join('/')}（应直引 ${rule.home}）：${m[0].trim()}`)
+        if (hit.length > 0)
+          violations.push(`${fromRel} 仍从 ${rule.from} 引 ${hit.join('/')}（应直引 ${rule.home}）：${m[0].trim()}`)
       }
     }
   }
@@ -302,7 +335,8 @@ describe('R0916-7-P3-3: src 运行时 import 环守护', () => {
     expect(
       present,
       '已解开的环边回潮（工具/原语被搬回旧家或重新经中转层引用）。修复指引：直引实现所在模块，' +
-        '不要新增 re-export 兼容层:\n' + present.join('\n'),
+        '不要新增 re-export 兼容层:\n' +
+        present.join('\n'),
     ).toEqual([])
   })
 
@@ -312,7 +346,8 @@ describe('R0916-7-P3-3: src 运行时 import 环守护', () => {
       unknown,
       'src 出现冻结清单外的运行时循环依赖（含已解环回潮 / 新文件插入既有环）。修复指引：' +
         '把通用工具下沉到其真家模块（shared/fs 等零上层依赖的叶子）、或拆单向模块（被依赖方不回引）；' +
-        '确属面外既有环才登记 FROZEN_CYCLES——且按节点集合精确登记（禁前缀/通配）:\n' + unknown.join('\n'),
+        '确属面外既有环才登记 FROZEN_CYCLES——且按节点集合精确登记（禁前缀/通配）:\n' +
+        unknown.join('\n'),
     ).toEqual([])
   })
 
@@ -340,10 +375,7 @@ describe('R0916-7-P3-3: src 运行时 import 环守护', () => {
 
   it('静态 ∪ 动态合并图同样无冻结清单外的环（防用 import() 藏环边）', () => {
     const unknown = mergedSccs.map(cycleKey).filter((k) => !FROZEN_CYCLES.has(k))
-    expect(
-      unknown,
-      '合并动态 import 后出现冻结清单外的环（静态图看不见的隐藏环）:\n' + unknown.join('\n'),
-    ).toEqual([])
+    expect(unknown, '合并动态 import 后出现冻结清单外的环（静态图看不见的隐藏环）:\n' + unknown.join('\n')).toEqual([])
   })
 
   it('迁移符号不再经中转模块 import（直引新家）', () => {

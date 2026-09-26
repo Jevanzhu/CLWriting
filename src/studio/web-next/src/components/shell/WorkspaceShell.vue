@@ -265,7 +265,7 @@ onBeforeUnmount(() => {
   transition: width var(--dur-norm) var(--ease-out);
 }
 .ws-side.dragging {
-  transition: none;  /* 拖拽时即时响应，不做宽度过渡 */
+  transition: none; /* 拖拽时即时响应，不做宽度过渡 */
 }
 .ws-left {
   width: var(--left-width, 240px);
@@ -323,5 +323,4 @@ onBeforeUnmount(() => {
 .ws-focus-exit:hover {
   opacity: 1;
 }
-
 </style>

@@ -47,9 +47,7 @@ class MockES {
 
 /** ticket 端点的 fetch 桩：默认返回 200 {ticket} */
 function stubTicketFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response> | never) {
-  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-    handler(String(input), init),
-  )
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => handler(String(input), init))
   vi.stubGlobal('fetch', fn)
   return fn
 }

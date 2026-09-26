@@ -102,7 +102,9 @@ describe('SettingsBookWriting 写作默认本书覆盖（两层组开关）', ()
 
     const run = captureMutator()
     await wrapper.find('input[aria-label="本书使用独立设定"]').setValue(false)
-    const cfg = { book: { title: '测试书', genre: '都市', volume_size: 40, target_words: 1_000_000, chapter_target_words: 3000 } } as BookConfig
+    const cfg = {
+      book: { title: '测试书', genre: '都市', volume_size: 40, target_words: 1_000_000, chapter_target_words: 3000 },
+    } as BookConfig
     run(cfg)
     expect(cfg.book?.genre).toBeUndefined()
     expect(cfg.book?.volume_size).toBeUndefined()

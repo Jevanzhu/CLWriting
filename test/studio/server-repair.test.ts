@@ -23,7 +23,10 @@ beforeAll(async () => {
     // 磁盘有完整书仓库（book.yaml + 一章正文），但 books.jsonl 缺失——模拟登记损坏/被删
     dirs: ['长篇/失联书/写作/正文'],
     files: [
-      { rel: '长篇/失联书/book.yaml', content: 'spec_version: 1\nkind: long\nbook:\n  title: 失联书\n  genre: 玄幻\nhost: cc\n' },
+      {
+        rel: '长篇/失联书/book.yaml',
+        content: 'spec_version: 1\nkind: long\nbook:\n  title: 失联书\n  genre: 玄幻\nhost: cc\n',
+      },
       { rel: '长篇/失联书/写作/正文/0001-开篇.md', content: '# 开篇\n\n正文。\n' },
     ],
   })

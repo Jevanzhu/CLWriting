@@ -108,7 +108,10 @@ export function readApiKey(workDir: string): string | null {
     const key = readFileSync(secretPath, 'utf8').trim()
     if (key && !ragSecretDeprecationWarned) {
       ragSecretDeprecationWarned = true
-      log.warn('rag', '检测到旧版明文 embedding 密钥文件 .clwriting/rag.secret，建议迁移到供应商配置（密钥已加密存储）；该通道后续版本将移除')
+      log.warn(
+        'rag',
+        '检测到旧版明文 embedding 密钥文件 .clwriting/rag.secret，建议迁移到供应商配置（密钥已加密存储）；该通道后续版本将移除',
+      )
     }
     return key || null
   }

@@ -25,11 +25,7 @@ function makeBook(): string {
   const root = mkdtempTracked(join(tmpdir(), 'learn-quote-cp-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\n', 'utf-8')
-  writeFileSync(
-    join(root, '写作', '正文', '0001-定稿章.md'),
-    `---\n章号: 1\n标题: 定稿章\n---\n${SENTENCE}\n`,
-    'utf-8',
-  )
+  writeFileSync(join(root, '写作', '正文', '0001-定稿章.md'), `---\n章号: 1\n标题: 定稿章\n---\n${SENTENCE}\n`, 'utf-8')
   return root
 }
 

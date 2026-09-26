@@ -63,12 +63,14 @@ beforeAll(async () => {
     book: BOOK,
     prefix: 'clwriting-check-api-',
     dirs: ['定稿/正文', '定稿/设定', '大纲/悬念', '项目'],
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 机检测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 机检测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     files: [
       // 正文文档（完整章节 fm）
       {
         rel: '定稿/正文/0001-开篇.md',
-        content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
+        content:
+          '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
       },
       // 非章节文档（设定，fm 无章号/钩子字段）
       { rel: '定稿/设定/角色.md', content: '---\n标题: 角色\n---\n\n主角信息。\n' },

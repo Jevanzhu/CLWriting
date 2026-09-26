@@ -192,12 +192,10 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
   // 杀死测试进程），只断言行为序列。
   it('R44-17: uncaughtException → 窗内同步 kill server child + 200ms 退出兜底保留', async () => {
     const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
-    const onSpy = vi
-      .spyOn(process, 'on')
-      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
-        ;(registered[String(evt)] ??= []).push(fn)
-        return process
-      }) as never)
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+      ;(registered[String(evt)] ??= []).push(fn)
+      return process
+    }) as never)
     // R0910-W：修复后退出改由 stopChild 落定后的 setTimeout(_,0) 触发（不再只靠
     // 200ms 兜底）——真 process.exit 会杀死 vitest worker，mock 掉只断言调用。
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
@@ -237,12 +235,10 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
   // 不被 stopChild 拖延。真 200ms 定时器驱动（process.exit 已 mock）。
   it('R0912-3 #35: stopChild 慢于 backstop → killNow 仍发出 kill，退出不被拖延', async () => {
     const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
-    const onSpy = vi
-      .spyOn(process, 'on')
-      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
-        ;(registered[String(evt)] ??= []).push(fn)
-        return process
-      }) as never)
+    const onSpy = vi.spyOn(process, 'on').mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+      ;(registered[String(evt)] ??= []).push(fn)
+      return process
+    }) as never)
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
     try {
       await freshModule()

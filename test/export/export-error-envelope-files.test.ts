@@ -56,7 +56,11 @@ function makeShortBook(title: string): string {
 }
 
 function writeLongChapter(root: string, num: number, title: string, body: string): void {
-  writeFileSync(join(root, '写作', '正文', `${num}-${title}.md`), `---\n章号: ${num}\n标题: ${title}\n---\n${body}`, 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', `${num}-${title}.md`),
+    `---\n章号: ${num}\n标题: ${title}\n---\n${body}`,
+    'utf-8',
+  )
 }
 
 test('重审-09: split 段中途失败 → 错误信封 files 含已完成的逐章产物（现状清零 → 红）', () => {

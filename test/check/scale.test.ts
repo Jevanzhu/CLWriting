@@ -45,7 +45,23 @@ const COLD_BOUND_MS = 8_000 * PLATFORM_MULT
 const WARM_BOUND_MS = 800 * PLATFORM_MULT
 
 /** 造词池（确定性文本生成，不含禁词） */
-const WORDS = ['山峦', '风雪', '剑光', '长街', '灯火', '故人', '旧梦', '孤城', '烟雨', '残阳', '铁骑', '夜色', '荒原', '潮声', '星火']
+const WORDS = [
+  '山峦',
+  '风雪',
+  '剑光',
+  '长街',
+  '灯火',
+  '故人',
+  '旧梦',
+  '孤城',
+  '烟雨',
+  '残阳',
+  '铁骑',
+  '夜色',
+  '荒原',
+  '潮声',
+  '星火',
+]
 
 /** mulberry32 确定性 PRNG（rag scale 同款） */
 function mulberry32(seed: number): () => number {
@@ -87,7 +103,11 @@ function makeScaleBook(): { root: string; hitDocOf: (no: number) => string } {
   mkdirSync(join(root, '项目'), { recursive: true })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n', 'utf-8')
+  writeFileSync(
+    join(root, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+    'utf-8',
+  )
   writeFileSync(
     join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
     '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
@@ -145,8 +165,8 @@ describe('树红点聚合规模界值（500 章长篇）', { retry: 2 }, () => {
 
       console.log(
         `[check-scale] ${CHAPTERS} 章 / ~${((CHAPTERS * CHARS_PER_CHAPTER) / 10000).toFixed(0)}万字` +
-        `｜冷算 ${coldMs.toFixed(0)}ms｜缓存命中 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${warmMs.toFixed(0)}ms）` +
-        `｜红点 ${issueCount} 章`,
+          `｜冷算 ${coldMs.toFixed(0)}ms｜缓存命中 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${warmMs.toFixed(0)}ms）` +
+          `｜红点 ${issueCount} 章`,
       )
       expect(coldMs).toBeLessThan(COLD_BOUND_MS)
       expect(warmMs).toBeLessThan(WARM_BOUND_MS)

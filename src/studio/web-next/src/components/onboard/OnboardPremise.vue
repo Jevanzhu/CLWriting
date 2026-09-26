@@ -14,7 +14,9 @@ const storyPremise = defineModel<string>({ required: true })
 onMounted(() => {
   try {
     storyPremise.value = localStorage.getItem(onboardPremiseKey(props.bookName)) ?? ''
-  } catch { /* 隐私模式忽略 */ }
+  } catch {
+    /* 隐私模式忽略 */
+  }
 })
 let premiseTimer: ReturnType<typeof setTimeout> | null = null
 watch(storyPremise, (v) => {
@@ -23,7 +25,9 @@ watch(storyPremise, (v) => {
     premiseTimer = null
     try {
       localStorage.setItem(onboardPremiseKey(props.bookName), v)
-    } catch { /* 忽略 */ }
+    } catch {
+      /* 忽略 */
+    }
   }, 300)
 })
 onBeforeUnmount(() => {
@@ -34,7 +38,9 @@ onBeforeUnmount(() => {
     // 修复前最后一次编辑随定时器被清而丢弃，重进回退到旧值
     try {
       localStorage.setItem(onboardPremiseKey(props.bookName), storyPremise.value)
-    } catch { /* 隐私模式忽略 */ }
+    } catch {
+      /* 隐私模式忽略 */
+    }
   }
 })
 </script>
@@ -104,7 +110,9 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-m);
   resize: vertical;
   outline: none;
-  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 .premise-input:focus {
   border-color: var(--interactive-accent);

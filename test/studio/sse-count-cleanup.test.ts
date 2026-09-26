@@ -24,14 +24,19 @@ async function openStream(name: string): Promise<void> {
   const ac = new AbortController()
   openStreams.push(ac)
   // R0916-7-P3-19：SSE `?token=` 通道已删——凭据走 x-studio-token 头
-  const r = await fetch(
-    `${studio.baseUrl}/api/books/${encodeURIComponent(name)}/stream`,
-    { signal: ac.signal, headers: { 'x-studio-token': studio.token } },
-  )
+  const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(name)}/stream`, {
+    signal: ac.signal,
+    headers: { 'x-studio-token': studio.token },
+  })
   expect(r.status).toBe(200)
   expect(r.headers.get('content-type')).toContain('text/event-stream')
   // 挂后台消费，防背压缓冲占满（只要连接活着即可）
-  void r.body?.getReader().read().catch(() => { /* abort 后抛错忽略 */ })
+  void r.body
+    ?.getReader()
+    .read()
+    .catch(() => {
+      /* abort 后抛错忽略 */
+    })
 }
 
 /** 等计数稳定（连接建立→计数递增是即时的，给一拍事件循环余量）。 */

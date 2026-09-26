@@ -126,7 +126,9 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
     if (!book) return
     try {
       localStorage.removeItem(mirrorKey(book, docId))
-    } catch { /* 存储不可用降级 */ }
+    } catch {
+      /* 存储不可用降级 */
+    }
   }
 
   /** 读镜像（损坏/字段非法视为不存在）。baseRev 为镜像时的服务端基线；
@@ -179,7 +181,9 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
         doomed.push(k)
       }
       for (const k of doomed) localStorage.removeItem(k)
-    } catch { /* 存储不可用降级 */ }
+    } catch {
+      /* 存储不可用降级 */
+    }
   }
 
   return { scheduleDirtyMirror, clearDirtyMirror, readDirtyMirror, clearBookMirrors }

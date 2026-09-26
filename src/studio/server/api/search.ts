@@ -19,7 +19,7 @@ import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../p
 interface SearchCtx {
   workDir: string | null
   /** 收尾：搜索缓存 TTL 覆盖档——组装根 RouteOverrides 注入
- * （undefined = 生产口径 5s 逐位不变） */
+   * （undefined = 生产口径 5s 逐位不变） */
   searchTtlMs?: number | null
 }
 
@@ -46,7 +46,10 @@ export function forgetSearchCache(bookRoot: string): void {
  * 过期逐出 + inFlightSearches 在途去重本地壳删除；命中/失效时序/逐出序逐位
  * 不变——单级探针 + in-flight 去重 + FIFO 32，见 ttl-cache.ts 头部收敛映射表）。
  * 收尾：导出即观测面（stats.misses 取代 __searchScanCountForTest）。 */
-export const searchCache = createTtlProbeCache<{ bookRoot: string; query: string; scope: string | undefined }, SearchOutcome>({
+export const searchCache = createTtlProbeCache<
+  { bookRoot: string; query: string; scope: string | undefined },
+  SearchOutcome
+>({
   name: 'search',
   keyOf: (k) => `${k.bookRoot}\u0000${k.scope ?? ''}\u0000${k.query}`,
   max: SEARCH_CACHE_MAX,
@@ -73,7 +76,12 @@ function dirSignature(bookRoot: string): string {
 /** 全书搜索（缓存 + 在途去重 + 底层 searchBookAsync）。导出供回归测试直测。
  * ttlOverrideMs = 逐调用 TTL 覆盖档（收尾：组装根 RouteOverrides 经
  * handler 传入；直测面显式传——undefined = 生产口径 5s）。 */
-export async function searchBookCached(bookRoot: string, q: string, scope?: string, ttlOverrideMs?: number | null): Promise<SearchOutcome> {
+export async function searchBookCached(
+  bookRoot: string,
+  q: string,
+  scope?: string,
+  ttlOverrideMs?: number | null,
+): Promise<SearchOutcome> {
   const query = (q ?? '').trim()
   if (!query) return { results: [] } // 空查询零成本直返，不占缓存
   return searchCache.get({ bookRoot, query, scope }, undefined, ttlOverrideMs ?? undefined)
@@ -84,21 +92,21 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
     method: 'GET',
     path: '/api/books/:name/search',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-    if (!r) return
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
-    // parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
-    //（此前 api 层唯一残留的裸 new URL，属口径漂移死分叉）
-    const url = parseRequestUrl(req)
-    if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
-    const q = (url.searchParams.get('q') ?? '').trim()
-    const scope = url.searchParams.get('scope') ?? undefined
+      // parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
+      //（此前 api 层唯一残留的裸 new URL，属口径漂移死分叉）
+      const url = parseRequestUrl(req)
+      if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const q = (url.searchParams.get('q') ?? '').trim()
+      const scope = url.searchParams.get('scope') ?? undefined
 
-    // 异步扫描 + 缓存/去重（原同步 searchBook 冻结事件循环，见上方块注）
-    // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
-    const out = await searchBookCached(r.bookRoot, q, scope, ctx.searchTtlMs ?? undefined)
-    if (out.truncated) reply(res, 200, { results: out.results, truncated: true })
-    else reply(res, 200, { results: out.results })
-  },
+      // 异步扫描 + 缓存/去重（原同步 searchBook 冻结事件循环，见上方块注）
+      // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
+      const out = await searchBookCached(r.bookRoot, q, scope, ctx.searchTtlMs ?? undefined)
+      if (out.truncated) reply(res, 200, { results: out.results, truncated: true })
+      else reply(res, 200, { results: out.results })
+    },
   })
 }

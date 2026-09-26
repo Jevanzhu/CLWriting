@@ -23,7 +23,8 @@ beforeAll(async () => {
     prefix: 'clw-r0912-ds41-prune-',
     env: { CLWRITING_DRIVER: 'mock' },
     // book.yaml title 必须与书名一致：启动段 repairBooks 以 title 覆写登记名
-    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0912清理闸书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: R0912清理闸书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     dirs: ['工作区/.版本'],
   })
 })

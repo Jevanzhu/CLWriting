@@ -55,9 +55,7 @@ function parseSaveInput(body: Record<string, unknown>): SaveDocumentInput | null
   else if (typeof er === 'string' && er.startsWith('sha256:')) {
     expectedRevision = er as `sha256:${string}`
   } else return null
-  const origin = ORIGINS.has(body.origin as string)
-    ? (body.origin as SaveDocumentInput['origin'])
-    : 'manual'
+  const origin = ORIGINS.has(body.origin as string) ? (body.origin as SaveDocumentInput['origin']) : 'manual'
   const input: SaveDocumentInput = {
     content: body.content,
     expectedRevision,
@@ -179,10 +177,13 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           // REVISION_CONFLICT/OCCUPIED 冲突族一致）；ee-LEAD_WRITE_ERROR → 500
           // （服务端 IO 故障，作者修复环境后重试）。error 人话原样透传给前端 toast。
           const status =
-            outcome.code === 'NOT_FOUND' ? 404
-            : outcome.code === 'LEAD_GATE' ? 409
-            : outcome.code === 'LEAD_WRITE_ERROR' ? 500
-            : 400
+            outcome.code === 'NOT_FOUND'
+              ? 404
+              : outcome.code === 'LEAD_GATE'
+                ? 409
+                : outcome.code === 'LEAD_WRITE_ERROR'
+                  ? 500
+                  : 400
           // 收编 replyError 单一出口（去掉 ok:false 冗余位）
           return replyError(res, status, outcome.code, outcome.error)
         }
@@ -193,8 +194,17 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         // （零 AI 调用/零落盘），登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
         if (!outcome.skipped) {
           void (async (): Promise<void> => {
-            const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
-            afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], ctx.driver.driver, session)
+            const session = await ctx.driver
+              .ensureSession(params['name']!, ctx.workDir!)
+              .catch((): undefined => undefined)
+            afterFinalizeGenerateSummary(
+              r.bookRoot,
+              ctx.userDataPath ?? null,
+              params['docId'] ?? '',
+              params['name'],
+              ctx.driver.driver,
+              session,
+            )
           })()
         }
         // B103（0918二轮修复批）：防吃书闸降级短语随信封透传（非空 = 闸门
@@ -239,10 +249,22 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           return replyError(res, 400, 'BAD_INPUT', 'docIds 必须为非空字符串数组')
         }
         if (docIds.length > BATCH_FINALIZE_MAX_DOCS) {
-          return replyError(res, 400, 'BAD_INPUT', `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`)
+          return replyError(
+            res,
+            400,
+            'BAD_INPUT',
+            `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`,
+          )
         }
         const summarized: string[] = []
-        const results: Array<{ docId: string; ok: boolean; status?: string; skipped?: boolean; error?: string; gateDegraded?: string[] }> = []
+        const results: Array<{
+          docId: string
+          ok: boolean
+          status?: string
+          skipped?: boolean
+          error?: string
+          gateDegraded?: string[]
+        }> = []
         // （三十轮， 移交收尾）：切异步孪生 finalizeRevisionAsync——逐条 await
         // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
         // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
@@ -267,8 +289,17 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
         // 同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
         void (async (): Promise<void> => {
-          const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
-          afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'], ctx.driver.driver, session)
+          const session = await ctx.driver
+            .ensureSession(params['name']!, ctx.workDir!)
+            .catch((): undefined => undefined)
+          afterFinalizeGenerateSummaryBatch(
+            r.bookRoot,
+            ctx.userDataPath ?? null,
+            summarized,
+            params['name'],
+            ctx.driver.driver,
+            session,
+          )
         })()
         reply(res, 200, { ok: true, results })
       } finally {

@@ -75,7 +75,11 @@ function rewriteMeta(chapter: number, baseBody: string) {
  *  落盘失败 best-effort 如实告知（不谎称可落盘）。：确认通道 = apply_spill 工具（write 级确认闸）。 */
 function unsavedNote(locator: string | null, chars: number): string {
   return locator
-    ? '【未保存】改写稿全文（' + chars + ' 字）已暂存：' + locator + '。确认满意后说一声，我调 apply_spill 按此路径落盘为章草稿。'
+    ? '【未保存】改写稿全文（' +
+        chars +
+        ' 字）已暂存：' +
+        locator +
+        '。确认满意后说一声，我调 apply_spill 按此路径落盘为章草稿。'
     : '【未保存】改写稿全文暂存失败（磁盘异常），目前仅对话内有预览。'
 }
 
@@ -100,13 +104,19 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
   // 但不告警是不可接受的）+ 溯源缺失（chat 上下文 spill / 存量手写文件不得走确认通道）
   const meta = readSpillMeta(ctx.bookRoot, locator)
   if (meta === null) {
-    return { ok: false, summary: '暂存缺少改写溯源信息（' + locator + ' 非改写产物或已过期），已拒绝落盘——请重新发起改写。' }
+    return {
+      ok: false,
+      summary: '暂存缺少改写溯源信息（' + locator + ' 非改写产物或已过期），已拒绝落盘——请重新发起改写。',
+    }
   }
   if (meta.chapter !== chapter) {
     return {
       ok: false,
       summary:
-        '归属校验失败：该暂存稿产自第 ' + meta.chapter + ' 章改写，与请求的第 ' + chapter +
+        '归属校验失败：该暂存稿产自第 ' +
+        meta.chapter +
+        ' 章改写，与请求的第 ' +
+        chapter +
         ' 章不符，已拒绝落盘（防转述错章号导致整章覆写）。请核对章号后重试。',
     }
   }
@@ -115,7 +125,9 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
     return {
       ok: false,
       summary:
-        '新鲜度校验失败：第 ' + chapter + ' 章在改写产出后被编辑过，暂存稿基于旧正文，直接落盘会覆盖新编辑，已拒绝。请基于当前正文重新发起改写。',
+        '新鲜度校验失败：第 ' +
+        chapter +
+        ' 章在改写产出后被编辑过，暂存稿基于旧正文，直接落盘会覆盖新编辑，已拒绝。请基于当前正文重新发起改写。',
     }
   }
   const { relPath } = resolveDraftPath(ctx.bookRoot, chapter)
@@ -130,15 +142,27 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
     return {
       ok: false,
       summary:
-        '落盘前复验失败：第 ' + chapter + ' 章正文在确认窗口内被并发修改（改写/编辑/写稿），暂存稿基于旧正文，已拒绝落盘。请基于当前正文重新发起改写。',
+        '落盘前复验失败：第 ' +
+        chapter +
+        ' 章正文在确认窗口内被并发修改（改写/编辑/写稿），暂存稿基于旧正文，已拒绝落盘。请基于当前正文重新发起改写。',
     }
   }
   // 改写稿是 body 维度产物——front matter（章号/标题/钩子等）原样保留，只换正文
   // saveDraft 已异步化（保存锁等待异步孪生）
-  const saved = await saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), { snapshotOrigin: 'chat-rewrite', userDataPath: ctx.userDataPath })
+  const saved = await saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), {
+    snapshotOrigin: 'chat-rewrite',
+    userDataPath: ctx.userDataPath,
+  })
   return {
     ok: true,
-    summary: '已落盘：' + saved.relPath + '（' + saved.words + ' 字，改写前的旧稿已自动快照）。暂存原文保留在 ' + locator + ' 备查。',
+    summary:
+      '已落盘：' +
+      saved.relPath +
+      '（' +
+      saved.words +
+      ' 字，改写前的旧稿已自动快照）。暂存原文保留在 ' +
+      locator +
+      ' 备查。',
   }
 }
 
@@ -150,7 +174,17 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   const body = readChapterBody(ctx.bookRoot, chapter)
   if (body === null) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
   const kind = readKind(ctx.bookRoot)
-  const prompt = buildRewritePrompt('whole', body, '', instruction, [], chapter, kind, undefined, chapterTargetWords(ctx))
+  const prompt = buildRewritePrompt(
+    'whole',
+    body,
+    '',
+    instruction,
+    [],
+    chapter,
+    kind,
+    undefined,
+    chapterTargetWords(ctx),
+  )
   // 登记注入的整章正文路径（body 读自该章文件）
   const { relPath: bodyRel } = resolveDraftPath(ctx.bookRoot, chapter)
   const r = await runRewriter(ctx, prompt, chapter, [bodyRel])
@@ -158,7 +192,9 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   const diff = lineDiff(body, r.produced)
   const changed = diff.filter((d) => d.type !== 'same').length
   // slice 按 UTF-16 码元会把增补平面字符劈成孤立代理对——换码点口径
-  const preview = clipByCodePoints(r.produced, 600) + (codePointLength(r.produced) > 600 ? '\n……（全文共 ' + codePointLength(r.produced) + ' 字）' : '')
+  const preview =
+    clipByCodePoints(r.produced, 600) +
+    (codePointLength(r.produced) > 600 ? '\n……（全文共 ' + codePointLength(r.produced) + ' 字）' : '')
   // 全文落 spill（工作区/spills/<内容哈希>.md，幂等）——此前全文不落盘不 spill，
   // 「确认满意后再说一声，我再落盘」物理不可兑现（预览外内容已丢失）；落盘后按路径可取回全文。
   // meta 记章号 + 基线正文指纹，apply_spill 侧做归属/新鲜度校验
@@ -166,7 +202,14 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   return {
     ok: true,
     summary:
-      '第 ' + chapter + ' 章改写完成（' + changed + ' 行有改动）。新稿开头：\n\n' + preview + '\n\n' + unsavedNote(locator, codePointLength(r.produced))
+      '第 ' +
+      chapter +
+      ' 章改写完成（' +
+      changed +
+      ' 行有改动）。新稿开头：\n\n' +
+      preview +
+      '\n\n' +
+      unsavedNote(locator, codePointLength(r.produced)),
   }
 }
 
@@ -209,7 +252,6 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
       clipByCodePoints(r.produced, 600) +
       (codePointLength(r.produced) > 600 ? '\n……（改写稿共 ' + codePointLength(r.produced) + ' 字）' : '') +
       '\n\n' +
-      unsavedNote(locator, codePointLength(rewritten))
+      unsavedNote(locator, codePointLength(rewritten)),
   }
 }
-

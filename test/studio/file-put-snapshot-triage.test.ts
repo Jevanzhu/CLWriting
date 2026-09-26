@@ -61,14 +61,21 @@ describe('重评-0912-4 P1-1: PUT /file 非 UTF-8 覆写防线 fail-closed', () 
   })
 
   it('GET 合法 UTF-8 文件 → 无编码告警字段（探测不误报）', async () => {
-    const r = await studio.req('GET', `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`)
+    const r = await studio.req(
+      'GET',
+      `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`,
+    )
     expect(r.status).toBe(200)
     const j = r.json as { encodingSuspect?: boolean }
     expect(j.encodingSuspect).toBeFalsy()
   })
 
   it('PUT 合法 UTF-8 文件 → 200 正常保存（防线不误伤主流程）', async () => {
-    const r = await studio.req('PUT', `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`, { content: '新总纲内容' })
+    const r = await studio.req(
+      'PUT',
+      `/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('设定/总纲.md')}`,
+      { content: '新总纲内容' },
+    )
     expect(r.status).toBe(200)
     expect(readFileSync(join(studio.bookRoot, '设定', '总纲.md'), 'utf-8')).toBe('新总纲内容')
   })

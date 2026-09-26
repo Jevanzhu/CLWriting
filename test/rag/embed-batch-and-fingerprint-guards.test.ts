@@ -19,10 +19,19 @@ describe('R27-93：embed 批内维度/条数校验（混维行零入库）', () 
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     for (const n of [1, 2]) {
       const meta: ChapterMeta = {
-        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-        _path: '', _wordCount: 100,
+        章号: n,
+        标题: `第${n}章`,
+        钩子类型: '悬念钩',
+        钩子强弱: '中',
+        情绪定位: '铺垫',
+        _path: '',
+        _wordCount: 100,
       }
-      writeChapter(join(bookRoot, '写作', '正文', `${n}-第${n}章.md`), meta, `第${n}章正文，战斗场景描写充分，主角挥剑。`)
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章正文，战斗场景描写充分，主角挥剑。`,
+      )
     }
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
@@ -37,12 +46,22 @@ describe('R27-93：embed 批内维度/条数校验（混维行零入库）', () 
           return i === 1 ? [norm, norm * 0.5] : [norm, norm * 0.5, norm * 0.3]
         }),
       )
-    const result = await buildIndex(bookRoot, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'key', raggedEmbed)
+    const result = await buildIndex(
+      bookRoot,
+      { enabled: true, endpoint: 'http://stub', model: 'stub-model' },
+      'key',
+      raggedEmbed,
+    )
     expect(result.ok).toBe(false)
     // 零入库证明：换干净桩重跑，两章仍全部按「未索引」建索引（游标未推进）
     const cleanEmbed = (_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> =>
       Promise.resolve(texts.map((t) => [1 / ((t.charCodeAt(0) || 1) + 1), 0.2, 0.1]))
-    const rerun = await buildIndex(bookRoot, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'key', cleanEmbed)
+    const rerun = await buildIndex(
+      bookRoot,
+      { enabled: true, endpoint: 'http://stub', model: 'stub-model' },
+      'key',
+      cleanEmbed,
+    )
     expect(rerun.ok).toBe(true)
     expect(rerun.chapterCount).toBe(2)
   })

@@ -120,9 +120,7 @@ describe('R34D-29: TrashPanel purge 在途锁 + 404 收敛静默', () => {
 
   it('迟到 404（条目已被清）→ 静默 + load 对齐列表，不覆盖成假错误态', async () => {
     mocks.purgeTrash.mockRejectedValue(new ApiError('回收站无此条目', 404, 'NOT_FOUND'))
-    mocks.listTrash
-      .mockResolvedValueOnce(TRASH_ENTRIES)
-      .mockResolvedValueOnce([TRASH_ENTRIES[1]!]) // 404 收敛 load：t1 已不在
+    mocks.listTrash.mockResolvedValueOnce(TRASH_ENTRIES).mockResolvedValueOnce([TRASH_ENTRIES[1]!]) // 404 收敛 load：t1 已不在
     const w = mountTrashPanel()
     await flushPromises()
 

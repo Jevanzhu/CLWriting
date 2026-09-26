@@ -31,7 +31,13 @@ describe('R35-13：rag.db 文件级损坏恢复（engine）', () => {
   function seedGoodRow(): void {
     const db = openRagDb(bookRoot)
     try {
-      storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.1, 0.2, 0.3]), model: 'm' })
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.1, 0.2, 0.3]),
+        model: 'm',
+      })
     } finally {
       db.close()
     }
@@ -49,7 +55,13 @@ describe('R35-13：rag.db 文件级损坏恢复（engine）', () => {
     // 重建后的库可用：可写入、可读回；损坏前的旧数据不残留
     const db = openRagDb(bookRoot)
     try {
-      storeChunk(db, { 章号: 2, start_offset: 0, end_offset: 10, embedding: Float32Array.from([0.4, 0.5, 0.6]), model: 'm' })
+      storeChunk(db, {
+        章号: 2,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([0.4, 0.5, 0.6]),
+        model: 'm',
+      })
       const chunks = readAllChunks(db)
       expect(chunks).toHaveLength(1)
       expect(chunks[0]!.章号).toBe(2)

@@ -70,7 +70,11 @@ function onTimeout(slot: TierSlot, ev: Event): void {
       <span class="tier-name">{{ title }}</span>
       <span class="tier-desc">{{ desc }}</span>
       <label v-if="switchOn !== undefined" class="switch tier-switch">
-        <input type="checkbox" :checked="switchOn" @change="emit('toggle', ($event.target as HTMLInputElement).checked)" />
+        <input
+          type="checkbox"
+          :checked="switchOn"
+          @change="emit('toggle', ($event.target as HTMLInputElement).checked)"
+        />
         <span class="switch-slider"></span>
       </label>
     </div>
@@ -248,7 +252,9 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .tier-select:focus {
   outline: none;
@@ -268,7 +274,9 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .tier-timeout:focus-within {
   border-color: var(--interactive-accent);
@@ -308,7 +316,9 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .tier-effort:focus-within {
   border-color: var(--interactive-accent);

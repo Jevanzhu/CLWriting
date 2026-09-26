@@ -71,7 +71,9 @@
   /* dsh Modal 关闭钮为圆形 */
   border-radius: 50%;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .close-btn:hover {
   color: var(--text-normal);
@@ -130,12 +132,16 @@
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .settings-nav button svg {
   color: var(--text-faint);
   flex-shrink: 0;
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 .settings-nav button:hover {
   background: var(--background-modifier-hover);
@@ -369,13 +375,13 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-[data-tab-scope="global"] .setting-item:not(.sub) .setting-item-name::after {
-  content: "全局";
+[data-tab-scope='global'] .setting-item:not(.sub) .setting-item-name::after {
+  content: '全局';
   color: var(--text-faint);
   background: var(--background-modifier-hover);
 }
-[data-tab-scope="book"] .setting-item:not(.sub) .setting-item-name::after {
-  content: "本书";
+[data-tab-scope='book'] .setting-item:not(.sub) .setting-item-name::after {
+  content: '本书';
   color: var(--text-on-accent);
   background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
 }
@@ -424,7 +430,9 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   text-align: center;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .settings-content .val-input:focus {
   outline: none;
@@ -507,7 +515,9 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 .settings-content .seg button:hover:not(.on) {
   color: var(--text-normal);
@@ -529,7 +539,9 @@
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .settings-content .num-input {
   width: 104px;
@@ -557,7 +569,9 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .rag-prov-select:hover {
@@ -658,7 +672,9 @@
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .font-select:focus {
   border-color: var(--interactive-accent);

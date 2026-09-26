@@ -15,10 +15,7 @@ interface SendChatResult {
 }
 
 /** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流；运行中入队） */
-export async function sendChat(
-  name: string,
-  body: { message: string; chapter?: number },
-): Promise<SendChatResult> {
+export async function sendChat(name: string, body: { message: string; chapter?: number }): Promise<SendChatResult> {
   return apiJson(
     bookUrl(name, 'chat'),
     {
@@ -87,14 +84,15 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
 }
 
 /** POST /chat/confirm {callId, ok} —— 工具确认/取消 */
-export async function confirmTool(
-  name: string,
-  body: { callId: string; ok: boolean },
-): Promise<{ ok: boolean }> {
-  return apiJson(bookUrl(name, 'chat', 'confirm'), {
-    method: 'POST',
-    json: body,
-  }, CHAT_TIMEOUT_MS)
+export async function confirmTool(name: string, body: { callId: string; ok: boolean }): Promise<{ ok: boolean }> {
+  return apiJson(
+    bookUrl(name, 'chat', 'confirm'),
+    {
+      method: 'POST',
+      json: body,
+    },
+    CHAT_TIMEOUT_MS,
+  )
 }
 
 // ── ：分支（变体）与重新生成 ──────────────────────
@@ -127,8 +125,12 @@ export async function regenerateChat(
   name: string,
   body: { parentSeq: number; branchId: string; chapter?: number },
 ): Promise<{ ok: boolean; queued?: boolean }> {
-  return apiJson(bookUrl(name, 'chat', 'regenerate'), {
-    method: 'POST',
-    json: body,
-  }, CHAT_TIMEOUT_MS)
+  return apiJson(
+    bookUrl(name, 'chat', 'regenerate'),
+    {
+      method: 'POST',
+      json: body,
+    },
+    CHAT_TIMEOUT_MS,
+  )
 }

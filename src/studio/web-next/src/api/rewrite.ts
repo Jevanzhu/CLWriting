@@ -31,8 +31,5 @@ export async function runRewriteDoc(
 // POST /documents/:docId/ai-version —— 改稿轨迹采集（文风）：接受改写时上报 AI 版全文。
 // fire-and-forget 语义：轨迹是旁路证据，失败由调用方静默吞掉，不阻断接受。
 export async function reportAiVersion(name: string, docId: string, content: string): Promise<void> {
-  await apiJson(
-    bookUrl(name, 'documents', docId, 'ai-version'),
-    { method: 'POST', json: { content } },
-  )
+  await apiJson(bookUrl(name, 'documents', docId, 'ai-version'), { method: 'POST', json: { content } })
 }

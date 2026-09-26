@@ -168,7 +168,14 @@ export const useChatStore = defineStore('chat', () => {
       const m = msgs[i]!
       const seq = seqs?.[i]?.[0]
       if (typeof m.content === 'string') {
-        seeded.push({ id: nextMsgId(), role: m.role, content: m.content, done: true, tools: [], ...(typeof seq === 'number' ? { seq } : {}) })
+        seeded.push({
+          id: nextMsgId(),
+          role: m.role,
+          content: m.content,
+          done: true,
+          tools: [],
+          ...(typeof seq === 'number' ? { seq } : {}),
+        })
         continue
       }
       if (m.role === 'user') {
@@ -186,9 +193,17 @@ export const useChatStore = defineStore('chat', () => {
       for (const b of m.content) {
         if (b.type === 'text') text += b.text
         // 历史种子化路径与 SSE 同口径截断（tool_use 的整章正文级 input）
-        else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: clipToolInput(b.input), status: 'running' })
+        else if (b.type === 'tool_use')
+          tools.push({ callId: b.id, name: b.name, input: clipToolInput(b.input), status: 'running' })
       }
-      seeded.push({ id: nextMsgId(), role: 'assistant', content: text, done: true, tools, ...(typeof seq === 'number' ? { seq } : {}) })
+      seeded.push({
+        id: nextMsgId(),
+        role: 'assistant',
+        content: text,
+        done: true,
+        tools,
+        ...(typeof seq === 'number' ? { seq } : {}),
+      })
     }
     // 兜底：无 tool_result 回填的卡片（异常残留的半截回合）标 cancelled，防永久转圈
     for (const m of seeded) {
@@ -279,7 +294,7 @@ export const useChatStore = defineStore('chat', () => {
     // activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
     // ），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）；
     // 仅旧后端缺字段（undefined）才回落传入 id / null
-    activeBranchId.value = data.branchId !== undefined ? data.branchId : opts.fallbackBranchId ?? null
+    activeBranchId.value = data.branchId !== undefined ? data.branchId : (opts.fallbackBranchId ?? null)
     // 截断态随本次权威视图对齐（视图自此历史重建，提示面向当前视图）
     historyTruncated.value = data.truncated === true
     historyTotal.value = data.total ?? null
@@ -393,9 +408,7 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
       if (lastUser >= 0) {
-        messages.value = messages.value.filter(
-          (m, i) => i <= lastUser || !m.done || !preIds.has(m.id),
-        )
+        messages.value = messages.value.filter((m, i) => i <= lastUser || !m.done || !preIds.has(m.id))
         // 截断只位移数组、消息对象身份不变（filter 留下的在途回合气泡
         // 还是同一响应式代理）——回合目标持对象引用自动跟随，原「反向扫 last undone
         // 重定位 currentIdx」的补偿块随之退役（漏重定位即增量写错位的根源形态）

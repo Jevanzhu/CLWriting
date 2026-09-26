@@ -1,4 +1,17 @@
-import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { log } from '../log/index.js'
@@ -155,8 +168,7 @@ export function rmWithRetry(
   },
 ): void {
   const doRm =
-    opts?.rm ??
-    ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
+    opts?.rm ?? ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
   // 退避循环收编 retryOnTransientFsError 单实现（口径不变：3×50ms 指数，
   // 仅 EPERM/EBUSY 重试，其余上抛）；B009：带留痕上下文
   retryOnTransientFsError(() => doRm(path), {
@@ -185,11 +197,7 @@ export function renameWithRetry(from: string, to: string, opts?: RenameRetryOpti
  *    落盘）——数据安全优先，防崩溃/断电丢整个文件。Windows 等不支持 fsync 目录的
  *    平台，目录 fsync best-effort 忽略（文件内容已落盘，元数据靠 rename 原子性兜底）。
  *  - `fsync: false`：显式关闭（高频低价值写——诊断日志/心跳类，丢一次无妨，换吞吐）。 */
-export function atomicWriteFile(
-  filePath: string,
-  data: string | Uint8Array,
-  opts?: AtomicWriteOptions,
-): void {
+export function atomicWriteFile(filePath: string, data: string | Uint8Array, opts?: AtomicWriteOptions): void {
   const dir = dirname(filePath)
   mkdirSync(dir, { recursive: true })
   const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
@@ -349,7 +357,10 @@ function fsyncDir(dir: string): void {
     // best-effort（文件内容已 fsync），抛出反而把已成功写入反转成假失败、诱发调用方
     // 误判 WRITE_ERROR 重复写。
     if ((e as NodeJS.ErrnoException).code !== 'EPERM') {
-      log.warn('fs', `目录 fsync 失败（${(e as NodeJS.ErrnoException).code ?? '未知错误'}），rename 元数据耐久性降级为 best-effort（文件内容已 fsync，不判失败）：${dir}`)
+      log.warn(
+        'fs',
+        `目录 fsync 失败（${(e as NodeJS.ErrnoException).code ?? '未知错误'}），rename 元数据耐久性降级为 best-effort（文件内容已 fsync，不判失败）：${dir}`,
+      )
     }
   } finally {
     if (fd !== undefined) {

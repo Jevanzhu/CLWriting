@@ -111,8 +111,6 @@ describe('ui: 命令式确认弹窗', () => {
   })
 })
 
-
-
 describe('ui: AI 可达性探测', () => {
   it('探测成功 → aiAvailable=true + 停重试', async () => {
     getAiStatusMock.mockResolvedValue({ available: true, driver: 'anthropic' })
@@ -174,5 +172,4 @@ describe('ui: ask/prompt 并发覆盖结清（CC-P1-5）', () => {
     ui.resolveConfirm(true)
     await expect(p2).resolves.toBe(true)
   })
-
 })

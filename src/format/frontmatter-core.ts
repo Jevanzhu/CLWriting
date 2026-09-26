@@ -18,12 +18,12 @@
 const SPLIT_MEMO_SLOTS = 2
 const splitMemoInput: Array<string | null> = new Array<string | null>(SPLIT_MEMO_SLOTS).fill(null)
 const splitMemoLen: number[] = new Array<number>(SPLIT_MEMO_SLOTS).fill(-1)
-const splitMemoOut: Array<{ fmRaw: string; body: string } | null> = new Array<{ fmRaw: string; body: string } | null>(SPLIT_MEMO_SLOTS).fill(null)
+const splitMemoOut: Array<{ fmRaw: string; body: string } | null> = new Array<{ fmRaw: string; body: string } | null>(
+  SPLIT_MEMO_SLOTS,
+).fill(null)
 
 /** 从 markdown 文本提取 front matter 段（--- 之间）与正文。无 fm 或未闭合 → null */
-export function splitFrontMatter(
-  content: string,
-): { fmRaw: string; body: string } | null {
+export function splitFrontMatter(content: string): { fmRaw: string; body: string } | null {
   for (let i = 0; i < SPLIT_MEMO_SLOTS; i++) {
     if (splitMemoLen[i] === content.length && splitMemoInput[i] === content) {
       return splitMemoOut[i] ?? null // 值等价命中（同引用 O(1) 快路径；null 结果同缓存）
@@ -41,9 +41,7 @@ export function splitFrontMatter(
 }
 
 /** 原始实现（memo 未命中路径；拆出保持 memo 层零语义漂移）。 */
-function splitFrontMatterUncached(
-  content: string,
-): { fmRaw: string; body: string } | null {
+function splitFrontMatterUncached(content: string): { fmRaw: string; body: string } | null {
   // 去 UTF-8 BOM：带 BOM 的文件 startsWith('---') 失败 → frontmatter 整段丢失（章号/枚举/机检 fm 项全失效）
   const src = content.replace(/^﻿/, '')
   // 起始判定收紧为整行精确 ---（容忍 \r 尾）——原先 startsWith('---')
@@ -119,7 +117,8 @@ export function stripInlineComment(s: string): string {
   for (let i = 0; i < s.length; i++) {
     const c = s[i]!
     if (quote === '"') {
-      if (c === '\\') i++ // 跳过转义字符
+      if (c === '\\')
+        i++ // 跳过转义字符
       else if (c === '"') quote = null
       continue
     }

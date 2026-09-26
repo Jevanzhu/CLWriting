@@ -42,9 +42,12 @@ describe('R0916-7-P3-2 tree-issues-collect：章级条目合并', () => {
     [false, false, true, { hasRed: true, verdictRejected: false }],
     [true, true, true, { hasRed: true, verdictRejected: true }],
   ]
-  it.each(cases)('hasRed=%s verdictRejected=%s leadsBookRed=%s → %o', (hasRed, verdictRejected, leadsBookRed, expected) => {
-    expect(treeIssuesChapterEntry(hasRed, verdictRejected, leadsBookRed)).toEqual(expected)
-  })
+  it.each(cases)(
+    'hasRed=%s verdictRejected=%s leadsBookRed=%s → %o',
+    (hasRed, verdictRejected, leadsBookRed, expected) => {
+      expect(treeIssuesChapterEntry(hasRed, verdictRejected, leadsBookRed)).toEqual(expected)
+    },
+  )
 })
 
 describe('R0916-7-P3-2 tree-issues-collect：待落盘入列闸', () => {

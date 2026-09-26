@@ -11,7 +11,14 @@ import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync, mkdirSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, sweepOldSpills, type SpillThresholds } from '../../src/process/spill.js'
+import {
+  spillIfLarge,
+  writeSpillFile,
+  readSpillFile,
+  readSpillMeta,
+  sweepOldSpills,
+  type SpillThresholds,
+} from '../../src/process/spill.js'
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -69,7 +76,11 @@ describe('spillIfLarge', () => {
 
   it('code point 度量：emoji 按 1 计（Array.from，不按 UTF-16 单元）', () => {
     const emoji = '😀'.repeat(2100) // UTF-16 长度 4200，code point 2100
-    const out = spillIfLarge(emoji, { maxInlineChars: 2000, headChars: 1000, tailChars: 300 }, () => '工作区/spills/e.md')
+    const out = spillIfLarge(
+      emoji,
+      { maxInlineChars: 2000, headChars: 1000, tailChars: 300 },
+      () => '工作区/spills/e.md',
+    )
     expect(out.locator).toBeDefined()
     // 触发了外置（若按 UTF-16 计会因 4200>2000 同样触发，但省略量按 code point 计）
     expect(out.preview).toContain('已省略')
@@ -200,7 +211,9 @@ describe('L-P8（第八轮）：spills 过期清理', () => {
       // R0910-W：清扫改为显式生命周期入口（writeSpillFile 热路径已节流，见下用例）
       sweepOldSpills(root)
       expect(existsSync(old)).toBe(false)
-      expect(existsSync(join(dir, `${createHash('sha256').update('新内容', 'utf8').digest('hex').slice(0, 16)}.md`))).toBe(true)
+      expect(
+        existsSync(join(dir, `${createHash('sha256').update('新内容', 'utf8').digest('hex').slice(0, 16)}.md`)),
+      ).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -53,7 +53,13 @@ function request(method: string, path: string): Promise<{ status: number; json: 
   return new Promise((resolve, reject) => {
     const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: { origin: studio.baseUrl, 'x-studio-token': studio.token } },
+      {
+        host: u.hostname,
+        port: u.port,
+        path,
+        method,
+        headers: { origin: studio.baseUrl, 'x-studio-token': studio.token },
+      },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf8')))

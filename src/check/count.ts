@@ -46,22 +46,14 @@ export {
   checkSentenceLength,
 } from './count-dialogue.js'
 // 缝 B（count-style.ts）
-export {
-  DIALOGUE_TAG_RE,
-  computeStyleMetrics,
-  checkStyleMetrics,
-  checkInfoLeak,
-} from './count-style.js'
+export { DIALOGUE_TAG_RE, computeStyleMetrics, checkStyleMetrics, checkInfoLeak } from './count-style.js'
 export type { StyleStats } from './count-style.js'
 
 /**
  * front matter 格式检查（#10 项 3，🔴 红）。
  * 章号==文件名、枚举合法、必填齐。
  */
-export function checkFrontMatter(
-  chapter: ChapterMeta,
-  fileName: string,
-): CheckSectionResult {
+export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckSectionResult {
   const items: CheckItem[] = []
 
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
@@ -122,7 +114,6 @@ function countOccurrences(haystack: string, needle: string): number {
   return count
 }
 
-
 /**
  * 高频意象检查（#10 项 7，🟡 黄）。
  * 套路词/意象表命中频次超阈 → 提示（PRD 问题 9，"空气仿佛凝固"）。
@@ -131,11 +122,7 @@ function countOccurrences(haystack: string, needle: string): number {
  * 词表即整体替换（不合并），显式空数组 = 彻底关。入参 readonly——runner 直收
  * 种子表的 readonly 字面量，免调用方拷贝。
  */
-export function checkImagery(
-  body: string,
-  imageryWords: readonly string[] = [],
-  threshold = 3,
-): CheckSectionResult {
+export function checkImagery(body: string, imageryWords: readonly string[] = [], threshold = 3): CheckSectionResult {
   const items: CheckItem[] = []
   if (imageryWords.length === 0) {
     // 空表（未启用或显式关）静默跳过——恒久「未启用」黄项只会训练作者
@@ -173,11 +160,7 @@ export function checkImagery(
 
 /** 短篇字数阈值（#27 第 5.2 节，🟡 黄）。
  *  总字数 8000–20000（工单第 0 节）；阈值待 beta 校准，本期定方向。 */
-export function checkPieceWordCount(
-  actualWords: number,
-  min = 8000,
-  max = 20000,
-): CheckSectionResult {
+export function checkPieceWordCount(actualWords: number, min = 8000, max = 20000): CheckSectionResult {
   const items: CheckItem[] = []
   if (actualWords < min) {
     items.push({
@@ -196,7 +179,20 @@ export function checkPieceWordCount(
 }
 
 /** 默认身体部位词表（吸收点 7.1 正文洁净，AI 味堆砌高发项） */
-const DEFAULT_BODY_PARTS = ['眼睛', '眼神', '眼眶', '手指', '手掌', '心脏', '心跳', '脸庞', '嘴角', '眉头', '喉咙', '呼吸']
+const DEFAULT_BODY_PARTS = [
+  '眼睛',
+  '眼神',
+  '眼眶',
+  '手指',
+  '手掌',
+  '心脏',
+  '心跳',
+  '脸庞',
+  '嘴角',
+  '眉头',
+  '喉咙',
+  '呼吸',
+]
 
 /**
  * 「手」的动作语境模式 —— 单字「手」直接 indexOf 会误伤「对手/高手/随手/手段」等非部位词，
@@ -211,11 +207,7 @@ const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|�
  * （修复批）：计数前剥对白引号 span（对白是角色嘴里的话非作者
  * 叙述，见函数体内注释——同批 checkSimile 对齐）。
  */
-export function checkBodyParts(
-  body: string,
-  threshold = 5,
-  words: string[] = DEFAULT_BODY_PARTS,
-): CheckSectionResult {
+export function checkBodyParts(body: string, threshold = 5, words: string[] = DEFAULT_BODY_PARTS): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
   // （修复批；win 线同题锚 ④）：计数前剥对白引号 span
@@ -273,12 +265,10 @@ export function checkBodyParts(
 // 导出：语料收割（scripts/harvest-corpus.ts）对 simile-density
 // 复用本正则直扫正文取真实比喻短语作幸存者判定锚——message 只报次数（「像…」是
 // 模板字面量），文案解析提不出锚。单一真相源，防两处正则漂移。
-export const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
+export const SIMILE_RE =
+  /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
-export function checkSimile(
-  body: string,
-  threshold = 10,
-): CheckSectionResult {
+export function checkSimile(body: string, threshold = 10): CheckSectionResult {
   const items: CheckItem[] = []
   // （修复批；win 线同题锚 ④）：统计前剥对白引号 span
   // （禁词/意象/开头/身体部位同款口径，quotes.ts 单源 stripQuotedSpans）——对白里
@@ -306,10 +296,7 @@ export function checkSimile(
  * 节数守恒检查（#27 第 5.3 节，🟡 黄）。
  * 正文实际节数（按空行切块）与五段结构一致。严重不符可定红（阈值实现期定）。
  */
-export function checkSectionCount(
-  body: string,
-  expected = 5,
-): CheckSectionResult {
+export function checkSectionCount(body: string, expected = 5): CheckSectionResult {
   // section_count 可配置（runner 传 short.section_count），文案
   // 不得硬编码「五段结构」——配置 ≠5 的 strict 短篇把黄提红后 formatRedForRewrite
   // 喂给自愈重写，重写目标被误导成五段。期望值统一插值 expected；五段节名枚举仅在
@@ -360,7 +347,25 @@ export function checkSectionCount(
 }
 
 /** 默认环境描写关键词表（黄金 300 字直入钩子，吸收点 7.1） */
-const DEFAULT_ENV_WORDS = ['天气', '阳光', '月光', '日升', '日落', '天空', '云层', '乌云', '风声', '狂风', '雨声', '雨点', '景色', '远山', '树林', '街道', '建筑']
+const DEFAULT_ENV_WORDS = [
+  '天气',
+  '阳光',
+  '月光',
+  '日升',
+  '日落',
+  '天空',
+  '云层',
+  '乌云',
+  '风声',
+  '狂风',
+  '雨声',
+  '雨点',
+  '景色',
+  '远山',
+  '树林',
+  '街道',
+  '建筑',
+]
 
 /**
  * 开头零环境检查（#27 第 5.3 节，🟡 黄）。

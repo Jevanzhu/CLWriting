@@ -81,15 +81,18 @@ describe('R40-14: bookHash win32 大小写漂移归一', () => {
   // R43-28（四十三轮）：文案对齐现实现——bookHash 归一早已换 trueCasePath（readdir
   //  逐段匹配盘上真名，events/store.ts R40-14 同批注记），非 realpathSync（win32 实测
   //  不改写大小写）；只改标题/头注，断言不动。
-  it.skipIf(process.platform !== 'win32')('真实目录的大小写变体同哈希（trueCasePath（readdir 逐段）归一（events/store.ts R40-14））', () => {
-    const root = tempDir('clw-r40-hash-')
-    // mkdtemp 尾段为真实盘上大小写；变体改最后一段大小写 → trueCasePath 逐段归一同键
-    const seg = root.split(/[\\/]/).pop()!
-    const drifted = root.slice(0, root.length - seg.length) + seg.toUpperCase()
-    // mkdtemp 尾段可能本就含大写（hex 小写字母数字，toUpperCase 恒变化）——变体必须真的不同形
-    expect(drifted.toLowerCase()).toBe(root.toLowerCase())
-    expect(bookHash(drifted)).toBe(bookHash(root))
-  })
+  it.skipIf(process.platform !== 'win32')(
+    '真实目录的大小写变体同哈希（trueCasePath（readdir 逐段）归一（events/store.ts R40-14））',
+    () => {
+      const root = tempDir('clw-r40-hash-')
+      // mkdtemp 尾段为真实盘上大小写；变体改最后一段大小写 → trueCasePath 逐段归一同键
+      const seg = root.split(/[\\/]/).pop()!
+      const drifted = root.slice(0, root.length - seg.length) + seg.toUpperCase()
+      // mkdtemp 尾段可能本就含大写（hex 小写字母数字，toUpperCase 恒变化）——变体必须真的不同形
+      expect(drifted.toLowerCase()).toBe(root.toLowerCase())
+      expect(bookHash(drifted)).toBe(bookHash(root))
+    },
+  )
 
   it('不存在路径不抛（回落词法形态）', () => {
     expect(typeof bookHash(join(tempDir('clw-r40-miss-'), '不存在的书'))).toBe('string')

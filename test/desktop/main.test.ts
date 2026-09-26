@@ -79,9 +79,12 @@ afterEach(() => {
 })
 
 describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）', () => {
-  it.skipIf(process.platform !== 'win32')('win 渲染锐度：模块加载即注册 disable-gpu-rasterization（GPU 光栅层强制灰度 AA，压掉 F0 子像素——编辑区糊根因；mac 无 ClearType 不注册）', () => {
-    expect(M.commandLineSwitches).toContainEqual(['disable-gpu-rasterization'])
-  })
+  it.skipIf(process.platform !== 'win32')(
+    'win 渲染锐度：模块加载即注册 disable-gpu-rasterization（GPU 光栅层强制灰度 AA，压掉 F0 子像素——编辑区糊根因；mac 无 ClearType 不注册）',
+    () => {
+      expect(M.commandLineSwitches).toContainEqual(['disable-gpu-rasterization'])
+    },
+  )
 
   it('安全五件套：contextIsolation+sandbox+nodeIntegration:false+preload（ii 批工厂基线）', () => {
     const wp = mainWin().opts.webPreferences
@@ -155,13 +158,11 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
   // 0918二轮修复批（C104）：CSP 补 frame-ancestors 'none'——frame-ancestors 不回落
   // default-src（CSP 规范独立指令），缺省即本地端口可被任意页面嵌 iframe（点击劫持
   // /DNS rebinding 纵深；API 侧 token 兜底之外补页面层防线）。
-  it('C104（0918二轮修复批）：CSP 含 frame-ancestors \'none\'（防本地端口被嵌 iframe）', () => {
+  it("C104（0918二轮修复批）：CSP 含 frame-ancestors 'none'（防本地端口被嵌 iframe）", () => {
     expect(M.headersCb, 'whenReady 应注册 CSP 回调').toBeTruthy()
     let cbArg: unknown
     M.headersCb!({ responseHeaders: { 'content-type': ['text/html'] } }, (r) => (cbArg = r))
-    const csp = (cbArg as { responseHeaders: Record<string, string[]> }).responseHeaders[
-      'Content-Security-Policy'
-    ]![0]!
+    const csp = (cbArg as { responseHeaders: Record<string, string[]> }).responseHeaders['Content-Security-Policy']![0]!
     expect(csp).toContain("frame-ancestors 'none'")
   })
 
@@ -199,9 +200,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
   //（child 无 app 对象；更新检查的当前版本基准即此）
   it('CLW_APP_VERSION 下发（阶段 53）：fork env 值 = app.getVersion()，argv 面不带', () => {
     const call = M.forkCalls[0]!
-    expect((call.options['env'] as Record<string, string | undefined>)['CLW_APP_VERSION']).toBe(
-      '1.2.3-fake',
-    )
+    expect((call.options['env'] as Record<string, string | undefined>)['CLW_APP_VERSION']).toBe('1.2.3-fake')
     expect(call.args).not.toContain('--app-version')
   })
 
@@ -212,7 +211,10 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 
   it('render-process-gone 自愈：记日志 + 重载窗口（dd-P3）', () => {
     const win = mainWin()
-    const h = win.webContents.handlers['render-process-gone']![0]! as (e: unknown, d: { reason: string; exitCode: number }) => void
+    const h = win.webContents.handlers['render-process-gone']![0]! as (
+      e: unknown,
+      d: { reason: string; exitCode: number },
+    ) => void
     h({}, { reason: 'oom', exitCode: 5 })
     expect(M.logErrors.length).toBeGreaterThan(0)
     expect(win.webContents.reloaded).toBe(1)
@@ -221,22 +223,24 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   it('注册面：13 handle + context-menu on', () => {
-    expect(Object.keys(M.ipcHandle).sort()).toEqual([
-      'desktop:get-current',
-      'desktop:get-recent',
-      'desktop:get-system-fonts',
-      'desktop:open-book',
-      'desktop:open-book-dir',
-      'desktop:open-external', // 阶段 53 S3：外链（白名单前缀校验）
-      'desktop:open-library',
-      'desktop:open-library-dir',
-      'desktop:open-library-window',
-      'desktop:open-shelf',
-      'desktop:set-fullscreen',
-      'desktop:set-titlebar-overlay',
-      'desktop:show-in-folder',
-      'desktop:switch-library',
-    ].sort())
+    expect(Object.keys(M.ipcHandle).sort()).toEqual(
+      [
+        'desktop:get-current',
+        'desktop:get-recent',
+        'desktop:get-system-fonts',
+        'desktop:open-book',
+        'desktop:open-book-dir',
+        'desktop:open-external', // 阶段 53 S3：外链（白名单前缀校验）
+        'desktop:open-library',
+        'desktop:open-library-dir',
+        'desktop:open-library-window',
+        'desktop:open-shelf',
+        'desktop:set-fullscreen',
+        'desktop:set-titlebar-overlay',
+        'desktop:show-in-folder',
+        'desktop:switch-library',
+      ].sort(),
+    )
     expect(M.ipcOn['desktop:context-menu']).toBeTruthy()
   })
 
@@ -433,9 +437,11 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     const built0 = M.menuBuilt
     M.ipcOn['desktop:context-menu']!({ sender, senderFrame: sender.mainFrame }, '不是数组')
     expect(M.menuBuilt).toBe(built0)
-    M.ipcOn['desktop:context-menu']!({ sender, senderFrame: sender.mainFrame }, [{ label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C' }])
+    M.ipcOn['desktop:context-menu']!({ sender, senderFrame: sender.mainFrame }, [
+      { label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C' },
+    ])
     expect(M.menuBuilt).toBe(built0 + 1)
-    const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
+    const item = M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void }
     const n0 = win.webContents.sent.length
     item.click!()
     const sent = win.webContents.sent[n0]!
@@ -455,7 +461,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     let destroyed = false
     wc.isDestroyed = (): boolean => destroyed
     M.ipcOn['desktop:context-menu']!({ sender: wc, senderFrame: wc.mainFrame }, [{ label: '删除', key: 'delete' }])
-    const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
+    const item = M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void }
     destroyed = true // 菜单仍开着，窗口先关（isDestroyed → true）——点选晚到
     const n0 = wc.sent.length
     // 修复前：对已销毁 webContents send 抛「Object has been destroyed」进主进程
@@ -549,7 +555,9 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
     expect(roles).not.toContain('forceReload')
     // 找「新建书…」的 action click，聚焦窗口转发
     M.focusedWin = mainWin()
-    const file = startup.find((m) => (m as { label?: string }).label === '文件') as { submenu: Array<Record<string, any>> }
+    const file = startup.find((m) => (m as { label?: string }).label === '文件') as {
+      submenu: Array<Record<string, any>>
+    }
     const newBook = file.submenu.find((i) => i.label === '新建书…')!
     const n0 = mainWin().webContents.sent.length
     newBook.click()

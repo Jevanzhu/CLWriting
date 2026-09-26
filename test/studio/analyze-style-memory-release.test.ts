@@ -47,7 +47,8 @@ function req(method: string, path: string): Promise<{ status: number; json: unkn
   })
 }
 
-const CH_FM = (n: number, t: string) => `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
+const CH_FM = (n: number, t: string) =>
+  `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
 
 beforeAll(async () => {
   // TTL 注入短档（R62-21/R76-37 口径：1000ms 档）。R0911-G-P1-1c（2026-09-11
@@ -93,8 +94,14 @@ describe('R47-22：analyze-style MISS 路径行为回归（释放后重扫/缓�
     expect(before.status).toBe(200)
     const hashBefore = (before.json as { envelope: { sourceHash: string } }).envelope.sourceHash
 
-    writeFileSync(join(studio.bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，正文已被作者彻底改写一新。\n')
-    writeFileSync(join(studio.bookRoot, '写作', '正文', '0002-次章.md'), CH_FM(2, '次章') + '第二章正文登场，剧情推进。\n')
+    writeFileSync(
+      join(studio.bookRoot, '写作', '正文', '0001-开篇.md'),
+      CH_FM(1, '开篇') + '主角登场，正文已被作者彻底改写一新。\n',
+    )
+    writeFileSync(
+      join(studio.bookRoot, '写作', '正文', '0002-次章.md'),
+      CH_FM(2, '次章') + '第二章正文登场，剧情推进。\n',
+    )
 
     // R0911-G-P1-1c：注入时钟推进 TTL+1 过期，不再睡 TTL+500 真实墙钟
     vi.advanceTimersByTime(1000 + 1)

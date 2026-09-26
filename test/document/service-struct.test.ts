@@ -4,7 +4,16 @@
  * PATH_ESCAPE、跨卷移动章号不变、清单 path 更新、移动前 snapshot、rename、NOT_FOUND。
  */
 import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, appendFileSync, renameSync } from 'node:fs'
+import {
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+  appendFileSync,
+  renameSync,
+} from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,7 +37,10 @@ function findNodeByDocId(nodes: TreeNode[], docId: string): TreeNode | undefined
 /** 造书：写作/正文/第一卷/0001-开篇 + 项目清单登记 doc_ch01 + git init。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-svc-'))
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+    cwd: root,
+    stdio: 'pipe',
+  })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -48,7 +60,10 @@ function makeBookWithChapter(): { root: string; svc: DocumentService } {
 test('createDocument: 落盘 + 分配 doc_ 前缀 docId + 清单登记', async () => {
   const { root, svc } = makeBookWithChapter()
   getBookTreeIndex(root) // 预热缓存（验证后续 invalidate 重建）
-  const r = await svc.createDocument({ relPath: '写作/正文/第一卷/0002-迷雾.md', content: '---\n章号: 2\n---\n迷雾正文' })
+  const r = await svc.createDocument({
+    relPath: '写作/正文/第一卷/0002-迷雾.md',
+    content: '---\n章号: 2\n---\n迷雾正文',
+  })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.docId).toMatch(/^doc_/)
@@ -72,7 +87,10 @@ test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 
   const { root, svc } = makeBookWithChapter()
   const r = await svc.updateChapterMeta('doc_ch01', { 标题: '新:题*目?\n' })
   expect(r.ok).toBe(true)
-  if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
+  if (!r.ok) {
+    rmSync(root, { recursive: true, force: true })
+    return
+  }
   // : * ? 各自 → _；\n 剥除（修复前仅替换 \\ /，换行/非法字符直进文件名）
   expect(r.path).toBe('写作/正文/第一卷/0001-新_题_目_.md')
   expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-新_题_目_.md'))).toBe(true)
@@ -84,7 +102,10 @@ test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120
   const longTitle = '长'.repeat(80)
   const r = await svc.updateChapterMeta('doc_ch01', { 标题: longTitle })
   expect(r.ok).toBe(true)
-  if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
+  if (!r.ok) {
+    rmSync(root, { recursive: true, force: true })
+    return
+  }
   // C-3（二十九轮）：rename 落名过 sanitizeCreateSegment 单源后，整段（含 '0001-' 前缀
   // 5 字节）共用 120 字节预算 → floor((120-5)/3) = 38 字，与 createDocument 同源口径
   //（此前标题段单独 120B = 40 字；落名二次消毒按整段封顶收 38 字）。
@@ -246,7 +267,10 @@ test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损�
 /** 造短篇书：写作/正文/1-原标.md + book.yaml(kind=short) + 清单登记 doc_p01。 */
 function makeBookWithPiece(): { root: string; svc: DocumentService } {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-piece-'))
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+    cwd: root,
+    stdio: 'pipe',
+  })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'kind: short\n', 'utf-8')
@@ -399,7 +423,10 @@ test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀�
 // `^(\d+-)` 失明，改名时章号前缀整段丢落（`5—原标.md` → `新标.md`，章号静默消失）。
 // 收编 chapterNoFromName 单源后识别命中，前缀按原文整段保留（不做位宽归一）。
 test('P3-11: 章号非数字 + 宽分隔符前缀（5—/5 空格）→ 前缀整段保留不丢落', async () => {
-  for (const [name, expected] of [['5—原标.md', '写作/正文/5—新标.md'], ['5 原标.md', '写作/正文/5 新标.md']] as const) {
+  for (const [name, expected] of [
+    ['5—原标.md', '写作/正文/5—新标.md'],
+    ['5 原标.md', '写作/正文/5 新标.md'],
+  ] as const) {
     const { root, svc } = makeBookWithPiece()
     // 文件名与清单路径同步改成宽分隔符形态（doc_p01 实际路径 = 清单登记路径）
     const rel = `写作/正文/${name}`
@@ -610,7 +637,10 @@ test('copyDocument: 路径越出 → PATH_ESCAPE', async () => {
 
 test('结构性操作触发旧书建清单（W0 §4.2）', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-nomanifest-'))
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+    cwd: root,
+    stdio: 'pipe',
+  })
   mkdirSync(join(root, '工作区'), { recursive: true })
   const svc = new DocumentService({ bookRoot: root })
   // 旧书无清单

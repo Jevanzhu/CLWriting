@@ -42,8 +42,12 @@ function makeShortBookWithFinalized(nums: number[]): string {
       'utf-8',
     )
     upsertEntry(m, {
-      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
-      finalizedRevision: computeRevision(abs), finalizedAt: new Date().toISOString(),
+      id: generateDocId(),
+      nodeType: 'document',
+      path: rel,
+      parentId: null,
+      finalizedRevision: computeRevision(abs),
+      finalizedAt: new Date().toISOString(),
     })
   }
   writeManifest(manifestPath, m)

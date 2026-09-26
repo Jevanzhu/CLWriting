@@ -45,7 +45,10 @@ beforeAll(async () => {
     dirs: ['写作/正文', '项目'],
     files: [
       // 两章正文：0001 已定稿（manifest 有 finalizedRevision）、0002 草稿（无）
-      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n定稿正文\n' },
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n定稿正文\n',
+      },
       { rel: '写作/正文/0002-草稿.md', content: '---\n章号: 2\n标题: 草稿\n---\n\n草稿正文（未定稿）\n' },
       // manifest：header + 两条目（0001 带定稿指纹，0002 无）
       {
@@ -54,7 +57,10 @@ beforeAll(async () => {
           [
             JSON.stringify({ version: 1, type: 'header' }),
             JSON.stringify({
-              id: 'doc_0001', nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null,
+              id: 'doc_0001',
+              nodeType: 'document',
+              path: '写作/正文/0001-开篇.md',
+              parentId: null,
               finalizedRevision: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
               finalizedAt: '2026-08-21T00:00:00.000Z',
             }),

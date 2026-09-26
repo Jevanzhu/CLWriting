@@ -56,7 +56,12 @@ describe('R37-3 progress.ts async 孪生', () => {
   it('双版本共享 summaryCache：invalidate 后重算见新章数（V-P2-27 失效语义互通）', async () => {
     const root = makeBook(60)
     await computeBookSummaryAsync(root) // 落缓存（async 侧写入）
-    expect(computeBookSummary(root)).toEqual({ chapters: 60, words: expect.any(Number), lastEdited: expect.any(String), latestChapter: '第60章' }) // 同步侧读同一缓存
+    expect(computeBookSummary(root)).toEqual({
+      chapters: 60,
+      words: expect.any(Number),
+      lastEdited: expect.any(String),
+      latestChapter: '第60章',
+    }) // 同步侧读同一缓存
     invalidateBookSummary(root)
     writeFileSync(
       join(root, '写作', '正文', '061-第61章.md'),

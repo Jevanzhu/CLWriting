@@ -65,7 +65,7 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
     const produced = '改写后的第 1 章全文。' + '新稿内容。'.repeat(200)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'rb-ai-p1-1',
@@ -88,7 +88,7 @@ describe('RB-AI-P1-1 改写全文 spill 落盘', () => {
     const produced = '改写后的选段。' + '润色稿。'.repeat(200)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'rb-ai-p1-1',
@@ -136,7 +136,7 @@ describe('低-3（第十轮）：rewrite_selection 选段 raw 定位（对齐端
   beforeEach(() => {
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'low3-raw',
@@ -183,7 +183,6 @@ describe('低-3（第十轮）：rewrite_selection 选段 raw 定位（对齐端
     expect(spilled).toContain(produced + '林远点头')
   })
 })
-
 
 // ── GG-P2-2：apply_spill 确认落盘通道（「确认满意后再说一声」承诺的兑现件）──
 
@@ -268,7 +267,7 @@ describe('M-3（第十轮）：apply_spill 归属与新鲜度校验', () => {
     const produced = '端到端改写稿。' + '内容。'.repeat(100)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'm3-e2e',
@@ -292,7 +291,7 @@ describe('R64-6：改写预览码点口径（孤立代理对不出现、字数�
     const produced = '前'.repeat(599) + '\u{1D11E}'.repeat(20)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'r64-6',
@@ -309,7 +308,7 @@ describe('R64-6：改写预览码点口径（孤立代理对不出现、字数�
     const produced = '稿'.repeat(599) + '\u{1D11E}'.repeat(20)
     vi.mocked(runSpec).mockResolvedValue({
       ok: true,
-      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      data: { input: { 正文: produced }, text: '', stopReason: 'tool_use' },
       ctrl: new AbortController(),
       usage: null,
       runId: 'r64-6',

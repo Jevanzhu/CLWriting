@@ -26,7 +26,13 @@ export const useRewriteStore = defineStore('rewrite', () => {
    *  ：裸计数器换装 useStaleGuard。 */
   const reqGen = useStaleGuard()
 
-  async function run(name: string, docId: string, instruction: string, selection: string, append = false): Promise<void> {
+  async function run(
+    name: string,
+    docId: string,
+    instruction: string,
+    selection: string,
+    append = false,
+  ): Promise<void> {
     const gen = reqGen.begin()
     loading.value = true
     error.value = null

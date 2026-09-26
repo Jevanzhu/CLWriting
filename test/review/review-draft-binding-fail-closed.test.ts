@@ -10,7 +10,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildReviewPacket, collectReviewIssues, lensIssuesFileName, type ReviewExecutionPacket } from '../../src/review/run.js'
+import {
+  buildReviewPacket,
+  collectReviewIssues,
+  lensIssuesFileName,
+  type ReviewExecutionPacket,
+} from '../../src/review/run.js'
 import type { CheckReport } from '../../src/check/types.js'
 
 const report: CheckReport = { sections: [], byproducts: { leadChanges: [] } }

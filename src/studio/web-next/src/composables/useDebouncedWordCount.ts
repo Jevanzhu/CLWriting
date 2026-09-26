@@ -89,10 +89,6 @@ export function useDebouncedFmFields(
   content: WatchSource<string | undefined>,
   key: WatchSource<unknown> = () => undefined,
 ): { fields: Readonly<Ref<Record<string, string>>>; flush: () => void } {
-  const r = debouncedDerived<Record<string, string>>(
-    content,
-    key,
-    (c) => (c === undefined ? {} : parseFmFields(c)),
-  )
+  const r = debouncedDerived<Record<string, string>>(content, key, (c) => (c === undefined ? {} : parseFmFields(c)))
   return { fields: r.value, flush: r.flush }
 }

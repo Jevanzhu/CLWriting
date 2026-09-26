@@ -39,7 +39,10 @@ describe('verifyVisibleSampled（R65-15）', () => {
   it('flag 开 + 缺 revision 登记 → warn 带缺失清单；不影响其余 present', () => {
     process.env['CLW_VERIFY_VISIBLE'] = '1'
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    verifyVisibleSampled(D, recorded.filter((e: { type: string }) => e.type !== 'revision/ref') as Parameters<typeof verifyVisibleSampled>[1])
+    verifyVisibleSampled(
+      D,
+      recorded.filter((e: { type: string }) => e.type !== 'revision/ref') as Parameters<typeof verifyVisibleSampled>[1],
+    )
     expect(warn).toHaveBeenCalledTimes(1)
     const msg = String(warn.mock.calls[0]?.[0])
     expect(msg).toContain('[CLW_VERIFY_VISIBLE]')

@@ -34,8 +34,13 @@ afterEach(() => {
 
 function writeCh(ch: number, body: string): void {
   const meta: ChapterMeta = {
-    章号: ch, 标题: `第${ch}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
-    _path: '', _wordCount: 100,
+    章号: ch,
+    标题: `第${ch}章`,
+    钩子类型: '悬念钩',
+    钩子强弱: '中',
+    情绪定位: '铺垫',
+    _path: '',
+    _wordCount: 100,
   }
   writeChapter(join(bookRoot, '写作', '正文', `${ch}-第${ch}章.md`), meta, body)
 }

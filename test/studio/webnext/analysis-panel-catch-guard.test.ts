@@ -80,7 +80,12 @@ describe('AnalysisPanel: 失败提示同域守卫（R65-53）', () => {
 
   it('在途切档（activeDocId 变）后失败 → 不弹 A 的失败到 B 界面', async () => {
     let rejectA!: (e: Error) => void
-    mocks.autotag.mockImplementationOnce(() => new Promise((_, rej) => { rejectA = rej }))
+    mocks.autotag.mockImplementationOnce(
+      () =>
+        new Promise((_, rej) => {
+          rejectA = rej
+        }),
+    )
     const w = mount(AnalysisPanel, { props: { bookName: '书A' } })
     await nextTick()
     await clickAnalyze(w)
@@ -94,7 +99,12 @@ describe('AnalysisPanel: 失败提示同域守卫（R65-53）', () => {
 
   it('在途切书（bookName prop 变）后失败 → 不弹', async () => {
     let rejectA!: (e: Error) => void
-    mocks.autotag.mockImplementationOnce(() => new Promise((_, rej) => { rejectA = rej }))
+    mocks.autotag.mockImplementationOnce(
+      () =>
+        new Promise((_, rej) => {
+          rejectA = rej
+        }),
+    )
     const w = mount(AnalysisPanel, { props: { bookName: '书A' } })
     await nextTick()
     await clickAnalyze(w)

@@ -43,8 +43,12 @@ describe('mac 腿：预设组平台分流', () => {
   })
 
   it('跨组不误命中：win 预设四字段（雅黑/思源黑 + Segoe UI）在 mac 平台落「自定义」——default 两平台字体不同，不误亮本平台 chip', () => {
-    expect(matchProsePreset({ proseFontCn: 'Microsoft YaHei', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('custom')
-    expect(matchProsePreset({ proseFontCn: 'Noto Sans SC', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('custom')
+    expect(
+      matchProsePreset({ proseFontCn: 'Microsoft YaHei', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 }),
+    ).toBe('custom')
+    expect(
+      matchProsePreset({ proseFontCn: 'Noto Sans SC', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 }),
+    ).toBe('custom')
   })
 
   it('mac 本地化族键：zh 系统 font-list 枚举名（苹方-简/宋体-简/楷体-简/冬青黑体简体中文）与英文名同族互认', () => {

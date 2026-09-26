@@ -27,9 +27,11 @@ vi.mock('../../src/ai/provider/index.js', async (importOriginal) => {
   return { ...orig, saveProviders: vi.fn(() => {}), __realSaveProviders: orig.saveProviders }
 })
 
-const realSaveProviders = (providerIndex as unknown as {
-  __realSaveProviders: typeof providerIndex.saveProviders
-}).__realSaveProviders
+const realSaveProviders = (
+  providerIndex as unknown as {
+    __realSaveProviders: typeof providerIndex.saveProviders
+  }
+).__realSaveProviders
 
 // saveProviders 原签名为 void 返回，批 B 落地后才变 Promise<void>——桩控制面按宽类型取用
 const saveMock = providerIndex.saveProviders as unknown as {
@@ -56,9 +58,7 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         headers: {
           'x-studio-token': token,
           origin: baseUrl,
-          ...(payload
-            ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
-            : {}),
+          ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
       (res) => {

@@ -79,7 +79,10 @@ afterAll(async () => {
 describe('GG-P2-7 global.json revision（乐观并发）', () => {
   it('不带 expectedRevision → 200 直通（兼容）；无 revision 的存量文件视为 0，写入自增', async () => {
     // 全新 userData：GET 空偏好 + revision 0
-    const g0 = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: '/api/library/prefs' })
+    const g0 = await req<{ prefs: Record<string, unknown>; revision: number }>({
+      method: 'GET',
+      path: '/api/library/prefs',
+    })
     expect(g0.status).toBe(200)
     expect(g0.json.prefs).toEqual({})
     expect(g0.json.revision).toBe(0)
@@ -99,7 +102,10 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
   })
 
   it('带匹配 revision → 200 且响应含自增后的 revision；GET 把保留键从 prefs 剥离', async () => {
-    const g1 = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: '/api/library/prefs' })
+    const g1 = await req<{ prefs: Record<string, unknown>; revision: number }>({
+      method: 'GET',
+      path: '/api/library/prefs',
+    })
     expect(g1.json.revision).toBe(1)
     expect(g1.json.prefs).toEqual({ theme: 'dark', proseSize: 18 })
 
@@ -112,7 +118,10 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
     expect(b.json.revision).toBe(2)
 
     // GET：prefs 不含 revision 保留键（不混入偏好语义），revision 单独回传
-    const g2 = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: '/api/library/prefs' })
+    const g2 = await req<{ prefs: Record<string, unknown>; revision: number }>({
+      method: 'GET',
+      path: '/api/library/prefs',
+    })
     expect(g2.json.revision).toBe(2)
     expect(g2.json.prefs).toEqual({ theme: 'light', proseSize: 19, shelfView: 'list' })
     expect('revision' in g2.json.prefs).toBe(false)
@@ -180,7 +189,9 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
     const w = await req<{ ok: boolean; revision: number }>({
       method: 'PUT',
       path: '/api/library/prefs',
-      body: { prefs: { theme: 'sepia', proseSize: 21, shelfView: 'grid', defaultGenre: '仙侠', defaultVolumeSize: 60 } },
+      body: {
+        prefs: { theme: 'sepia', proseSize: 21, shelfView: 'grid', defaultGenre: '仙侠', defaultVolumeSize: 60 },
+      },
     })
     expect(w.status).toBe(200)
 

@@ -36,7 +36,7 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 
 import { runRewriteDoc, type RewriteResult } from '../../../src/studio/web-next/src/api/rewrite'
-import { saveContent } from '../../../src/studio/web-next/src/api/documents';
+import { saveContent } from '../../../src/studio/web-next/src/api/documents'
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useRewriteStore } from '../../../src/studio/web-next/src/stores/rewrite'

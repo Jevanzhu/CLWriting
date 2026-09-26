@@ -8,7 +8,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 import { migrateBookKeyedState } from '../../../src/studio/web-next/src/composables/useShelf'
-import { migrateFailedDrafts, getFailedDraft, rememberFailedDraft } from '../../../src/studio/web-next/src/composables/useChatComposer'
+import {
+  migrateFailedDrafts,
+  getFailedDraft,
+  rememberFailedDraft,
+} from '../../../src/studio/web-next/src/composables/useChatComposer'
 import { onboardPremiseKey, treeFirstOpenKey } from '../../../src/studio/web-next/src/shared/storage-keys'
 
 /** node 环境无 localStorage——Map 桩顶上（check-store.test 同款形态，含 length/key）。 */
@@ -18,7 +22,9 @@ function stubLocalStorage(): void {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
     setItem: (k: string, v: string) => void store.set(k, v),
     removeItem: (k: string) => void store.delete(k),
-    get length() { return store.size },
+    get length() {
+      return store.size
+    },
     key: (i: number) => [...store.keys()][i] ?? null,
   })
 }

@@ -43,18 +43,21 @@ afterEach(async () => {
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 // （symlink 构造先例：static.test.ts M-9 / static-branch-error 等文件）
-test.skipIf(process.platform === 'win32')('R50-C-4: index.html 被换成外指 symlink + 未知路由 → fallback 403 BAD_PATH（不跟随）', async () => {
-  writeFileSync(join(outside, 'evil.html'), '<!doctype html><title>EVIL-OUTSIDE-LEAK</title>')
-  unlinkSync(join(root, 'index.html'))
-  // dist/index.html 被植入外指 symlink（本地可写前提，与 M-9 主路径同威胁模型）
-  symlinkSync(join(outside, 'evil.html'), join(root, 'index.html'))
+test.skipIf(process.platform === 'win32')(
+  'R50-C-4: index.html 被换成外指 symlink + 未知路由 → fallback 403 BAD_PATH（不跟随）',
+  async () => {
+    writeFileSync(join(outside, 'evil.html'), '<!doctype html><title>EVIL-OUTSIDE-LEAK</title>')
+    unlinkSync(join(root, 'index.html'))
+    // dist/index.html 被植入外指 symlink（本地可写前提，与 M-9 主路径同威胁模型）
+    symlinkSync(join(outside, 'evil.html'), join(root, 'index.html'))
 
-  const res = await fetch(`${baseUrl}/some/unknown/route`)
-  expect(res.status).toBe(403)
-  const body = await res.text()
-  expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
-  expect(body).not.toContain('EVIL-OUTSIDE-LEAK') // 修复前：fallback 跟随 symlink 吐出 root 外内容
-})
+    const res = await fetch(`${baseUrl}/some/unknown/route`)
+    expect(res.status).toBe(403)
+    const body = await res.text()
+    expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+    expect(body).not.toContain('EVIL-OUTSIDE-LEAK') // 修复前：fallback 跟随 symlink 吐出 root 外内容
+  },
+)
 
 // 断链 symlink：R51-RED-3（五十一轮，2026-09-06 recover 合并整编失同步）契约随行——
 // merged 实现 fallback 走 R50-C-4 canonical 判界，resolveWithinRoot 对断链 realpath
@@ -62,19 +65,22 @@ test.skipIf(process.platform === 'win32')('R50-C-4: index.html 被换成外指 s
 // 同判）；主路径对断链 /index.html 亦 403（stat ENOENT → fallback → 同一守卫），
 // 「与主路径断链口径一致、无内容外泄」的原意由 403 如实恢复——原 404 期望系
 // pre-merge 词法分支行为（existsSync 判不在 → readFile ENOENT → 404），已不成立。
-test.skipIf(process.platform === 'win32')('R50-C-4: index.html 为断链 symlink + 未知路由 → 403 BAD_PATH（与主路径断链口径一致，无内容外泄）', async () => {
-  unlinkSync(join(root, 'index.html'))
-  symlinkSync(join(outside, 'never-exists.html'), join(root, 'index.html'))
+test.skipIf(process.platform === 'win32')(
+  'R50-C-4: index.html 为断链 symlink + 未知路由 → 403 BAD_PATH（与主路径断链口径一致，无内容外泄）',
+  async () => {
+    unlinkSync(join(root, 'index.html'))
+    symlinkSync(join(outside, 'never-exists.html'), join(root, 'index.html'))
 
-  const res = await fetch(`${baseUrl}/some/unknown/route`)
-  expect(res.status).toBe(403)
-  const body = await res.text()
-  expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
-  // 同一断链在主路径直请求同样 403（口径一致断言）
-  const direct = await fetch(`${baseUrl}/index.html`)
-  expect(direct.status).toBe(403)
-  expect(body).not.toContain('前端尚未构建')
-})
+    const res = await fetch(`${baseUrl}/some/unknown/route`)
+    expect(res.status).toBe(403)
+    const body = await res.text()
+    expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+    // 同一断链在主路径直请求同样 403（口径一致断言）
+    const direct = await fetch(`${baseUrl}/index.html`)
+    expect(direct.status).toBe(403)
+    expect(body).not.toContain('前端尚未构建')
+  },
+)
 
 test('R50-C-4 对照: 正常 index.html + 未知路由 → fallback 200 行为不变', async () => {
   const res = await fetch(`${baseUrl}/some/unknown/route`)

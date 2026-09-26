@@ -5,10 +5,19 @@
  * 职责（api-client.test.ts 已覆盖），此处只断言请求负载。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getState, autoWrite, saveDraft, getDraftPrompt, interrupt } from '../../../src/studio/web-next/src/api/workbench'
+import {
+  getState,
+  autoWrite,
+  saveDraft,
+  getDraftPrompt,
+  interrupt,
+} from '../../../src/studio/web-next/src/api/workbench'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
-interface Call { url: string; init: RequestInit | undefined }
+interface Call {
+  url: string
+  init: RequestInit | undefined
+}
 
 let calls: Call[] = []
 function stubFetch(responder: () => Response): void {

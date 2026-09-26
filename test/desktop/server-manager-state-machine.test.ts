@@ -45,9 +45,7 @@ function mkTraceHarness(extra: ServerManagerDeps = {}): {
 
 /** 轨迹压缩成可断言串：`[!]事件:前置相位/停机面->目标相位/停机面`（! = 非法被拒） */
 function traceLines(traces: TransitionTrace[]): string[] {
-  return traces.map(
-    (t) => `${t.legal ? '' : '!'}${t.event}:${t.from.phase}/${t.from.stop}->${t.to.phase}/${t.to.stop}`,
-  )
+  return traces.map((t) => `${t.legal ? '' : '!'}${t.event}:${t.from.phase}/${t.from.stop}->${t.to.phase}/${t.to.stop}`)
 }
 
 /** 起一个 child 并完成握手（fork 在 start 调用内同步发生，取件须在 start 之后） */
@@ -153,10 +151,7 @@ describe('R0916-7-P3-17: 转移轨迹（合法转移逐条走真码）', () => {
     traces.length = 0
     forkRecords[0]!.child.emit('exit', 1)
     await vi.waitFor(() => expect(manager.hasPendingRestart()).toBe(true), { timeout: 300 })
-    expect(traceLines(traces)).toEqual([
-      'child-down:running/none->idle/none',
-      'backoff-arm:idle/none->backoff/none',
-    ])
+    expect(traceLines(traces)).toEqual(['child-down:running/none->idle/none', 'backoff-arm:idle/none->backoff/none'])
     expect(manager.isRunning()).toBe(false) // 当值位空、挂起重启在途（相位读数与两读数一致）
     await manager.stopChild()
   })
@@ -223,10 +218,7 @@ describe('R0916-7-P3-17: 转移轨迹（合法转移逐条走真码）', () => {
     await vi.waitFor(() => expect(manager.hasPendingRestart()).toBe(true), { timeout: 300 })
     traces.length = 0
     manager.killNow()
-    expect(traceLines(traces)).toEqual([
-      'backoff-cancel:backoff/none->idle/none',
-      'stop-mark:idle/none->idle/marked',
-    ])
+    expect(traceLines(traces)).toEqual(['backoff-cancel:backoff/none->idle/none', 'stop-mark:idle/none->idle/marked'])
     expect(manager.hasPendingRestart()).toBe(false)
   })
 })

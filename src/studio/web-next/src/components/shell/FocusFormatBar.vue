@@ -34,26 +34,71 @@ function onPageWidthInput(v: number): void {
 <template>
   <aside v-if="!sideRoomTooSmall" class="focus-format-bar" aria-label="排版设置">
     <label class="ffb-item">
-      <span class="ffb-label">字号<i class="ffb-val">{{ prefs.get('proseSize') }}px</i></span>
-      <input class="ffb-range" type="range" min="13" max="24" :value="prefs.get('proseSize')"
-        @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))" />
+      <span class="ffb-label"
+        >字号<i class="ffb-val">{{ prefs.get('proseSize') }}px</i></span
+      >
+      <input
+        class="ffb-range"
+        type="range"
+        min="13"
+        max="24"
+        :value="prefs.get('proseSize')"
+        @input="prefs.set('proseSize', Number(($event.target as HTMLInputElement).value))"
+      />
     </label>
     <label class="ffb-item">
-      <span class="ffb-label">行距<i class="ffb-val">{{ prefs.get('proseLh') }}×</i></span>
-      <input class="ffb-range" type="range" min="1.4" max="2.4" step="0.05" :value="prefs.get('proseLh')"
-        @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))" />
+      <span class="ffb-label"
+        >行距<i class="ffb-val">{{ prefs.get('proseLh') }}×</i></span
+      >
+      <input
+        class="ffb-range"
+        type="range"
+        min="1.4"
+        max="2.4"
+        step="0.05"
+        :value="prefs.get('proseLh')"
+        @input="prefs.set('proseLh', Number(($event.target as HTMLInputElement).value))"
+      />
     </label>
     <label class="ffb-item">
-      <span class="ffb-label">纸宽<template v-if="widthBookOnly">·本书</template><i class="ffb-val">{{ prefs.effectivePageWidth }}px</i></span>
-      <input class="ffb-range" type="range" min="600" max="1400" step="20" :value="prefs.effectivePageWidth"
-        @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
+      <span class="ffb-label"
+        >纸宽<template v-if="widthBookOnly">·本书</template
+        ><i class="ffb-val">{{ prefs.effectivePageWidth }}px</i></span
+      >
+      <input
+        class="ffb-range"
+        type="range"
+        min="600"
+        max="1400"
+        step="20"
+        :value="prefs.effectivePageWidth"
+        @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))"
+      />
     </label>
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
       <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
-      <FontPicker class="ffb-select" ariaLabel="正文中文字体" :value="prefs.get('proseFontCn')" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontCn', $event)" />
-      <FontPicker class="ffb-select" ariaLabel="正文英文字体" :value="prefs.get('proseFontEn')" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.set('proseFontEn', $event)" />
+      <FontPicker
+        class="ffb-select"
+        ariaLabel="正文中文字体"
+        :value="prefs.get('proseFontCn')"
+        :fonts="chineseFonts"
+        :default-font="defaultProseFontCn"
+        placeholder="中文 · 默认"
+        :display="fontDisplayName"
+        @change="prefs.set('proseFontCn', $event)"
+      />
+      <FontPicker
+        class="ffb-select"
+        ariaLabel="正文英文字体"
+        :value="prefs.get('proseFontEn')"
+        :fonts="englishFonts"
+        :default-font="defaultProseFontEn"
+        placeholder="英文 · 默认"
+        :display="fontDisplayName"
+        @change="prefs.set('proseFontEn', $event)"
+      />
     </template>
   </aside>
 </template>

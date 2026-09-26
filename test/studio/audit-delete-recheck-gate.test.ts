@@ -47,7 +47,11 @@ function makeRig(): Rig {
   )
   const bookRoot = join(workDir, '长篇', BOOK)
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\nhost: cc\n`, 'utf-8')
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\nhost: cc\n`,
+    'utf-8',
+  )
   const auditDelete = withRouteTable(createRouteTable(), () => {
     registerAuditRoutes({ workDir, userDataPath, ...processRouteDeps() })
     return getRouteSchema('books.audit.delete')!
@@ -91,9 +95,7 @@ function invokeAuditDelete(rig: Rig): {
 } {
   const { req, res, captured } = fakeReqRes()
   // handler 类型为同步/异步联合——Promise.resolve 归一后统一 await
-  const done = Promise.resolve(
-    rig.auditDelete.handler({ params: { name: BOOK }, input: undefined }, req, res),
-  )
+  const done = Promise.resolve(rig.auditDelete.handler({ params: { name: BOOK }, input: undefined }, req, res))
   return { done, captured }
 }
 
@@ -103,9 +105,7 @@ describe('复审-0914-修复批 P3-R3-5: audit DELETE 开库 await 窗口复查�
     try {
       seedWorkflowEvent(rig)
       // 停走窗：先持首开迁移锁——handler 的 openSessionStoreAsync 让出于同锁获取
-      const releaseMigrate = tryAcquireCrossProcessLock(
-        sessionMigrateLockPath(rig.userDataPath, rig.bookRoot),
-      )
+      const releaseMigrate = tryAcquireCrossProcessLock(sessionMigrateLockPath(rig.userDataPath, rig.bookRoot))
       expect(releaseMigrate).toBeTruthy()
 
       const { done, captured } = invokeAuditDelete(rig)

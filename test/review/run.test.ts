@@ -18,9 +18,7 @@ import type { ReviewIssue } from '../../src/review/contract.js'
 const reportWithLedger: CheckReport = {
   sections: [],
   byproducts: {
-    leadChanges: [
-      { leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
-    ],
+    leadChanges: [{ leadId: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' }],
   },
 }
 
@@ -191,7 +189,15 @@ test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立
   mkdirSync(packet.out_dir, { recursive: true })
   // 三视角都回写，但有个空 evidence issue
   const badIssue: ReviewIssue[] = [
-    { lens: 'reader', severity: 'S3', category: 'reader_pull', location: '结尾', evidence: [''], issue: '吸引力不足', fix: '补钩子' },
+    {
+      lens: 'reader',
+      severity: 'S3',
+      category: 'reader_pull',
+      location: '结尾',
+      evidence: [''],
+      issue: '吸引力不足',
+      fix: '补钩子',
+    },
   ]
   writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), JSON.stringify(badIssue), 'utf-8')
   writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
@@ -222,7 +228,15 @@ test('collectReviewIssues: 合审单文件回收三视角', () => {
   writeFileSync(
     join(built.packet.out_dir, COMBINED_ISSUES_FILE),
     JSON.stringify([
-      { lens: 'reader', severity: 'S4', category: 'pacing', location: '中段', evidence: ['节奏偏慢'], issue: '拖沓', fix: '压缩' },
+      {
+        lens: 'reader',
+        severity: 'S4',
+        category: 'pacing',
+        location: '中段',
+        evidence: ['节奏偏慢'],
+        issue: '拖沓',
+        fix: '压缩',
+      },
     ]),
     'utf-8',
   )
@@ -331,7 +345,17 @@ test('R63-4: 缺视角/坏条目 → 注入阻断 issue 带原因清单，passed
   // reader 回写一条真实意见；editor 坏 JSON；continuity 缺失
   writeFileSync(
     join(packet.out_dir, lensIssuesFileName('reader')),
-    JSON.stringify([{ lens: 'reader', severity: 'S4', category: 'pacing', location: '中段', evidence: ['节奏偏慢'], issue: '拖沓', fix: '压缩' }]),
+    JSON.stringify([
+      {
+        lens: 'reader',
+        severity: 'S4',
+        category: 'pacing',
+        location: '中段',
+        evidence: ['节奏偏慢'],
+        issue: '拖沓',
+        fix: '压缩',
+      },
+    ]),
     'utf-8',
   )
   writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '{oops', 'utf-8')
@@ -366,7 +390,15 @@ test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳�
       lenses_run: ['reader'],
       planned_calls: 1,
       packets: [
-        { lens: 'reader', title: '读者审', focus: ['沉浸感'], ledger_checks: [], output_contract: { json_only: true, evidence_required: true, no_score: true }, body: '正文。', chapter: 12 },
+        {
+          lens: 'reader',
+          title: '读者审',
+          focus: ['沉浸感'],
+          ledger_checks: [],
+          output_contract: { json_only: true, evidence_required: true, no_score: true },
+          body: '正文。',
+          chapter: 12,
+        },
       ],
       out_dir: workDir,
     }
@@ -399,12 +431,22 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
       join(packet.out_dir, lensIssuesFileName('continuity')),
       JSON.stringify([
         {
-          lens: 'continuity', severity: 'S2', category: 'logic', location: '第12章',
-          evidence: [{ fake: '字段' }], issue: '对象壳证据', fix: 'x',
+          lens: 'continuity',
+          severity: 'S2',
+          category: 'logic',
+          location: '第12章',
+          evidence: [{ fake: '字段' }],
+          issue: '对象壳证据',
+          fix: 'x',
         },
         {
-          lens: 'continuity', severity: 'S3', category: 'logic', location: '第12章',
-          evidence: ['前文无铺垫的突击反转'], issue: '正常字符串证据', fix: '补铺垫',
+          lens: 'continuity',
+          severity: 'S3',
+          category: 'logic',
+          location: '第12章',
+          evidence: ['前文无铺垫的突击反转'],
+          issue: '正常字符串证据',
+          fix: '补铺垫',
         },
       ]),
       'utf-8',
@@ -416,7 +458,11 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
     // 对象壳条目 → bad_entries（非静默通过；reason 截 80 字符，按前缀匹配）
     expect(collected.bad_entries.some((b) => b.reason.startsWith('issue 格式不符'))).toBe(true)
     // 双向：合法字符串证据条目 → 正常归一化收录（blockers/warnings 按严重级分桶）；对象壳不出现
-    const allNormalized = [...collected.normalized.blockers, ...collected.normalized.warnings, ...collected.normalized.invalid_issues]
+    const allNormalized = [
+      ...collected.normalized.blockers,
+      ...collected.normalized.warnings,
+      ...collected.normalized.invalid_issues,
+    ]
     expect(allNormalized.some((i) => i.issue === '正常字符串证据')).toBe(true)
     expect(allNormalized.some((i) => i.issue === '对象壳证据')).toBe(false)
     // 收录数口径：3 回收、0 缺失
@@ -436,12 +482,22 @@ test('R0916-6-P3-7：空 issue 描述 + 非空 evidence → 格式不符丢弃�
       join(packet.out_dir, lensIssuesFileName('continuity')),
       JSON.stringify([
         {
-          lens: 'continuity', severity: 'S1', category: 'logic', location: '第12章',
-          evidence: ['前文无铺垫的突击反转'], issue: '   ', fix: '补铺垫',
+          lens: 'continuity',
+          severity: 'S1',
+          category: 'logic',
+          location: '第12章',
+          evidence: ['前文无铺垫的突击反转'],
+          issue: '   ',
+          fix: '补铺垫',
         },
         {
-          lens: 'continuity', severity: 'S3', category: 'logic', location: '第12章',
-          evidence: ['前文无铺垫的突击反转'], issue: '正常描述', fix: '补铺垫',
+          lens: 'continuity',
+          severity: 'S3',
+          category: 'logic',
+          location: '第12章',
+          evidence: ['前文无铺垫的突击反转'],
+          issue: '正常描述',
+          fix: '补铺垫',
         },
       ]),
       'utf-8',

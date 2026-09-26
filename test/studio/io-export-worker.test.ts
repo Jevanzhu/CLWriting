@@ -54,18 +54,27 @@ beforeAll(async () => {
   )
   const okRoot = join(workDir, BOOK_OK)
   mkdirSync(join(okRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(okRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出worker测试书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(
+    join(okRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 导出worker测试书\n  genre: 玄幻\nhost: cc\n',
+  )
   writeFileSync(join(okRoot, '写作', '正文', '1-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n雪落在了城墙上。')
   // 空书：book.yaml 在、无 写作/正文 目录 → exportBook 业务失败「没有定稿正文可导出」
   const emptyRoot = join(workDir, BOOK_EMPTY)
   mkdirSync(emptyRoot, { recursive: true })
-  writeFileSync(join(emptyRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出空书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(
+    join(emptyRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 导出空书\n  genre: 玄幻\nhost: cc\n',
+  )
   // 含草稿书：两章正文、清单只登记第 1 章定稿 → 服务端信封应透传 skippedDrafts=1
   //（0917清库修复批：skippedDrafts 透传前端回归夹具；清单直写 jsonl——worker 线程
   // 独立进程态，不受本进程清单指纹缓存影响）
   const draftRoot = join(workDir, BOOK_DRAFT)
   mkdirSync(join(draftRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(draftRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出含草稿书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(
+    join(draftRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 导出含草稿书\n  genre: 玄幻\nhost: cc\n',
+  )
   writeFileSync(join(draftRoot, '写作', '正文', '1-已定稿章.md'), '---\n章号: 1\n标题: 已定稿章\n---\n定稿内容。')
   writeFileSync(join(draftRoot, '写作', '正文', '2-未定稿章.md'), '---\n章号: 2\n标题: 未定稿章\n---\n还在写的半成品。')
   mkdirSync(join(draftRoot, '项目'), { recursive: true })
@@ -73,7 +82,13 @@ beforeAll(async () => {
     join(draftRoot, '项目', '文档清单.jsonl'),
     [
       JSON.stringify({ type: 'header', version: 1 }),
-      JSON.stringify({ id: 'doc_1', nodeType: 'document', path: '写作/正文/1-已定稿章.md', parentId: null, finalizedRevision: 'sha256:fin-1' }),
+      JSON.stringify({
+        id: 'doc_1',
+        nodeType: 'document',
+        path: '写作/正文/1-已定稿章.md',
+        parentId: null,
+        finalizedRevision: 'sha256:fin-1',
+      }),
       JSON.stringify({ id: 'doc_2', nodeType: 'document', path: '写作/正文/2-未定稿章.md', parentId: null }),
     ].join('\n') + '\n',
   )
@@ -126,7 +141,10 @@ describe('B-24: runExportBookAsync 直测（注入 workerUrl/timeoutMs）', () =
   it('超时拒绝：慢 worker（300ms）× timeoutMs 20 → 抛「导出超时」且终止线程', async () => {
     const slow = new URL('./io-export-slow-worker.ts', import.meta.url)
     await expect(
-      runExportBookAsync({ bookRoot: '/nonexistent', format: 'merged', platform: 'generic' }, { workerUrl: slow, timeoutMs: 20 }),
+      runExportBookAsync(
+        { bookRoot: '/nonexistent', format: 'merged', platform: 'generic' },
+        { workerUrl: slow, timeoutMs: 20 },
+      ),
     ).rejects.toThrow('导出超时')
   })
 
@@ -137,7 +155,12 @@ describe('B-24: runExportBookAsync 直测（注入 workerUrl/timeoutMs）', () =
       { workerUrl: slow, timeoutMs: 5_000 },
     )
     let ticked = false
-    await new Promise((r) => setTimeout(() => { ticked = true; r(null) }, 50))
+    await new Promise((r) =>
+      setTimeout(() => {
+        ticked = true
+        r(null)
+      }, 50),
+    )
     expect(ticked).toBe(true) // 若同步内核仍在服务线程，此 await 前的定时器无法兑现
     const result = await pending
     expect(result).toEqual({ ok: true, via: 'slow-worker' })

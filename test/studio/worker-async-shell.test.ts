@@ -77,7 +77,10 @@ describe('R0912-ds41：三域超时/退出文案逐字节保真（message 全等
     )
     expect(timeoutErr.message).toBe('导出超时（上限 20ms），已终止导出工作线程')
     const exitErr = await rejectionOf(
-      runExportBookAsync({ bookRoot: dir, format: 'merged', platform: 'generic' }, { workerUrl: exit, timeoutMs: 5_000 }),
+      runExportBookAsync(
+        { bookRoot: dir, format: 'merged', platform: 'generic' },
+        { workerUrl: exit, timeoutMs: 5_000 },
+      ),
     )
     expect(exitErr.message).toBe('导出工作线程已退出（exit code=0），未返回导出结果')
   })

@@ -58,7 +58,17 @@ interface BookTreeIndex {
 
 /** 全局跳过目录（任何层级都不扫：运行时 / 版本库 / 依赖 / 系统垃圾 / 幕后资产）。
  *  v2：工作区（运行时资产）、文风（幕后）、定稿（仅剩摘要/脚本产物）、项目（元数据）不进树。 */
-const SKIP_DIRS = new Set(['.git', '.cache', '.clwriting', 'node_modules', '.DS_Store', '工作区', '文风', '定稿', '项目'])
+const SKIP_DIRS = new Set([
+  '.git',
+  '.cache',
+  '.clwriting',
+  'node_modules',
+  '.DS_Store',
+  '工作区',
+  '文风',
+  '定稿',
+  '项目',
+])
 /** 扫描书库 → 嵌套 TreeNode（目录优先 + localeCompare zh-Hans-CN 排序）。 */
 export function scanBookTree(bookRoot: string): TreeNode[] {
   return scanDir(bookRoot, '')
@@ -81,13 +91,19 @@ function scanDir(bookRoot: string, relDir: string): TreeNode[] {
     const rel = relDir ? `${relDir}/${e.name}` : e.name
     if (e.isDirectory()) {
       nodes.push({
-        path: rel, name: e.name, isDirectory: true,
-        role: 'note', children: scanDir(bookRoot, rel),
+        path: rel,
+        name: e.name,
+        isDirectory: true,
+        role: 'note',
+        children: scanDir(bookRoot, rel),
       })
     } else if (e.isFile()) {
       nodes.push({
-        path: rel, name: stripMd(e.name), isDirectory: false,
-        role: roleOf(rel), children: [],
+        path: rel,
+        name: stripMd(e.name),
+        isDirectory: false,
+        role: roleOf(rel),
+        children: [],
       })
     }
   }
@@ -180,12 +196,7 @@ function sortTreeByOrder(nodes: TreeNode[]): void {
       if (files.length > 1) {
         const keyOf = (c: TreeNode): number => c.order ?? chapterNoFromName(c.name) ?? Number.POSITIVE_INFINITY
         const noOf = (c: TreeNode): number => chapterNoFromName(c.name) ?? Number.POSITIVE_INFINITY
-        files.sort(
-          (a, b) =>
-            keyOf(a) - keyOf(b) ||
-            noOf(a) - noOf(b) ||
-            a.path.localeCompare(b.path, 'zh-Hans-CN'),
-        )
+        files.sort((a, b) => keyOf(a) - keyOf(b) || noOf(a) - noOf(b) || a.path.localeCompare(b.path, 'zh-Hans-CN'))
         // 目录在前（维持 compareNode 目录优先），重排后的章文件接续——sort 稳定，
         // 键全 Infinity 的非章文件保持 scanDir 原相对序
         let fi = 0

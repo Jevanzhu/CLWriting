@@ -236,8 +236,7 @@ vi.mock('electron', () => {
 
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M.userData,
-  samePath: (a: string, b: string) =>
-    process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b,
+  samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({
   // 复审-0914-优化修复批：desktop 域错误摘要三目收编 errMsg（同语义假件，保持 mock 面完整）
@@ -363,7 +362,9 @@ describe('R61-B-2: readStore 文件级读失败降级（不再启动即退）', 
       restore() // 恢复真身（current=libA）：若读失败路径会重读，此处将读到非空 recent/current
       // R4-P2-1：handler 直调须带受信渲染进程形态（main.test.ts 同款）
       const wc = M.windows.at(-1)!.webContents
-      const recent = M.ipcHandle['desktop:get-recent']!({ sender: wc, senderFrame: wc.mainFrame }, {}) as Array<{ path: string }>
+      const recent = M.ipcHandle['desktop:get-recent']!({ sender: wc, senderFrame: wc.mainFrame }, {}) as Array<{
+        path: string
+      }>
       expect(recent, '降级缓存命中：不再重读（parseStore 失败路径同款语义）').toEqual([])
       expect(M.logWarns.length, '缓存命中零盘 IO：无二次读 → 无二次 warn').toBe(warns0)
     } finally {

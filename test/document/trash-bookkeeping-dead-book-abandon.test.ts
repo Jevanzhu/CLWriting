@@ -27,7 +27,10 @@ import { restoreTrash, purgeTrash } from '../../src/document/trash.js'
 
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
   const root = mkdtempTracked(join(tmpdir(), 'clw-trash-deadbook-'))
-  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
+  execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+    cwd: root,
+    stdio: 'pipe',
+  })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

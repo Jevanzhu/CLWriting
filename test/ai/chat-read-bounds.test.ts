@@ -167,11 +167,7 @@ describe('R0910-W: read_skill 正文有界返回', () => {
   it('超长技巧包 → tool_result 截断至上限并注明截断量', async () => {
     const longRoot = join(bookRoot, '长篇', '长篇测试书')
     mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
-    writeFileSync(
-      join(longRoot, '设定', '技巧', '长包.md'),
-      '---\nname: 长包\n---\n' + '技'.repeat(30_000),
-      'utf8',
-    )
+    writeFileSync(join(longRoot, '设定', '技巧', '长包.md'), '---\nname: 长包\n---\n' + '技'.repeat(30_000), 'utf8')
     fake.setScript([
       { type: 'tool', name: 'read_skill', input: { name: '长包' } },
       { type: 'text', content: '读完了。' },
@@ -234,7 +230,8 @@ describe('R0910-W: read_skill 正文有界返回', () => {
 describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
   it('无 fm 但正文含非整行 ---（表格分隔行）→ 不吞中段，全文返回', async () => {
     const longRoot = join(bookRoot, '长篇', '长篇测试书')
-    const raw = '---\n雨夜开场，主角登场，这段正文足够长也可正常返回。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n结尾钩子。'
+    const raw =
+      '---\n雨夜开场，主角登场，这段正文足够长也可正常返回。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n结尾钩子。'
     // 无 fm 手写稿不被 readChapterDir 按 fm 章号识别——写到 resolveDraftPath 预测的
     // 新章路径（与 prompts.test.ts 的 P-6 用例同手法），read_chapter 按此路径读
     const rel = resolveDraftPath(longRoot, 9).relPath
@@ -270,7 +267,11 @@ describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
     // fm 章 + 超长正文（正文含 --- 表格分隔行：旧正则剥出的 body 与 bodyOf 不同 → 哈希必 miss）
     const tail = '长'.repeat(30_000)
     const body = '---\n雨夜开场，主角登场。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n' + tail
-    writeFileSync(join(longRoot, '写作', '正文', '0001-初入宗门.md'), '---\n章号: 1\n标题: 初入宗门\n---\n' + body, 'utf8')
+    writeFileSync(
+      join(longRoot, '写作', '正文', '0001-初入宗门.md'),
+      '---\n章号: 1\n标题: 初入宗门\n---\n' + body,
+      'utf8',
+    )
     // 模拟 buildChatContext 的上下文外置：对 bodyOf 口径的同一全文落 spill
     const locator = writeSpillFile(longRoot, body)!
 

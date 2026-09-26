@@ -20,9 +20,22 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
-import { readManifest, readManifestStrict, upsertEntry, withManifestLockAsync, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
+import {
+  readManifest,
+  readManifestStrict,
+  upsertEntry,
+  withManifestLockAsync,
+  writeManifest,
+  type Manifest,
+  type ManifestEntry,
+} from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
-import { writeVersion, readGlobalSnapshotPolicy, DEFAULT_VERSION_POLICY, encodeDocDirName } from '../document/version.js'
+import {
+  writeVersion,
+  readGlobalSnapshotPolicy,
+  DEFAULT_VERSION_POLICY,
+  encodeDocDirName,
+} from '../document/version.js'
 import { legacyId } from '../document/stable-id.js'
 import { isUtf8Bytes } from '../document/service-guards.js'
 import { invalidateTreeIndexForContent } from '../document/tree.js'
@@ -110,7 +123,9 @@ export function snapshotBeforeOverwrite(
   if (!isUtf8Bytes(raw)) {
     // 改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
     // 快照 catch 此前与瞬态 IO 一并 fail-open 吞掉，GBK 存量覆盖丢原稿，见该处修复注）
-    throw new NonUtf8TargetError(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
+    throw new NonUtf8TargetError(
+      `目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`,
+    )
   }
   const old = raw.toString('utf8')
   if (old === newContent) return null
@@ -129,14 +144,20 @@ export function snapshotBeforeOverwrite(
   // service.ts maybeSnapshot 生效，两条留底路径的保留口径割裂（AI 覆写快照可能被更紧
   // 的默认策略清掉）。force 语义保留（覆写前必留，不节流），仅 prune 边界统一走全局。
   const global = readGlobalSnapshotPolicy(userDataPath ?? null)
-  return writeVersion(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, {
-    force: true,
-    policy: {
-      maxDays: global.maxDays ?? DEFAULT_VERSION_POLICY.maxDays,
-      maxCount: global.maxCount ?? DEFAULT_VERSION_POLICY.maxCount,
-      throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
+  return writeVersion(
+    join(bookRoot, '工作区', '.版本'),
+    docId,
+    old,
+    { origin },
+    {
+      force: true,
+      policy: {
+        maxDays: global.maxDays ?? DEFAULT_VERSION_POLICY.maxDays,
+        maxCount: global.maxCount ?? DEFAULT_VERSION_POLICY.maxCount,
+        throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
+      },
     },
-  })
+  )
 }
 
 /**
@@ -175,7 +196,9 @@ export async function saveDraft(
   // 错乱——中止上抛交作者先在回收站决断。路径不存在的「删后重写」不拦：那是新文件，
   // 旧内容仍在回收站可还原（故意重写不受阻）。
   if (existsSync(absPath) && readTrashManifest(bookRoot).some((e) => e.originalPath === relPath)) {
-    throw new Error(`目标 ${relPath} 同时存在于磁盘与回收站登记（可能是恢复中断的残留），已中止写入——请先在回收站完成还原或清除`)
+    throw new Error(
+      `目标 ${relPath} 同时存在于磁盘与回收站登记（可能是恢复中断的残留），已中止写入——请先在回收站完成还原或清除`,
+    )
   }
   // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
@@ -210,7 +233,9 @@ export async function saveDraft(
     const liveManifest = readManifest(manifestPath)
     for (const e of liveManifest.entries.values()) {
       if (e.id === finalDocId && e.path !== relPath) {
-        throw new Error(`草稿保存目标已变（登记路径 ${e.path} ≠ ${relPath}，等待保存锁期间文档被移动/改名）——请刷新后重试`)
+        throw new Error(
+          `草稿保存目标已变（登记路径 ${e.path} ≠ ${relPath}，等待保存锁期间文档被移动/改名）——请刷新后重试`,
+        )
       }
       // 复核补反方向——等锁窗内他进程把**另一文档移入同路径**
       // （异 id entry 已认领 relPath）时原复核放行：下方新文件登记分支照常 upsert，
@@ -218,7 +243,9 @@ export async function saveDraft(
       // 与正向同口径上抛拒绝（世界已变），存量清单若本就有重复路径（历史脏数据）则
       // 该路径 fail-closed 拒写，交作者先清账。
       if (e.id !== finalDocId && e.path === relPath) {
-        throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
+        throw new Error(
+          `草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`,
+        )
       }
     }
     // （四轮处置批）：锁内单读派生收口——此前保形/留底/revision 三路各自
@@ -234,7 +261,15 @@ export async function saveDraft(
     // 先于 journal pending 与留底，快照与落盘同带结构键）。incoming 已显式含键则不覆写。
     content = preserveStructureFmIn(absPath, content, diskBytes)
     // 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；IO 失败上抛）
-    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath, diskBytes)
+    const snapshotId = snapshotBeforeOverwrite(
+      bookRoot,
+      relPath,
+      content,
+      opts?.snapshotOrigin,
+      manifest,
+      opts?.userDataPath,
+      diskBytes,
+    )
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（只记元数据，防丢字）——
     // pending 记不上就不能继续写（同口径，fail-closed 上抛，调用方已统一 catch）
     // revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
@@ -362,9 +397,7 @@ function findChapterOutlinePath(bookRoot: string, chapter: number): string | nul
 function scenesOfFmValue(scene: unknown): string[] {
   if (typeof scene === 'string' && scene.trim()) return [scene.trim()]
   if (Array.isArray(scene)) {
-    return scene
-      .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-      .map((s) => s.trim())
+    return scene.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim())
   }
   return []
 }
@@ -574,7 +607,10 @@ export function buildDraftPrompt(
     if (Number.isNaN(declaredNo) || declaredNo === chapter) {
       outline = outlineRaw
     } else {
-      log.warn('draft-pipeline', `细纲章号门未过（工作区/细纲.md 声明章号 ${declaredNo} ≠ 第 ${chapter} 章）——跳过细纲注入，防别章陈旧细纲串进写稿 prompt`)
+      log.warn(
+        'draft-pipeline',
+        `细纲章号门未过（工作区/细纲.md 声明章号 ${declaredNo} ≠ 第 ${chapter} 章）——跳过细纲注入，防别章陈旧细纲串进写稿 prompt`,
+      )
     }
   }
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
@@ -620,9 +656,7 @@ export function buildDraftPrompt(
     )
     return { prompt: parts.join('\n\n'), files }
   }
-  const parts: string[] = [
-    `## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`,
-  ]
+  const parts: string[] = [`## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
   if (chapterOutline) parts.push(`## 本章章纲(情节走向依据)\n${chapterOutline}`)
   if (materials) parts.push(`## 备料\n${materials}`)
