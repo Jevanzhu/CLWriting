@@ -99,10 +99,16 @@ jobs:
 
       # R67-3（十五轮）：lint 门接线——package.json 的 lint 脚本此前只在本地跑，
       # ci.yml 全文无 lint 步骤，与 coverage 门「只在本地生效」同款名存实亡判例。
-      # 射程现状（R9-P2-5 修账）：JS 块 + src/scripts/test/*.config.ts 的 TS 块；
-      # .vue 未纳入（另立账）。步绿门在先。
+      # 射程随 P3-4 批 6 扩到 TS 全量（含 web-next）+ .vue SFC：TS 块接双 tsconfig
+      # 工程（类型感知规则可用），.vue 接 eslint-plugin-vue essential 档。存量违规
+      # 以 eslint-suppressions.json 计数抑制冻结——规则一律 error，新增即红。
       - name: lint 门（eslint）
         run: npm run lint
+
+      # P3-4 另一半：格式化门。只检查不改写（CI 不改仓库）——本地 `npm run format`
+      # 一键归一化。红了即格式回退。
+      - name: 格式化门（prettier --check）
+        run: npm run format:check
 
       - name: 构建（src + web-next → dist，发布资产门）
         run: npm run build:all

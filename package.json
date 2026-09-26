@@ -48,7 +48,10 @@
     "soak": "node --import tsx --expose-gc test/soak/soak.ts",
     "dev:electron": "npm run build:all && node node_modules/electron/cli.js .",
     "build:desktop": "npm run build:all && electron-builder --publish never",
-    "build:desktop:dir": "npm run build:all && electron-builder --dir"
+    "build:desktop:dir": "npm run build:all && electron-builder --dir",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint:prune": "eslint . --prune-suppressions"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -60,8 +63,10 @@
     "electron": "^44.4.4",
     "electron-builder": "^26.16.1",
     "eslint": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
     "happy-dom": "^20.14.5",
     "pinia": "^4.0.3",
+    "prettier": "^3.9.9",
     "tsup": "^8.0.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",

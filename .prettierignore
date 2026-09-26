@@ -1,0 +1,40 @@
+# 格式化门射程：只覆盖「本项目手写的代码与配置」。
+# 生成产物 / 工具输出 / 第三方副本 / 文档正本一律排除——格式化它们只会制造无人阅读的 diff。
+dist/
+dist-electron/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+node_modules/
+src/studio/web-next/node_modules/
+src/studio/web-next/dist/
+src/studio/web-next/test-results/
+# 项目文档链（评审正本、执行方案、Archive）：正文归 Dev/Docs 自管篇幅门（check:docs）。
+# markdown 一律不入格式化面——本仓文档是中文长文，格式化器会重排表格列宽并给 HTML
+# 注记块补空行，制造大量无意义 diff（实测 README 一处表格 7 行全改 + 注记块插空行）。
+Dev/
+*.md
+# 知识层语料与提示词模板：运行时按原文装载，字节即契约（格式化可能改动正文）。
+知识层/
+resources/
+# 本机临时脚本产物目录（.gitignore 已排除，此处防工具直扫）。
+tmp/
+# 类型声明一律不动：既有 .d.ts 绝大多数是第三方（依赖升级时会被重写），
+# 本仓手写的三份 shim（shims-vue / font-list / env）体量极小且跟随声明文件惯例用分号，
+# 一并排除以保持 .d.ts 面风格单一，不出现「本仓 shim 无分号、依赖声明有分号」的混杂。
+*.d.ts
+# 数据夹具：内容是「被断言的数据」而非「要阅读的代码」——prompts-golden.json 是
+# prompt 字节等价金测的对照物，corpus/checks/*.json 是语料回归域产物（corpus:commit
+# 机写）。重排缩进只制造 diff，不改善任何可读性。
+test/ai/__fixtures__/
+test/corpus/checks/
+# 手写资产与二进制。
+build/
+*.png
+*.ico
+*.icns
+*.woff
+*.woff2
+*.ttf
+*.otf
