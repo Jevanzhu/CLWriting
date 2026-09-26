@@ -1,5 +1,5 @@
 /**
- * 知识层更新入口（阶段 23 批 4：迭代建议清偿·=a 双步 script，讨论稿建议 8）。
+ * 知识层更新入口（迭代建议清偿·=a 双步 script，讨论稿建议 8）。
  *
  * 语料回归域沉淀的机检误报规律（test/corpus/checks/*.json 的 expect:"silent" 条目，
  * corpus:commit 产物）此前无正式归宿——本模块给「知识层」接上演化通道：
@@ -51,7 +51,7 @@ interface CorpusEntry {
   expect: 'fire' | 'silent'
 }
 
-/** （总六十五轮）：本地时区 ISO 时间戳（保持 `2026-08-27T12:00:00.000+08:00`
+/** 本地时区 ISO 时间戳（保持 `2026-08-27T12:00:00.000+08:00`
  *  形态）——此前硬编码 +08:00（Date.now+8h 再贴 +08:00 后缀），宿主机非 UTC+8 时
  *  时刻与偏移双双错乱。现按 getTimezoneOffset 实算偏移（该值西正东负，取负得东偏
  *  分钟）；offsetMinutes 供测试注入（含负偏移形态），缺省取宿主真实偏移。 */
@@ -88,11 +88,11 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
     } catch {
       continue // 坏文件跳过：update 是产草稿不是门禁，不因单文件炸整轮
     }
-    // （总七十一轮）：parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
+    // parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
     // TypeError 崩整轮——对齐「坏文件跳过」注释口径，非数组同样 continue
     if (!Array.isArray(entries)) continue
     // （随同批）：数组元素 null/非对象（手编半写形态）此前在下方
-    // e.expect 处 TypeError 崩整轮汇总—— 只收「非数组」形态，坏项是同族漏网。
+    // e.expect 处 TypeError 崩整轮汇总——只收「非数组」形态，坏项是同族漏网。
     // 对齐本函数「坏文件跳过」与登记侧坏行降级口径：坏项剔除 + warn 留痕
     // （不静默），不崩整轮（update 是产草稿不是门禁）；坏项不计入 silent/fire 计数。
     const rows = entries.filter((e) => e !== null && typeof e === 'object')
@@ -173,7 +173,7 @@ interface CommitKnowledgeOpts {
  * 登记定稿文件进 manifest：append 单条 entry + generated_at 更新 + 全量重写。
  * 拒绝：target 已在 manifest（重复登记）/ target 不在 知识层/ 内（路径安全）/
  * manifest 读取失败 / 定稿文件不在盘 / source·license 空（新 entry 自身先验）。
- * 返回登记后的对账结果（caller 应要求 ok）。0918二轮修复批（G105）：写入后对账
+ * 返回登记后的对账结果（caller 应要求 ok）。写入后对账
  * 区分两栏——issue 仅指向存量坏行（与新 entry 无关）时 ok:true + issues 附带
  * （登记实已成功，重试不再撞「不得重复登记」）；issue 波及新 entry 才 ok:false。
  */
@@ -214,12 +214,12 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
       issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }],
     }
   }
-  // 判重改走 win32 casefold 键（caseFoldKey，校验器单源）——
+  // 判重改走 win32 casefold 键（caseFoldKey 校验器单源）——
   // 此前精确字符串比较与校验器口径分裂：win 大小写漂移（`知识层/A.md` vs `知识层/a.md`
   // 同一物理文件）下判重失效，同文件可重登成 manifest 双条目（校验器随后才报重复）。
   // 坏形状行（null/非对象/非字符串 target，手编半写形态）不参与比较：此前 null 条目在
   // `e.target` 处直接 TypeError 崩整个登记；对齐库内坏行跳过降级惯例（document/manifest
-  // parseManifestText / events store listEvents ），跳过须 warn 留痕（不静默），
+  // parseManifestText / events store listEvents），跳过须 warn 留痕（不静默），
   // 条目本身原样保留进下方全量重写（登记语义不变，坏行仍由 validateKnowledgeManifest
   // 按 issue 上报，不在写入侧静默增删改）。
   const targetKey = caseFoldKey(opts.target)
@@ -246,7 +246,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
 
   const source = opts.source ?? '语料回归域'
   const license = opts.license ?? '内部'
-  // 0918二轮修复批（G105）：新 entry 自身先验（写入前）——target 路径安全/判重/
+  // 新 entry 自身先验（写入前）——target 路径安全/判重/
   // 文件在盘/sha256 实算均已在上方逐项收口，source/license 是仅剩的构造面自由输入
   //（opts 传空串可穿透 ?? 缺省）；不先验会在写入后由全量对账以「source 与 license
   // 必填」打回 ok:false，与「不得重复登记」互相矛盾（重试永死）。坏则不写（fm 注入
@@ -337,7 +337,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   try {
     // manifest 显式 fsync——_manifest.json 是知识层对账单源，
     // 崩溃窗口丢清单 = 知识目录与清单失配。对齐高价值落盘显式口径先例
-    // （metrics/style.ts 冻结基线、document/trash.ts -BE-5 回收站清单）；
+    // （metrics/style.ts 冻结基线、document/trash.回收站清单）
     // atomicWriteFile 缺省本就 fsync=true，显式传参意图自明 + 防未来缺省漂移。
     atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n', { fsync: true })
   } catch (e) {
@@ -366,7 +366,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
       ],
     }
   }
-  // 0918二轮修复批（G105）：写入后对账分两栏——issue 只指向**存量坏行**（与新 entry
+  // 写入后对账分两栏——issue 只指向**存量坏行**（与新 entry
   // 无关：坏形状/缺文件/哈希失配的旧条目、version≠1 等 manifest 级旧伤）时，本次登记
   // 实已成功，返回 ok:true + issues 附带（调用方可继续，坏行另行修复）；此前一律
   // ok:false，与写入成功的盘面实态矛盾，且重试撞「不得重复登记」两报错互斥。issue
@@ -387,7 +387,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
 }
 
 /** md 顶层 front matter 注入/改写标量键（值原样写行尾；无 fm 则新建块；既有其余键与正文不动）。
- *  平台规范化批：的宿主行尾/BOM 保真语义随规范形拍板翻转——
+ * 平台的宿主行尾/BOM 保真语义随规范形拍板翻转——
  *  输出恒 LF 无 BOM（joinFrontMatter 整体规范化，含正文携带的 \r\n 归一）；CRLF/BOM
  *  存量由启动迁移 v4 归一，外部编辑产物经此写自愈。 */
 function injectFrontMatterKeys(filePath: string, keys: Record<string, string>): void {

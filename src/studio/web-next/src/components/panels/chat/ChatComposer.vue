@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 对话输入区 composer（修复批：自 ChatPanel 与
+ * 对话输入区 composer（自 ChatPanel 与
  * ChatDock 的双份模板 + ~150 行 CSS 收敛，纯结构去重——DOM/类名/事件语义不变）。
  * 逻辑层照旧走共享 useChatComposer（勿在本组件重复实现）；发送后回调经 onPushed
  * prop 透传（两消费方滚底/开框行为各异，原语义不变）。
@@ -116,7 +116,7 @@ const {
           <button v-if="chatRunning" class="chat-stop-btn" title="停止" @click="stopChat">
             <Square :size="14" />
           </button>
-          <!-- ：busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
+          <!-- busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
           <button v-else class="chat-send-btn" :disabled="!input.trim() || busy || sending" @click="handleSend">
             <Send :size="15" />
           </button>
@@ -212,7 +212,7 @@ const {
 }
 /* ③ dock 档输入框加高（值单源 ChatDock 的 --composer-min-h——含内边距约束
    dock 整体 ≤ --composer-h:130px；fallback 70px 保独立挂载/测试无 dock 祖先时
-   形态不变。） */
+ 形态不变。） */
 .chat-composer.glass .chat-input {
   min-height: var(--composer-min-h, 70px);
   box-sizing: border-box;

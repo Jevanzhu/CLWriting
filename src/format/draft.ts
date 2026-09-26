@@ -16,7 +16,7 @@ import { errMsg } from '../log/index.js' // errMsg 收编：错误文案三目�
 type ReadDraftResult = { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string }
 
 /**
- * 读正文区文件 → ChapterMeta + body。
+ * 读正文区文件 → ChapterMeta + body，供 finalize/check/review/chat 共用。
  * 统一 readChapter（章节 front matter：章号/标题/钩子/情绪/目标情绪/核心反转）。
  * content 传入时按预读文本解析（不再读文件）——三审端点单次读取
  * 取 buffer 后，hash 与机检 body 从同一快照派生；existsSync 守卫仅对真读文件生效。

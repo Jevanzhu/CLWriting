@@ -20,8 +20,8 @@ import { codePointLength } from './text.js'
  */
 export const TOKEN_COEFFICIENTS: Record<string, number> = {
   // 测定日期：尚未实测（建表）。首次跑校准脚本后填入，形如：
-  // 'claude-sonnet': 0.58, // ，n=1234，r=0.97
-  // （二十六轮·登记不修）：空表是「待校准」状态而非代码欠账——系数必须来自
+  // 'claude-sonnet': 0.58, //，n=1234，r=0.97
+  // 空表是「待校准」状态而非代码欠账——系数必须来自
   // 真实语料拟合（无值可填，属登记观察项）；语料收集到位后跑 calibrate-tokens.ts 回填。
 }
 
@@ -29,7 +29,7 @@ export const TOKEN_COEFFICIENTS: Record<string, number> = {
 export const DEFAULT_TOKEN_COEFF = 0.6
 
 /** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6。
- *  ：长度按 code points 计（非分配计数器）——与 spill/compaction 全库
+ * 长度按 code points 计（非分配计数器）——与 spill/compaction 全库
  *  口径统一；此前 text.length 是 UTF-16 码元，含 emoji/增补平面文本预算估长偏差至多 2 倍。
  *  内存核查（a）：Array.from(text).length 换 codePointLength——
  *  预算闸每段至少一调，展开数组是 6-10× 瞬态分配，码位语义不变。 */

@@ -30,7 +30,7 @@ export interface AdapterEntry {
   /** 别名（中转/网关的 adapterFamily 叫法，小写；解析不出主名时兜底） */
   aliases: readonly string[]
   /** 同步工厂（见文件头「有意分歧」注）；userDataPath 为来源配置目录
-   *  （降级记忆通道按显式 path 分发，见 createProvider 注） */
+   * （降级记忆通道按显式 path 分发，见 createProvider 注） */
   create(conf: ProviderConf, store?: ProviderStore, userDataPath?: string): ModelProvider
 }
 
@@ -109,7 +109,7 @@ function cachePut(hash: string, provider: ModelProvider): void {
   }
 }
 
-/** （修复批）：测试专用导出（零生产调用）——清实例缓存，防跨用例
+/** 测试专用导出（零生产调用）——清实例缓存，防跨用例
  *  串味；生产侧缓存失效由 conf hash 键控自然完成，无需显式清。 */
 export function clearProviderCache(): void {
   _cache.clear()

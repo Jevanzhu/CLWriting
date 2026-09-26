@@ -1,12 +1,12 @@
 /**
- * chat 相位 d 的回合三段 —— （全项目源码质量与优雅度评审）：
+ * chat 相位 d 的回合三段 ——（全项目源码质量与优雅度评审）：
  * runAgentTurns 原为 306 行 / 圈复杂度 79 的单函数（轮首三出口 + 血缘登记 + 发送面预切 +
  * 首发与两类重试 + 出口分流 + 无工具完成面 + 工具轮全链 + 触顶收尾）。本件承载三段实现体，
  * turns.ts 只留「for turn → 三段接力」的骨架。
  *
  * 三段与顺序不变量（改此件前先读）：
  * - 阶段一 initiateAgentTurn（单轮发起）：轮首中止/超时 → 血缘事件登记 → chat_turn →
- *   history 消毒与预算保尾预切 → 首发 + 超窗收缩重试 + switch-provider 换网重试 →
+ * history 消毒与预算保尾预切 → 首发 +超窗收缩重试 + switch-provider 换网重试 →
  *   llm/call 注入抽样校验。血缘登记（recorder.add）**先于**任何发送：注入面事件序与
  *   llm/call 的先后是审计链的既定形状（模型可见 ⟺ 已记录）。
  * - 阶段二 runToolTurn（工具调用派发与结果回填）：assistant 消息入 history → assistant/
@@ -22,7 +22,7 @@
  * 方零改动。
  */
 import type { ChatMsg, ContentBlock, TokenUsage } from '../../provider/types.js'
-// 最小版（清偿批）：GenError 随 generate 同源导入——run 回调边界捕获超窗 code
+// 最小版：GenError 随 generate 同源导入——run 回调边界捕获超窗 code
 import { generate, GenError } from '../../gen.js'
 // resolveProvider 复用既有 resolve 路径取档位模型 conf（只读
 // contextWindow；provider 实例本身仍由 runTask 自行 resolve）——本件只用其发送面常量
@@ -36,7 +36,7 @@ import { waitConfirm, executeChatTool } from './turns-tools.js'
 import { verifyVisibleSampled } from './turns-visibility.js'
 import { sanitizeHistory } from '../../prompts/chat.js'
 // 发送前体量防线——保尾预切与 trimHistory 回落分支同口径（单源 budgetTailCut）
-// /：预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
+// 预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
 // system prompt 计入预算（历史可用 = 预算 − sys 点数，下限 CHAT_HISTORY_MIN_BUDGET_POINTS）
 import {
   budgetTailCut,
@@ -53,7 +53,7 @@ import {
   toolCallEvent,
   toolResultEvent,
 } from '../../../events/chat-bridge.js'
-// 最小版（清偿批）：llm/retry 留痕——超窗收缩重试复用 runner 重试留痕事件
+// 最小版：llm/retry 留痕——超窗收缩重试复用 runner 重试留痕事件
 // 形态（events/types.ts LlmRetryData；落 chat 会话库，runner 链路库的 llm/retry 不变）
 import {
   settingsSnapshotEvent,
@@ -67,7 +67,7 @@ import { emit, activeBranchByBook, type ChatRunState } from './state.js'
 import { finishTurn, finalizeHistory } from './finish.js'
 import type { ChatSeqLedger } from './restore.js'
 
-// 0917清库修复批：5 → 20——原保守值使多工具任务（多章检查/批量整理等）即触顶收尾，
+// 5 → 20——原保守值使多工具任务（多章检查/批量整理等）即触顶收尾，
 // 工具任务完成率受损。护栏不依赖本上限：deadline 总时长闸（轮首检查）、写风险工具确认闸、
 // book.yaml budget.chat_max_calls 次数预算闸（runner checkAiTaskCallBudget，未配不设）
 // 各自独立兜底，轮数上限只作最后防线。
@@ -97,7 +97,7 @@ export interface TurnDeps {
   sys: string
   /** 本回合分支元数据（来自 restore 相位） */
   turnBranch: { parentSeq?: number; branchId?: string } | undefined
-  /** 血缘：注入快照指纹（来自 restore 相位）；0917清库修复批增 knowledge（方法论注入） */
+  /** 血缘：注入快照指纹（来自 restore 相位）；增 knowledge（方法论注入） */
   digests: { settings: string; revision?: string; skills?: string; knowledge?: string }
   /** prompt 注入文件清单（来自 restore 相位）——llm/call promptMeta.files 登记 */
   promptFiles: string[]
@@ -123,7 +123,7 @@ export interface ChatGeneration {
   /** resolve 后上线输出上限——runner 提取落 llm/call */
   resolvedMaxTokens?: number
   /** 适配器降级标记透传——runner extractDegraded 落 llm/call。
-   *  （GLM-5.3 修复批）：回调已返回而泛型未声明，
+   * 回调已返回而泛型未声明，
    *  类型面对调用方不可见，现补齐（finish.ts 摘要壳同款） */
   degraded?: boolean
   /** Responses 线缺口 11：加密推理项随 reasoning 块入历史，下轮回传维持推理状态 */
@@ -141,7 +141,7 @@ export type TurnSend = { kind: 'ended' } | { kind: 'sent'; out: ChatSendOut; lin
 
 /**
  * 单轮发起：轮首中止三出口→ 血缘登记 → chat_turn →
- * history 消毒 + 预算保尾预切（A101）→ 发送（首发 +
+ * history 消毒 + 预算保尾预切→ 发送（首发 +
  * 超窗收缩重试 + switch-provider 换网重试）→ llm/call 注入抽样校验。
  *
  * @param sendBudget 发送预算（按档位模型 contextWindow 显式 resolve 上提出
@@ -158,7 +158,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   } = deps.digests
 
   if (state.ctrl.signal.aborted) {
-    // - 回滚 + 遮蔽在 finishTurn 内；：deadline 定时器触发的 abort
+    // 回滚 +遮蔽在 finishTurn 内；deadline 定时器触发的 abort
     // 报「超时」（含嵌套 self-heal / 确认闸期间），用户中断报「已中断」
     finishTurn(opts, history, deps.baseLen, recorder, state.timedOut ? 'timeout' : 'interrupted')
     return { kind: 'ended' }
@@ -181,7 +181,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   lineageIdx.push(addLineage(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
   if (revisionDigest !== undefined) {
     // path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链。
-    // （四轮处置批）：未选章不再 `?? 0` 伪装成无效章号——章号缺省即「无章」
+    // 未选章不再 `?? 0` 伪装成无效章号——章号缺省即「无章」
     // 显式语义（构造器已放宽可选，消费方只读 revision）。
     lineageIdx.push(
       addLineage(
@@ -193,11 +193,11 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
       ),
     )
   }
-  // 技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
+  // 技巧包索引注入补登记——skillsIndex 非空才注入，同条件才登记
   if (skillsDigest !== undefined) {
     lineageIdx.push(addLineage(skillsSnapshotEvent({ digest: skillsDigest })))
   }
-  // 0917清库修复批：知识层方法论注入补登记——同「非空才注入/才登记」条件；scope 复用
+  // 知识层方法论注入补登记——同「非空才注入/才登记」条件；scope 复用
   // settings/snapshot 事件（knowledge 档），digest 与 ctx.knowledge 同源（restore 相位算好）
   if (knowledgeDigest !== undefined) {
     lineageIdx.push(addLineage(settingsSnapshotEvent({ scope: 'knowledge', digest: knowledgeDigest })))
@@ -215,7 +215,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   // 发送前体量防线——trimHistory/compaction 只在成功收尾后的
   // finalizeHistory（finish.ts）执行，单轮发送前无任何体量闸：重工具会话（大
   // tool_result 多轮累积）可一路撑到超窗 → provider 400（CONTEXT_WINDOW_EXCEEDED）。
-  // 最小版（清偿批）起，预切后仍越线的残余形态由本段下方 shrink-prompt
+  // 最小版起，预切后仍越线的残余形态由本段下方 shrink-prompt
   // 消费者（收缩重试恰一次）兜底——接线前此处 fail-open 原样发送、超窗即会话卡死。
   // 按「resolved 发送预算 − system prompt 点数」对消毒后历史做保尾预切，
   // 切点口径与 trimHistory 回落分支单源（budgetTailCut：只取纯文本 user 边界，永不落
@@ -227,7 +227,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤到下限以下时
   // clamp 到具名下限 CHAT_HISTORY_MIN_BUDGET_POINTS（约保一个回合），宁可切后总量
   // 仍超走下方复查 warn（fail-open），不把历史压成空手发送。
-  // 0918二轮修复批（A101）：下限补「随预算收缩」—— 只论证了 sys 挤负 clamp 形态，
+  // 下限补「随预算收缩」——只论证了 sys 挤负 clamp 形态，
   // 未覆盖 sendBudget 本身低于下限的形态：contextWindow < 40k 的小窗模型行
   // sendBudget = min(96k, ⌊窗/2⌋) < 20k，恒 clamp 到 20k 反而高于发送预算本身——
   // 预防线 `sendPoints > historyBudget` 对 [sendBudget, 20k] 区间永不触发，实发必超窗
@@ -265,7 +265,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
     )
   }
 
-  // ── 最小版（清偿批）：shrink-prompt 消费者（chat 编排层主模型发送处）──
+  // ──最小版：shrink-prompt 消费者（chat 编排层主模型发送处）──
   // 发送封装为 sendTurn(send, promptText)：首发失败且 run 回调捕获到 GenError.code ===
   // 'CONTEXT_WINDOW_EXCEEDED' 时，按更紧预算（⌊首发历史预算/2⌋，依据见下）对消毒后
   // 历史保尾重切 → 重算指纹 → 再发恰一次；仍失败（或不可重切/重切无收益）落回现行
@@ -297,7 +297,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   // 下末条消息不变、指纹恒同，是「对齐实发」的正确形态而非漏改）。
   //
   // 双次计费口径：重试是独立的第二次 runTask——首发（失败）与重试的 usage 各由本次
-  // runTask 按 /「失败/重试也是真实 API 消耗」口径独立入账 ai-calls/账本；
+  // runTask 按「失败/重试也是真实 API 消耗」口径独立入账 ai-calls/账本；
   // 外层 out.attemptsUsage 只聚合末次发送的 attempt 链，首发消耗不并入封套（与 runner
   // 内部重试链失败 attempt 不入 done 合计的既有口径一致，账本按次不丢）。
   //
@@ -306,14 +306,14 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   // chat_reset 清前端缓冲（超窗 400 属建连期失败、零增量，正常为 no-op——防御流中
   // 异常形态下重复文本）。
   let ctxOverflow = false
-  // 0917清库修复批：switch-provider 消费者（决策表 AUTH/NOT_FOUND/UNSUPPORTED → 换网重试，
+  // switch-provider 消费者（决策表 AUTH/NOT_FOUND/UNSUPPORTED → 换网重试，
   // 此前无消费者、终态等同 author——failure.ts 自认）。code 捕获通道与 ctxOverflow
   // 同款：run 回调边界就地置码；换网判定读 failureAction 决策表，不在此处写死错误码清单
   let switchCode: GenError['code'] | undefined
   const sendTurn = (send: ChatMsg[], promptText: string, providerId?: string) =>
     runTask<ChatGeneration>({
       userDataPath: opts.userDataPath,
-      // 0917清库修复批：换网重试传显式 provider id（缺省 undefined 原路径）
+      // 换网重试传显式 provider id（缺省 undefined 原路径）
       providerId,
       tierKind: 'chat',
       task: 'chat',
@@ -322,7 +322,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
       // 不带则同 user 消息不同书 hash 冲突
       systemPrompt: sys,
       // 每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
-      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义—— 起取消毒后
+      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义——起取消毒后
       // 历史（与 generate 实发同源）；起取预切后实际发送的 toSend 末条
       //（指纹与实发同源，预切触发时指纹随实发收窄，不再对未发送的历史记账）；
       // 最小版起收缩重试对重切实发重算同一指纹（见上方闭环注释）
@@ -345,14 +345,14 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
       // 互不抢占；同书 turns 与 finish 同槽同 ctrl，幂等 no-op 不变。
       register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
       onReset: () => emit(opts, { type: 'chat_reset' }),
-      // -：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
+      // provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
       // error 拼接前过 redactSecret（与 stream.ts:216 同款）
       onRetry: (attempt, error) =>
         emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
       run: async (provider, signal, tier) => {
         // 消毒副本在 runTask 前统一产出（上提，指纹同源）；消毒产副本不污染
-        // 累积的 history（回滚仍按 baseLen 精确）。：实发取发送前预切后的
-        // toSend（超 resolved 发送预算时保尾收窄，防超窗 400 卡死；/起预算
+        // 累积的 history（回滚仍按 baseLen 精确）。实发取发送前预切后的
+        // toSend（超 resolved 发送预算时保尾收窄，防超窗 400 卡死；起预算
         // 按模型窗口 resolve 且 sys 计入，见上方防线注释）；最小版起重试发送取
         // 重切后的实发（sendTurn 参数 send）。
         // 最小版：超窗 code 就地捕获（见上方 code 捕获通道注释）后原样上抛——
@@ -390,8 +390,8 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
       },
     })
   let out = await sendTurn(toSend, lastMessageFingerprint(toSend))
-  // 0918修复批（A001）：换网重发实发载荷—— 收缩重发实际执行处同步收窄，
-  // 「首发超窗 → 收缩重发 → 重发又回 AUTH 族 → 换网重发」组合链不再误用首发
+  // 换网重发实发载荷——收缩重发实际执行处同步收窄，
+  // 「首发超窗 →收缩重发 → 重发又回 AUTH 族 → 换网重发」组合链不再误用首发
   // 未收缩载荷（修复前 :422 恒发 toSend，重放超窗形态）。本块之后 toSend 无其余
   // 读点（终态出口/成功路径均不触达），收窄面仅换网重发一处。
   let effectiveToSend = toSend
@@ -414,7 +414,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
         type: 'warning',
         message: `上下文超限，已自动收缩对话历史（约 ${sentPoints} → ${retryPoints} 码点）后重试。`,
       })
-      // 0918修复批（A001）：收缩重发实际执行处同步 effectiveToSend（换网重发取此值）
+      // 收缩重发实际执行处同步 effectiveToSend（换网重发取此值）
       effectiveToSend = retryToSend
       out = await sendTurn(retryToSend, lastMessageFingerprint(retryToSend))
       if (!out.ok && ctxOverflow) {
@@ -431,11 +431,11 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
     }
   }
 
-  // ── 0917清库修复批：switch-provider 消费者（chat 编排层主模型发送处）──
+  // ──：switch-provider 消费者（chat 编排层主模型发送处）──
   // 首发命中换网族（决策表 action='switch-provider'）且存在异于当前的供应商配置时，
   // 取第一个备用 id 换网重发恰一次（shrink 同款最小范型：一次性、不级联）；仍失败
   // 或无备用 → 落回现行终态路径（错误面零变更）。重发走 sendTurn
-  // 全链（trace/记账/指纹与首发同构；0918修复1/A004 起：载荷取收缩后
+  // 全链（trace/记账/指纹与首发同构；起：载荷取收缩后
   // 的 effectiveToSend、备用须过 chat 档可用性预检——换的是网，输入与首发/收缩实发
   // 一致）；provider 实例由 runTask 按 providerId 解析，两次 llm/call 各自记录实际
   // 生效供应商。self-heal/spawn/rewrite 等非 chat 路径照旧终态（runner 内该动作仍同
@@ -445,18 +445,18 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
     switchCode = undefined
     let fallbackId: string | undefined
     let fromId: string | null = null
-    // 0918修复批（A004）：备用供应商逐个校验 chat 档可用性，选第一个可解析的异
+    // 备用供应商逐个校验 chat 档可用性，选第一个可解析的异
     // id 供应商；此前 find(p => p.id !== currentId) 不校验，选中无 chat 档/坏协议的
     // 备用只会白烧一次必败发送。全部不可用时按成因区分 warn 文案（无备用供应商 vs
     // 备用均无可用 chat 档），均落现行终态路径（错误面零变更）。
-    // 0918二轮修复批（A104）：校验从「resolveProvider 同款解析路径」改为轻量形状校验
+    // 校验从「resolveProvider 同款解析路径」改为轻量形状校验
     // ——修复前对每个候选 resolveProvider（每次 loadProviders 整 store 克隆 + vault
     // 解密、createProvider 实例入 LRU 挤占容量 8），失败路径的过滤探针代价与实例驻留
     // 面不成比例。现读一次 providers 配置做形状判定：协议在册（resolveAdapter，与
     // createProvider 未知协议拒绝同源）+ chat 档模型可解析（tierFromStore 与
     // resolveProvider 的 tier 解析同源，模型缺失对全体候选一致 = 均无 chat 档）；
     // 不实例化 provider、不进 LRU，真正实例化只发生在选定后的重发路径（runTask →
-    // resolveProvider(providerId) 全量校验兜底）。A004 预检文案语义不变。
+    // resolveProvider(providerId) 全量校验兜底）。预检文案语义不变。
     let hasCandidate = false
     try {
       const s = loadProviders(opts.userDataPath)
@@ -474,14 +474,14 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
         `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`,
       )
       recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: failedCode }), turn })
-      // 0918修复批（A003）：重发前清前端对话缓冲——换网重发是独立的第二次完整
+      // 重发前清前端对话缓冲——换网重发是独立的第二次完整
       // 发送，防异常形态下 chat_text 重复拼接（对齐上方分支同款防御；正常为 no-op）
       emit(opts, { type: 'chat_reset' })
       emit(opts, {
         type: 'warning',
         message: `AI 供应商请求失败（${redactSecret(failedCode)}），已切换备用供应商重试。`,
       })
-      // 0918修复批（A001）：实发取 effectiveToSend（无收缩链路 = toSend 本身
+      // 实发取 effectiveToSend（无收缩链路 = toSend 本身
       // 行为不变；收缩后换网组合 = 收缩后载荷），指纹同步按实发重算
       out = await sendTurn(effectiveToSend, lastMessageFingerprint(effectiveToSend), fallbackId)
     } else if (hasCandidate) {
@@ -531,8 +531,8 @@ export type TurnClosure = { ended: true; completedOk: boolean } | { ended: false
 
 /**
  * 轮次收尾与终止判定：失败面/截断面经 finishTurn 收口（回滚 + 遮蔽 + chat_error）；
- * 无工具完成面发 chat_done 并收尾（+ / attemptsUsage 优先 +
- * 分支激活 + + 溢出压缩）；工具轮返回 { ended: false } 交阶段二。
+ * 无工具完成面发 chat_done 并收尾（attemptsUsage 优先 +
+ * 分支激活 +溢出压缩）；工具轮返回 { ended: false } 交阶段二。
  */
 export async function closeAgentTurn(args: {
   deps: TurnDeps
@@ -558,7 +558,7 @@ export async function closeAgentTurn(args: {
   const { text, stopReason, reasoning, reasoningEncrypted, reasoningItemId } = out.data
 
   // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）；
-  // -：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
+  // 回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
   if (kind === 'max-tokens') {
     finishTurn(opts, history, baseLen, recorder, 'max-tokens')
     return { ended: true, completedOk: false }
@@ -566,7 +566,7 @@ export async function closeAgentTurn(args: {
   if (kind !== 'no-tools') return { ended: false, out }
 
   // 无工具调用 → 对话结束
-  // AI-1：reasoning 非空时入历史（与工具路径一致——DeepSeek/Kimi 多轮带 tools 硬要求）
+  // reasoning 非空时入历史（与工具路径一致——DeepSeek/Kimi 多轮带 tools 硬要求）
   let asstContent: string | ContentBlock[]
   if (reasoning) {
     const blocks: ContentBlock[] = []
@@ -585,7 +585,7 @@ export async function closeAgentTurn(args: {
   }
   history.push({ role: 'assistant', content: asstContent })
   // 记录 assistant 事件 + 回合收尾 + 落库
-  // assistant 事件同下方 chat_done 改 attemptsUsage 优先的
+  // assistant 事件同下方 chat_done改 attemptsUsage 优先的
   // 合并口径——重试链回合 out.usage 只是末 attempt 单次值，事件用量被系统性低估
   seqs.pendingMsgSeqs.push(
     recorder.add(
@@ -611,13 +611,13 @@ export async function closeAgentTurn(args: {
   deps.markCompleted()
   // regenerate 成功才激活新分支（失败/中断的半截组已被遮蔽，激活会归因到幽灵组）
   if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
-  // +溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
+  // 溢出 → checkpoint 压缩优先（chat_done 先发，不被摘要调用拖住）
   await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state, deps.promptFiles)
   return { ended: true, completedOk: true }
 }
 
 /** 轮数触顶收尾（for 循环自然跑满后调用）：补固定收尾文案 + 事件 + 落库 + done。
- * / / / 口径见各注；返回 completedOk。 */
+ * 口径见各注；返回 completedOk。 */
 export async function closeByTurnLimit(args: {
   deps: TurnDeps
   lastTurnUsage: { inputTokens: number; outputTokens: number } | undefined
@@ -628,7 +628,7 @@ export async function closeByTurnLimit(args: {
   emit(opts, { type: 'chat_turn', turn: MAX_AGENT_TURNS })
   const closingMsg = '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。'
   emit(opts, { type: 'chat_text', text: closingMsg })
-  // -：收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
+  // 收尾文案入历史（防末尾 user(tool_result) + 下次 user → 连续 user → Anthropic 400）
   history.push({ role: 'assistant', content: closingMsg })
   // 事件记录 + 落库 + trim 遮蔽（与无工具完成路径一致）
   // 收尾 assistant 也进同一变体组（regenerate 轮数触顶时整回合不丢出分支视图）
@@ -646,7 +646,7 @@ export async function closeByTurnLimit(args: {
   deps.markCompleted()
   // 轮数触顶收尾也属正常完成——同口径激活新分支
   if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)
-  // +溢出 → checkpoint 压缩优先（同无工具完成路径）
+  // 溢出 → checkpoint 压缩优先（同无工具完成路径）
   await finalizeHistory(opts, history, seqs.msgSeqs, recorder, sys, state, deps.promptFiles)
   return true
 }
@@ -656,10 +656,10 @@ export async function closeByTurnLimit(args: {
 /**
  * 工具轮次：assistant 消息（text/reasoning/tool_use blocks）入 history → assistant 事件
  * 与 tool_call 审计事件 → 工具串行派发与结果回填 → tool_result blocks 组成 user 消息入
- * history → tool/result 事件 → turnEnd → 落库。
+ * tool_result blocks 组成 user 消息入 history → tool/result 事件 → turnEnd → 落库。
  *
  * 派发闸序（不可重排）：轮首级 abort 短路→ 未注册工具直接 isError 回填
- * （/，不弹确认卡）→ 写风险确认闸（TOOL_RISK='write' 才 waitConfirm，
+ * （不弹确认卡）→ 写风险确认闸（TOOL_RISK='write' 才 waitConfirm，
  * 超时与人工取消分开归因）→ 执行（executeChatTool）。
  *
  * @returns completedOk：false = 落库失败（flushTurnEvents 已回滚遮蔽），轮循环须终止
@@ -726,7 +726,7 @@ export async function runToolTurn(args: {
       emit(opts, { type: 'chat_tool_result', callId: call.id, summary: '已取消', ok: false })
       continue
     }
-    // （二十四轮 A 域）：未注册工具直接 isError 回填——TOOL_RISK 缺名时原先
+    // 未注册工具直接 isError 回填——TOOL_RISK 缺名时原先
     // 默认 'write' 从严弹确认卡，作者确认的却是一个必然失败的调用（executeChatTool
     // default 分支「未知工具」），确认卡失实。改为不弹卡直接回错误结果（风险面不变：
     // 未知工具本就无执行体；未知工具事件已在上方 toolCallEvent 全量登记，审计不缺）。

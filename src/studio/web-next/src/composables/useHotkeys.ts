@@ -39,7 +39,7 @@ export function useHotkeys(): void {
       e.preventDefault()
       ui.openPalette()
     } else if (k === 'f' && !e.shiftKey) {
-      // -mac适配：全局 ⌘F 查找——编辑器聚焦时 CM searchKeymap 已消费
+      // mac适配：全局 ⌘F 查找——编辑器聚焦时 CM searchKeymap 已消费
       //（preventDefault 后事件仍冒泡，上方 defaultPrevented 守卫已让渡，不会双开面板）；
       // 焦点在外时经 APP_FIND_EVENT 桥接 EditorView 打开查找面板，与系统菜单
       //「查找…」同链路；无活动文档时无人消费即安全 no-op

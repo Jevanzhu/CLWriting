@@ -10,7 +10,7 @@
 // readLlmCalls 与 cost-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: false（无 usage 行也计入，
 // token 按 ?? 0 兜底、行数即调用次数——通过率/耗时维度不依赖 usage）
-// （修复批）：读侧改流式（streamLlmCallRows）——边读边聚合，
+// 读侧改流式（streamLlmCallRows）——边读边聚合，
 // 不再物化全量行数组；迭代顺序（seq 升序）与聚合口径不变，结果逐字段相同
 import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 

@@ -16,7 +16,7 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
-// -（errMsg 收编）：错误摘要口径单源
+// （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 
 /**
@@ -41,8 +41,8 @@ type SdkErrorCtor = abstract new (...args: never[]) => SdkApiError
  * （status undefined），必须在通用 APIError 分支前判定，否则用户中断被误报
  * 「<label> undefined: Request was aborted」、连接失败被归 UNKNOWN。
  *
- * （六轮修复批）：第二参 usage 可选透传——此前
- * /「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
+ * 第二参 usage 可选透传——此前
+ * 「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
  * content_filter 均带），流消费中 SDK 直接 throw（如 mid-stream 连接重置）走本工厂时
  * 无载荷通道：message_start 已实测的 input/cache、latestUsage 闭包值全部丢弃，runner
  * 终态失败路径按 0 入账（真实消耗漏记）。三适配器 catch 分支现把「异常时点可得的最小
@@ -101,7 +101,7 @@ export interface DegradePlan {
   /** 记忆键（conf.id/model）；未选模型时 null（无处写记忆） */
   degradedKey: string | null
   /** 首发原始请求——降级判定基准。记忆命中时 attempts[0] 已是剥除版，
-   *  「attempt !== attempts[0]」对首发恒 false 会漏标 degraded（重放口径缺口在
+   * 「attempt !== attempts[0]」对首发恒 false 会漏标 degraded（重放口径缺口在
    *  记忆命中路径——常态——全部漏标）；适配器改判 attempt !== original，无论首发是否
    *  被记忆剥除，成功建流只要非原始参数面即标降级 */
   original: GenRequest
@@ -168,11 +168,11 @@ export function buildDegradeAttempts(
 /**
  * 非最后 attempt 的 400 → continue 语义（降级链的续跑闸）。
  * 最后一个 400 必须透传原文——否则真实参数错误被降级链的兜底文案掩盖。
- * （GLM-5.3 修复批）：真·上下文超限 400 不再续链——
+ * 真·上下文超限 400 不再续链——
  * 超窗与 structured/tools 形状无关（历史总量超模型窗），剥 tools 重试是纯白耗的
  * 第二次必败调用；立即透传让上层拿 CONTEXT_WINDOW_EXCEEDED 走正路（chat 链
  * shrink-prompt 自动缩输入 / 生成链终态化）。判定复用 httpStatusToCode 的超窗
- * 短语级正则单源（/收紧口径，不另立文案表）。
+ * 短语级正则单源（收紧口径，不另立文案表）。
  */
 export function isMidChain400(e: unknown, APIError: SdkErrorCtor, attempt: GenRequest, plan: DegradePlan): boolean {
   if (!(e instanceof APIError && e.status === 400 && attempt !== plan.attempts[plan.attempts.length - 1])) return false

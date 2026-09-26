@@ -87,7 +87,7 @@ export interface SpecOutput {
   /** 适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
   resolvedMaxTokens?: number
   /** 成功建流用的是降级参数面（GenResult.degraded 透传）——runner
-   *  extractDegraded 落 llm/call。 只修了适配器→gen 半段，三处 run 回调此前不带
+   * extractDegraded 落 llm/call。只修了适配器→gen 半段，三处 run 回调此前不带
    *  该字段，降级面成功的事件记录与真实参数面静默分叉（铁律②重放口径） */
   degraded?: boolean
 }
@@ -114,7 +114,7 @@ function ctrlFromSignal(signal: AbortSignal): { ctrl: AbortController; detach: (
  * 返回 TaskResult<SpecOutput>，调用方从 output.input / output.text decode。
  */
 export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResult<SpecOutput>> {
-  // 按 spec.name 拼接适用规则的 toPrompt（写稿查 AI 味、审稿不查，由挂载关系表达）
+  // 按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
   // 内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
   // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
   // 改用带源版本——overlay 命中时把注入源绝对路径登记进 promptFiles

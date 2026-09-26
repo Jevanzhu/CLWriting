@@ -48,7 +48,7 @@ export const LEAD_UPDATE_SPEC: TaskSpec = {
   mock: { kind: 'text', text: '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。' },
 }
 
-/** 章摘要生成定稿即生成 / 自愈按需补漏共用；低档廉价调用 */
+/** 章摘要生成：定稿即生成 / 自愈按需补漏共用；低档廉价调用 */
 export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
   name: 'summary-chapter',
   tierKind: 'assistant',
@@ -69,7 +69,7 @@ export const SUMMARY_CHAPTER_SPEC: TaskSpec = {
   },
 }
 
-/** 卷摘要生成从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
+/** 卷摘要生成：从该卷已有章摘要链现场生成，备料 rank-3 段 / 细纲卷进展共用 */
 export const SUMMARY_VOLUME_SPEC: TaskSpec = {
   name: 'summary-volume',
   tierKind: 'assistant',

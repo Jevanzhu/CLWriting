@@ -65,7 +65,7 @@ interface AuditViewFE {
   todos: TodoFE[]
 }
 
-/** GET /api/books/:name/audit → 审计视图（可选分页参数，：前端翻页靠 offset 推进） */
+/** GET /api/books/:name/audit → 审计视图（可选分页参数：前端翻页靠 offset 推进） */
 export async function getAudit(bookName: string, paging?: AuditPagingFE): Promise<AuditViewFE> {
   const q = new URLSearchParams()
   if (paging?.limit !== undefined) q.set('limit', String(paging.limit))
@@ -75,7 +75,7 @@ export async function getAudit(bookName: string, paging?: AuditPagingFE): Promis
 }
 
 /** 事件保留定版：清除本书事件史（销毁动作——对话 + 工作流两侧；调前需作者二次确认）。
- *  （二十六轮，登记顺手改档）：销毁链删除大量事件可达秒级，30s 默认兜底档偏紧，
+ * （登记顺手改档）：销毁链删除大量事件可达秒级，30s 默认兜底档偏紧
  *  显式配 120s 慢档（对齐 AI 分析/收割类慢端点档位）。 */
 export async function clearAudit(bookName: string): Promise<void> {
   await apiJson<{ ok: true }>(bookUrl(bookName, 'audit'), { method: 'DELETE' }, 120_000)

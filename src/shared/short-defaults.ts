@@ -1,5 +1,5 @@
 /**
- * 短篇集默认画像与机检阈值——唯一正本（.1-flash 修复批）。
+ * 短篇集默认画像与机检阈值——唯一正本。
  *
  * 此前 metrics/short-index.ts（DEFAULT_SHORT_CONFIG）与 install/data.ts
  * （DEFAULT_SHORT_CHECKS）各持一份 12 行逐字相同的默认表，面临单侧改动漂移；

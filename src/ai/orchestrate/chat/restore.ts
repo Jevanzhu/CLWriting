@@ -2,7 +2,7 @@
  * chat 相位 b+c：历史恢复与谱系 + 会话与上下文（hh §八-16 自 chat.ts runChat 拆出，纯搬家）。
  *
  * - b：regenerate 分支重建/ 默认分支投影/ msgSeqs 批内换算
- *   `commitPendingMsgSeqs`/ 活跃分支归属；
+ * `commitPendingMsgSeqs`/ 活跃分支归属；
  * - c：createSession / buildChatContext / chatSystem / 三 digest（血缘）/ user push 时序（#3b）。
  */
 import type { ChatMsg } from '../../provider/types.js'
@@ -28,7 +28,7 @@ export interface ChatSeqLedger {
   pendingMsgSeqs: Array<number | number[]>
   /** range.seqs 携带 flush 返回的批内逐事件真实 seq——换算直索引
    *  seqs[idx]，不再 range.first + idx 区间算术反推（批内 seq 不连续（触发器/第二
-   *  连接插行）时遮蔽区间整体错位）；null 语义不变（清 pending 补 []） */
+   * 连接插行）时遮蔽区间整体错位）；null 语义不变（清 pending 补 []） */
   commitPendingMsgSeqs(range: { first: number; last: number; seqs: number[] } | null): void
 }
 
@@ -166,7 +166,7 @@ export function prepareChatRun(
   const settingsDigest = digest16(ctx.settings)
   const revisionDigest = ctx.currentChapter ? digest16(ctx.currentChapter) : undefined
   const skillsDigest = ctx.skillsIndex ? digest16(ctx.skillsIndex) : undefined
-  // 0917清库修复批：知识层方法论注入指纹——chatSystem 拼进 prompt 的同一 ctx 字段做
+  // 知识层方法论注入指纹——chatSystem 拼进 prompt 的同一 ctx 字段做
   // digest16（与 settings/skills 同源口径），非空才在轮首登记 knowledge 档血缘
   const knowledgeDigest = ctx.knowledge ? digest16(ctx.knowledge) : undefined
   // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，

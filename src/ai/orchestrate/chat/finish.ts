@@ -3,9 +3,9 @@
  *
  * - finishTurn：六处失败出口（轮首中止 timedOut / 轮首中止用户中断 / 轮首 deadline /
  *   !ok 超时 / !ok 错误 / max_tokens）的单一出口——回滚 + 全会话 surface 遮蔽 +
- *   chat_error 文案，遮蔽口径（幽灵消息口径）只在此处定义；
- * - finalizeHistory / summarizeCheckpoint：+ 溢出时 checkpoint 压缩优先，
- *   失败回落硬截断（trim 遮蔽语义不变）。
+ * chat_error 文案，遮蔽口径（幽灵消息口径）只在此处定义；
+ * - finalizeHistory / summarizeCheckpoint：溢出时 checkpoint 压缩优先，
+ * 失败回落硬截断（trim 遮蔽语义不变）。
  */
 import type { ChatMsg, TokenUsage } from '../../provider/types.js'
 import { redactSecret } from '../../provider/redact.js' // SSE 错误事件脱敏第二层
@@ -39,7 +39,7 @@ const CHAT_EXIT_SPEC = {
 } as const
 
 // 文案与超时值同源换算，不再硬编码。
-// （修复批）： 起 runChatInner 支持
+// 起 runChatInner 支持
 // opts.deadlineMs 注入，超时文案恒按缺省 AGENT_DEADLINE_MS 换算会与实际生效超时漂移
 // （原「文案按缺省口径展示」声明失真）——改按实际生效 deadline（opts.deadlineMs ??
 // AGENT_DEADLINE_MS，与 chat.ts runChatInner 的 resolve 同式）换算；mask 终态口径不变，
@@ -49,7 +49,7 @@ function timeoutExitSpec(opts: ChatOpts): { mask: 'aborted'; message: string } {
   return { mask: 'aborted', message: `对话超时（超过 ${Math.round(deadlineMs / 60_000)} 分钟），已停止` }
 }
 
-/** 单一失败出口：回滚历史到 baseLen（-/：防末尾 user → 下次连续 user → Anthropic 400）
+/** 单一失败出口：回滚历史到 baseLen（防末尾 user → 下次连续 user → Anthropic 400）
  * + 本会话全部 surface 消息遮蔽（防下次恢复/审计重放出已回滚的废数据）+ chat_error 文案。 */
 export function finishTurn(
   opts: ChatOpts,
@@ -77,8 +77,8 @@ export function finishTurn(
   // chat_error 文案过 redactSecret（与 stream.ts:216 同款）——
   // {error} 分支的 message 源自 out.error（provider 异常），可含凭据痕迹；固定文案
   //（超时/中断/截断）不匹配凭据模式，幂等无变化
-  // 0918三拍板批（A006 轻量档）：非 regenerate 回合随 chat_error 回显作者原文——回滚/
-  // 遮蔽语义分毫不动（-/+ 原样），回滚后原文仅存于本事件供前端「复制重发」，
+  // （轻量档）：非 regenerate 回合随 chat_error 回显作者原文——回滚/
+  // 遮蔽语义分毫不动（原样），回滚后原文仅存于本事件供前端「复制重发」，
   // 免瞬态失败（429 耗尽/断网）后整段重打。echo 原样往返不过 redactSecret（脱敏即破坏
   // 复制重发可用性；原文本就已随 user/message 事件落库，不新增落库面）。regenerate 回合
   // 复用恢复出的旧 user 消息（在 baseLen 之前、不随回滚消失），无需回显。
@@ -86,7 +86,7 @@ export function finishTurn(
   emit(opts, { type: 'chat_error', error: redactSecret(spec.message), echo })
 }
 
-// ── 收尾压缩（+ 升级的 trim 遮蔽点） ──────
+// ── 收尾压缩（升级的 trim 遮蔽点） ──────
 
 // 压缩抑制标记：低级项挪至 state.ts（与 histories 同生命周期，
 // LRU 逐出/清空时一并清理）
@@ -118,7 +118,7 @@ async function summarizeCheckpoint(
   // 摘要调用自带 clamp cap，重放口径必须记 resolve 后终值
   // usage + stopReason 同壳透传——摘要调用是长对话中输入最大的真实计费调用，
   // 此前两字段被整链丢弃（usage null 不进账、截断时 stopReason 谎记 end_turn）
-  // （GLM-5.3 修复批）：泛型补 degraded?: boolean—— 透传
+  // 泛型补 degraded?: boolean——透传
   // （132/:135 两分支返回 degraded）早已写进回调返回值，类型面未声明对调用方不可见
   const out = await runTask<{
     text: string | null
@@ -139,9 +139,9 @@ async function summarizeCheckpoint(
     // 清单收 CHAT_TOOL_NAMES 模块常量（原每次调用 map 重算）
     promptTools: CHAT_TOOL_NAMES,
     ctrl: state.ctrl,
-    // 低-1补 owner——对齐 的 owner 分槽口径（轮循环
+    // 低-1：补 owner——对齐的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的
-    // 形态下，后书的摘要 register 在 '' 槽触发 「换新先 abort 旧」，掐断前书在途
+    // 形态下，后书的摘要 register 在 '' 槽触发「换新先 abort 旧」，掐断前书在途
     // 压缩的 ctrl（摘要失败回落硬截断）。带 owner 后与本轮轮循环同槽同 ctrl（幂等
     // no-op），跨 owner（self-heal/spawn）并发互不影响。
     // owner 带书维度 `chat:<bookName>`——与 turns.ts 同步，跨书
@@ -190,7 +190,7 @@ async function summarizeCheckpoint(
 }
 
 /**
- * 对话收尾的历史窗口处理（+ 升级的 trim 遮蔽点）：
+ * 对话收尾的历史窗口处理（升级的 trim 遮蔽点）：
  * 溢出时优先 checkpoint 压缩（信息保留 + seq 遮蔽语义不变），失败回落现行硬截断。
  * 空摘要 fail-open：保留原历史、不插占位符（纪律），本次不遮蔽。
  */
@@ -205,7 +205,7 @@ export async function finalizeHistory(
    *  摘要调用的 llm/call 此前 files 为空，章正文注入源在该次事件断链 */
   promptFiles: string[] = [],
 ): Promise<void> {
-  // 硬截断兜底（= 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
+  // 硬截断兜底（=原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
   // close 三处收 try——close 抛错（SQLITE_BUSY/盘满）此前穿
   // runChatInner（无 catch）→ sendChatMessage catch 发 driver error，chat_done 已发又收
   // error、压缩存档丢失；现 warn 留痕 + 内存不突变（「close 成功后才突变」纪律的
@@ -213,7 +213,7 @@ export async function finalizeHistory(
   const trimAndClose = (): void => {
     const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
     const cut = history.length - trimmed.length
-    // close 先行—— 纪律收口硬截断路径。此前先 splice/set 内存后
+    // close 先行——纪律收口硬截断路径。此前先 splice/set 内存后
     // close 落库，close 抛错（SQLITE_BUSY/盘满）时遮蔽区间未持久化而内存已截：重启
     // restore 投影回全量历史复活本应 trim 的消息（幽灵历史），且 msgSeqs 与投影错位。
     // close 成功后才突变（失败时内存/DB 双未动，退化为「截断未发生」而非错位）。

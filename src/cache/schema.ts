@@ -88,7 +88,7 @@ const DDL_STATEMENTS = [
     value  TEXT NOT NULL
   )`,
 
-  // ── ：树红点增量缓存表（DDL 见 TREE_ISSUES_DDL 单源） ──
+  // ──：树红点增量缓存表（DDL 见 TREE_ISSUES_DDL 单源） ──
   ...TREE_ISSUES_DDL,
 ] as const
 

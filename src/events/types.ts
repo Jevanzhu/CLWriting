@@ -25,7 +25,7 @@ export type EventType =
   | 'tool/result'
   | 'compaction/start'
   | 'compaction/end'
-  // 0918四轮修复批（B406）：SessionRecorder pending 溢出断链标记（对话会话承载）——
+  // SessionRecorder pending 溢出断链标记（对话会话承载）——
   // 落库持续失败超限丢最旧事件时补入流的中断标记（data.dropped = 本次丢弃条数），
   // 让「丢事件必留痕」从日志层落进事件流。非 surface（不进 SURFACE_EVENT_TYPES）、
   // 无 surfaceOp：折叠/投影/校验链/前端种子化安全忽略（对齐边界类与 meta 类先例）
@@ -45,7 +45,7 @@ export type EventType =
   | 'foreshadow/change'
   | 'author/signal'
   | 'rule/hit'
-  // goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）
+  // goal 状态机 + todo 快照（第5.2/5.3节）
   | 'goal/change'
   | 'todo/write'
   // 阶段 24 章节结构操作（合并/拆分/撤销合并）——审计副录，挂 workspace 会话，
@@ -54,7 +54,7 @@ export type EventType =
   | 'structure.split'
   | 'structure.merge-undo'
 
-// ── ：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
+// ──：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
 // turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
 export const TURN_END_REASONS = [
   'completed',
@@ -98,7 +98,7 @@ export interface ChatEvent {
   shadowStart?: number
   shadowEnd?: number
   /** 血缘：sourceEventSeqs（被遮蔽节点/输入事件 seq 列表）。
-   *  语义收窄为「全局 seq」：只由 appendEvents 原样落库路径写入
+   * 语义收窄为「全局 seq」：只由 appendEvents 原样落库路径写入
    *  （compaction/end 遮蔽区间，store.appendEvents），投影校验/审计按全局 seq 读。
    *  批内 0-based 索引血缘走 NewEvent.sourceIdxs（仅 appendEventsResolveLineage 消费，
    *  落库时回写解析为全局 seq 后仍存本字段）——同名双语义陷阱就此按方法拆分闭合。 */
@@ -108,12 +108,12 @@ export interface ChatEvent {
   createdAt: number
 }
 
-// ── 五层链路事件载荷（§二 v1 + §六 trace 合并计划）─────────────────────
+// ──五层链路事件载荷（§二 v1 + §六 trace 合并计划）─────────────────────
 
-/** 五层链路（/DSH-8 绑定：每层一个 step）：context/draft/review/self-heal/chat */
+/** 五层链路（F2/绑定：每层一个 step）：context/draft/review/self-heal/chat */
 export type LayerName = 'context' | 'draft' | 'review' | 'self-heal' | 'chat'
 
-// ── 血缘+检索事件载荷（§二 v1 + §五）─────────────────────────────
+// ──血缘+检索事件载荷（§二 v1 + §五）─────────────────────────────
 
 /** llm/call —— 合并 trace.ts 的 TraceEntry（单一事实源） */
 export interface LlmCallData {
@@ -142,12 +142,12 @@ export interface LlmCallData {
    *  经编排层透传；无兜底不发/early-error 无值）与逐 chunk 挂起时限（env resolver 与
    *  gen.generate 同源；RC改口径表述——原称「首字节超时」，字段名
    *  firstByteTimeoutMs 保名：已落库形状属重放契约，改名只到 gen.ts 符号层）。
-   *  mock 快路 / 取 provider 失败路径无此两键 */
+   * mock 快路 / 取 provider 失败路径未 resolve，无此两键（重放同样不依赖） */
   maxTokens?: number
   /** 成功建流用的是降级参数面（剥 structured/剥 tools）——重放口径 */
   degraded?: boolean
   firstByteTimeoutMs?: number
-  /** （十五轮登记销账）：本进程 model-quirks 参数表的 contentVersion——effort→wire
+  /** 本进程 model-quirks 参数表的 contentVersion——effort→wire
    *  翻译等表内容随版本演进，跨版本重放时据此检测漂移（旧事件无此键 = 表初版前）。
    *  表内容任何变更必须同步 bump MODEL_QUIRKS_VERSION（见 model-quirks.ts 头注） */
   quirksVersion?: string
@@ -160,13 +160,13 @@ export interface LlmRetryData {
   errCode?: string
 }
 
-// ── goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────
+// goal 状态机 + todo 快照（第5.2/5.3节）
 
-/** goal 生命周期动词（与伏笔状态机同词汇—— foreshadow/change 复用） */
+/** goal 生命周期动词（与伏笔状态机同词汇——foreshadow/change 复用） */
 export const GOAL_OPERATIONS = ['create', 'edit', 'pause', 'resume', 'complete', 'block', 'clear'] as const
 export type GoalOperation = (typeof GOAL_OPERATIONS)[number]
 
-/** goal 状态 */
+/** goal/change —— goal 状态机变更（完整快照 + 动词） */
 export type GoalState = 'active' | 'paused' | 'blocked' | 'complete'
 
 /** goal 完整快照（每次变更整快照落库，last-write-wins） */

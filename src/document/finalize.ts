@@ -16,7 +16,7 @@
  *
  * 锁等待异步化。finalizeRevisionAsync 为异步孪生（布线预取锁与清单
  * 锁等待用 setTimeout 轮询原语，事件循环不阻塞，供服务进程调用链用）；finalizeRevision
- * 同步孪生保留原签名与同步等待（Atomics 微睡）—— 复核：生产调用方已全部迁异步
+ * 同步孪生保留原签名与同步等待（Atomics 微睡）——复核：生产调用方已全部迁异步
  * 孪生（studio API 单条/批量定稿 documents.ts 均走 finalizeRevisionAsync），同步版现
  * 生产零调用，仅测试直调（finalize//finalize-lead-gate//
  * process-summary 五族）与无异步上下文的 CLI/脚本侧预留；两孪生共享同一持锁核心与
@@ -58,7 +58,7 @@ type FinalizeOutcome =
       ok: true
       status: 'final'
       skipped: boolean
-      /** 0918二轮修复批（B103）：防吃书闸降级短语（非空 = 闸门 fail-open 放行
+      /** 防吃书闸降级短语（非空 = 闸门 fail-open 放行
        *  的事实透出到定稿结果信封——对齐机检侧 check/run.ts pushDegradedYellow 黄项
        *  口径，前端弹 warning toast；fail-open 哲学本身不变）。 */
       gateDegraded?: string[]
@@ -68,7 +68,7 @@ type FinalizeOutcome =
 /**
  * 定稿前置解析（锁外、无锁纯读）——清单解析/路径校验/指纹基线/
  * 章号标题/布线判定与回写目标。原实现章号与布线判定在清单锁内算，现移到锁外：
- * 这些是纯磁盘读，不依赖清单并发态；锁内一致性由 /的锁内重指纹兜底，
+ * 这些是纯磁盘读，不依赖清单并发态；锁内一致性由的锁内重指纹兜底，
  * 布线目标一致性由「持锁核心内逐文件锁内重读」兜底（见 lead-finalize.ts 核心注释）。
  */
 interface FinalizePrepared {
@@ -95,7 +95,7 @@ function leadLockFailError(targets: LeadUpdateTargets, detail: string): string {
 /**
  * 锁外前置段：结构失败形态为 NOT_FOUND（原语义逐位保留）；指纹读盘失败（win 瞬态
  * 占用）按转 WRITE_ERROR 信封，不再裸抛穿批。
- * BE-1：computeRevision 对不存在文件抛 ENOENT，需前置校验（batch-finalize 单条缺失不应中断整批）。
+ * computeRevision 对不存在文件抛 ENOENT，需前置校验（batch-finalize 单条缺失不应中断整批）。
  */
 function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Extract<FinalizeOutcome, { ok: false }> {
   // 入口 safeDocId fail-loud——writeVersion 对非法 id 是 warn+null
@@ -105,7 +105,7 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
   // docId → relPath（清单解析；未登记返回 NOT_FOUND）
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const lookup = lookupRelPath(docId, manifestPath)
-  // （六轮修复批）：清单读失败与「未登记」分家——
+  // 清单读失败与「未登记」分家——
   // lookupRelPath 前身走 readManifest 容错版，EACCES/EBUSY/EIO 瞬态读失败与「文档不存在」
   // 同归 null，作者看到「未在文档清单中找到该文档」这一失实归因（真实原因是清单读不到），
   // 且不会重试；锁内 readManifestStrict 的 WRITE_ERROR 信封（158）反证本域已知该风险面。
@@ -203,7 +203,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   // （声明了没做 / 做了没声明），非空则阻断定稿。此前红项只在 AI 自愈循环（retry）拦截，
   // 作者手工定稿主路径失守（README「账实不符阻断定稿」失效）。只拦这两条：复读/文风/
   // 禁词等其余红项不拦定稿，定稿前树红点/机检面板仍可见。
-  // B103：闸门降级短语（fail-open 放行事实）随信封透出，末尾 ok 返回携带。
+  // 闸门降级短语（fail-open 放行事实）随信封透出，末尾 ok 返回携带。
   let gateDegraded: string[] = []
   if (isWiredChapter) {
     const gate = finalGateBlockers(bookRoot, absPath, chapterNo)
@@ -213,7 +213,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
     }
   }
 
-  // ① 写定稿版本（永久保留，pinned）。：内容取自锁内同源读取的
+  // ① 写定稿版本（永久保留，pinned）。内容取自锁内同源读取的
   // 字节，不再二次 readFileSync；文件在锁内消失（fileBytes null）时此前会在 computeRevision
   // 处抛裸错，现收编进契约。
   try {
@@ -276,7 +276,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   }
 
   invalidateTreeIndex(bookRoot)
-  // B103：非空 = 防吃书闸本轮降级放行（人话短语），前端据此弹 warning toast
+  // 非空 = 防吃书闸本轮降级放行（人话短语），前端据此弹 warning toast
   return {
     ok: true,
     status: 'final',
@@ -288,7 +288,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
 /**
  * 定稿确认：写 pinned 定稿版本 + manifest 更新定稿基线 → 回 final。
  *
- * 同步孪生（签名不变）：锁等待为同步原语（Atomics 微睡）。 复核——生产调用方
+ * 同步孪生（签名不变）：锁等待为同步原语（Atomics 微睡）。复核——生产调用方
  * 已全部迁至 finalizeRevisionAsync（studio API 单条/批量定稿），本版生产零调用，
  * 仅测试直调与无异步上下文的 CLI/脚本侧预留；服务进程一律走 finalizeRevisionAsync
  * （等待期不阻塞事件循环）。
@@ -370,7 +370,7 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
  * ee- 定稿防吃书闸：算出阻断定稿的账本结构红（人话 message 列表，空 = 放行）。
  *
  * 数据源与 checkWithDb（src/check/run.ts）完全同口径，不自创：
- * - 声明侧：outlineDeclarationForChapter（细纲 fm「推进」三态；：细纲自带章号 ≠
+ * - 声明侧：outlineDeclarationForChapter（细纲 fm「推进」三态；细纲自带章号 ≠
  *   被检章 = 声明未知 → 跳过闭合比对——批量连写 batchSize≥2 时细纲恒@首章、其余章推进
  *   落归档，此前「未知」被当「未声明」，归档章实际推进全部误报 lead-done-not-declared
  *   并经本闸 LEAD_GATE 硬阻断批量定稿）
@@ -382,7 +382,7 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
  *
  * 整体 try/catch fail-open：闸门自身故障（读盘异常等）返回 [] 不阻断定稿——闸门是防
  * 吃书增强而非定稿的必要条件，与降级哲学一致（观测/防护层故障不应锁死作者）。
- * 0918二轮修复批（B103）：fail-open 保留，但降级事实不再零可见——返回体加
+ * fail-open 保留，但降级事实不再零可见——返回体加
  * degraded 字段（兑现侧清单不可读 / 闸门自身异常时置人话短语），由定稿结果信封
  * gateDegraded 透出（服务端 API 层透传、前端弹 warning toast），与机检侧
  * pushDegradedYellow（check/run.ts /）口径对称。
@@ -400,9 +400,9 @@ function finalGateBlockers(
     // 兑现侧改 Checked 读——主文件/归档「存在但读失败」时 updates
     // 不完整，按其比对会把「清单未知」当「已声明未兑现」产 lead-declared-not-done 假红
     // 硬阻断定稿（只闭合了机检侧）。unreadable → 跳过闭合比对 + warn 留痕
-    // （闸门降级放行，对齐 /口径——观测得到但不锁死作者）。
+    // （闸门降级放行，对齐口径——观测得到但不锁死作者）。
     //（win 线同因独立修复，合并取本侧 unreadable 形状 + warn 留痕。）
-    // B103：降级短语随返回体透出（信封 gateDegraded）。
+    // 降级短语随返回体透出（信封 gateDegraded）。
     const fulfilled = readChapterUpdatesForChapterChecked(bookRoot, chapterNo)
     if (fulfilled.unreadable) {
       log.warn('finalize', `第${chapterNo}章 防吃书闸兑现侧清单不可读（主文件/归档在位但读失败），闭合比对降级跳过`)
@@ -415,9 +415,9 @@ function finalGateBlockers(
     return { blockers: leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message), degraded: [] }
   } catch (e) {
     // fail-open 留痕——闸门自身故障此前静默返回 [] 放行，「闸门
-    // 降级」零痕迹（与 ② state.ts 布线缺失健康项同族：静默失效面至少可观测）。
-    // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件，哲学不变）。
-    // B103：降级事实再随信封透出（不止日志）。
+    // 降级」零痕迹（与② state.ts 布线缺失健康项同族：静默失效面至少可观测）。
+    // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件哲学不变）。
+    // 降级事实再随信封透出（不止日志）。
     log.warn('finalize', `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${errMsg(e)}`)
     return {
       blockers: [],
@@ -438,10 +438,10 @@ function lookupRelPath(
 }
 
 /** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。
- *  0914 窄正则 `^(\d+-)` 收编 chapterNoFromName 单源（format/filename
+ * 窄正则 `^(\d+-)` 收编 chapterNoFromName 单源（format/filename
  *  宽集：`-`/`—`/空白/裸尾均认）——`5—标题.md`/`5 标题.md` 此前落 0，防吃书闸兑现侧
  *  清单按章号定位 miss。行为变化面：仅此前解析失败（章号 0）的文件名现在正确解析。
- *  0918二轮修复批（B102）：16+ 位失真大数前缀经单源 SafeInteger 守卫落
+ * 16+ 位失真大数前缀经单源 SafeInteger 守卫落
  *  null → 0（isWiredChapter 要求 chapterNo > 0）——fm 坏 + 天文数字文件名形态按
  *  「无章号」降级跳过防吃书闸定位，不再向闸内派发 1.23e20 级章号。 */
 function inferChapterFromName(relPath: string): number {
@@ -451,7 +451,7 @@ function inferChapterFromName(relPath: string): number {
 
 function basenameNoExt(relPath: string): string {
   const base = relPath.split('/').pop() ?? ''
-  // 四轮-D404：剥扩展名大小写不敏感（/\.md$/i）——全库 isMdFileName 均大小写不敏感
+  // 剥扩展名大小写不敏感（/\.md$/i）——全库 isMdFileName 均大小写不敏感
   //（version.ts 先例），win 资源管理器改 `.MD` 后回退标题带尾巴
   return base.replace(/\.md$/i, '')
 }

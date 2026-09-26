@@ -13,14 +13,14 @@ import { isImeComposing } from '../shared/ime'
 
 // 发送失败 + 切书 → 文本找回。input 先清空、消息已进 A 书对话区；
 // 失败返回时若已切到 B 书，popUser 被书名守卫拦下（误弹会 B 书末条），文本无处可去。
-// 以书名键失败草稿：回切该书（watch）或随书重建实例（ChatDock 挂 :key=bookName，起）
+// 以书名键失败草稿：回切该书（watch）或随书重建实例（ChatDock 挂 :key=bookName 起）
 // setup 取稿时回填输入框；A 书对话区的幽灵气泡由切书重播种自动清掉。
 // 口径更正——旧表述「ChatPanel 挂 :key 全量重建」不实：ChatPanel 在
 // WorkbenchView 无 :key（切书常驻，走下方 watch），随书重建的消费入口实为 ChatDock，
 // 与注释及模板实状对齐。
 const failedDrafts = new Map<string, string>()
 
-/** （二十六轮，登记顺手补清）：删书成功后清该书的失败草稿残留——module 级
+/** （登记顺手补清）：删书成功后清该书的失败草稿残留——module 级
  *  Map 无书删除出口，残留条目会常驻内存；同名重建书也不该回填旧书的幽灵文本。 */
 export function clearFailedDrafts(book: string): void {
   failedDrafts.delete(book)
@@ -76,7 +76,7 @@ export function useChatComposer(
       failedDrafts.delete(book)
     }
   }
-  // 消费入口两条——随书重建的实例（ChatDock 挂 :key=bookName，起）靠
+  // 消费入口两条——随书重建的实例（ChatDock 挂 :key=bookName 起）靠
   // setup 时取；切书仍常驻的实例（工作台 tab 内 ChatPanel，WorkbenchView 无 :key）靠 watch。
   // 重建实例的 watch 随销毁失效，两条并存不重复回填
   if (enabled) {
@@ -94,7 +94,7 @@ export function useChatComposer(
   // ChatMessages regenerate 共用；本组件不再私有一份）
   const selectedChapter = computed(() => chat.selectedChapter)
 
-  // 首挂/编辑器换章跟随：仅本书无显式选择记忆时（——手动选择后不再被覆盖，
+  // 首挂/编辑器换章跟随：仅本书无显式选择记忆时（手动选择后不再被覆盖，
   // 切书由 chat.clear 复位到该书记忆）。setup 直调一次保持原「初值 = 当前章」行为
   if (enabled) {
     chat.followChatChapter(bookName(), currentChapter())
@@ -105,7 +105,7 @@ export function useChatComposer(
     if (!enabled) return // 哑实例动作面不可达（模板不渲染），防御性静默
     const text = input.value.trim()
     if (!text || busy.value || sending.value) return
-    // 书名入口捕获——onPushed await 后（以及错误慢返回时）bookName 可能已
+    // 书名入口捕获——onPushed await 后（以及错误慢返回时）bookName() 可能已
     // 切到 B 书：消息会发进 B 书；失败回滚 popUser 盲弹「当前末条 user」会把 B 书
     // 刚恢复的末条用户消息弹掉、错误写进 B 对话区
     const book = bookName()
@@ -140,7 +140,7 @@ export function useChatComposer(
         // 「最近一次错误」）
         const last = chat.messages[chat.messages.length - 1]
         if (last && last.id === ghostId) chat.popUser()
-        // -：三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
+        // 三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
         chat.error = rawErrorMessage(e)
       } else {
         // 失败时已切书——回滚被书名守卫拦下（popUser 会误弹 B 书末条），
@@ -209,7 +209,7 @@ export function useChatComposer(
     if (!enabled) return
     try {
       const r = await interrupt(bookName())
-      // 0918修复批（E004）：interrupted=false = 当前没有在途生成（对话可能恰已
+      // interrupted=false = 当前没有在途生成（对话可能恰已
       // 收尾）——给反馈，不再静默。r 缺省（异常形态/旧 mock）不误报
       if (r && r.interrupted === false) useUiStore().toast('当前没有正在进行的生成', 'info')
     } catch {

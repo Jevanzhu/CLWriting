@@ -2,7 +2,7 @@
 // 开书对话（重设计 · 向导式 master-detail）：
 // 左栏分组步骤列表 + 右栏详情/生成/编辑面板。
 // 点步骤 → 右栏展开详情（不直接生成）→ 点生成 → 编辑 → 落盘。
-// 巨石批 7c 拆分：梗概卡 → onboard/OnboardPremise、步骤列表 → OnboardStepRail、
+// 7c 拆分：梗概卡 → onboard/OnboardPremise、步骤列表 → OnboardStepRail、
 // 步骤面板 → OnboardStepPanel；本文件留 Hero 进度、书型过滤（isShort/isGrowthBook）
 // 与步骤状态机（active/phase/content 的 gen/save 编排）。
 import { ref, computed, onMounted } from 'vue'
@@ -75,7 +75,7 @@ const lastGenerated = ref('')
 const saving = ref(false)
 const err = ref<string | null>(null)
 const lastWords = ref(0)
-// gen/save 函数级在途锁（域内 /自设纪律）——双击在下一拍渲染
+// gen/save 函数级在途锁（域内自设纪律）——双击在下一拍渲染
 // 前仍可双触发，双生成双计费；loading 相位的按钮置换只覆盖渲染后的窗口
 const genPending = ref(false)
 
@@ -88,7 +88,7 @@ function applyStep(step: OnboardStep): void {
 
 function selectStep(step: OnboardStep): void {
   if (phase.value === 'loading') return
-  // （修复批）：切步骤前脏守卫——result 相位手改未保存内容此前被
+  // 切步骤前脏守卫——result 相位手改未保存内容此前被
   // 无条件清空丢稿（regenerate 路径有确认，本路径漏配）。有手改先确认
   //（同 doGen 口径），取消则停留原步骤零改动。
   if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
@@ -166,13 +166,13 @@ async function save(): Promise<void> {
   try {
     await onboardSave(book, { step: active.value, content: content.value })
     if (!stillOn(book)) return
-    // （-0914）：保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
+    // 保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
     // 此前只认生成快照，「编辑 → 保存 → 切步骤」常见路径必误报「未保存修改」。
     lastGenerated.value = content.value
     ui.toast('已保存', 'success')
     void tree.load(book)
   } catch (e) {
-    if (!stillOn(book)) return // 切书后错误 toast 不落 B 书界面（对齐 gen 的 catch）
+    if (!stillOn(book)) return // 切书后错误 toast 不落 B 书界面（对齐 gen() 的 catch）
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   } finally {

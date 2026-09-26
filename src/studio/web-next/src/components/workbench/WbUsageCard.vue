@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // AI 用量卡片：消费既有 GET /trace-stats（aggregateTrace 的 byTask 聚合——
-// 此前端连 API 都引了没渲染，本卡补上渲染面）+ 的 cost-stats（配价书显示金额，
+// 此前端连 API 都引了没渲染，本卡补上渲染面）+的 cost-stats（配价书显示金额，
 // 未配价显示引导不显示 0）。自取数（挂载即拉），WorkbenchView 单点挂载零数据编排。
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
@@ -47,11 +47,11 @@ async function loadCost(book: string): Promise<CostStats | 'failed'> {
 // 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
 
-// （修复批）：卸载 armed 单门——loadGen 代只挡
+// 卸载 armed 单门——loadGen 代只挡
 // 在途切书（实例复用），挡不住「请求在途实例卸载」（切路由整树销毁）：迟到的取数续体
 // 此前照旧写回死实例 byTask/total/cost（低敏写回，非泄漏级）。对齐 style 系 armed /
 // SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
-// armed 单门。
+// 卸载 armed 单门——loadGen 代只挡
 let armed = true
 onBeforeUnmount(() => {
   armed = false
@@ -143,7 +143,7 @@ function fmtMs(n: number): string {
       暂无 AI 调用记录（写作/审稿/摘要等任务的用量在此汇总）。
     </div>
     <template v-else>
-      <!-- ：配价书显示金额；未配价引导配置（不显示 0）。 #19：
+      <!-- 配价书显示金额；未配价引导配置（不显示 0）。#19：
            取数失败单独成态，不再伪装成「未配置价格表」引导 -->
       <div v-if="cost?.enabled" class="usage-cost">
         本书累计成本 <strong>{{ cost.total.toFixed(4) }}</strong> {{ cost.currency ?? 'USD' }}

@@ -8,11 +8,11 @@
 import type { TokenUsage } from './provider/types.js'
 
 /** 导出供 runner 文本 mock 快路对齐口径——工具快路 trace/TaskOk
- *  携带 100/50，文本快路此前记 null，同一 mock 会话两种计量口径分叉。 */
+ * 携带 100/50，文本快路此前记 null，同一 mock 会话两种计量口径分叉。 */
 export const MOCK_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 50 }
 
 /** 各 tool 的 mock input（按 toolName 分发）。
- *  ：导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts
+ * 导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts
  *  静态扫 mockTool 调用面 vs 本表键集）——漏键即 mock 模式下漏斗到真实计费调用，
  *  破坏零成本契约（dd- 同型事故），此处靠测试门拦漂移。 */
 export const MOCK_TOOL_INPUT: Readonly<Record<string, unknown>> = {

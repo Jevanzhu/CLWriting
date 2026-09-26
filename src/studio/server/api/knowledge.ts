@@ -17,7 +17,7 @@ import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } fro
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
 import type { TaskGateInjected } from './task-gate.js' // 长任务并发闸（闸实例经组装根注入）
 // token 死字段删除——写闸（index.ts isWrite
-// safeTokenCompare）在路由分派前已拦一切 POST， 删 handler 内冗余复核后本 ctx
+// safeTokenCompare）在路由分派前已拦一切 POST 删 handler 内冗余复核后本 ctx
 // 的 token 注入后零读取，随批删除
 interface KnowledgeCtx extends TaskGateInjected {
   workDir: string | null
@@ -30,10 +30,10 @@ interface KnowledgeCtx extends TaskGateInjected {
   learnCommitYield?: CommitYield | null
 }
 
-// ── 非闸书级写端点的临界段书注册重验 ──
+// ──：非闸书级写端点的临界段书注册重验 ──
 // learn-commit 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
 // 在途 commit）——重验竞态时序与防线形态单源见 book-context.ts 头注
-// （起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。同文件 /learn 有
+//（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。同文件 /learn 有
 // 'learn' 任务闸先于首个 await 占位，busyGate 可见，不在本竞态面内。
 
 /** 让出点书注册重验失败的出口信号——经 commit 循环上抛（commit.ts 让出
@@ -41,8 +41,8 @@ interface KnowledgeCtx extends TaskGateInjected {
  *  dispatch 兜底（与修复前口径一致）。 */
 class BookMovedSignal extends Error {}
 
-// ── /learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
-// learnFromBook 整读全书定稿正文（秒级 IO+CPU 段； 已 async 化，不再阻塞请求
+// ──：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
+// learnFromBook 整读全书定稿正文（秒级 IO+CPU 段；已 async 化，不再阻塞请求
 // 线程，但同一把书并发闸仍必要）：重复点击 = 双跑双扫；health/files/documents 三处
 // 同型已修，此处漏网。口径对齐 health.ts styleScanCache：5s TTL + 书键 Map FIFO 上限，
 // 纯 TTL 无写路径失效挂点（learn 候选只读落盘 工作区/learn候选，书内容变化最迟 5s 可见）。
@@ -98,16 +98,16 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
       // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST（learn-commit 同）
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。：
+      // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。
       // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
       // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
       const release = ctx.gate.acquire(params['name']!, 'learn')
       if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
       try {
-        // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。：
+        // 全书扫描并发闸 + 缓存（重复点击双跑双扫）。
         // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
         // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
-        // TTL 命中/ 过期逐出/storeIf 只缓存成功由通用件
+        // TTL 命中过期逐出/storeIf 只缓存成功由通用件
         // 承担（壳体收编 ttl-cache.ts）
         // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
         const result = await learnCache.get(r.bookRoot, undefined, ctx.learnTtlMs ?? undefined)

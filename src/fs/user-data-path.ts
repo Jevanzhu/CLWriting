@@ -41,7 +41,7 @@ export function defaultUserDataPath(): string {
  * 折叠面扩至 darwin（与 safe-path.platformCaseFold 单源同批
  * 同口径）——mac 默认卷 APFS 不敏感，字符串口径在 darwin 折叠后与物理语义一致；
  * linux 维持全等（敏感 FS 合法异名共存）。
- * -mac适配：darwin 臂叠 NFC 归一——mac APFS 惯存 NFD，外部输入的
+ * mac适配：darwin 臂叠 NFC 归一——mac APFS 惯存 NFD，外部输入的
  * 分解形路径与 NFC 形态登记指向同一物理目录；win32 维持纯 toLowerCase（NTFS 对
  * NFC/NFD 敏感、是不同文件，不得折叠）；linux 全等不变。
  */

@@ -22,7 +22,7 @@ const onVwResize = (): void => {
 }
 onMounted(() => window.addEventListener('resize', onVwResize))
 onBeforeUnmount(() => window.removeEventListener('resize', onVwResize))
-const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // 侧位≤0（页宽≥视口）才隐藏，紧张侧位由 min 回落窗口右缘
+const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // 侧位≤0（页宽≥视口）才隐藏，紧张侧位由 min() 回落窗口右缘
 
 /** 纸宽写入保持当前 scope：书级覆盖存在时继续写书级（SettingsEditor 同语义） */
 const widthBookOnly = computed(() => prefs.bookPageWidth !== null)
@@ -78,7 +78,7 @@ function onPageWidthInput(v: number): void {
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
-      <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+      <!-- 字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
       <FontPicker
         class="ffb-select"
         ariaLabel="正文中文字体"

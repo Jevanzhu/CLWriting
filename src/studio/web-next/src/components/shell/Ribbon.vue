@@ -44,9 +44,9 @@ function openLibraryManager(): void {
     // IPC 失败 toast 交代（窗口创建失败静默 = 点击无响应）
     window.clwritingDesktop.openLibraryWindow().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
   } else {
-    // （b 修复批）：浏览器版（无 preload 注入）点击
+    // 浏览器版（无 preload 注入）点击
     // 此前静默无响应——补 else 交代。书库管理是进程级操作（独立窗口），浏览器版无对应
-    // 能力，如实告知而非假装可用（对齐 「点击必须有响应」口径）。
+    // 能力，如实告知而非假装可用（对齐「点击必须有响应」口径）。
     ui.toast('书库管理仅桌面版可用', 'info')
   }
 }

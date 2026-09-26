@@ -2,7 +2,7 @@ import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
-// Responses 启用批：协议三选一（openai-responses 曾随误判停用）
+// 协议三选一（openai-responses 曾随误判停用）
 export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 export type AuthStrategy = 'anthropic' | 'claudeAuth' | 'bearer'
 
@@ -15,7 +15,7 @@ export interface ProviderCaps {
 /** 推理等级档位（与 reasoning_effort API 参数对齐） */
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-/** 任务档位槽——模型 + 推理等级 + 可选超时（0，ms） */
+/** 任务档位槽——模型 + 推理等级 + 可选超时（P10，ms） */
 export interface TierSlot {
   model: string
   effort: EffortLevel
@@ -60,7 +60,7 @@ export interface ProviderConfDto {
   pricing?: PricingConfDto
 }
 
-/** 价格表（批 5；models[].pricing 同形状覆盖 provider 级） */
+/** 价格表（models[].pricing 同形状覆盖 provider 级） */
 interface PricingConfDto {
   inputPerMTok?: number
   outputPerMTok?: number
@@ -92,7 +92,7 @@ export async function fetchModels(
       json: body,
     },
     API_DEFAULT_TIMEOUT_MS,
-  ) // 拉模型列表可能慢，30s 超时（原裸值 30_000，收敛）
+  ) // 拉模型列表可能慢，30s 超时（原裸值 30_000 收敛）
 }
 
 export async function createProvider(body: {
@@ -154,7 +154,7 @@ export interface TestResult {
   caps?: ProviderCaps
   details?: string[]
   error?: string
-  /** 探测写回会 bump 服务端 revision——回传供前端 test 同步（竞态：否则测试后任意写 409） */
+  /** 探测写回会 bump 服务端 revision——回传供前端 test() 同步（竞态：否则测试后任意写 409） */
   revision?: number
 }
 

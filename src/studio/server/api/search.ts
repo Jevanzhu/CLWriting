@@ -23,11 +23,11 @@ interface SearchCtx {
   searchTtlMs?: number | null
 }
 
-// ── 全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
+// ──：全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
 // 手法对齐 knowledge.ts learnCache / progress.ts summaryCache（书键 Map + FIFO 上限 +
-// 纯 TTL；删书/改名经 books.ts forgetBookKeyedCaches 失效）。 async 化后扫描不再
+// 纯 TTL；删书/改名经 books.ts forgetBookKeyedCaches 失效）。async 化后扫描不再
 // 冻结事件循环，但查询词稀有时仍须读完全部文件才返回——重复点击/同参数并发去重为一次
-// 扫描。失效口径在纯 TTL 之上加目录 mtime 结构探针：既有 契约
+// 扫描。失效口径在纯 TTL 之上加目录 mtime 结构探针（方案偏离记档）：既有契约
 // 要求「写完即搜可见」（直写盘的文件服务端无写事件可挂），探针让新增/删除/改名等目录
 // 结构变化即时失效缓存，TTL 5s 只兜内容改写（不触碰目录 mtime）的最坏可见窗。
 const SEARCH_CACHE_TTL_MS = 5000

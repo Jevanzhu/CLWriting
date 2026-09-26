@@ -48,9 +48,9 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
       // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
       // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
       // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-      // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      // 勘误：库损坏/权限等首开失败是**抛错**不是返回 null
       //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-      // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
+      // e.message 人话透传（含损坏分类的可行动指引；经统一脱敏出口）
       // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
       let store: SessionStore | null
       try {

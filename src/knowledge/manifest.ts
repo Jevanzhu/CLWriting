@@ -11,7 +11,7 @@ import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
-// -（errMsg 收编）：错误摘要口径单源
+// （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 export const KNOWLEDGE_DIR = '知识层'
@@ -67,7 +67,7 @@ export function readKnowledgeManifest(projectRoot: string): KnowledgeManifestRep
 
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf-8')) as KnowledgeManifest
-    // （修复批）：parse 后形状守卫——manifest 写成
+    // parse 后形状守卫——manifest 写成
     // 字面 null（手编/半写形态）时 parse 成功返回 null，原直通 ok:true 把 null 当
     // 合法 manifest 放行：validateKnowledgeManifest 的 manifest.version、update.ts
     // 登记链的 manifest.entries 双双在 null 上裸 TypeError 崩。parse 成功 ≠ JSON
@@ -122,14 +122,14 @@ function validateEntry(
   seen: Set<string>,
   issues: KnowledgeManifestIssue[],
 ): void {
-  // （修复批）：字段类型守卫——上方 守卫只拦
+  // 字段类型守卫——上方守卫只拦
   // null/非对象行，非字符串 target（如 {"target":123}）在 isSafeKnowledgeTarget 的
   // isAbsolute 处、非字符串 sha256（数字形态）在 `sha256?.startsWith` 处仍裸 TypeError
   // 崩：check:knowledge 门由列 issue 变裸栈崩；commitKnowledgeFile 尾部对账在 manifest
   // 登记已落盘后崩（CLI 报栈但 manifest 实已写入）。这是
   // 同族「坏形状报 issue 不崩」序列的漏网——fail-loud 不丢数据，但裸崩形态与已收口族
   // 口径相悖。对齐上方 :103 降级口径：报 issue 不崩，跳过该行后续校验（条目原样保留，
-  // 写入侧不静默增删改）。
+  // 对坏行无意义，跳过（条目本身仍原样保留，写入侧不静默增删改）。
   if (typeof entry.target !== 'string' || typeof entry.sha256 !== 'string') {
     issues.push({ path: KNOWLEDGE_MANIFEST, message: '存在坏形状条目（target/sha256 必须为字符串），请修复 manifest' })
     return

@@ -1,5 +1,5 @@
 /**
- * -：per-key 串行 Promise 链通用件。
+ * per-key 串行 Promise 链通用件。
  *
  * 四胞胎同构实现收编单源（各处 R 编号沿革见各消费方文件头注，此处记共性形态）：
  * - documents.ts runInForeshadowSaveChain（2--① 伏笔保存串行链）

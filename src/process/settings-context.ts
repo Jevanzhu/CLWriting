@@ -4,7 +4,7 @@
  * buildSettingsContext：角色卡 + 境界体系 → 上下文摘要（AI 写稿/对话 prompt 注入用）。
  * 供 ai/prompts、ai/orchestrate、studio/server/api/draft 共用。
  *
- * （DSH-17 预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档），
+ * （预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档）
  * 供 draft-pipeline 组装预算注入；buildSettingsContext 改为按层拼接，渲染格式不变。
  */
 import { join, basename, relative, sep } from 'node:path'
@@ -29,7 +29,7 @@ function normalizeProjectPath(file: string): string {
   return file.replace(/\\/g, '/').replace(/^\/+/, '')
 }
 
-// ii 批（评审 #19 残余）：角色卡 stat 级缓存——settings GET / 关系梳理输入每次全量
+// （评审 #19 残余）：角色卡 stat 级缓存——settings GET / 关系梳理输入每次全量
 // readFile+parseFlat 所有卡（大书几十张卡+长正文，同步 IO 阻塞事件循环）。与 chapters.ts
 // 同口径：(mtimeMs,size) 命中跳过整读；变化/新增/删除由每轮 readdir 自愈；
 // 返回浅拷贝防调用方 mutate 污染缓存。含 mtime+size 撞车理论窗口（同，接受）。
@@ -44,7 +44,7 @@ interface CardCacheEntry {
 const CARD_CACHE_MAX = 64
 const cardCache = new Map<string, CardCacheEntry>()
 
-/** （修复批）：测试专用导出（零生产调用）——清空角色卡缓存；
+/** 测试专用导出（零生产调用）——清空角色卡缓存；
  *  生产侧变化由每轮 readdir 的 (mtimeMs,size) 指纹自愈，无需显式清。 */
 export function clearCharacterCardCache(): void {
   cardCache.clear()
@@ -56,7 +56,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   if (!existsSync(dirPath)) return out
   let files: string[]
   try {
-    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感家族）——
     // .MD 角色卡不进 AI 上下文（本函数是写稿/对话 prompt 设定注入的唯一数据源）
     files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {

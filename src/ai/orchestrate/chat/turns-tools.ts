@@ -28,18 +28,18 @@ import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } f
 import { isSpawnRunning } from '../spawn-registry.js'
 import { runCheckForDocumentAsync, type CheckOutcome } from '../../../check/run.js'
 import { resolveDraftPath } from '../../../document/draft-path.js'
-// 低-2chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
+// 低-2：chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
 // studio/server/api/task-gate.ts（纯内存模块、零依赖），从 ai 层引它是共用同一
 // 闸表的最小改（闸表搬层需动 src/studio 多文件，本轮禁区）
 //
-// 注释（§四/§六）——分层债记档，维持最小改不修：
+// 注释（§四/§六批2）——分层债记档，维持最小改不修：
 // （b ③ / c）：ai→studio 反向依赖收口——本文件不再直接
 // import studio/server/api/task-gate，改经 ai 层端口取闸，真实闸由 stream.ts
 // registerStreamRoutes 注册（原债务注释五个触发条件中「第二处反向 import」未出现、
 // 但两轮评审同判此项应修，走依赖倒置而非搬层：task-gate 依赖 ai/orchestrate 四个
 // 在途态查询，下移会形成 ai←fs 环）。未注册形态（纯 ai 层单测）= no-op 放行。
 import { acquireTaskGateViaPort } from '../task-gate-port.js'
-// DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
+// 写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { log, errMsg } from '../../../log/index.js'
 // read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
@@ -52,7 +52,7 @@ const READ_CHAPTER_MAX_CHARS = 20_000
 const READ_CHAPTER_HEAD_CHARS = 12_000
 const READ_CHAPTER_TAIL_CHARS = 6_000
 
-/** （修复批）：read_skill 单次返回上限（code points）——技巧包正文
+/** read_skill 单次返回上限（code points）——技巧包正文
  *  与整章正文同属模型可控外置内容，无上限灌 tool_result 可撑爆上下文；与 read_chapter
  *  同量级取 2 万字（大多数技巧包远小于此，仅病理长文触发截断）。 */
 const READ_SKILL_MAX_CHARS = 20_000
@@ -62,15 +62,15 @@ const READ_SKILL_MAX_CHARS = 20_000
  *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配。rewrite 两件传 chapter 按章
  *  记账：并发时章号互覆把对方账块 fresh 重置清零，used/tokens/cost 三口径全部低估，
  *  预算闸被绕过；lead_update 不传 chapter（只进 task 块），但账本推进与 self-heal
- *  并发同样撕裂口径——闸对三件统一防御（注释校准：原文「三件按章记账」
+ * 并发同样撕裂口径——闸对三件统一防御（注释校准：原文「三件按章记账」
  *  与 lead-update-draft 的 runSpec 不符）。
- *  ：互斥面补上 spawn 手动写稿——草稿互覆与章预算互覆同源，闸统一查
+ * 互斥面补上 spawn 手动写稿——草稿互覆与章预算互覆同源，闸统一查
  *  isSelfHealRunning || isSpawnRunning。 */
 const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
 
-/** 低-2与 studio /rewrite 端点共闸互斥的 chat 改写两件（task-gate 'rewrite' 动作）。
+/** 低-2：与 studio /rewrite 端点共闸互斥的 chat 改写两件（task-gate 'rewrite' 动作）。
  *  lead_update 不入——其端点对侧是 /lead-updates 的独立闸，非本缺陷面。
- *  ：apply_spill 并入——它同样把全文写进章草稿（rewrite.ts 落盘通道），
+ * apply_spill 并入——它同样把全文写进章草稿（rewrite.ts 落盘通道），
  *  此前只靠 sha 落盘前复验压窗（复验后 saveDraft 前的并发写仍是后写赢），执行期持闸
  *  与 rewrite_chapter/write_chapter 四处同口径。 */
 const REWRITE_GATE_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'apply_spill'])
@@ -106,7 +106,7 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
       ;(state.confirmTimedOut ??= new Set<string>()).add(callId)
       finish(false)
     }, timeoutMs)
-    // （修复批）：登记前查重——模型退化输出两个同 id
+    // 登记前查重——模型退化输出两个同 id
     // tool_use 块时直接 set 会顶掉旧项 resolve：旧确认的作者通道失联（只能干等其超时兜底），
     // 且旧项 timer 到点回调里的 pending.delete(callId) 会误删新项登记。set 前先按本表既有
     // resolve 用法（取消终态）收口旧项——finish 幂等（settled 闸 + clearTimeout +
@@ -130,7 +130,7 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
   })
 }
 
-// ── 工具执行 ──────────────────────────────────────
+// 写作技巧包按需加载（read_skill 工具的执行通道）
 
 /** 导出供单测直测兜底 catch 脱敏（仿 waitConfirm「导出供单测」先例）。 */
 export async function executeChatTool(
@@ -176,7 +176,7 @@ export async function executeChatTool(
     // 与 write 确认闸（无代码执行风险，但防线语义被穿透）。
     const executor = Object.hasOwn(TOOL_EXECUTORS, call.name) ? TOOL_EXECUTORS[call.name] : undefined
     if (executor) {
-      // + 嵌套 AI 生成 + 章记账的工具与两路写稿编排互斥
+      // 嵌套 AI 生成 + 章记账的工具与两路写稿编排互斥
       // （write_chapter 同款闸）——self-heal 之外，spawn 手动写稿同样流式产出互覆草稿、
       // rewrite 两件按章记账与 spawn 并发同样互覆章预算块
       if (AI_GEN_TOOLS.has(call.name) && (isSelfHealRunning(opts.bookName) || isSpawnRunning(opts.bookName))) {
@@ -190,7 +190,7 @@ export async function executeChatTool(
         // 同步中止，不再跑到各自的总超时；本地工具（tree/search 等）忽略之
         signal: ctrl,
       }
-      // 低-2chat 侧改写与 studio /rewrite 端点（task-gate 'rewrite'）
+      // 低-2：chat 侧改写与 studio /rewrite 端点（task-gate 'rewrite'）
       // 共闸互斥——此前两侧各自为政：AI 改写与端点改写并发时基于同一基线各产一份全文，
       // 后写赢先写（端点 rewritten 由作者在编辑器保存、chat 侧 spill→apply_spill 落盘，
       // 两条确认通道互不知晓对方已改基线）。拿不到闸 fail-closed 拒绝并说明在途原因；
@@ -235,12 +235,12 @@ export async function executeChatTool(
           abortSelfHeal(opts.bookName)
         }
         ctrl.addEventListener('abort', onAbort)
-        // 四轮-A402（四轮修复批）：嵌入式写章以独立 owner
+        // 嵌入式写章以独立 owner
         // （`self-heal:<书名>`，非 `chat:` 前缀）登记编排级 ctrl——修复前不传 register
-        //（单槽登记时代的顾虑：再登记触发 「同槽换新先 abort 旧」误伤外层
-        // 对话； owner 分槽后跨 owner 互不 abort，顾虑不再成立），E002 收窄口径下
+        //（单槽登记时代的顾虑：再登记触发「同槽换新先 abort 旧」误伤外层
+        // 对话；owner 分槽后跨 owner 互不 abort，顾虑不再成立）收窄口径下
         // （cc.isWriterRunning 只排除 `chat:` 前缀槽）SSE sync 快照在写章全程假空闲。
-        // 与 /auto-write 端点（stream.ts）同型：settle 后 finally 注销（——不注销
+        // 与 /auto-write 端点（stream.ts）同型：settle 后 finally 注销（不注销
         // 则快照写手腿在途不复位）；编排级 ctrl 全程同一个，逐轮生成重复登记经 cc 幂等
         // 跳过；/interrupt 的 abortAllCtrls 全停语义不变（多一本在册账，直接 abort 本编排
         // ctrl，与 abortChat→abortSelfHeal 桥接殊途同归）。
@@ -257,7 +257,7 @@ export async function executeChatTool(
             // 标记对话嵌套写章——chat 入口闸（stream.ts）据此放行 steer 入队
             //（当前轮 = 本工具执行期，作者追加的话在写章结束后续链），不再误 409。
             embedded: true,
-            // 四轮-A402：owner 登记（owner 字串对齐 review:<书>/bg-summary:<书> 的 <书名> 后缀形）
+            // owner 登记（owner 字串对齐 review:<书>/bg-summary:<书> 的 <书名> 后缀形）
             register: (c) => {
               registered = c
               opts.driver.registerCtrl?.(opts.mainSession, c, `self-heal:${opts.bookName}`)
@@ -271,12 +271,12 @@ export async function executeChatTool(
         } finally {
           releaseWrite()
           ctrl.removeEventListener('abort', onAbort)
-          // 四轮-A402：settle 注销（registered 为 null = 编排未触达生成期即失败，无从注销）
+          // settle 注销（registered 为 null = 编排未触达生成期即失败，无从注销）
           if (registered) opts.driver.unregisterCtrl?.(opts.mainSession, registered)
         }
       }
       case 'check_chapter': {
-        // 共享前置（章号回落 / forRead / 存在性）见 resolveChapterForRead
+        // 共享前置（章号回落/ forRead/ 存在性）见 resolveChapterForRead
         const pre = resolveChapterForRead(input)
         if ('error' in pre) return { ok: false, summary: pre.error }
         const outcome = await runCheckForDocumentAsync(opts.bookRoot, pre.draftPath, opts.userDataPath)
@@ -304,7 +304,7 @@ export async function executeChatTool(
         const chars = Array.from(body)
         if (chars.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
         const kept = READ_CHAPTER_HEAD_CHARS + READ_CHAPTER_TAIL_CHARS
-        // 低-4截断口径如实化——本工具并不总能「取回全文」（上方上限），
+        // 低-4：截断口径如实化——本工具并不总能「取回全文」（上方上限），
         // 通知如实写明截断 + 全文去处：spill 暂存存在时优先指它（上下文注入外置的
         // 同一份全文，内容寻址同名——与 buildChatContext 的 writeSpillFile 同 hash 口径）；
         // 无 spill（未经上下文注入直接读）只报草稿路径，不虚指。spill.ts 的「已省略」
@@ -323,7 +323,7 @@ export async function executeChatTool(
         }
       }
       case 'read_skill': {
-        // DSH-18 按需加载通道：system prompt 索引只给元信息，正文用时才取
+        // 按需加载通道：system prompt 索引只给元信息，正文用时才取
         //（三根 rank 覆盖序与 listSkills 一致：项目 > 用户 > 捆绑）
         const skill = loadSkill(String(input['name'] ?? ''), {
           bookRoot: opts.bookRoot,
@@ -335,7 +335,7 @@ export async function executeChatTool(
             .join('、')
           return { ok: false, summary: `未找到该技巧包。可用：${names}` }
         }
-        // 正文有界返回——与 read_chapter 同款纪律：code point
+        // 正文有界返回——与 read_chapter同款纪律：code point
         // 安全裁切 + 截断通知。粗判先行（UTF-16 码元 ≥ 码点数，未超限直接返回），
         // 仅超限才 Array.from 物化精确码点（同款，语义等价）
         if (skill.content.length <= READ_SKILL_MAX_CHARS) return { ok: true, summary: skill.content }

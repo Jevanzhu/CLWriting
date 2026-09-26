@@ -14,16 +14,16 @@ import { addEntry, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { log } from '../log/index.js'
 import type { SampleCandidate, QuoteCandidate } from './index.js'
 
-// ── （GLM-5.3 修复批）：批量落盘周期让出 ──────────
+// ──：批量落盘周期让出 ──────────
 // learn-commit 单数组上限 400 条（knowledge.ts 2--⑤a），逐条 addEntry 各含原子写
 // tmp+fsync+rename——慢盘上 400×双 fsync 的同步段可秒级，而本服务进程同时承载 SSE
 // 心跳与全部请求，全程无让出即整窗冻结（上限只封顶不消除）。每 COMMIT_YIELD_EVERY
 // 条让出一次事件循环（setImmediate 真让出，先例 progress.ts yieldToEventLoop）。
 // 让出函数做成可注入参数而非硬编码：服务端调用方在让出点复合书注册重验（knowledge.ts
-// ），测试注入计数桩断言让出次数/时机——本文件保持领域纯净，不感知 HTTP 层。
+//），测试注入计数桩断言让出次数/时机——本文件保持领域纯净，不感知 HTTP 层。
 // 持久化语义（原子写 + fsync）与返回值形状零变更，只在循环里插入 await 点。
 export type CommitYield = () => Promise<void>
-// （修复批）：defaultCommitYield 收敛单源——原内联
+// defaultCommitYield 收敛单源——原内联
 // ` => new Promise((resolve) => setImmediate(resolve))` 与 src/async.ts 的
 // yieldToEventLoop 同体重复（async.ts 头注宣称「五处收敛单源」，此处漏网）。现直接
 // 引用单源，语义逐位一致（同为 setImmediate 落 libuv check 阶段）；导出名保留——
@@ -70,8 +70,8 @@ function existingSampleFps(bookRoot: string): Map<string, string> {
 }
 
 /** 逐 pick 去重入库；返回库相对路径列表（既有条目转 POSIX 相对路径，与 addEntry 同口径）。
- *  describe：被吞条目的可读摘要提取器（技法指令/出处），去重命中时随 warn 留痕。
- *  ：转 async + 每 COMMIT_YIELD_EVERY 条让出一次（见文件头注）；让出函数
+ * describe：被吞条目的可读摘要提取器（技法指令/出处），去重命中时随 warn 留痕。
+ * 转 async + 每 COMMIT_YIELD_EVERY 条让出一次（见文件头注）；让出函数
  *  抛错 = 调用方中止信号（knowledge.ts 让出点书注册重验失败），原样上抛终止剩余条目。 */
 async function commitDeduped<T>(
   bookRoot: string,

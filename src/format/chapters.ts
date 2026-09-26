@@ -38,7 +38,7 @@ const KNOWN_FM_KEYS = new Set([
 // ── 阶段 24 结构键归一（留洞制：序/并入 读侧小函数，tree probe 复用）──
 
 /**
- * `序` 值归一（/）：显示排序键。number 直取；字符串 trim 后 Number 强转
+ * `序` 值归一：显示排序键。number 直取；字符串 trim 后 Number() 强转
  * （parseValue 只认纯整数，`序: 12.5` 落字符串——拆分中值是合法主流形态，读侧收编）；
  * 非正有限数（`序: 五`/`序: -3`/空串）按缺省 undefined 处理不报错（值校验口径）。
  * probe 侧传原始捕获串（可能带成对引号），先剥成对引号再走同一强转。
@@ -111,7 +111,7 @@ export function isPublishedValue(v: unknown): boolean {
 /** 读取章节 md → ChapterMeta（容错）。
  * @param includeBody ：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
  *                    默认缺省不驻留正文，既有调用方零成本。
- * @param content ：预读文本（调用方单次读取的快照）——传入时不再读文件，
+ * @param content：预读文本（调用方单次读取的快照）——传入时不再读文件，
  *                机检/三审与 hash 从同一快照派生（三审端点三次独立读会来自三个时刻）。 */
 export function readChapter(
   filePath: string,
@@ -212,7 +212,7 @@ export function readChapter(
     if (merged !== undefined) chapter.并入 = merged
   }
   if (map.has('字数目标')) {
-    // Number 无守卫——手写「三千」→ NaN 落进元数据，区间比较
+    // Number() 无守卫——手写「三千」→ NaN 落进元数据，区间比较
     // 恒 false 逐步污染预算/统计。非有限数按「未写」处理，走默认回落链。
     const target = Number(map.get('字数目标'))
     if (Number.isFinite(target)) chapter.字数目标 = target
@@ -247,7 +247,7 @@ export function validateEnums(ch: ChapterMeta): string[] {
 
 /** 章号 → 按名定位文件时的全部合法前缀口径（单一真相源）。
  *  正文目录里三种命名并存：legacy 无补零（5-标题.md）、短篇/存量草稿 3 位补零、
- *  长篇写侧 4 位补零（统一：service 改名 / 前端新建复制 / 草稿新建
+ * 长篇写侧 4 位补零（统一：service 改名 / 前端新建复制 / 草稿新建
  *  一律经 words.chapterFilePrefix 单源，原草稿新建 3 位已对齐 4 位）。按章号定位
  *  文件必须三口径全试——此前 RAG 召回精准读正文只试「无补零 + 4 位」，3 位命名的
  *  章静默返回 null。 */
@@ -294,7 +294,7 @@ export function readChapterDirSummary(dirPath: string): {
  * stat 级章节元数据缓存核心：热路径（GET /books、GET /overview、机检、
  * 树红点聚合等）对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。
  * 此处按 (mtimeNs,size) 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除
- * 由每轮 walk 自愈。：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
+ * 由每轮 walk 自愈。bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
  * （同 ms 内改回同长内容的撞车窗口收窄到 ns 级，注释同步）。
  * 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）；latest 在同一轮 stat 里
  * 顺带跟踪最新 mtime 的章（readChapterDirSummary 消费），不产生第二次 stat。
@@ -310,8 +310,8 @@ interface ChapterDirScan {
   latest: { mtimeMs: number; no: number; title: string } | null
 }
 
-/** 阶段 52 批 1：目录整扫的让出粒度——每枚举 N 个 .md 项让出一次
- *  （含后续 stat/解析失败的项：扫描成本已付）。导出供测试锚（按 K 断言）。 */
+/** 目录整扫的让出粒度——每枚举 N 个 .md 项让出一次
+ * （含后续 stat/解析失败的项：扫描成本已付）。导出供测试锚（按 K 断言）。 */
 export const CHAPTER_SCAN_YIELD_EVERY = 25
 
 /**
@@ -335,7 +335,7 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
   // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
   let scanned = 0
   for (const { abs: fp } of walkMdEachGen(dirPath)) {
-    // 阶段 52 批 1：让出点——每 N 项一次，让出后本项照常处理
+    // 让出点——每 N 项一次，让出后本项照常处理
     if (++scanned % CHAPTER_SCAN_YIELD_EVERY === 0) {
       preludeYieldStats.chapterScan++
       yield
@@ -398,7 +398,7 @@ function readChapterDirUncached(
 
 /** 章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
 /** 缓存章元数据克隆——浅拷贝之上再拷 _raw（嵌套对象与缓存共享
- *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立）；：_fmMissing 同理。 */
+ * 会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立）；_fmMissing 同理。 */
 function cloneChapter(c: ChapterMeta): ChapterMeta {
   return {
     ...c,
@@ -414,12 +414,12 @@ interface ChapterDirEntry {
 }
 
 /** 进程级章节元数据缓存（dirPath → 文件路径 → 条目）。
- *  ：FIFO 上限 64 书目录（probeCache 4096/树索引 16 同款纪律）——
+ * FIFO 上限 64 书目录（probeCache 4096/树索引 16 同款纪律）——
  *  此前无上限，多书长跑缓涨（每章仅 fm 元数据 KB 级，卫生项）。 */
 const CHAPTER_DIR_CACHE_MAX = 64
 const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
 
-/** （修复批）：测试专用导出（零生产调用；生产侧按书失效走
+/** 测试专用导出（零生产调用；生产侧按书失效走
  *  clearChapterDirCacheForBook，正常由每轮 walk 自愈）——清空章节元数据缓存。 */
 export function clearChapterDirCache(): void {
   chapterDirCache.clear()
@@ -445,5 +445,5 @@ export function clearChapterDirCacheForBook(bookRoot: string): number {
   return removed
 }
 
-// re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，.1）
+// re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）
 export { countWords, parseChapterFileName } from './words.js'

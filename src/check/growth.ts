@@ -25,7 +25,7 @@ const GROWTH_VALID_VERBS = new Set<string>([
 ])
 
 /**
- * 成长线语义校验。
+ * 成长线境界语义校验 —— 依据 #6 + #10 第 2 节项 2（🔴 红）。
  * @param db 缓存
  * @param realmDoc 境界体系（#6）
  * @param growthLeadIds 成长线条目 id 列表
@@ -48,7 +48,7 @@ export function checkGrowth(
       checkId: 'growth-realm-sequence-missing',
       // 维持 red——境界体系解析失败 = 序列不可用（sequence 全程
       // null），realm-miss/regress/span-exceed 全部静默跳过，成长线红闸整体失效；
-      // red 打回自动写章迫使作者修复（fail-closed，与 「体系缺失红项语义不同，
+      // red 打回自动写章迫使作者修复（fail-closed，与「体系缺失红项语义不同，
       // 维持红」口径一致）。文案改为如实描述：文件可能明明有内容（如 CRLF 换行/格式
       // 异常），旧文案「没有可解析的 front matter」误导排障。
       level: 'red',
@@ -64,7 +64,7 @@ export function checkGrowth(
     // 取该条目的境界体系名（从缓存读 cur_realm 推断体系，或遍历）
     // 多体系前缀重叠（炼气/炼气期 两体系并存）时此前取首个命中
     // 体系，「炼气一层」会错挂到「炼气」系而真实体系是「炼气期」系，后续跃迁全按错
-    // 基准判红。改全序列打分消歧：精确命中 > 最长前缀匹配（任一方向，语义
+    // 基准判红。改全序列打分消歧：精确命中 > 最长前缀匹配（任一方向语义
     // 不变），得分同序先到先得。
     let sequence: string[] | null = null
     if (realmDoc && currentRealm) {

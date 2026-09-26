@@ -7,7 +7,7 @@
  * 清理；其末尾清扫 shelfGuardCache，故书架守卫 TTL 缓存族随缝单源迁此，残核
  * books.get 经 getShelfGuard 单向取用）+ 墓地删除族（DELETE_GRAVEYARD_DIR / 后台
  * 清理， 收尾起清理函数经组装根 RouteOverrides 注入）+
- * awaitOrchestrationsSettled / busyGate /
+ * 清理句柄 / 两个测试注入口）+ awaitOrchestrationsSettled / busyGate /
  * drainAndRecheckBookMutation（五连 drain + 闸后复查）。
  * 改名路由族（book.rename + initialBook 直进指针）见 books-rename.ts（缝 B）；
  * 书架列表 / 建书 / 单书身份 / boot 残核留 books.ts，其头注末尾拆分沿革记全账。
@@ -30,7 +30,7 @@ import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单�
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { removeBookEntryAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
-// /：伏笔保存串行链 drain + 按书 forget
+// 伏笔保存串行链 drain + 按书 forget
 import {
   forgetService,
   drainDocumentSaves,
@@ -65,7 +65,7 @@ import { forgetTreeIssuesCache } from './check.js'
 import { forgetSearchCache } from './search.js'
 // 设定一致规则 TTL 缓存同挂点收编（AI 热路径设定目录读取缓存）
 import { forgetSettingCache } from '../../../ai/rules/setting-rule.js'
-// analysis-overview / version-stats TTL 缓存同族收编—— 已
+// analysis-overview / version-stats TTL 缓存同族收编——已
 // 挂同文件写侧失效，删/改名生命周期清理由主评审补接本家族（防同名重建书读陈聚合）
 import { forgetAnalysisOverviewCache } from './analysis.js'
 import { forgetVersionStatsCache } from './snapshots.js'
@@ -85,7 +85,7 @@ import { forgetVersionFpCacheForBook } from '../../../document/version.js'
 // 条目库读取 TTL+mtime 探针缓存同族收编（AI 写稿热路径的
 // readEntries 不再每章每轮全量重读 文风/条目/；删/改名后同名重建书不读陈条目）
 import { forgetEntriesCache } from '../../../format/style-entry.js'
-// 文风铁律指纹缓存同族收编（同上删书/改名生命周期）
+// 源码：文风铁律指纹缓存同族收编（同上删书/改名生命周期）
 import { forgetIronRulesCache } from '../../../format/iron-rules.js'
 // ai-calls 旧格式迁移标记同族收编——migratedRoots 只增不减，
 // 删书重建同名书后旧标记会让旧格式迁移在本进程内永不重试
@@ -140,7 +140,7 @@ export function forgetBookKeyedCaches(bookRoot: string): void {
   shelfGuardCache.clear()
 }
 
-// ── ：书架守卫/配置 TTL 缓存 ──────────────────
+// ──：书架守卫/配置 TTL 缓存 ──────────────────
 // resolveWithinRoot（双侧 realpath + existsSync 链）与 readBookConfig（读盘 + YAML
 // 解析）此前每请求每书全量重跑，不受 30s 摘要缓存保护——书库大 + 书架页高频刷新/
 // 多窗口时每轮数百次同步 stat。与书架摘要同 TTL 口径：book.yaml 变更/书被外部移动
@@ -166,7 +166,7 @@ export function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
   return shelfGuardCache.getSync({ workDir, path })
 }
 
-/** MISS 计算体（原 getShelfGuard 内联逻辑原样下沉；损坏标记也落缓存，/低-3 口径）。 */
+/** MISS 计算体（原 getShelfGuard 内联逻辑原样下沉；损坏标记也落缓存/低-3 口径）。 */
 function computeShelfGuardValue(key: { workDir: string; path: string }): ShelfGuardValue {
   const within = resolveWithinRoot(key.workDir, key.path)
   if (!within) {
@@ -199,7 +199,7 @@ const defaultGraveyardCleanup = (graveAbs: string): Promise<void> => rm(graveAbs
  * （纯测试簿记），回归断言改行为化：受控桩由测试自持 deferred 直接 await，真删路径
  * 以 vi.waitFor 轮询墓地终态（断言内容零弱化）。 */
 
-/** #7：等被 abort 的在途编排（chat / self-heal / 后台任务）真正收尾。abort 只是异步
+/** #7：等被 abort 的在途编排（chat / self-heal 后台任务）真正收尾。abort 只是异步
  * 信号——straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移
  * 之后恢复，会抛「连接未打开」或对已删/已搬路径重建孤儿目录。上限 10s：等待是尽善，
  * 挂死编排不应阻塞删/改请求（超时后行为同旧版，事件库启动修复兜底）。
@@ -213,8 +213,8 @@ export async function awaitOrchestrationsSettled(name: string): Promise<void> {
 }
 
 /** spawn/三审/task-gate 三闸联合检查——任一在途返回 BUSY 文案（否则 null）。
- * 各闸背景： /spawn 手动写稿分钟级且持 bookRoot 闭包（收尾落盘写旧路径重建
- * 孤儿目录）； 三审同为分钟级长任务； task-gate（analyze/rewrite/rag-build
+ * 各闸背景：/spawn 手动写稿分钟级且持 bookRoot 闭包（收尾落盘写旧路径重建
+ * 孤儿目录）；三审同为分钟级长任务；task-gate（analyze/rewrite/rag-build
  * 等）无 abort 通道——三者持闸时都只能拒删/拒改（409），白烧 API 费用同理。
  * 进程内 Set 与跨进程锁文件扫描合并去重——dev-api/脚本与 GUI 双进程
  * 并存时，此前只查 heldTaskGatesFor（进程内）看不见进程 A 的分钟级任务闸，放行删/改
@@ -229,38 +229,38 @@ export function busyGate(gate: TaskGate, name: string, verb: '删' | '改名'): 
 }
 
 /** 删书/改名共用的「五连 drain + 闸后复查」排水段收编
- * 单源——此前两 handler 各自复制同一段 55 行（本段原实现顺位： saveQueue →
- * PUT 链 → 伏笔链 → draft-save 链 → 阶段 24
- * structure 链，再接 / 与 两级复查）。drain 顺序、复查判定与人话文案
+ * 单源——此前两 handler 各自复制同一段 55 行（本段原实现顺位：saveQueue →
+ * PUT 链 →伏笔链 →draft-save 链 → 阶段 24
+ * structure 链，再接与两级复查）。drain 顺序、复查判定与人话文案
  *  逐位保留；verb 仅参数化两处文案（已中止删除/改名、请稍后再删/改名）。返回 null =
  *  可安全动盘；非空 = 调用方回 409 BUSY。
  *
  *  各 drain 背景（原文沿革，逐条保序）：
- * - drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
+ * -：drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
  *    rmSync/renameSync 之后恢复，会对已删/已搬路径 atomicWriteFile 重建孤儿文件
  *   （窗口毫秒级但真实）。
  * -：PUT /file 的 per-file 串行链同款 drain——临界段内 readFileHashed
  *    跨 rm 的 await 窗口理论上会重建目录（删除路径基线 ENOENT → 404 天然免疫，一并
  *    drain 求同口径；改名侧重建的旧路径目录树无 book.yaml 孤儿，repairBooks 不认领）。
- * -：伏笔保存串行链同款
+ * -（面 B）：伏笔保存串行链同款
  *    drain——已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 看不见），
  *    不 drain 则 rmSync 后链单元才开跑、照写旧捕获 bookRoot 成孤儿。死锁核查：链单元
  *    只单向 await SaveQueue/清单·回收站锁、从不反等 books 侧锁，置于既有 drain 之后
  *    不引入环；drain 窗口内新进单元不等（快照式），由单元体内书注册重验兜底。
- * - draft-save 串行链同款 drain——
+ * draft-save 串行链同款 drain——
  *    在途/迟到 draft-save 跨墓地 renameSync 后 saveDraft 的 mkdirSync(recursive) 会按
  *    旧书路径重建幽灵目录树并返 200（内容不属于任何书）。死锁核查同伏笔链。
  *  - 阶段 24 章节结构操作：structure 串行链同款 drain（第 5 个）——链单元内
  *    applyChapterMerge/applyChapterSplit 的 save/trash/create 各自会 mkdir + 落盘，
  *    跨 rmSync 开跑会对旧书路径重建孤儿文件。死锁核查同上。
  *  复查背景（原文沿革）：
- * -：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
+ * 闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
  *    在此拦截；复检到 rmSync/renameSync 之间全同步（单线程事件循环无新任务可插入），
  *    三闸 TOCTOU 窗归零。
- * - （三十三轮 dev 线）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
+ * -（dev 线）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
  *    await 窗口内新起的对话/写稿既不在入口 abort 之列也无闸拦截，会贯穿 rmSync 继续跑
  *    分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
- * - （三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
+ * -（win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
  *    后台摘要任务此前可绕过复查，对已删路径收尾写（对齐 settle 三条件口径）。 */
 export async function drainAndRecheckBookMutation(
   gate: TaskGate,
@@ -296,8 +296,8 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       const r = resolveBookOrReply(ctx.workDir, name, res)
       if (!r) return
       const entry = r.entry
-      //  ：三闸联合检查（busyGate 集中各闸口径）
-      // 闸检查前置（对齐 rename 路径 序）——此前先 abort 后过闸，
+      // 三闸联合检查（busyGate 集中各闸口径）
+      // 闸检查前置（对齐 rename 路径序）——此前先 abort 后过闸，
       // 闸拒绝（409，如 spawn/三审/任务闸在持）时在途对话/嵌套写稿已被不可逆中断，作者
       // 只是想删书却被顺带杀掉别的在途任务还删不成。abort 移到闸后：闸忙直接 409，
       // 零副作用；闸过才中断 chat/self-heal 走删除。
@@ -318,8 +318,8 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // 对已删路径重建孤儿目录
       if (hadSelfHeal || hadChat || hasBackgroundTasks(name)) await awaitOrchestrationsSettled(name)
       // 五连 drain + 闸后复查收编 drainAndRecheckBookMutation
-      // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（
-      // /阶段 24 五 drain + 复查，沿革与顺序见 helper 头注）。
+      // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（/
+      // /阶段 24 五 drain +复查，沿革与顺序见 helper 头注）。
       const blocked = await drainAndRecheckBookMutation(ctx.gate, join(ctx.workDir, entry.path), name, '删')
       if (blocked) {
         return replyError(res, 409, 'BUSY', blocked.error)
@@ -327,7 +327,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // 删书目录：整目录原子改名入墓地（含 git 历史）；物理清理移交后台
       const bookAbs = join(ctx.workDir, entry.path)
       // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
-      // 批 6 统一：resolveWithinRoot（防穿越 + symlink 双侧 realpath；书路径 = workDir 自身
+      // 统一：resolveWithinRoot（防穿越 + symlink 双侧 realpath；书路径 = workDir 自身
       // 时 rel='' 同判非法）。realpath 失败（不存在/权限）→ null → 拒绝删除
       if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
@@ -336,16 +336,16 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // 未清的 books.jsonl 登记（启动 repair 只兜底整目录缺失，半删态登记悬空且不可逆）。
       // 改先整体 rename 进删书墓地（同盘 rename 原子：成功即原位不存在半删态），墓地副本
       // 清理失败仅留痕不阻断——数据在墓地可手工恢复，登记照常移除（与作者删除意图一致）。
-      // 墓地名追加 ULID 后缀——`${Date.now}-${basename}` 在同毫秒
+      // 墓地名追加 ULID 后缀——`${Date.now()}-${basename}` 在同毫秒
       // 并发双删同一书时撞出同一路径，第二请求 rename 落 ENOTEMPTY → 500（文案「书未
       // 受影响，可重试」与事实矛盾）；ULID 的 80bit 随机段保证墓地名恒唯一，双删各自
       // 落独立墓地副本（时间戳前缀保留，肉眼排序/排查语义不变）。
       const graveAbs = join(ctx.workDir, DELETE_GRAVEYARD_DIR, `${Date.now()}-${basename(entry.path)}-${ulid()}`)
       try {
         mkdirSync(dirname(graveAbs), { recursive: true })
-        // 整目录 rename 是全应用对杀软/索引器最敏感的
+        // （win 平台）：整目录 rename 是全应用对杀软/索引器最敏感的
         // 操作（要求整棵子树无句柄持有）——收编 renameWithRetry 的 EPERM/EBUSY 退避
-        // （原语），瞬时占用不再直接 500
+        //（原语），瞬时占用不再直接 500
         renameWithRetry(bookAbs, graveAbs)
       } catch (e) {
         // 并发删书第二请求的 ENOENT 如实回 404——删书无书级互斥闸
@@ -370,12 +370,12 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       ;(ctx.graveyardCleanup ?? defaultGraveyardCleanup)(graveAbs).catch((e) => {
         log.error('api', `删书墓地后台清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
       })
-      // 移 books.jsonl 登记 + 清活动书指针（残留清偿批：同步 removeBookEntry 的
+      // 移 books.jsonl 登记 + 清活动书指针（同步 removeBookEntry 的
       // Atomics.wait 锁等待改异步孪生——mutator 族服务面落点至此归零）
       await removeBookEntryAsync(ctx.workDir, name)
       // 清理 service 缓存，防同 path 重建复用旧实例
       forgetService(bookAbs)
-      // -：清理 driver session + 树索引缓存，防删书后资源泄漏
+      // 清理 driver session + 树索引缓存，防删书后资源泄漏
       ctx.driver.forgetSession(name)
       // per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
       forgetSseCount(name)
@@ -385,7 +385,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       // delete 分支漏配：删后 5s TTL 窗口内同名重建书，书架卡会读到旧章数/字数/最近编辑
       invalidateBookSummary(bookAbs)
       invalidateTreeIndex(bookAbs, true)
-      // 内存闸：章节元数据缓存按书前缀一并清——删书后目录已不在，
+      // 内存闸（审计）：章节元数据缓存按书前缀一并清——删书后目录已不在，
       // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
       clearChapterDirCacheForBook(bookAbs)
       // 事件库一并清（双键：book=书名 + book=bookHash(bookRoot)）——

@@ -1,5 +1,5 @@
 /**
- *  批1）：迟到回放的清屏锚。
+ *）：迟到回放的清屏锚。
  *
  * cc/mock driver 的 pre/execRing 回放会把断连前已送达的 text 增量原样重发给新消费者
  * （E1b 迟到回放），而 workbench.dispatch 对 text 事件盲追加（textOut += text）——

@@ -66,7 +66,7 @@ let ragPollInFlight = false
 const RAG_POLL_MAX_FAILS = 5
 let ragFailStreak = 0
 
-// 「重建已清空旧索引、未完成」提示。①（修复批）
+// 「重建已清空旧索引、未完成」提示。①
 // 语义修正：本提示只在真重建（rebuild，服务端任务闸内先清库再建）后失败时出现——原实现
 // 把触发记忆误挂在「建立索引」（build，增量不清库）上，失败提示「已清空旧索引」失实。
 // 局限如实记：他窗口触发/刷新页面后该本地记忆丢失，退回普通失败文案（保守面，不误报）。
@@ -89,7 +89,7 @@ const ragNeedsRebuild = computed(() => {
   return ragRebuildFailedHint.value
 })
 
-// （b 修复批，mac 线；merge 并入）：embedding
+// （mac 线；merge 并入）：embedding
 // 模型失配面——服务端 /rag/status 早已透出 indexModelMismatch，此前前端类型/呈现
 // 均漏接。并合后本判定只供「失配呈现侧提示」span 显隐（按钮显隐走上方 ragNeedsRebuild
 // 三分支判式——失败文案指向重建但标记未亮时也出路可达，且不重复出本提示）。
@@ -267,7 +267,7 @@ function onBookRagProviderChange(e: Event): void {
 }
 
 /** 刷新建索引状态（读 .cache/rag.db 现状 + 最近结果）。
- *  ：返回成败——true = 拿到状态且已落地（连续失败计数随之归零）；
+ * 返回成败——true = 拿到状态且已落地（连续失败计数随之归零）；
  *  false = 请求失败或在途切书（书名复检不过），轮询侧据此计失败。 */
 async function refreshRagStatus(name?: string): Promise<boolean> {
   const book = name ?? ws.bookName
@@ -362,7 +362,7 @@ async function pollRagStatus(name: string): Promise<void> {
     }
     // 重叠去重——上一拍 refreshRagStatus 未 settle（慢响应 >1.5s）
     // 则本拍直接跳过：并发多拍会把同一失败重复计数（ragFailStreak 连加），提前误进
-    // RAG_POLL_MAX_FAILS 失败终态
+    // 「构建中…」再无出路。连续 RAG_POLL_MAX_FAILS 次（1.5s 间隔 ≈ 7.5s）即停表给失败终态
     if (ragPollInFlight) return
     ragPollInFlight = true
     try {
@@ -385,7 +385,7 @@ async function pollRagStatus(name: string): Promise<void> {
 }
 
 /** 停表单点：清定时器 + 复位在途旗标与连败计数。
- *  （1.0 前质量债批）：原三个停止路径各写一份清表代码，失败终态那份漏了
+ * （1.0 前质量）：原三个停止路径各写一份清表代码，失败终态那份漏了
  *  计数复位——作者点「重建」重试时 streak 仍停在上限，新一轮首败即终止（本应容忍到上限），
  *  表现为「重建很快又失败了」。改为全部走本函数（计数一并归零 = 新一轮从头计）；
  *  startRagBuild / startRagRebuild 入口同样归零，双保险不依赖上一轮收尾路径。 */
@@ -401,7 +401,7 @@ function stopRagPolling(): void {
   ragFailStreak = 0
 }
 
-// 轮询停表挂点（-0914 注释记正）：dd- 原注称「关弹窗只 deactivated
+// 轮询停表挂点（注释记正）：dd- 原注称「关弹窗只 deactivated
 // 不 unmount」——按盘面实态记正：SettingsModal 根为 v-if="ui.settingsOpen"，关弹窗整棵
 // 子树真实 unmount（下方 onUnmounted 停表覆盖关窗路）；弹窗内切 tab 才是 keep-alive
 // 缓存路径——deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）。
@@ -541,7 +541,7 @@ onUnmounted(() => {
         {{ ragBuilding ? '构建中…' : '建立索引' }}
       </button>
       <!-- ①（win 线，骨架）/ （mac 线，merge 并入）：失配/
-           失败指向重建时的程序化出路——清库重建（服务端 rebuild）。增量「建立索引」对
+ 失败指向重建时的程序化出路——清库重建（服务端 rebuild）。增量「建立索引」对
            失配索引只会报错，重建是唯一出路；构建中与建立索引同锁禁用（按钮文案保留 mac 线的
            「重建中…」动态反馈，点击后出口可见） -->
       <button
@@ -560,7 +560,7 @@ onUnmounted(() => {
       <span v-if="ragMismatch && !ragBuilding" class="rag-mismatch-hint" role="status">
         嵌入模型与现有索引不一致——点「重建索引」清空旧索引后按当前模型重建；重建完成前检索暂查不到内容。
       </span>
-      <!-- + ①④：清库重建（rebuild）先删旧索引再后台建——重建期失败时旧
+      <!-- ①④：清库重建（rebuild）先删旧索引再后台建——重建期失败时旧
            索引已删、新索引未成，检索归零但普通「索引失败」文案不说明这一点。此处如实补一句
            + 给出路（重试按钮同排在场；书稿正文不受影响）。增量 build 失败不清库，不出本提示 -->
       <span v-if="ragRebuildFailedHint" class="rag-rebuild-hint" role="status">

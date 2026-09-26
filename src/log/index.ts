@@ -1,5 +1,5 @@
 /**
- * 结构化日志通道（迭代方向 / 批 0）。
+ * 结构化日志通道（迭代方向）。
  *
  * 边界（与事件库的分工）：进程诊断归本模块（JSONL 按天落盘、7 天轮转），
  * 业务观测归事件库（append-only SQLite）——两条通道不合并：事件库是产品数据，
@@ -11,14 +11,14 @@
  * - initLogging 后：{ts, level, tag, msg, err?} 逐行 JSONL 追加到
  *   <logsDir>/app-YYYYMMDD.jsonl（本地日期），进程内串行队列保证行序与调用序一致，
  *   调用方永不 await（诊断留痕不允许成为请求路径上的新阻塞源）；
- * - stdout-only 模式（阶段 22 / 单写者， + 二轮）：env
+ * - stdout-only 模式（单写者）：env
  *   CLW_LOG_STDOUT=1 时 initLogging 层短路——不设 logsDir、不 mkdir、不跑 7 天清理，
  *   emit 直写 process.stdout 一行与落盘行同构的 JSON（child 进程专用：server-manager
  *   fork 时经 options.env 注入，main 以 stdio:pipe 收行解析重发落盘——单写者，双进程
  *   不再同写同一 logs 目录/双清同一轮转）；短路必须在本函数（startServer 内部会再
  *   init 一次，入口层挡不住）；
  * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 stderr 直写该条，不抛出、
- *   不熔断后续写入——诊断通道不允许成为新故障源；vitest 5 升级批（阶段 39）起
+ * 不熔断后续写入——诊断通道不允许成为新故障源；（阶段 39）起
  *   降级/背压告警改 process.stderr.write 直写（不走 console API）——测试进程里
  *   迟到的兜底输出经 vitest console 拦截（onUserConsoleLog RPC）落进 worker
  *   收尾窗即 EnvironmentTeardownError（上游 vitest#11153，归因文件随机）；
@@ -81,7 +81,7 @@ function serializeErr(err: unknown): { name: string; message: string; stack?: st
   return { name: typeof err, message: String(err) }
 }
 
-/** （修复批）：unknown → message 字符串单源——全库
+/** 优化：unknown → message 字符串单源——全库
  *  `e instanceof Error ? e.message : String(e)` 三目此前 210 处手抄（本轮起按域
  *  分批收编），错误摘要口径（Error 取 message、其余 String 化）由本函数钉住。 */
 export function errMsg(e: unknown): string {
@@ -96,7 +96,7 @@ function dayFile(logsDir: string, d = new Date()): string {
   return join(logsDir, `app-${y}${m}${day}.jsonl`)
 }
 
-/** 本地日期 key（YYYY-MM-DD）。：成本/trace 按日分桶统一走本地日——
+/** 本地日期 key（YYYY-MM-DD）。成本/trace 按日分桶统一走本地日——
  * 此前用 UTC ISO 切日，东八区 0-8 点的调用记到前一 UTC 日，与日志文件日（本地日）、
  * 用户「今天」直觉三者错位。 */
 export function localDayKey(t: number | string | Date): string {
@@ -133,13 +133,13 @@ async function cleanupOldLogs(logsDir: string): Promise<void> {
   }
 }
 
-/** 0918二轮修复批（D101）：运行期清理节流窗——跨日切换至多每小时真清一次。形态对齐
+/** 运行期清理节流窗——跨日切换至多每小时真清一次。形态对齐
  *  src/process/spill.ts 的 sweepOldSpillsThrottled（Map 记上次清理时刻，窗内直接跳过；
  *  自然跨日切换每天至多一次，1h 窗只吞时钟回拨/换目录等假切换）。 */
 const LOG_SWEEP_THROTTLE_MS = 60 * 60 * 1000
 const logSweepLastAt = new Map<string, number>()
 
-/** 0918二轮修复批（D101）：上次实际落盘的日文件名（app-YYYYMMDD.jsonl）——泵内据此
+/** 上次实际落盘的日文件名（app-YYYYMMDD.jsonl）——泵内据此
  * 检测跨日切换；记名不记全路径：换目录不误报（init 换目录自带一次清理）。 */
 let lastDayName: string | null = null
 
@@ -149,7 +149,7 @@ let lastDayName: string | null = null
  *  确定性翻红而本机 Node 26 恒绿——纯调度窗差异，不等则断言红绿随环境漂移。 */
 let sweepInFlight: Promise<void> | null = null
 
-/** 0918二轮修复批（D101）：7 天保留不再只在启动期执行——cleanupOldLogs 原先仅被
+/** 7 天保留不再只在启动期执行——cleanupOldLogs 原先仅被
  *  initLogging 排队一次，长跑进程跨天新建的日志文件超期不清理（运行期目录无界增长）。
  *  改为泵内检测 dayFile 跨日切换时节流触发清理；fire-and-forget（清理只 readdir+
  *  unlink 解析出日期且超期的旧文件，与泵在写的今日文件无交集，不占泵串行队列——
@@ -166,7 +166,7 @@ function cleanupOldLogsThrottled(logsDir: string): void {
 /**
  * 初始化日志落盘。幂等：可重复调用（desktop main 早期 init 一次、startServer 再对齐一次）。
  * logsDir 传 null = 显式只镜像不落盘。轮转清理由本调用触发（启动期一次，不在写路径上做；
- * 0918二轮修复1 后运行期由日志泵跨日切换节流补清，长跑进程目录不再无界增长）。
+ * 后运行期由日志泵跨日切换节流补清，长跑进程目录不再无界增长）。
  * stdout-only（CLW_LOG_STDOUT=1）：本层短路——opts 全部忽略，不设 logsDir/不 mkdir/
  * 不 cleanup（child 每次 fork 不再有文件系统副作用、不与 main 双清同一 logs 目录），
  * 后续 emit 直写 stdout。
@@ -208,12 +208,12 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
   }
 }
 
-/** IR-1（修复批）：兜底脱敏——常见 API key 形态掩码。纵深一层：现状防线靠
+/** 兜底脱敏——常见 API key 形态掩码。纵深一层：现状防线靠
  *  调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律；本函数维持「保留前缀/
- *  尾 4 位」形貌层（契约，不串联 redactSecret——其全 ***REDACTED*** 形态会
+ * 尾 4 位」形貌层（契约，不串联 redactSecret——其全 ***REDACTED*** 形态会
  *  破坏对账形貌）。
- *  ：补齐智谱（32hex.32hex）与 Gemini（AIza+35）两无前缀形态。
- *  IR-1 修复：原实现只覆盖 4 形态（sk-/Bearer/智谱/Gemini），注释却宣称「与
+ * 补齐智谱（32hex.32hex）与 Gemini（AIza+35）两无前缀形态。
+ * 修复：原实现只覆盖 4 形态（sk-/Bearer/智谱/Gemini），注释却宣称「与
  *  redact.ts 全词表对齐」——xai-/sk_/gsk_/hf_/glpat-/ghp_ 前缀、x-api-key 头、URL
  *  query 凭据三类实测 9/9 穿透（子代理样本 + 主评审复核）。现拆两族真对齐：
  *  - 头/查询族（case-insensitive，对齐 redactSecret 同款 /gi）：Bearer 头（值字符
@@ -221,14 +221,14 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
  *    URL query 凭据（api_key/key/token/access_key/authorization=，掩值保留参数名）；
  *  - 裸 key 族（大小写敏感）：前缀族 sk-/xai-/sk_/gsk_/hf_/
  *    glpat-/ghp_（sk- 长度阈值维持 {8,}——取两源更严者，16+ 之外的短 key 也掩）+
- *    智谱 + Gemini。
+ * 修复：原实现只覆盖 4 形态（sk-/Bearer/智谱/Gemini），注释却宣称「与
  *    （c ）：前缀族加词首断言 `(?<![A-Za-z0-9\-_])`——原正则无界，
  *    路径/文件名内的「sk-+8 位词字符」普通文本（如 `task-sk-20230801.md`、
  *    `mask-sensitive-data`）会被误掩破相；单加 `\b` 不够（`-task-sk-` 的连字符与
  *    词字符间恰是词边界），须排除前置 key 字符。另本表与 redact.ts 并非逐位对齐
  *    （本表形貌保留 + {8,} 更严过掩方向系有意），头注原「对齐 redactSecret」措辞
  *    修正为「语义分账」：本表对账形貌、redactSecret 泄漏收敛，两词表由双词表
- *    对账测试锁「重叠域（≥16 位）同形必同命中 + 良性文本双方零误伤」（同批
+ * 对账测试锁「重叠域（≥16 位）同形必同命中 + 良性文本双方零误伤」（同批
  *    新增 test/log/mask-redact-reconciliation.test.ts）。
  *  清偿 值类 `[^&\s#]+` → `[^\s&#\\"]+`——掩码在序列化后的
  *  JSON 行上执行（emit），msg 值内引号是 `\"` 转义形态；值类含 `"`/`\` 时匹配越过
@@ -240,7 +240,7 @@ const KEY_MASK_HEADER_RE =
 const KEY_MASK_BARE_RE =
   /((?<![A-Za-z0-9\-_])(?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
 /**
- * 引入、修正：key 掩码。Bearer 形态改为「token 部分掩码」——
+ * 引入修正：key 掩码。Bearer 形态改为「token 部分掩码」——
  * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），
  * 现保留 Bearer 前缀 + 全掩 + 末 4 位（末 4 位足够人工对账定位，不构成可用凭据）；
  * 裸 key 形态维持原口径（保留前 5 字符 + ***）；x-api-key 头同 Bearer 口径；URL query
@@ -306,7 +306,7 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
   }
   const mirror = () => {
     if (!state.mirrorConsole) return
-    // （二十四轮 D 域）：console 镜像出口同步过 maskKeys——此前掩码只做在
+    // console 镜像出口同步过 maskKeys——此前掩码只做在
     // 落盘/child stdout 的 JSON 行上，镜像走原始 msg/err，同一日志两个出口密钥
     // 一掩一裸（终端/IDE 控制台恰是人最常盯的出口）。err 保持 Error 实例形态
     //（契约：镜像 err 须 instanceof Error 且 message 含原始异常摘要），
@@ -322,7 +322,7 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
 
 /** 入队待写（改造：显式有界队列 + 单泵串行排空，替代原先「每条日志链一个闭包
  *  到 tail」的无界链）——行序 = 入队序 = 调用序（与原 tail 链同语义）。
- *  内存闸（审计）：磁盘挂起时待写闭包不再无界累积，超限丢最旧。 */
+ * 内存闸（审计）：磁盘挂起时待写闭包不再无界累积，超限丢最旧。 */
 function enqueueWrite(line: string): void {
   if (state.pending.length >= MAX_PENDING_WRITES) {
     // 丢最旧腾位（pending 只含未落盘行，队头即最旧待写）
@@ -348,7 +348,7 @@ function enqueueWrite(line: string): void {
         // 执行——emit → initLogging(新目录) 同步序列会把本泵排在新 mkdir 之前；或前
         // 一轮泵在途时新行入队 + 换目录 init，在途泵继续排空时 state.logsDir 已指向
         // 新目录（mkdir 排在本泵之后）→ appendFile ENOENT 降级丢行。
-        // IR-9根因收口：上述第二类的「泵首 mkdir」兜底不完备
+        // 根因收口：上述第二类的「泵首 mkdir」兜底不完备
         // ——在途泵不重启（pumping=true），泵首 mkdir 只做一次且目标还可能是**旧目录**
         //（泵首落在后续 init 之后时甚至直接指错新目录）；排空跨 init 换目录时目标目录
         // 此刻可能未建（init 的 mkdir 链排在本泵完成之后），appendFile ENOENT
@@ -379,10 +379,10 @@ function enqueueWrite(line: string): void {
               })
               pumpedDir = targetDir
             }
-            //日期文件在 flush 时重取——入队时取会在跨本地零点排队时把
+            // 日期文件在 flush 时重取——入队时取会在跨本地零点排队时把
             // 日志行写进前一天的文件（轮转边界错位）
             const file = dayFile(targetDir)
-            // 0918二轮修复批（D101）：跨日切换检测——日文件名变化即触发节流清理
+            // 跨日切换检测——日文件名变化即触发节流清理
             //（见 cleanupOldLogsThrottled 头注）。首写不触发（initLogging 启动期已排
             // 过一次清理）；同日重复落盘零开销（名字比对）。
             const dayName = basename(file)
@@ -422,7 +422,7 @@ export const log = {
 }
 
 /** 测试钩子：重置为未初始化态（vitest 模块隔离下按需使用）。
- *  0918二轮修复批（D101）：同步重置跨日检测与清理节流态（跨测试污染防线）。 */
+ * 同步重置跨日检测与清理节流态（跨测试污染防线）。 */
 export function resetLoggingForTest(): void {
   state = {
     logsDir: null,

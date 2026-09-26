@@ -2,7 +2,7 @@
  * 血缘 + 「模型可见 ⟺ 已记录」校验器（方案 §五 + AGENTS.md 守则；扩三种登记形状）。
  *
  * - verifyVisibleRecorded：断言「注入 prompt 的内容 ⊆ 事件可重建内容」——
- *   每个可见注入（scope+digest）须有对应登记事件。三种登记形状
+ * 每个可见注入（scope+digest）须有对应登记事件。三种登记形状：
  *   settings/snapshot（scope=data.scope、digest=data.digest）、
  *   skills/snapshot（scope='skills'、digest=data.digest）、
  *   revision/ref（正文登记：scope='chapter'、digest=data.revision）。
@@ -65,7 +65,7 @@ export function verifyVisibleRecorded(visible: VisibleInjection[], events: ChatE
 }
 
 /** 从事件流提取全部登记记录（settings/snapshot + skills/snapshot + revision/ref 归一化；血缘重建用）。
- *  ：生产链经 registeredRecords 直连，本导出仅测试消费——测试资产保留。 */
+ * 生产链经 registeredRecords 直连，本导出仅测试消费——测试资产保留。 */
 export function recordedSnapshots(events: ChatEvent[]): { scope: string; digest: string; seq: number }[] {
   return registeredRecords(events)
 }

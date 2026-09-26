@@ -1,7 +1,7 @@
 /**
- * review 三审端点(C.3 + M12 .2/1.3):docId 直读 → generateTool(submit_issues)×3 → 落信封。
+ * review 三审端点(C.3 + M12 B0.2/1.3):docId 直读 → generateTool(submit_issues)×3 → 落信封。
  *
- * POST /api/books/:name/documents/:docId/review  body {}
+ * POST /api/books/:name/documents/:docId/review-verdict body {approved}
  *   → 机检 → buildReviewPacket(临时 out_dir)→ 各 lens generateTool(submit_issues) 收 issues
  *   → collectReviewIssues 归一化 → 落分析信封(kind=review)
  *   → 返 {ok, lenses, collected}
@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
-import { crossProcessHeldTaskGatesFor, REVIEW_BUSY_TEXT, type TaskGateInjected } from './task-gate.js' // 三审接跨进程任务闸；：忙闸/三审登记单源；：实例面经 ctx.gate（crossProcessHeldTaskGatesFor 留在模块级——启动清扫非路由面）
+import { crossProcessHeldTaskGatesFor, REVIEW_BUSY_TEXT, type TaskGateInjected } from './task-gate.js' // 三审接跨进程任务闸；忙闸/三审登记单源；实例面经 ctx.gate（crossProcessHeldTaskGatesFor 留在模块级——启动清扫非路由面）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -52,7 +52,7 @@ interface ReviewCtx extends TaskGateInjected {
 }
 
 /**
- * 三审运行中并发闸（键=`${bookName}/${docId}`，**按文档**）/ ：本书任一文档
+ * 三审运行中并发闸（键=`${bookName}/${docId}`，**按文档**）/：本书任一文档
  * 三审在跑（books.ts 删书/改名持闸用）。
  *
  * 登记表与两判定函数整表迁入 task-gate.ts（忙闸矩阵的 review 信号需要按书
@@ -66,7 +66,7 @@ interface ReviewCtx extends TaskGateInjected {
  * - 书级闸（任务闸 (book,'review')）：同书同时只跑一次三审——三审 ctrl 以 `review:<书名>`
  *   单 owner 槽登记（cc driver 同 owner 换新会 abort 旧 ctrl），两个文档并发三审会互相掐断，
  *   故书级互斥是**有意**的；它同时让删书/改名/他进程看得见在途三审。另一文档来犯时走
- *   busyReason 的 'review' 行文案（前那里写「本书有其他任务在跑」——按 (book,'review')
+ * busyReason 的 'review' 行文案（前那里写「本书有其他任务在跑」——按 (book,'review')
  *   取键只会与同书另一次三审冲突，文案与成因不符，现点名「已有三审在跑」）。
  */
 const LENS_LABEL: Record<string, string> = {
@@ -89,7 +89,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
   // finally 清理不执行，.cache/review-<docId> 随每次累积；启动时无人持锁，幂等安全。
   sweepStaleReviewDirs(ctx.workDir)
 
-  // 三审直读（M12 .2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
+  // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
   defineRoute('books.documents.review', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/review',
@@ -111,7 +111,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // -SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
       if (!safeDocId(docId)) return replyError(res, 400, 'BAD_PATH', '文档 ID 非法')
       // docId→清单→安全路径→存在性解析链收编
-      // resolveDocFile 单源（不读稿——本端点读稿走下方单读 + 守卫）；
+      // resolveDocFile 单源（不读稿——本端点读稿走下方单读 +守卫）；
       // BAD_PATH 文案 variant『文档路径非法』逐字保留
       const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
       if (!f.ok) return replyError(res, f.status, f.code, f.message)
@@ -135,10 +135,10 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       try {
         // 单次读取取 buffer——sourceHash/draftHash/机检 body 三源同拍。
         // 此前三处独立读文件（hash 一读、机检内二读、hash 三读），机检窗口内作者保存
-        // 会让两个 hash 无任何单一文件状态与之对应（isStale 误报 / 守卫依赖
+        // 会让两个 hash 无任何单一文件状态与之对应（isStale 误报守卫依赖
         // 读取顺序巧合）。机检经 draftText 吃同一快照（runCheckForDocument 头注）。
         // 读稿守卫——existsSync 后 µs 级竞态删除（回收站/并发删）
-        // 让 ENOENT 裸穿 dispatch；对齐 review-verdict 的 「读不到正文」人话信封
+        // 让 ENOENT 裸穿 dispatch；对齐 review-verdict 的「读不到正文」人话信封
         // 守卫读收编 readDraftTextGuarded 单源（buffer+
         // text 同一快照不变，人话文案归 DRAFT_UNREADABLE_TEXT 常量、字节同文）
         const g = readDraftTextGuarded(f.absPath)
@@ -176,7 +176,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // draft_hash 接线——collectReviewIssues 的守卫（审阅期间草稿漂移
         // → 审稿单不成立）此前无生产调用方传 hash（实装死字段）。此处与的
         // sourceHash 同源同拍：字节级 sha256（与 collect 侧重读文件后 createHash 同口径），
-        // 三审分钟级窗口内作者改稿即被捕获。：从单次读取的 buffer 派生（三读收口为一读）。
+        // 三审分钟级窗口内作者改稿即被捕获。从单次读取的 buffer 派生（三读收口为一读）。
         const draftHash = createHash('sha256').update(draftBuf).digest('hex')
 
         // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
@@ -216,7 +216,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           // （假成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排
           // 段新建 ctrl → driver.registerCtrl（owner='review:<书名>'，含书名使跨书并发互不
           // 误伤；同书重入已被 reviewRunning + 任务闸 409 挡住，同 owner 串行换新安全）→
-          // settle（成功/失败/中断）统一注销。
+          // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（口径）
           const ctrl = new AbortController()
           // （driver 契约必需化）：registerCtrl/emit 为必需成员（mock 显式
           // no-op 桩），可选性守卫删除，直调语义逐位不变。
@@ -255,7 +255,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
                 : ctx.userDataPath
                   ? ctx.providers.currentProvider(ctx.userDataPath)
                   : null
-            // （四轮处置批）：写临界段重验书注册——lens 循环分钟级让出窗内
+            // 写临界段重验书注册——lens 循环分钟级让出窗内
             // 删书/改名可搬走 bookRoot，照写会在旧路径 mkdir recursive 重建孤儿分析目录
             //（时序与防线形态见 bookMovedFailure 头注；对齐 documents/config 家族接线）。
             const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
@@ -288,7 +288,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     },
   })
 
-  // 裁决直读（M12 .3，docId 线，方案 A）：落 review 信封 payload.verdict（不改 fm / deriveStatus）。
+  // 裁决直读（M12 B1.3，docId 线，方案 A）：落 review 信封 payload.verdict（不改 fm / deriveStatus）。
   // 手写线不走 finalize；verdict 是作者基于三审意见的裁决，纯展示标记 + 信封存档。
   defineRoute('books.documents.review-verdict', {
     method: 'POST',
@@ -297,7 +297,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       const reqBody = await readJson(req)
-      // （四轮处置批）：readJson 窗口后重验书注册——窗口内删书/改名时旧路径
+      // readJson 窗口后重验书注册——窗口内删书/改名时旧路径
       // resolveDocEntry 会以误导性 404「文档ID未登记」回信（书不在了而非文档不在），
       // 对齐家族 409 BOOK_MOVED 人话信封（时序见 bookMovedFailure 头注）。
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
@@ -334,7 +334,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       // 此前无条件 readFileSync：信封已带 hash（三审已落盘）的正常路径也整读一遍正文，
       // 大稿纯 I/O 浪费；且文件并发消失（回收站/删除竞态）时即使 hash 已有也 500。
       // 现先取 latest?.sourceHash ?? existing?.sourceHash，仅空才进「读文件 + sourceHashOf」
-      // 兜底分支，兜底内保留 人话 500。语义微变：文件消失但信封已有 hash 时不再
+      // 兜底分支，兜底内保留人话 500。语义微变：文件消失但信封已有 hash 时不再
       // 500，verdict 照常落盘；sourceHash 恒有值的响应契约不变。
       // 写前重读——三审若在首读与落盘之间完成，这里拿到的是新 collected/lenses
       //（重读提到读稿兜底之前：先判 hash 是否需要兜底；两读与本写之间零 await 窗，
@@ -344,7 +344,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       if (sourceHash === undefined) {
         // 读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
         // 守卫读收编 readDraftTextGuarded 单源（人话文案
-        // 归 DRAFT_UNREADABLE_TEXT 常量、字节同文）
+        // text 同一快照不变，人话文案归 DRAFT_UNREADABLE_TEXT 常量、字节同文）
         const g = readDraftTextGuarded(absPath)
         if (!g.ok) return replyError(res, g.status, g.code, g.message)
         sourceHash = sourceHashOf(g.text)
@@ -358,7 +358,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         sourceHash,
         payload,
       })
-      // 修正（收尾）：verdict 落盘即失效 /tree-issues 5s TTL 缓存——
+      // 修正：verdict 落盘即失效 /tree-issues 5s TTL 缓存——
       // ReviewPanel 的 UI 契约是「裁决写完立即 loadIssues 刷新红点」，纯 TTL 自愈对
       // 本端点不成立（无轮询兜底，写后首读恰命中缓存 → 驳回/通过的红点变化被吞到
       // 下一次任意触发，e2e tree-issues 实证红）。这是树红点唯一的写侧来源，单点
@@ -370,7 +370,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
 }
 
 /**
- * 三审 generateTool×3 共享循环（M12 .2 提取）：docId 直读线使用。
+ * 三审 generateTool×3 共享循环（M12 B0.2 提取）：docId 直读线使用。
  * 逐 packet：generateTool(submit_issues) → 收 issues → 写 issues 文件 → 进度回流。
  * 文件名契约与 collectReviewIssues 对齐：独立档 issues-<lens>.json；合审单档 issues-combined.json
  * （合审时 packet.lens 是锚视角名，按它写文件 collect 永远找不到）。
@@ -466,7 +466,7 @@ export function sweepStaleReviewDirs(workDir: string | null): void {
   try {
     for (const b of readBooks(workDir)) {
       // 他进程三审在途则跳过该书清扫——「启动时无人持锁」是
-      // 单进程假设（原注），/ 开放双进程后不成立：B 进程启动清扫
+      // 单进程假设（原注）开放双进程后不成立：B 进程启动清扫
       // 会删掉 A 进程在途三审的 out_dir（分钟级任务白烧费用、信封降级 incomplete）
       if (crossProcessHeldTaskGatesFor(b.name).includes('review')) continue
       const cacheDir = join(workDir, b.path, '.cache')

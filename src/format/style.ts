@@ -16,7 +16,7 @@ import type { StyleSample, SampleSource, ParseError } from './types.js'
 
 const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法指令'])
 
-/** 来源三值白名单（#5 第 6 节；与 SampleSource 联合类型同源，校验用） */
+/** 来源三值白名单（#5 第 6 节；与 SampleSource 联合类型同源校验用） */
 const KNOWN_SOURCES: readonly string[] = ['作者原作', '题材范文', '导入']
 
 /** 读取一个样章 md → StyleSample（容错） */
@@ -30,7 +30,7 @@ export function readSample(filePath: string): { ok: true; sample: StyleSample } 
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：场景' } }
   }
 
-  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts /
+  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts/
   // chapters.ts 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
   // 经 writeSample 回写后 stringifyValue 按标量引号化，再解析项内逗号错位不可逆；
   // stringifyValue 原生支持数组逐项序列化，数组原样承载即往返保真。
@@ -125,7 +125,7 @@ export function readSamplesByScene(
   }
   for (const f of files) {
     const fp = join(sceneDir, f)
-    // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 低-3：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
     // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整场景读取
     let isFile = false
     try {
@@ -146,7 +146,7 @@ export function parseSampleFileName(fileName: string): { 场景: string; 序号:
   // 扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
   //（nextEntrySeq 同场景编号割裂，靠 O_EXCL 自愈但新旧编号断裂）
   const base = fileName.replace(/\.[mM][dD]$/, '')
-  // （与）：序号由固定 3 位放宽为 3 位起
+  // （与内存专项）：序号由固定 3 位放宽为 3 位起
   //（对齐 style-migrate.ts 播种正则 (\d{3,}) 同族先例）——写侧 padStart(3,'0') 不截断，
   // 同场景第 1000 条产出 `战斗-1000.md`，固定 \d{3} 配贪婪 (.+) 吞千位解析成
   // {场景:'战斗-1', 序号:0}，编号割裂靠 O_EXCL 重试自愈；不足 3 位仍不匹配（既有

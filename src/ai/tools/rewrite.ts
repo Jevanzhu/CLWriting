@@ -36,11 +36,11 @@ function chapterTargetWords(ctx: ToolContext): number | undefined {
 }
 
 /** 跑一次 writer 改写（与 rewrite 端点 runRewriter 同口径：tool_use 产出 → input.正文，降级 text）。
- *  ：ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
+ * ctx.signal（chat 编排级中断）传入 runSpec——作者中断对话后嵌套改写生成同步中止，
  *  不再跑到 runTask 10 分钟总超时白烧 token（非 chat 调用点无 signal，行为不变）。
- *  ：chapter 透传 runSpec → runTask 的 chapter 记账块——对话里 AI rewrite 的
+ * chapter 透传 runSpec → runTask 的 chapter 记账块——对话里 AI rewrite 的
  *  token 用量归集到本章预算账（与 write_chapter 同口径，章预算熔断不再被 rewrite 绕过）。
- *  ：prompt 注入整章正文——promptFiles 补登记该正文文件路径，
+ * prompt 注入整章正文——promptFiles 补登记该正文文件路径，
  *  铁律「模型可见 ⟺ 已记录」在 rewrite 工具链闭合。 */
 async function runRewriter(
   ctx: ToolContext,
@@ -72,7 +72,7 @@ function rewriteMeta(chapter: number, baseBody: string) {
 }
 
 /** 「未保存」提示——全文已 spill 时给出路径 + 字数（确认保存按路径取全文）；
- *  落盘失败 best-effort 如实告知（不谎称可落盘）。：确认通道 = apply_spill 工具（write 级确认闸）。 */
+ * 落盘失败 best-effort 如实告知（不谎称可落盘）。确认通道 = apply_spill 工具（write 级确认闸）。 */
 function unsavedNote(locator: string | null, chars: number): string {
   return locator
     ? '【未保存】改写稿全文（' +
@@ -133,7 +133,7 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
   const { relPath } = resolveDraftPath(ctx.bookRoot, chapter)
   const raw = readFile(join(ctx.bookRoot, relPath))
   if (!raw.ok) return { ok: false, summary: '第 ' + chapter + ' 章正文读取失败：' + relPath }
-  // （总六十五轮）：saveDraft 前重读正文复验 sha——初次校验（上方 bodyNow 比对）
+  // saveDraft 前重读正文复验 sha——初次校验（上方 bodyNow 比对）
   // 与最终落盘之间存在窗口（self-heal 并发写同章时旧基线可静默覆盖新稿）；复验把窗口
   // 压到毫秒级，失配拒绝 apply 并报明确错误。不打 gate——chat 侧「后写赢」语义已声明，
   // 此处只收口「绕过显式校验」这一层
@@ -216,7 +216,7 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
 export async function rewriteSelection(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
   const chapter = chapterInput(input)
   if (chapter === null) return { ok: false, summary: '缺少合法的章号 chapter（正整数）。' }
-  // 低-3选段保持原样（不 trim）参与定位——与 rewrite 端点 同口径。
+  // 低-3：选段保持原样（不 trim）参与定位——与 rewrite 端点同口径。
   // 首尾空白是选区的一部分：trim 后的短串可能在正文别处再次出现（唯一性误判被拒），
   // 或定位到更早的错误出现处（拼回全文替换错位置）。空性校验仍用 trim（纯空白 = 缺选段）。
   const selectionRaw = typeof input['selection'] === 'string' ? (input['selection'] as string) : ''
@@ -225,7 +225,7 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
   if (!instruction) return { ok: false, summary: '缺少改写指令 instruction。' }
   const body = readChapterBody(ctx.bookRoot, chapter)
   if (body === null) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在或解析失败。' }
-  //显式定位选区 + 唯一性校验（与 rewrite 端点同口径——raw 串定位，
+  // 显式定位选区 + 唯一性校验（与 rewrite 端点同口径——raw 串定位，
   // 低-3 修正 trim 偏差后口径完全对齐）——local prompt 只产出选段新文本，确认落盘必须
   // 拼回全文；否则 apply_spill 会用选段稿整体替换整章正文
   const selStart = body.indexOf(selectionRaw)

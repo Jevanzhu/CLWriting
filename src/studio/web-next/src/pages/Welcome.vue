@@ -145,9 +145,9 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
   flex-shrink: 0;
 }
 /* win 拖拽区（is-desktop = 桌面态页根标记；同 Shelf/Library 注）。
-   ：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
+：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
    上——Library/Shelf 同结构注释均在拖拽侧，随批归属更正。
- 复核批：页根标记 is-drag 改名 is-desktop——is-drag 已归全局 utilities.css
+：页根标记 is-drag 改名 is-desktop——is-drag 已归全局 utilities.css
    真实拖拽容器单类，页根同名会被命中、app-region 继承致整页成拖拽面（修复） */
 .welcome.is-desktop .welcome-titlebar {
   -webkit-app-region: drag;

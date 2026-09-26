@@ -1,5 +1,5 @@
 /**
- * tool_choice 意图翻译单源（第十篇修复批）。
+ * tool_choice 意图翻译单源（第十篇）。
  *
  * 三适配器（openai / anthropic / responses）此前各持一份同构的
  * 「toolChoiceMode × req.toolChoice」分档决策 if 树（openai :188 / anthropic :155 /

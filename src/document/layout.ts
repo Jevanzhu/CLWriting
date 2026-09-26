@@ -2,7 +2,7 @@
  * LayoutPolicy 子集（§9）—— 按文档路径判 role + 计算 capabilities。
  *
  * 只在保存链路用 write capability（CAPABILITY_DENIED 拒绝写只读文档）；
- * 全字段 capabilities 为 W2A 结构性操作铺路， 仅校验 write。
+ * 全字段 capabilities 为 W2A 结构性操作铺路仅校验 write。
  *
  * 目录角色表（v2 结构）：
  * - 写作/正文 → chapter（长短篇统一，不再按 kind 覆盖）
@@ -19,7 +19,7 @@ import { LEAD_TYPES } from '../format/leads.js'
 import { normalizeWinSeparators } from '../fs/safe-path.js'
 
 /** 文档角色（§2 DocumentRole）。
- *  -数据层注释澄清：roleOf 对 写作/正文/ 恒返 'chapter'，从不产出
+ * 数据层注释澄清：roleOf 对 写作/正文/ 恒返 'chapter'，从不产出
  *  'piece-body'——短篇由消费方读 book.yaml(kind) 判定。该枚举位是历史 wire 兼容
  *  保留（前端仍有判定分支），勿在新代码依赖它。 */
 export type DocumentRole =
@@ -72,7 +72,7 @@ const LEDGER_DIRS = new Set<string>(LEAD_TYPES)
 /** 工作区内部簿记子路径前缀（头注「工作区内部目录」清单的机器可读版，
  *  另收 .snapshots 迁移前旧名）。这些是崩溃恢复账本 / 回收站清单 / 版本库 / 批量暂存 /
  *  spill 外置介质，只能由各自模块的专用写通道维护。
- *  ：补 工作区/导出/（导出产物目录，src/export/index.ts 落盘面）——
+ * 补 工作区/导出/（导出产物目录，src/export/index.ts 落盘面）——
  *  文档 CRUD 此前可按路径直达写/删导出产物（产物可再生危害低，但属内部簿记——导出
  *  专用通道维护，拒绝外部 CRUD 直达）。 */
 const WORKSPACE_INTERNAL_DIR_PREFIXES = [
@@ -102,7 +102,7 @@ export function isInternalBookPath(relPath: string): boolean {
 }
 
 /** 规整路径：去前导 ./、反斜杠转正斜杠。
- *  -mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——
+ * mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——
  *  posix 上 `\` 是合法文件名字符，字面含 `\` 的路径段不再被扭曲为子目录
  *  （前缀匹配面 win 历史形态兼容不变）。 */
 function norm(p: string): string {

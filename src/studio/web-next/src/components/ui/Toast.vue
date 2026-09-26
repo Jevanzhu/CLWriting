@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 全局 Toast（细案 .4）：右下角堆叠，自动消失——error 5s / 其余 1.8s（时长在 ui.toast
-// 分级，注释校正：旧「1.8s」只覆盖非错误级，与实现相悖）。
+// 全局 Toast（细案 T2.4）：右下角堆叠，自动消失——error 5s / 其余 1.8s（时长在 ui.toast
+// 分级注释校正：旧「1.8s」只覆盖非错误级，与实现相悖）。
 import { useUiStore } from '../../stores/ui'
 const ui = useUiStore()
 </script>
@@ -8,7 +8,7 @@ const ui = useUiStore()
 <template>
   <Teleport to="body">
     <div class="toast-wrap" role="status" aria-live="polite">
-      <!-- ：点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
+      <!-- 点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
       <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind" @click="ui.dismissToast(t.id)">
         {{ t.msg }}
       </div>

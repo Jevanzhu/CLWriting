@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 改写面板（M12 块2 .2/.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
+// 改写面板（M12 块2 B2.2/B2.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
 // 接受 = patch(docId, rewritten) 写编辑器（dirty，⌘S 保存）；AI 永不直接落盘。
 // 选区改写（local）已接线——runRewrite 经 ws.editorGetSelection 读 CmHost 选区下发（后端按 selection 判模式）。
 import { computed, ref, watch } from 'vue'
@@ -50,7 +50,7 @@ const diffStats = computed(() => {
 // -（全量代码）：diff 渲染无上限——整章改写千行级 diff 全量
 // 挂 DOM（max-height 只裁视觉不减节点）。对齐 CommandPalette RENDER_CAP=100 域内惯例：
 // 数据面不动（diffStats 统计仍面向全量），只裁渲染面前 100 行 + 尾部省略提示行。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const diffCap = computed(() => capView(rewrite.result?.diff ?? [], RENDER_CAP))
 
@@ -113,7 +113,7 @@ function accept(): void {
           </span>
         </div>
         <div class="rw-diff">
-          <!-- ：key 弃纯 index——DiffLineFE 无 id、text 可重复，改「值+序号」复合键
+          <!-- key 弃纯 index——DiffLineFE 无 id、text 可重复，改「值+序号」复合键
                （AuditGoalTodoPanel 2- 同款口径）。diff 结果整表替换、行内纯展示无状态，
                复合键令内容参与键，零行为改动。 -->
           <div

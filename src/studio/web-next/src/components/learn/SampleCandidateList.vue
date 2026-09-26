@@ -55,7 +55,7 @@ const sampleGroups = computed(() => {
     .sort((a, b) => b.avg - a.avg)
 })
 
-// ── ：分组渲染上限──
+// ──：分组渲染上限──
 // 候选每卡含整段正文（reactive 数组 + DOM 双吃），服务端返回量不受前端控制；每组
 // 默认渲染前 50 条，超出「显示剩余 N 条」按需展开（勾选/统计/全选仍面向全量 items，
 // 仅渲染面截断——大书收割数千候选时 DOM 不失控）。
@@ -65,7 +65,7 @@ const GROUP_RENDER_CAP = 50
 const expandedGroups = ref(new Set<string>())
 function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[] {
   if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
-  // -：切片样板收敛 shared/render-cap 单源（capView）
+  // 切片样板收敛 shared/render-cap 单源（capView）
   return capView(g.items, GROUP_RENDER_CAP).view
 }
 function expandGroup(scene: string): void {
@@ -113,7 +113,7 @@ function clearAllPicks(): void {
     </div>
 
     <div v-for="g in sampleGroups" :key="g.场景" class="scene-group">
-      <!-- ：分组头补键盘可达性（原仅 @click） -->
+      <!-- 分组头补键盘可达性（原仅 @click） -->
       <div
         class="group-head"
         role="button"
@@ -148,7 +148,7 @@ function clearAllPicks(): void {
           <p class="cand-body">{{ it.s.正文 }}</p>
           <p v-if="it.s.技法指令" class="cand-tech">技法 · {{ it.s.技法指令 }}</p>
         </div>
-        <!-- ：分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
+        <!-- 分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
         <button
           v-if="g.items.length > GROUP_RENDER_CAP && !expandedGroups.has(g.场景)"
           class="text-btn expand-more"

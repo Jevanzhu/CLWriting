@@ -13,7 +13,7 @@
  * export 前缀与 import 重组。
  * 依赖方向：本文件 → document/process/driver 既有出边（studio→ai 组合根白名单
  * 面内，不新增 ai→studio 边）+ 回引基建单源 documents-core.ts（getOrCreateService /
- * runBookScopedOp / structStatus / DocumentCtx——⑤① 收敛的公共底座，
+ * runBookScopedOp / structStatus / DocumentCtx——⑤①收敛的公共底座，
  * 零触碰单源 core）。模块图单向无环（core 不 import 同批任何 documents-* 模块；
  * 聚合入口在残核 documents.ts 单向 import 本文件），顶层求值常量各归单源，
  * 无 TDZ 面。
@@ -23,14 +23,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
-// SRV-（专项精简优化 §五，机械批）：resolveBook 双行样板收编单源
+// SRV-（专项精简优化 §五）：resolveBook 双行样板收编单源
 //（resolveBookOrReply 失败即回写错误响应返回 null）。readJson 站点 defineRoute
 // parse 迁移跳过：书域写端点按先占书级闸再读体（悬持计时耦合闸
 // 语义），parse 化会把读体挪到占闸前——顺序纪律不可翻转。
 import { resolveBookOrReply } from '../book-context.js'
 import type { SaveDocumentInput, SaveOutcome } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
-import { finalizeRevisionAsync } from '../../../document/finalize.js' // （三十轮， 移交收尾）：服务进程切异步孪生
+import { finalizeRevisionAsync } from '../../../document/finalize.js' // 服务进程切异步孪生
 import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
 // （c ）：定稿摘要后台任务的中断接线——driver 会话惰性取得后传入
 // 钩子，后台摘要/批量链持独立登记 ctrl（/interrupt 可中止）；未接线形态（session
@@ -67,7 +67,7 @@ function parseSaveInput(body: Record<string, unknown>): SaveDocumentInput | null
 }
 
 export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
-  // ── ：保存内容 ──────────────────────────────
+  // 正文保存走内容档上限（默认 1MB 对 >35 万字中文正文即 413）
   defineRoute('books.documents.content', {
     method: 'PUT',
     path: '/api/books/:name/documents/:docId/content',
@@ -78,7 +78,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // docId → relPath（含 legacy 旧文件首次补登记，resolvePathAsync → 异步收编孪生——
-      // 残留清偿批：原同步 resolvePath 的收编段走 withManifestLock 同步睡，已改异步不再阻塞）
+      // 原同步 resolvePath 的收编段走 withManifestLock 同步睡，已改异步不再阻塞）
       const path = await svc.resolvePathAsync(docId)
       if (!path) {
         replyError(res, 404, 'NOT_FOUND', `文档ID未在清单登记：${docId}`)
@@ -113,7 +113,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         },
       })
       if (outcome.ok) {
-        // （Opus-5.5 轮）：留底降级旗透出（仅 true 时带，既有响应形状
+        // 留底降级旗透出（仅 true 时带，既有响应形状
         // 零改动）——正文已保存，但本笔没生成版本留底（.版本 目录不可写），前端据此
         // 提示一次「版本历史有缺口」，别让作者在「保存成功」的表象下丢了可回退的底。
         reply(res, 200, {
@@ -138,7 +138,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       // refresh=1：丢缓存重扫（外部编辑器/CLI 改盘不经 invalidateTreeIndex）
-      // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
+      // parseRequestUrl 统一解析（口径）——畸形 URL → 400 BAD_INPUT
       const url = parseRequestUrl(req)
       if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
       const refresh = url.searchParams.get('refresh') === '1'
@@ -159,7 +159,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // （四轮处置批）：单件定稿补任务闸——batch-finalize 早已持 'batch-finalize'
+      // 单件定稿补任务闸——batch-finalize 早已持 'batch-finalize'
       // 闸而单件端点裸跑，两路在途交错时单件可插进批量串行循环的章间隙（同章双 commit/
       // 双 manifest 写的动机面）。同族操作同闸名互斥、拒而非排队（闸窗毫秒级，
       // 前端重试即过；对齐 batch-finalize 与 rewrite/outline 闸口径）；books.ts busyGate
@@ -169,7 +169,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         return replyError(res, 409, 'BUSY', '本书定稿操作进行中，请等待完成后再试')
       }
       try {
-        // （三十轮， 移交收尾）：切异步孪生——锁等待（布线锁/清单锁）走事件
+        // 切异步孪生——锁等待（布线锁/清单锁）走事件
         // 循环轮询原语，不再阻塞 SSE/心跳；语义（超时档/fail-closed/锁序）与同步孪生逐位一致
         const outcome = await finalizeRevisionAsync(r.bookRoot, params['docId'] ?? '')
         if (!outcome.ok) {
@@ -191,7 +191,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；
         // 带书名登记进后台表，删书/改名/退出的 settle 能追上其落盘
         // driver 会话惰性取得后再挂钩子——ensureSession 窗口内任务尚未启动
-        // （零 AI 调用/零落盘），登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
+        // （零 AI 调用/零落盘）登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
         if (!outcome.skipped) {
           void (async (): Promise<void> => {
             const session = await ctx.driver
@@ -207,7 +207,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
             )
           })()
         }
-        // B103（0918二轮修复批）：防吃书闸降级短语随信封透传（非空 = 闸门
+        // 防吃书闸降级短语随信封透传（非空 = 闸门
         // fail-open 放行的事实，前端弹 warning toast；服务端不改写内容）
         reply(res, 200, {
           ok: true,
@@ -221,7 +221,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
     },
   })
 
-  // ── 批量定稿（-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
+  // ── 批量定稿（一键定稿 ≤目标章号 的全部 revision/draft 章）────────
   // body { docIds: string[] }；逐个 finalizeRevisionAsync（await 串行，天然无 SQLite 写锁冲突；
   // 三十轮起为异步孪生，锁等待不阻塞事件循环）。
   // 单条失败不中断：返回逐条结果，前端汇总 toast。
@@ -265,7 +265,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           error?: string
           gateDegraded?: string[]
         }> = []
-        // （三十轮， 移交收尾）：切异步孪生 finalizeRevisionAsync——逐条 await
+        // 切异步孪生 finalizeRevisionAsync——逐条 await
         // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
         // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
         for (const docId of docIds) {
@@ -275,7 +275,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           // 批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
           // 书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
           if (o.ok && !o.skipped) summarized.push(docId)
-          // B103：单条降级短语随批量结果透传（前端逐条汇总面可显）
+          // 单条降级短语随批量结果透传（前端逐条汇总面可显）
           results.push({
             docId,
             ok: o.ok,

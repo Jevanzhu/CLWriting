@@ -47,7 +47,7 @@ import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
-/** （修复批）： 非 UTF-8 覆写拒绝的类型化错误。
+/** 非 UTF-8 覆写拒绝的类型化错误。
  *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
  *  的快照 catch、draft-save 端点）按类型分诊 fail-closed 并透传转码指引；与留底链的
  *  瞬态 IO 错误（EACCES/EBUSY 等）区分——后者是可重试的环境抖动，走各端点自己的口径。 */
@@ -61,7 +61,7 @@ export class NonUtf8TargetError extends Error {
 /** saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
  *  保存锁（service.ts ）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
  *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。
- *  ：常量化（journal.ts 同口径）——export let 可被任一
+ * 常量化（journal.ts 同口径）——export let 可被任一
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 export const DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
 
@@ -71,27 +71,27 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
 /**
  * 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）。
  * 留底失败（可读但读不进 / 快照写失败等 IO 类）**上抛拒绝覆写**——
- * 此前降级 return null 后 saveDraft 照常覆写，「作者手改不静默丢失」在 IO 抖动
+ * 此前降级 return null 后 saveDraft 照常覆写「作者手改不静默丢失」在 IO 抖动
  * （跨进程 rename 撞窗 / win AV 短暂锁）下失守。null 仅保留「无需留底」两态：
  * 文件不存在 / 内容相同。
- * （四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件不
+ * existingRaw = 调用方在保存锁内预读的盘上字节（文件不
  * 存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
  * 缺省 undefined = 自读（files/outline/onboard/lead-updates 等其余调用方原样）。
  *
- * （六轮修复批）：**消费方分诊口径单源汇总**——
+ * **消费方分诊口径单源汇总**——
  * 此前散在 files.ts:189-196 / onboard.ts:209-213 / 本文件三处头注各记一半，评审
  * 建议集中记档（口径本身三处一致，非分歧，故不达）。本函数抛出的失败，各调用方的
  * 处置是**有意分叉**的，判据只有一条：**被覆盖内容的唯一性**。
  *  - AI 产物覆写面（saveDraft → self-heal/rewrite/spawn writer）→ **fail-closed 上抛**：
  *    AI 产出可重生成，覆写掉作者手改不可逆；留底失败即拒绝覆写。
- *  - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（定：
+ * - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（定：
  *    NonUtf8TargetError → 400 + 转码指引，其余 IO → 409 WRITE_ERROR 可重试）——原稿与
  *    编辑器内容都在，拒绝保存零损失。
  *  - 结构化表单覆写面（onboard-save、outline、lead-updates）→ **fail-open 留痕继续**
  *    （log.warn + 响应/日志 snapshotted:false）：写的是表单值或派生内容而非自由正文，
  *    丢的手改面窄且作者可重填，阻断保存的代价大于保留旧版本的收益。
  *  - 编辑器保存链（studio server documents-save → document/service.save 的 maybeSnapshot）
- *    → **fail-open 留痕继续**（Opus-5.5 轮补记于此汇总）：正文是作者
+ * → **fail-open 留痕继续**（Opus-5.5 轮补记于此汇总）：正文是作者
  *    正在写的内容，留底只是「改前留一手」的增量收益，为它拒绝一次正文保存得不偿失——
  *    失败降级为 SaveResult.snapshotDegraded 标记，服务端透出 200 响应，前端弹一次
  *    info 提示（作者可见化，不静默）。判据同上（唯一性）：被覆写的是编辑器自己上一版
@@ -139,7 +139,7 @@ export function snapshotBeforeOverwrite(
     }
   }
   if (!docId) docId = legacyId(relPath) // 与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
-  // （二十四轮 C 域）：留底保留策略对齐编辑器保存链——此前不传 policy 落
+  // 留底保留策略对齐编辑器保存链——此前不传 policy 落
   // 硬编码默认（14 天/30 版），作者在 global.json 配的 snapMaxDays/snapMaxCount 只对
   // service.ts maybeSnapshot 生效，两条留底路径的保留口径割裂（AI 覆写快照可能被更紧
   // 的默认策略清掉）。force 语义保留（覆写前必留，不节流），仅 prune 边界统一走全局。
@@ -162,7 +162,7 @@ export function snapshotBeforeOverwrite(
 
 /**
  * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
- * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查。
+ * - saveDraft：覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹
  *
  * 本函数原先游离于保存协议外（无 per-doc 保存锁、无 journal
  * pending、无字数日记、新文件不登记 manifest）——与编辑器保存链（DocumentService.executeSave）
@@ -175,7 +175,7 @@ export function snapshotBeforeOverwrite(
  * 与 executeSave 的基线校验模型不同（keep 外部返回结构兼容）。
  *
  * 文风改稿轨迹（recordAuthorSignal + recordAiVersion）由调用方在落盘后显式调用，
- * 避免 process/ → ai/ 的向上依赖（-ARCH-1 循环依赖修复）。
+ * 避免 process/ → ai/ 的向上依赖（循环依赖修复）。
  * 落盘失败向上抛，调用方决定回应。
  */
 export async function saveDraft(
@@ -184,7 +184,7 @@ export async function saveDraft(
   content: string,
   opts?: { snapshotOrigin?: string; userDataPath?: string | null },
 ): Promise<{ relPath: string; docId: string; words: number; snapshotted: boolean }> {
-  // 平台规范化批：草稿链（AI 写稿/self-heal/rewrite）不经 DocumentService.save，此处
+  // 平台：草稿链（AI 写稿/self-heal/rewrite）不经 DocumentService.save，此处
   // 自收口——路径派生/快照比对/journal pending/落盘/字数全链吃同一份规范形内容
   const canonical = canonicalizeText(content)
   content = canonical
@@ -248,7 +248,7 @@ export async function saveDraft(
         )
       }
     }
-    // （四轮处置批）：锁内单读派生收口——此前保形/留底/revision 三路各自
+    // 锁内单读派生收口——此前保形/留底/revision 三路各自
     // 整读同一文件（的「单读」只覆盖 revision/UTF-8/字数三路派生），大稿三读
     // 纯 I/O 浪费。保存锁内状态权威，一次读盘三路共用：保形吃 Buffer.toString
     //（GBK 容错口径与原 utf-8 读同款）、留底吃同一 Buffer（isUtf8Bytes 判定与
@@ -273,8 +273,8 @@ export async function saveDraft(
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（只记元数据，防丢字）——
     // pending 记不上就不能继续写（同口径，fail-closed 上抛，调用方已统一 catch）
     // revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
-    //（消除读间 TOCTOU；/先例；起读点上提为三路共用）。
-    // appendPending 全文实参随形参收窄删除（journal.ts，起只记元数据）。
+    //（消除读间 TOCTOU；先例；起读点上提为三路共用）。
+    // appendPending 全文实参随形参收窄删除（journal.ts 起只记元数据）。
     const currentRev = diskBytes ? (hashBytes(diskBytes) as `sha256:${string}`) : null
     const opId = await appendPending(journalPath, finalDocId, currentRev)
     let words: number
@@ -290,7 +290,7 @@ export async function saveDraft(
       newRev = computeRevision(absPath)
       await appendSettled(journalPath, opId, newRev)
       words = countWords(bodyOf(content))
-      // 字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeSave -BE-4）
+      // 字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeS）
       try {
         appendWordsDelta(bookRoot, todayDate(), wordDelta, finalDocId)
       } catch {
@@ -310,7 +310,7 @@ export async function saveDraft(
     // probeCache 只清本章键（新文件为 no-op），不再整书清空（每次 AI 写章保存后
     // 下一次树请求全书重读+重哈希是纯浪费）
     invalidateTreeIndexForContent(bookRoot, relPath)
-    // 新文件登记 manifest（结构性操作触发建清单，§4.2 口径，service
+    // 新文件登记 manifest（结构性操作触发建清单§4.2 口径，service
     // adoptLegacyDoc/doCreate 同款 upsert）——此前 AI 新建草稿不入清单，docId 永远是
     // legacy 临时身份。登记失败不阻断（文件已落盘，树扫描 adoptLegacyDoc 自愈收口，
     // doCreate 同款 warn 留痕）
@@ -506,7 +506,7 @@ export function readDeclaredChapterScenes(bookRoot: string, chapter: number, out
   return []
 }
 
-/** 设定注入预算（/ DSH-17）：世界观 + 角色 + 境界 共享的 code point 上限 */
+/** 设定注入预算：世界观 + 角色 + 境界 共享的 code point 上限 */
 export const SETTINGS_BUDGET_CHARS = 6000
 
 /**

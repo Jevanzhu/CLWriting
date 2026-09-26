@@ -84,7 +84,7 @@ function fontDisplayName(name: string): string {
 
 // ── 默认字体解析（作者反馈：字体下拉默认态只显「默认」，看不出默认
 // 究竟是什么字体——按 tokens.css 默认栈 + 已安装列表解析成具体字体名展示）──
-// mac 预设批：默认栈/回退尾双平台拆分（此前 win 单栈，mac 上三个 win
+// 默认栈/回退尾双平台拆分（此前 win 单栈，mac 上三个 win
 // 死名全不命中 → 衬线尾裸落浏览器 serif 兜底、无衬线尾裸落 sans-serif）；平台
 // 判定对齐 UI_DEFAULT_STACK 惯例（isWin ? win : mac，浏览器预览态走 mac 观感
 // 基准 = tokens.css :root 口径）。
@@ -164,7 +164,7 @@ const UI_DEFAULT_STACK = {
   mac: { cn: ['PingFang SC', 'Microsoft YaHei'], en: [] as string[] },
 } as const
 
-// 模块级单例
+// 模块级单例：多个组件共享同一份字体列表，IPC 只调一次。
 const systemFonts = ref<string[]>([])
 /** 字表已从主进程回（SettingsEditor 预设「未装」徽标据此判定，避免列表未回时误标） */
 const fontsLoaded = ref(false)
@@ -196,7 +196,7 @@ function loadOnce(): Promise<void> {
  * 启动预热（作者反馈「字体下拉首开很慢，特别是第一次」）：win 枚举走
  * PowerShell + Add-Type PresentationCore（秒级），此前等首个消费组件挂载（设置弹窗
  * 外观页 / 专注排版条）才发 IPC，首次打开字体下拉要现场等枚举。启动后台提前拉入
- * 本单例，消费时列表已就位。 在途去重语义保持：预热先起、消费后到即共享同
+ * 本单例，消费时列表已就位。在途去重语义保持：预热先起、消费后到即共享同
  * 一在途 Promise，IPC 仍只跑一次。延迟接线在渲染入口 main.ts（避开启动 IO 高峰）；
  * 浏览器版无 desktop bridge 由 loadOnce 自判空 no-op。失败走既有「清 pending 可重试
  * + 空表降级」语义，不影响启动。

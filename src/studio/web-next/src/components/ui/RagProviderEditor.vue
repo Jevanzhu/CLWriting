@@ -66,7 +66,7 @@ const keyError = computed(() => {
       </div>
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>
-        <!-- ：保存按钮在途禁用 + 文案反馈 -->
+        <!-- 保存按钮在途禁用 + 文案反馈 -->
         <button class="save-btn" :disabled="saving" @click="emit('save', { ...form })">
           {{ saving ? '保存中…' : '保存' }}
         </button>
@@ -78,7 +78,7 @@ const keyError = computed(() => {
 <style scoped>
 /* 表单骨架/输入/胶囊按钮均来自 providers.css 共享类。 */
 /* 凭据状态点：hasKey 来自服务端 vault 存在性推导（与 AiProviderEditor 同则） */
-/* .key-stored 收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
+/* .key-stored 收敛至全局 styles/utilities.css（重体，声明逐字未改） */
 .rag-provider-section {
   display: grid;
   gap: var(--size-4-2);

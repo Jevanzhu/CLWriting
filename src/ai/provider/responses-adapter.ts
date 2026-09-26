@@ -1,16 +1,16 @@
 /**
  * OpenAI Responses API 适配器（/v1/responses）——gpt-5 / grok 深度用线。
  *
- * 骨架自 84e370b^ 历史找回（曾随误判停用删除，启用批回接），
- * 按《Responses格式适配-实现方案》 重写：
- * - 终止事件契约（学 dsh stream.ts）：流必须以 completed / incomplete / failed 之一
+ * 骨架自 84e370b^ 历史找回（曾随误判停用删除启用批回接），
+ * 按《Responses格式适配-实现方案》重写：
+ * -终止事件契约（学 dsh stream.ts）：流必须以 completed / incomplete / failed 之一
  *   收尾——failed/error 事件 → error 不发 done；无终止事件 → 传输截断（可重试）；
  *   completed 零产出 → 判错不判成功；incomplete 非 max_output_tokens 原因 → error。
- * - 参数翻译全量走 responsesQuirksFor 视图（tool_choice 三值 / effort 三落点 /
+ * -参数翻译全量走 responsesQuirksFor 视图（tool_choice 三值 / effort 三落点 /
  *   structuredMode / store:false 隐私下发 / include encrypted_content）。
- * - 回合状态：assistant 轮 reasoning 块按 echoReasoning 回插（gpt=encrypted 维持
+ * -回合状态：assistant 轮 reasoning 块按 echoReasoning 回插（gpt=encrypted 维持
  *   推理延续）；usage 细节计量（cached_tokens / reasoning_tokens）。
- * - 降级记忆照 openai-adapter 当前实现（lookupDegraded 新鲜读 + persistDegraded 双写）。
+ * -降级记忆照 openai-adapter 当前实现（lookupDegraded 新鲜读 + persistDegraded 双写）。
  *
  * 与 Chat Completions（openai-adapter.ts）并存，由 registry 按 protocol 路由。
  * 线格式关键差异：input 数组（developer 角色）而非 messages；max_output_tokens；
@@ -224,7 +224,7 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
 }
 
 function toResponsesTool(tool: ToolDef): ResponsesWireTool {
-  // 0914 description 缺省改条件省略——原 `?? ''` 对缺省 description 发
+  // description 缺省改条件省略——原 `?? ''` 对缺省 description 发
   // 空串，与 anthropic-adapter / openai-adapter 两线的条件 omit 行为分叉（空串 description
   // 与缺省字段在严格端点语义不同）；三线行为分叉收编为同一条件 omit 口径
   return {
@@ -250,7 +250,7 @@ export function createOpenAIResponsesProvider(
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let degraded = false // 成功建流是否用了降级参数面（fin.isDegraded 闭包读）
-      // （六轮修复批）：异常时点用量估计器——toolAccum /
+      // 异常时点用量估计器——toolAccum /
       // outText / outToolText / terminal 均在 attempt 循环内（累积态见 responses-stream），
       // 外层 catch 取不到；由循环内逐 attempt 绑定（每次 attempt 起始重置，防上一 attempt
       // 的半截累计泄入）
@@ -302,7 +302,7 @@ export function createOpenAIResponsesProvider(
             // 事件无 usage 载荷，走估计折算（与流中 error 事件分支同源口径，标 estimated）
             errorUsageOf = () => estimateAttemptUsage(accum, ctx)
 
-            // ── 事件循环：终止事件契约 ──
+            // ──事件循环：终止事件契约 ──
             // 流必须以 completed / incomplete / failed 之一收尾；无终止事件 = 传输截断。
             // 单事件语义（含网关偏差挂点，缺口 18）见 responses-stream；本循环只保证
             // 「逐事件判定 → 按序 yield → stop 即 return」三步顺序不变。
@@ -336,7 +336,7 @@ export function createOpenAIResponsesProvider(
         }
         throw lastErr ?? new Error('openai-responses stream: 无可用参数面')
       } catch (e) {
-        // （六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 流中 SDK 直接 throw（mid-stream
         // 连接重置等）此前恒裸传——消费中累计的产出随异常蒸发，runner 终态失败按 0 入账。
         // 已消费过流才折算估计上抛（未消费 = 建连期异常无消耗不虚报；与 ii-1 同源判据）。
         yield toErrorEvent(e, streamConsumedAny ? errorUsageOf?.() : undefined)
@@ -345,7 +345,7 @@ export function createOpenAIResponsesProvider(
   }
 }
 
-/** 归一化 baseUrl（方案 §4.5 ）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
+/** 归一化 baseUrl（方案 §4.5）：只去尾部斜杠，不剥 /v1（openai SDK 不自拼 /v1）。 */
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '')
 }

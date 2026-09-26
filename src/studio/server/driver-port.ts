@@ -1,5 +1,5 @@
 /**
- * driver 注入面（/）。
+ * driver 注入面。
  *
  * 组装根（index.ts 的 createStudioServer）**唯一**决定用哪个 driver 实现，并把
  * 「能力面 + 会话存取」作为依赖显式传到各路由；路由侧不再自取进程单例

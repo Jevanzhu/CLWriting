@@ -77,8 +77,8 @@ export function readCandidate(
 
   const source = map.get('来源')
   const status = map.get('状态')
-  // （与）：标量「标签」归一为单元素
-  // 数组—— 同族漏网收编（style-entry readEntry / style readSample 先已修，本处
+  // （与内存专项）：标量「标签」归一为单元素
+  // 数组——同族漏网收编（style-entry readEntry / style readSample 先已修，本处
   // 漏网）：作者手改标量形态（`标签: 金句`）此前既不进字段（候选模型无 _raw 承载），
   // 确认入库后标签物理消失。归一只发生在解析侧，写回后标量变数组属规范形归一（对齐
   // 两先例同款条件与口径）；空串/缺键不造空数组。
@@ -140,7 +140,7 @@ export function readCandidates(candidatesDir: string): {
   }
   for (const f of files.sort()) {
     const fp = join(candidatesDir, f)
-    // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+    // 低-3：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
     // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整箱读取
     let isFile = false
     try {
@@ -184,7 +184,7 @@ export function addCandidate(bookRoot: string, c: StyleCandidate): string {
  * @returns 条目相对路径；候选读不出 → null
  */
 export function confirmCandidate(bookRoot: string, candidateRelPath: string): string | null {
-  // -SEC-1 / 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
+  // 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
   // ——此前手写 relative 穿越 check 是全库第五套平行实现，无 symlink 防护（API 层已补，
   // 内层再收口防裸调用绕过 + 防后来者照抄弱实现）
   const safe = resolveWithinRoot(bookRoot, candidateRelPath)
@@ -343,7 +343,7 @@ export function persistCandidates(
   candidates: StyleCandidate[],
 ): { created: string[]; skipped: number } {
   // 查重 key：SOH 分隔符（正文/类型不会含 → 防碰撞），避免 NUL 使文件被工具链当二进制。
-  // 低-2分隔符此前是源码里的裸 0x01 控制字节——多数查看器不可见，时
+  // 低-2：分隔符此前是源码里的裸 0x01 控制字节——多数查看器不可见时
   // 被误判为「实现没有分隔符」；改写成显式 \u0001 转义，运行时字符串逐字节不变
   const key = (kind: string, text: string): string => `${kind}\u0001${text}`
   const existing = new Set<string>()

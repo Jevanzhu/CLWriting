@@ -72,12 +72,12 @@ function normalizeAnthropicBaseUrl(baseUrl: string): string {
 }
 
 /** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值。
- *  ：8192 → 16384（对齐 quirks 表 claude 档 maxOutputTokens）——
+ * 8192 → 16384（对齐 quirks 表 claude 档 maxOutputTokens）——
  *  unknown 家族模型走协议兜底时长章必截断，且 MAX_TOKENS 是终态不可重试；16384 为
  *  现役 claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
 const MAX_TOKENS = 16_384
 
-/** （GLM-5.3 修复批）：tool_use.input 归一——ChatMsg 历史
+/** tool_use.input 归一——ChatMsg 历史
  *  的 input 形状是 unknown（跨协议回放：Responses/OpenAI 线产出合法 JSON 非对象形态
  *  如数字/字符串/数组时原样入库），Anthropic 线 input 必须是 object，原 `as` 断言吞
  *  形状后非对象裸传网关 400。窄兜底 {_raw} 保真载荷（与 responses-adapter parse
@@ -89,21 +89,21 @@ function toolInputForAnthropic(input: unknown): Record<string, unknown> {
 }
 
 /** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射）。
- *  ：映射后 content 为空数组（block 全为 reasoning 的消息）→ 返回 null，
+ * 映射后 content 为空数组（block 全为 reasoning 的消息）→ 返回 null，
  *  由 toParams 从请求历史剔除（见 toParams 处注）。 */
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
   const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap(
     (b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
-      // 0914 空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
+      // 空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
       // 透传，正确性隐式依赖上游 sanitizeHistory 防线（记档的耦合）；防御内置后
       // 该耦合解除。跳过后整消息无块 → 走下方空数组 → null 的剔除路径兜住
       if (b.type === 'text') return b.text === '' ? [] : [{ type: 'text', text: b.text }]
       // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
       // 记档：正确性曾依赖上游 sanitizeHistory 先剥离——若未来上游
       // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）；
-      // 0914 空 text 块防御已内置（见上），该隐式耦合解除
+      // 空 text 块防御已内置（见上），该隐式耦合解除
       if (b.type === 'reasoning') return []
       // 注：Anthropic 扩展思考块的完整回传（带签名 thinking 块）需要
       // 在 ContentBlock 增加 thinking/redacted_thinking 变体 + gen/turns 侧签名载道——
@@ -125,7 +125,7 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
 
 /** 输出上限 resolve 单源——toParams 上线值与 done 事件透出值同源，
  *  防两处各写一份漂移（anthropic 线全链兜底：调用方 cap → 模型行 → quirks 表 →
- *  16384（MAX_TOKENS）；：原「→ 8192」系上调后的注释漂移漏网） */
+ * 16384（MAX_TOKENS）；原「→ 8192」系上调后的注释漂移漏网） */
 function resolveMaxTokens(conf: ProviderConf, req: GenRequest): number {
   return req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? quirksFor(conf.model ?? '').maxOutputTokens ?? MAX_TOKENS
 }
@@ -138,7 +138,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
     // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 16384（= MAX_TOKENS，
-    // 上调；：注释与常量同步，原「兜底 8192」为漂移残留）。
+    // 上调；注释与常量同步，原「兜底 8192」为漂移残留）。
     // 阶段 14 §7.2 显式 resolve：调用方 cap（req.maxTokens）→ 模型行覆盖（用户声明）→ quirks 表 → 协议兜底。
     max_tokens: resolveMaxTokens(conf, req),
     // 仅 reasoning block 的 assistant 轮 flatMap 产出 content:[]，
@@ -150,7 +150,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
     // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）
     ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
   }
-  // tools
+  // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线）
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toAnthropicTool)
   }
@@ -179,7 +179,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   if (req.effort && q.anthropicEffortWire === 'output_config') {
     const mapped = q.effortMap?.[req.effort] ?? req.effort
     params['output_config'] = { effort: mapped }
-    // （三十六轮，保守路径）：
+    //
     // claude 原生 + effort 组合下模型默认 adaptive 思考会产出 thinking 块；而扩展思考
     // 多轮工具链要求回传带签名 thinking 块（Anthropic 硬要求），当前事件链路
     // （GenResult → chat 历史 → ChatMsg）尚无签名载道（gen/turns 批次外），零回传会
@@ -209,7 +209,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
       format,
     } as unknown as Anthropic.OutputConfig
   }
-  // stop sequences——：对齐 openai 线 q.trimStop（各家上限不同、
+  // stop sequences——对齐 openai 线 q.trimStop（各家上限不同、
   // grok 推理模型不发；原全量透传在 anthropic 线缺同款防线，两线不对称）。
   if (req.stopSequences?.length) {
     const stops = q.trimStop(req.stopSequences)
@@ -246,7 +246,7 @@ export function createAnthropicProvider(
       // （登记），现捕获点即归一枚举（非标拼写归 'unknown' 并留痕）
       let pendingStopReason: StopReason | null = null
       let degraded = false // 成功建流是否用了降级参数面（fin.isDegraded 闭包读）
-      // （六轮修复批）：流是否已开始消费——外层 catch
+      // 流是否已开始消费——外层 catch
       // 据此决定 usage 随错上抛与否（建连期异常无任何消耗，不得按估计值虚报入账）
       let consumedAny = false
       // 产出累计与 tool 拼装缓存上移流级作用域——原声明在 try 块内的流消费段，
@@ -344,10 +344,10 @@ export function createAnthropicProvider(
               const block = event.content_block
               if (block.type === 'tool_use') {
                 // 低级项：非官方兼容端点可能不发 id——空 id 进历史会被
-                // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线 -）
+                // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线）
                 toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
               }
-              // thinking / redacted_thinking 块 start 无操作—— 的流内
+              // thinking / redacted_thinking 块 start 无操作——的流内
               // 缓存（thinkingBlocks）为死存储已移除；thinking 文本仍经下方
               // thinking_delta 分支以 reasoning 事件透出，行为不变
               break
@@ -355,7 +355,7 @@ export function createAnthropicProvider(
             case 'content_block_delta': {
               const delta = event.delta
               if (delta.type === 'text_delta') {
-                outText.push(delta.text) // 产出累计
+                outText.push(delta.text) // 同 id 写历史两条，回传 400）。的 tool 参数产出累计同步改在消费时
                 yield { type: 'text', delta: delta.text }
               } else if (delta.type === 'input_json_delta') {
                 const tb = toolBlocks.get(event.index)
@@ -363,7 +363,7 @@ export function createAnthropicProvider(
               } else if (delta.type === 'thinking_delta') {
                 // 思考增量即刻以 reasoning 事件透出（对齐 openai 线
                 // reasoning_content / responses 线 reasoning_text 口径）；文本入产出
-                // 累计（思考 token 也是真实计费面，估计入账与 Anthropic
+                // 累计（思考 token 也是真实计费面估计入账与 Anthropic
                 // output_tokens 含思考 token 的口径一致）。
                 // 不再累积进流内块缓存（死存储已移除），事件透出路径不变
                 outText.push(delta.thinking)
@@ -383,7 +383,7 @@ export function createAnthropicProvider(
                 yield { type: 'tool', id: tb.id, name: tb.name, input }
                 // -（全量代码）：stop 即消费条目——非标网关对同一
                 // index 重发 content_block_stop 时原样滞留会重复产出同 id tool_use（下游
-                // 同 id 写历史两条，回传 400）。 的 tool 参数产出累计同步改在消费时
+                // 同 id 写历史两条，回传 400）。的 tool 参数产出累计同步改在消费时
                 // 入 outToolText，流异常兜底（下方 toolBlocks 逐条推送只余未 stop 残块）
                 // 的折算口径与消费前一致。
                 outToolText.push(tb.name + tb.jsonBuf)
@@ -392,7 +392,7 @@ export function createAnthropicProvider(
               break
             }
             case 'message_delta': {
-              // 缓存 stop_reason（即使无 usage 也不丢）——。：捕获点即归一
+              // 缓存 stop_reason（即使无 usage 也不丢）——捕获点即归一
               // （本线原生值即归一值；非标拼写归 'unknown' 并留痕），done/llm-call 的重放
               // 口径自此收敛到判别联合，不再受登记的「三线命名未归一」影响
               if (event.delta?.stop_reason)
@@ -441,7 +441,7 @@ export function createAnthropicProvider(
         // 兜底：流结束未发 done 的两种情形必须分流——与 OpenAI 线
         // sawFinishReason / Responses 线同款契约：
         // ① 到过 message_delta（stop_reason 已缓存）但无 usage → 网关完成不回 usage，
-        //    放行生成（0 成本是可得最优估计的旧取舍已被升级）：input 优先用
+        // 放行生成（0 成本是可得最优估计的旧取舍已被升级）：input 优先用
         //    message_start 缓存的实测值，缺失才按请求字符折算；output 按累计产出
         //    （text_delta + tool jsonBuf）折算；estimated 标记估计口径（修复前 output
         //    恒 0，预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）；
@@ -489,7 +489,7 @@ export function createAnthropicProvider(
           }
         }
       } catch (e) {
-        // （六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 流中 SDK 直接 throw（mid-stream
         // 连接重置等）此前恒裸传——message_start 已实测的 input/cache 与流内产出随异常蒸发，
         // runner 终态失败按 0 入账。已消费过流才折算估计用量随错上抛（未消费 = 建连期异常，
         // 无消耗，不得虚报；与「400 降级续跑只在未消费流时安全」的 ii-1 判据同源）。

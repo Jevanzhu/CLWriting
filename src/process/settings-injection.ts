@@ -1,5 +1,5 @@
 /**
- * 设定注入字节预算（/ DSH-17 三条思想，纯函数零 IO）。
+ * 设定注入字节预算（三条思想，纯函数零 IO）。
  *
  * 借鉴 dsh agent-instructions 的 maxBytes 纪律：
  * - ① 预算必填强制：非正/非有限 → 直接不注入（空串），绝不静默全量；
@@ -28,7 +28,7 @@ export interface SettingsLayer {
 }
 
 /** code point 量长度（与 prune.ts 同口径，不劈 surrogate pair）。
- *  （修复批）：Array.from.length 改零分配计数
+ * Array.from(s).length 改零分配计数
  *  循环——原实现对全文逐码点物化一个临时数组（大文本白付一份 O(n) 分配）只为计数；
  *  就地遍历代理对合 1 计，量纲不变。刻意不 import process/summary 的
  *  codePointLength 单源：避免把 AI/summary 栈拖进本模块依赖图，就地 5 行循环。 */

@@ -1,4 +1,4 @@
-// startup-notices 客户端启动链迁移失败通告（App 级横幅数据源）。
+// startup-notices 客户端：启动链迁移失败通告（App 级横幅数据源）。
 import { apiJson } from './client'
 
 /** 单条启动通告（服务端 StartupNotice 同构） */

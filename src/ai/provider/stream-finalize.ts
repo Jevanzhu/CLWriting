@@ -70,7 +70,7 @@ export function normalizeStopReason(raw: string, line: WireLine): StopReason {
 export interface EstimateUsageSources {
   req: GenRequest
   model?: string
-  /** 累计产出正文 / 推理 delta（/计费面） */
+  /** 累计产出正文 / 推理 delta（计费面） */
   outText: readonly string[]
   /** 已消费的 tool 参数（name + args 串联） */
   outToolText: readonly string[]
@@ -87,7 +87,7 @@ export interface EstimateUsageSources {
 export interface StreamFinalizerOpts {
   /** 本线标签（留痕） */
   line: WireLine
-  /** 本线终止字段名（过滤 / 拒答文案） */
+  /** 本线终止字段名（过滤 / 拒答文案里的证据出处，一字不改既有文案） */
   stopField: StopReasonField
   /** resolve 后上线输出上限（done 透出；无兜底不发的线 undefined） */
   resolvedMaxTokens?: number
@@ -97,7 +97,7 @@ export interface StreamFinalizerOpts {
    * 缺终止值时的协议默认（显式声明，不做隐式兜底）：Anthropic 线 message_delta 下发
    * usage 但不带 stop_reason 即「回合正常结束」→ 'end_turn'。OpenAI 线 done 只在
    * sawFinishReason 后发射（该分支 pendingStopReason 恒已赋值）故不设；未设且缺值时
-   * 归 'unknown' 并留痕。
+   * 线上终止值 → 归一判别值。非标网关自造拼写（如 'eos'/'STOP'）归 'unknown' 并留痕
    */
   missingStopReason?: StopReason
 }

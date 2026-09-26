@@ -33,7 +33,7 @@ export const SOURCE_RANK: Record<EntrySource, number> = {
 }
 
 /** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单。
- *  ：现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
+ * 现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
  *  style-entry.test.ts 类型钉——留作极性判定单源候选，前端消费接入时启用；
  *  删除须先迁移该测试（自记待清理，同 latestSession 口径）。 */
 export function entryPolarity(kind: EntryKind): '正' | '负' {
@@ -73,7 +73,7 @@ export function readEntry(
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：场景' } }
   }
 
-  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts /
+  // 数组型未知字段按 string[] 原样承载（对齐 leads.ts/
   // chapters.ts 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
   // 经 writeEntry/addEntry 回写后 stringifyValue 按标量引号化，再解析项内逗号错位
   // 不可逆；stringifyValue 原生支持数组逐项序列化，数组原样承载即往返保真。
@@ -145,12 +145,12 @@ export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
   return createFileExclusive(filePath, text) === 'created'
 }
 
-// ── ：条目库读取 TTL+mtime 探针缓存 ─────────────────────
+// ──：条目库读取 TTL+mtime 探针缓存 ─────────────────────
 // 消费面是写稿热路径：book-rules loadAiFlavorRule → rulesPromptParts/applicableRules
 // （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。手法照抄
-// 同路径先例 setting-rule （TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
+// 同路径先例 setting-rule（TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
 // 「每文件 (mtimeNs,size) 清单」而非目录 mtime——条目常被整文件就地改写（作者编辑器
-// 保存多为 in-place，目录 mtime 不动会漏），回归正是「改内容须失效」钉住
+// 保存多为 in-place，目录 mtime 不动会漏）回归正是「改内容须失效」钉住
 // 的形态（iron-rules 侧指纹同为文件级 mtimeMs/size）；TTL（缺省 5s）只兜「同指纹内容
 // 改写」的最坏可见窗（同 mtimeNs+size 的撞窗，chapters.ts 缓存同款取舍）。命中返回
 // entries/errors 数组浅拷贝（调用方 sort/mutate 不污染缓存）；条目对象只读共享。
@@ -189,7 +189,7 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
         .filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
         .sort()
     } catch {
-      parts.push('-') // 类型目录不存在
+      parts.push('-') // 类型目录不存在，空
       continue
     }
     const fps: string[] = []
@@ -250,7 +250,7 @@ function readEntriesUncached(
     }
     for (const f of files.sort()) {
       const fp = join(dir, f)
-      // 低-3readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
+      // 低-3：readdir 与 stat 之间文件可能被删——对齐 leads.ts readLeadDir
       // 的守卫写法（单文件 stat 失败跳过不中断），此前裸 statSync 的 ENOENT 会抛穿整库读取
       let isFile = false
       try {
@@ -329,7 +329,7 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
 }
 
 /**
- * 禁词行清洗拆词（二十一轮自 iron-rules.ts 移驻）——readBannedEntryWords 与
+ * 禁词行清洗拆词——readBannedEntryWords 与
  * 铁律「反和解/硬禁词」段共用同一套清洗（占位行过滤 → 引号词抽取 → 剥列表前缀/括注
  * → 标签冒号行校验 → 顿号/逗号/斜杠/分号劈分 → 占位词过滤）。实现逐字保留，仅函数
  * 随消费方迁文件（iron-rules 原已单向 import 本模块，反向会成环）；导出供两侧调用。
@@ -338,7 +338,7 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   const line = rawLine.trim()
   if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
 
-  // （二十四轮 B 域）：引号抽取窗口 {2,24} → {1,}，长度约束后移过滤——原下限 2
+  // 引号抽取窗口 {2,24} → {1,}，长度约束后移过滤——原下限 2
   // 让单字引号禁词（网文真实规则「禁『了』开头句式」类）不中引号分支、落入兜底清洗后
   // **带引号整行成词**，body.includes('「了」') 永不命中且因「解析成功」不进
   // unparsedBannedEntries（失明提示也不触发），红闸静默失效零提示。现单字照入
@@ -346,7 +346,7 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   // （说明性引文/长禁句），全部超长时返回 [] 交 readBannedEntryWords 的 unparsed 黄项。
   const quoted = [...line.matchAll(/[「『“"]([^」』”"]{1,})[」』”"]/g)].map((m) => m[1]!)
   if (quoted.length > 0) {
-    // （四轮处置批）：`words.length > 0 ? words : []` 冗余三元删——filter
+    // `words.length > 0 ? words : []` 冗余三元删——filter
     // 产物本就是数组，空态两者无 observable 差异，直接返回
     return quoted.filter((w) => w.length <= 24)
   }

@@ -1,5 +1,5 @@
 /**
- * （Opus-5.5 轮）：自动保存节拍独立成 composable。
+ * 自动保存节拍独立成 composable。
  *
  * 为什么独立：节拍（interval）的起、重起、停三处必须成对——此前它散在 Book.vue setup
  * 顶层（onMounted(startAutosave) / watch(effectiveAutosaveInterval, startAutosave) /

@@ -10,7 +10,7 @@
  *
  * 与 cc.ts 的行为分叉点（抽共享总线是大重构，另立项；此处只文档化）：
  * - cc 有 execRing（E1b 迟到回放）+ pre/execRing/消费者队列三处上限（MAX_EXEC_RING=200、
- *   MAX_PRE_EVENTS、MAX_CONSUMER_QUEUE=200，内存核查引入）；mock 无 execRing、
+ * MAX_PRE_EVENTS、MAX_CONSUMER_QUEUE=200 内存核查引入）；mock 无 execRing、
  *   无队列上限——测试流事件量受控，积压风险忽略不计，刻意保持简单。
  * - startSession 会推一个 init 事件（agents/tools 清单，mock 端点测试用）；cc 不发 init。
  * - mock 的 cancelled 唤醒与 cc 同构；emit 复制语义一致。
@@ -21,7 +21,7 @@ import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
 /** 每 session 一个事件总线（广播到所有消费者）。
  *  （补修，与 cc.ts 同构）：cancelled——SSE 断开侧经 cancelStream
  *  唤醒 park 中的生成器令其自行 return（iter.return 只能在 yield 边界生效）。
- *  （内存核查，与 cc.ts 同构）：dropNotified——本轮积压已补发过
+ * （内存核查，与 cc.ts 同构）：dropNotified——本轮积压已补发过
  *  丢事件 notice，队列拉空时复位（每轮积压只告知一次） */
 interface Consumer {
   queue: DriverEvent[]
@@ -30,7 +30,7 @@ interface Consumer {
   dropNotified: boolean
 }
 
-/** stream 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
+/** stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
 const streamCancels = new WeakMap<AsyncIterable<DriverEvent>, Consumer>()
 
 /** 唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等） */
@@ -85,7 +85,7 @@ function push(id: string, ev: DriverEvent): void {
   }
   for (const c of ch.consumers) {
     // 内存核查（与 cc.ts 同构）：消费者队列 cap——超限丢最旧
-    // 腾位；每轮积压首次超限时补发 notice。：notice 走「容量 +1
+    // 腾位；每轮积压首次超限时补发 notice。notice 走「容量 +1
     // 内部槽」——修复前首次溢出连丢 2 条真实事件（先腾位再腾 notice 位）；现在每次
     // 溢出只丢 1 条最旧真实事件（瞬态上限 MAX_CONSUMER_QUEUE+1，与 cc.ts 同构）。
     if (c.queue.length >= MAX_CONSUMER_QUEUE) {
@@ -209,8 +209,8 @@ export const mockDriver: StudioDriver = {
     return false
   },
 
-  // 0918修复批（E002）：与 cc 实现接口齐平（StudioDriver 全成员两实现都提供）——
-  // mock 无 ctrl 登记（registerCtrl noop），恒无在途，恒 false。注意 E001 的 chat_replay_begin
+  // 与 cc 实现接口齐平（StudioDriver 全成员两实现都提供）——
+  // mock 无 ctrl 登记（registerCtrl noop），恒无在途，恒 false。注意的 chat_replay_begin
   // 回放锚不在此实现：mock 无 execRing 回放语义（行为分叉点已文档化），无锚可插。
   isWriterRunning(): boolean {
     return false

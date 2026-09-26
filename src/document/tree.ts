@@ -40,7 +40,7 @@ export interface TreeNode {
   status?: DocumentStatus
   /** 叶子文档：正文字数（countWords 剥 fm 后码点数；仅 chapter/piece-body/draft）。目录无。 */
   wordCount?: number
-  /** 叶子文档：fm `序` 显示排序键（阶段 24 ；仅 chapter/piece-body，probe 解析）。
+  /** 叶子文档：fm `序` 显示排序键（阶段 24；仅 chapter/piece-body，probe 解析）。
    *  缺省 = 文件名章号（排序回落），旧书零迁移。目录无。 */
   order?: number
   /** 卷目录专属：关联卷纲 path（大纲/卷纲/<卷>.md）；无关联 undefined。 */
@@ -119,9 +119,9 @@ const SYNOPSIS_TOP = '大纲/总纲.md'
 /** 章号提取：文件名前导数字。兼容存量多种补零宽度混名
  *  （前端新建不补零 `5-x` / 前端复制 4 位 / 服务端长篇 4 位 / 短篇与草稿管线 3 位）；
  *  非数字前缀文件（副本、设定类）返回 null。
- *  （GLM-5.3 修复批）：正则本体升格 format/filename.ts
+ * 正则本体升格 format/filename.ts
  *  chapterNoFromName 单一真相源（leads/foreshadow/summary 三处窄正则同批收敛）——
- *  ：薄委托包装 chapterNoOf 随批内联删除，本文件调用点
+ * 薄委托包装 chapterNoOf 随批内联删除，本文件调用点
  *  直呼 chapterNoFromName；单一真相源仍在 format/filename.ts（沿革不变）。 */
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
@@ -149,8 +149,8 @@ function compareNode(a: TreeNode, b: TreeNode): number {
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
 }
 
-/** basename 去 .md 后缀（文件展示名）。：判定单源 isMdFileName
- *  （大小写不敏感）——.MD 文件名此前展示带尾巴，与判定侧（收编）两链不一致。 */
+/** basename 去 .md 后缀（文件展示名）。判定单源 isMdFileName
+ * （大小写不敏感）——.MD 文件名此前展示带尾巴，与判定侧（收编）两链不一致。 */
 function stripMd(name: string): string {
   return isMdFileName(name) ? name.slice(0, -3) : name
 }
@@ -183,7 +183,7 @@ export function buildTree(bookRoot: string): TreeNode[] {
  * - 仅正文子树生效：其余目录（大纲/设定/布线等）维持 scanDir 的 localeCompare 现状；
  * - 目录优先/卷目录次序不动（compareNode 语义保留），只重排同目录内的章文件；
  *   （拍板快断6-09-15 维持：显示序 = 卷优先分组 DFS、非跨卷 fm 序全局穿插——
- *   同卷内 fm 序成立即自洽，跨卷改穿插牵树交互语义，收益不明确，阶段 24 批 C 登记
+ * 同卷内 fm 序成立即自洽，跨卷改穿插牵树交互语义，收益不明确登记
  *   项拍板维持现状）
  * - tie-break：排序键同 → 章号 → path（稳定确定性）；非数字前缀且无 `序` 的文件
  *   不参与重排（键 = +Infinity 沉底，彼此保持原相对序——正文区该形态罕见）。
@@ -208,9 +208,9 @@ function sortTreeByOrder(nodes: TreeNode[]): void {
 }
 
 /** 收集 大纲/卷纲/*.md 的 stem（卷目录关联用）。无该目录 → 空集。
- *  ：① .md 判定改 isMdFileName 单源（大小写不敏感，家族
+ * ① .md 判定改 isMdFileName 单源（大小写不敏感家族
  *  漏网点）——win 资源管理器手改 .MD 的卷纲此前对卷目录关联静默失明；② stem 以
- *  toNfcName（fs/text-canonical.ts，docJoinKey 同族）NFC 归一为 join 键——
+ * toNfcName（fs/text-canonical.ts，docJoinKey 同族）NFC 归一为 join 键——
  *  mac APFS 存 NFD、win/NTFS 惯 NFC，NFD 卷目录名 ↔ NFC 卷纲文件名（或反向）
  *  互认。返回 Map：NFC 归一 stem → 盘上原始文件名——关联落 volumeOutlinePath 时
  *  用真实名（NFD/NFC 形态与 .MD 大小写都不硬拼出盘上不存在的路径）。 */
@@ -227,7 +227,7 @@ function collectVolumeOutlineStems(bookRoot: string): Map<string, string> {
   return map
 }
 
-/** 递归填 docId/status/volumeOutlinePath。：单次读探针（哈希+字数+published 一次带出）。 */
+/** 递归填 docId/status/volumeOutlinePath。单次读探针（哈希+字数+published 一次带出）。 */
 function annotate(
   nodes: TreeNode[],
   bookRoot: string,
@@ -266,13 +266,13 @@ function annotate(
 }
 
 /** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body。
- *  注释如实化：draft 从未计入（工作区/ 在树外）；且 roleOf 现产
+ * 注释如实化：draft 从未计入（工作区/ 在树外）；且 roleOf 现产
  *  只出 'chapter'（layout.ts 口径注记），'piece-body'/'draft' 为预留枚举位。 */
 function isCountedRole(role: DocumentRole): boolean {
   return role === 'chapter' || role === 'piece-body'
 }
 
-// ── ：树单次读 + 哈希缓存 ─────────────────────────────
+// ──：树单次读 + 哈希缓存 ─────────────────────────────
 
 /** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志 + 显示序（原三读合一，阶段 24 增 order）。 */
 interface FileProbe {
@@ -318,7 +318,7 @@ export function probeCachedPublished(bookRoot: string, relPath: string): boolean
  * - rev：文件字节 SHA-256（computeRevision 同源 hashFile 语义）
  * - wordCount：剥 fm 后码点数（原 countWordsOf）
  * - published：fm `已发布` == true/'true'（原 readPublished 的 final 分支才读，这里一次带出）
- * 文件不存在/读失败 → null（调用方容错）。
+ * probeCache 同口径。文件不存在/读失败 → null（调用方容错）。
  */
 function probeFile(bookRoot: string, rel: string): FileProbe | null {
   // probe 的调用方传 manifest 登记路径——过 safeManifestPath
@@ -352,13 +352,13 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
     published = parsePublishedValue(split.fmRaw)
     // （阶段 24）：`序` 与 `已发布` 同式同源（chapters.ts 归一小函数，regex 捕获串
     // 直传——成对引号在 parseOrderOf 内剥），复用已读字节零额外读。
-    // 0914 捕获值先剥行内注释（`序: 3 # 备注` 此前 Number 强转失败
+    // 捕获值先剥行内注释（`序: 3 # 备注` 此前 Number 强转失败
     // 落缺省，readChapter 侧 parseFlat 先剥注释判得 3，两链路口径分裂）
     const om = split.fmRaw.match(/^序[:：]\s*(.+?)\s*$/m)
     if (om) order = parseOrderOf(stripInlineComment(om[1]!.trim())) ?? null
   }
   const probe: FileProbe = { rev, wordCount, published, order }
-  // FIFO 淘汰最旧（Map 保插入序）
+  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）；sig 缓存随条目同步
   if (probeCache.size >= PROBE_CACHE_MAX) {
     const oldest = probeCache.keys().next().value
     if (oldest !== undefined) probeCache.delete(oldest)
@@ -368,7 +368,7 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
 }
 
 /** 从 fm 原文提取 `已发布` 判定（probe 热路径：fm 原文单次读取复用，零额外 IO，只加
- *  纯函数处理）。-0914 值侧处理对齐 status.readPublished 的 parseFlat
+ * 纯函数处理）。值侧处理对齐 status.readPublished 的 parseFlat
  *  单源口径——捕获值先 stripInlineComment 剥行内注释（`已发布: true # 备注` 此前把
  *  「true # 备注」整段当值判 false，树/定稿两链路分裂），再走 parseValue（内联数组
  *  `['true']` 形态与引号配对 unquote 均与 parseFlat 同源），终判 chapters.isPublishedValue
@@ -397,11 +397,11 @@ const indexes = new Map<string, BookTreeIndex>()
 
 /** indexes 条目的上次 JSON 序列化串（bookRoot → string）——force
  *  重建的「未变化不 bump」等价比较此前每次对 prev.nodes 与新 nodes 各整树 stringify
- *  一遍（双串对比），窗口回前台 2s 节流 force 轮询反复支付两份千章树序列化；
+ * 一遍（双串对比），窗口回前台 2s 节流 force 轮询反复支付两份千章树序列化；
  *  改存上次结果后热路径只 stringify 新 nodes 一份与缓存串比对。不变量：缓存串（若在）
  *  === stringify(indexes.get(bookRoot).nodes)——invalidateTreeIndex 删索引条目时同步
  *  删（残留陈串会在「磁盘改回旧形态」时误判未变化，返回旧 nodes 的 index）；FIFO
- *  淘汰同步删。冷缓存（fresh 构建不预付序列化，保持 「仅 force 路径付出」纪律）
+ * 淘汰同步删。冷缓存（fresh 构建不预付序列化，保持「仅 force 路径付出」纪律）
  *  首次 force 付一次种子串（与旧双串等价），此后恒单串。内存≈树序列化串 ×16 书上限，
  *  与 indexes 条目本体同量级。 */
 const indexSigCache = new Map<string, string>()
@@ -429,7 +429,7 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
   // 双整树 stringify 改缓存串对比——只序列化新 nodes 一份，
   // 与 indexSigCache 存的上次串比对（冷缓存首 force 付一次 prev 侧种子串，与旧双串
   // 等价）；相等沿用 prev（不 bump），不等则以新串更新缓存（见顶部 indexSigCache
-  // 不变量注释）。
+  // 顶部 indexSigCache 不变量注释。
   const prev = indexes.get(bookRoot)
   if (prev) {
     const newSig = JSON.stringify(nodes)
@@ -450,7 +450,7 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
     revision: ++globalRevision,
     validatedAt: new Date().toISOString(),
   }
-  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）；：sig 缓存随条目同步
+  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）；sig 缓存随条目同步
   // 淘汰（保「缓存串 ⇔ indexes 条目」不变量，防他书陈串残留）
   if (indexes.size >= INDEXES_CACHE_MAX) {
     const oldest = indexes.keys().next().value
@@ -482,7 +482,7 @@ export function invalidateTreeIndex(bookRoot: string, structural = false): void 
   // 顶部 indexSigCache 不变量注释。
   indexSigCache.delete(bookRoot)
   // 文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希。
-  // 按书前缀清理（缓存键本就带 bookRoot）——此前 clearProbeCache 全局清空，
+  // 按书前缀清理（缓存键本就带 bookRoot）——此前 clearProbeCache() 全局清空，
   // 任一书保存会让其他书首次树聚合退化为全量读（多书同开时的无谓读放大）
   const prefix = bookRoot + '|'
   for (const key of probeCache.keys()) {
@@ -496,7 +496,7 @@ export function invalidateTreeIndex(bookRoot: string, structural = false): void 
  * 投影要刷新），但 probeCache 只删本次改写文件的键。此前内容保存走 invalidateTreeIndex
  * 把该书 probeCache 整书清空，下一次树请求（前台 2s 节流 force）对全书 md 文件重读+
  * 重哈希（200 万字书 100-300ms/次，网盘卷秒级）——而其余文件的 (mtimeNs,size) 指纹
- * 未变、复用安全，的防撞车口径只对本次改写文件必要。新文件落盘时键本不存在，
+ * 未变、复用安全的防撞车口径只对本次改写文件必要。新文件落盘时键本不存在，
  * delete 为 no-op（indexes.delete 已保证树重建收编新文件）。
  */
 export function invalidateTreeIndexForContent(bookRoot: string, relPath: string): void {

@@ -8,7 +8,7 @@
  * buildIndex 增量自愈覆盖新指纹）；召回返回位置（章号+偏移），原文交精准读取。
  * 红线：账本永走精准读取不走 RAG；端点挂/未配 key → 召回空（降级回落，不崩）。
  *
- * （-0914）互斥依赖登记：本域（buildIndex/resetRagIndex 等）无自有跨进程
+ * 互斥依赖登记：本域（buildIndex/resetRagIndex 等）无自有跨进程
  * 互斥，依赖 rag/build・rag/rebuild 端点的任务闸（studio server api/rag.ts 的
  * acquireTaskGate(bookName,'rag-build')）兜住单实例并发；双进程并行 rebuild 与 build
  * 交错时靠 SQLite 写原子（BEGIN IMMEDIATE 单事务）+ 指纹幂等收敛（重复嵌入的块被
@@ -61,7 +61,7 @@ export {
 
 /** 召回块数告警阈值——超出 store.ts readAllChunks 量化注释的已知
  *  可用区间（十万块）时 log.warn 留痕。
- * 批：同时是硬截断上限——超区间全表余弦线性扫描延迟已超交互预期，截到上限
+ * 同时是硬截断上限——超区间全表余弦线性扫描延迟已超交互预期，截到上限
  *  并告警（截断取读出序前缀，非按相似度——排序发生在截断之后）。 */
 export const RAG_CHUNK_WARN_THRESHOLD = 100_000
 
@@ -115,14 +115,14 @@ export interface RecallResult {
  * 召回（query embed → 全表点积排序 → 候选子集惰性指纹校验 → topK）。
  * 失败/降级返回空数组（#37 第 6.2 节，不崩）。
  *
- * （批 7，：K'=20 写死 + book.yaml rag.candidate_depth 可覆盖）：
+ * （K'=20 写死 + book.yaml rag.candidate_depth 可覆盖）
  * - 预存范数：chunks.norm 建索引时算好，余弦退化为 dot(q,c)/(||q||·c.norm)，数学量减半；
  * - 倒序校验：先前每次召回对全书逐章读文件校验 SHA-256 指纹（700 章 = 700 次全文
  *   读，大概率慢过余弦本身）——改为先排序，只校验命中候选的章（≤ K'），过期章剔除、
  *   顺位递补至 topK；校验从「整批拒绝闸」变为「过滤闸」，召回质量不降（过期向量
  *   本就不该命中），新鲜数据的 top-5 与全量校验口径逐一等价。
  *
- * （修复批）：可选 `opts.signal`——编排级中断透传（materials 备料
+ * 可选 `opts.signal`——编排级中断透传（materials 备料
  * 传入编排 signal，向后兼容：旧调用方零变更）。检查点：函数入口 / embed 网络往返前后
  * / 流式打分循环（store.streamChunkScores），命中即抛「RAG 召回已中断」——与 embed
  * 失败同走 throw 形态（本函数既有错误形态：网络/库异常上抛，由调用方降级），中断不再
@@ -163,7 +163,7 @@ export async function recallDetailed(
   let indexedFingerprints!: Map<number, string>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
-    // （修复批）：模型失配静默空召回补 warn——消费方此前无从
+    // 模型失配静默空召回补 warn——消费方此前无从
     // 区分「模型失配」与「无相关内容」，排障零线索（860 溢出 / :878 poisonRows 等
     // 降级出口均有留痕，本出口漏网）
     if (indexedModel && indexedModel !== config.model) {
@@ -213,12 +213,12 @@ export async function recallDetailed(
   }
 
   if (indexedDim && Number(indexedDim) !== queryVec.length) {
-    // （修复批）：维度失配静默空召回补 warn（同模型失配出口）
+    // 维度失配静默空召回补 warn（同模型失配出口）
     log.warn('rag', `RAG 索引维度失配（索引=${indexedDim} 查询=${queryVec.length}）——本轮召回降级为空`)
     return emptyResult()
   }
 
-  // 流式打分段重开库逐行算余弦——段内无网络等待，句柄随段开关（
+  // 流式打分段：重开库逐行算余弦——段内无网络等待，句柄随段开关（
   // 纪律不变）。重开间隙索引被重建换模型的竞态 → 二次模型校验 fail-closed 回空。
   let rows: ChunkScoreRow[]
   {
@@ -226,7 +226,7 @@ export async function recallDetailed(
     try {
       const indexedModel2 = getRagMeta(db2, 'embedding_model')
       if (indexedModel2 && indexedModel2 !== config.model) {
-        // （修复批）：重开库二次模型校验（索引竞态重建）同补 warn
+        // 重开库二次模型校验（索引竞态重建）同补 warn
         log.warn('rag', `RAG 索引模型失配（二次校验：索引=${indexedModel2} 配置=${config.model}）——本轮召回降级为空`)
         return emptyResult()
       }
@@ -320,7 +320,7 @@ export async function recallDetailed(
  * 切 recallDetailed，现生产代码零调用方，本包装仅服务存量测试面
  *  （test/rag/*、test/studio/* 的旧断言）。丢弃 truncated/totalBlocks 属有意取舍，
  *  生产召回链路一律走 recallDetailed（截断信号不丢失）。
- *  @internal test-only：本应随生产零调用方删除，但存量测试消费面
+ * @internal test-only：本应随生产零调用方删除，但存量测试消费面
  *  实测 10 文件 34 处调用（test/rag 8 + test/studio 1 + test/check 1）超本轮「>5 文件
  *  可降级」闸——登记维持：形状转换平凡（r.hits 透传，无维护风险），生产 import 面
  *  已零引用；后续批次改造存量断言为 recallDetailed 时随改造一并删除本包装。 */

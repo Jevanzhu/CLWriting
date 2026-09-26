@@ -61,7 +61,7 @@ const LEGEND = [
 /** 债务边的弓形高度：同一对角色往往既有关系边又有债务边，直线会完全重合。 */
 const DEBT_BOW = 26
 
-/** 滚轮 deltaY → 缩放倍率（-mac适配，导出纯函数便于单测）。
+/** 滚轮 deltaY → 缩放倍率（mac适配，导出纯函数便于单测）。
  *  幅值归一 exp(-deltaY*k)：离散滚轮一格 deltaY≈±100 → ≈1.22 倍（与旧固定步进 1.15
  *  观感接近）；mac 触控板高频小 delta 连发改为平滑缩放，不再一步撞缩放钳制；
  *  捏合手势（ctrlKey 且小 delta）同式自然成立。deltaY 向下滚为正 → 倍率 <1 缩小。 */
@@ -81,7 +81,7 @@ export interface RelationGraph {
   hiddenColors: Ref<Set<string>>
   visibleNodes: Ref<SimNode[]>
   hiddenCount: Ref<number>
-  // 焦点/选中
+  // 焦点 = 悬停（临时探索）优先，否则选中（详情卡所指）
   hoverId: Ref<string | null>
   selectedId: Ref<string | null>
   dragId: Ref<string | null>
@@ -589,7 +589,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
       await doc.open(node)
       ws.openTab(node.docId)
     } catch (e) {
-      // -前端：静默吞错收敛（对齐 ForeshadowPanel）
+      // 前端：静默吞错收敛（对齐 ForeshadowPanel）
       ui.toast(friendlyError(e), 'error')
     }
   }
@@ -597,7 +597,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // --- 缩放 + 平移 ---
   function onWheel(evt: WheelEvent): void {
     const p = svgPoint(evt)
-    // -mac适配：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
+    // mac适配：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
     // 连发数十事件瞬间撞钳制——改 wheelScale 幅值归一（换算见函数头注）；钳制不动
     const scale = wheelScale(evt.deltaY)
     const nw = Math.max(W * 0.2, Math.min(W * 4, view.value.w * scale))

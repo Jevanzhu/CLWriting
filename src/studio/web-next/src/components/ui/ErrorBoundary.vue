@@ -5,7 +5,7 @@ import { ref, computed, onErrorCaptured } from 'vue'
 import { AlertCircle, RotateCcw } from 'lucide-vue-next'
 
 const error = ref<Error | null>(null)
-// （b 修复批）：子树重建代数——「重试」此前仅清
+// 子树重建代数——「重试」此前仅清
 // error ref：确定性渲染错误（坏数据/坏状态在 store 里）清掉兜底 UI 后原样重渲染原
 // 子树，异常立即复现，「重试」永远无效且作者无从分辨。重试改为 epoch++，keyed 子树
 // 整体重挂（等价 route/docId key 变化的组件重挂机制，不依赖边界外改动）；store 状态
@@ -46,7 +46,7 @@ function retry(): void {
       {{ recurredAfterRetry ? '再次重建子树' : '重试' }}
     </button>
   </div>
-  <!-- ：keyed 子树宿主——epoch 变化强制整树重挂。display:contents 不
+  <!-- keyed 子树宿主——epoch 变化强制整树重挂。display:contents 不
        产生布局盒（App 根布局 #app height:100% 直达路由页，与原裸 slot 逐位等价）。 -->
   <div v-else :key="epoch" class="eb-host">
     <slot />

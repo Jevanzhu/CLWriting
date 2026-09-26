@@ -38,7 +38,7 @@ export function createPrefsDomEffects(deps: PrefsDomEffectDeps) {
     r.style.setProperty('--prose-lh', String(deps.proseLh.value))
     r.style.setProperty('--page-width', `${deps.effectivePageWidth.value}px`)
     // →F0UI 字号档（外观「字号」设置，两平台通用）——win 隐藏基准
-    // 原 +1px 系 ClearType hinting 补偿（灰度时代），找回原生子像素渲染后撤销归零，
+    // 原 +1px 系 ClearType hinting 补偿（灰度时代）找回原生子像素渲染后撤销归零，
     // 与 tokens 平台块同步；用户步进直接叠 0 基（内联值覆盖 CSS，此处始终写合计值）。
     // 恒零加数 baseStep 已删，写值与删前逐位一致。
     r.style.setProperty('--font-size-step', `${deps.uiFontSizeStep.value}px`)
@@ -51,7 +51,7 @@ export function createPrefsDomEffects(deps: PrefsDomEffectDeps) {
       r.style.removeProperty('--font-ui')
     }
     if (deps.proseFontCn.value || deps.proseFontEn.value) {
-      // →F0c②回退尾按中文字体族归边——衬线/书卷（宋·仿宋·楷·思源宋·
+      // →F0c②：回退尾按中文字体族归边——衬线/书卷（宋·仿宋·楷·思源宋·
       // 文楷…）挂衬线基座带宋体，其余（雅黑/等线/黑体/思源黑…）挂无衬线基座——
       // 修「选思源黑体预设但未装 Noto 时正文静默落宋体」的跨族翻转；CN 槽空维持
       // 衬线基座（出厂空槽口径不变）。串值单源于 useSystemFonts 的 proseFallbackTail。

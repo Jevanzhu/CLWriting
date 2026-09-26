@@ -12,7 +12,7 @@ export async function getTree(
   return apiJson(`${bookUrl(name, 'tree')}${q}`)
 }
 
-// GET /config → {config}（book.yaml）。target_words 在 config.book.target_words。
+// GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
 export interface BookConfig {
   kind?: 'long' | 'short'
   host?: 'cc' | 'codex'
@@ -52,7 +52,7 @@ export interface BookConfig {
 // GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
 // 服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 前 4 字节 uint32，
 // 文件缺失为 0），供读改写调用方下次 PUT 带 expectedRevision。
-// （修复批）：两函数原为同端点双声明（各自 apiJson 一次），
+// 两函数原为同端点双声明（各自 apiJson 一次），
 // 端点/解析改动时互为漏改点——现以此函数为唯一实现，getConfig 委托取 .config。
 export async function getConfigWithRevision(name: string): Promise<{ config: BookConfig; revision: number }> {
   return apiJson<{ config: BookConfig; revision: number }>(bookUrl(name, 'config'))
@@ -76,7 +76,7 @@ export async function putConfig(name: string, config: BookConfig, expectedRevisi
   })
 }
 
-// GET /words-diary → {date, baseline, delta}（§5.4 基线 + 精确增量；delta=null 表示当日无 settled 记录，回退 baseline）。
+// GET /words-diary → {date, baseline, delta}（§5.4 基线 +精确增量；delta=null 表示当日无 settled 记录，回退 baseline）。
 export async function getWordsDiary(
   name: string,
 ): Promise<{ date: string; baseline: number | null; delta: number | null }> {
@@ -92,7 +92,7 @@ export async function postBaseline(name: string, baseline: number): Promise<void
 }
 
 // POST /api/books { name, kind } → 建书（doInit：目录 + books.jsonl 登记 + book.yaml）。
-// （GLM-5.3 修复批）：自 useShelf.createBook 的裸
+// 自 useShelf.createBook 的裸
 // apiJson 调用归置收编至此（全仓端点调用统一归 api/ 层，此处为此前唯一漏网）——签名/
 // 错误处理对齐本文件既有函数：失败（重名/非法书名/无工作目录，400）经 apiJson 统一抛
 // ApiError，由调用方 friendlyError 呈报；调用点行为零变化（原裸调同 payload 同端点）。
@@ -127,7 +127,7 @@ export async function renameBook(name: string, newName: string): Promise<RenameB
   })
 }
 
-// ── RAG 接线（cc 批4 ）──────────────────────────────────────────
+// ── RAG 接线──────────────────────────────────────────
 // 建索引是长任务：POST build 后台跑完，前端轮询 GET status。
 // 服务商化：endpoint/model/key 归应用级 RAG 服务商管（api/providers.ts），书只存 provider 引用 + enabled。
 export interface RagStatus {
@@ -137,7 +137,7 @@ export interface RagStatus {
   model: string | null
   /**
    * ①（win 线）/ （mac 线）同题双修取一（merge ）：
-   * 索引三态（api/rag.ts status 端点实测字段，，此前前端类型漏接）——
+   * 索引三态（api/rag.ts status 端点实测字段，此前前端类型漏接）——
    * unbuilt=从未建索引 / cleared=已清空待重建 / built=有索引内容。
    */
   indexState: 'unbuilt' | 'cleared' | 'built'
@@ -166,8 +166,8 @@ export async function triggerRagBuild(name: string): Promise<{ started: true }> 
   })
 }
 
-// （win 线）/ （mac 线）同题双修取一（b 修复批，
-// merge ）：重建索引——服务端端点，任务闸内先 resetRagIndex 清空既有索引
+// ①（win 线）/ （mac 线）同题双修取一（
+// merge）：重建索引——服务端端点，任务闸内先 resetRagIndex 清空既有索引
 // 再后台全新建。嵌入模型/维度失配后 build 只会撞「请重建索引」错误信封（src/rag/index.ts
 // 失配文案指向本端点），rebuild 是 GUI 的程序化出路（此前仅 CLI/手搓 HTTP 可达）。
 // 与 build 同一套任务闸（运行中 409 BUSY）与响应信封。

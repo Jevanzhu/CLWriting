@@ -36,7 +36,7 @@ function relKey(r: { other: string; kind: string }): string {
       <div v-if="g.selectedRelations.value.length" class="dc-sec">
         <h4 class="dc-sec-h">关系</h4>
         <ul class="dc-rel">
-          <!-- ：key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
+          <!-- key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
                无向去重后的边表，同选点视角下 (other, kind) 必唯一，即天然稳定键。
  #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
           <li

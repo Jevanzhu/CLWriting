@@ -1,7 +1,7 @@
 /**
  * 最小 lint 门——项目此前无任何 lint/format 门禁，风格一致性零机器约束。
  * 本配置刻意从简：只上 no-unused-vars / no-undef 两条零争议规则，覆盖 eslint 核心可
- * 直接解析的 JS/MJS 面（scripts/*.mjs + 本配置）。
+ * 零争议规则，覆盖 eslint 核心可直接解析的 JS/MJS 面（scripts/*.mjs + 本配置）。
  *
  * TS 面接入——typescript-eslint 预装后扩 src 下 .ts 块（此前 espree 不认 TS 语法，
  * CI lint 步对 TS 零约束近乎空转）。规则起步＝ recommended 预设，报红量大且低价值的
@@ -9,9 +9,9 @@
  * .vue SFC）本轮不动。scripts 目录 .ts 接入（实测 9 文件 0 错，零修复纳管）。
  * test 目录接入——扩进 TS 块 files（与 src/scripts 同规则族，规则表逐位未动），
  * 存量 45 错机械清偿（31 处 no-explicit-any + 14 处 no-unused-vars，实测口径）；
- * 其中 no-explicit-any 后续单独降档（三十轮末降 warn → 降 off，见下方 test 块）。
+ * 其中 no-explicit-any 后续单独降档。
  * test/ 侧 no-explicit-any 显式降为 off——31 处存量 warning 归零，此后 `npx eslint .`
- * 口径为 0 error / 0 warning。
+ * 归零，此后 `npx eslint .` 口径为 0 error / 0 warning。
  *
  * 类型感知层与 .vue 面接入：
  * - 此前 TS 块无 parserOptions.project，`no-floating-promises` 一族类型感知规则根本
@@ -85,7 +85,7 @@ export default [
     // dist 为构建产物，Dev/ 为项目文档链（Dev/Docs）+ 第三方参考项目（Dev/参考项目，
     // 均非 lint 射程内的代码面）。
     // web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立自治」口径收窄为
-    // 「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
+    // 自治」口径收窄为「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
     ignores: [
       'dist/**',
       'coverage/**',
@@ -160,7 +160,7 @@ export default [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' },
       ],
-      // 存量 9 处 let 违例已随修复批 --fix 清偿，规则开启
+      // 存量 9 处 let 违例已随--fix 清偿，规则开启
       'prefer-const': 'error',
       // 放行空接口：src/driver/types.ts:16 的空接口是既有 driver 扩展点契约
       // （本批禁改 src）；allowInterfaces 后空 type 字面量 `{}` 仍会被拦截

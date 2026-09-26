@@ -14,7 +14,7 @@ import { modelIdKeys } from './normalize.js'
 
 export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi' | 'unknown'
 
-/** （十五轮登记销账）：参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
+/** 参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
  *  系列前缀判定等表内容影响上线参数与重放口径，表改不 bump 会造成跨版本重放漂移且
  *  无从检测。**规则：本文件任何行为性变更（表项/前缀/翻译/兜底值）必须同步 bump 此
  *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。
@@ -91,7 +91,7 @@ function isKimiK3(model: string): boolean {
 }
 
 /**
- * Responses 线（/v1/responses）格式档——家族表内嵌子表（Responses 启用批）。
+ * Responses 线（/v1/responses）格式档——家族表内嵌子表。
  *
  * 必须保持**纯数据**（无函数维度）：catalog 三件套（catalog.ts / catalog.gen.ts /
  * generate-model-catalog.ts / catalog-sync.test.ts）已随拍板快断批删除
@@ -155,7 +155,7 @@ export interface FamilyQuirks {
   /** 输出上限参数名（OpenAI 侧新旧名并存，各家不同） */
   maxTokensKey: 'max_completion_tokens' | 'max_tokens'
   /** effort → reasoning_effort 值；null = 该系列不支持，不发。
-   *  ：返回值收窄为 EffortLevel（表内映射只有透传与 trimEffort 两形态，
+   * 返回值收窄为 EffortLevel（表内映射只有透传与 trimEffort 两形态，
    *  产出恒在档位值域内）。SDK 的 ReasoningEffort 是 EffortLevel 的超集，适配器可直接
    *  赋值受 SDK 类型校验——原先返回 string 迫使调用侧整对象双重断言绕开校验。 */
   reasoningEffort(effort: EffortLevel): EffortLevel | null
@@ -387,7 +387,7 @@ const FALLBACK_RESPONSES_WIRE: ResponsesWireQuirks = {
 }
 
 /**
- * responses 协议视图（Responses 启用批，缺口 5「gen 层静默丢弃」消除）：
+ * responses 协议视图（缺口 5「gen 层静默丢弃」消除）：
  * 基表 + responsesWire 覆盖 toolChoiceMode / structuredMode 并挂子表。
  *
  * gen 层意图翻译与适配器 toParams 都走本视图——Chat/Anthropic 线走 quirksFor

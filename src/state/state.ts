@@ -14,7 +14,7 @@
  * 设计（#15 第 1 节原则）：
  * - 单入口、按序判定：前一个命中就路由，不再判后面的（体检优先于续跑、续跑优先于周期）。
  * - 进门先体检、自愈不门禁：态 1-3 异常先提议修复，不报错拒绝、不崩整个系统。
- * - 脚本面为主、AI 介入点用桩：判定/路由全确定性脚本；语义判断（顺势圆/修复确认） 桩、真。
+ * - 脚本面为主、AI 介入点用桩：判定/路由全确定性脚本；语义判断（顺势圆/修复确认）桩真。
  * - 文件即真相：判定读 md 真源 + manifest 账本，不维护额外状态机状态文件。
  *
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
@@ -100,9 +100,9 @@ interface RouterAction {
   state: BookState
   /** 人话（对作者：现在该干什么，零机器味） */
   humanMsg: string
-  /** 动作类型（机器侧：状态机/#16#17#18/流程谁来接） */
+  /** 动作类型（机器侧：状态机/#16#17#18/M2 流程谁来接） */
   action?: RouterActionKind
-  /** 是否需要 AI 介入（桩、真） */
+  /** 是否需要 AI 介入（桩真） */
   needsAI: boolean
 }
 
@@ -110,7 +110,7 @@ type RouterActionKind =
   | 'repair' // 态 2 → #18 修复确认
   | 'resume' // 态 4 → 中断恢复续跑
   | 'volume-review' // 态 5 → 卷复盘（概要）
-  | 'write-new-chapter' // 态 7 → AI 写章流程
+  | 'write-new-chapter' // 态 7 →AI 写章流程
 
 /**
  * 进门状态判定（#15 第 2 节，按序命中即返回）。
@@ -137,7 +137,7 @@ export async function detectState(
   manifest?: Manifest,
   opts?: DetectStateOptions,
 ): Promise<DetectedState> {
-  // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次；enter 传入复用避免双读，-BE-4）
+  // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次；enter() 传入复用避免双读）
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
 
   // #1 健康检查（journal 崩溃恢复 + 网盘副本扫描）
@@ -211,7 +211,7 @@ export async function detectState(
     const formula = readChapterDir(bodyDir).chapters.length - excludeNames.size + 1
     // 跳过已定稿篇号——短篇集删除/回收造成编号断档（定稿剩 1、2、5）时
     // max(formula, maxFileName)=5 会回指已定稿第 5 篇，resolveDraftPath 的防覆盖闸
-    // （/）fail-loud 抛错卡死写作流。跳过 5 → 6，篇号永不复用。
+    // fail-loud 抛错卡死写作流。跳过 5 → 6，篇号永不复用。
     return {
       state: 7,
       nextChapter: skipFinalizedChapters(Math.max(formula, maxFileNameChapter(bodyDir)), finalizedChapterNumbers(m)),
@@ -227,7 +227,7 @@ export async function detectState(
     const db = new DatabaseSync(cachePath)
     try {
       // 低级项：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）；
-      // PL-2无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
+      // 无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
       snapshot = assembleStatus(db, config, volumeSize, finalizedChapterSetOfBook(bookRoot))
     } finally {
       db.close()
@@ -248,13 +248,13 @@ export async function detectState(
 
   // #6 体检周期：CLI 退场后移除（态 6 不再拦截写章），直接落态 7。
 
-  // #7 起草新章（兜底）。：长轨同样跳过已定稿章号（外部删章/断档场景防回指定稿）。
+  // #7 起草新章（兜底）。长轨同样跳过已定稿章号（外部删章/断档场景防回指定稿）。
   return { state: 7, nextChapter: skipFinalizedChapters(currentChapter + 1, finalizedChapterNumbers(m)) }
 }
 
 /**
  * 路由（#15 第 2 节，各态路由去向 + 人话）。
- * AI 介入处（修复确认语义、顺势圆）标 needsAI=true，出人话不真执行。
+ * AI 介入处（修复确认语义、顺势圆）标 needsAI=true 出人话不真执行。
  */
 export function routeState(detected: DetectedState): RouterAction {
   switch (detected.state) {
@@ -343,7 +343,7 @@ export async function enter(bookRoot: string): Promise<EnterResult> {
     log.warn('state', `book.yaml 解析降级: ${cfgResult.error.message}`)
   }
   const { config } = cfgResult
-  // manifest 只读一次，detectState + buildRecap 复用（-BE-4：原先同一调用链读两次）
+  // manifest 只读一次，detectState + buildRecap 复用（原先同一调用链读两次）
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const detected = await detectState(bookRoot, config, manifest)
   const route = routeState(detected)

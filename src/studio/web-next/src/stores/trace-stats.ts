@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { getTraceStats, type TraceStats } from '../api/trace-stats'
 
 /**
- * trace-stats 请求协调 store（b 修复批）。
+ * trace-stats 请求协调 store。
  *
  * 背景：工作台同屏两处各拉一次 GET /trace-stats——WorkbenchView.loadRuleHits（规则命中）
  * 与 WbUsageCard.load（byTask 用量 + getCostStats），api 层无去重，同屏挂载即双发。

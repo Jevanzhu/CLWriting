@@ -193,11 +193,11 @@ export function deriveMessages(
 /**
  * 校验链（§四「校验链」，开发期 fail loud）：
  * - 非 surface 事件禁带 surfaceOp；surface 事件必须带 surfaceOp；普通 surface 事件
- *   禁带 replace（载体仅 compaction/end）
+ * 禁带 replace（载体仅 compaction/end）
  * - replace 的 shadowStart/shadowEnd 必须已可见且 start≤end
  * - sourceSeqs 必须完整覆盖每个被遮蔽节点、全部早于当前 seq、无重复
  * - seq 单调递增无重复
- * 返回问题列表（空 = 通过）。
+ * 校验入口：按 seq 升序重放事件，逐事件跑步骤链，返回问题列表（空 = 通过）。
  *
  * 原单遍巨型校验体按「形状 / 序号与因果 / 载荷语义」三段拆为可直测的
  * 小步函数（见下方各段注）。**步骤顺序 = 问题报告顺序契约**：同一事件同时触犯多条时
@@ -224,7 +224,7 @@ export function createValidateCursor(): ValidateCursor {
 
 // ─── 段一：序号与因果校验 ───────────────────────────────────────────────
 
-/** 序号步：重复 / 未严格递增。：同一坏事件的「未递增 + 重复」双告警
+/** 序号步：重复 / 未严格递增。同一坏事件的「未递增 + 重复」双告警
  *  合并为一条——重复 seq 必然也 ≤ 前一 seq，原先两条 issue 叠发（同一病灶两行噪音）；
  *  现重复只报「seq 重复」，非重复的乱序才报「未严格递增」。 */
 export function seqStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
@@ -239,7 +239,7 @@ export function seqStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
   return issues
 }
 
-/** 遮蔽可见性步（因果）：被遮蔽节点必须已可见。：改对 visibleSeqs 做区间包含
+/** 遮蔽可见性步（因果）：被遮蔽节点必须已可见。改对 visibleSeqs 做区间包含
  *  判断 O(visible)（此前逐 seq 扫 [start,end]：脏数据 shadowEnd=1e9 会线性扫十亿次
  *  挂死校验链）；区间形状非法（缺端点/start>end）时本步不产问题——已由形状步报过。 */
 export function shadowCoverageStep(ev: ChatEvent, cur: ValidateCursor): ValidationIssue[] {
@@ -283,7 +283,7 @@ export function sourceSeqsStep(ev: ChatEvent, cur: ValidateCursor): ValidationIs
 }
 
 /** 可见集推进步（因果，无问题产出）：遮蔽区间移除 + 存档节点加入 + 本事件成为可见节点。
- *  谓词必须与投影侧 foldSurface 同口径（空 usage 壳/损坏载荷的 assistant
+ * 谓词必须与投影侧 foldSurface 同口径（空 usage 壳/损坏载荷的 assistant
  *  message 不算可见；见 assistantMessageVisible）。 */
 export function advanceVisibleStep(ev: ChatEvent, cur: ValidateCursor): void {
   if (ev.type === 'compaction/end') {
@@ -303,7 +303,7 @@ export function advanceVisibleStep(ev: ChatEvent, cur: ValidateCursor): void {
   // 本事件成为可见节点（surface 且带 surfaceOp 时加入）
   // 可见性谓词与投影对齐——空 usage 壳/损坏载荷的 assistant
   // message 在投影侧（foldSurface/assistantMessageVisible）不算可见，校验器此前
-  // 无差别计入，遮蔽契约闸比设计口径宽。 注释宣称两侧「共用同口径」，今对齐。
+  // 无差别计入，遮蔽契约闸比设计口径宽。注释宣称两侧「共用同口径」，今对齐。
   if (SURFACE_EVENT_TYPES.has(ev.type as EventType) && ev.surfaceOp !== undefined) {
     if (ev.type === 'assistant/message') {
       if (assistantMessageVisible(ev.data)) cur.visibleSeqs.add(ev.seq)
@@ -316,7 +316,7 @@ export function advanceVisibleStep(ev: ChatEvent, cur: ValidateCursor): void {
 // ─── 段二：形状校验 ───────────────────────────────────────────────────
 
 /** 载体形状步：surfaceOp 与事件类型的搭配（禁带 / 必带 / 普通 surface 禁 replace /
- *  compaction/end 必须 replace）。：普通 surface 事件禁带 replace
+ * compaction/end 必须 replace）。普通 surface 事件禁带 replace
  *  ——replace 载体仅 compaction/end（遮蔽旧节点 + 存档原位插入的语义与 compaction 数据
  *  形状绑定）；生产构造器不产 surface+replace 形态，此前该形态静默过闸成可见节点而
  *  遮蔽闭区间无消费方，投影/审计口径劈裂，校验链补防。 */
@@ -340,7 +340,7 @@ export function surfaceOpStep(ev: ChatEvent): ValidationIssue[] {
   return issues
 }
 
-/** goal 快照形状步：——goal/change 的快照存在性与 id/title/state 字段形。 */
+/** goal 快照形状步：goal/change 的快照存在性与 id/title/state 字段形。 */
 export function goalSnapshotStep(ev: ChatEvent): ValidationIssue[] {
   if (ev.type !== 'goal/change') return []
   const issues: ValidationIssue[] = []
@@ -359,7 +359,7 @@ export function goalSnapshotStep(ev: ChatEvent): ValidationIssue[] {
   return issues
 }
 
-/** todo 整表形状步：——todo/write 的 todos 数组与逐条目 text/state 形。 */
+/** todo 整表形状步：todo/write 的 todos 数组与逐条目 text/state 形。 */
 export function todoWriteStep(ev: ChatEvent): ValidationIssue[] {
   if (ev.type !== 'todo/write') return []
   const todos = ev.data['todos']
@@ -377,7 +377,7 @@ export function todoWriteStep(ev: ChatEvent): ValidationIssue[] {
   return []
 }
 
-/** 快照载荷形状步：——settings/snapshot 与 skills/snapshot 同构 {scope, digest}。 */
+/** 快照载荷形状步：settings/snapshot 与 skills/snapshot 同构 {scope, digest}。 */
 export function snapshotPayloadStep(ev: ChatEvent): ValidationIssue[] {
   if (ev.type !== 'settings/snapshot' && ev.type !== 'skills/snapshot') return []
   if (typeof ev.data['scope'] !== 'string' || typeof ev.data['digest'] !== 'string') {
@@ -399,7 +399,7 @@ export function shadowIntervalStep(ev: ChatEvent): ValidationIssue[] {
 
 // ─── 段三：载荷语义校验 ────────────────────────────────────────────────
 
-/** 终止原因步：——turn/end、step/end、session/end 的 reason 必须是受控词表。 */
+/** 终止原因步：turn/end、step/end、session/end 的 reason 必须是受控词表。 */
 export function endReasonStep(ev: ChatEvent): ValidationIssue[] {
   const reason = ev.data['reason']
   if (typeof reason !== 'string') return []
@@ -415,7 +415,7 @@ export function endReasonStep(ev: ChatEvent): ValidationIssue[] {
   return []
 }
 
-/** goal 操作步：——goal/change 的 operation 受控词表（快照字段形归形状段）。 */
+/** goal 操作步：goal/change 的 operation 受控词表（快照字段形归形状段）。 */
 export function goalOperationStep(ev: ChatEvent): ValidationIssue[] {
   if (ev.type !== 'goal/change') return []
   const op = ev.data['operation']

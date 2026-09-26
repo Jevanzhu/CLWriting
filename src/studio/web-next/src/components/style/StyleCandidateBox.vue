@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文风候选箱卡（StyleView 拆分 ③ 候选箱段）：四源管线汇流可视化，确认/忽略入库。
+// 文风候选箱卡（StyleView 拆分③ 候选箱段）：四源管线汇流可视化，确认/忽略入库。
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Inbox, Sparkles, X, Check, ChevronRight } from 'lucide-vue-next'
@@ -7,7 +7,7 @@ import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
 import EmptyState from '../ui/EmptyState.vue'
-// （修复批）：.panel/.btn-*/.kind-badge/.token-chip
+// .panel/.btn-*/.kind-badge/.token-chip
 // 逐字重复块收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载
 // 非 scoped，组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -137,7 +137,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         </template>
         <div v-else class="cc-text">{{ c.正文 }}</div>
         <div class="cc-actions">
-          <!-- ：acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
+          <!-- acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
           <button class="btn-ghost" :disabled="acting !== null" @click="onIgnore(c)"><X :size="13" /> 忽略</button>
           <button class="btn-primary" :disabled="acting !== null" @click="onConfirm(c)">
             <Check :size="13" /> 确认收录
@@ -156,7 +156,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         <div class="cc-top">
           <span class="kind-badge" :data-kind="c.类型">{{ c.类型 }}</span>
           <span class="cc-text-inline">{{ c.正文 }}</span>
-          <!-- ：已忽略区同对齐全局单飞口径（漏改的兄弟按钮） -->
+          <!-- 已忽略区同对齐全局单飞口径（漏改的兄弟按钮） -->
           <button class="btn-ghost" :disabled="acting !== null" @click="onConfirm(c)">仍要收录</button>
         </div>
       </div>
@@ -304,7 +304,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 }
 
 /* 类型徽标（kind-badge 族）与 .src-dot 均收敛至 style-shared.css
- *（/ #14 全局装载）。 */
+ *（#14 全局装载）。 */
 
 @media (max-width: 860px) {
   .cc-compare {

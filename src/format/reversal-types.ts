@@ -38,7 +38,7 @@ const REVERSAL_PATTERNS: Record<Exclude<ReversalTypeName, '其他反转'>, RegEx
   自我反转: /自己|本人|主角|我/,
 }
 
-/** 「不是…而是」强信号（normalize 后匹配；：放宽为任意 1+ 字符间隔） */
+/** 「不是…而是」强信号（normalize 后匹配；放宽为任意 1+ 字符间隔） */
 const COUNTER_SIGNAL = /不是.{1,}?而是/
 /** 强信号后半句的真凶 / 身份特征词 */
 const MURDER_WORDS = ['凶手', '真凶', '设局', '幕后', '主谋', '嫌疑', '栽赃', '顶罪', '真相', '杀手', '犯人']

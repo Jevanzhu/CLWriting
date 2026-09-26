@@ -22,7 +22,7 @@ import { isProcessAlive } from './process-alive.js'
 
 interface AtomicWriteOptions {
   /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 true
-   *  （数据安全优先——此前默认 false，崩溃/断电下 rename 元数据未落盘会丢
+   * （数据安全优先——此前默认 false，崩溃/断电下 rename 元数据未落盘会丢
    *  整个文件）。高频低价值写（诊断/心跳类）可显式传 false 关闭换吞吐。 */
   fsync?: boolean
   /** 新建文件权限位（凭据类文件用 0o600——临时文件即按此 mode 创建后
@@ -47,7 +47,7 @@ interface RenameRetryOptions {
 
 /** EPERM/EBUSY 瞬时占用指数退避**单实现**——rmWithRetry /
  *  renameWithRetry（本文件）与 cross-process-lock.rmWithRetryQuiet 的三份手抄循环、
- *  两份 retryable 字面量收敛此处（接管面的退避缺口正是重复导致的视野遗漏）。
+ * 两份 retryable 字面量收敛此处（接管面的退避缺口正是重复导致的视野遗漏）。
  *  退避口径不变：3×50ms 指数，仅集合内错误码重试，其余确定性错误立即终局。 */
 const RETRYABLE_FS_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY'])
 
@@ -58,7 +58,7 @@ export function fsBackoffSleep(ms: number): void {
 
 /** 参数化退避核心。onExhausted 缺省上抛（throwing 壳语义）；传入则按消费
  *  语义收口（Quiet 壳 warn 后吞，返回值不使用）。
- *  0918修复批（B009）：退避留痕——同步 Atomics.wait 静默睡对作者零感知，
+ * 退避留痕——同步 Atomics.wait 静默睡对作者零感知，
  *  单次操作累计退避 ≥ BACKOFF_TRACE_MIN_MS（即默认档进入第 2 档 50+100ms）时按
  *  trace 上下文 log.warn 一次（操作名/目标路径/累计耗时；路径口径与本文件既有
  *  fs warn 一致不额外脱敏）。只加留痕，退避本身逐位不变；不传 trace 零变化
@@ -72,11 +72,11 @@ export function retryOnTransientFsError<T>(
     retries: number
     baseDelayMs: number
     /** 耗尽后的收口语义：缺省（undefined）上抛；传 null 显式表达「调用方不需要返回值」
-     *  ——Q8P-2（1.0 前质量债批）：原签名用 `return undefined as T` 给泛型撒谎，唯一
+     * ——Q8P-2（1.0 前质量）：原签名用 `return undefined as T` 给泛型撒谎，唯一
      *  的 onExhausted 调用方（rmWithRetryQuiet）本就丢弃返回值；现把「吞掉并返回
      *  undefined」的关系写进类型，编译器可拦「拿返回值」的误用。 */
     onExhausted?: ((e: unknown) => void) | null
-    /** B009：留痕上下文（操作名 + 目标路径）。缺省不留痕。 */
+    /** 留痕上下文（操作名 + 目标路径）。缺省不留痕。 */
     trace?: { op: string; target: string }
   },
 ): T | undefined {
@@ -111,7 +111,7 @@ export function retryOnTransientFsError<T>(
 }
 
 /** Q8P-2：同目录 tmp 写入 + fsync + close 单点——atomicWriteFile 与 createFileExclusive
- *  两处逐字重复的块收编（改一处漏一处即两条写路径落盘保证分叉）。 */
+ * 两处逐字重复的块收编（改一处漏一处即两条写路径落盘保证分叉）。 */
 function writeTmpFile(tmpPath: string, data: string | Uint8Array, mode: number | undefined, doFsync: boolean): void {
   if (doFsync) {
     // 显式 open + write + fsync + close：内容落盘后再 rename
@@ -144,16 +144,16 @@ export function rmQuietly(path: string, opts?: { rm?: (p: string) => void }): vo
 }
 
 /** /19：删除数据文件的 EPERM/EBUSY 小退避重试——renameWithRetry
- *  收编了 rename 面，rm 面此前只有两个「放弃型」原语：rmQuietly（不重试、
+ * 收编了 rename 面，rm 面此前只有两个「放弃型」原语：rmQuietly（不重试、
  *  静默，面向可残留自愈的 tmp）与 cross-process-lock 的 rmWithRetryQuiet（重试后
  *  静默放弃 + 锁文件清扫文案）。「确实要删」的删源点（回收站还原删 .trash 源/
  *  伏笔归档清理/永久删）瞬时锁下静默放弃会留不可回收的孤儿残迹或误报成功，需要
  *  退避后仍失败**上抛**的变体：交调用方既有错误收口（WRITE_ERROR 信封等），语义
  *  与该调用点裸 rmSync 时代完全一致，仅消掉毫秒级瞬时占用直败。退避口径与
  *  renameWithRetry 同款（3×50ms 指数退避，仅 EPERM/EBUSY 进重试，ENOENT 等确定性
- *  错误立即上抛）。rm/sleep 可注入（测试用，不动生产语义）。
+ * 错误立即上抛，不做无意义等待。rename/sleep 可注入（测试用，不动生产语义）。
  *
- *  （四十二轮挂账 → 收编）：recursive 档——目录树删源点（回收站
+ * recursive 档——目录树删源点（回收站
  *  purge 版本目录连删）同享退避。为 true 时默认 rm 换 rmSync({ force, recursive })，
  *  rm 注入口优先级不变（注入即完全接管，测试语义不动）；缺省非递归形态原样保留
  *  （目录传入恒 EISDIR 上抛，防误用既有防线）。 */
@@ -170,7 +170,7 @@ export function rmWithRetry(
   const doRm =
     opts?.rm ?? ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
   // 退避循环收编 retryOnTransientFsError 单实现（口径不变：3×50ms 指数，
-  // 仅 EPERM/EBUSY 重试，其余上抛）；B009：带留痕上下文
+  // 仅 EPERM/EBUSY 重试，其余上抛）；带留痕上下文
   retryOnTransientFsError(() => doRm(path), {
     sleep: opts?.sleep ?? fsBackoffSleep,
     retries: opts?.retries ?? 3,
@@ -182,7 +182,7 @@ export function rmWithRetry(
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
   // 退避循环收编 retryOnTransientFsError 单实现（同 rmWithRetry 注）；
-  // B009：带留痕上下文
+  // 仅 EPERM/EBUSY 重试，其余上抛）；带留痕上下文
   retryOnTransientFsError(() => doRename(from, to), {
     sleep: opts?.sleep ?? fsBackoffSleep,
     retries: opts?.retries ?? 3,
@@ -193,7 +193,7 @@ export function renameWithRetry(from: string, to: string, opts?: RenameRetryOpti
 
 /** 同目录临时文件 + rename，避免 JSON/manifest 中断后留下半截目标文件。
  *
- *  - `fsync: true`（默认）：fsync 临时文件（内容落盘）+ 父目录（rename 元数据
+ * - `fsync: true`（默认）：fsync 临时文件（内容落盘）+ 父目录（rename 元数据
  *    落盘）——数据安全优先，防崩溃/断电丢整个文件。Windows 等不支持 fsync 目录的
  *    平台，目录 fsync best-effort 忽略（文件内容已落盘，元数据靠 rename 原子性兜底）。
  *  - `fsync: false`：显式关闭（高频低价值写——诊断日志/心跳类，丢一次无妨，换吞吐）。 */
@@ -217,7 +217,7 @@ export function atomicWriteFile(filePath: string, data: string | Uint8Array, opt
  *  内存——调用方在回调内逐段 append（writeFileSync 直写 fd），落盘语义与 atomicWriteFile
  *  一致（同目录 tmp + fsync + rename + 目录 fsync，tmp 命名沿用 sweep 兼容模式）。
  *  回调抛错时清 tmp 不落半截目标。
- *  ：可选 publish 裁定——写入完成后、发布（rename）前回调一次，
+ * 可选 publish 裁定——写入完成后、发布（rename）前回调一次，
  *  返回 false 则删除 tmp 直接返回（不发布）。供「零成功产物不落盘」场景：调用方在
  *  回调里累计实际写出量，零产出时目标文件连空壳都不出现（此前会落一个空文件在盘）。 */
 export function atomicWriteStream(
@@ -338,7 +338,7 @@ export function linkOrRenameExclusive(src: string, dst: string): 'created' | 'ex
 /** fsync 目录（持久化 rename 的元数据变更）。
  *  POSIX 上 open 目录只读 + fsync；Windows 可 open 目录（只读句柄合法），但
  *  FlushFileBuffers 拒绝无写访问权的句柄——fsyncSync 抛 EPERM → best-effort 忽略。
- *  注释校正：原「Windows 不能 open 目录」与实测不符
+ * 注释校正：原「Windows 不能 open 目录」与实测不符
  *  （openSync(dir,'r') 成功，fsyncSync 才抛）。 */
 function fsyncDir(dir: string): void {
   let fd: number | undefined
@@ -367,7 +367,7 @@ function fsyncDir(dir: string): void {
       try {
         closeSync(fd)
       } catch {
-        // best-effort
+        // best-effort（文件内容已 fsync），抛出反而把已成功写入反转成假失败、诱发调用方
       }
     }
   }
@@ -375,26 +375,26 @@ function fsyncDir(dir: string): void {
 
 /** 崩溃残留 tmp 的命名模式（`.<name>.<pid>.<uuid>.tmp`）。
  *  带 mtime 年龄判据使用——见 sweepAbandonedTmpFiles。
- *  ：捕获组 1 = pid 段（紧贴 uuid 前的数字段）——sweep 据此做
+ * 捕获组 1 = pid 段（紧贴 uuid 前的数字段）——sweep 据此做
  *  持有进程存活探测，防误清他进程在途写。 */
 const ABANDONED_TMP_RE = /^\..+\.(\d+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 
 /** 进程存活探测——收编单源（原私抄同语义副本）；
- *  ：实现迁 fs/process-alive.ts，atomic↔lock 的文件级互引环就此消除。 */
+ * 实现迁 fs/process-alive.ts，atomic↔lock 的文件级互引环就此消除。 */
 
 /** 清扫 atomicWriteFile 崩溃残留的 tmp 文件（rename 前进程崩溃时 catch 清理
  *  不可达，`.<name>.<pid>.<uuid>.tmp` 永久留盘累积占空间）。
- *  （二十四轮 C 域）扩两件：① 陈锁清扫（`.lock` 分支——持有 pid 已死且超龄的
+ * 扩两件：① 陈锁清扫（`.lock` 分支——持有 pid 已死且超龄的
  *  跨进程锁文件，孤儿锁不再永久堆积）；② 递归跳过 .git/node_modules（纯空扫性能损耗）。
  *
  *  年龄门槛 5 分钟：原子写的 tmp 寿命是毫秒级（创建→rename 同步相邻），超龄可断定
  *  非他进程在途写——误删在途 tmp 会把对方写入变成 rename 失败，宁慢勿错。
- *  ：年龄门防不住 CLI/GUI 双进程下他进程的**长时间**大文件在途
+ * 年龄门防不住 CLI/GUI 双进程下他进程的**长时间**大文件在途
  *  写（超 5 分钟即误清）——tmp 命名自带 pid 段，pid 仍存活则永不清（进程在 = 写仍
  *  在途或将由其自身 catch 清理）；pid 已死才交给年龄门（无 pid 段/解析异常维持
  *  5 分钟年龄门原口径）。
  *  返回清除数（调用方留痕用）。best-effort：目录不可读/文件不可删逐项跳过。 */
-/** （二十四轮 C 域）：递归跳过表——.git（对象库成百上千文件）/ node_modules
+/** 递归跳过表——.git（对象库成百上千文件）/ node_modules
  *  （依赖树）只可能藏 tmp 于自身写入习惯之外，本仓原子写从不落位其间，纯空扫性能
  *  损耗；书内正文/工作区/.版本 照扫（atomicWriteFile 的 tmp 就落目标文件同目录）。 */
 const SWEEP_SKIP_DIRS = new Set(['.git', 'node_modules'])
@@ -428,7 +428,7 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       continue
     }
     if (!ent.isFile()) continue
-    // （二十四轮 C 域）：陈锁清扫——跨进程锁文件（{pid,bootTime} JSON 指纹）持有
+    // 陈锁清扫——跨进程锁文件（{pid,bootTime} JSON 指纹）持有
     // 进程已死且超龄时清掉：锁的正常生命周期由获取方 release/接管清理，但「锁的主人
     // （journal 等）已被 purge」后该锁再无获取者，孤儿锁永久堆积。判据三重收紧防误删：
     // ① 内容必须是合法锁指纹（{pid:正整数} JSON——作者手放的同名 .md/.lock 杂物不匹配
@@ -463,7 +463,7 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       rmSync(full, { force: true })
       removed++
     } catch {
-      /* 单项失败跳过（并发消失/权限） */
+      /* 单项失败跳过（并发消失/权限/半写不可解析） */
     }
   }
   return removed

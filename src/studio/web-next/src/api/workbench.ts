@@ -2,7 +2,7 @@ import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 import { bookUrl } from './url'
 
 // 工作台 HTTP 端点（细案 §2.2）。AI 类（spawn/outline）阻塞数十秒，调用方防重复提交。
-// （-0914）：原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
+// 原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
 // 代码；SSE 在 composables/useSse.ts，服务端另有同名的 SSE 文件）——更名 api/workbench.ts，
 // 全仓导入随批改指（含 22 个测试文件的 mock 路径）。
 
@@ -24,12 +24,12 @@ export interface BookState {
    *  且此后未再开批 → 提示从哪章续起；重新开批服务端即清 */
   batchPause?: { atChapter: number; reason: string; detail: string }
   /**
-   * （b 修复批）：态 1 崩溃 pending 的 opId 清单透出位
+   * 态 1 崩溃 pending 的 opId 清单透出位
    * （对应 crashedWrite 体检项 files 字段，journal findUnsettled 的未结算 save pending）。
-   * 服务端 /state payload 组装处（studio/server/api/state.ts）已透出该字段（修复批），
+   * 服务端 /state payload 组装处（studio/server/api/state.ts）已透出该字段，
    * WbStateCard 忽略按钮与 WorkbenchView acknowledge 链已消费；字段缺省/空数组时按钮不渲染。
    * opId 即 POST /journal/:opId/acknowledge 的路径参数。
-   * （修复批）：过期现状注释修账——原文误记「服务端尚未透出、
+   * 过期现状注释修账——原文误记「服务端尚未透出、
    * 前端先行接线」，实际服务端已透出且两端已消费。
    */
   crashedPendingOpIds?: string[]
@@ -55,7 +55,7 @@ export async function spawnRole(
 }
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）。
-// 0918修复批（E004）：服务端实际返回 {ok, interrupted}（interrupted=false = 当前
+// 服务端实际返回 {ok, interrupted}（interrupted=false = 当前
 // 没有在途生成）——原签名丢弃返回体，消费点无法区分「已中断」与「本来就没在跑」，
 // 后者此前误导性提示「已中断」。
 export async function interrupt(name: string): Promise<{ ok: boolean; interrupted: boolean }> {
@@ -84,7 +84,7 @@ export async function autoWrite(
   )
 }
 
-// POST /journal/:opId/acknowledge → {ok, acknowledged}。（c 服务端批
+// POST /journal/:opId/acknowledge → {ok, acknowledged}。（
 // 落端点，本批前端接线）：崩溃 save pending 的人工确认通道——对该 pending appendAborted，
 // 使其不再报 crashedWrite「可能丢字」。幂等：opId 已 settled/不存在/重复确认 →
 // acknowledged:false（确认动作可安全重复点击）；命中 pending → true。
@@ -111,7 +111,7 @@ export async function saveDraft(name: string, chapter: number, content: string):
   })
 }
 
-// GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单，随 spawn 回传）
+// GET /draft-prompt?chapter= → {prompt, files}（files = 注入源清单随 spawn 回传）
 export async function getDraftPrompt(name: string, chapter: number): Promise<{ prompt: string; files?: string[] }> {
   return apiJson(`${bookUrl(name, 'draft-prompt')}?chapter=${chapter}`)
 }

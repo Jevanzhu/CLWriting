@@ -65,9 +65,9 @@ export function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): vo
 
 /** （导出供测试直测解析口径）child 输出 → 行切分。
  *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。
- *  onError：流 'error' 事件回调（——原先空回调静默吞零留痕），
+ * onError：流 'error' 事件回调（原先空回调静默吞零留痕），
  *  缺省维持静默吞（不反噬调用方，转发尽力而为语义不变）。
- *  ：返回切分器句柄——exit 冲刷接口见 flush，接线见 forwardChildStdio。 */
+ * 返回切分器句柄——exit 冲刷接口见 flush()，接线见 forwardChildStdio。 */
 interface LineSplitter {
   /** 强制冲刷残留缓冲的半行（无换行尾行）：子进程 exit 路径调用一次，弃缓冲。
    *  幂等（缓冲已空再调无产出）；冲刷后残余 data 到达照常累积（极窄竞态窗，尽力而为）。 */

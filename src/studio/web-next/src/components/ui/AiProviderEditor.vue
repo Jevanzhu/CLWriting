@@ -55,7 +55,7 @@ const form = ref(
 /** 模型行草稿（ModelListEditor 双向；挂载由 initial?.models 回填） */
 const modelDrafts = ref<ModelRowDraft[]>(dtoToModelDrafts(props.initial?.models))
 
-// nano ：编辑卡非法 key 此前无就地反馈——模板 `keyError && !initial`
+// nano：编辑卡非法 key 此前无就地反馈——模板 `keyError && !initial`
 // 把提示整体挡在编辑卡外。对齐 RagProviderEditor 同场景口径：编辑留空 = 保留原 Key（合法
 // 不报错），填了非法值（请求头/环境行、非可打印 ASCII 等）就地提示；父层 AiServicePanel.save
 // 的校验与写入职责不变，此处纯补前端反馈面（行为闭环）。
@@ -96,7 +96,7 @@ function submit(): void {
   })
 }
 
-// ── 价格表：自包含小节——独立端点独立保存（价格不影响连通性，
+// ──价格表：自包含小节——独立端点独立保存（价格不影响连通性，
 //    不与主表单保存/expectedRevision 耦合）；仅编辑卡显示 ──
 const pricingForm = reactive({
   inputPerMTok: props.initial?.pricing?.inputPerMTok?.toString() ?? '',
@@ -187,7 +187,7 @@ async function savePricing(clear = false): Promise<void> {
         :placeholder="initial ? '不改则保留原 Key' : '粘贴你的 API Key'"
         class="text-input"
       />
-      <!-- nano ：去掉 !initial 门——编辑卡非法 key 就地反馈
+      <!-- nano：去掉 !initial 门——编辑卡非法 key 就地反馈
            （留空仍合法，由 keyError computed 守卫），形态对齐 RagProviderEditor -->
       <span v-if="keyError" class="key-error">{{ keyError }}</span>
       <!-- （RC 全项目）：原「vault 加密」为失真断言——保护强度单源见 src/desktop/os-kek.ts（钥匙串通道搁置开关 OS_KEK_SHELVED）与 src/ai/provider/vault-key.ts（混淆级自述），恢复 safeStorage 时须同步改回本行文案及 AiServicePanel 顶部告知段 -->
@@ -235,7 +235,7 @@ async function savePricing(clear = false): Promise<void> {
         <!-- 模型行编辑器（§7.1；探测自持：表单现值 → 勾选弹窗） -->
         <ModelListEditor :model-value="modelDrafts" :probe="probe" @update:model-value="onModelDrafts" />
 
-        <!-- 价格表：每百万 token 单价；配价后用量面板显示金额、预算可用 cost 口径 -->
+        <!--价格表：每百万 token 单价；配价后用量面板显示金额、预算可用 cost 口径 -->
         <div v-if="initial" class="pricing-block">
           <div class="pricing-title">
             价格表（每百万 token）
@@ -278,7 +278,7 @@ async function savePricing(clear = false): Promise<void> {
 
     <div class="form-actions">
       <button class="cancel-btn" @click="emit('cancel')">取消</button>
-      <!-- ：保存按钮在途禁用 + 文案反馈（同 :233 价格小节 saving 态口径） -->
+      <!-- 保存按钮在途禁用 + 文案反馈（同 :233 价格小节 saving 态口径） -->
       <button class="save-btn" :disabled="saving" @click="submit">{{ saving ? '保存中…' : '保存' }}</button>
     </div>
   </div>
@@ -287,7 +287,7 @@ async function savePricing(clear = false): Promise<void> {
 <style scoped>
 /* 表单骨架（.form/.form-row/.text-input/.key-error/胶囊按钮）用 providers.css 共享类。 */
 /* 凭据状态点：hasKey 来自服务端 vault 存在性推导，不依赖明文字段 */
-/* .key-stored 收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
+/* .key-stored 收敛至全局 styles/utilities.css（重体，声明逐字未改） */
 /* 下拉借用 .text-input 的盒子；原生箭头丑且贴边 → 去原生外观自绘浅灰箭头（与档位下拉同语言）。
  * 双类名提权：压过 .text-input 的 background 简写（简写会把 background-image 重置为 none） */
 .select-input.select-input {

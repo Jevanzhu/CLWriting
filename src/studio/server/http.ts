@@ -4,7 +4,7 @@ import { redactSecret } from '../../ai/provider/redact.js'
 
 const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
-/** （Opus-5.5 轮）：带正文的写端点专用上限——默认 1MB 档对「200 万字」
+/** 带正文的写端点专用上限——默认 1MB 档对「200 万字」
  *  级正文远不够（中文 UTF-8 ≈3 字节/字，约 34 万字即撞 1MB → 413），而读取/编辑两侧
  *  无上限、前端 dirty-mirror 还专为 >1M 字符文档设了节流档——前后端规模假设原不一致：
  *  作者导入整本旧稿（>35 万字）后可开可编辑、却永远存不上，autosave 每拍重传整文再失败，
@@ -13,7 +13,7 @@ const JSON_BODY_LIMIT_BYTES = 1024 * 1024
  *  仅正文类端点使用：documents content PUT / documents POST（建文带 content）/ file PUT。 */
 export const CONTENT_BODY_LIMIT_BYTES = 16 * 1024 * 1024
 
-/** （十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
+/** 413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
  * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
 const PAYLOAD_GRACE_MS = 1500
 
@@ -51,7 +51,7 @@ export function isClientAbort(e: unknown): e is ClientAbortError {
 }
 
 export function reply(res: ServerResponse, status: number, body: unknown): void {
-  // （修复批）：API 成功响应此前无 nosniff——静态面已统一、
+  // API 成功响应此前无 nosniff——静态面已统一、
   // JSON API 面漏网（MIME 嗅探防线不全）。统一补齐后全部响应头（静态/API/SSE）收口
   // 同一防线。
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
@@ -82,7 +82,7 @@ export function replyError(
   // 收进本出口后所有非 2xx error 文本一律过 redactSecret（幂等：已脱敏文本再过
   // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据模式不受影响）
   const safeError = redactSecret(error)
-  // （修复批）：同 reply——错误信封统一补 nosniff
+  // 同 reply——错误信封统一补 nosniff
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify({ code, error: safeError, ...(extra ?? {}) }))
 }
@@ -93,7 +93,7 @@ export function replyHttpError(res: ServerResponse, e: HttpError): void {
 }
 
 /** 常量时间 token 比较，防 timing attack。
- *  0918二轮修复批（D102，二轮 高价值硬化）：原实现长度不等提前 return
+ * （高价值硬化）：原实现长度不等提前 return
  *  false——比较耗时与期望值长度相关，向攻击者泄露 secret 长度时序信号（当前 token
  *  恒 UUID 定长无实害，但本原语被 index.ts 写闸与 stream.ts SSE 凭据闸三处复用，按
  *  原语级硬化）。现两侧各先 SHA-256 摘要成 32 字节定长再 timingSafeEqual：长度信道
@@ -120,7 +120,7 @@ export function urlPathOnly(url: string | undefined): string {
  *  relative 解析锚（pathname 提取不受 host 拼写影响），统一常量仅为消漂移点。 */
 export const URL_PARSE_BASE = 'http://localhost'
 
-/** req.url → URL 的统一安全解析（/口径收编）。llhttp 接受
+/** req.url → URL 的统一安全解析（口径收编）。llhttp 接受
  *  absolute-form 等畸形请求行（如 `GET http://[bad HTTP/1.1`），new URL 抛 TypeError
  *  ——各 handler 此前六处裸调各管各。畸形 URL 返 null，调用方回 400 BAD_INPUT 信封
  *  （与 static.ts 同款）。 */
@@ -190,7 +190,7 @@ export function readJson(
         clearIdle() // 413 后计时职责移交排空宽限，闲置 destroy 不得再插手
         req.removeAllListeners('data')
         req.resume()
-        // （十五轮登记销账）：排空只是让 413 响应先刷出的宽限，不是义务接收——
+        // 排空只是让 413 响应先刷出的宽限，不是义务接收——
         // 慢速发送方可长期 dribble 数据占住 socket/FD。宽限到点强制 destroy：本地
         // 回环 413 亚毫秒级已送达，之后断连属预期收口；正常客户端到此早已 end
         // （close 即清定时器，不误伤）。graceMs 可注入，测试用小值保快。

@@ -22,7 +22,7 @@ import { SECTION_SPECS, renderScalar, type ConfigKeySpec } from './yaml-spec.js'
  * 文本级补丁：替换或追加一个顶层段。
  *
  * 读改写场景（历史生产例 enableRag 已删，现存直接消费面为补丁族测试）不能走
- * stringifyBookConfig 全量重生成——解析模型只保
+ * 读改写场景不走 stringifyBookConfig 全量重生成（解析模型只保已知字段，作者的 #
  * 已知字段，作者的 # 注释、未知段、未知子键会静默丢失。此函数只重写目标段的
  * 行区间，区间外的原文（含注释与未知内容）逐字保留。
  *
@@ -36,7 +36,7 @@ import { SECTION_SPECS, renderScalar, type ConfigKeySpec } from './yaml-spec.js'
  *  / （win 平台专项）双线同旨合并：再补行首 BOM 剥除
  *  （只剥一次）——文件首键行带 UTF-8 BOM（\uFEFF，记事本「UTF-8 with BOM」保存形态）
  *  时段定位同样失明、误走追加分支造重复段/重复键（下次解析撞 fail-loud 重复守卫，
- *  全书配置降级默认；读侧先例；调用方均为 findIndex 直吃 raw 原文，上游无
+ * 全书配置降级默认；读侧先例；调用方均为 findIndex 直吃 raw 原文，上游无
  *  统一剥除点，故在本函数收口）。 */
 function matchesKeyLine(line: string, key: string): boolean {
   const noBom = line.startsWith('\uFEFF') ? line.slice(1) : line
@@ -50,8 +50,8 @@ function matchesKeyLine(line: string, key: string): boolean {
  * （matchesKeyLineCRLF + topSectionSpan + 段内最小缩进循环）四处逐字重复
  * 「段头扫描 + 段尾扫描 + 段体最小缩进」骨架；现收编本函数，四处改薄壳/委托。
  *
- * 定位边界语义逐位保留（含 / 修复语义）：
- * - 段头：matchesKeyLine——剥行首 BOM（只一次，/）与行尾 \r（CRLF
+ * 定位边界语义逐位保留（含修复语义）：
+ * - 段头：matchesKeyLine——剥行首 BOM（只一次）与行尾 \r（CRLF
  *   容忍）后全等 `key:` 或前缀 `key: `；
  * - end = 下一个顶层 key（非缩进、非注释、非空行）之前；段到文件尾 = lines.length；
  * - childIndent = 段体内容行（非空、非注释）最小缩进；段体无内容行 = -1。
@@ -90,7 +90,7 @@ export function locateTopSection(lines: readonly string[], section: string): Top
 }
 
 export function patchTopSection(raw: string, section: string, body: string): string {
-  // 平台规范化批输出规范形——MP2-4 的「新行随原文行尾」语义
+  // 平台规范化批输出规范形——的「新行随原文行尾」语义
   // 随规范形拍板翻转；未触碰行原样保留（含注释），其 CRLF 残尾随整输出归一剥除。
   const lines = raw.split('\n')
   const span = locateTopSection(lines, section) // 段定位委托单源
@@ -132,7 +132,7 @@ export function patchTopSection(raw: string, section: string, body: string): str
  * 罕见带注释，接受；整段保注释的目标由「其余行不动」达成）。
  */
 export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
-  // 平台规范化批：输出规范形（LF）——MP2-4 行尾保真语义翻转（patchTopSection 同款）
+  // 平台：输出规范形（LF）——行尾保真语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
   const span = locateTopSection(lines, section) // 段定位委托单源
   const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
@@ -149,7 +149,7 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
     return canonicalizeText(lines.join('\n'))
   }
   const pad = ' '.repeat(childIndent)
-  // 键行匹配剥 \r（上方 matchesKeyLine 同口径，同族）——CRLF book.yaml 的
+  // 键行匹配剥 \r（上方 matchesKeyLine 同口径同族）——CRLF book.yaml 的
   // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」，替换走插入分支残留
   // 旧块成重复段
   const isKeyLine = (l: string): boolean => {
@@ -186,7 +186,7 @@ export function setSectionKeyBlock(
   keyLine: string | null,
   blockLines: string[] = [],
 ): string {
-  // 平台规范化批：输出规范形（LF）——MP2-4 同族连带语义翻转（patchTopSection 同款）
+  // 平台：输出规范形（LF）——同族连带语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
   const span = locateTopSection(lines, section) // 段定位委托单源
   if (!span) {
@@ -199,7 +199,7 @@ export function setSectionKeyBlock(
   const { start, end, childIndent } = span
   const pad = ' '.repeat(childIndent === -1 ? 2 : childIndent)
   if (childIndent !== -1) {
-    // 键行匹配剥 \r（上方 matchesKeyLine 同口径，同族）——CRLF book.yaml 的
+    // 键行匹配剥 \r（上方 matchesKeyLine 同口径同族）——CRLF book.yaml 的
     // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」：删除模式静默丢改
     // （原样返回）、替换模式在段头后再插一份残留重复块
     const isKeyLine = (l: string): boolean => {
@@ -230,7 +230,7 @@ export function setSectionKeyBlock(
 
 /** 顶层标量键（spec_version/kind/host）的替换/删除/插入（无缩进，含锚定插入） */
 function setTopScalarKey(raw: string, key: string, line: string | null): string {
-  // 平台规范化批：输出规范形（LF）——MP2-4 同族连带语义翻转
+  // 平台：输出规范形（LF）——同族连带语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
   const idx = lines.findIndex((l) => matchesKeyLine(l, key))
   if (idx !== -1) {
@@ -253,8 +253,8 @@ interface ConfigPatchLeaf {
 }
 
 // 补丁白名单改 schema 表派生（有 get 的键行即补丁叶，
-// 派生序 = 表序 = 历史 stringifyBookConfig 落行序）。历史两次漏登事故（++
-// 双口径/开关/深度键、机检阈值五键：parse/stringify 已收而白名单漏登，
+// 派生序 = 表序 = 历史 stringifyBookConfig 落行序）。历史两次漏登事故（
+// 双口径/开关/深度键机检阈值五键：parse/stringify 已收而白名单漏登，
 // PUT /config 改这些键会静默不落盘）自此结构性杜绝——parse 收的键表里必有行。
 // leads.thresholds 动态映射无叶键 get（patchBookConfigText 特例块处理）。
 // 派生结果与历史手写登记表逐行等价（无新增/删减），yaml-schema-snapshot 快照锁。

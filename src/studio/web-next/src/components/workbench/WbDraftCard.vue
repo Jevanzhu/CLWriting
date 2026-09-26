@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 工作台生成正文卡（巨石批 7a 拆分，默认主区：作者看到的是文章，不是事件日志）。
+// 工作台生成正文卡（7a 拆分默认主区：作者看到的是文章，不是事件日志）。
 // 正文与字数读 workbench store；「存草稿并编辑」动作与 draftSaved 提示态留在父层
 // （切 tab 重挂不丢已存提示，行为与拆分前一致）。
 import { ref, watch, onBeforeUnmount } from 'vue'
@@ -14,7 +14,7 @@ defineProps<{
   saving?: boolean
   /** 生成中：genBusy（本地在途锁 + wb.running）时禁存——流式生成中
    *  textOut 是半章残稿，此前按钮不查 running，可存残稿并切离工作台；入口兜底闸在父层
-   *  onSaveDraft（不完整水印的既有双保险口径） */
+   * onSaveDraft（不完整水印的既有双保险口径） */
   genBusy?: boolean
 }>()
 const emit = defineEmits<{ save: [] }>()
@@ -24,10 +24,10 @@ const wb = useWorkbenchStore()
 // 插值同帧）；改 150ms 防抖（EditorView wordCount 同款先例），与流式渲染解耦。
 // textOut 为裸生成文本（无 fm），stripFm:false
 const { count: draftWords } = useDebouncedWordCount(() => wb.textOut, undefined, { stripFm: false })
-// 四轮-E401：流式正文 <pre> 的 150ms trailing debounce 尾沿去抖渲染——store 每 text 事件整体拼接
+// 流式正文 <pre> 的 150ms trailing debounce 尾沿去抖渲染——store 每 text 事件整体拼接
 // textOut，<pre> 全量插值直连时每事件一次全文 DOM 排版（一章流式长到 N 字累计
 // O(N²/chunk)，同帧还叠加 draftWords 重算与事件流渲染，token 级小 chunk 下与布局争帧）。
-// 对齐 useDebouncedWordCount 同款 150ms 档位：本地 rendered ref 仅在静默 150ms
+// 对齐 useDebouncedWordCount同款 150ms 档位：本地 rendered ref 仅在静默 150ms
 // 后取最新值渲染（trailing 保证最终一致——最后一次追加必被渲染）；初值取挂载当拍
 // textOut（重挂/切 tab 回来即见既有草稿）。文本安全性不变（仍插值，无 v-html）；
 // store 聚合侧不动；按钮禁用判据仍直连 wb.textOut（保存口径不受渲染节流影响）。
@@ -57,12 +57,12 @@ onBeforeUnmount(() => {
       <span>生成正文 <BetaBadge /></span>
       <span class="muted">{{ draftWords }} 字</span>
     </div>
-    <!-- 四轮-E401：渲染走 150ms trailing 尾沿去抖的 rendered（见 script 注），不再每 text 事件全文重排 -->
+    <!-- 渲染走 150ms trailing 尾沿去抖的 rendered（见 script 注），不再每 text 事件全文重排 -->
     <pre class="draft-preview">{{ rendered || '（无正文，点「生成」开始）' }}</pre>
     <div class="draft-actions">
-      <!-- ：断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因；
-           ：存草稿在途同样禁存（父层在途锁）；
-           ：生成中（genBusy）禁存——半章残稿不得落盘 -->
+      <!-- 断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因；
+：存草稿在途同样禁存（父层在途锁）；
+：生成中（genBusy）禁存——半章残稿不得落盘 -->
       <button
         class="btn primary"
         :disabled="!wb.textOut.trim() || wb.textIncomplete || saving || genBusy"

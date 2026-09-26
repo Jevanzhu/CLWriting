@@ -42,8 +42,8 @@ const leadUpdateQueues = new Map<string, Promise<unknown>>()
 // 写主文件）套按书跨进程锁（原语）——AI 生成段（数十秒）不持锁，锁只盖毫秒级文件
 // 变更段；拿不到锁降级裸跑 + warn 留痕（与 journal appendLine 同款取舍：生成一次成本
 // 高，不因锁等待把整次生成作废）。
-/** 锁等待档（毫秒）—— 口径：const 导出 + 内部可变生效值 + 测试注入钩子
- *  （`export let` 违反全仓口径改 const；：锁等待异步化——调用方
+/** 锁等待档（毫秒）——口径：const 导出 + 内部可变生效值 + 测试注入钩子
+ * （`export let` 违反全仓口径改 const；锁等待异步化——调用方
  *  generateLeadUpdateDraft 本就 async，Atomics.wait 微睡不再冻结事件循环）。 */
 const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
 
@@ -68,7 +68,7 @@ async function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): Promise<T> 
 /**
  * 右端：生成并落盘 账本推进.md（AI 草拟）。
  * 端点与 self-heal 写稿完成后共用：读本章正文 + 细纲声明 + 进行中账本 → AI 声明实际履历行
- * → 解析过滤（存量编号 + 合法动词）→ 写 工作区/账本推进.md。
+ * → 解析过滤（存量编号 + 合法动词表）→ 写 工作区/账本推进.md（作者在编辑器确认/修改
  *
  * @param signal ：外部中断信号（self-heal 编排级 / chat 工具层）——
  *               生成随调用方中断同步中止；端点直调（无可中断语境）缺省不传。
@@ -161,7 +161,7 @@ async function generateLeadUpdateDraftInner(
       } catch (e) {
         log.warn('lead-update-draft', `账本推进覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
       }
-      // 平台规范化批：拼装内容规范形写（updates 的证据段源自库内文本，可能携 \r 残尾）
+      // 平台：拼装内容规范形写（updates 的证据段源自库内文本，可能携 \r 残尾）
       atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), canonicalizeText(content))
     })
   } catch (e) {
@@ -195,14 +195,14 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   if (tag === forChapter) return
   const dir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   mkdirSync(dir, { recursive: true })
-  // MP2-3（专项二轮修复批）：归档 rename 收编 renameWithRetry——win 瞬时锁
+  // 归档 rename 收编 renameWithRetry——win 瞬时锁
   // （EPERM/EBUSY）退避后再失败仍上抛（调用方 WRITE_ERROR 可重试，语义不变）
   const standardDst = join(dir, `第${tag}章.md`)
   if (!existsSync(standardDst)) {
     renameWithRetry(file, standardDst)
     return
   }
-  // 0914 标准名已存在时原落时间戳变体——但两读侧（check/run.ts 批量
+  // 标准名已存在时原落时间戳变体——但两读侧（check/run.ts 批量
   // 预扫 `^第(\d+)章\.md$` 与 lead-updates.chapterUpdateSources 精确路径）均只认标准
   // 名，第二代归档对两端闭合判定与 finalize 回写完全不可见（声明静默失联：闸不查、
   // 定稿不回写）。改为读旧档 + 按（编号,动词）归并重写标准名：同键新声明覆盖旧（与

@@ -1,4 +1,4 @@
-// cost-stats 客户端（批 5 / 批 4 渲染）：配价书金额聚合；未配价 enabled:false。
+// cost-stats 客户端（渲染）：配价书金额聚合；未配价 enabled:false。
 import { apiJson } from './client'
 import { bookUrl } from './url'
 

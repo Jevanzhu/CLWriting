@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 右侧栏：顶部 tab 条（M12 .5：信息/审阅/机检/分析）+ 按 tab 切上半面板
+// 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
 import { computed, ref } from 'vue'
 import { Info, Eye, CheckCheck, PanelRightClose } from 'lucide-vue-next'
@@ -92,7 +92,7 @@ const historyOpen = ref(true)
       </div>
     </div>
     <div class="right-body">
-      <!-- 信息 tab：写作信息 + 章节表单 + AI 分析（折叠分区；v-model:open 受控 = 折叠态跨卸载保持） -->
+      <!-- 信息 tab：写作信息 + 章节表单 + AI 分析（折叠分区；v-model:open 受控 =折叠态跨卸载保持） -->
       <template v-if="ws.rightTab === 'info'">
         <CollapseSection v-if="ws.activeDocId" v-model:open="infoOpen" :title="sectionTitle">
           <div class="info-stack">
@@ -143,7 +143,7 @@ const historyOpen = ref(true)
   gap: var(--size-4-1);
 }
 /* .right-topbar.is-drag 拖窗体收敛至全局 styles/utilities.css（声明逐字未改） */
-/* （win 体验面，修正）：右栏打开时本栏贴窗口右上角，右侧 tab 组让位
+/* （win 体验面修正）：右栏打开时本栏贴窗口右上角，右侧 tab 组让位
  * WCO 系统窗控。让位作用在 .right-tabs 的 margin-right（而非容器 padding-right 挤压：
  * 原 padding 挤压在窄右栏下会把内容区挤爆、tab 溢出探进窗控下方——实测重叠 10px，
  * 见 CDP 量化；margin 让位保持容器背景满铺、窗控盖于其上无异常，仅把 tab 组推到

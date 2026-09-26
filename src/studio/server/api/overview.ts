@@ -10,7 +10,7 @@
  * 注释如实化：此前本文件注释给人「已缓存/无阻塞」的整体印象，实态是
  * 只有 state 判定有缓存——timeline（逐章 statSync 按日聚合）/ progress（readChapterDir
  * 全书扫描）/ recentDoc（再扫一遍正文目录）均无缓存、每请求全量算；卷列表 listVolumes
- * 只扫一层目录（轻，非全书）。 起 timeline/progress 改走逐块让出的 async 扫描
+ * 只扫一层目录（轻，非全书）。起 timeline/progress 改走逐块让出的 async 扫描
  *（statSync 循环每 25 章让出一次，原语共享 progress.ts），大书聚合期间其它请求/SSE
  * 心跳可跑；但 readChapterDir 扫描段本身仍是单段同步（内核不在本批边界，热路径有
  * stat 级元数据缓存兜住，冷路径变更章整读仍属该段）。投影缓存归批，
@@ -35,7 +35,7 @@ import { detectState, STATE_NAMES, type DetectedState } from '../../../state/sta
 import { trackInFlightWork } from './in-flight-work.js' // rebuild Worker 退出收尾登记
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存壳单源
-import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
+import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 
 interface OverviewCtx {
@@ -54,9 +54,9 @@ interface OverviewCtx {
 // 落缓存，TTL 内数据已修复的后续请求也被假空态挡住（缓存了「失败」而非「结果」）。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
 
-// ── 概览整包短缓存 ──────────────────────────────────────────
+// ──：概览整包短缓存 ──────────────────────────────────────────
 // 同族端点（search/tree-issues/analysis-overview/version-stats/rhythm/foreshadows）
-// 的「目录指纹 + TTL」缓存壳此前唯 overview 漏网（注释「缓存归 批，
+// 的「目录指纹 + TTL」缓存壳此前唯 overview 漏网（注释「缓存归
 // 勿在此引入」——该批未落地，本轮收口）：每次开/刷新总览页三路全书扫描（timeline
 // 逐定稿章 statSync + progress 正文目录扫 + recentDoc 再扫正文目录取章号最大），
 // 2000 章 ≈单请求 3 次目录扫 + ~2000 次 stat。口径对齐 rhythm.ts：stat 指纹
@@ -113,8 +113,8 @@ export const overviewCache = createTtlProbeCache<string, OverviewCompute>({
   storeIf: (v) => v.stateOk && !v.missingYamlPath,
 })
 
-/** state 判定结果短时缓存（detectState 内部全量 rebuild index.db）。：只有
- * 成功路径落缓存——由「计算体抛错即不落缓存」承担；原无 过期逐出行，
+/** state 判定结果短时缓存（detectState 内部全量 rebuild index.db）。只有
+ * 成功路径落缓存——由「计算体抛错即不落缓存」承担；原无过期逐出行，
  *  特记 evictExpiredOnMiss:false（逐条核对后按原样保留）。 */
 const overviewStateCache = createTtlProbeCache<string, StateOutput>({
   name: 'overview-state',
@@ -135,7 +135,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
 
       const bookRoot = r.bookRoot
       // 整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描；过期条目
-      // 顺手逐出（同款）。：壳体收编 ttl-cache.ts
+      // 顺手逐出（同款）。壳体收编 ttl-cache.ts
       // 通用件（探针/命中判定/逐出/「成功态才落缓存」由通用件 + storeIf 承担，时序逐位
       // 不变；计算体闭包 ctx/entry，经 get(key, compute) 逐调用传入）
       // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入
@@ -146,11 +146,11 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
           // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——
           // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
-          // recover 合并失同步收口—— 正本契约与
+          // recover 合并失同步收口——正本契约与
           // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
           // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
-          // 真书档案；**损坏**（存在但解析失败）保持 口径 200 降级 + warn 留痕
-          // （回归钉），作者可见诊断、书不因局部损坏整体不可用。
+          // 真书档案；**损坏**（存在但解析失败）保持口径 200 降级 + warn 留痕
+          //（回归钉），作者可见诊断、书不因局部损坏整体不可用。
           const bookYamlPath = join(root, 'book.yaml')
           const cfgResult = readBookConfig(bookYamlPath)
           if (!cfgResult.ok) {
@@ -162,7 +162,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
           const kind = config.kind === 'short' ? 'short' : 'long'
 
-          // 状态机（自包含；失败降级 state:0）。：命中短时缓存则跳过全量 rebuild。
+          // 状态机（自包含；失败降级 state:0）。命中短时缓存则跳过全量 rebuild。
           // state 成功路径标记——降级态（catch state:0）不落整包缓存（
           //「不缓存失败」口径对整包内的 state 段同样适用）
           let state: StateOutput
@@ -265,7 +265,7 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
  * 保持全量口径（与历史行为一致）。
  * 原地异步化（模块私有、唯一调用方 handler 已 await）——statSync
  * 逐章循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环；readChapterDir/finalizedPathSet
- * 扫描段边界见文件头 注。聚合结果与同步实现逐位一致（回归锚以固定期望守护）。
+ * 扫描段边界见文件头注。聚合结果与同步实现逐位一致（回归锚以固定期望守护）。
  */
 async function computeTimeline(bookRoot: string, chapters: ChapterMeta[]): Promise<{ date: string; count: number }[]> {
   const files: string[] = []
@@ -292,7 +292,7 @@ async function computeTimeline(bookRoot: string, chapters: ChapterMeta[]): Promi
   return [...byDay.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/** 最近一章（按章号最大）—— 供总览页"继续写作"入口。：章列表由调用方单趟传入。 */
+/** 最近一章（按章号最大）—— 供总览页"继续写作"入口。章列表由调用方单趟传入。 */
 function getRecentDoc(bookRoot: string, chapters: ChapterMeta[]): { no: number; 标题: string; path: string } | null {
   if (chapters.length === 0) return null
   const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))

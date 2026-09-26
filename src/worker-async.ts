@@ -8,8 +8,8 @@
  * 四路先到者生效，settle 即 terminate 收线程）。各域差异全部参数化留在调用方：
  *  - 默认超时档（导出/重建 120s、扫描 60s）与域内 RunnerOptions 形态；
  *  - 超时/退出的用户可见文案（逐字节保真——io-export-worker 等既有测试钉值）；
- *  - 域语义组合不入壳：rebuild 的同 cachePath 单飞合并留在
- *    runRebuildAsync、扫描的 server 在途登记留在 runStyleScanAsync。
+ * - 域语义组合不入壳：rebuild 的同 cachePath 单飞合并留在
+ * runRebuildAsync、扫描的 server 在途登记留在 runStyleScanAsync。
  * 定位对齐 src/async.ts：跨域运行时原语的单源之家。
  */
 import { Worker } from 'node:worker_threads'
@@ -50,7 +50,7 @@ interface WorkerJobSpec {
 }
 
 /** fork Worker 并等其单条结果消息：成功/失败/超时/退出四路先到者生效（幂等 settle），
- *  其余路径跳过并 terminate 收线程。内存闸（run-async.ts 审计同款，
+ * 其余路径跳过并 terminate 收线程。内存闸（run-async.ts 审计同款，
  *  三域同档）：worker 堆上限 1GB——失控只顶 worker OOM（按既有 error 路径上抛），
  *  不再把主进程 RSS 顶到系统爆内存。结果类型<TResult>由调用方标注（worker 回包
  *  无运行时可验形状，与壳化前各域 `(r: TResult) =>` 同口径）。 */

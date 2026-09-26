@@ -8,7 +8,7 @@ import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
 
-// 全书搜索面板（细案 .7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
+// 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const doc = useDocStore()
@@ -20,7 +20,7 @@ const results = ref<SearchHit[]>([])
 const truncated = ref(false)
 const loading = ref(false)
 const err = ref<string | null>(null)
-// （修复批）：open 失败错误独立作用域——原先与搜索
+// open 失败错误独立作用域——原先与搜索
 // 错误共用 err，模板 `v-else-if="err"` 把整张结果列表替换成错误文案：结果已展示后单击
 // 某条 open 失败（文件被外部移动/锁定）会吞掉其余条结果的可见性（单条失败不该
 // 摧毁整个搜索会话）。openErr 只在列表上方追加提示行，列表维持渲染。
@@ -78,7 +78,7 @@ watch(
     err.value = null
     openErr.value = null
     runGen.invalidate() // 在途搜索响应作废（gen 对不上即弃；clear 型原 runGen++）
-    // /：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
+    // 切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位（迟到回填仍被查代挡住，不落结果）
     loading.value = false
   },
@@ -104,8 +104,8 @@ async function open(path: string): Promise<void> {
     if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
-    // -前端：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
-    // 原先零反馈，作者不知为何没反应。 ：改写 openErr 独立作用域
+    // 前端：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
+    // 原先零反馈，作者不知为何没反应。改写 openErr 独立作用域
     //（原写共享 err 会把整个结果列表顶替成错误文案），列表维持可见。
     openErr.value = friendlyError(e)
   }
@@ -124,7 +124,7 @@ async function open(path: string): Promise<void> {
     <div v-if="loading" class="hint">搜索中…</div>
     <div v-else-if="err" class="hint err">{{ err }}</div>
     <template v-else>
-      <!-- ：open 失败提示独立作用域——追加行而非顶替列表 -->
+      <!-- open 失败提示独立作用域——追加行而非顶替列表 -->
       <div v-if="openErr" class="hint err">{{ openErr }}</div>
       <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
@@ -140,14 +140,14 @@ async function open(path: string): Promise<void> {
           @click="open(hit.path)"
         >
           <div class="result-path">{{ hit.path }}</div>
-          <!-- ：命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
+          <!-- 命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
             行号在单文件命中列表内唯一；原索引 key 在结果更新时错位复用 DOM -->
           <div v-for="m in hit.matches.slice(0, 3)" :key="m.line" class="result-line">
             <span class="ln">{{ m.line }}</span>
             <span class="text">{{ m.text }}</span>
           </div>
-          <!-- （修复批）：命中行余量提示——原
-            slice(0,3) 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶）
+          <!-- 命中行余量提示——原
+ slice(0,3) 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶）
             时以「20+」区分服务端截断（真实总数未知，不虚报） -->
           <div v-if="hit.matches.length > 3" class="result-more">
             {{ hit.hasMore ? '还有 20+ 条' : `还有 ${hit.matches.length - 3} 条` }}

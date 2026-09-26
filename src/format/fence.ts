@@ -1,5 +1,5 @@
 /**
- * markdown 围栏行识别单源 —— 。
+ * markdown 围栏行识别单源 ——
  *
  * CommonMark fenced code blocks 口径：围栏行 = 0-3 空格缩进 + ≥3 个 ` 或 ~ 连写
  * （信息串可选）；4+ 空格缩进属 indented code block，不是围栏行。
@@ -25,7 +25,7 @@ export interface FenceLineMatch {
  * 判定一行是否 markdown 围栏行（``` / ~~~；0-3 空格缩进；CRLF 尾容忍——
  * 行尾残 \r 不破匹配，`.` 不匹配 \r 故信息串不含 \r）。非围栏行（含 4+ 空格缩进
  * 的 indented code block 内容）返回 null。
- * （GLM-5.3 修复批）：缩进字符收紧为纯空格——
+ * 缩进字符收紧为纯空格——
  * CommonMark 缩进只计空格（tab 按 4 列进 indented code block），原 `\s{0,3}` 把
  * tab 缩进的 ``` 行误判成围栏；tab 不再计入缩进容忍，口径钉死与规范一致。
  */

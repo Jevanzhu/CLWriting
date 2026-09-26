@@ -1,22 +1,22 @@
 /**
- * 字数与章名解析 —— 纯函数，零 Node 依赖（.1 抽离）。
+ * 字数与章名解析 —— 纯函数，零 Node 依赖（T2.1 抽离）。
  *
  * 从 format/chapters.ts 下沉，与服务端共用同一份口径；供 web-next 浏览器端 import
  * （chapters.ts 因 import node:fs 不可跨入浏览器）。chapters.ts re-export 本文件以保 API 不变。
  */
 
 /** 计算正文字数（中文按字符计，#7 第 2 节）：剥 markdown 标记后按字符计。frontmatter 由调用方先剥。
- *  口径备案：剥除集不含标点——对白密集章计数值系统性高于「汉字感」
+ * 口径备案：剥除集不含标点——对白密集章计数值系统性高于「汉字感」
  *  口径（实测可 +38%），但 _wordCount/短篇字数/字数曲线全链同源自洽，targetWords 为
  *  AI 语义给数（阈值留有弹性），维持现状不改口径（改口径需全链联动与存量曲线迁移）。
  *
- *  ：改单遍零分配计数——原 `[...body.replace(...)].length`
+ * （性能与内存专项·）：改单遍零分配计数——原 `[...body.replace(...)].length`
  *  两步全量分配（剥标记副本 + 码点数组；中文每字符独立 SeqTwoByteString，200 万字单次
  *  调用瞬时垃圾 ≈70-90MB，服务端保存链 ×2/次 + 前端每击键防抖后 1 次，为全链最高频
  *  内存抖动源）。口径逐位不变：剥除集 `[#>*_`~\-\[\]!\s]` 全部为 BMP 字符（\s 按
  *  ECMAScript 白名单全集展开为下方码点集），代理对按 1 码点计（原 `[...]` 码点迭代
  *  语义，含「高代理越过剥除字符与低代理拼对」的先剥后迭代并档行为与孤立代理各计 1
- *  的 ill-formed 行为）。等价性由 test/format/count-words-equivalence.test.ts 内嵌
+ * 的 ill-formed 行为）。等价性由 test/format/pm2-count-words-equivalence.test.ts 内嵌
  *  旧实现逐位断言钉死（200 轮混合模糊 + 大文档冒烟）。 */
 const STRIP_CODE_SET: ReadonlySet<number> = new Set<number>([
   0x23,
@@ -80,9 +80,9 @@ export function countWords(body: string): number {
 }
 
 /** 去目录 + 去 .md 扩展（替代 node:path.basename，零 Node 依赖）。
- *  ：扩展名剥除大小写不敏感——.MD 大写章文件名（mac 敏感卷/win 手工
+ * 扩展名剥除大小写不敏感——.MD 大写章文件名（mac 敏感卷/win 手工
  *  改名形态）此前标题派生残留 .MD 尾，parseChapterFileName 的 路径/标题 派生错位。
- *  与 filename.ts isMdFileName（单源）同口径；本文件须零 Node 依赖供 web-next
+ * 与 filename.ts isMdFileName（单源）同口径；本文件须零 Node 依赖供 web-next
  *  浏览器 import（filename.ts 依赖 Buffer 全局），就地 toLowerCase 判定，口径注释互指。 */
 function stripMd(fileName: string): string {
   const last = fileName.split('/').pop() ?? fileName
@@ -90,7 +90,7 @@ function stripMd(fileName: string): string {
 }
 
 /** 从文件名提取章号（写作/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。
- *  0918二轮修复批（B102）：守卫语义与 filename.ts chapterNoFromName 单源
+ * 守卫语义与 filename.ts chapterNoFromName 单源
  *  对齐（单源同批下沉同款 isSafeInteger 守卫）；正则维持分立不强并——本版须
  *  `数字-标题` 严格形（连带产出标题段）且本文件零 Node 依赖供浏览器 import。 */
 export function parseChapterFileName(fileName: string): { 章号: number; 标题: string } | null {

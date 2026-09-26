@@ -53,7 +53,7 @@ export interface Lead {
   欠方?: string // 关系线（#3 第 6.3 节）
   债主?: string // 关系线
 
-  // 容错：未知字段原样保留（#3 第 8 节； 十二轮：数组型按 string[] 原样承载）
+  // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
   _raw?: Record<string, string | string[]>
   /** 履历段前的人工说明正文（如人物/设定简介），回写时保留 */
   _bodyBeforeHistory?: string
@@ -139,15 +139,15 @@ export interface ChapterMeta {
   // 以下为通用可选字段（长短篇均可用，非"短篇专属"）
   目标情绪?: string // 读者体验目标（惊悚/温暖/心酸…）
   核心反转?: string // 本章核心反转点（有反转的章才填）
-  /** 阶段 24 章节结构操作（留洞制，/）：显示排序键，缺省 = 章号（旧书零迁移）。
+  /** 阶段 24 章节结构操作（留洞制，D2/D5）：显示排序键，缺省 = 章号（旧书零迁移）。
    *  拆分新章取两侧有效序中值；正有限数，非法值按缺省处理（不报错）。 */
   序?: number
   /** 阶段 24 章节结构操作：本章吸收的源章号清单（合并写入，链式折叠单跳——
    *  `12` / `12, 13` / 数组形态）。权威源 = 存活目标章 fm（文件本位原则）。 */
   并入?: number[]
-  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[]
-  // 原样承载，对齐 LeadMeta ——此前 String(v) 把数组压成 "a,b" 单串，回写
-  // stringifyValue 按标量引号化，项内逗号错位）
+  // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
+  // 原样承载，对齐 LeadMeta——此前 String(v) 把数组压成 "a,b" 单串，回写
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
@@ -171,8 +171,8 @@ export interface StyleSample {
   标签?: string[] // 可选，内联数组
   技法指令?: string // 可选：注入时提示重点学什么（#5 新增吸收点）
   正文: string // 样章本身（front matter 之后的正文）
-  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[] 原样
-  // 承载，对齐 Lead / ChapterMeta 同族口径——此前 String(v) 把数组压成
+  // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
+  // 承载，对齐 Lead/ ChapterMeta 同族口径——此前 String(v) 把数组压成
   // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
@@ -196,8 +196,8 @@ export interface StyleEntry {
   标签?: string[] // 金句 / 锚点 / AI味 / …
   正文: string // 样章正文 / 手法描述 / 反例正文 / 禁词
   证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式定义）
-  // 容错：未知字段原样保留（#3 第 8 节；：数组型按 string[] 原样
-  // 承载，对齐 Lead / ChapterMeta 同族口径——此前 String(v) 把数组压成
+  // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
+  // 承载，对齐 Lead/ ChapterMeta 同族口径——此前 String(v) 把数组压成
   // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
   _raw?: Record<string, string | string[]>
   _path?: string
@@ -212,7 +212,7 @@ interface EntryEvidence {
 
 // ── 境界枚举（#6 第 2 节）────────────────────────
 
-/** 境界体系（#6 第 2 节） */
+/** 境界体系.md 的结构（#6 第 2 节） */
 export interface RealmSystem {
   名称: string
   序列: string[] // 索引即高低（0 最低）
@@ -325,7 +325,7 @@ export interface BookConfig {
     imagery_words?: string[]
     /** 信息差关键词。无内置默认（逐书的秘密无通用词表）；未设 = 静默不启用 */
     leak_keywords?: string[]
-    // ── ：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
+    // ──：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
     // 未设 = 走 runner 直传引擎默认参数；生效链 book.yaml checks.* → global.json 托底 → 引擎默认
     /** 复读占比阈值（0-1 小数；引擎默认 0.15） */
     repeat_threshold?: number
@@ -354,7 +354,7 @@ export interface BookConfig {
     candidate_depth?: number // 召回惰性指纹校验的候选章上限（缺省 20；拍板写死可覆盖）
     embed_timeout_ms?: number // embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
   }
-  // 死字段 _raw 删除—— 已如实登记「全库无生产填充」，
+  // 死字段 _raw 删除——已如实登记「全库无生产填充」，
   // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层），
   // 全量重生成（stringifyBookConfig）丢弃未知段是既定取舍；类型面不再保留幻影字段。
 }

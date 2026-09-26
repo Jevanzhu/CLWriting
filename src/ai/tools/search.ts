@@ -23,7 +23,7 @@ export async function bookSearch(ctx: ToolContext, input: Record<string, unknown
     const first = hit.matches[0]!
     // slice(0,60) 按 UTF-16 码元截断——emoji 等增补平面字符恰在边界时被切出
     // 半个代理对（下游渲染乱码）；clipByCodePoints 按码位截 60（与 book-search 的
-    // MATCH_LINE_SLICE=200 同口径，家族）
+    // MATCH_LINE_SLICE=200 同口径家族）
     return '· ' + hit.path + '（第' + first.line + '行）：' + clipByCodePoints(first.text, 60)
   })
   const more = out.results.length > 10 ? '……（共 ' + out.results.length + ' 处命中，仅展示前 10）' : ''

@@ -66,7 +66,7 @@ const CLWRITING_DIR = '.clwriting'
  * init 主流程（#30 第 5 节 9 步，CLI 退场后收敛为：骨架 + scaffold + 登记）。
  * 非交互：调用方已收集 name/genre/leads；交互式逃生由 CLI 层处理（本函数纯逻辑）。
  *
- * /：主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
+ * 主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
  * 瞬时段），登记段（books.lock）收口为独立步骤——同步版 doInit 经 appendBook、
  * 异步孪生 doInitAsync 经 appendBookAsync（AcquireAsync：事件循环不阻塞）。
  * GUI 建书端点统一走 doInitAsync；本同步版保留供测试/CLI 残余合法同步面。
@@ -81,14 +81,14 @@ export function doInit(opts: InitOptions): InitResult {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  // 0918二轮修复批（G104）：writeActive 收编进 appendBookLocked 同临界段（books.ts）
+  // writeActive 收编进 appendBookLocked 同临界段（books.ts）
   // ——此前此处锁外裸写 writeActiveGuarded（的受控包装随收编拆除），双进程
   // 并发建书最后写者胜；active 写失败的 reason 文案单源迁 books.ts，语义不变。
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
 }
 
 /**
- * doInit 的异步孪生（/）——登记段（books.jsonl 读改写）走 appendBookAsync
+ * doInit 的异步孪生——登记段（books.jsonl 读改写）走 appendBookAsync
  * （tryBooksLockAsync：setTimeout 轮询，事件循环不阻塞）。GUI 建书端点
  * （POST /api/books）承载 SSE/全部接口，此前经同步 appendBook 的 Atomics.wait
  * 在双进程争写窗口最坏停 5s（CLI 建书同根漏网）。前置各步骤与同步版
@@ -105,17 +105,17 @@ export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  // 0918二轮修复批（G104）：active 指针写随 appendBookAsync 持锁完成（见 doInit 同注）
+  // active 指针写随 appendBookAsync 持锁完成（见 doInit 同注）
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
 }
 
 /** doInit/doInitAsync 共用的登记前主流程（校验/幂等/骨架/scaffold；同步瞬时段）。 */
 function doInitSteps(opts: InitOptions): InitStepOutcome {
   const workDir = resolve(opts.workDir)
-  // 平台规范化批：书名 NFC 归一——书名直接用作目录名（books.jsonl 的
+  // 平台：书名 NFC 归一——书名直接用作目录名（books.jsonl 的
   // name/path 同源），mac 侧输入的 NFD 形态名跨机即「找不到文件」；归一在全部校验与
   // 拼接之前，登记与目录天然一致。存量 NFD 目录无自动归一通路——原注释所称「由启动
-  // 迁移 v4 改名归一」的 v4 已拆除（四十二轮更正此失效表述），跨机失联时需
+  // 迁移 v4 改名归一」的 v4 已拆除，跨机失联时需
   // 手工改名回 NFC 形态。
   const bookName = opts.name.normalize('NFC')
   if (!bookName) return { ok: false, reason: '书名不能为空' }
@@ -127,7 +127,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     return { ok: false, reason: `书名过长（上限约 ${Math.floor(BOOK_NAME_MAX_BYTES / 3)} 个汉字），请缩短后重试` }
   }
   // 逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
-  // （-mac适配：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集与跨平台原因）
+  // （mac适配：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集与跨平台原因）
   if (isInvalidBookName(bookName)) {
     return { ok: false, reason: BOOK_NAME_INVALID_REASON }
   }
@@ -160,7 +160,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
       reason: `已有一本叫「${occupying.name}」的书占用了目录「${bookPath}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的`,
     }
   }
-  // -数据层：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
+  // 数据层：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
   // {ok:false,reason} 契约——先行判定给出可读原因
   // existsSync/statSync 之间存在窗口——同步盘/并发 init 下目录恰在两次调用
   // 之间被移走/删除时 statSync 裸抛 ENOENT 破坏 {ok:false,reason} 契约，收编为显式原因
@@ -189,7 +189,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     if (registered || !isResumableHalfScaffold(bookRoot)) {
       return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
     }
-    // G202（0918三轮修复批）：半成品恢复前对账 book.yaml 书名—— 占用判重只查
+    // 半成品恢复前对账 book.yaml 书名——占用判重只查
     // 已登记书，半成品（未登记）在大小写不敏感卷上以 case 变体书名重试会复跑幂等
     // scaffold 并按**新名**登记，而盘上目录保持**首试**大小写 → repair 扫盘取盘上
     // 真名/真路径，与登记的 name/path 两处大小写敏感比对全都不匹配 → 新发现分支
@@ -243,7 +243,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   }
 
   // 步骤 8：登记 books.jsonl + 设活动书——由调用方（同步 doInit / 异步 doInitAsync）
-  // 完成：登记段持 books.lock，同步/异步孪生按调用面分发（/
+  // 完成：登记段持 books.lock，同步/异步孪生按调用面分发（
   // 建书锁异步化：GUI 端点走 doInitAsync → appendBookAsync，事件循环不阻塞）
   return { ready: true, workDir, bookRoot, bookName, bookPath, kind }
 }
@@ -272,13 +272,13 @@ function countMarkdownFiles(dir: string): number {
   }
   let n = 0
   for (const e of entries) {
-    // -mac适配：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
+    // mac适配：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
     // mac 同步盘 AppleDouble 资源分叉 `._0001-x.md` 被 isMdFileName 误计为正文，
     // 仅剩垃圾伴生文件的目录被误判「有内容」、半成品恢复被拒；语义上正文目录仅含
     // `._` 垃圾即「零正文」（这正是修复目的）
     if (e.name.startsWith('.')) continue
     if (e.isDirectory()) n += countMarkdownFiles(join(dir, e.name))
-    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感家族）——
     // .MD 正文不计数会让半成品判定漂移（有内容的书被当零正文半成品复跑幂等 scaffold）
     else if (isMdFileName(e.name)) n += 1
   }

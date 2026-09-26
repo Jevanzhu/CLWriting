@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 开书对话·右栏步骤面板（巨石批 7c 拆分自 OnboardView）：①详情确认 → ②生成中 → ③编辑落盘
+// 开书对话·右栏步骤面板（7c 拆分自 OnboardView）：①详情确认 → ②生成中 → ③编辑落盘
 // 三相位。生成/保存动作与状态机在父层，本件纯相位渲染（content 编辑经 v-model 双向）。
 import { TriangleAlert, Check, Sparkles, FileText, Loader2, RotateCcw, BookOpen } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'

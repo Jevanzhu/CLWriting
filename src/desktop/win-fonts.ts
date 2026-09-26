@@ -1,5 +1,5 @@
 /**
- * MP2-1（专项二轮修复批）：win 系统字体自绘枚举——不经 cmd、不闪窗。
+ * win 系统字体自绘枚举——不经 cmd、不闪窗。
  *
  * font-list 上游 win32 路径 getByPowerShell 用 `exec('chcp 65001|powershell -command …')`
  * 起 PowerShell：exec 经 cmd.exe 且未设 windowsHide，win 打包态（GUI 子系统主进程）
@@ -19,14 +19,14 @@
  * stdout/stderr 改 Buffer[] 收集 + close 时整流一次解码——逐
  * chunk toString('utf8') 会把被切在 chunk 边界上的多字节字符（CJK 字体族名 3 字节/字）
  * 各自解成 U+FFFD，中文字体名乱码且无报错；对齐 server-manager.ts splitLines 的
- * setEncoding 跨边界安全口径。：10s 超时兜底——PS 挂死（PSModulePath 损坏/
+ * setEncoding 跨边界安全口径。10s 超时兜底——PS 挂死（PSModulePath 损坏/
  * 杀软拦截）时 Promise 永不结算且失败不入缓存（font-cache），每次重开字体下拉再
  * spawn 一个 powershell，句柄累积；超时 kill + reject。
  *
  * 枚举整体套 fontListProbeWithBreaker（进程级会话熔断）——PS
  * 挂死时连败达阈值后本进程秒降级，不再每次重开下拉等满 10s（与 mac/linux 熔断面
  * 对齐）；自身超时 kill 不动。
- * （修复批）：spawn→收集→超时 kill→结算骨架与
+ * spawn→收集→超时 kill→结算骨架与
  * font-cache 自管枚举收编为 spawnCollectKillFonts 单源（font-cache.ts），本模块保留
  * 平台守卫 / PS 脚本常量 / 熔断包装与 win 侧文案；注入接口 FontSpawn/FontSpawnChild
  * 不变，既有测试零语义改动。
@@ -115,10 +115,10 @@ export function parseRegFontsQueryOutput(out: string): string[] {
   return list
 }
 
-/** 二轮-（二轮 GLM-5.3）：reg.exe 输出解码——reg 按
+/** reg.exe 输出解码——reg 按
  *  控制台 OEM 码页落字节（zh-CN = GBK/936），此前 spawnCollectKillFonts 骨架统一
  *  toString('utf8') 把中文字体名解成 U+FFFD 串（本机字节级实证：OEM 936，
- *  「方正粗黑宋简体」= BD FD BA DA CB CE BC CC 恰 GBK、严格 UTF-8
+ * 「方正粗黑宋简体」= BD FD BA DA CB CE BC CC 恰 GBK、严格 UTF-8
  *  解码失败），回落通道对其目标受众（受限中文机器）恰交付乱码半残表。解码序：严格
  *  UTF-8 试解（ASCII 是两码公共子集，纯 ASCII 输出零风险直过）→ 失败回落
  *  TextDecoder('gbk')（Node 24 自带 full-icu）→ gbk 解码器不可用（裁剪 icu 的小形态）
@@ -165,13 +165,13 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
   // 整体套进程级会话熔断——连败达阈值（font-cache 档 2）
   // 后本进程不再重探，直接 reject 走调用方（main.ts）catch → [] 降级；成功清零计数。
   // 平台守卫在熔断判断之外（非 win 调用属编程错误，不消耗熔断计数）。
-  // （修复批）：windowsHide spawn → Buffer[] 收集 →
+  // windowsHide spawn → Buffer[] 收集 →
   // 超时 kill → error/close 结算骨架收编为 font-cache spawnCollectKillFonts 单源
   // （windowsHide + 数组参数不经 shell 纪律随骨架单点化），本函数保留平台守卫 /
   // PS 脚本常量 / 熔断包装与 win 文案（超时/退出码，测试锚定）；超时 kill 语义
   // 不变（骨架缺省 SIGTERM，win 上等价原 kill 的 TerminateProcess）。
   //
-  // （win 适配修复批）：PS 失败/空表 → 注册表
+  // PS 失败/空表 → 注册表
   // 回落。此前 win 字体枚举唯一通道是 PowerShell + PresentationCore，受限环境（PS
   // Constrained Language Mode / AppLocker / 杀软拦 PS）下必败，连败 2 次熔断后字体
   // 下拉整会话静默返空且无用户可见提示。回落通道 = reg.exe query HKLM/HKCU Fonts 键
@@ -210,7 +210,7 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
           timeoutMs,
           timeoutMessage: `reg 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
           exitCodeErrorPrefix: 'reg 字体枚举',
-          // 二轮-reg 输出按 OEM 码页解码（严格 UTF-8 试解失败回落 GBK）——
+          // reg 输出按 OEM 码页解码（严格 UTF-8 试解失败回落 GBK）——
           // zh-CN 机器中文字体名不再整面 U+FFFD
           decodeStdout: decodeRegOutput,
           parse: parseRegFontsQueryOutput,

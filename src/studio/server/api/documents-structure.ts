@@ -2,11 +2,11 @@
  * 章节结构操作 REST 端点 —— 自 src/studio/server/api/documents.ts 缝 3 拆出。
  *
  * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分。本文件承载缝 3：阶段 24 章节结构操作（+）——干跑（POST
+ * 纯移动拆分。本文件承载缝 3：阶段 24 章节结构操作——干跑（POST
  * structure-plan：merge/split plan 与指纹）、执行（POST structure-apply：合并/
  * 拆分落账）、撤销合并（POST merge-undo），及本缝私有常量 structureRag（structure
  * 的 RAG 触点端口实例——顶层求值常量单源本文件，引用 rag/index 顶层 import、
- * 不经残核环回引，HANZI 单源先例同款纪律）。三缝按原文件连续段切分，
+ * 不经残核环回引 HANZI 单源先例同款纪律）。三缝按原文件连续段切分，
  * 各域路由相对序与全局注册序逐字节不变（dispatch 按注册顺序匹配，router.ts
  * 隐性契约——顺序细节与环判定记档见残核 documents.ts 头注段）。
  * 纯移动：代码与注释逐字随迁，零行为变化、零逻辑改写、零格式重排；差异仅
@@ -52,7 +52,7 @@ import {
 const structureRag: StructureRagPort = { cleanupRagAfterMerge, estimateRagChunkCount }
 
 export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
-  // ── 阶段 24 章节结构操作（+）：干跑 / 执行 / 撤销合并 ──────────────
+  // ── 阶段 24 章节结构操作：干跑 / 执行 / 撤销合并 ──────────────
   // 入口实序照 rewrite.ts 样板：resolveBook → self-heal/spawn 单面 → orchestrationBusyFor
   // （chat/后台）→ review → 任务闸 'structure'（plan 干跑只读只走 resolveBook +
   // orchestrationBusyFor，不占闸）。反向零接线——chat.send/auto-write/spawn/chat.clear/

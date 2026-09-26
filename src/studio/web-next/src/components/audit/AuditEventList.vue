@@ -21,9 +21,9 @@
 import { reactive, watch } from 'vue'
 import { ChevronRight, ChevronDown, EyeOff, GitBranch, MoreHorizontal } from 'lucide-vue-next'
 import type { AuditEventFE } from '../../api/audit'
-// 5（七轮修复批）：摘要截断改码位（clipByCodePoints
+// 5：摘要截断改码位（clipByCodePoints
 // shared 单源，stores/chat.ts codePointLength 同源先例）——码元 slice 劈代理对尾字符乱码
-// H503（七轮修复复核批）：JSON 详情的截断/阈值/计数三处统一码位口径——此前只换 clip
+// JSON 详情的截断/阈值/计数三处统一码位口径——此前只换 clip
 // 一处，触发阈值与「已截断」计数仍按码元，4097 码元/4096 码位形态一字未删却宣称已截断
 import { clipByCodePoints, codePointLength } from '../../../../../shared/text'
 
@@ -91,7 +91,7 @@ function dataSummary(e: AuditEventFE): string {
   return ''
 }
 
-// ── （b 修复批，mac 线；merge 随抽取骨架下沉）：
+// ──（mac 线；merge 随抽取骨架下沉）
 // 事件 data JSON 懒展开。原模板内联 `{{ JSON.stringify(e.data, null, 2) }}`：①组件任意重
 // 渲染都重新全量 stringify；②超大 payload（全文快照/批量事件）展开即把 MB 级 JSON 全量
 // 灌进 DOM。改为：展开时 stringify 至多一次（按 e.data 对象身份 WeakMap 缓存，重渲染/截断
@@ -135,7 +135,7 @@ function detailTruncated(e: AuditEventFE): boolean {
   return !showFullJson.has(e.data) && !withinDetailLimit(eventDetailJson(e))
 }
 
-/** H503：码位口径上限判定——码元 length ≤ 上限是码位 ≤ 上限的充分条件，BMP 常规
+/** 码位口径上限判定——码元 length ≤ 上限是码位 ≤ 上限的充分条件，BMP 常规
  *  负载走 O(1) 快路径；仅码元超限（可能靠 astral 压回码位内）才付一次全量码点计数。 */
 function withinDetailLimit(s: string): boolean {
   return s.length <= JSON_DETAIL_LIMIT || codePointLength(s) <= JSON_DETAIL_LIMIT
@@ -158,7 +158,7 @@ function withinDetailLimit(s: string): boolean {
         <GitBranch :size="11" /> {{ e.sourceSeqs.join(',') }}
       </span>
       <div v-if="expanded.has(e.seq)" class="ev-detail">
-        <!-- ：懒展开——截断摘要 +「查看完整 JSON」放行钮（原内联全量 stringify） -->
+        <!-- 懒展开——截断摘要 +「查看完整 JSON」放行钮（原内联全量 stringify） -->
         <pre>{{ detailText(e) }}</pre>
         <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">查看完整 JSON</button>
         <p v-if="detailed && e.sourceSeqs?.length" class="lineage-note">
@@ -168,7 +168,7 @@ function withinDetailLimit(s: string): boolean {
     </div>
     <div v-if="events.length === 0" class="empty">{{ emptyText }}</div>
   </div>
-  <!-- ：截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
+  <!-- 截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
   <div v-if="hasMore" class="pager">
     <span class="pager-hint">已显示 {{ events.length }} / {{ total }} 条，更多最早事件待加载</span>
     <button class="load-more" :disabled="loadingMore" @click="emit('load-more')">

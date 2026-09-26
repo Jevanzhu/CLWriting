@@ -5,8 +5,8 @@
  * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  *
- * （全项目源码质量与优雅度评审 /）：本模块 = 原 `check/run.ts` 的
- * 实现体（单章机检链 + 批量预扫 + 读配置/开库前奏）整体迁出。 拆出树红点聚合族
+ * （全项目源码质量与优雅度评审）：本模块 = 原 `check/run.ts` 的
+ * 实现体（单章机检链 + 批量预扫 + 读配置/开库前奏）整体迁出。拆出树红点聚合族
  * 后，run.ts 与 run-tree-issues.ts 仍互 import（聚合侧取本模块的 readCheckConfig /
  * openCheckDb / checkWithDb / 预扫，run.ts 反向 re-export 聚合族）——两文件 SCC 使
  * 「谁在底层」不可判。实现体落到中立件后，run.ts 只余兼容桥（re-export），聚合侧
@@ -52,7 +52,7 @@ export type CheckOutcome =
 
 /**
  * 单章端点（runCheckForDocument）与树聚合
- * （collectTreeIssuesCore）共用的「读配置→托底」前奏—— 的 .ok 检查 + warn 与
+ * （collectTreeIssuesCore）共用的「读配置→托底」前奏——的 .ok 检查 + warn 与
  * applyGlobalDefaults 托底两处逐字同构。degradedError 供单章侧黄项用原文
  * （树聚合黄项无处落，只吃 warn——见 collectTreeIssuesCore 注）。
  */
@@ -77,11 +77,11 @@ export function readCheckConfig(
  * - throttleSourceProbe：单章链的增量探测 3s TTL 节流 opt-in（连查/轮询去抖），
  *   树聚合 rebuild 不节流（rebuild.ts 节流块注口径）。
  * - failMode：'envelope'（单章：硬异常归 REBUILD_FAIL 信封出端点，
- *   此前穿透成 500 裸异常）/ 'fail-open'（树聚合同批降级：warn 留痕 +
+ * 此前穿透成 500 裸异常）/ 'fail-open'（树聚合同批降级：warn 留痕 +
  *   rebuildFailed=true，只算 verdict 不拦树——与缓存层「读写失败跳过缓存走全量」红线
- *   对齐）。PRAGMA 并入同一失败链（审计口径：exec 抛错即关库不留句柄，
+ * 对齐）。PRAGMA 并入同一失败链（审计口径：exec 抛错即关库不留句柄，
  *   单章侧契约不变、树聚合侧由调用方 finally 收口）。
- * 阶段 52 批 1：签名类型别名化（OpenCheckDbOpts/OpenCheckDbResult）——异步孪生
+ * 签名类型别名化（OpenCheckDbOpts/OpenCheckDbResult）——异步孪生
  * openCheckDbAsync 与树聚合的「效应让出」档共享同一形状，仅 rebuild 内核所在线程不同。
  */
 export type OpenCheckDbOpts = { throttleSourceProbe: boolean; failMode: 'envelope' | 'fail-open' }
@@ -93,7 +93,7 @@ export type OpenCheckDbResult = {
   fail?: { error: string; details?: unknown }
 }
 
-// ── 阶段 52 批 2：worker 档的节流承接（设计 §1.4-2 备选 (a)）────────
+// ──：worker 档的节流承接（设计 §1.4-2 备选 (a)）────────
 // 的 3s 探测节流状态在 rebuild 内核里（cache/rebuild.ts 模块内存表），worker 档
 // 每次新起线程 ⇒ 线程内观测不到主线程的窗态。承接法 (a)：主线程自记「最近一次 async
 // 重建完成时刻」，窗内直接跳重建、只开库——与同步节流分支的净效应等价：同步档窗内也用
@@ -157,7 +157,7 @@ export function openCheckDb(bookRoot: string, hasWiring: boolean, opts: OpenChec
 }
 
 /**
- * 阶段 52 批 1（慢盘面加固）：「rebuild→开库→PRAGMA」前奏的异步孪生——结构逐位
+ * （慢盘面加固）：「rebuild→开库→PRAGMA」前奏的异步孪生——结构逐位
  * 对齐 openCheckDb，唯一替换 = `rebuild(...)` → `await runRebuildAsync(...)`（rebuild 内核
  * 搬 worker 线程：慢盘/网盘上 rebuild 段不再冻结事件循环，其间 SSE 心跳/其它请求可跑；
  * 同款卸载层，服务进程只等 worker 消息）。
@@ -261,7 +261,7 @@ function pushDegradedYellow(
 
 /**
  * 对单个文档跑机检（absPath → CheckReport）。
- * 三审端点 .2 复用：buildReviewPacket 的 checkReport 输入由此产出（byproducts.leadChanges 供账本核对）。
+ * 三审端点 B0.2 复用：buildReviewPacket 的 checkReport 输入由此产出（byproducts.leadChanges 供账本核对）。
  * opts.draftText 传入时按预读文本解析草稿（不读文件）——三审端点
  * 单次读取取 buffer，sourceHash/draftHash/机检 body 三源同拍（三次独立读会来自三个时刻，
  * 机检窗口内保存 → hash 无任何单一文件状态与之对应）。
@@ -275,7 +275,7 @@ export function runCheckForDocument(
   const { config, degradedError } = readCheckConfig(bookRoot, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))
   // rebuild/开库硬异常归 REBUILD_FAIL 出口（此前穿透成 500 裸异常，
-  // 端点契约本就为这类失败预留了 code）—— 节流 opt-in，见 openCheckDb 头注
+  // 端点契约本就为这类失败预留了 code）——节流 opt-in，见 openCheckDb 头注
   const opened = openCheckDb(bookRoot, hasWiring, { throttleSourceProbe: true, failMode: 'envelope' })
   if (opened.fail) {
     const envelope: Extract<CheckOutcome, { ok: false }> = {
@@ -309,7 +309,7 @@ export function runCheckForDocument(
 }
 
 /**
- * 阶段 52 批 2（慢盘面加固）：「rebuild→开库→机检」单章链的 async 孪生——
+ * （慢盘面加固）：「rebuild→开库→机检」单章链的 async 孪生——
  * 结构逐位对齐 runCheckForDocument，两处替换：
  * ① 前奏 `openCheckDb` → `await openCheckDbAsync`（rebuild 内核搬 worker 线程；
  *    节流窗由 openCheckDbAsync 的 lastRebuildDoneAt 承接，语义见该处注）；
@@ -318,8 +318,8 @@ export function runCheckForDocument(
  *
  * 信封/降级口径与同步版逐字同款（REBUILD_FAIL / NOT_CHAPTER / CHECK_ERROR，book.yaml
  * 降级黄项，else 分支全同）：服务进程侧只多线程等待，结果面零差异——等价性由
- * test/check/check-chain-async-parity.test.ts 锁。调用方（机检/三审端点、AI 编排
- * check_chapter）全在 async 上下文，批 2 起改走本函数。
+ * test/check/check-chain-async-parity.test.ts锁。调用方（机检/三审端点、AI 编排
+ * check_chapter）全在 async 上下文起改走本函数。
  */
 export async function runCheckForDocumentAsync(
   bookRoot: string,
@@ -329,7 +329,7 @@ export async function runCheckForDocumentAsync(
 ): Promise<CheckOutcome> {
   const { config, degradedError } = readCheckConfig(bookRoot, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))
-  // rebuild/开库硬异常归 REBUILD_FAIL 出口（同同步版）—— 节流
+  // rebuild/开库硬异常归 REBUILD_FAIL 出口（同同步版）——节流
   // opt-in（窗内跳 worker 重建，见 openCheckDbAsync 头注）
   const opened = await openCheckDbAsync(bookRoot, hasWiring, { throttleSourceProbe: true, failMode: 'envelope' })
   if (opened.fail) {
@@ -368,7 +368,7 @@ export async function runCheckForDocumentAsync(
  * 无布线不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  *
- * 阶段 52 批 2：本函数为同步包装（driveToEnd），实现体 = maxWrittenChapterOfCore
+ * 本函数为同步包装（driveToEnd），实现体 = maxWrittenChapterOfCore
  * ——单章链未传预扫列表时正文目录整扫入核让出（见其注）。既有调用方（树聚合、导出等）
  * 零改动。
  */
@@ -383,7 +383,7 @@ export function maxWrittenChapterOf(
 /**
  * maxWrittenChapterOf 的实现体（生成器，单源供同步/async 双驱动）。
  * 唯一让出面 = 未传预扫列表时的 正文目录整扫（`yield* scanChapterDirCore`）——单章链
- * 每次机检都会为「未来章基准」现扫全书正文，慢盘上这是秒级同步段（批 2 前它整段冻在
+ * 每次机检都会为「未来章基准」现扫全书正文，慢盘上这是秒级同步段（前它整段冻在
  * 事件循环里）。批量路径（树聚合传 preScanned + manifestEntries）内部无遍历，随核一次
  * 跑完；返回值与切片前逐位同构。
  */
@@ -393,7 +393,7 @@ export function* maxWrittenChapterOfCore(
   manifestEntries?: Map<string, ManifestEntry>,
 ): Generator<void, number | undefined, unknown> {
   const bodyDir = join(bookRoot, '写作', '正文')
-  // -管线：接受调用方预扫的正文章列表（批量路径 bodyChapters 一扫两用），
+  // 管线：接受调用方预扫的正文章列表（批量路径 bodyChapters 一扫两用），
   // 原先内部再 readChapterDir 一遍 = 全书正文双遍扫描
   const chapters = preScanned ?? (existsSync(bodyDir) ? (yield* scanChapterDirCore(bodyDir)).chapters : [])
   if (chapters.length === 0) return undefined
@@ -422,9 +422,9 @@ export function* maxWrittenChapterOfCore(
   let max = 0
   for (const ch of chapters) {
     if (!ch._path) continue
-    // relative 在 Windows 产反斜杠而 manifest 键是正斜杠——不归一
+    // relative() 在 Windows 产反斜杠而 manifest 键是正斜杠——不归一
     // 全部章误判未定稿（同款已修：export/index.ts 、state.ts relativePath）
-    // -mac适配：归一收窄 win32-only——posix 上字面 `\` 文件名保持原样，
+    // mac适配：归一收窄 win32-only——posix 上字面 `\` 文件名保持原样，
     // 与 manifest 侧 docJoinKey 双侧同口径（两侧均不再扭曲）
     const rel = normalizeWinSeparators(relative(bookRoot, ch._path))
     if (!finalized.has(docJoinKey(rel))) continue // 双侧同键（扫描路径侧折叠）
@@ -459,13 +459,13 @@ export interface BatchCheckContext {
   outlineChapters?: ChapterMeta[]
   /** 每章账本推进预扫（主文件 + 归档暂存两源一次读齐，闭包按章
    *  还原 readChapterUpdatesForChapter 拼装口径）；不传则单章路径现读（语义等价）。
-   *  ：闭包升级为读失败感知版 ChapterUpdatesResult——unreadable 时
+   * 闭包升级为读失败感知版 ChapterUpdatesResult——unreadable 时
    *  调用方跳过两端闭合（不再把「清单未知」当「未兑现」误报红硬阻断定稿）。 */
   leadUpdatesForChapter?: (chapterNo: number) => ChapterUpdatesResult
   /** 细纲声明批内 memo——细纲是覆盖写单文件，批量聚合 N 章
-   *  此前逐章 existsSync+read+parse 同一文件（预扫漏项，仅性能）。闭包
+   * 此前逐章 existsSync+read+parse 同一文件（预扫漏项，仅性能）。闭包
    *  首调读+parse 一次，其后按章号出三态；不传则单章路径现读（语义等价）。
-   *  ：返回类型扩 OutlineDeclaration（known:false 带 reason）。 */
+   * 返回类型扩 OutlineDeclaration（known:false 带 reason）。 */
   outlineDeclarationFor?: (chapterNo: number) => OutlineDeclaration
   /** 布线在盘与否——collectTreeIssuesCore 聚合头已判
    *  （rebuild/开库决策同源），章循环内 checkWithDb 不再逐章 existsSync；不传则
@@ -485,13 +485,13 @@ export function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: numbe
   return driveToEnd(scanChapterUpdatesByChapterCore(bookRoot))
 }
 
-/** 阶段 52 批 1：账本归档逐文件读的让出粒度——每配对 N 个归档 .md 让出一次。
- *  导出供测试锚（按 K 断言）。 */
+/** 账本归档逐文件读的让出粒度——每配对 N 个归档 .md 让出一次。
+ * 导出供测试锚（按 K 断言）。 */
 export const LEAD_UPDATES_SCAN_YIELD_EVERY = 25
 
 /**
  * scanChapterUpdatesByChapter 的实现体（生成器，单源供同步/async 双驱动）——主文件
- * 整读段（单文件毫秒级，残余）不在切片面，让出点 = 归档目录 readdir 后的逐文件读
+ * 整读段（单文件毫秒级残余）不在切片面，让出点 = 归档目录 readdir 后的逐文件读
  * 循环。返回闭包与切片前逐位同构（调用方零感知）。
  */
 export function* scanChapterUpdatesByChapterCore(
@@ -523,7 +523,7 @@ export function* scanChapterUpdatesByChapterCore(
       const m = f.match(/^第(\d+)章\.md$/i)
       // i 标志——归档文件 .MD 大写扩展名不再漏配对（其余命名如 ._ 资源文件照旧不入）
       if (!m) continue
-      // 阶段 52 批 1：让出点——每 N 个配对的归档章让出一次（计数单位 = 实际读的文件）
+      // 让出点——每 N 个配对的归档章让出一次（计数单位 = 实际读的文件）
       if (++scanned % LEAD_UPDATES_SCAN_YIELD_EVERY === 0) {
         preludeYieldStats.leadUpdatesScan++
         yield
@@ -561,7 +561,7 @@ export function checkWithDb(
 }
 
 /**
- * checkWithDb 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = ）。
+ * checkWithDb 的实现体（生成器，单源供同步/async 双驱动；=）。
  *
  * 让出面两处：`yield* runAllChecksCore(...)`（其内账本全书性条目，见 runner.ts）与
  * 章纲目录整扫 `yield* scanChapterDirCore(...)`（单章路径现扫；批量路径走 batch 预扫
@@ -585,7 +585,7 @@ export function* checkWithDbCore(
     // 全书最高已定稿章号：batch 存在即视为已预扫（树红点聚合循环外已扫过全书），
     // 直接用 batch.maxWrittenChapter——即使为 undefined（无定稿章）也是预扫的合法结果，
     // 不再回扫；未传 batch（单章 check 端点）时才扫描一次 写作/正文 取最大章号
-    //（批 2：该次扫描走核让出，见 maxWrittenChapterOfCore）。
+    //（该次扫描走核让出，见 maxWrittenChapterOfCore）。
     // 用途：账本「凭空声称未来章」#1 检查的参照基准（T9b 修复）。
     // 优化：无布线时账本检查不运行，跳过全书扫描
     const maxChapter = hasWiring
@@ -647,7 +647,7 @@ export function* checkWithDbCore(
       skipLeadsBookChecks: opts?.skipLeadsBookChecks === true,
     })
     // 兑现侧读失败的黄项降级（fail-noisy 不可静默）——跳过闭合的
-    // 事实随报告透出（对齐 checkNewNames roster-unreadable / book-config-degraded
+    // 事实随报告透出（对齐 checkNewNames roster-unreadable book-config-degraded
     // 的降级黄项口径），作者只看面板即知本轮「声明↔兑现」未比对、修复后须重查。
     // 树红点聚合缓存只存 {hasRed, verdictRejected} 布尔、不缓存黄项条目，降级黄项
     // 不会被缓存固化（hasRed=false 只表示本轮无红，属账本全书性红项同一缓存语义）。

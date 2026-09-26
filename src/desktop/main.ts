@@ -5,7 +5,7 @@
  * → BrowserWindow loadURL。前端 Vue 零改造（fetch /api/...）；driver 会话、SSE 由
  * server-utility 统一承载（main 壳层不直接碰 driver）。
  *
- * -：main 瘦身为真正的纯壳层——窗口/菜单/IPC/workDir 管理
+ * main 瘦身为真正的纯壳层——窗口/菜单/IPC/workDir 管理
  * 拆出四模块（纯移动零逻辑变化，依赖注入显式参数传递，对齐 workdir-store.ts 零
  * Electron 依赖先例；Electron 绑定层留在需要处）：
  * - windows.ts        窗口工厂（createSecureWindow 安全五件套）+ 三窗引用 holder +
@@ -18,7 +18,7 @@
  * （workDir 定位 → server fork+握手 → 主窗创建 → loadURL）、菜单装配、冒烟驱动、
  * 进程级退出兜底（信号/uncaughtException/unhandledRejection）。
  *
- * 工作目录（书库）管理（批2 起）：
+ * 工作目录（书库）管理（起）：
  * - 启动定位：userData 持久化的 current（合法则用）> findWorkDir(cwd) > 弹原生选择器。
  * - 切换书库 = 改持久化 current → app.relaunch 进程重启
  *   （规避 server 路由模块级单例 + SSE 长连接泄漏，见 Dev/Plans/desktop-workdir-方案.md §2.1/§3.1）。
@@ -31,14 +31,14 @@ import { join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
-import { initialBookArg, resolveInitialBook } from './initial-book.js' // --book 直进
+import { initialBookArg, resolveInitialBook } from './initial-book.js' // --book 直进——argv 解析为登记书名仍在 main（书架登记表就在手边），
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // 生命周期 runner 可测
-import { registerIpc } from './ipc.js' // -：IPC 注册面拆出
-import { createRepeatedSignalExit } from './signal-hard-exit.js' // 0918二轮修复批（C107）：重复信号硬退出口
+import { registerIpc } from './ipc.js' // IPC 注册面拆出
+import { createRepeatedSignalExit } from './signal-hard-exit.js' // 重复信号硬退出口
 import { acquireAppInstanceGuard } from './app-instance-guard.js' // 提权差异双开文件锁防线（win线并树随行）
 import { defaultWindowSize } from './window-state.js' // 首启缺省尺寸/创建下限单源（纯函数，零 Electron 依赖）
-import { attachMainWindowLifecycle, registerQuitChain, isAppTearingDown } from './lifecycle.js' // -：退出链拆出
+import { attachMainWindowLifecycle, registerQuitChain, isAppTearingDown } from './lifecycle.js' // 退出链拆出
 import {
   createSecureWindow,
   loadWinState,
@@ -50,8 +50,8 @@ import {
   // CLW_SMOKE 窗口循环冒烟（e2e 专用、env 严格 opt-in）要用白名单登记计数，而登记表
   // 正本在 windows.ts（本批改动面外，无生产命名访问器可取），故留用并如实记因。
   __testHooks,
-  getDevProxyApplied, // nano ：原 let 导出 devProxyApplied 改函数访问器
-} from './windows.js' // -：窗口工厂/三窗引用拆出
+  getDevProxyApplied, // nano：原 let 导出 devProxyApplied 改函数访问器
+} from './windows.js' // 窗口工厂/三窗引用拆出
 import {
   BOOTSTRAP_PROBE_TIMEOUT_MS,
   currentWorkDir,
@@ -60,7 +60,7 @@ import {
   probeDirReachable,
   readStore,
   setBootstrappedWorkDir,
-} from './workdir-controller.js' // -：workdir 控制器拆出
+} from './workdir-controller.js' // workdir 控制器拆出
 import { filterValidRecentBudgeted } from './workdir-store.js'
 import { errMsg, initLogging, log } from '../log/index.js'
 
@@ -72,7 +72,7 @@ const CLW_CSP = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self'", // 只连本地 server（SSE + fetch）
-  // 0918二轮修复批（C104）：frame-ancestors 显式 'none'——frame-ancestors 不回落
+  // frame-ancestors 显式 'none'——frame-ancestors 不回落
   // default-src（CSP 规范独立指令），缺省即本地端口可被任意页面嵌 iframe（点击劫持
   // /DNS rebinding 纵深；API 侧有 token 兜底，此为页面层防线）
   "frame-ancestors 'none'",
@@ -80,10 +80,10 @@ const CLW_CSP = [
 
 /** HMR 开发模式判定（CLW_DEV_UI=1 且非打包态）——bootstrap 的 url 选择与 CSP 注入条件
  *  共用同一判据。
- *  ：dev 环境变量防线——打包应用吃到宿主残留 CLW_DEV_UI=1 不得切
+ * dev 环境变量防线——打包应用吃到宿主残留 CLW_DEV_UI=1 不得切
  *  HMR 形态（localhost:5173 + 跳过 server fork）、也不得放行跳过 CSP（Vite 需要的
- *  unsafe-eval 豁免只属于真 dev）。：bracket 统一风格。
- *  （1.0 前质量债批）：该判据原在 bootstrap 与 whenReady 两处各写一份，
+ * unsafe-eval 豁免只属于真 dev）。bracket 统一风格。
+ * （1.0 前质量）：该判据原在 bootstrap 与 whenReady 两处各写一份，
  *  收紧一处漏另一处即「打包态切 HMR」或「dev 态被 CSP 掐死」——收单源函数。 */
 function isDevUi(): boolean {
   return !!process.env['CLW_DEV_UI'] && !app.isPackaged
@@ -143,7 +143,7 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
           )
           return
         }
-        // 0914目录预探通过 ≠ 同步扫描安全——resolveInitialBook
+        // 目录预探通过 ≠ 同步扫描安全——resolveInitialBook
         // 内 readBooks 是同步 readFileSync（<workDir>/.clwriting/books.jsonl，常量未导出，
         // 路径与 src/install/books.ts BOOKS_FILE 同串勿漂移），网络卷「可达但慢/预探后
         // 瞬断」窗下同步读照样冻主进程秒级，而同步 IO 无法直接超时。按同族防线
@@ -169,7 +169,7 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
         }
       })()
     } else if (ref) {
-      // （打包修复批）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
+      // （打包）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
       // 主窗不可用时原路径静默吞掉 --book——留痕含被忽略的值，双开排查不再靠猜
       const why = !workDir ? '书库未就绪（bootstrap 未完成且无持久化 current）' : '主窗口不可用'
       log.warn('main', `second-instance 带 --book=${ref}，但${why}——已忽略（聚焦现有窗口）`)
@@ -183,13 +183,13 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   })
 }
 
-/** 阶段 22 -studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
+/** studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
  *  批起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（重启服务/退出） */
 const serverManager = createStudioServerManager({
   // 自愈等待期的退出探测——restartPinned 在 shuttingDown 态改
   // 有界等停机收口（观察窗 5s 与停机链最坏预算失配的复合场景自愈拒绝修复），等待/
   // 收口窗口内用户真退出（before-quit 链置位 appTearingDown）则放弃恢复，不在退出
-  // 链上 fork 新 child 成孤儿（/同向）。拆分后旗正本在 lifecycle.ts，经
+  // 链上 fork 新 child 成孤儿。拆分后旗正本在 lifecycle.ts，经
   // isAppTearingDown 读数（语义逐位不变）。
   isProcessExiting: () => isAppTearingDown(),
   // （§四.3）：重启成功广播——崩溃自动重启
@@ -223,16 +223,16 @@ const serverManager = createStudioServerManager({
     return 'restart'
   },
 })
-/** bootstrap-runner「重试前关旧 server」的适配器——close 即停旧 child
+/** bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child
  *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork）。
- *  （打包修复批）：close 返回 stopChild 的 Promise——runner 等其落定再开跑新
- *  bootstrap，不再 fire-and-forget；stopChild 自带 cancelPendingRestart，
+ * （打包）：close 返回 stopChild 的 Promise——runner 等其落定再开跑新
+ * bootstrap，不再 fire-and-forget；stopChild 自带 cancelPendingRestart，
  *  挂起重启随关旧一并作废 */
 const legacyStopHandle = { close: () => serverManager.stopChild() }
 
-/** （修复批）：真实 Electron 窗口循环冒烟——仅当
+/** 真实 Electron 窗口循环冒烟——仅当
  *  CLW_SMOKE_WINDOW_CYCLE=1 时由 bootstrap 末段（[CLW_SMOKE] ready 之后）调用，
- *  保证 app 已 ready 再动窗口。目的：把修复的缺陷类（closed 清理监听在
+ * 保证 app 已 ready 再动窗口。目的：把修复的缺陷类（closed 清理监听在
  *  销毁态 webContents 上抛错 → 中断 emit 遍历令其余清理/白名单摘除短路）由真实
  *  Electron 进程兜住——单测假件只能锁单测口径，真实销毁语义（closed 后读
  *  webContents 抛 "Object has been destroyed"）唯有真实进程可复现。
@@ -294,19 +294,19 @@ async function bootstrap(): Promise<void> {
   // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
   // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
-  // （GLM-5.3 修复批）：recent 失效过滤在此异步预算一次
+  // recent 失效过滤在此异步预算一次
   // 执行——原 readStore 首读内联同步过滤（existsSync+statSync 逐条），recent 残留失联
   // 网络卷时 bootstrap 首行即同步冻主进程数十秒；-1 probeDirReachable 防线只护
   // current/cwd，recent 条目在防线外。超时项保留展示（失联≠失效，择库守卫预探拦截
-  // 兜底，取舍口径不变）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
-  // （GLM-5.3 修复批）：本行原注「此处先于任何 IPC
+  // 兜底取舍口径不变）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
+  // 本行原注「此处先于任何 IPC
   // 注册（下方 registerIpc 在窗口就绪后）」与实际相反——registerIpc 在 whenReady
   // 同步段先于 runBootstrap 执行（IPC handler 已注册）。早读窗口不存在的真实依据：
   // 窗口要到 bootstrap 定出 workDir 后才创建、渲染层尚未加载，这些 await 期间没有
   // renderer sender 到达，不构成 IPC 并发面（同步冻住的是主进程自身，见上段动机）。
   if (store.recent.length > 0) {
     const filtered = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
-    // （修复批）：整覆改仅回填 recent 字段——await 窗内
+    // 整覆改仅回填 recent 字段——await 窗内
     // 菜单/IPC 链的并发写（saveCurrent→writeStore 换 storeCache 对象）会被旧 store 的
     // 整对象赋值回滚（内存面丢 current，盘面与内存面自此分叉直到重启）；展开当下
     // storeCache 只覆写 recent，并发写不再被内存面回滚。?? store：类型收窄兜底
@@ -349,7 +349,7 @@ async function bootstrap(): Promise<void> {
       )
     }
   }
-  // -服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
+  // 服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
   // readStore.current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
   // 退出拿到 null：不 abort 任何在途 chat/self-heal、不等后台任务（孤儿会话只能靠
   // 10 分钟宽限修复）。退出以启动时实际值优先，store 回读兜底
@@ -379,7 +379,7 @@ async function bootstrap(): Promise<void> {
       const ref = initialBookArg(process.argv, { allowEnvFallback: !app.isPackaged })
       if (ref) initialName = resolveInitialBook(workDir, ref)
     }
-    // 阶段 22 批：fork server-utility 子进程 + ready 端口握手（时序等价拆分前的
+    // fork server-utility 子进程 + ready 端口握手（时序等价拆分前的
     // await listenPort——loadURL 仍发生在 server ready 之后，验收门 2）
     let port: number
     try {
@@ -388,7 +388,7 @@ async function bootstrap(): Promise<void> {
         userDataPath: app.getPath('userData'),
         book: initialName,
         mirrorConsole: !app.isPackaged,
-        // 阶段 53 ：版本号下发子进程（child 无 app 对象）——更新检查的当前版本基准
+        // 阶段 53：版本号下发子进程（child 无 app 对象）——更新检查的当前版本基准
         appVersion: app.getVersion(),
       })
       serverStarted = true // session-end 观察窗自愈的「有服务可拉回」判据
@@ -405,7 +405,7 @@ async function bootstrap(): Promise<void> {
 
   // 主窗口 bounds：优先恢复上次尺寸/位置；无记录时缺省按工作区占比取（宽 60%/
   // 高 80%，随分辨率自适应——不同机器首开窗口比例一致，大屏不再钉死 1532×1237
-  // 定值）。缺省与 minWidth/minHeight（1200×760 保三栏不挤；：下限不得超过
+  // 定值）。缺省与 minWidth/minHeight（1200×760 保三栏不挤；下限不得超过
   // 可用工作区——1366×768 上原 760 硬下限出生即压任务栏，小屏按 wa-8 收口。恢复侧
   // WIN_MIN_HEIGHT 随行收口）统一在 window-state.defaultWindowSize 单源。
   const saved = loadWinState()
@@ -437,8 +437,8 @@ async function bootstrap(): Promise<void> {
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {
-    // 主窗 dev 态二次 setProxy（/形态）删除
-    // ——改 await 工厂侧记账 promise getDevProxyApplied（nano 起为函数访问器；
+    // 主窗 dev 态二次 setProxy（形态）删除
+    // ——改 await 工厂侧记账 promise getDevProxyApplied()（nano 起为函数访问器；
     // createSecureWindow 对主窗以同
     // 一 devUi 条件 fire-and-forget setProxy direct:// 并记账，同值幂等）。省一次
     // session setProxy 往返；失败面同序降级（工厂侧 catch 记 error 后按系统
@@ -450,7 +450,7 @@ async function bootstrap(): Promise<void> {
   //（退避重启窗）的窄竞 rejection 此前直穿 bootstrap reject，onError 只见「启动失败」
   // 一行、缺首载 URL 现场（书架/书库窗均已 .catch 留痕，唯主窗裸奔，不对称）。
   // 镜像补 catch 记日志后仍原样上抛——「bootstrap reject → 启动失败 + quit」为固化
-  // 设计路径（main.test 时序 2；bootstrap-runner亦按此失败面设计），不吞。
+  // 设计路径（main.test 时序 2；bootstrap-runner 亦按此失败面设计），不吞。
   const mainUrl = needsWelcome ? `${wins.appUrl}/welcome` : wins.appUrl
   try {
     await mainWindow.loadURL(mainUrl)
@@ -481,12 +481,12 @@ function buildMenu(): void {
   const isMac = process.platform === 'darwin'
   /** 业务菜单项 click → 发 actionKey 给主窗口（前端 useAppActions.dispatch 消费）。
    *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。
-   *  ：此前发往聚焦窗口——书架/书库等子窗口聚焦时（macOS 菜单恒
+   * 此前发往聚焦窗口——书架/书库等子窗口聚焦时（macOS 菜单恒
    *  全局可点）action 发进子窗口静默丢失（子窗口无 useAppActions 接线）。固定发
    *  mainWindow + isDestroyed 判（退出/崩溃窗口期菜单仍可点）。
    *（win 线的「无聚焦窗口回退」场景已由 mainWindow ?? 首窗回退覆盖——
-   *  不回退 getFocusedWindow，否则子窗口聚焦时重引入已修的静默丢失。）
-   *  0918二轮修复批（C105）：`?? getAllWindows[0]` 首窗回退删除——主窗销毁窗口期
+   * 不回退 getFocusedWindow，否则子窗口聚焦时重引入已修的静默丢失。）
+   * `?? getAllWindows()[0]` 首窗回退删除——主窗销毁窗口期
    *  （close 拦截 flush/退出链在途）首窗可能是无 useAppActions 接线的子窗，动作发进
    *  子窗即静默丢失；回退限主窗存在才发送，主窗不存在 log.warn 留痕（动作丢弃可见）。 */
   function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
@@ -552,7 +552,7 @@ function buildMenu(): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
-        // -mac适配：⌘F 查找此前仅在编辑器聚焦时由 CM searchKeymap 响应，
+        // mac适配：⌘F 查找此前仅在编辑器聚焦时由 CM searchKeymap 响应，
         // 焦点在外时按 ⌘F（及右键菜单「查找」的暗示）完全无响应——补系统菜单项走
         // action('find') 统一转发，前端 useAppActions 'find' 动作接 EditorView.openSearch
         { label: '查找…', accelerator: 'CmdOrCtrl+F', ...action('find') },
@@ -583,9 +583,9 @@ function buildMenu(): void {
       label: '窗口',
       submenu: [
         { role: 'minimize' },
-        // zoom 是 macOS 专属 role（NSWindow performZoom）——
+        // zoom 是 macOS 专属 role（NSWindow performZoom:）——
         // win/linux 上是无动作死菜单项。非 mac 用最大化/还原 toggle 替代；目标窗
-        // 解析与上方 action 同口径（mainWindow ?? 首窗，不回退 getFocusedWindow）。
+        // 解析与上方 action() 同口径（mainWindow ?? 首窗不回退 getFocusedWindow）。
         ...(isMac
           ? [{ role: 'zoom' as const }]
           : [
@@ -635,11 +635,11 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// ── 生命周期 ──────────────────────────────────────────
+// 单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 
-// 单实例锁守卫——第二实例已在顶部 app.quit，跳过全部生命周期注册，
+// 单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 // 防退出竞态中 whenReady/activate 仍触发 bootstrap（起 server/开窗/读写状态文件）
-// 二轮-（二轮 GLM-5.3）：守卫补消费文件锁标志——原只看
+// 守卫补消费文件锁标志——原只看
 // gotSingleInstanceLock，跨提权双开（Electron 锁按提权上下文隔离、双方各持，正是
 // 文件锁防线要堵的场景）时第二实例 gotSingleInstanceLock=true 而
 // appInstanceGuard.acquired=false：顶部 quit 照发但退出是异步的，本守卫放行使生命周期
@@ -669,7 +669,7 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
       })
     })
     .catch((e) => {
-      // -服务端：whenReady 回调同步段抛错原先变 unhandledRejection，绕过
+      // 服务端：whenReady 回调同步段抛错原先变 unhandledRejection，绕过
       // runBootstrap 的错误通道（app 挂无窗口态）——链尾兜底走同一出路
       log.error('desktop', `whenReady 回调失败：${errMsg(e)}`, e)
       app.quit()
@@ -681,7 +681,7 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   // deps 换轨——「重试前关旧 server」经 legacyStopHandle 停旧 child
   const bootstrapRunner = createBootstrapRunner(
     {
-      // （打包修复批）：child 已崩但退避重启在途时 isRunning 为 false——原判据
+      // （打包）：child 已崩但退避重启在途时 isRunning() 为 false——原判据
       // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（语义旁路）；补
       // hasPendingRestart 使「重试前关旧」覆盖重启在途窗口
       getStudioServer: () => (serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null),
@@ -706,7 +706,7 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   // TerminateProcess 不进 JS handler），本行实际仅 POSIX 生效；win 的硬杀面已由
   // SIGBREAK（Ctrl+Break）与 uncaughtException backstop 兜底。保留本行为三平台
   // 对齐与跨平台宿主（如 win 下经 POSIX 兼容层运行）预留，非缺陷。
-  // 0918二轮修复批（C107）：三行注册改经 createRepeatedSignalExit——同型信号第二次
+  // 三行注册改经 createRepeatedSignalExit——同型信号第二次
   // 到达直接 killNow + exit(1) 硬退（逻辑正本与动机见 signal-hard-exit.ts 头注）；
   // 首次语义不变（app.quit 单次优雅链，unref 语义不受影响）。
   const onExitSignal = createRepeatedSignalExit({
@@ -755,13 +755,13 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     log.error('desktop', '主进程未处理的 promise rejection（已记录，不退出）', reason)
   })
 
-  // 优雅退出链装配（处理器正本在 lifecycle.ts—— 拆分，行为零变化；
+  // 优雅退出链装配（处理器正本在 lifecycle.ts——拆分，行为零变化；
   // 沿革注释随处理器迁走，此处保留装配时序：注册位次与拆分前 app.on('before-quit')
   // 一致，介于 unhandledRejection 与 activate 之间）。
   registerQuitChain(bootstrapRunner, serverManager)
 
   app.on('activate', () => {
-    // 低-8退出途中不再重 bootstrap——before-quit 的 3.5s 优雅退出窗口内
+    // 低-8：退出途中不再重 bootstrap——before-quit 的 3.5s 优雅退出窗口内
     // （shuttingDown 已置位）macOS dock 点击仍会触发 activate，若只判
     // mainWindow === null 会在退出半途再起 server/开窗（与退出竞态同族）
     if (bootstrapRunner.shuttingDown) return

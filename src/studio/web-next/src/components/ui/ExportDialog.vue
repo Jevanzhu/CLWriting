@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 导出定稿弹窗（细案 .2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
+// 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
 // 成功 toast + 关弹窗；失败（业务失败回 422 错误信封）经 catch 展示信封诊断文案。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
@@ -38,12 +38,12 @@ async function run(): Promise<void> {
     if (ws.bookName !== targetBook) return
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
     // 清偿-导出未过滤提示（残留）：清单缺失时导出兜底不过滤（宁多勿漏，
-    // /PL-2 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
+    // 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
     // 成功面（弹窗即关，结果面 = toast）补 warning 明示；'applied'/缺省免提示
     if (r.finalizedFilter === 'skipped-no-manifest') {
       ui.toast('定稿清单缺失，本次导出未按定稿过滤（含未定稿章）', 'warning')
     }
-    // 0917清库修复批：服务端透传草稿跳过计数——有跳过时明示，否则作者不知本次
+    // 服务端透传草稿跳过计数——有跳过时明示，否则作者不知本次
     // 导出漏了未定稿章（复用上方 warning toast 形态）
     if ((r.skippedDrafts ?? 0) > 0) {
       ui.toast(`已跳过 ${r.skippedDrafts} 个草稿章`, 'warning')
@@ -77,7 +77,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.exportOpen" kind="export" @mask-click="ui.closeExport">
       <div
         ref="modalRef"

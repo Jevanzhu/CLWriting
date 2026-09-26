@@ -15,7 +15,7 @@ import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.
 import { yieldToEventLoop } from '../../../async.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
 
-// ── ：服务热路径全书扫描的逐块让出 ──────────────────────
+// ──：服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
 // 循环 = 桌面整体卡死。让出范式同 learn/index.ts 与 src/check/run.ts
 //（setImmediate 级，块与块之间其它请求/SSE 心跳可跑）；粒度统一每 25 章/条。
@@ -37,7 +37,7 @@ export function computeProgress(bookRoot: string): { chapters: number; words: nu
  * 允许清单，无法在其内部切分）——其热路径有 stat 级元数据缓存（未变章只
  * stat 不整读），冷路径（首次/有章变更）单章重读仍属该同步段；此处让出点在扫描段
  * 与归并段之间，保证端点 handler 不再是「无让出的整段同步链」。结果与同步版逐位
- * 一致（回归锚守护）。
+ * 头注——内核 stat 级缓存兜底）。结果与同步版逐位一致（回归锚守护）。
  */
 export async function computeProgressAsync(
   bookRoot: string,
@@ -54,11 +54,11 @@ export async function computeProgressAsync(
 
 /**
  * 书架摘要（一次 readChapterDir 扫描算出进度 + 最近编辑 + 最新章节）。
- * 替代 computeProgress + computeLastEdited + computeLatestChapter 三次独立扫描（-BE-1）。
+ * 替代 computeProgress + computeLastEdited + computeLatestChapter 三次独立扫描。
  */
 export function computeBookSummary(bookRoot: string): BookSummary {
   // 壳体收编 ttl-cache.ts 通用件（过期逐出/FIFO
-  // 移入通用件，时序逐位不变）
+  // 一致：共壳共 Map；过期逐出移入通用件，时序逐位不变）
   return summaryCache.getSync(bookRoot)
 }
 
@@ -71,7 +71,7 @@ interface BookSummary {
 }
 
 /**
- * + win 书架双线合并：computeBookSummary
+ * + win 书架性能专项双线合并：computeBookSummary
  * 的 async 孪生——books 书架列表端点逐书走此路径（缓存命中口径与同步版一致：
  * 30s TTL + FIFO + invalidateBookSummary 失效挂点共享同一 summaryCache，双版本
  * 互通）。未命中路径经 readChapterDirSummary（win 单轮化：scanChapterDir 同轮
@@ -94,11 +94,11 @@ export function invalidateBookSummary(bookRoot: string): void {
 
 /** 摘要 TTL 缓存——GET /api/books 对每本书同步整树扫描（读全部章节文件），
  *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 30s；
- *  内存上限防长期运行的书库累积。TTL 30s（win 平台专项）：5s 过短——
+ * 内存上限防长期运行的书库累积。TTL 30s（win 平台专项）：5s 过短——
  *  刷新页面间隔超 5s 就必重扫一次全书库；保存路径（documents.ts invalidateBookSummary）
  *  已即时失效，书架卡不会因此变陈旧，30s 只压低「无改动也重扫」的频率。
  *  扫描成本已由 chapters.ts scanChapterDir 单轮 stat 共享（摘要不再二次 statSync）。
- *  ：壳体收编 ttl-cache.ts 通用件（同步/async 孪生共壳
+ * 壳体收编 ttl-cache.ts 通用件（同步/async 孪生共壳
  *  共 Map，见其头部收敛映射表）。 */
 const SUMMARY_TTL_MS = 30_000
 const SUMMARY_CACHE_MAX = 64
@@ -111,7 +111,7 @@ const summaryCache = createTtlProbeCache<string, BookSummary>({
   computeAsync: computeBookSummaryUncachedAsync,
 })
 
-/** win 书架+ 双线合并：同步版未命中路径——readChapterDirSummary
+/** win 书架性能专项双线合并：同步版未命中路径——readChapterDirSummary
  *  单轮算出（scanChapterDir 同轮 stat 跟踪 latest，不再逐章二次 statSync）。 */
 function computeBookSummaryUncached(bookRoot: string): BookSummary {
   try {
@@ -128,7 +128,7 @@ function computeBookSummaryUncached(bookRoot: string): BookSummary {
  *（心跳/其它请求）先得槽位，后置让出保证扫描段期间排队的回调在 promise 落定前
  * 先跑——「端点 handler 不是无让出的整段同步链」性质维持（
  * 心跳插队用例锚定：probe 在首个让出之后入队，须在后置让出获得槽位）。结果与
- * 同步版逐位一致。
+ * 头注——内核 stat 级缓存兜底）。结果与同步版逐位一致（回归锚守护）。
  */
 async function computeBookSummaryUncachedAsync(bookRoot: string): Promise<BookSummary> {
   await yieldToEventLoop()

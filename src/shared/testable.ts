@@ -1,5 +1,5 @@
 /**
- * 测试可注入常量工厂（修复批）。
+ * 测试可注入常量工厂。
  *
  * 收敛此前逐字重复的「三件套」样板：`export const X = def` + `let x = X` +
  * `export function __setXForTest(v)`（全库 46 处定义）。工厂返回

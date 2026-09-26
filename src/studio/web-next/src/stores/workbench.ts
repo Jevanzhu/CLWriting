@@ -3,8 +3,8 @@ import { ref } from 'vue'
 import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards'
 
 /**
- * 工作台 store（细案 .1 地基）：SSE 事件日志缓冲 + running/connected。
- * .2 扩展态机（八阶段/草稿/审稿/rebook 等），.1 只做事件分派基础。
+ * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。
+ * T3.2 扩展态机（八阶段/草稿/审稿/rebook 等），T3.1 只做事件分派基础。
  */
 
 /** driver SSE 事件（松类型，按 type 分支取字段；对齐 driver/types.ts DriverEvent）。 */
@@ -44,7 +44,7 @@ function ts(): string {
 const MAX_LOG = 500
 
 /**
- * （GLM-5.3 修复批）：textOut 正文聚合的前端内存
+ * textOut 正文聚合的前端内存
  * 封顶（UTF-16 码元，与 JS string.length 同口径）。此前防线单侧依赖服务端锚契约——
  * 单次生成受 max_tokens 约束、自愈重写有 reset 清缓冲，正常会话远不及封顶；但 SSE
  * 通道异常（网关重放/事件风暴）时 text 事件无界拼接会撑爆渲染层内存，日志侧有
@@ -88,7 +88,7 @@ const WORKBENCH_LOG_TYPES: ReadonlySet<string> = new Set([
 
 /** 未知/空 type 事件日志丢弃计数（debug 观测口径——只丢日志不丢
  *  事件，分发行为不变；计数经 console.debug 留痕，便于排查服务端新增事件漏录白名单）
- *  （GLM-5.3 修复批）：留痕按 type 去重——高频未知事件
+ * 留痕按 type 去重——高频未知事件
  *  （网关新增事件名风暴）不再逐条刷屏，首见留痕、计数照旧累计（降噪不丢总量观测） */
 let droppedLogCount = 0
 const droppedTypesWarned = new Set<string>()
@@ -131,7 +131,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 收尾（self_heal_result 丢失），healPhase/batchProgress 原样残留会让界面永久
       // 卡「正在写稿…」（只处理了 running 复位）。running=false 且自愈态残留 →
       // 连带复位 + 中断提示（终局未知，引导从文章树查看）。
-      // 批2-A 批2-A）：healResult 一并复位——断连窗口前已到的
+      // A）：healResult 一并复位——断连窗口前已到的
       // 旧章终局卡片与「写章结果未知」提示同屏自相矛盾；终局须以重连后真实事件为准。
       // 注：完成态空闲重连（healPhase/progress/batchProgress 均 null）不进本分支，
       // 终局卡片跨连接存续（对照见 workbench-sync-healresult-reset.test）。
@@ -151,7 +151,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       droppedLogCount++
       // 按 type 去重——同型未知事件只首见留痕一次
       if (!droppedTypesWarned.has(e.type)) {
-        // （修复批）：add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
+        // add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
         if (droppedTypesWarned.size >= 64) droppedTypesWarned.clear()
         droppedTypesWarned.add(e.type)
         console.debug(
@@ -180,7 +180,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
       textIncomplete.value = false // 本轮生成收尾，水印解除
-      // 批2-A 批2-A）调查结论：此处**不复位** healResult——
+      // A）调查结论：此处**不复位** healResult——
       // 服务端 emitResult 先 self_heal_result 后紧接 done（self-heal.ts emitResult），
       // 终局卡片是收工展示面、须跨 done 存续至下一轮 role_spawn/init 清场；done 清了
       // 卡片即永不显示（workbench-selfheal.test「role_spawn 开局」已锁该行为）。断线
@@ -190,7 +190,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       textOut.value += e.text
       // 超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
       if (textOut.value.length > MAX_TEXT_OUT) {
-        // （四轮处置批）：截断点落在代理对中间时丢掉孤儿低位代理
+        // 截断点落在代理对中间时丢掉孤儿低位代理
         //（其高位配对在丢弃段；裸 slice 会把它留给 UI 渲染成替换符）。
         // 判据 = 低位代理区 DC00-DFFF：截在高位之前则整对都在保留段，无需处理。
         const tail = textOut.value.slice(textOut.value.length - MAX_TEXT_OUT)

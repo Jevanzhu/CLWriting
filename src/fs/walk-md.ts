@@ -1,13 +1,13 @@
 /**
  * 带 symlink 环剪枝 + 根界约束的 .md 深度优先查找器。
  *
- * book-search.walkMd 修复的同族收口：summary/materials/leads 三处递归找章
+ * book-search.walkMd修复的同族收口：summary/materials/leads 三处递归找章
  * 此前无 visited（书内 a→b→a symlink 环深递归，靠帧内 try/catch 兜 RangeError 整项
  * 退化 + 大量无效 IO）、也无根界（书内指向书外的 symlink 被跟随，引文命中/摘要正文
  * 会整读外部文件）。统一抽此共享实现：
  * - 环剪枝：realpath 去重（visited），二次到访即剪；
  * - 根界 = startDir 自身：查找器都从书内子目录起遍（写作/正文 等），越出即拒
- *   （fail-closed，与 safe-path 同向）；
+ * - 根界 = startDir 自身：越出即拒（fail-closed，与 safe-path 同向）。
  * - onFile 返回非 undefined 即短路返回（找第一个命中）。
  *
  * 新增 walkMdEach（全量遍历，与 walkMdFind 同源核心）——state
@@ -52,7 +52,7 @@ export function walkMdEach(
 }
 
 /**
- * walkMdEach 异步孪生（0918修复1）：遍历纪律与同步版逐位同源——
+ * walkMdEach 异步孪生：遍历纪律与同步版逐位同源——
  * Dirent 判型（不跟随 symlink）、realpath 去重环剪枝、根界 = startDir 自身、
  * `._` 资源分叉噪声排除、产出路径重挂回调用方 startDir 命名空间；IO 面（realpath/
  * readdir）走 fs/promises，studio 服务进程事件循环内调用不再冻结。onFile 可返回
@@ -106,7 +106,7 @@ export async function walkMdEachAsync(
 }
 
 /**
- * walkMdEach 的生成器孪生（阶段 52 批 1）：与同步版同源核心（mdFileEntries），逐项产出
+ * walkMdEach 的生成器孪生：与同步版同源核心（mdFileEntries），逐项产出
  * 命中而非回调——调用方可在项目间 yield 让出事件循环（机检前奏段的目录整扫切片用）。
  * 遍历纪律与 walkMdEach 逐位同源：Dirent 判型（不跟随 symlink）、realpath 去重环剪枝、
  * 根界 = startDir 自身、`._` 资源分叉排除、产物路径重挂回调用方 startDir 命名空间。
@@ -130,7 +130,7 @@ function* mdFileEntries(
   } catch {
     return
   }
-  // （四轮处置批）：walk 签名加 dirReal 可选参——起点直传上方已解析的
+  // walk 签名加 dirReal 可选参——起点直传上方已解析的
   // realRoot，省掉对 startDir 的第二次 realpathSync 系统调用（原 :63 根解析与首帧
   // 重复解析同一路径）；子目录递归不传，行为不变
   const walk = function* (

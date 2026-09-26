@@ -145,15 +145,15 @@ export type StatLike = (p: string) => Promise<{ isDirectory(): boolean }>
  * 目录有效性判定含 isDirectory——existsSync 对「同路径普通文件」
  * 也为 true：书库目录被同名文件顶替（误删后重建/解压残留）时该 recent 项不再可用，
  * 却原样保留 → 点击切换后链路把文件路径当书库目录用。
- * （GLM-5.3 修复批）：同步 existsSync+statSync 改
+ * 同步 existsSync+statSync 改
  * 「fs/promises stat + 超时预算」——原实现逐条同步 stat，recent 残留失联网络卷
- * （NAS/SMB 挂载点在而服务器无响应）时启动首读同步冻主进程数十秒（
+ * （NAS/SMB 挂载点在而服务器无响应）时启动首读同步冻主进程数十秒（/
  * -1 反复修复的同一冻结族，readStore 首读入口漏网——probeDirReachable 防线只护
  * current/cwd）。三态分诊（probeDirReachable 同款口径）：
  *   stat 通过且 isDirectory → 保留；确定性快速失败（ENOENT/EACCES/ENOTDIR 等）→ 剔除
  *   （原语义不变，判定窗口内被删/权限按无效处理，不裸抛破坏容错契约）；
  *   超时（失联卷挂死面）→ 跳过判定保留展示——失联不等于失效，择库守卫另有预探拦截
- *   兜底，「残留只污展示面不产行为错」取舍口径不变。
+ * 兜底「残留只污展示面不产行为错」取舍口径不变。
  * 逐条独立预算并行探测（recent ≤ MAX_RECENT 条，并行后总预算 = 单条预算，不串行放大
  * 启动延迟）；返回新对象，保序过滤。
  */

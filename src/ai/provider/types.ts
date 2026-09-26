@@ -8,7 +8,7 @@
 /** 协议类型——决定走哪种 SDK / 线格式
  *  openai = Chat Completions（/v1/chat/completions）
  *  openai-responses = OpenAI Responses API（/v1/responses，gpt-5/grok 深度用）——
- *  曾随误判停用（作者澄清本意暂缓非不做），Responses 启用批回接 */
+ * 曾随误判停用（作者澄清本意暂缓非不做），Responses 启用批回接 */
 export type Protocol = 'anthropic' | 'openai' | 'openai-responses'
 
 /**
@@ -55,7 +55,7 @@ export interface ProviderConf {
   notes?: string
 }
 
-/** 模型行（阶段 14 §7.1）—— 已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
+/** 模型行（阶段 14 §7.1）——已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
 export interface ModelConf {
   id: string
   /** 显示名（选择器回落显示 id） */
@@ -90,7 +90,7 @@ export interface RagProviderConf {
   /** 嵌入模型名 */
   model: string
   apiKey: string // 内存明文；落盘走 vault（同 ProviderConf.apiKey）
-  caps: RagProviderCaps | null // null = 尚未测试连接
+  caps: RagProviderCaps | null // 服务级能力（连通/流式）；null = 尚未测试连接
   capsProbedAt?: number
   sortIndex?: number
 }
@@ -255,7 +255,7 @@ export type GenEvent =
       type: 'error'
       message: string
       retryable: boolean
-      /** （DSH-15 LlmFailure 对标）：结构化错误码——决策表 failureAction 的输入 */
+      /** （LlmFailure 对标）：结构化错误码——决策表 failureAction 的输入 */
       code?: GenErrorCode
       /** HTTP 状态码（协议层错误才有） */
       status?: number
@@ -263,7 +263,7 @@ export type GenEvent =
       retryAfterMs?: number
       /** 服务端请求 id（OpenAI 兼容 x-request-id / Anthropic request-id，排障用） */
       requestId?: string
-      /** /：网关已返回 usage 的终态失败（如传输截断前已收到
+      /** 网关已返回 usage 的终态失败（如传输截断前已收到
        *  usage chunk）随错上抛——gen 层装入 GenError.usage，runner 终态失败按
        * 通道按真实消耗入账，截断不丢计费 */
       usage?: TokenUsage

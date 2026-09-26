@@ -18,7 +18,7 @@ const props = defineProps<{
   batchMode: boolean
   selected: Set<string>
   /** 每组渲染上限；不传 = 不裁（组件层契约保留）。两壳现均传
-   *  shared/render-cap 的 SHELF_RENDER_CAP 单源（0918二轮修复2 整页补传） */
+   * shared/render-cap 的 SHELF_RENDER_CAP 单源（整页补传） */
   renderCap?: number
 }>()
 
@@ -37,7 +37,7 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 // 分组计数仍面向全量），只裁渲染面——renderCap 传入时每组只渲染前 N 张书卡 + 尾部
 // 「已省略 N 部」提示行（上限数值单源 shared/render-cap SHELF_RENDER_CAP，浮层/整页
 // 两壳同传；不传即不裁的缺省契约保留给组件层）。搜索过滤后的命中 >上限时同样截断
-// 且提示行如实计数，缩小搜索词即可见全部命中。-：切片/计数
+// 且提示行如实计数，缩小搜索词即可见全部命中。切片/计数
 // 样板收敛 shared/render-cap 单源。
 function shownBooks(grp: { books: BookEntry[] }): BookEntry[] {
   if (props.renderCap === undefined) return grp.books
@@ -107,7 +107,7 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
           @contextmenu="onCardContextmenu($event, b.name)"
         />
       </div>
-      <!-- ：渲染上限截断提示行（与 CommandPalette 尾部省略行同语义；分组头计数仍显全量） -->
+      <!-- 渲染上限截断提示行（与 CommandPalette 尾部省略行同语义；分组头计数仍显全量） -->
       <div v-if="omittedCount(grp) > 0" class="cap-hint">已省略 {{ omittedCount(grp) }} 部，搜索书名可缩小范围</div>
     </section>
   </div>

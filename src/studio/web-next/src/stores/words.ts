@@ -13,7 +13,7 @@ function localToday(): string {
 }
 
 /**
- * 字数日记 store（§5.4 今日基线 + 精确增量）。
+ * 字数日记 store（§5.4 今日基线 +精确增量）。
  *
  * 今日字数优先取「当日 save settled 的字数 delta 累加」（精确，不受删章/合并影响）；
  * 当日无 settled 记录（delta=null，旧书或当天未保存）→ 回退「当前已写 - 基线」（§5.4）。
@@ -35,7 +35,7 @@ export const useWordsStore = defineStore('words', () => {
   })
 
   /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const reqGen = useStaleGuard()
   let loadedFor: string | null = null
   // 同书在途合并台账（手法对齐 doc.ts inflightOpens）——批量落盘 N 文档
@@ -77,7 +77,7 @@ export const useWordsStore = defineStore('words', () => {
       // 跨零点守卫——响应的 date 由服务端在响应生成时刻打（今日），
       // 若它已 ≠ 前端当前本地日期，说明响应生成于零点前（慢响应跨日竞态）：baseline/delta
       // 属昨日，不能拿来当「今日」。以当前已写重记今日基线，再重取一次对齐服务端新日记录。
-      //（重记基线取 （三十三轮 win 线）的首个 await 前快照 bookTotalWords——
+      //（重记基线取（win 线）的首个 await 前快照 bookTotalWords
       // await 后读活源 tree.totalWords 会拿进「B 树已落定、B 的 ensureBaseline 尚未
       // 推代」间隙的别书总字数。）
       if (r.date !== localToday()) {

@@ -1,5 +1,5 @@
 /**
- * 正文区草稿路径定位/定稿覆盖守卫族 —— （五轮修复批）
+ * 正文区草稿路径定位/定稿覆盖守卫族 ——
  * 自 format/draft.ts 整体上移 document 域（resolveDraftPath / ensureChapterNotFinalized /
  * extractTitleFromContent / inferVolumeDir / cnVolumeNum / slashRelative 逐字节随迁，
  * 块内 R-编号锚注原样随迁）。
@@ -99,9 +99,9 @@ function extractTitleFromContent(content?: string): string | null {
  *  态 4 续写/对话 agent/自动连写的章号一旦指向已定稿章（如坏 fm 副本文件抢章号），
  *  无条件覆盖会静默摧毁定稿内容；fail-closed，由调用方提示作者走回滚或另立章号。
  *  清单缺失/不可读（legacy 书）无定稿信息可依 → 维持旧行为不阻断。
- *  ：除精确 path 外，同章号定稿条目一并拦截——定稿章被作者/外部工具改名后
+ * 除精确 path 外，同章号定稿条目一并拦截——定稿章被作者/外部工具改名后
  *  清单仍挂旧 path，只按 path 匹配会让覆盖分支命中改名后的新文件而绕过防线。
- *  章号匹配改数值口径（^(\d+)- 提取后 Number 比对）——原先按 3 位补零
+ * 章号匹配改数值口径（^(\d+)- 提取后 Number 比对）——原先按 3 位补零
  *  前缀匹配，而 service 重命名生成 4 位补零（0005- 不匹配 005-），防线在改名书上失守。 */
 function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: number): void {
   let manifest: ReturnType<typeof readManifest>
@@ -122,7 +122,7 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
       // 全量误拦「已定稿」。精确 path 分支（上方）不设限：对既定目标路径的覆盖拦截
       // 与文档类型无关。清单 path 为 slash 形 rel（与上方 relPath 构造同源）。
       if (!e.path.startsWith('写作/正文/')) continue
-      // 4（七轮修复批）：内联窄正则 `^(\d+)-` 收编
+      // 4：内联窄正则 `^(\d+)-` 收编
       // chapterNoFromName 单源（finalize.ts inferChapterFromName / summary.ts 同款
       // callshape：带全名含 .md 直传；宽集 `-`/`—`/空白/裸尾均认）——定稿章被外部
       // 工具改名成 `5—标题.md`/`5 标题.md` 后本分支此前不命中，与精确 path 分支
@@ -199,7 +199,7 @@ function cnVolumeNum(s: string): number | null {
 }
 
 /** 绝对路径 → 正斜杠相对路径（win 分隔符归一走 normalizeWinSeparators 单源——win32-only）。
- *  （四轮处置批）：原无条件 `.replace(/\\/g, '/')` 在 posix 上把文件名里的
+ * 原无条件 `.replace(/\\/g, '/')` 在 posix 上把文件名里的
  *  字面反斜杠（posix 合法文件名字符）易帜成目录段（0001-题\目.md → 0001-题/目.md），
  *  覆盖写定位/卷段推断双双错位；收编反斜杠归一族单源后 posix 保字面、win 行为不变。 */
 function slashRelative(base: string, absPath: string): string {

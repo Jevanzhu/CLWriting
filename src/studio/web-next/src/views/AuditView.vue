@@ -103,7 +103,7 @@ async function load(): Promise<void> {
   // loadMore 原地 push——语义与原父侧 clear 等价），此处不再直清。
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
-    if (!alive || loadGen.stale(gen)) return // 卸载后迟到响应不回写；：被更新刷新作废
+    if (!alive || loadGen.stale(gen)) return // 卸载后迟到响应不回写；被更新刷新作废
     conversation.value = v.conversation
     convoEvents.value = v.conversation?.events ?? []
     convoTotal.value = v.conversation?.eventsTotal ?? 0
@@ -144,7 +144,7 @@ async function loadMoreConvo(): Promise<void> {
     // catch 补上方成功路径同款代数复检——续页在途时点刷新，
     // load 递增代数并清列表后，迟到失败此前仍会把错误态（err 回写）写到已被
     // 新刷新取代的视图上（新代成功数据顶着旧错误横幅）。
-    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     convoLoadingMore.value = false
@@ -170,7 +170,7 @@ async function loadMoreWorkflow(): Promise<void> {
   } catch (e) {
     // 同 loadMoreConvo——catch 补代数复检，被刷新作废的续页
     // 迟到失败不把错误态回写到新代视图。
-    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     workflowLoadingMore.value = false
@@ -208,7 +208,7 @@ async function doClear(): Promise<void> {
     // 2-：catch 补存活/代数复检（先例同款）
     // ——清除在途时卸载/点刷新，迟到失败此前仍会把错误态写到已卸载实例或已被新刷新
     // 取代的新代视图上（旧错误横幅顶在新数据上）。
-    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；：被刷新作废的清除不得置错
+    if (!alive || loadGen.stale(gen)) return // 卸载后不回写；被刷新作废的清除不得置错
     err.value = friendlyError(e)
   } finally {
     // 只守存活不守代数：clearing 仅由本操作持有，代数作废分支若不复位会把「确认清除」
@@ -278,8 +278,8 @@ async function doClear(): Promise<void> {
             <h2 class="sec-title">
               事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）
             </h2>
-            <!-- ：行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列）。
-事件 JSON 懒展开随行模板在子组件内生效 -->
+            <!-- 行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列）。
+ （mac 线，merge 并入）：事件 JSON 懒展开随行模板在子组件内生效 -->
             <AuditEventList
               :events="convoEvents"
               :total="convoTotal"
@@ -303,7 +303,7 @@ async function doClear(): Promise<void> {
 
       <!-- 工作流链路 -->
       <template v-else>
-        <!-- ：当前目标 / 任务清单（goal/todo 重放快照） -->
+        <!-- 当前目标 / 任务清单（goal/todo 重放快照） -->
         <AuditGoalTodoPanel :goals="goals" :todos="todos" />
 
         <!-- #18：同上——加载失败后不渲染「暂无工作流事件」空态与 (0) 标题；
@@ -312,7 +312,7 @@ async function doClear(): Promise<void> {
           <h2 class="sec-title">
             工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）
           </h2>
-          <!-- ：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
+          <!-- 同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
  懒展开同随子组件生效 -->
           <AuditEventList
             :events="workflowEvents"

@@ -16,7 +16,7 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
-// -源码 -㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
+// 源码㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
 import { formatWanZi } from '../shared/words'
 import WordCurveChart from '../components/overview/WordCurveChart.vue'
 import RhythmDistPanel from '../components/overview/RhythmDistPanel.vue'
@@ -76,7 +76,7 @@ async function loadAll(): Promise<void> {
   } catch (e) {
     if (loadGen.stale(gen)) return
     err.value = friendlyError(e)
-    // （b 修复批）：主请求失败即止——此前主请求失败
+    // 主请求失败即止——此前主请求失败
     // 后仍无条件发 3 个子请求（伏笔/节奏/分析）：总览页已整页错误态（数据无处渲染），
     // 子请求纯属白耗且失败静默。重试按钮触发 loadAll 重走全链。
     return
@@ -87,7 +87,7 @@ async function loadAll(): Promise<void> {
   void loadRhythm(gen)
   void loadAnalysis(gen)
 }
-// （二十四轮 E 域）：次级加载器补代守卫——主加载器有的 gen 判定，三个
+// 次级加载器补代守卫——主加载器有的 gen 判定，三个
 // 次级加载器此前裸写响应：重试连点/切书后慢响应（伏笔/节奏/分析）照样回填，A 书的
 // 次级数据盖到 B 书页面上（跨书数据渗漏，主数据代守卫防住的正是同型）。
 async function loadFs(gen: number): Promise<void> {
@@ -98,7 +98,7 @@ async function loadFs(gen: number): Promise<void> {
   } catch (e) {
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     // 降级留痕（-源码）——面板空态可重试，不打扰 UI
-    // 修复批（F102）：对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
+    // 对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
     // 不置空，注释「面板保持空态」失实：同书先前成功过一次后重试失败，面板继续展示
     // 旧红/黄/绿统计（陈旧数据假健康）。
     console.warn('[overview] 伏笔健康度加载失败（面板保持空态）', e)
@@ -148,7 +148,7 @@ const targetFmt = computed(() => {
   return t ? (t >= 10000 ? formatWanZi(t, { digits: 0 }) : t.toLocaleString()) : null
 })
 const hasTarget = computed(() => !!targetFmt.value)
-// Date.now 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
+// Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
 const days = computed(() => {
   const c = data.value?.identity.created_at
   if (!c) return 0
@@ -295,7 +295,7 @@ const fsStats = computed(() => {
 
       <!-- ── ② 双列：写作热力(6) + 伏笔健康度(4) ── -->
       <div class="bento-2" :class="{ 'bento-single': fsStats.total === 0 }">
-        <!-- 写作热力 -->
+        <!-- ── ② 双列：写作热力(6) + 伏笔健康度(4) ── -->
         <section class="panel">
           <div class="panel-head">
             <Flame :size="14" /> <span>写作热力</span>
@@ -319,7 +319,7 @@ const fsStats = computed(() => {
           </div>
         </section>
 
-        <!-- 伏笔健康度 -->
+        <!-- ── ② 双列：写作热力(6) + 伏笔健康度(4) ── -->
         <section v-if="fsStats.total > 0" class="panel">
           <div class="panel-head"><AlertTriangle :size="14" /> <span>伏笔健康度</span></div>
           <div class="fs-rows">
@@ -390,7 +390,7 @@ const fsStats = computed(() => {
   margin: 0 auto;
 }
 
-/* .panel 基础走全局 style-shared.css（收敛批装载； 删本处漏网的重复块，声明逐字相同零视觉差） */
+/* .panel 基础走全局 style-shared.css（收敛批装载；删本处漏网的重复块，声明逐字相同零视觉差） */
 
 .empty {
   font-size: var(--font-size-s);

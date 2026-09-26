@@ -6,7 +6,7 @@ import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ModalMask from '../ui/ModalMask.vue'
 
-// （修复批）：
+//
 // ① prop 名「标题」→ title（全库中文 prop 唯一孤例收敛）；fm 数据键「标题」不随改——
 //    emit save 载荷与调用方 onSaveMeta 仍用「标题」，边界在本件 emit 处转换。
 // ② 模态可及性补齐：role="dialog"/aria-modal/aria-label（全库 8 模态唯一漏的一件），
@@ -46,7 +46,7 @@ watch(
 
 function onSave(): void {
   const n = Number(noInput.value)
-  // 低-3章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
+  // 低-3：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
   // 从「章号 = 整数编号」特性中脱落（前端拒收 + 服务端 documents.ts 同点位 fail-closed）
   if (!Number.isInteger(n) || n < 1) {
     numError.value = '章号须为 ≥1 的整数'
@@ -59,7 +59,7 @@ function onSave(): void {
 const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
 
-// 焦点圈（域内既有惯例 useFocusTrap——/同族的弹窗可及性配套）：
+// 焦点圈（域内既有惯例 useFocusTrap——同族的弹窗可及性配套）：
 // 打开时焦点入首个控件，Tab 循环锁在弹窗内，关闭归还焦点
 const dlgRef = ref<HTMLElement | null>(null)
 useFocusTrap(dlgRef)
@@ -82,7 +82,7 @@ function onKeyEsc(e: KeyboardEvent): void {
 
 <template>
   <teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
          遮罩 CSS 与浓度不再本组件自持 -->
     <ModalMask :open="modelValue" kind="chapterMeta" @mask-click="emit('update:modelValue', false)">
       <div

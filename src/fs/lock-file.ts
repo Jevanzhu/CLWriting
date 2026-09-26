@@ -1,6 +1,6 @@
 /**
- * 跨进程锁内的串行写原语（自 ai/calls.ts 下沉 fs）—— / / /
- * / -的沿革语义整体随迁，逐位不变。
+ * 跨进程锁内的串行写原语（自 ai/calls.ts 下沉 fs）——/
+ * 的沿革语义整体随迁，逐位不变。
  *
  * 起因：这两件（写链队列 + 跨进程真锁的写段执行）是**通用锁原语**，与「每章 AI 调用
  * 预算闸」的记账职责无关——原居记账模块 ai/calls.ts，被 ai/provider/store.ts 借用
@@ -13,10 +13,10 @@
 import { errMsg, log } from '../log/index.js'
 import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from './cross-process-lock.js'
 
-/** -：写链队列机制单源——ai/calls.ts serializedWrite 与
+/** 写链队列机制单源——ai/calls.ts serializedWrite 与
  *  provider/store.ts saveProviders 的同构「writeChains Map → 快路锁内直行 → 在途
  *  promise 入链 → cleanup 身份比对删 → 旁挂 warn 防 unhandled rejection」段收编于此
- *  （串行队列 / 跨进程真锁 / 锁等待异步化 / providers 侧收口 /
+ * （串行队列跨进程真锁锁等待异步化 providers 侧收口 /
  * 旁挂留痕的沿革语义逐位不变，只收机械重复）。chains/键由调用方持有
  *  （两域各自独立链互不阻塞；store 侧测试钩子 __seedProvidersWriteChainForTest
  *  直写其 Map，收编后照旧生效）。 */
@@ -88,14 +88,14 @@ export function serializedLockedWrite(
 /** 单源底层：单次「跨进程锁内同步/异步执行写段」——无争用快路同步持锁直行
  *  （tryAcquire 即得，写段为文件 IO 级毫秒，同步原子完成后返回 undefined）；锁被占时
  *  改用 acquireCrossProcessLockAsync 异步轮询等待（setTimeout 微睡、事件循环不阻塞，
- *  ：CLI+桌面双进程争用时承载 SSE/全部接口的服务进程不再被 Atomics.wait 同步微睡
+ * CLI+桌面双进程争用时承载 SSE/全部接口的服务进程不再被 Atomics.wait 同步微睡
  *  冻结至超时）。同步/异步获取对同一把锁互通互斥（fs/cross-process-lock.ts 同源
  *  tryAcquireCrossProcessLock）。返回 undefined = 已同步完成（含同步抛错）；Promise =
  *  在途写段（超时/写失败以 rejection 表达，由 serializedLockedWrite 旁挂留痕/上抛）。
  *  segmentFlag 在 doWrite 同步执行段两侧置/清——等待期（false）与执行段（true）对
  *  readRecord 的可观测口径与旧实现一致。
  *
- * （§四/§六）记档（原 writeWithCrossProcessLock 注，
+ * （§四/§六批2）记档（原 writeWithCrossProcessLock 注
  * 随单源移位，两调用方同受）：快路 doWrite 为全同步写段（load→mutate→writeRecord，
  * atomicWriteFile 默认 fsync=true：文件内容 + 父目录两次 fsync）——慢盘/网络盘（SMB/NAS
  * 挂载）上单次毫秒~百毫秒级阻塞事件循环，承载 SSE 与全部接口的 studio 服务进程同步冻结，
@@ -106,7 +106,7 @@ export function serializedLockedWrite(
  * 降级口径零改动。未来异步化的前置条件（满足前不动）：a. 盘点「记完即读」消费者清单并
  * 逐一确认无「写返回后立即读必须见新值」依赖（或改等待句柄/版本号协议）；b. 全部写方
  * （recordTaskUsage / recordAiCall / readRecord 锁内迁移写）统一改返回 Promise 并上溯改造
- * runner/rag/self-heal 调用链的同步 catch 口径；c. 曾保留、起已在役的
+ * runner/rag/self-heal 调用链的同步 catch 口径；c.曾保留起已在役的
  * writeChains 排队代码即现成接管面。 */
 function crossProcessLockedWrite(
   lockPath: string,

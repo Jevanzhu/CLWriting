@@ -14,12 +14,12 @@
  */
 import { readFileSync, mkdirSync, existsSync, statSync, renameSync } from 'node:fs'
 import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
-// （Opus-5.5 轮）：备份恢复段与写侧共用同一把跨进程写锁——同步非阻塞
+// 备份恢复段与写侧共用同一把跨进程写锁——同步非阻塞
 // 占锁原语（loadProviders 是同步函数，不能用异步孪生；见 tryRestoreFromBak 注②）
 import { tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
-// -：写链队列 + 跨进程锁机械收编 serializedLockedWrite 单源
+// 写链队列 + 跨进程锁机械收编 serializedLockedWrite 单源
 //（快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
-// CLI+桌面双进程争用窗口不再冻结事件循环，机制见该文件头注）。：该原语
+// CLI+桌面双进程争用窗口不再冻结事件循环，机制见该文件头注）。该原语
 // 迁 src/fs/lock-file.ts——设置域不再经记账模块（ai/calls.ts）借用 fs 锁原语。
 import { serializedLockedWrite } from '../../fs/lock-file.js'
 // W-（-win适配）：写链键折叠单源 writeChainKey——case-only/NFD 路径在
@@ -28,7 +28,7 @@ import { platformCaseFold } from '../../fs/safe-path.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
-// 0918三拍板批（KEK v2）：OS 凭据通道 IKM（env CLW_OS_KEK 解析，主进程 safeStorage 产出）
+// （KEK v2）：OS 凭据通道 IKM（env CLW_OS_KEK 解析，主进程 safeStorage 产出）
 import { osKeyMaterial } from './os-kek.js'
 import { errMsg, log } from '../../log/index.js'
 import { createVault, openVault, sealKey, openKey, migrateVaultToOsChannel, type Vault } from './vault.js'
@@ -36,7 +36,7 @@ import { createVault, openVault, sealKey, openKey, migrateVaultToOsChannel, type
 const FILE = 'providers.json'
 
 /**
- * 0918修复批（D002）：写前基线复验失败——盘上 revision 已 ≠ 本操作基于的
+ * 写前基线复验失败——盘上 revision 已 ≠ 本操作基于的
  * revision（他进程/他写方在本操作 load 之后、落盘之前已写入；跨进程锁争用时快路转
  * 异步排队，排队段执行时盘上已是别的写方的结果，按旧快照整态覆盖即丢更新）。
  *
@@ -56,7 +56,7 @@ export class ProviderRevisionConflictError extends Error {
   }
 }
 
-/** 0918修复批（D002）：读盘上当前 revision。文件缺失 → 0（与 loadProviders
+/** 读盘上当前 revision。文件缺失 → 0（与 loadProviders
  *  「无该键视为 0」同口径）；读失败/解析失败 → null（调用方跳过复验——文件损坏时
  *  无有意义的基线可护，保持既有 bak 自愈/覆盖写通道，不因复验挡死自愈）。 */
 function readDiskRevisionLocked(fp: string): number | null {
@@ -73,10 +73,10 @@ function readDiskRevisionLocked(fp: string): number | null {
  * mtime 缓存——避免每次 AI 生成重复 readFileSync + AES-256-GCM 解密。
  * saveProviders 写后失效；外部改动经 mtime 检测自动失效。
  *
- * 四轮-A404（四轮修复批）：单槽 `_cache` 改小 LRU——原单槽
+ * 单槽 `_cache` 改小 LRU——原单槽
  * （path 不匹配即弃用）在双书库（双 userDataPath）交错生成时反复互相击穿，每次
  * loadProviders 都重付全量 readFileSync + AES 解密。键 = join 后绝对路径，值含 mtime
- * 做命中校验（mtime 不同即 miss 的既有语义逐位保持；A105 登记的同毫秒粒度窗原样保留）。
+ * 做命中校验（mtime 不同即 miss 的既有语义逐位保持；登记的同毫秒粒度窗原样保留）。
  * 容量 8 对齐 registry.ts CACHE_CAPACITY 先例。写侧/恢复侧/文件缺失三个失效点由
  * `_cache = null` 全量清除改按键清除：单文件操作不涉他路径条目（他路径命中仍受 mtime
  * 校验兜底，内容语义零变化），全量清除正是多库交错场景的击穿源。
@@ -106,12 +106,12 @@ function cachePut(fp: string, store: ProviderStore, mtime: number): void {
   }
 }
 
-/** 按键失效（写后/备份恢复后/文件缺失——四轮-A404 起不再全表清除，见上注） */
+/** 按键失效（写后/备份恢复后/文件缺失——起不再全表清除，见上注） */
 function cacheDelete(fp: string): void {
   _cache.delete(fp)
 }
 
-/** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复（-AI-1） */
+/** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复*/
 function cloneStore(store: ProviderStore): ProviderStore {
   const cloned = structuredClone(store)
   if (cloned.dek) cloned.dek = Buffer.from(cloned.dek)
@@ -185,7 +185,7 @@ interface DiskFormat {
 }
 
 /**
- * （Opus-5.5 轮）：恢复段的 fs 依赖——**逐调用显式参数**（
+ * 恢复段的 fs 依赖——**逐调用显式参数**（
  * 钩子收敛：原为模块级注入口 __setProvidersRestoreDepsForTest，模块级可变状态让同进程
  * 两个调用方互相污染，且测试钩子挂在生产模块导出面上）。缺省即生产口径；风格照
  * fs/atomic.ts rmQuietly(path, { rm }) / renameWithRetry(from, to, { rename, sleep }) 先例。
@@ -198,7 +198,7 @@ export interface ProvidersRestoreFsDeps {
   writeMain?: (path: string, bytes: Buffer) => void
 }
 
-/** （Opus-5.5 轮）：锁内复核判据——主文件此刻是否已是「可解析且形状
+/** 锁内复核判据——主文件此刻是否已是「可解析且形状
  *  正常」的配置（providers 为数组，与 loadProviders 的形状校验同口径；ragProviders
  *  形状坏按容错为 [] 处理，不在此判据内）。 */
 function isMainLoadable(fp: string): boolean {
@@ -220,13 +220,13 @@ function isMainLoadable(fp: string): boolean {
  * ——libuv 对只读属性自动清位删除）+ atomicWriteFile（tmp+rename+EPERM/EBUSY 退避）；
  * 删除/改名仍失败（真占用）时落下方 catch 的「备份恢复亦失败」既有收口，.bak 全程只读不动。
  *
- * （Opus-5.5 轮）：处置顺序重排为「先读 bak → 取写锁 → 锁内复核 → 改名
+ * 处置顺序重排为「先读 bak → 取写锁 → 锁内复核 → 改名
  * 留证 → 写回」。修复前 rmQuietly(fp) 先删主文件再 readFileSync(bakFp)——bak 读/写失败
  * 时主文件已被无痕销毁，而两处调用点文案却称「损坏文件保留」（文案与处置相反，用户数据
  * 亦无痕丢失）；且全段不持锁，可与并发 saveProviders 的写段交错（旧 bak 快照覆盖新配置 /
  * 半态）。不变量：① 任何失败分支都不比进入前更差——bak 缺失/不可读、写锁被占 → 主文件
  * 原封不动（此时「保留原文件」才为真）；② 一旦进入「留证 + 写回」段，原损坏字节必在
- * <fp>.corrupt-<ts> 留证（改名失败才退回旧口径 rmQuietly 删除——batch-pause /
+ * <fp>.corrupt-<ts> 留证（改名失败才退回旧口径 rmQuietly 删除——batch-pause
  * 二段式先例；路径用 Date.now 数值，toISOString 含 ':' 在 win 是非法文件名）；
  * ③ 复核 + 留证 + 写回全段与写侧 saveProvidersRaw 同一把锁文件（其 lockPath 单源）。
  *
@@ -281,7 +281,7 @@ function tryRestoreFromBak(fp: string, bakFp: string, fsDeps: ProvidersRestoreFs
     }
     // ⑤ 写回 bak 字节（fsync 落盘 + 0600，与写侧 ee- 同口径）
     writeMain(fp, bakBytes)
-    cacheDelete(fp) // 恢复后强制重读（四轮-A404：按键失效，原 _cache = null）
+    cacheDelete(fp) // 恢复后强制重读（按键失效，原 _cache = null）
     log.warn(
       'providers',
       `providers.json 损坏，已从备份恢复（${preserved ? `原损坏文件留证为 ${corruptFp}` : '原损坏文件留证改名失败、已按旧口径删除'}）：${fp}`,
@@ -296,7 +296,7 @@ function tryRestoreFromBak(fp: string, bakFp: string, fsDeps: ProvidersRestoreFs
 }
 
 /**
- * -：providers / ragProviders 两列共用的「解密 + 半迁移收敛」
+ * providers / ragProviders 两列共用的「解密 + 半迁移收敛」
  * 循环单源（§五）——vault 有条目 → openKey 解密（providerId 绑 AAD；存量
  * 未绑密文经 legacy 通道打开并标记重封；残留明文字段标记清理）；vault 缺条目但明文有 →
  * 收明文补迁移。任一命中 needsRewrite 由返回值带出（两列在 loadProviders 汇总）。
@@ -310,7 +310,7 @@ function decryptConfs<T extends { id: string; apiKey: string }>(
   const confs = raws.map((p) => {
     const conf = { ...p, apiKey: '' } as T
     if (vault && dek && vault.keys[conf.id]) {
-      // vault 有 → 解密（vault 永远优先）；：providerId 绑 AAD，
+      // vault 有 → 解密（vault 永远优先）；providerId 绑 AAD，
       // 存量未绑密文经 legacy 通道打开并标记重封
       const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
       conf.apiKey = opened.apiKey
@@ -330,29 +330,29 @@ function decryptConfs<T extends { id: string; apiKey: string }>(
 /**
  * 读 providers.json → 解密 → ProviderStore（含明文 apiKey）。
  *
- * 解密失败（版本过高 / 认证失败）抛错—— 会兜住"损坏不静默"，
+ * 解密失败（版本过高 / 认证失败）抛错——会兜住"损坏不静默"，
  * 当前版本向上传播，由调用方（server API）转成错误响应。
  *
  * 恢复段 fs 依赖走逐调用参数（opts.restoreFs）——生产调用方不传即生产
  * 口径，测试用其覆盖「bak 不可读 / 写回失败」分支（原模块级注入口已删）。
  */
 export function loadProviders(userDataPath: string, opts: { restoreFs?: ProvidersRestoreFsDeps } = {}): ProviderStore {
-  // 通用-2路径拼接统一 join（posix 下与手拼 '/' 逐字节等价）
+  // 通用-2：路径拼接统一 join()（posix 下与手拼 '/' 逐字节等价）
   const fp = join(userDataPath, FILE)
   if (!existsSync(fp)) {
-    cacheDelete(fp) // 四轮-A404：按键失效（原 _cache = null）
+    cacheDelete(fp) // 恢复后强制重读（按键失效，原 _cache = null）
     return emptySettings()
   }
 
   // mtime 缓存命中——跳过 readFileSync + vault 解密（高频 AI 生成场景核心优化）
-  // -SEC-4：返回副本而非同一引用——调用方（API 端点）会直接 mutate store 后 saveProviders，
+  // 返回副本而非同一引用——调用方（API 端点）会直接 mutate store 后 saveProviders，
   // 若缓存返回原引用，未 save 的中间态会泄漏给后续 loadProviders 调用方
-  // 0918二轮修复批（A105 登记）：mtimeMs 为失效判据存在同毫秒粒度窗——外部工具在
+  // mtimeMs 为失效判据存在同毫秒粒度窗——外部工具在
   // 同一毫秒内改写 providers.json 时 mtime 不变、命中陈旧缓存（读侧一次调用影响；
-  // 写侧已有 D002 锁内 revision 复验兜底，读侧单次陈旧下次重读自愈，不另修）。
+  // 写侧已有锁内 revision 复验兜底，读侧单次陈旧下次重读自愈，不另修）。
   try {
     const mtime = statSync(fp).mtimeMs
-    // 四轮-A404：键 = fp（path 等价性由键查找承载，原 `_cache.path === fp` 判定收编）；
+    // 键 = fp（path 等价性由键查找承载，原 `_cache.path === fp` 判定收编）；
     // mtime 不同即 miss 的语义逐位保持
     const hit = cacheGet(fp)
     if (hit && hit.mtime === mtime) return cloneStore(hit.store)
@@ -361,7 +361,7 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
   }
 
   let raw: DiskFormat
-  // 通用-2同上收编 join（与 saveProvidersLocked 侧 bak 写同款）
+  // 通用-2：同上收编 join()（与 saveProvidersLocked 侧 bak 写同款）
   const bakFp = join(dirname(fp), 'providers.bak.json')
   try {
     raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
@@ -372,7 +372,7 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     const bakErr = tryRestoreFromBak(fp, bakFp, opts.restoreFs)
     if (bakErr) {
       // 备份也不可用 → 向上报错（router 全局 catch 转 500 响应）。
-      // （Opus-5.5 轮）：文案校正——修复前写「保留原文件」，但恢复段已
+      // 文案校正——修复前写「保留原文件」，但恢复段已
       // 先 rmQuietly(fp)，该声称只对「bak 缺失/不可读、写锁被占」两条前置失败分支为真
       // （现在它们才真的不触碰主文件）；进入「留证 + 写回」段后失败时原字节在
       // <fp>.corrupt-<ts>，路径由 bakErr 带出（不再声称留在原名可手动恢复）。
@@ -403,7 +403,7 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     if (restored) {
       raw = restored
     } else {
-      // （Opus-5.5 轮）：文案按实际处置生成——修复前称「损坏文件保留，
+      // 文案按实际处置生成——修复前称「损坏文件保留，
       // 可从 providers.bak.json 手动恢复」，两句皆失真：进入恢复段后原文件已改名留证
       //（改名失败才退回删除），而本分支恰是「bak 内容亦不可用」（bakErr 为空 = bak 字节
       // 已写回主文件但仍不可解析，指向 bak 手抄的指引同样无效）。两态分述，恢复失败时
@@ -421,12 +421,12 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
 
   if (vault) {
     // 版本守卫 + HKDF 派生 KEK + 解封 DEK（可能抛 VaultVersionError / VaultDecryptError /
-    // VaultOsKeyMissingError）——0918三拍板批（KEK v2）：os 通道可用时传入，v2 vault
+    // VaultOsKeyMissingError）——（KEK v2）：os 通道可用时传入，v2 vault
     // 由此解锁；v1 vault 走内置通道（语义不变）。
     dek = openVault(vault, builtinKeyMaterial(), osKeyMaterial())
   }
 
-  // 逐条提取明文 apiKey，按 §五半迁移规则收敛（-：两列循环
+  // 逐条提取明文 apiKey，按 §五半迁移规则收敛（两列循环
   // 单源 decryptConfs，逐字段行为不变）
   const { confs: providers, needsRewrite: providersMigrated } = decryptConfs<ProviderConf>(raw.providers, vault, dek)
 
@@ -441,7 +441,7 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     needsRewrite = true
   }
 
-  // 0918三拍板批（KEK v2）：OS 通道迁移——os key 可用且盘上 vault 仍 v1（内置混淆级
+  // （KEK v2）：OS 通道迁移——os key 可用且盘上 vault 仍 v1（内置混淆级
   // 通道）→ 同一 DEK 重封 byOs、摘除 byApp（各 API Key 密文零重加密），needsRewrite
   // 触发内联迁移写（§五同款）。迁移落盘后旧构建按 VaultVersionError 拒读（§4.4 防降级
   // 毁配置，既有守卫语义）；os key 不可用（纯 node / env 未注入）→ 保持 v1 零行为变化。
@@ -467,7 +467,7 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     // saveProviders 现返回 promise——迁移写是 load 的内联副作用：
     // 快路同步异常照旧向上抛（本行表达式同步求值，语义不变）；排队段（存在在途写时）
     // 的拒绝在此收口（saveProviders 内部已 log.warn 留痕），不再成为未处理 rejection。
-    // 0918二轮修复批（A103）：走 saveProvidersRaw（透传 serializedLockedWrite 快路
+    // 走 saveProvidersRaw（透传 serializedLockedWrite 快路
     // undefined 信号）——bak 覆写挂到「本次迁移写入落盘成功之后」：快路（写已同步完成）
     // 同步执行，排队路径挂 promise then 段。修复前迁移后同步 readFileSync 直读校验：
     // 排队窗口内直读拿到的是迁移前旧文件（明文无 vault）→ 校验必失败/跳过 → 明文 bak
@@ -485,14 +485,14 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
     }
   }
 
-  // 更新 mtime 缓存（四轮-A404：cachePut 入 LRU，原 `_cache = { path, store, mtime }`）
+  // 更新 mtime 缓存（cachePut 入 LRU，原 `_cache = { path, store, mtime }`）
   try {
     cachePut(fp, store, statSync(fp).mtimeMs)
   } catch {
     /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */
   }
 
-  // AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
+  // 缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
   // 否则调用方（API 端点）直接 mutate store 后 saveProviders 前，未保存的中间态会泄漏给后续 loadProviders
   return cloneStore(store)
 }
@@ -505,18 +505,18 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
  *
  * 全部写路径（loadProviders 迁移回写 / runner 降级持久化 /
  * 设置页保存）统一收口到本函数 → 按 userDataPath 的串行写队列 + 跨进程文件锁
- * （范式同 ai/calls.ts serializedWrite + 跨进程锁）。修复前读-改-写三段无串行化，
+ * （范式同 ai/calls.ts serializedWrite +跨进程锁）。修复前读-改-写三段无串行化，
  * 与设置页保存并发时旧快照整态覆盖新写，用户配置丢失。
  *
- * 语义变化（原口径， 二十九轮修订）：队列空闲时同步直行（同步调用方
+ * 语义变化（原口径二十九轮修订）：队列空闲时同步直行（同步调用方
  * 「存完即读」与「revision 写后 +1 立即可读」语义不变、IO 异常照旧同步上抛）；存在
- * 在途段时排队为微任务执行。：签名 void → Promise<void>——快路同步写完后
+ * 在途段时排队为微任务执行。签名 void → Promise<void>——快路同步写完后
  * resolve（IO 异常仍同步抛，对 `try { await saveProviders(...) } catch` 两侧等价捕获）；
  * 排队段返回链式 promise，失败 log.warn 留痕后随 promise 上抛（修复前仅 warn 吞掉：
  * 设置页保存 API 已按成功返回而配置未落盘）。端点侧约定按
  * `try { await saveProviders(...) } catch → 500` 消费。
  *
- * 残余窗口（登记，0918修复2 收口）：读路径 loadProviders 不参与互斥——
+ * 残余窗口（登记收口）：读路径 loadProviders 不参与互斥——
  * 排队写未落地的窗口内并发 load 读到旧快照、改动后再 save 会按调用序排在后面；原口径
  * 「后写覆盖前写」丢更新由 saveProvidersLocked 的锁内写前 revision 复验收口（基线漂移
  * 即拒绝落盘、上抛 ProviderRevisionConflictError，API 层映射 409 REVISION_CONFLICT）。
@@ -528,21 +528,21 @@ export function loadProviders(userDataPath: string, opts: { restoreFs?: Provider
  * 通道）＋双方基线同为缺失文件（revision 0 的双建竞态）不设防——前者自愈语义优先，
  * 后者仅在「首次配置双端同刻创建」窄窗，可接受。
  *
- * （Opus-5.5 轮）补记「读路径不参与互斥」的唯一例外：损坏恢复段——
+ * 补记「读路径不参与互斥」的唯一例外：损坏恢复段——
  * tryRestoreFromBak 的「复核 + 留证 + 写回」已纳入本函数同一把锁文件（同步非阻塞占锁，
  * 拿不到即放弃本轮、主文件原状），恢复写不再与在途写交错。
  *
- * 现状校正（（Opus-5.5 轮）按 tree 实况复校）：锁获取
+ * 现状校正（按 tree 实况复校）：锁获取
  * 走 serializedLockedWrite 的快/慢双路——空闲且锁空闲时同步直行（控制流不归还）；
  * 锁被他进程持有时快路转**异步孪生**（acquireCrossProcessLockAsync，setTimeout 轮询，
  * 起该机理的实现居 fs/lock-file.ts crossProcessLockedWrite）并返回在途
  * promise。故下方排队分支
  *（prev 非 undefined）**可达**：在途段未落地期间的新写者按链排队，队列非空窗口 =
- * 他进程持锁窗口。 原文「全同步串行、排队不可达」只对无争用快路成立，已作废。
+ * 他进程持锁窗口。原文「全同步串行、排队不可达」只对无争用快路成立，已作废。
  */
 const writeChains = new Map<string, Promise<unknown>>()
 
-/** （折叠键族， win 适配修复批）：写链键折叠
+/** （折叠键族）：写链键折叠
  *  ——键此前为原始 userDataPath，同一目录以两种 case 寻址（盘符/路径大小写漂移）会
  *  拆成两条进程内串行链，进程内互斥退化（跨进程文件锁仍兜底）。platformCaseFold
  *  单源（win/darwin 折叠，linux 原样）；仅作进程内 Map 键，磁盘路径派生不受影响。 */
@@ -561,7 +561,7 @@ const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
  * （atomicWriteFile 与 /ee- 同款 0600+fsync）；校验失败保持 bak 现状
  * （明文 bak 是恢复通道，下次 saveProviders 自然覆盖）。
  *
- * 0918二轮修复批（A103）：自 loadProviders 迁移分支内联段提取为单源 helper，且执行
+ * 自 loadProviders 迁移分支内联段提取为单源 helper，且执行
  * 时机由「load 内同步直读」改为「本次迁移写入落盘成功之后」（快路同步 / 排队路径
  * promise then 段，见迁移分支注）——修复前排队窗口内同步直读拿到迁移前旧明文文件，
  * roundtrip 校验必失败/跳过，明文 bak 残留到下次任意 save。
@@ -577,7 +577,7 @@ function overwriteBakIfCiphertextRoundtrip(
     const saved = JSON.parse(savedRaw) as DiskFormat
     const savedVault = saved.vault
     if (savedVault) {
-      // 0918三拍板批（KEK v2）：v2 vault 须有 os key 才能重开（v1 通道已摘）
+      // （KEK v2）：v2 vault 须有 os key 才能重开（v1 通道已摘）
       const savedDek = openVault(savedVault, builtinKeyMaterial(), osKeyMaterial())
       const roundtripOk = [...providers, ...ragProviders].every((p) => {
         if (!p.apiKey) return true // 空 key 无密文可校
@@ -598,16 +598,16 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
   return r === undefined ? Promise.resolve() : r
 }
 
-/** 0918二轮修复批（A103）：内部变体——透传 serializedLockedWrite 的快路 undefined
+/** 内部变体——透传 serializedLockedWrite 的快路 undefined
  *  信号（快路 = 写已同步落盘；Promise = 在途/排队段），供 loadProviders 迁移分支把
- *  bak 覆写挂到「本次写入落盘成功之后」（快路同步执行保持既有同步语义，
- *  排队路径挂 promise then 段）。对外 saveProviders 恒 Promise（语义不变）。 */
+ * bak 覆写挂到「本次写入落盘成功之后」（快路同步执行保持既有同步语义，
+ * 排队路径挂 promise then 段）。对外 saveProviders 恒 Promise（语义不变）。 */
 function saveProvidersRaw(userDataPath: string, store: ProviderStore): void | Promise<void> {
-  // -：快/慢双路、在途入链、cleanup 身份比对、旁挂 warn 防
+  // 快/慢双路、在途入链、cleanup 身份比对、旁挂 warn 防
   // unhandled rejection 收编 serializedLockedWrite 单源（起居 fs/lock-file.ts；
-  // 记账侧 serializedWrite 同构薄壳）。 串行队列 + 锁异步化 + 排队段失败
+  // 记账侧 serializedWrite 同构薄壳）。串行队列 +锁异步化 +排队段失败
   // 随 promise 上抛语义逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；
-  // 快路同步完成返回 undefined，saveProviders 转 Promise.resolve（IO 异常照旧同步
+  // 快路同步完成返回 undefined，saveProviders 转 Promise.resolve()（IO 异常照旧同步
   // 上抛，await 侧 try/catch 同样接得住）。
   // W- 并合注：链键走 writeChainKey 折叠（case-only/NFD 路径同链排队，win 侧
   // 修复与收编单源的接合点；__seedProvidersWriteChainForTest 同键口径）。
@@ -630,11 +630,11 @@ function saveProvidersRaw(userDataPath: string, store: ProviderStore): void | Pr
 
 /** 原 saveProviders 主体（改名入锁；逻辑逐行不变） */
 function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
-  // 通用-2路径拼接统一走 join（与下方 bak 写同款），posix 下
+  // 通用-2：路径拼接统一走 join()（与下方 bak 写同款），posix 下
   // 与手拼 '/' 逐字节等价，零行为变化
   const fp = join(userDataPath, FILE)
 
-  // 0918修复批（D002）：锁内写前基线复验——读盘得当前 revision，与本操作基于
+  // 锁内写前基线复验——读盘得当前 revision，与本操作基于
   // 的 revision（store 快照的 revision；全部生产调用方均为 loadProviders 派生，端点
   // mutate 不动 revision，save 成功才写后 +1）比对，不等即拒绝对本操作落盘并上抛
   // ProviderRevisionConflictError（API 层映射 409 REVISION_CONFLICT，前端刷新重读）。
@@ -658,7 +658,7 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   mkdirSync(dirname(fp), { recursive: true })
 
   // 确保 vault + DEK（首次创建或迁移时新建）
-  // 0918三拍板批（KEK v2）：os key 可用 → 新建即 v2（仅 byOs，OS 凭据承载）；存量
+  // （KEK v2）：os key 可用 → 新建即 v2（仅 byOs，OS 凭据承载）；存量
   // v1 vault（旁路构造的 store 快照直存，load 迁移已覆盖常规链）就地迁移随本写落盘。
   let vault = store.vault
   let dek = store.dek
@@ -707,25 +707,25 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
 
   // 写前备份（文件已存在时）。ee-bak 改走 atomicWriteFile + mode 0600 创建即生效——
   // 此前 copyFileSync 建文件后再补 chmodSync，chmod 前受 umask 影响（默认 0644 短暂全局可读，
-  // 虽是密文仍是纪律缺口）；与主文件统一到「mode 随临时文件创建生效」纪律（/），
+  // 虽是密文仍是纪律缺口）；与主文件统一到「mode 随临时文件创建生效」纪律，
   // 且顺带获得原子性（不再可能留下半截 bak）。
   if (existsSync(fp)) {
     atomicWriteFile(join(dirname(fp), 'providers.bak.json'), readFileSync(fp, 'utf8'), { fsync: true, mode: 0o600 })
   }
 
-  // +原子写（atomicWriteFile: PID+UUID tmp 防冲突 + fsync 落盘）。
+  // 原子写（atomicWriteFile: PID+UUID tmp 防冲突 + fsync 落盘）。
   // ee-mode 0600 随临时文件创建即生效（rename 保留 mode），删除写后 chmodSync——
   // 后者存在 umask 窗口（默认 0644 短暂全局可读），与（src/ai/calls.ts 记账文件）同款修法。
   atomicWriteFile(fp, json, { fsync: true, mode: 0o600 })
 
-  // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存；四轮-A404：按键失效，
+  // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存；按键失效，
   // 原 `_cache = null`——本次写只落本路径文件，不再全表清除击穿他库缓存）
   cacheDelete(fp)
 }
 
 /**
  * 400 降级记忆落盘回调——适配器深处只持有 store 的内存 clone
- * （-SEC-4：loadProviders 返回副本），mutate 不回缓存也无人保存。
+ * （loadProviders 返回副本），mutate 不回缓存也无人保存。
  * runner 侧注册落盘函数（load→改→save 读盘最新，防覆盖并发改动），
  * 适配器经 persistDegraded 转发；未注册（如单测直接构造 store）时静默跳过。
  *
@@ -785,7 +785,7 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   return s.providers.find((p) => p.id === s.currentId) ?? null
 }
 
-// ── ：provider 运行时端口（组装根注入面）──────────────────────
+// ──：provider 运行时端口（组装根注入面）──────────────────────
 
 /**
  * 链路消费面 + 降级记忆回调注册面。服务端组装根（server/index.ts 的 createStudioServer）
@@ -813,7 +813,7 @@ export interface ProviderRuntime {
   loadProviders(userDataPath: string): ProviderStore
   /** 写配置（串行写链 + 跨进程锁；失败随 promise 上抛） */
   saveProviders(userDataPath: string, store: ProviderStore): Promise<void>
-  /** 当前启用的供应商 */
+  /** 当前启用的供应商；未配置 / currentId 指向已删条目 → null */
   currentProvider(userDataPath: string): ProviderConf | null
   /** 档位解析（assistant/chat 未配 → 回落 creative + currentModel） */
   resolveTier(userDataPath: string | null, kind: 'creative' | 'assistant' | 'chat'): TierSlot

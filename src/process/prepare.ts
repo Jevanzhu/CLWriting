@@ -3,7 +3,7 @@
  *
  * 组装写稿材料：近况 + 本章账本推进条目 + 设定边界 + 文风（条目库/铁律）+ 文风样章 + 近章结尾 + 前章正文结尾。
  *
- * 预算闸（#12）：
+ * 备料 + 输入预算闸 —— 阶段 3（母本第 6.3 节，依据 #12 输入预算闸 spec）。
  * 1. 源头限流——账本只取本章细纲声明推进的条目 + 少数悬太久（不取全部 open）
  * 2. 兜底裁剪——超预算按弹性优先级 #4→#3→#2→#1 先降档（减量保留）、仍超再整段移除，刚需绝不砍
  * 3. 软预算——不硬拒，裁剪 + 头部留痕
@@ -100,7 +100,7 @@ interface MaterialSection {
   /** 低级项：本段注入的章/卷摘要文件（相对书根）——随段登记，预算裁剪
    *  整段移除后由 prepare 统一回收（injectedSummaryFiles 不再虚报注入面） */
   summaryFiles?: string[]
-  /** -管线：降档版对应的注入文件清单——降档只保留部分文件时同步收缩
+  /** 管线：降档版对应的注入文件清单——降档只保留部分文件时同步收缩
    *  summaryFiles（「可见⟺记录」红线），未设则降档不动原清单（单文件段降档仍整文件可见） */
   degradedSummaryFiles?: string[]
 }
@@ -122,7 +122,7 @@ export interface PrepareResult {
   injectedSummaryFiles: string[]
 }
 
-// ── （评审修复批）：token 折算单源迁 shared/tokens.ts ──────
+// ──：token 折算单源迁 shared/tokens.ts ──────
 // 本文件原持 TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件，
 // 被最底层适配器族 ai/provider/usage-estimate.ts 反向引用（provider→编排层传递依赖，
 // 与 ai 侧回引本模块合围成强连通）。三件随迁 src/shared/tokens.ts 单源，本文件不留
@@ -251,18 +251,18 @@ function buildEndingsSections(
         flexibleRank: 1,
         degradedContent: parts.slice(-1).join('\n\n'),
         summaryFiles: files,
-        // -管线：降档只留最近 1 章结尾，清单同步收缩到同章文件
+        // 管线：降档只留最近 1 章结尾，清单同步收缩到同章文件
         degradedSummaryFiles: files.slice(-1),
       })
     }
   }
 
   // 弹性#1.5 前章正文结尾（衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
-  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录，——不再全树 readChapterDir）；
+  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录不再全树 readChapterDir）；
   // 都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
-  // PL-1前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
+  // 前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
   // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=）拿到的是
-  // 原文—— 已有摘要+原文双份覆盖，真正的前章反而只有摘要转述。
+  // 原文——已有摘要+原文双份覆盖，真正的前章反而只有摘要转述。
   // flexibleRank=1.5：比近章结尾摘要（rank 1）先砍、比文风样章（rank 2）后砍；降档=末尾 500 字
   const prevChapterNo = snapshot.currentChapter
   if (prevChapterNo >= 1) {
@@ -505,7 +505,7 @@ function applyBudgetTrim(
         // 提前停裁或过度裁剪）
         const before = estimateTokens(s.content, model)
         s.content = s.degradedContent
-        // -管线：降档同步收缩 summaryFiles——近章结尾降档只留最近 1 章，
+        // 管线：降档同步收缩 summaryFiles——近章结尾降档只留最近 1 章，
         // 清单若仍登记两章即 promptMeta.files 虚报注入面（「可见⟺记录」红线降档漏网）
         if (s.degradedSummaryFiles) s.summaryFiles = s.degradedSummaryFiles
         totalTokens -= before - estimateTokens(s.content, model)

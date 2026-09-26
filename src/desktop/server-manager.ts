@@ -1,15 +1,15 @@
 /**
  * main 侧 studio server 子进程管理器（阶段 22 批次 K）。
  *
- * 批：fork server-utility 入口 + parentPort 握手（ready 端口回传 / boot-error
+ * fork server-utility 入口 + parentPort 握手（ready 端口回传 / boot-error
  * 信封）+ studioToken 首启生成/原子持久化（A）/启动读入内存一次、fork 一律复用
  * 内存值+ stopChild（kill + 等退出）。
- * 批：shutdown 指令下发 + shutdown-done 回执/3.5s 总超时强杀（覆盖 child 最坏预算）+ shutdownStarted
+ * shutdown 指令下发 + shutdown-done 回执/3.5s 总超时强杀（覆盖 child 最坏预算）+ shutdownStarted
  * 状态门+ stdio:pipe 日志单写者转发（§3.5：CLW_LOG_STDOUT=1 注入 + JSON 行
  * 解析按 level/tag/err 重发，err 透传，坏行原文兜底）。
- * 批（本文件当前态）：崩溃退避自动重启——exit 非主动停机即排程重启（立即/5s/15s
+ * （本文件当前态）：崩溃退避自动重启——exit 非主动停机即排程重启（立即/5s/15s
  * 三档，3 次自动重启后再崩走 onRestartExhausted 封顶回调（main 接原生对话框）；
- * ready 后稳定 stabilityResetMs 计数清零（/——偶发单次崩溃不累计到 3 误弹）；
+ * ready 后稳定 stabilityResetMs 计数清零（偶发单次崩溃不累计到 3 误弹）；
  * 重启钉住最近一次成功端口 + 同一内存 token（前端恢复链只认一次 boot 的同源
  * 端口，token 换代即永久 403）；重启期 EADDRINUSE 等握手失败按退避继续（§3.4 时序
  * 3）；重启全程占 starting 通道（握手在途窗口内并发 start 复用在途轮不双
@@ -17,9 +17,9 @@
  * 直接打挂验收门 4）。
  *
  * fork 以依赖注入暴露（测试换假件，不 mock electron 整模块）；入口路径按本模块
- * 产物位置派生（dist/desktop/server-utility.js，asar 内等价—— 同 server-main
+ * 产物位置派生（dist/desktop/server-utility.js，asar 内等价——同 server-main
  * dirname 派生先例）。env 显式展开 process.env + CLW_LOG_STDOUT=1（不污染 main 自身
- * process.env）。
+ * 子进程 env 组装（launch 纯前置，独立可测）：宿主 process.env 展开拷贝（不污染 main
  *
  * （全项目源码质量与优雅度评审）：启动/重启/退避/停止
  * 原由 12 个闭包变量的布尔旗与计数器组合隐式表示（合法组合只写在注释的正确性证明里），
@@ -44,7 +44,7 @@ import {
   type UtilityProcessLike,
 } from './server-proc.js'
 import { forwardChildStdio } from './server-log.js'
-// 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置（主进程 safeStorage；deps 可注入测试假件）
+// （KEK v2）：OS 凭据通道 IKM 装置（主进程 safeStorage；deps 可注入测试假件）
 import { loadOrGenerateOsKek } from './os-kek.js'
 
 // 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
@@ -54,7 +54,7 @@ export type { LogLike } from './server-proc.js'
 // 缝 2（desktop/server-log.ts，服务端日志转发族）：stdio 单写者转发族。
 export { MAX_LINE_CHARS, forwardLogLine, splitLines } from './server-log.js'
 
-/** fork options 可辨识名：getAppMetrics 单列（ProcessMetric.name），*/
+/** fork options 可辨识名：getAppMetrics 单列（ProcessMetric.name）*/
 export const STUDIO_SERVICE_NAME = 'studio-server'
 
 /**
@@ -78,7 +78,7 @@ const SHUTDOWN_SETTLE_BUDGET_MS = 2_000
 const RESTART_BACKOFF_MS: readonly number[] = [0, 5_000, 15_000]
 /** 自动重启次数上限：第 3 次重启后的再崩溃不再自动重启，转 onRestartExhausted 决断 */
 const RESTART_MAX_ATTEMPTS = 3
-/** ready 后稳定窗口：child 存活过此窗口即清零重启计数（/偶发单崩不累计） */
+/** ready 后稳定窗口：child 存活过此窗口即清零重启计数（偶发单崩不累计） */
 const STABILITY_RESET_MS = 5 * 60_000
 /**
  * restartPinned 在 shuttingDown 态等停机收口的上限。session-end
@@ -89,7 +89,7 @@ const STABILITY_RESET_MS = 5 * 60_000
  * 复合场景下用户面对 API 不可用）。取独立常量 5s（与观察窗同长）：覆盖慢而正常收尾的
  * 全部残余（窗口到点后仍余 ≥0.5s）与挂死形态的大部分（合计 ~10s），超出即放弃，保
  * 「恢复失败」呈现有界、不把自愈拖成第二台常驻等待器。测试经 restartShutdownWaitMs
- * 注入缩短，不依赖本值保快。
+ * shutdownSettleBudgetMs 注入缩短，不依赖本值保快。
  */
 const RESTART_SHUTDOWN_WAIT_MS = 5_000
 
@@ -113,14 +113,14 @@ export interface ServerManagerDeps {
   killWaitMs?: number
   /** 退避序列（第 1/2/3 次重启前等待）；缺省 [0, 5000, 15000]，测试注入缩短保快 */
   backoffMs?: readonly number[]
-  /** ready 后稳定窗口，届时重启计数清零（/）；缺省 5 分钟 */
+  /** ready 后稳定窗口，届时重启计数清零；缺省 5 分钟 */
   stabilityResetMs?: number
   /** restartPinned 在 shuttingDown 态等停机收口的上限；
    *  缺省 RESTART_SHUTDOWN_WAIT_MS（5s），测试注入缩短保快 */
   restartShutdownWaitMs?: number
   /** 本进程退出探测（main 注入 appTearingDown 读数）——自愈
-   *  等待/收口窗口内用户真退出则放弃恢复（不在退出链上 fork 新 child 成孤儿，
-   *  /同向）；缺省恒 false（无接线不放弃） */
+   *  等待/收口窗口内用户真退出则放弃恢复（不在退出链上 fork 新 child 成孤儿）；
+   *  缺省恒 false（无接线不放弃） */
   isProcessExiting?: () => boolean
   /**
    * 3 次自动重启耗尽后的用户决断（main 接原生对话框：重启服务/退出）：
@@ -136,7 +136,7 @@ export interface ServerManagerDeps {
    *  广播 desktop:server-restarted（渲染层 sse.resync 主动重连续用同源）。
    *  缺省无操作——无接线不广播（测试/降级态安全缺省）。 */
   onRestarted?: (port: number) => void
-  /** 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置——缺省真件（safeStorage +
+  /** （KEK v2）：OS 凭据通道 IKM 装置——缺省真件（safeStorage +
    *  os-kek.json），测试注入假件（fixtures 无 vi.mock 纪律，同 fork 注入款）。 */
   loadOsKek?: (userDataPath: string) => Buffer | null
   /**
@@ -152,11 +152,11 @@ interface StartStudioServerOptions {
   workDir: string | null
   /** Electron userData 目录（child 无 app 对象，经 --user-data 下发） */
   userDataPath: string
-  /** --book 下沉的书名（main 侧已 resolveInitialBook，附带） */
+  /** --book 下沉的书名（main 侧已 resolveInitialBook 附带） */
   book?: string | null
   /** dev 态传 true → child 附 --mirror-console（打包态 false 不传） */
   mirrorConsole?: boolean
-  /** 阶段 53 ：应用版本号（main 侧 `app.getVersion`；child 无 app 对象，经 env
+  /** 阶段 53：应用版本号（main 侧 `app.getVersion()`；child 无 app 对象，经 env
    *  CLW_APP_VERSION 下发）。缺省不注入——dev/测试形态 child 回落读 package.json。 */
   appVersion?: string
 }
@@ -179,7 +179,7 @@ interface ActiveChild {
  * 相位（child 侧在做什么）——由状态载荷派生（见 phaseOf），不单独存（免得两份真相）：
  * - 'idle'     无 child、无在途轮、无挂起重启
  * - 'starting' 在途启动轮（fork+握手）未收口。换轮清旧与「child 接管后收口前最后一拍」
- *              期间当值 child 与在途轮并存，仍读 'starting'：启动通道占用才是 /
+ * 期间当值 child 与在途轮并存，仍读 'starting'：启动通道占用才是/E-9a
  *              复用语义的判据（旧 starting 通道口径不变）
  * - 'running'  当值 child 已握手完成（无在途轮）
  * - 'backoff'  崩溃后退避等待（重启定时器在途，无 child 无在途轮）
@@ -206,7 +206,7 @@ export type ManagerEvent =
   | 'backoff-fire' // 退避定时器到点（摘除定时器）
   | 'stop-mark' // 置主动 kill 标记（幂等）
   | 'stop-clear' // 复位主动 kill 标记（显式新生命周期复位单点）
-  | 'shutdown-open' // 停机流程在途
+  | 'shutdown-open' // 复位：停机流程在途时非法（S1/「shutdown 开始后绝不 fork 出存活
   | 'shutdown-close' // 停机流程收口（主动 kill 标记保留）
 
 /** 状态机读数（转移轨迹与矩阵测试的观测面） */
@@ -232,7 +232,7 @@ export interface TransitionTrace {
 export function isLegalTransition(ev: ManagerEvent, phase: ManagerPhase, stop: StopMode): boolean {
   switch (ev) {
     // 开轮：空闲、换轮（当值 child 待清）、退避到点（重启/自愈）都能开；'starting'
-    // 表示在途轮已占（start 的复用与已在入口拦下）→ 不许双开
+    // 表示在途轮已占（start 的复用与 E-9a 已在入口拦下）→ 不许双开
     case 'round-open':
       return phase === 'idle' || phase === 'running' || phase === 'backoff'
     // 收口：只有轮在途（含 child 接管后收口前一拍）才可收口，重复收口即非法
@@ -259,7 +259,7 @@ export function isLegalTransition(ev: ManagerEvent, phase: ManagerPhase, stop: S
     // 主动 kill 标记：任何相位任何停机面都可置位（幂等；'shutting' 下保持流程门语义）
     case 'stop-mark':
       return true
-    // 复位：停机流程在途时非法（/-——「shutdown 开始后绝不 fork 出存活
+    // 复位：停机流程在途时非法（S1/「shutdown 开始后绝不 fork 出存活
     // child」靠的就是这个复位，流程内把它拆掉即漏杀）
     case 'stop-clear':
       return stop !== 'shutting'
@@ -274,7 +274,7 @@ export function isLegalTransition(ev: ManagerEvent, phase: ManagerPhase, stop: S
 
 /** 在途启动轮——旧 starting/startingOpts/startingProc 三变量合一 */
 interface StartRound {
-  /** 关键 opts 快照（并发 start 复用前的一致性校验用） */
+  /** 关键 opts 快照（E-9a 并发 start 复用前的一致性校验用） */
   opts: StartStudioServerOptions
   /** fork 句柄（fork 后回填；shutdown 短预算耗尽时 kill 链经此够到它） */
   proc: UtilityProcessLike | null
@@ -288,7 +288,7 @@ interface StartRound {
  * 本对象（由载荷派生，见 phaseOf）。
  */
 interface ManagerState {
-  /** 在途启动轮（互斥通道 + 快照 + kill 句柄） */
+  /** 在途启动轮（互斥通道 + E-9a 快照 + kill 句柄） */
   round: StartRound | null
   /** 当值 child（已握手完成、exit 监听已挂） */
   child: ActiveChild | null
@@ -299,7 +299,7 @@ interface ManagerState {
   /** 自动重启计数（当前生命周期内）。非相位派生项：跨相位存续的独立计数，故不入
    *  转移表；清零点 = 稳定窗口 / 显式新生命周期 / 封顶决断选重启（各处就地注释）。 */
   attempts: number
-  /** 最近一次成功 fork 面（重启/自愈复刻：钉住端口 + 原 opts，前端同源） */
+  /** 最近一次成功 fork 面（重启/自愈复刻：钉住端口 + 原 opts 前端同源） */
   lastBoot: { opts: StartStudioServerOptions; port: number } | null
   /** studioToken 内存值（启动读入一次，此后 fork 一律复用；与相位正交的数据） */
   token: string | null
@@ -326,7 +326,7 @@ interface StudioServerManager {
    *  显式 start 开新生命周期（退避计数清零、挂起重启作废）。 */
   start(opts: StartStudioServerOptions): Promise<number>
   /** kill 当前 child 并等退出（bootstrap 重试清旧共用）；无 child 直通。主动停机：
-   *  取消挂起重启 + 门置位（随后的 exit 不触发自动重启）。 */
+   * 取消挂起重启 +门置位（随后的 exit 不触发自动重启）。 */
   stopChild(): Promise<void>
   /**
    * （#35）：崩溃退出兜底用——不等待收口，对在途 child/在途
@@ -364,7 +364,7 @@ interface StudioServerManager {
 }
 
 /**
- * studioToken 首启生成 / 原子持久化 / 启动读入内存一次（A， + 二轮）：
+ * studioToken 首启生成 / 原子持久化 / 启动读入内存一次（A，+）
  * - 跨崩溃重启（本进程内）与跨 main 重启（relaunch）token 均不变——前端全同源
  *   相对路径 + token 仅挂载时取一次（client.ts ），换代即写/SSE/心跳永久 403；
  * - 文件损坏/缺失 → 重生成覆写（窄边：仅影响下次启动，本次内存值继续用）；
@@ -436,7 +436,7 @@ export function resolveManagerConfig(deps: ServerManagerDeps = {}): ManagerConfi
     isProcessExiting: deps.isProcessExiting ?? (() => false),
     // （§四.3）：重启成功广播钩子（缺省无操作）
     onRestarted: deps.onRestarted,
-    // 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置（缺省真件；不可用面在装置内回落 null）
+    // （KEK v2）：OS 凭据通道 IKM 装置（缺省真件；不可用面在装置内回落 null）
     loadOsKek: deps.loadOsKek ?? loadOrGenerateOsKek,
     onTransition: deps.onTransition,
     onRestartExhausted: deps.onRestartExhausted,
@@ -447,7 +447,7 @@ export function resolveManagerConfig(deps: ServerManagerDeps = {}): ManagerConfi
  * 管理器状态容器（唯一可变真相源）——旧 12 个闭包变量收敛于此。旧注释里
  * 那份「多旗组合的正确性证明」由本对象 + phaseOf + isLegalTransition 取代：合法
  * 组合即「相位 × 停机面」的派生读数（稀疏三类），非法组合在 transition 处被拒。
- * 字段语义见 ManagerState 头注；的 opts 快照、的 fork 句柄、的
+ * 字段语义见 ManagerState 头注；E-9a 的 opts 快照的 fork 句柄的
  * starting 通道分别落在 round 的 opts/proc/promise 上（不再是三个各自可空变量）。
  */
 function createManagerState(): ManagerState {
@@ -529,7 +529,7 @@ function transition(ctx: ManagerCtx, call: TransitionCall): void {
       state.backoffTimer = null
       break
     case 'stop-mark':
-      if (state.stop === 'none') state.stop = 'marked' // 'shutting' 下保持流程门语义
+      if (state.stop === 'none') state.stop = 'marked' // 主动 kill 标记：任何相位任何停机面都可置位（幂等；'shutting' 下保持流程门语义）
       break
     case 'stop-clear':
       state.stop = 'none'
@@ -584,7 +584,7 @@ function cancelPendingRestart(ctx: ManagerCtx): void {
 }
 
 /**
- * （修复批）：预算耗尽时对在途 fork 的就地 kill 收口
+ * 预算耗尽时对在途 fork 的就地 kill 收口
  * （stopChild / shutdown 两段逐字同构块收拢为局部闭包，行为零变化）——句柄快照 +
  * once('exit') 等待 + kill + killProcAwaitEscalating 纪律（killWaitMs 等待 + SIGKILL
  * 升级）。无在途 fork（轮内句柄已收口）直通；`!settled && state.round?.proc` 守卫留在
@@ -606,7 +606,7 @@ function onceExit(proc: UtilityProcessLike): Promise<void> {
 }
 
 /**
- * 子进程 argv 组装（launch 纯前置，独立可测）：token 不经 argv
+ * 子进程 argv 组装（launch 纯前置，独立可测）：E-9btoken 不经 argv
  * （本机 ps 可见）——改经 env CLW_STUDIO_TOKEN 注入（server-boot parseServerArgs
  * 读取侧同步切 env），argv 面不再出现 token。
  */
@@ -646,9 +646,9 @@ export function buildChildEnv(
   // 不可达，fork 前剥除 = child 回落模块相对推导 asar 内资源）。合法 dev 链路不经本
   // manager 携带这些变量（devUi 态 main 不 fork server；dev:api 是独立进程自带 env），
   // 剥除无旁损。
-  // 0918三拍板批（KEK v2）：清除面再补 CLW_OS_KEK——宿主残留会绕过下方受控注入
+  // （KEK v2）：清除面再补 CLW_OS_KEK——宿主残留会绕过下方受控注入
   //（旧 IKM 穿透 = v2 vault 解锁失败或错通道），同款逐键清洗后注入。
-  // 阶段 53 ：清除面再补 CLW_APP_VERSION——宿主残留版本号会让更新检查比错基准
+  // 阶段 53：清除面再补 CLW_APP_VERSION——宿主残留版本号会让更新检查比错基准
   //（旧版本被判「已是最新」漏提示，或高版本造出假提示），同款清洗后按 opts 注入。
   for (const k of Object.keys(childEnv)) {
     const ku = k.toUpperCase()
@@ -666,9 +666,9 @@ export function buildChildEnv(
   }
   childEnv['CLW_STUDIO_TOKEN'] = token
   childEnv['CLW_LOG_STDOUT'] = '1'
-  // 阶段 53 ：版本号经 env 下发（缺省不注入——child 回落读 package.json）
+  // 阶段 53：版本号经 env 下发（缺省不注入——child 回落读 package.json）
   if (opts.appVersion) childEnv['CLW_APP_VERSION'] = opts.appVersion
-  // 0918三拍板批（KEK v2）：OS 通道 IKM 经 env 注入（safeStorage 只在主进程可用，
+  // （KEK v2）：OS 通道 IKM 经 env 注入（safeStorage 只在主进程可用，
   // 子进程按 hex 接收；null = 无 OS 通道，子进程回落 v1 内置通道语义）
   if (osKek) childEnv['CLW_OS_KEK'] = osKek.toString('hex')
   return childEnv
@@ -711,7 +711,7 @@ async function launch(ctx: ManagerCtx, round: StartRound, portArg: string): Prom
   // 时随轮摘除）——shutdown 短预算耗尽时 kill 链经此够到它
   round.proc = proc
   forwardChildStdio(proc, cfg.logger) // 握手前接线——boot 期日志不丢
-  // （GLM-5.3 修复批）：utilityProcess 'error' 必监听
+  // utilityProcess 'error' 必监听
   // ——V8 FatalError/OOM/spawn 失败等异常终止经该事件抛诊断，EventEmitter 语义下无监听
   // 即 uncaughtException 崩主进程；此前既不监听也不留痕，child 静默消失只剩 restart 链
   // 兜底重启，根因（V8 级崩溃原因）永久丢失。持久监听随 child 消亡，诊断进档；握手期
@@ -740,7 +740,7 @@ async function launch(ctx: ManagerCtx, round: StartRound, portArg: string): Prom
       if (wasActive && !killMarked(ctx)) scheduleRestart(ctx)
     })
   })
-  // 接管（child 当值 + 最近成功 boot 面，重启/自愈复刻用）——同一转移内落位
+  // 接管（child 当值 + 最近成功 boot 面重启/自愈复刻用）——同一转移内落位
   transition(ctx, { ev: 'child-up', child: { proc, port, exited }, boot: { opts, port } })
   return port
 }
@@ -757,11 +757,11 @@ function scheduleRestart(ctx: ManagerCtx): void {
     cfg.logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
     // （-②）：决断可能异步（异步对话框）——exit 回调不等它，决断到达
     // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
-    // （修复批）：决断链补 .catch——异步决断 reject
+    // 决断链补 .catch——异步决断 reject
     // （对话框链异常等）此前无接手即成 unhandledRejection；catch 记错误日志后走兜底
     // 'quit' 语义（本模块的 quit 缺省 = 不再自动重启，真退出由 main 侧执行，deps 无
     // quit 钩子可调——保持进程现状不重启即该语义的兜底形态）。
-    // （六轮修复批）：缺省 'quit' 臂补显式 error
+    // 缺省 'quit' 臂补显式 error
     // 留痕——本模块 deps 无 quit 钩子可调（真退出由 main 侧执行），「quit 语义」的实际
     // 形态 = 保持进程现状、不再自动重启；生产 main.ts 已接线 onRestartExhausted，此臂
     // 只在接线缺失/异常时到场，届时进程停在「无 server、无提示」态。此前该降级态只由
@@ -831,7 +831,7 @@ async function launchPinned(
   cancelPendingRestart(ctx)
   hooks.beforeLaunch?.()
   // 重启全程占在途轮互斥通道——开轮后并发 start 同参数复用
-  // 在途重启轮（含钉住端口语义）、参数不一致沿用 fail-closed reject；finally
+  // 在途重启轮（含钉住端口语义）、参数不一致沿用 E-9a fail-closed reject；finally
   // 收口归还通道。
   const round = openRound(ctx, boot.opts)
   round.promise = (async () => launch(ctx, round, String(boot.port)))()
@@ -857,7 +857,7 @@ async function launchPinned(
 async function doRestart(ctx: ManagerCtx): Promise<void> {
   const { cfg, state } = ctx
   if (killMarked(ctx)) return // 等待窗口内被停机
-  // （修复批）：在途不覆写—— 注释自认
+  // 在途不覆写——注释自认
   // 「doRestart 不查 starting 直接覆写通道」：崩溃风暴对话框等待期（onRestartExhausted
   // 异步决断在途，-② 起）并发 restartPinned 自愈握手在途时，0ms 退避触发的
   // doRestart 会覆写在途轮——先落定方的 finally 清错通道与 fork 句柄、launch 双 fork
@@ -939,7 +939,7 @@ async function stopChildImpl(ctx: ManagerCtx): Promise<void> {
   // 升级 2s×2 才落定（崩溃重启链上的 bootstrap 重试最坏阻塞用户 ~34s 无响应）。
   // 预算内收口（正常握手毫秒级）语义不变；超时即放弃等握手，下方对在途 fork
   // 直接 kill 收口。settleStarting 内部 catch 握手失败永不 reject，输掉的分支在
-  // 后台自行落定、无未处理拒绝面。
+  // 握手失败永不 reject，输掉的分支在后台自行落定、无未处理拒绝面。
   const settled = await Promise.race([
     settleStarting(ctx, 'stopChild').then(() => true),
     delay(cfg.shutdownSettleBudgetMs).then(() => false),
@@ -955,14 +955,14 @@ async function stopChildImpl(ctx: ManagerCtx): Promise<void> {
   await stopActiveChild(ctx)
 }
 
-/** 启动（在途轮唯一入口 + 并发复用 + 停机门 fail-closed） */
+/** 启动（在途轮唯一入口 + E-9a 并发复用 +停机门 fail-closed） */
 async function startServer(ctx: ManagerCtx, opts: StartStudioServerOptions): Promise<number> {
   const { cfg, state } = ctx
-  // 停机流程进行中 start fail-closed 拒绝—— 的注释与复位只覆盖
+  // 停机流程进行中 start fail-closed 拒绝——的注释与复位只覆盖
   // 「shutdown 先于 start 开始」的正向时序；反向时序（shutdown 已置位并停驻 kill/exit
   // 等待点，此时无在途轮）下 start 进入会在复位点同步清掉主动 kill 标记，
   // launch 的 fork 后检查失守 → 新 child 在停机流程中途存活。现状唯一调用链
-  // bootstrapRunner 有守卫挡住、不可达——本修复把「靠调用纪律」变成机制（与
+  // bootstrapRunner 有守卫挡住、不可达——本修复把「靠调用纪律」变成机制（与 E-9a
   // 参数不一致拒绝同口径）。注意用独立的停机流程门（stop='shutting'）：主动 kill
   // 标记还承载「停旧不重启」语义（stopActiveChild 置位），stopChild 之后的 start
   // 换轮必须放行，不能一并拒绝。
@@ -973,7 +973,7 @@ async function startServer(ctx: ManagerCtx, opts: StartStudioServerOptions): Pro
   }
   const pending = state.round
   if (pending) {
-    // 并发 start 复用同一轮前校验关键 opts 一致（dir/user-data/
+    // E-9a：并发 start 复用同一轮前校验关键 opts 一致（dir/user-data/
     // book/mirror-console）——不一致 fail-closed reject，不静默拿前者配置吞没后到调用方
     const s = pending.opts
     if (
@@ -1002,7 +1002,7 @@ async function startServer(ctx: ManagerCtx, opts: StartStudioServerOptions): Pro
       await stopActiveChild(ctx)
     }
     // 主动 kill 标记的复位单点。旧实现此处是 `if (!shuttingDown)` 的
-    // 条件复位，两条防线的等价性论证（的交织覆盖 + 入口守卫）写在注释里；
+    // 条件复位，两条防线的等价性论证（的交织覆盖 +入口守卫）写在注释里；
     // 现由状态机承担：stop='shutting' 时 'stop-clear' 在转移表里非法 → 拒绝并 error
     // 留痕（stop 保持 'shutting'，launch 的 fork 后检查照旧即杀新 child）。
     // 「shutdown 开始后绝不 fork 出存活 child」仍是任何交织下的硬约束。
@@ -1115,7 +1115,7 @@ function isRunning(ctx: ManagerCtx): boolean {
   return ctx.state.child !== null
 }
 
-/** 挂起自动重启读数（child 已崩但重启在途时 isRunning 为 false，仅凭它会漏关） */
+/** 挂起自动重启读数（child 已崩但重启在途时 isRunning() 为 false，仅凭它会漏关） */
 function hasPendingRestart(ctx: ManagerCtx): boolean {
   return ctx.state.backoffTimer !== null
 }
@@ -1155,7 +1155,7 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
     }
     if (isShutting(ctx) || cfg.isProcessExiting()) {
       // 收口瞬间已被新一轮停机（session-end 重臂 / before-quit）或退出链接管：
-      // 本轮放弃——恢复面交给新的观察窗轮次，不在退出链上 fork 孤儿（/同向）
+      // 本轮放弃——恢复面交给新的观察窗轮次，不在退出链上 fork 孤儿
       cfg.logger.warn('server-manager', 'session-end 自愈：停机收口时本进程已再次进入停机/退出链，放弃恢复')
       return null
     }
@@ -1172,7 +1172,7 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
       return null
     })
   }
-  // 作废挂起重启，与 start 口径对称——不取消则崩溃退避
+  // 作废挂起重启，与 start() 口径对称——不取消则崩溃退避
   // 挂起重启仍武装，开轮在途时 doRestart 触发会复刻钉住端口再 fork，双
   // child 竞逐当值位、输者成孤儿（起 cancelPendingRestart 收编 launchPinned
   // 首步，语义不变）。

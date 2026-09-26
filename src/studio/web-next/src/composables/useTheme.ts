@@ -20,7 +20,7 @@ const SWEEP_MS = 400
 /** Awwwards 冲击面：主题切换圆形扩散。
  *  支持且未减弱动效时，新主题从点击点 clip-path 圆形扩散（400ms ease-std）；
  *  否则瞬切。event 缺省时圆心取视口中心。
- *  win 桌面不走特效（作者拍板）：WCO 窗控条是 DWM 实色带、进不了
+ * win 桌面不走特效（作者拍板）：WCO 窗控条是 DWM 实色带、进不了
  *  网页合成器，扩散期间窗控色只能按「前沿到达时刻」编排单拍切，帧级错位两轮
  *  实测被打回（先闪烁/延迟、修准反解后仍滞后）——win 放弃特效整体瞬切，窗控
  *  色经 applyTheme→syncOverlayNow 与页面同一刻落定即「一起变」。mac（hiddenInset

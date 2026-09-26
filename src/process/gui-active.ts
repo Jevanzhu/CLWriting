@@ -25,7 +25,7 @@ export function guiActivePath(bookRoot: string): string {
 }
 
 /** GUI 心跳写 / 续期（合并写：保留同进程设的 editing_workdir）。
- *  （二十一轮·裁定维持）：审查项「读改写非原子，修：原子写 + 容错读」——核查
+ * （裁定维持）：审查项「读改写非原子，修：原子写 + 容错读」——核查
  *  两项均已在位：落盘走 atomicWriteFile（tmp+rename，下方唯一写点，中途崩溃不留半截
  *  文件），读侧 readGuiActive try/catch 容错（损坏/缺失 → null）。读改写窗口本身在
  *  同进程内为同步代码（无交错点）；跨进程多 GUI 同书并发时 editing_workdir 丢失是

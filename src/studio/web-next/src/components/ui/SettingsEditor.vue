@@ -21,7 +21,7 @@ const {
   fontsLoaded,
 } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
-// 预设组按平台出（mac 批）：win 雅黑/思源黑，mac 苹方/宋体-简——平台
+// 预设组按平台出：win 雅黑/思源黑，mac 苹方/宋体-简——平台
 // 会话内不变，setup 时定一次
 const prosePresetList = prosePresets()
 
@@ -119,7 +119,7 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
       </SettingItem>
       <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
         <div class="font-pair">
-          <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+          <!-- 字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
           <FontPicker
             class="font-select"
             ariaLabel="正文中文字体"
@@ -235,7 +235,7 @@ function numInput(min: number, max: number, key: PrefKey, e: Event): void {
 
 <style scoped>
 /* 排版预设 chips（F 线）：胶囊排布，激活态 accent 描边浅底；
- * 标签用 --text-normal（win 反糊口径：小字号不挂 muted 灰） */
+* 标签小字号用 --text-normal + 透明度（win 反糊口径：小字号不挂 muted 灰） */
 .preset-row {
   display: flex;
   flex-wrap: wrap;

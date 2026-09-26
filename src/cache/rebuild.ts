@@ -33,7 +33,7 @@ import { log, errMsg } from '../log/index.js'
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
 import { BASE_LEAD_TYPES } from '../install/data.js'
 
-// ── ：章读 mtime+size 指纹缓存 ──────────────────────────
+// ──：章读 mtime+size 指纹缓存 ──────────────────────────
 // walkMdEach 遍历 textDir 对每章 readChapter 全量同步读（readFile + parseFlat +
 // countWords 全正文扫）——大书（≥500 章）全量重建时秒级阻塞事件循环，而绝大多数
 // 章自上次重建后未变。缓存挂**模块级**（跨 rebuild 调用共享才有收益；每次调用新建
@@ -89,7 +89,7 @@ function readChapterCached(fp: string): ChapterParseResult {
 
 /** 测试钩子（生产零调用；先例同 search.ts __resetSearchScanCountForTest /
  *  web-next client.ts __testHooks）——清空章读缓存与计数，防测试间污染（模块级
- *  缓存跨用例存活，同一绝对路径的命中会吃上一用例的指纹）。 追加源树扫描
+ * 缓存跨用例存活，同一绝对路径的命中会吃上一用例的指纹）。追加源树扫描
  *  节流的复位/计数钩子（同款口径）。 */
 export const __testHooks = {
   clearChapterCache(): void {
@@ -123,7 +123,7 @@ export const __testHooks = {
  * 断言用）；清后键惰性重建，无正确性影响。
  */
 export function forgetChapterParseCacheForBook(bookRoot: string): number {
-  // （折叠键族， win 适配修复批）：前缀比较收编
+  // （折叠键族）：前缀比较收编
   // platformCaseFold（win/darwin 折叠，键字节不动、只折叠比较）——同一书以不同 case
   // 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配清不净（FIFO 上限兜底内的内存卫生
   // 态）。linux 不折叠语义不变（md-text-cache forgetMdTextCacheForBook 同批同款）。
@@ -151,7 +151,7 @@ export function forgetChapterParseCacheForBook(bookRoot: string): number {
 const SOURCE_SUBDIRS = ['布线', '写作', '定稿', join('大纲', '关系线')] as const
 
 /** 源树统计：mtime 基准 + 文件数 + 总字节（三者合判，删文件/改配置也能检出；
- *  ：min mtime 检出 mtime 倒退 + 同尺寸原位替换；：mtime 总和收敛互补抵消漏检窗） */
+ * min mtime 检出 mtime 倒退 + 同尺寸原位替换；mtime 总和收敛互补抵消漏检窗） */
 interface SourceStats {
   maxMtime: number
   /** 源树最小 mtime——检出「同尺寸文件原位覆盖且 mtime 更早」的倒退改写 */
@@ -200,22 +200,22 @@ function walkSourceStats(bookRoot: string): SourceStats {
   return stats
 }
 
-// ── ：增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
+// ──：增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
 // 动机：单章机检链（runCheckForDocument → rebuild → tryIncrementalRebuild）每调
 // 一次就对四棵源树逐文件 readdir+stat——本地 SSD 毫秒级无感，SMB/网盘卷上单次
 // 全树 stat 扫描秒级，作者面板连查/三审轮询把扫描成本按请求次数放大。照抄
-// state.ts sweepLastAt 纪律：Map 键 bookRoot + 时间戳，TTL 窗内直接回
+// state.ts sweepLastAt纪律：Map 键 bookRoot + 时间戳，TTL 窗内直接回
 // 上次扫描结果。口径：
 // ① TTL 只缓存 stat 扫描结果——db 打开/meta 读取保持每调执行（便宜且正确性
-//    相关：元数据失联自愈等闸不受节流影响）；
+// 相关：元数据失联自愈等闸不受节流影响）；
 // ② 默认不节流——直连 rebuild 的既有调用方（状态机/树聚合/摘要/自愈）零行为
 //    变化，增量基准「源变立即可见」的语义被 test/cache/rebuild.test.ts 的
-//    /系列锚定；仅单章机检链（rebuild opts.throttleSourceProbe）
+// 系列锚定；仅单章机检链（rebuild opts.throttleSourceProbe）
 //    opt-in，该链接受 ≤3s 的源变更可见延迟（登记取舍：窗内改动最迟 TTL 过后
 //    下一次探测可见——方向 = 延后一次全量重建自愈，不会永久跳过变化）；
 // ③ walkSourceStats 每次真实扫描都刷新节流条目（含未节流调用方的全量重建），
 //    让条目随任何真实扫描保持新鲜，缩小 ② 的误跳窗。
-/** 节流窗宽（ms）。导出供阶段 52 批 2 的 worker 档 TTL 承接复用同一常量
+/** 节流窗宽（ms）。导出供的 worker 档 TTL 承接复用同一常量
  *  （openCheckDbAsync 的窗内跳重建与本节流条目同宽，两处口径不得手抄分裂）。 */
 export const SOURCE_PROBE_TTL_MS = 3000
 const sourceProbeLastScan = new Map<string, { at: number; stats: SourceStats }>()
@@ -257,7 +257,7 @@ function tryIncrementalRebuild(
     // 排队等锁（毫秒级）后再读，增量跳过判定不被并发写误伤（纯性能项，不改语义）
     opened.exec('PRAGMA busy_timeout = 5000')
   } catch {
-    // （修复批）： 同款——构造成功后 exec 抛错（库损坏/被锁）时
+    // 同款——构造成功后 exec 抛错（库损坏/被锁）时
     // 句柄泄漏（win 上泄漏 fd 使「删 .cache/index.db 重试」自愈撞 EBUSY/EPERM）；先
     // close 再返回 null。关闭自身守卫 try/catch（NOTADB 后句柄可能已失效，close 抛错
     // 不掩蔽原错误）；构造即抛（opened 未赋值）时 ?. 短路。
@@ -360,11 +360,11 @@ export interface RebuildResult {
 }
 
 /**
- * 全量重建 .cache/index.db。
+ * 从 md 真源全量重建 .cache/index.db（幂等：删了能从零建回，逐字段等价）。
  *
  * @param bookRoot 书仓库根目录（含 book.yaml、大纲/、定稿/）
  * @param cachePath .cache/index.db 路径
- * @param opts.throttleSourceProbe ：增量探测走 3s TTL 节流（单章机检链
+ * @param opts.throttleSourceProbe：增量探测走 3s TTL 节流（单章机检链
  *   opt-in；取舍与口径见节流块注——其余调用方默认不节流，行为不变）
  */
 export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSourceProbe?: boolean }): RebuildResult {
@@ -379,7 +379,7 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
   let leadCount = 0
   let chapterCount = 0
   let summaryCount = 0
-  // + 本次重建的源树基准（count/size 防纯删除漏检），重建后写 meta
+  // 本次重建的源树基准（count/size 防纯删除漏检），重建后写 meta
   const sourceStats = scannedStats.stats ?? walkSourceStats(bookRoot)
   // 存精确 maxMtime——此前 ceil+1 的「缓冲」方向反了：把增量跳过的
   // 接受窗从精确 mtime 扩大到 ceil+1（同尺寸原位改写最长近 2ms 漏检）；JS number 的
@@ -390,7 +390,7 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
   const bookYamlPath = join(bookRoot, 'book.yaml')
   const cfgResult = readBookConfig(bookYamlPath)
   // 解析失败是「按默认配置降级、重建照常」的报告级事实（同款降级
-  // 语义）——原推 errors 使单章机检 REBUILD_FAIL 500 / 树红点全灭 / 黄项不可达
+  // 语义）——原推 errors 使单章机检 REBUILD_FAIL 500 / 树红点全灭黄项不可达
   if (!cfgResult.ok) warnings.push(cfgResult.error)
   const enabledTypes = new Set<string>(BASE_LEAD_TYPES)
   for (const t of cfgResult.config.leads.enabled) enabledTypes.add(t)
@@ -399,7 +399,7 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
   const cacheDir = dirname(cachePath)
   if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true })
 
-  // IR-4孤儿 WAL 侧车清理——index.db 被手动删除（状态机报错
+  // 孤儿 WAL 侧车清理——index.db 被手动删除（状态机报错
   // 文案「可删 .cache/index.db 重试」就是这么指引的）而 -wal/-shm 残留时，裸新建库会
   // 让 SQLite 把孤儿 WAL 回放进**新库**（内容错乱/损坏）。派生缓存全量可重建，孤儿
   // 侧车无保留价值——建库前直接清除。库在位时不清理：打开时恢复 WAL 是正确行为。
@@ -420,7 +420,7 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
     // PRAGMA 挪进 try 守卫——此前在 try 外，exec 抛错（库损坏/锁）
     // 时连接泄漏（只盖住了 BEGIN 失败路径）
     db.exec('PRAGMA busy_timeout = 5000')
-    // IR-4补 WAL——index.db 此前默认 delete 日志：进门/机检
+    // 补 WAL——index.db 此前默认 delete 日志：进门/机检
     // 高频读（增量探测只读开库、状态机/AI 工具读账本）与重建写全互斥，掉电残留
     // -journal 热账本还要全量回滚。与事件库（store.ts ）同款收益：读写不互堵、
     // 崩溃自愈面一致。journal_mode 是持久属性——一次设置后所有后续打开（含只读
@@ -486,7 +486,7 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
     setMeta(db, 'source_file_count', String(sourceStats.count)) // 删除检测
     setMeta(db, 'source_total_size', String(sourceStats.size)) // 删除检测
     setMeta(db, 'source_min_mtime', String(sourceStats.minMtime)) // mtime 倒退检测
-    setMeta(db, 'source_sum_mtime', String(sourceStats.sumMtime)) // mtime 总和合判
+    setMeta(db, 'source_sum_mtime', String(sourceStats.sumMtime)) // mtime 总和合判——同尺寸原位替换 + mtime 回拨到区间中值时
     setMeta(db, 'lead_count', String(leadCount))
     setMeta(db, 'chapter_count', String(chapterCount))
     setMeta(db, 'summary_count', String(summaryCount))
@@ -520,9 +520,9 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
 }
 
 /** 扫描摘要目录，文件名 <数字>.md → scope/ref/path 入库。
- *  ：不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——此前静默
+ * 不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——此前静默
  *  continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。
- *  ：形参改收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
+ * 形参改收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
 function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume', warnings: ParseError[]): number {
   if (!existsSync(dir)) return 0
   let count = 0
@@ -532,8 +532,8 @@ function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume
   // 白名单外形态照常 errors 留痕。
   // 目录形态留痕——摘要目录下误建子目录时其中 .md 全体静默不入库
   //（「摘要不生效」无从定位）；对齐白名单外口径 log.warn 留痕（._/. 开头仍豁免）。
-  // （GLM-5.3 修复批）：列举本身加守卫，对齐同域
-  // readdir 容错家族（format/draft.ts 、check/run.ts、check/runner.ts 同款）——
+  // 列举本身加守卫，对齐同域
+  // readdir 容错家族（format/draft.ts、check/run.ts、check/runner.ts 同款）——
   // 上方 existsSync 与 readdirSync 间隙目录被瞬删/移走（TOCTOU），或路径被同名文件
   // 占用（ENOTDIR——existsSync 对文件同为 true，直穿前置守卫）时，裸 readdirSync
   // 直穿炸穿整个 rebuild 事务（fail-loud 把瞬时竞态误报成一次源损坏）；降级空目录
@@ -569,7 +569,7 @@ function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume
     const st = statSync(fp, { throwIfNoEntry: false })
     if (!st || !st.isFile()) continue
     // 文件名：<章号或卷号>.md
-    // （总七十一轮）：Number 过宽——`.md`→0、`0x10.md`→16、`1e2.md`→100、
+    // Number() 过宽——`.md`→0、`0x10.md`→16、`1e2.md`→100、
     // `-3.md`→-3 均 Number.isFinite 入表且不进健康报告；改 /^\d+$/ 严格白名单
     // （不匹配 → errors.push 计入健康报告，对齐同函数口径）
     // 白名单外命名追加 log.warn 留痕——errors 只进 meta 健康报告

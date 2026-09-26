@@ -17,11 +17,11 @@ const ui = useUiStore()
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
 
-// （修复批）：条目渲染上限——大批量回收站全量
+// 条目渲染上限——大批量回收站全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
 // RewritePanel/AuditDiffPanel 、ChapterTree）：只裁渲染面前 100 条 + 尾部
 // 省略提示行，数据面不动（空态判定仍看全量 entries）。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const entriesCap = computed(() => capView(entries.value, RENDER_CAP))
 
@@ -50,7 +50,7 @@ async function load(): Promise<void> {
 // 列表换成错误态；锁挡第二笔，迟到的 404 也按已恢复静默处理
 const restoring = ref<string | null>(null)
 async function restore(id: string): Promise<void> {
-  if (restoring.value) return // 在途锁：双击第二笔直接忽略
+  if (restoring.value) return // 在途锁：双击第二笔直接忽略（含确认弹窗滞留期）
   restoring.value = id
   // （E 域）：书名入口捕获——恢复在途切书后，对新书做旧书的整树重扫是纯冗余
   // （tree.load 扫全书）；面板列表 load 自带代守卫照常刷新，树刷新比对后才执行
@@ -75,7 +75,7 @@ const purging = ref<string | null>(null)
 async function purge(id: string): Promise<void> {
   if (purging.value) return // 在途锁：双击第二笔直接忽略（含确认弹窗滞留期）
   purging.value = id
-  // FE-2书名入口捕获（类收敛）——永久删除不可恢复，请求不能发到
+  // 书名入口捕获（类收敛）——永久删除不可恢复，请求不能发到
   // 确认弹窗滞留期间切换后的书
   const book = props.bookName
   // 锁在 ask 前置位、try 包住全程（取消/切书早退也走 finally 释放，防锁泄漏）
@@ -98,9 +98,9 @@ async function purge(id: string): Promise<void> {
       await load()
       return
     }
-    // （二十四轮 E 域）：purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
+    // purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
     // A 书的删除失败此前无复检直接覆盖 err.value，切到 B 书后整个面板显示成 A 书的错误态
-    //（restore 的 catch 已有同款复检 /，purge 漏挂）
+    //（restore 的 catch 已有同款复检，purge 漏挂）
     if (props.bookName !== book) return
     err.value = friendlyError(e)
   } finally {
@@ -139,8 +139,8 @@ watch(
         </span>
         <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
         <div class="item-actions">
-          <!-- ：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
-               ：purge 同款在途禁用 -->
+          <!-- restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
+：purge 同款在途禁用 -->
           <button
             class="action-btn"
             data-tip="恢复"
@@ -161,7 +161,7 @@ watch(
           </button>
         </div>
       </div>
-      <!-- ：RENDER_CAP 截断省略提示行（与 ChapterTree 尾部提示行同语义） -->
+      <!-- RENDER_CAP 截断省略提示行（与 ChapterTree 尾部提示行同语义） -->
       <div v-if="entriesCap.omitted > 0" class="cap-hint">已省略 {{ entriesCap.omitted }} 项</div>
     </div>
   </div>
@@ -230,8 +230,8 @@ watch(
 .tree-item:hover .item-actions {
   opacity: 1;
 }
-/* （修复批）：键盘焦点同权显形——原仅 hover 行
- * 显形，Tab 聚到「恢复/永久删除」钮上「焦点在但看不见」（对齐 HistoryPanel
+/* 键盘焦点同权显形——原仅 hover 行
+ * 显形，Tab 聚到「恢复/永久删除」钮上「焦点在但看不见」（对齐 HistoryPanel 
  * restore-btn 同款修法：focus-visible 焦点环 + focus-within 行级显形） */
 .action-btn:focus-visible,
 .tree-item:focus-within .item-actions {
@@ -263,7 +263,7 @@ watch(
 .action-btn.danger:hover {
   color: var(--text-error);
 }
-/* 渲染上限省略提示行——纯展示不可点（弱化色，tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示不可点（弱化色 tree-cap-hint 同语义） */
 .cap-hint {
   padding-left: 22px;
   font-size: var(--font-size-xs);

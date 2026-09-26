@@ -1,5 +1,5 @@
 /**
- * IME 组合期按键守卫（/·收口为单源）。
+ * IME 组合期按键守卫（收口为单源）。
  *
  * Chromium 中输入法确认候选的按键顺序是 keydown(isComposing=true) → compositionend
  * → input → keyup：组合期 keydown 读到的 v-model 值是组合前旧值（Vue vModelText

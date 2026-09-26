@@ -1,5 +1,5 @@
 /**
- * 设定台 REST 端点（#7.5 长篇只读 + 角色卡结构化读）。
+ * 设定台 REST 端点（#7.5 长篇只读 +角色卡结构化读）。
  *
  * GET  /api/books/:name/settings → 境界体系 + 角色卡(结构化) + 时间线 + 关系线子图
  * GET  /api/books/:name/completion-names → 角色姓名 + 物品名称（编辑器补全用）
@@ -21,10 +21,10 @@ import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // /：长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（rhythm/progress 同源）
-import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
+import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx extends TaskGateInjected {
@@ -78,7 +78,7 @@ import { log } from '../../../log/index.js'
 
 export type { CharacterCard } from '../../../process/settings-context.js'
 
-// ── settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
+// ──：settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
 // 手法照抄同族先例 rhythm.ts / foreshadows.ts（探针 + 纯 TTL + FIFO 上限 +
 // 书键 forget 挂点）：GET /settings 此前每请求全量重算 settingsLong——境界体系读取 +
 // 角色卡目录整读 + 时间线 md 扫描 + 关系线账本 + relations.json + countChapters 递归
@@ -99,7 +99,7 @@ export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.forget(bookRoot)
   completionNamesCache.forget(bookRoot)
 }
-/** 钩子收敛：/的 4 个观测钩子（__settingsScanCountForTest
+/** 钩子收敛：的 4 个观测钩子（__settingsScanCountForTest
  *  / __completionNamesScanCountForTest 与各自 reset）删除——MISS 计数收编进缓存壳
  *  （ttl-cache.ts 的 stats），回归用例改读下面导出的两壳实例的 stats/resetStats。
  *  导出实例即观测面（生产对象，非测试专用 API）。 */
@@ -125,9 +125,9 @@ function settingsSignature(bookRoot: string): string {
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 + FIFO 32；
- *  特记 evictExpiredOnMiss:false——本壳原无过期顺手逐出行，逐条核对后按原
+ * 特记 evictExpiredOnMiss:false——本壳原无过期顺手逐出行，逐条核对后按原
  *  样保留，见 ttl-cache.ts 头部收敛映射表）。 */
-/** 导出供回归用例读 stats 观测（MISS 计数收编在壳内）。 */
+/** 导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
 export const settingsCache = createTtlProbeCache<string, unknown>({
   name: 'settings',
   keyOf: (k) => k,
@@ -142,7 +142,7 @@ export const settingsCache = createTtlProbeCache<string, unknown>({
   // 请求会卡住同刻的 SSE/IPC 心跳。让出范式与 rhythmComputeAsync
   // 逐位同款：扫描段前后各让出一次，结果复用同一 computeSync 体（逐位一致），并发 MISS
   // 经 in-flight 去重只扫一次。
-  // 0918修复批（D001）：上句宣称此前不成立——创建 options 缺 inFlight，去重在
+  // 上句宣称此前不成立——创建 options 缺 inFlight，去重在
   // ttl-cache.ts 只走 opts.inFlight 分支（同族 search.ts/rhythm.ts/foreshadows.ts 均有），
   // 并发 MISS 各起一个 job 全量重扫。补 inFlight:true 后与宣称逐位一致：同键并发 MISS
   // 合并为同一 Promise（判定段已先行走完命中判定/过期处理，evictExpiredOnMiss:false
@@ -153,7 +153,7 @@ export const settingsCache = createTtlProbeCache<string, unknown>({
 })
 
 /** settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
- *  ：生产路径已改走 async 孪生（下方 getSettingsCachedAsync）；同步版
+ * 生产路径已改走 async 孪生（下方 getSettingsCachedAsync）；同步版
  * 保留原样作回归测试直测面（rhythm 域 getRhythmCached 同款处置）。
  * 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根 RouteOverrides 经
  * handler 传入；直测面显式传——undefined = 生产口径 5s）。 */
@@ -170,13 +170,13 @@ export function getSettingsCachedAsync(bookRoot: string, ttlOverrideMs?: number 
   return settingsCache.get(bookRoot, undefined, ttlOverrideMs ?? undefined)
 }
 
-// ── completion-names「目录指纹 + TTL」缓存壳 ──
+// ──：completion-names「目录指纹 + TTL」缓存壳 ──
 // 手法照抄上方 settings 缓存壳（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
 // 无任何缓存键，每次请求两遍全目录 fm 读（切书 + 编辑器 @ 键 5min 补拉反复触发）。
 // 指纹按本端点实际读面构成：设定/角色、设定/物品 两目录 mtime（增删改名落盘可见）；
-// 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与 同值，宁多扫不脏读）。
+// 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与同值，宁多扫不脏读）。
 // 计算体已异步化（事件循环无阻塞段），缓存壳取同款「同步检查 + 异步计算」形态。
-// 批并修 deepseek- 同题在 mac 树独立落地，win 合并批
+// 批并修 deepseek- 同题在 mac 树独立落地
 // 收口合成：forget 挂点收编 forgetSettingsCache 同清两壳（删书/改名即时出清，较
 // 首版「TTL/FIFO 自然出清」收紧）；TTL 生效值链 = 本壳注入口 → settings
 // 壳注入口（同控回落档）→ 常量。
@@ -185,7 +185,7 @@ const COMPLETION_NAMES_CACHE_MAX = 32
 /** 收尾：__setCompletionNamesCacheTtlForTest 删除——TTL 覆盖档改组装根
  * RouteOverrides 注入（getCompletionNamesCached 覆盖尾参；回落链「本壳覆盖 → settings
  * 覆盖 → 常量」由调用点 `completionNamesTtlMs ?? settingsTtlMs` 表达，随实例隔离）。 */
-/** 回归观测（起经导出的壳实例读 stats，钩子已删；见上方同族注）。 */
+/** 回归观测（起经导出的壳实例读 stats()，钩子已删；见上方同族注）。 */
 
 /** completion-names 读面指纹：设定/角色 + 设定/物品 目录 mtime。 */
 function completionNamesSignature(bookRoot: string): string {
@@ -201,12 +201,12 @@ function completionNamesSignature(bookRoot: string): string {
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 异步计算 + FIFO 32；
- *  特记 evictExpiredOnMiss:false（原无逐出行）+ TTL 链「本壳注入口 → settings
+ * 特记 evictExpiredOnMiss:false（原无逐出行）+ TTL 链「本壳注入口 → settings
  *  壳注入口 → 常量」以闭包原样表达，见 ttl-cache.ts 头部收敛映射表）。
- * 0918修复批（D001）：补 inFlight:true——本壳计算体全异步（readFmNames
+ * 补 inFlight:true——本壳计算体全异步（readFmNames
  *  readdir/fm 读），并发 MISS（切书 + 编辑器 @ 补拉同刻触发）此前各扫一遍全目录；
- *  补后同键并发合并为一次扫描（settings 壳同款语义，见上方 D001 注）。 */
-/** 导出供回归用例读 stats 观测（MISS 计数收编在壳内）。 */
+ * 补后同键并发合并为一次扫描（settings 壳同款语义，见上方注）。 */
+/** 导出供回归用例读 stats() 观测（MISS 计数收编在壳内）。 */
 export const completionNamesCache = createTtlProbeCache<string, unknown>({
   name: 'completion-names',
   keyOf: (k) => k,
@@ -226,7 +226,7 @@ export const completionNamesCache = createTtlProbeCache<string, unknown>({
 })
 
 /** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测（
- *  -0912-4 口径，直调须 await）；起读面异步化 + fm 头读。响应体契约
+ * 口径，直调须 await）；起读面异步化 + fm 头读。响应体契约
  * { characters, items } 逐字节不变（键序/结构与改前一致）。
  * 收尾：ttlOverrideMs = 逐调用 TTL 覆盖档（组装根 RouteOverrides 经
  * handler 以回落链传入；直测面显式传——undefined = 生产口径 5s）。 */
@@ -279,7 +279,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
+      // 编排互斥预检 +任务闸（409 文案逐位保留）+
       // -①中断通道（owner='relations-mine:<书名>'）
       // ——十段复制收编 runGatedGeneration 单源（接法头注见
       // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
@@ -293,7 +293,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         },
         async (ctrl) => {
           // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
-          // （readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
+          //（readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
           // （输入校验两套纪律）：本端点体量最小，确有两处 parse 不可表达的
           // 既有语义，故留内联读取并显式判型（force 仅此一处消费，无第二套校验口径）：
           // ① 闸先于读体——runGatedGeneration 的编排互斥/task 闸 409 必须早于 body 400，
@@ -322,7 +322,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
             ctrl, // -①：中断通道透传
           })
           if (!out.ok) {
-            // -①：中断收口——ABORTED → 499 人话信封。：
+            // -①：中断收口——ABORTED → 499 人话信封。
             // 状态映射收编 replyGenerationFailure 单源；本端点文案变体逐位保留（ABORTED 固定
             // 「已中断」非 out.error、其余坍缩 GEN_FAIL 并组装「AI 梳理失败:…」）——经形状
             // 归一喂单源，status 判定（499/500）与信封字节不变。
@@ -361,7 +361,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
 }
 
 /** async 孪生 MISS 计算体（生产路径）。让出范式同 rhythmComputeAsync /
- * progress.ts （扫描段前后各一次），数值与 settingsLong 逐位一致（复用同一体）。 */
+ * progress.ts（扫描段前后各一次），数值与 settingsLong 逐位一致（复用同一体）。 */
 async function settingsLongAsync(bookRoot: string): Promise<unknown> {
   await yieldToEventLoop()
   const value = settingsLong(bookRoot)
@@ -429,7 +429,7 @@ function settingsLong(bookRoot: string): unknown {
 const RELATION_CACHE = '.clwriting/relations.json'
 
 // -③：本端点书注册重验原持本地同构实现
-// relationsBookMoved；并合 后收敛到
+// relationsBookMoved；并合后收敛到
 // book-context.ts bookMovedFailure 单源（判定口径与人话文案逐字一致），本地拷贝删除。
 
 /** 读 AI 关系梳理缓存（不存在/损坏 → 空）。返回 relations 数组 + 梳理时的章节数（新鲜度判断用）。 */
@@ -492,7 +492,7 @@ function buildMineContext(bookRoot: string): { text: string; files: string[] } {
     const mdFiles = listMdRecursive(proseDir).slice(0, 8)
     if (mdFiles.length) {
       const excerpts = mdFiles.map((f) => {
-        const rel = relative(bookRoot, f).replace(/\\/g, '/') // -数据层： 收口漏点（展示口径统一正斜杠）
+        const rel = relative(bookRoot, f).replace(/\\/g, '/') // 数据层收口漏点（展示口径统一正斜杠）
         const t = readFileSync(f, 'utf8')
           .replace(/^---[\s\S]*?---/, '')
           .replace(/\s+/g, ' ')

@@ -9,7 +9,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** chunks 表 + rag_meta 表 DDL
- *  ：内部常量，不再导出——全库（生产+测试）零消费方，导出面平白
+ * 内部常量，不再导出——全库（生产+测试）零消费方，导出面平白
  *  扩大内部 schema 契约；schema 断言走真实建库路径 createRagTables（见
  *  test/rag/schema-ddl-unexport.test.ts）。 */
 const RAG_DDL = [

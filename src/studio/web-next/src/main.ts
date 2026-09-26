@@ -8,7 +8,7 @@ import { useUiStore } from './stores/ui'
 import { prewarmSystemFonts } from './composables/useSystemFonts'
 import './styles/tokens.css'
 import './styles/base.css'
-// 跨组件通用单类工具（.is-drag/.head-legend/.spin 兜底档等，重体收敛）：
+// 跨组件通用单类工具（.is-drag/.head-legend/.spin 兜底档等重体收敛）：
 // 消费点散布多域组件，全局装载（收纳口径与级联防线见该文件头注）。
 import './styles/utilities.css'
 // 设置域共享类（.val/.save-btn/.seg 药丸等）被设置域外组件消费（右栏面板、导出弹窗），
@@ -45,7 +45,7 @@ app.use(pinia).use(router).mount('#app')
 // useSystemFonts 单例，首开即全量。idle 调度（首帧渲染后空闲即跑，2s 兜底必跑）：
 // 比固定延迟更早覆盖「启动后很快开设置」，且不与启动关键路径抢时机（渲染侧只发
 // IPC，枚举在主进程子进程里跑）；期间用户先开设置则消费侧 loadOnce 先行，预热
-// 沦为共享同一在途 Promise 的 no-op—— 去重；失败走既有空表降级，不影响
+// 沦为共享同一在途 Promise 的 no-op——去重；失败走既有空表降级，不影响
 // 启动。浏览器版无 desktop bridge，loadOnce 内自判空。
 const FONT_PREWARM_IDLE_TIMEOUT_MS = 2_000
 const prewarmFontList = (): void => void prewarmSystemFonts()

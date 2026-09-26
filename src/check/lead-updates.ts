@@ -33,16 +33,16 @@ export interface ChapterLeadUpdate {
  * 首行约定 `# 第N章 账本推进`（章节标签，解析时忽略；旧文件无标签同样兼容）。
  */
 /** 读指定路径的账本推进文件（无文件/空/读失败 → []）。
- *  （评审修复批）：头注修账——原注「文件级读取统一走本函数」
+ * 头注修账——原注「文件级读取统一走本函数」
  *  失实：本函数 src 生产零调用（生产链统一走 readChapterUpdatesForChapter（Checked），
  *  ff- 主文件+归档两源），现存消费面仅 test/process 两处。保留理由：它是
- *  readLeadUpdatesAtChecked 的 [] 兜底薄封装（口径），解析行为测试以它作
- *  「读盘 + 兜底」的最薄入口；生产侧勿新接——降级敏感场景走 Checked 三态版，
+ * readLeadUpdatesAtChecked 的 [] 兜底薄封装（口径），解析行为测试以它作
+ * 「读盘 + 兜底」的最薄入口；生产侧勿新接——降级敏感场景走 Checked 三态版，
  *  不敏感场景走 ForChapter 两源单源。
- *  ：原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
- *  零生产调用（登记的死代码）已删除。
- *  ：读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
- *  请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持的 []
+ * 原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
+ * 零生产调用（登记的死代码）已删除。
+ * 读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
+ * 请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持的 []
  *  兜底口径。 */
 export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
   return readLeadUpdatesAtChecked(absPath) ?? []
@@ -80,10 +80,10 @@ function isLeadUpdateEntryLine(line: string): boolean {
 }
 
 /** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。
- *  ：对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
+ * 对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
  *  手写换行的证据第二行此前被静默丢弃，声明证据与落盘履历（折入后续行）比对失配 →
  *  「声明了没兑现」假红。无条目前的行（标题/首行章标签）不折。
- *  ：ATX 标题行不再折入上一条证据——手写 `## 备注` 等标题折入后，
+ * ATX 标题行不再折入上一条证据——手写 `## 备注` 等标题折入后，
  *  证据 needle 派生自标题碎片、命中正文必败 →「声明了没兑现」定稿假红。分组标题
  *  （后随条目）跳过；节终标题（后无条目）终断，其后人工备注不再触碰条目数据。与
  *  parseHistory 共用 headingEndsSection 判定，两侧口径不漂移。 */
@@ -91,7 +91,7 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   const lines = text.split('\n')
   // 分组标题段前折叠抑制——分组标题（后随仍有条目）跳过后，标题
-  // 与首个后随条目之间的普通备注行不得折入上一条证据。 只护住标题行本身：备注
+  // 与首个后随条目之间的普通备注行不得折入上一条证据。只护住标题行本身：备注
   // 折入会把「证据一」污染成「证据一 手工内容」，evidenceNeedles 必败产「声明了没兑现」
   // 假红，且经 lead-finalize 把污染证据持久写进履历（lead-evidence-missing 转持久红）。
   let skipFoldUntilEntry = false
@@ -122,7 +122,7 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
     // lead-finalize 把污染证据持久写进履历）。重置收窄到真条目/顶层格式错条目，
     // 两个静默跳过形态维持 skipFold 现值（口径）。
     // （§四.6）：裸 `---` 分隔线升格为小节边界（与
-    // ATX 标题同待遇）——命中即置 skipFoldUntilEntry = true。 只堵了「标题→---」
+    // ATX 标题同待遇）——命中即置 skipFoldUntilEntry = true。只堵了「标题→---」
     // 序（分隔线维持守卫现值），条目直接 → `---` → 自由备注行仍折入上一条证据（同款
     // 污染链路）。嵌套子列表行维持口径（守卫现值不变——真条目的子项语境）。
     if (/^-+$/.test(line)) {
@@ -131,7 +131,7 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
     }
     if (/^\s/.test(rawLine)) continue
     skipFoldUntilEntry = false
-    // - <编号> <动词>：<证据>
+    // 列表行但条目格式不符（缺「编号 动词：证据」结构）此前
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
     if (m) {
       const evidence = m[3]!.trim()
@@ -148,10 +148,10 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
 }
 
 /** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。
- *  ：读入后剥 BOM——带 BOM 文件的首行 `\uFEFF# 第5章` 对
+ * 读入后剥 BOM——带 BOM 文件的首行 `\uFEFF# 第5章` 对
  *  `/^#\s*第(\d+)章/` 恒 miss → tag=null → mainIsThisChapter 对任意章为 true，
  *  定稿他章时把标签章推进写成被定稿章履历 + 清空主文件销毁待确认内容
- *  （同库 splitFrontMatter/均已剥 BOM，此处补齐单点）。 */
+ * （同库 splitFrontMatter/均已剥 BOM，此处补齐单点）。 */
 export function readLeadUpdateChapterTag(absPath: string): number | null {
   if (!existsSync(absPath)) return null
   try {
@@ -193,7 +193,7 @@ export function chapterUpdateSources(
  * 读失败（任一在位数据源不可读）维持按 [] 兜底——本函数的既有
  * 调用方（履历回写 applyLeadUpdates 等 document 域）对「读失败=无推进」不敏感或自带
  * fail-open；两端闭合判定等降级敏感消费走 readChapterUpdatesForChapterChecked（机检侧
- * checkWithDb 与定稿闸 finalGateBlockers—— 后者补齐：非 Checked 读会把「清单
+ * checkWithDb 与定稿闸 finalGateBlockers——后者补齐：非 Checked 读会把「清单
  * 不可读」当「零兑现」产假红硬阻断定稿）。
  */
 export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number): ChapterLeadUpdate[] {
@@ -226,7 +226,7 @@ export function readChapterUpdatesForChapterChecked(bookRoot: string, chapterNo:
 // ChapterUpdatesResult 形状，win 侧唯一消费方已随合并改写。）
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。
- *  ：匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会
+ * 匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会
  *  整组 miss——混合短引证据「雪落」无声 vs 正文无引号写法，见 leads.ts 头注）。 */
 export function leadEvidenceMatchesBody(body: string, evidence: string): boolean {
   return evidenceNeedles(evidence).some((needle) => body.includes(needle))

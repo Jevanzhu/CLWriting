@@ -5,7 +5,7 @@
  * 定稿/正文/            →    写作/正文/      （含卷子目录整体搬迁）
  * 篇/（短篇集旧正文目录） →    写作/正文/      （短篇正文统一为"章"，与长篇章同目录）
  * 清单/                 →    大纲/章纲/
- * 工作区/草稿-N.md      →    写作/草稿/
+ * 工作区草稿搬迁：草稿-N.md → 写作/草稿/。
  * 大纲/{5类线索}/       →    布线/{5类线索}/
  * 定稿/设定/            →    设定/
  *
@@ -82,7 +82,7 @@ function migratePath(oldPath: string): string {
 function migrateManifestPaths(bookRoot: string, errors: string[], moved: string[]): number {
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(manifestPath)) return 0
-  // RMW 持 withManifestLock（/纪律）——迁移期与 service/
+  // RMW 持 withManifestLock（纪律）——迁移期与 service/
   // 其他迁移并发时，无锁读改写会后写整文件覆盖先写（entry 丢行）
   try {
     return withManifestLock(manifestPath, () => {
@@ -102,8 +102,8 @@ function migrateManifestPaths(bookRoot: string, errors: string[], moved: string[
         }
         // 清单改写精确过滤——
         // - 已成功搬移（moved 命中）→ 照常改写（登记跟随文件到 v2 路径）；
-        // - 旧路径上仍留有实际文件且未搬移（同名冲突跳过 ① / stat 失败
-        //   ② / rename 失败的形态）→ 条目保持旧值：登记与盘上内容一致，
+        // - 旧路径上仍留有实际文件且未搬移（同名冲突跳过① / stat 失败
+        // ② / rename 失败的形态）→ 条目保持旧值：登记与盘上内容一致，
         //   docId 不挂到冲突胜者内容上、旧文件不成无登记孤儿（横幅报错后作者手工裁决）；
         // - 旧路径无文件（清单先行、盘上未建的 scaffold 新书/半断点形态）→ 照常改写
         //   （首次保存按 v2 路径落盘——server 启动链既有隐含契约，documents-api 等依赖）。
@@ -164,7 +164,7 @@ function moveTree(
   let count = 0
   try {
     for (const name of readdirSync(oldPath)) {
-      // -mac适配：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
+      // mac适配：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
       // `.DS_Store` 等此前被当条目搬移（迁移计数虚增、搬移面扩大）；残留在旧目录的
       // 点文件只会让末尾 rmdirSync 留空失败走既有「残留文件，保留旧目录」通道
       if (name.startsWith('.')) continue
@@ -232,10 +232,10 @@ function moveDrafts(bookRoot: string, errors: string[], moved: string[]): number
       if (!/^草稿-\d+\.md$/.test(name)) continue
       const src = join(workdir, name)
       const dst = join(dstDir, name)
-      // 同名跳过不再静默——对齐 moveTree 的 ① 口径：
+      // 同名跳过不再静默——对齐 moveTree 的① 口径：
       // 旧文件残留 工作区/ 成孤儿（上次迁移中断/rename 失败的断点形态），无告警
-      // 作者无从核对，push 到 errors 供迁移报告提示手动处理
-      // 跳过条目不登记 moved → 其清单条目保持旧路径。
+      // rename 失败），无告警作者无从核对；push 到 errors 供迁移报告提示手动处理。
+      // 跳过条目不登记 moved → 其清单条目保持旧路径（登记与盘上一致）。
       if (existsSync(dst)) {
         errors.push(`同名跳过：工作区/${name}（写作/草稿/${name} 已存在，旧文件保留原位成孤儿，请手动核对去留）`)
         continue

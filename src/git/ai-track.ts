@@ -77,10 +77,10 @@ export function decodeRefSegment(seg: string): string {
 type VersionMetaCache = Map<string, ReturnType<typeof readVersionMeta>>
 
 /** 列全书有轨迹的 docId（候选收割遍历用；无轨迹 → 空）。
- *  双轨口径：同步消费面仅收割同步版 harvestStyleCandidates（存量
+ * 双轨口径：同步消费面仅收割同步版 harvestStyleCandidates（存量
  *  测试与等价性对照用）；服务 HTTP 链（style.ts harvest 端点）走异步孪生
  *  listTrackedDocsAsync——git 后端的 for-each-ref 同步 spawnSync 在 git 无响应时
- *  阻塞事件循环最长 15s（/同族），新增消费者按所挂链路选对应孪生。 */
+ * 阻塞事件循环最长 15s（同族），新增消费者按所挂链路选对应孪生。 */
 export function listTrackedDocs(bookRoot: string): string[] {
   if (hasGitBackend(bookRoot)) {
     const r = git(['for-each-ref', '--format=%(refname)', `${REF_ROOT}/`], bookRoot)
@@ -101,7 +101,7 @@ export function listTrackedDocs(bookRoot: string): string[] {
   //（legacy_abc）与真实 id（legacy:abc）永不相等，文风收割对 legacy 文档静默失明。
   // Set 去重：同一 docId 的字面/编码目录并存（mac 存量+新写）时双目录各扫一遍。
   const out = new Set<string>()
-  const metaCache: VersionMetaCache = new Map() // 单次调用内去重
+  const metaCache: VersionMetaCache = new Map() // meta 读经单次调用内去重缓存（命中免重复头读盘）
   // existsSync 与 readdirSync 之间目录被并发移除/权限变化时裸抛，
   // 违背本模块「失败一律返回 null/空——轨迹是旁路证据，绝不阻断落盘主流程」的自我
   // 定位（version.ts listVersions 的同款守卫，此处漏配）。
@@ -122,7 +122,7 @@ export function listTrackedDocs(bookRoot: string): string[] {
  * listTrackedDocs 的异步孪生——git 路径的 for-each-ref 改走
  * gitAsync（spawn + 有界超时，事件循环不冻结）。同步版此前挂在收割异步链顶部
  * （style.ts harvest 端点 → harvestStyleCandidatesAsync 源1），是（写侧
- * recordAiVersion）/（读侧 listAiVersions/readAiVersion）同族漏网：git 无响应
+ * recordAiVersion）（读侧 listAiVersions/readAiVersion）同族漏网：git 无响应
  * （网盘挂载 .git/杀软锁）时同步 spawnSync 阻塞事件循环最长 15s。语义与同步版逐位
  * 对齐：失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断主流程；
  * 版本档案路径（无 git 书库）无子进程，原样委托同步版（本地小文件读）。
@@ -195,7 +195,7 @@ export async function recordAiVersionAsync(bookRoot: string, docId: string, cont
 }
 
 /** 列某文档全部 AI 版（ulid 升序 = 时间序，末位最新；无轨迹 → 空）。
- *  ：可选 metaCache——收割链（listTrackedDocs → 逐 doc 调用）同一 (dir,
+ * 可选 metaCache——收割链（listTrackedDocs → 逐 doc 调用）同一 (dir,
  *  docId, versionId) 的头读盘去重，结果与无缓存恒等。 */
 export function listAiVersions(bookRoot: string, docId: string, metaCache?: VersionMetaCache): AiVersion[] {
   if (hasGitBackend(bookRoot)) {
@@ -262,8 +262,8 @@ export async function listAiVersionsAsync(
 }
 
 /**
- * 读某版内容。 起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
- * 失败 null。
+ * 读某版内容。起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
+ * 写侧先例）。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
  */
 export function readAiVersion(bookRoot: string, docId: string, sha: string): string | null {
   if (isUlid(sha)) {

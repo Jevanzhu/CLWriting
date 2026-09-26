@@ -1,4 +1,4 @@
-// 与服务端共享的字数/章名纯函数（.1）：从主仓 src/format/words.ts re-export。
+// 与服务端共享的字数/章名纯函数（T2.1）：从主仓 src/format/words.ts re-export。
 // words.ts 零 Node 依赖，浏览器端可直接 import；chapters.ts 因 import node:fs 不可跨入。
 // chapterFilePrefix（章号补零宽度写侧单源：长篇 4 位/短篇 3 位）同源
 // re-export——前端复制/新建与服务端草稿新建/改名共用同一宽度口径。
@@ -38,7 +38,7 @@ export function mergeFm(full: string, body: string, opts?: { stripLeading?: bool
  * 剥 fm 值两端对称引号（format/frontmatter unquote 的 web-next 镜像，
  * 该函数未导出且 format 域禁改，故此处单源）。服务端 stringifyValue 对空串/纯数字串/
  * 含特殊字符值加引号落盘（清空值即 `key: ""`），前端读回不剥则表单显示两个引号字符。
- * 双引号单遍解码 \\ \" \n \r（与写侧转义对称，同口径）；单引号 '' → '；
+ * 双引号单遍解码 \\ \" \n \r（与写侧转义对称同口径）；单引号 '' → '；
  * length>=2 守卫防单引号字符值被归一成空（同款）。
  */
 function unquoteFmValue(s: string): string {
@@ -150,7 +150,7 @@ export function isBodyKind(path: string): boolean {
 }
 
 /**
- * -源码 -㉕：万字简写单源（≥1 万 → 「X.X万」形态；位数/后缀按面传参表达）。
+ * 源码㉕：万字简写单源（≥1 万 → 「X.X万」形态；位数/后缀按面传参表达）。
  * 只收「万」分支——各调用面 <1 万 的兜底（toLocaleString / '0 字' / k 简写）输出各异，
  * 不并入本 helper（各处现有输出逐字节保持，不借收编顺手统一视觉口径）。
  */

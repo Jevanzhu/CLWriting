@@ -4,7 +4,7 @@
  * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
  * 纯移动拆分。本文件承载缝 2：字数日记（GET/POST /words-diary，§5.4 今日基线）、
  * W2A 新建文档（POST /documents）、移动/重命名/meta/fm（PATCH /documents/:docId）、
- * .3 复制文档（POST copy）、软删（DELETE /documents/:docId）与回收站
+ * E3.3 复制文档（POST copy）、软删（DELETE /documents/:docId）与回收站
  * （GET /trash、POST /trash/:id/restore、DELETE /trash/:id 永久删）。三缝按原
  * 文件连续段切分，各域路由相对序与全局注册序逐字节不变（dispatch 按注册顺序
  * 匹配，router.ts 隐性契约——顺序细节与环判定记档见残核 documents.ts 头注
@@ -12,7 +12,7 @@
  * 重排；差异仅 export 前缀与 import 重组。
  * 依赖方向：本文件 → document 既有出边（只出不进，不 import ai/studio 反向）
  * + 回引基建单源 documents-core.ts（getOrCreateService / runBookScopedOp /
- * structStatus / DocumentCtx——⑤① 收敛的公共底座，零触碰单源 core）。
+ * structStatus / DocumentCtx——⑤①收敛的公共底座，零触碰单源 core）。
  * 模块图单向无环（core 不 import 同批任何 documents-* 模块；聚合入口在残核
  * documents.ts 单向 import 本文件），本文件无顶层求值常量，无 TDZ 面。
  * 保存/定稿/文件树族见 documents-save.ts（缝 1）；章节结构操作族见
@@ -58,7 +58,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
         replyError(res, 400, 'BAD_INPUT', 'baseline 需非负数')
         return
       }
-      // 面 A（修复批·同型扫描接线）：await
+      // 面 A（同型扫描接线）：await
       // readJson 可跨删书/改名 drain 时点，appendBaseline 对旧捕获路径 mkdir recursive
       // + append 成孤儿——写前与五处链内单元同款书注册重验（时序见 bookMovedFailure 头注）
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
@@ -83,17 +83,17 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // 清偿-伏笔接线×4（残留清偿批）②：新建——「快照读 → create → 差分」
+      // 清偿-伏笔接线×4②：新建——「快照读 → create → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 2--① 口径）：并发交叠不再重复计窗；
       // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
-      // 面 A：链单元首行重验书注册（同 PUT 口径）。
-      // 不变链收编 runBookScopedOp 单源；：新建改 docId 集合，快照
+      // 面 A：链单元首行重验书注册（同 PUT 口径；409 BOOK_MOVED 先于
+      // 不变链收编 runBookScopedOp 单源；新建改 docId 集合，快照
       // 基线仍取本单元 op 前全域状态（链内前继落库变更必在基线中）。
       const result = await runBookScopedOp(ctx, {
         bookName: params['name'],
         bookRoot: r.bookRoot,
         fsPath: relPath,
-        causeId: relPath, // relPath 留痕因果
+        causeId: relPath, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
         deltaId: (created) => (created.ok ? created.docId : relPath), // 新 docId（仅 ok 回调；else 支不可达兜底）
         op: (): Promise<CreateResult> =>
           svc.createDocument({
@@ -119,7 +119,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // docId → relPath：仅作伏笔域判定（rename/move/meta/fm 各自内部会再解析登记路径）
       const docPath = await svc.resolvePathAsync(docId)
-      // 清偿-伏笔接线×4（残留清偿批）①：PATCH——op=fm 改伏笔状态最常用，
+      // 清偿-伏笔接线×4①：PATCH——op=fm 改伏笔状态最常用，
       // rename/move/meta 与其共用同一 handler 差分接线：「快照读 → op → 差分」整段入
       // per-book 伏笔串行链（同 PUT 2--① 口径），并发交叠不再重复计窗。op 形状
       // 校验失败在链单元内同步回复即出链（400 不产生差分、不长时间占链位；返回
@@ -133,8 +133,8 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
         bookName: params['name'],
         bookRoot: r.bookRoot,
         fsPath: docPath,
-        causeId: docId, // docId 留痕因果
-        deltaId: () => docId, // docId 留痕因果
+        causeId: docId, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
+        deltaId: () => docId, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
         op: async (): Promise<MoveResult | undefined> => {
           let result: MoveResult | undefined
           if (body.op === 'rename') {
@@ -153,7 +153,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
             const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
             // 章号：长篇/短篇统一用 章号
             const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
-            // 低-3章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
+            // 低-3：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
             // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
             // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
             if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
@@ -189,7 +189,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     },
   })
 
-  // ── .3：复制文档（源 docId + 目标 relPath → 新 docId）──────────
+  // ── E3.3：复制文档（源 docId + 目标 relPath → 新 docId）──────────
   defineRoute('books.documents.copy', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/copy',
@@ -204,10 +204,10 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // 清偿-伏笔接线×4（残留清偿批）④：copy——「快照读 → copy → 差分」
+      // 清偿-伏笔接线×4④：copy——「快照读 → copy → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 2--① 口径）：复制出的新条目 create
       // 事件各归各窗，非伏笔域目标不进链。
-      // 面 A：链单元首行重验书注册（同 PUT 口径）。
+      // 面 A：链单元首行重验书注册（同 PUT 口径；409 BOOK_MOVED 先于
       // copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
       // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
       // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）。
@@ -239,19 +239,19 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // docId → relPath：仅作伏笔域判定（trashDocument 内部自会再解析）
       const docPath = await svc.resolvePathAsync(docId)
-      // 清偿-伏笔接线×4（残留清偿批）③：软删——「快照读 → trash → 差分」
+      // 清偿-伏笔接线×4③：软删——「快照读 → trash → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 2--① 口径）：软删改 docId 集合（−1）
       // 且把文件移出 设定/伏笔/，快照仍取本单元 trash 前全域状态（条目在册）、差分读
       // 在 trashDocument 落定之后（条目已移出）→ clear 事件各归各窗；链内串行保证
       // 他单元的增删不混入本单元差分窗。
-      // 面 A：链单元首行重验书注册（同 PUT 口径）。
+      // 面 A：链单元首行重验书注册（同 PUT 口径；409 BOOK_MOVED 先于
       // 不变链收编 runBookScopedOp 单源（软删伏笔 clear 事件前快照）。
       const result = await runBookScopedOp(ctx, {
         bookName: params['name'],
         bookRoot: r.bookRoot,
         fsPath: docPath,
-        causeId: docId, // docId 留痕因果
-        deltaId: () => docId, // docId 留痕因果
+        causeId: docId, // 源 docId 作留痕因果
+        deltaId: () => docId, // 源 docId 作留痕因果
         op: (): Promise<TrashResult> => svc.trashDocument({ docId }),
       })
       // 同上——失败走 replyError 统一信封
@@ -260,7 +260,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     },
   })
 
-  // ── W2A：回收站 ──────────────────────────────
+  // ── W2A：软删（→ 回收站）────────────────────────
   defineRoute('books.trash', {
     method: 'GET',
     path: '/api/books/:name/trash',
@@ -277,7 +277,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 1（七轮修复批）：写端点书注册重验补配——同文件
+      // 1：写端点书注册重验补配——同文件
       // words-diary.post（59 先例）六族写端点均有，唯 trash 两端点漏配；restoreTrash
       // 内部多 await（清单锁/簿记）后对 originalPath mkdir recursive，窗口内书被删/改名
       // 即对旧捕获路径重建孤儿目录树（无 book.yaml，repairBooks 不认领）。trash 不持任务

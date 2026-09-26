@@ -22,7 +22,7 @@ export function capView<T>(arr: readonly T[], cap: number): CappedView<T> {
 }
 
 /**
- * 书架渲染帽单源（0918二轮修复2）：浮层书架（ShelfModal）与整页书架
+ * 书架渲染帽单源：浮层书架（ShelfModal）与整页书架
  * （pages/Shelf）两壳共用的每组渲染上限——原值只写在 ShelfModal 局部，整页不传
  * （「不传 = 不裁」）致两壳口径不一：数百书时整页全量挂载 + 入场动画，与浮层的
  * 同族性能论证相悖。收敛此处单一常量，两壳 import 同源，勿在壳内

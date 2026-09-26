@@ -16,12 +16,12 @@
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { splitSentences } from '../format/sentences.js'
 import { QUOTED_SPAN_RE, stripQuotedSpans, SPAN_PUNCT } from './quotes.js'
-// -：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
+// IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
 // 句长码点口径（代理对合 1 计）。
 // -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
 import { codePointLength } from '../shared/text.js'
-// （拆分批）：HANZI 区间/SPEECH_VERBS 动词集是跨缝共享单源——
+// HANZI 区间/SPEECH_VERBS 动词集是跨缝共享单源——
 // 「留 count.ts 残核供两缝 import」经 ESM 环形依赖推演不可行（count.ts 的 re-export
 // import 提升先于残核常量初始化，两新文件顶层 RegExp 构造即踩 TDZ ReferenceError），
 // 故随缝 A 落 count-dialogue.ts export、本文件直接 import，单源不重复（口径不破）。
@@ -44,7 +44,7 @@ const DIALOGUE_TAG_DIDAO_RE = new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u20
  * 原循环/逐行 new RegExp 提升为模块级常量（无 g 标志，test 安全）。
  * 动词段收 SPEECH_VERBS 单源——原 8 动词窄于归属行豁免的 21 动词，
  * 标签占比分子系统性偏低（漏检向黄），对齐后双口径同词表。
- * （拆分批）：自 count.ts 缝 A 区段随消费方 computeStyleMetrics
+ * 自 count.ts 缝 A 区段随消费方 computeStyleMetrics
  * 迁入（SPEECH_VERBS 单源仍在 count-dialogue.ts，见文件头注）。
  */
 const TAG_ANCHOR = `[\\s${SPAN_PUNCT}「」『』“”‘’（）《》〈〉]`
@@ -53,7 +53,7 @@ export const DIALOGUE_TAG_RE = new RegExp(
   'u',
 )
 
-/** 文风铁律可量化阈值 + parseIronRules 已下沉 format/iron-rules.ts（- 消循环依赖），此处仅用类型。 */
+/** 文风铁律可量化阈值 + parseIronRules 已下沉 format/iron-rules.ts（消循环依赖），此处仅用类型。 */
 
 /**
  * 文风机检纯统计（文风方案 §4.2，体检报告重扫用）。
@@ -78,13 +78,13 @@ export interface StyleStats {
   summaryEnding: boolean
   /** 对话行总数（>0 才允许 dialogueTagRatio 有意义）；内部用，聚合层可忽略 */
   _dialogueLines: number
-  /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split；-BE-2） */
+  /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split） */
   _sentences?: string[]
   _sentencesWithColon?: string[]
   /** 形容词堆叠命中串列表（供 checkStyleMetrics 复用，避免重复全文匹配；，_sentences 同款口径） */
   _adjStackHits?: string[]
   /** 首个越界排比前缀（checkStyleMetrics 消费；与
-   *  parallelStreakMax 同循环一次记出，_adjStackHits 同款内部复用先例）。
+   * parallelStreakMax 同循环一次记出_adjStackHits 同款内部复用先例）。
    *  undefined = 未越界或 maxParallelStreak 未启用。 */
   _parallelStreakHitPrefix?: string
 }
@@ -113,7 +113,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     adjStackHits = adjStackHitList.length
   }
 
-  // 对话标签占比（分母=对话行数）
+  // 对话标签占比：用 stats 算好的 ratio（口径与原实现一致，分母=对话行数）
   let dialogueTagRatio = 0
   const dialogueLines = body
     .split(/\n+/)
@@ -152,7 +152,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     parallelStreakHitPrefix = hitPrefix
   }
 
-  // 结尾总结体
+  // `.*` 不跨行 → 换 `[\s\S]*`（多行结尾（分段总结体）此前漏检；漏检方向安全不误报）
   let summaryEnding = false
   if (rules.avoidSummaryEnding) {
     const ending = body.trim().slice(-140)
@@ -246,7 +246,7 @@ export function checkStyleMetrics(body: string, rules: IronRules): CheckSectionR
   }
 
   // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）。
-  // 循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE
+  // 循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE（纯浪费）
   // hitPrefix 改读 computeStyleMetrics 同循环记出的
   // _parallelStreakHitPrefix（_adjStackHits 同款复用先例）——原「复算首个越界
   // prefix」把 computeStyleMetrics 已跑过的同构排比循环再跑一遍，此前 _sentencesWithColon
@@ -265,7 +265,7 @@ export function checkStyleMetrics(body: string, rules: IronRules): CheckSectionR
     })
   }
 
-  // 结尾总结体
+  // `.*` 不跨行 → 换 `[\s\S]*`（多行结尾（分段总结体）此前漏检；漏检方向安全不误报）
   if (rules.avoidSummaryEnding && stats.summaryEnding) {
     items.push({
       checkId: 'style-summary-ending',
@@ -277,10 +277,10 @@ export function checkStyleMetrics(body: string, rules: IronRules): CheckSectionR
   return { name: '文风可量化', items }
 }
 
-/** （修复批）：adjStack 正则按 maxAdjStack 记忆化——learn 收割逐段
+/** adjStack 正则按 maxAdjStack 记忆化——learn 收割逐段
  *  调用 matchAdjStackHits，原每次调用 new RegExp（同参反复编译）；maxAdjStack 经
  *  iron-rules clamp 后取值域有限（[0,20]），Map 命中即复用。`seg.match(/g 正则)` 会重置
- *  lastIndex，跨段/跨调用共享安全（同口径）。行为不变。 */
+ * lastIndex，跨段/跨调用共享安全（同口径）。行为不变。 */
 const adjStackRegexCache = new Map<number, RegExp>()
 function adjStackRegex(maxAdjStack: number): RegExp {
   let re = adjStackRegexCache.get(maxAdjStack)
@@ -298,7 +298,7 @@ function adjStackRegex(maxAdjStack: number): RegExp {
  * 粘贴事故/生成体正文可拖死检查）。预扫描按「的」连发游程切段丢弃——段内匹配
  * 本属垃圾（合法堆叠每单元是「≤6 汉字+的」，长连「的」不可能是合法定语堆叠），
  * 对切段逐一跑原正则、命中取并集；短游程不受影响照常检查。
- * （修复批）：界 {8,} → {3,} 收紧——4-7 连游程的
+ * 界 {8,} → {3,} 收紧——4-7 连游程的
  * 分解歧义窗口一并封死。≥3 连「的」必非合法定语堆叠（每单元至少要吃 1 个头字，
  * 3 连意味着出现空头单元）；「的的」2 连的分解方式恰 1 种（c(2)=1，无歧义回溯），
  * 故歧义起点在 3 连，界收到歧义起点以下即 {3,}——主审实测 41 字符病理片段
@@ -306,7 +306,7 @@ function adjStackRegex(maxAdjStack: number): RegExp {
  */
 const DE_RUN_SPLIT_RE = /的{3,}/
 
-/** 形容词堆叠命中（去重 + 领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
+/** 形容词堆叠命中（去重 +领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
 function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
   const re = adjStackRegex(maxAdjStack)
   const hits: string[] = []
@@ -399,7 +399,7 @@ const POSSESSIVE_HEADS = new Set([
 ])
 
 /** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true。
- *  ：单元正则原在逐命中过滤循环内逐次 new，提升为模块级常量
+ * 单元正则原在逐命中过滤循环内逐次 new，提升为模块级常量
  *  （matchAll 内部克隆消费，不携带 lastIndex 状态，共享安全）。 */
 const POSSESSIVE_UNIT_RE = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
 

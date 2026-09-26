@@ -1,14 +1,14 @@
 /**
  * DocumentService meta 族（章节/文档元数据 PATCH 写回链）—— 自 service.ts 缝 C 拆出。
  *
- * （⑤④收官补批——缝C meta 族参数化，作者拍板「不想挂账」）：
+ * （⑤④收官缝C meta 族参数化，作者拍板「不想挂账」）
  * service.ts（2110 行）meta 族拆分，五波批次唯一「非纯移动」缝——允许行为等价的
  * 代码形状改写，逐处账本见下。本文件承载 meta 族四件：
  *   - updateChapterMetaLocked：章节元数据 PATCH 锁内本体（单读判据 → 非 UTF-8 闸 →
  *     fm 文本级补丁 → 覆盖前留底 → journal pending/settled 配对 → 原子写回 →
  *     piece/chapter 文件名联动 rename）；
- *   - rollbackMetaOnRenameFail：rename 失败回写旧 fm；
- *   - syncRenamePieceList：短篇正文改名后章纲同名跟随（/）；
+ * - rollbackMetaOnRenameFail：rename 失败回写旧 fm；
+ * - syncRenamePieceList：短篇正文改名后章纲同名跟随；
  *   - updateDocMetaLocked：通用 fm PATCH 锁内本体（卷纲/总纲，不联动文件名）。
  * 原 private 方法降为模块级自由函数、首参为显式依赖；起该首参由
  * 「MetaHost 结构化宿主（DocumentService 实例）」改为 `ctx: DocContext`——共享设施
@@ -36,7 +36,7 @@
  * 依赖方向：本文件对 service.ts 仅 `import type { MoveResult }`（verbatimModuleSyntax
  * 下编译期擦除，运行时零回边、无环）；运行时依赖只有 doc-context.ts（共享设施）与
  * service-move.ts（rename 委托），单向引入。其余出边（fs/format/log 与 document
- * 叶子件）与原 service.ts 同集，只出不进。
+ * 叶子件）与原 service.ts 同集只出不进。
  */
 
 import { basename, dirname } from 'node:path'
@@ -85,12 +85,12 @@ export async function updateChapterMetaLocked(
   if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
   const abs = ctx.resolveSafePath(path)
   if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
-  // 能力校验补齐（与 save 同防线）——定稿/摘要 等只读区
+  // 能力校验补齐（与 save() 同防线）——定稿/摘要 等只读区
   // 此前可经 PATCH op=meta 改写其 fm
   if (!layoutOf(path).capabilities.write) {
     return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
   }
-  // （二十四轮 C 域）：保存协议收口——本路径 read→patch→写回原先全程不持
+  // 保存协议收口——本路径 read→patch→写回原先全程不持
   // per-doc save 锁，GUI(dev:app) 与 dev:api 双进程同书时：进程 A executeSave 刚落盘
   // 的新正文，会被进程 B 在此路径读到的旧正文以「新 fm + 旧正文」整篇覆盖回去
   //（B 的 read→write 毫秒窗），终态永久不可恢复（本路径又无快照留底）。取与
@@ -110,8 +110,8 @@ export async function updateChapterMetaLocked(
   // 同族操作另由 SaveQueue（save）/chainDocMetaOp（meta）按 docId 链串行，同进程
   // 交错面只剩「save ↔ meta」这一跨族 await 窗口，如上受锁轮询兜底。
   const journalPath = ctx.journalPathOf(docId) // 编码口径单源（doc-context）
-  // （修复批）：取锁/释放编排单源化至 withSaveLocks
-  //（获取抛出收口 / 布线锁 / 锁序 / 异步化机制随迁），
+  // 取锁/释放编排单源化至 withSaveLocks
+  //（获取抛出收口布线锁锁序异步化机制随迁），
   // 本处保留调用面专属文案与锁档，锁序与失败语义逐位不变。
   return ctx.withSaveLocks<MoveResult>({
     journalPath,
@@ -166,7 +166,7 @@ export async function updateChapterMetaLocked(
       const map = parseFlat(r.fmRaw)
       if (meta.标题 !== undefined) map.set('标题', meta.标题)
       // piece-body / chapter 统一写「章号」字段
-      // （-：原注「避免同方法内两次磁盘读」为旧双调用口径——
+      // （原注「避免同方法内两次磁盘读」为旧双调用口径——
       // 现行本方法仅此一处判定，结果存 isPiece 供尾部 rename 分流，随本批如实化。）
       const isPiece = isPieceBody(path, ctx.bookRoot)
       if (meta.章号 !== undefined) map.set('章号', meta.章号)
@@ -183,13 +183,13 @@ export async function updateChapterMetaLocked(
       // utf-8 读入必然无损。快照失败（磁盘满/权限）只 log.warn，元数据修改照常落盘
       // （留底是兜底不是闸，与 lead-update-draft 取舍一致）。
       try {
-        // 同源派生对齐 ——本函数上方已把两次读盘收敛
+        // 同源派生对齐——本函数上方已把两次读盘收敛
         // 为单次 fileBytes 读且已过 isUtf8Bytes 判据（合法 UTF-8 时 Buffer 直存与
-        // utf-8 往返字节一致），快照却又第二次 readFileSync 再读盘：两读之间文件
+        // utf-8 往返字节一致）快照却又第二次 readFileSync 再读盘：两读之间文件
         // 被并发替换（他进程结构性操作不持 save 锁的毫秒窗）时「覆盖前留底」存档的不是
         // 被覆盖内容（错档非丢失），且多一次全文读。改直喂 fileBytes（writeVersion 形参
-        // string | Buffer，Buffer 透传字节档）。
-        // 补产 words——本路径手工编辑频率低，一次 toString 全文
+        // string | Buffer Buffer 透传字节档）。
+        // （性能与内存专项）：补产 words——本路径手工编辑频率低，一次 toString 全文
         // 物化可接受，免版本面板对 meta-overwrite 版本的全量读+重数兜底（读侧
         // listVersionEntries 以 meta.words 命中为快路径）。
         writeVersion(
@@ -206,13 +206,13 @@ export async function updateChapterMetaLocked(
       } catch (e) {
         log.warn('document', `章节元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
       }
-      // （c 修复批）：meta PATCH 写回补 journal pending/settled
+      // meta PATCH 写回补 journal pending/settled 配对（同 updateChapterMetaLocked
       // 配对（保存协议统一；此前双路径写回零 pending——原子写兜底只保「不半截」，崩溃窗
       // 在健康面零痕迹，作者对「fm 是否改成了」无从对账）。选取「真补」而非豁免登记的
       // 依据：写回全文（新 fm + 原正文）在写前已知，appendPending 原语直接可用；崩溃后
       // 的 save 类复核按「盘上指纹 vs baseRevision」确定性收口（已落盘 ⇒ 自动
       // settled；未落盘 ⇒ 报红），与 executeSave 语义逐位同构。
-      // baseRevision 取写回前盘上指纹（fileBytes 单读派生，同源口径）。
+      // baseRevision 取写回前盘上指纹（fileBytes 单读派生同源口径）。
       // updateDocMetaLocked 同款。
       // appendPending 全文实参随形参收窄删除（起 pending 只记元数据；
       // 当时的「pending 快照即写回全文」已不成立，复核判据一律走 baseRevision）。
@@ -226,7 +226,7 @@ export async function updateChapterMetaLocked(
       }
       try {
         // 元数据写入走原子写（-6A：防 writeFileSync 半截损坏不可恢复）
-        // 平台规范化批：BOM 补回移除（规范形无 BOM），行尾/BOM 由 joinFrontMatter
+        // 平台 BOM 补回移除（规范形无 BOM），行尾/BOM 由 joinFrontMatter
         // 整体规范化（原文带 BOM/CRLF 的外部编辑产物经此写自愈归一）
         atomicWriteFile(abs, metaFullText, { fsync: true })
       } catch (e) {
@@ -254,10 +254,10 @@ export async function updateChapterMetaLocked(
       // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
       // 标题丢失）。「未命名」兜底语义保留给显式传空标题的编辑路径；回落链产物
       // 非空（文件名无标题段时退回旧行为）。
-      // -：fm 标题两臂重复求值 hoist——原三元两臂各自
+      // fm 标题两臂重复求值 hoist——原三元两臂各自
       // String(map.get('标题') ?? '')（map 已在上方 set，两臂同源，求值恒等），
       // 收敛为一次读取。
-      // 0914 文件名标题段剥离收编 chapterNoFromName 单源（chapterTitleSegment）
+      // 文件名标题段剥离收编 chapterNoFromName 单源（chapterTitleSegment）
       // ——原窄正则只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号
       // 落标题）；裸章号名（`0001.md`）剥后为空，经下方 sanitize || '未命名' 兜底。
       const fmTitle = String(map.get('标题') ?? '')
@@ -275,7 +275,7 @@ export async function updateChapterMetaLocked(
       if (isPiece) {
         // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
         const no = normalizeChapterNo(map.get('章号'))
-        // 0914 fm 缺章号时的前缀回落收编 chapterNoFromName 单源——
+        // fm 缺章号时的前缀回落收编 chapterNoFromName 单源——
         // 原窄正则 `^(\d+-)` 对 `5—标题.md`/`5 标题.md` 失明（前缀丢落，改名静默剥
         // 章号）。识别走单源；产出保原文件名章号段原文（锚：`1-` 保 `1-`，不做
         // 位宽归一——改名动作只动标题段，作者手定的位宽/分隔形态不在本路径归一；
@@ -332,7 +332,7 @@ export async function updateChapterMetaLocked(
 function rollbackMetaOnRenameFail(ctx: DocContext, abs: string, original: { fmRaw: string; body: string }): void {
   if (!existsSync(abs)) return
   try {
-    // 平台规范化批：BOM 补回移除——joinFrontMatter 整体规范（规范形无 BOM）
+    // 平台 BOM 补回移除——joinFrontMatter 整体规范（规范形无 BOM）
     atomicWriteFile(abs, joinFrontMatter(original.fmRaw, original.body), { fsync: true })
     invalidateTreeIndex(ctx.bookRoot, true)
   } catch {
@@ -342,12 +342,12 @@ function rollbackMetaOnRenameFail(ctx: DocContext, abs: string, original: { fmRa
 
 /** 短篇章纲同步重命名（章纲/Old.md → 章纲/New.md）：
  *  正文已 rename，章纲同名文件跟随。章纲不存在时静默跳过（不阻断正文 rename）。
- *  ：章纲已入清单（对其做过任何结构性操作即落）时委托 doMoveOrRename
+ * 章纲已入清单（对其做过任何结构性操作即落）时委托 doMoveOrRename
  *  ——裸 renameSync 既不更新 项目/文档清单.jsonl 也不写 move-pending journal，清单残留
  *  指向旧路径的孤儿条目；tree 按旧 path 匹配 miss → docId 退化为 legacyId(新 path)，
  *  编辑器按 docId 挂的标签页/分析信封/工作区/.版本/<docId>/ 版本历史全断链。委托后
  *  journal + snapshot + 清单 path 更新 + 树索引失效与正文改名同一纪律。未登记（从未
- *  做过结构性操作）时无条目可孤儿，保留无登记回落（linkOrRenameExclusive
+ * 做过结构性操作）时无条目可孤儿，保留无登记回落（linkOrRenameExclusive
  *  独占落位 + 时间戳后缀保双份，失败结构化 warn 不阻断正文 rename）。 */
 async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName: string): Promise<void> {
   const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
@@ -357,7 +357,7 @@ async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName:
   if (!oldSafe || !newSafe) return
   if (!existsSync(oldSafe)) return
   if (existsSync(ctx.manifestPath)) {
-    // （修复批）：命中读改 strict（strict 化
+    // 命中读改 strict（strict 化
     // 家族口径——lookupPathByDocIdAdoptAsync 同款，本条为该族漏网成员）。容忍版在瞬态
     // 锁占（win 杀软/索引器/他进程 RMW 的 EACCES/EBUSY/EIO）时返回空清单 → oldListRel
     // 不命中 → 落入裸 rename 兜底：清单登记仍认领旧路径而被搬走 = 孤儿条目 + 新条目
@@ -395,7 +395,7 @@ async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName:
     let dst = newSafe
     let placed = linkOrRenameExclusive(oldSafe, dst)
     if (placed === 'exists') {
-      // （win 适配修复批）：大小写不敏感 FS
+      // 大小写不敏感 FS
       //（win NTFS/mac APFS）上「仅大小写变化」的章纲改名——目标位与源是同一物理
       // 文件，linkOrRenameExclusive 恒 EEXIST，原实现误落 `-旧稿-<时间戳>` 双份
       // 分支（内容无损但需手工改名）。对齐 doMoveOrRename 主路径同判：dev+ino
@@ -418,7 +418,7 @@ async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName:
       return
     }
     try {
-      // 删源收编 rmWithRetry（fs/atomic.ts ，trash.ts :287
+      // 删源收编 rmWithRetry（fs/atomic.ts，trash.ts :287
       // 先例）——win 杀毒/索引器瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会让章纲同步
       // 无谓滞留旧名；退避后仍失败照走既有「回收新位再抛」回滚链（语义不变）
       rmWithRetry(oldSafe)
@@ -449,7 +449,7 @@ export async function updateDocMetaLocked(
   docId: string,
   meta: Record<string, unknown>,
 ): Promise<MoveResult> {
-  // 0918修复批（B010）：fm 值类型闸——对象/null 等非标量此前经 stringifyValue
+  // fm 值类型闸——对象/null 等非标量此前经 stringifyValue
   // 的 String(val) 兜底落成 "[object Object]"/"null" 伪值写坏 fm；入口 fail-loud 拒收
   //（BAD_INPUT 走本 API 既有错误信封，未执行任何修改）。undefined 与既有 fmUpdates
   // 组装同口径跳过（= 不改该键）。
@@ -477,16 +477,16 @@ export async function updateDocMetaLocked(
   if (!layoutOf(path).capabilities.write) {
     return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
   }
-  // （二十四轮 C 域）：保存协议收口——同 updateChapterMeta，本路径 read→patch→
+  // 保存协议收口——同 updateChapterMeta，本路径 read→patch→
   // 写回原先不持 per-doc save 锁，双进程同书时他进程 executeSave 的新正文会被本路径
   // 的「旧正文+新 fm」覆盖回去（跨进程丢正文窗）。取 executeSave 同款跨进程保存锁
   //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
   // save→journal/manifest 单向序无环。
   const journalPath = ctx.journalPathOf(docId) // 编码口径单源（doc-context）
-  // （修复批）：取锁/释放编排单源化至 withSaveLocks
-  //（/ （布线文件含 大纲/关系线/，与 lead-finalize 回写互斥，fail-closed
-  // 先释放 save 锁防泄漏）/ 锁序 / 异步化机制随迁），本处保留调用面
-  // 专属文案与锁档，锁序与失败语义逐位不变。
+  // 取锁/释放编排单源化至 withSaveLocks
+  //（（布线文件含 大纲/关系线/，与 lead-finalize 回写互斥，fail-closed
+  // 先释放 save 锁防泄漏）/锁序异步化机制随迁），本处保留调用面
+  // 本处保留调用面专属文案与锁档，锁序与失败语义逐位不变。
   return ctx.withSaveLocks<MoveResult>({
     journalPath,
     // 锁档生效值随容器走（per-ctx 组装参数，缺省 = META/WIRING 常量档）
@@ -525,7 +525,7 @@ export async function updateDocMetaLocked(
       let fileBytes: Buffer | undefined
       try {
         const buf = readFileSync(abs)
-        // 非 UTF-8 防线（引入；DA-1·升级字节级判据，同 updateChapterMeta 口径）——
+        // 非 UTF-8 防线（引入；升级字节级判据，同 updateChapterMeta 口径）——
         // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
         // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
         if (!isUtf8Bytes(buf)) return NON_UTF8_REJECT
@@ -548,7 +548,7 @@ export async function updateDocMetaLocked(
       }
       const patched = patchFlatFm(split ? split.fmRaw : '', fmUpdates)
       if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
-      // 覆盖前留底（同 updateChapterMeta—— 同款，fail-open）。
+      // 覆盖前留底（同 updateChapterMeta——同款，fail-open）。
       // raw 是上方单次 Buffer 读出的原文件文本（同源），字节级忠实。
       // raw 已在手，顺带产 words（免版本面板全量读兜底，meta PATCH 低频路径）。
       try {
@@ -564,7 +564,7 @@ export async function updateDocMetaLocked(
       }
       // meta PATCH 写回补 journal pending/settled 配对（同 updateChapterMetaLocked
       // 头注——选取「真补」依据与确定性收口联动；baseRevision 取写回前盘上
-      // 指纹，fileBytes 单读派生）
+      // baseRevision 取写回前盘上指纹（fileBytes 单读派生同源口径）。
       const metaFullText = joinFrontMatter(patched.text, body)
       const metaBaseRev = computeRevisionBytes(fileBytes!)
       let metaOpId: string
@@ -574,7 +574,7 @@ export async function updateDocMetaLocked(
         return { ok: false, code: 'WRITE_ERROR', reason: `journal 追加失败，元数据修改未执行：${errMsg(e)}` }
       }
       try {
-        // 平台规范化批：BOM 补回移除（规范形无 BOM）——raw 若带 BOM（外部编辑
+        // 平台 BOM 补回移除（规范形无 BOM）——raw 若带 BOM（外部编辑
         // 产物）由 joinFrontMatter 整体规范化剥除
         atomicWriteFile(abs, metaFullText, { fsync: true })
       } catch (e) {

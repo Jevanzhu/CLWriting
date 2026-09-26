@@ -1,6 +1,6 @@
 /**
  * 请求代守卫单源——`let xGen = 0 / const gen = ++xGen /
- * await 后 if (gen !== xGen) return` 样板的收敛件（
+ * await 后 if (gen !== xGen) return` 样板的收敛件（/
  * 等沿革各自手搓的同构计数器，此后换装本工具）。
  *
  * 与裸计数逐位等价的五个原语：

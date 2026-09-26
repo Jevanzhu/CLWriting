@@ -34,7 +34,7 @@ export function useAppActions(): { actions: AppAction[]; dispatch: (key: string)
     { id: 'focus', label: '切换专注模式', run: () => ws.toggleFocus() },
     { id: 'theme', label: '切换亮/暗主题', run: () => toggleTheme() },
     { id: 'shelf', label: '返回书架', run: () => router.push('/shelf') },
-    // -mac适配：系统菜单「编辑 ▸ 查找…」（desktop/main.ts buildMenu
+    // mac适配：系统菜单「编辑 ▸ 查找…」（desktop/main.ts buildMenu
     // CmdOrCtrl+F）与命令面板共用此 id——经 APP_FIND_EVENT 桥接 EditorView 打开
     // CM 查找面板（无活动文档时安全 no-op，不 toast 不报错）
     { id: 'find', label: '查找…', run: () => window.dispatchEvent(new CustomEvent(APP_FIND_EVENT)) },

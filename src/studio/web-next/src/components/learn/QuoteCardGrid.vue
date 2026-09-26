@@ -35,8 +35,8 @@ watch(
       金句候选 <span class="sec-count">{{ learn.quotes.length }}</span>
     </h2>
     <div class="quote-grid">
-      <!-- ：勾选卡片补键盘可达性（原仅 @click，键盘不可达）
-           ：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
+      <!-- 勾选卡片补键盘可达性（原仅 @click，键盘不可达）
+：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
            + 勾选联动）——身份计算在 learn store（quoteKey），模板传整对象 -->
       <div
         v-for="q in visibleQuotes"

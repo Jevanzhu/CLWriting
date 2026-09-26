@@ -29,7 +29,7 @@ import {
  * 重新生成（regenerate）与分支切换（switchBranch）——消息带 seq、维护
  * activeBranchId/branches，多分支书支持在变体组间切换。
  *
- * （Opus-5.5 轮）：事件分发状态机（dispatch / ensureTool / updateTool /
+ * 事件分发状态机（dispatch / ensureTool / updateTool /
  * trimMessages + 消息与工具卡片模型 + 在途回合状态）随批抽入 ./chat-dispatch——本文件
  * 只留 store 外壳、网络面（种子化/分支/重新生成）与章号语境。对外类型面经下方
  * re-export 原样保持（ChatMessages.vue 的具名导入等调用方零改动）。
@@ -39,13 +39,13 @@ import {
 export type { ChatMessage, ToolStatus } from './chat-dispatch'
 
 export const useChatStore = defineStore('chat', () => {
-  /** 消息列表 */
+  /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
   const messages = ref<ChatMessage[]>([])
   /** 对话进行中 */
   const running = ref(false)
   /** 最近一次错误 */
   const error = ref<string | null>(null)
-  /** 0918三拍板批（A006 轻量档）：最近一次失败回合作者原文（chat_error echo 字段）——
+  /** （轻量档）：最近一次失败回合作者原文（chat_error echo 字段）
    *  服务端已回滚/遮蔽该回合，原文仅存于此供「复制重发」；随 chat_start / clear 失效 */
   const errorEcho = ref<string | null>(null)
   /** E1a（steer）：非错误提示（如「消息已入队，当前对话结束后处理」） */
@@ -53,10 +53,10 @@ export const useChatStore = defineStore('chat', () => {
   /** RC：在途回合宿主状态——原 setup 内四个可变本地量（回合目标 /
    *  pendingReseed / regenPending / regenBook）随事件分发状态机迁入 ./chat-dispatch
    *  的 ChatTurnState（字段沿革注释随迁）；本 store 与状态机共享同一实例，读写口不变。
-   *  ：回合目标 current 持气泡的响应式对象引用（原数组下标 currentIdx）。 */
+   * 回合目标 current 持气泡的响应式对象引用（原数组下标 currentIdx）。 */
   const turn = createChatTurnState()
   /** 种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫）
-   *  ：裸计数器换装 useStaleGuard（seed/switch 用 begin，regenerate/chat_done 观测点 current，clear invalidate）。 */
+   * 裸计数器换装 useStaleGuard（seed/switch 用 begin，regenerate/chat_done 观测点 current，clear invalidate）。 */
   const seedGen = useStaleGuard()
   // sync 事件不带书名——延迟取 workspace store 当前书（pinia 惰性激活防循环引用）
   const wsBookName = (): string | null => {
@@ -72,18 +72,18 @@ export const useChatStore = defineStore('chat', () => {
   /** 分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
   const branches = ref<ChatBranchInfo[]>([])
   /**
-   * （修复批）：最近一次视图加载（seedHistory/switchBranch）
+   * 最近一次视图加载（seedHistory/switchBranch）
    * 的历史尾窗截断态（L-：limit=200 生效时服务端回 truncated=true）——此前全前端零消费，
    * 长书超 200 条的旧消息静默消失无提示；ChatMessages 列表顶部据此渲染 muted 提示。
    * regenerate 的历史拉取只取 parentSeq 定位、不重建视图，不更新截断态。
    */
   const historyTruncated = ref(false)
   /** 历史规模指标（与 truncated 同源对齐；未知 = null）。
-   *  0917清库修复批口径分流：未截断 = 投影消息数；截断态 = 服务端骨架事件行数
+   * 口径分流：未截断 = 投影消息数；截断态 = 服务端骨架事件行数
    *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）。 */
   const historyTotal = ref<number | null>(null)
 
-  // ── ：章号语境（对话作用于「全书」还是某章）单一事实源 ──
+  // ──：章号语境（对话作用于「全书」还是某章）单一事实源 ──
   // 此前 ChatDock 与 ChatPanel 各建一份 useChatComposer 实例（dock 开窗时双实例并存），
   // selectedChapter 互不同步：「重新生成」按 ChatPanel 那份带错章号语境。上提到本 store：
   // dock 输入框 / 工作台输入区 / ChatMessages regenerate 三处消费同一份；按书记忆
@@ -158,10 +158,10 @@ export const useChatStore = defineStore('chat', () => {
     chatDispatch.trimMessages()
   }
 
-  // ── ：历史种子化（刷新/切书后从事件库投影恢复）────
+  // ──：历史种子化（刷新/切书后从事件库投影恢复）────
 
   /** 历史消息 → 气泡模型（与 SSE 实时渲染等价：tool 结果回填到 assistant 的工具卡片，不渲染为用户气泡）。
-   *  ：seqs 与 msgs 平行，气泡 seq 取该消息事件 seq（seqs[i][0]；tool-result 合成消息不渲染为气泡可忽略）。 */
+   * seqs 与 msgs 平行，气泡 seq 取该消息事件 seq（seqs[i][0]；tool-result 合成消息不渲染为气泡可忽略）。 */
   function seedFromHistory(msgs: ChatHistoryMessage[], seqs?: number[][]): void {
     const seeded: ChatMessage[] = []
     for (let i = 0; i < msgs.length; i++) {
@@ -259,12 +259,12 @@ export const useChatStore = defineStore('chat', () => {
     }
     // 非 replace：fetch 窗口内 SSE 新消息已到（messages 非空）→ 放弃（不插入错位）
     if (seedGen.stale(gen) || running.value || (!replace && messages.value.length > 0)) return
-    // / / 注锚随实现移入 applyHistoryView
+    // 注锚随实现移入 applyHistoryView
     await applyHistoryView(bookName, gen, data, replace ? { replace: true } : {})
   }
 
   /**
-   * -：seedHistory / switchBranch 公共核心收口——拿到权威
+   * seedHistory / switchBranch 公共核心收口——拿到权威
    * history 后的「（替换式先清）→ 种子化 → activeBranchId 对齐 → 截断态对齐 →
    * best-effort 刷分支列表」原是两处逐行双写，收敛本函数防再漂移。语义逐位等价：
    * - replace:true（switchBranch / seedHistory 的替换式补种）先清旧种子再回填，
@@ -274,7 +274,7 @@ export const useChatStore = defineStore('chat', () => {
    *   `data.branchId !== undefined ? data.branchId : branchId ?? null`）；seedHistory 不传
    *   （≡原 `data.branchId ?? null`，undefined ?? null = null）。
    * 竞态守卫（stale/running/非空放弃）留在各自入口，不入本函数。
-   * （GLM-5.3 修复批）：空历史不提前 return——
+   * 空历史不提前 return——
    * 分支态（activeBranchId/branches）仍以本次权威拉取对齐（对齐 switchBranch 空历史
    * 同款刷新口径），否则 replace 补种（pendingReseed）落空历史时（他窗清空服务端
    * 历史等罕达路径）旧分支态滞留在已清空的对话界面。
@@ -292,7 +292,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
     // activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
-    // ），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）；
+    //），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）；
     // 仅旧后端缺字段（undefined）才回落传入 id / null
     activeBranchId.value = data.branchId !== undefined ? data.branchId : (opts.fallbackBranchId ?? null)
     // 截断态随本次权威视图对齐（视图自此历史重建，提示面向当前视图）
@@ -317,7 +317,7 @@ export const useChatStore = defineStore('chat', () => {
    * 切换到指定分支（变体组）。仅 !running 时允许；seedGen 作废在途种子化/切换。
    * 成功且无竞态 → 整体替换 messages（新种子，带 seqs）+ activeBranchId=返回的 branchId，
    * 再 best-effort 刷新分支列表；失败静默返回（保留原视图）。
-   * -：落视图五连收口 applyHistoryView（公共核心见该函数注）。
+   * 落视图五连收口 applyHistoryView（公共核心见该函数注）。
    */
   async function switchBranch(bookName: string, branchId: string | null): Promise<void> {
     if (running.value) return
@@ -395,7 +395,7 @@ export const useChatStore = defineStore('chat', () => {
           ...(chapter !== undefined ? { chapter } : {}),
         })
       } catch (e) {
-        error.value = rawErrorMessage(e) // 保留原视图（-：表达式收编 shared/error 单源）
+        error.value = rawErrorMessage(e) // 保留原视图（表达式收编 shared/error 单源）
         return
       }
       if (seedGen.stale(gen)) return // 期间清空/切分支：不污染新视图
@@ -427,7 +427,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
   // RC：实现迁入 ./chat-dispatch（trimMessages 与在途回合状态同处一模块
-  // —— 起回合目标持对象引用，裁剪位移自动跟随），本文件经
+  // ——起回合目标持对象引用，裁剪位移自动跟随），本文件经
   // chatDispatch.trimMessages 调用。
 
   /** 回滚最后一条用户消息（sendChat 失败时调，防幽灵消息） */
@@ -445,7 +445,7 @@ export const useChatStore = defineStore('chat', () => {
     turn.current = null
     seedGen.invalidate() // 在途种子化响应作废（切书/清空后旧历史不得再种入）
     turn.pendingReseed = null // 待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
-    // 0918修复批（E006）：running 一并复位——旧实现残留 true 会让 clear 后的
+    // running 一并复位——旧实现残留 true 会让 clear 后的
     // seedHistory 被 running 守卫拦成 pendingReseed（无人收尾时永不补种）。新书真实运行态
     // 由重连 sync 权威校正（workbench.clear 的同口径）。须在 pendingReseed 清空之后
     // 置位：true→false 会触发补种 watch，先清登记防其抢跑复活刚作废的补种

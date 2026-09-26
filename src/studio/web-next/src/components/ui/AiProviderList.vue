@@ -29,7 +29,7 @@ const emit = defineEmits<{
   remove: [p: ProviderConfDto]
 }>()
 
-// （-0914）：原 configuredRows 构造 {id,name} 行对象，模板只消费 .length
+// 原 configuredRows 构造 {id,name} 行对象，模板只消费 .length
 // （映射产物全量丢弃）——收编为纯计数，零行为变化。
 function modelRowCount(p: ProviderConfDto): number {
   return (p.models ?? []).length

@@ -16,7 +16,7 @@ import { readFile, parseFlat } from '../format/frontmatter.js'
  *   返回 []（声明侧置空，不比对）——细纲是「当前章」覆盖写单文件，树红点聚合复检
  *   旧草稿时，旧章正文对上新章声明会批量误报 lead-declared-not-done。
  *   旧书细纲无章号字段 → 宽容沿用（视为属于被检章）。
- *   ：「置空不比对」的原意是声明未知时跳过两端闭合，但 [] 与「明确
+ * 「置空不比对」的原意是声明未知时跳过两端闭合，但 [] 与「明确
  *   未声明」不可区分——调用方要区分须改用 outlineDeclarationForChapter（known 三态）。
  */
 export function readOutlineLeads(bookRoot: string, forChapter?: number): string[] {
@@ -34,7 +34,7 @@ export function readOutlineLeads(bookRoot: string, forChapter?: number): string[
  *   归档章的实际推进全部误报红并经 LEAD_GATE 硬阻断批量定稿）。
  */
 /** 声明三态（扩展）：known:false 时 reason 区分「读失败」与「属他章」——
- *  机检侧对 read-failed 产 fail-noisy 黄项（对齐兑现侧口径），chapter-mismatch
+ * 机检侧对 read-failed 产 fail-noisy 黄项（对齐兑现侧口径），chapter-mismatch
  *  维持静默（批量连写常态，非故障）。 */
 export interface OutlineDeclaration {
   known: boolean

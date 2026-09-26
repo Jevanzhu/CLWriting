@@ -7,7 +7,7 @@
  * 全库消费方 import 面零改动；readRecapSnapshot/fallbackRecapSnapshot 今日私有照旧。
  * 依赖方向单向（无环回引）：本文件 → health.js（判定辅助族 skipFinalizedChapters/
  * unfinishedPieceNames/maxFileNameChapter/volumeSizeOf/DEFAULT_VOLUME_SIZE 自彼单源
- * import，顶层求值常量不环回—— count 拆分 HANZI 单源先例同款纪律）；
+ * import，顶层求值常量不环回——count 拆分 HANZI 单源先例同款纪律）；
  * BookState/DetectedState 为 type-only import，编译期擦除，不构成运行时回边。
  * 注释全部原样随迁；行为、断言、测试零改动。
  */
@@ -68,7 +68,7 @@ export function buildRecap(
   detected: DetectedState,
   manifest?: Manifest,
 ): StatusRecap {
-  // enter 已读的 manifest 复用，避免与 detectState 双读（-BE-4）
+  // enter() 已读的 manifest 复用，避免与 detectState 双读
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const snapshot = readRecapSnapshot(bookRoot, config, detected, m)
 
@@ -101,7 +101,7 @@ function readRecapSnapshot(
     const bodyDir = join(bookRoot, '写作', '正文')
     const { chapters } = readChapterDir(bodyDir)
     const formula = chapters.length - unfinishedPieceNames(bookRoot, manifest).size
-    // 坏 fm 草稿占位兜底（与态 7 分支 同口径）——「3 篇已定稿 +
+    // 坏 fm 草稿占位兜底（与态 7 分支同口径）——「3 篇已定稿 +
     // 坏 fm 的 004 草稿」只按公式算出 currentChapter=2、nextChapter=3，回指已定稿第 3 篇；
     // 以文件名最大章号-1 为下限，保证 nextChapter 不低于正文区已有占位。
     return { currentChapter: Math.max(formula, maxFileNameChapter(bodyDir) - 1), currentVolume: 1 }
@@ -111,7 +111,7 @@ function readRecapSnapshot(
   try {
     db = new DatabaseSync(cachePath)
     // 低级项：currentChapter 只数定稿章（缓存 chapters 表含写作中的草稿）；
-    // PL-2无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
+    // 无清单 → undefined（全量口径），清单在册零定稿 → 空集（=0）
     return assembleStatus(db, config, volumeSizeOf(config), finalizedChapterSetOfBook(bookRoot))
   } catch {
     return fallbackRecapSnapshot(detected, volumeSizeOf(config))

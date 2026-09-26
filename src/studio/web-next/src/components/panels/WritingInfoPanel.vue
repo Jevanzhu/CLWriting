@@ -11,7 +11,7 @@ import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/u
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import type { TreeNode } from '../../types/tree'
 import { friendlyError } from '../../shared/error'
-// -：六态标签委托 shared/words CHAPTER_STATUS 单表
+// 六态标签委托 shared/words CHAPTER_STATUS 单表
 import { CHAPTER_STATUS } from '../../shared/words'
 
 const props = defineProps<{ bookName: string }>()
@@ -36,7 +36,7 @@ watch(
     const gen = configGen.begin()
     // 切书先清上一书错误——原实现只在失败分支写 err、成功路径
     // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-    // 新错误只由本次请求的 catch 按代守卫落位（同点位；：
+    // 新错误只由本次请求的 catch 按代守卫落位（同点位；
     // 连续两次 err.value=null 死代码随批删一处保注释）
     err.value = null
     if (!n) return
@@ -95,7 +95,7 @@ const chapterProgress = computed(() =>
   chapterTarget.value ? Math.min(100, Math.round((words.value / chapterTarget.value) * 100)) : 0,
 )
 
-// -：STATUS_LABEL 本地表删除，委托 shared/words CHAPTER_STATUS
+// STATUS_LABEL 本地表删除，委托 shared/words CHAPTER_STATUS
 const saveLabel = computed(() => {
   const e = entry.value
   if (!e) return '—'

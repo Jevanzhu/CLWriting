@@ -33,7 +33,7 @@ type GitResult = { ok: true; stdout: string } | { ok: false; humanMsg: string; s
  */
 const GIT_TIMEOUT_MS = 15_000
 
-/** 三件套换装 testableConst 工厂（清库修复批）： 异步路径超时覆盖档——
+/** 三件套换装 testableConst 工厂异步路径超时覆盖档——
  *  getter 消费点显式调用（null 回退常量档），setter 元组第二位原名原签名
  *  （传 null 即还原默认档，测试面零感知）。 */
 export const [getGitAsyncTimeoutMs, __setGitAsyncTimeoutForTest] = testableConst<number | null>(null)
@@ -45,7 +45,7 @@ export const [getGitAsyncTimeoutMs, __setGitAsyncTimeoutForTest] = testableConst
  * GIT_KILL_ESCALATION_MS 后仍不退 → SIGKILL 强制收口。升级定时器 unref 不持事件
  * 循环；对已退出进程 kill 是无害 no-op（返回 false / ESRCH 均吞）。settle 语义不变
  *（不等待 close——调用方绝不被挂起）。
- * 导出仅为单测注入假 child（IR-7 同款已登记结构债：生产消费方仅 gitAsync 两处）。
+ * 导出仅为单测注入假 child（同款已登记结构债：生产消费方仅 gitAsync 两处）。
  */
 const GIT_KILL_ESCALATION_MS = 2_000
 
@@ -79,7 +79,7 @@ export function killWithEscalation(
 const GIT_MAX_BUFFER = 64 * 1024 * 1024
 
 /**
- * （Opus-5.5 轮）：书目录（外部来源）不可信——git 会读仓库内
+ * 书目录（外部来源）不可信——git 会读仓库内
  * `.git/config`，其中 `core.fsmonitor = <命令>` 在 `status` 刷新索引时被当场执行
  *（本机实测 git 2.52 win：裸 `git status --porcelain` 即触发命名脚本），
  * 而 `safe.directory` 只拦属主不一致——作者自己下载/解压的书目录属主就是他本人，
@@ -136,7 +136,7 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
   const errCode = (r.error as { code?: string } | undefined)?.code
-  // （四轮处置批）：SIGTERM 单独分诊——spawnSync 自家超时必带 ETIMEDOUT
+  // SIGTERM 单独分诊——spawnSync 自家超时必带 ETIMEDOUT
   // 错误码（win 实证：error.code=ETIMEDOUT + signal=SIGTERM 并存），原
   // `|| r.signal === 'SIGTERM'` 把外部终止（任务管理器/脚本 kill git 进程）也误归
   // 「超时」文案误导排障方向
@@ -164,7 +164,7 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
         : errCode === 'ENOBUFS'
           ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
           : errCode === 'ENOENT'
-            ? gitMissingHint() // -mac适配：按平台分支（单源）
+            ? gitMissingHint() // mac适配：文案按平台分支（与同步 git() 共用 gitMissingHint 单源）
             : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
@@ -182,7 +182,7 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
  * 失败返回（fail-closed——调用方不能把「未完成」当成功）、ENOENT/ENOBUFS 特判同源、
  * 输出缓冲上限同 GIT_MAX_BUFFER（超限按 ENOBUFS 失败）。超时有界（gitAsyncTimeoutMs），
  * 绝不挂起：spawn 后立即挂起 setTimeout，超时即 kill（SIGTERM→2s 宽限 SIGKILL 升级，
- * IR-3——忽略 TERM 的滞留进程不再无限占锁/句柄）并随即按失败
+ * 忽略 TERM 的滞留进程不再无限占锁/句柄）并随即按失败
  * resolve——不依赖子进程 'close' 收口（忽略信号 / 不可中断态的进程也保证有界）。
  * opts.signal：外部取消（AbortSignal）——取消同样 kill 子进程并按「已中止」失败返回。
  * 本函数永不 reject（错误一律 resolve ok:false）——调用方 await 不会落到未捕获异常。
@@ -193,7 +193,7 @@ export function gitAsync(
   opts?: { encoding?: 'utf-8'; input?: string; signal?: AbortSignal },
 ): Promise<GitResult> {
   return new Promise<GitResult>((resolve) => {
-    // / （双线同旨合并）：windowsHide 同步补齐——异步路径与同步路径
+    // （双线同旨合并）：windowsHide 同步补齐——异步路径与同步路径
     // 同频闪窗，与同步 git 同款收口
     // RC：传参与同步 git 同源经 hardenGitArgs（仓库内 fsmonitor/hooks 不可信）
     const child = spawn('git', hardenGitArgs(args), { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -221,7 +221,7 @@ export function gitAsync(
       // 超时（同款语义）：kill 子进程并**直接**按失败 settle——
       // 不依赖 'close' 收口：进程忽略信号 / 不可中断态（D-state）等 kill 不生效
       // 形态下也保证超时严格有界（调用方绝不被挂起）。
-      // IR-3：裸 SIGTERM 对忽略该信号的 git 不生效（进程滞留占网盘句柄/锁）——
+      // 裸 SIGTERM 对忽略该信号的 git 不生效（进程滞留占网盘句柄/锁）——
       // 升级链先 TERM、2s 宽限后 KILL（killWithEscalation），settle 语义不变。
       killWithEscalation(child)
       settle({
@@ -235,7 +235,7 @@ export function gitAsync(
 
     const onAbort = (): void => {
       if (settled) return
-      // IR-3：同超时路径——TERM 后升级 KILL，取消不再依赖子进程对 TERM 的配合
+      // 同超时路径——TERM 后升级 KILL，取消不再依赖子进程对 TERM 的配合
       killWithEscalation(child)
       settle({
         ok: false,
@@ -276,7 +276,7 @@ export function gitAsync(
       settle({
         ok: false,
         // 同款：ENOENT（找不到 git 可执行）特判人话
-        // -mac适配：文案按平台分支（与同步 git 共用 gitMissingHint 单源）
+        // mac适配：文案按平台分支（与同步 git() 共用 gitMissingHint 单源）
         humanMsg: code === 'ENOENT' ? gitMissingHint() : `git 操作失败（${args.join(' ')}）：${err.message}`,
         stderr: err.message,
       })
@@ -301,7 +301,7 @@ export function gitAsync(
 }
 
 /** 把 git 原始报错翻成人话（#16 第 3 节，零机器味）。
- *  ：commit 两翻译分支删除——addCommit 随 #16 去依赖化移除后本模块
+ * commit 两翻译分支删除——addCommit 随 #16 去依赖化移除后本模块
  *  再无 commit 子命令调用方（现存导出仅 status/scan 类，test/git/exec.test.ts 亦无
  *  commit 分支用例），两分支永不命中；args 形参保留（调用点报错信封仍要 join 展示）。 */
 function humanizeGitError(_args: string[], stderr?: string): string {
@@ -314,7 +314,7 @@ function humanizeGitError(_args: string[], stderr?: string): string {
  * ENOENT（找不到 git 可执行）的安装指引文案（-mac适配）——按平台给
  * 可行动指引：darwin 走 xcode-select（Command Line Tools 自带 git，mac 最常见补装
  * 通道）；linux 中性指向系统包管理器；win 维持原文（Git for Windows）。
- * 同步 git 与异步 gitAsync 两处 ENOENT 特判共用本单源（同族文案不漂移）。
+ * 同步 git() 与异步 gitAsync 两处 ENOENT 特判共用本单源（同族文案不漂移）。
  */
 function gitMissingHint(): string {
   if (process.platform === 'darwin') {
@@ -330,7 +330,7 @@ function gitMissingHint(): string {
  *  注意：只去末尾换行，**不动行首空格**——porcelain 是固定宽度格式（XY<空格>path），
  *  XY 中 X 状态码可能是空格（如 " M"=worktree改），行首 trim 会吃掉它破坏对齐。
  *  调用方按 .slice(3) 取 path。
- *  ：失败返回 null（与「干净」的 '' 区分）——fail-open 会让调用方把
+ * 失败返回 null（与「干净」的 '' 区分）——fail-open 会让调用方把
  *  无法判定的脏集当空集（migrate 据此把脏 entry 全部误标已定稿）。调用方须显式处理 null。 */
 export function statusPorcelain(cwd: string, untrackedAll = false): string | null {
   // -c core.quotepath=false：非 ASCII 路径（中文目录/文件名）原样输出，免八进制转义
@@ -356,7 +356,7 @@ export function scanCloudCopies(bookRoot: string): string[] {
   // OneDrive 式 `<名>-<计算机名>.md` 与合法标题不可分（假阳性高），不进自动检测，
   // 同步盘场景靠用户避开放置（坚果云式标记仍自动检测）；同必须验母本。
   const zhConflicted = /^(.+?)\s*[（(-]\s*冲突副本.*\.md$/
-  // （win 适配修复批）：Windows 资源管理器
+  // Windows 资源管理器
   // 首份副本 `<名> - Copy.md` 与中文 Windows 形态 `<名> - 副本.md`——dedupCopy 的
   // 数字形态不匹配无数字母本，母本自身漏报（` - Copy (2)` 虽可经 dedupCopy 命中，
   // 但需 ` - Copy.md` 在盘，链式依赖使本源恒漏）。同母本收紧：`<名>.md`
@@ -372,7 +372,7 @@ export function scanCloudCopies(bookRoot: string): string[] {
     for (const e of entries) {
       // 跳过 .git / node_modules / .cache（不扫 git 内部、依赖与可重建缓存）
       // 补 .版本（工作区/版本档案，每书成百上千文件，进门全扫纯属浪费）与 .trash（回收站）
-      // （c 修复批）：补工作区内部簿记目录全表（layout.ts
+      // 补工作区内部簿记目录全表（layout.ts
       // WORKSPACE_INTERNAL_DIR_PREFIXES 的「工作区/ 下直接子目录」清单对齐）——.journal
       // 内 AppleDouble 伴生（._xxx.jsonl）此前被 patterns[0] 当 cloudCopy 报红（进门每次
       // 误报，journal 目录恰是同步盘伴生高发位）；待定稿/导出/spills/.snapshots/.账本推进

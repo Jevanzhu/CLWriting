@@ -81,9 +81,9 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
 </template>
 
 <style scoped>
-/* .panel 基础走全局 style-shared.css（收敛批装载； 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
+/* .panel 基础走全局 style-shared.css（收敛批装载；删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
-/* .head-legend 基础收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
+/* .head-legend 基础收敛至全局 styles/utilities.css（重体，声明逐字未改） */
 
 /* ══ 节奏分布 ══ */
 .dist-grid {

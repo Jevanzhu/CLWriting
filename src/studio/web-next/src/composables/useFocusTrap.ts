@@ -9,7 +9,7 @@ import { watch, type Ref } from 'vue'
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
-// （修复批）：嵌套浮层 Tab 抢焦点——此前全部 trap 在 document
+// 嵌套浮层 Tab 抢焦点——此前全部 trap 在 document
 // capture 期无条件处理 Tab、无「上层遮罩开着则让渡」判据：设置弹窗先开（trap 先注册
 // 先执行），确认框/勾选窗（Teleport 到 body，位于设置弹窗 DOM 外）压上后，焦点在
 // 确认框内按 Tab → 下层 trap 先命中「activeElement 不在自身」→ preventDefault + 焦点
@@ -17,7 +17,7 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 // 登记表（注册序 = 浮层层级序），仅**最顶层**（最后注册且未卸载）的 trap 处理 Tab，
 // 下层 trap 静默让渡（不 preventDefault、不抢焦点）；顶层关闭/卸载后下一层自动恢复
 // 处理权。
-// （修复批）：登记项改为 onCleanup 时按身份 splice 移除——原实现
+// 登记项改为 onCleanup 时按身份 splice 移除——原实现
 // 仅置 disposed 标记、残留登记常驻数组（一次会话每开合一次浮层即 +1 项，永不回收），
 // topmostActiveSeq 又在每次 Tab 按下遍历全表，耗时随会话单调增长；改为移除后登记表
 // 体量恒等于当前打开的浮层数，扫描 O(开层数)，顶层判定语义不变。
@@ -99,7 +99,7 @@ export function useFocusTrap(targetRef: Ref<HTMLElement | null>): void {
 }
 
 /**
- * （修复批）：活跃 trap 计数探针——仅供回归
+ * 活跃 trap 计数探针——仅供回归
  * 测试断言「关浮层即摘登记」（锁 activeTraps 只增不减回归；生产代码零调用）。
  */
 export function __focusTrapActiveCountForTest(): number {

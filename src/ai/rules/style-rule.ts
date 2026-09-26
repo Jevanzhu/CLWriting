@@ -8,7 +8,7 @@
  * - 静态规则对象（方案 A），check 内部实时读基线（不缓存——基线可能写稿中途冻结）
  * - 无基线静默跳过（toPrompt 返回 null、check 返回空数组），不报错不卡流程
  * - 比率维（单句超限占比/复读率/句长方差/对话标签占比）尺度天然与长度无关，
- *   双侧百分比偏离比较；计数维与极值维的口径见（正文两段分述）
+ * 双侧百分比偏离比较；计数维与极值维的口径见（正文两段分述）
  * - summaryEnding 为布尔维度：基线 false 但正文 true 报偏离
  * - 对话标签占比保护：无对话行（_dialogueLines===0）时跳过 dialogueTagRatio 维
  */
@@ -125,7 +125,7 @@ export const styleConsistencyRule: WritingRule = {
     ]
     for (const dim of dims) checkDim(dim, violations, text)
 
-    // （批 A，量纲错配修复）：ref.overall 是全部样章 join('\n\n') 的拼接语料指纹，
+    // （量纲错配修复）：ref.overall 是全部样章 join('\n\n') 的拼接语料指纹
     // 而本规则对比的是单章正文——计数维直接比原始值在样章库 ≥2 条时天然「偏低」
     // 常态超 40% 阈值，机检稳定产出假黄项并流入重写反馈。两维按下述口径分别修：
     //

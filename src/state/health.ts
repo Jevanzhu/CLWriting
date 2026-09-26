@@ -25,7 +25,7 @@ import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles, rmWithRetry, renameWithRetry } from '../fs/atomic.js'
 // save 锁在持探针（只读不取锁，judgeStaleLock 陈锁语义复用）
 import { queryLockHeld } from '../fs/cross-process-lock.js'
-// （修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
+// spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
 // 30 天 TTL），与 tmp 清扫同窗节流执行（见 sweepAbandonedTmpFilesThrottled）
 import { sweepOldSpills } from '../process/spill.js'
 import {
@@ -41,7 +41,7 @@ import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { readBookConfig } from '../format/yaml.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-// 0918修复批（B005）：maxFileNameChapter 取号下限切 chapterNoFromName 单源
+// maxFileNameChapter 取号下限切 chapterNoFromName 单源
 //（原窄正则 parseChapterFileName 对裸数字名失明）；isMdFileName = 扩展剥离单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import {
@@ -68,7 +68,7 @@ const sweepLastAt = new Map<string, number>()
 // scanCloudCopies 是 readdirSync 全树同步递归 + 逐文件 existsSync 验母本，此前
 // detectState（/api/state 5s TTL）每轮请求都全扫；SMB/网盘卷上可冻结事件循环数百
 // ms~秒级（同族纪律漏网点）。
-// （修复批）：窗内回**上次结果**（非空数组）——原实现
+// 窗内回**上次结果**（非空数组）——原实现
 // 窗内返回 []，已检出的持续网盘副本冲突仅在每个 60s 边界的扫描瞬间可见（/api/state
 // TTL 仅 5s，健康信号 ~92% 时间消失，态 1/态 7 周期闪烁），且降级方向 fail-open
 // （把「有问题」降成「无问题」），与本注释「回上次结果」的承诺不符。缓存值口径：
@@ -76,7 +76,7 @@ const sweepLastAt = new Map<string, number>()
 const CLOUD_SCAN_THROTTLE_MS = 60_000
 const cloudScanCache = new Map<string, { at: number; copies: string[] }>()
 
-// （c 修复批）：finalizedLost 逐条 statSync 每书 TTL 节流表
+// finalizedLost 逐条 statSync 每书 TTL 节流表
 //（口径同 cloudScanCache 纪律——窗内回**上次结果**：清单在册有 finalizedRevision 的条目
 // 数 = 章数级，SMB/网盘卷每条 statSync 5-50ms，每次 detectState（5s 缓存过期后）全量重付
 // 可冻结事件循环秒级。回上次结果而非空数组 = fail-closed 方向：持续丢失面在窗内仍可见，
@@ -103,8 +103,8 @@ export function __resetSweepThrottleForTest(): void {
 /** 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
  *  接线）——sweepLastAt 键为 bookRoot，删书后条目成死重；改名后旧键永不再命中。
  *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。
- *  ：cloudScanCache 同挂点一并清除。
- *  ：finalizedLostCache 同挂点一并清除——同名重建书的旧书丢失结论不得带入
+ * cloudScanCache 同挂点一并清除。
+ * finalizedLostCache 同挂点一并清除——同名重建书的旧书丢失结论不得带入
  *  新书首个 TTL 窗（缓存值含 issue 明细，比 sweepStamp 的「晚扫一轮」更刺眼）。 */
 export function forgetStateSweepStamp(bookRoot: string): void {
   sweepLastAt.delete(bookRoot)
@@ -117,7 +117,7 @@ function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   const last = sweepLastAt.get(bookRoot)
   if (last !== undefined && now - last < SWEEP_THROTTLE_MS) return 0
   const swept = sweepAbandonedTmpFiles(bookRoot)
-  // （修复批）：同一节流窗内顺带清扫 30 天前 spill（housekeeping
+  // 同一节流窗内顺带清扫 30 天前 spill（housekeeping
   // 兜底）——原清扫只在 writeSpillFile 热路径触发，一本书写完再无编辑时旧 spill 永久
   // 残留。sweepOldSpills 幂等、内部失败静默（目录不存在/单文件错误均吞），此处再包
   // try/catch 保 best-effort：其异常绝不影响 tmp 清扫返回与节流窗推进。返回值不计入
@@ -132,7 +132,7 @@ function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
 }
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
-// （拆分批）：判定辅助族随缝 A 迁此单源（detectState 与 recap.ts
+// 判定辅助族随缝 A 迁此单源（detectState 与 recap.ts
 // 的 readRecapSnapshot/fallbackRecapSnapshot 默认参均消费）——若留 state.ts 残核供
 // recap.ts import，则 DEFAULT_VOLUME_SIZE 为「顶层求值常量经环回引」（state↔recap
 // 双向运行时边：state re-export buildRecap、recap import 本常量），违 count
@@ -145,9 +145,9 @@ export function volumeSizeOf(config: BookConfig): number {
 }
 
 /** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描 + 定稿文件丢失 + 布线缺失）。
- *  ：kind 联合新增 'wiringMissing'（长篇书 布线/ 目录缺失，防吃书闸
+ * kind 联合新增 'wiringMissing'（长篇书 布线/ 目录缺失，防吃书闸
  *  与账本回写静默失效的观测项）。
- *  ：kind 联合新增 'manifestEmpty'（清单在册可读但零文档条目、而正文区
+ * kind 联合新增 'manifestEmpty'（清单在册可读但零文档条目、而正文区
  *  存在章节 .md 的哨兵——读侧三防线把解析级全损当合法空集 fail-open 的可见化；只加可见
  *  哨兵，不新增写阻断路径）。
  *  阶段 24 （章节结构操作三批）：kind 联合新增 'structurePending'（结构操作
@@ -161,7 +161,7 @@ export interface HealthIssue {
 }
 
 /** 态 1：journal 崩溃恢复 + 网盘副本扫描（不再依赖 git 半提交/冲突/锁——无 git 即无此类异常）。
- *  ：异步化（healMovePending 自愈链的清单/journal 锁等待改异步孪生）。 */
+ * 异步化（healMovePending 自愈链的清单/journal 锁等待改异步孪生）。 */
 export async function healthCheck(bookRoot: string, manifest: Manifest): Promise<HealthIssue[]> {
   const issues: HealthIssue[] = []
 
@@ -184,7 +184,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
         // 清单真实键全 miss、自愈静默失效（settled 照标、清单残留旧路径）。
         const journalFile = join(journalDir, name)
         const docId = decodeDocDirName(name.slice(0, -'.jsonl'.length))
-        // （c 修复批）：journal 单次整读——此前 isOrphanJournal
+        // journal 单次整读——此前 isOrphanJournal
         //（下方）与主循环 findUnsettled 对同一文件各整读+解析一次（双读翻倍）；循环体
         // 到 isOrphanJournal 判定之间全同步（无 await），两次读之间不存在并发写窗口，
         // 上提为单读共享后行为逐位等价（清单快照单读纪律同款）。
@@ -218,7 +218,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
             if (!(await healMovePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
             continue
           }
-          // （c 修复批）：save 类 pending 确定性自动消解——
+          // save 类 pending 确定性自动消解——
           // 盘上指纹已非 pending.baseRevision ⇒ 该次保存实际已落盘（atomicWrite 后 settled
           // 写失败 / 崩溃窗内的幸存态），补 settled 消解不再报红；相等 ⇒ 真未落盘，维持
           // 报红。返回 'crashed'（含各保守边界）时照旧进下方 crashedWrite 报文。
@@ -227,7 +227,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
           if ((await reconcileSavePending(bookRoot, docId, p, manifest, journalFile)) === 'crashed') unresolved.push(p)
         }
         if (unresolved.length > 0) {
-          // （二十四轮 C 域）：报文补文档路径——此前只报 docId（doc_…/legacy:…
+          // 报文补文档路径——此前只报 docId（doc_…/legacy:…
           // 机器标识），作者无法定位是哪篇没保存完；清单在册以路径为首要标识，不在册
           // 回落 docId（孤儿 journal 已在上方分支归档，走到此处的多在册）。
           const where = manifest.entries.get(docId)?.path ?? docId
@@ -256,11 +256,11 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     }
   }
 
-  // ③ ：已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
+  // ③：已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
   //（被外部删除/移走），detectHandEdits 的 rev===null 分支原先静默跳过，无任何健康出口
   //（静默丢章：章号推算只看盘上文件，缺章无感知）。归入态 1 issues 交作者裁决（恢复
   // 来源：版本档案/回收站/同步盘备份）。
-  // /：核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
+  // 核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
   // 口径）放宽为「清单在册有 finalizedRevision 的全部 document 条目」——finalizedRevision
   // 是清单侧唯一定稿标记（finalizeRevision 落盘），定稿在四前缀之外的登记文档此前丢失
   // 零出口。同时区分「确实不存在（ENOENT）」与「stat 出错（EACCES 等不可探测）」：
@@ -287,7 +287,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     }
   }
 
-  // ② 网盘副本扫描（纯 fs，不依赖 git）；：60s TTL 节流（全树同步扫退到
+  // ② 网盘副本扫描（纯 fs，不依赖 git）；60s TTL 节流（全树同步扫退到
   // 每书每分钟至多一次，SMB/网盘卷请求路径成本有界）
   const cloudCopies = scanCloudCopiesThrottled(bookRoot)
   // 顺手清扫 atomicWriteFile 崩溃残留 tmp（`.name.pid.uuid.tmp`，
@@ -295,14 +295,14 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
   // 清扫改每书 TTL 节流——sweep 全树同步扫（readdirSync+statSync
   // 逐文件，.版本 快照目录成百上千文件），此前每次 detectState（5s 缓存过期后）都在
   // 请求路径重扫，SMB/坚果云卷上每文件 statSync 5-50ms，事件循环冻结数百 ms-秒级
-  //（/同族纪律漏网点）。节流后清扫仍会发生（每书每 6h 至少一次），请求
+  //（同族纪律漏网点）。节流后清扫仍会发生（每书每 6h 至少一次），请求
   // 路径成本有界；.trash 不入跳过表（trash-manifest 本身是 atomicWriteFile 目标，
   // 其崩溃 tmp 落在 .trash/ 内，须在清扫面）。
   const sweptTmp = sweepAbandonedTmpFilesThrottled(bookRoot)
   if (sweptTmp > 0) {
     log.info('state', `已清扫 ${sweptTmp} 个崩溃残留的临时文件（atomicWrite 半途崩溃遗留）`)
   }
-  // 孤儿 journal 归档（`.orphaned-<ts>`，改名产物）超龄清扫
+  // 孤儿 journal 归档（`.orphaned-<ts>`改名产物）超龄清扫
   // ——sweep 只管 .tmp/.lock，归档改名后无清理机制长期堆积。30 天 mtime 判定（远宽于
   // tmp 的 5 分钟：归档是「可手工恢复」的保留数据面），不产 issue，纯卫生，留痕即可。
   const sweptOrphaned = sweepOrphanedJournalArchives(bookRoot)
@@ -318,7 +318,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     })
   }
 
-  // ⑤ ：清单「在册可读但零条可解析」哨兵——readManifest 对坏行静默
+  // ⑤：清单「在册可读但零条可解析」哨兵——readManifest 对坏行静默
   // 跳过、finalizedPathSet/finalizedChapterSetOfBook 把解析级全损当合法空集（定稿防覆盖
   // 闸 ensureChapterNotFinalized 由此 fail-open，可静默覆盖已定稿章），且坏清单的下次写
   // 会把空表物理落盘永久化。清单文件存在且可读、解析后 0 条文档条目、而 写作/正文 树扫描
@@ -332,7 +332,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     } catch {
       readable = false // 读失败（EACCES/EBUSY 瞬态）：与口径一致不误报
     }
-    // 空判改按**当次实际读到的清单**重解析——原先沿用 enter
+    // 空判改按**当次实际读到的清单**重解析——原先沿用 enter()
     // 传入的镜像，本函数先行的自愈写（healMovePending 补清单等）与锁内他方写入
     // 均不可见，镜像零条 → 已补录的书误报 manifestEmpty 红项
     const docEntries = readable
@@ -349,7 +349,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
     }
   }
 
-  // ⑥ 阶段 24 ：结构崩溃不变量（设计方案 §5.5 v3 修订）——`并入` 所指章存活于
+  // ⑥ 阶段 24：结构崩溃不变量（设计方案 §5.5 v3 修订）——`并入` 所指章存活于
   // 正文 = 合并半成态（① 后崩溃：fm 已写、源章软删未起，内容暂重复可见）。挂点 =
   // detectState 书内检查（不挂 startup-notices——server 生命周期一次性通告通道）；
   // 态 1 报文指引两条既有收敛路径（重跑「并入上一章」幂等续跑 / 「撤销并入」整体
@@ -362,7 +362,7 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
         kind: 'structurePending',
         humanMsg: `合并中断：第${v.targetChapterNo}章「${v.targetTitle}」已登记并入第 ${v.sourceChapterNo} 章，但源章仍在正文（内容暂重复）。`,
         fix: '在章节树对目标章重新执行「并入上一章」即可幂等完成；或执行「撤销并入」整体回退。',
-        // 0918修复批（B007）：targetDocId 死字段已删（恒 null、真臂永不走）——
+        // targetDocId 死字段已删（恒 null、真臂永不走）——
         // 报文定位统一 targetPath，原三目死臂回归
         files: [v.targetPath],
       })
@@ -457,7 +457,7 @@ function journalDir(bookRoot: string): string {
   return join(bookRoot, '工作区', '.journal')
 }
 
-/** （c 修复批）：finalizedLost 每书 TTL 节流入口（口径同
+/** finalizedLost 每书 TTL 节流入口（口径同
  *  scanCloudCopiesThrottled）——窗内回上次结果（fail-closed：持续丢失面不消失），
  *  窗外重付逐条 statSync 并刷新缓存。 */
 function finalizedLostCheckThrottled(bookRoot: string, manifest: Manifest): HealthIssue[] {
@@ -470,11 +470,11 @@ function finalizedLostCheckThrottled(bookRoot: string, manifest: Manifest): Heal
 }
 
 /** finalizedLost 逐条探测（原 healthCheck ③ 内联循环原样抽出，判定逐位不变）。
- *  ：已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
+ * 已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
  *（被外部删除/移走），detectHandEdits 的 rev===null 分支原先静默跳过，无任何健康出口
  *（静默丢章：章号推算只看盘上文件，缺章无感知）。归入态 1 issues 交作者裁决（恢复
  * 来源：版本档案/回收站/同步盘备份）。
- * /：核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
+ * 核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
  * 口径）放宽为「清单在册有 finalizedRevision 的全部 document 条目」。同时区分
  * 「确实不存在（ENOENT）」与「stat 出错（EACCES 等不可探测）」：后者同样计入 lost
  *（保守报红），但 warn 留痕——不可读 ≠ 不在盘，处置动作不同。 */
@@ -510,7 +510,7 @@ function detectFinalizedLost(bookRoot: string, manifest: Manifest): HealthIssue[
 }
 
 /** 孤儿 journal 归档超龄清理门槛——30 天（毫秒）。
- *  归档（`<名>.jsonl.orphaned-<ts>`，改名产物）是「可手工恢复」的保留数据面，
+ * 归档（`<名>.jsonl.orphaned-<ts>`改名产物）是「可手工恢复」的保留数据面，
  *  门槛远宽于 tmp 的 5 分钟：超 30 天 mtime 无变化即视为作者已放弃恢复，不再永久堆积。 */
 const ORPHANED_JOURNAL_MIN_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -559,7 +559,7 @@ function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
   try {
     if (existsSync(manifestPath)) snap.manifestIds = new Set(readManifest(manifestPath).entries.keys())
   } catch {
-    snap.manifestFailed = true // 清单读失败：不确定 → 不归档
+    snap.manifestFailed = true // 回收站清单读失败：不确定 → 不归档
   }
   try {
     snap.trashIds = new Set(readTrashManifest(bookRoot).map((e) => e.id))
@@ -572,16 +572,16 @@ function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
 /** 判定 journal 是否孤儿（对其报红 = 永久幽灵）。保守三重证实：
  *  docId 不在清单 && 不在回收站 && move pending 两端路径均不在盘（save 类无路径
  *  字段，无法证实 → 永远返回 false 维持报红，防 genuine 崩溃被静默）。
- *  ：清单/回收站改用循环头快照——此前每个 journal 文件各整读一次，
+ * 清单/回收站改用循环头快照——此前每个 journal 文件各整读一次，
  *  O(journal 数 × 清单条目数) 全同步；快照语义 = 原「以盘上为准」的循环头时点。
- *  ：pending 改由调用方传入（journal 单次整读共享），本函数不再自读。 */
+ * pending 改由调用方传入（journal 单次整读共享），本函数不再自读。 */
 function isOrphanJournal(
   bookRoot: string,
   docId: string,
   snapshot: OrphanSnapshot,
   pending: JournalAnyPending[],
 ): boolean {
-  if (snapshot.manifestFailed) return false // 清单读失败：不确定 → 不归档
+  if (snapshot.manifestFailed) return false // 回收站清单读失败：不确定 → 不归档
   if (snapshot.manifestIds.has(docId)) return false
   if (snapshot.trashFailed) return false // 回收站清单读失败：不确定 → 不归档
   if (snapshot.trashIds.has(docId)) return false
@@ -595,7 +595,7 @@ function isOrphanJournal(
 }
 
 /**
- * （c 修复批）：save 类 pending 的确定性自动消解。
+ * save 类 pending 的确定性自动消解。
  * 返回 'settled' = 已处理（appendSettled 落账，本轮不再报 crashedWrite）。
  *
  * 背景：executeSave 的 settled 写失败（best-effort）或「atomicWrite 落盘后、
@@ -612,8 +612,8 @@ function isOrphanJournal(
  *   finalizedLost 检查，此处不消解不误消；
  * - 比对失败（读盘异常非 ENOENT）：保守报红并 warn 留痕；
  * - 消解 settled 自身写失败：报红兜底（下次进门重试消解）。
- * 返回 'inflight' = （修复批）：比对相等且该 doc 的
- * 保存锁（`<journal>.save.lock`，executeSave / saveDraft 同键）在持——
+ * 返回 'inflight' =：比对相等且该 doc 的
+ * 保存锁（`<journal>.save.lock`，executeSave/ saveDraft 同键）在持——
  * 慢盘/杀软全盘扫描下大章保存进行中（journal pending 已写、atomicWriteFile 未落定、
  * revision 未推进）正是「相等」形态，但这是**在途非崩溃**：本轮跳过不报红不消解（不
  * appendSettled——保存自身收尾会写），锁释放后的下一轮复核按盘上结果自然收敛到
@@ -664,7 +664,7 @@ async function reconcileSavePending(
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */
-/** 态 1 与态 3 共用的「参与指纹比对」前缀——正文/设定/大纲/布线。 */
+/** 态 1与态 3 共用的「参与指纹比对」前缀——正文/设定/大纲/布线。 */
 const HAND_EDIT_PREFIXES = ['写作/正文/', '设定/', '大纲/', '布线/']
 
 export function detectHandEdits(bookRoot: string, manifest: Manifest): string[] {
@@ -741,7 +741,7 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
 }
 
 /** 从文件 frontmatter 章号 或 文件名数字提取章号。
- *  ii 批：全文正则 → splitFrontMatter + parseFlat——正则扫整个文件，正文里出现
+ * 全文正则 → splitFrontMatter + parseFlat——正则扫整个文件，正文里出现
  *  「章号: N」字样（作者手记/引用）会抢先命中，章号错位；现只在 fm 块内查键。 */
 function chapterFromFile(absPath: string, name: string): number {
   try {
@@ -761,15 +761,15 @@ function chapterFromFile(absPath: string, name: string): number {
 }
 
 function relativePath(bookRoot: string, absPath: string): string {
-  // win 上 relative 产反斜杠而 manifest 键是正斜杠——归一后对齐。
-  // -mac适配：归一收窄 win32-only（normalizeWinSeparators 单源）——
+  // win 上 relative() 产反斜杠而 manifest 键是正斜杠——归一后对齐。
+  // mac适配：归一收窄 win32-only（normalizeWinSeparators 单源）——
   // posix 上字面 `\` 是合法文件名字符，保持原样与 manifest 侧（resolveWithinRoot.rel /
   // relPathKey）同口径，不再把 `a\b.md` 扭曲为 `a/b.md` 致 docJoinKey 双侧失配
   return normalizeWinSeparators(relative(bookRoot, absPath))
 }
 
 /** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。
- *  ：原签名首位 bookRoot 参数从引入起未被函数体消费
+ * 原签名首位 bookRoot 参数从引入起未被函数体消费
  *  （判定只依赖 manifest 路径前缀），随批删除——唯一调用点同步收窄。 */
 export function isChapterFinalized(chapterNum: number, manifest: Manifest): boolean {
   for (const e of manifest.entries.values()) {
@@ -815,8 +815,8 @@ export function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<
 
 // 已定稿章数 = readChapterDir 章数 − 未定稿文件数（排除草稿后再计"已写"，见态 7 分支与 readRecapSnapshot）
 
-/** 正文区文件名里的最大章号（含 fm 解析失败的文件；无匹配 → 0）。：nextChapter 下限。
- *  0918修复批（B005）：取号下限面（state.ts nextChapter / recap currentChapter /
+/** 正文区文件名里的最大章号（含 fm 解析失败的文件；无匹配 → 0）。nextChapter 下限。
+ * 取号下限面（state.ts nextChapter / recap currentChapter /
  *  本文件 manifestEmpty 哨兵三类消费点全是「已用章号下限/章文件存在性」语义）从窄正则
  *  parseChapterFileName（须 `数字-标题`）切到 chapterNoFromName 单源（tree 宽容集：
  *  `5—标题.md`/`5 标题.md` 兼收）+ 剥 .md 扩展——裸数字名（0012.md）此前失明，

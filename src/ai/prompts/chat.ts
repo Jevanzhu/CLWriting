@@ -15,14 +15,14 @@ import { listSkills, formatSkillIndex } from '../../process/skills.js'
 // 章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../format/frontmatter-core.js'
-// 修复批（C102）：码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
+// 码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
 // 两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
 // re-export 中转（环边来源，已剥除），本模块的 ai→process 转运依赖随之消失
 import { clipByCodePoints, codePointLength } from '../../shared/text.js'
 // 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
-// 0917清库修复批：知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
+// 知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
 import { readKnowledgeManifest } from '../../knowledge/manifest.js'
 import { resolveWithinRoot } from '../../fs/safe-path.js'
 // trimHistory 回合金盲区回落的 warn 留痕
@@ -34,9 +34,9 @@ export interface ChatContext {
   settings: string
   /** 作者指定讨论的章节信息（未选则 undefined） */
   currentChapter?: string
-  /** 写作技巧包索引（DSH-18：一行一包的元信息目录；空库为 undefined 不注入） */
+  /** 写作技巧包索引（一行一包的元信息目录；空库为 undefined 不注入） */
   skillsIndex?: string
-  /** 0917清库修复批：知识层方法论注入（manifest category='方法论' 条目正文，预算帽内；
+  /** 知识层方法论注入（manifest category='方法论' 条目正文，预算帽内；
    *  无知识层/无方法论条目为 undefined 不注入）。登记通道 = llm/call systemPrompt hash +
    *  promptMeta.files + settings/snapshot(knowledge 档) 血缘事件 */
   knowledge?: string
@@ -87,7 +87,7 @@ ${ctx.knowledge ? `\n${ctx.knowledge}\n` : ''}
 export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
   // {scope,digest} 组装下沉到 FromDigests 单源——CLW_VERIFY_VISIBLE
   // 诊断开关与治理测试共用同一形状逻辑，诊断侧不再手工镜像（镜像漂移恰是该开关要抓的）
-  // A201（0918三轮修复批）：补 knowledge 档——0917 扩登记面时校验面三处未同步
+  // 补 knowledge 档——扩登记面时校验面三处未同步
   //（本处 / FromDigests / verifyVisibleSampled 签名），抽样校验对 knowledge 通道失明
   return visibleInjectionsFromDigests({
     settings: digest16(ctx.settings),
@@ -117,7 +117,7 @@ export function visibleInjectionsFromDigests(d: {
  *
  * @param bookRoot 书库根
  * @param chapter 作者选定的章号（可选；未选则只注入设定不注入正文）
- * @param opts 用户数据根（DSH-18：技巧包用户根发现用；缺省只扫项目根 + 捆绑根）
+ * @param opts 用户数据根（技巧包用户根发现用；缺省只扫项目根 + 捆绑根）
  */
 export function buildChatContext(bookRoot: string, chapter?: number, opts?: { userDataPath?: string }): ChatContext {
   const settings = buildSettingsContext(bookRoot)
@@ -150,22 +150,22 @@ export function buildChatContext(bookRoot: string, chapter?: number, opts?: { us
     currentChapter = parts.join('\n')
   }
 
-  // DSH-18 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
+  // 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
   const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
 
-  // 0917清库修复批：知识层方法论注入（登记项「知识层方法论注入未接线」收口）——只取
+  // 知识层方法论注入（登记项「知识层方法论注入未接线」收口）——只取
   // category='方法论' 条目；manifest 缺失/损坏/无方法论条目 → 零注入（知识层可选，静默降级）
   const knowledge = buildKnowledgeContext(bookRoot, files)
 
   return { settings, currentChapter, skillsIndex: skillsIndex || undefined, knowledge, files, chapterFile }
 }
 
-/** 知识层方法论注入预算帽（0917清库修复批）：篇数 / 单篇码点 / 合计码点，超限保头截断并标注。 */
+/** 知识层方法论注入预算帽：篇数 / 单篇码点 / 合计码点，超限保头截断并标注。 */
 const KNOWLEDGE_MAX_FILES = 4
 const KNOWLEDGE_FILE_CAP = 2000
 const KNOWLEDGE_TOTAL_CAP = 6000
 
-/** 知识层方法论段装配（0917清库修复批）。读取或组装失败一律 undefined（可选增强，不阻断对话）。 */
+/** 知识层方法论段装配。读取或组装失败一律 undefined（可选增强，不阻断对话）。 */
 function buildKnowledgeContext(bookRoot: string, files: string[]): string | undefined {
   let report: ReturnType<typeof readKnowledgeManifest>
   try {
@@ -183,7 +183,7 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
     if (!resolved || !existsSync(resolved.abs)) continue
     try {
       let body = bodyOf(readFileSync(resolved.abs, 'utf-8'))
-      // 修复批（C102）：码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
+      // 码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
       // ——原 body.length/slice 按 UTF-16 码元计，截断点恰落代理对（emoji/扩展区汉字）
       // 中间产出孤立代理进 system prompt，且合计帽提前误触发；仓内同族截断
       // （clipByCodePoints/codePointLength）均已收码点口径，此处单源接入。
@@ -214,7 +214,7 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
  * @param maxTurns 保留最近 N 个完整回合（默认 10）
  */
 export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
-  // （CS-12）：窗口参数入口归一——非法值（0/负/NaN/分数/非数）归 null = 不设限，
+  // 窗口参数入口归一——非法值（0/负/NaN/分数/非数）归 null = 不设限，
   // 防设置项化后脏值静默丢上下文；当前调用方传常量，属前置防线
   const window = normalizeMaxMessages(maxTurns)
   if (window === null) return history
@@ -266,7 +266,7 @@ const TRIM_TAIL_BUDGET_POINTS = 20_000
  *  章节预览 2000 字 + 技巧索引 800，万级 token）、15 个工具 schema（数千 token）、输出
  *  上限与消息包装开销 + 安全余量。正常流 finalizeHistory（trimHistory/compaction）会在
  *  收尾后控住体量，本预算只在单轮内重工具往返把历史撑肥（收尾防线未及）时兜底——是
- *  发送面防线触发线，非精确 token 计量。初设为硬编码常量；
+ * 发送面防线触发线，非精确 token 计量。初设为硬编码常量；
  * 起降为 resolveChatSendBudget 的显式回退值（窗口已知的模型按窗收紧）。 */
 export const CHAT_SEND_BUDGET_POINTS = 96_000
 
@@ -275,7 +275,7 @@ export const CHAT_SEND_BUDGET_POINTS = 96_000
  * 同链 maxTokens 已按模型逐层 resolve，发送防线预算不再吃硬编码 96k）。
  *
  * - contextWindow 已知：min(96_000, ⌊窗口/2⌋)——按窗比例收紧，上限压到 ≤ 半窗：历史
- *   + system prompt（起计入同一预算）合计不越过半窗，给模型响应、工具 schema
+ * + system prompt（起计入同一预算）合计不越过半窗，给模型响应、工具 schema
  *   与包装开销留足余量（64k 窗模型在旧硬编码 96k 下防线放行必超窗 → 400 卡死）。
  * - 未知/非法（模型行未声明）：显式回落 CHAT_SEND_BUDGET_POINTS（96k，128k 级窗口
  *   3/4 的既有校准值），fallback 在此单点声明、不散落调用方。
@@ -293,15 +293,15 @@ export function resolveChatSendBudget(contextWindow?: number): number {
  *  sys 超大（重设定书场景）把差额挤负时 clamp 到此值（与 TRIM_TAIL_BUDGET_POINTS 同
  *  量级，约保一个回合），宁可切后总量仍超、走切后复查 warn（fail-open 语义），也不把
  *  历史压成空手发送。
- *  0918二轮修复批（A101）：消费侧（turns.ts）取下限时先与 sendBudget 取 min——
+ * 消费侧（turns.ts）取下限时先与 sendBudget 取 min——
  *  contextWindow < 40k 的小窗模型 sendBudget 本身低于此下限，恒 clamp 到 20k 会高于
- *  发送预算本身（发送防线对 [sendBudget, 20k] 区间失效、收缩重试预算仍超窗）；
+ * 发送预算本身（发送防线对 [sendBudget, 20k] 区间失效收缩重试预算仍超窗）；
  *  下限随预算收缩后 historyBudget 恒 ≤ sendBudget。 */
 export const CHAT_HISTORY_MIN_BUDGET_POINTS = 20_000
 
 /** 纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token
  *  粗估）的文本入参形态；system prompt 不经 ChatMsg 包装，发送预算侧按同一口径计量。
- *  ：热路径每轮全历史计量不再物化 N 元素数组——就地计数，代理对跨
+ * 热路径每轮全历史计量不再物化 N 元素数组——就地计数，代理对跨
  *  surrogate 对算 1；口径不变（UTF-16 码点数，孤立代理算 1）。 */
 export function measureTextPoints(text: string): number {
   let n = 0
@@ -318,7 +318,7 @@ export function measureTextPoints(text: string): number {
 
 /** 码点计量（与 compaction.measureMessages 同口径的本地副本——该模块在
  *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒）
- *  ：块文本计量统一走零分配 measureTextPoints。 */
+ * 块文本计量统一走零分配 measureTextPoints。 */
 function measurePoints(m: ChatMsg): number {
   if (typeof m.content === 'string') return measureTextPoints(m.content)
   let n = 0
@@ -361,7 +361,7 @@ export function budgetTailCut(history: ChatMsg[], budget: number): number | null
   return bounds[bounds.length - 1]! // 单回合即超预算：仍保最近一整回合
 }
 
-/** trimHistory 回落口径—— 起为 budgetTailCut 的薄包装
+/** trimHistory 回落口径——起为 budgetTailCut 的薄包装
  * （逻辑单源在 budgetTailCut，预算取 trimHistory 专用值）。 */
 function fallbackBudgetCut(history: ChatMsg[]): number | null {
   return budgetTailCut(history, TRIM_TAIL_BUDGET_POINTS)

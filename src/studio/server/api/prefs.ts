@@ -96,13 +96,13 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = prefsPath(params['name']!)
       if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-      // defineRoute parse 迁移跳过（SRV- 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      // defineRoute parse 迁移跳过：校验顺序依赖前置门，parse 化会翻转错误优先级
       //（直调 handler 悬持 body 于 readJson——入口快照→窗口→bookMoved 409 判序被钉）
       const body = await readJson(req)
       const prefs = body['prefs']
       if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs))
         return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
-      // （服务端端点/摘要簇修复批）：readJson 窗口后写前重验书注册
+      // （服务端端点/摘要簇）：readJson 窗口后写前重验书注册
       //（时序见 bookMovedFailure 头注）；family：config 同款——此前窗口跨越
       // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
@@ -115,13 +115,13 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         let disk: Record<string, unknown> = {}
         if (existsSync(r.path)) {
           try {
-            // -服务端：形状校验——prefs.json 内容为数组/字符串/数字（损坏或
+            // 服务端：形状校验——prefs.json 内容为数组/字符串/数字（损坏或
             // 误写）时，{...disk, ...prefs} 会把索引键/字符位混入写回（损坏扩散一轮）
             const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
             disk =
               parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
           } catch {
-            /* 文件损坏视作空：本次整体重写（与原直写行为一致） */
+            /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */
           }
         }
         // 内容版本乐观锁——revision 保留键（存量无 → 0，每次 PUT +1）比对
@@ -174,7 +174,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     },
   })
 
-  // （SRV- 机械批）：body 形状校验迁 parse——400 BAD_INPUT 信封与
+  // body 形状校验迁 parse——400 BAD_INPUT 信封与
   // 原内联路径逐字节同源；唯一前置 globalPath（NO_USERDATA）无测试钉先后序（cliReq
   // 用例 body 合法仍落 NO_USERDATA），照 chat.send 先例迁移
   defineRoute('library.prefs.put', {
@@ -195,7 +195,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         let disk: Record<string, unknown> = {}
         if (existsSync(r.path)) {
           try {
-            // -服务端：形状校验（与 books.prefs.put 同款）——数组/标量损坏内容
+            // 服务端：形状校验（与 books.prefs.put 同款）——数组/标量损坏内容
             // 不混入合并写
             const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
             disk =

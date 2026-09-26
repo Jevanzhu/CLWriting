@@ -3,7 +3,7 @@
  *
  * 收敛前：AiServicePanel（本地 ref）、useChatTier（模块单例）、WorkbenchView 各自独立
  * getProviders/fetchModels，三份 state 三份网络请求，切书/改供应商后可能各不一致。
- * 收敛后：全部读写走此单例 store，一处刷新处处更新；revision 也只在 store 里维护，
+ * 收敛后：全部读写走此单例 store，一处刷新处处更新；revision也只在 store 里维护，
  * 写端点统一带 expectedRevision（409 冲突提示刷新）。
  */
 import { defineStore } from 'pinia'
@@ -66,7 +66,7 @@ export const useProviderStore = defineStore('provider', () => {
   const currentProvider = computed<ProviderConfDto | null>(
     () => providers.value.find((p) => p.id === currentId.value) ?? null,
   )
-  /** 当前供应商已配置模型行 */
+  /** 当前供应商已配置模型行*/
   const configModels = computed<ModelConfDto[]>(() => currentProvider.value?.models ?? [])
 
   /**
@@ -88,7 +88,7 @@ export const useProviderStore = defineStore('provider', () => {
   )
 
   /** refresh 操作代（与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据。
-   *  ：裸计数器换装 useStaleGuard（begin/stale/fresh 语义映射见工具注）。 */
+   * 裸计数器换装 useStaleGuard（begin/stale/fresh 语义映射见工具注）。 */
   const refreshGen = useStaleGuard()
   /** refreshRag 操作代（与 refresh 同款但独立计数——refreshAll 并发跑两者，
    *  共用一个计数会互相作废，先返回的那次响应必被后发者顶掉） */
@@ -100,7 +100,7 @@ export const useProviderStore = defineStore('provider', () => {
     loading.value = true
     try {
       const d = await getProviders()
-      if (refreshGen.stale(gen)) return // 后发 refresh 已生效：旧响应不回填
+      if (refreshGen.stale(gen)) return // 后发 refreshRag 已生效：旧响应不回填
       providers.value = d.providers
       currentId.value = d.currentId
       currentModel.value = d.currentModel
@@ -110,8 +110,8 @@ export const useProviderStore = defineStore('provider', () => {
         chat: d.tiers.chat ? { ...d.tiers.chat } : null,
       }
       revision.value = d.revision
-      // MP2-2（专项二轮修复批）：列表收敛——另一窗口删除的提供方，本窗缓存键随
-      // 刷新修剪（本地删除路径 MP-1 已随删清；跨窗删除此前残留到重启，KB 级卫生）。
+      // 列表收敛——另一窗口删除的提供方，本窗缓存键随
+      // 刷新修剪（本地删除路径已随删清；跨窗删除此前残留到重启，KB 级卫生）。
       const alive = new Set(d.providers.map((p) => p.id))
       for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
       for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
@@ -132,7 +132,7 @@ export const useProviderStore = defineStore('provider', () => {
       if (refreshRagGen.stale(gen)) return // 后发 refreshRag 已生效：旧响应不回填
       ragProviders.value = d.ragProviders
       revision.value = d.revision
-      // MP2-2：RAG 侧同款收敛（跨窗删除的 ragTestResults 键随列表修剪）
+      // RAG 侧同款收敛（跨窗删除的 ragTestResults 键随列表修剪）
       const aliveRag = new Set(d.ragProviders.map((p) => p.id))
       for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
     } catch (e) {
@@ -165,7 +165,7 @@ export const useProviderStore = defineStore('provider', () => {
    *  - failMsg 缺省 friendlyError 直出；applyChatTier 的「回落旧档」前缀经此注入；
    *  - revision 更新时机在 fn 内原位（await 后即时，先于任何 toast/return）；
    *  - 成功返回 fn 的返回值，任何失败路径返回 null（调用方按需转 false / id | null）。
-   *  （同批）：errText 纯转发别名删除，直用 friendlyError。 */
+   * （同批）：errText 纯转发别名删除，直用 friendlyError。 */
   async function guardedWrite<T>(
     fn: () => Promise<T>,
     okMsg?: string,
@@ -234,7 +234,7 @@ export const useProviderStore = defineStore('provider', () => {
         providers.value = providers.value.filter((p) => p.id !== id)
         currentId.value = r.currentId
         probeModels.value.delete(id)
-        // MP-1（专项）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
+        // （专项）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
         testResults.value.delete(id)
         revision.value = r.revision
         return true
@@ -348,7 +348,7 @@ export const useProviderStore = defineStore('provider', () => {
       (await guardedWrite(async () => {
         const r = await deleteRagProvider(id, revision.value)
         ragProviders.value = ragProviders.value.filter((p) => p.id !== id)
-        // MP-1（专项）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
+        // （专项）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
         ragTestResults.value.delete(id)
         revision.value = r.revision
         return true

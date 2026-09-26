@@ -10,7 +10,7 @@ import { defineConfig } from 'tsup'
 // restart 会重新加载本文件，此处的 rmSync 会把 dev 循环正在使用的 dist/desktop 产物连根
 // 删掉；dev 态不清 stale chunk 无碍（残留只损发布物体积，发布走 build:desktop 全新构建，
 // 不含 --watch，守卫不生效）。
-// （五轮修复批）：清理路径 cwd 相对 → import.meta.url
+// 清理路径 cwd 相对 → import.meta.url
 // 绝对化（scripts/check-counts.mjs 同款口径，含 ^ 等特殊字符时 pathname 百分号编码由
 // fileURLToPath 解码）——原 rmSync('dist/desktop') 依赖 cwd=项目根，从子目录直跑
 // `npx tsup`（向上寻得本配置）时按 cwd 解析会删错位置。项目根正常路径下与原写法同义
@@ -22,7 +22,7 @@ if (!process.argv.includes('--watch')) {
 
 export default defineConfig([
   {
-    // 阶段 22 批：server-utility 为 utilityProcess 子进程入口（server-manager fork
+    // server-utility 为 utilityProcess 子进程入口（server-manager fork
     // dist/desktop/server-utility.js；electron-builder files: dist 自动含）。
     // （补修）：export-worker 为导出内核 worker 线程独立入口——server
     // bundle 内联 run-async.ts 后以 import.meta.url 同伴解析 dist/desktop/
@@ -44,19 +44,19 @@ export default defineConfig([
       'rebuild-worker': 'src/cache/rebuild-worker.ts',
     },
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
-    // rc.0 发布修复批：dependencies 三件必须强制内联——tsup/esbuild 缺省把 package.json
+    // rc.0 发布：dependencies 三件必须强制内联——tsup/esbuild 缺省把 package.json
     // dependencies 全部外置（external:['electron'] 只管显式清单，管不到隐式 deps 外置），
     // 产物因此留下裸 import '@anthropic-ai/sdk'/'openai'/'font-list'；而 electron-builder
-    // files '!node_modules/**' 已把 node_modules 排除出 asar（0917清库修复批，前提是
+    // files '!node_modules/**' 已把 node_modules 排除出 asar（前提是
     // 「tsup 全量 bundle、运行时零裸包解析」——该前提被隐式外置打破），打包态 ESM link
     // 即抛 ERR_MODULE_NOT_FOUND：server-utility 子进程秒崩×3 → 「服务异常」错误框 → 无窗
     // 挂死（v1.0.0-rc.0 发版实录）；main 侧 ipc.ts 的 font-list 裸导入同病（App
     // Translocation 态主进程未捕获异常实录）。dev 能跑是仓库根有 node_modules，CI 打包态
     // 冒烟假绿是 .app 躺在 workspace dist-electron/ 下、解析沿文件路径向上摸到仓库
     // node_modules——装进 /Applications / 从 dmg 挂载卷运行必死。font-list 内联后
-    // __dirname 指向本目录，的二进制同伴拷贝（onSuccess）设计随之成真。
+    // __dirname 指向本目录的二进制同伴拷贝（onSuccess）设计随之成真。
     noExternal: ['@anthropic-ai/sdk', 'openai', 'font-list'],
-    // rc.0 发布修复批·font-list 特例：其 ESM 壳 index.mjs 是 createRequire 运行时
+    // rc.0 发布·font-list 特例：其 ESM 壳 index.mjs 是 createRequire 运行时
     // require('./libs/core')（相对 import.meta.url）——esbuild bundle 后该路径指向
     // dist/desktop/、libs/ 不在，裸 noExternal 内联会在模块顶层抛 MODULE_NOT_FOUND
     // （连 dev 一起碎，本批实证）。alias 钉到 CJS 入口 index.js 走 esbuild 原生 CJS
@@ -95,16 +95,16 @@ export default defineConfig([
     // 会把 `node:sqlite` 改写成 bare `sqlite`，运行时 Node 去找不存在的 npm 包 `sqlite` 而崩。
     // 本项目门槛 Node ≥24，内置模块原生支持 `node:` 协议，保留前缀。
     removeNodeProtocol: false,
-    // （GLM-5.3 修复批）：mac fontlist 原生二进制随包
+    // mac fontlist 原生二进制随包
     // 分发——font-list 上游按 path.join(__dirname,'fontlist') execFile，bundle 后
     // __dirname 指向 dist/desktop，二进制必须落 bundle 同目录（此前打包态恒 ENOENT，
     // 字体枚举回落 system_profiler 慢路径，慢机触 10s 超时连败熔断、下拉返空）。
     // 仅 darwin：win 走 win-fonts 自绘枚举、linux fc-list 是系统命令，均无随包二进制
     // （非 darwin 腿不拷，check-packaging 门同口径只查 darwin）。copyFileSync 保留
     // 可执行位（libuv uv_fs_copyfile 保 mode）；源缺失（依赖安装不完整）ENOENT 裸抛
-    // 红构建，不静默跳过（静默跳过 = 原样回潮）。watch 模式每次重建后重拷，
+    // 红构建，不静默跳过（静默跳过 =原样回潮）。watch 模式每次重建后重拷，
     // 幂等。
-    // （六轮修复批）：两端路径 import.meta.url
+    // 两端路径 import.meta.url
     // 绝对化——上批只绝对化了文件头 rmSync，本处 copyFileSync 仍是 cwd 相对
     // （Node 原生调用按 process.cwd 解析），同场景（子目录直跑 `npx tsup`）会 ENOENT
     // 红构建或拷错位置；项目根正常路径下与原写法同义（零行为）。

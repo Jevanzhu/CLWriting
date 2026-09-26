@@ -12,8 +12,8 @@ import { friendlyError } from '../shared/error'
 import { useStaleGuard } from '../composables/useStaleGuard'
 
 /**
- * 三审 store（M12 块1 .1）：发起三审 + 存量信封展示。
- * aiAvailable 由 ui store 管（按钮置灰）；verdict 联动已落地（.3 方案 A）；
+ * 三审 store（M12 块1 B1.1）：发起三审 + 存量信封展示。
+ * aiAvailable 由 ui store 管（按钮置灰）；verdict 联动已落地（B1.3 方案 A）
  * 进度 SSE 未实现亦无排期（原「切片3」为过时前瞻宣称，-⑤ 修账）。
  * 文档切换时由 ReviewPanel watch 调 loadEnvelope（读存量）或 clear。
  */
@@ -23,11 +23,11 @@ export const useReviewStore = defineStore('review', () => {
   const stale = ref(false)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  // （修复批）：原 lastDocId ref 删除——跨文档/跨书归属
+  // 原 lastDocId ref 删除——跨文档/跨书归属
   // 职能已由下方 lastLoadKey（`${书}::${docId}`）承担，书级维度亦在键内，裸 docId 死字段不再维护。
 
   /** 操作代：run/loadEnvelope/clear 共用——任何切换都让在途旧结果失效。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const opGen = useStaleGuard()
 
   // collected 归属键（`${书}::${docId}`）。
@@ -102,7 +102,7 @@ export const useReviewStore = defineStore('review', () => {
     lastLoadKey = null // 归属键随清空复位（clear 后首次 loadEnvelope 视为跨文档，先清再拉）
   }
 
-  /** 作者裁决（.3 方案 A）：从 review 信封 payload.verdict 读；通过/驳回 落信封。 */
+  /** 作者裁决（B1.3 方案 A）：从 review 信封 payload.verdict 读；通过/驳回 落信封。 */
   const verdict = computed<ReviewVerdict | null>(() => envelope.value?.payload.verdict ?? null)
 
   async function setVerdict(name: string, docId: string, approved: boolean): Promise<void> {

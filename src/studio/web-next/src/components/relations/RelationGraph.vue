@@ -32,7 +32,7 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
       <rect x="-9999" y="-9999" width="19998" height="19998" class="bg-rect" />
       <!-- 边：默认就带语义色（弱），聚焦时提到全饱和 -->
       <g class="edges">
-        <!-- ：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
+        <!-- key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
              (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。
  #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
         <g v-for="g2 in g.edgeGeoms.value" :key="edgeKey(g2.e)" :class="{ dim: g.edgeDim(g2.e) }">

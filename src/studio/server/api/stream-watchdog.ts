@@ -2,10 +2,10 @@
  * 静默挂死 watchdog 族 —— 自 src/studio/server/api/stream.ts 缝 B 拆出。
  *
  * （⑤④产品巨件拆分波4）：stream.ts（879 行）缝 A+B 纯移动拆分。
- * 本文件承载缝 B（原 294-383 行整段）：- 编排长任务静默挂死兜底——
+ * 本文件承载缝 B（原 294-383 行整段）：编排长任务静默挂死兜底——
  * ORCH_STALL_WATCHDOG_MS（20min 静默判定）/ ORCH_STALL_GRACE_MS（60s 中止宽限）
  * 两阈值常量 + StallWatchdog 句柄 + startStallWatchdog 两段式处置（一段走既有
- * 用户中止路径，二段宽限期满强释放并发闸；进度复位式计时，范式参照 rag.ts ）。
+ * 用户中止路径，二段宽限期满强释放并发闸；进度复位式计时，范式参照 rag.ts）。
  * 消费方 = stream.ts 残核的 runWriterSpawn（/spawn）与 books.auto-write handler
  * （/auto-write self-heal），均留残核。
  * 原私有而残核消费的 startStallWatchdog 就此导出；两阈值常量维持原导出（p37 测试
@@ -31,12 +31,12 @@ import { log } from '../../../log/index.js'
 // 作者把档位 timeoutMs 配到 >20min 且全程静默属配置面越界，误中止后果 = 等同作者主动
 // 中断的正常收尾，不破坏互斥语义。
 export const ORCH_STALL_WATCHDOG_MS = 20 * 60_000
-/** -：中止后宽限期——abort 是异步信号，正常编排会在此内 settle 收尾放闸（无副
+/** 中止后宽限期——abort 是异步信号，正常编排会在此内 settle 收尾放闸（无副
  *  作用）；期满闸仍被占（中止也无法使其 settle，真挂死）才走二段强释放。60s ≫ 信号观察
  *  回路的微任务/IO 级收尾时延，足够宽。 */
 export const ORCH_STALL_GRACE_MS = 60_000
 
-/** -：watchdog 句柄——touch=进度推进复位（广播/登记点调用）；cancel=终态撤表
+/** watchdog 句柄——touch=进度推进复位（广播/登记点调用）；cancel=终态撤表
  *  （双 timer clear，无泄漏；幂等，迟到 settle 的二次 cancel 无害）。 */
 interface StallWatchdog {
   touch(): void
@@ -44,7 +44,7 @@ interface StallWatchdog {
 }
 
 /**
- * -：静默挂死 watchdog（两段式，保互斥优先）。
+ * 静默挂死 watchdog（两段式，保互斥优先）。
  * 一段——静默超 ORCH_STALL_WATCHDOG_MS：走既有用户中止路径（等同作者点 /interrupt），
  *   log.warn 留痕「疑似挂起已自动中止」；宽限期内闸正常释放则收尾，无副作用。
  * 二段——宽限期满（ORCH_STALL_GRACE_MS）闸仍被占：rag 式强释放（放闸 + warn 留痕；

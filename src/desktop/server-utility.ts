@@ -1,5 +1,5 @@
 /**
- * studio server 的 Electron utilityProcess 入口（阶段 22 批 /）。
+ * studio server 的 Electron utilityProcess 入口。
  *
  * main 侧 server-manager fork 本文件（dist/desktop/server-utility.js，asar 内路径
  * 等价），本入口只做：解析 fork 参数 → 经 server-boot 共享核心起 server → 把启动
@@ -9,8 +9,8 @@
  * 握手协议（消息形状与 server-manager 配对，测试两侧锚定）：
  * - child → main：{ type: 'ready', port }（listening 后每 child 一次）
  *               { type: 'boot-error', code, message }（监听失败；发完即退出）
- *               { type: 'shutdown-done' }（批：shutdown 指令执行完回执）
- * - main → child：{ type: 'shutdown' }（批：执行 shutdownStudio 全流程——在途
+ * { type: 'shutdown-done' }（shutdown 指令执行完回执）
+ * - main → child：{ type: 'shutdown' }（执行 shutdownStudio 全流程——在途
  *   编排 abort/session/end 落库 + server.close，超时参数同拆分前 main 内嵌态——
  *   该职责随 server 下沉，main 不再 import graceful-shutdown）
  *
@@ -48,7 +48,7 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
       // 信封化（EADDRINUSE 中文口径）后回传再退出——main 侧对首启失败弹原生对话框
       const envelope = describeBootError(err, parsed.port)
       parentPort.postMessage({ type: 'boot-error', code: envelope.code, message: envelope.message })
-      // （总七十一轮）：紧随 postMessage 的同步 exit 可能截断跨进程投递（消息尚未
+      // 紧随 postMessage 的同步 exit 可能截断跨进程投递（消息尚未
       // flush 即随进程消亡，main 只见 child 退出不见 boot-error）——让出一个事件循环
       // 轮次（setImmediate）给投递 flush 后再退
       setImmediate(() => process.exit(1))
@@ -77,7 +77,7 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
 }
 
 /**
- * （总六十五轮）：顶层 fatal 兜底——unhandledRejection / uncaughtException。
+ * 顶层 fatal 兜底——unhandledRejection / uncaughtException。
  * 此前无任何 handler：漏 catch 的异步 rejection 直接走 Electron utilityProcess 崩溃
  * 重启重路径且丢现场（无日志可查）。现经现有 stdout 日志通道（fork 注入
  * CLW_LOG_STDOUT=1 → src/log stdout-only 直写一行 JSON，main 收行转发落盘）记

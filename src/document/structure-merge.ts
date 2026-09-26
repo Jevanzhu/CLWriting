@@ -15,14 +15,14 @@ import { ulid } from '../fs/id.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { patchFlatFm } from '../format/frontmatter.js'
-// 0918修复批（B005 尾项）：isMdFileName = 路径章号提取剥 .md 茎单源（本文件
+// isMdFileName = 路径章号提取剥 .md 茎单源（本文件
 // chapterNoFromEntryPath 小件）
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { countWords } from '../format/words.js'
 import { clipByCodePoints } from '../shared/text.js'
 import { readManifestStrict } from './manifest.js'
 import { readVersionRaw, listVersions } from './version.js'
-// 0918修复批（B003）：合并续跑判定读改 strict——listTrash（容错版）吞瞬态
+// 合并续跑判定读改 strict——listTrash（容错版）吞瞬态
 // 读失败成空表会把「已软删」误判成「未软删」续跑（service.ts 同款口径：
 // 容错版只供只读展示面）。locateMergeByDisk（undo 降级定位，只读候选扫描）维持容错版
 import { restoreTrash, listTrash, readTrashManifestStrict, type TrashEntry } from './trash.js'
@@ -32,7 +32,7 @@ import { invalidateTreeIndex } from './tree.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../events/store.js'
 import { structureMergeEvent, structureMergeUndoEvent } from '../events/chain-bridge.js'
-// 0918修复批（B003）：strict 读失败 reason 组装（errMsg 三目单源，log/index.js）
+// strict 读失败 reason 组装（errMsg 三目单源，log/index.js）
 import { log, errMsg } from '../log/index.js'
 import type { StructureMergeData, StructureMergeUndoData } from '../events/types.js'
 import {
@@ -114,7 +114,7 @@ export async function planChapterMerge(
   rag: StructureRagPort,
 ): Promise<MergePlanView | StructureFailure> {
   if (targetDocId === sourceDocId) return fail('BAD_INPUT', '目标章与源章不能是同一章')
-  // B004（0918三拍板批）：入口一致性闸——全书 fm ≡ 文件名号失配即拒（含 undo 半完成
+  // 入口一致性闸——全书 fm ≡ 文件名号失配即拒（含 undo 半完成
   // 态续跑在内的结构操作都带失配盘面执行会放大重号/错定位，先拒后做）
   const gate = chapterNoMismatchFailure(bookRoot)
   if (gate) return gate
@@ -144,7 +144,7 @@ export async function planChapterMerge(
     sourceTitle: s.标题,
     encodingSuspect: !isUtf8Bytes(t.bytes) || !isUtf8Bytes(s.bytes),
     sourceWords: countWords(s.body),
-    // C101：预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
+    // 预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
     // 与 structure-split 干跑预览同口径，防第 60 码元劈代理对（弹窗尾字符乱码）
     sourcePreview: clipByCodePoints(canonicalizeText(s.body).trim().replace(/\n+/g, ' '), 60),
     mergedInto,
@@ -187,7 +187,7 @@ export async function applyChapterMerge(
   rag: StructureRagPort,
 ): Promise<MergeApplyResult> {
   if (input.targetDocId === input.sourceDocId) return fail('BAD_INPUT', '目标章与源章不能是同一章')
-  // B004（0918三拍板批）：入口一致性闸（同 planChapterMerge；apply 尤须——带失配盘面
+  // 入口一致性闸（同 planChapterMerge；apply 尤须——带失配盘面
   // 写 并入 登记会落错误章号）
   const gate = chapterNoMismatchFailure(bookRoot)
   if (gate) return gate
@@ -196,7 +196,7 @@ export async function applyChapterMerge(
   // 崩溃形态分流前移（设计方案 §5.5 repair 判定式）：fm `并入` 已含源章号 = ① 已
   // 落定，此后任何中断都是收尾段半途态，重跑 apply 即幂等收敛。②后崩溃形态（源章已
   // 软删、清单条目已摘）readChapterState(源) 必失败，故先查回收站条目再读源章。
-  // 0918修复批（B003）：续跑判定读改 strict——容错版吞瞬态读失败成空表会
+  // 续跑判定读改 strict——容错版吞瞬态读失败成空表会
   // 把②后崩溃形态误判成「未软删」续跑；strict 读失败映射既有 WRITE_ERROR（未执行
   // 修改，可重试），ENOENT 仍合法空（无回收站不受影响）。
   let trashCandidates: TrashEntry[]
@@ -209,7 +209,7 @@ export async function applyChapterMerge(
   if (trashEntry) {
     // ②后崩溃形态：源章已进回收站（文件在 .trash、清单条目已摘）——章号从条目
     // originalPath 反推，须与 fm 并入 对应；trash 段已落定，finishMerge 内部自查跳过。
-    // 0918修复批（B005 尾项）：章号提取走剥茎单源 chapterNoFromEntryPath
+    // 章号提取走剥茎单源 chapterNoFromEntryPath
     const no = chapterNoFromEntryPath(trashEntry.originalPath)
     if (no === null || !t.并入.includes(no)) {
       return fail(
@@ -231,7 +231,7 @@ export async function applyChapterMerge(
     // 重复可见）——重跑 = 幂等续跑，跳过 planHash/编码复核（① 已通过），直接补完
     // 收尾段；回收站无条目 + 源章不在正文 = 半成态已被人工处置，语义歧义拒收交作者
     // 先走撤销。
-    // -源码：s.abs 已是 readChapterState 经 safeManifestPath 收口的派生，
+    // 源码：s.abs 已是 readChapterState 经 safeManifestPath 收口的派生，
     // 不再二次裸 join
     if (!existsSync(s.abs)) {
       return fail(
@@ -299,11 +299,11 @@ async function finishMerge(
   rag: StructureRagPort,
 ): Promise<MergeApplyResult> {
   // ② 源章软删：svc.trashDocument 既有管线（自取源 docId save 锁 + trashBaselineOf
-  // RMW 基线落账）；TrashEntry.id = 源 docId。 幂等：②后崩溃续跑形态源章已在
+  // RMW 基线落账）；TrashEntry.id = 源 docId。幂等：②后崩溃续跑形态源章已在
   // 回收站（trash 段已落定），自查跳过不再二次软删——判据 = 条目在档**且**源文件
   // 确已不在原路径（文件被人工放回正文的混合态仍需补软删，跳过会让 并入 所指章
   // 永久存活、违反崩溃不变量）。
-  // 0918修复批（B003）：alreadyTrashed 自查读改 strict（同 apply 入口口径）
+  // alreadyTrashed 自查读改 strict（同 apply 入口口径）
   // ——容错版吞瞬态读失败成空表会让②后崩溃续跑误判「未软删」而二次软删空转；
   // strict 读失败按 WRITE_ERROR 如实拒收（未执行修改，重试即续）。
   let trashCandidates: TrashEntry[]
@@ -313,7 +313,7 @@ async function finishMerge(
     return fail('WRITE_ERROR', `回收站清单读取失败（未执行修改，可重试）：${errMsg(e)}`)
   }
   const trashEntry = trashCandidates.find((e) => e.id === merged.sourceDocId)
-  // -源码：回收站条目 originalPath 同为清单派生可篡改面（trash.ts 恢复段
+  // 源码：回收站条目 originalPath 同为清单派生可篡改面（trash.ts 恢复段
   // 已走 safePathWithin，此处存在性探测同源收口）；路径非法不可判 → NOT_MERGE_STATE 交
   // 作者（fail-closed：既不误判已软删跳过，也不落「进回收站失败」重试空转）
   const srcAbs = trashEntry === undefined ? null : safeManifestPath(bookRoot, trashEntry.originalPath)
@@ -356,7 +356,7 @@ async function finishMerge(
 
 // ── 撤销合并 ─────────────────────────────────────────────────────────
 
-/** 0918修复批（B005 尾项）：清单/回收站条目路径 → 章号——剥 .md 茎后走
+/** 清单/回收站条目路径 → 章号——剥 .md 茎后走
  *  chapterNoFromName 单源（裸数字名 0012.md 带扩展直判会因尾点失明；本文件
  *  locateMergeByBody / locateMergeByDisk / applyChapterMerge 三处消费点收编）。 */
 function chapterNoFromEntryPath(relPath: string): number | null {
@@ -396,7 +396,7 @@ async function locateLatestMergeEvent(
     return null
   }
   try {
-    // 0918四轮修复批（B404）：type 过滤下推 iterateEvents 第三参——原无过滤单趟走完整
+    // type 过滤下推 iterateEvents 第三参——原无过滤单趟走完整
     // 书事件流（含全部 step/llm/call 大载荷逐行 JSON.parse，长书 workspace 会话数万行）。
     // 改两趟 structure 族小流：先收全 merge-undo 的 planHash 撤销集，再在 merge 流里择
     // 最近未被撤销者。undo 恒后于其撤销的 merge 落库（append-only），撤销集先行收集与
@@ -425,10 +425,10 @@ async function locateLatestMergeEvent(
     }
     return found
   } catch (e) {
-    // 修复批（A102）：迭代段补 catch——open 失败有降级（上方 catch → null 落回
+    // 迭代段补 catch——open 失败有降级（上方 catch → null 落回
     // body/disk 定位链），但 iterateEvents 中途抛错（SQLITE_IOERR/库损坏延迟故障）原样
     // 上抛，穿透 enqueueStructureOp 串行链与路由兜底压成无诊断信息的 500，击穿「undo
-    // 三级定位的第一级」（B404 定位）。第一级故障不应击穿整条链：warn 留痕 + null 降级，
+    // 三级定位的第一级」（定位）。第一级故障不应击穿整条链：warn 留痕 + null 降级，
     // undo 经降级定位仍可完成（无数据损坏——此际 undo 未开始执行）。
     log.warn(
       'document',
@@ -442,11 +442,11 @@ async function locateLatestMergeEvent(
 
 /** 降级路径（无事件库/无匹配）：回收站按 trashedAt 择最新条目反推源章号 +
  *  rollbackSnapshotId 走版本推演（newestVersionWithoutSource）。失配返回 null 交上层拒。
- *  拍板快断批（作者指令「按建议顺序开工」取「择最新」档）：同章号多条
+ * （作者指令「按建议顺序开工」取「择最新」档）：同章号多条
  *  回收站条目（删章→同号重建→再合并→再撤销链）按 trashedAt 取最新——原「第一条」
- *  会误认领历史软删旧条目（阶段 24 批 C e2e 实抓：残留 0005/0006 ×2 被误认领、
+ * 会误认领历史软删旧条目（e2e 实抓：残留 0005/0006 ×2 被误认领、
  *  源章未还原）。trashedAt 同值时维持清单序首条（稳定）。
- *  0918修复批（B002）：源章号原取 max(并入)——与事件主路径（最近一条未撤销
+ * 源章号原取 max(并入)——与事件主路径（最近一条未撤销
  *  merge 事件 = 最近一次合并）口径漂移，乱序合并（先并 20 入 10 再并 5 入 10）时
  *  max=20 撤销的是首并非最近并。对齐主路径「择最新」：候选 = 回收站中章号 ∈ 并入
  *  的条目，跨章号按 trashedAt 取最新者反推源章号（同值仍维持清单序首条）。 */
@@ -456,7 +456,7 @@ function locateMergeByDisk(bookRoot: string, mergedInto: number[]): MergeUndoLoc
   let best: TrashEntry | null = null
   let bestNo: number | null = null
   for (const e of listTrash(bookRoot)) {
-    // 0918修复批（B005 尾项）：章号提取走剥茎单源 chapterNoFromEntryPath
+    // 章号提取走剥茎单源 chapterNoFromEntryPath
     const no = chapterNoFromEntryPath(e.originalPath)
     if (no === null || !merged.has(no)) continue
     if (best === null || e.trashedAt > best.trashedAt) {
@@ -470,8 +470,7 @@ function locateMergeByDisk(bookRoot: string, mergedInto: number[]): MergeUndoLoc
 
 /** 正文盘面定位（①后崩溃形态专用）：merge 事件（收尾段才记）与回收站条目（② 才
  *  产生）都缺，源章仍存活正文。
- *  0918修复批（B002 尾项，主审裁定随批修——判定证据链）：
- *  - 失败面判定：原判据 max(并入) 与 B002 同类错选。乱序合并（先并 61 完成再并 59
+ * - 失败面判定：原判据 max(并入) 与同类错选。乱序合并（先并 61 完成再并 59
  *    至①后中断）下 max=61：常规形态正文无 61 号存活文件 → null → NOT_MERGE_STATE
  *    （fail-loud 撤不动）；但正文另有 61 号存活重号章（跨卷重号脏盘面）时会**错选
  *    无辜章静默回滚**——并非纯 fail-loud，故取「修」支。
@@ -499,10 +498,10 @@ function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLoc
   let hit: { id: string; no: number } | null = null
   for (const [id, e] of m.entries) {
     if (e.nodeType !== 'document') continue
-    // 0918修复批（B005 尾项）：章号提取走剥茎单源（裸数字存活章同款盲区）
+    // 章号提取走剥茎单源（裸数字存活章同款盲区）
     const no = chapterNoFromEntryPath(e.path)
     if (no === null || !merged.has(no)) continue
-    // -源码：清单条目 path 同源收口（越界/非法条目不探测，等同未命中）
+    // 源码：清单条目 path 同源收口（越界/非法条目不探测，等同未命中）
     const abs = safeManifestPath(bookRoot, e.path)
     if (abs !== null && existsSync(abs)) {
       if (hit !== null) return null // 多源存活 = 人工放回等歧义态：fail-loud 交作者
@@ -518,7 +517,7 @@ function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLoc
   return { sourceDocId: hit.id, sourceChapterNo: hit.no, trashEntryId: '', planHash: '' }
 }
 
-/** 0918二轮修复批（B105）：撤销半完成态定位（并入 已空形态的 undo 续跑）——
+/** 撤销半完成态定位（并入 已空形态的 undo 续跑）——
  *  单次合并 undo 走到「①目标已回滚（fm 并入 随内容整体消失）+ ②还原源章失败
  *  （OCCUPIED 等）」中间态：目标 fm 无 并入 + 源章仍在回收站。三重核对后才认领
  *  （任何一环对不上 = 不可识别态，维持 NOT_MERGE_STATE fail-closed 交作者）：
@@ -528,7 +527,7 @@ function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLoc
  *  3. 版本指纹：目标盘面字节 == 回滚版本内容（rollbackSnapshotId 缺失走版本推演
  *     兜底）——防「作者手工摘 并入 键但目标仍是合并后内容」形态误续跑（该形态还原
  *     源章会让正文双份）。
- *  与 B002 定位链协同：body/disk 两定位均以 并入 非空为前提（并入 已空进不来），
+ * 与定位链协同：body/disk 两定位均以 并入 非空为前提（并入 已空进不来），
  *  本定位是并入已空形态的独立入口，不改写它们的择最新语义。 */
 async function locateUndoHalfDone(
   userDataPath: string | null,
@@ -542,7 +541,7 @@ async function locateUndoHalfDone(
   try {
     entries = readTrashManifestStrict(bookRoot)
   } catch {
-    // strict 读失败（瞬态占用）：不可判 = 不可续跑（B003 口径——fail-closed 不做修改）
+    // strict 读失败（瞬态占用）：不可判 = 不可续跑（口径——fail-closed 不做修改）
     return null
   }
   const entry = entries.find((e) => e.id === loc.trashEntryId)
@@ -560,7 +559,7 @@ async function locateUndoHalfDone(
   return { ...loc, rollbackSnapshotId: rollbackId }
 }
 
-/** 0918二轮修复批（B105）：undo 收尾段（②还原源章 + ③事件 + ④RAG 指纹
+/** undo 收尾段（②还原源章 + ③事件 + ④RAG 指纹
  *  失效 + ⑤缓存失效）——常规路径（回滚后）与半完成态续跑（并入 已空、回滚已在前次
  *  完成）共用；rollbackId 为本次撤销实际采用的回滚版本（事件载荷留档）。 */
 async function finishUndo(
@@ -613,20 +612,20 @@ export async function undoChapterMerge(
   rag: StructureRagPort,
   hints?: MergeUndoHints,
 ): Promise<MergeUndoResult> {
-  // B004（0918三拍板批）：入口一致性闸——undo 恢复路径绕过 planHash 复核（源章号三
+  // 入口一致性闸——undo 恢复路径绕过 planHash 复核（源章号三
   // 来源全是路径派生号、目标章号是 fm 号，两轨失配时定位链互相矛盾），入口先拒
   const gate = chapterNoMismatchFailure(bookRoot)
   if (gate) return gate
   const t = await readChapterState(svc, bookRoot, targetDocId)
   if (!('章号' in t)) return t
   if (t.并入.length === 0) {
-    // 0918二轮修复批（B105）：并入 已空不再直接 fail——单次合并 undo 走到
+    // 并入 已空不再直接 fail——单次合并 undo 走到
     // 「目标已回滚、源章还原失败（OCCUPIED 等）」半完成态后，重试从函数头进来此前
     // 必死本门报「已撤销」，收尾段「重试将自动续跑收尾」的承诺不可达（源章滞留回收
     // 站只能手工发现）。先识别半完成态（locateUndoHalfDone 三重核对），命中则跳过
     // 回滚步（目标已是回滚后内容——版本指纹已核对）直接续 restoreTrash 段；识别不出
     // 维持原 NOT_MERGE_STATE 文案。链式合并（回滚版本仍含前次 并入，过得了下方门）
-    // 与 B002 定位链（body/disk 均以 并入 非空为前提）语义不受影响。
+    // 与定位链（body/disk 均以 并入 非空为前提）语义不受影响。
     const half = await locateUndoHalfDone(userDataPath, bookRoot, targetDocId, t)
     if (half === null) {
       // RC 全项目：无事件库形态（仅 CLI/测试配置，生产 Electron 恒有 userDataPath）
@@ -650,7 +649,7 @@ export async function undoChapterMerge(
     }
   }
   if (loc === null) loc = await locateLatestMergeEvent(userDataPath, bookRoot, targetDocId)
-  // 0918修复批（B002 尾项）：①后崩溃形态定位前置——「并入 中恰一存活源且
+  // ①后崩溃形态定位前置——「并入 中恰一存活源且
   // 回收站无该章号条目」即中断合并源。原序（disk 先行）在乱序合并①后形态会被历史
   // 源条目抢先错选（静默回滚到更早基线）；body 定位自带①后签名补验，非①后形态
   // 恒 null 落回 disk，正常完成态/事件主路径行为不变
@@ -683,7 +682,7 @@ export async function undoChapterMerge(
   // ① 目标章版本回滚：origin 'restore' 强制留底——「合并后作者新修改」先留底成版本
   // 不丢；fm 随内容整体回滚，并入 键自然消失（patchFlatFm 无删键缺口就此消解）。
   // 中途态不变量：此刻源章仍在回收站，「并入 所指章不存活」未违反。
-  // 0918二轮修复批（B105）：回滚后若还原失败，目标处于「并入 已空 + 已回滚」
+  // 回滚后若还原失败，目标处于「并入 已空 + 已回滚」
   // 半完成态——重试经并入门内 locateUndoHalfDone 识别续跑（本段不再重复执行）。
   if (!existsSync(t.abs)) return fail('NOT_FOUND', `目标章文件不存在：${t.path}`)
   const rolled = await svc.save(targetDocId, t.path, {
@@ -696,6 +695,6 @@ export async function undoChapterMerge(
     reason: `撤销合并：回滚第${loc.sourceChapterNo}章并入前版本`,
   })
   if (!rolled.ok) return fail(rolled.code, rolled.reason)
-  // ②③④⑤ 收尾段（B105：提取 finishUndo 与半完成态续跑共用）
+  // ②③④⑤ 收尾段（提取 finishUndo 与半完成态续跑共用）
   return finishUndo(bookRoot, userDataPath, targetDocId, t.章号, loc, rollbackId, rag)
 }

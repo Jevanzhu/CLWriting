@@ -7,7 +7,7 @@
  * sweepOpenMarkers/registerOpenMarker/touchOpenMarker/releaseOpenMarker 原样随迁
  * （零行为变化，历史注释原样随代码迁移）。
  * 实读偏差记档：侦察口径的 open-markers 缝（约 105 行）另含续期周期可变 let 与
- * configureOpenMarkerRenewMs—— 家规禁 export let（跨模块共享可变绑定须
+ * configureOpenMarkerRenewMs——家规禁 export let（跨模块共享可变绑定须
  * testableConst 化，非纯移动不做），且唯一读点在残核 firstOpenStore（不动区），
  * 故二者留残核、本缝收窄为 98 行。
  * 依赖方向单向（无环回引）：只 import node:fs/node:path 与
@@ -22,7 +22,7 @@ import { readdirSync, statSync, rmSync, writeFileSync, utimesSync } from 'node:f
 import { basename, join } from 'node:path'
 import { isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
 
-// ── ：跨进程「已持有句柄」标记 + 迁移墓碑 ──
+// ──：跨进程「已持有句柄」标记 + 迁移墓碑 ──
 // 的目录级锁只挡他进程**首开段**；迁移开始前就已打开的句柄（空闲态不持任何
 // SQLite 锁，checkpoint busy=0 照样放行）成了残余窗口：rename 后他进程句柄的后续写入
 // 打到已搬走的 inode，或下次重开旧路径时 DatabaseSync 重建空库——事件流就此分裂。
@@ -47,13 +47,13 @@ function openMarkerPath(dbPath: string): string {
 /** 活 pid 但标记超龄的判死门槛（毫秒）——对齐锁超龄口径。
  *  正常活进程由续期定时器保持 mtime 恒新；超龄只可能是持有进程已死、pid 被系统复用
  *  给长命进程（跨进程 bootTime 无查询 API，年龄是可用判据）。残余风险如实记档：
- *  被长时间 SIGSTOP/深度 App Nap 挂起超门槛的活进程会被误判死——与对锁的
+ * 被长时间 SIGSTOP/深度 App Nap 挂起超门槛的活进程会被误判死——与对锁的
  *  同款取舍，门槛取保守的 10 分钟。 */
 const OPEN_MARKER_STALE_MS = 10 * 60_000
 
 /** 扫描某库的全部开口标记：死 pid 残留与超龄残留顺手 GC（best-effort），返回活标记
  *  路径列表。只在持 session 目录锁的段内调用（登记/迁移互斥由锁保证）。
- *  ：pid 存活但标记 mtime 超龄 → 视同死残留 GC——持有进程死后 pid 被复用时，
+ * pid 存活但标记 mtime 超龄 → 视同死残留 GC——持有进程死后 pid 被复用时，
  *  单纯 pid 探测会永远误判活，该书迁移（改名）被无限期误拒。 */
 export function sweepOpenMarkers(dir: string, dbPath: string): string[] {
   const prefix = basename(dbPath) + OPEN_MARKER_SUFFIX
@@ -94,7 +94,7 @@ export function sweepOpenMarkers(dir: string, dbPath: string): string[] {
 
 /** 首开登记：GC 死残留 + 落本进程标记（fail-closed——登记失败时句柄不可信，抛错走
  *  调用方降级，不能带着「迁移看不见我」的隐形句柄继续写库）。
- *  ：内容补 bootTime（诊断字段；同款语义见 cross-process-lock 锁文件）。 */
+ * 内容补 bootTime（诊断字段；同款语义见 cross-process-lock 锁文件）。 */
 export function registerOpenMarker(dir: string, dbPath: string): void {
   sweepOpenMarkers(dir, dbPath)
   writeFileSync(openMarkerPath(dbPath), JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
@@ -120,6 +120,6 @@ export function releaseOpenMarker(dbPath: string): void {
   try {
     rmSync(openMarkerPath(dbPath), { force: true })
   } catch {
-    /* best-effort */
+    /** 归零注销（best-effort：文件系统异常时残留由下次扫描的 pid 探测 GC 收口）。 */
   }
 }

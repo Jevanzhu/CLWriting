@@ -19,7 +19,7 @@ import { resolveProvider } from '../../runner.js'
 // models 行 contextWindow 读取（与 finish.ts:124
 // clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow) 同款先例）
 import { modelConfOf } from '../../provider/store.js'
-// /：预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
+// 预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
 // system prompt 计入预算（历史可用 = 预算 − sys 点数，下限 CHAT_HISTORY_MIN_BUDGET_POINTS）
 import { resolveChatSendBudget } from '../../prompts/chat.js'
 import { errMsg } from '../../../log/index.js'
@@ -76,7 +76,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
 
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     // 阶段一（单轮发起）：轮首中止三出口 → 血缘登记 → chat_turn → 发送面预切 →
-    // 首发 + 超窗收缩重试 + switch-provider 换网重试 → 注入抽样校验
+    // 首发 +超窗收缩重试 + switch-provider 换网重试 → 注入抽样校验
     const sent = await initiateAgentTurn({ deps, turn, sendBudget })
     if (sent.kind === 'ended') return false
     const { out, lineageIdx } = sent

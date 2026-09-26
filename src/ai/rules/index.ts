@@ -2,7 +2,7 @@
  * 规则注册表 + 注入/检验工具函数。
  *
  * 注入侧：runSpec 调 rulesToPrompt 拼接约束到 system prompt。
- * 检验侧：collectRuleViolations 跑全部适用规则 check（接入自愈循环）。
+ * 检验侧：collectRuleViolations() 跑全部适用规则 check()（接入自愈循环）。
  */
 import type { WritingRule, RuleViolation, RuleContext } from './types.js'
 import { aiClicheRule } from './builtin.js'
@@ -95,7 +95,7 @@ export function rulesPromptParts(task: string, bookRoot?: string): { prompt: str
 
 /**
  * rulesToPrompt 注入段的源文件清单（相对书根）——铁律①
- * 「模型可见⟺已记录」登记通道。：改经 rulesPromptParts 单源派生，
+ * 「模型可见⟺已记录」登记通道。改经 rulesPromptParts 单源派生，
  * 与注入文本同一批读盘结果，不再独立二次读盘。
  */
 export function rulesPromptFiles(task: string, bookRoot?: string): string[] {

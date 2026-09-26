@@ -1,8 +1,8 @@
 /**
- * （Opus-5.5 轮）：切书守卫状态机独立成 composable。
+ * 切书守卫状态机独立成 composable。
  *
  * 为什么独立：这段是 Book.vue setup 里最大的一块纯编排（约 180 行）——watch(bookName)
- * 的切书链（脏路由分支 / 冲突预检 / 保存失败 / flush 后冲突复查三段守卫）
+ * 的切书链（脏路由分支冲突预检保存失败 flush 后冲突复查三段守卫）
  * 加取消回滚（清污 → 回退路由 → resync + 补种原书历史）。四条条件转移各自带 R 编号
  * 沿革、彼此靠 gen/lastBook 两个代次量耦合，混在页面 setup 里既难分辨「编排 vs 展示」，
  * 也只能经挂载整个 Book 页间接行使。抽出后页面只剩接线，状态机可独立直测
@@ -14,7 +14,7 @@
  *   不落 store。该路径上「先切后回滚」整段（取消后的清污 / 回退路由 / resync 补种）随之
  *   消失——取消时一条状态都没动过。
  * - ②**提交后 watch** 只兜不在此前移的入口：a) 预决断移交（守卫已决断 → 只做状态转移）；
- *   b) 脏路由（name=''：无回退目标，口径的 flush + 留痕，不弹决断窗）；c) 重挂进书
+ * b) 脏路由（name=''：无回退目标口径的 flush + 留痕，不弹决断窗）；c) 重挂进书
  *   （/book/A → /shelf → /book/B：Book.vue 未挂载时路由已提交，**本批文件面内无法前移**
  *   ——守卫注册点在 Book.vue 的 setup，未挂载即无从拦截），此路如实保留最小回滚
  *   （revertToPrevBook），不假装前移。
@@ -24,7 +24,7 @@
  * 生命周期：本 composable 注册一个 watch(bookName, …, { immediate: true }) + 一个
  * onBeforeRouteUpdate（仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
  *
- * 语义零变化面：/ / 三段的预检条件、弹窗文案、决断顺序、清理时序逐位保持
+ * 语义零变化面：三段的预检条件、弹窗文案、决断顺序、清理时序逐位保持
  * （
  * 各条注释随迁）；`bookName`/`resync` 仍为注入（原为本页 computed 与 useSse 句柄），
  * 各 store 在本函数内取实例（与调用点同在 setup 上下文，实例同源）。
@@ -49,7 +49,7 @@ import { beginBookSession, endBookSession } from './useBookSession'
 export interface BookSwitchGuardDeps {
   /** 当前书（route.params.name 派生的 computed；同书重入短路与脏路由分支的判据源） */
   bookName: ComputedRef<string>
-  /** 强制重取连接级 SSE sync 快照（useSse 句柄的 resync—— 切书链尾收口） */
+  /** 强制重取连接级 SSE sync 快照（useSse 句柄的 resync——切书链尾收口） */
   resync: () => void
 }
 
@@ -102,7 +102,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   /** 切书链首状态转移（口径：workbench.clear 早于任何 await——防「sync(running=true)
    *  先到、其后 clear 把 running 错误复位 → 可再『生成』双 spawn 窗」）。两条进入路径都在
    *  冲刷/决断落定之后调它：预决断路径在路由提交后同一拍（watch 同步分支，无 await 窗）；
-   *  兜底路径在预检之后、flushDirty 之前（见 flushAndAdjudicate 的 onApproved）。 */
+   * 兜底路径在预检之后、flushDirty 之前（见 flushAndAdjudicate 的 onApproved）。 */
   function beginSwitch(n: string): void {
     lastBook = n
     workbench.clear()
@@ -132,8 +132,8 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   /** 守卫取消分支共用回滚（**仅 committed 路径**调用——提交前守卫取消即中止导航，无需回滚）：
    *  清污 → 回退路由 → 复检通过则 resync + 补种原书历史 */
   async function revertToPrevBook(prevBook: string, gen: number, clearWorkbench: boolean): Promise<void> {
-    // clearWorkbench 仅段为真：其弹窗在 workbench.clear（链首，口径）之前，
-    // 取消回退须补清；/段弹窗前链首已清，不重复
+    // clearWorkbench 仅段为真：其弹窗在 workbench.clear()（链首口径）之前，
+    // 取消回退须补清；F1/段弹窗前链首已清，不重复
     if (clearWorkbench) workbench.clear()
     clearEventStores()
     // 重挂路径 lastBook 为 ''，回退目标用权威源 prevBook
@@ -171,7 +171,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
   }
 
   /**
-   * 冲刷 + 三段决断单源（未决冲突预检 → flushDirty → 保存失败 → flush 后冲突
+   * 冲刷 + 三段决断单源（未决冲突预检 → flushDirty →保存失败 →flush 后冲突
    * 复查；各段条件、文案、决断顺序与清理时序逐位不变）。两个入口共用：
    * - mode='precommit'：路由提交前守卫——作者取消回报 'cancelled'，守卫中止导航，**零状态
    *   变更**（故调用方无需任何回滚善后）；
@@ -203,7 +203,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
     // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
     // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
     // 守卫的「原书」代次源补权威回退——lastBook 是组件实例本地值，
-    // Book 重挂（/book/A → /shelf → /book/B）后首跑为 ''，/双双跳过 → A 的
+    // Book 重挂（/book/A → /shelf → /book/B）后首跑为 ''双双跳过 → A 的
     // conflict+dirty 缓存被 setBook('B') 清掉静默丢失（doc store 是应用级单例）。故
     // prevBook 由调用方给权威源（重挂路径取 doc.bookName，见 watch 内注）。
     if (prevBook !== '' && target !== prevBook) {
@@ -220,12 +220,12 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
         for (const id of conflicted) adjudicated.add(id)
       }
     }
-    // 时序说明（→ 改写）——bookName 走 computed，路由一变新书 SSE/心跳
+    // 时序说明（→改写）——bookName 走 computed，路由一变新书 SSE/心跳
     // 即刻连上；弹窗等待与 flushDirty await 期间新书连接已存在，其连接级 sync 快照随时
-    // 可能到达。把 workbench.clear 提前到 flushDirty 之前（防「sync(running=true)
+    // 可能到达。把 workbench.clear() 提前到 flushDirty 之前（防「sync(running=true)
     // 先到、其后的 clear 把 running 错误复位 → 可再『生成』双 spawn 窗」），该口径保持
     // 不变；但 clear 早于 clear 前到达的 sync 仍会被复位且连接常驻不再重发（假空闲）——
-    // 在链尾以 resync 断开重连，让服务端对新连接重发权威快照收口。
+    // 在链尾以 resync() 断开重连，让服务端对新连接重发权威快照收口。
     // 提交前路径无此面（守卫放行前 SSE 还没连新书，clear 发生在提交后同
     // 一拍，sync 快照到得比 clear 更晚——时序只会更安全）。
     opts.onApproved?.()
@@ -244,7 +244,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       if (verdict === 'stale') return 'stale'
       if (verdict === 'cancelled') return await settleCancel(false)
     }
-    // flush 等待窗口内复查冲突——上方 守卫在 flushDirty 之前
+    // flush 等待窗口内复查冲突——上方守卫在 flushDirty 之前
     // 查 conflictedDirtyDocs，等待期间在途保存可能落成 REVISION_CONFLICT（conflict=true、
     // dirty=true），这类条目既不在 failed 内也不被 flushDirty 后续轮次重扫，不复查则
     // setBook 清缓存即不可恢复丢失。走同款决断（文案/回退/清污口径与上方一致）；
@@ -297,7 +297,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       // 本 watch，此时书并未变化，workbench.clear/flushDirty/setBook/各 store clear 全是
       // 零收益动作（clear 还会误清原书工作台态）。n===lastBook 直接返回，不重复清。
       // 口径收窄——「原封」仅对冲突拒绝路径成立（其取消点在
-      // 下方 workbench.clear 之前）；路径（flush 失败拒绝）弹窗前 workbench.clear 已
+      // 下方 workbench.clear 之前）；路径（flush 失败拒绝）弹窗前 workbench.clear() 已
       // 执行，回退后原书 workbench 态（textOut/healPhase 等）不保留——这是既有口径
       // （clear 提前防双 spawn 窗），非本短路新增损失；其余 store 均在 clear 之后、未动。
       // 首载 lastBook==='' 不受影响：路由书名经归空串时 n==='' 与 lastBook 初值
@@ -305,7 +305,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       if (n === lastBook) return
       // 脏路由（name=''，手输坏 URL / 上位页面异常跳转）提前分支——
       // 残存 dirty 属前书，先落盘再按现有切书口径清各 store，防前书数据滞留展示。
-      // 不走下方 /确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
+      // 不走下方确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
       // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
       if (!n) {
         workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
@@ -345,7 +345,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       // 提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
       // 回滚（取消 → revertToPrevBook），而非「确认与冲刷后再提交」。
       // 注：当前代码里该路径的 prevBook 近乎恒为 ''（离书时分支已 doc.setBook('')），
-      // //三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。
+      // /三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。
       const prevBook = lastBook || doc.bookName || ''
       const verdict = await flushAndAdjudicate({
         mode: 'committed',

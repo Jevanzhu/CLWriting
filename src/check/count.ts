@@ -21,9 +21,9 @@
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
-// （修复批）：章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
+// 章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
 import { chapterNoFromName } from '../format/filename.js'
-// G203（0918三轮修复批）：`##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
+// `##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
 // format/section-heading——此前本处与 metrics/collectBodyAnchors 两套识别器口径分裂；
 // 围栏行识别原经 format/fence 的 matchFenceLine，随段整体收编后本文件不再直用）
 import { extractSectionHeadings } from '../format/section-heading.js'
@@ -59,7 +59,7 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
   // 路径形态容忍（win 反斜杠直传前缀不失明；现调用方传 basename
   // 不触发，纯加固）——basename 化后再交单源解析。
-  // （修复批）：前缀解析收编 format/filename.ts
+  // 前缀解析收编 format/filename.ts
   // chapterNoFromName 单源——此前自带窄正则只认 `-` 分隔，`6—标题.md`（tree 排序/
   // 线索核验同宽容集形态）在此解析不出前缀 → fm-chapter-mismatch 对真不一致静默
   // 失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义不变），解析
@@ -101,7 +101,7 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
  * 两处逐字同构的 indexOf 步进循环收编（步进 needle.length = 不计重叠命中，口径与
  * 原实现逐位一致）。grep 佐证该形态全仓仅此两处，落文件内 helper 不入 shared/text.ts
  * ——单消费域不下沉（避免推测性泛化），第三处出现时再议上移。
- * （拆分批）：两消费方（checkImagery/checkBodyParts）均留本
+ * 两消费方（checkImagery/checkBodyParts）均留本
  * 残核，helper 随留，不迁不导出。
  */
 function countOccurrences(haystack: string, needle: string): number {
@@ -204,13 +204,13 @@ const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|�
  * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
  * 正文洁净：眼/心脏等堆砌计数超阈报黄（AI 味高发）。
  * 单字「手」单独走 HAND_ACTION_RE 动作语境匹配，避免「对手/高手/随手」误报。
- * （修复批）：计数前剥对白引号 span（对白是角色嘴里的话非作者
+ * 计数前剥对白引号 span（对白是角色嘴里的话非作者
  * 叙述，见函数体内注释——同批 checkSimile 对齐）。
  */
 export function checkBodyParts(body: string, threshold = 5, words: string[] = DEFAULT_BODY_PARTS): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
-  // （修复批；win 线同题锚 ④）：计数前剥对白引号 span
+  // （win 线同题锚④）：计数前剥对白引号 span
   // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords ①）/
   // 意象（checkImagery ）/开头环境（checkOpeningNoEnv ）均经剥引号
   // 统计，唯本检查与 checkSimile 吃原文：对白里角色说「我的眼睛…」是人物语言非
@@ -225,7 +225,7 @@ export function checkBodyParts(body: string, threshold = 5, words: string[] = DE
     const count = countOccurrences(prose, word)
     if (count > threshold) over.push(`${word}×${count}`)
   }
-  // 单字「手」走动作语境匹配，避免误伤惯用语（/ ④：同在剥对白后的叙述面上计数）
+  // 单字「手」走动作语境匹配，避免误伤惯用语（④：同在剥对白后的叙述面上计数）
   const handCount = (prose.match(HAND_ACTION_RE) ?? []).length
   if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
@@ -245,7 +245,7 @@ export function checkBodyParts(body: string, threshold = 5, words: string[] = DE
  * 等非比喻），误报偏高——现按句式约束：像 + 名词性短语（可带「一样/似的/般」尾缀），
  * 排除非比喻「像」字用法；「像刀/像雪」等短比与「像X一样」长比都计。
  */
-// （十五轮登记销账）：前置排除改零宽 lookbehind——原消费型 (?:^|[^相很好不像]) 会
+// 前置排除改零宽 lookbehind——原消费型 (?:^|[^相很好不像]) 会
 // 吞掉「像」前一个字符，相邻明喻（如「像刀像雪」）第二个「像」因前字符已被上一命中
 // 消费而漏计（漏报不误报）；lookbehind 语义等价（行首无边=通过、前排他字符=拒绝）。
 // 登记口径：前排他集含「好」是排除高频非比喻「好像」的必要代价——
@@ -260,7 +260,7 @@ export function checkBodyParts(body: string, threshold = 5, words: string[] = DE
 // 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
 // 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
 // 「挺像样」「很像样」的「像样」非比喻。
-// （修复批）：注释补齐实现口径——下方正则前排他集实含「群」
+// 注释补齐实现口径——下方正则前排他集实含「群」
 // （「群像」），上列词表此前漏列，照注释读会误判正则多收一字。
 // 导出：语料收割（scripts/harvest-corpus.ts）对 simile-density
 // 复用本正则直扫正文取真实比喻短语作幸存者判定锚——message 只报次数（「像…」是
@@ -270,7 +270,7 @@ export const SIMILE_RE =
 
 export function checkSimile(body: string, threshold = 10): CheckSectionResult {
   const items: CheckItem[] = []
-  // （修复批；win 线同题锚 ④）：统计前剥对白引号 span
+  // （win 线同题锚④）：统计前剥对白引号 span
   // （禁词/意象/开头/身体部位同款口径，quotes.ts 单源 stripQuotedSpans）——对白里
   // 角色说「像…一样」是人物语言，非作者叙述比喻堆砌；对白密集章虚黄，短篇 strict
   // （runner STRICT_SHORT_CHECK_IDS 的 simile-density）升红会把对白密集章误打回
@@ -309,8 +309,8 @@ export function checkSectionCount(body: string, expected = 5): CheckSectionResul
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
-  // G203（0918三轮修复批）：剥围栏 + 标题行识别整段收编 format/section-heading 单源
-  //（/////语义沿革注释随迁彼处文件头注）——此前
+  // 剥围栏 + 标题行识别整段收编 format/section-heading 单源
+  //（语义沿革注释随迁彼处文件头注）——此前
   // 本处手写围栏状态机 + 正则与 metrics/collectBodyAnchors 的第二套识别器口径分裂
   //（紧排 `##标题` 漏识 / 围栏内 `##` 误收），两处消费同源后消除漂移面。节数口径
   // 逐位不变（本函数只用标题数，不用标题文字）。
@@ -382,7 +382,7 @@ export function checkOpeningNoEnv(
   // 码点口径（对齐）——UTF-16 直接 slice 在含 astral 字符
   // 时窗口实际缩短；astral 码点最多占 2 个 UTF-16 单元，先取 openingChars*2 单元再按
   // 码点截断，窗口恒足 openingChars 码点。
-  // （修复批）：剥引号与开窗 swap——原序「先截窗
+  // 剥引号与开窗 swap——原序「先截窗
   // 后剥引号」下窗尾截断的半个 span（有开无闭）不被识别，引号内容仍参与匹配；而本项
   // 在 runner.ts STRICT_SHORT_CHECK_IDS 严格升红集内（黄→红拦定稿闸），短篇开篇恰在
   // 窗尾截断对白即误报白烧重写费。现改为**全文先剥再开窗**（stripQuotedSpans 在完整

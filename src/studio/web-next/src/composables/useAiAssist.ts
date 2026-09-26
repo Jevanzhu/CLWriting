@@ -1,5 +1,5 @@
 /**
- * 编辑器 AI 辅助动作（巨石批 7b 拆分自 EditorView）：扩写/缩写/润色/续写指令表 + 执行器。
+ * 编辑器 AI 辅助动作（7b 拆分自 EditorView）：扩写/缩写/润色/续写指令表 + 执行器。
  * 顶栏按钮组（EditorDocHead）与右键菜单 AI 子菜单（EditorView）双消费，单一真相源。
  */
 import { useDocStore } from '../stores/doc'

@@ -1,5 +1,5 @@
 /**
- * 重试策略 + 退避公式（批次 / DSH-9 直抄公式）。
+ * 重试策略 + 退避公式（批次直抄公式）。
  *
  * - 指数退避：exponent=min(retry-1,1024)；exponential=min(initial*2^exp, max)
  * - 对称抖动：jitter=1-jitterRatio+2*jitterRatio*random（围绕 1 对称，均值不变）
@@ -49,7 +49,7 @@ export function backoffDelayMs(
   opts: { providerRetryAfterMs?: number; rng?: () => number } = {},
 ): number | null {
   // 服务端明示等待：直接尊重（封顶内不再叠抖动——抖低会违反服务端要求）。
-  // （二十轮裁定不采纳）：曾试「下限钳到 initialDelayMs」防 Retry-After: 0
+  // 曾试「下限钳到 initialDelayMs」防 Retry-After: 0
   // 密集重试加剧限流，但既有契约是有意设计——服务端权威值逐字尊重（retry-policy
   // 0→0 用例 + runner 以「服务端值生效」确定性延迟做证据），钳制即毁契约；
   // 密集 429 的实际风险由章级调用预算闸兜底，不在此处二次猜度服务端。

@@ -7,7 +7,7 @@
  * 为什么用独立 env 名（CLW_DEV_API_PORT）而非复用 CLWRITING_PORT：后者是桌面
  * server-main 的端口语义（resolveEnvPort），dev server 与桌面端各自独立管
  * 端口；校验口径（1–65535 整数、非法 fatal 人话退出）骨架与对齐，但 0 的
- * 口径刻意收紧（清偿批，见 resolveDevApiPort 内注）。
+ * 口径刻意收紧（见 resolveDevApiPort 内注）。
  * 注意：换端口后 Vite dev 代理目标（web-next/vite.config.ts，固定 7878）需同步
  * 改，否则 dev 页面连不上后端——dev-api 的 EADDRINUSE 指引文案据此如实披露。
  */
@@ -31,7 +31,7 @@ export function resolveDevApiPort(
   // 端口，而 Vite dev 代理目标固定 7878（或 CLW_DEV_API_PORT 声明值），dev 页面
   // /api 全部静默失联且无任何提示。选 fail-loud 而非 warn+回落缺省：①与既有非法
   // 值口径同一条 fatal 通道，人话指认 env 名与取值域，改动面最小；②显式设置的值
-  // 被静默替换会掩盖误配。桌面端 resolveEnvPort 仍允许 0 不受影响——桌面
+  // 被静默替换会掩盖误配。桌面端 resolveEnvPort仍允许 0 不受影响——桌面
   // 端 listen 后自发现实际端口，无固定代理前提，0 在彼处合法。
   if (raw.trim() === '' || !Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 65535) {
     const msg = `环境变量 ${DEV_API_PORT_ENV} 的值「${raw}」不是合法端口号：请传 1–65535 的整数，或删除该变量以使用缺省端口 ${DEV_API_DEFAULT_PORT}`

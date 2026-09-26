@@ -104,7 +104,7 @@ export function pickSampleEntries(entries: StyleEntry[], scenes: string[], maxCo
 }
 
 /** 样章条目 → 注入文本：说明作技法指令行（对齐旧样章格式），超长截断。
- *  ：截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
+ * 截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
  *  UTF-16 码元 slice 会把增补平面字符切成半个代理对。
  *  -源码 -⑨：判据与截断统一码位口径——原判断侧 `e.正文.length`（UTF-16
  *  码元）与截断侧 Array.from（码位）混用，含 astral 字符的样章恰在边界附近时判据误判

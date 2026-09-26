@@ -14,7 +14,7 @@ import { log, errMsg } from '../../../log/index.js'
 
 /** 对话总超时缺省值——finish.ts 超时文案同源换算（防参数化后
  *  文案与实际值漂移）。
- *  （修复批）： 起 deadlineMs 可注入，
+ * 起 deadlineMs 可注入，
  *  超时文案改按实际生效 deadline（opts.deadlineMs ?? 本常量，与 chat.ts runChatInner
  *  的 resolve 同式）换算——原「文案按缺省口径展示」声明作废。 */
 export const AGENT_DEADLINE_MS = 30 * 60_000
@@ -96,7 +96,7 @@ export function getHistory(bookName: string): ChatMsg[] {
  * 不阻塞服务事件循环）；无 db 参的纯内存路径（books.ts 改名等）随之变异步但语义
  * 逐位不变（内存清空仍先行，事件库失败降级留痕口径不动）。测试侧未 await 的纯内存
  * 调用照旧工作（内部无 await 短路）。
- * 二轮-opts.gate 清库前复查闸（见体内注释）；返回值 = 拒清理由（null =
+ * opts.gate 清库前复查闸（见体内注释）；返回值 = 拒清理由（null =
  * 已清/纯内存路径），调用方可转 409——既有调用方（books.ts 删书/改名）await 后弃
  * 值不受影响。
  */
@@ -114,7 +114,7 @@ export async function clearChatHistory(
     // 两把钥匙都清——对话会话 book=bookName、workspace 会话 book=bookHash(bookRoot)，
     // 此前只清前者，链路事件（step/llm/check）残留；
     // 低级项：双键走 clearBooks 单事务（此前两次 clearBook 各自事务，一半清一半留）。
-    // openSessionStore 本身可抛（库损坏/磁盘满—— 同型残留在清史路径），
+    // openSessionStore 本身可抛（库损坏/磁盘满——同型残留在清史路径），
     // 内存已清而事件库未清的半完成态若再 500，作者每次重试同样失败无从自助——降级留痕
     let store: ReturnType<typeof openSessionStore>
     try {
@@ -123,13 +123,13 @@ export async function clearChatHistory(
       log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${errMsg(e)}`)
       return null
     }
-    // 二轮-（二轮 GLM-5.3）：开库 await 让出窗口后、
+    // 开库 await 让出窗口后、
     // 清库前复查闸（回调由调用方注入，正本 = audit.ts chatClearGateReason 六闸）。窗口
     // 内新起的 chat/spawn/self-heal/三审/task-gate/后台收尾任务在旧形态下照清——任务
     // 收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。拒清时返回理由由调用方
     // 转 409；此处内存已清是良性前置：在途任务持数组引用续写不丢、重开面板从事件库
     // （未清）重放，两侧自愈对齐。无 gate / 纯内存调用（books.ts 改名等）行为不变。
-    // - -：复查收进 clearBooks 的 try——store.close 单点收敛
+    // 复查收进 clearBooks 的 try——store.close() 单点收敛
     //（原拒清分支手写 close 与 finally 重复），gate 回调纯谓词不抛（crossProcess 侧
     // readdirSync 已吞错），异常安全随 try 兜底。
     // L-A2clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——

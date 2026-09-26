@@ -52,7 +52,7 @@ export function deriveStatus(
 }
 
 /**
- * 读文件 frontmatter `已发布` 字段（published 唯一落盘字段，§3 + §17 决策③）。
+ * 读文件 frontmatter `已发布` 字段（published 唯一落盘字段§3 + §17 决策③）。
  * 无 frontmatter / 无字段 / 字段非已发布值 / 文件不存在 → false。坏文件容错降级 false。
  */
 export function readPublished(bookRoot: string, relPath: string): boolean {

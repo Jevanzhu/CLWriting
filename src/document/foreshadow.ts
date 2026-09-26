@@ -74,7 +74,7 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
   let files: string[]
   try {
-    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感家族）——
     // 大写扩展名（.MD）的迁移源被字面过滤滤掉会永久滞留旧目录（迁移是删旧目录数据的
     // 一次性链路，漏迁无自愈通路）
     files = readdirSync(oldDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
@@ -129,24 +129,24 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     // 改原子写，避免迁移过程中断留下半截目标文件
     // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越 + win 非法字符（单源收敛）
     const safeTitle = sanitizeFileNamePart(String(title))
-    // BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
+    // 编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
     const safeId = sanitizeFileNamePart(String(lead.编号))
     const targetPath = join(newDir, `${safeId}-${safeTitle}.md`)
     // existsSync→atomicWriteFile 的 TOCTOU 收口——上方 existsSync
     // 与落盘之间无互斥，双进程（GUI 与 CLI 迁移链）并发迁移同一伏笔时后到者 rename
     // 静默覆盖先到者已落位的新文件（作者若已编辑即丢修改）。改 createFileExclusive
-    // 惯例（link 不覆盖，EEXIST → 'exists'，/doCreate 同款原语）：EEXIST 走下方
+    // 惯例（link 不覆盖，EEXIST → 'exists'/doCreate 同款原语）：EEXIST 走下方
     // 续跑语义（视为已迁，只补删旧源，不重写）。
     const created = createFileExclusive(targetPath, fm)
     if (created === 'exists') {
       // 上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
       // 双跑先到者已落位）——目标已在，视为已迁：不重写（作者可能已编辑新文件，
       // 无条件覆盖会吞掉修改），只补删旧源。
-      // （三十三轮·改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
-      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破 /既有
+      // （改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
+      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破既有
       // 契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，编号前缀唯一性使其在单次
       // 迁移目录内实际不可达，维持原续跑语义（旧源补删）。
-      // 删源收编 rmWithRetry——fs/atomic.ts 头注自 /19 起
+      // 删源收编 rmWithRetry——fs/atomic.ts 头注自/19 起
       // 宣称收编「伏笔归档清理」的删源点，实现此前未到（仍裸 rmSync）；win 杀软/
       // 索引器瞬时锁（EPERM/EBUSY）下直败会让已落位的迁移残旧源（下次迁移
       // 续跑补删自愈，但迁后首屏旧目录滞留）。退避后仍失败上抛走调用方（启动迁移链
@@ -175,7 +175,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
 
   let files: string[]
   try {
-    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感家族）——
     // .MD 伏笔对面板隐形（readForeshadows 是伏笔面板/足迹扫描的唯一数据源）
     files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
@@ -203,7 +203,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     const 关联词trim = String(关联词val ?? '').trim()
     const 关联词list = Array.isArray(关联词val)
       ? 关联词val.map((s) => String(s).trim()).filter(Boolean)
-      : // 收口·拍板快断批（作者指令「按建议顺序开工」）：旧迁移存量
+      : // 收口·（作者指令「按建议顺序开工」）：旧迁移存量
         // 「关联词 = 标题整词且标题含逗号」读侧不劈分、整词单项——与数组承载及「无关联词
         // 回落标题」的整词口径对称，收回数组化写侧落地前的存量；表单逗号输入 ≠ 标题
         // 整词时维持词表劈分不受影响
@@ -228,7 +228,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
   return items
 }
 
-// ── 足迹扫描 ────────────────────────────────────
+// 中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
 
 /** 单次足迹命中 */
 export interface ForeshadowHit {
@@ -264,7 +264,7 @@ const RISK_THRESHOLDS: Record<string, number> = {
 /** 命中片段上下文半径（前后各 N 字） */
 const SNIPPET_RADIUS = 15
 
-// 四轮-D401：UTF-16 码元代理对判定（高代理 0xD800-0xDBFF / 低代理 0xDC00-0xDFFF）——
+// UTF-16 码元代理对判定（高代理 0xD800-0xDBFF / 低代理 0xDC00-0xDFFF）——
 // 命中片段切片边界按码点回退时用（下方 aggregateTrails）
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff
@@ -273,7 +273,7 @@ const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff
 const RISK_ORDER: Record<ForeshadowTrail['risk'], number> = { 绿: 0, 黄: 1, 红: 2 }
 
 /**
- * 低-5同标题两条伏笔的足迹合并——命中取并集、首末取极值、风险取最坏。
+ * 低-5：同标题两条伏笔的足迹合并——命中取并集、首末取极值、风险取最坏。
  * 迁移链只保证文件名不撞（编号兜底），fm 标题仍可重复；此前 Map 以标题为 key
  * 直接 set，同名后一条把前一条的足迹整个覆盖（铜锁那条只剩钥匙的足迹）。
  * key 仍用标题不改复合形状：prepare（伏笔提醒）/studio（foreshadows 端点）等存量
@@ -295,7 +295,7 @@ function mergeTrails(a: ForeshadowTrail, b: ForeshadowTrail, latestChapter: numb
 /**
  * 扫描全书伏笔足迹（本地 grep，零 AI）。
  *
- * 性能（-BE-4）：预建倒排索引——收集全部唯一关键词后，
+ * 性能：预建倒排索引——收集全部唯一关键词后，
  * 对每章正文用联合正则一次扫完（每章只扫一遍，不再逐伏笔 × 逐关键词 indexOf）。
  * 大书（200 章 × 50 伏笔）耗时从 10M 级字符扫描降到 ≈ 全书总字数。
  *
@@ -325,7 +325,7 @@ function aggregateTrails(
   latestChapter: number,
 ): Map<string, ForeshadowTrail> {
   const result = new Map<string, ForeshadowTrail>()
-  // 低-5同标题伏笔合并写入，不再互相覆盖
+  // 低-5：同标题伏笔合并写入，不再互相覆盖
   const setTrail = (title: string, trail: ForeshadowTrail): void => {
     const prev = result.get(title)
     result.set(title, prev ? mergeTrails(prev, trail, latestChapter) : trail)
@@ -354,7 +354,7 @@ function aggregateTrails(
         for (const idx of positions) {
           let start = Math.max(0, idx - SNIPPET_RADIUS)
           let end = Math.min(text.length, idx + kw.length + SNIPPET_RADIUS)
-          // 四轮-D401：切片边界回退到码点边界——start 落在代理对低半（其高半在
+          // 切片边界回退到码点边界——start 落在代理对低半（其高半在
           // start-1）则 start--；end 前一码位是高代理（其低半在 end 处）则 end--。
           // 防 ±SNIPPET_RADIUS 码元边界劈开代理对（emoji/扩展区汉字），片段边缘产
           // 孤立代理对（乱码）且参与 searchForeshadowTrails 命中片段检索。先例：
@@ -384,7 +384,7 @@ function aggregateTrails(
 }
 
 /**
- * 构建关键词倒排索引（-BE-4）：
+ * 构建关键词倒排索引：
  * keyword → Map<章号, 位置[]>。
  *
  * 每章正文用联合正则一次扫描，命中全部关键词的位置；
@@ -445,7 +445,7 @@ function collectTrailKeywords(foreshadows: ForeshadowEntry[]): Set<string> {
 }
 
 /** 联合正则：`kw1|kw2|...`，一次扫描提取全部命中。无关键词 → null。
- *  ：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
+ * 按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
  *  永久遮蔽同前缀长词（「玉佩」先匹配，「玉佩锁」无独立命中），风险评级漏检长关联词。 */
 function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
   const keywords = collectTrailKeywords(foreshadows)
@@ -459,7 +459,7 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
   )
 }
 
-// ── ：足迹扫描异步孪生 ─────────
+// ──（性能与内存专项·）：足迹扫描异步孪生 ─────────
 // 动因：getForeshadowsCached 在缓存 MISS（首开面板/任一保存 bump 目录 mtime）时在
 // 请求线程同步跑全书联合正则扫（200 万字秒级阻塞事件循环，GUI 心跳/保存全被拖住）；
 // 异步孪生把 CPU 重段（buildKeywordIndex 逐章正则）切片让出事件循环（每 25 章
@@ -473,7 +473,7 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
 const TRAILS_YIELD_EVERY = 25
 
 /** scanForeshadowTrails 的异步孪生：签名/返回/语义逐位一致（aggregateTrails 共用），
- *  差异仅在索引构建按片让出事件循环（见上方块注）。 */
+ * 差异仅在索引构建按片让出事件循环（见上方块注）。 */
 export async function scanForeshadowTrailsAsync(
   bookRoot: string,
   foreshadows: ForeshadowEntry[],
@@ -489,8 +489,8 @@ export async function scanForeshadowTrailsAsync(
 
 /** collectChapterTexts 的异步孪生：签名/返回/语义逐位一致（目录枚举仍同步——只收集
  *  路径不读正文，开销为 walk 本身），差异在正文读取段每 TRAILS_YIELD_EVERY 章让出
- *  一次事件循环（yieldToEventLoop 复用原语）；读盘由共享 md-text-cache
- *  指纹表吸收，热缓存近零成本。：单章收集体与
+ * 一次事件循环（yieldToEventLoop 复用原语）；读盘由共享 md-text-cache
+ * 指纹表吸收，热缓存近零成本。单章收集体与
  *  同步 walkChapters 单源（collectOneChapterFile），不再互为镜像副本。 */
 async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, string>> {
   const texts = new Map<number, string>()
@@ -511,9 +511,9 @@ async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, s
   return texts
 }
 
-/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源 + 后
+/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源 +后
  *  scanChapterIntoIndex 单章扫描体共用），章节循环每 TRAILS_YIELD_EVERY 章让出一次
- *  事件循环（见块注）。 */
+ * 差异仅在索引构建按片让出事件循环（见上方块注）。 */
 async function buildKeywordIndexAsync(
   chapters: Map<number, string>,
   foreshadows: ForeshadowEntry[],
@@ -534,8 +534,8 @@ async function buildKeywordIndexAsync(
 
 /** 章正文读取（stat 指纹缓存）。私有缓存（伏笔足迹/搜索此前每次
  *  walkMdEach + 逐章 readFile 整读全书正文——200 万字长篇开一次面板即秒级阻塞请求
- *  线程；改指纹缓存后未变章节零重读）于收敛进共享单源
- *  fs/md-text-cache.ts：与 metrics/style.ts 同款双份驻留合并，check/leads 与
+ * 线程；改指纹缓存后未变章节零重读）于收敛进共享单源
+ * fs/md-text-cache.ts：与 metrics/style.ts 同款双份驻留合并，check/leads 与
  *  book_search 新消费方共用同一指纹表。降级口径逐字保持：读失败/无 fm/未闭合 fm
  *  → ''（原 readFile !ok 同款）。 */
 function readChapterBodyCached(abs: string): string {
@@ -545,7 +545,7 @@ function readChapterBodyCached(abs: string): string {
   return split ? split.body : ''
 }
 
-/** 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches 接线）—— 后
+/** 删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches 接线）——后
  *  章正文缓存单源 fs/md-text-cache.ts（键同源 walk 路径），前缀清除委托。 */
 export function forgetChapterTextCacheForBook(bookRoot: string): number {
   return forgetMdTextCacheForBook(bookRoot)
@@ -562,12 +562,12 @@ function collectChapterTexts(bookRoot: string): Map<number, string> {
   return texts
 }
 
-/** （阶段 24，留洞制）：并入源章回退——被合并源章的正文经目标章正文呈现
+/** （阶段 24 留洞制）：并入源章回退——被合并源章的正文经目标章正文呈现
  *  （伏笔足迹按章号建倒排索引，源章号的历史提及在合并后仍可命中；latestChapter
  *  随 keys 自然含源章号，staleSpan 口径自洽）。正文已命中（通用还原后）的源章号
  *  不覆盖——正文命中优先，陈旧并入映射不被咨询。
  *  映射来自 walk 内「同一次读取顺带解析」（parseMergedInto + registerMergedInto，
- *  零额外 IO——另起 mergedIntoMap 全扫会让每章多付一次整读，破坏
+ * 零额外 IO——另起 mergedIntoMap 全扫会让每章多付一次整读，破坏
  *  「二扫零重读」指纹缓存契约）。同步/异步孪生共用（镜像纪律：改任一侧必须对
  *  另一侧做同款等价核对）。 */
 function fillMergedSources(merged: Map<number, string>, texts: Map<number, string>): void {
@@ -587,12 +587,12 @@ function collectMergedFromRaw(merged: Map<number, string>, raw: string, abs: str
 }
 
 /** 遍历章节目录（含卷子目录）。
- *  ：walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
+ * walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
  *  无 visited 无根界，循环 symlink → 无限递归 RangeError、指向书外的 symlink 整树
  *  .md 按章号整读。接入 walk-md 共享口径（Dirent 不跟随 + realpath visited 剪枝 +
  *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。
- *  （阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
- *  零额外 IO——后单章收集体与异步孪生单源
+ * （阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
+ * 零额外 IO——后单章收集体与异步孪生单源
  *  collectOneChapterFile，不再双侧镜像）。 */
 function walkChapters(dir: string, texts: Map<number, string>, merged: Map<number, string>): void {
   walkMdEach(dir, (abs, name) => {
@@ -628,11 +628,11 @@ function collectOneChapterFile(
 
 // parseChapterNoFromName 薄委托包装已随内联删除：
 // 唯一消费方（单源后的 collectOneChapterFile）直呼 chapterNoFromName。沿革见
-// （GLM-5.3 修复批）：窄正则（仅认 -）升格
+// 窄正则（仅认 -）升格
 // format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
 // 漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章；单源正文本在 format/filename.ts。
 
-// ── 伏笔足迹 FTS 检索 ────────────────────────
+// ──伏笔足迹 FTS 检索 ────────────────────────
 
 /** 伏笔足迹检索命中（「哪章埋了哪章收了」可检索） */
 interface ForeshadowSearchHit {
@@ -647,9 +647,9 @@ interface ForeshadowSearchHit {
  * 伏笔足迹检索：按标题 / 关联词 / 命中片段过滤 scanForeshadowTrails 结果。
  *
  * query 为空 → 全量（按末次命中降序，最近提及在前）。
- * 匹配维度（/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
+ * 匹配维度（F3/ FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
  *
- * @param bookRoot 书库根
+ * @param bookRoot 书仓库根
  * @param query 检索词（可选；大小写不敏感）
  */
 export function searchForeshadowTrails(bookRoot: string, query?: string): ForeshadowSearchHit[] {

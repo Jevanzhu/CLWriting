@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 工作台写作模式：状态卡（人话）+ 生成/中断 + 正文预览（默认主区）+ 存草稿并编辑。
 // 事件流 / 阶段任务 / CLI 报告收「高级」折叠区（去机器味：作者看文章，调试功能全保留）。
-// 巨石批 7a 拆分：高级折叠区 → workbench/WbAdvanced、自愈进度卡 → WbHealCard、
+// 7a 拆分：高级折叠区 → workbench/WbAdvanced、自愈进度卡 → WbHealCard、
 // 生成正文卡 → WbDraftCard；本文件留状态卡 / 触发生成 / 数据加载编排。
 import { ref, watch, computed, onMounted } from 'vue'
 import { Sparkles } from 'lucide-vue-next'
@@ -114,12 +114,12 @@ watch(
     prompt.value = ''
     draftSaved.value = null
     // 旧书的错误条与状态卡同样不带进新书——err 是本窗动作失败
-    // 的落点（无清除路径，注），残留即「新书界面挂旧书错误」；state 置空后
+    // 的落点（无清除路径注），残留即「新书界面挂旧书错误」；state 置空后
     // 由下方 refreshState 立即拉新书状态（在途慢响应已有 stateGen 代守卫兜底）
     err.value = null
     state.value = null
     void refreshState()
-    // 0918二轮修复批（F104）：切书重载规则命中并入本 watch（原第二个
+    // 切书重载规则命中并入本 watch（原第二个
     // bookName watch 分裂注册，违背「切书清理单点」纪律）。时序钉准：本 watch 带
     // immediate——初载在 setup 期即触发（原的 onMounted 初载随并删除，避免
     // 双调；loadRuleHits 纯 API 请求落 ref，无挂载依赖，前移到挂载前语义不变，
@@ -139,7 +139,7 @@ watch(
     if (prev && !r) void refreshState()
   },
 )
-// （-0914）：healResult 消费面（收工自动转编辑器）与 warning 同款
+// healResult 消费面（收工自动转编辑器）与 warning 同款
 // 上移 WorkspaceShell 常驻层——原 watch 挂本视图，全自动写章运行中切到编辑器/总览等
 // 视图时本视图未挂载，收工跳转（tool_use 模式作者看到成品的唯一通道）被整链跳过。
 // 本文件不再消费；doc 新鲜度 helper 收编 shared/doc-freshness.ts（存草稿路径仍用）。
@@ -168,7 +168,7 @@ function onPromptEnter(e: KeyboardEvent): void {
   if (isImeComposing(e)) return
   // #17：AI 不可用时 Enter 不放行（主「生成」按钮已禁，旁路补同款闸）
   if (ui.aiAvailable === false) return
-  // （-0914）：state 未载入期 Enter 同闸（按钮已禁，旁路补同款——
+  // state 未载入期 Enter 同闸（按钮已禁，旁路补同款——
   // chapter 回落 1 的错章生成不得从键盘路径漏发）
   if (state.value === null) return
   if (!genBusy.value) void onSpawn()
@@ -178,7 +178,7 @@ async function onSpawn(): Promise<void> {
   if (spawnPending.value) return // 本地在途锁（wb.running 回流前的重复提交窗）
   spawnPending.value = true
   err.value = null
-  // FE-9书名入口捕获（类收敛）——拉写稿上下文的 await 期间切书后，
+  // 书名入口捕获（类收敛）——拉写稿上下文的 await 期间切书后，
   // 生成请求不能再发到切换后的书（A 书上下文的生成发进 B 书）
   const book = props.bookName
   try {
@@ -202,7 +202,7 @@ async function onSpawn(): Promise<void> {
     spawnPending.value = false
   }
 }
-// （b 修复批）：崩溃 pending「忽略此提醒」（WbStateCard
+// 崩溃 pending「忽略此提醒」（WbStateCard
 // 上抛）。逐个 acknowledge（端点幂等，重复确认 acknowledged:false），成功 toast + 刷新
 // 状态卡；书名入口捕获 + await 后复检（家族同款）——在途切书后不再 toast/刷新
 //（新书状态卡由切书链自拉）。确认动作不删数据（journal appendAborted 落账），按站内
@@ -241,7 +241,7 @@ async function onInterrupt(): Promise<void> {
   try {
     const r = await interrupt(book)
     if (props.bookName !== book) return // 切书后：成功 toast 也不落新书界面
-    // 0918修复批（E004）：interrupted=false = 当前没有在途生成——不再误导性
+    // interrupted=false = 当前没有在途生成——不再误导性
     // 「已中断」。r 缺省（异常形态/旧 mock）维持原「已中断」口径
     ui.toast(r && r.interrupted === false ? '当前没有正在进行的生成' : '已中断', 'info')
   } catch (e) {
@@ -255,10 +255,10 @@ async function onInterrupt(): Promise<void> {
 // 全自动写章：AI 写稿→机检→红则自动重写→全绿或触顶交作者。进度经 SSE self_heal_* 事件回流。
 // 批量连写——章数取配置 auto.batch_size（>1 时后端连写多章，进度经 self_heal_batch* 事件回流）。
 async function onAutoWrite(): Promise<void> {
-  if (autoPending.value) return // 本地在途锁
+  if (autoPending.value) return // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
   autoPending.value = true
   err.value = null
-  // FE-9书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
+  // 书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
   const book = props.bookName
   // #24：章号同款请求时刻捕获——toast 处再读 chapter.value 已是生成结束刷新
   // 状态卡后的新值（窄窗文案错位），入队时刻拍定全函数用
@@ -275,7 +275,7 @@ async function onAutoWrite(): Promise<void> {
     const msg = (r.batchSize ?? 1) > 1 ? `第 ${chap} 章起连写 ${r.batchSize} 章已开始` : `第 ${chap} 章已开始全自动写稿`
     ui.toast(msg, 'info')
   } catch (e) {
-    if (props.bookName !== book) return // 同 onSpawn
+    if (props.bookName !== book) return // 书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   } finally {
@@ -288,7 +288,7 @@ async function onOutline(): Promise<void> {
   if (outlinePending.value) return // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
   outlinePending.value = true
   err.value = null
-  // 书名入口捕获 + await 后复检（FE-9/L- 惯例，兄弟函数均已有）——
+  // 书名入口捕获 + await 后复检（/L- 惯例，兄弟函数均已有）——
   // 生成期间切书后 toast 会落到切换后的书，误导作者
   const book = props.bookName
   const chap = chapter.value // #24：章号请求时刻捕获（同 onAutoWrite）
@@ -355,14 +355,14 @@ async function onSaveDraft(): Promise<void> {
   const chap = chapter.value // #24：章号请求时刻捕获（同 onAutoWrite）
   try {
     const r = await saveDraft(book, chap, wb.textOut)
-    // 低-2draftSaved 赋值移到切书守卫之后——原先守卫前就写徽标，存草稿
+    // 低-2：draftSaved 赋值移到切书守卫之后——原先守卫前就写徽标，存草稿
     // 在途切书时 watch(bookName) 已清残留，晚到的赋值又把 A 书「已存 N 字」徽标
     // 留在 B 书工作台（L- 同点收尾）
     if (props.bookName !== book) return // 已切书：草稿已落 A 书盘，不再动 B 界面
     draftSaved.value = { words: countWords(wb.textOut) } // 与草稿卡同源口径
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
-    // 修复批（F101）：第二 await 窗补守卫（对齐 useChapterTreeStructure
+    // 第二 await 窗补守卫（对齐 useChapterTreeStructure
     // onSplitCommit 的 stillIn 口径）——L- 锚注点名的 tree.load/openTab/toast 三件，
     // 原守卫只堵 saveDraft POST 一窗；tree.load 在途（大书树 GET 秒级）切书后，
     // openTab 会把 A 书草稿 docId 劫持进 B 书工作区（activeView/activeDocId 强切 +
@@ -389,9 +389,9 @@ async function onSaveDraft(): Promise<void> {
       <button class="wb-tab" :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">对话</button>
     </div>
 
-    <!-- 对话 tab -->
+    <!-- 对话 tab 切换（仅 chatEnabled 时显示） -->
     <div v-if="prefs.get('chatEnabled') && activeTab === 'chat'" class="wb-chat-wrap">
-      <!-- ：key 重建实例（对齐 ChatDock ）——切书后消息区
+      <!-- key 重建实例（对齐 ChatDock）——切书后消息区
          已重播种而输入框残留 A 书草稿，Enter 会把 A 书草稿发进 B 书；重建顺带复位
          selectedChapter（切书窗口内带错章号上下文） -->
       <ChatPanel :key="bookName" :book-name="bookName" :current-chapter="chapter" />
@@ -399,7 +399,7 @@ async function onSaveDraft(): Promise<void> {
 
     <!-- 写作 tab（默认） -->
     <template v-else>
-      <!-- ：AI 不可达置灰提示 -->
+      <!-- AI 不可达置灰提示 -->
       <div v-if="ui.aiAvailable === false" class="ai-warn">
         AI 服务暂不可用（未配置或连接失败），请在「设置 · 服务提供方」页添加并启用提供方。
       </div>
@@ -420,7 +420,7 @@ async function onSaveDraft(): Promise<void> {
 
       <!-- 触发生成 -->
       <section class="card">
-        <!-- （-0914）：state 未载入（null）期生成族按钮禁用——chapter 回落 1，
+        <!-- state 未载入（null）期生成族按钮禁用——chapter 回落 1，
           慢网/失败窗内起生成会把「第 1 章」发成实际进度之外的章。加载失败时 state 保持
           null + 上方错误条展示（fail-closed，切书/重载自动重试）。 -->
         <div class="spawn-row">
@@ -448,7 +448,7 @@ async function onSaveDraft(): Promise<void> {
           >
             {{ outlinePending ? '细纲生成中…' : '生成细纲' }}
           </button>
-          <!-- ：账本推进/全自动写章两钮原挂 v-if="!genBusy"——pending 期
+          <!-- 账本推进/全自动写章两钮原挂 v-if="!genBusy"——pending 期
              （genBusy 置位）按钮整体消失，「推进草拟中…」「写章启动中…」两段文案成
              死代码不可达。对齐上方「生成细纲」钮的既有口径：恒渲染、genBusy 期禁用，
              在途文案才可达。 -->
@@ -476,7 +476,7 @@ async function onSaveDraft(): Promise<void> {
       <WbHealCard />
 
       <!-- 生成正文（默认主区：作者看到的是文章，不是事件日志） -->
-      <!-- ：genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
+      <!-- genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
       <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" :gen-busy="genBusy" @save="onSaveDraft" />
 
       <div v-if="err" class="err-msg">{{ err }}</div>

@@ -28,7 +28,7 @@ async function load(): Promise<void> {
 }
 onMounted(load)
 // 原 bookName watch 为不可达死代码已移除——本视图在 Book.vue 挂
-// :key="bookName"，切书是整实例拆建，实例存活期内 bookName 恒不变；加载由 onMounted 承担
+// key="bookName"，切书是整实例拆建，实例存活期内 bookName 恒不变；加载由 onMounted 承担
 </script>
 
 <template>

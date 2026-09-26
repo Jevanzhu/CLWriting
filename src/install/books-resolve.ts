@@ -6,7 +6,7 @@
  * re-export 桥接，既有消费方 import 面不动。残核（books.jsonl 登记读写 + 锁 +
  * 活动书指针）留在 books.ts。
  *
- * （评审修复批）：CLWRITING_DIR 改引 books-store.ts（原引
+ * CLWRITING_DIR 改引 books-store.ts（原引
  * books.ts）——本模块自此不回引 books.ts，books ↔ books-resolve 环解开。
  */
 
@@ -23,7 +23,7 @@ import { CLWRITING_DIR } from './books-store.js'
 export function findWorkDir(startDir: string): string | null {
   let dir = resolve(startDir)
   for (;;) {
-    // （总七十一轮）：existsSync 与 statSync 之间存在窗口——同步盘/并发操作下
+    // existsSync 与 statSync 之间存在窗口——同步盘/并发操作下
     // .clwriting 恰在两次调用之间被移走时 statSync 裸抛 ENOENT 炸穿整个上溯（对齐
     // init.ts 同型口径）；按不存在继续上溯
     if (existsSync(join(dir, CLWRITING_DIR))) {

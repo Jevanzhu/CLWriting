@@ -48,7 +48,7 @@ function onOver(e: MouseEvent): void {
   syncAriaLabel(el)
   if (showTimer) clearTimeout(showTimer)
   showTimer = setTimeout(() => {
-    // （GLM-5.3 修复批）：250ms 延迟窗内目标可能已被
+    // 250ms 延迟窗内目标可能已被
     // 摘出文档（hover 中列表重渲染/弹层关闭移节点）——移除节点的 getBoundingClientRect
     // 全 0，tooltip 会错落视口左上角。先验目标仍在文档，不在则按隐藏收口（同时复位
     // lastTarget，避免悬挂在已摘节点上令同元素复挂后 mouseover 被 el===lastTarget 短路）。

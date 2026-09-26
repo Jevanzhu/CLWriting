@@ -28,7 +28,7 @@ import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 
 /**
- * 账本形式三检。
+ * 账本形式三检 —— 依据 #3 第 7 节 + #10 第 2 节项 1（🔴 红）。
  *
  * @param db 缓存
  * @param bookRoot 书仓库根（读正文 grep 引文）
@@ -42,7 +42,7 @@ import { preludeYieldStats } from '../shared/yield-stats.js'
  *   复检低章时 currentChapter 是全书最高定稿章，红项 chapter 若标最高章则在 UI 分组
  *   与误报标记上错指——调用方应传被检章自身章号）
  *
- * 阶段 52 批 2：本函数为同步包装（driveToEnd），实现体 = checkLeadsFormCore
+ * 本函数为同步包装（driveToEnd），实现体 = checkLeadsFormCore
  * ——单章链 async 孪生经同一核让出（见其注）。既有调用方（runner.ts）零改动。
  */
 export function checkLeadsForm(
@@ -70,7 +70,7 @@ export function checkLeadsForm(
 }
 
 /**
- * checkLeadsForm 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = ）。
+ * checkLeadsForm 的实现体（生成器，单源供同步/async 双驱动；=）。
  *
  * 全书性条目经 `yield*` 委托 checkLeadsBookItemsCore——冷缓存建章号表 + 逐章整读正文
  * 做引文核验的让出点自此透传到驱动（单章链 async 孪生据此不再整段冻结事件循环）。
@@ -112,7 +112,7 @@ export function* checkLeadsFormCore(
  * 用，报告完整）；树红点聚合改为本书一次计算、按「纪元 + 正文目录指纹」单独缓存，
  * 章级缓存行经 skipBookItems 只留章作用域条目（两端闭合：细纲声明 + 本章正文）。
  *
- * 阶段 52 批 1：拆生成器核（checkLeadsBookItemsCore）——聚合侧冷读段（章号表
+ * 拆生成器核（checkLeadsBookItemsCore）——聚合侧冷读段（章号表
  * 构建 + 逐章正文引文核验）自此在核内悬停让出，单章链经同步包装零改动；计算集合与
  * 上段「全量重算等价」口径逐位不变（切片只改悬停点）。
  */
@@ -125,8 +125,8 @@ export function checkLeadsBookItems(
   return driveToEnd(checkLeadsBookItemsCore(db, bookRoot, currentChapter, enabledTypes))
 }
 
-/** 阶段 52 批 1：全书性红项的让出粒度——章号表构建与履历逐条核验各每 N 项
- *  让出一次。导出供测试锚（隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
+/** 全书性红项的让出粒度——章号表构建与履历逐条核验各每 N 项
+ * 让出一次。导出供测试锚（隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
 export const LEADS_BOOK_YIELD_EVERY = 25
 
 /**
@@ -156,7 +156,7 @@ export function* checkLeadsBookItemsCore(
   // 章文件定位改一次 walkMdEach 建 章号→路径 查表（首见优先）——此前每新章号
   // 一次 walkMdFind 全树扫，深履历大书 O(章数²)（500 章书最多 500 次全树 readdir）。
   // 惰性建表：无履历章号需求时不发生任何目录扫描（与旧路径「无需求不扫」一致）。
-  // 阶段 52 批 1：建表循环走 walkMdEachGen 并在项间让出（切片点之一）。
+  // 建表循环走 walkMdEachGen 并在项间让出（切片点之一）。
   let chapterPathMap: Map<number, string> | null = null
   let pathScanScanned = 0
   function* chapterPathOf(chapter: number): Generator<void, string | null, unknown> {
@@ -168,7 +168,7 @@ export function* checkLeadsBookItemsCore(
           yield
         }
         // 前缀数字 == 章号即登记（补零与否不影响判等）；首见优先保 walkMdFind 找到即停语义
-        // （GLM-5.3 修复批）：窄正则升格 format/filename.ts
+        // 窄正则升格 format/filename.ts
         // chapterNoFromName 单源（与 tree 排序同宽容集——`5—标题.md` 不再线索核验缺章）
         const n = chapterNoFromName(name)
         if (n !== null && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
@@ -179,7 +179,7 @@ export function* checkLeadsBookItemsCore(
   // （阶段 24）：并入回退（留洞制）——被合并源章从正文消失，履历行按源章号的
   // 引文核验经 mergedIntoMap 回退到目标章正文（正文命中恒优先；仅 miss 时构建 Map，
   // 闭包内 memo 防「一次三检内多次 miss 反复全书扫」）。回退口径单源 chapter-lookup.ts。
-  // （阶段 52 批 1：本段不在切片面——miss 支路罕见，属单文件粒度残余。）
+  // （本段不在切片面——miss 支路罕见，属单文件粒度残余。）
   let mergedInto: Map<number, string> | null = null
   const mergedTargetOf = (chapter: number): string | null => {
     if (mergedInto === null) mergedInto = mergedIntoMap(bookRoot)
@@ -217,7 +217,7 @@ export function* checkLeadsBookItemsCore(
 
     let prevChapter = 0 // 章号单调校验（履历按 seq 排序，非回填章号应不减）
     for (const entry of history) {
-      // 阶段 52 批 1：让出点——履历逐条核验（含章号表建表/正文整读的间接成本）
+      // 让出点——履历逐条核验（含章号表建表/正文整读的间接成本）
       if (++entriesScanned % LEADS_BOOK_YIELD_EVERY === 0) {
         preludeYieldStats.leadsBook++
         yield
@@ -275,7 +275,7 @@ export function* checkLeadsBookItemsCore(
             chapter: entry.章号,
           })
         } else if (needles.length === 0) {
-          // （二十四轮 B 域）：证据剥引号/清洗后为空（整条证据只是一对空引号或
+          // 证据剥引号/清洗后为空（整条证据只是一对空引号或
           // 纯标点）——needles 空使 miss/unverifiable 两不报，引文红闸对该条目静默
           // 失明。改报黄：证据无法核验，请作者补写可检索的引文（假阴性向黄的保守
           // 口径，同章文件缺失分支——不拦截定稿）。
@@ -297,7 +297,7 @@ export function* checkLeadsBookItemsCore(
       const type = lead['type'] as string
       // 词表外（错类/错别字）动词不进状态闭合红项——checkStatusClosure
       // 的 RESOLVE/DROP 集是跨类并集，悬念线末动词「突破」（成长线 resolve）会同时产
-      // 「词表外……状态闭合校验对其不生效」黄项和 lead-status-open 红项，宣称的
+      // 「词表外……状态闭合校验对其不生效」黄项和 lead-status-open 红项宣称的
       // 「词表外只黄不红」被并集击穿。判定收窄到本类词表内动词（词表外已有黄项提示，
       // 语义由黄项文案承载）。
       const verbInType = VALID_VERBS_BY_TYPE.get(type)?.has(lastEntry.动词) ?? false
@@ -380,9 +380,9 @@ export function leadClosureItems(
 }
 
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。
- *  仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（多候选，见下）。 */
+ * 仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（多候选，见下）。 */
 
-// 证据引号正则模块常量化（循 / 先例）——
+// 证据引号正则模块常量化（循先例）——
 // extractEvidenceCore / evidenceNeedles 在履历循环里每条证据重编译 2-4 枚，内容只依赖
 // 模块常量（quotes.ts 宽容引号集）与入参无关。带 g 的三枚仅用于 replace（每次重置
 // lastIndex，无跨调用消费态），共享安全；edge 单枚（^单开|单闭$）与 many 枚（^开+|闭+$）
@@ -400,12 +400,12 @@ const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLO
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
-  // 截断片段致 lead-evidence-miss 误报）。：宽容字符集收编 quotes.ts 单源导出
+  // 截断片段致 lead-evidence-miss 误报）。宽容字符集收编 quotes.ts 单源导出
   //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
-  // 消费模块常量（原每调用 new RegExp 三枚）
+  // 消费模块常量（原每调用 new RegExp 三枚；ALL_QUOTES_RE 与上方兜底共用）
   const quoted = evidence.match(EVIDENCE_QUOTED_CORE_RE)
   if (quoted?.[1]) return quoted[1]
-  // 否则取前 8 个字符（够 grep）。：短引号证据（如「雪落」3 字，
+  // 否则取前 8 个字符（够 grep）。短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
   const stripped = evidence
@@ -413,7 +413,7 @@ export function extractEvidenceCore(evidence: string): string {
     // 内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
     // 文案（首/尾剥只处理串端，中间引号漏网）
     .replace(EVIDENCE_ALL_QUOTES_RE, '')
-  // （修复批）：此前缀截断是 grep 锚口径（export 供
+  // 此前缀截断是 grep 锚口径（export 供
   // cli/check 当前章引文命中复用），须按码点取——旧 slice(0, 8) 按 UTF-16 码元截，
   // 增补平面字（如 𠀀，代理对占 2 码元）恰落第 8 边界时锚串截出半个代理对（孤立
   // 代理项），正文 includes 恒 miss → 伪 lead-evidence-miss 红。同文件 :179/:199 与
@@ -428,7 +428,7 @@ export function extractEvidenceCore(evidence: string): string {
  * （雪落」无声），正文以无引号形式写同短语时 grep 整组 miss → 误报
  * lead-evidence-miss / 误判「声明未兑现」。候选（去重去空，引号字符集与
  * extractEvidenceCore 同源 quotes.ts 宽容集）：
- * ① 引号内串（长短皆取—— 短引语义补全，长串即原 {4,} 主路径）
+ * ① 引号内串（长短皆取——短引语义补全，长串即原 {4,} 主路径）
  * ② 剥边引号原串（正文连引号一起写的形式）
  * ③ 全剥引号串（混合短引的正身：雪落无声）
  */

@@ -32,7 +32,7 @@ const caretRef = ref<HTMLElement | null>(null)
 const hasSynopsis = computed(() => !!tree.byPath.get('大纲/总纲.md'))
 const hasWorldview = computed(() => !!tree.byPath.get('设定/世界观.md'))
 
-// （四轮处置批）：下拉浮层坐标跟随窗口 resize 重定位——原只在开启一刻
+// 下拉浮层坐标跟随窗口 resize 重定位——原只在开启一刻
 // 快照 caret 的 getBoundingClientRect，此后窗口缩放/分栏变化浮层悬空错位；开启期间
 // 监听 resize（passive）重取锚点，关闭态 no-op。
 function syncDropPos(): void {
@@ -155,7 +155,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--background-modifier-border);
   overflow: hidden;
 }
-/* 桌面版：空白区可拖动整窗（按钮本身可点）——.is-drag 体收敛至全局 utilities.css */
+/* 桌面版：空白区可拖动整窗（按钮本身可点）——.is-drag 体收敛至全局 utilities.css*/
 /* 桌面版交通灯避让：左栏关闭或专注模式时，lead 区整体右移 52px */
 .tabbar.avoid-traffic .tabbar-lead {
   padding-left: 52px;

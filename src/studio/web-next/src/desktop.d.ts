@@ -1,6 +1,6 @@
 // Electron 桌面版 preload 注入的全局 API（src/desktop/preload.ts）。
 // 浏览器版无此脚本 → window.clwritingDesktop 不存在 → 用前判空降级。
-// 0917清库修复批（isTrustedSender 拒绝路径 undefined 类型契约对账）：handleTrusted
+// （isTrustedSender 拒绝路径 undefined 类型契约对账）：handleTrusted
 // （src/desktop/ipc.ts）对 untrusted sender 静默返回 undefined——该拒绝态正常形态
 // 不可达（三窗白名单恒过），本文件刻意不做全量 `| undefined` widen（牵连前端判空
 // 面）。无值成功路径如实标 void 即天然吸收该 undefined（setTitleBarOverlay 先例）；
@@ -13,7 +13,7 @@ declare global {
     clwritingDesktop?: {
       /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用） */
       platform: string
-      /** 重评-P3-9（2026-09-09 全量代码重评）：失败面与 main 侧契约对称——canceled=用户
+      /** 失败面与 main 侧契约对称——canceled=用户
        *  取消；reason=落库失败（切库链 switchLibrary 同款信封） */
       openLibrary: () => Promise<{ ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }>
       switchLibrary: (path: string) => Promise<{ ok: true } | { ok: false; reason: string }>
@@ -25,7 +25,7 @@ declare global {
       openShelf: () => Promise<void>
       openLibraryWindow: () => Promise<void>
       openLibraryDir: () => Promise<void>
-      /** 阶段 53 S3：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+      /** 阶段 53：用系统浏览器打开外部链接（更新横幅「去下载」用）。
        *  主进程侧白名单（仅本项目 GitHub 发布页）——白名单外/打开失败回 {ok:false,reason}
        *  （带值 channel 精确 union 口径，token 面 openLibrary 信封同款）。 */
       openExternal: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>
@@ -38,8 +38,8 @@ declare global {
       setFullScreen: (flag: boolean) => Promise<void>
       /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win no-op）。
        *  dark 同步系统 nativeTheme（overlay 透明后按钮底色由系统按主题绘制）。
-       *  重评2-P3-④（2026-09-09 全量重评 GLM-5.3）：失败信封类型面对齐 main 侧实况
-       *  ——颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款，重评-P3-9 先例）；
+ * 失败信封类型面对齐 main 侧实况
+ * ——颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款先例）；
        *  成功路径 main 侧无返回值（undefined），如实标 void、不虚构 {ok:true} 态 */
       setTitleBarOverlay: (o: { color?: string; symbolColor?: string; dark?: boolean }) => Promise<{ ok: false; reason: string } | void>
       /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false），返回退订函数 */
@@ -48,7 +48,7 @@ declare global {
        *  sse.resync() 主动重连），返回退订函数 */
       onServerRestarted: (cb: (port: number) => void) => () => void
       /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null）。
-       *  重评2-P3-③（2026-09-09 全量重评 GLM-5.3）：key 实际可选——净化器仅在
+ * key 实际可选——净化器仅在
        *  字符串非空时落 key（context-menu.ts），main 消费端 s.key ?? null 兜底；
        *  声明必填严于运行时，报齐为可选 */
       showContextMenu: (

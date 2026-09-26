@@ -67,7 +67,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
     path: '/api/books/:name/rename',
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
-      // 新书名 NFC 归一——与建书（init.ts 平台规范化批）同口径；
+      // 新书名 NFC 归一——与建书（init.ts 平台）同口径；
       // mac 侧输入的 NFD 形态名直接落目录/登记，跨机到 NFC 惯例卷（win）即「找不到
       // 文件」。归一在 trim 后、全部校验之前，登记名/目录名/title 天然一致。
       const name = typeof body['name'] === 'string' ? body['name'].trim().normalize('NFC') : ''
@@ -75,7 +75,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // 此前内联复制规则，两处将来会漂移
       if (!name) throw new Error('书名不能为空')
       if (isInvalidBookName(name)) {
-        // -mac适配：文案收编 BOOK_NAME_INVALID_REASON 单源（同上）
+        // mac适配：文案收编 BOOK_NAME_INVALID_REASON 单源（同上）
         throw new Error(BOOK_NAME_INVALID_REASON)
       }
       return { name }
@@ -94,7 +94,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       const newPath = bookStoragePath(newName, entry.kind)
       const newRoot = join(ctx.workDir, newPath)
       const folderMove = newRoot !== oldRoot
-      // （总七十一轮）：纯大小写改名（同名不同大小写）在大小写不敏感 FS（mac/win）
+      // 纯大小写改名（同名不同大小写）在大小写不敏感 FS（mac/win）
       // 上 newRoot 与 oldRoot 是**同一物理目录**——renameSync 前的目录冲突检查
       // existsSync(newRoot) 恒真且目录必非空 → 恒 400「已存在且非空」。判定依据
       // 「目标词法路径已存在 + 与源目录是同一物理目录（dev+inode 相等；macOS realpath
@@ -123,7 +123,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
         replyError(res, 400, 'BAD_INPUT', `已有一本叫「${newName}」的书，换个名字`)
         return
       }
-      // （总七十一轮）：改名目标目录存在即拒（原先只拒非空）——空目录在 POSIX
+      // 改名目标目录存在即拒（原先只拒非空）——空目录在 POSIX
       // 上被 renameSync 原子替换成功、Windows 上报 EPERM/EEXIST → 跨平台行为分叉且
       // win 落 500。统一「存在即拒」（的纯大小写分支 newRoot 即 oldRoot 同一
       // 目录，须先判 caseOnly 再到此处，避免误拒）
@@ -134,7 +134,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       }
 
       /** 同步 book.yaml title（改名闭环的一部分；失败不阻塞——目录/登记已可自愈）。
-       *  ：文本级单键行替换（setTopSectionKey）——原实现 readBookConfig→stringify
+       * 文本级单键行替换（setTopSectionKey）——原实现 readBookConfig→stringify
        *  全量重生成会静默丢作者 # 注释与未知段/未知子键（旧注释「已有键原样保留」口径失真）；
        *  文件缺失时落最小段（书架建书必有完整 book.yaml，此为兜底）。 */
       const writeTitle = (root: string): void => {
@@ -202,7 +202,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // renameSync 失败回 500 时事件库已落在新名 hash 下而登记仍是旧名，对话历史/审计
       // 从此永久失联且无回滚。先改名失败 = 纯净 500 可安全重试（migrate 现对「目标库
       // 已存在」也是返回 false 防覆盖，kk-，不再静默跳过）。
-      // 改名同删书补越出/symlink 守卫（批 6 统一 resolveWithinRoot；此前改名 handler
+      // 改名同删书补越出/symlink 守卫（统一 resolveWithinRoot；此前改名 handler
       // 无此校验——books.jsonl 篡改 entry.path 后 renameSync 可把书库外目录搬进书库）
       if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
@@ -243,7 +243,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       ctx.driver.forgetSession(oldName)
-      // （总六十五轮）：rename 清理序列补 forgetSseCount(oldName)——对齐 delete
+      // rename 清理序列补 forgetSseCount(oldName)——对齐 delete
       // 路径。改名后旧名残留 SSE 计数，随后新建同名书 SSE 配额被旧连接
       // 顶到 429（计数只在 req close 时递减，改名后旧名再无归零通路）。
       forgetSseCount(oldName)
@@ -257,7 +257,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
       writeTitle(newRoot)
 
       // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）。
-      // DA-3读失败（null）跳过整写——降级空表会把其余登记清掉；repair 兜底
+      // 读失败（null）跳过整写——降级空表会把其余登记清掉；repair 兜底
       // 读改写进 books.lock 跨进程锁（CLI 与桌面并发改名/建书互斥）；
       // 超时跳过整写留痕——目录已改名成功，登记暂指旧路径，下次启动 repairBooks 按
       // book.yaml 重关联（missing 报告可见）
@@ -273,7 +273,7 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
           try {
             const books = readBooksStrict(ctx.workDir)
             if (books !== null) {
-              // （四轮处置批）：锁内重名重查——上方 L- 复查到本 RMW 之间隔着
+              // 锁内重名重查——上方 L- 复查到本 RMW 之间隔着
               // clearChatHistory/migrateBookSession 两个 await，跨进程并发建同名书可在此
               // 窗口入表；锁内命中则跳过本登记更新（与锁超时分支同款降级：目录已搬、登记
               // 暂指旧名，repairBooks 按 book.yaml 重关联兜底），防 books.jsonl 同名双登记。

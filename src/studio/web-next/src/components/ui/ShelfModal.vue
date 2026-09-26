@@ -58,7 +58,7 @@ const {
   // 浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
   // API 全 404），并清最近打开书键（下次启动不再落进已删书；键收敛单源）
   onDeleted: (names) => {
-    // 0918二轮修复批（F101）：vue-router 4 的 route.params 已解码一次——直取 current
+    // vue-router 4 的 route.params 已解码一次——直取 current
     // 比对，勿再 decodeURIComponent。原二次解码对书名含 %（服务端书名校验不拒 %，
     // 「50%胜率」可正常建书）抛 URIError，异常落 useShelf.confirmDelete 的 catch →
     // 书已删成却报「删除失败」且下方收尾链整链跳过；含法 %XX 形态（书名原样含
@@ -80,7 +80,7 @@ const {
   beforeOpenBookNav: () => ui.closeShelf(),
 })
 
-// 删 hasDesktop 死变量—— 平台判断收敛到 usePlatform 后残留零消费
+// 删 hasDesktop 死变量——平台判断收敛到 usePlatform 后残留零消费
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
@@ -90,7 +90,7 @@ useFocusTrap(modalRef)
 // 面向全量），只裁渲染面——每组渲染前 100 张书卡 + 尾部「已省略 N 部」提示行（裁剪
 // 与提示行在 ShelfGrid 内实现，经 render-cap 传入）。搜索过滤后命中 >100 同样截断
 // 且提示行如实计数，缩小搜索词即可见全部命中。
-// 0918二轮修复批（F102）：帽值收敛 shared/render-cap SHELF_RENDER_CAP 单源——整页
+// 帽值收敛 shared/render-cap SHELF_RENDER_CAP 单源——整页
 // 书架 Shelf.vue 同传该帽（原「整页不传即维持全量」的两壳口径不一随批收口）。
 
 // win 同步拍：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
@@ -123,8 +123,8 @@ function handleCardClick(name: string): void {
   else openBook(name)
 }
 
-// 选书跳转已收敛 useShelf.openBook（降级单源，-）——
-// 原「记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）—— 键单源」
+// 选书跳转已收敛 useShelf.openBook（降级单源）——
+// 原「记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）——键单源」
 // 移入 composable，浮层侧经 beforeOpenBookNav 钩子保留「先收浮层再导航」时序
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
@@ -139,7 +139,7 @@ function onKeydown(e: KeyboardEvent): void {
   if (ui.overlayOpenExcept('shelf')) return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
   // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效。
-  // 删除确认弹窗的 Esc 已由组件自持（-：capture + stopPropagation，先于
+  // 删除确认弹窗的 Esc 已由组件自持（capture + stopPropagation，先于
   // 本 handler 且不再落到这里），此处只剩建书/批量/收层
   let consumed = false
   if (showCreate.value) {
@@ -163,7 +163,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.shelfOpen" kind="shelf" @mask-click="ui.closeShelf">
       <div
         v-if="contentReady"
@@ -359,7 +359,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-faint);
   white-space: nowrap;
 }
-/* ── 搜索 + 排序（-PROD-6）── */
+/* ── 搜索 + 排序── */
 .shelf-search {
   width: 140px;
   padding: 5px 10px;
@@ -384,7 +384,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换 segmented control */
-/* .view-toggle 与 .toggle-btn
+/* .view-toggle 与 .toggle-btn（优化修复批随批收敛，声明逐字未改）
    均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;

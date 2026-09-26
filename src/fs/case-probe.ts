@@ -1,5 +1,5 @@
 /**
- * 文件系统大小写敏感性探测（平台规范化批 E）。
+ * 文件系统大小写敏感性探测（平台 E）。
  *
  * 背景：win（NTFS）与 mac（默认 APFS 卷）均大小写不敏感，书库跨机互拷依赖这一
  * 前提；mac 手动开启大小写敏感的 APFS 卷 / Linux 常态敏感卷上使用书库，两台机器
@@ -10,14 +10,14 @@
  * 探测法：目标目录写一个小写探针文件，检查其大写形是否存在（不敏感卷 lookup 恒
  * 命中）。win 的按目录大小写敏感标记（fsutil file setcasesensitiveinfo）也被本探测
  * 正确覆盖——探测的就是目标目录本身。
- * （六轮修复批）：探针文件名改按 atomic 崩溃残留
+ * 探针文件名改按 atomic 崩溃残留
  * 命名模式生成（见 probePair），残留可被 sweepAbandonedTmpFiles 回收。
  */
 import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
-// （六轮修复批）：探针文件名对齐崩溃残留清扫模式
+// 探针文件名对齐崩溃残留清扫模式
 // （atomic.ts ABANDONED_TMP_RE = `.<name>.<pid>.<uuid>.tmp`）——原固定名 `.clw-case-probe.tmp`
 // 不匹配该模式（缺 pid/uuid 两段），进程恰在写探针与 finally 清理之间崩溃（硬杀/断电）
 // 时残留文件永不被 sweepAbandonedTmpFiles 扫掉，随每次「选书库»探测累积。现按同款命名

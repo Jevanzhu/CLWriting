@@ -30,8 +30,8 @@ interface ForeshadowCtx {
   foreshadowTtlMs?: number | null
 }
 
-// ── 伏笔全书扫描「目录指纹 + TTL」缓存壳 ─────────────────
-// 手法对齐 search.ts （目录 mtime 探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：
+// ──：伏笔全书扫描「目录指纹 + TTL」缓存壳 ─────────────────
+// 手法对齐 search.ts（目录 mtime 探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：
 // 端点原每请求 readForeshadows（设定/伏笔 逐文件 fm 整读）+ scanForeshadowTrails
 //（写作/正文 全书正文收集 + 联合正则扫），?q= 检索同样全量重扫后过滤——伏笔面板
 // 打开/轮询/检索反复触发（章正文指纹缓存只省了逐文件重读，正则全书扫描与
@@ -39,7 +39,7 @@ interface ForeshadowCtx {
 // 新增/删除/改名即时失效；目录内就地内容改写不触碰目录 mtime，由 TTL 5s 兜底（与
 // search.ts 同口径——宁多扫不脏读）。?q= 过滤在缓存命中后的快照上做（filter-
 // ForeshadowTrails），不全量重扫。
-// 原「扫描是同步单段、无在途去重需求」的判定随
+// （性能与内存专项·）：原「扫描是同步单段、无在途去重需求」的判定随
 // 异步化失效——端点改走 getForeshadowsCachedAsync（scanForeshadowTrailsAsync 切片
 // 让出 + in-flight 去重，search.ts inFlightSearches 同款）；MISS 时并发请求只扫一次。
 // 同步版 getForeshadowsCached 原样保留（回归测试直测面 + 行为规格参照）。
@@ -135,7 +135,7 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
       if (!r) return
       const bookRoot = r.bookRoot
       // ?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
-      // parseRequestUrl 统一解析（/ 口径）——畸形 URL → 400 BAD_INPUT
+      // parseRequestUrl 统一解析（口径）——畸形 URL → 400 BAD_INPUT
       const url = parseRequestUrl(req)
       if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
       const q = url.searchParams.get('q') ?? undefined

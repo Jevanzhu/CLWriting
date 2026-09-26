@@ -1,7 +1,7 @@
 /**
- * 阶段 24 章节结构操作（合并/拆分/撤销合并）——编排层（+）。
+ * 阶段 24 章节结构操作（合并/拆分/撤销合并）——编排层。
  *
- * 设计口径 = 《章节结构操作-设计方案-》（v3，已拍板）：
+ * 设计口径 = 《章节结构操作-设计方案-》（v3 已拍板）：
  * - 留洞制：章号 append-only 永不改指；被合并章软删进回收站，去向记录在目标章
  *   fm `并入: number[]`（写侧链式折叠单跳化——11 并 12,13 时源 13 直接重指向 11）。
  * - 文件本位：真实存储文件是唯一权威，事件库只做审计副录（undo 定位主路径）。
@@ -11,7 +11,7 @@
  *   （①目标章版本回滚 ②还原源章）保证中途态永不违反不变量。
  * - 写入通道 = svc.save origin 'external-merge'（白名单既有 + 强制留底快照 =
  *   rollbackSnapshotId；禁止绕开它裸 atomicWriteFile——会失去保存锁/锁内复核
- *   /journal 闭环三件套）。
+ * /journal 闭环三件套）。
  *
  * 干跑（plan）只读：encodingSuspect 预检 + 拼接摘要 + 履历引文命中率预演 +
  * RAG 清除预估 + plan 指纹（apply 复核防 TOCTOU）。apply 幂等续跑：目标 fm 已含
@@ -48,10 +48,10 @@ export type { MergePlanView, MergeApplyResult, MergeUndoResult, MergeUndoHints }
 export { planChapterSplit, applyChapterSplit } from './structure-split.js'
 export type { SplitPlanView, SplitApplyResult } from './structure-split.js'
 
-// ── 崩溃不变量判定（detectState 书内检查挂点，设计方案 §5.5）─────────
+// ──崩溃不变量判定（detectState 书内检查挂点，设计方案 §5.5）─────────
 
 /** 结构半成态条目（healthCheck 报文素材；只读判定零副作用）。
- *  0918修复批（B007）：原 targetDocId 字段恒 null（检测走盘面扫描拿不到清单
+ * 原 targetDocId 字段恒 null（检测走盘面扫描拿不到清单
  *  id，注释宣称的「清单 id」从未布线）——死字段连 health 消费侧死臂一并删除，报文
  *  统一用 targetPath 定位。 */
 export interface StructureViolation {
@@ -96,7 +96,7 @@ export function detectStructureViolations(bookRoot: string): StructureViolation[
   for (const r of registered) {
     for (const src of r.mergedInto) {
       if (nos.has(src)) {
-        // 0918修复批（B007）：targetDocId 恒 null 死字段删除——盘面扫描拿不到
+        // targetDocId 恒 null 死字段删除——盘面扫描拿不到
         // 清单 id，报文定位统一走 targetPath
         violations.push({
           targetPath: r.path,

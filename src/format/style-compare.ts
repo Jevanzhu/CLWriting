@@ -21,7 +21,7 @@ export function charNgrams(text: string, n: number): Set<string> {
   for (const run of hanRuns(text)) {
     // 按码位取窗——.length/.slice 是 UTF-16 码元口径，扩展 B 区
     // 生僻字（代理对占 2 码元）会被劈成孤立代理对落进 n-gram，落盘禁词在正文
-    // includes 永不命中（红闸静默失效）。Array.from 按码位切窗（对齐 /）。
+    // includes 永不命中（红闸静默失效）。Array.from 按码位切窗（对齐）。
     const cps = Array.from(run)
     if (cps.length < n) {
       grams.add(run)

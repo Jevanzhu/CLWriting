@@ -1,5 +1,5 @@
 /**
- * Responses 线流事件的语义单元 —— （全项目源码质量与优雅度评审）：
+ * Responses 线流事件的语义单元 ——（全项目源码质量与优雅度评审）：
  * responses-adapter 的 stream 原为一个 232 行 / 圈复杂度 83 / 嵌套 9 层的单函数，
  * 事件解析、增量产出、工具调用累积、终态判决与降级收尾交织在一起。本件把其中
  * 「一个流事件进来 → 产出哪些 GenEvent / 是否终止」的判定逐 arm 拆出，adapter 只留
@@ -56,13 +56,13 @@ export interface ResponsesStreamAccum {
   outToolText: string[]
   /** 终止事件四态（none = 无终止事件 = 传输截断） */
   terminal: ResponsesTerminal
-  /** -：本流是否已 yield 过 tool（伪流回填去重门） */
+  /** 本流是否已 yield 过 tool（伪流回填去重门） */
   toolYielded: boolean
   /**
    * text 分支**实际产出**标记——与 outText（计费累计，含
    * reasoning delta）分家：伪流回填门与 hasOutput 判据只认正文实际 yield，
    * 「reasoning 有流出 + text 全缺 + completed 带 message 全文」的网关形态不再误跳回填，
-   * reasoning-only 流回归 /「空产出」报错语义（不静默判成功）。
+   * reasoning-only 流回归「空产出」报错语义（不静默判成功）。
    */
   textYielded: boolean
   /** 加密推理项计数（gen 侧覆盖式收集只留末条，流尾按计数汇总留痕丢弃面） */
@@ -122,7 +122,7 @@ export function toUsage(u: OpenAI.Responses.ResponseUsage | null | undefined): T
  * 空 usage 对象（{} truthy 但无计量字段）等价「无 usage」——
  * 原判定 `r.usage ? toUsage(r.usage) : estimate` 让 {} 走 toUsage 得 0/0 假计量，
  * 绕过本线的估计兜底，预算闸/成本对非标网关系统性偏低。对齐 openai 线
- * isRealUsage 口径：至少一个计量字段在位才采信，否则走估计（标 estimated）。
+ * isRealUsage口径：至少一个计量字段在位才采信，否则走估计（标 estimated）。
  */
 export function isRealUsage(u: OpenAI.Responses.ResponseUsage | null | undefined): boolean {
   return u !== null && u !== undefined && (u.input_tokens !== undefined || u.output_tokens !== undefined)
@@ -154,7 +154,7 @@ export function resolveUsage(
 
 /**
  * 工具入参归一（output_item.done 臂与伪流回填臂同款）：空串 → {}；
- * （GLM-5.3 修复批）：合法 JSON 非对象（数字/字符串/数组/
+ * 合法 JSON 非对象（数字/字符串/数组/
  * 布尔——模型偶发裸标量参数形态）同兜 {_raw}——原样透出入库后，跨协议换供方回放
  * Anthropic 线必 400（input 契约是 object；anthropic-adapter 侧另有归一兜底，此处
  * 产源头窄前置）；畸形 JSON 同落 {_raw}。
@@ -171,7 +171,7 @@ export function parseToolArgs(raw: string): unknown {
 /** 正文增量：产出累计 + textYielded 置位 + 透出（顺序即产出顺序）。 */
 export function applyTextDelta(st: ResponsesStreamAccum, delta: string | undefined): GenEvent[] {
   if (!delta) return []
-  st.outText.push(delta) // 产出累计
+  st.outText.push(delta) // 产出累计（学 openai 线）
   st.textYielded = true // 正文实际 yield 标记（回填门/hasOutput 判据）
   return [{ type: 'text', delta }]
 }
@@ -190,7 +190,7 @@ export function applyReasoningDelta(st: ResponsesStreamAccum, delta: string | un
 
 /**
  * function_call_arguments.delta：分片累积。
- * （总六十五轮）：key 决策——有 item_id 原样；缺失时续片归并最近兜底键（其 accum
+ * key 决策——有 item_id 原样；缺失时续片归并最近兜底键（其 accum
  * 仍在），否则开新自增兜底键入队（供 done 按序认领）——此前并入同一空键会把多个调用的
  * 参数串调。
  */
@@ -216,7 +216,7 @@ export function applyFunctionCallArgsDelta(
 /**
  * output_item.done 的 function_call 臂：认领累积（直接键未命中 → FIFO 队头）→ 补全
  * callId/name/args → 计入产出累计 → 归一入参 → 返回 tool 事件。
- * -：done 之前直接 yield tool（probe break-on-done 语义）。
+ * done 之前直接 yield tool（probe break-on-done 语义）。
  * 权威值优先——done 事件携带的 item.arguments 是服务端完整串；
  * 原 `acc.args || item.arguments` 让 delta 累计优先，网关 delta 丢片时残缺 JSON 静默
  * 回退空对象 {}（工具参数丢失）。done 项完整值在位时覆盖累计，缺失才回落累计。
@@ -249,7 +249,7 @@ export function claimOutputItemFunctionCall(
 
 /**
  * output_item.done 的 reasoning 臂（缺口 11 后半）：加密推理项透出
- * （gen 收集入 GenResult → chat 存回）。：计数在消费侧覆盖留存之前——多条时
+ * （gen 收集入 GenResult → chat 存回）。计数在消费侧覆盖留存之前——多条时
  * GenResult 只留末条，流尾按计数汇总留痕。
  */
 export function claimOutputItemReasoning(
@@ -282,11 +282,11 @@ function backfillCompletedText(
 }
 
 /**
- * 修复批（C103）：伪流回填对称扩展 function_call 项——伪流网关
+ * 伪流回填对称扩展 function_call 项——伪流网关
  * completed.output 只含 function_call（无 output_item.done 流出）时原实现无 tool 事件，
  * hasOutput 因 function_call 在场判 true → 正常 emitDone，工具型调用方拿 input:null
  * 报「产出为空或非对象」。字段形状/兜底与 output_item.done 臂同款（call_id 缺失序号 id、
- * arguments 完整串优先、合法 JSON 非对象/畸形 JSON 同落 {_raw}），计费累计同口径；
+ * arguments 完整串优先、合法 JSON 非对象/畸形 JSON 同落 {_raw}）计费累计同口径；
  * 正常流已 yield 过 tool（toolYielded）时不回填（防重复）。
  */
 function backfillCompletedToolCalls(
@@ -315,9 +315,9 @@ function backfillCompletedToolCalls(
  * 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call 产出且
  * 未 yield 过 tool → 退化完成判错不判成功；补「本流已实际流出内容」
  * 判据（网关省略 completed 的 output 数组但 delta 已流出正文时原判据误判空产出且
- * retryable:false 不重试，token 白烧）—— 起正文面判据取 textYielded
+ * retryable:false 不重试，token 白烧）——起正文面判据取 textYielded
  * （outText 含 reasoning delta，不作产出判据）。
- * 空产出 error 随错上抛 usage（/口径，真值在手即真值、否则走估计兜底）。
+ * 空产出 error 随错上抛 usage（口径，真值在手即真值、否则走估计兜底）。
  */
 export function applyCompleted(
   st: ResponsesStreamAccum,
@@ -368,7 +368,7 @@ export function applyIncomplete(
 /**
  * response.failed：终态 error 不发 done（缺口 1，此前落穿被流结束兜底伪装成
  * done{stop, 0/0}）；message 脱敏后带上。
- * + completed / incomplete(max_tokens) 已 emitDone 后网关仍补发
+ * completed / incomplete(max_tokens) 已 emitDone 后网关仍补发
  * failed/error（流尾抖动形态）——terminal 已置即忽略，done 已发的回合不被翻转。
  * 流中 failed/error 恒 retryable:false，与另两线（HTTP status → 决策表）
  * 不对称系有意保守——流中事件缺 HTTP status，无法可靠判可重试；保守终态防半截流反复

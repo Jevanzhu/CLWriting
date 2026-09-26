@@ -27,7 +27,7 @@ export const BOUNDS_TOLERANCE = 200
 
 /** 创建侧产品最小面（新窗/恢复窗不得小于此——保三栏布局不挤）。与 WIN_MIN_* 语义
  *  不同：WIN_MIN_* 是存档校验红线（有意更宽放，防历史小屏合法存档误丢）；本组是
- *  创建下限（main.ts minWidth/minHeight 与首启缺省共用，小屏按工作区收口）。 */
+ * 创建下限（main.ts minWidth/minHeight 与首启缺省共用小屏按工作区收口）。 */
 export const CREATE_MIN_WIDTH = 1200
 export const CREATE_MIN_HEIGHT = 760
 
@@ -93,7 +93,7 @@ export function isBoundsVisibleOnAnyDisplay(
  *   首开比例一致，大屏不再钉死定值；
  * - 上限 = 工作区 − 80px（四边留白，不贴边/压任务栏与 Dock——旧小屏兜底口径原样）；
  * - 下限 = min(CREATE_MIN_*, 工作区 − 8)（保三栏不挤；小屏按可用空间收口，
- *   /先例同款余量）。
+ * 先例同款余量）。
  * minWidth/minHeight 一并返回供创建入参（windows.ts 子窗 sizes 同形状，单源不双写）。
  */
 export function defaultWindowSize(wa: { width: number; height: number }): {

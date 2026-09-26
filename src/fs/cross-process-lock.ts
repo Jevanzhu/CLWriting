@@ -1,5 +1,5 @@
 /**
- * 跨进程文件锁基建（批次，落地）。
+ * 跨进程文件锁基建（批次落地）。
  *
  * proper-lockfile 式语义，但用**文件**而非 mkdir：open 'wx'（O_CREAT|O_EXCL）独占
  * 创建——创建与检查之间无 TOCTOU 窗口。锁文件内容写 { pid, bootTime } 作诊断；
@@ -16,7 +16,7 @@
  * 阻塞时长由调用方超时封顶）。同进程嵌套获取同一锁会自锁——调用方需保证进程内
  * 已有串行化（如 calls.ts 的 writeChains）再进跨进程锁。
  *
- * / （Opus-5.5 轮）：stale 接管的「判定 → 夺锁」残余竞态。原实现
+ * stale 接管的「判定 → 夺锁」残余竞态。原实现
  * 「判 stale → rmWithRetry(锁名) → 重试创建」把删除落在**共享锁名**上，而该删除不可观测
  *（rmSync force 对已不存在的路径静默成功）：两个 contender 先后对同一把死锁判 stale 时，
  * 后到者的 rm 可能删掉先到者刚重建的新锁再自建（双持锁），自己看不出发生过什么。现接管
@@ -43,7 +43,7 @@ import { isProcessAlive } from './process-alive.js'
 export { isProcessAlive } from './process-alive.js'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
- *  导出复用：events 开口标记内容同样落 pid+bootTime。 */
+ * 导出复用：events 开口标记内容同样落 pid+bootTime。 */
 export function processBootTime(): number {
   return Date.now() - Math.round(process.uptime() * 1000)
 }
@@ -153,7 +153,7 @@ function judgeStaleLock(
       return 'gone' // 刚被释放/删除——上层重试创建，不在这里删
     }
     // mtimeMs 带亚毫秒小数且时钟源独立——floor 对齐后计龄，避免同毫秒内出现负年龄
-    // （中件组批）：win 时钟粒度下刚落盘文件的 mtime 可整体超前 Date.now
+    // （中件组批）：win 时钟粒度下刚落盘文件的 mtime 可整体超前 Date.now()
     // 读数（负年龄，负载重时内核 tick 粗粒化更频）——钳 0 防「年轻空锁」把
     // staleGraceMs:0 的接管面误判 held（陈锁接管测试因此抖假红）；grace>0 语义不变
     //（未来 mtime 视同 age 0，仍在宽限内判 held）
@@ -226,7 +226,7 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
         released = true
         if (renewTimer) clearInterval(renewTimer)
         // ②：释放前校验「仍是我创建的那把锁」——读锁文件内容与写入串逐字节
-        // 一致（pid+bootTime 即自身）才删；不一致 = 双 contender 双持锁残余窗口
+        // 一致（pid+bootTime 即自身）才删；不一致 =双 contender 双持锁残余窗口
         // 里锁已被他人重建（无条件 rmSync 会删掉他人在位的新锁）。读失败（含已不在
         // 盘）同样不删——删错他人锁的代价高于残留（残留由 stale 接管路径收口）。
         try {
@@ -277,7 +277,7 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
       //（自愈发生但无迹可查，双 contender/崩溃恢复场景无从诊断）；带原持有 pid（读取
       // 失败容错为「pid 不可读」）。
       const staleHolderPid = readHolderPid(lockPath)
-      // （Opus-5.5 轮）：接管 = 「原子改名认领」——夺锁动作不再落在共享
+      // 接管 = 「原子改名认领」——夺锁动作不再落在共享
       // 名上（旧实现 rmWithRetry(lockPath) 删共享名，且 force 删除不可观测：两个 contender
       // 先后判同一把死锁 stale 时，后到者的 rm 落在先到者刚重建的新锁上也照样"成功"）。
       // 改名后同一源名至多一个赢家，输的那方拿到 ENOENT ——它不触碰任何文件，落回 create
@@ -314,7 +314,7 @@ export function tryAcquireCrossProcessLock(lockPath: string, opts?: CrossProcess
         try {
           closeSync(fd)
         } catch {
-          /* best-effort */
+          /* best-effort：锁文件已不在（异常态）→ 停止续期，防定时器空转 */
         }
       }
     }

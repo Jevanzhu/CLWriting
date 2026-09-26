@@ -95,7 +95,7 @@ export function rebootstrap(): Promise<void> {
  *  undefined；现有调用方均如此）。
  *  重放收敛幂等面——GET/HEAD 之外的请求由调用方以 init.replayable 显式声明才重发
  *  （判定见 isReplayable 注；re-boot 照常执行，新 token 供后续请求使用）。
- *  （全库源码质量评审修复批）：对外只剩 (path, init) 两参——
+ * 对外只剩 (path, init) 两参——
  *  递归重试标记与超时计量/重放出参原为对外形参（调用方可见的内部状态），现收进私有
  *  apiFetchCore，本函数只是薄壳。
  *  SSE 走 getToken 拼 URL（stream.ts），不经此路径，不受影响。 */
@@ -183,7 +183,7 @@ async function apiFetchCore(
  *  timeoutMs 缺省 = 30s 兜底档：不设默认则「未传即无超时」，documents/books/search 等
  *  几十处本地快端点漏配后请求挂死即 loading 永真。慢端点（AI 分析/收割/流式生成）均已
  *  显式配更大档（60s/120s/300s），显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。
- *  （-优化批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
+ * 导出为 api 层 30s 兜底档单源——chat/stream/documents/
  *  providers/onboard 此前旁路手写裸值 30_000 的调用点统一改 import（数值零变化）。 */
 export const API_DEFAULT_TIMEOUT_MS = 30_000
 
@@ -199,7 +199,7 @@ const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请
  *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
  *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
  *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。
- *  ：幂等声明（replayable）与 json 同层透传，apiFetchCore 消费。 */
+ * 幂等声明（replayable）与 json 同层透传，apiFetchCore 消费。 */
 interface ApiJsonInit extends ApiFetchInit {
   json?: unknown
 }
@@ -328,7 +328,7 @@ export async function apiJson<T>(
       // 外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已为真，若把 AbortError 当坏体
       // 吞进本 catch 会误报 MALFORMED_RESPONSE（把调用方主动取消伪造成服务端故障）。判定
       // abort（联动内部 signal 已中止，或错误本身是 AbortError DOMException）→ 直通原
-      // abort 语义，不伪造 MALFORMED_RESPONSE。：外部 signal 的实调用方即
+      // abort 语义，不伪造 MALFORMED_RESPONSE。外部 signal 的实调用方即
       // 书会话接驳（上方 setBookSessionSignal 注）——本守卫是该接驳的 AbortError 归类出口，
       // 调用方以 isAbortError 静默吸收。
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {

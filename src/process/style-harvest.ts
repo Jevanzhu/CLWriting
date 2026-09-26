@@ -62,7 +62,7 @@ export function collectDocSignals(
 }
 
 /**
- * collectDocSignals 的异步孪生（延伸，三十七轮 收口）：读侧走
+ * collectDocSignals 的异步孪生（延伸，三十七轮批 A 收口）：读侧走
  * listAiVersionsAsync/readAiVersionAsync（gitAsync spawn + 有界超时）——本函数
  * 挂在服务 HTTP 链（style.ts harvest 端点 → harvestStyleCandidatesAsync），同步
  * spawnSync 在 git 无响应时阻塞事件循环最长 15s。语义与同步版一致：旁路证据静默。
@@ -141,11 +141,11 @@ export function harvestStyleCandidates(
 }
 
 /**
- * harvestStyleCandidates 的异步孪生（延伸，三十七轮 收口）：源1 逐 doc
+ * harvestStyleCandidates 的异步孪生（延伸，三十七轮批 A 收口）：源1 逐 doc
  * 的轨迹读走 collectDocSignalsAsync（gitAsync）。补齐源1 顶部的
  * 轨迹枚举（listTrackedDocsAsync）——git 后端 for-each-ref 的同步 spawnSync 漏网
  * 已清零，HTTP 链全程不再同步 spawnSync。 （
- * 修复批）同族收尾：源1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
+ *）同族收尾：源1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
  * 让出（详见循环内注释锚）。同步版保留供存量测试与等价性对照。
  */
 export async function harvestStyleCandidatesAsync(
@@ -157,7 +157,7 @@ export async function harvestStyleCandidatesAsync(
 
   // ── 源1 · 改稿轨迹（docId → 树反查路径；文档已删的悬空轨迹跳过）──
   // 轨迹枚举改走 listTrackedDocsAsync——git 后端 for-each-ref
-  // 的同步 spawnSync 是 /同族漏网（本函数顶部最后一次同步 spawn，注释
+  // 的同步 spawnSync 是同族漏网（本函数顶部最后一次同步 spawn，注释
   // 「HTTP 链不再同步 spawnSync」此前名不副实）；结果语义与同步版单源对齐。
   const tracked = await listTrackedDocsAsync(bookRoot)
   if (tracked.length > 0) {
@@ -170,7 +170,7 @@ export async function harvestStyleCandidatesAsync(
     }
     walk(buildTree(bookRoot))
     const signals: DocSignals[] = []
-    // （修复批）： 同族收尾——本循环此前
+    // 同族收尾——本循环此前
     // 残留两处同步阻塞：① 裸 readFileSync 整读章正文（不走缓存、无让出，大书冷缓存
     // 冻结 HTTP 事件循环数百 ms 至秒级）→ 改走 md-text-cache 指纹缓存异步读
     // readMdTextCachedAsync；② collectDocSignalsAsync 内 compareVersions 为 O(P²)

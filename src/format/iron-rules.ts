@@ -1,5 +1,5 @@
 /**
- * 文风铁律配置解析（方案 -：消除 format→check 循环依赖）。
+ * 文风铁律配置解析（方案：消除 format→check 循环依赖）。
  *
  * 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。
  * 纯文本解析、零依赖——format 基础层可安全引用（check/count.js 反向依赖 format，
@@ -125,7 +125,7 @@ function cloneIronRules(r: IronRules): IronRules {
 }
 
 /** readIronRules 进程级指纹缓存（bookRoot → 条目）。容量对齐章节元数据缓存
- *  64 书目录纪律；指纹见 ironRulesFp。 */
+ * 64 书目录纪律；指纹见 ironRulesFp。 */
 const IRON_RULES_CACHE_MAX = 64
 const ironRulesCache = new Map<string, { fp: string; rules: IronRules }>()
 
@@ -225,7 +225,7 @@ function parseAntiReconciliationWords(text: string): string[] {
 
 /** 段内更深层级子标题（如 ## 硬禁词 下的 ### 网文套话）不再
  *  截断采集——原「inSection 后遇任意标题即 break」把子标题之后的禁词全部丢在门外，
- *  红闸对它们永不命中且零提示（段内已采到词时失明黄项也不触发，双重静默）。
+ * 红闸对它们永不命中且零提示（段内已采到词时失明黄项也不触发，双重静默）。
  *  现仅遇**同级或更高级**标题才终断；更深层级标题行本身不入采集（防标题文字被当词）。
  *  headingLevel 取行首 # 连续数。 */
 function extractSection(text: string, headingRe: RegExp): string {
@@ -234,7 +234,7 @@ function extractSection(text: string, headingRe: RegExp): string {
   let inSection = false
   let sectionLevel = 0
   for (const line of lines) {
-    // 0914 标题闸放行零空白紧凑标题（`##硬禁词`）——原 `(#{1,6})\s+`
+    // 标题闸放行零空白紧凑标题（`##硬禁词`）——原 `(#{1,6})\s+`
     // 强制空格，上方段锚定正则的 `\s*` 零空白容忍（ANTI_RECON_HEADING_RE/BANNED_LIST_HEADING_RE）
     // 被闸拦截永不生效，紧凑标题段静默失明（段内条目被折入证据不进红闸）。
     // 处方原拟 `(?:\s+|$)` 尾臂对 `##硬禁词` 仍不匹配（`##` 后是「硬」，既非空白也非

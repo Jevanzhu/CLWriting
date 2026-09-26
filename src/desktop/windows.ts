@@ -1,5 +1,5 @@
 /**
- * 窗口工厂与三窗引用单源（-自 main.ts 拆出——纯移动零逻辑变化）。
+ * 窗口工厂与三窗引用单源（自 main.ts 拆出——纯移动零逻辑变化）。
  *
  * - 三窗引用 holder（wins）——main/lifecycle/ipc/workdir-controller 跨模块共享可变
  *   窗口引用（原 main.ts 模块级 let，ESM live-binding 不可跨模块赋值，故显式对象承载，
@@ -44,7 +44,7 @@ if (process.platform === 'win32') {
 const RENDERER_CRASH_MAX_RELOADS = 3
 /**
  * 渲染层稳定窗口——did-finish-load 后存活过此窗口即清零崩溃计数
- * （对齐 server-manager STABILITY_RESET_MS / 先例）。原计数只随窗口重建
+ * （对齐 server-manager STABILITY_RESET_MS 先例）。原计数只随窗口重建
  * 归零，长跑偶发 3 次崩溃后第 4 次误触发停摆页。
  */
 const RENDERER_CRASH_STABILITY_RESET_MS = 5 * 60_000
@@ -65,7 +65,7 @@ const RENDERER_CRASH_NOTICE_HTML =
   '<p>渲染进程短时间内多次异常退出，已停止自动重载。</p>' +
   '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
 /**
- * 0918二轮修复批（C101）：加载失败封顶后的白屏提示页——同 RENDERER_CRASH_NOTICE_HTML
+ * 加载失败封顶后的白屏提示页——同 RENDERER_CRASH_NOTICE_HTML
  * 形态（data URL 自包含，本地 server 不可信时仍可展示），文案区分「页面加载失败
  * （可能服务未就绪）」。此前封顶分支只 log.error + return，对照 render-process-gone
  * 封顶载提示页不对称：触发形态（server 退避重启窗内 5 次加载失败，≥44s 全失败）后
@@ -88,7 +88,7 @@ export const wins = {
 
 /**
  * 渲染崩溃自愈收敛进窗口工厂——此前只挂主窗（dd-/ +
- * 退避 + 稳定窗口复位），书架/书库子窗口 GPU/内存崩溃停在白屏无自愈。
+ * 退避 +稳定窗口复位），书架/书库子窗口 GPU/内存崩溃停在白屏无自愈。
  * 逻辑原样提取（计数随窗口闭包走、新窗口归零）；label 进日志区分窗口。
  */
 function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
@@ -118,7 +118,7 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
         `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`,
       )
       if (!win.isDestroyed()) {
-        // 连带（批 D 代理范围外上报、主评审收口）：崩溃提示页 loadURL 同为
+        // 连带（代理范围外上报、主评审收口）：崩溃提示页 loadURL 同为
         // 无人 catch 的 promise（data: URL 失败概率极低但同类）——接日志防丢诊断
         void win.webContents
           .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
@@ -135,7 +135,7 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     if (!win.isDestroyed()) win.webContents.reload()
   })
   // did-finish-load 后延迟复位崩溃计数——渲染层真正稳定（存活满
-  // 稳定窗口且期间无崩溃，互撤）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
+  // 稳定窗口且期间无崩溃互撤）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
   // 加载失败计数同款复位（成功载入 + 稳定窗活满 = 故障域清零）。
   win.webContents.on('did-finish-load', () => {
     if (stabilityTimer) clearTimeout(stabilityTimer) // 上一轮计时器未跑就又重载：撤旧排新不叠
@@ -164,7 +164,7 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
         'desktop',
         `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——载提示页等待人工处理`,
       )
-      // 0918二轮修复批（C101）：封顶不再白屏滞留——对齐 render-process-gone 封顶口径
+      // 封顶不再白屏滞留——对齐 render-process-gone 封顶口径
       // （同款：loadURL promise 接日志防丢诊断）
       if (!win.isDestroyed()) {
         void win.webContents
@@ -205,14 +205,14 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   })
 }
 
-// （修复批，评审 §四.2）：IPC sender 统一校验——此前 14 个 handler
+// （评审 §四.2）：IPC sender 统一校验——此前 14 个 handler
 // 不验 event.sender 身份，渲染层一旦被 XSS 注入即可驱动 open-library/switch-library/
 // context-menu/set-fullscreen 等（纵深缺口，CSP/隔离只是缓解不可依赖）。校验面 =
 // 白名单 webContents（createSecureWindow 创建时登记、closed 摘除）+ 顶层主帧
 //（senderFrame === sender.mainFrame，被注入 iframe 的帧中帧不满足；帧销毁期
 // senderFrame 为 null 亦拒）。拒绝即拒（不弹提示不回退上下文），防攻击面试探。
 const trustedSenders = new Set<WebContents>()
-// （修复批）：工厂窗登记集合——兜底反查的判定面。
+// 工厂窗登记集合——兜底反查的判定面。
 // WeakSet 不持强引用，窗口销毁随 GC 回收无泄漏面；登记随 trackWindow 单点（createSecureWindow
 // 唯一入口），无旁路登记面。
 const factoryWindows = new WeakSet<BrowserWindow>()
@@ -254,20 +254,20 @@ function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
   // 主判据：三窗白名单（createSecureWindow 登记、closed 摘除，快路径）。
   if (trustedSenders.has(e.sender)) return true
   // 兜底：Electron 全局反查 + 工厂窗判定。（
-  // 修复批）：原「能反查到本进程存活窗口即放行」宽于白名单语义——未来若出现绕过工厂
+  //）：原「能反查到本进程存活窗口即放行」宽于白名单语义——未来若出现绕过工厂
   // 的直建窗口，其 webContents 即 IPC 直通；收窄为反查命中窗须属工厂登记集合（登记面
   // 见 trackWindow），白名单语义 = 「工厂登记 webContents ∪ 工厂窗反查」。
   const win = BrowserWindow.fromWebContents(e.sender)
   return !!win && !win.isDestroyed() && factoryWindows.has(win)
 }
 
-// ii 批：安全基线窗口工厂——主窗/书架/书库三处 BrowserWindow 的安全五件套
+// 安全基线窗口工厂——主窗/书架/书库三处 BrowserWindow 的安全五件套
 // （contextIsolation + sandbox + nodeIntegration:false + preload + hiddenInset 标题栏）
 // 与纵深防御监听（禁外部导航 + 禁弹新窗）原样重复 3 份，安全配置改一处漏两处是
 // 漂移风险，收敛到此。尺寸/标题/位置由 opts 传入，win 专属生命周期监听由调用方自挂。
 // 导出：main.ts bootstrap 主窗 loadURL 前 await 同一记账 promise（收敛，
 // 省一次 session setProxy 往返）。
-// nano ：原 export let 模块级可变导出（值随 createSecureWindow
+// nano：原 export let 模块级可变导出（值随 createSecureWindow
 // 运行期改写，可变绑定语义外溢到导入方）——收窄为函数访问器：写点唯一（工厂 dev 分支
 // 单点 setDevProxyApplied）、读方经 getDevProxyApplied；调用点（本文件工厂/子窗骨架、
 // main.ts bootstrap）随批收编，读写语义逐位不变。
@@ -284,7 +284,7 @@ export function setDevProxyApplied(p: Promise<void>): void {
 export { createSecureWindow }
 
 function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindow {
-  // dev 代理记账 promise（/ 二十轮）：dev 态 direct: 设置于窗口共享的
+  // dev 代理记账 promise：dev 态 direct:// 设置于窗口共享的
   // defaultSession，各窗 loadURL 前 await 此 promise——原子窗 fire-and-forget 在
   // 「子窗先于主窗完成设置」的时序下会带着未生效代理加载（SSE 经系统代理 buffer 断流）
   const win = new BrowserWindow({
@@ -297,7 +297,7 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
     //（配合下方 setMenuBarVisibility(false) 双保险），mac/win 外显式 false（Electron
     // 默认即 false 行为不变；隐式 undefined 过不了 kk- 的跨平台断言）。
     autoHideMenuBar: process.platform === 'win32',
-    // （win 体验面， 作者指令「外观全面向 mac 靠齐」）：win 走「无框标题栏 +
+    // （win 体验面作者指令「外观全面向 mac 靠齐」）：win 走「无框标题栏 +
     // WCO 窗控 overlay」——内容顶到窗口上沿（mac hiddenInset 同形态），最小化/最大化/关闭
     // 由系统画在右上角（近似 mac 红绿灯位，前端拖拽区已就绪无需新开）。overlay 只能
     // 实色（'transparent' 不被 Chromium 接受，实测回落系统亮色底且不跟 nativeTheme），
@@ -321,7 +321,7 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
       // 且参与编辑器按键路径——默认开启属纯耗，随工厂一处收敛三窗。
       spellcheck: false,
       ...opts.webPreferences,
-      // （二十四轮 D 域）：安全标志置于 spread 之后——此前 contextIsolation/
+      // 安全标志置于 spread 之后——此前 contextIsolation/
       // sandbox/nodeIntegration 排在 ...opts.webPreferences 前，调用方一旦传
       // webPreferences（现三窗均未传，纯防未来）就能静默关掉隔离/沙箱，工厂名
       // 「Secure」失实。三项不可让渡：任何调用方都不得以入参放宽（preload/spellcheck
@@ -356,7 +356,7 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
     // setProxy 返回 promise 此前无人 catch——设置失败成
     // unhandledRejection 丢诊断（且 await 方拿到 rejected promise 会二次炸穿书架/
     // 书库窗口加载链）；接日志吞错降级（按系统代理继续，SSE 断流风险留日志可查）
-    // nano ：let 导出改访问器后经 setter 写入（写点唯一）
+    // nano：let 导出改访问器后经 setter 写入（写点唯一）
     setDevProxyApplied(
       win.webContents.session.setProxy({ proxyRules: 'direct://' }).catch((e) => {
         log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
@@ -417,18 +417,18 @@ function saveWinState(): void {
 export { loadWinState, saveWinState }
 
 /**
- * F2d单例子窗打开骨架——openShelfWindow/openLibraryWindow
+ * F2d：单例子窗打开骨架——openShelfWindow/openLibraryWindow
  * 原两份逐行双写（appUrl 就绪守卫/单例聚焦/workArea 尺寸/closed 置空/devProxyApplied
  * 复验/loadURL 接日志）收敛单源，差异以 spec 参数注入。时序与文案逐位不变：
  * 守卫留痕 → 单例聚焦 → workArea 读取与尺寸/位置计算 → 建窗 → 引用登记 → closed
- * 监听（仍指向本窗才置 null，局部引用口径）→ await getDevProxyApplied→
+ * 监听（仍指向本窗才置 null 局部引用口径）→ await getDevProxyApplied()→
  * 存活复验 → loadURL 接日志。
  */
 interface SingletonWindowSpec {
   /** 现存窗口引用读/写（wins.shelfWindow / wins.libraryWindow 的取址闭包） */
   ref: () => BrowserWindow | null
   setRef: (w: BrowserWindow | null) => void
-  /** /：appUrl 未就绪命中守卫的 info 留痕文案（书架/书库措辞各一） */
+  /** appUrl 未就绪命中守卫的 info 留痕文案（书架/书库措辞各一） */
   appUrlGuardLog: string
   /** closed 清理体隔离标签（「书架窗口引用置空」/「书库窗口引用置空」） */
   cleanupLabel: string
@@ -483,7 +483,7 @@ async function openSingletonWindow(spec: SingletonWindowSpec): Promise<void> {
       if (spec.ref() === win) spec.setRef(null)
     })
   })
-  await getDevProxyApplied() // 代理生效后再加载（nano ：改函数访问器）
+  await getDevProxyApplied() // 代理生效后再加载（nano：改函数访问器）
   // loadURL promise 无人 catch——server 恰在此刻崩溃/端口失效
   // 时 rejection 成 unhandledRejection 丢诊断；接日志留痕（窗口崩溃另有自愈）
   if (win.isDestroyed()) return

@@ -1,7 +1,7 @@
 /**
  * v3 迁移：取消草稿目录——`写作/草稿/草稿-N.md` 搬到正文区。
  *
- * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖；：细纲/首章细纲两分支
+ * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖；细纲/首章细纲两分支
  * 的防覆盖跳过记入 errors，草稿正文分支照旧移回收站）。
  * 搬完后更新文档清单路径，尝试删空 `写作/草稿/` 目录。
  *
@@ -23,7 +23,7 @@ import { errMsg } from '../log/index.js' // errMsg 收编：错误文案三目�
  * 冲突/受阻草稿 → 工作区/.trash + 回收站清单登记（只挪文件不登记，
  * 回收站 UI 永不可见、无法还原——与 doTrash 的回收站语义保持一致）。
  *
- * /：id 与 originalPath 身份链闭合——
+ * id 与 originalPath 身份链闭合——
  * - id 此前用随机 ULID：TrashEntry.id 语义是「原 docId」（restoreTrash 按它查找条目，
  *   并以 id+originalPath upsert 主清单），草稿迁移时点无法恢复真实 docId，随机值使
  *   还原后的条目身份与树扫描口径无关（docId 身份断链）。改用 stable-id 的
@@ -91,7 +91,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           errors.push(`${name}: ${errMsg(e)}`)
         }
       } else {
-        // 目标已存在不再静默跳过——对齐 「未识别文件不再静默
+        // 目标已存在不再静默跳过——对齐「未识别文件不再静默
         // 跳过」口径：源文件滞留草稿区成孤儿（v3 布局已退役该目录）作者无从知晓，
         // 记入 errors 提示手动处置；文件保持原位不覆盖。
         errors.push(`${name}: 目标 工作区/${name} 已存在，防覆盖跳过，源文件滞留 写作/草稿/，请手动核对去留`)
@@ -140,7 +140,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     } catch {
       /* 读失败用 undefined */
     }
-    // /：回收站条目的 originalPath 取「迁移落点」——先走 forRead
+    // 回收站条目的 originalPath 取「迁移落点」——先走 forRead
     // 只读口径（跳过已定稿章/坏 fm 的 throw）拿到确定性落点，正式口径 throw 时回收站
     // 条目也记真实落点而非已退役的 写作/草稿/ 旧路径（restore 还原回退役目录即失明）。
     // forRead 意外失败保底退役路径（条目仍可还原，仅落点次优，不阻断迁移）。
@@ -192,7 +192,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
   // 入回收站的旧 path → 清除旧条目——草稿若曾登记，文件进 .trash 后 entry 悬挂指向
   // 退役目录 写作/草稿/，还原落点也在退役目录；对齐 doTrash「移文件成功后清清单条目」
   // 口径，与 pathRemap 同锁同轮收口）
-  // RMW 持 withManifestLock（/纪律）——防迁移期与 service/
+  // RMW 持 withManifestLock（纪律）——防迁移期与 service/
   // 其他迁移并发互覆盖丢 entry
   if (pathRemap.size > 0 || trashPaths.size > 0) {
     try {

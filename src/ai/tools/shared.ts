@@ -16,7 +16,7 @@ export function relFromBookRoot(bookRoot: string, absPath: string): string {
   return relative(bookRoot, absPath).split(sep).join('/')
 }
 
-/** 校验章号入参（正整数）；非法返回 null。（原 rewrite.ts/tree.ts 两份同体，精简批单源化。） */
+/** 校验章号入参（正整数）；非法返回 null。（原 rewrite.ts/tree.ts 两份同体精简批单源化。） */
 export function chapterInput(input: Record<string, unknown>): number | null {
   const chapter = Number(input['chapter'])
   return Number.isInteger(chapter) && chapter >= 1 ? chapter : null
@@ -32,7 +32,7 @@ export function chapterToDocId(bookRoot: string, chapter: number): string | null
   if (!hit?._path) return null
   const relPath = relFromBookRoot(bookRoot, hit._path)
   const manifest = readManifest(join(bookRoot, MANIFEST_FILE))
-  // （win 适配修复批）：join 键折叠——精确
+  // join 键折叠——精确
   // 比较在外部 case-only 改名（win）或 NFD 文件名（mac APFS 惯存分解形）后 miss，
   // 回落 legacyId(relPath)（新形态哈希）→ AI 章节结构工具（move/rename/copy/delete）
   // 拿到的 docId 服务层解析失败，操作硬败。主 UI 侧同场景已由 docJoinKey 收口

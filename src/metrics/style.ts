@@ -24,14 +24,14 @@ import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 import { yieldToEventLoop } from '../async.js'
-import { log } from '../log/index.js' // -源码：基线损坏 warn 留痕（对齐同目录 short-index ）
-// -（errMsg 收编）：错误摘要口径单源
+import { log } from '../log/index.js' // 源码：基线损坏 warn 留痕（对齐同目录 short-index）
+// （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
-// - nano ：import 移入头部 import 区（原先落在文件中部函数间，排版
+// nano：import 移入头部 import 区（原先落在文件中部函数间，排版
 // 违规；import 提升语义本就等价，纯移动零语义变化）。
 // 码点计数（代理对合 1 计）——原按「metrics→process→ai 成环」判
-// 本地同款； （修复批）单源下沉零依赖的
-// src/shared/text.ts 后成环顾虑消除，本处委托单源（/家族收编）。
+// 本地同款；优化单源下沉零依赖的
+// src/shared/text.ts 后成环顾虑消除，本处委托单源（家族收编）。
 import { codePointLength as charCountOf } from '../shared/text.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
@@ -47,7 +47,7 @@ export interface FullStyleStats extends StyleStats {
 }
 
 /** 基线指纹（文风方案 §5.2，byScene + overall）。version 1 持续兼容：字段只增不改，
- *  旧文件缺新字段（如的 charCount）由 coerceStats 容忍保留缺失语义。 */
+ * 旧文件缺新字段（如的 charCount）由 coerceStats 容忍保留缺失语义。 */
 interface StyleBaseline {
   version: number
   frozenAt: string
@@ -102,7 +102,7 @@ export function baselinePath(bookRoot: string): string {
 }
 
 /** 读铁律阈值 + 条目库禁词合并（收口：禁词知识在条目库，铁律瘦身为纯配置）；皆无 → 空规则。
- *  ：实现下沉 format/iron-rules.ts 单一真相源（check/runner 与本模块共用，
+ * 实现下沉 format/iron-rules.ts 单一真相源（check/runner 与本模块共用，
  *  原先 runner 用私有不合并版，迁移书禁词红项失效）——此处转发导出保持既有 import 兼容。 */
 export { readIronRules }
 
@@ -112,13 +112,13 @@ export { readIronRules }
  */
 // 章正文指纹缓存（文风重扫 scanChapters → readChapterBody 此前
 // 每次调用逐章整读全文零缓存——health/文风视图每开一次全书重读；改 stat 指纹缓存后
-// 未变章节零重读）。：私有缓存收敛进共享单源 fs/md-text-cache.ts
+// 未变章节零重读）。私有缓存收敛进共享单源 fs/md-text-cache.ts
 //（与 document/foreshadow.ts 同款双份驻留合并，check/leads 与 book_search 新
 // 消费方共用同一指纹表）；fm 剥离改读侧现剥（frontmatter-core splitFrontMatter 单源），
 // 降级口径逐字保持：读失败/无 fm/未闭合 fm → null（原 readFile !ok 同款）。
 
 /** 读章正文（带 stat 指纹缓存：未变 → 复用零读，变更/删除 → 重读或清条目）。
- *  ：metrics/short-index.ts 短篇集索引同走本缓存（原 readChapterDir
+ * metrics/short-index.ts 短篇集索引同走本缓存（原 readChapterDir
  *  includeBody 现读通道改为缓存 meta + 缓存 body）。 */
 export function readChapterBody(chapter: ChapterMeta): string | null {
   if (!chapter._path) return null
@@ -129,7 +129,7 @@ export function readChapterBody(chapter: ChapterMeta): string | null {
 }
 
 /** 句长方差（与 count.ts checkSentenceLength 同口径：按 。！？\n 切句算方差）。
- *  ：句长改码点口径（/同家族）——UTF-16 .length 对
+ * 句长改码点口径（同家族）——UTF-16 .length 对
  *  astral 字符一符计 2、句长虚高，与同文件 charCount（码点）及 count.ts 超长句判定
  *  单位分裂；基线与实时检查须同 metric 同单位。 */
 export function computeSentenceLenVariance(body: string): number {
@@ -148,7 +148,7 @@ export function computeRepeatRate(body: string): number {
 }
 
 /** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率）。
- *  ：附带 charCount 归一化因子（新冻结的基线随之持久化该字段）。 */
+ * 附带 charCount 归一化因子（新冻结的基线随之持久化该字段）。 */
 export function computeFullStats(body: string, rules: IronRules): FullStyleStats {
   return {
     ...computeStyleMetrics(body, rules),
@@ -184,7 +184,7 @@ export function scanChapters(bookRoot: string): ChapterSample[] {
 }
 
 // scanChapters 的异步孪生——读循环每 25 章让出一次事件循环。
-// 对齐（analysis.ts MISS 读循环）/（learn 章级让出）范式：health 缓存
+// 对齐（analysis.ts MISS 读循环）（learn 章级让出）范式：health 缓存
 // miss 与收割源2 挂在 HTTP 链上此前同步整树扫描，200 万字大书秒级冻结事件循环
 // （SSE 心跳/保存/全部 API 同停）。章正文读有 stat 指纹缓存，但 miss 首扫
 // 与逐章 computeFullStats 仍为热点。yield 原语单源于 src/async.ts（
@@ -203,7 +203,7 @@ export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample
   const samples: ChapterSample[] = []
   let scanned = 0
   for (const ch of chapters) {
-    if (finalizedKeys && ch._path && !finalizedKeys.has(docJoinKey(relative(bookRoot, ch._path)))) continue // 折叠键比较
+    if (finalizedKeys && ch._path && !finalizedKeys.has(docJoinKey(relative(bookRoot, ch._path)))) continue // 折叠键比较（relPathKey 已归一分隔符）
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
@@ -237,7 +237,7 @@ export function aggregateStyleTrend(
   // 短篇小样本不做趋势判定
   if (count >= SHORT_TREND_MIN) {
     // 对话标签占比：连续 N 章超 0.5（或基线对照值）报漂移
-    // 四轮-D402：基线对照值外包 0.99 上界——高基线书（基线 ≥0.77 → ×1.3 ≥1.0）时
+    // 基线对照值外包 0.99 上界——高基线书（基线 ≥0.77 → ×1.3 ≥1.0）时
     // 阈值不可达（严格 > 永不触发），漂移项被静默禁用；clamp 后恒有可达空间。
     const tagThreshold = baseline?.overall.dialogueTagRatio
       ? Math.min(Math.max(baseline.overall.dialogueTagRatio * 1.3, 0.5), 0.99)
@@ -320,7 +320,7 @@ function detectConsecutiveOver(
 // ── 基线冻结（#9）──────────────────────────────────
 
 /** 读基线；文件不存在 → null（重扫降级为仅绝对值）。
- *  -源码：存在但读/解析失败（坏 JSON、结构不符）不再与「无基线」同判
+ * 源码：存在但读/解析失败（坏 JSON、结构不符）不再与「无基线」同判
  *  零留痕——warn 带 bookRoot 与病因（基线损坏按无基线降级，文风对照约束将不生效，
  *  作者可归因；不存在路径仍静默 null = 正常未冻结）。 */
 export function readBaseline(bookRoot: string): StyleBaseline | null {
@@ -336,7 +336,7 @@ export function readBaseline(bookRoot: string): StyleBaseline | null {
 }
 
 /** 冻结基线：样章按场景算指纹 → 写 文风/基线.json（幂等覆盖）。
- *  条目库存在走样章条目（收口，迁移后唯一真相），否则旧样章库目录。
+ * 条目库存在走样章条目（收口，迁移后唯一真相），否则旧样章库目录。
  *  无有效样章 → 抛错不写文件（诚实，不伪装）。返回冻结的基线。 */
 export function freezeBaseline(bookRoot: string): StyleBaseline {
   const rules = readIronRules(bookRoot)

@@ -23,12 +23,12 @@ import { countWords } from '../../../format/words.js'
 import { bodyOf, splitFrontMatter } from '../../../format/frontmatter.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏；errMsg 三目收编
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // /：长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
+import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用
-import { log, errMsg } from '../../../log/index.js' // -：errMsg 三目收编
+import { log, errMsg } from '../../../log/index.js' // API 错误脱敏；errMsg 三目收编
 
 interface OutlineCtx extends TaskGateInjected {
   workDir: string | null
@@ -36,7 +36,7 @@ interface OutlineCtx extends TaskGateInjected {
 }
 
 /** 跑一次大纲生成（runSpec 统一编排）。C3promptFiles 随 llm/call promptMeta 登记。
- *  -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
+ * -①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
@@ -62,10 +62,10 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-      // （c 修复批）中断通道（owner='outline:<书名>'，
+      // 编排互斥预检 +任务闸（409 文案逐位保留）+
+      // -①中断通道（owner='outline:<书名>'，
       // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
-      // 收编 runGatedGeneration 单源（-，接法头注见 task-gate.ts）。
+      // 收编 runGatedGeneration 单源（接法头注见 task-gate.ts）。
       return ctx.gate.runGatedGeneration(
         res,
         {
@@ -83,7 +83,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
           const kind = readKind(bookRoot)
           // prompt 与注入源 files 同源产出——铁律①「模型可见⟺已记录」，
           // 总纲/设定/账本/前章/卷摘要全部真实注入源进 promptFiles（llm/call promptMeta.files）。
-          // 低-4userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
+          // 低-4：userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
           // 此前端点单独再调一次 volumeProgressOf 只登卷摘要（其余注入源零登记），且与
           // prompt 组装函数内部那次的两次读盘重复——一并收口为单次调用。
           const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
@@ -96,7 +96,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
           // 三行映射收编 replyGenerationFailure 单源。
           if (!result.ok) return replyGenerationFailure(res, result)
 
-          // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
+          // 平台：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
           const content = canonicalizeText(result.text)
           const outlineDir = join(bookRoot, '工作区')
           const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
@@ -131,7 +131,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
             mkdirSync(outlineDir, { recursive: true })
             atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
           } catch (e) {
-            // API 错误脱敏；-：errMsg 三目收编
+            // API 错误脱敏；errMsg 三目收编
             return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(errMsg(e))}`)
           }
           reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
@@ -142,7 +142,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 }
 
 /** buildOutlinePromptWithFiles 伴随 files——实际注入源清单（相对书根、注入序去重）。
- *  仿 draft-pipeline 的 DraftPrompt（模式）：铁律①「模型可见⟺已记录」——prompt 注入的
+ * 仿 draft-pipeline 的 DraftPrompt（模式）：铁律①「模型可见⟺已记录」——prompt 注入的
  *  每个来源文件都进 files（经 runSpec promptFiles → llm/call promptMeta.files 溯源）。
  *  只列真实入 prompt 的段：空段 = 该源未注入，不登记（promptMeta 可查「本次未注入」）。 */
 interface OutlinePrompt {
@@ -174,8 +174,8 @@ function openLeadSourceFilesOf(bookRoot: string): string[] {
 }
 
 /** 组 outline prompt:长篇(总纲+卷进展+前章+章细纲)/短篇(总纲+前章+章纲)分支
- *  低-4userDataPath 透传 volumeProgressOf（global 默认卷长托底）
- *  ：promptFiles 漏登注入源（只登卷摘要）——改 {prompt, files} 全源登记 */
+ * 低-4：userDataPath 透传 volumeProgressOf（global 默认卷长托底）
+ * promptFiles 漏登注入源（只登卷摘要）——改 {prompt, files} 全源登记 */
 export function buildOutlinePromptWithFiles(
   bookRoot: string,
   chapter: number,
@@ -340,7 +340,7 @@ export function volumeProgressOf(
   chapter: number,
   userDataPath: string | null = null,
 ): { section: string | null; file: string | null } {
-  // 低-4卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
+  // 低-4：卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
   // global.json defaultVolumeSize（与其他读配置口径对齐，见 state.ts/overview.ts 先例）；
   // 此前 raw 读 + `?? 50`，全局非 50 且书级未设时会按错卷长注入卷摘要
   // book.yaml 损坏静默降级留痕（对齐 state.ts 口径）——

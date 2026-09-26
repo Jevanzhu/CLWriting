@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 审计 · 遮蔽差异面板（hh §八-16 自 AuditView.vue 拆出，纯搬家）。
- * 「模型可见 vs 人类可见（含遮蔽）」对照—— 审计核心：展示遮蔽口径的差异面。
+ * 「模型可见 vs 人类可见（含遮蔽）」对照——审计核心：展示遮蔽口径的差异面。
  */
 import { ref, computed } from 'vue'
 import { Eye, EyeOff, User, Bot } from 'lucide-vue-next'
@@ -30,7 +30,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 // -（全量代码）：节点列表渲染无上限——长会话全量挂 DOM。
 // 对齐 CommandPalette RENDER_CAP=100 域内惯例：数据面不动，只裁渲染面前 100 条 +
 // 尾部省略提示行（与 RewritePanel 同批同口径）。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 </script>

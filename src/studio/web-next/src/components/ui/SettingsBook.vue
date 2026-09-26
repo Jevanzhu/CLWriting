@@ -15,7 +15,7 @@ import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
-import { migrateBookKeyedState } from '../../composables/useShelf' // 改名迁移按书键控状态
+import { migrateBookKeyedState } from '../../composables/useShelf' // 改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { usePrefsStore } from '../../stores/prefs'
@@ -57,7 +57,7 @@ function onAsInput(v: number): void {
 // 书级 num-input（range 配套数字输入）改共享 helper + 组件层钳制——此前
 // `Number('')===0` 穿透直写 prefs.bookPageWidth（store 的 bookOnly 分支无钳制），
 // apply 落 `--page-width: 0px` 页宽当场塌掉；空串/非数字不写，合法值钳到滑杆
-// 同款 min/max（纸宽 600-1400、间隔 5-120）。 五处组件已接 helper，此处是唯一漏点
+// 同款 min/max（纸宽 600-1400、间隔 5-120）。五处组件已接 helper，此处是唯一漏点
 function onPfwNumChange(e: Event): void {
   const v = parseNumericInput(e)
   if (v === null) return
@@ -115,7 +115,7 @@ watch(
   { immediate: true },
 )
 
-// （二十四轮 E 域）：改名在途锁——改名是重操作（冲排 + 目录/登记/active 搬家 +
+// 改名在途锁——改名是重操作（冲排 + 目录/登记/active 搬家 +
 // 事件库迁移），二连发（连点回车/双 change）时第二笔在第一笔进行中对旧名发起 renameBook，
 // 必然 404 或撞半途态（数据无损、体验受损）。在途直接吞掉：成功路径会 router.replace 到
 // 新名整树重挂，输入框随 watch 重载对齐，无需额外提示。
@@ -140,7 +140,7 @@ async function doBookTitleChange(): Promise<void> {
   }
   if (next === titleBaseline.value) return
   // 带未决冲突的脏文档不在 flushDirty 清单内（doc store 过滤 conflict 项）也不落盘
-  // ——放行改名后 「留在本书」回退到已搬走的旧书目录，树/心跳/保存全 404。前置拦截。
+  // ——放行改名后「留在本书」回退到已搬走的旧书目录，树/心跳/保存全 404。前置拦截。
   const conflicted = doc.conflictedDirtyDocs()
   if (conflicted.length > 0) {
     ui.toast(`有 ${conflicted.length} 篇文档存在未解决的修改冲突，请先处理（重载或覆盖）后再改名`, 'error')

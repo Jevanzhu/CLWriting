@@ -352,7 +352,7 @@ export function selectReviewTier(input: {
 }
 
 /** 合并满审 / 顺序审的多份 issue：同 lens/category/location 去重，取最严。
- *  ：去重键纳入 issue 摘要——同位置的两条不同问题（如「动机断裂」
+ * 去重键纳入 issue 摘要——同位置的两条不同问题（如「动机断裂」
  *  与「时间线矛盾」都在同一段落）此前共用一键，后到条只把 issue/fix 文本丢成空合并
  *  （existing 非空时 `if (existing.issue === '')` 不触发），第二条问题整条蒸发。
  *  现按「同位置且同一句问题描述」才判同一问题合并（severity 取最严/evidence 并集/
@@ -373,7 +373,7 @@ export function aggregateReviewIssues(issues: ReviewIssue[]): ReviewIssue[] {
     }
     existing.blocking = Boolean(existing.blocking || issue.blocking)
     existing.evidence = uniq([...existing.evidence, ...issue.evidence].map((item) => item.trim()).filter(Boolean))
-    // （四轮处置批）：issue 补填行删除——去重键已含 issue.trim，
+    // issue 补填行删除——去重键已含 issue.trim()，
     // 合并双方 issue 文本恒相等，「existing 空且新条非空」恒不可达（死条件）；
     // fix 不在键内，一空一实可达，补填保留。
     if (existing.fix.trim() === '' && issue.fix.trim() !== '') existing.fix = issue.fix

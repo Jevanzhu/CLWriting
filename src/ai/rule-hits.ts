@@ -5,8 +5,8 @@
  * 不是 AI 调用日志，分开存更干净）。
  *
  * 用途：
- * - 统计：trace-stats 聚合透出（工作台可见高频违规）
- * - 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
+ * 统计：trace-stats 聚合透出（工作台可见高频违规）
+ * 前置：写稿 TaskSpec 组装 prompt 时读 Top-N 高频违规注入预防指令
  */
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -52,7 +52,7 @@ function readHits(bookRoot: string): RuleHitsMap {
 
 /** rule-hits 跨进程锁等待超时（毫秒）——可注入缩短保测试快；
  *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls ）。
- *  ：常量化（journal.ts 同口径）——export let 可被任一
+ * 常量化（journal.ts 同口径）——export let 可被任一
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 
@@ -60,14 +60,14 @@ const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 export const [getRuleHitsLockTimeoutMs, __setRuleHitsLockTimeoutForTest] = testableConst(RULE_HITS_LOCK_TIMEOUT_MS)
 
 /** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
- *  ：task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
+ * task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
  *  author-signal 作者删除信号/self-heal 重写前收集）共用，事件载荷 task 原硬编码
  *  'check'，作者信号与自愈链命中被误归因到 check 任务（按任务聚合 rule/hit 口径失真）。
- *  ：读改写整段进跨进程锁（.cache/rule-hits.json.lock，同款）——
+ * 读改写整段进跨进程锁（.cache/rule-hits.json.lock 同款）——
  *  原并发说明只覆盖进程内（同步段单线程天然原子）；CLI 机检与桌面端并发命中同书时
  *  双进程 RMW 交错覆盖丢计数。锁超时按观测层口径降级：warn 留痕跳过文件统计，
  *  事件双写（单一事实源）照常。
- *  ：锁等待异步化（acquireCrossProcessLockAsync，calls.ts
+ * 锁等待异步化（acquireCrossProcessLockAsync，calls.ts
  *  同口径）——本函数位于 draft-save/self-heal 热路径，同步 Atomics.wait 微睡会在双
  *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
 export async function recordRuleHits(
@@ -96,7 +96,7 @@ export async function recordRuleHits(
         atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
       } catch (e) {
         // 统计是旁路，不影响主流程；但不再空吞——warn 留痕含病因（对齐
-        // prompts/resource.ts 单文件失败 warn 留痕先例； 通用-3）
+        // prompts/resource.ts 单文件失败 warn 留痕先例；mac适配 通用-3）
         log.warn('rule-hits', `rule-hits 落盘失败，本轮文件统计未记（观测层降级；事件双写照常）：${errMsg(e)}`)
       }
     } finally {
@@ -144,7 +144,7 @@ function isRuleHitEntry(v: unknown): v is RuleHitEntry {
   )
 }
 
-/** 读规则命中统计（按 hits 降序）。：出口逐条形状校验，坏条目跳过 + warn 留痕。 */
+/** 读规则命中统计（按 hits 降序）。出口逐条形状校验，坏条目跳过 + warn 留痕。 */
 export function readRuleHits(bookRoot: string): RuleHitEntry[] {
   const out: RuleHitEntry[] = []
   for (const [key, entry] of Object.entries(readHits(bookRoot))) {

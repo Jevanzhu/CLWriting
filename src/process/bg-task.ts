@@ -1,6 +1,6 @@
 /**
- * （修复批）：后台 AI 任务的独立中断通道——（
- * 评审修复批）自 process/summary.ts 独立成模块。
+ * 后台 AI 任务的独立中断通道——（
+ *）自 process/summary.ts 独立成模块。
  *
  * 起因：runRegisteredBgTask 原居 process/summary.ts（章/卷摘要生成器），但它是**通用
  * 编排原语**（摘要钩子之外的 self-heal 账本推进草稿同用）——消费方从 summary.js 引它，

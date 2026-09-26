@@ -23,7 +23,7 @@ const emit = defineEmits<{
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-// （修复批）：确认弹窗 chips 全量渲染防 DOM 膨胀（批量全选
+// 确认弹窗 chips 全量渲染防 DOM 膨胀（批量全选
 // 千本级时逐名渲染）——前 CHIP_CAP 个 + 尾部「…等 N 部」聚合 chip；顶部计数文案
 // 已是全量（「以下 N 本书」），所见与所删总数认知不受裁剪影响。
 const CHIP_CAP = 50

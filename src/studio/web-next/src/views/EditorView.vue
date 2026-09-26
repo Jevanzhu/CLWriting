@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 文档编辑视图：单行路径式顶栏（面包屑→标题合为一条，720px 居中对齐正文）+ CM6 正文。
-// 巨石批 7b 拆分：顶栏整卡 → components/editor/EditorDocHead（标题编辑 v-model 双向），
+// 7b 拆分：顶栏整卡 → components/editor/EditorDocHead（标题编辑 v-model 双向），
 // AI 辅助指令表/执行器 → composables/useAiAssist（顶栏按钮与右键菜单双消费）；
 // 本文件留正文编辑（CmHost/正文 fm 剥离）、右键菜单、自动保存与文档打开编排。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -79,7 +79,7 @@ const body = computed(() => {
   return split.body.replace(/^\n/, '')
 })
 function commitBodyWriteback(docId: string, next: string): void {
-  // （Opus-5.5 轮）③：条目按登记时的 docId 解析——切档后本组件
+  // ③：条目按登记时的 docId 解析——切档后本组件
   // entry 已指向新档（props.docId 已变），照 entry.value 合并回写会把旧档正文整段
   // 写进新档（同型跨档污染）。doc.get(docId) 与 entry.value 在「同档在编」
   // 时是同一对象，语义同改前；条目已被删/弃（doc.discard、LRU 驱逐、404 清理）时
@@ -99,24 +99,24 @@ function commitBodyWriteback(docId: string, next: string): void {
     doc.patch(e.docId, merged)
     return
   }
-  // 批2-B 批2-B）：删除时代 `next.startsWith('\n')` 的
-  // 补笔兜底分支—— 起编辑路径不剥前导后，落至此处即 merged === e.content，而该
+  // B）：删除时代 `next.startsWith('\n')` 的
+  // 补笔兜底分支——起编辑路径不剥前导后，落至此处即 merged === e.content，而该
   // 分支构造串 `---\n${fmRaw}\n---\n\n${next}` 与 mergeFm(e.content, next,
   // { stripLeading: false }) 逐字节同构（同源 splitFrontmatter + 同模板），patch 同串
   // 恒为 no-op（doc.patch 对同内容早退），纯死代码。
 }
 
-// （Opus-5.5 轮）：每次按键的正文回写改「登记 + 200ms 尾随节流」，
+// 每次按键的正文回写改「登记 + 200ms 尾随节流」，
 // 到点才跑上面的 mergeFm + doc.patch（见 shared/body-writeback.ts 头注：不变量与窗口
 // 取舍）。改前每个按键都在同步输入栈内跑全文 mergeFm/patch/body 重切/CmHost 全等回比；
-// 改后每按键只剩 CmHost 侧一次 doc.toString（已钉的单遍），全量合并按窗口摊薄。
+// 改后每按键只剩 CmHost 侧一次 doc.toString()（已钉的单遍），全量合并按窗口摊薄。
 function onBodyChange(next: string): void {
   const e = entry.value
   if (!e) return
   scheduleBodyWriteback(e.docId, next)
 }
 
-// （Opus-5.5 轮）②：切档前先落防抖尾——props.docId 一变就同步冲刷，
+// ②：切档前先落防抖尾——props.docId 一变就同步冲刷，
 // 早于子层 CmHost 的切档全量替换与本组件 entry 切换后的任何消费；不冲刷则末尾一个
 // 窗口的键入随切档静默丢失（红线：编辑永不静默丢失）。用 flush:'sync' 而非默认 pre：
 // sync 在 props 落定瞬间执行，判据只看槽内 docId（见 shared/body-writeback.ts 头注③），
@@ -248,7 +248,7 @@ async function onCtxSelect(key: string): Promise<void> {
 function tryConsumeInsert(): void {
   const cmd = ws.pendingInsert
   if (!cmd || !cmHost.value) return
-  // 一次性令牌 consume——挂载/落位多口补消费并存时重复消费得
+  // 一次性令牌 consume()——挂载/落位多口补消费并存时重复消费得
   // null，天然幂等；仅插入成功才占消费权（cmHost 缺位不 consume，令牌留槽等下次）
   const text = cmd.consume()
   if (text === null) return
@@ -283,7 +283,7 @@ watch(
   { immediate: true },
 )
 
-// -mac适配：全局查找入口（系统菜单「查找…」/ ⌘F 经 useAppActions 与
+// mac适配：全局查找入口（系统菜单「查找…」/ ⌘F 经 useAppActions 与
 // useHotkeys 派发 APP_FIND_EVENT）桥接到本视图——复用右键菜单 'find' 同一条
 // cmHost.openSearch 路径（openSearchPanel 幂等，已开面板不重复弹层）；无活动文档时
 // cmHost 为 null 可选链短路，安全 no-op。
@@ -300,7 +300,7 @@ onMounted(() => {
     getSelection: () => cmHost.value?.getSelection() ?? '',
     getCursorOffset: () => cmHost.value?.getCursorOffset() ?? null,
   })
-  // （Opus-5.5 轮）：正文回写执行体注册（mergeFm + doc.patch 的落回
+  // 正文回写执行体注册（mergeFm + doc.patch 的落回
   // 入口，见 shared/body-writeback.ts 头注）——本组件在场期间按键回写走 200ms 防抖窗
   registerBodyWriteback(commitBodyWriteback)
   // 低级项：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
@@ -308,7 +308,7 @@ onMounted(() => {
   window.addEventListener(APP_FIND_EVENT, onAppFind)
 })
 onUnmounted(() => {
-  // （Opus-5.5 轮）②：卸载（切到工作台/总览等视图）先落防抖尾，
+  // ②：卸载（切到工作台/总览等视图）先落防抖尾，
   // 否则末尾一个窗口的键入随组件销毁静默丢失；落回用槽内 docId，不依赖本组件 props。
   // 序：flush 先于注销——注销会丢弃未落槽（registerBodyWriteback(null) 的既定语义）
   flushBodyWriteback()

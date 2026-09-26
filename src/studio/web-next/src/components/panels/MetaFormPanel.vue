@@ -157,7 +157,7 @@ const { fields: fmFields } = useDebouncedFmFields(
 
 watch(
   // doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
-  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。 起
+  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。起
   // 解析源换防抖 fmFields（content 变化进 150ms 防抖窗，同文档回填延迟一拍）；
   // entry 引用变化（切文档）仍即刻分辨走整体重灌分支。
   [entry, fmFields],
@@ -169,7 +169,7 @@ watch(
       lastDirty = false
       return
     }
-    // （四十八轮，合并批收编）：dirty true→false 且 entry 未换 = 本地已被丢弃/
+    // （合并批收编）：dirty true→false 且 entry 未换 = 本地已被丢弃/
     // 落定（conflict 重载或保存成功），脏键不再权威（重载已把本地丢弃，保脏键会把已弃
     // 旧值写回），走整体重灌。源随用防抖 fmFields（原 debContent 实现同功）。
     const localDiscarded = lastDirty && !e.dirty
@@ -333,7 +333,7 @@ async function onSave(): Promise<void> {
           :class="['field-input', { 'field-input-err': numErrors[f.key] }]"
           @input="delete numErrors[f.key]"
         />
-        <!-- ：数值字段非法输入的字段级错误（保存中止时标记，改正输入即清除） -->
+        <!-- 数值字段非法输入的字段级错误（保存中止时标记，改正输入即清除） -->
         <div v-if="numErrors[f.key]" class="field-err-msg">{{ numErrors[f.key] }}</div>
       </div>
       <button class="save-btn" :disabled="saving" @click="onSave">

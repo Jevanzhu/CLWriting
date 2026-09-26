@@ -35,8 +35,8 @@ const BUDGET_PARSE_ORDER = [
 
 /** 短篇 budget 段输出判定——条件键三键（calls + 双口径 tokens/cost）
  *  任一已设即输出段；全未设整段省略（缺省语义，回落运行时合并层）。此前外层条件只认
- *  calls_per_chapter，短篇仅设 tokens/cost_per_chapter（批 5 起合法）时整段丢失。
- *  ：chat_max_calls 并入判定（短篇只设该键时同样不得整段丢失）。 */
+ * calls_per_chapter，短篇仅设 tokens/cost_per_chapter（起合法）时整段丢失。
+ * chat_max_calls 并入判定（短篇只设该键时同样不得整段丢失）。 */
 function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
   return (
     budget.calls_per_chapter !== undefined ||
@@ -46,11 +46,11 @@ function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
   )
 }
 
-// ── ：book.yaml 键 schema 表（三面单源）────────
+// ──：book.yaml 键 schema 表（三面单源）────────
 //
 // 同一份键清单此前三处各写一遍：sectionsToConfig（逐段 findChild+parse+warn 手写）、
 // stringifyBookConfig（逐键条件落行）、CONFIG_PATCH_LEAVES（补丁白名单登记表）——
-// 历史两次实证漏登事故（1068 ++ 双口径/开关/深度键、:1096 机检阈值
+// 历史两次实证漏登事故（1068 双口径/开关/深度键、1096 机检阈值
 // 五键：parse/stringify 已收而补丁白名单漏登，PUT /config 改键静默不落盘）。现收敛
 // 为单一 schema 表：每键一行 {parse, emit, get}，三面全部从表派生，新增键只触一行。
 // 三面间微差如实参数化不抹平：
@@ -96,7 +96,7 @@ interface ConfigSectionSpec {
 
 // ── 键行 parse 面工厂（语义与 warn 文案逐字抄录自原 sectionsToConfig 实现）──
 
-/** （二十四轮 B 域）正数语义键族（预算/阈值/批量）：空值/非正数拒收——`key:`
+/** 正数语义键族（预算/阈值/批量）：空值/非正数拒收——`key:`
  *  写空经 parseValue('')→Number('')=0 混过 isFinite 静默落 0（预算 0 = 每次调用都超限、
  *  阈值 0 = 全量误报，语义荒谬但消费侧无从区分），与非正数一并拒收（undefined = 未设，
  *  回落全局链），warn 留痕。 */
@@ -110,9 +110,9 @@ const positiveNumParse =
 
 /** budget.chat_max_calls 专用 fail-closed parse——非法值不得按「未设」放行
  *  （该键缺省 = 不限，坏值静默归未设会把配置错误放大成无界调用），warn 留痕后落 0：
- *  闸侧 0 = 「一次都不许调」（显式 0 同语义），宁拦勿放。显式写 0 与坏值在此
+ * 闸侧 0 = 「一次都不许调」（显式 0 同语义），宁拦勿放。显式写 0 与坏值在此
  *  同归 0（warn 文案已说明阻断后果），闸侧无需区分两种来源。
- *  随批评审夹紧（五轮处置批评审 nano-2，作者指令「修掉」）：次数口径键
+ * 随批评审夹紧：次数口径键
  *  只收正整数——正小数（0.5 等）此前直穿（parsePositiveNumber 只验 >0），实效
  *  ⌈0.5⌉=1 次系安全方向怪形；与姊妹键 repeat_chars_threshold 消费点夹紧（本批评审
  *  前16-6-nano-1）同族收口，非正整数同走 fail-closed 落 0。 */
@@ -156,7 +156,7 @@ const shortArrParse =
   }
 
 /** short 段数值键族——坏值不再静默丢弃，warn 留痕（对齐 budget/
- *  bool 键的 /留痕模式——「配置写了但不生效」此前无迹可查）。
+ * bool 键的留痕模式——「配置写了但不生效」此前无迹可查）。
  *  opening_env_chars 特殊语义：显式 0 = 关闭「开头零环境」检查（与「未设 = 默认 300」
  *  区分，读侧 runner 据此跳过检查）；写空（`opening_env_chars:`）不是显式 0——
  *  parseValue('')→Number('')=0 会冒充关检，按未设处理 + warn。 */
@@ -229,7 +229,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
     keys: [
       {
         key: 'title',
-        // 0914 空串归一对齐 genre 先例（`title: ''` 是空占位，与
+        // 空串归一对齐 genre 先例（`title: ''` 是空占位，与
         // 「没写」同义，不写穿 bucket）——book 段起步值 DEFAULT_CONFIG.book.title 本为
         // ''，parse 面归一零观察差；get 面归一（'' → undefined）对齐 patchBookConfigText
         // 的 leafEquals 差分口径（显式清空 = 删行，与 genre 同语义；API 层对 PUT 空
@@ -271,7 +271,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       },
       {
         key: 'target_words',
-        // 同 volume_size
+        // 同 volume_size（空值经 parseFiniteNumber 落 0，同样进 warn 分支——
         parse: (node, ctx) => {
           const targetWords = parseFiniteNumber(node.value, NaN)
           if (Number.isFinite(targetWords) && targetWords > 0) ctx.bucket.target_words = targetWords
@@ -329,7 +329,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       },
       {
         // thresholds 子键为动态账本类名（无法逐键预枚举 findChild），
-        // 就地镜像 findChild 的重复判定——段内同名子键此前按遍历序后值静默
+        // 就地镜像 findChild的重复判定——段内同名子键此前按遍历序后值静默
         // 覆盖前值，现 fail-loud（dupChildError 同一文案，经 parseBookConfig 捕获转错误信封）。
         // patch 面为特例块（patchBookConfigText thresholds 专用分支），无叶键 get。
         key: 'thresholds',
@@ -341,7 +341,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
               throw dupChildError(node, c.key)
             }
             seen.add(c.key)
-            // （二十四轮 B 域）：空值/非正数拒收——`复读率:` 写空经 parseValue('')→
+            // 空值/非正数拒收——`复读率:` 写空经 parseValue('')→
             // Number('')=0 混过 isFinite 静默落 0（阈值 0 = 全量误报），与「未设」语义
             // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
             const num = parsePositiveNumber(c.value)
@@ -443,7 +443,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       {
         // 摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定
         // 现状）。显式布尔落 cfg（写侧序列化保真，round-trip 不归一）。parseValue 不产出
-        // 布尔——：收口 parseStrictBool（yes/on/1/True 同义收，非法值
+        // 布尔——收口 parseStrictBool（yes/on/1/True 同义收，非法值
         // warn + 按未设 = 不设键回落全局链）
         key: 'auto',
         parse: strictBoolParse('auto', 'summary.auto'),
@@ -492,7 +492,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         get: (c) => c.short?.series_motifs,
       },
       {
-        // parseStrictBool 收口（原 `String === 'true'` 把 strict: yes
+        // parseStrictBool 收口（原 `String() === 'true'` 把 strict: yes
         // 解析成 false 反向开关）；非法值 warn + 按未设（回落 defaultShortStrict 托底链）。
         // 全局托底：显式 false 也照写（roundtrip 零 diff 红线——此前只写 true，
         // `strict: false` 旧文件重存会丢行；未设不输出）
@@ -589,7 +589,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         // 无正值校验——`realm_span_max: 0`/负数此前原样落 cfg，
         // checkGrowth 的跨度检查（idx-prevIdx > 0 恒真）会让一切正常晋阶报红；
         // 非数字/非正数一律 fail-loud 产可读错误（parseBookConfig 捕获转错误信封，
-        // 对齐顶层段重复 的 fail-loud 口径）
+        // 对齐顶层段重复的 fail-loud 口径）
         key: 'realm_span_max',
         parse: (node, ctx) => {
           const v = parseFiniteNumber(node.value, NaN)
@@ -808,9 +808,9 @@ export function parseSectionSpec(spec: ConfigSectionSpec, sectionNode: RawSectio
   }
 }
 
-/** / ——原 sectionsToConfig 闭包上提模块级
- *  （表驱动三面共用，语义与文案逐字不变）：段内子键重复 fail-loud（顶层段重复
- *  已 fail-loud〔 〕，但段内同名子键 find 静默取首〔作者复制粘贴出两个
+/** ——原 sectionsToConfig 闭包上提模块级
+ * （表驱动三面共用，语义与文案逐字不变）：段内子键重复 fail-loud（顶层段重复
+ * 已 fail-loud〔〕，但段内同名子键 find 静默取首〔作者复制粘贴出两个
  *  `genre:` 时后值无声丢失〕，同文件两种容错策略口径统一为「宁可红不可错」）；
  *  报错文案收口 dupChildError 单源（budget / leads.thresholds 两段同口径复用同一
  *  文案模板，不自创第三种报错形态）。 */
@@ -831,7 +831,7 @@ export function parseFiniteNumber(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-/** （二十四轮 B 域）：正数语义字段（预算/阈值/批量）专用——空值键（`key:` 写空）
+/** 正数语义字段（预算/阈值/批量）专用——空值键（`key:` 写空）
  *  经 parseValue('')→Number('')=0 混过 isFinite 静默落 0，与非正数一并拒收（返回
  *  undefined = 未设，回落全局链）。与 snapshots max_days/max_count 的 v>0 收门口径
  *  同源，warn 留痕由调用方负责（区分键名）。 */

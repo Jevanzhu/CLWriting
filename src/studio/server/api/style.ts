@@ -46,7 +46,7 @@ interface StyleCtx extends TaskGateInjected {
   userDataPath: string | null
 }
 
-/** 服务端今天（候选 创建/过期口径统一在服务端）。（二十四轮 D 域）：改本地日
+/** 服务端今天（候选 创建/过期口径统一在服务端）。改本地日
  *  ——此前 UTC 切日，东八区 0-8 点确认/忽略的候选记到前一 UTC 日，与 overview 热力图/
  *  日记/成本分桶（localDayKey）打架；口径统一走 log/index 同一函数。 */
 function today(): string {
@@ -67,7 +67,7 @@ function insideDir(rel: string, dir: string): boolean {
   // 合法条目（safe-path 口径合法，如 `条目/a..b.md`）误杀成 400（删/确认/忽略全不可
   // 用，fail-closed 方向安全但与 safe-path.ts 段级口径漂移）；穿越只可能由独立的
   // 「..」段构成，下方 resolveWithinRoot 仍兜底双侧 realpath。
-  // （win 适配修复批）：先归一反斜杠再切段——
+  // 先归一反斜杠再切段——
   // 原实现只按 '/' 切段，win 上 `文风/条目/..\..\设定\x.md` 的 `..` 段（以 \ 分隔）
   // 不被识别而放行；resolveWithinRoot 的 resolve 把 \ 当分隔符折叠后仍在书内 → 同样
   // 放行，「限 条目/候选/ 内」的端点契约失守（可删/搬/写目录以外的书内文件，不越书
@@ -78,7 +78,7 @@ function insideDir(rel: string, dir: string): boolean {
   return norm.startsWith(`${dir}/`) && !norm.split('/').includes('..') && !norm.includes('\0') && !isAbsolute(norm)
 }
 
-// ── （GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// ──：非闸书级写端点的临界段书注册重验 ──
 // 本文件四个写端点（entries 新增/删除、候选确认/忽略）均无任务闸——重验竞态时序与
 // 防线形态单源见 book-context.ts 头注（起四处本地拷贝
 // 收敛，直接调用单源 bookMovedFailure）。同文件同步 handler（entries.get 迁移 /
@@ -86,7 +86,7 @@ function insideDir(rel: string, dir: string): boolean {
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
-  //（SRV-· 机械批：双行样板随收编 resolveBookOrReply 单源）
+  //（SRV-·：双行样板随收编 resolveBookOrReply 单源）
   const resolveStyleBook = (res: ServerResponse, params: Record<string, string | undefined>): string | null => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     return r ? r.bookRoot : null
@@ -173,7 +173,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
       const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
-      // 批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
+      // 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
       // （防 entry.path 中间组件是符号链接 → rmSync 删到书库外；realpath 抛 → fail-closed 拒删）
       const safe = resolveWithinRoot(bookRoot, p)
       if (!safe) {
@@ -181,7 +181,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       }
       // 目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
       // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
-      // （总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
+      // 条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
       // 幂等删除按不存在处理（stat 失败 → recursive:false，force 的 rmSync 对不存在
       // 路径本就无害 no-op，重复 DELETE 200 与 rmSync force 语义一致）
       let recursive = false
@@ -238,7 +238,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       // 补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
-      // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
+      // 书库；confirm 会搬文件/写盘，与 entries.统一口径（realpath 抛 → 拒绝）
       if (!resolveWithinRoot(bookRoot, p)) {
         return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
       }
@@ -266,7 +266,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       // readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
       const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
-      // 同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
+      // 同 confirm——ignore 落盘留档也补 symlink 防穿越（统一口径）
       if (!resolveWithinRoot(bookRoot, p)) {
         return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
       }
@@ -281,7 +281,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.harvest', {
     method: 'POST',
     path: '/api/books/:name/style/harvest',
-    // 延伸切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
+    // 延伸：切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
     // + 有界超时），git 无响应不再同步阻塞事件循环最长 15s
     // 补任务闸（learn 同族）——零 AI 但整树扫描 + 落盘候选箱，
     // 重复点击双跑双扫互踩查重闸口径；acquireTaskGate 同款 409 BUSY（action 已登记

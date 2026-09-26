@@ -80,7 +80,7 @@ const tabComponents = {
 }
 const currentTabComponent = computed(() => tabComponents[activeTab.value])
 
-// ── saveConfig（串行化读写 book.yaml）──
+// 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
 /** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。
  * 串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
  * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。
@@ -115,7 +115,7 @@ function onKeydown(e: KeyboardEvent): void {
   // 通用判据（上层消费后本层不得再动作），首行短路即可封回。
   if (e.defaultPrevented) return
   if (e.key !== 'Escape' || !ui.settingsOpen) return
-  // IME 组合期让渡（对齐 CommandPalette ）——组合期收候选的
+  // IME 组合期让渡（对齐 CommandPalette）——组合期收候选的
   // Esc 不应连带关闭设置弹层
   if (isImeComposing(e)) return
   if (ui.confirmState) return
@@ -134,7 +134,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持 -->
     <ModalMask :open="ui.settingsOpen" kind="settings" @mask-click="ui.closeSettings">
       <div
         v-if="contentReady"

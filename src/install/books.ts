@@ -1,7 +1,7 @@
 /**
  * books.jsonl 登记 + 活动书 —— 依据 #32。
  *
- * – 既有命令从「单书 cwd」走向「工作目录多书」的核心接缝：
+ * 既有命令从「单书 cwd」走向「工作目录多书」的核心接缝：
  * - books.jsonl 登记有哪些书；.clwriting/active 指当前哪本（指针，换书只改它）
  *
  * （⑤④产品拆分波1）：本文件纯移动拆分——缝 B（工作目录定位/
@@ -10,7 +10,7 @@
  * 书名校验（BOOK_NAME_* / isInvalidBookName）。两新模块的既有导出经文件尾逐名
  * re-export 桥接，全库 import 面不动；零行为变化。
  *
- * （评审修复批）：登记读写 + 锁（BOOKS_FILE/CLWRITING_DIR/
+ * 登记读写 + 锁（BOOKS_FILE/CLWRITING_DIR/
  * KIND_DIRS/BookEntry/readBooksStrict/readBooks/writeBooks/tryBooksLock(Async) 与
  * 超时档）再下沉 books-store.ts（中立模块，不引同域任何文件）——拆分波1 的两处
  * re-export 桥使 books ↔ books-repair ↔ books-resolve 三文件互引成环（repair/resolve
@@ -22,8 +22,8 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { samePhysicalPath } from '../fs/user-data-path.js' // /登记目录占用判重（dev+ino 物理身份，stat 失败回退 samePath）
-import { errMsg, log } from '../log/index.js' // errMsg 收编错误文案三目单源
+import { samePhysicalPath } from '../fs/user-data-path.js' // 登记目录占用判重（dev+ino 物理身份，stat 失败回退 samePath）
+import { errMsg, log } from '../log/index.js' // errMsg 收编：错误文案三目单源
 // 存储层（常量 / 解析缓存 / 读写 / 跨进程登记锁）下沉中立模块——
 // 同域三个文件（本文件 / books-repair / books-resolve）由此单向向下依赖，环解开
 import {
@@ -62,7 +62,7 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
 export const BOOK_NAME_MAX_BYTES = 120
 
 /**
- * 书名非法的面向用户拒绝文案单源isInvalidBookName 各
+ * 书名非法的面向用户拒绝文案单源：isInvalidBookName 各
  * 消费点（doInit 逻辑层 / server 建书与改名）共用，含 win 非法字符全集与跨平台
  * 原因披露。行为面维持跨平台硬拒不变（数据面对称系有意设计，见 isInvalidBookName
  * 内注）——仅文案向作者说明「为何 mac 上也拦 win 字符」。
@@ -94,26 +94,26 @@ export function isInvalidBookName(name: string): boolean {
   return /[.\s]$/.test(name)
 }
 
-// ── 指纹缓存的读 path / 写 path / books.lock 互斥 ────────────────────
+// ──指纹缓存的读 path / 写 path / books.lock 互斥 ────────────────────
 // 解析缓存、读写（readBooksStrict / readBooks / writeBooks）、
-// 登记锁（BOOKS_LOCK_TIMEOUT_MS / tryBooksLock / tryBooksLockAsync，
-// ）与常量（BOOKS_FILE / CLWRITING_DIR / KIND_DIRS）整体下沉 books-store.ts
+// 登记锁（BOOKS_LOCK_TIMEOUT_MS / tryBooksLock / tryBooksLockAsync/
+//）与常量（BOOKS_FILE / CLWRITING_DIR / KIND_DIRS）整体下沉 books-store.ts
 // （中立模块）——同域拆出的 books-repair / books-resolve 与本文件由此单向向下依赖。
-// 实现与沿革注释随代码走（含 DA-3 拒写 / stat 分诊 / BOM / 浅拷贝
+// 实现与沿革注释随代码走（含拒写 stat 分诊 BOM 浅拷贝
 // 纪律），本文件不再持副本。
 
 /** 追加一本书到 books.jsonl（同名/目录占用则报冲突）。
- *  0918二轮修复批（G104）：active 指针随登记在**同一 books.lock 临界段**内写——
+ * active 指针随登记在**同一 books.lock 临界段**内写——
  *  此前 appendBook 只登记、writeActive 由调用方（doInit/doInitAsync）在锁外裸写，
  *  双进程并发建书时两个「登记→切指针」段交错，active 被先释放锁的一方事后覆盖
  *  （最后写者胜，指针指向非最后完成的书）。生产调用面（doInit/doInitAsync 两孪生）
  *  全部是「建书即切活动书」语义（grep 核实无「只登记不切 active」调用点），故
- *  无条件写入不加选项参数。active 写失败按口径报「已建成并登记成功，但
+ * 无条件写入不加选项参数。active 写失败按口径报「已建成并登记成功，但
  *  设置当前活动书失败」（登记在盘，从书架手动启用即可）。 */
 export function appendBook(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
   // 读改写整段进跨进程锁——CLI 与桌面并发建书不交错覆盖丢登记
-  // /GUI 建书端点与 CLI 建书统一走下方异步孪生 appendBookAsync
-  //（本同步版保留供 CLI 残余/测试合法同步面， 窄面登记口径）
+  // GUI 建书端点与 CLI 建书统一走下方异步孪生 appendBookAsync
+  //（本同步版保留供 CLI 残余/测试合法同步面窄面登记口径）
   const release = tryBooksLock(workDir)
   if (!release) {
     return { ok: false, reason: '书库登记锁获取超时（另一进程正在改写 books.jsonl），本轮不建书——请稍后重试' }
@@ -126,13 +126,13 @@ export function appendBook(workDir: string, entry: BookEntry): { ok: true } | { 
 }
 
 /**
- * appendBook 的异步孪生（/，三十六轮）——建书锁等待走 tryBooksLockAsync
+ * appendBook 的异步孪生——建书锁等待走 tryBooksLockAsync
  * （acquireCrossProcessLockAsync：setTimeout 轮询，事件循环不阻塞）。同步版
  * tryBooksLock 的 Atomics.wait 在双进程争写窗口最坏停 5s；GUI 建书端点（/api/books
  * POST → doInitAsync）承载 SSE/全部接口，此前经 doInit → appendBook 在请求事件
  * 循环上同步睡（指出的 CLI 建书同根漏网：install/books.ts 注释登记「余面
- * 均不在请求窗口」与 GUI 建书事实矛盾）。锁文件/超时档/超时降级/DA-3 读失败拒
- * 重写语义与同步版逐位对齐。
+ * 均不在请求窗口」与 GUI 建书事实矛盾）。锁文件/超时档/超时降级/读失败拒
+ * 读失败拒重写语义与同步版逐位对齐。
  */
 export async function appendBookAsync(
   workDir: string,
@@ -150,10 +150,10 @@ export async function appendBookAsync(
 }
 
 /** 持锁后的追加主体（拆出——同步/异步获取者共用，结果语义单源）。
- *  0918二轮修复批（G104）：登记写 + active 指针写合为本持锁段内的两步原子面
+ * 登记写 + active 指针写合为本持锁段内的两步原子面
  *  （writeActive 此前在调用方锁外裸写，见 appendBook 头注）。 */
 function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
-  // DA-3读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
+  // 读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
   // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
   const books = readBooksStrict(workDir)
   if (books === null) {
@@ -186,13 +186,13 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   try {
     writeBooks(workDir, next)
   } catch (e) {
-    // 0918二轮修复批（G104）顺手收编：错误文案三目改 errMsg 单源（口径）
+    // 顺手收编：错误文案三目改 errMsg 单源（口径）
     return {
       ok: false,
       reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${errMsg(e)}`,
     }
   }
-  // 0918二轮修复批（G104）：active 指针写收进本临界段（此前由 doInit/doInitAsync
+  // active 指针写收进本临界段（此前由 doInit/doInitAsync
   // 在锁外调 writeActive——双进程并发建书最后写者胜）。失败语义沿
   // writeActiveGuarded 原口径（该包装随收编拆除，文案单源迁此）：登记已落盘，
   // 按「登记在、active 未写」给可行动 reason，防作者重试撞「已有一本叫…」误导。
@@ -222,18 +222,18 @@ export function removeBookEntry(workDir: string, name: string): void {
     return
   }
   try {
-    removeBookEntryLocked(workDir, name) // 持锁主体单源
+    removeBookEntryLocked(workDir, name) // 持锁主体与同步版单源（appendBookLocked 先例）
   } finally {
     release()
   }
 }
 
 /**
- * removeBookEntry 的异步孪生（残留清偿批·三十四轮）——删书端点在承载 SSE/全部接口
+ * removeBookEntry 的异步孪生——删书端点在承载 SSE/全部接口
  * 的服务进程事件循环上直调同步版，其 tryBooksLock 的 Atomics.wait 等待（双进程争用
  * 窗最坏 5s）是 mutator 族登记残留的最后一个服务面落点。锁等待走
  * acquireCrossProcessLockAsync（setTimeout 轮询），锁文件/超时档/超时跳过留痕/
- * DA-3 读失败拒重写语义与同步版逐位对齐。
+ * 读失败拒重写语义与同步版逐位对齐。
  */
 export async function removeBookEntryAsync(workDir: string, name: string): Promise<void> {
   const release = await tryBooksLockAsync(workDir)
@@ -248,10 +248,10 @@ export async function removeBookEntryAsync(workDir: string, name: string): Promi
   }
 }
 
-/** 持锁后的移除主体（——sync/async 孪生此前整段复制，
- *  照 appendBookLocked（拆出）先例收编单源，语义逐位不变）。 */
+/** 持锁后的移除主体（优化修复批拆出——sync/async 孪生此前整段复制
+ * 照 appendBookLocked（拆出）先例收编单源，语义逐位不变）。 */
 function removeBookEntryLocked(workDir: string, name: string): void {
-  // DA-3读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
+  // 读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
   // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除），文件系统侧删除照常进行
   const books = readBooksStrict(workDir)
   if (books === null) return
@@ -286,7 +286,7 @@ export function readActive(workDir: string): string | null {
   try {
     name = readFileSync(fp, 'utf-8')
   } catch {
-    // 低级项读取失败（EACCES/EISDIR 等）不裸抛——降级为未选书（null）
+    // 低级项：读取失败（EACCES/EISDIR 等）不裸抛——降级为未选书（null）
     return null
   }
   name = name.trim()
@@ -299,10 +299,10 @@ export function writeActive(workDir: string, name: string): void {
   atomicWriteFile(join(workDir, ACTIVE_FILE), name + '\n')
 }
 
-// ── 存储层下沉后的导出面桥接 ──
+// ──：存储层下沉后的导出面桥接 ──
 // 存储层（常量 / BookEntry / 读写 / 登记锁与超时档）下沉 books-store.ts 后，本文件
 // 逐名 re-export 保住既有导出面（desktop/document/studio 等消费方仍从 install/books.js
-// 取这些名字，含 的测试注入钩子）——桥的方向单向向下（本文件 → books-store），
+// 取这些名字，含的测试注入钩子）——桥的方向单向向下（本文件 → books-store），
 // 不构成环；新增消费方建议直引 books-store.js。
 export {
   BOOKS_LOCK_TIMEOUT_MS,
@@ -320,7 +320,7 @@ export type { BookEntry } from './books-store.js'
 
 // ── （⑤④产品拆分波1）缝 B 拆出桥接 ──
 // 工作目录定位（findWorkDir）/ 书仓库判定（isBookRepo）纯移动至 books-resolve.ts
-// （注释随代码走）；逐名 re-export 保住既有导出面，消费方 import 不动。
+// books-repair.ts（注释随代码走）；逐名 re-export 保住既有导出面，消费方 import 不动。
 // 两模块已不再回引本文件（改引 books-store），桥自此单向。
 export { findWorkDir, isBookRepo } from './books-resolve.js'
 

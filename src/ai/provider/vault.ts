@@ -25,7 +25,7 @@ export interface SealedKey {
  * - `v`：格式版本号，算法/参数变更时递增（§4.4）
  * - `salt`：每次创建 vault 随机生成，HKDF 派生 KEK 用
  * - `dek.byApp`：用内置 KEK 封装的 DEK（v1 内置混淆级通道）
- * - `dek.byOs`：用 OS 凭据 KEK 封装的 DEK（v2，0918三拍板批 KEK v2：safeStorage /
+ * - `dek.byOs`：用 OS 凭据 KEK 封装的 DEK（v2 KEK v2：safeStorage /
  *   Keychain/DPAPI 承载；两通道互斥不并存——v2 摘除 byApp，持制品攻击者不再可解）
  * - `keys[id]`：用 DEK 加密的各 API Key（provider id 为键）
  */
@@ -62,7 +62,7 @@ export class VaultDecryptError extends Error {
   }
 }
 
-/** 0918三拍板批（KEK v2）：v2 vault 在无 OS 凭据通道的环境打开——不是文件损坏，
+/** （KEK v2）：v2 vault 在无 OS 凭据通道的环境打开——不是文件损坏，
  *  是环境缺通道（纯 node / env 未注入 / Keychain 不可用）；文案须与损坏形态可区分，
  *  引导用户从桌面应用启动。VaultDecryptError 子类：既有 catch 面零改动。 */
 export class VaultOsKeyMissingError extends VaultDecryptError {}
@@ -76,7 +76,7 @@ function deriveKEK(keyMaterial: Buffer, salt: Buffer, info: string = KEK_INFO): 
 
 // ── AES-256-GCM ──────────────────────────────────────
 
-/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节）；aad 可选绑定上下文 */
+/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节）；aad 可选绑定上下文*/
 function sealAESGCM(key: Buffer, plaintext: Buffer, aad?: Buffer): SealedKey {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
@@ -105,7 +105,7 @@ function openAESGCM(key: Buffer, sealed: SealedKey, aad?: Buffer): Buffer {
  * 创建新 vault——生成随机 salt + 随机 DEK，用 KEK 封装 DEK（§4.1）。
  * 返回落盘 vault 结构 + 内存中的明文 DEK（不落盘）。
  *
- * 0918三拍板批（KEK v2）：osKeyMaterial 提供 → v2（仅 byOs 通道，OS 凭据承载；
+ * （KEK v2）：osKeyMaterial 提供 → v2（仅 byOs 通道，OS 凭据承载；
  * keyMaterial 在 v2 分支不参与派生——保留参数为对称签名与未来混合通道预留）；
  * 缺省 → v1（仅 byApp 通道，纯 node / 无 OS 通道环境语义不变）。
  */
@@ -171,7 +171,7 @@ export function openVault(vault: Vault, keyMaterial: Buffer, osKeyMaterial?: Buf
 }
 
 /**
- * 0918三拍板批（KEK v2）：v1 → v2 就地迁移——同一 DEK 重封到 OS 通道并**摘除 byApp**
+ * （KEK v2）：v1 → v2 就地迁移——同一 DEK 重封到 OS 通道并**摘除 byApp**
  *（vault.keys 不动，各 API Key 密文零重加密）。调用方须已用 v1 通道打开得 dek；
  * 已是 v2 → no-op 返回 false（迁移幂等）。迁移落盘后旧构建按 VaultVersionError 拒读
  *（§4.4 防降级毁配置，既有守卫语义）。
@@ -186,14 +186,14 @@ export function migrateVaultToOsChannel(vault: Vault, dek: Buffer, osKeyMaterial
 }
 
 /** 用 DEK 加密单个 API Key → SealedKey（IV 每次随机）。
- *  ：aad 绑定上下文（store 侧传 providerId）——同 DEK 下密文互换
+ * aad 绑定上下文（store 侧传 providerId）——同 DEK 下密文互换
  *  （手改 providers.json 交换两条 SealedKey）GCM 认证不再通过，防 key 定向泄漏。 */
 export function sealKey(dek: Buffer, apiKey: string, aad?: string): SealedKey {
   return sealAESGCM(dek, Buffer.from(apiKey, 'utf8'), aad ? Buffer.from(aad, 'utf8') : undefined)
 }
 
 /** 用 DEK 解密单个 API Key。
- *  ：返回 { apiKey, legacy }——legacy=true 表示密文未绑 AAD（存量
+ * 返回 { apiKey, legacy }——legacy=true 表示密文未绑 AAD（存量
  *  形态，经无 AAD 通道打开），调用方（load）以此置 needsRewrite 自动重封迁移；绑定态
  *  密文用错误 aad 解时两通道均失败 → 抛 VaultDecryptError（互换攻击被拦截）。 */
 export function openKey(dek: Buffer, sealed: SealedKey, aad?: string): { apiKey: string; legacy: boolean } {

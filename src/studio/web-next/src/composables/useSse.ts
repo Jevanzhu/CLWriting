@@ -7,7 +7,7 @@ import { useStaleGuard } from './useStaleGuard'
 import { bookUrl } from '../api/url'
 
 /**
- * SSE 订阅（细案 .1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑），
+ * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑）
  * 生产同源相对路径。EventSource onmessage → JSON.parse → 分流：
  * chat_* → chat store，其余 → workbench.dispatch。
  * bookName 变 → 重连；组件卸载 → 断开。
@@ -21,8 +21,8 @@ const MAX_BACKOFF_MS = 60_000
  *  才告警（1-2 次可能是 token 随 server 重启轮换等常态，不扰）。 */
 const DEV_AUTH_MISMATCH_STRIKES = 3
 
-/** 0918修复批（E003）：401 → re-boot 连续空转截断阈值——连续 N 次「re-boot
- *  settle 后仍 401」即提前进既有失配指引、且不再逐轮触发 rebootstrap。 */
+/** 401 → re-boot 连续空转截断阈值——连续 N 次「re-boot
+ * settle 后仍 401」即提前进既有失配指引、且不再逐轮触发 rebootstrap。 */
 const REBOOT_401_GUIDE_STRIKES = 2
 
 /** dev 直连 API 基址：dev 下不走 Vite proxy（proxy + 系统代理会 buffer SSE 断流，旧版踩坑），
@@ -30,7 +30,7 @@ const REBOOT_401_GUIDE_STRIKES = 2
  *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
 const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? 'http://127.0.0.1:7878'
 
-/** -：SSE 基址双写收敛单源——probeSseBusy 与 doConnect 原各写
+/** SSE 基址双写收敛单源——probeSseBusy 与 doConnect 原各写
  *  一遍同款 `import.meta.env.DEV ? DEV_API_BASE : ''` 三元，只改一处漏另一处的漂移风险
  *  由本 helper 消解。取值逻辑零变化。 */
 function sseBase(): string {
@@ -44,14 +44,14 @@ interface SseEpochState {
   errorCount: number
   /** 手动接管退避阶数（fail-closed 与换票失败共用，onopen 清零） */
   backoffStep: number
-  /** 429 指引 toast「同纪元一次」已告位 */
+  /** 429 指引 toast「同纪元一次」已告位*/
   busy429Notified: boolean
   /** 在途 429 探测锁（正常释放点在探测 finally） */
   probing429: boolean
   /** dev 双基址失配连记 / 已告位（清偿-） */
   devMismatchStrikes: number
   devMismatchWarned: boolean
-  /** 401 自愈空转截断连记三件套（0918修复3） */
+  /** 401 自愈空转截断连记三件套*/
   reboot401Armed: boolean
   reboot401Strikes: number
   reboot401Guided: boolean
@@ -76,16 +76,16 @@ function freshEpoch(): SseEpochState {
  *  补位。服务端半死（接受连接不回包）时裸 fetch 永不 settle：doConnect 悬挂在
  *  await fetchStreamTicket，既不建 EventSource 也无 onerror 退避接管 → SSE 静默断连
  *  无自愈。超时 abort 走既有失败语义（换票失败并入退避重连，不单独打断 SSE）。
- *  ：失败语义已无 ?token= 回退分支（回退通道两端同删）。 */
+ * 失败语义已无 ?token= 回退分支（回退通道两端同删）。 */
 const TICKET_TIMEOUT_MS = 5_000
 
 /** POST /api/stream-ticket 换取一次性短时效 SSE ticket（鉴权契约②）。
  *  EventSource 不支持自定义 header，改由「POST 换 ticket → ?ticket= 拼 URL」两段式。
  *  契约约定请求带 x-studio-token 头；响应 {ticket}。
- *  换票失败（端点未就绪 404/网络/5xx/超时）返回 null—— 起「?token= 旧
+ * 换票失败（端点未就绪 404/网络/5xx/超时）返回 null——起「?token= 旧
  *  通道」回退已删（前后端同包同版发布，无「服务端未上线」错配兼容对象；长期 token
  *  拼进 URL 与契约「token 不进 URL」相悖），调用方本轮不开连，并入既有退避重连。
- *  0918修复批（E003）：401 处置改经 on401 回调上抛（调用方传 handleSse401）——
+ * 401 处置改经 on401 回调上抛（调用方传 handleSse401）——
  *  本模块级函数持有不了连接纪元态（连记/已告位在 useSse 实例闭包内），不再直呼 rebootstrap。 */
 async function fetchStreamTicket(token: string, base: string, on401: () => void): Promise<string | null> {
   // （含 win 线同因修复）：AbortController 手法对齐 probeSseBusy
@@ -105,7 +105,7 @@ async function fetchStreamTicket(token: string, base: string, on401: () => void)
       signal: ctrl.signal,
     })
     if (!r.ok) {
-      // （修复批）：401 = token 失效（dev 重启
+      // 401 = token 失效（dev 重启
       // dev:api 换 token 等）——触发 client 同款 re-boot 通道（promise 去重防风暴，与
       // apiFetch 401→rebootstrap 同源），fail-closed 退避的下轮 doConnect 即取到新票，
       // SSE 层对失效 token 有了直接自愈（原先只能靠心跳/apiFetch 写请求间接触发）。
@@ -134,9 +134,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let currentName = ''
   /** 连接代：disconnect/重连会推进——悬挂中的 doConnect（await re-bootstrap 期间被接管）据此放弃
-   *  ：裸计数器换装 useStaleGuard（观测点 current，disconnect invalidate）。 */
+   * 裸计数器换装 useStaleGuard（观测点 current，disconnect invalidate）。 */
   const connectGen = useStaleGuard()
-  // （修复批）：在途探测的 AbortController——disconnect（切书/卸载/
+  // 在途探测的 AbortController——disconnect（切书/卸载/
   // 重连接管）时中止，防旧语境探测迟到补发 429 指引
   let probeCtrl: AbortController | null = null
 
@@ -147,21 +147,21 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // 字段口径（沿用原锚）：
   // - errorCount：网络抖动（CONNECTING）错误连计——前 FAST_RETRY_LIMIT 次交浏览器自连；
   // - backoffStep：手动接管退避阶数（fail-closed 与换票失败共用；onerror 清零点在
-  //   onopen，不与抖动 errorCount 混算）；
+  // backoffStep 独立计数（onopen 清零）：接管次数决定退避阶数，不与抖动 errorCount 混算
   // - busy429Notified：429 指引 toast 的「同纪元一次」已告位；
   // - probing429：在途 429 探测锁（正常释放点在探测 finally；纪元复位为兜底——迟到
   //   探测的结果由连接代闸 + probeCtrl 中止拦截，复位不引入双探测/双 toast）；
-  // - devMismatchStrikes / devMismatchWarned：dev 双基址失配连记与已告位（清偿批）；
+  // - devMismatchStrikes / devMismatchWarned：dev 双基址失配连记与已告位；
   // - reboot401Armed / reboot401Strikes / reboot401Guided：401 自愈空转截断连记三件套
-  //   （0918修复3）。
+  //。
   let epoch = freshEpoch()
   function resetEpoch(): void {
     epoch = freshEpoch()
   }
-  // 0918修复批（E003）：401 自愈空转的截断通道。rebootstrap（boot）走相对路径经
+  // 401 自愈空转的截断通道。rebootstrap（boot）走相对路径经
   // Vite proxy，SSE/ticket 直连 DEV_API_BASE——两处指向不同实例（多实例/代理命中旧进程）
   // 时，boot 换来的新 token 对 SSE 实例依旧无效，401→reboot→重连仍 401 无限空转且无指引。
-  // 处置（对齐 「连记 + 同纪元一次」惯例）：首见 401 照常自愈一次并武装连记（armed）；
+  // 处置（对齐「连记 + 同纪元一次」惯例）：首见 401 照常自愈一次并武装连记（armed）；
   // 此后每次 401 记一次 strike，累计 REBOOT_401_GUIDE_STRIKES 次「re-boot 后仍 401」即
   // warn 失配指引一次（同文案进指引面，共用 devMismatchWarned 防双通道重复刷屏），
   // 且不再逐轮 rebootstrap（退避重连节奏保留）。非 401/403 探测（基址可达）复位 strikes
@@ -194,7 +194,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // （D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
   // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
   // 探测拿状态码：起探测走 x-studio-token 头，不拼 ?token= 进 URL、
-  // 不消费一次性 ticket、不烧票。 （Opus-5.5 轮）：探测整体不建流——
+  // 不消费一次性 ticket、不烧票。探测整体不建流——
   // 只做鉴权 + 名额判定（服务端 books.stream.probe，见该 handler），不再占连接槽
   //（原 GET 形 200 时服务端已建流登记消费者，abort 前占名额，见探测点内注释）。
   // 仅在 fail-closed 接管退避前探测一次，网络抖动/每轮退避不重复探测。
@@ -217,7 +217,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       // 探测是 fetch（可带头）——token 改走 x-studio-token 头，
       // 不再拼 `?token=` 进 URL（服务端闸已补认 header）；EventSource 正式连接凭据
       // 仅一次性 ticket（起 `?token=` 回退通道已两端同删）。
-      // （Opus-5.5 轮）：探测改 HEAD（服务端 books.stream.probe，同路径
+      // 探测改 HEAD（服务端 books.stream.probe，同路径
       // 同闸：三凭据预检 + 名额判定）。为什么：原 GET 形是真开流——200 路径在响应头前
       // 即登记 connHandle、推 sync 快照、ensureSession，客户端 abort 前该名额一直占着；
       // 与下方 fail-closed 首档 0ms 重连并发时会抢走最后一个名额，正式 EventSource 吃
@@ -234,12 +234,12 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       // 探测起始至今已被 disconnect 接管（切书/卸载/重连推代 + 中止在途探测）
       // ——迟到的状态码属旧语境，不落 429 指引、不计失配连记
       if (connectGen.stale(gen)) return
-      // （修复批）：探测 401 同样触发 client 的
+      // 探测 401 同样触发 client 的
       // re-boot 通道（去重同源，见 fetchStreamTicket 同锚点注）——token 失效面在探测
       // 侧也直接自愈；403/429/404 不触发（re-boot 无解，同 apiFetch「token 未变不重放」）。
       // 的 dev 失配连记（下方）不受影响，照常累计。（gen 守卫在前：迟到 401 属旧
       // 语境同样不触发 re-boot。）
-      // E003：处置改经 handleSse401 连记（见其头注）。
+      // 处置改经 handleSse401 连记（见其头注）。
       if (r.status === 401) handleSse401()
       if (r.status === 429 && !epoch.busy429Notified) {
         epoch.busy429Notified = true
@@ -260,7 +260,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
           }
         } else {
           epoch.devMismatchStrikes = 0
-          // E003：基址可达（token 工作）→ 401 自愈空转连记一并复位并解除武装（下次 401
+          // 基址可达（token 工作）→ 401 自愈空转连记一并复位并解除武装（下次 401
           // 重新获得一次完整自愈，对齐「连续」语义）
           epoch.reboot401Strikes = 0
           epoch.reboot401Armed = false
@@ -296,7 +296,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     // 并入既有 fail-closed 退避重连（同一 backoffStep 档位、同一调度点，不新增独立
     // 重试体系）；401 失效面仍经 handleSse401 自愈（见 fetchStreamTicket 注）。
     if (t) {
-      // E003：换票 401 的处置经 handleSse401 连记（首见自愈一次；re-boot 后仍 401 达阈值
+      // 换票 401 的处置经 handleSse401 连记（首见自愈一次；re-boot 后仍 401 达阈值
       // 即告警并停止逐轮自愈）
       const ticket = await fetchStreamTicket(t, base, handleSse401)
       // 换 ticket 期间被 disconnect/切书重连接管：不再开连（防悬挂旧连接），也不排重连
@@ -359,13 +359,13 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         if (failClosed) void probeSseBusy() // fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
     }
-    //  批1）：重连后 text 事件重复拼接已修——修在
+    //）：重连后 text 事件重复拼接已修——修在
     // driver 回放侧（src/driver/cc.ts / mock.ts stream）：E1b 迟到回放序列首个 text
     // 增量之前无清屏锚（pre/execRing cap 溢出把自然锚 role_spawn/text_reset 挤出时）
     // 先补发合成 text_reset，workbench.dispatch 清空 textOut 后重放文本从空重建，不再
     // 与断连前已收内容重复（锚检测见 src/driver/replay-anchor.ts）。原批2-C 登记的四条
     // 「前端无凭据去重」约束（text 无 id/seq、SSE 帧无 id: 行、sync 无水位、前缀对拍
-    // 不安全）即修复落服务端契约面的依据；前端零改动，水印（sync running=true 置
+    // 不安全）即修复落服务端契约面的依据；前端零改动水印（sync running=true 置
     // textIncomplete 阻存残文）语义不变，仍兜「锚插入前已丢失的增量」残缺面。
     es.onmessage = (e: MessageEvent) => {
       try {
@@ -396,7 +396,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     if (!name) return
     currentName = name
     // 切书新连接纪元——429 指引、失配连记、401 自愈
-    // 截断（E003）等全套连接标志单点复位（原 7 行逐行抄录收编）
+    // 截断等全套连接标志单点复位（原 7 行逐行抄录收编）
     resetEpoch()
     disconnect()
     safeDoConnect()

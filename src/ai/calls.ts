@@ -110,9 +110,9 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           const inflight = serializedWrite(bookRoot, () => {
             try {
               // 段内重读文件，仅当仍是旧格式才落盘迁移——原闭包写
-              // enqueue 前的 migrated@ 无账快照；锁外 read（checkAiCallBudget 等）入队
+              // enqueue 前的 migrated@无账快照；锁外 read（checkAiCallBudget 等）入队
               // 的迁移写排在先行记账写 A 之后时（链 [A, M]），A 段内已内联迁移+记账落盘，
-              // M 用快照覆盖 A 刚落的账（丢一次账）。 消灭的是「锁内 readRecord
+              // M 用快照覆盖 A 刚落的账（丢一次账）。消灭的是「锁内 readRecord
               // 再嵌套入队」那半，此处闭合「锁外读入队」的另一半。
               const cur = JSON.parse(readFileSync(budgetPath(bookRoot), 'utf8')) as Record<string, unknown>
               if (typeof cur['chapter'] === 'number') {
@@ -129,8 +129,8 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           // serializedWrite 旁挂 warn 承担，此处只补标记清理
           if (inflight !== undefined) inflight.catch(() => migratedRoots.delete(bookRoot))
         } catch (err) {
-          // + 快路同步抛（锁文件创建 EACCES 等）同样要清标记——
-          // 锁获取失败与写失败同语义，不清则迁移永不重试
+          // 快路同步抛（锁文件创建 EACCES 等）同样要清标记——
+          //（口径：锁获取失败与写失败同语义，不清则迁移永不重试）；失败留痕由
           migratedRoots.delete(bookRoot)
           throw err
         }
@@ -243,7 +243,7 @@ export function forgetMigratedRoots(bookRoot: string): void {
 }
 
 /** 原子写记录（atomicWriteFile + fsync；mode 0600 随临时文件创建即生效——
- *  ：此前先默认权限写再补 chmodSync，既有短暂全局可读窗口，且裸调用无防护、
+ * 此前先默认权限写再补 chmodSync，既有短暂全局可读窗口，且裸调用无防护、
  *  成功路径同步抛错可反转 GEN_FAIL；mode 选项两问同解，chmodSync 删除） */
 function writeRecord(bookRoot: string, rec: CallRecord): void {
   const fp = budgetPath(bookRoot)
@@ -259,10 +259,10 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 本互斥队列之上叠加跨进程真锁（见下 AI_CALLS_MUTEX_SCOPE_NOTE），
 // 多进程（CLI+桌面）同书并发写已闭合。
 // 原判断已被 作废，（
-// 修复批 #3）现状再校正：时点锁获取还是 Atomics.wait 同步阻塞，「排队为
+// 现状再校正：时点锁获取还是 Atomics.wait 同步阻塞，「排队为
 // 微任务」分支确不可达，排队代码按「未来异步化接管面」保留；锁等待改异步轮询
 // 后，锁被占时 writeWithCrossProcessLock 返回在途 Promise 并紧随 writeChains.set
-//（见 fs/lock-file.ts 的 serializedLockedWrite 快路段，-单源移位；
+//（见 fs/lock-file.ts 的 serializedLockedWrite 快路段单源移位；
 // 起该原语居其新家）——排队分支已在役（保调用序 = 落盘序），非保留代码。
 const writeChains = new Map<string, Promise<unknown>>()
 
@@ -273,7 +273,7 @@ let inWriteSegment = false
 
 /** （落地）：跨进程互斥为真锁——serializedWrite 的每次写段在
  * bookRoot/.cache/ai-calls.lock 上做限时跨进程文件锁（O_EXCL + pid 存活探测
- * + 崩溃接管，见 fs/cross-process-lock.ts）。 的「进程内前提」声明就此废止；
+ * + 崩溃接管，见 fs/cross-process-lock.ts）。的「进程内前提」声明就此废止；
  * 超时（默认 5s，持有进程活着但迟迟不放——理论上是文件 IO 级毫秒争用）上抛由
  * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。
  * 锁等待改异步轮询（争用窗口事件循环不冻结），无争用快路保持
@@ -284,7 +284,7 @@ export const AI_CALLS_MUTEX_SCOPE_NOTE =
 /** 读改写互斥队列（per-bookRoot）薄壳。返回 undefined = 已同步完成（本侧历史口径：
  *  在途段也返回 undefined，调用方拿不到 promise——失败由 fs/lock-file.ts 的
  *  serializedLockedWrite 旁挂 warn 留痕；readRecord 迁移写的 inflight 兜底分支
- *  在此口径下不可达，保留作未来异步化返回面）。-：快/慢双路、
+ * 在此口径下不可达，保留作未来异步化返回面）。快/慢双路、
  *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部收编 serializedLockedWrite
  *  单源（provider/store.ts saveProviders 同构薄壳），机制语义逐位不变。 */
 function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<void> {
@@ -304,7 +304,7 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<
 
 /**
  * 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒，5s 已极保守。
- *  收口口径：export let 可被任一 import 方静默改写（同
+ * 收口口径：export let 可被任一 import 方静默改写（同
  * events/store.ts 的收口认定；manifest/lead-finalize 等六处于已收口，
  * 本处漏网）——改 const + 内部可变生效值，测试只能经注入钩子改档，生产恒用常量。
  */
@@ -313,15 +313,15 @@ export const AI_CALLS_LOCK_TIMEOUT_MS = 5_000
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
 export const [getAiCallsLockTimeoutMs, __setAiCallsLockTimeoutForTest] = testableConst(AI_CALLS_LOCK_TIMEOUT_MS)
 
-// ── ：写链队列 + 跨进程锁的写段原语已迁 src/fs/lock-file.ts ─────────
-// serializedLockedWrite / crossProcessLockedWrite（-单源）原定义
+// ──：写链队列 + 跨进程锁的写段原语已迁 src/fs/lock-file.ts ─────────
+// serializedLockedWrite / crossProcessLockedWrite（单源）原定义
 // 于此，被 provider/store.ts 借用（记账模块被动承载 fs 锁职责）；现由两域各自直引
 // fs 层，本文件只留记账职责（预算判定 / 用量累计 / 落盘读写）。
-/** 预算判定（批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示
- *  （三条出路在文档 §五）；损坏 → 保守阻断。
+/** 预算判定（起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示
+ * （三条出路在文档 §五）；损坏 → 保守阻断。
  *  - tokens 口径 = input+output+cacheRead+cacheWrite 全口径累计（长上下文章正是拦截对象）；
  *  - cost 口径仅当已配价格表（记账里有 costAccum）才生效——未配价静默不拦截
- *   （与信息差未配置静默跳过同语义，不做半吊子拦截，0-①）。 */
+ * （与信息差未配置静默跳过同语义，不做半吊子拦截，P10-①）。 */
 /** 判别联合：ok=false 必带 reason（调用方 narrowing 后 reason 恒为 string，零改动消费） */
 type BudgetCheckResult =
   | {
@@ -353,7 +353,7 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
   // 锁内记账构成 check-then-act 窗口——并发写者数为上界的少量超额是**既定取舍**
   // （预算闸防「无限烧」，不承诺精确配额；锁内预记回滚会把 consume 事务复杂化一档，
   // 收益不成比例），不按 bug 处理。
-  // （二十一轮，裁定维持）：check 与 record 天然被分钟级生成隔开——预算检查
+  // （裁定维持）：check 与 record 天然被分钟级生成隔开——预算检查
   // 并入记账锁内同事务只能「生成后核对」，挡不住本次生成本身的消耗；锁粒度（短写锁）
   // 不允许跨生成持有，预占/退款方案需在 5 条失败出口（abort/超时/终态失败/Retry-After
   // 终态/成功）补退款事务，错误面扩大不成比例。维持锁外快照读 + 保守口径（超额上界 =
@@ -533,12 +533,12 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
  * - 账本损坏 → 保守阻断（同款文案）；
  * - limit ≤ 0 → 「一次都不许调」（同语义；parse 面 fail-closed 落 0 也走此臂）；
  * - tasks 块 used ≥ limit → 拦截（次数口径读 tasks[task].used——runTask 每 attempt
- *   均按次入账〔/〕，重试/失败调用不漏）。
+ * 均按次入账〔〕，重试/失败调用不漏）。
  *
  * cost 口径不设：tasks 块历史不累计金额（cost 仅 chapter 块记），无现成机制可复用，
  * 按「不强造」口径本闸只做次数上限。
  *
- * （六轮修复批）：文案参数化——本闸签名通用（任意
+ * 文案参数化——本闸签名通用（任意
  * task），但两条 reason 原写死「chat 调用上限 / 本书对话 / 降低对话/压缩频率 /
  * budget.chat_max_calls」；当前唯一调用方（runner.ts:510）恒传 'chat' 故无实害，第二类
  * 任务复用本闸时文案会指错配置键、误导作者去改无关的 book.yaml 项。

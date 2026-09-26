@@ -23,7 +23,7 @@ const TICKET_TTL_MS = 60_000
 const MAX_TICKETS = 256
 
 /**
- * ticket 库（签发/预检/消费）。：per-server 实例化——buildRoutes
+ * ticket 库（签发/预检/消费）。per-server 实例化——buildRoutes
  * 每次 startServer 经 createStreamTicketStore 新建一份（签发路由与 SSE 消费侧同实例
  * 共享），同进程二次 startServer 旧实例的未过期票不进新实例（原模块级单例跨实例
  * 残留可消费）。生产形态（Electron child 单进程单 server）不触发；server-main/e2e
@@ -33,7 +33,7 @@ export interface StreamTicketStore {
   /** 签发一次性 ticket（POST /api/stream-ticket 已过写闸 = 调用方持有 token） */
   issue(): { ticket: string; expiresInMs: number }
   /**
-   * （总六十五轮）：预检（不消费）——SSE 鉴权闸需在书域校验（429/404）
+   * 预检（不消费）——SSE 鉴权闸需在书域校验（429/404）
    * 之前判定凭据有效性（防书名探测语义），但一次性消费须等全部校验通过后
    * （429/404 不烧票）。存在且未过期即 true；过期顺手清理（与 consume 同口径）。
    */

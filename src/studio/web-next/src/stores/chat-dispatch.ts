@@ -1,5 +1,5 @@
 /**
- * （Opus-5.5 轮）：对话 SSE 事件分发状态机独立成模块。
+ * 对话 SSE 事件分发状态机独立成模块。
  *
  * 为什么独立：这是 chat store 内最厚的一块纯逻辑——`dispatch` 的 11 个 `chat_*`
  * 事件分支（running/在途气泡索引/工具卡片/回合收尾）加上其操作的消息模型与工具卡片
@@ -18,7 +18,7 @@
  * （currentIdx/pendingReseed/regenPending/regenBook）收进 ChatTurnState 句柄
  * ——store 与状态机共享同一份，读写口不变。
  *
- * （全库源码质量评审修复批）：在途回合目标由数组下标
+ * 在途回合目标由数组下标
  * （currentIdx）改持消息对象的响应式引用（ChatTurnState.current）——下标是派生
  * 信息，任何裁剪/过滤/截断漏重定位就把增量写进别的消息，且 `!` 断言让越界在
  * 类型层不可见；引用天然跟随消息在数组中的位移，写侧显式判空分支取代全部
@@ -31,10 +31,10 @@ import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 // shared/words.ts 引 format/words 先例；原本地副本删）。
 import { codePointLength, clipByCodePoints } from '../../../../shared/text'
 
-/** 工具卡片状态 */
+/** 状态机对外操作面：事件分发 + 工具卡片状态机 + 消息裁剪（store 转发面不变）。 */
 export type ToolStatus = 'pending' | 'running' | 'ok' | 'failed' | 'cancelled'
 
-/** 工具卡片 */
+/** 状态机对外操作面：事件分发 + 工具卡片状态机 + 消息裁剪（store 转发面不变）。 */
 export interface ToolCard {
   callId: string
   name: string
@@ -80,7 +80,7 @@ function clipOver(text: string, max: number): string {
   return codePointLength(text) > max ? clipByCodePoints(text, max) + '…' : text
 }
 
-/** 内存闸（审计；质量评审收口）：工具入参落存前截断
+/** 内存闸（审计质量评审收口）：工具入参落存前截断
  *  ——SSE 两条路（chat_tool_pending 追加 / readonly chat_tool 经 ensureTool 补建）与
  *  历史种子化（seedFromHistory 的 tool_use）三处收口。未超闸一律原形落存。
  *  对象走**字段级**截断：额度按键数均分、键结构完整保留——工具卡摘要按字段取值，
@@ -132,7 +132,7 @@ export function nextMsgId(): string {
 /** RC：在途回合的宿主状态——原 chat store setup 内的四个可变本地量
  *  （currentIdx/pendingReseed/regenPending/regenBook）随事件分发状态机迁入本类型；
  *  store 与状态机共享同一实例（读写口与原本地量逐位等价）。
- *  ：currentIdx（数组下标）改持在途回合气泡的响应式对象引用（current）
+ * currentIdx（数组下标）改持在途回合气泡的响应式对象引用（current）
  *  ——裁剪/过滤/截断后目标自动跟随，不再依赖各变动点手工重定位。 */
 export interface ChatTurnState {
   /** 当前正在填充的 assistant 气泡（chat_text/工具卡的追加目标）。持响应式引用
@@ -140,7 +140,7 @@ export interface ChatTurnState {
    *  chat_turn 建立，chat_done/chat_error/sync 收尾置 null。目标若被移除而未复位，
    *  写侧判空分支使增量落入已出列的僵尸对象——只丢不串（改前下标越界是写进别的消息）。 */
   current: ChatMessage | null
-  /** 待补种书名（/登记，回合收尾 running 翻 false 后补种） */
+  /** 待补种书名（登记，回合收尾 running 翻 false 后补种） */
   pendingReseed: string | null
   /** 重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
   regenPending: boolean
@@ -217,7 +217,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
           turn.regenPending = false
           turn.regenBook = null
         }
-        // 重连时 sync 只补发 chatRunning（0918修复1 起：chat 腿活跃时
+        // 重连时 sync 只补发 chatRunning（起：chat 腿活跃时
         // 服务端另发 chat_replay_begin + ring 回放重建在途回合，见该分支）——若回合引用
         // 已随回合结束失效，找到最后一个未 done 的 assistant 气泡重建引用（否则 chat_text
         // 增量追加到错误气泡或被静默丢弃）
@@ -241,13 +241,13 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         break
       }
       case 'chat_replay_begin': {
-        // 0918修复批（E001）：SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
+        // SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
         // 活跃且 ring 非空时、于回放数组最前发一次（每个新消费者各得一次），随后重放 chat 腿
         // ring（chat_start/chat_turn/chat_text/... 可能从头重建整回合）。此前 chat_turn 无条件
         // push 新气泡：重连回放会在断连前已存在的在途气泡之后再 push 一条 → 气泡重复；ring
         // 截断（cap 溢出）时孤儿气泡永久滞留。rebuild 模式：移除未 done 的 assistant 在途
         // 气泡（不动 done 历史与 user 消息）+ 复位回合引用 + 登记 pendingReseed（复用
-        // /既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
+        // 既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
         // seedHistory(replace:true) 从事件库重播种；ring 截断导致的回合展示不全由此自愈，
         // 与刷新路径同口径）。设计意图：重连后视图状态 = 等价新连接（历史保留，在途回合
         // 由回放重建）。
@@ -278,7 +278,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         // 持数组内读回的响应式代理而非 push 前的原始对象——增量写须
         // 穿过 messages 的深层代理才触达 UI（Vue 对同元素只包一层，两条读路同引用）
         turn.current = messages.value[messages.value.length - 1] ?? null
-        // 0918二轮修复批（E103）：推新气泡即修剪——原 trimMessages 只挂在 chat_done /
+        // 推新气泡即修剪——原 trimMessages 只挂在 chat_done /
         // pushUser / seedFromHistory 三处收尾，单次长跑（多回合工具链连转）超上限要等
         // 整跑结束才裁剪，期间消息条数无界膨胀。trimMessages 只裁头部（在途回合目标
         // 持对象引用，位移自动跟随），刚 push 的在途回合气泡恒在尾部不受影响。
@@ -321,7 +321,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       case 'chat_tool_result': {
         const callId = str(ev['callId'])
         if (callId) {
-          // （十五轮登记销账）：失败结果标 failed 对齐种子化路径同口径；
+          // 失败结果标 failed 对齐种子化路径同口径；
           // cancelled 仅保留给「无 tool_result 回填」的兜底语义（异常中断 ≠ 工具执行失败）
           updateTool(callId, {
             status: ev['ok'] === true ? 'ok' : 'failed',
@@ -360,10 +360,10 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       case 'chat_error': {
         running.value = false
         error.value = str(ev['error']) ?? '未知错误'
-        // 0918三拍板批（A006 轻量档）：回显作者原文（服务端回滚后仅存于此，供复制重发；
+        // （轻量档）：回显作者原文（服务端回滚后仅存于此，供复制重发
         // regenerate 回合无 echo 字段——原文本就在历史尾气泡里）
         errorEcho.value = str(ev['echo']) || null
-        // 0918修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
+        // 对齐 chat_start「error+notice 双清」口径——回合异常
         // 中断时旧 notice（如「已入队」）随之失效，不得残挂在错误态旁。chat_done 不清：
         // 正常收尾下 notice 可能是刚提示的「已入队，当前对话结束后处理」，清掉会让它在
         // done → 下一回合 chat_start 的间隙提前消失（chat_start 开跑时自清）

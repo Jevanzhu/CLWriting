@@ -15,7 +15,7 @@ import { redactSecret } from './redact.js'
 // createProvider 迁至 registry.ts（批次：声明式注册表 + settings hash 实例缓存）；
 // import + re-export（纯 `export {} from` 不建本地绑定，probeCapabilities 引用会 ReferenceError）
 import { createProvider } from './registry.js'
-// -（errMsg 收编）：错误摘要口径单源
+// （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 export { createProvider }
 

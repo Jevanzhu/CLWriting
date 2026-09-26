@@ -55,11 +55,11 @@ const pending = computed(() =>
 const resolved = computed(() => list.value.filter((f) => f.状态 === '已回收'))
 const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废弃'))
 
-// （修复批）：未回收/已回收渲染上限——千条级
+// 未回收/已回收渲染上限——千条级
 // 伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例
 // （先例 RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const pendingCap = computed(() => capView(pending.value, RENDER_CAP))
 const resolvedCap = computed(() => capView(resolved.value, RENDER_CAP))
@@ -115,7 +115,7 @@ async function create(): Promise<void> {
   let name = '新伏笔'
   let i = 2
   while (existing.has(name)) name = `新伏笔${i++}`
-  // 低-4入口捕获 + await 后活源复检（FE-3 类收敛）——createDoc 在途切书后，
+  // 低-4：入口捕获 + await 后活源复检（类收敛）——createDoc 在途切书后，
   // 旧书续体继续 tree.load/openTab 会顶开 B 书工作台正开的伏笔标签（共享 store 被写入）。
   // 本面板经 SidebarRight 常驻外壳挂载（非 keyed），props.bookName 即路由活书名（无滞后），
   // 再比 doc store 内 live bookName 兜底（对齐 Book.vue 切书编排的权威书名）
@@ -128,7 +128,7 @@ async function create(): Promise<void> {
     // await 窗口切书后，byPath 已是新书树，按旧书路径查找可能命中同名文件顶开 B 书
     // 正开的活动文档。tree.load/load 之后、byPath.get 之前各补一次复检
     await tree.load(book)
-    if (props.bookName !== book || doc.bookName !== book) return // 已切书放弃
+    if (props.bookName !== book || doc.bookName !== book) return // 已切书：放弃后续写操作
     await load()
     if (props.bookName !== book || doc.bookName !== book) return // 同上
     const fresh = tree.byPath.get(r.path)
@@ -192,7 +192,7 @@ watch(() => props.bookName, load, { immediate: true })
         </div>
         <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
       </div>
-      <!-- ：RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
+      <!-- RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
       <div v-if="pendingCap.omitted > 0" class="cap-hint">已省略 {{ pendingCap.omitted }} 项</div>
 
       <!-- 已回收（折叠）。（-⑨）：toggle/行补键盘可达——对齐上方未回收行
@@ -225,12 +225,12 @@ watch(() => props.bookName, load, { immediate: true })
           <span class="fs-title">{{ f.标题 }}</span>
           <span class="fs-meta resolved-meta"> 第{{ f.埋设章号 ?? '?' }}章→第{{ f.回收章号 ?? '?' }}章 </span>
         </div>
-        <!-- ：已回收节同款截断省略提示行 -->
+        <!-- 已回收节同款截断省略提示行 -->
         <div v-if="resolvedCap.omitted > 0" class="cap-hint">已省略 {{ resolvedCap.omitted }} 项</div>
       </template>
     </div>
 
-    <!-- ：creating 在途锁有、按钮禁用无 → 对齐惯例（锁+disabled） -->
+    <!-- creating 在途锁有、按钮禁用无 → 对齐惯例（锁+disabled） -->
     <button class="fs-add" :disabled="creating" @click="create"><Plus :size="13" /> 新建伏笔</button>
   </div>
 </template>
@@ -292,7 +292,7 @@ watch(() => props.bookName, load, { immediate: true })
   flex-direction: column;
   gap: 1px;
 }
-/* 渲染上限省略提示行——纯展示（弱化色，tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示（弱化色 tree-cap-hint 同语义） */
 .cap-hint {
   padding: 3px 8px;
   font-size: var(--font-size-xxs);

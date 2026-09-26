@@ -31,7 +31,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
-import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
+import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer, normalizeStopReason } from './stream-finalize.js'
 
@@ -56,7 +56,7 @@ function createClient(conf: ProviderConf): OpenAI {
 }
 
 /**
- * 归一化 baseUrl（方案 §4.5 ）：只去尾部斜杠，**不剥 /v1**。
+ * 归一化 baseUrl（方案 §4.5）：只去尾部斜杠，**不剥 /v1**。
  * openai SDK 不自拼 /v1，基址须自带版本路径（官方 https://api.openai.com/v1）；
  * 剥了官方端点 404。anthropic 侧 SDK 自拼 /v1，行为不同（见 anthropic 适配器）。
  */
@@ -153,7 +153,7 @@ export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams 
   // 上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
   const q = quirksFor(conf.model ?? '')
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
-  // -：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
+  // 实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
   if (req.systemPrompt) {
     messages.push({ role: 'system', content: req.systemPrompt })
   }
@@ -289,7 +289,7 @@ function toUsage(u: WireUsage | undefined | null): TokenUsage {
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
  * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
- * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由—— 启用批回接。）
+ * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——启用批回接。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  *
  * 原另有一个「兼容导出」薄壳 createOpenAIProvider 转调本函数，已删——
@@ -315,7 +315,7 @@ export function createOpenAIProviderChat(
       // 有效，而 done 只在 sawFinishReason 之后发射（见下方收尾分支），故等价于「恒已赋值」
       let pendingStopReason: StopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
-      // （六轮修复批）：异常时点用量估计器——toolAccum /
+      // 异常时点用量估计器——toolAccum /
       // latestUsage / outText 三件均声明在 attempt 循环内，外层 catch 取不到；由循环内逐
       // attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入），catch 侧按
       // consumedAny 决定是否消费（未消费 = 建连期异常无消耗，不得估计虚报）
@@ -362,7 +362,7 @@ export function createOpenAIProviderChat(
             const outToolText: string[] = []
             // 最后可见 usage（逐 chunk 覆盖）——done 延后到流末统一 emit（见循环后注）
             let latestUsage: WireUsage | null = null
-            // （总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
+            // 网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
             // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
             // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
             let idxlessSeq = 0
@@ -391,7 +391,7 @@ export function createOpenAIProviderChat(
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
               const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
               const effectiveUsage = usage ?? choiceUsage
-              // 修复批（C101）：usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
+              // usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
               // 防空对象覆盖不变）——原只在 usage-only chunk 与 finish_reason chunk 两点
               // 写 latestUsage，「choice 在、finish_reason 不在」的先行 usage chunk（非标
               // 网关把 usage 放首个 content chunk、末 chunk 只带 finish_reason 不重复携带）
@@ -408,7 +408,7 @@ export function createOpenAIProviderChat(
 
               // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
               if (delta?.content) {
-                outText.push(delta.content) // 产出累计
+                outText.push(delta.content) // 产出累计（推理 token 也是真实计费面）
                 yield { type: 'text', delta: delta.content }
               }
 
@@ -450,7 +450,7 @@ export function createOpenAIProviderChat(
               if (choice.finish_reason) {
                 // 所有 tool_calls 已拼完 → 发出
                 for (const [, acc] of toolAccum) {
-                  // AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
+                  // 有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
                   if (acc.name) {
                     let input: unknown
                     if (acc.argsBuf) {
@@ -463,7 +463,7 @@ export function createOpenAIProviderChat(
                       input = {}
                     }
                     outToolText.push(acc.name + acc.argsBuf) // tool 参数也是真实计费面
-                    // -：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
+                    // 非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
                     //（流级序号，跨 finish_reason 段不重号）
                     const id = acc.id || `call_${fallbackToolSeq++}`
                     yield { type: 'tool', id, name: acc.name, input }
@@ -477,20 +477,20 @@ export function createOpenAIProviderChat(
                 pendingStopReason = normalizeStopReason(choice.finish_reason, 'openai')
                 sawFinishReason = true
                 // finish_reason chunk 自带 usage（非 include_usage 模式）→ 已在循环头
-                // 统一落账（C101，末见 wins）——此处无需重复写 latestUsage
+                // 统一落账（末见 wins）——此处无需重复写 latestUsage
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
             // done 统一延后到流末尾，取最后可见 usage——原「首见即定」
             // 口径（emitDone 幂等门锁首个 usage）：逐 chunk 回 usage 的网关（本适配器明确
             // 要兜的怪形态）会被记成早期部分值，末 chunk 完整 usage 被丢弃，记账系统性
-            // 低估。：Anthropic 线已改为同款「末见 wins」（此前该线
+            // 低估。Anthropic 线已改为同款「末见 wins」（此前该线
             // message_delta 即席 emitDone 锁首值，与本处旧描述正相反），两线口径归一。
             // emit 前须见过 finish_reason——usage 可随任意 chunk 先行
             // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
             // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
             // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
-            // （三十三轮，win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸——
+            // （win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸
             // usage-only chunk 只证明「计费上报过」，不证明「生成完成」。违规 include_usage
             // 顺序的非标网关（usage 块先到 + 随后断流）此前经此处以 pendingStopReason 默认
             // 'stop' 把截断流伪装成成功 done，下方 sawFinishReason 截断守卫被整体短路；现在无
@@ -511,7 +511,7 @@ export function createOpenAIProviderChat(
               const ev = fin.done(usage, pendingStopReason)
               if (ev) yield ev
             }
-            // AI-2：流异常收尾（usage 已在上面统一 emit 过则整块跳过）
+            // 流异常收尾（usage 已在上面统一 emit 过则整块跳过）
             if (!fin.doneEmitted()) {
               if (sawFinishReason) {
                 // 残留 tool 事件只在「正常完成但缺 usage」分支补发并
@@ -531,7 +531,7 @@ export function createOpenAIProviderChat(
                 }
                 toolAccum.clear()
                 // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试
-                //（判错重试对这类网关是全量破坏）。：不再按 0/0 入账
+                //（判错重试对这类网关是全量破坏）。不再按 0/0 入账
                 //（预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）——按可得信号
                 // 估计入账：output ≈ 累计 delta 文本/tool 参数字符折算（usage-estimate.ts
                 // 与备料 estimateTokens 同源系数），input ≈ 本次请求 prompt 字符折算；
@@ -586,7 +586,7 @@ export function createOpenAIProviderChat(
         }
         throw lastErr ?? new Error('openai stream: 无可用参数面')
       } catch (e) {
-        // （六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 流中 SDK 直接 throw（mid-stream
         // 连接重置等）此前恒裸传——消费中已见的 usage chunk 与累计产出随异常蒸发，runner
         // 终态失败按 0 入账（真实计费漏记）。已消费过流才上抛估计（未消费 = 建连期异常，
         // 无消耗不虚报；与 ii-1「消费后不重跑」同源判据）。

@@ -1,5 +1,5 @@
 /**
- * （二十五轮批 A）：系统字体列表 TTL 缓存（main 进程侧，降半档）。
+ * 系统字体列表 TTL 缓存（main 进程侧，降半档）。
  *
  * desktop:get-system-fonts 每次调用都真跑 font-list 的系统命令（mac osascript /
  * win 注册表枚举），百毫秒级且结果在一次会话内基本不变。前端 useSystemFonts 已有
@@ -57,16 +57,16 @@ export function createSystemFontCache(
   }
 }
 
-// ── ：mac/linux font-list 调用超时 ─────────────────────
+// ──：mac/linux font-list 调用超时 ─────────────────────
 
 /** font-list 枚举超时（毫秒）——10s 对齐 win-fonts 的缺省超时档
  *  （win 走 listWindowsFonts 自带超时 + kill，不经本包裹）。 */
 export const FONT_LIST_TIMEOUT_MS = 10_000
 
-/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知），生产恒用常量档。 */
 export const [getFontListTimeoutMs, __setFontListTimeoutForTest] = testableConst(FONT_LIST_TIMEOUT_MS)
 
-// ── （审查）：探测熔断 + 超时必杀 ─────────────
+// ──（性能与内存专项审查）：探测熔断 + 超时必杀 ─────────────
 
 /**
  * 探测熔断阈值——连续失败（含超时/命令异常）达到该次数后，本进程内不再重试
@@ -95,8 +95,8 @@ export function __resetFontListBreakerForTest(): void {
  *  触发（font-cache 失败不缓存），无熔断时每次都重新 spawn + 等满超时档，子进程残留
  *  与等待惩罚无上界。进程级熔断把最坏代价封顶为「阈值 × 超时档」，此后调用即时降级。
  *  只挡「缓存 miss 后的探测」：TTL 命中与在途合并（createSystemFontCache）先于本判断
- *  结算，命中路径不受熔断影响。win 的 listWindowsFonts 自带超时 kill 不动
- *  （起 listWindowsFonts 内部亦套用本熔断——PS 挂死连败达阈值后同样秒降级，
+ * 结算，命中路径不受熔断影响。win 的 listWindowsFonts 自带超时 kill 不动
+ * （起 listWindowsFonts 内部亦套用本熔断——PS 挂死连败达阈值后同样秒降级，
  *  不再每次重开下拉等满 10s），熔断面覆盖三平台探测。 */
 export async function fontListProbeWithBreaker(run: () => Promise<string[]>): Promise<string[]> {
   if (fontProbeConsecutiveFailures >= getFontProbeBreakerThreshold()) {
@@ -125,10 +125,10 @@ export interface FontListSpawnChild {
 
 export type FontListSpawn = (cmd: string, args: string[], opts: { windowsHide: boolean }) => FontListSpawnChild
 
-/** fontListWithTimeout 注入面——全部可选，缺省 = 原行为（load 路径，零变化）。 */
+/** fontListWithTimeout 注入面——全部可选，缺省 =原行为（load 路径，零变化）。 */
 interface FontListWithTimeoutDeps {
   /** 自管 spawn 的枚举命令（测试注入 node -e 跨平台假命令形态）；注入后超时必杀子进程。
-   *  缺省不 spawn：font-list 不暴露子进程句柄，load 路径超时只能放弃等待（原语义）。 */
+   * 缺省不 spawn：font-list 不暴露子进程句柄，load 路径超时只能放弃等待（原语义）。 */
   command?: string
   /** 自管命令参数；缺省 []（node -e 形态即 ['-e', script]）。 */
   args?: string[]
@@ -153,12 +153,12 @@ interface SpawnCollectChild {
   stderr?: { on(event: 'data', cb: (d: Buffer) => void): unknown } | null
   on(event: 'error', cb: (err: Error) => void): unknown
   on(event: 'close', cb: (code: number | null) => void): unknown
-  /** C201：SIGKILL 升级链的撤销挂点（生产 ChildProcess 原生有；测试假件可不实现）。 */
+  /** SIGKILL 升级链的撤销挂点（生产 ChildProcess 原生有；测试假件可不实现）。 */
   once?(event: 'close', cb: () => void): unknown
   kill?(signal?: NodeJS.Signals): boolean | undefined
 }
 
-/** C201：SIGTERM → SIGKILL 升级窗（毫秒）——对齐 server-proc
+/** SIGTERM → SIGKILL 升级窗（毫秒）——对齐 server-proc
  *  killProcAwaitEscalating 的 2s 有界窗；窗内 close 未到即二次收口。 */
 const FONT_KILL_ESCALATION_MS = 2_000
 
@@ -170,7 +170,7 @@ const FONT_KILL_ESCALATION_MS = 2_000
  * 包装在调用方）。差异面全参数化：超时/退出码文案（两调用方各留原文案，测试锚定）、
  * kill 信号（缺省 SIGTERM）、启动面标记（font-list 回落链专用）、结算解析回调。
  * 纪律单点：windowsHide = libuv CREATE_NO_WINDOW（GUI 主进程起控制台程序不闪窗，
- * win-fonts / 本模块同款）；数组参数不经 shell；Buffer[] 整流一次解码
+ * win-fonts/ 本模块同款）；数组参数不经 shell；Buffer[] 整流一次解码
  * 防多字节字体名跨 chunk 边界劈成 U+FFFD（同口径）；结算统一在 close（stdio
  * 收尾后触发，输出收完再解析）。原 font-cache 版的 noop 'exit' 监听随收编取消
  * （EventEmitter 语义下未监听的 exit 无副作用，纯注释性消纳）。
@@ -184,14 +184,14 @@ interface SpawnCollectKillParams {
   timeoutMs: number
   /** 超时 reject 文案（调用方自带档位插值）。 */
   timeoutMessage: string
-  /** 超时 kill 信号；缺省 SIGTERM（win 上等价 TerminateProcess，同口径）。 */
+  /** 超时 kill 信号；缺省 SIGTERM（win 上等价 TerminateProcess 同口径）。 */
   killSignal?: NodeJS.Signals
   /** 非 0 退出码错误文案前缀（拼 `…退出码 N[：stderr 前 200 字]`）。 */
   exitCodeErrorPrefix: string
   /** spawn error 打「启动面」标记（fontListSetupFailure，font-list 回落链消费）；win 侧不标。 */
   markSetupFailure?: boolean
   /** close(0) 结算的 stdout 解码；缺省 UTF-8（toString('utf8')）。
-   * 重评二轮-：reg.exe 等按控制台 OEM 码页
+   * reg.exe 等按控制台 OEM 码页
    *  落字节的命令需注入码页感知解码（严格 UTF-8 试解失败回落 GBK，见 win-fonts.ts
    *  decodeRegOutput）——骨架原固定 toString('utf8') 把 zh-CN 机器 reg 输出的中文字体名
    *  整面解成 U+FFFD（本机字节级实证）。PS/fontlist 通道自设 UTF-8 输出不注入，缺省
@@ -224,7 +224,7 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
       } catch {
         /* ESRCH：进程已退出 */
       }
-      // C201：SIGKILL 升级链——SIGTERM 单发对装了 TERM handler 或
+      // SIGKILL 升级链——SIGTERM 单发对装了 TERM handler 或
       // 陷入不可中断态的子进程不成杀（孤儿存续到父进程退出），与本仓 server-proc 的
       // killProcAwaitEscalating（TERM → 2s → KILL）纪律对齐：有界窗内 close 未到即
       // 二次收口 SIGKILL（KILL 不可被用户态拦截）。close 的结算监听在下方，此处 once
@@ -310,7 +310,7 @@ export function bareFontName(rawLine: string): string {
 /**
  * font-list core.getFonts 的排序口径单源（剥前导引号后大小写
  * 不敏感；主序比较器形态同上游）——win-fonts.ts 的内联比较器随批收编为消费本导出。
- * nano ：原恒 -1/1——等价名（剥引号+小写后相等）也返回 1，
+ * nano：原恒 -1/1——等价名（剥引号+小写后相等）也返回 1，
  * 非严格弱序（等价类内不对称），Array.sort 下等价名内部次序随输入序漂移不稳定。
  * 等价时按原字符串比较作 tie-break（仍等则 0），成严格弱序；行为面仅内部次序
  * 确定化，登记/输出集合与主序（大小写不敏感）不变。
@@ -318,7 +318,7 @@ export function bareFontName(rawLine: string): string {
 export function compareFontNames(a: string, b: string): number {
   const na = a.replace(/^['"]+/, '').toLocaleLowerCase()
   const nb = b.replace(/^['"]+/, '').toLocaleLowerCase()
-  if (na === nb) return a < b ? -1 : a > b ? 1 : 0 // nano ：等价名按原串 tie-break
+  if (na === nb) return a < b ? -1 : a > b ? 1 : 0 // nano：等价名按原串 tie-break
   return na < nb ? -1 : 1
 }
 
@@ -337,14 +337,14 @@ function parseFontListStdout(raw: string, platform: NodeJS.Platform): string[] {
 }
 
 /**
- * /：darwin 自管 spawn 的
+ * darwin 自管 spawn 的
  * fontlist 二进制解析——bundle 同伴定位 + asar 外置路径改写（main.ts loadFontList 接线用，
  * 拍板项随本批落地）。两个形态：
  * - dev/直跑：bundleDir = dist/desktop（main bundle 的目录），二进制由 tsup onSuccess
  *   拷入同目录，路径原样可用；
  * - 打包态：dist/** 进 asar 后 spawn 不认 asar 内路径（execFile 有 Electron 补丁、
  *   spawn 没有）——electron-builder asarUnpack 把 dist/desktop/fontlist 外置到
- * app.asar.unpacked/ 同相对位（：asar 内路径带 dist/ 段，上批裸
+ * app.asar.unpacked/ 同相对位（asar 内路径带 dist/ 段，上批裸
  *   desktop/fontlist 零命中），同相对位替换取真路径。
  * 任一形态的启动面失败（ENOENT/EACCES）都由 fontListWithTimeout 的
  * fontListSetupFailure 回落链兜住（回落 load → font-list 自带 system_profiler），
@@ -359,7 +359,7 @@ export function darwinFontListCommand(bundleDir: string): { command: string; arg
 }
 
 /**
- * C201：linux 自管 fc-list 命令形态——把 darwin 已接线的超时必杀
+ * linux 自管 fc-list 命令形态——把 darwin 已接线的超时必杀
  * 自管 spawn 骨架推广到 linux（此前 linux 维持 load 路径：font-list 不暴露子进程
  * 句柄，fc-list 挂死时超时只放弃等待、子进程成孤儿，连 SIGTERM 都没有）。
  * 命令与参数对 font-list libs/linux 上游逐字对齐（`fc-list -f "%{family[0]}\n"`——
@@ -398,25 +398,25 @@ function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[
  * 此前裸调 getSystemFontList，osascript/系统命令挂起时 Promise 永不结算，字体下拉
  * 悬死且（font-cache 失败不缓存）每次重开再起一个挂起命令。
  *
- * （审查）补两口：
+ * （性能与内存专项审查）补两口：
  * ① 超时必杀：注入 deps.command 时切自管 spawn——超时回调 child.kill（SIGTERM），
  * error/exit 监听消纳 kill 竞态（ESRCH/EPIPE）不成 uncaughtException；缺省（不注入）
- *   维持原语义：load（font-list）不暴露子进程句柄，超时只放弃等待。
+ * 维持原语义：load（font-list）不暴露子进程句柄，超时只放弃等待。
  * ② 会话级熔断：全路径套 fontListProbeWithBreaker，连续失败 ≥ 阈值后本进程不再重试，
  * 直接 reject 走调用方既有降级（main.ts catch → []），只挡缓存 miss 后的探测。
  *
- * win 平台评估结论：win-fonts.ts 已自带 10s 超时 + child.kill（SIGTERM，win 上
+ * win 平台评估结论：win-fonts.ts 已自带 10s 超时 + child.kill()（SIGTERM，win 上
  * TerminateProcess），仓库无 taskkill 分支（仅 e2e global-setup 有手工排查提示语），
  * 保留不改写；本函数自管路径同样统一 SIGTERM 口径，不引入 taskkill。
  *
  * 接线沿革：生产接线（main.ts loadFontList）曾不传 deps——超时必杀路径生产不可达，
  * 接线待拍板；现已接线收口：mac 侧 main.ts 注入 darwinFontListCommand(here)（随包
  * 二进制 + asarUnpack 外置见 tsup.config.ts / electron-builder.yml），超时必杀生产
- * 生效、启动面失败回落 load；linux 亦改注入
+ * 生效、启动面失败回落 load；**：linux 亦改注入
  * linuxFontListCommand（fc-list 挂死时 load 路径不暴露子进程句柄、子进程成孤儿
  * ——自管 spawn 超时 TERM→2s→KILL 升级链收口，ENOENT 自动回落 load），接线点在
  * ipc.ts loadFontList。会话级熔断
- * （fontListProbeWithBreaker）生产持续生效（缺省路径即包裹），win 侧
+ * （fontListProbeWithBreaker）生产持续生效（缺省路径即包裹）起 win 侧
  * listWindowsFonts 亦套用。打包态实测复验登记台账（build:desktop:dir + DMG 手验）。
  */
 export function fontListWithTimeout(load: () => Promise<string[]>, deps?: FontListWithTimeoutDeps): Promise<string[]> {

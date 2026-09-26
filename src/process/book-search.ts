@@ -7,9 +7,9 @@
  * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  *
- * （-0914）单源化：searchBook/searchBookAsync 原手写平行双轨（前奏解析/
+ * 单源化：searchBook/searchBookAsync 原手写平行双轨（前奏解析/
  * 逐目录循环/逐文件命中折叠/截断各一份），对齐 collectTreeIssuesCore 仓内范式
- * （check/run.ts ，生成器核心 + 同步/异步双驱动）收编单源——
+ * （check/run.ts，生成器核心 + 同步/异步双驱动）收编单源——
  * - buildSearchPlan：前奏解析（归一/query 解析/dirs/finalizedKeys 折叠）一次写就；
  * - searchBookCore：生成器核心持有目录循环与逐文件命中折叠（rel 派生/定稿过滤/
  *   单文件截断/总量截断），IO 经 SearchFileIo 注入（yield 交驱动取值/等待）；
@@ -85,7 +85,7 @@ function matchLines(text: string, lower: string): SearchMatch[] {
   return out
 }
 
-// ── （-0914）：单源核心 + 双驱动 ─────────────────────────────
+// ──：单源核心 + 双驱动 ─────────────────────────────
 
 /** 搜索计划：前奏解析产物（同步/异步双驱动共用，六要素之前四——归一/query 解析/
  *  dirs/finalizedKeys 折叠；截断上限内聚于核心、排除规则内聚于 walker）。 */
@@ -113,9 +113,9 @@ function buildSearchPlan(bookRoot: string, q: string, scope?: string): SearchPla
   // 与 assembleStatus 的定稿口径（manifest.finalizedRevision 单一真相）不一致，AI 拿
   // 草稿当定稿引用会串内容。现正文区命中按 finalizedPathSet 过滤（设定/大纲等目录不受
   // 定稿基线管辖，不过滤）；清单缺失/不可读（null）无法判定 → 保持全量兜底（与
-  // finalizedPathSet 的 /PL-2 降级哲学一致）。
+  // finalizedPathSet 的降级哲学一致）。
   const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
-  // /：定稿集消费侧折叠键集（win32 大小写 + NFC，overview.ts
+  // 定稿集消费侧折叠键集（win32 大小写 + NFC，overview.ts
   // 同款范式——set 构建一次）——case-only 改名 / NFD 文件名后精确串失配，定稿章
   // 从「定稿」scope 结果里漏掉（AI 引用面失真）
   const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey))
@@ -125,9 +125,9 @@ function buildSearchPlan(bookRoot: string, q: string, scope?: string): SearchPla
 /** 逐文件 IO 面（同步/异步双实现注入）。同步侧返回值恒非 Promise
  *  （walkMd/readMdTextCached 直返），异步侧为 fs.promises 孪生；生成器核心对两侧
  *  一视同仁（yield 交驱动取值/等待），匹配/过滤/截断逻辑单源不再双侧复写。
- *  口径随实现保留：文件读取走 fs/md-text-cache.ts stat 指纹缓存
+ * 口径随实现保留：文件读取走 fs/md-text-cache.ts stat 指纹缓存
  *  （读失败返回 null 按无命中降级），异步孪生与同步版共享同一指纹表。
- *  0918修复批（C005）：listMd 契约本就覆盖目录缺失——两驱动侧 walk 对不存在
+ * listMd 契约本就覆盖目录缺失——两驱动侧 walk 对不存在
  *  起点 realpath 失败空返，核心内目录存在性预判（原 existsSync）随批删除。 */
 interface SearchFileIo {
   /** 列目录下全部 .md（排除/排序/symlink 纪律内聚在 walker，见 walkMd 注） */
@@ -143,7 +143,7 @@ function* searchBookCore(plan: SearchPlan, io: SearchFileIo): Generator<unknown,
   const results: SearchHit[] = []
   for (const dir of dirs) {
     const abs = join(root, dir)
-    // 0918修复批（C005）：目录存在性预判删——existsSync 是双驱动核心内最后的
+    // 目录存在性预判删——existsSync 是双驱动核心内最后的
     // 同步 IO 残留（异步侧「全链 fs.promises」宣称自此逐字成立）。语义由注入的
     // SearchFileIo 天然覆盖：listMd 两驱动侧 walk 对不存在/不可解析起点 realpath 失败
     // 即空返（见 walkMd/walkMdAsync），空列表 → 该 scope 零命中，与原 continue 等价。
@@ -155,9 +155,9 @@ function* searchBookCore(plan: SearchPlan, io: SearchFileIo): Generator<unknown,
       const matches = matchLines(text, lower)
       if (matches.length === 0) continue
       // rel 改 relative 派生——`slice(root.length + 1)` 算术对根形态
-      //（'/'、'C:\'，特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
+      //（'/'、'C:\'特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
       // relative 语义对全部根形态正确，常规形态产出逐字节不变
-      // -mac适配：分隔符归一收窄 win32-only（normalizeWinSeparators 单源，
+      // mac适配：分隔符归一收窄 win32-only（normalizeWinSeparators 单源，
       // 与 manifest/state 侧同口径）——posix 上字面 `\` 文件名保持原样进 docJoinKey
       const rel = normalizeWinSeparators(relative(root, fp))
       // 定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
@@ -208,7 +208,7 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
  * 同进程全部书的 SSE/保存）：全链 fs.promises（readdir/readFile/stat/realpath，realpath
  * 语义逐位保留），扫描期间事件循环可响应 SSE 心跳/保存等其他请求。匹配/排序/截断/排除
  * 目录/symlink 纪律与同步版逐位同源（起经 searchBookCore 单源，不再靠双侧对齐）。
- * 「全链 fs.promises」宣称 0918修复批（C005）起逐字成立：生成器核心内最后的
+ * 「全链 fs.promises」宣称起逐字成立：生成器核心内最后的
  * 同步残留 existsSync 目录预判随批删除（listMd 对不存在目录空返天然覆盖，见 SearchFileIo 注）。
  * 同步版 searchBook 现仅测试面/CLI 面消费，生产读路径一律走本异步版（口径更正：
  * 旧注「同步版保留给 AI book_search 工具（子进程面）」是 spawn CLI 时代的过时口径）。
@@ -238,7 +238,7 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
  */
 function walkMd(dir: string, bookRoot: string): string[] {
   const out: string[] = []
-  // -管线：书内 symlink 环（a→b、b→a，isWithinRoot 拦不住环在书内的形态）
+  // 管线：书内 symlink 环（a→b、b→a，isWithinRoot 拦不住环在书内的形态）
   // 会让递归无限下行栈溢出——以 realpath 为键记录已访目录，二次进入剪枝
   const visited = new Set<string>()
   const walk = (d: string): void => {
@@ -303,7 +303,7 @@ async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
     }
     entries.sort()
     for (const name of entries) {
-      // /：与同步版同口径（spills 排除 + .md 大小写不敏感）
+      // 与同步版同口径（spills 排除 + .md 大小写不敏感）
       if (name.startsWith('.') || name === 'node_modules' || name === '导出' || name === 'spills') continue
       const p = join(d, name)
       let s

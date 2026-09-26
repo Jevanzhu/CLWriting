@@ -67,7 +67,7 @@ export const DEFAULT_CONFIG: BookConfig = {
 // ── 解析：段 + 缩进子字段 ────────────────────────
 
 export interface RawSection {
-  indent: number // 缩进空格数
+  indent: number // 缩进含 tab 时 warn 一次——2 空格缩进协议下 tab 按字符数
   key: string
   value: string // 行内值（子段为空；块列表项后处理时拼成内联数组）
   children: RawSection[]
@@ -86,11 +86,11 @@ function parseSections(text: string): RawSection[] {
     children: [],
   })
 
-  // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测
+  // 上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测
   let lastNode: RawSection | undefined
   // tab 缩进 warn 留痕开关（首个 tab 一次，不刷屏）
   let tabWarned = false
-  // 四轮-D403：全角空格（U+3000）缩进 warn 留痕开关（同 tab 口径：每 parse 一次）
+  // 全角空格（U+3000）缩进 warn 留痕开关（同 tab 口径：每 parse 一次）
   let wideSpaceWarned = false
   for (const [lineNo, line] of text.split('\n').entries()) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue
@@ -105,7 +105,7 @@ function parseSections(text: string): RawSection[] {
         `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`,
       )
     }
-    // 四轮-D403：缩进含全角空格（U+3000）时 warn 一次—— tab 同款口径：
+    // 缩进含全角空格（U+3000）时 warn 一次——tab 同款口径：
     // U+3000 同为 trimStart 认可的空白，按字符数凑合可解析（计数维持现状，与 tab
     // 同待遇），但作者无从知晓文件混入了全角空格、段挂靠类问题难排查；留痕不中断。
     if (!wideSpaceWarned && line.slice(0, indent).includes('\u3000')) {
@@ -116,7 +116,7 @@ function parseSections(text: string): RawSection[] {
       )
     }
     const content = line.trim()
-    // ii 批（ff ）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
+    // （ff）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误
     // 此前子行会被静默挂到更外层段上（配置无声错位）。改挂前显式报错，宁可红不可错
     if (lastNode && lastNode.value !== '' && indent > lastNode.indent) {
       throw new Error(`第 ${lineNo + 1} 行缩进子行不能挂在有值键「${lastNode.key}:」下（YAML 语法错误）：${content}`)
@@ -188,7 +188,7 @@ function parseSections(text: string): RawSection[] {
   return roots
 }
 
-/** 剥行内注释（原 stripComment）。：实现下沉 frontmatter-core.ts
+/** 剥行内注释（原 stripComment）。实现下沉 frontmatter-core.ts
  *  stripInlineComment（与 frontmatter.ts 共用同一函数——经 core 无循环 import），
  *  语义逐字不变：`#` 且前面是空白（或行首）即注释起点，引号内不算；
  *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。 */
@@ -197,7 +197,7 @@ const stripComment = stripInlineComment
 /** 段树 → BookConfig（#9 第 2 节）。
  *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
  *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。
- *  ：段键解析整体改 schema 表驱动（SECTION_SPECS），
+ * 段键解析整体改 schema 表驱动（SECTION_SPECS），
  *  本函数只保留顶层标量三键与段循环骨架；逐键容错语义与 warn 文案随键行迁入表。 */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
   // 同名重复顶层段报错——原 find 静默取首个，作者复制粘贴出两个
@@ -317,7 +317,7 @@ export function parseBookConfig(
 }
 
 /** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，#25）。
- *  ：逐键条件落行改 schema 表驱动——段体 = 表行 emit
+ * 逐键条件落行改 schema 表驱动——段体 = 表行 emit
  *  拼接（行序 = 表序 = 历史落行序），段门 gate / 段间空行 / 头部三行保持历史语义；
  *  新增键只触表一行。字节红线由 yaml-schema-snapshot 快照钉住。 */
 export function stringifyBookConfig(cfg: BookConfig): string {
@@ -341,7 +341,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 
 /** 写 book.yaml */
 export function writeBookConfig(filePath: string, cfg: BookConfig): void {
-  // 平台规范化批：恒 LF—— 的「按盘上主导行尾整文件渲染」随规范形
+  // 平台：恒 LF——的「按盘上主导行尾整文件渲染」随规范形
   // 拍板废止（CRLF 存量由启动迁移 v4 归一）；stringifyBookConfig 本就恒 LF，输出即规范形。
   atomicWriteFile(filePath, stringifyBookConfig(cfg))
 }

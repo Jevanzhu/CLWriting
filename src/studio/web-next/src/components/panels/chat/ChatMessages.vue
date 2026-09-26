@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 对话消息流（hh §八-16 自 ChatPanel.vue 拆出，纯搬家）。
- * 无气泡感消息流（用户浅卡片右对齐 / AI 纯文本全宽）+ 工具卡确认闸 + 变体切换与
+ * 无气泡感消息流（用户浅卡片右对齐 / AI 纯文本全宽）+ 工具卡确认闸 +变体切换与
  * 重新生成 + 滚动跟随（rAF 节流）。输入区留在 ChatPanel（dock 拆分场景只挂本件时由
- * hideComposer 控制）。：章号语境直读 chat store 单一事实源（原经 ChatPanel 的
+ * hideComposer 控制）。章号语境直读 chat store 单一事实源（原经 ChatPanel 的
  * composer 实例 props 传入，dock 双实例下与用户实际选择分裂）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
@@ -44,7 +44,7 @@ const chat = useChatStore()
 const ui = useUiStore()
 const tree = useTreeStore()
 
-// ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次，-FE-7）──
+// ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次）──
 
 const scrollRef = ref<HTMLElement | null>(null)
 let scrollRaf = 0
@@ -85,7 +85,7 @@ watch(
 // 发送后滚底由 ChatPanel 经 ref 调用（useChatComposer 的 onPushed 回调）
 defineExpose({ scrollToBottom })
 
-// ── A006 轻量档：失败回合作者原文复制重发 ──────────
+// ──轻量档：失败回合作者原文复制重发 ──────────
 
 const echoCopied = ref(false)
 let echoCopiedTimer = 0
@@ -178,7 +178,7 @@ const chapterNames = computed(() => {
 })
 const chapterNameOf: ChapterNameLookup = (chapter) => chapterNames.value.get(chapter) ?? null
 
-// ── ：重新生成 + 变体切换 ─────────────────────
+// ──：重新生成 + 变体切换 ─────────────────────
 
 /** 最后一条已完成的 assistant 气泡（「重新生成」按钮的挂载点；!running 才可点） */
 const lastDoneAssistant = computed(() => {
@@ -187,7 +187,7 @@ const lastDoneAssistant = computed(() => {
 })
 
 /** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体）。
- *  ：章号语境直读 chat store（与 dock/工作台输入区的章节选择同一份） */
+ * 章号语境直读 chat store（与 dock/工作台输入区的章节选择同一份） */
 function handleRegenerate(): void {
   void chat.regenerate(props.bookName, chat.selectedChapter)
 }
@@ -206,7 +206,7 @@ interface VariantGroupInfo {
  * 各助手消息的变体组定位（msgId → 当前序号/总数/同组分支 id 列表）。
  * 命中条件：消息 seq 落在某分支组区间（rootSeq ≤ seq ≤ lastSeq）且
  * 同 parentSeq 的变体组数 > 1（按 rootSeq 升序稳定排序）。
- * （修复批）：原实现对每条消息各做一次
+ * 原实现对每条消息各做一次
  * branches.find（区间扫描）+ 同组 filter/sort——同组过滤/排序逐消息重复（区间扫描本身
  * 仍线性，不构建区间索引）；改为循环前单趟预处理（同 parentSeq 组信息/已排序变体各算
  * 一次），消息循环查表 + 区间线性扫描。渲染输出逐项不变：组内仍 rootSeq 升序、变体
@@ -268,11 +268,11 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 <template>
   <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
   <div ref="scrollRef" class="chat-messages" @scroll="onScroll">
-    <!-- （修复批）：历史尾窗截断提示——L- 起
+    <!--：历史尾窗截断提示——L- 起
          fetchChatHistory 尾窗上限生效时旧消息不进种子化，此前 truncated 全前端
          零消费、旧内容静默消失无提示（设计意图即提示作者：更早在事件库/审计视图可查）。
          truncated 取 store 最近一次视图加载（seedHistory/switchBranch）的权威口径；
-         条数走 shared/chat-history 单源（#10，原硬编码 200）。 -->
+ 条数走 shared/chat-history 单源（#10，原硬编码 200）。 -->
     <div v-if="chat.historyTruncated" class="chat-truncated-hint">
       仅显示最近 {{ CHAT_HISTORY_LIMIT }} 条对话，更早内容见审计视图
     </div>
@@ -283,14 +283,14 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
     </div>
 
     <template v-for="msg in chat.messages" :key="msg.id">
-      <!-- 用户消息 -->
+      <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
       <div v-if="msg.role === 'user'" class="chat-msg chat-msg-user">
         {{ msg.content }}
       </div>
 
       <!-- 助手消息 -->
       <div v-else class="chat-msg chat-msg-assistant">
-        <!-- ：变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
+        <!-- 变体切换器（seq 落在同 parentSeq 的多变体组内时显示；运行中禁用） -->
         <div v-if="variantGroups.has(msg.id)" class="chat-variant">
           <button
             type="button"
@@ -370,7 +370,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
           </div>
         </div>
 
-        <!-- ：最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
+        <!-- 最后一条已完成回复尾随「重新生成」（!running 才可用；新 branchId 落库） -->
         <button
           v-if="lastDoneAssistant && msg.id === lastDoneAssistant.id"
           type="button"
@@ -390,7 +390,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
       <span>{{ chat.error }}</span>
     </div>
 
-    <!-- 0918三拍板批（A006 轻量档）：失败回合作者原文回显——服务端已回滚/遮蔽该消息
+    <!--（轻量档）：失败回合作者原文回显——服务端已回滚/遮蔽该消息
          （防连续 user 400 语义不变），原文仅随 chat_error 的 echo 字段存在（不落事件库），
          此处提供「复制重发」，免瞬态失败（429 耗尽/断网）后整段重打。 -->
     <div v-if="chat.error && chat.errorEcho" class="chat-error-echo">
@@ -400,7 +400,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
       </button>
     </div>
 
-    <!-- 非错误提示（E1a steer 入队确认 / 队列超容丢弃等
+    <!-- 非错误提示（E1a steer 入队确认队列超容丢弃等
          chat.notice）——此前全前端无渲染点：发送即清空输入框、运行中追加零反馈，
          作者无法得知「已入队」。消息流内联展示（对齐 error 区样式，中性色）。 -->
     <div v-if="chat.notice" class="chat-notice-msg">
@@ -598,7 +598,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
 }
 
-/* ── 0918三拍板批（A006 轻量档）：失败回合作者原文回显（跟随错误横幅，中性弱化） ── */
+/* ──（轻量档）：失败回合作者原文回显（跟随错误横幅，中性弱化） ── */
 .chat-error-echo {
   display: flex;
   align-items: flex-start;
@@ -640,7 +640,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   border-color: var(--text-faint);
 }
 
-/* ── ：非错误提示（notice，中性色对齐 error 区布局） ── */
+/* ──：非错误提示（notice，中性色对齐 error 区布局） ── */
 .chat-notice-msg {
   display: flex;
   align-items: center;
@@ -652,7 +652,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   background: var(--background-secondary);
 }
 
-/* ── ：历史尾窗截断提示（列表顶部 muted 一行，轻量无底色） ── */
+/* ──：历史尾窗截断提示（列表顶部 muted 一行，轻量无底色） ── */
 .chat-truncated-hint {
   align-self: center;
   font-size: var(--font-size-xs);
@@ -660,7 +660,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   padding: var(--size-4-1) 0;
 }
 
-/* ── ：变体切换器 + 重新生成 ── */
+/* ──：变体切换器 + 重新生成 ── */
 .chat-variant {
   display: inline-flex;
   align-items: center;

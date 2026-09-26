@@ -6,7 +6,7 @@
  * 视觉参考 Codex Desktop：大圆角输入框 + 内嵌圆形发送 + 无气泡感消息流。
  *
  * hh §八-16 拆分：消息流（确认闸/变体切换/重新生成/滚动跟随）→ chat/ChatMessages.vue
- * （纯搬家，DOM 不变）；（修复批）：输入区与 ChatDock
+ * （纯搬家，DOM 不变）；输入区与 ChatDock
  * 的双份模板+CSS 再收敛为 chat/ChatComposer.vue（差异经 glass/onPushed props 传，
  * DOM 不变）。公开契约（bookName/currentChapter/hideComposer）不变——ChatDock /
  * WorkbenchView 零改动。
@@ -45,7 +45,7 @@ defineExpose({
     <ChatMessages ref="messagesRef" :book-name="props.bookName" />
 
     <!-- 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送
-        （dock 拆分场景 v-if 隐藏，composer 不实例化即无双活监听，语义不变） -->
+ （dock 拆分场景 v-if 隐藏，composer 不实例化即无双活监听语义不变） -->
     <ChatComposer
       v-if="!hideComposer"
       :book-name="props.bookName"

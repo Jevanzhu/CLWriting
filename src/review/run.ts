@@ -31,7 +31,7 @@ import {
   type NormalizedReviewResult,
   type PieceListCheck,
 } from './contract.js'
-// -（errMsg 收编）：错误摘要口径单源
+// （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 /** 单视角的执行包：宿主据此调一次模型产出该视角的 issues。 */
@@ -104,7 +104,7 @@ export function buildReviewPacket(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
-  /** 有布线（账本/成长线）→ continuity 视角；kind==='short'（config.kind，注释对齐实装）→ 短篇三视角 */
+  /** 有布线（账本/成长线）→ continuity 视角；kind==='short'（config.kind 注释对齐实装）→ 短篇三视角 */
   hasWiring: boolean
   hasShort: boolean
 }): { ok: true; packet: ReviewExecutionPacket; decision: ReviewTierDecision } | { ok: false; reason: string } {
@@ -364,7 +364,7 @@ export function collectReviewIssues(input: { packet: ReviewExecutionPacket }): C
   }
 
   // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含全部视角（长短篇视角数随任务书动态，buildReviewPacket 决定）
-  // （二十一轮·登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
+  // （登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
   // ——经核实**本批不可落**：生产链 submit_issues 工具 schema（src/ai/contract/review.ts，
   // B 域禁改范围）没有 lens 字段、审稿 prompt（resources/prompts/review-*.md）也不要求
   // 视角标记，合审 issues 的 lens 全部由 coerceIssue 回落锚视角（lenses_run[0]）——
@@ -452,15 +452,15 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
   const severity = String(o['severity'] ?? '')
   const category = String(o['category'] ?? '')
   if (!isReviewSeverity(severity) || !isReviewCategory(category)) return null
-  // （评审修复批）：issue 描述 trim 后为空判格式不符（对齐
-  // severity/category 既有闸风格）——「空描述 + 非空 evidence」此前可成立为 /
+  // issue 描述 trim 后为空判格式不符（对齐
+  // severity/category 既有闸风格）——「空描述 + 非空 evidence」此前可成立为 S1/S2
   // blocker（evidence 硬闸在 normalizeReviewResult 只拦空证据、不拦空描述），审稿单
   // 会出现无内容的阻断条。空描述走 extractIssues 既有「issue 格式不符」bad_entries
   // 路径丢弃留痕，不静默。
   const issueText = String(o['issue'] ?? '')
   if (issueText.trim() === '') return null
   const location = String(o['location'] ?? '').trim()
-  // evidence 数组项仅接受 string/number（按原语义 String 收敛）——
+  // evidence 数组项仅接受 string/number（按原语义 String() 收敛）——
   // 宿主回写 evidence:[{}] 时 String({}) 得非空 "[object Object]"，对象壳穿透
   // 「空 evidence 的 issue 不成立」硬闸；含其他类型项 → 整条判格式不符走 bad_entries
   let evidence: string[]

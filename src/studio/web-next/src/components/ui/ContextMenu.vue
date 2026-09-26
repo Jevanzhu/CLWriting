@@ -38,7 +38,7 @@ const flipX = ref(false)
 const flipY = ref(false)
 
 // 2-：浏览器回退菜单键盘导航（照 FontPicker
-// - 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
+// 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
 // 纯键盘用户进不了任何菜单项。开启即把焦点移入首项，↑/↓ 循环、Home/End 首尾、
 // Enter/Space 激活、Tab 自然走焦关闭、关闭还焦右键来源；容器另挂 aria-activedescendant
 //（roving 焦点在项上时为冗余保险，焦点若落容器 AT 也能命中高亮项）。桌面端走 Electron
@@ -94,7 +94,7 @@ function activateActive(): void {
 }
 
 /** Electron accelerator → 平台可读文本（"CmdOrCtrl+X" → mac "⌘X" / win·linux "Ctrl+X"）。
- *  ：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
+ * 原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
  * 平台探测三级兜底——navigator.userAgentData?.platform 是
  *  Chromium-only API，老 WebView/非 Chromium 内核无该成员；其后回落 navigator.platform
  *  （已废弃但覆盖面广），再回落 navigator.userAgent 字符串嗅探，探测不再单源落空。 */
@@ -123,7 +123,7 @@ function measureFlip(): void {
   if (props.y + r.height > window.innerHeight - 8) flipY.value = true
 }
 
-/** （四轮处置批）：窗口 resize 跟随重算——原只在开启一刻快照判 flip，
+/** 窗口 resize 跟随重算——原只在开启一刻快照判 flip，
  *  此后视口缩小时溢出态不重判（菜单探出屏幕外）；关闭态 no-op。复位→过拍→测量
  *  与开启拍同序（watch 内联保持原时序不抽函数——async 函数包装会多一跳微任务，
  *  把 activeIdx 赋值推出调用方的 nextTick 预算，re2-roving 用例实证）。 */
@@ -283,6 +283,8 @@ function onSelect(key: string): void {
 <style>
 /* 非 scoped：Teleport body 浮层，cm- 前缀避免冲突。
  * 浏览器/dev 回退用的 CSS 模拟（桌面端走原生 Menu 不渲染此组件）。 */
+/* 遮罩为纯点击捕获（透明、无背景浓度），有意不并入 ModalMask：并入会引入全屏变暗
+   并登记为 overlay（改 ⌘P/Esc 让渡语义）；z-index 1000 须高于应用内 modal-mask(150)。 */
 .cm-mask {
   position: fixed;
   inset: 0;

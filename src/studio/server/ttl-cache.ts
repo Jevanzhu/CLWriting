@@ -1,33 +1,33 @@
 /**
- * TTL+探针+FIFO 结果缓存通用壳（-收敛件）。
+ * TTL+探针+FIFO 结果缓存通用壳（收敛件）。
  *
  * server 域此前 17 份同构缓存壳（stat 指纹探针 + TTL 注入口 + `__xxxScanCountForTest`
  * 计数钩子 + forget 挂点 + 过期顺手逐出 + FIFO 上限），每份 40-80 行复制；本件归一为
- * 单源工厂。**时序语义逐位对齐既有各份**（/两档 ts/probeTs 判定、
+ * 单源工厂。**时序语义逐位对齐既有各份**（两档 ts/probeTs 判定、
  * 过期顺手逐出、命中不续命、FIFO 按 Map 插入序逐最旧），收敛映射与沿革：
  *
  * | 端点缓存（文件 · Map） | 形态 | 沿革 |
  * |------------------------------------------------------|--------------------------|------|
- * | search.ts · searchCache                      | 单级探针 + 异步 + inFlight| 顺手逐出 |
- * | rhythm.ts · rhythmCache                      | 单级探针 + 同步          | |
- * | settings.ts · settingsCache | 单级探针 + 同步/异步孪生 + inFlight | 无逐出（特记 evictExpiredOnMiss:false）；0918修复1 补 inFlight |
- * | settings.ts · completionNamesCache | 单级探针 + 异步 + inFlight | 同上；TTL 链 = 本壳注入口 → settings 注入口 → 常量；D001 补 inFlight |
- * | foreshadows.ts · foreshadowCache 同步孪生    | 单级探针 + 同步          | |
- * | foreshadows.ts · foreshadowCache 异步孪生     | 单级探针 + 异步 + inFlight| 与同步孪生共壳共 Map |
- * | health.ts · styleScanCache（/） | 纯 TTL + 异步 | / ts 取写入当刻 |
- * | analysis.ts · styleCorpusCache（/） | 纯 TTL + 异步 | ts 当刻 / 写侧全表过期清扫 |
+ * | search.ts · searchCache| 单级探针 + 异步 + inFlight|顺手逐出 |
+ * | rhythm.ts · rhythmCache| 单级探针 + 同步 | |
+ * | settings.ts · settingsCache| 单级探针 + 同步/异步孪生 + inFlight | 无逐出（特记 evictExpiredOnMiss:false）；补 inFlight |
+ * | settings.ts · completionNamesCache| 单级探针 + 异步 + inFlight | 同上；TTL 链 = 本壳注入口 → settings 注入口 → 常量；补 inFlight |
+ * | foreshadows.ts · foreshadowCache 同步孪生| 单级探针 + 同步 | |
+ * | foreshadows.ts · foreshadowCache 异步孪生| 单级探针 + 异步 + inFlight| 与同步孪生共壳共 Map |
+ * | health.ts · styleScanCache| 纯 TTL + 异步 | ts 取写入当刻 |
+ * | analysis.ts · styleCorpusCache| 纯 TTL + 异步 | ts 当刻写侧全表过期清扫 |
  * | analysis.ts · analysisOverviewCache（/） | 两级探针 + 异步 | 2--④ 探针节流 / 异步让出 |
- * | snapshots.ts · versionStatsCache| 两级探针 + 异步          | 同上（本形态正本位） |
- * | overview.ts · overviewCache                  | 单级探针 + 异步          | 成功态才落缓存（storeIf）/ |
- * | overview.ts · stateCache（/） | 纯 TTL + 异步 | 失败不落缓存；无逐出行（evictExpiredOnMiss:false） |
- * | state.ts · stateCache                    | 纯 TTL + 异步            | 成功才落缓存；|
- * | check.ts · treeIssuesCache               | 纯 TTL + 异步            | 同上 |
- * | knowledge.ts · learnCache                   | 纯 TTL + 异步            | result.ok 才落缓存（storeIf）；|
- * | progress.ts · summaryCache（/） | 纯 TTL 30s + 同步/异步孪生| 共壳共 Map； |
- * | books.ts · shelfGuardCache                  | 纯 TTL 30s + 同步        | 损坏标记也落缓存；forget = 整表 clear |
+ * | snapshots.ts · versionStatsCache| 两级探针 + 异步 | 同上（本形态正本位） |
+ * | overview.ts · overviewCache| 单级探针 + 异步 | 成功态才落缓存（storeIf）/ |
+ * | overview.ts · stateCache| 纯 TTL + 异步 | 失败不落缓存；无逐出行（evictExpiredOnMiss:false） |
+ * | state.ts · stateCache| 纯 TTL + 异步 | 成功才落缓存；|
+ * | check.ts · treeIssuesCache| 纯 TTL + 异步 | 同上 |
+ * | knowledge.ts · learnCache| 纯 TTL + 异步 | result.ok 才落缓存（storeIf）；|
+ * | progress.ts · summaryCache| 纯 TTL 30s + 同步/异步孪生| 共壳共 Map；|
+ * | books.ts · shelfGuardCache| 纯 TTL 30s + 同步 | 损坏标记也落缓存；forget = 整表 clear |
  *
  * 保留手写特例（不收敛，记因）：
- * - stream-ticket.ts tickets（/）：一次性票库非「探针签名+计算结果」缓存
+ * - stream-ticket.ts tickets：一次性票库非「探针签名+计算结果」缓存
  * 形态——条目值即过期时刻、消费即删、签发时全表 prune、触顶逐最早过期票，通用件
  * 语义面（probe 命中判定/store 条件/FIFO 时机）均不覆盖，硬套会改时序行为。
  *
@@ -56,7 +56,7 @@ export interface TtlProbeCacheOptions<K, V> {
    *  两级探针缓存传入「第一级便宜指纹」，第二级走 signature。 */
   probe?: (key: K) => string
   /** 两级探针第二级（全量 stat 签名 walk）：仅在第一级指纹变化时执行；签名一致回填
-   *  第一级指纹复用结果免重算（snapshots.ts 正本位语义，计数由端点传入的包装
+   * 第一级指纹复用结果免重算（snapshots.ts 正本位语义，计数由端点传入的包装
    *  函数自行维护）。须与 probe 同用。 */
   signature?: (key: K) => string
   /** 同步计算体（getSync 用；与 computeAsync 至少提供其一，孪生共享壳时两者都给） */
@@ -79,7 +79,7 @@ export interface TtlProbeCacheOptions<K, V> {
 
 interface TtlCacheEntry<V> {
   value: V
-  /** 写入当刻 Date.now（/口径——MISS 计算体含让出跨 tick，
+  /** 写入当刻 Date.now()（口径——MISS 计算体含让出跨 tick，
    *  「出生即折旧」会吃掉 TTL 窗） */
   ts: number
   sig?: string
@@ -163,7 +163,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
     const cached = map.get(opts.keyOf(key))
     if (opts.signature) {
       // 两级探针（snapshots.ts ① 正本位转写）：TTL 窗内复用上次探针值（命中路径
-      // 零系统调用）；超窗现取并刷新旧条目 probeTs（后续 命中回填时窗口随之续期——
+      // 零系统调用）；超窗现取并刷新旧条目 probeTs（后续命中回填时窗口随之续期——
       // 与既有实现逐位一致，含「探针窗新而缓存 TTL 已过」时条目照逐出的路径）
       let probe: string
       if (cached && cached.probeTs !== undefined && now - cached.probeTs < ttl) {

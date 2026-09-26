@@ -19,7 +19,7 @@ import { canonicalizeText, toNfcName } from '../fs/text-canonical.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { join } from 'node:path'
 // readLead 不再直接调用（改单读派生孪生）。
-// （评审修复批）：孪生 readLeadFromBytes 收编为 leads.ts 单源导出——消费侧
+// 孪生 readLeadFromBytes 收编为 leads.ts 单源导出——消费侧
 // 五件同步副本（KNOWN_FM_KEYS/HISTORY_ENTRY_RE/leadBodyBeforeHistory/leadBodyAfterHistory/
 // readLeadFromBytes）整段坍缩（见文件尾原位注记），本文件只 import，格式链演进自动随动。
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, readLeadFromBytes } from '../format/leads.js'
@@ -112,18 +112,18 @@ export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): L
 /** 布线锁键的 win32 折叠——service.ts wiringFileLockKey 的
  *  口径已对 save 侧锁键 casefold，本侧（回写链）此前用盘上扫描路径原样拼 `.lock`，
  *  两侧折叠不对称：外部 case-only 改名后 manifest 侧名（已折叠）与盘上真实名（未
- *  折叠）派生出不同锁文件，互斥静默失效（并发防线开窗）。键构造仍为的
+ * 折叠）派生出不同锁文件，互斥静默失效（并发防线开窗）。键构造仍为的
  *  join(bookRoot, rel) 词法路径 + '.lock'（不经 realpath，防 symlink 根下键名漂移），
  *  仅补 win32 casefold 与 service 侧逐位对齐。导出供回归测试锚定两侧同键。
- *  折叠改委托 safe-path platformCaseFold 单源（join 词法路径 +
+ * 折叠改委托 safe-path platformCaseFold 单源（join 词法路径 +
  *  '.lock' 拼接不变，键字节不变）。
- *  （修复批）：折叠前补 toNfcName（先 NFC 后
+ * 折叠前补 toNfcName（先 NFC 后
  *  大小写折叠，与文档身份键 docJoinKey = relPathKey(toNfcName(p)) 同序并齐）——本侧
  *  用盘上扫描路径（NFD，外源工具常产）原样拼键，与 service 侧清单登记路径（NFC 为
  *  主）此前对同一布线文件派生两个不同 .lock，保存链与终稿链（锁内重读-合并-写回）
- *  互斥静默失效（丢失更新窗）。NFC 输入键字节不变（与字节稳定不变量相容），
+ * 互斥静默失效（丢失更新窗）。NFC 输入键字节不变（与字节稳定不变量相容），
  *  仅 NFD 输入键变化；service 侧与 files.ts PUT 侧（wiringLockKeyForPut）同批同式，
- *  三侧仍逐位一致（口径延续）。 */
+ * 三侧仍逐位一致（口径延续）。 */
 export function wiringFileLockKeyOf(absFile: string): string {
   return `${platformCaseFold(toNfcName(absFile))}.lock`
 }
@@ -178,7 +178,7 @@ export async function acquireLeadFileLocksAsync(files: Iterable<string>): Promis
  * （统一锁序「布线锁 → 清单锁」，消 save↔finalize 的 ABBA 对），持锁后直接调核心，
  * 不得在同进程内嵌套再取同名锁（本实现同进程嵌套取同名锁会等到超时失败）。
  *
- * 锁语义（原 /注释的版）：对每个目标布线文件取同名跨进程短锁，
+ * 锁语义（原注释的版）：对每个目标布线文件取同名跨进程短锁，
  * 与 service.ts 三个写路径（executeSave/updateChapterMeta/updateDocMeta）在 save 锁内
  * 取的同名锁互斥，覆盖（lost update）窗口闭合。批量条目改为**预取全部目标锁后再回写**
  *（旧实现逐条取/放）：任一文件取不到锁 → 整批 fail-closed 拒绝（applied=0，条目全部
@@ -220,10 +220,10 @@ export async function applyLeadUpdates(bookRoot: string, chapterNo: number): Pro
  * 主文件/归档重跑 readChapterUpdatesForChapter（targets.bookRoot），履历条目以重读
  * 结果为准（targets.updates 仅剩预取锁集的用途），residue 同源派生。
  *
- * 锁序说明（替代原 lead-finalize.ts:81-90 /注释）：全仓统一锁序为
+ * 锁序说明（替代原 lead-finalize.ts:81-90 注释）：全仓统一锁序为
  * 「save 锁 → 布线锁 → 清单锁」——service 保存链持 save 锁后取布线锁、再进清单锁
  *（maybeUpdateManifest）；定稿链先取布线锁（本文件预取助手）、再进清单锁
- *（finalize.ts）。两侧同名布线锁互斥，且对清单锁的获取序一致，之前的
+ *（finalize.ts）。两侧同名布线锁互斥，且对清单锁的获取序一致之前的
  * 「定稿持清单锁再取布线锁」反向交叉对（与保存链构成 ABBA 等待）已消除。
  */
 export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTargets): number {
@@ -240,7 +240,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
   // - 窗内新增条目 → files map 预解析时查无（布线锁只对预取集持有）→ 走既有 not-found
   //   通道留本章源，下次定稿重解析自动重试——**绝不**对未持锁布线文件落写（写预取集外
   //   文件 = 裸写，违反整批 fail-closed 纪律）。
-  // 幂等去重（章号+动词+证据）与 ：263 章标签复核保持不变。
+  // 幂等去重（章号+动词+证据）与：263 章标签复核保持不变。
   const liveUpdates = readChapterUpdatesForChapter(targets.bookRoot, chapterNo)
   for (const u of liveUpdates) {
     const filePath = targets.files.get(u.leadId)
@@ -254,12 +254,12 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
     }
     // 锁内重读（锁由调用方在持）：预解析窗口内他进程可能已改写该线——
     // 读→改→写全程在锁内，lost update 窗口闭合
-    // 单读派生（对齐 /手法）——原 readLead（utf-8
+    // 单读派生（对齐手法）——原 readLead（utf-8
     // 文本读）与 isUtf8Bytes（字节读）两次独立读盘，两读之间文件被外部改写（不持布线
     // 锁的写者：外部编辑器/转码工具）时 UTF-8 判据与写回模型错源：GBK 文件在第二读
     // 时已被转成 UTF-8 的形态下，字节判据放行 + 第一读的乱码模型被 writeLead 原子
     // 写回盘上，原始字节永久丢失（微 TOCTOU，且每条目双 IO）。现一次整读 Buffer，
-    // 判据与模型同源派生。（评审修复批）：readLeadFromBytes 已收编为
+    // 判据与模型同源派生。readLeadFromBytes 已收编为
     // leads.ts 单源导出（原消费侧就地副本坍缩），此处改 import 调用。
     let leadBytes: Buffer
     try {
@@ -298,7 +298,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
       else if (verbs.resolve.includes(u.动词) && leadType !== '成长线') lead.状态 = '已收尾'
     }
     // writeLead 落位前对旧路径 existsSync 复核——跨进程结构性移动
-    //（doMoveOrRename 的 link+rm）恰在「持锁读到 → writeLead」毫秒窗内搬走源文件时，
+    //（doMoveOrRename 的 link+rm）恰在「持锁读到→ writeLead」毫秒窗内搬走源文件时，
     // writeLead → atomicWriteFile 的 mkdir recursive 会在旧路径复活幽灵线索文件（同编号
     // 双文件：新路径真身 + 旧路径复活壳，findLeadFile/后续回写命中不确定）。复核不存在
     // → 放弃本条按既有 not-found 分支处理（留源不写，下次定稿重解析自动重试）。复核与
@@ -314,7 +314,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
 
   // 回写完成后清空本章源（作者已确认并落库，防重复追加）；其他章待确认内容保持原样。
   // 清空时未回写条目以警告形式写回本章源而非丢弃（residue 为空串 = 旧版清空；
-  // applied=0 时不动文件——纯未解析场景条目本就在盘上，作者原文原样保留，语义不变）。
+  // applied=0 时不动文件——纯未解析场景条目本就在盘上，作者原文原样保留语义不变）。
   if (applied > 0) {
     const residue = unresolved.length > 0 ? unresolvedText(chapterNo, unresolved) : ''
     if (targets.mainIsThisChapter && existsSync(targets.mainPath)) {
@@ -334,7 +334,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
         try {
           // dd-统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
           // ee-对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
-          // 平台规范化批：残留透传文本规范形写（可携原文 \r 残尾）
+          // 平台：残留透传文本规范形写（可携原文 \r 残尾）
           atomicWriteFile(targets.mainPath, canonicalizeText(residue), { fsync: true })
         } catch {
           /* 清空失败不阻断定稿主流程 */
@@ -343,7 +343,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
       if (existsSync(targets.archivePath)) {
         try {
           // 删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
-          // 下裸 rmSync 直败中断迁移链清理段（renameWithRetry 家族漏网面，同型）；
+          // 下裸 rmSync 直败中断迁移链清理段（renameWithRetry 家族漏网面同型）；
           // 退避后仍失败维持「不阻断定稿主流程」吞掉语义（残留归档交下次定稿重试）
           rmWithRetry(targets.archivePath)
         } catch {
@@ -354,7 +354,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
       // 主文件载有其他章待确认内容——主文件不动；本章归档全兑现则删，
       // 有查无此线残留则改写为警告文本（不丢条目）
       try {
-        // 平台规范化批：残留警告文本规范形写（同上方主文件写点）
+        // 平台：残留警告文本规范形写（同上方主文件写点）
         if (residue) atomicWriteFile(targets.archivePath, canonicalizeText(residue), { fsync: true })
         // 同上删源退避（失败语义不变：吞掉不阻断主流程）
         else rmWithRetry(targets.archivePath)
@@ -366,7 +366,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
   return applied
 }
 
-// ── （评审修复批）：原消费侧副本整段坍缩 ─────────────────────
+// ──：原消费侧副本整段坍缩 ─────────────────────
 // 此处原有五件自我声明的 format/leads.ts「同步副本」：KNOWN_FM_KEYS、HISTORY_ENTRY_RE、
 // leadBodyBeforeHistory（正本 bodyBeforeHistory）、leadBodyAfterHistory（正本
 // bodyAfterHistory）、readLeadFromBytes（正本 readLead 非 legacy 路径的 content 注入
@@ -376,7 +376,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
 
 /** 未回写条目的写回文本——保住章节标签（chapterUpdateSources 仍归本章）+
  *  按原因分组的警告注释（非列表行，不会被 parseLeadUpdateLines 当推进条目）+ 原条目行。
- *  ：原因从单一「查无此线」扩为三档，警告文本按档给准确处置指引（锁超时条目
+ * 原因从单一「查无此线」扩为三档，警告文本按档给准确处置指引（锁超时条目
  *  沿用「查无此线」文案会误导作者去改编号）。注释单行闭合——条目行必须留在注释外，
  *  作者修正后重试回写的解析（readChapterUpdatesForChapter）才看得见。 */
 function unresolvedText(

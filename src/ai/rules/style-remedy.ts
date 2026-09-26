@@ -27,7 +27,7 @@ const SUMMARY_TRUNCATE = 40
  * 从正文提取重复出现的 2-4 字中文词组（出现 ≥2 次，top 5）。
  *
  * 滑窗提取连续中文片段的所有 2-4 字子串，统计频次，
- * 去重规则（- nano 注释对齐——代码不变，原注释「去除被更长
+ * 去重规则（nano 注释对齐——代码不变，原注释「去除被更长
  * 高频词组包含的短词组」未说破**单向且限等频**的语义，读改易误判为漏了反向）：
  * 仅当「已入选的更长词组包含候选」时去重。该向恰是唯一需要去的方向——排序为
  * 频次降序（同频长度降序），而被包含词组的出现次数必 ≥ 包含它的更长词组（长词组
@@ -53,7 +53,7 @@ export function extractRepeatPhrases(body: string): string[] {
   const sorted = [...counts.entries()]
     .filter(([, c]) => c >= 2)
     .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
-  // 去除被已选更长词组包含的短词组（单向限等频——语义论证见函数头注 nano ）
+  // 去除被已选更长词组包含的短词组（单向限等频——语义论证见函数头注 nano）
   const result: string[] = []
   for (const [phrase] of sorted) {
     if (result.some((r) => r.includes(phrase) && r !== phrase)) continue
@@ -70,7 +70,7 @@ export function extractRepeatPhrases(body: string): string[] {
 export function extractLongSentences(body: string, maxLen = DEFAULT_MAX_SENTENCE_LEN): string[] {
   // 长度与截断改码位口径（clipByCodePoints/codePointLength）——
   // 原 UTF-16 .length/.slice 在增补平面字符（emoji 等 4 字节码点）边界会把代理对
-  // 劈成孤立 U+FFFD（与 summary 裁剪 /同族，本处漏网）
+  // 劈成孤立 U+FFFD（与 summary 裁剪同族，本处漏网）
   const overlong = splitSentences(body).filter((s) => codePointLength(s) > maxLen)
   // 按长度降序取前 3
   const top3 = overlong.sort((a, b) => codePointLength(b) - codePointLength(a)).slice(0, 3)
@@ -91,7 +91,7 @@ export function extractSummaryEnding(body: string): string | null {
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
   const tail = paragraphs.slice(-2).join('\n')
-  // 统一分句口径（-BE-6）
+  // 统一分句口径
   const sentences = splitSentences(tail)
   for (const s of sentences) {
     if (SUMMARY_KEYWORDS.some((kw) => s.startsWith(kw))) {

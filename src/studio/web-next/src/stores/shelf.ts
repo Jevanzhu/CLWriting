@@ -13,7 +13,7 @@ export const useShelfStore = defineStore('shelf', () => {
   const error = ref<string | null>(null)
 
   /** 操作代（与 check store 同款）：并发 load 慢响应迟到不回填旧数据。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const opGen = useStaleGuard()
 
   // win 平台专项：书架快照缓存——列表要等 GET /api/books（win 慢盘/网络盘扫
@@ -101,7 +101,7 @@ export const useShelfStore = defineStore('shelf', () => {
       // 有快照时刷新失败不整屏报错（列表仍展示旧数据，控制台留痕）；无快照（首屏）照旧上抛
       if (cached) {
         console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
-        // 清偿-shelf缓存失效提示（残留清偿批）：原仅 console.warn，作者对着
+        // 清偿-shelf缓存失效提示：原仅 console.warn，作者对着
         // 可能过期的列表继续操作毫无感知——补 warning toast 可见化（对齐 doc.ts
         // 「显示内容可能已过期」的半失败口径；同文案同 kind 经 ui.toast 合并去重不刷屏）。
         useUiStore().toast('书架刷新失败，当前显示本地缓存', 'warning')

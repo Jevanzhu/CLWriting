@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 机检面板（M12 块3 .2）：本地规则检查，无 AI 依赖，断网可用。
+// 机检面板（M12 块3 B3.2）：本地规则检查，无 AI 依赖，断网可用。
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
 // 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
 import { computed, watch, markRaw } from 'vue'
@@ -31,16 +31,16 @@ const isCheckable = computed(() => {
 const redKeys = computed(() => contentStableKeys(check.redItems.map(checkItemKeyBase)))
 const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkItemKeyBase)))
 
-// （修复批）：红/黄项渲染上限——千项级命中全量
+// 红/黄项渲染上限——千项级命中全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
 // RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 const redCap = computed(() => capView(check.redItems, RENDER_CAP))
 const yellowCap = computed(() => capView(check.yellowItems, RENDER_CAP))
 
-// （修复批）：红/黄两组 item 模板逐字重复 → 分组
+// 红/黄两组 item 模板逐字重复 → 分组
 // 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
 // DOM；组序红在前黄在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
 // 与 ReviewPanel 结构相似但数据源不同，按评审口径分文件各自 v-for 化、不跨文件抽组件。
@@ -124,7 +124,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         <span>未发现问题</span>
       </div>
 
-      <!-- ：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
+      <!-- 红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
       <template v-for="g in checkGroups" :key="g.key">
         <div v-if="g.count > 0" class="check-group">
           <div class="group-label" :class="`group-label--${g.tone}`">
@@ -149,7 +149,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
               {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
             </button>
           </div>
-          <!-- ：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+          <!-- RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
           <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
         </div>
       </template>
@@ -239,7 +239,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   justify-content: space-between;
   gap: 8px;
 }
-/* 渲染上限省略提示行——纯展示（弱化色，tree-cap-hint 同语义） */
+/* 渲染上限省略提示行——纯展示（弱化色 tree-cap-hint 同语义） */
 .cap-hint {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);

@@ -44,7 +44,7 @@ const emit = defineEmits<{
 
 // 渲染上限——展开目录子项 > RENDER_CAP 时只渲染 RENDER_CAP 行
 // + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，
-// ）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
+//）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
 // 渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动（children 全量在
 // store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或卷目录分层触达。
 // cap 窗口改含 active 项的滑窗——固定取前 100 时 >100 章平铺
@@ -64,7 +64,7 @@ const renderedChildren = computed<TreeNode[]>(() => {
 const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰
-// -：switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
+// switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
 //（与 WritingInfoPanel/EditorDocHead 三处同源；未知态回落原 default 档 dot-gray）
 function dotClass(status?: string): string {
   return CHAPTER_STATUS[status ?? '']?.dot ?? 'dot-gray'
@@ -175,7 +175,7 @@ function onTreeKeyDown(e: KeyboardEvent): void {
 }
 
 // 进入新建/重命名态：初始化值 + 聚焦
-// 0918二轮修复批（F103）：watch 源由 [creatingDirPath, renamePath]（全树共享 props，
+// watch 源由 [creatingDirPath, renamePath]（全树共享 props，
 // 任一变更在每个已渲染实例扇出回调、非目标项各自空跑判据比较）改成本实例「命中态」
 // 布尔——非目标项布尔恒 false 值不变、回调不触发，只有编辑态进出本项的实例触发
 //（旧目标退出 + 新目标进入，O(2)），消 O(已渲染节点) 回调扇出（RENDER_CAP 逐层
@@ -291,7 +291,7 @@ watch(
         @dragend="emit('dragend')"
         @drop="emit('drop', $event)"
       />
-      <!-- ：RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
+      <!-- RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
       <div
         v-if="omittedCount > 0"
         class="tree-item tree-cap-hint"

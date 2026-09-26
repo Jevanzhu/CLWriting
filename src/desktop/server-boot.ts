@@ -1,5 +1,5 @@
 /**
- * studio server 启动共享核心（阶段 22 批，微决策）。
+ * studio server 启动共享核心（微决策）。
  *
  * server-main（node 直跑，e2e release-smoke 用）与 server-utility（Electron
  * utilityProcess 子进程入口）两形态的参数组装 / 启动事件信封化收敛到此单一真相源，
@@ -15,7 +15,7 @@
 import type http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { errMsg } from '../log/index.js' // -：错误摘要三目收编单源
+import { errMsg } from '../log/index.js' // 错误摘要三目收编单源
 import { startServer as defaultStartServer, type StudioServerOptions } from '../studio/server/index.js'
 import { setInitialBook as defaultSetInitialBook } from '../studio/server/api/books.js'
 
@@ -28,7 +28,7 @@ export interface ParsedServerArgs {
   userDataPath: string | null
   /** --book；null = 不设初始书 */
   book: string | null
-  /** token（只经 env CLW_STUDIO_TOKEN 注入，不经 argv——ps 可见）；null = 每次随机生成（缺省行为不变） */
+  /** token（E-9b：只经 env CLW_STUDIO_TOKEN 注入，不经 argv——ps 可见）；null = 每次随机生成（缺省行为不变） */
   token: string | null
   /** --mirror-console 标志；null = 未传 */
   mirrorConsole: boolean | null
@@ -41,7 +41,7 @@ function argValue(argv: string[], flag: string): string | null {
 
 /**
  * 解析 --dir/--user-data/--port/--book/--mirror-console；未识别参数忽略。
- * token 不在 argv 面（argv 本机 ps 可见）——只从 opts.env 的
+ * token 不在 argv 面（E-9b：argv 本机 ps 可见）——只从 opts.env 的
  * CLW_STUDIO_TOKEN 读（缺省 process.env，两入口零改动）；测试经 opts.env 注入
  * 隔离宿主环境。
  * argv 仍出现 --token（已被 env 注入取代）时经 opts.warn 打
@@ -97,7 +97,7 @@ export function parseServerArgs(
 
 /**
  * env 侧端口解析（server-main 形态专用）——argv 侧 --port 已有
- * /校验（0–65535 整数 + fatal 人话通道），env CLWRITING_PORT 此前
+ * 校验（0–65535 整数 + fatal 人话通道），env CLWRITING_PORT 此前
  * Number 直透：'abc' → NaN 落 listen(NaN) 同步抛 RangeError 绕开 boot-error
  * 信封；'' → Number('')===0 静默起在随机端口（反对的「起在意外端口」同型）。
  * 口径与 argv 侧一致；env 未设 → 7878 缺省（拆分前逐字不变）。
@@ -146,7 +146,7 @@ export function deriveStaticDir(moduleUrl: string): string {
 interface BootServerDeps {
   /** 缺省真实 startServer；测试注入假件（不 vi.mock 整模块） */
   startServer?: (opts: StudioServerOptions) => http.Server
-  /** 缺省真实 setInitialBook（--book 下沉：child 在 startServer 前调，附带） */
+  /** 缺省真实 setInitialBook（--book 下沉：child 在 startServer 前调附带） */
   setInitialBook?: (name: string) => void
 }
 

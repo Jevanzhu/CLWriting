@@ -17,7 +17,7 @@ import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
  *  （补修）：cancelled——SSE 断开侧经 cancelStream 唤醒 park 中的
  *  生成器令其自行 return（iter.return 只能在 yield 边界生效，此前断开后生成器
  *  悬挂在内部 await 直到该书下一 driver 事件才被推进回收）。
- *  （内存核查）：dropNotified——本轮积压已补发过丢事件 notice，
+ * （内存核查）：dropNotified——本轮积压已补发过丢事件 notice，
  *  队列拉空时复位（每轮积压只告知一次，不逐条刷屏） */
 interface Consumer {
   queue: DriverEvent[]
@@ -26,7 +26,7 @@ interface Consumer {
   dropNotified: boolean
 }
 
-/** stream 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
+/** stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
 const streamCancels = new WeakMap<AsyncIterable<DriverEvent>, Consumer>()
 
 /** 唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等；未 park 时仅置标记，
@@ -43,14 +43,14 @@ function cancelConsumer(consumer: Consumer): void {
 const EXEC_START = new Set(['chat_start', 'self_heal_batch', 'role_spawn'])
 const EXEC_END = new Set(['chat_done', 'chat_error', 'self_heal_result', 'done', 'interrupted'])
 /** E1b：迟到回放 ring 容量（cap 协议单元——事件本身，非原始 delta）。
- *  execRing 分桶批（单立清账）：chat 腿 / 写手腿各一桶，cap 按桶独立 */
+ * （单立清账）：chat 腿 / 写手腿各一桶，cap 按桶独立 */
 export const MAX_EXEC_RING = 200
 /** 无消费者期间 pre 暂存上限（同 MAX_EXEC_RING 量级）——首个消费者接入前
  *  长自愈流不再无限增堆内存；超出只留最近 N 个（旧事件进 sync 快照/日志兜底） */
 const MAX_PRE_EVENTS = MAX_EXEC_RING
 /** （内存核查）：已连接消费者队列上限（pre / execRing 同量级）——
  *  慢速/僵尸 SSE 消费者（连接未断但网络停滞、生成器不再被拉动）在长连写期间
- *  队列不再无限积压；超限丢最旧 + 补发 notice（口径：丢弃可感知） */
+ * 队列不再无限积压；超限丢最旧 + 补发 notice（口径：丢弃可感知） */
 export const MAX_CONSUMER_QUEUE = 200
 /** E1b：单腿迟到回放桶——本腿活跃执行期间累积最近 N 个协议单元 */
 interface ExecBucket {
@@ -64,7 +64,7 @@ interface Channel {
   pre: DriverEvent[]
   /** pre 是否已被某个消费者接管（防多消费者重放历史） */
   preTaken: boolean
-  /** E1b：迟到回放 ring 按腿分桶（单立清账批）——chat 腿（chat_* 族）与
+  /** E1b：迟到回放 ring 按腿分桶（单立）——chat 腿（chat_* 族）与
    *  写手腿（role_spawn、self_heal_*、text、done 等生成族）各持独立累积 + active。
    *  此前单环 + 单布尔在「chat 内嵌 write_chapter」并发形态下丢段三途径：内嵌
    *  EXEC_START 清掉 chat 已积累段 / 内嵌 EXEC_END 提前熄灭 active 致外层 chat 零回放 /
@@ -76,8 +76,8 @@ interface Channel {
 }
 const channels = new Map<string, Channel>()
 /** session → owner 分槽的 AbortController（interrupt 时全部 abort，替代 kill 子进程）。
- *  ：单槽改分槽——chat 与 self-heal 按设计可并发（纯问答），原先单槽
- *  register 的 「换新先 abort 旧」会把在途 self-heal 的 ctrl 静默掐断；owner
+ * 单槽改分槽——chat 与 self-heal 按设计可并发（纯问答），原先单槽
+ * register 的「换新先 abort 旧」会把在途 self-heal 的 ctrl 静默掐断；owner
  *  分槽后同编排换新保持抢占语义，跨编排互不 abort，interrupt/dispose 兜底全量终止。 */
 interface CtrlSlot {
   ctrl: AbortController
@@ -125,7 +125,7 @@ function ringAppend(ring: DriverEvent[], ev: DriverEvent): void {
   if (ring.length > MAX_EXEC_RING) ring.shift()
 }
 
-// 0918修复批（E001）：execRing 回放拼装——chat 腿活跃且其 ring 非空时，在回放
+// execRing 回放拼装——chat 腿活跃且其 ring 非空时，在回放
 // 数组最前（chat ring 段之前）插一枚 chat_replay_begin 锚（前端据此把后续 chat_* 重放
 // 识别为回放，不在在途气泡上重复建泡——重放使前端在已有在途气泡上再收 chat_turn 会产生
 // 重复气泡）；仅写手腿回放（chat 腿不活跃）不插。导出纯函数供锚单测：「chat 活跃且 ring
@@ -227,7 +227,7 @@ export const ccDriver: StudioDriver = {
       ch.consumers.add(consumer)
       // E1b：迟到回放——pre（无消费者期间完整暂存）优先；已被接管过则回放活跃执行的 execRing
       // （cap 协议单元，新 listener 加入时顺序重放，看到当前执行已流式内容）
-      //  批1）：回放前导清屏锚——cap 溢出时回放头部的自然锚
+      //）：回放前导清屏锚——cap 溢出时回放头部的自然锚
       // （role_spawn/text_reset）被挤出，迟到消费者把重放 text 增量盲追加到断连前已积累的
       // textOut 上即整段重复（chapter 级生成每 delta 一协议单元，溢出是常态）；首个 text 增量
       // 前无锚时补发合成 text_reset，重放文本从空重建（语义见 replay-anchor.ts）。
@@ -237,11 +237,11 @@ export const ccDriver: StudioDriver = {
         ch.pre.length = 0
         ch.preTaken = true
       } else {
-        // execRing 分桶批：活跃腿拼接回放（chat 段在前、写手段在后）——
+        // 活跃腿拼接回放（chat 段在前、写手段在后）——
         // 桶间拼接序对两 store 各自视图保序安全（前端按族分流）；清屏锚对拼接序列
         // 整体判一次（chat_* 无 text 事件、锚语义只涉 workbench textOut，与分桶前
         // 单环单检等价）
-        // 0918修复批（E001）：chat 腿活跃且 ring 非空时回放最前插 chat_replay_begin
+        // chat 腿活跃且 ring 非空时回放最前插 chat_replay_begin
         // 锚（见 buildRingReplay 注）——锚只进本消费者队列（不经 push），不入 ring、
         // 不污染 EXEC_START/END 与两腿桶状态
         const replay = buildRingReplay(ch.chat, ch.writer)
@@ -308,7 +308,7 @@ export const ccDriver: StudioDriver = {
   },
 
   // 编排层生成任务的 ctrl 登记——interrupt/isRunning 据此对真实请求生效。
-  // owner 分槽——同 owner 换新 ctrl 保持 「先 abort 旧」（chat/
+  // owner 分槽——同 owner 换新 ctrl 保持「先 abort 旧」（chat/
   // self-heal 多轮循环每轮换新的既定语义）；跨 owner（chat 问答 × self-heal/spawn
   // 写稿的既定并存）不互相 abort——原先单槽覆盖会把在途十几分钟的批量写章 ctrl
   // 换成一句自然提问的 ctrl，旧请求被静默 abort（self-heal 报 aborted）。
@@ -360,11 +360,11 @@ export const ccDriver: StudioDriver = {
     return false
   },
 
-  // 0918修复批（E002）：写手腿在途判定——sync 快照收窄口径。isRunning 覆盖全部
+  // 写手腿在途判定——sync 快照收窄口径。isRunning 覆盖全部
   // owner 槽位（/interrupt 的全停语义需要），但 chat 腿 ctrl 以 `chat:<book>` owner 全程
   // 在册至 finish 注销，对话期间 sync 快照 running 被置真且永不复位（chat_done/chat_error
   // 走 chat 族不达 workbench）。本判定只排除 `chat:` 前缀槽位，其余 owner（spawn/
-  // self-heal/self-heal:<书>（四轮-A402 起 chat 内嵌写章同款登记）/review:<书>/task-gate
+  // self-heal/self-heal:<书>（起 chat 内嵌写章同款登记）/review:<书>/task-gate
   // 的 action:<书>/bg-summary:<书>/缺省 ''）照旧算写手腿
   // （全仓 owner 字面量核查见本批报告）；aborted 与 session.closed 口径同 isRunning。
   isWriterRunning(session: Session): boolean {

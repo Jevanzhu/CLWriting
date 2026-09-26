@@ -10,13 +10,13 @@ import { useChatStore } from '../stores/chat'
 import { useDocStore } from '../stores/doc'
 import { ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
-// （GLM-5.3 修复批）：建书端点调用自本文件裸 apiJson
+// 建书端点调用自本文件裸 apiJson
 // 归置到 api/books.ts 具名函数（与全仓其余端点统一）——别名导入避免与本组合式函数
 // 同名冲突；apiJson 导入随迁移移除（本文件仅剩 ApiError 供 confirmDelete 的 404 语义
 // 分支用）
 import { createBook as createBookApi } from '../api/books'
 import { friendlyError } from '../shared/error'
-// -源码 -㉕：万字分支走 shared 单源（后缀 ' 万字' 与 <1 万 兜底口径留本面）
+// 源码㉕：万字分支走 shared 单源（后缀 ' 万字' 与 <1 万 兜底口径留本面）
 import { formatWanZi } from '../shared/words'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
@@ -24,7 +24,7 @@ import { LAST_BOOK_KEY, treeFirstOpenKey, onboardPremiseKey } from '../shared/st
 
 /**
  * 书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
- * （deleteBooks 内联五件：误报灰显 / 失败草稿 / 章号记忆 /
+ * （deleteBooks 内联五件：误报灰显失败草稿章号记忆 /
  * 梗概+首开键），改名路径此前为零：旧名条目全部成孤儿（内存 Map 条目常驻
  * 至进程重启、localStorage 键永驻），且新名侧功能性丢失（章号语境记忆清零、发送
  * 失败草稿找回失效、机检误报灰显丢失、首开标记重套）。本函数 = 同族五件的
@@ -37,7 +37,7 @@ export function migrateBookKeyedState(oldName: string, newName: string): void {
   migrateFailedDrafts(oldName, newName)
   try {
     // 误报灰显键族 `clw-fp:<书>\u0000<文档>`——前缀枚举逐键搬家。
-    // 前缀改从 stores/check fpBookPrefix 单源取—— 把分隔符从冒号改 \u0000 时
+    // 前缀改从 stores/check fpBookPrefix 单源取——把分隔符从冒号改 \u0000 时
     // 本分支漏随（仍拼旧冒号前缀），现行键永不匹配、改名迁移整链空转；单源后两侧
     // 不再漂移。存量冒号旧键（前写入）本就不迁移，失配即弃与其口径一致。
     const oldPrefix = fpBookPrefix(oldName)
@@ -99,11 +99,11 @@ export function progressPercent(b: { words?: number; targetWords?: number }): nu
 /**
  * Linear 风光晕：鼠标位置写入 --mx/--my 驱动卡片 ::before 的 radial-gradient 圆心。
  * 原每 mousemove 读 getBoundingClientRect +
- * 写 CSS 变量 = 强制同步 reflow（144Hz ≈ 144 次/秒，同族）。套用 WorkspaceShell
+ * 写 CSS 变量 = 强制同步 reflow（144Hz ≈ 144 次/秒同族）。套用 WorkspaceShell
  * 先例：rect 惰性缓存（WeakMap 按卡片元素）+ window resize/scroll(capture) 失效
  * （scroll 不冒泡，capture 才能接住浮层内滚动容器）+ rAF 同帧合并只写最后一次位置，
  * 绘制时机与同步写一致，光晕视觉逐位不变。
- * （修复批）：失效改为置脏标记、读取时惰性重建 WeakMap——原实现
+ * 失效改为置脏标记、读取时惰性重建 WeakMap——原实现
  * 每次 scroll tick 直接 `glowRects = new WeakMap`，而 capture 监听会命中全应用
  * 每个容器的每次滚动（全局热路径），逐 tick 分配新 WeakMap 丢弃全部缓存；改标记后
  * 热路径仅一次布尔写，重建推迟到下一次 onCardMove 读取（未读零成本），失效与命中
@@ -150,9 +150,9 @@ export function onCardMove(e: MouseEvent): void {
 /**
  * 书架共享状态：分组 + 视图模式 + 建书表单 + 选书跳转。
  * onCreated 回调在建书成功后调用，由外壳处理跳转（路由 / IPC / 关浮层）。
- * onDeleted 回调在删除成功后调用（/：ShelfModal 内删掉当前打开的书时，
+ * onDeleted 回调在删除成功后调用（ShelfModal 内删掉当前打开的书时，
  * 外壳借它导航离开死路由 /book/:name——留在原地则后续所有 API 全 404）。
- * openBook（降级单源，-）：「记 LAST_BOOK_KEY + 跳转」自
+ * openBook（降级单源）：「记 LAST_BOOK_KEY + 跳转」自
  * Shelf.vue / ShelfModal.vue 两份手写收敛于此；IPC 分支留回调由外壳判定。
  */
 export function useShelf(options?: {
@@ -170,7 +170,7 @@ export function useShelf(options?: {
   // router 为 undefined，openBook 不被触达）
   const router = useRouter()
 
-  // ── 搜索 + 排序（-PROD-6）────────────────────
+  // 最近编辑的书（hero「继续写作」用，不受搜索/排序影响——始终取全书最近）
   /** 搜索词（按书名模糊匹配） */
   const query = ref('')
   type SortBy = 'recent' | 'created' | 'name'
@@ -239,7 +239,7 @@ export function useShelf(options?: {
   const newKind = ref<'long' | 'short'>('long')
   const creating = ref(false)
   const createError = ref<string | null>(null)
-  // （-0914）：关弹窗清建书错误——原 createError 只在下次提交时清，
+  // 关弹窗清建书错误——原 createError 只在下次提交时清，
   // 关闭（Esc/取消/建书成功）后残留，重开弹窗挂着上次失败文案。收敛在组合层
   // （Shelf.vue 全屏页与 ShelfModal.vue 浮层两个消费方同享，零调用方改动）。
   watch(showCreate, (v) => {
@@ -330,15 +330,15 @@ export function useShelf(options?: {
         } catch (e) {
           if (!(e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND'))) throw e
         }
-        // （十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
+        // 删书成功即清该书误报灰显键——同名重建书不继承旧灰显
         clearFalsePositiveMarks(name)
-        // （二十六轮，登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
+        // （登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
         // 原无书删除出口）——同名重建书不回填旧书幽灵文本
         clearFailedDrafts(name)
         // 一并清该书章号显式记忆（chat store 按书记忆 Map 原无
         // 删除出口，删书残留）——同名重建书不回填旧书的章号语境，其它书记忆不受牵连
         useChatStore().clearChapterMemo(name)
-        // （评审修复批）：一并清该书脏镜像键（键族清理单源 doc.clearBookMirrors）
+        // 一并清该书脏镜像键（键族清理单源 doc.clearBookMirrors）
         // ——同名重建书不复活已删书的崩溃前未落盘残文（与上各清理同伴同语义）
         useDocStore().clearBookMirrors(name)
         // 连带清该书 localStorage 残留键——否则同名重建书继承已删书
@@ -376,7 +376,7 @@ export function useShelf(options?: {
     shelf,
     groups,
     latestBook,
-    // 搜索 + 排序（-PROD-6）
+    // 最近编辑的书（hero「继续写作」用，不受搜索/排序影响——始终取全书最近）
     query,
     sortBy,
     setSortBy,
@@ -395,7 +395,7 @@ export function useShelf(options?: {
     selectAll,
     enterBatch,
     exitBatch,
-    // 选书（降级单源）
+    // 选书（降级单源）：记 LAST_BOOK_KEY（键收敛单源写入口）+ 跳转分流——
     openBook,
     confirmTarget,
     deleting,

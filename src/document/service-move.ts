@@ -37,15 +37,15 @@ import type { MoveResult } from './service.js'
 /** move 目标目录归一——拒绝前导 '/'（绝对路径逃逸）与归一后为空
  *  （根目录/纯斜杠），折叠连续斜杠、剥全部尾斜杠；'a/b/'、'a/b//'、'a//b' 归一到
  *  同一键 'a/b'，防畸形 toDir 直拼进 manifest 造成目录身份分裂。返回 null = 非法。
- *  ：'\' 归一在前——win32 path.resolve 视 '\' 为分隔符，含反斜杠的
+ * '\' 归一在前——win32 path.resolve 视 '\' 为分隔符，含反斜杠的
  *  toDir 会被 resolveSafePath 放行并真实建目录，但混合分隔符串直拼进 manifest 后，
  *  posix 口径的树扫描/前端全链 miss（docId 身份分裂 + 保存恒 REVISION_CONFLICT，
  * 同族后果）；先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。
- *  ：'..'/'.' 段拒绝——下方 safeSegs「已存在则原样
+ * '..'/'.' 段拒绝——下方 safeSegs「已存在则原样
  *  保留」分支对 '..' 恒命中（existsSync(join(root,'a','..')) 即 root），'..' 原文直拼进
  *  manifest 而物理落位经 resolveSafePath 词法消解落在别处 → 登记与盘上路径分裂、docId
- *  身份分裂、保存恒 REVISION_CONFLICT（/同族；口径对齐 doCopy ）。
- *  -mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——win 侧
+ * 身份分裂、保存恒 REVISION_CONFLICT（同族；口径对齐 doCopy）。
+ * mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——win 侧
  * 动机（path.resolve 视 `\` 为分隔符）与历史遗留兼容不变；posix 上 `\` 是合法
  *  文件名字符，含 `\` 的 toDir 按字面单段目录处理（不再扭曲为子目录）。 */
 function normalizeMoveToDir(toDir: string): string | null {
@@ -59,10 +59,10 @@ function normalizeMoveToDir(toDir: string): string | null {
 }
 
 /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。
- *  ：类方法迁模块函数，共享设施经 ctx 显式取得（本体原样，类内部成员访问改走 ctx）。 */
+ * 类方法迁模块函数，共享设施经 ctx 显式取得（本体原样，类内部成员访问改走 ctx）。 */
 // doMoveOrRename 改异步——尾部清单 path 更新走
 // updateManifestPath 的异步清单锁（等待期不阻塞事件循环）。
-// （c 修复批）：落位段补 per-doc save 锁——原「本方法
+// 落位段补 per-doc save 锁——原「本方法
 // 不取 save 锁，由调用方 save 锁内 await」留下双向复活窗：他进程 executeSave 过锁内
 // 守卫（registered/trash 复核）后、落盘前，本方法把文件 rename 走并删源，他进程的
 // atomicWriteFile/createFileExclusive 会在旧路径复活已移走文件（expectedRevision=null
@@ -89,7 +89,7 @@ export async function doMoveOrRename(
   // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
   if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
   const journalPath = ctx.journalPathOf(docId) // 文件名编码口径单源（doc-context）
-  // （修复批）：取锁/释放编排单源化至 withSaveLocks
+  // 取锁/释放编排单源化至 withSaveLocks
   //（holdSaveLock 防同进程嵌套自锁语义随迁：false = 调用方已持同 docId
   // save 锁；获取抛出收口随迁）。结构落位段无布线文件，不传 wiring。
   return ctx.withSaveLocks<MoveResult>({
@@ -107,7 +107,7 @@ export async function doMoveOrRename(
       reason: '移动/重命名等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试',
     }),
     body: async () => {
-      // （c 修复批）：lookup 命中读已随 lookupPathByDocIdAdoptAsync
+      // lookup 命中读已随 lookupPathByDocIdAdoptAsync
       // 收敛 strict（口径）——瞬态读失败上抛不再落「未登记」，此处收口 WRITE_ERROR
       //（未执行操作、可重试），不裸穿 MoveResult 契约。
       let oldPath: string | null
@@ -160,7 +160,7 @@ export async function doMoveOrRename(
         // 「create 同源整段预算」口径冲突——同标题 create/rename 落名不一致属身份漂移，
         // 合并取本侧；copy 路径目标名镜像盘上既有名（预算已在原创建时付过），仍用
         // sanitizeFullFileName 扩展名感知变体。）
-        // -：根级文档（如脚手架必落的 简介.md）dirname
+        // 根级文档（如脚手架必落的 简介.md）dirname
         // 为 '.'——直拼产出 './新名.md' 清单键，而 docJoinKey/树扫描/保存守卫均不剥 './'
         // → 登记与盘面分裂：docId 退化 legacyId（.版本/.journal 关联断裂）+ 前端按树
         // 路径保存恒 REVISION_CONFLICT。move（normalizeMoveToDir 拒 '.'/'..'）与 copy
@@ -197,8 +197,8 @@ export async function doMoveOrRename(
       // ee-pending 写入收进 try——appendMovePending 同步抛（磁盘满/权限）此前在 try 外
       // 裸穿，而调用方以 Promise.resolve 包裹本方法（不捕获同步 throw），拿到的是裸异常而非
       // {ok:false} 契约（save 路径同类已修，此处对齐）。pending 仍先于
-      // snapshot+rename，崩溃恢复语义不变。
-      // （c 修复批）：settled 复用移动前单读派生的 baseRev——
+      // snapshot+rename 崩溃恢复语义不变。
+      // settled 复用移动前单读派生的 baseRev——
       // 移动/重命名内容不变（同 inode 落位），newSafe 的盘上指纹与 oldContent 恒等，原
       // computeRevision(newSafe) 在 settled 处再整读全文属重复 IO（单读派生同族
       // 收口）。行为零变更。防御回落仅在「readFileSync(oldSafe) 未执行即失败」的不可达
@@ -207,15 +207,15 @@ export async function doMoveOrRename(
       let baseRev: `sha256:${string}` | undefined
       try {
         opId = await appendMovePending(journalPath, docId, oldPath, newPath)
-        // snapshot 留底（移动/重命名前，§7）
+        // snapshot 留底（移动/重命名前§7）
         // 留底读原始字节——utf-8 文本读入会把 GBK 等非 UTF-8 源变
         // U+FFFD 失真快照（假留底：移动覆盖后原字节任何形式不可恢复）。writeVersion 支持
         // 原字节直存（front matter utf-8 + 原字节拼接），快照即字节档。
         // baseRev 单读派生——快照反正要整读原字节，rev 从同份
         // 字节派生（computeRevision(oldSafe) 此前独立再读一遍全文）
         const oldContent = readFileSync(oldSafe)
-        baseRev = computeRevisionBytes(oldContent) // 单读派生（同份字节，免独立重读）；：settled 复用
-        // 留底补传 policy（ctx.snapshotPolicy）——此前缺省走
+        baseRev = computeRevisionBytes(oldContent) // 单读派生（同份字节，免独立重读）；settled 复用
+        // 留底补传 policy（ctx.snapshotPolicy()）——此前缺省走
         // DEFAULT_VERSION_POLICY（14 天/30 个），global.json 的 snapMax* 覆盖对移动/重命名
         // 前留底不生效，与同文件 maybeSnapshot/updateChapterMeta/updateDocMeta 写法漂移；
         // 留底是"必须留"时刻，force 与既有缺省（true）一致，显式写明。
@@ -261,7 +261,7 @@ export async function doMoveOrRename(
           // 删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
           // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
           // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
-          // 删源收编 rmWithRetry（fs/atomic.ts ，trash.ts :287
+          // 删源收编 rmWithRetry（fs/atomic.ts，trash.ts :287
           // 先例）——瞬时锁退避后仍失败才走既有回收+报错链，语义不变（默认 rm 即
           // rmSync(p,{force:true})，与原裸调逐位同源）。
           try {
@@ -279,7 +279,7 @@ export async function doMoveOrRename(
         }
       } catch (e) {
         // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
-        // 低-4appendAborted 自身失败（journal 目录被删/磁盘满/权限）不再穿透——
+        // 低-4：appendAborted 自身失败（journal 目录被删/磁盘满/权限）不再穿透——
         // 此处已在失败善后路径上，留痕失败只降级（悬置 pending 由进门 healthCheck 收口），
         // 必须保住 {ok:false} 契约，不能把调用方换成吃裸异常
         if (opId !== undefined) {

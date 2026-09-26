@@ -32,7 +32,7 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
     </SettingItem>
     <SettingItem v-if="hasDesktop" name="界面字体" desc="侧栏与菜单等 UI 文字">
       <div class="font-pair">
-        <!-- -：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+        <!-- 字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
         <FontPicker
           class="font-select"
           ariaLabel="界面中文字体"

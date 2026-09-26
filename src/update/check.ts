@@ -1,5 +1,5 @@
 /**
- * 阶段 53 ：更新检查客户端（静默、进程内一次、失败不抛）。
+ * 阶段 53：更新检查客户端（静默、进程内一次、失败不抛）。
  *
  * 口径六面（设计 §三）：版本源见 `resolveAppVersion`；只提示**正式版**（筛选在
  * pickLatestStable）；启动后延迟一次、进程内一次、不落盘；失败/离线/被墙/限速
@@ -78,7 +78,7 @@ async function fetchOutcome(fetchImpl: typeof fetch, timeoutMs: number): Promise
       ...(controller ? { signal: controller.signal } : {}),
     })
     if (!resp.ok) {
-      // 非 2xx（含 403 限速）响应体不消费则连接不回池（embed.ts C104 同款）——best-effort 取消
+      // 非 2xx（含 403 限速）响应体不消费则连接不回池（embed.同款）——best-effort 取消
       try {
         await resp.body?.cancel()
       } catch {

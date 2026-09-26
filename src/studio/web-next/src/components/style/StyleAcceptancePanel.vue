@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文风验收卡（StyleView 拆分 ④ 验收段）：机检重扫 + AI 语义分析双块。
+// 文风验收卡（StyleView 拆分④ 验收段）：机检重扫 + AI 语义分析双块。
 // 机检重扫零 AI；AI 语义分析耗 token 且完成时后端自动落源3候选。
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -9,7 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import { runStyleAnalysis, type StylePayload } from '../../api/analysis'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
-// （修复批）：.panel/.btn-ghost/.token-chip 逐字重复块
+// .panel/.btn-ghost/.token-chip 逐字重复块
 // 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
 // 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -22,7 +22,7 @@ const ui = useUiStore()
 const rescanning = ref(false)
 async function onRescan(): Promise<void> {
   if (rescanning.value) return
-  // 书名入口捕获 + catch 复检（对齐下方 onAnalyze 的 /
+  // 书名入口捕获 + catch 复检（对齐下方 onAnalyze 的
   // 模式）——重扫在途切书后本组件成死实例（props 冻结旧书），A 书的失败 toast 不落 B 书
   const book = props.bookName
   rescanning.value = true
@@ -145,7 +145,7 @@ function fmtDate(iso: string): string {
             <span>总结体结尾 {{ style.trend.summaryEndingChapters.length }}{{ unit }}</span>
           </div>
           <div v-if="style.trend.drifts.length > 0" class="drift-list">
-            <!-- ：漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
+            <!-- 漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
               （metrics/style.ts detectConsecutiveOver 单发 + 固定推送各一次），metric 即行身份 -->
             <div v-for="d in style.trend.drifts" :key="d.metric" class="drift-item">
               <TriangleAlert :size="11" /> {{ d.message }}

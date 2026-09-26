@@ -3,7 +3,7 @@
  *
  * 样章库/金句库：搬移（迁移后删旧文件，空目录顺手清掉）。
  * 文风铁律：提取（反和解禁词 / AI 味替换表 → 禁词条目）后瘦身为纯配置
- *   （收口：保留可量化约束 + 删除分级，禁词知识归条目库；机检禁词走
+ * （收口：保留可量化约束 + 删除分级，禁词知识归条目库；机检禁词走
  *   readIronRules 合并条目库，行为不缺失）。
  *
  * 幂等：文风/条目/ 目录已存在 → no-op。
@@ -82,7 +82,7 @@ export function parseAiFlavorRows(text: string): { 词: string; 替换: string }
 }
 
 /** 条目落新库（迁移内部：序号内存计数，避免每写一个都扫盘）。
- *  ：续跑时序号从盘上既有条目之后起——中途崩溃重启不得覆写已迁条目。 */
+ * 续跑时序号从盘上既有条目之后起——中途崩溃重启不得覆写已迁条目。 */
 function makeWriter(bookRoot: string, result: StyleMigrateResult) {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
   const seq = new Map<string, number>()
@@ -213,7 +213,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (!existsSync(styleDir)) return result // 无文风目录（异常书），不建库
 
   const rulesFile = join(styleDir, '文风铁律.md')
-  // 读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录按
+  // 读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
   // 「无该输入」处理（无遗留段），不再抛穿迁移
   const rulesRaw = readTextSafe(rulesFile)
   const rulesHasLegacy = rulesRaw !== null && hasLegacyRulesSection(rulesRaw)
@@ -226,7 +226,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
 
   const write = makeWriter(bookRoot, result)
 
-  // 样章/金句续跑查重（对齐禁词源 ——修一处漏两处的
+  // 样章/金句续跑查重（对齐禁词源修一处漏两处的
   // 口径不一）：条目写盘成功与旧源 rmSync 之间崩溃后，续跑对同一旧文件再拆再写会产出
   // 同内容双份、重复占据注入预算。键 = 场景 + 正文；命中 = 上次已迁，跳写并照删旧源。
   const seenSample = new Set<string>(
@@ -266,7 +266,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           ...(s._raw ? { _raw: s._raw } : {}),
         })
         // （退避族）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁下裸
-        // rmSync 直败会中断本轮迁移（迁移幂等 + 续跑查重可自愈，但不该无谓报错
+        // rmSync 直败会中断本轮迁移（迁移幂等 +续跑查重可自愈，但不该无谓报错
         // + 旧目录滞留一轮）；口径同全仓「确实要删」删源点。
         if (s._path) rmWithRetry(s._path)
       }
@@ -369,7 +369,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     if (banned.length > 0) result.details.push(`铁律反和解段 → ${banned.length} 条禁词`)
     if (flavorCount > 0) result.details.push(`铁律 AI 味表 → ${flavorCount} 条禁词（标签: AI味）`)
     // 瘦身写回（机检禁词已由 readIronRules 合并条目库，不缺失）
-    // 平台规范化批：写回内容规范形（原文 CRLF 时 slim 产物可携 \r 残尾）
+    // 平台：写回内容规范形（原文 CRLF 时 slim 产物可携 \r 残尾）
     const slimmed = canonicalizeText(slimIronRules(rulesText))
     if (slimmed !== rulesText) {
       atomicWriteFile(rulesFile, slimmed)

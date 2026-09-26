@@ -17,7 +17,7 @@ import { formatRedForRewrite } from '../check/report.js'
 /** 自愈打回状态 */
 export type RetryState =
   | { state: 'pass' } // 无红项，放行进三审
-  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string; redIssues: string[] } // 退回重写(attempt=即将进行的第几次重写)
+  | { state: 'retry'; attempt: number; maxAttempts: number; redFeedback: string; redIssues: string[] } // 退回重写:attempt+1 = 即将进行的第几次重写(供 UI 显示「第 N/M 次」)
   | { state: 'escalate'; attempt: number; redFeedback: string; redIssues: string[] } // 超限升级 ask 作者(attempt=已重写次数)
 
 /**
@@ -28,7 +28,7 @@ export type RetryState =
  * @param maxAttempts 最大重写次数(默认 3)
  */
 export function evaluateRetry(report: CheckReport, attempt: number, maxAttempts = 3): RetryState {
-  // 无红项 → 放行
+  // 无红项，放行进三审
   if (!hasRed(report)) {
     return { state: 'pass' }
   }
@@ -59,7 +59,7 @@ export function evaluateRetry(report: CheckReport, attempt: number, maxAttempts 
 
 // formatRetryState（三态人话，生产无调用方、仅测试消费的准死代码）已删
 
-// ── （DSH-19）：连续相同红项 → 换策略提醒 ──────────
+// ──：连续相同红项 → 换策略提醒 ──────────
 
 /**
  * 红项集合 canonical key：去重 + 排序后拼接。

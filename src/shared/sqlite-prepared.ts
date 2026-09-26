@@ -1,7 +1,7 @@
 /**
- * （六轮修复批）：连接级 prepared 语句缓存的单源。
+ * 连接级 prepared 语句缓存的单源。
  *
- * 沿革：（events）/ （rag）/ - nano （check）三域各自
+ * 沿革：（events）/ （rag）/ nano（check）三域各自
  * 落了一份「WeakMap<db, Map<sql, stmt>> + 配对 close」的实现，逐字同构三份。
  * 族 bug（node:sqlite 的 StatementSync 强引用其 DatabaseSync，与 WeakMap 弱键构成
  * ephemeron 环——裸 close 后条目不随 GC 消失，每次开/关滞留 ~0.35KB 线性堆积）已需

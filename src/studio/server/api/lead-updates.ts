@@ -28,10 +28,10 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 编排互斥预检 + 任务闸（409 文案逐位保留）+
-      // （c 修复批）中断通道（owner='lead-updates:<书名>'，
+      // 编排互斥预检 +任务闸（409 文案逐位保留）+
+      // -①中断通道（owner='lead-updates:<书名>'，
       // ctrl.signal 沿 process 层既有形参透传）——十段复制收编 runGatedGeneration
-      // 单源（-，接法头注见 task-gate.ts）。
+      // 单源（接法头注见 task-gate.ts）。
       return ctx.gate.runGatedGeneration(
         res,
         {

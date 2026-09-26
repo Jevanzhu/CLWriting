@@ -1,4 +1,4 @@
-// （全库源码质量评审修复批）：书级 URL 单源。
+// 书级 URL 单源。
 //
 // 此前 `/api/books/${encodeURIComponent(name)}/…` 模板在 api/ 层 78 处、api 层之外
 // （useHeartbeat / useSse）另有 5 处各自手拼——端点多一段、书名/ID 的编码口径改动时

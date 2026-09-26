@@ -10,7 +10,7 @@
  * 依赖方向单向（无环回引）：残核 server-manager.ts 与 server-log.ts 自本文件直接
  * import（server-log 仅 type-only 取两契约，编译期擦除不构成运行时回边），本文件
  * 不回引残核——顶层求值常量单源本文件，不经环回 re-export 链被引（state
- * 拆分同款纪律）。服务器状态机 createStudioServerManager（约 620 行，G 普查批
+ * 拆分同款纪律）。服务器状态机 createStudioServerManager（约 620 行，
  * 不动清单第一项）留 server-manager.ts，本批零触碰其函数体；迁出公开导出
  * （ServerBootError / LogLike）经 server-manager.ts 逐名 re-export 桥接，全库
  * 消费方 import 面零改动。
@@ -38,7 +38,7 @@ export interface UtilityProcessLike {
   on(event: 'message', listener: (message: unknown) => void): unknown
   once(event: 'message', listener: (message: unknown) => void): unknown
   once(event: 'exit', listener: (code: number) => void): unknown
-  /** （GLM-5.3 修复批）：Electron 在「进程无法
+  /** Electron 在「进程无法
    *  spawn」「被异常终止（V8 FatalError/OOM 等）」时经 'error' 事件抛诊断（三参：
    *  type（如 "FatalError"）/location/完整 V8 崩溃报告文本）——EventEmitter 语义下
    *  无监听即 uncaughtException 崩主进程，本接口此前漏此事件面（且 V8 级根因丢失）。 */
@@ -127,7 +127,7 @@ export function handshake(
       () =>
         settle(() => {
           proc.kill()
-          // kill 不再 fire-and-forget—— 已实证 SIGTERM 可被吞，
+          // kill 不再 fire-and-forget——已实证 SIGTERM 可被吞，
           // 唯此第三条 kill 路径漏应用同族纪律，卡死 child 会占住端口喂重启 EADDRINUSE
           // 循环/首启 quit 后成孤儿。等退出+升级完成后再按启动失败收口，重启链拿到的是
           // 无端口残留的干净现场。
@@ -149,7 +149,7 @@ export function handshake(
         settle(() =>
           rejectRaw(new ServerBootError(String(m.code ?? 'UNKNOWN'), String(m.message ?? 'server 启动失败'))),
         )
-        // （修复批）：boot-error 分支此前 settle 即 reject、无 kill 兜底——
+        // boot-error 分支此前 settle 即 reject、无 kill 兜底——
         // child 发完 boot-error 预期自退，但自退挂住（exit 被吞/清理逻辑没兜住）时无人
         // 接管，滞留占端口/成孤儿直至 app 退出（超时分支同族纪律本节漏网）。
         // 对齐超时分支：boot-error 后等退出（短窗），未退则 kill + SIGKILL 升级收口；

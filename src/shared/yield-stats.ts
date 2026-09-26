@@ -7,7 +7,7 @@
  * sourceProbeStats（「测试断言用」）。
  *
  * 落 shared 而非 check：消费方横跨 format/chapters.ts（正文/章纲目录整扫）与
- * check/*，而 format 不得 import check（- 消环口径）。
+ * check/*，而 format 不得 import check（消环口径）。
  */
 export const preludeYieldStats = {
   /** tree-issues-cache.ts dirFpCore：纪元指纹递归 walk（计数单位 = 计入指纹的 .md 项） */

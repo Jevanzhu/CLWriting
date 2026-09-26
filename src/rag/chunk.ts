@@ -4,12 +4,12 @@
  * subdivideSegment / isHighSurrogate 原样随迁（零行为变化，历史注释原样随代码迁移）。
  * 纯函数；RAG 域总述头注与召回残核在 rag/index.ts（残核 re-export 本文件
  * chunkBody/TextChunk，消费方 import 面零改动）。
- * （评审修复批）：长度计量收编 shared/text.ts 的
+ * 长度计量收编 shared/text.ts 的
  * codePointLength 单源——该模块刻意零内部依赖（shared 惯例），任意层引用无依赖
  * 倒挂与循环风险，rag 域引之不破分层；本文件自此唯一内部依赖即该单源。
  */
 
-// （评审修复批）：分块长度口径收编码点计数单源（
+// 分块长度口径收编码点计数单源（
 // 优化下沉的 shared 单源）——原 UTF-16 .length 与全库 codePointLength 纪律分裂
 // （安全方向：增补平面字符一符计 2 使块更小/更早细分，但口径不统一），见
 // pushSegmentChunks 处注。
@@ -55,7 +55,7 @@ export function chunkBody(body: string): TextChunk[] {
 }
 
 /** 一个段（双空行之间）入块：不超上限整段一块，超上限细分（子块同走 ≥20 过滤）。
- *  ：长度口径（<20 成块下限 / ≤MAX_CHUNK_CHARS 上限）按码点计
+ * 长度口径（<20 成块下限 / ≤MAX_CHUNK_CHARS 上限）按码点计
  *  （codePointLength 单源，与句长/名册窗同纪律）——UTF-16 .length 对增补平面字符
  *  一符计 2，含 astral 字的段被虚高提前细分或误丢短段。细分窗口仍按 UTF-16 码元滑
  *  （subdivideSegment 不动）：码元窗长恒上界码点数，切出子块按码点计必 ≤ max，

@@ -20,7 +20,7 @@ import type { ThemeId } from '../types/theme'
  * 生效链 global.json → 硬编码 14 天 / 30 个（服务端 prune 同链）；所有书统一，
  * book.yaml snapshots 书级覆盖已于砍掉。
  *
- * 书级设定全局托底（同 snapMax* 模式，修正口径）：题材/每卷章数/目标字数/
+ * 书级设定全局托底（同 snapMax* 模式修正口径）：题材/每卷章数/目标字数/
  * 每章字数/短篇严格/自动梳理/增量阈值/启用检索/检索提供方 可被书覆盖；文风注入/自动
  * 确认细纲/批量章数/单章上限（AI 写作组）与版本保留已砍书级，所有书统一。
  * 生效链 book.yaml 对应键 → 此处 → 硬编码回落（ref 初值即回落，服务端合并同链）；
@@ -84,7 +84,7 @@ export interface PrefValueMap {
   proseLh: number
   uiFontCn: string
   uiFontEn: string
-  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大） */
+  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
   uiFontSizeStep: number
   proseFontCn: string
   proseFontEn: string
@@ -181,7 +181,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   const ragEnabled = ref(DEFAULTS.ragEnabled)
   /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
   const ragProvider = ref(DEFAULTS.ragProvider)
-  // ── ：机检阈值全局托底五键（undefined = 未设 = 走引擎默认；刻意不进 DEFAULTS、
+  // ──：机检阈值全局托底五键（undefined = 未设 = 走引擎默认；刻意不进 DEFAULTS、
   // 无硬编码托底值——引擎默认参数即最终回落，与 defaultTargetWords 的「0 = 未设」不同源）──
   /** 复读占比阈值默认（0-1 小数；书级 checks.repeat_threshold） */
   const checkRepeatThreshold = ref<number | undefined>(undefined)
@@ -211,7 +211,7 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   /** 并发修订号：PUT /api/library/prefs 的 expectedRevision 依据。
    *  GET/写成功响应回传时同步（照 provider store 的维护方式），非响应式——仅供写路径用。
-   *  ：配对未知态标记——init 失败（API 不可达）时 revision=0 是「未知」
+   * 配对未知态标记——init 失败（API 不可达）时 revision=0 是「未知」
    *  而非「服务端确为 0」，原样参与 PUT 会让首保存必 409（误报「已在其他窗口被修改」）。 */
   let revision = 0
   let revisionKnown = false
@@ -247,7 +247,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (apiOk && Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
       prefs = buildCache()
       // 迁移写内容即基线（迁移 PUT 失败时脏字段判定仍成立）。
-      // （GLM-5.3 修复批）注记：评审曾建议「移到 PUT 落定
+      // 注记：评审曾建议「移到 PUT 落定
       // 后置位」，二阶分析后维持先行——①迁移 PUT 是裸调用不占 putInFlight 单飞槽，
       // 在途窗口内用户编辑可并发 schedulePersist → 撞 409 → recoverFromConflict 的
       // 本窗重放依赖 dirtyKeysOf 对比基线；移后 lastPersisted=null 走零脏口径
@@ -288,7 +288,7 @@ export const usePrefsStore = defineStore('prefs', () => {
         return Number.isFinite(v) && v > 0 ? v : null
       }
       const str = (k: string): string => localStorage.getItem(k) ?? ''
-      // （修复批）：循环变量原命名 ref 遮蔽 Vue
+      // 循环变量原命名 ref 遮蔽 Vue
       // 的 ref 导入（同文件内 ref(...) 语义漂移的可读性陷阱），改名 entry——零语义变更
       for (const [k, entry, kind] of [
         [OLD_LS.size, proseSize, 'num'],
@@ -336,7 +336,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   /** 将 API 读到的 prefs 应用到各 ref。
-   *  ：33 键手写 if 链收敛为 PREF_ROWS 表驱动逐键守卫——
+   * 33 键手写 if 链收敛为 PREF_ROWS 表驱动逐键守卫——
    *  typeof 守卫/边界（gt/gte/lte）/round/trim/枚举白名单逐键照抄原实现，行为等价。 */
   function applyPrefs(p: GlobalPrefs): void {
     //（satisfies 保构造期逐键检查；值联合收敛回行类型供守卫循环统一读写）
@@ -378,7 +378,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   // key 字段（snapDays→snapMaxDays、aiBatchSize→autoBatchSize 两异名映射显式在行上）；
   // 行序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变。
   // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（经 PrefValueMap
-  // 逐键标注校验，缺行/多行/r 值型不符编译期红）。
+  // 行表以本映射逐键标注校验：缺行/多行/r 值型不符任一即编译期红，调用点键拼错同红
   // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
   // prefs 测试群（prefs-store / prefs-clamp-setters 等）回归兜底。
   interface PrefRow {
@@ -403,7 +403,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     side?: 'apply' | 'applyTheme' | 'applyCompact'
     /** setter clamp：Math.min(max, Math.max(min, round(v)))（原 numSetter 同款）；
      *  round2 = 先两位小数取整再 clamp（checkRepeatThreshold 浮点截断异形收编进表，
-     *  ）；缺省行 set = 原样赋值（setSize/setLh 字号族原口径，bool/str/enum 同） */
+     *）；缺省行 set = 原样赋值（setSize/setLh 字号族原口径，bool/str/enum 同） */
     set?: { min: number; max?: number; round2?: boolean }
   }
 
@@ -485,7 +485,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     },
     ragEnabled: { key: 'ragEnabled', r: ragEnabled, kind: 'bool' },
     ragProvider: { key: 'ragProvider', r: ragProvider, kind: 'str', trim: true },
-    // ── ：机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
+    // ──：机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
     // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断异形已收编进行 set（round2，
     // 写面与原手写 setCheckRepeatThreshold 逐位一致）
     checkRepeatThreshold: {
@@ -530,7 +530,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖）。
-   *  ：表驱动全量组装——键序即 JSON 键序（PUT body 字节不变），undefined 序列化时被
+   * 表驱动全量组装——键序即 JSON 键序（PUT body 字节不变），undefined 序列化时被
    *  JSON.stringify 丢弃 = 未设不覆盖盘上已有值（机检五键，与服务端合并写语义一致）。 */
   function buildCache(): GlobalPrefs {
     const out = {} as Record<keyof GlobalPrefs, unknown>
@@ -551,7 +551,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     return p
   }
 
-  /** revision 未知态写前对齐单源—— 的重 GET 块原在
+  /** revision 未知态写前对齐单源——的重 GET 块原在
    *  schedulePersist / flushPendingPersist 两处逐行双写，收敛本函数防漂移（语义零变化：
    *  已知即跳过；GET 失败照旧发 PUT，走既有 409/静默口径自愈）。 */
   async function ensureRevisionKnown(): Promise<void> {
@@ -565,15 +565,15 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   /** debounce 写回 global.json（500ms）。
-   *  ：快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
+   * 快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
    *  与在途 PUT 交叠时旧快照后到可丢改动）+ 在途单飞（在途时重走防抖排队，完成后以
    *  届时最新快照发出）。
-   *  （六轮修复批）：fire 分支起始置空 persistTimer——
+   * fire 分支起始置空 persistTimer——
    *  此前回调执行完不置空，句柄停在「已 fire 的旧定时器」上恒非 null，而
    *  flushPendingPersist 以 `!persistTimer` 作「无待写」判据（-三轮立的守卫），
    *  于是**保存过一次**的窗每次关窗都同值空写 PUT → 服务端无条件 bump revision → 其他
    *  存活窗下次保存伪 409 +「已在其他窗口被修改」误导 toast。定时器已 fire 即无待写，
-   *  置空后守卫恢复原意（原注释「定时器只在冲刷内清空」正是缺口自述）。 的返回
+   * 置空后守卫恢复原意（原注释「定时器只在冲刷内清空」正是缺口自述）。的返回
    *  真链 Promise 不变式不受影响（在途分支重排 schedulePersist 会重新武装句柄）。 */
   function schedulePersist(): void {
     if (persistTimer) clearTimeout(persistTimer)
@@ -585,7 +585,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       }
       runPutChain(async () => {
         // revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
-        // 自伤 409（ensureRevisionKnown 单源，收敛）
+        // 自伤 409（ensureRevisionKnown 单源收敛）
         await ensureRevisionKnown()
         await doPersistPut()
       })
@@ -622,18 +622,18 @@ export const usePrefsStore = defineStore('prefs', () => {
   /** 关窗/退出前的立即冲刷——清 500ms 防抖窗直发一次 PUT
    *  （主进程 flushRendererBeforeClose 经 window.__clwFlushPrefs 调用；revision 对齐与
    *  409 自愈口径与 schedulePersist 相同）。
-   *  ：在途 PUT 时原实现 `if (putInFlight) return` 空返回——关窗钩子
+   * 在途 PUT 时原实现 `if (putInFlight) return` 空返回——关窗钩子
    *  的返回值被主进程 executeJavaScript await，视为冲刷完成即放行销毁窗口，在途 PUT
    *  快照之后的偏好改动（<500ms 防抖窗内）随定时器与窗口一同死亡。改为：等在途真链
    *  落定（其失败已由 doPersistPut/恢复链内部消化，catch 兜底防御）后清防抖定时器、
    *  按届时最新快照补一笔直发；整链作为返回 Promise 交主进程预算内等待
    *  （flushRendererWithBudget 的 FLUSH_BUDGET_TIMEOUT 兜底，超时同权放行关窗）。 */
   async function flushPendingPersist(): Promise<void> {
-    // -：无待写不空写守卫（对齐 workspace.flushPendingBookPrefs 的
+    // 无待写不空写守卫（对齐 workspace.flushPendingBookPrefs 的
     // `if (!debounceTimer) return` 口径，待写标志即本 store 的 persistTimer）——书架/
     // 书库等独立窗关窗此前也无条件同值 PUT，服务端 revision 空 bump → 存活窗陈旧
     // revision 伪 409 +「已在其他窗口被修改」误导 toast。
-    // （六轮修复批）：本守卫在原 schedulePersist
+    // 本守卫在原 schedulePersist
     // 下只兑现了一半——fire 后句柄不清空，「保存过一次」的窗恒判为有待写，仍每次关窗
     // 空写（原注释「定时器只在冲刷内清空，清后复改会重排」正是缺口自述；现已由 fire
     // 分支置空收口）。persistTimer 为空 = 确认无待写：本窗从未排过防抖写，或排过的
@@ -750,7 +750,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   // setter 收进 SETTERS 键控映射，经泛型 set(key, value) 单出口（键类型由 PrefValueMap
   // 推导，拼错键编译期红）；异形保留：setPageWidth / setAutosaveInterval（bookOnly 双
   // 分支双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）、checkRepeatThreshold
-  // 浮点截断已收编进行 set（round2）。
+  // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断异形已收编进行 set（round2
 
   /** 行 setter 的收尾两段：按行 side 挂副作用 → schedulePersist 防抖落 global.json。 */
   function finishRow(row: PrefRow): void {
@@ -819,7 +819,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     /** 版本保留全局默认（clamp 1-365 / 1-200；所有书统一） */
     snapDays: numRow(PREF_ROWS.snapDays),
     snapCount: numRow(PREF_ROWS.snapCount),
-    // ── 书级设定全局托底 setter（clamp/trim 参数在 PREF_ROWS 行上，表驱动）──
+    // ── 书级设定全局托底 setter（clamp/trim 参数在 PREF_ROWS 行上表驱动）──
     defaultGenre: strRow(PREF_ROWS.defaultGenre),
     defaultVolumeSize: numRow(PREF_ROWS.defaultVolumeSize),
     defaultTargetWords: numRow(PREF_ROWS.defaultTargetWords),
@@ -833,7 +833,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     relationMineThreshold: numRow(PREF_ROWS.relationMineThreshold),
     ragEnabled: boolRow(PREF_ROWS.ragEnabled),
     ragProvider: strRow(PREF_ROWS.ragProvider),
-    // ── ：机检阈值五键（clamp 参数在行上 → schedulePersist 防抖落 global.json；
+    // ──：机检阈值五键（clamp 参数在行上 → schedulePersist 防抖落 global.json；
     // checkRepeatThreshold 浮点两位截断在行 set.round2）──
     checkRepeatThreshold: numRow(PREF_ROWS.checkRepeatThreshold),
     checkRepeatCharsThreshold: numRow(PREF_ROWS.checkRepeatCharsThreshold),

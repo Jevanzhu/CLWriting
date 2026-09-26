@@ -1,7 +1,7 @@
 /**
  * RAG 配置 + key 安全落点 —— 依据 #37 spec 第 2 节。
  *
- * 红线：api_key 绝不进 git。
+ * 红线 H1：api_key 绝不进 git。
  * - 非密信息（enabled/endpoint/model）入 book.yaml 的 rag 段
  * - api_key 落 gitignore 区：环境变量 > 工作目录/.clwriting/rag.secret（.clwriting 非 git）
  *
@@ -82,16 +82,16 @@ export function readRagConfig(bookRoot: string, userDataPath?: string | null): R
   }
 }
 
-/** 0918二轮修复批（G101）：rag.secret 弃用 warn 的进程内一次性标志（见 readApiKey 头注） */
+/** rag.secret 弃用 warn 的进程内一次性标志（见 readApiKey 头注） */
 let ragSecretDeprecationWarned = false
 
 /**
  * 读 api_key（优先级：环境变量 > .clwriting/rag.secret）。
  * 两者皆无 → null（调用方据此降级，不阻断）。
  *
- * 红线：绝不从 book.yaml / 书仓库任何文件读 key。
+ * 红线 H1：绝不从 book.yaml / 书仓库任何文件读 key。
  *
- * 0918二轮修复批（G101）：旧版明文通道弃用提示——rag.secret 是服务商标应用级
+ * 旧版明文通道弃用提示——rag.secret 是服务商标应用级
  * （providers.json + vault 加密）之前的存量落点，与新链路保护等级不一（工作目录
  * 在同步盘时明文 key 随之上云）。检测到该文件存在且 key 被实际取用（env 未覆盖、
  * 文件非空）时打一次性 deprecation warn 引导迁移；读取行为不变（存量用户不破坏，

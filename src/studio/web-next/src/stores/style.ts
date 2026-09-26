@@ -40,10 +40,10 @@ export const useStyleStore = defineStore('style', () => {
     return m
   })
 
-  /** 请求代守卫（words store reqGen 同款）：切书时 Book.vue 先 clear
+  /** 请求代守卫（words store reqGen 同款）：切书时 Book.vue 先 clear()
    *  再 load(新书)——无守卫时 A 书慢响应可在 clear/load(B) 之后落地，B 书文风页显示
    *  （B 加载失败则长时显示）A 书的条目库/候选/定标配置。后调者胜。
-   *  ：裸计数器换装 useStaleGuard（load 用 begin，其余只快照不推进用 current）。*/
+   * 裸计数器换装 useStaleGuard（load 用 begin，其余只快照不推进用 current）。*/
   const reqGen = useStaleGuard()
 
   /** 进入视图 / 切书加载；返回迁移结果（发生迁移时非 null，视图 toast） */
@@ -110,7 +110,7 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   /** 收割（零 AI）：返回 created/skipped 供视图 toast。
-   *  ：收割慢响应 + 切书——落盘在服务端按调用时的书结算（无串），但回填
+   * 收割慢响应 + 切书——落盘在服务端按调用时的书结算（无串），但回填
    *  candidates 前查代，防 A 书收割结果回填到已切到 B 的视图 */
   async function harvest(): Promise<{ created: number; skipped: number }> {
     const gen = reqGen.current()
@@ -132,7 +132,7 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   /** 机检重扫（零 AI，全量重算，章多时秒级）。
-   *  ：同 load 代守卫——重扫秒级在途时切书，旧书 trend 落地会顶掉新书的文风页 */
+   * 同 load 代守卫——重扫秒级在途时切书，旧书 trend 落地会顶掉新书的文风页 */
   async function rescan(): Promise<void> {
     const gen = reqGen.current()
     const book = bookName.value

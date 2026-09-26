@@ -89,8 +89,8 @@ export function parseValue(raw: string): unknown {
 /** 去掉值两端可选的引号（作者可能写 `标题: "灭门真凶"`）。
  *  双引号包裹时反转义 \"（与 stringifyValue 的 replace(/"/g, '\\"') 对称，
  *  防含引号值每次保存多累积一个反斜杠 → 内容渐进腐化）。
- *  ：同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。
- *  ：反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
+ * 同时反转义 \n / \r——序列化端对控制字符转义后的对称还原。
+ * 反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
  *  含字面反斜杠的值（如 C:\new\repo）往返渐进腐化（`\\n` 被二次误解成换行）。 */
 function unquote(s: string): string {
   // length >= 2 守卫——单个 `"` 字符的值 startsWith 与 endsWith
@@ -146,7 +146,7 @@ export function stringifyValue(val: unknown): string {
   return s
 }
 
-/** 0918修复批（B010）：fm 平铺值的类型闸——stringifyValue 能忠实往返的形态
+/** fm 平铺值的类型闸——stringifyValue 能忠实往返的形态
  *  白名单：string / number（须有限——NaN/Infinity 序列化成字面串读不回原值）/
  *  boolean / 仅含这三种标量的数组。其余形态（null / 对象 / 嵌套数组）经 stringifyValue
  *  会落成 "[object Object]"、"null"、嵌套括号等伪值写坏 fm——写侧入口（updateDocMeta
@@ -168,7 +168,7 @@ export function isFmWritableValue(val: unknown): boolean {
 
 // 剥平铺值行内注释，防注释尾巴进值——`标题: 值 # 备注` 不再把
 // 注释尾巴读进值。此前仅 yaml.ts（book.yaml）剥而 parseFlat（章 front matter）不剥，
-// 双 fm 解析口径不一。：实现下沉 frontmatter-core.ts（与 yaml.ts
+// 双 fm 解析口径不一。实现下沉 frontmatter-core.ts（与 yaml.ts
 // stripComment 同一函数，防循环 import 顾虑已随 core 拆出不成立），语义逐字不变。
 // 注意：yaml.ts 读改写同样丢注释，故写侧注释丢失口径一致、可接受，测试锁定「注释不进值」。
 
@@ -210,7 +210,7 @@ export function parseFlat(fmRaw: string): Map<string, unknown> {
     if (blockMatch) {
       const folded = blockMatch[1] === '>'
       const block: string[] = []
-      const indents: number[] = [] // 记录非空行缩进，供最小缩进去缩进
+      const indents: number[] = [] // E-9d：记录非空行缩进，供最小缩进去缩进
       i++
       while (i < lines.length) {
         const bl = lines[i]!
@@ -231,7 +231,7 @@ export function parseFlat(fmRaw: string): Map<string, unknown> {
         block.push(bl.endsWith('\r') ? bl.slice(0, -1) : bl)
         i++
       }
-      // 以块内非空行**最小缩进**为基准去缩进——此前按每行自身
+      // E-9d：以块内非空行**最小缩进**为基准去缩进——此前按每行自身
       // 缩进 slice，块内后续行比首行浅（但仍 >0）时保留多余空白，多行值往返失真；
       // YAML 块标量语义本就是最小缩进决定内容基准
       const minIndent = indents.length > 0 ? Math.min(...indents) : 0
@@ -299,7 +299,7 @@ export function patchFlatFm(
   fmRaw: string,
   updates: Record<string, unknown>,
 ): { ok: true; text: string } | { ok: false; reason: string } {
-  // 平台规范化批输出整体规范形（见函数尾 canonicalizeText）——MP2-4
+  // 平台规范化批输出整体规范形（见函数尾 canonicalizeText）——
   // 的「按 fm 原文行尾渲染」语义随规范形拍板翻转；未触碰行携带的 CRLF 残尾一并归一。
   const lines = fmRaw === '' ? [] : fmRaw.split('\n')
   const renderKeyLine = (key: string, val: unknown): string[] => {
@@ -384,7 +384,7 @@ export function patchFlatFm(
   }
   // 未命中的键追加到末尾（保持既有行序不变；原文尾随换行的 split 占位 '' 随追加
   // 成为分隔空行）。返回整体规范形（剥 BOM、归一 LF）——与 yaml.ts 补丁族口径
-  // 一致；MP2-4 的「按原文行尾渲染」语义随规范形拍板废止。
+  // 一致；的「按原文行尾渲染」语义随规范形拍板废止。
   for (const [key, val] of Object.entries(updates)) {
     if (done.has(key)) continue
     out.push(...renderKeyLine(key, val))
@@ -394,7 +394,7 @@ export function patchFlatFm(
 
 /** 包裹 front matter + 正文为完整 markdown */
 export function joinFrontMatter(fmText: string, body: string): string {
-  // 平台规范化批：整体输出规范形（剥 BOM、行尾归一 LF）—— 的
+  // 平台：整体输出规范形（剥 BOM、行尾归一 LF）——的
   // 「fence/接缝按内容主导行尾」语义随规范形拍板翻转。本函数是 fm+正文写回族的
   // 统一规范闸（service meta 三写点 / writeLead / style-entry / knowledge 注入）：
   // fm/正文携带的 \r\n（外部编辑器造出的 CRLF 文件）随整输出归一——读侧双认容忍
@@ -406,7 +406,7 @@ export function joinFrontMatter(fmText: string, body: string): string {
 // ── 读取/写入文件（容错入口）────────────────────
 
 /** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩）。
- *  ：content 传入时跳过读文件、按预读文本解析——三审端点单次读取
+ * content 传入时跳过读文件、按预读文本解析——三审端点单次读取
  *  取 buffer 后，hash 与机检 body 从同一快照派生（三次独立读文件会来自三个时刻）。 */
 export function readFile(
   filePath: string,
@@ -448,7 +448,7 @@ export function readFile(
       },
     }
   }
-  // 平台规范化批：的 BOM 记账（ok 回执带 bom 标记供写回点补回）随规范形拍板
+  // 平台的 BOM 记账（ok 回执带 bom 标记供写回点补回）随规范形拍板
   // 移除——书库内文本一律无 BOM，带 BOM 的存量/外部文件经写回族（joinFrontMatter
   // 整体规范化）自愈剥除；splitFrontMatter 读侧剥 BOM 容忍维持。
   return { ok: true, fmRaw: split.fmRaw, body: split.body }

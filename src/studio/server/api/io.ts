@@ -8,7 +8,7 @@
  * run-async.ts 卸载 worker 线程，服务进程只等消息（内核零改动）。
  * 写闸承担 session token 校验（defense-in-depth）：index.ts isWrite 的 safeTokenCompare
  * 在路由分派前拦一切 POST—— 删 handler 内冗余复核、（
- * 修复批）随之删 ctx.token 死字段（注入后零读取）。
+ *）随之删 ctx.token 死字段（注入后零读取）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
@@ -30,7 +30,7 @@ interface IoCtx extends TaskGateInjected {
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])
 const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
-// 内存闸：全局导出 worker 并发闸——task-gate 只按书限并发，
+// 内存闸（审计）：全局导出 worker 并发闸——task-gate 只按书限并发，
 // 跨书同时导出会各自 spawn worker（src 形态每线程还独立挂 tsx loader + 内核模块图），
 // 峰值线性叠加（19GB 事故的乘法项之一）。全局同时在跑 export worker ≤2，超出排队
 //（不 409——跨书导出可等，用户无感；单书并发仍走 task-gate 409 语义不变）。
@@ -104,10 +104,10 @@ export async function acquireExportSlot(waitTimeoutMs?: number | null): Promise<
       }
       exportWaiters.push(wrapped)
     })
-    // （总六十五轮）：名额已由 release 直接转移（release 未自减、直接 resolve
+    // 名额已由 release 直接转移（release 未自减、直接 resolve
     // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
     // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
-    // 瞬时并发超 MAX=2（违反 全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
+    // 瞬时并发超 MAX=2（违反全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
     return makeExportSlotReleaser()
   }
   // 到这里必有空位：同步块内 check+increment 无 await，原子
@@ -116,7 +116,7 @@ export async function acquireExportSlot(waitTimeoutMs?: number | null): Promise<
 }
 
 export function registerIoRoutes(ctx: IoCtx): void {
-  // 导出定稿
+  // 清偿-导出未过滤提示：透传定稿过滤标记——
   defineRoute('books.export', {
     method: 'POST',
     path: '/api/books/:name/export',
@@ -164,7 +164,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
         // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
         // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
         // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。
-        // ii 批：成功负载为域形状（chapterCount/unit/files），不透传 CLI 进程信封
+        // 成功负载为域形状（chapterCount/unit/files），不透传 CLI 进程信封
         if (!result.ok) return replyError(res, 422, 'EXPORT_FAILED', result.error ?? '导出失败')
         reply(res, 200, {
           ok: true,
@@ -174,7 +174,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
           // 清偿-导出未过滤提示：透传定稿过滤标记——
           // 清单缺失兜底导出（含未定稿章）时前端据此明示
           finalizedFilter: result.finalizedFilter,
-          // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带
+          // 透传被滤草稿章计数——内核 ExportResult 早已携带
           // 但信封漏发，前端无法提示「已跳过 N 个草稿章」
           skippedDrafts: result.skippedDrafts,
         })

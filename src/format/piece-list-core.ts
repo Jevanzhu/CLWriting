@@ -26,7 +26,7 @@ const SECTION_PAYOFF = '伏笔回收'
 /** 段头整行精确匹配——此前 `/^##\s*反转线索表/` 前缀正则会把
  *  `## 反转线索表补遗` 类手写标题当正式段头（后随内容被段解析器吞入结构数据）。
  *  现要求标题后即行尾，仅容忍尾随空白或一个括注尾注（`## 反转线索表（修订）` 类）。
- *  （修复批）：段标题为固定字面量，正则按标题模块常量化——原
+ * 段标题为固定字面量，正则按标题模块常量化——原
  *  isSectionHead 每行最多 3 次 new RegExp（parsePieceListBody 主循环逐行调用）。
  *  匹配口径逐字节不变。 */
 const SECTION_HEAD_RE: Record<string, RegExp> = {
@@ -57,7 +57,7 @@ function warnParse(msg: string): void {
 /**
  * 解析反转线索表段。
  * 格式：
- *   ## 反转线索表
+ * 解析反转线索表段。
  *   - 核心反转：<一句话>
  *   - 铺垫点（≥3，反转可回溯）：
  *     - [位置1] <铺垫内容>
@@ -70,7 +70,7 @@ function parseReversalSection(lines: string[], startIdx: number): { lead: Revers
 
   while (i < lines.length) {
     const trimmed = lines[i]!.trim()
-    // 遇 ## 段头即结束（含同名重复段头——：原条件放行同名段头，重复段的
+    // 遇 ## 段头即结束（含同名重复段头——原条件放行同名段头，重复段的
     // 条目会在本段解析内静默覆盖前段；终断后交给 parsePieceListBody 的
     // seenSections 判定 warn + 保留首个）
     if (/^##\s/.test(trimmed)) break
@@ -97,7 +97,7 @@ function parseReversalSection(lines: string[], startIdx: number): { lead: Revers
 /**
  * 解析情绪曲线段。
  * 格式：
- *   ## 情绪曲线
+ * 解析情绪曲线段。
  *   - [开头钩子] 惊悚 3/10：尸体敲门
  *   - [反转] 震惊 9/10：来客就是死者
  */
@@ -127,7 +127,7 @@ function parseEmotionSection(lines: string[], startIdx: number): { curve: Emotio
 /**
  * 解析伏笔回收段。
  * 格式：
- *   ## 伏笔回收
+ * - <伏笔A> → 回收于 <位置>
  *   - <伏笔A> → 回收于 <位置>
  *   - <伏笔C>（未回收）  ← 弃坑标记
  */
@@ -178,7 +178,7 @@ export function parsePieceListBody(body: string): PieceList {
   let entries: PayoffEntry[] = []
   // 重复 `## 同名段` 此前后者静默覆盖前者——作者复制粘贴出两个
   // `## 反转线索表` 时前段数据无声丢失。warn + 保留首个。与 book.yaml 重复段
-  // fail-loud 口径的差异：本解析器是浏览器共用纯函数、被表单面板直调，抛错
+  // fail-loud口径的差异：本解析器是浏览器共用纯函数、被表单面板直调，抛错
   // 会炸渲染；本处只留痕，段级缺失提示由 checkPieceListForm 黄项承担。
   const seenSections = new Set<string>()
 
@@ -220,7 +220,7 @@ export function parsePieceListBody(body: string): PieceList {
 export function stringifyPieceList(list: PieceList): string {
   const lines: string[] = []
 
-  // 反转线索表
+  // `## 反转线索表` 时前段数据无声丢失。warn + 保留首个。与 book.yaml 重复段
   lines.push(`## ${SECTION_REVERSAL}`)
   lines.push(`- 核心反转：${list.反转线索表.核心反转 || '（待补）'}`)
   if (list.反转线索表.铺垫点.length > 0) {
@@ -233,7 +233,7 @@ export function stringifyPieceList(list: PieceList): string {
   }
   lines.push('')
 
-  // 情绪曲线
+  // 空情绪曲线不再烘五条「待定」假数据——占位假数据会被当真
   lines.push(`## ${SECTION_EMOTION}`)
   if (list.情绪曲线 && list.情绪曲线.length > 0) {
     for (const p of list.情绪曲线) {
@@ -248,7 +248,7 @@ export function stringifyPieceList(list: PieceList): string {
   }
   lines.push('')
 
-  // 伏笔回收
+  // 改对齐伏笔回收段的「（待补）」占位：非点行，解析端读回仍为空曲线（读侧不受影响）。
   lines.push(`## ${SECTION_PAYOFF}`)
   if (list.伏笔回收.length === 0) {
     lines.push('（待补）')
@@ -262,7 +262,7 @@ export function stringifyPieceList(list: PieceList): string {
     }
   }
 
-  // （与）：补尾换行，对齐全库 stringify
+  // （与内存专项）：补尾换行，对齐全库 stringify
   // 惯例（yaml.ts stringifyBookConfig 的 `join('\n') + '\n'` 同款）——此前无尾换行，
   // 章纲.md 落盘后 git 显示 No newline at end of file；空 lines 分支为防御（现行实现
   // 恒推三段头，实际不可达）。读侧 parsePieceListBody 按 split('\n') 切行，尾空行无感。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 开书对话·左栏分组步骤列表（巨石批 7c 拆分自 OnboardView）。
+// 开书对话·左栏分组步骤列表（7c 拆分自 OnboardView）。
 // 分组结构由父层按书型过滤后传入（isShort/isGrowthBook 语义在父层）；
 // 「已生成」圆点读章节树（STEP_PATH 落盘位置）。
 import { computed } from 'vue'

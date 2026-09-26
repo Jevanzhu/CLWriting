@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 单张档位卡（修复批：自 TierSection 三处逐字同构
+// 单张档位卡（自 TierSection 三处逐字同构
 // 模板收敛，纯结构去重——DOM 结构/类名/样式值/事件语义逐像素不变，差异面经 props 传）。
 // 卡内控件语言（图标 chip + 药丸开关 + 单行字段）与停用回落语义见 TierSection 头注。
 // 草稿对象与父层共享引用，v-model 直接写属性（原实现同语义）；超时输入 @change 失焦
@@ -36,14 +36,14 @@ const emit = defineEmits<{
   toggle: [on: boolean]
 }>()
 
-/** 0：ms → 分钟输入显示（空 = 未设；非整分保留 1 位小数） */
+/** P10：ms → 分钟输入显示（空 = 未设；非整分保留 1 位小数） */
 function msToMinInput(ms: number | undefined | null): string {
   if (!ms) return ''
   const min = ms / 60000
   return Number.isInteger(min) ? String(min) : String(Math.round(min * 10) / 10)
 }
-/** 0：分钟输入 → ms（空/非法 = 清除该档超时，回落全局默认）。
- *  低-5绑定 @change（失焦/回车才校验）——原来 @input 逐键触发，输入
+/** P10：分钟输入 → ms（空/非法 = 清除该档超时，回落全局默认）。
+ * 低-5：绑定 @change（失焦/回车才校验）——原来 @input 逐键触发，输入
  *  小数/删改中间态（如 "0.5" 敲到 "0."）当场被当非法清空，几乎无法直接输入小数值 */
 function onTimeout(slot: TierSlot, ev: Event): void {
   const v = (ev.target as HTMLInputElement).value.trim()
@@ -261,7 +261,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
-/* ── 0 超时输入：与下拉同语言的描边控件（超时 [输入] 分），行尾 ── */
+/* ── P10 超时输入：与下拉同语言的描边控件（超时 [输入] 分），行尾 ── */
 .tier-timeout {
   display: inline-flex;
   align-items: center;

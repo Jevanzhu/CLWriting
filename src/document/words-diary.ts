@@ -12,7 +12,7 @@ import { testableConst } from '../shared/testable.js'
 import { join } from 'node:path'
 import { tryAcquireCrossProcessLock } from '../fs/cross-process-lock.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-// 0918二轮修复批（B104）：追加后 best-effort fsync 复用 journal 同款助手
+// 追加后 best-effort fsync 复用 journal 同款助手
 // （单源，勿复制实现）；同 document 层内引用，无跨层依赖
 import { fsyncFile } from './journal.js'
 
@@ -37,7 +37,7 @@ export function readBaseline(bookRoot: string, date: string): number | null {
   try {
     lines = readFileSync(fp, 'utf-8').split('\n').filter(Boolean)
   } catch {
-    // -数据层：读失败（EACCES/EISDIR）降级无基线（与缺文件同口径）——
+    // 数据层：读失败（EACCES/EISDIR）降级无基线（与缺文件同口径）——
     // 原先裸抛，documents 端点直接 500
     return null
   }
@@ -62,11 +62,11 @@ export function appendBaseline(bookRoot: string, date: string, baseline: number)
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   const fp = wordsDiaryPath(bookRoot)
   appendFileSync(fp, JSON.stringify({ date, baseline }) + '\n', 'utf-8')
-  // 0918二轮修复批（B104）：追加后 best-effort fsync——对照同为 append-only 的
+  // 追加后 best-effort fsync——对照同为 append-only 的
   // journal appendLineAsync 的耐久纪律（journal.ts fsyncFile 单源复用，吞错同口径）；
   // 掉电只丢尾部行的自愈口径（读侧逐行容错）保留，此为压缩损失面上限的加固。
   fsyncFile(fp)
-  // 每日首次写基线是天然低频时机——顺带检查跨日压缩
+  // （性能与内存专项）：每日首次写基线是天然低频时机——顺带检查跨日压缩
   //（append 在前：基线先落盘，压缩 best-effort 失败不反噬本行）。
   maybeCompactWordsDiary(bookRoot, date)
 }
@@ -80,7 +80,7 @@ export function todayDate(): string {
   return `${y}-${m}-${day}`
 }
 
-// ── ：今日字数精确增量（每次 save settled 记 delta，当日累加）───
+// ──：今日字数精确增量（每次 save settled 记 delta，当日累加）───
 
 /** 单次保存的字数增量条目（与 baseline 条目共存于同一 jsonl，靠 delta 字段区分）。 */
 interface WordsDeltaEntry {
@@ -94,7 +94,7 @@ interface WordsDeltaEntry {
  * 记一次保存的字数增量（save settled 时调）。
  * delta 可正可负（删减内容）；append 一行到 `项目/字数日记.jsonl`。
  *
- * （二十一轮·裁定维持不加锁）：appendFileSync 以 O_APPEND 语义打开——单次
+ * （裁定维持不加锁）：appendFileSync 以 O_APPEND 语义打开——单次
  * write 的「定位 + 写入」内核级原子，双进程并发 append 最多乱序、不会行内交错或
  * 互相覆盖（本条目序列化后 < 200 字节，远低于任何文件系统的原子写上限）；唯一损失
  * 形态是崩溃半写截断末行，读侧（readBaseline/readTodayDelta）逐行容错跳过坏行，
@@ -107,7 +107,7 @@ export function appendWordsDelta(bookRoot: string, date: string, delta: number, 
   if (docId) entry.docId = docId
   const fp = wordsDiaryPath(bookRoot)
   appendFileSync(fp, JSON.stringify(entry) + '\n', 'utf-8')
-  // 0918二轮修复批（B104）：同 appendBaseline——追加后 best-effort fsync
+  // 同 appendBaseline——追加后 best-effort fsync
   //（journal 同款助手，失败吞错不阻断保存链）。
   fsyncFile(fp)
 }
@@ -124,7 +124,7 @@ export function readTodayDelta(bookRoot: string, date: string): number | null {
   try {
     lines = readFileSync(fp, 'utf-8').split('\n')
   } catch {
-    // -数据层：读失败降级无增量（与缺文件同口径，baseline 方案兜底）
+    // 数据层：读失败降级无增量（与缺文件同口径，baseline 方案兜底）
     return null
   }
   // 倒序扫描——本文件只 append（appendBaseline/appendWordsDelta），
@@ -162,7 +162,7 @@ export function readTodayDelta(bookRoot: string, date: string): number | null {
   return found ? sum : null
 }
 
-// ── ：跨日 compaction ───────────────────────
+// ──（性能与内存专项）：跨日 compaction ───────────────────────
 
 /**
  * 字数日记 compact 阈值（字节数）。append-only jsonl 每日 1 条 baseline +
@@ -204,7 +204,7 @@ type RawDiaryRow = { date?: unknown; baseline?: unknown; delta?: unknown; ts?: u
  * - 坏行（JSON.parse 失败 / 无 date 字段）原样移至文件尾部（不丢弃，保审计）。
  * - 空 split 段（空行）丢弃——两读函数本就过滤空行。
  * - 带 date 但 baseline/delta 均非 number 的行：归组两分支均不命中 → 该行自然
- *   消失——readBaseline / readTodayDelta 对此类行本就跳过（语义），读侧等价。
+ * 消失——readBaseline / readTodayDelta 对此类行本就跳过（语义），读侧等价。
  *
  * 读侧逐位等价论证（对 append 序 = 日期序的真实文件）：产物保持「历史块（日期
  * 升序，每日 baseline 行在 delta 行前）→ 今日/未来行 → 坏行」的日期单调序，

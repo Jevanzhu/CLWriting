@@ -28,13 +28,13 @@ const ACCELERATOR_RE =
  *  白名单的安全降级思路）。 */
 const MAX_SUBMENU_DEPTH = 5
 
-/** L-平面项数上限——SV-1 修了深度未修宽度：被攻陷渲染进程可发数十万级
+/** L-平面项数上限——修了深度未修宽度：被攻陷渲染进程可发数十万级
  *  平面菜单项，净化线性建对象 + Menu.buildFromTemplate 构建原生菜单，主进程 CPU/内存
  *  暴涨。超限整体拒收（null → 不弹菜单），对齐深度方向的 fail-closed 思路 */
 const MAX_MENU_ITEMS = 200
 
 /**
- * 0918二轮修复批（C103）：单条字节上限——载荷限项数不限字节时，超长 label/key 直达
+ * 单条字节上限——载荷限项数不限字节时，超长 label/key 直达
  * Menu.buildFromTemplate 的原生构建（长串逐条拷进原生菜单结构），200 条 × 每条超长串
  * 照样阻塞主进程。超限剥除该项（非拒收整个载荷——其余正常项照弹，保可用性）+ warn
  * 留痕；accelerator 已由白名单正则天然限长，不在本限面。
@@ -42,7 +42,7 @@ const MAX_MENU_ITEMS = 200
 const MAX_ITEM_BYTES = 200
 
 /**
- * 0918二轮修复批（C103）：总载荷字节上限——单条 200B × 200 条 = 40KB 仍可无谓占原生
+ * 总载荷字节上限——单条 200B × 200 条 = 40KB 仍可无谓占原生
  * 构建面；累计超限整体拒收（null → 不弹菜单，对齐 L- 顶层超限 fail-closed 口径）。
  * 与项数预算同对象跨层共享。
  */
@@ -55,7 +55,7 @@ const MAX_TOTAL_BYTES = 20_000
  * MAX_SUBMENU_DEPTH=5 层是指数积（200^5），恶意嵌套载荷每层都合规、总量却无界，
  * 净化+建原生菜单照样阻塞主进程。改为所有层共用一个扁平项预算：每层先 O(1) 长度
  * 预筛（raw.length > 剩余额度直接拒），逐项扣减；顶层超限整体 null（L- 口径），
- * 深层超限剥该 submenu（SV-1 口径），总净化工作量被钳在 200 项以内。
+ * 深层超限剥该 submenu（口径），总净化工作量被钳在 200 项以内。
  */
 export function parseContextMenuSpecs(
   raw: unknown,
@@ -75,7 +75,7 @@ export function parseContextMenuSpecs(
     }
     // 非分隔项必须有 label（Menu.buildFromTemplate 的必填字段）
     if (typeof r['label'] !== 'string' || r['label'] === '') continue
-    // 0918二轮修复批（C103）：单条字节上限——label/key 超限剥除该项（其余正常项照弹，
+    // 单条字节上限——label/key 超限剥除该项（其余正常项照弹，
     // 保可用性）+ warn 留痕；对齐 accelerator 白名单「安全降级」但粒度为整项（label 是
     // 菜单项主体，截断会产生语义错位的假条目）
     if (Buffer.byteLength(r['label'], 'utf8') > MAX_ITEM_BYTES) {
@@ -94,7 +94,7 @@ export function parseContextMenuSpecs(
     // 先扣本项额度再下钻——递归进门时才能看到已扣的真实余量（后扣会让每层嵌套
     // 都按满预算准入、层层各自吃满 200，总量闸失效）
     budget.left--
-    // 0918二轮修复批（C103）：总载荷字节预算（label+key 计入，跨层共享同款先扣后下钻）
+    // 总载荷字节预算（label+key 计入，跨层共享同款先扣后下钻）
     budget.bytes -= Buffer.byteLength(r['label'], 'utf8') + (rawKey !== null ? Buffer.byteLength(rawKey, 'utf8') : 0)
     if (Array.isArray(r['submenu']) && depth < MAX_SUBMENU_DEPTH) {
       const sub = parseContextMenuSpecs(r['submenu'], depth + 1, budget)
@@ -102,9 +102,9 @@ export function parseContextMenuSpecs(
     }
     items.push(item)
   }
-  // 0918二轮修复批（C103）：总载荷字节上限在顶层判定（超限整体拒收 null，对齐 L-
+  // 总载荷字节上限在顶层判定（超限整体拒收 null，对齐 L
   // fail-closed）——深层不即时中断：净化工作量已被项数预算钳在 ≤200 项，超限后的
-  // 继续净化成本有界；若在深层即时 return null 会被调用方按 SV-1 口径当「剥 submenu」
+  // 继续净化成本有界；若在深层即时 return null 会被调用方按口径当「剥 submenu」
   // 吞掉整体拒收语义。
   if (depth === 0 && budget.bytes < 0) return null
   return items

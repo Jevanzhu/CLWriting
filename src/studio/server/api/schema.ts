@@ -1,5 +1,5 @@
 /**
- * （CS-14 按 HTTP 形态等价物）：route schema 单点声明。
+ * （按 HTTP 形态等价物）：route schema 单点声明。
  *
  * CLWriting 无 Electron IPC（纯 HTTP+SSE），cherry 的 defineRoute/IpcHandlersFor 等价物
  * 是「route schema 单点声明」：新路由必须 defineRoute 注册（带 input 解析 + 类型推导），
@@ -13,9 +13,9 @@
  *    纪律：新路由（带请求体的）一律声明 parse，不再内联 readJson+手工校验；存量 104 处
  *    内联校验列 RC 后迁移（基线 3/107 已声明 parse：book.rename /
  *    books.documents.check-false-positive / chat.send——校验本身仍存在，属纪律漂移非洞）；
- *    （源码质量评审）起另有 gate（parse 前置闸）与 bodyLimit 两个声明位，
+ * （源码质量评审）起另有 gate（parse 前置闸）与 bodyLimit 两个声明位，
  *    迁移清单与「留而不迁」的理由见 providers/style/files/books/snapshots/settings/stream
- *    各端点处的注；
+ * 各端点处的注；
  * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会
  *    被解析成 truthy 值——cherry 用裸对象 + Object.hasOwn 的原因，Map 更干净）。
  */
@@ -62,7 +62,7 @@ interface RouteSchema<I = unknown, G = undefined> {
    * 如实化（原注「缺省透传 raw」与实现相反）：parse 缺省时**不读
    * body**，handler 收到的 input 为 undefined——需要 body 的路由必须显式声明 parse
    * （或 handler 内自行 readJson）。未消费的请求体由 dispatch 侧 finish 排空兜底
-   * （index.ts ：req.resume，keep-alive 连接不因残留 body 挂死）。
+   * （index.ts：req.resume()，keep-alive 连接不因残留 body 挂死）。
    */
   parse?: (raw: unknown) => I
   /** parse 读体的字节上限（缺省 readJson 的 1MB 档）——正文类大 body
@@ -72,7 +72,7 @@ interface RouteSchema<I = unknown, G = undefined> {
 }
 
 /** 注册表/自省读面（getRouteSchema 返回形）：泛型擦除为 unknown，gate 位可选——
- *  ：存量测试面（test/state、test/studio 多处直调 handler）按
+ * 存量测试面（test/state、test/studio 多处直调 handler）按
  *  {params, input} 构造 ctx 调 handler，声明面 RouteContext 的 gate 必填位在自省面
  *  不可表达（getRouteSchema 只有名字、拿不到 G），故自省面按「无闸路由」形态给出。
  *  真 handler 侧不受影响：声明 gate 的路由在 RouteContext<I, G> 里 gate 仍非空。 */

@@ -1,5 +1,5 @@
 <script lang="ts">
-// （全库源码质量评审修复批）：对外暴露面（defineExpose）的类型
+// 对外暴露面（defineExpose）的类型
 // 单源——父组件 EditorView 此前手写复制同一接口（CmHostExposed），增删方法时两侧只改
 // 一处即漂移，且父侧漏改被可选链（`cmHost.value?.x`）静默吞掉，运行时才表现为
 // 「点了没反应」。声明随组件走，父组件 `import type { CmHostHandle }` 引用；
@@ -63,7 +63,7 @@ const props = defineProps<{
   typewriter?: boolean
   historyKey?: string
 }>()
-// 0918修复批（F003）：删 selectionChange 死契约——声明 + emit 全 src 零消费者
+// 删 selectionChange 死契约——声明 + emit 全 src 零消费者
 //（grep 含模板 @selection-change 形态核实），声明只留 update:modelValue
 const emit = defineEmits<{
   'update:modelValue': [string]
@@ -126,7 +126,7 @@ const editorTheme = EditorView.theme({
 })
 
 const editorSetup: Extension[] = [
-  // history 不在此裸挂载（清理）：唯一挂载点是下方 historyConf Compartment，
+  // history() 不在此裸挂载（清理）：唯一挂载点是下方 historyConf Compartment，
   // 双挂载是混淆源（historyKeymap 在 keymap.of 内，不受影响）
   drawSelection(),
   dropCursor(),
@@ -241,7 +241,7 @@ onMounted(() => {
         // 单次 toString 复用——emit 值与同文档外部同步判据
         //（lastLocalEmit，见下方 watch）取同一字符串，此前 emit 一次 + watch 里
         // doc.toString 再一次，每击键 2× 全文拷贝（超大单文件可感）
-        // （Opus-5.5 轮）：本行是每按键唯一剩余的全文拷贝，且是刻意
+        // 本行是每按键唯一剩余的全文拷贝，且是刻意
         // 留的预算边界——父层那几笔更重的全文面（mergeFm 重拼 / doc.patch / body 计算
         // 属性重切 / 本组件 watch 的全等回比）已改 200ms 尾随节流摊薄
         //（shared/body-writeback.ts 头注：不变量与窗口取舍）。此处不再延迟：emit 载荷
@@ -250,7 +250,7 @@ onMounted(() => {
         // 往此路径再加每次按键的全文转换/拷贝前，先读上述两处注。
         if (u.docChanged) {
           lastLocalEmit = u.state.doc.toString()
-          // 四轮-E402：程序化全量替换（applyDocSwitch 切文档 / applyExternalReplace 外部
+          // 程序化全量替换（applyDocSwitch 切文档 / applyExternalReplace 外部
           // 同步，替换事务带下方 programmaticReplace 注解）不回发 emit——回发值经父层
           // onBodyChange 的 mergeFm 规范形往返重组，对非规范 fm 存量文件（fence 尾随
           // 空格/BOM/CRLF，解析侧容忍）merged !== content 即 doc.patch 置脏 → autosave
@@ -343,7 +343,7 @@ watch(
 // 外部 modelValue 变（切文档 / doc.refresh / SSE sync）→ 同步；同文档外部同步仅当差异时
 // 替换避免光标跳，切文档则恒替换（见下方注释）
 // addToHistory.of(false) 标记为外部同步，不清空 undo 历史（标题提交后 ⌘Z 仍可回退）
-// + historyKey（docId）变化 = 切文档——「卸载 → 重挂」两步真重置 undo/redo
+// historyKey（docId）变化 = 切文档——「卸载 → 重挂」两步真重置 undo/redo
 // 栈 + 恒派发全量替换事务（内容相同也替换为 v，同步文档内容）。旧版仅 reconfigure + 差异
 // 替换：同内容切换时旧 undo 栈完整残留，⌘Z 把旧文档逆编辑回灌进新文档 → dirty → autosave
 // 落盘污染；undo 后切换时 redo 栈的边界插入事件亦残留。isolateHistory('full') 只切断新旧
@@ -363,9 +363,9 @@ let pendingExternal: string | null = null
 // 切文档挂起槽（对齐同文档分支 pendingExternal 守卫）——组合期
 // 切章时立即全量替换会打断 IME 组合丢字，改挂起待 compositionend 消费。登记 {v,key}
 // 原子对（props 一次 watch 回调同时到达；historyKey 可选 prop 故 key 含 undefined）；
-// 后续触发刷新槽值（取最新，同款口径）。
+// 后续触发刷新槽值（取最新同款口径）。
 let pendingDocSwitch: { v: string; key: string | undefined } | null = null
-// 四轮-E402：程序化全量替换事务的标记注解——applyDocSwitch / applyExternalReplace 的
+// 程序化全量替换事务的标记注解——applyDocSwitch / applyExternalReplace 的
 // 替换事务携带，mount 侧 updateListener 见注解即跳过本次回发（动机与其处注释同源）。
 // 注解随事务走，天然「只抑制本笔」，无跨事务粘滞面；对空 ChangeSet 事务（docChanged
 // =false）本就不产生回发，注解空挂无副作用。
@@ -383,30 +383,30 @@ function applyExternalReplace(v: string): void {
   //（0 或 v.length），会回归的单光标归位语义；min-clamp 即该语义的逐点推广，
   // 单光标路径与原 Math.min(prevHead, v.length) 完全一致（回归测试钉死），多光标/
   // 非空选区的 ranges 数、anchor/head 方向与主 range 顺序语义保持。
-  // 行为化（测试资产行为化批）：上述映射实现抽至 ./external-replace.ts
+  // 行为化（测试资产）：上述映射实现抽至 ./external-replace.ts
   // 的 mapSelectionForFullReplace（纯函数单源，回归测试直测真实实现）——逐位同式搬移，行为不变。
   const selection = mapSelectionForFullReplace(view.state.selection, v)
-  // （修复批）：同文档外部全量替换（SSE sync/refresh/冲突取服务端版/
+  // 同文档外部全量替换（SSE sync/refresh/冲突取服务端版/
   // AI 改写共用路径）此前只挂 addToHistory.of(false) 不清旧栈——撤销方向实测安全
   //（全量替换的 addMapping 把旧插入事件降为 no-op），但 **redo 方向实测回灌**：替换前
   // undo 过一次时，redo 栈的文档边界插入事件不被 addMapping 丢弃（mapPos 边界存活，
   // ⇧⌘Z 把旧编辑重插入新内容——实测 DDD→DDDXYZ，与 applyDocSwitch 头注同型污染）。
   // 按 applyDocSwitch 同款两步真重置：先卸 history 字段（旧值即丢）、下一事务重挂
   //（字段重新 init 栈必空），替换事务保持 addToHistory/false 不占用新栈；isolateHistory
-  // 同口径切断替换与后续编辑的编组。 的「标题提交后 ⌘Z 仍可回退」不受影响：
+  // 同口径切断替换与后续编辑的编组。的「标题提交后 ⌘Z 仍可回退」不受影响：
   // 提交回写 v === lastLocalEmit 短路不触发本路径，仅内容真实外部变化时才清栈。
   view.dispatch({ effects: historyConf.reconfigure([]) })
   view.dispatch({
     effects: historyConf.reconfigure(history()),
     changes: { from: 0, to: view.state.doc.length, insert: v },
     selection,
-    // 四轮-E402：替换事务带程序化替换注解不回发——SSE sync/refresh 落在非规范 fm
+    // 替换事务带程序化替换注解不回发——SSE sync/refresh 落在非规范 fm
     // 存量文件时，回发经父层 mergeFm 往返即「无输入置脏」（见 updateListener 处注释）
     annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],
   })
 }
 /** 切文档执行体（抽出：组合期挂起后由 compositionend 消费同一路径）。
- *  两步真重置历史——reconfigure(history) 对已存在 historyField 携带旧值不重建
+ * 两步真重置历史——reconfigure(history()) 对已存在 historyField 携带旧值不重建
  *  （CM6 reconfigure 语义），实测两条残留路径：同内容切换无替换事务时旧 undo 栈整体
  *  残留；切换前 undo 过一次时，redo 栈的文档边界插入事件不被全量替换的 addMapping 丢弃
  *  （mapPos 边界存活，redo 仍可回灌）。故先卸载 history 扩展（字段随 compartment 移除、
@@ -420,14 +420,14 @@ function applyDocSwitch(v: string): void {
     effects: historyConf.reconfigure(history()),
     changes: { from: 0, to: view.state.doc.length, insert: v },
     // 切文档后光标锚定章首——全区间替换不显式给 selection 时，
-    // 旧光标被 mapPos 到替换区间边界（旧章末位置 → 新章末，注释同源语义），
+    // 旧光标被 mapPos 到替换区间边界（旧章末位置 → 新章末注释同源语义），
     // 切章后光标落章末。对齐同文档路径的选区处理口径（applyExternalReplace 的
-    // /归位/保留）；切文档内容整体换血、旧位置无可归位，章首即自然
+    // 归位/保留）；切文档内容整体换血、旧位置无可归位，章首即自然
     // 阅读起点。
     selection: EditorSelection.cursor(0),
-    // 四轮-E402：切文档替换事务同带程序化替换注解不回发——切档回发值经父层
+    // 切文档替换事务同带程序化替换注解不回发——切档回发值经父层
     // mergeFm 往返，对非规范 fm 新章「零输入即置脏」（autosave 静默改写）；新章
-    // 内容本就来自 store，回发纯冗余。两步真重置历史（/）与
+    // 内容本就来自 store，回发纯冗余。两步真重置历史与
     // 章首锚定语义不受影响（注解只作用于回发抑制）。
     annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],
   })
@@ -489,7 +489,7 @@ watch(
       completionFetchedAt = Date.now() // -④：TTL 基点（成功才计龄，失败下次触发即重试）
       completionEntries.value = completionEntriesOf(r)
     } catch {
-      // 修复批（F103）：失败清空（若本请求仍是最新）——原 catch 静默吞掉后
+      // 失败清空（若本请求仍是最新）——原 catch 静默吞掉后
       // completionEntries 残留上一本书的名单：A 书成功拉过 → 切 B 书恰逢请求失败
       //（服务瞬时异常窗），B 书编辑器 @ 弹 A 书角色/物品名，且 completionFetchedAt
       // 只在成功路径计龄，TTL 补拉闸使陈旧窗最长 5 分钟。名单按书作用域（readonly/
@@ -581,7 +581,7 @@ async function clipboardCut(): Promise<void> {
     useUiStore().toast('剪贴板权限被拒绝，剪切未生效', 'error') /* 不再静默 */
     return
   }
-  // （-0914）：await 剪贴板授权窗内选区/文档可能已变（打字、点选、切文档）——
+  // await 剪贴板授权窗内选区/文档可能已变（打字、点选、切文档）——
   // 陈旧区间直接 dispatch 会删错文本。复检同文档同区间才落删除（对齐 paste 侧 await 后
   // 重读选区的防护口径）；已变则中止（剪贴板已有原文，文档零改动）。
   const cur = view.state.selection.main

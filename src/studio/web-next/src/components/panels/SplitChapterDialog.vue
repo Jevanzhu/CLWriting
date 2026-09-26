@@ -55,7 +55,7 @@ function onKeyEsc(e: KeyboardEvent): void {
 
 <template>
   <teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记 overlayOpen/maskAlpha），
          遮罩 CSS 与浓度不再本组件自持。内层 v-if 自持 plan 窄化——:open 传参不做模板
          窄化，删掉它下方 plan 各字段访问会在 vue-tsc 下报「可能为 null」 -->
     <ModalMask :open="modelValue && plan !== null" kind="splitChapter" @mask-click="emit('update:modelValue', false)">

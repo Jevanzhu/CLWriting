@@ -1,5 +1,5 @@
 /**
- * 内置 prompt 资源层（批次 / CS-19 + 合流：资源化 + 内容哈希精确匹配迁移）。
+ * 内置 prompt 资源层（批次合流：资源化 + 内容哈希精确匹配迁移）。
  *
  * 模型（借鉴 cherry contentVersion，见 04-调研 §2.1）：
  * - 捆绑源 = resources/prompts/<name>.md，文件体 = 文案 + 恰一个结尾换行；
@@ -11,7 +11,7 @@
  * - 迁移（升级不覆盖用户改动）= migratePromptOverlays：overlay 哈希命中
  *   该文件的任一历史哈希（= 用户从某版内置原样拷贝、未改过）→ 升级为当前内置；
  *   哈希不在历史（= 用户改过）→ 原样保留，绝不覆盖。
- * - 精确匹配（CS-19）= matchBuiltinPrompt：任意 prompt 文本哈希命中历史表 → 定位
+ * - 精确匹配= matchBuiltinPrompt：任意 prompt 文本哈希命中历史表 → 定位
  *   到内置名。runner 用它把「旧版内置 systemPrompt」在运行期换成 overlay/当前内置。
  *
  * 纯函数 + 可注入 registry（测试用临时目录造 mini 捆绑源），默认读捆绑资源。
@@ -24,7 +24,7 @@ import { atomicWriteFile } from '../../fs/atomic.js'
 import { log, errMsg } from '../../log/index.js'
 
 /** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族）。
- *  ：哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
+ * 哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
  *  内置）此前仍可产出两个指纹（canonicalize 的调用方归一挡不住直呼 promptHash 的
  *  路径）。canonicalize 幂等，存量指纹全部由 canonical 文本算得 → 值不变、缓存不失效。 */
 export function promptHash(text: string): string {
@@ -32,7 +32,7 @@ export function promptHash(text: string): string {
 }
 
 /** 规范化：剥 BOM 前缀 + 恰一个结尾换行（文件体带尾换行入库，内存规范文本不带）。
- *  ：win 老版记事本/部分中文编辑器把 overlay 存成 UTF-8-BOM——
+ * win 老版记事本/部分中文编辑器把 overlay 存成 UTF-8-BOM——
  *  \uFEFF 混进 system prompt 首字符，且 overlay 哈希与内置永不相等 → matchBuiltinPrompt
  *  永判「用户已改」、overlay 永不收口。剥 BOM 后两态合一。 */
 function canonicalize(raw: string): string {

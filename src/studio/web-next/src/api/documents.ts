@@ -36,8 +36,8 @@ export type {
 // 同端点三包装（getContent / getContentPayload /
 // getContentRevisioned 均打同一 GET /file）收敛为单读口——调用方按需解构取字段。
 // getContent（只取 content）与 getContentRevisioned（content+revision 壳）均已随
-// 消费方改造删除（StyleBaselineCard 为最后一个调用点，-收口）。
-// （修复批）：GET /file 带编码探测的完整载荷——
+// 消费方改造删除（StyleBaselineCard 为最后一个调用点，优化修复批收口）。
+// GET /file 带编码探测的完整载荷——
 // 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
 // doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被防线 400 拒绝）。
 export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
@@ -85,7 +85,7 @@ export async function saveContent(
       json: body,
       replayable: true,
     },
-    API_DEFAULT_TIMEOUT_MS, // 本地磁盘写应秒级；超时防 saving 永不清除（原裸值 30_000，收敛）
+    API_DEFAULT_TIMEOUT_MS, // 本地磁盘写应秒级；超时防 saving 永不清除（原裸值 30_000 收敛）
   )
 }
 
@@ -99,7 +99,7 @@ export async function createDoc(name: string, body: { relPath: string; content?:
   })
 }
 
-// POST /documents/:docId/copy（.3：复制源内容到新 relPath；章号前端算，标题加「副本」）。
+// POST /documents/:docId/copy（E3.3：复制源内容到新 relPath；章号前端算，标题加「副本」）。
 // 返回同 createDoc（新 docId + path + revision）；源未登记 legacy → 404，前端提示。
 export async function copyDoc(name: string, docId: string, relPath: string): Promise<CreateOk> {
   return apiJson<CreateOk>(bookUrl(name, 'documents', docId, 'copy'), {
@@ -152,7 +152,7 @@ export async function finalizeDoc(name: string, docId: string): Promise<Finalize
   return apiJson<FinalizeOk>(bookUrl(name, 'documents', docId, 'finalize'), { method: 'POST' })
 }
 
-// POST /documents/batch-finalize —— 批量定稿（-PROD-2）。
+// POST /documents/batch-finalize —— 批量定稿。
 export async function batchFinalizeDocs(name: string, docIds: string[]): Promise<BatchFinalizeOk> {
   return apiJson<BatchFinalizeOk>(
     bookUrl(name, 'documents', 'batch-finalize'),
@@ -164,7 +164,7 @@ export async function batchFinalizeDocs(name: string, docIds: string[]): Promise
   )
 }
 
-// --- 章节结构操作（阶段 24 +合并 / 拆分 / 撤销合并）---
+// --- 章节结构操作（阶段 24：合并 / 拆分 / 撤销合并）---
 // 干跑视图 / 执行结果 / 撤销结果的类型全在共享契约（service 层权威形状的镜像，由
 // src/shared/contract/documents.conformance.ts 编译期对齐）——此处不再手抄第二份。
 

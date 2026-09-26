@@ -1,5 +1,5 @@
 /**
- * 书级设定全局托底 —— global.json 全局默认键（含预算两键 + 机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
+ * 书级设定全局托底 —— global.json 全局默认键（含预算两键 +机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
  *
  * 三层链：book.yaml 书级 → global.json（应用级全局默认）→ GLOBAL_FALLBACK_DEFAULTS（硬编码）。
  * 与快照保留策略（version.ts readGlobalSnapshotPolicy + service.ts snapshotPolicy）同一范式：
@@ -62,7 +62,7 @@ interface GlobalBookDefaults {
   tokensPerChapter?: number
   /** 单章金额预算全局默认（需配价格表才生效） */
   costPerChapter?: number
-  // ── ：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
+  // ──：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
   // 都未设保持 undefined，runner 吃引擎默认参数值）──
   /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
   checkRepeatThreshold?: number
@@ -79,7 +79,7 @@ interface GlobalBookDefaults {
 /** 指纹缓存——readGlobalBookDefaults 是高频读侧
  *  （每次 config apply 全量读盘 + JSON.parse），同指纹直接回缓存（对照 settings-context
  *  CARD_CACHE 同款）。解析失败不缓存（下次重试）；命中返回浅拷贝防调用方 mutate 污染缓存。
- *  ：mtimeMs → mtimeNs（bigint，同口径）——同毫秒内等长重写
+ * mtimeMs → mtimeNs（bigint 同口径）——同毫秒内等长重写
  *  （布尔翻转恰等长）此前不失效，global.json 托底 short.strict 等闸门口径漂移；ns 值串
  *  变长与旧代毫秒值空间不相交，天然一次性失效。 */
 const defaultsCache = new Map<string, { mtimeNs: bigint; size: number; val: GlobalBookDefaults }>()
@@ -88,7 +88,7 @@ const defaultsCache = new Map<string, { mtimeNs: bigint; size: number; val: Glob
  * 读全局书级默认（userData/global.json）。
  *
  * 完全照 readGlobalSnapshotPolicy 的四重容错（照抄范式，不引入新故障面）：
- * 目录未定位 / 文件不存在 / JSON 损坏 / 值非法 → 该项 undefined（上层继续回退）。
+ * - 读侧四重容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非法 → 该项 undefined（上层继续回退）
  * 逐键类型校验：单键写坏不影响其余键。
  */
 export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookDefaults {

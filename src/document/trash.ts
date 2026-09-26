@@ -4,7 +4,7 @@
  * - 软删：DocumentService.trashDocument 移文件到 .trash/<docId>-<basename> + 记 manifest
  *   + 清单 removeEntry + snapshot 留底 + invalidate（trashDocument 在 service.ts）。
  * - 恢复：restoreTrash 移回 originalPath（原位占用 → OCCUPIED，不自动改，§17 决策④）+
- *   清单恢复 entry + 移除 trash 条目 + invalidate。
+ * 恢复：移回 originalPath + 清单恢复 entry + 移除 trash 条目 + invalidate。
  * - 永久删：purgeTrash 物理删 .trash 文件 + 移除 trash 条目（不可逆）。
  *
  * .trash-manifest.jsonl：每行一 TrashEntry，容错解析（同 manifest.ts 风格，非法行跳过）。
@@ -47,7 +47,7 @@ export interface TrashEntry {
   finalizedAt?: string
   /** 软删前的清单投影字段（manifest 承诺承载「身份/排序/状态/标签
    *  投影」）——原 TrashEntry 不携带，软删删条目、还原按字面重建，用户 tags 与自由区
-   *  order 在「删→还原」一轮后不可逆清零（为 finalizedRevision 补过同型，
+   * order 在「删→还原」一轮后不可逆清零（为 finalizedRevision 补过同型，
    *  tags/order 是同族漏项：status 可派生故不带）。 */
   tags?: string[]
   order?: number
@@ -65,7 +65,7 @@ const TRASH_MANIFEST_REL = '工作区/.trash/.trash-manifest.jsonl'
  *  删源」之间崩溃的续跑形态（目标位与 .trash 双份硬链同 inode），比对一致视为上次
  *  已完成，继续走清理不再报 OCCUPIED；比对优先 readFileSync 逐字节相等；任一侧非
  *  普通文件（目录恢复走原子 rename 无此窗口）→ different。
- *  ：读失败退 size+mtime 指纹不再返回「相等」——指纹巧合相等时
+ * 读失败退 size+mtime 指纹不再返回「相等」——指纹巧合相等时
  *  续跑删源会把回收站唯一副本删掉而原位并非恢复内容。三态区分：byte-equal 可安全
  *  续跑删源；fingerprint-equal（比对不可定）交调用方保守 OCCUPIED。 */
 function sameRestoreCopy(a: string, b: string): 'byte-equal' | 'fingerprint-equal' | 'different' {
@@ -107,7 +107,7 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   return parseTrashText(raw)
 }
 
-// ── （修复批）：trash 清单单槽指纹缓存 ─────────
+// ──：trash 清单单槽指纹缓存 ─────────
 // readTrashManifestStrict 此前每次调用全量读盘 + 逐行 JSON.parse（executeSave 前段
 // 守卫 + 锁内复核双调用点每笔保存 2 遍重复读，restore/purge/append 的 RMW 链同样
 // 高频触发）。仿 document/manifest.ts manifestCache 先例：trash 清单全库单文件，
@@ -149,8 +149,8 @@ function invalidateTrashCache(): void {
 /** RMW 写路径专用 strict 版——appendTrashEntry/restore/purge
  *  的「读全量→改→整文件重写」在瞬态读失败（EBUSY/EACCES/EIO）下原会以空表重写，
  *  全部回收站条目一次性丢失（同 readManifestStrict 根因）。ENOENT = 合法空；
- *  其余上抛，由调用方既有收口（中止软删 / best-effort catch）拒写保旧。
- *  ：stat 指纹缓存命中零读零解析（返回副本）；strict 读失败上抛语义
+ * 其余上抛，由调用方既有收口（中止软删 / best-effort catch）拒写保旧。
+ * stat 指纹缓存命中零读零解析（返回副本）；strict 读失败上抛语义
  *  保留——stat 非确定性失败绕过缓存走原路径（其 readFileSync 同族失败会上抛，
  * 防丢闸不受缓存影响）。 */
 export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
@@ -257,7 +257,7 @@ function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
   invalidateTrashCache()
   mkdirSync(join(bookRoot, TRASH_DIR_REL), { recursive: true })
   const text = entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : '')
-  // BE-5：加 fsync——回收站 manifest 是「删除可还原」的承诺，掉电丢失即永久丢还原入口
+  // 加 fsync——回收站 manifest 是「删除可还原」的承诺，掉电丢失即永久丢还原入口
   atomicWriteFile(trashManifestPath(bookRoot), text, { fsync: true })
 }
 
@@ -270,7 +270,7 @@ export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
   // 服务进程链改走异步孪生（下方 appendTrashEntryAsync）——
   // 本同步版保留供 CLI 迁移脚本（migrate-layout-v3）等合法同步面。
   withManifestLock(trashManifestPath(bookRoot), () => {
-    // RMW strict 读——读失败上抛 → 「登记不成则删不成」中止软删，
+    // RMW strict 读——读失败上抛 →「登记不成则删不成」中止软删，
     // 不再以空表重写吞掉全部回收站条目
     const entries = readTrashManifestStrict(bookRoot)
     const idx = entries.findIndex((e) => e.id === entry.id)
@@ -282,7 +282,7 @@ export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
 
 /** appendTrashEntry 的异步孪生——锁等待走 withManifestLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），服务进程软删链（DocumentService.doTrash）专用，
- *  补齐只迁 restore/purge 的「半异步」残留；RMW 本体（strict 读/幂等替换/
+ * 补齐只迁 restore/purge 的「半异步」残留；RMW 本体（strict 读/幂等替换/
  *  fsync 写回）与同步版逐位同源。 */
 export async function appendTrashEntryAsync(bookRoot: string, entry: TrashEntry): Promise<void> {
   await withManifestLockAsync(trashManifestPath(bookRoot), () => {
@@ -297,7 +297,7 @@ export async function appendTrashEntryAsync(bookRoot: string, entry: TrashEntry)
 /** 按 id 移除回收站条目（doTrash 删源失败回滚专用）——软删链
  *  「先登记后移文件」的反向收口：删源失败时须把刚写入的条目摘掉，否则残留
  *  「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、purge 把仍在
- *  原位的文件按不可逆语义清掉）。RMW 持锁同 appendTrashEntryAsync（同源：
+ * 原位的文件按不可逆语义清掉）。RMW 持锁同 appendTrashEntryAsync（同源：
  *  <trash-manifest>.lock + strict 读 + fsync 写回），幂等（无该 id 条目时写回等价
  *  空操作）；条目以 id 为键，同 id 至多一条（append 即替换），按 id 移除即精确移除
  *  本次写入者。 */
@@ -315,7 +315,7 @@ export function listTrash(bookRoot: string): TrashEntry[] {
   return readTrashManifest(bookRoot)
 }
 
-/** H502（七轮修复复核批）：回收站清单在位复评——restore/purge 的清单写回段隔着跨进程
+/** 回收站清单在位复评——restore/purge 的清单写回段隔着跨进程
  *  清单锁 await，书可在此窗内被删/移走（端点入口守卫只覆盖调用入口）。死书写回面有
  *  两道放大器：①锁原语取锁自建 mkdirSync(dirname(lockPath), recursive) 会把 bookRoot
  *  祖先链（root/项目、root/工作区/.trash）整个复活；②「文件缺失按合法空」的读口径
@@ -349,11 +349,11 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
   // 路径 + originalPath 填目标 → restore 把正文 rename 走）。fail-closed 拒绝整条。
   // 排除清单自身——`工作区/.trash/.trash-manifest.jsonl` 同样满足
   // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
-  // 以空读结果重建空清单，全部条目丢失）。 威胁模型（trash-manifest 是可篡改数据面）
+  // 以空读结果重建空清单，全部条目丢失）。威胁模型（trash-manifest 是可篡改数据面）
   // 的残余缺口。
   // 前缀判定改用 resolveWithinRoot 的**规范化 rel**——原串
   // startsWith 可被 `工作区/.trash/../正文/x.md` 绕过（词法前缀命中、resolve 消解 ..
-  // 后落书内任意路径，横向搬/删复活）；.trash 内 symlink 指书内他处同被识破
+  // 后落书内任意路径横向搬/删复活）；.trash 内 symlink 指书内他处同被识破
   //（realpath 后 rel 不在 .trash 下）。越出书仓库（null）同一并拒。
   const resolvedTrash = resolveWithinRoot(bookRoot, entry.trashedPath)
   if (
@@ -387,7 +387,7 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
   const alreadyLinked = existsSync(origAbs)
   if (alreadyLinked) {
     // 目标位已占用先比对内容——一致（字节级）= 上次 link 已完成的续跑形态，
-    // 跳过搬运继续走删源+清单收口。：字节比对不可行（读失败退指纹）
+    // 跳过搬运继续走删源+清单收口。字节比对不可行（读失败退指纹）
     // 的巧合一致不再删源（会把回收站唯一副本删掉而原位并非恢复内容），保守 OCCUPIED
     // 交作者人工处置；确定不同才是真占用（作者另建了文件），同样 OCCUPIED（§17 决策④）
     const verdict = sameRestoreCopy(origAbs, trashAbs)
@@ -408,7 +408,7 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     if (alreadyLinked) {
       // 续跑补删源（目标位内容已比对一致 = 上次 link 已完成）
       // 删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
-      // 下裸 rmSync 直败（MP2-3 只收编了本文件 rename 面，rm 面漏网）；退避后仍失败
+      // 下裸 rmSync 直败（只收编了本文件 rename 面，rm 面漏网）；退避后仍失败
       // 上抛走既有 WRITE_ERROR 收口（语义不变：作者重试经 byte-equal 幂等续跑）
       rmWithRetry(trashAbs)
     } else {
@@ -424,7 +424,7 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
         return { ok: false, code: 'WRITE_ERROR', reason: '恢复失败：回收站文件已丢失' }
       }
       if (origIsDir) {
-        // MP2-3（专项二轮修复批）：目录 rename 同样吃 win 瞬时锁（杀软/索引器
+        // 目录 rename 同样吃 win 瞬时锁（杀软/索引器
         // EPERM/EBUSY），收编 renameWithRetry（同款 3×50ms 退避；确定性错误
         // 原样上抛走 WRITE_ERROR 语义不变）
         renameWithRetry(trashAbs, origAbs)
@@ -455,19 +455,19 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
 }
 
 /** 恢复收尾——主路径（搬运/删源完成后）与续传补录路径
- *  （中间态：文件已在原位、.trash 侧已清）共用。逻辑自原 restoreTrash
- *  尾段原样提取：清单 upsert best-effort（断链 warn）→ 成功才移除回收站
- *  条目（自愈通道）。 */
+ * （中间态：文件已在原位、.trash 侧已清）共用。逻辑自原 restoreTrash
+ * 尾段原样提取：清单 upsert best-effort（断链 warn）→ 成功才移除回收站
+ * 条目（自愈通道）。 */
 async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Promise<void> {
   const id = entry.id
 
-  // BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
+  // rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
   let manifestUpserted = false
   try {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     // RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
     await withManifestLockAsync(manifestPath, () => {
-      // H502：锁等待窗内书可能已被删/移走——写回前回收站清单在位复评（判据与理由见
+      // 锁等待窗内书可能已被删/移走——写回前回收站清单在位复评（判据与理由见
       // throwIfTrashManifestGone 头注），死书弃写回上抛（本函数 best-effort catch 留痕）
       throwIfTrashManifestGone(bookRoot)
       const m = existsSync(manifestPath)
@@ -514,13 +514,13 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
     try {
       // RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
       await withManifestLockAsync(trashManifestPath(bookRoot), () => {
-        // H502：同上——条目移除写回前回收站清单在位复评，死书不重建 .trash 清单（0b 空清单
+        // 同上——条目移除写回前回收站清单在位复评，死书不重建 .trash 清单（0b 空清单
         // 也是重建）；上抛走下方 silent catch（死书面条目残留即随残骸，无害）
         throwIfTrashManifestGone(bookRoot)
         writeTrashManifest(
           bookRoot,
           readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
-        ) // RMW strict 读
+        ) // RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
       })
     } catch {
       /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
@@ -529,7 +529,7 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
 }
 
 /** 永久删：物理删 .trash 文件 + 移除 trash 条目（不可逆，前端二次确认）。
- *  ：restore/purge 锁等待异步化（withManifestLockAsync，
+ * restore/purge 锁等待异步化（withManifestLockAsync，
  *  服务进程纪律）——端点本就 async，同步 Atomics.wait 最坏 2×5s 冻结事件循环。 */
 export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeResult> {
   // （评审）：条目定位读改 strict（与 restoreTrash 入口/purge RMW 段
@@ -547,7 +547,7 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
   // 与 restoreTrash 同款 .trash 前缀校验（防篡改清单借 purge 删书内任意文件）
   // 排除清单自身——`工作区/.trash/.trash-manifest.jsonl` 同样满足
   // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
-  // 以空读结果重建空清单，全部条目丢失）。 威胁模型（trash-manifest 是可篡改数据面）
+  // 以空读结果重建空清单，全部条目丢失）。威胁模型（trash-manifest 是可篡改数据面）
   // 的残余缺口。
   // 判定改用规范化 rel（restoreTrash 同款——原串 startsWith 可被
   // `工作区/.trash/../` 穿越段绕过）。
@@ -563,7 +563,7 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
     const trashAbs = resolvedTrash.abs
     if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
     // 永久删主文件同款退避（purge 不可逆承诺下退避后仍失败须如实报错，
-    // 不静默留 .trash 残迹—— 隐私残留口径）
+    // 不静默留 .trash 残迹——隐私残留口径）
     if (existsSync(trashAbs)) rmWithRetry(trashAbs)
     // 版本目录连删——purge 语义是「永久删（不可逆）」，此前只删
     // .trash 文件，工作区/.版本/<docId>/ 快照残留（pinned 定稿版永久保留），内容仍可
@@ -576,10 +576,10 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const names = entry.id === encodeDocDirName(entry.id) ? [entry.id] : [entry.id, encodeDocDirName(entry.id)]
       for (const name of names) {
         const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${name}`)
-        // （四十二轮挂账 → 收编）：rmWithRetry 增设 recursive 档后，
+        // rmWithRetry 增设 recursive 档后，
         // 版本目录递归删随 :411 主文件 / 分析信封 / journal 一并收编——win 同步盘瞬时
         // 占用（EPERM/EBUSY）不再直败，退避后仍失败上抛走既有 WRITE_ERROR 收口
-        // （不可逆承诺下如实报错，不静默留隐私残迹）。
+        // 仍失败上抛走既有 WRITE_ERROR 收口（不可逆承诺下如实报错，不静默留隐私残迹）
         if (verDir && existsSync(verDir)) rmWithRetry(verDir, { recursive: true })
       }
       // 分析信封双候选 + journal 双名连删——purge「不可逆」承诺下
@@ -598,7 +598,7 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
         const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
         // 同上收编（journal 清理与主文件/分析信封同族删源点）
         if (journalFile && existsSync(journalFile)) rmWithRetry(journalFile)
-        // （二十四轮 C 域）登记的孤儿锁堆积改由陈锁清扫统一收口——
+        // 登记的孤儿锁堆积改由陈锁清扫统一收口——
         // 此前 purge 侧「queryLockHeld → rmSync」自删存在 µs 级 TOCTOU（判「不在持」与删
         // 之间他进程恰完成取锁复核 → 删掉在持锁 = 互斥失效，lost update 形态），且与
         // sweepAbandonedTmpFiles 的 .lock 分支功能重复（后者为确定性判据：合法锁指纹 JSON
@@ -612,15 +612,15 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
   // 低级项：条目写回 best-effort——主文件已物理删除（不可逆动作已成），
   // manifest 写失败（磁盘满/权限）不应把整端点打成 500；残留条目只是多余展示，无害
   try {
-    // RMW 持锁（同上）
+    // RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
     await withManifestLockAsync(trashManifestPath(bookRoot), () => {
-      // H502：锁等待窗内书可能已被删/移走——缺失按合法空读口径 + 取锁 mkdir 复活祖先链，
+      // 锁等待窗内书可能已被删/移走——缺失按合法空读口径 + 取锁 mkdir 复活祖先链，
       // 死书面会「成功」写出 0b 空清单；写回前在位复评弃写
       throwIfTrashManifestGone(bookRoot)
       writeTrashManifest(
         bookRoot,
         readTrashManifestStrict(bookRoot).filter((e) => e.id !== id),
-      ) // RMW strict 读
+      ) // RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
     })
   } catch {
     /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */
@@ -629,10 +629,10 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
 }
 
 /** 路径安全：rel 须相对 bookRoot 且不越出（防 trash-manifest 篡改后 restore/purge 越出书仓库）。
- *  批 6 统一：委托 resolveWithinRoot（防穿越 + symlink 双侧 realpath，fail-closed）。
+ * 统一：委托 resolveWithinRoot（防穿越 + symlink 双侧 realpath，fail-closed）。
  *  返回绝对路径或 null（非法）。 */
 function safePathWithin(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
-// errMsg 本地同型函数已随-收编 log/index.js 单源（本文件 4 个
+// errMsg 本地同型函数已随优化修复批收编 log/index.js 单源（本文件 4 个
 // 消费点 import 直用，语义逐位同旧实现）。

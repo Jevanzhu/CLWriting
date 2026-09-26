@@ -9,7 +9,7 @@ import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
 // 阶段 53：更新提示横幅（有新正式版时提示 + 指路下载）
 import UpdateBanner from './components/ui/UpdateBanner.vue'
-// /：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
+// 反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
 // /welcome、/library、书库独立窗口上 ui.toast 静默失效（switchLibrary 取消原因/
 // openLibraryDir 失败无渲染点）、系统菜单「设置/新建书/导出」（CmdOrCtrl+, / Cmd+N /
 // Cmd+E 经 useAppActions 只置 store 标志位）在非工作区路由整面静默空操作。五件均
@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
     <StartupNoticeBanner />
     <UpdateBanner />
     <router-view />
-    <!-- /：全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
+    <!-- 全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
     <Toast />
     <ConfirmPrompt />
     <SettingsModal />

@@ -1,5 +1,5 @@
 <script lang="ts">
-// （GLM-5.3 修复批）：实例取号器须在模块作用域——
+// 实例取号器须在模块作用域——
 // 原写在 <script setup> 内（其顶层即 setup 函数体、每实例重新执行），fpSeq 每实例
 // 归零再自增、uid 恒为 1：设置弹窗与专注排版条等双开 FontPicker 时两实例 optId 全
 // 同名（DOM 重复 id + aria-activedescendant 互串指到对方菜单项）。提模块级后跨实例
@@ -28,7 +28,7 @@ const props = defineProps<{
   /** 本槽位默认字体的具体名（useSystemFonts 按已安装列表解析；空 = 无可显默认回落 placeholder） */
   defaultFont?: string
   /**
-   * -：可访问名称。win 自绘按钮的可见内容只是当前字体名（无槽位
+   * 可访问名称。win 自绘按钮的可见内容只是当前字体名（无槽位
    * 语境）、非 win 原生 select 无 label 关联——两者此前均无可访问名称（域内同列
    * select 均带 aria-label 口径）。由使用点传有意义的中文名；缺省不输出该属性。
    */
@@ -50,7 +50,7 @@ const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
 
-// （修复批）：win 自绘浮层补 listbox 键盘导航——此前 aria 声明
+// win 自绘浮层补 listbox 键盘导航——此前 aria 声明
 // 完整 combobox/listbox/option 契约（"声明即承诺"），onKey 却只处理 Esc：「声明与
 // 实现不符」漂移。补 roving 光标（键盘焦点留在触发按钮，光标经 aria-activedescendant
 // 移动，标准 listbox 模式）：↑/↓ 逐项（APG：不环绕）、Home/End 首尾、Enter/Space
@@ -127,7 +127,7 @@ function onKey(e: KeyboardEvent): void {
     if (isImeComposing(e)) return
     // open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
     // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
-    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 「本层消费防同键退
+    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的「本层消费防同键退
     // 专注」口径且不依赖挂载时序
     e.preventDefault()
     e.stopPropagation()
@@ -196,10 +196,10 @@ onMounted(() => {
   window.addEventListener('scroll', onScrollOrResize, true)
 })
 onBeforeUnmount(() => {
-  // + （两批同点收敛为一处清理）：
-  // - ：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
+  // （两批同点收敛为一处清理）：
+  // -：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
   //   的闭包写 typeBuf，纯泄漏），随监听器一并回收；
-  // - （修复批）：typeahead 定时器卸载随清（typeBuf
+  // -：typeahead 定时器卸载随清（typeBuf
   //   一并复位）——原只清 window 监听，800ms 窗内卸载则清窗回调滞留（有界自清、非累积）；
   //   对齐 TooltipHost showTimer / OnboardPremise premiseTimer 的 timer 卸载清理惯例。
   //   清除调用与 typeBuf 复位各只做一次（原两批各写一遍 clearTimeout(typeTimer)）。
@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- win：自绘浮层 -->
-  <!-- ：aria-label 可访问名称（记因见 props.ariaLabel 注） -->
+  <!-- aria-label 可访问名称（记因见 props.ariaLabel 注） -->
   <template v-if="isWin">
     <button
       ref="btn"
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
     </Teleport>
   </template>
   <!-- 非 win：原生 select（原样；默认项同步带默认字体名，闭合态即显示「默认 · X」）；
-       aria-label 与 win 路径同源（-：原生 select 无 label 关联） -->
+ aria-label 与 win 路径同源（原生 select 无 label 关联） -->
   <select
     v-else
     v-bind="$attrs"
@@ -321,7 +321,9 @@ onBeforeUnmount(() => {
   color: var(--text-faint);
 }
 
-/* 浮层：z-index 同 ContextMenu 系（1000/1001），高于 modal-mask(150) */
+/* 浮层：z-index 同 ContextMenu 系（1000/1001），高于 modal-mask(150)。
+   本遮罩是纯点击捕获面（透明、无背景浓度），不并入 ModalMask——并入会凭空引入
+   全屏变暗并把它登记成 overlay（改变 ⌘P/Esc 让渡语义），故有意不入 MASK_ALPHA。 */
 .fp-mask {
   position: fixed;
   inset: 0;

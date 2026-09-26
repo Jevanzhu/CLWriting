@@ -12,7 +12,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { readStaleLeads } from '../format/read.js'
-// 0918修复批（C003）：本文件四处裸 db.prepare 收编 prepared 连接级缓存
+// 本文件四处裸 db.prepare 收编 prepared() 连接级缓存
 // （SQL 文本固定；check/runner.ts 同款，单源 shared/sqlite-prepared.ts）
 import { prepared } from '../shared/sqlite-prepared.js'
 import type { BookConfig, LeadType } from '../format/types.js'
@@ -27,7 +27,7 @@ const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
   关系线: 20,
 }
 
-// （修复批）：近况段进行中线索上限——openLeads 原取全部「进行中」
+// 近况段进行中线索上限——openLeads 原取全部「进行中」
 // 无 cap，而近况段是 essential（prepare 刚需不砍）：超长篇数百线时近况段无限膨胀。
 // 源头封住：快照只保留最近 OPEN_LEADS_CAP 条（按 opened_at 升序现有排序取尾部=最近
 // 开启的线），超限数随快照透出（openLeadsOmitted），formatStatus 追加一行提示；
@@ -41,7 +41,7 @@ interface StatusSnapshot {
   /** 当前卷号 */
   currentVolume: number
   /** 进行中的账本（id/type/title/开启章/年龄）
-   *  ：超过 OPEN_LEADS_CAP 条时只保留最近开启的 OPEN_LEADS_CAP 条（省略数见
+   * 超过 OPEN_LEADS_CAP 条时只保留最近开启的 OPEN_LEADS_CAP 条（省略数见
    *  openLeadsOmitted）——近况段 essential 无裁剪通道，膨胀须在快照源头封住 */
   openLeads: {
     id: string
@@ -77,7 +77,7 @@ interface StatusSnapshot {
  * @param finalized 已定稿章号集合（低级项·：currentChapter 口径收口——chapters
  *   缓存表含 写作/正文 全部 .md（写稿即入缓存的草稿也在内），此前 MAX(number) 把
  *   写作中的草稿章也计进「已定稿最新章号」，与字段注释口径不符。传入即只数定稿章；
- *   PL-2空集 = 清单在册零定稿（新书）→ currentChapter=0，不再回落含
+ * 空集 = 清单在册零定稿（新书）→ currentChapter=0，不再回落含
  *   草稿全量；缺省（undefined，无清单旧书/旧测试夹具）保持全量口径。生产调用方
  *   （prepare / state / chapter_status）经 finalizedChapterSetOfBook 传值）
  */
@@ -98,7 +98,7 @@ export function assembleStatus(
   } else {
     // 原先 IN 子句按定稿集展开占位符——极端章数（>999）触发
     // SQLite 编译版变量上限直接抛错；改全量读 number 后 JS 侧按定稿集过滤。语义与
-    // 原实现逐一恒等：只数 chapters 表内且章号在定稿集的行（空集 → null，与 PL-2
+    // 原实现逐一恒等：只数 chapters 表内且章号在定稿集的行（空集 → null，与
     // 「清单在册零定稿 = currentChapter 0」口径一致；定稿集内不在表中的章号同不计）。
     const rows = prepared(db, 'SELECT number FROM chapters').all() as { number: number }[]
     maxNum = null
@@ -146,7 +146,7 @@ export function assembleStatus(
       threshold: thresholds[s.type] ?? 30,
     }))
 
-  // 近 3 章钩子/情绪。-管线：按定稿线过滤（number <= currentChapter）——
+  // 近 3 章钩子/情绪。管线：按定稿线过滤（number <= currentChapter）——
   // chapters 表含在写草稿的钩子行，原先直接取最大 3 章会把未定稿草稿的钩子当
   // 「已定稿近章节奏」复述给模型（与 currentChapter 口径分裂）
   const recentRows = prepared(

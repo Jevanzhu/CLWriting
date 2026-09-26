@@ -1,5 +1,5 @@
 /**
- * 每文档串行保存队列（§5.2 步骤 3 / §5 第三层互斥）。
+ * 每文档串行保存队列（§5.2 步骤 3§5 第三层互斥）。
  *
  * - 每 docId 一条独立串行队列：同文档并发保存串行执行，结果不交错。
  * - requestToken：每 docId 单调递增；旧请求完成时若已有更新请求入队 → superseded=true，
@@ -63,7 +63,7 @@ export class SaveQueue<R> {
   }
 
   /** 在途/排队中的保存任务数（跨全部 docId）。执行中的项已 shift 出 pending、由
-   *  running 单独计——删书/改名前 drain 探询用。 */
+   * running 单独计——删书/改名前 drain 探询用。 */
   inFlight(): number {
     let n = 0
     for (const q of this.docs.values()) {

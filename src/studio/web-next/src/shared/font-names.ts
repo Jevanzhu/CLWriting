@@ -45,7 +45,7 @@ const CN_FONT_CANON: Record<string, string> = {
   霞鹜文楷: 'wenkai',
   'PingFang SC': 'pingfang',
   苹方: 'pingfang',
-  // mac 内置中文族（mac 预设批）：mac 恒装；zh 系统下 font-list 枚举
+  // mac 内置中文族：mac 恒装；zh 系统下 font-list 枚举
   // 返回本地化名（宋体-简/楷体-简/…），与 CSS 用的英文族名同字体互为异名
   'Songti SC': 'songti-sc',
   '宋体-简': 'songti-sc',

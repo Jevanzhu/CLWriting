@@ -5,7 +5,7 @@
  * 过原点而非带截距：chars=0 必然 tokens=0（系统提示外的空 prompt 不存在计量），
  * 且预算闸只需要单系数可解释（「每字多少 token」），带截距反而不利人读。
  * 样本来源：事件库 llm/call 的 promptMeta.chars（系统+用户 prompt 字数）× usage 全口径
- * token（input + cacheRead + cacheWrite，归一后；calibrate 脚本按此口径喂入——预算
+ * token（input + cacheRead + cacheWrite 归一后；calibrate 脚本按此口径喂入——预算
  * 闸同口径，系数直接可比。注意不是裸 usage.input）。
  */
 

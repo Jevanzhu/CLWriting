@@ -20,7 +20,7 @@ export { readKind } from '../../format/kind.js'
 
 /** 解析书：找 entry → bookRoot；workDir 缺 / 书不存在 → error 联合。
  *  hh §八-12：error 分支带机器码（调用方直送 replyError，信封统一 {code,error}）。
- *  （四轮处置批）：成功臂携带 workDir——resolveBook 对 null workDir 恒
+ * 成功臂携带 workDir——resolveBook 对 null workDir 恒
  *  error，成功即证明 workDir 非 null；此前调用点（rag.ts 三处）只能 `ctx.workDir!`
  *  裸断言表达该不变量，现随成功臂类型可证（加性字段，既有解构消费零影响）。 */
 export function resolveBook(
@@ -56,9 +56,9 @@ export function resolveDocEntry(bookRoot: string, docId: string): ManifestEntry 
   return readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId) ?? null
 }
 
-// ── （第十篇修复批）：书注册重验单源 ─────────────
+// ──（第十篇）：书注册重验单源 ─────────────
 // documents / style / knowledge / config 四个写端点族各持一份同构 bookMovedFailure
-// 本地拷贝（/ 分头落地），判定口径与人话文案面临漂移
+// 本地拷贝（分头落地），判定口径与人话文案面临漂移
 //（documents 版多一个 ok:false 形状）。收敛到本文件（与 resolveBook 同址，四消费方
 // ctx 均含 workDir），四处头注的时序说明合并如下（先例 revision-guard.ts 样板）：
 //
@@ -77,7 +77,7 @@ export function resolveDocEntry(bookRoot: string, docId: string): ManifestEntry 
 // 其响应契约逐字节不变。
 
 /** 书注册重验：已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 409 结构化失败；
- *  注册未变 → null（放行写盘）。竞态时序与防线形态见上方头注。 */
+ * 注册未变 → null（放行写盘）。竞态时序与防线形态见上方头注。 */
 export function bookMovedFailure(
   workDir: string | null,
   name: string | undefined,
@@ -87,15 +87,15 @@ export function bookMovedFailure(
   if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
     return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
   }
-  // 2（七轮修复批）：注册未变但盘上书目录已不在——
+  // 2：注册未变但盘上书目录已不在
   // 删书/改名端点「renameWithRetry/rmSync 搬盘先行、books.jsonl 登记改写隔多个 await
   // （清史/事件库迁移/books 锁 RMW）」的陈旧注册窗内，上方注册比对被旧条目骗过（窗口
   // 时序见 books-rename.ts 搬盘→清史→迁移→锁内改登记序列）。盘面校验兜底 fail-closed：
   // 注册存在 ⟹ 书目录应存在（建书/改名均先落盘后登记），目录缺失只可能是窗口期
   // 或盘面外力删除——两者都不得对旧路径 mkdir recursive 重建孤儿目录树（正是
   // 头注要挡的落地面），人话文案与注册比对分支同文（reason 人话各端点一致的单一不变量）。
-  // H501（七轮修复复核批）：盘面判定改 statSync **ENOENT-only**（install/books-repair.ts
-  // isDirConfirmedMissing /同口径）——existsSync 对 EACCES/EIO 等一切 stat
+  // 盘面判定改 statSync **ENOENT-only**（install/books-repair.ts
+  // isDirConfirmedMissing 同口径）——existsSync 对 EACCES/EIO 等一切 stat
   // 错误都返 false，网络盘离线/杀软/同步盘瞬时不可读会把「书还在」误判成已删，22 个
   // 写端点齐误 409；仅 ENOENT（真不存在）才判 BOOK_MOVED，瞬态错误放行走后续真实写
   // 路径由具体操作如实报错。
@@ -116,7 +116,7 @@ export function bookMovedFailure(
 // 及错误文案此前在 docId 直读线端点各持一份（analysis ×3 / review ×2 / check ×2 /
 // rewrite ×1）。本节收编三档单源（按各端点实际读面拆档，响应字节逐位不变）：
 // - resolveDraftByDocId：全链（含单次读取 + TOCTOU 守卫 + 章稿解析）——analysis 三
-//   端点用；//「单次读取取快照」口径随之单源（content 进 readDraft
+// 端点用；「单次读取取快照」口径随之单源（content 进 readDraft
 //   两参形态，一读同源）。
 // - resolveDocFile：只走到存在性（不读稿不解析）——check ×2（机检由
 //   runCheckForDocument 自读，且机检对象含非章稿文档，章稿解析会误伤）与 rewrite

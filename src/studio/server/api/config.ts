@@ -40,7 +40,7 @@ interface ConfigCtx {
   workDir: string | null
 }
 
-// ── （GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// ──：非闸书级写端点的临界段书注册重验 ──
 // PUT /config 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
 // 在途 PUT）——重验竞态时序与防线形态单源见 book-context.ts 头注
 //（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。重验与下方
@@ -54,7 +54,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
-      // 低-2error 是 ParseError {file,line,message} 对象——直接插值会串成
+      // 低-2：error 是 ParseError {file,line,message} 对象——直接插值会串成
       // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
       if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
       // 内容指纹随 GET 回传，供前端下次 PUT 带 expectedRevision

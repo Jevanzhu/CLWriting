@@ -13,12 +13,12 @@ import { samePath } from '../fs/user-data-path.js'
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
 /** 写入一个 Lead 到 leads 表 + lead_history 表
- *  ：写语句 .all 改 .run（node:sqlite 语义：写语句不该用查询接口）；
- *  -：leads 主表写并入履历段同一 SAVEPOINT 自包原子——不依赖
+ * 写语句 .all() 改 .run()（node:sqlite 语义：写语句不该用查询接口）；
+ * leads 主表写并入履历段同一 SAVEPOINT 自包原子——不依赖
  *  外层 rebuild 事务（rebuild 挂了 BEGIN 时嵌套 BEGIN 会抛错；SAVEPOINT 可嵌套，
  *  独立调用本函数或在外层事务内调用均成立，中途失败回滚不留半截主表行/履历）。 */
 export function syncLead(db: DatabaseSync, lead: Lead): void {
-  // -：leads 主表 INSERT 挪进 SAVEPOINT 内——原先在保存点之外，
+  // leads 主表 INSERT 挪进 SAVEPOINT 内——原先在保存点之外，
   // 独立调用（无 rebuild 整体事务兜底）且履历段失败时 leads 已写、lead_history 回滚，
   // 主表与履历半不一致；现主表+履历整段失败全回（保存点名沿用 sync_lead_history 不改）。
   db.exec('SAVEPOINT sync_lead_history')
@@ -74,7 +74,7 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
 }
 
 /** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性。
- *  ：生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
+ * 生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
  *  新生产链上依赖。 */
 export function loadLeadFromCache(db: DatabaseSync, id: string): Lead | null {
   const row = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as Record<string, unknown> | undefined
@@ -111,11 +111,11 @@ export function loadLeadFromCache(db: DatabaseSync, id: string): Lead | null {
 export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   // 重复章号入库留痕——chapters.number 是 PRIMARY KEY，INSERT OR
   // REPLACE 静默后者胜（legacy 双目录/复制章场景），章节索引与文档树从此漂移且零可见
-  // 性。：console.warn 改 log.warn——Electron 生产 console 不被采集
+  // 性。console.warn 改 log.warn——Electron 生产 console 不被采集
   //（已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
   // 指中英映射不引数据/域依赖，log 观测面不在此列。
   const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as { path: string } | undefined
-  // （折叠键族， win 适配修复批）：路径比较收编
+  // （折叠键族）：路径比较收编
   // samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的两次入库此前
   // 被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
   if (prev && !samePath(prev.path, ch._path ?? '')) {
@@ -136,19 +136,19 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
     hook_level: ch.钩子强弱 ?? null,
     emotion: ch.情绪定位 ?? null,
     path: ch._path ?? '',
-  }) // 写语句用 .run（.all 是查询接口）
+  }) // 写语句用 .run()（.all() 是查询接口）
 }
 
 // ── 摘要入库（#4 第 3 节 summaries 表）────────────
 
 export function syncSummary(db: DatabaseSync, scope: 'chapter' | 'volume', ref: number, path: string): void {
-  db.prepare(`INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`).run(scope, ref, path) // 写语句用 .run
+  db.prepare(`INSERT OR REPLACE INTO summaries (scope, ref, path) VALUES (?, ?, ?)`).run(scope, ref, path) // 写语句用 .run()（.all() 是查询接口）
 }
 
 // ── meta（重建戳等）─────────────────────────────
 
 export function setMeta(db: DatabaseSync, key: string, value: string): void {
-  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(key, value) // 写语句用 .run
+  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`).run(key, value) // 写语句用 .run()（.all() 是查询接口）
 }
 
 export function getMeta(db: DatabaseSync, key: string): string | null {

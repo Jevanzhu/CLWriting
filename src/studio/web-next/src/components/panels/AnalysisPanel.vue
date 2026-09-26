@@ -242,7 +242,7 @@ function gotoOverview(): void {
   font-size: var(--font-size-s);
   color: var(--text-faint);
 }
-/* 章节标签 */
+/** 章节标签字段（AI 判定 → fm；此处展示 + 章节信息也展示）。 */
 .ap-tags-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

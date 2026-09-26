@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 编辑器顶栏卡（巨石批 7b 拆分自 EditorView）：单行路径式——左（类型 pill · 面包屑 →
+// 编辑器顶栏卡（7b 拆分自 EditorView）：单行路径式——左（类型 pill · 面包屑 →
 // 可编辑标题），右（字数 · 章节状态 · 冲突双出路 · AI 辅助组 · 定稿 · 保存）。
 // 标题编辑 v-model 双向父层（父层 page-title 同步展示）；bookKind/wordCount 父层算好传入。
 import { computed, ref } from 'vue'
@@ -51,7 +51,7 @@ const crumbs = computed(() => {
 })
 
 // 章节正文状态（TreeNode.status → 中文标签）
-// -：STATUS_LABEL/statusCls switch 本地表删除，委托 shared/words
+// STATUS_LABEL/statusCls switch 本地表删除，委托 shared/words
 // CHAPTER_STATUS 单表（与 WritingInfoPanel/ChapterTreeItem 三处同源；未知态回落原 default 档）
 const chapterStatus = computed(() => {
   if (!props.docId) return null
@@ -77,7 +77,7 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
 })
 
 /** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。
- *  ：conflict 未决时「重试」是死按钮——manual save 携旧
+ * conflict 未决时「重试」是死按钮——manual save 携旧
  *  baselineRevision 必再收 REVISION_CONFLICT；改文案并禁用，出路引到并排的
  *  「重载/覆盖」双按钮。 */
 const saveBtnLabel = computed(() => {
@@ -198,7 +198,7 @@ async function onTitleCommit(): Promise<void> {
   try {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
     // fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
-    // FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
+    // `||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
     // 2-：NaN 穿透修复——见 resolvePieceNum 注释（逐级 isFinite 守卫替代 `||` 链）
     const pieceNum = e.role === 'piece-body' ? resolvePieceNum(e.content, e.path) : undefined
     await updateChapterMetaDoc(book, id, {
@@ -214,7 +214,7 @@ async function onTitleCommit(): Promise<void> {
     if (fresh) doc.adoptRenamed(id, fresh.path, fresh.name)
     // refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地）
     await doc.refresh(id)
-    // FE-3：标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记。
+    // 标题提交已成功 → 清除可能因 autosave 竞态残留的 conflict 标记。
     // 仅正文干净时清——dirty 时 refresh 保留本地正文，若一并清
     // conflict，后续 autosave 会以本地正文静默覆盖外部修改，绕过「重载/覆盖」决断
     //（外部版本仅存 .版本 快照可找回）。判定与写口都在 store（clearConflict）。
@@ -270,9 +270,9 @@ async function onTitleCommit(): Promise<void> {
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
           <template v-if="entry?.conflict">
-            <!-- ：saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
+            <!-- saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
                  （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点）。
-                 ：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
+：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
                  overwriting 覆盖确认弹窗开启 + 覆盖在途全程禁用，防连点重复触发 -->
             <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">
               重载

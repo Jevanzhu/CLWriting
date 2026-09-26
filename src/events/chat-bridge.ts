@@ -59,7 +59,7 @@ export function assistantMessageEvent(
   const data: Record<string, unknown> = { message }
   if (usage) data['usage'] = usage
   if (stopReason) data['stopReason'] = stopReason
-  // //：parentSeq 两种来源——变体根（regenerate 首条，锚定触发 user）
+  // parentSeq 两种来源——变体根（regenerate 首条，锚定触发 user）
   // 与续聊链边（活跃分支下的普通回合，前驱消息首 seq——补 selectBranch/selectBranchTo
   // 祖先链的可达性）；线性回合不传，行为不变
   if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
@@ -132,7 +132,7 @@ export function loadHistoryWithSeqs(events: ChatEvent[]): RestoredHistory {
 
 // ── 会话录制器 ─────────────────────────────────────
 
-/** （修复批）：flush 失败重试的 pending 累积上限——对齐同文件
+/** flush 失败重试的 pending 累积上限——对齐同文件
  *  ChainRecorder 的 CHAIN_BUFFER_MAX（chain-bridge.ts ，同值 256）：落库持续失败
  *  （SQLITE_BUSY 耗尽/磁盘满）+ 长对话下 pending 无界增长；超限丢最旧（保最新对话
  *  语义），丢弃条数 warn 留痕（丢事件 = 丢「已记录」凭据，必留痕纪律）。 */
@@ -157,8 +157,8 @@ export class SessionRecorder {
   /** close 已执行（幂等） */
   private ended = false
   /** session/end 已落库分相闸——close 两段式（首段 session/end、
-   *  第二段遮蔽批）的重试续跑凭据：第二段失败回滚 ended 后，重试凭本闸跳过 session/end
-   *  重写（防双 end 的关切不变）直接续跑遮蔽批 */
+   * 第二段）的重试续跑凭据：第二段失败回滚 ended 后，重试凭本闸跳过 session/end
+   * 重写（防双 end 的关切不变）直接续跑*/
   private endPersisted = false
   /** close 首 flush 失败（session/end 未落库）——finally 不 dispose，
    *  保留 store 引用与活跃登记供重试；调用方放弃重试时其 finally 的 dispose 兜底注销 */
@@ -196,7 +196,7 @@ export class SessionRecorder {
       return null
     }
     if (this.pending.length === 0) return null
-    // 血缘 seq 不再用 lastSeq+批内序号推算（多窗口并发写事件库时 lastSeq
+    // 血缘 seq 不再用 lastSeq()+批内序号推算（多窗口并发写事件库时 lastSeq()
     // 与落库之间无原子性，可能错链到别的窗口）——INSERT RETURNING 取数据库真实分配的
     // seq，sourceIdxs 批内索引在同一事务内回写解析（字段名与全局 seq 语义的
     // sourceSeqs 拆分，本路径一律传批内索引）。
@@ -206,7 +206,7 @@ export class SessionRecorder {
     try {
       seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)
     } catch (e) {
-      // （修复批）：失败批保留 pending 待重试（语义不变，正确），
+      // 失败批保留 pending 待重试（语义不变，正确），
       // 但落库持续失败（SQLITE_BUSY 耗尽/磁盘满）+ 长对话下累积无界——对齐 ChainRecorder
       // （chain-bridge.ts /）：超上限丢最旧（保最新对话语义），丢弃条数/涉及
       // 回合 warn 留痕（丢事件必留痕纪律）。被丢事件占用的批内序号同步平移——
@@ -216,7 +216,7 @@ export class SessionRecorder {
       if (this.pending.length > SESSION_PENDING_MAX) {
         const dropped = this.pending.length - SESSION_PENDING_MAX
         const droppedEvs = this.pending.slice(0, dropped)
-        // A101：溢出裁剪后 pending 恒为 1 + MAX（标记 + 保留段），持续写失败下
+        // 溢出裁剪后 pending 恒为 1 + MAX（标记 + 保留段），持续写失败下
         // 下一轮 dropped 恰为 1、被裁的第 0 项正是上一轮垫入的 chat_gap 标记——
         // 真实丢弃条数在流内的唯一凭据被无声替换，dropped 系统性低估累计丢弃量。合并
         // 口径：被裁段首项若为旧标记，其 dropped 累加进新标记，且旧标记本身不计入本轮
@@ -227,7 +227,7 @@ export class SessionRecorder {
             ? (droppedEvs[0].data['dropped'] as number)
             : null
         const realDropped = prevGapDropped !== null ? dropped - 1 : dropped
-        // B406（0918四轮修复批）：丢弃时补断链标记事件入流——被丢事件已永久丢失
+        // 丢弃时补断链标记事件入流——被丢事件已永久丢失
         //（「已记录」凭据出现缺口），此前只有日志留痕，事件流本身无声不连续（压缩
         // 遮蔽区间/血缘回放跨缺口时无据可查）。在保留事件之前垫一条 chat_gap 标记
         //（data.dropped = 累计丢弃条数——含合并的上一轮计数），随恢复后的下一次成功
@@ -282,7 +282,7 @@ export class SessionRecorder {
     return range
   }
 
-  /** 本会话已落库事件的全部 seq（失败路径遮蔽用）——：扁平化逐批真实 seq 存量，
+  /** 本会话已落库事件的全部 seq（失败路径遮蔽用）——扁平化逐批真实 seq 存量，
    *  不再按 [first,last] 区间算术展开（批内不连续时区间会吞入外来 seq 或漏掉本批 seq） */
   allSessionSeqs(): number[] {
     const out: number[] = []
@@ -291,7 +291,7 @@ export class SessionRecorder {
   }
 
   /**
-   * 失败收尾遮蔽本会话全部消息事件。此前失败路径写 `close(reason, allSessionSeqs)`：
+   * 失败收尾遮蔽本会话全部消息事件。此前失败路径写 `close(reason, allSessionSeqs())`：
    * ① 遮蔽列表取 close 内部 flush **前**的快照——pending 里未落库的半截 user/assistant
    *   在 close 内才拿到 seq、不在遮蔽列表里，audit 重放出模型从未成功产出的「幽灵消息」
    *   （破坏「模型可见⟺已记录」）；② 即便先 flush，allSessionSeqs 也混入 turn/start、
@@ -318,7 +318,7 @@ export class SessionRecorder {
     let archiveSeq: number | null = null
     try {
       // 首段（session/end）凭 endPersisted 闸只在未落库时执行——
-      // 第二段失败回滚 ended 后的重试不再重写 session/end（防双 end，口径不变）
+      // 第二段失败回滚 ended 后的重试不再重写 session/end（防双 end 口径不变）
       if (!this.endPersisted) {
         const endEv = sessionEndEvent(reason)
         this.pending.push(endEv)
@@ -382,7 +382,7 @@ export class SessionRecorder {
       // dispose——重试被幂等闸吞（与注释宣称「失败时 ended 回滚语义与首
       // flush 一致可重试」不符），遮蔽/存档永久缺尾。现同样回滚 ended + 保留登记
       // 可重试；session/end 已在库不撤（防双 end），重试凭 endPersisted 跳过首段
-      // 直续遮蔽批。
+      // 直续。
       const batch: NewEvent[] = []
       let carried = false
       for (const s of segs) {
@@ -398,8 +398,8 @@ export class SessionRecorder {
           sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
         })
       }
-      // seq 一律取数据库真实分配值（INSERT RETURNING），不 lastSeq 推算
-      //（多窗口并发写事件库时推算可错链到别窗事件，同理）
+      // seq 一律取数据库真实分配值（INSERT RETURNING），不 lastSeq() 推算
+      //（多窗口并发写事件库时推算可错链到别窗事件同理）
       let seqs: number[]
       try {
         seqs = this.store.appendEvents(this.sessionId, batch)
@@ -408,7 +408,7 @@ export class SessionRecorder {
         this.closeFlushFailed = true
         throw e
       }
-      if (carried) archiveSeq = seqs[1]! // 批内第 2 个 = 首段 compaction/end（存档节点）
+      if (carried) archiveSeq = seqs[1]! // archiveSeq 取批内第 2 个 seq（首段 compaction/end = 存档节点，段序不变）。
     } finally {
       // 收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）；
       // 首 flush 失败路径不 dispose——保留 store/登记，close 重试才真正可落库

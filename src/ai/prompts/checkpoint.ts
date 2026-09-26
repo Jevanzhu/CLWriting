@@ -1,12 +1,12 @@
 /**
- * checkpoint 摘要模板 + 输出钳制（批次 / CS-11 + DSH-4 直抄）。
+ * checkpoint 摘要模板 + 输出钳制（批次直抄）。
  *
  * 8 段模板逐字结构（dsh summarizer.ts:31-66）：段名保留英文防漂移 + 中文括注。
  * 两条纪律由调用方配合完成：
  * - 合并而非复制：待压区已含先前 checkpoint 时，摘要指令要求输出唯一一份累计存档；
  * - 空摘要 fail-open：摘要空 ≠ 压缩成功（compaction.ts compactHistory 兜底，绝不占位）。
  *
- * KV-cache 友好调用形态（DSH-4）：摘要指令不是独立 system prompt，而是
+ * KV-cache 友好调用形态：摘要指令不是独立 system prompt，而是
  * 「同一 system + tools + 待压消息前缀原样重放 + 末尾追加一条 user 指令」——
  * 摘要调用成为刚结束对话的真前缀延伸，直接吃前缀缓存。
  */

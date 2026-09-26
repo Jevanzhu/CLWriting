@@ -1,5 +1,5 @@
 /**
- * goal 状态机 + todo 快照重放纯函数（DSH-11/DSH-12，第5.2/5.3节）。
+ * goal 状态机 + todo 快照重放纯函数（第5.2/5.3节）。
  *
  * - foldGoals：按 seq 顺序重放 goal/change 事件 → 当前 goal 列表。
  *   每次变更整快照落库（last-write-wins，无增量对账）；clear 是 tombstone——
@@ -119,7 +119,7 @@ export function foldTodos(events: ChatEvent[]): Todo[] {
 }
 
 /** 单个 goal 快照的当前状态（无事件 → null）。
- *  ：生产链消费 foldGoals 整表，单查仅测试用——测试资产保留。 */
+ * 生产链消费 foldGoals 整表，单查仅测试用——测试资产保留。 */
 export function getGoal(events: ChatEvent[], goalId: string): GoalSnapshot | null {
   return foldGoals(events).find((g) => g.id === goalId) ?? null
 }

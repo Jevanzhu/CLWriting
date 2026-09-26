@@ -7,7 +7,7 @@
  *
  *   GET  /api/books/:name/rag/status  → 索引状态（是否运行中 / 已索引章数 / 块数 / 模型 / 最近结果 / 生效提供方 / 模型失配标记）
  *   POST /api/books/:name/rag/build   → 后台触发 buildIndex（长任务立即返回，前端轮询 status）
- *   POST /api/books/:name/rag/rebuild → ：闸内先 resetRagIndex 清空既有索引再触发 buildIndex
+ * POST /api/books/:name/rag/rebuild →：闸内先 resetRagIndex 清空既有索引再触发 buildIndex
  *                                       （修复模型/维度失配后「请重建索引」无程序化出路的死路；任务闸与响应信封与 build 同一套）
  *
  * api_key 不再有书级路由：提供方化后 key 存应用级 providers.json（vault 加密），
@@ -31,7 +31,7 @@ import type { TaskGate, TaskGateInjected } from './task-gate.js' // 闸实例经
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
 import { log, errMsg } from '../../../log/index.js'
-// -：后台建索引在途登记（io.ts:146 export / overview detectState /
+// 后台建索引在途登记（io.ts:146 export / overview detectState /
 // style-scan 同族最后一处漏接线）
 import { trackInFlightWork } from './in-flight-work.js'
 
@@ -83,7 +83,7 @@ function startRagBuild(
   // 判定为准（workDir 由路由 ctx 透传），书已删/改名出注册表则丢弃结果不再 set。
   const bookAlive = (): boolean => !('error' in resolveBook(workDir, bookName))
 
-  // dd 批 4-2 残：拿到闸之后的同步准备段（读配置 → 解析提供方 → 验 key）若中途抛出，
+  // 残：拿到闸之后的同步准备段（读配置 → 解析提供方 → 验 key）若中途抛出，
   // 此前闸不释放——该书从此所有 rag-build 永远 409 死锁（重启才能解）。同步段包
   // try/finally：未交接给后台 buildIndex 的一切出口（含正常早退与异常上抛）都在此放闸；
   // 异常由 dispatch 兜底 500（统一 { error } 信封），作者修好配置即可重试。
@@ -146,7 +146,7 @@ function startRagBuild(
     }, RAG_BUILD_WATCHDOG_MS)
     watchdog.unref?.()
     // embed_timeout_ms 从书级 ragConfig 透传（此前字面量漏带，书里配了超时恒不生效）
-    // -：buildIndex 包 trackInFlightWork 登记 in-flight 表——原
+    // buildIndex 包 trackInFlightWork 登记 in-flight 表——原
     // fire-and-forget 不受 server 生命周期约束，close 收尾不等它 settle，调用方
     // close 后立刻 rmSync 在 Windows 撞建索引仍持 .rag.db 句柄的 ENOTEMPTY 面
     //（io.ts/style-scan/detectState 同族均已接线，此处补齐）。登记不改变
@@ -281,7 +281,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // （六轮修复批）：编排互斥预检——本端点原只占
+      // 编排互斥预检——本端点原只占
       // 自身 'rag-build' 闸，缺同族 rebuild / prune 的 orchestrationBusyFor 前置查询（互斥
       // 矩阵缺一角）。build 对索引库只增行、现行无实害，但补齐后「AI 编排在途 → 409」在
       // rag 三端点（build/rebuild/prune）口径一致，后续 build 增改写面时不留雷。文案/码
@@ -309,7 +309,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // -（登记备查 → 机械批处置）：rebuild 清库面对齐
+      // （登记备查 →机械批处置）：rebuild 清库面对齐
       // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
       // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
       const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')

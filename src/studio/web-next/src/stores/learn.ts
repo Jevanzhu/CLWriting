@@ -31,7 +31,7 @@ export const useLearnStore = defineStore('learn', () => {
 
   /** 请求代守卫：收割是全书扫描（大书数秒）——切书后 A 书在途 harvest
    *  回填会让 B 书收割视图显示 A 书正文候选，作者勾选入库即跨书污染条目库。后调者胜。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const reqGen = useStaleGuard()
 
   /** commit 独立请求代——原 commit 只快照 reqGen 不推代，同代双 commit（并发/
@@ -101,10 +101,10 @@ export const useLearnStore = defineStore('learn', () => {
   }
 
   /** 入库勾选项（样章入 文风/样章库；金句入 文风/样章库/金句）。
-   *  ：commit 代守卫——入库在服务端按调用时的书落盘（无串），但回填提示/列表
+   * commit 代守卫——入库在服务端按调用时的书落盘（无串），但回填提示/列表
    *  过滤前查代，防 A 书的「已收录 N 条」提示落到已切到 B 的视图。
-   *  ：改查独立 commitGen（自己推代）；在途遇 harvest 推代（reqGen 变）仍作废
-   *  本笔回填——原语义保留。 */
+   * 改查独立 commitGen（自己推代）；在途遇 harvest 推代（reqGen 变）仍作废
+   * 本笔回填——原语义保留。 */
   async function commit(name: string): Promise<void> {
     // #16：函数级在途锁（同 harvest）——在途第二笔直接返回，防同批勾选重复入库
     if (committing.value) return

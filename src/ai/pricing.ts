@@ -74,8 +74,8 @@ export function pricingForProvider(provider: ProviderConf | undefined, model: st
  * currentId 失效或两级皆无 → null（未配价）。
  * 静默容错：providers.json 读失败 → null（价格是增强，不做故障源）。
  */
-// 解析结果 memo（providers.json mtime 指纹键控）。
-// loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（-SEC-4 副本
+// （性能与内存专项·）：解析结果 memo（providers.json mtime 指纹键控）。
+// loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（副本
 // 纪律，不可共享引用）+ 线性归属查找；每次 token 记账都经此解析，memo 后命中路径仅一次
 // stat。失效：文件 mtime 变（saveProviders 落盘即 bump）；mtime 粒度内连续改写的陈旧窗
 // 与 loadProviders 缓存同级（既有口径）。文件名单源在 provider/store.ts FILE 常量（未

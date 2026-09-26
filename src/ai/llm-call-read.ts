@@ -8,11 +8,11 @@
  *
  * 各口径出处（自原两实现随迁，出处注释不删）：
  * - （内存闸）：type SQL 下推——只取 llm/call 行，对话正文不陪载；
- * - 核查：两消费方均须全部 llm/call 行，全量语义必需、
+ * -核查：两消费方均须全部 llm/call 行，全量语义必需、
  *   无尾读空间（成本/轨迹聚合都是账目口径）；
- * - ：开库走 openSessionStoreAsync（首开锁等待不阻塞服务事件循环），
+ * -：开库走 openSessionStoreAsync（首开锁等待不阻塞服务事件循环），
  *   调用方 await；
- * - ：本地日分桶 day = localDayKey(createdAt)（与日志文件日同口径；
+ * 本地日分桶 day = localDayKey(createdAt)（与日志文件日同口径；
  *   此前 UTC 切日，东八区 0-8 点记前一日）；
  * - 观测层失败静默 → []（观测面失败不反噬业务主流程）。
  */
@@ -88,7 +88,7 @@ function projectRow(e: ChatEvent, skipMissingUsage: boolean): LlmCallReadRow | n
 }
 
 /**
- * （修复批）：流式读——逐行投影并回调，不物化全量行数组。重书
+ * 流式读——逐行投影并回调，不物化全量行数组。重书
  * llm/call 事件可达数十万条，原 readLlmCallRows 返回全量数组（叠加 store 侧
  * listEvents 物化的 ChatEvent 数组）在每次指标刷新时峰值巨大；本入口经 store
  * iterateEvents 游标逐行读，调用方（cost-stats / trace-stats）边读边聚合，峰值只与

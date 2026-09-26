@@ -1,5 +1,5 @@
 /**
- * 章号回退 helper 单源（阶段 24 章节结构操作，留洞制）。
+ * 章号回退 helper 单源（阶段 24 章节结构操作留洞制）。
  *
  * 被合并的源章从正文区消失（软删回收站），其去向记录在目标章 fm `并入`——按名定位族
  * （数字前缀查表）对源章号 miss 时，经本模块回退到目标章正文：历史章号引用（履历行/
@@ -91,7 +91,7 @@ export function chapterTextByNumber(bookRoot: string, chapter: number): string |
  *  键级保形：incoming fm 已显式含该键则不覆写（显式产出优先）；盘上无键 / 文件不
  *  存在 / incoming 无 fm（裸 md）→ 原样返回。读失败原样返回（保形是防丢键兜底，
  *  不因它拒绝写盘——写侧防线在保存链自身）。
- *  （四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件
+ * existingRaw = 调用方在保存锁内预读的盘上字节（文件
  *  不存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
  *  缺省 undefined = 自读（preserveStructureFmForChapter 等其余调用方原样）。 */
 export function preserveStructureFmIn(absPath: string, content: string, existingRaw?: Buffer | null): string {

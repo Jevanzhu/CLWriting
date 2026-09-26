@@ -42,10 +42,10 @@ const MIME: Record<string, string> = {
 const SPA_INDEX_TTL_MS = 5000
 let spaIndexCache: { path: string; data: Buffer; ts: number } | null = null
 
-/** 静态响应统一安全头（三处 writeHead 共用单源——：原三份字典逐字重复，
+/** 静态响应统一安全头（三处 writeHead 共用单源——原三份字典逐字重复，
  *  改一处漏两处即部分响应缺头）。
- *  - nosniff：禁浏览器 MIME 嗅探，防落盘内容被误判为可执行脚本（X-XSS 一环）。
- *  - XFO + CSP frame-ancestors：本机端口服务防点击劫持——任意网页可 iframe
+ * - nosniff：禁浏览器 MIME 嗅探，防落盘内容被误判为可执行脚本（X-XSS 一环）。
+ * - XFO + CSP frame-ancestors：本机端口服务防点击劫持——任意网页可 iframe
  *    嵌本服务页面 + 遮罩诱导点击。双保险：老浏览器认 XFO、新浏览器认 CSP，任一生效即
  *    不渲染于第三方 frame。 */
 const STATIC_SECURITY_HEADERS = {
@@ -54,13 +54,13 @@ const STATIC_SECURITY_HEADERS = {
   'content-security-policy': "frame-ancestors 'none'",
 } as const
 
-// 0918二轮修复批（D105）：SPA fallback 404 文案按运行形态分叉——原 404 文案恒为
+// SPA fallback 404 文案按运行形态分叉——原 404 文案恒为
 // 「请先运行 npm --prefix src/studio/web-next run build」，打包态用户遇 dist 丢失时
 // 看到开发者视角指引（无操作性）且泄漏内部路径。形态判据对齐 worker-async.ts 的
 // src/打包双形态口径（pathname 以 .ts 结尾 = tsx dev / vitest 以源码运行；tsup 打包
-// 后本模块内联为 .js）：src 形态保留 npm 指引（dist 未构建时的真实修复动作，/
+// 后本模块内联为 .js）：src 形态保留 npm 指引（dist 未构建时的真实修复动作，
 // 既有钉值测试面不回退）；打包态给通用文案。不用 CLW_DEV_UI 判 dev：宿主 shell 残留
-// env 在打包态不得再生效（/T43-26 同因），源文件形态判据天然免疫。参数导出供
+// env 在打包态不得再生效，源文件形态判据天然免疫。参数导出供
 // 两形态各自断言（readJson 注入口先例）。
 const DEV_SOURCE_FORM = new URL(import.meta.url).pathname.endsWith('.ts')
 
@@ -90,9 +90,9 @@ export function createStaticHandler(rootDir: string) {
     // dd-静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）
-      // （总六十五轮）：405 分支同样在 finish 后排空未消费请求体——写方法打到
+      // 405 分支同样在 finish 后排空未消费请求体——写方法打到
       // 非 /api 路径时 handler 不读 body 也不 resume，keep-alive 连接因 body 滞留
-      // 被弃。 收口说明：经 index.ts 全量 server 的请求已由入口单挂点统一排空，
+      // 被弃。收口说明：经 index.ts 全量 server 的请求已由入口单挂点统一排空，
       // 本地钩子不随之删除——createStaticHandler 还会被独立挂上 http.createServer
       // 复用（static.test.ts 钉住该契约），单一职责归本模块自身，双重挂载下
       // resume 幂等无副作用。
@@ -180,7 +180,7 @@ export function createStaticHandler(rootDir: string) {
       // destroy(res) 断连（Content-Length 已承诺完整长度，半截响应不能再改状态码）；
       // 未写头则按口径回 500 IO。writeHead 必须等流 'open' 成功后再发——open 阶段
       // 失败（EACCES 等）时头未落盘才轮得到 500 信封；先 writeHead 后 pipe 会让
-      // headersSent 恒真、的 500 分支成死代码（mac 腿实测挂，win 腿 skipIf 拦不到）。
+      // headersSent 恒真的 500 分支成死代码（mac 腿实测挂，win 腿 skipIf 拦不到）。
       // SPA fallback 的 index.html 保留 readFile（低频小文件，且 fallback 语义依赖
       // throw 进外层 catch）。
       const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
@@ -218,11 +218,11 @@ export function createStaticHandler(rootDir: string) {
       const err = e as NodeJS.ErrnoException
       if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
         // err.code 不出网（对齐 index.ts 500 只回泛化文案口径，
-        // 诊断留日志）；：错误码对齐 'IO' 单一口径
+        // 诊断留日志）；错误码对齐 'IO' 单一口径
         replyError(res, 500, 'IO', '静态文件读取失败')
         return
       }
-      // SPA fallback：非文件路径回 index.html（前端路由接管；：HEAD 同口径补长度不发 body）
+      // SPA fallback：非文件路径回 index.html（前端路由接管；HEAD 同口径补长度不发 body）
       // index.html 走单槽短缓存（见文件头 spaIndexCache 注释）——TTL 内零读盘
       try {
         // fallback 同过 canonical 判界——此前裸
@@ -253,7 +253,7 @@ export function createStaticHandler(rootDir: string) {
         if (req.method === 'HEAD') res.end()
         else res.end(data)
       } catch {
-        // 0918二轮修复批（D105）：文案按运行形态分叉（见 spaMissingUiMessage 头注）
+        // 文案按运行形态分叉（见 spaMissingUiMessage 头注）
         replyError(res, 404, 'NOT_FOUND', spaMissingUiMessage())
       }
     }

@@ -17,7 +17,7 @@ import { recommendShortChecks } from './data.js'
 import { writeManifest } from '../document/manifest.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
-/** DA-2占位/骨架产物存在即跳过——半成品恢复复跑 scaffold 时（doInit 幂等
+/** 占位/骨架产物存在即跳过——半成品恢复复跑 scaffold 时（doInit 幂等
  *  续登记），未登记书的设定/大纲/文风区可能已有真实内容（CLI/AI 可操作未登记书），
  *  无条件覆盖会丢稿；book.yaml/清单同理（复跑带不同 opts 不得抹掉已有配置与登记）。 */
 function writeIfAbsent(fp: string, content: string): void {
@@ -48,7 +48,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   mkdirSync(bookRoot, { recursive: true })
 
   // book.yaml（#9 schema，题材驱动 leads.enabled；短篇集走精简字段，#25）。
-  // DA-2存在即跳过——半成品恢复复跑可能带不同 opts，不得覆盖已有配置。
+  // 存在即跳过——半成品恢复复跑可能带不同 opts，不得覆盖已有配置。
   // 全局托底：新书不再烘焙 13 键默认值（style/auto 段、budget.calls_per_chapter、genre
   // 空占位）——写进去 = 书级「永远已设」，global.json 全局默认永远被遮蔽；运行时由
   // applyGlobalDefaults 兜底。例外：短篇 auto.batch_size: 1 是有意的产品默认（逐篇确认
@@ -87,7 +87,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
   scaffoldDirectories(bookRoot, opts)
 
   // 初始文档清单（去 git：新建书即有清单，状态机/定稿自管的账本基座）。
-  // DA-2存在即跳过——空清单整写会抹掉半成品阶段已登记的条目
+  // 存在即跳过——空清单整写会抹掉半成品阶段已登记的条目
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(manifestPath)) {
     writeManifest(manifestPath, { version: 1, entries: new Map() })
@@ -226,7 +226,7 @@ function scaffoldSharedStyle(bookRoot: string, genre: string): void {
   writeIfAbsent(join(bookRoot, '文风', '文风铁律.md'), renderStyleRules(genre))
   // 条目库骨架 + 预置 AI 味禁词（禁词知识在条目库，铁律纯配置；
   // 条目目录存在 = 迁移幂等闸生效，新书不再走迁移）。
-  // DA-2按 类型+正文 去重——半成品恢复复跑不再把预置禁词翻倍
+  // 按 类型+正文 去重——半成品恢复复跑不再把预置禁词翻倍
   const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '禁词')
   const existing = new Set(entries.map((e) => e.正文))
   for (const row of PRESET_AI_FLAVOR) {

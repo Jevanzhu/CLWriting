@@ -9,7 +9,7 @@
  * 纯移动声明：注释与代码逐字随迁、零行为变化、零逻辑改写；唯一差异 = 缝入本文件
  * 所需的最小必要签名改动（store 闭包 → 工厂闭包参数化，逐处记档见下）：
  * - createThemeApply(theme: Ref<ThemeId>) 工厂收 theme ref——族内 theme.value 读点
- *   逐字不变（rAF 回调按回调执行时刻活读当前主题，快速连切「旧回调按最新
+ * 逐字不变（rAF 回调按回调执行时刻活读当前主题快速连切「旧回调按最新
  *   主题重发窗控色」口径保持；传值参数会冻结读点，是行为改写，不取）。
  * - overlayAlpha / themeInstantGen 为 per-store 实例态，随族迁入工厂闭包保持
  *   per-instance 语义（上提模块顶层会跨 store 实例串态——测试内连续 createPinia
@@ -33,7 +33,7 @@ import type { ThemeId } from '../types/theme'
 export function createThemeApply(theme: Ref<ThemeId>) {
   // ── 窗控 overlay 色（win）──
   // WCO 能力上限 = 实色 + 主题跟随（'transparent' 不被 Chromium 接受、按钮底色也不跟
-  // nativeTheme，实测）。基础色 = 两档 --background-secondary（= 顶栏底，
+  // nativeTheme 实测）。基础色 = 两档 --background-secondary（= 顶栏底，
   // light 0xF6 / dark 0x26，灰通道三值同）。遮罩压暗期间的色 = 顶栏底被遮罩吸收后的
   // 等效色：round(bg × (1-α))，α = 当前有效遮罩浓度——各弹窗遮罩浓度不同（设置 .45、
   // 书架/导出/确认 .35、命令面板 .25，名单在 ui store MASK_ALPHA 与组件 CSS 镜像、
@@ -58,7 +58,7 @@ export function createThemeApply(theme: Ref<ThemeId>) {
   }
   /** 瞬切到当前应有色（遮罩开关 / 主题落定）。为什么不做过渡：WCO 色是 DWM
    *  窗口属性（实色、无 alpha），不在网页合成器里——CSS/View Transition 的
-   *  时间线管不到它，「跟随渐变」只能逐帧 IPC 改属性拼（试过 8 帧 ×
+   * 时间线管不到它，「跟随渐变」只能逐帧 IPC 改属性拼（试过 8 帧 ×
    *  25ms：帧距被 IPC/主进程时延拉散即闪烁，整体拖过遮罩自身淡入即延迟，作者
    *  实测打回）。mac hiddenInset 交通灯没有这个问题：按钮是透明底浮在网页上方，
    *  底下像素随遮罩/主题特效逐帧自然变，无需联动——win 的等价能力只有放弃原生
@@ -81,7 +81,7 @@ export function createThemeApply(theme: Ref<ThemeId>) {
 
   /** theme-instant 压制代数——applyTheme 每次自增，rAF 回调据
    *  此判最新性（快速连切防旧回调提前摘新回调的压制 class，详见 applyTheme 注）。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const themeInstantGen = useStaleGuard()
 
   function applyTheme(): void {

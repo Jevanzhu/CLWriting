@@ -15,13 +15,13 @@ export type CreateKind =
 /** 左栏活动面板（联合类型单源——ref 初值与 setter 形参此前各写一遍
  *  字面量联合，改一处漏一处编译器不报，收成别名两处共引）。 */
 export type LeftPanel = 'tree' | 'search' | 'trash'
-/** 主区活动视图（ribbon 切换；点章节回编辑器）。 */
+/** 主区活动视图：编辑器 / 工作台 / 开书对话 / 总览（ribbon 切换；点章节回编辑器）。 */
 export type ActiveView = 'editor' | 'workbench' | 'onboard' | 'overview' | 'relations' | 'learn' | 'style' | 'audit'
 /** 右栏活动 tab（信息/审阅/机检；编辑器 AI 按钮可驱动切到审阅）。 */
 export type RightTab = 'info' | 'review' | 'check'
 
 /** 一次性插入命令（引用直传形态）。每次 requestInsert 产出新令牌对象
- *  ——同文本再点也是新引用，watcher 必触发（{text, tick} 靠递增 tick 防同值
+ * ——同文本再点也是新引用，watcher 必触发（{text, tick} 靠递增 tick 防同值
  *  短路的职责收进「新对象」本体，tick 字段退役）；「一次性」收敛在 consume：首次
  *  返回文本、此后恒 null，重复消费在类型与运行时同时可见，不留「读后置 null」形态
  *  （丢信号 bug 历史两犯的根源即该形态）。 */
@@ -94,10 +94,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let watchStop: (() => void) | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染）。
-   *  ：裸计数器换装 useStaleGuard（setBook begin；其余观测点 current）。 */
+   * 裸计数器换装 useStaleGuard（setBook begin；其余观测点 current）。 */
   const bookGen = useStaleGuard()
-  /** （GLM-5.3 修复批）：书级 prefs 持久化失败的一次性提示
-   *  去重标记——对齐全局偏好口径（同一失败窗只 warning 一次，成功落盘复位） */
+  /** 书级 prefs 持久化失败的一次性提示
+   * 去重标记——对齐全局偏好口径（同一失败窗只 warning 一次，成功落盘复位） */
   let bookPrefsFailNotified = false
   /** 书级 prefs 在途写句柄（对齐 prefs.ts 的 putInFlight 单飞槽先例；
    *  书级侧此前无在途面——防抖刚 fire 出去的那笔写不在关窗冲刷等待范围，缺口在
@@ -126,7 +126,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     treeExpanded.value = ['写作']
     // 新进书复位「用户已操作」位——上本书的操作不挡本书 prefs 回填
     treeExpandedTouched = false
-    // FE-4滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
+    // 滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
     // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
     pendingInsert.value = null
     if (debounceTimer) clearTimeout(debounceTimer) // ff 细节#11：挂起的落盘随切书作废
@@ -154,7 +154,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const ps = usePrefsStore()
       ps.bookPageWidth = null
       ps.bookAutosaveInterval = null
-      // 清了书级覆盖值但缺 apply——refs 清空只改 store 态，
+      // 清了书级覆盖值但缺 apply()——refs 清空只改 store 态，
       // --page-width 等 :root CSS 变量仍滞留 A 书覆盖值，B 书正文宽度沿用前书设置
       // 直至下次成功加载/全局偏好变更才被冲掉。
       ps.apply()
@@ -223,7 +223,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // 清偿批两键补「正数有限」守卫（对齐 stores/prefs 迁移侧
     // Number.isFinite(v) && v > 0 先例）——原 typeof number 单闸放行 0/负数/Infinity
     //（服务端 JSON 可表达 1e999→Infinity；手改 prefs.json 可得 0/负数）：autosave
-    // 零/负间隔此前仅靠 Book.vue max 事后兜底，pageWidth 非法值直产非法 CSS
+    // 零/负间隔此前仅靠 Book.vue max(5,·) 事后兜底，pageWidth 非法值直产非法 CSS
     // 宽度。非法值按「无书级覆盖」（null，全局值托底）处理，与字段缺失同口径。
     const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
     ps.bookPageWidth = posNum(prefs.pageWidth)
@@ -236,7 +236,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /**
    * 书级 prefs 落盘直发段：按排定时刻快照（gen/name）复查后写穿一次 putBookPrefs。
-   * （GLM-5.3 修复批）：自防抖 setTimeout 回调外提
+   * 自防抖 setTimeout 回调外提
    * ——关窗冲刷（flushPendingBookPrefs）与防抖 fire 复用同一段写链（成功复位一次性
    * 失败提示标记 / 失败走一次性 warning，口径不变）。
    */
@@ -261,7 +261,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
       })
       .catch(() => {
-        // （GLM-5.3 修复批）：书级 prefs 落盘失败不再
+        // 书级 prefs 落盘失败不再
         // 全静默（原 catch(=>{}) 吞掉——离线调面板布局重启回退无提示）；对齐
         // 全局偏好一次性 warning 口径（同失败窗只提示一次，成功复位）
         if (!bookPrefsFailNotified) {
@@ -277,15 +277,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /**
-   * （GLM-5.3 修复批）：关窗前强制冲刷书级 prefs 的
+   * 关窗前强制冲刷书级 prefs 的
    * 500ms 防抖窗——末次布局态（面板开合/宽度/活动文档/展开态）此前随关窗静默丢失
    * （备案的取舍，本批收口）。对齐全局偏好 prefs.flushPendingPersist 的关窗
    * 钩子口径（App.vue __clwFlushPrefs 先例）：清掉挂起计时器后直发一次写穿，整链
    * Promise 交 Book.vue __clwFlushBeforeClose await（主进程关窗预算内等待）。防抖
    * 语义不变——平时照旧 500ms 合并写；无待写项（计时器空）不空写。
-   *  （六轮修复批）：配合防抖 fire 分支置空句柄，
+   * 配合防抖 fire 分支置空句柄，
    *  本守卫才真正兑现（此前 fire 后句柄恒非 null，保存过一次的书每次关窗仍空写）。
-   *  （全库源码质量评审修复批）：原挂账的「已知边界」收口
+   * 原挂账的「已知边界」收口
    *  ——书级侧补建在途写句柄（bookPrefsInFlight），本冲刷先等在途写落定再清窗直发
    *  （先等再发，防两笔 PUT 乱序到达旧布局覆盖新布局）；防抖窗空时也等在途——关窗
    *  钩子「冲刷完成才销毁窗口」的语义自此覆盖刚 fire 出去的那笔写，不随窗夭折。
@@ -324,7 +324,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const gen = bookGen.current()
         const name = bookName.value
         debounceTimer = setTimeout(() => {
-          // （六轮修复批）：fire 即置空句柄——此前
+          // fire 即置空句柄——此前
           // 回调执行完不清空，句柄停在旧定时器上恒非 null，而 flushPendingBookPrefs 以
           // `!debounceTimer` 作「无待写」判据（立的守卫），于是保存过一次
           // 的书每次关窗都同值空写 prefs.json（与 prefs.ts persistTimer 同型缺口，两处
@@ -338,7 +338,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。
    *  清偿erBook 属主校验——keyset 是某本书整树的 docId 集合，
-   *  切书窗内 tree 仍持旧书键集（byDocId/ownerBook 与 bookName 更不同窗），
+   * 切书窗内 tree 仍持旧书键集（byDocId/ownerBook 与 bookName 更不同窗），
    *  以旧键集校验新书恢复的 activeDocId 会误清（恢复文档被清，下次进书不再恢复；
    *  无内容丢失，体验面）。ownerBook 与当前书名不一致时跳过校验；缺省（既有调用面/
    *  存量测试口径）维持原行为不做属主比对。 */
@@ -350,12 +350,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。
-   *  （GLM-5.3 修复批）：存旧文档改走 doDelete
-   *  同族的「先落定在途再判」—— 契约下 entry.saving 时 doc.save('autosave') 直接返
+   * ②：存旧文档改走 doDelete
+   * 同族的「先落定在途再判」——契约下 entry.saving 时 doc.save('autosave') 直接返
    *  false 不等待，原实现在途保存窗口内必误报「切换文档时自动保存失败」（内容不丢、
    *  在途自愈的假警报）。先 await doc.waitInflightSave（flushDirty 同款有界轮次台账等待）
    *  落定，复查仍 dirty 才补存；真失败（返 false 且仍 dirty、无新在途）才可见化。
-   *  （mac 线，merge 同题双修并入）：save 返 false 另有 conflict
+   * （mac 线，merge 同题双修并入）：save 返 false 另有 conflict
    *  一路（autosave 设计内跳过）——冲突未决不补存不提示（编辑器自有重载/覆盖冲突 UI），
    *  判式补 !conflict；切书早退守卫显式化（复查前先对 bookAtEntry 复核）。 */
   function openTab(docId: string): void {
@@ -363,12 +363,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const prevId = activeDocId.value
     if (prevId && prevId !== docId) {
       const doc = useDocStore()
-      // RC附批：读 dirty 前先落编辑器防抖尾——正文回写有 ≤200ms 合并窗，
+      // 读 dirty 前先落编辑器防抖尾——正文回写有 ≤200ms 合并窗，
       // 窗内键入未落回 store 时本判式读到 false，存旧文档链整段不启动（内容靠 autosave
       // 节拍兜底，切档即存这条保护在窗口内静默失效）。flush 幂等，落尾按槽内 docId。
       flushBodyWriteback()
       if (doc.get(prevId)?.dirty) {
-        // 清偿-切换autosave失败可见化（残留清偿批）：fire-and-forget 存旧文档
+        // 清偿-切换autosave失败可见化：fire-and-forget 存旧文档
         // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
         // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新，
         // 旧 id 以 prevId 快照携带进异步链）；入口书名快照守卫防在途切书后迟到失败提示
@@ -409,7 +409,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。
-   *  （修复批）：左栏在搜索/回收站时点「新建」此前静默无响应——
+   * 左栏在搜索/回收站时点「新建」此前静默无响应——
    *  createTick 唯一消费者 ChapterTreePanel 只在 leftPanel==='tree' 时挂载（SidebarLeft
    *  v-if），信号发出时无监听者。修复：非树面板先切回章节树（新建意图指向树，切面板
    *  即用户可见反馈），tick 递延到 nextTick——面板切换触发重新挂载，watch 注册晚于
@@ -426,7 +426,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createTick.value++
   }
   /** 请求插入文本到编辑器光标（右栏速查「插入」用）。每次调用产出新一次性令牌
-   *  （消费态收敛在令牌内，槽位不再承担一次性语义）。 */
+   * （消费态收敛在令牌内，槽位不再承担一次性语义）。 */
   function requestInsert(text: string): void {
     let consumed = false
     pendingInsert.value = {
@@ -470,7 +470,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeView.value = v
   }
   /** 注册/注销编辑器查询句柄（EditorView mount/unmount；选区/光标读取单点注册）。
-   *  ：原 editorGetSelection/editorGetCursorOffset 两个函数槽各自挂卸，
+   * 原 editorGetSelection/editorGetCursorOffset 两个函数槽各自挂卸，
    *  生命周期两条线；读方经上方兼容读面取用，读取口不变。 */
   function setEditorHandle(h: EditorHandle | null): void {
     editorHandle.value = h

@@ -45,7 +45,7 @@ export default defineConfig({
     // CI 再压到 2——GitHub runner（ubuntu/macos 均 ~7GB）比本机
     // 16GB 更紧，4 fork × GB 级 scale 峰值在 CI 侧无实测背书、OOM 风险单向；2 并发
     // 峰值减半换时长（20 分钟预算内），本地维持 4。
-    // vitest 5 升级批（阶段 39）：poolOptions.* 整体移除——并发上限改顶层 maxWorkers；
+    // （阶段 39）：poolOptions.* 整体移除——并发上限改顶层 maxWorkers；
     // minForks 无对应键（v5 自管最小并发）。旧 poolOptions 键在 v5 只发 DEPRECATED
     // 警告并静默失效（内存闸失守一轮实测在案），勿回填。
     pool: 'forks',
@@ -55,24 +55,24 @@ export default defineConfig({
     environment: 'node',
     // GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
     // x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
-    // 阶段 53 ：第二个 setup 关掉起服后延迟触发的更新检查（测试不打网的硬要求，
+    // 阶段 53：第二个 setup 关掉起服后延迟触发的更新检查（测试不打网的硬要求，
     // 见 test/helpers/disable-update-check-setup.ts 头注）。
     setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
-    // （批）：全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
+    // 全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
     // 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
     // it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级
     // 显式放宽，勿上调全局值（上调会掩盖常规用例的挂死回归）。
     testTimeout: 30000,
     // coverage 纳管；引入全局阈值门 = 基线 −2pp 向下取整（防回退不追高）。
     // 基线快照：statements 84.43 / branches 80.96 / functions 95 / lines 84.43。
-    // （批）：coverage/coverage-summary.json（含 html/）是「分桶局部跑」产物——
+    // coverage/coverage-summary.json（含 html/）是「分桶局部跑」产物——
     // 只反映当次跑到的文件子集，其 total（如 api 桶局部跑的 89.32%）不可解读为全书
     // 覆盖率；全书口径只在全量跑后读各桶阈值行。该目录未入 git（纯本地构建产物），
     // 无入库清理问题。
-    // 批 6：web-next 前端逻辑层（stores/composables/shared/api，纯 .ts）
+    // web-next 前端逻辑层（stores/composables/shared/api，纯 .ts）
     // 纳入报告与门禁——per-glob 三桶不重叠分区（glob 键按 picomatch 段级否定切分；
     // 匹配多桶的文件须过所有桶，故主代码不能再用 src/** 全量键）；无扁平键 = 全局桶跳过。
-    // web-next 门 = 实测基线（lines 45.08 / branches 83.54）−2pp 向下取整，
+    // web-next 门 =实测基线（lines 45.08 / branches 83.54）−2pp 向下取整，
     // 只防回退不追高；.vue 组件层仍不入口径（vue-tsc/构建链自管）。
     coverage: {
       provider: 'v8',
@@ -83,7 +83,7 @@ export default defineConfig({
       reportOnFailure: true,
       // -②（全量代码）：include 不含 scripts/*.ts 属有意取舍——
       // scripts 面由 tsc/eslint/直测（test/scripts/）覆盖，coverage 盲区为接受项，勿当遗漏补
-      // 0918修复批（G003）：include 扩入 web-next SFC——'src/studio/web-next/src/**/*.vue'
+      // include 扩入 web-next SFC——'src/studio/web-next/src/**/*.vue'
       // 精确限定 web-next src 子树（全仓 110 个 .vue 均在此，根 src 与别处无 .vue，不会扫入）；
       // SFC script 块经 plugin-vue 转换后 v8 可产数（见本批实验记录），组件层入核算。
       include: ['src/**/*.ts', 'src/studio/web-next/src/**/*.vue'],
@@ -98,13 +98,13 @@ export default defineConfig({
       // 收窄：仅点名排除 types/tree.ts——纯 `export interface TreeNode` 类型声明，零运行
       // 时语句，全部消费方 import type 编译期擦除，无覆盖语义可计；.vue 组件层由 include
       // 'src/**/*.ts' 天然不入口径（vue-tsc/构建链自管），不再用 exclude 表达；两运行时
-      // 文件随聚合桶 glob 扩面纳管（见 thresholds，同 「收暗区、阈值不变」先例）。
-      // （GLM-5.3 修复批）：exclude 补 '**/node_modules/**'
+      // 文件随聚合桶 glob 扩面纳管（见 thresholds，同「收暗区、阈值不变」先例）。
+      // exclude 补 '**/node_modules/**'
       // ——include 'src/**/*.ts' 命中 web-next 子包 node_modules 里 27 个第三方 .ts
       //（@lezer/markdown、entities、@jridgewell 等），它们不落任何阈值桶（零守护）却
       // 进报告占体积；显式排除后报告只剩自有源码（governance 反向守卫的 EXCLUDE 抄本
       // 同步，见 test/governance/coverage-threshold-globs.test.ts）。
-      // 0914补 '**/._*' 与上方 test.exclude 同款对齐——外置卷跑
+      // 补 '**/._*' 与上方 test.exclude 同款对齐——外置卷跑
       // coverage 时 macOS AppleDouble 伴生文件（._*.ts）被 include 'src/**/*.ts' 命中，
       // 以 0% 进分桶拉低阈值。正常检出零命中（仓库在内置盘），故 governance 反向守卫
       // 的 EXCLUDE 抄本无需随动（其文件集扫描不涉 ._ 文件，口径不受影响）。
@@ -116,8 +116,8 @@ export default defineConfig({
         'src/studio/web-next/src/types/tree.ts',
         'src/studio/web-next/src/{main,router}.ts',
       ],
-      // vitest 5 升级批（阶段 39）：coverage-v8 v5 计数语义变化——同测试集同源码下全桶
-      // 系统性下移（明细 = 阶段 39 批记）。阶段 43（coverage 修账批）：CI ubuntu·24 首跑
+      // （阶段 39）：coverage-v8 v5 计数语义变化——同测试集同源码下全桶
+      // 系统性下移（明细 = 阶段 39 批记）。阶段 43：CI ubuntu·24 首跑
       // 实测落地重定——「win 为 ubuntu 下界」假设对 electron 平台门域不成立（win 跑
       // canRunRealElectron 用例而 ubuntu headless 跳过，events/desktop statements 实测
       // 反低 0.2-1pp 即红两桶），CI 门跑 ubuntu 则以 ubuntu 实测为基线。规则：绿门只紧
@@ -136,15 +136,15 @@ export default defineConfig({
         // 主桶上叠三个域级子桶——聚合均值仍可稀释新增低覆盖文件
         //（主桶池化 ~90% 均值，新文件 10% 也推不动门）；vitest 多桶语义为「匹配多桶的
         // 文件须过所有桶」，子桶与主桶并存 = 域级基线门叠加全局防回退门，两不误。
-        // 阈值 = 实测基线 −2pp 向下取整（coverage-summary.json 全量重算）：
+        // 阈值 =实测基线 −2pp 向下取整（coverage-summary.json 全量重算）：
         // ai 90.76/86.81/97.04 · events 97.25/92.14/100 · studio/server 88.24/71.51/94.43
         'src/ai/**': { statements: 91, branches: 85, functions: 95, lines: 93 },
         'src/events/**': { statements: 92, branches: 90, functions: 98, lines: 95 },
-        // （修复批）：onboard/config/draft/io 补测后
+        // onboard/config/draft/io 补测后
         // 全量 coverage 实测 statements 89.53 / branches 78.53 / functions 94.33 /
         // lines 89.53 → −2pp 向下取整 87 / 76 / 92 / 87（functions 恰持平不动）
         'src/studio/server/**': { statements: 87, branches: 73, functions: 92, lines: 89 },
-        // （五轮修复批）：metrics/driver/review 三小域
+        // metrics/driver/review 三小域
         // 单列子桶——三域此前落主池化桶（聚合均值 ~89%），域内单文件腰斩对门不可见
         //（stores/composables 拆桶同款论证）；与主桶并存 = 域级基线门 + 聚合防回退门叠加。
         // 阈值取保守防回退档（本批未跑全量 coverage 无实测基线，宁低勿红）：主桶现行门
@@ -152,7 +152,7 @@ export default defineConfig({
         // 「域级腰斩可见」不追高——metrics/review 直测厚（test 下 7/5 个直测文件对 2 个
         // 源文件）取 65/55，driver 直测薄（cc/SSE 大文件主要经 studio 面集成行使）取最
         // 保守 60/50。后续随全量 coverage-summary 实测基线再按 −2pp 规则收紧。
-        // 0918修复批（G001）：兑现上注「随实测收紧」—— 全量
+        // 兑现上注「随实测收紧」——全量
         // coverage-summary 实测补 statements/functions（−2pp 向下取整）：metrics
         // 98.89/100 → 96/98 · driver 78.12/97.22 → 76/95 · review 95.06/100 → 93/98；
         // lines/branches 维持既有防回退档不动（三域观测 L 98.89/78.12/95.06 ·
@@ -160,10 +160,10 @@ export default defineConfig({
         'src/metrics/**': { statements: 91, branches: 80, functions: 95, lines: 97 },
         'src/driver/**': { statements: 95, branches: 92, functions: 98, lines: 97 },
         'src/review/**': { statements: 93, branches: 81, functions: 98, lines: 94 },
-        // 0918修复批（G001）：15 个后端域补域级子桶——此前无域门，仅落主池化桶
+        // 15 个后端域补域级子桶——此前无域门，仅落主池化桶
         // ~89% 均值（metrics/driver/review 同款论证：域内单文件腰斩被聚合均值稀释、对门
         // 不可见）；与主桶并存 = 域级基线门 + 聚合防回退门叠加（ai/events 先例）。
-        // 阈值 = 全量 coverage-summary 实测 −2pp 向下取整（观测 → 地板）：
+        // 阈值 =全量 coverage-summary 实测 −2pp 向下取整（观测 → 地板）：
         // cache 92.09/88.18/96.43/92.09 · check 95.57/90.32/100/95.57 ·
         // desktop 92.33/87.44/94.17/92.33 · document 92.78/85.21/96.56/92.78 ·
         // export 87.80/91.85/95.00/87.80 · format 88.93/94.53/99.34/88.93 ·
@@ -189,12 +189,12 @@ export default defineConfig({
         'src/state/**': { statements: 91, branches: 85, functions: 95, lines: 93 },
         // api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
-        // −2pp 向下取整，只防回退不追高。 补 api 直测后
-        // 实测 lines 25.17 / branches 88.77。：本轮再收基线——
+        // −2pp 向下取整，只防回退不追高。补 api 直测后
+        // 实测 lines 25.17 / branches 88.77。本轮再收基线——
         // 全量 coverage-summary 实测 lines 36.87 / branches 90.35，门收到
         // 34 / 88（−2pp 向下取整；lines 自 23 提 11pp，注释自认的「待收紧」销账）。
         // api-endpoints-a/b 两文件补 16 域行为级直测（37 用例：URL 编码/
-        // method/body 负载/响应解包/404 兜底），实测 lines 89.32 / branches
+        // method/body 负载/响应解包/404 兜底）实测 lines 89.32 / branches
         // 95.83，门提到 87 / 93（同 −2pp 规则）
         'src/studio/web-next/src/api/**': { lines: 91, branches: 88 },
         // editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
@@ -204,7 +204,7 @@ export default defineConfig({
         // 文件（components/ui/settings-context.ts、types/theme.ts）回到报告与门禁；.vue
         // 不在 coverage include（src/**/*.ts）内，此 glob 实际命中的只是两目录下 .ts；
         // 纯类型声明 types/tree.ts 已在 exclude 点名（零运行时语句，无覆盖语义）
-        // 0918修复批（G003）：include 扩入 .vue 后再收暗区——views/pages/根
+        // include 扩入 .vue 后再收暗区——views/pages/根
         // App.vue 的 SFC 随 include 扩面入核算却不落任何桶（views/pages 无 .ts），
         // 并入聚合桶纳管（glob 扩 pages,views + 新增根层 *.vue 键），沿
         // 「收暗区、阈值不变」先例；聚合桶阈值维持 43/81——.vue 计入后扩面口径新观测
@@ -223,7 +223,7 @@ export default defineConfig({
         'src/studio/web-next/src/*.vue': { lines: 96, branches: 88 },
         // stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
-        // 阈值 = 全量 coverage-summary 实测基线（lines 91.82 / branches
+        // 阈值 =全量 coverage-summary 实测基线（lines 91.82 / branches
         // 90.20）−2pp 向下取整 → 89 / 88，远高于 43% 总门 → 拆桶条件成立（评估结论见
         // 总览）。原聚合桶 glob/阈值维持不动，沿用「匹配多桶的文件须过所有桶」
         // 语义：stores 文件同过域级基线门 + 聚合防回退门，两不误。

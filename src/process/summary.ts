@@ -1,5 +1,5 @@
 /**
- * 章摘要生成器（迭代方向 / 批 2，-①：定稿即生成 + prepare 按需自愈）。
+ * 章摘要生成器（迭代方向，-①：定稿即生成 + prepare 按需自愈）。
  *
  * 三层摘要金字塔（前章原文结尾 → 章摘要 → 卷摘要）此前只有消费方（prepare rank 1/3）
  * 与预算键（summary_chapter_max），唯独没有写这些文件的代码——纯靠作者手写约定。
@@ -14,7 +14,7 @@
  *   ① 定稿即生成（api/documents.ts finalize 后 best-effort fire-and-forget——失败
  *      log.warn 不阻断定稿，留待自愈兜底；不占 calls_per_chapter 章预算）；
  *   ② 自愈补漏（prepareMaterials 备料前发现近章摘要缺失/过期 → 现场补生成，
- *      计入当前写作章的 calls_per_chapter 预算——既有预算闸口径）。
+ * 计入当前写作章 N 的 calls_per_chapter 预算（既有预算闸口径）。
  * - 开关：book.yaml summary.auto: false 整体关闭（回到手写约定现状）。
  * - 红线（设计总则 3）：摘要注入备料的「模型可见 ⟺ 已记录」经 promptMeta.files 登记
  *   （prepare 返回 injectedSummaryFiles → self-heal runSpec promptFiles → llm/call 事件）。
@@ -58,13 +58,13 @@ export const SUMMARY_CHAPTER_MAX_FALLBACK = 200
 export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 
 // 码点工具直引 shared/text.ts——此前两道 re-export 中转（-优化
-// / C101 下沉时留下的 import 面兼容层）把 ai/prompts、ai/rules、ai/tools
+// 下沉时留下的 import 面兼容层）把 ai/prompts、ai/rules、ai/tools
 // 引到本模块，与 ai 侧后续回引本模块构成强连通；中转层即环边来源，故剥除，消费方直引
 // 实现所在模块（全库「不留双轨」口径）。
 import { codePointLength, clipByCodePoints } from '../shared/text.js'
 import { testableConst } from '../shared/testable.js'
 
-/** 章摘要目录（相对书根）。（总七十一轮）：posix 字面量——join 消费点
+/** 章摘要目录（相对书根）。posix 字面量——join() 消费点
  *  （chapterSummaryPath/mkdirSync）会自动归一到平台分隔符，而相对路径消费点
  *  （promptFiles/留痕）要求与全库 posix 归一口径（draft-pipeline ）一致 */
 export const CHAPTER_SUMMARY_DIR = '定稿/摘要/章摘要'
@@ -138,11 +138,11 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
 }
 
 /** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。
- *  （服务端端点/摘要簇修复批）：体内与 format/
+ * 结构（服务端端点/摘要簇）：体内与 format/
  *  chapter-lookup.ts chapterPathByNumber 逐行同构（walkMdFind 按名定位 + mergedIntoMap
  *  并入回退），收编单源只消费不再自带实现——语义逐位等价（正文区缺失/按名 miss/并入
- *  回退三分支同口径），/修复史由单源继承。
- *  （阶段 24，留洞制）：按名 miss → 并入回退目标章路径（被合并源章的正文在
+ * 回退三分支同口径）修复史由单源继承。
+ * （阶段 24 留洞制）：按名 miss → 并入回退目标章路径（被合并源章的正文在
  *  目标章里，摘要状态判定/自愈补漏对源章号仍可定位；正文命中恒优先——通用还原后
  *  陈旧并入不被咨询）。 */
 export function findChapterFile(bookRoot: string, chapter: number): string | null {
@@ -160,7 +160,7 @@ interface GenerateChapterSummaryOpts {
   bodyAbsPath: string
   /** 计入 calls_per_chapter 章预算的章号（自愈路径传当前写作章；定稿钩子不传=不占预算） */
   budgetChapter?: number
-  /** （二十四轮 A 域）：编排级中断信号（同款）——备料补漏路径传入，中断时
+  /** 编排级中断信号（同款）——备料补漏路径传入，中断时
    *  在途 LLM 调用即时收口而非各跑到自身超时（分钟级白烧 token + running 迟迟不释放）。 */
   signal?: AbortSignal
 }
@@ -177,7 +177,7 @@ const inFlight = new Set<string>()
 // 下、按生成目标分把——粒度与 inFlight 键一致，同进程不同章并发互不阻塞（若合成按书一把，
 // 章摘要串行链之外的两章并发会白等锁超时）。锁盖全临界段（状态判定在内——锁外判状态
 // 会重开 TOCTOU 窗口），AI 调用数十秒在所难免；拿不到锁 → 本调用返回
-// { ok: true, skipped: true }：语义 = 他人正在生成/已完成，不是失败（同时解决 ——
+// { ok: true, skipped: true }：语义 = 他人正在生成/已完成，不是失败（同时解决——
 // 并发去重命中不再被调用方当「自愈失败」warn 留痕），漏生窗口由既有自愈兜底。
 // 锁等待档 5s → 0（非阻塞 try-acquire，拿不到即跳过本轮）。理由：
 // 锁原语的等待是 Atomics.wait 同步微睡（Node 主线程合法但整段阻塞事件循环），而持锁方
@@ -237,7 +237,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     if (state === 'fresh') return { ok: true, path: fp, skipped: true }
     const budget = opts.config.budget.summary_chapter_max ?? SUMMARY_CHAPTER_MAX_FALLBACK
     // 正文与指纹此前两次独立读盘（readDraft 一次 + computeRevision
-    // 一次）——两读之间正文被改（→）会把的指纹绑给正文的摘要；改单次读
+    // 一次）——两读之间正文被改（H1→H2）会把 H2 的指纹绑给 H1 正文的摘要；改单次读
     // Buffer 同源派生 body（readDraft 的 content 通道）与哈希。
     // 哈希字节口径逐字对齐 fs/hash.ts hashFile / document/revision.ts computeRevision
     //（'sha256:' + 原始字节 SHA-256；src/fs 不在本批可写域，不重复开 import 面）。
@@ -259,9 +259,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     const draft = readDraft(bodyAbsPath, raw.toString('utf8'))
     if (!draft.ok) return { ok: false, error: `读正文失败：${draft.reason}` }
     // 指纹取读取时点（现为同一 Buffer，杜绝第二读的时点漂移）——AI 生成窗口
-    // （数十秒）内正文若被再改并再次定稿，写盘时才算会把指纹绑给正文的
+    // （数十秒）内正文若被再改并再次定稿（H2），写盘时才算会把 H2 指纹绑给 H1 正文的
     // 摘要：过期判定从此恒 fresh，自愈与定稿钩子都被挡住，过期摘要长期喂后续章节的
-    // 「近章结尾」材料。取读取时点的，到来后过期判定正常触发重生成。
+    // 「近章结尾」材料。取读取时点的 H1，H2 到来后过期判定正常触发重生成。
     const sourceHash = 'sha256:' + createHash('sha256').update(raw).digest('hex')
     const userPrompt = [
       `请为第 ${chapter} 章写章摘要（三行：情节推进 / 账本变动 / 章尾钩子，总长 ≤ ${budget} 字）。`,
@@ -282,11 +282,11 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     if (!out.ok) return { ok: false, error: out.error }
 
     // 硬截断到预算（确定性上限；模型超长不信任）
-    // 平台规范化批：AI 产出写前归一（章摘要在库内 .md，规范形收口）
+    // 平台：AI 产出写前归一（章摘要在库内 .md，规范形收口）
     let text = canonicalizeText(out.data.text.trim())
-    // （十五轮登记销账）：截断按码位——slice 按 UTF-16 码元，增补平面字符（生僻
+    // 截断按码位——slice 按 UTF-16 码元，增补平面字符（生僻
     // 字/emoji）在边界处被切成半个代理对落盘；全库截断口径 code point（/filename 同源）
-    // 预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
+    // E-9e：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
     // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
     // 省略号计入预算——截至 budget-1 码位 + '…'，落盘总长恰
     // ≤ budget（原 budget + '…' 超预算 1 码位，与提示词「总长 ≤ budget 字」口径不符）
@@ -323,8 +323,8 @@ function summaryAutoEnabled(config: BookConfig): boolean {
   return config.summary?.auto !== false
 }
 
-// ── （修复批）：后台 AI 任务的独立中断通道 ─────────────────
-// （评审修复批）：runRegisteredBgTask 独立成 process/bg-task.ts
+// ──：后台 AI 任务的独立中断通道 ─────────────────
+// runRegisteredBgTask 独立成 process/bg-task.ts
 // ——通用编排原语（self-heal 账本推进草稿同用）不再由本摘要模块转运，消费方直引。
 // 模块 rationale（独立 ctrl 登记 / 中断语义 / 未接线退化）随实现迁至该文件头注。
 
@@ -336,7 +336,7 @@ function summaryAutoEnabled(config: BookConfig): boolean {
  * 本任务，不再对其落盘窗口逃逸（fire-and-forget 语义不变）。
  */
 /** 单次定稿摘要执行（单发/批量串行链共用；异常由调用方包裹留痕）
- *  ：signal 可选——后台任务独立 ctrl 的信号，中断时在途 AI 调用即时收口 */
+ * signal 可选——后台任务独立 ctrl 的信号，中断时在途 AI 调用即时收口 */
 async function runFinalizeSummaryOnce(
   bookRoot: string,
   userDataPath: string | null,
@@ -436,7 +436,7 @@ export async function selfHealRecentChapterSummaries(
   bookRoot: string,
   userDataPath: string | null,
   config: BookConfig,
-  writingChapter: number, // 语义=正在写的章号 N（自愈 /），非 assembleStatus 的 currentChapter（最后定稿章）——同名不同义极易接错
+  writingChapter: number, // 语义=正在写的章号 N（自愈），非 assembleStatus 的 currentChapter（最后定稿章）——同名不同义极易接错
   signal?: AbortSignal, // 编排级中断透传（备料补漏路径）
 ): Promise<string[]> {
   if (!summaryAutoEnabled(config)) return []
@@ -446,7 +446,7 @@ export async function selfHealRecentChapterSummaries(
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
     const name = e.path.split('/').pop() ?? ''
-    // （GLM-5.3 修复批）：窄正则升格 chapterNoFromName 单源
+    // 窄正则升格 chapterNoFromName 单源
     //（与 tree 排序同宽容集，leads/foreshadow 同批收敛）
     const 章号 = chapterNoFromName(name)
     // 同款 safeManifestPath 防线（hash/stat 只读逃逸面）
@@ -475,7 +475,7 @@ export async function selfHealRecentChapterSummaries(
   if (generated.length > 0) {
     // 新摘要文件落盘 → rebuild 同步进 index.db（定稿/ 在 rebuild 源范围内，全量重建由
     // 其三元组基准自动触发）；失败不阻断备料（prepare 只是无这段近章结尾）
-    // 全量 rebuild 挪 worker 线程（run-rebuild-async.ts，导出
+    // 全量 rebuild 挪 worker 线程（run-rebuild-async.ts 导出
     // 同款范式）——原服务进程直调，清库重扫全书期间事件循环秒级冻结（SSE/保存停摆）；
     // 失败信封与降级口径不变（catch warn 后照常返回 generated）
     try {
@@ -487,9 +487,9 @@ export async function selfHealRecentChapterSummaries(
   return generated
 }
 
-// ── ：卷摘要按需生成 ─────────────────────────────────────────
+// ──：卷摘要按需生成 ─────────────────────────────────────────
 
-/** 卷摘要目录（相对书根）。：posix 字面量（同 CHAPTER_SUMMARY_DIR 口径） */
+/** 卷摘要目录（相对书根）。posix 字面量（同 CHAPTER_SUMMARY_DIR 口径） */
 export const VOLUME_SUMMARY_DIR = '定稿/摘要/卷摘要'
 
 export function volumeSummaryPath(bookRoot: string, volume: number): string {
@@ -528,11 +528,11 @@ export function volumeChainState(bookRoot: string, volume: number, volumeSize: n
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
-    // （修复批）：定稿章识别升格 chapterNoFromName
+    // 定稿章识别升格 chapterNoFromName
     // 单源（与 :442 selfHealRecentChapterSummaries 的修复同款宽容集）——原窄正则
     // `/^(\d+)-/` 只认连字符，`1—开局.md`/`1 开局.md` 等宽容命名的定稿章既不进 chain
     // 也不进 missing（卷链完整性判定静默漏章、卷摘要以残链报缺）。卷链与自愈摘要自此同口径。
-    // （修复批）修账：原注释把 `1.md` 也列进已收口集
+    // 修账：原注释把 `1.md` 也列进已收口集
     // 系失实——chapterNoFromName 正则 `/^(\d+)(?:[-—]|\s|$)/` 要求数字后跟分隔符（-/—/空白）
     // 或串尾，`1.md` 数字后是 `.` 不匹配 → null（test/format/filename.test.ts 钉定该契约）。
     // 即本处与 :442/leads:103/foreshadow:574 三处一样**带全名（含 .md）调用**，对 `1.md`
@@ -566,7 +566,7 @@ function volumeChainFingerprint(chain: Map<number, string>): string {
 /** 卷摘要 sourceHash 提取收口——先 splitFrontMatter 再只在 fmRaw 里搜，
  *  不再对整文件 grep（对齐同文件章摘要侧 chapterSummaryState 先例）：正文含行首
  *  `sourceHash: …`（引用/示例文本）此前会顶替 fm 指纹位——fm 缺指纹的手写产物被误判
- *  程序生成（作者优先失守）、fresh/stale 判定被正文污染。无 fm / fm 无指纹 → null。 */
+ * 程序生成（作者优先失守）、fresh/stale 判定被正文污染。无 fm / fm 无指纹 → null。 */
 function volumeSourceHash(volRaw: string): RegExpExecArray | null {
   const split = splitFrontMatter(volRaw)
   return split ? /^sourceHash:\s*(\S+)/m.exec(split.fmRaw) : null
@@ -606,7 +606,7 @@ export async function generateVolumeSummary(opts: {
   try {
     const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
     if (!chain || chain.size === 0) {
-      // nano-4（处置批）：warn/error 两文案消费同一缺章串——单次拼接单源
+      // nano-4：warn/error 两文案消费同一缺章串——单次拼接单源
       const missingDesc = missing.join('、') || '全部'
       log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missingDesc}），卷摘要不强行生成`)
       return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missingDesc} 章摘要），先补章摘要` }
@@ -643,10 +643,10 @@ export async function generateVolumeSummary(opts: {
       promptFiles: [...chain.keys()].sort((a, b) => a - b).map((ch) => chapterSummaryRelPath(ch)),
     })
     if (!out.ok) return { ok: false, error: out.error }
-    // 平台规范化批：AI 产出写前归一（卷摘要在库内 .md，规范形收口）
+    // 平台：AI 产出写前归一（卷摘要在库内 .md，规范形收口）
     let text = canonicalizeText(out.data.text.trim())
-    // （十五轮登记销账）：同章摘要——码位截断，不切半个代理对
-    // 预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
+    // 同章摘要——码位截断，不切半个代理对
+    // E-9e：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
     // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
     // 省略号计入预算（同章摘要口径）
     if (codePointLength(text) > budget) text = clipByCodePoints(text, Math.max(0, budget - 1)) + '…'

@@ -62,7 +62,7 @@ export async function copyChapter(ctx: ToolContext, input: Record<string, unknow
   const relPath = findChapterRel(ctx, chapter)
   if (!relPath) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在，无法复制。' }
   const oldName = basename(relPath)
-  // 低-6文件名派生先剥 .md 再拼「 副本」后缀——对齐前端复制的
+  // 低-6：文件名派生先剥 .md 再拼「 副本」后缀——对齐前端复制的
   // `<名> 副本.md` 惯例（useChapterTreeActions 同款）。原先按 split('-')[0] 取前缀再拼，
   // 无连字符章文件名（如「番外.md」，front matter 带章号即合法）会把整个文件名当前缀，
   // 产出「番外.md- 副本.md」双 .md 畸形名；常规 `0001-标题.md` 产物不变。

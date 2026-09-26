@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 命令面板（细案 .4）：⌘P 弹出。跳章（当前树叶子）+ 动作（主题/栏/专注/设置/书架）。
+// 命令面板（细案 T2.4）：⌘P 弹出。跳章（当前树叶子）+ 动作（主题/栏/专注/设置/书架）。
 // 模糊搜索 + ↑↓ 选 / 回车执行 / Esc 关。
 import { ref, computed, watch, nextTick } from 'vue'
 import { CornerDownLeft } from 'lucide-vue-next'
@@ -70,7 +70,7 @@ const filtered = computed(() => {
 // 内存核查：渲染上限——空查询时全书每章一条全量渲染为 DOM
 // （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，
 // 只裁每节渲染条数（≤100）+ 尾部省略提示行。有查询词（过滤）时同样上限防长匹配。
-// -：切片/计数样板收敛 shared/render-cap 单源（capView）。
+// 切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 // 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
 const sections = computed(() => {
@@ -87,7 +87,7 @@ const sections = computed(() => {
 })
 // 键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
 // 条目无 DOM，旧上限（filtered.length-1）会让 ↓ 走进不可见区，Enter 执行看不见的命令。
-// 导航域改「已渲染条目的扁平索引数组」（按渲染顺序）—— 的
+// 导航域改「已渲染条目的扁平索引数组」（按渲染顺序）——的
 // 「末节末项扁平索引」上限只封右边界：章节节截到 100 条而动作节全渲染时，扁平索引
 // 100~149 的章节未渲染却仍在导航域内（↓ 高亮脱离 DOM、Enter 执行看不见的章节命令，
 // 实测 150 章 + 3 动作第 100 步即入空洞）。
@@ -176,7 +176,7 @@ function run(c: Cmd): void {
 
 <template>
   <Teleport to="body">
-    <!-- ：遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
+    <!-- 遮罩改走 ModalMask 统一组件（open 即登记），浓度/CSS 不再本组件自持。
          面板内层 @click.stop 未变——遮罩空白处点击 = self 点击，maskClick 语义与原 @click 等价 -->
     <ModalMask :open="ui.paletteOpen" kind="palette" @mask-click="ui.closePalette">
       <div
@@ -189,7 +189,7 @@ function run(c: Cmd): void {
         @click.stop
       >
         <input ref="inp" v-model="q" class="palette-input" placeholder="搜索章节或操作…" @keydown="onKey" />
-        <!-- （修复批）：结果容器 listbox 语义——
+        <!-- 结果容器 listbox 语义——
              项 option + aria-selected 对齐 WAI-ARIA listbox 模式（↑↓ 选中态可被读屏播报） -->
         <div class="palette-list" role="listbox" aria-label="命令与章节">
           <div v-for="sec in sections" :key="sec.title" class="palette-group">
@@ -210,7 +210,7 @@ function run(c: Cmd): void {
               </span>
               <CornerDownLeft v-if="i === sel" :size="13" class="pi-enter" />
             </div>
-            <!-- ：每节渲染上限外的省略提示（继续输入缩小范围后可见） -->
+            <!-- 每节渲染上限外的省略提示（继续输入缩小范围后可见） -->
             <div v-if="sec.omitted > 0" class="pg-more">已省略 {{ sec.omitted }} 项，继续输入以缩小范围</div>
           </div>
           <div v-if="!filtered.length" class="palette-empty">无匹配</div>

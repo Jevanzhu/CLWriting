@@ -29,7 +29,7 @@ export interface RebuildJob {
  *  workerUrl 指向慢 worker 测竞态 */
 export interface RebuildRunnerOptions extends WorkerJobOptions {}
 
-/** 0918二轮修复批（D104）：超时档缺省 120s 的启动期逃生口——大书（200 万字级）首次
+/** 超时档缺省 120s 的启动期逃生口——大书（200 万字级）首次
  *  全量 rebuild 在慢盘/网盘卷可能触顶 120s 被 terminate（下次进门自愈重试，但每次都
  *  顶）。不做书级配置面，仅环境变量 CLWRITING_REBUILD_TIMEOUT_MS（与 CLWRITING_PORT
  *  等既有 env 同风格：模块加载读一次、未设/非法忽略回默认、不 fatal——逃生口配错不
@@ -37,7 +37,7 @@ export interface RebuildRunnerOptions extends WorkerJobOptions {}
  *  `CLWRITING_REBUILD_TIMEOUT_MS=600000 npm start`。 */
 export const DEFAULT_REBUILD_TIMEOUT_MS = 120_000
 
-/** 0918二轮修复批（D104）：env 解析单源（导出供直测）：未设/空白/非有限数/非正数一律
+/** env 解析单源（导出供直测）：未设/空白/非有限数/非正数一律
  *  回缺省档。生产调用方（state.ts detectState、process/summary.ts 摘要自愈）均不传
  *  opts——本缺省档即 env 到生产链的贯穿点。 */
 export function resolveRebuildTimeoutMs(env: Record<string, string | undefined> = process.env): number {
@@ -51,7 +51,7 @@ export function resolveRebuildTimeoutMs(env: Record<string, string | undefined> 
 const DEFAULT_TIMEOUT_MS = resolveRebuildTimeoutMs()
 
 /**
- * 同 cachePath 进程内 in-flight 合并。同步时代 rebuild 阻塞
+ * 同 cachePath 进程内 in-flight 合并。同步时代 rebuild() 阻塞
  * 事件循环、并发 detectState 天然串行；worker 化后 await 让出事件循环，/state 与
  * /overview 同拍首进门可各起一个 Worker 并发写同一 index.db——大书全量 >busy_timeout
  * 时后到者 SQLITE_BUSY → catch 降级态 2 误报「缓存重建失败」。按 cachePath 合并为

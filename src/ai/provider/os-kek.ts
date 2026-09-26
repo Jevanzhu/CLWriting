@@ -1,5 +1,5 @@
 /**
- * OS 凭据通道 IKM——env 注入解析（0918三拍板批 KEK v2）。
+ * OS 凭据通道 IKM——env 注入解析。
  *
  * safeStorage（mac Keychain / win DPAPI）只能在 Electron 主进程使用，而 server 跑在
  * utilityProcess 子进程——主进程经 env `CLW_OS_KEK` 注入 32 字节 hex（server-manager

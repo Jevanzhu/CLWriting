@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// 文风条目库卡（StyleView 拆分 ② 条目库段）：筛选 + 新增表单 + 条目卡片网格 + 批量收割入口。
+// 文风条目库卡（StyleView 拆分② 条目库段）：筛选 + 新增表单 + 条目卡片网格 + 批量收割入口。
 import { computed, ref } from 'vue'
 import { LibraryBig, GraduationCap, Plus, X, Check, Trash2 } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
-// 5（七轮修复批）：删除确认预览改码位截断
+// 5：删除确认预览改码位截断
 // （clipByCodePoints shared 单源）——码元 slice 劈代理对且「…」判据随劈半差一
 import { clipByCodePoints } from '../../../../../shared/text'
 import EmptyState from '../ui/EmptyState.vue'
-// （修复批）：.panel/.btn-*/.kind-badge 逐字重复块
+// .panel/.btn-*/.kind-badge 逐字重复块
 // 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
 // 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -78,7 +78,7 @@ async function submitAdd(): Promise<void> {
   }
 }
 async function onRemove(path: string, text: string): Promise<void> {
-  // FE-3书名入口捕获（类收敛）——store.remove 在调用时刻取书名，
+  // 书名入口捕获（类收敛）——store.remove 在调用时刻取书名，
   // 弹窗滞留切书后旧书条目路径会发到新书（条目路径两书可同名），或 clear 后空书名裸抛
   const book = style.bookName
   const clipped = clipByCodePoints(text, 24)
@@ -142,7 +142,7 @@ async function onRemove(path: string, text: string): Promise<void> {
       ></textarea>
       <div class="af-actions">
         <button class="btn-ghost" @click="adding = false"><X :size="13" /> 取消</button>
-        <!-- ：在途禁用 + 文案反馈 -->
+        <!-- 在途禁用 + 文案反馈 -->
         <button class="btn-primary" :disabled="submitting" @click="submitAdd">
           <Check :size="13" /> {{ submitting ? '存入中…' : '存入条目库' }}
         </button>
@@ -368,5 +368,5 @@ async function onRemove(path: string, text: string): Promise<void> {
 }
 
 /* 类型徽标（kind-badge 族）、通用按钮与 .src-dot 均收敛至 style-shared.css
- *（/ #14 全局装载）。 */
+ *（#14 全局装载）。 */
 </style>

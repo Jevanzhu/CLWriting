@@ -39,7 +39,7 @@ async function open(node: TreeNode): Promise<void> {
     if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
-    // -前端：静默吞错收敛（对齐 ForeshadowPanel）
+    // 前端：静默吞错收敛（对齐 ForeshadowPanel）
     ui.toast(friendlyError(e), 'error')
   }
 }
@@ -51,7 +51,7 @@ function onInsert(text: string): void {
     ui.toast('没有打开中的文档——先点开一章或设定文件，再插入', 'info')
     return
   }
-  // 0918修复批（F002）：非编辑器视图时 EditorView 未挂载（Book.vue
+  // 非编辑器视图时 EditorView 未挂载（Book.vue
   // v-if="activeView === 'editor'"），pendingInsert 入槽无人即时消费且点击零反馈。
   // 照常 requestInsert 入槽：EditorView 挂载时 onMounted 补消费（272）+ doc 落位后
   // nextTick 补消费（249）会补插；补挂起反馈让点击不再像坏了

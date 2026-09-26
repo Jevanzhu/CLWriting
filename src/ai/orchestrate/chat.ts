@@ -25,13 +25,13 @@ import type { SessionRecorder } from '../../events/chat-bridge.js'
 import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
 import { prepareChatRun } from './chat/restore.js'
 import { runAgentTurns } from './chat/turns.js'
-// 0918修复批（A002）：未预期异常的失败收尾走 finishTurn 单一出口（finish.ts
+// 未预期异常的失败收尾走 finishTurn 单一出口（finish.ts
 // 只 type-import ChatOpts，运行时无环）
 import { finishTurn } from './chat/finish.js'
-// -（errMsg 收编）：错误摘要口径单源
-// 0918修复批（A002）：catch 内 warn 留痕需 log
+// （errMsg 收编）：错误摘要口径单源
+// catch 内 warn 留痕需 log
 import { errMsg, log } from '../../log/index.js'
-// 3（七轮修复批）：队列丢弃预览改码位截断（六轮 C101
+// 3：队列丢弃预览改码位截断（
 // clipByCodePoints shared 单源同族收口）
 import { clipByCodePoints } from '../../shared/text.js'
 
@@ -89,7 +89,7 @@ export async function waitChatSettled(bookName: string): Promise<void> {
   }
 }
 
-/** E1a（steer / Inbox 合流）：per-book 待处理消息队列。
+/** E1a（steer Inbox 合流）：per-book 待处理消息队列。
  * 对话运行中发来的消息入队（steer「入队让出」语义），当前轮正常完成后自动消费队头续链；
  * abort/error/超时则丢弃队列（cherry steer 四分支：aborted/error → 丢弃，持久化 user 行留历史可重发）。 */
 interface PendingChatMsg {
@@ -270,7 +270,7 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
   }
   // recorder 提前声明——异常路径 finally 兜底 dispose（注销活跃登记，防孤儿修复误伤）
   let recorder: SessionRecorder | undefined
-  // 0918修复批（A002）：提升到 try 外——catch 需持 history/baseLen/recorder 判定
+  // 提升到 try 外——catch 需持 history/baseLen/recorder 判定
   // 收尾形态（null = 准备期抛，run 未产出）
   let prepared: ReturnType<typeof prepareChatRun> | null = null
 
@@ -301,25 +301,25 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
       },
     })
   } catch (e) {
-    // 0918修复批（A002）：未预期异常补失败收尾——此前 try/finally 无 catch，
+    // 未预期异常补失败收尾——此前 try/finally 无 catch，
     // restore 相位 createSession SQLITE_BUSY 等穿透时 history 悬挂、事件库无终态、无
     // chat_error（history 内存留驻半截 user，模型可见而事件不可回溯）。防双收尾守卫 =
     // completedOk（markCompleted 在 chat_done 当口先行置位）+ prepared 是否产出：
     // - prepared 在手且 !completedOk → 轮循环中途未预期抛，按 {error} 口径走 finishTurn
     //   单一出口（回滚 + 全会话遮蔽 + chat_error）。finishTurn 后再抛的窗口不存在：
-    //   runAgentTurns 六失败出口调 finishTurn 后同步 return（收编后 finishTurn 自身
+    // runAgentTurns 六失败出口调 finishTurn 后同步 return（收编后 finishTurn 自身
     //   不再抛），故此分支只命中「finishTurn 未调过」的路径，无二次收尾面；
     // - prepared 为 null → 准备期抛（restore 相位），run 未产出无可回滚，best-effort
     //   补 chat_error（对齐 finishTurn 的发出形态：redactSecret 后经 driver.emit）；
     // - completedOk 为 true → 正常完成后的收尾段异常（如 finalizeHistory 逃逸）——
-    //   chat_done 已发、历史已提交，不回滚不遮蔽不二次收尾（再收 chat_error 即
+    // chat_done 已发、历史已提交，不回滚不遮蔽不二次收尾（再收 chat_error 即
     //   同型「成功后又报错」），只 warn 留痕。
     // 末尾 rethrow：对外契约不变（异常照旧穿透，sendChatMessage 外层 catch 发 driver error）。
     if (prepared !== null && !completedOk) {
       finishTurn(opts, prepared.history, prepared.baseLen, prepared.recorder, { error: errMsg(e) })
     } else if (prepared === null) {
       try {
-        // 0918三拍板批（A006 轻量档）：准备期异常同款回显作者原文（对齐 finishTurn 出口
+        // （轻量档）：准备期异常同款回显作者原文（对齐 finishTurn 出口
         // 口径；echo 不落事件库、原样往返不过 redactSecret，理由见 finish.ts）
         const echo = !opts.regenerate && (opts.message ?? '') !== '' ? opts.message : undefined
         emit(opts, { type: 'chat_error', error: redactSecret(errMsg(e)), echo })

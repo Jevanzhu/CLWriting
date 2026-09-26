@@ -6,7 +6,7 @@
  *
  * - 与服务端 runChat 恢复路径同源（loadHistoryWithSeqs）：未遮蔽 surface 节点
  *   投影 + 连续 tool-result 合成一条 user(tool_result blocks)，刷新后前端可重建对话；
- * - 分支支撑：视图先过 selectBranch 再投影（?branch= 切换；缺省 = 默认分支 =
+ * 分支支撑：视图先过 selectBranch 再投影（?branch= 切换；缺省 = 默认分支 =
  *   最新变体组 + 祖先链），修复重新生成后全量视图把各变体顺序堆叠的问题；
  *   线性书（无分支元数据）selectBranch 原样全量返回，行为不变；
  * - seqs 与 messages 平行（tool-result 合成消息是多 seq 数组），供分支 UI 定位锚点；
@@ -42,14 +42,14 @@ export interface ChatHistoryMessage {
 
 /** 历史视图（纯函数——route 薄接线 + 单测直喂 store）。
  *  L-：可选 limit 尾窗——长书几万事件全量投影一次进 HTTP 响应（与 audit
- *  修 SV-2 前同病）。前端 messages 只做展示种子（模型上下文由服务端 restore 从事件库
+ * 修前同病）。前端 messages 只做展示种子（模型上下文由服务端 restore 从事件库
  *  重建，不经此端点），尾部窗口即可；truncated 标记 + total 供前端提示。
  *
- *  核查史：审查项记的「JSONL 全量读后才截尾」系
+ * （性能与内存专项）核查史：审查项记的「JSONL 全量读后才截尾」系
  *  SQLite 化前旧形态；彼时 listEvents 已是游标流式，但带 limit 请求仍维持全量投影——
  *  total/truncated 依赖全量语义、真尾窗须 store 层先供通道，判为「后续独立改造」。
  *
- *  0917清库修复批（台账「事件读链 O」待拍板项转实施）：该独立改造随批落地——
+ * （台账「事件读链 O(N)」待拍板项转实施）：该独立改造随批落地——
  *  limit 截断态改走 store 真尾窗（listEventsTail seq 降序取尾 → 投影 → 不足/不安全
  *  则翻倍前扩 → tail 达全库行数退化为全量路径），不再全量投影后 slice。窗口投影与
  *  全量投影逐位等价的充分条件 = firstBranchMetaSeq 安全边界：窗口起点 ≤ 最早分支
@@ -76,14 +76,14 @@ export function buildChatHistoryView(
     const { msgs, seqsPerMsg } = loadHistoryWithSeqs(selectBranch(all, branchId))
     return { messages: msgs, seqs: seqsPerMsg, branchId: active, truncated: false, total: msgs.length }
   }
-  // 真尾窗（0917清库修复批）：初始窗口 ≈ limit×4 事件（每回合 2-4 事件的经验比，下限
+  // 真尾窗：初始窗口 ≈ limit×4 事件（每回合 2-4 事件的经验比，下限
   // 32）；投影消息不足 limit 或安全边界未满足则翻倍前扩，tail 达全库行数即触底退化
   // 全量路径（小库/触底时与旧实现逐位一致，含 total 原契约）。
   const branchFloor = store.firstBranchMetaSeq(bookName)
   let tail = Math.min(Math.max(limit * 4, 32), totalEvents)
   for (;;) {
     const events = store.listEventsTail(bookName, tail)
-    // B403（0918四轮修复批）：触底判定只看 `tail >= totalEvents`——listEventsTail 的
+    // 触底判定只看 `tail >= totalEvents`——listEventsTail 的
     // SQL LIMIT 消费的是原始行（坏行也占窗口名额，解析时才被 safeRowToEvent 丢弃），
     // totalEvents ≥ tail 时窗口必达表头。原 `events.length < tail` 副判据在窗内含坏行
     // 时恒真，把「窗口内坏行」误判成「已触底」→ 跳过翻倍前扩直接按尾窗截断（更早的
@@ -134,13 +134,13 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       const bookName = params['name']!
       const bookRoot = r.bookRoot
       // userData 为空（无事件库）→ 空 messages，不报错（对话区留白可正常发起新对话）
-      // 0918修复批（C004）：早退形态补齐五字段契约（与 buildChatHistoryView
+      // 早退形态补齐五字段契约（与 buildChatHistoryView
       // 正常路径一致）——原缺 truncated/total，前端消费 undefined 误判加载态
       if (!ctx.userDataPath)
         return reply(res, 200, { messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
 
       // GET query 自行解析（defineRoute 纪律：GET 无 body）；?branch= 缺省/空白 → 默认分支
-      // parseRequestUrl 统一解析（/口径）——畸形 URL → 400 BAD_INPUT
+      // parseRequestUrl 统一解析（口径）——畸形 URL → 400 BAD_INPUT
       const url = parseRequestUrl(req)
       if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
       const branch = url.searchParams.get('branch')?.trim() || undefined
@@ -150,9 +150,9 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
       // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
       // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-      // IR-8勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      // 勘误：库损坏/权限等首开失败是**抛错**不是返回 null
       //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-      // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
+      // e.message 人话透传（含损坏分类的可行动指引；经统一脱敏出口）
       // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
       let store: SessionStore | null
       try {

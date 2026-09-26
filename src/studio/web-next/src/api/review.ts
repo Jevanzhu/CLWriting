@@ -52,7 +52,7 @@ interface EnvelopeGet {
   stale: boolean
 }
 
-// POST /documents/:docId/review —— 三审直读（M12 .2，需 AI 可达）。
+// POST /documents/:docId/review —— 三审直读（M12 B0.2，需 AI 可达）。
 export async function runReview(name: string, docId: string): Promise<ReviewResult> {
   return apiJson<ReviewResult>(
     bookUrl(name, 'documents', docId, 'review'),
@@ -61,7 +61,7 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
   )
 }
 
-// POST /documents/:docId/review-verdict —— 作者裁决（落 review 信封 payload.verdict，M12 .3 方案 A）
+// POST /documents/:docId/review-verdict —— 作者裁决（落 review 信封 payload.verdict，M12 B1.3 方案 A）
 export async function runVerdictDoc(name: string, docId: string, approved: boolean): Promise<void> {
   await apiJson<{ ok: true }>(bookUrl(name, 'documents', docId, 'review-verdict'), {
     method: 'POST',

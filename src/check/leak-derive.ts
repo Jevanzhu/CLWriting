@@ -1,10 +1,10 @@
 /**
- * （批 6，-①）：信息差关键词从布线账本自动派生。
+ * 信息差关键词从布线账本自动派生。
  *
  * 秘密本来就声明在 布线/<类>/*.md 的账本 front matter 里（「账本即真相」既有口径），
  * 逐书手填 book.yaml checks.leak_keywords 易漏——账本 fm 新增可选键 leak_keywords: [..]
  * （加性），派生即递归扫描账本 fm 收集键值。未声明任何键 → 空数组（维持现状静默
- * 跳过，语义不变）。
+ * 跳过语义不变）。
  */
 import { readdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -106,7 +106,7 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
           const fm = splitFrontMatter(raw)?.fmRaw
           if (!fm) continue
           // 逐行解析（正则块匹配在缩进/行尾组合下反直觉，线扫确定性好推理）：
-          // ① 单行数组：leak_keywords: [甲, 乙]
+          // ① 单行数组：leak_keywords: [甲, 乙]——引号内逗号不劈（复用 frontmatter
           // ② 逐行列表：leak_keywords: 后续连续的「  - 条目」行
           // 先行内注释剥离——单行数组正则要求行尾 `]`，
           // `leak_keywords: [甲, 乙]  # 灵脉秘密` 带行尾注释此前整条静默失明
@@ -114,7 +114,7 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
           const lines = fm.split('\n')
           for (let i = 0; i < lines.length; i++) {
             const line = stripInlineComment(lines[i]!)
-            // 键位冒号双认 `:`/`：`（/同族纪律）——
+            // 键位冒号双认 `:`/`：`（同族纪律）——
             // 此前只认半角冒号，手写全角冒号的 leak_keywords 整条静默漏收（假绿）
             const inline = /^leak_keywords[:：]\s*\[(.*)\]\s*$/.exec(line)
             if (inline) {

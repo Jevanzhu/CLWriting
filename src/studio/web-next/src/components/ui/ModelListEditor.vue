@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 模型行编辑器（阶段 14 §7.1，对齐 DSH 四字段 + ModelListEditor 探测交互）。
+ * 模型行编辑器（阶段 14§7.1，对齐 DSH 四字段 + ModelListEditor 探测交互）。
  * 每行：id（必填/唯一）+ name（可选）；行内展开 contextWindow/maxTokens（K/M 后缀，空 = 不声明）。
  * 「获取模型列表」按 dsh 语义探测端点——用表单当前值（含未保存的 Key，新增卡一趟完成），
  * 编辑卡 Key 留空则回退已存 id 凭据；成功即弹勾选窗（未配置的预勾、已配置的不勾），
@@ -115,11 +115,11 @@ const fetchHint = computed(() => {
 const busy = ref(false)
 const failure = ref<string>()
 
-// （修复批）：armed 单门——探测（fetchModels）
+// armed 单门——探测（fetchModels）
 // 在途时实例卸载（父卡收起/弹窗关闭），迟到的响应续体此前照旧写回死实例的
 // busy/failure/showPicker（低敏写回，非泄漏级）。对齐 style 系 armed /
 // SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
-// armed 单门。
+// armed 单门——探测（fetchModels）
 let armed = true
 onBeforeUnmount(() => {
   armed = false

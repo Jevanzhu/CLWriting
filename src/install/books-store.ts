@@ -1,6 +1,6 @@
 /**
  * books.jsonl 登记存储层（常量 + 解析缓存 + 读写 + 跨进程锁）——
- * （评审修复批）自 install/books.ts 下沉的中立模块。
+ * 自 install/books.ts 下沉的中立模块。
  *
  * 起因：本层原居 install/books.ts，而同域拆分出的 books-repair.ts / books-resolve.ts
  * 又要回引它（repair 需 readBooksStrict/writeBooks/tryBooksLock/KIND_DIRS，resolve 需
@@ -42,7 +42,7 @@ export const KIND_DIRS = {
   short: '短篇',
 } as const
 
-// ── ：books.jsonl 解析结果的 (mtimeNs,size) 指纹缓存 ──────────
+// ──：books.jsonl 解析结果的 (mtimeNs,size) 指纹缓存 ──────────
 // 动机：resolveBook 是全部书键端点的统一入口（studio/server 面 70+ 处调用点），每请求
 // 经 readBooks → readBooksStrict 对同一 books.jsonl readFileSync 整读 + 逐行
 // JSON.parse——服务进程高峰期同一文件每秒重复解析数十次。指纹缓存（名册缓存
@@ -55,7 +55,7 @@ const BOOKS_READ_CACHE_MAX = 16
 const booksReadCache = new Map<string, { mtimeNs: bigint; size: bigint; books: BookEntry[] }>()
 
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
- *  EISDIR 等）→ null——DA-3写方据此拒绝重写，防「降级空表 × 后续整写」
+ * EISDIR 等）→ null——写方据此拒绝重写，防「降级空表 × 后续整写」
  *  把其余登记清掉（EACCES 挡 readFileSync 不挡 atomicWriteFile 的 tmp+rename）。
  *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。 */
 export function readBooksStrict(workDir: string): BookEntry[] | null {
@@ -66,8 +66,8 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   // 原路径不变。
   // （#33）：stat 失败按 errno 分诊——仅 ENOENT 归空表（首启
   // 语义，缺文件 = 新建合法）；EACCES/EIO/ENOTDIR 等其余失败归 null，与下方
-  // readFileSync 失败同走 DA-3 拒写防线（此前一律归空表，降级空表 × 后续整写会把
-  // 其余登记清掉，恰好绕过 DA-3；repairBooks 扫盘可重建兜底故评）。
+  // readFileSync 失败同走拒写防线（此前一律归空表，降级空表 × 后续整写会把
+  // 其余登记清掉，恰好绕过；repairBooks 扫盘可重建兜底故评）。
   let mtimeNs: bigint
   let size: bigint
   try {
@@ -78,7 +78,7 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return null
     // （#33 平台补）：win 对「路径中间组件是普通文件」的 stat/readFileSync
     // 均返 ENOENT（POSIX 归 ENOTDIR）——只认 errno 会把 `.clwriting` 被损坏成文件的
-    // 状态误判成首启缺文件而回空表，恰好绕过 DA-3 拒写面。故 ENOENT 分支再复核父目录
+    // 状态误判成首启缺文件而回空表，恰好绕过拒写面。故 ENOENT 分支再复核父目录
     // 真身：存在且非目录 → null（损坏态，与 POSIX 同归拒写）；父链本身缺失（真首启，
     // 含 workDir 未建）才归空表。
     try {
@@ -115,7 +115,7 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
         // 路径安全：拒绝对路径与父级穿越段（防 books.jsonl 篡改后 join(workDir,path) 越出 workDir，
         // DELETE 端点 rmSync recursive 可递归删除外部目录 —— NP0-B）
         const relPath = obj['path']
-        // -SEC-2：补 NUL 字节检查（与 safeManifestPath 一致——NUL 可截断后续路径拼接）
+        // 补 NUL 字节检查（与 safeManifestPath 一致——NUL 可截断后续路径拼接）
         if (!relPath || relPath.includes('\0') || isAbsolute(relPath) || relPath.split(/[\\/]/).includes('..')) continue
         // 拒绝 "." / "" / "./" 等 resolve 后指向 workDir 自身的路径
         // （join(workDir,".")=workDir → DELETE rmSync recursive 删整个书库）
@@ -154,7 +154,7 @@ export function readBooks(workDir: string): BookEntry[] {
 }
 
 /** 全量写 books.jsonl（一行一书）。物理写（无锁）——跨进程互斥由上层 mutator
- *  持 books.lock 后调用；直接调用方需自证单写者。 */
+ * 持 books.lock后调用；直接调用方需自证单写者。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
   // 解析缓存写前失效——append/remove/repair/改名端点的 books.jsonl 写全部
   // 经本函数落盘，单点失效即全覆盖；放开头保证 mkdir/物理写若抛出不留已失效缓存
@@ -167,14 +167,14 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
 
 /** books.jsonl 锁等待超时（毫秒）——可注入缩短保测试快；
  *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls 的 AI_CALLS_LOCK_TIMEOUT_MS）。
- *  `export let` 违反全仓 const+ForTest 注入口径改 const 导出 +
- *  内部可变生效值（import 方静默改写会绕过注入钩子）；口径：本族同步锁窄面
+ * `export let` 违反全仓 const+ForTest 注入口径改 const 导出 +
+ * 内部可变生效值（import 方静默改写会绕过注入钩子）；口径：本族同步锁窄面
  *  登记维持——mutator 族（append/remove/repair/rename）26 处调用跨 CLI/桌面/测试三面，
  *  异步化级联不成比例，争用本身是毫秒级文件 IO（Atomics.wait 最坏停 5s 仅双进程
  *  争写同一 books.jsonl 窗口），与 journal/manifest 已登记口径同族。
  *  残留清偿批登记收窄：服务事件循环面**归零**——端点内嵌 RMW（改名流
  *  与删书 removeBookEntryAsync）全走 tryBooksLockAsync；
- *  /：建书面收口——GUI 建书端点（POST /api/books →
+ * 建书面收口——GUI 建书端点（POST /api/books →
  *  doInitAsync）与 CLI 建书（appendBookAsync）均走异步孪生，原「同步版余面 = CLI
  *  init（appendBook）…均不在请求处理窗口内」登记失实（GUI 建书正是请求窗口内
  *  消费 appendBook 的漏网点）；同步版余面 = 启动段 pre-listen（repairBooks，见
@@ -186,11 +186,11 @@ export const [getBooksLockTimeoutMs, __setBooksLockTimeoutForTest] = testableCon
 
 /**
  * books.jsonl 读改写段的跨进程互斥——锁文件 .clwriting/books.lock
- * （fs/cross-process-lock.ts：O_EXCL + pid 存活探测 + 崩溃接管，同款）。此前四个
+ * （fs/cross-process-lock.ts：O_EXCL + pid 存活探测 + 崩溃接管同款）。此前四个
  * 写点（append/remove/repair/rename 端点）只靠进程内同步段天然原子，CLI 与桌面双进程
  * 并发读改写会交错覆盖丢登记（repairBooks 扫盘可重建兜底，但期间书架丢书/误 missing）。
  * 进程内无需额外串行化：本模块写段全同步，Node 单线程内不交叉。
- * 返回 null = 超时——调用方按 DA-3 口径降级（append 拒改写返回 ok:false、remove 跳过
+ * 返回 null = 超时——调用方按口径降级（append 拒改写返回 ok:false、remove 跳过
  * 留痕、repair 跳过本轮、rename 端点跳过整写留痕），不裸抛。
  * 同进程嵌套获取同一锁会自锁（见 cross-process-lock 模块头注）——doWrite 段内不得
  * 再调本函数或其它持锁写点。
@@ -213,7 +213,7 @@ export function tryBooksLock(workDir: string): (() => void) | null {
 /** tryBooksLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），锁文件/超时/降级语义与同步版逐位同源。
  *  服务进程事件循环上的**端点内嵌 RMW 面**专用：改名端点登记段（books.ts）、
- *  删书 removeBookEntryAsync，以及 /收口的建书面（appendBookAsync /
+ * 删书 removeBookEntryAsync，以及收口的建书面（appendBookAsync /
  *  doInitAsync，GUI 端点与 CLI 建书共用）；mutator 族余下同步版（remove/repair/
  *  rename 等 CLI/桌面/测试面）维持不动（上方登记口径）。 */
 export async function tryBooksLockAsync(workDir: string): Promise<(() => void) | null> {

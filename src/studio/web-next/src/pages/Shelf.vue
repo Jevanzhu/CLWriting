@@ -18,7 +18,7 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
 
 const router = useRouter()
 const { theme, toggle } = useTheme()
-// 删 hasDesktop 死变量—— 平台判断收敛到 usePlatform 后残留零消费
+// 删 hasDesktop 死变量——平台判断收敛到 usePlatform 后残留零消费
 const { isDesktop, isMac } = usePlatform()
 const {
   shelf,
@@ -182,9 +182,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       </EmptyState>
       <template v-else>
         <ShelfHeroCard v-if="latestBook && !batchMode" :book="latestBook" :view-mode="viewMode" @open="openBook" />
-        <!-- 0918二轮修复批（F102）：整页书架补渲染帽——与浮层 ShelfModal 同传
+        <!-- 整页书架补渲染帽——与浮层 ShelfModal 同传
              shared/render-cap SHELF_RENDER_CAP=100（原整页不传 = 全量挂载，数百书
-             拖慢挂载 + 入场动画，与浮层同族性能论证口径不一）。只裁渲染面：
+ 拖慢挂载 + 入场动画，与浮层同族性能论证口径不一）。只裁渲染面：
              搜索/排序/批量全选/头部计数/空态判定（!shelf.books.length）仍面向全量。 -->
         <ShelfGrid
           :groups="groups"
@@ -236,7 +236,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   );
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
      子元素 var 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改。
-     ：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
+：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
      固定 px 会整段切断「界面字号档」与 win +1px 基准；各值 = 原固定 px + step，
      保持本页相对他页的缩小档差不变。未覆盖的 xxs/root-size 沿用全局（本页未用）。 */
   --font-size-2xl: calc(20px + var(--font-size-step));
@@ -293,7 +293,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   animation: clw-fade-up 0.5s var(--ease-out) both;
 }
 /* 品牌徽标（与 Welcome/Library 同语言） */
-/* .head-mark 收敛至全局 styles/utilities.css（重体收敛批，声明逐字未改） */
+/* .head-mark 收敛至全局 styles/utilities.css（重体，声明逐字未改） */
 .head-left {
   display: flex;
   flex-direction: column;
@@ -343,7 +343,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   gap: var(--size-4-2);
 }
-/* ── 搜索 + 排序工具行（-PROD-6）── */
+/* ── 搜索 + 排序工具行── */
 .shelf-tools {
   display: flex;
   align-items: center;
@@ -374,7 +374,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换（网格/列表）segmented control */
-/* .view-toggle 与 .toggle-btn（-随批收敛，声明逐字未改）
+/* .view-toggle 与 .toggle-btn（优化修复批随批收敛，声明逐字未改）
    均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;

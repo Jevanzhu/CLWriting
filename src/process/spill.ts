@@ -1,5 +1,5 @@
 /**
- * 大内容外置 spill 低配（批次 / DSH-2 直抄思想；介质拍板：工作区目录 + 事件只记 locator）。
+ * 大内容外置 spill 低配（批次直抄思想；介质拍板：工作区目录 + 事件只记 locator）。
  *
  * 语义（dsh spill-policy）：
  * - 超阈值的纯文本落盘（工作区/spills/<内容哈希16>.md，幂等——同内容同名），
@@ -9,7 +9,7 @@
  * - read 防环：本模块只用于 prompt 上下文组装（buildChatContext），不套在 read_chapter
  *   工具结果上——模型取回的全文不再二次外置，read→spill→read 环不存在。
  *
- * 事件侧（spill/ref locator 记账）属 /事件族收敛，此处只做 fs 层。
+ * 事件侧（spill/ref locator 记账）属事件族收敛，此处只做 fs 层。
  */
 
 import { createHash } from 'node:crypto'
@@ -42,7 +42,7 @@ interface SpillOutcome {
 type SpillWriter = (fullText: string) => string | null
 
 /** 落盘到 工作区/spills/<sha256 前 16>.md（内容寻址幂等；目录不存在自动建）。
- *  ：meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
+ * meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
  *  spill 归属章号与基线新鲜度，防「转述错章号整章覆写」与「改写后被编辑仍静默覆盖」。
  *  正文文件保持纯文本不变（内容寻址与模型直读语义不动）；sidecar 写失败随整次写入
  *  失败返回 null（无 meta 的 spill 在 apply 侧一律拒绝，不留半保障状态）。 */
@@ -72,7 +72,7 @@ function warnSpillWriteFailed(bookRoot: string, e: unknown): void {
 }
 
 export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
-  // -：记录正文已写成的路径——meta sidecar 失败时 best-effort 清理用
+  // 记录正文已写成的路径——meta sidecar 失败时 best-effort 清理用
   let bodyWritten: string | undefined
   try {
     // locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
@@ -92,13 +92,13 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     if (meta) atomicWriteFile(join(dir, `${digest}.meta.json`), JSON.stringify(meta))
     // L-：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
-    // （修复批）：热写路径不再每次全目录 readdir+逐文件 stat——改经
+    // 热写路径不再每次全目录 readdir+逐文件 stat——改经
     // 节流（每小时至多一次，见 SPILL_SWEEP_THROTTLE_MS）；GC 主通道改为生命周期侧显式
     // 调 sweepOldSpills（导出，供 state 的 housekeeping 扫挂点接线；本文件不引 state）。
     sweepOldSpillsThrottled(bookRoot)
     return `工作区/spills/${digest}.md`
   } catch (e) {
-    // -：正文写成功而 meta sidecar 失败时，本次降级返 null，正文却成
+    // 正文写成功而 meta sidecar 失败时，本次降级返 null，正文却成
     // 「无 sidecar 孤儿」（apply 侧一律拒绝、模型侧无 locator 不可达），原先仅靠 TTL GC
     // 收口——此处 best-effort 删刚写的正文收窄窗口。内容寻址幂等：同内容下次成功写入
     // 会原样重建；删失败静默（win 杀软瞬时锁走 rmQuietly，残留仍交 TTL GC 兜底）。
@@ -200,12 +200,12 @@ export function spillIfLarge(
 }
 
 /** L-：删除超过 30 天未再写入的 spill 产物（best-effort，失败静默）。
- *  ：判据用 mtime（最后写入时间），注释如实——atime 语义在只读/备份/
+ * 判据用 mtime（最后写入时间），注释如实——atime 语义在只读/备份/
  *  缓存读场景不可靠，不漏清正在取回的 spill；apply 链另有 baseSha 兜底防误删。
- *  ：.meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
+ * .meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
 const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
-/** （修复批）：spill 清扫热写路径节流窗——一次写入不再 stat 全目录，
+/** spill 清扫热写路径节流窗——一次写入不再 stat 全目录，
  *  至多每小时扫一遍；显式生命周期清扫（sweepOldSpills）不受此限。 */
 const SPILL_SWEEP_THROTTLE_MS = 60 * 60 * 1000
 const spillSweepLastAt = new Map<string, number>()

@@ -58,7 +58,7 @@ export async function runGenerate(
 
   // mock 快路撤销本地短路，改走下方 runSpec——runTask 的 mockTool 快路
   //（selfHealSpec 已声明 mock.toolName）与真实链路同口径补链路事件（step/start + llm/call
-  //  + step/end），mock 回合不再是审计黑洞。流式预览改由成功产出后补发（见
+  // + step/end），mock 回合不再是审计黑洞。流式预览改由成功产出后补发（见
   //  emitMockPreview），前端观感口径不变（kk- 按码位切片）
 
   // 真实 provider + tool_use —— 走 runSpec（统一编排：mock/provider/中断/错误文案）
@@ -69,7 +69,7 @@ export async function runGenerate(
     userPrompt,
     promptFiles,
     ctrl: state.ctrl,
-    // 登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning 真值（SSE
+    // 登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning() 真值（SSE
     // sync 快照不再假空闲），/interrupt 的 driver.interrupt 也能直接 abort 在途请求
     //（与 abortSelfHeal 内存闸双保险）。同 ctrl 多轮重复登记，cc 侧幂等跳过
     register: opts.register,
@@ -124,7 +124,7 @@ export async function runGenerate(
   // done 用量改取全 attempt 累计（attemptsUsage——重试/中断
   // attempt 的可得 usage 一并计入），与 ai-calls.json 按次入账口径一致；修复前只取
   // 末次成功 attempt，重试链的前置消耗在前端成本显示中缺失。runTask 未带该字段
-  // （旧调用方/单测桩）时回退 out.usage（原口径）。含估计入账 attempt 时
+  // （旧调用方/单测桩）时回退 out.usage（原口径）。含估计入账 attempt时
   // estimated 随之置位（单源闭包内）。
   accountUsage(out.attemptsUsage ?? out.usage, out.model)
 
@@ -159,7 +159,7 @@ export async function runGenerate(
 /** mock 快路的流式预览补发——12 码位/段逐段 emit。
  *  kk-按码位切片——String.slice 按 UTF-16 code unit 会把 emoji/
  *  扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法）
- *  ：改码点流式分片——for…of 按码点迭代累积，不再 Array.from
+ * 改码点流式分片——for…of 按码点迭代累积，不再 Array.from
  *  全量物化数组（输出逐段等价：每 12 码位一段，尾段不足 12 也照发） */
 function emitMockPreview(opts: SelfHealOpts, body: string): void {
   let chunk = ''

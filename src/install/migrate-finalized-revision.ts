@@ -41,10 +41,10 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   if (!existsSync(join(bookRoot, '.git'))) return 0
   let updated = 0
   const nowIso = new Date().toISOString()
-  // 清单 RMW 持锁（/纪律）——此前读改写无锁，双开窗口内
+  // 清单 RMW 持锁（纪律）——此前读改写无锁，双开窗口内
   // 与 service/其他迁移并发时后写者整文件覆盖先写者（finalizedRevision 丢行）。
   // 锁内重读复查幂等闸：并发迁移者可能已写入。
-  // （四轮处置批）：git 状态（porcelain 脏集）改锁内取——原锁外 status →
+  // git 状态（porcelain 脏集）改锁内取——原锁外 status →
   // 锁内写盘的窗口里他进程改稿/回滚会让脏集失真：锁内时刻已 dirty 的文件被旧快照
   // 判 clean 误标 final（本文件红线：误判 final 断写）。「git 状态在锁外取
   //（与清单无依赖）」就此记正：无依赖不等于无新鲜度要求。代价 = 清单锁持有期含
@@ -54,8 +54,8 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     for (const e of m.entries.values()) {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
     }
-    // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）—— 锁内取
-    // （六轮修复批）：最坏档位如实记——git 单次调用
+    // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）——锁内取
+    // 最坏档位如实记——git 单次调用
     // 超时 GIT_TIMEOUT_MS=15s（git/exec.ts），而清单锁等待档 MANIFEST_LOCK_TIMEOUT_MS=5s
     // 且有界重试 1 次（共 2 轮）⇒ 他方最多等 10s。极端情形（挂载盘无响应的 git status 被
     // 超时 kill）下他方两轮等不满即 fail-closed 抛错拒绝写（口径：宁拒绝不覆盖），
@@ -80,7 +80,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     let n = 0
     for (const e of m.entries.values()) {
       if (e.nodeType !== 'document') continue
-      if (e.finalizedRevision) continue // 幂等：已有基线跳过
+      if (e.finalizedRevision) continue // 幂等闸：任一 document entry 已有定稿基线 → 整书已迁移，跳过 git 反推
       // join(bookRoot, e.path) 直拼改过 safe-path 校验（同 doTrash/
       // save 的 resolveWithinRoot 口径）——manifest 属可篡改数据面，`../`/绝对路径/空 path
       // 条目此前可让 computeRevision 读到书仓库外（或撞目录 EISDIR 崩迁移链）；不合法
@@ -107,7 +107,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
  */
 function normalizePorcelainPath(raw: string, isRename = false): string {
   let p = raw
-  // -数据层：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
+  // 数据层：仅 rename（R 状态）行才切箭头——文件名字面含 " -> " 的普通
   // 改动行原先被首匹配 indexOf 误截成残路径
   if (isRename) {
     // L-：引号外扫描定位 " -> "——R 状态 + 引号路径且任一侧路径字面含

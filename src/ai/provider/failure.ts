@@ -1,11 +1,11 @@
 /**
- * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 / DSH-15 LlmFailure 对标）。
+ * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 LlmFailure 对标）。
  *
  * 三个适配器的 toErrorEvent 统一走这里；runner 重试按 failureAction 的结果决定动作
- * （retry-policy.shouldRetryError 消费 'retry' 族—— 单口径化后的唯一事实源），
+ * （retry-policy.shouldRetryError 消费 'retry' 族——单口径化后的唯一事实源），
  * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（最小版，
- * 清偿批：超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
- * 发送处）；switch-provider 亦已接线（0917清库修复批，chat 编排层主发送
+ * 超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
+ * 发送处）；switch-provider 亦已接线（chat 编排层主发送
  * 处首发命中换网族且有备用供应商配置时换网重发恰一次，同 turns.ts；「无消费者」
  * 自认随之销案；self-heal/spawn/rewrite 等非 chat 路径照旧终态）。
  */
@@ -83,7 +83,7 @@ export function headerErrorFields(headers: unknown): { retryAfterMs?: number; re
 type FailureAction =
   | 'retry' // 同 provider 退避重试（落地抖动公式）
   | 'switch-provider' // 换 provider/模型（凭据/配额/能力问题，重试无意义）
-  | 'shrink-prompt' // 缩输入（超窗 → 压缩/裁剪触发信号）
+  | 'shrink-prompt' // 缩输入（超窗 →压缩/裁剪触发信号）
   | 'author' // 交作者决策（请求组装/协议问题，自动路径到头）
   | 'none' // 非失败（主动中断）
 
@@ -97,11 +97,11 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
       return 'retry'
     // switch-provider 至今无消费者——调用侧拿到该动作的实际处理与
     // 终态（author）等同：配额/凭据错不会自动换供应商。勿据返回值断言存在自动降级行为。
-    // 最小版（清偿批）：shrink-prompt 已在 chat 编排层接线（最小版，仅
+    // 最小版：shrink-prompt 已在 chat 编排层接线（最小版，仅
     // 收缩重试恰一次——orchestrate/chat/turns.ts 主模型发送处）；self-heal/spawn/rewrite
     // 等非 chat 路径仍无消费者，runner 内该动作照旧同归终态（author）。
-    // 0917清库修复批上注「switch-provider 无消费者」销案——chat 编排层
-    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次，同款最小
+    // 上注「switch-provider 无消费者」销案——chat 编排层
+    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次同款最小
     // 范型；见 turns.ts switch 块与 test/ai/chat-switch-provider.test.ts）。非 chat 路径
     // 照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
     case 'AUTH':

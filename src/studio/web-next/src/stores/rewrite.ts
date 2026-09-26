@@ -9,9 +9,9 @@ import { stripFrontmatter, mergeFm } from '../shared/words'
 import { flushBodyWriteback } from '../shared/body-writeback'
 
 /**
- * 改写 store（M12 块2 .2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
+ * 改写 store（M12 块2 B2.2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
  * apply 不走后端（最纯提案模型，AI 永不直接落盘正文）。
- * （修复批）：头注修账——原注「选区改写后置（当前
+ * 头注修账——原注「选区改写后置（当前
  * whole 整章）」与实现相悖：run 已收 selection 参数，RewritePanel 读编辑器选区下发
  * （非空 → local 选段改写、空 → whole 整章，服务端按 selection 判模式），选区路径已是
  * 扩写/缩写/润色的现行主路径，whole 只是空选区的兜底形态。
@@ -21,9 +21,9 @@ export const useRewriteStore = defineStore('rewrite', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 代守卫——切书 clear 后在途改写结果不再落地（accept 虽有 docId 兜底防跨书
+  /** 代守卫——切书 clear() 后在途改写结果不再落地（accept 虽有 docId 兜底防跨书
    *  patch，但 B 书改写面板不该显示 A 书的 diff 结果；error/loading 回填同样查代）。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * 裸计数器换装 useStaleGuard。 */
   const reqGen = useStaleGuard()
 
   async function run(
@@ -39,7 +39,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
     try {
       // 改写基线在服务端读磁盘（readDraft），dirty 内容必须先落盘——否则「接受」
       // 会用磁盘旧版拼出的 rewritten 覆盖本地未保存的编辑（从未落盘，.版本 也救不回）。
-      // RC附批：读 dirty 前先落编辑器防抖尾——回写有 ≤200ms 合并窗，窗内
+      // 读 dirty 前先落编辑器防抖尾——回写有 ≤200ms 合并窗，窗内
       // 键入未落回 store 时 entry.dirty 仍 false，本判式整段跳过 → 基线读到缺末段的旧版
       // 且「接受」会按旧版拼 rewritten（要防的正是这一路）。flush 幂等。
       flushBodyWriteback()
@@ -79,8 +79,8 @@ export const useRewriteStore = defineStore('rewrite', () => {
   }
 
   /** 接受改写 → rewritten 写入 doc content（dirty）；作者 ⌘S 走标准保存。
-   *  接受瞬间上报 AI 版进改稿轨迹（文风，fire-and-forget，失败静默）。
-   *  ：生成期间正文又被编辑 → 基线过期，fail-closed 拒绝接受（防静默覆盖新编辑）；
+   * 接受瞬间上报 AI 版进改稿轨迹（文风，fire-and-forget，失败静默）。
+   * 生成期间正文又被编辑 → 基线过期，fail-closed 拒绝接受（防静默覆盖新编辑）；
    *  rewritten 是服务端剥 fm 的正文级产出，patch 前用 mergeFm 把章节 fm 拼回（此前直接
    *  patch 会把 front matter 整个丢掉，保存后 readDraft 即失败）。 */
   function accept(name: string, docId: string): boolean {
@@ -110,7 +110,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
     reqGen.invalidate() // 在途 run 的结果/错误回填全部作废
     result.value = null
     error.value = null
-    // 修复族（learn/check/review 均有，rewrite 漏网，补齐）：
+    // 修复族（learn/check/review 均有，rewrite 漏网补齐）：
     // 切书在途改写被作废后 loading 不复位 → 改写面板按钮永久禁用
     loading.value = false
   }

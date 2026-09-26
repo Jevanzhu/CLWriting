@@ -62,7 +62,7 @@ function toggle(path: string): void {
 
 async function onSelect(node: TreeNode): Promise<void> {
   if (node.isDirectory || !node.docId) return
-  // （§四.G17）：切书挂起期跨书守卫——切书链
+  // G17（§四.G17）：切书挂起期跨书守卫——切书链
   // （flushDirty/确认弹窗挂起段）route 已到新书、本组件 watch 已 load 新树并渲染，
   // 但 ws.bookName 链尾才 setBook；此窗口点新书树，下方快照基线取的是旧书名，
   // open 落定复检「旧===旧」恒过，新书 docId 开进仍属旧书的工作区（activeDocId/
@@ -90,7 +90,7 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
 }
 function onBlankContextMenu(e: MouseEvent): void {
   // 节点项 contextmenu 冒泡到此：节点 handler 已设对应菜单，跳过避免被空白菜单覆盖
-  // （修复批）：排除 tree-cap-hint 省略提示行——
+  // 排除 tree-cap-hint 省略提示行——
   // 其 class 同含 tree-item（ChapterTreeItem 提示行），closest('.tree-item')
   // 会把它误当节点吞掉右键，成「节点菜单/空白菜单都出不来」的死区；提示行非节点，
   // 右键应落空白菜单
@@ -108,7 +108,7 @@ function onBlankContextMenu(e: MouseEvent): void {
 // 只在真·首次打开时套默认展开；localStorage 不可用时保守视作非首开（不动作者展开态）。
 // 首开键改经 shared/storage-keys 单一事实源拼出（原局部常量
 // 'clw2.tree-first-open.' 为点号形态，而 useShelf 删书清扫硬编码冒号形态致键名
-// 断裂、标记删书清不掉——收敛后写入/清除同源，根因详见 useShelf 注释）
+// 断裂标记删书清不掉——收敛后写入/清除同源，根因详见 useShelf 注释）
 function consumeFirstOpen(book: string): boolean {
   try {
     const key = treeFirstOpenKey(book)
@@ -231,7 +231,7 @@ watch(
       @select="onPopupSelect"
       @close="onPopupClose"
     />
-    <!-- ：prop 名「标题」→ title（fm 数据键「标题」在弹窗 emit 边界转换，本侧不变） -->
+    <!-- prop 名「标题」→ title（fm 数据键「标题」在弹窗 emit 边界转换，本侧不变） -->
     <ChapterMetaDialog
       :model-value="!!actions.metaEditing.value"
       :num="actions.metaEditing.value?.num ?? null"

@@ -2,7 +2,7 @@
  * 文档域基建段（公共底座单源） —— 自 src/studio/server/api/documents.ts 拆出。
  *
  * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分；本文件承载基建段，内容逐字节随迁、零触碰（⑤① 收敛的
+ * 纯移动拆分；本文件承载基建段，内容逐字节随迁、零触碰（⑤①收敛的
  * 公共底座原样）：DocumentService per-bookRoot 缓存族（getOrCreateService /
  * __clearDocumentServices / forgetService / drainDocumentSaves）、伏笔事件族与
  * per-book 串行链（foreshadowSnapshot / recordForeshadowDelta / drain / forget /
@@ -36,7 +36,7 @@ import { DocumentService } from '../../../document/service.js'
 import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
-import { log, errMsg } from '../../../log/index.js' // 伏笔观测层失败留痕；-：errMsg 三目收编
+import { log, errMsg } from '../../../log/index.js' // 伏笔观测层失败留痕；errMsg 三目收编
 import { createSerialChainMap } from '../serial-chain.js' // per-book 串行链四胞胎通用件
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 结构操作忙闸单源（闸实例经组装根注入；structureBusyGuarded 为模块级助手，显式接闸）
 import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
@@ -87,12 +87,12 @@ export async function drainDocumentSaves(bookRoot: string, timeoutMs = 2_000): P
   }
 }
 
-// ── ：伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
+// ──：伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
 // 快照-差分模式：变更前抓 设定/伏笔/ 全量状态（非伏笔路径 null 免读），变更后
 // recordForeshadowChanges 差分落 workspace 会话（与 step/llm 链路事件同会话）。
 
 /** 变更前快照：path 落在 设定/伏笔/ 才读（其余文档零开销直通 null）。
- *  ：docId 仅作失败留痕的因果标注（对齐）。 */
+ * docId 仅作失败留痕的因果标注（对齐）。 */
 function foreshadowSnapshot(bookRoot: string, path: string | null, docId: string): ForeshadowEntry[] | null {
   if (!path || !path.startsWith('设定/伏笔/')) return null
   try {
@@ -106,7 +106,7 @@ function foreshadowSnapshot(bookRoot: string, path: string | null, docId: string
 }
 
 /** 变更后差分落事件：prev 为 null（非伏笔/快照失败）静默跳过；写失败静默（观测层）。
- *  ：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
+ * 转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
  *  服务事件循环）；两处调用方均在异步 handler 内 await。 */
 async function recordForeshadowDelta(
   userDataPath: string | null,
@@ -144,7 +144,7 @@ async function recordForeshadowDelta(
 // 各窗。仅伏笔域路径入链（非伏笔保存零开销、并行性不变）；链上单元失败不阻断后继
 // （prev.then(unit, unit)），观测层串行不引入新的失败面；伏笔正本保存语义零变更
 // （save 仍在原链路原样执行，只是调度位置移入临界段）。
-// 清偿-伏笔接线×4（残留清偿批）：PATCH（fm/rename/move/meta 共用 handler）、
+// 清偿-伏笔接线×4：PATCH（fm/rename/move/meta 共用 handler）、
 // 新建、软删、copy 四处同型「快照读在链外」残留一并收口——各操作「快照读 → op → 差分」
 // 整段入链，链内单元语义按各操作适配：新建/软删/copy 改 docId 集合，差分基线仍取
 // 「本单元 op 前的全域快照」（差分是全域标题集对比，recordForeshadowChanges），链内
@@ -160,7 +160,7 @@ function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): 
   return foreshadowSaveChains.enqueue(bookRoot, unit)
 }
 
-/** （修复批·面 B）：等该书伏笔串行链尾排空
+/** （面 B）：等该书伏笔串行链尾排空
  *  ——删书/改名前 drain（与 drainDocumentSaves / drainFilePutChainsUnder 同型）。
  *  竞态时序：已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 只计在途
  *  save，本链不可见——:148 旧注自认），不 drain 则删书/改名后链单元才开跑、照写旧
@@ -169,7 +169,7 @@ function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): 
  *  BOOK_MOVED）兜底。死锁核查：链单元只单向 await SaveQueue / 清单·回收站锁 /
  *  save·布线锁，从不反等 books 侧任何锁，drain 置于 books.ts 既有两 drain 之后不
  *  引入环。无条目即立即 resolve。
- *  ：实现收编 createSerialChainMap.drainExact
+ * 实现收编 createSerialChainMap().drainExact
  *  （恰等键排空 = 本链原口径）。 */
 export async function drainForeshadowSaveChains(bookRoot: string): Promise<void> {
   return foreshadowSaveChains.drainExact(bookRoot)
@@ -177,14 +177,14 @@ export async function drainForeshadowSaveChains(bookRoot: string): Promise<void>
 
 /** 删书/改名按书清理伏笔链 Map 条目（对齐 forgetService 等既有
  *  forgetBookKeyedCaches 挂点形态）——链尾自清理已覆盖常态，此处兜悬挂残条。
- *  ：实现收编 createSerialChainMap.forget。 */
+ * 实现收编 createSerialChainMap().forget。 */
 export function forgetForeshadowSaveChain(bookRoot: string): void {
   foreshadowSaveChains.forget(bookRoot)
 }
 
 /** 测试观测钩子（对齐 files.ts __filePutChainKeysForTest 风格）——
  *  当前在途伏笔链键的只读快照（自清理/forget 生效断言用；快照时点在途，settle 后
- *  自清理）。：实现收编 createSerialChainMap.keysForTest。 */
+ * 自清理）。实现收编 createSerialChainMap().keysForTest。 */
 export function __foreshadowSaveChainKeysForTest(): readonly string[] {
   return foreshadowSaveChains.keysForTest()
 }
@@ -207,18 +207,18 @@ export function enqueueStructureOp<T>(bookRoot: string, critical: () => Promise<
 /** 阶段 24：等待某书在途 structure 串行链排空——books.ts 删书/改名排水段第 5 调用
  *  （drainDraftSaveChainsUnder 同型：恰等于书根 + realpath 双口径；快照式——drain
  *  窗口内新进链不等，由链内 bookMovedFailure 重验兜底拒绝）。
- *  ：实现收编 createSerialChainMap.drainUnder。 */
+ * 实现收编 createSerialChainMap().drainUnder。 */
 export async function drainStructureChainsUnder(bookRoot: string): Promise<void> {
   return structureChains.drainUnder(bookRoot)
 }
 
 /** 阶段 24：测试观测钩子（__draftSaveChainKeysForTest 同款）——当前在途链键只读快照。
- *  ：实现收编 createSerialChainMap.keysForTest。 */
+ * 自清理）。实现收编 createSerialChainMap().keysForTest。 */
 export function __structureChainKeysForTest(): readonly string[] {
   return structureChains.keysForTest()
 }
 
-// ── （修复批·面 A）：书注册重验 ─────────
+// ──（面 A）：书注册重验 ─────────
 // 五处链内写单元（PUT content / PATCH / 新建 / 软删 / copy）的临界段首行防线；重验
 // 竞态时序与防线形态单源见 book-context.ts 头注（起四处
 // 本地拷贝收敛到 book-context.ts）。本文件特有：SaveOutcome/CreateResult 等失败
@@ -237,12 +237,12 @@ function bookMovedFailureOk(ctx: DocumentCtx, name: string | undefined, captured
   return moved === null ? null : { ...moved, ok: false }
 }
 
-// ── ：五站写端点不变链收编单源 ─────────────────────────
+// ──：五站写端点不变链收编单源 ─────────────────────────
 // 原 runSave/runCreate/runPatch/runCopy/runTrash 五份脚手架拷贝（PUT content / 新建 /
 // PATCH / copy / 软删）共享同一不变序，收编为 runBookScopedOp，各站只存 op 业务体与
 // 站参数：
-//   ① 链单元首行书注册重验（面 A → 409 BOOK_MOVED；竞态时序见
-//     book-context.ts 头注）；
+// ① 链单元首行书注册重验（面 A → 409 BOOK_MOVED；竞态时序见
+// 竞态时序与防线形态单源见 book-context.ts 头注（起四处
 //   ② 伏笔快照先于 op（差分需要变更前状态；快照读在链内——2--① /
 //     清偿-伏笔接线×4：链内串行保证前继落库变更必在基线中，差分各归各窗）；
 //   ③ op 业务体（PATCH 形状校验 400 也留在单元内——BOOK_MOVED 409 先于 BAD_INPUT
@@ -255,7 +255,7 @@ function bookMovedFailureOk(ctx: DocumentCtx, name: string | undefined, captured
 // create/copy 取 result.docId，回调的 else 支为类型完备的不可达兜底）。
 
 /** runBookScopedOp 站参数：bookName/bookRoot 供链单元首行重验；fsPath 兼任伏笔域
- *  判定与快照路径（null 免读直通）；causeId/deltaId = 留痕因果。 */
+ * 判定与快照路径（null 免读直通）；causeId/deltaId =留痕因果。 */
 interface BookScopedOpSite<T extends { ok: boolean }> {
   bookName: string | undefined
   bookRoot: string
@@ -300,7 +300,7 @@ export async function runBookScopedOp<T extends { ok: boolean }>(
  *  收编单源——次序 self-heal → spawn → orchestration → 三审与四条 409 文案逐字节
  *  保留。返回 true = 已回写 409，调用方直接 return。'structure' 任务闸不在此列：
  *  闸调用点保持各站原位原样（known-actions-audit 按真实调用点对账）。
- *  ：四连本体收编为 task-gate 的 BUSY_MATRIX 'structure' 行（原实序
+ * 四连本体收编为 task-gate 的 BUSY_MATRIX 'structure' 行（原实序
  *  self-heal → spawn → orchestrationBusyFor(self-heal 重复/chat/spawn 重复/后台) →
  *  三审；表里前两格即原前两闸，chat/background 承接编排面，末格三审——重复格去重后
  *  的可观察文案与序等价：前两闸同步无 await，重复核查永不可达）。 */
@@ -336,7 +336,7 @@ export function structStatus(code: string): number {
       return 409
     case 'NOT_UTF8_TARGET':
       return 400
-    // （修复批）：书注册重验失败（删书/改名
+    // 书注册重验失败（删书/改名
     // drain 窗口后新进单元）——账实状态冲突可重试，与 REVISION_CONFLICT/OCCUPIED
     // 冲突族同 409 档（ee- LEAD_GATE 同口径先例）
     case 'BOOK_MOVED':
@@ -346,7 +346,7 @@ export function structStatus(code: string): number {
     // 的 409 WRITE_ERROR 拒写可重试口径对齐（原 500 档让重试语义失真）
     case 'WRITE_ERROR':
       return 409
-    // B004（0918三拍板批）：全书 fm ≡ 文件名号失配——盘面账实状态冲突（修书后可
+    // 全书 fm ≡ 文件名号失配——盘面账实状态冲突（修书后可
     // 重试），与 PLAN_STALE 冲突族同 409 档
     case 'CHAPTER_NO_MISMATCH':
       return 409

@@ -8,7 +8,7 @@
  * import 面不动。登记读写/锁原语（readBooksStrict/writeBooks/tryBooksLock）与
  * books.jsonl 残核留在 books.ts。
  *
- * （评审修复批）：登记读写/锁原语与 KIND_DIRS 改引
+ * 登记读写/锁原语与 KIND_DIRS 改引
  * books-store.ts（原引 books.ts）——本模块自此不回引 books.ts，
  * books ↔ books-repair 环解开。
  */
@@ -33,7 +33,7 @@ export interface RepairResult {
   changed: boolean
   /** books.jsonl 读失败时跳过本轮自愈（防「降级空表 × 扫盘整写」清掉
    *  非标准深度登记）——此时其余字段为空、changed=false，调用方应告警而非报告自愈；
-   *  ：登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错） */
+   * 登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错） */
   skipped?: 'read-failed' | 'lock-timeout'
   /** 幽灵条目（登记在册、目录确认缺失且无法重关联）的可操作修复
    *  提示——自愈只报告不清除（数据安全优先），作者需按提示人工处理；missing 为空时
@@ -80,7 +80,7 @@ function isDirConfirmedMissing(abs: string): boolean {
 
 /** repairBooks 的持锁主体（拆出——锁获取/超时降级在 repairBooks 收口）。 */
 function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): RepairResult {
-  // 读失败（EACCES 等）跳过本轮自愈——DA-3只收口了
+  // 读失败（EACCES 等）跳过本轮自愈——只收口了
   // append/remove/rename 三个写点，本函数自称「兜底」却用降级空表起建：EACCES 挡
   // readFileSync 不挡 atomicWriteFile 的 tmp+rename，扫盘整写会立即落盘；而
   // scanBookCandidates 只扫顶层 + 长篇/短篇 二级，登记允许任意无 .. 相对路径——
@@ -102,7 +102,7 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
     if (!isBookRepo(dir)) continue
     // 每书一次 readBookConfig——此前 detectBookName 与
     // detectBookKind 各整读+整解析同一文件（2× IO + 2× 解析）；读结果传参两 detect
-    // 0918二轮修复批（G103）：book.yaml 读失败（EACCES 等瞬态锁定/权限，解析失败
+    // book.yaml 读失败（EACCES 等瞬态锁定/权限，解析失败
     // 同路）跳过该书本轮对账——此前 detectBookKind 对 !ok 回落 'long'、detectBookName
     // 回落目录名，杀软/同步盘短暂锁住 book.yaml 的那次启动会把 name/kind 改写成回落
     // 值（下轮翻回，books.jsonl mtime 随抖动）。对齐同函数 isDirConfirmedMissing 的
@@ -177,8 +177,8 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       continue
     }
 
-    // G201（0918三轮修复批）：新发现分支补「本轮已扫」同名判重——上方两道防线
-    // （改名分支 / 重关联分支）都只查 rebuilt（已登记集），同一轮循环
+    // 新发现分支补「本轮已扫」同名判重——上方两道防线
+    // （改名分支重关联分支）都只查 rebuilt（已登记集），同一轮循环
     // 先前迭代 push 进 scanned 的同名条目对此处不可见（scanned 循环外才并入）：
     // 两本均未登记的同名书（典型 = 手工复制书目录做备份，book.yaml title 随拷贝
     // 不变）会双双入账 → resolveBook 首匹配遮蔽其一、removeBookEntry 按名过滤连删
@@ -280,7 +280,7 @@ function scanBookCandidates(workDir: string): string[] {
 }
 
 /** 从 book.yaml 读结果取书名；无书名时回落目录名。
- *  ：改收 readBookConfig 结果（repairBooks 扫盘每书单次读取）；
+ * 改收 readBookConfig 结果（repairBooks 扫盘每书单次读取）；
  *  原实现外层 `try { readBookConfig... } catch` 为死防御已删——核实 readBookConfig 契约
  *  恒返信封不抛（缺文件/读失败/解析失败三路均 {ok:false, config:默认配置}，见 yaml.ts），
  *  解析失败时 config 为默认空 title → 本就走 fallback 分支，行为不变。 */
@@ -290,7 +290,7 @@ function detectBookName(cfgRead: ReturnType<typeof readBookConfig>, fallback: st
 }
 
 /** 从 book.yaml 读结果取 kind（缺省 long）。
- *  ：与 detectBookName 同走 readBookConfig 解析口径——此前正则
+ * 与 detectBookName 同走 readBookConfig 解析口径——此前正则
  *  直读文本，注释行（如 `# kind: short 预留`）会被误判 short 并写回登记。 */
 function detectBookKind(cfgRead: ReturnType<typeof readBookConfig>): 'long' | 'short' {
   return cfgRead.ok && cfgRead.config.kind === 'short' ? 'short' : 'long'

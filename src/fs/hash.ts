@@ -14,7 +14,7 @@ export function hashFile(filePath: string): string {
   return 'sha256:' + createHash('sha256').update(buf).digest('hex')
 }
 
-/** 字节指纹（内存字节版， / 二十轮）：与 hashFile 同算法。调用方已持字节
+/** 字节指纹（内存字节版）：与 hashFile 同算法。调用方已持字节
  *  （如定稿锁内一次读）时免二次读盘，保证指纹与内容严格同源。 */
 export function hashBytes(data: Buffer): string {
   return 'sha256:' + createHash('sha256').update(data).digest('hex')

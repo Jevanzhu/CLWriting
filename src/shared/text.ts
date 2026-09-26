@@ -1,5 +1,5 @@
 /**
- * 文本计量纯函数单源（修复批）。
+ * 文本计量纯函数单源。
  *
  * 此前码点计数在六处各持一份同口径实现（process/summary、ai/prompts/compaction、
  * check/count、learn、metrics/style、web-next stores/chat），历史注释里各自记有
@@ -10,7 +10,7 @@
 
 /** 码位计数——自增计数器逐码点数，替代 `[...text].length` 全量展开数组只为取个数
  *  的写法；口径：代理对（高低各一码元）算一个码位，孤立代理项各算一个，与展开
- *  结果一致（口径，本注钉住）。 */
+ * 结果一致（口径，本注钉住）。 */
 export function codePointLength(text: string): number {
   let n = 0
   for (let i = 0; i < text.length; i++) {
@@ -27,16 +27,16 @@ export function codePointLength(text: string): number {
 
 /** 按码位截断（Array.from 迭代码点）——String.slice 按 UTF-16 码元，增补平面字符
  *  （CJK 扩展 B 生僻字、emoji）在边界处被切成半个代理对，产出尾带孤立高代理的
- *  乱码串。原实现居 process/summary.ts（十五轮登记销账）， C101 下沉
+ * 乱码串。原实现居 process/summary.ts下沉
  *  本模块单源：document 层（structure-split/merge 干跑预览）与 process 层共用同一
  *  口径，消除「同仓两处码元截断漏网」（下沉先例 = codePointLength
- *  ）。：下沉时留在 process/summary.ts 的 re-export 中转已剥除——
+ *）。下沉时留在 process/summary.ts 的 re-export 中转已剥除——
  *  消费方一律直引本模块（中转层即 ai↔process 的环边来源）。 */
 export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
-/** 毫秒 → 作者可读时长短句（Opus-5.5 轮）。
+/** 毫秒 → 作者可读时长短句。
  *
  *  起因：超时文案在 src/ai/runner.ts 里写死 `${timeoutMs / 60_000} 分钟`——档位 timeoutMs
  *  可被配置成任意毫秒值（如 90_000 → 「1.5 分钟」、30_000 → 「0.5 分钟」，极端值 60 →

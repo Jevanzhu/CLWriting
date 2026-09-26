@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { yieldToEventLoop } from '../../../async.js' // -：扫描段让出原语（progress.ts 同源）
+import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（progress.ts 同源）
 import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -32,8 +32,8 @@ const HOOK_LEVELS: readonly HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-// ── rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
-// 手法对齐 search.ts （探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
+// ──：rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
+// 手法对齐 search.ts（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
 // 每请求 readBookConfig + rhythmLong 双 readChapterDir（写作/正文 + 大纲/章纲）——
 // 章节元数据虽有 stat 级缓存，冷路径（首查/有章变更）仍整读全部章节全文，
 // 节奏面板打开/轮询/切换反复触发。指纹按本端点实际读面构成（versionStatsProbe
@@ -71,7 +71,7 @@ export const rhythmCache = createTtlProbeCache<string, unknown>({
 })
 
 /** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。
- *  精简批（SRV 域）：overview/settings 的同构本地副本（overviewSigStatFor/
+ * （SRV 域）：overview/settings 的同构本地副本（overviewSigStatFor/
  *  settingsSigStatFor）收敛至此单源 export（本文件为两处原注释所引先例位），另两处
  *  import——三处调用点行为逐字不变。 */
 export function sigStatFor(fp: string): string {
@@ -151,7 +151,7 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
     method: 'GET',
     path: '/api/books/:name/rhythm',
     // handler 挂 async 走 async 主路（foreshadows.ts
-    // 「 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
+    // 「交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
     // async handler 已有 catch 兜底）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)

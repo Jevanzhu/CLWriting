@@ -1,8 +1,8 @@
 /**
  * dirty 正文节流镜像（渲染进程硬崩溃兜底）——自
  * stores/doc.ts 抽出的独立模块。纯 localStorage 逻辑：键格式/节流分档/指纹台账/
- * 书级清扫/复活判读的语义与实现逐位不变（首版 / 清理面补全 /
- * 节流分档+指纹跳写 / baseRev 复活时效门 / 属主精确判定，
+ * 书级清扫/复活判读的语义与实现逐位不变（首版清理面补全 /
+ * 节流分档+指纹跳写 baseRev 复活时效门属主精确判定，
  * 沿革注记随实现移位于此），文档缓存态经 deps 参数化注入，doc store 侧改薄委托。
  *
  * 三面：①写侧——dirty/conflict entry 内容节流镜像进 localStorage
@@ -34,10 +34,10 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
   /** 单条镜像上限（payload 字符数 ≈2MB）——超限跳过并 debug 留痕，防 localStorage quota 爆。 */
   const MIRROR_MAX_CHARS = 2_000_000
   /** 镜像节流基档（ms，trailing）：编辑高峰不逐键写同步 IO，窗口内合并为最后一版。
-   *  （评审修复批）：到点是全量 JSON.stringify + localStorage.setItem 的同步
+   * 到点是全量 JSON.stringify + localStorage.setItem 的同步
    *  主线程开销，200 万字文档 2s 一拍即数十 ms 级 CPU 峰值——按规模分档拉长（见下），
-   *  崩溃窗口拉宽是既有取舍（镜像落后编辑 ≤ 一个节流间隔）的规模延伸：
-   *  镜像始终远快于 autosave（默认 30s）主兜底，的取舍与回归测试不动。 */
+   * 崩溃窗口拉宽是既有取舍（镜像落后编辑 ≤ 一个节流间隔）的规模延伸：
+   * 镜像始终远快于 autosave（默认 30s）主兜底的取舍与回归测试不动。 */
   const MIRROR_THROTTLE_MS = 2_000
   /** 节流分档阈值（按 entry 内容字符数，调度时刻定格）：>256K 拉到 4s、>1M 拉到 8s。
    *  取舍：档距 2× 对应 stringify+setItem 开销近似线性随规模涨（2s 档数十 ms → 8s 档
@@ -63,7 +63,7 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
   }
 
   /** dirty/conflict entry 的节流镜像落盘（trailing：到点读 entry 当时内容）。
-   *  ：间隔按调度时的内容规模分档取值。 */
+   * 间隔按调度时的内容规模分档取值。 */
   function scheduleDirtyMirror(docId: string, contentChars: number): void {
     if (mirrorTimers.has(docId)) return
     mirrorTimers.set(
@@ -112,7 +112,7 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
   }
 
   /** 清镜像（含 pending 节流）。book 由调用方快照（防在途切书误删他书同 docId 键）。
-   *  （评审修复批）：本函数与下方 clearBookMirrors 即「键族清理单源」——
+   * 本函数与下方 clearBookMirrors 即「键族清理单源」——
    *  docId 级精确删 + 书级前缀清扫两个入口，随 doc store 导出，供文档改名（op=rename /
    *  op=meta 路径同步 rename）、doOpen 404、删书（useShelf.confirmDelete）等各链调用，
    *  不再各链自拼 localStorage 键。 */
@@ -156,11 +156,11 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
    *  清偿批属主判定改读镜像 payload 的 book 字段精确比对，不再裸
    *  前缀匹配 `${前缀}${book}:`——`:` 同时是键内书名与 docId 的分隔符，书名含 `:`
    *  （mac/linux 目录名合法）时前缀越界：清《A》把《A:B》的镜像一并删掉（跨书误伤）。
-   *  取舍记档：①payload 自首版即含 book+docId，全量既有镜像兼容，键格式
+   * 取舍记档：①payload 自首版即含 book+docId，全量既有镜像兼容，键格式
    *  不变、零迁移；②解析失败的损坏键无从判属主，保守不删（readDirtyMirror 同样
    *  拒读，无复活面，仅存储残留）；③写侧同键碰撞（《A》+legacy docId「B:x」与
    *  《A:B》+docId「x」拼出同一键）不在此修——需换转义键格式牵出迁移，且互覆只伤
-   *  崩溃镜像（不落盘数据），复活时效门（baseRev 对拍）再兜一层。 */
+   * 崩溃镜像（不落盘数据），复活时效门（baseRev 对拍）再兜一层。 */
   function clearBookMirrors(book: string): void {
     for (const t of mirrorTimers.values()) clearTimeout(t)
     mirrorTimers.clear()

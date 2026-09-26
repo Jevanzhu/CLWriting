@@ -17,13 +17,13 @@ import type { ChatEvent } from '../../../events/types.js'
 import type { NewEvent } from '../../../events/store.js'
 import { log } from '../../../log/index.js'
 
-/** （总六十五轮）：CLW_VERIFY_VISIBLE=1 诊断开关——llm/call 落库后对本回合
+/** CLW_VERIFY_VISIBLE=1 诊断开关——llm/call 落库后对本回合
  *  注入清单抽样跑 verifyVisibleRecorded（「模型可见 ⟺ 已记录」生产侧抽查）。可见清单
- *  经 visibleInjectionsFromDigests 单源组装（revision→chapter、skills→skills
+ * 经 visibleInjectionsFromDigests 单源组装（revision→chapter、skills→skills
  *  的字段映射在本函数）：
  *  recorded 传本回合已登记的三种血缘事件（settings/snapshot + revision/ref +
  *  skills/snapshot，与 recorder 收到的同物）。违约只 warn 留痕（不抛、不进事件库、
- *  不影响主流程； GLM-5.3 修复批：console.warn 改
+ * 不影响主流程；GLM-5.：console.warn 改
  *  log.warn 统一日志通道——与 rag recall 三降级出口同口径，诊断输出落 app-*.jsonl
  *  可回溯）；flag 关闭首行即返回，零开销。 */
 export function verifyVisibleSampled(
@@ -34,7 +34,7 @@ export function verifyVisibleSampled(
   try {
     // 可见清单改由 visibleInjectionsFromDigests 单源组装（此前手工
     // 镜像 visibleInjections 形状——两侧改拼接源即失配，恰是本开关要抓的漂移）
-    // A201（0918三轮修复批）：签名补 knowledge 透传——0917 扩登记面（knowledge 血缘
+    // 签名补 knowledge 透传——扩登记面（knowledge 血缘
     // 事件）时本校验面未同步，TS 结构化类型对多余属性不报错，knowledge 在此静默蒸发、
     // 抽样校验对该通道永远 silent-pass
     const visible: VisibleInjection[] = visibleInjectionsFromDigests({

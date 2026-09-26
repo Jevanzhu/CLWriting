@@ -4,7 +4,7 @@ import { bookUrl } from '../api/url'
 
 // 协作心跳：进书后每 20s POST /heartbeat 续期；卸载（onUnmounted）DELETE 清除（单写者互斥）。
 // 切书不发 DELETE（依赖服务端过期回收）——L-注释校准：原「切书 DELETE」与实现不符。
-// 卸载 DELETE 改用落拍捕获的书名——此前重读 getBookName 在卸载
+// 卸载 DELETE 改用落拍捕获的书名——此前重读 getBookName() 在卸载
 // 时已随路由参数归空，DELETE 实际不可达（与本注释宣称的「卸载清除」不符）。
 // serverOnline 为全局信号（状态栏连接徽章 + 右栏 AI 置灰消费）。
 const online = ref(true)
@@ -15,7 +15,7 @@ export const serverOnline = online
  *  EventSource 无 onerror、connected 冻结在 true，靠心跳连败检出后 resync 强制重连
  *  （连续 ≥2 拍失败且 SSE 仍处 connected 态，见 useSseSelfHeal 接线）。成功拍复位；
  *  stop（退书/切书）复位；触发侧（useSseSelfHeal）触发后同样复位去抖。
- *  0918二轮修复批（E104）：连败只由传输层失败（网络异常/超时 abort，fetch 抛错）
+ * 连败只由传输层失败（网络异常/超时 abort，fetch 抛错）
  *  累计——业务 4xx/5xx（书已删 404、鉴权 401 等）服务进程仍在线，不计连败。 */
 const failStreak = ref(0)
 export const heartbeatFailStreak = failStreak
@@ -46,7 +46,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), BEAT_TIMEOUT_MS)
     try {
-      // 0918二轮修复批（E104）：收到任何 HTTP 响应（含 404 书已删 / 401 / 5xx）= 服务
+      // 收到任何 HTTP 响应（含 404 书已删 / 401 / 5xx）= 服务
       // 进程在线——业务语义留给各自处理链（401 的 re-boot 在 apiFetch 内自愈、404 由
       // 路由/调用方收口），心跳只盯传输层；原实现按 r.ok 计离线连败，业务 4xx 误报
       // 离线徽章并驱动 SSE 看门狗误 resync。响应体无人消费，不读。
@@ -77,7 +77,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
       clearInterval(timer)
       timer = null
     }
-    // 停止心跳时把全局在线信号复位回初始「在线/未知」态——
+    // E-6a：停止心跳时把全局在线信号复位回初始「在线/未知」态——
     // 否则退书前最后一次 beat 失败的假阴性会挂到下次进书（StatusBar 误显离线），
     // 且退书后不再探测，无机会自愈。下次进书 start 的首次 beat 会立即校正。
     online.value = true
@@ -86,13 +86,13 @@ export function useHeartbeat(getBookName: () => string | null): void {
 
   async function leave(): Promise<void> {
     stop()
-    // 用捕获的书名（卸载时 getBookName 已读不到原书，重读必得空串跳过）
+    // 用捕获的书名（卸载时 getBookName() 已读不到原书，重读必得空串跳过）
     const name = beating
     beating = null
-    // token null（boot 未成功）时跳过 DELETE——必 401 徒劳且会
+    // E-6b：token null（boot 未成功）时跳过 DELETE——必 401 徒劳且会
     // 误触发 apiFetch 的 re-boot；本地直接放弃清除，让服务端过期回收心跳。
     if (name && getToken()) {
-      // （-0914）：DELETE 补超时档（beat 侧 同型）——apiFetch 无内建
+      // DELETE 补超时档（beat 侧同型）——apiFetch 无内建
       // 超时，对端挂死时本 promise 永不 settle，onUnmounted 的 fire-and-forget 悬挂；
       // 10s abort 后走 catch 静默（清除失败本就不阻断退书，靠服务端过期回收兜底）。
       const ctrl = new AbortController()

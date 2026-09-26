@@ -8,7 +8,7 @@
  * models[] 级覆盖）四档分计（input/output/cacheRead/cacheWrite）；未配价的模型
  * 计入 unpricedModels 不折算（宁缺毋滥，不拿 0 冒充成本）。全书无任何价格表 →
  * enabled=false（前端显示「未配置价格」引导，不显示 0）。
- * 展示粒度对齐作者心智：按日 / 按章（事件 chapter 字段，起 runTask 记录）/
+ * 展示粒度对齐作者心智：按日 / 按章（事件 chapter 字段起 runTask 记录）/
  * 按任务 / 本书累计。
  *
  * 历史口径边界：OpenAI 兼容线的旧事件 usage.input 已含 cache 命中
@@ -23,7 +23,7 @@ import { resolveModelPricing, computeCallCost } from './pricing.js'
 // 2-（GLM-5.3，AI 域 -③）：读侧单源化——原私有
 // readLlmCalls 与 trace-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: true（无 usage 行跳过）
-// （修复批）：读侧改流式（streamLlmCallRows）——逐行回调即时聚合，
+// 读侧改流式（streamLlmCallRows）——逐行回调即时聚合，
 // 不再物化全量行数组；聚合算术与顺序逐字段不变（同 seq 升序，逐条 bump）
 import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 

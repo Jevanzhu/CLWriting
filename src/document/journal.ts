@@ -210,11 +210,11 @@ function scanUnsettled(journalPath: string): { ok: true; items: JournalAnyPendin
 }
 
 /** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。
- *  ：读失败降级不阻断（返回 [] ——文件级读失败视同本轮恢复检查
+ * 读失败降级不阻断（返回 [] ——文件级读失败视同本轮恢复检查
  *  跳过），但必须留痕——原空体 catch 使 journal 在盘却不可读（EACCES/EBUSY 等）时
  *  崩溃恢复扫描静默归零，作者对丢字风险零感知且无诊断线索；对齐同链路 state.ts
  * 循环级 warn 口径。
- *  A101（修复批）：降级 [] 语义**仅限本消费方**——compact 侧走 scanUnsettled
+ * 降级 [] 语义**仅限本消费方**——compact 侧走 scanUnsettled
  *  可辨信号（读失败弃压缩，不得拿空集当保留集清空 journal）。 */
 export function findUnsettled(journalPath: string): JournalAnyPending[] {
   const scan = scanUnsettled(journalPath)
@@ -232,13 +232,13 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
  * journal 写路径（含 healMovePending 自愈回写）均走本异步版。原同步 appendLine 随
  * appendSettledSync/appendAbortedSync 一并删除（生产零调用死码，自
  * 起无任何调用方）。
- * 与 （Opus-5.5 轮）刀 2 的 degradedLine thunk /
+ * 与刀 2 的 degradedLine thunk /
  * 降级写 inode 自校验随快照机制删除一并撤除——两条都只为「行长」与
  * 「快照内容不丢」服务：pending 行现为 ~200 字节元数据（远在文件系统原子窗内），降级写
  * 退化为原「裸 appendFileSync」形态，仅留锁超时 warn 与「尽力而为」语义。
  * 残余窗口（如实记档）：拿锁两轮失败的降级裸写不持锁，若此刻 compact 完成
  * atomicWriteFile（tmp+rename 换 inode），本行可能落在被换下的旧 inode 上——
- * findUnsettled 永不报，即丢一条**崩溃检测**行。 前丢的是快照内容（故当时以
+ * findUnsettled 永不报，即丢一条**崩溃检测**行。前丢的是快照内容（故当时以
  * dev+ino 自校验 + 尾段补追堵）；现丢的只是「这次保存没结算」的账目行，其后果是
  * 少一次进门提示（无内容可丢——内容副本已不在 journal），且下一笔保存即新写 pending，
  * 故接受为小概率残余，不再为此保留自校验机制。
@@ -268,7 +268,7 @@ async function appendLineAsync(filePath: string, line: string): Promise<void> {
 }
 
 /** fsync 已存在文件（追加后同步数据落盘）。best-effort。
- *  0918二轮修复批（B104）：导出供 words-diary 同族 append-only jsonl 追加后
+ * 导出供 words-diary 同族 append-only jsonl 追加后
  *  复用（耐久纪律单源，勿在他处复制实现）。 */
 export function fsyncFile(filePath: string): void {
   let fd: number | undefined
@@ -286,7 +286,7 @@ export function fsyncFile(filePath: string): void {
       try {
         closeSync(fd)
       } catch {
-        // best-effort
+        // 平台/权限问题——best-effort
       }
     }
   }
@@ -297,7 +297,7 @@ export function fsyncFile(filePath: string): void {
 /** compact 阈值：journal 字节数超过此值时在 settle/abort 后压缩（只留未结算 pending）。
  * 口径：export const + 模块内可变生效值 + 注入钩子——测试经钩子改档（批起
  *  compact 用例以低阈值+小内容建仓），生产恒用常量。
- *  ：pending 只记元数据（每行 ~200 字节），2MB 阈值对应约 5000 笔保存的
+ * pending 只记元数据（每行 ~200 字节），2MB 阈值对应约 5000 笔保存的
  *  累积量——阈值与触发时机（settle/abort 之后）均不变。 */
 export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
 
@@ -321,7 +321,7 @@ export const [getJournalCompactBytes, __setJournalCompactBytesForTest] = testabl
  * CLI/脚本与 GUI 双进程操作同一书时，compact 的「读→算→整文件替换」窗口可吞掉
  * 对方刚 append 的 pending 行（崩溃检测唯一依据，丢了检测链失据）。守卫：读前后
  * 各 stat 一次，size/mtime 任变（= 有他进程追加过）→ 放弃本轮压缩（compact 本就
- * best-effort，下次再试）。：跨进程文件锁已落地
+ * best-effort，下次再试）。跨进程文件锁已落地
  * （fs/cross-process-lock.ts，含 win 语义评估）——compact 与 append 共享 journal
  * 锁文件，「末次 stat → rename」理论窗口彻底闭合；stat 守卫保留作双保险。
  * 基线 stat 移入锁内——原「锁外 before stat → 等锁 → 锁内 after
@@ -347,7 +347,7 @@ function maybeCompactJournal(journalPath: string): void {
       // 锁内基线 stat（行数以 size 折算——任何 append 必改 size，等价且免二次全读）
       const before = statSync(journalPath)
       if (before.size < getJournalCompactBytes()) return
-      // A101（修复批）：读失败弃本轮压缩——原复用 findUnsettled 的 [] 降级，
+      // 读失败弃本轮压缩——原复用 findUnsettled 的 [] 降级，
       // 读失败（EACCES/EBUSY 等，rename 只需目录写权）时 before/after stat 全等、
       // 复核不触发，atomicWriteFile('') 把在档全部未结算 pending（崩溃检测唯一依据）
       // 清空、半截正文损坏自此静默存活。现走 scanUnsettled 可辨信号，与
@@ -373,7 +373,7 @@ function maybeCompactJournal(journalPath: string): void {
 }
 
 /** 锁等待超时（毫秒）——争用为文件 IO 级毫秒。
- *  ：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ * 常量化——export let 可被任一 import 方静默改写（同 events/store.ts
  * 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
 export const JOURNAL_LOCK_TIMEOUT_MS = 2_000
 

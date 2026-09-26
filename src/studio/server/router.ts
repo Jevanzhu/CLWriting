@@ -76,7 +76,7 @@ export async function dispatch(
   res: ServerResponse,
   routes: RouteTable = defaultRoutes,
 ): Promise<boolean> {
-  // parseRequestUrl 统一解析（/口径，与各 handler 同源）——
+  // parseRequestUrl 统一解析（口径，与各 handler 同源）——
   // 畸形请求行（absolute-form 等）此前裸 new URL 抛 TypeError 落进外层 catch 变 500，
   // 客户端请求问题应归 400 BAD_INPUT（与 static.ts 同款信封）
   const parsed = parseRequestUrl(req)

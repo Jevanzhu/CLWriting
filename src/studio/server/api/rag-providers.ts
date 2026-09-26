@@ -23,7 +23,7 @@ import {
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
-  ProviderRevisionConflictError, // 0918修复批（D002）：写前基线复验冲突 → 409 映射
+  ProviderRevisionConflictError, // 写前基线复验冲突 → 409 映射
   type RagProviderConf,
   type ProviderStore,
 } from '../../../ai/provider/index.js'
@@ -35,12 +35,12 @@ interface RagProvidersCtx {
   userDataPath: string | null
 }
 
-// providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
+// providers.json 写入失败不再静默假成功——把 store.ts 的
 // saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播），端点侧保存点统一
 // 捕住回 500 WRITE_ERROR 信封（同 /api/providers 的 saveProvidersOr500，两文件各自持有
 // 本地副本避免路由模块互相 import）。当前 void 返回下 await/try-catch 合法且零行为差异。
 // 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
-// 0918修复批（D002）：写前基线复验冲突（ProviderRevisionConflictError）单列
+// 写前基线复验冲突（ProviderRevisionConflictError）单列
 // 映射既有 409 REVISION_CONFLICT 信封——与 /api/providers 同款（前置 revisionError 闸
 // 同形态同文案）；排队写窗口内基线漂移时回「刷新重读」语义而非 500。
 async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
@@ -134,7 +134,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
-  // SRV- 机械批：parseRagInput 移入 parse——body 校验先于 409/404 前置门发生（defineRoute
+  // parseRagInput 移入 parse——body 校验先于 409/404 前置门发生（defineRoute
   // 先读 body 后进 handler），既有测试未钉旧优先级（404 用例带合法 body），校验文案逐字保留
   defineRoute('rag-providers.put', {
     method: 'PUT',
@@ -179,7 +179,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
-  // defineRoute parse 迁移跳过（SRV- 机械批）：本端点 body 读取是容错语义（无 body
+  // defineRoute parse 迁移跳过：本端点 body 读取是容错语义（无 body
   // 放行；readJson 非 HttpError 失败兜底 undefined 继续），defineRoute 的 readJson 失败
   // 先于 parse 短路统一回 400——「按空 body 兜底继续」的既有语义在 parse 化后不可表达
   defineRoute('rag-providers.delete', {
@@ -218,7 +218,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       const target = snapshot.ragProviders.find((p) => p.id === params['id'])
       if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
-      // （二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
+      // 探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
       // 可能被 PUT 编辑（endpoint/model/key 变更会清 caps 要求重测）；探测完成后旧快照的
       // connected 直接回写会把「打旧端点/旧 key 探出的结果」盖到新配置上，绕过该不变量。
       // 对齐 chat 侧 providers.test 的同型；指纹取连通性相关三字段（name 不影响）。

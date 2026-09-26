@@ -72,7 +72,7 @@ defineEmits<{
 </template>
 
 <style scoped>
-/* ── 批量模式 ── */
+/* 批量模式下卡片/行选中态：accent 边框 */
 .batch-check {
   position: absolute;
   top: var(--shelf-card-pad, var(--size-4-3));

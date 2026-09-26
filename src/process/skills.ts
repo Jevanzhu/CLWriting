@@ -1,5 +1,5 @@
 /**
- * 写作技巧包 skill 化（批次 / DSH-18）。
+ * 写作技巧包 skill 化（批次）。
  *
  * 多根发现 + 按需加载（对齐 spill 的预算纪律：system prompt 不背全量正文）：
  * - 三根扫描，rank 高覆盖低（同名去重）：项目 <bookRoot>/设定/技巧/*.md
@@ -17,7 +17,7 @@ import { isMdFileName } from '../format/filename.js'
 import { bundledResource } from '../fs/resources.js'
 import { log, errMsg } from '../log/index.js'
 
-// ── ：技巧包文件级 mtime 缓存 ────────────────────────
+// ──：技巧包文件级 mtime 缓存 ────────────────────────
 // listSkills 此前三根全量 readFileSync+parse（chat 每轮组 system prompt 索引都扫），
 // loadSkill 又经由 listSkills 只为按名找一条、找到后再 readFileSync 重读一遍正文。
 // 每文件 (mtimeNs,size) 指纹 → 已解析条目（meta + 剥 fm 正文）：指纹命中免读免解析，
@@ -64,7 +64,7 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
   let files: string[]
   try {
     // 过滤口径同 readCharacterCards：只收 .md，跳过 macOS 资源叉 ._*
-    // .md 判定收敛 isMdFileName（大小写不敏感，家族）——
+    // .md 判定收敛 isMdFileName（大小写不敏感家族）——
     // .MD 技巧包不入索引（模型看不到目录即无从 read_skill 取用）
     files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
@@ -139,7 +139,7 @@ export function listSkills(roots: SkillRoots): SkillMeta[] {
   return [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
-// ── （修复批）：roots 级 name→meta 索引缓存 ──────────────
+// ──：roots 级 name→meta 索引缓存 ──────────────
 // loadSkill 原每次都调 listSkills(roots) 全量扫三根（逐文件 readdir + stat）只为按名
 // 取一条，命中后再 stat 目标文件复核指纹——read_skill 每次调用 O(总技巧包数) 系统调用。
 // 现按 roots 指纹（三根目录 mtimeNs：新增/删除/改名会使目录 mtime 变化）缓存 name→meta

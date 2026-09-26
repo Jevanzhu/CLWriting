@@ -13,7 +13,7 @@ export type { Session, SessionOptions, DriverEvent, StudioDriver } from './types
 const sessions = new Map<string, Session>()
 
 /** 取 driver：env CLWRITING_DRIVER=mock → mock（e2e / 前端开发调试）；其余 → cc（provider 直连）。
- *  （十五轮登记销账）：删 host 形参——全仓唯一实参 'cc'，host==='mock' 分支零调用面
+ * 删 host 形参——全仓唯一实参 'cc'，host==='mock' 分支零调用面
  *  （死参数假扩展）；选择只走 env（e2e global-setup 依赖此口径）。真多 host 时再加显式
  *  参数并落配置 resolve，不预留空壳。 */
 export function getDriver(): StudioDriver {
@@ -40,7 +40,7 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
   return session
 }
 
-/** 只读查某书现存 session（不建不 dispose）——：/interrupt 等入口判
+/** 只读查某书现存 session（不建不 dispose）——/interrupt 等入口判
  *  「会话是否存在」用；无会话时不得经 ensureSession 隐式新建（新 channel 无人 dispose）。 */
 export function getSession(bookId: string): Session | null {
   const s = sessions.get(bookId)

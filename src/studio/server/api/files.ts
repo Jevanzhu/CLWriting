@@ -22,7 +22,7 @@ import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '..
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // NonUtf8TargetError 类型化分诊（确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
-import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用（/同款）
+import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用（同款）
 import { log, errMsg } from '../../../log/index.js'
 import { createSerialChainMap } from '../serial-chain.js' // per-key 串行链四胞胎通用件
 
@@ -83,7 +83,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // 畸形 URL → 400 BAD_INPUT（/口径）
+      // 畸形 URL → 400 BAD_INPUT（口径）
       const q = queryParams(req)
       if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
       const file = q.get('file') ?? ''
@@ -119,7 +119,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
     gate: ({ params, req, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return false
-      // 畸形 URL → 400 BAD_INPUT（/口径）
+      // 畸形 URL → 400 BAD_INPUT（口径）
       const q = queryParams(req)
       if (!q) {
         replyError(res, 400, 'BAD_INPUT', 'bad request')
@@ -142,10 +142,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const body = (raw ?? {}) as Record<string, unknown>
       if (typeof body['content'] !== 'string') throw new Error('缺少 content')
       return {
-        // 平台规范化批：PUT 白名单 .md 直写不经 DocumentService.save，此处自收口——
+        // 平台：PUT 白名单 .md 直写不经 DocumentService.save，此处自收口——
         // 请求体内容（外部编辑器粘贴/同步盘形态）写前归一规范形，快照比对与指纹同源
         content: canonicalizeText(body['content']),
-        // 非字符串与缺省同归「未带基线」（旧「后写为准」语义，见 handler 侧 /注）
+        // 非字符串与缺省同归「未带基线」（旧「后写为准」语义，见 handler 侧注）
         expectedRevision: typeof body['expectedRevision'] === 'string' ? body['expectedRevision'] : undefined,
       }
     },
@@ -208,10 +208,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
           // 覆盖写前快照留底——PUT /file 直接 atomicWriteFile 覆盖既有
           // 文件（设定/大纲/细纲等编辑器白名单 .md），旧内容此前无版本链、误存即不可恢复。
           // 复用 draft 侧 snapshotBeforeOverwrite 单源工具（文件不存在/内容相同 → null 不留）。
-          // （修复批）：原 catch 把**全部**留底失败一并
+          // 原 catch 把**全部**留底失败一并
           // fail-open 吞掉继续覆盖写——其中非 UTF-8 确定性拒绝被吞 = GBK/Big5 存量
           // 书在编辑器保存即无快照覆盖丢原稿且返 200（本轮唯一）。现改 fail-closed 分诊
-          //（对齐同函数在 saveDraft 侧的现行口径「留底失败上抛拒绝覆写」，的
+          //（对齐同函数在 saveDraft 侧的现行口径「留底失败上抛拒绝覆写」的
           // fail-open 注记就此废止）：
           // - NonUtf8TargetError→ 400 + 转码指引文案（确定性失败，重试无意义）；
           // - 其余留底 IO 失败 → 409 WRITE_ERROR「未执行保存，可重试」——留底失败时覆盖写
@@ -252,7 +252,7 @@ type FilePutOutcome =
   { readonly status: number; readonly code: string; readonly error: string } | { readonly revision: string }
 
 /** 同文件 PUT 串行链（key = 绝对安全路径）。
- *  ：enqueue/settled 吞错/链尾自清理四件套收编
+ * enqueue/settled 吞错/链尾自清理四件套收编
  *  serial-chain.ts createSerialChainMap 单源（本链原为该手法的首发实现点）；链键带
  *  文件段（books.ts drain 只需书根前缀命中），drain 口径用 'prefix'（startsWith(root+sep)，
  *  realpath 双口径前缀在通用件内同型保留）——语义逐位不变。 */
@@ -268,12 +268,12 @@ function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): 
  *  → 旧书路径残留孤儿文件。删除路径天然免疫（基线 ENOENT → 404 不写），仍一并 drain
  *  求同口径。快照当前键后逐键等待（新进链不等——rename 已过本闸的守卫语义由各端点
  *  自身的 orchestration 排队保证）。
- *  （总七十一轮）：链键是 resolveWithinRoot 返回的口径——目标存在时为 realpath
+ * 链键是 resolveWithinRoot 返回的口径——目标存在时为 realpath
  *  （safe-path.ts），目标不存在时为词法 resolve；调用方（books.ts）传入的书根是
  *  join(workDir, entry.path) 词法口径。workDir 含 symlink 组件（macOS /var→/private/var）
- *  时词法前缀永不匹配 realpath 键 → drain no-op、守卫失效。书根补 realpath
+ * 时词法前缀永不匹配 realpath 键 → drain no-op 守卫失效。书根补 realpath
  *  前缀（失败回退词法），两前缀任一命中即 drain——不改 safe-path.ts 语义。
- *  ：匹配/等待实现在 serial-chain.ts drainUnder 单源。 */
+ * 匹配/等待实现在 serial-chain.ts drainUnder 单源。 */
 export async function drainFilePutChainsUnder(bookRoot: string): Promise<void> {
   await filePutChains.drainUnder(bookRoot)
 }
@@ -290,14 +290,14 @@ function hashContent(content: string): string {
 }
 
 /** 取 req URL 的 searchParams
- *  ：改经 parseRequestUrl 统一解析（/口径）——畸形 URL 返 null，
+ * 改经 parseRequestUrl 统一解析（口径）——畸形 URL 返 null，
  *  调用方回 400 BAD_INPUT 信封。 */
 function queryParams(req: IncomingMessage): URLSearchParams | null {
   return parseRequestUrl(req)?.searchParams ?? null
 }
 
-/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+ 工作区确认文件白名单）。
- *  防穿越批 6 统一：resolveWithinRoot（resolve+relative 防穿越 + symlink 双侧 realpath 校验，
+/** 编辑器只允许读写 EDIT_DIRS 下的普通 Markdown 文件（+工作区确认文件白名单）。
+ * 6 统一：resolveWithinRoot（resolve+relative 防穿越 + symlink 双侧 realpath 校验，
  *  目标存在时返回 realpath；fail-closed）——安全判定与 rel 提取共用同一次解析结果。 */
 function editablePath(bookRoot: string, file: string): string | null {
   // .md 判定收敛 isMdFileName（大小写不敏感）——.MD 编辑对象
@@ -312,7 +312,7 @@ function editablePath(bookRoot: string, file: string): string | null {
 }
 
 /** 写侧白名单 = editablePath 去掉 写作/正文——正文 PUT 走文档保存协议（读侧 doc store 仍按路径读正文）。
- *  ：返回值带 rel（bookRoot 相对路径）——快照留底 snapshotBeforeOverwrite 按 rel 寻址，免二次解析。 */
+ * 返回值带 rel（bookRoot 相对路径）——快照留底 snapshotBeforeOverwrite 按 rel 寻址，免二次解析。 */
 function writablePath(bookRoot: string, file: string): { rel: string; abs: string } | null {
   const safe = resolveWithinRoot(bookRoot, file)
   if (!safe) return null
@@ -330,7 +330,7 @@ function writablePath(bookRoot: string, file: string): { rel: string; abs: strin
  *  放行 布线/大纲/关系线/ 但临界段不取锁：跨进程下 CLI 定稿持锁 RMW 与 PUT 直写交错，
  *  writeLead 以旧读内容覆盖 PUT 刚落的新内容——无痕丢更新（快照留底的是覆写前旧内容）。 */
 function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
-  // -mac适配：前缀门归一收编 normalizeWinSeparators（win32-only，与
+  // mac适配：前缀门归一收编 normalizeWinSeparators（win32-only，与
   // DocumentService.wiringFileLockKey 同批同口径）——posix 上字面 `\` 文件名
   // （`布线\x.md` 系书根单段名、非布线目录内文件）不再误入布线锁前缀门
   const p = normalizeWinSeparators(rel)
@@ -339,7 +339,7 @@ function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
     // 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）
     // 折叠改委托 safe-path platformCaseFold 单源（前缀过滤/join/
     // '.lock' 管线不变，键字节不变；test/document/casefold-keys.test.ts 静态扫描锁定本委托）
-    // （修复批）：折叠前补 toNfcName（先 NFC 后
+    // 折叠前补 toNfcName（先 NFC 后
     // 大小写折叠，与 docJoinKey 同序）——本侧同型缺口同批修齐：外部工具经 API 以
     // NFD 形态送 rel 时此前派生不同 .lock，PUT 直写与保存/定稿互斥静默失效。NFC
     // 输入键字节不变（字节稳定不变量相容），仅 NFD 输入键变化；与 service/

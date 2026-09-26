@@ -10,7 +10,7 @@
  * dedupeChaptersByNumber / chapterFingerprintFresh）唯一持有者即本文件，export 供
  * index.ts 消费。依赖方向：rag→ai（recordTaskUsage 记账）在 AI 层内合法，绝无
  * studio import（方向锁）。域总述头注（含互斥依赖登记）见
- * rag/index.ts。
+ * RAG 建索引（缝 B）——（⑤④产品拆分波2）自 rag/index.ts 纯移动
  */
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -54,7 +54,7 @@ function recordEmbedUsage(bookRoot: string, promptTokens: number): void {
 }
 
 /** build/recall 共用的 embed 调用选项：超时显式 resolve 自 RagConfig，
- *  用量走 rag-embed 记账。 */
+ * 用量走 rag-embed 记账。 */
 export function embedOptionsFor(bookRoot: string, config: RagConfig): EmbedOptions {
   return {
     timeoutMs: config.embed_timeout_ms,
@@ -90,7 +90,7 @@ function readChapterFingerprint(ch: ChapterMeta): string | null {
  * 重复章号确定性归一——cache/foreshadow 侧均承认可产生两文件同
  * 章号的数据态。精准读取（materials readChapterBodyByNumber → walkMdFind）按章号取
  * 目录序首个匹配文件；索引侧若把两文件的块都挂同章号入库，后者文件的偏移切片会落在
- * 首个文件正文上（错位片段）。：保留策略从「路径字典序最小」改为
+ * 首个文件正文上（错位片段）。保留策略从「路径字典序最小」改为
  * 「入序首个」（调用方 chapters 来自 readChapterDir 的 walk 序，与 walkMdFind 同源）
  * ——两序不一致时字典序近似会让索引挂的文件与读取命中的文件不同，「防偏移错位」在
  * 告警窗外依旧发生；首个命中策略下两侧恒同文件。跳过项照旧交调用方告警留痕。
@@ -186,7 +186,7 @@ export function resetRagIndex(bookRoot: string): void {
 // ── 阶段 24 章节结构操作：合并后 RAG 清理（best-effort，不阻断主流程）──────
 
 /** 阶段 24：合并落定后的 RAG 清理——源章号 `deleteChunksByChapter` + `deleteRagMeta`
- *  成对（同款：章号从索引域整体摘除）+ 目标章 `deleteRagMeta`（指纹失效 →
+ * 成对（同款：章号从索引域整体摘除）+ 目标章 `deleteRagMeta`（指纹失效 →
  *  missingFingerprint，下轮 buildIndex 按合并后正文重嵌）。事务包裹（BEGIN IMMEDIATE
  *  … COMMIT，stale 清理 :393-426 同款先例）；任何失败 warn 回滚不抛——RAG 是投影非
  *  权威源，自愈兜底 = 下轮 buildIndex 的已删章残留清理 + stale 指纹重嵌。 */
@@ -275,7 +275,7 @@ export async function buildIndex(
 
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
-    // （GLM-5.3 修复批）：文案「定稿」→「正文」——本模块
+    // 文案「定稿」→「正文」——本模块
     // 头注明示索引进全量正文（含未定稿草稿，召回服务写作连续性检索），空语料降级
     // 文案却宣称只认定稿，误导排查方向（作者会误以为先定稿才能建索引）
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有正文可索引。' }
@@ -285,7 +285,7 @@ export async function buildIndex(
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有正文可索引。' }
   }
   // 重复章号去重 + 告警——无告警时两文件同章号的块全入库，召回
-  // 偏移对精准读取可错位。：注释与告警文案对齐实现口径
+  // 偏移对精准读取可错位。注释与告警文案对齐实现口径
   // （保留「入序首个」，walk 序与 walkMdFind 同源）——原「路径字典序首个」系改造前
   // 旧文案，误导排查方向。
   const { chapters, dropped } = dedupeChaptersByNumber(chaptersFromDir)
@@ -309,7 +309,7 @@ export async function buildIndex(
     )
   }
 
-  // （GLM-5.3 修复批）：增量路径对齐同文件 reset/
+  // 增量路径对齐同文件 reset/
   // state 路径的损坏自愈——文件级损坏（SQLITE_NOTADB 族）此前裸抛英文 SQLite 错，
   // 建索引入口（作者自救的第一操作）同死；确认损坏后删库（连 -wal/-shm）全新建，
   // 全量重建由增量逻辑自然承接（空库无指纹/游标 → 全部章落入 toIndex）。busy/IO
@@ -361,7 +361,7 @@ export async function buildIndex(
             }
             db.exec('COMMIT')
           } catch (e) {
-            // 同款加固——SQLite 部分错误已自动回亡事务，
+            // 同款加固——SQLite 部分错误已自动回亡事务，再
             // 再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK
             // 自身异常、原始错误进返回文案
             // 回滚句收编 store.ts safeRollback 单源。
@@ -393,7 +393,7 @@ export async function buildIndex(
     // 指纹循环与 toIndex 收集段各读一次全文，现至多读一次。指纹循环与收集段之间全同步
     // IO 无 await，缓存 body 与现读逐字节一致。指纹计算口径不变（readChapterFingerprint
     // 同式：readFile → hashChapterBody，查询侧 ：206 原函数保留不动）。
-    // - nano ：顺手缓存指纹循环已算出的 body 哈希（staleHashes）——
+    // nano：顺手缓存指纹循环已算出的 body 哈希（staleHashes）——
     // 缓存 body 后收集段又对同一字节串 hashChapterBody 重算是白付；缓存命中章收集
     // 段直接复用，仅现读章（新章/指纹循环读失败章）现算。
     const staleBodies = new Map<number, string>()
@@ -413,13 +413,13 @@ export async function buildIndex(
       if (!indexedHash) {
         missingFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
-        staleHashes.set(ch.章号, currentHash) // nano ：哈希随 body 顺手缓存
+        staleHashes.set(ch.章号, currentHash) // nano：哈希随 body 顺手缓存
         continue
       }
       if (indexedHash !== currentHash) {
         staleFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
-        staleHashes.set(ch.章号, currentHash) // nano ：哈希随 body 顺手缓存
+        staleHashes.set(ch.章号, currentHash) // nano：哈希随 body 顺手缓存
       }
     }
 
@@ -446,7 +446,7 @@ export async function buildIndex(
         readFailAt = ch.章号
         break
       }
-      // nano ：缓存命中章复用指纹循环已算哈希（同一字节串不再 SHA-256 重算）；
+      // nano：缓存命中章复用指纹循环已算哈希（同一字节串不再 SHA-256 重算）；
       // `??` 分支只落在现读章（新章/指纹循环读失败章——彼时未入 staleHashes）
       const cachedHash = staleHashes.get(ch.章号)
       chapterHashes.set(ch.章号, cachedHash ?? hashChapterBody(r.body))
@@ -520,10 +520,10 @@ async function commitIndexBatch(
   apiKey: string,
   embedOptions: EmbedOptions = {},
 ): Promise<BuildIndexResult> {
-  // 批量 embed——：分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
+  // 批量 embed——分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
   // 必超常见 embedding 端点的单请求上限（静默失败/截断）。分批按块数封顶
-  //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量）。任一批失败不再
-  // 整体报废——：已成功批按「整章」小事务续传落库（见下）。
+  //（100 块/ ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量）。任一批失败不再
+  // 整体报废——已成功批按「整章」小事务续传落库（见下）。
   const EMBED_BATCH_SIZE = 100
   // 既有索引维度进 embed 循环前先读——维度无法预知（同一模型
   // 名在不同端点/供应商可出不同维度），只能在首批返回后比对；旧口径在全部批次烧完后
@@ -562,7 +562,7 @@ async function commitIndexBatch(
     // 只觉召回变差无从排查。任一批条数与请求文本数不符、或任一行维度偏离基准 → 该批
     // 按 embed 失败同款收口（failedAt 续传路径：批前整章小事务提交，混维批零入库）。
     if (refDim === null) refDim = batchVec[0]?.length ?? null
-    // 首批后即检既有索引维度—— 批内校验（混维/条数）
+    // 首批后即检既有索引维度——批内校验（混维/条数）
     // 之后执行，批形异常仍归批失败路径；批形合法而维度对不上既有索引 → 当场硬错，
     // 不再继续烧后续批次（信封与既有收尾检查同一文案，消费方零感知差异）。
     if (existingIndexedDim && refDim !== null && Number(existingIndexedDim) !== refDim) {
@@ -581,7 +581,7 @@ async function commitIndexBatch(
       failedAt = i
       break
     }
-    // Float32 溢出守卫——embed 的 finite 校验在 double 层
+    // Float32 溢出守卫——embed() 的 finite 校验在 double 层
     //（embed.ts 槽位校验），分量 >3.4e38 的**有限** double 经 Float32Array.from 收窄
     // 成 ±Infinity 静默入库成永久毒行（norm=∞、余弦对它恒 NaN，一行毒数据即可打乱
     // 整库 topK 排序且无告警；触发面为故障/恶意端点）。物化（double→Float32）之后
@@ -617,7 +617,7 @@ async function commitIndexBatch(
     let salvaged = 0
     let salvagedChunks = 0
     // 维度守护：与既有索引维度不一致时不续传（该错要求重建索引，续传无意义）——
-    // （§四/§六）：守护只约束「有向量待落库」
+    // （§四/§六批2）：守护只约束「有向量待落库」
     // （span 非 null）的章。首批即失败（failedAt=0、vectors 空、vectorDim undefined）时
     // 原守卫 `complete.length > 0 && vectorDim && ...` 把仅含零块章的 complete 整体跳过
     // ——零块章指纹（无向量写入、无维度依赖）持续缺失到端点恢复。修复：零块章无条件
@@ -735,7 +735,7 @@ async function commitIndexBatch(
   } catch (e) {
     // 同款加固——SQLite 部分错误已自动回亡事务，再
     // ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、
-    // 原始错误进返回文案
+    // 自身异常、原始错误进返回文案
     // 回滚句收编 store.ts safeRollback 单源。
     safeRollback(db)
     return {

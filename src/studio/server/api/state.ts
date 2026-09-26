@@ -5,7 +5,7 @@
  *
  * 工作台进页拉此端点：顶部状态卡显示「现在该写第 N 章」/「第 N 章写到一半续写」，
  * 并自动填章号（态 7→nextChapter，态 4 续写章→chapterNum）。
- * 内核 enter 自读原始 book.yaml（无 userDataPath 概念，卷大小回落硬编码 50），
+ * 内核 enter() 自读原始 book.yaml（无 userDataPath 概念，卷大小回落硬编码 50），
  * 这里在 API 层展开同一串内核件（readBookConfig → detectState → routeState → buildRecap），
  * config 先过 applyGlobalDefaults——书级未设 volume_size 等回落 global.json → 硬编码
  * （与 overview 喂 detectState 同一口径），态 5 卷末判定 / recap 卷号因此吃到生效值。
@@ -23,7 +23,7 @@ import { readManifest } from '../../../document/manifest.js'
 import { detectState, routeState, buildRecap, STATE_NAMES } from '../../../state/state.js'
 import { appendAborted, findUnsettled } from '../../../document/journal.js'
 import { trackInFlightWork } from './in-flight-work.js' // rebuild Worker 退出收尾登记
-import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
 import { log, errMsg } from '../../../log/index.js'
 
 interface StateCtx {
@@ -35,7 +35,7 @@ interface StateCtx {
   stateTtlMs?: number | null
 }
 
-// ── /state 结果 5s TTL 缓存 ─────────────────────────
+// ──：/state 结果 5s TTL 缓存 ─────────────────────────
 // detectState→routeState→buildRecap 每请求全量读盘（manifest + 布线 rebuild + 近况
 // 复述），工作台进页/轮询/反复刷新会反复重建。缓存口径对齐 health.ts styleScanCache
 //（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效挂点——保存/定稿后最迟 5s 自愈
@@ -74,14 +74,14 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const bookRoot = r.bookRoot
       // 命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；
       // 过期条目顺手逐出与「只缓存成功路径」由通用件承担（计算体抛错即不落缓存，同
-      // 原 try/catch 口径）。：壳体收编 ttl-cache.ts 通用件。
+      // 原 try/catch 口径）。壳体收编 ttl-cache.ts 通用件。
       try {
         // 收尾：TTL 覆盖档经 ctx（组装根 RouteOverrides）逐调用传入——
         // undefined = 生产口径 5s；缺失覆盖下命中/逐出时序与改前逐位一致
         const payload = await stateCache.get(
           bookRoot,
           async (root): Promise<Record<string, unknown>> => {
-            // enter 的等价展开（见文件头注释），差异仅在读出的 config 过
+            // enter() 的等价展开（见文件头注释），差异仅在读出的 config 过
             // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
             // 卷号用生效值：书级未设时 global.json 书库级默认不再断链
             const cfgResult = readBookConfig(join(root, 'book.yaml'))
@@ -91,7 +91,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
             }
             const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
             const manifest = readManifest(join(root, '项目', '文档清单.jsonl'))
-            // 与 enter 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，-BE-4）
+            // 与 enter() 同序：判态 → 路由 → 近况复述（manifest 只读一次复用）
             // detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
             // rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
             // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结

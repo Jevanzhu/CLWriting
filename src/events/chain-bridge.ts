@@ -50,7 +50,7 @@ export function llmCallEvent(data: {
    *  源；RC改口径表述，字段名保名，见 LlmCallData 同注） */
   maxTokens?: number
   firstByteTimeoutMs?: number
-  /** （十五轮登记销账）：model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
+  /** model-quirks 参数表 contentVersion——跨版本重放漂移检测，见 LlmCallData */
   quirksVersion?: string
   /** 成功建流用的是降级参数面（剥 structured/剥 tools）——重放按
    *  事件重建需知（首发 400 剥面成功的历史，不带此标记重放会再 400） */
@@ -82,9 +82,9 @@ export function checkReportEvent(data: { chapter: number; reds: string[]; yellow
   return { type: 'check/report', data: { ...data } }
 }
 
-// ── 血缘+检索事件构造器 ───────────────────────────
+// ──血缘+检索事件构造器 ───────────────────────────
 
-// （四轮处置批）：章号转可选——未选章形态（revisionDigest 在而章号缺，
+// 章号转可选——未选章形态（revisionDigest 在而章号缺，
 // 如工作台未选章直接对话）此前被 `?? 0` 伪装成 0；章号 1 起算，0 属无效值，血缘
 // 载荷里出现伪 0 易被误读为真章号。缺省即「无章」语义；消费方（lineage
 // registeredRecords）只读 revision 不读章号，契约放宽零影响。
@@ -117,7 +117,7 @@ export function ruleHitEvent(data: { ruleId: string; task: string; chapter?: num
   return { type: 'rule/hit', data: { ...data } }
 }
 
-// ── goal 状态机 + todo 快照事件构造器 ──────────────────────────
+// ──goal 状态机 + todo 快照事件构造器 ──────────────────────────
 
 export function goalChangeEvent(data: GoalChangeData): NewEvent {
   return { type: 'goal/change', data: { operation: data.operation, goal: data.goal } }
@@ -141,7 +141,7 @@ export function structureMergeUndoEvent(data: StructureMergeUndoData): NewEvent 
   return { type: 'structure.merge-undo', data: { ...data } }
 }
 
-/** task 名 → 五层 layer 映射（/DSH-8：五层每层一个 step） */
+/** task 名 → 五层 layer 映射（F2/：五层每层一个 step） */
 export function layerForTask(task: string): LayerName {
   switch (task) {
     case 'chat':
@@ -213,7 +213,7 @@ export class ChainRecorder {
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
         // 清偿批截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
-        //（迟到丢弃 / flush 失败 / close 残留均留痕，唯的丢最旧
+        //（迟到丢弃 flush 失败 / close 残留均留痕，唯的丢最旧
         // 防无限增长此前静默）：落库持续故障期间被蒸发的事件无从定位，审计黑洞。
         // 先记丢弃数再 slice；观测层留痕不炸业务流程。
         const dropped = this.buffer.length - CHAIN_BUFFER_MAX
@@ -227,7 +227,7 @@ export class ChainRecorder {
   }
 
   /** 一次性闸——重复 close 会把 openSessionStore 引用计数再递减一次，
-   *  refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（同族）。
+   * refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（同族）。
    *  当前调用方靠 chain = null 自律防双调，本闸把纪律下沉到 API 自身。 */
   private closed = false
   /** closed 后迟到 add 的一次性 warn 标记——首条留痕、后续静默防刷屏 */
@@ -256,14 +256,14 @@ export class ChainRecorder {
   }
 }
 
-// ── 伏笔状态变化登记（foreshadow/change）──────────────────
+// ──伏笔状态变化登记（foreshadow/change）──────────────────
 
 /** 对比新旧伏笔列表，把状态变化登记为 foreshadow/change 事件（create/edit/complete/block/clear）。
  * 接线：字段形状与 document/foreshadow.ts ForeshadowEntry 对齐（标题/状态），
  *  由 documents API 的保存/PATCH/新建/软删四个变更点调用（快照-差分）。
  *  store/session 缺失静默跳过。
  *  -源码 -⑪：差分配对键从 标题 改为 file——ForeshadowEntry 数据模型无编号
- *  字段，盘上唯一身份是相对路径 file（迁移链只保证文件名不撞，fm 标题可重复，
+ * 字段，盘上唯一身份是相对路径 file（迁移链只保证文件名不撞，fm 标题可重复，
  *  同文件 低-5 注记在案）；同标题双伏笔此前在标题键 Map 里互相覆盖，后回收的那条的
  *  状态变更被吞（零事件漏记）。file 缺失的宽松调用方回落标题；同键重号首个 warn
  *  一次性留痕（键唯一性破坏 = 配对按后者覆盖退化）。事件载荷仍只带 title，产出形态不变。 */

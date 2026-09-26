@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 文风定标卡（StyleView 拆分 ① 定标段）：检测标准 chips + 基准建立/重建 + 参考强度 + 铁律原文编辑。
+// 文风定标卡（StyleView 拆分① 定标段）：检测标准 chips + 基准建立/重建 + 参考强度 + 铁律原文编辑。
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { SlidersHorizontal, Snowflake } from 'lucide-vue-next'
@@ -10,7 +10,7 @@ import { getContentPayload, putContent } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
-// （修复批）：.panel/.btn-*/.kind-badge 逐字重复块
+// .panel/.btn-*/.kind-badge 逐字重复块
 // 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
 // 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
 import './style-shared.css'
@@ -89,8 +89,8 @@ const rulesSaving = ref(false)
 const rulesDirty = computed(() => rulesText.value !== rulesOrig.value)
 async function toggleRulesEdit(): Promise<void> {
   if (editingRules.value) {
-    // （-0914）：收起前脏守卫——原直接折叠，再次展开走 getContentPayload
-    // 从磁盘重取，未保存手改静默丢稿（OnboardView 「覆盖手改先确认」同款口径）。
+    // 收起前脏守卫——原直接折叠，再次展开走 getContentPayload
+    // 从磁盘重取，未保存手改静默丢稿（OnboardView「覆盖手改先确认」同款口径）。
     // 确认取消则保持展开；确认后丢弃（danger 档，与删除类确认同视觉）。
     if (rulesDirty.value) {
       const ok = await ui.ask({
@@ -104,7 +104,7 @@ async function toggleRulesEdit(): Promise<void> {
     editingRules.value = false
     return
   }
-  // await 前捕获书名（同文件 onFreeze/saveRules 的 /模式，
+  // await 前捕获书名（同文件 onFreeze/saveRules 的模式，
   // 与的 armed+bookName 双门同口径）——铁律读取在途切书后，旧书内容不得
   // 回填表单状态、失败 toast 不得落 B 书界面（原状态更新与 toast 均无复检）
   const book = props.bookName
@@ -113,7 +113,7 @@ async function toggleRulesEdit(): Promise<void> {
     // 读口收敛 getContentPayload 解构（同端点同 URL 同超时档，
     // 原 getContentRevisioned 壳随本调用点改造删除）
     const { content, revision } = await getContentPayload(props.bookName, RULES_PATH)
-    if (!armed(book) || style.bookName !== book) return // 在途切书 → 不回填
+    if (!armed(book) || style.bookName !== book) return // 重拉在途切书：旧书内容不回填死实例 UI
     rulesText.value = content
     rulesOrig.value = content
     // revision 在载荷型读口下可缺省（FileContentPayload）——null 兜底与原壳非空类型同口径
@@ -134,7 +134,7 @@ async function toggleRulesEdit(): Promise<void> {
 }
 async function saveRules(): Promise<void> {
   if (rulesSaving.value) return
-  // 入口捕获书名 + await 后复检（对齐同文件 onFreeze 的 /
+  // 入口捕获书名 + await 后复检（对齐同文件 onFreeze 的
   // 模式）——铁律保存在途切书后（StyleView :key 重建，本死实例 props 冻结在旧书），
   // A 书的保存结果 toast 与 style.load(旧书) 会落 B 书界面/把 A 书定标数据写进共享 store
   const book = props.bookName
@@ -315,7 +315,7 @@ async function saveRules(): Promise<void> {
   width: 100%;
   resize: vertical;
   padding: 10px 12px;
-  /* -：--font-mono 系不存在的 token 名（实名 --font-monospace 族，
+  /* --font-mono 系不存在的 token 名（实名 --font-monospace 族，
    * win 档 Consolas 打头，见 styles/tokens.css），原写法恒走自定义 fallback——win
    * Consolas 档失守。改引实名并删自定义 fallback。 */
   font-family: var(--font-monospace);

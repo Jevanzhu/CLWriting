@@ -16,7 +16,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // ── ：分组 + 双索引单趟复合派生 ──
+  // ──：分组 + 双索引单趟复合派生 ──
   // 原 grouped（groupTree 深克隆）/ byPath / byDocId 三个 computed 各自全树行走（克隆
   // ×1 + 遍历 ×2），几百节点量级下合并为「一次 groupTree + 一次行走」同产三面，树刷新
   // 时遍历次数 3 → 2（groupTree 内部克隆遍历含在内）；渲染结果逐字节不变：
@@ -107,7 +107,7 @@ export const useTreeStore = defineStore('tree', () => {
   })
 
   /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。
-   *  ：裸计数器换装 useStaleGuard。 */
+   * loadGen 裸计数器换装 useStaleGuard。 */
   const issuesGen = useStaleGuard()
   async function loadIssues(name: string): Promise<void> {
     const gen = issuesGen.begin()
@@ -126,7 +126,7 @@ export const useTreeStore = defineStore('tree', () => {
 
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
    *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。
-   *  ：loadGen 裸计数器换装 useStaleGuard。 */
+   * loadGen 裸计数器换装 useStaleGuard。 */
   const loadGen = useStaleGuard()
   // 同书在途 load 台账（手法对齐 doc.ts inflightOpens）——同书并发
   // 调用（切书链 + 结构性 mutation 后重载 + 窗口回前台重扫）合并为一次 GET /tree。

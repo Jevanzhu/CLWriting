@@ -5,7 +5,7 @@ import { bookUrl } from './url'
 export interface SearchHit {
   path: string
   matches: { line: number; text: string }[]
-  // （修复批）：服务端单文件命中 20 条封顶的
+  // 服务端单文件命中 20 条封顶的
   // 截断标记（src/process/book-search.ts）——面板据此以「20+」文案区分服务端截断
   hasMore?: boolean
 }

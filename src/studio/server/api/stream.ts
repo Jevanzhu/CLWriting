@@ -28,11 +28,11 @@ import { isChatRunning, abortChat } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
-import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
+import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import type { StreamTicketStore } from './stream-ticket.js'
-// 忙闸判定单源——：本文件不再自写互斥矩阵，spawn/auto-write 两入口只调
+// 忙闸判定单源——本文件不再自写互斥矩阵，spawn/auto-write 两入口只调
 // busyReason（含跨进程锁文件面的任务闸查询在 task-gate.ts 内合并：双进程形态下他进程
 // 分钟级任务在途时纯进程内查询看不见，会照常放行写端点致产出互踩）。
 // allHeldTaskGatesFor 同批迁回 task-gate.ts（原就近放 audit.ts），audit ↔ stream 的
@@ -60,7 +60,7 @@ import { trackInFlightWork } from './in-flight-work.js'
 export { isSpawnRunning, __setSpawnRunning }
 
 // 桥：拆出族的既有外部消费名逐名再导出——books.ts / chat.ts 的 forgetSseCount，
-// index.ts 的 closeAllSseConnections，sse-count-cleanup / 测试的
+// index.ts 的 closeAllSseConnections，sse-count-cleanup 测试的
 // __getSseConnections，sse-backpressure 测试的 createSseWriter，
 // p37 测试的 ORCH_STALL_WATCHDOG_MS / ORCH_STALL_GRACE_MS——消费方 import 面零改动
 export { forgetSseCount, closeAllSseConnections, __getSseConnections, createSseWriter } from './stream-sse-writer.js'
@@ -121,7 +121,7 @@ export async function runWriterSpawn(opts: {
     // finally）。在此注销则一段 abort 未触达底层 runTask 时（ctrl 尚未登记，或请求无视中止
     // 信号）ctrl 一经注销 isRunning 即假空闲，后续 /interrupt 对该在途请求永久失联；保留注册
     // 至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort，同 owner 的新登记亦会
-    // abort 旧 ctrl 防僵尸。
+    // owner 的新登记亦会 abort 旧 ctrl 防僵尸。
     forceRelease: () => {
       releaseSpawnGate(opts.bookName)
       opts.driver.emit(opts.mainSession, {
@@ -202,7 +202,7 @@ export async function runWriterSpawn(opts: {
   } finally {
     wd.cancel() // 终态撤 watchdog（成功/失败/中断统一，clearTimeout 无泄漏）
     // 底层 run settle 的注销点（唯一）——二段强释放不提前注销，
-    // 强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
+    // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
     if (registeredCtrl) opts.driver.unregisterCtrl(opts.mainSession, registeredCtrl)
   }
 }
@@ -245,7 +245,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     path: '/api/books/:name/stream',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       // GET 端点凭据校验：EventSource 不走 isWrite 拦截，单独校凭据（一次性 ticket /
-      // x-studio-token 头）。
+      // fetch 型客户端（429 探测）走 x-studio-token 头通道——token 不进 URL（进程列表/
       // 口径：本机进程=同信任域——本地进程 GET /boot 即可拿 token，此处不承诺防本机进程；
       // token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的客户端，配合 Host/Origin 校验
       // （server/index.ts）防远端网页窃听创作内容。
@@ -364,7 +364,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // chat 终态（chat_done/chat_error 走 chat 族）不达 workbench.running，前端永不
       // 复位；对话态由 chatRunning 单独承载。（driver 契约必需化）：
       // isWriterRunning 为必需成员（mock 显式 false 桩），可选链与回落 false 删除。
-      // /interrupt 的 isRunning 消费点（全停语义）不动。
+      // 与 isRunning 缺省同型。/interrupt 的 isRunning 消费点（全停语义）不动。
       safeWrite(
         `data: ${JSON.stringify({ type: 'sync', running: driver.isWriterRunning(session), chatRunning: isChatRunning(params['name']!) })}\n\n`,
       )
@@ -715,7 +715,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // 本端点 200 先回、编排后台跑（fire-and-forget）——登记进 server 在途工作表：
       // close 收尾的裸 close 只等连接清空，编排仍持会话库（userData/session/*.db）与
       // 机检库句柄在写，调用方（e2e/集成测试）close 后立刻 rmSync 临时目录会在 Windows
-      // 落 EPERM（同 的 Worker 句柄族；rag 的 buildIndex 同款登记先例）。
+      // 落 EPERM（同的 Worker 句柄族；rag 的 buildIndex 同款登记先例）。
       void trackInFlightWork(
         runSelfHeal({
           driver,
@@ -736,7 +736,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
           .catch((e) => emitSpawnError(driver, mainSession, e))
           .finally(() => {
             wd.cancel() // 终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
-            // 底层 run settle 的注销点（唯一）——二段强释放不提前
+            // 底层 run settle 的注销点（唯一）——二段强释放不提前注销
             // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
             if (registered) driver.unregisterCtrl(mainSession, registered)
           }),

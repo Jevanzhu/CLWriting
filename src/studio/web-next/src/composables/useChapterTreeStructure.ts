@@ -56,10 +56,10 @@ export function useChapterTreeStructure(deps: {
   // 结构操作以盘上内容为准，脏内容不落盘就动结构会「合并了半章」。
 
   /** 尽力落盘单章未保存内容（waitInflightSave 落定在途保存 → dirty 则静默 autosave，
-   *  origin 用 autosave 同：内部步骤非作者动作，不弹「已保存」toast）。
+   * origin 用 autosave 同：内部步骤非作者动作，不弹「已保存」toast）。
    *  false = 冲突未决或保存失败，调用方中止并提示。 */
   async function flushUnsaved(docId: string): Promise<boolean> {
-    // RC附批（mac 腿 e2e 首因）：读 dirty 前先落编辑器防抖尾——正文回写
+    // （mac 腿 e2e 首因）：读 dirty 前先落编辑器防抖尾——正文回写
     // 有 ≤200ms 合并窗，窗内键入只登记未落回 store（dirty 仍 false），不先冲刷则本函数
     // 「既不保存也不报错」就返 true：结构操作随后按盘上缺末段的陈旧内容干跑（拆分干跑
     // 按全文偏移校验即 400 BAD_INPUT，并入则吃半章）。flush 幂等（无待落即 no-op）。
@@ -79,7 +79,7 @@ export function useChapterTreeStructure(deps: {
    *  干跑 → ui.ask 确认（.cp-modal 动线，引文预演/RAG 预估入 message）→ 携指纹执行。 */
   async function doMergeIntoPrev(node: TreeNode): Promise<void> {
     if (!node.docId) return
-    // FE-1 同族：书名入口捕获——确认弹窗滞留期间切书后，docId 属旧书（错书结构操作）
+    // 同族：书名入口捕获——确认弹窗滞留期间切书后，docId 属旧书（错书结构操作）
     const book = deps.bookName()
     const prev = prevBodyChapterInDisplayOrder(node, tree.grouped)
     if (!prev?.docId) return
@@ -163,7 +163,7 @@ export function useChapterTreeStructure(deps: {
     })
     if (!ok) return
     if (!stillIn(book)) return
-    // -源码：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
+    // 源码：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
     // 均先 flushUnsaved）——dirty 目标章直接 undo，随后的 doc.refresh 走 dirty 分支
     // 保住本地合并后正文并与回滚基线对齐，下次保存零冲突把合并后内容写回；而源章已
     // 还原 → 两章内容重复且无提示

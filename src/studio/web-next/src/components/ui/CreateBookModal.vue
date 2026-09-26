@@ -20,7 +20,7 @@ const emit = defineEmits<{
 }>()
 
 // 对齐 ConfirmDeleteModal 接域内既有焦点圈 useFocusTrap
-// （/同族）——Tab 循环锁在弹窗内、关闭归还焦点 + dialog 语义（role/
+// （同族）——Tab 循环锁在弹窗内、关闭归还焦点 + dialog 语义（role/
 // aria-modal）。两处使用点（Shelf/ShelfModal）均 v-if 挂载：mount 即打开。
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)

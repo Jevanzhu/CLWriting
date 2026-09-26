@@ -68,7 +68,7 @@ export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
   const bookName = ref<string | null>(null)
   /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫）。
-   *  裸计数器换装 useStaleGuard（-优化批；begin/current 语义映射见工具注；
+   * 裸计数器换装 useStaleGuard（begin/current 语义映射见工具注；
    *  判定时机不变——doOpen 进入时快照、await 落定后 stale 复检）。 */
   const bookGen = useStaleGuard()
 
@@ -411,7 +411,7 @@ export const useDocStore = defineStore('doc', () => {
     // 冲刷双兜底同时失明；故须与同文件 refresh / syncCleanWithTree 同款 await 窗口复检。
     const contentAtEntry = e.content
     try {
-      // （-优化批）：getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
+      // getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
       const content = (await getContentPayload(book, e.path)).content
       const rev = await sha256Revision(content)
       // 双窗口（fetch + sha256）后统一复检，命中任一即放弃覆盖：①已切书（e 已脱离
@@ -449,12 +449,12 @@ export const useDocStore = defineStore('doc', () => {
     const book = bookName.value
     if (!book) return
     try {
-      // getContentPayload 解构（同端点同 URL 同超时档）
+      // getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
       const remote = (await getContentPayload(book, e.path)).content
       // getContent await 窗口后的条目身份复检（对齐同文件 reloadFromRemote 守卫）——
       // 窗口内条目被 discard（文档删除）/LRU 驱逐重建时，docs 里已不是同一对象，直接写
       // e.baselineRevision 会把新基线落在游离对象上（真条目基线未推进，下次保存吃假
-      // REVISION_CONFLICT）。
+      // REVISION_CONFLICT），clean 分支更会把 e.content 整体回退到保存前的服务端内容。窗口后
       if (bookName.value !== book || docs.value.get(docId) !== e) return
       e.baselineRevision = await sha256Revision(remote)
       // sha256 双 await 窗口同款复检（两段 await 各守一次）
@@ -494,7 +494,7 @@ export const useDocStore = defineStore('doc', () => {
     // 复查 saving / savedAt 任一命中即整体放弃写回（对齐「迟到结果整体放弃」口径）。
     const savedAtEntry = e.savedAt
     try {
-      // getContentPayload 解构（同端点同 URL 同超时档）
+      // getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
       const content = (await getContentPayload(book, e.path)).content
       if (bookName.value !== book) return false
       if (e.dirty && e.content !== content) {
@@ -576,7 +576,7 @@ export const useDocStore = defineStore('doc', () => {
     await Promise.all(
       stale.map(async (e) => {
         try {
-          // getContentPayload 解构（同端点同 URL 同超时档）
+          // getContent 收敛为 getContentPayload 解构（同端点同 URL 同超时档）
           const content = (await getContentPayload(book, e.path)).content
           const rev = await sha256Revision(content)
           // await 窗口复检：已切书 / 条目被清或已转 dirty/conflict/saving（期间有本地

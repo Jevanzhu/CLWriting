@@ -2,7 +2,7 @@ import { EditorSelection } from '@codemirror/state'
 
 /**
  * 同文档外部全量替换的选区映射（纯函数，CmHost.applyExternalReplace 与回归测试
- * 共用单源—— 行为化的代码移动，前端行为逐位不变）。
+ * 共用单源——行为化的代码移动，前端行为逐位不变）。
  *
  * 全区间替换会把光标映射到文末——阅读中间章节的用户被 SSE sync/refresh
  * 拽到底部。替换前记 head，替换后 clamp 归位到原位置（越界→文末）。

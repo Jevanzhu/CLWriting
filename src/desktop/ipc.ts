@@ -1,5 +1,5 @@
 /**
- * IPC 注册面（-自 main.ts 拆出——纯移动零逻辑变化）。
+ * IPC 注册面（自 main.ts 拆出——纯移动零逻辑变化）。
  *
  */
 import {
@@ -25,8 +25,8 @@ import {
   fontListWithTimeout,
   darwinFontListCommand,
   linuxFontListCommand,
-} from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；C201：linux fc-list 自管 spawn
-import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
+} from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；linux fc-list 自管 spawn
+import { listWindowsFonts } from './win-fonts.js' // （专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import {
   canSwitchLibraryDir,
@@ -48,10 +48,10 @@ const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
 // 经验值（原两处裸魔数收编单源），改小前先在慢机实测。
 const RELAUNCH_DELAY_MS = 100
 
-/** 0918四轮修复批（C405）：relaunch 延迟 timer 句柄单槽登记——原 open-library /
+/** relaunch 延迟 timer 句柄单槽登记——原 open-library /
  *  switch-library 两处裸排 `setTimeout(relaunch, …)` 不留句柄：不可清、不可 unref，
- *  违本文件 timer 纪律（闭包持引用滞留 / 卫生；对齐
- *  contextMenuCancelTimers 声明处的句柄登记口径）。单槽收口：
+ * 违本文件 timer 纪律（闭包持引用滞留卫生；对齐
+ * contextMenuCancelTimers 声明处的句柄登记口径）。单槽收口：
  *  响应回程窗（RELAUNCH_DELAY_MS）内重复触发 = 前次响应已废，排新清旧不叠加；
  *  触发后自清；unref 不拖退出。 */
 let relaunchDelayTimer: ReturnType<typeof setTimeout> | null = null
@@ -70,20 +70,20 @@ function armRelaunchDelayTimer(): void {
  *  竞窗里 null 取消常先到，渲染层 once 只认第一条 → 菜单动作被吞）。放宽到 100ms
  *  让 click 稳定抢先；取消回执晚 100ms 对渲染侧无感（只是收尾态）。 */
 const CONTEXT_MENU_CANCEL_DELAY_MS = 100
-/** （修复批）：取消补发 timer 句柄登记——
+/** 取消补发 timer 句柄登记——
  *  原 popup callback 内裸排 setTimeout 不留句柄：不可清、不可 unref，违本文件 timer
- *  纪律（闭包持引用滞留 / 卫生），菜单连续开关时旧补发叠跑。排新清旧 +
+ * 纪律（闭包持引用滞留卫生），菜单连续开关时旧补发叠跑。排新清旧 +
  *  unref（不拖退出），消费点见 desktop:context-menu 的 popup callback。
  *  （c ）：单槽改 per-sender 分槽——单槽下 A 窗排定的取消补发会被
  *  B 窗菜单关闭回调 clearTimeout 清掉（100ms 内双窗先后关菜单），A 的渲染层 once
  *  收不到 null 挂等到下次开菜单；按 webContents 分槽互不干扰。sendOnce 自带
- *  isDestroyed 守卫，窗销毁后的迟到触发无害；条目仅在重排/触发时清理，
+ * isDestroyed 守卫，窗销毁后的迟到触发无害；条目仅在重排/触发时清理，
  *  残留上界 = 窗口数（个位数）。
- *  ：类型引用统一为已 import 的 WebContents（原
+ * 类型引用统一为已 import 的 WebContents（原
  *  Electron.WebContents 全限定形态）。 */
 const contextMenuCancelTimers = new Map<WebContents, ReturnType<typeof setTimeout>>()
 /**
- * 0918二轮修复批（C106）：取消补发条目的销毁摘除——原条目仅在重排/触发时清理，窗口
+ * 取消补发条目的销毁摘除——原条目仅在重排/触发时清理，窗口
  * 正常销毁（closed）不摘除：Map 强引用 WebContents 滞留至进程尾（上界 = 窗口数，个
  * 位数）。取「destroyed 监听摘除」方案（WeakMap 化对 timer 可清理性无增益——值仍需
  * 可 clearTimeout，键 WeakRef 化复杂度高）；登记面 WeakSet 不持强引用且防重复挂监听
@@ -92,8 +92,8 @@ const contextMenuCancelTimers = new Map<WebContents, ReturnType<typeof setTimeou
 const contextMenuCancelWired = new WeakSet<WebContents>()
 
 /**
- * 0918二轮修复批（C106）：取消补发 timer 的武装单点——排新清旧 + unref 原语义
- * （/，见 contextMenuCancelTimers 声明处）+ 首次写入时给该
+ * 取消补发 timer 的武装单点——排新清旧 + unref 原语义
+ * （见 contextMenuCancelTimers 声明处）+ 首次写入时给该
  * webContents 挂 'destroyed' 摘除（清 timer + 删条目，强引用随销毁释放）。
  */
 function armContextMenuCancelTimer(wc: WebContents, fire: () => void): void {
@@ -115,7 +115,7 @@ function armContextMenuCancelTimer(wc: WebContents, fire: () => void): void {
   }
 }
 
-/** 0918二轮修复批（C106）：测试钩子（生产零调用，先例同 windows.ts __testHooks）——
+/** 测试钩子（生产零调用，先例同 windows.ts __testHooks）——
  *  供回归用例断言窗口销毁后取消补发条目已摘除。 */
 export const __testHooks = {
   cancelTimerCount: (): number => contextMenuCancelTimers.size,
@@ -123,7 +123,7 @@ export const __testHooks = {
 }
 
 /**
- * 阶段 53 ：外部链接白名单（设计 /§3.4）——只放行本项目的 GitHub 发布页前缀。
+ * 阶段 53：外部链接白名单（设计 D3/§3.4）——只放行本项目的 GitHub 发布页前缀。
  *
  * 为什么要白名单而不是「打开调用方给的 URL」：URL 来自**运行时数据**（更新检查拿到
  * 的 GitHub API 响应，可被中间人/劫持 DNS 篡改），渲染层又把它交回主进程执行系统级
@@ -154,7 +154,7 @@ export function isAllowedExternalUrl(url: unknown): url is string {
 /**
  * 可信 sender 守卫接线单点——原 14 个 handler 各自首行
  * `if (!isTrustedSender(e)) return`，收敛为 handleTrusted/onTrusted 包装。拒绝语义
- * 逐位不变：untrusted 即静默返回 undefined（不弹提示不回退上下文，口径），
+ * 逐位不变：untrusted 即静默返回 undefined（不弹提示不回退上下文口径），
  * handler 不执行。
  */
 function handleTrusted(channel: string, handler: (e: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void {
@@ -175,7 +175,7 @@ export function registerIpc(): void {
     // 清偿批改切库链专用包装——快照武装回滚基线（取消退出可回写）
     const saveErr = saveCurrentArmingRollback(picked)
     if (saveErr) return { ok: false as const, reason: saveErr }
-    // 0918四轮修复批（C405）：延迟重启改单槽句柄排程（C405 锚注见 armRelaunchDelayTimer）
+    // 延迟重启改单槽句柄排程（锚注见 armRelaunchDelayTimer）
     armRelaunchDelayTimer()
     return { ok: true as const }
   })
@@ -186,7 +186,7 @@ export function registerIpc(): void {
     if (typeof path !== 'string') {
       return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
     }
-    // 0918二轮修复批（C102）：相对路径拒收——handler 原只验 typeof string，'./foo' 类
+    // 相对路径拒收——handler 原只验 typeof string，'./foo' 类
     // 相对路径在恰存在于主进程 cwd 时可过 probeDirReachable/canSwitchLibraryDir 守卫
     //（statSync/findWorkDir 均按 cwd 解析）并原样落库 workdir.json，下次经不同 cwd
     // 启动书库定位漂移。入口加 isAbsolute 校验，BAD_INPUT 人话错误（先于预探——
@@ -202,7 +202,7 @@ export function registerIpc(): void {
     if (!canSwitchLibraryDir(path)) {
       return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
     }
-    // 平台规范化批 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
+    // 平台 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
     if (await warnIfCaseSensitive(path)) {
       return { ok: false as const, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
     }
@@ -210,7 +210,7 @@ export function registerIpc(): void {
     // 清偿批改切库链专用包装——快照武装回滚基线（取消退出可回写）
     const saveErr = saveCurrentArmingRollback(path)
     if (saveErr) return { ok: false as const, reason: saveErr }
-    // 0918四轮修复批（C405）：延迟重启改单槽句柄排程（原裸 setTimeout 违 timer 纪律）
+    // 延迟重启改单槽句柄排程（原裸 setTimeout 违 timer 纪律）
     armRelaunchDelayTimer()
     return { ok: true as const }
   })
@@ -219,7 +219,7 @@ export function registerIpc(): void {
   handleTrusted('desktop:get-recent', () => {
     return readStore().recent
   })
-  // 第五入口漏网——改走 currentWorkDir（bootstrap 实际值
+  // 第五入口漏网——改走 currentWorkDir()（bootstrap 实际值
   // 优先），否则 store.current 为 null/失效而 bootstrap 跑在 findWorkDir 发现的书库上时，
   // 书库管理窗口拿到与实际运行不一致的展示口径
   handleTrusted('desktop:get-current', () => {
@@ -228,7 +228,7 @@ export function registerIpc(): void {
   // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
   // （§四.2）：三入口（show-in-folder/open-book-dir/
   // open-library-dir）readBooks/realpathSync 同步扫书库——书库在失联网络卷时一点
-  // 即冻主进程（/切库链同款防线补齐）：handler 改 async，先经
+  // 即冻主进程（切库链同款防线补齐）：handler 改 async，先经
   // probeDirReachable 预探，'unreachable' 原生错误框 + return（'invalid' 落回原
   // 静默守卫语义——readBooks/realpath 失败本就按「无物可开」收口）。
   // 判空+预探+错误框三写收敛 resolveReachableWorkDir、
@@ -240,7 +240,7 @@ export function registerIpc(): void {
     if (!workDir) return
     const entry = findBookEntry(workDir, bookName)
     if (!entry) return
-    // 防路径穿越：relPath 必须落在 bookRoot 内（批 6 统一：resolveWithinRoot =
+    // 防路径穿越：relPath 必须落在 bookRoot 内（统一：resolveWithinRoot =
     // resolve/relative 防穿越 + symlink 双侧 realpath 校验，存在时 abs 即 realpath）
     const bookRoot = resolve(workDir, entry.path)
     // 防 books.jsonl 被篡改致 bookRoot 越出 workDir（与 open-book-dir 同口径）
@@ -259,9 +259,9 @@ export function registerIpc(): void {
     const entry = findBookEntry(workDir, bookName)
     if (!entry) return
     // 路径校验：entry.path 来自 books.jsonl，防 `..`/symlink 越出 workDir 打开任意目录
-    // （批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath，同口径）
+    // （统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 同口径）
     const safe = resolveWithinRoot(workDir, entry.path)
-    if (!safe || !existsSync(safe.abs)) return // realpath 失败/不存在 = 无物可开
+    if (!safe || !existsSync(safe.abs)) return // realpath 失败 = 目录不存在，无物可开
     // （win线并树随行）：openPath 的结果字符串（失败时非空）此前被丢弃——打开失败零反馈
     void shell.openPath(safe.abs).then((err) => {
       if (err) log.warn('desktop', `打开书目录失败（${safe.abs}）：${err}`)
@@ -272,14 +272,14 @@ export function registerIpc(): void {
   // 二进制 / win PowerShell），渲染层重载（设置弹窗重开）/第二窗口重复 invoke 会逐次
   // 重跑；主进程侧补 60s TTL + 在途合并（font-cache.ts）。失败不缓存，此处 catch 返回
   // [] 的兜底语义不变。
-  // MP2-1（专项二轮修复批）：win 走自绘枚举——font-list 上游 getByPowerShell 经
+  // win 走自绘枚举——font-list 上游 getByPowerShell 经
   // cmd.exe exec 未设 windowsHide，win 打包态打开字体下拉闪控制台黑窗；win-fonts.ts
   // 以 spawn('powershell.exe', [args], { windowsHide: true }) 直起（口径对齐 font-list
   // 的 disableQuoting 裸名），mac/linux 维持 font-list（无闪窗面）。
   // mac/linux 的 font-list 调用包超时（win 已走 win-fonts 自带
   // 10s 超时 + kill）——osascript/系统命令挂起时字体下拉悬死；font-list 不
   // 暴露子进程句柄，超时只 reject 不 kill（残留记档见 font-cache.ts 头注）。
-  // /（GLM-5.3 修复批）： 备案的两项随本批
+  // 备案的两项随本批
   // 收口——①二进制随包分发：fontlist 原生二进制构建期由 tsup onSuccess 拷入
   // dist/desktop/（darwin 腿）+ electron-builder asarUnpack 外置，font-list 上游
   // path.join(__dirname,'fontlist') 的 execFile 自此真有文件可执行（此前打包态恒
@@ -288,7 +288,7 @@ export function registerIpc(): void {
   // 拍板理由随①失效）：mac 注入 deps.command 走自管 spawn——超时必杀（孤儿进程残留
   // 收口），启动面失败（二进制缺失/不可执行）自动回落 load（font-list 自带
   // system_profiler 回落链保持可达，与纯 font-list 行为一致）；win 不变（win-fonts
-  // 自带超时 kill）。C201（0918三轮修复批）：linux 由「维持 load」改注入
+  // 自带超时 kill）。linux 由「维持 load」改注入
   // linuxFontListCommand——fc-list 挂死时 load 路径（font-list 不暴露子进程句柄）
   // 只能放弃等待、子进程成孤儿；自管 spawn 超时 TERM→2s→KILL 升级链收口，命令与
   // 行口径解析逐字对齐 font-list libs/linux 上游，fc-list 缺失（ENOENT）自动回落
@@ -327,7 +327,7 @@ export function registerIpc(): void {
   // 书架窗口选书 → 主窗口加载该书并聚焦，关闭书架窗口
   handleTrusted('desktop:open-book', (_e, name: unknown) => {
     if (typeof name !== 'string') return
-    // -源码：与 show-in-folder 同款 \0 防御对称（IPC 入参边界收口）
+    // 源码：与 show-in-folder 同款 \0 防御对称（IPC 入参边界收口）
     if (name.includes('\0')) return
     if (wins.mainWindow && !wins.mainWindow.isDestroyed()) {
       wins.mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
@@ -349,7 +349,7 @@ export function registerIpc(): void {
   handleTrusted('desktop:open-library-dir', async () => {
     const workDir = await resolveReachableWorkDir()
     if (!workDir) return
-    // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
+    // 与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
     // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）
     try {
       // （win线并树随行）：同 open-book-dir——失败结果字符串留痕（openPath 不 reject，
@@ -420,7 +420,7 @@ export function registerIpc(): void {
       callback: () => {
         // 排新清旧 + unref（句柄纪律见 contextMenuCancelTimers 声明处）
         // per-sender 分槽（单槽跨窗互清缺陷见声明处）——本窗重排只清本窗旧句柄
-        // 0918二轮修复批（C106）：排程体收编 armContextMenuCancelTimer——写入点单点
+        // 排程体收编 armContextMenuCancelTimer——写入点单点
         // 接线 webContents destroyed 摘除（强引用滞留收口，见其声明处）
         armContextMenuCancelTimer(event.sender, () => sendOnce(null))
       },
@@ -473,6 +473,6 @@ export function registerIpc(): void {
       // WCO 未启用（如 opts 覆盖掉 overlay）时 setTitleBarOverlay 抛错——忽略，
       // 窗控仍按创建时颜色渲染，属可降级外观项
     }
-    return // D204（0918三轮修复批）：显式收尾——本 handler 混合返回 {ok:false} 与 void，noImplicitReturns 要求全路径显式
+    return // 显式收尾——本 handler 混合返回 {ok:false} 与 void，noImplicitReturns 要求全路径显式
   })
 }

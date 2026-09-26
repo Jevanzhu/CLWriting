@@ -1,5 +1,5 @@
 /**
- * 写章文件名净化（win 适配批 2 升格单一真相源）。
+ * 写章文件名净化（2 升格单一真相源）。
  *
  * AI 产出标题（不可信）可超长（ENAMETOOLONG）或含控制字符/换行（块标量多行标题），
  * 直接拼文件名会在写盘时炸或产生含换行的非法名。对齐导出侧口径
@@ -7,7 +7,7 @@
  * （卷目录 + 4 位章号前缀 + 原子写 tmp 名 +49B 余量），取更紧的常数：
  * 码位 ≤60 / 字节 ≤120，超长截断且不切多字节字符。
  *
- * win 适配批 2：本模块升格为全库非法字符净化的单一真相源——
+ * 2：本模块升格为全库非法字符净化的单一真相源——
  * 新增 Windows 保留设备名规避（mac 上也是合法目录名，但拷至 win 会被拒）与
  * 尾部点/空格剥离（win 落盘被自动剖，读写名不一致歧义）。mac 同样执行，
  * 保持数据面跨平台一致。既有调用方（style-entry/scene 名、foreshadow、tree、
@@ -35,7 +35,7 @@ function truncateTitle(input: string, maxCp = CHAPTER_TITLE_MAX_CP, maxBytes = C
   return out
 }
 
-/** Windows HTTP 保留设备名前缀（win 适配批 2）。这些名字本身是合法目录名，但
+/** Windows HTTP 保留设备名前缀。这些名字本身是合法目录名，但
  *  拷到 Windows 会被文件系统拒绝；新写入数据面预留规避（加 `_` 前缀）。 */
 export const RESERVED_WIN = new Set([
   'CON',
@@ -112,7 +112,7 @@ export function sanitizeChapterTitle(title: string): string {
  */
 export function sanitizeFullFileName(name: string): string {
   // 先整体剥尾点/尾空格（win 落盘自动剥；防下方 ext 捕获组把尾点吞进扩展名）
-  // 平台规范化批：入口归一 NFC（sanitizeFileNamePart 同款——本函数是 rename/copy
+  // 平台：入口归一 NFC（sanitizeFileNamePart 同款——本函数是 rename/copy
   // 目标名专用，NFC 收敛与标题段单源同口径）
   const pre = name.normalize('NFC').replace(/[. ]+$/, '')
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
@@ -141,7 +141,7 @@ export function sanitizeFullFileName(name: string): string {
 }
 
 /** Markdown 扩展名判定（大小写不敏感）。
- *  `.MD` 大写扩展名家族修复（/）此前只覆盖 readEntries
+ * `.MD` 大写扩展名家族修复此前只覆盖 readEntries
  *  一处——样章/金句/禁词指纹/账本 fm 扫描/归档配对/章纲定位共 7 处扫描点仍大小写敏感，
  *  win 资源管理器改名 `.MD` 后对相应消费者静默失明（禁词指纹侧还会让缓存陈旧结果
  *  持续生效）。本 helper 为该家族的单一判定源。 */
@@ -149,26 +149,26 @@ export function isMdFileName(name: string): boolean {
   return name.toLowerCase().endsWith('.md')
 }
 
-/** （GLM-5.3 修复批）：文件名前导章号提取单一真相源——
+/** 文件名前导章号提取单一真相源——
  *  此前四处各持正则漂移（tree 容忍 -/—/空白/裸尾，leads/foreshadow/summary 仅认 -）：
  *  「树按章号排序认得的章文件」在伏笔足迹/线索核验/摘要自愈三处静默不可见
  *  （如 `5—标题.md`/`5 标题.md`：排序在位、足迹缺章）。统一取 tree 宽容集；
  *  补零宽度无关（0001-x 与 1-x 同判 1）；非数字前缀返回 null。
- *  0918二轮修复批（B102）：Number.isSafeInteger 守卫下沉本单源——16+ 位纯
+ * Number.isSafeInteger 守卫下沉本单源——16+ 位纯
  *  数字前缀 Number 解析成超 2^53 失真浮点（1e20 级），此前单源无守卫而两处消费点
  *  （manifest.ts / structure-core.ts finalizedChapterNumbers）各自手工补丁、另两处
  *  （finalize 防吃书闸定位 / service-meta 文件名前缀回落）未补，口径分裂；守卫入单源
- *  后失真大数一律按「无章号」（null）降级（words.ts parseChapterFileName
+ * 后失真大数一律按「无章号」（null）降级（words.ts parseChapterFileName
  *  同口径，语义对齐、正则分立维持——words 版须 `-标题` 严格形且零 Node 依赖供浏览器
  *  import，不并）。 */
 export function chapterNoFromName(name: string): number | null {
   // 阶段 36（拍板落地，B 档单源扩集）：先剥 .md 扩展再匹配。裸数字名
   // （0012.md）此前仅三族消费方自带剥扩展认得（tree stripMd / health 取号下限 /
-  // finalizedChapterNumbers 双实现，B005 批），带全名直传的 summary·leads·foreshadow·
+  // finalizedChapterNumbers 双实现），带全名直传的 summary·leads·foreshadow·
   // finalize·draft-path 五处失明，同一文件名口径分裂（对表 test/process/
   // chapter-no-callshape.test.ts）。剥扩展入单源后全消费方拉齐；三族自带剥成幂等
   // 冗余保留不动（零行为面）；words.ts parseChapterFileName 严格形分立维持（浏览器
-  // 侧零 Node 依赖，同口径）。仅剥尾部 .md（isMdFileName 大小写不敏感）——
+  // 侧零 Node 依赖同口径）。仅剥尾部 .md（isMdFileName 大小写不敏感）——
   // 多点形态（005.tar.md 剥后 005.tar → null）与非 md 扩展（5.md.bak → null）不认。
   const stem = isMdFileName(name) ? name.slice(0, -3) : name
   const m = /^(\d+)(?:[-—]|\s|$)/.exec(stem)

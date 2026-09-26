@@ -81,7 +81,7 @@ function openDir(): void {
         <p>书库管理仅在桌面版可用。</p>
       </div>
       <template v-else>
-        <!-- #21：loadError 只来自 load（交互失败已改 toast），错误态与已加载
+        <!-- #21：loadError 只来自 load()（交互失败已改 toast），错误态与已加载
              数据分离显示——补拉失败不再顶掉当前书库/最近列表 -->
         <div v-if="loadError" class="lib-status">
           <p>书库信息加载失败：{{ loadError }}</p>

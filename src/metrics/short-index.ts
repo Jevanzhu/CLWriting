@@ -3,7 +3,7 @@
  *
  * 目标：短篇主链已按单章闭环，本模块只做整集层面的轻量扫描。
  * 数据来自 `写作/正文/`（卷结构，递归）与 `大纲/章纲/<章号>-<标题>.md`——
- * （GLM-5.3 修复批）：头注原宣称「已定稿」与实现不符
+ * 头注原宣称「已定稿」与实现不符
  * （scanShortCollection 读全量章节、不做定稿过滤——草稿同入索引），唯一调用方
  * （export 投稿视图）按定稿清单自行二次过滤；新调用方须自带定稿过滤，勿信本层已滤。
  * 不写文件、不耗模型，用于 health --report 的短篇集节奏提示。
@@ -12,12 +12,12 @@
 import { existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readChapterDir, countWords } from '../format/chapters.js'
-// G203（0918三轮修复批）：`##` 段落标题识别单源（collectBodyAnchors 收编，见其注）
+// `##` 段落标题识别单源（collectBodyAnchors 收编，见其注）
 import { extractSectionHeadings } from '../format/section-heading.js'
 import { readPieceList } from '../format/manifest.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
-import { log } from '../log/index.js' // 跳章 warn 留痕
+import { log } from '../log/index.js' // 不可读章跳章 + warn 留痕，对齐同源助手（style.ts
 import { SHORT_DEFAULTS } from '../shared/short-defaults.js'
 import { codePointLength } from '../shared/text.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
@@ -177,7 +177,7 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   // 原走 readChapterDir(includeBody=true) 现读通道（绕开 meta
   // 缓存、正文不驻留）——短篇集索引随 health/视图反复扫描时每次全书整读零缓存；
   // 改为缓存 meta（readChapterDir 默认 stat 级缓存）+ 缓存 body（readChapterBody
-  // 指纹缓存），未变章节数据零重读。 的「一次读带出」语义由缓存命中替代。
+  // 指纹缓存），未变章节数据零重读。的「一次读带出」语义由缓存命中替代。
   const { chapters } = readChapterDir(bodyDir)
   const entries: ShortPieceIndexEntry[] = []
   for (const ch of chapters) {
@@ -362,11 +362,11 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null, body
   }
 }
 
-/** 锚点集 = 正文 `##` 段落标题文字集。G203（0918三轮修复批）：识别收编
+/** 锚点集 = 正文 `##` 段落标题文字集。识别收编
  *  format/section-heading 单源（剥围栏 + `^##(?!#)[ \t\u3000]*\S` 口径）——原第二套
  *  识别器（`^##\s+`、无围栏剔除）与 check/count.ts 口径分裂：紧排 `##标题` 全量漏识
  *  → anchors 空 → 弱校验分支假 issue「正文缺少 ## 段落锚点」、anchoredSetupCount 记
- *  0；反向围栏代码块内 `## 示例` 被照收 → 假锚点虚增。CRLF 容忍（本处第四处）
+ * 0；反向围栏代码块内 `## 示例` 被照收 → 假锚点虚增。CRLF 容忍（本处第四处）
  *  由单源的 `\r` 剥除保持。导出供 CRLF 回归直测。 */
 export function collectBodyAnchors(body: string): string[] {
   return extractSectionHeadings(body)
@@ -380,7 +380,7 @@ function setupHasAnchor(position: string, anchors: string[]): boolean {
   if (anchors.length === 0) return false
   return anchors.some((anchor) => {
     const a = normalize(anchor)
-    // （总七十一轮）：纯标点/emoji 的锚点标题归一化后为空串——`pos.includes('')`
+    // 纯标点/emoji 的锚点标题归一化后为空串——`pos.includes('')`
     // 恒真，会把任何铺垫虚报成已锚定（与 groupBy 空键跳过同口径，匹配前空串短路）
     if (!a) return false
     return a.includes(pos) || pos.includes(a)
@@ -478,7 +478,7 @@ function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) 
         pieces: [...new Set(group.map((item) => item.num))],
       }))
       .filter((item) => item.value !== '未知')
-      // 四轮-D405：并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
+      // 并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
       // 标签（中英混排），localeCompare 的排序规则随运行环境 ICU/locale 漂移，同 count
       // 并列时相对序不稳定（先例：version.ts 同款改法）；码元序使并列排序
       // 稳定且与 locale 无关。
@@ -596,7 +596,7 @@ function extractObject(text: string): string {
     .replace(/^(开头|中段|尾声|结尾|反转|铺垫|升级)/, '')
     .replace(/[，。！？、；：:]/g, ' ')
     .trim()
-  // （处置批）：量词与截断对齐码位口径——u 标志使 {1,12} 按
+  // 量词与截断对齐码位口径——u 标志使 {1,12} 按
   // 码点计、Array.from 按码点截，增补平面字符（emoji/扩展汉字）恰落第 12 码元边界时
   // 不再劈出孤立代理对；截断体不引 process/summary 的 clipByCodePoints（metrics→process
   // 成环边界，见 shared/text.ts 头注），计数走单源 codePointLength。

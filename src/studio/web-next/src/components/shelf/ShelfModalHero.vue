@@ -2,9 +2,9 @@
 /**
  * 书架弹层「继续写作」hero 卡（hh §八-16 自 ShelfModal.vue 拆出，纯搬家）。
  * 弹层专属横版单行卡（grid 视图，进度右置）；紧凑单行（list 视图）与全屏页同构，
- * （修复批）起收敛为共享子件 ShelfHeroList。
+ * 起收敛为共享子件 ShelfHeroList。
  * 全屏页竖版在 ShelfHeroCard。
- * role/tabindex/keydown 补键盘可达（原仅 @click，只修了
+ * role/tabindex/keydown 补键盘可达（原仅 @click 只修了
  * ShelfHeroCard 漏此）；Enter/Space 与点击同一手势处理，语义不变（契约随抽取迁入
  * ShelfHeroList，grid 横版大卡本件保留同款）。
  */
@@ -53,7 +53,7 @@ const emit = defineEmits<{
       <span v-if="book.lastEdited" class="hero-time">{{ formatRelative(book.lastEdited) }}</span>
     </div>
   </section>
-  <!-- list 单行：与全屏页同构，共享子件渲染 -->
+  <!-- list 单行：与全屏页同构，共享子件渲染-->
   <ShelfHeroList v-else :book="book" variant="modal" @open="emit('open', $event)" />
 </template>
 

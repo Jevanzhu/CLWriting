@@ -42,9 +42,9 @@ export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
 // ── 履历段解析（#3 第 4 节）──────────────────────
 
 /** 履历条目行：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢）。
- *  抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
+ * 抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
  *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。
- *  证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
+ * 证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
  *  此前整行不匹配落续行折入分支，声明蒸发 + 上一条证据被污染；空证据条目照常入模型，
  * 的空证据黄项既有路径即可见。 */
 const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.*)$/
@@ -68,7 +68,7 @@ export const ATX_HEADING_RE = /^#{1,6}\s/
  *  标题（true：终断条目段，其后人工内容归 after 段保真回写）。isEntry 由调用方注入
  *  （履历条目与账本推进声明条目格式不同，共用同一分组判定口径防两侧漂移）。 */
 export function headingEndsSection(lines: string[], headingIdx: number, isEntry: (line: string) => boolean): boolean {
-  // （二十四轮 B 域）：连续标题链不再提前终断——原「下一行是标题即判节终」把
+  // 连续标题链不再提前终断——原「下一行是标题即判节终」把
   // `## 分组`+`### 详注`+条目 的链式分组首标题误判节终，其下条目整体掉出解析（回写
   // 保真无数据丢失，机检对它们失明）。标题行改为跳过继续找条目：链下仍出现条目 =
   // 整链是分组结构（false，条目照常解析）；到文末无条目 = 节终（其后人工内容归
@@ -93,10 +93,10 @@ export function parseHistory(body: string): LeadEntry[] {
  *  bodyAfter），writeLead 重建时物理删除。原样行收集（不 trim），由 stringifyHistory
  *  在标题与首条之间原位还原；节终无条目时标题与节终标题之间的散文同样在此收
  *  （bodyAfterHistory 只保节终标题之后的内容，两区天然不重叠）。
- *  ：条目间的分组标题（后随条目的 ATX 标题，如 `### 第一卷`）第三
+ * 条目间的分组标题（后随条目的 ATX 标题，如 `### 第一卷`）第三
  *  槽位保真（_historyGroupHeadings）——此前分支 continue 三不管（不进 entries/preamble/
- *  bodyAfterHistory），writeLead 整段重序列化即物理删除（作者手写结构标记不可逆
- *  丢失）。挂靠 beforeEntry = 解析当时 entries.length（其后首个条目），标题链
+ * bodyAfterHistory），writeLead 整段重序列化即物理删除（作者手写结构标记不可逆
+ * 丢失）。挂靠 beforeEntry = 解析当时 entries.length（其后首个条目），标题链
  *  逐行各记一条、数组序即文件序；stringifyHistory 原位还原。 */
 export function parseHistoryWithPreamble(body: string): {
   entries: LeadEntry[]
@@ -146,7 +146,7 @@ export function parseHistoryWithPreamble(body: string): {
       let 证据 = m[3]!.trim()
       let 回填 = false
       // 回填标记（#3 第 4 节）：证据末尾的（回填·卷摘要级）
-      // （修复批）：匹配收紧为精确系统标记——旧正则 /（回填[^）]*）$/
+      // 匹配收紧为精确系统标记——旧正则 /（回填[^）]*）$/
       // 命中任意「（回填…）」结尾（如作者手写备注「（回填时补了线索）」）即剥离并改写为
       // 「（回填·卷摘要级）」，用户文本被无感知篡改。系统生成形态恒为（回填·卷摘要级）
       //（生成侧 suffix 单点 :231、全库无其它形态），精确匹配后非精确形态保留原文零改写，
@@ -197,9 +197,9 @@ export function parseHistoryWithPreamble(body: string): {
 }
 
 /** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原；
- *  groupHeadings 按挂靠条目序号原位还原——同槽多条（标题链）按数组序，
+ * groupHeadings 按挂靠条目序号原位还原——同槽多条（标题链）按数组序，
  *  越界槽位（条目被删等）尾插兜底不静默丢弃。
- *  （GLM-5.3 修复批）注记精度：preamble 两侧外围空行
+ * 注记精度：preamble 两侧外围空行
  *  trim 后按「标题-空行-散文-空行-首条」规范形重拼——「原位还原」是内容级原位
  *  （散文行本体与位置不丢），非字节级往返；作者在散文前后多打的连续空行不保真
  *  （单空行分隔形态即规范形，实际漂移面仅多余空行）。 */
@@ -238,7 +238,7 @@ function bodyBeforeHistory(body: string): string {
 }
 
 /** 履历段之后的人工正文（节终标题起到文末；无则空）——dd- 回写保真用。
- *  ：节终判定与 parseHistory 共用 headingEndsSection——此前仅认
+ * 节终判定与 parseHistory 共用 headingEndsSection——此前仅认
  *  `## ` 二级标题，`### 手记` 等子标题不终断，其后续写内容被 parseHistory 折进证据；
  *  现两处同口径，节终标题起的内容原样保真、不再触碰条目数据。 */
 function bodyAfterHistory(body: string): string {
@@ -275,7 +275,7 @@ const KNOWN_FM_KEYS = new Set([
 ])
 
 /**
- * （评审修复批）：readLead 的解析主体抽为模块内单源 parseLeadModel——
+ * readLead 的解析主体抽为模块内单源 parseLeadModel——
  * readLead（盘读）与 readLeadFromBytes（content 注入孪生，见下）共用同一解析体。
  * 此前 document/lead-finalize.ts 对本函数非 legacy 路径持 60 行消费侧同步副本
  *（因 format 域禁改暂置消费侧；2026-09 漂移核验与正本逐位一致后按其预告坍缩），
@@ -346,10 +346,10 @@ function parseLeadModel(
     }
   }
 
-  // Number 无守卫——手写「十二」→ NaN 落模型，机检章号区间
+  // Number() 无守卫——手写「十二」→ NaN 落模型，机检章号区间
   // 比较恒 false（「未来章」误判族）、回写 NaN 扩散。对齐 chapters.ts 口径：
   // 非有限数按「未写」处理，回落默认 0（缺字段/空串语义不变）。
-  // -源码：守卫从 isFinite 收紧为 isSafeInteger && >= 1——对齐 chapters.ts
+  // 源码：守卫从 isFinite 收紧为 isSafeInteger && >= 1——对齐 chapters.ts
   // 同语义字段口径（章号 = 正整数）；-3/12.5/1e20 此前穿透 isFinite 落 opened_at，
   // readStaleLeads 的 age = 当前章 − opened_at 被虚高（悬太久误报族）。
   const 开启章Num = Number(map.get('开启章'))
@@ -361,9 +361,9 @@ function parseLeadModel(
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
-    // B202（0918三轮修复批）：改 `||`——手写「类型:」「状态:」（空值）经 parseValue
+    // 改 `||`——手写「类型:」「状态:」（空值）经 parseValue
     // 落成 ''，非 nullish，`??` 接不住 → 枚举字段空串穿透（UI 分档/状态闭合比较恒
-    // 落空），与上方校验的豁免意图（322-328「空视同缺省回落」）相悖。 同型
+    // 落空），与上方校验的豁免意图（322-328「空视同缺省回落」）相悖。同型
     // 先例（chapters.ts 钩子类型）：枚举合法值均非空串，`||` 语义面精确。
     类型: (map.get('类型') as LeadType) || '悬念',
     状态: (map.get('状态') as Lead['状态']) || '进行中',
@@ -472,7 +472,7 @@ export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
   // 履历前散文（_historyPreamble）原位还原——此前 stringifyHistory
   // 只认条目，手写在标题与首条之间的散文每次回写都被物理删除
-  // 分组标题（_historyGroupHeadings）同原位还原—— 红线面
+  // 分组标题（_historyGroupHeadings）同原位还原——红线面
   const historyText = stringifyHistory(lead.履历, lead._historyPreamble, lead._historyGroupHeadings)
   const preserved = lead._bodyBeforeHistory?.trim()
   // dd-履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
@@ -482,7 +482,7 @@ export function writeLead(filePath: string, lead: Lead): void {
   const body = `\n${parts.join('\n\n')}\n`
   // ee-账本是防吃书根基，写入与 manifest/version/journal 同级 fsync——tmp+rename
   // 防半截文件，但不防掉电时 rename 元数据先于内容持久化（账本整体回退旧状态的窗口）
-  // 平台规范化批：恒 LF—— 的「按盘上主导行尾渲染」（dominantEolOf
+  // 平台：恒 LF——的「按盘上主导行尾渲染」（dominantEolOf
   // 探测随之移除）随规范形拍板翻转；joinFrontMatter 整体规范化连带归一保留段内杂散
   // \r（LF 侧既有行为的延续）。CRLF 存量账本由启动迁移 v4 归一。
   const full = joinFrontMatter(fmText, body)
@@ -545,8 +545,8 @@ export function readLeadDir(dirPath: string): { leads: Lead[]; errors: ParseErro
 }
 
 /** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md）
- *  ：扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
- *  尾，.MD 条目（扫描侧起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
+ * 扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
+ * 尾，.MD 条目（扫描侧起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
  *  readLeadDir 扫描侧同走 isMdFileName 单源（mac 敏感卷上 .MD 也是合法账本文件）。
  *  -源码 -⑫：else 分支（basename('.md')）在「不以 .md 结尾」前提下等价于
  *  原串、却暗带剥路径副作用（唯一调用方 readLeadDir 只传纯文件名）——统一为

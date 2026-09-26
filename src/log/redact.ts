@@ -1,5 +1,5 @@
 /**
- * 凭据脱敏——泄漏面收敛（凭据存储设计 §6.2 ）。单源：
+ * 凭据脱敏——泄漏面收敛（凭据存储设计 §6.2）。单源：
  * 原驻 ai/provider/redact.ts，API 错误出口与日志层（maskKeys）各持一套词表——
  * 智谱/Gemini 两类无 sk- 前缀形态只在前者被掩，SDK 报错经 log.error 落
  * app-*.jsonl（留存 7 天）时漏掩。下沉至 log 层（零依赖、无分层反转），
@@ -19,7 +19,7 @@
  * 2. Bearer / x-api-key header 值
  * 3. 裸 key（补全常见厂商前缀：sk- / sk-ant- / xai- / sk_ / gsk_ / hf_ /
  *    glpat- / ghp_ + 长串，防 SDK 把 key 直接放 error body）
- * 4. ：无前缀特征的两类裸 key——
+ * 4.：无前缀特征的两类裸 key——
  *    - 智谱（Zhipu）：`<id32 hex>.<secret32 hex>` 形态（id 与 secret 间以点分隔）
  *    - Google Gemini：`AIza` + 35 位 [A-Za-z0-9_-]（固定前缀，总长 39）
  */

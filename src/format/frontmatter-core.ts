@@ -48,15 +48,15 @@ function splitFrontMatterUncached(content: string): { fmRaw: string; body: strin
   // 把 `----`/`--- 分隔` 也当 fm 开，与闭合判定 /^---\r?$/ 不对称，裸 md 首行正文被误剥
   // 起始/闭合 fence 均容忍尾随空白（[ \t]*）——CommonMark 合法
   // 形态 `--- `（编辑器/同步盘常注入）此前整章判「fm 未闭合」，fail-loud 不丢数据但
-  // 误伤面存在；零缩进锚（^---）不变，块标量内缩进 `  ---` 仍不会被误判（口径保持）
+  // 误伤面存在；零缩进锚（^---）不变，块标量内缩进 ` ---` 仍不会被误判（口径保持）
   if (!/^---[ \t]*\r?(?:\n|$)/.test(src)) return null
   const lines = src.split('\n')
   // 找闭合 ---
   let endIdx = -1
   for (let i = 1; i < lines.length; i++) {
-    // 闭合 --- 判零缩进（容忍 \r 尾）——此前 trim 会把块标量值内的
+    // 闭合 --- 判零缩进（容忍 \r 尾）——此前 trim() 会把块标量值内的
     // 缩进 `  ---` 误判为 fm 结束，多行值写盘再读即截断损坏；零缩进与块缩进（≥1 空格）
-    // 天然错开，无需另判。：尾随空白容忍随起始侧同步（口径见上）
+    // 天然错开，无需另判。尾随空白容忍随起始侧同步（口径见上）
     if (/^---[ \t]*\r?$/.test(lines[i]!)) {
       endIdx = i
       break
@@ -71,7 +71,7 @@ function splitFrontMatterUncached(content: string): { fmRaw: string; body: strin
 /** 「有起始 --- 但无闭合」判定单源——frontmatter.ts readFile 的
  *  未闭合文案分支此前手写同款正则（双源），本模块起始/闭合判定将来漂移时坏 fm 会
  *  重新混过 draft.ts 的无 fm 豁免闸。与 splitFrontMatterUncached 同口径：去 BOM →
- *  起始整行精确 ---（容忍 \r 尾）→ 找零缩进闭合 ---。：两侧同步容忍尾随空白。 */
+ * 起始整行精确 ---（容忍 \r 尾）→ 找零缩进闭合 ---。两侧同步容忍尾随空白。 */
 export function hasOpenFrontMatterFence(content: string): boolean {
   const src = content.replace(/^﻿/, '')
   if (!/^---[ \t]*\r?(?:\n|$)/.test(src)) return false
@@ -91,8 +91,8 @@ export function bodyOf(raw: string): string {
 /**
  * 剥值行内注释（单一实现）：`#` 且前面是空白（或行首）即注释起点，引号内 `#` 不剥；
  * `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。
- * 原 frontmatter.ts stripInlineComment 与
- * yaml.ts stripComment（ii 批）是同算法双份维护——防循环 import 的顾虑已随
+ * 原 frontmatter.ts stripInlineComment与
+ * yaml.ts stripComment是同算法双份维护——防循环 import 的顾虑已随
  * frontmatter-core.ts 拆出而不成立（core 零依赖，二者均无环），下沉至此共享，
  * 语义逐字不变（引号感知 / # 前空白或行首判定 / URL 字面 # 保留）。
  */

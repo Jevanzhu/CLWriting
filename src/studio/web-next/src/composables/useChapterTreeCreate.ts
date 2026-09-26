@@ -4,7 +4,7 @@
  * （⑤④产品巨件拆分波4）：useChapterTreeActions.ts（901 行）按
  * 缝 structure + create 纯移动拆分。本文件承载缝 create：inline 新建（八类模板）/
  * 单例新建（总纲·世界观）/ TabBar 新建信号分派 / 新建种子与初始模板组装——含
- * 拍板快断批（阶段 24 登记项）seed 章号前缀捕获与提交侧拼回链路，
+ * （登记项）seed 章号前缀捕获与提交侧拼回链路
  * 逐字节保持。状态 ref（creating）与切书守卫（stillIn/failScoped）、树取值辅助
  * （lastVolumePath/nextChapterNo/volumeCount/bodyPadKind）仍由 useChapterTreeActions
  * 装配后经 deps 传入（refs 与回调原样传递，响应式接线不变）；动作分发/重命名/
@@ -46,7 +46,7 @@ export type Creating = {
   renderDir: string
   fsDir: string
   seed: string
-  /** 拍板快断批（阶段 24 登记项）：新建种子的数字前缀（chapter/
+  /** （登记项）：新建种子的数字前缀（chapter/
    *  chapter-outline 在 startCreate 时捕获）——作者清掉 seed 前缀只填标题时，提交侧
    *  拼回此前缀，堵「文件名无章号 → 取号扫描失明 → fm 章号连号重号」。 */
   seedPrefix: string
@@ -157,7 +157,7 @@ export function useChapterTreeCreate(deps: {
       return
     }
     creating.value = null
-    // 拍板快断批（作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
+    // （作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
     // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
     // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
     // 作者自填章号形态（「0007-…」/「第7章…」）不覆盖

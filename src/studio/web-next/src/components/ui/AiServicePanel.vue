@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // AI 提供方管理面板（设置页「服务提供方」tab 的内容）——编排层。
 // 应用级配置，跨书共享，存 userData/providers.json。
-// 阶段 14 第二步（§6.3 统一 store + 卡片化单卡展开 + 内嵌新增）：
+// 阶段 14 第二步（§6.3 统一 store +卡片化单卡展开 +内嵌新增）：
 // 数据源收敛到 useProviderStore（AI + RAG + 档位 + 模型清单 + revision 单份）；
 // 本层只保留编排态（分页 tab / 展开互斥 / 新增卡 / 档位草稿）与确认弹窗、可达性联动。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
@@ -64,7 +64,7 @@ function syncTierForm(): void {
   chatTierEnabled.value = !!store.tiers.chat?.model
 }
 
-// （修复批）：armed 单门——onMounted 的
+// armed 单门——onMounted 的
 // refreshAll 在途时实例卸载（快速切 tab），迟到的 refresh 续体此前照旧写回死实例
 // 档位草稿（低敏写回，非泄漏级）。对齐 style 系 armed / SettingsBookAnalysis 书名
 // 复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径 armed 单门。
@@ -137,7 +137,7 @@ async function afterProviderModelsSaved(pid: string): Promise<void> {
   if (store.currentId === pid && outOfRangeTiers(declared).length) await alignTiersToDeclared(declared)
 }
 
-/** 保存（新增/展开编辑共用）：Key 前端校验 + 模型行校验（非法 abort） */
+/** 保存（新增/展开编辑共用）：Key 前端校验 +模型行校验（非法 abort） */
 async function save(f: {
   name: string
   protocol: Protocol
@@ -170,7 +170,7 @@ async function save(f: {
     apiKey: f.apiKey,
     models: f.models,
   }
-  // 0918修复批（F001）：首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
+  // 首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
   // 两行各读一次 editedId.value，add 在途窗口内用户点行「编辑」改写 editedId 后，163 重新
   // 求值走 update 分支，把新增草稿（含 apiKey）写进他行。saveRag（289 单表达式）同构参照。
   const editTarget = editedId.value
@@ -237,7 +237,7 @@ async function test(p: ProviderConfDto): Promise<void> {
   void ui.probeAiStatus()
 }
 
-// ── 任务档位 ──
+// 内部分页：AI 提供方（聊天模型 + 任务档位）/ RAG 提供方（嵌入检索）
 function toggleAssistant(on: boolean): void {
   assistantEnabled.value = on
   if (on && !tierForm.value.assistant) {
@@ -253,10 +253,10 @@ function toggleChatTier(on: boolean): void {
 }
 
 async function saveTiers(): Promise<void> {
-  // 保存档位入口在途锁——同文件 save/saveRag 的写法补齐。
+  // 保存档位入口在途锁——同文件 save()/saveRag() 的写法补齐。
   // tierSaving 虽有 :disabled 下传，但管不住双击/慢网窗口：第二笔并发 saveTiers 会以
   // 同一草稿双 POST setTiers（revision 双 bump），applyChatTier 亦双发
-  if (tierSaving.value) return // 在途锁：双击第二笔在入口丢弃
+  if (tierSaving.value) return // 在途锁（双击第二笔在入口丢弃）
   if (!tierForm.value.creative.model) return ui.toast('创作档模型必选', 'error')
   tierSaving.value = true
   try {
@@ -293,7 +293,7 @@ function closeRagEdit(): void {
 }
 
 async function saveRag(f: { name: string; endpoint: string; model: string; apiKey: string }): Promise<void> {
-  if (ragSaving.value) return // 在途锁（同 save）
+  if (ragSaving.value) return // 保存档位入口在途锁——同文件 save()/saveRag() 的写法补齐。
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.endpoint.trim()) return ui.toast('嵌入服务地址必填', 'error')
   if (!f.model.trim()) return ui.toast('嵌入模型必填', 'error')
@@ -415,7 +415,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
         <AiProviderEditor :initial="null" :saving="saving" @save="save" @cancel="addOpen = false" />
       </div>
 
-      <!-- 任务档位 -->
+      <!-- ═══════════ AI 提供方（聊天模型 + 任务档位） ═══════════ -->
       <TierSection
         v-if="store.currentId"
         :tier-form="tierForm"

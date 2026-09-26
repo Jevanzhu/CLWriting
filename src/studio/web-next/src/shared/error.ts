@@ -9,7 +9,7 @@ import { ApiError } from '../api/client'
 import { SAVE_TOO_LARGE_MESSAGE } from './save-limits'
 
 /**
- * 已知技术错误模式 → 友好提示。
+ * 已知技术错误模式（英文/工程术语）映射为中文友好提示
  *
  * 子串匹配收窄——原裸子串（/SSE/、/network/、/429/、/invalid.*key/
  * 等）会把邻近词/数字误归类（assess 含 sse 判成「连接中断」、文案里任意位置的 429 判成
@@ -38,7 +38,7 @@ const TECH_PATTERNS: ReadonlyArray<{ test: RegExp; tip: string }> = [
   },
 ]
 
-/** -（errMsg 面收敛）：原始错误消息提取单源——`e instanceof Error ?
+/** （errMsg 面收敛）：原始错误消息提取单源——`e instanceof Error ?
  *  e.message : String(e)` 三目的逐字同型收编（chat store / ui store / useChatComposer
  *  三处此前各自裸写）。与 friendlyError 的分工：本函数不做 TECH_PATTERNS 归类改写、
  *  原样透出（「保留原视图/原文」语义的调用方用此）；面向作者的 AI 故障类友好化走

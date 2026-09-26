@@ -3,7 +3,7 @@
  *
  * GET /api/books/:name/trace-stats → { total, byTask, ruleHits }
  *
- * 薄接线——逻辑全在 trace-stats.ts / rule-hits.ts。 顺带透出规则命中统计。
+ * 薄接线——逻辑全在 trace-stats.ts / rule-hits.ts。顺带透出规则命中统计。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

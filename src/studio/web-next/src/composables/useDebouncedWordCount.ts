@@ -2,15 +2,15 @@ import { ref, watch, onUnmounted, toValue, type Ref, type WatchSource } from 'vu
 import { countWords, stripFrontmatter, parseFmFields } from '../shared/words'
 
 /**
- * /：字数统计与 fm 字段解析的 150ms 防抖共享 composable——
- * EditorView wordCount 同款口径的推广。countWords（全文正则替换 + 码点展开）
+ * 字数统计与 fm 字段解析的 150ms 防抖共享 composable——
+ * EditorView wordCount同款口径的推广。countWords（全文正则替换 + 码点展开）
  * 与 parseFmFields（split('
 ') + join 两趟全文大分配）每击键 O(n)，此前右栏「信息」
  * 面板 / 本章历史 / 专注条 / AI 分析 / 顶栏标题 watch / 工作台流式字数直连每事件重算
  * （长章连续键入或 IME 组合输入下与 CM6 输入处理争预算、抬高 GC 频率；流式生成期
  * 每 text 事件重算更是 O(N²/chunk) 累计）。显示/派生延迟一拍无感。
  *
- * key 源（docId）变化（切文档）即刻重算—— 同款纪律：防抖窗不滞留旧文档值；
+ * key 源（docId）变化（切文档）即刻重算——同款纪律：防抖窗不滞留旧文档值；
  * 卸载清定时器；初值取当拍（首屏/挂载即时）。关键时点（如退出专注汇报增量）消费方
  * 可先 flush 同步取当拍内容重算，防 150ms 窗内低估。
  *
@@ -52,7 +52,7 @@ function debouncedDerived<T>(
 }
 
 /**
- * （0916-7 批）：字数派生单槽记忆——同一份正文（内容串相等）同口径下只算
+ * 字数派生单槽记忆——同一份正文（内容串相等）同口径下只算
  * 一次 countWords。此前 EditorView 顶栏 / FocusStatsBar / WritingInfoPanel / HistoryPanel
  * 四方各自防抖后各跑一遍全文码点展开（MB 级长章每个 150ms 窗口 4 趟 O(n)）；四方 watch
  * 同一 doc.content，同一拍携带同一个内容串，先到者计算、其余命中（见 EditorView 消费点

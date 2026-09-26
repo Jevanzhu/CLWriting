@@ -16,12 +16,12 @@ interface ResolvedWithinRoot {
   /** 绝对路径；目标存在时为 realpath（symlink 已解析），不存在时为 resolve 结果 */
   abs: string
   /** abs 相对 bookRoot 的相对路径（win32 分隔符归一为 /；posix 上字面 `\` 是合法
-   *  文件名字符、原样保留——-mac适配），白名单前缀匹配用 */
+   * 文件名字符、原样保留——mac适配），白名单前缀匹配用 */
   rel: string
 }
 
 /**
- * canonical 防穿越解析（批 6 统一）：relPath 解析到 bookRoot 内的绝对路径，
+ * canonical 防穿越解析（统一）：relPath 解析到 bookRoot 内的绝对路径，
  * 越出 / NUL / 空路径 / 落到 bookRoot 自身 → null（fail-closed：realpath 抛 → null）。
  *
  * 语义 = files.ts safePath / safeManifestPath 的多数派：root 平时只 resolve，目标
@@ -30,7 +30,7 @@ interface ResolvedWithinRoot {
  * 统一委托此处（service.resolveSafePath / files.safePath / trash.safePathWithin /
  * desktop show-in-folder·open-book-dir / style·books 删路径守卫）。
  */
-/** -数据层：越段判定——'..' 本体或以 '..' + 分隔符开头才算越出；
+/** 数据层：越段判定——'..' 本体或以 '..' + 分隔符开头才算越出；
  *  原先的 startsWith('..') 把字面以 .. 开头的合法文件名（..foo.md）误杀（fail-closed
  *  方向安全但属误报）；两种分隔符都认（win 反斜杠）。 */
 const ESCAPE_SEGMENT_RE = /^\.\.([\\/]|$)/
@@ -119,7 +119,7 @@ export function isWithinRoot(bookRoot: string, abs: string): boolean {
     // 与 resolveWithinRoot 语义一致（root 自身不越出）
     return rel === '' || (!ESCAPE_SEGMENT_RE.test(rel) && !isAbsolute(rel))
   } catch {
-    return false // realpath 失败 → 拒绝（fail-closed）
+    return false // realpath 失败（EACCES/ELOOP/断链）→ 拒绝（fail-closed）
   }
 }
 
@@ -134,20 +134,20 @@ export function safeDocId(docId: string): boolean {
   return !docId.includes('\0') && !docId.includes('/') && !docId.includes('\\') && !docId.includes('..')
 }
 
-/** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。批 6：委托 resolveWithinRoot。 */
+/** 校验 manifest 路径不越出 bookRoot，返回绝对路径或 null（非法）。委托 resolveWithinRoot。 */
 export function safeManifestPath(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
 
 /** win32 平台判定（单源门）：本模块 win32 字面判定的唯一落点，normalizeWinSeparators /
  *  platformCaseFold 共用（调用时读取，测试可注入 platform 切臂）。
- *  -mac适配：分隔符归一收窄的宿主——posix 层 `\` 是合法文件名字符。 */
+ * mac适配：分隔符归一收窄的宿主——posix 层 `\` 是合法文件名字符。 */
 function isWin32(): boolean {
   return process.platform === 'win32'
 }
 
 /**
- * 分隔符归一（win 假设泄漏族收口，-mac适配）：仅 win32 把 `\` 归一为
+ * 分隔符归一（win 假设泄漏族收口 mac适配）：仅 win32 把 `\` 归一为
  * `/`，其余平台原样返回。win 侧归一承载「历史遗留反斜杠清单路径 / win native API
  * 产出路径」的兼容语义（win 上 `\` 恒为分隔符），保持不变；posix 侧此前无条件归一
  * 会把字面含 `\` 的合法文件名（mac 上外部创建的 `a\b.md`）的 rel/身份键扭曲为
@@ -169,9 +169,9 @@ export function normalizeWinSeparators(rel: string): string {
  *
  * 折叠面扩至 darwin——mac 默认卷 APFS 不敏感（字符串异形、
  * 物理同库），此前 posix 臂不折叠使布线/清单锁键与文档身份键在 mac 上对 case 变体
- * 失明（三轮维持登记的同族观察本轮转正）；大小写敏感卷由启动
+ * 失明；大小写敏感卷由启动
  * 探测拒绝（产品不支持面，无「敏感卷上误折叠」语义）。linux 维持不折叠（敏感 FS
- * 合法异名共存，/钉值测试以 linux mock 为不折叠臂）。折叠面变更使键字节
+ * 合法异名共存钉值测试以 linux mock 为不折叠臂）。折叠面变更使键字节
  * 在 mac 上与旧版本相差大小写——新旧进程混跑窗内跨版本锁互斥退化为文件名相异
  * （APFS 物理同文件互斥仍兜底），单版本内一致性不受影响。
  */
@@ -181,11 +181,11 @@ export function platformCaseFold(key: string): string {
 }
 
 /** relPath 身份键：分隔符归一为 /；win32 追加大小写折叠
- *  （FS 大小写不敏感，对齐 manifestLockKey / samePath 先例）。供「清单登记
+ * （FS 大小写不敏感，对齐 manifestLockKey/ samePath 先例）。供「清单登记
  *  路径 vs 请求路径 / 扫描路径」的身份比较面收编——外部 case-only 改名后，大小写
  *  敏感比较会让保存恒 REVISION_CONFLICT、定稿集失配、布线锁互斥静默失效。
- *  ：折叠改委托 platformCaseFold 单源（分隔符归一管线不变，键字节不变）。
- *  -mac适配：分隔符归一收编 normalizeWinSeparators（win32-only）——
+ * 折叠改委托 platformCaseFold 单源（分隔符归一管线不变，键字节不变）。
+ * mac适配：分隔符归一收编 normalizeWinSeparators（win32-only）——
  *  posix 上字面 `\` 文件名的键不再被扭曲为 `/` 形态；win32 键字节不变（历史遗留
  *  反斜杠清单路径兼容语义保留）。 */
 export function relPathKey(p: string): string {
@@ -194,7 +194,7 @@ export function relPathKey(p: string): string {
 }
 
 /** 文档身份 join 键：relPathKey 折叠（win32 大小写 + 分隔符归一）
- *  叠加 NFC 归一（平台规范化批 toNfcName 语义收编——此前零消费）。供「树扫描路径
+ * 叠加 NFC 归一（平台 toNfcName 语义收编——此前零消费）。供「树扫描路径
  *  vs 清单登记路径 / 定稿集」的 join 点使用：外部 case-only 改名（win）或 NFD
  *  文件名（mac APFS 惯存分解形）后，精确字符串 join 会让 docId 落 legacyId、
  *  定稿章显示回草稿、findUnfinishedChapter 永久误判。NFC 对整段相对路径归一是

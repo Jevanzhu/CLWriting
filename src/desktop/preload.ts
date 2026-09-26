@@ -1,5 +1,5 @@
 /**
- * Electron 预加载脚本（桌面化工作目录管理，批2）。
+ * Electron 预加载脚本（桌面化工作目录管理）。
  *
  * contextBridge 安全暴露「书库管理」API 给渲染进程（书架页按钮 / 最近列表调用）。
  * 渲染进程不直连 Node/ipcRenderer，只经 window.clwritingDesktop。
@@ -60,7 +60,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   openLibraryWindow: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-window'),
   /** 在系统文件管理器中打开当前书库根目录。 */
   openLibraryDir: (): Promise<void> => ipcRenderer.invoke('desktop:open-library-dir'),
-  /** 阶段 53 ：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+  /** 阶段 53：用系统浏览器打开外部链接（更新横幅「去下载」用）。
    *  主进程侧白名单只放行本项目 GitHub 发布页——白名单外回 { ok:false, reason }，
    *  前端据此降级「复制链接」。 */
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; reason: string }> =>
@@ -87,7 +87,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   setFullScreen: (flag: boolean): Promise<void> => ipcRenderer.invoke('desktop:set-fullscreen', flag),
   /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win 主进程 no-op）。
    *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。
-   *  清偿-titlebar注解对齐（残留清偿批）：对齐 desktop.d.ts 正本（2--④）
+   * 清偿-titlebar注解对齐：对齐 desktop.d.ts 正本（2--④）
    *  ——main 侧颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款）；成功/非 win
    *  路径无返回值（undefined），如实标 void、不虚构 {ok:true} 态。 */
   setTitleBarOverlay: (o: {
@@ -113,7 +113,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
     }
   },
   /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null。
-   *  （低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
+   * （低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
    *  窗口级广播，残留监听会收到新菜单的选择串到旧回调（首条消息双投递） */
   showContextMenu: (items: Array<Record<string, unknown>>, cb: (key: string | null) => void): void => {
     clearPendingMenuSelect() // 复用清场（摘旧 + 置空），行为同原内联摘除

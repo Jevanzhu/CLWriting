@@ -11,11 +11,11 @@
  * 7878（env CLWRITING_PORT）、userDataPath 缺省 defaultUserDataPath、
  * SIGINT/SIGTERM 优雅退出。
  *
- * 单立清账批：入口解耦——胶水与信号兜底收编为导出函数
+ * 单立：入口解耦——胶水与信号兜底收编为导出函数
  * （runServerMain / installSignalFallback），顶层只留 VITEST 探针守卫 + 接线
  * （先例 server-utility.ts）。此前整文件顶层执行（import 即读 argv / 真绑端口 /
- * 真注册信号），vitest 无法进程内测——信号兜底修复（
- * ）长期无测试装置即此因。
+ * 真注册信号），vitest 无法进程内测——信号兜底修复（/
+ *）长期无测试装置即此因。
  *
  * 用法：node dist/desktop/server-main.js --dir <workDir> --port <port>
  * 环境变量照常透传（CLWRITING_DRIVER=mock 可脱离大模型跑通全链路）。
@@ -46,7 +46,7 @@ export function runServerMain(argv: string[], env: Record<string, string | undef
   const staticDir = deriveStaticDir(moduleUrl)
   return bootServerFromArgs(parsed, staticDir, {
     onReady: (actualPort) => {
-      // 用实际监听端口（--port 0 随机端口时与配置值不同）。：走 logger 进 JSONL（此前
+      // 用实际监听端口（--port 0 随机端口时与配置值不同）。走 logger 进 JSONL（此前
       // console.log 绕过日志体系，同文件其余路径都用 log.error）
       log.info('server-main', `ready on http://127.0.0.1:${actualPort} (static: ${staticDir})`)
     },
@@ -65,7 +65,7 @@ interface ClosableServer {
 }
 
 /**
- * 信号兜底（独立导出以便测试；//三锚语义与解耦前逐字一致）。
+ * 信号兜底（独立导出以便测试；三锚语义与解耦前逐字一致）。
  * 返回清理函数（摘除本组 handler + 清在途兜底 timer）——测试拆除用；真实入口不调
  * （进程生命周期即安装周期）。
  */
@@ -74,7 +74,7 @@ export function installSignalFallback(server: ClosableServer): () => void {
   // server 入口此前无兜底，e2e 残留连接时进程挂在信号上杀不掉。2s 超时强制退出
   //（与 Electron 态 before-quit 的总超时同量级；幂等防双信号双触发）
   let exiting = false
-  // 0918四轮修复批（C403）：close 回调 err 分流——原 exitNow 恒 exit，server.close(err)
+  // close 回调 err 分流——原 exitNow 恒 exit(0)，server.close(err)
   //（close 途中连接/监听器异常等真实故障）被吞成成功退出，发布 smoke 对非零关闭零感知。
   // 带 err → log 留痕 + exit(1)；无 err → exit(0) 原语义（2s 兜底 timer 经 setTimeout 零参
   // 触发本函数，同落 exit(0) 档）。幂等（exiting）不变：close 先到与兜底到点只退一次。
@@ -88,7 +88,7 @@ export function installSignalFallback(server: ClosableServer): () => void {
     }
     process.exit(0)
   }
-  // （修复批）：兜底超时句柄单槽——原每个
+  // 兜底超时句柄单槽——原每个
   // 信号各排一个 2s timer 不清旧：SIGINT+SIGTERM 连发（Ctrl+C 后补 kill / 进程管理器
   // 双信号）叠两个等价兜底（exiting 幂等无害但句柄滞留、多排违 timer 纪律）。排前查重，
   // 已有在途兜底则跳过。
@@ -96,7 +96,7 @@ export function installSignalFallback(server: ClosableServer): () => void {
   const onSignal = (): void => {
     server.close(exitNow)
     // 兜底超时 unref + close 先到即清——server 顺利 close 后定时器
-    // 不再作为活跃句柄拖慢退出。：已有在途兜底不重排（重复信号安全）
+    // 不再作为活跃句柄拖慢退出。已有在途兜底不重排（重复信号安全）
     if (!exitFallbackTimer) {
       exitFallbackTimer = setTimeout(exitNow, 2_000)
       exitFallbackTimer.unref()

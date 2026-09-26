@@ -27,7 +27,7 @@ interface BranchNode {
 }
 
 export interface BranchInfo {
-  /** 兄弟组 ID */
+  /** 兄弟组 ID（同 parent 的重新生成组；缺省 = 无分支） */
   branchId: string
   /** 该组含 surface 消息数 */
   messageCount: number
@@ -133,7 +133,7 @@ export function defaultBranchId(tree: BranchTree): string | null {
  * - 无任何分支元数据（普通线性对话）→ 原样返回全量（按 seq 升序）；
  * - 无 branchId → 默认分支（最新一组）；
  * - 有 branchId → 保留该组全部节点 + 其祖先链（跟随 parentSeq 到根）+
- *   组外无分支线性事件（含 root 之后的普通续聊，防刷新丢消息），
+ * 组外无分支线性事件（含 root 之后的普通续聊，防刷新丢消息），
  *   只丢弃其他兄弟分支的节点；未遮蔽过滤由调用方（foldSurface/loadHistoryWithSeqs）处理。
  * - 顶替槽：对每个有变体组的 parent P，(P, 首个组根) 之间的无分支消息
  *   是被 regenerate 顶替的原始回复——从所有分支视图剔除（否则默认视图新旧答案
@@ -161,7 +161,7 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
     if (p !== undefined && !keep.has(p)) queue.push(p)
   }
   // 顶替槽（抽共享）：selectBranch 与 selectBranchTo 同口径过滤
-  // （评审修复批）：区间判定改二分助手——原逐事件 slots.some 线性扫描为
+  // 区间判定改二分助手——原逐事件 slots.some 线性扫描为
   // O(events×slots) 平方级，长篇事件量数万级下保活判定成为热点。
   const isSuperseded = supersededMatcher(supersededSlots(tree))
   // 线性兜底：槽外的「无分支」消息（普通对话消息/旧数据缺 parentSeq）都保留——
@@ -175,7 +175,7 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
   return seq.filter((e) => keep.has(e.seq))
 }
 
-/** 顶替槽（+ 共享）：对每个有变体组的 parent P，(P, 首个组根) 半开区间内的
+/** 顶替槽（共享）：对每个有变体组的 parent P，(P, 首个组根) 半开区间内的
  *  无分支消息是被 regenerate 顶替的原始回复——任何分支视图都须剔除（selectBranch 的
  *  分支视图与 selectBranchTo 的重生成上下文同口径，否则重生成锚定在被否定的旧答案上）。 */
 function supersededSlots(tree: BranchTree): Array<[number, number]> {
@@ -191,7 +191,7 @@ function supersededSlots(tree: BranchTree): Array<[number, number]> {
 }
 
 /**
- * （评审修复批）：superseded 区间判定助手——把「逐事件 slots.some 线性扫描」
+ * superseded 区间判定助手——把「逐事件 slots.some 线性扫描」
  * （O(events×slots) 平方级保活判定）换成排序一次 + 逐 seq 二分。
  * 预处理（每次调用各一次）：slots 按 p 升序排序 O(s log s) + root 前缀最大值 O(s)；
  * 查询：每个 seq 二分定位「最后一个 p < seq 的区间」再比对前缀最大 root，O(log s)。
@@ -246,7 +246,7 @@ export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEven
   // 同样过顶替槽——被 regenerate 顶替的原答案不得混入重生成上下文（与
   // selectBranch / 进程内「截断到 user 再答」同口径）。
   // 排序结果复用（原两次 sortEvents 两次拷贝）
-  // （评审修复批）：同 selectBranch——slots.some 线性扫描换二分助手，语义不变。
+  // 同 selectBranch——slots.some 线性扫描换二分助手，语义不变。
   const isSuperseded = supersededMatcher(supersededSlots(tree))
   const seq = sortEvents(events)
   for (const ev of seq) {

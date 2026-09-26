@@ -29,8 +29,8 @@ import {
   checkSectionCount,
   checkOpeningNoEnv,
 } from './count.js'
-// -：parseIronRules 下沉到 format 层（消 format→check 循环依赖）
-// 改用合并版 readIronRules（铁律 + 条目库禁词）—— 迁移把禁词知识
+// parseIronRules 下沉到 format 层（消 format→check 循环依赖）
+// 改用合并版 readIronRules（铁律 + 条目库禁词）——迁移把禁词知识
 // 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
 import { readIronRules } from '../format/iron-rules.js'
 // 机检热路径固定 SQL 走连接级 prepared 缓存单源
@@ -88,13 +88,13 @@ interface CheckInput {
 }
 
 /** 已启用账本类（基础两类 + book.yaml leads.enabled）实现体在 leads-config.ts——
- *  本入口按原导出面透传，消费方 import 面零改动。 */
+ * 本入口按原导出面透传，消费方 import 面零改动。 */
 export { enabledLeadTypes } from './leads-config.js'
 
 /** 生效短篇配置：仅 kind === 'short' 时返回 short 段（无段给空对象，由各检查器的
  *  缺省参数兜底阈值），否则 undefined。-（全量代码）：run.ts
  *  三处后置升红与本文件短篇判定共用本单点——长篇误写 short 段（含 short.strict）
- *  不再触发短篇口径，对齐的 kind==='short' 单源判定。 */
+ * 不再触发短篇口径，对齐的 kind==='short' 单源判定。 */
 export function effectiveShort(config: BookConfig): BookConfig['short'] {
   return config.kind === 'short' ? (config.short ?? {}) : undefined
 }
@@ -112,7 +112,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
 }
 
 /**
- * runAllChecks 的实现体（生成器，单源供同步/async 双驱动；阶段 52 批 2 = ）。
+ * runAllChecks 的实现体（生成器，单源供同步/async 双驱动；=）。
  *
  * 链内唯一让出面 = `yield* checkLeadsFormCore(...)`（全书性条目的冷读建表/逐章核验，
  * 让出点定义见 leads.ts）；其余检查器调用一行不动（正文级纯函数，无悬停面）。计算集合
@@ -169,7 +169,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         const r = readRealmDoc(realmPath)
         if (r.ok) realmDoc = r.doc
       }
-      // （六轮修复批）：本 SQL 恒定不变且每章
+      // 本 SQL 恒定不变且每章
       // runAllChecks 都走一次（树红点聚合数百章即数百次重编译），transcription 走
       // shared/sqlite-prepared.ts 连接级缓存；同批另一处 lead_history JOIN 同改。
       const growthIds = (prepared(db, `SELECT id FROM leads WHERE type = '成长线'`).all() as { id: string }[]).map(
@@ -185,11 +185,11 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 文风铁律（禁词红项 + 可量化黄项）
   const ironRules = readIronRules(bookRoot)
 
-  // #10 项 4 禁词（红）—— ：条目库里解析不出任何词的禁词条目产黄项提示
+  // #10 项 4 禁词（红）——条目库里解析不出任何词的禁词条目产黄项提示
   //（此前静默失明：整段说明性正文作 includes 永不命中，作者无从知晓红闸失效）
-  // （评审修复批）：input.bannedWords 零消费参数删除（
+  // input.bannedWords 零消费参数删除（
   // 死代码纪律）——生产唯一调用方（run.ts runCheckForDocument）从不传参，禁词恒出自
-  // 铁律侧（readIronRules 合并源，迁移后含条目库禁词）；mergeBannedWords 保留作
+  // 铁律侧（readIronRules 合并源迁移后含条目库禁词）；mergeBannedWords 保留作
   // 禁词表归一单点（去重/滤空），合并死支随参数一并消失。
   const bannedSection = checkBannedWords(body, mergeBannedWords(ironRules.bannedWords))
   for (const scene of ironRules.unparsedBannedEntries ?? []) {
@@ -217,9 +217,9 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
     )
   }
 
-  // #10 项 6 复读（黄）—— ：占比/连续字数双阈值可配（同上生效链，undefined
+  // #10 项 6 复读（黄）——占比/连续字数双阈值可配（同上生效链，undefined
   // 直落引擎默认 0.15 / 200）
-  // （修复批）：repeat_threshold 是 0-1 占比语义——book 层
+  // repeat_threshold 是 0-1 占比语义——book 层
   // 解析（yaml.ts parsePositiveNumber）只验 >0，手写 1.5 直穿 → rate > 1.5 恒假 =
   // 复读比率口径静默死亡，违反「配置不生效必留痕」纪律。对齐 global 层同键 unitNum
   // 先例（global-defaults.ts 限 (0,1]）在消费点夹紧上界到 1 + warn 留痕（比率恒
@@ -242,7 +242,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 报黄次数阈值可配（undefined 直落引擎默认 3）
   sections.push(checkImagery(body, imageryWords, config.checks?.imagery_threshold))
 
-  // #10 项 8 句式体检（黄）—— ：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
+  // #10 项 8 句式体检（黄）——铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
   // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总。
   // 判定长度可配（checks.max_sentence_len 同链；undefined 直落引擎默认 60）
   if (!(ironRules.maxSentenceLen && ironRules.maxSentenceLen > 0)) {
@@ -256,7 +256,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   if (hasWiring) {
     const rosterPath = join(bookRoot, '设定', '名册.md')
     sections.push(checkNewNames(body, rosterPath))
-    // 信息差三级供给（批 6，-①）：入参 > book.yaml checks.leak_keywords >
+    // 信息差三级供给：入参 > book.yaml checks.leak_keywords >
     // 账本 front matter leak_keywords 派生；无内置默认（逐书的秘密无通用词表），
     // 三级都空 = 空表静默不启用（语义不变）。
     // 派生与名册解析均已按 stat 指纹缓存（leak-derive.ts /
@@ -372,7 +372,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
 }
 
 /** 收集机检顺带产出（#10 第 2 节末）：本章账本变动清单 + 信息差/新专名候选。
- *  checkedChapter = 被检章自身章号（三审 ledger_checks 据此核对「本章」账本变动，
+ * checkedChapter = 被检章自身章号（三审 ledger_checks 据此核对「本章」账本变动，
  *  不得用全书最高已定稿章号）。 */
 function collectByproducts(
   sections: CheckSectionResult[],

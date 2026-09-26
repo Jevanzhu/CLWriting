@@ -17,11 +17,11 @@ export interface RunState {
   ctrl: AbortController
   /** chat 对话嵌套写章标记（SelfHealOpts.embedded 透传） */
   embedded?: boolean
-  /** 本次运行 AI 消耗累计（done 事件上报，；genFn 单测替身无 usage 不入账）。
+  /** 本次运行 AI 消耗累计（done 事件上报；genFn 单测替身无 usage 不入账）。
    *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径。
-   *  低级项：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
+   * 低级项：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
    *  cost/outputTokens，单次明细已在事件库 llm/call 行）
-   *  ：estimated——任一 attempt 为估计入账时置位，done 事件透出
+   * estimated——任一 attempt 为估计入账时置位，done 事件透出
    *  usageEstimated（前端可区分实测/估计口径） */
   usage: { outputTokens: number; cost: number; estimated?: boolean }
 }
@@ -32,7 +32,7 @@ export function isSelfHealRunning(bookName: string): boolean {
   return running.has(bookName)
 }
 
-/** （二十四轮 A 域）：在途自愈是否为 chat 对话嵌套写章（write_chapter 工具驱动）
+/** 在途自愈是否为 chat 对话嵌套写章（write_chapter 工具驱动）
  *  ——chat 入口闸（stream.ts）据此区分独立写稿（409 拒新对话）与对话嵌套写稿（放行
  *  交 sendChatMessage 入队 steer，当前轮结束自动续链）。 */
 export function isChatEmbeddedSelfHealRunning(bookName: string): boolean {
@@ -40,7 +40,7 @@ export function isChatEmbeddedSelfHealRunning(bookName: string): boolean {
 }
 
 /**
- * （修复批）：运行登记强删除（生产命名导出）——
+ * 运行登记强删除（生产命名导出）——
  * stream.ts 静默挂死 watchdog 二段强释放的登记清理入口。语义 = running.delete(bookName)，
  * 幂等（不在册/重复调用均安全；被强释放的编排若日后 settle，其 finally 的同键删除天然互容）。
  * 此前该生产清理点直调测试命名导出 __setSelfHealRunningForTest，测试专用 API 进了生产路径。
@@ -51,7 +51,7 @@ export function forceReleaseSelfHealRunning(bookName: string): void {
 
 /** 回归注入（先例同 api/review.ts __setReviewRunning）——orchestrationBusyFor
  *  互斥矩阵测试需制造「self-heal 在途」态，真实跑完整闭环过重。生产零调用；off 分支
- *  转调 forceReleaseSelfHealRunning（起本函数是它的测试别名）。 */
+ * 转调 forceReleaseSelfHealRunning（起本函数是它的测试别名）。 */
 export function __setSelfHealRunningForTest(bookName: string, on: boolean): void {
   if (on) running.set(bookName, { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } })
   else forceReleaseSelfHealRunning(bookName)

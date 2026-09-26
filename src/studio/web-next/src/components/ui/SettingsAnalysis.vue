@@ -70,7 +70,7 @@ function onGlobalCheckNum(e: Event, key: WritablePrefKey): void {
         :checked="prefs.get('defaultShortStrict')"
         @change="prefs.set('defaultShortStrict', $event)"
       />
-      <!-- ：机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
+      <!-- 机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
       <SettingItem
         name="复读占比阈值"
         desc="重复字词占全章比例超过该值报黄（0-1 之间，如 0.15）；留空用内置默认 0.15；未单独设定的书使用此默认"

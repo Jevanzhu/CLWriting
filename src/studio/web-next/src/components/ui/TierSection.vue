@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 任务档位区（阶段 14 + 0 超时 ms 输入）。
+// 任务档位区（阶段 14 + P10 超时 ms 输入）。
 // 档位草稿/启停开关由父层持有（refresh 会整体重置），本组件只做受控渲染 + 事件上抛；
 // 模型下拉选项 = 已配置模型行（本地声明，不打上游网关）；保存在父层编排。
 // 卡片视觉：纯大间距与上方提供方列表分区（不画线不加底色）；白色小卡与行卡同语言——
@@ -10,7 +10,7 @@
 import { Loader2, PenLine, Sparkles, MessageCircle } from 'lucide-vue-next'
 import type { TierSlot } from '../../api/providers'
 import type { ModelOption } from '../../stores/provider'
-// （修复批）：三张 tier-card 模板逐字同构 → 收敛为
+// 三张 tier-card 模板逐字同构 → 收敛为
 // TierCard 子组件（差异面经 props 传：标题/图标/描述/开关态/草稿引用）。DOM 逐像素不变。
 import TierCard from './TierCard.vue'
 
@@ -118,6 +118,6 @@ const emit = defineEmits<{
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--size-4-3) var(--size-4-4);
 }
-/* 档位卡本体样式（tier-card/tier-head/字段行/下拉/超时/推理族）已随
+/* 档位卡本体样式（tier-card/tier-head/字段行/下拉/超时/推理族）已随 
  * 抽取搬入 TierCard.vue scoped 块（原样搬家，值不变）。 */
 </style>

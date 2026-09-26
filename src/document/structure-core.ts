@@ -20,7 +20,7 @@ import { safeManifestPath } from '../fs/safe-path.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { parseMergedInto, parseOrderOf } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
-// 0918修复批（B005 尾项）：isMdFileName = 定稿条目章号提取剥 .md 茎单源
+// isMdFileName = 定稿条目章号提取剥 .md 茎单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { layoutOf } from './layout.js'
 import { readManifestStrict } from './manifest.js'
@@ -50,7 +50,7 @@ export const BODY_PREFIX = '写作/正文/'
 export const VERSIONS_DIR_REL = '工作区/.版本'
 
 /** 单读派生：章文件盘上状态（字节 → revision / UTF-8 判定 / fm+正文 三路同源，
- *  /消除重复整读与读间 TOCTOU 的同款口径）。 */
+ * 消除重复整读与读间 TOCTOU 的同款口径）。 */
 export interface ChapterDiskState {
   path: string
   abs: string
@@ -84,7 +84,7 @@ export async function readChapterState(
   if (!path) return fail('NOT_FOUND', `文档ID未在清单登记：${docId}`)
   if (!path.startsWith(BODY_PREFIX)) return fail('BAD_INPUT', `目标不是正文区章文件：${path}`)
   if (layoutOf(path).role !== 'chapter') return fail('BAD_INPUT', `目标不是章文档：${path}`)
-  // -源码：清单路径可篡改数据面 defense-in-depth——resolvePathAsync 产出的
+  // 源码：清单路径可篡改数据面 defense-in-depth——resolvePathAsync 产出的
   // path 裸 join 前经 safeManifestPath 收口（越界/非法 → BAD_INPUT 拒收，不留书外探测面）
   const abs = safeManifestPath(bookRoot, path)
   if (!abs) return fail('BAD_INPUT', `清单路径越界或非法：${path}`)
@@ -177,7 +177,7 @@ export async function recordStructureEvents(
 }
 
 /** 全书已用最大章号：正文区文件名章号 + 并入 在档源章号（合并产生的洞也是「已用」，
- *  新章号永不回头填洞——留洞制）。 */
+ * 新章号永不回头填洞——留洞制）。 */
 export function maxUsedChapter(bookRoot: string): number {
   let max = 0
   const bodyDir = join(bookRoot, BODY_PREFIX)
@@ -193,7 +193,7 @@ export function maxUsedChapter(bookRoot: string): number {
   return max
 }
 
-// ── B004（0918三拍板批）：章号双轨一致性闸 ─────────────────────────────
+// ──：章号双轨一致性闸 ─────────────────────────────
 
 /** 章号失配条目：文件名前缀号（正轨）vs fm 章号。fmNo=null = fm 章号缺失/非法/不可读。 */
 export interface ChapterNoMismatch {
@@ -202,7 +202,7 @@ export interface ChapterNoMismatch {
   fmNo: number | null
 }
 
-/** B004：全书 fm 章号 ≡ 文件名前缀章号 对账。背景：两轨口径混用——取号
+/** 全书 fm 章号 ≡ 文件名前缀章号 对账。背景：两轨口径混用——取号
  *  （maxUsedChapter）/违规检测（detectStructureViolations）/定稿集合
  *  （finalizedChapterNumbers）全按文件名号派生，fm 号只服务被操作章
  *  （readChapterState）——作者外部改名后两轨失配，并入 登记/违规检测/取号互相
@@ -235,14 +235,14 @@ export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
   return out
 }
 
-/** B004：结构操作入口一致性闸——失配 fail-loud（CHAPTER_NO_MISMATCH → HTTP 409）。
+/** 结构操作入口一致性闸——失配 fail-loud（CHAPTER_NO_MISMATCH → HTTP 409）。
  *  结构操作（拆分/合并/撤销）带着失配盘面执行会放大重号/错定位，先拒后做；报文
  *  指明修复方向：文件名号为正，改 fm 对齐（或把文件名改回）。最多列 5 处 + 总数。
  *  拍板注：fail-loud 会拦存量失配书的一切结构操作（须先修书）——作者拍板接受
- *  （真开放待拍板 2 之 B004）。
+ * （真开放待拍板 2 之）。
  *  只拦「fm 存在且 ≠ 文件名号」的真失配；fm 缺失/无 frontmatter 不拦——三个取号
  *  消费者全按文件名号派生（fm 缺失文件照常占号，保守无险），被操作章自身有
- *  readChapterState 的 BAD_INPUT 兜底，且杂散占位文件（B105 还原失败半完成态的
+ * readChapterState 的 BAD_INPUT 兜底，且杂散占位文件（还原失败半完成态的
  *  典型盘面）不得堵死「重试自动续跑收尾」恢复路径。 */
 export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | null {
   const mismatches = chapterNumberMismatches(bookRoot).filter((m) => m.fmNo !== null)
@@ -263,10 +263,10 @@ export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | n
  *  （fail-closed；异常穿透 apply 锁释放后由 server 路由顶层兜底 500 ERROR、
  *  message 脱敏——RC 全项目修注：原注「调用方收 WRITE_ERROR 信封」
  *  与实际路由不符，如需信封化须在 plan/apply 入口显式收口，此处按实况记档）。
- *  0918修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
+ * 章号提取剥 .md 茎后判定（isMdFileName 单源 +
  *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
  *  漏跳 → 拆分取号可撞定稿章号。
- *  0918二轮修复批（B102）：isSafeInteger 手工守卫删除——守卫已下沉
+ * isSafeInteger 手工守卫删除——守卫已下沉
  *  chapterNoFromName 单源（16+ 位失真大数恒 null），与 manifest.ts 同名函数对齐。 */
 export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const out = new Set<number>()

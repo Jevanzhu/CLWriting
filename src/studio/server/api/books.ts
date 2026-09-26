@@ -95,7 +95,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
           continue
         }
         try {
-          // -BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
+          // 一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
           // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
           // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
           const effective = applyGlobalDefaults(guard.config, ctx.userDataPath)
@@ -136,7 +136,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
       if (!name) throw new Error('书名不能为空')
       // 书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
-      // （拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
+      //（mac适配：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
       // 与跨平台原因披露——行为维持跨平台硬拒不变）
       if (isInvalidBookName(name)) throw new HttpError(400, BOOK_NAME_INVALID_REASON, 'BAD_PATH')
       const genre = typeof body['genre'] === 'string' ? body['genre'].trim() : ''
@@ -155,7 +155,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return { name, genre, kind, leads, host, targetWords, brief }
     },
     handler: async ({ input, gate: workDir }, _req: IncomingMessage, res: ServerResponse) => {
-      // /：建书迁 doInitAsync——doInit 经 appendBook 的同步
+      // 建书迁 doInitAsync——doInit 经 appendBook 的同步
       // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
       // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
       // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
@@ -186,7 +186,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/books/:name',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      // 删 !name 死分支——path 参数:name 为空的 404 由下方
+      // 删 !name 死分支——path 参数 :name 为空的 404 由下方
       // find 未命中统一给出（原并入 NO_WORKDIR 是错误码语义错位）
       const name = params['name']
       if (!ctx.workDir) {

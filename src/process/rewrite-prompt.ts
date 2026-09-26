@@ -10,7 +10,7 @@ export interface DiffLine {
 }
 
 /** 组改写 prompt(local 选段 / whole 整章，AI 自愈 + rewrite 端点共用)。
- *  ：strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。
+ * strategyHint 非空时作独立段注入（连续相同红项的「换策略」提醒，不拦截）。
  *  targetWords：书级 chapter_target_words（applyGlobalDefaults 合并值）——整章重写的字数
  *  区间与首稿链同口径（wordRange ±20%）；缺省回落长短篇硬编码（与首稿链一致）。此前
  *  硬编码 2000-4000/8000-20000，配了目标的书每次自愈/对话重写都被拉回默认区间。 */

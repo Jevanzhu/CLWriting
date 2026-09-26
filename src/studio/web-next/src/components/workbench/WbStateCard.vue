@@ -8,7 +8,7 @@ import { useUiStore } from '../../stores/ui'
 import type { BookState } from '../../api/workbench'
 
 const props = defineProps<{ state: BookState | null }>()
-// （b 修复批）：崩溃 pending「忽略此提醒」按钮上抛
+// 崩溃 pending「忽略此提醒」按钮上抛
 // ——确认调用（acknowledgeJournalPending）与刷新状态归父层（书名捕获/切书守卫/刷新
 // 编排都在 WorkbenchView，卡片保持纯展示 + 事件出口的既有分工）。
 const emit = defineEmits<{ spawn: []; acknowledge: [] }>()
@@ -79,7 +79,7 @@ const crashedPendingOpIds = computed<string[]>(() =>
     </div>
     <p class="human-msg">{{ state?.humanMsg ?? '读取状态中…' }}</p>
     <p v-if="batchPauseMsg" class="pause-msg">{{ batchPauseMsg }}</p>
-    <!-- ：崩溃 pending 人工确认（本动作不删数据，直接调用 + toast 口径） -->
+    <!-- 崩溃 pending 人工确认（本动作不删数据，直接调用 + toast 口径） -->
     <div v-if="crashedPendingOpIds.length > 0" class="ack-row">
       <button class="btn mini" data-testid="ack-crashed" @click="emit('acknowledge')">忽略此提醒</button>
       <span class="ack-hint">确认接受该次未完成保存的现状后，进门体检不再重复提醒</span>

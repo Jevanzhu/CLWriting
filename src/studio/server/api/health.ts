@@ -19,7 +19,7 @@ interface HealthCtx {
   styleScanTtlMs?: number | null
 }
 
-// 内存闸：scanChapters 每请求全书扫描（读全部定稿章 + 逐章算指纹），
+// 内存闸（审计）：scanChapters 每请求全书扫描（读全部定稿章 + 逐章算指纹），
 // 体检页轮询/反复刷新会反复重扫。缓存口径对齐 overview.ts stateCache：5s TTL + 书键 Map
 // FIFO 上限；overview 本身无写路径失效挂点（纯 TTL，概览页 stale 5s 可接受），此处同口径——
 // 保存/定稿后最迟 5s 自愈，不做即时失效。
@@ -38,7 +38,7 @@ const STYLE_SCAN_MAX = 32
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + 异步计算 +
- * FIFO 32， ts 取写入当刻由通用件 store 统一承担，见其头部收敛映射表）。 */
+ * FIFO 32 ts 取写入当刻由通用件 store 统一承担，见其头部收敛映射表）。 */
 export const styleScanCache = createTtlProbeCache<string, ChapterSample[]>({
   name: 'health-style-scan',
   keyOf: (k) => k,

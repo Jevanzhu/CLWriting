@@ -7,7 +7,7 @@ import { bookUrl } from './url'
 // 的 *_TIMEOUT_MS 惯例；30s 兜底档直接 import client 单源）。
 const CHAT_TIMEOUT_MS = 15_000
 
-/** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流） */
+/** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流；运行中入队） */
 interface SendChatResult {
   ok: boolean
   /** E1a（steer）：true = 对话运行中已入队，当前轮结束自动续链 */
@@ -31,7 +31,7 @@ export async function clearChatHistory(name: string): Promise<{ ok: boolean }> {
   return apiJson(bookUrl(name, 'chat', 'clear'), { method: 'POST' }, CHAT_TIMEOUT_MS)
 }
 
-// ── ：对话历史恢复（只读投影） ──────────────────
+// ──：对话历史恢复（只读投影） ──────────────────
 
 /** 历史消息 content block（服务端 ContentBlock 的 JSON 投影，同构透出） */
 export type ChatHistoryBlock =
@@ -60,7 +60,7 @@ export interface ChatHistoryResult {
 }
 
 /** GET /chat/history —— 事件库投影的对话历史（刷新后前端种子化用）。
- *  ：可选 branchId 指定分支（缺省 = 默认分支：最新变体组 + 祖先链）。 */
+ * 可选 branchId 指定分支（缺省 = 默认分支：最新变体组 + 祖先链）。 */
 export async function fetchChatHistory(bookName: string, branchId?: string): Promise<ChatHistoryResult> {
   // L-：尾窗拉取——长书几万事件不再全量出网；messages 仅作展示种子
   //（模型上下文由服务端从事件库重建，不经此端点）。
@@ -68,7 +68,7 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
   // 上限条数，多拉部分每次拉取即弃，纯流量浪费（#10：上限单源
   // shared/chat-history，与 store/截断提示文案同值）
   const params = new URLSearchParams({ limit: String(CHAT_HISTORY_LIMIT) })
-  // 低-1branchId 交给 URLSearchParams.toString 统一编码——此前手编
+  // 低-1：branchId 交给 URLSearchParams.toString() 统一编码——此前手编
   // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
   // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空
   if (branchId) params.set('branch', branchId)
@@ -95,7 +95,7 @@ export async function confirmTool(name: string, body: { callId: string; ok: bool
   )
 }
 
-// ── ：分支（变体）与重新生成 ──────────────────────
+// ──：分支（变体）与重新生成 ──────────────────────
 
 /** GET /chat/branches —— 分支（变体组）信息 */
 export interface ChatBranchInfo {

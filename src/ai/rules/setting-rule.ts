@@ -11,7 +11,7 @@
  * 规则层只做确定性字面匹配（不调 AI）——引号内 2-4 字纯汉字片段不在已知名称集合
  * 或名册解析名中即报黄；起守卫族与名册判重对齐 check/count.ts
  * checkNewNames 口径（句读守卫/引导词豁免/整行对白豁免/精确全等），同一段文本两种
- * 机检不再两种结论；- /起守卫族抄本删除、改
+ * 机检不再两种结论；起守卫族抄本删除、改
  * 直接 import check/count.ts 导出单源（「只读参照」抄本两次失同步，见文内块注）。
  * 语义判断（别名/化名/代称）留给审稿 AI。
  */
@@ -32,7 +32,7 @@ const ROLE_DIR = join(SETTING_DIR, '角色')
 const ITEM_DIR = join(SETTING_DIR, '物品')
 const ROSTER_FILE = join(SETTING_DIR, '名册.md')
 
-// ── ：设定目录读取 TTL 缓存 ─────────────────────────────
+// ──：设定目录读取 TTL 缓存 ─────────────────────────────
 // setting-rule 挂在 AI 热路径（self-heal/spawn-write/rewrite 的 toPrompt/check 每章
 // 反复调用），此前每次全量 readdirSync + readFileSync 读设定目录（角色卡/物品卡逐
 // 文件 parse front matter）。手法对齐 search 缓存（书键 Map + TTL + 目录 mtime
@@ -72,7 +72,7 @@ export function forgetSettingCache(bookRoot: string): void {
 
 /** 设定目录 + 名册文件的 mtime 签名（缺失计 '-'）：每次命中前重算，4 次 stat 换
  *  免全量重读。必须在读取**前**取值——读取期间落盘的变更会使签名失配，下次按失效
- *  重读（宁多读不脏读，同口径）。 */
+ * 重读（宁多读不脏读，同口径）。 */
 function settingDirSignature(bookRoot: string): string {
   const parts: string[] = []
   for (const p of [SETTING_DIR, ROLE_DIR, ITEM_DIR]) {
@@ -118,7 +118,7 @@ const QUOTED_NAME_RE = new RegExp(
   'g',
 )
 
-// - /：check/count.ts 守卫族单源直引（抄本删除，沿革见上方块注）。
+// check/count.ts 守卫族单源直引（抄本删除，沿革见上方块注）。
 // 在 check 侧补的增补平面区段 + u 标志随 parseRosterNames 单源自动生效——
 // Ext-B 生僻字名册名自本批起进入 registered 集合，两检不再两结论。
 import { ATTRIBUTION_RE, SPEECH_ATTRIBUTION_RE, DIALOGUE_GUIDE_RE, parseRosterNames } from '../../check/count.js'
@@ -181,7 +181,7 @@ function loadSettingData(bookRoot: string): SettingData {
     }
   }
 
-  // 名册：全文缓存（check 时 parseRosterNamesLocal 解析精确判重，；：
+  // 名册：全文缓存（check 时 parseRosterNamesLocal 解析精确判重：
   // 剥 front matter——名册是文档可能带 fm，fm 元信息（如「姓名: 模板示例」）不该
   // 参与专名匹配）
   const rosterPath = join(bookRoot, ROSTER_FILE)
@@ -240,7 +240,7 @@ export const settingConsistencyRule: WritingRule = {
       // 「X：『引语』」的引语引入结构（引导动词词表永追不全），引号内是对白/引文而非专名
       const bare = line.replace(QUOTED_NAME_RE, '').replace(/[\s\u3000]/g, '')
       if (/[:：]$/.test(bare)) continue
-      // 整行对白豁免（对齐 /）——引号外只剩提示语成分（含空），
+      // 整行对白豁免（对齐）——引号外只剩提示语成分（含空），
       // 或为「1-4 字人名/称谓 + 说话动词」归属行：引号片段是对白内容，不报「未登记专名」
       // （「快走。」「住手！」类网文最高频对白行式此前每章批量假阳，经 self-heal 反馈
       // 自我放大——即本轮评审主诉）
@@ -259,7 +259,7 @@ export const settingConsistencyRule: WritingRule = {
         // 以说话动词收尾 = 「引导词+引语」对白引用而非专名提及；词表外引导词仍照报
         if (DIALOGUE_GUIDE_RE.test(line.slice(0, span.index ?? 0).trimEnd())) continue
         const name = span[1]!.trim()
-        // -：长度窗改码点计（原 UTF-16 .length 对 astral 字一符计 2，
+        // 长度窗改码点计（原 UTF-16 .length 对 astral 字一符计 2，
         // 与 check 侧 :472 codePointLength 口径分裂；单源见上方 import 注）
         const nameLen = codePointLength(name)
         if (nameLen < 2 || nameLen > 4) continue

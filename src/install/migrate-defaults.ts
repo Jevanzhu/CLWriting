@@ -20,7 +20,7 @@
  * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、
  * 每本书独立 try/catch（单本失败 log.warn 不阻断）、汇总 log.info。
  *
- * 平台规范化批·评审补翻：整输出再经 canonicalizeText 归一（LF 无 BOM）——
+ * 平台·评审补翻：整输出再经 canonicalizeText 归一（LF 无 BOM）——
  * 此前自有删行补丁器只做删行，未触碰行的 CRLF 残尾原样保留（与 yaml.ts 补丁族的分叉，
  * 方案 §四 曾记「语义不变」，评审收口改翻）；CRLF/BOM 存量 book.yaml 自此随启动
  * 迁移自愈（解析失败的原样返回分支不动——无法安全改写坏文件）。
@@ -36,8 +36,8 @@ import { readBooksStrict } from './books.js'
 import { locateTopSection, parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
 
-/** （四轮处置批）：book.yaml 迁移锁等待档（ms，测试注入缩短以断言
- *  锁占用 fail-closed 跳过语义）—— testableConst 工厂形态（新符号约定）。 */
+/** book.yaml 迁移锁等待档（ms，测试注入缩短以断言
+ * 锁占用 fail-closed 跳过语义）——testableConst 工厂形态（新符号约定）。 */
 export const [getBookYamlLockTimeoutMs, __setBookYamlLockTimeoutForTest] = testableConst(5_000)
 
 /** 迁移汇总（供测试断言 + 启动日志） */
@@ -52,7 +52,7 @@ interface MigrateBookDefaultsResult {
 
 /** 枚举工作目录全部书，逐本清理旧默认值键。启动期调用（studio/server/index.ts）。 */
 export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult {
-  // 0918二轮修复批（G106）：读失败与真 0 本分岔——此前 readBooks 容错降级空表，
+  // 读失败与真 0 本分岔——此前 readBooks 容错降级空表，
   // books.jsonl 读失败（EACCES 等）整轮静默跳过无任何痕迹（幂等下次重试没错，但
   // 可观测性为零）。改 readBooksStrict：null 时 warn 留痕后本轮返回（迁移不误判
   // 「0 本书」跑空轮）；真 0 本（缺文件/空表）照常静默走正常路径。
@@ -67,7 +67,7 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
     try {
       const yamlPath = join(workDir, book.path, 'book.yaml')
       if (!existsSync(yamlPath)) continue // 无 book.yaml 的书（登记残留）跳过不报错
-      // （四轮处置批）：RMW 持 `<yamlPath>.lock` 跨进程锁——此前读改写无锁，
+      // RMW 持 `<yamlPath>.lock` 跨进程锁——此前读改写无锁，
       // 双开窗口两端启动迁移并发跑同一本书时后写者整文件覆盖先写者（丢更新面）。
       // 读移进锁内（锁外无先读）；拿不到锁按单本失败收口（fail-closed 不降级裸写，
       // 迁移幂等下次启动重试）。互斥面 = 迁移对迁移（启动双开）；与 settings 等
@@ -137,7 +137,7 @@ function migrateBookYamlText(raw: string): string {
   ) {
     out = deleteTopSection(out, 'rag')
   }
-  // 平台规范化批·评审补翻：整输出归一规范形（LF 无 BOM）——与 yaml.ts 补丁族同款闭环
+  // 平台·评审补翻：整输出归一规范形（LF 无 BOM）——与 yaml.ts 补丁族同款闭环
   return canonicalizeText(out)
 }
 
