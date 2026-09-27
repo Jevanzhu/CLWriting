@@ -1,18 +1,25 @@
 /**
  * 源码注释门直测（scripts/check-comments.mjs）。
  *
- * 覆盖三面：
+ * 覆盖四面：
  * 1. 形态命中——批号 / 轮次 / 日期戳 / 评审过程词各形逐一红。
  * 2. 字符串字面量零误报——字符串 / 模板串（含 ${} 嵌套）/ 正则字面量 / .vue 属性串 /
  *    裸 URL 里的标签样文本一律不进注释判定（清理只动注释、绝不碰生产字面量的机器化）。
  * 3. allowlist——承重锚注（被测试 readFileSync 断言钉住的注释）按 文件+行内容 放行。
+ * 4. 切除后残形——标签被切走、只剩半截括注 / 标点的那一族（`RESIDUE_PATTERNS`）。它与
+ *    形态表互补：残形本身不含标签，故形态表对它零命中（用例把这个盲区本身钉住）。
  */
 import { describe, expect, it } from 'vitest'
 import {
   ANCHOR_ALLOWLIST,
   extractCommentLines,
+  findResidueHits,
   findTagHits,
   isAllowlisted,
+  maskQuotedParens,
+  orphanCloserOffsets,
+  PAIR_RESIDUE_PATTERNS,
+  RESIDUE_PATTERNS,
   stripTagSpans,
   tagSpansOf,
   TOKEN_EXCEPTIONS,
@@ -39,6 +46,7 @@ interface HitOpts {
 }
 
 const hits = (content: string, opts: HitOpts = {}): TagHit[] => findTagHits(content, opts)
+const residue = (content: string, opts: HitOpts = {}): TagHit[] => findResidueHits(content, opts)
 
 describe('extractCommentLines：注释抽取与字符串保护', () => {
   it('行注释 / 块注释 / .vue HTML 注释均抽出，行号正确', () => {
@@ -224,6 +232,119 @@ describe('findTagHits：批号标签形态', () => {
     ]) {
       expect(hits(line), line).toHaveLength(0)
     }
+  })
+})
+
+describe('findResidueHits：切除后残形（形态表的结构性盲区）', () => {
+  // 为什么单列一族：形态表的判据是「注释里出现批号标签」。清理器把标签**连同它依附的括注
+  // 一起**删掉之后，留下的残形不含任何标签，形态表判定为干净——下面第一例把这个盲区钉死。
+  // 每条都是**自足注释串**（含定界符）——`* ）…` 这类续行片段单独喂给扫描器不算注释，
+  // 其判定面由下方「块注释续行 / .vue 模板注释」用例覆盖。
+  const damaged = [
+    ['// 2-（GLM-5.3）：读侧单源化', '数字破折号+左括'],
+    ['// -①（c ）中断通道接线', '破折号圈号+左括'],
+    ['// ）。并发防护口径见上方注释块', '孤立闭括'],
+    ['// ：历史尾窗截断提示', '注释冒号起首'],
+    ['//。', '纯标点注释行'],
+    ['// 价格表与金额口径——加性扩展（-①）。', '括注破折号+圈号'],
+    ['// 此前两道 re-export 中转（-优化', '括注破折号+汉字'],
+    ['// 同构段抽入公共（-deepseek-v4.1-flash ）', '括注破折号+拉丁词'],
+  ] as const
+
+  it.each(damaged)('%s → 残形命中 %s', (line, name) => {
+    expect(residue(line).map((h) => h.name)).toContain(name)
+  })
+
+  it('残形不含标签，故形态表对它零命中——这正是必须另立一族的理由', () => {
+    for (const [line] of damaged) expect(hits(line), line).toHaveLength(0)
+  })
+
+  it('判据表覆盖七族且名称唯一（漏一族则某类残形整支漏判）', () => {
+    const names = RESIDUE_PATTERNS.map((p: { name: string }) => p.name)
+    expect(names).toEqual([
+      '括注破折号+圈号',
+      '括注破折号+汉字',
+      '括注破折号+拉丁词',
+      '数字破折号+左括',
+      '破折号圈号+左括',
+      '注释冒号起首',
+      '纯标点注释行',
+    ])
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  // 成对族为什么必须单列：单行族看不见「内容被切空、只剩一对括号」——左括在上一行、
+  // 右括在下一行，任一行看都只是普通标点。只有把注释块拼起来判配对才照得出来。
+  it('跨行空括注：括注内容整段被切走，只剩一对空括号（按块判配对）', () => {
+    const block = ['/**', ' * 缓存壳（', ' * ）已并入单源', ' */'].join('\n')
+    expect(residue(block).map((h) => h.name)).toContain('跨行空括注')
+    // 单行族对同一文本零命中——族间不重叠，故「单行族过了」不等于「残形干净」
+    expect(residue(block).map((h) => h.name)).not.toContain('注释冒号起首')
+    expect(PAIR_RESIDUE_PATTERNS.map((p: { name: string }) => p.name)).toEqual(['跨行空括注'])
+  })
+
+  it('孤立闭括：块内闭括落在深度 0（其左括已被切走）', () => {
+    expect(orphanCloserOffsets('正常（括注）与孤括）')).toEqual([9])
+    expect(orphanCloserOffsets('全配对（a）与（b）')).toEqual([])
+    expect(residue('// ）。并发防护口径见上方注释块').map((h) => h.name)).toEqual(['孤立闭括'])
+  })
+
+  it('maskQuotedParens：引用面内的括号是数据，抹平且不变长', () => {
+    const src = '见 `timer.refresh()` 与「（示例）」及 "((x))" 三处'
+    const masked = maskQuotedParens(src)
+    expect(masked).toHaveLength(src.length)
+    expect(masked).not.toMatch(/[（()）]/)
+    for (const ch of ['见', '与', '及', '三处']) expect(masked).toContain(ch)
+    // 转义引号不跨越配对（`反义 \"` 不会一路吞到下一个引号）
+    expect(maskQuotedParens('反义 \" 与正常（括注）')).toContain('（')
+  })
+
+  it('零误报：健康注释不因近形而命中（左视 / 前视 / 参数式 / 正常括注）', () => {
+    for (const line of [
+      // 「破折号 + 词」的正常写法：破折号后带空格
+      '* 分隔符（- 说明）写作惯例',
+      // 调用式与负号参数：左视挡标识符，右括须紧随
+      '// slice(-1) 取末项；kill(-pid) 与 kill(-9) 同族',
+      '// z-index: -1（置于底层）——负值有语义',
+      '// 权重 1（归一后）与 -1（未设置）两种取值',
+      // 行尾左括是**正常中文折行**（右括在下一行），不是残形——残形判据是「空括注对」
+      // 与「深度 0 闭括」，不认单个左括，否则全库正常折行全线误报。
+      '// 原判断已被作废，与其后的收口口径见下（',
+      // 正常括注与正文破折号
+      '// 闸门（P3-1 已并入）失效时保守阻断',
+      '// 见 fs/atomic.ts 的 serializedLockedWrite 快路段',
+      '// 半角冒号是真成因（键值对照）故不入射程',
+      '//: 键值对照表首行',
+      '// 断言以 `)` 收尾的写法',
+      // 花括号括注（非全角/半角圆括）
+      '// 集合 {A, B} - C 的差集运算',
+      '// 属性 window.devicePixelRatio（-0.5 误差内）',
+    ]) {
+      expect(residue(line), line).toHaveLength(0)
+    }
+  })
+
+  it('allowlist 同形态表口径放行（残形也可登记为承重锚注）', () => {
+    const allowlist = [{ file: 'ai/calls.ts', contains: '）', why: '钉住' }]
+    const hit = '// ）。并发防护口径见上方注释块'
+    expect(residue(hit, { file: 'src/ai/calls.ts', allowlist })).toHaveLength(0)
+    expect(residue(hit, { file: 'src/ai/other.ts', allowlist })).toHaveLength(1)
+  })
+
+  it('残形表不进切除集——stripTagSpans 对它逐字原样返回', () => {
+    for (const [line] of damaged) expect(stripTagSpans(line)).toBe(line)
+    // 结构性保证：残形是「待人工判断的损伤信号」，不是「可机械切除的标签」。若两支的形态名
+    // 相交，门报红与工具静默改注释就被绑死了——本用例把这条设计边界钉住。
+    const residueNames = new Set<string>(RESIDUE_PATTERNS.map((p: { name: string }) => p.name))
+    const cuts = [...tagSpansOf('//。'), ...tagSpansOf('// -①（c ）接线')]
+    for (const s of cuts) expect(residueNames.has(s.name), s.name).toBe(false)
+  })
+
+  it('.vue 模板注释与块注释续行同样入射程（判定面 = 注释片段而非整行）', () => {
+    const vue = ['<template>', '  <!--：历史尾窗 -->', '</template>'].join('\n')
+    expect(residue(vue, { ext: '.vue' }).map((h) => h.name)).toEqual(['注释冒号起首'])
+    const block = ['/**', ' * 原句被切走', ' * ）只剩右括起首', ' */'].join('\n')
+    expect(residue(block).map((h) => h.name)).toEqual(['孤立闭括'])
   })
 })
 

@@ -193,19 +193,15 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
-        await appendAborted(
-          targetFile,
-          opId,
-          '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）',
-        )
+        await appendAborted(targetFile, opId, '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（人工消解）')
       } catch (e) {
         log.error('state', `journal acknowledge 落账失败：${redactSecret(errMsg(e))}`)
         replyError(res, 500, 'WRITE_ERROR', '崩溃提示清除失败（journal 落账未完成），请重试')
         return
       }
       // 确认落账即失效 /state 5s TTL 缓存——appendAborted 改变了
-      // findUnsettled 的结果面，确认成功后前端立即 refreshState 若命中缓存（
-      // 纯 TTL 口径），态 1 的 crashedWrite 提醒会再回显一次（5s 陈旧窗）。本端点是
+      // findUnsettled 的结果面，确认成功后前端立即 refreshState 若命中缓存
+      // 纯 TTL 口径，态 1 的 crashedWrite 提醒会再回显一次（5s 陈旧窗）。本端点是
       // crashedPendingOpIds 唯一的人工写侧来源，单点挂 forget 不属「给每个写端点平添
       // 接线」的过度设计（同文件 review.ts verdict 落盘即 forgetTreeIssuesCache 先例）。
       forgetStateCache(r.bookRoot)

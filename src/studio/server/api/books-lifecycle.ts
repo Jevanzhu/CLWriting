@@ -7,7 +7,7 @@
  * 清理；其末尾清扫 shelfGuardCache，故书架守卫 TTL 缓存族随缝单源迁此，残核
  * books.get 经 getShelfGuard 单向取用）+ 墓地删除族（DELETE_GRAVEYARD_DIR / 后台
  * 清理， 收尾起清理函数经组装根 RouteOverrides 注入）+
- * 清理句柄 / 两个测试注入口）+ awaitOrchestrationsSettled / busyGate /
+ * 清理句柄 / 两个测试注入口 + awaitOrchestrationsSettled / busyGate /
  * drainAndRecheckBookMutation（五连 drain + 闸后复查）。
  * 改名路由族（book.rename + initialBook 直进指针）见 books-rename.ts（缝 B）；
  * 书架列表 / 建书 / 单书身份 / boot 残核留 books.ts，其头注末尾拆分沿革记全账。

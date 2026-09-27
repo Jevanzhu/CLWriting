@@ -200,7 +200,7 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       case 'sync': {
         // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
         running.value = ev['chatRunning'] === true
-        // 2-（GLM-5.3）修复：重连快照 chatRunning=false = 后端
+        // 修复：重连快照 chatRunning=false = 后端
         // 已收尾该回合，是前端漏收 chat_done/chat_error 的兜底信号——对齐 chat_error 的
         // 口径收尾在途气泡（done + 复位引用），防永久「生成中」+ 后续文本错位；同时
         // 守住前提「未完成气泡只属于在途回合」（否则此后新回合 + 错过 chat_turn 的

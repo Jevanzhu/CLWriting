@@ -10,7 +10,7 @@
  *    terminate 后拒绝；
  *  - worker 崩溃/入口加载失败 → error 事件上抛（route 包装层回 500 信封）。
  *
- * （-deepseek-v4.1-flash ）：fork/settle/超时/退出的同构段
+ * fork/settle/超时/退出的同构段
  * 抽入公共壳 src/worker-async.ts（与 rebuild、style-scan 三域单源）；本文件只留
  * 域内参数（默认超时档、同伴 entry 名、用户可见文案——逐字节未动）。
  */

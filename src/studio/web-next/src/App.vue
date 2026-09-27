@@ -37,7 +37,7 @@ onMounted(() => {
   // 主窗口接收书架窗口的导航（选书 → 主进程转发 → router.push）
   // 监听句柄成对清理（根组件常驻无实害，防御性收口对齐全库口径）
   offNavigate = window.clwritingDesktop?.onNavigate((path) => {
-    router.push(path)
+    void router.push(path)
   })
   // 系统菜单 click → 主进程转发 actionKey → dispatch 到 store 动作（与命令面板同源）
   offMenuAction = window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
@@ -57,7 +57,7 @@ onMounted(() => {
   }
   // 沿革：lastBook 恢复直进曾以裸 location.pathname 判根路径（与初始
   // 导航有竞态），改读路由态；但其「isReady 后 path === '/'」判据在 redirect 路由下失效。
-  // 2-（GLM-5.3）修复：isReady 在初始导航（含 redirect）
+  // 修复：isReady 在初始导航（含 redirect）
   // 完成后 resolve，'/' 已被 router.ts redirect 到 '/shelf'，此刻 currentRoute.path 恒为
   // '/shelf'、'===' 恒假——lastBook 恢复与 --book 首启直进（getLastInitialBook 汇入同
   // 分支）确定性失效。判据更正为「本次由根路径进入」：优先 redirectedFrom?.path === '/'，
@@ -68,7 +68,7 @@ onMounted(() => {
       const enteredFromRoot =
         router.currentRoute.value.redirectedFrom?.path === '/' || router.currentRoute.value.path === '/'
       if (enteredFromRoot) {
-        router.replace(`/book/${encodeURIComponent(book)}`)
+        void router.replace(`/book/${encodeURIComponent(book)}`)
       }
     })
   }

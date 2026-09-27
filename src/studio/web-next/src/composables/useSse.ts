@@ -147,13 +147,13 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // 字段口径（沿用原锚）：
   // - errorCount：网络抖动（CONNECTING）错误连计——前 FAST_RETRY_LIMIT 次交浏览器自连；
   // - backoffStep：手动接管退避阶数（fail-closed 与换票失败共用；onerror 清零点在
-  // backoffStep 独立计数（onopen 清零）：接管次数决定退避阶数，不与抖动 errorCount 混算
+  // backoffStep 独立计数（onopen 清零）：接管次数决定退避阶数，不与抖动 errorCount 混算）；
   // - busy429Notified：429 指引 toast 的「同纪元一次」已告位；
   // - probing429：在途 429 探测锁（正常释放点在探测 finally；纪元复位为兜底——迟到
   //   探测的结果由连接代闸 + probeCtrl 中止拦截，复位不引入双探测/双 toast）；
   // - devMismatchStrikes / devMismatchWarned：dev 双基址失配连记与已告位；
   // - reboot401Armed / reboot401Strikes / reboot401Guided：401 自愈空转截断连记三件套
-  //。
+  //
   let epoch = freshEpoch()
   function resetEpoch(): void {
     epoch = freshEpoch()
@@ -324,7 +324,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       resetEpoch()
       wb.setConnected(true)
     }
-    // （-deepseek-v4.1-flash ）：onerror 改读闭包捕获的当前实例
+    // onerror 改读闭包捕获的当前实例
     // （sock）——原实现读外层可变绑定 es，若回调触发前连接已被重连逻辑换成新实例
     //（或 disconnect 置 null），readyState 判定读到的可能是新连接的状态甚至恒 false。
     // 仅换取值来源：sock 非空由赋值处保证，恒真的 es 非空守卫随之内化，分支条件、
@@ -359,7 +359,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         if (failClosed) void probeSseBusy() // fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
     }
-    //）：重连后 text 事件重复拼接已修——修在
+    // 重连后 text 事件重复拼接已修——修在
     // driver 回放侧（src/driver/cc.ts / mock.ts stream）：E1b 迟到回放序列首个 text
     // 增量之前无清屏锚（pre/execRing cap 溢出把自然锚 role_spawn/text_reset 挤出时）
     // 先补发合成 text_reset，workbench.dispatch 清空 textOut 后重放文本从空重建，不再

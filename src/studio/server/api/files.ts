@@ -190,7 +190,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
           // renameSync/rmSync（drain 是快照式，快照后新进的 PUT 无闸拦）：书已删/改路径
           // 后写旧路径，atomicWriteFile 的 mkdir recursive 会重建目录树成孤儿文件，PUT
           // 却返回 200「已保存」。重验判删除/改名 → 拒写 409，编辑端拿到可读错误重新进书。
-          // （-deepseek-v4.1-flash ）：重验判定与信封文案一并收敛
+          // 重验判定与信封文案一并收敛
           // book-context.ts bookMovedFailure 单源（全库最后一处内联 BOOK_MOVED）——
           // 单源头注即设计不变量「reason 人话各端点一致」，本端点旧文案是该不变量的
           // 漏改残留（主审核定：全域仅此一处旧文案、零测试钉值，归一无契约面损伤）。

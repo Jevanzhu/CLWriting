@@ -119,7 +119,7 @@ describe('D2 pricing 解析与金额计算', () => {
       revision: 0,
       modelCaps: {},
     } as unknown as ProviderStore
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     expect(resolveModelPricing(ud, 'model-a')).toEqual({ inputPerMTok: 1 }) // 归属行覆盖 provider 级
   })
 
@@ -144,7 +144,7 @@ describe('D2 pricing 解析与金额计算', () => {
       revision: 0,
       modelCaps: {},
     } as unknown as ProviderStore
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     expect(resolveModelPricing(ud, 'model-b')).toBeNull()
     expect(resolveModelPricing(ud, '')).toBeNull()
     expect(resolveModelPricing(null, 'model-b')).toBeNull()
@@ -184,10 +184,10 @@ describe('D2 pricing 解析与金额计算', () => {
         modelCaps: {},
       }) as unknown as ProviderStore
     // 当前启用 p1（有价）；model-c 归属 p3（未配价）→ null，不得按 p1 的 3 计价
-    saveProviders(ud, mk('p1'))
+    await saveProviders(ud, mk('p1'))
     expect(resolveModelPricing(ud, 'model-c')).toBeNull()
     // currentId 指向已删除的 provider；model-x 无归属行 → null，不得拿第一家 p1 兜底
-    saveProviders(ud, withDiskRev(ud, mk('gone')))
+    await saveProviders(ud, withDiskRev(ud, mk('gone')))
     expect(resolveModelPricing(ud, 'model-x')).toBeNull()
   })
 
@@ -225,10 +225,10 @@ describe('D2 pricing 解析与金额计算', () => {
         revision: 0,
         modelCaps: {},
       }) as unknown as ProviderStore
-    saveProviders(ud, mk('pb'))
+    await saveProviders(ud, mk('pb'))
     // 当前启用 B（数组靠后）→ 按 B 的 5 计价，不再按全局首归属 A 的 1
     expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 5 })
-    saveProviders(ud, withDiskRev(ud, mk('pa')))
+    await saveProviders(ud, withDiskRev(ud, mk('pa')))
     // R0916-5d（mtime 垫片族顺带加固）：切回 A 不赌「写入时刻不同」——loadProviders
     // mtime 缓存与 pricingMemo 指纹都是 mtimeMs 原值，同毫秒双写（win 实测可确定性复现）
     // 双缓存同陈旧 → 仍按 B 计价假红；显式前推 60s 强制失效（陈旧窗是生产既有口径，
@@ -384,7 +384,7 @@ describe('D2 cost-stats 聚合', () => {
       revision: 0,
       modelCaps: {},
     } as unknown as ProviderStore
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
 
     const es = openSessionStore(ud, root)!
     try {
@@ -475,7 +475,7 @@ describe('D2 cost-stats 聚合', () => {
       revision: 0,
       modelCaps: {},
     } as unknown as ProviderStore
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
 
     const es = openSessionStore(ud, root)!
     try {
@@ -581,7 +581,7 @@ describe('D2 cost-stats 聚合', () => {
       revision: 0,
       modelCaps: {},
     } as unknown as ProviderStore
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     const es = openSessionStore(ud, root)!
     try {
       const sessionId = es.createSession(bookHash(root))
@@ -610,7 +610,7 @@ describe('D2 cost-stats 聚合', () => {
     // 显式 currency 优先（缺省不覆盖）
     const ud2 = tmpDir('clw-cost-r42b-')
     const root2 = tmpDir('clw-cost-r42b-book-')
-    saveProviders(
+    await saveProviders(
       ud2,
       withDiskRev(ud2, {
         ...store,

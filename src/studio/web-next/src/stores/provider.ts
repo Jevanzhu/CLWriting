@@ -116,7 +116,7 @@ export const useProviderStore = defineStore('provider', () => {
       for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
       for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
     } catch (e) {
-      // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+      // 降级留痕——面板空态可重试，不打扰 UI
       console.warn('[provider] AI 提供方/档位刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (refreshGen.fresh(gen)) loading.value = false
@@ -136,7 +136,7 @@ export const useProviderStore = defineStore('provider', () => {
       const aliveRag = new Set(d.ragProviders.map((p) => p.id))
       for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
     } catch (e) {
-      // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+      // 降级留痕——面板空态可重试，不打扰 UI
       console.warn('[provider] RAG 提供方刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (refreshRagGen.fresh(gen)) ragLoading.value = false

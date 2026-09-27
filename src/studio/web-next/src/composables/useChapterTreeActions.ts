@@ -426,7 +426,7 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
       return
     }
     if (!node.docId) {
-      // （-②）：目录行同样 draggable，拖目录落下此前静默丢弃——
+      // 目录行同样 draggable，拖目录落下此前静默丢弃——
       // 无任何反馈近似「卡死」。moveDoc 仅 docId 面（服务端 move 只收 docId），
       // 目录拖拽移动本就不支持：补 info toast 明示，不改移动语义。
       ui.toast('目录暂不支持拖拽移动（可拖拽章节到目标目录）', 'info')

@@ -14,18 +14,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
 import { revisionError } from './revision-guard.js' // 三处拷贝收敛单源（原本地实现）
-// RC同型补洞：主机变更闸与 /api/providers 同源（api/host-change-guard.ts）
+import { saveProvidersOr500 } from './provider-save-guard.js' // 保存失败信封映射单源（与 /api/providers 共用）
 import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
-  saveProviders,
   newRagProviderId,
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
-  ProviderRevisionConflictError, // 写前基线复验冲突 → 409 映射
   type RagProviderConf,
-  type ProviderStore,
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { embed } from '../../../rag/embed.js'
@@ -35,27 +32,8 @@ interface RagProvidersCtx {
   userDataPath: string | null
 }
 
-// providers.json 写入失败不再静默假成功——把 store.ts 的
-// saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播），端点侧保存点统一
-// 捕住回 500 WRITE_ERROR 信封（同 /api/providers 的 saveProvidersOr500，两文件各自持有
-// 本地副本避免路由模块互相 import）。当前 void 返回下 await/try-catch 合法且零行为差异。
+// 保存点失败语义（500 WRITE_ERROR / 409 REVISION_CONFLICT 的择一）见 provider-save-guard.ts 头注。
 // 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
-// 写前基线复验冲突（ProviderRevisionConflictError）单列
-// 映射既有 409 REVISION_CONFLICT 信封——与 /api/providers 同款（前置 revisionError 闸
-// 同形态同文案）；排队写窗口内基线漂移时回「刷新重读」语义而非 500。
-async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
-  try {
-    await saveProviders(userDataPath, s)
-    return true
-  } catch (e) {
-    if (e instanceof ProviderRevisionConflictError) {
-      replyError(res, 409, 'REVISION_CONFLICT', e.message)
-      return false
-    }
-    replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
-    return false
-  }
-}
 
 /** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
  * hasKey 以 vault 条目存在性推导（口径，与 /api/providers maskProvider 同则） */

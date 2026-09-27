@@ -39,7 +39,7 @@ watch(
     }),
 )
 onMounted(() => {
-  nextTick(() => {
+  void nextTick(() => {
     fitSelect(modelSelect.value)
     fitSelect(effortSelect.value)
   })

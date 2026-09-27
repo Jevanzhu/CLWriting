@@ -128,7 +128,7 @@ const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
-  // -㉖（-源码）：正文判定走 isBodyKind 单源（语义同 startsWith('写作/正文/')）
+  // 正文判定走 isBodyKind 单源（语义同 startsWith('写作/正文/')）
   if (!isBodyKind(node.path)) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
   return node.status === 'draft' || node.status === 'revision'
 })
@@ -158,7 +158,7 @@ function onTitleKeydown(e: KeyboardEvent): void {
   e.preventDefault()
   void onTitleCommit()
 }
-/** 2-（GLM-5.3）：短篇章号占位解析——fm 章号 → 路径提取 → 1
+/** 短篇章号占位解析——fm 章号 → 路径提取 → 1
  *  逐级兜底。原 `Number(fm章号 || 路径提取 || 1)` 的 `||` 作用在操作数上：fm 章号为非数字
  *  串（如 'x'）时 truthy 直取，Number('x')=NaN 穿透 `!== undefined` 检查、经 JSON 序列化
  *  为 null 传 API。改逐级 Number.isFinite 守卫：fm 坏值与原 falsy 兜底（''/0/undefined）

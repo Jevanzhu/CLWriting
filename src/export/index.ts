@@ -637,8 +637,8 @@ export function prepareExportLayout(args: {
 }
 /** 阶段五内部·分章单章写出：前缀/文件名净化 + 撞名序号判定 + 规范化写 + 产物登记。
  * 单章写入失败带上章上下文重抛——外层收编为 {ok:false}。
- * 导出供分段直测（生产唯一调用点在 writeExportProducts）。 */
-export function writeSplitUnit(
+ * 本文件私有（生产唯一调用点 = writeExportProducts）。 */
+function writeSplitUnit(
   run: ExportRun,
   plan: ExportPlan,
   splitUsed: Set<string>,

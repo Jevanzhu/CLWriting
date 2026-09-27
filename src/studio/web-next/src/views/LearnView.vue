@@ -9,7 +9,7 @@ import { GraduationCap, Sparkles, PackageCheck, AlertCircle, Check, X } from 'lu
 import { useLearnStore } from '../stores/learn'
 import { useTreeStore } from '../stores/tree'
 import { scoreTierStats } from '../shared/learn-tier'
-// -㉖（-源码）：正文判定走 isBodyKind 单源
+// 正文判定走 isBodyKind 单源
 import { isBodyKind } from '../shared/words'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SampleCandidateList from '../components/learn/SampleCandidateList.vue'

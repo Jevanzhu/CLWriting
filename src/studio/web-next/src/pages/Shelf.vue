@@ -86,7 +86,7 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 onMounted(() => {
-  shelf.load()
+  void shelf.load()
   window.addEventListener('keydown', onKeydown)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))

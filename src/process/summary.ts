@@ -57,8 +57,8 @@ export const SUMMARY_CHAPTER_MAX_FALLBACK = 200
 /** 卷摘要字数上限最终回落（书级 summary_volume_max 未设时生效；500，与 yaml 脚手架缺省一致） */
 export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 
-// 码点工具直引 shared/text.ts——此前两道 re-export 中转（-优化
-// 下沉时留下的 import 面兼容层）把 ai/prompts、ai/rules、ai/tools
+// 码点工具直引 shared/text.ts——此前两道 re-export 中转
+// 下沉时留下的 import 面兼容层把 ai/prompts、ai/rules、ai/tools
 // 引到本模块，与 ai 侧后续回引本模块构成强连通；中转层即环边来源，故剥除，消费方直引
 // 实现所在模块（全库「不留双轨」口径）。
 import { codePointLength, clipByCodePoints } from '../shared/text.js'

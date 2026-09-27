@@ -268,7 +268,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 <template>
   <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
   <div ref="scrollRef" class="chat-messages" @scroll="onScroll">
-    <!--：历史尾窗截断提示——L- 起
+    <!-- 历史尾窗截断提示——L- 起
          fetchChatHistory 尾窗上限生效时旧消息不进种子化，此前 truncated 全前端
          零消费、旧内容静默消失无提示（设计意图即提示作者：更早在事件库/审计视图可查）。
          truncated 取 store 最近一次视图加载（seedHistory/switchBranch）的权威口径；

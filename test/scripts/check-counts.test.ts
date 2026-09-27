@@ -21,9 +21,37 @@ import {
   missingPageErrorWiring,
   sharedRuntimeVersionDrift,
   walk,
+  archiveCountProblem,
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-counts.mjs'
+
+describe('archiveCountProblem：Dev/Docs 索引面自称值对账', () => {
+  const row = (n: number) =>
+    [
+      '| 目录 | 用途 | 篇数 |',
+      '|---|---|---|',
+      `| \`Archive/\` | 历史归档，扁平冷库（不维护清单与索引） | ${n} 篇 |`,
+      '| \`01-评审/\` | 评审报告 | 12 篇 |',
+    ].join('\n')
+
+  it('自称值 = 实测值 → 无失配', () => {
+    expect(archiveCountProblem(row(16), 16)).toBeNull()
+  })
+
+  it('自称值与实测不符 → 报出两个数（不只看差多少，便于直接修文档）', () => {
+    expect(archiveCountProblem(row(15), 16)).toContain('声称 15，实测 16')
+    expect(archiveCountProblem(row(17), 16)).toContain('声称 17，实测 16')
+  })
+
+  it('只认 `Archive/` 行——其他目录行的篇数不参与对账（邻行撞形不误判）', () => {
+    // 邻行 12 篇与实测 16 不符，但 Archive 行写 16：不得因邻行报错
+    expect(archiveCountProblem(row(16), 16)).toBeNull()
+    // 反之 Archive 行缺席时 fail-closed（声称值不在位即账实无从对照，不给「跳过」的后门）
+    const noRow = '| 目录 | 用途 | 篇数 |\n|---|---|---|\n| `01-评审/` | 评审报告 | 12 篇 |'
+    expect(archiveCountProblem(noRow, 16)).toContain('缺少')
+  })
+})
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {

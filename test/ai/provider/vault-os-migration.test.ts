@@ -68,12 +68,12 @@ function diskVault(fp: string): { v: number; dek: Record<string, unknown>; keys:
 }
 
 describe('KEK v2：providers.json OS 通道迁移链', () => {
-  it('① v1 存量 + env 注入 → load 内联迁移：盘上 v2 仅 byOs、key 可解、无 env 则零变化', () => {
+  it('① v1 存量 + env 注入 → load 内联迁移：盘上 v2 仅 byOs、key 可解、无 env 则零变化', async () => {
     const ud = setup()
     // 无 env：save 走 v1（纯 node 语义）
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-one')]
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     let v = diskVault(join(ud, 'providers.json'))
     expect(v.v).toBe(1)
     expect(v.dek['byApp']).toBeDefined()
@@ -93,7 +93,7 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
     expect(loadProviders(ud).providers[0]!.apiKey).toBe('sk-one')
   })
 
-  it('② 迁移保留全部密钥（chat providers + ragProviders 两列）', () => {
+  it('② 迁移保留全部密钥（chat providers + ragProviders 两列）', async () => {
     const ud = setup()
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-chat'), prov('p2', 'sk-chat2')]
@@ -109,7 +109,7 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
         caps: null,
       },
     ]
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
 
     process.env['CLW_OS_KEK'] = OS_KEK_HEX
     const loaded = loadProviders(ud)
@@ -120,12 +120,12 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
     for (const id of ['p1', 'p2', 'r1']) expect(v.keys[id]).toBeDefined()
   })
 
-  it('③ env 移除后 v2 → VaultOsKeyMissingError（不静默回落旧料）', () => {
+  it('③ env 移除后 v2 → VaultOsKeyMissingError（不静默回落旧料）', async () => {
     const ud = setup()
     process.env['CLW_OS_KEK'] = OS_KEK_HEX
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-os')]
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     expect(diskVault(join(ud, 'providers.json')).v).toBe(2)
 
     delete process.env['CLW_OS_KEK']
@@ -133,29 +133,29 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
     expect(() => loadProviders(ud)).toThrow(/钥匙串/)
   })
 
-  it('④ env 注入下新建保存直接 v2；非 64 hex 的 env 视同缺失（显式 resolve 无猜测）', () => {
+  it('④ env 注入下新建保存直接 v2；非 64 hex 的 env 视同缺失（显式 resolve 无猜测）', async () => {
     // 两个独立目录（同一目录二存会撞 D002 写前 revision 复验——守卫语义另行验证）
     const udFresh = setup()
     process.env['CLW_OS_KEK'] = OS_KEK_HEX
     const store2 = emptySettings()
     store2.providers = [prov('p1', 'sk-fresh')]
-    saveProviders(udFresh, store2)
+    await saveProviders(udFresh, store2)
     expect(diskVault(join(udFresh, 'providers.json')).v).toBe(2)
 
     const udLegacy = setup()
     process.env['CLW_OS_KEK'] = 'zz' // 非法形态 → 视同缺失 → v1
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-legacy')]
-    saveProviders(udLegacy, store)
+    await saveProviders(udLegacy, store)
     expect(diskVault(join(udLegacy, 'providers.json')).v).toBe(1)
   })
 
-  it('⑤ v2 + 篡改 byOs 密文 → VaultDecryptError；文件不被覆盖', () => {
+  it('⑤ v2 + 篡改 byOs 密文 → VaultDecryptError；文件不被覆盖', async () => {
     const ud = setup()
     process.env['CLW_OS_KEK'] = OS_KEK_HEX
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-corrupt')]
-    saveProviders(ud, store)
+    await saveProviders(ud, store)
     const fp = join(ud, 'providers.json')
 
     const raw = JSON.parse(readFileSync(fp, 'utf8')) as { vault: { dek: { byOs: { ct: string } } } }

@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 // ── 字数曲线 SVG 尺度（面积图）──
-// （-⑥）：渐变 id 实例唯一——写死 "wordAreaGrad" 在多实例并存时
+// 渐变 id 实例唯一——写死 "wordAreaGrad" 在多实例并存时
 // url(#) 解析到文档首个定义（跨图错填色）。当前总览单实例无实害，防组件复用雷。
 const gradId = `word-area-grad-${useId()}`
 const CHART_W = 880

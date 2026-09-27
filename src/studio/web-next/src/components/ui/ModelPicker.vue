@@ -23,7 +23,7 @@ const emit = defineEmits<{
   adopt: []
 }>()
 
-// 2-（GLM-5.3）：候选清单渲染上限——探测返回的模型清单
+// 候选清单渲染上限——探测返回的模型清单
 // 无条数约束，全量 v-for 挂 DOM 会线性膨胀。对齐 CommandPalette/ChapterTreeItem/
 // RewritePanel 的 RENDER_CAP=100 域内惯例：数据面不动（props.candidates 原样、父层
 // picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。

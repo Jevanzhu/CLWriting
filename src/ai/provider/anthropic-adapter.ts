@@ -355,7 +355,7 @@ export function createAnthropicProvider(
             case 'content_block_delta': {
               const delta = event.delta
               if (delta.type === 'text_delta') {
-                outText.push(delta.text) // 同 id 写历史两条，回传 400）。的 tool 参数产出累计同步改在消费时
+                outText.push(delta.text) // 同 id 写历史两条，回传 400。的 tool 参数产出累计同步改在消费时
                 yield { type: 'text', delta: delta.text }
               } else if (delta.type === 'input_json_delta') {
                 const tb = toolBlocks.get(event.index)

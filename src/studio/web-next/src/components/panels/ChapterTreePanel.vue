@@ -32,7 +32,7 @@ const openError = ref<string | null>(null)
 
 const activePath = computed<string | null>(() => (ws.activeDocId ? (doc.get(ws.activeDocId)?.path ?? null) : null))
 
-// （-③）：roving tabindex 停靠行——active 行优先（active 恒在渲染面：
+// roving tabindex 停靠行——active 行优先（active 恒在渲染面：
 // RENDER_CAP 滑窗含 active）；active 不在树（无打开文档/陈旧）回落首行。
 const tabstopPath = computed<string | null>(() => {
   if (activePath.value && tree.byPath.has(activePath.value)) return activePath.value
@@ -188,7 +188,7 @@ watch(
     <div v-if="tree.loading" class="hint">加载中…</div>
     <div v-else-if="tree.error" class="hint err">{{ tree.error }}</div>
     <div v-else-if="!tree.grouped.length" class="hint">（无章节）</div>
-    <!-- （-③）：tree 语义 + 唯一 Tab 停靠（tabstop 行），行内 roving 见 ChapterTreeItem -->
+    <!-- tree 语义 + 唯一 Tab 停靠（tabstop 行），行内 roving 见 ChapterTreeItem -->
     <div v-else class="tree-list" role="tree" aria-label="章节树">
       <ChapterTreeItem
         v-for="n in tree.grouped"

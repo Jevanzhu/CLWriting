@@ -35,7 +35,7 @@ describe.skipIf(!canRunRealElectron)('R44-2 实机: close 拦截 + 异步 flush 
     async () => {
       // 本地 HTTP：页面 + PUT /save 收集面（同源 fetch，无 CORS 变量）
       const puts: string[] = []
-      const server: Server = await new Promise((resolve) => {
+      const server: Server = await new Promise((resolve, reject) => {
         const s = createServer((req, res) => {
           if (req.method === 'GET' && req.url === '/page') {
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
@@ -63,7 +63,7 @@ describe.skipIf(!canRunRealElectron)('R44-2 实机: close 拦截 + 异步 flush 
           res.writeHead(404)
           res.end()
         })
-        listenSafe(s).then(() => resolve(s))
+        listenSafe(s).then(() => resolve(s), reject) // 监听失败以 reject 显式上抛（原样吞掉会让用例挂到超时）
       })
       const port = (server.address() as { port: number }).port
 

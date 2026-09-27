@@ -73,28 +73,28 @@ function driftDiskByOtherWriter(): void {
   writeFileSync(FP(), JSON.stringify(raw, null, 2), 'utf8')
 }
 
-function seedOneProvider(id: string): ProviderStore {
+async function seedOneProvider(id: string): Promise<ProviderStore> {
   const s = emptySettings()
   s.providers = [makeConf({ id, apiKey: `sk-${id}-secret` })]
   s.currentId = id
-  saveProviders(dir, s) // 文件缺失 → 基线 0，首写落盘 revision 1
+  await saveProviders(dir, s) // 文件缺失 → 基线 0，首写落盘 revision 1
   return s
 }
 
 describe('0918独立重评修复批 D002：写前 revision 基线复验', () => {
-  it('正常路径（无漂移）：load→mutate→save 照常落盘，revision +1，行为不变', () => {
-    seedOneProvider('a')
+  it('正常路径（无漂移）：load→mutate→save 照常落盘，revision +1，行为不变', async () => {
+    await seedOneProvider('a')
     const s = loadProviders(dir)
     expect(s.revision).toBe(1)
     s.providers.push(makeConf({ id: 'b', apiKey: 'sk-b-secret' }))
-    saveProviders(dir, s)
+    await saveProviders(dir, s)
     const disk = JSON.parse(readFileSync(FP(), 'utf8')) as { revision: number; providers: Array<{ id: string }> }
     expect(disk.revision).toBe(2)
     expect(disk.providers.map((p) => p.id)).toEqual(['a', 'b'])
   })
 
-  it('快路漂移：load 后他写方落盘 → save 同步拒绝（冲突错误）+ 盘上不被覆盖 + 基线不 bump', () => {
-    seedOneProvider('a')
+  it('快路漂移：load 后他写方落盘 → save 同步拒绝（冲突错误）+ 盘上不被覆盖 + 基线不 bump', async () => {
+    await seedOneProvider('a')
     const stale = loadProviders(dir) // 基线 revision 1
     expect(stale.revision).toBe(1)
     stale.providers.push(makeConf({ id: 'stale-row', apiKey: 'sk-stale-secret' }))
@@ -110,13 +110,13 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
     expect(stale.revision).toBe(1)
   })
 
-  it('冲突错误形态：人话文案对齐既有 REVISION_CONFLICT 口径，带盘上/基线诊断字段', () => {
-    seedOneProvider('a')
+  it('冲突错误形态：人话文案对齐既有 REVISION_CONFLICT 口径，带盘上/基线诊断字段', async () => {
+    await seedOneProvider('a')
     const stale = loadProviders(dir)
     driftDiskByOtherWriter()
     let err: unknown
     try {
-      saveProviders(dir, stale)
+      await saveProviders(dir, stale)
     } catch (e) {
       err = e
     }
@@ -128,7 +128,7 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
   })
 
   it('排队写窗口漂移：在途段落盘前他写方先行 → 排队段执行时拒绝 + warn 留痕 + 盘上保留他写方内容', async () => {
-    seedOneProvider('a')
+    await seedOneProvider('a')
     const stale = loadProviders(dir) // 基线 revision 1
     stale.providers.push(makeConf({ id: 'queued-row', apiKey: 'sk-queued-secret' }))
 
@@ -160,7 +160,7 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
     expect(stale.revision).toBe(1)
   })
 
-  it('legacy 文件无 revision 键：load 基线 0 = 盘上 0，save 照常写（兼容不破）', () => {
+  it('legacy 文件无 revision 键：load 基线 0 = 盘上 0，save 照常写（兼容不破）', async () => {
     const conf = makeConf({ id: 'legacy-a', apiKey: 'sk-legacy-secret' })
     writeFileSync(
       FP(),
@@ -169,18 +169,18 @@ describe('0918独立重评修复批 D002：写前 revision 基线复验', () => 
     )
     const s = loadProviders(dir)
     expect(s.revision).toBe(0)
-    saveProviders(dir, s) // 盘上无 revision 键 → 0，基线一致 → 放行
+    await saveProviders(dir, s) // 盘上无 revision 键 → 0，基线一致 → 放行
     const disk = JSON.parse(readFileSync(FP(), 'utf8')) as { revision: number }
     expect(disk.revision).toBe(1)
   })
 
-  it('盘上文件损坏（读不出 revision）→ 复验跳过，save 照常落盘（bak 自愈通道不被挡死）', () => {
-    seedOneProvider('a')
+  it('盘上文件损坏（读不出 revision）→ 复验跳过，save 照常落盘（bak 自愈通道不被挡死）', async () => {
+    await seedOneProvider('a')
     writeFileSync(FP(), '{ broken json !!!', 'utf8')
     const s = emptySettings()
     s.providers = [makeConf({ id: 'heal', apiKey: 'sk-heal-secret' })]
     s.currentId = 'heal'
-    saveProviders(dir, s) // 基线读失败 → null → 跳过复验（损坏文件无有意义基线可护）
+    await saveProviders(dir, s) // 基线读失败 → null → 跳过复验（损坏文件无有意义基线可护）
     const disk = JSON.parse(readFileSync(FP(), 'utf8')) as { revision: number; providers: Array<{ id: string }> }
     expect(disk.revision).toBe(1)
     expect(disk.providers.map((p) => p.id)).toEqual(['heal'])

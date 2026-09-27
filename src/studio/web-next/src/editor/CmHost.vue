@@ -151,7 +151,7 @@ const editorSetup: Extension[] = [
     const head = u.state.selection.main.head
     if (u.state.doc.sliceString(head - 1, head) === '@') {
       startCompletion(u.view)
-      refreshCompletionNamesIfStale() // （-④）：触发即探 TTL，见函数头注
+      refreshCompletionNamesIfStale() // 触发即探 TTL，见函数头注
     }
   }),
   keymap.of([
@@ -501,7 +501,7 @@ watch(
   { immediate: true },
 )
 
-// （-④）：名单 TTL 刷新——原仅切书拉取，同会话里新建角色/物品后 @ 补全
+// 名单 TTL 刷新——原仅切书拉取，同会话里新建角色/物品后 @ 补全
 // 一直陈旧到下次切书。@ 击键 / Cmd+I 触发时超龄（5min）即后台补拉一次：竞态仍走
 // 切书同一代的守卫（compReqGen——任一发起作废另一侧在途，旧请求晚归丢弃）、单飞标志
 // 防触发风暴。刷新结果对「当次已弹浮层」不生效（CM6 浮层选项在 source 调用瞬间定格，

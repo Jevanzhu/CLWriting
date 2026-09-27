@@ -69,7 +69,7 @@ export interface TtlProbeCacheOptions<K, V> {
   /** 在途去重：同键并发 MISS 合并为同一 Promise（searchBookCached inFlightSearches /
    *  getForeshadowsCachedAsync foreshadowInFlight 同款；job 收尾自清，拒绝不悬空） */
   inFlight?: boolean
-  /** MISS 路径过期条目顺手逐出$1缺省 true）：重算路径必走，delete 零成本零
+  /** MISS 路径过期条目顺手逐出（缺省 true）：重算路径必走，delete 零成本零
    *  语义变更（成功 set 原键覆写）。settings×2 与 overview stateCache 无此行，传 false。 */
   evictExpiredOnMiss?: boolean
   /** 写侧全表过期清扫（styleCorpusCache 同款）：仅写路径、FIFO 之前，逐出
@@ -164,10 +164,13 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
     if (opts.signature) {
       // 两级探针（snapshots.ts ① 正本位转写）：TTL 窗内复用上次探针值（命中路径
       // 零系统调用）；超窗现取并刷新旧条目 probeTs（后续命中回填时窗口随之续期——
-      // 与既有实现逐位一致，含「探针窗新而缓存 TTL 已过」时条目照逐出的路径）
+      // 与既有实现逐位一致，含「探针窗新而缓存 TTL 已过」时条目照逐出的路径）。
+      // 复用条件一并要求 probe 在场：probe 与 probeTs 是两个独立可选字段（写入侧只在
+      // 有 probe 时落 probeTs），缺 probe 时走现取分支而非把 undefined 当探针值复用
+      // （复用 undefined 会让第一级比较恒真，陈旧条目被误判命中）。
       let probe: string
-      if (cached && cached.probeTs !== undefined && now - cached.probeTs < ttl) {
-        probe = cached.probe!
+      if (cached && cached.probeTs !== undefined && cached.probe !== undefined && now - cached.probeTs < ttl) {
+        probe = cached.probe
       } else {
         probe = probeOf(key)
         if (cached) cached.probeTs = now
@@ -252,7 +255,7 @@ export function createTtlProbeCache<K, V>(opts: TtlProbeCacheOptions<K, V>): Ttl
         inflight.set(opts.keyOf(key), job)
         // 收尾自清（catch 先落避免 job 被拒时清理链 unhandled rejection；拒绝仍按常
         // 送达真实调用方——路由层统一错误面）
-        job
+        void job
           .catch(() => {})
           .then(() => {
             inflight.delete(opts.keyOf(key))

@@ -113,7 +113,7 @@ export function getForeshadowsCached(bookRoot: string, ttlOverrideMs?: number | 
   return foreshadowCache.getSync(bookRoot, ttlOverrideMs ?? undefined)
 }
 
-/** 缓存壳的异步孪生$1端点生产路径）：命中语义与同步版逐位一致（同缓存
+/** 缓存壳的异步孪生（端点生产路径）：命中语义与同步版逐位一致（同缓存
  *  同 TTL 同签名），MISS 时经 scanForeshadowTrailsAsync 切片让出事件循环（200 万字
  *  全书正则扫不再整段冻结请求线程），并以 in-flight 去重合并并发 MISS。 */
 export function getForeshadowsCachedAsync(

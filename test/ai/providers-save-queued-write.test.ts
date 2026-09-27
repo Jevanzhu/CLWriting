@@ -122,7 +122,8 @@ test('R29-2⑤ 链清空后恢复快路：写后立即可读（无 await 同步�
   // 快路同步直行：不 await 即落盘可读（若链未清会排队，此刻不可见）
   // 0918独立重评修复批（D002）：写前基线复验——上笔排队写已落盘 revision 1，本笔基线
   // 须对齐（模拟 load→save），恒 0 的独立全量写会判漂移被拒
-  saveProviders(dir, storeOf('prov-sync', 1))
+  // 本笔刻意不 await：用例断言的正是「链已清 → 快路同步落盘、不等待即可读」
+  void saveProviders(dir, storeOf('prov-sync', 1))
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.providers.map((p: { id: string }) => p.id)).toEqual(['prov-sync'])
 })

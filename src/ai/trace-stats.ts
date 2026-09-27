@@ -6,7 +6,7 @@
  *
  * 不做 UI（第二波）；本模块只产数据，由 API 端点薄接线透出。
  */
-// 2-（GLM-5.3，AI 域 -③）：读侧单源化——原私有
+// 读侧单源化——原私有
 // readLlmCalls 与 cost-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: false（无 usage 行也计入，
 // token 按 ?? 0 兜底、行数即调用次数——通过率/耗时维度不依赖 usage）

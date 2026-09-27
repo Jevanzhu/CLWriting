@@ -304,7 +304,7 @@ export function useShelf(options?: {
     }
     if (options?.openBookViaIpc?.(name)) return
     options?.beforeOpenBookNav?.(name)
-    router?.push(`/book/${encodeURIComponent(name)}`)
+    void router?.push(`/book/${encodeURIComponent(name)}`)
   }
   /** 打开确认弹窗（传入待删书名列表） */
   function requestDelete(names: string[]): void {

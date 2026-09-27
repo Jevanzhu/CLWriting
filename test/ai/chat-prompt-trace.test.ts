@@ -96,7 +96,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     dirs.push(ud)
     withFakeProvider(ud, fake.url)
     writeDraft(3, '很长的正文。'.repeat(400))
-    clearChatHistory('trace-a')
+    await clearChatHistory('trace-a')
 
     await runChat({
       driver: makeFakeDriver(),
@@ -129,7 +129,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     dirs.push(ud)
     withFakeProvider(ud, fake.url)
     const rel = writeDraft(2, '短正文')
-    clearChatHistory('trace-b')
+    await clearChatHistory('trace-b')
 
     await runChat({
       driver: makeFakeDriver(),
@@ -153,7 +153,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     const ud = tempUserData()
     dirs.push(ud)
     withFakeProvider(ud, fake.url)
-    clearChatHistory('trace-c')
+    await clearChatHistory('trace-c')
 
     await runChat({
       driver: makeFakeDriver(),

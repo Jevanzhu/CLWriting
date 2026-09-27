@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰
-// verdict 联动已落地（通过/驳回落信封，.3 方案 A）。（-⑤）修账：意见点击
+// verdict 联动已落地（通过/驳回落信封，.3 方案 A）。修账：意见点击
 // 定位 CodeMirror、进度 SSE 并未实现亦无排期——原「切片3 增强」为过时前瞻宣称，删除。
 import { computed, ref, watch, markRaw } from 'vue'
 import { FileSearch, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Clock } from 'lucide-vue-next'

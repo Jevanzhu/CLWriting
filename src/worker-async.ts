@@ -1,5 +1,5 @@
 /**
- * （-deepseek-v4.1-flash ）：三份 Worker 运行器的公共壳单源
+ * 三份 Worker 运行器的公共壳单源
  * （export/run-async.ts · cache/run-rebuild-async.ts · studio/server/api/
  * style-scan-async.ts——评审记 259 行、两两共同行 32-34 起的大段同构）。
  *

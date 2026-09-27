@@ -388,7 +388,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       // 编排互斥预检 +任务闸（409 文案逐位保留）+
-      // -①（c ）中断通道接线——十段复制收编
+      // 中断通道接线——十段复制收编
       // runGatedGeneration 单源（ctrl 注册名
       // 'analyze:<书名>' 逐位保留，owner 分槽语义见 task-gate.ts 包装头注）。
       return ctx.gate.runGatedGeneration(
@@ -470,8 +470,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           const bookRoot = r.bookRoot
           const docId = params['docId'] ?? ''
           // existsSync→readDraft 之间的 TOCTOU（文件恰被移动/删除时
-          // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——（-优化
-          //）：解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
+          // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——
+          // 解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
           // 文案模式随链；单读快照口径不变）。
           const d = resolveDraftByDocId(bookRoot, docId)
           if (!d.ok) return replyError(res, d.status, d.code, d.message)
@@ -535,7 +535,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           const bookRoot = r.bookRoot
           const docId = params['docId'] ?? ''
           // 同 autotag——existsSync→readDraft TOCTOU 兜底（模式）；
-          //）：解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
+          // 解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
           const d = resolveDraftByDocId(bookRoot, docId)
           if (!d.ok) return replyError(res, d.status, d.code, d.message)
           const { entry: m, draft } = d

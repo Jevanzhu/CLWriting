@@ -31,8 +31,8 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 选库/切库 IPC 交互单点化（-优化 → useLibraryIpc；取错口径保真 =
-// rawErrorMessage 原样透出，本页历史口径）
+// 选库/切库 IPC 交互单点化 → useLibraryIpc；取错口径保真 =
+// rawErrorMessage 原样透出，本页历史口径
 const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage })
 </script>
 

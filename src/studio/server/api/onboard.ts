@@ -152,8 +152,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
           const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
           if (!result.ok) {
             // -①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
-            // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。（
-            //）：状态映射收编 replyGenerationFailure 单源（runOnboard 已
+            // outline/rewrite 既有 ABORTED → 499 先例）；其余维持 500 GEN_FAIL。
+            // 状态映射收编 replyGenerationFailure 单源（runOnboard 已
             // 把非中断失败坍缩 GEN_FAIL，映射行为不变）。
             return replyGenerationFailure(res, result)
           }

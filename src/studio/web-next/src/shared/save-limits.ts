@@ -19,7 +19,7 @@ export const MAX_SAVE_BODY_BYTES = 16 * 1024 * 1024
 export const SAVE_BODY_ENVELOPE_BYTES = 4096
 
 /** 内容 UTF-8 字节数（精确）。仅在廉价上界命中时才调用——避免对普通文档每拍全量编码。 */
-export function contentByteLength(content: string): number {
+function contentByteLength(content: string): number {
   return new TextEncoder().encode(content).length
 }
 

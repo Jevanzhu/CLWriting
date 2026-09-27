@@ -33,8 +33,8 @@ export function sameEndpointHost(a: string, b: string): boolean {
 }
 
 /** 地址的主机（含端口；URL 归一化大小写/punycode IDN/剥默认端口——这些都不是换主机）；
- *  非 URL 或解析失败 → null（无法判定）。 */
-export function endpointHost(raw: string): string | null {
+ *  非 URL 或解析失败 → null（无法判定）。本文件私有：外露面只有 sameEndpointHost。 */
+function endpointHost(raw: string): string | null {
   try {
     return new URL(raw).host
   } catch {

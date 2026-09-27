@@ -38,6 +38,11 @@
  * 锚注——原「R43-8（四十三轮）」类锚已随测试资产行为化移除，R40 静态锚全部改钉代码
  * 形态——故本表启动为空；机制与直测在位，日后发现承重锚注在此登记，不在注释里续命。
  *
+ * 判据分两族，缺一不可：**标签形态**（上表，抓「注释里还写着批号」）与**切除后残形**
+ * （`RESIDUE_PATTERNS`，抓「批号被清理器切走、只剩半截括注 / 标点」）。只做前者时，
+ * 清理器把标签连同它依附的括注一并删掉后留下的残形不含标签，门判定为干净——历史上两批
+ * 残形（43 处 + 5 处）都是这样漏过去的。两族判据的分工与标定见各自表头注释。
+ *
  * 用法：npm run check:comments（退出码 1 = 命中，列出文件:行 + 形态 + 原文供修）。
  * 纯函数 export，直测见 test/scripts/check-comments.test.ts。
  */
@@ -489,7 +494,28 @@ export const TAG_PATTERNS = [
     re: /[（(]\s*[A-Za-z][\w.-]*(?:\s+[A-Za-z][\w.-]*)*\s*轮\s*[）)]/g,
     why: '轮次叙事应归 commit message',
   },
+  {
+    // 括注小写双字母域号（`（ii-1）`/`（ii-4）`）：小写域号 + 序号，同一枚域号在大写形下
+    // 由 `单字母域号-横` 收（`II-4`），小写形此前整支漏判——这正是门与清理器共享的
+    // 又一处盲区（父版实测 3 处，无清理残形，是判定层没覆盖，不是被切坏）。
+    // 判定面窄到「整括注只有 token」：`utf-8`（3 字母）、`rank-3`、`gpt-4`（词中段）
+    // 一律不在射程；例外表另收 `utf-8`。
+    name: '括注小写域号',
+    re: /[（(][ \t]*[a-z]{2}-\d{1,3}(?:-\d{1,3})*[ \t]*[）)]/g,
+    why: '旧修复批域号叙事应归 commit message',
+  },
   { name: '批次括注', re: /[（(]\s*批\s*[\dA-Za-z]{1,3}\s*[）)]/g, why: '批次叙事应归 commit message' },
+  {
+    // 括注小写双字母域号（`（ii-1）：`/`（ii-4）：`）：小写域号 + 序号 + 出处冒号。同一枚
+    // 域号在大写形下由 `单字母域号-横` 收（`II-4`），小写形此前整支漏判——这是门与清理器
+    // 共享的又一处盲区（父版即是 `（ii-1）`，不是被切坏的，是判定层没覆盖）。
+    // 判定面窄到「两位小写 + 序号 + 紧跟冒号」：`utf-8`（三字母）、`rank-3`（四字母）、
+    // `gpt-4`（在词中段，左界挡住）、`ii-4）行可增删`（无冒号：正文自指，非出处标注）
+    // 一律不在射程。
+    name: '括注小写域号',
+    re: /[（(][ \t]*[a-z]{2}-\d{1,3}(?:-\d{1,3})*[ \t]*[）)]?[ \t]*[：:]/g,
+    why: '旧修复批域号叙事应归 commit message',
+  },
   {
     // 批次词（非括注）：`批 5`/`批2`/`批 D`/`批 E`/`52 批`/`22 批`/`D3 批 5`。左界挡汉字
     // （`分批`/`同批`/`一批` 这类量词与动词）与词字符（`ii 批` 是平台缩写前缀，
@@ -504,6 +530,120 @@ export const TAG_PATTERNS = [
   { name: '日期戳', re: /\b20\d{2}-\d{1,2}-\d{1,2}\b|20\d{2}\s*年/g, why: '修订日期应归 git 历史（blame 可查）' },
   { name: '评审过程词', re: /复审|重审|重评/g, why: '评审沿革叙事应归报告正本' },
 ]
+
+/**
+ * 「切除后残形」判据表——与上面的标签形态表**分工不同**，故分表。
+ *
+ * 为什么必需：上面那张表的判据是「注释里出现批号 / 轮次 / 日期戳的**标签形态**」。清理器
+ * 把标签连它依附的括注一起删掉之后，留下的残形**不含任何标签**，于是那张表判定为干净
+ * ——实测：`（-优化）`、`（-deepseek-v4.1-flash ）`、行尾悬挂的 `（`、只剩标点的 `//。`
+ * 四族全部「未命中」。历史上一共制造过两批此类残形（批 5 43 处 + 批 7 5 处），两批都没
+ * 被门拦住，第三批清理又制造了第四批残片。本表就是把这条结构性盲区补上。
+ *
+ * 标定方法：每条判据都做**父版 AB 对照**——取清理前的父修订（`f493f537~1` 等）跑一遍，
+ * 命中必须为 0；再取受损的 HEAD 跑一遍，命中的必须全是真伤。经此双向筛选后，本表全部
+ * 判据在父版零命中（唯二例外见下方逐条注），故零误报。
+ *
+ * 与标签形态表的关系：本表**不参与 `stripTagSpans` 的切除集**——残形是「待人工判断的
+ * 损伤信号」而不是「可机械切除的标签」，混进切除集会让「门报红」与「工具静默改注释」两
+ * 件事绑死。门的判定粒度仍是「命中即红」。
+ *
+ * 判定面 = 单行注释片段原文（含注释定界符与缩进），不预先剥标签。
+ */
+export const RESIDUE_PATTERNS = [
+  // 括注内容被切空，只剩破折号 + 圈号（`（-①）` / `（-⑥）：`）——圈号是旧批内序号。
+  {
+    name: '括注破折号+圈号',
+    re: /[（(][ \t]*[-—–]{1,2}[ \t]*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿]/g,
+    why: '括注内容被清理切空，只剩破折号与序号——父版原文可 git blame 反查复原',
+  },
+  // 括注内容被切空，只剩破折号 + 汉字（`（-优化` / `（-源码）` / `（-收敛）`）。
+  // 前视 `(?![ \t])` 挡「破折号后带空格再跟汉字」的正常写法（`（- 说明）`）。
+  {
+    name: '括注破折号+汉字',
+    re: /[（(][ \t]*[-—–]{1,2}(?![ \t])[\u4e00-\u9fa5]/g,
+    why: '括注内容被清理切空，只剩破折号与半个批名——父版原文可 git blame 反查复原',
+  },
+  // 括注内容被切空，只剩破折号 + 拉丁词（`（-deepseek-v4.1-flash ）` / `（-N）`）。
+  // 左视挡标识符与右括（`slice(-n)`、`kill(-pid)`、`（-dropped，滤掉…）` 这类**调用式**
+  // 与「变量名 + 解释」都不入射程）；要求右括紧随 token，挡住「破折号 + 词 + 逗号续写」。
+  {
+    name: '括注破折号+拉丁词',
+    re: /(?<![\w$）)])[（(][ \t]*[-—–]+[ \t]*[A-Za-z][\w.-]*[ \t]*[）)]/g,
+    why: '括注内容被清理切空，只剩破折号与模型名——父版原文可 git blame 反查复原',
+  },
+  // 序号尾巴被切走、破折号直贴左括（`2-（GLM-5.3，AI 域 -③）`）。
+  {
+    name: '数字破折号+左括',
+    re: /\d[ \t]*[-—–]{1,2}[ \t]*[（(]/g,
+    why: '序号后直接接左括，是「序号 + 破折号 + 括注」被切半的残形',
+  },
+  // 注释体起首的「破折号 + 圈号 + 左括」（`// -①（c ）中断通道接线`）。
+  // 父版零命中；受损时命中 3 处，全是「`R0912-P2-①（…）` 被切走前半」的形态。
+  {
+    name: '破折号圈号+左括',
+    re: /^[ \t]*(?:\/\/+|\*+|<!--)[ \t]*[-—–][ \t]*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿]+[ \t]*[（(]/g,
+    why: '批号前半被切走，只剩「破折号 + 序号 + 左括」起首——父版原文可 git blame 反查复原',
+  },
+  // 注释以全角冒号起首且后随汉字（`<!--：历史尾窗截断提示`）——原句前半被切走。
+  // 只认全角冒号：半角 `//:` 在源码注释里有真实成因（键值对照、`http://` 之类），
+  // 而 `.vue` 模板注释与块注续行以全角冒号起首在全库父版零命中。
+  {
+    name: '注释冒号起首',
+    re: /^[ \t]*(?:\/\/+|\*+|<!--)[ \t]*：(?=[\u4e00-\u9fa5])/g,
+    why: '注释首句被切走，只剩「冒号 + 后半句」——父版原文可 git blame 反查复原',
+  },
+  // 整行注释只剩标点（`//。`）。
+  {
+    name: '纯标点注释行',
+    re: /^[ \t]*(?:\/\/+|\*+|<!--)[ \t]*[。，、；：！？…—·\-–]+[ \t]*(?:-->)?[ \t]*$/g,
+    why: '整行注释内容被清理切空，只剩标点',
+  },
+]
+
+/**
+ * 「成对残形」判据——需要**注释块上下文**才能判，故与上面的单行表分列。
+ *
+ * 为什么单行判不了：`（` 与 `）` 的关系跨行。同一个 `（` 结尾的行，下一行有内容再收
+ * `）` 就是**完整的跨行括注**（作者本来就这么写），下一行只有 `）` 才是被切空。单行
+ * 形态（「行尾有左括」）两者都命中，于是把完整括注整片误报——本表就是这条的修正：
+ * 判据从「行尾有括号」收窄到「括注对被切空 / 闭括无主」。
+ *
+ * 两个形态都**只认全角**括注：半角 `()` 在注释里是代码样例（`timer.refresh()`、
+ * `slice(-1)`），全角 `（）` 才是行文的括注——早前有把正文空参数表当残形删掉的事故，
+ * 这条边界是该事故的机器化。
+ *
+ * 标定：父版（`f493f537~1`）全库命中 0；受损 HEAD 命中即真伤。
+ */
+export const PAIR_RESIDUE_PATTERNS = [
+  {
+    // 跨行 / 同行的空括注对（`（` 与 `）` 之间只剩空白与续行标记）：括注内容整段被切走。
+    name: '跨行空括注',
+    re: /（[ \t\n]*）/g,
+    why: '括注内容被清理切空，只剩一对空括号——父版原文可 git blame 反查复原',
+  },
+]
+
+/**
+ * 孤立全角闭括：块内此前**没有**未闭合的全角左括可与之配对（深度 0 处出现 `）`）。
+ * 上半句连同左括一起被切走，只剩「）。」这种收尾。返回出现位置的偏移数组。
+ *
+ * 只看全角（同 PAIR_RESIDUE_PATTERNS 的口径）；半角 `)` 不计——代码样例里的 `)` 没有配对
+ * 义务（`setTimeout(fn, 0)` 这类跨行调用在注释里也常见）。
+ */
+export function orphanCloserOffsets(bareText) {
+  const out = []
+  let depth = 0
+  for (let i = 0; i < bareText.length; i++) {
+    const c = bareText[i]
+    if (c === '（') depth++
+    else if (c === '）') {
+      if (depth === 0) out.push(i)
+      else depth--
+    }
+  }
+  return out
+}
 
 /**
  * 真实技术术语豁免（形态撞上条目号 / 单字母域号，但属正常术语，不是审查条目号）。
@@ -938,6 +1078,116 @@ export function findTagHits(content, { file = '', ext = '.ts', allowlist = ANCHO
   return hits
 }
 
+/**
+ * 把注释片段按「相邻行」聚为注释块——跨行括注的配对判定必须以块为界（单行判不了，
+ * 见 `PAIR_RESIDUE_PATTERNS` 头注）。同一注释区域跨行拆片与相邻的连续 `//` 行都归一块。
+ */
+function groupCommentBlocks(frags) {
+  const out = []
+  let cur = null
+  for (const f of frags) {
+    if (cur && f.line === cur.endLine + 1) {
+      cur.parts.push(f)
+      cur.endLine = f.line
+      continue
+    }
+    cur = { parts: [f], startLine: f.line, endLine: f.line }
+    out.push(cur)
+  }
+  return out
+}
+
+/**
+ * 把注释里**引用面**（反引号码段、中文引号「」『』、ASCII 引号、无空白的 `/…/` 正则字面量）
+ * 内部的括号抹成中性字符——被引的是**数据**不是行文，括号配对与残形判定都该看不见它。同一
+ * 原则的既有先例 = 扫描器对源码字符串里 `R40` 的处理（字符串内容不进注释判定）。
+ *
+ * 为什么是「抹内部括号」而不是「整段剥掉」：整段剥掉会连**配对结构**一起改（引号内那个
+ * `（` 被删掉后，引号外的 `）` 就成了假孤立闭括——实测父版假报从 2 处涨到 60 处）。只把
+ * 引号内的括号换成中性字符、其余一字不动，行文结构原样保留，被判的只剩作者真正写的括号。
+ *
+ * 实测锚（父版唯二两处误报都由此消掉）：`正则元字符转义（关联词可能含「（）」「.」等）`
+ * 的 `（）` 是被引的数据；`旧正则 /（回填[^）]*）$/` 的 `）` 属正则字面量（`[^）]` 里那个
+ * `）` 没有配对义务，朴素深度扫描会把它当孤立闭括）。
+ *
+ * ASCII 引号按**转义感知**配对（`(?<!\\)"…"`，跨度内 `\\x` 不切断）：注释里写转义示例时
+ * 会成串出现 `\"`，朴素配对会从 `\"` 一路跨到 `replace(/"` 的那个 `"`，把作者真写的 `（`
+ * 一并抹掉（父版 frontmatter.ts 那处即由此假报）。
+ *
+ * 正则字面量要求**跨度内无空白、且含真元字符**（`\ ^ $ * + ? [ ] { } |` 之一）：中文行文
+ * 里的斜杠是「或」（`次数 / tokens`，两侧有空格），路径里的斜杠更常见（`chat/turns.ts`），
+ * 二者都不含元字符——不满足即不抹。这条门是实测逼出来的：只按「无空白」判会把
+ * `chat/turns-visibility.ts。本残核留轮循环主流程（runAgentTurns/` 当正则刻意面，连作者
+ * 真写的那个 `（` 一起抹掉（父版假报 62 处即由此而来）。宁窄勿宽。
+ */
+export function maskQuotedParens(text) {
+  const mask = (m) => m.replace(/[（()）]/g, '·')
+  return text
+    .replace(/`[^`\n]*`/g, mask)
+    .replace(/「[^「」\n]*」/g, mask)
+    .replace(/『[^『』\n]*』/g, mask)
+    .replace(/(?<!\\)"(?:[^"\\\n]|\\.)*"/g, mask)
+    .replace(/\/(?!\/)[^\s/]*[\\^$*+?[\]{}|][^\s/]*\//g, mask)
+}
+
+/**
+ * 对单文件内容找「切除后残形」命中。返回 [{ line, name, match, text }]。
+ *
+ * 与 `findTagHits` 同构（同一注释面、同一 allowlist），差别只在判据表与判定动作：标签命中
+ * 是「注释里还留着修复史」，残形命中是「注释被切坏了」——后者要先 git blame 反查父版原文
+ * 再决定复原写法，不存在机械修法，故两族分开报，让人一眼看出该做哪种处置。
+ *
+ * 两阶段：① 单行形态族（`RESIDUE_PATTERNS`，不依赖上下文）；② 成对族（`PAIR_RESIDUE_PATTERNS`
+ * + 孤立闭括，按注释块判配对）——两阶段的命中并成同一份清单返回。报告面一律给**原文**
+ * （成对族的判定面是抹过引用面括号的文本，但报给人看的仍是作者写的那一行）。
+ */
+export function findResidueHits(content, { file = '', ext = '.ts', allowlist = ANCHOR_ALLOWLIST } = {}) {
+  const frags = extractCommentLines(content, ext)
+  const hits = []
+  for (const { line, text } of frags) {
+    if (isAllowlisted(file, text, allowlist)) continue
+    for (const { name, re } of RESIDUE_PATTERNS) {
+      re.lastIndex = 0
+      for (const m of text.matchAll(re)) {
+        hits.push({ line, name, match: m[0], text: text.trim().slice(0, 120) })
+      }
+    }
+  }
+  for (const block of groupCommentBlocks(frags)) {
+    if (isAllowlisted(file, block.parts[0].text, allowlist)) continue
+    const lines = block.parts.map((p) => p.text.replace(/^[ \t]*(?:\/\/+|\*+|\/\*+|<!--|-->)[ \t]?/, ''))
+    const bare = lines.map(maskQuotedParens).join('\n')
+    for (const { name, re } of PAIR_RESIDUE_PATTERNS) {
+      re.lastIndex = 0
+      for (const m of bare.matchAll(re)) {
+        const row = lineOfOffset(lines, m.index)
+        hits.push({
+          line: block.startLine + row,
+          name,
+          match: m[0].replace(/\n/g, '⏎'),
+          text: lines[row].trim().slice(0, 120),
+        })
+      }
+    }
+    for (const off of orphanCloserOffsets(bare)) {
+      const row = lineOfOffset(lines, off)
+      hits.push({ line: block.startLine + row, name: '孤立闭括', match: '）', text: lines[row].trim().slice(0, 120) })
+    }
+  }
+  return hits
+}
+
+/** 块内裸正文的偏移 → 块内行序号（0 基）。 */
+function lineOfOffset(lines, offset) {
+  let acc = 0
+  for (let i = 0; i < lines.length; i++) {
+    const next = acc + lines[i].length + (i < lines.length - 1 ? 1 : 0)
+    if (offset < next) return i
+    acc = next
+  }
+  return lines.length - 1
+}
+
 /** 收集待扫文件清单（src/** + 根配置）。 */
 export function collectFiles(base = root) {
   const files = []
@@ -976,9 +1226,13 @@ export function collectFiles(base = root) {
   return files
 }
 
-/** 全库扫描。返回 [{ file, line, name, match, text }]（file 为相对仓库根的 POSIX 路径）。 */
+/**
+ * 全库扫描（file 为相对仓库根的 POSIX 路径）。
+ * 返回 `{ tags, residues }` 两族命中——标签形态与切除后残形（见各自表头注释）。
+ */
 export function scanRepo(base = root) {
-  const all = []
+  const tags = []
+  const residues = []
   for (const abs of collectFiles(base)) {
     const rel = relative(base, abs).split(sep).join('/')
     let content
@@ -989,29 +1243,49 @@ export function scanRepo(base = root) {
     }
     const ext = abs.endsWith('.vue') ? '.vue' : abs.slice(abs.lastIndexOf('.'))
     for (const h of findTagHits(content, { file: rel, ext })) {
-      all.push({ file: rel, ...h })
+      tags.push({ file: rel, ...h })
+    }
+    for (const h of findResidueHits(content, { file: rel, ext })) {
+      residues.push({ file: rel, ...h })
     }
   }
-  return all
+  return { tags, residues }
 }
 
 export function main() {
-  const hits = scanRepo()
-  if (hits.length) {
-    console.error('源码注释门未过（comment-surface）：注释里出现批号标签 / 轮次 / 日期戳 / 评审史。')
-    console.error('  纪律：注释只留约束、不变量、平台差与语义说明；修复史正本 = git 历史（commit message）。')
-    let lastFile = ''
-    for (const h of hits) {
-      if (h.file !== lastFile) {
-        console.error(`  ${h.file}`)
-        lastFile = h.file
+  const { tags, residues } = scanRepo()
+  if (tags.length || residues.length) {
+    console.error('源码注释门未过（comment-surface）。')
+    if (tags.length) {
+      console.error('① 注释里出现批号标签 / 轮次 / 日期戳 / 评审史：')
+      console.error('  纪律：注释只留约束、不变量、平台差与语义说明；修复史正本 = git 历史（commit message）。')
+      let lastFile = ''
+      for (const h of tags) {
+        if (h.file !== lastFile) {
+          console.error(`  ${h.file}`)
+          lastFile = h.file
+        }
+        console.error(`    :${h.line} [${h.name}「${h.match}」] ${h.text}`)
       }
-      console.error(`    :${h.line} [${h.name}「${h.match}」] ${h.text}`)
+      console.error(`  共 ${tags.length} 处。承重锚注（被测试钉住、不得删改）经 ANCHOR_ALLOWLIST 登记。`)
     }
-    console.error(`  共 ${hits.length} 处命中。承重锚注（被测试钉住、不得删改）经 ANCHOR_ALLOWLIST 登记。`)
+    if (residues.length) {
+      console.error('② 注释出现「切除后残形」——原句被清理器切走一半，剩下的残片本身不含标签：')
+      console.error('  纪律：残形不可机械修补。逐处 `git log -L` / `git blame` 反查父版原文后按原意重写，')
+      console.error('  或整句删净；切勿再跑一遍清理脚本（第三轮清理制造第四轮残片，已有两轮前例）。')
+      let lastFile = ''
+      for (const h of residues) {
+        if (h.file !== lastFile) {
+          console.error(`  ${h.file}`)
+          lastFile = h.file
+        }
+        console.error(`    :${h.line} [${h.name}「${h.match}」] ${h.text}`)
+      }
+      console.error(`  共 ${residues.length} 处。`)
+    }
     process.exit(1)
   }
-  console.log(`check:comments 通过：src 与根配置注释零批号标签（扫描 ${collectFiles().length} 个文件）。`)
+  console.log(`check:comments 通过：src 与根配置注释零批号标签、零切除残形（扫描 ${collectFiles().length} 个文件）。`)
 }
 
 // 直跑判据走 pathToFileURL——argv[1] 可能是相对路径（`node scripts/check-comments.mjs`），

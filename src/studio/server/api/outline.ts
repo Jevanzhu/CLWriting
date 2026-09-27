@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
 import { mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { readSafe } from '../../../fs/read-safe.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
@@ -319,15 +320,6 @@ export function parseOutlineLeads(text: string, bookRoot: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 0 && s !== '无' && s !== '无推进' && want.has(s))
   return [...new Set(ids)]
-}
-
-function readSafe(fp: string): string {
-  if (!existsSync(fp)) return ''
-  try {
-    return readFileSync(fp, 'utf8')
-  } catch {
-    return ''
-  }
 }
 
 /**

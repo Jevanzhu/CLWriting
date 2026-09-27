@@ -405,7 +405,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
       withFakeProvider(ud, fake.url)
       const s = loadProviders(ud)
       s.tiers.chat = { model: 'fake-model', effort: 'medium', timeoutMs: 60 }
-      saveProviders(ud, s)
+      await saveProviders(ud, s)
 
       fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
       await assertExit(

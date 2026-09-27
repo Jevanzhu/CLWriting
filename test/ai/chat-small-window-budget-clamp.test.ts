@@ -82,7 +82,7 @@ function makeBookRoot(): string {
 }
 
 /** 带指定 contextWindow 模型行的 providers.json（沿 P9 模型行声明，r57 同款形态） */
-function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: number): void {
+async function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: number): Promise<void> {
   const store: ProviderStore = {
     providers: [
       {
@@ -107,7 +107,7 @@ function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: numb
     vault: null,
     dek: null,
   }
-  saveProviders(ud, store)
+  await saveProviders(ud, store)
 }
 
 /** 肥回合历史：turns 个回合各带 big 码点 tool_result，纯文本 user 边界 u1..u(n-1)
@@ -160,7 +160,7 @@ describe('A101: 小上下文模型下 historyBudget 下限随预算收缩', () =
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const ud = tempUserData()
     dirs.push(ud)
-    withFakeProviderWindow(ud, fake.url, 30_000)
+    await withFakeProviderWindow(ud, fake.url, 30_000)
     const bookRoot = makeBookRoot()
     // 3 回合 × 6000 码点 tool_result：总 18204 码点——修复前 historyBudget = max(20000,
     // 14997) = 20000 ≥ 18204 → 预防线不触发、全量 12 条发送（实发 18204 > 15000 必超窗）；
@@ -202,7 +202,7 @@ describe('A101: 小上下文模型下 historyBudget 下限随预算收缩', () =
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const ud = tempUserData()
     dirs.push(ud)
-    withFakeProviderWindow(ud, fake.url, 16_000)
+    await withFakeProviderWindow(ud, fake.url, 16_000)
     const bookRoot = makeBookRoot()
     // 6198 码点在修复后首发预算 8000 内（预切不触发，脚本 400 模拟估计误差超窗形态）；
     // 修复前 historyBudget = 20000：首发同样不切，但收缩重试预算 ⌊20000/2⌋ = 10000

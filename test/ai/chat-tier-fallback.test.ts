@@ -85,7 +85,7 @@ describe('W1: defaultTiers 含 chat: null', () => {
 })
 
 describe('W1: save → load 往返不丢 chat', () => {
-  it('chat 档保存后重新加载一致', () => {
+  it('chat 档保存后重新加载一致', async () => {
     const dir = tmp()
     const s = makeStore({
       tiers: {
@@ -94,13 +94,13 @@ describe('W1: save → load 往返不丢 chat', () => {
         chat: { model: 'chat-x', effort: 'low' },
       },
     })
-    saveProviders(dir, s)
+    await saveProviders(dir, s)
     const loaded = loadProviders(dir)
     expect(loaded.tiers.chat).toEqual({ model: 'chat-x', effort: 'low' })
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('旧端点 PUT /api/tiers 逻辑：保留已有 chat 档', () => {
+  it('旧端点 PUT /api/tiers 逻辑：保留已有 chat 档', async () => {
     const dir = tmp()
     // 先保存含 chat 档的配置
     const s = makeStore({
@@ -110,7 +110,7 @@ describe('W1: save → load 往返不丢 chat', () => {
         chat: { model: 'chat-x', effort: 'low' },
       },
     })
-    saveProviders(dir, s)
+    await saveProviders(dir, s)
 
     // 模拟旧端点逻辑：只更新 creative + assistant，保留 chat
     const loaded = loadProviders(dir)
@@ -119,7 +119,7 @@ describe('W1: save → load 往返不丢 chat', () => {
       assistant: { model: 'new-assistant', effort: 'high' },
       chat: loaded.tiers.chat, // ← 旧端点修改后保留 chat
     }
-    saveProviders(dir, loaded)
+    await saveProviders(dir, loaded)
 
     const final = loadProviders(dir)
     expect(final.tiers.creative.model).toBe('new-creative')

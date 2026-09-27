@@ -127,7 +127,7 @@ export interface ServerManagerDeps {
    * 'restart' = 计数清零立即人工重启；'quit' = 不再重启（main 侧自行 app.quit）。
    * 缺省 'quit'——无接线不盲启（测试/降级态安全缺省）。
    */
-  /** 封顶决断回调。（-②）：允许返回 Promise——main 侧对话框改异步
+  /** 封顶决断回调。允许返回 Promise——main 侧对话框改异步
    *  showMessageBox（同步版泵原生嵌套消息循环，崩溃风暴路径上冻结三窗口输入/IPC）；
    *  决断到达前不重启不退出（本侧 void 适配，exit 回调不等它）。 */
   onRestartExhausted?: () => 'restart' | 'quit' | Promise<'restart' | 'quit'>
@@ -497,7 +497,7 @@ function transition(ctx: ManagerCtx, call: TransitionCall): void {
   if (!isLegalTransition(call.ev, from.phase, from.stop)) {
     ctx.cfg.logger.error(
       'server-manager',
-      `状态机非法转移已拒绝（R0916-7-P3-17）：${call.ev} @ phase=${from.phase} stop=${from.stop}（状态不变）`,
+      `状态机非法转移已拒绝：${call.ev} @ phase=${from.phase} stop=${from.stop}（状态不变）`,
     )
     reportTransition(ctx, call.ev, from, from, false)
     return
@@ -569,13 +569,13 @@ function reportTransition(
 function openRound(ctx: ManagerCtx, opts: StartStudioServerOptions): StartRound {
   transition(ctx, { ev: 'round-open', opts })
   const round = ctx.state.round
-  if (!round) throw new Error('R0916-7-P3-17：在途轮已占，开轮被拒（拒绝 fork 无主 child）')
+  if (!round) throw new Error('在途轮已占，开轮被拒（拒绝 fork 无主 child）')
   return round
 }
 
 /** 在途轮 promise 读数：开轮与回填同拍（无 await 缝），空即状态机不变量被破坏 */
 function roundPromise(round: StartRound): Promise<number> {
-  if (!round.promise) throw new Error('R0916-7-P3-17：在途轮 promise 未回填（不变量破坏）')
+  if (!round.promise) throw new Error('在途轮 promise 未回填（不变量破坏）')
   return round.promise
 }
 
@@ -755,7 +755,7 @@ function scheduleRestart(ctx: ManagerCtx): void {
   if (killMarked(ctx) || state.backoffTimer) return // 主动停机不重启 / 已有挂起重启不双排
   if (state.attempts >= RESTART_MAX_ATTEMPTS) {
     cfg.logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
-    // （-②）：决断可能异步（异步对话框）——exit 回调不等它，决断到达
+    // 决断可能异步（异步对话框）——exit 回调不等它，决断到达
     // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
     // 决断链补 .catch——异步决断 reject
     // （对话框链异常等）此前无接手即成 unhandledRejection；catch 记错误日志后走兜底
@@ -1160,8 +1160,8 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
       return null
     }
   }
-  // 在途轮复用（同款互斥通道语义）。2--①（
-  // GLM-5.3）：原样透传在途轮会把在途 start 的 rejection 一起透传——逃逸
+  // 在途轮复用（同款互斥通道语义）。
+  // 原样透传在途轮会把在途 start 的 rejection 一起透传——逃逸
   // 本函数「失败 resolve null」契约（下方其余路径均 catch 返 null），调用方无
   // .catch 即落全局兜底日志。改对齐契约：复用值包一层 catch，失败留痕后
   // resolve null；成功值原样透传（复用语义不变）。

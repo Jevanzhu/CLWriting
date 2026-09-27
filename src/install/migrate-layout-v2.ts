@@ -234,7 +234,7 @@ function moveDrafts(bookRoot: string, errors: string[], moved: string[]): number
       const dst = join(dstDir, name)
       // 同名跳过不再静默——对齐 moveTree 的① 口径：
       // 旧文件残留 工作区/ 成孤儿（上次迁移中断/rename 失败的断点形态），无告警
-      // rename 失败），无告警作者无从核对；push 到 errors 供迁移报告提示手动处理。
+      // 作者无从核对；push 到 errors 供迁移报告提示手动处理。
       // 跳过条目不登记 moved → 其清单条目保持旧路径（登记与盘上一致）。
       if (existsSync(dst)) {
         errors.push(`同名跳过：工作区/${name}（写作/草稿/${name} 已存在，旧文件保留原位成孤儿，请手动核对去留）`)

@@ -74,7 +74,7 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 /** 用真实 saveProviders 落盘播种一条 RAG 提供方（桩 save 不写盘，PUT 需盘上真数据）。 */
-function seedRagProvider(id: string): void {
+async function seedRagProvider(id: string): Promise<void> {
   const s = providerIndex.loadProviders(userData)
   s.ragProviders.push({
     id,
@@ -85,7 +85,7 @@ function seedRagProvider(id: string): void {
     caps: null,
     sortIndex: 0,
   })
-  realSaveProviders(userData, s)
+  await realSaveProviders(userData, s)
 }
 
 beforeAll(async () => {
@@ -128,7 +128,7 @@ describe('R29-2：providers 保存端点写入失败 500 信封', () => {
 
   it('PUT /api/rag-providers/:id：reject → 同口径 500（写盘前可见的盘上真数据）', async () => {
     saveMock.mockReset()
-    seedRagProvider('rag-r29-putcase')
+    await seedRagProvider('rag-r29-putcase')
     saveMock.mockRejectedValueOnce(new Error('磁盘满'))
     const put = await req('PUT', '/api/rag-providers/rag-r29-putcase', {
       name: '改名失败',

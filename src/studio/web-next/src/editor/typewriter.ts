@@ -123,7 +123,7 @@ export function typewriterExt(on: boolean): Extension[] {
   return [
     EditorView.updateListener.of((u) => {
       if (!u.docChanged) return
-      Promise.resolve().then(() => {
+      void Promise.resolve().then(() => {
         const v = u.view
         // 视图若已销毁：CM6 update 对 destroyed 视图提前 return（只更新 state 不碰
         // DOM、不抛错），无需 destroyed 守卫（该字段类型私有，运行时公有）

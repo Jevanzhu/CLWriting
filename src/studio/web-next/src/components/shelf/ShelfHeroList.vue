@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 书架「继续写作」hero 紧凑单行（list 视图）——（
- *）：ShelfHeroCard（全屏页）与 ShelfModalHero（弹层）的 hero-list 段模板逐字
+ * 书架「继续写作」hero 紧凑单行（list 视图）——
+ * ShelfHeroCard（全屏页）与 ShelfModalHero（弹层）的 hero-list 段模板逐字
  * 同构，收敛为共享子组件（纯结构去重，DOM/类名/事件语义不变；role/tabindex/keydown
  * 键盘可达性契约随迁）。
  * 两处差异面（全屏页 vs 弹层 grid 容器内）经 variant prop 传：

@@ -263,7 +263,7 @@ export async function listAiVersionsAsync(
 
 /**
  * 读某版内容。起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
- * 写侧先例）。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
+ * 写侧先例。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
  */
 export function readAiVersion(bookRoot: string, docId: string, sha: string): string | null {
   if (isUlid(sha)) {

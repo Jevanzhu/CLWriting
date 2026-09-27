@@ -447,6 +447,22 @@ export function sharedRuntimeVersionDrift(
   return drift
 }
 
+/**
+ * 全项目源码重审（2026-09-27，P3-11）：`Dev/Docs/README.md` 的 `Archive/` 行篇数对账。
+ *
+ * 此前该计数只在自律面：DD-README 写 16 篇、总览 §1.3 写 15 篇，两处各写一个数且无人核
+ * ——本门只校根 README 的对账数字，check-docs 只管篇幅与禁语，故这类漂移不被任何门拦住。
+ * 归档篇数与根 README 的测试数同属「索引面自称值」，并入本门：目录实数（`find -name
+ * '*.md' | wc -l` 的等价口径）为准。
+ *
+ * 返回失配说明串；一致返回 null。无该行视为失配（fail-closed：声称值缺席即账实无从对照）。
+ */
+export function archiveCountProblem(docText, actual) {
+  const row = String(docText).match(/\|\s*`Archive\/`[^\n]*\|\s*(\d+)\s*篇\s*\|/)
+  if (!row) return `Dev/Docs/README.md 缺少「Archive/」行篇数声称值（实测 ${actual} 篇）`
+  return Number(row[1]) === actual ? null : `Dev/Docs Archive 篇数：Dev/Docs/README.md 声称 ${row[1]}，实测 ${actual}`
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 // vitest 5 升级批（阶段 39）：win/linux 平台门差值解析（parseWinPlatformDelta /
@@ -594,6 +610,12 @@ function main() {
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
   claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '合入门槛单测数')
 
+  // 索引面第二处自称值：Dev/Docs 的 Archive 篇数（见 archiveCountProblem 头注）
+  const ddReadme = readFileSync(join(root, 'Dev', 'Docs', 'README.md'), 'utf8')
+  const archiveActual = walk(join(root, 'Dev', 'Docs', 'Archive'), (n) => n.endsWith('.md')).length
+  const archiveProblem = archiveCountProblem(ddReadme, archiveActual)
+  if (archiveProblem) mismatch.push(archiveProblem)
+
   // R1010c-TL-P2-2：双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
   const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}
   const webLock =
@@ -606,7 +628,7 @@ function main() {
   }
 
   console.log(
-    `实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`,
+    `实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例；Dev/Docs Archive ${archiveActual} 篇`,
   )
 
   if (mismatch.length > 0) {

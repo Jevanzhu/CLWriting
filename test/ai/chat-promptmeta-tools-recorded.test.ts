@@ -51,7 +51,7 @@ function readWorkspaceChain(ud: string) {
 
 async function runOneChat(ud: string, bookName: string, message: string): Promise<{ tools?: string[]; hash?: string }> {
   withFakeProvider(ud, fake.url)
-  clearChatHistory(bookName)
+  await clearChatHistory(bookName)
   await runChat({
     driver: makeFakeDriver(),
     mainSession: { id: 's1', cwd: bookRoot, closed: false },

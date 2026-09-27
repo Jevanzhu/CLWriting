@@ -12,7 +12,7 @@
  * server bundle，同伴为独立 entry 产出的 rebuild-worker.js（tsup.config entry 列表；
  * electron-builder files: dist 已含）。
  *
- * （-deepseek-v4.1-flash ）：fork/settle/超时/退出同构段抽入公共
+ * fork/settle/超时/退出同构段抽入公共
  * 壳 src/worker-async.ts（与 export、style-scan 三域单源）；单飞合并（下）是本域
  * 独有语义，留在调用方不入壳。
  */

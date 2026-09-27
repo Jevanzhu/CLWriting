@@ -29,7 +29,7 @@ const showResolved = ref(false)
 const currentChapNo = computed<number | null>(() => {
   if (!ws.activeDocId) return null
   const entry = doc.get(ws.activeDocId)
-  // -㉖（-源码）：正文判定走 isBodyKind 单源（原直写前缀双实现）
+  // 正文判定走 isBodyKind 单源（原直写前缀双实现）
   if (!entry || !isBodyKind(entry.path)) return null
   // entry.path 是完整相对路径（写作/正文/N-标题.md）→ 章号从文件名尾段提取
   const name = entry.path.split('/').pop() ?? ''
@@ -195,7 +195,7 @@ watch(() => props.bookName, load, { immediate: true })
       <!-- RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
       <div v-if="pendingCap.omitted > 0" class="cap-hint">已省略 {{ pendingCap.omitted }} 项</div>
 
-      <!-- 已回收（折叠）。（-⑨）：toggle/行补键盘可达——对齐上方未回收行
+      <!-- 已回收（折叠）。toggle/行补键盘可达——对齐上方未回收行
            的 role=button + tabindex + Enter/Space 契约，鼠标可达即键盘可达 -->
       <div
         v-if="resolved.length"

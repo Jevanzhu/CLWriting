@@ -213,10 +213,13 @@ function acquireIn(state: GateState, bookName: string, action: string, opts?: Ta
     // 释放失败会永久占死进程内闸——包 try/catch 保证清理必达；
     // 残留锁文件由 tryAcquireCrossProcessLock 的 stale 接管清理兜底，不致永锁。
     try {
-      // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸。
-      // 改用锁原语返回的 payload 校验版释放（②）——读回内容
-      // 与本进程写入串一致才删。此前无条件 rmSync 在「被超龄接管 + 他人重建新锁」的
-      // 残余窗口下会误删他人在位的旧锁、放行第三个进程；校验版读到不一致即不删。
+      // 先放锁文件、后清 Set。两序都不会双持：并发 acquire 在进程内查 state.running、
+      // 跨进程查锁文件，任一未放即被拒——本序只是让权威侧（文件）先落定，释放窗内 Set
+      // 仍当进程内第二道闸，代价是窗口内多拒一次 409（安全侧）。released 是本次释放
+      // 闭包的幂等闩，不是并发判据（判据见 acquireIn 入口的 state.running.has）。
+      // 释放走锁原语返回的 payload 校验版——读回内容与本进程写入串一致才删。无条件
+      // rmSync 在「被超龄接管 + 他人重建新锁」的残余窗口下会误删他人在位的旧锁、放行
+      // 第三个进程；校验版读到不一致即不删。
       if (lockRelease) lockRelease()
     } catch {
       /* 锁文件残留交 stale 接管；进程内闸照常释放 */
@@ -645,10 +648,10 @@ export function orchestrationBusyFor(bookName: string): string | null {
 //     → 409 BUSY（文案即闸返回的人话）；
 // ② acquireTaskGate→ 占不上 409 BUSY busyText（各端点专用文案
 //     逐字保留）；
-// ③ ensureSession → 新 ctrl → driver.registerCtrl（-①；owner 分槽
+// ensureSession → 新 ctrl → driver.registerCtrl；owner 分槽
 //     `${action}:${book}`——同 action 重入已被任务闸 409 挡住，串行换新安全，
 //     跨书/跨端点互不误伤；onboard-ai 的历史字面量 'onboard:<书名>' 经
-//     ownerLabel 逐位保留）；
+//     ownerLabel 逐位保留；
 //   ④ fn(ctrl) 执行端点主体（响应在 fn 内经 reply/replyError 发出）；
 //   ⑤ finally 统一 unregisterCtrl + release（成功/失败/中断三路必达；ensureSession
 //     失败未注册时跳过注销，cc 口径）。

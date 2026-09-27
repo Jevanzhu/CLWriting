@@ -33,7 +33,7 @@ import { matchFenceLine, type FenceLineMatch } from './fence.js'
 const SECTION_HEADING_RE = /^##(?!#)[ \t\u3000]*(\S.*)$/gm
 
 /** 剥除围栏（``` / ~~~）内的行——语义 +的同字符/同长/纯空白闭栏判定。 */
-export function stripFencedLines(body: string): string {
+function stripFencedLines(body: string): string {
   let fence: { ch: FenceLineMatch['ch']; len: number } | null = null
   return body
     .split('\n')

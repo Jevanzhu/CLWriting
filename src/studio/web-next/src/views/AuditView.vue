@@ -48,7 +48,7 @@ const tab = ref<'convo' | 'workflow'>('convo')
 /** 每页上限（与服务端 DEFAULT_PAGE_LIMIT 对齐） */
 const PAGE_LIMIT = 500
 
-/** 渲染累积上限（ii-2）：「加载更多」跨页无界累积会让 DOM 线性膨胀（content-visibility
+/** 渲染累积上限：「加载更多」跨页无界累积会让 DOM 线性膨胀（content-visibility
  *  只省绘制不省节点）；到顶停载并提示——完整数据仍在事件库，可清史/换库后再查。 */
 const RENDER_CAP = 2000
 

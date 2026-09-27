@@ -20,7 +20,7 @@
  * 在 llm/call 事件随记 pricing 指纹（版本/单价）属后续增强。
  */
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-// 2-（GLM-5.3，AI 域 -③）：读侧单源化——原私有
+// 读侧单源化——原私有
 // readLlmCalls 与 trace-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: true（无 usage 行跳过）
 // 读侧改流式（streamLlmCallRows）——逐行回调即时聚合，

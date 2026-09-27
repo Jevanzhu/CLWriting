@@ -418,7 +418,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createKind.value = kind
     if (leftPanel.value !== 'tree') {
       leftPanel.value = 'tree'
-      nextTick(() => {
+      void nextTick(() => {
         createTick.value++
       })
       return

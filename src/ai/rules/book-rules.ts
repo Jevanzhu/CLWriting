@@ -1,9 +1,10 @@
 /**
  * 书级动态规则（源 2：条目库 AI味标签禁词）。
  *
- * 当前状态（前）：readBannedEntryWords 显式排除 AI味标签词
- * （只注入不机检——但实际注入侧也未接线，等于「既不注入也不检验」）。
- * 后：toPrompt 注入词列表 + check 检测命中——两侧都有（黄级）。
+ * 两侧都已接线（黄级）：注入侧——`applicableRules`（rules/index.ts）按任务过滤后，
+ * `rulesPromptParts` 把 toPrompt 的词列表并入「## 写作约束」段（消费点 = tasks/spec.ts
+ * 的 runSpec）；机检侧——check 在 self-heal / spawn-write / rewrite / draft-save 四个
+ * 任务上检出命中。所以词表非空即两条路都生效，不存在「只注入不检验」的档位。
  */
 import { join } from 'node:path'
 import { readEntries, ENTRIES_DIR } from '../../format/style-entry.js'

@@ -203,7 +203,7 @@ const serverManager = createStudioServerManager({
     }
   },
   onRestartExhausted: async () => {
-    // （-②）：同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环
+    // 同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环
     // 被冻（三窗口输入/IPC 全停）；改异步 showMessageBox，exit 回调即刻返回，决断
     // 到达前不重启不退出（server-manager 侧 void Promise 适配）。
     const { response: choice } = await dialog.showMessageBox({

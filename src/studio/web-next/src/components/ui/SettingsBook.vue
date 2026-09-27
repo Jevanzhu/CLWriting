@@ -171,7 +171,7 @@ async function doBookTitleChange(): Promise<void> {
       // 标记（此前改名零迁移，旧名条目成孤儿 + 新名侧功能丢失）
       migrateBookKeyedState(name, res.name)
       // 全量切换：路由换新名 → Book.vue watch 统一清 store / 载 prefs / seed 对话
-      router.replace(`/book/${encodeURIComponent(res.name)}`)
+      void router.replace(`/book/${encodeURIComponent(res.name)}`)
     }
   } catch (e) {
     ui.toast(friendlyError(e), 'error')

@@ -87,7 +87,7 @@ describe('A104: 换网候选过滤不实例化 provider / 不进 LRU', () => {
         capsProbedAt: Date.now(),
       },
     ]
-    saveProviders(ud, {
+    await saveProviders(ud, {
       providers,
       currentId: 'fake-a',
       currentModel: 'fake-model',

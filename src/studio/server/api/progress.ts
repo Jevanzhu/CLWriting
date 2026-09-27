@@ -37,7 +37,7 @@ export function computeProgress(bookRoot: string): { chapters: number; words: nu
  * 允许清单，无法在其内部切分）——其热路径有 stat 级元数据缓存（未变章只
  * stat 不整读），冷路径（首次/有章变更）单章重读仍属该同步段；此处让出点在扫描段
  * 与归并段之间，保证端点 handler 不再是「无让出的整段同步链」。结果与同步版逐位
- * 头注——内核 stat 级缓存兜底）。结果与同步版逐位一致（回归锚守护）。
+ * 头注——内核 stat 级缓存兜底。结果与同步版逐位一致（回归锚守护）。
  */
 export async function computeProgressAsync(
   bookRoot: string,
@@ -126,9 +126,9 @@ function computeBookSummaryUncached(bookRoot: string): BookSummary {
  * 后原「每 SCAN_YIELD_EVERY 章让出的 mtime 扫描循环」整体消失——改在同步扫描段
  * **前后各让出一次**（setImmediate 级包夹）：前置让出给调用方紧随其后排入的回调
  *（心跳/其它请求）先得槽位，后置让出保证扫描段期间排队的回调在 promise 落定前
- * 先跑——「端点 handler 不是无让出的整段同步链」性质维持（
- * 心跳插队用例锚定：probe 在首个让出之后入队，须在后置让出获得槽位）。结果与
- * 头注——内核 stat 级缓存兜底）。结果与同步版逐位一致（回归锚守护）。
+ * 先跑——「端点 handler 不是无让出的整段同步链」性质维持
+ * 心跳插队用例锚定：probe 在首个让出之后入队，须在后置让出获得槽位。结果与
+ * 头注——内核 stat 级缓存兜底。结果与同步版逐位一致（回归锚守护）。
  */
 async function computeBookSummaryUncachedAsync(bookRoot: string): Promise<BookSummary> {
   await yieldToEventLoop()

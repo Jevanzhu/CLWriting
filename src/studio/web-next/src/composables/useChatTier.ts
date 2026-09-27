@@ -9,7 +9,7 @@ import { useProviderStore } from '../stores/provider'
 
 export const EFFORT_LEVELS: EffortLevel[] = ['max', 'xhigh', 'high', 'medium', 'low']
 
-// 模块级单例：ChatPanel + ChatDock 共享（-N）；首建触发一次 store 装载
+// 模块级单例：ChatPanel + ChatDock 共享；首建触发一次 store 装载
 let _instance: { tier: ReturnType<typeof _createChatTier> } | null = null
 export function useChatTier() {
   if (!_instance) {

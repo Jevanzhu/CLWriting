@@ -31,7 +31,7 @@ function continueWriting(): void {
   const rc = data.value?.recentDoc
   if (!rc) return
   const book = props.bookName
-  // -㉒（-源码）：byPath 命中前补书归属校验（tree.ownerBook，ChapterTreePanel
+  // byPath 命中前补书归属校验（tree.ownerBook，ChapterTreePanel
   // 同款）——切书后旧树滞留时同路径节点属旧书，直接 openTab 会开旧书 docId
   if (tree.ownerBook === book) {
     const node = tree.byPath.get(rc.path)
@@ -97,7 +97,7 @@ async function loadFs(gen: number): Promise<void> {
     foreshadows.value = r
   } catch (e) {
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
-    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+    // 降级留痕——面板空态可重试，不打扰 UI
     // 对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
     // 不置空，注释「面板保持空态」失实：同书先前成功过一次后重试失败，面板继续展示
     // 旧红/黄/绿统计（陈旧数据假健康）。
@@ -111,7 +111,7 @@ async function loadRhythm(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     rhythmData.value = r
   } catch (e) {
-    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+    // 降级留痕——面板空态可重试，不打扰 UI
     console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     rhythmData.value = null
@@ -123,7 +123,7 @@ async function loadAnalysis(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     analysis.value = r
   } catch (e) {
-    // 降级留痕（-源码）——面板空态可重试，不打扰 UI
+    // 降级留痕——面板空态可重试，不打扰 UI
     console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
     if (loadGen.stale(gen)) return // 同上
     analysis.value = null
@@ -364,7 +364,7 @@ const fsStats = computed(() => {
         <div v-if="analysis?.style" class="style-body">
           <div class="style-drift">{{ analysis.style.drift }}</div>
           <div v-if="analysis.style.口癖?.length" class="style-tags">
-            <!-- 2-（GLM-5.3）：key 弃纯 index——分析快照为一次性
+            <!-- key 弃纯 index——分析快照为一次性
                  整表替换、纯展示 span 无内部状态（无错位实害），但口癖串可重复，改「值+序号」
                  复合键令内容参与键（前缀稳定的尾部追加场景 DOM 复用优于 index），零行为改动。 -->
             <span v-for="(t, i) in analysis.style.口癖" :key="t + '-' + i" class="style-tag">{{ t }}</span>

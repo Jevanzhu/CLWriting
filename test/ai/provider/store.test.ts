@@ -43,11 +43,11 @@ const FP = () => join(dir, 'providers.json')
 
 // ── 判据 1：保存后文件无明文 apiKey ──────────────────
 
-test('判据1: 保存后 providers.json 不含明文 apiKey', () => {
+test('判据1: 保存后 providers.json 不含明文 apiKey', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-super-secret-12345' })]
   store.currentId = store.providers[0]!.id
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   const raw = readFileSync(FP(), 'utf8')
   expect(raw).not.toContain('sk-super-secret')
@@ -59,12 +59,12 @@ test('判据1: 保存后 providers.json 不含明文 apiKey', () => {
 
 // ── 判据 2+3：save → load 往返（换设备 + 升级路径） ──
 
-test('判据2+3: save → load 往返，apiKey 完整还原', () => {
+test('判据2+3: save → load 往返，apiKey 完整还原', async () => {
   const store = emptySettings()
   const conf = makeConf({ apiKey: 'sk-roundtrip-key-99999' })
   store.providers = [conf]
   store.currentId = conf.id
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // load 还原
   const loaded = loadProviders(dir)
@@ -98,13 +98,13 @@ test('判据4: 明文 providers.json load 后自动迁移为密文', () => {
 
 // ── 判据 5：半迁移收敛（vault + 明文并存）────────────
 
-test('判据5: 半迁移(vault+明文并存)→vault优先，明文补迁移后清理', () => {
+test('判据5: 半迁移(vault+明文并存)→vault优先，明文补迁移后清理', async () => {
   // 先正常 save 一个有 vault 的
   const store = emptySettings()
   const conf1 = makeConf({ id: 'prov-a', apiKey: 'sk-key-a' })
   store.providers = [conf1]
   store.currentId = 'prov-a'
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 手动加一个明文 provider + 给 prov-a 留明文残留（模拟写入中断）
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
@@ -139,14 +139,14 @@ test('判据5: 半迁移(vault+明文并存)→vault优先，明文补迁移后�
 
 // ── 判据 6：IV 不复用（同一 key save 两次密文不同）──
 
-test('判据6: 同一 store save 两次，vault.keys 密文不同(IV不复用)', () => {
+test('判据6: 同一 store save 两次，vault.keys 密文不同(IV不复用)', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-x', apiKey: 'sk-same-value' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   const sealed1 = JSON.parse(readFileSync(FP(), 'utf8')).vault.keys['prov-x']
 
   // 再次 save（复用 dek，sealKey 用新 IV）
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   const sealed2 = JSON.parse(readFileSync(FP(), 'utf8')).vault.keys['prov-x']
 
   expect(sealed1.iv).not.toBe(sealed2.iv)
@@ -155,14 +155,14 @@ test('判据6: 同一 store save 两次，vault.keys 密文不同(IV不复用)',
 
 // ── 判据 7：删除 provider → vault.keys 同步清除 ──────
 
-test('判据7: 删除 provider → vault.keys 条目消失', () => {
+test('判据7: 删除 provider → vault.keys 条目消失', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-keep', apiKey: 'sk-keep' }), makeConf({ id: 'prov-del', apiKey: 'sk-del' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 删除 prov-del
   store.providers = store.providers.filter((p) => p.id !== 'prov-del')
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.vault.keys['prov-keep']).toBeTypeOf('object')
@@ -171,10 +171,10 @@ test('判据7: 删除 provider → vault.keys 条目消失', () => {
 
 // ── 判据 8：vault.dek 损坏 → 报错且不覆盖 ────────────
 
-test('判据8: vault.dek 损坏 → load 抛错且文件不被覆盖', () => {
+test('判据8: vault.dek 损坏 → load 抛错且文件不被覆盖', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-to-corrupt' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 改坏 dek 密文
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
@@ -191,10 +191,10 @@ test('判据8: vault.dek 损坏 → load 抛错且文件不被覆盖', () => {
 
 // ── 判据 9：vault.v = 未来版本 → 拒绝解析且不覆盖 ────
 
-test('判据9: vault.v=未来版本 → load 抛错且文件不被覆盖', () => {
+test('判据9: vault.v=未来版本 → load 抛错且文件不被覆盖', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-future' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 改成未来版本号（vault.v 是内层版本字段）
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
@@ -210,13 +210,13 @@ test('判据9: vault.v=未来版本 → load 抛错且文件不被覆盖', () =>
 
 // ── 补充：空 key 的 provider 不进 vault.keys ─────────
 
-test('补充: apiKey 为空的 provider 不写入 vault.keys', () => {
+test('补充: apiKey 为空的 provider 不写入 vault.keys', async () => {
   const store = emptySettings()
   store.providers = [
     makeConf({ id: 'prov-with-key', apiKey: 'sk-real' }),
     { ...makeConf({ id: 'prov-no-key' }), apiKey: '' },
   ]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.vault.keys['prov-with-key']).toBeTypeOf('object')
@@ -230,14 +230,14 @@ test('S5-D6: JSON 损坏 → loadProviders 抛错（不静默返回空）', () =
   expect(() => loadProviders(dir)).toThrow(/解析失败/)
 })
 
-test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
+test('S5-D7: 第二次 save 产生 providers.bak.json 备份', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-first-secret12345' })]
-  saveProviders(dir, store) // 首次创建（无备份）
+  await saveProviders(dir, store) // 首次创建（无备份）
 
   // 改动后再次 save → 应备份首次内容
   store.providers[0]!.apiKey = 'sk-second-secret1234'
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   const bakPath = join(dir, 'providers.bak.json')
   expect(existsSync(bakPath)).toBe(true)
@@ -254,12 +254,12 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
 // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')(
   'ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）',
-  () => {
+  async () => {
     const store = emptySettings()
     store.providers = [makeConf({ apiKey: 'sk-mode-first-12345' })]
-    saveProviders(dir, store) // 首次（主文件创建）
+    await saveProviders(dir, store) // 首次（主文件创建）
     store.providers[0]!.apiKey = 'sk-mode-second-123'
-    saveProviders(dir, store) // 二次（bak 创建 + 主文件覆盖 rename，权限位不应回退）
+    await saveProviders(dir, store) // 二次（bak 创建 + 主文件覆盖 rename，权限位不应回退）
 
     // POSIX 权限位断言（参照 CC-P2-3 先例 test/ai/calls.test.ts；Windows 不在 CI 矩阵）
     expect(statSync(FP()).mode & 0o777).toBe(0o600)
@@ -269,14 +269,14 @@ test.skipIf(process.platform === 'win32')(
 
 // ── W-P2-9：主文件损坏 → 自动从 bak 恢复 ────────────
 
-test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留配置', () => {
+test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留配置', async () => {
   // 正常 save 两次（第二次生成 bak）
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-restore', apiKey: 'sk-restore-me-123' })]
   store.currentId = 'prov-restore'
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   store.providers[0]!.apiKey = 'sk-restore-v2-456'
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 改坏主文件（bak 完好）
   writeFileSync(FP(), '{ broken json !!!', 'utf8')
@@ -302,21 +302,21 @@ test('W-P2-9: 主文件 JSON 损坏但 bak 可用 → load 自动恢复并保留
   expect(readFileSync(join(dir, corruptSiblings[0]!), 'utf8')).toBe('{ broken json !!!')
 })
 
-test('W-P2-9: 主文件损坏且无 bak → 仍抛错（不静默返回空）', () => {
+test('W-P2-9: 主文件损坏且无 bak → 仍抛错（不静默返回空）', async () => {
   // 首次 save 不产生 bak（S5-D7 语义：仅第二次起有备份）
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-no-bak-key' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   expect(existsSync(join(dir, 'providers.bak.json'))).toBe(false)
 
   writeFileSync(FP(), '{ broken json !!!', 'utf8')
   expect(() => loadProviders(dir)).toThrow(/备份恢复亦失败/)
 })
 
-test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
+test('S5-D5: 原子写——save 后无 .tmp 残留', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-atomic-test123456' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   expect(existsSync(join(dir, 'providers.json.tmp'))).toBe(false)
   // 主文件完整可读
   expect(JSON.parse(readFileSync(FP(), 'utf8')).vault).toBeTypeOf('object')
@@ -324,10 +324,10 @@ test('S5-D5: 原子写——save 后无 .tmp 残留', () => {
 
 // ── P2-AI-3：缓存未命中路径返回 clone（防调用方突变污染缓存）────────
 
-test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', () => {
+test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-clone-test123456' })]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 第一次 load（缓存未命中）→ 返回 clone
   const s1 = loadProviders(dir)
@@ -342,13 +342,13 @@ test('P2-AI-3: loadProviders 返回的 store 突变不污染缓存', () => {
 
 // ── RB-AI-P2-6：形状坏走 bak 恢复链 + tiers 缺键防御 ──
 
-test('RB-AI-P2-6: providers 非数组 + bak 可用 → 从 bak 恢复（不静默清空）', () => {
+test('RB-AI-P2-6: providers 非数组 + bak 可用 → 从 bak 恢复（不静默清空）', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-shape', apiKey: 'sk-shape-key-12345' })]
   store.currentId = 'prov-shape'
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
   store.providers[0]!.apiKey = 'sk-shape-v2-67890'
-  saveProviders(dir, store) // 第二次 save 产生 bak（v1 内容）
+  await saveProviders(dir, store) // 第二次 save 产生 bak（v1 内容）
 
   // 主文件改成形状坏（JSON 合法但 providers 是对象）
   writeFileSync(FP(), JSON.stringify({ providers: { oops: true }, currentId: 'x' }), 'utf8')
@@ -392,7 +392,7 @@ test('RB-AI-P2-6: tiers 缺 creative → tierFromStore 不抛，回落默认档�
 
 // ── dd-E-P2-2：chat + rag 混合保存往返，两把 key 均完整还原 ──
 
-test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且落盘无明文', () => {
+test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且落盘无明文', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-chat', apiKey: 'sk-chat-mixed-0001' })]
   store.currentId = 'prov-chat'
@@ -407,7 +407,7 @@ test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且
       sortIndex: 0,
     },
   ]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 落盘无明文（chat 与 rag 两把 key 都不出现）
   const raw = readFileSync(FP(), 'utf8')
@@ -427,7 +427,7 @@ test('dd-E-P2-2: chat + rag 混合 save → load，vault 双 key 完整还原且
 
 // ── dd-E-P2-2 附：只删 chat provider，rag key 不受牵连 ──
 
-test('dd-E-P2-2: 删除 chat provider 后再 save/load，rag key 仍在', () => {
+test('dd-E-P2-2: 删除 chat provider 后再 save/load，rag key 仍在', async () => {
   const store = emptySettings()
   store.providers = [makeConf({ id: 'prov-chat2', apiKey: 'sk-chat-keep-0003' })]
   store.ragProviders = [
@@ -441,12 +441,12 @@ test('dd-E-P2-2: 删除 chat provider 后再 save/load，rag key 仍在', () => 
       sortIndex: 0,
     },
   ]
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   // 删掉 chat provider 再保存（vault.keys 以 providers + ragProviders 合集重建）
   store.providers = []
   store.currentId = null
-  saveProviders(dir, store)
+  await saveProviders(dir, store)
 
   const loaded = loadProviders(dir)
   expect(loaded.ragProviders[0]!.apiKey).toBe('sk-rag-keep-0004')

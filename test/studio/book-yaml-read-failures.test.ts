@@ -77,9 +77,9 @@ beforeAll(async () => {
   })
 })
 
-afterAll(() => {
-  studio.close()
-  missingStudio.close()
+afterAll(async () => {
+  await studio.close()
+  await missingStudio.close()
 })
 
 /** 按模块 tag 断言留痕（log.warn(tag, 'book.yaml 解析降级: ...')）。 */

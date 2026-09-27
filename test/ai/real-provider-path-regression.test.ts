@@ -120,7 +120,7 @@ describe('P0-3：编辑 provider 后 structured 降级记忆清除', () => {
     for (const key of Object.keys(s.modelCaps)) {
       if (key.startsWith(prefix)) delete s.modelCaps[key]
     }
-    saveProviders(ud, s)
+    await saveProviders(ud, s)
 
     const after = loadProviders(ud)
     expect(after.modelCaps['fake-prov/fake-model']).toBeUndefined()

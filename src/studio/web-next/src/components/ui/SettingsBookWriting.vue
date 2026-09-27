@@ -136,7 +136,7 @@ function onBookGenreChange(): void {
   })
 }
 function onBookVolumeSizeInput(e: Event): void {
-  // 2-（GLM-5.3）：对齐兄弟两输入——本 handler 是
+  // 对齐兄弟两输入——本 handler 是
   // helper 统一后的残余偏离点（裸 Number + isFinite）。行为等价：`>= 5` 闸下
   // `Number('')===0` 本就不穿透（0 < 5 → null），改 helper 后空/空白/非法 → null → 清键
   // 口径与 onBookTargetWordsInput 完全一致（含 trim），零行为改动。

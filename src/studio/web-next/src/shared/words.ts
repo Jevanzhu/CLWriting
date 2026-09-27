@@ -161,7 +161,7 @@ export function formatWanZi(n: number, opts?: { suffix?: string; digits?: number
 }
 
 /**
- * 章节六态「标签 + 状态色」单表（-收敛）——此前三处独立维护：
+ * 章节六态「标签 + 状态色」单表——此前三处独立维护：
  * WritingInfoPanel / EditorDocHead 的 STATUS_LABEL（两份逐字相同）与 ChapterTreeItem
  * 的 dotClass（switch 手搓同口径），改一处漏两处的漂移面。三消费方此后委托本表；
  * dot/st 两列并存是既有视觉类名体系的如实保留（树/回收站 dot-green|red|yellow|gray，

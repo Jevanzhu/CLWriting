@@ -25,8 +25,8 @@
  * onBeforeRouteUpdate（仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
  *
  * 语义零变化面：三段的预检条件、弹窗文案、决断顺序、清理时序逐位保持
- * （
- * 各条注释随迁）；`bookName`/`resync` 仍为注入（原为本页 computed 与 useSse 句柄），
+ *
+ * 各条注释随迁；`bookName`/`resync` 仍为注入（原为本页 computed 与 useSse 句柄），
  * 各 store 在本函数内取实例（与调用点同在 setup 上下文，实例同源）。
  */
 import { watch, type ComputedRef } from 'vue'

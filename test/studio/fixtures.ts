@@ -201,7 +201,9 @@ export function withFakeProvider(
     vault: null,
     dek: null,
   }
-  saveProviders(userDataPath, store)
+  // 同步契约：调用点随即同步 loadProviders 读本次写盘结果——无在途写段时 saveProviders 同步落盘，
+  // void 显式化「有意不等」；辅件签名保持同步（async 化会外溢到全部调用点）
+  void saveProviders(userDataPath, store)
 }
 
 /** 造临时 userData 目录 */

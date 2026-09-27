@@ -12,7 +12,7 @@
 import { codePointLength } from './text.js'
 
 /**
- * 按模型的 chars→tokens 实测系数表（-①）。
+ * 按模型的 chars → tokens 实测系数表。
  * 校准来源：`npx tsx scripts/calibrate-tokens.ts` 读事件库 llm/call 的
  * promptMeta.chars × usage.input 成对样本，按模型最小二乘拟合——产出报告后
  * 人工把建议值写进本表并注明测定日期与样本量（低频动作，不做运行时配置）。

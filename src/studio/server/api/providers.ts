@@ -14,16 +14,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError, replyHttpError } from '../http.js'
 import { revisionError } from './revision-guard.js' // 三处拷贝收敛单源（原本地实现）
-// RC：主机变更闸收敛单源（providers/rag-providers 共用同一判定与文案）
+import { saveProvidersOr500 } from './provider-save-guard.js' // 保存失败信封映射单源（与 rag-providers 共用）
+// 主机变更闸收敛单源（providers/rag-providers 共用同一判定与文案）
 import { sameEndpointHost, API_KEY_HOST_CHANGE_CODE, API_KEY_HOST_CHANGE_MESSAGE } from './host-change-guard.js'
 import {
   loadProviders,
-  saveProviders,
   newProviderId,
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
-  ProviderRevisionConflictError, // 写前基线复验冲突 → 409 映射
   type ProviderConf,
   type ModelConf,
   type Protocol,
@@ -31,7 +30,6 @@ import {
   type TierSlot,
   type EffortLevel,
   type ProbeResult,
-  type ProviderStore,
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
@@ -54,28 +52,8 @@ interface ProvidersCtx {
   probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null
 }
 
-// providers.json 写入失败不再静默假成功——把 store.ts 的
-// saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播，此前仅 log.warn 吞掉），
-// 端点侧保存点统一 try/await 捕住回 500 WRITE_ERROR 信封（磁盘满/权限/锁超时故障下，
-// 此前 200 假成功让作者以为已保存）。当前 void 返回下 await/try-catch 合法且零行为差异，
-// B 落地后语义自动激活。返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
-// saveProvidersLocked 锁内写前 revision 复验失败的
-// ProviderRevisionConflictError 单列映射既有 409 REVISION_CONFLICT 信封（与前置
-// revisionError 闸同形态同文案，复用不新增错误码）——排队写窗口内基线漂移时前端拿
-// 到的是「刷新重读」语义而非「写入失败请重试」（重试只会再撞复验闸）。
-async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
-  try {
-    await saveProviders(userDataPath, s)
-    return true
-  } catch (e) {
-    if (e instanceof ProviderRevisionConflictError) {
-      replyError(res, 409, 'REVISION_CONFLICT', e.message)
-      return false
-    }
-    replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
-    return false
-  }
-}
+// 保存点失败语义（500 WRITE_ERROR / 409 REVISION_CONFLICT 的择一）见 provider-save-guard.ts 头注。
+// 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
 
 export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   // 列表（key 遮蔽）
@@ -526,7 +504,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 }
 
-/** 下一可用排序号：max(现有)+1$1防删除中间项后 length 撞号） */
+/** 下一可用排序号：max(现有)+1（防删除中间项后 length 撞号） */
 function nextSortIndex(existing: Array<number | undefined>): number {
   let max = -1
   for (const x of existing) max = Math.max(max, x ?? 0)

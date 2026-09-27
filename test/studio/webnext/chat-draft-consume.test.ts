@@ -51,7 +51,8 @@ vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({
 /** 只用到 reject 的延迟 Promise（控制「await 窗口内切书」时序，照 panel-toast-switch-guard 范型） */
 function deferredReject(): { reject: (e: Error) => void } {
   let reject!: (e: Error) => void
-  new Promise<never>((_res, rej) => {
+  // promise 本体弃用（只取 reject 句柄），void 显式化「有意不等待」
+  void new Promise<never>((_res, rej) => {
     reject = rej
   })
   return { reject }

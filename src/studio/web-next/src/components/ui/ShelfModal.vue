@@ -53,7 +53,7 @@ const {
 } = useShelf({
   onCreated: (name) => {
     ui.closeShelf()
-    router.push(`/book/${encodeURIComponent(name)}`)
+    void router.push(`/book/${encodeURIComponent(name)}`)
   },
   // 浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
   // API 全 404），并清最近打开书键（下次启动不再落进已删书；键收敛单源）
@@ -73,7 +73,7 @@ const {
       /* 忽略 */
     }
     ui.closeShelf()
-    router.replace('/shelf')
+    void router.replace('/shelf')
   },
   // b：选书「记 LAST_BOOK_KEY + 跳转」收敛
   // useShelf.openBook——主窗口浮层无 IPC 分支，路由跳转前经钩子先收浮层
@@ -155,7 +155,7 @@ function onKeydown(e: KeyboardEvent): void {
   if (consumed) e.preventDefault()
 }
 onMounted(() => {
-  shelf.load()
+  void shelf.load()
   window.addEventListener('keydown', onKeydown)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))

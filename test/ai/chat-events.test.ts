@@ -100,7 +100,7 @@ describe('F1-P1 跨重启恢复', () => {
     await runOne(ud, 'evt-b', '第一轮问题')
 
     // 模拟重启：只清内存（不带 userDataPath → 不动库）
-    clearChatHistory('evt-b')
+    await clearChatHistory('evt-b')
 
     fake.setScript([{ type: 'text', content: '第二轮回复。' }])
     await runOne(ud, 'evt-b', '第二轮问题')
@@ -174,7 +174,7 @@ describe('Y-P2-2 压缩存档事件化', () => {
     expect(validateEventStream(evs)).toEqual([])
 
     // 模拟重启：清内存（不带 ud → 库不动），投影恢复首条即 checkpoint 存档（原位取代）
-    clearChatHistory('ckpt-c')
+    await clearChatHistory('ckpt-c')
     const store2 = openSessionStore(ud, bookRoot)!
     const evs2 = store2.listEvents('ckpt-c')
     store2.close()
@@ -532,7 +532,7 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     await runOne(ud, 'z-recover', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
 
     // 模拟重启：只清内存（不带 userDataPath → 不动库；活跃分支映射一并归零）
-    clearChatHistory('z-recover')
+    await clearChatHistory('z-recover')
 
     fake.setScript([{ type: 'text', content: '重启后回复。' }])
     await runOne(ud, 'z-recover', '重启后问题')

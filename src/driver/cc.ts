@@ -227,7 +227,7 @@ export const ccDriver: StudioDriver = {
       ch.consumers.add(consumer)
       // E1b：迟到回放——pre（无消费者期间完整暂存）优先；已被接管过则回放活跃执行的 execRing
       // （cap 协议单元，新 listener 加入时顺序重放，看到当前执行已流式内容）
-      //）：回放前导清屏锚——cap 溢出时回放头部的自然锚
+      // 回放前导清屏锚——cap 溢出时回放头部的自然锚
       // （role_spawn/text_reset）被挤出，迟到消费者把重放 text 增量盲追加到断连前已积累的
       // textOut 上即整段重复（chapter 级生成每 delta 一协议单元，溢出是常态）；首个 text 增量
       // 前无锚时补发合成 text_reset，重放文本从空重建（语义见 replay-anchor.ts）。

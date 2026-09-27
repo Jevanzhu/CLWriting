@@ -103,7 +103,7 @@ function readLlmCallHashes(ud: string, bookRoot: string): string[] {
  * 增补 models 行）——contextWindow 沿 P9 模型行（provider/types.ts ModelConf）声明。
  * contextWindow 传 undefined = 不写模型行（窗口未知，走显式回退路径）。
  */
-function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: number | undefined): void {
+async function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: number | undefined): Promise<void> {
   const store: ProviderStore = {
     providers: [
       {
@@ -128,7 +128,7 @@ function withFakeProviderWindow(ud: string, fakeUrl: string, contextWindow: numb
     vault: null,
     dek: null,
   }
-  saveProviders(ud, store)
+  await saveProviders(ud, store)
 }
 
 /** 肥回合历史：turns 个回合各带 big 码点 tool_result——纯文本 user 边界 u0..u(n-1)
@@ -324,7 +324,7 @@ describe('R57-B-2: 发送预算按模型 contextWindow 显式 resolve（全链�
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const ud = tempUserData()
     dirs.push(ud)
-    withFakeProviderWindow(ud, fake.url, 64_000)
+    await withFakeProviderWindow(ud, fake.url, 64_000)
     const bookRoot = makeBookRoot()
     // 4 回合 × 3 万码点 tool_result = 120272 码点（与 r55 同形）：旧 96k 预算切在 u1
     //（保尾 90204），新 32k 预算（半窗 − sys 3 码点 = 历史可用 31997）切在 u3（30068）

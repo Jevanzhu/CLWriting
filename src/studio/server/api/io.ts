@@ -7,8 +7,8 @@
  * 直调会独占服务进程事件循环（大书导出期间全部书的 SSE 心跳/保存停摆）——改经
  * run-async.ts 卸载 worker 线程，服务进程只等消息（内核零改动）。
  * 写闸承担 session token 校验（defense-in-depth）：index.ts isWrite 的 safeTokenCompare
- * 在路由分派前拦一切 POST—— 删 handler 内冗余复核、（
- *）随之删 ctx.token 死字段（注入后零读取）。
+ * 在路由分派前拦一切 POST—— 删 handler 内冗余复核
+ * 随之删 ctx.token 死字段（注入后零读取）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

@@ -454,7 +454,7 @@ export function readFile(
   return { ok: true, fmRaw: split.fmRaw, body: split.body }
 }
 
-// ── （-deepseek-v4.1-flash ）：fm-only 异步限量读 ─────────────
+// ── fm-only 异步限量读 ─────────────
 
 /** fm 头读窗口：补全名单类消费面（角色/物品卡的姓名/名称等平铺字段）的 fm 段现实
  *  <1KB，8KB 窗已数倍冗余；窗内未见闭合围栏不做增量续读（宁可简单正确），回退全读

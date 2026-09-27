@@ -29,7 +29,7 @@ export function splitSentences(body: string, includeColon = false): string[] {
  * 大章里百字级复读块的占比被总 n-gram 数摊薄（5000 字章重复 100 字 ≈ 2% < 15% 阈），
  * 消费方（checkRepeat）可用绝对量双口径兜住漏报；存量消费方 metrics/style.ts 只读
  * .rate，新增字段向后兼容。
- * （性能与内存专项·）：gram 键从字符串改数值哈希。此前每窗
+ * gram 键从字符串改数值哈希。此前每窗
  * `s.slice(i, i+n)` 物化新字符串作 Map 键（每键 = 字符串头 + n×2B 码元，全章常驻
  * counts 不释放），超大单章机检瞬时 150-250MB。现改为双 32 位多项式滚动哈希
  * （Rabin-Karp 式出窗减除，滑窗 O(1) 增量、零字符串分配）组成 ≤2^53 的安全整数

@@ -471,7 +471,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
     if (fallbackId) {
       log.warn(
         'chat',
-        `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`,
+        `chat 发送换网重试：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`,
       )
       recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: failedCode }), turn })
       // 重发前清前端对话缓冲——换网重发是独立的第二次完整
@@ -485,12 +485,9 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
       // 行为不变；收缩后换网组合 = 收缩后载荷），指纹同步按实发重算
       out = await sendTurn(effectiveToSend, lastMessageFingerprint(effectiveToSend), fallbackId)
     } else if (hasCandidate) {
-      log.warn(
-        'chat',
-        `chat 发送回 ${failedCode} 且备用供应商均无可用 chat 档（0918独立重评修复批 A004），按现行终态路径收口`,
-      )
+      log.warn('chat', `chat 发送回 ${failedCode} 且备用供应商均无可用 chat 档，按现行终态路径收口`)
     } else {
-      log.warn('chat', `chat 发送回 ${failedCode} 且无备用供应商可切换（0917清库修复批），按现行终态路径收口`)
+      log.warn('chat', `chat 发送回 ${failedCode} 且无备用供应商可切换，按现行终态路径收口`)
     }
   }
 

@@ -378,7 +378,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   // key 字段（snapDays→snapMaxDays、aiBatchSize→autoBatchSize 两异名映射显式在行上）；
   // 行序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变。
   // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（经 PrefValueMap
-  // 行表以本映射逐键标注校验：缺行/多行/r 值型不符任一即编译期红，调用点键拼错同红
+  // 行表以本映射逐键标注校验：缺行/多行/r 值型不符任一即编译期红，调用点键拼错同红）
   // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
   // prefs 测试群（prefs-store / prefs-clamp-setters 等）回归兜底。
   interface PrefRow {
@@ -570,7 +570,7 @@ export const usePrefsStore = defineStore('prefs', () => {
    *  届时最新快照发出）。
    * fire 分支起始置空 persistTimer——
    *  此前回调执行完不置空，句柄停在「已 fire 的旧定时器」上恒非 null，而
-   *  flushPendingPersist 以 `!persistTimer` 作「无待写」判据（-三轮立的守卫），
+   * flushPendingPersist 以 `!persistTimer` 作「无待写」判据，
    *  于是**保存过一次**的窗每次关窗都同值空写 PUT → 服务端无条件 bump revision → 其他
    *  存活窗下次保存伪 409 +「已在其他窗口被修改」误导 toast。定时器已 fire 即无待写，
    * 置空后守卫恢复原意（原注释「定时器只在冲刷内清空」正是缺口自述）。的返回
@@ -583,7 +583,7 @@ export const usePrefsStore = defineStore('prefs', () => {
         schedulePersist() // 在途挂起排队：完成后重拍 500ms，快照届时重取
         return
       }
-      runPutChain(async () => {
+      void runPutChain(async () => {
         // revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
         // 自伤 409（ensureRevisionKnown 单源收敛）
         await ensureRevisionKnown()

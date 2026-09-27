@@ -91,7 +91,7 @@ const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
 
 /** 整包缓存值包装：stateOk（state 段成功与否）承载「成功态才落缓存」（口径
- * 经 storeIf 表达）；missingYamlPath 承载 book.yaml 缺失的显式 500 出口$1
+ * 经 storeIf 表达）；missingYamlPath 承载 book.yaml 缺失的显式 500 出口（
  *  不落缓存）。 */
 interface OverviewCompute {
   payload: Record<string, unknown>

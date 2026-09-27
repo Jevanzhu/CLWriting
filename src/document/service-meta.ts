@@ -244,7 +244,7 @@ export async function updateChapterMetaLocked(
       } catch (e) {
         log.warn(
           'document',
-          `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`,
+          `元数据已写盘但 journal settled 写失败（${docId}，恢复链按 pending 自动消解）：${errMsg(e)}`,
         )
       }
       // meta PATCH 同文件整写——与 executeSave 同款单键失效
@@ -592,7 +592,7 @@ export async function updateDocMetaLocked(
       } catch (e) {
         log.warn(
           'document',
-          `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`,
+          `元数据已写盘但 journal settled 写失败（${docId}，恢复链按 pending 自动消解）：${errMsg(e)}`,
         )
       }
       invalidateTreeIndex(ctx.bookRoot, true)

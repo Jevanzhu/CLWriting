@@ -13,9 +13,6 @@
     }
   },
   "src/ai/calls.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    },
     "complexity": {
       "count": 1
     }
@@ -692,16 +689,6 @@
       "count": 1
     }
   },
-  "src/studio/server/ttl-cache.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/App.vue": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
   "src/studio/web-next/src/api/app-info.ts": {
     "@typescript-eslint/return-await": {
       "count": 1
@@ -757,16 +744,6 @@
       "count": 2
     }
   },
-  "src/studio/web-next/src/components/ui/ModelEffortBar.vue": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/components/ui/SettingsBook.vue": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
   "src/studio/web-next/src/components/ui/SettingsBookAnalysis.vue": {
     "@typescript-eslint/no-misused-promises": {
       "count": 1
@@ -786,11 +763,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
-    }
-  },
-  "src/studio/web-next/src/components/ui/ShelfModal.vue": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
     }
   },
   "src/studio/web-next/src/components/ui/TierCard.vue": {
@@ -850,11 +822,6 @@
       "count": 1
     }
   },
-  "src/studio/web-next/src/composables/useShelf.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
   "src/studio/web-next/src/composables/useSse.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
@@ -877,23 +844,12 @@
       "count": 1
     }
   },
-  "src/studio/web-next/src/editor/typewriter.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
   "src/studio/web-next/src/main.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     }
   },
   "src/studio/web-next/src/pages/Shelf.vue": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-misused-promises": {
       "count": 1
     }
@@ -925,9 +881,6 @@
     }
   },
   "src/studio/web-next/src/stores/prefs.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 4
     },
@@ -954,9 +907,6 @@
     }
   },
   "src/studio/web-next/src/stores/workspace.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 8
     },
@@ -990,129 +940,14 @@
       "count": 2
     }
   },
-  "test/ai/chat-checkpoint-owner.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-events.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "test/ai/chat-exits.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-history.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 4
-    }
-  },
-  "test/ai/chat-prompt-trace.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "test/ai/chat-promptmeta-tools-recorded.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-send-budget-gate.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-small-window-budget-clamp.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-switch-provider-candidate-shape.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-switch-provider.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-tier-fallback.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
   "test/ai/chat-tool-error-redact.test.ts": {
     "@typescript-eslint/only-throw-error": {
-      "count": 1
-    }
-  },
-  "test/ai/chat-tool-turn-usage-merge.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 3
-    }
-  },
-  "test/ai/chat-unexpected-error-cleanup.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
       "count": 1
     }
   },
   "test/ai/fake-provider.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 2
-    }
-  },
-  "test/ai/pricing.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 10
-    }
-  },
-  "test/ai/provider/bak-restore-safety.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
-  "test/ai/provider/provider-usage-pins-and-wire-guards.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/provider/providers-mtime-cache-lru.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/provider/providers-save-drifted-revision-reject.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 5
-    }
-  },
-  "test/ai/provider/store.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 24
-    }
-  },
-  "test/ai/provider/vault-os-migration.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 6
-    }
-  },
-  "test/ai/providers-save-queued-write.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/real-provider-path-regression.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/ai/shrink-prompt-retry-wiring.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
     }
   },
   "test/desktop/bootstrap-runner.test.ts": {
@@ -1125,34 +960,9 @@
       "count": 1
     }
   },
-  "test/process/materials.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/book-yaml-read-failures.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
-  "test/studio/fixtures.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/providers-save-write-error.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
   "test/studio/readjson-body-lifecycle.test.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 1
-    }
-  },
-  "test/studio/server-close-inflight-settle.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
     }
   },
   "test/studio/spawn-auto-write-gates.test.ts": {
@@ -1210,11 +1020,6 @@
       "count": 2
     }
   },
-  "test/studio/webnext/chat-draft-consume.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
   "test/studio/webnext/chat-regen-active-branch.test.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 1
@@ -1222,11 +1027,6 @@
   },
   "test/studio/webnext/chat-store.test.ts": {
     "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/check-flagging-reset.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
       "count": 1
     }
   },
@@ -1243,11 +1043,6 @@
   "test/studio/webnext/doc.test.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 3
-    }
-  },
-  "test/studio/webnext/electron-close-flush-delivery.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
     }
   },
   "test/studio/webnext/finalize-switch-guard.test.ts": {
@@ -1277,11 +1072,6 @@
   },
   "test/studio/webnext/model-picker-render-cap.test.ts": {
     "@typescript-eslint/await-thenable": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/panel-toast-switch-guard.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
       "count": 1
     }
   },

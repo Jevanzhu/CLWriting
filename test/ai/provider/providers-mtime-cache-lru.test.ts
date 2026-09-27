@@ -44,13 +44,13 @@ function makeConf(id: string, apiKey: string): ProviderConf {
 const dirs: string[] = []
 
 /** 造一个已落盘的 userData 目录（saveProviders 走 vault 加密），返回其路径 */
-function saveDir(tag: string, apiKey: string): string {
+async function saveDir(tag: string, apiKey: string): Promise<string> {
   const d = mkdtempTracked(join(tmpdir(), `clw-mtime-lru-${tag}-`))
   dirs.push(d)
   const store = emptySettings()
   store.providers = [makeConf(`prov-${tag}`, apiKey)]
   store.currentId = `prov-${tag}`
-  saveProviders(d, store)
+  await saveProviders(d, store)
   return d
 }
 
@@ -68,9 +68,9 @@ function readCallsFor(fp: string): number {
   return vi.mocked(readFileSync).mock.calls.filter((c) => c[0] === fp).length
 }
 
-test('交错访问两个 userDataPath：第二轮各自命中缓存、零重读（单槽时代互相击穿）', () => {
-  const a = saveDir('A', 'sk-key-aaaa-1111')
-  const b = saveDir('B', 'sk-key-bbbb-2222')
+test('交错访问两个 userDataPath：第二轮各自命中缓存、零重读（单槽时代互相击穿）', async () => {
+  const a = await saveDir('A', 'sk-key-aaaa-1111')
+  const b = await saveDir('B', 'sk-key-bbbb-2222')
   const fpA = join(a, 'providers.json')
   const fpB = join(b, 'providers.json')
 
@@ -88,8 +88,8 @@ test('交错访问两个 userDataPath：第二轮各自命中缓存、零重读�
   expect(readCallsFor(fpB)).toBe(1)
 })
 
-test('mtime 变化后失效重读（外部改动自动失效，语义保持）；mtime 未变则命中不重读', () => {
-  const a = saveDir('A', 'sk-key-aaaa-3333')
+test('mtime 变化后失效重读（外部改动自动失效，语义保持）；mtime 未变则命中不重读', async () => {
+  const a = await saveDir('A', 'sk-key-aaaa-3333')
   const fp = join(a, 'providers.json')
   // 钉显式 mtime（与落盘时刻拉开，避开 A105 同毫秒窗的测试不确定性）——先钉再首载，
   // 使缓存记下的 mtime 即 T1
@@ -110,8 +110,9 @@ test('mtime 变化后失效重读（外部改动自动失效，语义保持）�
   expect(readCallsFor(fp)).toBe(1) // mtime 变 → 恰重读一次
 })
 
-test('容量 8：第 9 个路径入场逐出最旧条目，命中路径不受影响（LRU 有界）', () => {
-  const paths = Array.from({ length: 9 }, (_, i) => saveDir(`K${i}`, `sk-key-${i}-abcdef`))
+test('容量 8：第 9 个路径入场逐出最旧条目，命中路径不受影响（LRU 有界）', async () => {
+  const paths: string[] = []
+  for (let i = 0; i < 9; i++) paths.push(await saveDir(`K${i}`, `sk-key-${i}-abcdef`))
   for (const p of paths) loadProviders(p)
   expect(processProviderRuntime().__providersCacheSizeForTest()).toBe(8)
 
@@ -126,8 +127,8 @@ test('容量 8：第 9 个路径入场逐出最旧条目，命中路径不受影
 })
 
 test('saveProviders 写后按键失效：本路径下次 load 重读，他路径缓存不受击穿', async () => {
-  const a = saveDir('A', 'sk-key-aaaa-4444')
-  const b = saveDir('B', 'sk-key-bbbb-5555')
+  const a = await saveDir('A', 'sk-key-aaaa-4444')
+  const b = await saveDir('B', 'sk-key-bbbb-5555')
   loadProviders(a)
   loadProviders(b)
 

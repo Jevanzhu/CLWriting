@@ -79,8 +79,8 @@ function fileFp(p: string): string {
 }
 
 /** dirFpCore 的让出粒度——每计入 N 个 .md 项让出一次。
- * 导出供测试锚（隔离夹具按 K 断言 让出 ≥ ⌊N/K⌋）。 */
-export const DIR_FP_YIELD_EVERY = 25
+ * 本文件私有：让出效果经 `preludeYieldStats.dirFp` 观察，测试不锚常量本身。 */
+const DIR_FP_YIELD_EVERY = 25
 
 /** 目录树指纹 "count:size:maxMtime:nameHash"（递归**只计 .md 文件**，跳过 ._ 资源文件）。
  * 只计 .md——本指纹的全部消费目录（布线/大纲/章纲/文风/暂存

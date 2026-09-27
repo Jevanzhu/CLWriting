@@ -337,7 +337,7 @@ export const [getManifestLockTimeoutMs, __setManifestLockTimeoutForTest] = testa
 /** 进程内已持锁登记（manifestPath → 重入计数 + release + 异步排队链尾）——计数式
  *  可重入防自锁：嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，
  *  最外层返回时释放。
- *  2-（GLM-5.3）：登记项增设 tail——异步孪生
+ * 登记项增设 tail——异步孪生
  *  （withManifestLockAsync）重入 async fn 的排队链尾（首节 = 持锁 fn 的执行 promise，
  *  持锁 finally 在跨进程锁 release 前循环排空，见其函数头注）。同步版
  *  withManifestLock 的临界段全同步、无排队语义，登记恒 tail:null（异步重入撞上时
@@ -348,7 +348,7 @@ const heldManifestLocks = new Map<string, { depth: number; release: () => void; 
 // 在排队前识别「排队自等」死锁形态并 fail-loud（见 withManifestLockAsync 头注）。
 const manifestLockReentryAls = new AsyncLocalStorage<string>()
 
-/** 2-（GLM-5.3）：async fn 形态判定（不调用 fn）——
+/** async fn 形态判定（不调用 fn）——
  *  Object.prototype.toString 对 async 关键字函数（声明/箭头/方法/bind 产物）给
  *  '[object AsyncFunction]'（Node ≥14 内建标签，跨 realm 稳定，胜过 constructor.name
  *  的可被改名/跨 realm 失效）。排队判定必须发生在「调用 fn」之前：一旦调用，fn 的
@@ -438,17 +438,17 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
  * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
- * 不变量声明（注释收口，未装断言）〔2-（
- * GLM-5.3）已机制化收口——本段纪律声明废止，同进程互斥改由下段排队机制
+ * 不变量声明（注释收口，未装断言）〔
+ * 已机制化收口——本段纪律声明废止，同进程互斥改由下段排队机制
  *  承担，不再依赖「fn 体零 await」纪律；原文留档沿革〕：**重入分支（含正常分支）的
  * 同进程互斥要求 fn 体零 await（同步返回）**——fn 一旦返回 Promise，其在途期间
  * heldManifestLocks 仍登记在册（重入计数未清），同进程同 key 的并发调用会按「重入」
  * 放行并在 fn 的 await 点交错执行，同进程互斥静默失效（跨进程锁仍覆盖 fn 整个执行期，
- *）。原拟装「fn 返回值 thenable 即抛错」的 fail-loud dev 断言，但 grep 核实
+ * 。原拟装「fn 返回值 thenable 即抛错」的 fail-loud dev 断言，但 grep 核实
  * 现有调用方并非全部同步返回——test/document/manifest-lock-async.test.ts 的
  * 回归用例显式传入 async fn（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；
  * 生产调用方（service/trash/state/finalize/draft-pipeline）经 grep 全部为同步 fn。
- * 2-（GLM-5.3）修复——重入分支机制化分道（现行契约）：
+ * 修复——重入分支机制化分道（现行契约）：
  * ① **同步 fn**（返回非 thenable）：depth++ 立即执行——与同步版完全同形，零语义
  *   变更、零额外微任务跳数（全部既有同步调用方行为不变）。② **async fn**（async
  *   关键字形态，isAsyncFunction 调用前判定）：**排队**到持锁者执行链尾 held.tail——
@@ -482,7 +482,7 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
   const lockKey = manifestLockKey(manifestPath)
   const held = heldManifestLocks.get(lockKey)
   if (held) {
-    // 2-（GLM-5.3）：重入分支机制化分道（契约见函数头
+    // 重入分支机制化分道（契约见函数头
     // 注）——async fn 排队到持锁者执行链尾串行化（修复注释纪律下的同进程
     // 互斥静默失效）；同步 fn 维持现状（depth++ 立即执行，零语义变更、零额外微
     // 任务跳数）。惰性建链：撞上同步版登记项（tail:null）时建空链——该形态属
@@ -495,7 +495,7 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
       // 照常排队（回归①不受影响）；同步 fn 快道不查此防御。
       if (manifestLockReentryAls.getStore() === lockKey) {
         throw new Error(
-          `清单锁异步重入自等死锁（${manifestPath}）：同一次持锁执行体内重入同 key 的 async 调用会排队等自己，已拒绝执行——真递归调用方请维持同步 fn 形态（R0916-6-P3-15）`,
+          `清单锁异步重入自等死锁（${manifestPath}）：同一次持锁执行体内重入同 key 的 async 调用会排队等自己，已拒绝执行——真递归调用方请维持同步 fn 形态`,
         )
       }
       const invoke = fn as () => Promise<T>

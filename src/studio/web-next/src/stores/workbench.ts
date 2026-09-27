@@ -131,7 +131,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 收尾（self_heal_result 丢失），healPhase/batchProgress 原样残留会让界面永久
       // 卡「正在写稿…」（只处理了 running 复位）。running=false 且自愈态残留 →
       // 连带复位 + 中断提示（终局未知，引导从文章树查看）。
-      // A）：healResult 一并复位——断连窗口前已到的
+      // healResult 一并复位——断连窗口前已到的
       // 旧章终局卡片与「写章结果未知」提示同屏自相矛盾；终局须以重连后真实事件为准。
       // 注：完成态空闲重连（healPhase/progress/batchProgress 均 null）不进本分支，
       // 终局卡片跨连接存续（对照见 workbench-sync-healresult-reset.test）。
@@ -180,7 +180,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
       textIncomplete.value = false // 本轮生成收尾，水印解除
-      // A）调查结论：此处**不复位** healResult——
+      // 调查结论：此处**不复位** healResult——
       // 服务端 emitResult 先 self_heal_result 后紧接 done（self-heal.ts emitResult），
       // 终局卡片是收工展示面、须跨 done 存续至下一轮 role_spawn/init 清场；done 清了
       // 卡片即永不显示（workbench-selfheal.test「role_spawn 开局」已锁该行为）。断线

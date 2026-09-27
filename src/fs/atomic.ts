@@ -182,7 +182,7 @@ export function rmWithRetry(
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
   // 退避循环收编 retryOnTransientFsError 单实现（同 rmWithRetry 注）；
-  // 仅 EPERM/EBUSY 重试，其余上抛）；带留痕上下文
+  // 仅 EPERM/EBUSY 重试，其余上抛；带留痕上下文
   retryOnTransientFsError(() => doRename(from, to), {
     sleep: opts?.sleep ?? fsBackoffSleep,
     retries: opts?.retries ?? 3,

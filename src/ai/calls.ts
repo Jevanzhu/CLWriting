@@ -258,7 +258,7 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
 // 本互斥队列之上叠加跨进程真锁（见下 AI_CALLS_MUTEX_SCOPE_NOTE），
 // 多进程（CLI+桌面）同书并发写已闭合。
-// 原判断已被 作废，（
+// 原判断已被 作废
 // 现状再校正：时点锁获取还是 Atomics.wait 同步阻塞，「排队为
 // 微任务」分支确不可达，排队代码按「未来异步化接管面」保留；锁等待改异步轮询
 // 后，锁被占时 writeWithCrossProcessLock 返回在途 Promise 并紧随 writeChains.set
@@ -479,7 +479,7 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
   // 整段读改写经 per-bookRoot 队列串行化（并发写不丢账）
-  serializedWrite(bookRoot, () => recordAiCallLocked(bookRoot, chapter, usage, costUsd))
+  void serializedWrite(bookRoot, () => recordAiCallLocked(bookRoot, chapter, usage, costUsd))
 }
 
 function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
@@ -595,7 +595,7 @@ export function checkAiTaskCallBudget(
  */
 export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
   // 与 recordAiCall 同队列串行化（chapter/tasks 两块同文件，互斥同一链）
-  serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage))
+  void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage))
 }
 
 function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage | null): void {
@@ -648,7 +648,7 @@ export function recordUsageBoth(
   costUsd?: number,
 ): void {
   if (task === undefined && chapter === undefined) return
-  serializedWrite(bookRoot, () => recordUsageBothLocked(bookRoot, task, chapter, usage, costUsd))
+  void serializedWrite(bookRoot, () => recordUsageBothLocked(bookRoot, task, chapter, usage, costUsd))
 }
 
 function recordUsageBothLocked(

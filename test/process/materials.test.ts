@@ -426,7 +426,7 @@ test('服务商化：书存 rag.provider 引用应用级服务商 → 召回可�
         caps: null,
       },
     ]
-    saveProviders(userData, store)
+    await saveProviders(userData, store)
 
     // 书只存 enabled + provider 引用（服务商化后的新形态）
     writeBookConfig(join(root, 'book.yaml'), {

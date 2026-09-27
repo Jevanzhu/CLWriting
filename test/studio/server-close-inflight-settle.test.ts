@@ -66,7 +66,7 @@ describe('R0910-W：server.close 自包含化', () => {
     const work = new Promise<void>((r) => {
       release = r
     })
-    trackInFlightWork(work)
+    void trackInFlightWork(work) // 登记即返回：await 会挂到 release 之后，与本用例的等待时序断言相反
     let cbAt = 0
     const closed = new Promise<void>((r) => {
       server.close(() => {
@@ -121,7 +121,7 @@ describe('R0910-W：server.close 自包含化', () => {
 // 影响前序 close 用例的等待时长）。
 describe('R0910-W：等待有界', () => {
   it('未 settle 的登记项：有界放行，不无限期阻塞', async () => {
-    trackInFlightWork(
+    void trackInFlightWork(
       new Promise<void>(() => {
         /* 永不 settle */
       }),

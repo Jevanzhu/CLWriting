@@ -144,8 +144,8 @@ export function harvestStyleCandidates(
  * harvestStyleCandidates 的异步孪生（延伸，三十七轮批 A 收口）：源1 逐 doc
  * 的轨迹读走 collectDocSignalsAsync（gitAsync）。补齐源1 顶部的
  * 轨迹枚举（listTrackedDocsAsync）——git 后端 for-each-ref 的同步 spawnSync 漏网
- * 已清零，HTTP 链全程不再同步 spawnSync。 （
- *）同族收尾：源1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
+ * 已清零，HTTP 链全程不再同步 spawnSync。
+ * 同族收尾：源 1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
  * 让出（详见循环内注释锚）。同步版保留供存量测试与等价性对照。
  */
 export async function harvestStyleCandidatesAsync(

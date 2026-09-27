@@ -146,8 +146,8 @@ export interface ChapterMeta {
    *  `12` / `12, 13` / 数组形态）。权威源 = 存活目标章 fm（文件本位原则）。 */
   并入?: number[]
   // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
-  // 原样承载，对齐 LeadMeta——此前 String(v) 把数组压成 "a,b" 单串，回写
-  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
+  // 原样承载，对齐 LeadMeta——此前 String(v) 把数组压成
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位
   _raw?: Record<string, string | string[]>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
@@ -173,7 +173,7 @@ export interface StyleSample {
   正文: string // 样章本身（front matter 之后的正文）
   // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
   // 承载，对齐 Lead/ ChapterMeta 同族口径——此前 String(v) 把数组压成
-  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位
   _raw?: Record<string, string | string[]>
   _path?: string
 }
@@ -198,7 +198,7 @@ export interface StyleEntry {
   证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式定义）
   // 容错：未知字段原样保留（#3 第 8 节；数组型按 string[] 原样承载）
   // 承载，对齐 Lead/ ChapterMeta 同族口径——此前 String(v) 把数组压成
-  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位
   _raw?: Record<string, string | string[]>
   _path?: string
 }

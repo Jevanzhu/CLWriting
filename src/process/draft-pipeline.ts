@@ -9,6 +9,7 @@
 import { join, basename, dirname, relative, isAbsolute } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { readSafe } from '../fs/read-safe.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
@@ -340,15 +341,6 @@ export async function saveDraft(
   }
 }
 
-function readSafe(fp: string): string {
-  if (!existsSync(fp)) return ''
-  try {
-    return readFileSync(fp, 'utf8')
-  } catch {
-    return ''
-  }
-}
-
 /**
  * 清单检文件链：短篇写稿后同步 AI 章纲。
  *
@@ -403,7 +395,7 @@ function scenesOfFmValue(scene: unknown): string[] {
 }
 
 /**
- * 细纲场景声明段的合法场景枚举（kk-与 outline 端点短篇 prompt 的场景枚举同口径——
+ * 细纲场景声明段的合法场景枚举（与 outline 端点短篇 prompt 的场景枚举同口径——
  * 「战斗/对话/抒情/叙事铺陈/爽点高潮」。水源③是 AI 按 prompt 产出的段，段内引号项
  * 过滤到枚举内，防 AI 写解释性引号词（如「此处注意」）被当场景串样章；
  * 水源①②的 fm 字段是作者/AI 结构化声明，不过滤（自定义场景样章目录合法）。

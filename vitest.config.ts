@@ -81,7 +81,7 @@ export default defineConfig({
       // 不产出报告目录，CI 工件化在阈值红+用例红形态都无现场可传。显式
       // 打开：报告产出与测试成败解耦，红了也有 html/json-summary 可查。
       reportOnFailure: true,
-      // -②（全量代码）：include 不含 scripts/*.ts 属有意取舍——
+      // include 不含 scripts/*.ts 属有意取舍——
       // scripts 面由 tsc/eslint/直测（test/scripts/）覆盖，coverage 盲区为接受项，勿当遗漏补
       // include 扩入 web-next SFC——'src/studio/web-next/src/**/*.vue'
       // 精确限定 web-next src 子树（全仓 110 个 .vue 均在此，根 src 与别处无 .vue，不会扫入）；

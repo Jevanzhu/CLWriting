@@ -10,7 +10,7 @@
  * tsup 打包后本模块内联进 dist/desktop bundle，同伴为独立 entry 产出的
  * analysis-worker.js。
  *
- * （-deepseek-v4.1-flash ）：fork/settle/超时/退出同构段抽入公共
+ * fork/settle/超时/退出同构段抽入公共
  * 壳 src/worker-async.ts（与 export、rebuild 三域单源）；trackInFlightWork 在途登记
  * 是本域独有组合，留在调用方不入壳。
  */

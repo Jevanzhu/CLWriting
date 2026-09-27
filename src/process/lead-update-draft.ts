@@ -68,7 +68,8 @@ async function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): Promise<T> 
 /**
  * 右端：生成并落盘 账本推进.md（AI 草拟）。
  * 端点与 self-heal 写稿完成后共用：读本章正文 + 细纲声明 + 进行中账本 → AI 声明实际履历行
- * → 解析过滤（存量编号 + 合法动词表）→ 写 工作区/账本推进.md（作者在编辑器确认/修改
+ * → 解析过滤（存量编号 + 合法动词表）→ 写 工作区/账本推进.md（作者在编辑器确认/修改，
+ * finalize 时回写布线履历并清空）。
  *
  * @param signal ：外部中断信号（self-heal 编排级 / chat 工具层）——
  *               生成随调用方中断同步中止；端点直调（无可中断语境）缺省不传。
@@ -244,7 +245,7 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
 /** 归并纯函数：旧条目保序保位（档内同键重复收敛到末次声明），同键新声明覆盖
  *  旧证据，新键按新声明顺序追加。key = （编号, 动词）——与履历回写按编号归并的口径
  *  一致（同编号同动词视为同一声明的新版本）。 */
-export function mergeLeadUpdateEntries(
+function mergeLeadUpdateEntries(
   tag: number,
   oldEntries: readonly ChapterLeadUpdate[],
   newEntries: readonly ChapterLeadUpdate[],

@@ -42,9 +42,9 @@ beforeEach(() => {
   dirs.push(workDir)
 })
 
-afterEach(() => {
+afterEach(async () => {
   delete process.env.CLWRITING_DRIVER
-  clearChatHistory(BOOK)
+  await clearChatHistory(BOOK)
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 

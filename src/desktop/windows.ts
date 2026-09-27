@@ -253,8 +253,8 @@ function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
   if (!e.senderFrame || e.senderFrame !== e.sender.mainFrame) return false
   // 主判据：三窗白名单（createSecureWindow 登记、closed 摘除，快路径）。
   if (trustedSenders.has(e.sender)) return true
-  // 兜底：Electron 全局反查 + 工厂窗判定。（
-  //）：原「能反查到本进程存活窗口即放行」宽于白名单语义——未来若出现绕过工厂
+  // 兜底：Electron 全局反查 + 工厂窗判定。
+  // 原「能反查到本进程存活窗口即放行」宽于白名单语义——未来若出现绕过工厂
   // 的直建窗口，其 webContents 即 IPC 直通；收窄为反查命中窗须属工厂登记集合（登记面
   // 见 trackWindow），白名单语义 = 「工厂登记 webContents ∪ 工厂窗反查」。
   const win = BrowserWindow.fromWebContents(e.sender)
@@ -341,7 +341,7 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   trackWindow(win)
   // 渲染崩溃自愈随工厂挂载（三窗同享；原先只挂主窗，书架/书库白屏无自愈）
   attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
-  // （-③）：preload-error 同款入工厂——原先只挂主窗，书架/书库窗 preload
+  // preload-error 同款入工厂——原先只挂主窗，书架/书库窗 preload
   // 加载失败（sandbox preload 报错主进程才可见）零留痕。带窗口名区分来源。
   win.webContents.on('preload-error', (_e, preloadPath, err) => {
     log.error('desktop', `preload 加载失败（${opts.title ?? '窗口'}）：${preloadPath}`, err)
@@ -383,7 +383,7 @@ function loadWinState(): WinState | null {
     // 校验扩为 getAllDisplays 任一显示器包含即有效（±容差口径
     // 原样保留）——原只对主屏判定，多屏作者窗口常驻副屏：副屏坐标对主屏永远「越界」，
     // 恢复被无条件丢弃、窗口尺寸/位置白丢。判定逻辑抽 window-state.ts 纯函数（可单测）。
-    // （-④）：校验矩形整屏 bounds → workArea——创建侧缺省/钳制口径
+    // 校验矩形整屏 bounds → workArea——创建侧缺省/钳制口径
     // （workAreaSize-80/-8）一直按工作区算，校验却按含任务栏/Dock 的整屏：存档底部
     // 压在任务栏区（整屏含、工作区外）此前判有效、恢复即压条。容差 200px 原样保留
     //（轻微出界照旧放行），只多拦「越工作区 >200px」的真离屏态，正常存档不受影响。

@@ -249,7 +249,7 @@ export async function recallDetailed(
         // （评审）：produced 计数先于 model/维度过滤（store.ts），探针行
         // 可以是不匹配行而**未入 rows**——仅当最后产出行确为命中
         //（lastProducedWasMatch）才 pop；盲 pop 会错删第 N 个合法命中
-        // 2-（GLM-5.3，RAG 域 -②）：truncated 判定
+        // truncated 判定
         // 对齐 pop 侧口径改「确实丢弃命中行才 true」——旧判定 produced >
         // warnThreshold 在「全表恰为 warnThreshold+1 行且探针行非命中」时误报
         // （探针未入 rows、零命中被丢，消费方却被告知还有块被截掉）。与 pop 同
@@ -273,7 +273,7 @@ export async function recallDetailed(
   // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）。
   // 与 buildIndex 同口径去重（保入序首个）——不去重时 Map 后者覆盖，
   // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀。
-  // 2-（GLM-5.3，RAG 域 -①）：原注「保路径字典序
+  // 原注「保路径字典序
   // 首个」系改造前旧文案——dedupeChaptersByNumber 本体与 buildIndex 侧
   // （上方两处）均已改「入序首个」，此处漏改；仅对齐注释，零行为改动。
   // 章号集合只按命中元组收窄（此前按全部读回块，流式下命中集 ⊆ 读回集，

@@ -74,7 +74,7 @@ export const useDocStore = defineStore('doc', () => {
 
   // ── dirty 正文节流镜像（渲染进程硬崩溃兜底）──
   // 镜像子系统（键格式/节流分档/指纹台账/书级清扫/复活判读）整体在 shared/dirty-mirror.ts
-  // 单源（-优化批抽出）——纯 localStorage 逻辑，文档缓存态经 deps 注入（下方
+  // 单源——纯 localStorage 逻辑，文档缓存态经 deps 注入（下方
   // docs/bookName 取值器）；本 store 只留五个调用点的薄委托（patch/save/discard/setBook/
   // doOpen）+ 清理单源再导出（改名/删书各链经此调用，键拼法不外泄）。
   const mirror = createDirtyMirror({

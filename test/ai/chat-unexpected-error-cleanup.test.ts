@@ -99,11 +99,11 @@ function prov(id: string): ProviderStore['providers'][number] {
   }
 }
 
-function setup(): string {
+async function setup(): Promise<string> {
   const ud = tempUserData()
   dirs.push(ud)
   delete process.env.CLWRITING_DRIVER
-  saveProviders(ud, {
+  await saveProviders(ud, {
     providers: [prov('fake-a')],
     currentId: 'fake-a',
     currentModel: 'fake-model',
@@ -123,7 +123,7 @@ describe('runChatInner 未预期异常的失败收尾（A002）', () => {
   it('① prepareChatRun 抛（模拟 createSession SQLITE_BUSY）→ 正常 reject、chat_error 发出、running 清理', async () => {
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setup()
+    const ud = await setup()
     stubs.prepareError = new Error('模拟 restore createSession SQLITE_BUSY')
     const p = runChat({
       driver,
@@ -146,7 +146,7 @@ describe('runChatInner 未预期异常的失败收尾（A002）', () => {
   it('② runAgentTurns 中途抛（history 已 push user）→ finishTurn 收尾：回滚 + 遮蔽 + chat_error', async () => {
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setup()
+    const ud = await setup()
     stubs.turnsError = new Error('轮循环中途未预期异常')
     await expect(
       runChat({
@@ -177,7 +177,7 @@ describe('runChatInner 未预期异常的失败收尾（A002）', () => {
     fake.setScript([{ type: 'text', content: '正常回答。' }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setup()
+    const ud = await setup()
     await runChat({
       driver,
       mainSession: { id: 's1', ...RUN() },

@@ -83,8 +83,8 @@ const REQ: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: 
 const RCONF = { ...CONF, protocol: 'openai-responses' as const } as ProviderConf
 
 /** 最小 providers.json（openai 协议 + gpt 模型行）——R38-5 降级持久化通道注册前置 */
-function writeUdProvidersOpenAI(ud: string): void {
-  saveProviders(ud, {
+async function writeUdProvidersOpenAI(ud: string): Promise<void> {
+  await saveProviders(ud, {
     providers: [
       {
         id: 'prov-a',
@@ -254,7 +254,7 @@ describe('R38-5: createOpenAIProviderChat 透传 store/userDataPath（降级记�
     const ud = mkdtempTracked(join(tmpdir(), 'r38-openai-degrade-'))
     try {
       // 注册降级持久化通道（resolveProvider 经 createProvider 注入的同参形态，r30 R30-4 先例）
-      writeUdProvidersOpenAI(ud)
+      await writeUdProvidersOpenAI(ud)
       expect(resolveProvider(ud).ok).toBe(true)
 
       let calls = 0

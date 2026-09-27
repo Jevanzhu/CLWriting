@@ -84,17 +84,17 @@ interface Setup {
   close: () => void
 }
 
-function setup(
+async function setup(
   history: ChatMsg[],
   script: Parameters<FakeProvider['setScript']>[number],
   providers?: ProviderStore['providers'],
-): Setup {
+): Promise<Setup> {
   fake.setScript(script)
   const ud = tempUserData()
   dirs.push(ud)
   if (providers) {
     // 0918独立重评修复批（A001 组合链用）：显式多供应商配置（换网重试需备用 id 可解析）
-    saveProviders(ud, {
+    await saveProviders(ud, {
       providers,
       currentId: providers[0]!.id,
       currentModel: 'fake-model',
@@ -184,7 +184,7 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
     expect(measureHistoryPoints(history)).toBe(60_198)
     // 指纹期望值先于运行取——成功路径会把 assistant 回复 push 进 history（末条改变）
     const fingerprintBeforeRun = lastMessageFingerprint(history)
-    const s = setup(history, [
+    const s = await setup(history, [
       { type: 'error', status: 400, message: OVER_MSG },
       { type: 'text', content: '收缩后回复。', usage: { input: 100, output: 50 } },
     ])
@@ -240,7 +240,7 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
   it('② 两发都超窗 → 终态失败与现行错误面一致、重试恰一次', async () => {
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const history = inflightFatHistory()
-    const s = setup(history, [{ type: 'error', status: 400, message: OVER_MSG }]) // 脚本用尽后重复最后一条
+    const s = await setup(history, [{ type: 'error', status: 400, message: OVER_MSG }]) // 脚本用尽后重复最后一条
     try {
       const ok = await runAgentTurns(s.deps)
       expect(ok).toBe(false)
@@ -271,7 +271,7 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
 
   it('③ 非超窗 400（BAD_REQUEST）→ 不触发收缩重试（现行行为零变更）', async () => {
     const history = inflightFatHistory()
-    const s = setup(history, [{ type: 'error', status: 400, message: 'invalid context id: abc' }])
+    const s = await setup(history, [{ type: 'error', status: 400, message: 'invalid context id: abc' }])
     try {
       const ok = await runAgentTurns(s.deps)
       expect(ok).toBe(false)
@@ -309,7 +309,7 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       caps: { connected: true, streaming: true },
       capsProbedAt: Date.now(),
     }))
-    const s = setup(
+    const s = await setup(
       history,
       [
         { type: 'error', status: 400, message: OVER_MSG }, // 首发：超窗（收缩信号）

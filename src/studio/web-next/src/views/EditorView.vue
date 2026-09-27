@@ -99,7 +99,7 @@ function commitBodyWriteback(docId: string, next: string): void {
     doc.patch(e.docId, merged)
     return
   }
-  // B）：删除时代 `next.startsWith('\n')` 的
+  // 删除时代 `next.startsWith('\n')` 的
   // 补笔兜底分支——起编辑路径不剥前导后，落至此处即 merged === e.content，而该
   // 分支构造串 `---\n${fmRaw}\n---\n\n${next}` 与 mergeFm(e.content, next,
   // { stripLeading: false }) 逐字节同构（同源 splitFrontmatter + 同模板），patch 同串

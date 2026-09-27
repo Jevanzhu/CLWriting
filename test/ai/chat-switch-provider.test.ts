@@ -60,7 +60,7 @@ function prov(id: string): ProviderStore['providers'][number] {
 }
 
 /** 写 providers.json（双供应商传两 id，单供应商传一个；首个为 currentId） */
-function setup(...ids: string[]): string {
+async function setup(...ids: string[]): Promise<string> {
   return setupConfs(ids.map(prov))
 }
 
@@ -70,7 +70,7 @@ function badProv(id: string): ProviderStore['providers'][number] {
 }
 
 /** 写 providers.json（条目显式传入——A004 混合可用性场景；首个为 currentId） */
-function setupConfs(entries: ProviderStore['providers']): string {
+async function setupConfs(entries: ProviderStore['providers']): Promise<string> {
   const ud = tempUserData()
   dirs.push(ud)
   delete process.env.CLWRITING_DRIVER
@@ -85,7 +85,7 @@ function setupConfs(entries: ProviderStore['providers']): string {
     vault: null,
     dek: null,
   }
-  saveProviders(ud, store)
+  await saveProviders(ud, store)
   return ud
 }
 
@@ -99,7 +99,7 @@ describe('换网重试（switch-provider 消费者）', () => {
     ])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setup('fake-a', 'fake-b')
+    const ud = await setup('fake-a', 'fake-b')
 
     await runChat({
       driver,
@@ -133,7 +133,7 @@ describe('换网重试（switch-provider 消费者）', () => {
     fake.setScript([{ type: 'error', status: 401, message: 'Invalid API key' }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setup('fake-a')
+    const ud = await setup('fake-a')
 
     await runChat({
       driver,
@@ -169,7 +169,7 @@ describe('换网重试（switch-provider 消费者）', () => {
     ])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setupConfs([prov('fake-a'), badProv('fake-bad'), prov('fake-c')])
+    const ud = await setupConfs([prov('fake-a'), badProv('fake-bad'), prov('fake-c')])
 
     await runChat({
       driver,
@@ -195,7 +195,7 @@ describe('换网重试（switch-provider 消费者）', () => {
     fake.setScript([{ type: 'error', status: 401, message: 'Invalid API key' }])
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
-    const ud = setupConfs([prov('fake-a'), badProv('fake-bad')])
+    const ud = await setupConfs([prov('fake-a'), badProv('fake-bad')])
 
     await runChat({
       driver,

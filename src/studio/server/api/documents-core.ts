@@ -213,7 +213,7 @@ export async function drainStructureChainsUnder(bookRoot: string): Promise<void>
 }
 
 /** 阶段 24：测试观测钩子（__draftSaveChainKeysForTest 同款）——当前在途链键只读快照。
- * 自清理）。实现收编 createSerialChainMap().keysForTest。 */
+ * 自清理。实现收编 createSerialChainMap().keysForTest。 */
 export function __structureChainKeysForTest(): readonly string[] {
   return structureChains.keysForTest()
 }

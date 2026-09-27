@@ -37,10 +37,10 @@ const BAK = () => join(dir, 'providers.bak.json')
 const LOCK = () => join(dir, 'providers.json.lock')
 
 /** 造「主文件损坏 + bak 可用」现场：两笔 save（第二笔写前备份生成 bak，口径同 S5-D7）。 */
-function seedCorruptWithBak(corruptBytes = CORRUPT): void {
+async function seedCorruptWithBak(corruptBytes = CORRUPT): Promise<void> {
   const seed = emptySettings()
-  saveProviders(dir, seed)
-  saveProviders(dir, seed) // 第二笔：主文件在位 → 写前备份生成 providers.bak.json
+  await saveProviders(dir, seed)
+  await saveProviders(dir, seed) // 第二笔：主文件在位 → 写前备份生成 providers.bak.json
   expect(existsSync(BAK())).toBe(true)
   writeFileSync(FP(), corruptBytes, 'utf8')
 }
@@ -53,8 +53,8 @@ function corruptSiblings(): string[] {
 }
 
 describe('providers 损坏恢复段安全性（A-7）', () => {
-  it('① bak 存在但不可读 → 抛错、主文件字节不变、无 .corrupt-* 留证', () => {
-    seedCorruptWithBak()
+  it('① bak 存在但不可读 → 抛错、主文件字节不变、无 .corrupt-* 留证', async () => {
+    await seedCorruptWithBak()
     let err: unknown
     try {
       // R0916-7-P3-6：fs 依赖改逐调用参数注入（原 __setProvidersRestoreDepsForTest）
@@ -78,8 +78,8 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
     expect(corruptSiblings()).toEqual([])
   })
 
-  it('② bak 可读但写回失败 → 原损坏字节留证为 providers.json.corrupt-<ts>、主文件缺失、文案带留证路径', () => {
-    seedCorruptWithBak()
+  it('② bak 可读但写回失败 → 原损坏字节留证为 providers.json.corrupt-<ts>、主文件缺失、文案带留证路径', async () => {
+    await seedCorruptWithBak()
     const bakBytes = readFileSync(BAK())
     let err: unknown
     try {
@@ -107,8 +107,8 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
     expect(readFileSync(BAK())).toEqual(bakBytes) // bak 只读不动，仍是恢复通道
   })
 
-  it('③ 写锁被占 → 本轮跳过（主文件原封不动、无恢复写入），释放后下次 load 自愈', () => {
-    seedCorruptWithBak()
+  it('③ 写锁被占 → 本轮跳过（主文件原封不动、无恢复写入），释放后下次 load 自愈', async () => {
+    await seedCorruptWithBak()
     const bakBytes = readFileSync(BAK())
     const release = tryAcquireCrossProcessLock(LOCK())
     expect(release).not.toBeNull() // 同进程持锁即「他方在写」形态（活 pid 判 held、不接管）
@@ -137,8 +137,8 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
     expect(corruptSiblings()).toHaveLength(1)
   })
 
-  it('④ 锁内复核：取值窗口内主文件已被并发写方修复 → 不覆盖（bak 旧快照不落位）', () => {
-    seedCorruptWithBak()
+  it('④ 锁内复核：取值窗口内主文件已被并发写方修复 → 不覆盖（bak 旧快照不落位）', async () => {
+    await seedCorruptWithBak()
     const FIXED = JSON.stringify({ providers: [], currentId: 'fixed-by-other-writer' })
     // R0916-7-P3-6：注入的 readBak 在「读 bak 期间并发写方已把主文件修复」窗口内改盘
     const loaded = loadProviders(dir, {
@@ -160,8 +160,8 @@ describe('providers 损坏恢复段安全性（A-7）', () => {
   // 只读属性文件 renameSync 实测成功）+ atomicWriteFile 落盘」→ 自愈成功。A-7（RC 源码
   // 重审）：固定点由「rmQuietly 前置（先删主文件）」迁到「留证改名」——只读主文件自愈
   // 后仍在 .corrupt-<ts> 留证（原字节可查），删除降为改名失败时的退回口径。
-  it('⑤ 主文件损坏且只读 → 自愈成功（bak 字节落位、bak 保留、原损坏字节留证）', () => {
-    seedCorruptWithBak()
+  it('⑤ 主文件损坏且只读 → 自愈成功（bak 字节落位、bak 保留、原损坏字节留证）', async () => {
+    await seedCorruptWithBak()
     const bakBytes = readFileSync(BAK())
     // 主文件加只读属性（修复前 copyFileSync 对只读目标两平台都失败）
     chmodSync(FP(), 0o444)

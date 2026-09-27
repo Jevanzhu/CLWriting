@@ -1,5 +1,5 @@
 /**
- * 价格表与金额口径——providers.json 加性扩展（-①）。
+ * 价格表与金额口径——providers.json 加性扩展。
  *
  * 形状（加性，读侧缺省行为全部不变）：
  *   providers[].pricing?  = { inputPerMTok, outputPerMTok, cacheReadPerMTok?, cacheWritePerMTok?, currency? }

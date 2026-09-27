@@ -29,7 +29,7 @@ await boot()
 const pinia = createPinia()
 setActivePinia(pinia)
 await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS 变量就位）
-useUiStore().probeAiStatus() // 后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
+void useUiStore().probeAiStatus() // 后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
 const app = createApp(App)
 // 全局错误兜底：ErrorBoundary 漏网或 setup 外的异常最终经 ui store 的上报通道

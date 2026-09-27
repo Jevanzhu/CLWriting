@@ -16,7 +16,7 @@ const props = defineProps<{
   depth: number
   expanded: Set<string>
   activePath: string | null
-  /** （-③）roving tabindex：唯此行 tabindex=0（active 行优先，无 active
+  /** roving tabindex：唯此行 tabindex=0（active 行优先，无 active
    *  回落首行），其余行 -1——100 行树只留一个 Tab 停靠点，Tab 序不再被树淹没。 */
   tabstopPath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
@@ -115,7 +115,7 @@ function onCreateEsc(e: KeyboardEvent): void {
   emit('create-cancel')
 }
 
-// （-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 context-menu-roving
+// 树键盘 roving——WAI-ARIA tree 模式（对齐 context-menu-roving
 // / CommandPalette 先例）。方向键在可见 treeitem 间移动真焦点：可见序 = DOM 序（折叠
 // 子树 v-if 不在 DOM、RENDER_CAP 截断行不在渲染面，均天然排除，无需自算）；Tab 只在
 // tabstop 行停靠一次。↑↓ 平移；→ 展开目录 / 已展开则进首个子行；← 收起目录 / 已收起
@@ -215,7 +215,7 @@ watch(
         @blur="emit('rename-commit', node.path, inputVal)"
       />
     </div>
-    <!-- 常规行（-③：treeitem + aria-expanded/level/selected + roving tabindex） -->
+    <!-- 常规行（treeitem + aria-expanded/level/selected + roving tabindex） -->
     <div
       v-else
       class="tree-item"
@@ -253,7 +253,7 @@ watch(
       <span v-if="tree.issuePaths.has(node.path)" class="issue-dot" data-tip="有校对红项或审稿驳回"></span>
     </div>
 
-    <!-- 子节点 + 新建输入框（-③：group 语义包裹，display:contents 不改排版） -->
+    <!-- 子节点 + 新建输入框（group 语义包裹，display:contents 不改排版） -->
     <div v-if="node.isDirectory && isOpen()" role="group" class="tree-group">
       <div v-if="isCreatingHere()" class="tree-item" :style="{ paddingLeft: `${(depth + 1) * 14 + 8}px` }">
         <input
@@ -320,7 +320,7 @@ watch(
 .tree-item:hover {
   background: var(--background-modifier-hover);
 }
-/* （-③）：roving 后键盘焦点行显形（对齐 HistoryPanel restore-btn 同批口径） */
+/* roving 后键盘焦点行显形（对齐 HistoryPanel restore-btn 同批口径） */
 .tree-item:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;

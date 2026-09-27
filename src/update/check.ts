@@ -22,10 +22,10 @@ import { log, errMsg } from '../log/index.js'
 import { compareSemver, pickLatestStable } from './semver.js'
 
 /** GitHub releases 列表（公开仓匿名；per_page 上限 100，20 足够覆盖正式版 + 若干 rc） */
-export const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?per_page=20'
+const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?per_page=20'
 
 /** 单次请求超时（设计 §3.3：5s；超时即静默放弃，不重试） */
-export const UPDATE_CHECK_TIMEOUT_MS = 5000
+const UPDATE_CHECK_TIMEOUT_MS = 5000
 
 /** 起服后延迟检查的缺省毫秒数（接线用；不与起服抢首屏） */
 export const UPDATE_CHECK_DELAY_MS = 5000

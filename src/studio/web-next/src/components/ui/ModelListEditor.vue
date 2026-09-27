@@ -35,7 +35,7 @@ const emit = defineEmits<{
 }>()
 
 // 本地行副本（v-model 由父层传初值；内部变更同步 emit）
-// _key 为本地稳定行标识（ii-4）：行可增删，v-for 用索引 key 会在删中间行时让行内
+// _key 为本地稳定行标识：行可增删，v-for 用索引 key 会在删中间行时让行内
 // 输入态/展开态与数据错位——key 只活在组件内，sync 时剥除（不进 v-model 契约）。
 type LocalRow = ModelRowDraft & { _key: number }
 let keySeq = 0

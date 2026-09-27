@@ -29,13 +29,13 @@ import type { DriverEvent } from '../../src/driver/types.js'
 
 const dirs: string[] = []
 
-afterEach(() => {
+afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
   processProviderRuntime().__resetForTest()
-  clearChatHistory('r35-tool-usage')
-  clearChatHistory('r35-ckpt-usage')
-  clearChatHistory('r35-ckpt-trunc')
+  await clearChatHistory('r35-tool-usage')
+  await clearChatHistory('r35-ckpt-usage')
+  await clearChatHistory('r35-ckpt-trunc')
 })
 
 describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attemptsUsage 合并口径', () => {
