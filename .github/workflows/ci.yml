@@ -102,7 +102,15 @@ jobs:
       # 射程随 P3-4 批 6 扩到 TS 全量（含 web-next）+ .vue SFC：TS 块接双 tsconfig
       # 工程（类型感知规则可用），.vue 接 eslint-plugin-vue essential 档。存量违规
       # 以 eslint-suppressions.json 计数抑制冻结——规则一律 error，新增即红。
+      # 堆帽（rc.3 发版批）：类型感知 lint 走双 tsconfig 工程，内存随文件数单调涨——
+      # 本地 win 腿二分实测峰值旧生代 ≈2.5GB（1024/2048 帽下 eslint 以 exit 134 崩，
+      # 即 V8 堆耗尽 SIGABRT；2560 起全绿）。Node 默认堆帽按宿主内存推导，macos runner
+      # 内存小于 ubuntu/win 腿、默认帽落在 ≈2GB，该腿因此必崩（rc.3 tag 首跑实录：
+      # macos 双 Node 腿 step 10 全 134，同日 ubuntu/win 腿同门全绿——非规则违规，
+      # 是跑不动）。本步显式给 3072 留余量；作用域限本步，测试步 worker 仍走默认帽。
       - name: lint 门（eslint）
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
         run: npm run lint
 
       # P3-4 另一半：格式化门。只检查不改写（CI 不改仓库）——本地 `npm run format`
