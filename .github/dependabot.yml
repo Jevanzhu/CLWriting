@@ -9,6 +9,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # @types/node 大版本不随波：其主版本号编码的是运行时 ABI，而本仓 engines.node = ">=24"
+    # ——类型升到更高主版本后，「调用了 Node 24 上不存在的 API」不再有类型错可拦，只剩
+    # Node 24 腿的运行期兜底，且覆盖面未知。口径 = 类型跟随 engines.node 下限，随「抬
+    # engines」同批升；小版本照常收。
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: npm
     directory: /src/studio/web-next
     schedule:
