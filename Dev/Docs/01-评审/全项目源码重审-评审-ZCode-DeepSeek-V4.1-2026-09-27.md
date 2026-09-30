@@ -22,7 +22,7 @@
 | 打包门 | `npm run check:packaging` | 通过 |
 | 知识门 | `npm run check:knowledge` | 通过 |
 
-e2e（playwright）本轮未跑；mac/linux CI 腿未跑。
+e2e（playwright）本轮未跑；mac/linux CI 腿未跑。（补跑记录见 §10.3 末段：2026-09-30 本机 win 腿 e2e 51 通过 / 3 跳过；mac/linux 腿至今未跑。）
 
 ## 一、总评
 
@@ -43,6 +43,7 @@ e2e（playwright）本轮未跑；mac/linux CI 腿未跑。
 
 - 优雅的部分是真的：`defineRoute` 的 parse/gate/handler 三段式、`BUSY_MATRIX` 意图×信号矩阵、TtlCache 单源工厂、`createSerialChainMap` 系列链原语、`shared/text` 码点单源、`check` 域的名册判定单源——这些都是「一次抽象、多处受益」的形态，不是摆设。
 - 不优雅的部分集中在**注释体量与成分**：源码 121,964 非空行里注释行 36,331，占 **29.8%**；其中含「此前 / 原实现 / 已修 / 事故 / 沿革 / 先例 / 收编 / 口径不变」一类考古词的注释行 2,908 行（**占全部注释的 8.0%**）。这些内容记录的是「哪一批改的、改之前是什么」，**正确归宿是 commit message 与报告正本**——它们混在约束说明里，让「读注释为了知道该怎么做」变成「读注释还得先过滤一段历史」。
+  - **复算补记（2026-09-30）**：本条两头均不可精确复现，且分子分母不同面。分母「注释行 36,331」在任一可声明面都对不上——`src` 实测 37,804（`*.ts` 34,278 + `*.vue` 3,526）、门面（`scripts/check-comments.mjs` 的 `collectFiles()`，581 文件）38,182、`src+test` 70,329；分子「2,908」按本条印出的 8 词表（此前｜原实现｜已修｜事故｜沿革｜先例｜收编｜口径不变）逐注释行 `includes` 实测（谓词 = `extractCommentLines(text, ext)` × 8 词，**按注释行去重**）：`src` 1,812、门面 1,832、`src+test` 2,844、`src+test+scripts` **2,903**——最近似者仍差 5，无一面命中。按 `src` 面同表复算 = **1,812 行 / 37,804 = 4.79% 注释行**（分母逐扩展名可复现；占非空行 1.49%）。原句「一类考古词」本身即声明词表非穷举，故 **2,908 / 8.0% 只作量级判断**成立，不作精确值引用；同段「121,964 非空行」与实测 121,955 差 9，一并按 §九 折算口径处理。
 - 实质重复：**16 组函数体逐字节相同**的副本对，其中 `saveProvidersOr500`（providers.ts / rag-providers.ts，404 字符）、`readSafe`（draft-pipeline.ts / outline.ts，148 字符）是跨层复制（§四 P3-1）。
 - 体量分布健康：574 个源文件、中位数 153 行，8 万行级代码里只有 11 个文件 ≥800 行、6 个函数 ≥300 行，没有「巨型文件」问题。长函数（≥150 行）58 个，其中 16 个 ≥250 行——集中在 api 层 handler 与适配器，属可接受的编排体量，但 `src/studio/server/index.ts:380`（383 行）、`api/analysis.ts:345`（382 行）、`document/service.ts:226`（371 行）值得再拆一刀。
 
@@ -137,7 +138,7 @@ ERROR: Coverage for branches (87.86%) does not meet "src/rag/**" threshold (88%)
 
 ### P3-2 注释考古密度 8.0%，且「考古」与「约束」混排
 
-36,331 行注释里 2,908 行（8.0%）在讲「此前如何/原来如何/已修/事故/沿革」。抽样看，这些内容常常和当行真正的约束说明连在一起写，例如 `src/format/yaml-patch.ts:25` 一带（清理前）：
+36,331 行注释里 2,908 行（8.0%）在讲「此前如何/原来如何/已修/事故/沿革」（**口径与复算补记见 §一 1.3 第 2 条与 §10.4**：本条印刷词表在任一可声明面实测 1,812–2,903，2,908 系词表非穷举下的量级值，不作精确值引用）。抽样看，这些内容常常和当行真正的约束说明连在一起写，例如 `src/format/yaml-patch.ts:25` 一带（清理前）：
 
 ```
 * 读改写场景不走 stringifyBookConfig 全量重生成——解析模型只保
@@ -158,13 +159,13 @@ ERROR: Coverage for branches (87.86%) does not meet "src/rag/**" threshold (88%)
 
 第三类值得单独说：这些批号会**进到作者可见的界面/日志/错误信封**里，例如 `state.ts:199` 的 `'作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）'` 直接是提交给 journal 的文本，`server-manager.ts:572` 的 `'R0916-7-P3-17：在途轮已占，开轮被拒'` 是运行时抛错。门的定位是「注释面零批号」，所以这不是门的 bug，而是**纪律范围与可见面的口径差**——批号写进用户可见文案，作者读到的是一串内部编号。7~11 处，建议随下次触碰这些文件时改成自解释文案（`state.ts:199` 那处已被 `test/state/journal-acknowledge-endpoint.test.ts` 以 `R0912-1b` 为 describe 名锚定，改文案需同步该测试的 claim 方式）。
 
-### P3-4 零引用导出 11 处（全库导出 1,693 个）
+### P3-4 零引用导出 11 处（全库导出 1,693 个；口径 = 值态声明式导出唯一名，评审树实测 1,694）
 
-仅在自身文件内使用、其余 src/test/scripts 零出现：
+仅在自身文件内使用、其余 src/test/scripts 零出现（口径：分母 = `src` 下声明式 `export const|let|var|function|class|enum` 的**唯一名**；分子 = 该名在 `src` / `test` / `scripts` 三面出现的**文件数 ≤ 1**，即只出现在声明它的那一档）：
 
 `DIR_FP_YIELD_EVERY`（check/tree-issues-cache.ts）、`RELEASES_URL` 与 `UPDATE_CHECK_TIMEOUT_MS`（update/check.ts）、`SAVE_BODY_ENVELOPE_BYTES` 与 `contentByteLength`（web-next/shared/save-limits.ts）、`createTaskGatePort`（ai/orchestrate/task-gate-port.ts）、`endpointHost`（studio/server/api/host-change-guard.ts）、`mergeLeadUpdateEntries`（process/lead-update-draft.ts）、`setDevProxyApplied`（desktop/windows.ts）、`stripFencedLines`（format/section-heading.ts）、`writeSplitUnit`（export/index.ts）。
 
-这 11 个里有 3 个是**故意导出的**（`createTaskGatePort` 是实例化入口、`setDevProxyApplied` 是闭包捕获的写入口、`SAVE_BODY_ENVELOPE_BYTES` 是可调常量），其余 8 个是「拆分/重构后 export 前缀忘了摘」的残留。11/1693 = 0.65%，属轻微卫生问题。
+这 11 个里有 3 个是**故意导出的**（`createTaskGatePort` 是实例化入口、`setDevProxyApplied` 是闭包捕获的写入口、`SAVE_BODY_ENVELOPE_BYTES` 是可调常量），其余 8 个是「拆分/重构后 export 前缀忘了摘」的残留。11/1693 = 0.65%，属轻微卫生问题。（补记 2026-09-30：本口径在评审树 `1bd4a17a` 上复算 = **1,694**，报告取整/舍入差 1；8 处残留在 §10.2 P3-4 已实修，收口后同口径复算**只剩上述 3 个故意导出**，零引用值态导出已清零。）
 
 ### P3-5 `ttl-cache.ts:170` 的非空断言与它旁边的不变量声明不一致
 
@@ -247,9 +248,9 @@ return () => {
 
 1. **数据面防线是真的。** 删书/改名之前的「五连 drain + 闸后复查」（`books-lifecycle.ts:265-282`：`drainDocumentSaves` → `drainFilePutChainsUnder` → `drainForeshadowSaveChains` → `drainDraftSaveChainsUnder` → `drainStructureChainsUnder`，随后 `busyGate` + `hasBackgroundTasks` 复查）逐条对得上每个孤儿写路径的成因，注释里连「哪条 drain 挡住哪条孤儿写」都写明了死锁核查结论。
 2. **「一次抽象、多处受益」的实例密度高。** `defineRoute` 三段式（parse/gate/handler）、`BUSY_MATRIX` 意图×信号矩阵（`task-gate.ts:530` 起，含 spawn/auto-write/chat/generate/structure 五种意图）、`TtlCache` 单源工厂、`createSerialChainMap` 链原语、`shared/text` 码点单源、`check` 域名册判定单源、`capView` 渲染上限单源——不是各有各的写法。
-3. **测试资产分层清楚、治理门成体系。** 1,286 个单测文件 / 8,751 例，`test/governance/` 下 10 个常驻治理测试（依赖方向、方向环、stores 环、覆盖率桶 glob 反向守卫、可见性对账、mock 零计费、token 豁免同步等）——这些门的存在让「回潮」有机器成本，是长期可维护性的关键投入。
+3. **测试资产分层清楚、治理门成体系。** 1,286 个单测文件 / 8,751 例（本节为评审当时读数，§九 已声明不改写；口径与收口后读数见 §10.3——静态枚举 1,290 文件 / 8,356 单测，运行时 1,290 文件 / 8,781 通过 + 8 跳过），`test/governance/` 下 10 个常驻治理测试（依赖方向、方向环、stores 环、覆盖率桶 glob 反向守卫、可见性对账、mock 零计费、token 豁免同步等）——这些门的存在让「回潮」有机器成本，是长期可维护性的关键投入。
 4. **源码内 `TODO/FIXME/HACK` 为 0。** `grep -rn -E "TODO|FIXME|HACK" src --include='*.ts' --include='*.vue'` 零命中（`src/knowledge/update.ts:138` 的 `'TODO'` 是知识库误报语境的**数据**，不是标记）。在一个 8.5 万行的代码库里这是罕见的一致度。
-5. **类型逃逸受控。** `as any` 22 处、`@ts-ignore`/`@ts-expect-error` 16 处、`eslint-disable` 28 处——相对 8.5 万行，密度很低，且 `tsc`/`vue-tsc` 双绿。
+5. **类型逃逸受控。** 按 §八 口径实测：`as any` **0** 处、`@ts-ignore` **0** 处、`@ts-expect-error` **14** 条（全在 `test/`）、`eslint-disable` **1** 条（`test/studio/webnext/global-overlay-mounts.test.ts:106`，`no-require-imports`）——生产面（`src/`、`scripts/`）四者皆为 0，逃逸集中在测试面且以 `@ts-expect-error` 标注为主；相对 8.5 万行，密度很低，且 `tsc`/`vue-tsc` 双绿。
 6. **平台的实证习惯。** `vitest.config.ts` 的阈值注释把「为什么 win 口径不等于 ubuntu」写成可复算的推演（阶段 43 的两次实测反例），`check-comments.mjs` 头注写明「不靠推理靠批前基线全库实测定位」——这种「结论附复算路径」的写法值得保持。
 
 ## 六、已被驳回的子 agent 结论（如实记录，防重复修复）
@@ -285,9 +286,11 @@ npx vitest run --coverage                             # exit 1：src/rag branche
 npm run check:counts / check:docs / check:comments / check:packaging / check:knowledge   # 全 0
 ```
 
+（本块为评审当时读数，按 §九 不改写；测试数与覆盖率的收口后实录见 §10.3，两个数轴（静态枚举 / 运行时）的口径说明见 §五 第 3 项。）
+
 注释面损伤（48 处）复现口径：遍历 `src/**/*.{ts,vue}` 的注释行，判四族形态（残标签 `（[-—]X` 其中 X ∈ 圈号/源码/优化/mac适配/win适配/单字母、跨行空括号对、模板注释以 `：` 起首、整行纯标点），逐行 `git blame -L n,n` 取提交，再 `git show <commit>~1:<file>` 取父版原文对照——48 处全部落在 `f493f537`（43）与 `737352f7`（5）。
 
-度量口径（一次性脚本，未入库）：函数级 ≥150 行 = 58 个（≥250 = 16，≥300 = 6）；文件 ≥800 行 = 11 个；注释行占比 = 36,331 / 121,964 = 29.8%；考古词注释 = 2,908 行（8.0%）；零引用导出 = 11 / 1,693；同体函数组 = 16；`eslint-suppressions.json` = 304 条目 / 635 计报 / 217 文件。
+度量口径（一次性脚本，未入库）：函数级 ≥150 行 = 58 个（≥250 = 16，≥300 = 6）；文件 ≥800 行 = 11 个；注释行占比 = 36,331 / 121,964 = 29.8%；考古词注释 = 2,908 行（8.0%）——**注（2026-09-30）**：本条两项经复算均不可精确复现，实测口径与替代值见 §一 1.3 第 2 条复算补记（注释行 `src` 面 37,804；8 词表去重行 1,812 / 4.79%），原值按 §九 折算口径作量级引用；零引用导出 = 11 / 1,693（**注（2026-09-30）**：分母口径与基线复算见 §四 P3-4——值态声明式导出唯一名，`1bd4a17a` 实测 1,694，差 1）；同体函数组 = 16；`eslint-suppressions.json` = 304 条目 / 635 计报 / 217 文件。类型逃逸标记（§五 第 5 项）口径：遍历 `src` / `scripts` / `test` 三面下 `*.{ts,vue,mjs,cjs}` 加根配置文件 5 个，只计**指令形态**（整词 `as any`、`@ts-ignore`、`@ts-expect-error`、`eslint-disable` 起首），散文提及与整词 `any` 不计——实测 `as any` 0 / `@ts-ignore` 0 / `@ts-expect-error` 14（均 `test/`）/ `eslint-disable` 1（均 `test/`），`src`、`scripts`、根配置三面全 0。宽松口径供对照：`: any` 标注 42 处（均 `test/`）、含 `any` 词 167 行——故本项只声明**逃逸指令**受控，不声明 `any` 清零。注：`eslint.config.js:174` 对 `test/` 关掉 `no-explicit-any`、`:184` 对 `src` 开启，`test/` 面的 `any` 走 `eslint-suppressions.json` 冻结而非内联禁用，故两数不同轴。
 
 ## 九、收口条件
 
@@ -366,15 +369,18 @@ npm run typecheck:web-next                              exit 0
 npx eslint . --max-warnings 0                           exit 0
 npx prettier --check .                                  全库已格式化
 npx vitest run                                          1290 文件通过 / 8781 通过 + 8 跳过，exit 0
+node node_modules/@playwright/test/cli.js test           51 通过 / 3 跳过（33 spec / 54 用例），exit 0，1.3m
 npx vitest run --coverage                               exit 0（src/rag branches 91.21%）
 npm run check:comments                                  exit 0（581 文件，两族判据零命中）
 npm run check:counts                                    exit 0（1290 文件 / 8356 单测；33 e2e spec / 54 用例；Archive 16 篇）
 npm run check:docs / check:packaging / check:knowledge   exit 0
 ```
 
+**e2e 补跑（2026-09-30，收口后补记）。** 收口批动到前端与端点链（`476de996` 改 `src/studio/web-next` 41 档 + `studio/server/api` 19 档），按 L2 终门「动前端/SSE/端点链须跑 e2e」应跑，收口时漏记；本轮补跑，本机 win 腿 e2e **51 通过 / 3 跳过（33 spec / 54 用例），exit 0**。命令用 `node node_modules/@playwright/test/cli.js test` 而非 `npm run test:e2e`：本机 `npm config get script-shell` 指向未入 `PATH` 的 Git bash，`node_modules/.bin/*` 的 `#!/bin/sh` 壳脚本会以 `/usr/bin/env: 'bash': No such file or directory` 报错——属**本机壳环境问题，非仓库缺陷**（同一原因影响 `check:knowledge` 的 npm 入口，绕行 = `node node_modules/tsx/dist/cli.mjs scripts/check-knowledge.ts`）。**效力边界**：本节实录除特别注明外均为本机 win 腿实测；mac/linux CI 腿至今未跑，跨平台终门结论仍以 CI 为准。coverage 91.21% 同为 win 腿读数，门值维持 88 不追高——阈值锚与「绿门只紧不松」规则按 CI ubuntu 腿标定（`vitest.config.ts:123-128`、`:188`），不据单机读数抬门；故 P2-2 的办结效力按「本地自测由红转绿 + CI 腿复核」两段计，CI 腿未复核前不宣称跨平台达标。
+
 README 对账数字 8333 / 1286 → **8356 单测 / 1290 文件**。口径说明：`check:counts` 用 `vitest list --json` 的**静态枚举**（`it.each` 按调用点计 1），与运行时总数（8781 + 8 跳过）差在 `it.each` 展开——README 取静态口径，两者不可混用（本批曾误取运行时数写成 8348，已回退）。
 
 ### 10.4 记理由不修的两条
 
-- **P3-2 注释考古密度。** 标签形态已由门机器守护（全库 0 命中）；散文形态本轮以**门自己的注释面**为口径复测（581 文件 / 38,182 注释行；词表 = 复审｜重审｜重评｜作废｜此前｜原先｜曾经｜历史口径｜沿革｜回正｜误删｜上一轮｜前一轮｜旧版｜旧实现｜曾把｜一度｜修复批｜批内）实测 **1,527 行 / 4.00%**（§四 P3-2 的 8.0% 出自另一套词表，两数不同轴、不作对比）。**不做机械重写**：本报告 P2-1 的 74 处损伤正是两轮机械清理的产物，第三次机械改写会制造第四批残片；散文形态若设机械门必然误报，故改由「新增注释不写修复史 + 评审期抽查」的纪律面承接。
+- **P3-2 注释考古密度。** 标签形态已由门机器守护（全库 0 命中）；散文形态本轮以**门自己的注释面**为口径复测（581 文件 / 38,182 注释行；词表 = 复审｜重审｜重评｜作废｜此前｜原先｜曾经｜历史口径｜沿革｜回正｜误删｜上一轮｜前一轮｜旧版｜旧实现｜曾把｜一度｜修复批｜批内）实测 **1,430 行 / 3.75%**（谓词 = `collectFiles()` × `extractCommentLines()` × 19 词 `includes`，按注释行去重；该口径本轮在 HEAD 与本报告基线 `1bd4a17a` 上复算同为 1,430，排除扫描器版本漂移。**原记 1,527 / 4.00% 不可复算**：同面按同词表逐词计数和 = 1,435，补足缺口的同义扩展经实测均不足——19 词命中行内追加单个候选词最大增益仅 +23（`改名`），且 19∪8 词并集直接把数推到 2,260，故 1,527 无自洽组合，按实测值引用。§四 P3-2 的 8.0% 出自另一套词表与另一扫描面，两数不同轴、不作对比）。**不做机械重写**：本报告 P2-1 的 74 处损伤正是两轮机械清理的产物，第三次机械改写会制造第四批残片；散文形态若设机械门必然误报，故改由「新增注释不写修复史 + 评审期抽查」的纪律面承接。
 - **P3-8 前端 store 环。** 4 条基环（`prefs↔ui`、`doc↔tree` 等）是真实业务耦合（偏好要弹 toast、文档要刷树），不是可注入消除的假耦合；`useStaleGuard` 已是该方向的正确抽象。**处置 = 维持 `KNOWN_CYCLES` 登记**，此处记录「这是已登记，不是已消除」；环名与登记数以 `test/governance/webnext-store-import-cycles.test.ts` 为准。
