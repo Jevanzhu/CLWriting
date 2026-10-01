@@ -691,6 +691,10 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
     return { ...p, apiKey: undefined } as Omit<RagProviderConf, 'apiKey'>
   })
 
+  // 落盘成功后再提交内存 revision（见下方写盘步）——写盘失败时内存不得领先盘上，
+  // 否则下次 save 携领先 revision 过复验：盘上仍是旧号被判漂移（假 409），
+  // 或盘上被排到后面的写覆盖后号已对齐而内存号更高（漏冲突）。
+  const nextRevision = (store.revision ?? 0) + 1
   const disk: DiskFormat = {
     providers: diskProviders,
     currentId: store.currentId,
@@ -698,11 +702,9 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
     modelCaps: store.modelCaps,
     tiers: store.tiers,
     ragProviders: diskRagProviders,
-    revision: (store.revision ?? 0) + 1,
+    revision: nextRevision,
     vault,
   }
-  // 写前 +1，内存 store 同步（调用方随后刷新时读到新号）
-  store.revision = disk.revision!
   const json = JSON.stringify(disk, null, 2) + '\n'
 
   // 写前备份（文件已存在时）。ee-bak 改走 atomicWriteFile + mode 0600 创建即生效——
@@ -717,6 +719,11 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   // ee-mode 0600 随临时文件创建即生效（rename 保留 mode），删除写后 chmodSync——
   // 后者存在 umask 窗口（默认 0644 短暂全局可读），与（src/ai/calls.ts 记账文件）同款修法。
   atomicWriteFile(fp, json, { fsync: true, mode: 0o600 })
+  // 落盘成功才提交内存 revision（调用方随后刷新时读到新号）——先提交后落盘时
+  // 写盘失败（磁盘满/权限/EBUSY 直抛）会留下「内存领先盘上」的进程内状态：下一次
+  // load→mutate→save 携领先 revision 过锁内复验，与盘上号不等即假 409；
+  // 若盘上他写方已落 N+1 而内存持 N+1 又被判不等，则真冲突被漏判（整态覆盖丢更新）。
+  store.revision = nextRevision
 
   // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存；按键失效，
   // 原 `_cache = null`——本次写只落本路径文件，不再全表清除击穿他库缓存）

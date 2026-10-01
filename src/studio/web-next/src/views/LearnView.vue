@@ -186,17 +186,15 @@ async function onCommit(): Promise<void> {
 }
 
 /* 按钮 */
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 6px 14px;
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   background: var(--background-primary);
-  color: var(--text-normal);
   font-size: var(--font-size-s);
-  cursor: pointer;
   transition: all var(--dur-fast) var(--ease-out);
 }
 .btn.primary {

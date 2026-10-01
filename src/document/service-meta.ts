@@ -262,8 +262,8 @@ export async function updateChapterMetaLocked(
       // 落标题）；裸章号名（`0001.md`）剥后为空，经下方 sanitize || '未命名' 兜底。
       const fmTitle = String(map.get('标题') ?? '')
       const 标题 = meta.标题 !== undefined ? fmTitle : fmTitle || chapterTitleSegment(basename(path))
-      // 清偿批删去原此处 invalidateTreeIndex(bookRoot, true)——与
-      // rename 委托链尾 doMoveOrRename 的同参整书失效（本文件 :1526 附近）在同一操作
+      // 删去原此处 invalidateTreeIndex(bookRoot, true)——与
+      // rename 委托链尾 doMoveOrRename 的同参整书失效（service-move.ts 链尾）在同一操作
       // 链上重复，保留链尾一处。分路径核实：rename 路径的结构性失效单源在链尾（成功
       // 由 doMoveOrRename 尾部调用）；不 rename 路径 rel_path 集合不变，上方的
       // invalidateTreeIndexForContent 已失效 indexes/indexSigCache/本章 probe 键，章级
@@ -595,7 +595,11 @@ export async function updateDocMetaLocked(
           `元数据已写盘但 journal settled 写失败（${docId}，恢复链按 pending 自动消解）：${errMsg(e)}`,
         )
       }
-      invalidateTreeIndex(ctx.bookRoot, true)
+      // fm PATCH 不联动文件名，rel_path 集合不变——单键内容失效即可（与
+      // updateChapterMetaLocked 非 rename 路径同款论证）：本文件章的机检行按 (mtime,size)
+      // 指纹自失效；纪元输入文件（设定/名册、境界体系等）的变更由读侧纪元比对整表清空
+      // 兜底。原整书结构性失效把未变章的有效机检缓存行连坐清掉，纯性能损耗。
+      invalidateTreeIndexForContent(ctx.bookRoot, path)
       return { ok: true, docId, path }
     },
   })

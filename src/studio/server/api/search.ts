@@ -8,11 +8,10 @@
  * 不复制逻辑）；本文件只做 HTTP 壳。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { statSync } from 'node:fs'
-import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { dirSignature } from '../dir-signature.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
 
@@ -54,24 +53,10 @@ export const searchCache = createTtlProbeCache<
   keyOf: (k) => `${k.bookRoot}\u0000${k.scope ?? ''}\u0000${k.query}`,
   max: SEARCH_CACHE_MAX,
   ttl: () => SEARCH_CACHE_TTL_MS,
-  probe: (k) => dirSignature(k.bookRoot),
+  probe: (k) => dirSignature(k.bookRoot, SEARCH_ALL_DIRS),
   inFlight: true,
   computeAsync: (k) => searchBookAsync(k.bookRoot, k.query, k.scope),
 })
-
-/** 可搜目录全集的 mtime 签名（缺失计 '-'）：每次命中前重算，5 次 stat 换免整书重扫。
- *  必须在扫描**前**取值——扫描期间落盘的变更会使签名失配，下次按失效重扫（宁多扫不脏读）。 */
-function dirSignature(bookRoot: string): string {
-  const parts: string[] = []
-  for (const dir of SEARCH_ALL_DIRS) {
-    try {
-      parts.push(String(statSync(join(bookRoot, dir)).mtimeMs))
-    } catch {
-      parts.push('-') // 目录不存在
-    }
-  }
-  return parts.join(',')
-}
 
 /** 全书搜索（缓存 + 在途去重 + 底层 searchBookAsync）。导出供回归测试直测。
  * ttlOverrideMs = 逐调用 TTL 覆盖档（收尾：组装根 RouteOverrides 经

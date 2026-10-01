@@ -47,8 +47,7 @@ import {
 } from '../shared/chapter-tree'
 import { useChapterTreeCreate, type Creating } from './useChapterTreeCreate'
 import { useChapterTreeStructure } from './useChapterTreeStructure'
-import { bookSessionFor } from './useBookSession'
-import { isAbortError } from '../api/client'
+import { useScopedAction } from './useScopedAction'
 
 /** 新建类 key → 标准落盘目录（空白处 / 找不到右键目录时用）。正文/卷原地建不在此表（依赖右键目标或正文区惯例）。 */
 const NEW_DEFAULT_DIRS: Record<string, { renderDir: string; fsDir: string }> = {
@@ -78,22 +77,20 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
   // 红线沿革：（catch 补切书守卫）/ （批量定稿 catch）/（await 后
   // 活源复检）/各轮均因漏配此守卫出过 bug——收敛只换写法，判定时机
   // 逐位不变（await 返回后先查会话，再决定落错/刷树/开 tab）。
-  // （评审）：判定源换装书会话（composables/useBookSession）——
+  // 判定源换装书会话（composables/useBookSession）——
   // 「还在本书」= 本动作入口的书名仍是在册会话（会话同一性判定，不再逐点手写书名复检）；
   // 本书结构写请求经 session.signal 中止（api/client 按路径接驳），迟到结果由 failScoped
   // 顶部的 isAbortError 一处静默吸收。无在册会话时（未进书窗口/测试直挂面板）回落书名
   // 复检，与旧判定逐位等价（同名重进的回环窗口差异见 useBookSession 头注）。
-  /** 仍在 book 书（await 窗口后未切书/未离书）？ */
-  const stillIn = (book: string): boolean => {
-    const session = bookSessionFor(book)
-    return session ? session.stillIn() : deps.bookName() === book
-  }
-  /** catch 尾款单源：书会话中止（切书/离书）的迟到失败一律静默吸收，仍在本书才落
-   * openError（语义 +的 AbortError 唯一出口）。 */
+  // 本族的 stillIn/failScoped 已抽单源 composables/useScopedAction（views/panels 层同款）——
+  // 此处仅落 openError 这一个错误出口，语义与抽件前逐位一致。
+  const { stillIn, failScoped: onScopedError } = useScopedAction(deps.bookName)
+  /** catch 尾款（本族版）：书会话中止（切书/离书）的迟到失败一律静默吸收，仍在本书
+   *  才落 openError（语义 +的 AbortError 唯一出口）。 */
   const failScoped = (book: string, e: unknown): void => {
-    if (isAbortError(e)) return // 会话 abort：请求已被取消，结果无意义（不再逐点判书名丢旧书报错）
-    if (!stillIn(book)) return
-    deps.openError.value = friendlyError(e)
+    onScopedError(book, e, () => {
+      deps.openError.value = friendlyError(e)
+    })
   }
 
   const creating = ref<Creating>(null)

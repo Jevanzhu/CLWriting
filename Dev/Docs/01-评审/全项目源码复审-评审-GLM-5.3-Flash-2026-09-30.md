@@ -115,3 +115,59 @@
 ## 十、与上一轮（09-27 重审）的关系说明
 
 本轮为作者明示的独立复审：评审过程未读取 09-27 报告正文，结论独立形成；两轮如有重合发现，属同一问题在当前代码上的仍存状态，修复责任以本轮清单为准。按治理纪律，本报告完成≠收口——P1/P2 修复 + 回归通过后才收口归档。
+
+## 十一、收口记录（2026-10-01；执行模型：ZCode / DeepSeek-V4.1-flash）
+
+**结论：P1×0、P2×15、§六 P3 全域逐条处置完毕**（§六 33 条：实修 23 / 记理由 10），§十 收口条件满足，本报告归档预备。
+
+### 11.1 P2（15 条，全实修）
+
+| 条 | 处置 |
+|---|---|
+| P2-1 saveDraft 守卫换 strict 读 | 回收站双认领守卫与锁内复核改 `readTrashManifestStrict`/`readManifestStrict`，与 executeSave 等同口径 |
+| P2-2 store.ts 巨型残核 | 按立案件拆首开壳与迁移段（新增 `events/store-open.ts`、`events/store-open-markers.ts`、`events/store-migrate.ts`），残核只留聚合回引 |
+| P2-3 initiateAgentTurn 单函数 | 仿 turns-tools 拆法按相位拆段（prepare/stream/tool-loop/finalize），阶段状态不再散布闭包变量；eslint 复杂度抑制条目随之清除 |
+| P2-4 保存路径 revision 提交时序 | 写盘成功后再提交内存 revision，失败回滚——消除「内存领先盘上」窄窗 |
+| P2-5 批量注释残伤 | 逐处按父版原文与现行实现更正（含 `service.ts` 方向性失实注、`main.ts` 宽限漂移、yaml 族截断句）；check:comments 门两族判据零命中 |
+| P2-6 prepared() 纪律回退 | `format/read.ts` 热路径与 `check/tree-issues-cache.ts` 裸 prepare 改走 `shared/sqlite-prepared.ts` 单源 |
+| P2-7 细纲定位双实现 | 抽 `format/piece-list-locate.ts` 单源，`metrics/short-index.ts` 与 `check/runner.ts` 同引 |
+| P2-8 前端竞态守卫样板 | 提 `composables/useScopedAction.ts`（并入 `usePendingAction`），views 层样板接入 |
+| P2-9 openSessionStore 12 行拷贝 | 抽 `server/api/session-store-guard.ts`（withBookStore），chat-history/chat-branches 收敛 |
+| P2-10 dirSignature 两份拷贝 | 抽 `server/dir-signature.ts` 单参化共用（search/foreshadows） |
+| P2-11 `.btn` 族基础样式近重复 | 提 `components/ui/btn-shared.css` 基类，组件留差异声明 |
+| P2-12 before-quit 直通分支缺旗标 | 补置 `appTearingDown`，与 5s 观察窗自愈定时器互斥面闭合 |
+| P2-13 e2e 顺序耦合 | 5 只读 spec 迁独立 workDir（`test/e2e/independent-server.ts` 壳 + `e2ePort(offset)`），连坐半径收窄；全量 e2e 复跑绿 |
+| P2-14 suppressions 只冻结不收敛 | CI 增「prune 后 diff 空」门（`.github/workflows/ci.yml`）；`eslint-suppressions.json` 入 `.prettierignore`（工具输出面，双工具互改钉死 diff 的根因排除）；表规模 531 → 530 计报 |
+| P2-15 平铺 + 213 头注 | `test/studio` 分域入 `api/` / `server/` / 域目录；webnext 分 `dom/`（happy-dom）与 node 目录 + vitest 5 projects 环境路由，213 档逐文件头注删除 |
+
+### 11.2 §六 P3（33 条：实修 23 / 记理由 10）
+
+逐条处置表（含 file:line 证据）见提交前工作稿 `tmp/p3-disposition.md`（本地不入库，收口批 commit message 附要点）；此处记口径：
+
+**实修组（23）**：CHAT_TOOL_NAMES 上收 `contract/chat.ts` 单源；`scanChapters` 同步/异步双份循环体抽生成器核 `scanChaptersCore` 两驱动（`driveToEnd`/`driveToEndAsync`，对齐 check/book-search 先例）；`settings-injection` 码点计数收编 `shared/text.ts`（原「防环」拒绝理由随单源下沉失效）；`learn` 直引 `format/iron-rules`；`service-meta` fm PATCH 改单键失效（与同文件 :265-273 论证口径合一）；`maybeSnapshot` 双探测合一；`windows.ts` 两份提示页 HTML 收模板函数；`documents-save` origin 在场非法值改 fail-loud 400；`EditorDocHead` 书名非空断言改 fail-closed；`stream.ts` isRunning 可选链对齐必需成员形态；`OverviewView` 两处 catch 序对齐；`prefs.ts` 头注补「新增偏好键四面清单」；`ContextMenu` 挂账锚改指总览 §三开放项（触发=浏览器版转正）；`document/service.ts` 的 removeEntry「零生产调用」失实注更正（`install/migrate-layout-v3.ts:211` 在消费）；`CLAUDE.md` 档数/秒数回填实测并纳入 `check:counts` 射程；另 `ai-status` 死分支、`workdir-controller` 死导出、`main.ts` 重复注、`run-tree-issues` 变量双义、`metrics/style` 重复 import、`runner` mock stopReason 口径、`style-harvest`/`resource`/`calls` 三处测试专用导出标注（仓库无 `@visibleForTesting` 惯例，取既有中文标注先例）。
+
+**记理由组（10）**：`provider/store.ts` 批注密度（非事实性错误，纯压缩无验收判据）；`prepare.ts` sampleScene 缺省（生产链恒显式传，删默认=破坏性签名变更）；`store-migrate` 锁对同 hash（唯一调用方已挡，未挡形态也走既有失败路径，无正确性缺口）；`ipc` 切库互斥（触发面=UI 模态，单槽武装后写者胜=作者末次意图）；`lifecycle` 只 flush 主窗（子窗仅 prefs 低敏面）；`useRelationGraph`（报告前提证伪：`:key=bookName` 已挂 + 前提已注记）；win 腿重跑洗白（已在册台账，本轮新增一例带位置实录同条）；`check-counts` 正则面（既定登记）；Electron 冒烟三处（依附不同执行面，无 CI 验证窗）；残余实睡（非急务，持续改进面）。
+
+### 11.3 回归（全门实录，2026-10-01，本机 win 腿）
+
+```
+npx tsc --noEmit                              exit 0
+npm run typecheck:web-next                    exit 0
+npm run lint（eslint --max-warnings 0）        exit 0
+npm run lint:prune（幂等复跑）                  两次 md5 一致（表已收敛）
+npx vitest run                                1290 文件（1283 通过 / 7 跳过）/ 8732 用例通过 + 75 跳过，381.7s，exit 0
+npm run test:e2e（build:web + playwright）      51 通过 / 3 跳过（33 spec / 54 用例），1.3m，exit 0
+npm run check:counts                          exit 0（1290 文件 / 8374 单测；33 spec / 54 用例；Archive 21 篇）
+npm run check:docs / check:comments / check:packaging / check:knowledge   exit 0
+npm run format:check                          全库已格式化（eslint-suppressions.json 入忽略面）
+```
+
+全量单测首跑曾出一例 suite 级红：`test/studio/api/server-mutex-redaction-cache-guards.test.ts` 的 `afterAll` 清临时目录 EPERM（win 句柄释放迟滞；测试体本身全绿 8732 通过）。单跑复验 7/7 绿、全量复跑全绿——属 win 腿间歇族（与本批改动无关：该档仅随 P2-15a 迁路径，内容未动），已按「间歇真失败不得靠重跑静默吸收」纪律登 `03-设计/win腿间歇红台账-现行规范-2026-09-20.md` §一在册观察。
+
+README 对账数字 8356 → **8374 单测**（静态枚举口径，`check:counts` 实测；其中 3 例为本批 `check-counts.test.ts` 新增的 `claudeUnitFilesProblem` 用例）；`CLAUDE.md` 的「全量 1286 档 / 385 秒」→ **1290 档 / 382 秒**，并新增 `claudeUnitFilesProblem` 将该档数纳入 `check:counts` 射程（原漂移属门射程缺口）。
+
+**效力边界**：本节为本机 win 腿实测；跨平台终门以 CI 三 OS 矩阵为准。e2e 命令经 `npm run test:e2e`（本机可跑；若 shell 环境异常可退回 `node node_modules/@playwright/test/cli.js test`）。
+
+### 11.4 收口归档
+
+按治理链「收口后归档上一轮入 Archive」：上一轮 09-27 重审报告随批移入 `Archive/`（`01-评审/` 只留最新一轮）；本报告置「已收口」态留在 `01-评审/`，待下一轮评审落地时随批归档。计数与地图同步 `Dev/Docs/README.md` + 总览 §1.3。

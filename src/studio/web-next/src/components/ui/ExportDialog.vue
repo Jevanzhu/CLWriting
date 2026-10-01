@@ -8,6 +8,7 @@ import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { isImeComposing } from '../../shared/ime'
 import ModalMask from './ModalMask.vue'
 
@@ -22,20 +23,24 @@ const PLATFORMS = EXPORT_PLATFORMS
 const format = ref<ExportFormat>('both')
 const platform = ref<ExportPlatform>('generic')
 const loading = ref(false)
+// 切书守卫单源（stillIn/failScoped）——导出于 worker 线程执行数秒，弹窗滞留 +
+// 在途切书后，A 书的成功/失败 toast 与控制流不得落 B 书界面。
+const scoped = useScopedAction(() => ws.bookName ?? '')
 
 async function run(): Promise<void> {
-  if (!ws.bookName || loading.value) return
-  const targetBook = ws.bookName
+  const book = ws.bookName
+  if (!book || loading.value) return
+  const targetBook = book
   loading.value = true
   try {
     // 业务失败（无定稿正文等）由 apiJson 抛 ApiError（信封 error 即诊断），
     // 成功恒 ok:true——不再有 2xx {ok:false} 域形状分支
-    const r = await exportBook(ws.bookName, {
+    const r = await exportBook(book, {
       format: format.value,
       platform: platform.value,
     })
     // await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
-    if (ws.bookName !== targetBook) return
+    if (!scoped.stillIn(targetBook)) return
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
     // 清偿-导出未过滤提示（残留）：清单缺失时导出兜底不过滤（宁多勿漏，
     // 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
@@ -52,8 +57,7 @@ async function run(): Promise<void> {
   } catch (e) {
     // catch 补切书复检——成功路径（上方）有门，catch 漏配：
     // 导出（worker 线程数秒）在途切书后，A 书的失败 toast 会弹在 B 书界面上
-    if (ws.bookName !== targetBook) return
-    ui.toast(friendlyError(e), 'error')
+    scoped.failScoped(targetBook, e, () => ui.toast(friendlyError(e), 'error'))
   } finally {
     loading.value = false
   }
@@ -236,14 +240,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   justify-content: flex-end;
 }
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   padding: 6px 18px;
   font-size: var(--font-size-m);
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
 }
 .btn.primary {
   background: var(--interactive-accent);

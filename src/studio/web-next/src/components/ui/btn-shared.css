@@ -1,0 +1,18 @@
+/**
+ * 按钮基类共享样式 —— 各组件 scoped 块内的 `.btn` 基础声明收敛件。
+ *
+ * 接入机制照 settings-shared.css / style-shared.css 先例：全局（非 scoped）装载
+ * （main.ts import，装载时机与 SFC style 块等价）。
+ *
+ * 收纳口径（只收全库逐字相同的声明）：border / color / cursor 三条在全部 15 处声明
+ * `.btn` 基类规则的组件里逐字相同，故上收本文件；其余声明（display / padding / gap /
+ * font-size / border-radius / background / transition / white-space 等）各组件有
+ * padding、圆角档、底色语义（background-primary vs interactive-normal）与过渡差异，
+ * 一律留在原组件 scoped 块内——scoped 规则特异性 (0,2,0) 恒压过本文件 (0,1,0)，
+ * 差异声明照旧生效，删除的仅是逐字重复的三条。
+ */
+.btn {
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  cursor: pointer;
+}

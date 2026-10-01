@@ -23,10 +23,9 @@ import { readMdTextCached } from '../fs/md-text-cache.js'
 import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
-import { yieldToEventLoop } from '../async.js'
-import { log } from '../log/index.js' // 源码：基线损坏 warn 留痕（对齐同目录 short-index）
-// （errMsg 收编）：错误摘要口径单源
-import { errMsg } from '../log/index.js'
+import { driveToEnd, driveToEndAsync } from '../async.js'
+// 源码：基线损坏 warn 留痕（对齐同目录 short-index）；errMsg：错误摘要口径单源
+import { log, errMsg } from '../log/index.js'
 // nano：import 移入头部 import 区（原先落在文件中部函数间，排版
 // 违规；import 提升语义本就等价，纯移动零语义变化）。
 // 码点计数（代理对合 1 计）——原按「metrics→process→ai 成环」判
@@ -166,38 +165,24 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
  * 清单 → null 无法判定，保持全量（与 learn/导出降级一致）。
  */
 export function scanChapters(bookRoot: string): ChapterSample[] {
+  return driveToEnd(scanChaptersCore(bookRoot))
+}
+
+// 读循环每 25 章让出一次事件循环。对齐（analysis.ts MISS 读循环）（learn 章级
+// 让出）范式：health 缓存 miss 与收割源2 挂在 HTTP 链上此前同步整树扫描，200 万字
+// 大书秒级冻结事件循环（SSE 心跳/保存/全部 API 同停）。章正文读有 stat 指纹缓存，
+// 但 miss 首扫与逐章 computeFullStats 仍为热点。yield 原语单源于 src/async.ts。
+const SCAN_YIELD_EVERY = 25
+
+/** 扫描核（生成器单源）：逐章读 body → 算全量指纹，每满 SCAN_YIELD_EVERY 章纯悬停
+ *  一次——同步/异步孪生只差驱动（driveToEnd 直驱 / driveToEndAsync 每次悬停等一拍），
+ *  返回集与排序逐位一致。定稿集折叠键过滤与 readChapterDir 读取在此统一，孪生不再各持一份。 */
+function* scanChaptersCore(bookRoot: string): Generator<unknown, ChapterSample[], unknown> {
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const finalized = finalizedPathSet(bookRoot)
   // 定稿集消费侧折叠键集（win32 大小写 + NFC，overview.ts
   // 同款范式）——case-only 改名 / NFD 文件名后精确串失配，定稿章被误跳 → 文风样本缺章
-  const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
-  const { chapters } = readChapterDir(textDir)
-  const samples: ChapterSample[] = []
-  for (const ch of chapters) {
-    if (finalizedKeys && ch._path && !finalizedKeys.has(docJoinKey(relative(bookRoot, ch._path)))) continue // 折叠键比较（relPathKey 已归一分隔符）
-    const body = readChapterBody(ch)
-    if (body === null) continue
-    samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
-  }
-  return samples.sort((a, b) => a.num - b.num)
-}
-
-// scanChapters 的异步孪生——读循环每 25 章让出一次事件循环。
-// 对齐（analysis.ts MISS 读循环）（learn 章级让出）范式：health 缓存
-// miss 与收割源2 挂在 HTTP 链上此前同步整树扫描，200 万字大书秒级冻结事件循环
-// （SSE 心跳/保存/全部 API 同停）。章正文读有 stat 指纹缓存，但 miss 首扫
-// 与逐章 computeFullStats 仍为热点。yield 原语单源于 src/async.ts（
-// 精简批收敛，防反向依赖口径不变）。
-const SCAN_YIELD_EVERY = 25
-
-/** scanChapters 的异步孪生——语义与同步版逐字段一致（等价性对照测试锚定），
- *  供 HTTP 链（health miss / 收割源2）使用；同步版保留供存量测试与非 HTTP 调用方。 */
-export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample[]> {
-  const textDir = join(bookRoot, '写作', '正文')
-  const rules = readIronRules(bookRoot)
-  const finalized = finalizedPathSet(bookRoot)
-  // 同 scanChapters 折叠键集（语义与同步版逐字段一致）
   const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   const { chapters } = readChapterDir(textDir)
   const samples: ChapterSample[] = []
@@ -207,9 +192,15 @@ export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
-    if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
+    if (++scanned % SCAN_YIELD_EVERY === 0) yield
   }
   return samples.sort((a, b) => a.num - b.num)
+}
+
+/** scanChapters 的异步孪生——供 HTTP 链（health miss / 收割源2）使用；
+ *  同步版保留供存量测试与非 HTTP 调用方。两版共驶 scanChaptersCore。 */
+export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample[]> {
+  return driveToEndAsync(scanChaptersCore(bookRoot))
 }
 
 /**

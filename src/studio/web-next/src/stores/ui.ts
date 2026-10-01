@@ -126,7 +126,7 @@ export const useUiStore = defineStore('ui', () => {
   /** 「其它遮罩层是否开着」（Esc 让渡判定，useHotkeys / SettingsModal / ShelfModal 用）：
    *  层自身开着时不算进让渡名单，传自身 key 剔除。OR 名单曾在多处各抄一份靠人肉同步，
    *  新增遮罩弹窗漏改一处即出新 bug——故收成单源：新增带全屏遮罩的弹窗，状态 ref 建在
-   *  新增带全屏遮罩的弹窗：状态 ref 建在本 store + 加进 overlayStates 即可，消费点自动跟上。 */
+   *  本 store + 加进 overlayStates 即可，消费点自动跟上。 */
   function overlayOpenExcept(self?: OverlayKey): boolean {
     return overlayStates().some((s) => s.open && s.key !== self)
   }

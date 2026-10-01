@@ -191,10 +191,12 @@ function maybeSnapshot(
   diskContent?: string | Buffer,
   words?: number,
 ): void {
+  // 盘上是否存在——两次判定（留底理由与「无底可留即跳过」）共用同一次探测
+  const exists = existsSync(absPath)
   let reason: string | undefined
   if (input.origin === 'restore' || input.origin === 'external-merge') {
     reason = `${input.origin} 覆盖前留底`
-  } else if (existsSync(absPath) && input.expectedRevision !== null) {
+  } else if (exists && input.expectedRevision !== null) {
     // 非章节文档同章节口径留底——设定/大纲/布线/关系线的普通保存同样需要可回滚的底
     //（journal pending 只含新内容，settled+compact 后旧内容零副本）。
     reason = layoutOf(relPath).role === 'chapter' ? '定稿章修改前留底（§6）' : '修改前留底（R76-2）'
@@ -202,7 +204,7 @@ function maybeSnapshot(
   if (!reason) return
   // 目标文件尚不存在时无底可留，跳过快照正常新建落盘（原 ENOENT 抛走 WRITE_ERROR，
   // 本可成功的 restore/external-merge 被拒）。
-  if (!existsSync(absPath)) return
+  if (!exists) return
   // snapshot = 修改前的当前磁盘内容（调用方已整读时透传，免二次读盘）
   const currentContent = diskContent !== undefined ? diskContent : readFileSync(absPath, 'utf-8')
   // restore/external-merge 是"真要反悔"的时刻，必留；autosave 走节流
@@ -334,7 +336,8 @@ async function executeSave(
       try {
         // 锁内复核：路径登记/回收站认领守卫在取锁前已判一次，但等锁窗口内他进程
         // doTrash/doMoveOrRename 后仍会按旧世界落盘（旧路径复活已删文件/写错位）。取锁后
-        // 重判把窗口收窄到「复核→写盘」的毫秒级（结构性操作不持 save 锁，残余窗口存在）。
+        // 重判把窗口收窄到「复核→写盘」的毫秒级（结构性操作族亦持同一 save 锁，
+        // 此处复核是对「取锁前已判一次」的锁内复算，防等锁窗内世界已变）。
         const registeredNow = await ctx.lookupPathByDocIdAdoptAsync(docId)
         if (registeredNow !== null && docJoinKey(registeredNow) !== docJoinKey(relPath)) {
           // win 折叠 + NFC 归一
@@ -1007,8 +1010,9 @@ async function doTrash(ctx: DocContext, docId: string): Promise<TrashResult> {
             })
           }
         } catch {
-          // 注释如实化——并无「树重建自动清理」机制（removeEntry 零生产
-          // 调用方、buildTree 只读不修剪）。残留形态=清单条目指向已不存在路径：树不受影响
+          // 并无「树重建自动清理」机制——buildTree 只读扫盘不修剪清单，
+          // removeEntry（条目删除）仅由本软删路径与 install/migrate-layout-v3 的目录迁移
+          // 显式调用，不存在按盘对账的清理通道。残留形态=清单条目指向已不存在路径：树不受影响
           // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
           // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
         }
@@ -1069,7 +1073,7 @@ export class DocumentService {
 
   /** docId → relPath（含 legacy 兜底：旧文件首次访问时扫盘反查并补登记清单，
    *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。
-   *  残留清偿acy 收编链全异步（upsertManifestEntryAsync，
+   *  收编链全异步（upsertManifestEntryAsync，
    *  withManifestLockAsync 等待）——同步版 resolvePath/lookupPathByDocId/
    *  adoptLegacyDoc/upsertManifestEntry 已删，服务端点不再以同步 withManifestLock
    *  （Atomics.wait）落在事件循环。 */

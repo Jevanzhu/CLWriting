@@ -376,18 +376,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 /* 视图切换（网格/列表）segmented control */
 /* .view-toggle 与 .toggle-btn（优化修复批随批收敛，声明逐字未改）
    均在全局 styles/utilities.css */
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 6px 14px;
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
-  color: var(--text-normal);
   font-size: var(--font-size-m);
-  cursor: pointer;
   white-space: nowrap;
 }
 .btn.icon {

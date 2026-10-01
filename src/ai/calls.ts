@@ -277,7 +277,10 @@ let inWriteSegment = false
  * 超时（默认 5s，持有进程活着但迟迟不放——理论上是文件 IO 级毫秒争用）上抛由
  * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。
  * 锁等待改异步轮询（争用窗口事件循环不冻结），无争用快路保持
- * 同步直行（见 writeWithCrossProcessLock 注）。 */
+ * 同步直行（见 writeWithCrossProcessLock 注）。
+ *
+ * 测试专用导出（零生产调用）——互斥范围声明的对外文案面，仅测试断言声明串仍含
+ * 「跨进程文件锁」等契约词（防声明随实现漂移后无人察觉）；生产码不读本常量。 */
 export const AI_CALLS_MUTEX_SCOPE_NOTE =
   'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
 

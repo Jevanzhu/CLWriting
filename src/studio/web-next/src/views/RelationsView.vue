@@ -199,14 +199,12 @@ const g = useRelationGraph(props.bookName)
 .state-block.err {
   color: var(--text-error);
 }
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   margin-left: var(--size-4-2);
   padding: 4px 12px;
   font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
 }
 </style>

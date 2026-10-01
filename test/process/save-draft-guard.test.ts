@@ -82,3 +82,20 @@ describe('Y-3: saveDraft 回收站双认领守卫', () => {
     expect(existsSync(join(root, r.relPath))).toBe(true)
   })
 })
+
+describe('saveDraft 守卫族 strict 读（瞬态读失败不放行）', () => {
+  it('回收站清单读失败（目录占位）→ 拒绝上抛，不按无登记放行', async () => {
+    putChapter('写作/正文/0005-旧稿.md', OLD)
+    // 清单路径被目录占位：existsSync 真、readFileSync EISDIR（等价 win 杀软/索引器瞬态占用）
+    mkdirSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl'), { recursive: true })
+    await expect(saveDraft(root, 5, NEW)).rejects.toThrow(/回收站清单读取失败/)
+    expect(readFileSync(join(root, '写作/正文/0005-旧稿.md'), 'utf-8')).toBe(OLD)
+  })
+
+  it('主清单读失败（目录占位）→ 拒绝上抛，不按空清单反查 docId', async () => {
+    putChapter('写作/正文/0005-旧稿.md', OLD)
+    mkdirSync(join(root, '项目', '文档清单.jsonl'), { recursive: true })
+    await expect(saveDraft(root, 5, NEW)).rejects.toThrow(/文档清单读取失败/)
+    expect(readFileSync(join(root, '写作/正文/0005-旧稿.md'), 'utf-8')).toBe(OLD)
+  })
+})

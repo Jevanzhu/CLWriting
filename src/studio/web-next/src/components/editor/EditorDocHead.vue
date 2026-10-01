@@ -188,7 +188,14 @@ async function onTitleCommit(): Promise<void> {
   // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
   const id = ws.activeDocId
   const newTitle = title.value.trim() || '未命名'
-  const book = doc.bookName! // 入口捕获（await 后 doc 缓存可能已随切书清空）；需在 try 外供 catch 复检
+  // 书名 fail-closed（对齐 doc store doOpen/open 纪律）：`bookName!` 不挡运行时 null——
+  // 切书窗口下 null 会拼进 updateChapterMetaDoc 请求路径（/api/books/null/…）。
+  // 无书即无改名语义，脱离编辑态早退（fm 未动，界面随切书链自刷）。
+  const book = doc.bookName
+  if (!book) {
+    emit('update:titleEditing', false)
+    return
+  }
   const current = parseFmFields(e.content).标题 ?? e.name
   if (newTitle === current) {
     emit('update:titleEditing', false) // 未变化的提交（如 blur 空走）也要脱离编辑态

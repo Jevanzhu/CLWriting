@@ -35,6 +35,7 @@ import { confirmTool, type ChatBranchInfo } from '../../../api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../shared/chat-history'
 import { ApiError } from '../../../api/client'
 import { useUiStore } from '../../../stores/ui'
+import { useScopedAction } from '../../../composables/useScopedAction'
 
 const props = defineProps<{
   bookName: string
@@ -43,6 +44,8 @@ const props = defineProps<{
 const chat = useChatStore()
 const ui = useUiStore()
 const tree = useTreeStore()
+// 切书守卫单源（stillIn）——工具确认在途切书后，迟到的失败提示/终态不落新书界面。
+const scoped = useScopedAction(() => props.bookName)
 
 // ── 滚动（rAF 节流：流式 chat_text 每帧可能触发多次，同帧只滚一次）──
 
@@ -128,7 +131,7 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   try {
     await confirmTool(book, { callId, ok })
   } catch (e) {
-    if (props.bookName !== book) return
+    if (!scoped.stillIn(book)) return
     if (e instanceof ApiError && e.status === 404) {
       // 404 = 工具调用已超时失效——修复前静默 return，卡面停留 pending、
       // 确认按钮可反复点但服务端早已丢弃，作者无任何反馈。置失败终态给可见交代

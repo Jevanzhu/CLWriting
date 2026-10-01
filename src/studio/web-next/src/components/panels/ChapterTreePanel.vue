@@ -9,6 +9,7 @@ import ContextMenu from '../ui/ContextMenu.vue'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import { useTreeMenu } from '../../composables/useTreeMenu'
 import { useChapterTreeActions } from '../../composables/useChapterTreeActions'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { defaultExpandedDirs } from '../../shared/chapter-tree'
 import { treeFirstOpenKey } from '../../shared/storage-keys'
 import ChapterTreeItem from './ChapterTreeItem.vue'
@@ -29,6 +30,8 @@ const ws = useWorkspaceStore()
 
 const expanded = computed<Set<string>>(() => new Set(ws.treeExpanded))
 const openError = ref<string | null>(null)
+// 切书守卫单源（stillIn）——onSelect 的 doc.open 在途切书后，迟到结果不落新书工作区。
+const scoped = useScopedAction(() => ws.bookName ?? '')
 
 const activePath = computed<string | null>(() => (ws.activeDocId ? (doc.get(ws.activeDocId)?.path ?? null) : null))
 
@@ -72,10 +75,10 @@ async function onSelect(node: TreeNode): Promise<void> {
   openError.value = null
   // await 前快照书名——doc.open 在途切书（新书同名路径命中旧书
   // docId）后不得把旧书文档开进新书工作区
-  const bookAtClick = ws.bookName
+  const bookAtClick = ws.bookName ?? ''
   try {
     await doc.open(node)
-    if (ws.bookName !== bookAtClick) return
+    if (!scoped.stillIn(bookAtClick)) return
     ws.openTab(node.docId)
   } catch (e) {
     openError.value = friendlyError(e)

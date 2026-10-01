@@ -20,6 +20,35 @@ const cmView = fileURLToPath(new URL(`${cmBase}@codemirror/view`, import.meta.ur
 // 依赖提升布局一变 mock 不命中、连锁挂（alias 让布局变化只在配置处消化一次）。
 const webNextVueRouter = fileURLToPath(new URL(`${cmBase}vue-router`, import.meta.url))
 
+// 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
+const EXCLUDE = ['**/node_modules/**', '**/._*']
+// DOM 测试面：整目录承载 happy-dom 环境（原逐档头注，见 test 块头注）
+const DOM_FILES = ['test/studio/webnext/dom/**/*.test.ts']
+// 两个运行环境项目逐项重复的共享档（v5 对 projects 的继承是部分的，故显式展开）。
+// 内存闸：默认按 CPU 数 fork（本机 8-10 worker）× 大负载测试
+// （rag/scale、check/scale 各自 GB 级峰值）叠加出过 19GB 总占用（机器 16GB 爆内存）；
+// 限到 4 并发压峰值（CPU 核多时不再全开）。
+// CI 再压到 2——GitHub runner（ubuntu/macos 均 ~7GB）比本机
+// 16GB 更紧，4 fork × GB 级 scale 峰值在 CI 侧无实测背书、OOM 风险单向；2 并发
+// 峰值减半换时长（20 分钟预算内），本地维持 4。
+// （阶段 39）：poolOptions.* 整体移除——并发上限改顶层 maxWorkers；
+// minForks 无对应键（v5 自管最小并发）。旧 poolOptions 键在 v5 只发 DEPRECATED
+// 警告并静默失效（内存闸失守一轮实测在案），勿回填。
+// GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
+// x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
+// 阶段 53：第二个 setup 关掉起服后延迟触发的更新检查（测试不打网的硬要求，
+// 见 test/helpers/disable-update-check-setup.ts 头注）。
+// 全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
+// 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
+// it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级
+// 显式放宽，勿上调全局值（上调会掩盖常规用例的挂死回归）。
+const SHARED = {
+  pool: 'forks' as const,
+  maxWorkers: process.env.CI ? 2 : 4,
+  setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
+  testTimeout: 30000,
+}
+
 export default defineConfig({
   // vitest 需显式挂 plugin-vue 才能处理 .vue 文件。
   plugins: [vue()],
@@ -38,31 +67,40 @@ export default defineConfig({
     dedupe: ['vue', '@vue/reactivity', '@vue/runtime-core', '@vue/runtime-dom', '@vue/shared'],
   },
   test: {
-    include: ['test/**/*.test.ts'],
-    // 内存闸：默认按 CPU 数 fork（本机 8-10 worker）× 大负载测试
-    // （rag/scale、check/scale 各自 GB 级峰值）叠加出过 19GB 总占用（机器 16GB 爆内存）；
-    // 限到 4 并发压峰值（CPU 核多时不再全开）。
-    // CI 再压到 2——GitHub runner（ubuntu/macos 均 ~7GB）比本机
-    // 16GB 更紧，4 fork × GB 级 scale 峰值在 CI 侧无实测背书、OOM 风险单向；2 并发
-    // 峰值减半换时长（20 分钟预算内），本地维持 4。
-    // （阶段 39）：poolOptions.* 整体移除——并发上限改顶层 maxWorkers；
-    // minForks 无对应键（v5 自管最小并发）。旧 poolOptions 键在 v5 只发 DEPRECATED
-    // 警告并静默失效（内存闸失守一轮实测在案），勿回填。
-    pool: 'forks',
-    maxWorkers: process.env.CI ? 2 : 4,
-    // 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
-    exclude: ['**/node_modules/**', '**/._*'],
-    environment: 'node',
-    // GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
-    // x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
-    // 阶段 53：第二个 setup 关掉起服后延迟触发的更新检查（测试不打网的硬要求，
-    // 见 test/helpers/disable-update-check-setup.ts 头注）。
-    setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
-    // 全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
-    // 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
-    // it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级
-    // 显式放宽，勿上调全局值（上调会掩盖常规用例的挂死回归）。
-    testTimeout: 30000,
+    // ── 运行环境按目录路由（v5 projects）──────────────────────────────────
+    // 背景：前端测试面原在 213 个档里逐文件写 `@vitest-environment happy-dom` 头注，
+    // 漏写即按 node 跑而假红（DOM 全局缺失）；头注本身也是纪律负担。现改为
+    // `test/studio/webnext/dom/**` 整目录走 happy-dom，其余全部 node——环境由目录
+    // 结构承载，加档只需落对目录，不再有「忘写一行」的失败形态。
+    //
+    // 分桶依据就是原头注本身（迁移无判断成分）：213 档带头注 → dom/，78 档无 → node。
+    //
+    // 实现取舍：项目条目**保留默认继承**（不写 `extends: false`）——`extends: false` 会
+    // 连同本档 resolve.alias / plugins 一并丢掉，web-next 的 store 与测试会各自解析到
+    // 两份 pinia（vite 嵌套 node_modules），`setActivePinia` 与 `useStore` 不在同一副本上，
+    // 全量假红（本批实测在案）。继承之下仍需逐项重复 testTimeout 等不继承项，理由见上。
+    // 共享项集中在 SHARED 对象里单源，重复由展开承担，改一处即两处生效。
+    //
+    // `--project <name>` / 直接传文件路径过滤均可用（单档直跑的纪律不受影响；
+    // 单档过滤时该档落在自己所属项目里跑，环境正确）。
+    include: [],
+    exclude: EXCLUDE,
+    ...SHARED,
+    projects: [
+      {
+        test: {
+          name: 'unit',
+          include: ['test/**/*.test.ts'],
+          // dom 子树交给 dom 项目——include 在多项目间是并集，路由只能靠 exclude 表达
+          exclude: [...EXCLUDE, ...DOM_FILES],
+          environment: 'node',
+          ...SHARED,
+        },
+      },
+      {
+        test: { name: 'dom', include: [...DOM_FILES], exclude: EXCLUDE, environment: 'happy-dom', ...SHARED },
+      },
+    ],
     // coverage 纳管；引入全局阈值门 = 基线 −2pp 向下取整（防回退不追高）。
     // 基线快照：statements 84.43 / branches 80.96 / functions 95 / lines 84.43。
     // coverage/coverage-summary.json（含 html/）是「分桶局部跑」产物——

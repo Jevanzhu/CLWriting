@@ -11,10 +11,15 @@
  *   1  ai-degrade     2  ai-provider     3  auto-write     4  usage-card（R76-10
  *   独立 server：主 server 无 userDataPath，trace 统计恒空——表格臂需自有事件库）
  *   5  startup-notices（R0915-4b 独立 server：幽灵登记播种 repair-books 通告需自有 workDir）
+ *   6  search   7  shelf-search   8  short-flow   9  switch-book   10  audit
+ *   （P2-13 批：只读型 spec 迁独立 server，缩小共享 workDir 顺序契约的连坐半径）
  *  13  overview-short 14  short-full-flow 15  batch-finalize 16  release-smoke
  *
  * 注意：独立 server spec 各自持有独立 workDir、分端口是为互不抢占（release-smoke
  * 头注 R63-15：勿与 auto-write 合并端口）；平移基址不改偏移间隔即可维持该契约。
+ *
+ * 偏移 6..12 为「只读型 spec 迁独立 server」预留带（P2-13 分批推进：迁移一律从本带
+ * 自小到大取号并在此登记；用尽后上调 MAX_PORT_OFFSET，同时核对 E2E_PORT_BASE 上界）。
  */
 const DEFAULT_PORT_BASE = 18999
 

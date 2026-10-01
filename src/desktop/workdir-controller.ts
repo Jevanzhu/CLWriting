@@ -537,7 +537,7 @@ export function overwriteRecentInCache(fallbackStore: WorkDirStore, recent: Work
 
 // ── 跨模块导出面（main.ts / ipc.ts / lifecycle.ts 消费）──
 export { currentWorkDir }
-export { isLibraryDir, canSwitchLibraryDir }
+export { canSwitchLibraryDir }
 export { probeDirReachable }
 export { BOOTSTRAP_PROBE_TIMEOUT_MS }
 export { warnIfCaseSensitive, pickLibrary }

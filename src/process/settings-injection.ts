@@ -10,6 +10,9 @@
  * 层序保持传入序（调用方负责项目 → 卷 → 本章排列），不按 specificity 重排。
  */
 import { pruneTextMiddle, PRUNE_MARKER } from './prune.js'
+// 码点量长单源 shared/text.ts（零内部依赖叶子，任意层可引无成环面）——
+// 原就地循环与「不引 process/summary」的防环注释随收编删除
+import { codePointLength as cpLen } from '../shared/text.js'
 
 /** 具体度：project(全书) 最宽泛 → chapter(本章) 最具体，宽泛者先丢 */
 type SettingsSpecificity = 'project' | 'volume' | 'chapter'
@@ -25,20 +28,6 @@ export interface SettingsLayer {
   /** 该层正文实际引用的源文件（相对书根）——「模型可见⟺已记录」
    *  的文件级溯源通道；assemble 整层丢弃（omitted）的层由调用方过滤后再收集 */
   sources?: string[]
-}
-
-/** code point 量长度（与 prune.ts 同口径，不劈 surrogate pair）。
- * Array.from(s).length 改零分配计数
- *  循环——原实现对全文逐码点物化一个临时数组（大文本白付一份 O(n) 分配）只为计数；
- *  就地遍历代理对合 1 计，量纲不变。刻意不 import process/summary 的
- *  codePointLength 单源：避免把 AI/summary 栈拖进本模块依赖图，就地 5 行循环。 */
-function cpLen(s: string): number {
-  let n = 0
-  for (let i = 0; i < s.length; i++) {
-    n++
-    if (s.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
-  }
-  return n
 }
 
 /** 被丢层的 in-band 声明行（计入预算） */

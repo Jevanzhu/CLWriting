@@ -18,6 +18,9 @@ import { join } from 'node:path'
 const srcRoot = join(import.meta.dirname, '../../src')
 const sharedSrc = readFileSync(join(srcRoot, 'shared', 'sqlite-prepared.ts'), 'utf8')
 const storeSrc = readFileSync(join(srcRoot, 'events', 'store.ts'), 'utf8')
+// 首开壳（建库 + 打开期收口）在 store-open.ts——本域「句柄 close 一律经 closeEventsDb」
+// 的不变量按域面断言，拆出的文件同样入扫描面（裸 close 是滞留 bug 的唯一复发路径）。
+const storeOpenSrc = readFileSync(join(srcRoot, 'events', 'store-open.ts'), 'utf8')
 
 /** 逐行剥注释后的代码文本（注释里对 close 时序的描述不算调用点）。 */
 function stripComments(src: string): string {
@@ -38,13 +41,18 @@ describe('R0911-G-P3-4: events prepared 缓存滞留——结构契约', () => {
     expect(closeAt, 'closeWithPrepared 必须关库（db.close）').toBeGreaterThan(delAt)
   })
 
-  it('events 域不裸关且委托单源：store.ts 零裸 db.close() + closeEventsDb 走 closeWithPrepared', () => {
+  it('events 域不裸关且委托单源：store.ts/store-open.ts 零裸 db.close() + closeEventsDb 走 closeWithPrepared', () => {
     // 裸关（含 helper 体内）即断链序流通路：ephemeron 环断不开，滞留复发
-    const bare = [...stripComments(storeSrc).matchAll(/\bdb\.close\(\)/g)]
-    expect(
-      bare,
-      `裸 close 点位：${bare.map((m) => storeSrc.slice(0, m.index).split(String.fromCharCode(10)).length).join(', ')}`,
-    ).toHaveLength(0)
+    for (const [file, src] of [
+      ['store.ts', storeSrc],
+      ['store-open.ts', storeOpenSrc],
+    ] as const) {
+      const bare = [...stripComments(src).matchAll(/\bdb\.close\(\)/g)]
+      expect(
+        bare,
+        `${file} 裸 close 点位：${bare.map((m) => src.slice(0, m.index).split(String.fromCharCode(10)).length).join(', ')}`,
+      ).toHaveLength(0)
+    }
     expect(stripComments(storeSrc)).toContain('closeWithPrepared(db)')
   })
 })

@@ -68,8 +68,8 @@ export async function shutdownStudio(
     }
   }
   // #7/L3：等被中断的编排收尾（session/end 事件落库）——此前 abort 后不等
-  // 编排解旋就 quit，被中断对话的收尾 flush 没机会落库，孤儿会话要等启动修复的 10 分钟
-  // 宽限才补 synthetic end，快速重启窗口内 latestSession 可能选到未闭合会话。与 server.close
+  // 编排解旋就 quit，被中断对话的收尾 flush 没机会落库，孤儿会话要等启动修复的 32 分钟
+  // 宽限才补 synthetic end（ORPHAN_GRACE_MS，见 events/store.ts），快速重启窗口内 latestSession 可能选到未闭合会话。与 server.close
   // server.close 并行等待（各自有界超时，总时长不叠加）；超时放行——退出仍是有界且必然终止。
   // 补 waitBackgroundTasks——定稿章摘要/账本草稿等无 abort 句柄的 fire-and-forget
   // 后台任务，退出前给它们一个有界的收尾窗口（超时放行，磁盘是原子写）

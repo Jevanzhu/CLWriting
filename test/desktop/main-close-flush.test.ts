@@ -141,6 +141,40 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 在途的级联 quit'))).toBe(true)
   })
 
+  // 级联 quit 直通分支补置 appTearingDown：原分支只放行不置旗，「真退出」信息对
+  // 观察窗（5s 自愈定时器）/close 拦截/server 探测不可见——观察窗在窄窗前到点会把
+  // sessionEnding 复位并 fork 新 child 造孤儿（原靠「主窗已空」守卫兜底，本用例覆盖
+  // 主窗仍在的直通窗）。
+  it('级联 quit 直通置 appTearingDown：观察窗到点不复位、不拉回 server（孤儿 child 防线）', async () => {
+    const prevRecovery = process.env['CLW_SESSION_END_RECOVERY_MS']
+    process.env['CLW_SESSION_END_RECOVERY_MS'] = '5000'
+    try {
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0)
+      const win = M.windows.at(-1)!
+      win.emit('session-end')
+      await vi.advanceTimersByTimeAsync(0)
+      const forks0 = M.forkChildren.length
+      // 级联 quit（主窗 closed → app.quit → before-quit）直通
+      const e = { preventDefault: vi.fn() }
+      M.appOn['before-quit']!.at(-1)!(e)
+      expect(e.preventDefault).not.toHaveBeenCalled()
+      // 观察窗到点：appTearingDown 已置 → 首行让位，不复位旗、不 fork 新 child
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(M.forkChildren.length).toBe(forks0)
+      // 旗未复位（close 仍走直关放行，未退回 flush 拦截）
+      const e2 = { preventDefault: vi.fn() }
+      win.emit('close', e2)
+      expect(e2.preventDefault).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+      if (prevRecovery === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
+      else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+
   // R1010b-DSK-P2-1（2026-09-10 内存专项重审修复批）：close 链 flush 落定后的停机复查
   // ——首行闸只护「close 到达时旗已置位」，护不住「close 先到 → flush 在途 → session-end
   // 后置」竞窗：flush 落定后同步确认框会在 OS 会话收尾有限窗口内弹出，进程被钉死到强杀。

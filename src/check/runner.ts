@@ -8,7 +8,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { join, basename } from 'node:path'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
 import { checkLeadsFormCore } from './leads.js'
@@ -36,11 +36,10 @@ import { readIronRules } from '../format/iron-rules.js'
 // 机检热路径固定 SQL 走连接级 prepared 缓存单源
 import { prepared } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
-import { isMdFileName } from '../format/filename.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
-import { countWords, readChapterDir } from '../format/chapters.js'
+import { countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
@@ -48,7 +47,8 @@ import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
 // 聚合族消费它不再牵入本聚合机检模块（解 check/run ↔ check/run-tree-issues 环，见该件头注）
 import { enabledLeadTypes } from './leads-config.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
-// 章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
+import { locateChapterOutline } from '../format/piece-list-locate.js'
+// 章纲目录容错降级留痕（同 run.ts 口径）
 import { log } from '../log/index.js'
 
 /** 机检输入 */
@@ -286,42 +286,20 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
   let pieceList: PieceList | null = null
   if (short && chapter._path) {
-    // 章纲定位三口径——① 同名 basename（既有口径）；② 目录内按
-    // fm 章号匹配（正文 4 位补零重命名/存量 3 位章纲不同名时 basename 恒 miss，清单
-    // 形式检静默失明）；③ 文件名数字前缀匹配（无 fm 章号的裸文件兜底，覆盖 0005-标题
-    // vs 005-标题 类补零差异）。三口径都空 → 黄项提示（缺失不再静默）。
-    const outlineDir = join(bookRoot, '大纲', '章纲')
-    let manifestPath: string | null = join(outlineDir, basename(chapter._path))
-    if (!existsSync(manifestPath)) {
-      const byFm = readChapterDir(outlineDir).chapters.find((o) => o.章号 === chapter.章号 && o._path)
-      if (byFm?._path) {
-        manifestPath = byFm._path
-      } else if (existsSync(outlineDir)) {
-        const prefixMatch = (f: string): boolean => {
-          const m = /^(\d+)[^\d]/.exec(f)
-          return isMdFileName(f) && m !== null && Number(m[1]) === chapter.章号 // .MD 章纲不漏配
-        }
-        // existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，
-        // 同口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时
-        // 直穿炸整次机检——降级空列表 + warn 留痕（三口径都空 → 走既有 manifest
-        // 缺失黄项提示，不静默），其余错误码照旧抛（失败可见）
-        let byName: string | undefined
-        try {
-          byName = readdirSync(outlineDir).find(prefixMatch)
-        } catch (e) {
-          const code = (e as NodeJS.ErrnoException).code
-          if (code === 'ENOENT' || code === 'ENOTDIR') {
-            log.warn('check', `章纲目录读取失败（${outlineDir}，${code}），本轮按无章纲处理`)
-          } else {
-            throw e
-          }
-        }
-        manifestPath = byName ? join(outlineDir, byName) : null
+    // 章纲定位三口径单源（format/piece-list-locate.ts，metrics/short-index 共用）——
+    // 同名 basename → fm 章号 → 文件名数字前缀；三口径都空 → 黄项提示（缺失不静默）
+    const located = locateChapterOutline(bookRoot, chapter._path, chapter.章号)
+    if (located.kind === 'dir-unreadable') {
+      // 读目录间隙被瞬删/异常迁移（TOCTOU）或路径被文件占用（ENOTDIR）——
+      // 降级按无章纲处理 + warn 留痕（走下方缺失黄项，不静默）；其余错误码照旧抛（失败可见）
+      if (located.code === 'ENOENT' || located.code === 'ENOTDIR') {
+        log.warn('check', `章纲目录读取失败（${join(bookRoot, '大纲', '章纲')}，${located.code}），本轮按无章纲处理`)
       } else {
-        manifestPath = null // 大纲/章纲 目录整个不存在
+        throw located.error
       }
     }
-    if (manifestPath && existsSync(manifestPath)) {
+    const manifestPath = located.kind === 'found' ? located.path : null
+    if (manifestPath) {
       const r = readPieceList(manifestPath)
       if (r.ok) {
         pieceList = r.list

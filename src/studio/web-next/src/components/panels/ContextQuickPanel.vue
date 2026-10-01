@@ -7,6 +7,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
+import { useScopedAction } from '../../composables/useScopedAction'
 import type { TreeNode } from '../../types/tree'
 
 defineProps<{ bookName: string }>()
@@ -14,6 +15,8 @@ const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
+// 切书守卫单源（stillIn）——doc.open 在途切书后的迟到结果不落新书工作区。
+const scoped = useScopedAction(() => ws.bookName ?? '')
 
 // 设定区叶子（递归 设定 组）
 const settings = computed<TreeNode[]>(() => {
@@ -33,10 +36,10 @@ async function open(node: TreeNode): Promise<void> {
   if (!node.docId) return
   // 家族守卫（ChapterTreePanel 同款）——await 前快照书名，
   // doc.open 在途切书后不得把旧书文档开进新书工作区（旧书 docId 可写入新书 activeDocId）
-  const bookAtClick = ws.bookName
+  const bookAtClick = ws.bookName ?? ''
   try {
     await doc.open(node)
-    if (ws.bookName !== bookAtClick) return
+    if (!scoped.stillIn(bookAtClick)) return
     ws.openTab(node.docId)
   } catch (e) {
     // 前端：静默吞错收敛（对齐 ForeshadowPanel）

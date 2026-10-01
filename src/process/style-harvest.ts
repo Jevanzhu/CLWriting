@@ -91,6 +91,11 @@ export async function collectDocSignalsAsync(
 
 /**
  * 收割一轮：源1 + 源2 → 候选箱。
+ *
+ * 测试专用导出（零生产调用）——生产收割走异步孪生 harvestStyleCandidatesAsync
+ * （服务 HTTP 链 style.ts harvest 端点，git 读走 gitAsync 不冻结事件循环）；同步版
+ * 供存量测试与孪生等价性对照直调（对齐仓库既有「测试专用导出」标注惯例）。
+ *
  * @param kind 长短篇（调用方从 book 上下文取，process 层不读盘判定）
  * @param today YYYY-MM-DD（候选 创建 字段 + 过期计时起点）
  */

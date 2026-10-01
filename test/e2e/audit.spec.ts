@@ -8,9 +8,25 @@
  * 按服务端分页同语义（offset/limit 切片 + eventsTotal 全量总数；pageSlice 已随
  * 0918四轮修复批 B402 流式化删除，此处仅沿用其 offset/limit 契约）回合成分页
  * 数据；进书/导航/交互仍走真实 UI（同 check.spec / version-restore.spec 模式）。
+ *
+ * P2-13（09-30 评审修复批）：审计数据全程 page.route 合成、UI 动线只读 → 迁独立 server
+ * （端口偏移 10）+ 自有 workDir，脱离共享 workDir 的顺序契约。起停样板见
+ * ./independent-server.ts；userDataPath: false 保留本 spec 头注的「无事件库」前提
+ * （真实 audit 端点恒空，遮蔽/分页只经 stub 臂可达）。
  */
 import { test, expect, type Page, type Route } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
+
+let srv: IndependentServer
+
+test.beforeAll(async () => {
+  srv = await startIndependentServer({ tag: 'audit', offset: 10, userDataPath: false })
+})
+
+test.afterAll(async () => {
+  await srv.close()
+})
 
 const BOOK = '长篇测试书'
 /** 总量取 520：首页 500（= 服务端 DEFAULT_PAGE_LIMIT 截断线）+ 次页 20，跨页续页路径必达 */
@@ -80,7 +96,7 @@ function stubAudit(page: Page): void {
 test('审计：进书 → 审计视图 → 遮蔽差异双模式 → 两 tab 加载更多续页', async ({ page }) => {
   attachPageErrorBaseline(page, 'audit')
   stubAudit(page)
-  await page.goto('/')
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: BOOK }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
 

@@ -22,6 +22,7 @@ import {
   sharedRuntimeVersionDrift,
   walk,
   archiveCountProblem,
+  claudeUnitFilesProblem,
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-counts.mjs'
@@ -50,6 +51,22 @@ describe('archiveCountProblem：Dev/Docs 索引面自称值对账', () => {
     // 反之 Archive 行缺席时 fail-closed（声称值不在位即账实无从对照，不给「跳过」的后门）
     const noRow = '| 目录 | 用途 | 篇数 |\n|---|---|---|\n| `01-评审/` | 评审报告 | 12 篇 |'
     expect(archiveCountProblem(noRow, 16)).toContain('缺少')
+  })
+})
+
+describe('claudeUnitFilesProblem：CLAUDE.md「全量 N 档」对账', () => {
+  const sentence = (n: number) => `跑，全量 ${n} 档 / 373 秒），非默认；动前端加 npm run typecheck:web-next`
+
+  it('声称档数 = 实测档数 → 无失配（耗时读数不参与判定）', () => {
+    expect(claudeUnitFilesProblem(sentence(1290), 1290)).toBeNull()
+  })
+
+  it('档数漂移 → 报出两个数', () => {
+    expect(claudeUnitFilesProblem(sentence(1286), 1290)).toContain('声称 1286，实测 1290')
+  })
+
+  it('该句缺席 → fail-closed 报「缺少」（声称值不在位即无从对照）', () => {
+    expect(claudeUnitFilesProblem('L1 中间刀：只跑你改过的档。', 1290)).toContain('缺少')
   })
 })
 

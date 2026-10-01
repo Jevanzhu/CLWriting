@@ -11,11 +11,14 @@ import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
 import { capView } from '../../shared/render-cap'
 import { contentStableKeys, checkItemKeyBase } from '../../shared/issue-keys'
+import { useScopedAction } from '../../composables/useScopedAction'
 
 const props = defineProps<{ bookName: string }>()
 const check = useCheckStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+// 切书守卫单源（stillIn）——确认弹窗滞留期间切书后，标记动作放弃（props 即路由活书名）。
+const scoped = useScopedAction(() => props.bookName)
 
 const docId = computed(() => ws.activeDocId)
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
@@ -93,7 +96,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
     confirmText: '标记',
   })
   if (!ok) return
-  if (props.bookName !== book || docId.value !== id) return
+  if (!scoped.stillIn(book) || docId.value !== id) return
   await check.flagFalsePositive(book, id, checkId)
 }
 </script>

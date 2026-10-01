@@ -111,9 +111,9 @@ async function loadRhythm(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     rhythmData.value = r
   } catch (e) {
+    if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     // 降级留痕——面板空态可重试，不打扰 UI
     console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
-    if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     rhythmData.value = null
   }
 }
@@ -123,9 +123,9 @@ async function loadAnalysis(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     analysis.value = r
   } catch (e) {
+    if (loadGen.stale(gen)) return // 同上
     // 降级留痕——面板空态可重试，不打扰 UI
     console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
-    if (loadGen.stale(gen)) return // 同上
     analysis.value = null
   }
 }

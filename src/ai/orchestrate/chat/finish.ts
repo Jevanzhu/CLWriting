@@ -12,7 +12,7 @@ import { redactSecret } from '../../provider/redact.js' // SSE 错误事件脱�
 import { modelConfOf } from '../../provider/store.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
-import { chatTools } from '../../contract/chat.js'
+import { chatTools, CHAT_TOOL_NAMES } from '../../contract/chat.js'
 import { trimHistory, sanitizeHistory } from '../../prompts/chat.js'
 import { compactHistory } from '../../prompts/compaction.js'
 import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../prompts/checkpoint.js'
@@ -22,11 +22,6 @@ import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState, AG
 import { log, errMsg } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
-
-/** 工具名清单模块级常量化——chatTools 表模块级不可变，摘要调用 promptTools
- *  登记（铁律②「模型可见 ⟺ 已记录」工具面）不必每次调用重算 map。（turns.ts 同口径
- *  各持一份本文件常量——共享导出需改 contract/chat.ts 公共面，取最小改。） */
-const CHAT_TOOL_NAMES = chatTools.map((t) => t.name)
 
 // ── 失败出口收敛 ──────────────────────────────────
 

@@ -20,7 +20,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
-import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
+import { withSessionStoreOr500 } from './session-store-guard.js'
+import { bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 // 清库族六闸收编 task-gate.busyReason 单源——本文件不再自带闸谓词，
@@ -28,7 +29,6 @@ import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 闸实例经组装根注入（chatClearGateReason 为模块级助手，显式接闸）
 import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
-import { errMsg } from '../../../log/index.js' // errMsg 收编：错误文案三目单源
 // 让出原语 + 让出粒度（域内纪律单源——check/snapshots 同款）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 
@@ -265,25 +265,11 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       const q = url.searchParams
       const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
 
-      // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-      // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
-      // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-      // 勘误：库损坏/权限等首开失败是**抛错**不是返回 null
-      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-      // e.message 人话透传（含损坏分类的可行动指引；经统一脱敏出口）
-      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
-      let store: SessionStore | null
-      try {
-        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
-      } catch (e) {
-        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
-      }
-      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
-      try {
+      // userDataPath 非空已确认 → store 必建库；开库/500 信封/close 收口走
+      // session-store-guard 单源（开库走异步孪生，首开锁等待不阻塞服务事件循环）
+      await withSessionStoreOr500(res, ctx.userDataPath, bookRoot, async (store) => {
         reply(res, 200, await buildAuditView(store, bookName, bookRoot, paging))
-      } finally {
-        store.close()
-      }
+      })
     },
   })
 
@@ -302,19 +288,9 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       if (gate) return replyError(res, 409, 'BUSY', gate)
       const bookRoot = r.bookRoot
       if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
-      // userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
-      // 勘误：库损坏/权限等首开失败是**抛错**不是返回 null
-      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-      // e.message 人话透传（含损坏分类的可行动指引；经统一脱敏出口）
-      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
-      let store: SessionStore | null
-      try {
-        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
-      } catch (e) {
-        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
-      }
-      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
-      try {
+      // 开库/500 信封/close 收口走 session-store-guard 单源（开库走异步孪生，
+      // 首开锁等待不阻塞服务事件循环）
+      await withSessionStoreOr500(res, ctx.userDataPath, bookRoot, (store) => {
         // 开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
         // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
         // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close 照常收口
@@ -324,9 +300,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
         // 第二键失败时对话侧已提交、工作流侧残留，清除一半
         store.clearBooks([params['name']!, bookHash(bookRoot)])
         reply(res, 200, { ok: true })
-      } finally {
-        store.close()
-      }
+      })
     },
   })
 }

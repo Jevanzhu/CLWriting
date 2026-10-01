@@ -1,0 +1,191 @@
+/**
+ * kind 分支单测(横切 P1):验证长短篇分支逻辑纯函数。
+ *
+ * kind 分支核心在纯函数(buildDraftPrompt/buildOutlinePrompt/lensToRole/draftFileName/buildRewritePrompt);
+ * http 层无 kind 逻辑。直接测纯函数 = 覆盖 API 端点背后的 kind 分支。
+ * buildDraftPrompt/buildOutlinePrompt 读 bookRoot 文件,用临时 fixture(不调大模型/CLI)。
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
+import { buildDraftPrompt } from '../../../src/studio/server/api/draft.js'
+
+/** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——本文件断言全针对 prompt 文本 */
+const buildPrompt = (...args: Parameters<typeof buildDraftPrompt>): string => buildDraftPrompt(...args).prompt
+import { buildOutlinePromptWithFiles } from '../../../src/studio/server/api/outline.js'
+import { lensToRole } from '../../../src/studio/server/api/review.js'
+import { buildRewritePrompt } from '../../../src/studio/server/api/rewrite.js'
+
+/** Q-5 同款（先例上方 buildPrompt）：WithFiles 版返回 {prompt, files}——本文件断言全针对 prompt 文本 */
+const buildOutlinePrompt = (...args: Parameters<typeof buildOutlinePromptWithFiles>): string =>
+  buildOutlinePromptWithFiles(...args).prompt
+
+let root = ''
+
+beforeEach(() => {
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-kind-'))
+  mkdirSync(join(root, '大纲'), { recursive: true })
+  writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/清虚门/玉佩/旧案反转')
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(
+    join(root, '大纲', '章纲', '0001-夜战.md'),
+    '---\n章号: 1\n标题: 夜战\n钩子类型: 悬念钩\n情绪定位: 压抑\n---\n## 情节\n夜战场景 / 章尾钩:玉佩认主异象',
+  )
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+  mkdirSync(join(root, '工作区'), { recursive: true })
+  writeFileSync(join(root, '工作区', '细纲.md'), '# 细纲\n场景:夜战 / 反转:玉佩认主')
+  writeFileSync(join(root, '工作区', '本章写作材料.md'), '# 备料\n境界:练气')
+  mkdirSync(join(root, '设定'), { recursive: true })
+  writeFileSync(join(root, '设定', '世界观.md'), '# 世界观\n仙侠世界:清虚门/练气→筑基→金丹')
+})
+
+afterEach(() => {
+  if (root) rmSync(root, { recursive: true, force: true })
+})
+
+describe('buildPrompt(kind 分支)', () => {
+  it('短篇:章 front matter + 8k-20k 字单章闭合', () => {
+    const p = buildPrompt(root, 1, 'short')
+    expect(p).toContain('短篇')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
+    expect(p).toContain('只输出第 1 章正文')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
+    expect(p).not.toContain('篇号:')
+    expect(p).toContain('目标情绪')
+    expect(p).toContain('核心反转')
+    expect(p).toContain('8000-20000 字')
+    expect(p).toContain('单章完整开合')
+    expect(p).not.toContain('章尾留钩')
+  })
+
+  it('长篇:章 front matter + 2k-4k 字章尾留钩', () => {
+    const p = buildPrompt(root, 5, 'long')
+    expect(p).toContain('长篇')
+    // P1-4：fm 措辞已移除（由工具 schema 承载），只要求正文
+    expect(p).toContain('只输出第 5 章正文')
+    expect(p).not.toContain('章号:')
+    expect(p).toContain('钩子类型')
+    expect(p).toContain('2000-4000 字')
+    expect(p).toContain('章尾留钩')
+    expect(p).not.toContain('单章闭合')
+  })
+
+  it('短篇 prompt 注入本章细纲', () => {
+    expect(buildPrompt(root, 1, 'short')).toContain('本章细纲')
+  })
+
+  it('长篇 prompt 注入本章细纲 + 备料', () => {
+    const p = buildPrompt(root, 1, 'long')
+    expect(p).toContain('本章细纲')
+    expect(p).toContain('备料')
+  })
+
+  it('Bug B 回归: 长篇注入本章章纲(情节依据) + 世界观(防跑题)', () => {
+    const p = buildPrompt(root, 1, 'long')
+    expect(p).toContain('本章章纲')
+    expect(p).toContain('夜战') // 章纲内容
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门') // 世界观内容
+    expect(p).toContain('人物与境界须与世界观一致')
+  })
+
+  it('Bug B 回归: 章纲不存在时不崩(空),世界观仍注入', () => {
+    const p = buildPrompt(root, 99, 'long')
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门')
+  })
+
+  it('Bug B 回归: 短篇也注入世界观(防跑题)', () => {
+    const p = buildPrompt(root, 1, 'short')
+    expect(p).toContain('世界观')
+    expect(p).toContain('清虚门')
+  })
+})
+
+describe('buildOutlinePrompt(kind 分支)', () => {
+  it('短篇:章纲 + 目标情绪/核心反转/单章开合', () => {
+    const p = buildOutlinePrompt(root, 2, 'short')
+    expect(p).toContain('章纲')
+    expect(p).toContain('目标情绪')
+    expect(p).toContain('核心反转')
+    expect(p).toContain('8000-20000')
+  })
+
+  it('长篇:细纲 + 场景/账本推进/章尾钩', () => {
+    const p = buildOutlinePrompt(root, 2, 'long')
+    expect(p).toContain('细纲')
+    expect(p).toContain('账本推进')
+    expect(p).toContain('章尾钩')
+  })
+
+  it('短篇:有前章时注入前章摘要(避重复主题/情绪)', () => {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    writeFileSync(
+      join(root, '写作', '正文', '001-旧案.md'),
+      '---\n章号: 1\n标题: 旧案\n目标情绪: 震撼\n核心反转: 认主\n---\n正文…',
+    )
+    const p = buildOutlinePrompt(root, 2, 'short')
+    expect(p).toContain('前章')
+    expect(p).toContain('第1章')
+    expect(p).toContain('震撼')
+  })
+
+  it('长篇:无定稿正文时不崩(前章段省略)', () => {
+    const p = buildOutlinePrompt(root, 1, 'long')
+    expect(p).toContain('细纲') // 任务+要求仍在
+  })
+})
+
+describe('lensToRole(镜头 → 角色文件映射)', () => {
+  it('emotion_peak → emotion-review(名不一致,核心映射)', () => {
+    expect(lensToRole('emotion_peak')).toBe('emotion-review')
+  })
+  it('短篇镜头 hook/payoff → 同名 -review', () => {
+    expect(lensToRole('hook')).toBe('hook-review')
+    expect(lensToRole('payoff')).toBe('payoff-review')
+  })
+  it('长篇镜头 reader/editor/continuity → 同名 -review', () => {
+    expect(lensToRole('reader')).toBe('reader-review')
+    expect(lensToRole('editor')).toBe('editor-review')
+    expect(lensToRole('continuity')).toBe('continuity-review')
+  })
+})
+
+describe('buildRewritePrompt(kind 分支)', () => {
+  it('whole 短篇:第N章 + 8k-20k 字单章开合', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'short')
+    expect(p).toContain('第 3 章')
+    expect(p).toContain('8000-20000 字')
+    expect(p).toContain('单章完整开合')
+  })
+  it('CC-P2-22: whole 短篇要求五段 ## 标题（重写循环与机检不再两头矛盾）', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'short')
+    expect(p).toContain('## 开头钩子')
+    expect(p).toContain('## 余韵')
+  })
+  it('CC-P2-22: whole 长篇不注入五段标题要求（无节数机检）', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'long')
+    expect(p).not.toContain('## 开头钩子')
+  })
+  it('whole 长篇:第N章 + 2k-4k 字单章钩', () => {
+    const p = buildRewritePrompt('whole', '原章正文', '', '更紧张', [], 3, 'long')
+    expect(p).toContain('第 3 章')
+    expect(p).toContain('2000-4000 字')
+    expect(p).toContain('章尾留钩')
+  })
+  it('local:选段改写,不分 kind(两 kind 输出结构一致)', () => {
+    const pShort = buildRewritePrompt('local', '原', '选中段', '精简', [], 1, 'short')
+    const pLong = buildRewritePrompt('local', '原', '选中段', '精简', [], 1, 'long')
+    expect(pShort).toContain('选中段落')
+    expect(pLong).toContain('选中段落')
+  })
+  it('whole 带审稿意见:逐条采纳', () => {
+    const p = buildRewritePrompt('whole', '原', '', '改', ['OOC:林远', '逻辑:玉佩'], 1, 'long')
+    expect(p).toContain('审稿意见')
+    expect(p).toContain('1. OOC:林远')
+    expect(p).toContain('2. 逻辑:玉佩')
+  })
+})

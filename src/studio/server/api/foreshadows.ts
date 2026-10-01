@@ -8,11 +8,11 @@
  * CRUD 复用 documents 端点（伏笔就是 md 文件）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { dirSignature } from '../dir-signature.js'
 import { resolveBookOrReply } from '../book-context.js'
 import {
   readForeshadows,
@@ -67,30 +67,20 @@ export function forgetForeshadowCache(bookRoot: string): void {
  * 过期逐出 + foreshadowInFlight 在途去重表本地壳删除；命中/失效时序/逐出序
  * 逐位不变——单级探针 + FIFO 32 + in-flight 去重，同步/异步孪生共壳共 Map，
  * 见 ttl-cache.ts 头部收敛映射表）。 */
+/** 被扫目录 = 设定/伏笔（fm 读面）+ 写作/正文（足迹扫描面）；签名体单源 dir-signature.ts。
+ *  声明先于下方缓存构造——probe 虽在运行期才触发，模块求值序不留 TDZ 悬念。 */
+const foreshadowDirs = [join('设定', '伏笔'), join('写作', '正文')] as const
+
 export const foreshadowCache = createTtlProbeCache<string, ForeshadowSnapshot>({
   name: 'foreshadows',
   keyOf: (k) => k,
   max: FORESHADOW_CACHE_MAX,
   ttl: () => FORESHADOW_CACHE_TTL_MS,
-  probe: foreshadowDirSignature,
+  probe: (bookRoot) => dirSignature(bookRoot, foreshadowDirs),
   computeSync: foreshadowComputeSync,
   computeAsync: foreshadowComputeAsync,
   inFlight: true,
 })
-
-/** 被扫目录全集的 mtime 签名（缺失计 '-'，先例同 search.ts dirSignature）：
- *  设定/伏笔（fm 读面）+ 写作/正文（足迹扫描面）。 */
-function foreshadowDirSignature(bookRoot: string): string {
-  const parts: string[] = []
-  for (const dir of [join('设定', '伏笔'), join('写作', '正文')]) {
-    try {
-      parts.push(String(statSync(join(bookRoot, dir)).mtimeMs))
-    } catch {
-      parts.push('-') // 目录不存在
-    }
-  }
-  return parts.join(',')
-}
 
 /** 同步孪生 MISS 计算体（回归测试直测面 + 行为规格参照）。 */
 function foreshadowComputeSync(bookRoot: string): ForeshadowSnapshot {
@@ -128,7 +118,7 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
   defineRoute('books.foreshadows', {
     method: 'GET',
     path: '/api/books/:name/foreshadows',
-    // （评审）：本 handler 实际消费请求 URL（parseRequestUrl）——参数名去
+    // 本 handler 实际消费请求 URL（parseRequestUrl）——参数名去
     // `_` 前缀（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)

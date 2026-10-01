@@ -3,13 +3,28 @@
  * 书架见短篇书卡 → 打开（无 wiring，目录正确）→ 选篇 → 编辑器渲染 → 关系图可访问。
  *
  * fixture 短篇测试集：写作/正文/001-雨夜门铃.md（无 布线/ 目录）。
+ *
+ * P2-13（09-30 评审修复批）：只读冒烟（选篇开编辑器不改盘；未接 autosave 写入）→ 迁独立
+ * server（端口偏移 8）+ 自有 workDir，脱离共享 workDir 的顺序契约；起停样板见
+ * ./independent-server.ts。userDataPath: false 对齐 globalSetup 主 server 口径。
  */
 import { test, expect } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
+
+let srv: IndependentServer
+
+test.beforeAll(async () => {
+  srv = await startIndependentServer({ tag: 'short-flow', offset: 8, userDataPath: false })
+})
+
+test.afterAll(async () => {
+  await srv.close()
+})
 
 test('短篇冒烟：开书 → 选篇 → 编辑器 → 关系图', async ({ page }) => {
   attachPageErrorBaseline(page, 'short-flow')
-  await page.goto('/')
+  await page.goto(`${srv.base}/`)
   await expect(page.getByRole('heading', { name: '书架' })).toBeVisible()
   // 短篇书卡可见
   await expect(page.locator('.book-title', { hasText: '短篇测试集' })).toBeVisible()

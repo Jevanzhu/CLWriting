@@ -38,3 +38,7 @@ build/
 *.woff2
 *.ttf
 *.otf
+# ESLint 抑制表（工具输出）：文件由 eslint 自身读写——`--prune-suppressions` 每次
+# 重写为它的规范序列化（无尾换行），prettier 会加回尾换行，两工具互相改写把文件
+# 钉死在 diff 上。归入「工具输出」面排除；表漂移由 CI 的 prune 后 diff 空断言把守。
+eslint-suppressions.json

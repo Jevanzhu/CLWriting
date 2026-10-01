@@ -121,7 +121,7 @@ export function sanitizeFullFileName(name: string): string {
   // 路径分隔符 \ /，win 保留字符落在最后一段点之后（如 a.md:2 的冒号）即漏网留存
   // 进扩展名。ext 以点开头，首点不在替换集内，保留逻辑不动。
   let ext = (m?.[2] ?? '').replace(/[\\/:*?"<>|]/g, '_')
-  // （评审）：纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
+  // 纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
   // stem 净化后为空 → 落「未命名」兜底，产出「未命名.gitignore」。stem 为空 = 整名无
   // 词干，按「无扩展名的完整名」处理（stem=pre、ext=''），后续净化/保留名检查/兜底
   // 管线照走（.gitignore 非保留名 → 原样通过）；pre 已剥成空串（''/'...'）不在此列，

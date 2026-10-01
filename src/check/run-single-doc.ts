@@ -5,7 +5,7 @@
  * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  *
- * （全项目源码质量与优雅度评审）：本模块 = 原 `check/run.ts` 的
+ * 本模块 = 原 `check/run.ts` 的
  * 实现体（单章机检链 + 批量预扫 + 读配置/开库前奏）整体迁出。拆出树红点聚合族
  * 后，run.ts 与 run-tree-issues.ts 仍互 import（聚合侧取本模块的 readCheckConfig /
  * openCheckDb / checkWithDb / 预扫，run.ts 反向 re-export 聚合族）——两文件 SCC 使

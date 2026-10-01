@@ -202,3 +202,8 @@ export const chatTools: ToolDef[] = [
     input_schema: { type: 'object', properties: {} },
   },
 ]
+
+/** 工具名清单——chatTools 表模块级不可变，promptTools 登记（铁律②「模型可见 ⟺
+ *  已记录」工具面）与摘要调用两处消费共用本常量，不再各自 map 重算；表在模块内定义，
+ *  派生清单与表恒同步（无需「两处各持一份」的人工对账） */
+export const CHAT_TOOL_NAMES = chatTools.map((t) => t.name)

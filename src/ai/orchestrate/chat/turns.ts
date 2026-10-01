@@ -10,7 +10,7 @@
  * chat/turns-visibility.ts。本残核留轮循环主流程（runAgentTurns/
  * lastMessageFingerprint/TurnDeps/MAX_AGENT_TURNS/CHAT_TOOL_NAMES），并按原导出面
  * 逐名 re-export 拆出两件，消费方 import 面零改动。
- * （评审）：runAgentTurns 的三段实现体（单轮发起 /
+ * runAgentTurns 的三段实现体（单轮发起 /
  * 工具轮次 / 轮次收尾与终止判定）与上列四个模块级符号迁 turns-phases.ts——本文件只留
  * 「for turn → 阶段一 → 阶段三 → （未终结）阶段二」骨架与落库收编口，段内顺序不变量
  * 见该件头注；导出面照旧逐名 re-export（lastMessageFingerprint/TurnDeps 等）零改动。

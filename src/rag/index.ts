@@ -246,7 +246,7 @@ export async function recallDetailed(
       if (scanned.produced >= warnThreshold) {
         // 探针行（第 N+1 个产出，追加序最末）照旧例从命中集中剔除——旧实现
         // slice(0, warnThreshold) 作用在读回数组上，语义 = 截断后不参与排序
-        // （评审）：produced 计数先于 model/维度过滤（store.ts），探针行
+        // produced 计数先于 model/维度过滤（store.ts），探针行
         // 可以是不匹配行而**未入 rows**——仅当最后产出行确为命中
         //（lastProducedWasMatch）才 pop；盲 pop 会错删第 N 个合法命中
         // truncated 判定

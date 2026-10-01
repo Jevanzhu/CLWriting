@@ -5,6 +5,10 @@
  * R1010-P2-1（2026-09-10 全量重评 GLM-5.3 修复批）：同步版改 filterValidRecentBudgeted
  * （fs/promises stat + 超时预算）——既有目录有效性臂全量迁移（await 真实临时目录），
  * 另补「stat 挂起（失联网络卷）超时保留展示」回归臂（注入永不 settle 的 stat）。
+ *
+ * 2026-10-01 并档（test 目录按子域收编）：原 test/studio/workdir-store.test.ts 的
+ * parseStore/setCurrent/serialize/失效清理臂并入本档——同一被测模块（src/desktop/
+ * workdir-store.ts）两处各测一半，改语义要跑两个目录；并档后单处可读全貌。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -12,6 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
+  parseStore,
+  setCurrent,
+  serializeStore,
+  MAX_RECENT,
   filterValidRecentBudgeted,
   emptyStore,
   type WorkDirStore,
@@ -110,5 +118,110 @@ describe('R1010-P2-1：失联网络卷超时保留（启动不冻结）', () => 
       { timeoutMs: 1_000, stat: failingStat },
     )
     expect(r.recent.map((x) => x.path)).toEqual([realDir])
+  })
+})
+
+describe('workdir-store parseStore（容错）', () => {
+  it('正常 JSON → store', () => {
+    const raw = JSON.stringify({ current: '/A', recent: [{ path: '/B', label: 'B' }] })
+    expect(parseStore(raw)).toEqual({ current: '/A', recent: [{ path: '/B', label: 'B' }] })
+  })
+
+  it('损坏 JSON → 空存储', () => {
+    expect(parseStore('{不是合法json')).toEqual(emptyStore())
+  })
+
+  it('非对象 JSON → 空存储', () => {
+    expect(parseStore('"字符串"')).toEqual(emptyStore())
+    expect(parseStore('123')).toEqual(emptyStore())
+    expect(parseStore('null')).toEqual(emptyStore())
+  })
+
+  it('current 非字符串 → null', () => {
+    expect(parseStore(JSON.stringify({ current: 123, recent: [] })).current).toBeNull()
+  })
+
+  it('recent 非法项过滤（缺字段/类型错）', () => {
+    const raw = JSON.stringify({
+      current: '/A',
+      recent: [
+        { path: '/B', label: 'B' }, // 合法
+        { path: '/C' }, // 缺 label
+        { label: 'D' }, // 缺 path
+        'not-object', // 非对象
+      ],
+    })
+    expect(parseStore(raw).recent).toEqual([{ path: '/B', label: 'B' }])
+  })
+
+  it('recent 去重 + 截断 MAX_RECENT', () => {
+    const recent = Array.from({ length: MAX_RECENT + 3 }, (_, i) => ({
+      path: `/p${i}`,
+      label: `p${i}`,
+    }))
+    recent.push({ path: '/p0', label: 'dup' }) // 重复 p0
+    const result = parseStore(JSON.stringify({ current: null, recent }))
+    const paths = result.recent.map((r) => r.path)
+    expect(new Set(paths).size).toBe(paths.length) // 去重
+    expect(result.recent.length).toBe(MAX_RECENT) // 截断
+  })
+})
+
+describe('workdir-store setCurrent（切换 + 最近列表）', () => {
+  it('首次设 current → 空 recent', () => {
+    expect(setCurrent(emptyStore(), '/A')).toEqual({ current: '/A', recent: [] })
+  })
+
+  it('切换新值：旧 current 推入 recent 头部', () => {
+    const s = setCurrent(emptyStore(), '/A')
+    expect(setCurrent(s, '/B')).toEqual({
+      current: '/B',
+      recent: [{ path: '/A', label: 'A' }],
+    })
+  })
+
+  it('label = 目录 basename', () => {
+    const s = setCurrent(emptyStore(), '/Users/x/MyNovels')
+    expect(setCurrent(s, '/other').recent[0]).toEqual({
+      path: '/Users/x/MyNovels',
+      label: 'MyNovels',
+    })
+  })
+
+  it('同值切换是 no-op（不把自己塞进 recent）', () => {
+    const s = { current: '/A', recent: [{ path: '/B', label: 'B' }] }
+    expect(setCurrent(s, '/A')).toEqual(s)
+  })
+
+  it('切回 recent 中的值：从 recent 提升，旧 current 入头部', () => {
+    const s1 = setCurrent(setCurrent(setCurrent(emptyStore(), '/A'), '/B'), '/C')
+    // s1 = { current: '/C', recent: [{B},{A}] }
+    const s2 = setCurrent(s1, '/A')
+    expect(s2.current).toBe('/A')
+    expect(s2.recent).toEqual([
+      { path: '/C', label: 'C' },
+      { path: '/B', label: 'B' },
+    ])
+  })
+
+  it('连续切换 recent 截断 MAX_RECENT，且不含当前 current', () => {
+    let s = emptyStore()
+    for (let i = 0; i < MAX_RECENT + 3; i++) s = setCurrent(s, `/p${i}`)
+    expect(s.current).toBe(`/p${MAX_RECENT + 2}`)
+    expect(s.recent.length).toBe(MAX_RECENT)
+    expect(s.recent.every((r) => r.path !== s.current)).toBe(true)
+  })
+})
+
+describe('workdir-store serialize（序列化往返）', () => {
+  it('serialize → parse 往返一致', () => {
+    const s = { current: '/A', recent: [{ path: '/B', label: 'B' }] }
+    expect(parseStore(serializeStore(s))).toEqual(s)
+  })
+
+  it('serialize 带 pretty 缩进 + 尾换行', () => {
+    const out = serializeStore({ current: '/A', recent: [] })
+    expect(out.endsWith('\n')).toBe(true)
+    expect(out).toContain('\n  ') // 2 空格缩进
   })
 })

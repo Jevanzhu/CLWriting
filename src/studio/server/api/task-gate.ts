@@ -15,7 +15,7 @@
  * 账本级互斥；账本（ai-calls）/journal 的跨进程真锁已随落地（fs/cross-process-lock.ts），
  * 本文件锁原语同源收敛（复制版已删）。
  *
- * （源码质量评审）：忙闸互斥矩阵单源化——此前
+ * 忙闸互斥矩阵单源化——此前
  * 「哪类在途活动拦哪个端点、拦下说什么话」散在 7 处手写（stream 的 spawn/auto-write、
  * chat、audit 的清库族、books-lifecycle 的删/改名、documents-core 的结构操作、
  * review 三审、本文件的编排闸），已见漂移（半角/全角逗号两种、review 书级闸文案与
@@ -27,7 +27,7 @@
  * ——列目录即可枚举（不再需要动作注册表逐个哈希探测），排障一眼看出持有者；迁移策略
  * 见下方「锁文件名与旧格式迁移」段。
  *
- * （源码质量评审）：本模块的进程内闸表 / 三审登记表 /
+ * 本模块的进程内闸表 / 三审登记表 /
  * 锁根三份模块级可变状态收进 **TaskGate 实例**（createTaskGate）——服务端组装根
  * （server/index.ts 的 createStudioServer）建实例并经各路由 ctx 显式传递，同进程内
  * 两个 server 实例因此互不干扰（判据用例见 test/studio/assembly-root-deps-injection.test.ts）。

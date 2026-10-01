@@ -1,5 +1,5 @@
 /**
- * （全项目源码质量与优雅度评审）：三适配器流尾收口单点。
+ * 三适配器流尾收口单点。
  *
  * 收口面（原在 openai / anthropic / responses 三线各写 2–3 份逐字同款拷贝）：
  * - done 事件发射（幂等门 + resolvedMaxTokens / degraded 透传）；

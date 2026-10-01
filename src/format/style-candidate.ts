@@ -210,7 +210,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
   )
   const entryPath =
     dup?._path !== undefined ? `${ENTRIES_DIR}/${c.类型}/${basename(dup._path)}` : addEntry(bookRoot, entry)
-  // （评审）：删候选收编 rmWithRetry（「确实要删」原语）——win 杀软/
+  // 删候选收编 rmWithRetry（「确实要删」原语）——win 杀软/
   // 索引器对刚落盘条目旁的候选文件瞬时锁（EPERM/EBUSY）下裸 rmSync 直败，会把已入库
   // 的确认反转为调用方失败；退避后仍失败仍上抛（错误路径语义不变，仅消瞬时锁误报）。
   rmWithRetry(fp)

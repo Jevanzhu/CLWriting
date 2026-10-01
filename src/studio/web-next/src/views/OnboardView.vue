@@ -17,17 +17,18 @@ import OnboardPremise from '../components/onboard/OnboardPremise.vue'
 import OnboardStepRail from '../components/onboard/OnboardStepRail.vue'
 import OnboardStepPanel from '../components/onboard/OnboardStepPanel.vue'
 import { friendlyError } from '../shared/error'
+import { useScopedAction, usePendingAction } from '../composables/useScopedAction'
 
 const props = defineProps<{ bookName: string }>()
 const route = useRoute()
 const ui = useUiStore()
 const tree = useTreeStore()
 
-// 路由活书名复检——OnboardView 挂 :key=bookName，切书时本实例被重建、
-// 死续体的 props 冻结在旧书（比 props 恒等），await 后只有比路由才能识别已切书
-function stillOn(book: string): boolean {
-  return String(route.params.name ?? '') === book
-}
+// 活书名复检单源（useScopedAction）——OnboardView 挂 :key=bookName，切书时本实例被
+// 重建、死续体的 props 冻结在旧书（比 props 恒等），故活源取路由 params：
+// await 后只有比路由才能识别已切书。本视图动作族（gen/save/挂载加载）的
+// stillIn 与在途锁（genPending/saving）由同一 composable 收敛，判定时机逐位不变。
+const scoped = useScopedAction(() => String(route.params.name ?? ''))
 
 // ── 故事梗概（作者设想，AI 据其开书；localStorage 持久化在 OnboardPremise 卡内）──
 const storyPremise = ref('')
@@ -72,12 +73,12 @@ const phase = ref<'detail' | 'loading' | 'result'>('detail')
 const content = ref('')
 // 最近一次生成快照——「重新生成」脏检查用（手改未保存不静默丢稿）
 const lastGenerated = ref('')
-const saving = ref(false)
+const saving = usePendingAction()
 const err = ref<string | null>(null)
 const lastWords = ref(0)
 // gen/save 函数级在途锁（域内自设纪律）——双击在下一拍渲染
 // 前仍可双触发，双生成双计费；loading 相位的按钮置换只覆盖渲染后的窗口
-const genPending = ref(false)
+const genPending = usePendingAction()
 
 function applyStep(step: OnboardStep): void {
   active.value = step
@@ -108,14 +109,16 @@ function selectStep(step: OnboardStep): void {
 }
 
 async function gen(): Promise<void> {
-  if (genPending.value) return // 在途锁
-  if (!active.value) return
+  if (!genPending.enter()) return // 在途锁
+  if (!active.value) {
+    genPending.exit()
+    return
+  }
   const step = active.value
-  genPending.value = true
   try {
     await doGen(step)
   } finally {
-    genPending.value = false
+    genPending.exit()
   }
 }
 
@@ -131,52 +134,56 @@ async function doGen(step: OnboardStep): Promise<void> {
       message: '当前内容有你未保存的修改，重新生成将覆盖——继续？',
       confirmText: '重新生成',
     })
-    // ask 确认后复检 stillOn——确认弹窗是全局 ui store 态，滞留
+    // ask 确认后复检 stillIn——确认弹窗是全局 ui store 态，滞留
     // 期间切书（本实例已随 :key 重建而死亡）后点确认，死续体照旧走到 onboardAi 发出
     // 旧书的计费请求。取消与切书同判：不以「已确认」豁免活体复检（既有口径）。
     if (!okToRegen) return
-    if (!stillOn(book)) return
+    if (!scoped.stillIn(book)) return
   }
   phase.value = 'loading'
   err.value = null
   content.value = ''
   try {
     const r = await onboardAi(book, { step, premise: storyPremise.value })
-    if (!stillOn(book)) return
+    if (!scoped.stillIn(book)) return
     content.value = r.content
     lastGenerated.value = r.content
     lastWords.value = r.words
     phase.value = 'result'
     ui.toast(`${STEP_LABEL[step]} 生成（${r.words} 字）`, 'success')
   } catch (e) {
-    if (!stillOn(book)) return
-    err.value = friendlyError(e)
-    ui.toast(err.value, 'error')
-    phase.value = 'detail'
+    scoped.failScoped(book, e, () => {
+      err.value = friendlyError(e)
+      ui.toast(err.value, 'error')
+      phase.value = 'detail'
+    })
   }
 }
 
 async function save(): Promise<void> {
-  if (saving.value) return // 函数级在途锁（按钮 disabled 之外的同拍双触发兜底）
-  if (!active.value) return
+  if (!saving.enter()) return // 函数级在途锁（按钮 disabled 之外的同拍双触发兜底）
+  if (!active.value) {
+    saving.exit()
+    return
+  }
   // 入口捕获 + await 后复检——落盘在途切书后，死实例的 tree.load(旧书) 会把
   // 旧书目录写进共享 tree store（新书工作台显示旧书章节树）
   const book = props.bookName
-  saving.value = true
   try {
     await onboardSave(book, { step: active.value, content: content.value })
-    if (!stillOn(book)) return
+    if (!scoped.stillIn(book)) return
     // 保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
     // 此前只认生成快照，「编辑 → 保存 → 切步骤」常见路径必误报「未保存修改」。
     lastGenerated.value = content.value
     ui.toast('已保存', 'success')
     void tree.load(book)
   } catch (e) {
-    if (!stillOn(book)) return // 切书后错误 toast 不落 B 书界面（对齐 gen() 的 catch）
-    err.value = friendlyError(e)
-    ui.toast(err.value, 'error')
+    scoped.failScoped(book, e, () => {
+      err.value = friendlyError(e) // 切书后错误 toast 不落 B 书界面（对齐 doGen 的 catch）
+      ui.toast(err.value, 'error')
+    })
   } finally {
-    saving.value = false
+    saving.exit()
   }
 }
 
@@ -185,20 +192,20 @@ onMounted(async () => {
   const book = props.bookName
   try {
     const config = await getConfig(book)
-    if (!stillOn(book)) return
+    if (!scoped.stillIn(book)) return
     isShort.value = (config.kind ?? 'long') === 'short'
     const leadsEnabled = (config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
     isGrowthBook.value = leadsEnabled.includes('成长线')
   } catch {
     // config 读取失败 → 默认显示 realm（不阻断）
   }
-  if (!stillOn(book)) return
+  if (!scoped.stillIn(book)) return
   await tree.load(book)
   // tree.load 失败不再静默继续——树空时已落盘设定显示 0/N
   // 「未生成」态，诱导作者重跑生成覆盖已有文件（与「错误必达用户」口径不符）。
   // 置错误态（走 OnboardStepPanel 既有 err 红条）并跳过预选
   if (tree.error) {
-    if (stillOn(book)) err.value = tree.error
+    if (scoped.stillIn(book)) err.value = tree.error
     return
   }
   const first = ALL_STEPS.value.find((s) => !isGenerated(s))

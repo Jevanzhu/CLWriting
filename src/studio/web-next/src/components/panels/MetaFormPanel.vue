@@ -10,6 +10,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { formKindOf } from '../../shared/words'
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useScopedAction, usePendingAction } from '../../composables/useScopedAction'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -238,19 +239,25 @@ watch(
   { immediate: true },
 )
 
-const saving = ref(false)
+const saving = usePendingAction()
+// 切书守卫单源（stillIn/failScoped）——保存族在途切书后，A 书的 refresh/toast 与
+// 失败提示不落 B 书界面（本面板经 SidebarRight 常驻挂载，props.bookName 即路由活书名）。
+const scoped = useScopedAction(() => props.bookName)
 
 async function onSave(): Promise<void> {
   // 函数级在途锁——模板 :disabled 只拦鼠标主路径（且 saving 置位在数值校验
   // 后），校验到置位间的快速连点/重入会并发两笔 updateDocMeta。对齐 OnboardView/
   // WorkbenchView/HistoryPanel 同款惯例。
-  if (saving.value) return
+  if (!saving.enter()) return
   // 低级项：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
   // 已切走，await 后重读会 refresh 他 doc（refresh 内部按当前书名拼路径，旧 docId + 新书
   // 名 = 错文件）、「已保存」提示打在别的书上
   const book = props.bookName
   const docId = ws.activeDocId
-  if (!entry.value || !docId || !kind.value) return
+  if (!entry.value || !docId || !kind.value) {
+    saving.exit()
+    return
+  }
   // 先全量校验数值字段——非法即中止（本次不发任何 PUT）
   const errs: Record<string, string> = {}
   const invalidLabels: string[] = []
@@ -265,9 +272,9 @@ async function onSave(): Promise<void> {
   numErrors.value = errs
   if (invalidLabels.length > 0) {
     ui.toast(`「${invalidLabels.join('、')}」不是有效数字，请修正后再保存`, 'error')
+    saving.exit()
     return
   }
-  saving.value = true
   try {
     const meta: Record<string, unknown> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) {
@@ -288,14 +295,14 @@ async function onSave(): Promise<void> {
     // refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
     // 此前在此手动 patch 回 body 的守卫已下沉到 doc store
     await updateDocMeta(book, docId, meta)
-    if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
-    if (props.bookName === book) ui.toast('已保存', 'success')
+    if (ws.activeDocId === docId && scoped.stillIn(book)) await doc.refresh(docId)
+    if (scoped.stillIn(book)) ui.toast('已保存', 'success')
   } catch (err) {
     // 失败路径补书名守卫——成功路径（上方）有门，catch 漏配：
     // updateDocMeta await 窗口切书后，A 书的保存失败错误会 toast 在 B 书界面上
-    if (props.bookName === book) ui.toast(friendlyError(err), 'error')
+    scoped.failScoped(book, err, () => ui.toast(friendlyError(err), 'error'))
   } finally {
-    saving.value = false
+    saving.exit()
   }
 }
 </script>

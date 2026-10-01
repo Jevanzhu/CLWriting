@@ -10,6 +10,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useAppActions } from '../../composables/useAppActions'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { isImeComposing } from '../../shared/ime'
 import { capView } from '../../shared/render-cap'
 import ModalMask from './ModalMask.vue'
@@ -19,6 +20,8 @@ const ui = useUiStore()
 const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
+// 切书守卫单源（stillIn）——面板滞留跨书后，跳章动作的迟到结果不落新书工作区。
+const scoped = useScopedAction(() => ws.bookName ?? '')
 const { actions: appActions } = useAppActions()
 const paletteRef = ref<HTMLElement | null>(null)
 useFocusTrap(paletteRef)
@@ -123,10 +126,10 @@ async function openDoc(node: TreeNode): Promise<void> {
   if (!node.docId) return
   // await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
   // 工作区（新书同名路径命中旧书 docId）
-  const bookAtOpen = ws.bookName
+  const bookAtOpen = ws.bookName ?? ''
   try {
     await doc.open(node)
-    if (ws.bookName !== bookAtOpen) return
+    if (!scoped.stillIn(bookAtOpen)) return
     ws.openTab(node.docId)
   } catch (e) {
     ui.toast(friendlyError(e), 'error')

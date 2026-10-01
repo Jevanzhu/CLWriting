@@ -2,9 +2,9 @@
  * book.yaml 文本级补丁族 —— 自 yaml.ts 拆出（⑤④产品巨件拆分
  * 波1 · 缝 B）。
  *
- * 读改写场景不走 stringifyBookConfig 全量重生成（解析模型只保已知字段，作者的 #
- * 注释、未知段、未知子键会静默丢失）——本族只重写目标段/键的行区间，区间外原文
- * 逐字保留。内容（自 yaml.ts 纯搬移，代码与注释逐字未改）：matchesKeyLine/
+ * 本族只重写目标段/键的行区间，区间外原文逐字保留（读改写场景不走 stringifyBookConfig
+ * 全量重生成——解析模型只保已知字段，作者的 # 注释、未知段、未知子键会静默丢失）。
+ * 内容（自 yaml.ts 纯搬移，代码与注释逐字未改）：matchesKeyLine/
  * locateTopSection/patchTopSection/setTopSectionKey/setSectionKeyBlock/
  * setTopScalarKey/ConfigPatchLeaf/CONFIG_PATCH_LEAVES/leafEquals/patchBookConfigText
  * （renderScalar 因依赖方向落位 yaml-spec.ts——scalarLeafEmit 调用它而本文件依赖
@@ -21,10 +21,10 @@ import { SECTION_SPECS, renderScalar, type ConfigKeySpec } from './yaml-spec.js'
 /**
  * 文本级补丁：替换或追加一个顶层段。
  *
- * 读改写场景（历史生产例 enableRag 已删，现存直接消费面为补丁族测试）不能走
- * 读改写场景不走 stringifyBookConfig 全量重生成（解析模型只保已知字段，作者的 #
- * 已知字段，作者的 # 注释、未知段、未知子键会静默丢失。此函数只重写目标段的
- * 行区间，区间外的原文（含注释与未知内容）逐字保留。
+ * 读改写场景（历史生产例 enableRag 已删，现存直接消费面为补丁族测试）不走
+ * stringifyBookConfig 全量重生成（解析模型只保已知字段，作者的 # 注释、未知段、
+ * 未知子键会静默丢失）。此函数只重写目标段的行区间，区间外的原文（含注释与未知
+ * 内容）逐字保留。
  *
  * @param raw 现有 book.yaml 全文（空串 = 无文件，纯追加）
  * @param section 顶层段名（如 'rag'）

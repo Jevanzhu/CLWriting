@@ -6,6 +6,7 @@ import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { capView } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 
@@ -13,6 +14,9 @@ import { friendlyError } from '../../shared/error'
 const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const ui = useUiStore()
+// 切书守卫单源（stillIn/failScoped）——restore/purge 在途切书后，A 书的失败与
+// 树重扫/列表刷新不落 B 书界面；本面板 props.bookName 即路由活书名（常驻挂载无滞后）。
+const scoped = useScopedAction(() => props.bookName)
 
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
@@ -58,13 +62,12 @@ async function restore(id: string): Promise<void> {
   try {
     await restoreTrash(book, id)
     await load()
-    if (props.bookName === book) await tree.load(book) // 仅未切书才重扫树
+    if (scoped.stillIn(book)) await tree.load(book) // 仅未切书才重扫树
   } catch (e) {
     // 404/NOT_FOUND：条目已恢复（双击竞态）或已不在回收站——静默，load 刷新即对齐
     if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) return
-    if (props.bookName !== book) return // A 书的失败 toast 不落 B 书界面（同族）
     // 恢复失败收敛为 toast——列表数据本身无恙，不再整体覆盖成错误态
-    ui.toast(friendlyError(e), 'error')
+    scoped.failScoped(book, e, () => ui.toast(friendlyError(e), 'error')) // A 书的失败 toast 不落 B 书界面（同族）
   } finally {
     restoring.value = null
   }
@@ -87,9 +90,9 @@ async function purge(id: string): Promise<void> {
       danger: true,
     })
     if (!ok) return
-    if (props.bookName !== book) return
+    if (!scoped.stillIn(book)) return
     await purgeTrash(book, id)
-    if (props.bookName === book) await load()
+    if (scoped.stillIn(book)) await load()
   } catch (e) {
     // 404/NOT_FOUND = 条目已被清（双击竞态第二笔迟到/他端已删）
     // ——按「已删」收敛静默，load 对齐列表即可；旧口径直接置 err 会把整个面板
@@ -101,8 +104,9 @@ async function purge(id: string): Promise<void> {
     // purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
     // A 书的删除失败此前无复检直接覆盖 err.value，切到 B 书后整个面板显示成 A 书的错误态
     //（restore 的 catch 已有同款复检，purge 漏挂）
-    if (props.bookName !== book) return
-    err.value = friendlyError(e)
+    scoped.failScoped(book, e, () => {
+      err.value = friendlyError(e)
+    })
   } finally {
     purging.value = null
   }

@@ -417,6 +417,11 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
     // 尽力而为三件（flush / 存窗口状态 / 停机指令），此处不再起交互链、不
     // preventDefault，放行原生退出（close 拦截已按 sessionEnding 直关放行）。
     if (sessionEnding) {
+      // 直通分支补置 appTearingDown——本分支不 preventDefault、随后进程退出，不置旗时
+      // 5s 观察窗（见旗声明处）在其到点前若仍触发，会把 sessionEnding 复位并拉回
+      // server（重启 child）造孤儿。置旗后观察窗首行即让位；同时给退出期的
+      // serverManager 探测与 close 拦截统一「真退出」口径（此前只靠「主窗已空」兜底）。
+      appTearingDown = true
       log.info('desktop', 'session-end 在途的级联 quit：放行直通（不再起交互链）')
       return
     }

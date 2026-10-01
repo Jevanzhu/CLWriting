@@ -23,6 +23,7 @@ import { useWorkbenchStore } from '../../stores/workbench'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { refreshCachedDoc } from '../../shared/doc-freshness'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { onFullScreenChange } from '../../shared/fullscreen'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
@@ -45,6 +46,9 @@ const focusExitTitle = `退出专注模式（Esc / ${modComboLabel('Mod+Shift+F'
 // 生成中切到编辑器/总览等视图时警告静默滞留（watch 无 immediate，回工作台也不补 toast），
 // 截断类提示失效。外壳随书常驻（Book.vue 全程挂载），任何视图下警告即产即 toast
 const wb = useWorkbenchStore()
+// 切书守卫单源（stillIn）——收工跳转在 tree.load 窗口内切书时，A 书的
+// openTab/toast 不落 B 书界面（外壳随书常驻，props.bookName 即路由活书名）。
+const scoped = useScopedAction(() => props.bookName)
 watch(
   () => wb.warning,
   (msg) => {
@@ -71,7 +75,7 @@ watch(
     const book = props.bookName
     try {
       await tree.load(book)
-      if (props.bookName !== book) return
+      if (!scoped.stillIn(book)) return
       refreshCachedDoc(doc, r.docId) // openTab 前刷新 clean 缓存（异步，不阻塞跳转）
       ws.openTab(r.docId)
       ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')

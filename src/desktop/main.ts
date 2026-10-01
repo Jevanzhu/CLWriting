@@ -352,7 +352,7 @@ async function bootstrap(): Promise<void> {
   // 服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
   // readStore.current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
   // 退出拿到 null：不 abort 任何在途 chat/self-heal、不等后台任务（孤儿会话只能靠
-  // 10 分钟宽限修复）。退出以启动时实际值优先，store 回读兜底
+  // 32 分钟宽限修复，ORPHAN_GRACE_MS 见 events/store.ts）。退出以启动时实际值优先，store 回读兜底
   // welcome 态 workDir 可为 null，currentWorkDir 的 ?? 兜底因此
   // 走 readStore——缓存（见 readStore 注）就位后该兜底零盘 IO，null/'' 语义维持原状
   // （拆分注记：bootstrappedWorkDir 正本在 workdir-controller，经 setter 记账）
@@ -634,8 +634,6 @@ function buildMenu(): void {
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
-
-// 单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 
 // 单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 // 防退出竞态中 whenReady/activate 仍触发 bootstrap（起 server/开窗/读写状态文件）

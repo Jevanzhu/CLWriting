@@ -32,6 +32,13 @@ import type { ThemeId } from '../types/theme'
  *
  * 初始化：main.ts 在 mount 前 await init → API 读取 → apply CSS 变量。
  * 首次为空时从旧 localStorage 自动迁移。
+ *
+ * 新增一个偏好键的同步清单（四面，缺一即失效）：
+ *  ① 本文件 DEFAULTS 补初值（ref 初值即硬编码回落）；
+ *  ② PrefValueMap 加键（值型 = 承载 ref 的值型，类型锚强制对上）；
+ *  ③ PREF_ROWS 加行（key 为落盘名、kind/范围守卫、side 副作用族按需）；
+ *  ④ api/prefs.ts GlobalPrefs 接口补可选字段（服务端合并链末端同链）。
+ * 书级可覆盖键另需 workspace store 与 book.yaml 合并链，不属本四面。
  */
 const DEFAULTS = {
   theme: 'light' as ThemeId,
@@ -746,11 +753,11 @@ export const usePrefsStore = defineStore('prefs', () => {
   // ── setter（收口）──
   // 表驱动：「写 ref →（side 副作用）→ schedulePersist」
   // 三段式收拢行工厂，clamp 参数（set）与副作用族（side）从 PREF_ROWS 行取——与
-  // applyPrefs 守卫、buildCache 组装三面单源。本批在行工厂之上再收一层：31 个同构
-  // setter 收进 SETTERS 键控映射，经泛型 set(key, value) 单出口（键类型由 PrefValueMap
-  // 推导，拼错键编译期红）；异形保留：setPageWidth / setAutosaveInterval（bookOnly 双
-  // 分支双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）、checkRepeatThreshold
-  // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断异形已收编进行 set（round2
+  // applyPrefs 守卫、buildCache 组装三面单源。行工厂之上再收一层：同构 setter 收进
+  // SETTERS 键控映射，经泛型 set(key, value) 单出口（键类型由 PrefValueMap 推导，
+  // 拼错键编译期红）；异形保留：setPageWidth / setAutosaveInterval（bookOnly 双分支
+  // 双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）、checkRepeatThreshold
+  // 复读占比守 (0,1]（>1 会把全书章节判复读）。
 
   /** 行 setter 的收尾两段：按行 side 挂副作用 → schedulePersist 防抖落 global.json。 */
   function finishRow(row: PrefRow): void {

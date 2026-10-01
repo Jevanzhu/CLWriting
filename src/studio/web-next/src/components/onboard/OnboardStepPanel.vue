@@ -256,17 +256,15 @@ function isGenerated(step: OnboardStep): boolean {
 }
 
 /* 按钮 */
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 7px 16px;
   font-size: var(--font-size-m);
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
   background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
   transition: all var(--dur-fast) var(--ease-out);
 }
 .btn.primary {

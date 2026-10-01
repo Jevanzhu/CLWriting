@@ -58,7 +58,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   defineRoute('books.outline', {
     method: 'POST',
     path: '/api/books/:name/outline',
-    // （评审）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
+    // 本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)

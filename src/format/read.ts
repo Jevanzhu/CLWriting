@@ -6,15 +6,20 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
+import { prepared } from '../shared/sqlite-prepared.js'
 import type { LeadEntry, LeadType } from './types.js'
+
+// 热路径（聚合链逐账本逐条调用）恒用连接级 prepared 缓存单源
+// （shared/sqlite-prepared.ts）；配合本文件消费方关库走 closeWithPrepared。
 
 // ── 账本查询（#4 第 4 节）────────────────────────
 
 /** 读某条线的履历（按行序） */
 export function readLeadHistory(db: DatabaseSync, leadId: string): LeadEntry[] {
-  const rows = db
-    .prepare('SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq')
-    .all(leadId) as Record<string, unknown>[]
+  const rows = prepared(
+    db,
+    'SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq',
+  ).all(leadId) as Record<string, unknown>[]
   return rows.map((r) => ({
     章号: r['chapter'] as number,
     动词: r['verb'] as string,
@@ -30,9 +35,10 @@ export function readStaleLeads(
   thresholds: Record<string, number>,
   defaultThreshold = 30,
 ): { id: string; type: LeadType; openedAt: number; age: number; overThreshold: boolean }[] {
-  const rows = db
-    .prepare(`SELECT id, type, opened_at FROM leads WHERE status = '进行中' ORDER BY opened_at`)
-    .all() as Record<string, unknown>[]
+  const rows = prepared(
+    db,
+    `SELECT id, type, opened_at FROM leads WHERE status = '进行中' ORDER BY opened_at`,
+  ).all() as Record<string, unknown>[]
   return rows.map((r) => {
     const type = r['type'] as LeadType
     const openedAt = r['opened_at'] as number
@@ -52,9 +58,10 @@ export function readStaleLeads(
 
 /** 读某章号范围的章摘要 path */
 export function readChapterSummaries(db: DatabaseSync, from: number, to: number): { ref: number; path: string }[] {
-  const rows = db
-    .prepare(`SELECT ref, path FROM summaries WHERE scope = 'chapter' AND ref BETWEEN ? AND ? ORDER BY ref`)
-    .all(from, to) as Record<string, unknown>[]
+  const rows = prepared(
+    db,
+    `SELECT ref, path FROM summaries WHERE scope = 'chapter' AND ref BETWEEN ? AND ? ORDER BY ref`,
+  ).all(from, to) as Record<string, unknown>[]
   return rows.map((r) => ({
     ref: r['ref'] as number,
     path: r['path'] as string,
@@ -71,9 +78,10 @@ export function readGrowthHistory(
   db: DatabaseSync,
   leadId: string,
 ): { chapter: number; verb: string; evidence: string; backfill?: boolean }[] {
-  const rows = db
-    .prepare('SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq')
-    .all(leadId) as Record<string, unknown>[]
+  const rows = prepared(
+    db,
+    'SELECT chapter, verb, evidence, backfill FROM lead_history WHERE lead_id = ? ORDER BY seq',
+  ).all(leadId) as Record<string, unknown>[]
   return rows.map((r) => ({
     chapter: r['chapter'] as number,
     verb: r['verb'] as string,
@@ -84,7 +92,7 @@ export function readGrowthHistory(
 
 /** 读成长线当前境界 */
 export function readCurrentRealm(db: DatabaseSync, leadId: string): string | null {
-  const row = db.prepare('SELECT cur_realm FROM leads WHERE id = ?').get(leadId) as
+  const row = prepared(db, 'SELECT cur_realm FROM leads WHERE id = ?').get(leadId) as
     { cur_realm: string | null } | undefined
   return row?.cur_realm ?? null
 }

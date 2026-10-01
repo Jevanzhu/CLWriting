@@ -618,7 +618,7 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
-          ? // 清偿mptTools 并入 promptMeta（tools 摘要键）
+          ? // promptTools 并入 promptMeta（tools 摘要键）
             {
               promptMeta: promptMeta(
                 opts.systemPrompt ?? '',
@@ -682,7 +682,10 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
       // mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——此前记 null 而
-      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
+      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50。
+      // stopReason:'mock' 为刻意的 mock 回合标记（非 provider 线值域成员）：事件层
+      // stopReason 是 string 面（trace 入参/llmCallEvent 同），不进归一联合；审计读侧
+      // 据 'mock' 一眼区分 mock 回合与真实供应商终止值（改记归一值反而把 mock 洗成真值）
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
       // ctrl 契约对齐真实路径——TaskOk.ctrl 恒为
@@ -706,7 +709,8 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
   // 判断只认注入的 mockFastPath（原为该环境变量的调用期读取）。
   if (opts.mockText !== undefined && mockFastPath) {
     // usage 对齐工具快路 MOCK_USAGE（口径）——此前文本快路
-    // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）
+    // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）。
+    // stopReason:'mock' 同工具快路口径（见上方注：mock 回合标记，不进归一联合）
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })
     finishMock()
     // 同上——ctrl 返回外部传入的 opts.ctrl（缺省新建），与真实路径契约对称

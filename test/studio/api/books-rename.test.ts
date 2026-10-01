@@ -1,0 +1,238 @@
+/**
+ * POST /api/books/:name/rename 改名闭环集成测：
+ * 磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 全量同步（防「书名/文件夹/登记名」三分歧）；
+ * 校验重名冲突 / 非法字符 / 空名 / 同名 no-op / 未知书 404 / 目标目录占用 400。
+ */
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { startServerSafe } from '../../helpers/safe-port.js'
+import { __setSpawnRunning } from '../../../src/studio/server/api/stream.js' // R26-58：spawn 闸测试夹具
+import { acquireTaskGate } from '../../../src/studio/server/api/task-gate.js' // R26-58：任务闸真实占位
+
+const OLD = '旧名测试书'
+const NEW = '新名测试书'
+let workDir = ''
+let server: http.Server | undefined
+let baseUrl = ''
+let token = ''
+
+async function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+  const r = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      'x-studio-token': token,
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  })
+  let json: unknown = null
+  try {
+    json = await r.json()
+  } catch {
+    /* 非 JSON 响应留 null */
+  }
+  return { status: r.status, json }
+}
+
+function bookYaml(title: string): string {
+  return `spec_version: 1\nkind: long\nbook:\n  title: ${title}\n  genre: 玄幻\nhost: cc\n`
+}
+
+beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), 'clwriting-rename-'))
+  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  // 登记两本书：OLD（分组布局）+ 重名冲突靶子「别的书」
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    [
+      JSON.stringify({ name: OLD, path: `长篇/${OLD}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }),
+      JSON.stringify({ name: '别的书', path: '长篇/别的书', kind: 'long' }),
+    ].join('\n') + '\n',
+  )
+  writeFileSync(join(workDir, '.clwriting', 'active'), OLD + '\n')
+  // OLD 书仓库（含一个文件，验证目录搬家内容跟随）
+  const oldRoot = join(workDir, '长篇', OLD)
+  mkdirSync(join(oldRoot, '写作', '正文'), { recursive: true })
+  writeFileSync(join(oldRoot, 'book.yaml'), bookYaml(OLD))
+  writeFileSync(join(oldRoot, '写作', '正文', '0001-开篇.md'), '# 开篇\n\n正文。\n')
+  // 别的书仓库（重名冲突靶子）
+  const otherRoot = join(workDir, '长篇', '别的书')
+  mkdirSync(otherRoot, { recursive: true })
+  writeFileSync(join(otherRoot, 'book.yaml'), bookYaml('别的书'))
+
+  server = await startServerSafe({ port: 0, workDir })
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const boot = await fetch(`${baseUrl}/api/boot`)
+  token = ((await boot.json()) as { token: string }).token
+})
+
+afterAll(async () => {
+  if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
+})
+
+describe('POST /api/books/:name/rename 全量改名', () => {
+  it('改名成功：目录搬家 + 登记/active/title 同步 + 旧名 404', async () => {
+    const oldRoot = join(workDir, '长篇', OLD)
+    const newRoot = join(workDir, '长篇', NEW)
+    expect(existsSync(oldRoot)).toBe(true)
+    expect(existsSync(newRoot)).toBe(false)
+
+    const r = await req('POST', `/api/books/${encodeURIComponent(OLD)}/rename`, { name: NEW })
+    expect(r.status).toBe(200)
+    expect(r.json).toMatchObject({ ok: true, renamed: true, name: NEW, path: `长篇/${NEW}` })
+
+    // 磁盘：旧目录没了、新目录在、内容跟着搬
+    expect(existsSync(oldRoot)).toBe(false)
+    expect(existsSync(join(newRoot, '写作', '正文', '0001-开篇.md'))).toBe(true)
+    // book.yaml title 同步
+    expect(readFileSync(join(newRoot, 'book.yaml'), 'utf8')).toContain(`title: ${NEW}`)
+    // 登记更新：新名在、旧名不在、未知字段（created_at）保留
+    const entries = readFileSync(join(workDir, '.clwriting', 'books.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+    const entry = entries.find((e) => e.name === NEW)
+    expect(entry).toBeDefined()
+    expect(entry!.path).toBe(`长篇/${NEW}`)
+    expect(entry!.created_at).toBe('2026-01-01T00:00:00.000Z')
+    expect(entries.find((e) => e.name === OLD)).toBeUndefined()
+    // active 指针换新
+    expect(readFileSync(join(workDir, '.clwriting', 'active'), 'utf8').trim()).toBe(NEW)
+    // 旧名 404、新名 200（title 已同步）
+    expect((await req('GET', `/api/books/${encodeURIComponent(OLD)}`)).status).toBe(404)
+    const nb = await req('GET', `/api/books/${encodeURIComponent(NEW)}`)
+    expect(nb.status).toBe(200)
+    expect((nb.json as { title: string }).title).toBe(NEW)
+  })
+
+  it('GG-P2-8：改名走文本级单键替换——# 注释 / 未知段 / 未知子键逐字保留', async () => {
+    const NAME = '注释保形书'
+    const root = join(workDir, '长篇', NAME)
+    mkdirSync(root, { recursive: true })
+    // 登记追加（readBooks 每请求读盘，beforeAll 已写的两行之上补第三本）
+    const reg = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(
+      reg,
+      readFileSync(reg, 'utf8') + JSON.stringify({ name: NAME, path: `长篇/${NAME}`, kind: 'long' }) + '\n',
+    )
+    const rich =
+      [
+        'spec_version: 1',
+        '# 作者手写总注释：改名不许丢我',
+        'kind: long',
+        'book:',
+        `  title: ${NAME}`,
+        '  genre: 玄幻',
+        '  custom_key: 自定义子键',
+        '  # 段内注释',
+        'host: cc',
+        'unknown_section:',
+        '  keep: me',
+        'budget:',
+        '  calls_per_chapter: 6',
+      ].join('\n') + '\n'
+    writeFileSync(join(root, 'book.yaml'), rich)
+
+    const r = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: '注释保形书2' })
+    expect(r.status).toBe(200)
+
+    // 唯一改动 = title 行（原实现 readBookConfig→stringify 全量重生成会丢注释/未知段/未知子键）
+    const after = readFileSync(join(workDir, '长篇', '注释保形书2', 'book.yaml'), 'utf8')
+    expect(after).toBe(rich.replace(`  title: ${NAME}`, '  title: 注释保形书2'))
+  })
+
+  it('重名冲突 → 400', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: '别的书' })
+    expect(r.status).toBe(400)
+    expect((r.json as { error: string }).error).toContain('已有一本')
+  })
+
+  it('非法字符（路径分隔符）→ 400', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: 'a/b' })
+    expect(r.status).toBe(400)
+  })
+
+  it('空书名 → 400', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: '  ' })
+    expect(r.status).toBe(400)
+  })
+
+  it('同名 no-op → renamed:false 且目录不动', async () => {
+    const newRoot = join(workDir, '长篇', NEW)
+    const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: NEW })
+    expect(r.status).toBe(200)
+    expect(r.json).toMatchObject({ ok: true, renamed: false, name: NEW })
+    expect(existsSync(newRoot)).toBe(true)
+  })
+
+  it('未知书 → 404', async () => {
+    const r = await req('POST', '/api/books/不存在/rename', { name: 'x' })
+    expect(r.status).toBe(404)
+  })
+
+  it('目标目录已存在且非空 → 400', async () => {
+    // 造一个与改名目标同名的非空目录（未登记），改名到它会撞目录级冲突
+    const clash = join(workDir, '长篇', '撞名目录')
+    mkdirSync(clash, { recursive: true })
+    writeFileSync(join(clash, 'x.md'), 'x')
+    const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: '撞名目录' })
+    expect(r.status).toBe(400)
+  })
+})
+
+// ── R26-58（二十六轮）：同名/目录未动早退分支挪到编排闸检查之后 ──
+// 原实现该分支在 busyGate 之前，同名改名完全绕过 spawn/三审/任务闸联合检查
+// （title 同步写 book.yaml 与在途任务并发）。修复后同名也过闸：闸忙 409，
+// 空闲时维持 200 renamed:false 契约（上方「同名 no-op」用例）。
+
+describe('R26-58: rename 同名早退分支过编排闸', () => {
+  /** 登记一本独立书（目录 + book.yaml + books.jsonl 追加），返回书名。 */
+  function registerBook(name: string): void {
+    const root = join(workDir, '长篇', name)
+    mkdirSync(root, { recursive: true })
+    writeFileSync(join(root, 'book.yaml'), bookYaml(name))
+    const reg = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name, path: `长篇/${name}`, kind: 'long' }) + '\n')
+  }
+
+  it('spawn 在途时同名改名 → 409 BUSY；释放后 → 200 renamed:false', async () => {
+    const NAME = '同名闸书甲'
+    registerBook(NAME)
+
+    __setSpawnRunning(NAME, true)
+    try {
+      const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+      expect(busy.status).toBe(409)
+      // R0916-7-P3-12：忙闸文案单源化——此处原断言旧文案（「本书正在生成（手动写稿）……」
+      // 生成系措辞），统一为矩阵 spawn 信号句「本书正在手动写稿，先等它跑完或中断」
+      expect((busy.json as { error: string }).error).toContain('手动写稿')
+    } finally {
+      __setSpawnRunning(NAME, false)
+    }
+    const ok = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toMatchObject({ ok: true, renamed: false, name: NAME })
+  })
+
+  it('任务闸（analyze）在途时同名改名 → 409 BUSY；释放后恢复', async () => {
+    const NAME = '同名闸书乙'
+    registerBook(NAME)
+
+    const release = acquireTaskGate(NAME, 'analyze')!
+    try {
+      const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('任务在跑')
+    } finally {
+      release()
+    }
+    const ok = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toMatchObject({ ok: true, renamed: false })
+  })
+})

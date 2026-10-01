@@ -14,6 +14,9 @@ import './styles/utilities.css'
 // 设置域共享类（.val/.save-btn/.seg 药丸等）被设置域外组件消费（右栏面板、导出弹窗），
 // 全局装载使依赖显式化（原先靠 SettingsModal 被静态 import 间接生效）。
 import './components/ui/settings-shared.css'
+// 按钮基类共享声明（.btn 的 border/color/cursor 三条，15 处 scoped 块逐字重复）——
+// 全局装载，各组件 scoped 内只留 padding/圆角/底色等差异声明。
+import './components/ui/btn-shared.css'
 
 // 启动：boot 取 token → 加载全局偏好（.clwriting/global.json）→ 挂载应用。
 // html 根挂平台标记（win32/mac/…），供全局 CSS 按平台分支（如 win 字体栈适配）。

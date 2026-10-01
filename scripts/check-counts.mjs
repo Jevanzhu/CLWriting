@@ -463,6 +463,22 @@ export function archiveCountProblem(docText, actual) {
   return Number(row[1]) === actual ? null : `Dev/Docs Archive 篇数：Dev/Docs/README.md 声称 ${row[1]}，实测 ${actual}`
 }
 
+/**
+ * `CLAUDE.md` 的「全量 N 档」测试档数对账（09-30 复审 §六 测试/工具链条）。
+ *
+ * 该档此前不在本门射程：CLAUDE.md 的 L1 提速说明里写着一个测试档数，实际档数随批次
+ * 增长而漂移（门只管根 README 与研究 README），且这句是作者判断「跑哪一档」的依据——
+ * 数字陈旧会误导决策。同「索引面自称值」口径并入本门：实测档数为准。
+ *
+ * 只校档数：「/ N 秒」为单机耗时读数，随机器与负载浮动，不作门（正本改数时以当批实跑值为准）。
+ * 返回失配说明串；一致返回 null。无该句视为失配（fail-closed）。
+ */
+export function claudeUnitFilesProblem(docText, actual) {
+  const row = String(docText).match(/全量\s*(\d+)\s*档/)
+  if (!row) return `CLAUDE.md 缺少「全量 N 档」档数声称值（实测 ${actual} 档）`
+  return Number(row[1]) === actual ? null : `CLAUDE.md 全量测试档数：声称 ${row[1]}，实测 ${actual}`
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 // vitest 5 升级批（阶段 39）：win/linux 平台门差值解析（parseWinPlatformDelta /
@@ -615,6 +631,10 @@ function main() {
   const archiveActual = walk(join(root, 'Dev', 'Docs', 'Archive'), (n) => n.endsWith('.md')).length
   const archiveProblem = archiveCountProblem(ddReadme, archiveActual)
   if (archiveProblem) mismatch.push(archiveProblem)
+
+  // 索引面第三处自称值：治理正本 CLAUDE.md 的「全量 N 档」（见 claudeUnitFilesProblem 头注）
+  const claudeProblem = claudeUnitFilesProblem(readFileSync(join(root, 'CLAUDE.md'), 'utf8'), actual.unitFiles)
+  if (claudeProblem) mismatch.push(claudeProblem)
 
   // R1010c-TL-P2-2：双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
   const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}

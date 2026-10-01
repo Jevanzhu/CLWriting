@@ -27,12 +27,9 @@ import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
-import { readIronRules } from '../metrics/style.js'
-import { log } from '../log/index.js' // 候选目录清理失败留痕
-import type { IronRules } from '../format/iron-rules.js'
+import { log, errMsg } from '../log/index.js' // log：候选目录清理失败留痕；errMsg：错误摘要口径单源
+import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { yieldToEventLoop } from '../async.js'
-// （errMsg 收编）：错误摘要口径单源
-import { errMsg } from '../log/index.js'
 
 /** 样章候选数 */
 export interface SampleCandidate {

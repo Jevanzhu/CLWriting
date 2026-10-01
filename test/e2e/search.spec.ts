@@ -3,13 +3,31 @@
  *
  * fixture 埋词：长篇 0001/0002 含「玉佩」（正文）+ 角色 林远.md 关系 + 悬念。
  * 命中 .result，点击 open(path) → doc.open + openTab → cm 渲染。
+ *
+ * P2-13（09-30 评审修复批）：本 spec 全链只读（不落盘、不建书、不改 fixture），迁独立
+ * server（端口偏移 6）+ 自有 workDir——既不再吃共享 workDir 上「前序 spec 改过 0001/0002
+ * 正文」的状态（命中数恒定来自 fixture 原始正文），本 spec 的 flake 也不再染给后序 spec。
+ * 起停样板见 ./independent-server.ts（不重复自持拷贝）。
  */
 import { test, expect } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
+
+let srv: IndependentServer
+
+test.beforeAll(async () => {
+  // userDataPath: false —— 对齐 globalSetup 主 server 口径（不传 = 无事件库），
+  // 只把 workDir 换成自有目录，搜索面语义逐位不变
+  srv = await startIndependentServer({ tag: 'search', offset: 6, userDataPath: false })
+})
+
+test.afterAll(async () => {
+  await srv.close()
+})
 
 test('全书搜索 → 命中 → 跳转开 tab', async ({ page }) => {
   attachPageErrorBaseline(page, 'search')
-  await page.goto('/')
+  await page.goto(`${srv.base}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 切搜索面板
   await page.locator('.rbtn[data-tip="搜索"]').click()

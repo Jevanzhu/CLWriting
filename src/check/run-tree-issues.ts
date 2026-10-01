@@ -540,8 +540,8 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       // 格式变更同路径：值空间不相交即天然失效，无需额外版本号）。
       let chapterSt: { mtimeNs: bigint; size: number }
       try {
-        const st = statSync(ch._path, { bigint: true })
-        chapterSt = { mtimeNs: st.mtimeNs, size: Number(st.size) }
+        const chapterStat = statSync(ch._path, { bigint: true })
+        chapterSt = { mtimeNs: chapterStat.mtimeNs, size: Number(chapterStat.size) }
       } catch {
         continue // 竞态消失（回收站/删除）：本条跳过
       }

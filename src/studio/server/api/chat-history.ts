@@ -17,10 +17,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
-import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
+import { withSessionStoreOr500 } from './session-store-guard.js'
+import { type SessionStore } from '../../../events/store.js'
 import { loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
 import { buildBranchTree, defaultBranchId, selectBranch } from '../../../events/branch-tree.js'
-import { errMsg } from '../../../log/index.js' // errMsg 收编：错误文案三目单源
 
 interface ChatHistoryCtx {
   workDir: string | null
@@ -147,25 +147,11 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       // L-：?limit= 尾窗（正整数，上限 1000）——防长书全量投影出网
       const rawLimit = Number(url.searchParams.get('limit'))
       const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
-      // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-      // userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
-      // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
-      // 勘误：库损坏/权限等首开失败是**抛错**不是返回 null
-      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
-      // e.message 人话透传（含损坏分类的可行动指引；经统一脱敏出口）
-      // 开库走异步孪生（首开锁等待不阻塞服务事件循环）
-      let store: SessionStore | null
-      try {
-        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
-      } catch (e) {
-        return replyError(res, 500, 'STORE_UNAVAILABLE', `事件库不可用（无法打开会话存储）：${errMsg(e)}`)
-      }
-      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
-      try {
+      // userDataPath 非空已确认 → store 必建库；开库/500 信封/close 收口走
+      // session-store-guard 单源（开库走异步孪生，首开锁等待不阻塞服务事件循环）
+      await withSessionStoreOr500(res, ctx.userDataPath, bookRoot, (store) => {
         reply(res, 200, buildChatHistoryView(store, bookName, branch, limit))
-      } finally {
-        store.close()
-      }
+      })
     },
   })
 }

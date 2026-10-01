@@ -140,7 +140,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // 重连接管）时中止，防旧语境探测迟到补发 429 指引
   let probeCtrl: AbortController | null = null
 
-  // （评审）：连接状态收成显式状态对象——此前 9 个标志散落为独立
+  // 连接状态收成显式状态对象——此前 9 个标志散落为独立
   // let，复位清单逐行抄在 onopen 与 connect 两处（7 处重复），新增标志漏抄一处即跨纪元
   // 残留。现聚拢进 SseEpochState，纪元边界（onopen 成功 / 切书 connect / 断开 disconnect）
   // 统一经 resetEpoch 单点复位；退避/429 指引/失配连记各分支只读写字段，语义逐位不变。

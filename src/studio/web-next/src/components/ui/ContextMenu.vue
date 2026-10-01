@@ -47,7 +47,7 @@ const flipY = ref(false)
 // 菜单、ArrowRight 未接线，飞出项唯一可达路径是鼠标 hover。不修的权衡：桌面端（唯一
 // 生产路径）走 Electron 原生 Menu 全键盘可达，回退版仅 dev/web 模式触达；飞出层接入
 // roving 需 ArrowRight/Left 跨层焦点机（原生 menu 弹层惯例），改动面与本组件「薄回退」
-// 定位不称。台账 §三挂账，触发条件 = 浏览器版转正。
+// 定位不称。挂账锚 = 总览 §三「已登记开放项」，触发条件 = 浏览器版转正。
 /** 键盘高亮项在 navItems 中的序；-1 = 未初始化 */
 const activeIdx = ref(-1)
 /** 顶层可导航项（跳过分隔线；idx = props.items 下标，供 id/aria 对应） */

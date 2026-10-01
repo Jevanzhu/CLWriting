@@ -120,8 +120,8 @@ export async function runWriterSpawn(opts: {
     // 二段：强释放——只放闸，不在此注销 ctrl：注销唯一落点在底层 run settle（本函数终态
     // finally）。在此注销则一段 abort 未触达底层 runTask 时（ctrl 尚未登记，或请求无视中止
     // 信号）ctrl 一经注销 isRunning 即假空闲，后续 /interrupt 对该在途请求永久失联；保留注册
-    // 至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort，同 owner 的新登记亦会
-    // owner 的新登记亦会 abort 旧 ctrl 防僵尸。
+    // 至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort；同 owner 的新登记亦会
+    // abort 旧 ctrl 防僵尸。
     forceRelease: () => {
       releaseSpawnGate(opts.bookName)
       opts.driver.emit(opts.mainSession, {
@@ -588,7 +588,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         isSelfHealRunning(bookName) ||
         isChatRunning(bookName) ||
         isSpawnRunning(bookName) ||
-        (session0 !== null && (driver0.isRunning?.(session0) ?? false))
+        // isRunning 为必需成员（mock 显式 false 桩）——与下方复检同口径，不写可选链
+        (session0 !== null && driver0.isRunning(session0))
       // 返回值如实附 interrupted——true = 在途任务确被下达中断动作；false =
       // 判定时刻本就无在途（含已注册 ctrl 的 outline/review/analysis 等端点——其
       // ctrl 经 driver.isRunning 判真走真实中断路径），不做无差别 {ok:true} 假成功。
@@ -736,8 +737,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
           .catch((e) => emitSpawnError(driver, mainSession, e))
           .finally(() => {
             wd.cancel() // 终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
-            // 底层 run settle 的注销点（唯一）——二段强释放不提前注销
-            // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
+            // 底层 run settle 的注销点（唯一）——二段强释放不提前注销，
+            // 强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
             if (registered) driver.unregisterCtrl(mainSession, registered)
           }),
       )

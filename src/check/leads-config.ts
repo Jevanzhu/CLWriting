@@ -1,7 +1,7 @@
 /**
  * 账本类配置派生（纯粹函数据此单点：基础两类 + book.yaml leads.enabled）。
  *
- * （全项目源码质量与优雅度评审）：本函数原在 check/runner.ts
+ * 本函数原在 check/runner.ts
  * （机检总 runner 聚合机检），树红点聚合族（run-tree-issues.ts）只是要一个「配置派生
  * 类表」却因此把整个聚合机检模块拉进依赖——树聚合需读的 readCheckConfig / openCheckDb /
  * checkWithDb 在单章机检链（run-single-doc.ts），反向经 run.ts 兼容桥又回到聚合族，

@@ -9,25 +9,26 @@
  *
  * 同步 API（node:sqlite DatabaseSync，同 rag/store.ts 模式）。
  *
- * 拆分沿革（⑤④产品巨件拆分波3）：本单件（1355 行）三缝
- * 纯移动拆分——跨进程开口标记 + 迁移墓碑族 → store-open-markers.ts（缝 A）；
- * 行读取族（SessionRow/Row/rowToEvent/safeRowToEvent）→ store-rows.ts（缝 B）；
- * 书 hash 定位族 + 迁移锁族 → store-migrate.ts（缝 C）。本残核保留：开库门面
- * （openSessionStore/Async、SessionStore/NewEvent）prepared 语句缓存族
- * （closeEventsDb 函数本体被 test/events/store-prepared-cache-release.test.ts 结构
- * 契约钉在本文件源文本）、孤儿修复、连接单例族、开口标记续期 let 与其注入
- * setter（禁 export let，唯一读点在 firstOpenStore 故留残核）、
+ * 模块划分（本文件 = 残核；运行时依赖单向：本文件 → 各职责族文件，四者均不回引）：
+ * - store-open.ts：首开壳（迁移墓碑判定 + 建目录/开库 + 打开期 PRAGMA/WAL +
+ *   首开 DDL + 打开期错误收口），首开核心 firstOpenStoreCore 由本文件开库壳调用；
+ * - store-open-markers.ts：跨进程开口标记 + 迁移墓碑后缀；
+ * - store-rows.ts：行读取族（SessionRow/Row/rowToEvent/safeRowToEvent）；
+ * - store-migrate.ts：书 hash 定位族 + 迁移锁族。
+ * 本残核保留：开库门面（openSessionStore/Async、SessionStore/NewEvent）、prepared
+ * 语句缓存族（closeEventsDb 函数本体被 test/events/store-prepared-cache-release.test.ts
+ * 结构契约钉在本文件源文本）、孤儿修复、连接单例族、开口标记续期 let 与其注入
+ * setter（禁 export let，唯一读点在残核开库壳故留残核）、
  * migrateBookSession（其墓碑预写调用点被 test/events/store-migrate-tombstone.test.ts
  * 写侧静态扫描钉在本文件源文本，且消费 openStores/closeEventsDb，移出必造环回引）
- * 与 firstOpenStore（巨型对象字面量——重设计立案件，登记台账 §三 E 域，本批
- * 零触碰）。迁出公开名 bookHash/sessionMigrateLockPath/getSessionMigrateLockTimeoutMs/
- * __setSessionMigrateLockTimeoutForTest 与类型 SessionRow 经下方逐名 re-export 桥
- * 接，全库消费方 import 面零改动。运行时依赖单向：本文件 → store-open-markers/
- * store-rows/store-migrate，三新文件均不回引本模块，无环。本头注上方原文全部
- * 历史记载原样保留。
+ * 与 firstOpenStore（墓碑/建库段委托 firstOpenStoreCore，残核只留引用计数缓存登记
+ * 段）。迁出公开名 bookHash/sessionMigrateLockPath/getSessionMigrateLockTimeoutMs/
+ * __setSessionMigrateLockTimeoutForTest、开库单元 clearStaleMigrationTombstone/
+ * applyOpenPragmas/createEventsSchema 与类型 SessionRow 经下方逐名 re-export 桥接，
+ * 全库消费方 import 面零改动。
  */
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 // ulid 改直连 fs/id.ts 单源（events→document 跨层边消除；
 // document/stable-id.js 的 re-export 垫片保留给 document 域既有调用方，勿再扩散）
@@ -38,13 +39,8 @@ import { log, errMsg } from '../log/index.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
 import { safeRowToEvent, type Row, type SessionRow } from './store-rows.js'
-import {
-  MIGRATED_EXT,
-  sweepOpenMarkers,
-  registerOpenMarker,
-  touchOpenMarker,
-  releaseOpenMarker,
-} from './store-open-markers.js'
+import { MIGRATED_EXT, sweepOpenMarkers, releaseOpenMarker } from './store-open-markers.js'
+import { firstOpenStoreCore } from './store-open.js'
 import {
   bookHash,
   sessionMigrateLockPath,
@@ -60,6 +56,7 @@ export {
   getSessionMigrateLockTimeoutMs,
   __setSessionMigrateLockTimeoutForTest,
 } from './store-migrate.js'
+export { clearStaleMigrationTombstone, applyOpenPragmas, createEventsSchema } from './store-open.js'
 export type { SessionRow } from './store-rows.js'
 
 // sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
@@ -417,211 +414,19 @@ export async function openSessionStoreAsync(
   }
 }
 
-/** 首开核心（建库 + DDL + 孤儿修复 + 开口标记 + 登记缓存）——
- *  自 openSessionStore 抽出，同步/异步两个开库壳共用（防两壳各持一份 DDL/修复逻辑
- *  漂移）；调用方须已持 session 迁移锁，锁释放归开库壳（同步壳/异步壳各自的 finally
- *  releaseOpenLock）——首开核心自身无锁可放。
- *  WAL 切换退避（SQLITE_BUSY 重试）内的 Atomics.wait 微睡 ≤1.8s 有界保留：首开段
- *  已被迁移锁跨进程串行化，退避仅在他进程**已开库连接**持写锁的窗口触发，且
- *  DatabaseSync 的 DDL 序列是同步共用面不宜双轨化（收口记登记）。
- *  残留清偿批复核维持：busy_timeout=5000 本身使 db.exec 在 SQLite
- *  内部同步等待——微睡异步化不消除真阻塞源（node:sqlite 无异步 API），双轨化只
- *  增 DDL 漂移面。此为本链同步残留登记中唯一的「不可异步化」架构项。
- *  （评审）：按职责拆为可命名单元——迁移墓碑
- *  （clearStaleMigrationTombstone）/ 打开期 PRAGMA 与 WAL（applyOpenPragmas）/
- *  DDL（createEventsSchema）/ 打开全流程错误收口（openEventsDbWithDdl）/
- *  预置与修复（repairOrphanSessions + 开口标记续期 + maybeRepairOrphans）/
- *  方法族按职责分组（createWriteMethods 等四个分组工厂）。对外句柄形状与行为不变。 */
-/** IR-2SQLite 库文件损坏类错误判据——node:sqlite 对
- *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
- *  宁可漏判走原样上抛，不误判把 BUSY/IOERR 包装成「损坏」。 */
-function isDbCorruptionError(e: unknown): boolean {
-  const msg = errMsg(e)
-  return /file is not a database|database disk image is malformed|malformed database image|unsupported file format/i.test(
-    msg,
-  )
-}
-
-/** 旧路径库文件缺失 + 墓碑在位 = 该库曾随书改名迁走——分两态：
- *  旧书根目录已不存在（书确实改名迁走，stale 书目录视图的进程迟来首开）且墓碑
- *  指向的新库还活着 → fail-closed 抛错拒建空库（建空库会让事件流分裂成两半，走
- *  调用方既有 catch 降级 null）；旧根目录又在（同路径重新建书）或新库也已不存在
- *  （再迁移/已删书）→ 墓碑过期，清除后放行正常新建。
- * 导出供回归直测（生产唯一调用点在 firstOpenStore 首开头）。 */
-export function clearStaleMigrationTombstone(bookRoot: string, dbPath: string): void {
-  if (existsSync(dbPath) || !existsSync(dbPath + MIGRATED_EXT)) return
-  let to: unknown = null
-  try {
-    to = (JSON.parse(readFileSync(dbPath + MIGRATED_EXT, 'utf-8')) as { to?: unknown }).to
-  } catch {
-    // 墓碑不可解析（写中途进程死留下的半截 JSON——写侧已改
-    // atomicWriteFile 杜绝新发，此为存量/外因形态）不当作「无墓碑」清除放行：
-    // 清除后本处按正常缺库重建空库，事件流在新旧两路径分裂（要防的正是
-    // 这个）。保留墓碑 + fail-closed 拒建，走调用方既有 catch 降级 null；作者按
-    // 告警人工核对迁移目标（修复墓碑 JSON 或确认旧库确已废弃后手删）。
-    log.error(
-      'events',
-      `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——保留墓碑并拒绝在旧路径重建空库，请人工核对迁移目标（合法形：${'{ to: <新库绝对路径>, at: <毫秒> }'}）`,
-    )
-    throw new Error(
-      `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`,
-    )
-  }
-  if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
-    throw new Error(`事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`)
-  }
-  try {
-    rmSync(dbPath + MIGRATED_EXT, { force: true })
-  } catch {
-    /* 清除失败维持原样：下次首开再试 */
-  }
-}
-
-/** 打开期 PRAGMA + WAL 切换（须在 DDL 之前）：busy_timeout 必须先于 journal_mode=WAL
- *  设置——WAL 切换在 journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，
- * 会立即抛 SQLITE_BUSY。
- * 导出供回归直测（生产唯一调用点在 openEventsDbWithDdl 首开段）。 */
-export function applyOpenPragmas(db: DatabaseSync): void {
-  // 补：busy_timeout 先设（见上）
-  db.exec('PRAGMA busy_timeout = 5000')
-  // （裁定维持不加深退避）：审查项「8 次退避耗尽仍可抛 SQLITE_BUSY」
-  // ——耗尽即抛是 fail-closed 正确出口，不是缺陷：每轮失败前 busy_timeout 已在
-  // SQLite 内部等待 5s，8 轮 × 5s + 退避 1.8s ≈ 42s 仍抢不到，说明对手是僵死
-  // 写方（SIGSTOP 挂起/磁盘级卡死），再等只会把「打开失败可重试」拖成分钟级假死；
-  // 抛错走调用方既有 catch 降级 null，无数据损伤。维持 8 次 + 线性退避现状。
-  // WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
-  // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
-  // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
-  let lastErr: unknown
-  for (let i = 0; i < 8; i++) {
-    try {
-      db.exec('PRAGMA journal_mode = WAL')
-      lastErr = null
-      break
-    } catch (err) {
-      // 库损坏是确定性错误，退避重试只会空转 8×（busy_timeout 5s 内部
-      // 等待 + 微睡）——立即上抛走外层分类包装（含可行动指引）
-      if (isDbCorruptionError(err)) throw err
-      lastErr = err
-      const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
-      if (mode === 'wal') {
-        lastErr = null
-        break
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
-    }
-  }
-  if (lastErr !== null) throw lastErr
-}
-
-/** 首开 DDL：events / sessions 建表 + 检索索引 + 分支元数据生成列。
- * 导出供回归直测（生产唯一调用点在 openEventsDbWithDdl 首开段）。 */
-export function createEventsSchema(db: DatabaseSync): void {
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS events (
-      seq         INTEGER PRIMARY KEY,
-      session_id  TEXT NOT NULL,
-      turn        INTEGER,
-      step        INTEGER,
-      type        TEXT NOT NULL,
-      data        TEXT NOT NULL,
-      surface_op  TEXT,
-      shadow_start INTEGER,
-      shadow_end   INTEGER,
-      source_seqs  TEXT,
-      replace_generation INTEGER NOT NULL DEFAULT 0,
-      created_at   INTEGER NOT NULL
-    )`,
-  )
-  db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
-  // ──：分支元数据检索列 + 部分索引 ──
-  // firstBranchMetaSeq 原 `data LIKE '%"branchId"%' OR LIKE '%"parentSeq"%'` 谓词无
-  // 可用索引，chat-history 真尾窗每次请求全表扫描（node:sqlite 同步 API 直接停在
-  // 事件循环上，翻倍前扩循环里最坏反复全扫）。改 VIRTUAL 生成列（instr 确定性函数，
-  // 读时零存储按行求值）+ 部分索引（只收录携带分支元数据的行，体量 = 分支事件数级，
-  // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_xinfo 判列后 ALTER 补列（幂等，
-  // 首开一次 ALTER O(1) 元操作 + 建索引一次全行扫描），新库建表（上方，无此列）同样
-  // 走到本处补齐——单点单路径防新旧两态 schema 漂移。ALTER 生成列须 SQLite ≥3.31
-  // （node:sqlite 内建版远高于此，见分支 meta 索引回归用例的实证断言）；若未来
-  // node:sqlite 拒绝 ALTER 加生成列，回退方案 = 独立 branch_meta 影子表（本批未采）。
-  {
-    // 判列必须走 table_xinfo——生成列是 hidden 列（hidden=2），table_info 不列出
-    //（误判缺列会让每次重开库都重跑 ALTER 撞 duplicate column）
-    const cols = db.prepare('PRAGMA table_xinfo(events)').all() as Array<{ name: string }>
-    if (!cols.some((c) => c.name === 'has_branch_meta')) {
-      db.exec(
-        `ALTER TABLE events ADD COLUMN has_branch_meta INTEGER GENERATED ALWAYS AS
-         (instr(data, '"branchId"') > 0 OR instr(data, '"parentSeq"') > 0) VIRTUAL`,
-      )
-    }
-  }
-  db.exec('CREATE INDEX IF NOT EXISTS idx_events_branch_meta ON events(session_id, seq) WHERE has_branch_meta = 1')
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS sessions (
-      session_id TEXT PRIMARY KEY,
-      format_version INTEGER NOT NULL DEFAULT 1,
-      book        TEXT NOT NULL,
-      header      TEXT NOT NULL,
-      created_at   INTEGER NOT NULL,
-      updated_at   INTEGER NOT NULL
-    )`,
-  )
-}
-
-/** 首开全流程（建目录 + 开库 + PRAGMA/WAL + DDL + 孤儿修复 +
- *  开口标记登记）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——此刻尚未登记
- *  openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级 null 继续跑，
- *  句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）。 */
-function openEventsDbWithDdl(
-  dir: string,
-  dbPath: string,
-): { db: DatabaseSync; markerTimer: ReturnType<typeof setInterval> } {
-  mkdirSync(dir, { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  try {
-    applyOpenPragmas(db)
-    createEventsSchema(db)
-    repairOrphanSessions(db, activeChatSessions)
-    // 首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
-    // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。
-    registerOpenMarker(dir, dbPath)
-    // 起续期定时器——活句柄定期刷标记 mtime；进程挂死/崩溃后停止续期，
-    // 超龄标记在扫描时按 pid 复用残留 GC（见 sweepOpenMarkers）。unref 不阻退出。
-    // 打开期抛错则不启动（标记登记在 repair 之后，异常路径无续期定时器可留）。
-    const markerTimer = setInterval(() => touchOpenMarker(dbPath), OPEN_MARKER_RENEW_MS)
-    markerTimer.unref()
-    return { db, markerTimer }
-  } catch (e) {
-    try {
-      closeEventsDb(db)
-    } catch {
-      /* best-effort：close 自身失败不再遮蔽原始错误 */
-    }
-    // 库文件损坏原样上抛裸 SQLite 码（「file is not
-    // a database」），调用方降级 null 后用户只看到「事件库不可用」无任何可行动
-    // 线索。事件是对话史/审计产品数据，不做静默删库自愈——换含路径与恢复指引的
-    // 人话错误（原始错误挂 cause 保诊断链），经 chat-history 族结构化 500 透传。
-    if (isDbCorruptionError(e)) {
-      throw new Error(
-        `事件库文件损坏（${dbPath}），对话史/审计/链路事件暂不可读。` +
-          `请先备份并移走该文件后重试——应用将重建空库（旧事件记录不会自动恢复）`,
-        { cause: e },
-      )
-    }
-    throw e
-  }
-}
-
 function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
-  // 迁移墓碑判定（旧路径拒建空库 / 过期清除）先于建库
-  clearStaleMigrationTombstone(bookRoot, dbPath)
-  const { db, markerTimer } = openEventsDbWithDdl(dir, dbPath)
-  // 登记/挂缓存段不碰库文件（纯内存，轻快）；注释勘误——
-  // 本段实际仍在首开锁内执行（firstOpenStore 全程持 session 迁移锁，锁释放归开库壳
-  // finally，openStores.set 在本函数末尾、锁释放前）。原注「留在锁外」与实态相反，
-  // 会误导后续维护者：锁内登记正是异步壳拿锁后双检缓存（openSessionStoreAsync 拿锁
-  // 再查 openStores）能命中先到者的前提——若据此「锁外」表述把登记挪到锁外或删双检，
-  // 会重开双进程并发首开的重复建库窗口。勿改时序。
+  // 墓碑判定 + 建库/DDL/孤儿修复/开口标记登记委托首开核心（store-open.ts）；本残核
+  // 只持引用计数缓存登记段。调用方须已持 session 迁移锁（本函数不改锁时序）。
+  const { db, markerTimer } = firstOpenStoreCore(bookRoot, dir, dbPath, {
+    repairOrphans: (target) => repairOrphanSessions(target, activeChatSessions),
+    closeDb: closeEventsDb,
+    markerRenewMs: OPEN_MARKER_RENEW_MS,
+  })
+  // 登记/挂缓存段不碰库文件（纯内存，轻快）；本段仍在首开锁内执行（firstOpenStore
+  // 全程持 session 迁移锁，锁释放归开库壳 finally，openStores.set 在本函数末尾、
+  // 锁释放前）——勿改时序：锁内登记正是异步壳拿锁后双检缓存
+  // （openSessionStoreAsync 拿锁再查 openStores）能命中先到者的前提；若把登记挪到
+  // 锁外或删双检，会重开双进程并发首开的重复建库窗口。
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
   const ctx: StoreCtx = { db, dbPath, entry }
   /** 方法族按职责分组装配（写入 / 读 / 会话行 / 维护）——分组内的声明

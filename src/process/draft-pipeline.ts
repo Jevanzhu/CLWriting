@@ -30,7 +30,7 @@ import {
   type Manifest,
   type ManifestEntry,
 } from '../document/manifest.js'
-import { readTrashManifest } from '../document/trash.js'
+import { readTrashManifestStrict } from '../document/trash.js'
 import {
   writeVersion,
   readGlobalSnapshotPolicy,
@@ -196,14 +196,18 @@ export async function saveDraft(
   // 归属是歧义的（清单/快照/journal 按 docId 认路径，trash 条目也认它），覆写会加深
   // 错乱——中止上抛交作者先在回收站决断。路径不存在的「删后重写」不拦：那是新文件，
   // 旧内容仍在回收站可还原（故意重写不受阻）。
-  if (existsSync(absPath) && readTrashManifest(bookRoot).some((e) => e.originalPath === relPath)) {
+  // 守卫族读走 strict（与 executeSave/applyChapterMerge/trash/purge 同纪律）——容错读
+  // 在瞬态读失败（win EBUSY/EACCES/EIO）下静默返空表，守卫按「无登记」放行，可致
+  // 清单出现 doc_ 与 legacy 双条目认领同路径（该路径后续恒 fail-closed）。
+  if (existsSync(absPath) && readTrashManifestStrict(bookRoot).some((e) => e.originalPath === relPath)) {
     throw new Error(
       `目标 ${relPath} 同时存在于磁盘与回收站登记（可能是恢复中断的残留），已中止写入——请先在回收站完成还原或清除`,
     )
   }
-  // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
+  // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）；
+  // strict 读同上方守卫口径——读失败上抛（调用方 500 信封/重试），不按空清单放行
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const manifest = readManifest(manifestPath)
+  const manifest = readManifestStrict(manifestPath)
   let registeredId: string | null = null
   for (const e of manifest.entries.values()) {
     if (e.path === relPath) {
@@ -231,7 +235,8 @@ export async function saveDraft(
     // 锁内复核（executeSave 纪律对齐）——resolveDraftPath 与
     // manifest 反查都在取锁前，等锁窗口内他进程 doMoveOrRename 可把登记路径移走；
     // 复核 manifest 登记路径仍等于 relPath，不等 = 世界已变，上抛拒绝（不复活旧路径副本）。
-    const liveManifest = readManifest(manifestPath)
+    // 复核读同 strict 口径——容错读返空表时复核整段失明（本复核的全部判据都在表内）
+    const liveManifest = readManifestStrict(manifestPath)
     for (const e of liveManifest.entries.values()) {
       if (e.id === finalDocId && e.path !== relPath) {
         throw new Error(

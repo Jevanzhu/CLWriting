@@ -85,14 +85,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   justify-content: flex-end;
   gap: var(--size-4-2);
 }
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   padding: 6px 14px;
   font-size: var(--font-size-m);
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out);

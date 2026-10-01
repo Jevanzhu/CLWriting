@@ -153,18 +153,16 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   font-size: var(--font-size-xs);
   line-height: 1.4;
 }
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 6px 14px;
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
-  color: var(--text-normal);
   font-size: var(--font-size-m);
-  cursor: pointer;
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {

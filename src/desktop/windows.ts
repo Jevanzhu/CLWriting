@@ -58,24 +58,33 @@ const RENDERER_CRASH_STABILITY_RESET_MS = 5 * 60_000
 const RENDERER_LOADFAIL_MAX_RETRIES = 5
 const RENDERER_LOADFAIL_BACKOFF_BASE_MS = 2_000
 const RENDERER_LOADFAIL_BACKOFF_CAP_MS = 15_000
-/** 崩溃封顶后的白屏提示页（data URL 自包含——渲染层/本地 server 均不可信时仍可展示） */
-const RENDERER_CRASH_NOTICE_HTML =
-  '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
-  '<h2>页面连续崩溃，自动恢复已停止</h2>' +
-  '<p>渲染进程短时间内多次异常退出，已停止自动重载。</p>' +
-  '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
+/** 终态提示页（data URL 自包含——渲染层/本地 server 均不可信时仍可展示）。
+ *  崩溃与加载失败两页仅标题与说明句不同，壳与重启指引共用一套模板（同款自包含形态
+ *  与硬编码样式单源，改壳只改一处）。 */
+function noticeHtml(heading: string, detail: string): string {
+  return (
+    '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
+    `<h2>${heading}</h2>` +
+    `<p>${detail}</p>` +
+    '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
+  )
+}
+
+/** 崩溃封顶后的白屏提示页 */
+const RENDERER_CRASH_NOTICE_HTML = noticeHtml(
+  '页面连续崩溃，自动恢复已停止',
+  '渲染进程短时间内多次异常退出，已停止自动重载。',
+)
 /**
- * 加载失败封顶后的白屏提示页——同 RENDERER_CRASH_NOTICE_HTML
- * 形态（data URL 自包含，本地 server 不可信时仍可展示），文案区分「页面加载失败
- * （可能服务未就绪）」。此前封顶分支只 log.error + return，对照 render-process-gone
- * 封顶载提示页不对称：触发形态（server 退避重启窗内 5 次加载失败，≥44s 全失败）后
- * 白屏滞留无任何可见提示（生产态菜单无 reload，无人工出口）。
+ * 加载失败封顶后的白屏提示页——文案区分「页面加载失败（可能服务未就绪）」。
+ * 此前封顶分支只 log.error + return，对照 render-process-gone 封顶载提示页不对称：
+ * 触发形态（server 退避重启窗内 5 次加载失败，≥44s 全失败）后白屏滞留无任何可见提示
+ * （生产态菜单无 reload，无人工出口）。
  */
-const LOADFAIL_NOTICE_HTML =
-  '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
-  '<h2>页面加载失败，自动重试已停止</h2>' +
-  '<p>页面连续多次加载失败（可能服务未就绪或已退出），已停止自动重试。</p>' +
-  '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
+const LOADFAIL_NOTICE_HTML = noticeHtml(
+  '页面加载失败，自动重试已停止',
+  '页面连续多次加载失败（可能服务未就绪或已退出），已停止自动重试。',
+)
 
 /** 三窗引用 holder（原 main.ts 模块级 let/state，读写语义逐位等价——拆分说明见文件头注）。 */
 export const wins = {

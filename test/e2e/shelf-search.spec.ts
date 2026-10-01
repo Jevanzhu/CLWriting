@@ -3,14 +3,29 @@
  *
  * 依赖 fixture：长篇测试书 / 短篇测试集（test/studio/fixtures.ts）。
  * 搜索按书名模糊过滤；排序切换后书卡顺序变化。
+ *
+ * P2-13（09-30 评审修复批）：全链只读（只过滤/排序前端列表，不落盘）→ 迁独立 server
+ * （端口偏移 7）+ 自有 workDir，脱离共享 workDir 的顺序契约；起停样板见
+ * ./independent-server.ts。userDataPath: false 对齐 globalSetup 主 server 口径。
  */
 import { test, expect } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { startIndependentServer, type IndependentServer } from './independent-server.js'
+
+let srv: IndependentServer
+
+test.beforeAll(async () => {
+  srv = await startIndependentServer({ tag: 'shelf-search', offset: 7, userDataPath: false })
+})
+
+test.afterAll(async () => {
+  await srv.close()
+})
 
 test.beforeEach(async ({ page }) => {
   // R74-24（批E）：本 spec 4 用例共享 beforeEach 开页，基线在此一次挂全（先于 goto）
   attachPageErrorBaseline(page, 'shelf-search')
-  await page.goto('/')
+  await page.goto(`${srv.base}/`)
   await expect(page.getByRole('heading', { name: '书架' })).toBeVisible()
 })
 

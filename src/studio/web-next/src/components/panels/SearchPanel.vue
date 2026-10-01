@@ -5,6 +5,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { search, type SearchHit } from '../../api/search'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useScopedAction } from '../../composables/useScopedAction'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
 
@@ -13,6 +14,8 @@ const props = defineProps<{ bookName: string }>()
 const tree = useTreeStore()
 const doc = useDocStore()
 const ws = useWorkspaceStore()
+// 切书守卫单源（stillIn）——点结果 open 在途切书后，迟到结果不落新书工作区。
+const scoped = useScopedAction(() => ws.bookName ?? '')
 
 const q = ref('')
 const scope = ref('all')
@@ -97,11 +100,11 @@ async function open(path: string): Promise<void> {
   if (!node?.docId) return // 非树内可编辑文件忽略
   // await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
   // 工作区（新书同名路径命中旧书 docId）
-  const bookAtClick = ws.bookName
+  const bookAtClick = ws.bookName ?? ''
   openErr.value = null // 本次尝试前清上一条 open 失败提示
   try {
     await doc.open(node)
-    if (ws.bookName !== bookAtClick) return
+    if (!scoped.stillIn(bookAtClick)) return
     ws.openTab(node.docId)
   } catch (e) {
     // 前端：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败

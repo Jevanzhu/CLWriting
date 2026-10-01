@@ -225,9 +225,10 @@ export function* computeLeadsBookFpFromEpochFpCore(
  *  BEGIN DEFERRED…COMMIT 方案：读侧多持锁徒增 busy 风险，单语句零成本达成同一致性。 */
 export function readLeadsBookRed(db: DatabaseSync, fp: string): boolean | null {
   try {
-    const rows = db
-      .prepare(`SELECT key, value FROM tree_issues_meta WHERE key IN ('leads_book_fp', 'leads_book_red')`)
-      .all() as Array<{ key: string; value: string }>
+    const rows = prepared(
+      db,
+      `SELECT key, value FROM tree_issues_meta WHERE key IN ('leads_book_fp', 'leads_book_red')`,
+    ).all() as Array<{ key: string; value: string }>
     let fpRow: string | undefined
     let redRow: string | undefined
     for (const r of rows) {
@@ -246,11 +247,9 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
   try {
     db.exec('BEGIN')
     try {
-      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_fp', fp)
-      db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run(
-        'leads_book_red',
-        hasRed ? '1' : '0',
-      )
+      const upsert = prepared(db, 'INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)')
+      upsert.run('leads_book_fp', fp)
+      upsert.run('leads_book_red', hasRed ? '1' : '0')
       db.exec('COMMIT')
     } catch (e) {
       // 同款——裸 ROLLBACK 在事务已自动回亡时抛
@@ -282,13 +281,13 @@ export function syncTreeIssuesEpoch(
 ): boolean {
   ensureTreeIssuesTables(db)
   const fp = precomputedFp ?? computeTreeIssuesGlobalFp(bookRoot, userDataPath)
-  const row = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('global_fp') as
+  const row = prepared(db, 'SELECT value FROM tree_issues_meta WHERE key = ?').get('global_fp') as
     { value: string } | undefined
   if (row?.value === fp) return false
   db.exec('BEGIN')
   try {
     db.exec('DELETE FROM tree_issues_cache')
-    db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('global_fp', fp)
+    prepared(db, 'INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('global_fp', fp)
     db.exec('COMMIT')
   } catch (e) {
     // 同款——吞 ROLLBACK 自身异常，原样上抛原始错误
@@ -392,7 +391,8 @@ export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCach
   if (rows.length === 0) return
   try {
     db.exec('BEGIN')
-    const stmt = db.prepare(
+    const stmt = prepared(
+      db,
       'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
     )
     for (const r of rows) stmt.run(r.relPath, r.chapterFp, r.size, r.verdictFp, JSON.stringify(r.value), r.epochFp)

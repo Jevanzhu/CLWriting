@@ -210,6 +210,10 @@ export function resolveBuiltinSystemPromptSourced(
   return { text: loadBuiltinPrompt(name, registry).text }
 }
 
+/** 纯文本版 resolve（不带 overlay 源）——测试专用导出（零生产调用）：生产
+ *  runSpec 走 resolveBuiltinSystemPromptSourced（overlay 命中须登记 promptFiles，
+ *  铁律①「模型可见⟺已记录」），本版仅测试断言「旧版内置 → overlay 优先/当前内置」
+ *  语义时直调（对齐仓库既有「测试专用导出」标注惯例）。 */
 export function resolveBuiltinSystemPrompt(
   systemPrompt: string | undefined,
   userDataPath?: string,

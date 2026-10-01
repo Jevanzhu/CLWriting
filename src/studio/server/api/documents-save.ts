@@ -55,7 +55,14 @@ function parseSaveInput(body: Record<string, unknown>): SaveDocumentInput | null
   else if (typeof er === 'string' && er.startsWith('sha256:')) {
     expectedRevision = er as `sha256:${string}`
   } else return null
-  const origin = ORIGINS.has(body.origin as string) ? (body.origin as SaveDocumentInput['origin']) : 'manual'
+  // origin：缺省（旧客户端/测试裸 PUT）→ 'manual'；在场但非值域成员 → null 走 400。
+  // 原「非法一律静默归一 manual」与同函数其余字段 fail-loud 口径分裂——拼错的
+  // 'autosave '（尾空格）会被记成手动保存，快照 origin 与留底理由随之失真
+  let origin: SaveDocumentInput['origin'] = 'manual'
+  if (body.origin !== undefined) {
+    if (!ORIGINS.has(body.origin as string)) return null
+    origin = body.origin as SaveDocumentInput['origin']
+  }
   const input: SaveDocumentInput = {
     content: body.content,
     expectedRevision,
@@ -87,7 +94,12 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       // RC：正文保存走内容档上限（默认 1MB 对 >35 万字中文正文即 413）
       const input = parseSaveInput(await readJson(req, CONTENT_BODY_LIMIT_BYTES))
       if (!input) {
-        replyError(res, 400, 'BAD_INPUT', 'content / expectedRevision / operationId 缺失或类型不符')
+        replyError(
+          res,
+          400,
+          'BAD_INPUT',
+          'content / expectedRevision / operationId 缺失或类型不符，或 origin 非值域成员',
+        )
         return
       }
 

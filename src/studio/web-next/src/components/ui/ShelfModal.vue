@@ -84,7 +84,7 @@ const {
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
-// （评审）：大书架渲染上限——浮层一次性全量挂载所有书卡，数百书拖慢挂载
+// 大书架渲染上限——浮层一次性全量挂载所有书卡，数百书拖慢挂载
 // （分帧只拆遮罩/面板两帧，不防千书级面板本身超帧预算）。对齐 CommandPalette
 // RENDER_CAP=100 先例：数据面不动（useShelf groups 的搜索/排序/批量全选/头部总数仍
 // 面向全量），只裁渲染面——每组渲染前 100 张书卡 + 尾部「已省略 N 部」提示行（裁剪
@@ -386,18 +386,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 /* 视图切换 segmented control */
 /* .view-toggle 与 .toggle-btn（优化修复批随批收敛，声明逐字未改）
    均在全局 styles/utilities.css */
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 6px 14px;
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--interactive-normal);
-  color: var(--text-normal);
   font-size: var(--font-size-m);
-  cursor: pointer;
   white-space: nowrap;
 }
 .btn.icon {

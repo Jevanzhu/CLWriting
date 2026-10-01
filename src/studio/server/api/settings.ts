@@ -514,7 +514,7 @@ function listMdRecursive(dir: string): string[] {
   for (const f of readdirSync(dir, { recursive: true })) {
     if (typeof f !== 'string') continue
     // .md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
-    // （评审）：recursive readdir 条目含子目录前缀（如 `卷一/._001.md`）——
+    // recursive readdir 条目含子目录前缀（如 `卷一/._001.md`）——
     // startsWith 只拦顶层，嵌套 AppleDouble 文件漏拦，污染 countChapters 与
     // relations.mine 的正文节选（拼 AI prompt）。改段级判定：任一路径段以 `._`
     // 开头即过滤（win/posix 分隔符都顾）；扁平条目单段，与 overview.ts 等扁平版

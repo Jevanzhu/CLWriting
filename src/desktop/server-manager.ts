@@ -21,7 +21,7 @@
  * dirname 派生先例）。env 显式展开 process.env + CLW_LOG_STDOUT=1（不污染 main 自身
  * 子进程 env 组装（launch 纯前置，独立可测）：宿主 process.env 展开拷贝（不污染 main
  *
- * （全项目源码质量与优雅度评审）：启动/重启/退避/停止
+ * 启动/重启/退避/停止
  * 原由 12 个闭包变量的布尔旗与计数器组合隐式表示（合法组合只写在注释的正确性证明里），
  * 现收敛为显式状态机——一个 state 容器（相位载荷 + 停机面三值 + 计数 + 最近成功面 +
  * 正交数据）+ 派生读数（phaseOf/killMarked/isShutting）+ 单一转移点 transition
@@ -168,7 +168,7 @@ interface ActiveChild {
   exited: Promise<void>
 }
 
-// ─── （全项目源码质量与优雅度评审）：显式状态机 ───
+// ─── 显式状态机 ───
 // 旧实现把「启动/重启/退避/停止」编码在 12 个闭包变量（active/starting/startingOpts/
 // startingProc/shutdownStarted/shuttingDown/restartTimer/restartCount/lastOpts/
 // pinnedPort/token/waiters）的布尔旗与计数器组合里，哪些组合合法只写在注释的正确性
@@ -1195,7 +1195,7 @@ async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null
 }
 
 /**
- * （评审）：管理器工厂——只剩组装与句柄映射；单元见
+ * 管理器工厂——只剩组装与句柄映射；单元见
  * resolveManagerConfig（组装依赖）/ startServer（启动）/ scheduleRestart + nextBackoffMs
  * （重启退避）/ shutdownServer + stopActiveChild + killNow（停机）/ handshake + launch
  * （健康探测与接线）。相位/停机面的变更仍只经 transition（状态机语义不变）。

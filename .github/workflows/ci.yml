@@ -113,6 +113,21 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=3072
         run: npm run lint
 
+      # 抑制表收敛步：lint 门只保「新增违规即红」，不保「已修复的旧条目被清掉」——
+      # 计数式抑制的松弛点（改动存量使命中数下降后再新增同规则违规，计数仍可能不超）
+      # 及失效条目残留在表里，都要靠 `--prune-suppressions` 重写归一后与仓库比对才可见。
+      # 断言 = prune 后 git diff 为空：表已忘删旧条目（或有人手改出非规范序列化）即红。
+      # 文件为该步输入与产物，工作树被重写属预期——CI 不提交，只校验。
+      - name: 抑制表收敛门（prune 后 diff 空）
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: |
+          npm run lint:prune
+          git diff --exit-code -- eslint-suppressions.json || {
+            echo "::error::eslint-suppressions.json 含可收敛条目（旧违规已修但抑制未清）或非规范序列化——本地跑 npm run lint:prune 后随批提交"
+            exit 1
+          }
+
       # P3-4 另一半：格式化门。只检查不改写（CI 不改仓库）——本地 `npm run format`
       # 一键归一化。红了即格式回退。
       - name: 格式化门（prettier --check）

@@ -15,6 +15,7 @@ import { readChapterDir, countWords } from '../format/chapters.js'
 // `##` 段落标题识别单源（collectBodyAnchors 收编，见其注）
 import { extractSectionHeadings } from '../format/section-heading.js'
 import { readPieceList } from '../format/manifest.js'
+import { locateChapterOutline } from '../format/piece-list-locate.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
 import { log } from '../log/index.js' // 不可读章跳章 + warn 留痕，对齐同源助手（style.ts
@@ -168,10 +169,11 @@ export const SUBMISSION_TEMPLATES: Record<string, ShortSubmissionTemplate> = {
 /** 已注册平台清单（单一真相源；io.ts 校验复用，避免硬编码漂移）。 */
 export const SUBMISSION_PLATFORMS: readonly string[] = Object.keys(SUBMISSION_TEMPLATES)
 
-/** 扫描短篇集索引。正文走 readChapterDir（递归卷结构），章纲按正文文件名匹配 `大纲/章纲/` 顶层。 */
+/** 扫描短篇集索引。正文走 readChapterDir（递归卷结构），章纲定位走三口径单源
+ *  （format/piece-list-locate.ts，与 check/runner 同源——原只认同名 basename，
+ *  正文补零重命名/裸前缀章纲等书形下与机检口径分裂）。 */
 export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const bodyDir = join(bookRoot, '写作', '正文')
-  const 章纲Dir = join(bookRoot, '大纲', '章纲')
   if (!existsSync(bodyDir)) return []
 
   // 原走 readChapterDir(includeBody=true) 现读通道（绕开 meta
@@ -183,7 +185,13 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   for (const ch of chapters) {
     if (!ch._path) continue
     const name = basename(ch._path)
-    const list = readListIfExists(join(章纲Dir, name))
+    const located = locateChapterOutline(bookRoot, ch._path, ch.章号)
+    let list: PieceList | null = null
+    if (located.kind === 'found') {
+      list = readListAt(located.path)
+    } else if (located.kind === 'dir-unreadable') {
+      log.warn('metrics', `短篇章纲目录读取失败（${located.code}），本篇反转质量/结构物件按无章纲计`)
+    }
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
     // 不可读章跳章 + warn 留痕，对齐同源助手（style.ts
     // scanChapters 读失败 continue 跳章）——原 `?? ''` 降级会产 0 字假条目：章数/
@@ -267,12 +275,11 @@ export function formatShortSubmissionView(
   return lines.join('\n')
 }
 
-function readListIfExists(path: string): PieceList | null {
-  if (!existsSync(path)) return null
+/** 定位命中的章纲读取（在盘但读取失败——占用/权限/瞬删竞态——不与「不存在」同落
+ *  静默 null：reversalQuality/结构物件会被系统性低估且零痕迹；warn 口径对齐
+ *  check/runner.ts 黄项，健康报告降级语义本身保留：扫描器不阻断）。 */
+function readListAt(path: string): PieceList | null {
   const r = readPieceList(path)
-  // 在盘但读取失败（占用/权限/瞬删竞态）不再与「不存在」同落
-  // 静默 null——reversalQuality/结构物件会被系统性低估且零痕迹；warn 口径对齐
-  // check/runner.ts 黄项（健康报告降级语义本身保留：扫描器不阻断）。
   if (!r.ok) {
     log.warn(
       'metrics',

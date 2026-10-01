@@ -11,7 +11,38 @@ describe('parseContextMenuSpecs', () => {
   it('非数组 → null（整体忽略不弹菜单）', () => {
     expect(parseContextMenuSpecs('不是数组')).toBeNull()
     expect(parseContextMenuSpecs(null)).toBeNull()
+    expect(parseContextMenuSpecs(undefined)).toBeNull()
     expect(parseContextMenuSpecs({})).toBeNull()
+    expect(parseContextMenuSpecs(42)).toBeNull()
+  })
+
+  it('null/非对象元素跳过，合法项保留（分隔项与普通项并存）', () => {
+    const out = parseContextMenuSpecs([
+      null,
+      123,
+      'str',
+      { label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C' },
+      { separator: true },
+    ])
+    expect(out).not.toBeNull()
+    expect(out).toHaveLength(2)
+    expect(out![0]).toMatchObject({ label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C', disabled: false })
+    expect(out![1]!.separator).toBe(true)
+  })
+
+  it('非法字段类型不透传（key/accelerator 非 string 丢弃，disabled 只认严格 true）', () => {
+    const out = parseContextMenuSpecs([{ label: '菜单', key: 1, accelerator: null, disabled: 'yes' }])
+    expect(out).toEqual([{ label: '菜单', disabled: false }])
+    const off = parseContextMenuSpecs([{ label: '置灰项', disabled: true }])
+    expect(off).toEqual([{ label: '置灰项', disabled: true }])
+  })
+
+  it('submenu 非法元素同样过滤；空数组载荷 → 空数组（不弹菜单）', () => {
+    const out = parseContextMenuSpecs([
+      { label: '父级', submenu: [null, { label: '子项', key: 'child' }, { nope: 1 }] },
+    ])
+    expect(out![0]!.submenu).toEqual([{ label: '子项', disabled: false, key: 'child' }])
+    expect(parseContextMenuSpecs([])).toEqual([])
   })
 
   it('合法项保留：label/key/disabled/submenu', () => {

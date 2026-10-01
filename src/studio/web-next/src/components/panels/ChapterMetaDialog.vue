@@ -154,14 +154,12 @@ function onKeyEsc(e: KeyboardEvent): void {
   justify-content: flex-end;
   gap: 8px;
 }
+/* border/color/cursor 基三条已收 btn-shared.css（本块留差异声明） */
 .btn {
   padding: 6px 14px;
   font-size: var(--font-size-s);
-  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   background: var(--background-primary);
-  color: var(--text-normal);
-  cursor: pointer;
 }
 .btn.primary {
   background: var(--interactive-accent);
