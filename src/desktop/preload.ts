@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 切换到指定书库路径（来自最近列表）→ relaunch。 */
   switchLibrary: (path: string): Promise<{ ok: true } | { ok: false; reason: string }> =>
     ipcRenderer.invoke('desktop:switch-library', path),
+  /** 在**新窗口**中打开指定书库（多库多窗）——spawn 新实例，本窗口不动。
+   *  目标库已开在别的窗口时，那个窗口被聚焦（新实例拿不到单实例锁后自行退出）。 */
+  openLibraryInNewWindow: (path: string): Promise<{ ok: true } | { ok: false; reason: string }> =>
+    ipcRenderer.invoke('desktop:open-library-in-new-window', path),
   /** 读最近书库列表。 */
   getRecentLibraries: (): Promise<{ path: string; label: string }[]> => ipcRenderer.invoke('desktop:get-recent'),
   /** 读当前书库目录（null = 未选）。 */

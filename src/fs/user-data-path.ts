@@ -10,10 +10,19 @@
  *  - Electron 主进程（src/desktop/main.ts）：`app.setPath('userData', ...)` 强制统一，
  *    内部逻辑（window-state/workdir/providers）全部走此路径。
  *  - 无 Electron 的脚本（scripts/dev-api.ts）：直接调用本函数。
+ *
+ * 多库多窗（同机多库并排）目录分工：
+ *  - **共享根** `appDataHomeDir()` = 上述目录，应用级数据（providers/vault、global.json、
+ *    prompts/、事件库、workdir.json、studio-token.json）随根走，跨库共享；
+ *  - **实例目录** `instanceUserDataPath(key)` = `<home>/instances/<key>`，Electron 的
+ *    userData 指向此处——Chromium 写面、logs/、window-state.json、app-instance.lock
+ *    随实例走（同库单实例、异库多实例由 Electron 原生锁自动成立）。
  */
 import { homedir } from 'node:os'
 import { statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { platformCaseFold } from './safe-path.js'
 
 /** 统一目录名（大写，与 electron-builder.yml productName 一致）。 */
 export const APP_DIR_NAME = 'CLWriting'
@@ -31,6 +40,34 @@ export function defaultUserDataPath(): string {
   // Linux：XDG_CONFIG_HOME 优先（Electron 同规则），缺省 ~/.config
   const xdg = process.env['XDG_CONFIG_HOME']
   return xdg ? join(xdg, APP_DIR_NAME) : join(homedir(), '.config', APP_DIR_NAME)
+}
+
+/** 应用级数据根（跨库共享）。CLW_SMOKE_USER_DATA（e2e 隔离钩子）覆盖本根，
+ *  实例目录嵌套其下——覆盖语义与拆分前一致（冒烟注入临时目录隔离真实用户数据）。 */
+export function appDataHomeDir(): string {
+  return process.env['CLW_SMOKE_USER_DATA'] || defaultUserDataPath()
+}
+
+/** 实例目录（Electron userData）：`<home>/instances/<instanceKey>`。
+ *  每库一实例一目录——Chromium 写面/日志/窗口几何/实例守卫随 key 隔离，
+ *  「同库单实例、异库多实例」由 Electron 原生锁（作用域 = userData 目录）自动成立。 */
+export function instanceUserDataPath(instanceKey: string): string {
+  return join(appDataHomeDir(), 'instances', instanceKey)
+}
+
+/** 无书库（欢迎态）实例的固定 key——与库 key（hex hash）不同形，天然不撞。 */
+export const WELCOME_INSTANCE_KEY = 'welcome'
+
+/** 库路径 → 实例 key：平台折叠后的路径 hash。
+ *  折叠（platformCaseFold：win/darwin 小写、linux 全等）覆盖盘符/大小写漂移——
+ *  同一物理库的两种拼写在 win/mac 上归同 key（linux 大小写敏感，异名合法共存不折叠）。
+ *  取 16 位 hex（64bit）——碰撞面仅「同机上两个不同库撞 key」，概率可忽略；
+ *  key 会进目录名，hex 免非法字符/大小写歧义。
+ *  约束（勿改）：必须在 `app.setPath('userData')` 之前**同步**算出——不得用 bookHash
+ *  （`events/store-migrate.ts` 的 trueCasePath 逐段 readdirSync，失联网络卷会同步冻结
+ *  主进程启动链；本函数零磁盘 IO）。 */
+export function libraryInstanceKey(dir: string): string {
+  return createHash('sha256').update(platformCaseFold(dir)).digest('hex').slice(0, 16)
 }
 
 /**

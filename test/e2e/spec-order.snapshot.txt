@@ -13,6 +13,7 @@ finalize.spec.ts
 focus.spec.ts
 foreshadow.spec.ts
 learn.spec.ts
+multi-instance.spec.ts
 overview-short.spec.ts
 packaged-app-smoke.spec.ts
 release-smoke.spec.ts

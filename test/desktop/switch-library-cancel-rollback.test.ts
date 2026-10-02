@@ -24,6 +24,7 @@ const M = vi.hoisted(() => ({
   userData: '',
   quitCalls: 0,
   relaunchCalls: 0,
+  relaunchArgs: [] as unknown[], // 多库多窗 §4.4：relaunch({args}) 清洗面
   appOn: {} as Record<string, Array<(...a: unknown[]) => void>>,
   commandLineSwitches: [] as Array<string[]>,
   headersCb: null as null | ((d: unknown, cb: (r: unknown) => void) => void),
@@ -158,8 +159,9 @@ vi.mock('electron', () => {
       quit: () => {
         M.quitCalls++
       },
-      relaunch: () => {
+      relaunch: (opts?: unknown) => {
         M.relaunchCalls++
+        M.relaunchArgs.push(opts ?? null)
       },
       whenReady: () => Promise.resolve(),
       commandLine: {
@@ -225,6 +227,11 @@ vi.mock('electron', () => {
 
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M.userData,
+  // 多库多窗：共享根 / 实例目录 / instanceKey（假件按真实现形状给值）
+  appDataHomeDir: () => M.userData,
+  instanceUserDataPath: (key: string) => `${M.userData}/instances/${key}`,
+  WELCOME_INSTANCE_KEY: 'welcome',
+  libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({
@@ -400,5 +407,65 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
     // relaunchCalls 仅由 armPendingRelaunchIfAny 的 app.relaunch 递增，判据确定
     await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(0), { timeout: 10_000, interval: 50 })
     expect(persistedCurrent()).toBe(libB) // 新库即用户所愿，不回滚
+  })
+})
+
+describe('多库多窗：workdir.json 跨进程合并（G3）与 relaunch argv 清洗（§4.4）', () => {
+  it('G3：锁内以盘上真身为基底重放 setCurrent——他实例并发写入的 recent 不丢', async () => {
+    await freshMain() // 缓存从基线（current libA、recent 空）重建
+    const libB = mkLibrary()
+    const libC = mkLibrary()
+    // 模拟另一实例（另一窗口）并发落盘：盘上新增 recent 条目 C——本实例内存缓存不知情；
+    // 修复前 writeStore 按内存整份覆盖，C 随本实例下一次切库被抹掉
+    writeFileSync(workdirFp(), JSON.stringify({ current: libA, recent: [{ path: libC, label: 'C' }] }))
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    const disk = JSON.parse(readFileSync(workdirFp(), 'utf-8')) as {
+      current: string | null
+      recent: Array<{ path: string }>
+    }
+    expect(disk.current).toBe(libB)
+    const paths = disk.recent.map((x) => x.path)
+    expect(paths, '他实例写入的 recent 条目不得被覆盖丢失').toContain(libC)
+    expect(paths, '旧 current 按 setCurrent 语义入 recent 头部').toContain(libA)
+  })
+
+  it('G3：盘上读失败（EISDIR）时拒绝覆写并契约化失败，不静默裸写', async () => {
+    await freshMain()
+    const libB = mkLibrary()
+    // workdir.json 换成同名目录（EISDIR：非 ENOENT 读失败）——锁内重读失败 → 拒绝写入
+    rmSync(workdirFp(), { force: true })
+    mkdirSync(workdirFp(), { recursive: true })
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as {
+      ok: boolean
+      reason?: string
+    }
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('保护历史记录')
+    rmSync(workdirFp(), { recursive: true, force: true })
+  })
+
+  it('§4.4：切库 relaunch 的 argv 已清 --dir（不清会把切换目标顶回旧库）', async () => {
+    const argvLen = process.argv.length
+    // 模拟「本实例由 --dir 拉起」（spawn 新窗口形态）：argv 带 --dir libA
+    process.argv.push('--dir', libA)
+    try {
+      await freshMain() // 顶层启动解析按 --dir 派生 key（不炸）
+      const libB = mkLibrary()
+      await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
+      expect(persistedCurrent()).toBe(libB)
+      await new Promise((r) => setTimeout(r, 150))
+      const win = M.windows.at(-1)!
+      win.webContents.execJsResult = { conflict: [], failed: [] }
+      M.msgBoxSyncChoice = 0
+      M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
+      await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(0), { timeout: 10_000, interval: 50 })
+      const opts = M.relaunchArgs.at(-1) as { args?: string[] } | null
+      expect(opts?.args, 'relaunch 须显式传清洗后的 argv').toBeTruthy()
+      expect(opts!.args, '--dir 及其值必须摘除').not.toContain('--dir')
+      expect(opts!.args).not.toContain(libA)
+    } finally {
+      process.argv.length = argvLen
+    }
   })
 })

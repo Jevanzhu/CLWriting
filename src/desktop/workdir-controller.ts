@@ -13,8 +13,10 @@ import { stat } from 'node:fs/promises' // 切库可达性预探（异步+超时
 import { findWorkDir, readBooks } from '../install/books.js'
 import { findGitAncestor } from '../install/scaffold.js' // git-ancestor 防线与 init（doInitSteps）同源判定
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { probeCaseSensitive } from '../fs/case-probe.js' // 平台 E：大小写敏感卷警告（探测失败 fail-open 不拦）——换目录回循环顶
-import { samePath } from '../fs/user-data-path.js'
+import { appDataHomeDir, samePath } from '../fs/user-data-path.js'
+import { stripDirArg } from './startup-instance.js' // 切库 relaunch 清 argv --dir（多库多窗 §4.4）
 import { errMsg, log } from '../log/index.js'
 import {
   emptyStore,
@@ -26,11 +28,12 @@ import {
 } from './workdir-store.js'
 import { wins } from './windows.js'
 
-// ── 工作目录持久化（userData/workdir.json）──────────────
+// ── 工作目录持久化（共享根 <home>/workdir.json）──────────
 
-/** 持久化文件路径（Electron userData 目录）。 */
+/** 持久化文件路径（多库多窗：共享根，跨实例共享同一份库注册表——
+ *  不随实例目录，否则各实例 recent/current 分裂）。 */
 function storePath(): string {
-  return join(app.getPath('userData'), 'workdir.json')
+  return join(appDataHomeDir(), 'workdir.json')
 }
 
 /** 读 store（含失效 recent 清理）；缺失/损坏 → 空存储。
@@ -94,44 +97,66 @@ function readStore(): WorkDirStore {
   return storeCache
 }
 
+/** 跨进程写锁等待超时（多库多窗）——写段为共享根本地小文件 IO 级毫秒，
+ *  5s 极保守（同 providers/books 锁档口径）；超时按契约化失败上抛。 */
+const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
+
 /**
  * 原子写 store。写后同步刷新缓存（写后即读一致）。
- * 读失败防覆写闸——workdirReadFailed 置位期间（readStore 曾
- * 非 ENOENT 读失败，内存视图 = 与盘面脱钩的空 store）任何写盘前先清缓存重读一次盘上
- * 真身：
- * ① 重读成功 → 以盘上内容为基底重放本次变更（store.current 非空 = setCurrent 语义：
- *   盘上旧 current 移入 recent 头部再写新 current，recent 历史全保留）——瞬时读失败
- * （杀毒/同步盘瞬时锁同族病因）恢复后的切库不再丢库指针与 recent；
- * ② 重读仍失败 → **拒绝覆写**并抛错（saveCurrentSafe 契约面 → {ok:false,reason} /
- *  菜单链原生错误框呈现）——绝不以「读失败的空 store」覆盖盘上真内容；
- * ENOENT 重读 = 文件已被外部删除（无历史可保护）→ 按首启放行（与读路径静默分支口径
- * 一致）。待写形态为「清空」（rollback 的无 current 基线）而盘上有真内容时同归②拒绝
- * （防御分支：快照面已按置 null，此处兜底防未来新增写方）。
+ *
+ * 多库多窗：workdir.json 在共享根，同机多实例（各库一进程）并发写——整份覆盖
+ * 会丢他实例新增的 recent 条目/回退 current。改**跨进程锁互斥 + 锁内以盘上真身为
+ * 基底重放本次变更**：
+ * ① `setCurrent` 语义（store.current 为串）：读盘上真身再 setCurrent——他实例并发
+ *   新增的 recent 全保留，仅本次「设 current」意图落盘；
+ * ② 清空/回滚基线形态（store.current 为 null，rollbackCancelledSwitch 专用）：按
+ *   字面写入（原语义，锁内）；
+ * ③ 锁内读盘失败（非 ENOENT）：**拒绝覆写**并抛错（绝不以脱钩内存视图覆盖盘上真
+ *   内容）；ENOENT = 无历史可保护，按首启放行。
+ * 锁获取失败（超时）同走契约化失败（saveCurrentSafe → {ok:false,reason} / 菜单原生
+ * 链错误框）——不静默裸写。
+ * 单实例下与旧行为逐位等价（盘上真身 == 内存缓存）；残余差异：外部手改盘的 recent
+ * 会被合并保留（旧实现按内存覆盖），upside 方向。
  */
 function writeStore(store: WorkDirStore): void {
-  if (workdirReadFailed) {
-    storeCache = null // 绕开「失败空 store」缓存，直读盘上真身
-    const fp = storePath()
-    let disk: WorkDirStore
+  const fp = storePath()
+  const release = acquireCrossProcessLockWithTimeout(`${fp}.lock`, WORKDIR_WRITE_LOCK_TIMEOUT_MS)
+  if (!release) {
+    log.error('desktop', `workdir.json 跨进程写锁等待超时（其他窗口长期占用）：${fp}`)
+    throw new Error('工作目录记录正被其他窗口写入，请稍后重试')
+  }
+  try {
+    let disk: WorkDirStore | null = null
+    let diskReadFailed = false
     try {
       disk = parseStore(readFileSync(fp, 'utf-8'))
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
-        log.error('desktop', `workdir.json 写前重读仍失败，已拒绝写入以保护盘上历史记录：${fp} —— ${errMsg(e)}`)
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        disk = emptyStore() // 无历史可保护（首启/外部删除），按空存储放行
+      } else {
+        diskReadFailed = true
+      }
+    }
+    let next: WorkDirStore
+    if (typeof store.current === 'string') {
+      if (diskReadFailed) {
+        log.error('desktop', `workdir.json 锁内重读失败，已拒绝写入以保护盘上历史记录：${fp}`)
         throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
       }
-      disk = emptyStore()
+      next = setCurrent(disk!, store.current)
+    } else {
+      if (diskReadFailed) {
+        log.error('desktop', `workdir.json 锁内重读失败，已拒绝回写清空形态以保护盘上历史记录：${fp}`)
+        throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
+      }
+      next = store
     }
-    if (typeof store.current === 'string') {
-      store = setCurrent(disk, store.current)
-    } else if (disk.current !== null || disk.recent.length > 0) {
-      log.error('desktop', `workdir.json 写前重读成功但待写内容为清空形态，已拒绝写入以保护盘上历史记录：${fp}`)
-      throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
-    }
+    atomicWriteFile(fp, serializeStore(next))
+    storeCache = next
+    workdirReadFailed = false // 写成功后闸复位（写失败保持置位，下次写前再对账）
+  } finally {
+    release()
   }
-  atomicWriteFile(storePath(), serializeStore(store))
-  storeCache = store
-  workdirReadFailed = false // 写成功后闸复位（写失败保持置位，下次写前再对账）
 }
 
 /** 设新 current（旧入 recent）+ 持久化。 */
@@ -478,14 +503,17 @@ let pendingRelaunch = false
 
 /** 不可回头点武装——flush 确认全过、appTearingDown 置位处调用；切库意图
  * 在此刻兑现（app.relaunch() +显式交接释放锁，锁时序缝隙与最坏结果分析见
- *  原 relaunch 注）。仅切库链带意图时动作，普通退出零副作用。 */
+ *  原 relaunch 注）。仅切库链带意图时动作，普通退出零副作用。
+ *  多库多窗 §4.4：`app.relaunch()` 默认继承当前 argv——必须清掉 argv 里的 `--dir`
+ *  （解析序最高优先级），否则重启后的实例按旧 `--dir` 顶回旧库；切库语义要求重启后
+ *  按共享根 workdir.json.current（已指向新库）解析。 */
 function armPendingRelaunchIfAny(): void {
   // 清偿批不可回头点之后新库即用户所愿，回滚基线作废（普通退出
   // 无基线时本行为空操作）
   switchRollbackStore = null
   if (!pendingRelaunch) return
   pendingRelaunch = false
-  app.relaunch()
+  app.relaunch({ args: stripDirArg(process.argv.slice(1)) })
   app.releaseSingleInstanceLock()
 }
 
@@ -521,6 +549,13 @@ async function openLibraryAction(): Promise<boolean> {
   }
   relaunch()
   return true
+}
+
+/** 菜单「在新窗口中打开书库…」（多库多窗）：选目录（复用 pickLibrary 完整校验链：
+ *  书库校验/大小写敏感卷警告/「在此新建」引导）→ 返回目录；**不落库、不重启**——
+ *  spawn 新实例（`--dir`）由调用方（main 菜单 / ipc 链）执行。 */
+export async function pickLibraryDirForNewWindow(): Promise<string | null> {
+  return pickLibrary()
 }
 
 /**

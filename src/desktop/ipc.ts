@@ -28,6 +28,7 @@ import {
 } from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；linux fc-list 自管 spawn
 import { listWindowsFonts } from './win-fonts.js' // （专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
+import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：在新窗口中打开书库
 import {
   canSwitchLibraryDir,
   currentWorkDir,
@@ -166,6 +167,36 @@ function onTrusted(channel: string, listener: (e: IpcMainEvent, ...args: unknown
   })
 }
 
+/**
+ * 切库与新窗两入口共用守卫链（多库多窗起单源）——可达性预探 → 接受面 →
+ * 大小写敏感卷警告；ok:false 时 reason 直接入契约面 {ok:false, reason}。
+ *
+ * - 可达性预探先行：失联网络卷残留条目不再冻结主进程（见 probeDirReachable 注）；
+ *   超时态契约化拒切，确定性失败交回同步守卫走原契约文案；
+ * - 相对路径拒收：'./foo' 类相对路径在恰存在于主进程 cwd 时可过
+ *   probeDirReachable/canSwitchLibraryDir 守卫（statSync/findWorkDir 均按 cwd 解析）
+ *   并原样落库 workdir.json，下次经不同 cwd 启动书库定位漂移。isAbsolute 校验先于
+ *   预探——相对路径的可达性判定本身就在错误的 cwd 基准上；
+ * - canSwitchLibraryDir = bootstrap 接受面 + 他库子目录防线，待建空书库不被误拒；
+ * - 平台 E：大小写敏感卷警告（探测失败 fail-open 不拦）。
+ *
+ * 后续动作各自负责：switch-library 落库 + 排重启；新窗入口 spawn（不落库、不重启）。
+ */
+async function guardLibraryDir(
+  path: unknown,
+): Promise<{ ok: true; dir: string } | { ok: false; reason: string }> {
+  if (typeof path !== 'string') return { ok: false, reason: '目录无效或是另一书库的子目录' }
+  if (!isAbsolute(path)) return { ok: false, reason: '书库路径必须是绝对路径' }
+  if ((await probeDirReachable(path)) === 'unreachable') {
+    return { ok: false, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' }
+  }
+  if (!canSwitchLibraryDir(path)) return { ok: false, reason: '目录无效或是另一书库的子目录' }
+  if (await warnIfCaseSensitive(path)) {
+    return { ok: false, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
+  }
+  return { ok: true, dir: path }
+}
+
 export function registerIpc(): void {
   // 弹选择器打开书库
   handleTrusted('desktop:open-library', async () => {
@@ -181,37 +212,26 @@ export function registerIpc(): void {
   })
   // 切换到最近列表中的书库
   handleTrusted('desktop:switch-library', async (_e, path: unknown) => {
-    // 可达性预探先行——失联网络卷残留条目不再冻结主进程（见
-    // probeDirReachable 注）；超时态契约化拒切，确定性失败交回同步守卫走原契约文案
-    if (typeof path !== 'string') {
-      return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
-    }
-    // 相对路径拒收——handler 原只验 typeof string，'./foo' 类
-    // 相对路径在恰存在于主进程 cwd 时可过 probeDirReachable/canSwitchLibraryDir 守卫
-    //（statSync/findWorkDir 均按 cwd 解析）并原样落库 workdir.json，下次经不同 cwd
-    // 启动书库定位漂移。入口加 isAbsolute 校验，BAD_INPUT 人话错误（先于预探——
-    // 相对路径的可达性判定本身就在错误的 cwd 基准上）。
-    if (!isAbsolute(path)) {
-      return { ok: false as const, reason: '书库路径必须是绝对路径' }
-    }
-    if ((await probeDirReachable(path)) === 'unreachable') {
-      return { ok: false as const, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' }
-    }
-    // 守卫改 canSwitchLibraryDir（bootstrap 接受面 + 他库子目录防线）——
-    // 待建空书库不再被误拒（原 reason「目录无效或不是书库」的分叉口径随行废止）
-    if (!canSwitchLibraryDir(path)) {
-      return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
-    }
-    // 平台 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
-    if (await warnIfCaseSensitive(path)) {
-      return { ok: false as const, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
-    }
+    const g = await guardLibraryDir(path)
+    if (!g.ok) return { ok: false as const, reason: g.reason }
     // 落库失败转契约化失败（同 open-library），不触发 relaunch
     // 清偿批改切库链专用包装——快照武装回滚基线（取消退出可回写）
-    const saveErr = saveCurrentArmingRollback(path)
+    const saveErr = saveCurrentArmingRollback(g.dir)
     if (saveErr) return { ok: false as const, reason: saveErr }
     // 延迟重启改单槽句柄排程（原裸 setTimeout 违 timer 纪律）
     armRelaunchDelayTimer()
+    return { ok: true as const }
+  })
+  // 在新窗口中打开书库（多库多窗）——与 switch-library 同守则
+  // （可达性预探 + canSwitchLibraryDir + 大小写敏感卷警告），但**不落库、不重启**：
+  // 本实例原样保留，spawn 一个带 --dir 的新实例（目标库已开时新实例拿不到锁，
+  // 自动聚焦那个窗口后自身退出——聚焦语义，无需本处特判）。
+  handleTrusted('desktop:open-library-in-new-window', async (_e, path: unknown) => {
+    const g = await guardLibraryDir(path)
+    if (!g.ok) return { ok: false as const, reason: g.reason }
+    if (!spawnLibraryInstance(g.dir)) {
+      return { ok: false as const, reason: '新窗口启动失败（详见日志）' }
+    }
     return { ok: true as const }
   })
   // recent 缓存首读过滤后运行期不复验（取舍备案见 workdir-controller

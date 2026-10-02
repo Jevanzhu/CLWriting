@@ -16,6 +16,10 @@
  * 手法：electron/windows.js/log 假件 + node:fs 选择性 readFileSync 假件（仅 workdir.json
  * 注入 EACCES，读写不对称才能区分「闸拒绝」与「物理写失败」），每用例 resetModules 取
  * 全新模块态（storeCache/workdirReadFailed 归零）。
+ * user-data-path 假件（多库多窗补）：storePath() 经 appDataHomeDir() 解析共享根——
+ * 缺此假件时用例的「临时 userData」只进了 electron app.getPath，读写实际落到真实
+ * ~/Library/Application Support/CLWriting/workdir.json（2026-10-02 实事故根因）。
+ * 纯函数（samePath/samePhysicalPath）经 importOriginal 取真实现，不手抄防语义漂移。
  */
 import { describe, it, expect, afterAll, vi } from 'vitest'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
@@ -49,6 +53,17 @@ vi.mock('electron', () => ({
   app: { getPath: (): string => M.userData },
   dialog: {},
 }))
+// storePath() = join(appDataHomeDir(), 'workdir.json')——共享根改指用例临时目录，
+// 保证本文件读写永不出 tmpdir（纯函数按真实现，避免手抄 samePath 折叠语义漂移）
+vi.mock('../../src/fs/user-data-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/user-data-path.js')>()
+  return {
+    ...actual,
+    defaultUserDataPath: (): string => M.userData,
+    appDataHomeDir: (): string => M.userData,
+    instanceUserDataPath: (key: string): string => `${M.userData}/instances/${key}`,
+  }
+})
 vi.mock('../../src/desktop/windows.js', () => ({ wins: {} }))
 vi.mock('../../src/log/index.js', () => ({
   // 复审-0914-优化修复批同款同语义假件（errMsg 收编面保持 mock 完整）

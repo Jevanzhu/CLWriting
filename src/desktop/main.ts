@@ -30,7 +30,15 @@ import { app, BrowserWindow, session, screen, dialog, Menu, type MenuItemConstru
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
-import { defaultUserDataPath } from '../fs/user-data-path.js'
+import {
+  appDataHomeDir,
+  instanceUserDataPath,
+  libraryInstanceKey,
+  samePath,
+  WELCOME_INSTANCE_KEY,
+} from '../fs/user-data-path.js'
+import { resolveStartupLibraryDir } from './startup-instance.js' // 多库多窗：pre-setPath 同步解析启动库 + instanceKey
+import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：菜单「在新窗口中打开书库…」
 import { initialBookArg, resolveInitialBook } from './initial-book.js' // --book 直进——argv 解析为登记书名仍在 main（书架登记表就在手边），
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // 生命周期 runner 可测
@@ -57,6 +65,7 @@ import {
   currentWorkDir,
   openLibraryAction,
   overwriteRecentInCache,
+  pickLibraryDirForNewWindow,
   probeDirReachable,
   readStore,
   setBootstrappedWorkDir,
@@ -89,25 +98,30 @@ function isDevUi(): boolean {
   return !!process.env['CLW_DEV_UI'] && !app.isPackaged
 }
 
-// userData 强制统一到定值（大写 CLWriting）。
-// Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
-// （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
-// 侥幸同目录，Linux 上会分裂成两个目录导致配置不互通。见 src/fs/user-data-path.ts。
-// 必须在 app.getPath('userData') 首次调用（如下方 initLogging 与拆分后各模块的
-// stateFile/storePath 惰性求值）之前执行。
+// userData 目录（多库多窗，一库一实例）：Electron 的 userData 落
+// `<home>/instances/<instanceKey>`——Electron 原生单实例锁作用域 = userData 目录，
+// 「同库单实例、异库多实例」由它自动成立；Chromium 写面/日志/窗口几何/实例守卫随
+// 实例目录隔离。应用级数据（providers/vault、global.json、prompts/、事件库、
+// workdir.json、studio-token.json）留在共享根 <home>（见 src/fs/user-data-path.ts）。
+// instanceKey 须在 setPath 之前**同步**算出（库目录禁探测——失联网络卷会冻启动链）：
+// 启动库路径 = `--dir` > `<home>/workdir.json`.current > findWorkDir(cwd) > welcome。
 // CLW_SMOKE_USER_DATA（打包态冒烟 env 钩子，先例对齐 CLW_SMOKE_WINDOW_CYCLE 的
 // 严格 opt-in 口径）：e2e 打包态冒烟（test/e2e/packaged-app-smoke.spec.ts）注入临时
-// 目录隔离真实用户库（~/Library/Application Support/CLWriting）；env 未设时走缺省
-// 路径，生产零行为差异。
-if (process.env['CLW_SMOKE_USER_DATA']) {
-  app.setPath('userData', process.env['CLW_SMOKE_USER_DATA'])
-} else {
-  app.setPath('userData', defaultUserDataPath())
-}
+// 目录隔离真实用户库（~/Library/Application Support/CLWriting）——覆盖**共享根**，
+// 实例目录嵌套其下；env 未设时走缺省路径，生产零行为差异。
+const homeDir = appDataHomeDir()
+const startupLibrary = resolveStartupLibraryDir({ argv: process.argv, homeDir, cwd: process.cwd() })
+const instanceKey = startupLibrary.dir ? libraryInstanceKey(startupLibrary.dir) : WELCOME_INSTANCE_KEY
+app.setPath('userData', instanceUserDataPath(instanceKey))
 // 结构化日志——打包态 console 无人看见，尽早切到 JSONL 落盘
 // （userData/logs/app-YYYYMMDD.jsonl）；dev 态保留 console 镜像。后续 startServer
-// 会再 init 一次（幂等，参数一致）。
+// 会再 init 一次（幂等，参数一致）。logs 随实例目录（同机多实例各写各的，互不串扰）。
 initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !app.isPackaged })
+// 多实例诊断启动行：instanceKey + 解析来源 + 启动库路径
+log.info(
+  'desktop',
+  `实例启动：key=${instanceKey} 来源=${startupLibrary.source} 书库=${startupLibrary.dir ?? '（引导页）'} 共享根=${homeDir}`,
+)
 
 // 单实例锁：双开实例会对同一 userData 的 workdir.json / window-state.json
 // 读改写互踩（atomic 写只防文件撕裂，防不了语义层竞态）。锁须在 setPath 之后请求，
@@ -315,6 +329,10 @@ async function bootstrap(): Promise<void> {
     overwriteRecentInCache(store, filtered.recent)
   }
   let workDir: string | null = null
+  // --dir 显式指定（spawn 新窗口/命令行直达）优先于持久化 current，且不回落 cwd——
+  // 显式意图；不可用即引导页（回落会打开一个与用户意图无关的库）。其余来源维持原链。
+  const argDir = startupLibrary.source === 'arg' ? startupLibrary.dir : null
+  const launchCandidate = argDir ?? store.current
   // 持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
   // 原样采信会静默空书架无引导；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导
   // （§四.1）：current 先经可达性预探——指向失联网络卷
@@ -322,22 +340,28 @@ async function bootstrap(): Promise<void> {
   // （切库同族的启动侧入口）。'unreachable' 原生错误框留痕 + 回落发现链
   // （不退出——作者可切到可用书库）；'invalid'（确定性坏路径）与预探通过后的瞬断
   // 均维持原回落语义（TOCTOU 残窗与切库预探同口径收窄，非消灭）。
-  if (store.current) {
-    const reach = await probeDirReachable(store.current, BOOTSTRAP_PROBE_TIMEOUT_MS)
+  if (launchCandidate) {
+    const reach = await probeDirReachable(launchCandidate, BOOTSTRAP_PROBE_TIMEOUT_MS)
     if (reach === 'ok') {
       try {
-        if (statSync(store.current).isDirectory()) workDir = store.current
+        if (statSync(launchCandidate).isDirectory()) workDir = launchCandidate
       } catch {
-        /* 预探通过后的瞬断 → 走回落 */
+        /* 预探通过后的瞬断 → 走回落（arg 形态回落 = 引导页） */
       }
     } else if (reach === 'unreachable') {
       dialog.showErrorBox(
         '书库目录无响应',
-        `上次的书库目录暂不可达（可能是网络卷无响应或已断开）：\n${store.current}\n\n本次启动改为自动寻找可用书库；恢复挂载后可在「书库管理」切回。`,
+        argDir
+          ? `本次要打开的书库目录暂不可达（可能是网络卷无响应或已断开）：\n${argDir}\n\n本次启动进入引导页；恢复挂载后重新打开即可。`
+          : `上次的书库目录暂不可达（可能是网络卷无响应或已断开）：\n${store.current}\n\n本次启动改为自动寻找可用书库；恢复挂载后可在「书库管理」切回。`,
       )
     }
+    if (argDir && !workDir && reach !== 'unreachable') {
+      // --dir 无效（非目录/确定性坏路径/瞬断）：显式意图落空 → 引导页明确交代，不静默
+      dialog.showErrorBox('书库目录不可用', `本次要打开的书库目录无法使用：\n${argDir}\n\n应用将进入引导页，可重新选择书库。`)
+    }
   }
-  if (!workDir) {
+  if (!workDir && !argDir) {
     // -1 同款防线：findWorkDir 同步爬祖扫描——cwd 也在失联卷上时同样冻结主进程，
     // 预探不可达即跳过发现（workDir 留 null → /welcome 引导，维持「启动零弹选择器」口径）
     if ((await probeDirReachable(process.cwd(), BOOTSTRAP_PROBE_TIMEOUT_MS)) !== 'unreachable') {
@@ -348,6 +372,14 @@ async function bootstrap(): Promise<void> {
         '应用运行目录暂不可达（可能位于已断开的网络卷），本次启动进入引导页；恢复挂载后重启应用即可。',
       )
     }
+  }
+  // 实例 key 与 bootstrap 实际采用库不一致（current 失效 → 回落 cwd 发现的残余形态）：
+  // 本次会话的「同库单实例」防线降级，留痕登记（取舍见设计正本 §六）
+  if (workDir && startupLibrary.dir && !samePath(workDir, startupLibrary.dir)) {
+    log.warn(
+      'desktop',
+      `实例 key 按启动解析的库派生（${startupLibrary.dir}），bootstrap 实际采用 ${workDir}——本次会话同库单实例防线降级`,
+    )
   }
   // 服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
   // readStore.current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
@@ -385,7 +417,10 @@ async function bootstrap(): Promise<void> {
     try {
       port = await serverManager.start({
         workDir,
-        userDataPath: app.getPath('userData'),
+        // 共享根（非 Electron userData）——server 的应用级数据（providers/vault、
+        // global.json、prompts/、事件库、studio-token.json）跨库共享；Electron 的
+        // userData 已随实例目录（多库多窗目录拆分），两者在此显式解耦。
+        userDataPath: homeDir,
         book: initialName,
         mirrorConsole: !app.isPackaged,
         // 阶段 53：版本号下发子进程（child 无 app 对象）——更新检查的当前版本基准
@@ -534,6 +569,22 @@ function buildMenu(): void {
           click: () => {
             openLibraryAction().catch((e) => {
               log.error('desktop', '打开书库目录失败', e)
+            })
+          },
+        },
+        {
+          // 多库多窗·新窗入口：当前窗口不动，spawn 新实例并以 --dir 指向所选书库。
+          // 校验链复用 pickLibrary（书库校验/大小写敏感卷警告/「在此新建」引导）。
+          label: '在新窗口中打开书库…',
+          click: () => {
+            void (async () => {
+              const dir = await pickLibraryDirForNewWindow()
+              if (!dir) return
+              if (!spawnLibraryInstance(dir)) {
+                dialog.showErrorBox('打开新窗口失败', `无法在新窗口中打开书库：\n${dir}\n\n请重试或查看日志。`)
+              }
+            })().catch((e) => {
+              log.error('desktop', '在新窗口中打开书库失败', e)
             })
           },
         },

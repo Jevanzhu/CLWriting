@@ -5,7 +5,7 @@
 import { ref, onMounted } from 'vue'
 import { useUiStore } from '../stores/ui'
 import { friendlyError } from '../shared/error'
-import { FolderOpen, ExternalLink, Database, ArrowRight, Check } from 'lucide-vue-next'
+import { FolderOpen, ExternalLink, Database, ArrowRight, Check, AppWindow } from 'lucide-vue-next'
 import { usePlatform } from '../composables/usePlatform'
 import { useLibraryIpc } from '../composables/useLibraryIpc'
 
@@ -51,6 +51,17 @@ const { chooseLibrary, switchTo } = useLibraryIpc({
 function openDir(): void {
   // IPC 失败 toast 交代
   window.clwritingDesktop?.openLibraryDir().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
+}
+
+// 在新窗口中打开书库（多库多窗）——本窗口不动，spawn 新实例；
+// 目标库已开在别的窗口时那个窗口被聚焦（新实例拿不到单实例锁后自行退出）
+async function openInNewWindow(path: string): Promise<void> {
+  try {
+    const r = await window.clwritingDesktop?.openLibraryInNewWindow(path)
+    if (r && !r.ok) ui.toast(r.reason, 'error')
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
 }
 </script>
 
@@ -104,7 +115,7 @@ function openDir(): void {
           </h2>
           <p v-if="!recents.length" class="empty">暂无其他书库</p>
           <ul v-else class="recent-list">
-            <li v-for="r in recents" :key="r.path">
+            <li v-for="r in recents" :key="r.path" class="recent-row">
               <button class="recent-item" :class="{ active: r.path === current }" @click="switchTo(r.path)">
                 <div class="item-info">
                   <span class="item-label">{{ r.label }}</span>
@@ -112,6 +123,9 @@ function openDir(): void {
                 </div>
                 <Check v-if="r.path === current" :size="16" class="item-check" />
                 <ArrowRight v-else :size="15" class="item-arrow" />
+              </button>
+              <button class="btn icon new-window" data-tip="在新窗口中打开" @click="openInNewWindow(r.path)">
+                <AppWindow :size="15" />
               </button>
             </li>
           </ul>
@@ -314,6 +328,27 @@ function openDir(): void {
   text-align: center;
   font-size: var(--font-size-s);
   color: var(--text-faint);
+}
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+.recent-row .recent-item {
+  flex: 1;
+  min-width: 0;
+}
+/* 「在新窗口中打开」：常态低显，hover 行内浮现（与 item-arrow 同语言） */
+.new-window {
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.recent-row:hover .new-window,
+.new-window:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 .recent-item {
   display: flex;

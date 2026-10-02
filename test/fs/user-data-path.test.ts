@@ -7,7 +7,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as os from 'node:os'
 import { join } from 'node:path'
-import { defaultUserDataPath, APP_DIR_NAME } from '../../src/fs/user-data-path.js'
+import {
+  defaultUserDataPath,
+  appDataHomeDir,
+  instanceUserDataPath,
+  libraryInstanceKey,
+  WELCOME_INSTANCE_KEY,
+  APP_DIR_NAME,
+} from '../../src/fs/user-data-path.js'
 
 vi.mock('node:os', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:os')>()
@@ -66,5 +73,46 @@ describe('defaultUserDataPath 跨平台统一', () => {
     vi.stubEnv('XDG_CONFIG_HOME', '/home/jevanzhu/.xdgconf')
     // Windows 无 POSIX 分隔：期望用 path.join 构造（与实现同源，win 下解析为反斜杠）
     expect(defaultUserDataPath()).toBe(join('/home/jevanzhu/.xdgconf', 'CLWriting'))
+  })
+})
+
+// ── 多库多窗：共享根 / 实例目录 / instanceKey ──────────────
+
+describe('多库多窗目录分工（共享根 vs 实例目录）', () => {
+  it('appDataHomeDir = 缺省路径；CLW_SMOKE_USER_DATA 覆盖共享根（实例目录嵌套其下）', () => {
+    mockPlatform('darwin')
+    vi.mocked(os.homedir).mockReturnValue('/Users/jevanzhu')
+    vi.stubEnv('CLW_SMOKE_USER_DATA', '')
+    expect(appDataHomeDir()).toBe(defaultUserDataPath())
+    expect(instanceUserDataPath('abc')).toBe(join(defaultUserDataPath(), 'instances', 'abc'))
+
+    vi.stubEnv('CLW_SMOKE_USER_DATA', '/tmp/clw-smoke')
+    expect(appDataHomeDir()).toBe('/tmp/clw-smoke')
+    expect(instanceUserDataPath('abc')).toBe(join('/tmp/clw-smoke', 'instances', 'abc'))
+  })
+
+  it('welcome 固定 key 与库 key 不同形（不撞）', () => {
+    expect(WELCOME_INSTANCE_KEY).toBe('welcome')
+    expect(libraryInstanceKey('/libs/A')).toMatch(/^[0-9a-f]{16}$/)
+  })
+})
+
+describe('libraryInstanceKey：折叠口径（大小写漂移归同 key，异库异 key）', () => {
+  it('同库同 key；异库异 key', () => {
+    mockPlatform('darwin')
+    expect(libraryInstanceKey('/libs/A')).toBe(libraryInstanceKey('/libs/A'))
+    expect(libraryInstanceKey('/libs/A')).not.toBe(libraryInstanceKey('/libs/B'))
+  })
+
+  it('darwin/win32：大小写漂移归同 key（盘符/目录大小写经启动器漂移不劈实例）', () => {
+    mockPlatform('darwin')
+    expect(libraryInstanceKey('/libs/Alpha')).toBe(libraryInstanceKey('/libs/alpha'))
+    mockPlatform('win32')
+    expect(libraryInstanceKey('C:\\Libs\\Alpha')).toBe(libraryInstanceKey('c:\\libs\\alpha'))
+  })
+
+  it('linux：大小写敏感——异名异 key（合法异名库共存不误并）', () => {
+    mockPlatform('linux')
+    expect(libraryInstanceKey('/libs/Alpha')).not.toBe(libraryInstanceKey('/libs/alpha'))
   })
 })

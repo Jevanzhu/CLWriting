@@ -236,6 +236,11 @@ vi.mock('electron', () => {
 
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M.userData,
+  // 多库多窗：共享根 / 实例目录 / instanceKey（假件按真实现形状给值）
+  appDataHomeDir: () => M.userData,
+  instanceUserDataPath: (key: string) => `${M.userData}/instances/${key}`,
+  WELCOME_INSTANCE_KEY: 'welcome',
+  libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({

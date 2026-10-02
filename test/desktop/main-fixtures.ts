@@ -373,6 +373,12 @@ vi.mock('electron', () => {
 
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M_hoisted.userData,
+  // 多库多窗：共享根 / 实例目录 / instanceKey（假件按真实现的形状给值——
+  // getPath('userData') 假件恒回共享根，故实例目录只在 setPaths 记录面可见）
+  appDataHomeDir: () => M_hoisted.userData,
+  instanceUserDataPath: (key: string) => `${M_hoisted.userData}/instances/${key}`,
+  WELCOME_INSTANCE_KEY: 'welcome',
+  libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
   // R1W-7：isLibraryDir/--book 路径匹配收编的同一性原语（win 小写降口径；mock 同语义）
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))

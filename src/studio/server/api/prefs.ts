@@ -28,6 +28,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { revisionError } from './revision-guard.js' // 三处拷贝收敛单源（原本地实现）
@@ -53,6 +54,9 @@ interface PrefsCtx {
   /** APP 级数据目录（Electron userData / CLI 模式跨平台约定路径） */
   userDataPath: string | null
 }
+
+/** 全局偏好写锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 极保守（同 providers 锁档） */
+const GLOBAL_PREFS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
 export function registerPrefsRoutes(ctx: PrefsCtx): void {
   /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码；
@@ -189,8 +193,16 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     handler: async ({ input }, _req, res) => {
       const r = globalPath()
       if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-      // （照 providers dd- 口径）：body 已由 parse 先行读毕——读盘/比对/写盘
-      // 三段必须同步无 await，单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
+      // 多库多窗：global.json 在共享根，同机多实例（各库一进程）可并发 PUT——
+      // 原「单事件循环内原子」只保同进程，跨进程 TOCTOU 会丢更新（两侧同读 rev N、
+      // 同写 rev N+1，且不报 409）。补跨进程锁：锁内重读盘面 → revision 比对 → 写
+      //（读盘/比对/写盘三段仍同步无 await）；revision 乐观锁管用户可见冲突、锁管
+      // 丢更新，两闸互补（providers.json 先例）。
+      const release = await acquireCrossProcessLockAsync(`${r.path}.lock`, GLOBAL_PREFS_WRITE_LOCK_TIMEOUT_MS)
+      if (!release) {
+        log.error('api', `写全局偏好获取跨进程锁超时（其他窗口长期占用）：${r.path}`)
+        return replyError(res, 500, 'IO_ERROR', '全局偏好正被其他窗口写入，请稍后重试')
+      }
       try {
         let disk: Record<string, unknown> = {}
         if (existsSync(r.path)) {
@@ -222,6 +234,8 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         // 失败形态（落盘 IO 异常）双端点码面漂移（全局 ERROR / 书级 IO_ERROR）使前端
         // 按码分类的降级/提示路径分叉
         replyError(res, 500, 'IO_ERROR', '写全局偏好失败')
+      } finally {
+        release()
       }
     },
   })

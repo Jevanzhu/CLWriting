@@ -595,11 +595,6 @@
       "count": 1
     }
   },
-  "src/studio/server/api/prefs.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
   "src/studio/server/api/providers.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 9

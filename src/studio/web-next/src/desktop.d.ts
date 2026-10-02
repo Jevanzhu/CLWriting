@@ -17,6 +17,8 @@ declare global {
        *  取消；reason=落库失败（切库链 switchLibrary 同款信封） */
       openLibrary: () => Promise<{ ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }>
       switchLibrary: (path: string) => Promise<{ ok: true } | { ok: false; reason: string }>
+      /** 多库多窗·新窗入口：在新窗口中打开书库（spawn 新实例，本窗口不动）；失败信封同 switchLibrary */
+      openLibraryInNewWindow: (path: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       getRecentLibraries: () => Promise<{ path: string; label: string }[]>
       getCurrentLibrary: () => Promise<string | null>
       showInFolder: (bookName: string, relPath: string) => Promise<void>

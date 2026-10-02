@@ -22,6 +22,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { appDataHomeDir } from '../fs/user-data-path.js' // 多库多窗：窗口几何旧档回落（共享根）
 import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // 多屏 bounds 校验纯函数
 import { errMsg, log } from '../log/index.js'
 
@@ -375,7 +376,9 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   return win
 }
 
-/** 主窗口 bounds 持久化（userData/window-state.json）：关闭时存，启动时恢复。 */
+/** 主窗口 bounds 持久化（实例目录/window-state.json）：关闭时存，启动时恢复。
+ *  多库多窗后窗口几何随实例目录（每库各记自己的几何）——实例目录无档时回落共享根
+ *  旧档（多库多窗前的位置记忆，一次性迁移；此后关闭自然写入实例目录）。 */
 // 惰性求值（模块级零副作用纪律见文件头注）：首次读写时才解析——届时 main.ts 的
 // app.setPath('userData') 必已执行（bootstrap/关窗链均晚于模块装配）。
 let stateFile: string | null = null
@@ -386,9 +389,17 @@ interface WinState {
   bounds: { x: number; y: number; width: number; height: number }
   maximized?: boolean
 }
-function loadWinState(): WinState | null {
+function readWinStateAt(fp: string): WinState | null {
   try {
-    const s = JSON.parse(readFileSync(windowStateFile(), 'utf-8')) as WinState
+    return JSON.parse(readFileSync(fp, 'utf-8')) as WinState
+  } catch {
+    /* 无文件或损坏 */
+  }
+  return null
+}
+function loadWinState(): WinState | null {
+  const s = readWinStateAt(windowStateFile()) ?? readWinStateAt(join(appDataHomeDir(), 'window-state.json'))
+  if (s) {
     // 校验扩为 getAllDisplays 任一显示器包含即有效（±容差口径
     // 原样保留）——原只对主屏判定，多屏作者窗口常驻副屏：副屏坐标对主屏永远「越界」，
     // 恢复被无条件丢弃、窗口尺寸/位置白丢。判定逻辑抽 window-state.ts 纯函数（可单测）。
@@ -396,15 +407,19 @@ function loadWinState(): WinState | null {
     // （workAreaSize-80/-8）一直按工作区算，校验却按含任务栏/Dock 的整屏：存档底部
     // 压在任务栏区（整屏含、工作区外）此前判有效、恢复即压条。容差 200px 原样保留
     //（轻微出界照旧放行），只多拦「越工作区 >200px」的真离屏态，正常存档不受影响。
-    if (
-      isBoundsVisibleOnAnyDisplay(
-        s.bounds,
-        screen.getAllDisplays().map((d) => d.workArea),
+    // 校验面整体 try 包住（原 loadWinState 的 catch 全包口径）——坏形状/假件缺
+    // workArea 等异常按「无效存档」降级，不炸启动链。
+    try {
+      if (
+        isBoundsVisibleOnAnyDisplay(
+          s.bounds,
+          screen.getAllDisplays().map((d) => d.workArea),
+        )
       )
-    )
-      return s
-  } catch {
-    /* 无文件或损坏 → 默认 */
+        return s
+    } catch {
+      /* 校验面异常 → 按无效存档降级 */
+    }
   }
   return null
 }
