@@ -71,7 +71,7 @@
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.1",
-    "vitest": "^5.0.1",
+    "vitest": "^5.0.2",
     "vue": "^3.5.43"
   },
   "//overrides": "esbuild 钉版：旧版 dev server 有跨站读取泄漏面（GHSA-67mh-4wv8-2f99，修复线 0.25.0），钉死强制全部消费链越过受影响版本。覆盖范围＝tsup / tsx 与根 devDependencies 的 vite 7 链（供 vitest/@vitejs/plugin-vue，仍带 esbuild 依赖）；前端子包 web-next 的 vite 8 已改 rolldown 构建、无 esbuild 依赖，不在射程内。放开钉版前需回归 electron 构建链（tsup 构建 + dev:app + build:desktop 出包）。",
