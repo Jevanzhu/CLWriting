@@ -11,9 +11,10 @@
  * 直读，库目录本身不做任何可达性探测（失联网络卷上的同步探测会冻启动链，慢盘面加固
  * 同族口径）。`findWorkDir(cwd)` 为既有点位（bootstrap 现行为）的前置镜像。
  *
- * 与 bootstrap 的关系：bootstrap 仍按原链定位（含异步可达性预探与回落），本模块只服务
- * 「算 key」这一件事；两者不一致的残余形态（current 失效 → bootstrap 回落 cwd 发现库）
- * 由 main.ts 记警告留痕，见设计正本 §六。
+ * 与 bootstrap 的关系：bootstrap 仍按原链定位（含异步可达性预探与回落），本模块另服务
+ * 「算 key」这一件事；main.ts 的 bootstrap 同时消费本模块的解析结果（`--dir` 形态即
+ * `source === 'arg'` 时以显式意图优先，见 main.ts launchCandidate 注），两者不一致的
+ * 残余形态（current 失效 → bootstrap 回落 cwd 发现库）由 main.ts 记警告留痕，见设计正本 §六。
  */
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

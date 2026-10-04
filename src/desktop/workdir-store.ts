@@ -1,7 +1,8 @@
 /**
  * 工作目录（书库）持久化存储 —— 纯数据变换，零 Electron 依赖（可单测）。
  *
- * 持久化文件 userData/workdir.json：
+ * 持久化文件 `<共享根>/workdir.json`（多库多窗起脱离 Electron userData——Electron 的
+ * userData 已随实例目录，库注册表须跨实例共享；路径解析见 workdir-controller.storePath）：
  *   { current: "/abs/path" | null, recent: [{ path, label }, ...] }
  *
  * 关联：Dev/Plans/desktop-workdir-方案.md（决策③ 多数库切换）。

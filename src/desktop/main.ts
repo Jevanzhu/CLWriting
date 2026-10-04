@@ -65,7 +65,7 @@ import {
   currentWorkDir,
   openLibraryAction,
   overwriteRecentInCache,
-  pickLibraryDirForNewWindow,
+  pickLibrary,
   probeDirReachable,
   readStore,
   setBootstrappedWorkDir,
@@ -117,11 +117,6 @@ app.setPath('userData', instanceUserDataPath(instanceKey))
 // （userData/logs/app-YYYYMMDD.jsonl）；dev 态保留 console 镜像。后续 startServer
 // 会再 init 一次（幂等，参数一致）。logs 随实例目录（同机多实例各写各的，互不串扰）。
 initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !app.isPackaged })
-// 多实例诊断启动行：instanceKey + 解析来源 + 启动库路径
-log.info(
-  'desktop',
-  `实例启动：key=${instanceKey} 来源=${startupLibrary.source} 书库=${startupLibrary.dir ?? '（引导页）'} 共享根=${homeDir}`,
-)
 
 // 单实例锁：双开实例会对同一 userData 的 workdir.json / window-state.json
 // 读改写互踩（atomic 写只防文件撕裂，防不了语义层竞态）。锁须在 setPath 之后请求，
@@ -138,6 +133,15 @@ const appInstanceGuard = acquireAppInstanceGuard(app.getPath('userData'))
 if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   app.quit()
 } else {
+  // 多实例诊断启动行：instanceKey + 解析来源 + 启动库路径。
+  // 置于锁判定之后（本实例确为持锁实例才记）——同库二次拉起与其同实例目录，
+  // 锁判定前落行会把「未持锁即退」的瞬态实例行混进持锁实例的日志（取舍：设计正本
+  // §4.4 曾留「实施时定是否延后日志初始化」，实施取整定为延后本行、initLogging
+  // 留在原处——其 mkdir/轮转清理幂等无害，且更早的失败行仍可落盘）。
+  log.info(
+    'desktop',
+    `实例启动：key=${instanceKey} 来源=${startupLibrary.source} 书库=${startupLibrary.dir ?? '（引导页）'} 共享根=${homeDir}`,
+  )
   app.on('second-instance', (_e, argv: string[]) => {
     // 第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
     // 只认本次 argv——回落 env 读到的是首实例的
@@ -374,12 +378,35 @@ async function bootstrap(): Promise<void> {
     }
   }
   // 实例 key 与 bootstrap 实际采用库不一致（current 失效 → 回落 cwd 发现的残余形态）：
-  // 本次会话的「同库单实例」防线降级，留痕登记（取舍见设计正本 §六）
+  // Electron 原生锁落在错误的 key 域，按原形态本会话「同库单实例」防线降级。收口
+  // （多库多窗 §六 残余项修复）：补挂一道实例守卫到**实际采用库**的实例目录——此后
+  // 任何以该库为 key 的实例启动时经 acquireAppInstanceGuard 见他实例在持而自退，防线
+  // 恢复。锁面异常 fail-open（与 guard 同口径，不拦启动）。
   if (workDir && startupLibrary.dir && !samePath(workDir, startupLibrary.dir)) {
     log.warn(
       'desktop',
-      `实例 key 按启动解析的库派生（${startupLibrary.dir}），bootstrap 实际采用 ${workDir}——本次会话同库单实例防线降级`,
+      `实例 key 按启动解析的库派生（${startupLibrary.dir}），bootstrap 实际采用 ${workDir}——已补挂实例守卫到实际库（同库单实例防线恢复）`,
     )
+    try {
+      const actualKey = libraryInstanceKey(workDir)
+      if (actualKey !== instanceKey) {
+        const supplement = acquireAppInstanceGuard(instanceUserDataPath(actualKey))
+        if (!supplement.acquired) {
+          // 实际库已有他实例在跑（正常 key 形态）——本实例是「降级双开」的后到者：
+          // 明确交代并自退，不静默双开同库（本进程并非该库的锁主，跨进程聚焦不可达，
+          // 故只拒启本实例，不能把已开窗口拉到前台）。
+          log.error('desktop', `实际采用的书库已在另一窗口打开（${workDir}）——本实例退出，避免同库双开`)
+          dialog.showErrorBox(
+            '书库已在其他窗口打开',
+            `本窗口要打开的书库已在另一个窗口打开：\n${workDir}\n\n请使用已打开的窗口；本窗口即将关闭。`,
+          )
+          app.quit()
+          return
+        }
+      }
+    } catch (e) {
+      log.warn('desktop', `实例守卫补挂失败（fail-open，不拦启动）：${errMsg(e)}`)
+    }
   }
   // 服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
   // readStore.current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
@@ -578,9 +605,10 @@ function buildMenu(): void {
           label: '在新窗口中打开书库…',
           click: () => {
             void (async () => {
-              const dir = await pickLibraryDirForNewWindow()
+              const dir = await pickLibrary()
               if (!dir) return
-              if (!spawnLibraryInstance(dir)) {
+              // spawn 成败经 'spawn'/'error' 事件落定（失败已消费不再反噬主进程，见 new-instance 头注）
+              if (!(await spawnLibraryInstance(dir))) {
                 dialog.showErrorBox('打开新窗口失败', `无法在新窗口中打开书库：\n${dir}\n\n请重试或查看日志。`)
               }
             })().catch((e) => {

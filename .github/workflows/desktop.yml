@@ -348,6 +348,21 @@ jobs:
             echo "== packaged-app-smoke 包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
             CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
           done
+      # 多库多窗批收口（评审 P2-2）：multi-instance.spec 此前零 CI 调用方（只挂
+      # CLWRITING_E2E_RELEASE env 门、无工作流点名——与上方 packaged-app-smoke 早年的
+      # 「死 spec」同型，而它对着本批最核心的用户功能：异库并行 / 同库单实例 / 实例目录
+      # 隔离）。此处接线：打包产物在位后真跑（mac 双腿逐包），定位与上方同款（RUNNER_TEMP
+      # 出工作区副本 + glob 通吃 arch + test -x 防假绿）；spec 自带产物缺失 fail-closed
+      # 断言 + CLWRITING_E2E_APP_BIN 覆盖二进制定位。
+      - name: 多库多窗冒烟（multi-instance，异库并行 + 同库单实例，双 arch 逐包）
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          for APP_BIN in "${RUNNER_TEMP}/clw-smoke"/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+            test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+            echo "== multi-instance 包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
+            CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/multi-instance.spec.ts
+          done
       # J0：win 腿同款启动冒烟——便携 zip 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
       # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
       # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：
@@ -436,6 +451,24 @@ jobs:
           }
           $env:CLW_SMOKE_APP_BIN = $exe
           npm run smoke:electron
+      # 多库多窗批收口（评审 P2-2）：win 腿同款接线——win 是出货平台，本批最核心的
+      # 用户功能（异库并行 / 同库单实例）此前 CI 零覆盖。复用上步 RUNNER_TEMP 副本
+      # （出工作区，裸包解析假绿机理同前）；spec 自带产物缺失 fail-closed 断言 +
+      # CLWRITING_E2E_APP_BIN 覆盖二进制定位，win 缺省路径 dist-electron/win-unpacked
+      # 亦命中，显式传参与之互为保险。
+      - name: 多库多窗冒烟（multi-instance，打包态 exe）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = (Get-Item (Join-Path $env:RUNNER_TEMP "clw-smoke\win-unpacked\CLWriting.exe") -ErrorAction SilentlyContinue).FullName
+          if (-not $exe) {
+            Write-Output "::error::未找到打包态可执行体（上步应已拷出工作区）：$env:RUNNER_TEMP\clw-smoke\win-unpacked\CLWriting.exe"
+            exit 1
+          }
+          $env:CLWRITING_E2E_RELEASE = "1"
+          $env:CLWRITING_E2E_APP_BIN = $exe
+          npx playwright test test/e2e/multi-instance.spec.ts
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
   # 阶段 47（发版链批）：tag 全绿后建 GitHub Release 草稿——此前 tag 跑完只留 workflow
   # 工件（登录 GitHub 才能下、90 天过期），正式发版要人工下载再上传；本 job 汇双腿产物

@@ -9,8 +9,10 @@
  * 对他人进程 EPERM → 按存活保守处理 → 拒绝第二实例）。
  *
  * 生命周期：持有方每 60s 续期（utimes 刷 mtime，防活 pid 超 10min MAX_HELD_MS 被
- * 陈锁接管误判——长活应用必须续期）；正常退出经 process 'exit' 钩子即刻释放，
- * 崩溃/硬杀残留的死 pid 锁由 stale 接管自愈。
+ * 陈锁接管误判——长活应用必须续期）；正常退出经 process 'exit' 钩子即刻释放（多道
+ * 守卫逐条释放，见 activeReleases），崩溃/硬杀残留的死 pid 锁由 stale 接管自愈。
+ * 多道守卫的消费点：main 在「实例 key 与实际采用库不一致」的残余形态下补挂实际库
+ * 的守卫（见 main.ts bootstrap 尾注），其余调用方仍单道。
  *
  * 失败语义 fail-open：锁面异常（权限/磁盘/路径不可用）**放行**（acquired=true）——
  * 本守卫只是 Electron 锁的补充防线，同用户双开仍由 Electron 锁兜底，锁基建故障
@@ -44,22 +46,33 @@ function selfHolds(lockPath: string): boolean {
   }
 }
 
-/** 当前真持锁的释放函数（进程退出钩子消费；未持锁为 null）。 */
-let activeRelease: (() => void) | null = null
+/** 当前真持锁的释放函数集（进程退出钩子消费；未持锁为空集）。
+ *  多库多窗残余形态：main 在「实例 key 与实际采用库不一致」时补挂第二道守卫
+ *  （实际库的实例目录），故持锁面可为多条——exit 钩子与 releaseAllGuards 逐条释放。 */
+const activeReleases = new Set<() => void>()
 let exitHookRegistered = false
 
-/** 进程正常退出时释放文件锁（幂等；同步 rm 面安全）。不走 Electron 'will-quit'——
- *  本模块不依赖 Electron（scripts/无 Electron 的入口也可复用），且崩溃/硬杀路径本就
- *  由锁的死 pid 陈锁接管自愈（头注），exit 钩子只是常态退出即刻清盘的卫生面。 */
+/** 释放本进程当前持有的全部实例锁（幂等；同步 rm 面安全）。
+ *  出口有二：进程正常退出钩子（ensureExitHook）与测试直调（行为锚——单槽存储形态下
+ *  先持锁的释放函数会被后持锁覆盖，本函数只会释放最后一道，据此可回退即红）。
+ *  不走 Electron 'will-quit'——本模块不依赖 Electron（scripts/无 Electron 的入口也可
+ *  复用），且崩溃/硬杀路径本就由锁的死 pid 陈锁接管自愈（头注），本函数只是常态退出
+ *  即刻清盘的卫生面。 */
+export function releaseAllGuards(): void {
+  for (const r of activeReleases) {
+    try {
+      r()
+    } catch {
+      /* best-effort：失败留残锁交下次启动陈锁接管自愈 */
+    }
+  }
+}
+
 function ensureExitHook(): void {
   if (exitHookRegistered) return
   exitHookRegistered = true
   process.once('exit', () => {
-    try {
-      activeRelease?.()
-    } catch {
-      /* best-effort：失败留残锁交下次启动陈锁接管自愈 */
-    }
+    releaseAllGuards()
   })
 }
 
@@ -72,10 +85,10 @@ export function acquireAppInstanceGuard(userDataDir: string): AppInstanceGuard {
     const release = tryAcquireCrossProcessLock(lockPath, { renewIntervalMs: 60_000 })
     if (release) {
       const wrapped = (): void => {
-        if (activeRelease === wrapped) activeRelease = null
+        activeReleases.delete(wrapped)
         release()
       }
-      activeRelease = wrapped
+      activeReleases.add(wrapped)
       ensureExitHook()
       return { acquired: true, release: wrapped }
     }

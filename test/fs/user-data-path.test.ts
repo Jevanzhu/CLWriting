@@ -115,4 +115,21 @@ describe('libraryInstanceKey：折叠口径（大小写漂移归同 key，异库
     mockPlatform('linux')
     expect(libraryInstanceKey('/libs/Alpha')).not.toBe(libraryInstanceKey('/libs/alpha'))
   })
+
+  it('darwin：NFD/NFC 拼写归同 key（APFS 惯存分解形，与 samePath 同口径）', () => {
+    mockPlatform('darwin')
+    const nfc = '/libs/Caf\u00e9' // é 预组合
+    const nfd = '/libs/Cafe\u0301' // e + 组合重音
+    expect(nfd).not.toBe(nfc) // 前置：两串字节不同
+    expect(libraryInstanceKey(nfd)).toBe(libraryInstanceKey(nfc))
+  })
+
+  it('win32/linux：不折叠 NFC/NFD（NTFS 与敏感 FS 上异形是不同目录）', () => {
+    const nfd = '/libs/Cafe\u0301'
+    const nfc = '/libs/Caf\u00e9'
+    mockPlatform('win32')
+    expect(libraryInstanceKey(nfd)).not.toBe(libraryInstanceKey(nfc))
+    mockPlatform('linux')
+    expect(libraryInstanceKey(nfd)).not.toBe(libraryInstanceKey(nfc))
+  })
 })

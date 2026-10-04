@@ -4,10 +4,12 @@
 // 本页只保留全屏布局 + hero + IPC 跳转。
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Sun, Moon, BookOpen, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
+import { Sun, Moon, BookOpen, LayoutGrid, List, Plus, Trash2, CheckSquare, Library } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
 import { usePlatform } from '../composables/usePlatform'
+import { useUiStore } from '../stores/ui'
+import { friendlyError } from '../shared/error'
 import { isImeComposing } from '../shared/ime'
 import { SHELF_RENDER_CAP } from '../shared/render-cap'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
@@ -18,6 +20,7 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
 
 const router = useRouter()
 const { theme, toggle } = useTheme()
+const ui = useUiStore()
 // 删 hasDesktop 死变量——平台判断收敛到 usePlatform 后残留零消费
 const { isDesktop, isMac } = usePlatform()
 const {
@@ -65,6 +68,16 @@ const {
 function handleCardClick(name: string): void {
   if (batchMode.value) toggleSelect(name)
   else openBook(name)
+}
+
+// 返回书库：书架页无 Ribbon（书库管理入口只挂工作区），此处开独立书库管理
+// 窗口——与 Ribbon 同链路（单例聚焦，IPC 失败 toast 交代）
+function openLibraryManager(): void {
+  if (window.clwritingDesktop) {
+    window.clwritingDesktop.openLibraryWindow().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
+  } else {
+    ui.toast('书库管理仅桌面版可用', 'info')
+  }
 }
 
 // Awwwards 冲击面：hero 数据条展示创作概况
@@ -128,6 +141,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </div>
         <div class="shelf-actions">
           <template v-if="!batchMode">
+            <button class="btn" @click="openLibraryManager"><Library :size="14" /> 返回书库</button>
             <div class="view-toggle">
               <button
                 class="toggle-btn"

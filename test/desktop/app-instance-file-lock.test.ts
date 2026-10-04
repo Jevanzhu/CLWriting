@@ -10,14 +10,16 @@ import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { acquireAppInstanceGuard, APP_INSTANCE_LOCK_FILE } from '../../src/desktop/app-instance-guard.js'
+import { acquireAppInstanceGuard, releaseAllGuards, APP_INSTANCE_LOCK_FILE } from '../../src/desktop/app-instance-guard.js'
 
 let dir: string | null = null
+const multiDirs: string[] = []
 afterEach(() => {
   if (dir) {
     rmSync(dir, { recursive: true, force: true })
     dir = null
   }
+  for (const d of multiDirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 describe('R0913-win P3-13：app-instance-guard', () => {
@@ -52,5 +54,31 @@ describe('R0913-win P3-13：app-instance-guard', () => {
     const third = acquireAppInstanceGuard(dir)
     expect(third.acquired).toBe(true)
     third.release()
+  })
+
+  // 多库多窗 §六 残余项修复：异库双守卫共存（main 的「key 与实际库不一致」补挂形态）——
+  // 两道锁在各自目录并存；releaseAllGuards（进程退出钩子的同一出口）须逐条释放。
+  // 回退即红：单槽存储（activeRelease 覆盖式）下后持锁覆盖先持锁，本用例 A 的锁面
+  // 留在盘上不消失。
+  it('多库多窗补挂：异目录双守卫并存，releaseAllGuards 逐条释放', () => {
+    const dirA = mkdtempTracked(join(tmpdir(), 'r0913-multi-a-'))
+    const dirB = mkdtempTracked(join(tmpdir(), 'r0913-multi-b-'))
+    multiDirs.push(dirA, dirB)
+    const gA = acquireAppInstanceGuard(dirA)
+    const gB = acquireAppInstanceGuard(dirB)
+    expect(gA.acquired).toBe(true)
+    expect(gB.acquired).toBe(true)
+    expect(existsSync(join(dirA, APP_INSTANCE_LOCK_FILE))).toBe(true)
+    expect(existsSync(join(dirB, APP_INSTANCE_LOCK_FILE))).toBe(true)
+    // 单独释放其一不动另一
+    gA.release()
+    expect(existsSync(join(dirA, APP_INSTANCE_LOCK_FILE))).toBe(false)
+    expect(existsSync(join(dirB, APP_INSTANCE_LOCK_FILE))).toBe(true)
+    // 退出钩子出口：逐条释放（先再取一道 A，验证多道同清）
+    const gA2 = acquireAppInstanceGuard(dirA)
+    expect(gA2.acquired).toBe(true)
+    releaseAllGuards()
+    expect(existsSync(join(dirA, APP_INSTANCE_LOCK_FILE))).toBe(false)
+    expect(existsSync(join(dirB, APP_INSTANCE_LOCK_FILE))).toBe(false)
   })
 })

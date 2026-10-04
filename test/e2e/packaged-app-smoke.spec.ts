@@ -103,16 +103,35 @@ test('打包态应用：进书 → 设置「外观与主题」→ 界面中文�
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '外观与主题' }).click()
 
-  // 断言链终点：mac 原生 select（非 win FontPicker 形态）——options = 默认项 + 真实
-  // 字体若干；字体经 fontlist 外置二进制 spawn → IPC 异步到达，轮询等列表落位
-  const fontSelect = dialog.locator('select[aria-label="界面中文字体"]')
-  await expect(fontSelect).toBeVisible()
-  await expect
-    .poll(async () => await fontSelect.locator('option').count(), { timeout: 20_000 })
-    .toBeGreaterThanOrEqual(2)
-  await expect
-    .poll(async () => await fontSelect.locator('option:not([value=""])').count(), { timeout: 20_000 })
-    .toBeGreaterThanOrEqual(1)
+  // 断言链终点：字体下拉列出系统字体——options = 默认项 + 真实字体若干；字体经
+  // fontlist 外置二进制 spawn → IPC 异步到达，轮询等列表落位。
+  // 双形态（FontPicker.vue 头注）：非 win = 原生 select；win = 自绘浮层（触发钮
+  // [aria-haspopup=listbox] + Teleport 的 [role=listbox]/[role=option]），两形态共用
+  // aria-label「界面中文字体」与 listbox/option 契约，仅展开方式不同。
+  const fontControlLabel = '界面中文字体'
+  if (process.platform === 'win32') {
+    const fontBtn = dialog.locator(`button[aria-label="${fontControlLabel}"]`)
+    await expect(fontBtn).toBeVisible()
+    await fontBtn.click()
+    // 浮层 Teleport 到 body（设置弹窗之外）——按页面级 [role=listbox] 定位
+    const listbox = page.locator('[role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await expect
+      .poll(async () => await listbox.locator('[role="option"]').count(), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2)
+    // 键盘收menu（Esc 关闭路径顺带钉住自绘浮层可关闭）
+    await page.keyboard.press('Escape')
+    await expect(listbox).toBeHidden()
+  } else {
+    const fontSelect = dialog.locator(`select[aria-label="${fontControlLabel}"]`)
+    await expect(fontSelect).toBeVisible()
+    await expect
+      .poll(async () => await fontSelect.locator('option').count(), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2)
+    await expect
+      .poll(async () => await fontSelect.locator('option:not([value=""])').count(), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(1)
+  }
 
   // 干净退出在 afterAll（app.quit 优雅链 + 兜底信号）
 })

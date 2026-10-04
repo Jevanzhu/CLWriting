@@ -8,6 +8,8 @@ import { friendlyError } from '../shared/error'
 import { FolderOpen, ExternalLink, Database, ArrowRight, Check, AppWindow } from 'lucide-vue-next'
 import { usePlatform } from '../composables/usePlatform'
 import { useLibraryIpc } from '../composables/useLibraryIpc'
+import { useNativeMenu } from '../composables/useNativeMenu'
+import ContextMenu, { type MenuItem } from '../components/ui/ContextMenu.vue'
 
 const ui = useUiStore()
 const { isDesktop: hasDesktop, isMac } = usePlatform()
@@ -63,6 +65,17 @@ async function openInNewWindow(path: string): Promise<void> {
     ui.toast(friendlyError(e), 'error')
   }
 }
+
+// 最近列表行右键菜单——「在新窗口中打开」与行内悬停按钮同链路（桌面原生 Menu，
+// 浏览器回退自绘 ContextMenu）
+const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
+
+function onRowContextmenu(e: MouseEvent, path: string): void {
+  const items: MenuItem[] = [{ key: 'new-window', label: '在新窗口中打开' }]
+  popup(items, e.clientX, e.clientY, (key) => {
+    if (key === 'new-window') void openInNewWindow(path)
+  })
+}
 </script>
 
 <template>
@@ -115,7 +128,12 @@ async function openInNewWindow(path: string): Promise<void> {
           </h2>
           <p v-if="!recents.length" class="empty">暂无其他书库</p>
           <ul v-else class="recent-list">
-            <li v-for="r in recents" :key="r.path" class="recent-row">
+            <li
+              v-for="r in recents"
+              :key="r.path"
+              class="recent-row"
+              @contextmenu.prevent="onRowContextmenu($event, r.path)"
+            >
               <button class="recent-item" :class="{ active: r.path === current }" @click="switchTo(r.path)">
                 <div class="item-info">
                   <span class="item-label">{{ r.label }}</span>
@@ -132,6 +150,17 @@ async function openInNewWindow(path: string): Promise<void> {
         </section>
       </template>
     </main>
+
+    <!-- 右键菜单（浏览器回退；桌面端走原生 Menu，不渲染本组件） -->
+    <ContextMenu
+      v-if="!isNative"
+      :visible="menuVisible"
+      :x="menuX"
+      :y="menuY"
+      :items="menuItems"
+      @select="onPopupSelect"
+      @close="onPopupClose"
+    />
   </div>
 </template>
 

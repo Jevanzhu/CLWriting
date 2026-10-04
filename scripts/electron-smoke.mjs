@@ -112,8 +112,8 @@ const child = appBin
           ELECTRON_ENABLE_LOGGING: '1',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
-        // POSIX：独立进程组，便于整树 kill(-pid)。Windows 不能 detached（会弹新控制台，
-        // 且 taskkill /T 已够用）。
+        // POSIX：独立进程组，便于整树 kill(-pid)。Windows 侧整树清场走 taskkill /T，
+        // 不依赖进程组语义。
         detached: process.platform !== 'win32',
         windowsHide: true,
       },

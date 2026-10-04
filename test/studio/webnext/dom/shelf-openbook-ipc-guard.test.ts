@@ -1,9 +1,13 @@
 /**
- * Shelf 页 openBook IPC 守卫行为（happy-dom）。
+ * Shelf 页桌面入口行为（happy-dom）。
  * （原 r42-shell-mount 的 R42-31 节，按行为单拆。）
  *
  * R42-31（四十二轮）：书架独立窗口 openBook IPC reject 被 catch——console.warn 留痕，
  * 不产生 unhandledrejection 抛穿。
+ *
+ * 返回书库入口：书架页开书库管理窗口 IPC 三态——桌面成功不 toast / 浏览器版 toast 交代
+ * 「仅桌面版可用」（书架页无 Ribbon，此为唯一入口，点击必须有响应）/ IPC 失败
+ * friendlyError toast。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -28,6 +32,7 @@ vi.mock('../../../../src/studio/web-next/node_modules/vue-router', () => ({
 
 import Shelf from '../../../../src/studio/web-next/src/pages/Shelf.vue'
 import ShelfGrid from '../../../../src/studio/web-next/src/components/ui/ShelfGrid.vue'
+import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import type { BookEntry } from '../../../../src/studio/web-next/src/api/shelf'
 
 const BOOK: BookEntry = {
@@ -91,6 +96,67 @@ describe('R42-31 Shelf 页：openBook IPC reject 不抛穿', () => {
     expect(shelfMocks.routerPush).not.toHaveBeenCalled() // 独立窗口走 IPC，不落路由分支
     expect(warnSpy).toHaveBeenCalledWith('openBook IPC 失败', expect.any(Error)) // catch 留痕
     expect(unhandled).toEqual([]) // 无 unhandledrejection 抛穿
+    wrapper.unmount()
+  })
+})
+
+describe('Shelf 页：返回书库入口（开书库管理窗口）', () => {
+  function mountShelf() {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    shelfMocks.listBooks.mockReset().mockResolvedValue({ books: [BOOK], workDir: true })
+    shelfMocks.routerPush.mockReset()
+    const wrapper = mount(Shelf, { global: { plugins: [pinia] } })
+    return { wrapper, pinia }
+  }
+  function backButton(wrapper: ReturnType<typeof mount>) {
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('返回书库'))
+    if (!btn) throw new Error('返回书库按钮未渲染')
+    return btn
+  }
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).clwritingDesktop
+    try {
+      window.localStorage.clear()
+    } catch {
+      /* happy-dom 差异下不可用则跳过 */
+    }
+    document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('桌面版点击 → openLibraryWindow IPC 一次，不 toast', async () => {
+    const openLibraryWindow = vi.fn().mockResolvedValue(undefined)
+    ;(window as unknown as Record<string, unknown>).clwritingDesktop = { openLibraryWindow }
+    const { wrapper, pinia } = mountShelf()
+    await flushPromises()
+    const toastSpy = vi.spyOn(useUiStore(pinia), 'toast')
+    await backButton(wrapper).trigger('click')
+    expect(openLibraryWindow).toHaveBeenCalledTimes(1)
+    expect(toastSpy).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('浏览器版（无 clwritingDesktop）点击 → toast「仅桌面版可用」，不静默', async () => {
+    const { wrapper, pinia } = mountShelf()
+    await flushPromises()
+    const toastSpy = vi.spyOn(useUiStore(pinia), 'toast')
+    await backButton(wrapper).trigger('click')
+    expect(toastSpy).toHaveBeenCalledWith('书库管理仅桌面版可用', 'info')
+    wrapper.unmount()
+  })
+
+  it('桌面版 IPC 失败 → friendlyError toast', async () => {
+    ;(window as unknown as Record<string, unknown>).clwritingDesktop = {
+      openLibraryWindow: vi.fn().mockRejectedValue(new Error('窗口创建失败')),
+    }
+    const { wrapper, pinia } = mountShelf()
+    await flushPromises()
+    const toastSpy = vi.spyOn(useUiStore(pinia), 'toast')
+    await backButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(toastSpy).toHaveBeenCalledWith('窗口创建失败', 'error')
     wrapper.unmount()
   })
 })

@@ -229,7 +229,8 @@ export function registerIpc(): void {
   handleTrusted('desktop:open-library-in-new-window', async (_e, path: unknown) => {
     const g = await guardLibraryDir(path)
     if (!g.ok) return { ok: false as const, reason: g.reason }
-    if (!spawnLibraryInstance(g.dir)) {
+    // spawn 成败经 'spawn'/'error' 事件落定（异步；失败已消费不再反噬主进程，见 new-instance 头注）
+    if (!(await spawnLibraryInstance(g.dir))) {
       return { ok: false as const, reason: '新窗口启动失败（详见日志）' }
     }
     return { ok: true as const }

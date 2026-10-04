@@ -110,7 +110,11 @@ const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
  * ① `setCurrent` 语义（store.current 为串）：读盘上真身再 setCurrent——他实例并发
  *   新增的 recent 全保留，仅本次「设 current」意图落盘；
  * ② 清空/回滚基线形态（store.current 为 null，rollbackCancelledSwitch 专用）：按
- *   字面写入（原语义，锁内）；
+ *   字面写入（锁内）。旧实现另有「重读成功但盘上有真内容 → 拒写清空」的兜底分支
+ *   （原注「防御分支：防未来新增写方」），本批已移除：现存唯一无 current 写方
+ *   （rollback）在快照读失败时按无基线处理不触达此路（见 saveCurrentArmingRollback），
+ *   旧分支是零调用路径；如未来新增清空写方，按同一判据（盘上 current/recent 非空即
+ *   拒绝）在写方侧补防线，勿在通用写入层重加（会把合法回滚一并拦死）。
  * ③ 锁内读盘失败（非 ENOENT）：**拒绝覆写**并抛错（绝不以脱钩内存视图覆盖盘上真
  *   内容）；ENOENT = 无历史可保护，按首启放行。
  * 锁获取失败（超时）同走契约化失败（saveCurrentSafe → {ok:false,reason} / 菜单原生
@@ -549,13 +553,6 @@ async function openLibraryAction(): Promise<boolean> {
   }
   relaunch()
   return true
-}
-
-/** 菜单「在新窗口中打开书库…」（多库多窗）：选目录（复用 pickLibrary 完整校验链：
- *  书库校验/大小写敏感卷警告/「在此新建」引导）→ 返回目录；**不落库、不重启**——
- *  spawn 新实例（`--dir`）由调用方（main 菜单 / ipc 链）执行。 */
-export async function pickLibraryDirForNewWindow(): Promise<string | null> {
-  return pickLibrary()
 }
 
 /**

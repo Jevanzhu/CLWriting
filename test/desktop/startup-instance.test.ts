@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { dirArg, resolveStartupLibraryDir, stripDirArg } from '../../src/desktop/startup-instance.js'
 
 const tmpDirs: string[] = []
@@ -50,13 +50,15 @@ describe('stripDirArg：切库 relaunch 的 argv 清洗', () => {
 })
 
 describe('resolveStartupLibraryDir：优先级链', () => {
+  // 期望值一律过 resolve()——实现内部走 path.resolve（平台语义：win 上 '/libs/A' 落
+  // <cwd 盘符>:\libs\A），字面 posix 值断言在 win 腿必红（本批首次入库实录）。
   it('--dir 优先于 workdir.json.current 与 cwd 发现', () => {
     const home = mkTmp('clw-su-home-')
     writeFileSync(join(home, 'workdir.json'), JSON.stringify({ current: '/libs/Stored', recent: [] }))
     const cwdLib = mkTmp('clw-su-cwd-')
     mkdirSync(join(cwdLib, '.clwriting'), { recursive: true })
     const r = resolveStartupLibraryDir({ argv: ['--dir', '/libs/Arg'], homeDir: home, cwd: cwdLib })
-    expect(r).toEqual({ dir: '/libs/Arg', source: 'arg' })
+    expect(r).toEqual({ dir: resolve('/libs/Arg'), source: 'arg' })
     cleanup()
   })
 
@@ -64,7 +66,7 @@ describe('resolveStartupLibraryDir：优先级链', () => {
     const home = mkTmp('clw-su-home-')
     writeFileSync(join(home, 'workdir.json'), JSON.stringify({ current: '/libs/Stored', recent: [] }))
     expect(resolveStartupLibraryDir({ argv: [], homeDir: home, cwd: tmpdir() })).toEqual({
-      dir: '/libs/Stored',
+      dir: resolve('/libs/Stored'),
       source: 'current',
     })
     cleanup()

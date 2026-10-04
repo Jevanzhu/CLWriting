@@ -61,13 +61,19 @@ export const WELCOME_INSTANCE_KEY = 'welcome'
 /** 库路径 → 实例 key：平台折叠后的路径 hash。
  *  折叠（platformCaseFold：win/darwin 小写、linux 全等）覆盖盘符/大小写漂移——
  *  同一物理库的两种拼写在 win/mac 上归同 key（linux 大小写敏感，异名合法共存不折叠）。
+ *  darwin 叠 NFC 归一（与 samePath 的 darwin 臂同口径）——mac APFS 惯存 NFD，外部
+ *  输入的分解形路径与 NFC 形态登记指向同一物理目录；缺此归一会让同库派生两个 key，
+ *  「同库单实例」防线被拼写绕过，且 main.ts 的「key 与实际库不一致」诊断（用 samePath
+ *  判定）反而判「一致」不告警。win32 维持纯小写（NTFS 对 NFC/NFD 敏感、是不同文件，
+ *  不得折叠——samePath 同款注）；linux 全等不变。
  *  取 16 位 hex（64bit）——碰撞面仅「同机上两个不同库撞 key」，概率可忽略；
  *  key 会进目录名，hex 免非法字符/大小写歧义。
  *  约束（勿改）：必须在 `app.setPath('userData')` 之前**同步**算出——不得用 bookHash
  *  （`events/store-migrate.ts` 的 trueCasePath 逐段 readdirSync，失联网络卷会同步冻结
  *  主进程启动链；本函数零磁盘 IO）。 */
 export function libraryInstanceKey(dir: string): string {
-  return createHash('sha256').update(platformCaseFold(dir)).digest('hex').slice(0, 16)
+  const folded = platformCaseFold(process.platform === 'darwin' ? dir.normalize('NFC') : dir)
+  return createHash('sha256').update(folded).digest('hex').slice(0, 16)
 }
 
 /**
