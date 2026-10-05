@@ -71,7 +71,11 @@ function readStoredCurrent(homeDir: string): string | null {
 }
 
 /** 解析启动库路径（见模块头注的解析序）。 */
-export function resolveStartupLibraryDir(opts: { argv: string[]; homeDir: string; cwd: string }): StartupLibraryResolution {
+export function resolveStartupLibraryDir(opts: {
+  argv: string[]
+  homeDir: string
+  cwd: string
+}): StartupLibraryResolution {
   const fromArg = dirArg(opts.argv)
   if (fromArg) return { dir: resolve(fromArg), source: 'arg' }
   const current = readStoredCurrent(opts.homeDir)

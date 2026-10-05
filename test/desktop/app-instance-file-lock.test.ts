@@ -10,7 +10,11 @@ import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { acquireAppInstanceGuard, releaseAllGuards, APP_INSTANCE_LOCK_FILE } from '../../src/desktop/app-instance-guard.js'
+import {
+  acquireAppInstanceGuard,
+  releaseAllGuards,
+  APP_INSTANCE_LOCK_FILE,
+} from '../../src/desktop/app-instance-guard.js'
 
 let dir: string | null = null
 const multiDirs: string[] = []

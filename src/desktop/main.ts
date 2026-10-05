@@ -362,7 +362,10 @@ async function bootstrap(): Promise<void> {
     }
     if (argDir && !workDir && reach !== 'unreachable') {
       // --dir 无效（非目录/确定性坏路径/瞬断）：显式意图落空 → 引导页明确交代，不静默
-      dialog.showErrorBox('书库目录不可用', `本次要打开的书库目录无法使用：\n${argDir}\n\n应用将进入引导页，可重新选择书库。`)
+      dialog.showErrorBox(
+        '书库目录不可用',
+        `本次要打开的书库目录无法使用：\n${argDir}\n\n应用将进入引导页，可重新选择书库。`,
+      )
     }
   }
   if (!workDir && !argDir) {

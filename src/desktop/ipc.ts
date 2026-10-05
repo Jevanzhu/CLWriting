@@ -182,9 +182,7 @@ function onTrusted(channel: string, listener: (e: IpcMainEvent, ...args: unknown
  *
  * 后续动作各自负责：switch-library 落库 + 排重启；新窗入口 spawn（不落库、不重启）。
  */
-async function guardLibraryDir(
-  path: unknown,
-): Promise<{ ok: true; dir: string } | { ok: false; reason: string }> {
+async function guardLibraryDir(path: unknown): Promise<{ ok: true; dir: string } | { ok: false; reason: string }> {
   if (typeof path !== 'string') return { ok: false, reason: '目录无效或是另一书库的子目录' }
   if (!isAbsolute(path)) return { ok: false, reason: '书库路径必须是绝对路径' }
   if ((await probeDirReachable(path)) === 'unreachable') {

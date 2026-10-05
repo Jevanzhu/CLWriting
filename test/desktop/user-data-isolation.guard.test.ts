@@ -66,10 +66,16 @@ describe('真实用户数据隔离：desktop 测试触达 storePath 链必须假
       "await import('../../src/desktop/workdir-controller.js')",
     ].join('\n')
     expect(RISKY_IMPORT_RE.test(bad), '裸触达应被识别').toBe(true)
-    expect(ISOLATION_RES.some((re) => re.test(bad)), '无隔离 → 判危险').toBe(false)
+    expect(
+      ISOLATION_RES.some((re) => re.test(bad)),
+      '无隔离 → 判危险',
+    ).toBe(false)
     // 正例：补 user-data-path 假件后同文件判安全
     const good = bad + "\nvi.mock('../../src/fs/user-data-path.js', () => ({ appDataHomeDir: () => M.userData }))"
-    expect(ISOLATION_RES.some((re) => re.test(good)), '有隔离 → 判安全').toBe(true)
+    expect(
+      ISOLATION_RES.some((re) => re.test(good)),
+      '有隔离 → 判安全',
+    ).toBe(true)
     // vi.mock 行不误判为真实导入（整模块假件形态）
     const mockedOnly = "vi.mock('../../src/desktop/workdir-controller.js', () => ({}))"
     expect(RISKY_IMPORT_RE.test(mockedOnly), 'vi.mock 行不算真实导入').toBe(false)
