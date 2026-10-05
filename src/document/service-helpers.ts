@@ -2,13 +2,13 @@
  * 文档服务尾部自由函数集 —— （⑤④产品巨件拆分波1）自
  * service.ts 缝 B 拆出（纯移动，零行为变化）。
  *
- * 内容：trashBaselineOf / isSamePhysicalFile / sanitizeCreateSegment /
- * isSanitizedCreatePath / isPieceBody / normalizeChapterNo / chapterTitleSegment /
- * findByLegacyId 八个自由函数（原 service.ts 模块私有，仅 DocumentService 类内
- * 消费）。迁入后加 export 供 service.ts 内部 import；原本即无外部消费方，不入
- * service.ts re-export 桥。
+ * 内容：trashBaselineOf / sanitizeCreateSegment / isSanitizedCreatePath /
+ * isPieceBody / normalizeChapterNo / chapterTitleSegment / findByLegacyId 七个自由
+ * 函数（原 service.ts 模块私有，仅 DocumentService 类内消费）。迁入后加 export 供
+ * service.ts 内部 import；原本即无外部消费方，不入 service.ts re-export 桥。
+ * isSamePhysicalFile 已迁 fs/file-identity 单源（bigint 精确 dev+ino），本模块
+ * re-export 保既有消费面（service-move / service-meta）。
  */
-import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { roleOf } from './layout.js'
 import { legacyId } from './stable-id.js'
@@ -34,17 +34,9 @@ export function trashBaselineOf(e: ManifestEntry): {
 }
 
 /** 同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
- * dev+ino 口径对齐 api/books.ts。stat 失败（EACCES 等）按「非同文件」保守处理，
- *  走既有冲突收口。 */
-export function isSamePhysicalFile(a: string, b: string): boolean {
-  try {
-    const sa = statSync(a)
-    const sb = statSync(b)
-    return sa.dev === sb.dev && sa.ino === sb.ino
-  } catch {
-    return false
-  }
-}
+ * 实现单源收编 fs/file-identity（bigint 精确 dev+ino，防 Number(ino) 塌缩假阳性），
+ * 此处 re-export 保本模块既有消费面（service-move / service-meta）。 */
+export { isSamePhysicalFile } from '../fs/file-identity.js'
 
 /** createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段
  *  再原样拼回扩展名（大小写保留），目录段/无扩展名段整体消毒。sanitizeFileNamePart

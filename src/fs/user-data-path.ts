@@ -19,10 +19,10 @@
  *    随实例走（同库单实例、异库多实例由 Electron 原生锁自动成立）。
  */
 import { homedir } from 'node:os'
-import { statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { platformCaseFold } from './safe-path.js'
+import { samePhysicalFileExact } from './file-identity.js'
 
 /** 统一目录名（大写，与 electron-builder.yml productName 一致）。 */
 export const APP_DIR_NAME = 'CLWriting'
@@ -101,15 +101,15 @@ export function samePath(a: string, b: string): boolean {
  * 目录，但 samePath 的字符串口径在 posix 全等不折叠（mac 默认卷恰是「字符串异形、
  * 物理同库」形态，win32 折叠只是凑巧覆盖）。对齐书级改名（api/books.ts）与
  * 文档移动（document/service.ts）的 dev+inode 口径：两侧 statSync 成功且
- * dev+ino 相等 → 同一物理位置；大小写敏感卷上的异名路径 stat 必给出不同 ino，
- * 天然放行合法异名库。stat 任一失败（ENOENT/EACCES 等）回退 samePath 字符串
- * 口径——磁盘不可探测时维持既有判重面（不比字符串口径更宽）。
+ * dev+ino 相等 → 同一物理位置（比较走 fs/file-identity 单源 bigint 精确形态——
+ * 缺省 Stats.ino 是 Number，NTFS File ID 超 2^53 会塌缩出假阳性，见彼头注）；
+ * 大小写敏感卷上的异名路径 stat 必给出不同 ino，天然放行合法异名库。stat 任一失败
+ * （ENOENT/EACCES 等）回退 samePath 字符串口径——磁盘不可探测时维持既有判重面
+ * （不比字符串口径更宽）。
  */
 export function samePhysicalPath(a: string, b: string): boolean {
   try {
-    const sa = statSync(a)
-    const sb = statSync(b)
-    return sa.dev === sb.dev && sa.ino === sb.ino
+    return samePhysicalFileExact(a, b)
   } catch {
     return samePath(a, b)
   }

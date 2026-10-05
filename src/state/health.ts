@@ -21,6 +21,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { samePhysicalFileExact } from '../fs/file-identity.js'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles, rmWithRetry, renameWithRetry } from '../fs/atomic.js'
 // save 锁在持探针（只读不取锁，judgeStaleLock 陈锁语义复用）
@@ -405,9 +406,10 @@ async function healMovePending(
     // 写入了别的内容）无法确定性裁决，保守维持报红交作者。
     let oldLive = oldExists
     if (oldExists && newExists) {
-      const so = statSync(oldAbs)
-      const sn = statSync(newAbs)
-      if (so.ino !== sn.ino || so.dev !== sn.dev) return false
+      // 判等走 fs/file-identity 单源（bigint 精确 dev+ino，防 Number(ino) 塌缩把
+      // 「目标位他文件的并发写」误判成同 inode 中间态）；stat 失败按原错误上抛，
+      // 走下方 catch 的既有报红收口（语义与拆分前逐位一致）。
+      if (!samePhysicalFileExact(oldAbs, newAbs)) return false
       // 删旧硬链收编 rmWithRetry（「确实要删」原语）——
       // 同 inode 中间态的删旧恰是 win 杀软/索引器瞬时锁高发点（文件刚被落位），裸
       // rmSync 直败走下方 catch 报 crashedWrite 误报；退避后仍失败仍上抛走同一 catch

@@ -37,16 +37,17 @@ import { BASE_LEAD_TYPES } from '../install/data.js'
 // walkMdEach 遍历 textDir 对每章 readChapter 全量同步读（readFile + parseFlat +
 // countWords 全正文扫）——大书（≥500 章）全量重建时秒级阻塞事件循环，而绝大多数
 // 章自上次重建后未变。缓存挂**模块级**（跨 rebuild 调用共享才有收益；每次调用新建
-// Map 则永远 miss）。键=章文件绝对路径，值={指纹（mtimeMs/size/ino）, 解析结果}：
+// Map 则永远 miss）。键=章文件绝对路径，值={指纹（mtimeNs/size/ino，bigint 形态）, 解析结果}：
 // - stat 必须先于 read：stat→read 之间文件再变 → 缓存键记的是旧 mtime，下次 rebuild
 //   判 miss 重读自愈；反向（read→stat）会把新 mtime 配旧内容，脏缓存存活到下次变更
 //   ——故序不可换。
-// - 指纹 = mtimeMs + size + ino 三元组（实测 Node v25.9 运行时 Stats 亦无 mtimeNs
-//   字段、@types/node 24 同缺，不可用；mtimeMs 是 double，APFS 纳秒 / NTFS 100ns
-//   精度经 stat 落入小数毫秒位（如 …975.7954），子毫秒改写可区分；ino 防「同
-//   mtime 同尺寸原位替换」——新文件新 inode，三者全符才命中（口径对齐 search.ts
-// dirSignature 的「mtime 探针换免整书重扫」手法，粒度细化到单章；
-//   win 下 ino 恒 0 时退化为 mtimeMs+size 双条件，精度仍够）。
+// - 指纹 = mtimeNs + size + ino 三元组（全 bigint 精确形态——缺省 Stats 无 mtimeNs
+//   且 mtimeMs/size/ino 为 double/Number 有精度面：mtimeMs 子毫秒精度依赖小数位、
+//   NTFS File ID 超 2^53 经 Number 塌缩可撞（见 fs/file-identity 头注）；bigint 形态
+//   mtimeNs 纳秒（NTFS 100ns）与 ino/dev/size 均为无损整数）。ino 防「同 mtime
+//   同尺寸原位替换」——新文件新 inode，三者全符才命中（口径对齐 search.ts
+//   dirSignature 的「mtime 探针换免整书重扫」手法，粒度细化到单章；
+//   win 下 ino 恒 0 时退化为 mtimeNs+size 双条件，精度仍够）。
 // - parsed 结果对象跨 rebuild 复用：syncChapter 只读不写 chapter（sync.ts 已核），
 //   复用安全；错误分支同样缓存（坏文件未变时健康报告逐次等价）。
 // - 容量 2048 条（按「≥500 章大书」的 4 倍余量），超限逐出最旧（Map 插入序 FIFO：
@@ -61,7 +62,7 @@ type ChapterParseResult = ReturnType<typeof readChapter>
 let chapterCacheMax = CHAPTER_CACHE_MAX
 
 /** 模块级章读缓存（见上方块注释）。 */
-const chapterCache = new Map<string, { mtimeMs: number; size: number; ino: number; parsed: ChapterParseResult }>()
+const chapterCache = new Map<string, { mtimeNs: bigint; size: bigint; ino: bigint; parsed: ChapterParseResult }>()
 
 /** 命中/未命中计数（测试断言用；生产只增不读）。 */
 const chapterCacheStats = { hits: 0, misses: 0 }
@@ -69,15 +70,15 @@ const chapterCacheStats = { hits: 0, misses: 0 }
 /** 带指纹缓存的章读——命中复用上次解析结果，未命中 readChapter 后入缓存。 */
 function readChapterCached(fp: string): ChapterParseResult {
   // stat 失败（readdir 与读之间被删的竞态）→ 绕过缓存直读，走 readChapter 既有错误契约
-  const st = statSync(fp, { throwIfNoEntry: false })
+  const st = statSync(fp, { bigint: true, throwIfNoEntry: false })
   if (!st) return readChapter(fp)
   const hit = chapterCache.get(fp)
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size && hit.ino === st.ino) {
+  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size && hit.ino === st.ino) {
     chapterCacheStats.hits++
     return hit.parsed
   }
   const parsed = readChapter(fp)
-  chapterCache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino, parsed })
+  chapterCache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, ino: st.ino, parsed })
   chapterCacheStats.misses++
   while (chapterCache.size > chapterCacheMax) {
     const oldest = chapterCache.keys().next().value

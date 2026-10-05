@@ -16,8 +16,9 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { renameWithRetry } from '../../../fs/atomic.js'
+import { isSamePhysicalFile } from '../../../fs/file-identity.js'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
@@ -107,16 +108,10 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
         newName !== oldName &&
         newName.toLowerCase() === oldName.toLowerCase() &&
         existsSync(newRoot) &&
-        (() => {
-          if (!existsSync(oldRoot)) return true // 登记名大小写与盘分歧——newRoot 即本书目录
-          try {
-            const a = statSync(oldRoot)
-            const b = statSync(newRoot)
-            return a.dev === b.dev && a.ino === b.ino
-          } catch {
-            return false // stat 失败（EACCES 等）→ 不赌，走既有冲突检查
-          }
-        })()
+        // oldRoot 不存在 = 登记名大小写与盘分歧（newRoot 即本书目录，原位自愈）；
+        // 其余按物理身份判定（单源 bigint 精确 dev+ino；stat 失败按「非同文件」
+        // 保守收口，走既有冲突检查——不赌）
+        (!existsSync(oldRoot) || isSamePhysicalFile(oldRoot, newRoot))
 
       // 重名冲突（排除自身）；目录级冲突只在真正要移动目录时检查
       if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
