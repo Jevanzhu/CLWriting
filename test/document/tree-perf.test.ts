@@ -24,6 +24,9 @@ const CH = 50 // 250 章（方案「200+ 章」）
 let root = ''
 const chapterFiles: string[] = []
 
+// 60s 帽：CI 慢机重负载下 beforeAll 建具（250 章 + 卷纲清单落盘 + git init/commit）曾超
+// vitest 缺省 10s hookTimeout——win 腿间歇红台账 tree-perf 条目 2026-10-05 两轮 tag CI
+// 复发实录；P2-4 修的是断言帽，此为另一道。建具纯 IO 无断言语义，放宽不弱化守卫。
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-perf-'))
   const lines = ['{"version":1,"type":"header"}']
@@ -47,7 +50,7 @@ beforeAll(() => {
     'git init -q && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false && git add -A && git commit -qm init',
     { cwd: root, stdio: 'pipe' },
   )
-})
+}, 60_000)
 
 afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })

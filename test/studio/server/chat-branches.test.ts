@@ -85,6 +85,9 @@ function presetLinearBook(): void {
   }
 }
 
+// 60s 帽：CI 慢机重负载下 beforeAll（双服务器冷启 + 三书建具）曾超 vitest 缺省 10s
+// hookTimeout——win 腿间歇红台账 chat-branches 条目 2026-10-05 tag CI 复发实录。
+// 建具纯 IO/网络监听无断言语义，放宽不弱化守卫。
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-chat-branches-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-chat-branches-ud-'))
@@ -104,7 +107,7 @@ beforeAll(async () => {
   makeBook(bareWorkDir, BRANCH_BOOK)
   bareServer = await startServerSafe({ port: 0, workDir: bareWorkDir })
   bareBaseUrl = `http://127.0.0.1:${(bareServer.address() as AddressInfo).port}`
-})
+}, 60_000)
 
 afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()))
