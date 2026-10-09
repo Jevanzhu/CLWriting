@@ -22,7 +22,7 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
 // 章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
-import { chapterNoFromName } from '../format/filename.js'
+import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 // `##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
 // format/section-heading——此前本处与 metrics/collectBodyAnchors 两套识别器口径分裂；
 // 围栏行识别原经 format/fence 的 matchFenceLine，随段整体收编后本文件不再直用）
@@ -50,8 +50,8 @@ export { DIALOGUE_TAG_RE, computeStyleMetrics, checkStyleMetrics, checkInfoLeak 
 export type { StyleStats } from './count-style.js'
 
 /**
- * front matter 格式检查（#10 项 3，🔴 红）。
- * 章号==文件名、枚举合法、必填齐。
+ * front matter 格式检查（#10 项 3，🔴 红 + 🟡 命名规范项）。
+ * 章号==文件名、枚举合法、必填齐；裸数字文件名（缺 `-标题` 段）报黄。
  */
 export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckSectionResult {
   const items: CheckItem[] = []
@@ -64,12 +64,26 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
   // 线索核验同宽容集形态）在此解析不出前缀 → fm-chapter-mismatch 对真不一致静默
   // 失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义不变），解析
   // 出章号才判 mismatch，本处判断逻辑零改动。
-  const fileNum = chapterNoFromName(fileName.split(/[/\\]/).pop() ?? fileName)
+  const baseName = fileName.split(/[/\\]/).pop() ?? fileName
+  const fileNum = chapterNoFromName(baseName)
   if (fileNum !== null && fileNum !== chapter.章号) {
     items.push({
       checkId: 'fm-chapter-mismatch',
       level: 'red',
       message: `章号「${chapter.章号}」与文件名「${fileName}」前缀不一致`,
+      chapter: chapter.章号,
+    })
+  }
+
+  // 裸数字文件名黄项（`^\d+\.md$`，缺 `-标题` 段）——识别侧已由
+  // chapterNoFromName 单源收容（本批把取正文/摘要/索引三处消费方切到单源），但标题段
+  // 是树/导出/改名链的显示与组装水源，缺段仍属偏离 NNNN-标题.md 约定，报黄提示作者
+  // 改名（黄不拦章；非数字名如 前言.md 与规范名不报；.md 大小写判定同 isMdFileName 口径）。
+  if (isMdFileName(baseName) && /^\d+$/.test(baseName.slice(0, -3))) {
+    items.push({
+      checkId: 'filename-bare-number',
+      level: 'yellow',
+      message: `文件名「${baseName}」缺「-标题」段（裸数字名），建议改为 NNNN-标题.md 形态（如 ${baseName.slice(0, -3)}-标题.md）`,
       chapter: chapter.章号,
     })
   }

@@ -29,7 +29,9 @@ const tmpDirs: string[] = []
 
 afterAll(() => {
   for (const c of children) if (c.exitCode === null) c.kill('SIGKILL')
-  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
+  // 退避重试：SIGKILL 后子进程句柄释放迟滞（win EPERM）/ 目录收尾竞态（mac ENOTEMPTY），
+  // 与 server-mutex / cov-server-onboard 两档同款（win 腿间歇红台账 suite 级收尾族）
+  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 /** 起 server-main 子进程，收集 stdout/stderr（累积到可变对象，避免字符串快照失效）。
@@ -60,6 +62,16 @@ function makeWorkDir(): string {
   return dir
 }
 
+/** userData 隔离：不传 --user-data 时 server-main 回落 defaultUserDataPath()
+ *  （真实 %APPDATA%/CLWriting），起服链的日志（initLogging 落 logs/app-*.jsonl）
+ *  会写进跑测机的真实用户数据目录——测试不得触碰真实数据面。每 child 一个独立
+ *  临时目录；清理随 tmpDirs 的 afterAll（与 workDir 同路径）。 */
+function makeUserDataDir(): string {
+  const dir = mkdtempTracked(join(tmpdir(), 'clwriting-srvmain-ud-'))
+  tmpDirs.push(dir)
+  return dir
+}
+
 describe('RB-SV-P2-3 server-main 监听错误兜底', () => {
   it('端口被占（EADDRINUSE）→ 退出码 1 + 中文报错，而非未捕获异常', async () => {
     // 先占住一个端口
@@ -67,7 +79,14 @@ describe('RB-SV-P2-3 server-main 监听错误兜底', () => {
     await listenSafe(blocker)
     const busyPort = (blocker.address() as AddressInfo).port
     try {
-      const { child, out } = spawnServerMain(['--dir', makeWorkDir(), '--port', String(busyPort)])
+      const { child, out } = spawnServerMain([
+        '--dir',
+        makeWorkDir(),
+        '--user-data',
+        makeUserDataDir(),
+        '--port',
+        String(busyPort),
+      ])
       const code = await new Promise<number | null>((r) => child.on('exit', (c) => r(c)))
       expect(code).toBe(1)
       expect(out.stderr).toContain('EADDRINUSE')
@@ -79,7 +98,7 @@ describe('RB-SV-P2-3 server-main 监听错误兜底', () => {
   }, 30_000)
 
   it('--port 0 随机端口 → 日志打印实际监听端口，该端口真实可服务', async () => {
-    const { child, out } = spawnServerMain(['--dir', makeWorkDir(), '--port', '0'])
+    const { child, out } = spawnServerMain(['--dir', makeWorkDir(), '--user-data', makeUserDataDir(), '--port', '0'])
     // 等 ready 日志行（进程冷启动 + 模块加载，给足 20s）
     const line = await new Promise<string>((resolveLine, rejectLine) => {
       const timer = setTimeout(() => rejectLine(new Error(`server-main 未就绪。stdout: ${out.stdout}`)), 20_000)

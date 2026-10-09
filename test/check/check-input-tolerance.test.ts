@@ -10,6 +10,8 @@
  *   正文 span 剥引号面（stripQuotedSpans，字面 QUOTED_SPAN_RE）对撇号文本零变化。
  * - #32：checkNewNames 长度窗按码点计 + 名册正则 astral 适配——CJK 增补平面姓名
  *   双向盲区消除；BMP 常规名行为不变。
+ * - 阶段 36：checkFrontMatter 新增裸数字文件名（`^\d+\.md$` 缺 `-标题` 段）黄项
+ *   filename-bare-number——裸数字/规范名/非数字名三态钉住。
  *
  * 档源：原 r33-check-fixes.test.ts 的 R33-30 组（章文件名前缀分隔符双侧容忍）与
  * 本文件 #29 同属「章号前缀/文件名形态宽容」一族，按被测行为并入；去重 0 条。
@@ -50,6 +52,34 @@ test('R0912-3 #29: 宽分隔形态章号一致不报；「06 标题.md」补零�
   expect(mismatchOf({ ...META7, 章号: 6 }, '前言.md')).toBeUndefined()
   // R33-30 路径形态容忍保留（basename 化后交单源）
   expect(mismatchOf(META7, '正文\\0002-x.md')).toBeDefined()
+})
+
+// ── 裸数字文件名黄项（filename-bare-number，阶段 36 伴生命名规范项）──────
+
+const bareNameOf = (meta: ChapterMeta, fileName: string): unknown =>
+  checkFrontMatter(meta, fileName).items.find((i) => i.checkId === 'filename-bare-number')
+
+test('裸数字文件名（0012.md）报 filename-bare-number 黄项，message 指向 NNNN-标题.md', () => {
+  const hit = bareNameOf({ ...META7, 章号: 12 }, '写作/正文/0012.md')
+  expect(hit).toBeDefined()
+  expect((hit as { level: string }).level).toBe('yellow')
+  expect((hit as { message: string }).message).toContain('NNNN-标题.md')
+  expect((hit as { message: string }).message).toContain('0012-标题.md')
+  // .MD 大写扩展名同判（isMdFileName 口径），不因大小写漏报
+  expect(bareNameOf({ ...META7, 章号: 12 }, '0012.MD')).toBeDefined()
+})
+
+test('规范名不报裸数字黄项（连字符/破折号/空格分隔的 NNNN-标题 家族）', () => {
+  expect(bareNameOf({ ...META7, 章号: 12 }, '0012-标题.md')).toBeUndefined()
+  expect(bareNameOf({ ...META7, 章号: 12 }, '12-标题.md')).toBeUndefined()
+  expect(bareNameOf({ ...META7, 章号: 5 }, '5—标题.md')).toBeUndefined()
+  expect(bareNameOf({ ...META7, 章号: 5 }, '5 标题.md')).toBeUndefined()
+})
+
+test('非数字文件名不报裸数字黄项（前言.md / 纯数字夹杂文字 / 数字后接点号）', () => {
+  expect(bareNameOf({ ...META7, 章号: 7 }, '前言.md')).toBeUndefined()
+  expect(bareNameOf({ ...META7, 章号: 7 }, '2023年度盘点.md')).toBeUndefined()
+  expect(bareNameOf({ ...META7, 章号: 7 }, '005.tar.md')).toBeUndefined()
 })
 
 // ── #30：repeat_threshold 夹紧 (0,1] + warn 留痕 ──────────────────

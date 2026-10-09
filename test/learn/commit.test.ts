@@ -70,6 +70,12 @@ describe('commit 批量落盘周期让出', () => {
   }
 
   describe('让出次数/时机 + 落盘完整', () => {
+    // 帽（win 腿间歇红台账在册观察）：本节各例墙钟同面——批量 addEntry 的纯 IO 夹具
+    // （O_EXCL + fsync + 目录序号扫盘），本机 win 实测 250 条 ~1.9s、边界表 4 档合计
+    // 500 条 ~3.3s、400 条 ~2.6s；win 腿 CI 慢机对同规模建具已有越 10s 帽实录（tree-perf
+    // 条目），IO 放大后 500 条档逼近/可越 30s 全局用例帽。60s 与 tree-perf/chat-branches
+    // 建具帽同款（纯 IO 建具无断言语义，放宽不弱化守卫）：让出次数/落盘条数/返回形状的
+    // 判据逐字未动。
     test('250 条 samples：恰 2 次让出（第 100/200 条后），250 条全部落盘、返回形状不变', async () => {
       const bookRoot = mkdtempTracked(join(tmpdir(), 'r0911-yield-'))
       const stub = countingYield()
@@ -77,7 +83,7 @@ describe('commit 批量落盘周期让出', () => {
       expect(stub.calls()).toBe(2) // 250 = 100 + 100 + 50 → 两整段各让一次
       expect(out).toHaveLength(250)
       expect(entryCount(bookRoot)).toBe(250)
-    })
+    }, 60_000)
 
     test('粒度边界：99 → 0 次；100 → 0 次（批尾不再让）；101 → 1 次；200 → 1 次', async () => {
       for (const [n, expectedYields] of [
@@ -93,7 +99,7 @@ describe('commit 批量落盘周期让出', () => {
         expect(out).toHaveLength(n)
         expect(entryCount(bookRoot)).toBe(n)
       }
-    })
+    }, 60_000)
 
     test('quotes 路径同粒度：400 条 → 3 次让出（100/200/300 后）、全落盘', async () => {
       const bookRoot = mkdtempTracked(join(tmpdir(), 'r0911-yield-q-'))
@@ -111,10 +117,14 @@ describe('commit 批量落盘周期让出', () => {
       expect(stub.calls()).toBe(3)
       expect(out).toHaveLength(400)
       expect(entryCount(bookRoot)).toBe(400)
-    })
+    }, 60_000)
   })
 
   describe('缺省让出真归还事件循环', () => {
+    // 帽（win 腿间歇红台账在册观察）：本测墙钟全在夹具 IO——250 条 addEntry 各带
+    // O_EXCL + fsync + 目录序号扫盘（本机 win 实测 ~1.8s），CI 慢机 IO 放大后逼近 30s
+    // 全局用例帽。60s 与 tree-perf/chat-branches 建具帽同款：纯 IO 建具无断言语义，
+    // 放宽不弱化守卫。让出判据本身不挂墙钟（见下），故此处只给夹具 IO 预算，不引入轮询。
     test('默认 yield（setImmediate）下，先排队的 immediate 旗标在 commit 完成前必翻转', async () => {
       const bookRoot = mkdtempTracked(join(tmpdir(), 'r0911-yield-real-'))
       let immediateRan = false
@@ -122,12 +132,17 @@ describe('commit 批量落盘周期让出', () => {
         immediateRan = true
       })
       // 缺省 yieldFn：250 条 → 第 100/200 条后各真让出一次；旗标先于 commit 的让出排队，
-      // 若 commit 全程同步（修复前形态）旗标必不翻转——这是本修复的行为锚
+      // 若 commit 全程同步（修复前形态）旗标必不翻转——这是本修复的行为锚。
+      // 判据是「同批内先入队者先执行」的事件序事实（本 immediate 与缺省 yield 的
+      // setImmediate 同落 check 阶段同一批，本测先入队 → 必先执行），不含墙钟、无需轮询；
+      // 若改成「commit 返回后再轮询旗标」，反而会接受「让出迟到到 commit 完成之后」的形态
+      //（微任务/nextTick 假让出恰只在返回后翻旗），本用例唯一判别面即被弱化——故保持
+      // resolve 时刻单点采样（断言语义与改前逐字一致）。
       const out = await commitSamples(bookRoot, samples(250))
       expect(immediateRan).toBe(true)
       expect(out).toHaveLength(250)
       expect(entryCount(bookRoot)).toBe(250)
-    })
+    }, 60_000)
   })
 
   describe('让出抛错 = 中止信号（knowledge.ts 让出点重验依赖）', () => {

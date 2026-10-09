@@ -7,6 +7,11 @@
  * 激活（keydown preventDefault 截停原生按钮激活防双触发）、Tab 自然走焦关闭、Esc 关闭
  * 还焦右键来源；容器挂 aria-activedescendant；disabled 可聚焦不可激活。挂法/press 形态
  * 仿 font-picker.test.ts 重评-P2-2 段。
+ *
+ * 本档同时锚定飞出层（子菜单）键盘可达（原「hover 唯一可达」登记的闭合）：→ 进层并聚焦
+ * 层内首项、层内 ← 收层还焦父项、层内 ↑/↓ 循环（层界 = 键盘是否在层内）、层内 Enter
+ * 激活子项、顶层位移离父项即收层、hover 与键盘两路径让位（hover 开层可被 → 接管；键盘
+ * 入层后指针离场收层但焦点还父项）。进层落焦须过 v-if 渲染一拍，故进层后 `await nextTick()`。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
@@ -19,7 +24,16 @@ const ITEMS = [
   { key: '', label: '', separator: true },
   { key: 'del', label: '删除', danger: true },
   { key: 'dis', label: '禁用项', disabled: true },
-  { key: 'sub', label: '导出', submenu: [{ key: 'md', label: 'Markdown' }] },
+  {
+    key: 'sub',
+    label: '导出',
+    // 三项 = md / html / 末项 disabled：层内 ↑/↓ 循环与「disabled 可聚焦不可激活」共用一具
+    submenu: [
+      { key: 'md', label: 'Markdown' },
+      { key: 'html', label: 'HTML' },
+      { key: 'pdf', label: 'PDF', disabled: true },
+    ],
+  },
 ]
 
 let wrapper: ReturnType<typeof mount> | null = null
@@ -58,6 +72,34 @@ async function openMenu(): Promise<void> {
   anchor().focus()
   await wrapper.setProps({ visible: true })
   await nextTick() // watch 内部 await nextTick 后才 focusActive
+}
+
+/** 当前展开飞出层的项（层内 DOM 序与组件 subNavItems 一一对应＝分隔线不渲染 .cm-item） */
+function subItems(): HTMLElement[] {
+  return Array.from(document.body.querySelectorAll('.cm-submenu .cm-item')) as HTMLElement[]
+}
+
+/** 子菜单父项按钮（本档 ITEMS 仅末项 sub 带 submenu） */
+function subParent(): HTMLElement {
+  const el = document.body.querySelector('.cm-sub-wrap > .cm-item')
+  if (!el) throw new Error('子菜单父项未渲染')
+  return el as HTMLElement
+}
+
+/** 父项 hover 开/关飞出层（组件鼠标路径的驱动事件；真离开＝pointer 出 wrap 热区） */
+async function hoverWrap(kind: 'enter' | 'leave'): Promise<void> {
+  const wrap = document.body.querySelector('.cm-sub-wrap')
+  if (!(wrap instanceof HTMLElement)) throw new Error('子菜单父项缺失')
+  wrap.dispatchEvent(new MouseEvent(`mouse${kind}`, { bubbles: true }))
+  await nextTick()
+}
+
+/** 顶层高亮落到父项（End 直达末项）后按 → 进层；进层落焦待 v-if 渲染一拍，故过 nextTick */
+async function enterSub(): Promise<void> {
+  press('End')
+  await Promise.resolve()
+  press('ArrowRight')
+  await nextTick()
 }
 
 beforeEach(() => {
@@ -187,15 +229,156 @@ describe('重评2-P3-2: ContextMenu 浏览器回退菜单 roving 键盘导航', 
     expect(ime.defaultPrevented).toBe(false)
   })
 
-  it('未打开：方向键/Home/End 不消费（落到页面既有键盘面）', () => {
+  it('未打开：方向键/Home/End/→/← 不消费（落到页面既有键盘面）', () => {
     wrapper = mount(ContextMenu, {
       props: { visible: false, x: 0, y: 0, items: ITEMS },
       attachTo: document.body,
     })
     anchor().focus()
-    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End']) {
+    for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']) {
       const e = press(key)
       expect(e.defaultPrevented).toBe(false)
     }
+  })
+})
+
+describe('浏览器回退菜单飞出层（子菜单）键盘可达', () => {
+  it('顶层父项 →：展开飞出层且焦点落层内首项（roving/aria-expanded/activedescendant 同步）；无子菜单项不响应不消费', async () => {
+    await openMenu()
+    // 无子菜单项（cut）：→ 不响应不消费、焦点不动、无层可开
+    const none = press('ArrowRight')
+    await Promise.resolve()
+    expect(none.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(items()[0])
+    expect(document.body.querySelector('.cm-submenu')).toBeNull()
+    // 父项（sub）上 →：展开 + 焦点入层内首项
+    press('End')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[4])
+    const opened = press('ArrowRight')
+    await nextTick() // 进层落焦待 v-if 渲染一拍
+    expect(opened.defaultPrevented).toBe(true)
+    expect(subItems()).toHaveLength(3)
+    expect(document.activeElement).toBe(subItems()[0])
+    expect(subItems()[0]!.getAttribute('tabindex')).toBe('0')
+    expect(subItems()[1]!.getAttribute('tabindex')).toBe('-1')
+    expect(subItems()[0]!.classList.contains('hl')).toBe(true)
+    expect(menuEl().getAttribute('aria-activedescendant')).toBe('cm-s-0')
+    expect(subParent().getAttribute('aria-haspopup')).toBe('menu')
+    expect(subParent().getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('层内 ↑/↓ 循环（末项 disabled 仍可聚焦）与 Home/End 首尾；顶层高亮不被层内位移改写', async () => {
+    await openMenu()
+    await enterSub()
+    // ↓：md → html → pdf(disabled) → 循环回 md
+    press('ArrowDown')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[1])
+    press('ArrowDown')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[2])
+    expect(subItems()[2]!.getAttribute('aria-disabled')).toBe('true') // 可聚焦不可激活
+    press('ArrowDown')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[0])
+    // ↑：首项循环回末项；Home/End 层内直达
+    press('ArrowUp')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[2])
+    press('Home')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[0])
+    press('End')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[2])
+    // 键盘在层内：顶层 hl 始终留在父项（层内位移不越层改写顶层序）
+    expect(items()[4]!.classList.contains('hl')).toBe(true)
+    expect(menuEl().getAttribute('aria-activedescendant')).toBe('cm-s-2')
+  })
+
+  it('层内 ← 收层并还焦父项；顶层/未入层 ← 不消费不响应', async () => {
+    await openMenu()
+    await enterSub()
+    const left = press('ArrowLeft')
+    await nextTick()
+    expect(left.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('.cm-submenu')).toBeNull() // 层收（菜单本身不关）
+    expect(document.activeElement).toBe(items()[4]) // 还焦父项
+    expect(menuEl().getAttribute('aria-activedescendant')).toBe('cm-i-5') // 顶层高亮仍在父项
+    expect(subParent().getAttribute('aria-expanded')).toBe('false')
+    expect(wrapper!.emitted('close')).toBeUndefined()
+    // 顶层（无层可收）：← 不响应不消费
+    const plain = press('ArrowLeft')
+    await Promise.resolve()
+    expect(plain.defaultPrevented).toBe(false)
+  })
+
+  it('层内 Enter/Space 激活子项：emit select + close；disabled 子项不激活', async () => {
+    await openMenu()
+    await enterSub()
+    press('ArrowDown') // → html
+    await Promise.resolve()
+    const e = press('Enter')
+    await Promise.resolve()
+    expect(wrapper!.emitted('select')).toEqual([['html']])
+    expect(wrapper!.emitted('close')).toHaveLength(1)
+    expect(e.defaultPrevented).toBe(true) // 原生按钮激活被截停（单源 activateActive）
+    // Space 同语义
+    await openMenu()
+    await enterSub()
+    const e2 = press(' ')
+    await Promise.resolve()
+    expect(wrapper!.emitted('select')).toEqual([['md']])
+    expect(e2.defaultPrevented).toBe(true)
+    // 末项 disabled：可聚焦、Enter 不上抛不关闭
+    await openMenu()
+    await enterSub()
+    press('End')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(subItems()[2])
+    press('Enter')
+    await Promise.resolve()
+    expect(wrapper!.emitted('select')).toBeUndefined()
+    expect(wrapper!.emitted('close')).toBeUndefined()
+  })
+
+  it('层内 Esc 只收层（还焦父项、不关整菜单）；收层后顶层 Esc 关整菜单', async () => {
+    await openMenu()
+    await enterSub()
+    const esc = press('Escape')
+    await nextTick()
+    expect(esc.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('.cm-submenu')).toBeNull()
+    expect(document.activeElement).toBe(items()[4])
+    expect(wrapper!.emitted('close')).toBeUndefined() // 菜单仍开（层内 Esc 不越层关菜单）
+    press('Escape')
+    await Promise.resolve()
+    expect(wrapper!.emitted('close')).toHaveLength(1)
+  })
+
+  it('顶层位移离开父项即收层（hl 不留在别项而旧层仍挂）；hover 开层可被 → 接管、键盘入层后指针离场焦点还父项', async () => {
+    await openMenu()
+    press('End')
+    await Promise.resolve()
+    press('Enter') // Enter 开层（既有语义：不入层、不上抛）
+    await nextTick()
+    expect(document.body.querySelector('.cm-submenu')).not.toBeNull()
+    expect(document.activeElement).toBe(items()[4])
+    press('ArrowDown') // 顶层位移离开父项 → 层随收（避免 hl 与展开层错位）
+    await nextTick()
+    expect(document.body.querySelector('.cm-submenu')).toBeNull()
+    expect(document.activeElement).toBe(items()[0])
+    // hover 开层（高亮随指针落到父项，键盘态仍在顶层）→ → 接管入层
+    await hoverWrap('enter')
+    expect(document.body.querySelector('.cm-submenu')).not.toBeNull()
+    expect(document.activeElement).toBe(items()[4])
+    press('ArrowRight')
+    await nextTick()
+    expect(document.activeElement).toBe(subItems()[0])
+    // 键盘已入层：指针离场收层且焦点还父项——不得丢给已卸载的层（body）
+    await hoverWrap('leave')
+    expect(document.body.querySelector('.cm-submenu')).toBeNull()
+    expect(document.activeElement).toBe(items()[4])
   })
 })

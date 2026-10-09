@@ -65,9 +65,8 @@ function makeBookWideNamed(specs: Array<{ no: number; name: string; withSummary:
 
 describe('R1010b-CORE-P2-1：volumeChainState 定稿章识别升格 chapterNoFromName 单源', () => {
   it('宽容命名定稿章（破折号/空格）+ 摘要齐全 → 全进 chain（修复前：静默漏章空链）', () => {
-    // 注：`1.md`（裸数字 + .md 扩展名）在 chapterNoFromName 宽容集外（分隔符集
-    // [-—\s$] 不含 `.`，`$` 仅匹配名字末尾）——与 selfHeal 侧 R1010-P3 修复后行为
-    // 一致，属单源既定边界（扩集牵动 tree/leads/foreshadow 全部消费点，非本批接线面）
+    // 注：单源先剥尾部 .md（阶段 36 收口），裸数字名 `1.md` 已同判章号；
+    // 现行边界收窄为非 md 扩展（`5.md.bak`）与多点形态（`005.tar.md`）不认。
     const root = makeBookWideNamed([
       { no: 1, name: '1—开局.md', withSummary: true }, // 破折号命名（窄正则漏）
       { no: 2, name: '2 中局.md', withSummary: true }, // 空格命名（窄正则漏）

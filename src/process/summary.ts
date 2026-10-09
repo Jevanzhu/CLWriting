@@ -23,7 +23,6 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, relative, sep } from 'node:path'
 import { safeManifestPath } from '../fs/safe-path.js'
-import { parseChapterFileName } from '../format/chapters.js'
 import { chapterPathByNumber } from '../format/chapter-lookup.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readDraft } from '../format/draft.js'
@@ -353,17 +352,20 @@ async function runFinalizeSummaryOnce(
   // 逃逸（`../` 条目内容进 AI 摘要 prompt），非法跳过（与 finalize.ts 同口径）。
   const bodyAbs = safeManifestPath(bookRoot, entry.path)
   if (!bodyAbs || !existsSync(bodyAbs)) return
-  const parsed = parseChapterFileName(entry.path.split('/').pop() ?? '')
-  if (!parsed || parsed.章号 <= 0) return
+  // 章号提取走 chapterNoFromName 单源（宽容分隔集 + 裸数字名，单源内先剥 .md）——
+  // 原 parseChapterFileName 严格形（须 `数字-标题`）对裸数字章 `0012.md` 返回 null，
+  // 定稿即生成对整类章静默不触发（对表 test/process/chapter-no-callshape.test.ts）。
+  const 章号 = chapterNoFromName(entry.path.split('/').pop() ?? '')
+  if (章号 === null || 章号 <= 0) return
   const r = await generateChapterSummary({
     bookRoot,
     userDataPath,
     config,
-    chapter: parsed.章号,
+    chapter: 章号,
     bodyAbsPath: bodyAbs,
     ...(signal ? { signal } : {}), // 后台任务独立 ctrl 的中断透传
   })
-  if (!r.ok) log.warn('summary', `定稿章摘要生成失败（第 ${parsed.章号} 章，留待自愈）：${r.error}`)
+  if (!r.ok) log.warn('summary', `定稿章摘要生成失败（第 ${章号} 章，留待自愈）：${r.error}`)
 }
 
 export function afterFinalizeGenerateSummary(
@@ -532,14 +534,10 @@ export function volumeChainState(bookRoot: string, volume: number, volumeSize: n
     // 单源（与 :442 selfHealRecentChapterSummaries 的修复同款宽容集）——原窄正则
     // `/^(\d+)-/` 只认连字符，`1—开局.md`/`1 开局.md` 等宽容命名的定稿章既不进 chain
     // 也不进 missing（卷链完整性判定静默漏章、卷摘要以残链报缺）。卷链与自愈摘要自此同口径。
-    // 修账：原注释把 `1.md` 也列进已收口集
-    // 系失实——chapterNoFromName 正则 `/^(\d+)(?:[-—]|\s|$)/` 要求数字后跟分隔符（-/—/空白）
-    // 或串尾，`1.md` 数字后是 `.` 不匹配 → null（test/format/filename.test.ts 钉定该契约）。
-    // 即本处与 :442/leads:103/foreshadow:574 三处一样**带全名（含 .md）调用**，对 `1.md`
-    // 形态不识别；而 document/tree.ts:84 先 stripMd(e.name) 再判，树排序认得 `1.md`——
-    // 同一文件名树/消费方口径分裂如实存在（对表见 test/process/chapter-no-callshape.test.ts）。
-    // 裸数字扩集（让 `1.md` 也认）是既有台账待拍板项（牵动全部消费点），本批只修注释
-    // 不改正则本体。
+    // 阶段 36（B 档单源扩集）后单源内先剥 .md 再匹配，裸数字名 `1.md` 亦认：
+    // 原「带全名直传对 1.md 不识别、与 tree stripMd 口径分裂」的记载与
+    // 「裸数字扩集待拍板」均已过期（彼时待拍板项已落地；各调用形态拉齐，
+    // 对表 test/process/chapter-no-callshape.test.ts 钉一致）。
     const 章号 = chapterNoFromName(e.path.split('/').pop() ?? '')
     if (章号 !== null) finalizedChapters.add(章号)
   }

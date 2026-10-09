@@ -45,6 +45,10 @@ test('R0910-W：norm IS NULL 探测命中部分索引（不回退全表扫）', 
   }
 })
 
+// 60s 帽：1200 行同步 SQLite 回填（造 NULL 行 + 分批 UPDATE）在 CI 慢机重负载下曾打满
+// vitest 全局 30s testTimeout——2026-10-05 rc.4 tag CI run 37272162323 win 腿首跑+重跑
+// 双红（同树 main ref 全矩阵绿、本机 win 全量两轮绿）。回填是纯同步批处理、断言只验
+// 行数与范数值，无时序语义，放宽帽不弱化守卫（tree-perf / chat-branches 同款口径）。
 test('R0916-P3-6：norm 回填分页跨批——1200 NULL 行全数回填且值正确（UPDATE 时无游标在飞）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'rag-norm-page-'))
   mkdirSync(root, { recursive: true })
@@ -68,4 +72,4 @@ test('R0916-P3-6：norm 回填分页跨批——1200 NULL 行全数回填且值�
     db.close()
     rmSync(root, { recursive: true, force: true })
   }
-})
+}, 60_000)

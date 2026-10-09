@@ -16,8 +16,8 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
+import { chapterNoFromName } from '../format/filename.js'
 import { readFile } from '../format/frontmatter.js'
-import { parseChapterFileName } from '../format/words.js'
 import {
   openRagDb,
   closeRagDb,
@@ -295,12 +295,13 @@ export async function buildIndex(
       `检测到重复章号（${dropped.map((ch) => `第 ${ch.章号} 章（${basename(ch._path ?? '')}）`).join('、')}）——每章号仅保留目录序（walk 序）首个文件参与索引，重复文件不建索引（其偏移会与精准读取错位），请修复章号后重跑`,
     )
   }
-  // frontmatter 解析失败章号集——文件名仍带章号（<章号>-<标题>.md），
-  // 按 basename 反推；名字也不可解析的（无章号前缀）无从保护，退回原口径。
+  // frontmatter 解析失败章号集——按 basename 反推走 chapterNoFromName 单源
+  // （宽容分隔集 + 裸数字名 `2.md` 亦认）；名字也不可解析的（无章号前缀）无从保护，
+  // 退回原口径。
   const brokenChapterNums = new Set<number>()
   for (const err of errors) {
-    const n = parseChapterFileName(basename(err.file))?.章号
-    if (n !== undefined) brokenChapterNums.add(n)
+    const n = chapterNoFromName(basename(err.file))
+    if (n !== null) brokenChapterNums.add(n)
   }
   if (brokenChapterNums.size > 0) {
     log.warn(

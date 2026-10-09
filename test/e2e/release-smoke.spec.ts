@@ -11,7 +11,8 @@
  */
 import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
@@ -30,6 +31,8 @@ test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：用 npm run tes
 
 let child: ChildProcess | undefined
 let smokeWorkDir = ''
+// userData 同走临时目录（理由见起服用例内注）——与 workDir 同款重试清理
+let smokeUserDataDir = ''
 
 test.afterAll(async () => {
   // R39-21（三十九轮）：kill 后等退出再删 workDir——Windows 上 kill 是异步收尾，
@@ -50,6 +53,7 @@ test.afterAll(async () => {
     })
   }
   if (smokeWorkDir) rmTempDirRetry(smokeWorkDir)
+  if (smokeUserDataDir) rmTempDirRetry(smokeUserDataDir)
 })
 
 test('编译产物齐备（Electron 壳 bundle + server 入口 + web 静态）', () => {
@@ -65,9 +69,20 @@ test('编译产物齐备（Electron 壳 bundle + server 入口 + web 静态）',
 
 test('编译产物 server 起服务：boot/书架/静态前端全链路', async () => {
   smokeWorkDir = makeDualTrackWorkdir()
+  // userData 隔离：不传 --user-data 时 server-main 回落 defaultUserDataPath()（真实
+  // %APPDATA%/CLWriting），编译产物起服链的 JSONL 日志落进跑测机真实数据目录
+  smokeUserDataDir = mkdtempSync(join(tmpdir(), 'clwriting-smoke-ud-'))
   child = spawn(
     process.execPath,
-    [join('dist', 'desktop', 'server-main.js'), '--dir', smokeWorkDir, '--port', String(PORT)],
+    [
+      join('dist', 'desktop', 'server-main.js'),
+      '--dir',
+      smokeWorkDir,
+      '--user-data',
+      smokeUserDataDir,
+      '--port',
+      String(PORT),
+    ],
     {
       env: { ...process.env, CLWRITING_DRIVER: 'mock' },
       stdio: 'pipe',

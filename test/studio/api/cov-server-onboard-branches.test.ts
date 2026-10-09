@@ -101,8 +101,11 @@ afterAll(async () => {
   if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
   else process.env.CLWRITING_DRIVER = prevDriver
   if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+  // 句柄释放迟滞（mac 腿 ENOTEMPTY 首例，2026-10-05 rc.4 tag CI）：server.close 回调
+  // 返回后 SQLite/文件句柄仍在异步收尾，裸删整档红。rmSync 原生重试只对瞬时 errno
+  // 线性退避；重试耗尽仍抛——真泄漏照旧红。
+  if (workDir) rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
@@ -349,8 +352,9 @@ describe('R1010c-COV-2：非 mock 组装（无 provider）→ GEN_FAIL', () => {
 
   afterAll(async () => {
     if (realServer) await new Promise<void>((r) => realServer!.close(() => r()))
-    if (realDir) rmSync(realDir, { recursive: true, force: true })
-    if (realUd) rmSync(realUd, { recursive: true, force: true })
+    // 同档首组：句柄释放迟滞走 rmSync 原生瞬时 errno 重试（理由见文件上方 afterAll 注）
+    if (realDir) rmSync(realDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    if (realUd) rmSync(realUd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
 
   it('AI 生成失败（无 driver 无 providers）→ 500 GEN_FAIL', async () => {

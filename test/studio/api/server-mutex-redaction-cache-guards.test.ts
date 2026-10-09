@@ -69,7 +69,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await new Promise<void>((r) => server!.close(() => r()))
-  rmSync(workDir, { recursive: true, force: true })
+  // win 句柄释放迟滞：close 回调已返回、内部句柄仍在异步收尾，裸删偶发 EPERM 整档
+  // 红（2026-10-01 本机全量复跑首红，测试体本身全绿）。rmSync 原生重试只对瞬时
+  // errno（EPERM/EBUSY/ENOTEMPTY/EMFILE/ENFILE）线性退避；重试耗尽仍抛——真句柄
+  // 泄漏照旧红，不吞故障。
+  rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 // ── R67-13：编排互斥矩阵 ──────────────────────────────

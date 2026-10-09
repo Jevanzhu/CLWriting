@@ -2,7 +2,8 @@
  * 阶段 24 章节结构操作（留洞制）批 A / S2：章号回退 helper 单源（format/chapter-lookup.ts）。
  *
  * 覆盖：正文命中优先（不咨询 Map）/ 折叠链单跳 / Map miss 返 null / 回收站还原后
- * 正文命中优先于陈旧并入 / 跨卷重号 warn（foreshadow.ts 先例对齐：warn 不炸、后扫覆盖）。
+ * 正文命中优先于陈旧并入 / 跨卷重号 warn（foreshadow.ts 先例对齐：warn 不炸、后扫覆盖）
+ * / 裸数字名（0012.md）按章号命中与数字前缀截断不误配（阶段 36 命中口径 = 单源）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, realpathSync } from 'node:fs'
@@ -111,5 +112,33 @@ describe('S2 chapterTextByNumber / chapterPathByNumber：回退语义', () => {
     // 源章 6 原在卷一，已被合并摘除
     expect(samePath(chapterPathByNumber(root, 6), t)).toBe(true)
     expect(chapterTextByNumber(root, 6)?.trim()).toBe('卷二目标正文')
+  })
+})
+
+// 阶段 36 B 档单源扩集后，按名定位口径与 chapterNoFromName 单源对齐（原
+// chapterNamePrefixes 三口径均带连字符，裸数字名 `0012.md` 按章号取不到正文）。
+describe('S2b 裸数字名章文件：命中口径 = chapterNoFromName 单源', () => {
+  it('裸数字名章文件（0012.md）可按章号取到正文（原带连字符前缀口径 miss）', () => {
+    const bare = writeCh('写作/正文/0012.md', 12, '裸名', '裸数字名章的正文')
+    expect(samePath(chapterPathByNumber(root, 12), bare)).toBe(true)
+    expect(chapterTextByNumber(root, 12)?.trim()).toBe('裸数字名章的正文')
+  })
+
+  it('同目录 0012.md 与 00120-… 并存：各按各的章号命中，互不误配', () => {
+    const bare = writeCh('写作/正文/0012.md', 12, '十二', '十二章正文')
+    const wide = writeCh('写作/正文/00120-大章.md', 120, '一百二十', '一百二十章正文')
+    expect(samePath(chapterPathByNumber(root, 12), bare)).toBe(true)
+    expect(samePath(chapterPathByNumber(root, 120), wide)).toBe(true)
+    expect(chapterTextByNumber(root, 12)?.trim()).toBe('十二章正文')
+  })
+
+  it('数字前缀截断不误配：仅 00120-… 在盘时查 12 → 并入回退 miss 返 null', () => {
+    writeCh('写作/正文/00120-大章.md', 120, '一百二十', '一百二十章正文')
+    expect(chapterPathByNumber(root, 12)).toBeNull()
+  })
+
+  it.each(['0005-标题.md', '5-标题.md', '5—标题.md', '5 标题.md'])('既有命名形态按章号命中不回归：%s', (name) => {
+    writeCh(`写作/正文/${name}`, 5, '标题', '第五章正文')
+    expect(chapterTextByNumber(root, 5)?.trim()).toBe('第五章正文')
   })
 })

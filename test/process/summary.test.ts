@@ -388,6 +388,31 @@ describe('自愈补漏 selfHealRecentChapterSummaries（挂点二）', () => {
 })
 
 describe('定稿即生成 afterFinalizeGenerateSummary（挂点一，best-effort）', () => {
+  /** 造书（单章，文件名裸数字 0012.md）——makeBook 的 `0012-第12章.md` 命名覆盖不到该形态 */
+  function makeBareNamedBook(): { root: string; id: string } {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-summary-bare-name-'))
+    dirs.push(root)
+    mkdirSync(join(root, '布线', '悬念'), { recursive: true })
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    mkdirSync(join(root, '项目'), { recursive: true })
+    writeFileSync(
+      join(root, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 裸名摘要测试书\nhost: cc\nleads:\n  enabled: []\n',
+      'utf-8',
+    )
+    writeFileSync(
+      join(root, '写作', '正文', '0012.md'),
+      '---\n章号: 12\n标题: 第十二章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第十二章正文：山门外的玉佩在雨夜里连响了三下。\n',
+      'utf-8',
+    )
+    const manifestPath = join(root, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    const id = generateDocId()
+    upsertEntry(m, { id, nodeType: 'document', path: '写作/正文/0012.md', parentId: null })
+    writeManifest(manifestPath, m)
+    return { root, id }
+  }
+
   it('finalize 成功后摘要文件异步出现（fire-and-forget 轮询等待）', async () => {
     const root = makeBook(1)
     const m = readManifest(join(root, '项目', '文档清单.jsonl'))
@@ -402,6 +427,20 @@ describe('定稿即生成 afterFinalizeGenerateSummary（挂点一，best-effort
     }
     expect(found).toBe(true)
     expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('fresh')
+  })
+
+  it('裸数字文件名（0012.md）定稿 → 摘要照常生成（原严格形解析 null 静默不触发）', async () => {
+    const { root, id } = makeBareNamedBook()
+    const outcome = finalizeRevision(root, id)
+    expect(outcome.ok).toBe(true)
+    afterFinalizeGenerateSummary(root, null, id)
+    let found = false
+    for (let i = 0; i < 100 && !found; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      found = existsSync(chapterSummaryPath(root, 12))
+    }
+    expect(found).toBe(true)
+    expect(chapterSummaryState(root, 12, join(root, '写作', '正文', '0012.md'))).toBe('fresh')
   })
 
   it('非正文章文档（设定等）不触发生成', async () => {

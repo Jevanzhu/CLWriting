@@ -13,7 +13,8 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readChapterDir, chapterNamePrefixes, parseMergedInto, parseOrderOf } from './chapters.js'
+import { readChapterDir, parseMergedInto, parseOrderOf } from './chapters.js'
+import { chapterNoFromName } from './filename.js'
 import { splitFrontMatter, parseFlat, patchFlatFm } from './frontmatter.js'
 import { walkMdFind } from '../fs/walk-md.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
@@ -57,15 +58,19 @@ export function mergedIntoMap(bookRoot: string): Map<number, string> {
 }
 
 /**
- * 按章号定位正文文件（含 并入 回退）：按名定位（chapterNamePrefixes 三口径：无补零/
- * 3 位/4 位）命中优先、短路不咨询 Map；miss 查 mergedIntoMap 取目标章路径；再 miss
- * 返 null（调用方既有容错）。
+ * 按章号定位正文文件（含 并入 回退）：按名定位命中优先、短路不咨询 Map；miss
+ * 查 mergedIntoMap 取目标章路径；再 miss 返 null（调用方既有容错）。
+ *
+ * 命中口径 = chapterNoFromName 单源（阶段 36 裸数字扩集后：名字先剥 .md 再解析）——
+ * 原 chapterNamePrefixes 三口径（无补零/3 位/4 位，均带连字符）对 `0012.md` 裸数字名
+ * 按章号取不到正文；改逐名解析比章号后，裸数字名与 `5—标题.md`/`5 标题.md` 宽容形态
+ * 一并认（与全库消费方同口径）。逐名等值比较亦无「数字前缀截断」误配面——
+ * `120-…` 解析为 120，恒不等于 12（勿退回裸 startsWith(String(chapter)) 写法）。
  */
 export function chapterPathByNumber(bookRoot: string, chapter: number): string | null {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (existsSync(bodyDir)) {
-    const prefixes = chapterNamePrefixes(chapter)
-    const hit = walkMdFind(bodyDir, (abs, name) => (prefixes.some((p) => name.startsWith(p)) ? abs : undefined))
+    const hit = walkMdFind(bodyDir, (abs, name) => (chapterNoFromName(name) === chapter ? abs : undefined))
     if (hit !== undefined) return hit
   }
   return mergedIntoMap(bookRoot).get(chapter) ?? null

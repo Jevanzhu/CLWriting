@@ -5,6 +5,8 @@
  * 指纹当「已删除章残留」清掉；作者修好 fm 后 buildIndex 重嵌整章（重复计费）。
  * 修复后：解析失败章号（按文件名反推）排除出 stale 差集，旧向量保留（召回侧指纹闸
  * 对读不出的章判 stale，fail-closed），修好后指纹比对命中零重嵌。
+ * 阶段 36 补：裸数字名章（2.md）——反推口径切 chapterNoFromName 单源后同受保护
+ * （原严格形 parseChapterFileName 对裸名返 null，其向量会被当残留清掉）。
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -94,6 +96,28 @@ describe('A-9：坏章不删向量、修复后不重嵌', () => {
     try {
       expect(getIndexedChapterNumbers(db)).not.toContain(1)
       expect(getIndexedChapterNumbers(db)).toContain(2)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('裸数字名章（2.md）fm 解析失败 → 章号按单源反推，向量保留（原严格形对裸名失明）', async () => {
+    // beforeEach 的 2-第2章.md 换为裸数字名 2.md（同名章号双命名会混入去重面）
+    rmSync(join(bookRoot, '写作', '正文', '2-第2章.md'))
+    const bare = join(bookRoot, '写作', '正文', '2.md')
+    writeChapter(bare, meta(2), BODY2)
+    const r1 = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
+    expect(r1.ok).toBe(true)
+    expect(r1.chapterCount).toBe(2)
+
+    writeFileSync(bare, '---\n章号: 五\n标题: 坏章\n---\n\n' + BODY2, 'utf-8')
+    const r2 = await buildIndex(bookRoot, CONFIG, 'stub-key', stubEmbed)
+    expect(r2.ok).toBe(true)
+
+    const db = openRagDb(bookRoot)
+    try {
+      expect(getIndexedChapterNumbers(db)).toContain(2)
+      expect(readAllChapterFingerprints(db).get(2)).toBeTruthy()
     } finally {
       db.close()
     }

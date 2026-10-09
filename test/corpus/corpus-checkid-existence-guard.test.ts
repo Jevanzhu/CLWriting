@@ -77,6 +77,8 @@ const KNOWN_CHECK_IDS: readonly string[] = [
   // 短篇/章纲族
   'piece-word-long',
   'piece-word-short',
+  // 命名规范黄项（裸数字文件名，checkFrontMatter）
+  'filename-bare-number',
   'fm-chapter-mismatch',
   'fm-enum',
   'fm-missing',
