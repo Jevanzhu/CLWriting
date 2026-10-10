@@ -171,12 +171,13 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
     expect(r.json.error).toContain('控制字符')
   })
 
-  it('PUT 已知数值键非法值 → 400 且文案点名键（target_words/batch_size/max_days/max_count）', async () => {
+  it('PUT 已知数值键非法值 → 400 且文案点名键（target_words/calls_per_chapter/chat_max_calls/batch_size/max_days/max_count）', async () => {
     makeBook('配置数值键书')
     const p = `/api/books/${encodeURIComponent('配置数值键书')}/config`
     const cases: Array<[unknown, string]> = [
       [{ book: { title: '数值书', target_words: -1 } }, 'target_words'],
       [{ book: { title: '数值书' }, budget: { calls_per_chapter: Number.NaN } }, 'calls_per_chapter'],
+      [{ book: { title: '数值书' }, budget: { chat_max_calls: -1 } }, 'chat_max_calls'],
       [{ book: { title: '数值书' }, auto: { batch_size: 0 } }, 'batch_size'],
       [{ book: { title: '数值书' }, snapshots: { max_days: 0 } }, 'max_days'],
       [{ book: { title: '数值书' }, snapshots: { max_count: '很多' } }, 'max_count'],

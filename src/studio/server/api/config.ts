@@ -89,6 +89,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
         ['book.target_words', config.book?.target_words, 0],
         ['book.chapter_target_words', config.book?.chapter_target_words, 0],
         ['budget.calls_per_chapter', config.budget?.calls_per_chapter, 0],
+        ['budget.chat_max_calls', config.budget?.chat_max_calls, 0],
         ['auto.batch_size', config.auto?.batch_size, 1],
         ['snapshots.max_days', config.snapshots?.max_days, 1],
         ['snapshots.max_count', config.snapshots?.max_count, 1],
