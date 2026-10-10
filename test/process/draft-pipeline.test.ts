@@ -449,10 +449,10 @@ describe('buildDraftPrompt: Q-5 注入源清单', () => {
     expect(d.files).toContain('文风/样章库/战斗/战斗-001.md')
   })
 
-  it('缺源不列（空段 = 未入 prompt）；空书 files 为空', () => {
+  it('缺源不列（空段 = 未入 prompt）；空书 files 只含内置语料登记（书内零源）', () => {
     const d = buildDraftPrompt(dir, 1, 'long')
     expect(d.prompt).toContain('## 任务')
-    expect(d.files).toEqual([])
+    expect(d.files).toEqual(['知识层(内置)/追读力/章节钩子速查.md'])
   })
 
   it('设定层被预算整层丢弃 → 该层源文件不计（可见⟺已记录双向闭合）', () => {
@@ -549,5 +549,45 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     expect(r.relPath).toBe('写作/正文/第一卷/0005-旧稿.md')
     expect(r.snapshotted).toBe(true)
     expect(readFileSync(join(dir, r.relPath), 'utf-8')).toContain('新内容')
+  })
+})
+
+// ── 知识层接入批：写作方法参考段（随包语料按章选材）──────────────────────────
+// 形态 = 随包资源（resources/knowledge/）→ 与 asset 原稿逐字节对账（check:knowledge）；
+// 选材 = src/knowledge/select.ts（基础篇按体裁 + 信号追加篇，≤2 篇/双帽）。
+// 本组锚定「段进 prompt + 源进 files」两端：撤注入段（draft-pipeline 两处 parts.push）
+// 或撤 files 登记，本组必红。
+describe('写作方法参考：随包语料按章选材注入', () => {
+  it('长篇：注入段在要求段之前，含篇题与正文要点；登记名带内置前缀', () => {
+    const d = buildDraftPrompt(dir, 1, 'long')
+    expect(d.prompt).toContain('## 写作方法参考(按本章自动选取,冲突时以本书设定为准)')
+    expect(d.prompt).toContain('### 章节钩子速查')
+    expect(d.prompt).toContain('章尾钩子')
+    // 注入序：方法参考在「要求」段之前（写作纪律先于输出契约）
+    expect(d.prompt.indexOf('## 写作方法参考')).toBeLessThan(d.prompt.indexOf('## 要求'))
+    expect(d.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
+  })
+
+  it('短篇：基础篇 = 反转设计速查（核心反转是短篇硬要求）', () => {
+    const d = buildDraftPrompt(dir, 1, 'short')
+    expect(d.prompt).toContain('### 反转设计速查')
+    expect(d.prompt).not.toContain('### 章节钩子速查')
+    expect(d.files).toContain('知识层(内置)/爽点/反转设计速查.md')
+  })
+
+  it('章纲信号命中 → 追加节奏篇（两篇两源）；无信号书不虚报（只基础篇）', () => {
+    mkdirSync(join(dir, '大纲', '章纲'), { recursive: true })
+    writeFileSync(
+      join(dir, '大纲', '章纲', '0001-开篇.md'),
+      '---\n章号: 1\n标题: 开篇\n情绪定位: 转折\n---\n本章为卷末高潮',
+    )
+    const hit = buildDraftPrompt(dir, 1, 'long')
+    expect(hit.prompt).toContain('### 节奏与升级感速查')
+    expect(hit.files).toContain('知识层(内置)/追读力/节奏与升级感速查.md')
+
+    rmSync(join(dir, '大纲'), { recursive: true, force: true })
+    const plain = buildDraftPrompt(dir, 1, 'long')
+    expect(plain.prompt).not.toContain('### 节奏与升级感速查')
+    expect(plain.files).not.toContain('知识层(内置)/追读力/节奏与升级感速查.md')
   })
 })

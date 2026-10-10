@@ -15,7 +15,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { scanUnregisteredKnowledgeAssets } from '../../scripts/check-knowledge.js'
+import { scanUnregisteredKnowledgeAssets, scanBundledCorpusMismatches } from '../../scripts/check-knowledge.js'
+import {
+  METHOD_FILE_CHARACTER,
+  METHOD_FILE_HOOKS,
+  METHOD_FILE_REVERSAL,
+  METHOD_FILE_RHYTHM,
+} from '../../src/knowledge/select.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
 
 let dir: string
@@ -151,5 +157,56 @@ describe('R63-15：真实仓库反向扫描——门禁口径锚定（当前全�
     // R27-135 扩面后仍须空：仓库 知识层/ 的非 .md 只有 _manifest.json（豁免）与
     // .DS_Store（隐藏豁免）——扩面不得把真实仓门禁打红
     expect(scanUnregisteredKnowledgeAssets(rootPath, manifest)).toEqual([])
+  })
+})
+
+// ── 知识层接入批：随包语料对账（resources/knowledge/ ↔ 知识层/ 逐字节 + 选材篇目在位）──
+// 红线条：随包件漏同步 / 无原稿 / 选材篇目缺位 / 目录缺失 四类必报；真实仓实跑须空。
+describe('知识层接入批：scanBundledCorpusMismatches 随包语料对账', () => {
+  const PICK_FILES = [METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM, METHOD_FILE_CHARACTER]
+  /** 造 mini 仓：4 选材篇目逐字节一致 + README 说明（豁免） */
+  function makeAlignedRepo(): void {
+    for (const rel of PICK_FILES) {
+      const body = `# ${rel}\n正文`
+      const origin = join(dir, '知识层', ...rel.split('/'))
+      const shipped = join(dir, 'resources', 'knowledge', ...rel.split('/'))
+      mkdirSync(join(origin, '..'), { recursive: true })
+      mkdirSync(join(shipped, '..'), { recursive: true })
+      writeFileSync(origin, body)
+      writeFileSync(shipped, body)
+    }
+    writeFileSync(join(dir, 'resources', 'knowledge', 'README.md'), '# 说明（非语料副本）')
+  }
+
+  it('对齐仓 → 无问题；README.md 豁免（非语料副本不比对）', () => {
+    makeAlignedRepo()
+    expect(scanBundledCorpusMismatches(dir)).toEqual([])
+  })
+
+  it('随包件被改一个字节 → 报不一致（改语料须两处同步）', () => {
+    makeAlignedRepo()
+    writeFileSync(join(dir, 'resources', 'knowledge', ...METHOD_FILE_HOOKS.split('/')), '# 被改过\n正文')
+    expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('不一致')
+  })
+
+  it('随包件在知识层无对应原稿 → 报（随包件必须来自正式知识层）', () => {
+    makeAlignedRepo()
+    writeFileSync(join(dir, 'resources', 'knowledge', '野件.md'), '无原稿')
+    expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('知识层/ 无对应原稿')
+  })
+
+  it('选材篇目缺位 → 报（写稿面选材会读它）', () => {
+    makeAlignedRepo()
+    rmSync(join(dir, 'resources', 'knowledge', ...METHOD_FILE_CHARACTER.split('/')))
+    expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('写稿面选材篇目缺位')
+  })
+
+  it('随包语料目录缺失 → 报（缺目录即写稿面降级为零注入）', () => {
+    expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('随包语料目录缺失')
+  })
+
+  it('真实仓库实跑：resources/knowledge 与 知识层/ 逐字节一致（与 npm run check:knowledge 同口径）', () => {
+    const rootPath = fileURLToPath(new URL('../../', import.meta.url))
+    expect(scanBundledCorpusMismatches(rootPath)).toEqual([])
   })
 })

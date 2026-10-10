@@ -10,6 +10,10 @@
  * R62-53：补反向扫描（manifest→磁盘 之外再扫描 磁盘→manifest）——盘上 `.md` 文件
  * 未在 manifest 登记且非豁免的，告警红（防「往知识层丢个 .md 就以为进了 CI」漂移）。
  * 豁免白名单：文件名含「草稿」或为 README.md（D 类草稿/导航性文件不经版本化登记）。
+ *
+ * 随包语料对账（写稿面接入批）：`resources/knowledge/` 是 知识层/ 的随包子集（写稿面
+ * 运行时按章选材读它）——逐字节对账 + 选材篇目在位（scanBundledCorpusMismatches）；
+ * 随包件与正式知识层漂移即红，防「包里的语料和仓里的原稿不是一回事」。
  * R27-135（二十七轮）：反向扫描扩到全部资产——登记面（isSafeKnowledgeTarget/validateEntry）
  * 对任意扩展名放行（非 .md 只跳过 fm 校验），此前只认 .md，盘上未登记非 .md 资产
  * 两向失明（正向 sha256 对账有条件、反向捡拾无条件盲区）；隐藏文件（.DS_Store 等）
@@ -17,7 +21,7 @@
  *
  * 用法：npm run check:knowledge（退出码 1 = 失配，并列出问题）
  */
-import { existsSync, readdirSync, statSync, type Dirent, type Stats } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent, type Stats } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
@@ -26,6 +30,12 @@ import {
   KNOWLEDGE_DIR,
   type KnowledgeManifest,
 } from '../src/knowledge/manifest.js'
+import {
+  METHOD_FILE_CHARACTER,
+  METHOD_FILE_HOOKS,
+  METHOD_FILE_REVERSAL,
+  METHOD_FILE_RHYTHM,
+} from '../src/knowledge/select.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
@@ -122,6 +132,63 @@ export function scanUnregisteredKnowledgeAssets(
   return unmatched
 }
 
+/** 随包语料相对目录（写稿面运行时读取；目录结构镜像 知识层/） */
+export const BUNDLED_KNOWLEDGE_DIR = 'resources/knowledge'
+
+/** 随包语料目录说明文件名（非语料副本，豁免逐字节对账） */
+const BUNDLED_README = 'README.md'
+
+/** 递归收集目录下全部文件（跳过隐藏项；symlink 按文件参与——对不上字节即报） */
+function collectBundledFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const en of readdirSync(dir, { withFileTypes: true })) {
+    if (en.name.startsWith('.')) continue
+    const p = join(dir, en.name)
+    if (en.isDirectory()) out.push(...collectBundledFiles(p))
+    else out.push(p)
+  }
+  return out
+}
+
+/**
+ * 随包语料对账（写稿面接入批）：`resources/knowledge/` 是 `知识层/` 正式语料的随包子集——
+ * 每个文件必须与 `知识层/<rel>` **逐字节相等**（改语料 = 改原稿 + 同步随包件，漏一处即红），
+ * 且写稿面选材篇目（src/knowledge/select.ts 的四个常量）必须在位（缺篇 = 写稿面静默降级）。
+ * 豁免：`README.md`（目录说明，非语料副本）。
+ */
+export function scanBundledCorpusMismatches(projectRoot: string, bundledDir: string = BUNDLED_KNOWLEDGE_DIR): string[] {
+  const bundledRoot = join(projectRoot, bundledDir)
+  if (!existsSync(bundledRoot)) {
+    return [`${bundledDir}: 随包语料目录缺失（写稿面方法选材读取它，缺目录即降级为零注入）`]
+  }
+  const problems: string[] = []
+  const rels = collectBundledFiles(bundledRoot)
+    .map((p) => relative(bundledRoot, p).split(sep).join('/'))
+    .sort()
+  for (const rel of rels) {
+    if (rel === BUNDLED_README) continue
+    const origin = join(projectRoot, KNOWLEDGE_DIR, rel)
+    if (!existsSync(origin)) {
+      problems.push(`${bundledDir}/${rel}: 知识层/ 无对应原稿（随包件必须来自正式知识层）`)
+      continue
+    }
+    try {
+      if (!readFileSync(origin).equals(readFileSync(join(bundledRoot, rel)))) {
+        problems.push(
+          `${bundledDir}/${rel}: 与 ${KNOWLEDGE_DIR}/${rel} 不一致（改语料须两处同步，逐字节相等是本门红线）`,
+        )
+      }
+    } catch (e) {
+      problems.push(`${bundledDir}/${rel}: 读取失败（${e instanceof Error ? e.message : String(e)}）`)
+    }
+  }
+  const shipped = new Set(rels)
+  for (const file of [METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM, METHOD_FILE_CHARACTER]) {
+    if (!shipped.has(file)) problems.push(`${bundledDir}/${file}: 写稿面选材篇目缺位（select.ts 会读它）`)
+  }
+  return problems
+}
+
 // 门禁主体收进 main() + 直跑守卫：npm run check:knowledge（node 直跑本文件）时执行；
 // 被测试 import（R63-15 直测 scanUnregisteredKnowledgeAssets）时不触发校验/exit 副作用
 function main(): void {
@@ -148,8 +215,18 @@ function main(): void {
     process.exit(1)
   }
 
+  // 随包语料对账（写稿面接入批）：resources/knowledge/ 与 知识层/ 逐字节相等 + 选材篇目在位
+  const bundledProblems = scanBundledCorpusMismatches(root)
+  if (bundledProblems.length > 0) {
+    console.error('check:knowledge 随包语料对账失败（resources/knowledge 必须与 知识层/ 逐字节一致）：')
+    for (const p of bundledProblems) console.error(`  - ${p}`)
+    process.exit(1)
+  }
+
   const count = manifest?.entries?.length ?? 0
-  console.log(`check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产。`)
+  console.log(
+    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（写稿面选材 4 篇在位）。`,
+  )
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

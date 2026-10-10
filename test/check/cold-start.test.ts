@@ -5,7 +5,8 @@
  * ①机检（树红点聚合）零误报红点、不炸；
  * ②RAG 空语料走设计内降级（无定稿正文 → 明确错误形状；未启用 → 空召回），不炸；
  * ③首稿 prompt 组装（buildDraftPrompt）各层全空可组装，且铁律①「模型可见⟺已记录」
- *   双向成立——files 清单里每个源都真实存在于书内。
+ *   双向成立——files 清单里每个源都真实存在（书内源对书根；随包语料「知识层(内置)/」
+ *   前缀对 resources/knowledge/，见 src/knowledge/select.ts 头注）。
  *
  * 造书走真实 scaffoldBookRepo（非手拼目录）——守护的就是脚手架产物的第一天行为。
  */
@@ -18,6 +19,8 @@ import { scaffoldBookRepo } from '../../src/install/scaffold.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { buildIndex, recall } from '../../src/rag/index.js'
 import { buildDraftPrompt } from '../../src/process/draft-pipeline.js'
+import { METHOD_SOURCE_PREFIX } from '../../src/knowledge/select.js'
+import { bundledResource } from '../../src/fs/resources.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { writeChapter } from '../helpers/chapter.js'
@@ -115,8 +118,14 @@ describe('新书冷启动：空书/仅一章/空语料/首稿链路', () => {
       const r = buildDraftPrompt(root, 1, 'long')
       expect(typeof r.prompt).toBe('string')
       expect(r.prompt.length).toBeGreaterThan(0)
-      // 铁律①双向：files 登记的每个源都真实存在于书内（可见⟺已记录——已记录 ⟹ 可见）
+      // 铁律①双向：files 登记的每个源都真实存在（可见⟺已记录——已记录 ⟹ 可见）；
+      // 随包语料不在书根下，按「知识层(内置)/」前缀对 resources/knowledge/ 校验
       for (const rel of r.files) {
+        if (rel.startsWith(METHOD_SOURCE_PREFIX)) {
+          const bundled = bundledResource('knowledge', rel.slice(METHOD_SOURCE_PREFIX.length))
+          expect(existsSync(bundled), `files 登记了不存在的随包源：${rel}`).toBe(true)
+          continue
+        }
         expect(existsSync(join(root, rel)), `files 登记了不存在的源：${rel}`).toBe(true)
       }
     } finally {

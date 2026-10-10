@@ -4,7 +4,8 @@
  * AI 编排层（self-heal）与 draft 落盘端点共用：
  * - saveDraft：覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查 → AI 改稿轨迹
  * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（世界观/角色/境界共享
- *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 要求（长短篇 front matter 分支）
+ *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 文风样章 + 写作方法参考
+ *   （随包语料按章选材，src/knowledge/select.ts）+ 要求（长短篇 front matter 分支）
  */
 import { join, basename, dirname, relative, isAbsolute } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
@@ -20,6 +21,7 @@ import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
+import { buildMethodInjection } from '../knowledge/select.js'
 import type { BookConfig } from '../format/types.js'
 import {
   readManifest,
@@ -571,12 +573,15 @@ function buildStyleSampleInjection(
 export interface DraftPrompt {
   prompt: string
   /** prompt 实际引用的源文件清单（相对书根、注入序去重；只列真实
-   *  入 prompt 的段——被预算丢弃的设定层不计）。消费链：self-heal → runSpec promptFiles、
-   *  GET /draft-prompt 回传前端、POST /spawn 回传透传——「模型可见⟺已记录」文件级溯源 */
+   *  入 prompt 的段——被预算丢弃的设定层不计）。随包语料不在书根下，以
+   *  「知识层(内置)/」前缀登记（知识层方法参考段，见 src/knowledge/select.ts）。
+   *  消费链：self-heal → runSpec promptFiles、GET /draft-prompt 回传前端、
+   *  POST /spawn 回传透传——「模型可见⟺已记录」文件级溯源 */
   files: string[]
 }
 
-/** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 文风样章(注入档) + 要求(方案 6.6,长短篇 front matter 分支)
+/** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 文风样章(注入档) + 写作方法参考
+ *  (随包语料按章选材) + 要求(方案 6.6,长短篇 front matter 分支)
  *  config：applyGlobalDefaults 合并值（书级 book.yaml → global.json → 硬编码）。
  *  缺省时字数区间回落硬编码、文风注入按轻度——与不接线的旧行为一致（直调/测试路径）。 */
 export function buildDraftPrompt(
@@ -619,6 +624,9 @@ export function buildDraftPrompt(
   // chapterOutlinePath 下传复用——样章场景水源①不再重复 walk 章纲目录
   // （单次组稿：章纲目录 1 walk + 正文目录 1 walk）
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config, chapterOutlinePath)
+  // 写作方法参考（随包语料按章选材）——信号取细纲 + 章纲原文（钩子类型/情绪定位/场景等
+  // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记
+  const methodInjection = buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}` })
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win
@@ -636,6 +644,7 @@ export function buildDraftPrompt(
   if (materials) pushFile('工作区/本章写作材料.md')
   if (settingsInjection.text) for (const p of settingsInjection.sources) pushFile(p)
   if (styleSampleInjection.text) for (const p of styleSampleInjection.sources) pushFile(p)
+  if (methodInjection.text) for (const p of methodInjection.sources) pushFile(p)
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 章正文(短篇,${range},单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
@@ -645,6 +654,7 @@ export function buildDraftPrompt(
     if (materials) parts.push(`## 备料\n${materials}`)
     if (settingsInjection.text) parts.push(settingsInjection.text)
     if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
+    if (methodInjection.text) parts.push(methodInjection.text)
     parts.push(
       // 短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
       // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
@@ -659,6 +669,7 @@ export function buildDraftPrompt(
   if (materials) parts.push(`## 备料\n${materials}`)
   if (settingsInjection.text) parts.push(settingsInjection.text)
   if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
+  if (methodInjection.text) parts.push(methodInjection.text)
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
