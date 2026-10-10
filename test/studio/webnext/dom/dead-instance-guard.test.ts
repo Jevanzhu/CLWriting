@@ -31,11 +31,12 @@ vi.mock('../../../../src/studio/web-next/src/api/analysis', () => ({
   runStyleAnalysis: analysisMocks.runStyleAnalysis,
 }))
 
-// R26-68（二十六轮）：ExportDialog 的 exportBook mock（含格式/平台常量，弹窗模板消费）
+// R26-68（二十六轮）：ExportDialog 的 exportBook mock（含格式/平台/输出常量，弹窗模板消费）
 const ioMocks = vi.hoisted(() => ({ exportBook: vi.fn() }))
 vi.mock('../../../../src/studio/web-next/src/api/io', () => ({
   exportBook: ioMocks.exportBook,
   EXPORT_FORMATS: [{ v: 'both', label: '全部', hint: '正文+设定' }],
+  EXPORT_OUTPUTS: [{ v: 'md', label: 'Markdown', hint: '保留标记' }],
   EXPORT_PLATFORMS: [{ v: 'generic', label: '通用' }],
 }))
 

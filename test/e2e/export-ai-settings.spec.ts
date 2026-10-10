@@ -1,8 +1,9 @@
 /**
  * P2-TST-7：缺功能 e2e 补齐——导出对话框流程 + AI 设置面板。
  *
- * 导出：ribbon「导出定稿」→ 弹窗（格式 both/分章/合并 + 平台）→ 选分章 → 导出
- *   → toast「导出完成」→ 弹窗关。fixture 长篇有 3 章定稿可导出。
+ * 导出：ribbon「导出定稿」→ 弹窗（格式 both/分章/合并 + 输出 md/纯文本 + 平台）→
+ *   选分章 → 导出 → toast「导出完成」→ 弹窗关。fixture 长篇有 3 章定稿可导出。
+ *   输出选纯文本（txt 导出批）→ 平台行隐藏（txt 面无投稿视图）+ toast 带落点。
  * AI 设置：ribbon「设置」→ AI tab → 对话助手 switch 切换 → 关弹窗。
  * 文风/节奏预测已由 learn.spec / overview-short.spec 覆盖。
  */
@@ -33,6 +34,27 @@ test('导出：打开弹窗 → 选分章格式 → 导出 → toast + 弹窗关
   // 点导出 → toast「导出完成」+ 弹窗关闭
   await dialog.locator('[data-testid="export-run"]').click()
   await expect(page.getByText('导出完成')).toBeVisible({ timeout: 15_000 })
+  await expect(dialog).toBeHidden()
+})
+
+test('导出：选纯文本输出 → 平台行隐藏 → 导出 toast 带纯文本落点', async ({ page }) => {
+  attachPageErrorBaseline(page, 'export-ai-settings')
+  await page.goto('/')
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  await expect(page.locator('.ws-shell')).toBeVisible()
+
+  await page.locator('.rbtn[data-tip="导出定稿"]').click()
+  const dialog = page.locator('[data-testid="export-dialog"]')
+  await expect(dialog).toBeVisible()
+
+  // 默认输出 md 选中；切纯文本 → 平台行随之隐藏（txt 面不含 Markdown 投稿视图）
+  await expect(dialog.locator('[data-testid="export-output-md"].on')).toContainText('Markdown')
+  await dialog.locator('[data-testid="export-output-txt"]').click()
+  await expect(dialog.locator('[data-testid="export-output-txt"].on')).toContainText('纯文本')
+  await expect(dialog.locator('[data-testid="export-platform-generic"]')).toBeHidden()
+
+  await dialog.locator('[data-testid="export-run"]').click()
+  await expect(page.getByText('纯文本：导出/纯文本/')).toBeVisible({ timeout: 15_000 })
   await expect(dialog).toBeHidden()
 })
 

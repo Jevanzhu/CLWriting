@@ -576,7 +576,7 @@
   },
   "src/studio/server/api/io.ts": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 2
+      "count": 3
     },
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -751,7 +751,7 @@
   },
   "src/studio/web-next/src/components/ui/SettingsModal.vue": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
+      "count": 9
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

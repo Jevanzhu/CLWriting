@@ -34,7 +34,7 @@ function ok(body: unknown): Response {
 }
 
 describe('io api · 导出', () => {
-  it('exportBook：POST 负载 format 必带；platform 缺省不进 body', async () => {
+  it('exportBook：POST 负载 format 必带；platform/output 缺省不进 body', async () => {
     stubFetch(() => ok({ ok: true, chapterCount: 12, files: ['导出/全书.md'] }))
     await exportBook('书A', { format: 'both' })
     expect(calls[0]!.init?.method).toBe('POST')
@@ -43,6 +43,10 @@ describe('io api · 导出', () => {
 
     await exportBook('书A', { format: 'split', platform: 'wechat' })
     expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ format: 'split', platform: 'wechat' })
+
+    // txt 导出批：output 显式时进 body（缺省不进——后端回落 md 口径不动）
+    await exportBook('书A', { format: 'both', output: 'txt' })
+    expect(JSON.parse(String(calls[2]!.init?.body))).toEqual({ format: 'both', output: 'txt' })
   })
 
   it('exportBook：域形状响应原样透传（ii 批契约：无 CLI 信封包装）', async () => {

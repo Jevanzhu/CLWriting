@@ -1,9 +1,17 @@
 <script setup lang="ts">
-// 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
+// 导出定稿弹窗（细案 T4.2）：选 format/platform/output → POST /export（服务端 worker 线程执行，数秒）。
 // 成功 toast + 关弹窗；失败（业务失败回 422 错误信封）经 catch 展示信封诊断文案。
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
-import { exportBook, EXPORT_FORMATS, EXPORT_PLATFORMS, type ExportFormat, type ExportPlatform } from '../../api/io'
+import {
+  exportBook,
+  EXPORT_FORMATS,
+  EXPORT_OUTPUTS,
+  EXPORT_PLATFORMS,
+  type ExportFormat,
+  type ExportOutput,
+  type ExportPlatform,
+} from '../../api/io'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
@@ -19,9 +27,14 @@ useFocusTrap(modalRef)
 
 const FORMATS = EXPORT_FORMATS
 const PLATFORMS = EXPORT_PLATFORMS
+const OUTPUTS = EXPORT_OUTPUTS
 
 const format = ref<ExportFormat>('both')
 const platform = ref<ExportPlatform>('generic')
+const output = ref<ExportOutput>('md')
+// 纯文本输出面不含投稿视图（Markdown 策划视图）——平台行仅 md 面有效，
+// txt 面隐藏以省一次无效果的选择动作（提交值仍带 platform 缺省，后端零差异）
+const platformShown = computed(() => output.value === 'md')
 const loading = ref(false)
 // 切书守卫单源（stillIn/failScoped）——导出于 worker 线程执行数秒，弹窗滞留 +
 // 在途切书后，A 书的成功/失败 toast 与控制流不得落 B 书界面。
@@ -38,10 +51,13 @@ async function run(): Promise<void> {
     const r = await exportBook(book, {
       format: format.value,
       platform: platform.value,
+      output: output.value,
     })
     // await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
     if (!scoped.stillIn(targetBook)) return
-    ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
+    // txt 面产物落另一目录（导出/纯文本/）——成功提示带出落点，免作者按 md 惯性去 导出/ 找
+    const where = output.value === 'txt' ? '，纯文本：导出/纯文本/' : ''
+    ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}${where}）`, 'success')
     // 清偿-导出未过滤提示（残留）：清单缺失时导出兜底不过滤（宁多勿漏，
     // 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
     // 成功面（弹窗即关，结果面 = toast）补 warning 明示；'applied'/缺省免提示
@@ -122,6 +138,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
         <div class="form-row">
+          <label>输出</label>
+          <div class="opt-list">
+            <button
+              v-for="o in OUTPUTS"
+              :key="o.v"
+              class="opt"
+              :class="{ on: output === o.v }"
+              :data-testid="`export-output-${o.v}`"
+              @click="output = o.v"
+            >
+              <span class="opt-label">{{ o.label }}</span>
+              <span class="opt-hint">{{ o.hint }}</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="platformShown" class="form-row">
           <label>平台（可选）</label>
           <div class="seg-list">
             <button

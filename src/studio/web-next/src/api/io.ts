@@ -2,16 +2,25 @@ import { apiJson } from './client'
 import { bookUrl } from './url'
 
 // 导入/导出（细案 §2.2 T4.2）：POST /export（起服务端 worker 线程执行，数秒返回）。
-// format 三选；platform 五选一可选；带写 token。
+// format 三选；platform 五选一可选；output 两选（缺省 md）；带写 token。
 
 export type ExportFormat = 'merged' | 'split' | 'both'
 export type ExportPlatform = 'generic' | 'wechat' | 'zhihu-salt' | 'fanqie' | 'xiaohongshu'
+/** 输出形态（txt 导出批）：md = 现口径（落 导出/）；txt = 纯文本净化（落 导出/纯文本/） */
+export type ExportOutput = 'md' | 'txt'
 
 /** 导出格式选项（UI 与类型同源：消除组件内硬编码） */
 export const EXPORT_FORMATS: { v: ExportFormat; label: string; hint: string }[] = [
   { v: 'merged', label: '合并', hint: '全书一个文件' },
   { v: 'split', label: '分章', hint: '每章一个文件' },
   { v: 'both', label: '全量', hint: '合并 + 分章' },
+]
+
+/** 输出形态选项（与后端 output 参数同源）。txt 面只出正文——短篇投稿视图是
+ *  Markdown 策划视图（表格/字段），剥成纯文本无收益，不随 txt 输出。 */
+export const EXPORT_OUTPUTS: { v: ExportOutput; label: string; hint: string }[] = [
+  { v: 'md', label: 'Markdown', hint: '保留标题与强调标记' },
+  { v: 'txt', label: '纯文本', hint: '剥标记，可直接粘贴' },
 ]
 
 /** 导出平台选项（从 ExportDialog 提取，集中管理） */
@@ -43,7 +52,7 @@ interface ExportResponse {
 
 export async function exportBook(
   name: string,
-  body: { format: ExportFormat; platform?: ExportPlatform },
+  body: { format: ExportFormat; platform?: ExportPlatform; output?: ExportOutput },
 ): Promise<ExportResponse> {
   return apiJson<ExportResponse>(
     bookUrl(name, 'export'),

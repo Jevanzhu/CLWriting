@@ -79,6 +79,8 @@ import { setInitialBook } from './api/books.js'
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
 // 应用信息端点（版本号 + 更新检查结果）+ 起服后延迟一次的更新检查
 import { registerAppInfoRoutes } from './api/app-info.js'
+// 诊断包端点（排查件打包：环境 + 配置白名单 + 近 7 天日志，逐项脱敏）
+import { registerDiagnosticsRoutes } from './api/diagnostics.js'
 import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
@@ -166,6 +168,8 @@ function buildRoutes(
     registerStartupNoticeRoutes({ sink })
     // 元：应用信息——版本号 + 更新检查结果（前端 App 级横幅数据源）
     registerAppInfoRoutes()
+    // 元：诊断包——排查件打包（设置 → 诊断入口；APP 级，非书级）
+    registerDiagnosticsRoutes({ workDir, userDataPath })
 
     // ── editor 组（无 driver 依赖；AI 不可达时照常工作）──
     // 收尾：ov.* 为测试覆盖档（缺省 undefined = 生产口径逐位不变）

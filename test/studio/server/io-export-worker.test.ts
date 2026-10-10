@@ -11,7 +11,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -134,6 +134,29 @@ describe('B-24: /export 经 worker 线程执行（真实 worker 往返）', () =
     // 此前漏发致前端无法提示「已跳过 N 个草稿章」）
     expect(body.skippedDrafts).toBe(1)
     expect(body.finalizedFilter).toBe('applied')
+  })
+
+  // ── txt 导出批（output 参数贯通 worker 内核 + 非法值显式拒）──
+  it('output=txt → 200，files 落 导出/纯文本/，产物为无 `#` 标记的纯文本', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK_OK)}/export`, {
+      format: 'merged',
+      output: 'txt',
+    })
+    expect(r.status).toBe(200)
+    const body = r.json as { ok: boolean; files?: string[] }
+    expect(body.ok).toBe(true)
+    expect(body.files).toEqual(['工作区/导出/纯文本/全本-导出worker测试书.txt'])
+    const text = readFileSync(join(workDir, BOOK_OK, '工作区', '导出', '纯文本', '全本-导出worker测试书.txt'), 'utf-8')
+    expect(text).toBe('第一章\n\n雪落在了城墙上。')
+  })
+
+  it('非法 output → 400 BAD_INPUT 点名 output（不静默按 md 处理）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK_OK)}/export`, { format: 'merged', output: 'rtf' })
+    expect(r.status).toBe(400)
+    const body = r.json as { code: string; error: string }
+    expect(body.code).toBe('BAD_INPUT')
+    expect(body.error).toContain('非法输出形态')
+    expect(body.error).toContain('rtf')
   })
 })
 

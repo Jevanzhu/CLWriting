@@ -4,7 +4,18 @@
 // 各 tab 内容拆分到 Settings*.vue 子组件；设置域共享样式在 settings-shared.css
 // （hh §八-16 自本件 <style> 原样搬出——全局样式，全部 Settings* 子件共用）。
 import { ref, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
-import { X, Palette, Type, NotebookPen, Sparkles, ScanSearch, History, BookOpen, Server } from 'lucide-vue-next'
+import {
+  X,
+  Palette,
+  Type,
+  NotebookPen,
+  Sparkles,
+  ScanSearch,
+  History,
+  BookOpen,
+  Server,
+  Stethoscope,
+} from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfigWithRevision, putConfig, type BookConfig } from '../../api/books'
@@ -23,6 +34,7 @@ import SettingsWriting from './SettingsWriting.vue'
 import SettingsAi from './SettingsAi.vue'
 import SettingsAnalysis from './SettingsAnalysis.vue'
 import SettingsRetention from './SettingsRetention.vue'
+import SettingsDiagnostics from './SettingsDiagnostics.vue'
 import SettingsBook from './SettingsBook.vue'
 import AiServicePanel from './AiServicePanel.vue'
 
@@ -48,9 +60,9 @@ watch(
 
 // IA 重组：全局默认按选项类别拆 4 个独立一级页（写作默认/AI 写作/智能分析/版本保留），
 // 「本书」收敛为单页（书名 + 各领域的本书独立设定覆盖组 + 定稿版本 + 存储）——共 8 项导航。
-// 「本书」置顶；其余 7 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方）
+// 「本书」置顶；其余 8 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方/诊断）
 // 三组小节标题分组（Obsidian 设置导航范式：靠命名分组，无线条）。
-type Tab = 'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'book' | 'providers'
+type Tab = 'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'diagnostics' | 'book' | 'providers'
 const activeTab = ref<Tab>('appearance')
 /** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */
 const TAB_SUBTITLES: Record<Tab, string> = {
@@ -60,11 +72,12 @@ const TAB_SUBTITLES: Record<Tab, string> = {
   ai: '对话助手与 AI 写作设置（所有书统一）：文风注入、批量章数、调用上限',
   analysis: 'AI 机检、关系图、知识检索的全局默认——未单独设定的书使用',
   retention: '版本保留全局规则：天数与数量上限（所有书统一）',
+  diagnostics: '生成诊断包（环境、配置与近 7 天日志，脱敏）供排查问题',
   book: '书名与各领域的本书独立设定、定稿版本、存储',
   providers: 'AI 与 RAG 提供方增删、测试连接与任务档位',
 }
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
-/** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 7 页均为 global（跨书共享）。
+/** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 8 页均为 global（跨书共享）。
  * 绑在 settings-content 上即可覆盖整页——本书页内的条目得「本书」徽章，全局页条目得「全局」徽章。 */
 const tabScope = computed<'global' | 'book'>(() => (activeTab.value === 'book' ? 'book' : 'global'))
 
@@ -75,6 +88,7 @@ const tabComponents = {
   ai: SettingsAi,
   analysis: SettingsAnalysis,
   retention: SettingsRetention,
+  diagnostics: SettingsDiagnostics,
   book: SettingsBook,
   providers: AiServicePanel,
 }
@@ -184,6 +198,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </button>
             <button :class="{ active: activeTab === 'providers' }" @click="activeTab = 'providers'">
               <Server :size="16" /><span>服务提供方 <BetaBadge /></span>
+            </button>
+            <!-- 诊断：排查件生成入口（应用级，与当前书无关） -->
+            <button :class="{ active: activeTab === 'diagnostics' }" @click="activeTab = 'diagnostics'">
+              <Stethoscope :size="16" /><span>诊断</span>
             </button>
           </nav>
 

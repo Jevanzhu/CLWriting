@@ -30,6 +30,7 @@
  *   console 输出到无人看见的地方，关镜像只落文件。
  */
 import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises'
+import { readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 export type LogLevel = 'error' | 'warn' | 'info'
@@ -115,6 +116,22 @@ function parseDay(name: string): Date | null {
   return Number(m[1]) === d.getFullYear() && Number(m[2]) - 1 === d.getMonth() && Number(m[3]) === d.getDate()
     ? d
     : null
+}
+
+/** 近 N 天（含今日）的日志文件绝对路径清单（升序）——诊断包收集用；
+ *  判据与上方轮转同口径（保留期 = 距今 N×24h，同一 parseDay 解析），
+ *  故「清理后剩下的」与「收进包的」天然一致。目录不存在/不可读返回 []。 */
+export function recentLogFiles(logsDir: string, days: number, now: Date = new Date()): string[] {
+  const cutoff = now.getTime() - days * 24 * 3600 * 1000
+  try {
+    return readdirSync(logsDir)
+      .map((n) => ({ n, d: parseDay(n) }))
+      .filter((x): x is { n: string; d: Date } => x.d !== null && x.d.getTime() >= cutoff)
+      .map((x) => join(logsDir, x.n))
+      .sort()
+  } catch {
+    return []
+  }
 }
 
 /** 清理超过保留期的日志文件。best-effort：单文件删除失败仅忽略（下次启动再试）。 */

@@ -149,6 +149,12 @@ export function isMdFileName(name: string): boolean {
   return name.toLowerCase().endsWith('.md')
 }
 
+/** 纯文本产物扩展名判定（大小写不敏感，与 isMdFileName 同口径）——
+ *  txt 导出（导出/纯文本/）的清旧/覆盖保护按它分流。 */
+export function isTxtFileName(name: string): boolean {
+  return name.toLowerCase().endsWith('.txt')
+}
+
 /** 文件名前导章号提取单一真相源——
  *  此前四处各持正则漂移（tree 容忍 -/—/空白/裸尾，leads/foreshadow/summary 仅认 -）：
  *  「树按章号排序认得的章文件」在伏笔足迹/线索核验/摘要自愈三处静默不可见

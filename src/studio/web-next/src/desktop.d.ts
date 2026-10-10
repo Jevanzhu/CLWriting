@@ -32,6 +32,9 @@ declare global {
        *  （带值 channel 精确 union 口径，token 面 openLibrary 信封同款）。 */
       openExternal: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       openBook: (name: string) => Promise<void>
+      /** 打开诊断包所在目录（设置 → 诊断入口；目录由主进程推导，未生成过包时静默
+       *  返回——成功路径 main 侧无返回值，如实标 void、不虚构 {ok:true} 态） */
+      revealDiagnostics: () => Promise<void>
       /** 订阅主窗口导航事件，返回退订函数 */
       onNavigate: (cb: (path: string) => void) => () => void
       /** 订阅系统菜单动作（菜单 click → actionKey 回调），返回退订函数 */

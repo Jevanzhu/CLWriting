@@ -5,6 +5,7 @@
 import {
   BrowserWindow,
   Menu,
+  app,
   ipcMain,
   nativeTheme,
   shell,
@@ -27,6 +28,7 @@ import {
   linuxFontListCommand,
 } from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；linux fc-list 自管 spawn
 import { listWindowsFonts } from './win-fonts.js' // （专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
+import { diagnosticsDirOf } from '../diagnostics/index.js' // 诊断包目录单源（设置→诊断入口）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：在新窗口中打开书库
 import {
@@ -379,6 +381,16 @@ export function registerIpc(): void {
     } catch {
       // realpath 失败 = 目录不存在，无物可开
     }
+  })
+  // 打开诊断包所在目录（设置 → 诊断入口；浏览器版无此通道即隐藏按钮）。
+  // 目录由主进程自行推导（diagnosticsDirOf(app userData)）——不接受渲染层传路径，
+  // 与 show-in-folder/open-book-dir/open-library-dir 三入口同口径（路径不经渲染层）。
+  handleTrusted('desktop:reveal-diagnostics', () => {
+    const dir = diagnosticsDirOf(app.getPath('userData'))
+    if (!existsSync(dir)) return // 未生成过包：无物可开
+    void shell.openPath(dir).then((err) => {
+      if (err) log.warn('desktop', `打开诊断包目录失败（${dir}）：${err}`)
+    })
   })
   // 打开外部链接（阶段 53 更新检查横幅「去下载」用；白名单见 isAllowedExternalUrl）
   handleTrusted('desktop:open-external', async (_e, url: unknown) => {

@@ -222,7 +222,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 })
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
-  it('注册面：14 handle + context-menu on', () => {
+  it('注册面：15 handle + context-menu on', () => {
     expect(Object.keys(M.ipcHandle).sort()).toEqual(
       [
         'desktop:get-current',
@@ -236,6 +236,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
         'desktop:open-library-in-new-window', // 多库多窗 D5：spawn 新实例打开书库
         'desktop:open-library-window',
         'desktop:open-shelf',
+        'desktop:reveal-diagnostics', // 诊断包：打开包所在目录（目录主进程自推导）
         'desktop:set-fullscreen',
         'desktop:set-titlebar-overlay',
         'desktop:show-in-folder',

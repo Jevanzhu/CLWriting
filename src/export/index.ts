@@ -4,6 +4,11 @@
  * 把定稿正文导出成多形态（单文件合并 / 分章），剥所有 front matter，
  * 产物落 `工作区/导出/`。
  *
+ * 输出形态两档（options.output，默认 md）：
+ * - md = `# 标题` + Markdown 正文原样，落 `工作区/导出/`（另有短篇投稿视图）；
+ * - txt = 剥呈现层标记的纯文本（UTF-8 无 BOM + LF 规范形），落
+ *   `工作区/导出/纯文本/`（md 面的清旧/归档按目录作用域隔断，互不动对方的稿）。
+ *
  * 复用边界（#36 第 2.1/5 节）：
  * - 遍历复用 readChapterDir（不新写）
  * - 正文取法复用 frontmatter.readFile.body（readChapter 只返 meta）
@@ -20,7 +25,7 @@ import { readFile } from '../format/frontmatter.js'
 import { chapterFilePrefix } from '../format/words.js'
 import { matchFenceLine } from '../format/fence.js'
 import { readBookConfig } from '../format/yaml.js'
-import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
+import { sanitizeFileNamePart, isMdFileName, isTxtFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
 // （errMsg 收编）：错误摘要口径单源
@@ -48,14 +53,21 @@ function isUtf8ExportBytes(buf: Buffer): boolean {
 export type ExportFormat = 'merged' | 'split' | 'both'
 /** 平台标识（配置化：查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
 export type ExportPlatform = ShortSubmissionPlatform
+/** 输出形态：md = 现口径（`# 标题` + Markdown 正文，原样）；txt = 纯文本
+ *  （剥呈现层标记，UTF-8 无 BOM + LF，落 导出/纯文本/）。markdown 正文附带的
+ *  `#`/`**` 等标记对「直接粘贴/上传到平台」是噪声，故单列 txt 面。 */
+export type ExportOutput = 'md' | 'txt'
 
 export interface ExportOptions {
   /** 书仓库根 */
   bookRoot: string
   /** 导出形态（默认 both） */
   format?: ExportFormat
-  /** 短篇投稿视图模板（长篇忽略） */
+  /** 短篇投稿视图模板（长篇忽略；仅 md 输出面——见 output） */
   platform?: ExportPlatform
+  /** 输出形态（默认 md）。txt 只出正文形态（merged/split），投稿视图为
+   *  Markdown 策划视图（含表格/字段），不进 txt 面。 */
+  output?: ExportOutput
 }
 
 export interface ExportResult {
@@ -199,6 +211,38 @@ function purifyBody(body: string): string {
   return first.unclosed ? strip(false).text : first.text
 }
 
+/** 纯文本（txt）产物净化：剥 Markdown **呈现层**标记，正文语义零改写。
+ *  口径（拍板定案）：只剥下列确定形态——
+ *  ①行首 ATX 标题标记（`## 标题` → `标题`，闭尾 `#` 一并剥）；②行首引用标记（`> `，
+ *  含嵌套）；③行内成对标记：`` `码` ``（去反引号）、`**粗**`、`*斜*`、`~~删~~`、
+ *  `[文字](链接)`/`![文字](链接)`（留文字）。
+ *  **不碰**：列表标记（`- `/`1. `——中文正文罕见，且行首短横线可能是作者自用）、
+ *  `---` 分隔线（可能是作者的场景分隔）、表格（正文无表格；投稿视图不进 txt 面）。
+ *  行内标记要求成对且紧贴内容（开标记后、闭标记前均非空白；单 `*` 另要求闭标记后
+ *  非词字符）——`a * b * c`、`3*4*5`、`- *强调*` 一类算式/字面不被误剥
+ *  （保守优先：宁留标记不伤正文）。 */
+function stripMarkdownMarks(text: string): string {
+  const lines = text.split('\n').map((line) => {
+    // 行首标题标记（0-3 空格缩进的 CommonMark ATX 口径）+ 行首引用标记
+    return line.replace(/^(\s{0,3})#{1,6}[ \t]+(.*?)[ \t]*#*$/, '$1$2').replace(/^(\s{0,3})(?:>[ \t]?)+/, '$1')
+  })
+  return lines
+    .join('\n')
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, '$1')
+    .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '$1')
+    .replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1$2')
+}
+
+/** 产物载荷单源（md/txt 双形态）——md 为现口径逐字节不变；txt 标题不带 `#`，
+ *  章界由全本段的段落空行与分章文件切分承担。 */
+function exportPayload(output: ExportOutput, title: string, body: string): string {
+  return output === 'txt'
+    ? canonicalizeText(`${title}\n\n${stripMarkdownMarks(body)}`)
+    : canonicalizeText(`# ${title}\n\n${body}`)
+}
+
 /** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（码位 + FF- 字节双封顶）。
  *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化——
  *  AI 产出标题可任意长，超 255 字节文件名在 macOS/NTFS 直接写失败，整本导出被一章拖垮。
@@ -216,6 +260,10 @@ const FILENAME_MAX_BYTES = 255 - 52
 
 /** 导出目录内旧版归档子目录。 */
 const OLD_EXPORT_DIR = '.旧版'
+
+/** txt 产物的隔离子目录——md 面的清旧/归档/覆盖保护语义按目录作用域判断
+ *  （同前缀 .md/.txt 混扫会互相互删对方的稿），两种输出各自目录内自成一套。 */
+const TXT_EXPORT_SUBDIR = '纯文本'
 
 /** 导出目录内同名前缀的序号兜底名（扩展名前插 -N，撞名递推）——归档失败时本次产物
  *  改写入它，与分章目录的「分章-N」不覆写口径同族。 */
@@ -284,6 +332,8 @@ export interface ExportRun {
 /** 备目录段产物（写出段的落点与命名口径）——导出供分段直测。 */
 export interface ExportPlan {
   exportDir: string
+  /** 输出形态（写出段据此定扩展名/载荷/全本分隔） */
+  output: ExportOutput
   /** 全本产物名（同名归档不下时就地改写为序号兜底名——写出段读改写后的值，勿缓存旧名） */
   mergedFileName: string
   /** 分章产物目录名（归档失败时为「分章-N」；不覆写原目录） */
@@ -426,9 +476,25 @@ export function readUnitBody(bookRoot: string, u: ExportUnit, warnings: string[]
   return r.body
 }
 
+/** 入口参数校验单源（format/output 同为 API/worker 透传面：TS 类型拦不住运行期
+ *  JSON）——非法值返回参数错误文案，合法返回 null。format 非法值此前会让
+ *  doMerged/doSplit 双 false：全部章静默跳过写入，落到「零产出」收口误报
+ *  「正文全部为空或读取失败」，病因完全错位（误导作者去查正文）；output 非法值
+ *  静默按 md 处理则让作者以为拿到纯文本稿。两者一律显式参数错误返回，不做任何盘上操作。 */
+function validateExportParams(format: unknown, output: unknown): string | null {
+  if (format !== 'merged' && format !== 'split' && format !== 'both') {
+    return `参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`
+  }
+  if (output !== 'md' && output !== 'txt') {
+    return `参数错误：output=${JSON.stringify(output)} 非法（只接受 md / txt）`
+  }
+  return null
+}
+
 export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, platform = 'generic' } = options
   const format = options.format ?? 'both'
+  const output = options.output ?? 'md'
   // 前置失败（未达定稿过滤阶段）信封单源——finalizedFilter
   // 恒 'applied'（值不参与语义，见 ExportResult.finalizedFilter 注）、无 skippedDrafts/
   // warnings 面。与下方 fail（过滤阶段后）分立：二者捕获的变量面不同，前置闭包不引用
@@ -441,14 +507,11 @@ export function exportBook(options: ExportOptions): ExportResult {
     finalizedFilter: 'applied',
     error,
   })
-  // format 入口校验——TS 类型上只可能是三合法值，但 API/worker 层透传
-  // 任意 JSON 可达（运行期不受类型约束），非法值此前会让 doMerged/doSplit 双 false：
-  // 全部章静默跳过写入，落到「零产出」收口误报「正文全部为空或读取失败」，病因完全
-  // 错位（误导作者去查正文）。改入口显式参数错误返回（对齐本文件 {ok:false,error}
-  // 错误信封形态），不做任何盘上操作。
-  if (format !== 'merged' && format !== 'split' && format !== 'both') {
-    // 前置失败未达过滤阶段（零产物，finalizedFilter 值不参与语义）
-    return failEarly(`参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`)
+  // format/output 入口校验（见 validateExportParams）——前置失败未达过滤阶段
+  //（零产物，finalizedFilter 值不参与语义），两处失败共用同一前置信封
+  const invalidParam = validateExportParams(format, output)
+  if (invalidParam !== null) {
+    return failEarly(invalidParam)
   }
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
@@ -492,7 +555,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   const bookTitle = cfg.ok && cfg.config.book.title ? cfg.config.book.title : '未命名'
 
   // ── 阶段四·备目录（母本 6.2 工作区/导出/）──
-  const layout = prepareExportLayout({ bookRoot, bookTitle, doMerged, doSplit, warnings })
+  const layout = prepareExportLayout({ bookRoot, bookTitle, doMerged, doSplit, warnings, output })
   if (!layout.ok) return fail(layout.error)
   const plan: ExportPlan = { ...layout.value, filtered }
 
@@ -520,7 +583,9 @@ export function exportBook(options: ExportOptions): ExportResult {
   // ── 阶段六·投稿视图（short 分支整体收编进错误信封——只包了
   // merged/split 写入，投稿视图的 scanShortCollection/readdirSync 清点/atomicWriteFile
   // 裸穿：磁盘满/目录并发删除时异常破坏 {ok:false} 契约、worker 形态丢 warnings 上下文）──
-  if (kind === 'short') {
+  // txt 面不出投稿视图：它是 Markdown 策划视图（含表格/字段），剥成纯文本只损失
+  // 可读性（正文 txt 的用途是直接粘贴/上传，策划视图用途是作者自看）。
+  if (kind === 'short' && output === 'md') {
     const view = writeSubmissionView({
       bookRoot,
       exportDir: plan.exportDir,
@@ -560,9 +625,15 @@ export function prepareExportLayout(args: {
   doMerged: boolean
   doSplit: boolean
   warnings: string[]
+  /** 输出形态（缺省 md——分段直测的既有调用点零改动） */
+  output?: ExportOutput
 }): StageResult<Omit<ExportPlan, 'filtered'>> {
   const { bookRoot, bookTitle, doMerged, doSplit, warnings } = args
-  const exportDir = join(bookRoot, '工作区', '导出')
+  const output = args.output ?? 'md'
+  // txt 面落 导出/纯文本/ 独立子目录（归档子目录随之为 纯文本/.旧版/）——
+  // 与 md 面的清旧/覆盖保护按目录作用域隔断（见 TXT_EXPORT_SUBDIR 注）
+  const exportDir =
+    output === 'txt' ? join(bookRoot, '工作区', '导出', TXT_EXPORT_SUBDIR) : join(bookRoot, '工作区', '导出')
   // 目录创建位于主信封 try 之外——工作区只读/EROFS/EACCES 时裸异常
   // 上抛，worker 形态变 500 且丢 chapterCount/warnings，违背确立的
   // {ok:false} 信封契约。mkdir 结果被后续清旧/分章目录准备依赖、无法并入主 try，
@@ -575,17 +646,21 @@ export function prepareExportLayout(args: {
 
   let mergedFileName = ''
   if (doMerged) {
-    mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
+    const ext = output === 'txt' ? '.txt' : '.md'
+    mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength(ext))}${ext}`
     // 书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
     // 拿错稿——同前缀其余文件视为过期产物归档清位（归档不删，清旧失败不阻断导出）
     // readdirSync 清点同在主信封 try 之外——导出目录被并发删/
     // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径，口径照抄）。
     // 清旧循环里归档失败是安全的——清的是「其它名字」的过期产物，归档
     // 不下就留在原位，本次写的是另一个名字，不存在覆写；故此处不比照写入点做兜底改名。
+    // 扫描面已按输出分流（md = 导出/ 根、txt = 导出/纯文本/），扩展名判定同口径
+    // 跟随（isMdFileName / isTxtFileName）——形状异形的杂项文件不动。
+    const isProductExt = output === 'txt' ? isTxtFileName : isMdFileName
     try {
       for (const old of readdirSync(exportDir)) {
         // .md 判定改 isMdFileName（大小写不敏感）——.MD 家族漏网点
-        if (old.startsWith('全本-') && isMdFileName(old) && old !== mergedFileName) {
+        if (old.startsWith('全本-') && isProductExt(old) && old !== mergedFileName) {
           archiveOldExport(exportDir, old, warnings)
         }
       }
@@ -633,7 +708,7 @@ export function prepareExportLayout(args: {
       return { ok: false, error: `导出写入失败：${errMsg(e)}` }
     }
   }
-  return { ok: true, value: { exportDir, mergedFileName, splitTargetDirName, doMerged, doSplit } }
+  return { ok: true, value: { exportDir, output, mergedFileName, splitTargetDirName, doMerged, doSplit } }
 }
 /** 阶段五内部·分章单章写出：前缀/文件名净化 + 撞名序号判定 + 规范化写 + 产物登记。
  * 单章写入失败带上章上下文重抛——外层收编为 {ok:false}。
@@ -650,31 +725,32 @@ function writeSplitUnit(
     //（原内联 padStart(4) 未走写侧单源家族）；文案章号引用维持本地章号。
     const display = unit.displayNum ?? unit.num
     const prefix = chapterFilePrefix(display, 'chapter')
+    const ext = plan.output === 'txt' ? '.txt' : '.md'
     const baseName = sanitizeFileName(
       unit.title,
-      FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'),
+      FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength(ext),
     )
     // 同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
     // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
-    const fileName = `${prefix}${baseName}.md`
+    const fileName = `${prefix}${baseName}${ext}`
     // 平台：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
     // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
-    const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
+    const payloadOf = (title: string, body: string): string => exportPayload(plan.output, title, body)
     // 撞名/非撞名两分支重复的 atomicWriteFile+files.push
     // 合并单点写——名单先算定（finalName），写盘与登记只写一份
     let finalName = fileName
     if (splitUsed.has(fileName)) {
       let n = 2
-      while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
-      finalName = `${prefix}${baseName}-${n}.md`
+      while (splitUsed.has(`${prefix}${baseName}-${n}${ext}`)) n++
+      finalName = `${prefix}${baseName}-${n}${ext}`
       run.warnings.push(
         `分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`,
       )
     }
     splitUsed.add(finalName)
     atomicWriteFile(join(plan.exportDir, plan.splitTargetDirName, finalName), payloadOf(unit.title, body))
-    run.files.push(`工作区/导出/${plan.splitTargetDirName}/${finalName}`)
+    run.files.push(`${relPosixIn(run.bookRoot, plan.exportDir)}/${plan.splitTargetDirName}/${finalName}`)
   } catch (e) {
     // 分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
     throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
@@ -725,10 +801,12 @@ export function writeExportProducts(run: ExportRun, plan: ExportPlan): StageResu
             const raw = readUnitBody(run.bookRoot, unit, warnings)
             if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
             const body = purifyBody(raw)
-            if (!first) append('\n\n---\n\n')
+            // 章间分隔：md 用水平线（渲染分段），txt 用空段（`---` 在纯文本里
+            // 是字面噪音，且会与作者自用的场景分隔线混淆；正文内的 `---` 原样保留）
+            if (!first) append(plan.output === 'txt' ? '\n\n\n' : '\n\n---\n\n')
             first = false
             // 平台：全本产物规范形写（同分章/投稿视图收口）
-            append(canonicalizeText(`# ${unit.title}\n\n${body}`))
+            append(exportPayload(plan.output, unit.title, body))
             if (plan.doSplit) writeSplitUnit(run, plan, splitUsed, unit, body)
             run.writtenCount++
             run.writtenNums.add(unit.num)
@@ -738,7 +816,7 @@ export function writeExportProducts(run: ExportRun, plan: ExportPlan): StageResu
         // 空 `全本-*.md` 照常 rename 落盘后才在下方按失败收口，盘上残留空产物）
         { publish: () => run.writtenCount > 0 },
       )
-      if (run.writtenCount > 0) files.unshift(`工作区/导出/${plan.mergedFileName}`)
+      if (run.writtenCount > 0) files.unshift(`${relPosixIn(run.bookRoot, plan.exportDir)}/${plan.mergedFileName}`)
     } else if (plan.doSplit) {
       for (const unit of plan.filtered) {
         const raw = readUnitBody(run.bookRoot, unit, warnings)

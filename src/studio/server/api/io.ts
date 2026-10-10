@@ -16,7 +16,7 @@ import { readJson, reply, replyError } from '../http.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { runExportBookAsync } from '../../../export/run-async.js'
 import { trackInFlightWork } from './in-flight-work.js' // 导出 Worker 退出收尾登记
-import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
+import type { ExportFormat, ExportOutput, ExportPlatform } from '../../../export/index.js'
 import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
 import type { TaskGateInjected } from './task-gate.js' // export 并发闸（闸实例经组装根注入）
 
@@ -28,6 +28,8 @@ interface IoCtx extends TaskGateInjected {
 }
 
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])
+// 输出形态（txt 导出批）：md = 现口径（落 导出/），txt = 纯文本（落 导出/纯文本/）
+const EXPORT_OUTPUTS = new Set(['md', 'txt'])
 const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
 // 内存闸（审计）：全局导出 worker 并发闸——task-gate 只按书限并发，
@@ -156,11 +158,22 @@ export function registerIoRoutes(ctx: IoCtx): void {
             `非法导出平台「${platformRaw}」，允许：${[...PLATFORMS].join(' / ')}`,
           )
         }
+        // 输出形态同口径（缺省 md 兼容不带参调用方）
+        const outputRaw = body['output'] === undefined ? 'md' : String(body['output'])
+        if (!EXPORT_OUTPUTS.has(outputRaw)) {
+          return replyError(
+            res,
+            400,
+            'BAD_INPUT',
+            `非法输出形态「${outputRaw}」，允许：${[...EXPORT_OUTPUTS].join(' / ')}`,
+          )
+        }
         const format: ExportFormat = formatRaw as ExportFormat
         const platform: ExportPlatform = platformRaw as ExportPlatform
+        const output: ExportOutput = outputRaw as ExportOutput
         // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入
         releaseGlobal = await acquireExportSlot(ctx.exportWaitTimeoutMs ?? undefined)
-        const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform }))
+        const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform, output }))
         // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
         // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
         // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。
