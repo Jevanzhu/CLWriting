@@ -1,5 +1,5 @@
 /**
- * 知识层更新入口（迭代建议清偿·=a 双步 script，讨论稿建议 8）。
+ * 知识层更新入口——双步 script：knowledge:update 出误报草稿（不入库）→ knowledge:commit 登记定稿。
  *
  * 语料回归域沉淀的机检误报规律（test/corpus/checks/*.json 的 expect:"silent" 条目，
  * corpus:commit 产物）此前无正式归宿——本模块给「知识层」接上演化通道：
@@ -205,9 +205,9 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   if (!Array.isArray(read.manifest.entries)) return validateKnowledgeManifest(projectRoot)
   const manifest: KnowledgeManifest = read.manifest
 
-  // 路径闸统一委托 isSafeKnowledgeTarget——此前本处仅
-  // startsWith(KNOWLEDGE_DIR+'/') 前缀判，`知识层/../设定/x.md` 与绝对路径可穿透，
-  // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器四轮口径）。
+  // 路径闸统一委托 isSafeKnowledgeTarget——只做
+  // startsWith(KNOWLEDGE_DIR+'/') 前缀判会让 `知识层/../设定/x.md` 与绝对路径穿透，
+  // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器口径）。
   if (!isSafeKnowledgeTarget(projectRoot, opts.target)) {
     return {
       ok: false,
@@ -368,11 +368,11 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   }
   // 写入后对账分两栏——issue 只指向**存量坏行**（与新 entry
   // 无关：坏形状/缺文件/哈希失配的旧条目、version≠1 等 manifest 级旧伤）时，本次登记
-  // 实已成功，返回 ok:true + issues 附带（调用方可继续，坏行另行修复）；此前一律
-  // ok:false，与写入成功的盘面实态矛盾，且重试撞「不得重复登记」两报错互斥。issue
+  // 实已成功，返回 ok:true + issues 附带（调用方可继续，坏行另行修复）；一律
+  // ok:false 会与写入成功的盘面实态矛盾，且重试撞「不得重复登记」两报错互斥。issue
   // 路径折叠等值判定归属新 entry（判重已排除同键存量，命中即本次登记自身问题）→
   // 维持 ok:false 如实报失败。ok:true + issues 形态补 warn 留痕（scripts/
-  // knowledge-commit.ts 按 ok 出口，成功面不展 issues——本批不动 scripts/，留痕兜底）。
+  // knowledge-commit.ts 按 ok 出口，成功面不展 issues——scripts/ 不动，留痕兜底）。
   const report = validateKnowledgeManifest(projectRoot)
   if (report.ok) return report
   const newKey = caseFoldKey(opts.target)

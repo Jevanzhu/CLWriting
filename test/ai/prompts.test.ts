@@ -12,7 +12,13 @@ import { resolveDraftPath } from '../../src/document/draft-path.js'
 import { ANALYST_SYSTEM } from '../../src/ai/prompts/analyst.js'
 import { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem } from '../../src/ai/prompts/writer.js'
 import { REVIEW_SYSTEMS, reviewSystem } from '../../src/ai/prompts/review.js'
-import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../../src/ai/prompts/chat.js'
+import {
+  chatSystem,
+  buildChatContext,
+  trimHistory,
+  sanitizeHistory,
+  sanitizeHistoryReported,
+} from '../../src/ai/prompts/chat.js'
 import type { ChatMsg, ContentBlock } from '../../src/ai/provider/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -409,5 +415,92 @@ describe('chat.ts', () => {
     const snapshot = JSON.stringify(msgs)
     sanitizeHistory(msgs)
     expect(JSON.stringify(msgs)).toBe(snapshot)
+  })
+})
+
+// P2-16：消毒改动记录通道（sanitizeHistoryReported）——「模型可见 ⟺ 已记录」补口。
+describe('sanitizeHistoryReported（消毒改动记录）', () => {
+  /** 覆盖全部六类改动形态的非法历史（正文带独特标记——载荷红线断言用） */
+  const SECRET = '绝密正文片段'
+  function dirty(): ChatMsg[] {
+    return [
+      { role: 'assistant', content: `悬空开场${SECRET}` }, // 0 → leading-assistant（剔除）
+      { role: 'assistant', content: '悬空之二' }, // 1（首部悬空，随 0 一并剔除）
+      { role: 'user', content: '' }, // 2 → empty-content（剔除）
+      { role: 'assistant', content: [{ type: 'reasoning', text: '思考' }] }, // 3 → no-payload（剔除）
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '带工具轮' },
+          { type: 'tool_use', id: 't9', name: 'x', input: {} },
+        ],
+      }, // 4 → orphan-tool-use（剔 1 块，保留）
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '旁白' },
+          { type: 'tool_result', toolUseId: 't9x', content: '孤儿' },
+        ],
+      }, // 5 → orphan-tool-result（剔 1 块，保留）
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't9y', content: '孤儿二' }] }, // 6 → orphan-tool-result（剔除）
+      { role: 'user', content: `第一问${SECRET}` }, // 7
+      { role: 'user', content: `第二问${SECRET}` }, // 8 → role-conflict（插占位）
+    ]
+  }
+
+  it('无改动 → 零记录，且 history 与 sanitizeHistory 逐位等价（常态对话零影响）', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+      { role: 'user', content: 'u1' },
+    ]
+    const { history, report } = sanitizeHistoryReported(msgs)
+    expect(report).toEqual({ before: 3, after: 3, changes: [] })
+    expect(history).toEqual(sanitizeHistory(msgs))
+  })
+
+  it('逐条改动：原因/形态/输入位置/角色/原长（含剔除块数）——条目序 = 改动相序，占位本身不另起条目', () => {
+    const msgs = dirty()
+    const { history, report } = sanitizeHistoryReported(msgs)
+    expect(report.before).toBe(9)
+    expect(report.after).toBe(history.length)
+    expect(
+      report.changes.map((c) => ({
+        reason: c.reason,
+        effect: c.effect,
+        index: c.index,
+        role: c.role,
+        blocks: c.blocks,
+      })),
+    ).toEqual([
+      // 逐条过滤相（输入序）：空正文 → 无载荷 → 孤儿 tool_use 剔块 → 孤儿 tool_result 剔块/剔除
+      { reason: 'empty-content', effect: 'drop', index: 2, role: 'user', blocks: undefined },
+      { reason: 'no-payload', effect: 'drop', index: 3, role: 'assistant', blocks: undefined },
+      { reason: 'orphan-tool-use', effect: 'trim', index: 4, role: 'assistant', blocks: 1 },
+      { reason: 'orphan-tool-result', effect: 'trim', index: 5, role: 'user', blocks: 1 },
+      { reason: 'orphan-tool-result', effect: 'drop', index: 6, role: 'user', blocks: 1 },
+      // 首部悬空/前置全被剔后顶上来的 assistant 剔除相
+      { reason: 'leading-assistant', effect: 'drop', index: 0, role: 'assistant', blocks: undefined },
+      { reason: 'leading-assistant', effect: 'drop', index: 1, role: 'assistant', blocks: undefined },
+      { reason: 'leading-assistant', effect: 'drop', index: 4, role: 'assistant', blocks: undefined },
+      // 连续同 role 插占位相（位置口径仍是输入下标）
+      { reason: 'role-conflict', effect: 'insert', index: 7, role: 'user', blocks: undefined },
+      { reason: 'role-conflict', effect: 'insert', index: 8, role: 'user', blocks: undefined },
+    ])
+    // 原长 = 被改动消息原始码点长度（measurePoints 同源口径：文本块实际码点、结构块按 64 计）
+    expect(report.changes.find((c) => c.index === 0)!.points).toBe(Array.from(`悬空开场${SECRET}`).length)
+    expect(report.changes.find((c) => c.reason === 'empty-content')!.points).toBe(0)
+    expect(report.changes.find((c) => c.reason === 'orphan-tool-use')!.points).toBe(Array.from('带工具轮').length + 64)
+  })
+
+  it('红线：记录载荷不含被替换消息正文（书稿文本/用户隐私不入事件）', () => {
+    const { report } = sanitizeHistoryReported(dirty())
+    expect(report.changes.length).toBeGreaterThan(0)
+    expect(JSON.stringify(report)).not.toContain(SECRET)
+    expect(JSON.stringify(report)).not.toContain('悬空开场')
+  })
+
+  it('产物与 sanitizeHistory 逐位等价（同一输入两条导出面同函数产出）', () => {
+    expect(sanitizeHistoryReported(dirty()).history).toEqual(sanitizeHistory(dirty()))
   })
 })

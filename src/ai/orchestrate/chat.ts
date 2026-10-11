@@ -28,8 +28,7 @@ import { runAgentTurns } from './chat/turns.js'
 // 未预期异常的失败收尾走 finishTurn 单一出口（finish.ts
 // 只 type-import ChatOpts，运行时无环）
 import { finishTurn } from './chat/finish.js'
-// （errMsg 收编）：错误摘要口径单源
-// catch 内 warn 留痕需 log
+// 错误摘要口径单源 errMsg；catch 内 warn 留痕需 log
 import { errMsg, log } from '../../log/index.js'
 // 3：队列丢弃预览改码位截断（
 // clipByCodePoints shared 单源同族收口）
@@ -75,12 +74,12 @@ export function isChatRunning(bookName: string): boolean {
   return running.has(bookName)
 }
 
-/** #7：等本书在途对话收尾（无在途立即返回）。abort 只是异步信号——straggler 编排要
+/** 等本书在途对话收尾（无在途立即返回）。abort 只是异步信号——straggler 编排要
  * 跑到下一个 await 点才解旋，期间的收尾写库在改名/删书的同步段之后恢复就会对已关库/
  * 已搬走路径写（对话以 error 收尾）。改名/删书/优雅退出在 abort 后等这里。
- * 循环等到表项真正清空——drainNextChat 续链会在旧 promise resolve 前同步
- * 替换表项，只等一轮的旧实现拿到旧 promise 的 resolve 即返回，续链新 run 仍在途，
- * 等待方随后的删库/改名就与新 run 的收尾写库竞争（续链链长 ≤ 队列上限 10，循环有界）。 */
+ * 必须循环等到表项真正清空——drainNextChat 续链会在旧 promise resolve 前同步替换表项，
+ * 只等一轮会拿到旧 promise 的 resolve 即返回，续链新 run 仍在途，等待方随后的删库/改名
+ * 就与新 run 的收尾写库竞争（续链链长 ≤ 队列上限 10，循环有界）。 */
 export async function waitChatSettled(bookName: string): Promise<void> {
   for (;;) {
     const p = settling.get(bookName)
@@ -301,14 +300,14 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
       },
     })
   } catch (e) {
-    // 未预期异常补失败收尾——此前 try/finally 无 catch，
-    // restore 相位 createSession SQLITE_BUSY 等穿透时 history 悬挂、事件库无终态、无
+    // 未预期异常补失败收尾——try/finally 无 catch 时
+    // restore 相位 createSession SQLITE_BUSY 等穿透会让 history 悬挂、事件库无终态、无
     // chat_error（history 内存留驻半截 user，模型可见而事件不可回溯）。防双收尾守卫 =
     // completedOk（markCompleted 在 chat_done 当口先行置位）+ prepared 是否产出：
     // - prepared 在手且 !completedOk → 轮循环中途未预期抛，按 {error} 口径走 finishTurn
     //   单一出口（回滚 + 全会话遮蔽 + chat_error）。finishTurn 后再抛的窗口不存在：
-    // runAgentTurns 六失败出口调 finishTurn 后同步 return（收编后 finishTurn 自身
-    //   不再抛），故此分支只命中「finishTurn 未调过」的路径，无二次收尾面；
+    //   runAgentTurns 六失败出口调 finishTurn 后同步 return（finishTurn 自身不再抛），
+    //   故此分支只命中「finishTurn 未调过」的路径，无二次收尾面；
     // - prepared 为 null → 准备期抛（restore 相位），run 未产出无可回滚，best-effort
     //   补 chat_error（对齐 finishTurn 的发出形态：redactSecret 后经 driver.emit）；
     // - completedOk 为 true → 正常完成后的收尾段异常（如 finalizeHistory 逃逸）——

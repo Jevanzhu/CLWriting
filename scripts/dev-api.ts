@@ -6,7 +6,8 @@
  *   npx tsx scripts/dev-api.ts              # 自动找 workDir（cwd 向上）
  *   npx tsx scripts/dev-api.ts --dir /path   # 指定工作目录
  *
- * 端口：缺省 7878（与 web-next/vite.config.ts 的 /api 代理目标一致）；R51-J-3 起
+ * 端口：缺省值单源 = src/shared/contract/studio.ts 的 DEV_API_DEFAULT_PORT（web-next 的
+ * Vite /api 代理目标与 SSE dev 直连基址同源消费）；R51-J-3 起
  * 可用环境变量 CLW_DEV_API_PORT 覆盖（脚本与错误指引文案同源读，不再是「改源码
  * 顶部常量」的死胡同）。
  *
@@ -26,7 +27,8 @@ import process from 'node:process'
 
 // R51-J-3（五十一轮）：端口 env 单源——listen、banner、EADDRINUSE 指引全部从同一
 // 个解析结果取值。旧指引「改 scripts/dev-api.ts 顶部 PORT」是把开发者带进死胡同：
-// vite 代理目标固定 7878，只改脚本端口 = dev 页面 /api 全 502 且无提示。
+// vite 代理目标取自跨包单源缺省（env 覆盖不会同步过去），只经 env 改脚本端口 =
+// dev 页面 /api 全 502 且无提示。
 const PORT = resolveDevApiPort(process.env)
 
 // --dir 参数
@@ -79,8 +81,9 @@ server.on('error', (err: NodeJS.ErrnoException) => {
     console.error(`  ❌  端口 ${PORT} 已被占用（EADDRINUSE）——可能已有一个 dev-api 在跑。`)
     console.error(`     请先停掉占用进程（lsof -i :${PORT}），或设 CLW_DEV_API_PORT=<其他端口> 后重试；`)
     console.error(
-      `     换端口后需同步改 src/studio/web-next/vite.config.ts 的 /api 代理目标，否则 dev 页面连不上后端。`,
+      `     注意：Vite /api 代理目标取自跨包单源缺省（src/shared/contract/studio.ts 的 DEV_API_DEFAULT_PORT），`,
     )
+    console.error(`     要整体换端口请改该单源（env 覆盖不会同步过去），否则 dev 页面连不上后端。`)
   } else {
     console.error(`  ❌  API server 启动失败：${err.message}`)
     console.error(err)

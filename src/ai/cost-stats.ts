@@ -1,7 +1,7 @@
 /**
  * 用量成本聚合——llm/call 事件 × 价格表。
  *
- * 数据源分工（原则，方向方案 §五）：`.cache/ai-calls.json` 只服务预算闸（当前态）；
+ * 数据源分工（原则）：`.cache/ai-calls.json` 只服务预算闸（当前态）；
  * `llm/call` 事件（append-only）是一切历史聚合与可视化的唯一真源——本模块只读事件。
  *
  * 金额口径：每条 llm/call 按其 model 查 resolveModelPricing（provider 级 +
@@ -11,7 +11,7 @@
  * 展示粒度对齐作者心智：按日 / 按章（事件 chapter 字段起 runTask 记录）/
  * 按任务 / 本书累计。
  *
- * 历史口径边界：OpenAI 兼容线的旧事件 usage.input 已含 cache 命中
+ * 口径边界：OpenAI 兼容线的旧事件 usage.input 已含 cache 命中
  * （修复前口径），其后事件为归一口径（input 不含 cacheRead）——跨边界累计前段偏高。
  * 事件库 append-only 不做迁移；确需精确口径可按事件时间切分。
  * 历史成本计价口径：aggregateCost 按当前价格表现算历史事件（事件

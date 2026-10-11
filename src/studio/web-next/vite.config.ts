@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+// dev-api 端口单源（根 src/shared/contract 跨包契约底座）——代理目标与 SSE dev 直连基址
+// （src/composables/useSse.ts）、服务端缺省端口同源，换端口只改单源一处。
+import { DEV_API_DEFAULT_PORT } from '../../shared/contract/studio.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -16,9 +19,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // dev 时 /api 代理到后端（dev:api 固定 7878）
+    // dev 时 /api 代理到后端（dev:api 缺省端口，值单源见上方 import）
     proxy: {
-      '/api': 'http://127.0.0.1:7878',
+      '/api': `http://127.0.0.1:${DEV_API_DEFAULT_PORT}`,
     },
   },
 })

@@ -11,7 +11,7 @@ import {
   parseLeadFileName,
 } from '../../src/format/leads.js'
 import type { Lead } from '../../src/format/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 // ── 履历解析（#3 第 4 节）────────────────────────
 
@@ -80,7 +80,7 @@ test('stringifyHistory + parseHistory 往返', () => {
 // ── 完整账本读写往返（容错核心）──────────────────
 
 function makeTmpBook(): string {
-  return mkdtempTracked(join(tmpdir(), '北境往事-'))
+  return tempDirTracked('北境往事-')
 }
 
 test('readLead + writeLead: 悬念往返不丢字段', () => {

@@ -1,22 +1,19 @@
 /**
  * 应用实例文件锁守卫。
  *
- * Electron requestSingleInstanceLock 在提权差异（管理员/普通用户各开一份）下失效
- * ——锁按会话/提权上下文隔离，两侧各自返回 true → 双开互踩 workdir.json /
- * window-state.json（atomic 写只防文件撕裂，防不了语义层竞态）。本守卫用 fs 跨进程
- * 锁（fs/cross-process-lock.ts，open 'wx' O_EXCL 原子 + pid 存活探测）补一道：锁文件
- * 落 userData（与 Electron 锁同一身份域），持有 pid 跨提权可见（process.kill(pid,0)
- * 对他人进程 EPERM → 按存活保守处理 → 拒绝第二实例）。
+ * 根因：Electron requestSingleInstanceLock 在提权差异（管理员/普通用户各开一份）下失效——锁按
+ * 会话/提权上下文隔离，两侧各自返回 true → 双开互踩 workdir.json / window-state.json（atomic 写
+ * 只防文件撕裂，防不了语义层竞态）。本守卫用 fs 跨进程锁（fs/cross-process-lock.ts，open 'wx'
+ * O_EXCL 原子 + pid 存活探测）补一道：锁文件落 userData（与 Electron 锁同一身份域），持有 pid
+ * 跨提权可见（process.kill(pid,0) 对他人进程 EPERM → 按存活保守处理 → 拒绝第二实例）。
  *
- * 生命周期：持有方每 60s 续期（utimes 刷 mtime，防活 pid 超 10min MAX_HELD_MS 被
- * 陈锁接管误判——长活应用必须续期）；正常退出经 process 'exit' 钩子即刻释放（多道
- * 守卫逐条释放，见 activeReleases），崩溃/硬杀残留的死 pid 锁由 stale 接管自愈。
- * 多道守卫的消费点：main 在「实例 key 与实际采用库不一致」的残余形态下补挂实际库
- * 的守卫（见 main.ts bootstrap 尾注），其余调用方仍单道。
+ * 生命周期：持有方每 60s 续期（utimes 刷 mtime，防活 pid 超 10min MAX_HELD_MS 被陈锁接管误判
+ *——长活应用必须续期）；正常退出经 process 'exit' 钩子即刻释放（多道守卫逐条释放，见
+ * activeReleases），崩溃/硬杀残留的死 pid 锁由 stale 接管自愈。多道守卫的消费点：main 在
+ *「实例 key 与实际采用库不一致」的残余形态下补挂实际库的守卫，其余调用方仍单道。
  *
- * 失败语义 fail-open：锁面异常（权限/磁盘/路径不可用）**放行**（acquired=true）——
- * 本守卫只是 Electron 锁的补充防线，同用户双开仍由 Electron 锁兜底，锁基建故障
- * 不应升级为应用无法启动。同进程重复获取（测试态 vi.resetModules 模块重载形态）
+ * 失败语义 fail-open：锁面异常（权限/磁盘/路径不可用）**放行**（acquired=true）——本守卫只是
+ * Electron 锁的补充防线，锁基建故障不应升级为应用无法启动。同进程重复获取（测试态模块重载形态）
  * 视为同一实例放行（持有 pid 为自身）。
  */
 import { readFileSync } from 'node:fs'
@@ -30,9 +27,9 @@ export interface AppInstanceGuard {
   /** true = 本实例放行（文件锁在持 / 同进程已在持 / 锁面异常 fail-open）；
    *  false = 检测到他实例在持（含跨提权形态），调用方应退出 */
   acquired: boolean
-  /** 幂等释放（process.once('exit') 内部退出钩子消费——批起不再挂
-   *  will-quit〔与 main.test.ts Electron 假件交互致 worker OOM，如实记档〕；未真持
-   * 锁时为 no-op，生产路径无需调用）。JSDoc 过时指针记正。 */
+  /** 幂等释放（process.once('exit') 内部退出钩子消费——不挂 will-quit
+   * 〔与 main.test.ts Electron 假件交互致 worker OOM〕；未真持锁时为 no-op，
+   * 生产路径无需调用）。 */
   release(): void
 }
 

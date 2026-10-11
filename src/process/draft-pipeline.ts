@@ -90,8 +90,12 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
  * - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（定：
  *    NonUtf8TargetError → 400 + 转码指引，其余 IO → 409 WRITE_ERROR 可重试）——原稿与
  *    编辑器内容都在，拒绝保存零损失。
- *  - 结构化表单覆写面（onboard-save、outline、lead-updates）→ **fail-open 留痕继续**
- *    （log.warn + 响应/日志 snapshotted:false）：写的是表单值或派生内容而非自由正文，
+ *  - 结构化表单覆写面（onboard-save / onboard-ai）→ **fail-closed 拒写**：目标多是既有
+ *    设定文件（作者手改面与自由正文同宽），留底失败即拒（NonUtf8TargetError → 400 +
+ *    转码指引，其余 IO → 409 WRITE_ERROR 可重试）；「无需留底」两态（目标不存在/新旧
+ *    内容相同）不设闸。
+ *  - 其余结构化覆写面（outline、lead-updates）→ **fail-open 留痕继续**
+ *    （log.warn + 响应/日志 snapshotted:false）：写的是派生内容而非自由正文，
  *    丢的手改面窄且作者可重填，阻断保存的代价大于保留旧版本的收益。
  *  - 编辑器保存链（studio server documents-save → document/service.save 的 maybeSnapshot）
  * → **fail-open 留痕继续**（Opus-5.5 轮补记于此汇总）：正文是作者
@@ -314,8 +318,8 @@ export async function saveDraft(
       throw e
     }
     // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）。
-    // 改走单键失效——indexes.delete 已保证树重建收编新草稿，
-    // probeCache 只清本章键（新文件为 no-op），不再整书清空（每次 AI 写章保存后
+    // 单键失效——indexes.delete 已保证树重建纳入新草稿，
+    // probeCache 只清本章键（新文件为 no-op），不整书清空（否则每次 AI 写章保存后
     // 下一次树请求全书重读+重哈希是纯浪费）
     invalidateTreeIndexForContent(bookRoot, relPath)
     // 新文件登记 manifest（结构性操作触发建清单§4.2 口径，service
@@ -326,7 +330,7 @@ export async function saveDraft(
       try {
         // 清单登记锁同步孪生 → 异步（与保存锁同批异步化，锁内写段不变）
         await withManifestLockAsync(manifestPath, () => {
-          // RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈收编）
+          // RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈）
           const m = existsSync(manifestPath)
             ? readManifestStrict(manifestPath)
             : { version: 1, entries: new Map<string, ManifestEntry>() }

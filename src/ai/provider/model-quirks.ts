@@ -18,7 +18,7 @@ export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi
  *  系列前缀判定等表内容影响上线参数与重放口径，表改不 bump 会造成跨版本重放漂移且
  *  无从检测。**规则：本文件任何行为性变更（表项/前缀/翻译/兜底值）必须同步 bump 此
  *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。
- *  清偿i trimStop 补齐「各 ≤32 字节」截断（行为性变更）→ bump。 */
+ *  kimi trimStop 补齐「各 ≤32 字节」截断（行为性变更）→ bump。 */
 export const MODEL_QUIRKS_VERSION = '2026-09-07.1'
 
 /** 单个键形态上的前缀判定（不做白名单，识别不出即 unknown → 保守省略） */
@@ -49,7 +49,7 @@ export function detectFamily(model: string): ModelFamily {
 }
 
 /**
- * 清偿i stop 序列单条 ≤32 字节的 UTF-8 安全截断——按 UTF-16
+ * kimi stop 序列单条 ≤32 字节的 UTF-8 安全截断——按 UTF-16
  * 码元 slice 会把多字节序列劈在中间（半字符字节流发给端点）。超限时按 32 字节截断，
  * 截断点做序列完整性判定：恰落在完整序列末尾则原样保留、落在序列中间则丢弃该不
  * 完整序列，保证输出恒为合法 UTF-8 且 ≤32 字节。仓内无「32 字节」截断先例（vault
@@ -94,11 +94,10 @@ function isKimiK3(model: string): boolean {
  * Responses 线（/v1/responses）格式档——家族表内嵌子表。
  *
  * 必须保持**纯数据**（无函数维度）：catalog 三件套（catalog.ts / catalog.gen.ts /
- * generate-model-catalog.ts / catalog-sync.test.ts）已随拍板快断批删除
- * （销账——运行时零消费、脚本全可再生、git 历史可考），原「catalog-sync
- * 双向校验红线」随之退役；纯数据约束保留（可序列化 / 可快照测试面不变）。
- * 设计定型「格式级 profile × 家族覆盖」（cherry reasoningProfiles 同构），出处见
- * 《Responses格式适配》设计第六节。
+ * generate-model-catalog.ts / catalog-sync.test.ts）已删除（运行时零消费、脚本全可再生、
+ * git 历史可考），「catalog-sync 双向校验红线」随之退役；纯数据约束保留
+ * （可序列化 / 可快照测试面不变）。设计定型「格式级 profile × 家族覆盖」
+ *（cherry reasoningProfiles 同构），出处见《Responses格式适配》设计第六节。
  */
 export interface ResponsesWireQuirks {
   /** 三值语义同 FamilyQuirks.toolChoiceMode（responsesWire 视图覆盖基表值），无 'none'——协议本身有 tool_choice */
@@ -344,7 +343,7 @@ export function quirksFor(model: string): FamilyQuirks {
         maxTokensKey: 'max_completion_tokens', // 已弃用 max_tokens
         reasoningEffort: k3 ? (e) => e : () => null,
         thinkingWithEffort: false,
-        // 登记 / 清偿批官方上限「≤5 条且各 ≤32 字节」补齐后者——
+        // 官方上限「≤5 条且各 ≤32 字节」补齐后者——
         // 条数裁剪之外按 UTF-8 字节口径逐条截断（truncateUtf8Bytes32，见其注）；
         // stopSequences 现无生产调用方（仅适配器读），接线前契约先补全
         trimStop: (s) => s.slice(0, 5).map(truncateUtf8Bytes32),

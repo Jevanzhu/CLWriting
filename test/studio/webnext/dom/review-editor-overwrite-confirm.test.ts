@@ -40,21 +40,9 @@ vi.mock('../../../../src/studio/web-next/src/api/client', async (importOriginal)
 import EditorDocHead from '../../../../src/studio/web-next/src/components/editor/EditorDocHead.vue'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeDraftChapterNode } from '../helpers/tree-node'
 
 const BOOK = 'test-book'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: '写作/正文/0001-标题.md',
-    name: '0001-标题.md',
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    status: 'draft',
-    children: [],
-  }
-}
 
 /** 挂一台带冲突未决 entry 的顶栏卡：open 建缓存后置 conflict=true（外部修改未决）。 */
 async function mountHeadWithConflict(): Promise<{
@@ -65,7 +53,7 @@ async function mountHeadWithConflict(): Promise<{
   const doc = useDocStore()
   doc.setBook(BOOK)
   vi.mocked(getContent).mockResolvedValue('---\n标题: 标题\n---\n正文')
-  await doc.open(makeNode('d1'))
+  await doc.open(makeDraftChapterNode('d1', '写作/正文/0001-标题.md'))
   const e = doc.get('d1')!
   e.conflict = true
   const w = mount(EditorDocHead, {

@@ -137,13 +137,10 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
 }
 
 /** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。
- * 结构（服务端端点/摘要簇）：体内与 format/
- *  chapter-lookup.ts chapterPathByNumber 逐行同构（walkMdFind 按名定位 + mergedIntoMap
- *  并入回退），收编单源只消费不再自带实现——语义逐位等价（正文区缺失/按名 miss/并入
- * 回退三分支同口径）修复史由单源继承。
- * （阶段 24 留洞制）：按名 miss → 并入回退目标章路径（被合并源章的正文在
- *  目标章里，摘要状态判定/自愈补漏对源章号仍可定位；正文命中恒优先——通用还原后
- *  陈旧并入不被咨询）。 */
+ * 与 format/chapter-lookup.ts 的 chapterPathByNumber 单源等价（walkMdFind 按名定位 +
+ * mergedIntoMap 并入回退）——本处只消费不自带实现（正文区缺失/按名 miss/并入回退三分支同口径）。
+ * 按名 miss → 并入回退目标章路径（被合并源章的正文在目标章里，摘要状态判定/自愈补漏对
+ * 源章号仍可定位；正文命中恒优先——通用还原后陈旧并入不被咨询）。 */
 export function findChapterFile(bookRoot: string, chapter: number): string | null {
   return chapterPathByNumber(bookRoot, chapter)
 }
@@ -178,15 +175,13 @@ const inFlight = new Set<string>()
 // 会重开 TOCTOU 窗口），AI 调用数十秒在所难免；拿不到锁 → 本调用返回
 // { ok: true, skipped: true }：语义 = 他人正在生成/已完成，不是失败（同时解决——
 // 并发去重命中不再被调用方当「自愈失败」warn 留痕），漏生窗口由既有自愈兜底。
-// 锁等待档 5s → 0（非阻塞 try-acquire，拿不到即跳过本轮）。理由：
-// 锁原语的等待是 Atomics.wait 同步微睡（Node 主线程合法但整段阻塞事件循环），而持锁方
-// 是分钟级 AI 调用——GUI（Electron 主进程，IPC 敏感）与 CLI 双开同书时，第二进程为一把
-// 几乎不可能在等待档内释放的锁同步阻塞整个等待档，纯付出零收益（300ms 档同理不成立：
-// 仍冻结主进程且等不到分钟级持锁面）。两路挂点（定稿钩子 fire-and-forget / 备料自愈）
-// 对 skipped 的消费语义本就是「他人正在生成/已完成，非失败」，跳过一轮无害、自愈兜底
-// 照旧。0 档不影响陈锁接管：tryAcquire 内部的死 pid 判 stale + jitter + 重建不受等待档
-// 约束，崩溃残留不永锁的语义保留。
-/** 锁等待档（毫秒；起生产固定 0 = 纯 try-acquire）。三件套换装
+// 锁等待档 0（非阻塞 try-acquire，拿不到即跳过本轮）：锁原语的等待是 Atomics.wait 同步
+// 微睡（Node 主线程合法但整段阻塞事件循环），而持锁方是分钟级 AI 调用——GUI（Electron
+// 主进程，IPC 敏感）与 CLI 双开同书时，第二进程为一把几乎不可能在等待档内释放的锁同步
+// 阻塞整个等待档，纯付出零收益。两路挂点（定稿钩子 fire-and-forget / 备料自愈）对 skipped
+// 的消费语义本就是「他人正在生成/已完成，非失败」，跳过一轮无害、自愈兜底照旧。0 档不影响
+// 陈锁接管：tryAcquire 内部的死 pid 判 stale + jitter + 重建不受等待档约束，崩溃残留不永锁。
+/** 锁等待档（毫秒；生产固定 0 = 纯 try-acquire）。三件套换装
  *  testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位
  *  （原名原签名，测试面零感知）。 */
 export const [getSummaryGenerateLockTimeoutMs, __setSummaryGenerateLockTimeoutForTest] = testableConst(0)
@@ -235,11 +230,11 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     const state = chapterSummaryState(bookRoot, chapter, bodyAbsPath)
     if (state === 'fresh') return { ok: true, path: fp, skipped: true }
     const budget = opts.config.budget.summary_chapter_max ?? SUMMARY_CHAPTER_MAX_FALLBACK
-    // 正文与指纹此前两次独立读盘（readDraft 一次 + computeRevision
-    // 一次）——两读之间正文被改（H1→H2）会把 H2 的指纹绑给 H1 正文的摘要；改单次读
-    // Buffer 同源派生 body（readDraft 的 content 通道）与哈希。
+    // 正文与指纹必须单次读盘同源派生——两次独立读（readDraft 一次 + computeRevision
+    // 一次）之间正文被改会把新指纹绑给旧正文的摘要。单次读 Buffer 同源派生 body
+    //（readDraft 的 content 通道）与哈希。
     // 哈希字节口径逐字对齐 fs/hash.ts hashFile / document/revision.ts computeRevision
-    //（'sha256:' + 原始字节 SHA-256；src/fs 不在本批可写域，不重复开 import 面）。
+    //（'sha256:' + 原始字节 SHA-256）。
     let raw: Buffer
     try {
       raw = readFileSync(bodyAbsPath)
@@ -248,8 +243,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     }
     // 非 UTF-8 正文拒绝生成摘要——GBK 等文件以 utf-8 解码出 U+FFFD
     // 后喂 AI 生成摘要再回写，摘要静默失真且被指纹绑定（过期判定认它为 fresh，永不再生）。
-    // 判据与保存链闸（document/service.isUtf8Bytes）同款 fatal 解码探测，补齐防线
-    // 不对称（搬运 fs 底座另行收编，此处先同算法内联）。
+    // 判据与保存链闸（document/service.isUtf8Bytes）同款 fatal 解码探测。
     try {
       new TextDecoder('utf-8', { fatal: true }).decode(raw)
     } catch {
@@ -530,13 +524,10 @@ export function volumeChainState(bookRoot: string, volume: number, volumeSize: n
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
-    // 定稿章识别升格 chapterNoFromName
-    // 单源（与 :442 selfHealRecentChapterSummaries 的修复同款宽容集）——原窄正则
-    // `/^(\d+)-/` 只认连字符，`1—开局.md`/`1 开局.md` 等宽容命名的定稿章既不进 chain
-    // 也不进 missing（卷链完整性判定静默漏章、卷摘要以残链报缺）。卷链与自愈摘要自此同口径。
-    // 阶段 36（B 档单源扩集）后单源内先剥 .md 再匹配，裸数字名 `1.md` 亦认：
-    // 原「带全名直传对 1.md 不识别、与 tree stripMd 口径分裂」的记载与
-    // 「裸数字扩集待拍板」均已过期（彼时待拍板项已落地；各调用形态拉齐，
+    // 定稿章识别走 chapterNoFromName 单源（与 selfHealRecentChapterSummaries 同款宽容集）
+    // ——窄正则 `/^(\d+)-/` 只认连字符，`1—开局.md`/`1 开局.md` 等宽容命名的定稿章既不进
+    // chain 也不进 missing（卷链完整性判定静默漏章、卷摘要以残链报缺）。卷链与自愈摘要同口径。
+    // 单源内先剥 .md 再匹配，裸数字名 `1.md` 亦认（各调用形态拉齐，
     // 对表 test/process/chapter-no-callshape.test.ts 钉一致）。
     const 章号 = chapterNoFromName(e.path.split('/').pop() ?? '')
     if (章号 !== null) finalizedChapters.add(章号)
@@ -604,7 +595,7 @@ export async function generateVolumeSummary(opts: {
   try {
     const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
     if (!chain || chain.size === 0) {
-      // nano-4：warn/error 两文案消费同一缺章串——单次拼接单源
+      // warn/error 两文案消费同一缺章串——单次拼接单源
       const missingDesc = missing.join('、') || '全部'
       log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missingDesc}），卷摘要不强行生成`)
       return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missingDesc} 章摘要），先补章摘要` }

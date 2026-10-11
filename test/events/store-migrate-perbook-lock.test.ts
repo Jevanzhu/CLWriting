@@ -9,7 +9,6 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   openSessionStore,
@@ -19,11 +18,11 @@ import {
   __setSessionMigrateLockTimeoutForTest,
 } from '../../src/events/store.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r73-evlock-'))
+  const d = tempDirTracked('r73-evlock-')
   dirs.push(d)
   return d
 }

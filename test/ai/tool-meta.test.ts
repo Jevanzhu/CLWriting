@@ -1,5 +1,5 @@
 /**
- * 对话工具确认卡的作者可见面（源码锚 src/ai/contract/tool-meta.ts）。
+ * 对话工具确认卡的作者可见面（源码锚 src/shared/contract/tool-meta.ts）。
  *
  * 修复前：确认卡只显示英文内部名（15 个工具中 13 个无中文名）且不展示任何参数——
  * 作者放行改名/移动/改写/删除时看不到目标章、新名称或改写指令，关卡形同虚设。
@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { TOOL_RISK } from '../../src/ai/contract/chat.js'
-import { TOOL_META, toolLabel, toolSummary } from '../../src/ai/contract/tool-meta.js'
+import { TOOL_META, toolLabel, toolSummary } from '../../src/shared/contract/tool-meta.js'
 
 const names = (chapter: number): string | null => (chapter === 12 ? '第 12 章 北境的雪' : null)
 

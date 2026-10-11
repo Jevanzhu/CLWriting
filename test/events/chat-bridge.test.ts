@@ -17,8 +17,10 @@ import {
   toolResultEvent,
   turnStartEvent,
   turnEndEvent,
+  chatSanitizeEvent,
 } from '../../src/events/chat-bridge.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
+import type { SanitizeReport } from '../../src/ai/prompts/chat.js'
 import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -374,6 +376,65 @@ describe('R66-16: compaction 遮蔽区间自检', () => {
     expect(empties).toHaveLength(1)
     expect(empties[0]).toContain('[1,1]')
     warn.mockRestore()
+    store.close()
+  })
+})
+
+// P2-16：消毒改动记录构造器——无改动零事件，有改动按可定位事实落库（红线：无正文）。
+describe('P2-16: chatSanitizeEvent', () => {
+  it('无改动 → null（常态对话零事件，不落空壳）', () => {
+    const report: SanitizeReport = { before: 3, after: 3, changes: [] }
+    expect(chatSanitizeEvent(report, 'send', 0)).toBeNull()
+    expect(chatSanitizeEvent(report, 'summarize')).toBeNull()
+  })
+
+  it('有改动 → chat/sanitize 载荷原样搬运（阶段/条数/逐条改动），turn 可选', () => {
+    const report: SanitizeReport = {
+      before: 2,
+      after: 3,
+      changes: [{ reason: 'role-conflict', effect: 'insert', index: 1, role: 'user', points: 12 }],
+    }
+    // 发送面（轮内）：带当前轮
+    expect(chatSanitizeEvent(report, 'send', 4)).toEqual({
+      type: 'chat/sanitize',
+      turn: 4,
+      data: { stage: 'send', before: 2, after: 3, changes: report.changes },
+    })
+    // 收尾压缩摘要调用：无轮次语境 → 不带 turn
+    expect(chatSanitizeEvent(report, 'summarize')).toEqual({
+      type: 'chat/sanitize',
+      data: { stage: 'summarize', before: 2, after: 3, changes: report.changes },
+    })
+  })
+
+  it('落库后全链安全忽略：非 surface（无 surfaceOp）/ 不投影为消息 / 校验链零违规', () => {
+    const { store } = openTmp()
+    const sid = store.createSession('书S')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(userMessageEvent('u0'))
+    const ev = chatSanitizeEvent(
+      {
+        before: 2,
+        after: 2,
+        changes: [{ reason: 'empty-content', effect: 'drop', index: 1, role: 'assistant', points: 0 }],
+      },
+      'send',
+      0,
+    )
+    expect(ev).not.toBeNull()
+    rec.add(ev!)
+    rec.add(assistantMessageEvent('a0'))
+    rec.flush()
+    const events = store.listEvents('书S')
+    const sanitize = events.filter((e) => e.type === 'chat/sanitize')
+    expect(sanitize).toHaveLength(1)
+    expect(sanitize[0]!.surfaceOp).toBeUndefined()
+    // 投影只认 surface 消息：消毒记录不进模型可见消息序列
+    expect(deriveMessages(events)).toEqual([
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: 'a0' },
+    ])
+    expect(validateEventStream(events)).toEqual([])
     store.close()
   })
 })

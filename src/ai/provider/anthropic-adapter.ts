@@ -421,11 +421,11 @@ export function createAnthropicProvider(
                   event.usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
                 const cacheWrite =
                   event.usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
-                // 末见 wins 改逐字段 merge——此前 input 有
+                // 末见 wins 改逐字段 merge——input 有
                 // inputTokensFromStart 兜底、cache 两档有 message_start 兜底，唯
-                // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（本文件
-                // :199 注释已认的 cc-switch 形态）且末条缺该字段时，此前 delta 已报的
-                // 正确 output 值被清零（computeCallCost 输出档计 0、预算闸少计）。
+                // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（cc-switch
+                // 形态）且末条缺该字段时，delta 已报的正确 output 值被清零
+                //（computeCallCost 输出档计 0、预算闸少计）。
                 latestUsage = {
                   inputTokens: event.usage.input_tokens ?? prevUsage?.inputTokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? prevUsage?.outputTokens ?? 0,
@@ -443,13 +443,13 @@ export function createAnthropicProvider(
         // ① 到过 message_delta（stop_reason 已缓存）但无 usage → 网关完成不回 usage，
         // 放行生成（0 成本是可得最优估计的旧取舍已被升级）：input 优先用
         //    message_start 缓存的实测值，缺失才按请求字符折算；output 按累计产出
-        //    （text_delta + tool jsonBuf）折算；estimated 标记估计口径（修复前 output
+        //    （text_delta + tool jsonBuf）折算；estimated 标记估计口径（否则 output
         //    恒 0，预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）；
         // ② 连 message_delta 都没到 → 传输截断（中转/代理提前断流时 SDK 迭代器不抛错
         //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
-        //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
-        //    被伪造成 end_turn 正常完成。
-        // 登记已销账：stopReason 命名三线收敛——本线终止值
+        //    落稿、不得按成功 0 成本入账、必须进重试路径。两种情形混同会把截断流
+        //    伪造成 end_turn 正常完成。
+        // stopReason 命名三线收敛——本线终止值
         // 在 message_delta 捕获点即归一（见该处注释），done / llm/call 落的是判别联合成员。
         if (!fin.doneEmitted()) {
           // 流末统一 emit——末见 usage 优先（上面 message_delta 只记

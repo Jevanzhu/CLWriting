@@ -45,10 +45,10 @@ function matchesKeyLine(line: string, key: string): boolean {
 }
 
 /**
- * 补丁族段定位单源——此前 patchTopSection /
- * setTopSectionKey / setSectionKeyBlock（yaml.ts 三处）与 migrate-defaults
- * （matchesKeyLineCRLF + topSectionSpan + 段内最小缩进循环）四处逐字重复
- * 「段头扫描 + 段尾扫描 + 段体最小缩进」骨架；现收编本函数，四处改薄壳/委托。
+ * 补丁族段定位单源——patchTopSection /
+ * setTopSectionKey / setSectionKeyBlock（yaml.ts）与 migrate-defaults
+ * 一律委托本函数，不得各自复写
+ * 「段头扫描 + 段尾扫描 + 段体最小缩进」骨架。
  *
  * 定位边界语义逐位保留（含修复语义）：
  * - 段头：matchesKeyLine——剥行首 BOM（只一次）与行尾 \r（CRLF

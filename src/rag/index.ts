@@ -14,21 +14,15 @@
  * 交错时靠 SQLite 写原子（BEGIN IMMEDIATE 单事务）+ 指纹幂等收敛（重复嵌入的块被
  * 唯一键覆盖、指纹以末写为准）——双份 embed 费用浪费为已知取舍。
  *
- * （⑤④产品拆分波2）拆分沿革：本文件纯移动拆分为三——
- *  - 缝 A 分块（TextChunk / MAX_CHUNK_CHARS / SENTENCE_ENDERS / chunkBody /
- *    pushSegmentChunks / subdivideSegment / isHighSurrogate）→ rag/chunk.ts（纯函数
- *    零依赖）；
- *  - 缝 B 建索引（ragIndexState 族 / buildIndex / commitIndexBatch / chapterHashKey /
- *    hashChapterBody / readChapterFingerprint / dedupeChaptersByNumber /
- *    chapterFingerprintFresh / RAG_RESET_MARKER_KEY / resetRagIndex /
- *    cleanupRagAfterMerge / recordEmbedUsage / embedOptionsFor / errStr）→ rag/build.ts；
- *  - 本文件留召回残核（RAG_CHUNK_WARN_THRESHOLD / estimateRagChunkCount / RecallHit /
- *    RecallResult / recallDetailed / recall），并逐名 re-export 拆出件（chunkBody /
- *    TextChunk / buildIndex / BuildIndexResult / resetRagIndex / RAG_RESET_MARKER_KEY /
- *    cleanupRagAfterMerge / ragIndexState）——消费方 import 面零改动。召回侧复用的
- *    build 侧内部件（embedOptionsFor / ragIndexStateOfOpenDb / dedupeChaptersByNumber /
- *    chapterFingerprintFresh）唯一持有者 = rag/build.ts，本文件 import 消费；本域
- *    无模块级可变单例状态（常量/纯函数域），模块缓存语义不变。
+ * 结构：召回残核（RAG_CHUNK_WARN_THRESHOLD / estimateRagChunkCount / RecallHit /
+ * RecallResult / recallDetailed / recall）留本文件，并逐名 re-export 拆出件
+ * （chunkBody / TextChunk / buildIndex / BuildIndexResult / resetRagIndex /
+ * RAG_RESET_MARKER_KEY / cleanupRagAfterMerge / ragIndexState）——消费方 import 面零改动。
+ * 分块（TextChunk / MAX_CHUNK_CHARS / SENTENCE_ENDERS / chunkBody / pushSegmentChunks /
+ * subdivideSegment / isHighSurrogate）在 rag/chunk.ts（纯函数零依赖）；建索引族在
+ * rag/build.ts。召回侧复用的 build 侧内部件（embedOptionsFor / ragIndexStateOfOpenDb /
+ * dedupeChaptersByNumber / chapterFingerprintFresh）唯一持有者 = rag/build.ts，本文件
+ * import 消费；本域无模块级可变单例状态（常量/纯函数域），模块缓存语义不变。
  */
 
 import { join } from 'node:path'
@@ -273,10 +267,7 @@ export async function recallDetailed(
   // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）。
   // 与 buildIndex 同口径去重（保入序首个）——不去重时 Map 后者覆盖，
   // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀。
-  // 原注「保路径字典序
-  // 首个」系改造前旧文案——dedupeChaptersByNumber 本体与 buildIndex 侧
-  // （上方两处）均已改「入序首个」，此处漏改；仅对齐注释，零行为改动。
-  // 章号集合只按命中元组收窄（此前按全部读回块，流式下命中集 ⊆ 读回集，
+  // 章号集合只按命中元组收窄（按全部读回块会白读；流式下命中集 ⊆ 读回集，
   // 校验面等价——chapterByNumber 只被命中章消费）
   const bodyDir = join(bookRoot, '写作', '正文')
   const chapterNumbers = new Set(rows.map((r) => r.章号))
@@ -315,15 +306,13 @@ export async function recallDetailed(
   return { hits: out, truncated, totalBlocks }
 }
 
-/** 兼容包装：签名与返回（RecallHit[]）保持不变。头注
- *  如实化——此前例举「既有消费面（materials.ts 等）」已失实：materials.ts 已于
- * 切 recallDetailed，现生产代码零调用方，本包装仅服务存量测试面
+/** 兼容包装：签名与返回（RecallHit[]）保持不变。
+ *  生产代码零调用方（materials.ts 已切 recallDetailed），本包装仅服务存量测试面
  *  （test/rag/*、test/studio/* 的旧断言）。丢弃 truncated/totalBlocks 属有意取舍，
  *  生产召回链路一律走 recallDetailed（截断信号不丢失）。
- * @internal test-only：本应随生产零调用方删除，但存量测试消费面
- *  实测 10 文件 34 处调用（test/rag 8 + test/studio 1 + test/check 1）超本轮「>5 文件
- *  可降级」闸——登记维持：形状转换平凡（r.hits 透传，无维护风险），生产 import 面
- *  已零引用；后续批次改造存量断言为 recallDetailed 时随改造一并删除本包装。 */
+ * @internal test-only：本应随生产零调用方删除，但存量测试消费面实测 10 文件 34 处调用
+ *  （test/rag 8 + test/studio 1 + test/check 1），形状转换平凡（r.hits 透传，无维护
+ *  风险）、生产 import 面已零引用；后续改造存量断言为 recallDetailed 时一并删除本包装。 */
 export async function recall(
   bookRoot: string,
   config: RagConfig,

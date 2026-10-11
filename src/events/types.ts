@@ -30,6 +30,10 @@ export type EventType =
   // 让「丢事件必留痕」从日志层落进事件流。非 surface（不进 SURFACE_EVENT_TYPES）、
   // 无 surfaceOp：折叠/投影/校验链/前端种子化安全忽略（对齐边界类与 meta 类先例）
   | 'chat_gap'
+  // 发送前历史消毒改动记录（对话会话承载）——
+  // sanitizeHistory 改动了实发历史即留一条（放置位/原因/角色/原长，不含正文），
+  // 未改动不落。非 surface、无 surfaceOp：投影/校验链/前端种子化安全忽略（同上先例）
+  | 'chat/sanitize'
   // 五层链路事件化（方案 §二 v1）
   | 'llm/call'
   | 'llm/retry'
@@ -127,7 +131,7 @@ export interface LlmCallData {
   durationMs: number
   ok: boolean
   errCode?: string
-  // 清偿mptMeta 增可选 tools 摘要键（去重排序工具名——chat 每轮
+  // promptMeta 增可选 tools 摘要键（去重排序工具名——chat 每轮
   // 15 个工具 schema 模型可见，铁律②「模型可见 ⟺ 已记录」契约层补全；旧事件无此键）
   promptMeta?: { chars: number; files: string[]; hash: string; tools?: string[] }
   /** 调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
@@ -243,4 +247,49 @@ export interface StructureMergeUndoData {
   rollbackSnapshotId?: string
   /** 被撤销 merge 的 planHash（与 merge 事件配对） */
   planHash: string
+}
+
+// ── 发送前历史消毒改动记录事件载荷 ────────────────────────────────
+
+/** 消毒改动原因类别——与 sanitizeHistory（ai/prompts/chat.ts）的改动形态一一对应：
+ *  empty-content 空正文整条剔除 / no-payload 剔块后无有效载荷整条剔除 /
+ *  orphan-tool-use 孤儿 tool_use 块剔除 / orphan-tool-result 孤儿 tool_result 块剔除 /
+ *  leading-assistant 首部悬空 assistant 剔除 / role-conflict 连续同 role 插互补占位。 */
+export const CHAT_SANITIZE_REASONS = [
+  'empty-content',
+  'no-payload',
+  'orphan-tool-use',
+  'orphan-tool-result',
+  'leading-assistant',
+  'role-conflict',
+] as const
+export type ChatSanitizeReason = (typeof CHAT_SANITIZE_REASONS)[number]
+
+/** 改动形态（与原因类别正交）：drop 整条剔除 / trim 消息保留但块被剔 / insert 插占位 */
+export type ChatSanitizeEffect = 'drop' | 'trim' | 'insert'
+
+/** 单条消毒改动——红线：不含被替换消息的正文（可能含书稿文本/用户隐私），
+ *  只记可定位事实（位置/原因/角色/原始长度/剔除块数）。 */
+export interface ChatSanitizeChange {
+  reason: ChatSanitizeReason
+  effect: ChatSanitizeEffect
+  /** 被改动消息在消毒输入历史中的位置（0-based；insert 形态为触发占位的那条消息） */
+  index: number
+  role: 'user' | 'assistant'
+  /** 被改动消息原始码点长度（measurePoints 同源口径——文本块实际码点、
+   *  结构性块按 64 计；记录只求可定位，不求精确复算） */
+  points: number
+  /** trim 形态被剔除的块数（其余形态缺省） */
+  blocks?: number
+}
+
+/** chat/sanitize —— 发送前历史消毒的改动记录（「模型可见 ⟺ 已记录」：消毒改动了
+ *  实发历史即留一条；未改动不落）。载荷只记可定位事实，不得内嵌被替换消息正文。 */
+export interface ChatSanitizeData {
+  /** 消毒阶段：send = 一轮发送前（模型实收历史）；summarize = 收尾压缩摘要调用 */
+  stage: 'send' | 'summarize'
+  /** 消毒前 / 后消息条数（占位消息计入 after） */
+  before: number
+  after: number
+  changes: ChatSanitizeChange[]
 }

@@ -1,28 +1,21 @@
 /**
- * 对话 SSE 事件分发状态机独立成模块。
+ * 对话 SSE 事件分发状态机（独立模块）。
  *
- * 为什么独立：这是 chat store 内最厚的一块纯逻辑——`dispatch` 的 11 个 `chat_*`
- * 事件分支（running/在途气泡索引/工具卡片/回合收尾）加上其操作的消息模型与工具卡片
- * 状态机（ensureTool/updateTool/trimMessages/clipToolInput），原本与历史种子化、分支
- * 切换、重新生成同处一个 758 行 store 文件；事件分支只能经 store 外壳间接行使（每条
- * 支路都要 setActivePinia + 造 store + 绕过 pinia 状态），直测成本高。抽出后状态机
- * 零 pinia 依赖、依赖全经 ChatDispatchDeps 注入，可独立单测
- * （见 test/studio/webnext/chat-dispatch-state-machine.test.ts）。
+ * 为什么独立：这是 chat store 内最厚的一块纯逻辑——`dispatch` 的 11 个 `chat_*` 事件分支
+ *（running/在途气泡索引/工具卡片/回合收尾）加上其操作的消息模型与工具卡片状态机
+ *（ensureTool/updateTool/trimMessages/clipToolInput）；留在 store 里时每条支路都要
+ * setActivePinia + 造 store + 绕过 pinia 状态，直测成本高。抽出后状态机零 pinia 依赖、依赖全经
+ * ChatDispatchDeps 注入，可独立单测（test/studio/webnext/chat-dispatch-state-machine.test.ts）。
  *
- * 边界（留在 stores/chat.ts 的职责）：网络面（seedHistory/switchBranch/regenerate
- * 的拉取与代次守卫）、store 外壳（defineStore 与对外返回面）、章号语境
- * （chapterMemo/selectedChapter）。本模块不 import api 层、不 import chat.ts
- * （单向：chat → chat-dispatch，勿反向，防模块级循环依赖）。
+ * 边界（留在 stores/chat.ts）：网络面（seedHistory/switchBranch/regenerate 的拉取与代次守卫）、
+ * store 外壳（defineStore 与对外返回面）、章号语境（chapterMemo/selectedChapter）。
+ * 不变量：本模块不 import api 层、不 import chat.ts（单向 chat → chat-dispatch，勿反向，防模块级
+ * 循环依赖）。store 内四个可变本地量（currentIdx/pendingReseed/regenPending/regenBook）收进
+ * ChatTurnState 句柄，store 与状态机共享同一份，读写口不变。
  *
- * 语义零变化：代码与注释逐行搬迁，仅把 store 内四个可变本地量
- * （currentIdx/pendingReseed/regenPending/regenBook）收进 ChatTurnState 句柄
- * ——store 与状态机共享同一份，读写口不变。
- *
- * 在途回合目标由数组下标
- * （currentIdx）改持消息对象的响应式引用（ChatTurnState.current）——下标是派生
- * 信息，任何裁剪/过滤/截断漏重定位就把增量写进别的消息，且 `!` 断言让越界在
- * 类型层不可见；引用天然跟随消息在数组中的位移，写侧显式判空分支取代全部
- * `messages.value[turn.currentIdx]!` 形态与 trimMessages 的手工偏移。
+ * 在途回合目标持消息对象的响应式引用（ChatTurnState.current）而非数组下标——下标是派生信息，
+ * 任何裁剪/过滤/截断漏重定位就把增量写进别的消息，且 `!` 断言让越界在类型层不可见；引用天然
+ * 跟随消息在数组中的位移，写侧显式判空分支取代全部 `messages.value[turn.currentIdx]!` 形态。
  */
 import type { Ref } from 'vue'
 import { str } from './sse-guards'
@@ -30,6 +23,14 @@ import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 // -优化：码位计数与截断收编根 src/shared/text.ts 单源（跨包引用对齐
 // shared/words.ts 引 format/words 先例；原本地副本删）。
 import { codePointLength, clipByCodePoints } from '../../../../shared/text'
+// 对话正文闸额度单源（跨包契约底座 src/shared/contract/studio.ts 的显式别名，值锚
+// SSE_BACKPRESSURE_LIMIT）：单条消息上限与列表正文总量上限同额（同一锚值）。与 workbench
+// MAX_TEXT_OUT 同源同值——两处封的是同一物（一次生成的 AI 正文），否则同一条正文在生成
+// 面板可显示、在对话面板被截。计量单位 = 码点（workbench 按 UTF-16 码元，单位不同故不并名）。
+// 为什么 chat 侧也要同额：本闸不是常态路径闸（一章正文数千字，离封顶差两个数量级），是
+// 极端形态闸——SSE 网关重放/事件风暴致单条气泡无界拼接、或整章正文级回复原样驻留（条数闸
+// 只封条数，封不住单条体积；条数 × 单条无界 = 无界）。
+import { MAX_TEXT_POINTS } from '../../../../shared/contract/studio'
 
 /** 状态机对外操作面：事件分发 + 工具卡片状态机 + 消息裁剪（store 转发面不变）。 */
 export type ToolStatus = 'pending' | 'running' | 'ok' | 'failed' | 'cancelled'
@@ -54,11 +55,56 @@ export interface ChatMessage {
   tools: ToolCard[]
   /** 该消息事件 seq（历史种子化时取 seqs[i][0]；实时 SSE 消息无此字段） */
   seq?: number
+  /** 正文本闸截断时被省略的码点数（未截断缺省）——截断标记文案的累计源：
+   *  已截断消息的 content 恒 = 保留段 + clipSuffix(clipped)，其后增量只累计本值。 */
+  clipped?: number
 }
 
 /** 消息列表上限（防长对话内存膨胀；#10：单源 shared/chat-history——原硬编码
  *  200 与 fetchChatHistory 尾窗 limit / ChatMessages 截断提示三处各自为政曾失同步） */
 const MAX_MESSAGES = CHAT_HISTORY_LIMIT
+
+/** 正文截断标记（尾部省略 + 原文码点总数）——截断必须可判别：作者/审计不得把保留段
+ *  误读为全文。红线段：标记是 clipped 的确定性函数（已截断消息重写标记幂等，
+ *  content 恒 = 保留段 + clipSuffix(clipped)），不依赖外部状态。 */
+function clipSuffix(omitted: number): string {
+  return `\n…（正文超长已截断：原文 ${MAX_TEXT_POINTS + omitted} 码点，尾部 ${omitted} 码点已省略）`
+}
+
+/** 单条消息正文过闸（种子化 / pushUser / 历史消息路径收口；chat_text 增量见 appendContent）：
+ *  未超限原样不动；超限保头 MAX_TEXT_POINTS 码点 + 尾部截断标记。
+ *  保留方向取头（与 workbench MAX_TEXT_OUT 的保尾不同）：该处是「一次生成的聚合缓冲」
+ *  （头部已滚出视野，最新段才有用），此处是「一条消息的展示文本」（作者从头读起，
+ *  头部是正文主体，尾部标记标明何处被省略）；同源的是额度与「超限才截、未超限零改动」
+ *  的口径，保留方向按各自展示语义取。 */
+function clipContent(m: ChatMessage): void {
+  if (m.clipped !== undefined) return
+  const points = codePointLength(m.content)
+  if (points <= MAX_TEXT_POINTS) return
+  const omitted = points - MAX_TEXT_POINTS
+  m.clipped = omitted
+  m.content = clipByCodePoints(m.content, MAX_TEXT_POINTS) + clipSuffix(omitted)
+}
+
+/** 正文增量落存（单条闸唯一收口）：未截断 → 拼接后过闸；已截断 → 保留段不再增长，
+ *  增量只累计省略数并重写标记（每次增量恒定代价，不重切大串）。 */
+function appendContent(m: ChatMessage, text: string): void {
+  if (m.clipped !== undefined) {
+    const kept = m.content.slice(0, m.content.length - clipSuffix(m.clipped).length)
+    m.clipped += codePointLength(text)
+    m.content = kept + clipSuffix(m.clipped)
+    return
+  }
+  const next = m.content + text
+  const points = codePointLength(next)
+  if (points <= MAX_TEXT_POINTS) {
+    m.content = next
+    return
+  }
+  const omitted = points - MAX_TEXT_POINTS
+  m.clipped = omitted
+  m.content = clipByCodePoints(next, MAX_TEXT_POINTS) + clipSuffix(omitted)
+}
 
 /** 工具入参落存截断上限（码位）。内存闸（审计）：工具卡 input 是
  *  整章正文级文本（如 write_chapter 的正文入参），原样入 store 常驻——列表上限只
@@ -289,7 +335,8 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         const text = str(ev['text'])
         const cur = turn.current
         if (text && cur) {
-          cur.content += text
+          // 增量落存前过单条正文闸（内存闸：单条气泡正文无界拼接是长会话膨胀的主形态）
+          appendContent(cur, text)
         }
         break
       }
@@ -335,6 +382,9 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
         const cur = turn.current
         if (cur) {
           cur.content = ''
+          // 截断账一并归零——否则清空后首条增量会走「已截断」分支（保留段为空，
+          // 只挂标记不落正文），重试回合的正文被整段吞掉
+          cur.clipped = undefined
           cur.tools = []
         }
         break
@@ -414,7 +464,15 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
     }
   }
 
-  /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
+  /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调）。
+   *  顺序固定（不可反，两维闸的取舍都从头部走）：
+   *  ① 条数闸——超 MAX_MESSAGES 即头部裁剪（既有逻辑逐位不变）；
+   *  ② 单条正文闸——逐条过 MAX_TEXT_POINTS（种子化 / pushUser 的历史消息入口；
+   *     chat_text 增量路径在 appendContent 内已过闸，此处幂等）；
+   *  ③ 列表正文总量闸——正文总量超 MAX_TEXT_POINTS 时继续从头部丢最旧。
+   *  为什么这个顺序：整条丢弃是收益最大的一步（旧回合整体出列），先按条数裁完再对
+   *  幸存者过单条闸，避免为即将出列的消息做白工；总量闸放最后，因为它依赖前两步
+   *  定型的正文量。 */
   function trimMessages(): void {
     if (messages.value.length > MAX_MESSAGES) {
       const cut = messages.value.length - MAX_MESSAGES
@@ -422,6 +480,28 @@ export function createChatDispatch(deps: ChatDispatchDeps): ChatDispatch {
       // 在途回合目标持对象引用——头部裁剪后引用自动跟随，原
       // 「currentIdx 防御性减 cut」的手工偏移随之退役（漏偏移即增量写错位的根源形态）
     }
+    trimContent()
+  }
+
+  /** 正文两维闸（②③）。计量口径 = 气泡正文码点（与 workbench MAX_TEXT_OUT 的正文
+   *  口径对称；工具卡载文另受 TOOL_INPUT_MAX 单卡落存闸）。整条丢弃与条数闸同取舍
+   *  （保最新对话）：作者取回全文有两条正路——整条：刷新/切分支经 seedHistory 从
+   *  事件库重播种，或审计视图；气泡内截断：尾部标记直接标明原文码点数。恒保留至少
+   *  一条，故列表正文总量有界于 MAX_TEXT_POINTS + 标记长度（单条闸恒保证任一条 ≤
+   *  该界）；绝不丢在途回合目标（引用身份比对——裁剪只许丢最旧，在途气泡正常居尾，
+   *  此断言防未来不变式漂移）。 */
+  function trimContent(): void {
+    for (const m of messages.value) clipContent(m)
+    let total = 0
+    for (const m of messages.value) total += codePointLength(m.content)
+    let cut = 0
+    while (total > MAX_TEXT_POINTS && messages.value.length - cut > 1) {
+      const m = messages.value[cut]
+      if (!m || m === turn.current) break
+      total -= codePointLength(m.content)
+      cut++
+    }
+    if (cut > 0) messages.value.splice(0, cut)
   }
 
   return { dispatch, ensureTool, updateTool, trimMessages }

@@ -1,34 +1,26 @@
 /**
- * 跨进程文件锁基建（批次落地）。
- *
- * proper-lockfile 式语义，但用**文件**而非 mkdir：open 'wx'（O_CREAT|O_EXCL）独占
- * 创建——创建与检查之间无 TOCTOU 窗口。锁文件内容写 { pid, bootTime } 作诊断；
- * 持有进程不存活（process.kill(pid,0) ESRCH）或锁文件损坏（崩溃半写）判 stale，
+ * 跨进程文件锁基建。proper-lockfile 式语义，但用**文件**而非 mkdir：open 'wx'
+ *（O_CREAT|O_EXCL）独占创建——创建与检查之间无 TOCTOU 窗口。锁文件内容写 { pid, bootTime }
+ * 作诊断；持有进程不存活（process.kill(pid,0) ESRCH）或锁文件损坏（崩溃半写）判 stale，
  * 接管清理后重试一次——崩溃残留不永锁。
  *
- * win 语义评估（任务项）：libuv 对 'wx' 在 Windows 同样保证 O_EXCL 原子性
- * （NtCreateFile FILE_CREATE 语义），跨平台一致；stale 接管的 unlink 在 win 上
- * 对已关闭句柄的文件同样成立（本实现锁文件不长持 fd，创建写 pid 后即关）。
- * EPERM（进程存在但属他人）按存活保守处理——win 上跨用户探测即此形态，不接管。
+ * win 语义：libuv 对 'wx' 在 Windows 同样保证 O_EXCL 原子性（NtCreateFile FILE_CREATE 语义）；
+ * stale 接管的 unlink 对已关闭句柄的文件同样成立（本实现不长持 fd）。EPERM（进程存在但属他人）
+ * 按存活保守处理——win 上跨用户探测即此形态，不接管。
  *
- * 等待语义：tryAcquire 非阻塞（null = 未拿到）；acquireWithTimeout 以
- * Atomics.wait 同步微睡重试（Node 主线程可用；争用窗口是文件 IO 的微秒~毫秒级，
- * 阻塞时长由调用方超时封顶）。同进程嵌套获取同一锁会自锁——调用方需保证进程内
- * 已有串行化（如 calls.ts 的 writeChains）再进跨进程锁。
+ * 等待语义：tryAcquire 非阻塞（null = 未拿到）；acquireWithTimeout 以 Atomics.wait 同步微睡
+ * 重试（争用窗口是文件 IO 的微秒~毫秒级，阻塞时长由调用方超时封顶）。同进程嵌套获取同一锁会
+ * 自锁——调用方需保证进程内已有串行化（如 calls.ts 的 writeChains）再进跨进程锁。
  *
- * stale 接管的「判定 → 夺锁」残余竞态。原实现
- * 「判 stale → rmWithRetry(锁名) → 重试创建」把删除落在**共享锁名**上，而该删除不可观测
- *（rmSync force 对已不存在的路径静默成功）：两个 contender 先后对同一把死锁判 stale 时，
- * 后到者的 rm 可能删掉先到者刚重建的新锁再自建（双持锁），自己看不出发生过什么。现接管
- * 改为「原子改名认领」——rename(锁名 → 同目录唯一隔离名)：同一源名至多一个赢家，「判
- * stale」与「实际夺走」不再分离；败者只得 ENOENT（源已被赢家取走 / 持有者已自行释放），
- * 此时它不触碰任何文件，落回 create 路径按在位者的活 pid 重新判定——「删共享名 + 自建」
- * 这一对动作对败者已不存在。
- * 残余来源如实记档：① 二次复核与 rename 之间共享名被换（恰在该窗内重建的赢家的新锁会被
- * 夺走）——按名 check-then-act 固有，窗口是复核到 rename 的几条指令（µs 级，proper-lockfile
- * 同款），再收窄需夺取后核验隔离件身份；② 活进程超龄误判（judgeStaleLock 的分支：
- * pid 复用 / SIGSTOP 形态），由持锁方续期兜底（renewIntervalMs——长临界段调用方必须开启，
- * 见 learn 的 LEARN_HARVEST_LOCK_RENEW_MS）。彻底闭合需 lease/fencing token，超出文件锁范畴。
+ * stale 接管的「判定 → 夺锁」残余竞态：若「判 stale → rmSync(共享锁名) → 重试创建」，删除落在
+ * **共享锁名**上且不可观测（rmSync force 对已不存在路径静默成功）——两个 contender 先后对同一
+ * 把死锁判 stale 时，后到者的 rm 可能删掉先到者刚重建的新锁再自建（双持锁）。故接管改为
+ * **原子改名认领**（rename 锁名 → 同目录唯一隔离名）：同一源名至多一个赢家，「判 stale」与
+ *「实际夺走」不再分离；败者只得 ENOENT 且不触碰任何文件，落回 create 路径按在位者活 pid 重新
+ * 判定。残余来源已记档：① 二次复核与 rename 之间共享名被换（恰在该窗内重建的赢家新锁会被夺走；
+ * 按名 check-then-act 固有，窗口为几条指令，再收窄需夺取后核验隔离件身份）；② 活进程超龄误判
+ *（judgeStaleLock 的 pid 复用 / SIGSTOP 形态），由持锁方续期兜底（renewIntervalMs——长临界段
+ * 调用方必须开启，见 learn 的 LEARN_HARVEST_LOCK_RENEW_MS）。彻底闭合需 lease/fencing token。
  */
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'

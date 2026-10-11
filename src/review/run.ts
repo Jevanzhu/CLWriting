@@ -31,7 +31,7 @@ import {
   type NormalizedReviewResult,
   type PieceListCheck,
 } from './contract.js'
-// （errMsg 收编）：错误摘要口径单源
+// 错误摘要口径单源 errMsg
 import { errMsg } from '../log/index.js'
 
 /** 单视角的执行包：宿主据此调一次模型产出该视角的 issues。 */
@@ -232,9 +232,8 @@ function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue
   }
 }
 
-// 宣称的「单点收敛」落成现实——原注释宣称
-// 收敛为一处具名常量，实际 unsoundCollect 与主函数 incomplete 装配两处仍各自内联
-// `lenses_run[0] ?? 'continuity'`（注释-实现漂移）。提取模块级 helper 供三处共用。
+// 首视角标签单源——unsoundCollect 与主函数 incomplete 装配共用本 helper
+//（两处各自内联 `lenses_run[0] ?? 'continuity'` 会致注释-实现漂移）。
 /** 首视角标签：lenses_run 由 lens 决策表产出恒非空，兜底纯防御。 */
 function primaryLensOf(packet: ReviewExecutionPacket): ReviewLens {
   return packet.lenses_run[0] ?? 'continuity'
@@ -308,7 +307,7 @@ export function collectReviewIssues(input: { packet: ReviewExecutionPacket }): C
       actual = null // 读失败（草稿被删/移动）与 hash 不符同判
     }
     if (actual !== input.packet.draft_hash) {
-      //（win 线同因内联展开已由 dev 线的 unsoundCollect 辅助函数收编，取辅助调用。）
+      //（内联展开同因，取 unsoundCollect 辅助函数调用。）
       return unsoundCollect(
         input.packet,
         ledgerCheckRan,
@@ -364,15 +363,14 @@ export function collectReviewIssues(input: { packet: ReviewExecutionPacket }): C
   }
 
   // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含全部视角（长短篇视角数随任务书动态，buildReviewPacket 决定）
-  // （登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
-  // ——经核实**本批不可落**：生产链 submit_issues 工具 schema（src/ai/contract/review.ts，
-  // B 域禁改范围）没有 lens 字段、审稿 prompt（resources/prompts/review-*.md）也不要求
-  // 视角标记，合审 issues 的 lens 全部由 coerceIssue 回落锚视角（lenses_run[0]）——
-  // 「按档内视角标记判覆盖」在生产链上恒不满足，强推会把**每一份有发现的合审**判成
-  // 「审稿单不成立」（部分回收），且无标记时无从判「视角没跑」与「视角没问题」（输出
-  // 契约是「只报问题，无问题回空数组」）。维持现状（文件存在且解析成功 = 回收）；
-  // 解锁条件：submit_issues schema 增加 lens 字段（且要求逐视角标记）后，再按档内标记
-  // 判覆盖、不足显式标注部分回收。空数组 = 合法「没问题」结论，不算缺失（既有口径）。
+  // 合审档「单文件存在即记全部视角已回收」是最小覆盖闸——按档内视角标记判覆盖**不可落**：
+  // 生产链 submit_issues 工具 schema（src/ai/contract/review.ts）没有 lens 字段、审稿 prompt
+  // （resources/prompts/review-*.md）也不要求视角标记，合审 issues 的 lens 全部由 coerceIssue
+  // 回落锚视角（lenses_run[0]）——「按档内视角标记判覆盖」在生产链上恒不满足，强推会把**每一份
+  // 有发现的合审**判成「审稿单不成立」（部分回收），且无标记时无从判「视角没跑」与「视角没问题」
+  //（输出契约是「只报问题，无问题回空数组」）。维持现状（文件存在且解析成功 = 回收）；
+  // 解锁条件：submit_issues schema 增加 lens 字段（且要求逐视角标记）后，再按档内标记判覆盖、
+  // 不足显式标注部分回收。空数组 = 合法「没问题」结论，不算缺失（既有口径）。
   const expectedLenses = input.packet.lenses_run
   for (const lens of expectedLenses) {
     if (!collectedLenses.has(lens) && !missingLenses.includes(lens)) {

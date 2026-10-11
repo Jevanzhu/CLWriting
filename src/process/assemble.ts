@@ -12,7 +12,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { readStaleLeads } from '../format/read.js'
-// 本文件四处裸 db.prepare 收编 prepared() 连接级缓存
+// 本文件裸 db.prepare 一律走 prepared() 连接级缓存
 // （SQL 文本固定；check/runner.ts 同款，单源 shared/sqlite-prepared.ts）
 import { prepared } from '../shared/sqlite-prepared.js'
 import type { BookConfig, LeadType } from '../format/types.js'

@@ -1,19 +1,15 @@
 /**
- * studio server 子进程管理的进程管理缝 —— 自 src/desktop/server-manager.ts 拆出。
+ * studio server 子进程管理的进程管理缝。
  *
- * （⑤④产品巨件拆分波3）：server-manager.ts（1127 行）两缝
- * 纯移动拆分（零行为变化、零逻辑改写，代码与历史注释原样随迁）。本文件承载进程
- * 管理族：proc 级 kill+等退出+SIGKILL 升级纪律 killProcAwaitEscalating（
- * 模块级形态）、fork 握手 handshake、可 unref 延时 delay；两缝共用契约与常量随
- * 本族单源迁此——进程契约 UtilityProcessLike / 日志通道契约 LogLike / 启动失败
- * ServerBootError / 握手与 kill 超时常量 HANDSHAKE_TIMEOUT_MS、KILL_WAIT_TIMEOUT_MS。
- * 依赖方向单向（无环回引）：残核 server-manager.ts 与 server-log.ts 自本文件直接
- * import（server-log 仅 type-only 取两契约，编译期擦除不构成运行时回边），本文件
- * 不回引残核——顶层求值常量单源本文件，不经环回 re-export 链被引（state
- * 拆分同款纪律）。服务器状态机 createStudioServerManager（约 620 行，
- * 不动清单第一项）留 server-manager.ts，本批零触碰其函数体；迁出公开导出
- * （ServerBootError / LogLike）经 server-manager.ts 逐名 re-export 桥接，全库
- * 消费方 import 面零改动。
+ * 内容：proc 级 kill + 等退出 + SIGKILL 升级纪律 killProcAwaitEscalating（模块级形态）、fork
+ * 握手 handshake、可 unref 延时 delay；两缝共用契约与常量单源此：进程契约 UtilityProcessLike /
+ * 日志通道契约 LogLike / 启动失败 ServerBootError / 握手与 kill 超时常量 HANDSHAKE_TIMEOUT_MS、
+ * KILL_WAIT_TIMEOUT_MS。
+ * 依赖单向（无环）：残核 server-manager.ts 与 server-log.ts 自本文件直接 import（server-log 仅
+ * type-only 取两契约，编译期擦除不构成运行时回边），本文件不回引残核——顶层求值常量单源本文件，
+ * 不经环回 re-export 链被引。
+ * 服务器状态机 createStudioServerManager 留 server-manager.ts；迁出公开导出（ServerBootError /
+ * LogLike）经 server-manager.ts 逐名 re-export 桥接，全库消费方 import 面零改动。
  */
 import { errMsg } from '../log/index.js'
 
@@ -84,7 +80,7 @@ export async function killProcAwaitEscalating(
   // 子进程可能已死亡且 pid 被系统复用，按入口旧 pid 盲杀会误伤无关进程（极窄理论窗）。
   // Electron 语义：UtilityProcess 退出后 pid 置 undefined（注引 electron.d.ts：
   // spawn 前/exit 后为 undefined），重读 undefined = 已退出而 exit 事件竞态迟到 → 不升级，
-  // 维持「超时放行」最终兜底；仍为在册 pid 才强杀。残余窗口如实记档：重读到 process.kill
+  // 维持「超时放行」最终兜底；仍为在册 pid 才强杀。残余窗口：重读到 process.kill
   // 之间仍有微秒级缝隙，彻底闭合需句柄级 kill（utilityProcess 面未暴露），超本修法范畴。
   const pid = proc.pid
   if (pid === undefined) return // 无 pid（未 spawn 成功/窗口内已退出）：维持原「超时放行」口径

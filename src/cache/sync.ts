@@ -9,6 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lead, LeadEntry, ChapterMeta } from '../format/types.js'
 import { log } from '../log/index.js'
 import { samePath } from '../fs/user-data-path.js'
+import { rollbackToSavepointQuietly } from '../shared/sqlite-prepared.js'
 
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
@@ -59,16 +60,9 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
     })
     db.exec('RELEASE sync_lead_history')
   } catch (err) {
-    // 同款加固——SAVEPOINT 语义与裸 ROLLBACK 不同：
-    // SQLITE_FULL/IOERR 等自动回亡外层事务时连 SAVEPOINT 一并销毁，此时
-    // ROLLBACK TO / RELEASE 均抛 "no such savepoint"，会掩蔽原始写错误。
-    // 两步整对包裹（首步抛 ⟺ savepoint 已销毁，RELEASE 无从成功）、原始错误上抛
-    try {
-      db.exec('ROLLBACK TO sync_lead_history')
-      db.exec('RELEASE sync_lead_history')
-    } catch {
-      /* SAVEPOINT 已随自动回亡销毁 */
-    }
+    // 保存点回滚两步整对（ROLLBACK TO + RELEASE）、自身异常吞掉、原始错误上抛——
+    // 语义单源见 rollbackToSavepointQuietly 头注
+    rollbackToSavepointQuietly(db, 'sync_lead_history')
     throw err
   }
 }
@@ -115,9 +109,8 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   //（已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
   // 指中英映射不引数据/域依赖，log 观测面不在此列。
   const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as { path: string } | undefined
-  // （折叠键族）：路径比较收编
-  // samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的两次入库此前
-  // 被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
+  // 路径比较走 samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的
+  // 两次入库会被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
   if (prev && !samePath(prev.path, ch._path ?? '')) {
     log.warn(
       'cache',

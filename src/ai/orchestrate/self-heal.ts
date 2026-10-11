@@ -23,8 +23,8 @@ import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
-// openSessionStore/openSessionStoreAsync/bookHash 随 mkChain
-// 底层段收编 ai/open-chain.ts 移除（唯一消费点）
+// 建链段（openSessionStore/openSessionStoreAsync/bookHash → ChainRecorder）单源
+// ai/open-chain.ts，本处是其唯一消费点
 import {
   ChainRecorder,
   checkReportEvent,
@@ -58,7 +58,7 @@ import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersionAsync } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
 import { log, errMsg } from '../../log/index.js'
-// （⑤④产品巨件拆分波3）：缝 A/B 拆出件回引——运行登记族的
+// 拆出件回引——运行登记族的
 // running/settling 顶层求值常量单源登记件，直接 import（不经桥、不环回）；生成族回引。
 import { running, settling, type RunState } from './self-heal-registry.js'
 import { runGenerate, emit } from './self-heal-generate.js'
@@ -188,11 +188,9 @@ async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 }
 
 /** 自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null）
- * 开库走 openSessionStoreAsync（首开锁等待不阻塞
- *  服务事件循环），建链半途抛错先关库再降级口径不变。
- * 「openSessionStoreAsync → workspaceSession → ChainRecorder
- *  失败先关库」底层段收编 ai/open-chain.ts 单源（runner.mkChain 同源；本侧不传 onWarn
- *  ——观测层失败静默口径保留）。 */
+ * 开库走 openSessionStoreAsync（首开锁等待不阻塞服务事件循环），建链半途抛错先关库再
+ * 降级。底层段单源 ai/open-chain.ts（runner.mkChain 同源；本侧不传 onWarn——观测层
+ * 失败静默口径保留）。 */
 async function mkChain(opts: SelfHealOpts): Promise<ChainRecorder | null> {
   return openChainRecorder(opts.userDataPath, opts.bookRoot)
 }
@@ -206,11 +204,11 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const kind = readKind(bookRoot)
   // 批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）
   const chapters = opts.chapters
-  // dd-length>0 即批量——单元素 [N] 此前被静默忽略改跑 opts.chapter，与注释语义矛盾
+  // length>0 即批量——单元素 [N] 若被静默忽略改跑 opts.chapter，与注释语义矛盾
   const isBatch = chapters !== undefined && chapters.length > 0
-  // dd-db 声明提前 + 单一 finally 收口——此前「源文件解析失败」早返回与
-  // DatabaseSync 打开失败抛错都绕过两个内层 finally，chain（openSessionStore
-  // 引用计数）与 db 句柄在长驻 studio 服务里永久泄漏、重试持续累加
+  // db 声明提前 + 单一 finally 收口——「源文件解析失败」早返回与
+  // DatabaseSync 打开失败抛错若绕过两个内层 finally，chain（openSessionStore
+  // 引用计数）与 db 句柄会在长驻 studio 服务里永久泄漏、重试持续累加
   let db: InstanceType<typeof DatabaseSync> | null = null
   try {
     // 前端：running=true + 清空旧正文
@@ -338,17 +336,17 @@ async function orchestrateBatch(
   chapters: number[],
 ): Promise<SelfHealOutcome> {
   const total = chapters.length
-  // #34 连写暂停元状态（驱动侧接线）：开批即清旧暂停记录（重开=作者已处置上次的停），
+  // 连写暂停元状态（驱动侧接线）：开批即清旧暂停记录（重开=作者已处置上次的停），
   // 此后任何未跑完的停法（aborted/failed/escalate）重新落暂停——进书近况（state.ts
   // readBatchPause → StatusRecap.batchPause）据此提示「连写暂停在第 N 章（原因）」。
   // 观测性元数据：落盘失败静默降级，不挡写稿主线（与备料 best-effort 同口径）。
   // writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
   // recordPause 保持 fire-and-forget 语义（catch 吞 rejection）；开批清暂停 await。
-  // fire-and-forget 写收编进 per-book
-  // 后台表（照下方 exitPass :706 先例）。成因：writeBatchPause 先抢跨进程锁（竞争下
+  // fire-and-forget 写进 per-book
+  // 后台表（照下方 exitPass 先例）。成因：writeBatchPause 先抢跨进程锁（竞争下
   // 最长 PAUSE_LOCK_TIMEOUT_MS 轮询）再 mkdirSync recursive + 原子写，而 waitSelfHealSettled
   // 只等编排本体——锁竞争使写在途时 runSelfHeal 已返回，books.ts 删书/改名的
-  // hasBackgroundTasks → awaitOrchestrationsSettled 等待链此前等不到这次写，写在已删/
+  // hasBackgroundTasks → awaitOrchestrationsSettled 等待链等不到这次写，写在已删/
   // 已搬路径恢复后 mkdirSync 会重建孤儿目录。登记后该写进 waitBackgroundTasks 覆盖面
   //（触发端 fire-and-forget 语义不变）；catch 留痕保留在注册的 promise 链内——自留痕
   // promise（不 reject 到本层）正是登记约定。
@@ -366,8 +364,7 @@ async function orchestrateBatch(
   try {
     await clearBatchPause(opts.bookRoot)
   } catch (e) {
-    // 同上
-    // 同款留痕——开批清旧暂停失败静默时，上一轮的暂停提示会残留
+    // 同款留痕——开批清旧暂停若静默失败，上一轮的暂停提示会残留
     // 到本轮（readBatchPause 仍读到旧记录），误导作者以为本轮又停
     log.warn('self-heal', `开批清理旧连写暂停记录失败（上一轮暂停提示可能残留）：${errMsg(e)}`)
   }
@@ -383,7 +380,7 @@ async function orchestrateBatch(
       return { outcome: 'aborted' }
     }
 
-    // 章边界重读 book config——批头解析一次贯穿全批使作者
+    // 章边界重读 book config——批头解析一次贯穿全批会使作者
     // 批中改 budget/字数对本批不生效（与 chat 侧 runner.ts 每次 runTask 重读 book.yaml
     // 的「下次发送即生效」口径不一）。每章开始时按同一表达式重建（readBookConfig 信封
     // 语义不变：读失败/缺文件回落默认配置 + applyGlobalDefaults 合并），本章的预算闸/
@@ -408,8 +405,8 @@ async function orchestrateBatch(
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
-      // nano：删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
-      // string（见上方类型定义；单章路径 :295/:303 本就直传同款），?? '' 恒不生效，
+      // 删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
+      // string（见上方类型定义；单章路径本就直传同款），?? '' 恒不生效，
       // 反而暗示「可能缺字段」误导读改方（下方 pass 分支同款一并删）
       return {
         outcome: 'escalate',
@@ -580,7 +577,7 @@ async function draftFirstChapter(
   // （自愈路径 budgetChapter），下一次闸检查即收敛，不构成预算逃逸。
   const budget = checkAiCallBudget(ctx.bookRoot, chapter, ctx.config)
   if (!budget.ok) return { status: 'error', error: budget.reason }
-  // GG-①（ii 清偿批接线）：首稿前备料——prepareMaterials 组装（近况/本章账本推进/
+  // 首稿前备料——prepareMaterials 组装（近况/本章账本推进/
   // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
   // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
   // 备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
@@ -593,7 +590,7 @@ async function draftFirstChapter(
   const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles)
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
-  // save 抛错收编（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
+  // save 抛错（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
   // orchestrateBatch，批量侧不落暂停记录（recordPause 只认返回值形态）。转 error 出口
   // 后由调用方按既有 failed 链收口（此刻 goal 尚未写 active，无悬挂面）。
   let firstDraft: { relPath: string }
@@ -694,8 +691,8 @@ async function rewriteOnce(
   if (again.status === 'aborted') return { status: 'aborted' }
   if (again.status !== 'ok') return { status: 'error', error: again.error }
   loop.current = again.text
-  // save 抛错收编——此刻 goal 已 writeGoal('create','active')，原样
-  // 上抛 = goal 悬挂 active + 批量不落暂停（修机检同族时漏掉的写盘路径）。转
+  // save 抛错——此刻 goal 已 writeGoal('create','active')，原样
+  // 上抛 = goal 悬挂 active + 批量不落暂停。转
   // error 出口：调用方走 exitEscalateBlocked（语义——重写失败 escalate 保留当前
   // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
   try {

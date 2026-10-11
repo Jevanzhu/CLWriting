@@ -1,17 +1,15 @@
 /**
- * book.yaml 键 schema 表（三面单源）—— 自 yaml.ts 拆出（
- * ⑤④产品巨件拆分波1 · 缝 A）。
+ * book.yaml 键 schema 表（三面单源）—— 自 yaml.ts 拆出（缝 A）。
  *
- * 内容（自 yaml.ts 纯搬移，代码与注释逐字未改）：ConfigKeySpec/ConfigSectionSpec 接口、
- * 六个叶键 parse 工厂（positiveNumParse…snapshotNumParse）、scalarLeafEmit、
- * SECTION_SPECS 全表（「表行序 = 字节红线」原注随表同迁，见表头）、SECTION_BY_NAME、
- * PARSE_SECTION_ORDER、parseSectionSpec/dupChildError/findChild、数值/布尔解析底座
- * （parseFiniteNumber/parsePositiveNumber/parseStrictBool/warnBadBool）与 renderScalar。
- * 原文件内以上全部模块私有；拆分只对消费方（yaml.ts 残核 / yaml-patch.ts）开最小具名
- * 导出面，全库 import 面零改动。
- * 落位偏差记档：renderScalar 侦察原划归 yaml-patch，但本文件 scalarLeafEmit 调用它、
- * 而 yaml-patch 又依赖本文件 SECTION_SPECS（CONFIG_PATCH_LEAVES 表派生）——落
- * yaml-patch 即成循环依赖，实读后调整落位本文件（代码逐字未动）。
+ * 内容：ConfigKeySpec/ConfigSectionSpec 接口、六个叶键 parse 工厂
+ * （positiveNumParse…snapshotNumParse）、scalarLeafEmit、SECTION_SPECS 全表
+ *（「表行序 = 字节红线」见表头）、SECTION_BY_NAME、PARSE_SECTION_ORDER、
+ * parseSectionSpec/dupChildError/findChild、数值/布尔解析底座
+ *（parseFiniteNumber/parsePositiveNumber/parseStrictBool/warnBadBool）与 renderScalar。
+ * 以上全部模块私有；只对消费方（yaml.ts 残核 / yaml-patch.ts）开最小具名导出面，
+ * 全库 import 面零改动。
+ * renderScalar 落位本文件（非 yaml-patch）：本文件 scalarLeafEmit 调用它、而 yaml-patch
+ * 依赖本文件 SECTION_SPECS（CONFIG_PATCH_LEAVES 表派生）——落 yaml-patch 即成循环依赖。
  */
 
 import type { BookConfig } from './types.js'
@@ -112,10 +110,9 @@ const positiveNumParse =
  *  （该键缺省 = 不限，坏值静默归未设会把配置错误放大成无界调用），warn 留痕后落 0：
  * 闸侧 0 = 「一次都不许调」（显式 0 同语义），宁拦勿放。显式写 0 与坏值在此
  *  同归 0（warn 文案已说明阻断后果），闸侧无需区分两种来源。
- * 随批评审夹紧：次数口径键
- *  只收正整数——正小数（0.5 等）此前直穿（parsePositiveNumber 只验 >0），实效
- *  ⌈0.5⌉=1 次系安全方向怪形；与姊妹键 repeat_chars_threshold 消费点夹紧（本批评审
- *  前16-6-nano-1）同族收口，非正整数同走 fail-closed 落 0。 */
+ * 次数口径键只收正整数——正小数（0.5 等）若直穿（parsePositiveNumber 只验 >0），实效
+ *  ⌈0.5⌉=1 次系安全方向怪形；与姊妹键 repeat_chars_threshold 消费点同族收口，
+ *  非正整数同走 fail-closed 落 0。 */
 const failClosedNumParse =
   (section: string, key: string) =>
   (node: RawSection, ctx: ParseCtx): void => {
@@ -410,7 +407,7 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
       },
       {
         // chat 任务按书预算键——设了才输出；无 get 面（不入 PATCH 白名单，
-        // 手编 book.yaml 面；入白名单须同步 yaml-schema-snapshot 清单锁，本批最小触达不动）
+        // 手编 book.yaml 面；入白名单须同步 yaml-schema-snapshot 清单锁，此处最小触达不动）
         key: 'chat_max_calls',
         parse: failClosedNumParse('budget', 'chat_max_calls'),
         emit: scalarLeafEmit('chat_max_calls', (c) => c.budget.chat_max_calls),

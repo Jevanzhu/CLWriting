@@ -4,7 +4,6 @@
  */
 import { test, expect } from 'vitest'
 import { writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   GLOBAL_FALLBACK_DEFAULTS,
@@ -13,10 +12,10 @@ import {
 } from '../../src/format/global-defaults.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 function mkUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-global-'))
+  return tempDirTracked('clwriting-global-')
 }
 
 function writeGlobal(userDataPath: string, json: unknown): void {

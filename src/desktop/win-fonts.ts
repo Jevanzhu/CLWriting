@@ -1,35 +1,25 @@
 /**
  * win 系统字体自绘枚举——不经 cmd、不闪窗。
  *
- * font-list 上游 win32 路径 getByPowerShell 用 `exec('chcp 65001|powershell -command …')`
- * 起 PowerShell：exec 经 cmd.exe 且未设 windowsHide，win 打包态（GUI 子系统主进程）
- * 打开设置弹窗字体下拉（首次拉取 / font-cache 60s TTL 过期后重拉）即闪控制台黑窗。
- * 项目自身子进程纪律（git 双入口统一 windowsHide + 数组参数免 shell）在本
- * 模块对齐到字体枚举：spawn('powershell.exe', [args], { windowsHide: true }) 直起、
- * 数组参数不经 shell。PowerShell 脚本对齐 font-list 口径（PresentationCore
- * SystemFontFamilies，zh-cn 族名回落 en-us）；后处理 = font-list standardize 的
- * disableQuoting 裸名移植（\uXXXX 解码 + 剥包裹引号 + 大小写不敏感排序），调用方
- * （main.ts 的 font-cache loader）拿到的形态与 font-list({ disableQuoting: true })
- * 一致，前端消费方零改动。
+ * 根因：font-list 上游 win32 路径 getByPowerShell 用 `exec('chcp 65001|powershell -command …')`
+ * 起 PowerShell——exec 经 cmd.exe 且未设 windowsHide，win 打包态（GUI 子系统主进程）打开设置
+ * 弹窗字体下拉（首次拉取 / font-cache TTL 过期后重拉）即闪控制台黑窗。本模块对齐项目子进程
+ * 纪律：spawn('powershell.exe', [args], { windowsHide: true }) 直起、数组参数不经 shell。
+ * PS 脚本对齐 font-list 口径（PresentationCore SystemFontFamilies，zh-cn 族名回落 en-us）；
+ * 后处理 = font-list standardize 的 disableQuoting 裸名移植（\uXXXX 解码 + 剥包裹引号 + 大小写
+ * 不敏感排序），调用方拿到的形态与 font-list({ disableQuoting: true }) 一致。
  *
- * 失败语义：spawn 失败 / 非 0 退出 / 超时 → 抛错（与 font-list 抛错同口径），由调用方
- * catch 返回 []（font-cache 不缓存失败）。win 实机闪窗形态复验挂账（本机 macOS
- * 静态实证 + 上游源码核实，见二轮报告 §九）。
- *
- * stdout/stderr 改 Buffer[] 收集 + close 时整流一次解码——逐
- * chunk toString('utf8') 会把被切在 chunk 边界上的多字节字符（CJK 字体族名 3 字节/字）
- * 各自解成 U+FFFD，中文字体名乱码且无报错；对齐 server-manager.ts splitLines 的
- * setEncoding 跨边界安全口径。10s 超时兜底——PS 挂死（PSModulePath 损坏/
- * 杀软拦截）时 Promise 永不结算且失败不入缓存（font-cache），每次重开字体下拉再
- * spawn 一个 powershell，句柄累积；超时 kill + reject。
- *
- * 枚举整体套 fontListProbeWithBreaker（进程级会话熔断）——PS
- * 挂死时连败达阈值后本进程秒降级，不再每次重开下拉等满 10s（与 mac/linux 熔断面
- * 对齐）；自身超时 kill 不动。
- * spawn→收集→超时 kill→结算骨架与
- * font-cache 自管枚举收编为 spawnCollectKillFonts 单源（font-cache.ts），本模块保留
- * 平台守卫 / PS 脚本常量 / 熔断包装与 win 侧文案；注入接口 FontSpawn/FontSpawnChild
- * 不变，既有测试零语义改动。
+ * 失败语义：spawn 失败 / 非 0 退出 / 超时 → 抛错（与 font-list 同口径），由调用方 catch 返回
+ * []（font-cache 不缓存失败）。
+ * stdout/stderr 用 Buffer[] 收集 + close 时整流一次解码——逐 chunk toString('utf8') 会把被切在
+ * chunk 边界上的多字节字符（CJK 字体族名 3 字节/字）各自解成 U+FFFD，中文字体名乱码且无报错
+ *（对齐 server-manager.ts splitLines 的 setEncoding 跨边界安全口径）。10s 超时兜底——PS 挂死
+ *（PSModulePath 损坏/杀软拦截）时 Promise 永不结算且失败不入缓存，每次重开下拉都会再 spawn
+ * 一个 powershell、句柄累积；超时 kill + reject。
+ * 枚举整体套 fontListProbeWithBreaker（进程级会话熔断）：PS 挂死时连败达阈值后本进程秒降级，
+ * 不再每次重开下拉等满 10s（与 mac/linux 熔断面口径对齐）。
+ * spawn→收集→超时 kill→结算骨架与 font-cache 自管枚举收编为 spawnCollectKillFonts 单源
+ *（font-cache.ts）；本模块保留平台守卫 / PS 脚本常量 / 熔断包装与 win 侧文案。
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'

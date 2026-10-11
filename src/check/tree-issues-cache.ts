@@ -1,24 +1,22 @@
 /**
- * 树红点增量缓存——机检结果按章 stat 指纹缓存。
+ * 树红点增量缓存——机检结果按章 stat 指纹缓存。机检是零 token 纯函数，结果是
+ * 「章内容 + 全局输入」的确定函数，故缓存命中 = 与全量重算逐字节等价。两层指纹：
  *
- * 语义（设计 §二）：机检是零 token 纯函数，结果是「章内容 + 全局输入」的确定
- * 函数。缓存命中 = 与全量重算逐字节等价；两层指纹保证这一点：
- *
- * 1. 章级指纹（tree_issues_cache 行键）：正文 (mtime, size) + 裁决信封
- *    项目/分析/<docId>.json 的 "mtime:size"（verdict 驳回写信封 → mtime 变 →
- *    自动失效，无需专门通知）。mtime+size 撞车理论窗口与树 probeCache 同口径。
- * 2. 全局纪元（tree_issues_meta.global_fp）：机检还吃章外全局输入——book.yaml /
+ * 1. 章级（tree_issues_cache 行键）：正文 (mtime, size) + 裁决信封
+ *    项目/分析/<docId>.json 的 "mtime:size"（verdict 驳回写信封 → mtime 变 → 自动
+ *    失效，无需专门通知）。mtime+size 撞车理论窗口与树 probeCache 同口径。
+ * 2. 全局纪元（tree_issues_meta.global_fp）：章外全局输入的 stat 摘要——book.yaml /
  *    global.json（配置与托底）、布线（账本 db 源）、大纲/章纲（targetWords）、
- *    工作区/细纲.md（账本推进声明）、设定/境界体系.md（成长线）、文风/、
- * 工作区/账本推进.md + 工作区/.账本推进暂存/（两源读取入纪元）、
- *    项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
+ *    工作区/细纲.md（账本推进声明）、设定/境界体系.md（成长线）、设定/名册.md、
+ *    文风/、工作区/账本推进.md + 工作区/.账本推进暂存/、项目/文档清单.jsonl
+ *    （maxWritten 基准 + final 跳过）。**漏一个即「编辑后树红点/黄项不失效可陈旧」**。
  *    任一 stat 变化 → 整表清空重查（改配置/定稿/动账本是低频操作，可接受连坐）。
  *    章正文本身不在纪元里——改 1 章只破那 1 章的行指纹，这正是增量的意义。
- * 3. 清偿批行级纪元戳（tree_issues_cache.epoch_fp）——双进程并发
- *    校验且轮中全局输入变更时，他进程可按新纪元 sync 清表并写入新纪元行，本进程
- *    （基线仍是旧纪元）按章指纹读行会混入异纪元结果（单轮响应口径混纪元；持久层
- *    由轮后终核兜住不毒化，下一轮自愈）。行记落行时纪元、读侧强制比对：不匹配
- *    （含旧格式行 NULL 戳、读侧无锚）一律按 miss，向后兼容不抛错。
+ * 3. 行级纪元戳（tree_issues_cache.epoch_fp）——双进程并发校验且轮中全局输入变更时，
+ *    他进程按新纪元 sync 清表并写入新纪元行，本进程（基线仍是旧纪元）按章指纹读行
+ *    会混入异纪元结果（单轮响应口径混纪元；持久层由轮后终核兜住不毒化，下一轮自愈）。
+ *    行记落行时纪元、读侧强制比对：不匹配（含旧格式行 NULL 戳、读侧无锚）一律按
+ *    miss，向后兼容不抛错。
  *
  * 回退（红线）：表缺席 / 读写失败 → 抛出由调用方吞掉、跳过缓存走现行全量路径
  * （语义无损降级，只有性能回到从前）。
@@ -31,7 +29,7 @@ import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
 // .md 判定走单一真相源（大小写不敏感口径，leak-derive/
 // iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
 import { isMdFileName } from '../format/filename.js'
-import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
+import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 
@@ -40,20 +38,18 @@ import { preludeYieldStats } from '../shared/yield-stats.js'
  *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
 const CHECKER_GENERATION = 'a1-v2'
 
-// nano：连接级 prepared 语句缓存（原 rag/store.ts 同款
-// WeakMap<db, Map<sql, stmt>> 形态，prepared 缓存先例自此收编 check 域）——树聚合
-// 每轮只开一次库、循环内数百次对同一固定 SQL 重编译白付。
-// 实现收编 shared/sqlite-prepared.ts
-// 单源（原注「模块独立性优先，本文件内自持一份小帮手」的取舍改判——三域同构已各自
-// 踩过 ephemeron 环同一根因）。断链序与用法契约单点见单源文件头注；
-// check/runner.ts 的两处裸 db.prepare 本批一并改走 prepared()（同批）。
+// 连接级 prepared 语句缓存（WeakMap<db, Map<sql, stmt>> 形态，同 rag/store.ts 先例）
+// ——树聚合每轮只开一次库，循环内数百次对同一固定 SQL 重编译是纯白付。
+// 实现单源 shared/sqlite-prepared.ts（三域同构已各自踩过 ephemeron 环同一根因，
+// 故不自持一份小帮手）；断链序与用法契约单点见该文件头注。
+// check/runner.ts 的裸 db.prepare 同走 prepared()。
 
 /**
  * 带缓存注销的关库——机检缓存库（index.db）
  * 凡有 prepared 调用面的连接一律走本 helper 关库，不得裸关。根因与实测数据同
- * rag/store.ts closeRagDb（现收编共享单源）：preparedByDb 值侧 Map →
- * stmt → db 与弱键构成 ephemeron 环，close 后条目不随 GC 消失；close 前显式 delete
- * 断链即归零。起本文件与 events/rag 两域共用同一份缓存与断链序。
+ * rag/store.ts closeRagDb：preparedByDb 值侧 Map → stmt → db 与弱键构成 ephemeron
+ * 环，close 后条目不随 GC 消失；close 前显式 delete 断链即归零。本文件与 events/rag
+ * 两域共用同一份缓存与断链序（单源 shared/sqlite-prepared.ts）。
  */
 export function closeTreeIssuesDb(db: DatabaseSync): void {
   closeWithPrepared(db)
@@ -147,8 +143,8 @@ function* dirFpCore(p: string): Generator<void, string, unknown> {
  * （applyGlobalDefaults 托底值影响 short.strict 等）。文风/ 含铁律与条目库禁词
  * （readIronRules 合并源）；大纲/章纲 含 targetWords；清单含 maxWritten 基准。
  * 细纲.md 是 declaredLeadIds 的来源（两端闭合左侧）、设定/境界体系.md 是成长线
- * 红项输入（growth-realm-*）、设定/名册.md 是新专名候选输入——此前三者
- * 漏在纪元外（名册为十三轮补），编辑后树红点/黄项不失效可陈旧。
+ * 红项输入（growth-realm-*）、设定/名册.md 是新专名候选输入——三者漏在纪元外时，
+ * 编辑后树红点/黄项不失效可陈旧。
  */
 export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string | null): string {
   return driveToEnd(computeTreeIssuesGlobalFpCore(bookRoot, userDataPath))
@@ -252,13 +248,8 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
       upsert.run('leads_book_red', hasRed ? '1' : '0')
       db.exec('COMMIT')
     } catch (e) {
-      // 同款——裸 ROLLBACK 在事务已自动回亡时抛
-      // "no transaction is active"，次要异常会替代原始病因上抛（吞诊断）
-      try {
-        db.exec('ROLLBACK')
-      } catch {
-        /* 已自动回亡：原始错误优先 */
-      }
+      // 回滚吞自身异常（rollbackQuietly 单源）、原样上抛原始病因
+      rollbackQuietly(db)
       throw e
     }
   } catch {
@@ -290,12 +281,8 @@ export function syncTreeIssuesEpoch(
     prepared(db, 'INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('global_fp', fp)
     db.exec('COMMIT')
   } catch (e) {
-    // 同款——吞 ROLLBACK 自身异常，原样上抛原始错误
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* 已自动回亡：原始错误优先 */
-    }
+    // 回滚吞自身异常（rollbackQuietly 单源）、原样上抛原始错误
+    rollbackQuietly(db)
     throw e
   }
   return true
@@ -307,12 +294,12 @@ export function syncTreeIssuesEpoch(
  *  index.db 持久于书仓 .cache/ 且 DDL 只有 CREATE TABLE IF NOT EXISTS（无迁移面），
  *  改列名会令旧库读写静默全失败，故列名不动只正 TS 命名；旧代毫秒行与 µs 值量级
  * 隔离必 miss（口径），无脏读面。
- *  清偿批新增 epochFp 参数——双进程并发校验且轮中全局输入变更时
- *  （他进程按新纪元 sync 清表后写入新纪元行），本进程按章指纹读行可混入异纪元结果
- *  （单轮响应口径混纪元；持久层由轮后终核兜住，下一轮自愈）。行加 epoch_fp 戳后
- *  读侧强制比对：epochFp 为 null（轮基线缺席，无法验证）→ 一律按 miss；不匹配 →
- *  miss；旧格式行（列 NULL，存量库经 ensure 补列后的旧行）天然不匹配 → 一次性
- *  失效重算。解析向后兼容：缺列/异常行走 catch 按 miss，不抛。 */
+ *  epochFp 参数——双进程并发校验且轮中全局输入变更时（他进程按新纪元 sync 清表后
+ *  写入新纪元行），本进程按章指纹读行可混入异纪元结果（单轮响应口径混纪元；持久层
+ *  由轮后终核兜住，下一轮自愈）。行加 epoch_fp 戳后读侧强制比对：epochFp 为 null
+ *  （轮基线缺席，无法验证）→ 一律按 miss；不匹配 → miss；旧格式行（列 NULL，存量库经
+ *  ensure 补列后的旧行）天然不匹配 → 一次性失效重算。解析向后兼容：缺列/异常行走
+ *  catch 按 miss，不抛。 */
 export function readTreeIssuesCache(
   db: DatabaseSync,
   relPath: string,
@@ -321,11 +308,11 @@ export function readTreeIssuesCache(
   verdictFp: string | null,
   epochFp: string | null,
 ): TreeIssueEntry | null {
-  // 清偿批无纪元锚不读缓存——无法验证行的纪元归属，宁 miss 勿混
+  // 无纪元锚不读缓存——无法验证行的纪元归属，宁 miss 勿混
   if (epochFp === null) return null
   try {
     // mtime_ms 列实存 µs（量纲见函数注释；列名不动防存量库静默失效）
-    // nano：章循环热路径 SELECT 走连接级 prepared 缓存（原每章重编译）
+    // 章循环热路径 SELECT 走连接级 prepared 缓存（否则每章重编译）
     const row = (
       verdictFp === null
         ? prepared(
@@ -347,7 +334,7 @@ export function readTreeIssuesCache(
 
 /** 章级缓存写（INSERT OR REPLACE：同章新指纹覆盖旧行，不留废行）。
  * mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。
- *  清偿chFp 记落行时的全局纪元指纹（run.ts 传轮基线），
+ *  epochFp 记落行时的全局纪元指纹（run.ts 传轮基线），
  *  与读侧比对锚同源；旧行覆盖后即带戳，无需独立回填。 */
 export function writeTreeIssuesCache(
   db: DatabaseSync,
@@ -360,7 +347,7 @@ export function writeTreeIssuesCache(
 ): void {
   try {
     // mtime_ms 列实存 µs（量纲见函数注释；列名不动防存量库静默失效）
-    // nano：INSERT 走连接级 prepared 缓存（批量落盘回退逐行路径逐行调用不再重编译）
+    // INSERT 走连接级 prepared 缓存（批量落盘回退逐行路径时逐行调用不再重编译）
     prepared(
       db,
       'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
@@ -377,15 +364,15 @@ export interface TreeIssuesCacheRow {
   size: number
   verdictFp: string | null
   value: TreeIssueEntry
-  /** 清偿批落行时全局纪元指纹（轮基线），读侧按行比对防混纪元 */
+  /** 落行时全局纪元指纹（轮基线），读侧按行比对防混纪元 */
   epochFp: string
 }
 
 /**
- * 章缓存批量落盘（单事务包批）——数百章书在纪元失效后一轮聚合
- * 此前逐行独立 INSERT（每行一个隐式事务 = 数百次 WAL commit）。单 BEGIN…COMMIT 包批
- * 语义不变（INSERT OR REPLACE 幂等）；批内任何失败回退逐行（保留逐行 best-effort 语义，
- * 失败行静默放弃下次 miss 重算）。
+ * 章缓存批量落盘（单事务包批）——数百章书在纪元失效后一轮聚合若逐行独立 INSERT，
+ * 每行一个隐式事务 = 数百次 WAL commit。单 BEGIN…COMMIT 包批语义不变（INSERT OR
+ * REPLACE 幂等）；批内任何失败回退逐行（保留逐行 best-effort 语义，失败行静默放弃
+ * 下次 miss 重算）。
  */
 export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCacheRow[]): void {
   if (rows.length === 0) return
@@ -398,12 +385,8 @@ export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCach
     for (const r of rows) stmt.run(r.relPath, r.chapterFp, r.size, r.verdictFp, JSON.stringify(r.value), r.epochFp)
     db.exec('COMMIT')
   } catch {
-    // 批失败回退逐行（best-effort 口径不变）
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* 未开成功事务/已自动回滚：忽略 */
-    }
+    // 批失败回退逐行（best-effort 口径不变）；回滚吞自身异常（rollbackQuietly 单源）
+    rollbackQuietly(db)
     for (const r of rows) writeTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, r.value, r.epochFp)
   }
 }

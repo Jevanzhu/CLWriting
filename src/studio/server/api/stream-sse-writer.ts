@@ -12,9 +12,10 @@
  * 残核 GET books.stream handler 对 sseConnections / MAX_SSE_PER_BOOK / SseConnHandle
  * 的既有引用改经 import 解析，handler 本体逐字节不动。
  * 原私有而 stream.ts 残核跨模块消费项（sseConnections / MAX_SSE_PER_BOOK /
- * SseConnHandle）就此导出，其余保持私有；SSE_BACKPRESSURE_LIMIT 维持原导出
- * （全库引用面仅注释提及，无 import 消费）。
- * 依赖方向单向（无环回引）：本文件零 import，不引用 stream.ts / stream-watchdog.ts
+ * SseConnHandle）就此导出，其余保持私有；SSE_BACKPRESSURE_LIMIT 维持原导出（值取自
+ * 跨包契约单源，见其声明处注）。
+ * 依赖方向单向（无环回引）：本文件唯一 import = 跨包契约单源
+ * src/shared/contract/studio.ts（零依赖纯常量模块），不引用 stream.ts / stream-watchdog.ts
  * 及任何 ai / studio 模块；stream.ts 残核自此 import，并对既有外部消费名
  * （forgetSseCount / closeAllSseConnections / __getSseConnections / createSseWriter）
  * 逐名再导出（桥，消费方 import 面零改动）。顶层求值可变状态（sseConnections Map）
@@ -23,6 +24,7 @@
  * 时机、判死 destroy 动作逐字节保持，零行为变化。
  * 注释全部原样随迁；行为、断言、测试零改动。
  */
+import { SSE_BACKPRESSURE_LIMIT } from '../../../shared/contract/studio.js'
 
 // per-book SSE 连接记账（防多标签页耗尽 FD）。
 // 计数改按实际存活连接记账（Map<book, Set<句柄>>）——原裸数字计数
@@ -68,8 +70,10 @@ export function __getSseConnections(): ReadonlyMap<string, number> {
 
 /** SSE 写背压判死阈值——res.write() 返回 false 起（假死客户端 TCP
  *  接收窗口关死），滞留 Node writable 队列的字节累计超此值即 destroy 断连（1MB ≈
- *  数十条章节级事件；受 MAX_SSE_PER_BOOK 与事件量约束，正常客户端远达不到）。 */
-export const SSE_BACKPRESSURE_LIMIT = 1_000_000
+ *  数十条章节级事件；受 MAX_SSE_PER_BOOK 与事件量约束，正常客户端远达不到）。
+ *  值单源 = src/shared/contract/studio.ts（前端正文聚合封顶同锚该值），本处只按名再导出，
+ *  不得在此改写为字面量。 */
+export { SSE_BACKPRESSURE_LIMIT }
 
 /** 连续滞留写判死阈值——write() 连续返回 false 的次数（drain/成功
  * 写复位）。字节闸对「仅心跳存活」的假死连接几乎失效（心跳 ~14B/30s，1MB 需约 25

@@ -69,21 +69,9 @@ import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeDraftChapterNode } from '../helpers/tree-node'
 
 const BOOK = 'test-book'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: '写作/正文/第1章-标题.md',
-    name: '第1章-标题.md',
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    status: 'draft',
-    children: [],
-  }
-}
 
 /** 挂载 useHotkeys 的宿主组件（composable 需组件生命周期挂 window 监听） */
 const HotkeyHost = defineComponent({
@@ -141,7 +129,7 @@ describe('EditorView: 专注模式沉浸态', () => {
     const doc = useDocStore()
     const tree = useTreeStore()
     doc.setBook(BOOK)
-    tree.raw = [makeNode(docId)]
+    tree.raw = [makeDraftChapterNode(docId)]
     const w = mount(EditorView, { props: { docId } })
     await flushPromises()
     await vi.waitFor(() => expect(doc.get(docId)).toBeDefined())

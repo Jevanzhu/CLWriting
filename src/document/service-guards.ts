@@ -1,13 +1,11 @@
 /**
- * 文档服务守卫与锁档常量 —— （⑤④产品巨件拆分波1）自
- * service.ts 缝 A 拆出（纯移动，零行为变化）。
+ * 文档服务守卫与锁档常量。
  *
  * 内容：非 UTF-8 拒绝守卫（isUtf8Bytes + NON_UTF8_REJECT / NON_UTF8_SAVE_REJECT）与
  * 四组跨进程锁等待档常量（META / STRUCT / WIRING / SAVE）。起锁档生效值
- * 由 DocContext 持有（per-ctx 组装参数，缺省 = 本文件常量）：META / WIRING / SAVE 的
- * 模块级注入钩子已删，唯 STRUCT 保留（唯一剩余测试消费方经 studio server 内建 service
- * 触达，见其注）。消费方直引本文件（起转发桥已删）；saveLockTimeoutMs
- * 生效值别名随收敛删除（其消费点 service.ts 改读 ctx.saveLockTimeoutMs）。
+ * 由 DocContext 持有（per-ctx 组装参数，缺省 = 本文件常量）：META / WIRING / SAVE 无
+ * 模块级注入钩子，唯 STRUCT 保留（唯一测试消费方经 studio server 内建 service
+ * 触达）。消费方直引本文件（无转发桥）。
  */
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -16,6 +14,7 @@ import { CLWRITING_DIR, readBooksStrict } from '../install/books.js'
 // bookRoot）——install/books-resolve 与 install/books 均无 document 侧回边，无环。
 import { findWorkDir } from '../install/books-resolve.js'
 import { testableConst } from '../shared/testable.js'
+import { errMsg } from '../log/index.js'
 
 /** 非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
  *  符，元数据路径会把乱码正文原子覆盖回原文件（原始字节永久丢失，且无快照留底，
@@ -60,12 +59,12 @@ export const META_SAVE_LOCK_TIMEOUT_MS = 5_000
 
 /** 结构性操作（doMoveOrRename/doTrash）落位段
  *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档。
- * 换装（同 META 注）：档位常量为本模块私有（无导出消费方），def 值就地字面化。
+ * 档位常量为本模块私有（无导出消费方），def 值就地字面化。
  * 本档**保留模块级注入口**（未随 META/WIRING 收敛入 ctx）——消费点虽
  *  全在 (ctx,…) 函数，但其唯一剩余测试消费方 structure-crash.test.ts 经 studio server
  *  组装点内建 service（documents-core.ts getOrCreateService 固定实参构造）触达，
- *  src/studio 为冻结范围、无法从测试侧传 per-instance 档，故保留模块缝 + 如实记档；
- *  解除条件：studio 侧 service 组装开放 options 透传后，随批改 ctx.structSaveLockTimeoutMs
+ *  src/studio 为冻结范围、无法从测试侧传 per-instance 档，故保留模块缝；
+ *  解除条件：studio 侧 service 组装开放 options 透传后，改 ctx.structSaveLockTimeoutMs
  *  并删本钩子（直调面 struct-save-lock.test.ts 同批改构造注入）。 */
 export const [getStructSaveLockTimeoutMs, __setStructSaveLockTimeoutForTest] = testableConst(5_000)
 
@@ -95,8 +94,102 @@ export const SAVE_LOCK_TIMEOUT_MS = 5_000
 /** 书注册重验失败人话文案单源——与 studio 层 book-context.ts bookMovedFailure 的
  *  reason 逐字同文（该侧经 409 BOOK_MOVED 信封出，本侧经 SaveResult.code='BOOK_MOVED'
  *  出、structStatus 既有 409 档映射，两端信封逐字节一致）。文案正本落本常量，studio
- *  侧消费随其触达批改引（本批 src/studio/ 冻结不动）。 */
+ *  侧消费随其触达改引（src/studio/ 冻结不动）。 */
 export const BOOK_MOVED_REASON = '书已改名或已删除，本次操作已取消——请重新打开本书后再试'
+
+// ── 保存链锁失败信封（withSaveLocks 各回调单源构造）─────────────
+// 六个调用面（executeSave / doCopy / doTrash / updateChapterMetaLocked /
+// updateDocMetaLocked / doMoveOrRename）原先各自内联拼装四个回调，结构同构、文案按
+// 操作意图互异。收敛为按意图命名的构造：调用面只写意图 + 差异点（锁档 / wiring 目标 /
+// holdSaveLock），文案与 code 逐字由下表承担——有测试断言这些文案（save-protocol /
+// struct-save-lock / save-lock 等），改表即改断言，勿顺手动字。
+
+/** 锁失败收口信封（WRITE_ERROR 家族）；消费方结果联合的 ok:false 分支含同形成员，
+ *  协变可赋值，故各调用面 withSaveLocks<T> 无需再按 T 泛化。 */
+export interface WriteErrorEnvelope {
+  ok: false
+  code: 'WRITE_ERROR'
+  reason: string
+}
+
+/** withSaveLocks save 锁失败对（键名与 SaveLocksArgs 字段同名，可直接展开）。 */
+export interface LockFailureCallbacks {
+  onSaveLockThrown: (e: unknown) => WriteErrorEnvelope
+  onSaveLockTimeout: () => WriteErrorEnvelope
+}
+
+/** withSaveLocks 布线锁失败对（键名与 SaveLocksArgs.wiring 字段同名，可与 relPath/
+ *  timeoutMs 同对象展开）。 */
+export interface WiringLockFailureCallbacks {
+  onThrown: (e: unknown) => WriteErrorEnvelope
+  onTimeout: () => WriteErrorEnvelope
+}
+
+/** withSaveLocks 失败回调集：save 锁对 + 布线锁对（不传 wiring 的调用面忽略后者）。 */
+export interface SaveLockFailures {
+  saveLock: LockFailureCallbacks
+  wiring: WiringLockFailureCallbacks
+}
+
+/** 锁失败文案的意图键（与调用面一一对应）。 */
+export type SaveLockIntent = '保存' | '复制' | '删除' | '元数据' | '移动/重命名'
+
+/** 意图 → 文案拼装片段（四字段合成四条文案，见 saveLockFailures）。
+ *  - lockPrefix：`${lockPrefix}锁获取失败（未执行…，可重试）：${err}`；
+ *  - waitPrefix：`${waitPrefix}等待超时：另一进程正在…（5 秒未让出），请重试`（布线
+ *    超时同用此前缀 + 固定场景「回写此布线文件」）；
+ *  - notExecuted：句内「未执行 X」的 X（布线获取抛出同用）；
+ *  - scene：save 锁超时场景短语（「另一进程正在」与「（5 秒未让出）」之间）。 */
+interface SaveLockIntentTexts {
+  lockPrefix: string
+  waitPrefix: string
+  notExecuted: string
+  scene: string
+}
+
+const SAVE_LOCK_INTENT_TEXTS: Record<SaveLockIntent, SaveLockIntentTexts> = {
+  保存: { lockPrefix: '保存', waitPrefix: '保存', notExecuted: '保存', scene: '保存此文档' },
+  复制: { lockPrefix: '复制保存', waitPrefix: '复制', notExecuted: '复制', scene: '保存或移动此文档' },
+  删除: { lockPrefix: '删除保存', waitPrefix: '删除', notExecuted: '删除', scene: '保存或删除此文档' },
+  元数据: { lockPrefix: '元数据保存', waitPrefix: '元数据保存', notExecuted: '保存', scene: '保存此文档' },
+  '移动/重命名': {
+    lockPrefix: '移动/重命名保存',
+    waitPrefix: '移动/重命名',
+    notExecuted: '操作',
+    scene: '保存或移动此文档',
+  },
+}
+
+/** 保存链锁失败信封单源构造（文案与 code 见文件内联注）。 */
+export function saveLockFailures(intent: SaveLockIntent): SaveLockFailures {
+  const t = SAVE_LOCK_INTENT_TEXTS[intent]
+  return {
+    saveLock: {
+      onSaveLockThrown: (e) => ({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `${t.lockPrefix}锁获取失败（未执行${t.notExecuted}，可重试）：${errMsg(e)}`,
+      }),
+      onSaveLockTimeout: () => ({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `${t.waitPrefix}等待超时：另一进程正在${t.scene}（5 秒未让出），请重试`,
+      }),
+    },
+    wiring: {
+      onThrown: (e) => ({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `布线文件锁获取失败（未执行${t.notExecuted}，可重试）：${errMsg(e)}`,
+      }),
+      onTimeout: () => ({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `${t.waitPrefix}等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试`,
+      }),
+    },
+  }
+}
 
 /** （件1）：落盘前书注册复核——books.jsonl 登记中仍存在解析到 bookRoot
  *  的条目 → null（放行）；否则返回 BOOK_MOVED_REASON（调用方拒绝落盘）。判定口径与

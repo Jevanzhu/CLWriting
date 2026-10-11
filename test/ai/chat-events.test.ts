@@ -12,7 +12,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/
 import { runChat, clearChatHistory, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
-import { loadHistoryWithSeqs } from '../../src/events/chat-bridge.js'
+import { loadHistoryWithSeqs, userMessageEvent } from '../../src/events/chat-bridge.js'
 import { selectBranch, selectBranchTo } from '../../src/events/branch-tree.js'
 import type { ContentBlock } from '../../src/ai/provider/types.js'
 import type { DriverEvent } from '../../src/driver/types.js'
@@ -546,5 +546,59 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     expect(body.messages[1]!.content).toBe('第一问')
     expect(body.messages[2]!.content).toBe('重写版回复。')
     expect(body.messages[body.messages.length - 1]!.content).toBe('重启后问题')
+  })
+})
+
+describe('P2-16 发送前消毒记录通道（chat/sanitize）', () => {
+  const SECRET = '绝密书稿片段'
+
+  it('消毒发生（连续 user 历史）→ 落一条 chat/sanitize：原因/条数/位置可读，载荷不含正文', async () => {
+    const ud = setup()
+    // 种入同一分支两条连续 user（非法序列；发送前消毒须插互补占位）
+    const seedStore = openSessionStore(ud, bookRoot)!
+    const seedSid = seedStore.createSession('sanitize-a', { book: 'sanitize-a' })
+    seedStore.appendEvents(seedSid, [userMessageEvent(`第一问${SECRET}`), userMessageEvent(`第二问${SECRET}`)])
+    seedStore.close()
+
+    fake.setScript([{ type: 'text', content: '回复。' }])
+    await runOne(ud, 'sanitize-a', `第三问${SECRET}`)
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('sanitize-a')
+    store.close()
+    const marks = evs.filter((e) => e.type === 'chat/sanitize')
+    expect(marks).toHaveLength(1) // 恰一条发送面记录
+    const data = marks[0]!.data as {
+      stage: string
+      before: number
+      after: number
+      changes: { reason: string; effect: string; index: number; role: string }[]
+    }
+    expect(data.stage).toBe('send')
+    expect(marks[0]!.turn).toBe(0)
+    expect(data.before).toBe(3) // 恢复出的 2 条 + 本轮 user
+    expect(data.after).toBe(5) // 插 2 条互补占位
+    expect(data.changes.map((c) => `${c.reason}/${c.effect}/${c.index}/${c.role}`)).toEqual([
+      'role-conflict/insert/1/user',
+      'role-conflict/insert/2/user',
+    ])
+    // 登记先于发送：记录 seq 落在本回合 turn/start 之后、assistant/message 之前
+    const startSeq = evs.find((e) => e.type === 'turn/start')!.seq
+    const asstSeq = evs.find((e) => e.type === 'assistant/message')!.seq
+    expect(marks[0]!.seq).toBeGreaterThan(startSeq)
+    expect(marks[0]!.seq).toBeLessThan(asstSeq)
+    // 红线：载荷不内嵌被替换消息正文（书稿文本/用户隐私不入事件）
+    expect(JSON.stringify(marks[0])).not.toContain(SECRET)
+    expect(JSON.stringify(marks[0])).not.toContain('第一问')
+  })
+
+  it('未净化（合法交替历史）→ 零 chat/sanitize 事件', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '回复。' }])
+    await runOne(ud, 'sanitize-b', '第一问')
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('sanitize-b')
+    store.close()
+    expect(evs.filter((e) => e.type === 'chat/sanitize')).toHaveLength(0)
   })
 })

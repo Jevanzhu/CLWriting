@@ -38,14 +38,15 @@ function hide(): void {
 
 function onOver(e: MouseEvent): void {
   const el = (e.target as HTMLElement)?.closest?.('[data-tip]') as HTMLElement | null
+  // 先同步再判「同一目标早退」——指针在同一元素内移动（事件从不同子节点冒泡）时
+  // data-tip 可能已随状态换值，此处是唯一能刷新的时机
+  if (el) syncAriaLabel(el)
   if (el === lastTarget) return
   if (!el || !el.dataset.tip) {
     hide()
     return
   }
   lastTarget = el
-  // F6b：data-tip 同时暴露为 aria-label（读屏可读）。已有 aria-label 不覆盖。
-  syncAriaLabel(el)
   if (showTimer) clearTimeout(showTimer)
   showTimer = setTimeout(() => {
     // 250ms 延迟窗内目标可能已被
@@ -100,10 +101,13 @@ function onOver(e: MouseEvent): void {
   }, 250)
 }
 
-/** 同步 data-tip → aria-label（-F6b：读屏可读）。已有 aria-label 不覆盖。 */
+/** 同步 data-tip → aria-label（读屏可读）。值不同才写——tip 随状态变化的元素
+ *  （如专注模式开关在「专注模式 / 退出专注」间切换）须刷成当前文案，旧口径
+ *  「已有 aria-label 不覆盖」会让首值永久钉死；同值写回省一次 DOM 变更。 */
 function syncAriaLabel(el: HTMLElement): void {
-  if (!el.getAttribute('aria-label') && el.dataset.tip) {
-    el.setAttribute('aria-label', el.dataset.tip)
+  const tip = el.dataset.tip
+  if (tip && el.getAttribute('aria-label') !== tip) {
+    el.setAttribute('aria-label', tip)
   }
 }
 

@@ -1,16 +1,12 @@
 /**
- * 正文区草稿路径定位/定稿覆盖守卫族 ——
- * 自 format/draft.ts 整体上移 document 域（resolveDraftPath / ensureChapterNotFinalized /
- * extractTitleFromContent / inferVolumeDir / cnVolumeNum / slashRelative 逐字节随迁，
- * 块内 R-编号锚注原样随迁）。
+ * 正文区草稿路径定位/定稿覆盖守卫族。
+ *
  * 动机：resolveDraftPath 内嵌定稿覆盖守卫（ensureChapterNotFinalized）须读项目清单
- * （document 域单源），原 format → document 反向边是域分层倒挂（底座 format 依赖
- * 上层 document 的环风险边）；守卫与路径定位强耦合（契约：写路径
- * resolveDraftPath 抛 = 拒绝覆盖定稿，migrate-layout-v3 与 4 处钉测试依赖），
- * 不可拆回调用方——整体上移后 format/draft.ts 残核（readDraft/draftParseReason）
- * 零 document 依赖，document → format 单向边保持（document/draft-path 只 import
- * format/{frontmatter,chapters,words,filename} 与 fs/log）。
- * 消费面 import 改道随本批完成（src 6 + test 11）。
+ * （document 域单源），留在 format/draft.ts 会成 format → document 反向边（域分层倒挂、
+ * 环风险边）；守卫与路径定位强耦合（契约：写路径 resolveDraftPath 抛 = 拒绝覆盖定稿，
+ * migrate-layout-v3 与 4 处钉测试依赖），不可拆回调用方——故整体上移 document 域后
+ * format/draft.ts 残核（readDraft/draftParseReason）零 document 依赖，document → format
+ * 单向边保持（本文件只 import format/{frontmatter,chapters,words,filename} 与 fs/log）。
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -19,7 +15,7 @@ import { readChapterDir } from '../format/chapters.js'
 import { chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle, isMdFileName, chapterNoFromName } from '../format/filename.js'
 import { normalizeWinSeparators } from '../fs/safe-path.js'
-import { readManifest } from './manifest.js'
+import { manifestPathOf, readManifest } from './manifest.js'
 // 正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
 import { log } from '../log/index.js'
 
@@ -106,7 +102,7 @@ function extractTitleFromContent(content?: string): string | null {
 function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: number): void {
   let manifest: ReturnType<typeof readManifest>
   try {
-    manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+    manifest = readManifest(manifestPathOf(bookRoot))
   } catch {
     return
   }
@@ -122,12 +118,11 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
       // 全量误拦「已定稿」。精确 path 分支（上方）不设限：对既定目标路径的覆盖拦截
       // 与文档类型无关。清单 path 为 slash 形 rel（与上方 relPath 构造同源）。
       if (!e.path.startsWith('写作/正文/')) continue
-      // 4：内联窄正则 `^(\d+)-` 收编
-      // chapterNoFromName 单源（finalize.ts inferChapterFromName / summary.ts 同款
-      // callshape：带全名含 .md 直传；宽集 `-`/`—`/空白/裸尾均认）——定稿章被外部
-      // 工具改名成 `5—标题.md`/`5 标题.md` 后本分支此前不命中，与精确 path 分支
-      // （清单挂旧 path 同样不中）双双失守，覆盖写放行。裸数字 `0012.md` 形态维持
-      // 在案口径不扩集（三处消费方同不识别，扩集系台账待拍板项）。
+      // 内联窄正则 `^(\d+)-` 走 chapterNoFromName 单源（finalize.ts
+      // inferChapterFromName / summary.ts 同款 callshape：带全名含 .md 直传；
+      // 宽集 `-`/`—`/空白/裸尾均认）——定稿章被外部工具改名成 `5—标题.md`/
+      // `5 标题.md` 后窄正则不命中，与精确 path 分支（清单挂旧 path 同样不中）双双
+      // 失守，覆盖写放行。裸数字 `0012.md` 形态维持不扩集（三处消费方同不识别）。
       const no = chapterNoFromName(e.path.split('/').pop() ?? '')
       if (no !== null && no === chapter) {
         throw new Error(`第 ${chapter} 章已定稿（${e.path}），拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
@@ -199,9 +194,9 @@ function cnVolumeNum(s: string): number | null {
 }
 
 /** 绝对路径 → 正斜杠相对路径（win 分隔符归一走 normalizeWinSeparators 单源——win32-only）。
- * 原无条件 `.replace(/\\/g, '/')` 在 posix 上把文件名里的
+ * 无条件 `.replace(/\\/g, '/')` 在 posix 上会把文件名里的
  *  字面反斜杠（posix 合法文件名字符）易帜成目录段（0001-题\目.md → 0001-题/目.md），
- *  覆盖写定位/卷段推断双双错位；收编反斜杠归一族单源后 posix 保字面、win 行为不变。 */
+ *  覆盖写定位/卷段推断双双错位；反斜杠归一单源后 posix 保字面、win 行为不变。 */
 function slashRelative(base: string, absPath: string): string {
   return normalizeWinSeparators(relative(base, absPath))
 }

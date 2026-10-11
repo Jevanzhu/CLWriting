@@ -11,18 +11,13 @@
  *   PUT  /api/library/prefs    body {prefs, expectedRevision?}
  *                                          → 写 userData/global.json → {ok, revision}
  *
- * （照 providers.ts 乐观并发模式）：global.json 内嵌服务端管理的保留键 revision
- * （存量文件无该键视为 0，每次 PUT +1）——写端点带可选 expectedRevision 比对，失配回 409，
- * 不带则放行（旧客户端/脚本向后兼容）。此前两面板同时保存后写静默覆盖先写，revision 形同虚设。
- * 其余读 global.json 的模块（global-defaults / 快照保留策略 / rag 配置）按键读取，
- * 忽略 revision 保留键，读路径不受影响。
- *
- * 书级 prefs.json 同款乐观并发守卫（PUT /api/books/:name/prefs）——
- * 此前无锁并发整份覆盖，与全局 prefs 409 恢复链防御不对称（仅布局类数据，按「轻修」
- * 口径收口，参照全局 prefs 实现逐位对齐：revision 保留键 + revisionError + 409
- * REVISION_CONFLICT + GET 从 prefs 剥离单独回传；expectedRevision 可选，旧客户端/
- * 脚本不带则直通向后兼容）。当前唯一客户端（web 前端 workspace 保存链）尚未带
- * expectedRevision——守卫契约先收口、冲突回归在，后续前端接线即可生效。
+ * 乐观并发（照 providers.ts 模式）：文件内嵌服务端管理的保留键 revision（存量文件无该键视为 0，
+ * 每次 PUT +1）；写端点带可选 expectedRevision 比对，失配回 409（REVISION_CONFLICT），不带则
+ * 放行（旧客户端/脚本向后兼容）。无守卫时两个面板同时保存会后写静默覆盖先写。其余读 global.json
+ * 的模块（global-defaults / 快照保留策略 / rag 配置）按键读取，忽略 revision 保留键。
+ * 书级 prefs.json 同款守卫（revision 保留键 + revisionError + 409 + GET 从 prefs 剥离单独回传）；
+ * 当前唯一客户端（web 前端 workspace 保存链）尚未带 expectedRevision——守卫契约先收口，前端接线
+ * 后即生效。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'

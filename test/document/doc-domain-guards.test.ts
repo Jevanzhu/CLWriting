@@ -15,7 +15,6 @@
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const failState = vi.hoisted(() => ({
@@ -71,10 +70,10 @@ import { DocumentService } from '../../src/document/service.js'
 import { readTrashManifest } from '../../src/document/trash.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { buildTree, type TreeNode } from '../../src/document/tree.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 function tmpRoot(): string {
-  return mkdtempTracked(join(tmpdir(), 'clw-r42-'))
+  return tempDirTracked('clw-r42-')
 }
 
 afterEach(() => {

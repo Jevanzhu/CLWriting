@@ -403,7 +403,7 @@ test('短篇: <5 篇只报明细，不做趋势判定（无漂移信号）', () 
   const root = makeShortBook(3)
   const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'short', null)
-  expect(trend.count).toBe(3) // < SHORT_TREND_MIN(5)
+  expect(trend.count).toBe(3) // < MIN_TREND_SAMPLES(5)
   expect(trend.kind).toBe('short')
   expect(trend.drifts).toHaveLength(0) // 小样本不判定
   rmSync(root, { recursive: true, force: true })

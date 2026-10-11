@@ -1,16 +1,16 @@
 /**
- * RAG 建索引（缝 B）—— （⑤④产品拆分波2）自 rag/index.ts 纯移动
- * 拆出：ragIndexState 族 / buildIndex / commitIndexBatch / chapterHashKey /
+ * RAG 建索引。
+ *
+ * 内容：ragIndexState 族 / buildIndex / commitIndexBatch / chapterHashKey /
  * hashChapterBody / readChapterFingerprint / dedupeChaptersByNumber /
  * chapterFingerprintFresh / RAG_RESET_MARKER_KEY / resetRagIndex / cleanupRagAfterMerge /
- * recordEmbedUsage / embedOptionsFor / errStr 原样随迁（零行为变化，历史注释原样随代码
- * 迁移）。分块工具在 rag/chunk.ts；召回残核（recall/recallDetailed/
- * estimateRagChunkCount）留 rag/index.ts，并逐名 re-export 本文件导出面（消费方
- * import 面零改动）；召回侧复用的内部件（embedOptionsFor / ragIndexStateOfOpenDb /
- * dedupeChaptersByNumber / chapterFingerprintFresh）唯一持有者即本文件，export 供
- * index.ts 消费。依赖方向：rag→ai（recordTaskUsage 记账）在 AI 层内合法，绝无
- * studio import（方向锁）。域总述头注（含互斥依赖登记）见
- * RAG 建索引（缝 B）——（⑤④产品拆分波2）自 rag/index.ts 纯移动
+ * recordEmbedUsage / embedOptionsFor / errStr。分块工具在 rag/chunk.ts；召回残核
+ * （recall/recallDetailed/estimateRagChunkCount）留 rag/index.ts，并逐名 re-export
+ * 本文件导出面（消费方 import 面零改动）；召回侧复用的内部件（embedOptionsFor /
+ * ragIndexStateOfOpenDb / dedupeChaptersByNumber / chapterFingerprintFresh）唯一
+ * 持有者即本文件，export 供 index.ts 消费。依赖方向：rag→ai（recordTaskUsage 记账）
+ * 在 AI 层内合法，绝无 studio import（方向锁）。域总述头注（含互斥依赖登记）见
+ * rag/index.ts。
  */
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -171,10 +171,9 @@ export function resetRagIndex(bookRoot: string): void {
       setRagMeta(db, RAG_RESET_MARKER_KEY, new Date().toISOString())
       db.exec('COMMIT')
     } catch (e) {
-      // 同款加固——SQLite 部分错误（SQLITE_FULL/IOERR 等）
-      // 已自动回亡事务，再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；
-      // 吞 ROLLBACK 自身异常、原始错误上抛
-      // 回滚句收编 store.ts safeRollback 单源。
+      // SQLite 部分错误（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛
+      // "no transaction is active" 会掩蔽原始写错误；吞 ROLLBACK 自身异常、原始错误上抛。
+      // 回滚句单源 store.ts safeRollback。
       safeRollback(db)
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
     }
@@ -331,8 +330,8 @@ export async function buildIndex(
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
-        // 文案指向 rag/rebuild 重建端点——原「请重建索引」无程序化
-        // 出路（前端按钮本轮未加，不虚构入口，如实写接口）
+        // 文案指向 rag/rebuild 重建端点——「请重建索引」无程序化出路
+        //（前端按钮未加，不虚构入口，写真实接口）
         error: `embedding 模型与现有索引不一致（现有：${indexedModel}，当前：${config.model}），请重建索引（POST /rag/rebuild）后重试。`,
       }
     }
@@ -362,10 +361,9 @@ export async function buildIndex(
             }
             db.exec('COMMIT')
           } catch (e) {
-            // 同款加固——SQLite 部分错误已自动回亡事务，再
-            // 再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK
-            // 自身异常、原始错误进返回文案
-            // 回滚句收编 store.ts safeRollback 单源。
+            // SQLite 部分错误已自动回亡事务，再 ROLLBACK 抛 "no transaction is
+            // active" 会掩蔽原始写错误；吞 ROLLBACK 自身异常、原始错误进返回文案。
+            // 回滚句单源 store.ts safeRollback。
             safeRollback(db)
             return {
               ok: false,
@@ -389,21 +387,18 @@ export async function buildIndex(
     // 事务内 deleteChunksByChapter 清旧块 + 重 embed + 覆盖指纹，偏移漂移残留同 missing 场景）。
     const missingFingerprint = new Set<number>()
     const staleFingerprint = new Set<number>()
-    // 指纹循环顺手缓存已读 body——仅 missing/stale 命中章
-    // 保留（未命中章读完即弃，不抬峰值内存），下方收集段复用：stale/missing 章此前在
-    // 指纹循环与 toIndex 收集段各读一次全文，现至多读一次。指纹循环与收集段之间全同步
-    // IO 无 await，缓存 body 与现读逐字节一致。指纹计算口径不变（readChapterFingerprint
-    // 同式：readFile → hashChapterBody，查询侧 ：206 原函数保留不动）。
-    // nano：顺手缓存指纹循环已算出的 body 哈希（staleHashes）——
-    // 缓存 body 后收集段又对同一字节串 hashChapterBody 重算是白付；缓存命中章收集
-    // 段直接复用，仅现读章（新章/指纹循环读失败章）现算。
+    // 指纹循环顺手缓存已读 body——仅 missing/stale 命中章保留（未命中章读完即弃，不抬
+    // 峰值内存），下方收集段复用：否则 stale/missing 章在指纹循环与 toIndex 收集段各读
+    // 一次全文。指纹循环与收集段之间全同步 IO 无 await，缓存 body 与现读逐字节一致。
+    // 指纹计算口径不变（readChapterFingerprint 同式：readFile → hashChapterBody）。
+    // 同时缓存指纹循环已算出的 body 哈希（staleHashes）——缓存 body 后收集段又对同一字节串
+    // hashChapterBody 重算是白付；缓存命中章收集段直接复用，仅现读章（新章/指纹循环读失败章）现算。
     const staleBodies = new Map<number, string>()
     const staleHashes = new Map<number, string>()
-    // 成本口径备案：指纹核对需逐章全文读+SHA-256（200 万字书每轮
-    // build ≈8MB 读，秒级）——readChapterDir 的 (mtimeNs,size) 缓存只覆盖 meta 不覆盖
-    // 指纹；引入 mtime 快路径会开「同 mtime 改内容」的漏检窗，有意不设，成本口径见此。
-    // 后口径如实化：每章至多读一次全文（含 toIndex 收集段），全轮 ≈ 一遍全书；
-    // 前 stale/missing 章另有收集段第二次全文读（读量随脏章数上浮）。
+    // 成本口径：指纹核对需逐章全文读+SHA-256（200 万字书每轮 build ≈8MB 读，秒级）
+    // ——readChapterDir 的 (mtimeNs,size) 缓存只覆盖 meta 不覆盖指纹；引入 mtime 快路径
+    // 会开「同 mtime 改内容」的漏检窗，有意不设。每章至多读一次全文（含 toIndex 收集段），
+    // 全轮 ≈ 一遍全书；脏章（stale/missing）另有收集段第二次全文读（读量随脏章数上浮）。
     for (const ch of chapters) {
       if (ch.章号 > indexedMax) continue
       if (!ch._path) continue // readChapterFingerprint 同式：无路径按读不出处理
@@ -414,13 +409,13 @@ export async function buildIndex(
       if (!indexedHash) {
         missingFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
-        staleHashes.set(ch.章号, currentHash) // nano：哈希随 body 顺手缓存
+        staleHashes.set(ch.章号, currentHash) // 哈希随 body 顺手缓存
         continue
       }
       if (indexedHash !== currentHash) {
         staleFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
-        staleHashes.set(ch.章号, currentHash) // nano：哈希随 body 顺手缓存
+        staleHashes.set(ch.章号, currentHash) // 哈希随 body 顺手缓存
       }
     }
 
@@ -447,7 +442,7 @@ export async function buildIndex(
         readFailAt = ch.章号
         break
       }
-      // nano：缓存命中章复用指纹循环已算哈希（同一字节串不再 SHA-256 重算）；
+      // 缓存命中章复用指纹循环已算哈希（同一字节串不再 SHA-256 重算）；
       // `??` 分支只落在现读章（新章/指纹循环读失败章——彼时未入 staleHashes）
       const cachedHash = staleHashes.get(ch.章号)
       chapterHashes.set(ch.章号, cachedHash ?? hashChapterBody(r.body))
@@ -558,10 +553,10 @@ async function commitIndexBatch(
       failedAt = i
       break
     }
-    // 批内维度/条数校验——端点异常（混服降维模型/截断行）返回的
-    // 混维行此前静默入库成「死行」：余弦召回对其算出 NaN/垃圾相似度还占索引位，用户
-    // 只觉召回变差无从排查。任一批条数与请求文本数不符、或任一行维度偏离基准 → 该批
-    // 按 embed 失败同款收口（failedAt 续传路径：批前整章小事务提交，混维批零入库）。
+    // 批内维度/条数校验——端点异常（混服降维模型/截断行）返回的混维行若静默入库成
+    //「死行」，余弦召回会对其算出 NaN/垃圾相似度还占索引位，用户只觉召回变差无从排查。
+    // 任一批条数与请求文本数不符、或任一行维度偏离基准 → 该批按 embed 失败同款收口
+    //（failedAt 续传路径：批前整章小事务提交，混维批零入库）。
     if (refDim === null) refDim = batchVec[0]?.length ?? null
     // 首批后即检既有索引维度——批内校验（混维/条数）
     // 之后执行，批形异常仍归批失败路径；批形合法而维度对不上既有索引 → 当场硬错，
@@ -669,10 +664,9 @@ async function commitIndexBatch(
         salvagedChunks = toCommit.reduce((n, [, span]) => n + (span ? span.end - span.start : 0), 0)
       } catch {
         // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样。
-        // 同款加固——吞 ROLLBACK 自身异常（部分错误已
-        // 自动回亡事务，再 ROLLBACK 抛 "no transaction is active"），保持「整体重跑」
-        // 降级语义不因回滚句柄抖动旁生枝节
-        // 回滚句收编 store.ts safeRollback 单源。
+        // 吞 ROLLBACK 自身异常（部分错误已自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active"），保持「整体重跑」降级语义不因回滚句柄抖动旁生枝节。
+        // 回滚句单源 store.ts safeRollback。
         safeRollback(db)
       }
     }
@@ -734,10 +728,9 @@ async function commitIndexBatch(
     }
     db.exec('COMMIT')
   } catch (e) {
-    // 同款加固——SQLite 部分错误已自动回亡事务，再
-    // ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、
-    // 自身异常、原始错误进返回文案
-    // 回滚句收编 store.ts safeRollback 单源。
+    // SQLite 部分错误已自动回亡事务，再 ROLLBACK 抛 "no transaction is active"
+    // 会掩蔽原始写错误；吞 ROLLBACK 自身异常、原始错误进返回文案。
+    // 回滚句单源 store.ts safeRollback。
     safeRollback(db)
     return {
       ok: false,

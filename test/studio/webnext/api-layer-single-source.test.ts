@@ -9,8 +9,9 @@
  *    = 幂等」是隐式契约）。行为面见 client-401-replay-idempotency.test.ts + 下方声明点锚。
  * ③ 截断函数单源：chat-dispatch 的码点截断 import 根 shared/text（P3-26 截断函数项，
  *    本地副本已删）——复活本地副本即红。
- * ④ 工具展示面单源：ChatMessages 的中文名/参数摘要取自根 ai/contract/tool-meta.ts
- *    （P3-21 工具名派生项），不得回落手写工具名清单。
+ * ④ 工具展示面单源：ChatMessages 的中文名/参数摘要取自根 shared/contract/tool-meta.ts
+ *    （P3-21 工具名派生项），不得回落手写工具名清单；跨包面只许 src/shared/**，
+ *    ai/contract/tool-meta.ts 只是 re-export 桥。
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -51,10 +52,10 @@ describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
     expect(src).not.toContain('function clipByCodePoints')
   })
 
-  it('工具展示面单源：ChatMessages 的中文名/摘要取自根 tool-meta.ts', () => {
+  it('工具展示面单源：ChatMessages 的中文名/摘要取自根 shared/contract/tool-meta.ts', () => {
     const src = readFileSync(CHAT_MESSAGES, 'utf8')
     expect(src).toContain(
-      "import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'",
+      "import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../shared/contract/tool-meta'",
     )
   })
 })

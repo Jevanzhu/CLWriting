@@ -29,22 +29,11 @@ vi.mock('../../../../src/studio/web-next/src/api/client', async (importOriginal)
 
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeChapterNode } from '../helpers/tree-node'
 
 const BOOK = '书A'
 const OLD_CONTENT = '旧内容'
 const NEW_CONTENT = '外部改动后的新内容'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -55,11 +44,11 @@ async function openCleanDoc(): Promise<{ doc: ReturnType<typeof useDocStore>; tr
   const doc = useDocStore()
   doc.setBook(BOOK)
   const tree = useTreeStore()
-  tree.raw = [makeNode('d1')]
+  tree.raw = [makeChapterNode('d1')]
   tree.ownerBook = BOOK
   tree.revision = 'r1'
   vi.mocked(getContent).mockResolvedValueOnce(OLD_CONTENT)
-  await doc.open(makeNode('d1')) // entry.treeRev = 'r1'（打开时树版本）
+  await doc.open(makeChapterNode('d1')) // entry.treeRev = 'r1'（打开时树版本）
   return { doc, tree }
 }
 

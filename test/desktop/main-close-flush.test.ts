@@ -680,3 +680,213 @@ describe('R51-A-1: relaunch 武装时机（取消无后效，链通过才武装�
     restoreStore()
   })
 })
+
+// ── 退出编排显式状态机（五旗收敛为「相位 × OS 停机面 + 待汇入退出请求」）──────────
+// 断言两层（对齐 server-manager-state-machine.test.ts 分层）：
+// ① 转移表契约——事件 × 相位 × 停机面逐格（表正本 = isLegalExitTransition 导出）；
+// ② 真码跑出的相位序列——dynamic import lifecycle.js 取与 main.js 同一模块实例的
+//    exitChainSnapshot 读数（相位是派生读数，不重复断言已有行为面）。
+// 既有行为断言（preventDefault / execJs 次数 / msgBox / quit 计数 / destroy 时点）零改动，
+// 本段只补「迁移序列」这一层（第二轮退出被忽略、各阶段顺序、合入形态）。
+import type { ExitEvent, ExitPhase, OsShutdownMode } from '../../src/desktop/lifecycle.js'
+
+describe('退出编排状态机（相位 × 停机面）', () => {
+  /** fresh 模块 + 与其同实例的 lifecycle 读数面（resetModules 后同一模块图） */
+  async function freshModules(): Promise<{
+    win: (typeof M.windows)[number]
+    lifecycle: typeof import('../../src/desktop/lifecycle.js')
+  }> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const lifecycle = await import('../../src/desktop/lifecycle.js')
+    return { win: M.windows.at(-1)!, lifecycle }
+  }
+
+  /** flush 挂手动闸（相位停在链内）：返回放行函数 */
+  function gateFlush(win: (typeof M.windows)[number]): () => void {
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    return () => release({ conflict: [], failed: [] })
+  }
+
+  it('转移表契约：10 事件 × 5 相位 × 2 停机面 = 100 格逐格核对（表外组合即非法）', async () => {
+    const { isLegalExitTransition } = await import('../../src/desktop/lifecycle.js')
+    const PHASES: readonly ExitPhase[] = ['idle', 'close-flush', 'quit-flush', 'tearing-down', 'releasing']
+    const OS: readonly OsShutdownMode[] = ['none', 'ending']
+    const LEGAL_CELLS: ReadonlyArray<readonly [ExitEvent, readonly ExitPhase[], readonly OsShutdownMode[]]> = [
+      ['close-flush-open', ['idle'], ['none']],
+      ['quit-flush-open', ['idle'], ['none']],
+      ['close-flush-settle', ['close-flush', 'tearing-down'], OS],
+      ['close-flush-cancel', ['close-flush', 'tearing-down'], OS],
+      ['quit-defer', ['close-flush'], ['none']],
+      ['quit-flush-cancel', ['quit-flush'], OS],
+      ['tear-down', PHASES, OS],
+      ['quit-release', ['tearing-down'], OS],
+      ['os-shutdown-begin', PHASES, OS],
+      ['os-shutdown-recover', ['idle', 'close-flush', 'quit-flush'], OS],
+    ]
+    const legal = new Set<string>()
+    for (const [ev, phases, modes] of LEGAL_CELLS) {
+      for (const p of phases) for (const o of modes) legal.add(`${ev}|${p}|${o}`)
+    }
+    const events = LEGAL_CELLS.map(([ev]) => ev)
+    expect(new Set(events).size).toBe(10) // 事件面穷尽（新增事件必补本表）
+    let checked = 0
+    for (const ev of events) {
+      for (const p of PHASES) {
+        for (const o of OS) {
+          expect(isLegalExitTransition(ev, p, o), `${ev} @ ${p}/${o}`).toBe(legal.has(`${ev}|${p}|${o}`))
+          checked++
+        }
+      }
+    }
+    expect(checked).toBe(10 * 5 * 2)
+    // 关键非法单元逐条：两链双开 / 停机在途开工 / 汇入需空闲停机面 / 收口放行须先过不可回头点
+    expect(isLegalExitTransition('close-flush-open', 'quit-flush', 'none')).toBe(false)
+    expect(isLegalExitTransition('quit-flush-open', 'close-flush', 'none')).toBe(false)
+    expect(isLegalExitTransition('close-flush-open', 'idle', 'ending')).toBe(false)
+    expect(isLegalExitTransition('quit-defer', 'close-flush', 'ending')).toBe(false)
+    expect(isLegalExitTransition('quit-release', 'quit-flush', 'none')).toBe(false)
+    expect(isLegalExitTransition('os-shutdown-recover', 'tearing-down', 'ending')).toBe(false)
+  })
+
+  it('quit 链相位序列：idle → quit-flush →（二次 quit 拦下零转移）→ tearing-down → releasing（收口直通）', async () => {
+    const quit0 = M.quitCalls
+    const { win, lifecycle } = await freshModules()
+    const child = M.forkChildren.at(-1)!
+    win.webContents.execJsResult = { conflict: [], failed: [] }
+    expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'idle', osShutdown: 'none', deferredQuit: false })
+
+    // ① 开工：flush 挂手动闸 → 相位 quit-flush
+    const release = gateFlush(win)
+    const h = M.appOn['before-quit']!.at(-1)!
+    const e1 = { preventDefault: vi.fn() }
+    h(e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    expect(lifecycle.exitChainSnapshot().phase).toBe('quit-flush')
+
+    // ② 停机窗口内二次 quit：拦下且零转移（相位不变——「二次退出被忽略」的状态机口径）
+    const e2 = { preventDefault: vi.fn() }
+    h(e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+    expect(lifecycle.exitChainSnapshot().phase).toBe('quit-flush')
+
+    // ③ flush 落定 → 过不可回头点（停机指令在途、停在优雅窗口）→ 相位 tearing-down
+    child.postMessage = (m: unknown) => {
+      child.posted.push(m)
+    }
+    release()
+    await vi.waitFor(() => expect(child.posted).toContainEqual({ type: 'shutdown' }))
+    expect(lifecycle.exitChainSnapshot().phase).toBe('tearing-down')
+
+    // ④ 回执 + 退出 → 收口 destroy 全窗 → 相位 releasing；收口那次 quit 直通不拦
+    child.emit('message', { type: 'shutdown-done' })
+    child.emit('exit', 0)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(win.isDestroyed()).toBe(true)
+    expect(lifecycle.exitChainSnapshot().phase).toBe('releasing')
+    const e3 = { preventDefault: vi.fn() }
+    h(e3)
+    expect(e3.preventDefault).not.toHaveBeenCalled() // 收口放行（原 quitViaShutdown 语义）
+  })
+
+  it('close 链相位序列：close-flush →（quit 拦下记待汇入）→ idle 并兑现汇入 app.quit', async () => {
+    const quit0 = M.quitCalls
+    const { win, lifecycle } = await freshModules()
+    const release = gateFlush(win)
+    const e1 = { preventDefault: vi.fn() }
+    win.emit('close', e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'close-flush', osShutdown: 'none', deferredQuit: false })
+
+    // close flush 在途时的退出请求：拦下 + 记待汇入（相位不变、不起第二链）
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+    expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'close-flush', osShutdown: 'none', deferredQuit: true })
+    expect(win.webContents.execJs).toHaveLength(1) // 未起第二链
+
+    // 收尾：相位回 idle、待汇入请求兑现（app.quit）、窗口收口
+    release()
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(win.isDestroyed()).toBe(true)
+    expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'idle', osShutdown: 'none', deferredQuit: false })
+  })
+
+  it('session-end 级联合入：停机面 ending 时 close 直通、级联 quit 置 tearing-down、观察窗到点让位不复位', async () => {
+    const prevRecovery = process.env['CLW_SESSION_END_RECOVERY_MS']
+    process.env['CLW_SESSION_END_RECOVERY_MS'] = '5000'
+    try {
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0)
+      const lifecycle = await import('../../src/desktop/lifecycle.js')
+      const win = M.windows.at(-1)!
+      win.emit('session-end')
+      await vi.advanceTimersByTimeAsync(0)
+      // 停机面置位而相位不动（正交维度）：close 直通、相位仍 idle
+      expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'idle', osShutdown: 'ending', deferredQuit: false })
+      const e1 = { preventDefault: vi.fn() }
+      win.emit('close', e1)
+      expect(e1.preventDefault).not.toHaveBeenCalled()
+      expect(lifecycle.exitChainSnapshot().phase).toBe('idle')
+      // 级联 quit：直通（不 preventDefault）+ 置不可回头点
+      const e2 = { preventDefault: vi.fn() }
+      M.appOn['before-quit']!.at(-1)!(e2)
+      expect(e2.preventDefault).not.toHaveBeenCalled()
+      expect(lifecycle.exitChainSnapshot().phase).toBe('tearing-down')
+      // 观察窗到点：真退出链已接管 → 不复位停机面、不拉回 server
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(lifecycle.exitChainSnapshot()).toEqual({
+        phase: 'tearing-down',
+        osShutdown: 'ending',
+        deferredQuit: false,
+      })
+    } finally {
+      vi.useRealTimers()
+      if (prevRecovery === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
+      else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+
+  it('观察窗到点且真退出链未接管（关机被取消）→ 停机面复位、相位仍 idle（close 恢复拦截）', async () => {
+    const prevRecovery = process.env['CLW_SESSION_END_RECOVERY_MS']
+    process.env['CLW_SESSION_END_RECOVERY_MS'] = '5000'
+    try {
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0)
+      const lifecycle = await import('../../src/desktop/lifecycle.js')
+      const win = M.windows.at(-1)!
+      win.emit('session-end')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'idle', osShutdown: 'ending', deferredQuit: false })
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(lifecycle.exitChainSnapshot()).toEqual({ phase: 'idle', osShutdown: 'none', deferredQuit: false })
+      // 复位后 close 恢复拦截（编辑不静默丢失红线）——相位回 idle 后才可再开工
+      win.webContents.execJsResult = { conflict: [], failed: [] }
+      const e = { preventDefault: vi.fn() }
+      win.emit('close', e)
+      expect(e.preventDefault).toHaveBeenCalledTimes(1)
+      expect(lifecycle.exitChainSnapshot().phase).toBe('close-flush')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(win.isDestroyed()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+      if (prevRecovery === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
+      else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+})

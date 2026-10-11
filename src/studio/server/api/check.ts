@@ -1,24 +1,24 @@
 /**
- * 机检端点（M12 块3 B3.1，editor 组）
+ * 机检端点（editor 组）
  *
  * POST /api/books/:name/documents/:docId/check
  *   docId → 正文文档 → runAllChecks → CheckReport 直返（即算即显，**不落信封**）。
  *
- * 机检执行逻辑已下沉 src/check/run.ts（架构治理），此处 re-export 兼容既有调用方
- * （三审端点 review.ts、AI 编排层 orchestrate 均从内核直接 import）。
+ * 机检执行逻辑内核在 src/check/run.ts，此处 re-export 兼容既有调用方（三审端点 review.ts、AI
+ * 编排层 orchestrate 均从内核直接 import）。
  *
- * 本端点改走 async 孪生 runCheckForDocumentAsync（rebuild 内核
- * 搬 worker + 账本全书性/章纲整扫段分段让出）——慢盘上机检不再整段冻结事件循环，其间
- * SSE 心跳与其它请求照跑；信封/报告面与同步版逐位同款（等价性锚 =
- * test/check/check-chain-async-parity.test.ts）。
+ * 本端点走 async 孪生 runCheckForDocumentAsync（rebuild 内核搬 worker + 账本全书性/章纲整扫段
+ * 分段让出）——慢盘上机检不再整段冻结事件循环，其间 SSE 心跳与其它请求照跑；信封/报告面与同步版
+ * 同款（等价性锚 = test/check/check-chain-async-parity.test.ts）。
  *
- * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
- * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
+ * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；账本两端闭合
+ *（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { resolveBookOrReply, resolveDocFile, bookMovedFailure } from '../book-context.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
@@ -54,6 +54,9 @@ interface CheckCtx {
 export function forgetTreeIssuesCache(bookRoot: string): void {
   treeIssuesCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈树红点聚合（TTL 5s 兜底自愈）。
+registerBookKeyedCache('tree-issues', forgetTreeIssuesCache)
 /** 收尾：__treeIssuesCacheHasForTest / __setTreeIssuesTtlForTest 删除——
  * 缓存实例即观测面（生产对象，先例同 analysisOverviewCache）：has/TTL 覆盖档
  * （组装根 RouteOverrides 注入，随实例隔离）取代模块级钩子。 */

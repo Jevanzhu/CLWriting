@@ -7,8 +7,11 @@
  * ——登记照常移除，数据在墓地可手工恢复。
  *
  * 测试精简批（2026-09-12）：启动样板收编 bootStudio——空书架形态（books.jsonl 由
- * makeBook 按用例现写，.clwriting 目录经 dirs 预建）；userDataDir 由本文件自建自清；
- * req 走无 origin 变体，保留本地、改绑 studio.baseUrl/studio.token。
+ * makeRegisteredLongBook（helpers/book.ts）按用例现写，.clwriting 目录经 dirs 预建）；
+ * userDataDir 由本文件自建自清；req 走无 origin 变体，保留本地、改绑 studio.baseUrl/studio.token。
+ *
+ * 增补：删书墓地启动兜底清扫（装配期单次清扫 min 缺口——清理失败的大书目录此前永久
+ * 驻留）——见文末「启动兜底清扫」describe（自建 workDir + 先落墓地再起 server）。
  */
 import {
   chmodSync,
@@ -19,12 +22,20 @@ import {
   rmSync,
   existsSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
+import { startServerSafe } from '../../helpers/safe-port.js'
+import { makeRegisteredLongBook } from '../../helpers/book.js'
+import { sweepGraveyardOnce } from '../../../src/studio/server/api/books-lifecycle.js'
+import { log } from '../../../src/log/index.js'
+import { ulid } from '../../../src/fs/id.js'
 
 const GRAVEYARD = '.删书墓地'
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
@@ -33,22 +44,6 @@ const permsReliable = process.platform !== 'win32' && !isRoot // win chmod 近�
 let studio: StudioHarness
 let workDir = ''
 let userDataDir = ''
-
-function makeBook(name: string): string {
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name, path: `长篇/${name}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
-    'utf-8',
-  )
-  const bookAbs = join(workDir, '长篇', name)
-  mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookAbs, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
-    'utf-8',
-  )
-  return bookAbs
-}
 
 async function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
   const r = await fetch(`${studio.baseUrl}${path}`, { method, headers: { 'x-studio-token': studio.token } })
@@ -74,7 +69,7 @@ afterAll(async () => {
 
 describe('R73-34 删书墓地', () => {
   it('正常删书：原位目录消失、登记移除、墓地副本最终清干净', async () => {
-    const bookAbs = makeBook('墓地正常删')
+    const bookAbs = makeRegisteredLongBook(workDir, '墓地正常删')
     const del = await req('DELETE', `/api/books/${encodeURIComponent('墓地正常删')}`)
     expect(del.status).toBe(200)
     expect(existsSync(bookAbs)).toBe(false)
@@ -90,7 +85,7 @@ describe('R73-34 删书墓地', () => {
 
   it.skipIf(!permsReliable)('墓地清理失败（权限）：删书仍成功收口、登记移除、副本留档墓地', async () => {
     const name = '墓地清不动'
-    const bookAbs = makeBook(name)
+    const bookAbs = makeRegisteredLongBook(workDir, name)
     // 只把书内子目录退为 r-x：rename（Darwin 对被改名目录本身要写权，故不能退 bookAbs）
     // 照常成功，随后 rmSync 墓地副本在 r-x 子目录内 unlink EACCES——正是 D-1 要兜的
     // 「清理中断」形态
@@ -139,6 +134,102 @@ describe('R73-34 删书墓地', () => {
     const del = await req('DELETE', `/api/books/${encodeURIComponent('幽灵登记书')}`)
     expect(del.status).toBe(404)
     expect((del.json as { code?: string }).code).toBe('NOT_FOUND')
+  })
+})
+
+// ── 启动兜底清扫（缺「墓地域无清扫兜底」——清理失败的大书目录（含 .git）永久驻留）──
+// 清扫挂点 = 路由装配（server 启动链既有单次调用点），故用一个自建 workDir 先落墓地
+// 内容、再起 server，断言装配期清扫的终态；失败臂复用本文件既有的 mac 可复现手法
+// （r-x 子目录内 unlink EACCES）。
+describe('删书墓地启动兜底清扫', () => {
+  // 本 describe 自建 workDir（不复用文件级 studio——清扫挂点在装配期，须先落墓地内容再起 server）
+  const sweepTmpDirs: string[] = []
+  function mkDir(prefix: string): string {
+    const d = mkdtempSync(join(tmpdir(), prefix))
+    sweepTmpDirs.push(d)
+    return d
+  }
+
+  afterAll(() => {
+    for (const d of sweepTmpDirs) rmSync(d, { recursive: true, force: true })
+  })
+
+  async function bootAt(dir: string): Promise<{ server: Server; baseUrl: string }> {
+    const server = await startServerSafe({ port: 0, workDir: dir, mirrorConsoleLog: false })
+    return { server, baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}` }
+  }
+
+  async function closeServer(server: Server): Promise<void> {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+
+  it('装配期扫清墓地：形态匹配的可删目录（含 .git 形态）连根删除；形态不符项与符号链接不动', async () => {
+    const dir = mkDir('clw-grave-sweep-')
+    const graveyard = join(dir, GRAVEYARD)
+    // 形态匹配：`${Date.now()}-${书目录名}-${ulid}`（含 .git 子树 = 报告所指的大书形态）
+    const sweepable = join(graveyard, `${Date.now()}-大书-${ulid()}`)
+    mkdirSync(join(sweepable, '.git', 'objects'), { recursive: true })
+    writeFileSync(join(sweepable, '.git', 'objects', 'pack'), 'x', 'utf-8')
+    // 形态不符（作者手放杂物）：留档
+    const handPlaced = join(graveyard, '手工杂物')
+    mkdirSync(handPlaced, { recursive: true })
+    // 形态匹配的符号链接指向书库外真身：不跟随（不删链接、更不删链接指向的目标）
+    const outside = join(dir, '库外真身')
+    mkdirSync(outside, { recursive: true })
+    writeFileSync(join(outside, 'keep.md'), 'keep', 'utf-8')
+    const linkPath = join(graveyard, `${Date.now()}-外链书-${ulid()}`)
+    symlinkSync(outside, linkPath, 'dir')
+
+    const { server } = await bootAt(dir)
+    try {
+      await vi.waitFor(() => expect(existsSync(sweepable)).toBe(false))
+      expect(existsSync(handPlaced)).toBe(true) // 形态不符：不碰
+      expect(existsSync(linkPath)).toBe(true) // 链接本体不动
+      expect(readFileSync(join(outside, 'keep.md'), 'utf-8')).toBe('keep') // 未跟随删除
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  it.skipIf(!permsReliable)('清扫失败（只读子树 EACCES）：启动不炸、留痕含路径与原因、副本留档', async () => {
+    const dir = mkDir('clw-grave-sweep-fail-')
+    const graveyard = join(dir, GRAVEYARD)
+    const stuck = join(graveyard, `${Date.now()}-删不掉-${ulid()}`)
+    // r-x 子目录内留文件：rm 递归必须先 unlink 它 → EACCES（父目录可写故仅此子项失败）
+    mkdirSync(join(stuck, '锁住的子目录'), { recursive: true })
+    writeFileSync(join(stuck, '锁住的子目录', '占位.md'), 'x', 'utf-8')
+    mkdirSync(join(stuck, '.git'), { recursive: true }) // rm 中断点：顶层已越过、子树留档
+    chmodSync(join(stuck, '锁住的子目录'), 0o500)
+
+    const warnSpy = vi.spyOn(log, 'warn')
+    let server: Server | null = null
+    try {
+      const booted = await bootAt(dir) // 清扫失败不阻断启动
+      server = booted.server
+      const boot = await fetch(`${booted.baseUrl}/api/boot`)
+      expect(boot.status).toBe(200) // 服务照常可用
+      await vi.waitFor(() => {
+        const hit = warnSpy.mock.calls.find((c) => String(c[1]).includes('删书墓地兜底清扫失败'))
+        expect(hit).toBeTruthy()
+        expect(String(hit![1])).toContain(stuck) // 含路径
+        expect(String(hit![1])).toContain('EACCES') // 含原因
+      })
+      expect(existsSync(stuck)).toBe(true) // 副本留档待手工处理/下次启动重试
+    } finally {
+      warnSpy.mockRestore()
+      if (server) await closeServer(server)
+      chmodDirTree(dir) // 还原权限，保临时目录可清
+    }
+  })
+
+  it('并发清扫同一项幂等（两窗同时启动形态）：rm force 对已消失项 no-op，无异常、零失败计数', async () => {
+    const dir = mkDir('clw-grave-sweep-conc-')
+    const grave = join(dir, GRAVEYARD, `${Date.now()}-并发-${ulid()}`)
+    mkdirSync(join(grave, '写作', '正文'), { recursive: true })
+    const [a, b] = await Promise.all([sweepGraveyardOnce(dir), sweepGraveyardOnce(dir)])
+    expect(existsSync(grave)).toBe(false)
+    expect(a.failed + b.failed).toBe(0)
+    expect(a.removed + b.removed).toBeGreaterThanOrEqual(1) // 先到者删净，后到者 no-op
   })
 })
 

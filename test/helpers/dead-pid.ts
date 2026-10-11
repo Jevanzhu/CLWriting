@@ -13,3 +13,12 @@ export function deadPid(): number {
   const pid = r.pid ?? 0
   return pid > 0 ? pid : 999_999 // spawn 失败兜底：极高位 pid 几乎必死
 }
+
+/**
+ * 确定性活 pid（「他进程持有句柄」侧夹具；此前 2 档逐字复制同一常量与同一段理由）。
+ *
+ * POSIX 下 pid 1（launchd/init）恒活；win 下 pid 4（System）恒在——pid 1 在 win 无
+ * 主进程语义（多半不存在，活标记会被误判死 → 拦迁失效假红），kill(4,0) 即便 EPERM
+ * 也被 J7 语义按存活保守放行。J0（win 适配）实测修正。
+ */
+export const LIVE_FOREIGN_PID: number = process.platform === 'win32' ? 4 : 1

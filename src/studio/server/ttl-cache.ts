@@ -1,45 +1,17 @@
 /**
- * TTL+探针+FIFO 结果缓存通用壳（收敛件）。
+ * TTL + 探针 + FIFO 结果缓存通用壳（server 域各端点缓存的单源工厂）。
  *
- * server 域此前 17 份同构缓存壳（stat 指纹探针 + TTL 注入口 + `__xxxScanCountForTest`
- * 计数钩子 + forget 挂点 + 过期顺手逐出 + FIFO 上限），每份 40-80 行复制；本件归一为
- * 单源工厂。**时序语义逐位对齐既有各份**（两档 ts/probeTs 判定、
- * 过期顺手逐出、命中不续命、FIFO 按 Map 插入序逐最旧），收敛映射与沿革：
+ * 不变量（时序语义，改动不得漂移）：两档时间戳判定（ts / probeTs，探针签名变更即失效）、
+ * 过期顺手逐出、命中不续命、FIFO 上限按 Map 插入序逐最旧；键控 = 业务键 K 经 keyOf 字符串化
+ * 为 Map 存储键（复合键口径如 `bookRoot\0scope\0q` / `workDir\0path`）。
+ * 覆盖与观测口径：TTL 覆盖经 get/getSync 尾参逐调用注入（组装根 RouteOverrides——缺省
+ * undefined 走 opts.ttl 生产口径），不再用模块级 __setXxxForTest；探针/签名计数由壳自持
+ * stats/resetStats 观测面承载，路由层不再挂测试命名的计数 API。
+ * 特例参数（storeIf 成功才落缓存、evictExpiredOnMiss:false 等）由各端点就地注入，语义各自
+ * 对齐原实现。
  *
- * | 端点缓存（文件 · Map） | 形态 | 沿革 |
- * |------------------------------------------------------|--------------------------|------|
- * | search.ts · searchCache| 单级探针 + 异步 + inFlight|顺手逐出 |
- * | rhythm.ts · rhythmCache| 单级探针 + 同步 | |
- * | settings.ts · settingsCache| 单级探针 + 同步/异步孪生 + inFlight | 无逐出（特记 evictExpiredOnMiss:false）；补 inFlight |
- * | settings.ts · completionNamesCache| 单级探针 + 异步 + inFlight | 同上；TTL 链 = 本壳注入口 → settings 注入口 → 常量；补 inFlight |
- * | foreshadows.ts · foreshadowCache 同步孪生| 单级探针 + 同步 | |
- * | foreshadows.ts · foreshadowCache 异步孪生| 单级探针 + 异步 + inFlight| 与同步孪生共壳共 Map |
- * | health.ts · styleScanCache| 纯 TTL + 异步 | ts 取写入当刻 |
- * | analysis.ts · styleCorpusCache| 纯 TTL + 异步 | ts 当刻写侧全表过期清扫 |
- * | analysis.ts · analysisOverviewCache（/） | 两级探针 + 异步 | 2--④ 探针节流 / 异步让出 |
- * | snapshots.ts · versionStatsCache| 两级探针 + 异步 | 同上（本形态正本位） |
- * | overview.ts · overviewCache| 单级探针 + 异步 | 成功态才落缓存（storeIf）/ |
- * | overview.ts · stateCache| 纯 TTL + 异步 | 失败不落缓存；无逐出行（evictExpiredOnMiss:false） |
- * | state.ts · stateCache| 纯 TTL + 异步 | 成功才落缓存；|
- * | check.ts · treeIssuesCache| 纯 TTL + 异步 | 同上 |
- * | knowledge.ts · learnCache| 纯 TTL + 异步 | result.ok 才落缓存（storeIf）；|
- * | progress.ts · summaryCache| 纯 TTL 30s + 同步/异步孪生| 共壳共 Map；|
- * | books.ts · shelfGuardCache| 纯 TTL 30s + 同步 | 损坏标记也落缓存；forget = 整表 clear |
- *
- * 保留手写特例（不收敛，记因）：
- * - stream-ticket.ts tickets：一次性票库非「探针签名+计算结果」缓存
- * 形态——条目值即过期时刻、消费即删、签发时全表 prune、触顶逐最早过期票，通用件
- * 语义面（probe 命中判定/store 条件/FIFO 时机）均不覆盖，硬套会改时序行为。
- *
- * 行为红线（本批遵守）：命中/失效时序、逐出序、bookRoot 键控、响应字节逐位不变——
- * TTL 覆盖档（收尾）：模块级 __setXxxForTest 一族删除，改逐调用覆盖档
- * （get/getSync 尾参，来自组装根注入的 RouteOverrides——缺省 undefined 走 opts.ttl
- * 生产口径，逐位不变）。观测钩子（钩子收敛）：计数不再以测试命名 API 挂在
- * 壳上，改由壳自持 stats/resetStats 观测面承载——原路由层自持的探针/签名计数闭包
- * 与 __xxxScanCountForTest 一族随之删除（analysis / snapshots / settings 三族先行）。
- *
- * 键控：业务键 K（可为复合对象）经 keyOf 字符串化为 Map 存储键（searchCache
- * `bookRoot\0scope\0q` / shelfGuardCache `workDir\0path` 同款复合键口径）。
+ * 不收敛特例：stream-ticket.ts 的一次性票库（条目值即过期时刻、消费即删、签发时全表 prune、
+ * 触顶逐最早过期票）不是「探针签名 + 计算结果」形态，通用件语义面均不覆盖，硬套会改时序行为。
  */
 export interface TtlProbeCacheOptions<K, V> {
   /** 诊断名（错误信息用，无行为面） */

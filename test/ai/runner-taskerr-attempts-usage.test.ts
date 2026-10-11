@@ -12,14 +12,13 @@
  */
 import { describe, it, expect } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTask } from '../../src/ai/runner.js'
 import { GenError } from '../../src/ai/gen.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 function tempUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-r37-fail-ud-'))
+  return tempDirTracked('clwriting-r37-fail-ud-')
 }
 
 /** 最小 providers.json（run 抛错在触网之前，baseUrl 无需真实可达） */

@@ -1,14 +1,13 @@
 /**
  * 章节结构操作公共底座（读态派生 / plan 指纹 / 折叠拼接 / 事件副录 / 取号）。
  *
- * （⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
- * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
- * （《章节结构操作-设计方案-》v3）。本文件承载原「公共形状」段的
- * StructureFailure / StructureRagPort 与原「内部工具」段全部内容（ChapterDiskState
- * 单读派生 / fail / plan 指纹族 / foldMergedInto / concatChapterBody / bodyStartOffset /
- * recordStructureEvents / maxUsedChapter / finalizedChapterNumbers / skipFinalized /
- * splitOrderMid / realpathOf / newestVersionWithoutSource）；structure-merge.ts 与
- * structure-split.ts 单向依赖本文件（core←merge/split，无环）。
+ * 设计口径正本 = structure.ts 头注（《章节结构操作-设计方案-》v3）。
+ * 内容：公共形状 StructureFailure / StructureRagPort 与内部工具
+ * （ChapterDiskState 单读派生 / fail / plan 指纹族 / foldMergedInto /
+ * concatChapterBody / bodyStartOffset / recordStructureEvents / maxUsedChapter /
+ * finalizedChapterNumbers / skipFinalized / splitOrderMid / realpathOf /
+ * newestVersionWithoutSource）；structure-merge.ts 与 structure-split.ts 单向依赖本文件
+ * （core←merge/split，无环）。
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -23,7 +22,7 @@ import { mergedIntoMap } from '../format/chapter-lookup.js'
 // isMdFileName = 定稿条目章号提取剥 .md 茎单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { layoutOf } from './layout.js'
-import { readManifestStrict } from './manifest.js'
+import { manifestPathOf, readManifestStrict } from './manifest.js'
 import { readVersion, listVersions } from './version.js'
 import type { DocumentService } from './service.js'
 import { openSessionStoreAsync, bookHash, type NewEvent, type SessionStore } from '../events/store.js'
@@ -261,8 +260,8 @@ export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | n
 /** 已定稿章号集合（manifest finalizedRevision 条目，路径章号派生；state.ts
  *  skipFinalizedChapters 同语义）。strict 读失败上抛——取号错比拒绝执行更贵
  *  （fail-closed；异常穿透 apply 锁释放后由 server 路由顶层兜底 500 ERROR、
- *  message 脱敏——RC 全项目修注：原注「调用方收 WRITE_ERROR 信封」
- *  与实际路由不符，如需信封化须在 plan/apply 入口显式收口，此处按实况记档）。
+ *  message 脱敏——异常不经「调用方收 WRITE_ERROR 信封」路径，如需信封化须在
+ *  plan/apply 入口显式收口）。
  * 章号提取剥 .md 茎后判定（isMdFileName 单源 +
  *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
  *  漏跳 → 拆分取号可撞定稿章号。
@@ -270,7 +269,7 @@ export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | n
  *  chapterNoFromName 单源（16+ 位失真大数恒 null），与 manifest.ts 同名函数对齐。 */
 export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const out = new Set<number>()
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const manifestPath = manifestPathOf(bookRoot)
   if (!existsSync(manifestPath)) return out
   const m = readManifestStrict(manifestPath)
   for (const e of m.entries.values()) {

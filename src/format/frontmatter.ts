@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { open, readFile as fsReadFile, type FileHandle } from 'node:fs/promises'
 import type { ParseError } from './types.js'
-import { errMsg, log } from '../log/index.js' // errMsg 收编：错误文案三目单源
+import { errMsg, log } from '../log/index.js' // errMsg：错误文案三目单源
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import {

@@ -33,21 +33,9 @@ vi.mock('../../../../src/studio/web-next/src/api/shelf', () => ({ listBooks: moc
 import Shelf from '../../../../src/studio/web-next/src/pages/Shelf.vue'
 import { SHELF_RENDER_CAP } from '../../../../src/studio/web-next/src/shared/render-cap'
 import type { BookEntry } from '../../../../src/studio/web-next/src/api/shelf'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 // 本环境 happy-dom 未透出 localStorage 全局（use-shelf-delete 同款 Map 替身）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 function book(i: number): BookEntry {

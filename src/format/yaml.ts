@@ -11,21 +11,19 @@
  * 拆 core/typed-schema 两层是结构优化非缺陷——随 rc 后重构批评估，
  * 拆分红线：readBookConfig 返回形状与 book.yaml 写入字节序不得变（fm 保形纪律同源）。
  *
- * 拆分沿革（⑤④产品巨件拆分波1 · 缝 A+B 纯移动拆分）：
- * - 键 schema 表族拆出 → yaml-spec.ts（三面单源：ConfigKeySpec/ConfigSectionSpec、
- *   六个叶键 parse 工厂、scalarLeafEmit、SECTION_SPECS 全表〔表行序 = 字节红线，原注
- *   随表同迁〕、SECTION_BY_NAME、PARSE_SECTION_ORDER、parseSectionSpec/dupChildError/
- *   findChild、parseFiniteNumber/parsePositiveNumber/parseStrictBool/warnBadBool、
- *   renderScalar〔侦察原划归 yaml-patch，因 scalarLeafEmit 依赖 + yaml-patch 反依赖
- *   SECTION_SPECS 会成环，实读调整落位 yaml-spec，代码逐字未动〕）；
- * - 文本级补丁族拆出 → yaml-patch.ts（matchesKeyLine/locateTopSection/patchTopSection/
+ * 结构：
+ * - yaml-spec.ts：键 schema 表族单源（ConfigKeySpec/ConfigSectionSpec、六个叶键 parse
+ *   工厂、scalarLeafEmit、SECTION_SPECS 全表〔表行序 = 字节红线〕、SECTION_BY_NAME、
+ *   PARSE_SECTION_ORDER、parseSectionSpec/dupChildError/findChild、
+ *   parseFiniteNumber/parsePositiveNumber/parseStrictBool/warnBadBool、renderScalar）；
+ * - yaml-patch.ts：文本级补丁族（matchesKeyLine/locateTopSection/patchTopSection/
  *   setTopSectionKey/setSectionKeyBlock/setTopScalarKey/ConfigPatchLeaf/
  *   CONFIG_PATCH_LEAVES/leafEquals/patchBookConfigText），既有导出由本文件末尾
  *   re-export 桥接，全库 import 面零改动；
  * - 残核：DEFAULT_CONFIG、段树解析（parseSections/RawSection）、sectionsToConfig、
  *   公开 API（readBookConfig/parseBookConfig/stringifyBookConfig/writeBookConfig）。
- *   代码纯搬移逐字未改，零行为变化；readBookConfig 返回形状与 book.yaml 写入字节序
- *   红线由 yaml-schema-snapshot 快照族测试锁住。
+ *   readBookConfig 返回形状与 book.yaml 写入字节序红线由 yaml-schema-snapshot
+ *   快照族测试锁住。
  */
 
 import { readFileSync, existsSync } from 'node:fs'

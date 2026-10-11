@@ -28,8 +28,8 @@ import { bodyOf } from '../../../format/frontmatter.js'
 // onboard-save 仍直连 acquireTaskGate（无 AI 生成段不接包装，闸在 body 校验后占——
 // 入口闸会改 409/400 判序与 driver 假在途面，行为红线不越）
 import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 门控包装走 ctx.gate（闸实例）
-import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用
-import { log } from '../../../log/index.js'
+import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用（分诊同 files.ts PUT）
+import { log, errMsg } from '../../../log/index.js'
 
 interface OnboardCtx extends TaskGateInjected {
   workDir: string | null
@@ -76,6 +76,42 @@ const STEP_PATH: Record<OnboardStep, string> = {
   'style-rules': '文风/文风铁律.md',
   'style-quotes': '文风/金句库.md',
   'first-outline': '大纲/首章细纲.md',
+}
+
+/** 覆盖留底闸（fail-closed 单源）——onboard-ai / onboard-save 两处覆盖写前留底共用。
+ *
+ * 判据（对齐 files.ts PUT /file 先例「留底失败 → 拒绝保存」，见 draft-pipeline.ts
+ * 头注「消费方分诊口径单源汇总」）：留底是覆盖写的安全前提——留底失败即无版本兜底的
+ * 不可逆替换，拒写是唯一无损态（原稿与待写内容都在，转码/修好 IO 后重试即成功）。
+ * **无需留底的两态不设闸**：目标文件不存在（首次创建）与新旧内容相同（无覆盖面）——
+ * snapshotBeforeOverwrite 内 return null 不抛错，本闸照常放行，响应 snapshotted
+ * 缺省（口径不变）。
+ * - NonUtf8TargetError（盘上旧文非 UTF-8：确定性失败，重试无意义）→ 400 + 转码指引；
+ * - 其余留底 IO 失败（瞬态，可重试）→ 409 WRITE_ERROR；
+ * 两态文案均明示「未覆盖，原稿未动」。此前两处 catch 把失败一律 warn 后照写：非 UTF-8
+ * 存量书稿被 AI 产出/表单值静默覆盖，且留底本身是含 U+FFFD 的失真快照——原字节不可恢复。 */
+function snapshotBeforeOverwriteGate(
+  bookRoot: string,
+  relPath: string,
+  content: string,
+  origin: 'onboard-ai-overwrite' | 'onboard-save-overwrite',
+  userDataPath: string | null,
+): { ok: true; snapshotted: boolean } | { ok: false; status: number; code: string; error: string } {
+  try {
+    const snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, origin, undefined, userDataPath) !== null
+    return { ok: true, snapshotted }
+  } catch (e) {
+    if (e instanceof NonUtf8TargetError) {
+      return { ok: false, status: 400, code: 'NOT_UTF8_TARGET', error: `未覆盖，原稿未动——${e.message}` }
+    }
+    log.warn('api', `onboard 覆盖前快照留底失败（${origin}，fail-closed 拒绝写盘，可重试）：${relPath}`, e)
+    return {
+      ok: false,
+      status: 409,
+      code: 'WRITE_ERROR',
+      error: `覆盖前快照留底失败，未覆盖原稿（未执行写盘，可重试）：${errMsg(e)}`,
+    }
+  }
 }
 
 export function registerOnboardRoutes(ctx: OnboardCtx): void {
@@ -165,22 +201,10 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
           // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
           // 覆盖会静默丢手改（该域此前无版本链）。复用 draft 侧 snapshotBeforeOverwrite
           // 单源工具（工作区/.版本/<docId>/<ULID>.md，docId 清单反查→legacyId 派生）。
-          // 快照失败不阻断主流程（fail-open 记 log.warn——生成产物不因留底 IO 抖动丢弃）；
-          // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
-          let snapshotted = false
-          try {
-            snapshotted =
-              snapshotBeforeOverwrite(
-                bookRoot,
-                relPath,
-                content,
-                'onboard-ai-overwrite',
-                undefined,
-                ctx.userDataPath,
-              ) !== null
-          } catch (e) {
-            log.warn('api', `onboard-ai 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
-          }
+          // 留底失败即 fail-closed 拒绝写盘（生成产物不落盘、原稿未动，可重试）；
+          // 无需留底两态（目标不存在/内容相同）放行，成功经响应 snapshotted 字段留痕
+          const snap = snapshotBeforeOverwriteGate(bookRoot, relPath, content, 'onboard-ai-overwrite', ctx.userDataPath)
+          if (!snap.ok) return replyError(res, snap.status, snap.code, snap.error)
           try {
             mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
             atomicWriteFile(join(bookRoot, relPath), content)
@@ -194,7 +218,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
             path: relPath,
             words: countWords(bodyOf(content)),
             content,
-            ...(snapshotted ? { snapshotted: true } : {}),
+            ...(snap.snapshotted ? { snapshotted: true } : {}),
           })
         },
       )
@@ -230,22 +254,17 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       try {
         // 覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
         // 目标文件，作者对既有文件的手改此前无版本链、误存即丢。与上方 onboard-ai
-        // 同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
-        // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
-        let snapshotted = false
-        try {
-          snapshotted =
-            snapshotBeforeOverwrite(
-              bookRoot,
-              relPath,
-              input.content,
-              'onboard-save-overwrite',
-              undefined,
-              ctx.userDataPath,
-            ) !== null
-        } catch (e) {
-          log.warn('api', `onboard-save 覆盖前快照失败（${input.step}，fail-open 继续落盘）`, e)
-        }
+        // 同口径接入 snapshotBeforeOverwrite 单源工具（闸内分诊见
+        // snapshotBeforeOverwriteGate）：留底失败 fail-closed 拒保存（未覆盖原稿，
+        // 可重试），成功经响应 snapshotted 字段留痕
+        const snap = snapshotBeforeOverwriteGate(
+          bookRoot,
+          relPath,
+          input.content,
+          'onboard-save-overwrite',
+          ctx.userDataPath,
+        )
+        if (!snap.ok) return replyError(res, snap.status, snap.code, snap.error)
         try {
           mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
           atomicWriteFile(join(bookRoot, relPath), input.content)
@@ -258,7 +277,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
           step: input.step,
           path: relPath,
           words: countWords(bodyOf(input.content)),
-          ...(snapshotted ? { snapshotted: true } : {}),
+          ...(snap.snapshotted ? { snapshotted: true } : {}),
         })
       } finally {
         release()

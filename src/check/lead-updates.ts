@@ -33,14 +33,11 @@ export interface ChapterLeadUpdate {
  * 首行约定 `# 第N章 账本推进`（章节标签，解析时忽略；旧文件无标签同样兼容）。
  */
 /** 读指定路径的账本推进文件（无文件/空/读失败 → []）。
- * 头注修账——原注「文件级读取统一走本函数」
- *  失实：本函数 src 生产零调用（生产链统一走 readChapterUpdatesForChapter（Checked），
+ * 本函数 src 生产零调用（生产链统一走 readChapterUpdatesForChapter（Checked），
  *  ff- 主文件+归档两源），现存消费面仅 test/process 两处。保留理由：它是
  * readLeadUpdatesAtChecked 的 [] 兜底薄封装（口径），解析行为测试以它作
  * 「读盘 + 兜底」的最薄入口；生产侧勿新接——降级敏感场景走 Checked 三态版，
  *  不敏感场景走 ForChapter 两源单源。
- * 原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
- * 零生产调用（登记的死代码）已删除。
  * 读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
  * 请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持的 []
  *  兜底口径。 */

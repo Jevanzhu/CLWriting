@@ -9,24 +9,23 @@
  * ② run 回调壳的抽取统一经显式类型守卫（非对象返回值不再各自为政地判）。
  */
 import { rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { runTask } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { log } from '../../src/log/index.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 
 function tempUserData(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-rsr-ud-'))
+  const d = tempDirTracked('clwriting-rsr-ud-')
   dirs.push(d)
   return d
 }
 
 function tempBookRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-rsr-book-'))
+  const d = tempDirTracked('clwriting-rsr-book-')
   dirs.push(d)
   return d
 }

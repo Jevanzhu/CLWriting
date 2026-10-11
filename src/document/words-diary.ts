@@ -267,7 +267,7 @@ function compactWordsDiaryText(text: string, today: string): string {
  * O_APPEND 原子裁定；compact 侧非阻塞占锁（拿不到直接弃本轮）+ 锁内基线 stat →
  * 读算 → rename 前重 stat 复核（size/mtime 任变 = 读算期间他进程有 append →
  * 放弃本轮，新行随原文件完整保留）。原子写 fsync: true 同 journal compact。
- * 残余窗口 = 复核 stat 与 rename 之间的 µs 级（与 journal 同级，如实记档）：
+ * 残余窗口 = 复核 stat 与 rename 之间的 µs 级（与 journal 同级）：
  * 该窗内他进程 append 的行会被 rename 整文件替换吞掉，最坏损失当日一条 delta
  * （读侧逐行容错、§5.4 统计口径本为近似），且触发点是每日首基线的低频时刻。
  */

@@ -14,6 +14,9 @@
  * - R61-F-3（P3）：无已持久化基线（init 未完成，lastPersisted=null）时恢复 = 零本窗
  *   脏字段，整体采纳远端；默认值不整体回放（修复前 dirtyKeysOf 把 buildCache 全量键
  *   判为本窗脏回放覆盖远端）。
+ * - 恢复链 GET 在途窗口：窗口内本窗新编辑不在本笔 PUT 快照里，合并须按「当前 refs ≠
+ *   快照」把它覆盖回 merged——否则被 applyPrefs(merged) 回退成远端值，且回退态随即
+ *   成为重试 PUT 的 body 与 lastPersisted 基线（编辑静默丢失 + 基线记错）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -27,6 +30,9 @@ import { getGlobalPrefs, putGlobalPrefs } from '../../../../src/studio/web-next/
 import { ApiError } from '../../../../src/studio/web-next/src/api/client'
 import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
+import { installCrossWindowInvalidation } from '../../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import { notifyCrossWindow, type CrossWindowPort } from '../../../../src/studio/web-next/src/shared/cross-window'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const getMock = getGlobalPrefs as ReturnType<typeof vi.fn>
 const putMock = putGlobalPrefs as ReturnType<typeof vi.fn>
@@ -36,19 +42,6 @@ function conflict409(): ApiError {
 }
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，Map-backed 替身（prefs-store.test 同款）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 
@@ -233,6 +226,39 @@ describe('R40-41: 恢复链三态告知', () => {
   })
 })
 
+// ── 恢复链 await 窗口内的新编辑（GET 在途）不丢 ────────────────────────
+
+describe('prefs: 409 恢复 GET 在途窗口内的新编辑不被回退', () => {
+  it('恢复 GET 挂起期间本窗改的键 → 恢复后保留本窗新值（不回退成远端值），重试 PUT 带上它', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light', proseSize: 18 }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+    expect(prefs.get('proseSize')).toBe(18)
+
+    prefs.set('theme', 'dark') // 本窗脏（防抖窗口内，尚未落盘）
+    putMock.mockRejectedValueOnce(conflict409())
+    // 恢复链的 GET 挂起——开出「GET 在途」窗口（回传 pending promise 的 mock 形态）
+    let releaseGet!: (v: { prefs: Record<string, unknown>; revision: number }) => void
+    const gate = new Promise<{ prefs: Record<string, unknown>; revision: number }>((r) => {
+      releaseGet = r
+    })
+    getMock.mockReturnValueOnce(gate)
+    await vi.advanceTimersByTimeAsync(600) // 首笔 PUT 吃 409 → 恢复链 GET 在途
+
+    prefs.set('proseSize', 25) // 窗口内新编辑：本笔 PUT 快照（localCache）之外
+    releaseGet({ prefs: { theme: 'light', proseSize: 18 }, revision: 6 })
+    await vi.advanceTimersByTimeAsync(1200)
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+
+    // 窗口内新编辑保留（回归点：不加合并覆盖时 applyPrefs(merged) 把 proseSize 回退成远端 18）
+    expect(prefs.get('proseSize')).toBe(25)
+    expect(prefs.get('theme')).toBe('dark')
+    // 重试 PUT（第 2 笔）带窗口内新值——它同时是 lastPersisted 基线，基线不得记成回退态
+    expect(putMock.mock.calls[1]).toEqual([expect.objectContaining({ theme: 'dark', proseSize: 25 }), 6])
+    expect(putMock.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ proseSize: 25 }))
+  })
+})
+
 // ── R61-F-3：无持久化基线的 409 恢复 ────────────────────────
 
 describe('R61-F-3: 无持久化基线的 409 恢复——仅采纳远端，默认值不整体回放', () => {
@@ -269,5 +295,200 @@ describe('R61-F-3: 无持久化基线的 409 恢复——仅采纳远端，默�
 
     expect(prefs.get('proseSize')).toBe(22) // 远端非默认值采纳
     expect(prefs.get('theme')).toBe('dark') // 本窗真实改动键（唯一可判脏键）保留
+  })
+})
+
+// ── 跨窗失效通知（prefs 线）────────────────────────────────────────
+// 通道语义红线：广播只带「哪条线失效」（载荷无值），收到的一方必须走既有
+// GET + applyPrefs 守卫 + 脏键合并链重取——不得把广播值塞进 store（绕过 revision
+// 乐观并发闸）、不得吃掉本窗脏键、不得写回（PUT 会 bump revision → 他窗再收广播 → 回环）。
+
+/** 可注入假通道：不依赖真实跨进程窗口；deliver = 模拟「他窗发来的消息」 */
+function createFakePort(): {
+  port: CrossWindowPort
+  sent: unknown[]
+  deliver: (data: unknown) => void
+  closed: () => boolean
+} {
+  const listeners: ((data: unknown) => void)[] = []
+  const sent: unknown[] = []
+  let isClosed = false
+  return {
+    port: {
+      postMessage: (msg) => void sent.push(msg),
+      subscribe: (l) => {
+        listeners.push(l)
+        return () => {
+          const i = listeners.indexOf(l)
+          if (i >= 0) listeners.splice(i, 1)
+        }
+      },
+      close: () => {
+        isClosed = true
+      },
+    },
+    sent,
+    deliver: (data) => {
+      for (const l of [...listeners]) l(data)
+    },
+    closed: () => isClosed,
+  }
+}
+
+describe('跨窗失效通知（prefs 线）', () => {
+  let dispose: (() => void) | null = null
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+  })
+
+  it('通道可用：收到他窗 prefs 失效 → 走既有 GET 链重取（非脏键采纳远端），且不写回（不回环）', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light', pageWidth: 1020 }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    expect(h.enabled).toBe(true)
+
+    // 他窗已改：远端 theme/proseSize 新值（广播载荷里没有任何值——只有失效主题）
+    getMock.mockResolvedValueOnce({ prefs: { theme: 'dark', proseSize: 22 }, revision: 6 })
+    fake.deliver({ v: 1, src: 'other-window', topics: ['prefs'] })
+    await vi.advanceTimersByTimeAsync(10)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+
+    expect(getMock).toHaveBeenCalledTimes(2) // init 1 次 + 失效触发的重取 1 次（既有 GET 链）
+    expect(prefs.get('theme')).toBe('dark') // 值来自 GET 响应，不是广播载荷
+    expect(prefs.get('proseSize')).toBe(22)
+    expect(putMock).not.toHaveBeenCalled() // 刷新链不落盘：写回会 bump revision → 他窗再收广播 → 回环
+    expect(fake.sent).toEqual([]) // 回环红线：收到通知触发的刷新链自身不再广播
+    expect(document.documentElement.dataset.theme).toBe('dark') // 采纳远端后样式三连随落
+  })
+
+  it('本窗落盘成功后广播 prefs 失效（载荷无值：只有版本/来源/主题）', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    expect(fake.sent).toEqual([]) // init 未迁移（本地无旧值）：无广播
+
+    prefs.set('snapDays', 45)
+    await vi.advanceTimersByTimeAsync(600)
+    expect(putMock).toHaveBeenCalledTimes(1)
+    // 载荷逐位锁：只带协议头与主题——不携带任何偏好值（语义是失效通知，不是数据同步）
+    expect(fake.sent).toEqual([{ v: 1, src: 'self', topics: ['prefs'] }])
+  })
+
+  it('本窗有脏键时收到他窗变更 → 脏值保持（不静默覆盖），远端值作垫底合入非脏键', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light', pageWidth: 1020 }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+    prefs.set('theme', 'dark') // 本窗未落盘脏键（防抖窗内）
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    getMock.mockResolvedValueOnce({ prefs: { theme: 'light', pageWidth: 999 }, revision: 6 })
+    fake.deliver({ v: 1, src: 'other-window', topics: ['prefs'] })
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(prefs.get('theme')).toBe('dark') // 红线：本窗脏键不被远端值静默覆盖
+    expect(prefs.get('pageWidth')).toBe(999) // 服务端值垫底，合入非脏键
+
+    // 本窗脏键仍判脏：随既有防抖写落盘，PUT 快照带本窗脏值（合并不改落盘语义）
+    await vi.advanceTimersByTimeAsync(600)
+    expect(putMock).toHaveBeenCalledTimes(1)
+    expect(putMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ theme: 'dark', pageWidth: 999 }))
+  })
+
+  it('采纳远端值后基线随之推进：后续 409 恢复不把它当本窗脏字段重放（不反向覆盖他窗新值）', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light', pageWidth: 1020 }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    // 他窗改 pageWidth → 通知：本窗非脏键采纳 999，基线随之前移（999 不成本窗「脏」）
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    getMock.mockResolvedValueOnce({ prefs: { theme: 'light', pageWidth: 999 }, revision: 6 })
+    fake.deliver({ v: 1, src: 'other-window', topics: ['prefs'] })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(prefs.get('pageWidth')).toBe(999)
+
+    // 本窗改 theme 未落盘 → 首笔 PUT 吃 409；恢复链 GET 见 pageWidth 又被他窗改成 1234
+    prefs.set('theme', 'dark')
+    putMock.mockRejectedValueOnce(conflict409())
+    getMock.mockResolvedValueOnce({ prefs: { theme: 'light', pageWidth: 1234 }, revision: 7 })
+    await vi.advanceTimersByTimeAsync(600)
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+
+    expect(prefs.get('pageWidth')).toBe(1234) // 修复点：基线未推进时 999 被判本窗脏重放，盖掉 1234
+    expect(prefs.get('theme')).toBe('dark') // 本窗真实脏键照旧保留
+  })
+
+  it('本窗自己的消息被忽略（来源窗 id 自检）——不触发任何重取', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    fake.deliver({ v: 1, src: h.windowId, topics: ['prefs'] })
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(getMock).toHaveBeenCalledTimes(1) // 只有 init 那次；自窗消息不进刷新链
+    expect(prefs.get('theme')).toBe('light')
+  })
+
+  it('版本号不符 / 未登记主题 / 非对象载荷一律丢弃（跨窗载荷不受信）', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    fake.deliver({ v: 99, src: 'other-window', topics: ['prefs'] })
+    fake.deliver({ v: 1, src: 'other-window', topics: ['未登记主题'] })
+    fake.deliver({ v: 1, src: 'other-window', topics: 'prefs' })
+    fake.deliver('garbage')
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(getMock).toHaveBeenCalledTimes(1) // 全被丢弃：无重取
+    expect(prefs.get('theme')).toBe('light')
+  })
+
+  it('同一 tick 内多条他窗通知按主题并集合并为一次重取（多窗同时改不风暴）', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    fake.deliver({ v: 1, src: 'w1', topics: ['prefs'] })
+    fake.deliver({ v: 1, src: 'w2', topics: ['prefs', 'tree-issues'] })
+    fake.deliver({ v: 1, src: 'w3', topics: ['prefs'] })
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(getMock).toHaveBeenCalledTimes(2) // init 1 次 + 合并后 1 次（三条通知不产生三次重取）
+    expect(prefs.get('theme')).toBe('light')
+  })
+
+  it('通道不可用（工厂返回 null）→ 装配不抛（enabled=false）、广播 no-op、既有保存链照旧', async () => {
+    getMock.mockResolvedValue({ prefs: { theme: 'light' }, revision: 5 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+
+    const h = installCrossWindowInvalidation({ createPort: () => null })
+    dispose = h.dispose
+    expect(h.enabled).toBe(false)
+    expect(() => notifyCrossWindow(['prefs'])).not.toThrow()
+
+    prefs.set('snapDays', 45) // 功能照旧：通道缺失不影响既有 setter → 防抖 → PUT 链
+    await vi.advanceTimersByTimeAsync(600)
+    expect(putMock).toHaveBeenCalledTimes(1)
+    expect(prefs.get('snapDays')).toBe(45)
   })
 })

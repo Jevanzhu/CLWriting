@@ -224,9 +224,9 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
 }
 
 function toResponsesTool(tool: ToolDef): ResponsesWireTool {
-  // description 缺省改条件省略——原 `?? ''` 对缺省 description 发
+  // description 缺省改条件省略——`?? ''` 对缺省 description 发
   // 空串，与 anthropic-adapter / openai-adapter 两线的条件 omit 行为分叉（空串 description
-  // 与缺省字段在严格端点语义不同）；三线行为分叉收编为同一条件 omit 口径
+  // 与缺省字段在严格端点语义不同）；三线统一同一条件 omit 口径
   return {
     type: 'function',
     name: tool.name,

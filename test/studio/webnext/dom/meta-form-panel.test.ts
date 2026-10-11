@@ -13,6 +13,7 @@ import { nextTick } from 'vue'
 import MetaFormPanel from '../../../../src/studio/web-next/src/components/panels/MetaFormPanel.vue'
 import { useDocStore, type DocEntry } from '../../../../src/studio/web-next/src/stores/doc'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const mocks = vi.hoisted(() => ({ updateDocMeta: vi.fn(), getConfig: vi.fn() }))
 vi.mock('../../../../src/studio/web-next/src/api/documents', () => ({
@@ -23,19 +24,6 @@ vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
 }))
 
 // happy-dom localStorage 缺 clear()，Map-backed 替身（照 prefs-store 范型；prefs 初始化要读）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 function seedDoc(content: string): DocEntry {

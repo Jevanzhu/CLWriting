@@ -5,15 +5,13 @@
  * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（预览）
  * POST /api/books/:name/documents/:docId/snapshots/:id/restore → 恢复该版本
  *
- * 保留策略两层链（起只走全局校正头注）：global.json snapMax*
- * （全局）→ 硬编码 14 天 / 30 个。book.yaml snapshots 书级段已砍除，不再参与（旧值忽略）。
+ * 保留策略两层链：global.json snapMax*（全局）→ 硬编码 14 天 / 30 个。book.yaml snapshots 书级段
+ * 已砍除，不再参与（旧值忽略）。
  *
- * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底
- * （maybeSnapshot 的 restore 分支 force 不节流）——恢复本身可再撤销。
- * 恢复按字节保真读（readVersionRaw）——utf-8 档解码为精确
- * 文本（journal 全文快照/字数口径照旧），非 UTF-8 字节档（GBK 留底）原字节
- * 透传 save，恢复不再强制失真（U+FFFD）。
- * 复用 documents.ts 的 service 缓存：两个队列会破坏串行写保证。
+ * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底（maybeSnapshot 的
+ * restore 分支 force 不节流）——恢复本身可再撤销。恢复按字节保真读（readVersionRaw）：utf-8 档解码
+ * 为精确文本，非 UTF-8 字节档（GBK 留底）原字节透传 save，恢复不再强制失真（U+FFFD）。
+ * 不变量：必须复用 documents.ts 的 service 缓存——两个队列会破坏串行写保证。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -21,6 +19,7 @@ import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import {
   listVersionEntries,
@@ -167,6 +166,10 @@ interface VersionStatsResult {
 export function forgetVersionStatsCache(bookRoot: string): void {
   versionStatsCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈 version-stats 聚合
+// （写侧 prune/restore 失效同函数；TTL 5s 兜底自愈）。
+registerBookKeyedCache('version-stats', forgetVersionStatsCache)
 /** 钩子收敛：的 6 个观测钩子（__versionStatsScanCount/
  *  ProbeCount/SigCount 与各自 reset）连同路由层自持计数闭包一并删除——计数收编进缓存壳
  *  （ttl-cache.ts 的 stats），回归用例改读下面导出的缓存实例的 stats/resetStats。

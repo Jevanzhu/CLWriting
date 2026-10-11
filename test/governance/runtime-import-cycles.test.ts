@@ -9,7 +9,9 @@
  * 本门即固化成果并对后续演化 fail-closed。
  *
  * 扫描口径（与评审口径一致，可复核）：
- * - 图节点 = src/**\/*.ts（排除 .d.ts 与 node_modules 内的第三方源码）；
+ * - 图节点 = src/**\/*.ts（排除 .d.ts 与 node_modules 内的第三方源码）+ src/**\/*.vue
+ *   （前端 SFC = 编译单元：只取 <script> 块正文，template/style 不算脚本面 import；
+ *   .vue 说明符按原样解析，其余说明符按 TS 编译约定映射到 .ts 节点）；
  * - 边 = **运行时**相对 import/export：静态 `import … from`、`export … from`
  *   （re-export 桥同样是运行时边）、副作用 import `import 'x'`；
  * - **剥注释**后扫描；`import type` / `export type` 整句剔除（纯类型面不参与运行时初始化）；
@@ -31,15 +33,26 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../', import.meta.url)) // R62-58 同款：仓库根按 import.meta.url 解析
 const SRC = join(root, 'src')
 
-/** 递归收集 src 下 .ts（排除 .d.ts / node_modules / macOS ._ 垃圾）。 */
-function listTs(dir: string, out: string[] = []): string[] {
+/** 递归收集 src 下源码（.ts 排除 .d.ts + .vue SFC / node_modules / macOS ._ 垃圾）。 */
+function listSource(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     if (name.startsWith('._') || name === 'node_modules') continue
     const fp = join(dir, name)
-    if (statSync(fp).isDirectory()) listTs(fp, out)
-    else if (name.endsWith('.ts') && !name.endsWith('.d.ts')) out.push(fp)
+    if (statSync(fp).isDirectory()) listSource(fp, out)
+    else if ((name.endsWith('.ts') && !name.endsWith('.d.ts')) || name.endsWith('.vue')) out.push(fp)
   }
   return out
+}
+
+/** 门只判脚本面 import：.vue 取 <script> 块正文（template/style 里的字样不算，防误报）。 */
+function scriptBlocks(name: string, content: string): string {
+  if (!name.endsWith('.vue')) return content
+  return [...content.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '').join('\n')
+}
+
+/** 读文件内容（.vue 先剥到 script 块；调用方一律经此读，勿直读防绕门）。 */
+function readSource(fp: string): string {
+  return scriptBlocks(fp, readFileSync(fp, 'utf-8'))
 }
 
 /** 剥行/块注释（字符串内的 `//` 不误伤——逐字符扫描 + 字符串态）。 */
@@ -93,9 +106,11 @@ const DYNAMIC_RE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 
 const norm = (p: string): string => relative(root, p).replaceAll('\\', '/')
 
-/** 说明符 → 仓库内 .ts 节点（'*.js' 后缀按 TS 编译约定映射；非相对/非 .ts 返回 null）。 */
+/** 说明符 → 仓库内节点（'*.js' 后缀按 TS 编译约定映射；.vue 原样；非相对/非图内返回 null）。 */
 function resolveSpec(fromFile: string, spec: string): string | null {
   if (!spec.startsWith('.')) return null
+  // .vue 是 SFC 编译单元，说明符带扩展名原样解析（不追加 .ts）
+  if (spec.endsWith('.vue')) return norm(resolve(dirname(fromFile), spec))
   const base = spec.endsWith('.js') ? spec.slice(0, -3) + '.ts' : spec.endsWith('.json') ? null : spec + '.ts'
   return base === null ? null : norm(resolve(dirname(fromFile), base))
 }
@@ -108,12 +123,12 @@ interface ImportGraph {
 }
 
 function buildGraph(): ImportGraph {
-  const files = listTs(SRC)
+  const files = listSource(SRC)
   const known = new Set(files.map(norm))
   const g: ImportGraph = { static: new Map(), dynamic: new Map() }
   for (const f of files) {
     const from = norm(f)
-    const src = stripComments(readFileSync(f, 'utf-8'))
+    const src = stripComments(readSource(f))
     const statics = new Set<string>()
     const dynamics = new Set<string>()
     for (const re of [STATIC_STMT_RE, SIDE_EFFECT_RE]) {
@@ -274,6 +289,12 @@ const DYNAMIC_IMPORTS: ReadonlySet<string> = new Set([
   'src/document/lead-finalize.ts -> src/format/types.ts',
   'src/state/state.ts -> src/format/types.ts',
   'src/studio/server/api/providers.ts -> src/ai/provider/types.ts',
+  // web-next 路由懒加载（代码分割的 4 条动态边）：SFC 入图后可见。约束：页面不得
+  // 反向 import router——合成图环闸会红（路由须单向：router → pages）。
+  'src/studio/web-next/src/router.ts -> src/studio/web-next/src/pages/Book.vue',
+  'src/studio/web-next/src/router.ts -> src/studio/web-next/src/pages/Library.vue',
+  'src/studio/web-next/src/router.ts -> src/studio/web-next/src/pages/Shelf.vue',
+  'src/studio/web-next/src/router.ts -> src/studio/web-next/src/pages/Welcome.vue',
 ])
 
 /**
@@ -299,10 +320,10 @@ const FORBIDDEN_TRANSIT: Array<{ from: string; symbols: string[]; home: string }
 
 /** 扫描「从 from 模块 import 了表内符号」的 import 语句（含多行）；返回违规行描述。 */
 function scanTransitViolations(): string[] {
-  const files = listTs(SRC)
+  const files = listSource(SRC)
   const violations: string[] = []
   for (const f of files) {
-    const src = stripComments(readFileSync(f, 'utf-8'))
+    const src = stripComments(readSource(f))
     const fromRel = norm(f)
     for (const rule of FORBIDDEN_TRANSIT) {
       const ruleFrom = norm(join(root, rule.from))

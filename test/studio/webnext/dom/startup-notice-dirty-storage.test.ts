@@ -15,27 +15,11 @@ vi.mock('../../../../src/studio/web-next/src/api/startup-notices', () => ({
 }))
 
 import StartupNoticeBanner from '../../../../src/studio/web-next/src/components/ui/StartupNoticeBanner.vue'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const DISMISS_KEY = 'clw-startup-notices-dismissed'
 
 // happy-dom localStorage 在 vitest 集成下不可用（workspace.test.ts 同款 Map 替身）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => {
-      store.set(k, v)
-    },
-    removeItem: (k: string) => {
-      store.delete(k)
-    },
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 

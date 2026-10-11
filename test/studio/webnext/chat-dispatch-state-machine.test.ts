@@ -23,6 +23,7 @@ import {
   type ChatMessage,
 } from '../../../src/studio/web-next/src/stores/chat-dispatch'
 import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
+import { MAX_TEXT_POINTS } from '../../../src/shared/contract/studio'
 
 /** 状态机装配：真实 ref/回合状态 + 桩回调（零 pinia，直测状态机本体）。 */
 function setup(over?: { bookName?: string | null; gen?: number }) {
@@ -424,5 +425,105 @@ describe('R0916-7-P3-27: 回合目标持对象引用——数组变动后自动�
     s.d.dispatch({ type: 'chat_done' })
     expect(target?.done).toBe(true)
     expect(s.turn.current).toBeNull()
+  })
+})
+
+describe('P2-10: 对话正文闸（单条 + 列表总量，与 workbench MAX_TEXT_OUT 同锚）', () => {
+  // 额度单源：跨包契约底座 src/shared/contract/studio.ts 的 MAX_TEXT_POINTS（= 服务端
+  // SSE_BACKPRESSURE_LIMIT 的显式别名，单位码点）——本测试不再本地镜像字面量。
+  const MARK_RE = /\n…（正文超长已截断：原文 (\d+) 码点，尾部 (\d+) 码点已省略）$/
+
+  /** 造一条已完成的填充气泡（体积闸用例的高载荷源） */
+  const pad = (id: string, points: number): ChatMessage => ({
+    id,
+    role: 'assistant',
+    content: '乙'.repeat(points),
+    done: true,
+    tools: [],
+  })
+
+  it('单条超限 → 保头 MAX 码点 + 尾部截断标记（原文码点总数可判别）；未超限逐字不变', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({ type: 'chat_text', text: '短回复' })
+    expect(s.messages.value[0]!.content).toBe('短回复') // 未超限零改动
+    expect(s.messages.value[0]!.clipped).toBeUndefined()
+
+    const overflow = 50_000
+    s.d.dispatch({ type: 'chat_text', text: '甲'.repeat(MAX_TEXT_POINTS + overflow - 3) })
+    const m = s.messages.value[0]!
+    const mark = m.content.match(MARK_RE)
+    expect(mark).not.toBeNull()
+    // 截断必须可判别：标记含原文码点总数与已省略码点数（不得静默丢弃让作者误判为全文）
+    expect(Number(mark![1])).toBe(MAX_TEXT_POINTS + overflow)
+    expect(Number(mark![2])).toBe(overflow)
+    expect(m.clipped).toBe(overflow)
+    // 保留段 = 原文前 MAX 码点（保头方向：作者从头读起）
+    const kept = m.content.slice(0, m.content.length - mark![0].length)
+    expect(Array.from(kept)).toHaveLength(MAX_TEXT_POINTS)
+    expect(kept.startsWith('短回复甲')).toBe(true)
+  })
+
+  it('已截断消息的后续增量只累计省略数（保留段不增长、标记随更新）', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({ type: 'chat_text', text: '头'.repeat(MAX_TEXT_POINTS + 10) })
+    const m = s.messages.value[0]!
+    const kept = m.content.slice(0, m.content.length - m.content.match(MARK_RE)![0].length)
+
+    s.d.dispatch({ type: 'chat_text', text: '尾增量' }) // 3 码点
+    const mark2 = m.content.match(MARK_RE)
+    expect(mark2).not.toBeNull()
+    expect(Number(mark2![2])).toBe(13) // 10 + 3：增量全额计入省略
+    expect(Number(mark2![1])).toBe(MAX_TEXT_POINTS + 13)
+    // 保留段身份不变（不重切、不增长）
+    expect(m.content.slice(0, m.content.length - mark2![0].length)).toBe(kept)
+  })
+
+  it('列表总量超额度 → 丢最旧（保最新），在途气泡恒留；总量恒 ≤ 额度 + 标记长度', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({ type: 'chat_text', text: '最近的回复' })
+    const target = s.turn.current
+    // 头部塞 3 条各 50 万码点：总量 1.5M+ > 1M → 体积闸须从头部丢最旧
+    s.messages.value.unshift(pad('big0', 500_000), pad('big1', 500_000), pad('big2', 500_000))
+    s.d.trimMessages()
+    expect(s.messages.value.map((m) => m.id)).toEqual(['big2', target!.id])
+    expect(s.turn.current).toBe(target) // 在途目标不因体积裁剪出列
+    const total = s.messages.value.reduce((n, m) => n + Array.from(m.content).length, 0)
+    expect(total).toBeLessThanOrEqual(MAX_TEXT_POINTS + 64)
+  })
+
+  it('体积闸不越界：仅一条且超限 → 只过单条闸，不把列表清空', () => {
+    const s = setup()
+    s.messages.value = [pad('only', MAX_TEXT_POINTS + 5_000)]
+    s.d.trimMessages()
+    expect(s.messages.value).toHaveLength(1)
+    expect(s.messages.value[0]!.clipped).toBe(5_000)
+  })
+
+  it('条数闸逐位不变：正文远低于额度时，裁剪只按条数走（恒 CHAT_HISTORY_LIMIT 条，丢最旧一条）', () => {
+    const s = setup()
+    s.messages.value = Array.from({ length: CHAT_HISTORY_LIMIT }, (_, i) => pad(`m${i}`, 2))
+    s.d.trimMessages()
+    expect(s.messages.value).toHaveLength(CHAT_HISTORY_LIMIT) // 未超条数 → 一条不动
+    s.messages.value.push({ id: 'new', role: 'user', content: '问', done: true, tools: [] })
+    s.d.trimMessages()
+    expect(s.messages.value).toHaveLength(CHAT_HISTORY_LIMIT)
+    expect(s.messages.value[0]!.id).toBe('m1') // 恰丢最旧一条
+    expect(s.messages.value[CHAT_HISTORY_LIMIT - 1]!.id).toBe('new')
+    expect(s.messages.value.every((m) => m.clipped === undefined)).toBe(true) // 无正文改动
+  })
+
+  it('chat_reset（重试清缓冲）连省略账一并归零——重试回合的正文不被上次截断账吞掉', () => {
+    const s = setup()
+    s.d.dispatch({ type: 'chat_turn' })
+    s.d.dispatch({ type: 'chat_text', text: '旧'.repeat(MAX_TEXT_POINTS + 100) })
+    expect(s.messages.value[0]!.clipped).toBe(100)
+    s.d.dispatch({ type: 'chat_reset' })
+    expect(s.messages.value[0]!.content).toBe('')
+    expect(s.messages.value[0]!.clipped).toBeUndefined()
+    s.d.dispatch({ type: 'chat_text', text: '重试正文' })
+    expect(s.messages.value[0]!.content).toBe('重试正文') // 逐字落存，不挂截断标记
   })
 })

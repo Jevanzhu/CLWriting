@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（progress.ts 同源）
 import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
@@ -51,6 +52,9 @@ const RHYTHM_CACHE_MAX = 32
 export function forgetRhythmCache(bookRoot: string): void {
   rhythmCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈节奏聚合（TTL 5s 兜底自愈）。
+registerBookKeyedCache('rhythm', forgetRhythmCache)
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  * 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 +

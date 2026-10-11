@@ -1,18 +1,16 @@
 /**
- * RAG 分块（缝 A）—— （⑤④产品拆分波2）自 rag/index.ts 纯移动
- * 拆出：TextChunk / MAX_CHUNK_CHARS / SENTENCE_ENDERS / chunkBody / pushSegmentChunks /
- * subdivideSegment / isHighSurrogate 原样随迁（零行为变化，历史注释原样随代码迁移）。
+ * RAG 分块（缝 A）—— 自 rag/index.ts 拆出：TextChunk / MAX_CHUNK_CHARS /
+ * SENTENCE_ENDERS / chunkBody / pushSegmentChunks / subdivideSegment / isHighSurrogate。
  * 纯函数；RAG 域总述头注与召回残核在 rag/index.ts（残核 re-export 本文件
  * chunkBody/TextChunk，消费方 import 面零改动）。
- * 长度计量收编 shared/text.ts 的
- * codePointLength 单源——该模块刻意零内部依赖（shared 惯例），任意层引用无依赖
- * 倒挂与循环风险，rag 域引之不破分层；本文件自此唯一内部依赖即该单源。
+ * 长度计量走 shared/text.ts 的 codePointLength 单源——该模块刻意零内部依赖
+ *（shared 惯例），任意层引用无依赖倒挂与循环风险，rag 域引之不破分层；本文件自此
+ * 唯一内部依赖即该单源。
  */
 
-// 分块长度口径收编码点计数单源（
-// 优化下沉的 shared 单源）——原 UTF-16 .length 与全库 codePointLength 纪律分裂
-// （安全方向：增补平面字符一符计 2 使块更小/更早细分，但口径不统一），见
-// pushSegmentChunks 处注。
+// 分块长度口径走码点计数单源（shared/text.ts）——UTF-16 .length 与全库
+// codePointLength 纪律分裂（安全方向：增补平面字符一符计 2 使块更小/更早细分，
+// 但口径不统一），见 pushSegmentChunks 处注。
 import { codePointLength } from '../shared/text.js'
 
 /** 一个分块（文本 + 在该章正文的偏移） */

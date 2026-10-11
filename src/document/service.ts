@@ -3,35 +3,29 @@
  *
  * 统一文档写入入口：UI / AI / CLI 一律经此，保证并发安全 + 崩溃可恢复。
  *
- * save 编排（§5.2，每文档串行队列内执行）：
- *   预校验路径（拒 symlink/`..` 越出）+ 能力（只读文档拒写）
- *   → 入 per-docId 串行队列 → 队列内串行执行：
- *     revision 校验 → journal pending → 按策略 snapshot → atomic write+fsync
- *     → 算新 revision → 条件性更新清单 → journal settled
+ * save 编排（§5.2，每文档串行队列内执行）：预校验路径（拒 symlink/`..` 越出）+ 能力
+ * （只读文档拒写）→ 入 per-docId 串行队列 → revision 校验 → journal pending → 按策略
+ * snapshot → atomic write+fsync → 算新 revision → 条件性更新清单 → journal settled。
  *
- * 结构性操作（W2A §7：create/move/rename/trash）：
- *   不走 queue（与同 docId 的排队 save 并发时，最坏 save 撞 REVISION_CONFLICT
- *   返回，不损坏数据）。清单/journal/回收站登记的 RMW 原子性由跨进程锁承担
- *  （withSaveLocks / journal 锁 / trash 清单锁）；磁盘 IO 用同步原语、锁等待走异步
- *   轮询。移动/重命名带 journal move-pending 兜底（pending → snapshot+rename →
- *   清单更新 → settled，窗口内崩溃由进门 healthCheck 确定性收口）；软删按
- *   「先登记后移文件」。事务顺序：预检查 → snapshot 留底 → fs 操作
- *  （linkOrRenameExclusive 独占落位）→ 清单同步 → invalidateTreeIndex。结构性操作
- * 触发旧书建清单（§4.2）。
+ * 结构性操作（W2A §7：create/move/rename/trash）：不走 queue（与同 docId 的排队 save
+ * 并发时，最坏 save 撞 REVISION_CONFLICT 返回，不损坏数据）。事务顺序：预检查 →
+ * snapshot 留底 → fs 操作（linkOrRenameExclusive 独占落位）→ 清单同步 →
+ * invalidateTreeIndex；清单/journal/回收站登记的 RMW 原子性由跨进程锁承担
+ * （withSaveLocks / journal 锁 / trash 清单锁），磁盘 IO 用同步原语、锁等待走异步轮询。
+ * 移动/重命名带 journal move-pending 兜底（pending → snapshot+rename → 清单更新 →
+ * settled，窗口内崩溃由进门 healthCheck 确定性收口）；软删按「先登记后移文件」。
+ * 结构性操作触发旧书建清单（§4.2）。
  *
  * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
  * 崩溃恢复面在 state.ts assembleStatus（findUnsettled + healMovePending + crashedWrite
  * 报文）；未结算断言直测 journal.findUnsettled——本类不提供盘点方法。
- *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  *
- * 结构：
- *   - 本文件 = 公开类型 + 薄门面（DocumentService：构造组装根 + per-docId 串行队列）
- *     + 保存/新建/复制/软删四个操作函数（模块级，显式吃 `(ctx, params)`）；
- *   - 共享设施（锁编排 / 路径安全 / 清单 / journal 路径 / 快照策略 / 每实例缓存）
- *     全部收进 `doc-context.ts` 的 DocContext（组装根即本类构造函数）；
- *   - move/rename 操作在 `service-move.ts`。
- *   现行契约：锁语义、journal 记账时机、快照/版本历史、错误码与错误信封、返回形状。
+ * 结构：本文件 = 公开类型 + 薄门面（DocumentService：构造组装根 + per-docId 串行队列）
+ * + 保存/新建/复制/软删四个操作函数（模块级，显式吃 `(ctx, params)`）；共享设施
+ * （锁编排 / 路径安全 / 清单 / journal 路径 / 快照策略 / 每实例缓存）全部收进
+ * doc-context.ts 的 DocContext（组装根即本类构造函数）；move/rename 在 service-move.ts。
+ * 现行契约：锁语义、journal 记账时机、快照/版本历史、错误码与错误信封、返回形状。
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -39,7 +33,7 @@ import { safeDocId, docJoinKey } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
-import { layoutOf } from './layout.js'
+import { layoutOf, type DocumentRole } from './layout.js'
 import { appendAborted, appendPending, appendSettled } from './journal.js'
 import { writeVersion, encodeDocDirName } from './version.js'
 import { readManifestStrict, writeManifest, withManifestLockAsync } from './manifest.js'
@@ -47,7 +41,7 @@ import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
 import { bodyOf } from '../format/frontmatter.js'
-import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
+import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync, TRASH_DIR_REL } from './trash.js'
 import { errMsg, log } from '../log/index.js'
 import {
   isUtf8Bytes,
@@ -55,6 +49,7 @@ import {
   getStructSaveLockTimeoutMs,
   bookMovedGuardFailure,
   BOOK_MOVED_REASON,
+  saveLockFailures,
 } from './service-guards.js'
 import { trashBaselineOf, sanitizeCreateSegment, isSanitizedCreatePath } from './service-helpers.js'
 import { updateChapterMetaLocked, updateDocMetaLocked } from './service-meta.js'
@@ -225,27 +220,25 @@ function maybeSnapshot(
 // 队列串行语义：SaveQueue.pump 以 run 的 promise 决议驱动下一项，await 化不改变
 // per-docId 串行保证。
 // 锁序（全仓统一）：save 锁 → 布线锁 → 清单锁（含 finalize 链）。
-async function executeSave(
+
+/** 保存拒绝信封（SaveResult 的 ok:false 分支）。 */
+type SaveRejection = Extract<SaveResult, { ok: false }>
+
+/** 出队后、取锁前的守卫（原 executeSave 前段整体迁出）：docId 登记路径比对 +
+ *  回收站认领复活守卫。返回 null = 放行；判定与文案逐位不变。 */
+async function saveGuardsBeforeLock(
   ctx: DocContext,
   docId: string,
   relPath: string,
   absPath: string,
-  input: SaveDocumentInput,
-): Promise<SaveResult> {
-  // journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
-  if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
-  // 文件名编码（`:`→`_`）：legacy docId 的字面名在 win 上非法（EINVAL/NTFS ADS），
-  // 不编码则 appendPending 记不上 = 保存链路永久 WRITE_ERROR。编码口径单源在
-  // doc-context.journalPathOf；未结算读侧反解见 journal/state 消费面。
-  const journalPath = ctx.journalPathOf(docId)
-
+): Promise<SaveRejection | null> {
   // 结构性操作（rename/move/trash）同步执行、不排队，与入队 save 存在竞态窗口——
   // 新建档（expectedRevision=null）的排队 save 若在移动/删除后出队，会在旧路径复活
   // 已移走/已删文件（trash 场景绕过回收站）。出队时按清单核对保存目标仍是该 docId
   // 的登记路径；已删（清单除名 + 回收站在案）同样拒绝。REVISION_CONFLICT 语义 =
   // 「世界已变，请刷新重试」，前端既有冲突处理会重新同步路径。
-  // 清单查询与 legacy 收编链（adoptLegacyDoc → upsertManifestEntry → withManifestLock
-  // 超时 throw）的失败一律收编为 SaveResult.WRITE_ERROR，不裸穿成 rejected promise /
+  // 清单查询与 legacy 链（adoptLegacyDoc → upsertManifestEntry → withManifestLock
+  // 超时 throw）的失败一律收为 SaveResult.WRITE_ERROR，不裸穿成 rejected promise /
   // API 500。
   let registered: string | null
   try {
@@ -288,6 +281,322 @@ async function executeSave(
       reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
     }
   }
+  return null
+}
+
+/** 取锁后复核（原 executeSave 锁内前段整体迁出）：把「取锁前已判一次」的三道守卫按
+ *  锁内世界复算，收窄「复核→写盘」的毫秒窗；判定与文案逐位不变。返回 null = 放行。
+ *  抛出（锁内清单/回收站读）由调用面外层 catch 统一 WRITE_ERROR「未落盘，可重试」。 */
+async function saveGuardsInLock(
+  ctx: DocContext,
+  docId: string,
+  relPath: string,
+  absPath: string,
+): Promise<SaveRejection | null> {
+  // 锁内复核：路径登记/回收站认领守卫在取锁前已判一次，但等锁窗口内他进程
+  // doTrash/doMoveOrRename 后仍会按旧世界落盘（旧路径复活已删文件/写错位）。取锁后
+  // 重判把窗口收窄到「复核→写盘」的毫秒级（结构性操作族亦持同一 save 锁，
+  // 此处复核是对「取锁前已判一次」的锁内复算，防等锁窗内世界已变）。
+  const registeredNow = await ctx.lookupPathByDocIdAdoptAsync(docId)
+  if (registeredNow !== null && docJoinKey(registeredNow) !== docJoinKey(relPath)) {
+    // win 折叠 + NFC 归一
+    return {
+      ok: false,
+      code: 'REVISION_CONFLICT',
+      reason: `文档已移动或重命名（现路径 ${registeredNow}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
+    }
+  }
+  // 锁内复核同款 strict 读——读失败走外层 catch 的 WRITE_ERROR「未落盘，可重试」
+  //（此刻尚未 appendPending，无孤儿可标 aborted），fail-closed 拒绝复活窗，不静默放行。
+  if (
+    readTrashManifestStrict(ctx.bookRoot).some((t) => t.id === docId) &&
+    (registeredNow === null || !existsSync(absPath))
+  ) {
+    return {
+      ok: false,
+      code: 'REVISION_CONFLICT',
+      reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
+    }
+  }
+  // 书注册二道防线——单元首行书注册重验通过到本方法落盘之间隔着排队/保存锁/清单锁
+  // 等多个让出点，窗内书被改名/删书（books.ts 五连 drain 快照式，重验后新进单元不被
+  // 等待）时，appendPending/atomicWriteFile 的 mkdir recursive 会对旧捕获 bookRoot
+  // 重建孤儿目录树；且清单随书搬走后 lookupPathByDocId 按「未登记」放行新建语义，
+  // 上方 strict 读防线被旁路。置于锁内复核之后、首笔写入（appendPending）之前 =
+  // 可达的最后时刻。失败即拒绝不落盘，文案单源 BOOK_MOVED_REASON（与 studio 首行
+  // 重验同文；入口校验保留为一线快速失败）。登记语境缺失/登记读失败放行档见
+  // bookMovedGuardFailure 头注。
+  if (bookMovedGuardFailure(ctx.bookRoot) !== null) {
+    return { ok: false, code: 'BOOK_MOVED', reason: BOOK_MOVED_REASON }
+  }
+  return null
+}
+
+/** 锁内基线判读产物（prepareSave 的单读派生面，见 readSaveBaseline 头注）。 */
+interface SavePlan {
+  /** 盘上是否已存在（决定覆写 atomicWriteFile / 新建独占 createFileExclusive）。 */
+  existing: boolean
+  /** 盘上原始字节（不存在 = null；快照留底/旧文 words/基线指纹同源）。 */
+  diskBytes: Buffer | null
+  /** 盘上基线指纹（期望基线比对判据）。 */
+  currentRev: Revision
+  /** 待写内容（string 已规范形；Buffer = 恢复端点原字节档）。 */
+  content: string | Buffer
+}
+
+/** 锁内基线判读 + 非 UTF-8 覆写闸（原 executeSave 中段整体迁出）：revision 校验与
+ *  「盘上字节是否合法 UTF-8」两道闸，通过则给出本笔写盘的同源产物。抛出（读盘失败）
+ *  由调用面外层 catch 统一 WRITE_ERROR「未落盘，可重试」，与 computeRevision 抛错同语义。 */
+function readSaveBaseline(absPath: string, input: SaveDocumentInput): { rejected: SaveRejection } | { plan: SavePlan } {
+  // 步骤 2：revision 校验（串行内执行，保证并发一致）
+  // 单读派生：锁内一次整读 Buffer，rev（computeRevisionBytes）/ UTF-8 闸（isUtf8Bytes）
+  // / wordDelta 旧文 / 快照留底（maybeSnapshot diskContent）四产物同源——多次独立整读
+  // 会在结构性操作窗口内判据与写回错源（微 TOCTOU），且 2MB 章每笔保存多份全文 IO。
+  // 读失败（win 瞬时锁等）走外层 catch WRITE_ERROR「未落盘，可重试」，与 computeRevision
+  // 抛错同语义。
+  const existing = existsSync(absPath)
+  const diskBytes: Buffer | null = existing ? readFileSync(absPath) : null
+  const currentRev: Revision = diskBytes ? computeRevisionBytes(diskBytes) : null
+  if (input.expectedRevision !== currentRev) {
+    const reason = existing
+      ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
+      : `期望基线 ${input.expectedRevision} 但文件不存在`
+    return { rejected: { ok: false, code: 'REVISION_CONFLICT', reason } }
+  }
+
+  // 非 UTF-8 覆写防线（含 autosave）——盘上字节不是合法 UTF-8 时一律拒绝（先转码再保
+  // 存）：GBK 文件被错误编码打开后 autosave 把乱码原子覆盖回原文件，且 maybeSnapshot
+  // 以 utf-8 读盘留底的是失真快照（假留底，覆写后原字节任何形式不可恢复）。盘上为合法
+  // UTF-8 时放行（含真实 U+FFFD 字符的普通编辑）。
+  // Buffer 内容放行：该防线的威胁模型是「文本往返失真覆写」，字节档恢复（readVersionRaw
+  // 原字节透传）正是把原始字节写回盘上的反悔通道，拦它等于剥夺 GBK 档唯一的无损恢复
+  // 路径。
+  const content = typeof input.content === 'string' ? canonicalizeText(input.content) : input.content
+  const byteRestore = Buffer.isBuffer(content)
+  if (diskBytes !== null && !byteRestore && !isUtf8Bytes(diskBytes)) {
+    return { rejected: NON_UTF8_SAVE_REJECT }
+  }
+  return { plan: { existing, diskBytes, currentRev, content } }
+}
+
+/** journal pending → 快照留底 → 正文原子/独占落盘 → 清单刷新/树失效 → settled 与
+ *  字数记账（原 executeSave 内层 try 整体迁出；内层 catch 的 aborted 记账与成功返回
+ *  语义逐位随迁，见各段内注）。 */
+async function applySaveLocked(
+  ctx: DocContext,
+  docId: string,
+  relPath: string,
+  absPath: string,
+  journalPath: string,
+  input: SaveDocumentInput,
+  plan: SavePlan,
+): Promise<SaveResult> {
+  const { existing, diskBytes, currentRev, content } = plan
+  // content 判据本地 const 别名（Buffer.isBuffer 纯判定，与 readSaveBaseline 同源重复
+  // 求值无害）——保住 `byteRestore ? … : bodyOf(content)` 处的 string 收窄。
+  const byteRestore = Buffer.isBuffer(content)
+  // 步骤 4：journal pending（只记元数据，防丢字）
+  // pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），且失败须走
+  // SaveResult 契约而非直接抛出（抛出会让 save 变 rejected promise，调用方易
+  // unhandled rejection）。崩溃检测只看 pending 存在性；恢复材料归版本档原件/前端镜像。
+  let opId: string
+  try {
+    opId = await appendPending(journalPath, docId, currentRev)
+  } catch (e) {
+    return {
+      ok: false,
+      code: 'WRITE_ERROR',
+      reason: `journal 追加失败，保存未执行：${errMsg(e)}`,
+    }
+  }
+
+  // 留底降级旗（本笔保存是否因快照失败而丢了旧文留底）。声明在内层 try 之外：快照失败
+  // 在下方 catch 置位，成功返回分支（正文已落盘）再读它——失败收口（返回 WRITE_ERROR）
+  // 不需要该旗：保存没成，留底缺口不是当务之急。
+  let snapshotDegraded = false
+  try {
+    // wordDelta 计算须在 atomicWrite 前读旧内容；readFileSync 失败走本内层 catch →
+    // journal 标 aborted（而非孤儿 pending 误报崩溃）。strip fm 口径（与前端
+    // updateWordCount 一致）。
+    // 步骤 4.5：算字数 delta——字节档不记增量：GBK 字节无安全文本视图，失真视图
+    // 的字数是伪值，字数日记宁缺毋错（delta 0）。
+    // 保存链副本收敛（200 万字书每笔保存峰值副本 15-25× → 显著回落）：
+    // ① 新内容单次 Buffer 化（contentBytes）：写盘与 computeRevisionBytes 共用同一份
+    //    字节，不再为算 revision 二次编码全文副本。
+    // ② 旧文 words 走 revision 键控缓存（ctx.docWordsCache）：原每笔保存都物化整篇旧文
+    //    只为 countWords 一次。以 currentRev（diskBytes 的 sha256）为键——同字节 ⇒ 同
+    //    字数（countWords 确定性），外部写入必变 rev ⇒ 缓存自动失效重算，零陈旧窗口。
+    // ③ maybeSnapshot 吃 diskBytes 字节直存（UTF-8 闸已保证非字节档路径盘上为合法
+    //    UTF-8，Buffer 直存与 utf-8 往返字节一致）；快照 meta.words 用 oldWords。
+    const contentBytes = typeof content === 'string' ? Buffer.from(content, 'utf-8') : content
+    const newWords = byteRestore ? null : countWords(bodyOf(content))
+    let oldWords: number | null = null
+    if (diskBytes !== null && !byteRestore) {
+      // rev 键控缓存读取经 ctx 显式 API（rev 比对在 cachedDocWords 内，零陈旧窗口）
+      const cached = ctx.cachedDocWords(docId, currentRev)
+      if (cached !== undefined) {
+        oldWords = cached
+      } else {
+        oldWords = countWords(bodyOf(diskBytes.toString('utf-8')))
+        ctx.rememberDocWords(docId, currentRev, oldWords)
+      }
+    }
+    const wordDelta = byteRestore ? 0 : (newWords ?? 0) - (oldWords ?? 0)
+
+    // 步骤 5：按策略建 snapshot（修改前版本留底）
+    // 留底传 diskBytes 原字节：缺省 utf-8 文本读会把 GBK 盘上内容解码成 U+FFFD 写入
+    // .版本（假留底，原字节此后无任何副本）；byteRestore 是非 UTF-8 档唯一合法覆写通道，
+    // 恢复链同样走原字节。diskBytes 为 null（文件不存在）时传 undefined，落到 maybeSnapshot
+    // 的「无底可留，跳过快照正常新建落盘」分支。
+    // 留底 fail-open：maybeSnapshot 与正文原子写同处内层 try，writeVersion 落盘段
+    //（`.版本` 目录被同步盘锁住/只读/配额满）抛出若落进下方 catch，会 journal 误记
+    // aborted + 返回 WRITE_ERROR——正文一字未动却报失败；且 listVersions 对坏目录恒返 []
+    // ⇒ 节流/去重判据永不生效 ⇒ 每笔保存都真去写、每笔都抛，作者陷入「写不进去且只有
+    // 状态条一行小字」的永久死锁（autosave 失败不弹 toast），无自愈路径。留底是兜底不是
+    // 闸（同「写后 best-effort 副作用不得把成功改判失败」家族）：warn 留痕 + 置
+    // snapshotDegraded 旗随结果上抛，正文照常落盘。
+    // 不变量（唯一不能碰）：留底成功时其内容恒 === 被覆盖的盘上旧内容——本降级只在
+    // 快照抛错时改判据，不触碰写成功路径。
+    try {
+      maybeSnapshot(
+        ctx,
+        docId,
+        relPath,
+        absPath,
+        input,
+        currentRev,
+        diskBytes ?? undefined,
+        !byteRestore && oldWords !== null ? oldWords : undefined,
+      )
+    } catch (e) {
+      snapshotDegraded = true
+      log.warn(
+        'document',
+        `保存前版本留底失败（留底是兜底不是闸，fail-open 继续写入，正文已保存）：${errMsg(e)}。本次修改前的旧内容未留底、版本历史本笔缺口；` +
+          `多为 工作区/.版本 目录不可写或被占用（同步盘锁定/只读/配额满），请检查该书目录下 工作区/.版本 的权限与占用后重试`,
+      )
+    }
+    // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
+    // 新建路径（expectedRevision=null）不裸 rename——基线校验（文件不存在）与落盘之间
+    // 无互斥，他进程并发新建同名文件时 atomicWriteFile 的 rename 会静默覆盖先到者内容
+    // 且本方返回成功（lost update）。改 createFileExclusive 独占创建（link 不覆盖，
+    // 非 NTFS 卷自带 rename 降级）：'exists' = 落位时目标已被并发创建，按既有
+    // REVISION_CONFLICT 口径拒绝（「世界已变，请刷新重试」，不新增错误码），
+    // journal pending 补 aborted 后返回。
+    if (existing) {
+      atomicWriteFile(absPath, contentBytes, { fsync: true })
+    } else {
+      // 新建路径消毒闸：词法越界已被 resolveSafePath 拦，但 win 保留设备名/尾点/尾空格/
+      // 控制字符/非法字符段直落盘会 EINVAL 裸 WRITE_ERROR 或读写名不一致；create/copy/
+      // rename 均已走单源消毒器，本分支是漏网点。弃暗拒明（fail-closed）：任一待建段
+      // 「消毒后会改写」即拒——不静默改写落盘（docId↔relPath 由调用方绑定，改写即造
+      // 「清单≠盘上名」分裂）；已存在文件的覆写不铸新名，不走本闸。
+      if (!isSanitizedCreatePath(relPath)) {
+        try {
+          await appendAborted(journalPath, opId, '新建路径段不合消毒规则（保留名/尾点/尾空格/非法字符）')
+        } catch {
+          // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+        }
+        return {
+          ok: false,
+          code: 'PATH_ESCAPE',
+          reason: `新建路径 ${relPath} 含不合消毒规则的段（Windows 保留设备名/尾点/尾空格/控制字符/非法字符），已拒绝——请改用合法文件名（或经新建文档入口，将自动消毒）`,
+        }
+      }
+      const created = createFileExclusive(absPath, contentBytes, { fsync: true })
+      if (created === 'exists') {
+        try {
+          await appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
+        } catch {
+          // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+        }
+        return {
+          ok: false,
+          code: 'REVISION_CONFLICT',
+          reason: `预期新建，但落位时 ${relPath} 已被并发创建（另一进程先到）——请刷新后基于最新内容重试`,
+        }
+      }
+    }
+    // 步骤 8：新 revision
+    // 单写派生：落盘后再读盘会读到并发写的别窗内容（结构性操作/外部编辑器不持 save
+    // 锁），revision 代际标注短暂失真（journal 可对账自愈），且每笔保存多一次全文 IO。
+    // 刚写入的字节即 content（string→utf8 / Buffer 原样，atomicWriteFile 零转换），
+    // computeRevisionBytes 派生与盘上最终态恒等。
+    const newRev = computeRevisionBytes(contentBytes)
+    // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单§4.2）
+    // 清单刷新是 best-effort——此时文件已原子落盘，清单只是可重建索引（树扫盘/
+    // repairBooks 自愈）；它抛（清单锁超时/磁盘满）若落进下方 catch 会返回
+    // WRITE_ERROR：保存实际成功却报失败（编辑器误报、重试撞 REVISION_CONFLICT）。
+    // warn 留痕后照常 settled + 返回成功。
+    try {
+      // 清单锁等待异步化（withManifestLockAsync）
+      await ctx.maybeUpdateManifest(docId, relPath)
+    } catch (e) {
+      log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+    }
+    // 保存后树缓存失效：单键失效（indexes 重建 + 只清本次改写文件的 probe 键），
+    // 与 files.ts PUT / draft-pipeline 同口径（树 wordCount/status 另有 stat 指纹自愈 +
+    // 前端 refresh=1 兜底）。
+    invalidateTreeIndexForContent(ctx.bookRoot, relPath)
+    // 步骤 10：journal settled。
+    // settled 失败不误报——此刻正文已原子落盘、清单已刷新，若返回 WRITE_ERROR 会致
+    // 编辑器误报失败、重试必撞 REVISION_CONFLICT，journal 悬置 pending 误报 crashedWrite。
+    // best-effort：warn 留痕 + 按成功收口。
+    try {
+      await appendSettled(journalPath, opId, newRev)
+    } catch (e) {
+      log.warn(
+        'document',
+        `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${errMsg(e)}`,
+      )
+    }
+    // 字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回
+    // WRITE_ERROR 误报失败）
+    try {
+      appendWordsDelta(ctx.bookRoot, todayDate(), wordDelta, docId)
+    } catch {
+      // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+    }
+    // 成功落盘后回填新文字数缓存——下一笔保存的 oldWords 直接命中
+    //（rev 键控：即便此笔回填后文件又被外部改动，rev 不匹配自动失效，无害）。
+    if (newWords !== null) ctx.rememberDocWords(docId, newRev, newWords)
+    // ── 串行执行体（§5.2 步骤 4-11，队列内调用）─────────
+    // 留底降级旗随成功结果上抛——保存成功与「本笔无留底」是两件事，正文落盘结论不变，
+    // 仅把快照缺口如实带给调用方（API 层透出 → 前端一次性提示）；健康路径不带该字段。
+    return snapshotDegraded ? { ok: true, revision: newRev, snapshotDegraded: true } : { ok: true, revision: newRev }
+  } catch (e) {
+    // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
+    try {
+      await appendAborted(journalPath, opId, errMsg(e))
+    } catch {
+      // journal 写失败忽略（best-effort，不影响返回）
+    }
+    return {
+      ok: false,
+      code: 'WRITE_ERROR',
+      reason: `保存失败：${errMsg(e)}`,
+    }
+  }
+}
+
+async function executeSave(
+  ctx: DocContext,
+  docId: string,
+  relPath: string,
+  absPath: string,
+  input: SaveDocumentInput,
+): Promise<SaveResult> {
+  // journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
+  if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
+  // 文件名编码（`:`→`_`）：legacy docId 的字面名在 win 上非法（EINVAL/NTFS ADS），
+  // 不编码则 appendPending 记不上 = 保存链路永久 WRITE_ERROR。编码口径单源在
+  // doc-context.journalPathOf；未结算读侧反解见 journal/state 消费面。
+  const journalPath = ctx.journalPathOf(docId)
+
+  // 出队后（取锁前）守卫单源在 saveGuardsBeforeLock——登记路径比对 + 回收站复活认可
+  // （对应锁内复算面见 saveGuardsInLock），判定与文案逐位随迁。
+  const earlyRejection = await saveGuardsBeforeLock(ctx, docId, relPath, absPath)
+  if (earlyRejection) return earlyRejection
 
   // 保存临界段跨进程锁——per-docId 串行队列只防进程内并发；本仓把「CLI 与 GUI 双进程
   // 同书」当支持场景，唯独「revision 校验 → atomicWrite → settled」正文写段原先不在任何
@@ -302,287 +611,29 @@ async function executeSave(
   // 布线文件在 save 锁内再取同名文件锁（与 lead-finalize 回写临界段互斥，超时/获取
   // 异常 fail-closed 拒绝并先释放 save 锁防泄漏）。锁序：save → 布线 → 清单。
   // 取锁/释放编排（含锁获取自身抛出的收口）单源在 withSaveLocks，锁序与失败语义不变。
+  // 失败文案按意图单源（saveLockFailures）——本面专属文案逐字不变。
+  const lockFailures = saveLockFailures('保存')
   return ctx.withSaveLocks<SaveResult>({
     journalPath,
     // 锁档生效值随容器走（per-ctx 组装参数，缺省 = SAVE_LOCK_TIMEOUT_MS 常量档）
     saveTimeoutMs: ctx.saveLockTimeoutMs,
-    onSaveLockThrown: (e) => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: `保存锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
-    }),
-    onSaveLockTimeout: () => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: '保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试',
-    }),
+    ...lockFailures.saveLock,
     wiring: {
       relPath,
       timeoutMs: ctx.wiringSaveLockTimeoutMs,
-      onThrown: (e) => ({
-        ok: false,
-        code: 'WRITE_ERROR',
-        reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
-      }),
-      onTimeout: () => ({
-        ok: false,
-        code: 'WRITE_ERROR',
-        reason: '保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试',
-      }),
+      ...lockFailures.wiring,
     },
     body: async () => {
       // 外层 catch（下方）原挂在取锁后的 try 上——主体迁入本闭包后由本内层 try
       // 承接同一收口语义（锁内复核与落盘段的意外抛出统一 WRITE_ERROR）。
       try {
-        // 锁内复核：路径登记/回收站认领守卫在取锁前已判一次，但等锁窗口内他进程
-        // doTrash/doMoveOrRename 后仍会按旧世界落盘（旧路径复活已删文件/写错位）。取锁后
-        // 重判把窗口收窄到「复核→写盘」的毫秒级（结构性操作族亦持同一 save 锁，
-        // 此处复核是对「取锁前已判一次」的锁内复算，防等锁窗内世界已变）。
-        const registeredNow = await ctx.lookupPathByDocIdAdoptAsync(docId)
-        if (registeredNow !== null && docJoinKey(registeredNow) !== docJoinKey(relPath)) {
-          // win 折叠 + NFC 归一
-          return {
-            ok: false,
-            code: 'REVISION_CONFLICT',
-            reason: `文档已移动或重命名（现路径 ${registeredNow}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
-          }
-        }
-        // 锁内复核同款 strict 读——读失败走外层 catch 的 WRITE_ERROR「未落盘，可重试」
-        //（此刻尚未 appendPending，无孤儿可标 aborted），fail-closed 拒绝复活窗，不静默放行。
-        if (
-          readTrashManifestStrict(ctx.bookRoot).some((t) => t.id === docId) &&
-          (registeredNow === null || !existsSync(absPath))
-        ) {
-          return {
-            ok: false,
-            code: 'REVISION_CONFLICT',
-            reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
-          }
-        }
-        // 书注册二道防线——单元首行书注册重验通过到本方法落盘之间隔着排队/保存锁/清单锁
-        // 等多个让出点，窗内书被改名/删书（books.ts 五连 drain 快照式，重验后新进单元不被
-        // 等待）时，appendPending/atomicWriteFile 的 mkdir recursive 会对旧捕获 bookRoot
-        // 重建孤儿目录树；且清单随书搬走后 lookupPathByDocId 按「未登记」放行新建语义，
-        // 上方 strict 读防线被旁路。置于锁内复核之后、首笔写入（appendPending）之前 =
-        // 可达的最后时刻。失败即拒绝不落盘，文案单源 BOOK_MOVED_REASON（与 studio 首行
-        // 重验同文；入口校验保留为一线快速失败）。登记语境缺失/登记读失败放行档见
-        // bookMovedGuardFailure 头注。
-        if (bookMovedGuardFailure(ctx.bookRoot) !== null) {
-          return { ok: false, code: 'BOOK_MOVED', reason: BOOK_MOVED_REASON }
-        }
-        // 步骤 2：revision 校验（串行内执行，保证并发一致）
-        // 单读派生：锁内一次整读 Buffer，rev（computeRevisionBytes）/ UTF-8 闸（isUtf8Bytes）
-        // / wordDelta 旧文 / 快照留底（maybeSnapshot diskContent）四产物同源——多次独立整读
-        // 会在结构性操作窗口内判据与写回错源（微 TOCTOU），且 2MB 章每笔保存多份全文 IO。
-        // 读失败（win 瞬时锁等）走外层 catch WRITE_ERROR「未落盘，可重试」，与 computeRevision
-        // 抛错同语义。
-        const existing = existsSync(absPath)
-        const diskBytes: Buffer | null = existing ? readFileSync(absPath) : null
-        const currentRev: Revision = diskBytes ? computeRevisionBytes(diskBytes) : null
-        if (input.expectedRevision !== currentRev) {
-          const reason = existing
-            ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
-            : `期望基线 ${input.expectedRevision} 但文件不存在`
-          return { ok: false, code: 'REVISION_CONFLICT', reason }
-        }
-
-        // 非 UTF-8 覆写防线（含 autosave）——盘上字节不是合法 UTF-8 时一律拒绝（先转码再保
-        // 存）：GBK 文件被错误编码打开后 autosave 把乱码原子覆盖回原文件，且 maybeSnapshot
-        // 以 utf-8 读盘留底的是失真快照（假留底，覆写后原字节任何形式不可恢复）。盘上为合法
-        // UTF-8 时放行（含真实 U+FFFD 字符的普通编辑）。
-        // Buffer 内容放行：该防线的威胁模型是「文本往返失真覆写」，字节档恢复（readVersionRaw
-        // 原字节透传）正是把原始字节写回盘上的反悔通道，拦它等于剥夺 GBK 档唯一的无损恢复
-        // 路径。
-        const content = typeof input.content === 'string' ? canonicalizeText(input.content) : input.content
-        const byteRestore = Buffer.isBuffer(content)
-        if (diskBytes !== null && !byteRestore && !isUtf8Bytes(diskBytes)) {
-          return NON_UTF8_SAVE_REJECT
-        }
-
-        // 步骤 4：journal pending（只记元数据，防丢字）
-        // pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），且失败须走
-        // SaveResult 契约而非直接抛出（抛出会让 save 变 rejected promise，调用方易
-        // unhandled rejection）。崩溃检测只看 pending 存在性；恢复材料归版本档原件/前端镜像。
-        let opId: string
-        try {
-          opId = await appendPending(journalPath, docId, currentRev)
-        } catch (e) {
-          return {
-            ok: false,
-            code: 'WRITE_ERROR',
-            reason: `journal 追加失败，保存未执行：${errMsg(e)}`,
-          }
-        }
-
-        // 留底降级旗（本笔保存是否因快照失败而丢了旧文留底）。声明在内层 try 之外：快照失败
-        // 在下方 catch 置位，成功返回分支（正文已落盘）再读它——失败收口（返回 WRITE_ERROR）
-        // 不需要该旗：保存没成，留底缺口不是当务之急。
-        let snapshotDegraded = false
-        try {
-          // wordDelta 计算须在 atomicWrite 前读旧内容；readFileSync 失败走本内层 catch →
-          // journal 标 aborted（而非孤儿 pending 误报崩溃）。strip fm 口径（与前端
-          // updateWordCount 一致）。
-          // 步骤 4.5：算字数 delta——字节档不记增量：GBK 字节无安全文本视图，失真视图
-          // 的字数是伪值，字数日记宁缺毋错（delta 0）。
-          // 保存链副本收敛（200 万字书每笔保存峰值副本 15-25× → 显著回落）：
-          // ① 新内容单次 Buffer 化（contentBytes）：写盘与 computeRevisionBytes 共用同一份
-          //    字节，不再为算 revision 二次编码全文副本。
-          // ② 旧文 words 走 revision 键控缓存（ctx.docWordsCache）：原每笔保存都物化整篇旧文
-          //    只为 countWords 一次。以 currentRev（diskBytes 的 sha256）为键——同字节 ⇒ 同
-          //    字数（countWords 确定性），外部写入必变 rev ⇒ 缓存自动失效重算，零陈旧窗口。
-          // ③ maybeSnapshot 吃 diskBytes 字节直存（UTF-8 闸已保证非字节档路径盘上为合法
-          //    UTF-8，Buffer 直存与 utf-8 往返字节一致）；快照 meta.words 用 oldWords。
-          const contentBytes = typeof content === 'string' ? Buffer.from(content, 'utf-8') : content
-          const newWords = byteRestore ? null : countWords(bodyOf(content))
-          let oldWords: number | null = null
-          if (diskBytes !== null && !byteRestore) {
-            // rev 键控缓存读取经 ctx 显式 API（rev 比对在 cachedDocWords 内，零陈旧窗口）
-            const cached = ctx.cachedDocWords(docId, currentRev)
-            if (cached !== undefined) {
-              oldWords = cached
-            } else {
-              oldWords = countWords(bodyOf(diskBytes.toString('utf-8')))
-              ctx.rememberDocWords(docId, currentRev, oldWords)
-            }
-          }
-          const wordDelta = byteRestore ? 0 : (newWords ?? 0) - (oldWords ?? 0)
-
-          // 步骤 5：按策略建 snapshot（修改前版本留底）
-          // 留底传 diskBytes 原字节：缺省 utf-8 文本读会把 GBK 盘上内容解码成 U+FFFD 写入
-          // .版本（假留底，原字节此后无任何副本）；byteRestore 是非 UTF-8 档唯一合法覆写通道，
-          // 恢复链同样走原字节。diskBytes 为 null（文件不存在）时传 undefined，落到 maybeSnapshot
-          // 的「无底可留，跳过快照正常新建落盘」分支。
-          // 留底 fail-open：maybeSnapshot 与正文原子写同处内层 try，writeVersion 落盘段
-          //（`.版本` 目录被同步盘锁住/只读/配额满）抛出若落进下方 catch，会 journal 误记
-          // aborted + 返回 WRITE_ERROR——正文一字未动却报失败；且 listVersions 对坏目录恒返 []
-          // ⇒ 节流/去重判据永不生效 ⇒ 每笔保存都真去写、每笔都抛，作者陷入「写不进去且只有
-          // 状态条一行小字」的永久死锁（autosave 失败不弹 toast），无自愈路径。留底是兜底不是
-          // 闸（同「写后 best-effort 副作用不得把成功改判失败」家族）：warn 留痕 + 置
-          // snapshotDegraded 旗随结果上抛，正文照常落盘。
-          // 不变量（唯一不能碰）：留底成功时其内容恒 === 被覆盖的盘上旧内容——本降级只在
-          // 快照抛错时改判据，不触碰写成功路径。
-          try {
-            maybeSnapshot(
-              ctx,
-              docId,
-              relPath,
-              absPath,
-              input,
-              currentRev,
-              diskBytes ?? undefined,
-              !byteRestore && oldWords !== null ? oldWords : undefined,
-            )
-          } catch (e) {
-            snapshotDegraded = true
-            log.warn(
-              'document',
-              `保存前版本留底失败（留底是兜底不是闸，fail-open 继续写入，正文已保存）：${errMsg(e)}。本次修改前的旧内容未留底、版本历史本笔缺口；` +
-                `多为 工作区/.版本 目录不可写或被占用（同步盘锁定/只读/配额满），请检查该书目录下 工作区/.版本 的权限与占用后重试`,
-            )
-          }
-          // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
-          // 新建路径（expectedRevision=null）不裸 rename——基线校验（文件不存在）与落盘之间
-          // 无互斥，他进程并发新建同名文件时 atomicWriteFile 的 rename 会静默覆盖先到者内容
-          // 且本方返回成功（lost update）。改 createFileExclusive 独占创建（link 不覆盖，
-          // 非 NTFS 卷自带 rename 降级）：'exists' = 落位时目标已被并发创建，按既有
-          // REVISION_CONFLICT 口径拒绝（「世界已变，请刷新重试」，不新增错误码），
-          // journal pending 补 aborted 后返回。
-          if (existing) {
-            atomicWriteFile(absPath, contentBytes, { fsync: true })
-          } else {
-            // 新建路径消毒闸：词法越界已被 resolveSafePath 拦，但 win 保留设备名/尾点/尾空格/
-            // 控制字符/非法字符段直落盘会 EINVAL 裸 WRITE_ERROR 或读写名不一致；create/copy/
-            // rename 均已收编单源消毒器，本分支是漏网点。弃暗拒明（fail-closed）：任一待建段
-            // 「消毒后会改写」即拒——不静默改写落盘（docId↔relPath 由调用方绑定，改写即造
-            // 「清单≠盘上名」分裂）；已存在文件的覆写不铸新名，不走本闸。
-            if (!isSanitizedCreatePath(relPath)) {
-              try {
-                await appendAborted(journalPath, opId, '新建路径段不合消毒规则（保留名/尾点/尾空格/非法字符）')
-              } catch {
-                // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
-              }
-              return {
-                ok: false,
-                code: 'PATH_ESCAPE',
-                reason: `新建路径 ${relPath} 含不合消毒规则的段（Windows 保留设备名/尾点/尾空格/控制字符/非法字符），已拒绝——请改用合法文件名（或经新建文档入口，将自动消毒）`,
-              }
-            }
-            const created = createFileExclusive(absPath, contentBytes, { fsync: true })
-            if (created === 'exists') {
-              try {
-                await appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
-              } catch {
-                // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
-              }
-              return {
-                ok: false,
-                code: 'REVISION_CONFLICT',
-                reason: `预期新建，但落位时 ${relPath} 已被并发创建（另一进程先到）——请刷新后基于最新内容重试`,
-              }
-            }
-          }
-          // 步骤 8：新 revision
-          // 单写派生：落盘后再读盘会读到并发写的别窗内容（结构性操作/外部编辑器不持 save
-          // 锁），revision 代际标注短暂失真（journal 可对账自愈），且每笔保存多一次全文 IO。
-          // 刚写入的字节即 content（string→utf8 / Buffer 原样，atomicWriteFile 零转换），
-          // computeRevisionBytes 派生与盘上最终态恒等。
-          const newRev = computeRevisionBytes(contentBytes)
-          // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单§4.2）
-          // 清单刷新转 best-effort——此时文件已原子落盘，清单只是可重建索引（树扫盘/
-          // repairBooks 自愈收编）；它抛（清单锁超时/磁盘满）若落进下方 catch 会返回
-          // WRITE_ERROR：保存实际成功却报失败（编辑器误报、重试撞 REVISION_CONFLICT）。
-          // warn 留痕后照常 settled + 返回成功。
-          try {
-            // 清单锁等待异步化（withManifestLockAsync）
-            await ctx.maybeUpdateManifest(docId, relPath)
-          } catch (e) {
-            log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${errMsg(e)}`)
-          }
-          // 保存后树缓存失效：单键失效（indexes 重建 + 只清本次改写文件的 probe 键），
-          // 与 files.ts PUT / draft-pipeline 同口径（树 wordCount/status 另有 stat 指纹自愈 +
-          // 前端 refresh=1 兜底）。
-          invalidateTreeIndexForContent(ctx.bookRoot, relPath)
-          // 步骤 10：journal settled。
-          // settled 失败不误报——此刻正文已原子落盘、清单已刷新，若返回 WRITE_ERROR 会致
-          // 编辑器误报失败、重试必撞 REVISION_CONFLICT，journal 悬置 pending 误报 crashedWrite。
-          // best-effort：warn 留痕 + 按成功收口。
-          try {
-            await appendSettled(journalPath, opId, newRev)
-          } catch (e) {
-            log.warn(
-              'document',
-              `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${errMsg(e)}`,
-            )
-          }
-          // 字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回
-          // WRITE_ERROR 误报失败）
-          try {
-            appendWordsDelta(ctx.bookRoot, todayDate(), wordDelta, docId)
-          } catch {
-            // 磁盘满等忽略——保存已成功，字数日记丢失可接受
-          }
-          // 成功落盘后回填新文字数缓存——下一笔保存的 oldWords 直接命中
-          //（rev 键控：即便此笔回填后文件又被外部改动，rev 不匹配自动失效，无害）。
-          if (newWords !== null) ctx.rememberDocWords(docId, newRev, newWords)
-          // ── 串行执行体（§5.2 步骤 4-11，队列内调用）─────────
-          // 留底降级旗随成功结果上抛——保存成功与「本笔无留底」是两件事，正文落盘结论不变，
-          // 仅把快照缺口如实带给调用方（API 层透出 → 前端一次性提示）；健康路径不带该字段。
-          return snapshotDegraded
-            ? { ok: true, revision: newRev, snapshotDegraded: true }
-            : { ok: true, revision: newRev }
-        } catch (e) {
-          // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
-          try {
-            await appendAborted(journalPath, opId, errMsg(e))
-          } catch {
-            // journal 写失败忽略（best-effort，不影响返回）
-          }
-          return {
-            ok: false,
-            code: 'WRITE_ERROR',
-            reason: `保存失败：${errMsg(e)}`,
-          }
-        }
+        // 锁内复核单源在 saveGuardsInLock，基线判读/非 UTF-8 闸单源在 readSaveBaseline，
+        // 落盘与记账主体单源在 applySaveLocked——三段判定与文案逐位随迁（见各头注）。
+        const recheck = await saveGuardsInLock(ctx, docId, relPath, absPath)
+        if (recheck) return recheck
+        const baseline = readSaveBaseline(absPath, input)
+        if ('rejected' in baseline) return baseline.rejected
+        return await applySaveLocked(ctx, docId, relPath, absPath, journalPath, input, baseline.plan)
       } catch (e) {
         // 外层 catch 只兜 appendPending **之前**落盘前同步段的意外抛出（锁内清单/回收站读、
         // computeRevision、readFileSync 等：win 杀软 EBUSY/EACCES 或清单锁超时 throw）：
@@ -672,20 +723,12 @@ async function doCopy(ctx: DocContext, input: CopyDocumentInput): Promise<CopyRe
   if (!safeDocId(input.docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
   const journalPath = ctx.journalPathOf(input.docId) // 文件名编码口径单源（doc-context）
   // 取锁/释放编排单源 withSaveLocks（结构操作族同款 5s 结构锁超时口径）。复制无布线
-  // 文件，不传 wiring。
+  // 文件，不传 wiring。失败文案按意图单源（saveLockFailures）——本面专属文案逐字不变。
+  const lockFailures = saveLockFailures('复制')
   return ctx.withSaveLocks<CopyResult>({
     journalPath,
     saveTimeoutMs: getStructSaveLockTimeoutMs(),
-    onSaveLockThrown: (e) => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: `复制保存锁获取失败（未执行复制，可重试）：${errMsg(e)}`,
-    }),
-    onSaveLockTimeout: () => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: '复制等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试',
-    }),
+    ...lockFailures.saveLock,
     body: async () => {
       // lookup strict 读失败收口 WRITE_ERROR（未执行复制、可重试），不裸穿
       let srcPath: string | null
@@ -748,7 +791,7 @@ async function doCopy(ctx: DocContext, input: CopyDocumentInput): Promise<CopyRe
       }
       // 新 docId + 清单登记（结构性操作触发建清单§4.2）
       const newDocId = generateDocId()
-      // 登记收编同 doCreate：登记失败不误报完全失败，降级返回 legacyId（身份连续）
+      // 登记失败不误报完全失败，降级返回 legacyId（身份连续）（同 doCreate 口径）
       let registeredDocId = newDocId
       try {
         //（登记/回退/返回统一用净化后 copyRelPath——落盘的是 dstSafe（其源即 copyRelPath），
@@ -791,238 +834,331 @@ async function doTrash(ctx: DocContext, docId: string): Promise<TrashResult> {
   // atomicWrite 在旧路径复活」的毫秒窗——本锁闭合后者。）
   const journalPath = ctx.journalPathOf(docId) // 文件名编码口径单源（doc-context）
   // 取锁/释放编排单源 withSaveLocks（锁获取抛出的收口随迁）。软删段无布线文件，不传 wiring。
+  // 失败文案按意图单源（saveLockFailures）——本面专属文案逐字不变。
+  const lockFailures = saveLockFailures('删除')
   return ctx.withSaveLocks<TrashResult>({
     journalPath,
     saveTimeoutMs: getStructSaveLockTimeoutMs(),
-    onSaveLockThrown: (e) => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: `删除保存锁获取失败（未执行删除，可重试）：${errMsg(e)}`,
-    }),
-    onSaveLockTimeout: () => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: '删除等待超时：另一进程正在保存或删除此文档（5 秒未让出），请重试',
-    }),
-    body: async () => {
-      // lookup 命中读 strict 化后的收口——瞬态读失败按 WRITE_ERROR 拒删（文件未动、可重试），
-      // 不裸穿 TrashResult 契约。
-      let oldPath: string | null
-      try {
-        oldPath = await ctx.lookupPathByDocIdAdoptAsync(docId)
-      } catch (e) {
-        return { ok: false, code: 'WRITE_ERROR', reason: `删除前清单查询失败（未执行删除，可重试）：${errMsg(e)}` }
-      }
-      if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
-      if (!layoutOf(oldPath).capabilities.trash) {
-        return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' }
-      }
-      const oldSafe = ctx.resolveSafePath(oldPath)
-      if (!oldSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
-      if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+    ...lockFailures.saveLock,
+    body: () => applyTrashLocked(ctx, docId),
+  })
+}
 
-      // 回收站落名消毒同 create/rename 单源口径——basename 含 win 非法字符/尾点/控制字符时
-      // 直拼 .trash 落名会写失败或产生跨平台同步盘/拷贝歧义。消毒只影响落名；
-      // TrashEntry.trashedPath 记录消毒后的真实落位，还原语义不变。
-      const cleanBase = sanitizeCreateSegment(basename(oldPath))
-      const trashedRel = `工作区/.trash/${encodeDocDirName(docId)}-${cleanBase}`
-      // 确定性命名残留防线的落位路径（函数域声明——成功返回值也要用）。上次软删「清单条目
-      // 删除失败」残留后，同 docId 的文件经编辑器保存合法复活（executeSave 双条件守卫对
-      // 「文件在盘」放行）再被再次软删时，同名 .trash 目标会被 renameSync 静默覆盖，上一版
-      // 回收站内容无痕丢失。目标已存在 → 追加时间戳后缀保双份（lead-update-draft /
-      // syncRenamePieceList 同款先例）；后缀须在回收站登记**之前**定——条目 trashedPath 记的
-      // 是真实落位。
-      let finalTrashRel = trashedRel
-      try {
-        // 单读派生——原 computeRevision + readFileSync 对全文双读（doMoveOrRename 已是单读
-        // computeRevisionBytes 口径），win 瞬态占用下两次读失败概率翻倍；快照留底与基线指纹
-        // 同源于同一次读取
-        const content = readFileSync(oldSafe)
-        const baseRev = computeRevisionBytes(content)
-        // 留底读原始字节（单读既出）——utf-8 文本读入对 GBK 等非 UTF-8 源产出失真快照，删除
-        // 落位后原字节不可恢复；writeVersion 支持原字节直存，快照即字节档。
-        // 显式传 policy 使 global.json 的 snapMax* 对软删留底生效；force 显式 true（留底必留，
-        // 与缺省一致）。
-        writeVersion(
-          ctx.snapshotsDir,
-          docId,
-          content,
-          {
-            origin: 'manual',
-            reason: '删除前留底',
-            baseRevision: baseRev,
-          },
-          { policy: ctx.snapshotPolicy(), force: true },
-        )
-        // 移到 工作区/.trash/<docId>-<basename>
-        const trashAbs = ctx.resolveSafePath(trashedRel)
-        if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
-        mkdirSync(dirname(trashAbs), { recursive: true })
-        let finalTrashAbs = trashAbs
-        const trashStemExt = (): { stem: string; ext: string } => {
-          // 与落名同源——从消毒后的 cleanBase 拆 stem/ext，时间戳后缀重试链产物同为消毒名
-          const name = cleanBase
-          const dot = name.lastIndexOf('.')
-          return {
-            stem: dot > 0 ? name.slice(0, dot) : name,
-            ext: dot > 0 ? name.slice(dot) : '',
-          }
-        }
-        if (existsSync(trashAbs)) {
-          const { stem, ext } = trashStemExt()
-          finalTrashRel = `工作区/.trash/${encodeDocDirName(docId)}-${stem}-${Date.now()}${ext}`
-          const suffixedAbs = ctx.resolveSafePath(finalTrashRel)
-          if (!suffixedAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
-          finalTrashAbs = suffixedAbs
-        }
-        // 软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
-        let priorFinalized: ReturnType<typeof trashBaselineOf> = {}
-        try {
-          if (existsSync(ctx.manifestPath)) {
-            // strict 读——瞬态读失败不再静默降级「从未定稿」（还原后防覆盖闸失守且零留痕），
-            // warn 后仍按无基线落账（软删主流程不因基线读失败中止）；真正的 fail-closed 由
-            // 下方 appendTrashEntryAsync 的 strict 读把守——trash 清单读得失败时登记不成则删
-            // 不成。
-            const prior = readManifestStrict(ctx.manifestPath).entries.get(docId)
-            if (prior) {
-              priorFinalized = trashBaselineOf(prior)
-            }
-          }
-        } catch (e) {
-          log.warn('document', `软删 ${docId} 前读定稿基线失败（按无基线落账，还原后该章不带定稿态）：${errMsg(e)}`)
-        }
-        // 回收站登记先于移文件，且登记写失败即中止整个软删（宁删失败）——「先 rename 进
-        // .trash、后补登记」在登记失败（磁盘满/登记路径被占）被吞掉时，结果是文件已删而回收站
-        // 无记录，作者永远无法还原（静默丢稿）。登记失败 → WRITE_ERROR（API 层 structStatus
-        // 映射 500），文件原地未动、清单条目保留。
-        // 反向残留（登记成功而 rename 失败）留下指向不存在 trashedPath 的孤儿条目——无害：
-        // 源文件未动，restore 报 NOT_FOUND、purge 可清。
-        // 换名重试链里 trashedPath 变化须重登记（条目记的是真实落位），条目基座
-        //（id/originalPath/role）抽出共用；基线字段不在基座里、各登记点随用随拼
-        //（priorFinalized 可被删除 RMW 锁内回填覆盖，拼入时取当次值）。
-        const entryBase = {
-          id: docId,
-          originalPath: oldPath,
-          trashedAt: new Date().toISOString(),
-          role: layoutOf(oldPath).role,
-        }
-        try {
-          await appendTrashEntryAsync(ctx.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
-        } catch (e) {
-          return {
-            ok: false,
-            code: 'WRITE_ERROR',
-            reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
-          }
-        }
-        // 软删落位改 linkOrRenameExclusive 独占探测——原 existsSync 预检 + renameSync 之间
-        // 存在跨进程窄窗：他进程并发落位同名回收站目标时 POSIX rename / win
-        // MOVEFILE(REPLACE_EXISTING) 静默覆盖，上一版回收站内容无痕丢失。'exists' 时沿用
-        // 时间戳后缀重试链（换名 → 重登记 → 再落位，有界 3 次——毫秒级窄窗连撞 3 个时间戳的
-        // 形态只剩目录被塞满的病态卷）；重试耗尽按 WRITE_ERROR 收口（文件原地未动，孤儿条目
-        // 无害如上）。EPERM 降级 rename 由 linkOrRenameExclusive 内部处理（非 NTFS 卷可用性）。
-        let landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
-        for (let attempt = 0; landed === 'exists' && attempt < 3; attempt++) {
-          const { stem, ext } = trashStemExt()
-          finalTrashRel = `工作区/.trash/${encodeDocDirName(docId)}-${stem}-${Date.now()}-${attempt + 2}${ext}`
-          const retryAbs = ctx.resolveSafePath(finalTrashRel)
-          if (!retryAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
-          mkdirSync(dirname(retryAbs), { recursive: true })
-          finalTrashAbs = retryAbs
-          try {
-            await appendTrashEntryAsync(ctx.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
-          } catch (e) {
-            return {
-              ok: false,
-              code: 'WRITE_ERROR',
-              reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
-            }
-          }
-          landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
-        }
-        if (landed === 'exists') {
-          return {
-            ok: false,
-            code: 'WRITE_ERROR',
-            reason: '回收站落位失败：目标名被持续并发占用（含时间戳后缀重试 3 次），文件未删除，请重试',
-          }
-        }
-        // link 落位后源仍在原位（同 inode 硬链接）——删源完成软删；降级 rename 落位时
-        // 源已搬走，rmSync force 为 no-op。
-        // 删源失败（win 编辑器/同步盘占用正文文件 → EBUSY/EPERM 瞬时占用）回滚回收站侧——
-        // 对齐 doMoveOrRename 删源失败回收新位的范式：此刻回收站已落位 + 条目已写入，不回滚会
-        // 留下「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、purge 会把仍在
-        // 原位的文件按不可逆语义清掉，恢复/清空语义被污染）。回滚 = 删已落位的 finalTrashAbs +
-        // 移除刚写入的回收站条目（条目以 id 为键，同 id 旧条目已被本次 appendTrashEntryAsync
-        // 替换，按 id 移除即移除本次写入者）。回滚自身失败只 warn：此时确有双份残留，但源未删、
-        // 数据无损（硬链接同 inode），重试软删按后缀链继续保双份。收口：throw 经外层 catch 统一
-        // WRITE_ERROR，文案取人话「被占用」（原错误信息保留在尾部，win 真机臂断言）。
-        try {
-          // 删源收编 rmWithRetry——win 编辑器/同步盘瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会
-          // 误触发下方回收站回滚（软删无谓失败）；退避后仍失败才走既有回滚+报错链。
-          rmWithRetry(oldSafe)
-        } catch (rmErr) {
-          try {
-            // 回滚删回收站副本收编 rmWithRetry——瞬时锁退避自愈，退避后仍失败照走 catch warn
-            //（回滚不净双份残留留痕，语义不变）
-            rmWithRetry(finalTrashAbs)
-            await removeTrashEntryAsync(ctx.bookRoot, docId)
-          } catch (rollbackErr) {
-            log.warn(
-              'document',
-              `软删删源失败且回收站回滚不净（${oldPath}，源文件未删、回收站有残留，重试软删将按时间戳后缀保双份）：${errMsg(rollbackErr)}`,
-            )
-          }
-          throw new Error(`正文文件被占用无法删除（可能正被编辑器/同步盘打开），文件未动请重试：${errMsg(rmErr)}`)
-        }
-        // rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
-        // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
-        try {
-          if (existsSync(ctx.manifestPath)) {
-            // RMW 持清单锁（跨进程互斥）；锁等待异步化，best-effort 语义不变。
-            // TrashEntry 落账与清单删除收进同一清单锁临界段——上方 priorFinalized 是无锁快照
-            //（本方法只持 per-doc save 锁，finalize 不持该锁），快照后、本删除前并发 finalize
-            // 写入的基线（finalize 持清单锁落盘）若随整条 delete 丢弃，TrashEntry 记的还是快照
-            // 旧值 → 还原后该章无定稿基线，ensureChapterNotFinalized 防覆盖闸失守（tags/order
-            // 同窗同失）。现锁内 strict 新鲜读条目，基线投影与快照不一致时先按当次值回填
-            // TrashEntry（append 同 id 替换）再 delete；回填写取 trash 清单锁与主清单锁仍单向
-            //（全仓无「持 trash 清单锁再取主清单锁」路径，无环）。无并发时新鲜读与快照恒等 →
-            // 不重写条目，行为逐字节不变。
-            await withManifestLockAsync(ctx.manifestPath, async () => {
-              const m = readManifestStrict(ctx.manifestPath) // RMW strict 读——读失败拒删，保住全书登记
-              const fresh = m.entries.get(docId)
-              if (fresh) {
-                const freshBaseline = trashBaselineOf(fresh)
-                // stringify 全串比较在此成立——两侧皆 trashBaselineOf 同源
-                // 投影（键集与插入序恒同，非任意对象字面量），串不同 = 内容真异；误判
-                // 不同也只多一次幂等基线回填，无引入逐字段比较的维护面。
-                if (JSON.stringify(freshBaseline) !== JSON.stringify(priorFinalized)) {
-                  priorFinalized = freshBaseline
-                  await appendTrashEntryAsync(ctx.bookRoot, {
-                    ...entryBase,
-                    ...priorFinalized,
-                    trashedPath: finalTrashRel,
-                  })
-                }
-              }
-              m.entries.delete(docId)
-              writeManifest(ctx.manifestPath, m)
+/** 软删锁内主体（原 doTrash body）：lookup/能力/路径校验 → 快照留底 → 回收站登记与
+ *  独占落位 → 删源 → 主清单条目删除；外层 catch 的「删除失败」收口与尾部的
+ *  invalidate/成功返回逐位随迁。 */
+async function applyTrashLocked(ctx: DocContext, docId: string): Promise<TrashResult> {
+  const target = await lookupTrashTarget(ctx, docId)
+  if ('rejected' in target) return target.rejected
+  const { oldPath, oldSafe } = target
+
+  // 回收站落名消毒同 create/rename 单源口径——basename 含 win 非法字符/尾点/控制字符时
+  // 直拼 .trash 落名会写失败或产生跨平台同步盘/拷贝歧义。消毒只影响落名；
+  // TrashEntry.trashedPath 记录消毒后的真实落位，还原语义不变。
+  const cleanBase = sanitizeCreateSegment(basename(oldPath))
+  const trashedRel = `${TRASH_DIR_REL}/${encodeDocDirName(docId)}-${cleanBase}`
+  // 确定性命名残留防线的落位路径（函数域声明——成功返回值也要用）。上次软删「清单条目
+  // 删除失败」残留后，同 docId 的文件经编辑器保存合法复活（executeSave 双条件守卫对
+  // 「文件在盘」放行）再被再次软删时，同名 .trash 目标会被 renameSync 静默覆盖，上一版
+  // 回收站内容无痕丢失。目标已存在 → 追加时间戳后缀保双份（lead-update-draft /
+  // syncRenamePieceList 同款先例）；后缀须在回收站登记**之前**定——条目 trashedPath 记的
+  // 是真实落位。
+  let finalTrashRel = trashedRel
+  try {
+    writeTrashSnapshot(ctx, docId, oldSafe)
+    const landed = await landTrashEntry(ctx, docId, oldPath, oldSafe, trashedRel, cleanBase)
+    if ('rejected' in landed) return landed.rejected
+    finalTrashRel = landed.finalTrashRel
+    // rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
+    // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
+    await dropManifestEntryAfterTrash(ctx, docId, landed.entryBase, landed.priorFinalized, finalTrashRel)
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
+  }
+  invalidateTreeIndex(ctx.bookRoot, true)
+  return { ok: true, docId, trashedPath: finalTrashRel }
+}
+
+/** 软删锁内前段：docId → 登记路径（lookup strict 读收口）→ 能力/路径校验。
+ *  返回中止信封或操作目标；判定与文案逐位随迁。 */
+async function lookupTrashTarget(
+  ctx: DocContext,
+  docId: string,
+): Promise<{ rejected: TrashResult } | { oldPath: string; oldSafe: string }> {
+  // lookup 命中读 strict 化后的收口——瞬态读失败按 WRITE_ERROR 拒删（文件未动、可重试），
+  // 不裸穿 TrashResult 契约。
+  let oldPath: string | null
+  try {
+    oldPath = await ctx.lookupPathByDocIdAdoptAsync(docId)
+  } catch (e) {
+    return {
+      rejected: { ok: false, code: 'WRITE_ERROR', reason: `删除前清单查询失败（未执行删除，可重试）：${errMsg(e)}` },
+    }
+  }
+  if (!oldPath) return { rejected: { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` } }
+  if (!layoutOf(oldPath).capabilities.trash) {
+    return { rejected: { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' } }
+  }
+  const oldSafe = ctx.resolveSafePath(oldPath)
+  if (!oldSafe) return { rejected: { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' } }
+  if (!existsSync(oldSafe)) return { rejected: { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' } }
+  return { oldPath, oldSafe }
+}
+
+/** 软删留底（原 doTrash 锁内快照段）：单读派生 baseRev，留底读原始字节——utf-8 文本读入
+ *  对 GBK 等非 UTF-8 源产出失真快照，删除落位后原字节不可恢复；writeVersion 支持原字节
+ *  直存，快照即字节档。显式传 policy 使 global.json 的 snapMax* 对软删留底生效；
+ *  force 显式 true（留底必留，与缺省一致）。 */
+function writeTrashSnapshot(ctx: DocContext, docId: string, oldSafe: string): void {
+  // 单读派生——原 computeRevision + readFileSync 对全文双读（doMoveOrRename 已是单读
+  // computeRevisionBytes 口径），win 瞬态占用下两次读失败概率翻倍；快照留底与基线指纹
+  // 同源于同一次读取
+  const content = readFileSync(oldSafe)
+  const baseRev = computeRevisionBytes(content)
+  writeVersion(
+    ctx.snapshotsDir,
+    docId,
+    content,
+    {
+      origin: 'manual',
+      reason: '删除前留底',
+      baseRevision: baseRev,
+    },
+    { policy: ctx.snapshotPolicy(), force: true },
+  )
+}
+
+/** 回收站条目基座（id/originalPath/trashedAt/role）——换名重试链各登记点共用；
+ *  基线字段不在基座里、各登记点随用随拼（priorFinalized 可被删除 RMW 锁内回填覆盖，
+ *  拼入时取当次值，见 dropManifestEntryAfterTrash）。 */
+interface TrashEntryBase {
+  id: string
+  originalPath: string
+  trashedAt: string
+  role: DocumentRole
+}
+
+/** 回收站登记 + 独占落位 + 删源（原 doTrash 中段）：
+ *  - 后缀预判定（同名目标已存在 → 时间戳后缀保双份），登记先于移文件（宁删失败）；
+ *  - linkOrRenameExclusive 独占探测 + 有界 3 次时间戳后缀重试链，三处「未落位即中止」
+ *    出口按 id 撤销本次登记（dropTrashEntryOnAbort），不留孤儿条目；
+ *  - 删源失败回滚已落位副本与登记（源未删、数据无损），throw 交外层 catch 统一
+ *    WRITE_ERROR「删除失败」。
+ *  返回中止信封或落位结果（含删除 RMW 段要用的基座与定稿基线快照）。 */
+async function landTrashEntry(
+  ctx: DocContext,
+  docId: string,
+  oldPath: string,
+  oldSafe: string,
+  trashedRel: string,
+  cleanBase: string,
+): Promise<
+  | { rejected: TrashResult }
+  | { finalTrashRel: string; entryBase: TrashEntryBase; priorFinalized: ReturnType<typeof trashBaselineOf> }
+> {
+  // 移到 工作区/.trash/<docId>-<basename>
+  const trashAbs = ctx.resolveSafePath(trashedRel)
+  if (!trashAbs) return { rejected: { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' } }
+  mkdirSync(dirname(trashAbs), { recursive: true })
+  let finalTrashAbs = trashAbs
+  let finalTrashRel = trashedRel
+  const trashStemExt = (): { stem: string; ext: string } => {
+    // 与落名同源——从消毒后的 cleanBase 拆 stem/ext，时间戳后缀重试链产物同为消毒名
+    const name = cleanBase
+    const dot = name.lastIndexOf('.')
+    return {
+      stem: dot > 0 ? name.slice(0, dot) : name,
+      ext: dot > 0 ? name.slice(dot) : '',
+    }
+  }
+  if (existsSync(trashAbs)) {
+    const { stem, ext } = trashStemExt()
+    finalTrashRel = `${TRASH_DIR_REL}/${encodeDocDirName(docId)}-${stem}-${Date.now()}${ext}`
+    const suffixedAbs = ctx.resolveSafePath(finalTrashRel)
+    if (!suffixedAbs) return { rejected: { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' } }
+    finalTrashAbs = suffixedAbs
+  }
+  // 软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
+  let priorFinalized: ReturnType<typeof trashBaselineOf> = {}
+  try {
+    if (existsSync(ctx.manifestPath)) {
+      // strict 读——瞬态读失败不再静默降级「从未定稿」（还原后防覆盖闸失守且零留痕），
+      // warn 后仍按无基线落账（软删主流程不因基线读失败中止）；真正的 fail-closed 由
+      // 下方 appendTrashEntryAsync 的 strict 读把守——trash 清单读得失败时登记不成则删
+      // 不成。
+      const prior = readManifestStrict(ctx.manifestPath).entries.get(docId)
+      if (prior) {
+        priorFinalized = trashBaselineOf(prior)
+      }
+    }
+  } catch (e) {
+    log.warn('document', `软删 ${docId} 前读定稿基线失败（按无基线落账，还原后该章不带定稿态）：${errMsg(e)}`)
+  }
+  // 回收站登记先于移文件，且登记写失败即中止整个软删（宁删失败）——「先 rename 进
+  // .trash、后补登记」在登记失败（磁盘满/登记路径被占）被吞掉时，结果是文件已删而回收站
+  // 无记录，作者永远无法还原（静默丢稿）。登记失败 → WRITE_ERROR（API 层 structStatus
+  // 映射 500），文件原地未动、清单条目保留。
+  // 反向残留（登记成功而落位失败）留下指向不存在 trashedPath 的孤儿条目——回收站 UI 会
+  // 列出它而 restore 报 NOT_FOUND；且本次 append 同 id 替换已顶掉上一版合法条目（旧条目
+  // 字面不可复原），必须在下方三处「未落位即中止」出口按 id 撤销登记，不留孤儿。
+  // 换名重试链里 trashedPath 变化须重登记（条目记的是真实落位），条目基座
+  //（id/originalPath/role）抽出共用；基线字段不在基座里、各登记点随用随拼
+  //（priorFinalized 可被删除 RMW 锁内回填覆盖，拼入时取当次值）。
+  const entryBase: TrashEntryBase = {
+    id: docId,
+    originalPath: oldPath,
+    trashedAt: new Date().toISOString(),
+    role: layoutOf(oldPath).role,
+  }
+  // 撤销登记（下方 PATH_ESCAPE / 重试登记失败 / 重试耗尽三出口共用）：条目以 id 为键，
+  // 按 id 移除即移除本次写入者（同 id 旧条目已被本次 append 替换，无法逐字还原）。
+  // 回滚自身失败只 warn——源文件未动、数据无损，孤儿条目 restorable 面残留（还原报
+  // NOT_FOUND、purge 可清），与下方删源失败回滚同口径。
+  const dropTrashEntryOnAbort = async (scene: string): Promise<void> => {
+    try {
+      await removeTrashEntryAsync(ctx.bookRoot, docId)
+    } catch (e) {
+      log.warn(
+        'document',
+        `软删中止（${scene}）且回收站登记撤销失败（${oldPath}：条目指向未落位的 ${finalTrashRel}，源文件未动，重试软删将按时间戳后缀保双份）：${errMsg(e)}`,
+      )
+    }
+  }
+  try {
+    await appendTrashEntryAsync(ctx.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
+  } catch (e) {
+    return {
+      rejected: {
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
+      },
+    }
+  }
+  // 软删落位改 linkOrRenameExclusive 独占探测——原 existsSync 预检 + renameSync 之间
+  // 存在跨进程窄窗：他进程并发落位同名回收站目标时 POSIX rename / win
+  // MOVEFILE(REPLACE_EXISTING) 静默覆盖，上一版回收站内容无痕丢失。'exists' 时沿用
+  // 时间戳后缀重试链（换名 → 重登记 → 再落位，有界 3 次——毫秒级窄窗连撞 3 个时间戳的
+  // 形态只剩目录被塞满的病态卷）；重试耗尽按 WRITE_ERROR 收口（文件原地未动，登记走
+  // dropTrashEntryOnAbort 撤销，不留孤儿条目）。EPERM 降级 rename 由 linkOrRenameExclusive
+  // 内部处理（非 NTFS 卷可用性）。
+  let landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
+  for (let attempt = 0; landed === 'exists' && attempt < 3; attempt++) {
+    const { stem, ext } = trashStemExt()
+    finalTrashRel = `${TRASH_DIR_REL}/${encodeDocDirName(docId)}-${stem}-${Date.now()}-${attempt + 2}${ext}`
+    const retryAbs = ctx.resolveSafePath(finalTrashRel)
+    if (!retryAbs) {
+      await dropTrashEntryOnAbort('重试落名越出书仓库')
+      return { rejected: { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' } }
+    }
+    mkdirSync(dirname(retryAbs), { recursive: true })
+    finalTrashAbs = retryAbs
+    try {
+      await appendTrashEntryAsync(ctx.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
+    } catch (e) {
+      await dropTrashEntryOnAbort('重试登记写入失败')
+      return {
+        rejected: {
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
+        },
+      }
+    }
+    landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
+  }
+  if (landed === 'exists') {
+    await dropTrashEntryOnAbort('落位重试耗尽，目标名被持续并发占用')
+    return {
+      rejected: {
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: '回收站落位失败：目标名被持续并发占用（含时间戳后缀重试 3 次），文件未删除，请重试',
+      },
+    }
+  }
+  // link 落位后源仍在原位（同 inode 硬链接）——删源完成软删；降级 rename 落位时
+  // 源已搬走，rmSync force 为 no-op。
+  // 删源失败（win 编辑器/同步盘占用正文文件 → EBUSY/EPERM 瞬时占用）回滚回收站侧——
+  // 对齐 doMoveOrRename 删源失败回收新位的范式：此刻回收站已落位 + 条目已写入，不回滚会
+  // 留下「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、purge 会把仍在
+  // 原位的文件按不可逆语义清掉，恢复/清空语义被污染）。回滚 = 删已落位的 finalTrashAbs +
+  // 移除刚写入的回收站条目（条目以 id 为键，同 id 旧条目已被本次 appendTrashEntryAsync
+  // 替换，按 id 移除即移除本次写入者）。回滚自身失败只 warn：此时确有双份残留，但源未删、
+  // 数据无损（硬链接同 inode），重试软删按后缀链继续保双份。收口：throw 经外层 catch 统一
+  // WRITE_ERROR，文案取人话「被占用」（原错误信息保留在尾部，win 真机臂断言）。
+  try {
+    // 删源走 rmWithRetry——win 编辑器/同步盘瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会
+    // 误触发下方回收站回滚（软删无谓失败）；退避后仍失败才走既有回滚+报错链。
+    rmWithRetry(oldSafe)
+  } catch (rmErr) {
+    try {
+      // 回滚删回收站副本走 rmWithRetry——瞬时锁退避自愈，退避后仍失败照走 catch warn
+      //（回滚不净双份残留留痕，语义不变）
+      rmWithRetry(finalTrashAbs)
+      await removeTrashEntryAsync(ctx.bookRoot, docId)
+    } catch (rollbackErr) {
+      log.warn(
+        'document',
+        `软删删源失败且回收站回滚不净（${oldPath}，源文件未删、回收站有残留，重试软删将按时间戳后缀保双份）：${errMsg(rollbackErr)}`,
+      )
+    }
+    throw new Error(`正文文件被占用无法删除（可能正被编辑器/同步盘打开），文件未动请重试：${errMsg(rmErr)}`)
+  }
+  return { finalTrashRel, entryBase, priorFinalized }
+}
+
+/** 软删尾段：主清单条目删除（RMW 持清单锁；TrashEntry 基线回填与条目删除同临界段——
+ *  理由见内注）。best-effort：失败不阻断（文件已实质删除，清单不一致不影响数据安全，
+ *  下次操作自然修复）。 */
+async function dropManifestEntryAfterTrash(
+  ctx: DocContext,
+  docId: string,
+  entryBase: TrashEntryBase,
+  priorFinalized: ReturnType<typeof trashBaselineOf>,
+  finalTrashRel: string,
+): Promise<void> {
+  try {
+    if (existsSync(ctx.manifestPath)) {
+      // RMW 持清单锁（跨进程互斥）；锁等待异步化，best-effort 语义不变。
+      // TrashEntry 落账与清单删除收进同一清单锁临界段——上方 priorFinalized 是无锁快照
+      //（本方法只持 per-doc save 锁，finalize 不持该锁），快照后、本删除前并发 finalize
+      // 写入的基线（finalize 持清单锁落盘）若随整条 delete 丢弃，TrashEntry 记的还是快照
+      // 旧值 → 还原后该章无定稿基线，ensureChapterNotFinalized 防覆盖闸失守（tags/order
+      // 同窗同失）。现锁内 strict 新鲜读条目，基线投影与快照不一致时先按当次值回填
+      // TrashEntry（append 同 id 替换）再 delete；回填写取 trash 清单锁与主清单锁仍单向
+      //（全仓无「持 trash 清单锁再取主清单锁」路径，无环）。无并发时新鲜读与快照恒等 →
+      // 不重写条目，行为逐字节不变。
+      await withManifestLockAsync(ctx.manifestPath, async () => {
+        const m = readManifestStrict(ctx.manifestPath) // RMW strict 读——读失败拒删，保住全书登记
+        const fresh = m.entries.get(docId)
+        // 当次基线（可从下方被新鲜读覆盖回填；拼入条目时取当次值）
+        let baseline = priorFinalized
+        if (fresh) {
+          const freshBaseline = trashBaselineOf(fresh)
+          // stringify 全串比较在此成立——两侧皆 trashBaselineOf 同源
+          // 投影（键集与插入序恒同，非任意对象字面量），串不同 = 内容真异；误判
+          // 不同也只多一次幂等基线回填，无引入逐字段比较的维护面。
+          if (JSON.stringify(freshBaseline) !== JSON.stringify(baseline)) {
+            baseline = freshBaseline
+            await appendTrashEntryAsync(ctx.bookRoot, {
+              ...entryBase,
+              ...baseline,
+              trashedPath: finalTrashRel,
             })
           }
-        } catch {
-          // 并无「树重建自动清理」机制——buildTree 只读扫盘不修剪清单，
-          // removeEntry（条目删除）仅由本软删路径与 install/migrate-layout-v3 的目录迁移
-          // 显式调用，不存在按盘对账的清理通道。残留形态=清单条目指向已不存在路径：树不受影响
-          // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
-          // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
         }
-      } catch (e) {
-        return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
-      }
-      invalidateTreeIndex(ctx.bookRoot, true)
-      return { ok: true, docId, trashedPath: finalTrashRel }
-    },
-  })
+        m.entries.delete(docId)
+        writeManifest(ctx.manifestPath, m)
+      })
+    }
+  } catch {
+    // 并无「树重建自动清理」机制——buildTree 只读扫盘不修剪清单，
+    // removeEntry（条目删除）仅由本软删路径与 install/migrate-layout-v3 的目录迁移
+    // 显式调用，不存在按盘对账的清理通道。残留形态=清单条目指向已不存在路径：树不受影响
+    // （按盘扫描），executeSave 的回收站复活守卫已按「回收站认领+文件不在盘」双条件
+    // 拦截（见下），作者经回收站还原即自愈（rename 回原位 + 清单 upsert + 条目清除）。
+  }
 }
 
 /** 新建文档的默认内容（最小 frontmatter；具体字段由作者编辑或 batch 流程填）。 */
@@ -1073,12 +1209,11 @@ export class DocumentService {
 
   /** docId → relPath（含 legacy 兜底：旧文件首次访问时扫盘反查并补登记清单，
    *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。
-   *  收编链全异步（upsertManifestEntryAsync，
-   *  withManifestLockAsync 等待）——同步版 resolvePath/lookupPathByDocId/
-   *  adoptLegacyDoc/upsertManifestEntry 已删，服务端点不再以同步 withManifestLock
-   *  （Atomics.wait）落在事件循环。 */
+   *  链全异步（upsertManifestEntryAsync，withManifestLockAsync 等待）——同步版
+   *  resolvePath/lookupPathByDocId/adoptLegacyDoc/upsertManifestEntry 已删，服务端点
+   *  不得以同步 withManifestLock（Atomics.wait）落在事件循环。 */
   async resolvePathAsync(docId: string): Promise<string | null> {
-    // 收编链本体（含同步孪生删除记账）迁 doc-context.ts，本处为门面转发。
+    // 链本体（含同步孪生删除记账）迁 doc-context.ts，本处为门面转发。
     return this.ctx.lookupPathByDocIdAdoptAsync(docId)
   }
 
@@ -1093,11 +1228,9 @@ export class DocumentService {
   // 未结算断言请直测 journal.findUnsettled（journal.ts 生产原语）。
 
   // ── 结构性操作（W2A §7）──────────────────
-  // 注释如实化：旧分隔注释「同步实现」是异步化之前
-  // 的过时口径——本区 create/move/rename/copy/trash 已全异步（磁盘 IO 用同步原语，
-  // 清单/journal/回收站锁等待走 withManifestLockAsync 等异步轮询），原子性由跨进程锁
-  // 与独占落位（createFileExclusive / linkOrRenameExclusive）承担，不靠「单线程微任务
-  // 不交错」（模块头注同轮同款收口）。
+  // 本区 create/move/rename/copy/trash 全异步（磁盘 IO 用同步原语，清单/journal/回收站
+  // 锁等待走 withManifestLockAsync 等异步轮询），原子性由跨进程锁与独占落位
+  //（createFileExclusive / linkOrRenameExclusive）承担，不靠「单线程微任务不交错」。
 
   /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。
    * doCreate 转异步——清单登记锁等待走 withManifestLockAsync

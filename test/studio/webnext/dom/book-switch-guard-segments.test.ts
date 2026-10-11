@@ -86,18 +86,7 @@ import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { useWorkbenchStore } from '../../../../src/studio/web-next/src/stores/workbench'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNode } from '../helpers/tree-node'
 
 /** 宿主：setup 内只挂状态机（生命周期与 Book.vue 一致，其余一概不装配）。 */
 // 注入面类型对齐真实调用方：bookName 为 computed（可写代理仅为测试改值）、resync 为回调
@@ -118,7 +107,7 @@ function mountGuard(): { unmount: () => void } {
 async function seedDirty(docId: string, opts: { conflict?: boolean } = {}): Promise<void> {
   const doc = useDocStore()
   mocks.getContent.mockResolvedValueOnce('盘上内容')
-  await doc.open(makeNode(docId))
+  await doc.open(makeChapterNode(docId))
   doc.patch(docId, '本地未落盘编辑')
   doc.get(docId)!.conflict = opts.conflict === true
 }

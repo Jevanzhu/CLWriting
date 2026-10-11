@@ -1,30 +1,17 @@
 /**
- * Electron 主进程入口（桌面化 #electron；阶段 22 批起 studio server 拆分至 utilityProcess）。
- *
- * fork server-utility 子进程承载 studio server（127.0.0.1 随机端口，ready 握手回传）
- * → BrowserWindow loadURL。前端 Vue 零改造（fetch /api/...）；driver 会话、SSE 由
- * server-utility 统一承载（main 壳层不直接碰 driver）。
- *
- * main 瘦身为真正的纯壳层——窗口/菜单/IPC/workDir 管理
- * 拆出四模块（纯移动零逻辑变化，依赖注入显式参数传递，对齐 workdir-store.ts 零
- * Electron 依赖先例；Electron 绑定层留在需要处）：
- * - windows.ts        窗口工厂（createSecureWindow 安全五件套）+ 三窗引用 holder +
- *                     单例子窗 + window-state 持久化；
- * - workdir-controller.ts  workdir.json 持久化 + 目录选择器/切库守卫 + relaunch 意图；
- * - ipc.ts            IPC 注册面（desktop:* 全部 channel + handleTrusted 守卫单点）；
- * - lifecycle.ts      close/quit/session-end 三条退出链 + 主窗生命周期监听。
- * 本文件保留：app.setPath/initLogging/userData 统一（模块级副作用时序锚点）、单实例锁
- * 与 second-instance、serverManager/bootstrapRunner 装配、bootstrap 启动时序
- * （workDir 定位 → server fork+握手 → 主窗创建 → loadURL）、菜单装配、冒烟驱动、
- * 进程级退出兜底（信号/uncaughtException/unhandledRejection）。
- *
- * 工作目录（书库）管理（起）：
- * - 启动定位：userData 持久化的 current（合法则用）> findWorkDir(cwd) > 弹原生选择器。
- * - 切换书库 = 改持久化 current → app.relaunch 进程重启
- *   （规避 server 路由模块级单例 + SSE 长连接泄漏，见 Dev/Plans/desktop-workdir-方案.md §2.1/§3.1）。
- *
- * 开发：npm run dev:electron（build:web + tsup + electron .；未打包非 HMR 同走拆分形态）
- * 打包：electron-builder（dist/web + dist/desktop/{main,server-utility,preload} 进 asar）
+ * Electron 主进程入口：fork server-utility 子进程承载 studio server（127.0.0.1 随机端口，
+ * ready 握手回传）→ BrowserWindow loadURL；driver 会话与 SSE 全在 child，main 不直接碰 driver。
+ * 模块边界（本文件只留模块级副作用时序锚点 + 装配）：窗口工厂/三窗引用 → windows.ts；
+ * workdir.json 持久化/目录选择器/切库守卫/relaunch 意图 → workdir-controller.ts；
+ * desktop:* IPC + handleTrusted 守卫单点 → ipc.ts；close/quit/session-end 三链 → lifecycle.ts。
+ * 其余保留：app.setPath/initLogging/userData 时序、单实例锁 + second-instance、serverManager
+ * 装配、bootstrap 启动时序（workDir 定位 → server fork+握手 → 主窗创建 → loadURL）、菜单、
+ * 冒烟驱动、进程级退出兜底（信号/uncaughtException/unhandledRejection）。
+ * 工作目录（书库）：启动定位 = 持久化 current > findWorkDir(cwd) > /welcome（不弹原生选择器）；
+ * 切库 = 改持久化 current → app.relaunch 进程重启（规避 server 路由模块级单例 + SSE 长连接泄漏，
+ * 见 Dev/Plans/desktop-workdir-方案.md §2.1/§3.1）。
+ * 开发：npm run dev:electron（build:web + tsup + electron .）；打包：electron-builder
+ *（dist/web + dist/desktop/{main,server-utility,preload} 进 asar）。
  */
 import { app, BrowserWindow, session, screen, dialog, Menu, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
@@ -53,10 +40,8 @@ import {
   openLibraryWindow,
   openShelfWindow,
   wins,
-  // 钩子收敛：原经本文件 re-export 供测试面取用，已删除该 re-export
-  //（测试直接动态 import windows.ts 正本）；本文件仍保留对该钩子的**生产路径**使用——
-  // CLW_SMOKE 窗口循环冒烟（e2e 专用、env 严格 opt-in）要用白名单登记计数，而登记表
-  // 正本在 windows.ts（本批改动面外，无生产命名访问器可取），故留用并如实记因。
+  // CLW_SMOKE 窗口循环冒烟（e2e 专用、env 严格 opt-in）要白名单登记计数，登记表正本在
+  // windows.ts 且无生产命名访问器——故本文件保留对该钩子的生产路径使用。
   __testHooks,
   getDevProxyApplied, // nano：原 let 导出 devProxyApplied 改函数访问器
 } from './windows.js' // 窗口工厂/三窗引用拆出
@@ -88,12 +73,10 @@ const CLW_CSP = [
 ].join('; ')
 
 /** HMR 开发模式判定（CLW_DEV_UI=1 且非打包态）——bootstrap 的 url 选择与 CSP 注入条件
- *  共用同一判据。
- * dev 环境变量防线——打包应用吃到宿主残留 CLW_DEV_UI=1 不得切
- *  HMR 形态（localhost:5173 + 跳过 server fork）、也不得放行跳过 CSP（Vite 需要的
- * unsafe-eval 豁免只属于真 dev）。bracket 统一风格。
- * （1.0 前质量）：该判据原在 bootstrap 与 whenReady 两处各写一份，
- *  收紧一处漏另一处即「打包态切 HMR」或「dev 态被 CSP 掐死」——收单源函数。 */
+ *  共用同一判据（单源：两处各写一份时，收紧一处漏另一处即「打包态切 HMR」或
+ *  「dev 态被 CSP 掐死」）。
+ *  防线：打包应用吃到宿主残留 CLW_DEV_UI=1 既不切 HMR 形态（localhost:5173 +
+ *  跳过 server fork），也不放行跳过 CSP（Vite 需要的 unsafe-eval 豁免只属于真 dev）。 */
 function isDevUi(): boolean {
   return !!process.env['CLW_DEV_UI'] && !app.isPackaged
 }
@@ -103,12 +86,10 @@ function isDevUi(): boolean {
 // 「同库单实例、异库多实例」由它自动成立；Chromium 写面/日志/窗口几何/实例守卫随
 // 实例目录隔离。应用级数据（providers/vault、global.json、prompts/、事件库、
 // workdir.json、studio-token.json）留在共享根 <home>（见 src/fs/user-data-path.ts）。
-// instanceKey 须在 setPath 之前**同步**算出（库目录禁探测——失联网络卷会冻启动链）：
+// 不变量：instanceKey 须在 setPath 之前**同步**算出（库目录禁探测——失联网络卷会冻启动链）；
 // 启动库路径 = `--dir` > `<home>/workdir.json`.current > findWorkDir(cwd) > welcome。
-// CLW_SMOKE_USER_DATA（打包态冒烟 env 钩子，先例对齐 CLW_SMOKE_WINDOW_CYCLE 的
-// 严格 opt-in 口径）：e2e 打包态冒烟（test/e2e/packaged-app-smoke.spec.ts）注入临时
-// 目录隔离真实用户库（~/Library/Application Support/CLWriting）——覆盖**共享根**，
-// 实例目录嵌套其下；env 未设时走缺省路径，生产零行为差异。
+// CLW_SMOKE_USER_DATA（打包态冒烟 env 钩子，严格 opt-in）：e2e 打包态冒烟注入临时目录
+// 隔离真实用户库——覆盖**共享根**，实例目录嵌套其下；env 未设时走缺省路径，生产零行为差异。
 const homeDir = appDataHomeDir()
 const startupLibrary = resolveStartupLibraryDir({ argv: process.argv, homeDir, cwd: process.cwd() })
 const instanceKey = startupLibrary.dir ? libraryInstanceKey(startupLibrary.dir) : WELCOME_INSTANCE_KEY
@@ -134,10 +115,9 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   app.quit()
 } else {
   // 多实例诊断启动行：instanceKey + 解析来源 + 启动库路径。
-  // 置于锁判定之后（本实例确为持锁实例才记）——同库二次拉起与其同实例目录，
-  // 锁判定前落行会把「未持锁即退」的瞬态实例行混进持锁实例的日志（取舍：设计正本
-  // §4.4 曾留「实施时定是否延后日志初始化」，实施取整定为延后本行、initLogging
-  // 留在原处——其 mkdir/轮转清理幂等无害，且更早的失败行仍可落盘）。
+  // 置于锁判定之后（本实例确为持锁实例才记）——锁判定前落行会把「未持锁即退」的瞬态
+  // 实例行混进持锁实例的日志。initLogging 留在原处（mkdir/轮转清理幂等无害，且更早的
+  // 失败行仍可落盘）。
   log.info(
     'desktop',
     `实例启动：key=${instanceKey} 来源=${startupLibrary.source} 书库=${startupLibrary.dir ?? '（引导页）'} 共享根=${homeDir}`,
@@ -149,9 +129,8 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
     const workDir = currentWorkDir() // bootstrap 实际值优先
     const ref = initialBookArg(argv, { allowEnvFallback: false })
     if (workDir && ref && wins.mainWindow && !wins.mainWindow.isDestroyed()) {
-      // -（全量代码）：resolveInitialBook→readBooks 同步扫书库，
-      // 书库在失联网络卷时冻主进程数秒（/-2 同族防线补齐此入口）——预探
-      // 先行，'unreachable' log 留痕 + 忽略 book 引用（同族「无物可开」收口口径，
+      // resolveInitialBook→readBooks 同步扫书库，书库在失联网络卷时会冻主进程数秒——
+      // 预探先行，'unreachable' log 留痕 + 忽略 book 引用（同族「无物可开」收口口径，
       // 不弹框打断前台应用）；聚焦不受预探影响，保持尾部同步执行。
       void (async () => {
         if ((await probeDirReachable(workDir)) === 'unreachable') {
@@ -161,14 +140,14 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
           )
           return
         }
-        // 目录预探通过 ≠ 同步扫描安全——resolveInitialBook
-        // 内 readBooks 是同步 readFileSync（<workDir>/.clwriting/books.jsonl，常量未导出，
-        // 路径与 src/install/books.ts BOOKS_FILE 同串勿漂移），网络卷「可达但慢/预探后
-        // 瞬断」窗下同步读照样冻主进程秒级，而同步 IO 无法直接超时。按同族防线
-        // 口径对真实读面补一道有界预探：文件 stat 挂死（'unreachable'）即降级忽略直达并
-        // 留痕；快速失败（'invalid'，如首启缺 books.jsonl 的 ENOENT）不拦——readBooks 对
-        // 缺文件本就降级空表，交由既有「无此登记书」留痕路径收口。预探后瞬断的 TOCTOU
-        // 残窗仍在（同族防线既定取舍：冻结面从恒现路径收窄为预探后瞬断窗）。
+        // 目录预探通过 ≠ 同步扫描安全：resolveInitialBook 内 readBooks 是同步
+        // readFileSync（<workDir>/.clwriting/books.jsonl，常量未导出，路径与
+        // src/install/books.ts BOOKS_FILE 同串勿漂移），网络卷「可达但慢/预探后瞬断」窗下
+        // 同步读照样冻主进程秒级，而同步 IO 无法直接超时。故对真实读面再补一道有界预探：
+        // 文件 stat 挂死（'unreachable'）即降级忽略直达并留痕；快速失败（'invalid'，如首启
+        // 缺 books.jsonl 的 ENOENT）不拦——readBooks 对缺文件本就降级空表，交由既有
+        // 「无此登记书」留痕路径收口。预探后瞬断的 TOCTOU 残窗仍在（既定取舍：冻结面从
+        // 恒现路径收窄为预探后瞬断窗）。
         if ((await probeDirReachable(join(workDir, '.clwriting', 'books.jsonl'))) === 'unreachable') {
           log.warn(
             'main',
@@ -187,43 +166,40 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
         }
       })()
     } else if (ref) {
-      // （打包）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
-      // 主窗不可用时原路径静默吞掉 --book——留痕含被忽略的值，双开排查不再靠猜
+      // 启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或主窗不可用时原路径会
+      // 静默吞掉 --book——留痕含被忽略的值
       const why = !workDir ? '书库未就绪（bootstrap 未完成且无持久化 current）' : '主窗口不可用'
       log.warn('main', `second-instance 带 --book=${ref}，但${why}——已忽略（聚焦现有窗口）`)
     }
     if (wins.mainWindow && !wins.mainWindow.isDestroyed()) {
-      // （#36）：mac 上 app.focus 默认只激活不抢焦点，双开拉起
-      // 可能只聚焦不置前——darwin 补 steal:true 自其他 app 强制夺焦并置前主窗
+      // mac 上 app.focus 默认只激活不抢焦点，双开拉起可能只聚焦不置前——
+      // darwin 补 steal:true 自其他 app 强制夺焦并置前主窗
       if (process.platform === 'darwin') app.focus({ steal: true })
       wins.mainWindow.focus()
     }
   })
 }
 
-/** studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
- *  批起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（重启服务/退出） */
+/** studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；崩溃退避自动重启，
+ *  3 次自动重启耗尽转原生对话框（重启服务/退出） */
 const serverManager = createStudioServerManager({
-  // 自愈等待期的退出探测——restartPinned 在 shuttingDown 态改
-  // 有界等停机收口（观察窗 5s 与停机链最坏预算失配的复合场景自愈拒绝修复），等待/
-  // 收口窗口内用户真退出（before-quit 链置位 appTearingDown）则放弃恢复，不在退出
-  // 链上 fork 新 child 成孤儿。拆分后旗正本在 lifecycle.ts，经
-  // isAppTearingDown 读数（语义逐位不变）。
+  // 自愈等待期的退出探测——restartPinned 在停机流程中改为有界等收口；等待/收口窗口内
+  // 用户真退出（退出链进入 tearing-down 相位）则放弃恢复，不在退出链上 fork 新 child
+  // 成孤儿。相位正本在 lifecycle.ts，经 isAppTearingDown() 读数。
   isProcessExiting: () => isAppTearingDown(),
-  // （§四.3）：重启成功广播——崩溃自动重启
-  // （doRestart）/session-end 自愈（restartPinned）钉住端口拉回成功后，向全部存活
-  // 窗口发 desktop:server-restarted；渲染层（Book.vue 订阅）sse.resync 立即断旧
-  // 连新 + 重取连接级 sync 快照。此前自愈成功 UI 无感知，SSE 只能等自身退避重连，
-  // 「服务已恢复但界面不动」的盲窗随退避时长展开。
+  // 重启成功广播——崩溃自动重启（doRestart）/session-end 自愈（restartPinned）钉住端口
+  // 拉回成功后，向全部存活窗口发 desktop:server-restarted；渲染层（Book.vue 订阅）
+  // sse.resync 立即断旧连新 + 重取连接级 sync 快照。无广播时自愈成功 UI 无感知，SSE
+  // 只能等自身退避重连，「服务已恢复但界面不动」的盲窗随退避时长展开。
   onRestarted: (port) => {
     for (const win of [wins.mainWindow, wins.shelfWindow, wins.libraryWindow]) {
       if (win && !win.isDestroyed()) win.webContents.send('desktop:server-restarted', port)
     }
   },
   onRestartExhausted: async () => {
-    // 同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环
-    // 被冻（三窗口输入/IPC 全停）；改异步 showMessageBox，exit 回调即刻返回，决断
-    // 到达前不重启不退出（server-manager 侧 void Promise 适配）。
+    // 同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环会被冻（三窗口输入/
+    // IPC 全停）；故用异步 showMessageBox，exit 回调即刻返回，决断到达前不重启不退出
+    //（server-manager 侧 void Promise 适配）。
     const { response: choice } = await dialog.showMessageBox({
       type: 'error',
       title: 'CLWriting 服务异常',
@@ -241,25 +217,22 @@ const serverManager = createStudioServerManager({
     return 'restart'
   },
 })
-/** bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child
- *  （kill + 等退出由 manager 保证；下一次 start 先等旧 child 退出再 fork）。
- * （打包）：close 返回 stopChild 的 Promise——runner 等其落定再开跑新
- * bootstrap，不再 fire-and-forget；stopChild 自带 cancelPendingRestart，
- *  挂起重启随关旧一并作废 */
+/** bootstrap-runner「重试前关旧 server」的适配器——close() 即停旧 child（kill + 等退出由
+ *  manager 保证；下一次 start 先等旧 child 退出再 fork）。close 返回 stopChild 的 Promise——
+ *  runner 等其落定再开跑新 bootstrap（不 fire-and-forget）；stopChild 自带
+ *  cancelPendingRestart，挂起重启随关旧一并作废 */
 const legacyStopHandle = { close: () => serverManager.stopChild() }
 
-/** 真实 Electron 窗口循环冒烟——仅当
- *  CLW_SMOKE_WINDOW_CYCLE=1 时由 bootstrap 末段（[CLW_SMOKE] ready 之后）调用，
- * 保证 app 已 ready 再动窗口。目的：把修复的缺陷类（closed 清理监听在
- *  销毁态 webContents 上抛错 → 中断 emit 遍历令其余清理/白名单摘除短路）由真实
- *  Electron 进程兜住——单测假件只能锁单测口径，真实销毁语义（closed 后读
- *  webContents 抛 "Object has been destroyed"）唯有真实进程可复现。
- *  复用 createSecureWindow 工厂：安全五件套 + trackWindow（白名单登记 + closed 摘除）
- *  与生产完全同链，不另起第二份安全配置。
- *  契约输出串（CI 驱动 grep 硬绑定，勿改）：成功 [CLW_SMOKE] window-cycle-ok
- *  （exit 0）；超时 [CLW_SMOKE] window-cycle-timeout（exit 非 0）；未捕获异常
- *  [CLW_SMOKE] crash <message>（经 uncaughtException 首行，见其处理器）。
- *  严格 opt-in：env 未设置为 '1' 时本函数零调用（不建窗/不打日志/不改时序）。 */
+/** 真实 Electron 窗口循环冒烟——仅当 CLW_SMOKE_WINDOW_CYCLE=1 时由 bootstrap 末段
+ * （[CLW_SMOKE] ready 之后）调用，保证 app 已 ready 再动窗口。目的：把「closed 清理监听
+ * 在销毁态 webContents 上抛错 → 中断 emit 遍历令其余清理/白名单摘除短路」这类缺陷由真实
+ * Electron 进程兜住——单测假件只能锁单测口径，真实销毁语义（closed 后读 webContents 抛
+ * "Object has been destroyed"）唯有真实进程可复现。复用 createSecureWindow 工厂：安全
+ * 五件套 + trackWindow（白名单登记 + closed 摘除）与生产完全同链。
+ * 契约输出串（CI 驱动 grep 硬绑定，勿改）：成功 [CLW_SMOKE] window-cycle-ok（exit 0）；
+ * 超时 [CLW_SMOKE] window-cycle-timeout（exit 非 0）；未捕获异常 [CLW_SMOKE] crash
+ * <message>（经 uncaughtException 首行，见其处理器）。
+ * 严格 opt-in：env 未设置为 '1' 时本函数零调用（不建窗/不打日志/不改时序）。 */
 const SMOKE_WINDOW_CYCLE_TIMEOUT_MS = 15_000
 function runSmokeWindowCycle(): void {
   // 基线：冒烟态此刻仅主窗在白名单——关窗后应回落至此值
@@ -312,24 +285,19 @@ async function bootstrap(): Promise<void> {
   // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
   // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
-  // recent 失效过滤在此异步预算一次
-  // 执行——原 readStore 首读内联同步过滤（existsSync+statSync 逐条），recent 残留失联
-  // 网络卷时 bootstrap 首行即同步冻主进程数十秒；-1 probeDirReachable 防线只护
-  // current/cwd，recent 条目在防线外。超时项保留展示（失联≠失效，择库守卫预探拦截
-  // 兜底取舍口径不变）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
-  // 本行原注「此处先于任何 IPC
-  // 注册（下方 registerIpc 在窗口就绪后）」与实际相反——registerIpc 在 whenReady
-  // 同步段先于 runBootstrap 执行（IPC handler 已注册）。早读窗口不存在的真实依据：
-  // 窗口要到 bootstrap 定出 workDir 后才创建、渲染层尚未加载，这些 await 期间没有
-  // renderer sender 到达，不构成 IPC 并发面（同步冻住的是主进程自身，见上段动机）。
+  // recent 失效过滤在此异步预算一次执行——readStore 首读内联同步过滤（existsSync+statSync
+  // 逐条）时，recent 残留失联网络卷会让 bootstrap 首行即同步冻主进程数十秒；
+  // probeDirReachable 防线只护 current/cwd，recent 条目在防线外。超时项保留展示
+  //（失联≠失效，择库守卫预探拦截）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
+  // 此刻无 renderer sender 到达（窗口要等 bootstrap 定出 workDir 后才创建、渲染层尚未
+  // 加载），不构成 IPC 并发面——同步冻住的是主进程自身。
   if (store.recent.length > 0) {
     const filtered = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
-    // 整覆改仅回填 recent 字段——await 窗内
-    // 菜单/IPC 链的并发写（saveCurrent→writeStore 换 storeCache 对象）会被旧 store 的
-    // 整对象赋值回滚（内存面丢 current，盘面与内存面自此分叉直到重启）；展开当下
-    // storeCache 只覆写 recent，并发写不再被内存面回滚。?? store：类型收窄兜底
-    //（bootstrap 首行 readStore 已建缓存，此分支 storeCache 恒非空且 !== null）。
-    // （拆分注记：storeCache 正本在 workdir-controller，经 overwriteRecentInCache 写。）
+    // 整覆只回填 recent 字段——await 窗内菜单/IPC 链的并发写（saveCurrent→writeStore 换
+    // storeCache 对象）会被旧 store 的整对象赋值回滚（内存面丢 current，盘面与内存面自此
+    // 分叉直到重启）；展开当下 storeCache 只覆写 recent。?? store：类型收窄兜底
+    //（readStore 已建缓存，此分支 storeCache 恒非空且 !== null）。
+    // storeCache 正本在 workdir-controller，经 overwriteRecentInCache 写。
     overwriteRecentInCache(store, filtered.recent)
   }
   let workDir: string | null = null
@@ -337,13 +305,11 @@ async function bootstrap(): Promise<void> {
   // 显式意图；不可用即引导页（回落会打开一个与用户意图无关的库）。其余来源维持原链。
   const argDir = startupLibrary.source === 'arg' ? startupLibrary.dir : null
   const launchCandidate = argDir ?? store.current
-  // 持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
-  // 原样采信会静默空书架无引导；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导
-  // （§四.1）：current 先经可达性预探——指向失联网络卷
-  // （挂载点在服务器无响应态）时，下方 statSync 单点即可同步冻主进程数十秒
-  // （切库同族的启动侧入口）。'unreachable' 原生错误框留痕 + 回落发现链
-  // （不退出——作者可切到可用书库）；'invalid'（确定性坏路径）与预探通过后的瞬断
-  // 均维持原回落语义（TOCTOU 残窗与切库预探同口径收窄，非消灭）。
+  // 持久化 workDir 须做目录校验——仅 existsSync 时指向普通文件会被静默采信为「空书架
+  // 无引导」；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导。current 先经可达性预探：
+  // 指向失联网络卷（挂载点在服务器无响应态）时，下方 statSync 单点即可同步冻主进程数十秒。
+  // 'unreachable' 原生错误框留痕 + 回落发现链（不退出——作者可切到可用书库）；'invalid'
+  //（确定性坏路径）与预探通过后的瞬断均维持原回落语义（TOCTOU 残窗同口径收窄，非消灭）。
   if (launchCandidate) {
     const reach = await probeDirReachable(launchCandidate, BOOTSTRAP_PROBE_TIMEOUT_MS)
     if (reach === 'ok') {
@@ -381,10 +347,9 @@ async function bootstrap(): Promise<void> {
     }
   }
   // 实例 key 与 bootstrap 实际采用库不一致（current 失效 → 回落 cwd 发现的残余形态）：
-  // Electron 原生锁落在错误的 key 域，按原形态本会话「同库单实例」防线降级。收口
-  // （多库多窗 §六 残余项修复）：补挂一道实例守卫到**实际采用库**的实例目录——此后
-  // 任何以该库为 key 的实例启动时经 acquireAppInstanceGuard 见他实例在持而自退，防线
-  // 恢复。锁面异常 fail-open（与 guard 同口径，不拦启动）。
+  // Electron 原生锁落在错误的 key 域，本会话「同库单实例」防线降级。故补挂一道实例守卫到
+  // **实际采用库**的实例目录——此后任何以该库为 key 的实例启动时经 acquireAppInstanceGuard
+  // 见他实例在持而自退，防线恢复。锁面异常 fail-open（不拦启动）。
   if (workDir && startupLibrary.dir && !samePath(workDir, startupLibrary.dir)) {
     log.warn(
       'desktop',
@@ -411,13 +376,13 @@ async function bootstrap(): Promise<void> {
       log.warn('desktop', `实例守卫补挂失败（fail-open，不拦启动）：${errMsg(e)}`)
     }
   }
-  // 服务端：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
-  // readStore.current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
-  // 退出拿到 null：不 abort 任何在途 chat/self-heal、不等后台任务（孤儿会话只能靠
-  // 32 分钟宽限修复，ORPHAN_GRACE_MS 见 events/store.ts）。退出以启动时实际值优先，store 回读兜底
-  // welcome 态 workDir 可为 null，currentWorkDir 的 ?? 兜底因此
-  // 走 readStore——缓存（见 readStore 注）就位后该兜底零盘 IO，null/'' 语义维持原状
-  // （拆分注记：bootstrappedWorkDir 正本在 workdir-controller，经 setter 记账）
+  // 服务端记录 bootstrap 实际采用的 workDir——退出时若回读 readStore.current，在
+  // store.current 为 null/失效而 workDir 由 findWorkDir 发现时会拿到 null：不 abort 任何
+  // 在途 chat/self-heal、不等后台任务（孤儿会话只能靠 32 分钟宽限修复，ORPHAN_GRACE_MS
+  // 见 events/store.ts）。退出以启动时实际值优先，store 回读兜底。
+  // welcome 态 workDir 可为 null，currentWorkDir 的 ?? 兜底因此走 readStore——缓存就位后
+  // 该兜底零盘 IO，null/'' 语义维持原状。bootstrappedWorkDir 正本在 workdir-controller，
+  // 经 setter 记账。
   setBootstrappedWorkDir(workDir)
   const needsWelcome = !workDir
 
@@ -491,10 +456,10 @@ async function bootstrap(): Promise<void> {
   // flush（页面未死，异步保存链全通）落定/短超时后 destroy 真正关窗（destroy 不再
   // 触发 beforeunload，链路单次不循环）。退出链（before-quit）已先行 flush 并在收口
   // destroy 全窗，session-end 时间窗有限，两者都直接放行。
-  // （评审四十九轮）：在途旗（closeFlushInFlight/quitFlushInFlight）与 quit 汇入
-  // 旗（quitDuringCloseFlush）为 lifecycle 模块级（正本随 close/session-end/quit 三链
-  // 拆出）——close/session-end/focus/closed/全屏反向同步监听统一经
-  // attachMainWindowLifecycle 挂载（拆分，处理器语义逐位不变）。
+  // 退出链相位与待汇入退出请求为 lifecycle 模块级显式状态机（ExitPhase + exitChain；
+  // 读数 isCloseFlushInFlight / isQuitChainEngaged / isQuitReleased / isExitPassthrough
+  // 为正本）——close/session-end/focus/closed/全屏反向同步监听统一经
+  // attachMainWindowLifecycle 挂载。
   attachMainWindowLifecycle(mainWindow, {
     serverManager,
     isServerStarted: () => serverStarted,
@@ -777,18 +742,14 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     app.quit()
   })
 
-  // （win 平台专项）：进程级退出兜底——dev 控制台 Ctrl+C（SIGINT）/
-  // Ctrl+Break（SIGBREAK）此前直接硬杀，跳过 before-quit 优雅停机链；改为走
-  // app.quit 复用既有幂等链（quitViaShutdown 门防重入，重复信号安全）。
-  // 补 SIGTERM——`kill <pid>`/进程管理器/IDE 停止按钮的默认
-  // 信号（mac/linux）同属「硬杀跳过优雅停机链」的动机面，与 SIGINT 同款一行。
-  // （备注级事实收口）：SIGTERM 在 win 上无投递机制（外部
-  // TerminateProcess 不进 JS handler），本行实际仅 POSIX 生效；win 的硬杀面已由
-  // SIGBREAK（Ctrl+Break）与 uncaughtException backstop 兜底。保留本行为三平台
-  // 对齐与跨平台宿主（如 win 下经 POSIX 兼容层运行）预留，非缺陷。
-  // 三行注册改经 createRepeatedSignalExit——同型信号第二次
-  // 到达直接 killNow + exit(1) 硬退（逻辑正本与动机见 signal-hard-exit.ts 头注）；
-  // 首次语义不变（app.quit 单次优雅链，unref 语义不受影响）。
+  // 进程级退出兜底——dev 控制台 Ctrl+C（SIGINT）/Ctrl+Break（SIGBREAK）/SIGTERM 直接硬杀
+  // 会跳过 before-quit 优雅停机链；改为走 app.quit 复用既有幂等链（退出链 releasing 相位
+  // 直通 + 幂等门防重入，重复信号安全）。
+  // SIGTERM 在 win 上无投递机制（外部 TerminateProcess 不进 JS handler），本行实际仅
+  // POSIX 生效；win 的硬杀面由 SIGBREAK 与 uncaughtException backstop 兜底。保留本行为
+  // 三平台对齐与跨平台宿主预留，非缺陷。
+  // 三行注册经 createRepeatedSignalExit——同型信号第二次到达直接 killNow + exit(1) 硬退
+  //（逻辑正本与动机见 signal-hard-exit.ts 头注）；首次语义（app.quit 单次优雅链）不变。
   const onExitSignal = createRepeatedSignalExit({
     requestGracefulQuit: () => app.quit(),
     killNow: () => serverManager.killNow(),
@@ -835,9 +796,8 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     log.error('desktop', '主进程未处理的 promise rejection（已记录，不退出）', reason)
   })
 
-  // 优雅退出链装配（处理器正本在 lifecycle.ts——拆分，行为零变化；
-  // 沿革注释随处理器迁走，此处保留装配时序：注册位次与拆分前 app.on('before-quit')
-  // 一致，介于 unhandledRejection 与 activate 之间）。
+  // 优雅退出链装配（处理器正本在 lifecycle.ts；装配时序为契约：注册位次
+  // 介于 unhandledRejection 与 activate 之间）。
   registerQuitChain(bootstrapRunner, serverManager)
 
   app.on('activate', () => {

@@ -1,33 +1,28 @@
 /**
- * 结构化日志通道（迭代方向）。
+ * 结构化日志通道。
  *
- * 边界（与事件库的分工）：进程诊断归本模块（JSONL 按天落盘、7 天轮转），
- * 业务观测归事件库（append-only SQLite）——两条通道不合并：事件库是产品数据，
- * 日志是运维数据，保留策略不同。
+ * 边界（与事件库的分工）：进程诊断归本模块（JSONL 按天落盘、7 天轮转），业务观测归事件库
+ *（append-only SQLite）——不合并：事件库是产品数据、日志是运维数据，保留策略不同。
  *
  * 语义：
- * - 未 initLogging 前（单测直调内核 / 独立脚本）：仅镜像 console——与引入本模块前
- *   的行为逐字节等价，存量测试零感知；
- * - initLogging 后：{ts, level, tag, msg, err?} 逐行 JSONL 追加到
- *   <logsDir>/app-YYYYMMDD.jsonl（本地日期），进程内串行队列保证行序与调用序一致，
- *   调用方永不 await（诊断留痕不允许成为请求路径上的新阻塞源）；
- * - stdout-only 模式（单写者）：env
- *   CLW_LOG_STDOUT=1 时 initLogging 层短路——不设 logsDir、不 mkdir、不跑 7 天清理，
- *   emit 直写 process.stdout 一行与落盘行同构的 JSON（child 进程专用：server-manager
- *   fork 时经 options.env 注入，main 以 stdio:pipe 收行解析重发落盘——单写者，双进程
- *   不再同写同一 logs 目录/双清同一轮转）；短路必须在本函数（startServer 内部会再
- *   init 一次，入口层挡不住）；
- * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 stderr 直写该条，不抛出、
- * 不熔断后续写入——诊断通道不允许成为新故障源；（阶段 39）起
- *   降级/背压告警改 process.stderr.write 直写（不走 console API）——测试进程里
- *   迟到的兜底输出经 vitest console 拦截（onUserConsoleLog RPC）落进 worker
- *   收尾窗即 EnvironmentTeardownError（上游 vitest#11153，归因文件随机）；
- *   dev/CLI 终端 stderr 照见（可见性不变），Electron 打包态与原 console 同样无人看；
- * - 内存闸（审计）：落盘队列背压上限——磁盘挂起（appendFile 长期
- *   pending）时待写行不再无界累积（原 tail 链每条日志链一个闭包，慢盘下闭包线性
- *   增长）；超限丢最旧 + 周期性 warn 计数（慢盘场景内存有界优先于日志完备）；
- * - 镜像开关由入口决定：dev / CLI / 测试镜像 console（看得见），Electron 打包态
- *   console 输出到无人看见的地方，关镜像只落文件。
+ * - 未 initLogging 前（单测直调内核 / 独立脚本）：仅镜像 console——与引入本模块前的行为
+ *   逐字节等价，存量测试零感知；
+ * - initLogging 后：{ts, level, tag, msg, err?} 逐行 JSONL 追加到 <logsDir>/app-YYYYMMDD.jsonl
+ *  （本地日期），进程内串行队列保证行序与调用序一致，调用方永不 await（诊断留痕不允许成为
+ *   请求路径上的新阻塞源）；
+ * - stdout-only 模式（单写者）：env CLW_LOG_STDOUT=1 时短路——不设 logsDir、不 mkdir、不跑
+ *   7 天清理，emit 直写 process.stdout 一行与落盘行同构的 JSON（child 专用：server-manager
+ *   fork 时注入 env，main 以 stdio:pipe 收行解析重发落盘，双进程不再同写同一 logs 目录）；
+ *   短路必须在 initLogging 内（startServer 内部会再 init 一次，入口层挡不住）；
+ * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 stderr 直写该条，不抛出、不熔断后续
+ *   写入。降级/背压告警用 process.stderr.write 直写（不走 console API）——测试进程里迟到的
+ *   兜底输出经 vitest console 拦截（onUserConsoleLog RPC）落进 worker 收尾窗即
+ *   EnvironmentTeardownError（上游 vitest#11153，归因文件随机）；dev/CLI 终端 stderr 照见；
+ * - 内存闸（审计）：落盘队列背压上限——磁盘挂起（appendFile 长期 pending）时待写行不再无界
+ *   累积（否则 tail 链每条日志链一个闭包，慢盘下线性增长）；超限丢最旧 + 周期性 warn 计数
+ *  （慢盘场景内存有界优先于日志完备）；
+ * - 镜像开关由入口决定：dev / CLI / 测试镜像 console；Electron 打包态 console 输出到无人看见
+ *   的地方，关镜像只落文件。
  */
 import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises'
 import { readdirSync } from 'node:fs'
@@ -256,6 +251,14 @@ const KEY_MASK_HEADER_RE =
   /(bearer\s+[A-Za-z0-9\-._~+/=]{8,}|x-api-key[:\s]+[A-Za-z0-9\-._~+/=]{8,}|[?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=[^\s&#\\"]+)/gi
 const KEY_MASK_BARE_RE =
   /((?<![A-Za-z0-9\-_])(?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
+/** JSON 形态凭据（`"api_key":"…"`）：上面两族都够不着——query 族要 `[?&]` 前导、
+ *  header 族要裸 `:` 或空白、裸 key 族只认前缀/智谱/Gemini 形态，无前缀 key 落进
+ *  JSON 值里即穿透（配置片段、请求体回显、SDK 报错内嵌 body 均可能带此形）。
+ *  引号（含 emit 后序列化行的 `\"` 转义形）与键名保留，值同 query 族口径
+ *  （全掩 + ≥8 位留末 4 位）。键名尾词取 `key`/`token`/`secret` 等，`key` 词首加
+ *  断言排除 `monkey` 这类普通词尾。 */
+const KEY_MASK_JSON_RE =
+  /(\\?"[^"\\]{0,40}?(?:api[_-]?key|access[_-]?key|authorization|token|secret|(?<![A-Za-z0-9])key)\\?"\s*:\s*\\?")[^"\\]{1,}(\\?")/gi
 /**
  * 引入修正：key 掩码。Bearer 形态改为「token 部分掩码」——
  * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），
@@ -265,7 +268,12 @@ const KEY_MASK_BARE_RE =
  * （掩码是安全语义，锁形貌）。
  */
 export function maskKeys(s: string): string {
-  const header = s.replace(KEY_MASK_HEADER_RE, (m) => {
+  // JSON 形态先跑：命中后值已成 `****`，后续两族不会再在其上误配
+  const json = s.replace(KEY_MASK_JSON_RE, (m, p1: string, p2: string) => {
+    const value = m.slice(p1.length, m.length - p2.length)
+    return `${p1}****${value.length >= 8 ? value.slice(-4) : ''}${p2}`
+  })
+  const header = json.replace(KEY_MASK_HEADER_RE, (m) => {
     if (/^bearer/i.test(m)) {
       const token = m.slice(m.search(/\s/)).trim()
       return `Bearer ****${token.slice(-4)}`

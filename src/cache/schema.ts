@@ -11,6 +11,8 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
+import { log } from '../log/index.js'
+import { migrateSqlite, describeSqliteMigration, type SqliteMigrationOutcome } from '../shared/sqlite-migrate.js'
 
 /** 树红点缓存两表 DDL 单源——DDL_STATEMENTS（全量建表）与
  *  ensureTreeIssuesTables（旧库按需补建）共用；此前双份手抄，改列要同步两处易漂移。
@@ -94,7 +96,7 @@ const DDL_STATEMENTS = [
 
 /** 树红点缓存表独立 ensure——增量 rebuild 跳过路径不跑 createAllTables，
  *  旧库（本表缺席）按需补建（幂等，IF NOT EXISTS）。
- *  清偿批存量库补 epoch_fp 列（ALTER ADD COLUMN，幂等）——
+ *  存量库补 epoch_fp 列（ALTER ADD COLUMN，幂等）——
  *  CREATE TABLE IF NOT EXISTS 对已存在的表不生效，旧库缺列时带列名读写会静默
  *  全失败（读 catch 成恒 miss、写静默弃行 = 缓存永久失效）。补列后旧行该列为
  *  NULL，读侧按「epoch 不匹配 = miss」处理，天然一次性失效重算（可接受）。 */
@@ -111,6 +113,31 @@ export function createAllTables(db: DatabaseSync): void {
   for (const stmt of DDL_STATEMENTS) {
     db.exec(stmt)
   }
+}
+
+/** 缓存库 schema 目标版本（user_version 阶梯契约见 shared/sqlite-migrate.ts）。
+ *  v1 = 探列式迁移（tree_issues_cache.epoch_fp 列）。加列 / 改型一律新开一级，禁止就地
+ *  改 v1——已发版用户书仓的 index.db 的 v1 是既成事实。 */
+const CACHE_SCHEMA_VERSION = 1
+
+/** v1 步本体：既有「全量建表 + 树红点表探列补列」逐位原样。createFresh 同体——空库上
+ *  CREATE TABLE IF NOT EXISTS 即全建，探列补列随之 no-op（本级两路恰好同体，v2 起分叉）。 */
+function migrateCacheSchemaShape(db: DatabaseSync): void {
+  createAllTables(db)
+  ensureTreeIssuesTables(db)
+}
+
+/** index.db schema 阶梯（全量重建的唯一建表入口）。调用方（rebuild）已在事务内——
+ *  版本写入随该事务提交 / 回滚：重建失败回滚则版本停在原级，下次重建重跑幂等首步。 */
+export function migrateCacheSchema(db: DatabaseSync): SqliteMigrationOutcome {
+  const outcome = migrateSqlite(db, {
+    tag: 'cache',
+    target: CACHE_SCHEMA_VERSION,
+    steps: [{ to: 1, run: migrateCacheSchemaShape }],
+    createFresh: migrateCacheSchemaShape,
+  })
+  log.info('cache', describeSqliteMigration(outcome))
+  return outcome
 }
 
 /** 清空全部表数据（重建前调用，保留表结构） */

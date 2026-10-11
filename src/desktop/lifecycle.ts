@@ -1,8 +1,10 @@
 /**
  * 主窗退出链与生命周期监听。
  *
- * 跨模块状态：sessionEnding/appTearingDown（isAppTearingDown 供 serverManager 退出
- * 探测接线）；窗口引用经 wins（windows.ts）；切库回滚/relaunch 意图经 workdir-controller。
+ * 退出编排（close/session-end/before-quit 三链的相位、互斥、幂等与顺序）收敛在本文件
+ * 顶部的显式状态机（exitChain + isLegalExitTransition + transition）；对外只读面：
+ * isAppTearingDown（serverManager 退出探测接线）；窗口引用经 wins（windows.ts）；
+ * 切库回滚/relaunch 意图经 workdir-controller。
  */
 import { app, dialog, type BrowserWindow } from 'electron'
 import { log } from '../log/index.js'
@@ -10,18 +12,217 @@ import { raceWithTimeout } from './workdir-store.js'
 import { guardClosedCleanup, saveWinState, wins } from './windows.js'
 import { armPendingRelaunchIfAny, discardPendingRelaunch, rollbackCancelledSwitch } from './workdir-controller.js'
 
-// ── 退出链共享状态（读写面收敛于本文件）──
+// ── 退出编排（显式状态机：相位 × OS 停机面 + 待汇入退出请求）──
+// 旧形态：5 个模块级可变旗（sessionEnding / appTearingDown / closeFlushInFlight /
+// quitFlushInFlight / quitDuringCloseFlush）+ quit 链私有标记 quitViaShutdown，三条链
+// （close / session-end / before-quit）各自读写；哪些组合可达、哪两旗互斥、旗何时复位，
+// 正确性只写在各点注释的正确性证明里。现收敛为：唯一可变状态源 exitChain + 派生读数
+// （isExitPassthrough / isCloseFlushInFlight / isQuitChainEngaged / isQuitReleased …）+
+// 转移表 isLegalExitTransition + 私有转移点 transition（对齐 server-manager 的范式）。
+// 行为逐位不变：谁先谁后 / 超时 / 幂等 / 二次触发 / 异常路径全部保持。
 
-/** 关窗拦截的全局避让旗。session-end（OS 关机/注销）时间窗有限，
- *  close 拦截只会白拖 OS 收尾（停机兜底由 session-end 处理器负责）；退出链
- *  （before-quit）自行先行 flush 并在收口 destroy 全窗，close 事件再拦截是重复动作。
- *  两旗分别由 session-end / before-quit 链路置位，close 拦截读它们。 */
-let sessionEnding = false
-let appTearingDown = false
+/**
+ * 退出编排相位——同一进程同时只处于一个：
+ * - 'idle'         无链在途、未过不可回头点
+ * - 'close-flush'  close 拦截链在途（渲染层 flush + 冲突/失败确认）——原 closeFlushInFlight
+ * - 'quit-flush'   before-quit 链在途——原 quitFlushInFlight 的链内段
+ * - 'tearing-down' 已过不可回头点——原 appTearingDown：停机指令在途 / 收口 destroy 全窗 /
+ *                  session-end 级联直通；置位后不可回退
+ * - 'releasing'    收口放行——原 quitViaShutdown：finally 的 app.quit 直通
+ * 合入形态：session-end 级联可在 close 链仍在途时置 T（相位直接到 'tearing-down'）——
+ * 原 closeFlushInFlight 彼时仍为真，但其两个读点（close 拦截的互斥闸、before-quit 的
+ * 汇入闸）都被更前的直通闸（sessionEnding/appTearingDown，见 isExitPassthrough）命中而
+ * 不可达，故合并不改变任何对外行为；close 链自身收尾照旧落定（幂等，不回退相位）。
+ */
+export type ExitPhase = 'idle' | 'close-flush' | 'quit-flush' | 'tearing-down' | 'releasing'
+
+/** OS 停机面——'ending' = session-end（OS 关机/注销）在途：close 直关放行、原生确认框
+ *  跳过（无人可答）、观察窗到点且真退出链未接管时复位。与相位正交（任何相位都可置位）。 */
+export type OsShutdownMode = 'none' | 'ending'
+
+/** 转移事件——退出编排的每次状态变更都以一者表达（调用点见三条链）。
+ *  session-end 观察窗定时器的清/重臂是资源句柄操作（非状态迁移），不经本表。 */
+export type ExitEvent =
+  | 'close-flush-open' // close 链开工（渲染层 flush 在途）
+  | 'close-flush-settle' // close 链收尾（destroy 收口 / 窗口先毁的退化收尾）
+  | 'close-flush-cancel' // 作者取消关窗（同时作废待汇入的退出请求）
+  | 'quit-defer' // close flush 在途时到达的退出请求（拦下并记待汇入）
+  | 'quit-flush-open' // quit 链开工（渲染层 flush 在途）
+  | 'quit-flush-cancel' // 作者取消退出（应用原样保留）
+  | 'tear-down' // 过不可回头点（原 appTearingDown 置位）
+  | 'quit-release' // 收口放行（原 quitViaShutdown 置位；调用方随即 app.quit）
+  | 'os-shutdown-begin' // session-end 到达（OS 收尾在途）
+  | 'os-shutdown-recover' // 观察窗到点进程仍存活（关机被取消/被拒）→ 复位停机面
+
+/** 退出编排读数快照（转移表回归与诊断的观测面；deferredQuit 语义见 ExitChainState） */
+export interface ExitChainSnapshot {
+  phase: ExitPhase
+  osShutdown: OsShutdownMode
+  /** close flush 在途时到达的退出请求是否待汇入（由 close 链收尾统一 app.quit） */
+  deferredQuit: boolean
+}
+
+/** 状态机唯一可变真相源（模块级 = 每模块实例一份——main 经 resetModules 重载时随实例
+ *  隔离，与拆分前 5 个模块级旗同粒度）。除 transition 与 takeDeferredQuitRequest
+ *  （正交数据，见其注）外不得改写本对象。 */
+interface ExitChainState extends ExitChainSnapshot {
+  /** session-end 观察窗定时器（与停机面同生命周期：重臂清旧、到点摘除） */
+  osRecoveryTimer: ReturnType<typeof setTimeout> | null
+}
+
+const exitChain: ExitChainState = {
+  phase: 'idle',
+  osShutdown: 'none',
+  deferredQuit: false,
+  osRecoveryTimer: null,
+}
+
+/**
+ * 转移表（机器可读形态，与 transition 的 switch 一一对应）：事件 × 前置（相位, 停机面）
+ * → 是否合法。非法不是静默返回：transition 记 error 留痕并拒绝（状态不变）。
+ * 本表外露供转移矩阵测试直测——表的边界即状态机契约。
+ */
+export function isLegalExitTransition(ev: ExitEvent, phase: ExitPhase, os: OsShutdownMode): boolean {
+  switch (ev) {
+    // 开工：只有空闲相位可开（两链互斥由相位本身承担——入口的在途闸先拦下非 idle 形态）。
+    // OS 停机在途时 close 走直关放行、before-quit 走级联直通，两链都不会开工
+    case 'close-flush-open':
+    case 'quit-flush-open':
+      return phase === 'idle' && os === 'none'
+    // close 链收尾：本链在途；或 session-end 级联已合入 'tearing-down'（幂等落定，不回退相位）
+    case 'close-flush-settle':
+    case 'close-flush-cancel':
+      return phase === 'close-flush' || phase === 'tearing-down'
+    // 汇入：唯一置位点 = before-quit 拦下 close 链在途的退出请求。OS 停机面已置时该分支
+    // 不可达（级联直通在先）——「先置停机面则 quit 直通」是这里的硬不变量
+    case 'quit-defer':
+      return phase === 'close-flush' && os === 'none'
+    // quit 链取消：只可能在本链在途时（取消 = 应用原样保留）
+    case 'quit-flush-cancel':
+      return phase === 'quit-flush'
+    // 不可回头点：任何相位任何停机面都可置位（quit 链确认全过 / session-end 级联直通）
+    case 'tear-down':
+      return true
+    // 收口放行：只在不可回头点之后（T 恒先于 V；调用方随即 app.quit）
+    case 'quit-release':
+      return phase === 'tearing-down'
+    // 停机在途：任何相位任何停机面都可置位（重复 session-end 幂等）
+    case 'os-shutdown-begin':
+      return true
+    // 复位：真退出链已接管（tearing-down/releasing）时观察窗首行即让位，本事件不可达
+    case 'os-shutdown-recover':
+      return phase === 'idle' || phase === 'close-flush' || phase === 'quit-flush'
+  }
+}
+
+/**
+ * 唯一转移点——合法性判定（表正本在模块级 isLegalExitTransition）与相位/停机面变更
+ * 同处一函数；非法即 error 留痕并拒绝（状态不变，不静默放行）。
+ */
+function transition(ev: ExitEvent): void {
+  const from = exitChainSnapshot()
+  if (!isLegalExitTransition(ev, from.phase, from.osShutdown)) {
+    log.error('desktop', `退出编排非法转移已拒绝：${ev} @ phase=${from.phase} os=${from.osShutdown}（状态不变）`)
+    return
+  }
+  switch (ev) {
+    case 'close-flush-open':
+      exitChain.phase = 'close-flush'
+      break
+    case 'close-flush-settle':
+      // 合入形态（级联已置 T）不回退相位——T 不可回退；余者回 idle
+      if (exitChain.phase === 'close-flush') exitChain.phase = 'idle'
+      break
+    case 'close-flush-cancel':
+      if (exitChain.phase === 'close-flush') exitChain.phase = 'idle'
+      exitChain.deferredQuit = false // 取消关窗 = 待汇入的退出请求一并作废
+      break
+    case 'quit-defer':
+      exitChain.deferredQuit = true
+      break
+    case 'quit-flush-open':
+      exitChain.phase = 'quit-flush'
+      break
+    case 'quit-flush-cancel':
+      exitChain.phase = 'idle'
+      break
+    case 'tear-down':
+      exitChain.phase = 'tearing-down'
+      break
+    case 'quit-release':
+      exitChain.phase = 'releasing'
+      break
+    case 'os-shutdown-begin':
+      exitChain.osShutdown = 'ending'
+      break
+    case 'os-shutdown-recover':
+      exitChain.osShutdown = 'none'
+      break
+  }
+}
+
+/** 相位/停机面读数快照（观测面；生产决策走下方派生读数） */
+export function exitChainSnapshot(): ExitChainSnapshot {
+  return { phase: exitChain.phase, osShutdown: exitChain.osShutdown, deferredQuit: exitChain.deferredQuit }
+}
+
+/** 待汇入退出请求的读并复位（唯一消费点 = close 链收尾）——正交数据不入转移表
+ *  （非相位/停机面载荷，同 server-manager 的 attempts 口径：跨相位存续的独立数据，
+ *  写入点唯一 = transition('quit-defer')）。 */
+function takeDeferredQuitRequest(): boolean {
+  const pending = exitChain.deferredQuit
+  exitChain.deferredQuit = false
+  return pending
+}
+
+/** 原 sessionEnding：OS 收尾（关机/注销）在途——close 直关放行 / 确认框跳过 / 观察窗复位面 */
+function isOsShutdownPending(): boolean {
+  return exitChain.osShutdown === 'ending'
+}
+
+/** 原 appTearingDown：真退出链已接管（置位后不可回退，故两相位等值于该旗真值） */
+function isTearingDown(): boolean {
+  return exitChain.phase === 'tearing-down' || exitChain.phase === 'releasing'
+}
+
+/** 原 closeFlushInFlight：close 链在途（合入 'tearing-down' 的形态见 ExitPhase 注——
+ *  该形态下本读数不参与决策，两读点均已被直通闸拦在前面）。 */
+function isCloseFlushInFlight(): boolean {
+  return exitChain.phase === 'close-flush'
+}
+
+/** 原 quitFlushInFlight：quit 链占位中——开工 → 不可回头点 → 收口放行全程为真（旗不随
+ *  流程收口复位）。等价性：'quit-flush' ⟺ 链内段；'tearing-down'/'releasing' 支等价于
+ *  「T 已置」——其中唯一「T 置而 Q 被复位」的形态是 `beginShutdown()` 被拒的防御分支，
+ *  彼处 beginShutdown 返回 false ⟺ gate.shuttingDown=true，本读数的调用点（before-quit
+ *  的「只拦不动作」闸）另有 gate.shuttingDown 析取项兜底，故两形态逐位等价。 */
+function isQuitChainEngaged(): boolean {
+  return exitChain.phase === 'quit-flush' || isTearingDown()
+}
+
+/** 原 quitViaShutdown：收口放行（finally 的 app.quit 直通，二次 quit 不再拦） */
+function isQuitReleased(): boolean {
+  return exitChain.phase === 'releasing'
+}
+
+/** 关窗拦截的全局避让读数（原 `sessionEnding || appTearingDown`）。session-end（OS 关机/
+ *  注销）时间窗有限，close 拦截只会白拖 OS 收尾（停机兜底由 session-end 处理器负责）；
+ *  退出链（before-quit）自行先行 flush 并在收口 destroy 全窗，close 事件再拦截是重复动作。 */
+function isExitPassthrough(): boolean {
+  return isOsShutdownPending() || isTearingDown()
+}
+
+/** close 拦截的在途互斥读数（原 `closeFlushInFlight || quitFlushInFlight`）——任一 flush 链
+ *  在途即只拦不起第二链（同窗双 executeJavaScript、极端时序双确认框）。'tearing-down' 支
+ *  已由 isExitPassthrough 前置拦下（T 置位时本读数不参与决策）。 */
+function isFlushChainInFlight(): boolean {
+  return isCloseFlushInFlight() || exitChain.phase === 'quit-flush'
+}
+
 /** serverManager 退出探测（main.ts 建 manager 时接线
  *  isProcessExiting）——自愈等待/收口窗口内用户真退出则放弃恢复。 */
 export function isAppTearingDown(): boolean {
-  return appTearingDown
+  return isTearingDown()
 }
 /** session-end 观察窗自愈——win 上 OS 关机/注销被取消（其他应用
  *  拒绝关机、用户反悔等）时进程存活但 sessionEnding 永真 + server 已 shutdown：close
@@ -30,21 +231,11 @@ export function isAppTearingDown(): boolean {
  *  sessionEnding + 经 manager 钉住原端口拉回 server（渲染层 origin 不动，无缝续用）。
  *  真关机路径进程活不到窗口到点（Windows 会话收尾宽限秒级），unref 不拖收尾；
  *  时长可经 CLW_SESSION_END_RECOVERY_MS 注入（回归测试快进用）。 */
-let sessionEndRecoveryTimer: ReturnType<typeof setTimeout> | null = null
 const SESSION_END_RECOVERY_MS = Number(process.env['CLW_SESSION_END_RECOVERY_MS']) || 5_000
 /** session-end flush 的短预算——关机/注销窗口有限，预算只兜
  *  渲染层挂起（executeJavaScript 永不 resolve），刻意小于 server shutdown 3.5s 总超时，
  *  到点即放弃不拖 OS 收尾。可经 CLW_SESSION_END_FLUSH_BUDGET_MS 注入（回归测试快进用）。 */
 const SESSION_END_FLUSH_BUDGET_MS = Number(process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']) || 2_000
-/** close/quit 两 flush 链的在途旗（模块级，两链入口均拦下对方在途窗、不起第二链——
- *  分居两处闭包互不可见时会撞出双 flush）。
- *  quitDuringCloseFlush 记「close flush 在途时到达的退出请求」，由 close 链收尾统一
- *  汇入 app.quit（不直接放行 quit——在途 flush 会被退出连带打断丢保存）。
- *  复位纪律：随各自链路收尾复位（close 链 destroy/cancel、quit 链 destroy/cancel），
- *  跨 re-bootstrap 不残留。 */
-let closeFlushInFlight = false
-let quitFlushInFlight = false
-let quitDuringCloseFlush = false
 
 // ── 渲染层兜底 flush ──
 
@@ -149,10 +340,11 @@ interface FlushConfirmOpts {
   idleLog: string
   /** failed 留痕前缀（「关窗兜底」/「退出前」——原文案逐字拆分点） */
   failedPrefix: string
-  /** flush 落定后补停机复查——仅 close 链传入（sessionEnding/appTearingDown 在途时跳过
-   *  确认框：停机窗口内无人可答），quit 链无此项。Thunk 形态：竞窗语义是「flush 落定后」
-   *  再读旗（close 先到 → flush 在途 → session-end 后置也命中），调用时快照布尔会漏掉
-   *  后置置位——评估点固定在 flush 落定后（flushRendererWithBudget await 之后的唯一读取点）。 */
+  /** flush 落定后补停机复查——仅 close 链传入（isExitPassthrough（原
+   *  sessionEnding/appTearingDown）在途时跳过确认框：停机窗口内无人可答），quit 链无此项。
+   *  Thunk 形态：竞窗语义是「flush 落定后」再读相位/停机面（close 先到 → flush 在途 →
+   *  session-end 后置也命中），调用时快照布尔会漏掉后置置位——评估点固定在 flush 落定后
+   *  （flushRendererWithBudget await 之后的唯一读取点）。 */
   skipConfirms?: () => boolean
   /** 确认被取消：复位旗/丢弃切库意图（各链差异点） */
   onCancel: () => void
@@ -173,7 +365,7 @@ async function runFlushConfirm(win: BrowserWindow, opts: FlushConfirmOpts): Prom
     // 命中即 warn 留痕未落净清单（停机窗口内无人可答，只留痕不弹窗）后直落收口 destroy。
     log.warn(
       'desktop',
-      `关窗兜底 flush 落定但${sessionEnding ? 'OS 停机' : '应用退出收尾'}已在途，跳过冲突/失败确认直接关窗（停机窗口内无人可答）：冲突 ${res.conflict.length} 个、保存失败 ${res.failed.length} 个`,
+      `关窗兜底 flush 落定但${isOsShutdownPending() ? 'OS 停机' : '应用退出收尾'}已在途，跳过冲突/失败确认直接关窗（停机窗口内无人可答）：冲突 ${res.conflict.length} 个、保存失败 ${res.failed.length} 个`,
     )
   }
   if (res && res.conflict.length > 0 && !win.isDestroyed() && !skipConfirms) {
@@ -224,27 +416,27 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
   // 关窗兜底——首轮 close 先 preventDefault，经渲染层钩子异步 flush（页面未死，异步保存链
   // 全通）落定/短超时后 destroy 真正关窗（destroy 不再触发 beforeunload，链路单次不循环）。
   // 退出链（before-quit）已先行 flush 并在收口 destroy 全窗，session-end 时间窗有限，两者都直接放行。
-  // 在途旗（closeFlushInFlight/quitFlushInFlight）与 quit 汇入旗（quitDuringCloseFlush）为模块级
-  // ——两链互查；复位闸随链路收尾统一复位（destroy 后 close 不再触发，复位无副作用），并兼作 quit 汇入点。
+  // 两链互斥与 quit 汇入收编退出编排状态机（相位/停机面读数 + transition；复位随链路收尾
+  // 统一，destroy 后 close 不再触发故复位无副作用），见本文件顶部状态机段。
   win.on('close', (e) => {
     saveWinState()
     // OS 收尾（session-end）/退出收尾（appTearingDown，退出链自行 flush+destroy 全窗）期直关
     // 放行——时间窗有限，不在窗口里白等渲染层 flush（session-end 链自身已尽力 flush）
-    if (sessionEnding || appTearingDown) return
+    if (isExitPassthrough()) return
     // close/quit 任一 flush 链在途——只拦不再起第二链（同窗双 executeJavaScript、极端时序
     // 双确认框），在途链自会收口（close 链 destroy 收尾 / quit 链统一 destroy 全窗）；
     // 拦下而非放行，防在途 flush 写到一半窗口被原生 close 走 beforeunload 关死（保存链半途丢失）。
-    if (closeFlushInFlight || quitFlushInFlight) {
+    if (isFlushChainInFlight()) {
       e.preventDefault()
       return
     }
     e.preventDefault()
-    closeFlushInFlight = true
+    transition('close-flush-open')
     void (async () => {
       const target = wins.mainWindow
       if (!target || target.isDestroyed()) {
-        // 退化形态（窗口先于本链销毁）也复位，防在途旗卡死后续 quit 汇入
-        closeFlushInFlight = false
+        // 退化形态（窗口先于本链销毁）也收在途相位，防卡死后续 quit 汇入
+        transition('close-flush-settle')
         return
       }
       const outcome = await runFlushConfirm(target, {
@@ -254,14 +446,11 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
         idleLog: '关窗兜底 flush 无钩子/渲染层不可达（非编辑页常态），直接关窗',
         failedPrefix: '关窗兜底',
         // flush 落定后补停机复查（session-end/before-quit 在途不弹确认）
-        // thunk：旗在 flush 在途期后置也命中（评估点在 runFlushConfirm 内 flush 落定后）
-        skipConfirms: () => sessionEnding || appTearingDown,
+        // thunk：相位/停机面在 flush 在途期后置也命中（评估点在 runFlushConfirm 内 flush 落定后）
+        skipConfirms: () => isExitPassthrough(),
         // 作者放弃关窗 → 待汇入的退出请求一并作废（与 quit 链自身 cancel
         // 「取消即中止退出、应用原样保留」语义一致）
-        onCancel: () => {
-          closeFlushInFlight = false
-          quitDuringCloseFlush = false
-        },
+        onCancel: () => transition('close-flush-cancel'),
       })
       if (outcome === 'cancel') return
       try {
@@ -271,24 +460,21 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
         // 窗口交由 Electron 退出流程兜底收口
         log.error('desktop', '关窗兜底 flush 后 destroy 异常（交退出流程兜底）', err)
       }
-      // 复位闸在链路收尾（destroy 后 close 不再触发，复位无副作用）；
+      // 收尾相位在链路尾（destroy 后 close 不再触发，复位无副作用）；
       // close flush 在途时到达的退出请求由此统一汇入 app.quit——多窗态下
       // window-all-closed 不触发，只能这里补发；单窗态与 window-all-closed 双发
-      // 在 before-quit 幂等收敛（quitFlushInFlight/quitViaShutdown 门）。
-      closeFlushInFlight = false
-      if (quitDuringCloseFlush) {
-        quitDuringCloseFlush = false
-        app.quit()
-      }
+      // 在 before-quit 幂等收敛（quit 链占位/停机门）。
+      transition('close-flush-settle')
+      if (takeDeferredQuitRequest()) app.quit()
     })()
   })
   // win 会话收尾兜底——OS 关机/重启/注销对主窗发 session-end（不可阻止，时间窗有限）：
   // 不接管则整条优雅停机链被跳过、utility child 随进程硬死（在途 session/end 落库全失，
   // 靠 10min 孤儿会话宽限兜底）。尽力下发停机指令（shutdown 内部有 3.5s 总超时，不会拖住 OS 收尾）。
   win.on('session-end', () => {
-    // OS 关机/注销窗口有限——置旗让上方 close 拦截放行直关，不在有限窗口里白等渲染层
+    // OS 关机/注销窗口有限——置停机面让上方 close 拦截放行直关，不在有限窗口里白等渲染层
     // flush（本条链路的停机兜底以 server 停机指令为准）
-    sessionEnding = true
+    transition('os-shutdown-begin')
     // RC（顺序不变量，勿改）：**先落 flush 再下发停机指令**——与 quit 链
     // 「先存后停服」同一条不变量（test/desktop/main-close-flush.test.ts 的 before-quit
     // 用例已有顺序锚）。为什么必须这个序：渲染层 flush 要走 executeJavaScript 往返 →
@@ -336,14 +522,14 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
     }
     // 顺序不变量（close/quit/session-end 三链同序）：窗口状态落盘（同步，本行之前）→
     // 渲染层 flush 落定/到点 → 下发停机（停机指令在上方 IIFE 的 finally）。
-    // 观察窗（语义见旗声明处注释）——OS 真收尾时进程活不到到点
-    //（timer 无从触发）；到点仍存活即关机被取消/被拒，复位直关旗并拉回 server。
+    // 观察窗（语义见常量声明处注释）——OS 真收尾时进程活不到到点
+    //（timer 无从触发）；到点仍存活即关机被取消/被拒，复位停机面并拉回 server。
     // 重复 session-end 重臂不叠窗；unref 不拖真收尾。
-    if (sessionEndRecoveryTimer) clearTimeout(sessionEndRecoveryTimer)
-    sessionEndRecoveryTimer = setTimeout(() => {
-      sessionEndRecoveryTimer = null
-      if (appTearingDown) return // 真退出链已接管（closed → app.quit → before-quit）
-      sessionEnding = false
+    if (exitChain.osRecoveryTimer) clearTimeout(exitChain.osRecoveryTimer)
+    const recoveryTimer = setTimeout(() => {
+      exitChain.osRecoveryTimer = null
+      if (isTearingDown()) return // 真退出链已接管（closed → app.quit → before-quit）
+      transition('os-shutdown-recover')
       log.info('desktop', 'session-end 观察窗到点进程仍存活——判定 OS 关机未收尾（被取消/被拒），复位 close 直关旗')
       if (!deps.isServerStarted()) return // dev HMR 态无 server（API 由独立 dev:api 进程供给）
       if (!wins.mainWindow || wins.mainWindow.isDestroyed()) return // 窗已不在：退出链接管，不白 fork
@@ -353,7 +539,8 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
         }
       })
     }, SESSION_END_RECOVERY_MS)
-    sessionEndRecoveryTimer.unref()
+    recoveryTimer.unref()
+    exitChain.osRecoveryTimer = recoveryTimer
   })
   // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
   // （与书架窗口 desktop:open-book 主动 close 行为对齐）
@@ -393,17 +580,17 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
   // 优雅停机在途期间的再次 quit 请求一律 preventDefault——放行直通会在 3.5s 优雅窗口内
   // 强杀 child（在途 chat/self-heal 的 session/end 落库被打断）；首次流程的 finally 会统一
   // app.quit 收口。beginShutdown 不复位（runner 生命周期语义），为防拦掉自己的 quit 成
-  // 死循环，用本地 quitViaShutdown 区分「finally 里我们自己发起的 quit」放行直通。
+  // 死循环，用状态机相位 'releasing'（原本地 quitViaShutdown 旗）区分「finally 里我们
+  // 自己发起的 quit」放行直通。
   // 顺序不变量：退出链先行渲染层 flush，再 shutdown 杀 server——反序则渲染层任何保存
   //（含 close 拦截兜底）都打向已死端口必失败，最后一个 autosave 间隔内的键入随退出静默
   // 丢失。流程：flush（≤CLOSE_FLUSH_BUDGET_MS）→ 冲突未决可原生确认取消退出（不
   // beginShutdown，窗口/server 原样保留）→ beginShutdown → shutdown → 收口 destroy 全窗
   //（app.quit 的隐式关窗会走渲染层 beforeunload，preventDefault 类守卫在无监听方时拦死
-  // 退出链）→ quitViaShutdown 放行 quit。
-  // quitViaShutdown 是 quit 链私有收口旗，不与 close 链共享；两链共享的在途旗见模块级声明处。
-  let quitViaShutdown = false
+  // 退出链）→ quit-release 放行 quit。
+  // 相位/停机面的全部变更经 transition（唯一转移点）；本链与 close 链共享同一状态源。
   app.on('before-quit', (e) => {
-    if (quitViaShutdown) {
+    if (isQuitReleased()) {
       // 收口放行前兑现迟到的切库意图（意图在不可回头点之后才置位的边角——
       // 停机在途窗口内的 switch-library → relaunch → 二次 quit 被拦只记旗），
       // 正常退出（无意图）零副作用
@@ -411,32 +598,33 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
       return // 收口 quit 放行直通
     }
     // session-end 在途的级联 quit 直通——OS 关机/注销收尾期
-    //（sessionEnding 已置旗、server 已下发停机、渲染层将死）主窗 closed →
+    //（停机面已置、server 已下发停机、渲染层将死）主窗 closed →
     // app.quit 会二次进本链：flush 打向已死 server 必落空，conflict/failed 的
     // 原生同步确认无人可答（把进程钉死在 OS 收尾窗口内）。session-end 链已完成
     // 尽力而为三件（flush / 存窗口状态 / 停机指令），此处不再起交互链、不
-    // preventDefault，放行原生退出（close 拦截已按 sessionEnding 直关放行）。
-    if (sessionEnding) {
-      // 直通分支补置 appTearingDown——本分支不 preventDefault、随后进程退出，不置旗时
-      // 5s 观察窗（见旗声明处）在其到点前若仍触发，会把 sessionEnding 复位并拉回
-      // server（重启 child）造孤儿。置旗后观察窗首行即让位；同时给退出期的
+    // preventDefault，放行原生退出（close 拦截已按停机面直关放行）。
+    if (isOsShutdownPending()) {
+      // 直通分支补置不可回头点——本分支不 preventDefault、随后进程退出，不置时
+      // 5s 观察窗（见 SESSION_END_RECOVERY_MS 声明处）在其到点前若仍触发，会把停机面
+      // 复位并拉回 server（重启 child）造孤儿。置位后观察窗首行即让位；同时给退出期的
       // serverManager 探测与 close 拦截统一「真退出」口径（此前只靠「主窗已空」兜底）。
-      appTearingDown = true
+      transition('tear-down')
       log.info('desktop', 'session-end 在途的级联 quit：放行直通（不再起交互链）')
       return
     }
     e.preventDefault()
     // close 链 flush 在途——只拦不另起第二链（同窗双
-    // executeJavaScript、极端时序双确认框），置位待 close 链收尾统一汇入 app.quit
-    // （close 链 destroy 后补发；单窗态 window-all-closed 同样触发，幂等收敛）。
+    // executeJavaScript、极端时序双确认框），置位待汇入（原 quitDuringCloseFlush）
+    // 由 close 链收尾统一汇入 app.quit（close 链 destroy 后补发；单窗态
+    // window-all-closed 同样触发，幂等收敛）。
     // 不直接放行 quit：在途 flush 会被退出连带打断（保存写一半），丢 flush。
-    if (closeFlushInFlight) {
-      quitDuringCloseFlush = true
+    if (isCloseFlushInFlight()) {
+      transition('quit-defer')
       return
     }
     // flush 在途（本轮已拦）或停机在途（等 finally 统一收口）都只拦不动作
-    if (quitFlushInFlight || gate.shuttingDown) return
-    quitFlushInFlight = true
+    if (isQuitChainEngaged() || gate.shuttingDown) return
+    transition('quit-flush-open')
     void (async () => {
       // quit 链补存窗口状态——根因：本链收口 destroy 全窗（下方 finally）不触发
       // 'close' 事件（Electron 语义），close 拦截首行的 saveWinState 在本链不达；
@@ -444,8 +632,8 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
       // app.quit）全汇入本链——退出前的窗口几何变更会静默丢失（session-end 链同款补存）。
       // 补点在链首：窗口仍存活、任何 flush/确认/destroy 之前；saveWinState 内部已吞错、
       // 幂等（close/session-end 链已存时重写同值），冲突/失败确认取消退出路径多存一次
-      // 当前几何亦无副作用。quitViaShutdown 早退分支不另补——该旗只在下方 IIFE 内
-      // 置位（补点之后），二次进 quit 链时状态已存过、窗口已销毁。
+      // 当前几何亦无副作用。收口放行（相位 'releasing'）的早退分支不另补——该相位只在
+      // 下方 IIFE 内落位（补点之后），二次进 quit 链时状态已存过、窗口已销毁。
       saveWinState()
       try {
         const win = wins.mainWindow
@@ -459,7 +647,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             // 取消 = 丢弃切库意图（退出语义不被劫持成重启）
             // 取消 = 回写旧库（跨会话不残留被取消的新库）
             onCancel: () => {
-              quitFlushInFlight = false
+              transition('quit-flush-cancel')
               discardPendingRelaunch()
               rollbackCancelledSwitch()
             },
@@ -469,13 +657,18 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
       } catch (err) {
         log.error('desktop', '退出前渲染层 flush 异常（继续退出）', err)
       }
-      appTearingDown = true
+      transition('tear-down')
       // 不可回头点——flush 冲突/失败确认全过、停机将启，此刻兑现切库意图
       //（武装重启 + 交接释放锁）；取消路径到不了这里，意图已在上方丢弃
       armPendingRelaunchIfAny()
       if (!gate.beginShutdown()) {
-        quitFlushInFlight = false
-        return // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口
+        // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口。相位不回落
+        // ——不可回头点已置（原 appTearingDown 置位点在本判断之前，且该旗不随本分支复位），
+        // 「quit 链让位」的读数（isQuitChainEngaged 的 tearing-down 支 + gate.shuttingDown）
+        // 与原 `quitFlushInFlight = false` 形态逐位等价：beginShutdown 返回 false ⟺
+        // gate.shuttingDown=true，而该旗的唯一读点（上方 before-quit 的只拦不动作闸）
+        // 另有 gate.shuttingDown 析取项兜底。
+        return
       }
       // shutdown 可能 reject（child 已死时 postMessage/kill 抛错等）：不 catch 则
       // rejection 成 unhandledRejection（丢现场）、quit 收口悬空。包 try/catch + .catch
@@ -494,7 +687,8 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
                 /* 单窗销毁失败不阻断其余窗口与退出收口 */
               }
             }
-            quitViaShutdown = true
+            // 收口放行（原 quitViaShutdown 置位）→ 自己的 quit 再进 before-quit 时直通
+            transition('quit-release')
             app.quit()
           })
       } catch (err) {
@@ -508,7 +702,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             /* 同上：单窗销毁失败不阻断退出收口 */
           }
         }
-        quitViaShutdown = true
+        transition('quit-release')
         app.quit()
       }
     })()

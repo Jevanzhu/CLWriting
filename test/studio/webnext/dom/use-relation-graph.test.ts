@@ -6,8 +6,15 @@
  * 空产不重载/失败只 toast 不覆盖图 err/mining 防重入）、onBgDown 仅左键平移
  *（R72-11 回归钉）。
  * 注：composable 内 onMounted/provide 依赖组件实例，测试直接调 load()（Vue 仅告警）。
+ *
+ * P1-3（工程门修复批）：补 RelationsView 壳挂载面——RelationGraph.vue /
+ * RelationDetail.vue 此前只有 composable 侧测试，SFC 脚本与模板分支零执行（v8 0%）。
+ * 挂真壳（带真 composable，桩沿用本档既有 store/api mock）而非造大而全的组件夹具：
+ * 两档只钉「渲染 + 关键 props 分支」，不锚内部调用序。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -67,6 +74,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import { useRelationGraph, wheelScale } from '../../../../src/studio/web-next/src/composables/useRelationGraph'
+import RelationsView from '../../../../src/studio/web-next/src/views/RelationsView.vue'
 import type { SettingsResult } from '../../../../src/studio/web-next/src/api/settings'
 
 /** 林远=主角（中心）；苏婉与林远互记恋人（建图须去重为一条）；老王有卡无边（孤立）；
@@ -345,5 +353,190 @@ describe('wheelScale: 滚轮 deltaY → 缩放倍率（复审-0913-mac适配 P3-
     }
     expect(wheelScale(10000)).toBeGreaterThan(0)
     expect(Number.isFinite(wheelScale(10000))).toBe(true)
+  })
+})
+
+describe('P1-3：RelationsView 壳挂载（RelationGraph/RelationDetail 渲染面）', () => {
+  it('建图后主图渲染（节点胶囊/边标签/图例）+ 详情卡跟随默认选中（身份标签 + 开卡按钮）', async () => {
+    const w = mount(RelationsView, { props: { bookName: '测试书' } })
+    await flushPromises()
+    try {
+      // 主图：svg 真渲染，可见节点 = 中心 + 有线节点（孤立老王默认隐藏）
+      expect(w.find('.rel-graph svg.graph').exists()).toBe(true)
+      const labels = w.findAll('.node-label').map((n) => n.text())
+      expect(labels).toContain('林远')
+      expect(labels).toContain('苏婉')
+      expect(labels).not.toContain('老王')
+      // 边：互记关系去重后一条 + 债务一条；标签文字 = 关系类型
+      expect(w.findAll('.edge').length).toBe(2)
+      expect(
+        w
+          .findAll('.edge-label')
+          .map((t) => t.text())
+          .join('|'),
+      ).toContain('恋人')
+      expect(w.find('.legend').exists()).toBe(true)
+      // 详情卡：默认选中主角，关系列表/身份标签/开卡按钮齐备
+      expect(w.find('.dc-name').text()).toBe('林远')
+      expect(w.find('.dc-degree').text()).toBe('2 条关联')
+      expect(w.find('.dc-tag').text()).toContain('主角')
+      expect(w.find('.dc-rel-name').text()).toBe('苏婉')
+      expect(w.find('.dc-open').exists()).toBe(true)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  it('交互分支：点无卡节点 → 「仅被提及」详情（债务项 + 无开卡按钮）；悬停压暗非邻节点', async () => {
+    const w = mount(RelationsView, { props: { bookName: '测试书' } })
+    await flushPromises()
+    try {
+      const nodeG = (id: string) => w.findAll('.node-g').find((g) => g.find('.node-label').text() === id)!
+      // 点阿三（仅债务边提及、无角色卡）：mousedown + window mouseup = 未拖动即选中
+      await nodeG('阿三').trigger('mousedown')
+      window.dispatchEvent(new MouseEvent('mouseup'))
+      await nextTick()
+      expect(w.find('.dc-name').text()).toBe('阿三')
+      expect(w.find('.dc-nocard').text()).toContain('仅被提及')
+      expect(w.find('.dc-open').exists()).toBe(false)
+      expect(w.find('.dc-rel li.debt').exists()).toBe(true) // 债务项走 debt 分支
+      // 悬停：焦点节点加 hover，非邻节点压暗（dim），离开即复位
+      await nodeG('阿三').trigger('mouseenter')
+      expect(nodeG('阿三').classes()).toContain('hover')
+      expect(nodeG('苏婉').classes()).toContain('dim')
+      await nodeG('阿三').trigger('mouseleave')
+      expect(nodeG('苏婉').classes()).not.toContain('dim')
+    } finally {
+      w.unmount()
+    }
+  })
+})
+
+describe('关系图键盘可达：节点 roving + 方向键就近跳 + Enter 选中', () => {
+  afterEach(() => {
+    document.body.innerHTML = '' // 清掉 attachTo 挂到 body 的视图（focus 断言需元素已连接）
+  })
+
+  async function mountView(): Promise<ReturnType<typeof mount>> {
+    const w = mount(RelationsView, { props: { bookName: '测试书' }, attachTo: document.body })
+    await flushPromises()
+    return w
+  }
+
+  /** 从当前焦点元素派发 keydown（真键盘事件 target = 焦点元素，冒泡到节点监听） */
+  function press(el: Element, key: string): KeyboardEvent {
+    const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    el.dispatchEvent(e)
+    return e
+  }
+
+  it('根 svg 非 img（节点不被当单张图片吞掉）；节点 role=button + 全图唯一 Tab 停靠点', async () => {
+    const w = await mountView()
+    try {
+      expect(w.find('.rel-graph svg.graph').attributes('role')).toBe('group')
+      const nodes = w.findAll('.node-g')
+      expect(nodes).toHaveLength(3) // 可见 = 中心 + 两条边端点（孤立老王默认隐藏）
+      expect(nodes.every((n) => n.attributes('role') === 'button')).toBe(true)
+      const stops = nodes.filter((n) => n.attributes('tabindex') === '0')
+      expect(stops).toHaveLength(1) // roving：Tab 序不被节点淹没
+      expect(stops[0]!.attributes('aria-label')).toBe('林远（有角色卡）') // 默认选中中心 = 停靠点
+      expect(stops[0]!.attributes('aria-current')).toBe('true') // 选中态对 AT 可见
+      expect(w.findAll('.node-g[aria-label="阿三（仅被提及）"]')).toHaveLength(1) // 无卡节点自证
+    } finally {
+      w.unmount()
+    }
+  })
+
+  it('方向键按几何就近跳：中心 ↓ 落环 1 下方节点（停靠点随焦点迁移）、↑ 回中心、无候选方向不动', async () => {
+    const w = await mountView()
+    try {
+      const nodeG = (id: string) => w.findAll('.node-g').find((g) => g.find('.node-label').text() === id)!
+      const center = nodeG('林远').element as SVGElement
+      const asan = nodeG('阿三').element as SVGElement
+      center.focus()
+      expect(document.activeElement).toBe(center)
+
+      const down = press(center, 'ArrowDown')
+      await nextTick()
+      expect(down.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(asan) // 环 1 上下分居：苏婉在上、阿三在下
+      expect(nodeG('阿三').attributes('tabindex')).toBe('0') // roving 停靠点随焦点走
+      expect(nodeG('林远').attributes('tabindex')).toBe('-1')
+
+      press(asan, 'ArrowUp')
+      await nextTick()
+      expect(document.activeElement).toBe(center) // 上行最近的是中心，不是环上另一节点
+
+      // 最下方节点再 ↓ 无候选：焦点不动（按键仍被消费，防页面默认行为）
+      asan.focus()
+      const none = press(asan, 'ArrowDown')
+      await nextTick()
+      expect(none.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(asan)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  it('Enter/Space 选中节点（走既有 selectNode 语义）：右侧详情卡随之联动', async () => {
+    const w = await mountView()
+    try {
+      const nodeG = (id: string) => w.findAll('.node-g').find((g) => g.find('.node-label').text() === id)!
+      const su = nodeG('苏婉').element as SVGElement
+      su.focus()
+      press(su, 'Enter')
+      await nextTick()
+      expect(w.find('.dc-name').text()).toBe('苏婉')
+      expect(w.find('.dc-rel-name').text()).toBe('林远') // 详情卡关系项跟随新选中
+      expect(nodeG('苏婉').attributes('aria-current')).toBe('true')
+
+      const asan = nodeG('阿三').element as SVGElement
+      asan.focus()
+      press(asan, ' ')
+      await nextTick()
+      expect(w.find('.dc-name').text()).toBe('阿三') // Space 同 Enter（无卡节点走「仅被提及」分支）
+      expect(w.find('.dc-nocard').exists()).toBe(true)
+    } finally {
+      w.unmount()
+    }
+  })
+
+  it('详情卡关系项 role=button + tabindex=0：Enter/Space 同点击语义（跳转选中）', async () => {
+    const w = await mountView()
+    try {
+      const items = w.findAll('.dc-rel li')
+      expect(items).toHaveLength(2) // 林远：苏婉（恋人）+ 阿三（债务）
+      expect(items.every((li) => li.attributes('role') === 'button' && li.attributes('tabindex') === '0')).toBe(true)
+      const first = items[0]!.element as HTMLElement
+      first.focus()
+      expect(document.activeElement).toBe(first)
+      press(first, 'Enter')
+      await nextTick()
+      expect(w.find('.dc-name').text()).toBe('苏婉')
+
+      const back = w.findAll('.dc-rel li')[0]!.element as HTMLElement // 苏婉的唯一关系项 = 林远
+      back.focus()
+      press(back, ' ')
+      await nextTick()
+      expect(w.find('.dc-name').text()).toBe('林远')
+    } finally {
+      w.unmount()
+    }
+  })
+
+  it('图例 chip 是原生按钮（Enter/Space 走浏览器激活，与点击同语义）+ aria-pressed 反映显隐', async () => {
+    const w = await mountView()
+    try {
+      const chip = w.find('.legend .lg.clickable')
+      expect(chip.element.tagName).toBe('BUTTON')
+      expect(chip.attributes('type')).toBe('button')
+      expect(chip.attributes('aria-pressed')).toBe('true') // 默认该语义色显示中
+      await chip.trigger('click') // 键盘 Enter/Space 走浏览器同一激活路径
+      await nextTick()
+      expect(chip.attributes('aria-pressed')).toBe('false')
+      expect(w.findAll('.edge')).toHaveLength(1) // 恋人边随该语义色过滤隐去，债务边不受影响
+    } finally {
+      w.unmount()
+    }
   })
 })

@@ -1,25 +1,27 @@
 /**
- * 删书路由 + 删书/改名共用的书生命周期助手族 —— 自 src/studio/server/api/books.ts 缝 A 拆出。
+ * 删书路由 + 删书/改名共用的书生命周期助手族。
  *
- * （⑤④产品巨件拆分波4）：books.ts（870 行）缝 A+B 纯移动拆分。
- * 本文件承载缝 A：删书路由 books.delete（墓地原子改名 + 后台清理 + 登记/指针收尾）
- * + 删/改名共用的生命周期助手族——forgetBookKeyedCaches（书键 TTL 结果缓存族整表
- * 清理；其末尾清扫 shelfGuardCache，故书架守卫 TTL 缓存族随缝单源迁此，残核
- * books.get 经 getShelfGuard 单向取用）+ 墓地删除族（DELETE_GRAVEYARD_DIR / 后台
- * 清理， 收尾起清理函数经组装根 RouteOverrides 注入）+
- * 清理句柄 / 两个测试注入口 + awaitOrchestrationsSettled / busyGate /
- * drainAndRecheckBookMutation（五连 drain + 闸后复查）。
- * 改名路由族（book.rename + initialBook 直进指针）见 books-rename.ts（缝 B）；
- * 书架列表 / 建书 / 单书身份 / boot 残核留 books.ts，其头注末尾拆分沿革记全账。
- * 原私有而 books-rename.ts 跨模块消费的四助手与残核消费的 getShelfGuard 就此导出，
- * 其余保持私有；原经 books.ts 桥接的测试注入口已随 收尾删除（桥随批移除）。
- * 依赖方向单向（无环回引）：本文件不 import 同批模块的任何运行时值（对 books.ts
- * 仅 import type BookCtx，编译期擦除）；顶层求值常量（shelfGuardCache / 墓地句柄
- * 等）一律单源本文件。注释全部原样随迁；行为、断言、测试零改动。
+ * 内容：删书路由 books.delete（墓地原子改名 + 后台清理 + 登记/指针收尾）+ 生命周期助手族
+ *——forgetBookKeyedCaches（书键缓存一次广播：转发 cache-registry.ts 登记表遍历，取代手工
+ * forget 清单）+ 墓地删除族（DELETE_GRAVEYARD_DIR / 后台清理，清理函数经组装根 RouteOverrides
+ * 注入）+ 清理句柄 / 测试注入口 + awaitOrchestrationsSettled / busyGate /
+ * drainAndRecheckBookMutation（五连 drain + 闸后复查）。书架守卫 TTL 缓存族单源迁此
+ *（shelfGuardCache 在本文件内联登记；残核 books.get 经 getShelfGuard 单向取用）。
+ *
+ * 本文件同时是**书键缓存登记制的聚合入口**：各缓存模块在模块顶层自登记
+ *（registerBookKeyedCache），下方 side-effect import 段只负责拉齐求值；红线 = 新增书键缓存
+ * 必须「新建模块自登记 + 本段加一行 import」，漏加由机器门顶红
+ *（test/studio/server/ttl-cache.test.ts「书键缓存登记制对账」）。
+ *
+ * 改名路由族（book.rename + initialBook 直进指针）见 books-rename.ts；书架列表 / 建书 /
+ * 单书身份 / boot 残核留 books.ts。原私有而 books-rename.ts 跨模块消费的四助手与残核消费的
+ * getShelfGuard 就此导出，其余保持私有。
+ * 依赖单向（无环）：本文件不 import 同批模块的任何运行时值（对 books.ts 仅 import type BookCtx，
+ * 编译期擦除）；顶层求值常量（shelfGuardCache / 墓地句柄等）一律单源本文件。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, mkdirSync } from 'node:fs'
+import { rmSync, mkdirSync, readdirSync, lstatSync, type Dirent } from 'node:fs'
 import { renameWithRetry } from '../../../fs/atomic.js'
 import { ulid } from '../../../fs/id.js' // 删书墓地名唯一后缀
 import { rm } from 'node:fs/promises'
@@ -27,17 +29,13 @@ import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
+import { registerBookKeyedCache, forgetBookKeyedCaches as forgetRegisteredBookKeyedCaches } from '../cache-registry.js' // 书键缓存登记表（登记制单源；见下方聚合入口段）
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { removeBookEntryAsync } from '../../../install/books.js'
 import { resolveBookOrReply } from '../book-context.js'
-// 伏笔保存串行链 drain + 按书 forget
-import {
-  forgetService,
-  drainDocumentSaves,
-  drainForeshadowSaveChains,
-  forgetForeshadowSaveChain,
-  drainStructureChainsUnder,
-} from './documents.js'
+// 伏笔保存串行链 drain + 按书 forget（forgetForeshadowSaveChain 已改登记制：
+// 自登记点在 api/documents-core.ts，本文件不再取其运行时值）
+import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, drainStructureChainsUnder } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { drainDraftSaveChainsUnder } from './draft.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -52,92 +50,54 @@ import { bookHash } from '../../../events/store.js'
 import type { TaskGate } from './task-gate.js' // 闸实例经组装根注入（busyGate 为模块级助手，显式接闸）
 import { forgetRagBuildTask } from './rag.js'
 import { forgetSseCount } from './stream.js' // isSpawnRunning 面随 busyGate 收编矩阵，本文件不再直取
-// 四个书键 TTL 结果缓存（体检扫描/概览态/风格语料/learn 候选）的
-// 失效挂点——删书/改名正向清理，TTL 5s 退为兜底自愈
-import { forgetStyleScanCache } from './health.js'
-import { forgetOverviewCache } from './overview.js'
-import { forgetStyleCorpusCache } from './analysis.js'
-import { forgetLearnCache } from './knowledge.js'
-// /state 与 /tree-issues 两个书键 TTL 结果缓存同挂点收编
-import { forgetStateCache } from './state.js'
-import { forgetTreeIssuesCache } from './check.js'
-// 全书搜索 TTL 结果缓存同挂点收编
-import { forgetSearchCache } from './search.js'
-// 设定一致规则 TTL 缓存同挂点收编（AI 热路径设定目录读取缓存）
+// ── 书键缓存登记制的聚合入口（单一入口，勿拆）────────────────────────────
+// 各缓存模块在模块顶层自登记（registerBookKeyedCache），下列 side-effect import
+// 只负责「让登记发生」（登记靠模块被 import 才发生）。**新增书键缓存 = 新建模块
+// 顶层自登记 + 本段加一行 import**；漏加即被机器门顶红——登记完整性不靠人记
+// （test/studio/server/ttl-cache.test.ts「书键缓存登记制对账」describe 把 src/**
+// 全部 forget* 导出与登记表运行时实际登记项双向对账）。
+// 列序 = 历史 22 条手工清单序（供迁移对账用）；执行序 = 登记序（模块求值序），且
+// 逐条核对各 forgetFn 只删本模块私有 Map/Set、互不读写——顺序无语义，含历史居末的
+// shelf-guard 整表 clear（见 cache-registry.ts 头注）。
+import './health.js' // 历史①：体检文风扫描书键 TTL 缓存（同名重建书不读陈扫描结果）
+import './overview.js' // ②：概览整包 + 判态书键 TTL 缓存
+import './analysis.js' // ③⑨：style-corpus / analysis-overview 书键 TTL 缓存（模块内两条自登记）
+import './knowledge.js' // ④：/learn 书键 TTL 缓存（仅成功结果入缓存）
+import './state.js' // ⑤：/state 书键 TTL 缓存
+import './check.js' // ⑥：/tree-issues 书键 TTL 缓存
+import './search.js' // ⑦：全书搜索书键 TTL 缓存（复合键前缀清）
+import './snapshots.js' // ⑩：version-stats 书键 TTL 缓存
+import './foreshadows.js' // ⑪：伏笔条目/足迹书键 TTL 缓存
+import './rhythm.js' // ⑫：节奏聚合书键 TTL 缓存
+import './settings.js' // ⑬：设定台聚合书键 TTL 缓存（settings + completion-names 两壳同清）
+import '../../../state/health.js' // ⑭：清扫节流戳 / 云盘扫描 / finalizedLost 三表
+import '../../../cache/rebuild.js' // ⑮：章读解析缓存 + 源树扫描节流键（前缀/整键清）
+import '../../../fs/md-text-cache.js' // ⑯：章正文/整文读取缓存单源（document/foreshadow 包装委托同源）
+import '../../../document/version.js' // ⑰：版本指纹缓存（join(bookRoot,'工作区',.版本) 前缀清）
+import '../../../format/style-entry.js' // ⑱：条目库读取缓存（全部 kind 变体前缀清）
+import '../../../format/iron-rules.js' // ⑲：文风铁律指纹缓存（同名重建书不复用陈规则）
+import './documents-core.js' // ㉑：伏笔保存串行链 Map 残条（drain 链已因 ./documents.js 求值，此行显式化登记来源）
+// ⑧⑳ ai 侧两条（ai/rules/setting-rule.ts 设定目录读取缓存 / ai/calls.ts 旧格式迁移
+// 标记）因 src/ai/** 零 studio 直连方向锁（test/governance/ai-studio-direction.test.ts）
+// 不能自登记，由本入口代登记——登记语义与自登记逐位相同；机器门照常对账。
+// 约束随迁：同名重建书不读陈设定目录（⑧）；migratedRoots 只增不减，不清则
+// 删书重建同名书后旧格式迁移在本进程内永不重试（⑳，详见 ai/calls.ts forget 头注）。
 import { forgetSettingCache } from '../../../ai/rules/setting-rule.js'
-// analysis-overview / version-stats TTL 缓存同族收编——已
-// 挂同文件写侧失效，删/改名生命周期清理由主评审补接本家族（防同名重建书读陈聚合）
-import { forgetAnalysisOverviewCache } from './analysis.js'
-import { forgetVersionStatsCache } from './snapshots.js'
-// foreshadows / rhythm 全书扫描 TTL 缓存同族收编（删/改名后
-// 同名重建书不读陈伏笔足迹/节奏聚合）
-import { forgetForeshadowCache } from './foreshadows.js'
-import { forgetRhythmCache } from './rhythm.js'
-// settings 全书扫描 TTL 缓存同族收编（删/改名后同名重建书不读
-// 陈设定台聚合——境界/角色卡/时间线/账本/relations）
-import { forgetSettingsCache } from './settings.js'
-// 四个无 TTL 的模块级路径键缓存（sweep 节流戳/章读解析/章正文
-// /版本指纹）同挂点收编——删书后全书条目成死重、改名后旧前缀键永不再命中
-import { forgetStateSweepStamp } from '../../../state/state.js'
-import { forgetChapterParseCacheForBook } from '../../../cache/rebuild.js'
-import { forgetChapterTextCacheForBook } from '../../../document/foreshadow.js'
-import { forgetVersionFpCacheForBook } from '../../../document/version.js'
-// 条目库读取 TTL+mtime 探针缓存同族收编（AI 写稿热路径的
-// readEntries 不再每章每轮全量重读 文风/条目/；删/改名后同名重建书不读陈条目）
-import { forgetEntriesCache } from '../../../format/style-entry.js'
-// 源码：文风铁律指纹缓存同族收编（同上删书/改名生命周期）
-import { forgetIronRulesCache } from '../../../format/iron-rules.js'
-// ai-calls 旧格式迁移标记同族收编——migratedRoots 只增不减，
-// 删书重建同名书后旧标记会让旧格式迁移在本进程内永不重试
 import { forgetMigratedRoots } from '../../../ai/calls.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 import type { BookCtx } from './books.js'
 
-/** 删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
- *  5s 内残留概览/体检数据被同名重建书读到）。 */
+// ⑧⑳ 代登记（上两行的 ai 侧缓存；语句在全部 import 之后求值——ESM import 声明
+// 提升，登记序与列序无关且无语义，见 cache-registry.ts 头注）。
+registerBookKeyedCache('ai-setting-dir', forgetSettingCache)
+registerBookKeyedCache('ai-calls-migrated-roots', forgetMigratedRoots)
+
+/** 删书/改名共用的书键缓存一次广播（登记制：遍历登记表逐项 forgetFn(bookRoot)；
+ *  各缓存 TTL/容量/键口径独立，TTL 仍为兜底自愈）。
+ *  内存卫生：防删书后 5s 内残留概览/体检数据被同名重建书读到；约束信息见各缓存
+ *  模块自登记处与各 forget 头注。 */
 export function forgetBookKeyedCaches(bookRoot: string): void {
-  forgetStyleScanCache(bookRoot)
-  forgetOverviewCache(bookRoot)
-  forgetStyleCorpusCache(bookRoot)
-  forgetLearnCache(bookRoot)
-  // 判态/树红点缓存同族清理
-  forgetStateCache(bookRoot)
-  forgetTreeIssuesCache(bookRoot)
-  // 全书搜索缓存同族清理
-  forgetSearchCache(bookRoot)
-  // 设定一致规则设定目录 TTL 缓存同族清理（删/改名后同名重建书不读陈设定）
-  forgetSettingCache(bookRoot)
-  // analysis-overview / version-stats 书键聚合缓存同族清理（主评审补接）
-  forgetAnalysisOverviewCache(bookRoot)
-  forgetVersionStatsCache(bookRoot)
-  // 伏笔足迹 / 节奏聚合缓存同族清理
-  forgetForeshadowCache(bookRoot)
-  forgetRhythmCache(bookRoot)
-  // 设定台聚合缓存同族清理
-  forgetSettingsCache(bookRoot)
-  // 无 TTL 模块级路径键缓存同族清理（sweep 节流戳 / 章读解析 / 章正文 /
-  // 版本指纹——前缀删旧书键，新书键惰性重建）
-  forgetStateSweepStamp(bookRoot)
-  forgetChapterParseCacheForBook(bookRoot)
-  forgetChapterTextCacheForBook(bookRoot)
-  forgetVersionFpCacheForBook(bookRoot)
-  // 条目库读取缓存同族清理（按书前缀清全部 kind 变体键）
-  forgetEntriesCache(bookRoot)
-  // -源码 -⑩：文风铁律指纹缓存同族清理（删/改名后同名重建书不复用陈规则）
-  forgetIronRulesCache(bookRoot)
-  // ai-calls 旧格式迁移标记同族清理（删书重建后迁移可重试）
-  forgetMigratedRoots(bookRoot)
-  // 伏笔保存串行链 Map 条目同族
-  // 清理——链尾自清理覆盖常态，此处兜删书/改名时点的悬挂残条（bookRoot 键成死重）；
-  // 删书/改名后同名重建书不复用旧链尾（调用点已 drainForeshadowSaveChains，链空，
-  // 删除不破坏在途串行）。
-  // 批在此（shelfGuardCache
-  // 清扫之后）重复追加了第二次调用——幂等零影响，但两条注释读作两件不同的事。合并为
-  // 单次调用，真实语义即上注（Map.delete 幂等，一次已达清理目的）。
-  forgetForeshadowSaveChain(bookRoot)
-  // 书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
-  // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
-  shelfGuardCache.clear()
+  forgetRegisteredBookKeyedCaches(bookRoot)
 }
 
 // ──：书架守卫/配置 TTL 缓存 ──────────────────
@@ -166,6 +126,13 @@ export function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
   return shelfGuardCache.getSync({ workDir, path })
 }
 
+// 登记制（模块顶层自登记，历史㉒条/清单居末）：删/改名后同名重建书不读陈 book.yaml——
+// 缓存键为 workDir+path 复合键（与 bookRoot 前缀无关），整表清扫语义与「该书键失效」
+// 等价；居末只是编写顺序，整表 clear 与其余按书键删互不交织，位置无语义
+// （见 cache-registry.ts 头注）。闭包零参——bookRoot 对本缓存无消费面（登记表调用面
+// 允许少参函数）。
+registerBookKeyedCache('shelf-guard', () => shelfGuardCache.clear())
+
 /** MISS 计算体（原 getShelfGuard 内联逻辑原样下沉；损坏标记也落缓存/低-3 口径）。 */
 function computeShelfGuardValue(key: { workDir: string; path: string }): ShelfGuardValue {
   const within = resolveWithinRoot(key.workDir, key.path)
@@ -191,13 +158,64 @@ const DELETE_GRAVEYARD_DIR = '.删书墓地'
 // 墓地清理移出请求路径——全部书共享本服务进程（SSE/心跳/保存），
 // 大书含 .git 的同步递归 rm 可达秒级事件循环冻结。热路径只保留原子改名（改完即可响应），
 // rm 走 fs.promises 后台执行；失败仅留痕（数据在墓地可手工恢复，删除语义不变）。
-// 本仓无墓地自动清扫兜底（启动/healthCheck 均不扫 .删书墓地），残留靠错误日志发现。
+// 清扫兜底见下方 sweepGraveyardOnce（启动期装配挂点单次执行——原注「本仓无墓地自动
+// 清扫兜底」即所指缺口：清理失败的大书目录（含 .git）会永久驻留）。
 const defaultGraveyardCleanup = (graveAbs: string): Promise<void> => rm(graveAbs, { recursive: true, force: true })
 /** 收尾：__setGraveyardCleanupForTest / __waitForGraveyardCleanupForTest
  * 与 pendingGraveyardCleanups 在途句柄表删除——清理函数改组装根 RouteOverrides 注入
  * （BookCtx.graveyardCleanup，undefined = 真删生产口径逐位不变）。在途句柄表生产零读
  * （纯测试簿记），回归断言改行为化：受控桩由测试自持 deferred 直接 await，真删路径
  * 以 vi.waitFor 轮询墓地终态（断言内容零弱化）。 */
+
+/** 墓地名唯一形态（删书路由产出：`${Date.now()}-${书目录名}-${ulid()}`）。
+ *  清扫只认本形态的项——边界红线：墓地域只由删书路由写入，「形态不符即非本目录产物」
+ *  ⇒ 作者手放的杂物、早期无 ULID 后缀的旧残留一律留档不动（宁残留勿误删）。
+ *  中段贪婪：书目录名自身可含 '-'。 */
+const GRAVE_ENTRY_RE = /^\d+-(.+)-[0-9A-HJKMNP-TV-Z]{26}$/
+
+/**
+ * 删书墓地启动兜底清扫（装配挂点单次调用，fire-and-forget）——热路径（books.delete）
+ * 只做原子改名入墓地、rm 交后台且失败仅留痕：清理失败的大书目录（含 .git）此前无任何
+ * 重试通道。挂点取路由装配（server 启动链既有单次调用点：createStudioServer →
+ * buildRoutes → registerBookRoutes → registerBookLifecycleRoutes），不新造启动链。
+ *
+ * 边界：只清形态匹配 GRAVE_ENTRY_RE 的**真实目录**（lstat 复核，不跟随符号链接——
+ * ent.isDirectory() 在 DT_UNKNOWN 卷上不可信；链接不是本目录产物，不删不追）；
+ * 不递归跨目录追击、不碰形态不符项。
+ *
+ * 并发（两窗同时启动 = 两 server 实例同时清扫）：墓地名带 ulid 唯一后缀，同名项只可能
+ * 指向同一物理删除目标；rm(force) 对已消失项是幂等 no-op，且扫描列表是快照——并发
+ * 清扫同一项无竞态、无需锁/防重入（最坏是一次多余的 no-op 调用）。与热路径后台清理
+ * 并发同理（两处都 force，先到者删净、后到者 no-op）。
+ *
+ * 失败不阻断启动：逐项 try/catch，失败 warn 留痕（含路径与原因）留待下次启动重试或
+ * 手工处理；不因清扫失败/慢盘延后启动（调用方不 await）。
+ */
+export async function sweepGraveyardOnce(workDir: string): Promise<{ removed: number; failed: number }> {
+  const graveyard = join(workDir, DELETE_GRAVEYARD_DIR)
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(graveyard, { withFileTypes: true })
+  } catch {
+    return { removed: 0, failed: 0 } // 目录不存在（常态）/不可读：无清扫面
+  }
+  let removed = 0
+  let failed = 0
+  for (const ent of entries) {
+    if (!GRAVE_ENTRY_RE.test(ent.name)) continue
+    const abs = join(graveyard, ent.name)
+    try {
+      if (!lstatSync(abs).isDirectory()) continue // 不跟随符号链接：只清真实目录
+      await rm(abs, { recursive: true, force: true })
+      removed++
+    } catch (e) {
+      failed++
+      log.warn('api', `删书墓地兜底清扫失败（留档待下次启动重试或手工处理：${abs}）：${errMsg(e)}`, e)
+    }
+  }
+  if (removed > 0) log.info('api', `删书墓地兜底清扫：已清理 ${removed} 个上次未清干净的删书副本`)
+  return { removed, failed }
+}
 
 /** #7：等被 abort 的在途编排（chat / self-heal 后台任务）真正收尾。abort 只是异步
  * 信号——straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移
@@ -282,6 +300,11 @@ export async function drainAndRecheckBookMutation(
 }
 
 export function registerBookLifecycleRoutes(ctx: BookCtx): void {
+  // 启动兜底清扫（fire-and-forget）；不 await——清扫走盘不受限（墓地可含秒级递归删）
+  // 也不得因失败/慢盘阻断启动（函数内部逐项吞错留痕，外层 .catch 只兜编译期不可见异常）。
+  if (ctx.workDir) {
+    void sweepGraveyardOnce(ctx.workDir).catch((e) => log.error('api', '删书墓地兜底清扫异常（忽略，不影响启动）', e))
+  }
   // 删书（物理删除：书目录原子改名入墓地 + 后台清理 + 移 books.jsonl 登记 + 清 active 指针）
   defineRoute('books.delete', {
     method: 'DELETE',

@@ -380,7 +380,11 @@ export const useDocStore = defineStore('doc', () => {
         docs.value.delete(docId)
         // 本 promise 的在途登记由 save 的 finally 条件删收口（get === p）
         mirror.clearDirtyMirror(book, docId) // 文档已删，镜像一并清（复活无主）
-        if (origin === 'manual') useUiStore().toast('文档已删除，已清理本地缓存', 'info')
+        // 条目清理连未落盘正文一并丢弃（本条快照与 await 窗口内的新键入都在 e 上，
+        // 随笔目移除消失）——必须让作者看见「这段键入未写入」：autosave 路径此前零提示，
+        // 手动路径只报「已清理本地缓存」。提示与切书守卫无关：本条已被移出缓存，
+        // flushDirty 的条目身份复检（docs.get(docId) === e）不把它计入 failed。
+        useUiStore().toast('文档已被外部删除，这段键入未写入（已清理本地缓存）', 'warning')
         return false
       } else {
         e.error = friendlyError(err)

@@ -8,15 +8,14 @@
  */
 import { test, expect, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { locateChapterOutline } from '../../src/format/piece-list-locate.js'
 import { scanShortCollection } from '../../src/metrics/short-index.js'
 import { log } from '../../src/log/index.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 function mkRoot(): string {
-  return mkdtempTracked(join(tmpdir(), 'pll-'))
+  return tempDirTracked('pll-')
 }
 
 test('口径①：与正文同名 basename 命中', () => {

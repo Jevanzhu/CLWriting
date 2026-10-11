@@ -1,18 +1,16 @@
 /**
- * config 设定台端点(方案 8.1):book.yaml 结构化读写。
+ * config 设定台端点：book.yaml 结构化读写。
  *
  * GET  /api/books/:name/config             → {config: BookConfig, revision}
  * PUT  /api/books/:name/config  body {config, expectedRevision?} → 文本级补丁写 book.yaml
- *    （kk-，保注释/未知段；现文件不可解析时回落 stringifyBookConfig 全量重生成）
- *    → {ok, revision}
+ *    （保注释/未知段；现文件不可解析时回落 stringifyBookConfig 全量重生成）→ {ok, revision}
  *
- * 乐观并发——revision 为 book.yaml 内容指纹（sha256
- * 前 4 字节 uint32，文件缺失/不可读视为 0）。与 prefs 的内嵌计数键不同，book.yaml
- * 是作者手写文件（保注释补丁写），不能被服务端塞管理键，故用内容指纹：任何来源的
- * 写入（另一标签页/手工编辑/脚本）都会改变指纹。PUT 带可选 expectedRevision 比对，
- * 失配回 409（revision-guard 单源口径），不带则放行（旧客户端向后兼容）。
+ * 乐观并发用**内容指纹**（revision = book.yaml 的 sha256 前 4 字节 uint32，文件缺失/不可读视为 0）：
+ * book.yaml 是作者手写文件（保注释补丁写），不能被服务端塞管理键，故不用 prefs 的内嵌计数键——任何
+ * 来源的写入（另一标签页/手工编辑/脚本）都会改变指纹。PUT 带可选 expectedRevision 比对，失配回 409
+ *（revision-guard 单源口径），不带则放行（旧客户端向后兼容）。
  *
- * 文风铁律(8.2)复用 1.6 /file 读写 文风/文风铁律.md,本端点只管 book.yaml。
+ * 文风铁律复用 /file 读写 文风/文风铁律.md，本端点只管 book.yaml。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFileSync } from 'node:fs'

@@ -1,13 +1,14 @@
 /**
  * 诊断包收集器（src/diagnostics/index.ts）单测——口径与隐私红线逐条锚定：
- * 基础集内容（环境/配置白名单/近 7 天日志）、**书稿正文与密钥永不入包**、
- * 路径脱敏、落点与命名、缺 userDataPath 的失败面。
+ * 基础集内容（环境/配置白名单/近 7 天日志）、**书稿正文与密钥永不入包**
+ *（含日志内容门：承载书库文本的来源只留事件标签）、路径脱敏、落点与命名、
+ * 缺 userDataPath 的失败面。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildDiagnosticsBundle } from '../../src/diagnostics/index.js'
+import { buildDiagnosticsBundle, CONTENT_BEARING_LOG_TAGS } from '../../src/diagnostics/index.js'
 import { readZipStore } from '../helpers/zip-read.js'
 
 /** 固定生成时刻：2026-10-10 12:30:40 本地时（日志文件名/包名与之一致） */
@@ -18,6 +19,8 @@ const OLD_LOG = 'app-20260930.jsonl'
 const LEAK_KEY = 'sk-test-LEAK-1234567890abcdef'
 const LEAK_RAG_KEY = 'sk-ant-LEAK-RAG-abcdefghijklmnop'
 const BOOK_MARKER = 'MARKER-书稿正文-绝不入包'
+/** 日志侧书库文本切片（模拟 leads 告警实形态：账本行原文） */
+const LEAD_TEXT_FRAGMENT = '林晚在码头认出顾昭藏在旧钟里的钥匙'
 const BASE_URL = 'https://gw.example.com/v1'
 
 let ud = ''
@@ -42,6 +45,21 @@ beforeEach(() => {
         level: 'info',
         tag: 'fs',
         msg: `写入 ${join(ud, 'logs')} 与 ${homedir()} 下 ${join(work, '书A')}`,
+      }),
+      // 内容承载来源（leads）：载荷含账本行原文——内容门只留事件标签
+      JSON.stringify({
+        ts: '2026-10-10T04:32:00.000Z',
+        level: 'warn',
+        tag: 'leads',
+        msg: `履历条目格式不符被丢弃（应为「- 第N章 动词：证据」）：- 第7章 揭示：${LEAD_TEXT_FRAGMENT}，她没有声张`,
+        err: { message: `账本行内容：${LEAD_TEXT_FRAGMENT}` },
+      }),
+      // 非内容承载来源：msg 原样保留（内容门只拦名单内来源）
+      JSON.stringify({
+        ts: '2026-10-10T04:33:00.000Z',
+        level: 'info',
+        tag: 'server',
+        msg: '子进程握手完成（pid 4321）',
       }),
       '半行非 JSON：' + LEAK_KEY,
     ].join('\n') + '\n',
@@ -192,12 +210,66 @@ describe('诊断包 · 隐私红线', () => {
     expect(log).toContain('***REDACTED***')
   })
 
-  it('非 JSON 半行按文本脱敏保留（不猜测结构、不丢行）', () => {
+  it('日志内容门：承载书库文本的来源只留事件标签（正文片段与 err 载荷不入包），非承载来源原样保留', () => {
     const r = build()
     const log = readZipStore(readFileSync(r.file!))
       .find((e) => e.name.endsWith('.jsonl'))!
       .data.toString('utf-8')
-    expect(log).toContain('半行非 JSON：***REDACTED***')
+    expect(log).not.toContain(LEAD_TEXT_FRAGMENT)
+    expect(log).toContain('履历条目格式不符被丢弃（详情已省略）')
+    expect(log).toContain('子进程握手完成')
+  })
+
+  it('非 JSON 半行只留长度标记（结构不可解析则来源不可分类，载荷一律不保留）', () => {
+    const r = build()
+    const log = readZipStore(readFileSync(r.file!))
+      .find((e) => e.name.endsWith('.jsonl'))!
+      .data.toString('utf-8')
+    expect(log).toContain('[非 JSON 行已省略：内容不可分类，仅记字符数]')
+    expect(log).not.toContain('半行非 JSON')
+  })
+})
+
+describe('诊断包 · 内容门分类完备性', () => {
+  it('src 内所有「日志实参内带切片载荷」的调用点，其 tag 必须列入 CONTENT_BEARING_LOG_TAGS', () => {
+    // 扫描口径：log.xxx('<tag>' …) 实参括号配平后取整体，实参内含 slice( 即视为带载荷——
+    // 新出现的切片日志点会顶红，必须显式决定是否列内容门，
+    // 防「新来源带书库文本静默入包」。
+    const files: string[] = []
+    const walk = (d: string): void => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, e.name)
+        if (e.isDirectory()) {
+          if (e.name !== 'node_modules') walk(p)
+        } else if (e.name.endsWith('.ts') && !e.name.endsWith('.d.ts')) files.push(p)
+      }
+    }
+    walk(join(import.meta.dirname, '..', '..', 'src'))
+    const found = new Map<string, string>()
+    for (const f of files) {
+      const text = readFileSync(f, 'utf-8')
+      const callRe = /log\.(?:warn|info|error|debug)\(/g
+      for (const m of text.matchAll(callRe)) {
+        const start = m.index + m[0].length
+        let depth = 1
+        let i = start
+        while (i < text.length && depth > 0) {
+          const ch = text[i]
+          if (ch === '(') depth++
+          else if (ch === ')') depth--
+          i++
+        }
+        const args = text.slice(start, i - 1)
+        const tag = args.match(/^\s*'([^']+)'/)?.[1]
+        if (tag && args.includes('slice(')) found.set(tag, f)
+      }
+    }
+    // 防扫描器空转（正则/配平失效时本用例必须红，而不是静默通过）
+    expect(found.size, '扫描器未命中任何切片载荷日志点——检查扫描口径是否失效').toBeGreaterThanOrEqual(5)
+    const missing = [...found.entries()]
+      .filter(([tag]) => !CONTENT_BEARING_LOG_TAGS.has(tag))
+      .map(([tag, f]) => `${tag}（${f.slice(f.indexOf('/src/') + 1)}）`)
+    expect(missing, `切片载荷日志点未分类：${missing.join('、')}`).toEqual([])
   })
 })
 

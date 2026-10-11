@@ -49,12 +49,20 @@ function run(call: { id: string; name: string; input: unknown }): Promise<{ ok: 
 }
 
 describe('R60-A-1: executeChatTool input 空值/非对象守卫', () => {
-  it('input 为 null（注册表工具）→ 守卫文案拒收，不触达执行体', async () => {
-    const r = await run({ id: 'c1', name: 'book_search', input: null })
+  // 同断言体 + 多输入（注册表工具）一表：拒收文案 = 前缀 + 工具名 + 实际类型，
+  // 且不触达执行体（mock 标记不出现）。用例名带输入形态，红了直接定位是哪条。
+  const guardCases: Array<[string, string, string, unknown, string]> = [
+    ['null（注册表工具）', 'c1', 'book_search', null, 'null'],
+    ['undefined（注册表工具）', 'c3', 'book_search', undefined, 'undefined'],
+    ['数字 42（注册表工具）', 'c5', 'book_search', 42, 'number'],
+  ]
+
+  it.each(guardCases)('input 为 %s → 守卫文案拒收，不触达执行体', async (_caseLabel, id, name, input, typeLabel) => {
+    const r = await run({ id, name, input })
     expect(r.ok).toBe(false)
     expect(r.summary.startsWith(GUARD_PREFIX)).toBe(true)
-    expect(r.summary).toContain('book_search')
-    expect(r.summary).toContain('null')
+    expect(r.summary).toContain(name) // 文案含工具名（可诊断）
+    expect(r.summary).toContain(typeLabel) // 文案标出实际 input 类型
     expect(r.summary).not.toContain('MOCK_EXECUTOR_CALLED')
   })
 
@@ -66,14 +74,6 @@ describe('R60-A-1: executeChatTool input 空值/非对象守卫', () => {
     expect(r.summary).not.toContain('Cannot read properties')
   })
 
-  it('input 为 undefined → 同款拒收（文案标 undefined）', async () => {
-    const r = await run({ id: 'c3', name: 'book_search', input: undefined })
-    expect(r.ok).toBe(false)
-    expect(r.summary.startsWith(GUARD_PREFIX)).toBe(true)
-    expect(r.summary).toContain('undefined')
-    expect(r.summary).not.toContain('MOCK_EXECUTOR_CALLED')
-  })
-
   it('input 为字符串（"null" / "str"）→ 按契约侧口径拒收（typeof 非 object）', async () => {
     for (const s of ['null', 'str']) {
       const r = await run({ id: 'c4', name: 'check_chapter', input: s })
@@ -81,14 +81,6 @@ describe('R60-A-1: executeChatTool input 空值/非对象守卫', () => {
       expect(r.summary.startsWith(GUARD_PREFIX)).toBe(true)
       expect(r.summary).toContain('string')
     }
-  })
-
-  it('input 为数字 → 同款拒收', async () => {
-    const r = await run({ id: 'c5', name: 'book_search', input: 42 })
-    expect(r.ok).toBe(false)
-    expect(r.summary.startsWith(GUARD_PREFIX)).toBe(true)
-    expect(r.summary).toContain('number')
-    expect(r.summary).not.toContain('MOCK_EXECUTOR_CALLED')
   })
 
   it('input 为数组 → 按契约侧口径放行（typeof object）：switch 路径走既有字段校验诊断', async () => {

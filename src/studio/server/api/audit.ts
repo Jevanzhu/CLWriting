@@ -8,11 +8,11 @@
  * }
  *
  * - conversation：对话会话（book = bookName）surface 投影——events 全量（含遮蔽标记）、
- *   modelVisible = 模型可见（未遮蔽）、humanVisible = 人类可见（含被遮蔽节点）、
- *   shadowedCount = 被 replace 遮蔽的节点数（人类抄本不被压缩遮蔽抹掉）；
+ *   modelVisible = 模型可见（未遮蔽）、humanVisible = 人类可见（含被遮蔽节点）、shadowedCount =
+ *   被 replace 遮蔽的节点数（人类抄本不被压缩遮蔽抹掉）；
  * - workflowEvents：写作工作流（book = bookHash(bookRoot)）step/llm-call 链路事件；
- * - goals/todos：工作流会话 goal/todo 事件的重放当前态（foldGoals/foldTodos，
- *   self-heal 的修复目标与章节任务清单）。
+ * - goals/todos：工作流会话 goal/todo 事件的重放当前态（foldGoals/foldTodos，self-heal 的修复
+ *   目标与章节任务清单）。
  *
  * 纯只读（重放纯函数），不产生副作用。
  */

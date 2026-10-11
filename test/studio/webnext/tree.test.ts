@@ -5,15 +5,22 @@
  * groupTree 规则（v2）：后端已返回最终目录树（写作/大纲/设定/布线），
  * 前端仅过滤根级散文件 + 设定/名册.md（幕后资产）。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getTree: vi.fn(),
 }))
 
+vi.mock('../../../src/studio/web-next/src/api/tree-issues', () => ({
+  getTreeIssues: vi.fn(),
+}))
+
 import { getTree } from '../../../src/studio/web-next/src/api/books'
+import { getTreeIssues } from '../../../src/studio/web-next/src/api/tree-issues'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
+import { installCrossWindowInvalidation } from '../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import { notifyCrossWindow, type CrossWindowPort } from '../../../src/studio/web-next/src/shared/cross-window'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 const BOOK = 'test-book'
@@ -224,5 +231,150 @@ describe('tree · 字数聚合（totalWords/finalizedWords/updateWordCount）', 
     expect(tree.totalWords).toBe(3000)
     tree.updateWordCount('写作/正文/第一卷/第1章-x.md', 1500) // 1000 → 1500
     expect(tree.totalWords).toBe(3500)
+  })
+})
+
+// ── 跨窗失效通知（树红点 / 机检判态线）────────────────────────────────
+// 收到他窗「红点失效」只当失效信号：走既有 loadIssues（GET /tree-issues）重取全量替换，
+// 不接收载荷里的 issues 内容——否则等于用别窗的聚合副本盖掉本窗的权威态。
+
+/** 可注入假通道：不依赖真实跨进程窗口；deliver = 模拟「他窗发来的消息」 */
+function createFakePort(): {
+  port: CrossWindowPort
+  sent: unknown[]
+  deliver: (data: unknown) => void
+  closed: () => boolean
+} {
+  const listeners: ((data: unknown) => void)[] = []
+  const sent: unknown[] = []
+  let isClosed = false
+  return {
+    port: {
+      postMessage: (msg) => void sent.push(msg),
+      subscribe: (l) => {
+        listeners.push(l)
+        return () => {
+          const i = listeners.indexOf(l)
+          if (i >= 0) listeners.splice(i, 1)
+        }
+      },
+      close: () => {
+        isClosed = true
+      },
+    },
+    sent,
+    deliver: (data) => {
+      for (const l of [...listeners]) l(data)
+    },
+    closed: () => isClosed,
+  }
+}
+
+/** 跨窗派发是宏任务（setTimeout 0）+ 其后的重取 await 链——排空一拍再断言 */
+async function flushCrossWindow(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0))
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+}
+
+describe('跨窗失效通知（树红点 / 机检判态线）', () => {
+  let dispose: (() => void) | null = null
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+  })
+
+  it('通道可用：收到他窗 tree-issues 失效 → 走既有 loadIssues 重取（值来自聚合接口）', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTreeIssues).mockResolvedValue({ ok: true, issues: {} })
+    const tree = useTreeStore()
+    await tree.load(BOOK) // raw 属主置位（红点按 ownerBook 归属）
+    await flushCrossWindow()
+    expect(tree.ownerBook).toBe(BOOK)
+    vi.mocked(getTreeIssues).mockClear()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    expect(h.enabled).toBe(true)
+
+    // 他窗跑了机检：权威红点在服务端聚合；广播载荷刻意不带 issues 内容
+    vi.mocked(getTreeIssues).mockResolvedValueOnce({
+      ok: true,
+      issues: { doc1: { hasRed: true, verdictRejected: false } },
+    })
+    fake.deliver({
+      v: 1,
+      src: 'other-window',
+      topics: ['tree-issues'],
+      issues: { doc9: { hasRed: true, verdictRejected: true } },
+    })
+    await flushCrossWindow()
+
+    expect(getTreeIssues).toHaveBeenCalledTimes(1)
+    expect(getTreeIssues).toHaveBeenCalledWith(BOOK)
+    expect(tree.issues).toEqual({ doc1: { hasRed: true, verdictRejected: false } }) // 来自接口，非载荷
+    expect(tree.issuePaths.has('写作/正文/第一卷/第1章-x.md')).toBe(true) // 红点冒泡随之重建
+    expect(fake.sent).toEqual([]) // 回环红线：收到通知触发的重取链自身不再广播
+  })
+
+  it('通知不直接改 store 值：重取失败时红点保持原样（不经广播注入）', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTreeIssues).mockResolvedValue({ ok: true, issues: { doc1: { hasRed: true, verdictRejected: false } } })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    await flushCrossWindow()
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    vi.mocked(getTreeIssues).mockRejectedValueOnce(new Error('网络断开'))
+    fake.deliver({ v: 1, src: 'other-window', topics: ['tree-issues'] })
+    await flushCrossWindow()
+
+    // 既有 best-effort 口径：失败保留旧值（不惊扰作者），也不被载荷内容替换
+    expect(tree.issues).toEqual({ doc1: { hasRed: true, verdictRejected: false } })
+  })
+
+  it('本窗自己的消息被忽略（来源窗 id 自检）——不触发重取', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTreeIssues).mockResolvedValue({ ok: true, issues: {} })
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    await flushCrossWindow()
+    vi.mocked(getTreeIssues).mockClear()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    fake.deliver({ v: 1, src: h.windowId, topics: ['tree-issues'] })
+    await flushCrossWindow()
+
+    expect(getTreeIssues).not.toHaveBeenCalled()
+  })
+
+  it('未开书（raw 无属主）时通知不触发请求（无树可对齐）', async () => {
+    vi.mocked(getTreeIssues).mockResolvedValue({ ok: true, issues: {} })
+    const tree = useTreeStore() // 不 load：ownerBook 为空
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    fake.deliver({ v: 1, src: 'other-window', topics: ['tree-issues'] })
+    await flushCrossWindow()
+
+    expect(tree.ownerBook).toBe('')
+    expect(getTreeIssues).not.toHaveBeenCalled()
+  })
+
+  it('通道不可用（工厂返回 null）→ 装配不抛（enabled=false）、广播 no-op、既有 load 照旧', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    vi.mocked(getTreeIssues).mockResolvedValue({ ok: true, issues: {} })
+    const h = installCrossWindowInvalidation({ createPort: () => null })
+    dispose = h.dispose
+    expect(h.enabled).toBe(false)
+    expect(() => notifyCrossWindow(['tree-issues'])).not.toThrow()
+
+    const tree = useTreeStore()
+    await tree.load(BOOK)
+    await flushCrossWindow()
+    expect(tree.raw).toHaveLength(6) // 功能照旧
+    expect(getTreeIssues).toHaveBeenCalledWith(BOOK)
   })
 })

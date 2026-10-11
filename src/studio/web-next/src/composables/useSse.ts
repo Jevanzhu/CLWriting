@@ -5,9 +5,12 @@ import { useUiStore } from '../stores/ui'
 import { getToken, rebootstrap } from '../api/client'
 import { useStaleGuard } from './useStaleGuard'
 import { bookUrl } from '../api/url'
+// dev-api 端口单源（跨包契约底座）：Vite dev 代理目标与 SSE dev 直连基址回落同一份，
+// 换端口只改单源一处。
+import { DEV_API_DEFAULT_PORT } from '../../../../shared/contract/studio'
 
 /**
- * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑）
+ * SSE 订阅（细案 T3.1）：dev 直连本地 dev:api 端口（vite proxy + 系统代理会 buffer 断流，旧版踩坑）
  * 生产同源相对路径。EventSource onmessage → JSON.parse → 分流：
  * chat_* → chat store，其余 → workbench.dispatch。
  * bookName 变 → 重连；组件卸载 → 断开。
@@ -26,9 +29,10 @@ const DEV_AUTH_MISMATCH_STRIKES = 3
 const REBOOT_401_GUIDE_STRIKES = 2
 
 /** dev 直连 API 基址：dev 下不走 Vite proxy（proxy + 系统代理会 buffer SSE 断流，旧版踩坑），
- *  直连本地 dev:api 端口。原为函数内硬编码 'http://127.0.0.1:7878'，提取为常量并支持
- *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
-const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? 'http://127.0.0.1:7878'
+ *  直连本地 dev:api 端口（端口值单源 = 跨包契约底座，Vite 代理目标同源）；VITE_DEV_API_BASE
+ *  可覆盖。生产同源相对路径（空串）。 */
+const DEV_API_BASE: string =
+  (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? `http://127.0.0.1:${DEV_API_DEFAULT_PORT}`
 
 /** SSE 基址双写收敛单源——probeSseBusy 与 doConnect 原各写
  *  一遍同款 `import.meta.env.DEV ? DEV_API_BASE : ''` 三元，只改一处漏另一处的漂移风险
@@ -97,7 +101,7 @@ async function fetchStreamTicket(token: string, base: string, on401: () => void)
   const timer = setTimeout(() => ctrl.abort(), TICKET_TIMEOUT_MS)
   try {
     // dev 下 ticket 与 SSE 统一走 DEV_API_BASE 直连同一实例——此前相对路径走
-    // Vite proxy target，可能与 SSE 直连的 127.0.0.1:7878 指向不同 server（脚本起多实例
+    // Vite proxy target，可能与 SSE 直连基址（DEV_API_BASE）指向不同 server（脚本起多实例
     // / 代理命中旧进程），ticket 对不上 SSRF 断连。生产同源 base='' 回归相对路径。
     const r = await fetch(`${base}/api/stream-ticket`, {
       method: 'POST',

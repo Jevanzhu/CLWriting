@@ -99,8 +99,8 @@ export function overlayPath(userDataPath: string, name: string): string {
 }
 
 /** 读 overlay 正文——existsSync 与 readFileSync 之间文件被删/被换成
- *  目录（TOCTOU）时，裸 ENOENT/EISDIR 会直冒 runSpec 无从定位。收编为带上下文的明确
- *  错误（文件名 + 操作）；fail-fast 语义不变（仍抛，不静默回落内置——「读失败」与
+ *  目录（TOCTOU）时，裸 ENOENT/EISDIR 会直冒 runSpec 无从定位。经本助手包为带上下文的
+ *  明确错误（文件名 + 操作）；fail-fast 语义不变（仍抛，不静默回落内置——「读失败」与
  *  「无 overlay」语义不同，静默回落会让用户的覆盖改动无声失效）。 */
 function readOverlaySync(fp: string): string {
   try {
@@ -118,7 +118,7 @@ export function resolvePrompt(
 ): { text: string; hash: string; source: 'builtin' | 'overlay' } {
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
-    // 读取经收编助手（见其注释），存在性判定与读取之间被删 → 带路径上下文抛错
+    // 读取经本助手（见其注释），存在性判定与读取之间被删 → 带路径上下文抛错
     if (existsSync(fp)) {
       const text = canonicalize(readOverlaySync(fp))
       return { text, hash: promptHash(text), source: 'overlay' }
@@ -151,7 +151,7 @@ export function migratePromptOverlays(
     const fp = overlayPath(userDataPath, name)
     if (!existsSync(fp)) continue
     // 单 overlay 读异常（TOCTOU 被删/被目录占位/EACCES）不再中断
-    // 整轮升级——读经收编助手拿带路径上下文的错误，逐文件 try/catch warn
+    // 整轮升级——读经本助手拿带路径上下文的错误，逐文件 try/catch warn
     // 跳过继续，对齐 v2/v3 迁移「单条目失败不拖死同轮其余条目」的容错口径
     let hash: string
     try {
@@ -202,7 +202,7 @@ export function resolveBuiltinSystemPromptSourced(
   if (name === null) return { text: systemPrompt }
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
-    // 同 resolvePrompt——exists→read 间隙被删时收编为带路径上下文的明确错误
+    // 同 resolvePrompt——exists→read 间隙被删时包为带路径上下文的明确错误
     if (existsSync(fp)) {
       return { text: canonicalize(readOverlaySync(fp)), overlayFile: fp }
     }

@@ -10,7 +10,7 @@ import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { finalizedChapterSetOfBook } from '../../document/manifest.js'
 import type { ToolContext, ToolResult } from './context.js'
-// （errMsg 收编）：错误摘要口径单源
+// errMsg：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 
 export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>): ToolResult {

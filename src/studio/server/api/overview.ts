@@ -1,20 +1,16 @@
 /**
- * 项目总览 REST 端点（#7.2）。
+ * 项目总览 REST 端点。
  *
  * GET /api/books/:name/overview → 身份 + 进度 + 状态机位置 + 卷结构
  *
  * 状态机经 detectState（自包含：内部 rebuild index.db 幂等 + journal 崩溃自愈 + assembleStatus；
- * 起异步，调用方 await；短时缓存 5s，且起只有成功结果落缓存）。失败不崩
- *（返 state:0 + 错误，不落缓存）。
+ * 异步，调用方 await；短时缓存 5s，且只有成功结果落缓存）。失败不崩（返 state:0 + 错误，不落缓存）。
  *
- * 注释如实化：此前本文件注释给人「已缓存/无阻塞」的整体印象，实态是
- * 只有 state 判定有缓存——timeline（逐章 statSync 按日聚合）/ progress（readChapterDir
- * 全书扫描）/ recentDoc（再扫一遍正文目录）均无缓存、每请求全量算；卷列表 listVolumes
- * 只扫一层目录（轻，非全书）。起 timeline/progress 改走逐块让出的 async 扫描
- *（statSync 循环每 25 章让出一次，原语共享 progress.ts），大书聚合期间其它请求/SSE
- * 心跳可跑；但 readChapterDir 扫描段本身仍是单段同步（内核不在本批边界，热路径有
- * stat 级元数据缓存兜住，冷路径变更章整读仍属该段）。投影缓存归批，
- * 本文件不引入。
+ * 缓存与阻塞实态（读时勿高估）：只有 state 判定有缓存——timeline（逐章 statSync 按日聚合）/
+ * progress（readChapterDir 全书扫描）/ recentDoc（再扫一遍正文目录）均无缓存、每请求全量算；卷列表
+ * listVolumes 只扫一层目录（轻，非全书）。timeline/progress 走逐块让出的 async 扫描（statSync 循环
+ * 每 25 章让出一次，原语共享 progress.ts），大书聚合期间其它请求/SSE 心跳可跑；但 readChapterDir
+ * 扫描段本身仍是单段同步（热路径有 stat 级元数据缓存兜住，冷路径变更章整读仍属该段）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
@@ -35,6 +31,7 @@ import { detectState, STATE_NAMES, type DetectedState } from '../../../state/sta
 import { trackInFlightWork } from './in-flight-work.js' // rebuild Worker 退出收尾登记
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存壳单源
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 
@@ -87,6 +84,10 @@ export function forgetOverviewCache(bookRoot: string): void {
   overviewStateCache.forget(bookRoot)
   overviewCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：概览整包 + 判态两缓存同挂点——删/改名后同名重建书不读
+// 陈概览/判态结果（其余窗口 staleness 语义维持「TTL 5s 可接受」不变）。
+registerBookKeyedCache('overview', forgetOverviewCache)
 const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
 

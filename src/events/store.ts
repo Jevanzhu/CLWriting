@@ -1,31 +1,17 @@
 /**
- * 事件库存取层（node:sqlite 方案 §三）。
- *
- * 落址：<userData>/clwriting/session/<bookHash>.db，每书一库；书库目录零改动。
- * bookHash = sha256(bookRoot) 前 16 hex（稳定，书路径不变则库不变）。
- *
- * 写入纪律（§三）：每批一个事务；先落库后返回；启动修复补孤儿 session 的
- * closers；WAL + busy_timeout 防并发写 SQLITE_BUSY。
- *
+ * 事件库存取层（node:sqlite 方案 §三）。落址 <userData>/clwriting/session/<bookHash>.db，
+ * 每书一库（bookHash = sha256(bookRoot) 前 16 hex，书路径不变则库不变）；书库目录零改动。
+ * 写入纪律：每批一个事务、先落库后返回；WAL + busy_timeout 防并发写 SQLITE_BUSY。
  * 同步 API（node:sqlite DatabaseSync，同 rag/store.ts 模式）。
  *
  * 模块划分（本文件 = 残核；运行时依赖单向：本文件 → 各职责族文件，四者均不回引）：
- * - store-open.ts：首开壳（迁移墓碑判定 + 建目录/开库 + 打开期 PRAGMA/WAL +
- *   首开 DDL + 打开期错误收口），首开核心 firstOpenStoreCore 由本文件开库壳调用；
- * - store-open-markers.ts：跨进程开口标记 + 迁移墓碑后缀；
- * - store-rows.ts：行读取族（SessionRow/Row/rowToEvent/safeRowToEvent）；
- * - store-migrate.ts：书 hash 定位族 + 迁移锁族。
- * 本残核保留：开库门面（openSessionStore/Async、SessionStore/NewEvent）、prepared
- * 语句缓存族（closeEventsDb 函数本体被 test/events/store-prepared-cache-release.test.ts
- * 结构契约钉在本文件源文本）、孤儿修复、连接单例族、开口标记续期 let 与其注入
- * setter（禁 export let，唯一读点在残核开库壳故留残核）、
- * migrateBookSession（其墓碑预写调用点被 test/events/store-migrate-tombstone.test.ts
- * 写侧静态扫描钉在本文件源文本，且消费 openStores/closeEventsDb，移出必造环回引）
- * 与 firstOpenStore（墓碑/建库段委托 firstOpenStoreCore，残核只留引用计数缓存登记
- * 段）。迁出公开名 bookHash/sessionMigrateLockPath/getSessionMigrateLockTimeoutMs/
- * __setSessionMigrateLockTimeoutForTest、开库单元 clearStaleMigrationTombstone/
- * applyOpenPragmas/createEventsSchema 与类型 SessionRow 经下方逐名 re-export 桥接，
+ * store-open.ts（首开壳，首开核心 firstOpenStoreCore 由本文件开库壳调用）/
+ * store-open-markers.ts（跨进程开口标记 + 迁移墓碑后缀）/ store-rows.ts（行读取族）/
+ * store-migrate.ts（书 hash 定位族 + 迁移锁族）；迁出公开名经下方逐名 re-export 桥接，
  * 全库消费方 import 面零改动。
+ * 红线：closeEventsDb 与 migrateBookSession 本体留残核——close 断链序与墓碑预写调用点
+ * 被 test/events 静态扫描钉在本文件源文本，且消费 openStores/closeEventsDb，移出必造
+ * 环回引；开口标记续期 let（禁 export let，唯一读点在残核开库壳）同理留残核。
  */
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, rmSync } from 'node:fs'
@@ -47,7 +33,7 @@ import {
   getSessionMigrateLockTimeoutMs,
   acquireMigrateLockPairAsync,
 } from './store-migrate.js'
-import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
+import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
 
 // 桥：迁出缝的公开名逐名再导出（类型走 export type），消费方 import 面零改动
 export {
@@ -56,7 +42,12 @@ export {
   getSessionMigrateLockTimeoutMs,
   __setSessionMigrateLockTimeoutForTest,
 } from './store-migrate.js'
-export { clearStaleMigrationTombstone, applyOpenPragmas, createEventsSchema } from './store-open.js'
+export {
+  clearStaleMigrationTombstone,
+  applyOpenPragmas,
+  createEventsSchema,
+  migrateEventsSchema,
+} from './store-open.js'
 export type { SessionRow } from './store-rows.js'
 
 // sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
@@ -85,8 +76,6 @@ export interface SessionStore {
    *  全局 seq 传进本方法被当批内索引错链（或反之）；现按方法拆分并对 sourceSeqs
    *  拒收报错（文案说明陷阱）。返回 seq 数组与 events 一一对应。 */
   appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
-  // appendEvent 单事件便捷封装随清理批删除（原注
-  // 即预告）——生产链全走批接口，测试消费方已随本批迁 appendEvents(sid,[ev])[0]!。
   /** 可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
    *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
   listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[]
@@ -94,7 +83,7 @@ export interface SessionStore {
    *  成本/轨迹聚合）边读边聚合，避免把整段过滤集堆进数组；坏行降级与 listEvents 同
    *。调用方负责 close；投影折叠等需要完整数组的调用方继续走 listEvents。 */
   iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent>
-  // ──（台账「事件读链 O(N)」待拍板项转实施）：真尾窗三原语 ──
+  // ── 真尾窗三原语 ──
   // 消费者唯一 = chat-history 真尾窗（src/studio/server/api/chat-history.ts）；三件
   // 成套供给（尾取 / 骨架计数 / 安全边界），缺一即破坏窗口投影与全量投影的逐位
   // 等价论证，他处勿零散复制口径。
@@ -117,7 +106,7 @@ export interface SessionStore {
   workspaceSession(book: string): string
   /** 最新对话会话查询——生产零调用（对话恢复经内存 histories/restore
    *  路径，不查库选会话），仅 test/events/** 直测使用；其语义锚点（孤儿修复 touch
-   *  updated_at 的排序口径）由测试守护，待清理批定夺去留。 */
+   *  updated_at 的排序口径）由测试守护。 */
   latestSession(book: string): SessionRow | null
   /** 当前库最大 seq（recorder 算写入区间用） */
   lastSeq(): number
@@ -139,28 +128,23 @@ export interface SessionStore {
   close(): void
 }
 
-// 改道连接级 prepared 语句缓存（原裸 db.prepare 每调重编译，
-// node:sqlite 的 StatementSync 与连接实例绑定，但 db.prepare 每次调用都重新编译同一
-// 条 SQL——热路径（appendEvents 每批 2 条、listEvents 每读、workspaceSession 每链路
-// 事件写）此前对固定 SQL 反复 prepare，纯白付编译开销。按 db 实例（WeakMap 键）+
-// SQL 串双键缓存编译产物：连接 close 后缓存条目随 GC 消失，无悬挂执行面（重开库是
-// 新实例、新缓存，天然隔离）。低频迁移/一次性语句（DDL、孤儿修复、钥匙改写、PRAGMA）
-// 不走本帮手——缓存面只进恒定不变的高频 SQL。listEvents 的可选 type/limit 拼出的
+// 连接级 prepared 语句缓存：db.prepare 每次调用都重新编译同一条 SQL——热路径
+//（appendEvents 每批 2 条、listEvents 每读、workspaceSession 每链路事件写）对固定
+// SQL 反复 prepare 是纯白付编译开销。按 db 实例（WeakMap 键）+ SQL 串双键缓存编译产物；
+// 重开库是新实例、新缓存，天然隔离。低频/一次性语句（DDL、孤儿修复、钥匙改写、PRAGMA）
+// 不走本帮手——缓存面只进恒定不变的高频 SQL；listEvents 的可选 type/limit 拼出的
 // SQL 变体以 SQL 串本身为键，各自独立缓存（变体数有界）。
-// 修账：原注「连接 close 后缓存条目随 GC 消失」
-// 不成立——node:sqlite StatementSync 强引用 DatabaseSync，与 WeakMap 弱键构成
-// ephemeron 环，实测 close 后条目不回收（每次开/关滞留 ~0.35KB；语句是否执行过无关，
-// 入缓存即滞留）。事件库是每会话一开的长连接（引用计数制），泄漏量级远小于 RAG
-//（每次召回两开两关的重灾区，另见 rag/store.ts closeRagDb），但根因同一——本文件
-// db 的 close 一律走下方 closeEventsDb（先 preparedByDb.delete 再 close，断链后实测归零）。
-// prepared 缓存与配对关库收编
-// shared/sqlite-prepared.ts 单源——原三域各持一份逐字同构实现（本文件 /
-// rag nano check）族根因已需分头各修一遍；
-// 断链序与用法契约单点见单源文件头注。本文件 import 直用其 `prepared`（下方各调用点
-// 名不变），close 侧只留 closeEventsDb 薄封装——原件「先 delete 再 close」的断链序
-// 已移入单源，此处不再复述。
+// 勘误（实测）：WeakMap 弱键**不足以**让条目随 close 回收——node:sqlite StatementSync
+// 强引用 DatabaseSync，与弱键构成 ephemeron 环，实测 close 后条目不回收（每次开/关
+// 滞留 ~0.35KB；语句是否执行过无关，入缓存即滞留）。事件库是每会话一开的长连接
+//（引用计数制），泄漏量级远小于 RAG（每次召回两开两关的重灾区，另见 rag/store.ts
+// closeRagDb），但根因同一——本文件 db 的 close 一律走下方 closeEventsDb
+//（先 preparedByDb.delete 再 close，断链后实测归零）。
+// 配对关库与断链序单源 shared/sqlite-prepared.ts（三域各持一份逐字同构实现，
+// 根因须分头各修一遍）。本文件 import 直用其 `prepared`（下方各调用点名不变），
+// close 侧只留 closeEventsDb 薄封装。
 /** 带缓存注销的关库——本文件事件库句柄的 close 统一出口（勿裸 db.close）。
- * 根因与量级见上方注释块修账记；断链序单点在 shared/sqlite-prepared.ts。 */
+ * 根因与量级见上方注释块；断链序单点在 shared/sqlite-prepared.ts。 */
 function closeEventsDb(db: DatabaseSync): void {
   closeWithPrepared(db)
 }
@@ -173,14 +157,12 @@ function closeEventsDb(db: DatabaseSync): void {
  *  不 import 该常量（chat.ts 反向依赖本文件，提常量会成环），改由注释锚定对齐依据。 */
 const ORPHAN_GRACE_MS = 32 * 60 * 1000
 
-/** （1.0 前质量）：BEGIN / COMMIT / 失败回滚 事务样板单点——
- *  appendEvents、appendEventsResolveLineage、clearBook、clearBooks 四处逐字重复
- *  （原各写一份 catch 回滚块，改一处漏三处）。
- *  回滚语义不变：SQLite 部分错误（SQLITE_FULL/IOERR 等）会自动回亡事务，此时裸
- * ROLLBACK 抛 "no transaction is active" 会掩蔽原始写错误——
- *  吞掉 ROLLBACK 自身异常、原样上抛业务错误。BEGIN 走默认（deferred）档，与
- *  四处原实现的 db.exec('BEGIN') 逐位一致；需 IMMEDIATE 写锁的调用点（workspaceSession
- *  的 SELECT→INSERT 串行化、迁移钥匙改写）语义不同，仍自持事务，不走本处。 */
+/** BEGIN / COMMIT / 失败回滚 事务样板单点——appendEvents、
+ *  appendEventsResolveLineage、clearBook、clearBooks 四处共用（各写一份 catch 回滚块
+ *  会改一处漏三处）。回滚语义（回滚自身异常吞掉、原样上抛业务错误）单源见
+ *  rollbackQuietly 头注。
+ *  BEGIN 走默认（deferred）档；需 IMMEDIATE 写锁的调用点（workspaceSession 的
+ *  SELECT→INSERT 串行化、迁移钥匙改写）语义不同，仍自持事务，不走本处。 */
 function withEventsTx<T>(db: DatabaseSync, body: () => T): T {
   db.exec('BEGIN')
   try {
@@ -188,11 +170,7 @@ function withEventsTx<T>(db: DatabaseSync, body: () => T): T {
     db.exec('COMMIT')
     return out
   } catch (err) {
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* 已自动回亡 */
-    }
+    rollbackQuietly(db)
     throw err
   }
 }
@@ -266,19 +244,17 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
     if (orphans.length === 0) break
     lastSessionId = orphans[orphans.length - 1]!.session_id
     for (const o of orphans) {
-      // nano-7：内层循环体缩进归位（原整块少一层，纯格式零行为）
       if (o.starts > o.ends && !skip.has(o.session_id)) {
         // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
         if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
         attempted++
-        // INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——
-        // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
-        // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
-        // 失败回滚不影响已成功补齐的其他孤儿。
-        // BEGIN 挪进 try——BEGIN IMMEDIATE 在 busy_timeout 耗尽时
-        // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂 createSession 头部；
-        // 起不再挂 appendEvents 热路径）让无关的正常写入直接抛错；挪入后按单会话错误
-        // 收集后继续修其余孤儿——单会话故障不中断整轮修复
+        // INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——分开裸跑中途失败
+        // 会留「补了 end 但 updated_at 未刷」半态。同 migrateBookSession 的
+        // BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，失败回滚不影响已成功补齐的
+        // 其他孤儿。
+        // BEGIN 必须在 try 内——BEGIN IMMEDIATE 在 busy_timeout 耗尽时抛错，冲出本循环
+        // 会让无关的正常写入直接抛错；在 try 内则按单会话错误收集后继续修其余孤儿
+        //（单会话故障不中断整轮修复）
         try {
           db.exec('BEGIN IMMEDIATE')
           const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
@@ -288,13 +264,9 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
           }
           db.exec('COMMIT')
         } catch (err) {
-          // 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
-          // "no transaction is active"，会冲出本循环使本轮其余孤儿不被修复
-          try {
-            db.exec('ROLLBACK')
-          } catch {
-            /* 已自动回亡 */
-          }
+          // 单会话故障不中断整轮：回滚吞自身异常（rollbackQuietly 单源），
+          // 收集错误后继续修其余孤儿
+          rollbackQuietly(db)
           // 收集后继续修其余孤儿——单会话故障不中断整轮修复
           errors.push({ session_id: o.session_id, err })
         }
@@ -315,10 +287,10 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   }
 }
 
-// ──：进程内连接单例（引用计数）+ 活跃会话登记 ──
-// 此前每次 openSessionStore 都重跑 mkdir+PRAGMA+DDL×2+全表修复聚合（一次自愈写章
-// 十次级连接开关），且修复会在活跃会话进行中注入虚假 session/end。现按 dbPath
-// 缓存连接：缓存命中只计引用；close 为「释放引用」，归零才真关库+清缓存。
+// ── 进程内连接单例（引用计数）+ 活跃会话登记 ──
+// 连接按 dbPath 缓存：每次 openSessionStore 都重跑 mkdir+PRAGMA+DDL×2+全表修复聚合
+// 的开销，一次自愈写章要付十几次，且修复会在活跃会话进行中注入虚假 session/end。
+// 缓存命中只计引用；close 为「释放引用」，归零才真关库+清缓存。
 // DDL 只在首次打开（或归零重开后）执行一次；孤儿修复除打开时一次外，写路径按
 // TTL 惰性重跑（见 maybeRepairOrphans）——打开时仍在宽限期内的崩溃残留，长跑
 // 进程不重开库也能在宽限期过后被补上 end。
@@ -354,10 +326,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     cached.refs++
     return cached.store
   }
-  // 首开段（建库 + DDL + 孤儿修复）进 session 跨进程锁——
-  // 此前另一进程恰在迁移的 checkpoint 与 rename 之间首开旧库时，SQLite 会在旧路径
-  // 重建空库（旧 hash 下对话历史「清零」）或对半搬文件集跑 DDL（撕裂态）；缓存命中
-  // 复用无文件操作，不加锁。超时上抛 = 打开失败（调用方既有 catch 降级 null 语义）。
+  // 首开段（建库 + DDL + 孤儿修复）必须进 session 跨进程锁——另一进程恰在迁移的
+  // checkpoint 与 rename 之间首开旧库时，SQLite 会在旧路径重建空库（旧 hash 下对话
+  // 历史「清零」）或对半搬文件集跑 DDL（撕裂态）；缓存命中复用无文件操作，不加锁。
+  // 超时上抛 = 打开失败（调用方既有 catch 降级 null 语义）。
   // 锁按 bookHash 分书（见 sessionMigrateLockPath 注）——只与同书的首开/迁移互斥。
   // 本函数为**同步开库壳**——锁等待为同步原语（Atomics.wait 最坏
   // 5s），仅供 CLI/测试等合法同步面使用；服务进程事件循环上的调用必须改用
@@ -452,25 +424,23 @@ interface StoreCtx {
 
 /** 预置与修复：写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：
  *  打开时仍在宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。
- * 触发点收敛到 createSession——原挂在 createSession/
- *  appendEvents/appendEventsResolveLineage 三处（每批事件都过 Date.now 闸，TTL
- *  到期后的那一笔还要先扛完整的分页扫描 + 逐孤儿 BEGIN IMMEDIATE），热路径写放大
- *  与锁持有面偏大。createSession 是低频用户可见动作（新开一次对话），修复语义
- *  不变（打开期修一次 + 32 分钟 TTL 惰性续修）；代价：马拉松单会话数小时不新开
- *  对话时，他进程崩溃残留的补 end 推迟到下次新开对话/重开库——审计收尾本就非
- *  当前写正确性所系，取舍可接受（如实记档）。 */
+ * 触发点只在 createSession——挂在 createSession/appendEvents/
+ *  appendEventsResolveLineage 三处时每批事件都过 Date.now 闸，TTL 到期后那一笔还要
+ *  先扛完整分页扫描 + 逐孤儿 BEGIN IMMEDIATE，热路径写放大与锁持有面偏大。
+ *  createSession 是低频用户可见动作（新开一次对话），修复语义不变（打开期修一次 +
+ *  32 分钟 TTL 惰性续修）；代价：马拉松单会话数小时不新开对话时，他进程崩溃残留的
+ *  补 end 推迟到下次新开对话/重开库——审计收尾非当前写正确性所系，取舍可接受。 */
 function maybeRepairOrphans(ctx: StoreCtx): void {
   if (Date.now() - ctx.entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
   ctx.entry.lastOrphanRepairAt = Date.now()
   repairOrphanSessions(ctx.db, activeChatSessions)
 }
 
-/** 语句准备：B2listEvents/iterateEvents 的 SQL 装配单源——
- *  两方法原 2×2 分支（按会话/按书 × 物化/流式）逐字同构，抽出本生成器后两方法只剩
- *  物化/流式编排差异。查询结果与坏行降级（safeRowToEvent）逐位同旧实现；
- *  label 随调用方传入保告警可归因。唯一文本归一：原 listEvents 无 limit 变体的
- *  ORDER BY 尾随空格去除（prepared 缓存以 SQL 串为键，键文本稳定即无行为面）。
- * cap 语义沿：仅正有限数生效（向下取整），否则全量。 */
+/** 语句准备：listEvents/iterateEvents 的 SQL 装配单源——两方法原是 2×2 分支
+ * （按会话/按书 × 物化/流式）逐字同构，抽出本生成器后只剩物化/流式编排差异。
+ *  查询结果与坏行降级（safeRowToEvent）逐位同构；label 随调用方传入保告警可归因。
+ *  注：prepared 缓存以 SQL 串为键，键文本须稳定——无 limit 变体不带 ORDER BY 尾随空格。
+ *  cap 仅正有限数生效（向下取整），否则全量。 */
 function* queryEventRows(
   ctx: StoreCtx,
   book: string,
@@ -485,8 +455,8 @@ function* queryEventRows(
     if (type !== undefined) args.push(type)
     if (cap !== undefined) args.push(cap)
     // 读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
-    // iterateEvents 长生命周期生成器改每次新编译语句——
-    // 此前共用缓存语句，重入（外层迭代未完时再开同 SQL 迭代）会令外层迭代器被
+    // iterateEvents 长生命周期生成器必须每次新编译语句——
+    // 共用缓存语句时重入（外层迭代未完时再开同 SQL 迭代）会令外层迭代器被
     // node:sqlite 判失效（ERR_INVALID_STATE，实证见 test/events 用例）；
     // listEvents 在表达式内同步排干生成器、语句生命周期不越出单次调用，保留缓存收益。
     // streaming 路径的编译成本（µs 级）相对全表扫描可忽略（readAllChunks 同款先例）。
@@ -545,8 +515,8 @@ function createWriteMethods(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) RETURNING seq`,
       )
       const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
-      // sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
-      // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
+      // sessions.updated_at 与事件落库同事务——在 COMMIT 之后单独 UPDATE 若失败会
+      // 误报「写失败」且客户端重试产生重复事件；同事务则要么都成功要么都回滚。
       return withEventsTx(db, () => {
         const seqs: number[] = []
         for (const e of evs) {
@@ -601,9 +571,9 @@ function createWriteMethods(
         // 绝不把 seqs[s]! 断言掩盖的 undefined 序列化成 null 血缘静默写库
         evs.forEach((e, idx) => {
           // 拒收 sourceSeqs——本方法只认批内索引 sourceIdxs；
-          // sourceSeqs 语义已收窄为「全局 seq」（appendEvents 原样落库专用）。此前两路
-          // 同名双语义（全局 seq vs 批内 0-based 索引）靠调用方自觉区分，传错即静默
-          // 错链；现宁可红不可错：传了即抛错回滚整批，文案说明双语义陷阱。
+          // sourceSeqs 语义是「全局 seq」（appendEvents 原样落库专用）。两路同名双语义
+          //（全局 seq vs 批内 0-based 索引）靠调用方自觉区分必然传错即静默错链；
+          // 宁可红不可错：传了即抛错回滚整批，文案说明双语义陷阱。
           if (e.sourceSeqs !== undefined) {
             throw new Error(
               `appendEventsResolveLineage：事件 ${idx}「${e.type}」带了 sourceSeqs（全局 seq 语义，仅 appendEvents 原样落库用）——本方法按批内索引解析血缘，请改传 sourceIdxs（R26-20 双语义拆分）`,
@@ -676,8 +646,7 @@ function createReadMethods(
       // `data LIKE … OR LIKE …` 谓词改走 has_branch_meta 生成列
       // ——EXPLAIN QUERY PLAN 实证 SEARCH events USING INDEX idx_events_branch_meta
       // （部分索引只含分支元数据行，不再全表扫；契约不变：min seq 或 null，误报方向安全）。
-      // 裸 db.prepare 收编 prepared() 连接级缓存（SQL 文本
-      // 固定；同款，latestSession 先例）
+      // SQL 文本固定，走 prepared() 连接级缓存（同 latestSession 先例）
       const row = prepared(
         db,
         `SELECT MIN(seq) AS s FROM events
@@ -688,13 +657,12 @@ function createReadMethods(
     },
     *iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent> {
       // 流式读（不物化）——llm/call 分析读侧（cost/trace
-      // 聚合）此前经 listEvents 把整段过滤集（重书数十万行 data JSON 解析成对象）堆进
+      // 聚合）经 listEvents 会把整段过滤集（重书数十万行 data JSON 解析成对象）堆进
       // 数组，每次指标刷新峰值巨大；本生成器逐行 yield，调用方边读边聚合，峰值只与
       // 聚合桶规模相关。SQL 与 listEvents 无 limit 变体逐字同构（seq 升序 = 时间序，
       // 聚合结果与全量读逐字段一致）；坏行降级沿用 safeRowToEvent。调用方
       // 负责 close（与 listEvents 同约定）；提前 break 时游标随 GC 回收，无悬挂。
-      // SQL 装配/坏行降级单源 queryEventRows，本方法只承担
-      // 逐行 yield（不物化）。
+      // SQL 装配/坏行降级单源 queryEventRows，本方法只承担逐行 yield（不物化）。
       yield* queryEventRows(ctx, book, sessionId, undefined, type, 'iterateEvents')
     },
   }
@@ -734,23 +702,16 @@ function createSessionQueryMethods(
         db.exec('COMMIT')
         return sid
       } catch (err) {
-        // 同款加固（见 cache/rebuild.ts）——SQLite 部分
-        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
-        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
+        // 回滚吞自身异常（rollbackQuietly 单源）、原样上抛原始写错误
+        rollbackQuietly(db)
         throw err
       }
     },
     latestSession(book: string): SessionRow | null {
       // 排除 workspace 会话（ws- 前缀）——链路事件不干扰对话恢复选会话
       // ORDER BY 加 rowid tiebreaker——同一毫秒创建/更新的多个会话选择结果稳定
-      //（此前仅 updated_at DESC，同毫秒无次序锚，恢复选择不确定）
-      // 改道连接级 prepared 语句缓存（原裸 db.prepare 每调重编译，
-      // 绕过全库统一 helper；本函数当前零生产调用，导出保留）
+      //（仅 updated_at DESC 时同毫秒无次序锚，恢复选择不确定）
+      // 走连接级 prepared 语句缓存；本函数当前零生产调用，导出保留
       const r = prepared(
         db,
         `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
@@ -766,14 +727,13 @@ function createSessionQueryMethods(
       // close 写 compaction 前的遮蔽区间自检数据源——不做投影全量
       // 重放（validateEventStream 的生产接线最小面）。区间重叠判定：
       // 既有 [s,e] 与 [from,to] 相交 ⟺ s <= to && e >= from
-      // 清偿批登记：上注原称「O 索引查询」失实——events 表唯一索引
-      // 是 idx_events_session(session_id, seq)，本查询按 surface_op + shadow 区间过滤
-      // 无可用索引，实为全表扫（O(N)，N = 全库事件数）。不设新索引的取舍：随开库 DDL
-      // 加 partial index 需对存量用户库做开库期 schema 变更（首次建索引的写锁窗叠打开期
-      // 成本敏感面，见五十九轮并发首开注），而本查询仅在 close 写 compaction 前执行
-      // 一次（低频诊断面，毫秒级一次性窗）——性能收益不抵迁移风险，登记不修；后续若
+      // 勘误：本查询按 surface_op + shadow 区间过滤无可用索引（events 表唯一索引
+      // 是 idx_events_session(session_id, seq)），实为全表扫（O(N)，N = 全库事件数）。
+      // 不设新索引的取舍：随开库 DDL 加 partial index 需对存量用户库做开库期 schema
+      // 变更（首次建索引的写锁窗叠打开期成本敏感面），而本查询仅在 close 写 compaction
+      // 前执行一次（低频诊断面，毫秒级一次性窗）——性能收益不抵迁移风险；后续若
       // close 链实测成瓶颈再单立迁移项评估。
-      // 两条固定 SQL 收编 prepared()（第二条的 IN 占位符
+      // 两条固定 SQL 走 prepared()（第二条的 IN 占位符
       // 拼自 SURFACE_EVENT_TYPES 常量集——变体数恒 1，符合「变体数须有界」入缓契约）
       const intervals = (
         prepared(
@@ -801,7 +761,7 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
     clearBook(book: string): void {
       // 两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
-      // 两条固定 DELETE 收编 prepared() 连接级缓存
+      // 两条固定 DELETE 走 prepared() 连接级缓存
       withEventsTx(db, () => {
         prepared(db, `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`).run(
           book,
@@ -814,8 +774,8 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
       // bookName + bookHash 双钥匙，两次 clearBook 各自事务：第二键失败时第一键已提交，
       // 两侧一半清一半留。单 BEGIN 内循环两键的 DELETE，要么全清要么全不动
       withEventsTx(db, () => {
-        // 循环内裸 db.prepare 收编——语句提循环外经
-        // prepared 取缓存（原每 book 每轮重编译两条固定 DELETE）
+        // 语句提循环外经 prepared 取缓存——循环内裸 db.prepare
+        // 每 book 每轮重编译两条固定 DELETE
         const delEvents = prepared(
           db,
           `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`,
@@ -861,13 +821,13 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
  * 并把会话 book 字段改名——对话会话 book=oldName → newName，工作区会话
  * book=bookHash(oldRoot) → bookHash(newRoot)（对齐 clearChatHistory 的双钥匙口径）。
  *
- * 返回布尔（5.1-3）：true = 成功，或无需迁移的 no-op（无 userDataPath / 新旧同路径 /
+ * 返回布尔：true = 成功，或无需迁移的 no-op（无 userDataPath / 新旧同路径 /
  * 旧库不存在——没有数据要搬，对调用方不构成失败）；false = 迁移尝试失败，源库
- * 原地完整可用（可安全重试）。失败不再只有 console.error 一个出口——调用方
- * （books.ts 改名端点）把 false 传进响应让用户感知，不再静默吞掉。
+ * 原地完整可用（可安全重试）。false 由调用方（books.ts 改名端点）传进响应让用户感知，
+ * 不得静默吞掉（console.error 不是出口）。
  *
- * 5.1-3（WAL 窗口修复）失败路径纪律：
- * - 搬移前先对源库 wal_checkpoint(TRUNCATE)，把未落盘事务折进主库文件——此前先搬
+ * 失败路径纪律（WAL 窗口）：
+ * - 搬移前先对源库 wal_checkpoint(TRUNCATE)，把未落盘事务折进主库文件——先搬
  *   主库再搬 WAL/SHM 侧车，侧车搬移失败时未 checkpoint 的事务随 WAL 一起丢失；
  * - checkpoint 忙（busy=1：另有连接持读/写/EXCLUSIVE 锁，busy_timeout 5000ms 内
  *   等不到）或搬移/改钥匙任一步失败 → 整体放弃：已搬文件逆序搬回源位，绝不留
@@ -912,15 +872,15 @@ export async function migrateBookSession(
   const moves: Array<{ from: string; to: string }> = []
   // 钥匙改写抽闭包——迁移第 4 步与半迁移态自愈共用。幂等：两条
   // UPDATE 的 WHERE 只匹配仍持旧钥匙的行（对话书名 / 工作区 hash），已改行不再命中，
-  // 重复补跑零副作用。kk-busy_timeout 先于 BEGIN——同进程连接已全关，但另一
+  // 重复补跑零副作用。busy_timeout 先于 BEGIN——同进程连接已全关，但另一
   // 进程（第二个 studio 实例）若恰在此窗口打开新库，裸 BEGIN 会立刻 SQLITE_BUSY 而非等待。
   const rewriteSessionKeys = (): void => {
     const db = new DatabaseSync(newDb)
     try {
       db.exec('PRAGMA busy_timeout = 5000')
       db.exec('BEGIN')
-      // 裸 db.prepare 收编 prepared()（一次性迁移连接亦统一
-      // 走 helper——连接关库走 closeEventsDb，缓存条目随配对注销，无滞留面）
+      // 一次性迁移连接亦走 prepared() helper——连接关库走 closeEventsDb，
+      // 缓存条目随配对注销，无滞留面
       prepared(db, 'UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
       prepared(db, 'UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
       db.exec('COMMIT')
@@ -1028,7 +988,7 @@ export async function migrateBookSession(
       const from = oldDb + suffix
       const to = newDb + suffix
       if (existsSync(from)) {
-        // 收编 renameWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+        // 走 renameWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
         // 下裸 renameSync 直接失败会触发回滚链；同一瞬时锁未释放时回滚 rename 同样失败，
         // 叠加下方「回滚失败仍撤墓碑」即拆掉防线（旧位 .db 与 .migrated 双缺 →
         // 迟来首开重建空库、事件流分裂）。3×50ms 退避让毫秒级瞬时占用在搬移段自愈。
@@ -1047,8 +1007,8 @@ export async function migrateBookSession(
     return true
   } catch (e) {
     // 整体放弃：逆序把已搬文件搬回源位——源库原地完整、可读、可重试
-    // 回滚同样收编 renameWithRetry，且**回滚存在失败项时保留墓碑**——
-    // 原实现回滚失败仅记日志、随后无条件 rmSync 撤碑：瞬时锁同时打断搬移与回滚时，
+    // 回滚同样走 renameWithRetry，且**回滚存在失败项时保留墓碑**——
+    // 回滚失败若仅记日志、随后无条件 rmSync 撤碑：瞬时锁同时打断搬移与回滚时，
     // 旧位 .db 与 .migrated 双缺，迟来首开按「正常缺库」重建空库（要防的事件流
     // 分裂就此发生）。碑 + 半回滚态并存只影响下次迁移重试的预写覆盖，不影响旧库打开
     // 判定面（墓碑分支只在 .db 缺失时走）——fail-closed 保留碑是安全侧。
@@ -1059,7 +1019,7 @@ export async function migrateBookSession(
         renameWithRetry(m.to, m.from)
       } catch (e2) {
         rollbackFailed = true
-        // 回滚单文件失败属 OS 级异常（权限/磁盘满）：如实记日志供人工找回，
+        // 回滚单文件失败属 OS 级异常（权限/磁盘满）：记 error 日志供人工找回，
         // 不在回滚路径里再抛新异常掩盖原始失败原因
         log.error('events', `迁移回滚失败（${m.to} → ${m.from}），需人工找回`, e2)
       }

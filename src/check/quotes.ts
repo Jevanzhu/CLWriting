@@ -12,13 +12,13 @@ export const QUOTE_OPEN = '「『“‘'
 export const QUOTE_CLOSE = '」』”’'
 
 /** 证据提取专用宽容字符集（双体系 + ASCII 直引号 + ASCII 单引号）。「证据匹配宁宽
- *  勿漏」口径此前散落在 leads.ts 正则字面量里、与「全部检查器从这里取字符集」的
- *  单源宣言分裂——收编为导出常量两文件同源。正文 span 检测（QUOTED_SPAN_RE）刻意
- * 不收 ASCII 引号（行为维持定谳，见六十二轮报告）：span 面收紧/放宽波及
+ *  勿漏」口径须单源在此（散在 leads.ts 正则字面量里会与「全部检查器从这里取字符集」
+ *  的宣言分裂）。正文 span 检测（QUOTED_SPAN_RE）刻意
+ * 不收 ASCII 引号（行为定谳）：span 面收紧/放宽波及
  *  golden 语料门与全部检查器行为，证据面宽容只影响 grep 截取。
- * 补 ASCII 单引号（'）——单引号包裹的证据
- *  此前两头落空（CORE 取不到内文、edge/all 剥不掉引号），正文以无引号形式写同文时
- *  grep 整组 miss → lead-evidence-miss 伪红（fail-noisy 向，宁宽勿漏口径内的漏字）。
+ * ASCII 单引号（'）必须入集——单引号包裹的证据否则两头落空
+ *（CORE 取不到内文、edge/all 剥不掉引号），正文以无引号形式写同文时
+ *  grep 整组 miss → lead-evidence-miss 伪红（fail-noisy 向）。
  *  误剥面评估：本集只供证据面正则（leads.ts EVIDENCE_* 族与 setting-rule 候选抽取）
  *  ——stripQuotedSpans 用字面 QUOTED_SPAN_RE（无 ASCII 引号），禁词/意象/比喻/身体
  *  部位/开头等剥引号消费面对 it's 类撇号文本行为零变化；中文小说语境 ASCII 单引号

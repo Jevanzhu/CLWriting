@@ -1,18 +1,30 @@
 /**
- * 按钮基类共享样式 —— 各组件 scoped 块内的 `.btn` 基础声明收敛件。
+ * 按钮基类共享样式 —— 各组件 scoped 块内的 `.btn` 族逐字重复声明收敛件。
  *
  * 接入机制照 settings-shared.css / style-shared.css 先例：全局（非 scoped）装载
  * （main.ts import，装载时机与 SFC style 块等价）。
  *
- * 收纳口径（只收全库逐字相同的声明）：border / color / cursor 三条在全部 15 处声明
- * `.btn` 基类规则的组件里逐字相同，故上收本文件；其余声明（display / padding / gap /
- * font-size / border-radius / background / transition / white-space 等）各组件有
- * padding、圆角档、底色语义（background-primary vs interactive-normal）与过渡差异，
- * 一律留在原组件 scoped 块内——scoped 规则特异性 (0,2,0) 恒压过本文件 (0,1,0)，
- * 差异声明照旧生效，删除的仅是逐字重复的三条。
+ * 收纳口径（只收全库逐字相同的声明）：
+ * - `.btn` 的 border / color / cursor 三条在全部 15 处声明 `.btn` 基类规则的组件里
+ *   逐字相同，故上收本文件；其余声明（display / padding / gap / font-size /
+ *   border-radius / background / transition / white-space 等）各组件有 padding、
+ *   圆角档、底色语义（background-primary vs interactive-normal）与过渡差异，
+ *   一律留在原组件 scoped 块内——scoped 规则特异性 (0,2,0) 恒压过本文件 (0,1,0)，
+ *   差异声明照旧生效，删除的仅是逐字重复的三条。
+ * - `.btn.primary` 的 color / border-color 两条在 9 处组件里逐字相同（另 3 处
+ *   `border-color: transparent` 的异形各持原状：其 scoped (0,3,0) 恒压过本文件 (0,2,0)）。
+ *   底色不收（红线）：那 9 处各自的 scoped `.btn { background: … }` 与本文件
+ *   `.btn.primary { background: … }` 同为 (0,2,0)，同属性平局会让结果取决于两份样式表
+ *   的插入顺序（路由懒加载 chunk 顺序不定），故背景声明留在组件内。
  */
 .btn {
   border: 1px solid var(--background-modifier-border);
   color: var(--text-normal);
   cursor: pointer;
+}
+/* 主按钮态：文字/描边基色（全库 12 处 `.btn primary` 元素均有自己组件的
+ * .btn.primary 规则覆盖同名声明，故本条对现行界面零视觉影响） */
+.btn.primary {
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
 }

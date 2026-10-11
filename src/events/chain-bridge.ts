@@ -38,7 +38,7 @@ export function llmCallEvent(data: {
   durationMs: number
   ok: boolean
   errCode?: string
-  // 清偿mptMeta 增可选 tools 摘要键（去重排序工具名，确定性
+  // promptMeta 增可选 tools 摘要键（去重排序工具名，确定性
   // 可重放；旧事件无此键仍可解析）
   promptMeta?: { chars: number; files: string[]; hash: string; tools?: string[] }
   chapter?: number
@@ -212,9 +212,9 @@ export class ChainRecorder {
       log.warn('events', `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${errMsg(e)}`)
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
-        // 清偿批截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
+        // 截断丢弃必留痕——对齐同文件「丢事件必留痕」纪律
         //（迟到丢弃 flush 失败 / close 残留均留痕，唯的丢最旧
-        // 防无限增长此前静默）：落库持续故障期间被蒸发的事件无从定位，审计黑洞。
+        // 防无限增长）：落库持续故障期间被蒸发的事件无从定位，审计黑洞。
         // 先记丢弃数再 slice；观测层留痕不炸业务流程。
         const dropped = this.buffer.length - CHAIN_BUFFER_MAX
         this.buffer = this.buffer.slice(this.buffer.length - CHAIN_BUFFER_MAX)

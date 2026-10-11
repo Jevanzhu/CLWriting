@@ -18,6 +18,7 @@ import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
 import {
   openRagDb,
+  migrateRagSchema,
   ragDbExists,
   resolveRagDbPath,
   storeChunk,
@@ -28,6 +29,7 @@ import {
   getRagMeta,
   setRagMeta,
 } from '../../src/rag/store.js'
+import { SqliteSchemaTooNewError } from '../../src/shared/sqlite-migrate.js'
 
 describe('RAG config（红线 H1：key 不进 git）', () => {
   let bookRoot: string
@@ -510,5 +512,200 @@ describe('R64-45（十二轮）：cosineSimilarity 预计算范数与现算一�
     expect(cosineSimilarity(a, b, { normA, normB })).toBeCloseTo(expected, 10)
     // 召回侧兜底语义：范数为 0 的块 → 0 分（不产生 NaN）
     expect(cosineSimilarity(a, b, { normA: 0, normB })).toBe(0)
+  })
+})
+
+// ── RAG 库 schema 版本阶梯（user_version）───────────────────────────────────
+// v1 = 既有探列迁移（chunks.norm 列，探列 + ALTER 逐位原样）；表 / 唯一索引 ensure 与
+// norm 回填是每次开库的自愈面，不入阶梯。原语语义（失败 / 超前 / 零 DDL）见
+// test/cache/schema.test.ts 直测。
+
+/** 库版本锚读数。 */
+function userVersion(db: DatabaseSync): number {
+  return (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+}
+
+/** schema cookie——SQLite 只在 schema 真被改写时递增（no-op 的 IF NOT EXISTS 与
+ *  user_version 写入都不动它），故「前后不变」= 零有效 DDL 的真库判据。 */
+function schemaVersion(db: DatabaseSync): number {
+  return (db.prepare('PRAGMA schema_version').get() as { schema_version: number }).schema_version
+}
+
+/** 列签名（名:型:非空:默认:主键序）——两路径形态对拍用。 */
+function columnSignature(db: DatabaseSync, table: string): string {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    name: string
+    type: string
+    notnull: number
+    dflt_value: string | null
+    pk: number
+  }>
+  return cols.map((c) => `${c.name}:${c.type}:${c.notnull}:${c.dflt_value ?? '∅'}:${c.pk}`).join('|')
+}
+
+describe('RAG 库 schema 阶梯（user_version）', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = join(tmpdir(), `rag-ladder-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(root, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  /** 升级前形态的库：旧 chunks（无 norm 列）+ 一行向量 + rag_meta。 */
+  function seedLegacyNoNormDb(): void {
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    const legacy = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    try {
+      legacy.exec(`CREATE TABLE chunks (
+        id INTEGER PRIMARY KEY, 章号 INTEGER NOT NULL, start_offset INTEGER NOT NULL,
+        end_offset INTEGER NOT NULL, embedding BLOB NOT NULL, model TEXT NOT NULL, indexed_at TEXT NOT NULL)`)
+      legacy.exec('CREATE TABLE rag_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      legacy
+        .prepare(
+          'INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(1, 0, 10, float32ToBuffer(Float32Array.from([3, 4])), 'stub-model', '2026-01-01T00:00:00Z')
+    } finally {
+      legacy.close()
+    }
+  }
+
+  it('新库 → user_version=1；再开零 schema 变更（版本与 schema cookie 均不动）', () => {
+    const db = openRagDb(root)
+    try {
+      expect(userVersion(db)).toBe(1)
+      expect(readAllChunks(db)).toHaveLength(0)
+      const sv = schemaVersion(db)
+      expect(migrateRagSchema(db).kind).toBe('skipped')
+      expect(userVersion(db)).toBe(1)
+      expect(schemaVersion(db)).toBe(sv)
+    } finally {
+      db.close()
+    }
+    // 重开（真开库路径）→ 版本不变
+    const db2 = openRagDb(root)
+    try {
+      expect(userVersion(db2)).toBe(1)
+    } finally {
+      db2.close()
+    }
+  })
+
+  it('存量 v0 库（旧 chunks 无 norm + 已有向量）→ v1 步补列、版本推进、向量数据未损', () => {
+    seedLegacyNoNormDb()
+    const before = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    expect(userVersion(before)).toBe(0)
+    expect(columnSignature(before, 'chunks')).not.toContain('norm')
+    before.close()
+
+    const db = openRagDb(root) // 迁移入口：探列补 norm 列 + 回填
+    try {
+      const chunks = readAllChunks(db)
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]!.章号).toBe(1)
+      expect(chunks[0]!.start_offset).toBe(0)
+      expect(chunks[0]!.end_offset).toBe(10)
+      expect(chunks[0]!.model).toBe('stub-model')
+      expect(chunks[0]!.norm).toBeCloseTo(5, 6) // L2(3,4,0)=5：回填自愈未损
+    } finally {
+      db.close()
+    }
+    const after = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    try {
+      expect(userVersion(after)).toBe(1)
+      expect(columnSignature(after, 'chunks')).toContain('norm')
+      expect((after.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n).toBe(1)
+    } finally {
+      after.close()
+    }
+  })
+
+  it('v0 存量库升级与新建库两路径形态逐字一致（列签名对拍）', () => {
+    seedLegacyNoNormDb()
+    const upgraded = openRagDb(root)
+    upgraded.close()
+    // 新建库：另起一本（空 .cache）走 fresh 路径
+    const freshRoot = join(root, 'fresh-book')
+    mkdirSync(freshRoot, { recursive: true })
+    const fresh = openRagDb(freshRoot)
+    fresh.close()
+
+    const upgradedDb = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    const freshDb = new DatabaseSync(join(freshRoot, '.cache', 'rag.db'))
+    try {
+      expect(userVersion(upgradedDb)).toBe(1)
+      expect(userVersion(freshDb)).toBe(1)
+      const tables = (db: DatabaseSync): string[] =>
+        (
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            .all() as Array<{ name: string }>
+        ).map((t) => t.name)
+      expect(tables(upgradedDb)).toEqual(tables(freshDb))
+      expect(columnSignature(upgradedDb, 'chunks')).toBe(columnSignature(freshDb, 'chunks'))
+      expect(columnSignature(upgradedDb, 'rag_meta')).toBe(columnSignature(freshDb, 'rag_meta'))
+    } finally {
+      upgradedDb.close()
+      freshDb.close()
+    }
+  })
+
+  it('版本超前（user_version 手工调大）→ 拒绝打开且库零改动', () => {
+    seedLegacyNoNormDb()
+    const seed = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    seed.exec('PRAGMA user_version = 7')
+    seed.close()
+
+    expect(() => openRagDb(root)).toThrow(SqliteSchemaTooNewError)
+    expect(() => openRagDb(root)).toThrow(/版本超前/)
+
+    const after = new DatabaseSync(join(root, '.cache', 'rag.db'))
+    try {
+      expect(userVersion(after)).toBe(7)
+      expect((after.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n).toBe(1)
+      expect(columnSignature(after, 'chunks')).not.toContain('norm') // 未半迁移
+    } finally {
+      after.close()
+    }
+  })
+
+  it('v1 步中途失败（chunks 缺 start_offset 列）→ 版本不推进；修复后重开推进到 v1', () => {
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    const dbPath = join(root, '.cache', 'rag.db')
+    const broken = new DatabaseSync(dbPath)
+    // 坏形态：chunks 缺 start_offset → 建唯一索引时抛「no such column: start_offset」
+    broken.exec(`CREATE TABLE chunks (
+      id INTEGER PRIMARY KEY, 章号 INTEGER NOT NULL,
+      end_offset INTEGER NOT NULL, embedding BLOB NOT NULL, model TEXT NOT NULL, indexed_at TEXT NOT NULL)`)
+    broken
+      .prepare('INSERT INTO chunks (章号, end_offset, embedding, model, indexed_at) VALUES (?, ?, ?, ?, ?)')
+      .run(1, 10, float32ToBuffer(Float32Array.from([1, 0])), 'stub-model', '2026-01-01T00:00:00Z')
+    broken.close()
+
+    expect(() => openRagDb(root)).toThrow(/no such column: start_offset/)
+
+    const mid = new DatabaseSync(dbPath)
+    try {
+      expect(userVersion(mid)).toBe(0) // 失败步不推进
+      expect(columnSignature(mid, 'chunks')).not.toContain('norm')
+    } finally {
+      mid.close()
+    }
+    // 修复坏形态 → 重开：v1 步重跑（幂等）并推进版本，存量行未损
+    const fix = new DatabaseSync(dbPath)
+    fix.exec('ALTER TABLE chunks ADD COLUMN start_offset INTEGER')
+    fix.close()
+    const db = openRagDb(root)
+    try {
+      expect(userVersion(db)).toBe(1)
+      expect(readAllChunks(db)).toHaveLength(1)
+      expect(columnSignature(db, 'chunks')).toContain('norm')
+    } finally {
+      db.close()
+    }
   })
 })

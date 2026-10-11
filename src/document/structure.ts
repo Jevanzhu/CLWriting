@@ -17,9 +17,7 @@
  * RAG 清除预估 + plan 指纹（apply 复核防 TOCTOU）。apply 幂等续跑：目标 fm 已含
  * 源章号且回收站在档 = ①后崩溃半成态，跳过写入直续 ②③④⑤。
  *
- * ── 拆分沿革（⑤④产品巨件拆分波2）────────────────
- * 本文件三缝一体纯移动拆分（零行为变化；消费方 import 面不动——下方 re-export 桥
- * 逐名保既有导出面）：
+ * 结构（下方 re-export 桥逐名保既有导出面，消费方 import 面零改动）：
  * - structure-core.ts：公共形状（StructureFailure/StructureRagPort）+ 单读派生/plan
  *   指纹/折叠拼接/事件副录/取号底座（ChapterDiskState/readChapterState/mergePlanHash/
  *   splitPlanHash/foldMergedInto/concatChapterBody/bodyStartOffset/recordStructureEvents/

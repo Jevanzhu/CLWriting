@@ -18,7 +18,7 @@ type OpenChainFailReason = 'open-session-store-null' | 'chain-build-error' | 'op
 /**
  * 开链路录制器：成功返回 ChainRecorder；开库 null / 开库抛错 / 建链抛错统一降级 null。
  * 开库走异步孪生（首开锁等待不阻塞服务事件循环）；建链半途抛错
- * 先关库再降级（引用计数单例不留滞留引用，二轮低级项口径）。
+ * 先关库再降级（引用计数单例不留滞留引用）。
  * onWarn 缺省 = 全静默（self-heal 观测层口径）；runner 侧传结构化 warn 留痕。
  */
 export async function openChainRecorder(

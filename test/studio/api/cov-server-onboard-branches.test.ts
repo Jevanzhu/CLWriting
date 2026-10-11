@@ -224,7 +224,7 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
     expect(r.json.path).toBe('大纲/首章细纲.md')
   })
 
-  it('目标文件被目录占位 → 落盘失败 500 IO_ERROR', async () => {
+  it('目标被目录占位 → 留底读失败 fail-closed：409 拒写、原路径未动（不落盘）', async () => {
     const root = makeBook('设定占位书', LONG)
     mkdirSync(join(root, '设定', '名册.md'), { recursive: true })
     const r = await req({
@@ -232,9 +232,13 @@ describe('R1010c-COV-2：onboard-ai 入参与闸分支', () => {
       path: `/api/books/${encodeURIComponent('设定占位书')}/onboard-ai`,
       body: { step: 'characters' },
     })
-    expect(r.status).toBe(500)
-    expect(r.json.code).toBe('IO_ERROR')
-    expect(r.json.error).toContain('落盘失败')
+    // 覆盖写前置闸：留底读目标失败（EISDIR）即拒写——与 PUT /file 对同触发件的裁定一致
+    //（留底失败时覆盖 = 无版本兜底的不可逆替换）。原断言 500 IO_ERROR 属修复前 fail-open
+    // 链的下游症状（留底被吞 → 照写 → 落盘撞目录名）
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('WRITE_ERROR')
+    expect(r.json.error).toContain('未覆盖原稿')
+    expect(existsSync(join(root, '设定', '名册.md'))).toBe(true) // 占位目录未被写穿
   })
 })
 
@@ -300,7 +304,7 @@ describe('R1010c-COV-2：onboard-save 分支', () => {
     expect(saved).toContain('铁律二')
   })
 
-  it('目标文件被目录占位 → 保存落盘失败 500 IO_ERROR', async () => {
+  it('目标被目录占位 → 留底读失败 fail-closed：409 拒写、原路径未动（不落盘）', async () => {
     const root = makeBook('保存占位书', LONG)
     mkdirSync(join(root, '设定', '名册.md'), { recursive: true })
     const r = await req({
@@ -308,9 +312,11 @@ describe('R1010c-COV-2：onboard-save 分支', () => {
       path: `/api/books/${encodeURIComponent('保存占位书')}/onboard-save`,
       body: { step: 'characters', content: '# 名册' },
     })
-    expect(r.status).toBe(500)
-    expect(r.json.code).toBe('IO_ERROR')
-    expect(r.json.error).toContain('落盘失败')
+    // 同 onboard-ai：覆盖写前置闸挡住留底失败，不再走到「照写撞目录名」的 500 落盘失败
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('WRITE_ERROR')
+    expect(r.json.error).toContain('未覆盖原稿')
+    expect(existsSync(join(root, '设定', '名册.md'))).toBe(true)
   })
 })
 

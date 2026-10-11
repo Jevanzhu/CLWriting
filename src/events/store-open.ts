@@ -21,6 +21,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { log, errMsg } from '../log/index.js'
 import { MIGRATED_EXT, registerOpenMarker, touchOpenMarker } from './store-open-markers.js'
+import { migrateSqlite, describeSqliteMigration, type SqliteMigrationOutcome } from '../shared/sqlite-migrate.js'
 
 /** SQLite 库文件损坏类错误判据——node:sqlite 对
  *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
@@ -158,6 +159,30 @@ export function createEventsSchema(db: DatabaseSync): void {
   )
 }
 
+/** 事件库 schema 目标版本（user_version 阶梯契约见 shared/sqlite-migrate.ts）。
+ *  v1 = 探列式迁移（has_branch_meta 生成列 + 部分索引）；加列 / 改型 / 改名一律新开一级，
+ *  禁止就地改 v1——已发版用户库的 v1 是既成事实，改 v1 步只会让新老库分叉。
+ *  新库与 v0 存量库都建到 v1：前者走 createFresh（建表即目标形态），后者走 v1 步
+ *  （探列对已就位的列是 no-op，仅把版本推到 1）。 */
+const EVENTS_SCHEMA_VERSION = 1
+
+/** 事件库 schema 阶梯（首开唯一入口，替代原先直接调 createEventsSchema）。
+ *  v1 步**逐位等于**既有探列迁移 createEventsSchema 本体（不重写、不精简）：存量库
+ *  user_version=0 但列已在位是今天的常态，v1 步必须与该形态逐位一致——任何「顺手整理」
+ *  都会让升级路径与既有库的真实形态错位（升级只跑一次，错了就是全量存量库的静默 schema
+ *  漂移）。createFresh 同用该函数：本级的「目标形态建表」与「v0 升级」恰好同体，两路
+ *  分叉要等到 v2 才会出现（届时 v1 步保留历史形态，createFresh 换成目标形态建表）。 */
+export function migrateEventsSchema(db: DatabaseSync): SqliteMigrationOutcome {
+  const outcome = migrateSqlite(db, {
+    tag: 'events',
+    target: EVENTS_SCHEMA_VERSION,
+    steps: [{ to: 1, run: createEventsSchema }],
+    createFresh: createEventsSchema,
+  })
+  log.info('events', describeSqliteMigration(outcome))
+  return outcome
+}
+
 /** 首开核心所需的连接服务（残核注入，本文件不反向取用）：
  * - repairOrphans：DDL 之后、开口标记登记之前的启动修复（孤儿会话补 end；活跃会话
  *   登记集由残核持有，本文件不感知）；
@@ -184,7 +209,8 @@ function openEventsDbWithDdl(
   const db = new DatabaseSync(dbPath)
   try {
     applyOpenPragmas(db)
-    createEventsSchema(db)
+    // schema 阶梯（v1 步 = 原 createEventsSchema 探列迁移本体）：已在目标版本的库零 DDL
+    migrateEventsSchema(db)
     hooks.repairOrphans(db)
     // 首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
     // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。

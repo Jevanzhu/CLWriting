@@ -8,16 +8,15 @@
  */
 import { test, expect, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { writeVersion } from '../../src/document/version.js'
 import { initLogging, flushLogsForTest } from '../../src/log/index.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'n1-docid-'))
+  const d = tempDirTracked('n1-docid-')
   dirs.push(d)
   return d
 }

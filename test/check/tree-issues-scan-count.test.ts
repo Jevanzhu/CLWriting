@@ -13,8 +13,7 @@
  * 正文/章纲两处整扫自此走核）——断言与次数不变量逐字保留，只换 mock 符号。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 vi.mock('../../src/format/chapters.js', async (importOriginal) => {
@@ -44,57 +43,12 @@ import { createHash } from 'node:crypto'
 import { collectTreeIssues, checkWithDb, type BatchCheckContext } from '../../src/check/run.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
-import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { makeCheckBook } from '../helpers/check-book.js'
 
-/** 造一本 N 章正文书；wiring=true 加布线（测 maxWritten/账本路径），每章带禁词「玉佩」制造确定红源 */
-function makeBook(chapterCount: number, wiring = true): string {
-  const root = mkdtempTracked(join(tmpdir(), 'scan-count-'))
-  if (wiring) mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  mkdirSync(join(root, '项目'), { recursive: true })
-  // 禁词红源：每章正文命中「玉佩」→ issues 必非空（证明逐章 checkWithDb 真的跑了）
-  mkdirSync(join(root, '文风'), { recursive: true })
-  writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(
-    join(root, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
-    'utf-8',
-  )
-  if (wiring) {
-    writeFileSync(
-      join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-      '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-      'utf-8',
-    )
-  }
-  const manifestPath = join(root, '项目', '文档清单.jsonl')
-  const m = readManifest(manifestPath)
-  for (let no = 1; no <= chapterCount; no++) {
-    const pad = String(no).padStart(3, '0')
-    writeFileSync(
-      join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
-      'utf-8',
-    )
-    upsertEntry(m, {
-      id: generateDocId(),
-      nodeType: 'document',
-      path: `写作/正文/${pad}-第${no}章.md`,
-      parentId: null,
-    })
-  }
-  // 章纲（带 字数目标，供 targetWords 接线断言）
-  writeFileSync(
-    join(root, '大纲', '章纲', '001-第1章.md'),
-    '---\n章号: 1\n标题: 第1章\n字数目标: 50000\n---\n\n## 反转线索表\n- 核心反转：x\n',
-    'utf-8',
-  )
-  writeManifest(manifestPath, m)
-  return root
-}
+/** 本档书形态：布线齐全 + 章纲带字数目标（骨架单源见 helpers/check-book.ts；
+ *  wiring=false 档位由各用例按需传入）。 */
+const SHAPE = { prefix: 'scan-count-', outlineFile: true } as const
 
 const readChapterDirMock = vi.mocked(scanChapterDirCore)
 
@@ -104,7 +58,7 @@ function callCount(): number {
 
 describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
   it('目录整扫调用次数与章数解耦：3 章 → 全书固定 2 次（修复前 2+N 次）', () => {
-    const root = makeBook(3)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 3 })
     try {
       readChapterDirMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
@@ -117,7 +71,7 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
   })
 
   it('章数翻倍 → 调用次数不变（O(N²) → O(N)）', () => {
-    const root = makeBook(6)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 6 })
     try {
       readChapterDirMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
@@ -129,7 +83,7 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
   })
 
   it('batch 传参后 targetWords 接线不回归：章纲 字数目标 经预扫列表进入 word-count 检查', () => {
-    const root = makeBook(1, false) // 无布线 → db 传 null 合法（对齐 v 轮回归测口径）
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 1, wiring: false }) // 无布线 → db 传 null 合法（对齐 v 轮回归测口径）
     try {
       const { config } = readBookConfig(join(root, 'book.yaml'))
       // 与 collectTreeIssues 同口径构造 batch 上下文（R31-3：闭包升级为读失败感知
@@ -160,7 +114,7 @@ describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
   }
 
   it('二次请求零整读；改 1 章只整读那 1 章（O(全书) → O(变更章)）', () => {
-    const root = makeBook(5)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 5 })
     try {
       // 首次：全量（5 章各一次 readDraft）+ 建缓存
       readDraftMock.mockClear()
@@ -185,7 +139,7 @@ describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
   })
 
   it('verdict 信封变化 → 该章指纹失效重查（驳回升红点，零正文整读以外的开销）', () => {
-    const root = makeBook(3)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 3 })
     try {
       const m = readManifest(join(root, '项目', '文档清单.jsonl'))
       const docIds = [...m.entries.entries()].filter(([, e]) => e.nodeType === 'document').map(([id]) => id)
@@ -220,7 +174,7 @@ describe('collectTreeIssues 增量缓存（A1 批 1）', () => {
   })
 
   it('章外全局输入变化 → 纪元失效整表重查（book.yaml 触碰）', () => {
-    const root = makeBook(4)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 4 })
     try {
       collectTreeIssues(root, () => undefined)
       touch(join(root, 'book.yaml'))
@@ -246,7 +200,7 @@ describe('collectTreeIssues 缺陷修复回归（二轮复审）', () => {
   }
 
   it('检查瞬态失败不落缓存：失败章下轮重查红点恢复（此前固化为 hasRed=false 假阴性）', () => {
-    const root = makeBook(5)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 5 })
     try {
       const orig = readDraftMock.getMockImplementation()!
       // 第一轮：003 章读稿瞬态失败（模拟 SQLITE_BUSY/ENOENT 竞态类异常出口）——
@@ -272,7 +226,7 @@ describe('collectTreeIssues 缺陷修复回归（二轮复审）', () => {
   })
 
   it('#6：published 章跳过且零 readPublished 整读（走 probeCache，不再 deriveStatusFull）', () => {
-    const root = makeBook(2)
+    const root = makeCheckBook({ ...SHAPE, chapterCount: 2 })
     try {
       // 第 1 章定稿 + 已发布：fm 加 已发布: true 后按最终字节算指纹，写入 manifest 基线
       const chPath = join(root, '写作', '正文', '001-第1章.md')

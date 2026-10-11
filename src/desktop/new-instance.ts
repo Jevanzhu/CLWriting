@@ -1,28 +1,26 @@
 /**
  * 在新窗口中打开书库（多库多窗）——spawn 一个带 `--dir` 的新应用实例。
  *
- * 形态：一库一实例（多进程）。子实例启动链（见 main.ts / startup-instance.ts）按
- * `--dir` 解析库 → 派生 instanceKey → userData 落到 `<home>/instances/<key>`——
- * 与父实例不同目录即不同 Electron 锁域，两实例并行；目标库已被打开时子实例拿不到锁，
- * 由 Electron 把那个实例的窗口拉到前台后自身退出（聚焦语义，零额外代码）。
+ * 形态：一库一实例（多进程）。子实例启动链（见 main.ts / startup-instance.ts）按 `--dir` 解析
+ * 库 → 派生 instanceKey → userData 落到 `<home>/instances/<key>`——与父实例不同目录即不同
+ * Electron 锁域，两实例并行；目标库已被打开时子实例拿不到锁，由 Electron 把那个实例的窗口拉到
+ * 前台后自身退出（聚焦语义，零额外代码）。
  *
- * 打包/dev 双形态（先例 scripts/electron-smoke.mjs:104-106）：
- *  - 打包：`<execPath> --dir <p>`（可执行文件即应用本体）；
- *  - dev：`<execPath> <appPath> --dir <p>`（electron 二进制 + 应用目录参数）。
- * 子进程 detached（两平台同款：Windows 上非 detached 的子进程会自动加入运行时为父进程
- * 自建的 KILL_ON_JOB_CLOSE Job，父实例退出即被 OS 静默硬杀，见下注）+ stdio ignore +
- * unref——父实例退出不牵连子实例。
+ * 打包/dev 双形态（先例 scripts/electron-smoke.mjs）：打包 `<execPath> --dir <p>`（可执行文件
+ * 即应用本体）；dev `<execPath> <appPath> --dir <p>`（electron 二进制 + 应用目录参数）。
+ * 子进程 detached（两平台同款：Windows 上非 detached 的子进程会自动加入运行时为父进程自建的
+ * KILL_ON_JOB_CLOSE Job，父实例退出即被 OS 静默硬杀）+ stdio ignore + unref——父实例退出不牵连
+ * 子实例。
  *
- * 失败面：spawn 的启动失败（ENOENT/EACCES/EMFILE 等）是**异步
- * 'error' 事件**——不监听会被 EventEmitter 抛出 → main 的 uncaughtException 链退出
- * 整个应用。故以 'spawn'（子进程已拉起）/ 'error' 二择一落定 Promise：false =
- * 未发起（调用方走错误框 / {ok:false,reason} 契约面），失败不再反噬主进程。
- * 注：返回后不追踪子进程后续——「目标库已开、子实例拿不到锁自行退出」是正常路径，
- * 父实例零感知（聚焦由 Electron 完成）。
+ * 失败面：spawn 的启动失败（ENOENT/EACCES/EMFILE 等）是**异步 'error' 事件**——不监听会被
+ * EventEmitter 抛出 → main 的 uncaughtException 链退出整个应用。故以 'spawn'（子进程已拉起）/
+ * 'error' 二择一落定 Promise：false = 未发起（调用方走错误框 / {ok:false,reason} 契约面），
+ * 失败不再反噬主进程。返回后不追踪子进程后续——「目标库已开、子实例拿不到锁自行退出」是正常
+ * 路径，父实例零感知。
  *
- * dev HMR 形态例外：CLW_DEV_UI=1 时本实例不起 studio server（渲染层连独立 dev:api
- * 的固定单库，见 main.ts isDevUi），spawn 出的子实例同形态——多库多窗在 dev HMR
- * 形态不成立，属开发面既定边界（产品面只认打包/常规 dev 形态）。
+ * dev HMR 形态例外：CLW_DEV_UI=1 时本实例不起 studio server（渲染层连独立 dev:api 的固定单库，
+ * 见 main.ts isDevUi），spawn 出的子实例同形态——多库多窗在 dev HMR 形态不成立（开发面既定边界，
+ * 产品面只认打包/常规 dev 形态）。
  */
 import { spawn } from 'node:child_process'
 import { app } from 'electron'

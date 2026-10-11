@@ -6,26 +6,24 @@
  *
  * 全部零 token 脚本判定。
  *
- * （⑤④产品巨件拆分波1）：本单件（1144 行）纯移动拆分——
- * 对话/名册/禁词/字数/句式/复读族 → count-dialogue.ts（缝 A）；文风可量化/信息差族
- * → count-style.ts（缝 B，DIALOGUE_TAG_RE/对话提示语堆叠正则随其唯一消费方
- * computeStyleMetrics/checkStyleMetrics 落 B）。本文件保留 front matter/高频意象/
+ * 结构（re-export 桥保既有导出面，消费方 import 面零改动）：
+ * 对话/名册/禁词/字数/句式/复读族 → count-dialogue.ts；文风可量化/信息差族
+ * → count-style.ts（DIALOGUE_TAG_RE/对话提示语堆叠正则随其唯一消费方
+ * computeStyleMetrics/checkStyleMetrics 落该件）。本文件保留 front matter/高频意象/
  * 短篇专属项（checkFrontMatter/checkImagery/checkPieceWordCount/checkBodyParts/
- * checkSimile/checkSectionCount/checkOpeningNoEnv），并对全部迁出导出**逐名
- * re-export 桥接**——消费方（check/runner、learn、metrics、ai/rules/setting-rule、
+ * checkSimile/checkSectionCount/checkOpeningNoEnv），并对全部迁出导出逐名
+ * re-export——消费方（check/runner、learn、metrics、ai/rules/setting-rule、
  * studio/server/api、scripts/harvest-corpus 与 test/*）import 面零改动。两新文件
- * 头注各记拆分归属与跨缝单源（HANZI/SPEECH_VERBS）处理；本头注上方原文全部
- * 历史记载原样保留。
+ * 头注各记跨缝单源（HANZI/SPEECH_VERBS）处理。
  */
 
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
-// 章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
+// 章号前缀解析单源（见 checkFrontMatter）
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
-// `##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
-// format/section-heading——此前本处与 metrics/collectBodyAnchors 两套识别器口径分裂；
-// 围栏行识别原经 format/fence 的 matchFenceLine，随段整体收编后本文件不再直用）
+// `##` 段落标题识别单源 format/section-heading（剥围栏 + 标题行正则）——两套识别器
+// 口径分裂会致紧排 `##标题` 漏识 / 围栏内 `##` 误收；围栏行识别同在该单源
 import { extractSectionHeadings } from '../format/section-heading.js'
 import { stripQuotedSpans } from './quotes.js'
 
@@ -59,11 +57,10 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
   // 路径形态容忍（win 反斜杠直传前缀不失明；现调用方传 basename
   // 不触发，纯加固）——basename 化后再交单源解析。
-  // 前缀解析收编 format/filename.ts
-  // chapterNoFromName 单源——此前自带窄正则只认 `-` 分隔，`6—标题.md`（tree 排序/
-  // 线索核验同宽容集形态）在此解析不出前缀 → fm-chapter-mismatch 对真不一致静默
-  // 失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义不变），解析
-  // 出章号才判 mismatch，本处判断逻辑零改动。
+  // 前缀解析走 format/filename.ts 的 chapterNoFromName 单源——窄正则只认 `-` 分隔时
+  // `6—标题.md`（tree 排序/线索核验同宽容集形态）解析不出前缀 → fm-chapter-mismatch
+  // 对真不一致静默失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义
+  // 不变），解析出章号才判 mismatch。
   const baseName = fileName.split(/[/\\]/).pop() ?? fileName
   const fileNum = chapterNoFromName(baseName)
   if (fileNum !== null && fileNum !== chapter.章号) {
@@ -76,7 +73,7 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
   }
 
   // 裸数字文件名黄项（`^\d+\.md$`，缺 `-标题` 段）——识别侧已由
-  // chapterNoFromName 单源收容（本批把取正文/摘要/索引三处消费方切到单源），但标题段
+  // chapterNoFromName 单源收容（取正文/摘要/索引三处消费方同切单源），但标题段
   // 是树/导出/改名链的显示与组装水源，缺段仍属偏离 NNNN-标题.md 约定，报黄提示作者
   // 改名（黄不拦章；非数字名如 前言.md 与规范名不报；.md 大小写判定同 isMdFileName 口径）。
   if (isMdFileName(baseName) && /^\d+$/.test(baseName.slice(0, -3))) {
@@ -111,12 +108,10 @@ export function checkFrontMatter(chapter: ChapterMeta, fileName: string): CheckS
 }
 
 /**
- * 子串非重叠计数单源——checkImagery / checkBodyParts
- * 两处逐字同构的 indexOf 步进循环收编（步进 needle.length = 不计重叠命中，口径与
- * 原实现逐位一致）。grep 佐证该形态全仓仅此两处，落文件内 helper 不入 shared/text.ts
- * ——单消费域不下沉（避免推测性泛化），第三处出现时再议上移。
- * 两消费方（checkImagery/checkBodyParts）均留本
- * 残核，helper 随留，不迁不导出。
+ * 子串非重叠计数单源——checkImagery / checkBodyParts 两处逐字同构的 indexOf 步进循环
+ * 共用（步进 needle.length = 不计重叠命中）。该形态全仓仅此两处，故落文件内 helper
+ * 不入 shared/text.ts——单消费域不下沉（避免推测性泛化），第三处出现时再议上移。
+ * helper 与两消费方同留本文件，不迁不导出。
  */
 function countOccurrences(haystack: string, needle: string): number {
   let count = 0
@@ -150,7 +145,7 @@ export function checkImagery(body: string, imageryWords: readonly string[] = [],
   const prose = stripQuotedSpans(body)
   for (const word of imageryWords) {
     if (!word) continue
-    // 计数循环收编 countOccurrences 单源（原与 checkBodyParts 双份逐字同构）
+    // 计数循环走 countOccurrences 单源（否则与 checkBodyParts 双份逐字同构）
     const count = countOccurrences(prose, word)
     // 阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
     // 的「≤阈 合法、>阈 报黄」语义一致（#27 第 5.3 节同款）；原 `>=` 让恰好踩线的
@@ -235,7 +230,7 @@ export function checkBodyParts(body: string, threshold = 5, words: string[] = DE
   const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue
-    // 计数循环收编 countOccurrences 单源（原与 checkImagery 双份逐字同构）
+    // 计数循环走 countOccurrences 单源（否则与 checkImagery 双份逐字同构）
     const count = countOccurrences(prose, word)
     if (count > threshold) over.push(`${word}×${count}`)
   }
@@ -323,11 +318,9 @@ export function checkSectionCount(body: string, expected = 5): CheckSectionResul
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
-  // 剥围栏 + 标题行识别整段收编 format/section-heading 单源
-  //（语义沿革注释随迁彼处文件头注）——此前
-  // 本处手写围栏状态机 + 正则与 metrics/collectBodyAnchors 的第二套识别器口径分裂
-  //（紧排 `##标题` 漏识 / 围栏内 `##` 误收），两处消费同源后消除漂移面。节数口径
-  // 逐位不变（本函数只用标题数，不用标题文字）。
+  // 剥围栏 + 标题行识别走 format/section-heading 单源——手写围栏状态机 + 正则会与
+  // metrics/collectBodyAnchors 的第二套识别器口径分裂（紧排 `##标题` 漏识 / 围栏内
+  // `##` 误收），两处消费同源后消除漂移面。节数口径不变（只用标题数，不用标题文字）。
   const headings = extractSectionHeadings(body)
   let sections: number
   if (headings.length >= 2) {

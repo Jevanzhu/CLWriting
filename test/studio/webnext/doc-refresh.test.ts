@@ -42,36 +42,13 @@ import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/d
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
-import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { makeChapterNodeAt } from './helpers/tree-node'
 import { setupRealStores, recordToasts } from './helpers/real-stores'
+import { createLocalStorage } from '../../helpers/local-storage.js'
 
 const FAIL_MSG = '文档信息刷新失败，显示内容可能已过期'
 
-function makeNode(path: string, docId: string): TreeNode {
-  return {
-    path,
-    name: path.split('/').pop()!,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
-
 // dirty 镜像等 localStorage 面：Map 替身（node/happy-dom 两环境皆稳）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 let toastSpy: ReturnType<typeof recordToasts>
@@ -89,7 +66,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     doc.patch('d1', '作者新编辑') // dirty
 
     let resolveGet!: (v: string) => void
@@ -113,7 +90,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     const e = doc.get('d1')!
     const baseBefore = e.baselineRevision
     doc.patch('d1', '作者新编辑') // dirty → refresh 走 dirty 分支
@@ -144,7 +121,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     doc.patch('d1', '作者新编辑')
 
     let resolveSave!: (v: SaveOk) => void
@@ -163,7 +140,7 @@ describe('R1010-P2-3 · refresh 与保存交叠守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     doc.patch('d1', '作者新编辑')
     // 外部只改了 fm（服务端 fm 与本地不同、正文同）→ dirty 分支正常合并
     vi.mocked(getContent).mockResolvedValueOnce('---\n标题: 服务端新标题\n---\n作者新编辑')
@@ -182,7 +159,7 @@ describe('重审-16 · refresh 失败的 UI 面', () => {
     const doc = useDocStore()
     doc.setBook('test-book')
     vi.mocked(getContent).mockResolvedValueOnce('正文')
-    await doc.open(makeNode('写作/正文/0001-开篇.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/0001-开篇.md', 'd1'))
     vi.mocked(getContent).mockRejectedValueOnce(new Error('fetch failed'))
     const ok = await doc.refresh('d1')
     expect(ok).toBe(false)
@@ -193,7 +170,7 @@ describe('重审-16 · refresh 失败的 UI 面', () => {
     const doc = useDocStore()
     doc.setBook('test-book')
     vi.mocked(getContent).mockResolvedValueOnce('正文')
-    await doc.open(makeNode('写作/正文/0001-开篇.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/0001-开篇.md', 'd1'))
     vi.mocked(getContent).mockResolvedValueOnce('新正文')
     const ok = await doc.refresh('d1')
     expect(ok).toBe(true)
@@ -208,7 +185,7 @@ describe('R51-H-3: doc.refresh 推进 treeRev', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('初始内容')
-    await doc.open(makeNode('写作/正文/0001-第一章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/0001-第一章.md', 'd1'))
     const e = doc.get('d1')!
     const tree = useTreeStore()
     expect(e.treeRev).toBe(tree.revision) // open 记录开档时树版本
@@ -223,7 +200,7 @@ describe('R51-H-3: doc.refresh 推进 treeRev', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('---\n标题: 一\n---\n\n正文')
-    await doc.open(makeNode('写作/正文/0002-第二章.md', 'd2'))
+    await doc.open(makeChapterNodeAt('写作/正文/0002-第二章.md', 'd2'))
     const tree = useTreeStore()
     tree.revision = 'rev-C'
     doc.patch('d2', '---\n标题: 一\n---\n\n本地未保存编辑')

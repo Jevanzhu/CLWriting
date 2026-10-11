@@ -59,13 +59,12 @@ export interface GenResult {
 }
 
 /** 逐 chunk 挂起时限默认值——每个事件前若超过此时限无数据，抛可重试 GenError。
- * 更名：本值原称「首字节超时」，实为**逐 chunk 挂起**
- * 口径（首字节只是它最常命中的一例流中途挂起同样受此限）——函数/常量层
- *  随批改为 chunk-stall 命名，避免读代码时误以为「只在首字节生效」。**env 名与事件
+ * 口径是**逐 chunk 挂起**（首字节只是它最常命中的一例，流中途挂起同样受此限）——
+ * 故函数/常量层用 chunk-stall 命名，避免误读为「只在首字节生效」。**env 名与事件
  *  schema 字段（firstByteTimeoutMs，events/types.ts）保名**：一个是对外配置面、一个是
  *  已落库的字段形状（重放纪律），改名只到本模块符号层。
- * 参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s 不变）——
- *  深度推理模型首 token 可能超过 60s，此前写死导致被误判 TIMEOUT 白废一轮请求 + 吃退避。 */
+ * 参数化（环境变量 CLWRITING_FIRST_BYTE_TIMEOUT_MS，默认 60s）——
+ *  深度推理模型首 token 可能超过 60s，写死会导致被误判 TIMEOUT 白废一轮请求 + 吃退避。 */
 const DEFAULT_CHUNK_STALL_TIMEOUT_MS = 60_000
 const CHUNK_STALL_TIMEOUT_ENV = 'CLWRITING_FIRST_BYTE_TIMEOUT_MS'
 

@@ -1,25 +1,20 @@
 /**
- * 主题应用纯逻辑族 —— 自 src/studio/web-next/src/stores/prefs.ts theme-apply 缝拆出。
+ * 主题应用纯逻辑族（applyTheme 本体 + theme-instant 压制代数 + 窗控 overlay 色族）。
  *
- * （⑤④产品巨件拆分波5）：prefs.ts（871 行）theme-apply 缝纯移动
- * 拆分。本文件承载：applyTheme 本体（data-theme 落定 + win theme-instant 过渡压制 +
- * 双 rAF 窗控色跟随）、theme-instant 压制代数（useStaleGuard 实例）、窗控
- * overlay 色族（overlayAlpha/overlayColorsFor/applyOverlayAlpha/syncOverlayNow/
- * setOverlayDimmed，win 基础色 0xF6/0x26 与遮罩等效色代数随注释单源在此）。
- * 纯移动声明：注释与代码逐字随迁、零行为变化、零逻辑改写；唯一差异 = 缝入本文件
- * 所需的最小必要签名改动（store 闭包 → 工厂闭包参数化，逐处记档见下）：
- * - createThemeApply(theme: Ref<ThemeId>) 工厂收 theme ref——族内 theme.value 读点
- * 逐字不变（rAF 回调按回调执行时刻活读当前主题快速连切「旧回调按最新
- *   主题重发窗控色」口径保持；传值参数会冻结读点，是行为改写，不取）。
- * - overlayAlpha / themeInstantGen 为 per-store 实例态，随族迁入工厂闭包保持
- *   per-instance 语义（上提模块顶层会跨 store 实例串态——测试内连续 createPinia
- *   即泄漏；单源求值侧在本文件工厂内，不经环回链，TDZ 无涉）。
- * prefs store 残核（状态 refs/DEFAULTS/localStorage 持久化迁移/setter 表驱动/
- * store 门口径）零触碰，经 createThemeApply(theme) 解构 applyTheme/setOverlayDimmed
- * 桥接，init/finishRow/store 出口调用点原位零改动；overlay-dim.test.ts 对
- * prefs.ts 的 theme-instant 源码锁由残核缝指针注记承接（见 prefs.ts 缝位注记）。
- * 依赖单向无环：本文件 import composables/useStaleGuard + types/theme（type）+
- * vue（type），不回引 stores/*；模块顶层零求值常量（状态全在工厂闭包内）。
+ * 内容：applyTheme 本体（data-theme 落定 + win theme-instant 过渡压制 + 双 rAF 窗控色跟随）、
+ * theme-instant 压制代数（useStaleGuard 实例）、窗控 overlay 色族（overlayAlpha/overlayColorsFor/
+ * applyOverlayAlpha/syncOverlayNow/setOverlayDimmed；win 基础色 0xF6/0x26 与遮罩等效色代数单源在此）。
+ *
+ * 不变量：
+ * - createThemeApply(theme: Ref<ThemeId>) 工厂收 theme ref——族内 theme.value 读点必须在**回调执行
+ *   时刻活读**当前主题（快速连切时旧回调按最新主题重发窗控色）；传值参数会冻结读点。
+ * - overlayAlpha / themeInstantGen 是 per-store 实例态，必须留在工厂闭包内——上提模块顶层会跨
+ *   store 实例串态（测试内连续 createPinia 即泄漏）。
+ * prefs store 残核（状态 refs/DEFAULTS/localStorage 持久化迁移/setter 表驱动）经
+ * createThemeApply(theme) 解构 applyTheme/setOverlayDimmed 桥接，init/finishRow/store 出口调用点
+ * 原位不动；overlay-dim.test.ts 对 prefs.ts 的 theme-instant 源码锁由残核缝指针注记承接。
+ * 依赖单向无环：本文件 import composables/useStaleGuard + types/theme（type）+ vue（type），不回引
+ * stores/*；模块顶层零求值常量（状态全在工厂闭包内）。
  */
 import { useStaleGuard } from '../composables/useStaleGuard'
 import type { Ref } from 'vue'

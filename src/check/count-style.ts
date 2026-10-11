@@ -1,14 +1,12 @@
 /**
  * 文风可量化/信息差检查族 —— 自 src/check/count.ts 缝 B 拆出。
  *
- * （⑤④产品巨件拆分波1）：count.ts（1144 行）纯移动拆分——
- * 本文件承载缝 B（StyleStats/computeStyleMetrics/checkStyleMetrics/adjStack 缓存族/
- * DE_RUN_SPLIT/POSSESSIVE 族/排比/结尾总结体/checkInfoLeak）。归属按「常量随所属
- * check 函数整体搬」实读判定：DIALOGUE_TAG_RE 唯一消费方是 computeStyleMetrics、
- * DIALOGUE_TAG_SHUO/DIDAO_RE 唯一消费方是 checkStyleMetrics，故三者随文风族落此，
- * 未随 DIALOGUE_GUIDE_RE（唯一消费方 checkNewNames）归缝 A count-dialogue.ts。
- * 对话/名册族见 count-dialogue.ts；front matter/意象/短篇项留 count.ts 残核
- * （头注保留原全部历史记载与拆分沿革）。
+ * 内容：StyleStats/computeStyleMetrics/checkStyleMetrics/adjStack 缓存族/
+ * DE_RUN_SPLIT/POSSESSIVE 族/排比/结尾总结体/checkInfoLeak。DIALOGUE_TAG_RE 唯一
+ * 消费方是 computeStyleMetrics、DIALOGUE_TAG_SHUO/DIDAO_RE 唯一消费方是
+ * checkStyleMetrics，故三者随文风族落此（DIALOGUE_GUIDE_RE 唯一消费方
+ * checkNewNames，归 count-dialogue.ts）。对话/名册族见 count-dialogue.ts；
+ * front matter/意象/短篇项留 count.ts 残核。
  * 依赖方向：check（types/quotes/count-dialogue 同层）/format（sentences/iron-rules）/
  * shared 既有方向，不入 AI 生成层（守护范围）。
  */
@@ -19,7 +17,7 @@ import { QUOTED_SPAN_RE, stripQuotedSpans, SPAN_PUNCT } from './quotes.js'
 // IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
 // 句长码点口径（代理对合 1 计）。
-// -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
+// 实现单源 src/shared/text.ts。
 import { codePointLength } from '../shared/text.js'
 // HANZI 区间/SPEECH_VERBS 动词集是跨缝共享单源——
 // 「留 count.ts 残核供两缝 import」经 ESM 环形依赖推演不可行（count.ts 的 re-export

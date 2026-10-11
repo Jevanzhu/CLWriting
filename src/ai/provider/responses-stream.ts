@@ -451,10 +451,9 @@ export function applyResponsesStreamEvent(
 /**
  * ── 流尾收尾（循环自然结束后）────────────────────────────────────────────────
  * 截断判定必须在 toolAccum 清空**之前**（残留调用参数计入产出折算，清后即丢）。
- * 订正：删除「无 completed 兜底发 done{0/0,stop}」——无终止事件 =
- * 传输截断，报错不发 done；截断路径原「残留 flush」循环物理不可达（残留条目的 name
- * 只在 output_item.done 分支赋值且随即 delete，恒空）已删除，未到 done 的调用不交出，
- * 其参数仅经截断壳的 usage 计入产出——如实记档。
+ * 截断不得兜底发 done{0/0,stop}——无终止事件 = 传输截断，报错不发 done；截断路径
+ * 不 flush 残留 tool（残留条目的 name 只在 output_item.done 分支赋值且随即 delete，
+ * 恒空；未到 done 的调用不交出），其参数仅经截断壳的 usage 计入产出。
  * done 之后不再 flush 残留 tool（已在 done 的回合补发 tool 违反
  * 「done 收尾」契约）——本函数只在未 done 分支产出截断壳，三线对齐。
  * 返回 discardedReasoningItems = 被覆盖丢弃的加密推理项条数（>0 时调用方留痕）。

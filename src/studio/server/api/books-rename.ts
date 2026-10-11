@@ -1,18 +1,15 @@
 /**
- * 改书名路由 + --book 直进指针 —— 自 src/studio/server/api/books.ts 缝 B 拆出。
+ * 改书名路由 + --book 直进指针。
  *
- * （⑤④产品巨件拆分波4）：books.ts（870 行）缝 A+B 纯移动拆分。
- * 本文件承载缝 B：改书名路由 book.rename（全量同步：磁盘目录 + books.jsonl 登记 +
- * active 指针 + book.yaml title）+ initialBook / --book 直进指针（setInitialBook——
- * rename 命中旧名时回写、残核 boot 路由经活绑定单向读取，单源本文件不经环回引）。
- * 删书路由 + 删/改名共用生命周期助手族见 books-lifecycle.ts（缝 A）；本文件自其
- * 单向 import 四助手（forgetBookKeyedCaches / busyGate / awaitOrchestrationsSettled /
- * drainAndRecheckBookMutation）。
- * 书架列表 / 建书 / 单书身份 / boot 残核留 books.ts，其头注末尾拆分沿革记全账。
- * setInitialBook 迁出后经 books.ts 逐名 re-export 桥接，全库消费方 import 面零改动。
- * 依赖方向单向（无环回引）：本文件仅 runtime import books-lifecycle.ts（缝 A），
- * 对 books.ts 仅 import type BookCtx（编译期擦除）。注释全部原样随迁；行为、断言、
- * 测试零改动。
+ * 内容：改书名路由 book.rename（全量同步：磁盘目录 + books.jsonl 登记 + active 指针 +
+ * book.yaml title）+ initialBook / --book 直进指针（setInitialBook——rename 命中旧名时回写、残核
+ * boot 路由经活绑定单向读取，单源本文件不经环回引）。
+ * 删书路由 + 删/改名共用生命周期助手族见 books-lifecycle.ts，本文件自其单向 import 四助手
+ *（forgetBookKeyedCaches / busyGate / awaitOrchestrationsSettled / drainAndRecheckBookMutation）；
+ * 书架列表 / 建书 / 单书身份 / boot 残核留 books.ts。setInitialBook 迁出后经 books.ts 逐名
+ * re-export 桥接，全库消费方 import 面零改动。
+ * 依赖单向（无环）：本文件仅 runtime import books-lifecycle.ts，对 books.ts 仅 import type BookCtx
+ *（编译期擦除）。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'

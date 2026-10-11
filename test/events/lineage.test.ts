@@ -6,8 +6,6 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { openSessionStore, bookHash, type NewEvent } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent, userMessageEvent, turnStartEvent } from '../../src/events/chat-bridge.js'
 import {
@@ -19,11 +17,11 @@ import {
 import { assistantMessageEvent } from '../../src/events/chat-bridge.js'
 import { digest16, verifyVisibleRecorded, recordedSnapshots } from '../../src/events/lineage.js'
 import type { ChatEvent } from '../../src/events/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'f1-lineage-'))
+  const d = tempDirTracked('f1-lineage-')
   dirs.push(d)
   return d
 }

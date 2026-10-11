@@ -30,10 +30,10 @@ import type {
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
-import { quirksFor } from './model-quirks.js'
+import { quirksFor, type FamilyQuirks } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
-import { createStreamFinalizer, normalizeStopReason } from './stream-finalize.js'
+import { createStreamFinalizer, normalizeStopReason, type StreamFinalizer } from './stream-finalize.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -147,7 +147,8 @@ type OpenAIChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStream
   thinking?: { type: 'enabled' }
 }
 
-/** GenRequest → OpenAI ChatCompletionCreateParamsStreaming（导出：测试做类型层可赋性断言） */
+/** GenRequest → OpenAI ChatCompletionCreateParamsStreaming（导出：测试做类型层可赋性断言）。
+ * 键插入序 = 请求体 JSON 序——各参数面按既有顺序逐一应用（apply* 族），调用序不得重排。 */
 export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams {
   // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数。
   // 上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
@@ -167,73 +168,85 @@ export function toParams(conf: ProviderConf, req: GenRequest): OpenAIChatParams 
     messages,
     stream: true,
   }
-  // 输出上限参数名（各家新旧名不同；缺省则不发，让模型用自己的默认值）。
-  // 阶段 14 §7.2：调用方显式 cap（req.maxTokens）优先；其次用户模型行覆盖（modelConfOf）；
-  // 仍无 → 不发（OpenAI 线维持旧行为——quirks 表值不自动补发，防改变请求形状）。
-  const tokenCap = req.maxTokens ?? modelConfOf(conf)?.maxTokens
-  if (tokenCap) {
-    params[q.maxTokensKey] = tokenCap
-  }
-
+  // 参数面逐一应用（顺序即键序）：上限 → tools → 并行控制 → tool_choice → effort → stop
+  // → 结构化 → stream_options
+  applyTokenCap(params, conf, req, q)
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toOpenAITool)
   }
-
   // toolChoice 存在（含 'auto'）且 parallelControl 支持 → 关并行工具（parallel_tool_calls:false）。
   // 对齐 anthropic 线（toolChoice 存在即发 disable_parallel_tool_use）——契约
-  // 「一轮最多一个工具调用」此前 openai 线仅 forced 才关并行，chat 的 toolChoice='auto' 恒不关。
-  // 注意：parallel_tool_calls 是顶层 chat.completions 参数，不是 tool_choice 的子字段。
+  // 「一轮最多一个工具调用」。注意：parallel_tool_calls 是顶层 chat.completions 参数，
+  // 不是 tool_choice 的子字段。
   if (req.toolChoice && q.parallelControl) params['parallel_tool_calls'] = false
-  // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
-  // tool-choice.ts（三适配器同构 if 树收敛），此处只留动作 → wire 值发射：
-  // force/force-named → 'required' / {type:'function',function:{name}}，auto → 'auto'，
-  // none → 不发（prompt 引导兜底）。
+  // tool_choice 按表 toolChoiceMode 翻译（分档决策单源见 tool-choice.ts）；none 档不发
+  //（prompt 引导兜底）。
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
-    const intent = resolveToolChoiceIntent({
-      toolChoiceMode: q.toolChoiceMode,
-      toolChoice: req.toolChoice,
-      toolName: req.toolName,
-    })
-    if (intent.action === 'force') {
-      params['tool_choice'] = 'required'
-    } else if (intent.action === 'force-named') {
-      params['tool_choice'] = { type: 'function', function: { name: intent.name } }
-    } else if (intent.action === 'auto') {
-      params['tool_choice'] = 'auto'
-    }
+    applyToolChoiceWire(params, req, q)
   }
-
-  // effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛；表返回 EffortLevel
-  // 值域，正是 SDK ReasoningEffort 的子集，直接赋值即受 SDK 类型校验）
-  if (req.effort) {
-    const effort = q.reasoningEffort(req.effort)
-    if (effort) {
-      params['reasoning_effort'] = effort
-      // DeepSeek：thinking 对象与 reasoning_effort 两种写法官方并存（方案 §4.1）
-      if (q.thinkingWithEffort) params['thinking'] = { type: 'enabled' }
-    }
-  }
-
-  // stop 裁剪（各家上限不同；grok 推理模型不发）
-  if (req.stopSequences?.length) {
-    const stops = q.trimStop(req.stopSequences)
-    if (stops?.length) params['stop'] = stops
-  }
-
-  // 结构化输出档位（json_schema 400 由降级链剥除；json_object 需 prompt 约束）
-  if (req.structured?.schema && q.structuredMode !== 'none') {
-    params['response_format'] =
-      q.structuredMode === 'json_schema'
-        ? { type: 'json_schema', json_schema: { name: 'output', schema: req.structured.schema, strict: true } }
-        : { type: 'json_object' }
-  }
-
+  applyReasoningEffort(params, req, q)
+  applyStopSequences(params, req, q)
+  applyStructuredOutput(params, req, q)
   // 流式 usage（各家支持不同；GLM 无此参数，usage 末 chunk 自带）
   if (q.emitStreamOptions) {
     params['stream_options'] = { include_usage: true }
   }
 
   return params
+}
+
+/** 输出上限（参数名按 quirks 表）——调用方显式 cap（req.maxTokens）优先；其次用户模型行
+ * 覆盖（modelConfOf）；仍无 → 不发（quirks 表值不自动补发，防改变请求形状，让模型用自己
+ * 的默认值）。 */
+function applyTokenCap(params: OpenAIChatParams, conf: ProviderConf, req: GenRequest, q: FamilyQuirks): void {
+  const tokenCap = req.maxTokens ?? modelConfOf(conf)?.maxTokens
+  if (tokenCap) {
+    params[q.maxTokensKey] = tokenCap
+  }
+}
+
+/** tool_choice 动作 → wire 值发射：force → 'required'；force-named →
+ * {type:'function',function:{name}}；auto → 'auto'（'none' 由调用点闸掉）。 */
+function applyToolChoiceWire(params: OpenAIChatParams, req: GenRequest, q: FamilyQuirks): void {
+  const intent = resolveToolChoiceIntent({
+    toolChoiceMode: q.toolChoiceMode,
+    toolChoice: req.toolChoice,
+    toolName: req.toolName,
+  })
+  if (intent.action === 'force') {
+    params['tool_choice'] = 'required'
+  } else if (intent.action === 'force-named') {
+    params['tool_choice'] = { type: 'function', function: { name: intent.name } }
+  } else if (intent.action === 'auto') {
+    params['tool_choice'] = 'auto'
+  }
+}
+
+/** effort → reasoning_effort（各家档位与支持模型不同，由 quirks 收敛；表返回值域是 SDK
+ * ReasoningEffort 子集，直接赋值即受 SDK 类型校验）。DeepSeek 的 thinking 对象与
+ * reasoning_effort 两种写法官方并存（方案 §4.1），按表并存发射。 */
+function applyReasoningEffort(params: OpenAIChatParams, req: GenRequest, q: FamilyQuirks): void {
+  if (!req.effort) return
+  const effort = q.reasoningEffort(req.effort)
+  if (!effort) return
+  params['reasoning_effort'] = effort
+  if (q.thinkingWithEffort) params['thinking'] = { type: 'enabled' }
+}
+
+/** stop 裁剪（各家上限不同；grok 推理模型不发——trimStop 返 null 即不发）。 */
+function applyStopSequences(params: OpenAIChatParams, req: GenRequest, q: FamilyQuirks): void {
+  if (!req.stopSequences?.length) return
+  const stops = q.trimStop(req.stopSequences)
+  if (stops?.length) params['stop'] = stops
+}
+
+/** 结构化输出档位（json_schema 400 由降级链剥除；json_object 需 prompt 约束）。 */
+function applyStructuredOutput(params: OpenAIChatParams, req: GenRequest, q: FamilyQuirks): void {
+  if (!req.structured?.schema || q.structuredMode === 'none') return
+  params['response_format'] =
+    q.structuredMode === 'json_schema'
+      ? { type: 'json_schema', json_schema: { name: 'output', schema: req.structured.schema, strict: true } }
+      : { type: 'json_object' }
 }
 
 function toOpenAITool(tool: ToolDef): OpenAI.Chat.Completions.ChatCompletionTool {
@@ -270,31 +283,239 @@ function isRealUsage(u: WireUsage | null | undefined): u is WireUsage {
 
 /**
  * usage 线格式 → TokenUsage（prompt_tokens_details.cached_tokens → cacheReadTokens）。
- * prompt_tokens **已含** cache 命中部分，边界处扣减归一成「inputTokens 不含 cache 读」
+ * 口径：prompt_tokens **已含** cache 命中，边界处扣减归一成「inputTokens 不含 cache 读」
  * 的统一口径（Anthropic 语义），下游计价/预算四档分计公式对两协议同时成立；
  * 中转缺 prompt_tokens_details 时 cached=undefined，行为与旧口径一致。
+ *
+ * 合理性防御（不得低估）：cached > prompt_tokens 自相矛盾（命中量不可能超总 prompt），
+ * 只可能出自把 prompt_tokens 报成「未命中输入」、cached 另行计数的非标网关——此时若仍
+ * 按差扣减，整份输入会被扣成 0 并按 cache 读价入账，预算闸/成本报表系统性低估。
+ * 该形态改按 prompt_tokens 即 inputTokens（两侧不互含、输入全量入账）；符合官方语义的
+ * 网关（cached ≤ prompt_tokens）不触本分支，逐位不变。
  */
 function toUsage(u: WireUsage | undefined | null): TokenUsage {
+  const prompt = u?.prompt_tokens ?? 0
   const cached = u?.prompt_tokens_details?.cached_tokens
   const reasoning = u?.completion_tokens_details?.reasoning_tokens
+  const separateCounters = cached !== undefined && cached > prompt
   return {
-    inputTokens: Math.max(0, (u?.prompt_tokens ?? 0) - (cached ?? 0)),
+    inputTokens: separateCounters ? prompt : Math.max(0, prompt - (cached ?? 0)),
     outputTokens: u?.completion_tokens ?? 0,
     ...(cached ? { cacheReadTokens: cached } : {}),
     ...(reasoning ? { reasoningTokens: reasoning } : {}),
   }
 }
 
+/* ── 流消费分解：单 chunk 消费 / tool_calls 拼装 / 流末收尾各自成函数，主流程只留
+ *「建流 → 逐 chunk 消费 → 收尾」骨架；终止值与 flag 更新留在主流程（流级状态）。── */
+
+/** tool_calls 分片累加单元（按 index/兜底键聚合，arguments 为增量字符串，末尾整体解析） */
+interface ToolCallAcc {
+  id: string
+  name: string
+  argsBuf: string
+}
+
+/** 单次 attempt 的流内累计（每次建流新建——上一 attempt 的半截累计不得泄入） */
+interface StreamAcc {
+  toolAccum: Map<number | string, ToolCallAcc>
+  /** 产出累计（文本/推理 delta 串联 + tool 参数）——网关吞 usage 时按此折算估计用量 */
+  outText: string[]
+  outToolText: string[]
+  /** 最后可见 usage（逐 chunk 覆盖，末见 wins）；空对象不算计量（isRealUsage 闸） */
+  latestUsage: WireUsage | null
+  /** 缺省 tc.index 的兜底聚合序号与最近兜底键（无 index 流也能拆出独立调用） */
+  idxlessSeq: number
+  lastIdxlessKey: string | null
+  /** 兜底 id 流级计数（跨 finish_reason 段不重号） */
+  fallbackToolSeq: number
+}
+
+/** Chat 线 delta.tool_calls 项（SDK 标 index 必填，非标网关可缺——运行时按可选处理） */
+type ChunkToolCall = OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta.ToolCall
+
+function createStreamAcc(): StreamAcc {
+  return {
+    toolAccum: new Map(),
+    outText: [],
+    outToolText: [],
+    latestUsage: null,
+    idxlessSeq: 0,
+    lastIdxlessKey: null,
+    fallbackToolSeq: 0,
+  }
+}
+
+/**
+ * 消费一个流 chunk：usage 落账 → 文本/思维链增量 → tool_calls 分片累加 →
+ * finish_reason 段整体产出 tool 事件。返回本 chunk 的 finish_reason（无则 null）——
+ * 终止值归一与 sawFinishReason 置位由调用方做（流级状态，跨 attempt 语义）。
+ */
+function* consumeChunk(
+  chunk: OpenAI.Chat.Completions.ChatCompletionChunk,
+  acc: StreamAcc,
+): Generator<GenEvent, string | null, void> {
+  const usage = chunk.usage
+  // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]；SDK Choice 类型未含该字段，
+  // 运行时由厂商端点下发）
+  const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
+  const effectiveUsage = usage ?? choiceUsage
+  // usage 逐 chunk 统一落账（末见 wins）——「choice 在、finish_reason 不在」的先行 usage
+  // chunk 也记入，流末统一取最新值 emit（不即席 emit，口径不变）
+  if (isRealUsage(effectiveUsage)) acc.latestUsage = effectiveUsage
+
+  const choice = chunk.choices?.[0]
+  if (!choice) return null // usage-only chunk（落账已在上方统一完成）
+
+  const delta = choice.delta
+  // delta 可能为 null —— 非官方端点偶发，可选链兜底防 TypeError 致 GEN_FAIL
+  if (delta?.content) {
+    acc.outText.push(delta.content) // 产出累计（推理 token 也是真实计费面）
+    yield { type: 'text', delta: delta.content }
+  }
+
+  // 思维链增量（DeepSeek/Kimi 思考模型的 reasoning_content）→ reasoning 事件（方案 §4.2）；
+  // SDK Delta 类型未含该字段（非官方），运行时由厂商端点下发
+  const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
+  if (reasoningDelta) {
+    acc.outText.push(reasoningDelta) // 产出累计（推理 token 也是真实计费面）
+    yield { type: 'reasoning', delta: reasoningDelta }
+  }
+
+  // tool_calls 增量（delta 可能为 null——部分网关下发 delta:null 的空 chunk，同款兜底）
+  if (delta?.tool_calls) accumulateToolCalls(acc, delta.tool_calls)
+
+  // finish_reason → 发出已拼完的 tool 事件；done 延迟到流末，取最后可见 usage
+  if (choice.finish_reason) {
+    yield* drainToolCalls(acc)
+    return choice.finish_reason
+  }
+  return null
+}
+
+/** delta.tool_calls 分片累加。 */
+function accumulateToolCalls(acc: StreamAcc, deltas: readonly ChunkToolCall[]): void {
+  for (const tc of deltas) {
+    const key = toolCallKeyOf(acc, tc)
+    let entry = acc.toolAccum.get(key)
+    if (!entry) {
+      entry = { id: tc.id ?? '', name: tc.function?.name ?? '', argsBuf: '' }
+      acc.toolAccum.set(key, entry)
+    }
+    if (tc.function?.name) entry.name = tc.function.name
+    if (tc.function?.arguments) entry.argsBuf += tc.function.arguments
+  }
+}
+
+/**
+ * 分片聚合键：有 index 原样；缺 index 时新调用分片（带 id/name）开新兜底键、续片归并最近
+ * 兜底键（最近键已被 finish_reason 清空则另开）——无 index 流也拆得出独立调用。
+ */
+function toolCallKeyOf(acc: StreamAcc, tc: ChunkToolCall): number | string {
+  if (tc.index !== undefined) return tc.index
+  const startsCall = (tc.id !== undefined && tc.id !== '') || !!tc.function?.name
+  if (startsCall || acc.lastIdxlessKey === null || !acc.toolAccum.has(acc.lastIdxlessKey)) {
+    acc.lastIdxlessKey = `no-index-${++acc.idxlessSeq}`
+  }
+  return acc.lastIdxlessKey
+}
+
+/**
+ * 取走已拼装的 tool_calls → tool 事件（逐条产出后清空累计）。有 name 即发出——空 args 合法
+ *（无参工具）；非官方端点缺 id 时以 call_ 兜底 id（流级序号，跨 finish_reason 段不重号）；
+ * arguments 非合法 JSON 时以 _raw 包装兜底（不吞内容）。
+ */
+function* drainToolCalls(acc: StreamAcc): Generator<GenEvent, void, void> {
+  for (const entry of acc.toolAccum.values()) {
+    if (!entry.name) continue
+    const input = parseToolArgs(entry.argsBuf)
+    acc.outToolText.push(entry.name + entry.argsBuf) // tool 参数也是真实计费面
+    yield { type: 'tool', id: entry.id || `call_${acc.fallbackToolSeq++}`, name: entry.name, input }
+  }
+  acc.toolAccum.clear()
+}
+
+/** tool arguments 解析：空串 = 无参调用 {}；非法 JSON 包 _raw。 */
+function parseToolArgs(argsBuf: string): unknown {
+  if (!argsBuf) return {}
+  try {
+    return JSON.parse(argsBuf)
+  } catch {
+    return { _raw: argsBuf }
+  }
+}
+
+/** 在途未消费的 tool 分片（name+argsBuf）——估计入账面计入产出。 */
+function pendingToolTextOf(acc: StreamAcc): string[] {
+  return [...acc.toolAccum.values()].map((a) => a.name + a.argsBuf)
+}
+
+/** 异常/收尾时点用量：末见 usage 优先（网关实测值），否则按累计产出折算（与截断分支同源公式）。 */
+function attemptUsageNow(acc: StreamAcc, fin: StreamFinalizer, req: GenRequest, model: string | undefined): TokenUsage {
+  if (acc.latestUsage) return toUsage(acc.latestUsage)
+  return fin.estimateUsage({
+    req,
+    model,
+    outText: acc.outText,
+    outToolText: acc.outToolText,
+    pendingToolText: pendingToolTextOf(acc),
+  })
+}
+
+/**
+ * 流末收尾（chunk 循环之后；本函数返回即本次 stream 结束）：
+ * - 见过 finish_reason 且拿到真实 usage → 过滤/拒答先判 error，否则 done；
+ * - 见过 finish_reason 但网关不回 usage（include_usage 不兼容面）→ 残留 tool 事件补发并
+ *   计入产出，按可得信号估计入账（estimated 标记）——放行生成，不判错重试；
+ * - 未见过 finish_reason → 无终止事件的流结束 = 传输截断（可重试），真实消耗随错上抛
+ *  （已见 usage 用实测，未见则估计；在途 tool 计入估计但不 flush 事件——gen 层遇 error 必弃事件）。
+ */
+function* settleStream(
+  acc: StreamAcc,
+  fin: StreamFinalizer,
+  req: GenRequest,
+  model: string | undefined,
+  pendingStopReason: StopReason,
+  sawFinishReason: boolean,
+): Generator<GenEvent, void, void> {
+  if (isRealUsage(acc.latestUsage) && sawFinishReason) {
+    const usage = toUsage(acc.latestUsage)
+    const filtered = fin.filterError(usage, pendingStopReason)
+    if (filtered) {
+      yield filtered
+      return
+    }
+    const ev = fin.done(usage, pendingStopReason)
+    if (ev) yield ev
+  }
+  if (fin.doneEmitted()) return
+
+  if (!sawFinishReason) {
+    yield fin.truncatedError(attemptUsageNow(acc, fin, req, model))
+    return
+  }
+
+  yield* drainToolCalls(acc)
+  const usage = fin.estimateUsage({ req, model, outText: acc.outText, outToolText: acc.outToolText })
+  // 无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
+  const filtered = fin.filterError(usage, pendingStopReason)
+  if (filtered) {
+    yield filtered
+    return
+  }
+  const ev = fin.done(usage, pendingStopReason)
+  if (ev) yield ev
+}
+
 /**
  * OpenAI Chat Completions 适配器（/v1/chat/completions）。
  *
- * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不再靠 model 名自动猜测。
- * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——启用批回接。）
+ * 线格式由 UI 的 Protocol 值决定（openai = Chat Completions），不靠 model 名自动猜测。
+ *（openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  *
- * 原另有一个「兼容导出」薄壳 createOpenAIProvider 转调本函数，已删——
- * 两个导出同名同义（Provider / ProviderChat），调用方无法从名字判断该用哪个，且薄壳
- * 一度丢 store/userDataPath 两形参（修）。名字收成唯一一个。
+ * 不设「兼容导出」薄壳：两个导出同名同义（Provider / ProviderChat）会让调用方无法从
+ * 名字判断该用哪个，且薄壳易丢 store/userDataPath 形参——名字收成唯一一个。
  */
 export function createOpenAIProviderChat(
   conf: ProviderConf,
@@ -354,227 +575,25 @@ export function createOpenAIProviderChat(
             // 判据并入降级记忆命中——基准改 plan.original（记忆命中时
             // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
             degraded = attempt !== plan.original
-            // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
-            const toolAccum = new Map<number | string, { id: string; name: string; argsBuf: string }>()
-            // 产出累计（文本/思维链 delta 串联 + tool 参数 JSON 串）——网关吞 usage
-            // 时按此折算估计用量（usage-estimate.ts 同源系数），不再按 0/0 入账
-            const outText: string[] = []
-            const outToolText: string[] = []
-            // 最后可见 usage（逐 chunk 覆盖）——done 延后到流末统一 emit（见循环后注）
-            let latestUsage: WireUsage | null = null
-            // 网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
-            // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
-            // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
-            let idxlessSeq = 0
-            let lastIdxlessKey: string | null = null
-            // 兜底 id 流级计数——原每段 finish_reason 从 0 重计，
-            // 同流多 finish_reason 段（非标网关）时 call_N 重号撞历史已有 id
-            let fallbackToolSeq = 0
-            // 本 attempt 的异常用量估计器绑定（见流级声明处注释）——末见
-            // usage 优先（网关实测值），否则按累计产出折算；与截断分支同源公式
-            // （折算走 fin.estimateUsage 单点，在途 toolAccum 一并计入）
-            errorUsageOf = () =>
-              latestUsage
-                ? toUsage(latestUsage)
-                : fin.estimateUsage({
-                    req,
-                    model: conf.model ?? undefined,
-                    outText,
-                    outToolText,
-                    pendingToolText: [...toolAccum.values()].map((a) => a.name + a.argsBuf),
-                  })
+            // 本 attempt 的流内累计与异常用量估计器绑定（见流级声明处注释）——累计面
+            // 每次 attempt 新建，防上一 attempt 半截累计泄入
+            const acc = createStreamAcc()
+            errorUsageOf = () => attemptUsageNow(acc, fin, req, conf.model ?? undefined)
             for await (const chunk of stream) {
               consumedAny = true
               streamConsumedAny = true // 跨 attempt 置位不复位
-              const usage = chunk.usage
-              // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
-              // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
-              const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
-              const effectiveUsage = usage ?? choiceUsage
-              // usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
-              // 防空对象覆盖不变）——原只在 usage-only chunk 与 finish_reason chunk 两点
-              // 写 latestUsage，「choice 在、finish_reason 不在」的先行 usage chunk（非标
-              // 网关把 usage 放首个 content chunk、末 chunk 只带 finish_reason 不重复携带）
-              // 被静默丢弃，流末落估计入账（estimated:true），预算闸/成本报表精度受损。
-              // 不即席 emit——记入 latestUsage，流末统一取最新值 emit（口径不变）
-              if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
-              const choice = chunk.choices?.[0]
-              if (!choice) {
-                // usage-only chunk（最后一个 chunk 只含 usage）——落账已在上方统一完成
-                continue
-              }
-
-              const delta = choice.delta
-
-              // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
-              if (delta?.content) {
-                outText.push(delta.content) // 产出累计（推理 token 也是真实计费面）
-                yield { type: 'text', delta: delta.content }
-              }
-
-              // 思维链增量（DeepSeek/Kimi 思考模型的 reasoning_content）→ reasoning 事件（方案 §4.2）
-              // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
-              const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
-              if (reasoningDelta) {
-                outText.push(reasoningDelta) // 产出累计（推理 token 也是真实计费面）
-                yield { type: 'reasoning', delta: reasoningDelta }
-              }
-
-              // tool_calls 增量（delta 可能为 null——部分网关下发 delta:null 的空
-              // chunk（如纯 usage），与上方 content/reasoning 分支同款可选链兜底，防 TypeError 崩断整条流）
-              if (delta?.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                  // key 决策——有 index 原样；缺 index 时新调用分片（带 id/name）
-                  // 开新兜底键，续片归并最近兜底键（上一兜底键已被 finish_reason 清空则另开）
-                  let key: number | string
-                  if (tc.index !== undefined) {
-                    key = tc.index
-                  } else {
-                    const startsCall = (tc.id !== undefined && tc.id !== '') || !!tc.function?.name
-                    if (startsCall || lastIdxlessKey === null || !toolAccum.has(lastIdxlessKey)) {
-                      lastIdxlessKey = `no-index-${++idxlessSeq}`
-                    }
-                    key = lastIdxlessKey
-                  }
-                  let acc = toolAccum.get(key)
-                  if (!acc) {
-                    acc = { id: tc.id ?? '', name: tc.function?.name ?? '', argsBuf: '' }
-                    toolAccum.set(key, acc)
-                  }
-                  if (tc.function?.name) acc.name = tc.function.name
-                  if (tc.function?.arguments) acc.argsBuf += tc.function.arguments
-                }
-              }
-
-              // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
-              if (choice.finish_reason) {
-                // 所有 tool_calls 已拼完 → 发出
-                for (const [, acc] of toolAccum) {
-                  // 有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
-                  if (acc.name) {
-                    let input: unknown
-                    if (acc.argsBuf) {
-                      try {
-                        input = JSON.parse(acc.argsBuf)
-                      } catch {
-                        input = { _raw: acc.argsBuf }
-                      }
-                    } else {
-                      input = {}
-                    }
-                    outToolText.push(acc.name + acc.argsBuf) // tool 参数也是真实计费面
-                    // 非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
-                    //（流级序号，跨 finish_reason 段不重号）
-                    const id = acc.id || `call_${fallbackToolSeq++}`
-                    yield { type: 'tool', id, name: acc.name, input }
-                  }
-                }
-                toolAccum.clear()
-
-                // 终止值在捕获点即归一（'length'→'max_tokens'、
-                // 'tool_calls'→'tool_use'；非标拼写归 'unknown' 并留痕）——三线同一值域，
-                // 收尾分支只按归一枚举判定，不再各处临时改名
-                pendingStopReason = normalizeStopReason(choice.finish_reason, 'openai')
+              // 消费流（usage 落账 / text / reasoning / tool_calls 增量）；终止值在捕获点即
+              // 归一（'length'→'max_tokens'、'tool_calls'→'tool_use'；非标拼写归 'unknown'
+              // 并留痕）——三线同一值域，收尾分支只按归一枚举判定
+              const finishReason = yield* consumeChunk(chunk, acc)
+              if (finishReason) {
+                pendingStopReason = normalizeStopReason(finishReason, 'openai')
                 sawFinishReason = true
-                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 已在循环头
-                // 统一落账（末见 wins）——此处无需重复写 latestUsage
-                // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
-            // done 统一延后到流末尾，取最后可见 usage——原「首见即定」
-            // 口径（emitDone 幂等门锁首个 usage）：逐 chunk 回 usage 的网关（本适配器明确
-            // 要兜的怪形态）会被记成早期部分值，末 chunk 完整 usage 被丢弃，记账系统性
-            // 低估。Anthropic 线已改为同款「末见 wins」（此前该线
-            // message_delta 即席 emitDone 锁首值，与本处旧描述正相反），两线口径归一。
-            // emit 前须见过 finish_reason——usage 可随任意 chunk 先行
-            // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
-            // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
-            // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
-            // （win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸
-            // usage-only chunk 只证明「计费上报过」，不证明「生成完成」。违规 include_usage
-            // 顺序的非标网关（usage 块先到 + 随后断流）此前经此处以 pendingStopReason 默认
-            // 'stop' 把截断流伪装成成功 done，下方 sawFinishReason 截断守卫被整体短路；现在无
-            // 终止事件时 latestUsage 不充当完成证据，走下方对齐 error 分支。
-            // content_filter 不是正常完成——finish_reason 归一未覆盖
-            // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线缺口 2
-            // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
-            // latestUsage 为空的兜底闸——空 usage 对象已在上游 isRealUsage 拦截，
-            // 此处双保险防未来赋值面漏网；为空则落下方估计兜底分支
-            // 过滤判错与 done 发射收口 fin 单点（过滤块原两份拷贝已删）
-            if (isRealUsage(latestUsage) && sawFinishReason) {
-              const usage = toUsage(latestUsage)
-              const filtered = fin.filterError(usage, pendingStopReason)
-              if (filtered) {
-                yield filtered
-                return
-              }
-              const ev = fin.done(usage, pendingStopReason)
-              if (ev) yield ev
-            }
-            // 流异常收尾（usage 已在上面统一 emit 过则整块跳过）
-            if (!fin.doneEmitted()) {
-              if (sawFinishReason) {
-                // 残留 tool 事件只在「正常完成但缺 usage」分支补发并
-                // 计入产出估计——原口径传输截断分支也先 flush tool 再发 error，gen 层遇
-                // error 必弃事件，序列自相矛盾（纯语义噪音），且截断 tool 参数抬高 output
-                // 估计（该分支本来就不入账，更无意义）。
-                for (const [, acc] of toolAccum) {
-                  if (!acc.name) continue
-                  let input: unknown
-                  try {
-                    input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {}
-                  } catch {
-                    input = { _raw: acc.argsBuf }
-                  }
-                  outToolText.push(acc.name + acc.argsBuf) // 残留 tool 参数计入产出累计
-                  yield { type: 'tool', id: acc.id || `call_${fallbackToolSeq++}`, name: acc.name, input }
-                }
-                toolAccum.clear()
-                // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试
-                //（判错重试对这类网关是全量破坏）。不再按 0/0 入账
-                //（预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）——按可得信号
-                // 估计入账：output ≈ 累计 delta 文本/tool 参数字符折算（usage-estimate.ts
-                // 与备料 estimateTokens 同源系数），input ≈ 本次请求 prompt 字符折算；
-                // estimated 标记估计口径，runner 记账/self-heal 消费面照常按数值生效。
-                // 折算走 fin.estimateUsage 单点（reset tool 已入 outToolText）
-                const usage = fin.estimateUsage({ req, model: conf.model ?? undefined, outText, outToolText })
-                // 无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
-                const filtered = fin.filterError(usage, pendingStopReason)
-                if (filtered) {
-                  yield filtered
-                  return
-                }
-                const ev = fin.done(usage, pendingStopReason)
-                if (ev) yield ev
-              } else {
-                // 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
-                // done——真实计费调用不得按成功 0 成本入账。
-                // 已见 usage 时随错上抛（载荷通道）——runner 终态
-                // 失败按真实消耗入账，截断不再丢失已发生的计费。
-                // 未见 usage 的传输截断同场景估计入账（anthropic
-                // :441-459 / responses 两线同场景恒带估计）——中转网关断流常连 usage 一并
-                // 截掉，此形态原走零入账，真实消耗记 0 使预算/报表系统性偏低；估计口径与
-                // 上方兄弟分支同源（input 按请求字符折算、output 按累计 delta 文本
-                // 折算、estimated 标记）。tool 残留事件仍不 flush 不计入（取舍维持：
-                // gen 层遇 error 必弃事件，仅估计入账面按同源公式走）。
-                // 清偿批估计折算面并入 toolAccum 残留（name+argsBuf，
-                // 对齐 anthropic jsonBuf / responses args 两线口径）——「未见 usage 的
-                // 传输截断 + 在途工具调用」复合形态下原只按 delta 文本折算，output 估计
-                // 系统性小幅低估；tool 事件本身仍不 flush（取舍不变，只修估计入账面）。
-                // 估计与截断壳均走 fin 单点（在途 toolAccum 经 pendingToolText 计入）
-                yield fin.truncatedError(
-                  latestUsage
-                    ? toUsage(latestUsage)
-                    : fin.estimateUsage({
-                        req,
-                        model: conf.model ?? undefined,
-                        outText,
-                        outToolText,
-                        pendingToolText: [...toolAccum.values()].map((a) => a.name + a.argsBuf),
-                      }),
-                )
-              }
-            }
+            // 流末统一收尾（done 取最后可见 usage，末见 wins；过滤判错 / 缺 usage 估计 /
+            // 无终止事件的传输截断三分支与判据口径见 settleStream 头注）
+            yield* settleStream(acc, fin, req, conf.model ?? undefined, pendingStopReason, sawFinishReason)
             return
           } catch (e) {
             if (!consumedAny && isMidChain400(e, OpenAI.APIError, attempt, plan)) {

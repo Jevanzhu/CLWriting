@@ -1,27 +1,20 @@
 /**
- * 书架 + 单书 + 建书 REST 端点（#12.3 + 5.1）。
+ * 书架 + 单书 + 建书 REST 端点（聚合残核）。
  *
  * - GET /api/books 书架列表（读 books.jsonl）
- * - POST /api/books 建书（doInit；1.5 段 1 表单）
+ * - POST /api/books 建书（doInit）
  * - GET /api/books/:name 单书身份（读该书 book.yaml，含 host）
  * - GET /api/boot 启动初始态（--book 直进支持）
  *
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  *
- * 拆分沿革（⑤④产品巨件拆分波4）：本单件（870 行）缝 A+B
- * 纯移动拆分——删书路由 books.delete + 删/改名共用的生命周期助手族（forgetBookKeyedCaches
- * 书键缓存整表清理 + shelfGuard 守卫缓存族〔清理体引用 shelfGuardCache，随缝单源迁出，
- * 本残核 books.get 经 getShelfGuard 单向取用〕+ 墓地删除族 + busyGate / 编排 settle /
- * 五连 drain 复查）→ api/books-lifecycle.ts（缝 A）；改名路由 book.rename +
- * initialBook / --book 直进指针（setInitialBook）→ api/books-rename.ts（缝 B）。本残核
- * 保留书架列表 / 建书 / 单书身份 / boot 四路由与 BookCtx，registerBookRoutes 残核聚合
- * 保序（books.delete / book.rename 在原位内联调两缝注册函数，路由注册顺序逐字节不变）；
- * 迁出公开导出 setInitialBook（缝 B）经下方逐名 re-export 桥接，全库消费方 import 面
- * 零改动（缝 A 的墓地清理测试注入口 re-export 已随 收尾删除——清理函数
- * 改组装根 RouteOverrides 经 BookCtx 注入）。
- * 运行时依赖单向：books→lifecycle、books→rename、rename→lifecycle，无环回引——两缝
- * 对本模块仅 import type BookCtx（编译期擦除）；顶层求值常量随缝单源迁出，残核无跨
- * 模块顶层求值。本头注上方原文全部历史记载原样保留。
+ * 模块边界：删书路由 books.delete + 删/改名共用的生命周期助手族 → api/books-lifecycle.ts；
+ * 改名路由 book.rename + initialBook / --book 直进指针（setInitialBook）→ api/books-rename.ts；
+ * 本残核保留书架列表 / 建书 / 单书身份 / boot 四路由与 BookCtx，registerBookRoutes 残核聚合保序
+ *（books.delete / book.rename 在原位内联调两缝注册函数，路由注册顺序不变）。
+ * 迁出公开导出（setInitialBook 等）经下方逐名 re-export 桥接，全库消费方 import 面零改动。
+ * 依赖单向（无环）：books→lifecycle、books→rename、rename→lifecycle；两缝对本模块仅
+ * import type BookCtx（编译期擦除）；顶层求值常量随缝单源迁出，残核无跨模块顶层求值。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -144,7 +137,17 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const leads = Array.isArray(body['leads'])
         ? body['leads'].filter((x): x is string => typeof x === 'string')
         : undefined
-      const host: 'cc' | 'codex' = body['host'] === 'codex' ? 'codex' : 'cc'
+      // AI 宿主（决策 12/22）：契约面书 cc|codex，但运行期只有 cc 落地（driver 选择只看
+      // CLWRITING_DRIVER，driver-port.ts）——原「非 codex 一律静默归 cc」把未落地的值谎报成
+      // 已接受（前端零出口，只会是手搓调用/旧客户端），现按契约 fail-loud 给人话。
+      const hostRaw = body['host']
+      if (hostRaw !== undefined && hostRaw !== 'cc') {
+        // 回显只用安全形态：字符串截断，非字符串报类型（String()/JSON.stringify 对任意
+        // 不可信值分别会产 [object Object] 与对循环引用抛错——两者都不该出现在 400 文案里）
+        const seen = typeof hostRaw === 'string' ? hostRaw.slice(0, 40) : `（${typeof hostRaw} 型）`
+        throw new HttpError(400, `AI 宿主本期只支持 cc（Claude Code），codex 尚未落地：收到 ${seen}`, 'BAD_INPUT')
+      }
+      const host = 'cc' as const
       // 目标字数（可选，落 book.yaml target_words，总览页算完成度）
       const targetWords =
         typeof body['targetWords'] === 'number' && Number.isFinite(body['targetWords']) && body['targetWords'] > 0

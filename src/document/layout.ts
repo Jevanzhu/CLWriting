@@ -102,7 +102,7 @@ export function isInternalBookPath(relPath: string): boolean {
 }
 
 /** 规整路径：去前导 ./、反斜杠转正斜杠。
- * mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——
+ * mac适配：`\` 归一走 normalizeWinSeparators（win32-only）——
  *  posix 上 `\` 是合法文件名字符，字面含 `\` 的路径段不再被扭曲为子目录
  *  （前缀匹配面 win 历史形态兼容不变）。 */
 function norm(p: string): string {

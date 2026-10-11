@@ -13,6 +13,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import SettingsBook from '../../../../src/studio/web-next/src/components/ui/SettingsBook.vue'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
 import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const mocks = vi.hoisted(() => ({ getConfig: vi.fn(), renameBook: vi.fn() }))
 vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
@@ -22,19 +23,6 @@ vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 // happy-dom localStorage 缺 clear()，Map-backed 替身（meta-form-panel 范型）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => store.set(k, v),
-    removeItem: (k: string) => store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 async function mountOpen() {

@@ -16,6 +16,7 @@ import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 四种条目类型（即 条目/ 下的子目录名） */
 export const ENTRY_KINDS: readonly EntryKind[] = ['样章', '手法', '反例', '禁词'] as const
@@ -35,7 +36,7 @@ export const SOURCE_RANK: Record<EntrySource, number> = {
 /** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单。
  * 现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
  *  style-entry.test.ts 类型钉——留作极性判定单源候选，前端消费接入时启用；
- *  删除须先迁移该测试（自记待清理，同 latestSession 口径）。 */
+ *  删除须先迁移该测试。 */
 export function entryPolarity(kind: EntryKind): '正' | '负' {
   return kind === '样章' || kind === '手法' ? '正' : '负'
 }
@@ -176,6 +177,10 @@ export function forgetEntriesCache(bookRoot: string): void {
   }
 }
 
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈条目库——
+// 按 join(bookRoot, ENTRIES_DIR) 前缀清该书全部 kind 变体键（键口径不动）。
+registerBookKeyedCache('style-entries', forgetEntriesCache)
+
 /** kinds 各目录的「文件名:mtimeNs:size」签名（目录缺失计 '-'；单文件 stat
  *  失败〔扫描竞态删除〕计不稳定标记，永不与下次相等 → 强制重读，宁多读不脏读）。 */
 function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): string {
@@ -272,7 +277,7 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
   const dir = join(entriesDir, kind)
   if (!existsSync(dir)) return 1
   let maxSeq = 0
-  // 清偿stsSync→readdirSync 间隙类型目录被瞬删（TOCTOU）时
+  // existsSync→readdirSync 间隙类型目录被瞬删（TOCTOU）时
   // ENOENT 裸抛炸调用链（addEntry 入库）——同文件 entriesDirSignature / readEntriesUncached
   // 两处同形态 readdirSync 均有 try/catch 守卫（目录消失按空处理），唯此处漏防；补同款
   // 守卫按空目录降级（序号从 1 起算；落盘真竞态由 addEntry 的 O_EXCL EEXIST 重试兜底）
@@ -417,7 +422,7 @@ export function readBannedEntryWords(bookRoot: string): { words: string[]; unpar
     if (e.标签?.includes('AI味')) continue
     // 多行正文逐行清洗拆词——手写条目正文常是说明性多行文本，
     // 整段当一个词作 includes 永不命中（禁词漏报且无提示）。
-    // 逐行拆词收编 bannedEntryWords 单源（与注入侧共用）。
+    // 逐行拆词单源 bannedEntryWords（与注入侧共用）。
     const parsed = bannedEntryWords(e.正文)
     if (parsed.length === 0) {
       // 整条解析不出词 → 回报场景名留痕（调用方产黄项），不再静默丢条目

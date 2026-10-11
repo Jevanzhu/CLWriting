@@ -1,20 +1,21 @@
 /**
- * RAG 接线端点（cc 评审）——buildIndex 从「零生产调用方」变为 GUI 可触发。
+ * RAG 接线端点——buildIndex 的 GUI 触发入口。
  *
  * 引擎（src/rag/*）+ 配置（book.yaml rag 段引用应用级 RAG 提供方）+ 消费方（materials recall）
- * 都已就绪，缺的只是「建索引」触发入口——README 宣称「可检索已有章节」实际端到端
- * 不可达（GUI 无处触发建索引，.rag.db 从未被建，recall 永远空手而归）。本端点补上：
+ * 都已就绪，缺的只是「建索引」触发入口——无入口时 .rag.db 从未被建，recall 永远空手而归。
  *
- *   GET  /api/books/:name/rag/status  → 索引状态（是否运行中 / 已索引章数 / 块数 / 模型 / 最近结果 / 生效提供方 / 模型失配标记）
+ *   GET  /api/books/:name/rag/status  → 索引状态（是否运行中 / 已索引章数 / 块数 / 模型 / 最近结果 /
+ *                                       生效提供方 / 模型失配标记）
  *   POST /api/books/:name/rag/build   → 后台触发 buildIndex（长任务立即返回，前端轮询 status）
- * POST /api/books/:name/rag/rebuild →：闸内先 resetRagIndex 清空既有索引再触发 buildIndex
- *                                       （修复模型/维度失配后「请重建索引」无程序化出路的死路；任务闸与响应信封与 build 同一套）
+ *   POST /api/books/:name/rag/rebuild → 闸内先 resetRagIndex 清空既有索引再触发 buildIndex
+ *                                       （修复模型/维度失配后「请重建索引」的程序化出路；任务闸与
+ *                                       响应信封与 build 同一套）
  *
- * api_key 不再有书级路由：提供方化后 key 存应用级 providers.json（vault 加密），
- * 由 /api/rag-providers 管理员录入；旧版内联书的 key 仍读 env / .clwriting/rag.secret。
+ * api_key 不再有书级路由：提供方化后 key 存应用级 providers.json（vault 加密），由
+ * /api/rag-providers 管理员录入；旧版内联书的 key 仍读 env / .clwriting/rag.secret。
  *
- * 建索引是长任务（200 万字 ≈350 次 embed POST，可能数分钟）：后台跑 + 状态轮询，
- * 避免长 HTTP 请求挂死前端 fetch。任务单飞（同书同一时刻仅一个，重入 409）。
+ * 建索引是长任务（200 万字 ≈350 次 embed POST，可能数分钟）：后台跑 + 状态轮询，避免长 HTTP 请求
+ * 挂死前端 fetch。任务单飞（同书同一时刻仅一个，重入 409）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DatabaseSync } from 'node:sqlite'

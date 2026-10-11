@@ -18,6 +18,8 @@ vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({
 
 import { listBooks } from '../../../src/studio/web-next/src/api/shelf'
 import { useShelfStore } from '../../../src/studio/web-next/src/stores/shelf'
+import { installCrossWindowInvalidation } from '../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import { notifyCrossWindow, type CrossWindowPort } from '../../../src/studio/web-next/src/shared/cross-window'
 import { setupRealStores, recordToasts } from './helpers/real-stores'
 
 const listMock = listBooks as ReturnType<typeof vi.fn>
@@ -336,5 +338,153 @@ describe('shelf: 加载书架', () => {
       resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
       await p
     })
+  })
+})
+
+// ── 跨窗失效通知（书架线）──────────────────────────────────────────
+// 收到他窗「书架失效」只当失效信号：走既有 load()（GET /api/books）重取，不接收载荷里的
+// 任何列表内容——否则等于用别窗的副本盖掉本窗（可能更权威）的列表与快照缓存。
+
+/** 可注入假通道：不依赖真实跨进程窗口；deliver = 模拟「他窗发来的消息」 */
+function createFakePort(): {
+  port: CrossWindowPort
+  sent: unknown[]
+  deliver: (data: unknown) => void
+  closed: () => boolean
+} {
+  const listeners: ((data: unknown) => void)[] = []
+  const sent: unknown[] = []
+  let isClosed = false
+  return {
+    port: {
+      postMessage: (msg) => void sent.push(msg),
+      subscribe: (l) => {
+        listeners.push(l)
+        return () => {
+          const i = listeners.indexOf(l)
+          if (i >= 0) listeners.splice(i, 1)
+        }
+      },
+      close: () => {
+        isClosed = true
+      },
+    },
+    sent,
+    deliver: (data) => {
+      for (const l of [...listeners]) l(data)
+    },
+    closed: () => isClosed,
+  }
+}
+
+/** 跨窗通知的合并派发是宏任务（setTimeout 0）——排空一拍再断言 */
+function flushCoalesce(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0))
+}
+
+describe('跨窗失效通知（书架线）', () => {
+  let dispose: (() => void) | null = null
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+  })
+
+  it('通道可用：收到他窗 shelf 失效 → 走既有 load() 重取（值来自 API，不来自广播载荷）', async () => {
+    listMock.mockResolvedValue({ books: [{ name: '旧书', kind: 'long' }], workDir: true })
+    const s = useShelfStore()
+    await s.load()
+    expect(s.books.map((b) => b.name)).toEqual(['旧书'])
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    expect(h.enabled).toBe(true)
+
+    // 他窗已建书：权威列表在服务端；广播载荷刻意不带列表内容
+    listMock.mockResolvedValueOnce({
+      books: [
+        { name: '旧书', kind: 'long' },
+        { name: '新书', kind: 'short' },
+      ],
+      workDir: true,
+    })
+    fake.deliver({ v: 1, src: 'other-window', topics: ['shelf'] })
+    await flushCoalesce()
+
+    expect(listMock).toHaveBeenCalledTimes(2) // 既有刷新链被调用（第 2 次由失效通知触发）
+    expect(s.books.map((b) => b.name)).toEqual(['旧书', '新书']) // 列表来自 GET /api/books
+    expect(fake.sent).toEqual([]) // 回环红线：收到通知触发的刷新链自身不再广播
+  })
+
+  it('通知不直接改 store 值：刷新链失败时列表保持原样（不经广播注入任何内容）', async () => {
+    stubLocalStorage() // 首轮成功 load 会写快照 → 失败刷新走「有快照沿用」既有分支
+    listMock.mockResolvedValue({ books: [{ name: '旧书', kind: 'long' }], workDir: true })
+    const s = useShelfStore()
+    await s.load()
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    listMock.mockRejectedValueOnce(new Error('网络断开'))
+    fake.deliver({ v: 1, src: 'other-window', topics: ['shelf'], books: [{ name: '伪造书', kind: 'long' }] })
+    await flushCoalesce()
+
+    expect(listMock).toHaveBeenCalledTimes(2) // 走了刷新链（失败）
+    expect(s.books.map((b) => b.name)).toEqual(['旧书']) // 载荷里的 books 字段被无视
+    expect(s.error).toBeNull() // 有快照路径：刷新失败不整屏报错（既有口径不变）
+  })
+
+  it('本窗自己的消息被忽略（来源窗 id 自检）——不触发重取', async () => {
+    listMock.mockResolvedValue({ books: [{ name: '旧书', kind: 'long' }], workDir: true })
+    const s = useShelfStore()
+    await s.load()
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+    fake.deliver({ v: 1, src: h.windowId, topics: ['shelf'] })
+    await flushCoalesce()
+
+    expect(listMock).toHaveBeenCalledTimes(1) // 只有首轮 load
+  })
+
+  it('同一 tick 内多条他窗通知合并为一次重取（多窗同时变更不风暴）', async () => {
+    listMock.mockResolvedValue({ books: [{ name: '旧书', kind: 'long' }], workDir: true })
+    const s = useShelfStore()
+    await s.load()
+
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    fake.deliver({ v: 1, src: 'w1', topics: ['shelf'] })
+    fake.deliver({ v: 1, src: 'w2', topics: ['shelf'] })
+    fake.deliver({ v: 1, src: 'w3', topics: ['shelf'] })
+    await flushCoalesce()
+
+    expect(listMock).toHaveBeenCalledTimes(2) // 首轮 + 合并后一次
+  })
+
+  it('通道不可用（工厂返回 null）→ 装配不抛（enabled=false）、广播 no-op、既有 load 照旧', async () => {
+    listMock.mockResolvedValue({ books: [{ name: '书A', kind: 'long' }], workDir: true })
+    const h = installCrossWindowInvalidation({ createPort: () => null })
+    dispose = h.dispose
+    expect(h.enabled).toBe(false)
+    expect(() => notifyCrossWindow(['shelf'])).not.toThrow()
+
+    const s = useShelfStore()
+    await s.load()
+    expect(s.books.map((b) => b.name)).toEqual(['书A']) // 功能照旧
+  })
+
+  it('全局 BroadcastChannel 缺失（老 Electron / 无该 API 的宿主）→ 装配不抛、降级 no-op', async () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    listMock.mockResolvedValue({ books: [{ name: '书A', kind: 'long' }], workDir: true })
+    const h = installCrossWindowInvalidation()
+    dispose = h.dispose
+    expect(h.enabled).toBe(false)
+    expect(() => notifyCrossWindow(['shelf'])).not.toThrow()
+
+    const s = useShelfStore()
+    await s.load()
+    expect(listMock).toHaveBeenCalledTimes(1) // 通知全 no-op，既有刷新链不受影响
+    expect(s.books.map((b) => b.name)).toEqual(['书A'])
   })
 })

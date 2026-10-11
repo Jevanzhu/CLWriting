@@ -1,15 +1,13 @@
 /**
- * books.jsonl 登记存储层（常量 + 解析缓存 + 读写 + 跨进程锁）——
- * 自 install/books.ts 下沉的中立模块。
+ * books.jsonl 登记存储层（常量 + 解析缓存 + 读写 + 跨进程锁）——中立模块。
  *
- * 起因：本层原居 install/books.ts，而同域拆分出的 books-repair.ts / books-resolve.ts
- * 又要回引它（repair 需 readBooksStrict/writeBooks/tryBooksLock/KIND_DIRS，resolve 需
- * CLWRITING_DIR），books.ts 尾部的 re-export 桥又把 repair/resolve 引回来——三文件互引
- * 成环（books ↔ books-repair ↔ books-resolve）。存储层下沉后依赖单向化：
- * books-resolve / books-repair / books.ts 各自向下引本模块，本模块不引同域任何文件。
- *
- * 边界：这里只放「登记文件的读写与互斥」，不放业务变更（目录占用判重 / active 指针 /
- * 书名校验留 books.ts；自愈扫盘留在 books-repair.ts）。本模块不引 format/ai 等上层。
+ * 为什么独立成模块：本层原居 install/books.ts，而同域拆分出的 books-repair.ts /
+ * books-resolve.ts 又要回引它（repair 需 readBooksStrict/writeBooks/tryBooksLock/KIND_DIRS，
+ * resolve 需 CLWRITING_DIR），books.ts 尾部的 re-export 桥又把 repair/resolve 引回来——三文件
+ * 互引成环。存储层下沉后依赖单向化：books-resolve / books-repair / books.ts 各自向下引本模块，
+ * 本模块不引同域任何文件。
+ * 边界：只放「登记文件的读写与互斥」，不放业务变更（目录占用判重 / active 指针 / 书名校验留
+ * books.ts；自愈扫盘留 books-repair.ts）。本模块不引 format/ai 等上层。
  */
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'

@@ -118,9 +118,9 @@ const QUOTED_NAME_RE = new RegExp(
   'g',
 )
 
-// check/count.ts 守卫族单源直引（抄本删除，沿革见上方块注）。
-// 在 check 侧补的增补平面区段 + u 标志随 parseRosterNames 单源自动生效——
-// Ext-B 生僻字名册名自本批起进入 registered 集合，两检不再两结论。
+// check/count.ts 守卫族单源直引（本文件不留抄本）。
+// 增补平面区段 + u 标志随 parseRosterNames 单源自动生效——
+// Ext-B 生僻字名册名进入 registered 集合，两检同结论。
 import { ATTRIBUTION_RE, SPEECH_ATTRIBUTION_RE, DIALOGUE_GUIDE_RE, parseRosterNames } from '../../check/count.js'
 // 同款：候选名长度窗按码点计（代理对合 1 计）——UTF-16 .length 对 astral
 // 字一符计 2。check 侧 :472 同口径单源（shared/text.ts）。

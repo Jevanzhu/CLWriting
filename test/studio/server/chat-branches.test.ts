@@ -144,14 +144,13 @@ describe('G1 GET /api/books/:name/chat/branches', () => {
     expect(j.activeBranchId).toBe('b2')
   })
 
-  it('线性书（无分支元数据）→ 空分支列表、无默认分支', async () => {
-    const r = await get(baseUrl, `/api/books/${encodeURIComponent(LINEAR_BOOK)}/chat/branches`)
-    expect(r.status).toBe(200)
-    expect(r.json).toEqual({ branches: [], activeBranchId: null })
-  })
-
-  it('空书（有库无事件）→ 空分支列表、无默认分支', async () => {
-    const r = await get(baseUrl, `/api/books/${encodeURIComponent(EMPTY_BOOK)}/chat/branches`)
+  // 无分支元数据的两档书（线性书 / 有库无事件）同断言体 → 一表两行；
+  // 用例名带书目，红了直接定位是哪档夹具（此前两份逐字复制的手抄体）。
+  it.each([
+    ['线性书（无分支元数据）', LINEAR_BOOK],
+    ['空书（有库无事件）', EMPTY_BOOK],
+  ])('%s → 空分支列表、无默认分支', async (_bookLabel, book) => {
+    const r = await get(baseUrl, `/api/books/${encodeURIComponent(book)}/chat/branches`)
     expect(r.status).toBe(200)
     expect(r.json).toEqual({ branches: [], activeBranchId: null })
   })

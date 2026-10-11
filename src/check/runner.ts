@@ -283,7 +283,7 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
     }
   }
 
-  // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
+  // 清单形式检：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
   let pieceList: PieceList | null = null
   if (short && chapter._path) {
     // 章纲定位三口径单源（format/piece-list-locate.ts，metrics/short-index 共用）——

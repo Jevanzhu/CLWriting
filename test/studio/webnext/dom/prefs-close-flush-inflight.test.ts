@@ -21,28 +21,12 @@ vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
 
 import { getGlobalPrefs, putGlobalPrefs } from '../../../../src/studio/web-next/src/api/prefs'
 import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const getGlobalPrefsMock = getGlobalPrefs as ReturnType<typeof vi.fn>
 const putGlobalPrefsMock = putGlobalPrefs as ReturnType<typeof vi.fn>
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，提供 Map-backed 替身（空 = 无迁移数据）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => {
-      store.set(k, v)
-    },
-    removeItem: (k: string) => {
-      store.delete(k)
-    },
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 

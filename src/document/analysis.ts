@@ -218,7 +218,7 @@ function writeAnalysisLocked(
   for (const cp of candidates) {
     if (cp !== fp && existsSync(cp)) {
       try {
-        // 删源收编 rmWithRetry
+        // 删源走 rmWithRetry
         //（fs/atomic.ts「确实要删」原语，trash.ts/service.ts 等删源点同款）——
         // 裸 rmSync 撞 win 杀软/索引器对相邻刚写文件的瞬时锁（EPERM/EBUSY）直败，
         // 字面旧源滞留拖长双候选期；3×50ms 退避后仍失败保持既有收口（吞错不阻断，

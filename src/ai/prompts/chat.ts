@@ -22,6 +22,8 @@ import { clipByCodePoints, codePointLength } from '../../shared/text.js'
 // 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
+// 消毒改动记录类型（事件载荷契约单源在 events/types；纯类型面，不引 runtime 依赖）
+import type { ChatSanitizeChange } from '../../events/types.js'
 // 知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
 import { readKnowledgeManifest } from '../../knowledge/manifest.js'
 import { resolveWithinRoot } from '../../fs/safe-path.js'
@@ -380,6 +382,15 @@ export function measureHistoryPoints(history: ChatMsg[]): number {
 const SANITIZE_PLACEHOLDER_ACK = '[收到]'
 const SANITIZE_PLACEHOLDER_CONT = '[对话继续]'
 
+/** 消毒改动记录（消毒产物的可定位事实，供 chat/sanitize 事件登记）。
+ *  红线：不含被替换消息的正文（可能含书稿文本/用户隐私）——只有位置/原因/角色/原长。 */
+export interface SanitizeReport {
+  /** 消毒前 / 后消息条数（占位消息计入 after） */
+  before: number
+  after: number
+  changes: ChatSanitizeChange[]
+}
+
 /**
  * 发送前历史消毒（方案 §6.4，治 #3a/#3b；学 cherry-studio ensureValidHistory）。
  *
@@ -396,9 +407,14 @@ const SANITIZE_PLACEHOLDER_CONT = '[对话继续]'
  *
  * 纯函数，不修改入参，返回新数组。chat.ts 的 5 处手工回滚是第一道防线，
  * 此消毒是第二道兜底。
+ *
+ * 与 sanitizeHistory 的唯一区别是一条走改动记录（「模型可见 ⟺ 已记录」：消毒改动了
+ * 实发历史即留一条事件——此前只留确定性占位符，事件库无从判别哪条被替换）。
+ * 记录位置口径 = 输入历史下标（0-based）；points = measurePoints 同源计量。
  */
-export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
-  if (history.length === 0) return history
+export function sanitizeHistoryReported(history: ChatMsg[]): { history: ChatMsg[]; report: SanitizeReport } {
+  const report: SanitizeReport = { before: history.length, after: history.length, changes: [] }
+  if (history.length === 0) return { history, report }
 
   // 全量预扫：有 tool_result 回应的 tool_use id（供孤儿 tool_use 判定——
   // 尾部中断残留的 tool_use 无回应，Anthropic 硬 400）
@@ -412,6 +428,9 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
   }
 
   const result: ChatMsg[] = []
+  /** result[i] 在输入历史中的位置——改动记录的位置口径统一为输入下标（后段插占位/
+   *  剔首条都在过滤后的数组上进行，不携带则位置口径分裂） */
+  const resultIdxs: number[] = []
   // 已出现的 tool_use id（供后续孤儿 tool_result 判定；时序上 use 先于 result）
   const knownToolUseIds = new Set<string>()
   // 病态时序双弃登记——result 先于 use 到达时（外部损坏的历史恢复），
@@ -420,11 +439,22 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
   // 后续同 id 的 tool_use 一并剔除（病态对双双丢弃）；正常时序（use 先于 result）不进此集合。
   const droppedToolResultIds = new Set<string>()
 
-  for (const m of history) {
+  for (let i = 0; i < history.length; i++) {
+    const m = history[i]!
     // 空 content 消息 → 剔除（reasoning-only 被过滤后留下的空壳）
     if (typeof m.content === 'string') {
-      if (m.content.trim() === '') continue
+      if (m.content.trim() === '') {
+        report.changes.push({
+          reason: 'empty-content',
+          effect: 'drop',
+          index: i,
+          role: m.role,
+          points: measurePoints(m),
+        })
+        continue
+      }
     } else if (m.content.length === 0) {
+      report.changes.push({ reason: 'empty-content', effect: 'drop', index: i, role: m.role, points: measurePoints(m) })
       continue
     }
 
@@ -436,8 +466,22 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
         (b) => b.type !== 'tool_use' || (answeredToolUseIds.has(b.id) && !droppedToolResultIds.has(b.id)),
       )
       const hasPayload = blocks.some((b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''))
-      if (!hasPayload) continue
-      if (blocks.length !== (m.content as ContentBlock[]).length) msg = { ...m, content: blocks }
+      if (!hasPayload) {
+        report.changes.push({ reason: 'no-payload', effect: 'drop', index: i, role: m.role, points: measurePoints(m) })
+        continue
+      }
+      const blockCount = (m.content as ContentBlock[]).length
+      if (blocks.length !== blockCount) {
+        msg = { ...m, content: blocks }
+        report.changes.push({
+          reason: 'orphan-tool-use',
+          effect: 'trim',
+          index: i,
+          role: m.role,
+          points: measurePoints(m),
+          blocks: blockCount - blocks.length,
+        })
+      }
     }
 
     // assistant 消息的 tool_use 记录进集合
@@ -458,27 +502,66 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
           droppedToolResultIds.add(b.toolUseId)
           return false
         })
-        if (kept.length === 0) continue
+        if (kept.length === 0) {
+          report.changes.push({
+            reason: 'orphan-tool-result',
+            effect: 'drop',
+            index: i,
+            role: m.role,
+            points: measurePoints(m),
+            blocks: blocks.length,
+          })
+          continue
+        }
+        if (kept.length !== blocks.length) {
+          report.changes.push({
+            reason: 'orphan-tool-result',
+            effect: 'trim',
+            index: i,
+            role: m.role,
+            points: measurePoints(m),
+            blocks: blocks.length - kept.length,
+          })
+        }
         result.push({ ...msg, content: kept })
+        resultIdxs.push(i)
         continue
       }
     }
 
     result.push(msg)
+    resultIdxs.push(i)
   }
 
   // 首条必须 user → 不是则剔除首部悬空 assistant
   while (result.length > 0 && result[0]!.role !== 'user') {
-    result.shift()
+    const m = result.shift()!
+    const at = resultIdxs.shift()!
+    report.changes.push({
+      reason: 'leading-assistant',
+      effect: 'drop',
+      index: at,
+      role: m.role,
+      points: measurePoints(m),
+    })
   }
 
   // 连续同 role → 插入与当前消息角色互补的占位（保持交替，治 #3b）。
   // 占位角色必须互补：写死 user 会在连续 user 场景插出三连 user（防线失效）
   // 占位文案定常量并显式声明事件口径——占位是消毒层对已记录历史的
   // 确定性合成（模型可见、无独立事件），不破坏铁律①重放：重放按同函数重建即得同值。
+  // 占位本身不记改动（合成物无「被替换的原文」），记触发占位的那条消息（位置/角色/原长）。
   const fixed: ChatMsg[] = []
-  for (const m of result) {
+  for (let k = 0; k < result.length; k++) {
+    const m = result[k]!
     if (fixed.length > 0 && fixed[fixed.length - 1]!.role === m.role) {
+      report.changes.push({
+        reason: 'role-conflict',
+        effect: 'insert',
+        index: resultIdxs[k]!,
+        role: m.role,
+        points: measurePoints(m),
+      })
       fixed.push(
         m.role === 'user'
           ? { role: 'assistant', content: SANITIZE_PLACEHOLDER_ACK }
@@ -488,5 +571,12 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
     fixed.push(m)
   }
 
-  return fixed
+  report.after = fixed.length
+  return { history: fixed, report }
+}
+
+/** 发送前历史消毒（返回值形态与语义见 sanitizeHistoryReported）——本包装供不需要
+ *  改动记录的调用方/既有测试用，逐位等价。 */
+export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
+  return sanitizeHistoryReported(history).history
 }

@@ -6,6 +6,7 @@ import { boot } from './api/client'
 import { usePrefsStore } from './stores/prefs'
 import { useUiStore } from './stores/ui'
 import { prewarmSystemFonts } from './composables/useSystemFonts'
+import { installCrossWindowInvalidation } from './composables/useCrossWindowInvalidation'
 import './styles/tokens.css'
 import './styles/base.css'
 // 跨组件通用单类工具（.is-drag/.head-legend/.spin 兜底档等重体收敛）：
@@ -32,6 +33,9 @@ await boot()
 const pinia = createPinia()
 setActivePinia(pinia)
 await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS 变量就位）
+// 跨窗失效通知装配（三窗同源各持内存副本）：收到他窗失效 → 本窗走既有刷新链重取
+// （prefs GET 合并 / 书架列表 / 树红点）。通道不可用时内部降级 no-op，不阻断启动。
+installCrossWindowInvalidation()
 void useUiStore().probeAiStatus() // 后台探测 AI 可达性（不阻塞挂载，置灰工作台/开书）
 
 const app = createApp(App)

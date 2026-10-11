@@ -2,11 +2,13 @@
  * R0911（2026-09-11 专项精简批 · prefs 表驱动件）锚测试。R0916-7-P3-25 起 prefs 对外
  * 收为泛型 get/set（键由 PREF_ROWS 经 PrefValueMap 推导）：31 个同构 setter 收进
  * SETTERS 键控映射经 set(key, value) 出口，pageWidth/autosaveInterval 两 bookOnly
- * 双分支经 set 第三参，checkRepeatThreshold 浮点截断收编进行 set（round2）。
+ * 双分支经 set 第三参，checkRepeatThreshold 浮点截断收编进行 win.clamp（round2）。
  *
  * 本文件钉「表抄录零失手」：全部 clamp 型键逐个五点钉界（下界-1 / 下界 / 中值 /
  * 上界 / 上界+1）+ 取整顺序（先 round 后 clamp）、浮点两位截断、trim、无上界
- * max(0, round)、bookOnly 双分支、防抖落盘 JSON 键名、泛型 set 函数引用传递可用。
+ * max(0, round)、bookOnly 双分支、防抖落盘 JSON 键名、泛型 set 函数引用传递可用；
+ * 行窗口（win）守卫侧再逐键对拍（接受/拒绝 + 落 ref 是否取整）——守卫窗与夹取窗同源
+ * 于行 win，两侧都有自己的行为锚才防得住单源被改坏。
  * 语义正本（应用/迁移/守卫/409）见 prefs-store.test.ts 等既有文件，不在此重复。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -18,7 +20,7 @@ vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
 }))
 
 import { getGlobalPrefs, putGlobalPrefs } from '../../../../src/studio/web-next/src/api/prefs'
-import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
+import { usePrefsStore, type PrefKey } from '../../../../src/studio/web-next/src/stores/prefs'
 
 const getGlobalPrefsMock = getGlobalPrefs as ReturnType<typeof vi.fn>
 const putGlobalPrefsMock = putGlobalPrefs as ReturnType<typeof vi.fn>
@@ -306,4 +308,80 @@ describe('R0911 prefs 表驱动件：bookOnly 双分支特例（泛型 set 第�
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ autosaveInterval: 45 }), 0)
   })
+})
+
+// ── 行窗口（win）逐键对拍：守卫窗与夹取窗同源，读面口径（收/拒 + 是否取整）逐键钉死 ──
+// 守卫既有「越界拒收 = 保持现值」的一半，也有「收下后取整与否」的一半——两半都从行 win
+// 单源派生，本组用例是它的行为锚：任何一行的守卫窗被改动（越界值漏收/多收、取整改动）
+// 即红。夹取窗一半已由上方五点钉界覆盖。
+
+/** 接受侧：脏值落 ref 的结果（取整逐键不同是历史口径的显式部分） */
+const GUARD_ACCEPT: Array<{ key: PrefKey; jsonKey: string; raw: number; applied: number }> = [
+  { key: 'proseSize', jsonKey: 'proseSize', raw: 20.5, applied: 20.5 }, // 字号族不取整
+  { key: 'proseLh', jsonKey: 'proseLh', raw: 1.75, applied: 1.75 },
+  { key: 'uiFontSizeStep', jsonKey: 'uiFontSizeStep', raw: 2, applied: 2 }, // 上界含等于
+  { key: 'uiFontSizeStep', jsonKey: 'uiFontSizeStep', raw: 1.6, applied: 1.6 }, // 守卫不取整
+  { key: 'pageWidth', jsonKey: 'pageWidth', raw: 800.5, applied: 800.5 },
+  { key: 'autosaveInterval', jsonKey: 'autosaveInterval', raw: 12.5, applied: 12.5 },
+  { key: 'snapDays', jsonKey: 'snapMaxDays', raw: 30.4, applied: 30.4 }, // 守卫不取整（写入才取整）
+  { key: 'snapCount', jsonKey: 'snapMaxCount', raw: 20.4, applied: 20.4 },
+  { key: 'defaultVolumeSize', jsonKey: 'defaultVolumeSize', raw: 5, applied: 5 }, // 下界含等于
+  { key: 'defaultVolumeSize', jsonKey: 'defaultVolumeSize', raw: 30.4, applied: 30 }, // 守卫取整
+  { key: 'defaultTargetWords', jsonKey: 'defaultTargetWords', raw: 1000.6, applied: 1001 },
+  { key: 'defaultChapterTargetWords', jsonKey: 'defaultChapterTargetWords', raw: 2000.4, applied: 2000 },
+  { key: 'aiBatchSize', jsonKey: 'autoBatchSize', raw: 1, applied: 1 },
+  { key: 'aiBatchSize', jsonKey: 'autoBatchSize', raw: 5.6, applied: 6 },
+  { key: 'callsPerChapter', jsonKey: 'callsPerChapter', raw: 7.4, applied: 7 },
+  { key: 'relationMineThreshold', jsonKey: 'relationMineThreshold', raw: 3.6, applied: 4 },
+  { key: 'checkRepeatThreshold', jsonKey: 'checkRepeatThreshold', raw: 1, applied: 1 }, // 上界含等于
+  { key: 'checkRepeatThreshold', jsonKey: 'checkRepeatThreshold', raw: 0.126, applied: 0.126 }, // 守卫不 round2
+  { key: 'checkRepeatCharsThreshold', jsonKey: 'checkRepeatCharsThreshold', raw: 200.6, applied: 201 },
+  { key: 'checkMaxSentenceLen', jsonKey: 'checkMaxSentenceLen', raw: 60.4, applied: 60 },
+  { key: 'checkImageryThreshold', jsonKey: 'checkImageryThreshold', raw: 3.6, applied: 4 },
+  { key: 'checkWordCountTolerance', jsonKey: 'checkWordCountTolerance', raw: 30.6, applied: 30.6 }, // 不取整
+]
+
+/** 拒绝侧：越界脏值不落 ref（保持 ref 初值 = 硬编码回落） */
+const GUARD_REJECT: Array<{ key: PrefKey; jsonKey: string; raw: number; kept: number | undefined }> = [
+  { key: 'proseSize', jsonKey: 'proseSize', raw: 0, kept: 17 },
+  { key: 'proseLh', jsonKey: 'proseLh', raw: 0, kept: 1.5 },
+  { key: 'uiFontSizeStep', jsonKey: 'uiFontSizeStep', raw: 3, kept: 0 }, // 越上界
+  { key: 'uiFontSizeStep', jsonKey: 'uiFontSizeStep', raw: -2, kept: 0 }, // 越下界
+  { key: 'pageWidth', jsonKey: 'pageWidth', raw: -5, kept: 1020 },
+  { key: 'autosaveInterval', jsonKey: 'autosaveInterval', raw: 0, kept: 30 },
+  { key: 'snapDays', jsonKey: 'snapMaxDays', raw: 0, kept: 14 }, // 脏值只收正数（写入才收紧到 1）
+  { key: 'snapCount', jsonKey: 'snapMaxCount', raw: 0, kept: 30 },
+  { key: 'defaultVolumeSize', jsonKey: 'defaultVolumeSize', raw: 4, kept: 50 }, // 4 < 夹取下界 5
+  { key: 'defaultTargetWords', jsonKey: 'defaultTargetWords', raw: -5, kept: 0 },
+  { key: 'defaultChapterTargetWords', jsonKey: 'defaultChapterTargetWords', raw: 0, kept: 0 },
+  { key: 'aiBatchSize', jsonKey: 'autoBatchSize', raw: 0, kept: 8 },
+  { key: 'callsPerChapter', jsonKey: 'callsPerChapter', raw: -1, kept: 8 },
+  { key: 'relationMineThreshold', jsonKey: 'relationMineThreshold', raw: 0, kept: 3 },
+  { key: 'checkRepeatThreshold', jsonKey: 'checkRepeatThreshold', raw: 1.5, kept: undefined }, // >1 全书判复读
+  { key: 'checkRepeatCharsThreshold', jsonKey: 'checkRepeatCharsThreshold', raw: 0, kept: undefined },
+  { key: 'checkMaxSentenceLen', jsonKey: 'checkMaxSentenceLen', raw: 0, kept: undefined },
+  { key: 'checkImageryThreshold', jsonKey: 'checkImageryThreshold', raw: 0, kept: undefined },
+  { key: 'checkWordCountTolerance', jsonKey: 'checkWordCountTolerance', raw: 0, kept: undefined },
+]
+
+describe('prefs 行窗口逐键对拍：守卫窗接受侧（收下即落 ref，取整逐键）', () => {
+  for (const c of GUARD_ACCEPT) {
+    it(`${c.jsonKey}=${c.raw} → ${c.applied}`, async () => {
+      getGlobalPrefsMock.mockResolvedValue({ prefs: { [c.jsonKey]: c.raw }, revision: 0 })
+      const p = usePrefsStore()
+      await p.init()
+      expect(p.get(c.key)).toBe(c.applied)
+    })
+  }
+})
+
+describe('prefs 行窗口逐键对拍：守卫窗拒绝侧（越界保持 ref 初值）', () => {
+  for (const c of GUARD_REJECT) {
+    it(`${c.jsonKey}=${c.raw} → 保持初值 ${String(c.kept)}`, async () => {
+      getGlobalPrefsMock.mockResolvedValue({ prefs: { [c.jsonKey]: c.raw }, revision: 0 })
+      const p = usePrefsStore()
+      await p.init()
+      expect(p.get(c.key)).toBe(c.kept)
+    })
+  }
 })

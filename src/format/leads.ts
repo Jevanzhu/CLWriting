@@ -44,9 +44,9 @@ export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
 /** 履历条目行：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢）。
  * 抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
  *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。
- * 证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
- *  此前整行不匹配落续行折入分支，声明蒸发 + 上一条证据被污染；空证据条目照常入模型，
- * 的空证据黄项既有路径即可见。 */
+ * 证据段 `(.+)` → `(.*)` 兼容空证据行（`- 第012章 埋下：`）——
+ *  否则整行不匹配落续行折入分支，声明蒸发 + 上一条证据被污染；空证据条目照常入模型，
+ * 空证据黄项走既有路径可见。 */
 const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.*)$/
 
 /** 形似条目但 HISTORY_ENTRY_RE 解析失败时的二次抢救正则——
@@ -399,8 +399,8 @@ export function readLead(
 }
 
 /**
- * readLead 的 content 注入孪生（原 document/lead-finalize.ts 就地副本，本批
- * 按预告坍缩回单源）——fm/body 经 frontmatter.readFile 的 content 通道
+ * readLead 的 content 注入孪生（单源；document/lead-finalize.ts 侧就地副本已坍缩回此处）
+ * ——fm/body 经 frontmatter.readFile 的 content 通道
  * 从调用方整读的同一份 Buffer 派生，不再二次读盘（单读派生：UTF-8 判据与本模型同源，
  * 消除两读间外部改写错源窗；消费方 = 定稿回写链 applyLeadUpdatesLocked，布线锁内一次
  * readFileSync 同时喂 isUtf8Bytes 判据与本函数）。不设 legacy 通道：消费方恒走六类
@@ -513,7 +513,7 @@ export function readLeadDir(dirPath: string): { leads: Lead[]; errors: ParseErro
 
   for (const f of files) {
     const fp = join(dirPath, f)
-    // dd-readdir 与 stat 之间文件可能被删——单文件失败跳过（与「单文件解析失败不中断」契约一致），此前裸 ENOENT 会中断整扫描
+    // readdir 与 stat 之间文件可能被删——单文件失败跳过（与「单文件解析失败不中断」契约一致），裸 ENOENT 会中断整扫描
     let isFile = false
     try {
       isFile = statSync(fp).isFile()

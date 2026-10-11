@@ -9,10 +9,10 @@
  *
  * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；本地 req 排空响应体仅回 status，保留本地仅改绑定）。
  */
-import { mkdirSync, existsSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
+import { makeRegisteredLongBook } from '../../helpers/book.js'
 
 const GRAVEYARD = '.删书墓地'
 
@@ -24,22 +24,6 @@ let token = ''
 let cleanupCalls = 0
 let gravePath = ''
 let gated: Promise<void> = Promise.resolve()
-
-function makeBook(name: string): string {
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name, path: `长篇/${name}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
-    'utf-8',
-  )
-  const bookAbs = join(workDir, '长篇', name)
-  mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookAbs, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
-    'utf-8',
-  )
-  return bookAbs
-}
 
 async function req(method: string, path: string): Promise<{ status: number }> {
   const r = await fetch(`${baseUrl}${path}`, { method, headers: { 'x-studio-token': token } })
@@ -71,7 +55,7 @@ afterAll(async () => {
 describe('R35-6 删书墓地后台清理', () => {
   it('端点响应不被墓地 rm 阻塞：200 返回时受控清理仍在途，墓地副本未清', async () => {
     const name = '异步清理书'
-    makeBook(name)
+    makeRegisteredLongBook(workDir, name)
     let release!: () => void
     cleanupCalls = 0
     gravePath = ''

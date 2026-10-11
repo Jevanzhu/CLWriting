@@ -4,7 +4,6 @@
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
 import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -18,11 +17,11 @@ import {
 import * as callsMod from '../../src/ai/calls.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-calls-'))
+  const d = tempDirTracked('clwriting-calls-')
   dirs.push(d)
   return d
 }

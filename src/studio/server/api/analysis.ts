@@ -41,6 +41,7 @@ import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readMdTextCachedAsync } from '../../../fs/md-text-cache.js' // GET stale 判定走异步指纹缓存读
 import { sigStatFor } from './rhythm.js' // stat 签名单源（原本地同构副本收敛，单源落点 rhythm.ts 既有两 import 方不变）
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+探针+FIFO 缓存壳单源
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // MISS 读循环逐块让出（范式；起主路径下沉 worker，此为回落面）
 import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // 全书扫描 worker 卸载
@@ -70,6 +71,9 @@ interface StyleCorpusResult {
 export function forgetStyleCorpusCache(bookRoot: string): void {
   styleCorpusCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈文风语料采样（TTL 5s 兜底自愈）。
+registerBookKeyedCache('style-corpus', forgetStyleCorpusCache)
 const STYLE_CORPUS_TTL = 5000
 /** 收尾：__setStyleCorpusTtlForTest 删除——TTL 覆盖档改组装根
  * RouteOverrides 注入（ctx.styleCorpusTtlMs 逐调用传入，随实例隔离）。 */
@@ -119,6 +123,10 @@ interface AnalysisOverviewResult {
 export function forgetAnalysisOverviewCache(bookRoot: string): void {
   analysisOverviewCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈分析聚合（写侧失效同函数；
+// 防同名重建书读陈聚合）。本模块两缓存（style-corpus / analysis-overview）各自登记。
+registerBookKeyedCache('analysis-overview', forgetAnalysisOverviewCache)
 /** 钩子收敛： 2--④ 的 6 个观测钩子（__analysisOverview
  *  ScanCount/SigCount/ProbeCount 与各自 reset）连同路由层自持计数闭包一并删除——计数
  *  收编进缓存壳（ttl-cache.ts 的 stats），回归用例改读下面导出的缓存实例自身的

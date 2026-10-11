@@ -262,7 +262,7 @@ export async function prepareMaterials(
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
   const resolved = resolveRag(ragConfig, ragProviders, realWorkDir)
 
-  // 未配 RAG → 直接 prepare，行为逐字节不变（验收红线）
+  // 未配 RAG → 直接 prepare，行为与配 RAG 前逐字节相同
   if (!resolved) {
     const base = prepare(db, config, bookRoot, chapterLeadIds, undefined, sampleScene, writeModel, opts.chapter)
     return { ...base, ragUsed: false, ragHitCount: 0, summaryGenerated, ...styleNoteOf(declaredScenes, base) }

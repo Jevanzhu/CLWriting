@@ -34,7 +34,7 @@ import { redactSecret } from '../../provider/redact.js' // SSE 错误事件脱�
 import { chatTools, CHAT_TOOL_NAMES, TOOL_RISK } from '../../contract/chat.js'
 import { waitConfirm, executeChatTool } from './turns-tools.js'
 import { verifyVisibleSampled } from './turns-visibility.js'
-import { sanitizeHistory } from '../../prompts/chat.js'
+import { sanitizeHistoryReported } from '../../prompts/chat.js'
 // 发送前体量防线——保尾预切与 trimHistory 回落分支同口径（单源 budgetTailCut）
 // 预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
 // system prompt 计入预算（历史可用 = 预算 − sys 点数，下限 CHAT_HISTORY_MIN_BUDGET_POINTS）
@@ -52,6 +52,7 @@ import {
   assistantMessageEvent,
   toolCallEvent,
   toolResultEvent,
+  chatSanitizeEvent,
 } from '../../../events/chat-bridge.js'
 // 最小版：llm/retry 留痕——超窗收缩重试复用 runner 重试留痕事件
 // 形态（events/types.ts LlmRetryData；落 chat 会话库，runner 链路库的 llm/retry 不变）
@@ -108,7 +109,7 @@ export interface TurnDeps {
   markCompleted: () => void
 }
 
-/** 落库收编口（轮循环内定义：三处 commit 点共用，回滚 + 遮蔽 + chat_error 同口径）。
+/** 落库出口（轮循环内定义：三处 commit 点共用，回滚 + 遮蔽 + chat_error 同口径）。
  *  返回 false = 事件库故障，本回合须终止。 */
 export type FlushTurnEvents = () => boolean
 
@@ -179,7 +180,7 @@ export async function initiateAgentTurn(args: { deps: TurnDeps; turn: number; se
   if (endTurnAtHead(deps)) return { kind: 'ended' }
 
   const { lineageIdx, lineageRecorded } = openTurnLineage(deps, turn)
-  const prep = prepareSendHistory(deps, sendBudget)
+  const prep = prepareSendHistory(deps, sendBudget, turn)
   const ctx: TurnSendCtx = { effectiveSend: prep.toSend, ctxOverflow: false, switchCode: undefined }
   const out = await sendTurnWithFallbacks({ deps, turn, prep, ctx, sendTurn: makeSendTurn(deps, ctx) })
 
@@ -259,9 +260,10 @@ function openTurnLineage(deps: TurnDeps, turn: number): { lineageIdx: number[]; 
   return { lineageIdx, lineageRecorded }
 }
 
-/** 发送前历史准备：消毒 → 预算保尾预切 → 切后复查；只产出只读发送面（不改累积 history）。 */
-function prepareSendHistory(deps: TurnDeps, sendBudget: number): SendPreparation {
-  const { history, sys } = deps
+/** 发送前历史准备：消毒（含改动登记）→ 预算保尾预切 → 切后复查；只产出只读发送面
+ *  （不改累积 history）。 */
+function prepareSendHistory(deps: TurnDeps, sendBudget: number, turn: number): SendPreparation {
+  const { history, sys, recorder } = deps
 
   // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能出现非法
   // 序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。
@@ -269,7 +271,14 @@ function prepareSendHistory(deps: TurnDeps, sendBudget: number): SendPreparation
   // history、generate 用消毒副本，消毒实际生效时 llm/call 审计口径与真实输入脱钩，
   // 违「模型可见⟺已记录」；消毒为确定性纯函数且 history 在任务期间不变，上提后
   // 指纹与 messages 同源同物（正常流消毒为 no-op，指纹不变）。
-  const sanitized = sanitizeHistory(history)
+  const { history: sanitized, report: sanitizeReport } = sanitizeHistoryReported(history)
+  // 消毒改动登记（「模型可见 ⟺ 已记录」的补口）：消毒合成占位/剔除块是模型可见的
+  // 实发历史改动，此前只留确定性占位符、事件库无从判别哪条被替换。无改动零事件
+  // （常态对话不落）。best-effort 语义：生成报告是纯内存累加；事件经既有 recorder.add
+  // 入批（与 user/assistant 同次落库），写失败由既有 flush 重试 / chat_gap 断链标记
+  // 承接（对齐 llm/call 的「写失败静默不拖累业务」），绝不为记录失败阻断发送。
+  const sanitizeEv = chatSanitizeEvent(sanitizeReport, 'send', turn)
+  if (sanitizeEv) recorder.add(sanitizeEv)
 
   // 发送前体量防线——trimHistory/compaction 只在成功收尾后的
   // finalizeHistory（finish.ts）执行，单轮发送前无任何体量闸：重工具会话（大
@@ -723,7 +732,7 @@ export async function closeByTurnLimit(args: {
   // 收尾 assistant 也进同一变体组（regenerate 轮数触顶时整回合不丢出分支视图）
   seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(closingMsg, undefined, undefined, undefined, turnBranch)))
   // 触顶收尾记 turn 5 的终态（与上方 chat_turn emit 的 turn=MAX_AGENT_TURNS 同口径）——
-  // 此前记 MAX_AGENT_TURNS-1 会把循环内已记 completed 的最后一轮再关一次，同轮双终态
+  // 记 MAX_AGENT_TURNS-1 会把循环内已记 completed 的最后一轮再关一次，同轮双终态
   recorder.add(turnEndEvent(MAX_AGENT_TURNS, 'max-turns'))
   if (!flushTurnEvents()) return false
   // 触顶收尾的 chat_done 同无工具路径（口径）带用量——
@@ -801,7 +810,7 @@ export async function runToolTurn(args: {
   // 执行工具 + 结果按 tool_result block 回填
   const results: ContentBlock[] = []
   for (const call of toolCalls) {
-    // -（全量代码）：工具串行段补轮首级 abort 短路——本地只读
+    // 工具串行段补轮首级 abort 短路——本地只读
     // 工具不接 signal，作者中止落在前序工具处理中时剩余工具原照跑到轮末；命中即对
     // 剩余 call 逐个按既有取消口径回填后跳出（归因不扩第三态），轮终态仍由下一轮
     // 轮首 aborted 检查按 'interrupted' 收口，写类/嵌套生成既有中止语义不动。

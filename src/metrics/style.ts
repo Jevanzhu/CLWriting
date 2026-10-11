@@ -1,12 +1,12 @@
 /**
- * 文风重扫聚合 —— 体检报告「文风」维度（文风方案 §4–§5）。
+ * 文风重扫聚合 —— 体检报告「文风」维度。
  *
- * 与块 A（成本/审查落账）范式不同：文风机检是纯函数，定稿正文还在 → 按需重扫，无需落账。
+ * 与成本/审查落账范式不同：文风机检是纯函数，定稿正文还在 → 按需重扫，无需落账。
  * 流程：读 文风/文风铁律.md 阈值 → 逐章 computeStyleMetrics + 句长方差/复读率 → 聚合 StyleTrend
  *   → 漂移判定（连续 N 章超限 / 前后段对比，只报趋势不下判决）→ 读 文风/基线.json 做对照。
  *
- * 口径对齐 checkStyleMetrics（订正记录第 3 条）：句长方差/复读率与 count.ts 同口径复算。
- * 纯 node:sqlite + 文件读，零模型（health 不耗模型契约）。
+ * 口径：句长方差/复读率与 count.ts 同口径复算。纯 node:sqlite + 文件读，零模型（health 不耗模型
+ * 契约）。
  */
 
 import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
@@ -92,8 +92,12 @@ interface StyleDrift {
 /** 默认漂移窗口（连续 N 章超限报漂移，文风方案 §4.3 / OQ-，默认 N=5） */
 const DEFAULT_DRIFT_WINDOW = 5
 
-/** 短篇趋势判定阈值（< 此值只报明细，文风方案 §4.5 / OQ-） */
-const SHORT_TREND_MIN = 5
+/**
+ * 趋势判定最小样本数——低于此值只报明细不做趋势判定（小样本判趋势不诚实，文风方案 §4.5）。
+ * 样本闸按 kind 分档（见 aggregateStyleTrend）：短篇取本值；长篇取趋势窗口下界
+ * DEFAULT_DRIFT_WINDOW——两档当前同值（5）。
+ */
+const MIN_TREND_SAMPLES = 5
 
 /** 文风基线路径（进 git，作者可手改） */
 export function baselinePath(bookRoot: string): string {
@@ -153,6 +157,9 @@ export function computeFullStats(body: string, rules: IronRules): FullStyleStats
     ...computeStyleMetrics(body, rules),
     sentenceLenVariance: computeSentenceLenVariance(body),
     repeatRate: computeRepeatRate(body),
+    // charCount = 码点归一因子（含空白码位）——**不是字数**：只作计数维密度归一的分母
+    //（见 FullStyleStats.charCount 注），勿当字数消费；字数口径单源见
+    // format/words.ts countWords（剥空白），短篇集索引 metrics/short-index.ts 用后者
     charCount: charCountOf(body),
   }
 }
@@ -204,9 +211,10 @@ export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample
 }
 
 /**
- * 跨章聚合 + 漂移判定。
+ * 跨章聚合 + 漂移判定。kind 参与判定：样本闸按 kind 分档——短篇低于 MIN_TREND_SAMPLES 章
+ * 只报明细不做趋势（诚实降级，文风方案 §4.5）；长篇取其趋势窗口下界（默认窗口 5 章），
+ * 低于窗口的样本凑不满任何连贯/双窗条件。
  * 漂移判定原则（只报趋势不下判决）：单点偶发不报，连续/趋势才报。
- * 短篇 < SHORT_TREND_MIN 章 → 不做趋势判定（诚实降级，文风方案 §4.5）。
  */
 export function aggregateStyleTrend(
   samples: ChapterSample[],
@@ -225,8 +233,10 @@ export function aggregateStyleTrend(
   const summaryEndingChapters = samples.filter((s) => s.stats.summaryEnding).map((s) => s.num)
 
   const drifts: StyleDrift[] = []
-  // 短篇小样本不做趋势判定
-  if (count >= SHORT_TREND_MIN) {
+  // 样本闸按 kind 分档（头注）：短篇取 MIN_TREND_SAMPLES；长篇取趋势窗口下界——用默认
+  // 窗口常量而非 opts.driftWindow，调用方放宽窗口只该改判定粒度、不连带放松样本闸
+  const minSamples = kind === 'short' ? MIN_TREND_SAMPLES : DEFAULT_DRIFT_WINDOW
+  if (count >= minSamples) {
     // 对话标签占比：连续 N 章超 0.5（或基线对照值）报漂移
     // 基线对照值外包 0.99 上界——高基线书（基线 ≥0.77 → ×1.3 ≥1.0）时
     // 阈值不可达（严格 > 永不触发），漂移项被静默禁用；clamp 后恒有可达空间。

@@ -2,17 +2,17 @@
  * 事件库定位与迁移锁族（bookHash/trueCasePath + session 迁移锁三件套）—— 自
  * src/events/store.ts 缝 C 拆出。
  *
- * （⑤④产品巨件拆分波3）：store.ts（1355 行）三缝纯移动拆分。
- * 本文件承载缝 C 的可移部分：书 hash 定位族（bookHash + trueCasePath win32 大小写
- * 归一与 memo 缓存）+ 迁移锁族（getSessionMigrateLockTimeoutMs
- * testableConst、sessionMigrateLockPath 按书分锁、acquireMigrateLockPairAsync 排序
- * 双锁）原样随迁（零行为变化，历史注释原样随代码迁移）。
- * 实读偏差记档：侦察口径的 migrate 缝（约 275 行）以 migrateBookSession 为主——
- * 其一被 test/events/store-migrate-tombstone.test.ts 写侧静态扫描钉在 store.ts 源文本
- * （断言 store.ts 内含 atomicWriteFile 拼接 MIGRATED_EXT 的墓碑预写调用点），其二
- * 消费 openStores 单例与 closeEventsDb（后者被结构契约钉在 store.ts），
- * 移出必造残核与本文件环回引（违本批 TDZ 纪律），故 migrateBookSession 留残核、
- * 定位族与锁族迁此、本缝收窄为 121 行。
+/**
+ * 事件库定位与迁移锁族（bookHash/trueCasePath + session 迁移锁三件套）—— 自
+ * src/events/store.ts 缝 C 拆出。
+ *
+ * 内容：书 hash 定位族（bookHash + trueCasePath win32 大小写归一与 memo 缓存）+
+ * 迁移锁族（getSessionMigrateLockTimeoutMs testableConst、sessionMigrateLockPath 按书
+ * 分锁、acquireMigrateLockPairAsync 排序双锁）。
+ * migrateBookSession 留残核：其墓碑预写调用点被
+ * test/events/store-migrate-tombstone.test.ts 写侧静态扫描钉在 store.ts 源文本，
+ * 且消费 openStores 单例与 closeEventsDb（后者被结构契约钉在 store.ts），移出必造
+ * 残核与本文件环回引。
  * 依赖方向单向（无环回引）：只 import node:crypto/node:fs/node:path 与
  * ../fs/cross-process-lock.js、../shared/testable.js，不 import events/store.ts；
  * 残核开库壳（openSessionStore/Async）与迁移段自本文件 import，四个公开名
@@ -20,7 +20,6 @@
  * __setSessionMigrateLockTimeoutForTest）经残核桥再导出，全库消费方 import 面
  * 零改动；acquireMigrateLockPairAsync 原模块私有、残核跨文件消费就此导出，
  * trueCasePath/trueCaseCache/TRUE_CASE_CACHE_MAX 保持私有。
- * firstOpenStore（残核巨型对象字面量，重设计立案件）本批零触碰。
  */
 import { createHash } from 'node:crypto'
 import { readdirSync } from 'node:fs'
@@ -36,7 +35,7 @@ import { testableConst } from '../shared/testable.js'
  *  残留/注册时序不同）此前可开出第二个事件库文件（对话史/审计视图「丢史」假象）。
  *  归一手段是**逐段 readdirSync 大小写不敏感匹配盘上真名**（trueCasePath，memo 化）：
  *  初版用 fs.realpathSync，但 Node 在 win32 的 realpath 实测**不改写大小写**
- *  （返回入参形态，四十轮修复批当机复验），对漂移变体是无效修复——readdir 逐段匹配
+ *  （返回入参形态，当机实测复验），对漂移变体是无效修复——readdir 逐段匹配
  *  才拿得到盘上真实形态。正确大小写的存量路径逐段命中自身 → 键不变（不迁移）；
  * 漂移变体归一到真名后与正库同键合流。仅 win32 生效——mac/Linux 维持既有
  * 口径（Linux 大小写变体是不同路径；mac 折叠语义与卷敏感性脱钩属登记，

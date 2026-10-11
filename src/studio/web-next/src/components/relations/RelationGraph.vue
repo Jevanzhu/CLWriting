@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // 关系图主图组件（RelationsView 拆分）：SVG 节点/边渲染 + 缩放平移拖拽 + 图例。
 // 状态与交互逻辑全部在 useRelationGraph composable（provide 注入），本组件只做渲染。
-import { useRelationGraphInjected, CX, CY } from '../../composables/useRelationGraph'
+import { computed, ref } from 'vue'
+import { useRelationGraphInjected, CX, CY, type SimNode } from '../../composables/useRelationGraph'
+import { isImeComposing } from '../../shared/ime'
 
 const g = useRelationGraphInjected()
 
@@ -10,16 +12,83 @@ const g = useRelationGraphInjected()
 function edgeKey(e: { from: string; to: string; kind: string }): string {
   return `${e.from}\u0000${e.to}\u0000${e.kind}`
 }
+
+/** 键盘焦点所在节点（roving tabindex 停靠点；null = 未进入节点区，回落选中节点） */
+const kbId = ref<string | null>(null)
+/** 节点层容器：方向键跳转按 DOM 序取元素（DOM 序 = visibleNodes 序，同一 v-for 源） */
+const nodesEl = ref<SVGGElement | null>(null)
+
+/** 唯一 Tab 停靠节点：键盘已进入优先，否则跟随选中（默认中心角色），再回落首可见节点。
+ *  节点集合随搜索/图例过滤变化，故每次现算而不缓存 id——被滤掉的停靠点不得留 tabindex=0。 */
+const tabstopId = computed<string | null>(() => {
+  const ids = g.visibleNodes.value.map((n) => n.id)
+  if (kbId.value && ids.includes(kbId.value)) return kbId.value
+  const sel = g.selectedId.value
+  if (sel && ids.includes(sel)) return sel
+  return ids[0] ?? null
+})
+
+/** 读屏名：角色名 + 有无角色卡（无卡节点不可打开角色卡，名字须自证） */
+function nodeAriaLabel(n: SimNode): string {
+  return n.hasCard ? `${n.id}（有角色卡）` : `${n.id}（仅被提及）`
+}
+
+/** 焦点移到第 idx 个可见节点 */
+function focusNodeAt(idx: number): void {
+  const el = nodesEl.value?.children[idx] as SVGGElement | undefined
+  el?.focus()
+}
+
+/** 方向键就近跳：按键方向半平面内取「主轴距离 + 2×侧向偏移」最小者（无候选则不动）。
+ *  径向布局没有行列序，按节点当前位置（拖拽后亦然）几何就近才有空间直觉。 */
+function moveFocus(from: SimNode, key: string): void {
+  const nodes = g.visibleNodes.value
+  let best: SimNode | null = null
+  let bestScore = Infinity
+  for (const n of nodes) {
+    if (n.id === from.id) continue
+    const dx = n.x - from.x
+    const dy = n.y - from.y
+    const main = key === 'ArrowLeft' ? -dx : key === 'ArrowRight' ? dx : key === 'ArrowUp' ? -dy : dy
+    if (main <= 0) continue
+    const side = key === 'ArrowLeft' || key === 'ArrowRight' ? Math.abs(dy) : Math.abs(dx)
+    const score = main + side * 2
+    if (score < bestScore) {
+      bestScore = score
+      best = n
+    }
+  }
+  if (!best) return
+  kbId.value = best.id
+  focusNodeAt(nodes.indexOf(best))
+}
+
+/** 节点键盘路径：Enter/Space 选中（走既有 selectNode，右侧详情随之联动，不新造语义），
+ *  方向键在节点间跳。dblclick 的复位另有工具栏「复位」按钮可达，故不另设键。 */
+function onNodeKey(n: SimNode, e: KeyboardEvent): void {
+  if (isImeComposing(e)) return // 组合期按键归输入法（同全仓判据）
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault() // 空格默认滚动页面、Enter 可能触发宿主默认行为
+    g.selectNode(n.id)
+    return
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault()
+    moveFocus(n, e.key)
+  }
+}
 </script>
 
 <template>
   <div class="rel-graph">
+    <!-- 根非 role="img"：img 是叶子角色，整棵节点/边会被读屏当一张图片、节点不可达；
+         group 让节点（role=button）作为子项逐个可达 -->
     <svg
       :ref="g.bindSvg"
       class="graph"
       :viewBox="g.viewBoxStr.value"
       preserveAspectRatio="xMidYMid meet"
-      role="img"
+      role="group"
       aria-label="关系图"
       @wheel.prevent="g.onWheel"
       @mousedown="g.onBgDown"
@@ -56,12 +125,17 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
           </text>
         </g>
       </g>
-      <!-- 节点：胶囊内嵌角色名（名字即节点） -->
-      <g class="nodes" :style="{ '--rel-cx': `${CX}px`, '--rel-cy': `${CY}px` }">
+      <!-- 节点：胶囊内嵌角色名（名字即节点）；键盘面 = roving tabindex（全图一个 Tab 停靠点）
+           + 方向键跳 + Enter/Space 选中 -->
+      <g ref="nodesEl" class="nodes" :style="{ '--rel-cx': `${CX}px`, '--rel-cy': `${CY}px` }">
         <g
           v-for="n in g.visibleNodes.value"
           :key="n.id"
           class="node-g"
+          role="button"
+          :aria-label="nodeAriaLabel(n)"
+          :aria-current="g.selectedId.value === n.id ? 'true' : undefined"
+          :tabindex="tabstopId === n.id ? 0 : -1"
           :class="{
             dim: g.isDim(n.id),
             hover: g.hoverId.value === n.id,
@@ -80,6 +154,9 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
           @dblclick="g.onNodeDblClick(n)"
           @mouseenter="g.hoverId.value = n.id"
           @mouseleave="g.hoverId.value = null"
+          @focus="g.hoverId.value = n.id"
+          @blur="g.hoverId.value = null"
+          @keydown="onNodeKey(n, $event)"
         >
           <!-- 选中态外环（默认透明，hover/选中浮现） -->
           <rect
@@ -112,17 +189,20 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
         </g>
       </g>
     </svg>
-    <!-- 图例：压成一行 chips，浮在图底部，不再占据竖向空间 -->
-    <div class="legend">
-      <span
+    <!-- 图例：压成一行 chips，浮在图底部，不再占据竖向空间。
+         可点的类型 chip 是按钮（键盘可达），非交互说明项保持 span -->
+    <div class="legend" role="group" aria-label="关系类型图例">
+      <button
         v-for="l in g.activeLegend.value"
         :key="l.label"
+        type="button"
         class="lg clickable"
         :class="{ off: g.hiddenColors.value.has(l.color) }"
+        :aria-pressed="!g.hiddenColors.value.has(l.color)"
         @click="g.toggleColor(l.color)"
       >
         <i class="lg-line" :style="{ background: l.color }"></i>{{ l.label }}
-      </span>
+      </button>
       <span v-if="g.debtCount.value" class="lg">
         <i class="lg-line debt" :style="{ color: 'var(--cat-1)' }"></i>债务
       </span>
@@ -158,6 +238,12 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
   gap: 5px;
 }
 .lg.clickable {
+  /* chip 由 span 改 button：清 UA 按钮外观（padding/border/背景/字体），保持原 chip 视觉 */
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   user-select: none;
   transition: opacity var(--dur-fast) var(--ease-out);
@@ -167,6 +253,11 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
 }
 .lg.clickable.off {
   opacity: 0.3;
+}
+.lg.clickable:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
 }
 .lg-pill {
   display: inline-block;
@@ -300,6 +391,10 @@ function edgeKey(e: { from: string; to: string; kind: string }): string {
 }
 .node-g.hover .node-halo,
 .node-g.selected .node-halo {
+  stroke: var(--nc);
+}
+/* 键盘焦点可见：沿用 hover/选中同款外环，不另造视觉语言 */
+.node-g:focus-visible .node-halo {
   stroke: var(--nc);
 }
 .node-g.hover .node,

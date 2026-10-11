@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { dirSignature } from '../dir-signature.js'
 import { resolveBookOrReply } from '../book-context.js'
 import {
@@ -62,6 +63,9 @@ interface ForeshadowSnapshot {
 export function forgetForeshadowCache(bookRoot: string): void {
   foreshadowCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈伏笔条目/足迹快照（TTL 5s 兜底自愈）。
+registerBookKeyedCache('foreshadows', forgetForeshadowCache)
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  * 过期逐出 + foreshadowInFlight 在途去重表本地壳删除；命中/失效时序/逐出序

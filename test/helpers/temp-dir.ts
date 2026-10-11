@@ -17,6 +17,8 @@
  * 新增测试默认走 mkdtempTracked；beforeAll 共享目录保持手工 beforeAll/afterAll 对。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach } from 'vitest'
 
 const pending = new Set<string>()
@@ -30,6 +32,18 @@ export function trackTempDir(dir: string): string {
 /** mkdtempSync 追踪版：参数与返回值同 node:fs.mkdtempSync 的 string 形态。 */
 export function mkdtempTracked(prefix: string): string {
   return trackTempDir(mkdtempSync(prefix))
+}
+
+/**
+ * tmpdir 下 tracked 临时目录（单源）：等价于 `mkdtempTracked(join(tmpdir(), prefix))`。
+ *
+ * 此前 36 档各自持有同体包装（tmpRoot / tempBook / tempUserData / tempBookRoot / mk…，
+ * 差异只有前缀字面量），前缀是各档的失败现场标签故保留在调用方，构造与 tmpdir 基准
+ * 收在此处。语义与逐档包装完全一致：登记 + afterEach 兜底移除，调用时机不限制由本
+ * 函数改变（调用方自有 dirs/afterAll 显式级联仍照旧并存、互为幂等）。
+ */
+export function tempDirTracked(prefix: string): string {
+  return mkdtempTracked(join(tmpdir(), prefix))
 }
 
 afterEach(() => {

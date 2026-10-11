@@ -1,19 +1,15 @@
 /**
- * studio server 子进程 stdio 日志转发缝 —— 自 src/desktop/server-manager.ts 拆出。
+ * studio server 子进程 stdio 日志转发缝（单写者的 main 侧半边）。
  *
- * （⑤④产品巨件拆分波3）：server-manager.ts（1127 行）两缝
- * 纯移动拆分（零行为变化、零逻辑改写，代码与历史注释原样随迁）。本文件承载服务端
- * 日志转发族（§3.5 单写者的 main 侧半边）：child stdout/stderr → main logger 转发
- * forwardChildStdio、行切分 splitLines（LineSplitter 冲刷句柄 + 单行缓冲内存闸上限
- * MAX_LINE_CHARS——顶层求值常量单源本文件，不经环回 re-export 链被引）、JSON 行按
- * level/tag/err 重发 forwardLogLine、err 字段 Error 重建 reconstructErr。
- * 依赖方向单向（无环回引）：进程/日志通道契约 UtilityProcessLike / LogLike 自
- * server-proc.ts（进程管理缝，两缝共用契约的单源所在）import，本文件不回引残核
- * server-manager.ts（state 拆分同款纪律）。服务器状态机
- * createStudioServerManager（约 620 行，G 普查批不动清单第一项）留
- * server-manager.ts，本批零触碰其函数体；迁出公开导出（MAX_LINE_CHARS /
- * splitLines / forwardLogLine）经 server-manager.ts 逐名 re-export 桥接，全库
- * 消费方 import 面零改动。
+ * 内容：child stdout/stderr → main logger 转发 forwardChildStdio、行切分 splitLines
+ *（LineSplitter 冲刷句柄 + 单行缓冲内存闸上限 MAX_LINE_CHARS——顶层求值常量单源本文件，不经环回
+ * re-export 链被引）、JSON 行按 level/tag/err 重发 forwardLogLine、err 字段 Error 重建
+ * reconstructErr。
+ * 依赖单向（无环）：进程/日志通道契约 UtilityProcessLike / LogLike 自 server-proc.ts（两缝共用
+ * 契约的单源所在）import，本文件不回引残核 server-manager.ts。
+ * 服务器状态机 createStudioServerManager 留 server-manager.ts；迁出公开导出（MAX_LINE_CHARS /
+ * splitLines / forwardLogLine）经 server-manager.ts 逐名 re-export 桥接，全库消费方 import
+ * 面零改动。
  */
 import { errMsg } from '../log/index.js'
 import type { UtilityProcessLike, LogLike } from './server-proc.js'

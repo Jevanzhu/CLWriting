@@ -75,12 +75,6 @@
     },
     "@typescript-eslint/only-throw-error": {
       "count": 1
-    },
-    "complexity": {
-      "count": 2
-    },
-    "max-depth": {
-      "count": 15
     }
   },
   "src/ai/provider/responses-adapter.ts": {
@@ -262,9 +256,6 @@
   },
   "src/document/service.ts": {
     "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
       "count": 1
     }
   },
@@ -873,9 +864,6 @@
     }
   },
   "src/studio/web-next/src/stores/prefs.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 4
-    },
     "max-lines-per-function": {
       "count": 1
     }

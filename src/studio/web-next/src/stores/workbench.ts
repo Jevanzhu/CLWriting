@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './sse-guards'
+// textOut 正文聚合封顶单源（跨包契约底座 src/shared/contract/studio.ts 的显式别名，值锚
+// SSE_BACKPRESSURE_LIMIT）：与文本闸封的是同一物（一次生成的 AI 正文输出），故同源同值——
+// 否则同一条正文在生成面板可显示、在服务端被断流阈值提前判死。计量单位 = UTF-16 码元
+// （与 JS string.length 同口径；服务端按 UTF-8 滞留字节，单位不同故不并名）。
+import { MAX_TEXT_OUT } from '../../../../shared/contract/studio'
 
 /**
  * 工作台 store（细案 T3.1 地基）：SSE 事件日志缓冲 + running/connected。
@@ -44,26 +49,15 @@ function ts(): string {
 const MAX_LOG = 500
 
 /**
- * textOut 正文聚合的前端内存
- * 封顶（UTF-16 码元，与 JS string.length 同口径）。此前防线单侧依赖服务端锚契约——
- * 单次生成受 max_tokens 约束、自愈重写有 reset 清缓冲，正常会话远不及封顶；但 SSE
- * 通道异常（网关重放/事件风暴）时 text 事件无界拼接会撑爆渲染层内存，日志侧有
- * MAX_LOG 而正文侧无对称防线。封顶值锚定服务端对输出流的既定封顶常量
- * SSE_BACKPRESSURE_LIMIT = 1_000_000（src/studio/server/api/stream.ts，码元计数
- * 同口径）——web-next 独立打包无法 import 服务端常量，字面对齐；服务端调值须同步
- * 本处。超限截断保留最新段（丢最旧）：封顶是极端流防线而非常态路径（一章正文数千
- * 字，差两个数量级），不抛错、不打断聚合与其余事件分派。
- */
-const MAX_TEXT_OUT = 1_000_000
-
-/**
  * 事件日志 type 白名单——空串/未知名事件此前照进 workbench.log，
  * 事件流里渲染为裸 type 噪声（未知 type 对作者无意义）。集合口径 = 既有事件处理分支
  * 的全集：dispatch 状态分支（role_spawn / init / done / interrupted / error / text /
  * self_heal 系列 / warning）∪ 事件流渲染分支（WbAdvanced evLabel 的
  * tool_use / usage / review-progress）。
  * 只过滤日志入库，不改分发：未知/空 type 事件照常走 dispatch（无命中分支自然 no-op），
- * chat_* 与 sync 的路由在 useSse 层本就不依赖本表。新增事件 type 时须同步补录本表。
+ * chat_* 与 sync 的路由在 useSse 层本就不依赖本表。事件名正本 = 跨包契约底座
+ * src/shared/contract/studio.ts 的清单；本表另由 SSE 对账门逐名核对，新增事件 type 时
+ * 须同步补录本表（否则该事件照常分发但不入事件流日志）。
  */
 const WORKBENCH_LOG_TYPES: ReadonlySet<string> = new Set([
   'role_spawn',
@@ -188,7 +182,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
     if (e.type === 'text' && typeof e.text === 'string') {
       textOut.value += e.text
-      // 超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
+      // 超限截断保留最新段（丢最旧）：封顶是极端流防线而非常态路径（一章正文数千字，
+      // 差两个数量级；单次生成受 max_tokens 约束、自愈重写有 reset 清缓冲），但不设即
+      // 无界——SSE 通道异常（网关重放/事件风暴）时 text 事件无界拼接会撑爆渲染层内存
+      //（日志侧有 MAX_LOG，正文侧须有对称防线）。不抛错、不打断聚合与其余事件分派。
       if (textOut.value.length > MAX_TEXT_OUT) {
         // 截断点落在代理对中间时丢掉孤儿低位代理
         //（其高位配对在丢弃段；裸 slice 会把它留给 UI 渲染成替换符）。

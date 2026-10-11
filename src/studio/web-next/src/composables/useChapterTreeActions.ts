@@ -5,19 +5,13 @@
  * 章节·篇章信息 / 单章与批量定稿 / 右键菜单动作分发。共享惯例：成功后刷树、
  * 需要时打开新 tab；失败统一走 openError / ui.toast。
  *
- * 拆分沿革（⑤④产品巨件拆分波4）：本单件（901 行）缝
- * structure + create 纯移动拆分——章节结构操作族（并入上一章/撤销并入/光标拆分
- * + 共用尽力落盘 flushUnsaved）→ useChapterTreeStructure.ts；新建族（inline 新建
- * 八类模板/单例新建/TabBar 分派/种子与模板组装，含 seed 章号前缀链路；
- * CreatingKind/Creating 类型随族迁此）→ useChapterTreeCreate.ts。本残核保留主
- * composable 门面与状态装配：状态 refs、切书守卫（stillIn/failScoped）、树取值
- * 辅助（bodyPadKind/nextChapterNo/volumeCount/lastVolumePath/pendingChaptersUpTo）、
- * 菜单分发/重命名/删除/移动/复制/篇章信息/批量定稿，并接线两子 composable
- * （refs 与回调经 deps 原样传入，响应式接线不变）。全库唯一外部消费名
- * useChapterTreeActions 仍在本模块定义导出，消费方 import 面零改动。运行时依赖
- * 单向（残核 → 两子件，子件不回引）；模块顶层求值常量（NEW_DEFAULT_DIRS/
- * NEW_KIND_BY_KEY 仅 onMenuSelect 消费）留残核单源。本头注上方原文全部历史
- * 记载原样保留。
+ * 结构约束（红线）：
+ * - 本模块是外部唯一消费名 useChapterTreeActions 的定义导出点（消费方 import 面零改动）；
+ *   新建族 / 结构族分别接 useChapterTreeCreate.ts / useChapterTreeStructure.ts，refs 与
+ *   stillIn/failScoped 经 deps 原样传入（响应式接线单源在此）；运行时依赖单向（残核 → 两子件）。
+ * - 切书守卫语义（入口捕获书名 → await 后复检 → catch 尾款，stillIn/failScoped 单源）与
+ *   刷树时机是各动作的行为面：树写动作的编排一律走本模块 mutateAndReload，不得逐点手写。
+ * - doc 缓存条目的元数据只能经 doc store 出口（adoptRenamed）更新，不得直写 entry。
  */
 import { ref, type Ref } from 'vue'
 import { useTreeStore } from '../stores/tree'
@@ -66,6 +60,20 @@ const NEW_KIND_BY_KEY: Record<string, 'chapter-outline' | 'volume-outline' | 'ch
   'new-foreshadow': 'foreshadow',
 }
 
+/** mutateAndReload 的各阶段挂点——阶段相对次序即行为面（见 mutateAndReload 头注），不得互换。 */
+interface MutateHooks<T> {
+  /** 落定后、切书复检前的清账（镜像键/误报灰显键等属入口书的账，切书也不落空）。 */
+  settle?: (r: T) => void
+  /** 切书复检通过后、刷树前的就地处置（如删除后弃 doc 缓存条目）。 */
+  beforeReload?: (r: T) => void
+  /** 刷树（默认 await tree.load(book)）；需随刷树的汇总提示/重扫档位时传完整实现。 */
+  reload?: (book: string, r: T) => void | Promise<void>
+  /** 刷树落定后的收尾（doc 条目元数据回填 / 重对齐基线 / 开新 tab）。 */
+  afterReload?: (r: T) => void | Promise<void>
+  /** catch 尾款（默认 failScoped；批量定稿为 toast 面）。 */
+  onError?: (e: unknown) => void
+}
+
 export function useChapterTreeActions(deps: { bookName: () => string; openError: Ref<string | null> }) {
   const tree = useTreeStore()
   const doc = useDocStore()
@@ -91,6 +99,41 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     onScopedError(book, e, () => {
       deps.openError.value = friendlyError(e)
     })
+  }
+
+  /**
+   * 树写动作编排单源（六处同型：入口捕获书名 → 调 API → 清账 → 切书复检 → 刷树 → 收尾）。
+   * 阶段次序即行为面（逐位保持，勿调整）：清账在复检前（键/标记属入口书，切书也不落空）；
+   * 复检在刷树前（迟到的成功不得把旧书树刷进新书工作台，后调者胜）；刷树在收尾前
+   * （收尾按新树取值）。失败一律 failScoped 尾款：会话中止静默吸收 → 已切书丢弃 →
+   * 仍在本书才落 openError；各动作不另写 catch（toast 面例外见 hooks.onError）。
+   */
+  async function mutateAndReload<T>(book: string, run: () => Promise<T>, hooks: MutateHooks<T> = {}): Promise<void> {
+    try {
+      const r = await run()
+      hooks.settle?.(r)
+      if (!stillIn(book)) return
+      hooks.beforeReload?.(r)
+      if (hooks.reload) await hooks.reload(book, r)
+      else await tree.load(book)
+      await hooks.afterReload?.(r)
+    } catch (e) {
+      if (hooks.onError) hooks.onError(e)
+      else failScoped(book, e)
+    }
+  }
+
+  /**
+   * 树刷新后回填 doc 缓存条目的元数据（按 docId 取新节点）——不回填则后续 doc.refresh/
+   * 保存按旧路径 404 或树字数更新成 no-op（onSaveMeta / onRenameCommit / doMove 三处同源）。
+   * 红线：条目元数据只能经 doc store 出口更新（adoptRenamed 即该出口：只改路径与名称、
+   * 不动内容与脏位）——直写 entry 会绕过写口契约，与 store 的树对账（syncCleanWithTree）
+   * 两份各写，条目被 LRU 驱逐重建后的身份复检也无从保证。name 随 path 成对回填，
+   * 与「标题提交/树对账」同口径（EditorDocHead 改名链同款调用）。
+   */
+  function syncDocPathFromTree(docId: string): void {
+    const fresh = tree.byDocId.get(docId)
+    if (fresh) doc.adoptRenamed(docId, fresh.path, fresh.name)
   }
 
   const creating = ref<Creating>(null)
@@ -132,12 +175,8 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
       const kind = NEW_KIND_BY_KEY[key]!
       if (node && node.isDirectory && !node.path.startsWith('写作/')) {
         // 子目录右键：章纲/卷纲在大纲根落标准子目录，其余就地建
-        const fsDir =
-          key === 'new-chapter-outline' || key === 'new-volume-outline'
-            ? node.path === '大纲'
-              ? def.fsDir
-              : node.path
-            : node.path
+        let fsDir = node.path
+        if ((key === 'new-chapter-outline' || key === 'new-volume-outline') && node.path === '大纲') fsDir = def.fsDir
         return startCreate(kind, node.path, fsDir)
       }
       return startCreate(kind, def.renderDir, def.fsDir)
@@ -178,44 +217,45 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
 
   /** 批量定稿：逐个 finalizeRevision（后端串行，无锁冲突）→ 汇总 toast + 刷树。 */
   async function doBatchFinalize(docIds: string[]): Promise<void> {
-    const bookName = deps.bookName()
-    try {
-      const r = await batchFinalizeDocs(bookName, docIds)
-      // 批量定稿逐章 git 提交可达数秒——在途切书后不刷 B 书树、
-      // toast 不落 B 书界面（同文件其余 9 个动作均有「已切书」复检，唯独此处漏）
-      if (!stillIn(bookName)) return // 已切书：定稿已落 A 书盘，树由切书链自刷
-      const done = r.results.filter((x) => x.ok && !x.skipped).length
-      const skipped = r.results.filter((x) => x.ok && x.skipped).length
-      const failed = r.results.filter((x) => !x.ok).length
-      const total = r.results.length
-      // 防吃书闸降级汇总：放行成功的条目里带 gateDegraded 的章数——此前批量路径只读
-      // ok/skipped/error，降级放行与正常定稿同报绿色成功，作者不知道要补检。
-      const degradedItems = r.results.filter((x) => x.ok && x.gateDegraded && x.gateDegraded.length > 0)
-      // 服务端逐条 error（防吃书闸/LEAD_GATE 人话红项）此前
-      // 整段丢弃，被闸拦下只能逐章单章定稿排查——failed>0 时追加快照首条原因（多项加
-      // 「等 N 项」），保持单行 toast；完整明细仍以服务端响应为准，此处仅透出首因。
-      const firstFail = failed ? r.results.find((x) => !x.ok) : undefined
-      const degradedNote = degradedItems.length
-        ? `，其中 ${degradedItems.length} 章防吃书检查降级已放行：${degradedItems[0]!.gateDegraded!.join('；')}${
-            degradedItems.length > 1 ? `（等 ${degradedItems.length} 章）` : ''
-          }`
-        : ''
-      ui.toast(
-        `已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${
-          failed
-            ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failed > 1 ? `（等 ${failed} 项）` : ''}`
-            : ''
-        }${degradedNote}`,
-        failed ? 'error' : degradedItems.length ? 'warning' : 'success',
-      )
-      void tree.load(bookName, true)
-    } catch (err) {
-      // catch 补切书复检（对齐 success 分支写法）——批量
-      // 定稿请求失败时若已切书，A 书的失败 toast 会弹在 B 书界面（落错收口走 failScoped
-      // 同款判定，toast 面（非 openError）保持原样）
-      if (!stillIn(bookName)) return
-      ui.toast(friendlyError(err), 'error')
-    }
+    // 书名入口捕获——批量定稿逐章 git 提交可达数秒，在途切书后不刷 B 书树、
+    // toast 不落 B 书界面（同文件其余动作同款「已切书」复检）
+    const book = deps.bookName()
+    await mutateAndReload(book, () => batchFinalizeDocs(book, docIds), {
+      // 汇总面随刷树前落：逐条计数 → 单行 toast → 重扫刷树（refresh=true，服务端已
+      // invalidate 缓存但重扫保证 git 状态/字数同窗推进）。次序即原实现次序。
+      reload: (b, r) => {
+        const done = r.results.filter((x) => x.ok && !x.skipped).length
+        const skipped = r.results.filter((x) => x.ok && x.skipped).length
+        const failed = r.results.filter((x) => !x.ok).length
+        const total = r.results.length
+        // 防吃书闸降级汇总：放行成功的条目里带 gateDegraded 的章数——此前批量路径只读
+        // ok/skipped/error，降级放行与正常定稿同报绿色成功，作者不知道要补检。
+        const degradedItems = r.results.filter((x) => x.ok && x.gateDegraded && x.gateDegraded.length > 0)
+        // 服务端逐条 error（防吃书闸/LEAD_GATE 人话红项）此前整段丢弃，被闸拦下只能逐章
+        // 单章定稿排查——failed>0 时追加快照首条原因（多项加「等 N 项」），保持单行 toast；
+        // 完整明细仍以服务端响应为准，此处仅透出首因。
+        const firstFail = failed ? r.results.find((x) => !x.ok) : undefined
+        const degradedTail = degradedItems.length > 1 ? `（等 ${degradedItems.length} 章）` : ''
+        const degradedNote = degradedItems.length
+          ? `，其中 ${degradedItems.length} 章防吃书检查降级已放行：${degradedItems[0]!.gateDegraded!.join('；')}${degradedTail}`
+          : ''
+        const skippedNote = skipped ? `（${skipped} 章已定稿）` : ''
+        const failedTail = failed > 1 ? `（等 ${failed} 项）` : ''
+        const failedNote = failed ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failedTail}` : ''
+        // 降级优先于成功、失败优先于降级（原嵌套判式的展开）
+        let kind: 'error' | 'warning' | 'success' = 'success'
+        if (degradedItems.length) kind = 'warning'
+        if (failed) kind = 'error'
+        ui.toast(`已定稿 ${done}/${total} 章${skippedNote}${failedNote}${degradedNote}`, kind)
+        void tree.load(b, true)
+      },
+      // 失败面是 toast（非 openError）：判定仍收口 stillIn（对齐 success 分支），
+      // 只是落点不同——A 书的失败 toast 不得弹在 B 书界面
+      onError: (err) => {
+        if (!stillIn(book)) return
+        ui.toast(friendlyError(err), 'error')
+      },
+    })
   }
 
   /** 桌面版：在系统文件管理器中打开文件所在文件夹（shell.showItemInFolder 跨平台，传入 node.path）。 */
@@ -243,34 +283,23 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     const e = metaEditing.value
     if (!e) return
     metaEditing.value = null
-    // 书名取开弹窗时的捕获值（同 doD 口径）——弹窗滞留期间
+    // 书名取开弹窗时的捕获值（同 doDelete 口径）——弹窗滞留期间
     // 切书后提交，deps.bookName 已是 B 书而 docId 属 A 书，会错书落 fm/rename
     const book = e.bookName
-    try {
-      // op=meta 落 fm + 路径同步 rename（服务端按 docId 自愈
-      // legacy 身份，旧路径派生 id 孤儿化）——成功即弃旧身份脏镜像，同 onRenameCommit
-      // 取舍：直接丢弃不迁移，防同路径重建文档复用同 id 时误复活旧镜像。
-      // book 用开弹窗时捕获的 e.bookName，清理不随切书落空。
-      await updateChapterMetaDoc(book, e.docId, { 标题: meta.标题, 章号: meta.num })
-      doc.clearDirtyMirror(book, e.docId)
-      if (!stillIn(book)) return // 已切书：不动 B 书界面
-      await tree.load(book)
-      // 路径可能变（长篇/短篇文件名）→ 同步 doc entry.path
-      const entry = doc.get(e.docId)
-      if (entry) {
-        const fresh = tree.byDocId.get(e.docId)
-        if (fresh) entry.path = fresh.path
+    // op=meta 落 fm + 路径同步 rename（服务端按 docId 自愈 legacy 身份，旧路径派生 id
+    // 孤儿化）——成功即弃旧身份脏镜像，同 onRenameCommit 取舍：直接丢弃不迁移，防同路径
+    // 重建文档复用同 id 时误复活旧镜像。book 用开弹窗时捕获的 e.bookName，清理不随切书落空。
+    await mutateAndReload(book, () => updateChapterMetaDoc(book, e.docId, { 标题: meta.标题, 章号: meta.num }), {
+      settle: () => doc.clearDirtyMirror(book, e.docId),
+      afterReload: async () => {
+        // 路径可能变（长篇/短篇文件名）→ 回填 doc 条目 path
+        syncDocPathFromTree(e.docId)
         // 服务端 op=meta 写 fm + rename → revision 已变，打开中的
         // 文档不 refresh 重对齐基线的话，下一次 autosave/⌘S 必收 REVISION_CONFLICT
         //（重载丢本地编辑 / 覆盖静默回退标题章号）——对齐 EditorDocHead 的 refresh 口径
-        await doc.refresh(e.docId)
-      }
-    } catch (err) {
-      // catch 补切书守卫（对齐 doBatchFinalize 的先例）——
-      // 请求失败落 catch 时若已切书，A 书的报错不得写进 B 书界面（静默丢弃旧书报错）；
-      // 判定收口 stillIn/failScoped（时机不变：先查书名再落错）
-      failScoped(book, err)
-    }
+        if (doc.get(e.docId)) await doc.refresh(e.docId)
+      },
+    })
   }
 
   // --- 重命名 ---
@@ -283,42 +312,34 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
       return
     }
     renamePath.value = null
-    const node = tree.byPath.get(path)
-    if (!node?.docId) return
+    const docId = tree.byPath.get(path)?.docId
+    if (!docId) return
     // 书名入口捕获——await 后再求 bookName() 会是 B 书，
     // 对 B 书发起冗余全树重扫（git status + 字数统计，大书较重）
     const book = deps.bookName()
-    try {
-      await renameDoc(book, node.docId, `${name}.md`)
-      // 改名成功即弃该文档旧身份的脏镜像（直接丢弃、不迁移）——
-      // 镜像键含 docId，legacy 文档 id 按路径派生（legacy:<sha256(path)[:16]>，服务端
-      // 结构性操作自愈后旧 id 必然孤儿化），同路径重建新文档复用同 id 时 open 会误复活
-      // 旧镜像污染新文档。canonical 文档 docId 稳定（键不变），清了只是损失「改名后~
-      // 下次击键」的镜像空窗（下一击键/保存即重建本就是 best-effort 兜底），
-      // 统一直接丢弃，不为 canonical 单独分叉「保留重写」语义。book 用入口快照：清的
-      // 是被改名文档所属的旧书键，即便 await 期间切书清理也不落空。
-      doc.clearDirtyMirror(book, node.docId)
-      // 改名成功即清该文档误报灰显键
-      // ——legacy docId 由路径派生，改名后旧 id 孤儿化，同路径重建新文档复用同 id 时
-      // 残留键会把旧章灰显态/禁用误报按钮带给新章（删除链同款清理，原改名链漏）。
-      // canonical docId 稳定，清了只是损失灰显展示态（标记真相在服务端），对齐
-      // 「不为 canonical 单独分叉语义」取舍；book 用入口快照，在途切书清理不落空。
-      clearFalsePositiveMarksForDoc(book, node.docId)
-      // await 后活源复检（对齐 doDelete/doCopy 双点守卫）——重命名
-      // 在途切书后 tree.load(旧书) 会把 A 书整树覆盖进 B 书工作台（后调者胜写入）
-      if (!stillIn(book)) return
-      await tree.load(book)
-      // doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
-      // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
-      const entry = doc.get(node.docId)
-      if (entry) {
-        const fresh = tree.byDocId.get(node.docId)
-        if (fresh) entry.path = fresh.path
-      }
-    } catch (e) {
-      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
-      failScoped(book, e)
-    }
+    await mutateAndReload(book, () => renameDoc(book, docId, `${name}.md`), {
+      settle: () => {
+        // 改名成功即弃该文档旧身份的脏镜像（直接丢弃、不迁移）——
+        // 镜像键含 docId，legacy 文档 id 按路径派生（legacy:<sha256(path)[:16]>，服务端
+        // 结构性操作自愈后旧 id 必然孤儿化），同路径重建新文档复用同 id 时 open 会误复活
+        // 旧镜像污染新文档。canonical 文档 docId 稳定（键不变），清了只是损失「改名后~
+        // 下次击键」的镜像空窗（下一击键/保存即重建本就是 best-effort 兜底），
+        // 统一直接丢弃，不为 canonical 单独分叉「保留重写」语义。book 用入口快照：清的
+        // 是被改名文档所属的旧书键，即便 await 期间切书清理也不落空。
+        doc.clearDirtyMirror(book, docId)
+        // 改名成功即清该文档误报灰显键
+        // ——legacy docId 由路径派生，改名后旧 id 孤儿化，同路径重建新文档复用同 id 时
+        // 残留键会把旧章灰显态/禁用误报按钮带给新章（删除链同款清理，原改名链漏）。
+        // canonical docId 稳定，清了只是损失灰显展示态（标记真相在服务端），对齐
+        // 「不为 canonical 单独分叉语义」取舍；book 用入口快照，在途切书清理不落空。
+        clearFalsePositiveMarksForDoc(book, docId)
+      },
+      afterReload: () => {
+        // doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
+        // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
+        syncDocPathFromTree(docId)
+      },
+    })
   }
   function onRenameCancel(): void {
     renamePath.value = null
@@ -327,6 +348,7 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
   // --- 删除 ---
   async function doDelete(node: TreeNode): Promise<void> {
     if (!node.docId) return
+    const docId = node.docId
     // 书名入口捕获（类横向收敛）——legacy docId 纯路径派生不分书，
     // 弹窗滞留期间跨窗切书后，A 书的确认会命中 B 书同路径文件（错书删除）
     const book = deps.bookName()
@@ -341,7 +363,7 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     // 窗内键入未落回 store 时本判式的 entry.dirty 仍 false 的防丢保护在窗口内
     // 整段失守（删除后回收站只剩上一次已保存版本，与弹窗承诺不符）。flush 幂等。
     flushBodyWriteback()
-    const entry = doc.get(node.docId)
+    const entry = doc.get(docId)
     let unsaved = false
     if (entry && entry.dirty) {
       // 清偿批在途保存窗口先落定再判—— 契约下 doc.save(docId,
@@ -354,13 +376,15 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
       // `!save && dirty` 的语义保留不变。（合并批收编）：内部落盘 origin 用
       // autosave——manual 会弹「已保存」toast，紧接「确认删除」弹窗语义突兀；
       // autosave 静默落盘防丢语义不惊扰。
-      await doc.waitInflightSave(node.docId)
-      const cur = doc.get(node.docId)
-      unsaved = !cur
-        ? false
-        : cur.conflict
-          ? true
-          : !(await doc.save(node.docId, 'autosave')) && (doc.get(node.docId)?.dirty ?? false)
+      await doc.waitInflightSave(docId)
+      const cur = doc.get(docId)
+      if (!cur) {
+        unsaved = false // 条目已清（NOT_FOUND 等）：无未保存内容可谈
+      } else if (cur.conflict) {
+        unsaved = true // 冲突未决：autosave 必再 409，无自动落盘出路，如实文案
+      } else {
+        unsaved = !(await doc.save(docId, 'autosave')) && (doc.get(docId)?.dirty ?? false)
+      }
     }
     const ok = await ui.ask({
       title: '删除章节',
@@ -372,43 +396,30 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     })
     if (!ok) return
     if (!stillIn(book)) return
-    try {
-      await deleteDoc(book, node.docId)
-      // 删章成功即清该章误报灰显键——同路径重建新章复用 legacy docId，
-      // 残留键会把旧章灰显态/禁用误报按钮带给新章（删除链同款清理，原改名链漏）。
-      clearFalsePositiveMarksForDoc(book, node.docId)
-      // 删除成功即丢弃 doc 缓存条目——删除前刚键入（autosave 窗口内）
-      // 或本就 dirty 的文档软删后 entry 若仍驻留，autosaveTick 会对已删 docId 无限重试
-      // （404 后 dirty 不清），且切书 flushDirty 失败触发「保存失败将永久丢弃」假警报
-      if (stillIn(book)) {
-        doc.discard(node.docId)
-        await tree.load(book)
-      }
-    } catch (e) {
-      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
-      failScoped(book, e)
-    }
+    await mutateAndReload(book, () => deleteDoc(book, docId), {
+      settle: () => {
+        // 删章成功即清该章误报灰显键——同路径重建新章复用 legacy docId，
+        // 残留键会把旧章灰显态/禁用误报按钮带给新章
+        clearFalsePositiveMarksForDoc(book, docId)
+      },
+      beforeReload: () => {
+        // 删除成功即丢弃 doc 缓存条目——删除前刚键入（autosave 窗口内）
+        // 或本就 dirty 的文档软删后 entry 若仍驻留，autosaveTick 会对已删 docId 无限重试
+        // （404 后 dirty 不清），且切书 flushDirty 失败触发「保存失败将永久丢弃」假警报。
+        // 必须落在刷树前：树刷新会对账 doc 缓存新鲜度，残留条目会按已删路径重拉（404 噪音）。
+        doc.discard(docId)
+      },
+    })
   }
 
   // --- 移动（菜单 + 拖拽共用）---
   async function doMove(docId: string, toDir: string): Promise<void> {
     // 同 onRenameCommit——书名入口捕获
     const book = deps.bookName()
-    try {
-      await moveDoc(book, docId, toDir)
-      // 同 onRenameCommit——await 后活源复检，在途切书不再加载旧书树
-      if (!stillIn(book)) return
-      await tree.load(book)
+    await mutateAndReload(book, () => moveDoc(book, docId, toDir), {
       // 同 onRenameCommit——doc 缓存 path 随移动回填
-      const entry = doc.get(docId)
-      if (entry) {
-        const fresh = tree.byDocId.get(docId)
-        if (fresh) entry.path = fresh.path
-      }
-    } catch (e) {
-      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
-      failScoped(book, e)
-    }
+      afterReload: () => syncDocPathFromTree(docId),
+    })
   }
   async function onDrop(targetPath: string): Promise<void> {
     const src = draggedPath.value
@@ -435,6 +446,7 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
   // --- 复制（E3.3：新章号 + 「副本」标题；后端复制内容到新 path）
   async function doCopy(node: TreeNode): Promise<void> {
     if (!node.docId) return
+    const docId = node.docId
     // 同 meta：章号/标题从 name 提取（path 是完整相对路径）
     const parsed = parseChapterFileName(node.name)
     const title = parsed?.标题 ?? node.name
@@ -444,20 +456,19 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
     const relPath = `写作/正文/${no}${title} 副本.md`
     // L-：同 onCreateCommit——await 前捕获书名 + 守卫
     const book = deps.bookName()
-    try {
-      const r = await copyDoc(book, node.docId, relPath)
-      if (!stillIn(book)) return
-      await tree.load(book)
-      if (!stillIn(book)) return // tree.load 窗口切书防御（onCreateCommit 同款注记）
-      const fresh = tree.byPath.get(r.path)
-      if (fresh?.docId) {
-        await doc.open(fresh)
-        ws.openTab(fresh.docId)
-      }
-    } catch (e) {
-      // catch 补切书守卫（对齐）——切书后旧书报错不写新书界面
-      failScoped(book, e)
-    }
+    await mutateAndReload(book, () => copyDoc(book, docId, relPath), {
+      afterReload: async (r) => {
+        // tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
+        // B 书树——按 A 书路径查找可能命中 B 书同名文件顶开其正开的活动文档。byPath.get
+        // 前补书名复检
+        if (!stillIn(book)) return
+        const fresh = tree.byPath.get(r.path)
+        if (fresh?.docId) {
+          await doc.open(fresh)
+          ws.openTab(fresh.docId)
+        }
+      },
+    })
   }
 
   // --- 树数据便捷取值（grouped/raw 就地取）---

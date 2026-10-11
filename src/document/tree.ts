@@ -15,7 +15,7 @@ import { toNfcName } from '../fs/text-canonical.js'
 import { isMdFileName, chapterNoFromName } from '../format/filename.js'
 import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
-import { readManifest, type ManifestEntry } from './manifest.js'
+import { manifestPathOf, readManifest, type ManifestEntry } from './manifest.js'
 import { deriveStatus, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter, parseValue } from '../format/frontmatter.js'
@@ -119,10 +119,8 @@ const SYNOPSIS_TOP = '大纲/总纲.md'
 /** 章号提取：文件名前导数字。兼容存量多种补零宽度混名
  *  （前端新建不补零 `5-x` / 前端复制 4 位 / 服务端长篇 4 位 / 短篇与草稿管线 3 位）；
  *  非数字前缀文件（副本、设定类）返回 null。
- * 正则本体升格 format/filename.ts
- *  chapterNoFromName 单一真相源（leads/foreshadow/summary 三处窄正则同批收敛）——
- * 薄委托包装 chapterNoOf 随批内联删除，本文件调用点
- *  直呼 chapterNoFromName；单一真相源仍在 format/filename.ts（沿革不变）。 */
+ * 正则本体单源 format/filename.ts chapterNoFromName（leads/foreshadow/summary
+ *  三处窄正则同源）——本文件调用点直呼之，不另立薄包装。 */
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
  *  章文件按章号数值序（补零宽度不影响大小），其余按 path localeCompare（§6.2 卷字母序）；总纲例外置顶。 */
@@ -149,8 +147,8 @@ function compareNode(a: TreeNode, b: TreeNode): number {
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
 }
 
-/** basename 去 .md 后缀（文件展示名）。判定单源 isMdFileName
- * （大小写不敏感）——.MD 文件名此前展示带尾巴，与判定侧（收编）两链不一致。 */
+/** basename 去 .md 后缀（文件展示名）。判定单源 isMdFileName（大小写不敏感）——
+ * 否则 .MD 文件名展示带尾巴，与判定侧两链不一致。 */
 function stripMd(name: string): string {
   return isMdFileName(name) ? name.slice(0, -3) : name
 }
@@ -163,7 +161,7 @@ function stripMd(name: string): string {
  */
 export function buildTree(bookRoot: string): TreeNode[] {
   const nodes = scanBookTree(bookRoot)
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const manifest = readManifest(manifestPathOf(bookRoot))
   // join 键改 docJoinKey（win32 大小写折叠 + NFC 归一）——原精确
   // 字符串 join 在外部 case-only 改名 / NFD 文件名后失配，docId 落 legacyId 兜底
   const entryByPath = new Map<string, ManifestEntry>()
@@ -266,8 +264,8 @@ function annotate(
 }
 
 /** 字数统计的正文角色：长篇正文 chapter / 短篇正文 piece-body。
- * 注释如实化：draft 从未计入（工作区/ 在树外）；且 roleOf 现产
- *  只出 'chapter'（layout.ts 口径注记），'piece-body'/'draft' 为预留枚举位。 */
+ * draft 不计入（工作区/ 在树外）；roleOf 现产出只出 'chapter'（layout.ts 口径注记），
+ * 'piece-body'/'draft' 为预留枚举位。 */
 function isCountedRole(role: DocumentRole): boolean {
   return role === 'chapter' || role === 'piece-body'
 }
@@ -369,11 +367,10 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
 
 /** 从 fm 原文提取 `已发布` 判定（probe 热路径：fm 原文单次读取复用，零额外 IO，只加
  * 纯函数处理）。值侧处理对齐 status.readPublished 的 parseFlat
- *  单源口径——捕获值先 stripInlineComment 剥行内注释（`已发布: true # 备注` 此前把
+ *  单源口径——捕获值先 stripInlineComment 剥行内注释（否则 `已发布: true # 备注` 把
  *  「true # 备注」整段当值判 false，树/定稿两链路分裂），再走 parseValue（内联数组
  *  `['true']` 形态与引号配对 unquote 均与 parseFlat 同源），终判 chapters.isPublishedValue
- *  单源（含数组形态）。原注「与 readPublished/parseFlat 同口径」失实（不剥注释、
- *  不认数组、引号配对剥除自实现），随批更正。 */
+ *  单源（含数组形态）。 */
 function parsePublishedValue(fmRaw: string): boolean {
   const m = fmRaw.match(/^已发布[:：]\s*(.+?)\s*$/m)
   if (!m) return false
@@ -493,11 +490,10 @@ export function invalidateTreeIndex(bookRoot: string, structural = false): void 
 
 /**
  * 内容保存的单键失效——indexes 照常整书重建（树 wordCount/status
- * 投影要刷新），但 probeCache 只删本次改写文件的键。此前内容保存走 invalidateTreeIndex
- * 把该书 probeCache 整书清空，下一次树请求（前台 2s 节流 force）对全书 md 文件重读+
- * 重哈希（200 万字书 100-300ms/次，网盘卷秒级）——而其余文件的 (mtimeNs,size) 指纹
- * 未变、复用安全的防撞车口径只对本次改写文件必要。新文件落盘时键本不存在，
- * delete 为 no-op（indexes.delete 已保证树重建收编新文件）。
+ * 投影要刷新），但 probeCache 只删本次改写文件的键：整书清空会让下一次树请求
+ *（前台 2s 节流 force）对全书 md 文件重读+重哈希（200 万字书 100-300ms/次，网盘卷
+ * 秒级）——而其余文件的 (mtimeNs,size) 指纹未变、复用安全。新文件落盘时键本不存在，
+ * delete 为 no-op（indexes.delete 已保证树重建纳入新文件）。
  */
 export function invalidateTreeIndexForContent(bookRoot: string, relPath: string): void {
   indexes.delete(bookRoot)

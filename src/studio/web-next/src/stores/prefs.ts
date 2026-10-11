@@ -3,6 +3,7 @@ import { ref, computed, type Ref } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
 import { createPrefsDomEffects } from '../composables/usePrefsDomEffects'
+import { notifyCrossWindow } from '../shared/cross-window'
 import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
@@ -260,17 +261,25 @@ export const usePrefsStore = defineStore('prefs', () => {
       // 本窗重放依赖 dirtyKeysOf 对比基线；移后 lastPersisted=null 走零脏口径
       // 会静默丢该次编辑（现行为可重放）。②先行置位保住头注「init 各完成
       // 路径均置基线」不变量。③迁移 PUT 失败的服务端缺口由 revisionKnown=false 的
-      // 写前重 GET 链在下一次保存时对齐补写，无需基线参与。偏离评审建议按
-      // 「证伪维持」口径在报告收口记记档。
+      // 写前重 GET 链在下一次保存时对齐补写，无需基线参与。
       lastPersisted = prefs
       clearLegacyLocalStorage()
+      // 迁移写带 expectedRevision = 上面那次 GET 的号（apiOk 即 revisionKnown）——
+      // 服务端契约 PUT /api/library/prefs body {prefs, expectedRevision?}：
+      // 缺失放行、不等回 409（server/api/prefs.ts revisionError 闸）。不带即全库唯一
+      // 可无条件覆盖他窗同键的写：GET 与本次 PUT 之间他窗落盘的新值会被本次迁移的
+      // 全量快照盖掉。带号后该情形收 409（不覆盖他窗），本地号随之陈旧 → 下一次用户保存
+      // 经 recoverFromConflict 合并重试自愈。
       // 迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
-      void putGlobalPrefs(prefs)
+      void putGlobalPrefs(prefs, revision)
         .then((r) => {
           revision = r.revision
           revisionKnown = true
+          notifyCrossWindow(['prefs']) // 落盘成功才广播：他窗重取时读到的是本窗已写入的值
         })
-        .catch(() => {})
+        .catch(() => {
+          /* 409/网络失败：迁移值仍在 refs（展示不回退），服务端由后续保存链合并补写 */
+        })
     } else {
       applyPrefs(prefs)
       lastPersisted = buildCache() // 初始服务端态即基线
@@ -290,37 +299,30 @@ export const usePrefsStore = defineStore('prefs', () => {
         theme.value = t
         has = true
       }
-      const num = (k: string): number | null => {
+      // 逐键迁移收口为两个带载体 ref 的写函数（ref 类型即判据，无需跨形态断言）：
+      // num 只收正有限数（未设/非法/空串一律不迁），str 只收非空串。
+      const num = (k: string, r: Ref<number>): void => {
         const v = Number(localStorage.getItem(k))
-        return Number.isFinite(v) && v > 0 ? v : null
-      }
-      const str = (k: string): string => localStorage.getItem(k) ?? ''
-      // 循环变量原命名 ref 遮蔽 Vue
-      // 的 ref 导入（同文件内 ref(...) 语义漂移的可读性陷阱），改名 entry——零语义变更
-      for (const [k, entry, kind] of [
-        [OLD_LS.size, proseSize, 'num'],
-        [OLD_LS.lh, proseLh, 'num'],
-        [OLD_LS.pageWidth, pageWidth, 'num'],
-        [OLD_LS.autosaveInterval, autosaveInterval, 'num'],
-        [OLD_LS.uiFontCn, uiFontCn, 'str'],
-        [OLD_LS.uiFontEn, uiFontEn, 'str'],
-        [OLD_LS.proseFontCn, proseFontCn, 'str'],
-        [OLD_LS.proseFontEn, proseFontEn, 'str'],
-      ] as const) {
-        if (kind === 'num') {
-          const v = num(k)
-          if (v !== null) {
-            ;(entry as typeof proseSize).value = v
-            has = true
-          }
-        } else {
-          const v = str(k)
-          if (v) {
-            ;(entry as typeof uiFontCn).value = v
-            has = true
-          }
+        if (Number.isFinite(v) && v > 0) {
+          r.value = v
+          has = true
         }
       }
+      const str = (k: string, r: Ref<string>): void => {
+        const v = localStorage.getItem(k) ?? ''
+        if (v) {
+          r.value = v
+          has = true
+        }
+      }
+      num(OLD_LS.size, proseSize)
+      num(OLD_LS.lh, proseLh)
+      num(OLD_LS.pageWidth, pageWidth)
+      num(OLD_LS.autosaveInterval, autosaveInterval)
+      str(OLD_LS.uiFontCn, uiFontCn)
+      str(OLD_LS.uiFontEn, uiFontEn)
+      str(OLD_LS.proseFontCn, proseFontCn)
+      str(OLD_LS.proseFontEn, proseFontEn)
       const sv = localStorage.getItem(OLD_LS.shelfView)
       if (sv === 'grid' || sv === 'list') {
         shelfView.value = sv
@@ -342,197 +344,222 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
+  // ── 数值行窗口（守卫与 setter 夹取的单源）──
+  /** setter 写入夹取窗：min 必给；max 缺省不封顶；round2 = 先两位小数取整再夹取
+   *  （缺省整数取整）。 */
+  interface ClampSpec {
+    min: number
+    max?: number
+    round2?: boolean
+  }
+  /** 有夹取数值行的窗口（边界数字只在本描述里出现一次，两个消费者同源解读）：
+   *  - clamp：setter 写入窗（applyPrefs 不读它，夹取归 setter）；
+   *  - 守卫窗（applyPrefs 读 global.json 脏值，越界即跳过 = 保持现值）：下界缺省取
+   *    clamp.min（含等于），`guardLo:'positive'` 覆盖为 v > 0——历史口径是「脏值只收正数，
+   *    写入才收紧到 clamp.min」，两者本就不同，故按语义登记而非拉平数字；上界缺省不设，
+   *    `guardHi:'clamp-max'` 取 clamp.max（含等于）；取整缺省不取整（脏值原样落 ref），
+   *    `guardRound` = Math.round 后落 ref（脏值与写入两口径取整不同同为历史事实）。
+   *  于是 clamp.min / clamp.max 一改，同界侧守卫随之跟随，不存在第二次可漏改的数字。 */
+  interface NumWindowClamped {
+    clamp: ClampSpec
+    guardLo?: 'positive'
+    guardHi?: 'clamp-max'
+    guardRound?: boolean
+  }
+  /** 无夹取数值行（setter 原样赋值：字号族 / pageWidth / autosaveInterval）的窗口——
+   *  守卫恒只收正数、无上界、不取整。类型上要求显式落成本形：既无 clamp 又无下界
+   *  （全收任何 number）的行不可表达。 */
+  interface NumWindowRaw {
+    clamp?: undefined
+    guardLo: 'positive'
+    guardHi?: undefined
+    guardRound?: undefined
+  }
+  type NumWindow = NumWindowClamped | NumWindowRaw
+
+  /** 守卫窗判定（applyPrefs 单源调用）——缺省规则见 NumWindowClamped 头注。 */
+  function guardAccepts(win: NumWindow, v: number): boolean {
+    if (win.guardLo === 'positive') {
+      if (!(v > 0)) return false // 脏值只收正数
+    } else if (!(v >= win.clamp.min)) {
+      return false // 缺省下界 = clamp.min（含等于）
+    }
+    if (win.guardHi === 'clamp-max' && win.clamp.max !== undefined && !(v <= win.clamp.max)) return false
+    return true
+  }
+
   /** 将 API 读到的 prefs 应用到各 ref。
-   * 33 键手写 if 链收敛为 PREF_ROWS 表驱动逐键守卫——
-   *  typeof 守卫/边界（gt/gte/lte）/round/trim/枚举白名单逐键照抄原实现，行为等价。 */
+   * 33 键手写 if 链收敛为 PREF_ROWS 表驱动逐键守卫——typeof 守卫/边界/取整/trim/
+   * 枚举白名单逐键照抄原实现，行为等价；数值边界与取整从行窗口（NumWindow）单源派生。 */
   function applyPrefs(p: GlobalPrefs): void {
-    //（satisfies 保构造期逐键检查；值联合收敛回行类型供守卫循环统一读写）
-    for (const row of Object.values(PREF_ROWS) as PrefRow[]) {
+    for (const row of Object.values(PREF_ROWS)) {
       const v = p[row.key]
       if (row.kind === 'num') {
         if (typeof v !== 'number') continue
-        // 下界二选一（照抄原键口径）：gt = 严格大于 / gte = 含等于；缺省不设界
-        if (row.gt !== undefined) {
-          if (!(v > row.gt)) continue
-        } else if (row.gte !== undefined) {
-          if (!(v >= row.gte)) continue
-        }
-        if (row.lte !== undefined && !(v <= row.lte)) continue
-        const r = row.r as Ref<number>
-        r.value = row.round ? Math.round(v) : v
+        if (!guardAccepts(row.win, v)) continue
+        row.r.value = row.win.guardRound ? Math.round(v) : v
       } else if (row.kind === 'bool') {
-        if (typeof v === 'boolean') {
-          const r = row.r as Ref<boolean>
-          r.value = v
-        }
+        if (typeof v === 'boolean') row.r.value = v
       } else if (row.kind === 'str') {
-        if (typeof v === 'string') {
-          const r = row.r as Ref<string>
-          r.value = row.trim ? v.trim() : v
-        }
-      } else {
-        if (typeof v === 'string' && row.values?.includes(v)) {
-          const r = row.r as Ref<string>
-          r.value = v
-        }
+        if (typeof v === 'string') row.r.value = row.trim ? v.trim() : v
+      } else if (typeof v === 'string' && row.values.includes(v)) {
+        // 白名单命中即落 ref：values 是 string[]，命中关系只在运行时成立（TS 不能把
+        // includes 变成类型谓词），故此处把载体收成 Ref<string>——值为该键枚举子集由
+        // 行白名单保证，落 ref 前已判定。
+        ;(row.r as Ref<string>).value = v
       }
     }
   }
 
   // ── 偏好键描述表（三面单源）──
-  // 一张表吃三面：applyPrefs 逐键守卫 / buildCache 全量组装 / SETTERS 写入（clamp+副作用参数）。
+  // 一张表吃三面：applyPrefs 逐键守卫 / buildCache 全量组装 / SETTERS 写入（夹取 + 副作用）。
   // 行名改按承载 ref 名对齐（= 对外 get/set 键），JSON 持久化键仍走行内
   // key 字段（snapDays→snapMaxDays、aiBatchSize→autoBatchSize 两异名映射显式在行上）；
   // 行序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变。
-  // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（经 PrefValueMap
-  // 行表以本映射逐键标注校验：缺行/多行/r 值型不符任一即编译期红，调用点键拼错同红）
-  // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
-  // prefs 测试群（prefs-store / prefs-clamp-setters 等）回归兜底。
-  interface PrefRow {
+  // 「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键（缺行/多行/
+  // 承载 ref 值型不符任一即编译期红，调用点键拼错同红）；数值行的边界数字与取整
+  // 只有一个来源——行上的 win（NumWindow，守卫与 setter 夹取同源派生）。
+  // 逐键行为等价是红线：守卫边界/取整/trim/白名单/setter 夹取/默认值全部照抄原手写，
+  // prefs 测试群（prefs-store / prefs-clamp-setters 等）逐键五点钉界回归兜底。
+
+  /** 行公共面（不含承载 ref——r 的值型由 PrefValueMap 在映射面逐键钉死）。 */
+  interface RowCommon {
     /** global.json 持久化键名（buildCache 落 JSON 的键；applyPrefs 读信封的键） */
     key: keyof GlobalPrefs
-    /** 承载 ref（名可与 key 不同源，见上注） */
-    r: Ref<unknown>
-    kind: 'num' | 'bool' | 'str' | 'enum'
-    /** apply 数字守卫下界：v > gt（严格大于）或 v >= gte（含等于），照抄原键口径 */
-    gt?: number
-    gte?: number
-    /** apply 数字守卫上界：v <= lte（uiFontSizeStep / checkRepeatThreshold 两键） */
-    lte?: number
-    /** apply 取整（Math.round；defaultVolumeSize/字数族/机检计数族） */
-    round?: boolean
-    /** apply/setter 首尾去空（defaultGenre/ragProvider） */
-    trim?: boolean
-    /** enum 白名单（theme/shelfView/styleInjection） */
-    values?: readonly string[]
     /** setter 副作用族：写后 apply（排版 CSS 变量）/ applyTheme（主题+win 窗控）/
      *  applyCompact（紧凑 class）。缺省 = 纯写 + persist */
     side?: 'apply' | 'applyTheme' | 'applyCompact'
-    /** setter clamp：Math.min(max, Math.max(min, round(v)))（原 numSetter 同款）；
-     *  round2 = 先两位小数取整再 clamp（checkRepeatThreshold 浮点截断异形收编进表，
-     *）；缺省行 set = 原样赋值（setSize/setLh 字号族原口径，bool/str/enum 同） */
-    set?: { min: number; max?: number; round2?: boolean }
   }
+  /** 行面其余字段：数值键（PrefValueMap 值型为 number 类）收成 { kind:'num'; win } 单形
+   *  ——漏带 win 编译期红；非数值键按 kind 判别的三形，各自只带自己用到的字段。
+   *  后者三形以 kind 单元判别收窄，applyPrefs / 行工厂按 kind 取到本形的字段。 */
+  type RowSpec<K extends PrefKey> = PrefValueMap[K] extends number | undefined
+    ? { kind: 'num'; win: NumWindow }
+    : { kind: 'bool' } | { kind: 'str'; trim?: boolean } | { kind: 'enum'; values: readonly string[] }
+  /** 行工厂入参面：行表里非数值键的声明类型是判别联合（bool/str/enum 三形），联合整体
+   *  不能直接当入参（成员互不相容），故按「公共面 + 本 kind 用到的字段」收参；键与承载
+   *  ref 的配对仍由调用点（SETTERS 传 PREF_ROWS.x）与行表标注保证。
+   *  数值行 r 取 Ref<number | undefined>（宽型）：机检五键 ref 含 undefined（未设），
+   *  纯 number ref 可赋（值型协变），无需再断言。 */
+  type NumRow = RowCommon & { r: Ref<number | undefined>; win: NumWindow }
+  type BoolRow = RowCommon & { r: Ref<boolean> }
+  type StrRow = RowCommon & { r: Ref<string>; trim?: boolean }
+  type EnumRow<T extends string> = RowCommon & { r: Ref<T> }
 
-  const PREF_ROWS: { [K in PrefKey]: Omit<PrefRow, 'r'> & { r: Ref<PrefValueMap[K]> } } = {
+  const PREF_ROWS: { [K in PrefKey]: RowSpec<K> & RowCommon & { r: Ref<PrefValueMap[K]> } } = {
     theme: { key: 'theme', r: theme, kind: 'enum', values: ['dark', 'light'], side: 'applyTheme' },
-    proseSize: { key: 'proseSize', r: proseSize, kind: 'num', gt: 0, side: 'apply' },
-    proseLh: { key: 'proseLh', r: proseLh, kind: 'num', gt: 0, side: 'apply' },
+    // 原样行四例（win 只有正数守卫；无夹取、无守卫上界）
+    proseSize: { key: 'proseSize', r: proseSize, kind: 'num', win: { guardLo: 'positive' }, side: 'apply' },
+    proseLh: { key: 'proseLh', r: proseLh, kind: 'num', win: { guardLo: 'positive' }, side: 'apply' },
     uiFontCn: { key: 'uiFontCn', r: uiFontCn, kind: 'str', side: 'apply' },
     uiFontEn: { key: 'uiFontEn', r: uiFontEn, kind: 'str', side: 'apply' },
     // UI 字号档（外观设置；-1 小 / 0 标准 / 1 大 / 2 特大）——整条字号刻度随
-    // --font-size-step 平移（apply 里写合计值）
+    // --font-size-step 平移（apply 里写合计值）；守卫上下界与夹取窗同界（guardHi 收 clamp.max）
     uiFontSizeStep: {
       key: 'uiFontSizeStep',
       r: uiFontSizeStep,
       kind: 'num',
-      gte: -1,
-      lte: 2,
+      win: { clamp: { min: -1, max: 2 }, guardHi: 'clamp-max' },
       side: 'apply',
-      set: { min: -1, max: 2 },
     },
     proseFontCn: { key: 'proseFontCn', r: proseFontCn, kind: 'str', side: 'apply' },
     proseFontEn: { key: 'proseFontEn', r: proseFontEn, kind: 'str', side: 'apply' },
-    pageWidth: { key: 'pageWidth', r: pageWidth, kind: 'num', gt: 0, side: 'apply' }, // setter 手写（bookOnly 双分支）
-    autosaveInterval: { key: 'autosaveInterval', r: autosaveInterval, kind: 'num', gt: 0 }, // setter 手写（同上；无 apply）
+    pageWidth: { key: 'pageWidth', r: pageWidth, kind: 'num', win: { guardLo: 'positive' }, side: 'apply' }, // setter 手写（bookOnly 双分支）
+    autosaveInterval: { key: 'autosaveInterval', r: autosaveInterval, kind: 'num', win: { guardLo: 'positive' } }, // setter 手写（同上；无 apply）
     shelfView: { key: 'shelfView', r: shelfView, kind: 'enum', values: ['grid', 'list'] },
     chatEnabled: { key: 'chatEnabled', r: chatEnabled, kind: 'bool' },
     compact: { key: 'compact', r: compact, kind: 'bool', side: 'applyCompact' },
-    // 版本保留全局默认（持久化为 snapMaxDays/snapMaxCount；clamp 见 set）
-    snapDays: { key: 'snapMaxDays', r: snapDays, kind: 'num', gt: 0, set: { min: 1, max: 365 } },
-    snapCount: { key: 'snapMaxCount', r: snapCount, kind: 'num', gt: 0, set: { min: 1, max: 200 } },
+    // 版本保留全局默认（持久化为 snapMaxDays/snapMaxCount；夹取窗见行 win）
+    snapDays: {
+      key: 'snapMaxDays',
+      r: snapDays,
+      kind: 'num',
+      win: { clamp: { min: 1, max: 365 }, guardLo: 'positive' },
+    },
+    snapCount: {
+      key: 'snapMaxCount',
+      r: snapCount,
+      kind: 'num',
+      win: { clamp: { min: 1, max: 200 }, guardLo: 'positive' },
+    },
     // ── 书级设定全局托底 13 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）──
     defaultGenre: { key: 'defaultGenre', r: defaultGenre, kind: 'str', trim: true },
     defaultVolumeSize: {
       key: 'defaultVolumeSize',
       r: defaultVolumeSize,
       kind: 'num',
-      gte: 5,
-      round: true,
-      set: { min: 5, max: 500 },
+      win: { clamp: { min: 5, max: 500 }, guardRound: true },
     },
     // 目标字数/每章字数：JSON 层只存正整数（0 = 未设由 ref 初值表达），非法值保持现值
     defaultTargetWords: {
       key: 'defaultTargetWords',
       r: defaultTargetWords,
       kind: 'num',
-      gt: 0,
-      round: true,
-      set: { min: 0 },
+      win: { clamp: { min: 0 }, guardLo: 'positive', guardRound: true },
     },
     defaultChapterTargetWords: {
       key: 'defaultChapterTargetWords',
       r: defaultChapterTargetWords,
       kind: 'num',
-      gt: 0,
-      round: true,
-      set: { min: 0 },
+      win: { clamp: { min: 0 }, guardLo: 'positive', guardRound: true },
     },
     defaultShortStrict: { key: 'defaultShortStrict', r: defaultShortStrict, kind: 'bool' },
     styleInjection: { key: 'styleInjection', r: styleInjection, kind: 'enum', values: ['light', 'heavy'] },
     autoConfirmOutline: { key: 'autoConfirmOutline', r: autoConfirmOutline, kind: 'bool' },
     // ref 名与 JSON 键 autoBatchSize 不同源（避免与语义混淆）
-    aiBatchSize: { key: 'autoBatchSize', r: aiBatchSize, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
+    aiBatchSize: {
+      key: 'autoBatchSize',
+      r: aiBatchSize,
+      kind: 'num',
+      win: { clamp: { min: 1, max: 20 }, guardRound: true },
+    },
     callsPerChapter: {
       key: 'callsPerChapter',
       r: callsPerChapter,
       kind: 'num',
-      gte: 1,
-      round: true,
-      set: { min: 1, max: 50 },
+      win: { clamp: { min: 1, max: 50 }, guardRound: true },
     },
     relationAutoMine: { key: 'relationAutoMine', r: relationAutoMine, kind: 'bool' },
     relationMineThreshold: {
       key: 'relationMineThreshold',
       r: relationMineThreshold,
       kind: 'num',
-      gte: 1,
-      round: true,
-      set: { min: 1, max: 20 },
+      win: { clamp: { min: 1, max: 20 }, guardRound: true },
     },
     ragEnabled: { key: 'ragEnabled', r: ragEnabled, kind: 'bool' },
     ragProvider: { key: 'ragProvider', r: ragProvider, kind: 'str', trim: true },
     // ──：机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
-    // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断异形已收编进行 set（round2，
-    // 写面与原手写 setCheckRepeatThreshold 逐位一致）
+    // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断在夹取窗（round2），守卫上界
+    // 与夹取上界同界（guardHi），脏值越 1 不收
     checkRepeatThreshold: {
       key: 'checkRepeatThreshold',
       r: checkRepeatThreshold,
       kind: 'num',
-      gt: 0,
-      lte: 1,
-      set: { min: 0.01, max: 1, round2: true },
+      win: { clamp: { min: 0.01, max: 1, round2: true }, guardLo: 'positive', guardHi: 'clamp-max' },
     },
     checkRepeatCharsThreshold: {
       key: 'checkRepeatCharsThreshold',
       r: checkRepeatCharsThreshold,
       kind: 'num',
-      gt: 0,
-      round: true,
-      set: { min: 2, max: 1000 },
+      win: { clamp: { min: 2, max: 1000 }, guardLo: 'positive', guardRound: true },
     },
     checkMaxSentenceLen: {
       key: 'checkMaxSentenceLen',
       r: checkMaxSentenceLen,
       kind: 'num',
-      gt: 0,
-      round: true,
-      set: { min: 10, max: 500 },
+      win: { clamp: { min: 10, max: 500 }, guardLo: 'positive', guardRound: true },
     },
     checkImageryThreshold: {
       key: 'checkImageryThreshold',
       r: checkImageryThreshold,
       kind: 'num',
-      gt: 0,
-      round: true,
-      set: { min: 1, max: 100 },
+      win: { clamp: { min: 1, max: 100 }, guardLo: 'positive', guardRound: true },
     },
     checkWordCountTolerance: {
       key: 'checkWordCountTolerance',
       r: checkWordCountTolerance,
       kind: 'num',
-      gt: 0,
-      set: { min: 1, max: 500 },
+      win: { clamp: { min: 1, max: 500 }, guardLo: 'positive' },
     },
   }
 
@@ -540,9 +567,9 @@ export const usePrefsStore = defineStore('prefs', () => {
    * 表驱动全量组装——键序即 JSON 键序（PUT body 字节不变），undefined 序列化时被
    *  JSON.stringify 丢弃 = 未设不覆盖盘上已有值（机检五键，与服务端合并写语义一致）。 */
   function buildCache(): GlobalPrefs {
-    const out = {} as Record<keyof GlobalPrefs, unknown>
-    for (const row of Object.values(PREF_ROWS) as PrefRow[]) out[row.key] = row.r.value
-    return out as GlobalPrefs
+    const out: GlobalPrefs = {}
+    for (const row of Object.values(PREF_ROWS)) out[row.key] = row.r.value
+    return out
   }
 
   /** PUT 链占位单源——body 起跑即同步占位（单飞不变式：
@@ -611,6 +638,9 @@ export const usePrefsStore = defineStore('prefs', () => {
       revisionKnown = true
       lastPersisted = cache
       persistFailNotified = false // 成功落盘复位——恢复后再失败可再提示
+      // 跨窗失效广播：本窗偏好已落盘 → 他窗走各自既有 GET 合并链重取（不回传值）。
+      // 只在落盘成功后发——落盘前广播会让他窗 GET 到旧值且不会重试（本通道是提示，不是队列）。
+      notifyCrossWindow(['prefs'])
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 409) {
         // 非 409 失败（离线/网络/5xx）不再全静默——原口径直接
@@ -688,7 +718,11 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   /** 409 恢复——远端值垫底 + 本窗未落盘修改重放（原口径 applyPrefs 整体
    *  采纳远端，本窗未落盘的修改被静默丢弃）。重试 PUT 经 await 并入调用方的 putInFlight
-   *  单飞：恢复窗口内的新保存排队到重试完成后发出，不再带陈旧 revision 再吃 409。 */
+   *  单飞：恢复窗口内的新保存排队到重试完成后发出，不再带陈旧 revision 再吃 409。
+   *  本链自身还有 GET + 重试 PUT 两段 await 窗口，窗口内本窗新编辑只存在于 refs
+   *  （localCache 是本笔 PUT 的快照，不含它们）：除按基线重放快照时的脏字段外，还须把
+   *  「当前 refs ≠ 快照」的键以当前值覆盖进 merged，否则 applyPrefs 把它们回退成远端值，
+   *  且回退态随即成为重试 PUT 的 body 与 lastPersisted 基线（编辑静默丢失 + 基线记错）。 */
   async function recoverFromConflict(localCache: GlobalPrefs): Promise<void> {
     let remote: Awaited<ReturnType<typeof getGlobalPrefs>>
     try {
@@ -698,9 +732,15 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
     revision = remote.revision
     revisionKnown = true
+    // 当前 refs = 「本窗最后意图」（快照后可能又改过）；与 localCache 不等的键即快照
+    // 之后（含本 GET 在途）新改的键，合并时以当前值覆盖远端值。
+    const current = buildCache()
     // 远端值垫底，本窗脏字段重放本地值（合并经 applyPrefs 的逐键类型/范围守卫落 refs）
     const merged: GlobalPrefs = { ...remote.prefs }
     for (const k of dirtyKeysOf(localCache)) merged[k] = localCache[k]
+    for (const k of Object.keys(current)) {
+      if (current[k] !== localCache[k]) merged[k] = current[k]
+    }
     applyPrefs(merged)
     // 合并结果只写 refs 不落样式——非本窗脏的字段采纳远端新值后，
     // 排版 CSS 变量/主题 dataset/紧凑 class 仍停留在冲突前旧值，「已保留本窗修改并合并
@@ -715,6 +755,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       revisionKnown = true
       lastPersisted = retryCache
       persistFailNotified = false // 成功落盘复位（与 doPersistPut 成功分支同口径）
+      notifyCrossWindow(['prefs']) // 合并重试已落盘：他窗按各自脏键合并链重取（同 doPersistPut）
       // 三态告知之「成功」——合并 + 重试落盘都成功才按现行口径提示
       useUiStore().toast('全局偏好已在其他窗口被修改，已保留本窗修改并合并最新值', 'warning')
     } catch {
@@ -726,6 +767,54 @@ export const usePrefsStore = defineStore('prefs', () => {
         '全局偏好已在其他窗口被修改，已合并最新值，但重试保存失败——本窗修改已保留，将随下次改动自动重试',
         'error',
       )
+    }
+  }
+
+  /** 跨窗失效通知的刷新入口（收到他窗 prefs 落盘广播时本窗重取）。
+   *
+   * 为什么是「失效通知」而不是「数据同步」：广播载荷不携带任何偏好值，本函数只把它当
+   * 失效信号，重走既有 GET + applyPrefs 逐键守卫 + 脏键合并链——远端值垫底、本窗未落盘
+   * 脏键重放覆盖。于是既不绕过 revision 乐观并发闸（不把别窗值直接写进 refs 造成
+   * 「本窗未保存编辑被静默覆盖」），也不吃本窗脏键（红线）。
+   *
+   * 为什么不复用 recoverFromConflict：那条链尾接着重试 PUT + 「已在其他窗口被修改」toast。
+   * 本链不是冲突（没有任何本窗写失败），PUT 会把刚采纳的远端值原样写回并 bump 服务端
+   * revision → 他窗再收广播 → 写回环 + 误导提示。故只读不写。
+   *
+   * 基线推进只对非脏键（值确实随远端改了）：不推进则下次 409 恢复会把「已被采纳的远端
+   * 旧值」误判成本窗脏字段重放，反过来盖掉他窗更新的值（跨窗反向覆盖）。脏键保持旧基线
+   * → 仍判脏 → 下次保存链照旧重放/补写，本窗编辑不丢。 */
+  async function refreshOnRemoteChange(): Promise<void> {
+    let remote: Awaited<ReturnType<typeof getGlobalPrefs>>
+    try {
+      remote = await getGlobalPrefs()
+    } catch {
+      return /* 网络不可达：保持现值，等下次通知/保存链自愈（与 recoverFromConflict 同口径） */
+    }
+    revision = remote.revision
+    revisionKnown = true
+    // current 取在 await 之后：GET 在途期间的本窗新编辑（≠ 基线）同样判脏而被保留
+    const current = buildCache()
+    const dirty = new Set(dirtyKeysOf(current))
+    // 远端值垫底，本窗脏键重放（合并经 applyPrefs 的逐键类型/范围守卫落 refs）
+    const merged: GlobalPrefs = { ...remote.prefs }
+    for (const k of Object.keys(current)) {
+      if (dirty.has(k)) merged[k] = current[k]
+    }
+    applyPrefs(merged)
+    // 采纳远端值后样式必须随落——排版 CSS 变量/主题 dataset/紧凑 class 不得停在旧值
+    // （对齐 init 与 recoverFromConflict 的 applyPrefs 后三连）
+    applyTheme()
+    applyCompact()
+    apply()
+    if (lastPersisted) {
+      // 采纳后的实际值（applyPrefs 守卫可能回落到本窗现值）= 服务端已知态，作非脏键新基线
+      const after = buildCache()
+      const next: GlobalPrefs = { ...lastPersisted }
+      for (const k of Object.keys(after)) {
+        if (!dirty.has(k)) next[k] = after[k]
+      }
+      lastPersisted = next
     }
   }
 
@@ -752,59 +841,51 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   // ── setter（收口）──
   // 表驱动：「写 ref →（side 副作用）→ schedulePersist」
-  // 三段式收拢行工厂，clamp 参数（set）与副作用族（side）从 PREF_ROWS 行取——与
+  // 三段式收拢行工厂，夹取窗（win.clamp）与副作用族（side）从 PREF_ROWS 行取——与
   // applyPrefs 守卫、buildCache 组装三面单源。行工厂之上再收一层：同构 setter 收进
   // SETTERS 键控映射，经泛型 set(key, value) 单出口（键类型由 PrefValueMap 推导，
   // 拼错键编译期红）；异形保留：setPageWidth / setAutosaveInterval（bookOnly 双分支
-  // 双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）、checkRepeatThreshold
-  // 复读占比守 (0,1]（>1 会把全书章节判复读）。
+  // 双 ref 写，双 ref 无法进单行表——泛型 set 的第三参分支落点）。
 
   /** 行 setter 的收尾两段：按行 side 挂副作用 → schedulePersist 防抖落 global.json。 */
-  function finishRow(row: PrefRow): void {
+  function finishRow(row: RowCommon): void {
     if (row.side === 'apply') apply()
     else if (row.side === 'applyTheme') applyTheme()
     else if (row.side === 'applyCompact') applyCompact()
     schedulePersist()
   }
-  /** 数值行 setter：行带 set 参数时 clamp [min, max]（先取整后 clamp：缺省 Math.round，
-   *  round2 = Math.round(v*100)/100 两位小数——原 setCheckRepeatThreshold 手写公式），
-   *  否则原样赋值（原 setSize/setLh 字号族口径）。ref 形参联合宽型：机检四键为
-   *  Ref<number|undefined>（undefined = 未设），纯 number ref 同传。 */
+  /** 数值行 setter：行带夹取窗时 clamp [min, max]（先取整后夹取：缺省 Math.round，
+   *  round2 = Math.round(v*100)/100 两位小数），否则原样赋值（字号族 / pageWidth /
+   *  autosaveInterval 的「原样」口径）。夹取参数与 applyPrefs 守卫同源自行 win。 */
   const numRow =
-    (row: PrefRow) =>
+    (row: NumRow) =>
     (v: number): void => {
-      const r = row.r as Ref<number>
-      r.value = row.set
-        ? Math.min(
-            row.set.max ?? Infinity,
-            Math.max(row.set.min, row.set.round2 ? Math.round(v * 100) / 100 : Math.round(v)),
-          )
+      const clamp = row.win.clamp
+      row.r.value = clamp
+        ? Math.min(clamp.max ?? Infinity, Math.max(clamp.min, clamp.round2 ? Math.round(v * 100) / 100 : Math.round(v)))
         : v
       finishRow(row)
     }
   /** 布尔行 setter：纯赋值 */
   const boolRow =
-    (row: PrefRow) =>
+    (row: BoolRow) =>
     (v: boolean): void => {
-      const r = row.r as Ref<boolean>
-      r.value = v
+      row.r.value = v
       finishRow(row)
     }
-  /** 字符串行 setter：行带 trim 时首尾去空（原 { trim } 口径——setDefaultGenre/
-   *  setRagProvider 写入即去空），否则纯赋值 */
+  /** 字符串行 setter：行带 trim 时首尾去空（defaultGenre/ragProvider 写入即去空），
+   *  否则纯赋值 */
   const strRow =
-    (row: PrefRow) =>
+    (row: StrRow) =>
     (v: string): void => {
-      const r = row.r as Ref<string>
-      r.value = row.trim ? v.trim() : v
+      row.r.value = row.trim ? v.trim() : v
       finishRow(row)
     }
   /** 联合枚举行 setter：纯赋值（'grid'|'list'、'light'|'heavy'、ThemeId） */
   const enumRow =
-    <T extends string>(row: PrefRow) =>
+    <T extends string>(row: EnumRow<T>) =>
     (v: T): void => {
-      const r = row.r as Ref<T>
-      r.value = v
+      row.r.value = v
       finishRow(row)
     }
 
@@ -840,8 +921,8 @@ export const usePrefsStore = defineStore('prefs', () => {
     relationMineThreshold: numRow(PREF_ROWS.relationMineThreshold),
     ragEnabled: boolRow(PREF_ROWS.ragEnabled),
     ragProvider: strRow(PREF_ROWS.ragProvider),
-    // ──：机检阈值五键（clamp 参数在行上 → schedulePersist 防抖落 global.json；
-    // checkRepeatThreshold 浮点两位截断在行 set.round2）──
+    // ──：机检阈值五键（夹取窗在行 win 上 → schedulePersist 防抖落 global.json；
+    // checkRepeatThreshold 浮点两位截断在行 win.clamp.round2）──
     checkRepeatThreshold: numRow(PREF_ROWS.checkRepeatThreshold),
     checkRepeatCharsThreshold: numRow(PREF_ROWS.checkRepeatCharsThreshold),
     checkMaxSentenceLen: numRow(PREF_ROWS.checkMaxSentenceLen),
@@ -884,7 +965,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     return PREF_ROWS[key].r.value
   }
 
-  /** 泛型写：31 键走 SETTERS 行工厂（clamp/trim/副作用逐键同旧平铺 setter）；pageWidth/
+  /** 泛型写：31 键走 SETTERS 行工厂（夹取/trim/副作用逐键同旧平铺 setter）；pageWidth/
    *  autosaveInterval 两键带 bookOnly 书级覆盖第三参（缺省 false）。两个重载把「哪些键
    *  带第三参」钉进类型面：二元键传第三参、值型不符均编译期红（重载 1 先试——只有
    *  bookOnly 两键吃第三参；非 bookOnly 键落重载 2，无第三参位）。 */
@@ -899,8 +980,17 @@ export const usePrefsStore = defineStore('prefs', () => {
       setAutosaveInterval(value as number, bookOnly ?? false)
       return
     }
-    // key 已排除 bookOnly 两键，SETTERS 键控查得必中；value 型由重载 2 保证
-    ;(SETTERS as Record<WritablePrefKey, (v: never) => void>)[key as WritablePrefKey](value as never)
+    // key 已排除 bookOnly 两键（控制流收窄到 WritablePrefKey）；实现体必须兼容重载 1
+    // 的 (number, bookOnly?) 形态故 value 只能取宽型——键值配对由重载面保证，此处把
+    // 宽型 value 交回键控映射（唯一的值面收窄：收到「可写键的值型并集」，非 any）。
+    writeWritable(key, value as PrefWriteValue<WritablePrefKey>)
+  }
+
+  /** SETTERS 的分发口：泛型 K 下索引映射得该键的 setter 型（联合键索引得联合函数型，
+   *  调用联合函数要求参数取交集——那是本文件要避免的形态）——本函数用泛型把相关性留住，
+   *  调用方 set 的实现体只需一次值面收窄。 */
+  function writeWritable<K extends WritablePrefKey>(key: K, value: PrefWriteValue<K>): void {
+    SETTERS[key](value)
   }
 
   return {
@@ -915,6 +1005,8 @@ export const usePrefsStore = defineStore('prefs', () => {
     // ── 生命周期与冲刷 ──
     init,
     flushPendingPersist,
+    /** 跨窗失效刷新（收到他窗 prefs 落盘广播时调用）：GET + 脏键合并，不落盘（见其注） */
+    refreshOnRemoteChange,
     // ── 副作用句柄（本体在 composables/usePrefsDomEffects.ts；受保护消费方经 store 出口：
     // workspace.ts 直调 apply，ui.ts 遮罩链直调 setOverlayDimmed——两者签名逐位不变）──
     apply,

@@ -16,7 +16,7 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
-// （errMsg 收编）：错误摘要口径单源
+// errMsg：错误摘要口径单源
 import { errMsg } from '../../log/index.js'
 
 /**

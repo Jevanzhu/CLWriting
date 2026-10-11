@@ -5,25 +5,23 @@
  * 按天趋势（事件创建时间聚日）、userDataPath 缺失降级。
  */
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { llmCallEvent } from '../../src/events/chain-bridge.js'
 import { aggregateTrace } from '../../src/ai/trace-stats.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 
 function tempUserData(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-ud-'))
+  const d = tempDirTracked('clwriting-ud-')
   dirs.push(d)
   return d
 }
 
 function tempBookRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-stats-'))
+  const d = tempDirTracked('clwriting-stats-')
   dirs.push(d)
   return d
 }

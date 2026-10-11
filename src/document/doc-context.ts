@@ -28,6 +28,7 @@ import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { toNfcName } from '../fs/text-canonical.js'
 import { isInternalBookPath } from './layout.js'
 import {
+  manifestPathOf,
   readManifestStrict,
   upsertEntry,
   withManifestLockAsync,
@@ -94,7 +95,7 @@ export class DocContext {
     this.userDataPath = opts.userDataPath ?? null
     this.journalDir = join(this.bookRoot, '工作区', '.journal')
     this.snapshotsDir = join(this.bookRoot, '工作区', '.版本')
-    this.manifestPath = join(this.bookRoot, '项目', '文档清单.jsonl')
+    this.manifestPath = manifestPathOf(this.bookRoot)
     this.saveLockTimeoutMs = opts.saveLockTimeoutMs ?? SAVE_LOCK_TIMEOUT_MS
     this.metaSaveLockTimeoutMs = opts.metaSaveLockTimeoutMs ?? META_SAVE_LOCK_TIMEOUT_MS
     this.wiringSaveLockTimeoutMs = opts.wiringSaveLockTimeoutMs ?? WIRING_SAVE_LOCK_TIMEOUT_MS
@@ -166,17 +167,14 @@ export class DocContext {
   /** 保存链锁编排单源——「save 锁
    *  （`<journalPath>.save.lock`：获取自身抛出→收口 WRITE_ERROR，等待超时 null→fail-closed
    *  收口）→ 布线锁（wiringFileLockKey 非空时；异常/超时先释放 save 锁防泄漏再收口）→
-   *  body → finally 逆序 release（release 幂等）」。此前 executeSave /
-   *  updateChapterMetaLocked / updateDocMetaLocked / doMoveOrRename / doTrash 五处各持
-   *  一份 ~50 行同构编排；锁序（全仓 save → 布线 → 清单）与失败语义逐位不变：
+   *  body → finally 逆序 release（release 幂等）」。五个调用面（executeSave /
+   *  updateChapterMetaLocked / updateDocMetaLocked / doMoveOrRename / doTrash）共用本处，
+   *  不得各持一份同构编排；锁序（全仓 save → 布线 → 清单）与失败语义：
    *  - holdSaveLock=false（doMoveOrRename 调用方已持同 docId save 锁）：跳过取锁与释放；
    *  - wiring 缺省（结构性操作段）：不取布线锁，零开销（布线判定 wiringFileLockKey
-   *    仍在 helper 内单源执行，与旧各处就地判定同位同序）；
+   *    仍在 helper 内单源执行）；
    *  - 失败收口文案各调用面专属（超时/异常文案逐字保留），由回调注入。
-   * （save 锁动机）（获取抛出收口）（布线锁与锁序）/
-   * （等待异步化）的机制本体自该批起单源此处，动机沿革见各调用面注释。
-   * 编排随共享设施自 DocumentService 迁入本对象——本方法不再依赖类实例，
-   *  五个调用面统一 `ctx.withSaveLocks(...)`，语义与锁序逐位不变。 */
+   *  五个调用面统一 `ctx.withSaveLocks(...)`；本方法不依赖类实例。 */
   async withSaveLocks<T>(args: SaveLocksArgs<T>): Promise<T> {
     let docSaveLock: (() => void) | null = null
     if (args.holdSaveLock ?? true) {
@@ -213,10 +211,9 @@ export class DocContext {
   }
 
   /** upsertManifestEntry 的异步孪生——executeSave 锁内复核的
-   *  legacy 收编链专用。等待期 withManifestLockAsync（setTimeout 轮询，事件循环不
-   * 阻塞），RMW 本体与同步版逐位对齐（strict 读/同错误/同锁文件）。（三十
-   *）：doCreate/doCopy 登记亦迁本异步孪生；同步版随 adoptLegacyDoc
-   *  链删除——本函数成为清单登记唯一实现。 */
+   *  legacy 补登链专用。等待期 withManifestLockAsync（setTimeout 轮询，事件循环不
+   * 阻塞），RMW 本体与同步版逐位对齐（strict 读/同错误/同锁文件）。doCreate/doCopy
+   *  登记亦走本孪生——本函数是清单登记唯一实现。 */
   async upsertManifestEntryAsync(docId: string, relPath: string): Promise<void> {
     await withManifestLockAsync(this.manifestPath, () => {
       const m = existsSync(this.manifestPath)
@@ -228,12 +225,11 @@ export class DocContext {
     })
   }
 
-  /** lookupPathByDocId 的异步收编孪生（executeSave 锁内复核用）。
+  /** lookupPathByDocId 的异步孪生（executeSave 锁内复核用）。
    *  清单命中读与同步版同口径（无锁读）；miss 且 legacy 前缀时扫盘反查后经异步清单锁
-   *  登记——原路径 adoptLegacyDoc → upsertManifestEntry 用同步 withManifestLock
-   *  （Atomics.wait），双进程争用窗口内在 save 锁等待异步化的保存链上重新引入最长
-   *  2×5s 的事件循环阻塞。残留清偿批全调用面（含端点侧
-   *  resolvePathAsync）已迁本孪生，同步链删除——本函数为 docId 收编唯一实现。 */
+   *  登记——同步 withManifestLock（Atomics.wait）会在 save 锁等待异步化的保存链上重新
+   *  引入最长 2×5s 的事件循环阻塞。全调用面（含端点侧 resolvePathAsync）走本孪生——
+   *  本函数是 docId 反查补登唯一实现。 */
   async lookupPathByDocIdAdoptAsync(docId: string): Promise<string | null> {
     if (existsSync(this.manifestPath)) {
       // 命中读改 readManifestStrict（与 RMW 链

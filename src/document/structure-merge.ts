@@ -2,8 +2,7 @@
  * 章节结构操作——合并编排 + 撤销合并（干跑 plan / 执行 apply + finishMerge /
  * undoChapterMerge 三级定位）。
  *
- * （⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
- * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
+ * 设计口径正本 = structure.ts 头注
  * （《章节结构操作-设计方案-》v3：留洞制/文件本位/崩溃不变量/锁序/
  * external-merge 写入通道）。公共底座（读态派生/plan 指纹/折叠拼接/事件副录）在
  * structure-core.ts，本文件单向依赖之（core←merge，无环）；RAG 触点经 StructureRagPort
@@ -20,7 +19,7 @@ import { patchFlatFm } from '../format/frontmatter.js'
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { countWords } from '../format/words.js'
 import { clipByCodePoints } from '../shared/text.js'
-import { readManifestStrict } from './manifest.js'
+import { manifestPathOf, readManifestStrict } from './manifest.js'
 import { readVersionRaw, listVersions } from './version.js'
 // 合并续跑判定读改 strict——listTrash（容错版）吞瞬态
 // 读失败成空表会把「已软删」误判成「未软删」续跑（service.ts 同款口径：
@@ -358,7 +357,7 @@ async function finishMerge(
 
 /** 清单/回收站条目路径 → 章号——剥 .md 茎后走
  *  chapterNoFromName 单源（裸数字名 0012.md 带扩展直判会因尾点失明；本文件
- *  locateMergeByBody / locateMergeByDisk / applyChapterMerge 三处消费点收编）。 */
+ *  locateMergeByBody / locateMergeByDisk / applyChapterMerge 三处消费点）。 */
 function chapterNoFromEntryPath(relPath: string): number | null {
   const base = basename(relPath)
   return chapterNoFromName(isMdFileName(base) ? base.slice(0, -3) : base)
@@ -379,6 +378,54 @@ export interface MergeUndoHints {
   trashEntryId?: string
   rollbackSnapshotId?: string
   planHash?: string
+}
+
+/** 事件载荷的非空字符串判据（merge / merge-undo 两流共用单源）。 */
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v !== ''
+}
+
+/** 事件载荷的章号判据：1 起算的安全整数（与 readChapterState 的 fm 章号准入、
+ *  format/filename 取号单源口径一致；0/负/小数/失真大数均非合法章号）。 */
+function isChapterNo(v: unknown): v is number {
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 1
+}
+
+/** 载荷定位字段（structure.merge）= StructureMergeData 的定位消费子集。
+ *  以 Pick 锚定规范类型单源：事件载荷字段改名/增删会在本处编译期暴露，
+ *  防「校验面」与「事件载荷形状」两处各自漂移。 */
+type MergeEventFields = Pick<
+  StructureMergeData,
+  'targetDocId' | 'sourceDocId' | 'sourceChapterNo' | 'trashEntryId' | 'rollbackSnapshotId' | 'planHash'
+>
+
+/** structure.merge 事件载荷**逐字段校验**（事件库是持久化可改写面：库文件可被外部
+ * 改写、跨版本载荷可能漂移）。
+ *
+ * 根因：原实现 `ev.data as unknown as StructureMergeData` 裸断言后直接取字段参与 undo
+ * 定位——缺字段/类型错/空串的脏载荷把 undefined/错型值带进定位：targetDocId/planHash
+ * 选「最近一条 merge」，sourceDocId/sourceChapterNo/trashEntryId/rollbackSnapshotId
+ * 决定还原谁、回滚到哪一版；错选源章或静默跳过还原源章。
+ * 判据 = **定位实际消费的字段**齐备且类型正确（未被定位消费的 targetChapterNo/
+ * mergedInto 不进判据——不因未消费字段的脏值误废可用的定位记录）；返回 null = 该条
+ * 不作定位依据，由调用方按两态处置（可证属他章只跳过；否则本次不据事件库定位）。
+ * 不抛穿——抛穿会击穿整条定位链（连带废掉 body/disk 降级面）。 */
+function readMergeEventFields(data: Record<string, unknown>): MergeEventFields | null {
+  const rollbackSnapshotId = data['rollbackSnapshotId']
+  const { targetDocId, sourceDocId, sourceChapterNo, trashEntryId, planHash } = data
+  if (data['op'] !== 'merge') return null
+  if (!isNonEmptyString(targetDocId) || !isNonEmptyString(sourceDocId)) return null
+  if (!isChapterNo(sourceChapterNo)) return null
+  if (!isNonEmptyString(trashEntryId) || !isNonEmptyString(planHash)) return null
+  if (rollbackSnapshotId !== undefined && !isNonEmptyString(rollbackSnapshotId)) return null
+  return {
+    targetDocId,
+    sourceDocId,
+    sourceChapterNo,
+    trashEntryId,
+    planHash,
+    ...(rollbackSnapshotId !== undefined ? { rollbackSnapshotId } : {}),
+  }
 }
 
 /** 事件主路径：最近一条未被 structure.merge-undo 撤销的 structure.merge（按 targetDocId）。 */
@@ -408,18 +455,39 @@ async function locateLatestMergeEvent(
     const undone = new Set<string>()
     for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, 'structure.merge-undo')) {
       const ph = (ev.data as Record<string, unknown>)['planHash']
-      if (typeof ph === 'string') undone.add(ph)
+      // 同款字段判据：空串不构成撤销凭据（脏载荷误标已撤销会让可撤销的 merge 被跳过）
+      if (typeof ph === 'string' && ph !== '') undone.add(ph)
     }
     let found: MergeUndoLocator | null = null
     for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, 'structure.merge')) {
-      const d = ev.data as unknown as StructureMergeData
-      if (d.targetDocId === targetDocId && !undone.has(d.planHash)) {
+      const fields = readMergeEventFields(ev.data)
+      if (fields === null) {
+        // 脏载荷必留痕（定位依据失真须可定位根因）；「不猜」两分支：
+        // - 可证属他章（targetDocId 合法非空串且不等于本目标）：不可能参与本目标的
+        //   「最近一条」判定，跳过该条即可；
+        // - 其余（含 targetDocId 不可读，无法排除它就是本目标的最近一条）：本次不据
+        //   事件库定位，交既有 body/disk 降级链——续扫更早的可用事件会静默错选更早
+        //   那次合并，正是本校验要闭合的错选源章形态。
+        const evTarget: unknown = ev.data['targetDocId']
+        const foreign = isNonEmptyString(evTarget) && evTarget !== targetDocId
+        log.warn(
+          'document',
+          `structure.merge 事件载荷校验失败（缺字段/类型错/空串，不作 undo 定位依据；${
+            foreign
+              ? `事件 seq ${ev.seq} 可证属他章，跳过该条`
+              : '无法排除属本目标的最近一条，本次落 body/disk 降级定位'
+          }）：${bookRoot} / 目标 ${targetDocId}`,
+        )
+        if (!foreign) return null
+        continue
+      }
+      if (fields.targetDocId === targetDocId && !undone.has(fields.planHash)) {
         found = {
-          sourceDocId: d.sourceDocId,
-          sourceChapterNo: d.sourceChapterNo,
-          trashEntryId: d.trashEntryId,
-          ...(d.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: d.rollbackSnapshotId } : {}),
-          planHash: d.planHash,
+          sourceDocId: fields.sourceDocId,
+          sourceChapterNo: fields.sourceChapterNo,
+          trashEntryId: fields.trashEntryId,
+          ...(fields.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: fields.rollbackSnapshotId } : {}),
+          planHash: fields.planHash,
         }
       }
     }
@@ -487,7 +555,7 @@ function locateMergeByDisk(bookRoot: string, mergedInto: number[]): MergeUndoLoc
 function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLocator | null {
   if (mergedInto.length === 0) return null
   const merged = new Set(mergedInto)
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const manifestPath = manifestPathOf(bookRoot)
   if (!existsSync(manifestPath)) return null
   let m: ReturnType<typeof readManifestStrict>
   try {
@@ -620,7 +688,7 @@ export async function undoChapterMerge(
   if (!('章号' in t)) return t
   if (t.并入.length === 0) {
     // 并入 已空不再直接 fail——单次合并 undo 走到
-    // 「目标已回滚、源章还原失败（OCCUPIED 等）」半完成态后，重试从函数头进来此前
+    // 「目标已回滚、源章还原失败（OCCUPIED 等）」半完成态后，重试从函数头进来
     // 必死本门报「已撤销」，收尾段「重试将自动续跑收尾」的承诺不可达（源章滞留回收
     // 站只能手工发现）。先识别半完成态（locateUndoHalfDone 三重核对），命中则跳过
     // 回滚步（目标已是回滚后内容——版本指纹已核对）直接续 restoreTrash 段；识别不出

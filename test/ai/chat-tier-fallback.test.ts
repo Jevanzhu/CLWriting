@@ -8,9 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 import {
   tierFromStore,
   loadProviders,
@@ -20,7 +18,7 @@ import {
 } from '../../src/ai/provider/store.js'
 
 function tmp(): string {
-  return mkdtempTracked(join(tmpdir(), 'w1-chat-'))
+  return tempDirTracked('w1-chat-')
 }
 
 function makeStore(overrides: Partial<ProviderStore> = {}): ProviderStore {

@@ -1,13 +1,13 @@
 /**
- * 窗口工厂与三窗引用单源（自 main.ts 拆出——纯移动零逻辑变化）。
+ * 窗口工厂与三窗引用单源。
  *
- * - 三窗引用 holder（wins）——main/lifecycle/ipc/workdir-controller 跨模块共享可变
- *   窗口引用（原 main.ts 模块级 let，ESM live-binding 不可跨模块赋值，故显式对象承载，
- *   读写语义逐位等价）。
+ * - 三窗引用 holder（wins）——main/lifecycle/ipc/workdir-controller 跨模块共享可变窗口引用
+ *  （ESM live-binding 不可跨模块赋值，故显式对象承载，读写语义等价）。
+ * - 窗口工厂（createSecureWindow 安全五件套）+ 单例子窗 + window-state 持久化。
  *
- * 模块级零副作用纪律：任何 app.getPath 读取一律惰性（stateFile）——本文件随 main.ts
- * 的 import 先于其模块体求值，main.ts 的 app.setPath('userData')（dev/打包 userData
- * 统一，见彼处注释）必须先行，提前求值会拿到 Electron 缺省路径（dev 态小写目录分裂）。
+ * 不变量（模块级零副作用纪律）：任何 app.getPath 读取一律惰性（stateFile）——本文件随 main.ts 的
+ * import 先于其模块体求值，main.ts 的 app.setPath('userData') 必须先行；提前求值会拿到 Electron
+ * 缺省路径（dev 态小写目录分裂）。
  */
 import {
   app,

@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
 import {
+  manifestPathOf,
   readManifestDegraded,
   readManifestStrict,
   writeManifest,
@@ -103,7 +104,7 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
   //（清单被篡改插入非法 id 条目时的纵深缺口；executeSave/doMoveOrRename/doTrash 同款）
   if (!safeDocId(docId)) return { ok: false, code: 'NOT_FOUND', error: '文档 ID 非法' }
   // docId → relPath（清单解析；未登记返回 NOT_FOUND）
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const manifestPath = manifestPathOf(bookRoot)
   const lookup = lookupRelPath(docId, manifestPath)
   // 清单读失败与「未登记」分家——
   // lookupRelPath 前身走 readManifest 容错版，EACCES/EBUSY/EIO 瞬态读失败与「文档不存在」
@@ -214,8 +215,8 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   }
 
   // ① 写定稿版本（永久保留，pinned）。内容取自锁内同源读取的
-  // 字节，不再二次 readFileSync；文件在锁内消失（fileBytes null）时此前会在 computeRevision
-  // 处抛裸错，现收编进契约。
+  // 字节，不二次 readFileSync；文件在锁内消失（fileBytes null）时归入契约
+  //（不得在 computeRevision 处抛裸错）。
   try {
     if (!fileBytes) return { ok: false, code: 'WRITE_ERROR', error: '定稿失败：文件在定稿过程中被移除' }
     const content = fileBytes.toString('utf-8')
@@ -266,8 +267,8 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   const next = manifest.entries.get(docId)!
   next.finalizedRevision = rev
   next.finalizedAt = new Date().toISOString()
-  // writeManifest 失败此前裸抛穿透 FinalizeOutcome 契约，批量定稿
-  // 循环被单条中断丢汇总。收编进契约（WRITE_ERROR）；版本已写、基线未落 → 重试重写版本
+  // writeManifest 失败归入契约（WRITE_ERROR）——裸抛会穿透 FinalizeOutcome 契约，
+  // 批量定稿循环被单条中断丢汇总；版本已写、基线未落 → 重试重写版本
   // （追加无害）后落基线，不产生不一致态。
   try {
     writeManifest(manifestPath, manifest)
@@ -438,9 +439,9 @@ function lookupRelPath(
 }
 
 /** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。
- * 窄正则 `^(\d+-)` 收编 chapterNoFromName 单源（format/filename
- *  宽集：`-`/`—`/空白/裸尾均认）——`5—标题.md`/`5 标题.md` 此前落 0，防吃书闸兑现侧
- *  清单按章号定位 miss。行为变化面：仅此前解析失败（章号 0）的文件名现在正确解析。
+ * 窄正则 `^(\d+-)` 走 chapterNoFromName 单源（format/filename
+ *  宽集：`-`/`—`/空白/裸尾均认）——否则 `5—标题.md`/`5 标题.md` 落 0，防吃书闸兑现侧
+ *  清单按章号定位 miss。行为变化面：仅解析失败（章号 0）的文件名现在正确解析。
  * 16+ 位失真大数前缀经单源 SafeInteger 守卫落
  *  null → 0（isWiredChapter 要求 chapterNo > 0）——fm 坏 + 天文数字文件名形态按
  *  「无章号」降级跳过防吃书闸定位，不再向闸内派发 1.23e20 级章号。 */

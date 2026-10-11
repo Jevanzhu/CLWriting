@@ -8,18 +8,17 @@
  * 修复后段内重读、仅当仍是旧格式才落盘。
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 import { waitFor as waitForShared } from '../helpers/wait-for.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-r48-calls-'))
+  const d = tempDirTracked('clwriting-r48-calls-')
   dirs.push(d)
   return d
 }

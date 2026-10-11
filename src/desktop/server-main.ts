@@ -2,20 +2,16 @@
 /**
  * 编译产物独立 server 入口（发布 smoke 用）。
  *
- * Electron main 内嵌的是同一个 studio server 模块；此入口让打包产物
- * （dist/desktop 本文件 + dist/web 静态前端）在无 GUI 的 e2e 环境可直接
- * 启动验证——发布前跑 npm run test:e2e:release。
+ * Electron main 内嵌的是同一个 studio server 模块；此入口让打包产物（dist/desktop 本文件 +
+ * dist/web 静态前端）在无 GUI 的 e2e 环境可直接启动验证——发布前跑 npm run test:e2e:release。
  *
- * 参数组装 / 启动事件信封化已收敛 server-boot 共享核心（与
- * server-utility 入口单一真相源）；本文件只留 node 直跑形态差异：端口缺省
- * 7878（env CLWRITING_PORT）、userDataPath 缺省 defaultUserDataPath、
- * SIGINT/SIGTERM 优雅退出。
+ * 参数组装 / 启动事件信封化已收敛 server-boot 共享核心（与 server-utility 入口单一真相源）；
+ * 本文件只留 node 直跑形态差异：端口缺省 7878（env CLWRITING_PORT）、userDataPath 缺省
+ * defaultUserDataPath、SIGINT/SIGTERM 优雅退出。
  *
- * 单立：入口解耦——胶水与信号兜底收编为导出函数
- * （runServerMain / installSignalFallback），顶层只留 VITEST 探针守卫 + 接线
- * （先例 server-utility.ts）。此前整文件顶层执行（import 即读 argv / 真绑端口 /
- * 真注册信号），vitest 无法进程内测——信号兜底修复（/
- *）长期无测试装置即此因。
+ * 可测性：胶水与信号兜底为导出函数（runServerMain / installSignalFallback），顶层只留 VITEST
+ * 探针守卫 + 接线——整文件顶层执行（import 即读 argv / 真绑端口 / 真注册信号）时 vitest 无法
+ * 进程内测。
  *
  * 用法：node dist/desktop/server-main.js --dir <workDir> --port <port>
  * 环境变量照常透传（CLWRITING_DRIVER=mock 可脱离大模型跑通全链路）。

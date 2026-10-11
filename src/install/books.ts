@@ -1,22 +1,16 @@
 /**
- * books.jsonl 登记 + 活动书 —— 依据 #32。
+ * books.jsonl 登记 + 活动书（工作目录多书的核心接缝）。
  *
- * 既有命令从「单书 cwd」走向「工作目录多书」的核心接缝：
- * - books.jsonl 登记有哪些书；.clwriting/active 指当前哪本（指针，换书只改它）
+ * - books.jsonl 登记有哪些书；.clwriting/active 指当前哪本（指针，换书只改它）。
  *
- * （⑤④产品拆分波1）：本文件纯移动拆分——缝 B（工作目录定位/
- * 书仓库判定）→ books-resolve.ts，缝 A（books.jsonl 自愈 repairBooks 族）→
- * books-repair.ts；残核 = books.jsonl 登记读写 + 锁 + 活动书指针 +
- * 书名校验（BOOK_NAME_* / isInvalidBookName）。两新模块的既有导出经文件尾逐名
- * re-export 桥接，全库 import 面不动；零行为变化。
- *
- * 登记读写 + 锁（BOOKS_FILE/CLWRITING_DIR/
- * KIND_DIRS/BookEntry/readBooksStrict/readBooks/writeBooks/tryBooksLock(Async) 与
- * 超时档）再下沉 books-store.ts（中立模块，不引同域任何文件）——拆分波1 的两处
- * re-export 桥使 books ↔ books-repair ↔ books-resolve 三文件互引成环（repair/resolve
- * 回引本文件取存储原语，本文件再引回二者）。下沉后依赖单向：books-resolve /
- * books-repair / 本文件各自向下引 books-store；本文件仍逐名 re-export 存储层与
- * 两个拆出模块的导出（desktop/document/studio 等消费方 import 面不动）。
+ * 模块边界：工作目录定位 / 书仓库判定 → books-resolve.ts；books.jsonl 自愈 repairBooks 族 →
+ * books-repair.ts；登记读写 + 锁（BOOKS_FILE/CLWRITING_DIR/KIND_DIRS/BookEntry/readBooksStrict/
+ * readBooks/writeBooks/tryBooksLock(Async) 与超时档）→ books-store.ts（中立模块，不引同域任何文件）。
+ * 为什么存储原语要下沉 books-store：留在本文件时 books ↔ books-repair ↔ books-resolve 三文件互引
+ * 成环（repair/resolve 回引本文件取存储原语，本文件再引回二者）；下沉后依赖单向——三者各自向下引
+ * books-store。
+ * 本文件仍逐名 re-export 存储层与两个拆出模块的导出，全库（desktop/document/studio 等）import
+ * 面不动。
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'

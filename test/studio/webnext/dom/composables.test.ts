@@ -3,8 +3,10 @@
  *
  * 覆盖 useChatComposer / useChatTier / useNativeMenu / useSystemFonts / useTheme
  * 的纯逻辑 + 关键交互。DOM 相关用 happy-dom（文件级环境注释）。
+ * P1-3（工程门修复批）补 useLibraryIpc 的桌面桥分支（落库失败信封/toast 口径/
+ * 同路径 no-op/无桥降级）——此前 0%（只被 pages 消费，page 面恒 mock 不可达）。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 
@@ -42,9 +44,11 @@ import { deleteDoc, createDoc, copyDoc, updateChapterMetaDoc } from '../../../..
 import { useChatComposer } from '../../../../src/studio/web-next/src/composables/useChatComposer'
 import { useChapterTreeActions } from '../../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { useChatTier } from '../../../../src/studio/web-next/src/composables/useChatTier'
+import { useLibraryIpc } from '../../../../src/studio/web-next/src/composables/useLibraryIpc'
 import { useNativeMenu } from '../../../../src/studio/web-next/src/composables/useNativeMenu'
 import { useSystemFonts, selValue } from '../../../../src/studio/web-next/src/composables/useSystemFonts'
 import { useTheme } from '../../../../src/studio/web-next/src/composables/useTheme'
+import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 
 const sendMock = sendChat as ReturnType<typeof vi.fn>
 const clearMock = clearChatHistory as ReturnType<typeof vi.fn>
@@ -507,5 +511,75 @@ describe('useChapterTreeActions · 切书守卫（N-8/N-9/N-13）', () => {
     expect(actions.renamePath.value).toBeNull()
     expect(actions.draggedPath.value).toBeNull()
     expect(actions.creating.value).toBeNull()
+  })
+})
+
+// ── P1-3：useLibraryIpc 桌面桥分支（文件此前 0%——只被 pages 消费，page 面恒 mock）──
+describe('useLibraryIpc（P1-3：桌面桥分支）', () => {
+  /** 桌面桥两 channel 的信封联合（对齐 desktop.d.ts / preload 契约） */
+  type OpenLibraryResult = { ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }
+  type SwitchLibraryResult = { ok: true } | { ok: false; reason: string }
+
+  /** 装桥桩：两 IPC 缺省成功；返回 stub 供逐例改态（test 尾 afterEach 摘除） */
+  function installBridge(): {
+    openLibrary: ReturnType<typeof vi.fn<() => Promise<OpenLibraryResult>>>
+    switchLibrary: ReturnType<typeof vi.fn<(p: string) => Promise<SwitchLibraryResult>>>
+  } {
+    const openLibrary = vi.fn(async (): Promise<OpenLibraryResult> => ({ ok: true }))
+    const switchLibrary = vi.fn(async (_p: string): Promise<SwitchLibraryResult> => ({ ok: true }))
+    window.clwritingDesktop = { platform: 'darwin', openLibrary, switchLibrary } as unknown as NonNullable<
+      Window['clwritingDesktop']
+    >
+    return { openLibrary, switchLibrary }
+  }
+  afterEach(() => {
+    delete (window as { clwritingDesktop?: unknown }).clwritingDesktop
+  })
+
+  it('chooseLibrary：成功静默；落库失败信封（ok:false+reason）→ error toast（不再被静默吞）', async () => {
+    const ui = useUiStore()
+    const { openLibrary } = installBridge()
+    const ipc = useLibraryIpc({ formatError: String })
+    await ipc.chooseLibrary()
+    expect(ui.toasts).toHaveLength(0)
+    openLibrary.mockResolvedValueOnce({ ok: false, reason: '目标目录不可写' })
+    await ipc.chooseLibrary()
+    expect(ui.toasts.map((t) => [t.msg, t.kind])).toEqual([['目标目录不可写', 'error']])
+  })
+
+  it('chooseLibrary：IPC 抛错 → formatError 注入文案落 toast（两页取错口径差异由调用方注入）', async () => {
+    const ui = useUiStore()
+    const { openLibrary } = installBridge()
+    openLibrary.mockRejectedValueOnce(new Error('IPC 通道断开'))
+    await useLibraryIpc({ formatError: (e) => `归类：${(e as Error).message}` }).chooseLibrary()
+    expect(ui.toasts.map((t) => [t.msg, t.kind])).toEqual([['归类：IPC 通道断开', 'error']])
+  })
+
+  it('switchTo：同路径短路（零 IPC 零 toast）；成功静默；失败信封 → error toast', async () => {
+    const ui = useUiStore()
+    const { switchLibrary } = installBridge()
+    const ipc = useLibraryIpc({ formatError: String, currentPath: () => '/libs/甲' })
+    await ipc.switchTo('/libs/甲')
+    expect(switchLibrary).not.toHaveBeenCalled()
+    await ipc.switchTo('/libs/乙')
+    expect(switchLibrary).toHaveBeenCalledWith('/libs/乙')
+    expect(ui.toasts).toHaveLength(0)
+    switchLibrary.mockResolvedValueOnce({ ok: false, reason: '目标卷大小写不敏感，换个目录' })
+    await ipc.switchTo('/libs/丙')
+    // 抛错路径同 toast 出口（formatError 注入文案）
+    switchLibrary.mockRejectedValueOnce(new Error('IPC 通道断开'))
+    await ipc.switchTo('/libs/丁')
+    expect(ui.toasts.map((t) => [t.msg, t.kind])).toEqual([
+      ['目标卷大小写不敏感，换个目录', 'error'],
+      ['Error: IPC 通道断开', 'error'],
+    ])
+  })
+
+  it('无桌面桥（浏览器版）：两函数静默降级，不抛', async () => {
+    const ui = useUiStore()
+    const ipc = useLibraryIpc({ formatError: String })
+    await ipc.chooseLibrary()
+    await ipc.switchTo('/libs/甲')
+    expect(ui.toasts).toHaveLength(0)
   })
 })

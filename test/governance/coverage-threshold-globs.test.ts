@@ -64,6 +64,15 @@ const EXPECTED_GLOBS = [
   // R0910-W（2026-09-10）：composables 单列域级子桶——聚合桶 lines 门仅 43，远低于本域
   // 实测 84.13，域内腰斩在聚合均值里对门不可见；阈值 = 实测基线 −2pp 向下取整（82/81）
   'src/studio/web-next/src/composables/**',
+  // P1-3（工程门修复批）：三处「池化均值稀释」显影桶——worker 入口只在 spawn 侧真线程
+  // 被加载（主线程 import 零执行 → v8 0%），relations 两 SFC / useLibraryIpc 只被 pages
+  // 与 e2e 消费（单测面恒 mock → 0%）：0% 文件在聚合桶 92%/80% 均值里对门不可见。
+  // 本批补直测后立窄桶防回退，阈值 = 本地实测（跑相关三档的 v8 口径）−2pp 向下取整
+  //（workers 与 useLibraryIpc S/B/F/L 100% → 98；relations SFC 池化 L 42.64 / B 49.49
+  // → 40 / 47，缘由见 vitest.config.ts 同锚注）。桶键须与配置同序（双向锁基准）。
+  'src/**/*-worker.ts',
+  'src/studio/web-next/src/components/relations/*.vue',
+  'src/studio/web-next/src/composables/useLibraryIpc.ts',
 ]
 /** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
 // 0918独立重评修复批（G003）：INCLUDE 抄本同步扩 'src/studio/web-next/src/**/*.vue'

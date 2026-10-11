@@ -77,21 +77,9 @@ import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useChapterTreeActions } from '../../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { sha256Revision } from '../../../../src/studio/web-next/src/shared/revision'
 import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()/length，Map-backed 替身（r30 范型）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 const KEY = (book: string, docId: string): string => `clw:dirty-mirror:${book}:${docId}`

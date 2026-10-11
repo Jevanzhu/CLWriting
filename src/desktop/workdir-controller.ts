@@ -505,12 +505,11 @@ function findBookEntry(workDir: string, name: string): ReturnType<typeof readBoo
  *  （armPendingRelaunchIfAny），取消路径同步丢弃意图。 */
 let pendingRelaunch = false
 
-/** 不可回头点武装——flush 确认全过、appTearingDown 置位处调用；切库意图
- * 在此刻兑现（app.relaunch() +显式交接释放锁，锁时序缝隙与最坏结果分析见
- *  原 relaunch 注）。仅切库链带意图时动作，普通退出零副作用。
- *  多库多窗 §4.4：`app.relaunch()` 默认继承当前 argv——必须清掉 argv 里的 `--dir`
- *  （解析序最高优先级），否则重启后的实例按旧 `--dir` 顶回旧库；切库语义要求重启后
- *  按共享根 workdir.json.current（已指向新库）解析。 */
+/** 不可回头点武装——flush 确认全过、退出链进入 tearing-down 相位处调用；切库意图
+ * 在此刻兑现（app.relaunch() + 显式交接释放锁）。仅切库链带意图时动作，普通退出零副作用。
+ * `app.relaunch()` 默认继承当前 argv——必须清掉 argv 里的 `--dir`（解析序最高优先级），
+ * 否则重启后的实例按旧 `--dir` 顶回旧库；切库语义要求重启后按共享根
+ * workdir.json.current（已指向新库）解析。 */
 function armPendingRelaunchIfAny(): void {
   // 清偿批不可回头点之后新库即用户所愿，回滚基线作废（普通退出
   // 无基线时本行为空操作）

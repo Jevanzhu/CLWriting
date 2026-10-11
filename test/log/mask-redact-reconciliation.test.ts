@@ -2,7 +2,8 @@
  * R0912（重评-0911c P3）：log 双词表对账测试——maskKeys（形貌保留，对账面）与
  * redactSecret（全掩，泄漏收敛面）各持一套正则，此前无「同形必同命中」的门，
  * 词表漂移零防线。本测试锁三件事：
- *   1. 重叠域（≥16 位裸 key 及智谱/Gemini 形态）：两函数都必须检出（命中即变更）；
+ *   1. 重叠域（≥16 位裸 key、智谱/Gemini 形态及 JSON 值内无前缀 key）：两函数
+ *      都必须检出（命中即变更）——JSON 形态为 A4 并入（此前两表同漏）；
  *   2. 良性文本（含 sk- 同形路径/普通词）：双方都必须零误伤（R0912 词首断言修复面）；
  *   3. 有意分账：maskKeys {8,} 比 redactSecret {16,} 更严（8–15 位短 key 仅前者掩），
  *      该差异是文档化的过掩方向，测试钉住防未来「对齐」时静默放宽。
@@ -11,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { maskKeys } from '../../src/log/index.js'
 import { redactSecret } from '../../src/log/redact.js'
 
-/** 重叠域凭据样本：≥16 位裸 key + 无前缀特征的智谱/Gemini 形态 */
+/** 重叠域凭据样本：≥16 位裸 key + 无前缀特征的智谱/Gemini 形态 + JSON 值内无前缀 key */
 const CREDENTIAL_SAMPLES: string[] = [
   'sk-ant-api03-AAAA0123456789abcdefghij',
   'xai-AAAAAAAA0123456789abcdef',
@@ -22,6 +23,8 @@ const CREDENTIAL_SAMPLES: string[] = [
   'ghp_AAAAAAAA0123456789abcdef',
   `${'0123456789abcdef'.repeat(2)}.${'0123456789abcdef'.repeat(2)}`, // 智谱 32.32 hex
   `AIza${'x'.repeat(35)}`, // Gemini AIza+35
+  `{"api_key":"9f8e7d6c5b4a39281706f5e4"}`, // JSON 裸形（无前缀 key，仅 JSON 规则可掩）
+  `{\\"access_token\\":\\"9f8e7d6c5b4a39281706f5e4\\"}`, // emit 后序列化行的转义形
 ]
 
 /** 良性文本：含 sk- 同形前缀的路径/普通词（R0912 词首断言的修复对象） */
@@ -29,6 +32,7 @@ const BENIGN_SAMPLES: string[] = [
   'task-sk-20230801.md 处理完成',
   'mask-sensitive-data 并非 key',
   '回顾 mask-sk_context 的历史命名',
+  '{"monkey":"banana"}', // 键名尾词 `key` 但词首是字母——不得被 JSON 规则误伤
 ]
 
 describe('R0912：log 双词表对账（maskKeys × redactSecret）', () => {
@@ -50,5 +54,16 @@ describe('R0912：log 双词表对账（maskKeys × redactSecret）', () => {
     const shortKey = 'sk-12345678'
     expect(maskKeys(shortKey)).not.toBe(shortKey)
     expect(redactSecret(shortKey)).toBe(shortKey)
+  })
+
+  it('A4 面：JSON 形态掩后结构不破——maskKeys 保形貌可回 JSON.parse，redactSecret 全掩', () => {
+    const key = '9f8e7d6c5b4a39281706f5e4'
+    const line = JSON.stringify({ api_key: key, note: 'ok' })
+    const masked = maskKeys(line)
+    expect(JSON.parse(masked)).toEqual({ api_key: '****f5e4', note: 'ok' })
+    expect(masked).not.toContain(key)
+    const redacted = redactSecret(line)
+    expect(JSON.parse(redacted)).toEqual({ api_key: '***REDACTED***', note: 'ok' })
+    expect(redacted).not.toContain(key)
   })
 })

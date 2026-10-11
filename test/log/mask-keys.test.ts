@@ -90,3 +90,39 @@ describe('R26-95：maskKeys 密钥形态掩码', () => {
     expect(maskKeys('X-API-KEY: abcd1234efgh5678')).not.toContain('abcd1234')
   })
 })
+
+describe('A4：maskKeys JSON 形态凭据（`"api_key":"…"`）', () => {
+  const KEY = '9f8e7d6c5b4a39281706f5e4' // 无厂商前缀——裸 key 族够不着，只有 JSON 形态规则能掩
+
+  it('裸 JSON（配置片段/请求体回显）：键名与引号保留、值全掩留末 4 位、结构不破', () => {
+    const out = maskKeys(`{"api_key":"${KEY}"}`)
+    expect(out).toBe('{"api_key":"****f5e4"}')
+    expect(JSON.parse(out)).toEqual({ api_key: '****f5e4' })
+    expect(out).not.toContain(KEY)
+    expect(out).not.toContain('9f8e7d6c')
+  })
+
+  it('emit 后序列化行内的转义形（`\\"key\\":\\"…\\"`）同样命中，行保持可 JSON.parse', () => {
+    const line = JSON.stringify({ ts: 'x', msg: `请求体 {"api_key":"${KEY}"}` })
+    expect(line).toContain('\\"api_key\\":\\"') // 前提：行内确为转义形
+    const out = maskKeys(line)
+    expect(out).not.toContain(KEY)
+    expect((JSON.parse(out) as { msg: string }).msg).toContain('****f5e4')
+  })
+
+  it('键名族：access_token / authorization / token / secret 均掩；`monkey` 这类词尾不误伤', () => {
+    expect(maskKeys(`{"access_token":"${KEY}"}`)).not.toContain(KEY)
+    expect(maskKeys(`"authorization": "Basic ${KEY}"`)).not.toContain(KEY)
+    expect(maskKeys(`{"token":"${KEY}"}`)).not.toContain(KEY)
+    expect(maskKeys(`{"client_secret":"${KEY}"}`)).not.toContain(KEY)
+    expect(maskKeys('{"monkey":"banana"}')).toBe('{"monkey":"banana"}')
+  })
+
+  it('短值（<8 位）全掩不回显；值内含转义序列时止于转义边界（不越 JSON 串）', () => {
+    expect(maskKeys('{"key":"abcd"}')).toBe('{"key":"****"}')
+    const line = JSON.stringify({ msg: '{"api_key":"abc"}' })
+    const out = maskKeys(line)
+    expect(() => JSON.parse(out)).not.toThrow()
+    expect(out).not.toContain('abc"')
+  })
+})

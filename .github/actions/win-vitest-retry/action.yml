@@ -1,16 +1,18 @@
 # 0918四轮修复批（G402）：win 腿 vitest「收尾竞态重跑一次」兜底抽成本地 composite action——
 # 此前 ci.yml 与 desktop.yml 各持一段逐行复制的 pwsh 步（R0911-G-P1-1d 与 R0912-G2-P3-5
-# 双份漂移隐患），单源收编后两工作流改 uses 本 action。
-# 语义（与改前逐字一致，成因/副作用记档见 ci.yml「测试（win 腿…）」步注释）：
-# 首跑绿 = 零额外成本；首跑红 → 同命令重跑一次——重跑绿 = vitest×tinypool forks 池
-# teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态洗白（win 用例本身全绿的既证形态）；
-# 重跑仍红 = exit 1 步红，真失败不吞只延后一轮。上游根治后（vitest/tinypool 升级）
-# 本兜底两处接线一并可撤。
+# 双份漂移隐患），单源收编后调用方改 uses 本 action。
+# 语义：首跑绿 = 零额外成本；首跑非零退出时**先判形态**——
+#  ①输出含用例失败行（vitest `FAIL  test/xxx.test.ts` 形态）→ 真用例失败，首报 exit 1，不重跑；
+#  ②无 FAIL 行却非零退出 = 收尾竞态形态（用例全绿、进程收尾期非零退出）→ 同命令重跑一次，
+#    重跑绿 = 该次被吸收（首跑退出码与「零 FAIL 行」写进 step summary，洗白可见可累计）；
+#    重跑仍非零 = exit 1 步红，真失败不吞、只延后一轮。
+# 成因只记形态（非零退出 + 零 FAIL 行）——不写具体包名/内部机制：当前依赖树已不装 tinypool，
+# 旧注记的成因表述与实现不符，勿再按包名归因。上游根治后本兜底两处接线可撤。
 name: 'win 腿 vitest 收尾竞态重跑一次兜底'
-description: 'win 腿 npm test 首跑非零退出时同命令重跑一次，区分 tinypool 收尾竞态与真失败（R0911-G-P1-1d）'
+description: 'win 腿 npm test 首跑非零退出时先判形态：含 FAIL 行（真用例失败）→ 不重跑直接红；零 FAIL 行（收尾竞态形态）→ 同命令重跑一次（R0911-G-P1-1d）'
 inputs:
-  # 两工作流保留各自既有批次号文案（ci.yml=R0911-G-P1-1d / desktop.yml=R0912-G2-P3-5），
-  # 日志与告警文案逐字不漂移；仅重跑兜底逻辑单源化，告警标识随调用方传参。
+  # 调用方保留各自既有批次号文案（ci.yml=R0911-G-P1-1d），日志与告警文案的批次号标识
+  # 经本输入传参，不在 action 内写死。
   warning-title:
     description: '重跑告警 ::warning title= 的批次号标识（各工作流保留既有文案）'
     required: false
@@ -20,21 +22,53 @@ runs:
   steps:
     - shell: pwsh
       run: |
-        # RC 全项目重审 P2-4：首跑输出落盘留痕——重跑洗白面（首跑红文件清单）可见化，
-        # 供对竞态台账（Dev/Docs 03-设计 win 腿竞态台账）甄别「在册家族」与新增间歇面；
-        # 洗白吸收语义不变（重跑绿即过），只是不再不可见。Tee 不吞退出码（native 命令
-        # $LASTEXITCODE 照常生效）。
+        # 首跑输出落盘留痕（对竞态台账甄别「在册家族」与新增间歇面）。Tee 不吞退出码
+        #（native 命令 $LASTEXITCODE 照常生效），故紧随其后立即取值，避免后续命令覆盖。
         npm test 2>&1 | Tee-Object -FilePath win-vitest-first.out.log
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "::warning title=${{ inputs.warning-title }}::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
-          $fails = @(Select-String -Path win-vitest-first.out.log -Pattern 'FAIL\s+\S*test' -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { $_.Line.Trim() })
-          if ($fails.Count -eq 0) {
-            $fails = @(Select-String -Path win-vitest-first.out.log -Pattern 'Test Files' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line.Trim() })
+        $firstCode = $LASTEXITCODE
+        if ($firstCode -ne 0) {
+          # 判据一：输出含 vitest 用例失败行（`FAIL  test/x.test.ts > …`）→ 真失败：首报
+          # exit 1，不做重跑（重跑会把真失败延后一轮、并洗白间歇用例）。行首锚定 FAIL 词，
+          # 容忍真实形态的行首噪声（多 project 的项目名段 `FAIL  |unit| test/…`、CI 彩色
+          # 输出的 ANSI 码）；要求同行带 `.test.ts` 路径，避免误收其它日志里的裸 FAIL 词。
+          $failPattern = '^[\s\x1b\[\]0-9;m]*FAIL\b.*\.test\.ts'
+          $failLines = @(
+            Select-String -Path win-vitest-first.out.log -Pattern $failPattern -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.Line.Trim() }
+          )
+          if ($failLines.Count -gt 0) {
+            Write-Host "::error title=${{ inputs.warning-title }}::win 腿测试首跑失败（输出含 $($failLines.Count) 条 FAIL 行）——真用例失败首报，不重跑"
+            $failLines | Select-Object -First 10 | ForEach-Object { Write-Host "  $_" }
+            exit 1
           }
-          if ($fails.Count -gt 0) {
-            Write-Host "::warning title=${{ inputs.warning-title }}-重跑洗白面::首跑红文件（重跑绿即被吸收的间歇面，须对竞态台账甄别在册家族/新增间歇）：$($fails -join ' | ')"
+
+          # 判据二：零 FAIL 行却非零退出 = 收尾竞态形态（用例本身全绿、进程收尾期非零退出）
+          # → 同命令重跑一次兜底。首跑汇总行一并带出，供台账甄别。
+          $tail = @(
+            Select-String -Path win-vitest-first.out.log -Pattern 'Test Files' -ErrorAction SilentlyContinue |
+              Select-Object -Last 1 |
+              ForEach-Object { $_.Line.Trim() }
+          )
+          $msg = "win 腿测试首跑非零退出（exit code=$firstCode）且输出零 FAIL 行（收尾竞态形态）——同命令重跑一次"
+          if ($tail.Count -gt 0) {
+            $msg = "$msg；首跑汇总行：$($tail[0])"
           }
+          Write-Host "::warning title=${{ inputs.warning-title }}::$msg"
+
+          # 重跑计数器：洗白前置记录（首跑退出码 + 零 FAIL 行），重跑红也不丢这一笔。
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- win 腿 vitest 重跑：首跑 exit code=$firstCode、输出零 FAIL 行（收尾竞态形态）→ 同命令重跑一次（${{ inputs.warning-title }}）"
+          }
+
           npm test
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $secondCode = $LASTEXITCODE
+          if ($secondCode -ne 0) {
+            Write-Host "::error title=${{ inputs.warning-title }}::win 腿测试重跑仍非零退出（exit code=$secondCode）——真失败不吞"
+            exit 1
+          }
+          # 洗白回执：重跑绿 = 该次首跑非零退出被吸收（与上方前置记录成对，可累计计数）
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- win 腿 vitest 重跑被吸收：首跑 exit code=$firstCode → 重跑 exit code=0（重跑后全绿）"
+          }
         }
         exit 0

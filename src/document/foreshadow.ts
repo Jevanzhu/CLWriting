@@ -142,21 +142,18 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       // 上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
       // 双跑先到者已落位）——目标已在，视为已迁：不重写（作者可能已编辑新文件，
       // 无条件覆盖会吞掉修改），只补删旧源。
-      // （改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
-      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破既有
-      // 契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，编号前缀唯一性使其在单次
-      // 迁移目录内实际不可达，维持原续跑语义（旧源补删）。
-      // 删源收编 rmWithRetry——fs/atomic.ts 头注自/19 起
-      // 宣称收编「伏笔归档清理」的删源点，实现此前未到（仍裸 rmSync）；win 杀软/
-      // 索引器瞬时锁（EPERM/EBUSY）下直败会让已落位的迁移残旧源（下次迁移
-      // 续跑补删自愈，但迁后首屏旧目录滞留）。退避后仍失败上抛走调用方（启动迁移链
-      // 的既有 catch/日志收口），语义与裸 rmSync 时代一致。
+      // 不得以 byte-equal 守卫区分「续跑/作者已编辑」与「净化名撞名（不同内容）」：
+      // 内容判别无法区分两者且打破既有契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，
+      // 编号前缀唯一性使其在单次迁移目录内实际不可达，故维持续跑语义（旧源补删）。
+      // 删源走 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会让
+      // 已落位的迁移残旧源（下次迁移续跑补删自愈，但迁后首屏旧目录滞留）。退避后仍失败
+      // 上抛走调用方（启动迁移链的既有 catch/日志收口）。
       rmWithRetry(oldPath)
       result.migrated++
       result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)
       continue
     }
-    // 同上收编（主路径删源）
+    // 同上走 rmWithRetry（主路径删源）
     rmWithRetry(oldPath)
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
@@ -192,8 +189,8 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     }
     const r = readFile(fp)
     const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
-    // 剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
-    // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧早已收编）
+    // 剥尾判定单源 isMdFileName（大小写不敏感）——否则 .MD 文件名
+    // 展示带尾巴（与 tree.ts stripMd 同族）
     const 标题v = String(map.get('标题') ?? (isMdFileName(f) ? f.slice(0, -3) : f))
     // -（全量代码）：数组值逐项直采（String+trim+去空）不劈分——
     // 旧 String(值) 拼接后再按逗号劈，含逗号项（["悬疑,推理"]）被拆碎；标量维持劈分：
@@ -626,11 +623,9 @@ function collectOneChapterFile(
   texts.set(章号, readChapterBodyCached(abs))
 }
 
-// parseChapterNoFromName 薄委托包装已随内联删除：
-// 唯一消费方（单源后的 collectOneChapterFile）直呼 chapterNoFromName。沿革见
-// 窄正则（仅认 -）升格
-// format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
-// 漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章；单源正文本在 format/filename.ts。
+// 章号解析单源 format/filename.ts chapterNoFromName（唯一消费方
+// collectOneChapterFile 直呼）——窄正则（仅认 -）与 tree 的宽容集（-/—/空白/裸尾）
+// 漂移会让 `5—标题.md` 树排序认得、伏笔足迹静默缺章。
 
 // ──伏笔足迹 FTS 检索 ────────────────────────
 

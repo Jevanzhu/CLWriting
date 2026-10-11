@@ -1,22 +1,18 @@
 /**
- * 进门判定的健康检查族 + 判定辅助族 —— 自 src/state/state.ts 缝 A 拆出。
+ * 进门判定的健康检查族 + 判定辅助族。
  *
- * （⑤④产品巨件拆分波2）：state.ts（1175 行）缝 A+B 纯移动拆分。
- * 本文件承载缝 A：态 1 健康检查 healthCheck 及其子族（journal 崩溃恢复
- * healMovePending/reconcileSavePending、孤儿 journal 归档 orphan 快照族与超龄清扫、
- * finalizedLost 逐条探测、网盘副本/布线缺失/清单空哨兵/结构不变量）+ 三组每书
- * TTL 节流缓存（sweep/云盘扫描/finalizedLost——唯一消费方均在 health 族内，顶层
- * 求值常量随族迁此单源）及其复位与失效钩子 + detectState 消费的判定辅助族
- *（detectHandEdits/detectIncompleteWorkdir/isChapterFinalized/chapter* 辅助族/
- * unfinishedPieceNames/maxFileNameChapter/skipFinalizedChapters/volumeSizeOf）。
- * 近况复述族见 recap.ts（缝 B）；状态机残核（detectState/routeState/enter 与状态
- * 类型）留 state.ts，其头注保留原全部历史记载与拆分沿革。
+ * 内容：态 1 健康检查 healthCheck 及其子族（journal 崩溃恢复 healMovePending/reconcileSavePending、
+ * 孤儿 journal 归档 orphan 快照族与超龄清扫、finalizedLost 逐条探测、网盘副本/布线缺失/清单空哨兵/
+ * 结构不变量）+ 三组每书 TTL 节流缓存（sweep/云盘扫描/finalizedLost——唯一消费方均在 health 族内）
+ * 及其复位与失效钩子 + detectState 消费的判定辅助族（detectHandEdits/detectIncompleteWorkdir/
+ * isChapterFinalized/chapter* 辅助族/unfinishedPieceNames/maxFileNameChapter/skipFinalizedChapters/
+ * volumeSizeOf）。
+ * 模块边界：近况复述族 → recap.ts；状态机残核（detectState/routeState/enter 与状态类型）→ state.ts。
  * 原私有而 state.ts/recap.ts 跨模块消费项就此导出，其余保持私有。
- * 依赖方向单向（无环回引）：document/format/fs/git/process/log 既有出边（只出
- * 不进，不 import ai/studio）；state.ts 与 recap.ts 自此 import，本文件不 import
- * 同批任何模块——顶层求值常量（节流表/HAND_EDIT_PREFIXES/DEFAULT_VOLUME_SIZE 等）
- * 一律单源本文件，绝不经环回引（count 拆分 HANZI 单源先例同款纪律）。
- * 注释全部原样随迁；行为、断言、测试零改动。
+ * 依赖单向（无环）：document/format/fs/git/process/log 既有出边（只出不进，不 import ai/studio）；
+ * 唯一 studio 出边 = ../studio/server/cache-registry.js 零依赖登记表叶子件（顶层自登记，无环）；
+ * 本文件不 import 同批任何模块——顶层求值常量（节流表/HAND_EDIT_PREFIXES/DEFAULT_VOLUME_SIZE 等）
+ * 一律单源本文件，绝不经环回引。
  */
 
 import { existsSync, readFileSync, readdirSync, statSync, rmSync } from 'node:fs'
@@ -59,6 +55,7 @@ import { safeManifestPath, docJoinKey, normalizeWinSeparators } from '../fs/safe
 import { walkMdEach } from '../fs/walk-md.js'
 import type { BookConfig } from '../format/types.js'
 import { log, errMsg } from '../log/index.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 // sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
 // 忧虑）。导出 reset 钩子供测试复位节流窗。
@@ -112,6 +109,10 @@ export function forgetStateSweepStamp(bookRoot: string): void {
   cloudScanCache.delete(bookRoot)
   finalizedLostCache.delete(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：三表同挂点——同名重建书不读陈清扫节流戳（最多晚扫一轮）、
+// 陈云盘副本扫描、陈 finalizedLost 结论（缓存值含 issue 明细，不得带入新书首个 TTL 窗）。
+registerBookKeyedCache('state-sweep-stamp', forgetStateSweepStamp)
 
 function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   const now = Date.now()

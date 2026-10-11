@@ -27,6 +27,7 @@ import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format
 import { isMdFileName } from '../format/filename.js'
 import type { Revision } from './revision.js'
 import { log, errMsg } from '../log/index.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 版本目录名（工作区/ 下，treeskip + 迁移用）。 */
 export const VERSIONS_DIR_NAME = '.版本'
@@ -212,6 +213,11 @@ export function forgetVersionFpCacheForBook(bookRoot: string): number {
   return removed
 }
 
+// 登记制（模块顶层自登记）：删书后条目成死重、改名后旧前缀键不再命中——
+// 指纹缓存按 join(bookRoot,'工作区',.版本) + \0 前缀清（键口径不动；残留条目本可
+// 经「缓存指向版本不在盘」自愈，此处正向清干净）。
+registerBookKeyedCache('version-fp-cache', forgetVersionFpCacheForBook)
+
 /**
  * 建版本：全文 + front matter 元信息（来源/原因/基线/字数/永久）。
  * 返回版本 id；被去重或节流跳过时返回 null。写入成功后顺带 prune（不引定时器）。
@@ -357,8 +363,7 @@ export function writeVersion(
   // existing（补上刚写入的新版本条目 = 与 prune 内部重扫结果恒一致），跳过重复
   // readdir。列表必须按 listVersions 同款比较器排序（新在前）——prune 以「all[0]
   // 最新」为前提做数量兜底截取，裸 append 会把新版本排到队尾被当最旧误删。
-  //（并合6-09-12：比较器收编 compareVersionIdDesc 单源—— 把 listVersions
-  // 改字节序后，此处原 localeCompare 同款副本与其漂移，故共用单源。）
+  // 比较器单源 compareVersionIdDesc（本地副本会与其漂移）。
   pruneVersions(versionsDir, docId, policy, undefined, [{ id, path: file }, ...existing].sort(compareVersionIdDesc))
   return id
 }
@@ -375,8 +380,7 @@ function sanitizeFmLine(s: string): string {
  *  localeCompare → 字节序比较——id 是 26 字符 Crockford base32（fs/id.ts，全大写 ASCII：
  *  0-9 在前 A-Z 在后，无小写/重音/多字节），字节序即 ULID 编码序、时间序 = 列表序不再
  *  依赖 locale（localeCompare 的排序规则随运行环境 ICU/locale 漂移，等价类折叠可能扰动
- *  同前缀 id 的相对序）。并合6-09-12 收编单源： 的 writeVersion
- *  knownList 排序同用本比较器（其注释本就要求「listVersions 同款比较器」），防两处漂移。 */
+ *  同前缀 id 的相对序）。writeVersion 的 knownList 排序同用本比较器，防两处漂移。 */
 function compareVersionIdDesc(a: VersionInfo, b: VersionInfo): number {
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0
 }
@@ -496,9 +500,8 @@ export function readVersionMeta(
 }
 
 /** 行是否恰为零缩进 fence `---`（容忍尾随 [ \t]* 与 \r 尾）——与 splitFrontMatter 的
- * 闭合判定同口径。补尾随
- *  空白容忍——文本侧（frontmatter-core）五十四轮起容忍 `--- `（编辑器/同步盘常注入），
- *  字节层仍只认裸 `---`/`---\r`，同文件两侧判定漂移：文本侧读得的档案字节层读 null。 */
+ * 闭合判定同口径。文本侧（frontmatter-core）容忍 `--- `（编辑器/同步盘常注入），
+ *  字节层仍只认裸 `---`/`---\r`——两侧判定漂移：文本侧读得的档案字节层读 null。 */
 function isFenceLine(b: Buffer): boolean {
   if (b.length < 3) return false
   if (b[0] !== 0x2d || b[1] !== 0x2d || b[2] !== 0x2d) return false // '---'
@@ -569,10 +572,9 @@ export function readVersionRaw(
 }
 
 /** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。
- *  （评审）：展示信息此前逐版本整读 readVersion（含全文入内存），而 UI 列表
- * 只需 meta——改走 readVersionMeta 头部 bounded read（同族收编）；仅
- *  meta 头读失败（头部损坏/截断，整读兜底与原口径一致）或 meta 无「字数」字段（旧版本
- *  未记，需 countWords 现算）时才回落整读。对外 VersionEntry 字段与取值口径不变。 */
+ *  展示信息走 readVersionMeta 头部 bounded read（UI 列表只需 meta，逐版本整读
+ *  readVersion 含全文入内存）；仅 meta 头读失败（头部损坏/截断）或 meta 无「字数」字段
+ *（旧版本未记，需 countWords 现算）时才回落整读。对外 VersionEntry 字段与取值口径不变。 */
 export function listVersionEntries(
   versionsDir: string,
   docId: string,
@@ -703,11 +705,10 @@ export function pruneVersions(
   for (const s of all) {
     if (keep.has(s.id)) continue
     try {
-      // （全库代码审）：逐版本删除收编 rmWithRetry（fs/atomic.ts
-      // trash.ts 先例）——win 杀软/索引器瞬时锁（EPERM/EBUSY）下裸
-      // unlinkSync 直败会让本该清掉的旧版本滞留（磁盘占用逐次累积）。rm 注入 unlinkSync
-      // 与原裸调逐位同源：ENOENT（已被别处删掉）等确定性错误照旧直抛走 catch，仅
-      // EPERM/EBUSY 进 3×50ms 指数退避。
+      // 逐版本删除走 rmWithRetry（fs/atomic.ts，trash.ts 先例）——win 杀软/索引器
+      // 瞬时锁（EPERM/EBUSY）下裸 unlinkSync 直败会让本该清掉的旧版本滞留
+      //（磁盘占用逐次累积）。rm 注入 unlinkSync 与原裸调同源：ENOENT（已被别处删掉）等
+      // 确定性错误照旧直抛走 catch，仅 EPERM/EBUSY 进 3×50ms 指数退避。
       rmWithRetry(s.path, { rm: (p) => unlinkSync(p) })
       removed++
     } catch {
@@ -723,7 +724,7 @@ export function pruneVersions(
     }
     // macOS AppleDouble 伴生文件一并清理
     try {
-      // 伴生删除同收编退避版（rm 注入 unlinkSync 同主删口径——瞬时锁退避
+      // 伴生删除同走退避版（rm 注入 unlinkSync 同主删口径——瞬时锁退避
       // 自愈，ENOENT「没有就算了」语义不变；退避后仍失败伴生文件无害，随下次 prune 重试）
       rmWithRetry(join(dirname(s.path), `._${s.id}.md`), { rm: (p) => unlinkSync(p) })
     } catch {
@@ -747,15 +748,14 @@ export function migrateVersionsDir(bookRoot: string): boolean {
   if (!existsSync(legacy)) return false
   if (existsSync(target)) return false
   try {
-    // 收编 renameWithRetry——win 瞬时占用（杀软/索引器/同步盘）
+    // 走 renameWithRetry——win 瞬时占用（杀软/索引器/同步盘）
     // 整目录 rename EPERM/EBUSY 时 3×50ms 退避自愈；失败语义不变（warn + false 幂等重试）
     renameWithRetry(legacy, target)
     return true
   } catch (e) {
-    // 迁移失败补 warn 留痕——原静默 return false。
-    // 文案如实化——旧文称「读取方仍兼容旧位置」不实：listVersions
-    // 只读 .版本/，迁移失败时旧位置快照在版本历史中**不可见**（文件仍在盘上，可手工
-    // 恢复），按真实后果与处置指引告警。
+    // 迁移失败补 warn 留痕（原静默 return false）。
+    // 文案须按真实后果写：listVersions 只读 .版本/，迁移失败时旧位置快照在版本历史中
+    // **不可见**（文件仍在盘上，可手工恢复），不得称「读取方仍兼容旧位置」。
     log.warn(
       'version',
       `版本目录迁移失败（${legacy} → ${target}）：旧位置快照在版本历史中不可见（文件仍在盘上，可手工恢复），请排查后重试迁移——${errMsg(e)}`,

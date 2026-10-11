@@ -19,11 +19,14 @@
  * 测试精简批口径：bootStudio 组合 harness；userDataPath 本文件自建自清。
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
+import { openSessionStore } from '../../src/events/store.js'
+import { log } from '../../src/log/index.js'
 import { openRagDb, storeChunk, setRagMeta, getRagMeta, countChunksByChapter } from '../../src/rag/store.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
@@ -503,5 +506,143 @@ describe('复审-0913-源码 P2-1: 清单路径防线（safeManifestPath 收口�
     )
     expect(plan.status).toBe(400)
     expect((plan.json as { code: string }).code).toBe('BAD_INPUT')
+  })
+})
+
+// ── 评审-2026-10-11 §2.3 P2-18：merge 事件载荷逐字段校验 ─────────────────────
+// 修复前 merge 流 `ev.data as unknown as StructureMergeData` 裸断言后直接取字段定位
+// （targetDocId/planHash 选「最近一条 merge」，sourceDocId/sourceChapterNo/trashEntryId/
+// rollbackSnapshotId 决定还原谁、回滚哪版）——事件库是持久化可改写面，缺字段/类型错/
+// 空串的脏载荷会把 undefined/错型值带进 undo 定位（错选源章、静默跳过还原源章）。
+// 修复后逐字段校验 fail-closed：脏载荷不作定位依据（可证属他章只跳过；否则本次不据
+// 事件库定位，落既有 body/disk 降级链）+ log.warn 留痕。
+
+/** 篡改指定目标章的 structure.merge 事件载荷（事件库是持久化可改写面：库文件可被
+ * 外部改写/旧版载荷漂移）。patch 值为 undefined = 删该字段（缺字段形态）。 */
+function tamperMergeEvent(targetDocId: string, patch: Record<string, unknown>): void {
+  const store = openSessionStore(userDataPath, studio.bookRoot)
+  expect(store, '事件库应已随合并落库').not.toBeNull()
+  const db = new DatabaseSync(store!.dbPath)
+  try {
+    const rows = db.prepare("SELECT seq, data FROM events WHERE type = 'structure.merge' ORDER BY seq").all() as Array<{
+      seq: number
+      data: string
+    }>
+    const row = rows.find((r) => (JSON.parse(r.data) as { targetDocId?: unknown }).targetDocId === targetDocId)
+    expect(row, `应存在 ${targetDocId} 的 merge 事件`).toBeDefined()
+    const data = JSON.parse(row!.data) as Record<string, unknown>
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete data[k]
+      else data[k] = v
+    }
+    db.prepare('UPDATE events SET data = ? WHERE seq = ?').run(JSON.stringify(data), row!.seq)
+  } finally {
+    db.close()
+    store!.close()
+  }
+}
+
+describe('评审-2026-10-11 P2-18: merge 事件载荷逐字段校验（脏载荷不作 undo 定位依据）', () => {
+  it('空串脏载荷（trashEntryId）→ 事件路径弃用落盘面降级：源章照常还原、目标逐字节回滚 + warn 留痕', async () => {
+    const rel1 = '写作/正文/第一卷/0051-第51章.md'
+    const rel2 = '写作/正文/第一卷/0052-第52章.md'
+    const before = chapterContent(51, '第51章', '第五十一章正文，撤销前后应逐字节一致。')
+    const srcContent = chapterContent(52, '第52章', '第五十二章正文。')
+    const t = await createChapter(rel1, before)
+    const s = await createChapter(rel2, srcContent)
+    const plan = await planMerge(t, s)
+    expect((await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })).status).toBe(200)
+
+    // 脏载荷：trashEntryId 空串——修复前直取该值，finishUndo 见 '' 跳过源章还原却返 200 ok
+    tamperMergeEvent(t, { trashEntryId: '' })
+    const warnSpy = vi.spyOn(log, 'warn')
+    try {
+      const undo = await studio.req(
+        'POST',
+        `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/merge-undo`,
+        {},
+      )
+      expect(undo.status).toBe(200)
+      expect((undo.json as Record<string, unknown>)['ok']).toBe(true)
+      // 脏值未用于定位：落盘面降级（回收站择最新反推源章号）仍还原真源 + 回滚到合并前
+      expect(readFileSync(join(studio.bookRoot, rel1), 'utf8')).toBe(before)
+      expect(existsSync(join(studio.bookRoot, rel2))).toBe(true)
+      expect(readFileSync(join(studio.bookRoot, rel2), 'utf8')).toBe(srcContent)
+      // 留痕：载荷校验失败必须可定位（tag/目标章 id 均在报文里）
+      const hit = warnSpy.mock.calls.find((c) => String(c[1]).includes('事件载荷校验失败'))
+      expect(hit, 'log.warn 应收到载荷校验失败留痕').toBeTruthy()
+      expect(hit![0]).toBe('document')
+      expect(String(hit![1])).toContain(t)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('类型错脏载荷（sourceChapterNo 字符串）→ 不拒死不错选：降级定位照常撤销收敛 + warn 留痕', async () => {
+    const rel1 = '写作/正文/第一卷/0053-第53章.md'
+    const rel2 = '写作/正文/第一卷/0054-第54章.md'
+    const before = chapterContent(53, '第53章', '第五十三章正文。')
+    const srcContent = chapterContent(54, '第54章', '第五十四章正文。')
+    const t = await createChapter(rel1, before)
+    const s = await createChapter(rel2, srcContent)
+    const plan = await planMerge(t, s)
+    expect((await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })).status).toBe(200)
+
+    // 脏载荷：sourceChapterNo 为字符串——修复前 `并入.includes('54')` 落空 → 409 NOT_MERGE_STATE
+    tamperMergeEvent(t, { sourceChapterNo: '54' })
+    const warnSpy = vi.spyOn(log, 'warn')
+    try {
+      const undo = await studio.req(
+        'POST',
+        `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/merge-undo`,
+        {},
+      )
+      expect(undo.status).toBe(200)
+      expect((undo.json as Record<string, unknown>)['sourceChapterNo']).toBe(54)
+      expect(readFileSync(join(studio.bookRoot, rel1), 'utf8')).toBe(before)
+      expect(readFileSync(join(studio.bookRoot, rel2), 'utf8')).toBe(srcContent)
+      expect(warnSpy.mock.calls.some((c) => String(c[1]).includes('事件载荷校验失败'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('脏载荷可证属他章（targetDocId 为他章）→ 只跳过该条：本目标仍走事件主路径（planHash 直用）', async () => {
+    // 甲对（55→56）先合并，其事件被篡改成缺字段脏载荷（targetDocId 仍为他章 = 可证属
+    // 他章，不可能参与乙目标的「最近一条」判定）；乙对（57→58）后合并（载荷合法）。
+    // 撤销乙：事件主路径不受甲脏事件影响——降级路径的 planHash 恒为空串，据此可判
+    // 「事件主路径仍生效」（若脏事件把整链弃用，本断言即红）
+    const relA1 = '写作/正文/第一卷/0055-第55章.md'
+    const relA2 = '写作/正文/第一卷/0056-第56章.md'
+    const relB1 = '写作/正文/第一卷/0057-第57章.md'
+    const relB2 = '写作/正文/第一卷/0058-第58章.md'
+    const tA = await createChapter(relA1, chapterContent(55, '第55章', '第五十五章正文。'))
+    const sA = await createChapter(relA2, chapterContent(56, '第56章', '第五十六章正文。'))
+    const tB = await createChapter(relB1, chapterContent(57, '第57章', '第五十七章正文。'))
+    const sB = await createChapter(relB2, chapterContent(58, '第58章', '第五十八章正文。'))
+    const planA = await planMerge(tA, sA)
+    expect((await applyMerge(tA, { op: 'merge', sourceDocId: sA, planHash: planA['planHash'] })).status).toBe(200)
+    const planB = await planMerge(tB, sB)
+    expect((await applyMerge(tB, { op: 'merge', sourceDocId: sB, planHash: planB['planHash'] })).status).toBe(200)
+
+    tamperMergeEvent(tA, { trashEntryId: undefined }) // 甲事件：缺字段脏载荷（targetDocId 仍是甲）
+    const warnSpy = vi.spyOn(log, 'warn')
+    try {
+      const undo = await studio.req(
+        'POST',
+        `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(tB)}/merge-undo`,
+        {},
+      )
+      expect(undo.status).toBe(200)
+      // 事件主路径仍生效：planHash 直用（降级路径的 planHash 恒为空串）
+      expect((undo.json as Record<string, unknown>)['planHash']).toBe(planB['planHash'])
+      expect(existsSync(join(studio.bookRoot, relB2))).toBe(true)
+      // 他章脏载荷仍必留痕（可定位根因），但只跳过不影响本目标
+      const hit = warnSpy.mock.calls.find((c) => String(c[1]).includes('事件载荷校验失败'))
+      expect(hit, 'log.warn 应收到载荷校验失败留痕').toBeTruthy()
+      expect(String(hit![1])).toContain('可证属他章')
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

@@ -4,14 +4,12 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'f1-ws-'))
+  const d = tempDirTracked('f1-ws-')
   dirs.push(d)
   return d
 }

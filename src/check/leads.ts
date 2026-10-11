@@ -20,8 +20,7 @@ import { bodyOf } from '../format/frontmatter-core.js'
 import { chapterNoFromName } from '../format/filename.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
-// RC 全项目：固定 SQL 收编连接级 prepared 缓存—— 同批迁移漏网件
-//（runner.ts / tree-issues-cache.ts 已迁，此处每次 checkLeadsBookItems 调用重编译）；
+// 固定 SQL 走连接级 prepared 缓存（否则每次 checkLeadsBookItems 调用重编译）；
 // 占位符拼接的变体 SQL 以整串为缓存键，变体数有界（enabledTypes 子集数）
 import { prepared } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
@@ -399,10 +398,10 @@ const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLO
 
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
-  // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
-  // 截断片段致 lead-evidence-miss 误报）。宽容字符集收编 quotes.ts 单源导出
+  // 只认 ASCII 直引号会让中文弯引号/直角引号包裹的证据全部走 slice 兜底，
+  // 截断片段致 lead-evidence-miss 误报）。宽容字符集单源 quotes.ts 导出
   //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
-  // 消费模块常量（原每调用 new RegExp 三枚；ALL_QUOTES_RE 与上方兜底共用）
+  // 消费模块常量（不在调用内 new RegExp；ALL_QUOTES_RE 与上方兜底共用）
   const quoted = evidence.match(EVIDENCE_QUOTED_CORE_RE)
   if (quoted?.[1]) return quoted[1]
   // 否则取前 8 个字符（够 grep）。短引号证据（如「雪落」3 字，

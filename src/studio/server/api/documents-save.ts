@@ -1,24 +1,15 @@
 /**
- * 文档保存·定稿·文件树 REST 端点 —— 自 src/studio/server/api/documents.ts 缝 1 拆出。
+ * 文档保存·定稿·文件树 REST 端点。
  *
- * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分。本文件承载缝 1：保存协议（PUT /documents/:docId/content）、
- * W2A 文件树（GET /tree）、定稿确认（POST finalize）与批量定稿（POST
- * batch-finalize），及本缝私有辅助（ORIGINS / parseSaveInput /
- * BATCH_FINALIZE_MAX_DOCS——顶层求值常量单源本文件，不经残核环回引，
- * HANZI 单源先例同款纪律）。文件树归本缝而非 CRUD 缝：三缝按原文件
- * 连续段切分，各域路由相对序与全局注册序逐字节不变（dispatch 按注册顺序匹配，
- * router.ts 隐性契约——顺序细节与环判定记档见残核 documents.ts 头注段）。
- * 纯移动：代码与注释逐字随迁，零行为变化、零逻辑改写、零格式重排；差异仅
- * export 前缀与 import 重组。
- * 依赖方向：本文件 → document/process/driver 既有出边（studio→ai 组合根白名单
- * 面内，不新增 ai→studio 边）+ 回引基建单源 documents-core.ts（getOrCreateService /
- * runBookScopedOp / structStatus / DocumentCtx——⑤①收敛的公共底座，
- * 零触碰单源 core）。模块图单向无环（core 不 import 同批任何 documents-* 模块；
- * 聚合入口在残核 documents.ts 单向 import 本文件），顶层求值常量各归单源，
- * 无 TDZ 面。
- * 其余文档 CRUD 族见 documents-crud.ts（缝 2）；章节结构操作族见
- * documents-structure.ts（缝 3）；基建段与全部历史沿革记载留 documents.ts 残核。
+ * 路由：保存协议（PUT /documents/:docId/content）、文件树（GET /tree）、定稿确认
+ *（POST finalize）与批量定稿（POST batch-finalize）；缝私有辅助 ORIGINS / parseSaveInput /
+ * BATCH_FINALIZE_MAX_DOCS（顶层求值常量单源本文件，不经残核环回引）。文件树归本缝而非 CRUD 缝：
+ * 各域路由相对序与全局注册序不变——dispatch 按注册顺序匹配，顺序是 router.ts 的隐性契约。
+ * 依赖方向：本文件 → document/process/driver 既有出边（studio→ai 组合根白名单面内，不新增
+ * ai→studio 边）+ 回引基建单源 documents-core.ts（getOrCreateService / runBookScopedOp /
+ * structStatus / DocumentCtx）。模块图单向无环（core 不 import 同批任何 documents-* 模块；聚合
+ * 入口在残核 documents.ts 单向 import 本文件），顶层求值常量各归单源，无 TDZ 面。
+ * 其余文档 CRUD 族见 documents-crud.ts；章节结构操作族见 documents-structure.ts。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

@@ -11,14 +11,12 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { openSessionStore, openSessionStoreAsync, migrateBookSession, bookHash } from '../../src/events/store.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r34d-async-open-'))
+  const d = tempDirTracked('r34d-async-open-')
   dirs.push(d)
   return d
 }

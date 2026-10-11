@@ -23,6 +23,7 @@ import {
   treeFirstOpenKey,
 } from '../../../../src/studio/web-next/src/shared/storage-keys'
 import OnboardPremise from '../../../../src/studio/web-next/src/components/onboard/OnboardPremise.vue'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const SRC_ROOT = path.resolve(__dirname, '../../../../src/studio/web-next/src')
 
@@ -145,19 +146,6 @@ vi.mock('../../../../src/studio/web-next/src/api/client', async (importOriginal)
 })
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，Map-backed 替身（照 prefs-store 范型）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 describe('R30-26: 梗概键写入/清除两侧同源（端到端）', () => {

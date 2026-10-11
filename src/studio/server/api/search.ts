@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { dirSignature } from '../dir-signature.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
@@ -40,6 +41,10 @@ const SEARCH_CACHE_MAX = 32
 export function forgetSearchCache(bookRoot: string): void {
   searchCache.forgetPrefix(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈搜索结果——复合存储键按
+// bookRoot 前缀清（`bookRoot\0scope\0q` 形态；键口径不动）。
+registerBookKeyedCache('search', forgetSearchCache)
 
 /** 缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  * 过期逐出 + inFlightSearches 在途去重本地壳删除；命中/失效时序/逐出序逐位

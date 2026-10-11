@@ -51,51 +51,22 @@ import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { makeCheckBook } from '../helpers/check-book.js'
 import { driveToEnd } from '../../src/async.js'
 
 const fpMock = vi.mocked(computeTreeIssuesGlobalFpCore)
 const rebuildMock = vi.mocked(rebuild)
 const readDraftMock = vi.mocked(readDraft)
 
-/** 造书（含布线 + 每章禁词「玉佩」制造确定红源；原 r47/r71/r52 三份同款夹具收编） */
-function makeBook(chapterCount: number): string {
-  const root = mkdtempTracked(join(tmpdir(), 'epoch-fp-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  mkdirSync(join(root, '项目'), { recursive: true })
-  mkdirSync(join(root, '文风'), { recursive: true })
-  writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(
-    join(root, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
-    'utf-8',
-  )
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-    '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  const manifestPath = join(root, '项目', '文档清单.jsonl')
-  const m = readManifest(manifestPath)
-  for (let no = 1; no <= chapterCount; no++) {
-    const pad = String(no).padStart(3, '0')
-    writeFileSync(
-      join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
-      'utf-8',
-    )
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
-  }
-  writeManifest(manifestPath, m)
-  return root
-}
+/** 造书（含布线 + 每章禁词「玉佩」制造确定红源；原 r47/r71/r52 三份同款夹具收编，
+ *  骨架单源见 helpers/check-book.ts）。 */
+const PREFIX = 'epoch-fp-'
 
 // ── R47-30：聚合的纪元指纹遍数收敛为首尾各一遍 ───────────────────
 
 describe('R47-30：聚合的纪元指纹遍数收敛为首尾各一遍', () => {
   it('全书 miss 的一次聚合 → 全树纪元指纹 ≤2 遍（首 + 终核；修复前 4 遍）', () => {
-    const root = makeBook(4)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 4 })
     try {
       fpMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
@@ -114,7 +85,7 @@ describe('R47-30：聚合的纪元指纹遍数收敛为首尾各一遍', () => {
 
 describe('R47-30：语义零回归（终核口径保留）', () => {
   it('红点结果与「删 .cache 全量重算」逐字节一致（含变更后重聚合）', () => {
-    const root = makeBook(4)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 4 })
     try {
       collectTreeIssues(root, () => undefined) // 预热缓存
       // 变更混合面：触碰全局输入（book.yaml 纪元源）+ 改 1 章正文
@@ -139,7 +110,7 @@ describe('R47-30：语义零回归（终核口径保留）', () => {
   })
 
   it('聚合窗口内纪元漂移 → 整批不落缓存（R32-14 终核闸在 R47-30 后仍生效）', () => {
-    const root = makeBook(3)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 3 })
     try {
       collectTreeIssues(root, () => undefined) // 建缓存（首轮全 miss + 落盘）
       // 第二轮：章循环中途触碰纪元源——通过 fp 包装在每次调用后触碰一次全局输入，
@@ -174,7 +145,7 @@ describe('R47-30：语义零回归（终核口径保留）', () => {
 
 describe('R47-30：syncTreeIssuesEpoch precomputedFp 复用', () => {
   it('传入即复用（不再自算）：forced fp 落表、二次同值 no-op、不传则自算与真值一致', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '.cache'), { recursive: true })
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -207,7 +178,7 @@ describe('R47-30：syncTreeIssuesEpoch precomputedFp 复用', () => {
 
 describe('R52-E-1：纪元指纹基线先于 rebuild', () => {
   it('一次聚合内 computeTreeIssuesGlobalFp 首遍调用先于 rebuild（修复后在 sync 之前、rebuild 之前）', () => {
-    const root = makeBook(2)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 2 })
     try {
       const order: string[] = []
       const fpOrig = fpMock.getMockImplementation()!
@@ -240,7 +211,7 @@ describe('R52-E-1：纪元指纹基线先于 rebuild', () => {
   })
 
   it('fp0 与 rebuild 之间触碰纪元源 → 本轮零落缓存（下轮与删库全量逐字节一致）', () => {
-    const root = makeBook(3)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 3 })
     try {
       collectTreeIssues(root, () => undefined) // 建缓存（epoch A）
       // 第二轮：在 fp0（先于 rebuild）之后触碰纪元源（文风铁律 mtime 变化 → 纪元 A→B）
@@ -277,35 +248,31 @@ describe('R52-E-1：纪元指纹基线先于 rebuild', () => {
 // ── R71-20：写前纪元复核轮内缓存（调用次数与章数解耦）──────────────
 
 describe('R71-20：写前纪元复核轮内缓存（调用次数与章数解耦）', () => {
-  it('全书 miss 的一次聚合 → computeTreeIssuesGlobalFp 全书固定 2 次（R47-30 首尾口径；R71 前为 3，逐章复核时代 1+N=6）', () => {
-    const root = makeBook(5)
-    try {
-      fpMock.mockClear()
-      const { issues } = collectTreeIssues(root, () => undefined)
-      // 5 章全部未定稿且缓存全 miss → 逐章走到写前复核点（红源命中证明机检真跑了）
-      expect(Object.keys(issues)).toHaveLength(5)
-      // 首（epochFp0，兼作 syncTreeIssuesEpoch 纪元）×1 + 循环后终核（R32-14 落盘前
-      // 复核）×1；R47-30 消掉了 sync 内部遍与轮前复核遍
-      expect(fpMock.mock.calls.length).toBe(2)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('章数翻倍 → 调用次数不变（O(N) 次全树遍历 → O(1)）', () => {
-    const root = makeBook(10)
-    try {
-      fpMock.mockClear()
-      const { issues } = collectTreeIssues(root, () => undefined)
-      expect(Object.keys(issues)).toHaveLength(10)
-      expect(fpMock.mock.calls.length).toBe(2)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
+  // 同断言体（章数 = 红点数、指纹调用恒 2 次）× 两个章数规模 → 一表两行；
+  // 用例名带章数，红了直接定位是哪档规模（此前两份手抄体）。
+  it.each([
+    ['全书 miss 的一次聚合（5 章）', 5],
+    ['章数翻倍（10 章）', 10],
+  ])(
+    '%s → computeTreeIssuesGlobalFp 全书固定 2 次（R47-30 首尾口径；R71 前为 3，逐章复核时代 1+N）',
+    (_规模标签, chapterCount) => {
+      const root = makeCheckBook({ prefix: PREFIX, chapterCount })
+      try {
+        fpMock.mockClear()
+        const { issues } = collectTreeIssues(root, () => undefined)
+        // 全部未定稿且缓存全 miss → 逐章走到写前复核点（红源命中证明机检真跑了）
+        expect(Object.keys(issues)).toHaveLength(chapterCount)
+        // 首（epochFp0，兼作 syncTreeIssuesEpoch 纪元）×1 + 循环后终核（R32-14 落盘前
+        // 复核）×1；R47-30 消掉了 sync 内部遍与轮前复核遍；章数翻倍次数不变 = O(1)
+        expect(fpMock.mock.calls.length).toBe(2)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('轮内缓存口径下首轮仍落缓存：二次聚合全部命中（零正文整读、issues 同构）', () => {
-    const root = makeBook(4)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 4 })
     try {
       const first = collectTreeIssues(root, () => undefined)
       expect(Object.keys(first.issues)).toHaveLength(4)

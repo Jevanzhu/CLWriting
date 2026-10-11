@@ -196,8 +196,8 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   if (tag === forChapter) return
   const dir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   mkdirSync(dir, { recursive: true })
-  // 归档 rename 收编 renameWithRetry——win 瞬时锁
-  // （EPERM/EBUSY）退避后再失败仍上抛（调用方 WRITE_ERROR 可重试，语义不变）
+  // 归档 rename 走 renameWithRetry——win 瞬时锁
+  // （EPERM/EBUSY）退避后再失败仍上抛（调用方 WRITE_ERROR 可重试）
   const standardDst = join(dir, `第${tag}章.md`)
   if (!existsSync(standardDst)) {
     renameWithRetry(file, standardDst)

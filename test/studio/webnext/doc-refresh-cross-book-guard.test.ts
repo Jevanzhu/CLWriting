@@ -36,18 +36,7 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
-import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
-
-function makeNode(path: string, docId: string): TreeNode {
-  return {
-    path,
-    name: path.split('/').pop()!,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNodeAt } from './helpers/tree-node'
 
 /** 镜像 key（与 doc.ts MIRROR_KEY_PREFIX 同式：`clw:dirty-mirror:<book>:<docId>`）。 */
 function mirrorKey(book: string, docId: string): string {
@@ -82,7 +71,7 @@ describe('重评-P2-1 · refresh 切书窗口守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     const e = doc.get('d1')!
     const baseBefore = e.baselineRevision
     // 预置 B 书同 docId 的崩溃镜像：clean 归位分支的 clearDirtyMirror 按「当前书名」删键——
@@ -112,7 +101,7 @@ describe('重评-P2-1 · refresh 切书窗口守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     let rejectGet!: (e: Error) => void
     vi.mocked(getContent).mockReturnValueOnce(
       new Promise<string>((_res, rej) => {
@@ -131,7 +120,7 @@ describe('重评-P2-1 · refresh 切书窗口守卫', () => {
     const doc = useDocStore()
     doc.setBook('A书')
     vi.mocked(getContent).mockResolvedValueOnce('旧内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
     doc.patch('d1', '已落盘内容')
     vi.mocked(getContent).mockResolvedValueOnce('已落盘内容')
     await expect(doc.refresh('d1')).resolves.toBe(true)

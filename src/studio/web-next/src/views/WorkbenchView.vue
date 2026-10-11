@@ -582,10 +582,9 @@ async function onSaveDraft(): Promise<void> {
   border-radius: var(--radius-s);
   background: var(--background-primary);
 }
+/* color/border-color 走 btn-shared.css .btn.primary（背景留此：等特异性平局忌上收） */
 .btn.primary {
   background: var(--interactive-accent);
-  border-color: var(--interactive-accent);
-  color: var(--text-on-accent);
 }
 .btn.primary:hover {
   background: var(--interactive-accent-hover);

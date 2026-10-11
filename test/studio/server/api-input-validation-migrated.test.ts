@@ -7,7 +7,7 @@
  * 版本 404 仍先于 body 400）——这些行是 gate 存在理由的可执行说明。
  */
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
 
@@ -56,6 +56,23 @@ describe('P3-13 ③-1 建书 POST /api/books（name 校验随 parse 前置）', 
     const r = await studio.req('POST', '/api/books', { name: '表驱动新书', genre: '科幻' })
     expect(r.status).toBe(200)
     expect(r.json).toEqual({ name: '表驱动新书', kind: 'long', path: '长篇/表驱动新书' })
+  })
+
+  it('B4: host 非 cc（本期未落地的 codex）→ 400 人话拒收，不再静默归一成 cc', async () => {
+    const r = await studio.req('POST', '/api/books', { name: '宿主拒收书', host: 'codex' })
+    expect(r.status).toBe(400)
+    expect(r.json).toEqual({
+      code: 'BAD_INPUT',
+      error: 'AI 宿主本期只支持 cc（Claude Code），codex 尚未落地：收到 codex',
+    })
+    // 拒收发生在建书之前：盘上无半截产物
+    expect(existsSync(join(studio.workDir, '长篇', '宿主拒收书'))).toBe(false)
+  })
+
+  it('B4: host 显式 cc → 照常建书（显式值与缺省同路）', async () => {
+    const r = await studio.req('POST', '/api/books', { name: '显式宿主书', host: 'cc' })
+    expect(r.status).toBe(200)
+    expect(r.json).toEqual({ name: '显式宿主书', kind: 'long', path: '长篇/显式宿主书' })
   })
 })
 

@@ -1,12 +1,9 @@
 /**
- * 共享路径安全校验（/ defense-in-depth）。
- *
- * manifest 路径（文档清单.jsonl 中 m.path）与 books.jsonl 同属可篡改的本地数据文件，
- * 需统一校验防止 join(bookRoot, m.path) 越出 bookRoot。
- *
- * 本模块还导出 symlink 校验共享函数（isWithinRoot）与 canonical 路径解析
- * （resolveWithinRoot），供 trash.ts / files.ts / service.ts / desktop 等各
- * safePath 变体统一引用，确保防护行为一致（fail-closed）。
+ * 共享路径安全校验（defense-in-depth）：manifest 路径（文档清单.jsonl 中 m.path）与 books.jsonl
+ * 同属可篡改的本地数据文件，需统一校验防止 join(bookRoot, m.path) 越出 bookRoot。
+ * 本模块是 symlink 校验共享函数（isWithinRoot）与 canonical 路径解析（resolveWithinRoot）的单源，
+ * 供 trash.ts / files.ts / service.ts / desktop 等各 safePath 变体统一引用，确保防护行为一致
+ *（fail-closed）。
  */
 import { relative, isAbsolute, resolve, dirname, basename, join } from 'node:path'
 import { existsSync, lstatSync, realpathSync } from 'node:fs'

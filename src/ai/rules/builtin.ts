@@ -1,8 +1,6 @@
 /**
- * 内置静态规则（源 1：writer.ts 三处硬编码归一）。
- *
- * writer.ts:21/42/56 三处「避免AI味」约束字面量搬到此处 toPrompt，
- * 验收要求 prompts/writer.ts 约束字面量归零。
+ * 内置静态规则：writer.ts 三处「避免AI味」约束字面量收此 toPrompt
+ *（约束字面量在 prompts/writer.ts 归零——规则文本单源即本文件）。
  */
 import { ruleStripFm, type WritingRule, type RuleViolation } from './types.js'
 

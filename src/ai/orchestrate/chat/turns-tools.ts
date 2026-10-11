@@ -1,8 +1,7 @@
 /**
- * chat 相位 d 工具执行族 —— 自 src/ai/orchestrate/chat/turns.ts 缝拆出。
+ * chat 相位 d 工具执行族。
  *
- * （⑤④产品巨件拆分波3）：turns.ts（958 行）纯移动拆分。
- * 本文件承载工具执行缝：等确认闸 waitConfirm（abort/超时释放与重复登记收口）+
+ * 内容：等确认闸 waitConfirm（abort/超时释放与重复登记收口）+
  * executeChatTool（注册表分派 + write_chapter/check_chapter/read_chapter/read_skill
  * 内联分支 + 兜底 catch 脱敏）+ 私有格式化两件 formatHealResult/formatCheckResult +
  * 模块级常量六组（READ_CHAPTER_MAX_CHARS/READ_CHAPTER_HEAD_CHARS/
@@ -10,12 +9,11 @@
  * ——顶层求值常量随族迁此单源，不经 re-export 链外引）。
  * 轮循环骨架（runAgentTurns/lastMessageFingerprint/TurnDeps/
  * MAX_AGENT_TURNS/CHAT_TOOL_NAMES）留 turns.ts、三段实现件在 turns-phases.ts，
- * 二者 re-export 本文件 waitConfirm/executeChatTool（原既有导出面，消费方 import
+ * 二者 re-export 本文件 waitConfirm/executeChatTool（既有导出面，消费方 import
  * 零改动）；可见性诊断缝见 turns-visibility.ts。
  * 依赖方向单向（无环回引）：本文件 import 既有上游出边（provider/tools/check/
  * format/process/log/node 内建 + ../chat.js、./state.js 类型），不 import turns.ts
  * ——残核单向引本文件。
- * 注释全部原样随迁；行为零变化（纯移动，差异仅 import 行/本头注）。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -304,11 +302,11 @@ export async function executeChatTool(
         const chars = Array.from(body)
         if (chars.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
         const kept = READ_CHAPTER_HEAD_CHARS + READ_CHAPTER_TAIL_CHARS
-        // 低-4：截断口径如实化——本工具并不总能「取回全文」（上方上限），
+        // 截断口径——本工具并不总能「取回全文」（上方上限），
         // 通知如实写明截断 + 全文去处：spill 暂存存在时优先指它（上下文注入外置的
         // 同一份全文，内容寻址同名——与 buildChatContext 的 writeSpillFile 同 hash 口径）；
         // 无 spill（未经上下文注入直接读）只报草稿路径，不虚指。spill.ts 的「已省略」
-        // 通知行归 src/process（本轮禁区），契约描述（contract/chat.ts）已同步如实。
+        // 通知行归 src/process（process 侧单源），契约描述（contract/chat.ts）同口径。
         const spillHash = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 16)
         const spillRel = `工作区/spills/${spillHash}.md`
         const fullAt = existsSync(join(opts.bookRoot, spillRel))

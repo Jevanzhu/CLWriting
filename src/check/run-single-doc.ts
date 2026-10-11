@@ -73,11 +73,11 @@ export function readCheckConfig(
 
 /**
  * 「rebuild→开库→PRAGMA」前奏参数化——单章端点与树聚合
- * 两处逐字同构（~35 行），仅两轴不同，作参数收编：
+ * 两处逐字同构（~35 行），仅两轴不同，作参数单源：
  * - throttleSourceProbe：单章链的增量探测 3s TTL 节流 opt-in（连查/轮询去抖），
  *   树聚合 rebuild 不节流（rebuild.ts 节流块注口径）。
  * - failMode：'envelope'（单章：硬异常归 REBUILD_FAIL 信封出端点，
- * 此前穿透成 500 裸异常）/ 'fail-open'（树聚合同批降级：warn 留痕 +
+ * 不得穿透成 500 裸异常）/ 'fail-open'（树聚合同批降级：warn 留痕 +
  *   rebuildFailed=true，只算 verdict 不拦树——与缓存层「读写失败跳过缓存走全量」红线
  * 对齐）。PRAGMA 并入同一失败链（审计口径：exec 抛错即关库不留句柄，
  *   单章侧契约不变、树聚合侧由调用方 finally 收口）。
@@ -236,10 +236,9 @@ export async function openCheckDbAsync(
 }
 
 /**
- * 降级黄项「后置 push + strict 短篇升红」三连同构收编
- * ——原在 runCheckForDocument（book.yaml 降级）与 checkWithDb（账本兑现侧
- * / 声明侧）逐字复制。section 名 / checkId / level / 升红语义逐位不变，
- * 纯机械去重。
+ * 降级黄项「后置 push + strict 短篇升红」三连同构单源——runCheckForDocument（book.yaml
+ * 降级）与 checkWithDb（账本兑现侧/声明侧）共用，不得逐字复制。section 名 / checkId /
+ * level / 升红语义不变。
  */
 function pushDegradedYellow(
   report: CheckReport,
@@ -561,12 +560,12 @@ export function checkWithDb(
 }
 
 /**
- * checkWithDb 的实现体（生成器，单源供同步/async 双驱动；=）。
+ * checkWithDb 的实现体（生成器，单源供同步/async 双驱动）。
  *
  * 让出面两处：`yield* runAllChecksCore(...)`（其内账本全书性条目，见 runner.ts）与
  * 章纲目录整扫 `yield* scanChapterDirCore(...)`（单章路径现扫；批量路径走 batch 预扫
  * 不入此支）。其余读（readDraft / 细纲声明 / 账本推进 / 正文读取）为单文件~小目录粒度
- * 同步读，不在切片面（残余，如实记账）。返回值与切片前逐位同构。
+ * 同步读，不在切片面（残余）。
  */
 export function* checkWithDbCore(
   bookRoot: string,
@@ -651,7 +650,7 @@ export function* checkWithDbCore(
     // 的降级黄项口径），作者只看面板即知本轮「声明↔兑现」未比对、修复后须重查。
     // 树红点聚合缓存只存 {hasRed, verdictRejected} 布尔、不缓存黄项条目，降级黄项
     // 不会被缓存固化（hasRed=false 只表示本轮无红，属账本全书性红项同一缓存语义）。
-    // push + strict 升红收编 pushDegradedYellow（语义见其注）。
+    // push + strict 升红单源 pushDegradedYellow（语义见其注）。
     if (updatesResult?.unreadable) {
       pushDegradedYellow(
         report,

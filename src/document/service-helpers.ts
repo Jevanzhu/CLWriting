@@ -1,12 +1,11 @@
 /**
- * 文档服务尾部自由函数集 —— （⑤④产品巨件拆分波1）自
- * service.ts 缝 B 拆出（纯移动，零行为变化）。
+ * 文档服务尾部自由函数集。
  *
  * 内容：trashBaselineOf / sanitizeCreateSegment / isSanitizedCreatePath /
  * isPieceBody / normalizeChapterNo / chapterTitleSegment / findByLegacyId 七个自由
- * 函数（原 service.ts 模块私有，仅 DocumentService 类内消费）。迁入后加 export 供
- * service.ts 内部 import；原本即无外部消费方，不入 service.ts re-export 桥。
- * isSamePhysicalFile 已迁 fs/file-identity 单源（bigint 精确 dev+ino），本模块
+ * 函数（模块私有语义，仅 DocumentService 类内消费），export 供 service.ts 内部
+ * import；无外部消费方，不入 service.ts re-export 桥。
+ * isSamePhysicalFile 单源 fs/file-identity（bigint 精确 dev+ino），本模块
  * re-export 保既有消费面（service-move / service-meta）。
  */
 import { join } from 'node:path'
@@ -34,7 +33,7 @@ export function trashBaselineOf(e: ManifestEntry): {
 }
 
 /** 同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
- * 实现单源收编 fs/file-identity（bigint 精确 dev+ino，防 Number(ino) 塌缩假阳性），
+ * 实现单源 fs/file-identity（bigint 精确 dev+ino，防 Number(ino) 塌缩假阳性），
  * 此处 re-export 保本模块既有消费面（service-move / service-meta）。 */
 export { isSamePhysicalFile } from '../fs/file-identity.js'
 
@@ -73,7 +72,7 @@ export function normalizeChapterNo(v: unknown): number | null {
   return null
 }
 
-/** 章文件名标题段剥离（章号识别收编 chapterNoFromName 单源，
+/** 章文件名标题段剥离（章号识别走 chapterNoFromName 单源，
  *  format/filename 宽集：`-`/`—`/空白/裸尾均认）——原窄正则 `/^(?:\d+-)?(.+)\.md$/`
  *  只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号落标题）。
  *  命中判定走 chapterNoFromName；剥段 = 首个分隔符（`-`/`—`/空白，与单源分隔集一致）

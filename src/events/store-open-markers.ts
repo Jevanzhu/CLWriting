@@ -1,22 +1,17 @@
 /**
  * 跨进程开口标记 + 迁移墓碑族 —— 自 src/events/store.ts 缝 A 拆出。
  *
- * （⑤④产品巨件拆分波3）：store.ts（1355 行）三缝纯移动拆分。
- * 本文件承载缝 A：跨进程「已持有句柄」标记与迁移墓碑的常量
- * （OPEN_MARKER_SUFFIX/MIGRATED_EXT/OPEN_MARKER_STALE_MS）与 openMarkerPath/
- * sweepOpenMarkers/registerOpenMarker/touchOpenMarker/releaseOpenMarker 原样随迁
- * （零行为变化，历史注释原样随代码迁移）。
- * 实读偏差记档：侦察口径的 open-markers 缝（约 105 行）另含续期周期可变 let 与
- * configureOpenMarkerRenewMs——家规禁 export let（跨模块共享可变绑定须
- * testableConst 化，非纯移动不做），且唯一读点在残核 firstOpenStore（不动区），
- * 故二者留残核、本缝收窄为 98 行。
+ * 内容：跨进程「已持有句柄」标记与迁移墓碑的常量
+ *（OPEN_MARKER_SUFFIX/MIGRATED_EXT/OPEN_MARKER_STALE_MS）与 openMarkerPath/
+ * sweepOpenMarkers/registerOpenMarker/touchOpenMarker/releaseOpenMarker。
+ * 续期周期可变 let 与 configureOpenMarkerRenewMs 留残核：家规禁 export let（跨模块共享
+ * 可变绑定须 testableConst 化），且唯一读点在残核 firstOpenStore（不动区）。
  * 依赖方向单向（无环回引）：只 import node:fs/node:path 与
  * ../fs/cross-process-lock.js（isProcessAlive/processBootTime），不 import
  * events/store.ts；残核（firstOpenStore 首开段与 migrateBookSession 迁移段）自本
  * 文件 import 常量与函数——原模块私有而残核跨文件消费项就此导出
  * （MIGRATED_EXT/sweepOpenMarkers/registerOpenMarker/touchOpenMarker/
  * releaseOpenMarker），其余保持私有。
- * firstOpenStore（残核巨型对象字面量，重设计立案件）本批零触碰。
  */
 import { readdirSync, statSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -46,7 +41,7 @@ function openMarkerPath(dbPath: string): string {
 
 /** 活 pid 但标记超龄的判死门槛（毫秒）——对齐锁超龄口径。
  *  正常活进程由续期定时器保持 mtime 恒新；超龄只可能是持有进程已死、pid 被系统复用
- *  给长命进程（跨进程 bootTime 无查询 API，年龄是可用判据）。残余风险如实记档：
+ *  给长命进程（跨进程 bootTime 无查询 API，年龄是可用判据）。残余风险：
  * 被长时间 SIGSTOP/深度 App Nap 挂起超门槛的活进程会被误判死——与对锁的
  *  同款取舍，门槛取保守的 10 分钟。 */
 const OPEN_MARKER_STALE_MS = 10 * 60_000

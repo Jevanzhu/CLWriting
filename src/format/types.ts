@@ -354,7 +354,7 @@ export interface BookConfig {
     candidate_depth?: number // 召回惰性指纹校验的候选章上限（缺省 20；拍板写死可覆盖）
     embed_timeout_ms?: number // embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
   }
-  // 死字段 _raw 删除——已如实登记「全库无生产填充」，
+  // 不保留 _raw 幻影字段（全库无生产填充）——
   // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层），
   // 全量重生成（stringifyBookConfig）丢弃未知段是既定取舍；类型面不再保留幻影字段。
 }

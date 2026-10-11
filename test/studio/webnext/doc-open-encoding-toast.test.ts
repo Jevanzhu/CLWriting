@@ -34,20 +34,9 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
-import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { makeChapterNodeAt } from './helpers/tree-node'
 
 const BOOK = 'r0912-4-编码书'
-
-function makeNode(path: string, docId: string): TreeNode {
-  return {
-    path,
-    name: path.split('/').pop()!,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -63,7 +52,7 @@ describe('重评-0912-4 P1-1: doOpen 非 UTF-8 存量告警', () => {
     })
     const doc = useDocStore()
     doc.setBook(BOOK)
-    await doc.open(makeNode('写作/正文/第一卷/0001-章.md', 'doc-enc-1'))
+    await doc.open(makeChapterNodeAt('写作/正文/第一卷/0001-章.md', 'doc-enc-1'))
     expect(mocks.toast).toHaveBeenCalledTimes(1)
     expect(mocks.toast).toHaveBeenCalledWith(
       '该文件不是 UTF-8 编码，内容可能显示为乱码——请先在编辑器外转码为 UTF-8 再编辑保存',
@@ -80,7 +69,7 @@ describe('重评-0912-4 P1-1: doOpen 非 UTF-8 存量告警', () => {
     mocks.getContentPayload.mockResolvedValueOnce({ content: 'x', encodingSuspect: true })
     const doc = useDocStore()
     doc.setBook(BOOK)
-    await doc.open(makeNode('写作/正文/第一卷/0002-章.md', 'doc-enc-2'))
+    await doc.open(makeChapterNodeAt('写作/正文/第一卷/0002-章.md', 'doc-enc-2'))
     expect(mocks.toast).toHaveBeenCalledWith('该文件不是 UTF-8 编码，内容可能显示为乱码', 'error')
   })
 
@@ -88,7 +77,7 @@ describe('重评-0912-4 P1-1: doOpen 非 UTF-8 存量告警', () => {
     mocks.getContentPayload.mockResolvedValueOnce({ content: '正常 UTF-8 正文。' })
     const doc = useDocStore()
     doc.setBook(BOOK)
-    await doc.open(makeNode('写作/正文/第一卷/0003-章.md', 'doc-enc-3'))
+    await doc.open(makeChapterNodeAt('写作/正文/第一卷/0003-章.md', 'doc-enc-3'))
     expect(mocks.toast).not.toHaveBeenCalled()
     expect(doc.docs.get('doc-enc-3')!.content).toBe('正常 UTF-8 正文。')
   })

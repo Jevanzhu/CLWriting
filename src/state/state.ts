@@ -1,37 +1,22 @@
 /**
- * 状态机单入口 —— 依据 #15 状态机单入口 spec（子 spec·#15）+ 母本第 6.4 节。
+ * 状态机单入口 —— 每次进书按序判定、命中即路由：
+ * 1 健康检查 → 2 源文件解析失败 → 3 未入账手改 → 4 工作区未完成 → 5 卷末 → 7 起草新章
+ *（态位收窄：体检周期态 6、批量审稿态 8 已从 BookState 移除，现为 1|2|3|4|5|7，不再拦写章）。
  *
- * 每次进书按序判定、命中即路由（#15 第 2 节）：
- * 1 健康检查 → 2 源文件解析失败 → 3 未入账手改 → 4 工作区未完成
- * → 5 卷末 → 7 起草新章
- * （态位收窄：体检周期态 6、批量审稿态 8 已从 BookState 移除——现为 1|2|3|4|5|7，不再拦写章。）
- *
- * 去 git 自管版本系统（Dev/Main/Plans/gitless-version-system.md）：
- * - 态 1 健康检查：journal 崩溃恢复 + 网盘副本扫描（不再依赖 git 半提交/冲突/锁）
- * - 态 3 未入账手改：manifest.finalizedRevision vs 文件实时指纹比对（不再依赖 git modified）
- * - 态 4 工作区未完成：工作区信号 + manifest 定稿检测（不再依赖 git log 反查 commit）
- *
- * 设计（#15 第 1 节原则）：
+ * 设计原则：
  * - 单入口、按序判定：前一个命中就路由，不再判后面的（体检优先于续跑、续跑优先于周期）。
  * - 进门先体检、自愈不门禁：态 1-3 异常先提议修复，不报错拒绝、不崩整个系统。
  * - 脚本面为主、AI 介入点用桩：判定/路由全确定性脚本；语义判断（顺势圆/修复确认）桩真。
  * - 文件即真相：判定读 md 真源 + manifest 账本，不维护额外状态机状态文件。
+ * - 去 git 自管版本系统的落地口径：态 1 = journal 崩溃恢复 + 网盘副本扫描；态 3 = manifest
+ *   finalizedRevision vs 文件实时指纹；态 4 = 工作区信号 + manifest 定稿检测。
+ * 回滚「回到第 N 章」是横切命令，不在顺序判定里——由 version 恢复单独触发。
  *
- * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
- *
- * 拆分沿革（⑤④产品巨件拆分波2）：本单件（1175 行）缝 A+B
- * 纯移动拆分——态 1 健康检查族 + 三组每书 TTL 节流缓存（sweep/云盘扫描/finalizedLost）
- * 及其复位与失效钩子 + 判定辅助族（detectHandEdits/detectIncompleteWorkdir/
- * isChapterFinalized/chapter* 辅助族/unfinishedPieceNames/maxFileNameChapter/
- * skipFinalizedChapters/volumeSizeOf）→ state/health.ts（缝 A）；近况复述族（#15
- * 第 4 节 StatusRecap/buildRecap/readRecapSnapshot/fallbackRecapSnapshot）→
- * state/recap.ts（缝 B）。本残核保留状态机主干：detectState/routeState/enter 与
- * 状态类型（BookState/STATE_NAMES/DetectedState）；迁出公开导出
- * __resetSweepThrottleForTest/forgetStateSweepStamp（缝 A）与 StatusRecap/buildRecap
- * （缝 B）经下方逐名 re-export 桥接，全库消费方 import 面零改动。运行时依赖单向：
- * state→health、state→recap、recap→health，无环回引——顶层求值常量（节流表/
- * HAND_EDIT_PREFIXES/DEFAULT_VOLUME_SIZE 等）一律单源 health.ts，绝不经环回引
- * （count 拆分 HANZI 单源先例同款纪律）。本头注上方原文全部历史记载原样保留。
+ * 模块边界（本文件只保留状态机主干 detectState/routeState/enter 与状态类型）：健康检查族 +
+ * 每书 TTL 节流缓存 → state/health.ts；近况复述族（StatusRecap/buildRecap）→ state/recap.ts；
+ * 迁出导出经逐名 re-export 桥接，全库消费方 import 面零改动。
+ * 不变量：运行时依赖单向 state→health、state→recap、recap→health，无环回引——顶层求值常量
+ *（节流表 / HAND_EDIT_PREFIXES / DEFAULT_VOLUME_SIZE 等）一律单源 health.ts，绝不经环回引入。
  */
 
 import { existsSync } from 'node:fs'

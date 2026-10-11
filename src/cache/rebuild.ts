@@ -19,8 +19,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs'
 import type { Dirent } from 'node:fs'
 import { join, dirname, sep } from 'node:path'
-import { createAllTables, clearAllTables } from './schema.js'
+import { migrateCacheSchema, clearAllTables } from './schema.js'
 import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
+import { rollbackQuietly } from '../shared/sqlite-prepared.js'
 import { readLeadDir } from '../format/leads.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
@@ -28,6 +29,7 @@ import { isMdFileName } from '../format/filename.js' // .md 判定大小写不�
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { platformCaseFold } from '../fs/safe-path.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 import { log, errMsg } from '../log/index.js'
 // -（全量代码）：基础两类单源自 install/data.ts（该模块仅
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
@@ -124,10 +126,10 @@ export const __testHooks = {
  * 断言用）；清后键惰性重建，无正确性影响。
  */
 export function forgetChapterParseCacheForBook(bookRoot: string): number {
-  // （折叠键族）：前缀比较收编
-  // platformCaseFold（win/darwin 折叠，键字节不动、只折叠比较）——同一书以不同 case
-  // 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配清不净（FIFO 上限兜底内的内存卫生
-  // 态）。linux 不折叠语义不变（md-text-cache forgetMdTextCacheForBook 同批同款）。
+  // 前缀比较走 platformCaseFold（win/darwin 折叠，键字节不动、只折叠比较）——
+  // 同一书以不同 case 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配清不净
+  //（FIFO 上限兜底内的内存卫生态）。linux 不折叠语义不变
+  //（md-text-cache forgetMdTextCacheForBook 同款）。
   const prefix = platformCaseFold(bookRoot + sep)
   let removed = 0
   for (const key of chapterCache.keys()) {
@@ -142,6 +144,10 @@ export function forgetChapterParseCacheForBook(bookRoot: string): number {
   sourceProbeLastScan.delete(bookRoot)
   return removed
 }
+
+// 登记制（模块顶层自登记）：删书后全书条目成死重、改名后旧前缀键永不再命中——
+// 章读缓存前缀清 + 源树扫描节流键同删（键口径/清除范围不动）。
+registerBookKeyedCache('chapter-parse-cache', forgetChapterParseCacheForBook)
 
 /**
  * 源树根（与全量重建扫描范围精确一致）：
@@ -440,7 +446,9 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
     throw e
   }
   try {
-    createAllTables(db)
+    // schema 阶梯（v1 步 = 原 createAllTables + ensureTreeIssuesTables 逐位原样）：
+    // 已在目标版本的库零 DDL；版本写入随本事务提交 / 回滚（见 migrateCacheSchema 注）
+    migrateCacheSchema(db)
     clearAllTables(db) // 幂等：清空旧数据
 
     // #1 扫描账本（布线/{已启用类}/，关系线仍在 大纲/）
@@ -503,13 +511,11 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
 
     db.exec('COMMIT')
   } catch (e) {
-    // 内存闸（审计）：ROLLBACK 自身抛错（事务已自动回亡/busy）也不能跳过
-    // close——finally 嵌套保证连接必关；ROLLBACK 失败吞掉、原始异常 e 原样上抛（未显式
-    // 回滚的事务由 close 强制回滚兜底，语义不变）
+    // 回滚失败（事务已自动回亡/busy）也不能跳过 close——finally 保证连接必关；
+    // 回滚异常吞掉（rollbackQuietly 单源）、原始异常 e 原样上抛（未显式回滚的事务
+    // 由 close 强制回滚兜底）
     try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* ROLLBACK 失败忽略：close 强制回滚未决事务 */
+      rollbackQuietly(db)
     } finally {
       db.close()
     }
@@ -521,9 +527,9 @@ export function rebuild(bookRoot: string, cachePath: string, opts?: { throttleSo
 }
 
 /** 扫描摘要目录，文件名 <数字>.md → scope/ref/path 入库。
- * 不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——此前静默
- *  continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。
- * 形参改收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
+ * 不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——静默
+ *  continue 会让坏文件既不入库也无任何可见性。
+ * 形参收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
 function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume', warnings: ParseError[]): number {
   if (!existsSync(dir)) return 0
   let count = 0
@@ -554,9 +560,9 @@ function scanSummaries(db: DatabaseSync, dir: string, scope: 'chapter' | 'volume
     if (d.isDirectory() && !d.name.startsWith('._')) {
       log.warn('rebuild', `摘要目录下存在子目录「${d.name}」（${dir}），其中内容不入摘要索引——如为误建请移出或删除`)
     }
-    // 清偿批非 `._` 前缀且非 .md 的普通文件此前静默跳过（不入库不
-    // 留痕），与同函数白名单外 .md 命名（log.warn+warnings）/误建子目录（
-    // log.warn）两处留痕口径不一——补 log.warn 同款留痕（不入摘要索引的事实即时可见，
+    // 非 `._` 前缀且非 .md 的普通文件若静默跳过（不入库不留痕），
+    // 与同函数白名单外 .md 命名（log.warn+warnings）/误建子目录（
+    // log.warn）两处留痕口径不一——故补 log.warn 同款留痕（不入摘要索引的事实即时可见，
     // 「摘要不生效」类定位不再漏看散落的非 .md 文件；命名契约不动，.md 仍是唯一入库形态）
     if (d.isFile() && !d.name.startsWith('._') && !isMdFileName(d.name)) {
       log.warn('rebuild', `摘要目录下存在非 .md 文件「${d.name}」（${dir}），未入摘要索引——如为误放请移出或删除`)

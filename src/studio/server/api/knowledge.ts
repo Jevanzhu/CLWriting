@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
@@ -52,6 +53,9 @@ const LEARN_CACHE_MAX = 32
 export function forgetLearnCache(bookRoot: string): void {
   learnCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈 learn 候选（仅成功结果入缓存）。
+registerBookKeyedCache('learn', forgetLearnCache)
 /** 收尾：__setLearnTtlForTest / __setLearnCommitYieldForTest 删除——
  * TTL 覆盖档与让出原语桩改组装根 RouteOverrides 注入（handler 逐调用传入，随实例
  * 隔离；undefined = 生产口径 defaultCommitYield / 5s 逐位不变）。 */

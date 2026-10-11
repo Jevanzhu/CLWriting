@@ -89,18 +89,7 @@ import Book from '../../../../src/studio/web-next/src/pages/Book.vue'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { useWorkbenchStore } from '../../../../src/studio/web-next/src/stores/workbench'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNode } from '../helpers/tree-node'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -123,7 +112,7 @@ describe('R26-18: 切书守卫拒绝回退原书 → 同书重入 watch 零动�
 
     // A 书造「冲突 + dirty」文档（Z-8 形态），并留原书工作台态
     mocks.getContent.mockResolvedValueOnce('盘上内容')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '本地未落盘编辑')
     doc.get('d1')!.conflict = true
     wb.textOut = 'A 书生成正文残留'
@@ -161,7 +150,7 @@ describe('R26-18: 切书守卫拒绝回退原书 → 同书重入 watch 零动�
 
     // dirty（非冲突）文档 + 保存失败 → F1 守卫形态
     mocks.getContent.mockResolvedValueOnce('盘上内容')
-    await doc.open(makeNode('d2'))
+    await doc.open(makeChapterNode('d2'))
     doc.patch('d2', '编辑')
     mocks.saveContent.mockRejectedValue(new Error('网络断了'))
 

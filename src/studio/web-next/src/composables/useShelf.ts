@@ -21,6 +21,7 @@ import { formatWanZi } from '../shared/words'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
 import { LAST_BOOK_KEY, treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
+import { notifyCrossWindow } from '../shared/cross-window'
 
 /**
  * 书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
@@ -254,6 +255,9 @@ export function useShelf(options?: {
     try {
       // 裸 apiJson → api/books.ts 具名函数（端点/payload/错误口径零变化）
       await createBookApi(name, newKind.value)
+      // 跨窗失效广播：书库列表已变（他窗重取走各自既有 shelf.load 链）；本窗下一行
+      // 也要 load，广播只服务他窗——来源窗 id 自检保证本窗不会自回环
+      notifyCrossWindow(['shelf'])
       showCreate.value = false
       newName.value = ''
       newKind.value = 'long'
@@ -361,6 +365,9 @@ export function useShelf(options?: {
       // 删除完成后清选中 + 退出批量模式
       selected.value = new Set()
       batchMode.value = false
+      // 跨窗失效广播：整批删除已落定（他窗重取走各自既有 shelf.load 链）；本窗下一行
+      // 也要 load，广播只服务他窗——来源窗 id 自检保证本窗不会自回环
+      notifyCrossWindow(['shelf'])
       await shelf.load()
       options?.onDeleted?.(names)
     } catch (e) {

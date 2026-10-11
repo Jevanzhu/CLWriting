@@ -1,19 +1,17 @@
 /**
- * 干净导出 —— 依据 #36 spec。
- *
- * 把定稿正文导出成多形态（单文件合并 / 分章），剥所有 front matter，
- * 产物落 `工作区/导出/`。
+ * 干净导出：把定稿正文导出成多形态（单文件合并 / 分章），剥所有 front matter，产物落
+ * `工作区/导出/`。
  *
  * 输出形态两档（options.output，默认 md）：
  * - md = `# 标题` + Markdown 正文原样，落 `工作区/导出/`（另有短篇投稿视图）；
- * - txt = 剥呈现层标记的纯文本（UTF-8 无 BOM + LF 规范形），落
- *   `工作区/导出/纯文本/`（md 面的清旧/归档按目录作用域隔断，互不动对方的稿）。
+ * - txt = 剥呈现层标记的纯文本（UTF-8 无 BOM + LF 规范形），落 `工作区/导出/纯文本/`
+ *  （md 面的清旧/归档按目录作用域隔断，互不动对方的稿）。
  *
- * 复用边界（#36 第 2.1/5 节）：
- * - 遍历复用 readChapterDir（不新写）
- * - 正文取法复用 frontmatter.readFile.body（readChapter 只返 meta）
- * - 排序按章号数值（不依赖文件名字符串序——定稿文件名不补零）
- * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
+ * 复用边界：
+ * - 遍历复用 readChapterDir（不新写）；正文取法复用 frontmatter.readFile.body（readChapter 只返
+ *   meta）；
+ * - 排序按章号数值（不依赖文件名字符串序——定稿文件名不补零）；
+ * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter。
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'

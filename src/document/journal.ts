@@ -140,7 +140,7 @@ export async function appendAborted(journalPath: string, opId: string, reason: s
 }
 
 /**
- * 内部核（修复1）：读 + 解析 journal 未结算条目，读失败返回**可辨信号**
+ * 内部核：读 + 解析 journal 未结算条目，读失败返回**可辨信号**
  * 而非降级空集——两个消费方语义分岔：崩溃恢复扫描（findUnsettled）按降级 []
  * （跳过一轮检查，无害）；compact（maybeCompactJournal）拿到的是「保留集」，空集 =
  * 清空 journal，见读失败必须整轮放弃（POSIX rename 只需目录写权，可独立于文件读权
@@ -227,21 +227,18 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
 
 /**
  * appendLine 的异步孪生——executeSave/saveDraft 服务进程保存链
- * 每笔 2-3 次 journal 追加，此前走同步 Atomics.wait 锁等待（双进程争用冻结事件循环
- * 最长 2s）。降级语义原样平移（锁超时 → 精简降级行裸写）；后服务进程全部
- * journal 写路径（含 healMovePending 自愈回写）均走本异步版。原同步 appendLine 随
- * appendSettledSync/appendAbortedSync 一并删除（生产零调用死码，自
- * 起无任何调用方）。
- * 与刀 2 的 degradedLine thunk /
- * 降级写 inode 自校验随快照机制删除一并撤除——两条都只为「行长」与
+ * 每笔 2-3 次 journal 追加，走同步 Atomics.wait 锁等待会在双进程争用下冻结事件循环
+ * 最长 2s。降级语义原样平移（锁超时 → 精简降级行裸写）；服务进程全部 journal 写路径
+ *（含 healMovePending 自愈回写）均走本异步版（同步 appendLine/appendSettledSync/
+ * appendAbortedSync 已删——生产零调用死码）。
+ * degradedLine thunk 与降级写 inode 自校验随快照机制撤除——两条都只为「行长」与
  * 「快照内容不丢」服务：pending 行现为 ~200 字节元数据（远在文件系统原子窗内），降级写
- * 退化为原「裸 appendFileSync」形态，仅留锁超时 warn 与「尽力而为」语义。
- * 残余窗口（如实记档）：拿锁两轮失败的降级裸写不持锁，若此刻 compact 完成
+ * 退化为裸 appendFileSync，仅留锁超时 warn 与「尽力而为」语义。
+ * 残余窗口：拿锁两轮失败的降级裸写不持锁，若此刻 compact 完成
  * atomicWriteFile（tmp+rename 换 inode），本行可能落在被换下的旧 inode 上——
- * findUnsettled 永不报，即丢一条**崩溃检测**行。前丢的是快照内容（故当时以
- * dev+ino 自校验 + 尾段补追堵）；现丢的只是「这次保存没结算」的账目行，其后果是
- * 少一次进门提示（无内容可丢——内容副本已不在 journal），且下一笔保存即新写 pending，
- * 故接受为小概率残余，不再为此保留自校验机制。
+ * findUnsettled 永不报，即丢一条**崩溃检测**行。丢的只是「这次保存没结算」的账目行，
+ * 其后果是少一次进门提示（无内容可丢——内容副本已不在 journal），且下一笔保存即新写
+ * pending，故接受为小概率残余。
  */
 async function appendLineAsync(filePath: string, line: string): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })
@@ -317,23 +314,22 @@ export const [getJournalCompactBytes, __setJournalCompactBytesForTest] = testabl
  * 则原 journal 完好，tmp 残留下次覆盖。best-effort——失败不影响保存主流程。
  * 调用时机在 appendSettled/appendAborted 之后（本进程内 per-docId 串行）。
  *
- * KN-（bb 轮挂起销账·轻量守卫）：原「无并发写」假设仅限单进程——
+ * 并发守卫：「无并发写」假设只对单进程成立——
  * CLI/脚本与 GUI 双进程操作同一书时，compact 的「读→算→整文件替换」窗口可吞掉
  * 对方刚 append 的 pending 行（崩溃检测唯一依据，丢了检测链失据）。守卫：读前后
  * 各 stat 一次，size/mtime 任变（= 有他进程追加过）→ 放弃本轮压缩（compact 本就
  * best-effort，下次再试）。跨进程文件锁已落地
- * （fs/cross-process-lock.ts，含 win 语义评估）——compact 与 append 共享 journal
+ * （fs/cross-process-lock.ts）——compact 与 append 共享 journal
  * 锁文件，「末次 stat → rename」理论窗口彻底闭合；stat 守卫保留作双保险。
- * 基线 stat 移入锁内——原「锁外 before stat → 等锁 → 锁内 after
- * stat」对比，等锁期间他进程的合法 append 也会误判为「压缩窗口内有变」白白弃压。
- * RC的「保留集 + 尾段补追」随快照机制一并撤除
- * （补追整套机制——readByteRange/readCompactTail/稳定性重读——价值全在「把基线之后
- * 新增的**内容行原文**带进新文件」；pending 行现为 ~200 字节元数据、journal 增长速率
- * 降两个数量级，弃轮一次的代价远小于保留这套拼接逻辑），复核口径回到：锁内基线
- * stat → 读算 → rename 前重 stat 对比（size/mtime 有变 = 有新行）→ 变则整轮放弃
- * （原文件不动、无净损失，下次 settle 再试）。残余窗口如实记档：复核 stat 与 rename
- * 之间仍有 µs 级窗口（与同级，不宣称归零）；降级写侧不再有 inode 自校验兜底，
- * 丢的也只是一条检测行（见 appendLineAsync 注释）。
+ * 基线 stat 在锁内取——「锁外 before stat → 等锁 → 锁内 after stat」会把等锁期间他进程
+ * 的合法 append 误判为「压缩窗口内有变」，白白弃压。
+ * 「保留集 + 尾段补追」随快照机制撤除（补追整套机制——readByteRange/readCompactTail/
+ * 稳定性重读——价值全在「把基线之后新增的**内容行原文**带进新文件」；pending 行现为
+ * ~200 字节元数据、journal 增长速率降两个数量级，弃轮一次的代价远小于保留这套拼接逻辑），
+ * 复核口径：锁内基线 stat → 读算 → rename 前重 stat 对比（size/mtime 有变 = 有新行）→
+ * 变则整轮放弃（原文件不动、无净损失，下次 settle 再试）。残余窗口：复核 stat 与 rename
+ * 之间仍有 µs 级窗口（不宣称归零）；降级写侧无 inode 自校验兜底，丢的只是一条检测行
+ *（见 appendLineAsync 注释）。
  */
 function maybeCompactJournal(journalPath: string): void {
   try {

@@ -1,8 +1,7 @@
 /**
  * 章节结构操作——拆分编排（干跑 plan / 光标校验 / 执行 apply）。
  *
- * （⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
- * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
+ * 设计口径正本 = structure.ts 头注
  * （《章节结构操作-设计方案-》v3：取号跳定稿/序中值/external-merge 截断
  * 留底）。公共底座（读态派生/plan 指纹/取号/事件副录）在 structure-core.ts，本文件
  * 单向依赖之（core←split，无环）；RAG 触点经 StructureRagPort 端口由组合根注入
@@ -84,7 +83,7 @@ export type SplitApplyResult =
 // ── 拆分：干跑 + 执行 ────────────────────────────────────────────────
 
 // per-bookRoot 拆分 apply 串行链（进程内互斥最小件，
-// 链语义对齐 studio/server/serial-chain.ts 的收编形态——前驱成败都接续、链尾吞错
+// 链语义对齐 studio/server/serial-chain.ts 的形态——前驱成败都接续、链尾吞错
 // 防 unhandled rejection、settle 后身份校验自清理；document 层不 import studio 层）。
 // 只串取号临界区，不含 plan 干跑；svc.save/createDocument 的跨进程锁在互斥**内**
 // 获取——互斥是进程本地最外层（任何路径都不会持跨进程锁再进入本互斥），与既有

@@ -10,8 +10,10 @@
  *   人类抄本（append 事件）全量保留，模型可见投影只含未遮蔽节点。
  */
 import type { ChatMsg, ContentBlock } from '../ai/provider/types.js'
-import type { ChatEvent, SessionEndReason, TurnEndReason } from './types.js'
+import type { ChatEvent, SessionEndReason, TurnEndReason, ChatSanitizeData } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
+// 消毒报告类型（纯类型面——prompts/chat 是报告的生产者，本构造器只做形状搬运）
+import type { SanitizeReport } from '../ai/prompts/chat.js'
 import { foldSurface, assistantMessageVisible, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
 import { registerActiveChatSession, unregisterActiveChatSession } from './store.js'
@@ -82,6 +84,28 @@ export function toolResultEvent(
   if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
   if (branch?.branchId) data['branchId'] = branch.branchId
   return { type: 'tool/result', data, surfaceOp: 'append' }
+}
+
+/**
+ * 发送前历史消毒改动事件（chat/sanitize）——无改动返回 null（零事件，常态对话不落）。
+ * 载荷 = 报告主体的原样搬运（before/after + 逐条 位置/原因/角色/原长）——红线：不嵌
+ * 被替换消息正文（可能含书稿文本/用户隐私），故本构造器不接受任何消息文本入参。
+ * 写入语义（best-effort）：调用方经既有 SessionRecorder.add 入批，与 user/assistant
+ * 消息同事务落库（llm/call 的「写失败静默不拖累业务」同款——记录失败由既有 flush
+ * 重试 / chat_gap 断链标记承接，绝不阻断 chat 主流程）。
+ */
+export function chatSanitizeEvent(
+  report: SanitizeReport,
+  stage: ChatSanitizeData['stage'],
+  turn?: number,
+): NewEvent | null {
+  if (report.changes.length === 0) return null
+  return {
+    type: 'chat/sanitize',
+    data: { stage, before: report.before, after: report.after, changes: report.changes },
+    // turn 可选——轮内发送面（stage='send'）带当前轮；收尾压缩段无轮次语境（同血缘事件无 turn）
+    ...(turn !== undefined ? { turn } : {}),
+  }
 }
 
 // ── 恢复历史 + 消息→seq 映射 ───────────────────────

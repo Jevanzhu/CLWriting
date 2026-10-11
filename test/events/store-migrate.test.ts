@@ -10,7 +10,6 @@
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync, existsSync, copyFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   openSessionStore,
@@ -20,11 +19,11 @@ import {
   __setSessionMigrateLockTimeoutForTest,
 } from '../../src/events/store.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'f1-migrate-'))
+  const d = tempDirTracked('f1-migrate-')
   dirs.push(d)
   return d
 }

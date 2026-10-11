@@ -9,14 +9,13 @@
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isWithinRoot } from '../../src/fs/safe-path.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function mk(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'r51-d4-'))
+  const d = tempDirTracked('r51-d4-')
   dirs.push(d)
   return d
 }

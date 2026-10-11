@@ -1,24 +1,14 @@
 /**
- * 章节结构操作 REST 端点 —— 自 src/studio/server/api/documents.ts 缝 3 拆出。
+ * 章节结构操作 REST 端点。
  *
- * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分。本文件承载缝 3：阶段 24 章节结构操作——干跑（POST
- * structure-plan：merge/split plan 与指纹）、执行（POST structure-apply：合并/
- * 拆分落账）、撤销合并（POST merge-undo），及本缝私有常量 structureRag（structure
- * 的 RAG 触点端口实例——顶层求值常量单源本文件，引用 rag/index 顶层 import、
- * 不经残核环回引 HANZI 单源先例同款纪律）。三缝按原文件连续段切分，
- * 各域路由相对序与全局注册序逐字节不变（dispatch 按注册顺序匹配，router.ts
- * 隐性契约——顺序细节与环判定记档见残核 documents.ts 头注段）。
- * 纯移动：代码与注释逐字随迁，零行为变化、零逻辑改写、零格式重排；差异仅
- * export 前缀与 import 重组。
- * 依赖方向：本文件 → document/rag 既有出边（studio→ai 组合根白名单面内，不新增
- * ai→studio 边）+ 回引基建单源 documents-core.ts（getOrCreateService /
- * enqueueStructureOp / structureBusyGuarded / structStatus / DocumentCtx——⑤①
- * 收敛的公共底座，零触碰单源 core）。模块图单向无环（core 不 import
- * 同批任何 documents-* 模块；聚合入口在残核 documents.ts 单向 import 本文件），
- * structureRag 只引用本文件 import 的 rag 函数，无 TDZ 面。
- * 保存/定稿/文件树族见 documents-save.ts（缝 1）；其余文档 CRUD 族见
- * documents-crud.ts（缝 2）；基建段与全部历史沿革记载留 documents.ts 残核。
+ * 路由：干跑（POST structure-plan：merge/split plan 与指纹）、执行（POST structure-apply：合并/
+ * 拆分落账）、撤销合并（POST merge-undo）；缝私有常量 structureRag（structure 的 RAG 触点端口实例
+ *——顶层求值常量单源本文件，引用 rag/index 顶层 import，不经残核环回引）。各域路由相对序
+ * 与全局注册序不变——dispatch 按注册顺序匹配，顺序是 router.ts 的隐性契约。
+ * 依赖方向：本文件 → document/rag 既有出边（studio→ai 组合根白名单面内，不新增 ai→studio 边）+
+ * 回引基建单源 documents-core.ts（getOrCreateService / enqueueStructureOp / structureBusyGuarded /
+ * structStatus / DocumentCtx）。模块图单向无环（core 不 import 同批任何 documents-* 模块；聚合入口
+ * 在残核 documents.ts 单向 import 本文件），structureRag 只引用本文件 import 的 rag 函数，无 TDZ 面。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

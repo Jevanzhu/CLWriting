@@ -1,20 +1,18 @@
 /**
- * 树红点聚合族 —— （⑤④产品巨件拆分波2）自 run.ts 缝 A 拆出
- *（纯移动，零行为变化；代码与注释逐字未改）。
+ * 树红点聚合族。
  *
  * 内容：TREE_ISSUES_YIELD_EVERY / __setLeadsBookDegradeForTest /
- * __setChapterCheckDegradeForTest / TreeIssuesResult（模块私有接口，原即未导出）/
- * collectTreeIssues / collectTreeIssuesAsync / collectTreeIssuesCore（生成器实现体，
- * 原 run.一带）。依赖 tree-issues-cache / leads / outline-leads /
+ * __setChapterCheckDegradeForTest / TreeIssuesResult（模块私有接口）/
+ * collectTreeIssues / collectTreeIssuesAsync / collectTreeIssuesCore（生成器实现体）。
+ * 依赖 tree-issues-cache / leads / outline-leads /
  * document / format / fs / log / async——编辑器层内闭合。
  *
- * （评审 /）两处结构变更（行为逐位不变）：
- * - 实现体拆为四段接力（前奏 / 输入面 / 账本全书性红项 / 逐章收集）+ 纯汇总，段间只经
- *   返回值传数据（原单件生成器内 IO 与判定交织）；纯判定件落 tree-issues-collect.ts。
- * - 单章机检链与批量预扫的实现体迁出 run.ts → run-single-doc.ts，本件直接引该件；
- * run.ts 退为兼容桥（只 re-export）。两文件互 import 的运行时环（评审的
- *   check/run ↔ check/run-tree-issues）由此消失——ESM 具名绑定惰性解析不再需要承担
- *   环上的加载序。
+ * 实现体拆为四段接力（前奏 / 输入面 / 账本全书性红项 / 逐章收集）+ 纯汇总，段间只经
+ * 返回值传数据（IO 与判定不交织）；纯判定件落 tree-issues-collect.ts。
+ * 单章机检链与批量预扫的实现体在 run-single-doc.ts，本件直接引该件；
+ * run.ts 退为兼容桥（只 re-export）。两文件互 import 的运行时环
+ * （check/run ↔ check/run-tree-issues）不存在——ESM 具名绑定惰性解析不再需要承担
+ * 环上的加载序。
  * 既有导出面（collectTreeIssues/collectTreeIssuesAsync/__setLeadsBookDegradeForTest/
  * __setChapterCheckDegradeForTest）由 run.ts 具名 re-export 桥接，全库 import 面零改动。
  */
@@ -67,7 +65,7 @@ import { yieldToEventLoop } from '../async.js'
 import { testableConst } from '../shared/testable.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 
-// ──：树红点聚合 async 孪生的逐块让出 ──────────────────────
+// ── 树红点聚合 async 孪生的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，collectTreeIssues 同步遍历全书
 //（rebuild + 全章扫描 + 逐章机检）在 ≥500 章大书上单请求秒级冻结事件循环 = 桌面
 // 整体卡死；既有 5s TTL 缓存只降频不减峰。异步让出范式同 learn/index.ts
@@ -76,14 +74,13 @@ import { preludeYieldStats } from '../shared/yield-stats.js'
 // 失败 fail-open 不落缓存、写前纪元复核（聚合窗口
 // 内输入变更整批丢弃缓存行）——同步版这些防护本就面向跨进程并发，async 版让出后的
 // 同进程并发同享这套口径。
-// 实现取「生成器核心 + 双驱动」而非复制体：逻辑单源零漂移（同步版驱到尾 = 与修复前
-// 逐位等价的纯同步执行，存量测试调用方零感知），async 版在每个悬停点让出。
-// 落定：前奏段切片 + rebuild 效应让出——fp 首尾遍（dirFp 递归
-// walk）、正文/章纲目录整扫、账本预扫各自收进生成器核（tree-issues-cache / format/
-// chapters / run），核内 `yield*` 委托、让出点透传本文件两驱动；rebuild/开库段
-//（openCheckDb）改「效应让出」档：核 yield 效应对象，同步驱动现执行现回填（= 与切片前
-// 逐位一致），async 驱动 await openCheckDbAsync（rebuild 内核走 worker 线程）后回填。
-// 剩余单段同步块 = 单文件/单句柄粒度残余（如实记账）。
+// 实现取「生成器核心 + 双驱动」而非复制体：逻辑单源零漂移（同步版驱到尾 = 纯同步执行，
+// 存量测试调用方零感知），async 版在每个悬停点让出。
+// 前奏段切片 + rebuild 效应让出——fp 首尾遍（dirFp 递归 walk）、正文/章纲目录整扫、
+// 账本预扫各自收进生成器核（tree-issues-cache / format/chapters / run），核内 `yield*`
+// 委托、让出点透传本文件两驱动；rebuild/开库段（openCheckDb）走「效应让出」档：核 yield
+// 效应对象，同步驱动现执行现回填，async 驱动 await openCheckDbAsync（rebuild 内核走
+// worker 线程）后回填。剩余单段同步块 = 单文件/单句柄粒度残余。
 /** 章循环的让出粒度——每处理 25 章让出一次（块内单章 stat/机检为毫秒级）。 */
 const TREE_ISSUES_YIELD_EVERY = 25
 
@@ -224,8 +221,8 @@ function* openTreeIssuesAggregate(
   // 树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
   // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
   // 拖累章级缓存判定；降级可见性由 warn 日志 + 单章面板（runCheckForDocument 注入的
-  // book-config-degraded 黄项）承担。（「读配置→托底」前奏收编 readCheckConfig
-  // ——与 runCheckForDocument 同源；树聚合只吃 config，degradedError 弃用。）
+  // book-config-degraded 黄项）承担。（「读配置→托底」前奏单源 readCheckConfig——与
+  // runCheckForDocument 同源；树聚合只吃 config，degradedError 弃用。）
   const { config } = readCheckConfig(bookRoot, userDataPath)
   const hasWiring = existsSync(join(bookRoot, '布线'))
   let db: DatabaseSync | null = null
@@ -245,12 +242,12 @@ function* openTreeIssuesAggregate(
       /* fp 前算失败：rebuild 照常，sync 处自算兜底 */
     }
     // rebuild / 开库 / PRAGMA 的硬异常按 fail-open 降级（warn + 留痕），
-    // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。此前只有
-    // 「rebuild 报错列表非空」这一种失败形态走了降级，库损坏/锁超时直接把树红点端点打挂。
-    //（「rebuild→开库→PRAGMA」前奏收编 openCheckDb（failMode 'fail-open'，rebuild
+    // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。只让
+    //「rebuild 报错列表非空」一种形态降级会让库损坏/锁超时直接把树红点端点打挂。
+    //（「rebuild→开库→PRAGMA」前奏单源 openCheckDb（failMode 'fail-open'，rebuild
     // 失败降级 comment 随实现移入该函数）；树聚合不吃节流，口径见其头注。）
-    // 改「效应让出」——同步驱动现执行现回填（openCheckDb，行为
-    // 与切片前逐位一致），async 驱动 await openCheckDbAsync（rebuild 走 worker 线程）
+    // 走「效应让出」——同步驱动现执行现回填（openCheckDb），async 驱动 await
+    // openCheckDbAsync（rebuild 走 worker 线程）
     const opened = (yield {
       kind: 'openCheckDb',
       bookRoot,
@@ -491,9 +488,10 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
     // 轮前复核遍（epochFpNow）消重——其「检测聚合窗口内源漂移」的
     // 职责由循环后终核（epochFpEnd）统一承担：轮前漂移若持续到循环后必被终核检出（整批
     // 丢弃），瞬时漂移（改回原状）与循环内同类盲区同口径（既定取舍）。
-    // 「收敛为首尾各一遍」至此如实成立——此前 leadsBook
-    // 指纹（leadsFp/leadsFpNow）各自整调 computeTreeIssuesGlobalFp，一次聚合对同批全局
-    // 目录实扫 4 遍；现按轮基线拼装（computeLeadsBookFpFromEpochFp，见 leadsBook 段注），
+    // 「收敛为首尾各一遍」：leadsBook
+    // 指纹按轮基线拼装（computeLeadsBookFpFromEpochFp，见 leadsBook 段注）——不得让
+    // leadsFp/leadsFpNow 各自整调 computeTreeIssuesGlobalFp（一次聚合对同批全局
+    // 目录实扫 4 遍）。
     // 全局纪元指纹实扫 = 首（epochFp0）+ 尾（epochFpEnd，有待落盘章时）各一遍。
     // epochFp0 为 null（纪元同步失败、缓存禁用）时不入列。
     // 待落盘章缓存（循环后统一终核纪元再写）
@@ -503,7 +501,7 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       size: number
       verdictFp: string | null
       value: { hasRed: boolean; verdictRejected: boolean }
-      // 清偿批行级纪元戳——落行时带轮基线，读侧按行比对防混纪元
+      // 行级纪元戳——落行时带轮基线，读侧按行比对防混纪元
       epochFp: string
     }> = []
     // 章循环悬停计数（async 驱动每 TREE_ISSUES_YIELD_EVERY 章让出一次）
@@ -557,10 +555,10 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
           verdictFp = null // 信封竞态消失：按无信封处理
         }
       }
-      // 清偿批读侧加纪元锚校验（epochFp0 为轮基线，与 sync 落表
-      // global_fp 同源）——双进程并发且轮中全局输入变更时，他进程按新纪元清表写入
-      // 的新纪元行不再被本进程按章指纹误读（单轮混纪元口径的修复面）；基线缺席
-      // （epochFp0=null，纪元指纹前算失败）时一律按 miss（宁重算勿混纪元）。
+      // 读侧加纪元锚校验（epochFp0 为轮基线，与 sync 落表 global_fp 同源）——双进程并发
+      // 且轮中全局输入变更时，他进程按新纪元清表写入的新纪元行不再被本进程按章指纹误读
+      //（单轮混纪元口径的修复面）；基线缺席（epochFp0=null，纪元指纹前算失败）时一律按
+      // miss（宁重算勿混纪元）。
       if (cacheEnabled && db && epochFp0 !== null) {
         const cached = readTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp, epochFp0)
         if (cached) {
@@ -620,10 +618,10 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
     // 循环后终核纪元再落盘——聚合窗口内全局输入（大纲/章纲/布线）
     // 变更时轮内各章的纪元判定已陈旧，直接落会把旧纪元判定固化成缓存行（单轮错、下轮
     // 自愈，但窗口内各章红点口径前后不一致）。漂移 → 整批丢弃（本轮零落缓存，下轮
-    // 全部重算），每请求只多一次全树指纹计算。此终核遍是聚合的
-    // 「尾」遍（首遍 = 开头的 epochFp0，两遍之间不再有中间遍）。
-    // 落盘改单事务包批（writeTreeIssuesCacheBatch）——数百章书
-    // 纪元失效后一轮聚合此前逐行独立 commit（WAL 放大）。
+    // 全部重算），每请求只多一次全树指纹计算。此终核遍是聚合的「尾」遍（首遍 = 开头的
+    // epochFp0，两遍之间无中间遍）。
+    // 落盘走单事务包批（writeTreeIssuesCacheBatch）——逐行独立 commit 在数百章书纪元
+    // 失效后一轮聚合里会放大 WAL。
     if (pendingCacheWrites.length > 0 && db && epochFp0 !== null) {
       const epochFpEnd = yield* computeTreeIssuesGlobalFpCore(bookRoot, userDataPath)
       if (epochFpEnd !== epochFp0) {

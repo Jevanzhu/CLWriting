@@ -161,26 +161,21 @@ jobs:
         # 注意须 ${{ }} 包裹：裸 if 以 ! 开头会被 YAML 解析为标签（gg批0：CI 工作流启动级失败的根因）
         # R0911-G-P1-1d：win 腿拆到下方专用步（收尾竞态重跑兜底），其余非覆盖腿维持原样
         if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) && matrix.os != 'windows-latest' }}
-      # R0911-G-P1-1d（2026-09-11 CI 红族之四）：win 腿测试步「同命令重跑一次」兜底。
-      # 成因定性（源码证据，见台账 §三 G 族）：win 腿用例零红，但 vitest forks 池默认
-      # isolate=true——每个测试文件跑完都销毁一个 fork worker（tinypool ProcessWorker：
-      # teardown 消息 → 等 worker 应答 → kill）；win 上 TerminateProcess 即时生效 + IPC
-      # 通道关断时序差异，收尾期「teardown 应答 vs kill」竞态窗内 process.send() 抛
-      # ERR_IPC_CHANNEL_CLOSED，tinypool 1.1.1 的 ThreadPool.destroy 对 _removeWorker
-      # 返回的 promise 无 catch → unhandledRejection → vitest 主进程
-      # registerUnhandledRejection 一律 process.exit(1)（汇总打印前被杀，2026-09-08
-      # win 红同族，间歇性竞态）。
-      # 重跑语义：首跑绿 = 零额外成本；首跑红 → 同命令重跑一次：重跑绿 = 收尾竞态洗白
-      # （win 用例本身全绿的既证形态）；重跑仍红 = exit 1 步红——真失败不吞，只延后一轮。
-      # 副作用已知：①真用例红多花一次全量时长（win 腿预算 30min，实测测试段 ~6min 可容）；
-      # ②间歇用例 flake 可能被重跑洗白一跑——当前 win 腿零用例红，风险面收窄接受。
+      # R0911-G-P1-1d（2026-09-11 CI 红族之四）：win 腿测试步「收尾竞态重跑一次」兜底。
+      # 成因只按形态记（机制细节不进门）：win 腿间歇形态 = 用例本身零红（输出无 FAIL 行）、
+      # 进程收尾期以非零码退出。旧注记按 tinypool/ERR_IPC_CHANNEL_CLOSED 归因——现装
+      # vitest 5.0.1 依赖树已无 tinypool，包名级成因不可复核，勿再按包名表述。
+      # 重跑判据（P2 修复）：首跑输出含用例失败行（`FAIL  test/x.test.ts`）→ 真失败，立即
+      # exit 1 不重跑（真失败必须首报，不被重跑延后/洗白）；仅「非零退出且零 FAIL 行」才
+      # 同命令重跑一次——重跑绿 = 该次首跑被吸收（首跑退出码 + 零 FAIL 行写进 step summary，
+      # 洗白可见可累计）；重跑仍非零 = exit 1 步红，真失败不吞、只延后一轮。
       # ubuntu/macos 腿无此竞态族记录，不加重试（保持失败首报的排障效率）。
-      # 待上游根治后（vitest/tinypool 升级，见台账登记项）本兜底可撤。
+      # 上游根治后本兜底可撤。
       - name: 测试（win 腿，R0911-G-P1-1d 收尾竞态重跑一次兜底）
         if: matrix.os == 'windows-latest'
         # G402（0918四轮修复批）：pwsh 重跑逻辑抽本地 composite action（.github/actions/
-        # win-vitest-retry）——与 desktop.yml 同款兜底此前逐行双份复制、漂移隐患；语义与
-        # 日志文案逐字保持（批次号经 warning-title 传参），重跑兜底语义不变。
+        # win-vitest-retry）——此前各腿逐行复制同段 pwsh、漂移隐患；单源收编后本步只接线
+        #（批次号经 warning-title 传参），判据与文案以 action 为正本。
         uses: ./.github/actions/win-vitest-retry
         with:
           warning-title: R0911-G-P1-1d

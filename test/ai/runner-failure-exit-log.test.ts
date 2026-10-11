@@ -12,16 +12,15 @@
  */
 import { describe, expect, it, vi, afterEach, type MockInstance } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTask } from '../../src/ai/runner.js'
 import { GenError } from '../../src/ai/gen.js'
 import { log } from '../../src/log/index.js'
 import { processProviderRuntime } from '../../src/ai/provider/store.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 function tempUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-rp32-ud-'))
+  return tempDirTracked('clwriting-rp32-ud-')
 }
 
 /** 写最小 providers.json（run 回调桩不触网络，baseUrl 形参而已） */

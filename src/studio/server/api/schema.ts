@@ -1,23 +1,18 @@
 /**
- * （按 HTTP 形态等价物）：route schema 单点声明。
+ * route schema 单点声明。
  *
- * CLWriting 无 Electron IPC（纯 HTTP+SSE），cherry 的 defineRoute/IpcHandlersFor 等价物
- * 是「route schema 单点声明」：新路由必须 defineRoute 注册（带 input 解析 + 类型推导），
- * 禁止随手加裸 route——未来 channel/端点增多时防「加裸路由不声明」的漂移。
+ * CLWriting 无 Electron IPC（纯 HTTP+SSE），此处等价物是「route schema 单点声明」：新路由必须
+ * defineRoute 注册（带 input 解析 + 类型推导），禁止随手加裸 route——防「加裸路由不声明」的漂移。
  *
- * 三个传输层纪律（第8.3节）：
- * 1. 错误信封（hh §八-12 统一）：非 2xx 回复一律 { code: 机器码, error: 人话 }——
- *    经 http.ts replyError 单一出口（HttpError 自带 code；裸抛由 dispatch 兜底）；
- *    禁止再造 {ok:false,...}/{reason} 变体（200 业务结果体不在此列，按各端点自身契约）；
- * 2. input 形状由 parse 声明（handler 拿解析后的类型，不裸 JSON）——增量
- *    纪律：新路由（带请求体的）一律声明 parse，不再内联 readJson+手工校验；存量 104 处
- *    内联校验列 RC 后迁移（基线 3/107 已声明 parse：book.rename /
- *    books.documents.check-false-positive / chat.send——校验本身仍存在，属纪律漂移非洞）；
- * （源码质量评审）起另有 gate（parse 前置闸）与 bodyLimit 两个声明位，
- *    迁移清单与「留而不迁」的理由见 providers/style/files/books/snapshots/settings/stream
- * 各端点处的注；
- * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会
- *    被解析成 truthy 值——cherry 用裸对象 + Object.hasOwn 的原因，Map 更干净）。
+ * 三个传输层纪律：
+ * 1. 错误信封统一：非 2xx 回复一律 { code: 机器码, error: 人话 }——经 http.ts replyError 单一出口
+ *  （HttpError 自带 code；裸抛由 dispatch 兜底）；禁止再造 {ok:false,...}/{reason} 变体（200 业务
+ *    结果体不在此列，按各端点自身契约）；
+ * 2. input 形状由 parse 声明（handler 拿解析后的类型，不裸 JSON）——新路由（带请求体的）一律声明
+ *    parse，不再内联 readJson + 手工校验；存量内联校验待迁移（校验本身仍在，属纪律漂移非洞）。
+ *    另有 gate（parse 前置闸）与 bodyLimit 两个声明位，「留而不迁」的理由见各端点处的注；
+ * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会被解析成
+ *    truthy 值）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { route, activeRouteTable, type RouteTable } from '../router.js'

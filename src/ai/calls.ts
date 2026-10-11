@@ -288,8 +288,8 @@ export const AI_CALLS_MUTEX_SCOPE_NOTE =
  *  在途段也返回 undefined，调用方拿不到 promise——失败由 fs/lock-file.ts 的
  *  serializedLockedWrite 旁挂 warn 留痕；readRecord 迁移写的 inflight 兜底分支
  * 在此口径下不可达，保留作未来异步化返回面）。快/慢双路、
- *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部收编 serializedLockedWrite
- *  单源（provider/store.ts saveProviders 同构薄壳），机制语义逐位不变。 */
+ *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部由 serializedLockedWrite
+ *  单源承载（provider/store.ts saveProviders 同构薄壳），机制语义不变。 */
 function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
   return serializedLockedWrite(writeChains, bookRoot, lockPath, doWrite, {
@@ -475,9 +475,8 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
 /**
  * 记一次 chapter 维度 AI 调用（预算闸用；换章重置）。
  *
- * 头注如实化（合并批收编，指向 dev 侧同题实现）：生产路径已由 recordUsageBoth 取代（合并后
- * runner 单锁记账），本函数生产零调用，保留为测试记账辅助入口（8 个测试文件在用，
- * 删除需改写约 40 处调用不成比例）。
+ * 生产路径已由 recordUsageBoth 取代（runner 单锁记账）——本函数生产零调用，保留为测试
+ * 记账辅助入口（8 个测试文件在用，删除需改写约 40 处调用不成比例）。
  * costUsd 由 runner 按价格表现算传入（未配价不传——cost 口径静默不生效）。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
@@ -536,23 +535,20 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
  * - 账本损坏 → 保守阻断（同款文案）；
  * - limit ≤ 0 → 「一次都不许调」（同语义；parse 面 fail-closed 落 0 也走此臂）；
  * - tasks 块 used ≥ limit → 拦截（次数口径读 tasks[task].used——runTask 每 attempt
- * 均按次入账〔〕，重试/失败调用不漏）。
+ * 均按次入账，重试/失败调用不漏）。
  *
  * cost 口径不设：tasks 块历史不累计金额（cost 仅 chapter 块记），无现成机制可复用，
  * 按「不强造」口径本闸只做次数上限。
  *
  * 文案参数化——本闸签名通用（任意
- * task），但两条 reason 原写死「chat 调用上限 / 本书对话 / 降低对话/压缩频率 /
- * budget.chat_max_calls」；当前唯一调用方（runner.ts:510）恒传 'chat' 故无实害，第二类
- * 任务复用本闸时文案会指错配置键、误导作者去改无关的 book.yaml 项。
- * 三个文案参均带**缺省值**，缺省调用输出字符串与原实现逐字节相同（免动调用点、免动既有
- * 测试钉值）：
+ * task），但 reason 文案若写死「chat 调用上限 / 本书对话 / 降低对话/压缩频率 /
+ * budget.chat_max_calls」，第二类任务复用本闸时会指错配置键、误导作者去改无关的
+ * book.yaml 项。三个文案参均带**缺省值**，缺省调用输出字符串与原文案逐字节相同
+ *（免动调用点、免动既有测试钉值）：
  *  - `taskLabel`（'chat'）——句首任务名（「chat 调用上限为 …」）；
  *  - `taskNoun`（'对话'）——中文名词位（「如需恢复对话」「本书对话已调用」）；
  *  - `rateHint`（'对话/压缩'）——末句降频提示位（「或降低对话/压缩频率」）。
- *  批内自纠如实记：初版只加 taskLabel/configKey 两参且直接改写句尾（「或降低调用频率」），
- *  缺省输出与原文不逐字节相同（漏空格 + 句尾改字）——缺省契约是「零行为变化」，故补第三参
- *  并把措辞回退到原文，回归用例钉死两条缺省 reason 的完整字符串。
+ *  缺省契约是「零行为变化」：改这两参须回归用例钉死两条缺省 reason 的完整字符串。
  */
 export function checkAiTaskCallBudget(
   bookRoot: string,

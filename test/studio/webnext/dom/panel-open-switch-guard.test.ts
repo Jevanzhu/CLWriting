@@ -65,22 +65,12 @@ import SearchPanel from '../../../../src/studio/web-next/src/components/panels/S
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
 import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNode } from '../helpers/tree-node'
 
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
-  mocks.getTree.mockResolvedValue({ nodes: [makeNode('d1')], revision: 'r1' })
+  mocks.getTree.mockResolvedValue({ nodes: [makeChapterNode('d1')], revision: 'r1' })
   mocks.getContent.mockResolvedValue('内容')
   mocks.saveContent.mockResolvedValue({ ok: true, revision: 'sha256:x' })
 })
@@ -93,7 +83,7 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     // P3-21（全库重评-0914）：doc.doOpen 改 fail-closed（书名未置即拒绝）——生产由
     // Book.vue 路由 watch 的 doc.setBook 保证先置位，测试补同款种子
     useDocStore().setBook('书A')
-    tree.raw = [makeNode('d1')] // 直接播种树索引（byPath 派生）
+    tree.raw = [makeChapterNode('d1')] // 直接播种树索引（byPath 派生）
     let release!: (v: string) => void
     mocks.getContent.mockImplementationOnce(
       () =>
@@ -127,7 +117,7 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     const ws = useWorkspaceStore()
     ws.setBook('书A')
     useDocStore().setBook('书A') // P3-21：doc.doOpen fail-closed 前置种子（同上）
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeChapterNode('d1')]
     mocks.search.mockResolvedValue({
       results: [{ path: '写作/正文/d1.md', matches: [{ line: 1, text: '命中' }] }],
       truncated: false,
@@ -315,7 +305,7 @@ describe("E-7: ChapterTreePanel 脏路由 name='' → 清树/红点/今日字数
 
     await w.setProps({ bookName: '' })
     expect(tree.raw).toEqual([])
-    releaseTree({ nodes: [makeNode('late')], revision: 'rX' })
+    releaseTree({ nodes: [makeChapterNode('late')], revision: 'rX' })
     await flushPromises()
 
     expect(tree.raw).toEqual([]) // 修复点：迟到响应不回填（loadGen 被 clear 推代）
@@ -377,7 +367,7 @@ describe("E-7: Book.vue 脏路由 name='' → 先落盘 dirty 再清各 store", 
     const wb = useWorkbenchStore()
     const check = useCheckStore()
     const ui = useUiStore()
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '未落盘编辑')
     wb.textOut = 'A 书生成正文残留'
     check.hasRed = true // R0912-C1-P3-1：lastDocId 死字段删除，残态锚改 clear() 可观测复位位

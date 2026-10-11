@@ -1,33 +1,24 @@
 /**
- * 切书守卫状态机独立成 composable。
+ * 切书守卫状态机（独立 composable）——原理由：这段是 Book.vue setup 里最大的一块纯编排
+ *（watch(bookName) 的切书链 + 取消回滚），四条条件转移彼此靠 gen/lastBook 两个代次量耦合，
+ * 混在页面 setup 里既难分辨「编排 vs 展示」，也只能经挂载整个 Book 页间接行使；抽出后页面
+ * 只剩接线，状态机可独立直测（test/studio/webnext/book-switch-guard-segments.test.ts）。
  *
- * 为什么独立：这段是 Book.vue setup 里最大的一块纯编排（约 180 行）——watch(bookName)
- * 的切书链（脏路由分支冲突预检保存失败 flush 后冲突复查三段守卫）
- * 加取消回滚（清污 → 回退路由 → resync + 补种原书历史）。四条条件转移各自带 R 编号
- * 沿革、彼此靠 gen/lastBook 两个代次量耦合，混在页面 setup 里既难分辨「编排 vs 展示」，
- * 也只能经挂载整个 Book 页间接行使。抽出后页面只剩接线，状态机可独立直测
- * （见 test/studio/webnext/book-switch-guard-segments.test.ts）。
- *
- * （评审）改写——切书安全不再靠「先切后回滚」：
- * - ①**路由提交前守卫**（原地切书 /book/A → /book/B，onBeforeRouteUpdate）：冲刷与三段
- *   决断完成才放行；作者取消 → 返回 false 中止导航，路由不提交、目标书 SSE 不连、事件
- *   不落 store。该路径上「先切后回滚」整段（取消后的清污 / 回退路由 / resync 补种）随之
- *   消失——取消时一条状态都没动过。
+ * 切书安全不靠「先切后回滚」：
+ * - ①**路由提交前守卫**（原地切书 /book/A → /book/B，onBeforeRouteUpdate）：冲刷与三段决断
+ *   完成才放行；作者取消 → 返回 false 中止导航，路由不提交、目标书 SSE 不连、事件不落 store
+ *   ——取消时一条状态都没动过，故「先切后回滚」整段（清污/回退路由/resync 补种）随之消失。
  * - ②**提交后 watch** 只兜不在此前移的入口：a) 预决断移交（守卫已决断 → 只做状态转移）；
- * b) 脏路由（name=''：无回退目标口径的 flush + 留痕，不弹决断窗）；c) 重挂进书
- *   （/book/A → /shelf → /book/B：Book.vue 未挂载时路由已提交，**本批文件面内无法前移**
- *   ——守卫注册点在 Book.vue 的 setup，未挂载即无从拦截），此路如实保留最小回滚
- *   （revertToPrevBook），不假装前移。
- * - ③**书会话**（composables/useBookSession）接管「进书创建 / 离书 abort」：迟到结果由
- *   会话信号（api/client 按路径接驳）+ AbortError 统一吸收，不再逐点手写书名复检。
+ *   b) 脏路由（name=''：无回退目标口径的 flush + 留痕，不弹决断窗）；c) 重挂进书
+ *  （/book/A → /shelf → /book/B：Book.vue 未挂载时路由已提交，守卫注册点在 Book.vue 的
+ *   setup，未挂载即无从拦截），此路保留最小回滚（revertToPrevBook）。
+ * - ③**书会话**（composables/useBookSession）接管「进书创建 / 离书 abort」：迟到结果由会话
+ *   信号（api/client 按路径接驳）+ AbortError 统一吸收，不再逐点手写书名复检。
  *
- * 生命周期：本 composable 注册一个 watch(bookName, …, { immediate: true }) + 一个
- * onBeforeRouteUpdate（仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
- *
- * 语义零变化面：三段的预检条件、弹窗文案、决断顺序、清理时序逐位保持
- *
- * 各条注释随迁；`bookName`/`resync` 仍为注入（原为本页 computed 与 useSse 句柄），
- * 各 store 在本函数内取实例（与调用点同在 setup 上下文，实例同源）。
+ * 生命周期：一个 watch(bookName, …, { immediate: true }) + 一个 onBeforeRouteUpdate
+ *（仅 Book 页在册期有效），无定时器与窗事件监听，随组件实例自动停。
+ * 语义零变化面：三段的预检条件、弹窗文案、决断顺序、清理时序不变；`bookName`/`resync` 仍为
+ * 注入，各 store 在本函数内取实例（与调用点同在 setup 上下文，实例同源）。
  */
 import { watch, type ComputedRef } from 'vue'
 import { onBeforeRouteUpdate, useRouter, type RouteLocationNormalized } from 'vue-router'
@@ -340,9 +331,8 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
         return
       }
       preConfirmed = ''
-      // （如实记档，不许假装前移）：走到这里 = 路由提交时机在本批文件面内无法
-      // 前移的入口——重挂进书（/book/A → /shelf → /book/B）在 Book.vue 未挂载时就已提交路由，
-      // 提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
+      // 走到这里 = 路由提交时机无法前移的入口——重挂进书（/book/A → /shelf → /book/B）
+      // 在 Book.vue 未挂载时就已提交路由，提交前守卫（注册点在 Book.vue setup）收不到；脏路由已在上面单独分支。故此处保留最小
       // 回滚（取消 → revertToPrevBook），而非「确认与冲刷后再提交」。
       // 注：当前代码里该路径的 prevBook 近乎恒为 ''（离书时分支已 doc.setBook('')），
       // /三段因此通常跳过，只留纯切换；此守卫是时代留下的防御，未证死。

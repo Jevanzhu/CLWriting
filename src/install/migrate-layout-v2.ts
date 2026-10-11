@@ -9,10 +9,8 @@
  * 大纲/{5类线索}/       →    布线/{5类线索}/
  * 定稿/设定/            →    设定/
  *
- * 保留原位（不迁移）：
- * - 运行时资产：工作区/.trash、.journal、.版本、待定稿（路径硬编码在 service/trash）
- * - 关系线：大纲/关系线/（派生数据，tree skip）
- * - 定稿/摘要/：脚本产物，tree skip
+ * 保留原位（不迁移）：运行时资产（工作区/.trash、.journal、.版本、待定稿——路径硬编码在
+ * service/trash）；关系线（大纲/关系线/，派生数据，tree skip）；定稿/摘要/（脚本产物，tree skip）。
  *
  * 幂等：v2 结构已存在 → no-op。server 启动时对每本书库调用一次。
  * 同模式：renameSync 原子、目标存在跳过、返回 { migrated, errors }。

@@ -11,7 +11,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-// 定稿章号提取收编 chapterNoFromName 单源（剥茎用）
+// 定稿章号提取走 chapterNoFromName 单源（剥茎用）
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { testableConst } from '../shared/testable.js'
 import { platformCaseFold } from '../fs/safe-path.js'
@@ -42,6 +42,15 @@ export interface Manifest {
 
 const HEADER_TYPE = 'header'
 const DEFAULT_VERSION = 1
+
+/** 文档清单路径唯一构造点（`<bookRoot>/项目/文档清单.jsonl`）——域内各面
+ *  （DocContext.manifestPath 字段 / manifest 家族 / finalize / draft-path /
+ *  structure-* / trash / tree）一律经此，防字面量漂移把同一本书的清单读成两处。
+ *  住在 manifest 模块：本模块即该清单文件（§4.2）的读写主人，且对 document 其余模块
+ *  无 import（消费方单向引入，无环）；持 ctx 的调用方继续用 ctx.manifestPath（同一构造）。 */
+export function manifestPathOf(bookRoot: string): string {
+  return join(bookRoot, '项目', '文档清单.jsonl')
+}
 
 /** jsonl 一行的宽松形状（解析后逐字段校验）。 */
 type RawLine = { [k: string]: unknown }
@@ -229,7 +238,7 @@ function parseEntry(obj: RawLine): ManifestEntry {
  * 文档条目（脚手架新书）改返**空集**（判定成立：无一定稿同口径——草稿不再
  *  混进导出/文风样本/候选池）。路径为 manifest 口径的正斜杠相对路径。 */
 export function finalizedPathSet(bookRoot: string): Set<string> | null {
-  const fp = join(bookRoot, '项目', '文档清单.jsonl')
+  const fp = manifestPathOf(bookRoot)
   if (!existsSync(fp)) return null
   // 单读——原 readFileSync 全文探测 + readManifest 二读对全文
   // 双读；改消费 readManifestCore 结果（读失败 → null 走全量兜底语义不变）
@@ -242,12 +251,12 @@ export function finalizedPathSet(bookRoot: string): Set<string> | null {
   return set
 }
 
-/** 已定稿章号集合（低级项·：assembleStatus currentChapter 口径收口的共享判定）：
+/** 已定稿章号集合（assembleStatus currentChapter 口径收口的共享判定）：
  *  文档条目且有 finalizedRevision（曾定稿）→ 按文件名前缀数值取章号（定稿改名 3/4 位
  *  补零均命中，与 state.ts skipFinalizedChapters 同一口径）。
- * 章号提取收编 chapterNoFromName 单源 + 剥 .md 茎
- *  （isMdFileName）——原窄正则 `/^(\d+)-/` 对裸数字定稿条目（0012.md）/破折号名失明，
- *  nextChapter/assembleStatus 的 skip 口径与 structure-core 同名函数漂移。
+ * 章号提取走 chapterNoFromName 单源 + 剥 .md 茎
+ *  （isMdFileName）——窄正则 `/^(\d+)-/` 对裸数字定稿条目（0012.md）/破折号名失明，
+ *  nextChapter/assembleStatus 的 skip 口径会与 structure-core 同名函数漂移。
  * isSafeInteger 手工守卫删除——守卫已下沉
  *  chapterNoFromName 单源（16+ 位失真大数恒 null），此处不再补丁。 */
 export function finalizedChapterNumbers(m: Manifest): Set<number> {
@@ -270,7 +279,7 @@ export function finalizedChapterNumbers(m: Manifest): Set<number> {
  *  近况复述「已写到第 0 章」。与 finalizedPathSet 对损坏返 null 的降级哲学对齐；
  * 解析级损坏（个别行跳过）保持按已解析行给集合，不重开。 */
 export function finalizedChapterSetOfBook(bookRoot: string): Set<number> | undefined {
-  const fp = join(bookRoot, '项目', '文档清单.jsonl')
+  const fp = manifestPathOf(bookRoot)
   if (!existsSync(fp)) return undefined
   // 单读——同 finalizedPathSet 同编号注（读失败 → undefined
   // 双读；改消费 readManifestCore 结果（读失败 → null 走全量兜底语义不变）
@@ -438,17 +447,14 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
  * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
- * 不变量声明（注释收口，未装断言）〔
- * 已机制化收口——本段纪律声明废止，同进程互斥改由下段排队机制
- *  承担，不再依赖「fn 体零 await」纪律；原文留档沿革〕：**重入分支（含正常分支）的
- * 同进程互斥要求 fn 体零 await（同步返回）**——fn 一旦返回 Promise，其在途期间
- * heldManifestLocks 仍登记在册（重入计数未清），同进程同 key 的并发调用会按「重入」
- * 放行并在 fn 的 await 点交错执行，同进程互斥静默失效（跨进程锁仍覆盖 fn 整个执行期，
- * 。原拟装「fn 返回值 thenable 即抛错」的 fail-loud dev 断言，但 grep 核实
- * 现有调用方并非全部同步返回——test/document/manifest-lock-async.test.ts 的
- * 回归用例显式传入 async fn（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；
- * 生产调用方（service/trash/state/finalize/draft-pipeline）经 grep 全部为同步 fn。
- * 修复——重入分支机制化分道（现行契约）：
+ * 同进程互斥风险（历史教训）：重入分支（含正常分支）若要求 fn 体零 await（同步返回），
+ * fn 一旦返回 Promise，其在途期间 heldManifestLocks 仍登记在册（重入计数未清），
+ * 同进程同 key 的并发调用会按「重入」放行并在 fn 的 await 点交错执行，同进程互斥静默
+ * 失效（跨进程锁仍覆盖 fn 整个执行期）。不可装「fn 返回值 thenable 即抛错」的 fail-loud
+ * dev 断言——test/document/manifest-lock-async.test.ts 的回归用例显式传入 async fn
+ *（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；生产调用方
+ *（service/trash/state/finalize/draft-pipeline）全部为同步 fn。
+ * 重入分支机制化分道（现行契约）：
  * ① **同步 fn**（返回非 thenable）：depth++ 立即执行——与同步版完全同形，零语义
  *   变更、零额外微任务跳数（全部既有同步调用方行为不变）。② **async fn**（async
  *   关键字形态，isAsyncFunction 调用前判定）：**排队**到持锁者执行链尾 held.tail——

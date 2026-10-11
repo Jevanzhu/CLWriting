@@ -274,6 +274,23 @@ export default defineConfig({
         // 实测 lines 1823/2167 = 84.13 · branches 662/791 = 83.69
         // → lines 82 / branches 81。只防回退不追高；聚合桶 glob/阈值维持不动（无风险）。
         'src/studio/web-next/src/composables/**': { lines: 79, branches: 63 },
+        // 三处「池化均值稀释」显影桶——此前 0% 文件在聚合桶
+        // 92%/80% 均值里对门不可见，且其失败形态是「运行时才炸」（worker 入口只在 spawn
+        // 侧真线程被加载；relations 组件/useLibraryIpc 只被 pages 与 e2e 消费，单测面恒 mock）。
+        // 本批先补直测（worker 入口以 parentPort 桩驱动真入口；relations 组件挂 RelationsView
+        // 真壳；useLibraryIpc 走桌面桥桩），再立窄桶防回退——不是把阈值降到 0 了事。
+        // 阈值 = 本地实测（npx vitest run --coverage 跑相关三档，v8 口径，非全量跑）−2pp 向下取整：
+        //  · 三 worker 入口 S/B/F/L 全 100%（20 行/10 分支/3 函数）→ 98；
+        //  · useLibraryIpc 11 行/13 分支全中 → 98；
+        //  · relations 两 SFC 池化 → 40 / 47：按更保守的观测（仅本档新增挂载用例时
+        //    L 42.64 / B 49.49）−2pp 向下取整；同域补测并行落地后现值更高
+        //   （L 91.18 / B 76.77），防回退档不追高（.vue 的 style 块与 inline 属性行在
+        //    v8 口径下计入行数却不产执行命中，本桶只锚「脚本/模板真执行面不塌」）。
+        // 与既有子桶并存 = 同一语义（匹配多桶的文件须过所有桶）：窄桶 + 聚合/主桶叠加。
+        // 桶键须同步 test/governance/coverage-threshold-globs.test.ts 的 EXPECTED_GLOBS。
+        'src/**/*-worker.ts': { statements: 98, branches: 98, functions: 98, lines: 98 },
+        'src/studio/web-next/src/components/relations/*.vue': { lines: 40, branches: 47 },
+        'src/studio/web-next/src/composables/useLibraryIpc.ts': { lines: 98, branches: 98 },
       },
     },
   },

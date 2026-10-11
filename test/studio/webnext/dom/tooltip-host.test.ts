@@ -3,8 +3,8 @@
  * （原 r29-components-zero-coverage 的 R29-13 TooltipHost 节，按行为单拆。）
  *
  * R29-13（二十九轮批 F）：组件面零直测补齐——data-tip 悬停 250ms 延迟显隐 + 边缘翻转
- * + data-tip→aria-label 读屏同步（P2-F6b：focusin 同步、已有 aria-label 不覆盖、挂载
- * 时对常驻元素补同步）。
+ * + data-tip→aria-label 读屏同步（P2-F6b：focusin 同步、挂载时对常驻元素补同步；
+ * 「已有 aria-label 不覆盖」口径后改为「值不同即写」，动态 tip 才跟得上状态）。
  * R0911-C2-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：250ms 延迟窗内目标被移除
  * （hover 中列表重渲染/弹层关窗摘节点）——移除节点 getBoundingClientRect 全 0，修复前
  * tooltip 错落视口左上角；修后延迟回调先验 isConnected，不在文档则中止显示。
@@ -58,7 +58,7 @@ describe('R29-13 TooltipHost 全局 tooltip 宿主', () => {
     expect(document.querySelector('.tip-host')).toBeNull() // 移到无 data-tip 元素 → 隐藏
   })
 
-  it('focusin 同步 aria-label（键盘导航读屏）；已有 aria-label 不覆盖', async () => {
+  it('focusin 同步 aria-label（键盘导航读屏）；值不同即刷新（不把旧名当权威）', async () => {
     mountHost()
     const el = document.createElement('button')
     el.dataset.tip = '新建书'
@@ -66,12 +66,36 @@ describe('R29-13 TooltipHost 全局 tooltip 宿主', () => {
     el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
     expect(el.getAttribute('aria-label')).toBe('新建书')
 
+    // 已有 aria-label 与 tip 不同 → 刷成当前 tip（旧口径「已有名不覆盖」会把首值永久钉死）
     const named = document.createElement('button')
     named.dataset.tip = '提示B'
     named.setAttribute('aria-label', '已有名')
     document.body.appendChild(named)
     named.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
-    expect(named.getAttribute('aria-label')).toBe('已有名') // 已有名不覆盖
+    expect(named.getAttribute('aria-label')).toBe('提示B')
+  })
+
+  // 动态 tip：data-tip 随状态换值（如专注模式开关「专注模式（⌘⇧F）/退出专注（⌘⇧F）」）——
+  // aria-label 必须跟当前 tip，否则读屏长期读到旧状态
+  it('动态 tip：同一元素换 data-tip 后再进入（含指针在元素内移动）→ aria-label 刷成当前文案', async () => {
+    mountHost()
+    const el = document.createElement('button')
+    el.dataset.tip = '专注模式（⌘⇧F）'
+    document.body.appendChild(el)
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    expect(el.getAttribute('aria-label')).toBe('专注模式（⌘⇧F）')
+
+    el.dataset.tip = '退出专注（⌘⇧F）' // 状态切换：同一元素换文案（无重挂、无新元素）
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) // 事件从子节点冒泡的真实形态
+    expect(el.getAttribute('aria-label')).toBe('退出专注（⌘⇧F）')
+
+    // 移开再进入（lastTarget 复位路径）同样刷新
+    const plain = document.createElement('div')
+    document.body.appendChild(plain)
+    plain.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    el.dataset.tip = '专注模式（⌘⇧F）'
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    expect(el.getAttribute('aria-label')).toBe('专注模式（⌘⇧F）')
   })
 
   it('挂载时对已存在 [data-tip] 元素补同步 aria-label（首屏常驻按钮）', () => {

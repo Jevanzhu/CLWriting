@@ -8,13 +8,16 @@
  * server-main 的端口语义（resolveEnvPort），dev server 与桌面端各自独立管
  * 端口；校验口径（1–65535 整数、非法 fatal 人话退出）骨架与对齐，但 0 的
  * 口径刻意收紧（见 resolveDevApiPort 内注）。
- * 注意：换端口后 Vite dev 代理目标（web-next/vite.config.ts，固定 7878）需同步
- * 改，否则 dev 页面连不上后端——dev-api 的 EADDRINUSE 指引文案据此如实披露。
+ * 端口值单源：DEV_API_DEFAULT_PORT 声明在跨包契约底座 src/shared/contract/studio.ts
+ * （web-next 的 Vite 代理目标与 SSE dev 直连基址消费同一份），本模块只按名再导出——
+ * 换端口只改单源一处，三处镜像不再各自手抄。
  */
+import { DEV_API_DEFAULT_PORT } from '../../shared/contract/studio.js'
+
 export const DEV_API_PORT_ENV = 'CLW_DEV_API_PORT'
 
-/** dev-api 缺省端口（与 Vite dev 代理目标一致；偏离即两处同步改）。 */
-export const DEV_API_DEFAULT_PORT = 7878
+/** dev-api 缺省端口——单源见跨包契约底座，本模块为兼容既有 import 面再导出。 */
+export { DEV_API_DEFAULT_PORT }
 
 /**
  * env → 端口。未设返回缺省；非法值（含 0）走 fatal（缺省 console.error + exit 2，
@@ -28,7 +31,7 @@ export function resolveDevApiPort(
   if (raw === undefined) return DEV_API_DEFAULT_PORT
   const n = Number(raw)
   // 清偿 显式拒绝（n < 0 → n < 1）——0 会让 listen 落在随机
-  // 端口，而 Vite dev 代理目标固定 7878（或 CLW_DEV_API_PORT 声明值），dev 页面
+  // 端口，而 Vite dev 代理目标取自跨包单源缺省（env 覆盖不会同步过去），dev 页面
   // /api 全部静默失联且无任何提示。选 fail-loud 而非 warn+回落缺省：①与既有非法
   // 值口径同一条 fatal 通道，人话指认 env 名与取值域，改动面最小；②显式设置的值
   // 被静默替换会掩盖误配。桌面端 resolveEnvPort仍允许 0 不受影响——桌面

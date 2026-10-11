@@ -7,15 +7,14 @@
  * refs≥1 → 迁移放弃（false，源库原地完整）；全部收口（refs=0）→ 迁移成功。
  */
 import { rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
 import { openSessionStore, migrateBookSession, bookHash } from '../../src/events/store.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'n8-migrate-'))
+  const d = tempDirTracked('n8-migrate-')
   dirs.push(d)
   return d
 }

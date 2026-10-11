@@ -189,6 +189,27 @@ export function scaffoldBook(opts: ScaffoldBookOptions = {}): { root: string; wo
 }
 
 /**
+ * 在既有 studio workDir 里登记一本「长篇/<name>」书：books.jsonl 单行登记 + 目录骨架 + book.yaml。
+ * studio/server 删书墓地域共用（workDir 由 bootStudio 提供，故不建临时根、不登记清理——
+ * 临时根生命周期仍在调用方 beforeAll/afterAll 手里）。
+ */
+export function makeRegisteredLongBook(workDir: string, name: string): string {
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name, path: `长篇/${name}`, kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
+    'utf-8',
+  )
+  const bookAbs = join(workDir, '长篇', name)
+  mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
+  writeFileSync(
+    join(bookAbs, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: ${name}\n  genre: 玄幻\nhost: cc\n`,
+    'utf-8',
+  )
+  return bookAbs
+}
+
+/**
  * 在已有书仓库里「写一章但不定稿」（造态 4「工作区未完成」的中断场景）。
  * 写正文区草稿（含 front matter，避免 rebuild 收 ParseError）+ 细纲 + .confirm.json，不 finalize —— 模拟写作中断。
  * 去 git 后草稿直接落正文区（无 manifest 基线 = 未定稿）。

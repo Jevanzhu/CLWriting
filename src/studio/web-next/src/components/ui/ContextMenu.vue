@@ -40,7 +40,8 @@ const flipY = ref(false)
 // 2-：浏览器回退菜单键盘导航（照 FontPicker
 // 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
 // 纯键盘用户进不了任何菜单项。开启即把焦点移入首项，↑/↓ 循环、Home/End 首尾、
-// Enter/Space 激活、Tab 自然走焦关闭、关闭还焦右键来源；容器另挂 aria-activedescendant
+// Enter/Space 激活、Tab 关闭（与 Esc 同语义：还焦右键来源）、关闭还焦右键来源；
+// 容器另挂 aria-activedescendant
 //（roving 焦点在项上时为冗余保险，焦点若落容器 AT 也能命中高亮项）。桌面端走 Electron
 // 原生 Menu 不渲染本组件，不受影响。
 // 飞出层（子菜单）键盘可达（原「hover 唯一可达」登记随本实现闭合）：→ 于父项展开并聚焦
@@ -282,7 +283,7 @@ function onKey(e: KeyboardEvent): void {
     return
   }
   // 2-：方向键/Home/End/Enter/Space roving 导航（顶层与飞出层分层，层界 = subActiveIdx）；
-  // IME 组合期让渡输入法（FontPicker 同口径）；Tab 不消费仅关闭，焦点走自然次序
+  // IME 组合期让渡输入法（FontPicker 同口径）；Tab 走与 Esc 同款的关闭收尾（见下方分支）
   if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
@@ -310,7 +311,16 @@ function onKey(e: KeyboardEvent): void {
     e.preventDefault()
     activateActive()
   } else if (e.key === 'Tab') {
-    emit('close')
+    // Tab 与 Esc 同语义：层内先收层（还焦父项，菜单不关）；顶层消费按键并还焦来源后关闭。
+    // 不消费时浏览器从已卸载的菜单项续走焦，焦点落 body/浏览器 UI——菜单会话的焦点语义
+    // 不因关闭键不同而分叉
+    if (subActiveIdx.value >= 0) {
+      e.preventDefault()
+      closeSubLayer()
+      return
+    }
+    e.preventDefault()
+    closeWithRestore()
   }
 }
 onMounted(() => {
@@ -324,6 +334,18 @@ onUnmounted(() => {
 
 function onSelect(key: string): void {
   emit('select', key)
+  emit('close')
+}
+
+/** 关整菜单：先还焦右键来源再上抛 close。菜单随关闭卸载，若不还焦则焦点落到 body——
+ *  Tab 与 Esc 两条关闭路径共用本收尾（同语义）；仅菜单会话持有焦点时还焦，他处焦点不动
+ *  （父层主动关窗等场景），与 visible 收尾同判据。 */
+function closeWithRestore(): void {
+  const source = prevFocus
+  const menu = menuEl.value
+  const cur = document.activeElement
+  const ownsFocus = cur === null || cur === document.body || (menu !== undefined && menu.contains(cur))
+  if (source && ownsFocus) source.focus()
   emit('close')
 }
 </script>

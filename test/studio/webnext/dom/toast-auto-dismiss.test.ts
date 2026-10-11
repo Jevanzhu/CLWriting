@@ -82,4 +82,30 @@ describe('R29-13 Toast 全局提示', () => {
     await nextTick()
     expect(document.querySelectorAll('.toast')).toHaveLength(0)
   })
+
+  it('条本身是按钮：Enter/Space 关闭（键盘同点击语义），tabindex 停靠且 aria-label 写明动作', async () => {
+    const ui = useUiStore()
+    mountToast()
+    ui.toast('出错了', 'error')
+    await nextTick()
+    const toast = document.querySelector('.toast') as HTMLElement
+    expect(toast.getAttribute('role')).toBe('button')
+    expect(toast.getAttribute('tabindex')).toBe('0')
+    expect(toast.getAttribute('aria-label')).toBe('关闭提示：出错了')
+
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    toast.dispatchEvent(enter)
+    await nextTick()
+    expect(enter.defaultPrevented).toBe(true)
+    expect(document.querySelector('.toast')).toBeNull() // Enter 关闭
+
+    ui.toast('再一条', 'info')
+    await nextTick()
+    const second = document.querySelector('.toast') as HTMLElement
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    second.dispatchEvent(space)
+    await nextTick()
+    expect(space.defaultPrevented).toBe(true)
+    expect(document.querySelector('.toast')).toBeNull() // Space 同语义
+  })
 })

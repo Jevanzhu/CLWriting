@@ -8,21 +8,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import OnboardPremise from '../../../../src/studio/web-next/src/components/onboard/OnboardPremise.vue'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，Map-backed 替身（照 prefs-store 范型）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 

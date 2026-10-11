@@ -1,11 +1,11 @@
 /**
- * per-book 后台任务登记——fire-and-forget 逃生口收编。
+ * per-book 后台任务登记——fire-and-forget 逃生口。
  *
  * 两处刻意不 await 的后台 AI 任务（失败自留痕、不阻塞触发端点）：
  * - 定稿即生成章摘要（api/documents.ts → afterFinalizeGenerateSummary）；
  * - 自愈 pass 后的账本推进草稿（self-heal exitPass → generateLeadUpdateDraft）。
  *
- * 此前它们逃逸出 books.ts 删/改名与优雅退出的 settle 等待：请求返回后任务仍在途，
+ * 不登记则逃逸出 books.ts 删/改名与优雅退出的 settle 等待：请求返回后任务仍在途，
  * 若期间书被删除/搬移，任务的落盘会对旧路径重建孤儿目录。本表把它们纳入与
  * chat/self-heal settling 同款的收尾等待（等待方：awaitOrchestrationsSettled /
  * shutdownStudio，均有超时上限兜底，登记本身不改变 fire-and-forget 语义）。

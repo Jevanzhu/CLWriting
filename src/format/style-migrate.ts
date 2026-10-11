@@ -97,7 +97,7 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
         continue
       }
       for (const f of files) {
-        // -源码 -⑧：序号解析收编 parseSampleFileName 单源（style-entry
+        // 序号解析走 parseSampleFileName 单源（style-entry
         // nextEntrySeq 同款）——手写正则只认小写 .md，.MD 既有条目播种漏记、续跑序号
         // 从头起（编号断裂仅靠 O_EXCL 重试兜底）；大小写剥尾与「3 位起」序号口径与写侧同源。
         const parsed = parseSampleFileName(f)
@@ -265,9 +265,9 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           正文: s.正文,
           ...(s._raw ? { _raw: s._raw } : {}),
         })
-        // （退避族）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁下裸
-        // rmSync 直败会中断本轮迁移（迁移幂等 +续跑查重可自愈，但不该无谓报错
-        // + 旧目录滞留一轮）；口径同全仓「确实要删」删源点。
+        // 删源走 rmWithRetry——win 杀软/索引器瞬时锁下裸
+        // rmSync 直败会中断本轮迁移（迁移幂等 + 续跑查重可自愈，但不该无谓报错
+        // + 旧目录滞留）；口径同全仓「确实要删」删源点。
         if (s._path) rmWithRetry(s._path)
       }
       result.skipped += errors.length

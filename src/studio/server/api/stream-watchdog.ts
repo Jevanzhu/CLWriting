@@ -1,20 +1,13 @@
 /**
- * 静默挂死 watchdog 族 —— 自 src/studio/server/api/stream.ts 缝 B 拆出。
+ * 静默挂死 watchdog 族：编排长任务静默挂死兜底。
  *
- * （⑤④产品巨件拆分波4）：stream.ts（879 行）缝 A+B 纯移动拆分。
- * 本文件承载缝 B（原 294-383 行整段）：编排长任务静默挂死兜底——
- * ORCH_STALL_WATCHDOG_MS（20min 静默判定）/ ORCH_STALL_GRACE_MS（60s 中止宽限）
- * 两阈值常量 + StallWatchdog 句柄 + startStallWatchdog 两段式处置（一段走既有
- * 用户中止路径，二段宽限期满强释放并发闸；进度复位式计时，范式参照 rag.ts）。
- * 消费方 = stream.ts 残核的 runWriterSpawn（/spawn）与 books.auto-write handler
- * （/auto-write self-heal），均留残核。
- * 原私有而残核消费的 startStallWatchdog 就此导出；两阈值常量维持原导出（p37 测试
- * 直引，残核逐名再导出作桥）。
- * 依赖方向单向（无环回引）：仅 import log（warn 留痕），不引用 stream.ts /
- * stream-sse-writer.ts 及任何 ai / studio 模块；stream.ts 残核自此 import。
- * 顶层求值常量仅数字字面量，单源本文件，无 TDZ 面。
- * 热路径注记：watchdog 静默计时 / 复位 / 两段处置时序逐字节保持，零行为变化。
- * 注释全部原样随迁；行为、断言、测试零改动。
+ * 内容：ORCH_STALL_WATCHDOG_MS（20min 静默判定）/ ORCH_STALL_GRACE_MS（60s 中止宽限）两阈值常量
+ * + StallWatchdog 句柄 + startStallWatchdog 两段式处置（一段走既有用户中止路径，二段宽限期满强释放
+ * 并发闸；进度复位式计时，范式参照 rag.ts）。消费方 = stream.ts 残核的 runWriterSpawn（/spawn）与
+ * books.auto-write handler（/auto-write self-heal）。
+ * 依赖单向（无环）：仅 import log（warn 留痕），不引用 stream.ts / stream-sse-writer.ts 及任何
+ * ai / studio 模块；stream.ts 残核自此 import。顶层求值常量仅数字字面量，单源本文件，无 TDZ 面。
+ * 热路径：watchdog 静默计时 / 复位 / 两段处置时序保持不变。
  */
 import { log } from '../../../log/index.js'
 

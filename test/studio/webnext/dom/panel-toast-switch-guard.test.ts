@@ -25,6 +25,7 @@ import { useChatStore } from '../../../../src/studio/web-next/src/stores/chat'
 import { useStyleStore } from '../../../../src/studio/web-next/src/stores/style'
 import type { SnapshotEntry } from '../../../../src/studio/web-next/src/api/snapshots'
 import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 // ── mock API 层（拦截真实网络请求） ────────────────────
 
@@ -83,19 +84,6 @@ vi.mock('../../../../src/studio/web-next/src/composables/useChatTier', () => ({
 }))
 
 // happy-dom localStorage 缺 clear()，Map-backed 替身（照 meta-form-panel.test 范型）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 /** 只用到 reject 的延迟 Promise（控制「await 窗口内切书」时序） */

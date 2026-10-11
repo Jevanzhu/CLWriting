@@ -4,9 +4,9 @@
  * 原 role="menu" 面仅 Esc 可用、无方向键导航——纯键盘用户进不了任何菜单项（桌面端走
  * Electron 原生 Menu 不渲染本组件，不受影响）。修复照 FontPicker 重评-P2-2 的 roving
  * tabindex 搭法：开启焦点入首项、↑/↓ 循环（跳过分隔线）、Home/End 首尾、Enter/Space
- * 激活（keydown preventDefault 截停原生按钮激活防双触发）、Tab 自然走焦关闭、Esc 关闭
- * 还焦右键来源；容器挂 aria-activedescendant；disabled 可聚焦不可激活。挂法/press 形态
- * 仿 font-picker.test.ts 重评-P2-2 段。
+ * 激活（keydown preventDefault 截停原生按钮激活防双触发）、Tab 关闭（与 Esc 同语义：
+ * 消费按键 + 还焦右键来源）、Esc 关闭还焦右键来源；容器挂 aria-activedescendant；
+ * disabled 可聚焦不可激活。挂法/press 形态仿 font-picker.test.ts 重评-P2-2 段。
  *
  * 本档同时锚定飞出层（子菜单）键盘可达（原「hover 唯一可达」登记的闭合）：→ 进层并聚焦
  * 层内首项、层内 ← 收层还焦父项、层内 ↑/↓ 循环（层界 = 键盘是否在层内）、层内 Enter
@@ -214,12 +214,17 @@ describe('重评2-P3-2: ContextMenu 浏览器回退菜单 roving 键盘导航', 
     expect(unconsumed.defaultPrevented).toBe(false)
   })
 
-  it('Tab 自然关闭且不消费；IME 组合期方向键让渡', async () => {
+  it('Tab 关闭与 Esc 同语义：消费按键 + 还焦右键来源（不丢给已卸载菜单/body）', async () => {
     await openMenu()
     const tab = press('Tab')
     await Promise.resolve()
     expect(wrapper!.emitted('close')).toHaveLength(1)
-    expect(tab.defaultPrevented).toBe(false) // 不消费，焦点走自然次序
+    expect(tab.defaultPrevented).toBe(true) // 消费：默认走焦会从已卸载的菜单项出发
+    expect(document.activeElement).toBe(anchor()) // 还焦右键来源
+    // 父层响应 close 后（visible=false）焦点仍在来源，不被 visible 收尾二次搬动
+    await wrapper!.setProps({ visible: false })
+    await nextTick()
+    expect(document.activeElement).toBe(anchor())
     // IME 组合期：方向键让渡输入法（焦点不动、不消费）
     await openMenu()
     const before = document.activeElement
@@ -227,6 +232,22 @@ describe('重评2-P3-2: ContextMenu 浏览器回退菜单 roving 键盘导航', 
     await Promise.resolve()
     expect(document.activeElement).toBe(before)
     expect(ime.defaultPrevented).toBe(false)
+  })
+
+  it('层内 Tab 只收层（还焦父项、不关整菜单）；收层后 Tab 关整菜单并还焦来源', async () => {
+    await openMenu()
+    await enterSub()
+    const tab = press('Tab')
+    await nextTick()
+    expect(tab.defaultPrevented).toBe(true)
+    expect(document.body.querySelector('.cm-submenu')).toBeNull() // 层收
+    expect(document.activeElement).toBe(items()[4]) // 还焦父项
+    expect(wrapper!.emitted('close')).toBeUndefined() // 菜单仍开（Tab 与 Esc 同层界）
+    const tab2 = press('Tab')
+    await Promise.resolve()
+    expect(tab2.defaultPrevented).toBe(true)
+    expect(wrapper!.emitted('close')).toHaveLength(1)
+    expect(document.activeElement).toBe(anchor())
   })
 
   it('未打开：方向键/Home/End/→/← 不消费（落到页面既有键盘面）', () => {

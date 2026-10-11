@@ -1,17 +1,14 @@
 /**
  * 系统字体列表 TTL 缓存（main 进程侧，降半档）。
  *
- * desktop:get-system-fonts 每次调用都真跑 font-list 的系统命令（mac osascript /
- * win 注册表枚举），百毫秒级且结果在一次会话内基本不变。前端 useSystemFonts 已有
- * 会话级单例缓存，本模块补主进程侧缺口：渲染层重载（设置弹窗重开）/ 第二窗口再次
- * invoke 时的重复系统命令。
+ * 动机：desktop:get-system-fonts 每次调用都真跑 font-list 的系统命令（mac osascript /
+ * win 注册表枚举），百毫秒级且结果在一次会话内基本不变；前端 useSystemFonts 已有会话级单例
+ * 缓存，本模块补主进程侧缺口（渲染层重载 / 第二窗口再次 invoke 的重复系统命令）。
  *
- * 语义：TTL 内命中缓存；过期/未缓存真跑 loader；并发调用合并为同一在途 Promise
- * （双窗口同拍拉取只跑一次系统命令）。loader 失败不缓存（无负缓存）——首次失败
- * 照抛（调用方 main.ts catch 后返回 [] 的兜底语义不变）；补
- * serve-stale：已持有过期缓存时重载失败不再作废回 []，回吐旧值且不刷 cachedAt
- * （下次调用仍重试探测——瞬时故障只降级一次可见性，不丢好数据）。
- * ttlMs/now 可注入（测试用，不动生产语义）。
+ * 语义：TTL 内命中缓存；过期/未缓存真跑 loader；并发调用合并为同一在途 Promise（双窗口同拍拉取
+ * 只跑一次系统命令）。loader 失败不缓存（无负缓存）——首次失败照抛（调用方 catch 后返回 [] 的
+ * 兜底语义不变）；serve-stale：已持有过期缓存时重载失败不作废回 []，回吐旧值且不刷 cachedAt
+ *（下次调用仍重试探测——瞬时故障只降级一次可见性，不丢好数据）。ttlMs/now 可注入（测试用）。
  */
 import { spawn } from 'node:child_process'
 import { join, sep } from 'node:path'

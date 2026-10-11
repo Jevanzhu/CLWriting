@@ -1,10 +1,9 @@
 /**
  * 对话/名册/禁词/字数/句式/复读检查族 —— 自 src/check/count.ts 缝 A 拆出。
  *
- * （⑤④产品巨件拆分波1）：count.ts（1144 行）纯移动拆分——
- * 本文件承载缝 A（ATTRIBUTION/SPEECH/DIALOGUE_GUIDE/ROSTER 诸正则族、名册
- * 缓存与判重、禁词/字数/句长/复读）；文风可量化族见 count-style.ts（缝 B）；
- * front matter/意象/短篇专属项留 count.ts 残核，其头注保留原全部历史记载与拆分沿革。
+ * 内容：ATTRIBUTION/SPEECH/DIALOGUE_GUIDE/ROSTER 诸正则族、名册缓存与判重、
+ * 禁词/字数/句长/复读；文风可量化族见 count-style.ts；
+ * front matter/意象/短篇专属项留 count.ts 残核。
  * 依赖方向：check（types/quotes 同层）/format（sentences）/shared/log 既有方向，
  * 不入 AI 生成层（守护范围）。
  */
@@ -14,18 +13,17 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
 import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
 // 句长码点口径（代理对合 1 计）。
-// -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
+// 实现单源 src/shared/text.ts。
 import { codePointLength } from '../shared/text.js'
-// unknown → message 三目收编 log.errMsg 单源（同批 run.ts 同款）
+// unknown → message 三目走 log.errMsg 单源（同 run.ts 同款）
 import { errMsg, log } from '../log/index.js'
 
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。
  * 统一使用，避免不同检查项范围不一导致生僻字人名漏判。
- * 注释修正：「一-鿿」中 一=U+4E00、鿿=U+9FFF（基本区顶，非 U+9FA5——
- * U+9FA5 是「龥」，U+9FFD~U+9FFF 是 CJK 扩充进基本区顶的字，旧注释把区顶码位
- * 写错一位）；「㐀-䶿」= U+3400-U+4DBF（扩展 A 区）。导出：
- * api/check.ts 堆砌锚点正则收编本单源（此前第四处硬编码）。
+ * 「一-鿿」= U+4E00-U+9FFF（基本区顶——不是 U+9FA5「龥」，U+9FFD~U+9FFF 是 CJK
+ * 扩充进基本区顶的字）；「㐀-䶿」= U+3400-U+4DBF（扩展 A 区）。
+ * 导出：api/check.ts 堆砌锚点正则用本单源（不再硬编码）。
  */
 export const HANZI = '一-鿿㐀-䶿'
 
@@ -209,9 +207,8 @@ export function checkSentenceLength(body: string, maxLen = 60): CheckSectionResu
  */
 const ATTRIBUTION_CHARS =
   '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
-// 以下守卫族导出——setting-rule.ts 的「只读参照」
-// 抄本纪律已被两次证明失效（抄定后只修 check 侧未同步 ai 域即
-// 现行实例），自本批起 ai 域删抄本改直接 import（ai→check 单向，quotes.ts/self-heal 先例）。
+// 以下守卫族导出——setting-rule.ts 的「只读参照」抄本纪律已两次被证明失效（抄定后只修
+// check 侧未同步 ai 域），故 ai 域删抄本改直接 import（ai→check 单向，quotes.ts/self-heal 先例）。
 export const ATTRIBUTION_RE = new RegExp(`^[${ATTRIBUTION_CHARS}]+$`)
 
 /** 引号外只剩提示语（或为空）→ 对白行。 */
@@ -235,10 +232,10 @@ export const SPEECH_VERBS = '说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼
 /** 对白归属行结构——1-4 汉字（人名/称谓）+ 说话动词 + 可选尾缀（了/着/道）。
  * 说话人名词不在提示语词表（只挡代词行），「快走。」林晚说。这类
  *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。
- * 汉字段改 ${HANZI} 插值（与全文件口径同源）——此前字面 \u4e00-\u9fa5
+ * 汉字段走 ${HANZI} 插值（与全文件口径同源）——字面 \u4e00-\u9fa5
  *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。
  * 动词段收 SPEECH_VERBS 单源（动词集语义不变，见上）。
- * 导出（setting-rule 抄本收编，见 ATTRIBUTION_RE 处注）。 */
+ * 导出（setting-rule 抄本见 ATTRIBUTION_RE 处注）。 */
 export const SPEECH_ATTRIBUTION_RE = new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
 
 /**
@@ -249,7 +246,7 @@ export const SPEECH_ATTRIBUTION_RE = new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VER
  * 真候选杀掉），双字词（吩咐/嘀咕/嘟囔/喃喃/低语）按 2 字符窗口整词收尾才认。
  * 已知残余面（漏报向安全，黄项启发式不追全）：「频道/知道/频道」等以「道」收尾的
  * 普通词紧邻引号时同样豁免——与同款取舍。
- * 导出（setting-rule 抄本收编，见 ATTRIBUTION_RE 处注）。
+ * 导出（setting-rule 抄本见 ATTRIBUTION_RE 处注）。
  */
 export const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟囔|喃喃|低语)[：:，,]?\s*$/
 
@@ -261,8 +258,7 @@ export const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀�
  *  代理对半区）；刻意不动 HANZI 常量本体——它被无 u 标志正则（HANZI_CHAR_RE/
  *  SPEECH_ATTRIBUTION_RE 等）消费，掺入 astral 区段会碎成代理对半区破坏语义。
  * 导出——setting-rule 抄本（PURE_HANZI_RE，BMP-only）
- * 未随本处补增补平面同步，Ext-B 名两检两结论（主诉）；自本批起
- *  ai 域直接 import 本单源，抄本删除。 */
+ * 未随本处补增补平面同步，Ext-B 名两检两结论；ai 域直接 import 本单源，抄本已删。 */
 export const ROSTER_NAME_RE = new RegExp(`^[${HANZI}\u{20000}-\u{2FA1F}\u{30000}-\u{323AF}]{2,4}$`, 'u')
 
 /**
@@ -351,7 +347,7 @@ export function checkNewNames(body: string, rosterPath: string): CheckSectionRes
   // 名册 Set 化（构建一次，判重循环内 O(1) 查）
   const registeredSet = new Set(registeredNames)
   // 粗抽：2-4 字中文专名候选——候选仅出自引号 span（QUOTED_SPAN_RE 命中段；
-  // 注释如实化：叙述行裸名不入候选，扩裸名会引入高误报面，超出本轮）
+  // 叙述行裸名不入候选，扩裸名会引入高误报面）
   const candidates = new Set<string>()
   const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
   const punctRe = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE}${SPAN_PUNCT}「」『』]`, 'gu')

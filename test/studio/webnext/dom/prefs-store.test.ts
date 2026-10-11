@@ -17,29 +17,14 @@ vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
 }))
 
 import { getGlobalPrefs, putGlobalPrefs } from '../../../../src/studio/web-next/src/api/prefs'
+import { ApiError } from '../../../../src/studio/web-next/src/api/client'
 import { usePrefsStore } from '../../../../src/studio/web-next/src/stores/prefs'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const getGlobalPrefsMock = getGlobalPrefs as ReturnType<typeof vi.fn>
 const putGlobalPrefsMock = putGlobalPrefs as ReturnType<typeof vi.fn>
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，提供一个完整 Map-backed 替身
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => {
-      store.set(k, v)
-    },
-    removeItem: (k: string) => {
-      store.delete(k)
-    },
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 
@@ -192,6 +177,25 @@ describe('prefs: localStorage 迁移', () => {
     const prefs = usePrefsStore()
     await prefs.init()
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
+  })
+
+  it('迁移 PUT 带 expectedRevision（上面那次 GET 回的号）——不带即唯一可无条件覆盖他窗的写', async () => {
+    localStorage.setItem('clw-theme', 'dark')
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 4 })
+    const prefs = usePrefsStore()
+    await prefs.init()
+    expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
+    expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }), 4)
+  })
+
+  it('迁移 PUT 收 409（GET 与他窗落盘交错）→ 不抛不重试，refs 保留迁移值', async () => {
+    localStorage.setItem('clw-theme', 'dark')
+    getGlobalPrefsMock.mockResolvedValue({ prefs: {}, revision: 4 })
+    putGlobalPrefsMock.mockRejectedValue(new ApiError('全局偏好已在其他窗口被修改，请刷新', 409))
+    const prefs = usePrefsStore()
+    await expect(prefs.init()).resolves.toBeUndefined()
+    expect(prefs.get('theme')).toBe('dark') // 展示不回退（服务端由后续保存链合并补写）
+    expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1) // 不自动重试
   })
 })
 

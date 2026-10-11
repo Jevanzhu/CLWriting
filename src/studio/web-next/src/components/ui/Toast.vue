@@ -8,8 +8,20 @@ const ui = useUiStore()
 <template>
   <Teleport to="body">
     <div class="toast-wrap" role="status" aria-live="polite">
-      <!-- 点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
-      <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind" @click="ui.dismissToast(t.id)">
+      <!-- 点击/键盘关闭——循环失败堆叠时作者可手动清掉（计时消失保留）；
+           条本身是按钮（Enter/Space 同点击），故 aria-label 写明动作而不只是文案 -->
+      <div
+        v-for="t in ui.toasts"
+        :key="t.id"
+        class="toast"
+        :class="t.kind"
+        role="button"
+        tabindex="0"
+        :aria-label="`关闭提示：${t.msg}`"
+        @click="ui.dismissToast(t.id)"
+        @keydown.enter.prevent="ui.dismissToast(t.id)"
+        @keydown.space.prevent="ui.dismissToast(t.id)"
+      >
         {{ t.msg }}
       </div>
     </div>
@@ -38,6 +50,10 @@ const ui = useUiStore()
   animation: clw-appear var(--dur-norm) var(--ease-out);
   pointer-events: auto; /* 点击关闭（wrap 透传，本层接管） */
   cursor: pointer;
+}
+.toast:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
 }
 .toast.success {
   color: var(--dv-good);

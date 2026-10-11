@@ -175,6 +175,21 @@ describe('R44-3: doDelete 确认前先落盘脏内容', () => {
   })
 })
 
+describe('R44-3 附：删章成功后弃 doc 缓存条目先于刷树（次序红线）', () => {
+  it('discard 先于 tree.load——条目残留在树对账窗口内会按已删路径重拉（404 噪音）', async () => {
+    await openDirtyDoc('d10')
+    saveMock.mockResolvedValueOnce({ ok: true, revision: 'r', superseded: false })
+    const doc = useDocStore()
+    const discardSpy = vi.spyOn(doc, 'discard')
+    const tree = (await import('../../../src/studio/web-next/src/stores/tree')).useTreeStore()
+    const loadSpy = vi.spyOn(tree, 'load').mockResolvedValue(undefined)
+    const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
+    await actions.doDelete(node('写作/正文/d10.md', 'd10'))
+    expect(discardSpy).toHaveBeenCalledWith('d10')
+    expect(discardSpy.mock.invocationCallOrder[0]).toBeLessThan(loadSpy.mock.invocationCallOrder[0]!)
+  })
+})
+
 describe('R59 清偿批（R55-F-6）: doDelete 在途保存窗口预判', () => {
   /** 造在途保存：saveContent 挂起到外部放行，返回放行器。 */
   function holdSave(): (v?: Error) => void {

@@ -14,11 +14,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { checkAiCallBudget, forgetMigratedRoots } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-r47-calls-'))
+  const d = tempDirTracked('clwriting-r47-calls-')
   dirs.push(d)
   return d
 }

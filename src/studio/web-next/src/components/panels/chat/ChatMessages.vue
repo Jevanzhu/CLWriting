@@ -29,7 +29,7 @@ import {
 } from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../../stores/chat'
 import { useTreeStore } from '../../../stores/tree'
-import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../ai/contract/tool-meta'
+import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../shared/contract/tool-meta'
 import { parseChapterFileName } from '../../../shared/words'
 import { confirmTool, type ChatBranchInfo } from '../../../api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../shared/chat-history'
@@ -146,7 +146,7 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   }
 }
 
-// ── 工具卡片展示（中文名与参数摘要单源 src/ai/contract/tool-meta.ts）────
+// ── 工具卡片展示（中文名与参数摘要单源 src/shared/contract/tool-meta.ts）────
 
 const TOOL_ICONS: Record<string, typeof PenLine> = {
   write_chapter: PenLine,

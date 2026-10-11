@@ -26,7 +26,7 @@ import { layoutOf } from './layout.js'
 import { appendAborted, appendMovePending, appendSettled } from './journal.js'
 import { writeVersion } from './version.js'
 import { invalidateTreeIndex } from './tree.js'
-import { getStructSaveLockTimeoutMs } from './service-guards.js'
+import { getStructSaveLockTimeoutMs, saveLockFailures } from './service-guards.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { isSamePhysicalFile, sanitizeCreateSegment } from './service-helpers.js'
 import { errMsg } from '../log/index.js'
@@ -39,15 +39,15 @@ import type { MoveResult } from './service.js'
  *  同一键 'a/b'，防畸形 toDir 直拼进 manifest 造成目录身份分裂。返回 null = 非法。
  * '\' 归一在前——win32 path.resolve 视 '\' 为分隔符，含反斜杠的
  *  toDir 会被 resolveSafePath 放行并真实建目录，但混合分隔符串直拼进 manifest 后，
- *  posix 口径的树扫描/前端全链 miss（docId 身份分裂 + 保存恒 REVISION_CONFLICT，
- * 同族后果）；先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。
+ *  posix 口径的树扫描/前端全链 miss（docId 身份分裂 + 保存恒 REVISION_CONFLICT）；
+ *  先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。
  * '..'/'.' 段拒绝——下方 safeSegs「已存在则原样
  *  保留」分支对 '..' 恒命中（existsSync(join(root,'a','..')) 即 root），'..' 原文直拼进
  *  manifest 而物理落位经 resolveSafePath 词法消解落在别处 → 登记与盘上路径分裂、docId
  * 身份分裂、保存恒 REVISION_CONFLICT（同族；口径对齐 doCopy）。
- * mac适配：`\` 归一收编 normalizeWinSeparators（win32-only）——win 侧
- * 动机（path.resolve 视 `\` 为分隔符）与历史遗留兼容不变；posix 上 `\` 是合法
- *  文件名字符，含 `\` 的 toDir 按字面单段目录处理（不再扭曲为子目录）。 */
+ * mac适配：`\` 归一走 normalizeWinSeparators（win32-only）——win 侧
+ * 动机（path.resolve 视 `\` 为分隔符）不变；posix 上 `\` 是合法文件名字符，含 `\`
+ *  的 toDir 按字面单段目录处理（不扭曲为子目录）。 */
 function normalizeMoveToDir(toDir: string): string | null {
   const normalized = normalizeWinSeparators(toDir)
     .replace(/\/{2,}/g, '/')
@@ -60,19 +60,18 @@ function normalizeMoveToDir(toDir: string): string | null {
 
 /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。
  * 类方法迁模块函数，共享设施经 ctx 显式取得（本体原样，类内部成员访问改走 ctx）。 */
-// doMoveOrRename 改异步——尾部清单 path 更新走
+// doMoveOrRename 异步——尾部清单 path 更新走
 // updateManifestPath 的异步清单锁（等待期不阻塞事件循环）。
-// 落位段补 per-doc save 锁——原「本方法
-// 不取 save 锁，由调用方 save 锁内 await」留下双向复活窗：他进程 executeSave 过锁内
+// 落位段持 per-doc save 锁——不持则留双向复活窗：他进程 executeSave 过锁内
 // 守卫（registered/trash 复核）后、落盘前，本方法把文件 rename 走并删源，他进程的
 // atomicWriteFile/createFileExclusive 会在旧路径复活已移走文件（expectedRevision=null
-// 的新建语义尤其如此：文件不在盘 ⇒ 基线校验通过 ⇒ 独占创建复活）。现取
+// 的新建语义尤其如此：文件不在盘 ⇒ 基线校验通过 ⇒ 独占创建复活）。故取
 // `<journal>.save.lock` 覆盖「pending → snapshot → 落位 → 删源 → 清单 path 更新 →
 // settled」整段：本方持锁时他进程 save 在取锁处等待（锁内复核看到新世界后按
 // REVISION_CONFLICT 拒绝）；他进程 save 持锁时本方等待（落位发生在其保存完成后，
 // 语义为「保存后移动/删除」，无复活）。锁序严格沿用全仓「save → 布线 → 清单」：
 // 本锁最先取（save），其后 journal 锁（appendMovePending）与清单锁
-// （updateManifestPath/upsertManifestEntryAsync 收编链）均为既有单向嵌套，无环。
+// （updateManifestPath/upsertManifestEntryAsync 链）均为既有单向嵌套，无环。
 // opts.holdSaveLock：调用方已持同 docId save 锁时传 false（updateChapterMetaLocked
 // ——锁基建禁同进程嵌套同路径锁，重取必 5s 超时 fail-closed）；缺省 true（安全默认，
 // 新调用方漏声明时 fail-loud 而非静默无锁）。syncRenamePieceList 对章纲 docId 走
@@ -92,20 +91,13 @@ export async function doMoveOrRename(
   // 取锁/释放编排单源化至 withSaveLocks
   //（holdSaveLock 防同进程嵌套自锁语义随迁：false = 调用方已持同 docId
   // save 锁；获取抛出收口随迁）。结构落位段无布线文件，不传 wiring。
+  // 失败文案按意图单源（saveLockFailures）——本面专属文案逐字不变。
+  const lockFailures = saveLockFailures('移动/重命名')
   return ctx.withSaveLocks<MoveResult>({
     journalPath,
     holdSaveLock: opts?.holdSaveLock ?? true,
     saveTimeoutMs: getStructSaveLockTimeoutMs(),
-    onSaveLockThrown: (e) => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: `移动/重命名保存锁获取失败（未执行操作，可重试）：${errMsg(e)}`,
-    }),
-    onSaveLockTimeout: () => ({
-      ok: false,
-      code: 'WRITE_ERROR',
-      reason: '移动/重命名等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试',
-    }),
+    ...lockFailures.saveLock,
     body: async () => {
       // lookup 命中读已随 lookupPathByDocIdAdoptAsync
       // 收敛 strict（口径）——瞬态读失败上抛不再落「未登记」，此处收口 WRITE_ERROR
@@ -194,15 +186,13 @@ export async function doMoveOrRename(
       // journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
       // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
       // （journalPath 已上提到取锁处。）
-      // ee-pending 写入收进 try——appendMovePending 同步抛（磁盘满/权限）此前在 try 外
-      // 裸穿，而调用方以 Promise.resolve 包裹本方法（不捕获同步 throw），拿到的是裸异常而非
-      // {ok:false} 契约（save 路径同类已修，此处对齐）。pending 仍先于
-      // snapshot+rename 崩溃恢复语义不变。
+      // pending 写入必须在 try 内——appendMovePending 同步抛（磁盘满/权限）若在 try 外
+      // 裸穿，调用方以 Promise.resolve 包裹本方法（不捕获同步 throw）会拿到裸异常而非
+      // {ok:false} 契约。pending 仍先于 snapshot+rename，崩溃恢复语义不变。
       // settled 复用移动前单读派生的 baseRev——
-      // 移动/重命名内容不变（同 inode 落位），newSafe 的盘上指纹与 oldContent 恒等，原
-      // computeRevision(newSafe) 在 settled 处再整读全文属重复 IO（单读派生同族
-      // 收口）。行为零变更。防御回落仅在「readFileSync(oldSafe) 未执行即失败」的不可达
-      // 路径兜底（此刻早已走上方 catch 返回，到不了 settled）。
+      // 移动/重命名内容不变（同 inode 落位），newSafe 的盘上指纹与 oldContent 恒等，
+      // 再 computeRevision(newSafe) 整读全文属重复 IO。防御回落仅在「readFileSync(oldSafe)
+      // 未执行即失败」的不可达路径兜底（此刻早已走上方 catch 返回，到不了 settled）。
       let opId: string | undefined
       let baseRev: `sha256:${string}` | undefined
       try {
@@ -261,15 +251,14 @@ export async function doMoveOrRename(
           // 删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
           // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
           // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
-          // 删源收编 rmWithRetry（fs/atomic.ts，trash.ts :287
-          // 先例）——瞬时锁退避后仍失败才走既有回收+报错链，语义不变（默认 rm 即
-          // rmSync(p,{force:true})，与原裸调逐位同源）。
+          // 删源走 rmWithRetry（fs/atomic.ts，trash.ts 先例）——瞬时锁退避后仍失败才走
+          // 既有回收+报错链（默认 rm 即 rmSync(p,{force:true})）。
           try {
             rmWithRetry(oldSafe)
           } catch (rmErr) {
             try {
-              // （全库代码审）：回滚删新位硬链接收编 rmWithRetry
-              //（同上 :1137 处）——瞬时锁退避自愈，退避后仍失败照旧吞错留孤儿副本
+              // 回滚删新位硬链接走 rmWithRetry（同上主删处）——瞬时锁退避自愈，
+              // 退避后仍失败照旧吞错留孤儿副本
               rmWithRetry(newSafe)
             } catch {
               /* 新位残留孤儿副本：内容无损，重试前需手工清理 */

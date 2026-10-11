@@ -439,3 +439,54 @@ test('R62-32：摘要目录坏命名文件 → 计入 warnings（不再静默跳
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── index.db schema 版本阶梯（user_version）经真实重建路径 ──────────────────
+// v1 = 既有「全量建表 + 树红点表探列补列」逐位原样；阶梯的失败 / 超前 / 零 DDL 语义
+// 在 test/cache/schema.test.ts 直测，本件只验重建入口把版本锚落到盘上。
+test('rebuild: index.db 建到 schema v1；存量 v0（旧树红点表）经重建升级且账本可读', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  try {
+    rebuild(root, cachePath)
+    const fresh = new DatabaseSync(cachePath)
+    try {
+      expect((fresh.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(1)
+      expect(loadLeadFromCache(fresh, '悬念-031')!.标题).toBe('灭门真凶')
+    } finally {
+      fresh.close()
+    }
+
+    // 回退成「升级前」形态：版本归零 + 树红点表退回无 epoch_fp 的旧列
+    const legacy = new DatabaseSync(cachePath)
+    legacy.exec('PRAGMA user_version = 0')
+    legacy.exec('ALTER TABLE tree_issues_cache DROP COLUMN epoch_fp')
+    legacy.close()
+
+    // 源树未变 → 增量跳过（只读探测）不动 schema：阶梯只在全量重建路径执行（如实口径）
+    rebuild(root, cachePath)
+    const incremental = new DatabaseSync(cachePath)
+    try {
+      expect((incremental.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(0)
+    } finally {
+      incremental.close()
+    }
+
+    // 源树变化 → 全量重建：v1 步补列 + 版本推进，账本数据完整
+    const chPath = join(root, '写作', '正文', '152-北境的雪.md')
+    const future = new Date(Date.now() + 5_000)
+    utimesSync(chPath, future, future)
+    const r = rebuild(root, cachePath)
+    expect(r.errors).toHaveLength(0)
+    const upgraded = new DatabaseSync(cachePath)
+    try {
+      expect((upgraded.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(1)
+      const cols = upgraded.prepare('PRAGMA table_info(tree_issues_cache)').all() as Array<{ name: string }>
+      expect(cols.map((c) => c.name)).toContain('epoch_fp') // v1 步补列
+      expect(loadLeadFromCache(upgraded, '悬念-031')!.履历).toHaveLength(2) // 重建数据完整
+    } finally {
+      upgraded.close()
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

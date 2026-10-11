@@ -77,15 +77,12 @@ const CANDIDATE_DIR = '工作区/learn候选'
 /**
  * 候选打分（借 #10 机检，#38 第 3.2 节）。
  *
- * 基础 100 分，扣分项来自 #10：
+ * 基础 100 分，扣分项：
  * - checkStyleMetrics 项每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味；
- * 注释如实化：checkStyleMetrics 产出的 6 类 item level 恒为
- *   yellow，原「red 每条 -15」分支永不可达，统一 -5）
+ * 其 item level 恒为 yellow，故不存在「red 每条 -15」分支）
  * - checkRepeat 的 yellow 项每条 -10
- * 无加分项（避免硬编码关键词，口径归 #10 机检，作者调铁律阈值能直接影响打分）。
- * 注释如实化：此前宣称「-10 * rate（复读率比率乘减）」与实现
- * 不符——实现是扁平每条 -10（checkRepeat 双口径互斥，至多出 1 条 yellow），
- * 扣分不随复读率数值缩放。
+ * 无加分项（避免硬编码关键词，口径归机检，作者调铁律阈值能直接影响打分）。
+ * 扣分是扁平每条，不随复读率数值缩放（checkRepeat 双口径互斥，至多出 1 条 yellow）。
  */
 function scoreByChecks(
   body: string,
@@ -154,9 +151,8 @@ const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章�
 
 // 码点计数单源——String.length 是 UTF-16
 // 码元，含增补平面字符（emoji/生僻字）的文本 length 偏大（代理对一符双计）被长度
-// 上限误杀。原按判「不引 process/summary 依赖链」本地实现；-优化
-// 单源下沉零依赖的 src/shared/text.ts 后依赖顾虑消除，本处
-// 收编（learn「纯脚本」边界不破——shared/text.ts 零内部依赖）。样章块长与金句句长
+// 上限误杀。单源下沉零依赖的 src/shared/text.ts（learn「纯脚本」边界不破——
+// shared/text.ts 零内部依赖，故不必自持本地实现）。样章块长与金句句长
 // 两处共用，口径单源。
 import { codePointLength } from '../shared/text.js'
 
@@ -302,18 +298,14 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
         sampleCandidates.length = SAMPLE_KEEP
       }
     }
-    // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——）
+    // 金句候选：统一分句口径（含 \n，否则漏检跨行）
     // 长度按码位计（for-of 迭代码点，零分配）——
     // String.length 是 UTF-16 码元，含增补平面字符（emoji/生僻字）的句子 length 偏大
-    // 而被 50 上限误杀（代理对一符双计），与全库 code point 口径（族）不一致。
-    // 阈值语义不变（10/50 码位）；process/summary.ts 的 codePointLength 单源在本批
-    // 不引入（其依赖链拖入 AI 编排栈，learn 头注「纯脚本」边界），算法与 summary
-    // 实现同构（代理对合 1 计），漂移风险由两处同注钉住。
-    // 内联计数收敛至文件内 codePointLength
-    // 单源（同批样章块长过滤引入、与其同口径），算法逐位不变。
-    // 码点口径单源的现址 = src/shared/text.ts（零内部依赖，
-    // 本文件头 import 即该模块）；上两注中「process/summary.ts 的 codePointLength」
-    // 系旧址（该模块的 re-export 中转已剥除），读作 shared/text.ts。
+    // 而被 50 上限误杀（代理对一符双计），与全库 code point 口径不一致。
+    // 阈值语义不变（10/50 码位）；码点口径单源现址 = src/shared/text.ts（零内部依赖，
+    // 本文件头 import 即该模块；不得改引 process/summary.ts——其依赖链会拖入 AI 编排栈，
+    // 破 learn 头注「纯脚本」边界）。
+    // 内联计数收敛至文件内 codePointLength 单源（与样章块长过滤同口径），算法不变。
     const sentences = splitSentences(body).filter((s) => {
       const cpLen = codePointLength(s)
       return cpLen >= 10 && cpLen <= 50 && !s.startsWith('#')
@@ -383,10 +375,9 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
   mkdirSync(candidateRoot, { recursive: true })
 
   // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
-  // 平台 C：场景值收编单源消毒（此前未经 sanitize 直拼文件名——win 非法字符/
-  // 保留设备名/超长场景值直落盘，与 filename.ts 单一真相源口径漂移）；候选目录是人类
-  // 审阅面（无按名反推的读侧），改名无配对面。B：产出内容规范形写（正文源自库内
-  // 文本，可携 \r 残尾）。
+  // 场景值走单源消毒（否则 win 非法字符/保留设备名/超长场景值直落盘，与
+  // filename.ts 单一真相源口径漂移）；候选目录是人类审阅面（无按名反推的读侧），
+  // 改名无配对面。产出内容规范形写（正文源自库内文本，可携 \r 残尾）。
   const sampleDir = join(candidateRoot, '样章')
   mkdirSync(sampleDir, { recursive: true })
   topSamples.forEach((c, i) => {

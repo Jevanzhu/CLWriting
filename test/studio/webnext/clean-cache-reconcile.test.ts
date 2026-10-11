@@ -52,6 +52,7 @@ import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { countWords, stripFrontmatter } from '../../../src/studio/web-next/src/shared/words'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 import { setupRealStores, recordToasts } from './helpers/real-stores'
+import { createLocalStorage } from '../../helpers/local-storage.js'
 
 const BOOK = 'test-book'
 const FAIL_MSG = '文档信息刷新失败，显示内容可能已过期'
@@ -72,19 +73,6 @@ function makeNode(pathOrDocId: string, docId?: string): TreeNode {
 }
 
 // dirty 镜像等 localStorage 面：Map 替身（node 环境稳）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 let toastSpy: ReturnType<typeof recordToasts>

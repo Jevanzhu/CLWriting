@@ -1,10 +1,9 @@
 /**
- * task-gate 服务端口（b ③ / c 两轮登记的 ai→studio
- * 反向依赖收口）。
+ * task-gate 服务端口（ai→studio 反向依赖收口）。
  *
- * 背景（原 turns.ts 头部债务注释沿革）：chat 的 REWRITE_GATE_TOOLS 与 write_chapter
- * 需要与 studio /rewrite 端点共 task-gate 'rewrite' 一把闸互斥；此前 ai 层直接反向
- * import studio/server/api/task-gate（分层倒置）。task-gate 自身依赖 ai/orchestrate
+ * 背景：chat 的 REWRITE_GATE_TOOLS 与 write_chapter
+ * 需要与 studio /rewrite 端点共 task-gate 'rewrite' 一把闸互斥；ai 层直接反向
+ * import studio/server/api/task-gate 是分层倒置。task-gate 自身依赖 ai/orchestrate
  * 四个在途态查询（isSelfHealRunning/isChatRunning/hasBackgroundTasks/isSpawnRunning），
  * 无法下沉中性层，故走「依赖倒置 + 表现层注册」：ai 层只持端口契约，真实闸由
  * stream.ts registerStreamRoutes 注入（同款注册原语先例见 runner.ts
@@ -15,13 +14,12 @@
  * test/studio/task-gate-port.test.ts 源锚测试锁死（registerStreamRoutes 必调
  * registerTaskGateProvider）。
  *
- * 收编：注册槽随端口实例化——原裸模块级 `let provider` 收进
- * createTaskGatePort 的实例槽位，模块级函数保留为**进程默认端口**的委托壳（与
- * task-gate.ts 的进程默认实例委托壳同型）：stream.ts 与既有测试按模块级函数取用，
- * 语义逐位不变；同进程需要第二套注册面时（组装根多实例的未来形态）可自建端口实例。
- * 如实记：acquire 调用面（chat 工具）无实例判别信息，进程默认端口仍是单通道——
- * 最后注册者生效（生产单 server 进程一份，无差异）；多实例判据测试不依赖本端口
- *（chat 工具闸属进程级编排面，与 isChatRunning 等在途表同层，收口见评审报告遗留项）。
+ * 注册槽随端口实例化——裸模块级 `let provider` 收进 createTaskGatePort 的实例槽位，
+ * 模块级函数保留为**进程默认端口**的委托壳（与 task-gate.ts 的进程默认实例委托壳
+ * 同型）：stream.ts 与既有测试按模块级函数取用，语义不变；同进程需要第二套注册面时
+ *（组装根多实例的未来形态）可自建端口实例。
+ * 注意：acquire 调用面（chat 工具）无实例判别信息，进程默认端口仍是单通道——最后注册
+ * 者生效（生产单 server 进程一份，无差异）。
  */
 
 /** 与 studio/server/api/task-gate.ts acquireTaskGate 同形（闸满返回 null = fail-closed） */

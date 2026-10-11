@@ -15,53 +15,13 @@
  *    「至少一次」，不脆断言次数（时序依赖块大小常数的精确次数断言易碎）。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { collectTreeIssues, collectTreeIssuesAsync } from '../../src/check/run.js'
-import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
-import { generateDocId } from '../../src/document/stable-id.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { makeCheckBook } from '../helpers/check-book.js'
 
-/** 造一本 N 章正文的书（带布线 + 每章禁词「玉佩」制造确定红源——口径同
- *  tree-issues-scan-count.test.ts 的 makeBook，证逐章 checkWithDb 真的跑了）。 */
-function makeBook(chapterCount: number): string {
-  const root = mkdtempTracked(join(tmpdir(), 'r37-tree-async-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  mkdirSync(join(root, '项目'), { recursive: true })
-  mkdirSync(join(root, '文风'), { recursive: true })
-  writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(
-    join(root, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
-    'utf-8',
-  )
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-    '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  const manifestPath = join(root, '项目', '文档清单.jsonl')
-  const m = readManifest(manifestPath)
-  for (let no = 1; no <= chapterCount; no++) {
-    const pad = String(no).padStart(3, '0')
-    writeFileSync(
-      join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
-      'utf-8',
-    )
-    upsertEntry(m, {
-      id: generateDocId(),
-      nodeType: 'document',
-      path: `写作/正文/${pad}-第${no}章.md`,
-      parentId: null,
-    })
-  }
-  writeManifest(manifestPath, m)
-  return root
-}
+/** 本档书形态（骨架单源见 helpers/check-book.ts）。 */
+const PREFIX = 'r37-tree-async-'
 
 /** 阶段 52 批 1（P3-12）：把布线喂大（前奏段变长、章数不动）——让出点只可能落在前奏段，
  *  用于「前奏重章轻」形态的等价复跑（章数 2 < TREE_ISSUES_YIELD_EVERY ⇒ 逐章段零让出点）。
@@ -79,7 +39,7 @@ function addWiring(root: string, count: number): void {
 
 describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
   it('同一本书：async 版结果与同步版 deep equal（同步版先跑落下章级缓存，async 跑热缓存路径）', async () => {
-    const root = makeBook(60)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 60 })
     const sync = collectTreeIssues(root, () => undefined)
     expect(Object.keys(sync.issues).length).toBe(60) // 每章命中禁词「玉佩」→ 全红
     const asyncResult = await collectTreeIssuesAsync(root, () => undefined)
@@ -87,7 +47,7 @@ describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
   })
 
   it('独立书冷启动直接走 async 版：红点齐全、降级标志为零', async () => {
-    const root = makeBook(60)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 60 })
     const r = await collectTreeIssuesAsync(root, () => undefined)
     expect(Object.keys(r.issues).length).toBe(60)
     expect(r.rebuildFailed).toBe(false)
@@ -97,7 +57,7 @@ describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
   })
 
   it('聚合未落定期间事件循环可响应：setImmediate 心跳至少插队一次', async () => {
-    const root = makeBook(60)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 60 })
     let beats = 0
     const probe = (): void => {
       if (beats < 64) {
@@ -124,7 +84,7 @@ describe('R37-3 collectTreeIssuesAsync 异步孪生', () => {
  */
 describe('R37-3 扩（阶段 52 批 1）：前奏重章轻形态等价', () => {
   it('冷径：async 先跑（前奏让出密集处冷启动）→ 同步版复跑热缓存面：deep equal', async () => {
-    const root = makeBook(2)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 2 })
     addWiring(root, 100)
     const asyncCold = await collectTreeIssuesAsync(root, () => undefined)
     expect(Object.keys(asyncCold.issues).length).toBe(2)
@@ -134,7 +94,7 @@ describe('R37-3 扩（阶段 52 批 1）：前奏重章轻形态等价', () => {
   })
 
   it('热径：同步版先跑 → async 复跑：deep equal', async () => {
-    const root = makeBook(2)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 2 })
     addWiring(root, 100)
     const syncCold = collectTreeIssues(root, () => undefined)
     expect(Object.keys(syncCold.issues).length).toBe(2)

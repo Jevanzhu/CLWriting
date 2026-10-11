@@ -9,6 +9,7 @@
 import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { readKind, resolveBookOrReply } from '../book-context.js'
 import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
 
@@ -28,6 +29,9 @@ interface HealthCtx {
 export function forgetStyleScanCache(bookRoot: string): void {
   styleScanCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈体检扫描结果（TTL 5s 兜底自愈）。
+registerBookKeyedCache('health-style-scan', forgetStyleScanCache)
 /** 导出供测试派生 sleep 时长——测试侧 5300 魔数与 TTL 双处
  * 硬编码，TTL 调大时「失效重扫」用例静默变假（仍在 TTL 内 → 断言 count=2 假红）。 */
 export const STYLE_SCAN_TTL = 5000

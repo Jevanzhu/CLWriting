@@ -19,9 +19,9 @@ import { canonicalizeText, toNfcName } from '../fs/text-canonical.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { join } from 'node:path'
 // readLead 不再直接调用（改单读派生孪生）。
-// 孪生 readLeadFromBytes 收编为 leads.ts 单源导出——消费侧
-// 五件同步副本（KNOWN_FM_KEYS/HISTORY_ENTRY_RE/leadBodyBeforeHistory/leadBodyAfterHistory/
-// readLeadFromBytes）整段坍缩（见文件尾原位注记），本文件只 import，格式链演进自动随动。
+// 孪生 readLeadFromBytes 单源在 leads.ts 导出——消费侧五件同步副本
+//（KNOWN_FM_KEYS/HISTORY_ENTRY_RE/leadBodyBeforeHistory/leadBodyAfterHistory/
+// readLeadFromBytes）整段坍缩，本文件只 import，格式链演进自动随动。
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, readLeadFromBytes } from '../format/leads.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
@@ -176,12 +176,12 @@ export async function acquireLeadFileLocksAsync(files: Iterable<string>): Promis
  * 定稿链以外的直接调用方/测试使用）；持锁核心见 applyLeadUpdatesLocked。定稿路径
  * （finalizeRevision/Async）不走本包装——它需在进入清单锁**之前**预取布线锁
  * （统一锁序「布线锁 → 清单锁」，消 save↔finalize 的 ABBA 对），持锁后直接调核心，
- * 不得在同进程内嵌套再取同名锁（本实现同进程嵌套取同名锁会等到超时失败）。
+ * 不得在同进程内嵌套再取同名锁（嵌套取同名锁会等到超时失败）。
  *
- * 锁语义（原注释的版）：对每个目标布线文件取同名跨进程短锁，
+ * 锁语义：对每个目标布线文件取同名跨进程短锁，
  * 与 service.ts 三个写路径（executeSave/updateChapterMeta/updateDocMeta）在 save 锁内
- * 取的同名锁互斥，覆盖（lost update）窗口闭合。批量条目改为**预取全部目标锁后再回写**
- *（旧实现逐条取/放）：任一文件取不到锁 → 整批 fail-closed 拒绝（applied=0，条目全部
+ * 取的同名锁互斥，覆盖（lost update）窗口闭合。批量条目**预取全部目标锁后再回写**
+ *（逐条取/放会留窗口）：任一文件取不到锁 → 整批 fail-closed 拒绝（applied=0，条目全部
  * 留本章源，下次定稿自动重试），不降级裸写——裸写正是本锁要闭合的覆盖形态。
  * 取锁等待用 acquireCrossProcessLockAsync（setTimeout 轮询），不阻塞事件循环。
  *
@@ -254,13 +254,12 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
     }
     // 锁内重读（锁由调用方在持）：预解析窗口内他进程可能已改写该线——
     // 读→改→写全程在锁内，lost update 窗口闭合
-    // 单读派生（对齐手法）——原 readLead（utf-8
-    // 文本读）与 isUtf8Bytes（字节读）两次独立读盘，两读之间文件被外部改写（不持布线
-    // 锁的写者：外部编辑器/转码工具）时 UTF-8 判据与写回模型错源：GBK 文件在第二读
-    // 时已被转成 UTF-8 的形态下，字节判据放行 + 第一读的乱码模型被 writeLead 原子
-    // 写回盘上，原始字节永久丢失（微 TOCTOU，且每条目双 IO）。现一次整读 Buffer，
-    // 判据与模型同源派生。readLeadFromBytes 已收编为
-    // leads.ts 单源导出（原消费侧就地副本坍缩），此处改 import 调用。
+    // 单读派生——原 readLead（utf-8 文本读）与 isUtf8Bytes（字节读）两次独立读盘，
+    // 两读之间文件被外部改写（不持布线锁的写者：外部编辑器/转码工具）时 UTF-8 判据与
+    // 写回模型错源：GBK 文件在第二读时已被转成 UTF-8 的形态下，字节判据放行 + 第一读的
+    // 乱码模型被 writeLead 原子写回盘上，原始字节永久丢失（微 TOCTOU，且每条目双 IO）。
+    // 现一次整读 Buffer，判据与模型同源派生。readLeadFromBytes 单源在 leads.ts
+    //（原消费侧就地副本坍缩），此处改 import 调用。
     let leadBytes: Buffer
     try {
       leadBytes = readFileSync(filePath)
@@ -342,7 +341,7 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
       }
       if (existsSync(targets.archivePath)) {
         try {
-          // 删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+          // 删源走 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
           // 下裸 rmSync 直败中断迁移链清理段（renameWithRetry 家族漏网面同型）；
           // 退避后仍失败维持「不阻断定稿主流程」吞掉语义（残留归档交下次定稿重试）
           rmWithRetry(targets.archivePath)
@@ -366,11 +365,10 @@ export function applyLeadUpdatesLocked(chapterNo: number, targets: LeadUpdateTar
   return applied
 }
 
-// ──：原消费侧副本整段坍缩 ─────────────────────
-// 此处原有五件自我声明的 format/leads.ts「同步副本」：KNOWN_FM_KEYS、HISTORY_ENTRY_RE、
-// leadBodyBeforeHistory（正本 bodyBeforeHistory）、leadBodyAfterHistory（正本
-// bodyAfterHistory）、readLeadFromBytes（正本 readLead 非 legacy 路径的 content 注入
-// 孪生）。2026-09 漂移核验五件与正本逐位一致后收编单源：readLeadFromBytes 导出 +
+// ── 原消费侧副本整段坍缩 ─────────────────────
+// 此处不留 format/leads.ts 的「同步副本」（KNOWN_FM_KEYS、HISTORY_ENTRY_RE、
+// leadBodyBeforeHistory、leadBodyAfterHistory、readLeadFromBytes 五件）——副本与正本
+// 漂移是格式链的固有风险，故一律单源：readLeadFromBytes 导出 +
 // parseLeadModel 模块内共享解析体（leads.ts），本文件经 import 使用（上方
 // applyLeadUpdatesLocked 锁内重读点）。格式链演进只改 leads.ts，定稿链自动随动。
 

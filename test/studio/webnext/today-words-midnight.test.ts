@@ -20,24 +20,13 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
 
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { useWordsStore } from '../../../src/studio/web-next/src/stores/words'
-import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { makeChapterNode } from './helpers/tree-node'
 
 /** 与 words store localToday 同格式的本地日期 */
 function dateStr(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${m}-${day}`
-}
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
 }
 
 beforeEach(() => {
@@ -49,7 +38,7 @@ beforeEach(() => {
 describe('E-6: 今日字数跨零点重记基线', () => {
   it('响应 date 属昨日（慢响应跨日）→ 以当前已写重记基线并重取新日 delta', async () => {
     const tree = useTreeStore()
-    const node = makeNode('d1')
+    const node = makeChapterNode('d1')
     node.wordCount = 300
     tree.raw = [node] // totalWords = 300
     tree.ownerBook = '书A' // R35-10：属主对齐（重记基线的字数口径属本测试书）

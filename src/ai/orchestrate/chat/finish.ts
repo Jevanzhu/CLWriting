@@ -13,10 +13,11 @@ import { modelConfOf } from '../../provider/store.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
 import { chatTools, CHAT_TOOL_NAMES } from '../../contract/chat.js'
-import { trimHistory, sanitizeHistory } from '../../prompts/chat.js'
+import { trimHistory, sanitizeHistoryReported } from '../../prompts/chat.js'
 import { compactHistory } from '../../prompts/compaction.js'
 import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../prompts/checkpoint.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
+import { chatSanitizeEvent } from '../../../events/chat-bridge.js'
 import type { ChatOpts } from '../chat.js'
 import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState, AGENT_DEADLINE_MS } from './state.js'
 import { log, errMsg } from '../../../log/index.js'
@@ -98,9 +99,17 @@ async function summarizeCheckpoint(
   toSummarize: ChatMsg[],
   priorSummary: string | null,
   promptFiles: string[] = [],
+  recorder: SessionRecorder,
 ): Promise<string | null> {
-  const sanitized = sanitizeHistory(toSummarize)
+  const { history: sanitized, report: sanitizeReport } = sanitizeHistoryReported(toSummarize)
   if (sanitized.length === 0) return null
+  // 消毒改动登记（「模型可见 ⟺ 已记录」的补口，同 turns-phases 发送面）：摘要调用也是
+  // 模型可见面，消毒改动了它的输入即留一条 chat/sanitize（stage='summarize'——与轮内
+  // 发送面区分，同一改动在两处各记一条属预期：两次调用各自实收）。无改动零事件。
+  // best-effort：recorder.add 只入批（落库由既有 flush 重试/chat_gap 断链标记承接），
+  // 不为记录失败阻断压缩主流程；置于空历史早退之后——无实发调用即无「已记录」之必要。
+  const sanitizeEv = chatSanitizeEvent(sanitizeReport, 'summarize')
+  if (sanitizeEv) recorder.add(sanitizeEv)
   const instruction = buildCheckpointInstruction(priorSummary ?? undefined)
   // 摘要调用的实际输入 = 待压前缀 + 指令（messages 全量发给模型），
   // 此前 promptText 只传 instruction——promptMeta 的 hash/chars 都漏前缀（不同历史同
@@ -129,9 +138,9 @@ async function summarizeCheckpoint(
     systemPrompt: sys,
     promptText: promptTextWithPrefix,
     promptFiles, // 摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
-    // 清偿批摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
+    // 摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
     // 进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
-    // 清单收 CHAT_TOOL_NAMES 模块常量（原每次调用 map 重算）
+    // 清单收 CHAT_TOOL_NAMES 模块常量（不在调用内 map 重算）
     promptTools: CHAT_TOOL_NAMES,
     ctrl: state.ctrl,
     // 低-1：补 owner——对齐的 owner 分槽口径（轮循环
@@ -232,7 +241,7 @@ export async function finalizeHistory(
   }
 
   const outcome = await compactHistory(history, { keepTurns: MAX_HISTORY_TURNS }, (toSum, prior) =>
-    summarizeCheckpoint(opts, sys, state, toSum, prior, promptFiles),
+    summarizeCheckpoint(opts, sys, state, toSum, prior, promptFiles, recorder),
   )
   if (outcome.summarizedCount > 0) {
     // 先算后切——msgSeqs 与 msgSeqMap 是同一数组引用，close 的第二笔
@@ -247,7 +256,7 @@ export async function finalizeHistory(
     const firstMsg = outcome.history[0]
     let archiveSeq: number | null
     try {
-      // close 收编同 trimAndClose——失败 warn 留痕、内存/DB 双未动（退化为本轮未压缩）
+      // close 同 trimAndClose——失败 warn 留痕、内存/DB 双未动（退化为本轮未压缩）
       archiveSeq =
         firstMsg !== undefined && typeof firstMsg.content === 'string'
           ? recorder.close('completed', shadowSeqs, firstMsg.content)
@@ -275,7 +284,7 @@ export async function finalizeHistory(
   // 摘要失败（fail-open 保留原历史，不遮蔽）；置 suppress，下次溢出硬截断
   compactionSuppressed.add(opts.bookName)
   try {
-    recorder.close('completed') // no-op close 同款收编（session/end 落库失败不炸收尾）
+    recorder.close('completed') // no-op close 同款（session/end 落库失败不炸收尾）
   } catch (e) {
     log.warn('chat', `会话收尾 close 落库失败（孤儿修复将补 interrupted 终态）：${errMsg(e)}`)
   }

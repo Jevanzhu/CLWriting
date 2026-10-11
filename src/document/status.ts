@@ -61,8 +61,8 @@ export function readPublished(bookRoot: string, relPath: string): boolean {
   const r = readFile(full)
   if (!r.ok) return false
   const fm = parseFlat(r.fmRaw)
-  // -源码 -⑥：已发布判定收编 chapters.isPublishedValue 单源（数组形态
-  // ['true'] 亦判已发布，与树 probe / 导出 _raw 解析同口径），消 v === true || v === 'true' 双源
+  // 已发布判定单源 chapters.isPublishedValue（数组形态
+  // ['true'] 亦判已发布，与树 probe / 导出 _raw 解析同口径）——不得再写 v === true || v === 'true' 双源
   return isPublishedValue(fm.get('已发布'))
 }
 

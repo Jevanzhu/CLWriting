@@ -19,7 +19,7 @@ import { runTask } from '../../src/ai/runner.js'
 import { parseBookConfig, stringifyBookConfig, readBookConfig } from '../../src/format/yaml.js'
 import { processProviderRuntime } from '../../src/ai/provider/store.js'
 import { log } from '../../src/log/index.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 
 function tempBook(bookYaml: string): string {
   const root = mkdtempTracked(join(tmpdir(), 'clwriting-chat-budget-'))
@@ -28,7 +28,7 @@ function tempBook(bookYaml: string): string {
 }
 
 function tempUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-chat-budget-ud-'))
+  return tempDirTracked('clwriting-chat-budget-ud-')
 }
 
 /** 写最小 providers.json（run 回调桩不触网络，baseUrl 形参而已） */

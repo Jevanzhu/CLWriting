@@ -1,16 +1,16 @@
 /**
- * 全自动写章 · 生成入口族（缝 B）—— （⑤④产品巨件拆分波3）
- * 自 self-heal.ts 纯移动拆出：runGenerate 生成入口（genFn 单测替身与 provider +
+ * 全自动写章 · 生成入口族。
+ *
+ * 内容：runGenerate 生成入口（genFn 单测替身与 provider +
  * tool_use 双路、accountUsage 计价单源闭包、assembleChapter 拼装与自由文本降级、
  * max_tokens 截断告警）、emitMockPreview（mock 快路码点流式补发）、emit 事件发射
  * 助手（生成族系 emit 最重消费方，助手随族迁此单源，残核回引保持单向边）。
  * 依赖方向单向（运行时无环）：残核 self-heal.ts import 本文件（runGenerate/emit）；
  * 本文件对残核与登记件 self-heal-registry.ts 仅 import type（SelfHealOpts/
  * RunState），经 verbatimModuleSyntax 擦除不落运行时边，自身零顶层求值常量。
- * 运行登记族见 self-heal-registry.ts（缝 A）；编排主流程残核与 re-export 桥在
- * self-heal.ts（全库消费方 import 面零改动）。注释全部原样随迁；行为零改动。
- * 原私有而残核消费项（runGenerate/emit）就此导出，SpawnResult/emitMockPreview
- * 保持私有。
+ * 运行登记族见 self-heal-registry.ts；编排主流程残核与 re-export 桥在
+ * self-heal.ts（全库消费方 import 面零改动）。
+ * runGenerate/emit 为本文件导出面（残核消费）；SpawnResult/emitMockPreview 私有。
  */
 
 import { assembleChapter } from '../contract/index.js'

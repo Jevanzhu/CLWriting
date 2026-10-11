@@ -36,27 +36,16 @@ import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/d
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { sha256Revision } from '../../../src/studio/web-next/src/shared/revision'
-import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { makeChapterNodeAt } from './helpers/tree-node'
 
 const BOOK = 'test-book'
-
-function makeNode(path: string, docId: string): TreeNode {
-  return {
-    path,
-    name: path.split('/').pop()!,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
 
 /** 打开一个文档并返回 store 引用（便于链式断言）。 */
 async function openDoc(docId: string, path: string, content: string) {
   const doc = useDocStore()
   doc.setBook(BOOK)
   vi.mocked(getContent).mockResolvedValueOnce(content)
-  await doc.open(makeNode(path, docId))
+  await doc.open(makeChapterNodeAt(path, docId))
   return doc
 }
 
@@ -65,7 +54,7 @@ async function openForSwitch(docId: string, path: string): Promise<ReturnType<ty
   const doc = useDocStore()
   doc.setBook('A书')
   vi.mocked(getContent).mockResolvedValueOnce('内容')
-  await doc.open(makeNode(path, docId))
+  await doc.open(makeChapterNodeAt(path, docId))
   return doc
 }
 
@@ -525,12 +514,12 @@ describe('doc store · R0912-FE-P3-6：discard 清 inflightOpens', () => {
     doc.setBook(BOOK)
     let resolveContent!: (v: string) => void
     vi.mocked(getContent).mockImplementationOnce(() => new Promise((r) => (resolveContent = r)))
-    const firstOpen = doc.open(makeNode('写作/正文/第1章.md', 'd-ifo')) // 在途
+    const firstOpen = doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd-ifo')) // 在途
     doc.discard('d-ifo') // 删除（同步清 entry + 在途登记）
     // 修复前：open() 命中在途旧 promise 直接复用返回（getContent 只发一次，重开拿到
     // 404 reject 或过期内容）；修复后台账已清，重开必发新请求
     vi.mocked(getContent).mockResolvedValueOnce('新内容')
-    await doc.open(makeNode('写作/正文/第1章.md', 'd-ifo'))
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd-ifo'))
     expect(getContent).toHaveBeenCalledTimes(2)
     expect(doc.get('d-ifo')!.content).toBe('新内容')
     resolveContent('旧内容')

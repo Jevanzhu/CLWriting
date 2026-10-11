@@ -12,6 +12,7 @@ import { isBodyKind } from '../../shared/words'
 import { capView } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 import { contentStableKeys, reviewIssueKeyBase } from '../../shared/issue-keys'
+import IssueGroup, { type IssueGroupModel } from './IssueGroup.vue'
 import BetaBadge from '../ui/BetaBadge.vue'
 
 const props = defineProps<{ bookName: string }>()
@@ -73,7 +74,9 @@ const passed = computed(
 // 红/黄两组 item 模板逐字重复 → 分组
 // 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
 // DOM；组序阻断在前警告在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
-const issueGroups = computed(() => [
+// 组骨架（组头 + 条目 + 省略行）与 CheckPanel 逐字重复 → 抽 IssueGroup 单源
+//（条目结构 / severity 人话随之迁入，本模型只剩数据面）。
+const issueGroups = computed<IssueGroupModel[]>(() => [
   {
     key: 'blockers',
     label: '阻断项',
@@ -156,14 +159,7 @@ async function setVerdict(approved: boolean): Promise<void> {
   }
 }
 
-function severityClass(s: string): string {
-  if (s === 'S1' || s === 'S2') return 'sev-high'
-  return 'sev-low'
-}
-/** severity 人话（S1/S2→重点，其余→参考；内部编号不暴露给作者） */
-function severityLabel(s: string): string {
-  return s === 'S1' || s === 'S2' ? '重点' : '参考'
-}
+// severity 人话与条目结构随 DOM 迁 IssueGroup.vue（scoped 随组件走）
 </script>
 
 <template>
@@ -238,24 +234,7 @@ function severityLabel(s: string): string {
 
       <!-- 红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
       <template v-for="g in issueGroups" :key="g.key">
-        <div v-if="g.count > 0" class="rev-group">
-          <div class="group-label" :class="`group-label--${g.tone}`">
-            <component :is="g.icon" :size="13" />
-            <span>{{ g.label }}（{{ g.count }}）</span>
-          </div>
-          <div v-for="(it, i) in g.view" :key="g.keyPrefix + g.keys[i]" class="rev-item" :class="`rev-item--${g.tone}`">
-            <div class="item-head">
-              <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
-              <span class="item-lens">{{ lensLabel(it.lens) }}</span>
-              <span v-if="it.location" class="item-loc">{{ it.location }}</span>
-            </div>
-            <div class="item-issue">{{ it.issue }}</div>
-            <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
-            <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
-          </div>
-          <!-- RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
-          <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
-        </div>
+        <IssueGroup v-if="g.count > 0" variant="review" :group="g" :lens-label="lensLabel" />
       </template>
     </template>
 
@@ -382,71 +361,7 @@ function severityLabel(s: string): string {
   font-size: var(--font-size-s);
   color: var(--dv-good);
 }
-.rev-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.rev-item {
-  padding: 6px 8px;
-  border-radius: var(--radius-s);
-  font-size: var(--font-size-s);
-  line-height: 1.5;
-}
-/* 渲染上限省略提示行——纯展示（弱化色 tree-cap-hint 同语义） */
-.cap-hint {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
-.rev-item--red {
-  background: color-mix(in srgb, var(--text-error) 8%, transparent);
-  border-left: 2px solid var(--text-error);
-}
-.rev-item--yellow {
-  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
-  border-left: 2px solid var(--text-warning);
-}
-.item-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
-  flex-wrap: wrap;
-}
-.item-sev {
-  font-size: var(--font-size-xxs);
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: var(--radius-s);
-}
-.sev-high {
-  background: var(--text-error);
-  color: var(--text-on-accent, #fff);
-}
-.sev-low {
-  background: var(--background-modifier-hover);
-  color: var(--text-muted);
-}
-.item-lens {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
-.item-loc {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-  font-style: italic;
-}
-.item-issue {
-  color: var(--text-normal);
-}
-.item-evidence {
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-}
-.item-fix {
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
+/* 组容器/组头/条目结构（item-head/item-sev/item-lens/item-loc/item-issue/item-evidence/
+ * item-fix）/省略行样式随 DOM 迁 IssueGroup.vue（scoped 随组件走，匹配的元素集合不变——
+ * 组件根 div 即原 .rev-group） */
 </style>

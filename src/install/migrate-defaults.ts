@@ -3,27 +3,23 @@
  *
  * 为什么必须迁：旧建书把 style.injection: light / auto.confirm_outline: false /
  * budget.calls_per_chapter: 8 / genre: '' 等默认值直接写进了书文件——解析结果恒有值，
- * 「书级未设 → 回落 global.json 全局默认」的托底永远被遮蔽。只有把这些「恰好等于旧默认」
- * 的键删掉，书级覆盖与全局默认的分层才成立。
+ *「书级未设 → 回落 global.json 全局默认」的托底永远被遮蔽。只有把这些「恰好等于旧默认」的键
+ * 删掉，书级覆盖与全局默认的分层才成立。
  *
- * 判定口径：值 === 旧默认才删（作者改过的值一律保留）。删除清单：
- *   book.genre ''/缺失、style.injection 'light'、auto.confirm_outline false、
- *   auto.batch_size 8（短篇的 1 是有意产品默认，不动）、budget.calls_per_chapter 8、
- *   auto.relation_auto_mine false、auto.relation_mine_threshold 3、short.strict false、
- *   rag 段恰为 {enabled:false} 纯净态（无 provider/endpoint/model）才整段删。
- *   volume_size/target_words/chapter_target_words 从不被 scaffold 烘焙 → 跳过。
+ * 判定口径：值 === 旧默认才删（作者改过的值一律保留）。删除清单：book.genre ''/缺失、
+ * style.injection 'light'、auto.confirm_outline false、auto.batch_size 8（短篇的 1 是有意产品
+ * 默认，不动）、budget.calls_per_chapter 8、auto.relation_auto_mine false、
+ * auto.relation_mine_threshold 3、short.strict false、rag 段恰为 {enabled:false} 纯净态
+ *（无 provider/endpoint/model）才整段删。volume_size/target_words/chapter_target_words 从不
+ * 被 scaffold 烘焙 → 跳过。
  *
- * 红线（保注释保未知段）：必须文本级补丁——readBookConfig 只保已知字段，
- * stringifyBookConfig 全量重生成会把作者的 # 注释、未知段、未知子键静默丢掉。
- * 这里照 patchTopSection（yaml.ts）的先例做「删段内 key 行 / 删整段」的文本操作。
- *
- * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、
- * 每本书独立 try/catch（单本失败 log.warn 不阻断）、汇总 log.info。
- *
- * 平台·评审补翻：整输出再经 canonicalizeText 归一（LF 无 BOM）——
- * 此前自有删行补丁器只做删行，未触碰行的 CRLF 残尾原样保留（与 yaml.ts 补丁族的分叉，
- * 方案 §四 曾记「语义不变」，评审收口改翻）；CRLF/BOM 存量 book.yaml 自此随启动
- * 迁移自愈（解析失败的原样返回分支不动——无法安全改写坏文件）。
+ * 红线（保注释保未知段）：必须文本级补丁——readBookConfig 只保已知字段，stringifyBookConfig
+ * 全量重生成会把作者的 # 注释、未知段、未知子键静默丢掉。照 patchTopSection（yaml.ts）先例做
+ *「删段内 key 行 / 删整段」的文本操作。
+ * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、每本书独立
+ * try/catch（单本失败 log.warn 不阻断）、汇总 log.info。整输出再经 canonicalizeText 归一
+ *（LF 无 BOM）——只做删行不碰未触行的 CRLF 残尾会让 CRLF/BOM 存量 book.yaml 迁移后仍是脏形态；
+ * 解析失败的原样返回分支不动（无法安全改写坏文件）。
  */
 
 import { existsSync, readFileSync } from 'node:fs'

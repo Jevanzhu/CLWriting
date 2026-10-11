@@ -11,7 +11,7 @@
  *   视为已删继续；其余错误照旧中断记失败（弹窗保留可重试语义不变）。
  * - R27-79（二十七轮）：删书连带清该书 localStorage 残留键。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   clearFalsePositiveMarks: vi.fn(),
   shelfLoad: vi.fn(async () => {}),
 }))
+// 建书端点（跨窗广播出站腿用）：本文件此前不触达，补 mock 不改变既有用例面
+const booksMocks = vi.hoisted(() => ({ createBook: vi.fn() }))
+vi.mock('../../../src/studio/web-next/src/api/books', () => ({ createBook: booksMocks.createBook }))
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: mocks.deleteBook }))
 vi.mock('../../../src/studio/web-next/src/stores/check', () => ({
   clearFalsePositiveMarks: mocks.clearFalsePositiveMarks,
@@ -40,23 +43,13 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useShelf } from '../../../src/studio/web-next/src/composables/useShelf'
+import { installCrossWindowInvalidation } from '../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import type { CrossWindowPort } from '../../../src/studio/web-next/src/shared/cross-window'
 import { treeFirstOpenKey } from '../../../src/studio/web-next/src/shared/storage-keys'
+import { createLocalStorage } from '../../helpers/local-storage.js'
 
 // R27-79：localStorage 键清扫断言用（node 环境默认无 localStorage，Map 替身照
 // panel-toast-switch-guard 范型；loadSortPreference 的 try/catch 对缺 API 本就兼容）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 beforeEach(() => {
@@ -210,5 +203,69 @@ describe('R71-26: confirmDelete 部分失败后重试——已删书 404 视为�
     s.requestDelete(['书A'])
     await s.confirmDelete()
     expect(mocks.clearFalsePositiveMarks).toHaveBeenCalledWith('书A')
+  })
+})
+
+// ── 跨窗失效通知（书架线·本窗广播）──────────────────────────────────
+// 本窗建书/删书落定 → 广播「书架失效」给他窗；载荷只带协议头与主题，不带列表值
+// （他窗据此走各自既有 shelf.load 重取）。失败不广播：本窗列表未变，无失效可告。
+
+/** 可注入假通道：只收本窗广播（入站订阅为空实现——本组只验出站腿） */
+function createFakePort(): { port: CrossWindowPort; sent: unknown[] } {
+  const sent: unknown[] = []
+  return {
+    port: {
+      postMessage: (msg) => void sent.push(msg),
+      subscribe: () => () => {},
+      close: () => {},
+    },
+    sent,
+  }
+}
+
+describe('跨窗失效通知（书架线·本窗广播）', () => {
+  let dispose: (() => void) | null = null
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+  })
+
+  it('建书成功后广播 shelf 失效（载荷只有版本/来源/主题，不带列表值）', async () => {
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    booksMocks.createBook.mockResolvedValue(undefined)
+
+    const s = useShelf()
+    s.newName.value = '新书'
+    await s.createBook()
+
+    expect(booksMocks.createBook).toHaveBeenCalledWith('新书', 'long')
+    expect(fake.sent).toEqual([{ v: 1, src: 'self', topics: ['shelf'] }])
+  })
+
+  it('整批删完广播一次（不是每本一次）', async () => {
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    mocks.deleteBook.mockResolvedValue(undefined)
+
+    const s = useShelf()
+    s.requestDelete(['书A', '书B'])
+    await s.confirmDelete()
+
+    expect(mocks.deleteBook).toHaveBeenCalledTimes(2)
+    expect(fake.sent).toEqual([{ v: 1, src: 'self', topics: ['shelf'] }])
+  })
+
+  it('删书失败（未删完）不广播——本窗列表未变，无失效可告', async () => {
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+    mocks.deleteBook.mockRejectedValueOnce(new ApiError('服务异常', 500, 'INTERNAL'))
+
+    const s = useShelf()
+    s.requestDelete(['书A'])
+    await s.confirmDelete()
+
+    expect(s.deleteError.value).toBeTruthy()
+    expect(fake.sent).toEqual([])
   })
 })

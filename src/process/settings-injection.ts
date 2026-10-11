@@ -10,8 +10,7 @@
  * 层序保持传入序（调用方负责项目 → 卷 → 本章排列），不按 specificity 重排。
  */
 import { pruneTextMiddle, PRUNE_MARKER } from './prune.js'
-// 码点量长单源 shared/text.ts（零内部依赖叶子，任意层可引无成环面）——
-// 原就地循环与「不引 process/summary」的防环注释随收编删除
+// 码点量长单源 shared/text.ts（零内部依赖叶子，任意层可引无成环面）
 import { codePointLength as cpLen } from '../shared/text.js'
 
 /** 具体度：project(全书) 最宽泛 → chapter(本章) 最具体，宽泛者先丢 */

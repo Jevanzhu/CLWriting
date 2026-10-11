@@ -8,10 +8,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, renameSync, existsSync, utimesSync, statSync } from 'node:fs'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import {
   syncTreeIssuesEpoch,
@@ -27,42 +27,13 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
 import { ensureTreeIssuesTables } from '../../src/cache/schema.js'
+import { makeCheckBook } from '../helpers/check-book.js'
 
 /** 与 scan-count 测试同款造书（含禁词红源「玉佩」）。
  *  R29-1（二十九轮）：禁词匹配加「前后非汉字」边界后，红源正文改为标点夹持形态
- *  （「，玉佩，」）——嵌在连续汉字中的「的玉佩在」不再计命中（漏报向安全的既定取舍）。 */
-function makeBook(chapterCount: number): string {
-  const root = mkdtempTracked(join(tmpdir(), 'tree-cache-golden-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  mkdirSync(join(root, '项目'), { recursive: true })
-  mkdirSync(join(root, '文风'), { recursive: true })
-  writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf-8')
-  writeFileSync(
-    join(root, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
-    'utf-8',
-  )
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-    '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  const manifestPath = join(root, '项目', '文档清单.jsonl')
-  const m = readManifest(manifestPath)
-  for (let no = 1; no <= chapterCount; no++) {
-    const pad = String(no).padStart(3, '0')
-    writeFileSync(
-      join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
-      'utf-8',
-    )
-    upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
-  }
-  writeManifest(manifestPath, m)
-  return root
-}
+ *  （「，玉佩，」）——嵌在连续汉字中的「的玉佩在」不再计命中（漏报向安全的既定取舍）。
+ *  骨架单源见 helpers/check-book.ts。 */
+const PREFIX = 'tree-cache-golden-'
 
 function verdictOf(root: string): (docId: string) => { approved: boolean } | undefined {
   return (docId) => {
@@ -74,7 +45,7 @@ function verdictOf(root: string): (docId: string) => { approved: boolean } | und
 
 describe('A1 golden 对照：缓存路径 ≡ 全量重算（逐字节一致）', () => {
   it('随机组合（改 3 章 + 驳回 1 章 + 移动 1 章）后与无缓存全量重算一致', () => {
-    const root = makeBook(8)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 8 })
     try {
       const cb = verdictOf(root)
       // 预热缓存
@@ -137,7 +108,7 @@ describe('A1 golden 对照：缓存路径 ≡ 全量重算（逐字节一致）'
   })
 
   it('结构性清空（invalidateTreeIndex structural）后残留行不复活', () => {
-    const root = makeBook(3)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 3 })
     try {
       const cb = verdictOf(root)
       const first = collectTreeIssues(root, cb)
@@ -152,7 +123,7 @@ describe('A1 golden 对照：缓存路径 ≡ 全量重算（逐字节一致）'
 
 describe('tree-issues-cache 模块单元', () => {
   it('纪元对齐：指纹变化清表，未变化 no-op；NULL 信封按 IS NULL 匹配', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '.cache'), { recursive: true })
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -191,7 +162,7 @@ describe('tree-issues-cache 模块单元', () => {
   })
 
   it('损坏行自愈：非法 JSON 行按 miss 处理（走重算回写）', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       // 触发一次 collectTreeIssues 建表 + 纪元
       collectTreeIssues(root, verdictOf(root))
@@ -219,9 +190,9 @@ describe('tree-issues-cache 模块单元', () => {
   })
 
   it('纪元输入补全：细纲/境界体系变更 → 清表（此前漏输入，两端闭合/成长红点可陈旧）', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
-      // makeBook 不建这两个文件——补上（declaredLeadIds 与成长线的章外输入源）
+      // 造书夹具不建这两个文件——补上（declaredLeadIds 与成长线的章外输入源）
       mkdirSync(join(root, '工作区'), { recursive: true })
       mkdirSync(join(root, '设定'), { recursive: true })
       writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 2\n推进:\n  - 悬念-001\n---\n', 'utf-8')
@@ -247,7 +218,7 @@ describe('tree-issues-cache 模块单元', () => {
   })
 
   it('R65-17（十三轮）：名册.md 变更 → 纪元清表（checkNewNames 输入此前漏在纪元外）', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '设定'), { recursive: true })
       writeFileSync(join(root, '设定', '名册.md'), '已登记：云澈\n', 'utf-8')
@@ -270,7 +241,7 @@ describe('tree-issues-cache 模块单元', () => {
   })
 
   it('R66-3（十四轮）：.账本推进暂存 归档变化 → 纪元清表（R65-24 两源读取后归档此前漏在纪元外）', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '工作区'), { recursive: true })
       const archiveDir = join(root, '工作区', '.账本推进暂存')
@@ -304,7 +275,7 @@ describe('tree-issues-cache 模块单元', () => {
 
 describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病因优先', () => {
   it('syncTreeIssuesEpoch：RAISE(ROLLBACK) 自动回亡后 ROLLBACK 抛错不遮蔽原始错误', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '.cache'), { recursive: true })
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -336,7 +307,7 @@ describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病
   })
 
   it('writeLeadsBookRed：同款自动回亡 → 静默（缓存只是加速）且指纹不落', () => {
-    const root = makeBook(1)
+    const root = makeCheckBook({ prefix: PREFIX, chapterCount: 1 })
     try {
       mkdirSync(join(root, '.cache'), { recursive: true })
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -401,7 +372,7 @@ function makeEpochColumnBook(): string {
 
 /** 裸临时目录（无书文件——sync/computeTreeIssuesGlobalFp 对缺席文件给 'absent'，fp 稳定） */
 function bareDir(): string {
-  return mkdtempTracked(join(tmpdir(), 'epoch-column-bare-'))
+  return tempDirTracked('epoch-column-bare-')
 }
 
 /** 按「列是否存在」条件带 epoch_fp 插行——同一测试代码在修复前（无列）与修复后

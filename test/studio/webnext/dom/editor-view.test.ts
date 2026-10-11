@@ -60,21 +60,9 @@ import EditorView from '../../../../src/studio/web-next/src/views/EditorView.vue
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
 import { APP_FIND_EVENT } from '../../../../src/studio/web-next/src/composables/useAppActions'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeDraftChapterNode } from '../helpers/tree-node'
 
 const BOOK = 'test-book'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: '写作/正文/第1章-标题.md',
-    name: '第1章-标题.md',
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    status: 'draft',
-    children: [],
-  }
-}
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -114,7 +102,7 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
     expect(mocks.getContent).not.toHaveBeenCalled()
 
     // tree.load 完成：byDocId 出现 d1 → watch 重触发补开（修复前：永不触发）
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1')]
     // 固定次数 flushPromises 在并行 worker 负载下偶发竞态（watch 补链多轮微任务），
     // 改 vi.waitFor 轮询到断言成立——语义不变（同 chat-store.test.ts 先例）
     await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
@@ -125,7 +113,7 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
     const doc = useDocStore()
     const tree = useTreeStore()
     doc.setBook(BOOK)
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1')]
 
     w = mount(EditorView, { props: { docId: null } })
     await flushPromises()
@@ -150,7 +138,7 @@ describe('EditorView: 全局查找入口接线（复审-0913-mac适配 P3-7）',
     const doc = useDocStore()
     const tree = useTreeStore()
     doc.setBook(BOOK)
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1')]
 
     w = mount(EditorView, { props: { docId: 'd1' } })
     await flushPromises()
@@ -170,7 +158,7 @@ describe('EditorView: 全局查找入口接线（复审-0913-mac适配 P3-7）',
     const doc = useDocStore()
     const tree = useTreeStore()
     doc.setBook(BOOK)
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1')]
 
     w = mount(EditorView, { props: { docId: 'd1' } })
     await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())

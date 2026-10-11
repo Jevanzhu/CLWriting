@@ -51,6 +51,29 @@ export const useProviderStore = defineStore('provider', () => {
   const tiers = ref<TierConfig>({ creative: { model: '', effort: 'xhigh' }, assistant: null, chat: null })
   /** 并发修订号：写端点 expectedRevision 依据；响应/409 回来时更新 */
   const revision = ref(0)
+
+  /** 修订号写入口（一切响应回传）——**只许前进**。
+   *  服务端 AI/RAG 两族共用一份 providers.json、共用一个 revision 计数
+   *  （src/ai/provider/store.ts：FILE='providers.json' 单文件、DiskFormat 单 revision 字段、
+   *  saveProvidersLocked 落盘后 +1；api/providers.ts 与 api/rag-providers.ts 各端点
+   *  同回 s.revision），故不能按域分 ref——分域号会让另一域带上错号吃真 409。
+   *  真正的缺口是「后到的旧读数回退共享号」：refresh/refreshRag 并发（refreshAll）或
+   *  刷新与写交错时，先发出、后返回的那笔读到的是更旧的号，直接赋值即把 revision 拉回，
+   *  此后任意域的写都携陈旧 expectedRevision → 伪 409 +「已在其他窗口被修改」误导提示。
+   *  取大即：旧读数不再回退，写响应自带后发号照常前进（写响应亦经此处，避免同域两笔
+   *  写在途的迟到响应回退）。
+   *  传非数（响应缺 revision 字段的退化态，类型面 d.revision 为 number 不可达；测试桩
+   *  常缺字段）照旧赋值——与逐点赋值的原口径逐位等价，不引入新的传播差异。 */
+  function advanceRevision(next: number): void {
+    if (typeof next === 'number' && next <= revision.value) return
+    revision.value = next
+  }
+  /** 409 恢复链的权威重读：冲突已证明本地号陈旧，无条件采纳远端号。
+   *  取大闸查不出的退化只有「服务端号变小」（providers.json 被外部重置/换库）——本地号
+   *  领先时每次写都 409，恢复链在此复位，不会卡死；故刷新/恢复两条路分工明确。 */
+  function adoptRevision(next: number): void {
+    revision.value = next
+  }
   const loading = ref(false)
   const testing = ref<string | null>(null)
   const testResults = ref<Map<string, TestResult>>(new Map())
@@ -94,8 +117,10 @@ export const useProviderStore = defineStore('provider', () => {
    *  共用一个计数会互相作废，先返回的那次响应必被后发者顶掉） */
   const refreshRagGen = useStaleGuard()
 
-  /** 刷新 AI 提供方 + 档位 + revision（RAG 单独 refreshRag）。 */
-  async function refresh(): Promise<void> {
+  /** 刷新 AI 提供方 + 档位 + revision（RAG 单独 refreshRag）。
+   *  authoritative：409 恢复链的权威重读（无条件采纳远端号）；缺省 = 常规刷新，
+   *  revision 只前进（见 advanceRevision 头注）。 */
+  async function refresh(authoritative = false): Promise<void> {
     const gen = refreshGen.begin()
     loading.value = true
     try {
@@ -109,7 +134,8 @@ export const useProviderStore = defineStore('provider', () => {
         assistant: d.tiers.assistant ? { ...d.tiers.assistant } : null,
         chat: d.tiers.chat ? { ...d.tiers.chat } : null,
       }
-      revision.value = d.revision
+      if (authoritative) adoptRevision(d.revision)
+      else advanceRevision(d.revision)
       // 列表收敛——另一窗口删除的提供方，本窗缓存键随
       // 刷新修剪（本地删除路径已随删清；跨窗删除此前残留到重启，KB 级卫生）。
       const alive = new Set(d.providers.map((p) => p.id))
@@ -123,15 +149,16 @@ export const useProviderStore = defineStore('provider', () => {
     }
   }
 
-  /** 刷新 RAG 提供方（独立端点）。 */
-  async function refreshRag(): Promise<void> {
+  /** 刷新 RAG 提供方（独立端点）。authoritative 语义同 refresh。 */
+  async function refreshRag(authoritative = false): Promise<void> {
     const gen = refreshRagGen.begin()
     ragLoading.value = true
     try {
       const d = await getRagProviders()
       if (refreshRagGen.stale(gen)) return // 后发 refreshRag 已生效：旧响应不回填
       ragProviders.value = d.ragProviders
-      revision.value = d.revision
+      if (authoritative) adoptRevision(d.revision)
+      else advanceRevision(d.revision)
       // RAG 侧同款收敛（跨窗删除的 ragTestResults 键随列表修剪）
       const aliveRag = new Set(d.ragProviders.map((p) => p.id))
       for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
@@ -149,10 +176,13 @@ export const useProviderStore = defineStore('provider', () => {
    * 的 recoverFromConflict 思路但不自动合并/重放：provider 配置整体以远端为准，本窗
    * 表单未提交内容仍在编辑器里，由作者确认后重试）。返回 true = 已按 409 收口（调用
    * 方不再叠通用错误 toast）。
+   * 刷新取权威口径（refreshAll(true)）：冲突已证明本地号陈旧，无条件对齐远端号——含
+   * 服务端 providers.json 被外部重置（号变小）的形态，否则本地号领先会让每次写都 409。
    */
   async function recover409(e: unknown): Promise<boolean> {
     if (!(e instanceof ApiError) || e.status !== 409) return false
-    await refreshAll() // GET 两族端点：revision 对齐远端（内部静默，网络不可达不叠加噪声）
+    // GET 两族端点：revision 对齐远端（内部静默，网络不可达不叠加噪声）
+    await refreshAll(true)
     ui.toast('AI 配置已在其他窗口被修改，已刷新为最新配置，请重试本次操作', 'warning')
     return true
   }
@@ -194,7 +224,7 @@ export const useProviderStore = defineStore('provider', () => {
     return guardedWrite(async () => {
       const r = await createProvider({ ...input, auth: input.auth, expectedRevision: revision.value })
       providers.value.push(r.provider)
-      revision.value = r.revision
+      advanceRevision(r.revision)
       if (!currentId.value) {
         // 首个提供方自动设为当前
         currentId.value = r.provider.id
@@ -220,7 +250,7 @@ export const useProviderStore = defineStore('provider', () => {
         const r = await updateProvider(id, { ...input, auth: input.auth, expectedRevision: revision.value })
         const i = providers.value.findIndex((p) => p.id === id)
         if (i >= 0) providers.value[i] = r.provider
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       }, '已保存')) === true
     )
@@ -236,7 +266,7 @@ export const useProviderStore = defineStore('provider', () => {
         probeModels.value.delete(id)
         // （专项）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
         testResults.value.delete(id)
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       }, '已删除')) === true
     )
@@ -251,7 +281,7 @@ export const useProviderStore = defineStore('provider', () => {
         const r = await setCurrentProvider(id, revision.value)
         currentId.value = id
         // PUT /current saveProviders bump revision——同步前端，避免后续写因陈旧 expectedRevision 409
-        if (typeof r.revision === 'number') revision.value = r.revision
+        if (typeof r.revision === 'number') advanceRevision(r.revision)
         return true
       })) === true
     )
@@ -266,7 +296,7 @@ export const useProviderStore = defineStore('provider', () => {
       s.set(id, r)
       testResults.value = s
       // 探测写回 bump 了服务端 revision——同步前端，避免测试后任意写因陈旧 expectedRevision 409
-      if (typeof r.revision === 'number') revision.value = r.revision
+      if (typeof r.revision === 'number') advanceRevision(r.revision)
       // caps 就地写回 provides[i]，让行卡 caps 徽章（绿/红/未测试）即时回显——
       // 等价旧 refresh 的「caps 落库」语义，免整表重拉（此前徽章不刷新，回归被 e2e 命中）
       const i = providers.value.findIndex((p) => p.id === id)
@@ -296,7 +326,7 @@ export const useProviderStore = defineStore('provider', () => {
           chat: r.tiers.chat ? { ...r.tiers.chat } : null,
         }
         currentModel.value = r.tiers.creative.model || null
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       })) === true
     )
@@ -308,7 +338,7 @@ export const useProviderStore = defineStore('provider', () => {
       async () => {
         const r = await setChatTier(slot, revision.value)
         tiers.value = { ...tiers.value, chat: r.tiers.chat ? { ...r.tiers.chat } : null }
-        revision.value = r.revision
+        advanceRevision(r.revision)
       },
       undefined,
       // 文案逐位不变：回落提示前缀 + friendlyError（原 errText 同体）
@@ -322,7 +352,7 @@ export const useProviderStore = defineStore('provider', () => {
       (await guardedWrite(async () => {
         const r = await createRagProvider({ ...input, expectedRevision: revision.value })
         ragProviders.value.push(r.provider)
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       }, '已保存')) === true
     )
@@ -337,7 +367,7 @@ export const useProviderStore = defineStore('provider', () => {
         const r = await updateRagProvider(id, { ...input, expectedRevision: revision.value })
         const i = ragProviders.value.findIndex((p) => p.id === id)
         if (i >= 0) ragProviders.value[i] = r.provider
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       }, '已保存')) === true
     )
@@ -350,7 +380,7 @@ export const useProviderStore = defineStore('provider', () => {
         ragProviders.value = ragProviders.value.filter((p) => p.id !== id)
         // （专项）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
         ragTestResults.value.delete(id)
-        revision.value = r.revision
+        advanceRevision(r.revision)
         return true
       }, '已删除')) === true
     )
@@ -362,7 +392,7 @@ export const useProviderStore = defineStore('provider', () => {
       const r = await testRagProvider(id)
       // 探测写回 bump 服务端 revision——同步本地防后续 RAG 写
       // 以滞后 revision 必收 409（误导 toast）
-      if (typeof r.revision === 'number') revision.value = r.revision
+      if (typeof r.revision === 'number') advanceRevision(r.revision)
       const m = new Map(ragTestResults.value)
       m.set(id, r)
       ragTestResults.value = m
@@ -376,9 +406,11 @@ export const useProviderStore = defineStore('provider', () => {
     }
   }
 
-  /** 面板整页加载（设置页打开：AI + RAG 一并拉）。 */
-  async function refreshAll(): Promise<void> {
-    await Promise.all([refresh(), refreshRag()])
+  /** 面板整页加载（设置页打开：AI + RAG 一并拉）。
+   *  两域并发各回同一份服务端计数（providers.json 单 revision），故由 advanceRevision
+   *  取大收口——先发出、后返回的旧读数不回退共享号（后到者不得覆盖他域结果）。 */
+  async function refreshAll(authoritative = false): Promise<void> {
+    await Promise.all([refresh(authoritative), refreshRag(authoritative)])
   }
 
   return {

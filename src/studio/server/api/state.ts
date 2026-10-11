@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -45,6 +46,9 @@ interface StateCtx {
 export function forgetStateCache(bookRoot: string): void {
   stateCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈判态结果（TTL 5s 兜底自愈）。
+registerBookKeyedCache('state', forgetStateCache)
 /** 收尾：__stateCacheHasForTest / __setStateTtlForTest 删除——
  * 缓存实例即观测面（生产对象，非测试专用 API；先例同 analysisOverviewCache）：
  * 「过期逐出/失效」断言读下方导出实例的 has/get 覆盖档（组装根 RouteOverrides

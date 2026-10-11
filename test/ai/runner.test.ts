@@ -32,13 +32,13 @@ import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
 import { GenError } from '../../src/ai/gen.js'
 import { formatTimeoutText } from '../../src/shared/text.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 import { listenSafe } from '../helpers/safe-port.js'
 
 // tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
 const workDirs: string[] = []
 function tempUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-runner-ud-'))
+  return tempDirTracked('clwriting-runner-ud-')
 }
 
 // R73-13c（二十一轮，F 域移交）：必然拒绝端点可控化——此前写死 http://localhost:1，

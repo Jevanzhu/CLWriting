@@ -11,7 +11,6 @@
  *   attemptsUsage 合并口径不一致。修后统一合并口径（线缆级：截断带 usage → 重试成功）。
  */
 import { mkdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { runTask, resolveProvider, degradedPersistedKeysForTest } from '../../src/ai/runner.js'
@@ -21,16 +20,16 @@ import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData as fixturesTempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
-// tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
+// tempBookRoot 等书根目录仍走本地数组清理；tempUserData 只登记（与 afterEach 兜底幂等并存）
 const dirs: string[] = []
 function tempUserData(): string {
-  return mkdtempTracked(join(tmpdir(), 'clwriting-r34d-ud-'))
+  return tempDirTracked('clwriting-r34d-ud-')
 }
 function tempBookRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clwriting-r34d-book-'))
+  const d = tempDirTracked('clwriting-r34d-book-')
   dirs.push(d)
   return d
 }

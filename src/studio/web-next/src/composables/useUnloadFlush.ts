@@ -1,20 +1,16 @@
 /**
- * 关窗/刷新/卸载冲刷链路独立成 composable。
+ * 关窗/刷新/卸载冲刷链路（独立 composable）。
  *
- * 为什么独立：这是 Book.vue 里三条各有沿革的兜底路径——①关窗（主进程 close 拦截经
- * executeJavaScript 调 window.__clwFlushBeforeClose，含书级 prefs 先冲刷）②刷新/导航
- * （beforeunload preventDefault → 异步 flushDirty → 落净后带一次性标记重放，含
- * 冲突守卫）③卸载（onUnmounted fire-and-forget flush + 失败/冲突留痕）。三者共享
- * 「什么算未保存工作」（hasUnsavedWork）与同一批 doc/workspace store 出口，写成页面
- * setup 顶层时清理链（监听/全局钩子注销）与业务分支混在一处，是最容易漏项的一类改动面
- * （本仓反复加固过：防抖尾并入）。
+ * 三条兜底路径：①关窗（主进程 close 拦截经 executeJavaScript 调
+ * window.__clwFlushBeforeClose，含书级 prefs 先冲刷）；②刷新/导航（beforeunload preventDefault →
+ * 异步 flushDirty → 落净后带一次性标记重放，含冲突守卫）；③卸载（onUnmounted fire-and-forget
+ * flush + 失败/冲突留痕）。三者共享「什么算未保存工作」（hasUnsavedWork）与同一批 doc/workspace
+ * store 出口——写成页面 setup 顶层时清理链（监听/全局钩子注销）与业务分支混在一处，是最容易漏项的
+ * 一类改动面。
  *
- * 生命周期（成对清理，逐条对齐迁移前）：onMounted 挂 beforeunload 监听 + 注册全局
- * 钩子；onUnmounted 摘监听 + 删全局钩子 + fire-and-forget flushDirty 留痕——注册与
- * 注销同文件相邻，漏项不可能只改一边。
- *
- * 语义零变化：本文件是 Book.vue 原关窗/刷新块与卸载冲刷块的逐行搬迁（各 R 编号沿革
- * 注释随迁），差异仅各 store 在本函数内取实例。
+ * 生命周期（成对清理）：onMounted 挂 beforeunload 监听 + 注册全局钩子；onUnmounted 摘监听 + 删全局
+ * 钩子 + fire-and-forget flushDirty 留痕——注册与注销同文件相邻，漏项不可能只改一边。
+ * 各 store 在本函数内取实例。
  */
 import { onMounted, onUnmounted } from 'vue'
 import { useDocStore } from '../stores/doc'

@@ -1,21 +1,19 @@
 /**
  * studio server 的 Electron utilityProcess 入口。
  *
- * main 侧 server-manager fork 本文件（dist/desktop/server-utility.js，asar 内路径
- * 等价），本入口只做：解析 fork 参数 → 经 server-boot 共享核心起 server → 把启动
- * 结果经 process.parentPort 默认消息通道握手回传（§3.2，二轮统一 parentPort，
- * 不引入 MessageChannelMain 端口转移）。
+ * main 侧 server-manager fork 本文件（dist/desktop/server-utility.js，asar 内路径等价），本入口只做：
+ * 解析 fork 参数 → 经 server-boot 共享核心起 server → 把启动结果经 process.parentPort 默认消息通道
+ * 握手回传（统一 parentPort，不引入 MessageChannelMain 端口转移）。
  *
  * 握手协议（消息形状与 server-manager 配对，测试两侧锚定）：
- * - child → main：{ type: 'ready', port }（listening 后每 child 一次）
- *               { type: 'boot-error', code, message }（监听失败；发完即退出）
- * { type: 'shutdown-done' }（shutdown 指令执行完回执）
- * - main → child：{ type: 'shutdown' }（执行 shutdownStudio 全流程——在途
- *   编排 abort/session/end 落库 + server.close，超时参数同拆分前 main 内嵌态——
- *   该职责随 server 下沉，main 不再 import graceful-shutdown）
+ * - child → main：{ type: 'ready', port }（listening 后每 child 一次）；
+ *   { type: 'boot-error', code, message }（监听失败；发完即退出）；{ type: 'shutdown-done' }
+ *  （shutdown 指令执行完回执）
+ * - main → child：{ type: 'shutdown' }（执行 shutdownStudio 全流程——在途编排 abort/session/end
+ *   落库 + server.close；该职责随 server 下沉，main 不再 import graceful-shutdown）
  *
- * 日志通道（批起）：fork 注入 CLW_LOG_STDOUT=1，src/log stdout-only 模式直写
- * stdout 一行 JSON；main 以 stdio:pipe 收行解析重发落盘（单写者，§3.5）。
+ * 日志通道：fork 注入 CLW_LOG_STDOUT=1，src/log stdout-only 模式直写 stdout 一行 JSON；main 以
+ * stdio:pipe 收行解析重发落盘（单写者）。
  */
 import process from 'node:process'
 import type http from 'node:http'

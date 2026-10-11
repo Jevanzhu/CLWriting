@@ -16,9 +16,8 @@
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const failState = vi.hoisted(() => ({
   /** 命中即抛 EPERM 一次（一次性瞬时锁形态，抛后放行）；null = 不拦截。 */
@@ -47,7 +46,7 @@ afterEach(() => {
 })
 
 function tmpRoot(): string {
-  return mkdtempTracked(join(tmpdir(), 'clw-r42-40-'))
+  return tempDirTracked('clw-r42-40-')
 }
 
 describe('R42-40：rmWithRetry recursive 档（原语）', () => {

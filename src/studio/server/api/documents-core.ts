@@ -1,33 +1,26 @@
 /**
- * 文档域基建段（公共底座单源） —— 自 src/studio/server/api/documents.ts 拆出。
+ * 文档域基建段（公共底座单源）。
  *
- * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分；本文件承载基建段，内容逐字节随迁、零触碰（⑤①收敛的
- * 公共底座原样）：DocumentService per-bookRoot 缓存族（getOrCreateService /
- * __clearDocumentServices / forgetService / drainDocumentSaves）、伏笔事件族与
- * per-book 串行链（foreshadowSnapshot / recordForeshadowDelta / drain / forget /
- * keysForTest 观测钩子）、structure 串行链（enqueueStructureOp /
- * drainStructureChainsUnder / __structureChainKeysForTest）、书注册重验
- * （bookMovedFailureOk / BookMovedFailure）与五站写端点不变链单源
- * runBookScopedOp、busy 守卫单源 structureBusyGuarded、错误码→HTTP status 映射
- * structStatus。
- * 基建单源拆出的实读原因（记档）：路由装配是 defineRoute 副作用注册制（无路由表
- * 数据导出面），registerDocumentRoutes 是 server/index.ts 与
- * documents-write-bookmoved-recheck.test.ts 的既有消费名（消费面零改动）→ 聚合入口
- * 须留 documents.ts；若基建也留 documents.ts，域文件回引基建 + 残核 import 域
- * 文件即成模块环——vitest 的 vite SSR transform 对环返回未完成模块对象（本批
- * 实跑：域文件运行时取 runBookScopedOp 为 undefined），故基建单源本文件、残核
- * 单向 import 三域与本文件，模块图无环。原模块私有而域文件消费项（DocumentCtx /
- * runBookScopedOp / structStatus / enqueueStructureOp / structureBusyGuarded）就此
- * 导出，其余保持私有。
- * 依赖方向：本文件 → http/book-context/document/foreshadow/events/log/serial-
- * chain/review/ai 既有出边（studio→ai 组合根白名单面内，不新增 ai→studio 边），
- * 不 import 同批任何 documents-* 模块（单向无环）；顶层求值常量（services 缓存
- * Map / 伏笔与 structure 两条串行链 Map）单源本文件，绝不经环回引。
- * 路由域文件：documents-save.ts（缝 1：保存/文件树/定稿）、documents-crud.ts
- * （缝 2：字数日记与 CRUD/回收站）、documents-structure.ts（缝 3：章节结构
- * 操作）；聚合入口与外部消费名桥留 documents.ts 残核（头注保留原全部历史
- * 记载与拆分沿革）。
+ * 内容：DocumentService per-bookRoot 缓存族（getOrCreateService / __clearDocumentServices /
+ * forgetService / drainDocumentSaves）、伏笔事件族与 per-book 串行链（foreshadowSnapshot /
+ * recordForeshadowDelta / drain / forget / keysForTest 观测钩子）、structure 串行链
+ *（enqueueStructureOp / drainStructureChainsUnder / __structureChainKeysForTest）、书注册重验
+ *（bookMovedFailureOk / BookMovedFailure）与五站写端点不变链单源 runBookScopedOp、busy 守卫
+ * 单源 structureBusyGuarded、错误码→HTTP status 映射 structStatus。
+ *
+ * 为什么基建单源在本文件：路由装配是 defineRoute 副作用注册制（无路由表数据导出面），
+ * registerDocumentRoutes 是 server/index.ts 与 documents-write-bookmoved-recheck.test.ts 的
+ * 既有消费名 → 聚合入口须留 documents.ts；若基建也留 documents.ts，域文件回引基建 + 残核
+ * import 域文件即成模块环——vitest 的 vite SSR transform 对环返回未完成模块对象（域文件运行时
+ * 取 runBookScopedOp 为 undefined），故基建单源本文件、残核单向 import 三域与本文件，模块图无环。
+ * 原模块私有而域文件消费项（DocumentCtx / runBookScopedOp / structStatus / enqueueStructureOp /
+ * structureBusyGuarded）就此导出，其余保持私有。
+ * 依赖方向：本文件 → http/book-context/document/foreshadow/events/log/serial-chain/review/ai
+ * 既有出边（studio→ai 组合根白名单面内，不新增 ai→studio 边），不 import 同批任何 documents-*
+ * 模块（单向无环）；顶层求值常量（services 缓存 Map / 伏笔与 structure 两条串行链 Map）单源
+ * 本文件，绝不经环回引。
+ * 路由域文件：documents-save.ts（保存/文件树/定稿）、documents-crud.ts（字数日记与 CRUD/回收站）、
+ * documents-structure.ts（章节结构操作）；聚合入口与外部消费名桥留 documents.ts 残核。
  */
 import type { ServerResponse } from 'node:http'
 import { replyError } from '../http.js'
@@ -38,6 +31,7 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 import { log, errMsg } from '../../../log/index.js' // 伏笔观测层失败留痕；errMsg 三目收编
 import { createSerialChainMap } from '../serial-chain.js' // per-book 串行链四胞胎通用件
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 结构操作忙闸单源（闸实例经组装根注入；structureBusyGuarded 为模块级助手，显式接闸）
 import type { DriverHost } from '../driver-port.js' // driver 经组装根注入
 
@@ -153,9 +147,8 @@ async function recordForeshadowDelta(
 // rename/move），均只被链单元单向 await、从不反等本链，外链→内链/锁单向无环；
 // drainDocumentSaves 只计 SaveQueue 在途，四处本就不入该计数，链化无顺序回归。
 const foreshadowSaveChains = createSerialChainMap()
-// 链体机械段（prev.then(unit,unit) + settled 吞错 +
-// 链尾身份校验自清理）收编 serial-chain.ts createSerialChainMap
-// 单源；本节保留编排语义头注（上方2--① / 清偿-伏笔接线×4 沿革）。
+// 链体机械段（prev.then(unit,unit) + settled 吞错 + 链尾身份校验自清理）
+// 收编 serial-chain.ts createSerialChainMap 单源；编排语义头注见上方。
 function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): Promise<T> {
   return foreshadowSaveChains.enqueue(bookRoot, unit)
 }
@@ -181,6 +174,11 @@ export async function drainForeshadowSaveChains(bookRoot: string): Promise<void>
 export function forgetForeshadowSaveChain(bookRoot: string): void {
   foreshadowSaveChains.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：兜删书/改名时点的悬挂链残条——链尾自清理覆盖常态，
+// 此处防 bookRoot 键成死重；删/改名调用点已先 drainForeshadowSaveChains（链空时
+// 删除不破坏在途串行，Map.delete 幂等）。
+registerBookKeyedCache('foreshadow-save-chain', forgetForeshadowSaveChain)
 
 /** 测试观测钩子（对齐 files.ts __filePutChainKeysForTest 风格）——
  *  当前在途伏笔链键的只读快照（自清理/forget 生效断言用；快照时点在途，settle 后

@@ -11,19 +11,53 @@
  *    rebuild 单飞（R57-A-1）已有 r57-rebuild-async-inflight 详测，不重复。
  * 手法对齐 r57/run-async-exit：RunnerOptions.workerUrl 注入临时 .mjs worker
  * （非 .ts 不挂 tsx loader，壳的 execArgv 判定对 .mjs 零干预）。
+ *
+ * P1-3（工程门修复批）：补三域 **worker 入口**（*-worker.ts）的消息分支直测——
+ * 入口只在 spawn 侧真线程里被加载，vitest 主线程直跑零执行（v8 报 0%，入口改动
+ * 零守护）。三入口与上方三运行器同族同域，故并入本档不另开碎片档。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runExportBookAsync } from '../../../src/export/run-async.js'
 import { runRebuildAsync } from '../../../src/cache/run-rebuild-async.js'
 import { runStyleScanAsync } from '../../../src/studio/server/api/style-scan-async.js'
 import { runWorkerJob } from '../../../src/worker-async.js'
 import { __getInFlightWorkCount } from '../../../src/studio/server/api/in-flight-work.js'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import type { StyleScanJob } from '../../../src/studio/server/api/analysis-worker.js'
+import type { StyleScanJob, StyleScanResult } from '../../../src/studio/server/api/analysis-worker.js'
+import type { RebuildResult } from '../../../src/cache/rebuild.js'
+import type { ExportResult } from '../../../src/export/index.js'
+
+// ── P1-3：worker 入口消息分支的 parentPort 桩 ─────────────────────────────
+// 以真模块为底、只换 parentPort（真 Worker 类保留——上方壳面用例仍开真线程）；
+// 入口 import 时对自己注册的 message 处理器被捕获在 handlers，测试驱动之。
+// parentPort 走 getter 读 port 槽：置 null 即主线程形态（入口 `if (port)` 假分支）。
+const portStub = vi.hoisted(() => {
+  const handlers: Array<(job: unknown) => void> = []
+  const posted: unknown[] = []
+  const fakePort = {
+    once: (ev: string, fn: (job: unknown) => void) => {
+      if (ev === 'message') handlers.push(fn)
+    },
+    on: (ev: string, fn: (job: unknown) => void) => {
+      if (ev === 'message') handlers.push(fn)
+    },
+    postMessage: (m: unknown) => posted.push(m),
+  }
+  return { handlers, posted, fakePort, port: fakePort as null | typeof fakePort }
+})
+vi.mock('node:worker_threads', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:worker_threads')>()
+  return {
+    ...actual,
+    get parentPort() {
+      return portStub.port
+    },
+  }
+})
 
 /** 慢 worker：收 job 300ms 后回包（timeoutMs 20 → 走超时拒绝路径） */
 const SLOW_WORKER = `
@@ -175,5 +209,119 @@ parentPort.once('message', () => setTimeout(() => parentPort.postMessage({ ok: t
     } finally {
       rmSync(dir2, { recursive: true, force: true })
     }
+  })
+})
+
+/** 取最近一次入口 import 注册的 message 处理器（入口在 import 时对自己注册一次；
+ * 桩未命中即报错——入口改成惰性注册时本档须随改的口子） */
+function lastHandler(): (job: unknown) => void {
+  const h = portStub.handlers.at(-1)
+  if (!h) throw new Error('worker 入口未注册 message 处理器——parentPort 桩未命中')
+  return h
+}
+
+describe('P1-3：三域 worker 入口消息分支（真入口 + parentPort 桩）', () => {
+  beforeEach(() => {
+    portStub.posted.length = 0
+  })
+
+  it('主线程形态（parentPort=null）：三入口 import 零副作用（不注册处理器、不抛）', async () => {
+    const registeredBefore = portStub.handlers.length
+    portStub.port = null
+    vi.resetModules() // 让三入口在本例内重新求值（此前用例已 import 过，缓存态不覆盖假分支）
+    try {
+      await import('../../../src/cache/rebuild-worker.js')
+      await import('../../../src/export/export-worker.js')
+      await import('../../../src/studio/server/api/analysis-worker.js')
+      expect(portStub.handlers).toHaveLength(registeredBefore)
+      expect(portStub.posted).toHaveLength(0)
+    } finally {
+      portStub.port = portStub.fakePort
+      vi.resetModules()
+    }
+  })
+
+  it('analysis-worker：收 job → 回包 StyleScanResult（坏章跳过 / recent 带章头 / 非 recent 不进样）', async () => {
+    await import('../../../src/studio/server/api/analysis-worker.js')
+    const handle = lastHandler()
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-analysis-worker-'))
+    const ch1 = join(dir, '001-雨夜.md')
+    writeFileSync(ch1, '---\n章号: 1\n标题: 雨夜\n---\n\n山门外的雨夜，玉佩碎了。\n', 'utf-8')
+    const ch2 = join(dir, '002-雪落.md')
+    writeFileSync(ch2, '---\n章号: 2\n标题: 雪落\n---\n\n雪落无声。\n', 'utf-8')
+
+    handle({
+      chapters: [
+        { path: ch1, 章号: 1, 标题: '雨夜', recent: true },
+        { path: ch2, 章号: 2, 标题: '雪落', recent: false },
+        { path: join(dir, '999-缺章.md'), 章号: 9, 标题: '缺章', recent: true }, // 读不到 → 跳过
+      ],
+      rules: { bannedWords: ['玉佩'] },
+    })
+
+    const r = portStub.posted.at(-1) as StyleScanResult
+    // 采样正文 = recent 章 + `### 第N章 标题` 头；非 recent/坏章零贡献
+    expect(r.sampleText).toContain('### 第1章 雨夜')
+    expect(r.sampleText).toContain('山门外的雨夜，玉佩碎了。')
+    expect(r.sampleText).not.toContain('雪落无声') // recent=false 不进样
+    expect(r.sampleText).not.toContain('缺章') // 坏章跳过不炸
+    // 全书 stats 在两章合并语料上算出（computeFullStats 全量面而非单章面）
+    expect(r.fullStats.charCount).toBeGreaterThan(0)
+    expect(typeof r.fullStats.sentenceLenVariance).toBe('number')
+    expect(typeof r.fullStats.repeatRate).toBe('number')
+    // 缓存宽度：非 recent 章的正文仍进合并语料（charCount 大于仅 recent 章）
+    expect(r.fullStats.charCount).toBeGreaterThan('山门外的雨夜，玉佩碎了。'.length)
+  })
+
+  it('rebuild-worker：收 job → 回包 RebuildResult 且 index.db 落盘', async () => {
+    await import('../../../src/cache/rebuild-worker.js')
+    const handle = lastHandler()
+    const root = mkdtempTracked(join(tmpdir(), 'clw-rebuild-worker-'))
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
+    writeFileSync(
+      join(root, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 重建入口测试\n  genre: 玄幻\nleads:\n  enabled: []\n',
+      'utf-8',
+    )
+    writeFileSync(
+      join(root, '写作', '正文', '152-北境的雪.md'),
+      '---\n章号: 152\n标题: 北境的雪\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 转折\n---\n\n北境下雪了，林晚踏雪而行。\n',
+      'utf-8',
+    )
+    writeFileSync(join(root, '定稿', '摘要', '章摘要', '152.md'), '林晚抵达北境，揭开灭门线索。', 'utf-8')
+    const cachePath = join(root, '.cache', 'index.db')
+
+    handle({ bookRoot: root, cachePath })
+
+    const r = portStub.posted.at(-1) as RebuildResult
+    expect(r).toMatchObject({ chapterCount: 1, summaryCount: 1, errors: [] })
+    expect(existsSync(cachePath)).toBe(true) // 内核产物真落盘（入口只搬运，不吞不伪）
+  })
+
+  it('export-worker：收 job → 回包 ExportResult 且产物落盘；坏 job 回 ok:false 失败信封', async () => {
+    await import('../../../src/export/export-worker.js')
+    const handle = lastHandler()
+    const root = mkdtempTracked(join(tmpdir(), 'clw-export-worker-'))
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 入口测试\n  genre: 玄幻\n', 'utf-8')
+    writeFileSync(
+      join(root, '写作', '正文', '1-第一章.md'),
+      '---\n章号: 1\n标题: 第一章\n---\n\n雪落在了城墙上。\n',
+      'utf-8',
+    )
+
+    handle({ bookRoot: root, format: 'merged' })
+
+    const r = portStub.posted.at(-1) as ExportResult
+    expect(r).toMatchObject({ ok: true, chapterCount: 1 })
+    const out = join(root, '工作区', '导出', '全本-入口测试.md')
+    expect(r.files).toContain('工作区/导出/全本-入口测试.md')
+    expect(readFileSync(out, 'utf-8')).toContain('雪落在了城墙上')
+    // 失败信号：坏 job 不抛、以 ok:false 信封原样回包（同进程内为返回值契约）
+    handle({ bookRoot: join(root, '不存在的书') })
+    const bad = portStub.posted.at(-1) as ExportResult
+    expect(bad.ok).toBe(false)
+    expect(bad.error).toBeTruthy()
   })
 })

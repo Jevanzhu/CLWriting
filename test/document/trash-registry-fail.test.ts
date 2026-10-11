@@ -7,7 +7,7 @@
  * 断言软删返回 WRITE_ERROR、源文件与清单条目原地未动；并回归一条登记可写时的成功路径
  * （顺序调整不改变既有语义）。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -64,5 +64,36 @@ test('GG-P2-6：登记可写时软删照常成功（先登记后移文件的顺�
   expect(existsSync(join(root, r.trashedPath))).toBe(true)
   expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'))).toBe(false)
   expect(readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')).not.toContain('doc_ch01')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('A6：落位重试耗尽（目标名被占）→ 中止时撤销已写登记，不留指向不存在路径的孤儿条目', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const TS = 1759900000000
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(TS)
+  const trashDir = join(root, '工作区', '.trash')
+  mkdirSync(trashDir, { recursive: true })
+  // 占满落位链全部 4 个目标名（基名 + 预检后缀名 + 重试 -2/-3/-4）——落位恒 'exists' 至重试耗尽
+  const occupied = [
+    'doc_ch01-0001-开篇.md',
+    `doc_ch01-0001-开篇-${TS}.md`,
+    `doc_ch01-0001-开篇-${TS}-2.md`,
+    `doc_ch01-0001-开篇-${TS}-3.md`,
+    `doc_ch01-0001-开篇-${TS}-4.md`,
+  ]
+  for (const n of occupied) writeFileSync(join(trashDir, n), '上一版回收站内容', 'utf-8')
+  const r = await svc.trashDocument({ docId: 'doc_ch01' })
+  nowSpy.mockRestore()
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('WRITE_ERROR')
+  expect(r.reason).toContain('落位失败')
+  // 源文件与主清单条目原地未动（宁删失败语义不变）
+  expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'))).toBe(true)
+  expect(readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')).toContain('doc_ch01')
+  // 修复前残留：回收站登记里留下 trashedPath 指向从未落位命名的条目（UI 列出、还原必 NOT_FOUND）
+  expect(readFileSync(join(trashDir, '.trash-manifest.jsonl'), 'utf-8')).not.toContain('doc_ch01')
+  // 占位文件一个未损（回滚只撤登记，不动作他人在位内容）
+  for (const n of occupied) expect(readFileSync(join(trashDir, n), 'utf-8')).toBe('上一版回收站内容')
   rmSync(root, { recursive: true, force: true })
 })

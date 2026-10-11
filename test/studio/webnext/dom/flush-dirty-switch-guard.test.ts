@@ -96,18 +96,7 @@ import Book from '../../../../src/studio/web-next/src/pages/Book.vue'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { ApiError } from '../../../../src/studio/web-next/src/api/client'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNode } from '../helpers/tree-node'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -124,7 +113,7 @@ describe('F1: flushDirty 返回未落盘文档列表', () => {
     const doc = useDocStore()
     doc.setBook('书A')
     mocks.getContent.mockResolvedValueOnce('a')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '改')
     mocks.saveContent.mockResolvedValueOnce({ ok: true, revision: 'sha256:x', superseded: false })
     expect(await doc.flushDirty()).toEqual([])
@@ -135,7 +124,7 @@ describe('F1: flushDirty 返回未落盘文档列表', () => {
     const doc = useDocStore()
     doc.setBook('书A')
     mocks.getContent.mockResolvedValueOnce('a')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '改')
     mocks.saveContent.mockRejectedValueOnce(new Error('网络断了'))
     const failed = await doc.flushDirty()
@@ -151,7 +140,7 @@ describe('R37-1: flushDirty 先落定在途保存再扫描', () => {
     const doc = useDocStore()
     doc.setBook('书A')
     mocks.getContent.mockResolvedValueOnce('a')
-    await doc.open(makeNode(docId))
+    await doc.open(makeChapterNode(docId))
     doc.patch(docId, '未保存内容')
   }
 
@@ -255,7 +244,7 @@ describe('R37-1: flushDirty 先落定在途保存再扫描', () => {
 describe('F1: Book.vue 切书守卫——flush 失败统一走确认弹窗', () => {
   async function openDirty(doc: ReturnType<typeof useDocStore>): Promise<void> {
     mocks.getContent.mockResolvedValueOnce('内容')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '未落盘的编辑')
   }
 
@@ -319,7 +308,7 @@ describe('F1: Book.vue 切书守卫——flush 失败统一走确认弹窗', () 
 describe('R37-1: Book.vue 切书守卫——flush 等待窗口内落成的 conflict 走决断弹窗', () => {
   async function openDirty(doc: ReturnType<typeof useDocStore>): Promise<void> {
     mocks.getContent.mockResolvedValueOnce('内容')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '未落盘的编辑')
   }
 

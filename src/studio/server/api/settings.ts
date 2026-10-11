@@ -23,6 +23,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { replyGenerationFailure, type TaskGateInjected } from './task-gate.js' // 长任务门控包装 + 生成失败状态映射单源（走 ctx.gate 实例）
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { yieldToEventLoop } from '../../../async.js' // 扫描段让出原语（rhythm/progress 同源）
 import { sigStatFor } from './rhythm.js' // （SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
@@ -99,6 +100,10 @@ export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.forget(bookRoot)
   completionNamesCache.forget(bookRoot)
 }
+
+// 登记制（模块顶层自登记）：删/改名后同名重建书不读陈设定台聚合（境界/角色卡/时间线/
+// 账本/relations；settings + completion-names 两壳同清——键口径各自不动）。
+registerBookKeyedCache('settings', forgetSettingsCache)
 /** 钩子收敛：的 4 个观测钩子（__settingsScanCountForTest
  *  / __completionNamesScanCountForTest 与各自 reset）删除——MISS 计数收编进缓存壳
  *  （ttl-cache.ts 的 stats），回归用例改读下面导出的两壳实例的 stats/resetStats。

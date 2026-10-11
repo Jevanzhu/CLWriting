@@ -1,22 +1,14 @@
 /**
- * 文档 CRUD 与字数日记 REST 端点 —— 自 src/studio/server/api/documents.ts 缝 2 拆出。
+ * 文档 CRUD 与字数日记 REST 端点。
  *
- * （⑤④产品巨件拆分波4）：documents.ts（1019 行）路由段按域
- * 纯移动拆分。本文件承载缝 2：字数日记（GET/POST /words-diary，§5.4 今日基线）、
- * W2A 新建文档（POST /documents）、移动/重命名/meta/fm（PATCH /documents/:docId）、
- * E3.3 复制文档（POST copy）、软删（DELETE /documents/:docId）与回收站
- * （GET /trash、POST /trash/:id/restore、DELETE /trash/:id 永久删）。三缝按原
- * 文件连续段切分，各域路由相对序与全局注册序逐字节不变（dispatch 按注册顺序
- * 匹配，router.ts 隐性契约——顺序细节与环判定记档见残核 documents.ts 头注
- * 段）。纯移动：代码与注释逐字随迁，零行为变化、零逻辑改写、零格式
- * 重排；差异仅 export 前缀与 import 重组。
- * 依赖方向：本文件 → document 既有出边（只出不进，不 import ai/studio 反向）
- * + 回引基建单源 documents-core.ts（getOrCreateService / runBookScopedOp /
- * structStatus / DocumentCtx——⑤①收敛的公共底座，零触碰单源 core）。
- * 模块图单向无环（core 不 import 同批任何 documents-* 模块；聚合入口在残核
- * documents.ts 单向 import 本文件），本文件无顶层求值常量，无 TDZ 面。
- * 保存/定稿/文件树族见 documents-save.ts（缝 1）；章节结构操作族见
- * documents-structure.ts（缝 3）；基建段与全部历史沿革记载留 documents.ts 残核。
+ * 路由：字数日记（GET/POST /words-diary，今日基线）、W2A 新建文档（POST /documents）、移动/重命名/
+ * meta/fm（PATCH /documents/:docId）、E3.3 复制文档（POST copy）、软删（DELETE /documents/:docId）
+ * 与回收站（GET /trash、POST /trash/:id/restore、DELETE /trash/:id 永久删）。各域路由相对序
+ * 与全局注册序不变——dispatch 按注册顺序匹配，顺序是 router.ts 的隐性契约。
+ * 依赖方向：本文件 → document 既有出边（只出不进，不 import ai/studio 反向）+ 回引基建单源
+ * documents-core.ts（getOrCreateService / runBookScopedOp / structStatus / DocumentCtx）。模块图
+ * 单向无环（core 不 import 同批任何 documents-* 模块；聚合入口在残核 documents.ts 单向 import
+ * 本文件），本文件无顶层求值常量，无 TDZ 面。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

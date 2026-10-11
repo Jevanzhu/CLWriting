@@ -23,12 +23,14 @@ vi.mock('../../../../src/studio/web-next/src/api/documents', () => ({
 // store mock 单例（工厂每调返回新对象会让 setup 配置的 spy 与断言侧取到的不是同一个）
 const treeMock = {
   byPath: new Map<string, { docId: string }>(),
-  byDocId: new Map<string, { path: string }>(),
+  byDocId: new Map<string, { path: string; name?: string }>(),
   load: vi.fn(async () => {}),
   updateWordCount: vi.fn(),
 }
 interface DocEntryLike {
   path: string
+  /** 条目名——真 store 的 adoptRenamed 出口成对回填；夹具只钉 path 面 */
+  name?: string
   dirty: boolean
 }
 const docMock = {
@@ -40,6 +42,14 @@ const docMock = {
   // R-P2-1（评审修复批）：onRenameCommit/onSaveMeta 改名成功新增清脏镜像调用——
   // mock 补齐防 TypeError 走 catch 吞掉后续 refresh/tree.load
   clearDirtyMirror: vi.fn(),
+  // 条目元数据写口（doc store 出口 adoptRenamed；真件语义＝只改路径与名称、不动内容与
+  // 脏位）——动作侧不得直写 entry，本 mock 复刻该出口，Y-29 断言的「回填」即经此落位
+  adoptRenamed: vi.fn((docId: string, path: string, name: string): void => {
+    const e = docMock.get(docId)
+    if (!e) return
+    e.path = path
+    e.name = name
+  }),
 }
 vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({ toast: vi.fn(), ask: vi.fn(async () => true) })),
@@ -71,10 +81,10 @@ beforeEach(() => {
 
 function setup(openDoc?: { path: string }): ReturnType<typeof useChapterTreeActions> {
   const e = openDoc
-    ? ({ path: openDoc.path, dirty: false } as { path: string; dirty: boolean } | undefined)
-    : (undefined as unknown as { path: string; dirty: boolean } | undefined)
+    ? ({ path: openDoc.path, name: openDoc.path.split('/').pop()!, dirty: false } as DocEntryLike)
+    : undefined
   docMock.get.mockImplementation((id: string) => (id === 'doc_1' ? e : undefined))
-  treeMock.byDocId.set('doc_1', { path: '写作/正文/第一卷/0005-新标题.md' })
+  treeMock.byDocId.set('doc_1', { path: '写作/正文/第一卷/0005-新标题.md', name: '0005-新标题.md' })
   return useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
 }
 
@@ -85,6 +95,8 @@ describe('Y-8: onSaveMeta 后 refresh 打开中文档', () => {
     actions.metaEditing.value = { docId: 'doc_1', bookName: '书A', 标题: '旧标题', num: 5, isPiece: false }
     await actions.onSaveMeta({ 标题: '新标题', num: 5 })
     expect(docMock.refresh).toHaveBeenCalledWith('doc_1')
+    // 回填经 doc store 出口（不直写 entry）：路径与名称成对取自刷新后的树节点
+    expect(docMock.adoptRenamed).toHaveBeenCalledWith('doc_1', '写作/正文/第一卷/0005-新标题.md', '0005-新标题.md')
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-新标题.md')
   })
 
@@ -98,19 +110,21 @@ describe('Y-8: onSaveMeta 后 refresh 打开中文档', () => {
 })
 
 describe('Y-29: rename / move 后回填 entry.path', () => {
-  it('onRenameCommit → doc entry.path 更新为新路径', async () => {
+  it('onRenameCommit → 经 store 出口回填 doc entry.path（新路径）', async () => {
     renameMock.mockResolvedValue(undefined)
     const actions = setup({ path: '写作/正文/第一卷/0005-旧标题.md' })
     treeMock.byPath.set('写作/正文/第一卷/0005-旧标题.md', { docId: 'doc_1' })
     actions.renamePath.value = '写作/正文/第一卷/0005-旧标题.md'
     await actions.onRenameCommit('写作/正文/第一卷/0005-旧标题.md', '新标题')
+    expect(docMock.adoptRenamed).toHaveBeenCalledWith('doc_1', '写作/正文/第一卷/0005-新标题.md', '0005-新标题.md')
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-新标题.md')
   })
 
-  it('doMove → doc entry.path 更新为目标路径', async () => {
+  it('doMove → 经 store 出口回填 doc entry.path（目标路径）', async () => {
     moveMock.mockResolvedValue(undefined)
     const actions = setup({ path: '写作/正文/第一卷/0005-标题.md' })
     await actions.doMove('doc_1', '写作/正文/第二卷')
+    expect(docMock.adoptRenamed).toHaveBeenCalledWith('doc_1', '写作/正文/第一卷/0005-新标题.md', '0005-新标题.md')
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-新标题.md')
   })
 })
@@ -125,7 +139,8 @@ describe('B-10: rename / move 在途切书守卫（await 后活源复检，对�
     actions.renamePath.value = '写作/正文/第一卷/0005-旧标题.md'
     await actions.onRenameCommit('写作/正文/第一卷/0005-旧标题.md', '新标题')
     expect(treeMock.load).not.toHaveBeenCalledWith('书A')
-    // 回填也跳过（树已切到 B 书，byDocId 命中的是 B 书数据）
+    // 回填也跳过（树已切到 B 书，byDocId 命中的是 B 书数据）——出口零调用
+    expect(docMock.adoptRenamed).not.toHaveBeenCalled()
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-旧标题.md')
   })
 

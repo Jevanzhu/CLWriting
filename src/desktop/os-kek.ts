@@ -1,25 +1,22 @@
 /**
  * OS 凭据通道 IKM 装置——Electron 主进程专用。
  *
- * safeStorage（mac Keychain / win DPAPI）是主进程专属模块，server 子进程
- *（utilityProcess，纯 Node 环境）拿不到——本模块在主进程生成/解锁 32 字节随机
- * IKM，密文落 userData/os-kek.json（safeStorage 加密 + 0600 原子写），明文经
- * env `CLW_OS_KEK` 注入 server 子进程（CLW_STUDIO_TOKEN 同款不经 argv 纪律）。
+ * safeStorage（mac Keychain / win DPAPI）是主进程专属模块，server 子进程（utilityProcess，纯
+ * Node 环境）拿不到——本模块在主进程生成/解锁 32 字节随机 IKM，密文落 userData/os-kek.json
+ *（safeStorage 加密 + 0600 原子写），明文经 env `CLW_OS_KEK` 注入 server 子进程
+ *（CLW_STUDIO_TOKEN 同款不经 argv 纪律）。
  *
- * 不可用面统一回落 null（子进程按 v1 内置通道语义运行，零悬崖）：
- * - safeStorage.isEncryptionAvailable false（linux 无钥匙串 / 未受支持后端）
- * - os-kek.json 损坏或 decryptString 失败（Keychain 拒绝 / 跨账户恢复）
- * v2 vault 在回落环境打开会抛 VaultOsKeyMissingError（引导从桌面应用启动），
+ * 不可用面统一回落 null（子进程按 v1 内置通道语义运行，零悬崖）：safeStorage.isEncryptionAvailable
+ * false（linux 无钥匙串 / 未受支持后端）；os-kek.json 损坏或 decryptString 失败（Keychain 拒绝 /
+ * 跨账户恢复）。v2 vault 在回落环境打开会抛 VaultOsKeyMissingError（引导从桌面应用启动），
  * 不会静默坏数据。
- * ①上述失败路径全部 warn 留痕（带路径+病因，不再静默）；
- * ②损坏自愈仅在 providers.json 无 v2 vault 时重建（v2 凭据以本 IKM 封装，重建即
- * 永久不可解——绝不重建，warn 指引），见 loadOrGenerateOsKek/v2VaultPresent 锚注。
- * ③丢失形态同判——文件**缺失**且 providers.json 持 v2 vault
- * 同样不重建（原直达生成路径静默顶替，跨机迁移场景误导用户重配 key 致可恢复凭据
- * 永久丢失；对称面收口）。
- * v1.0.0-rc.0 发布（Rosetta 死锁）：④翻译态守卫——x64 包在 arm64 机型经
- * Rosetta 运行时 safeStorage 首访（SecItemAdd 写 Keychain）在 securityd 授权 UI
- * 路径上同步死锁（无 UI 会话永不回，主进程阻塞于启动链），整面提前回落 null。
+ * ①失败路径全部 warn 留痕（带路径 + 病因）；②损坏自愈仅在 providers.json 无 v2 vault 时重建
+ *——v2 凭据以本 IKM 封装，重建即永久不可解，绝不重建（warn 指引），见
+ * loadOrGenerateOsKek/v2VaultPresent 锚注；③丢失形态同判：文件**缺失**且 providers.json 持
+ * v2 vault 同样不重建（直达生成路径会静默顶替，跨机迁移场景误导用户重配 key 致可恢复凭据
+ * 永久丢失）；④翻译态守卫——x64 包在 arm64 机型经 Rosetta 运行时，safeStorage 首访（SecItemAdd
+ * 写 Keychain）在 securityd 授权 UI 路径上同步死锁（无 UI 会话永不回，主进程阻塞于启动链），
+ * 整面提前回落 null。
  */
 import { safeStorage } from 'electron'
 import { randomBytes } from 'node:crypto'

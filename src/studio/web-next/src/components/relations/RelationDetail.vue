@@ -39,11 +39,17 @@ function relKey(r: { other: string; kind: string }): string {
           <!-- key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
                无向去重后的边表，同选点视角下 (other, kind) 必唯一，即天然稳定键。
  #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
+          <!-- 关系项是跳转选中节点的控件：role=button + 常驻 tabindex（每项都是独立跳转
+               目标，roving 会把多数项藏出 Tab 序）+ Enter/Space 同点击语义 -->
           <li
             v-for="r in g.selectedRelations.value"
             :key="relKey(r)"
             :class="{ debt: r.kind === 'debt' }"
+            role="button"
+            tabindex="0"
             @click="g.selectNode(r.other)"
+            @keydown.enter.prevent="g.selectNode(r.other)"
+            @keydown.space.prevent="g.selectNode(r.other)"
           >
             <div class="dc-rel-row">
               <span class="dc-rel-name">{{ r.other }}</span>
@@ -185,6 +191,12 @@ function relKey(r: { other: string; kind: string }): string {
 }
 .dc-rel li:hover {
   background: var(--background-modifier-hover);
+}
+/* 键盘焦点可见：与 hover 同款底衬 */
+.dc-rel li:focus-visible {
+  background: var(--background-modifier-hover);
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
 }
 .dc-rel li.debt .dc-rel-name::before {
   content: '◈ ';

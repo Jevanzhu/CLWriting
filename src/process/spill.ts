@@ -199,9 +199,9 @@ export function spillIfLarge(
   }
 }
 
-/** L-：删除超过 30 天未再写入的 spill 产物（best-effort，失败静默）。
- * 判据用 mtime（最后写入时间），注释如实——atime 语义在只读/备份/
- *  缓存读场景不可靠，不漏清正在取回的 spill；apply 链另有 baseSha 兜底防误删。
+/** 删除超过 30 天未再写入的 spill 产物（best-effort，失败静默）。
+ * 判据用 mtime（最后写入时间；atime 在只读/备份/
+ *  缓存读场景不可靠，不可作判据）；apply 链另有 baseSha 兜底防误删。
  * .meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
 const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
 

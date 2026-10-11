@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runCheck, markFalsePositive, type CheckReport, type CheckItem } from '../api/check'
 import { friendlyError } from '../shared/error'
+import { notifyCrossWindow } from '../shared/cross-window'
 import { useStaleGuard } from '../composables/useStaleGuard'
 
 /**
@@ -85,6 +86,10 @@ export const useCheckStore = defineStore('check', () => {
       // 灰显态从 localStorage 按书+文档回填（刷新后已标误报仍灰显）
       flagged.value = loadFlagged(name, docId)
       flagError.value = null
+      // 跨窗失效广播：本次机检结果已写服务端（树红点聚合的数据源）→ 他窗红点/判态失效。
+      // 只广播「失效」不带结果值——他窗收到后走各自既有 tree.loadIssues 重取（不经广播
+      // 传结果，防旧窗副本盖掉它自己的新状态）；本窗自己的红点刷新仍在 CheckPanel 侧。
+      notifyCrossWindow(['tree-issues'])
     } catch (e) {
       if (opGen.stale(gen)) return
       error.value = friendlyError(e)

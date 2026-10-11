@@ -51,7 +51,22 @@ interface RenameRetryOptions {
  *  退避口径不变：3×50ms 指数，仅集合内错误码重试，其余确定性错误立即终局。 */
 const RETRYABLE_FS_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY'])
 
-/** Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长） */
+/** Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长）。
+ *
+ * 为何维持同步（约束事实，非可选项）：本原语服务的 rename/rm 退避面是**同步签名**
+ * （renameWithRetry / rmWithRetry / atomicWriteFile / atomicWriteStream /
+ * createFileExclusive 均返回同步值），调用面 80+ 处，其中同步 RMW 临界段
+ * （document/manifest.ts withManifestLock 内 writeManifest、fs/cross-process-lock 锁文件、
+ * document/journal.ts 压缩回写、install/books.ts books.jsonl）要求「读—写之间不出现
+ * await」——把原语改成异步即在这些临界段里开出让出点，他方写入可插入（互斥失守）；
+ * CLI/启动链（install/books.ts repairBooks 等，src/studio/server/index.ts 启动段注释）
+ * 亦按同步契约消费。仓内既有的异步化形态是**在调用点立异步孪生**
+ * （appendBookAsync / removeBookEntryAsync / withManifestLockAsync /
+ * acquireCrossProcessLockAsync），原语保持同步。
+ * 最坏阻塞量化：重试 3 次 × 指数退避 50+100+200ms = 350ms 同步睡眠/单次操作，
+ * 仅在连续 4 次 EPERM/EBUSY 全败时才付满（成功路径零睡眠，确定性错误码立即终局）；
+ * 期间承载 SSE/心跳/保存的单进程事件循环整体停摆同等时长（如 PUT /file →
+ * api/files.ts 的 atomicWriteFile）。逐文件循环的操作按次数叠加。 */
 export function fsBackoffSleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }

@@ -18,6 +18,7 @@ import { join, dirname } from 'node:path'
 import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import {
+  manifestPathOf,
   readManifestStrict,
   writeManifest,
   upsertEntry,
@@ -46,9 +47,8 @@ export interface TrashEntry {
   finalizedRevision?: string
   finalizedAt?: string
   /** 软删前的清单投影字段（manifest 承诺承载「身份/排序/状态/标签
-   *  投影」）——原 TrashEntry 不携带，软删删条目、还原按字面重建，用户 tags 与自由区
-   * order 在「删→还原」一轮后不可逆清零（为 finalizedRevision 补过同型，
-   *  tags/order 是同族漏项：status 可派生故不带）。 */
+   *  投影」）——TrashEntry 不携带时，软删删条目、还原按字面重建，用户 tags 与自由区
+   * order 在「删→还原」一轮后不可逆清零（status 可派生故不带）。 */
   tags?: string[]
   order?: number
 }
@@ -58,7 +58,9 @@ export type RestoreResult =
 
 type PurgeResult = { ok: true; id: string } | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; reason: string }
 
-const TRASH_DIR_REL = '工作区/.trash'
+/** 回收站目录相对路径单源——service.ts 的落名（`${TRASH_DIR_REL}/<docId>-<basename>`）
+ *  与本模块的路径校验/建目录共用，防两处字面量漂移出「登记路径不在校验前缀内」。 */
+export const TRASH_DIR_REL = '工作区/.trash'
 const TRASH_MANIFEST_REL = '工作区/.trash/.trash-manifest.jsonl'
 
 /** 恢复目标位与回收站源的内容比对——上次「linkSync 成功 →
@@ -407,9 +409,9 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     mkdirSync(dirname(origAbs), { recursive: true })
     if (alreadyLinked) {
       // 续跑补删源（目标位内容已比对一致 = 上次 link 已完成）
-      // 删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
-      // 下裸 rmSync 直败（只收编了本文件 rename 面，rm 面漏网）；退避后仍失败
-      // 上抛走既有 WRITE_ERROR 收口（语义不变：作者重试经 byte-equal 幂等续跑）
+      // 删源走 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+      // 下裸 rmSync 直败；退避后仍失败上抛走既有 WRITE_ERROR 收口
+      //（语义不变：作者重试经 byte-equal 幂等续跑）
       rmWithRetry(trashAbs)
     } else {
       // existsSync→renameSync 的 TOCTOU 窗口内原位被跨进程新建 →
@@ -425,8 +427,8 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
       }
       if (origIsDir) {
         // 目录 rename 同样吃 win 瞬时锁（杀软/索引器
-        // EPERM/EBUSY），收编 renameWithRetry（同款 3×50ms 退避；确定性错误
-        // 原样上抛走 WRITE_ERROR 语义不变）
+        // EPERM/EBUSY），走 renameWithRetry（同款 3×50ms 退避；确定性错误
+        // 原样上抛走 WRITE_ERROR）
         renameWithRetry(trashAbs, origAbs)
       } else {
         // 落位改 linkOrRenameExclusive——EPERM/ENOSYS/EACCES
@@ -464,7 +466,7 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
   // rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
   let manifestUpserted = false
   try {
-    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const manifestPath = manifestPathOf(bookRoot)
     // RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
     await withManifestLockAsync(manifestPath, () => {
       // 锁等待窗内书可能已被删/移走——写回前回收站清单在位复评（判据与理由见
@@ -485,7 +487,7 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
               ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}),
             }
           : {}),
-        // tags/order 随还原带回清单（删→还原一轮不再静默清零用户标注/排序）
+        // tags/order 随还原带回清单（否则删→还原一轮会静默清零用户标注/排序）
         ...(entry.tags && entry.tags.length > 0 ? { tags: entry.tags } : {}),
         ...(typeof entry.order === 'number' ? { order: entry.order } : {}),
       })
@@ -576,10 +578,9 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const names = entry.id === encodeDocDirName(entry.id) ? [entry.id] : [entry.id, encodeDocDirName(entry.id)]
       for (const name of names) {
         const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${name}`)
-        // rmWithRetry 增设 recursive 档后，
-        // 版本目录递归删随 :411 主文件 / 分析信封 / journal 一并收编——win 同步盘瞬时
-        // 占用（EPERM/EBUSY）不再直败，退避后仍失败上抛走既有 WRITE_ERROR 收口
-        // 仍失败上抛走既有 WRITE_ERROR 收口（不可逆承诺下如实报错，不静默留隐私残迹）
+        // 版本目录递归删随主文件 / 分析信封 / journal 一并走 rmWithRetry
+        //（recursive 档）——win 同步盘瞬时占用（EPERM/EBUSY）不再直败，退避后仍失败
+        // 上抛走既有 WRITE_ERROR 收口（不可逆承诺下如实报错，不静默留隐私残迹）
         if (verDir && existsSync(verDir)) rmWithRetry(verDir, { recursive: true })
       }
       // 分析信封双候选 + journal 双名连删——purge「不可逆」承诺下
@@ -589,14 +590,14 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const analysisCandidates = analysisPathCandidates(bookRoot, entry.id)
       if (analysisCandidates) {
         for (const fp of analysisCandidates) {
-          // 删源收编 rmWithRetry（411 主文件同款先例）——退避后
+          // 删源走 rmWithRetry（主文件同款先例）——退避后
           // 仍失败上抛走既有 WRITE_ERROR 收口（不可逆承诺下如实报错，不静默留隐私残迹）
           if (existsSync(fp)) rmWithRetry(fp)
         }
       }
       for (const name of names) {
         const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
-        // 同上收编（journal 清理与主文件/分析信封同族删源点）
+        // 同上走 rmWithRetry（journal 清理与主文件/分析信封同族删源点）
         if (journalFile && existsSync(journalFile)) rmWithRetry(journalFile)
         // 登记的孤儿锁堆积改由陈锁清扫统一收口——
         // 此前 purge 侧「queryLockHeld → rmSync」自删存在 µs 级 TOCTOU（判「不在持」与删
@@ -634,5 +635,4 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
 function safePathWithin(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
-// errMsg 本地同型函数已随优化修复批收编 log/index.js 单源（本文件 4 个
-// 消费点 import 直用，语义逐位同旧实现）。
+// errMsg 单源在 log/index.js（本文件 4 个消费点 import 直用）。

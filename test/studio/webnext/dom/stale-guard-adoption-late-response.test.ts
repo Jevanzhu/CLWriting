@@ -54,21 +54,9 @@ import EditorView from '../../../../src/studio/web-next/src/views/EditorView.vue
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../../src/studio/web-next/src/stores/tree'
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeDraftChapterNode } from '../helpers/tree-node'
 
 const CONTENT = '---\n标题: 第1章\n---\n\n正文'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: '写作/正文/第1章-甲.md',
-    name: '第1章-甲.md',
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    status: 'draft',
-    children: [],
-  }
-}
 
 /** 等组件内异步链（getConfig / getCompletionNames 的 mock promise）结算。 */
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 10))
@@ -95,7 +83,7 @@ describe('R0916-7-P3-26: EditorView 顶栏书类型请求代（原 kindReqId）'
   it('A 书慢响应迟归不覆盖 B 书类型（切换后 pill 停在 B 书）', async () => {
     const doc = useDocStore()
     const tree = useTreeStore()
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1', '写作/正文/第1章-甲.md')]
 
     let releaseA!: (v: { kind: string }) => void
     const slowA = new Promise<{ kind: string }>((r) => {
@@ -124,7 +112,7 @@ describe('R0916-7-P3-26: EditorView 顶栏书类型请求代（原 kindReqId）'
   it('对照：无后发请求的迟归照常落位（守卫不误伤单请求路径）', async () => {
     const doc = useDocStore()
     const tree = useTreeStore()
-    tree.raw = [makeNode('d1')]
+    tree.raw = [makeDraftChapterNode('d1', '写作/正文/第1章-甲.md')]
     let releaseA!: (v: { kind: string }) => void
     mocks.getConfig.mockImplementation(
       () =>

@@ -11,7 +11,7 @@ import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
-// （errMsg 收编）：错误摘要口径单源
+// errMsg：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
 export const KNOWLEDGE_DIR = '知识层'

@@ -1,25 +1,24 @@
 /**
  * 进程级 md 文件文本指纹缓存。
  *
- * 动机：三处独立消费方此前各持一份私有正文缓存/无缓存——document/foreshadow.ts
- * chapterTextCache与 metrics/style.ts chapterBodyCache各 4096 条
- * 存**同一批章文件的去 fm 正文**（双份驻留）；check/leads.ts chapterTextOf 仅调用内
- * Map（每次机检全量重读）；process/book-search.ts searchFile 每查询裸 readFileSync
- * （无命中时读完全书）。收敛为单源后：同指纹零重读、驻留总量减半、三消费方共享。
+ * 动机：三处消费方各持一份私有正文缓存/无缓存——document/foreshadow.ts 与 metrics/style.ts 各
+ * 4096 条存**同一批章文件的去 fm 正文**（双份驻留）；check/leads.ts 仅调用内 Map（每次机检全量
+ * 重读）；process/book-search.ts 每查询裸 readFileSync（无命中时读完全书）。单源后：同指纹零重读、
+ * 驻留总量减半、三消费方共享。
  *
- * 纪律（对齐 document/tree.ts probeCache / format/chapters.ts chapterDirCache /
- * 同款口径）：
- * - bigint stat 指纹（mtimeNs + size，撞车窗口 ns 级）——写必 bump mtime，自然失效，
- *   无需写路径挂钩；文件消失（TOCTOU）清条目；
+ * 纪律（对齐 document/tree.ts probeCache / format/chapters.ts chapterDirCache 同款口径）：
+ * - bigint stat 指纹（mtimeNs + size，撞车窗口 ns 级）——写必 bump mtime，自然失效，无需写路径
+ *   挂钩；文件消失（TOCTOU）清条目；
  * - Map 插入序 FIFO 上限 4096（正文章数千级的 4 倍余量，防长跑无界）；
- * - 只缓存**原始文本**，fm 剥离/降级语义留给调用方（各消费方对「无 fm/未闭合 fm/
- *   读失败」的降级口径不同：foreshadow 归 ''、style 归 null、leads 走 bodyOf 裸文
- *   透传、book_search 要原文含 fm——单源不吞并语义）。
+ * - 只缓存**原始文本**——fm 剥离/降级语义留给调用方：各消费方对「无 fm/未闭合 fm/读失败」的降级
+ *   口径不同（foreshadow 归 ''、style 归 null、leads 走 bodyOf 裸文透传、book_search 要原文含
+ *   fm），单源不吞并语义。
  */
 import { readFileSync, statSync } from 'node:fs'
 import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises'
 import { sep } from 'node:path'
 import { platformCaseFold } from './safe-path.js'
+import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 const MD_TEXT_CACHE_MAX = 4096
 let mdTextCacheMax = MD_TEXT_CACHE_MAX
@@ -128,6 +127,11 @@ export function forgetMdTextCacheForBook(bookRoot: string): number {
   }
   return removed
 }
+
+// 登记制（模块顶层自登记）：删书后条目成死重、改名后旧前缀键不再命中——
+// 章正文/整文读取单源缓存按 bookRoot 前缀清（document/foreshadow.ts
+// forgetChapterTextCacheForBook 为该函数的委托包装，不重复登记）。
+registerBookKeyedCache('md-text-cache', forgetMdTextCacheForBook)
 
 /** 测试钩子（生产零调用，先例同 rebuild.ts __testHooks）——清缓存防用例间污染。 */
 export const __mdTextCacheTestHooks = {

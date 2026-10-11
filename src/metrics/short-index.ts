@@ -205,6 +205,8 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     entries.push({
       num: ch.章号,
       title: ch.标题,
+      // 字数口径单源 = countWords（剥空白）；与文风侧的 charCount（码点归一因子、含
+      // 空白，见 metrics/style.ts computeFullStats 注）非同一口径，两处勿互当替代
       wordCount: countWords(body),
       targetEmotion: cleanValue(ch.目标情绪),
       coreReversal,

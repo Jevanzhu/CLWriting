@@ -7,16 +7,16 @@
  * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  *
- * 单源化：searchBook/searchBookAsync 原手写平行双轨（前奏解析/
- * 逐目录循环/逐文件命中折叠/截断各一份），对齐 collectTreeIssuesCore 仓内范式
- * （check/run.ts，生成器核心 + 同步/异步双驱动）收编单源——
+ * searchBook/searchBookAsync 手写平行双轨（前奏解析/逐目录循环/逐文件命中折叠/截断
+ * 各一份）会漂移，故对齐 collectTreeIssuesCore 仓内范式（check/run.ts，生成器核心 +
+ * 同步/异步双驱动）单源——
  * - buildSearchPlan：前奏解析（归一/query 解析/dirs/finalizedKeys 折叠）一次写就；
  * - searchBookCore：生成器核心持有目录循环与逐文件命中折叠（rel 派生/定稿过滤/
  *   单文件截断/总量截断），IO 经 SearchFileIo 注入（yield 交驱动取值/等待）；
  * - 双驱动：同步侧 walkMd + readMdTextCached（直返值），异步侧 walkMdAsync +
  *   readMdTextCachedAsync（fs.promises），匹配/排序/截断/排除纪律零复制。
- * 行为逐位不变：六要素（归一、query 解析、dirs、finalizedKeys 折叠、截断上限、
- * 排除规则）两侧与改前完全一致。
+ * 行为契约：六要素（归一、query 解析、dirs、finalizedKeys 折叠、截断上限、
+ * 排除规则）两侧逐位一致。
  */
 import { join, relative } from 'node:path'
 import { readdirSync, statSync, realpathSync } from 'node:fs'
@@ -98,8 +98,8 @@ interface SearchPlan {
   finalizedKeys: Set<string> | null
 }
 
-/** 前奏解析（原 searchBook/searchBookAsync 双侧复写的开头段收编单源）。
- *  空查询返 null（调用方早退 { results: [] }，与改前逐位一致）。 */
+/** 前奏解析（searchBook/searchBookAsync 共用的开头段单源）。
+ *  空查询返 null（调用方早退 { results: [] }）。 */
 function buildSearchPlan(bookRoot: string, q: string, scope?: string): SearchPlan | null {
   // bookRoot 入参归一化（去尾部路径分隔符）后再用——rel 路径靠
   // `fp.slice(root.length + 1)` 剥前缀的算术对「根路径带尾分隔符」的入参形态敏感

@@ -7,8 +7,7 @@ import { chapterInput } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 export async function leadUpdate(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
-  // 章号校验收 shared.chapterInput 单源（原手抄 Number/isInteger 同体；
-  // 错误 summary 文案逐字保留）
+  // 章号校验收 shared.chapterInput 单源（错误 summary 文案逐字保留）
   const chapter = chapterInput(input)
   if (chapter === null) return { ok: false, summary: '缺少合法的章号 chapter（正整数）。' }
   // chat 编排级中断信号透传——作者中断对话后账本草稿生成同步中止

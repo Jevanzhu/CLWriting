@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 
 const failState = vi.hoisted(() => ({
   /** 命中即抛 EPERM；`permanent` = 不自动放行（重试耗尽形态），否则一次性瞬时锁形态。 */
@@ -53,7 +53,7 @@ import { migrateBookSession, openSessionStore, bookHash } from '../../src/events
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'f1-r38-migrate-'))
+  const d = tempDirTracked('f1-r38-migrate-')
   dirs.push(d)
   return d
 }

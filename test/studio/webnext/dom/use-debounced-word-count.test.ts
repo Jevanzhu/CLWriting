@@ -30,6 +30,7 @@ import {
 } from '../../../../src/studio/web-next/src/composables/useDebouncedWordCount'
 import { countWords } from '../../../../src/studio/web-next/src/shared/words'
 import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeDraftChapterNode } from '../helpers/tree-node'
 
 const mocks = vi.hoisted(() => ({
   getContent: vi.fn(),
@@ -102,18 +103,6 @@ function mountWith(setup: () => void): () => void {
   const Comp = { setup } as unknown as Parameters<typeof h>[0]
   render(h(Comp), el)
   return () => render(null, el)
-}
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: '写作/正文/第1章-甲.md',
-    name: '第1章-甲.md',
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    status: 'draft',
-    children: [],
-  }
 }
 
 function makeNodeAt(docId: string, path: string): TreeNode {
@@ -315,7 +304,7 @@ async function mountFourConsumers(): Promise<void> {
   ws.activeDocId = 'd1'
   ws.bookName = BOOK
   doc.setBook(BOOK)
-  tree.raw = [makeNode('d1')]
+  tree.raw = [makeDraftChapterNode('d1', '写作/正文/第1章-甲.md')]
   await doc.open(tree.byDocId.get('d1')!)
   mounted.push(mount(EditorView, { props: { docId: 'd1' } }))
   mounted.push(mount(FocusStatsBar))

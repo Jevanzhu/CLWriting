@@ -1,39 +1,26 @@
 /**
  * API 层长任务并发闸（per book+action）。
  *
- * 分钟级 AI 任务端点重复点击 = 双倍费用 + 落盘互踩。各 handler 入口同步占位
- * （无 TOCTOU 窗口）、finally 释放；同 key 已在跑 → 409（与 /spawn、/auto-write
- * 闸同口径）。「随客户端断开中止 AI」不在本闸范围（接线面大，转后续轮次）。
+ * 分钟级 AI 任务端点重复点击 = 双倍费用 + 落盘互踩。各 handler 入口同步占位（无 TOCTOU
+ * 窗口）、finally 释放；同 key 已在跑 → 409（与 /spawn、/auto-write 闸同口径）。「随客户端
+ * 断开中止 AI」不在本闸范围。进程内 Set 对双进程开同书无效（dev-api/脚本与 app 并行、拆分
+ * 形态 fork 的 server 与主进程等）——加跨进程文件锁兜底：书库 .clwriting/ 下 lockfile
+ *（O_EXCL 创建 + 写 pid + 进程启动时间；持有进程不存活（process.kill(pid,0) ESRCH）判 stale
+ * 接管清理，崩溃残留不永锁）；进程内 Set 保留作快路径（同进程重复点击零文件 IO）。acquire
+ * 失败返回 null（调用方回 409，锁不等待）。
  *
- * 进程内 Set 对双进程开同书无效（dev-api/脚本与 app 并行、Electron 拆分形态
- * fork 的 server 与主进程等）——加跨进程文件锁兜底：书库 .clwriting/ 下 lockfile
- * （O_EXCL 创建 + 写 pid + 进程启动时间；持有进程不存活（process.kill(pid,0) ESRCH）
- * 判 stale 接管清理——崩溃残留不永锁）。进程内 Set 语义保留作快路径（同进程重复
- * 点击零文件 IO）。acquire 失败仍返回 null（调用方回 409，锁不等待，语义同现状）。
+ * 忙闸互斥单源：BUSY_MATRIX（行 = 请求方意图，列 = 在途活动信号）是唯一矩阵，各端点入口只调
+ * busyReason(book, intent) 一次；文案由 SIGNAL_TEXT + INTENT_TAIL 单源拼装，句读统一全角。
+ * 边界声明：events/store.ts 的「写互斥」靠 SQLite busy_timeout，本闸不做事件库账本级互斥；
+ * 账本（ai-calls）/journal 的跨进程真锁用 fs/cross-process-lock.ts 本文件锁原语。
+ * 锁文件名 `${action}.${hash(book)}.lock`——列目录即可枚举持有者，不需动作注册表逐个哈希探测
+ *（旧「截断 sha256(key)」格式的迁移策略见下方「锁文件名与旧格式迁移」段）。
  *
- * 边界声明：events/store.ts 的「写互斥」靠 SQLite busy_timeout，本闸不做事件库
- * 账本级互斥；账本（ai-calls）/journal 的跨进程真锁已随落地（fs/cross-process-lock.ts），
- * 本文件锁原语同源收敛（复制版已删）。
- *
- * 忙闸互斥矩阵单源化——此前
- * 「哪类在途活动拦哪个端点、拦下说什么话」散在 7 处手写（stream 的 spawn/auto-write、
- * chat、audit 的清库族、books-lifecycle 的删/改名、documents-core 的结构操作、
- * review 三审、本文件的编排闸），已见漂移（半角/全角逗号两种、review 书级闸文案与
- * 成因不符）。现收敛为下面的 BUSY_MATRIX（行 = 请求方意图，列 = 在途活动信号），
- * 各端点入口只调 busyReason(book, intent) 一次；文案由 SIGNAL_TEXT + INTENT_TAIL
- * 单源拼装，句读统一全角顿号/逗号。
- *
- * （同批）：锁文件名由「截断 sha256(key)」改 `${action}.${hash(book)}.lock`
- * ——列目录即可枚举（不再需要动作注册表逐个哈希探测），排障一眼看出持有者；迁移策略
- * 见下方「锁文件名与旧格式迁移」段。
- *
- * 本模块的进程内闸表 / 三审登记表 /
- * 锁根三份模块级可变状态收进 **TaskGate 实例**（createTaskGate）——服务端组装根
- * （server/index.ts 的 createStudioServer）建实例并经各路由 ctx 显式传递，同进程内
- * 两个 server 实例因此互不干扰（判据用例见 test/studio/assembly-root-deps-injection.test.ts）。
+ * 进程内闸表 / 三审登记表 / 锁根三份模块级可变状态收进 TaskGate 实例（createTaskGate），由
+ * server/index.ts 组装根建实例并经各路由 ctx 显式传递——同进程两个 server 实例因此互不干扰。
  * 模块级函数（acquireTaskGate 等）保留为**进程默认实例**的委托壳：非路由消费方
- * （desktop/graceful-shutdown.ts 的退出等待、sweepStaleReviewDirs 的启动清扫、ai 侧
- * task-gate-port 的注册面）与既有测试按原签名调用，语义逐位不变。
+ *（desktop/graceful-shutdown.ts 的退出等待、sweepStaleReviewDirs 启动清扫、ai 侧
+ * task-gate-port 注册面）与既有测试按原签名调用。
  */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'

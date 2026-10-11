@@ -1,25 +1,27 @@
 /**
  * 诊断包（排查用打包件）：把「排查一个 bug 需要的最小信息集」打成单个 ZIP。
  *
- * 口径（基础集，拍板定案）：
- * - 环境：应用版本（版本单源，调用方注入）、平台/架构、运行环境（node/electron/
- *   chrome/v8 版本，缺者不列）、生成时间；
- * - 配置白名单：**显式列名**取键（全局编辑器偏好 / 供应商协议与模型名 /
- *   档位 / RAG 服务商），加上书库书数——不整份拷配置，也不读任何书稿文件；
+ * 口径（基础集）：
+ * - 环境：应用版本（版本单源，调用方注入）、平台/架构、运行环境（node/electron/chrome/v8 版本，
+ *   缺者不列）、生成时间；
+ * - 配置白名单：**显式列名**取键（全局编辑器偏好 / 供应商协议与模型名 / 档位 / RAG 服务商），
+ *   加上书库书数——不整份拷配置，也不读任何书稿文件；
  * - 日志：近 7 天 `app-YYYYMMDD.jsonl`（保留期口径与日志轮转同源），逐行脱敏；
  * - 说明.txt：包内清单 + 隐私边界声明（给拿到包的开发者/作者看）。
  *
  * 隐私红线（写死在本模块，测试锚定）：
- * - **书稿正文永不入包**——本模块不读 `写作/` 下任何文件，只读应用级数据目录；
- * - **密钥永不入包**——供应商只取 protocol / 模型名 / 「是否配了 key」布尔，
- *   apiKey（含密文）与 baseUrl 一概不读入内存；日志逐行过 redactSecret（既有脱敏
- *   单源，同 app-*.jsonl 落盘链）；
- * - **路径脱敏**——应用数据/用户目录/书库根在文本里替换为占位符，另加家目录形态
- *   正则兜底（win `C:\Users\x` / mac+linux `/Users|x/home`）。
+ * - **书稿正文永不入包**——本模块不读 `写作/` 下任何文件，只读应用级数据目录；日志段另设内容门：
+ *   可能内嵌书库文本的来源（见 CONTENT_BEARING_LOG_TAGS）只保留事件标签，正文片段（账本原文/
+ *   章文件名/front matter 行内容）一律省略；
+ * - **密钥永不入包**——供应商只取 protocol / 模型名 / 「是否配了 key」布尔，apiKey（含密文）与
+ *   baseUrl 值一概不入包（读入仅为判「是否已配置」）；日志逐行过 redactSecret（既有脱敏单源，
+ *   同 app-*.jsonl 落盘链）；
+ * - **路径脱敏**——应用数据/用户目录/书库根在文本里替换为占位符，另加家目录形态正则兜底
+ *  （win `C:\Users\x` / mac+linux `/Users|x/home`）。
  *
- * 落点：`<userData>/诊断包/诊断包-<本地时间戳>.zip`——不放书库目录：诊断包是应用级
- * 排查件（与书是否同步/搬走无关），落书库会被云同步带走、并在 `工作区/导出/` 里
- * 与导出稿混面。旧包不清理（同「归档不删」哲学：作者自己看得见、自己清）。
+ * 落点：`<userData>/诊断包/诊断包-<本地时间戳>.zip`——不放书库目录：诊断包是应用级排查件
+ *（与书是否同步/搬走无关），落书库会被云同步带走、并在 `工作区/导出/` 里与导出稿混面。
+ * 旧包不清理（同「归档不删」哲学）。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -35,6 +37,47 @@ const LOG_DAYS = 7
 const BUNDLE_DIR = '诊断包'
 /** 白名单里允许的字符串值长度上限（防某个键藏了长路径/长文本混进包） */
 const MAX_WHITELIST_STRING = 60
+/** 非 JSON 半行只留长度标记（结构不可解析 → 无法分类是否含书库文本，宁多勿漏） */
+const HALF_LINE_PLACEHOLDER = '[非 JSON 行已省略：内容不可分类，仅记字符数]'
+
+/**
+ * 可能内嵌书库文本的日志来源——msg 只保留「事件标签」（首个载荷分隔符之前），
+ * err 一概不取。正文/设定/账本/章文件名可能出现在这些来源的消息里：
+ * leads/lead-updates = 履历与账本推进原文；yaml/book.yaml/frontmatter = 配置与
+ * front matter 行内容；state = 已定稿文件路径（含章标题）；rebuild = 摘要目录名。
+ * 名单由 test/diagnostics/bundle.test.ts 的「切片载荷点 ⊆ 本名单」用例对账维持
+ *（新出现的切片日志会顶红，必须显式分类）。
+ */
+export const CONTENT_BEARING_LOG_TAGS: ReadonlySet<string> = new Set([
+  'leads',
+  'lead-updates',
+  'yaml',
+  'book.yaml',
+  'frontmatter',
+  'learn-commit',
+  'state',
+  'rebuild',
+])
+
+/** 事件标签 = 首个股载荷分隔符（「（(：:）之前的文字 + 省略标记——载荷一律不保留 */
+function eventLabelOf(msg: string): string {
+  const cut = msg.search(/[「（(：:]/)
+  const label = (cut === -1 ? msg : msg.slice(0, cut)).trim()
+  return `${label || '(无标签)'}（详情已省略）`
+}
+
+/** 内容门：承载书库文本的来源只留事件标签（在 scrub 之后执行，标签面已无载荷） */
+function gateLogContent(v: unknown): unknown {
+  const r = asRecord(v)
+  if (!r) return v
+  const tag = typeof r['tag'] === 'string' ? r['tag'] : ''
+  if (!CONTENT_BEARING_LOG_TAGS.has(tag)) return v
+  return {
+    ...r,
+    msg: typeof r['msg'] === 'string' ? eventLabelOf(r['msg']) : eventLabelOf(''),
+    err: undefined,
+  }
+}
 
 export interface DiagnosticsOptions {
   /** APP 级数据目录（Electron userData / CLI 约定路径）；null = 无法生成 */
@@ -157,6 +200,8 @@ function readmeText(): string {
     '',
     '隐私边界：',
     '  · 不含书稿正文、设定、大纲等任何书库内容；',
+    '  · 日志段对可能内嵌书库文本的来源（履历/账本/book.yaml/front matter/健康探测/',
+    '    缓存重建）只保留事件标签，正文片段一律省略；',
     '  · 不含任何 API Key / 令牌（只记「是否已配置」）；',
     '  · 不含供应商接口地址（只记协议与模型名）；',
     '  · 路径已替换为占位符（<应用数据> / <用户目录> / <书库根>）；',
@@ -225,7 +270,7 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
   const config = buildConfigSection(userDataPath, workDir, warnings)
 
   // ── 日志/（近 7 天，逐行脱敏）──
-  const logEntries = collectLogEntries(join(userDataPath, 'logs'), now, scrubValue, scrubText, warnings)
+  const logEntries = collectLogEntries(join(userDataPath, 'logs'), now, scrubValue, warnings)
 
   const entries: ZipEntry[] = [
     { name: '说明.txt', data: readmeText() },
@@ -279,13 +324,13 @@ function buildConfigSection(userDataPath: string, workDir: string | null, warnin
   }
 }
 
-/** 日志段（近 LOG_DAYS 天，逐行脱敏）：JSON 行 parse→遍历脱敏→序列化（转义形态
- *  差异下仍能命中路径替换）；非 JSON 行按文本脱敏。单文件不可读记 warning 不阻断。 */
+/** 日志段（近 LOG_DAYS 天，逐行脱敏 + 内容门）：JSON 行 parse→遍历脱敏→内容门
+ *  →序列化（转义形态差异下仍能命中路径替换）；非 JSON 半行只留长度标记（结构不可
+ *  解析则无法分类来源，载荷一律不保留）。单文件不可读记 warning 不阻断。 */
 function collectLogEntries(
   logsDir: string,
   now: Date,
   scrubValue: (v: unknown) => unknown,
-  scrubText: (s: string) => string,
   warnings: string[],
 ): ZipEntry[] {
   const out: ZipEntry[] = []
@@ -297,9 +342,9 @@ function collectLogEntries(
         .map((line) => {
           if (line.trim() === '') return line
           try {
-            return JSON.stringify(scrubValue(JSON.parse(line) as unknown))
+            return JSON.stringify(gateLogContent(scrubValue(JSON.parse(line) as unknown)))
           } catch {
-            return scrubText(line)
+            return HALF_LINE_PLACEHOLDER
           }
         })
       out.push({ name: `日志/${base}`, data: redacted.join('\n') })

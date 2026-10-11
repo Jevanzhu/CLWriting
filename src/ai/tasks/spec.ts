@@ -157,7 +157,7 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
       systemPrompt,
       promptText: opts.userPrompt,
       promptFiles,
-      // 清偿l 型 spec 经 generateTool 挂载单工具 schema（模型可见）
+      // tool 型 spec 经 generateTool 挂载单工具 schema（模型可见）
       // ——工具名进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）；文本型
       // 不挂 tools，无此键
       ...(spec.genMode === 'tool' && tool ? { promptTools: [tool.name] } : {}),

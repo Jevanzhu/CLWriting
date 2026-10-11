@@ -5,16 +5,15 @@
 import { describe, expect, it, afterEach } from 'vitest'
 import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent } from '../../src/events/chat-bridge.js'
 import { clearChatHistory } from '../../src/ai/orchestrate/chat.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'y-store-'))
+  const d = tempDirTracked('y-store-')
   dirs.push(d)
   return d
 }

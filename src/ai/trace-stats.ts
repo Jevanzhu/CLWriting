@@ -51,10 +51,9 @@ function percentile(sorted: number[], p: number): number {
  * @returns 聚合统计（无数据时 total=0）
  */
 export async function aggregateTrace(userDataPath: string | null | undefined, bookRoot: string): Promise<TraceStats> {
-  // 2-：读侧走 llm-call-read 单源（原注释：起 trace 以事件库 llm/call 为
-  // 单一事实源；观测层失败静默 → []；按事件创建时间聚日）。skipMissingUsage: false
-  // 即原口径——无 usage 行不跳过，token 按 0 兜底计入。
-  // 流式逐行聚合（原先把全量 entries 分组数组堆内存）；分组／按天累加器
+  // 读侧走 llm-call-read 单源（事件库 llm/call 为单一事实源；观测层失败静默 → []；
+  // 按事件创建时间聚日）。skipMissingUsage: false = 无 usage 行不跳过，token 按 0 兜底计入。
+  // 流式逐行聚合（不把全量 entries 分组数组堆内存）；分组／按天累加器
   // 均为小对象，峰值只与 task/日桶数量相关。读失败丢弃部分结果返回 {total:0}。
   interface TaskAcc {
     count: number

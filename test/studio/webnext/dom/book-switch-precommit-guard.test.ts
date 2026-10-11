@@ -101,18 +101,7 @@ import {
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { useWorkbenchStore } from '../../../../src/studio/web-next/src/stores/workbench'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
-}
+import { makeChapterNode } from '../helpers/tree-node'
 
 const bookPath = (n: string): string => `/book/${encodeURIComponent(n)}`
 
@@ -185,7 +174,7 @@ afterEach(() => {
 async function seedDirty(docId: string, opts: { conflict?: boolean } = {}): Promise<void> {
   const doc = useDocStore()
   mocks.getContent.mockResolvedValueOnce('盘上内容')
-  await doc.open(makeNode(docId))
+  await doc.open(makeChapterNode(docId))
   doc.patch(docId, '本地未落盘编辑')
   doc.get(docId)!.conflict = opts.conflict === true
 }

@@ -122,12 +122,12 @@ export interface PrepareResult {
   injectedSummaryFiles: string[]
 }
 
-// ──：token 折算单源迁 shared/tokens.ts ──────
-// 本文件原持 TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件，
-// 被最底层适配器族 ai/provider/usage-estimate.ts 反向引用（provider→编排层传递依赖，
-// 与 ai 侧回引本模块合围成强连通）。三件随迁 src/shared/tokens.ts 单源，本文件不留
-// re-export 兼容层（全库「不留双轨」口径）：消费方（本文件预算闸 / 适配器族）直引新家。
-// 的 codePointLength 收编注仍成立——其实现早已在 shared/text.ts。
+// ── token 折算单源在 shared/tokens.ts ──────
+// TOKEN_COEFFICIENTS / DEFAULT_TOKEN_COEFF / estimateTokens 三件若留在本文件，会被最底层
+// 适配器族 ai/provider/usage-estimate.ts 反向引用（provider→编排层传递依赖，与 ai 侧回引
+// 本模块合围成强连通）。三件单源在 src/shared/tokens.ts，本文件不留 re-export 兼容层
+//（全库「不留双轨」口径）：消费方（本文件预算闸 / 适配器族）直引新家。
+// codePointLength 的实现早已在 shared/text.ts。
 
 /**
  * 取正文末尾至多 maxChars 字，按段落边界（`\n\n`）截断，不切半句。
@@ -150,10 +150,10 @@ function tailByParagraph(body: string, maxChars: number): string {
  * @param db 缓存
  * @param config book.yaml
  * @param bookRoot 书仓库根
- * @param chapterLeadIds 本章细纲声明推进的账本条目 id（#12 第 2 节#2 源头限流）
- * @param ragRecallText 可选：RAG 召回的正文片段文本（#37 接缝）。
+ * @param chapterLeadIds 本章细纲声明推进的账本条目 id（源头限流）
+ * @param ragRecallText 可选：RAG 召回的正文片段文本。
  *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
- *        **不传 → 无此段 → 行为与现状逐字节一致**（工单验收红线）。
+ *        **不传 → 无此段 → 行为与现状逐字节一致**（红线）。
  * @param sampleScene 文风样章场景。可单值或多值（跨场景）；缺省回落「战斗」，保持旧调用兼容。
  */
 export function prepare(
@@ -420,8 +420,8 @@ function buildOutlookSections(
   // N=volumeSize+1 时本章就要上卷摘要，快照口径会晚一章
   const outlookVolume = Math.ceil((writingChapter ?? snapshot.currentChapter) / volumeSize)
   if (outlookVolume > 1) {
-    // 路径收口 volumeSummaryPath 单源（原手搓同款字面量，单源
-    // 改目录时此处漂移）；codePointLength 同批收编（见文件头 import）
+    // 路径收口 volumeSummaryPath 单源（手搓同款字面量会在单源改目录时漂移）；
+    // codePointLength 单源见文件头 import
     const volSummaryPath = volumeSummaryPath(bookRoot, outlookVolume - 1)
     if (existsSync(volSummaryPath)) {
       // 备料陈旧闸——程序生成（fm 带 sourceHash）且指纹落后于当前
@@ -465,8 +465,8 @@ function buildOutlookSections(
     })
   }
 
-  // #8 RAG 召回（弹性，flexibleRank 5 最先砍，#37 接缝）
-  // 不传/空串 → 无此段 → prepare 行为逐字节不变（验收红线）
+  // RAG 召回（弹性，flexibleRank 5 最先砍）
+  // 不传/空串 → 无此段 → prepare 行为逐字节不变（红线）
   if (ragRecallText && ragRecallText.length > 0) {
     sections.push({
       title: 'RAG 召回',

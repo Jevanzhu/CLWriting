@@ -1,14 +1,9 @@
 /**
- * 编排层统一执行器（方案 §三 / 审查 §八③）。
+ * 编排层统一执行器：mock 快路 → 取 provider（「未配置供应商」文案单源即本处封套）
+ * → 建可中断 ctrl → 生成 → 错误打包。各 AI 端点一律经此，不得各自手抄骨架。
  *
- * 收敛每条 AI 端点各自手抄的骨架：
- *   mock 快路 → 取 provider（统一错误文案）→ 建可中断 ctrl → 生成 → 错误打包。
- *
- * 收益（审查 §三 的三条症状）：
- *   1. 「未配置供应商」文案集中一处，不再 6 文件 6 份手抄（改文案只改这里）；
- *   2. mock 快路统一（tryMockTool / mockText 两形态）——self-heal 补上后六条路径齐备；
- *   3. AbortController 统一创建，register 可交给 driver（interrupt / isRunning 据此生效，
- * /spawn 等 fire-and-forget 链路可真正中断）。
+ * ctrl 契约：AbortController 统一由本执行器创建、经 register 交给 driver（interrupt /
+ * isRunning 据此生效，/spawn 等 fire-and-forget 链路可真正中断）。
  */
 import {
   createProvider,
@@ -21,7 +16,7 @@ import {
   type StopReason,
 } from './provider/index.js'
 // provider 运行时端口（降级记忆回调注册面）——组装根经 configureProviderRuntime
-// 注入；缺省进程单例即生产口径（provider/index.js 不在本批改动面，故此处直取 store 子模块）
+// 注入；缺省进程单例即生产口径
 import { processProviderRuntime, type ProviderRuntime } from './provider/store.js'
 import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveChunkStallTimeoutMs } from './gen.js'
@@ -35,8 +30,8 @@ import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
 import { readBookConfig } from '../format/yaml.js'
 import { join } from 'node:path'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-// openSessionStoreAsync/bookHash 随 mkChain 底层段收编
-// open-chain.ts 单源移除（唯一消费点）
+// 建链段（openSessionStoreAsync → workspaceSession → ChainRecorder）单源 open-chain.ts，
+// 本处是 openSessionStoreAsync 唯一消费点
 import { openChainRecorder } from './open-chain.js'
 import {
   ChainRecorder,
@@ -149,12 +144,11 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * （评审第二项）：run 回调返回壳的显式类型守卫。
+ * run 回调返回壳的显式类型守卫——usage / stopReason / resolvedMaxTokens / degraded
+ * 四处抽取的唯一取壳点（散写 `(data as Record<string, unknown>)['k']` 会让形状知识散在
+ * 各处且无校验，返回非对象时四种抽取各自为政）。
  *
- * 此前四处 extract*（usage / stopReason / resolvedMaxTokens / degraded）各写一遍
- * `(data as Record<string, unknown>)['k']` 鸭子类型抽取——形状知识散在四处、无一处校验，
- * 返回非对象（null / 字符串 / 数组）时四种抽取各自为政。现统一经本守卫取壳，再按字段
- * 逐个做值类型判定（值类型判定不能省：壳里字段可由调用方任意填）。
+ * 取壳后仍须逐字段判值类型：壳里字段可由调用方任意填，取壳本身不保证值合法。
  */
 function runResultShape(data: unknown): Record<string, unknown> | null {
   return typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : null
@@ -196,10 +190,10 @@ function extractUsage(data: unknown): TokenUsage | null {
 /**
  * 从 run 回调返回值提取 stopReason（归一枚举值）。
  *
- * 删除「缺字段/未知字符串 → 默认 'end_turn'」的静默兜底——此前 run 回调
- * 未带 stopReason 时（旧调用方/单测桩/壳形状漂移）trace 与 step/end 双双谎报「正常完成」，
- * 截断被当成功记账。现口径：值在 stopReason 值域（provider/types.ts 判别联合）内则原样
- * 透出；域外字符串与非字符串一律显式归 'unknown' 并日志留痕（丢弃必须可感知）。
+ * 禁「缺字段/未知字符串 → 默认 'end_turn'」的静默兜底：run 回调未带 stopReason
+ * 时（旧调用方/单测桩/壳形状漂移）trace 与 step/end 会双双谎报「正常完成」，截断被当成功
+ * 记账。值在 stopReason 值域（provider/types.ts 判别联合）内则原样透出；域外字符串与非
+ * 字符串一律显式归 'unknown' 并日志留痕（丢弃必须可感知）。
  */
 function extractStopReason(data: unknown, task: string | undefined): StopReason {
   const v = runResultShape(data)?.['stopReason']
@@ -228,18 +222,15 @@ function extractDegraded(data: unknown): boolean {
   return runResultShape(data)?.['degraded'] === true
 }
 
-/** 降级回调注册记录由模块级单值改 Map（key=userDataPath）——
- *  同进程先后以两个 userDataPath 各建 provider 时，后注册者不再覆盖前者的降级
- *  持久化回调（旧 provider 触发 persistDegraded 会读写另一个配置目录的 providers.json）。
- *  各 path 的回调闭包入 Map；store 单槽承载稳定分发器（模块级函数引用，
- * 重装幂等）。分发器升级为显式 path 优先路由——适配器实例由
- *  resolveProvider 注入来源 path（经 createProvider 贯穿至降级链），persistDegraded/
- *  lookupDegraded 调用时显式携带，双库并发生成互不劫持（旧实现按「最近 resolve 的
- *  活跃 path」路由，后 resolve 的库会劫持先库的降级读写）；未传 path（旧形态/单测
- *  直调）回落活跃 path（进程内口径 = 活跃库优先，兼容不变）。
- * 确认：Map 常驻「只建一次」是设计面而非遗漏——双库并存
- * （锁定）要求他 path 的闭包在换 path 后仍可经显式 path 路由命中，故
- *  pruneDegradedKeys 不清理两 Map（详见该函数注）。 */
+/** 降级回调注册记录：Map 以 userDataPath 为键，各 path 的回调闭包并存——
+ *  单值槽会让后注册者覆盖前者，旧 provider 触发 persistDegraded 时读写另一个配置目录的
+ *  providers.json。store 单槽只承载稳定分发器（模块级函数引用，重装幂等），分发器按
+ *  显式 path 优先路由：适配器实例由 resolveProvider 注入来源 path（经 createProvider
+ *  贯穿至降级链），persistDegraded/lookupDegraded 调用时显式携带，双库并发生成互不劫持
+ * （按「最近 resolve 的活跃 path」路由会让后 resolve 的库劫持先库的降级读写）；未传
+ *  path（单测直调）回落活跃 path。
+ *  Map 常驻（pruneDegradedKeys 不清理两 Map）是设计面：双库并存要求他 path 的闭包在换
+ *  path 后仍可经显式 path 路由命中。 */
 const degradedPersistByPath = new Map<string, (key: string) => void>()
 const degradedLookupByPath = new Map<string, (key: string) => boolean | undefined>()
 let degradedActivePath: string | null = null
@@ -264,7 +255,7 @@ function degradedLookupDispatch(key: string, userDataPath?: string): boolean | u
 
 /** provider 运行时端口（组装根注入）——降级记忆的 persist/lookup 注册面
  *  由端口承载（缺省进程单例）。所有权：端口对象归组装根；本模块只调用不持有。
- *  级联影响如实记：端口是进程级（AI 执行器本身是进程级），多 server 实例共用一份；
+ *  级联影响：端口是进程级（AI 执行器本身是进程级），多 server 实例共用一份；
  *  生产单 server 进程一份，无差异。 */
 let providerRuntime: ProviderRuntime = processProviderRuntime()
 
@@ -276,13 +267,12 @@ export function configureProviderRuntime(rt: ProviderRuntime): void {
 /**
  * mock 快路开关：**组装根唯一选择点**。
  *
- * 此前 runTask 自己读 CLWRITING_DRIVER 环境变量（=== 'mock'）决定文本型快路是否短路
- * ——选择点埋在执行器内、与「用哪个 driver」两处各判一次，且环境变量一旦被子进程/测试
- * 进程带上就静默改行为。现选择结果由组装根（server/index.ts 的 createStudioServer，
- * 读 deps.driver.kind）经本注入点送达；runTask 只认注入值，不读任何环境变量。
+ * runTask 只认本注入值，不读任何环境变量——执行器内自读 CLWRITING_DRIVER 会与「用哪个
+ * driver」两处各判一次，且环境变量被子进程/测试进程带上就静默改行为。选择结果由组装根
+ * （server/index.ts 的 createStudioServer，读 deps.driver.kind）送达。
  *
- * 范围如实记：工具型快路（tryMockTool）的判断在 ai/mock-tool.ts（不在本批改动面），
- * 仍按环境变量短路；生产两处由同一组装根同拍决定，口径一致。
+ * 例外：工具型快路（tryMockTool）的判断在 ai/mock-tool.ts，仍按环境变量短路；生产两处
+ * 由同一组装根同拍决定，口径一致。
  */
 let mockFastPath = false
 
@@ -311,9 +301,9 @@ function registerDegradedCallbacks(userDataPath: string): void {
     // saveProviders 排队段失败现随返回 promise 上抛——降级记忆落盘是
     // fire-and-forget 侧通道（不中断已成功的建流），此处收口拒绝（saveProviders
     // 内部已 log.warn 留痕）；快路同步异常照旧落进 persistDegraded 的 try/catch，语义不变
-    // per-key 标记移入 saveProviders 成功回调——此前置位在 promise
-    // 落定前，排队段一旦失败本进程内此 key 被永久短路不再重试（与上方「失败不标记」
-    // 相悖）；现失败保持未标记自然重试，成功才标。并发双 persist 同 key 幂等无害：
+    // per-key 标记必须在 saveProviders 成功回调内落定（不可提前置位）：排队段一旦失败，
+    // 提前标记会让本进程此 key 被永久短路不再重试（与「失败不标记」相悖）；失败保持未标记
+    // 自然重试，成功才标。并发双 persist 同 key 幂等无害：
     // 快路同步落盘后第二调用走「读盘已含」分支收口；在途窗口内双 save 亦只是重复写同值
     saveProviders(userDataPath, s)
       .then(() => {
@@ -355,19 +345,18 @@ export function resolveProvider(
   | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string; modelHint?: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
-  // 注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
-  // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册。
-  // 注册记录单值 → Map——换 path 重注册时旧 path 的回调不再被
-  // 覆盖丢失（Map 常驻两 path 各自的闭包，store 槽只换稳定分发器）
+  // 注册幂等：同 userDataPath 只注册一次（每次 resolveProvider 都重设槽位换新闭包属
+  // 热路径重复功），换 path 才重注册。注册记录为 Map——换 path 重注册时旧 path 的回调
+  // 不被覆盖丢失（Map 常驻两 path 各自的闭包，store 槽只换稳定分发器）
   if (degradedActivePath !== userDataPath) {
     degradedActivePath = userDataPath
     pruneDegradedKeys(userDataPath)
     registerDegradedCallbacks(userDataPath)
   }
   // 只 loadProviders 一次（含 vault 解密），后续 conf / tier 全从同一 store 派生
-  // ee-loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
-  // GCM 认证失败等场景会直接 throw——与下方 dd- 的 createProvider 同为取 provider 的
-  // 入口，却裸穿 {ok:false} 封套（此前 step/start 已落成孤儿、API 层变裸 500），
+  // loadProviders 在 providers.json 损坏且 bak 不可用 / vault 版本过高 /
+  // GCM 认证失败等场景会直接 throw——与下方 createProvider 同为取 provider 的
+  // 入口，裸穿 {ok:false} 封套会留下孤儿 step/start、异常穿透到 API 层变裸 500，
   // 故收进封套同判 NO_PROVIDER。（上方两个降级回调内的 loadProviders 在生成期才执行，
   // 已被 runTask 主 try 包住，保持不动。）
   let s: ReturnType<typeof loadProviders>
@@ -394,13 +383,12 @@ export function resolveProvider(
   const tier = tierFromStore(s, tierKind)
   // NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG, modelHint: `provider:${conf.id}` }
-  // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
+  // 表驱动（§6.3）：modelCaps 探测退役——能力由静态表判定；
   // store 传入适配器供降级记忆读写（§6.5）。
   // createProvider 携来源 userDataPath——适配器降级记忆读/写按显式
   // path 分发（实例缓存键亦含 path，同 conf 跨 path 不复用实例），双库并发生成时
   // 各库 provider 的降级记忆落在各自的 providers.json。
-  // dd-createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
-  // 停用期的迁移报错曾属此列启用批已随注册回接移除）——
+  // createProvider 对存量坏 conf 会 throw（未知协议等）——
   // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
   // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
   try {
@@ -452,9 +440,9 @@ function mkChain(
     )
     return Promise.resolve(null)
   }
-  // 「openSessionStoreAsync → workspaceSession → ChainRecorder
-  // 失败先关库」底层段收编 open-chain.ts 单源（self-heal mkChain 同源）；本侧结构化 warn
-  // 留痕（审计黑洞口径）经 onWarn 钩子保留，reason 取值与 JSON 键序逐字不变。
+  // 建链底层段（含失败先关库）単源在 open-chain.ts（self-heal mkChain 同源）；本侧结构化
+  // warn 留痕（建链失败整段调用零事件落库是审计黑洞）经 onWarn 钩子保留，
+  // reason 取值与 JSON 键序不动（日志对账不漂移）。
   return openChainRecorder(userDataPath, bookRoot, (reason, error) => {
     log.warn(
       'runner',
@@ -496,9 +484,9 @@ interface RunTaskOpts<T> {
   /** prompt 引用的材料文件（相对书根）——进 promptMeta.files，
    *  备料注入（章摘要等）「模型可见 ⟺ 已记录」的登记通道 */
   promptFiles?: string[]
-  /** 清偿批模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的
-   *  chatTools）——进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
-   *  旧调用方不传则无此键（向后兼容） */
+  /** 模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的 chatTools）——
+   *  进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
+   *  不传则无此键（向后兼容） */
   promptTools?: string[]
   /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
   chapter?: number
@@ -522,9 +510,9 @@ interface RunTraceParams {
  */
 interface RunCtx {
   runId: string
-  // llm/call 的 durationMs 只记本 attempt LLM 调用时长——此前为
-  // 跨 attempt 累计值（含此前失败 attempt + 退避 sleep），重试链的时延/计费统计失真；
-  // 每次 attempt 调 run 前重置（trace-stats 百分位 / 计费消费方口径随之校正）
+  // llm/call 的 durationMs 只记本 attempt LLM 调用时长（不得跨 attempt 累计：含失败
+  // attempt + 退避 sleep 会让重试链的时延/计费统计失真）；每次 attempt 调 run 前重置
+  // （trace-stats 百分位 / 计费消费方据此口径）
   attemptStartMs: number
   // attempt 时长终点点快照——trace 内联 Date.now() 时，成功路径
   // 的 recordUsageSafe 记账 IO（含最长 5s 用量文件锁等待）被计入 llm/call durationMs，
@@ -537,7 +525,7 @@ interface RunCtx {
   chain: ChainRecorder | null
   // resolve 解析值落 trace——实际生效的 effort 与 timeoutMs（含
   // DEFAULT_TIMEOUT_MS 回落后的最终值）随 llm/call 落库，铁律②「默认值显式 resolve」
-  // 的重放口径补全（此前 trace 仅落 model，重放无法精确重建档位/超时）。mock 快路与
+  // 的重放口径：trace 只落 model 则重放无法精确重建档位/超时。mock 快路与
   // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
   resolvedEffort: string | undefined
   resolvedTimeoutMs: number | undefined
@@ -568,7 +556,7 @@ interface RunRuntime {
   attemptsUsage: TokenUsage | null
 }
 
-/** 段 2 的三个终态臂：成功（data + 本轮 usage）/ 中断·超时 / 终态失败（后两臂出口处封套已成形） */
+/** 段 2 的三个终态臂：成功（data + 本次 usage）/ 中断·超时 / 终态失败（后两臂出口处封套已成形） */
 type RunOutcome<T> =
   { kind: 'ok'; data: T; usage: TokenUsage | null } | { kind: 'abort'; err: TaskErr } | { kind: 'fail'; err: TaskErr }
 
@@ -632,8 +620,8 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
         ...(ctx.resolvedEffort !== undefined ? { effort: ctx.resolvedEffort } : {}),
         ...(ctx.resolvedTimeoutMs !== undefined ? { timeoutMs: ctx.resolvedTimeoutMs } : {}),
         ...(p.maxTokens !== undefined ? { maxTokens: p.maxTokens } : {}),
-        // degraded 落事件最后一跳——此前 trace 入参带了但未转发进
-        // llmCallEvent（spread 绕过类型检查静默丢弃）的贯通实际断在此处
+        // degraded 落事件最后一跳——trace 入参带了但未转发进 llmCallEvent 时，
+        // spread 会绕过类型检查静默丢弃，贯通断在此处
         ...(p.degraded ? { degraded: true } : {}),
         ...(ctx.resolvedChunkStallTimeoutMs !== undefined
           ? { firstByteTimeoutMs: ctx.resolvedChunkStallTimeoutMs }
@@ -652,8 +640,8 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
     tierKind,
     bookRoot,
     task,
-    // 链路事件录制器——先于 mock 快路初始化（此前 mkChain 在 mock 快路之后才建，
-    // mock 命中的回合不产生任何链路事件，审计流里是黑洞；现提前建，快路也记 step/llm）
+    // 链路事件录制器——必须先于 mock 快路初始化：建在快路之后则 mock 命中的回合
+    // 不产生任何链路事件（审计流黑洞）；提前建后快路也记 step/llm
     chain: null,
     resolvedEffort: undefined,
     resolvedTimeoutMs: undefined,
@@ -681,16 +669,16 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
   if (opts.mockTool) {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
-      // mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——此前记 null 而
-      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50。
+      // mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——记 null 而
+      // data 内藏 usage（self-heal done 事件自取累计）会让同一调用事件库 0/0、UI 口径 100/50。
       // stopReason:'mock' 为刻意的 mock 回合标记（非 provider 线值域成员）：事件层
       // stopReason 是 string 面（trace 入参/llmCallEvent 同），不进归一联合；审计读侧
       // 据 'mock' 一眼区分 mock 回合与真实供应商终止值（改记归一值反而把 mock 洗成真值）
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
-      // ctrl 契约对齐真实路径——TaskOk.ctrl 恒为
-      // opts.ctrl ?? 新建（ee-「TaskOk.ctrl 对外是外部 ctrl」的 mock 半边此前
-      // 脱钩为无名新控制器）。mock 语义下无行为差，纯契约一致。
+      // ctrl 契约对齐真实路径——TaskOk.ctrl 恒为 opts.ctrl ?? 新建
+      //（「TaskOk.ctrl 对外是外部 ctrl」在 mock 半边不得脱钩为无名新控制器；
+      //  mock 语义下无行为差，纯契约一致）。
       return {
         done: true,
         result: {
@@ -706,10 +694,10 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
     }
   }
   // mock 快路（文本型）：组装根选定 mock 驱动时直接返回预定值（守卫位置与 tryMockTool 对称）。
-  // 判断只认注入的 mockFastPath（原为该环境变量的调用期读取）。
+  // 判断只认注入的 mockFastPath，不读环境变量。
   if (opts.mockText !== undefined && mockFastPath) {
-    // usage 对齐工具快路 MOCK_USAGE（口径）——此前文本快路
-    // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）。
+    // usage 对齐工具快路 MOCK_USAGE（口径）——文本快路若记 null，
+    // 同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）。
     // stopReason:'mock' 同工具快路口径（见上方注：mock 回合标记，不进归一联合）
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })
     finishMock()
@@ -795,8 +783,8 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
       ctx.chain.close()
       ctx.chain = null
     }
-    // 配置类失败（NO_USERDATA/NO_PROVIDER/NO_MODEL）日志留痕——此前仅事件库
-    // trace（bookRoot+task 齐备才落），日志通道零线索；未触决策表（无 GenError），
+    // 配置类失败（NO_USERDATA/NO_PROVIDER/NO_MODEL）日志留痕——事件库
+    // trace 只在 bookRoot+task 齐备时落，单靠它日志通道零线索；未触决策表（无 GenError），
     // 不带 action 字段
     log.warn(
       'runner',
@@ -820,17 +808,17 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
  * 段 3 的清理（旧 finally 在 throw 时也执行的语义不变）。
  */
 async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedProvider): Promise<RunSettled<T>> {
-  // ee-外部 ctrl（opts.ctrl / register / TaskOk.ctrl 的对外契约）与内部 ctrl 分离——
-  // 整体超时只 abort 内部 ctrl 终止本次 runTask，不再污染编排级共享 ctrl（self-heal 一个
-  // ctrl 跑多章：此前超时 abort 共享 ctrl 后被其 `state.ctrl.signal.aborted` 判吞成用户
+  // 外部 ctrl（opts.ctrl / register / TaskOk.ctrl 的对外契约）与内部 ctrl 分离——
+  // 整体超时只 abort 内部 ctrl 终止本次 runTask，不得污染编排级共享 ctrl（self-heal 一个
+  // ctrl 跑多章：超时若 abort 共享 ctrl，会被其 `state.ctrl.signal.aborted` 判吞成用户
   // 中断，超时文案丢失且后续章静默停摆）。外部中断经 forwardAbort 转发进内部 ctrl，
   // 下方运行与 catch 判定全走内部（对外契约不变，abortCause 按触发序区分超时 vs 中断）。
   const external = opts.ctrl ?? new AbortController()
   const ctrl = new AbortController()
   // 中断/超时归因按「谁先触发」记录——外部中断闭包与总超时定时器
-  // 各自先登记 abortCause 再 abort（JS 单线程下登记序 = 触发序）。此前 catch 里只看
-  // timedOut 布尔：用户恰在超时边界主动中断（timer 晚半拍仍触发）会被 trace 记成
-  // TIMEOUT_TOTAL——行为（abort/重试豁免/入账）不变，仅修诊断口径。
+  // 各自先登记 abortCause 再 abort（JS 单线程下登记序 = 触发序）。不可只看 timedOut
+  // 布尔：用户恰在超时边界主动中断（timer 晚半拍仍触发）会被 trace 记成
+  // TIMEOUT_TOTAL——行为（abort/重试豁免/入账）不受影响，仅诊断口径。
   let abortCause: 'external' | 'total-timeout' | null = null
   const abortedByUser = (): boolean => abortCause === 'external'
   const forwardAbort = (): void => {
@@ -873,8 +861,8 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
         )
         // run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
         // 定时器竞态）——按中断/超时口径收口，不把「成功」契约让给可能被截断的流；
-        // 此前靠调用方（self-heal 等）各自二次检查兜底，现收归 runTask 单点，调用方
-        // 幂等检查保留不动。中断路径入账口径随（真实消耗按次入账）。
+        // 该二次检查归 runTask 单点（不得只靠调用方各自兜底），调用方幂等检查保留不动。
+        // 中断路径入账口径随（真实消耗按次入账）。
         if (ctrl.signal.aborted) {
           const abortedUsage = extractUsage(data)
           recordUsageSafe(rt, ctx, opts, abortedUsage)
@@ -952,7 +940,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
             // Retry-After 超封顶终态日志留痕——决策表判 'retry' 却被服务端等待值
-            // 否决的出口，此前仅事件库 trace；带决策表动作名 + 服务端值/封顶值可归因
+            // 否决的出口（事件库 trace 不足以归因）；带决策表动作名 + 服务端值/封顶值
             log.warn(
               'runner',
               JSON.stringify({
@@ -1019,8 +1007,8 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           recordRetryEvent(ctx.chain, attempt, delay, e.code)
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
-            // 此处不再 trace——上方（/处）已对同 attempt 落过
-            // 'error' 事件，再落 ABORTED 会让 trace-stats/cost-stats 对同一 attempt 双计
+            // 此处不再 trace——同 attempt 已在 'error' 事件落过，再落 ABORTED 会让
+            // trace-stats/cost-stats 对同一 attempt 双计
             // （llm/call 是历史聚合唯一真源）；保留 stepReason 终态与 timeoutAbort 收口
             ctx.stepReason = abortStepReason(abortedByUser())
             return { rt, outcome: { kind: 'abort', err: timeoutAbort(rt, ctx, timeoutMs, abortedByUser()) } }
@@ -1044,8 +1032,8 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
         ctx.stepReason = 'error'
         // 终态失败日志留痕——动作名取决策表现值（author / switch-provider /
         // shrink-prompt 在接线前同归终态、重试耗尽时 action 仍为 'retry'，见
-        // failure.ts 决策表注释）；此前仅事件库 llm/call（chain 缺失时零线索），日志
-        // 通道无任何痕迹。非 GenError 异常按 GEN_FAIL 兜底口径记 action:'author'
+        // failure.ts 决策表注释）；事件库 llm/call 在 chain 缺失时零线索，日志通道
+        // 是唯一痕迹。非 GenError 异常按 GEN_FAIL 兜底口径记 action:'author'
         log.warn(
           'runner',
           JSON.stringify({
@@ -1120,12 +1108,11 @@ interface RunLedgerOpts {
 
 /**
  * 记账助手：全 attempt 可得 usage 的累计（attemptsUsage 唯一写点）+ 落账。
- * （M 项）：记账 IO 防护——记账写库（起为 recordUsageBoth 单写段，
- * 此前 recordTaskUsage/recordAiCall 两段）抛错（磁盘满/库锁/
+ * 记账 IO 防护——记账写库（recordUsageBoth 单写段）抛错（磁盘满/库锁/
  * 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
  * 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
- * 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
- * 本助手每次 attempt 恰被调用一次——同点累计全 attempt 可得
+ * 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手，
+ * 每次 attempt 恰被调用一次——同点累计全 attempt 可得
  * usage（attemptsUsage），done 事件消费方与按次入账的账本口径对齐。
  */
 function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage: TokenUsage | null): void {
@@ -1133,9 +1120,8 @@ function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage
   if (!ctx.bookRoot) return
   try {
     // task/chapter 两块合并单写段（recordUsageBoth 一次
-    // 「锁+读+写+fsync」同改两块）——此前 recordTaskUsage 与 recordAiCall 先后
-    // 各一段 RMW，同账本双写纯增争用窗口；cost 仅 chapter 块需要（配价才算，
-    // 未配价 undefined=口径不生效，与旧 recordAiCall 调用点一致）
+    // 「锁+读+写+fsync」同改两块）——两段 RMW 先后写同账本纯增争用窗口；
+    // cost 仅 chapter 块需要（配价才算，未配价 undefined=口径不生效）
     const cost =
       opts.chapter !== undefined && usage
         ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage)
@@ -1146,7 +1132,7 @@ function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage
   }
 }
 
-/** 本轮 attempt 的可得 usage 计入全 attempt 累计（首次即建副本，防与调用方共享同一对象） */
+/** 本 attempt 的可得 usage 计入全 attempt 累计（首次即建副本，防与调用方共享同一对象） */
 function accumulateAttemptsUsage(rt: RunRuntime, u: TokenUsage | null): void {
   if (!u) return
   if (!rt.attemptsUsage) {
@@ -1161,7 +1147,7 @@ function accumulateAttemptsUsage(rt: RunRuntime, u: TokenUsage | null): void {
   if (u.cacheWriteTokens !== undefined) {
     rt.attemptsUsage.cacheWriteTokens = (rt.attemptsUsage.cacheWriteTokens ?? 0) + u.cacheWriteTokens
   }
-  // reasoningTokens 同口径累计（responses 线观测位此前漏计）
+  // reasoningTokens 同口径累计（responses 线观测位易漏计）
   if (u.reasoningTokens !== undefined) {
     rt.attemptsUsage.reasoningTokens = (rt.attemptsUsage.reasoningTokens ?? 0) + u.reasoningTokens
   }
@@ -1188,9 +1174,8 @@ function timeoutAbort(rt: RunRuntime, ctx: RunCtx, timeoutMs: number, userAborte
       timeoutMs,
     }),
   )
-  // 此前写死 `${timeoutMs / 60_000} 分钟`——档位可配
-  // 任意毫秒值，非整分钟配置下作者看到「1.5 分钟」「0.001 分钟」；改走单源格式化
-  // （<1s 毫秒 / <60s 秒 / 否则分钟，向下取整——文案是「超过 N」的口径）
+  // 超时文案走单源格式化（<1s 毫秒 / <60s 秒 / 否则分钟，向下取整——文案是「超过 N」
+  // 的口径）——写死「分钟」在档位可配任意毫秒值时会出现「1.5 分钟」「0.001 分钟」
   return {
     ok: false,
     code: 'TIMEOUT_TOTAL',

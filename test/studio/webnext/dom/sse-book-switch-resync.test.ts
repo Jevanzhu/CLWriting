@@ -87,7 +87,7 @@ import Book from '../../../../src/studio/web-next/src/pages/Book.vue'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
 import { useWorkbenchStore } from '../../../../src/studio/web-next/src/stores/workbench'
-import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { makeChapterNode } from '../helpers/tree-node'
 
 /** SSE 桩（沿 sse-token-null-rebootstrap 的 MockES） */
 class MockES {
@@ -112,17 +112,6 @@ class MockES {
   emit(payload: Record<string, unknown>): void {
     this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent)
   }
-}
-
-function makeNode(docId: string): TreeNode {
-  return {
-    path: `写作/正文/${docId}.md`,
-    name: `${docId}.md`,
-    isDirectory: false,
-    role: 'chapter',
-    docId,
-    children: [],
-  } as TreeNode
 }
 
 /** 存活（未 close）的连接 */
@@ -190,7 +179,7 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
     const doc = useDocStore()
     const wb = useWorkbenchStore()
     const ui = useUiStore()
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '本地未落盘编辑')
     doc.get('d1')!.conflict = true
 
@@ -236,7 +225,7 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
     const doc = useDocStore()
     const ui = useUiStore()
     const askSpy = vi.spyOn(ui, 'ask')
-    await doc.open(makeNode('d1'))
+    await doc.open(makeChapterNode('d1'))
     doc.patch('d1', '未落盘编辑')
     let releaseSave!: (v: { ok: true; revision: `sha256:${string}` }) => void
     mocks.saveContent.mockImplementationOnce(

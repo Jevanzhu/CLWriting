@@ -11,8 +11,7 @@
  * 纯函数，不依赖 DB——单测直接喂事件数组。
  */
 import type { ChatEvent, EventType } from './types.js'
-// -源码 -⑦：排序原语收编 projection 单源（原本地副本逐字双源；依赖单向
-// branch-tree → projection，无环）
+// 排序原语单源 projection（依赖单向 branch-tree → projection，无环）
 import { sortEvents } from './projection.js'
 
 /** 分支树节点（surface 消息事件；非 surface 事件也保留用于重放） */

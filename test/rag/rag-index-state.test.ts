@@ -9,9 +9,8 @@
  */
 import { describe, expect, it, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { tempDirTracked } from '../helpers/temp-dir.js'
 import { buildIndex, ragIndexState, recallDetailed, resetRagIndex } from '../../src/rag/index.js'
 import { openRagDb, setRagMeta } from '../../src/rag/store.js'
 import { type embed } from '../../src/rag/embed.js'
@@ -19,7 +18,7 @@ import type { RagConfig } from '../../src/rag/config.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'clw-r40-rag-'))
+  const d = tempDirTracked('clw-r40-rag-')
   dirs.push(d)
   return d
 }

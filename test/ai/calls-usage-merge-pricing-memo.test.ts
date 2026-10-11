@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync, utimesSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 
 // 真实落盘计数：包裹 atomicWriteFile（行为透传 actual，只计数）——合并记账的核心
 // 断言是「同一笔 usage 只落一次盘」，直接观测写原语而非文件形态。
@@ -36,7 +36,7 @@ import type { TokenUsage } from '../../src/ai/provider/index.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempTracked(join(tmpdir(), 'pm11-calls-'))
+  const d = tempDirTracked('pm11-calls-')
   dirs.push(d)
   return d
 }

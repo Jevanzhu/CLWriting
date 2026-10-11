@@ -76,21 +76,9 @@ vi.mock('../../../../src/studio/web-next/src/composables/useShelf', async (impor
 import ShelfModal from '../../../../src/studio/web-next/src/components/ui/ShelfModal.vue'
 import { LAST_BOOK_KEY } from '../../../../src/studio/web-next/src/shared/storage-keys'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 // node 环境无 localStorage，Map 替身（use-shelf-delete 先例）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 vi.stubGlobal('localStorage', createLocalStorage())
 
 async function mountModal(): Promise<void> {

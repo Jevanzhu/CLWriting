@@ -1,17 +1,17 @@
-// 与服务端共享的字数/章名纯函数（T2.1）：从主仓 src/format/words.ts re-export。
-// words.ts 零 Node 依赖，浏览器端可直接 import；chapters.ts 因 import node:fs 不可跨入。
+// 与服务端共享的字数/章名纯函数（T2.1）：从主仓 src/shared/words.ts re-export。
+// words.ts 零 Node 依赖，浏览器端可直接 import；format 域因 import node:fs 不可跨入。
 // chapterFilePrefix（章号补零宽度写侧单源：长篇 4 位/短篇 3 位）同源
 // re-export——前端复制/新建与服务端草稿新建/改名共用同一宽度口径。
-export { countWords, parseChapterFileName, chapterFilePrefix } from '../../../../format/words'
-// splitFrontMatter 从 frontmatter-core.ts re-export（零 Node 依赖，服务端/浏览器共用），
+export { countWords, parseChapterFileName, chapterFilePrefix } from '../../../../shared/words'
+// splitFrontMatter 从 shared/frontmatter-core.ts re-export（零 Node 依赖，服务端/浏览器共用），
 // 消除此前手写 --- 查找逻辑的漂移风险。
-import { splitFrontMatter } from '../../../../format/frontmatter-core'
-// re-export 供视图层取 fmRaw（编辑器为准补笔用，format 直引不外溢）
+import { splitFrontMatter } from '../../../../shared/frontmatter-core'
+// re-export 供视图层取 fmRaw（编辑器为准补笔用）
 export { splitFrontMatter as splitFrontmatter }
 
 /**
  * 剥 frontmatter（--- ... ---）取正文 body。
- * 复用 format/frontmatter-core.splitFrontMatter（单一源码）。
+ * 复用 shared/frontmatter-core.splitFrontMatter（单一源码）。
  */
 export function stripFrontmatter(content: string): string {
   const split = splitFrontMatter(content)

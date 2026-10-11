@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from './frontmatter.js'
 import { readChapter } from './chapters.js'
 import type { ChapterMeta } from './types.js'
-import { errMsg } from '../log/index.js' // errMsg 收编：错误文案三目单源
+import { errMsg } from '../log/index.js' // errMsg：错误文案三目单源
 
 type ReadDraftResult = { ok: true; chapter: ChapterMeta; body: string } | { ok: false; reason: string }
 

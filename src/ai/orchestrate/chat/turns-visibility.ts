@@ -1,13 +1,11 @@
 /**
- * chat 相位 d 可见性诊断族 —— 自 src/ai/orchestrate/chat/turns.ts 缝拆出。
+ * chat 相位 d 可见性诊断族。
  *
- * （⑤④产品巨件拆分波3）：turns.ts 纯移动拆分。本文件承载
- * 可见性诊断缝：CLW_VERIFY_VISIBLE=1 开关的注入清单抽样校验 verifyVisibleSampled
- * 原样随迁（visibleInjectionsFromDigests 单源组装 + 违约 log.warn 留痕）。
- * 轮循环残核留 turns.ts 并 re-export 本函数（原既有导出面，消费方 import 零改动）。
+ * 内容：CLW_VERIFY_VISIBLE=1 开关的注入清单抽样校验 verifyVisibleSampled
+ * （visibleInjectionsFromDigests 单源组装 + 违约 log.warn 留痕）。
+ * 轮循环骨架留 turns.ts 并 re-export 本函数（既有导出面，消费方 import 零改动）。
  * 依赖方向单向（无环回引）：本文件只 import 上游（prompts/chat、events/lineage、
  * events/types、events/store、log），不 import turns.ts。无顶层求值常量。
- * 注释全部原样随迁；行为零变化（纯移动，差异仅 import 行/本头注）。
  */
 import { visibleInjectionsFromDigests } from '../../prompts/chat.js'
 // 可见性诊断开关直接消费 lineage 校验器（lineage 只依赖 node:crypto 与

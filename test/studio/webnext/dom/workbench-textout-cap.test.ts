@@ -4,15 +4,14 @@
  * 约束、自愈重写有 reset 清缓冲），SSE 通道异常（事件风暴/重放）时 text 事件无界
  * 拼接撑爆渲染层内存。
  *
- * 封顶锚定值 1_000_000（UTF-16 码元）= 服务端输出流既定封顶常量 SSE_BACKPRESSURE_LIMIT
- * （src/studio/server/api/stream.ts；web-next 独立打包无法 import，字面对齐——服务端
- * 调值须同步 store 与本测试）。
+ * 封顶值单源：跨包契约底座 src/shared/contract/studio.ts 的 MAX_TEXT_OUT（= 服务端
+ * SSE_BACKPRESSURE_LIMIT 的显式别名，单位 UTF-16 码元）——本测试不再本地镜像字面量，
+ * 单源调值即随动。
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useWorkbenchStore } from '../../../../src/studio/web-next/src/stores/workbench'
-
-const MAX_TEXT_OUT = 1_000_000
+import { MAX_TEXT_OUT } from '../../../../src/shared/contract/studio'
 
 describe('workbench textOut 前端内存封顶（R0911-C1-P3-1）', () => {
   beforeEach(() => {

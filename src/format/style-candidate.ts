@@ -77,11 +77,10 @@ export function readCandidate(
 
   const source = map.get('来源')
   const status = map.get('状态')
-  // （与内存专项）：标量「标签」归一为单元素
-  // 数组——同族漏网收编（style-entry readEntry / style readSample 先已修，本处
-  // 漏网）：作者手改标量形态（`标签: 金句`）此前既不进字段（候选模型无 _raw 承载），
-  // 确认入库后标签物理消失。归一只发生在解析侧，写回后标量变数组属规范形归一（对齐
-  // 两先例同款条件与口径）；空串/缺键不造空数组。
+  // 标量「标签」归一为单元素
+  // 数组（style-entry readEntry / style readSample 同款）：作者手改标量形态
+  //（`标签: 金句`）若不进字段（候选模型无 _raw 承载），确认入库后标签物理消失。
+  // 归一只发生在解析侧，写回后标量变数组属规范形归一；空串/缺键不造空数组。
   const rawTags = map.get('标签')
   const 标签 = Array.isArray(rawTags)
     ? (rawTags as string[])
@@ -132,8 +131,8 @@ export function readCandidates(candidatesDir: string): {
   const errors: ParseError[] = []
   let files: string[]
   try {
-    // .md 判定改 isMdFileName（大小写不敏感）——.MD 家族
-    // （收编 7 处后）漏网点：win 手改扩展名 .MD 后候选箱对该条目静默失明
+    // .md 判定走 isMdFileName（大小写不敏感）——否则 win 手改扩展名 .MD 后
+    // 候选箱对该条目静默失明
     files = readdirSync(candidatesDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return { candidates, errors }
@@ -210,7 +209,7 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
   )
   const entryPath =
     dup?._path !== undefined ? `${ENTRIES_DIR}/${c.类型}/${basename(dup._path)}` : addEntry(bookRoot, entry)
-  // 删候选收编 rmWithRetry（「确实要删」原语）——win 杀软/
+  // 删候选走 rmWithRetry（「确实要删」原语）——win 杀软/
   // 索引器对刚落盘条目旁的候选文件瞬时锁（EPERM/EBUSY）下裸 rmSync 直败，会把已入库
   // 的确认反转为调用方失败；退避后仍失败仍上抛（错误路径语义不变，仅消瞬时锁误报）。
   rmWithRetry(fp)

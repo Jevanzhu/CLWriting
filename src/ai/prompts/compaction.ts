@@ -61,7 +61,7 @@ export function planCompaction(messages: ChatMsg[], opts: { keepTurns: number })
 }
 
 // 码点计数零分配（热路径每轮全历史计量不物化数组）。
-// -优化：实现收编 src/shared/text.ts 单源（原本地副本删）。
+// 实现单源 src/shared/text.ts。
 import { codePointLength } from '../../shared/text.js'
 
 /** 计量消息占用的 code point 数（严格更小校验的口径；tool_use 入参按 64 粗估） */

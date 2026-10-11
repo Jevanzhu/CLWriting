@@ -14,6 +14,8 @@ vi.mock('../../../src/studio/web-next/src/api/check', () => ({
 
 import { runCheck, markFalsePositive } from '../../../src/studio/web-next/src/api/check'
 import { useCheckStore, clearFalsePositiveMarks } from '../../../src/studio/web-next/src/stores/check'
+import { installCrossWindowInvalidation } from '../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import type { CrossWindowPort } from '../../../src/studio/web-next/src/shared/cross-window'
 
 const checkMock = runCheck as ReturnType<typeof vi.fn>
 const fpMock = markFalsePositive as ReturnType<typeof vi.fn>
@@ -319,5 +321,54 @@ describe('E-8 · check store 代数守卫与 clear 复位', () => {
     expect(s.flagError).toBeNull()
     expect(s.report).toBeNull()
     expect(s.error).toBeNull()
+  })
+})
+
+// ── 跨窗失效通知（树红点 / 机检判态线·本窗广播）──────────────────────
+// 本窗机检落定（结果已写服务端）→ 广播「红点失效」给他窗；载荷只带协议头与主题，不带
+// 报告内容（他窗据此走各自既有 loadIssues 重取）。失败不广播：本窗没产生新判态。
+
+/** 可注入假通道：只收本窗广播（入站订阅为空实现——本组只验出站腿） */
+function createFakePort(): { port: CrossWindowPort; sent: unknown[] } {
+  const sent: unknown[] = []
+  return {
+    port: {
+      postMessage: (msg) => void sent.push(msg),
+      subscribe: () => () => {},
+      close: () => {},
+    },
+    sent,
+  }
+}
+
+describe('跨窗失效通知（树红点 / 机检判态线·本窗广播）', () => {
+  let dispose: (() => void) | null = null
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+  })
+
+  it('run 成功后广播 tree-issues 失效（载荷只有版本/来源/主题，不带报告内容）', async () => {
+    checkMock.mockResolvedValue({ ok: true, hasRed: true, report: REPORT })
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    dispose = h.dispose
+
+    const s = useCheckStore()
+    await s.run('书A', 'doc1')
+
+    expect(fake.sent).toEqual([{ v: 1, src: 'self', topics: ['tree-issues'] }])
+  })
+
+  it('run 失败不广播（本窗未产生新判态，无失效可告）', async () => {
+    checkMock.mockRejectedValue(new Error('网络断开'))
+    const fake = createFakePort()
+    dispose = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 }).dispose
+
+    const s = useCheckStore()
+    await s.run('书A', 'doc1')
+
+    expect(s.error).not.toBeNull()
+    expect(fake.sent).toEqual([])
   })
 })

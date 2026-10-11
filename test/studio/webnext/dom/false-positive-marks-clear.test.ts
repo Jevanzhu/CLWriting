@@ -24,19 +24,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref } from 'vue'
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，提供 Map-backed 替身（prefs-store.test 同款）
-function createLocalStorage() {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => void store.set(k, v),
-    removeItem: (k: string) => void store.delete(k),
-    clear: () => store.clear(),
-    key: (i: number) => Array.from(store.keys())[i] ?? null,
-    get length() {
-      return store.size
-    },
-  }
-}
 const localStorageMock = createLocalStorage()
 vi.stubGlobal('localStorage', localStorageMock)
 
@@ -59,6 +46,7 @@ import {
 import { useChapterTreeActions } from '../../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { setupRealStores, autoConfirm, type RealStores } from '../helpers/real-stores'
 import type { TreeNode } from '../../../../src/studio/web-next/src/types/tree'
+import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 let currentBook = '书A'
 let stores: RealStores
