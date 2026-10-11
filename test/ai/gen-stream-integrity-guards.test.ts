@@ -28,6 +28,7 @@ import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter
 import { createOpenAIResponsesProvider } from '../../src/ai/provider/responses-adapter.js'
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import { makeDualTrackWorkdir, tempUserData, SHORT_BOOK } from '../studio/fixtures.js'
 import { makeFakeDriver } from './fake-driver.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
@@ -237,7 +238,9 @@ test('R26-5: 首稿 ctx.save 抛错 → error 出口（failed 链收口），不
   }
   const check = (): CheckOutcome => ({ ok: true, report: { sections: [] }, hasRed: false, chapter: META, body: '正文' })
 
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // mock 快路判定源 = 组装根注入（P1-10）：环境变量不再被 runner 读取，本用例
+  // 直注组装根同款开关（生产侧由 studio server 按 driver.kind 注入）。
+  configureRunnerMockFastPath(true)
   try {
     const opts: SelfHealOpts = {
       driver: makeFakeDriver(),
@@ -256,7 +259,7 @@ test('R26-5: 首稿 ctx.save 抛错 → error 出口（failed 链收口），不
     expect(r.outcome).toBe('failed')
     if (r.outcome === 'failed') expect(r.error).toContain('首稿落盘失败')
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
     rmSync(workDir, { recursive: true, force: true })
     rmSync(ud, { recursive: true, force: true })
   }

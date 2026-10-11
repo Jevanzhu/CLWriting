@@ -59,7 +59,7 @@ export function evaluateRetry(report: CheckReport, attempt: number, maxAttempts 
 
 // formatRetryState（三态人话，生产无调用方、仅测试消费的准死代码）已删
 
-// ──：连续相同红项 → 换策略提醒 ──────────
+// ── 连续相同红项 → 换策略提醒 ──────────
 
 /**
  * 红项集合 canonical key：去重 + 排序后拼接。

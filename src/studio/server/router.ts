@@ -42,6 +42,30 @@ export function withRouteTable<T>(routes: RouteTable, fn: () => T): T {
   }
 }
 
+/** method 分桶索引（预防项）：dispatch 原按注册序线性扫全表比 method + 跑正则
+ *  （116 条路由 × 每请求），拆桶后单请求只扫同 method 的子集（≈1/3~1/4）。
+ *  正确性不变量：桶内保持注册序（append 序），跨桶不改变「先注册者先匹配」——
+ *  method 不同者本就不可能命中，跳过它们与线性扫描的匹配结果逐位一致。
+ *  索引随表长重建（len 快照）：路由只经 route() 追加，长度变化即失效重建；
+ *  表按 WeakMap 隔离（同 createRouteTable 每实例一张），跨实例零共享。 */
+const methodBuckets = new WeakMap<RouteTable, Map<string, Route[]>>()
+const methodBucketLen = new WeakMap<RouteTable, number>()
+
+function bucketsForMethod(table: RouteTable, method: string | undefined): readonly Route[] {
+  let buckets = methodBuckets.get(table)
+  if (!buckets || methodBucketLen.get(table) !== table.length) {
+    buckets = new Map<string, Route[]>()
+    for (const r of table) {
+      const arr = buckets.get(r.method)
+      if (arr) arr.push(r)
+      else buckets.set(r.method, [r])
+    }
+    methodBuckets.set(table, buckets)
+    methodBucketLen.set(table, table.length)
+  }
+  return buckets.get(method ?? '') ?? []
+}
+
 /** 2--③（GLM-5.3）：当前活动路由表只读观测口——schema
  *  注册表按表隔离用（api/schema.ts WeakMap 键，见该文件头注）。只读；改写仍走
  *  withRouteTable。 */
@@ -85,7 +109,7 @@ export async function dispatch(
     return true
   }
   const { pathname } = parsed
-  for (const r of routes) {
+  for (const r of bucketsForMethod(routes, req.method)) {
     if (r.method !== req.method) continue
     const m = r.regex.exec(pathname)
     if (!m) continue

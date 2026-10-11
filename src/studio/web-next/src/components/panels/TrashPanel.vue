@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { Trash2, RotateCcw, AlertCircle } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
@@ -7,6 +7,7 @@ import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/
 import { ApiError } from '../../api/client'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction } from '../../composables/useScopedAction'
+import { useBookScoped } from '../../composables/useBookScoped'
 import { capView } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 
@@ -117,11 +118,7 @@ function basename(path: string): string {
   return seg.replace(/\.md$/, '')
 }
 
-watch(
-  () => props.bookName,
-  () => load(),
-  { immediate: true },
-)
+useBookScoped(() => props.bookName, { load, immediate: true })
 </script>
 
 <template>

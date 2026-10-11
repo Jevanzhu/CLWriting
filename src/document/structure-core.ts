@@ -13,11 +13,12 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { basename, join, relative } from 'node:path'
 import { canonicalizeText } from '../fs/text-canonical.js'
+import { hashBytes } from '../fs/hash.js' // 字节哈希单源
 import { readMdTextCached } from '../fs/md-text-cache.js'
 import { walkMdEach } from '../fs/walk-md.js'
-import { safeManifestPath } from '../fs/safe-path.js'
+import { safeManifestPath, normalizeWinSeparators } from '../fs/safe-path.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-import { parseMergedInto, parseOrderOf } from '../format/chapters.js'
+import { parseMergedInto, parseOrderOf, parseChapterNo } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
 // isMdFileName = 定稿条目章号提取剥 .md 茎单源
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
@@ -94,13 +95,18 @@ export async function readChapterState(
   } catch (e) {
     return fail('WRITE_ERROR', `读 ${path} 失败：${errMsg(e)}`)
   }
-  const rev = `sha256:${sha256Hex(bytes)}` as `sha256:${string}`
+  // 字节 rev 走 fs/hash.hashBytes 单源；sha256Hex 仍服务下方
+  // mergePlanHash 的字符串合成哈希（JSON 串，非文件字节面）。
+  const rev = hashBytes(bytes) as `sha256:${string}`
   const text = bytes.toString('utf-8')
   const split = splitFrontMatter(text)
   if (!split) return fail('BAD_INPUT', `${path} 无 frontmatter 或未闭合（章文件须带 fm）`)
   const map = parseFlat(split.fmRaw)
-  const no = Number(map.get('章号'))
-  if (!Number.isInteger(no) || no < 1) return fail('BAD_INPUT', `${path} fm 章号缺失或非法`)
+  // 章号解析走 format 层 parseChapterNo 单源（严格整数口径）——原 Number() 宽松解析
+  // 会把 `章号: 0x10`（→16）/`章号: "5.0"`（→5）当合法放行，结构操作（合并/拆分）
+  // 带着畸形 fm 执行；现与 readChapter/失配对账同判，畸形 → BAD_INPUT 拒。
+  const no = parseChapterNo(map.get('章号'))
+  if (no === null) return fail('BAD_INPUT', `${path} fm 章号缺失或非法`)
   const state: ChapterDiskState = {
     path,
     abs,
@@ -192,7 +198,7 @@ export function maxUsedChapter(bookRoot: string): number {
   return max
 }
 
-// ──：章号双轨一致性闸 ─────────────────────────────
+// ── 章号双轨一致性闸 ─────────────────────────────
 
 /** 章号失配条目：文件名前缀号（正轨）vs fm 章号。fmNo=null = fm 章号缺失/非法/不可读。 */
 export interface ChapterNoMismatch {
@@ -207,7 +213,9 @@ export interface ChapterNoMismatch {
  *  （readChapterState）——作者外部改名后两轨失配，并入 登记/违规检测/取号互相
  *  矛盾（静默重号/错定位）。只扫具名章号的 .md（无号名另有命名规范检测面）；
  *  fm 缺失/非法也计失配（fail-closed：带着未知盘面取号比拒绝执行更贵）。读侧
- *  走 readMdTextCached 指纹缓存（与 splitOrderMid 同款）；读失败（null）计失配。 */
+ *  走 readMdTextCached 指纹缓存（与 splitOrderMid 同款）；读失败（null）计失配。
+ *  fm 章号解析走 parseChapterNo 单源（严格整数）——原 Number() 宽松解析会把
+ *  `章号: 0x10`/`'5.0'` 当数值比对而视作失配不存在（畸形 fm 静默过闸）。 */
 export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
   const out: ChapterNoMismatch[] = []
   const bodyDir = join(bookRoot, BODY_PREFIX)
@@ -215,7 +223,10 @@ export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
   walkMdEach(bodyDir, (fp, name) => {
     const nameNo = chapterNoFromName(name)
     if (nameNo === null) return
-    const rel = relative(bookRoot, fp).replaceAll('\\', '/')
+    // 分隔符归一委托单源（win32-only）——手写 replaceAll 在 posix 上会把字面含 `\`
+    // 的合法文件名（mac 外部创建的 `1-目\标.md`）扭曲成 `/` 形态，失配磁盘名
+    // （rel 是失配条目/health 报文的定位身份键）
+    const rel = normalizeWinSeparators(relative(bookRoot, fp))
     const raw = readMdTextCached(fp)
     if (raw === null) {
       out.push({ path: rel, nameNo, fmNo: null })
@@ -226,9 +237,9 @@ export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
       out.push({ path: rel, nameNo, fmNo: null })
       return
     }
-    const no = Number(parseFlat(sp.fmRaw).get('章号'))
-    if (!Number.isInteger(no) || no < 1 || no !== nameNo) {
-      out.push({ path: rel, nameNo, fmNo: Number.isInteger(no) && no >= 1 ? no : null })
+    const no = parseChapterNo(parseFlat(sp.fmRaw).get('章号'))
+    if (no === null || no !== nameNo) {
+      out.push({ path: rel, nameNo, fmNo: no })
     }
   })
   return out

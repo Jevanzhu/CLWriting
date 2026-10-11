@@ -49,13 +49,22 @@ import {
 // applyGlobalDefaults 兜底；错误回落分支（readBookConfig !ok）也因此只带必填骨架。
 // budget 其余三键（input/summary 长程预算）不进全局托底，照旧在此预填。
 
+/**
+ * 单章输入 token 预算缺省单源。
+ *
+ * 读侧兜底此前双源：本对象预填 80000，而备料裁剪（process/prepare.applyBudgetTrim）
+ * 另持一份 `?? 80000` 字面量——手搓 BookConfig（未经 readBookConfig 预填）时两处
+ * 各按自己的数走，改缺省须两处同改且无守卫。现两处同引本常量。
+ */
+export const DEFAULT_INPUT_PER_CHAPTER = 80_000
+
 export const DEFAULT_CONFIG: BookConfig = {
   spec_version: 1,
   host: 'cc',
   book: { title: '' },
   leads: { enabled: [] },
   budget: {
-    input_per_chapter: 80000,
+    input_per_chapter: DEFAULT_INPUT_PER_CHAPTER,
     summary_chapter_max: 200,
     summary_volume_max: 500,
   },

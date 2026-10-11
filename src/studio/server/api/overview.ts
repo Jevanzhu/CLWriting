@@ -51,7 +51,7 @@ interface OverviewCtx {
 // 落缓存，TTL 内数据已修复的后续请求也被假空态挡住（缓存了「失败」而非「结果」）。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
 
-// ──：概览整包短缓存 ──────────────────────────────────────────
+// ── 概览整包短缓存 ──────────────────────────────────────────
 // 同族端点（search/tree-issues/analysis-overview/version-stats/rhythm/foreshadows）
 // 的「目录指纹 + TTL」缓存壳此前唯 overview 漏网（注释「缓存归
 // 勿在此引入」——该批未落地，本轮收口）：每次开/刷新总览页三路全书扫描（timeline

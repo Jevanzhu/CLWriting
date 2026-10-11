@@ -11,7 +11,8 @@ import { runTask, configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import { tempUserData } from '../studio/fixtures.js'
 
 test('R0912-3: mockTool 快路 ctrl 返回 opts.ctrl（外部同一把）', async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // P1-10：工具型快路同认组装根注入的选择结果（原先由 mock-tool 自读环境变量）
+  configureRunnerMockFastPath(true)
   try {
     const external = new AbortController()
     const out = await runTask<{ input: unknown }>({
@@ -23,13 +24,12 @@ test('R0912-3: mockTool 快路 ctrl 返回 opts.ctrl（外部同一把）', asyn
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.ctrl).toBe(external)
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
   }
 })
 
 test('R0912-3: mockText 快路 ctrl 同契约（opts.ctrl 优先）', async () => {
-  // 文本型快路选择点已收编组装根注入（P3-6）：mockTool 仍走 mock-tool.ts 的环境变量
-  // 短路（见 runner.ts configureRunnerMockFastPath 注释的范围记），两条用例各按其面开
+  // 文本/工具两型快路选择点同源（P1-10：均由组装根注入的 mockFastPath 单点决定）
   configureRunnerMockFastPath(true)
   try {
     const external = new AbortController()
@@ -50,7 +50,7 @@ test('R0912-3: mockText 快路 ctrl 同契约（opts.ctrl 优先）', async () =
 })
 
 test('R0912-3: 未传 ctrl → mock 快路照旧新建（不回 undefined，契约与真实路径缺省臂一致）', async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  configureRunnerMockFastPath(true)
   try {
     const out = await runTask<{ input: unknown }>({
       userDataPath: tempUserData(),
@@ -60,6 +60,6 @@ test('R0912-3: 未传 ctrl → mock 快路照旧新建（不回 undefined，契�
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.ctrl).toBeInstanceOf(AbortController)
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
   }
 })

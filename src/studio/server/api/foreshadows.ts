@@ -31,7 +31,7 @@ interface ForeshadowCtx {
   foreshadowTtlMs?: number | null
 }
 
-// ──：伏笔全书扫描「目录指纹 + TTL」缓存壳 ─────────────────
+// ── 伏笔全书扫描「目录指纹 + TTL」缓存壳 ─────────────────
 // 手法对齐 search.ts（目录 mtime 探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：
 // 端点原每请求 readForeshadows（设定/伏笔 逐文件 fm 整读）+ scanForeshadowTrails
 //（写作/正文 全书正文收集 + 联合正则扫），?q= 检索同样全量重扫后过滤——伏笔面板

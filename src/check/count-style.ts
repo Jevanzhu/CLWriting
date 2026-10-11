@@ -27,8 +27,9 @@ import { HANZI, SPEECH_VERBS } from './count-dialogue.js'
 
 // 对话提示语正则模块常量化（循）——原在 checkStyleMetrics
 // 每次调用 new RegExp 两枚；String.match 对带 g 的正则不保留 lastIndex，提升安全。
-const DIALOGUE_TAG_SHUO_RE = new RegExp(`[${HANZI}]{2,}地说`, 'gu')
-const DIALOGUE_TAG_DIDAO_RE = new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u2018「『])`, 'gu')
+// 导出供机检代次哈希收编（正则改必变代次）。
+export const DIALOGUE_TAG_SHUO_RE = new RegExp(`[${HANZI}]{2,}地说`, 'gu')
+export const DIALOGUE_TAG_DIDAO_RE = new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u2018「『])`, 'gu')
 
 /**
  * 对话标签提示语结构锚定（computeStyleMetrics 对话标签占比用）。
@@ -317,15 +318,16 @@ function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
 }
 
 /** 排比前缀匹配——原 computeStyleMetrics/checkStyleMetrics 两处
- *  循环体内逐句 new RegExp(`^[汉字]{2}`)，提升为模块级常量（内容循环不变）。 */
-const PARALLEL_PREFIX_RE = new RegExp(`^[${HANZI}]{2}`, 'u')
+ *  循环体内逐句 new RegExp(`^[汉字]{2}`)，提升为模块级常量（内容循环不变）。
+ *  导出供机检代次哈希收编。 */
+export const PARALLEL_PREFIX_RE = new RegExp(`^[${HANZI}]{2}`, 'u')
 
 /**
  * 领属链排除——adjStackRegex 匹配任意「X的」链，「他的母亲的
  * 家族的」这类人称代词/亲属词领属链与形容词堆叠（「苍白的干裂的颤抖的」）完全两回事，
  * 此前同判误报。逐单元拆开命中串，任一单元头是人称代词/亲属称谓 → 整条按领属链豁免。
  */
-const POSSESSIVE_HEADS = new Set([
+export const POSSESSIVE_HEADS = new Set([
   // 人称代词（含复数/反身）
   '他',
   '她',
@@ -408,11 +410,13 @@ function isPossessiveChain(hit: string): boolean {
   return false
 }
 
+/** 结尾总结体触发/收束词正则（触发词与收束词取最近配对，惰性最小窗）。
+ *  导出常量供机检代次哈希收编（词表/正则改必变代次）。 */
+export const SUMMARY_ENDING_RE =
+  /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来)[\s\S]*?(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
+
 function summaryEndingRegex(): RegExp {
-  // `.*` 不跨行 → 换 `[\s\S]*`（多行结尾（分段总结体）此前漏检；漏检方向安全不误报）
-  // 前段改惰性 `[\s\S]*?`——触发词与收束词取「最近」配对，最小匹配窗，避免
-  // 同一收束窗内跨大段误配（结尾 140 字窗口内，贪婪会吞到最后一个收束词才回吐）。
-  return /(这一刻|那一刻|这一战|此役|从此|直到很久以后|多年以后|命运|人生|终于明白|原来)[\s\S]*?(明白|懂得|领悟|真谛|道理|命运|人生|结束|开始|答案)/
+  return SUMMARY_ENDING_RE
 }
 
 /**

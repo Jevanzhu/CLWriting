@@ -41,6 +41,7 @@ import { log, errMsg } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { hashBytes } from '../fs/hash.js'
 import { chapterNoFromName } from '../format/filename.js'
 import type { Session, StudioDriver } from '../driver/index.js'
 // 后台任务 ctrl 登记原语独立成模块（原定义在本文件；通用编排原语不再
@@ -60,7 +61,7 @@ export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 // 下沉时留下的 import 面兼容层把 ai/prompts、ai/rules、ai/tools
 // 引到本模块，与 ai 侧后续回引本模块构成强连通；中转层即环边来源，故剥除，消费方直引
 // 实现所在模块（全库「不留双轨」口径）。
-import { codePointLength, clipByCodePoints } from '../shared/text.js'
+import { codePointLength, clipByCodePoints, isUtf8 } from '../shared/text.js'
 import { testableConst } from '../shared/testable.js'
 
 /** 章摘要目录（相对书根）。posix 字面量——join() 消费点
@@ -233,8 +234,8 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     // 正文与指纹必须单次读盘同源派生——两次独立读（readDraft 一次 + computeRevision
     // 一次）之间正文被改会把新指纹绑给旧正文的摘要。单次读 Buffer 同源派生 body
     //（readDraft 的 content 通道）与哈希。
-    // 哈希字节口径逐字对齐 fs/hash.ts hashFile / document/revision.ts computeRevision
-    //（'sha256:' + 原始字节 SHA-256）。
+    // 哈希字节口径 = fs/hash.hashBytes 单源（内联 createHash 副本收敛；
+    // 'sha256:' + 原始字节 SHA-256，与 hashFile/document/revision.computeRevision 同）。
     let raw: Buffer
     try {
       raw = readFileSync(bodyAbsPath)
@@ -243,10 +244,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     }
     // 非 UTF-8 正文拒绝生成摘要——GBK 等文件以 utf-8 解码出 U+FFFD
     // 后喂 AI 生成摘要再回写，摘要静默失真且被指纹绑定（过期判定认它为 fresh，永不再生）。
-    // 判据与保存链闸（document/service.isUtf8Bytes）同款 fatal 解码探测。
-    try {
-      new TextDecoder('utf-8', { fatal: true }).decode(raw)
-    } catch {
+    // 判据与保存链闸（document/service.isUtf8Bytes）同款；判定体为 shared/text.isUtf8
+    // 单源（本处内联 fatal 解码副本收敛，两链此后同函数不可能再漂移）。
+    if (!isUtf8(raw)) {
       return { ok: false, error: '正文不是合法 UTF-8 编码，拒绝生成摘要（请先修复文件编码）' }
     }
     const draft = readDraft(bodyAbsPath, raw.toString('utf8'))
@@ -255,7 +255,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     // （数十秒）内正文若被再改并再次定稿（H2），写盘时才算会把 H2 指纹绑给 H1 正文的
     // 摘要：过期判定从此恒 fresh，自愈与定稿钩子都被挡住，过期摘要长期喂后续章节的
     // 「近章结尾」材料。取读取时点的 H1，H2 到来后过期判定正常触发重生成。
-    const sourceHash = 'sha256:' + createHash('sha256').update(raw).digest('hex')
+    const sourceHash = hashBytes(raw)
     const userPrompt = [
       `请为第 ${chapter} 章写章摘要（三行：情节推进 / 账本变动 / 章尾钩子，总长 ≤ ${budget} 字）。`,
       '',
@@ -316,7 +316,7 @@ function summaryAutoEnabled(config: BookConfig): boolean {
   return config.summary?.auto !== false
 }
 
-// ──：后台 AI 任务的独立中断通道 ─────────────────
+// ── 后台 AI 任务的独立中断通道 ─────────────────
 // runRegisteredBgTask 独立成 process/bg-task.ts
 // ——通用编排原语（self-heal 账本推进草稿同用）不再由本摘要模块转运，消费方直引。
 // 模块 rationale（独立 ctrl 登记 / 中断语义 / 未接线退化）随实现迁至该文件头注。
@@ -483,7 +483,7 @@ export async function selfHealRecentChapterSummaries(
   return generated
 }
 
-// ──：卷摘要按需生成 ─────────────────────────────────────────
+// ── 卷摘要按需生成 ─────────────────────────────────────────
 
 /** 卷摘要目录（相对书根）。posix 字面量（同 CHAPTER_SUMMARY_DIR 口径） */
 export const VOLUME_SUMMARY_DIR = '定稿/摘要/卷摘要'

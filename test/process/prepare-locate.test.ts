@@ -110,3 +110,18 @@ test('S2 并入回退：前章被并入目标章后，前章正文结尾 = 目�
   db.close()
   rmSync(root, { recursive: true, force: true })
 })
+
+test('P1-5 公共原语 walk 兜底：三层嵌套（卷/子卷）章仍命中（原私有两层扫描返回 null 丢段）', () => {
+  const { root, db } = makeBook()
+  mkdirSync(join(root, '写作', '正文', '第一卷', '子卷'), { recursive: true })
+  writeFileSync(
+    join(root, '写作', '正文', '第一卷', '子卷', '0150-前章.md'),
+    '---\n章号: 150\n标题: 前章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n深嵌套前章正文。雪夜收束。\n',
+  )
+  const sec = sectionOf(root, db)
+  expect(sec).toBeDefined()
+  expect(sec!.content).toContain('【第150章正文结尾】')
+  expect(sec!.content).toContain('深嵌套前章正文。雪夜收束。')
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})

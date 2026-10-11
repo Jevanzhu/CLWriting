@@ -36,16 +36,23 @@ export interface RuleHitEntry {
 
 type RuleHitsMap = Record<string, RuleHitEntry>
 
-function hitsPath(bookRoot: string): string {
+/** rule-hits 统计文件路径（单源）——server 侧 stats 缓存探针按本路径 stat 判命中记账，
+ *  路径形态变更只改这里（勿在消费方另抄 `join(bookRoot, '.cache', ...)`）。 */
+export function ruleHitsPath(bookRoot: string): string {
   return join(bookRoot, '.cache', FILE)
 }
 
 function readHits(bookRoot: string): RuleHitsMap {
+  // 两态分离：文件不存在 = 正常「无数据」静默；文件在但读/解析失败
+  // = 观测层读失败，warn 留痕——此前同吞成 {}，「读不到」与「真没有」不可区分
+  // （trace-stats 端点直透前端，读失败被渲染成「无高频违规」）。
+  if (!existsSync(ruleHitsPath(bookRoot))) return {}
   try {
-    const raw = readFileSync(hitsPath(bookRoot), 'utf-8')
+    const raw = readFileSync(ruleHitsPath(bookRoot), 'utf-8')
     const parsed = JSON.parse(raw) as RuleHitsMap
     return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
+  } catch (e) {
+    log.warn('rule-hits', `rule-hits 统计读取失败，本轮按「无命中」返回：${errMsg(e)}`)
     return {}
   }
 }
@@ -77,7 +84,7 @@ export async function recordRuleHits(
   task: string = 'check',
 ): Promise<void> {
   if (!violations.length) return
-  const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, getRuleHitsLockTimeoutMs())
+  const release = await acquireCrossProcessLockAsync(`${ruleHitsPath(bookRoot)}.lock`, getRuleHitsLockTimeoutMs())
   if (!release) {
     log.warn('rule-hits', `rule-hits 跨进程锁获取超时，本轮命中统计未记（观测层降级；事件库照常）`)
   } else {
@@ -93,7 +100,7 @@ export async function recordRuleHits(
       }
       try {
         mkdirSync(join(bookRoot, '.cache'), { recursive: true })
-        atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
+        atomicWriteFile(ruleHitsPath(bookRoot), JSON.stringify(hits, null, 2))
       } catch (e) {
         // 统计是旁路，不影响主流程；但不再空吞——warn 留痕含病因（对齐
         // prompts/resource.ts 单文件失败 warn 留痕先例；mac适配 通用-3）
@@ -159,6 +166,6 @@ export function readRuleHits(bookRoot: string): RuleHitEntry[] {
 
 /** 取 Top-N 高频违规（前置注入用）。无命中 / 文件不存在 → 空数组。 */
 export function topRuleHits(bookRoot: string, n: number): RuleHitEntry[] {
-  if (!existsSync(hitsPath(bookRoot))) return []
+  if (!existsSync(ruleHitsPath(bookRoot))) return []
   return readRuleHits(bookRoot).slice(0, n)
 }

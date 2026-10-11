@@ -108,6 +108,30 @@ export function isPublishedValue(v: unknown): boolean {
   return false
 }
 
+/**
+ * fm `章号` 值解析单源（format 层严格整数口径）——readChapter（本模块）与
+ * structure-core 两处读态消费（readChapterState 单读派生 / chapterNumberMismatches
+ * 失配对账）共用同一判据。
+ *
+ * 口径 = 原 readChapter 内联实现抽出：number 直取；字符串 trim 后仅认纯十进制整数
+ * `/^[+-]?\d+$/`（`'5.0'`/`'0x10'`/`'1e3'` 均不认，parseFlat 对非整数数值回落字符串，
+ * 正是本判据的拦截面）；两者均须落 Number.isSafeInteger 且 ≥1，否则 null
+ * （缺失/非法/超范围同归一 null，文案由调用方按缺字段与格式不符分派）。
+ * 结构操作闸此前用 Number() 宽松解析（`'0x10'`→16、`'5.0'`→5 可过）与 format 层
+ * 分裂，畸形 fm 可被合并/拆分放行——本函数收口后三处同判（闸语义不变：仍只拦
+ * 「fm 存在且 ≠ 文件名号」的真失配，fm 非法归 fmNo=null 不拦）。
+ */
+export function parseChapterNo(v: unknown): number | null {
+  if (typeof v === 'number') {
+    return Number.isSafeInteger(v) && v >= 1 ? v : null
+  }
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (!/^[+-]?\d+$/.test(s)) return null
+  const n = Number(s)
+  return Number.isSafeInteger(n) && n >= 1 ? n : null
+}
+
 /** 读取章节 md → ChapterMeta（容错）。
  * @param includeBody ：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
  *                    默认缺省不驻留正文，既有调用方零成本。
@@ -128,25 +152,14 @@ export function readChapter(
   // 非数字格式（`章号: 五`、`章号: 5.0`）维持错误，但文案区分「缺少」与「格式不符」，
   // 便于 AI 自愈/作者改对（此前带引号整章对本系统隐形——导出 warnings、近况组装、
   // 前章结尾段、场景水源、draft-pipeline 全部消费方读不到）。
-  let 章号: number
+  // 严格整数收敛与安全守卫（非正整数/超安全整数范围 `章号: -3`、
+  // `章号: 99999999999999999999` 此前照收）均在 parseChapterNo 单源内——三处消费
+  // （本函数/structure-core 两处）同判，防口径分裂。
   if (章号Raw === undefined || 章号Raw === null || 章号Raw === '') {
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：章号' } }
-  } else if (typeof 章号Raw === 'number') {
-    章号 = 章号Raw
-  } else if (typeof 章号Raw === 'string' && /^[+-]?\d+$/.test(章号Raw.trim())) {
-    // 纯数字字符串收敛为 number（含前导/尾随空白；合法 range 由调用方/机检把关）
-    章号 = Number(章号Raw.trim())
-  } else {
-    return {
-      ok: false,
-      error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' },
-    }
   }
-  // 章号安全守卫——非正整数/超安全整数范围（`章号: -3`、
-  // `章号: 99999999999999999999` 解析成 1e20）此前照收，下游比较/排序/文件名组装
-  // 产生荒谬行为；与 parseChapterFileName 的 isSafeInteger 口径对齐（fail-loud，
-  // 文案沿用「格式不符」便于 AI 自愈与作者改对）。
-  if (!Number.isSafeInteger(章号) || 章号 < 1) {
+  const 章号 = parseChapterNo(章号Raw)
+  if (章号 === null) {
     return {
       ok: false,
       error: { file: filePath, line: 0, message: '章号格式不符（预期正整数，实际为「' + String(章号Raw) + '」）' },

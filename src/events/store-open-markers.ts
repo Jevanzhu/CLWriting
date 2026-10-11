@@ -17,7 +17,7 @@ import { readdirSync, statSync, rmSync, writeFileSync, utimesSync } from 'node:f
 import { basename, join } from 'node:path'
 import { isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
 
-// ──：跨进程「已持有句柄」标记 + 迁移墓碑 ──
+// ── 跨进程「已持有句柄」标记 + 迁移墓碑 ──
 // 的目录级锁只挡他进程**首开段**；迁移开始前就已打开的句柄（空闲态不持任何
 // SQLite 锁，checkpoint busy=0 照样放行）成了残余窗口：rename 后他进程句柄的后续写入
 // 打到已搬走的 inode，或下次重开旧路径时 DatabaseSync 重建空库——事件流就此分裂。

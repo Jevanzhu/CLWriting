@@ -5,12 +5,12 @@
  * 不把 ignored 的 Dev/ 参考仓库当隐式输入。
  */
 
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
+import { hashFile } from '../fs/hash.js' // 文件哈希单源
 // errMsg：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 
@@ -112,8 +112,11 @@ export function validateKnowledgeManifest(projectRoot: string): KnowledgeManifes
   return { ok: issues.length === 0, manifest, issues }
 }
 
+/** 文件 SHA-256（'sha256:' 前缀）——实现体收敛到 fs/hash.hashFile 单源（
+ *  内联 createHash+readFileSync 副本与 hashFile 逐字同款）；本函数名保留为知识层对外
+ *  契约（update/校验与测试消费方零改动）。 */
 export function hashFileSha256(filePath: string): string {
-  return 'sha256:' + createHash('sha256').update(readFileSync(filePath)).digest('hex')
+  return hashFile(filePath)
 }
 
 function validateEntry(

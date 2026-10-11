@@ -293,7 +293,7 @@ export function writeActive(workDir: string, name: string): void {
   atomicWriteFile(join(workDir, ACTIVE_FILE), name + '\n')
 }
 
-// ──：存储层下沉后的导出面桥接 ──
+// ── 存储层下沉后的导出面桥接 ──
 // 存储层（常量 / BookEntry / 读写 / 登记锁与超时档）下沉 books-store.ts 后，本文件
 // 逐名 re-export 保住既有导出面（desktop/document/studio 等消费方仍从 install/books.js
 // 取这些名字，含的测试注入钩子）——桥的方向单向向下（本文件 → books-store），

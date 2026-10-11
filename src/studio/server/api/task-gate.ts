@@ -41,7 +41,7 @@ import { replyError } from '../http.js' // 包装面 409/错误信封统一出�
 import { productionDriverHost, type DriverHost } from '../driver-port.js' // driver 经组装根注入
 import type { Session } from '../../../driver/types.js' // 收尾：StudioDriver 必需契约单源在 driver/types.ts，本文件只消费注入宿主
 
-// ──：闸实例状态（进程默认实例 / 工厂实例各持一份）────────────────
+// ── 闸实例状态（进程默认实例 / 工厂实例各持一份）────────────────
 
 /** 闸实例的可变状态：锁根 + 进程内闸表 + 三审登记表。
  *  所有权：createTaskGate 的调用方（服务端组装根 / 进程默认实例）。 */
@@ -68,7 +68,7 @@ const newGateState = (lockRoot: string | null): GateState => ({
 const SEP = '\u0000'
 const keyOf = (bookName: string, action: string): string => `${action}${SEP}${bookName}`
 
-// ──：跨进程文件锁 ──────────────────────────────
+// ── 跨进程文件锁 ──────────────────────────────
 
 export function configureTaskGateLockRoot(dir: string | null): void {
   processGate.configureLockRoot(dir)
@@ -108,7 +108,7 @@ interface TaskGateOptions {
  *  「活 pid 超龄」接管成双持锁。30s 刷一次 mtime，远低于超龄门槛。 */
 const TASK_GATE_RENEW_MS = 30_000
 
-// ──：锁文件名（可枚举格式）+ 旧格式迁移 ──────────────────────
+// ── 锁文件名（可枚举格式）+ 旧格式迁移 ──────────────────────
 
 /** 书名段哈希：书名可含任意路径字符（isInvalidBookName 禁全集但历史书目/外部
  *  写入不保证），哈希后无路径注入/非法名/长度问题。 */
@@ -269,7 +269,7 @@ function heldIn(state: GateState, bookName: string): string[] {
   return actions.sort()
 }
 
-// ──：跨进程持闸查询（只读扫描）────────────────────────
+// ── 跨进程持闸查询（只读扫描）────────────────────────
 
 /** 跨进程查询注入项（语义同 TaskGateOptions 对应字段）。 */
 interface CrossProcessQueryOptions {
@@ -342,7 +342,7 @@ function allHeldIn(state: GateState, bookName: string): string[] {
   return [...new Set([...heldIn(state, bookName), ...crossProcessHeldIn(state, bookName)])].sort()
 }
 
-// ──：三审运行登记（book + docId）────────────────────────
+// ── 三审运行登记（book + docId）────────────────────────
 
 /** 三审运行登记：键 = bookName + NUL + docId。原 review.ts 私有 Set 整表迁入本模块——
  *  忙闸矩阵的 review 信号（列）要按书判定在途三审，而 review.ts → task-gate.ts 是既有
@@ -399,7 +399,7 @@ export function __setReviewRunning(bookName: string, running: boolean, docId = '
   else processState.reviewRunning.delete(reviewRunKey(bookName, docId))
 }
 
-// ──：忙闸互斥矩阵（行 = 请求方意图，列 = 在途活动信号）─────────────
+// ── 忙闸互斥矩阵（行 = 请求方意图，列 = 在途活动信号）─────────────
 
 /** 在途活动信号（矩阵的「列」）——每格谓词见 signalClause 单源。 */
 export type BusySignal =
@@ -622,7 +622,7 @@ export function orchestrationBusyFor(bookName: string): string | null {
   return busyReason(bookName, 'generate')
 }
 
-// ──：长任务门控 handler 高阶包装 ─────────────
+// ── 长任务门控 handler 高阶包装 ─────────────
 // 「orchestrationBusyFor → acquireTaskGate → getDriver → ensureSession → new
 // AbortController → driver.registerCtrl(session, ctrl, `action:${book}`) →
 // finally{unregisterCtrl+release}」十段此前在 9+ 个生成长任务端点逐字复制
@@ -661,7 +661,7 @@ interface GatedGenerationOptions {
   ownerLabel?: string
 }
 
-// ──：中断通道 = driver 契约必需成员（收尾）────────────────────
+// ── 中断通道 = driver 契约必需成员（收尾）────────────────────
 
 /** 中断通道收口沿革：前半条曾在本文件以结构类型 + resolveInterruptChannel
  *  把「可中断」从 StudioDriver 的可选成员里显式解析（缺能力 → log.warn 带 action@book
@@ -686,6 +686,22 @@ export async function runGatedGeneration(
   return runGatedGenerationIn(processState, processDriver, res, opts, fn)
 }
 
+/**
+ * 客户端断连 → 中止在途生成。非 SSE 生成长任务（分析/三审/改写/对话等）在途时
+ * 客户端断开（刷新/关页/断网），不中止会照跑到底：分钟级白烧 token，且响应无处可发。
+ * 判据 `!res.writableEnded`——close 事件在「响应已正常写完（end 已调）」与「连接异常
+ * 中断」两种场景都会触发，只有后者应中止。SSE 面（stream.ts）有自己的 close 语义
+ * （后台继续跑完并入事件），不经本包装。
+ * 返回卸载函数（finally 必调）：任务落定后 close 不再触发 abort。
+ */
+function attachClientGoneAbort(res: ServerResponse, ctrl: AbortController): () => void {
+  const onClose = (): void => {
+    if (!res.writableEnded) ctrl.abort()
+  }
+  res.on('close', onClose)
+  return () => res.off('close', onClose)
+}
+
 async function runGatedGenerationIn(
   state: GateState,
   host: DriverHost,
@@ -708,16 +724,19 @@ async function runGatedGenerationIn(
   // 注入宿主——原 resolveInterruptChannel 的「缺能力 → warn 留痕」降级档随必需化删除。
   let registeredSession: Session | null = null
   let registeredCtrl: AbortController | null = null
+  let detachClientGone: (() => void) | null = null
   try {
     const session = await host.ensureSession(opts.book, opts.workDir)
     registeredSession = session
     const ctrl = new AbortController()
     host.driver.registerCtrl(session, ctrl, opts.ownerLabel ?? `${opts.action}:${opts.book}`)
     registeredCtrl = ctrl
+    detachClientGone = attachClientGoneAbort(res, ctrl)
     await fn(ctrl)
   } finally {
     // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc 口径）；
     // ensureSession 失败（未注册）时跳过
+    detachClientGone?.()
     if (registeredCtrl && registeredSession) host.driver.unregisterCtrl(registeredSession, registeredCtrl)
     release()
   }
@@ -738,7 +757,7 @@ export function replyGenerationFailure(res: ServerResponse, fail: { ok: false; c
   replyError(res, 500, fail.code, fail.error)
 }
 
-// ──：闸实例（组装根注入面）──────────────────────────────────
+// ── 闸实例（组装根注入面）──────────────────────────────────
 
 /**
  * 组装根注入面：一个闸实例 = 一份「锁根 + 进程内闸表 + 三审登记表」。

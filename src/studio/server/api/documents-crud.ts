@@ -9,10 +9,14 @@
  * documents-core.ts（getOrCreateService / runBookScopedOp / structStatus / DocumentCtx）。模块图
  * 单向无环（core 不 import 同批任何 documents-* 模块；聚合入口在残核 documents.ts 单向 import
  * 本文件），本文件无顶层求值常量，无 TDZ 面。
+ * 校验单轨：本文件四处带 body 的端点（words-diary.post / 新建 / PATCH / copy）由
+ * handler 内联 readJson + 手工校验迁至 gate（找书 404 前置门）+ parse（body 形状 400）——
+ * 错误优先序「找书 404 → body 400 → 链内 BOOK_MOVED 409」逐位不变；PATCH 的形状校验
+ * 刻意留链单元内（409 先于 400 的现行优先序，见该端点注），只收 readJson 一半。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
+import { reply, replyError, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import type { CopyResult, CreateResult, MoveResult, TrashResult } from '../../../document/service.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -41,21 +45,25 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
   defineRoute('books.words-diary.post', {
     method: 'POST',
     path: '/api/books/:name/words-diary',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：找书 404（前置门）→ body 400（parse）→ BOOK_MOVED 409（链内/写前
+    // 重验）的既有错误优先序由 gate→parse→handler 三段承载，响应对齐迁移前逐位不变。
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
-      const body = await readJson(req)
-      const baseline = Number(body?.baseline)
-      if (!Number.isFinite(baseline) || baseline < 0) {
-        replyError(res, 400, 'BAD_INPUT', 'baseline 需非负数')
-        return
-      }
-      // 面 A（同型扫描接线）：await
-      // readJson 可跨删书/改名 drain 时点，appendBaseline 对旧捕获路径 mkdir recursive
-      // + append 成孤儿——写前与五处链内单元同款书注册重验（时序见 bookMovedFailure 头注）
-      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      return r ? { value: r } : false
+    },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const baseline = Number(body['baseline'])
+      if (!Number.isFinite(baseline) || baseline < 0) throw new Error('baseline 需非负数')
+      return { baseline }
+    },
+    handler: ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+      // 面 A（同型扫描接线）：书注册重验——入口快照（gate）到本写段之间可跨删书/改名
+      // drain 时点，appendBaseline 对旧捕获路径 mkdir recursive + append 成孤儿；
+      // 与五处链内单元同款（时序见 bookMovedFailure 头注）
+      const moved = bookMovedFailure(ctx.workDir, params['name'], gate.bookRoot)
       if (moved) return replyError(res, structStatus(moved.code), moved.code, moved.reason)
-      appendBaseline(r.bookRoot, todayDate(), baseline)
+      appendBaseline(gate.bookRoot, todayDate(), input.baseline)
       reply(res, 200, { ok: true })
     },
   })
@@ -64,17 +72,21 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
   defineRoute('books.documents', {
     method: 'POST',
     path: '/api/books/:name/documents',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：找书 404（gate）→ relPath 400（parse）→ 链内 BOOK_MOVED 409（序不变）
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
-      // RC：新建可带 content（建卷即建首章/导入大章）——同走内容档上限
-      const body = await readJson(req, CONTENT_BODY_LIMIT_BYTES)
-      const relPath = body.relPath
-      if (typeof relPath !== 'string' || !relPath) {
-        replyError(res, 400, 'BAD_INPUT', 'relPath 缺失')
-        return
-      }
-      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+      return r ? { value: r } : false
+    },
+    // RC：新建可带 content（建卷即建首章/导入大章）——同走内容档上限
+    bodyLimit: CONTENT_BODY_LIMIT_BYTES,
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const relPath = body['relPath']
+      if (typeof relPath !== 'string' || !relPath) throw new Error('relPath 缺失')
+      return { relPath, content: typeof body['content'] === 'string' ? body['content'] : undefined }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+      const svc = getOrCreateService(gate.bookRoot, ctx.userDataPath)
       // 清偿-伏笔接线×4②：新建——「快照读 → create → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 2--① 口径）：并发交叠不再重复计窗；
       // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
@@ -83,14 +95,14 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       // 基线仍取本单元 op 前全域状态（链内前继落库变更必在基线中）。
       const result = await runBookScopedOp(ctx, {
         bookName: params['name'],
-        bookRoot: r.bookRoot,
-        fsPath: relPath,
-        causeId: relPath, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
-        deltaId: (created) => (created.ok ? created.docId : relPath), // 新 docId（仅 ok 回调；else 支不可达兜底）
+        bookRoot: gate.bookRoot,
+        fsPath: input.relPath,
+        causeId: input.relPath, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
+        deltaId: (created) => (created.ok ? created.docId : input.relPath), // 新 docId（仅 ok 回调；else 支不可达兜底）
         op: (): Promise<CreateResult> =>
           svc.createDocument({
-            relPath,
-            content: typeof body.content === 'string' ? body.content : undefined,
+            relPath: input.relPath,
+            content: input.content,
           }),
       })
       // 失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
@@ -103,12 +115,17 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
   defineRoute('books.documents.patch', {
     method: 'PATCH',
     path: '/api/books/:name/documents/:docId',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 读体随 parse（找书 404 仍由 gate 先于读体）——op 形状校验刻意留链单元内：
+    // BOOK_MOVED 409 先于形状 400 的现行错误优先序由单元序保证（注释下方「形状校验留单元内」），
+    // 迁进 parse 会把 400 提到 409 之前，属契约面翻转，故只收 readJson 一半。
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
+      return r ? { value: r } : false
+    },
+    parse: (raw) => (raw ?? {}) as Record<string, unknown>,
+    handler: async ({ params, input: body, gate }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
-      const body = await readJson(req)
-      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+      const svc = getOrCreateService(gate.bookRoot, ctx.userDataPath)
       // docId → relPath：仅作伏笔域判定（rename/move/meta/fm 各自内部会再解析登记路径）
       const docPath = await svc.resolvePathAsync(docId)
       // 清偿-伏笔接线×4①：PATCH——op=fm 改伏笔状态最常用，
@@ -123,7 +140,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       //（形状校验留单元内，undefined 直通走第二重载档）。
       const result = await runBookScopedOp(ctx, {
         bookName: params['name'],
-        bookRoot: r.bookRoot,
+        bookRoot: gate.bookRoot,
         fsPath: docPath,
         causeId: docId, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
         deltaId: () => docId, // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
@@ -185,17 +202,20 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
   defineRoute('books.documents.copy', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/copy',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：找书 404（gate）→ relPath 400（parse）→ 链内 BOOK_MOVED 409（序不变）
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
+      return r ? { value: r } : false
+    },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const relPath = body['relPath']
+      if (typeof relPath !== 'string' || !relPath) throw new Error('relPath 缺失')
+      return { relPath }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
-      const body = await readJson(req)
-      const relPath = body.relPath
-      if (typeof relPath !== 'string' || !relPath) {
-        replyError(res, 400, 'BAD_INPUT', 'relPath 缺失')
-        return
-      }
-      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+      const svc = getOrCreateService(gate.bookRoot, ctx.userDataPath)
       // 清偿-伏笔接线×4④：copy——「快照读 → copy → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 2--① 口径）：复制出的新条目 create
       // 事件各归各窗，非伏笔域目标不进链。
@@ -207,11 +227,11 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       // result.docId。
       const result = await runBookScopedOp(ctx, {
         bookName: params['name'],
-        bookRoot: r.bookRoot,
-        fsPath: relPath,
+        bookRoot: gate.bookRoot,
+        fsPath: input.relPath,
         causeId: docId, // 源 docId 作留痕因果
         deltaId: (copied) => (copied.ok ? copied.docId : docId), // 新 docId（仅 ok 回调；else 支不可达兜底）
-        op: (): Promise<CopyResult> => svc.copyDocument({ docId, relPath }),
+        op: (): Promise<CopyResult> => svc.copyDocument({ docId, relPath: input.relPath }),
       })
       // 失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {

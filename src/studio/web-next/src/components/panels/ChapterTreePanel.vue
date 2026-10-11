@@ -16,6 +16,7 @@ import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import SplitChapterDialog from './SplitChapterDialog.vue'
 import { friendlyError } from '../../shared/error'
+import { useBookScoped } from '../../composables/useBookScoped'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
 //   + 右键菜单（五类）+ inline 新建/重命名 + 删除/移动 + 拖拽移动。
@@ -123,13 +124,12 @@ function consumeFirstOpen(book: string): boolean {
   }
 }
 
-watch(
-  () => props.bookName,
-  async (name, old) => {
-    // 切书先清内联编辑态——creating/renamePath/metaEditing/draggedPath
-    // 挂的是旧书路径/docId，留着会在新树渲染出无主输入框/弹窗（immediate 首跑 old 为
-    // undefined 时无旧态可清，跳过）
-    if (old !== undefined && old !== name) actions.resetInlineState()
+useBookScoped(() => props.bookName, {
+  // 切书先清内联编辑态——creating/renamePath/metaEditing/draggedPath
+  // 挂的是旧书路径/docId，留着会在新树渲染出无主输入框/弹窗（immediate 首跑无旧态可清，
+  // 由 hook 的 old 守卫跳过）
+  reset: () => actions.resetInlineState(),
+  load: async (name) => {
     // 脏路由 name='' ——前书的树/红点/今日字数展示态一并清掉（原
     // `if (!name) return` 直接返回，A 书树滞留展示在无书界面）；store 内推代，在途
     // 旧书 load/红点/基线响应落定不回填
@@ -154,8 +154,8 @@ watch(
     // 今日基线：tree.load 后 totalWords 已就绪（§5.4），不阻塞树渲染
     void words.ensureBaseline(name)
   },
-  { immediate: true },
-)
+  immediate: true,
+})
 
 // 窗口回前台 → 重扫盘。外部编辑器 / CLI / AI 写的文件不经 invalidateTreeIndex，
 // 服务端树缓存不会自己失效；切回 app 是「想看到最新状态」的最强信号。

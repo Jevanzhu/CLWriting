@@ -8,6 +8,10 @@
  * 解析/回写纯函数在 piece-list-core.ts（零 Node 依赖，浏览器端共用）；
  * 本文件只负责文件 IO（readFileSync/atomicWriteFile）。
  *
+ * 注意：与 document/manifest.ts **同名不同物**（新人易误判重复）——那是
+ *  `项目/文档清单.jsonl`（文档清单：id/path/定稿基线条目）的读写主人；本文件管
+ *  单章章纲.md（章纲清单）的内容，无清单条目概念。两模块勿合并、勿互引。
+ *
  * 容错（对齐 #3 第 8 节）：缺段/缺字段不崩，未知段进 _raw。
  */
 

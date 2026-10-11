@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { defineRoute, getRouteSchema, resetRouteSchemas } from '../../../src/studio/server/api/schema.js'
-import { createRouteTable, dispatch, route, withRouteTable } from '../../../src/studio/server/router.js'
+import { createRouteTable, dispatch, route, withRouteTable, type RouteTable } from '../../../src/studio/server/router.js'
 import { HttpError, replyError } from '../../../src/studio/server/http.js'
 import { listenSafe } from '../../helpers/safe-port.js'
 
@@ -343,5 +343,91 @@ describe('E2: route schema 单点声明', () => {
     expect(httpErr.status).toBe(413)
     expect(httpErr.json).toEqual({ code: 'PAYLOAD_TOO_LARGE', error: '请求体过大' })
     srv.close()
+  })
+})
+
+// ── P2-11：dispatch method 分桶（原按注册序线性扫全表：116 条路由 × 每请求）──
+// 分桶后单请求只扫同 method 子集（≈1/3~1/4）；两条语义不变量钉住：① 同 path 不同
+// method 各归其桶（方法过滤不因分桶松掉，先注册者先匹配不变）；② 桶索引随表长重建
+// ——首次 dispatch 之后再注册的路由仍可命中（非快照冻结）。第三例钉表键隔离
+//（WeakMap 键 = 表实例；两张同长表不串桶，若退化为模块级共享桶此例即红）。
+
+describe('P2-11: dispatch method 分桶', () => {
+  /** 未命中即回 404（避免 fetch 悬挂）——命中判定即 dispatch 返回值。 */
+  function serve(routes?: RouteTable): Server {
+    return createServer((req, res) => {
+      void dispatch(req, res, routes).then((hit) => {
+        if (!hit && !res.headersSent) {
+          res.writeHead(404)
+          res.end()
+        }
+      })
+    })
+  }
+
+  it('同 path 两方法各归其桶；首次 dispatch 后追加注册的路由仍可命中', async () => {
+    const hits: string[] = []
+    defineRoute('p211.get', {
+      method: 'GET',
+      path: '/p211/probe',
+      handler: async (_ctx, _req, res) => {
+        hits.push('get')
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ m: 'get' }))
+      },
+    })
+    const srv = serve()
+    const port = await listen(srv)
+    const g1 = await fetch(`http://127.0.0.1:${port}/p211/probe`)
+    expect(g1.status).toBe(200)
+    expect(await g1.json()).toEqual({ m: 'get' })
+
+    // 首次 dispatch 之后同表追加注册（桶索引按表长失效重建；无重建则 POST 落不进桶 → 404）
+    defineRoute('p211.post', {
+      method: 'POST',
+      path: '/p211/probe',
+      handler: async (_ctx, _req, res) => {
+        hits.push('post')
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ m: 'post' }))
+      },
+    })
+    const p1 = await fetch(`http://127.0.0.1:${port}/p211/probe`, { method: 'POST' })
+    expect(p1.status).toBe(200)
+    expect(await p1.json()).toEqual({ m: 'post' })
+
+    // GET 仍归 GET 桶（追加注册不串桶）
+    const g2 = await fetch(`http://127.0.0.1:${port}/p211/probe`)
+    expect(await g2.json()).toEqual({ m: 'get' })
+    expect(hits).toEqual(['get', 'post', 'get'])
+    srv.close()
+  })
+
+  it('分桶按表隔离：两张同长表互不串桶（跨表命中失败即 404）', async () => {
+    const t1 = createRouteTable()
+    const t2 = createRouteTable()
+    withRouteTable(t1, () =>
+      route('GET', '/p211/t1', (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.end('t1')
+      }),
+    )
+    withRouteTable(t2, () =>
+      route('GET', '/p211/t2', (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.end('t2')
+      }),
+    )
+    const s1 = serve(t1)
+    const s2 = serve(t2)
+    const p1 = await listen(s1)
+    const p2 = await listen(s2)
+    expect(await (await fetch(`http://127.0.0.1:${p1}/p211/t1`)).text()).toBe('t1')
+    expect(await (await fetch(`http://127.0.0.1:${p2}/p211/t2`)).text()).toBe('t2')
+    // 反表查询：t1 看不到 t2 的路由（同长表 + 模块级共享桶会在此串桶）
+    expect((await fetch(`http://127.0.0.1:${p1}/p211/t2`)).status).toBe(404)
+    expect((await fetch(`http://127.0.0.1:${p2}/p211/t1`)).status).toBe(404)
+    s1.close()
+    s2.close()
   })
 })

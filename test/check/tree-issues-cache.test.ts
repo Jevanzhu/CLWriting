@@ -22,7 +22,19 @@ import {
   clearTreeIssuesCacheForBook,
   writeLeadsBookRed,
   readLeadsBookRed,
+  computeTreeIssuesGlobalFp,
 } from '../../src/check/tree-issues-cache.js'
+// P1-18（二轮复审）：代次哈希与其规则表来源（见文末 describe）
+import {
+  CHECKER_GENERATION,
+  CHECKER_RULE_SNAPSHOT,
+  canonicalRuleValue,
+  computeCheckerGeneration,
+} from '../../src/check/checker-generation.js'
+import { SIMILE_RE } from '../../src/check/count.js'
+import { SPEECH_VERBS } from '../../src/check/count-dialogue.js'
+import { QUOTED_SPAN_RE } from '../../src/check/quotes.js'
+import { STRICT_SHORT_CHECK_IDS } from '../../src/check/strict-short-ids.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
@@ -560,5 +572,47 @@ describe('R33D-17：章缓存批量落盘单事务', () => {
     const db = makeBatchDb()
     expect(() => writeTreeIssuesCacheBatch(db, [])).not.toThrow()
     db.close()
+  })
+})
+
+// ── P1-18（全项目源码二轮独立复审）：机检代次由检查器规则表哈希生成 ──
+//
+// 原状：CHECKER_GENERATION 是手工字面量（'a1-v2'），检查器语义演进漏 bump 时旧缓存
+// 按章指纹照常命中，红黄项静默陈旧。现契约：代次 = 各检查器模块导出规则面（正则/
+// 词表/阈值/升红集/导出函数名与参数个数）的机械哈希（checker-generation.ts）。
+// 用例锚「规则变更必变代次」的可观察面，不锚代次字面量值——回退成字面量时
+// 「同快照可复算」「逐条敏感」两用例即红。
+describe('机检代次：规则表哈希（P1-18）', () => {
+  it('代次 = 规则快照哈希（同快照可复算，非手工字面量）', () => {
+    expect(computeCheckerGeneration(CHECKER_RULE_SNAPSHOT)).toBe(CHECKER_GENERATION)
+  })
+
+  it('任一规则表条目变更 → 代次必变（逐条敏感；反回退手工字面量）', () => {
+    const entries = Object.entries(CHECKER_RULE_SNAPSHOT)
+    // 规则面须有实质规模（空/单条快照 = 哈希机制形同虚设）
+    expect(entries.length).toBeGreaterThan(50)
+    for (const [key, value] of entries) {
+      const mutated = { ...CHECKER_RULE_SNAPSHOT, [key]: `${value}\u0003mutation` }
+      expect(computeCheckerGeneration(mutated), `规则「${key}」未参与代次哈希`).not.toBe(CHECKER_GENERATION)
+    }
+  })
+
+  it('快照由规则表机械导出：关键条目与模块导出常量同源', () => {
+    // 若把快照换成手写字面量，此处与真实规则表脱钩即红
+    expect(CHECKER_RULE_SNAPSHOT['count.SIMILE_RE']).toBe(canonicalRuleValue(SIMILE_RE))
+    expect(CHECKER_RULE_SNAPSHOT['count-dialogue.SPEECH_VERBS']).toBe(canonicalRuleValue(SPEECH_VERBS))
+    expect(CHECKER_RULE_SNAPSHOT['quotes.QUOTED_SPAN_RE']).toBe(canonicalRuleValue(QUOTED_SPAN_RE))
+    expect(CHECKER_RULE_SNAPSHOT['strict-short.STRICT_SHORT_CHECK_IDS']).toBe(
+      canonicalRuleValue(STRICT_SHORT_CHECK_IDS),
+    )
+  })
+
+  it('代次参与全局纪元指纹首段（规则变 → 纪元变 → 整表缓存失效的接线锚）', () => {
+    const root = bareDir()
+    try {
+      expect(computeTreeIssuesGlobalFp(root, null).startsWith(`${CHECKER_GENERATION}|`)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

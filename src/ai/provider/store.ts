@@ -785,7 +785,7 @@ export function currentProvider(userDataPath: string): ProviderConf | null {
   return s.providers.find((p) => p.id === s.currentId) ?? null
 }
 
-// ──：provider 运行时端口（组装根注入面）──────────────────────
+// ── provider 运行时端口（组装根注入面）──────────────────────
 
 /**
  * 链路消费面 + 降级记忆回调注册面。服务端组装根（server/index.ts 的 createStudioServer）

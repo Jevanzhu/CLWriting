@@ -62,7 +62,7 @@ interface GlobalBookDefaults {
   tokensPerChapter?: number
   /** 单章金额预算全局默认（需配价格表才生效） */
   costPerChapter?: number
-  // ──：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
+  // ── 机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
   // 都未设保持 undefined，runner 吃引擎默认参数值）──
   /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
   checkRepeatThreshold?: number

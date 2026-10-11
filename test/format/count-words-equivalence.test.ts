@@ -115,6 +115,7 @@ describe('countWords 单遍重写等价性（PM-2）', () => {
   })
 
   it('随机模糊：混合字母表 200 轮全等', () => {
+    // 零断言豁免：以抛错判红（失败信息含 round + 可复现切片，表达力强于 expect）
     // 固定种子可复现
     let seed = 0x2f6e2b1
     const rand = () => {

@@ -36,7 +36,7 @@ import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
-import { getOrCreateService } from './documents.js'
+import { getOrCreateService, structStatus } from './documents.js'
 import type { TaskGateInjected } from './task-gate.js' // prune 书级任务闸；补编排互斥查询（闸实例经组装根注入）
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // MISS 计算体逐块让出（范式）
 import { sigStatFor } from './rhythm.js' // 三处同体收编单源（先例位在本文件）
@@ -138,7 +138,7 @@ async function scanVersionsDirAsync(dir: string): Promise<{ count: number; bytes
 
 // 全局保留策略读取器已上移 document/version.ts（service.ts 写时清理也走同一三层链）
 
-// ──：version-stats 全书快照统计 5s TTL 缓存 ─────────────────
+// ── version-stats 全书快照统计 5s TTL 缓存 ─────────────────
 // 端点递归遍历 .版本 全目录（含 pinned 判定逐文件 fm 读 + parse）+ manifest 全表，
 // 进页/轮询/刷新反复触发。手法对齐 search.ts（mtime 探针 + TTL）：递归
 // mtime/size 探针（symlink 跳过，与 scanVersionsDirAsync 同口径）——命中即跳过
@@ -499,9 +499,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         reason: `恢复到 ${new Date(snap.meta.time).toLocaleString('zh-CN')} 的版本`,
       })
       if (!outcome.ok) {
-        const status = outcome.code === 'REVISION_CONFLICT' ? 409 : 400
-        // 收编 replyError 单一出口（去掉 ok:false 冗余位）
-        return replyError(res, status, outcome.code, outcome.reason)
+        // save 失败码 → HTTP status 走 structStatus 单源——本端点原内联
+        // 「仅 REVISION_CONFLICT 判 409、其余一律压 400」，同一码在不同端点两套档位
+        //（WRITE_ERROR 在结构操作族是 409 可重试、此处却是 400「输入错」；CAPABILITY_DENIED
+        // 在 structStatus 是 403，此处 400）。恢复本质是「对既有文档的一次写协议调用」，
+        // 与 documents-crud/documents-save 族同源同一映射表，失败语义（可重试/输入错）
+        // 不得按调用面分叉。
+        return replyError(res, structStatus(outcome.code), outcome.code, outcome.reason)
       }
       // 回复体是编辑器缓冲区的文本视图：utf-8 档即原文；字节档为失真视图（编辑器
       // 世界是 utf-8 文本，后续保存由防线拦截提示先转码——不产生静默覆写）

@@ -58,6 +58,15 @@ const data = ref<OverviewResult | null>(null)
 const foreshadows = ref<Foreshadow[]>([])
 const rhythmData = ref<RhythmResult | null>(null)
 const analysis = ref<AnalysisOverview | null>(null)
+/**
+ * 次级面板失败登记（面板名，去重）——主数据可渲染但子请求（伏笔/节奏/文风分析）
+ * 失败时面板退化为空态，原先只有 console.warn，作者看到的是「没有数据」而非
+ * 「没拉到数据」。合并成页内一行提示（不逐面板刷、不弹 toast），带重试入口。
+ */
+const degraded = ref<string[]>([])
+function markDegraded(panel: string): void {
+  if (!degraded.value.includes(panel)) degraded.value = [...degraded.value, panel]
+}
 const loading = ref(true)
 const err = ref<string | null>(null)
 
@@ -69,6 +78,7 @@ async function loadAll(): Promise<void> {
   const gen = loadGen.begin()
   loading.value = true
   err.value = null
+  degraded.value = [] // 本轮次级加载结果重新记账（重试/切书不残留上一轮失败面）
   try {
     const d = await getOverview(props.bookName)
     if (loadGen.stale(gen)) return
@@ -97,12 +107,13 @@ async function loadFs(gen: number): Promise<void> {
     foreshadows.value = r
   } catch (e) {
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
-    // 降级留痕——面板空态可重试，不打扰 UI
+    // 降级留痕（console）+ 页内合并提示点名（degraded）——面板空态可重试
     // 对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
     // 不置空，注释「面板保持空态」失实：同书先前成功过一次后重试失败，面板继续展示
     // 旧红/黄/绿统计（陈旧数据假健康）。
     console.warn('[overview] 伏笔健康度加载失败（面板保持空态）', e)
     foreshadows.value = []
+    markDegraded('伏笔健康度') // 空态不再与「无数据」不可区分
   }
 }
 async function loadRhythm(gen: number): Promise<void> {
@@ -112,9 +123,10 @@ async function loadRhythm(gen: number): Promise<void> {
     rhythmData.value = r
   } catch (e) {
     if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
-    // 降级留痕——面板空态可重试，不打扰 UI
+    // 降级留痕（console）+ 页内合并提示点名（degraded）——面板空态可重试
     console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
     rhythmData.value = null
+    markDegraded('节奏分布')
   }
 }
 async function loadAnalysis(gen: number): Promise<void> {
@@ -124,9 +136,10 @@ async function loadAnalysis(gen: number): Promise<void> {
     analysis.value = r
   } catch (e) {
     if (loadGen.stale(gen)) return // 同上
-    // 降级留痕——面板空态可重试，不打扰 UI
+    // 降级留痕（console）+ 页内合并提示点名（degraded）——面板空态可重试
     console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
     analysis.value = null
+    markDegraded('文风摘要')
   }
 }
 function reload(): Promise<void> {
@@ -223,6 +236,14 @@ const fsStats = computed(() => {
     </div>
 
     <div v-else-if="data" class="overview">
+      <!-- 次级面板失败合并提示：主数据可渲染、子面板取数为空时一行点名 + 页内重试
+          （面板空态不再伪装成「本来就没有数据」） -->
+      <div v-if="degraded.length" class="ov-degraded" role="status">
+        <AlertTriangle :size="13" />
+        <span class="ov-degraded-text">{{ degraded.join('、') }}加载失败，面板暂为空白</span>
+        <button class="btn-retry" :disabled="loading" @click="reload">重试</button>
+      </div>
+
       <!-- ── ① Hero · Bento（渐变底 + KPI tiles + 继续写作）── -->
       <section class="hero">
         <div class="hero-top">
@@ -759,6 +780,22 @@ const fsStats = computed(() => {
   text-align: center;
   color: var(--text-error);
   font-size: var(--font-size-m);
+}
+/* 次级面板失败合并提示行（页内常驻，随本轮重试清空） */
+.ov-degraded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-warning);
+  font-size: var(--font-size-s);
+}
+.ov-degraded-text {
+  flex: 1;
+  min-width: 0;
 }
 .btn-retry {
   margin-left: 8px;

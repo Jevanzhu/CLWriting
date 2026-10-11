@@ -56,4 +56,19 @@ describe('0918独立重评修复批 B007: StructureViolation 死字段删除', (
     expect(pending[0]!.humanMsg).toContain('第1章')
     expect(pending[0]!.humanMsg).toContain('第 2 章')
   })
+
+  // P1-7：rel 归一委托 normalizeWinSeparators 单源（win32-only）——原手写 replaceAll
+  // 在 posix 上把字面含 `\` 的合法文件名（mac 外部创建）扭曲成 `/` 形态，
+  // violation 报文/repair 定位身份键随之失配磁盘名。
+  it('P1-7 违规定位路径保留字面反斜杠（posix 不再被扭曲为 /）', () => {
+    if (process.platform === 'win32') return // win 上 `\` 是分隔符，无法构造字面反斜杠文件名
+    bookRoot = mkdtempTracked(join(tmpdir(), 'clw-struct-violation-bs-'))
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    const targetRel = '写作/正文/0001-目\\标.md'
+    writeFileSync(join(bookRoot, targetRel), '---\n章号: 1\n标题: 目标\n并入: [2]\n---\n\n目标正文\n', 'utf8')
+    writeFileSync(join(bookRoot, '写作/正文/0002-源章.md'), '---\n章号: 2\n标题: 源章\n---\n\n源章正文\n', 'utf8')
+    const violations = detectStructureViolations(bookRoot)
+    expect(violations).toHaveLength(1)
+    expect(violations[0]!.targetPath).toBe(targetRel)
+  })
 })

@@ -12,12 +12,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
 import { safeTokenCompare, replyError, urlPathOnly, URL_PARSE_BASE } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
-import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
-import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
-import { migrateFinalizedRevisions } from '../../install/migrate-finalized-revision.js'
 import { migrateBookDefaults } from '../../install/migrate-defaults.js'
-import { migrateLegacyForeshadows } from '../../document/foreshadow.js'
-import { migrateVersionsDir } from '../../document/version.js'
+// 书级 layout 迁移链的顺序单点声明（LAYOUT_MIGRATIONS 数组序 = 执行序）：
+// 启动段只负责逐书容错与通告，不再逐行硬编码步骤顺序（契约见该表头注）。
+import { runLayoutMigrations } from '../../install/layout-migrations.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerRagRoutes } from './api/rag.js'
 import { registerRagProviderRoutes } from './api/rag-providers.js'
@@ -44,7 +42,7 @@ import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
 import { registerPrefsRoutes } from './api/prefs.js'
 import { registerStateRoutes } from './api/state.js'
-import { registerIoRoutes } from './api/io.js'
+import { registerIoRoutes, createExportSlotGate, type ExportSlotGate } from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
@@ -93,6 +91,8 @@ interface RouteDeps {
   gate: TaskGate
   driver: DriverHost
   providers: ProviderRuntime
+  /** 导出全局并发闸实例（组装根解析一次，随本实例；原模块级全局状态） */
+  exportGate: ExportSlotGate
   /** 逐路由测试覆盖档（缺省 {} = 生产口径逐位不变；测试经组装根 opts.overrides 注入） */
   overrides: RouteOverrides
 }
@@ -135,14 +135,17 @@ export interface RouteOverrides {
   learnTtlMs?: number | null
   /** 导出排队等待超时（缺省 10min） */
   exportWaitTimeoutMs?: number | null
+  /** 导出并发闸实例覆盖档（缺省 = 组装根按本实例新建；
+   *  测试注入自建实例——可在服务外占满闸，断言排队/超时/503 分支） */
+  exportGate?: ExportSlotGate | null
   /** 删书墓地后台清理函数（缺省真删） */
   graveyardCleanup?: ((graveAbs: string) => Promise<void>) | null
   /** snapshot restore 读体前让出桩（缺省无让出） */
   snapshotsRestoreYield?: (() => Promise<void>) | null
   /** learn-commit 让出原语桩（缺省 defaultCommitYield） */
   learnCommitYield?: CommitYield | null
-  /** provider 探测函数桩（缺省真探测；签名同 透传 userDataPath 口径） */
-  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null
+  /** provider 探测函数桩（缺省真探测；签名同 透传 userDataPath 口径；第三参 = mock 选择结果） */
+  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
 }
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
@@ -203,7 +206,7 @@ function buildRoutes(
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath, stateTtlMs: ov.stateTtlMs }) // 状态机入口过全局托底链（volume_size 等喂生效值）
     // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
-    registerIoRoutes({ workDir, gate: deps.gate, exportWaitTimeoutMs: ov.exportWaitTimeoutMs })
+    registerIoRoutes({ workDir, gate: deps.gate, exportGate: deps.exportGate, exportWaitTimeoutMs: ov.exportWaitTimeoutMs })
     registerKnowledgeRoutes({
       workDir,
       gate: deps.gate,
@@ -232,7 +235,7 @@ function buildRoutes(
     })
     registerForeshadowRoutes({ workDir, foreshadowTtlMs: ov.foreshadowTtlMs })
     registerStyleRoutes({ workDir, userDataPath, gate: deps.gate }) // 全局托底：注入强度喂写作链路合并 global.json
-    registerProvidersRoutes({ userDataPath, probeCapabilities: ov.probeCapabilities })
+    registerProvidersRoutes({ userDataPath, driver: deps.driver, probeCapabilities: ov.probeCapabilities })
     registerTraceStatsRoutes({ workDir, userDataPath })
     registerCostStatsRoutes({ workDir, userDataPath })
     registerAuditRoutes({ workDir, userDataPath, gate: deps.gate })
@@ -394,6 +397,10 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   const providers = deps.providers ?? processProviderRuntime()
   configureProviderRuntime(providers)
   configureRunnerMockFastPath(driver.kind === 'mock')
+  // 导出并发闸随本实例实例化（原模块级全局计数/队列——同进程多实例互相影响）。
+  // 生产恒单实例，语义与「进程单一闸」逐位等价（并发上限/排队/超时全不变）；测试经
+  // overrides.exportGate 注入自建实例，可在服务外占满闸以断言 503 分支。
+  const exportGate = opts.overrides?.exportGate ?? createExportSlotGate()
   // 结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
   // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
   initLogging({
@@ -456,7 +463,8 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       noticeOrLog('repair-books', `书库登记自愈失败：${errMsg(e)}`, e)
     }
   }
-  // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
+  // 书级 layout 迁移链：按 install/layout-migrations.ts 的编排表执行（数组序 = 执行序，
+  // 步骤间的先于/晚于依赖是表序，不再由本段逐行顺序隐式承载）。每启动全量重跑，各步幂等。
   if (opts.workDir) {
     for (const book of readBooks(opts.workDir)) {
       const bookPath = join(opts.workDir, book.path)
@@ -465,32 +473,15 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       // atomicWriteFile 等）：单本书目录权限故障（备份恢复/同步盘 EACCES）会炸整
       // 个服务启动、全部书不可用；一本失败只降级该书（migrateBookDefaults 的先例）。
       try {
-        const v2Result = migrateLayoutV2(bookPath)
-        if (v2Result.errors.length > 0) {
-          noticeOrLog(
-            'migrate-layout-v2',
-            `${book.path} 版式 v2 迁移 ${v2Result.errors.length} 个错误：\n${v2Result.errors.join('\n')}`,
-          )
+        for (const step of runLayoutMigrations(bookPath)) {
+          // 结构化错误（非抛出）逐步通告：kind/label 随表条目走，通告面与步骤单点同源
+          if (step.errors.length > 0 && step.noticeKind) {
+            noticeOrLog(
+              step.noticeKind,
+              `${book.path} ${step.noticeLabel ?? step.id} ${step.errors.length} 个错误：\n${step.errors.join('\n')}`,
+            )
+          }
         }
-        const v3Result = migrateLayoutV3(bookPath)
-        if (v3Result.errors.length > 0) {
-          noticeOrLog(
-            'migrate-layout-v3',
-            `${book.path} 版式 v3 迁移 ${v3Result.errors.length} 个错误：\n${v3Result.errors.join('\n')}`,
-          )
-        }
-        // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
-        migrateVersionsDir(bookPath)
-        // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
-        // 必须在 migrateFinalizedRevisions **之前**——
-        // migrateLayoutV2 的清单路径改写已把 大纲/伏笔/* 指到 设定/伏笔/*，但物理
-        // 文件靠本函数搬；若定稿基线先跑，伏笔 entry 对 设定/伏笔/* existsSync 落空
-        // 被跳过，且幂等闸（任一 document entry 已有基线→整书跳过）此后不再补——
-        // git 时代书的伏笔永久缺定稿基线。两函数无相互依赖（本函数不读 manifest，
-        // finalize 不碰磁盘搬迁），调序安全
-        migrateLegacyForeshadows(bookPath)
-        // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
-        migrateFinalizedRevisions(bookPath)
       } catch (e) {
         noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${errMsg(e)}`, e)
       }
@@ -531,7 +522,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     isTrustedOrigin,
     sink,
     streamTickets,
-    { gate, driver, providers, overrides: opts.overrides ?? {} },
+    { gate, driver, providers, exportGate, overrides: opts.overrides ?? {} },
   )
   // host 仅限本机回环（本文件头注释），非回环值启动即拒——
   // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；

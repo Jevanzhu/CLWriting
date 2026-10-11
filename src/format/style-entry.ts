@@ -12,6 +12,7 @@
 import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createFileExclusive } from '../fs/atomic.js'
+import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
 import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
@@ -146,7 +147,7 @@ export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
   return createFileExclusive(filePath, text) === 'created'
 }
 
-// ──：条目库读取 TTL+mtime 探针缓存 ─────────────────────
+// ── 条目库读取 TTL+mtime 探针缓存 ─────────────────────
 // 消费面是写稿热路径：book-rules loadAiFlavorRule → rulesPromptParts/applicableRules
 // （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。手法照抄
 // 同路径先例 setting-rule（TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
@@ -201,7 +202,7 @@ function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): s
     for (const f of files) {
       try {
         const st = statSync(join(dir, f), { bigint: true })
-        fps.push(`${f}:${st.mtimeNs}:${st.size}`)
+        fps.push(`${f}:${statFingerprint(st)}`)
       } catch {
         return `unstable-${Date.now()}-${Math.random()}` // 竞态删除：整签名作废强制重读
       }

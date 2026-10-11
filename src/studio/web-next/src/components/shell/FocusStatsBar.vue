@@ -12,6 +12,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useBookScoped } from '../../composables/useBookScoped'
 
 const ws = useWorkspaceStore()
 const doc = useDocStore()
@@ -103,9 +104,10 @@ const config = ref<BookConfig>({})
 // chapter_target_words 串进 B 书目标区显示）；代数不符的迟归结果弃用。
 // 裸计数器换装 useStaleGuard。
 const configReqGen = useStaleGuard()
-watch(
-  () => ws.bookName,
-  async (n) => {
+// 源取 '' 兜底：null 与 '' 同属「无书」，两者间的翻转不触发重载（load 内空书名早退，
+// 语义零变化）——hook 的源面收 string，store 的 bookName 为 string | null
+useBookScoped(() => ws.bookName ?? '', {
+  load: async (n) => {
     if (!n) return
     const gen = configReqGen.begin()
     try {
@@ -115,8 +117,8 @@ watch(
       /* 读不到配置：目标区退到 fm/全局默认解析 */
     }
   },
-  { immediate: true },
-)
+  immediate: true,
+})
 const chapterTarget = computed(() => {
   if (entry.value) {
     const v = fmFields.value['字数目标']

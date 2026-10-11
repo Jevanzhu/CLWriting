@@ -108,21 +108,39 @@ export function progressPercent(b: { words?: number; targetWords?: number }): nu
  * 每次 scroll tick 直接 `glowRects = new WeakMap`，而 capture 监听会命中全应用
  * 每个容器的每次滚动（全局热路径），逐 tick 分配新 WeakMap 丢弃全部缓存；改标记后
  * 热路径仅一次布尔写，重建推迟到下一次 onCardMove 读取（未读零成本），失效与命中
- * 语义不变。监听器为页面寿命、capture 语义均保持不变。
+ * 语义不变。
+ * 监听登记改惰性（首个 onCardMove）+ 导出 dispose——原模块级在 import 即挂
+ * window 监听且无注销出口，注释宣称「页面寿命」与实现不一致：页测试/热更新环境里
+ * 每次重新加载本模块就多一份监听（旧监听闭包滞留、无引用可清）。缓存本就只由
+ * onCardMove 建立，故监听推迟到首个消费组件绑定，应用行为不变；disposeGlowListeners
+ * 供测试/HMR 收尾，重复调用幂等，注销后再消费自动重绑。
  */
 let glowRects = new WeakMap<HTMLElement, DOMRect>()
 let glowRectsDirty = false
+/** 失效监听登记位（惰性绑定 + dispose 幂等的单一事实源） */
+let glowListenersBound = false
 function invalidateGlowRects(): void {
   glowRectsDirty = true
 }
-if (typeof window !== 'undefined') {
+/** 登记 rect 失效监听（首个 onCardMove 触发；非浏览器环境跳过） */
+function bindGlowListeners(): void {
+  if (glowListenersBound || typeof window === 'undefined') return
   window.addEventListener('resize', invalidateGlowRects, { passive: true })
   window.addEventListener('scroll', invalidateGlowRects, { capture: true, passive: true })
+  glowListenersBound = true
+}
+/** 注销 rect 失效监听（测试/HMR 清理出口；幂等，登记前调用为 no-op） */
+export function disposeGlowListeners(): void {
+  if (!glowListenersBound || typeof window === 'undefined') return
+  window.removeEventListener('resize', invalidateGlowRects)
+  window.removeEventListener('scroll', invalidateGlowRects, { capture: true })
+  glowListenersBound = false
 }
 let glowRaf = 0
 let glowPending: { el: HTMLElement; mx: string; my: string } | null = null
 export function onCardMove(e: MouseEvent): void {
   const el = e.currentTarget as HTMLElement
+  bindGlowListeners() // 惰性登记：有卡被消费才有缓存可失效，import 本身不再挂全局监听
   // 消费脏标记——roll/resize 后首次读取时一次性重建缓存（惰性失效）
   if (glowRectsDirty) {
     glowRects = new WeakMap()

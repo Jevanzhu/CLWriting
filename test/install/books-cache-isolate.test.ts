@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -31,6 +31,27 @@ describe('R0912：books.jsonl 指纹缓存隔离与 appendBookAsync 永不 rejec
       const second = readBooksStrict(dir)
       expect(second).toHaveLength(1) // R0912：缓存本体未被污染
       expect(second![0]!.name).toBe('甲')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // P2-7：低精度 mtime 卷（FAT/exFAT/SMB）降级不缓存——用 utimes 把 mtime 构造为
+  // 整秒（mtimeNs % 1e9 === 0，低精度卷的时间戳对齐形态），同尺寸改写 + mtime 落回
+  // 同一整秒时，指纹判据不可信，必须重读（原实现会陈旧命中返回旧登记）。
+  it('P2-7 低精度 mtime（整秒对齐）→ 指纹缓存降级不缓存：同尺寸同 mtime 外部改写立即可见', () => {
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-books-coarse-'))
+    try {
+      mkdirSync(join(dir, '.clwriting'))
+      const fp = join(dir, '.clwriting', 'books.jsonl')
+      writeFileSync(fp, `${JSON.stringify({ name: '甲书', path: '长篇/甲书', kind: 'long' })}\n`)
+      const t = Math.floor(Date.now() / 1000) - 120 // 整秒（避免未来时间戳）
+      utimesSync(fp, t, t)
+      expect(readBooksStrict(dir)!.map((b) => b.name)).toEqual(['甲书'])
+      // 外部同尺寸改写（甲书 → 乙书 等字节长度，name/path 同步换）+ mtime 落回同一整秒
+      writeFileSync(fp, readFileSync(fp, 'utf-8').replaceAll('甲书', '乙书'))
+      utimesSync(fp, t, t)
+      expect(readBooksStrict(dir)!.map((b) => b.name)).toEqual(['乙书'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

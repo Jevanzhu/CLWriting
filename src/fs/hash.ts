@@ -19,3 +19,23 @@ export function hashFile(filePath: string): string {
 export function hashBytes(data: Buffer): string {
   return 'sha256:' + createHash('sha256').update(data).digest('hex')
 }
+
+/** 文件变更指纹（stat 版，非内容哈希）：`${mtimeNs}:${size}`。
+ *
+ *  单源化：此串此前在 format/style-entry、format/iron-rules、
+ *  check/run-tree-issues、check/tree-issues-cache、process/skills 五处各手抄一份。
+ *  调用方须以 `statSync(p, { bigint: true })` 取 stat（ns 级精度，同毫秒内「改回
+ *  同长内容」不漏判——ms 档有该漏网）；stat 失败/文件不存在的 'absent' 等缺省值由
+ *  调用方自决（各处语义不同：'no-entries' / 'unstable-…' / null），不入本函数。
+ *  process/skills 原分隔符为逗号（纯进程内 Map 键、无落盘）：收敛后统一冒号，
+ *  行为等价（仅在升级当次致一次冷读）。
+ *
+ *  两种不入本函数的变体（登记理由，勿再「顺手统一」）：
+ *  - document/manifest.ts `${size}:${mtimeNs}`：字段顺序相反，且与
+ *    fs/mtime-precision.isCoarseMtimeNs 降级策略绑定（低精度卷返回 null 绕缓存），
+ *    是「指纹 + 精度判定」的复合语义；
+ *  - studio/server/api/rhythm.ts `${size}:${mtimeMs}`：HTTP 历史签名面，Number 毫秒
+ *    且保留亚毫秒小数位（snapshots/search 同族），换 ns 会变签名口径。 */
+export function statFingerprint(st: { mtimeNs: bigint; size: bigint }): string {
+  return `${st.mtimeNs}:${st.size}`
+}

@@ -9,6 +9,10 @@
  *
  * 本文件按 server 启动链的实际顺序（V2→V3 略→伏笔→定稿基线）驱动两个纯迁移函数，
  * 断言伏笔 entry 拿到基线；同时以旧顺序（finalize 先跑）锚定缺陷形态（基线永久缺）。
+ *
+ * 启动链现由 install/layout-migrations.ts 的编排表承载（数组序 = 执行序，依赖声明
+ * 从逐行注释收拢为表序）：本文件另锚表序契约与「按表驱动整链」的终局——表序若把伏笔
+ * 搬迁排到定稿基线之后，链驱动用例即红（前两例只锚函数本身，表序改动测不到）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
@@ -19,6 +23,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateLayoutV2 } from '../../src/install/migrate-layout-v2.js'
 import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
 import { migrateLegacyForeshadows } from '../../src/document/foreshadow.js'
+import { LAYOUT_MIGRATIONS, runLayoutMigrations } from '../../src/install/layout-migrations.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { computeRevision } from '../../src/document/revision.js'
 
@@ -120,4 +125,40 @@ test('R71-14: 旧顺序缺陷锚定（定稿基线先跑）——伏笔 entry �
   const m = manifestOf()
   const fore = [...m.entries.values()].find((e) => e.path === '设定/伏笔/伏笔-012-暗号.md')
   expect(fore?.finalizedRevision).toBeUndefined() // 旧顺序下永久缺基线（缺陷形态）
+})
+
+test('编排表序声明既有依赖：版式 v2 → 伏笔搬迁 → 定稿基线（表序即依赖声明）', () => {
+  const ids = LAYOUT_MIGRATIONS.map((s) => s.id)
+  // id 唯一是表序断言与启动通告定位的前提
+  expect(new Set(ids).size).toBe(ids.length)
+  expect(ids).toContain('layout-v2')
+  expect(ids).toContain('legacy-foreshadows')
+  expect(ids).toContain('finalized-revisions')
+  // 依赖（原散落在 server 启动段的隐式契约，现收拢为表序）：
+  // v2 的清单路径改写先于伏笔搬迁；伏笔物理文件就位先于定稿基线判定
+  expect(ids.indexOf('layout-v2')).toBeLessThan(ids.indexOf('legacy-foreshadows'))
+  expect(ids.indexOf('legacy-foreshadows')).toBeLessThan(ids.indexOf('finalized-revisions'))
+})
+
+test('按编排表驱动整链——伏笔 entry 拿到定稿基线，且整表重跑幂等零错误', () => {
+  scaffoldGitEraBook()
+  for (const step of LAYOUT_MIGRATIONS) {
+    expect(step.run(tmp).errors).toHaveLength(0)
+    if (step.id === 'legacy-foreshadows') {
+      // 作者把迁移中间态 commit：定稿基线只对 clean 文件建（不 commit 则两序都不建，
+      // 测不到顺序差）——此刻伏笔物理文件已在新位且 clean，才轮到定稿基线判定。
+      // 表序若把伏笔搬迁排到定稿基线之后，本用例终局断言即红。
+      execSync('git add -A && git commit -m migrate', { cwd: tmp, stdio: 'pipe' })
+    }
+  }
+  const forePath = join(tmp, '设定', '伏笔', '伏笔-012-暗号.md')
+  const foreOf = () =>
+    [...manifestOf().entries.values()].find((e) => e.path === '设定/伏笔/伏笔-012-暗号.md')
+  expect(foreOf()?.finalizedRevision).toBe(computeRevision(forePath))
+
+  // 生产入口（整表一次跑）在终局盘面上重跑：各步幂等——全步零错误且基线不丢
+  const outcomes = runLayoutMigrations(tmp)
+  expect(outcomes).toHaveLength(LAYOUT_MIGRATIONS.length)
+  expect(outcomes.filter((o) => o.errors.length > 0)).toEqual([])
+  expect(foreOf()?.finalizedRevision).toBe(computeRevision(forePath))
 })

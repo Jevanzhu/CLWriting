@@ -19,6 +19,7 @@ import {
   ensureSession as ensureSessionImpl,
   getSession as getSessionImpl,
   forgetSession as forgetSessionImpl,
+  driverKind,
 } from '../../driver/index.js'
 
 /**
@@ -46,13 +47,14 @@ export interface DriverHost {
 /**
  * 生产 driver 宿主（组装根缺省值）。
  *
- * 环境变量 `CLWRITING_DRIVER` 的唯一读取点：选实现 + 决定 mock 快路（kind）都在这里
- * 一次完成，下游一切分支只读 host.kind，不各自读环境（「mock driver 只在组装根
- * 选择」）。driver 与会话存取经**取值器**转发到进程单例（不在组装时捕获实例：
- * 测试以 vi.mock 替换 driver/index.js 的导出后，宿主仍取到替身）。
+ * 选择结果取 driver/index.ts 的 driverKind()（**全仓环境变量唯一读取点**）——
+ * 选实现（getDriver）与本宿主的 kind 同源一次判定；下游一切分支只读 host.kind，
+ * 不各自读环境（「mock driver 只在组装根选择」）。driver 与会话存取经**取值器**
+ * 转发到进程单例（不在组装时捕获实例：测试以 vi.mock 替换 driver/index.js 的导出后，
+ * 宿主仍取到替身）。
  */
 export function productionDriverHost(): DriverHost {
-  const kind: 'cc' | 'mock' = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc'
+  const kind = driverKind()
   return {
     get driver(): ServiceDriver {
       return getDriverImpl()

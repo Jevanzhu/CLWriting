@@ -36,7 +36,7 @@ interface StateCtx {
   stateTtlMs?: number | null
 }
 
-// ──：/state 结果 5s TTL 缓存 ─────────────────────────
+// ── /state 结果 5s TTL 缓存 ─────────────────────────
 // detectState→routeState→buildRecap 每请求全量读盘（manifest + 布线 rebuild + 近况
 // 复述），工作台进页/轮询/反复刷新会反复重建。缓存口径对齐 health.ts styleScanCache
 //（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效挂点——保存/定稿后最迟 5s 自愈

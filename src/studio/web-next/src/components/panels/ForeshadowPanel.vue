@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 伏笔追踪面板（右栏信息 tab 折叠分区）：
 // 全书伏笔列表（未回收/已回收/废弃分组）+ 统计 + 当前章节联动高亮 + 点击编辑 + 新建。
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { Plus, CircleAlert, Check, ChevronDown, BookMarked } from 'lucide-vue-next'
 import { getForeshadows, type Foreshadow } from '../../api/foreshadows'
 import { createDoc } from '../../api/documents'
@@ -12,6 +12,7 @@ import { useUiStore } from '../../stores/ui'
 import { parseChapterFileName, isBodyKind } from '../../shared/words'
 import { capView } from '../../shared/render-cap'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useBookScoped } from '../../composables/useBookScoped'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -146,7 +147,7 @@ async function create(): Promise<void> {
   }
 }
 
-watch(() => props.bookName, load, { immediate: true })
+useBookScoped(() => props.bookName, { load, immediate: true })
 </script>
 
 <template>

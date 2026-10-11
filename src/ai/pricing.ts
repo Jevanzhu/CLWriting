@@ -117,6 +117,17 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
   }
 }
 
+/**
+ * 金额归一单源：四舍五入到 1e-10（浮点累加噪声不进记账/展示）。
+ *
+ * 此前该口径以 `Math.round(x * 1e10) / 1e10` 逐字手抄 4 处（本文件
+ * computeCallCost、calls.applyCall 的 costAccum、cost-stats 的 bump 与 total），
+ * 精度口径靠复制维持。金额的归一点统一走本函数（改精度只此一处）。
+ */
+export function roundCost(x: number): number {
+  return Math.round(x * 1e10) / 1e10
+}
+
 /** 单次调用金额（按价格表四档分计；未配价的档位不计费=0） */
 export function computeCallCost(
   pricing: PricingConf | null,
@@ -129,6 +140,5 @@ export function computeCallCost(
     (usage.outputTokens / 1e6) * (pricing.outputPerMTok ?? 0) +
     ((usage.cacheReadTokens ?? 0) / 1e6) * (pricing.cacheReadPerMTok ?? 0) +
     ((usage.cacheWriteTokens ?? 0) / 1e6) * (pricing.cacheWritePerMTok ?? 0)
-  // 归一到 1e-10（浮点累加噪声不进记账）
-  return Math.round(cost * 1e10) / 1e10
+  return roundCost(cost) // 归一到 1e-10（浮点累加噪声不进记账）
 }

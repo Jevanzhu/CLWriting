@@ -14,11 +14,12 @@
  *   调用方 await；
  * 本地日分桶 day = localDayKey(createdAt)（与日志文件日同口径；
  *   此前 UTC 切日，东八区 0-8 点记前一日）；
- * - 观测层失败静默 → []（观测面失败不反噬业务主流程）。
+ * 观测层失败不反噬业务主流程（读失败仍返回空结果），但**不再静默**：
+ *   开库/句柄失败 → warn 留痕 + degraded:true 反馈调用方，与「确无数据」区分。
  */
 import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import type { ChatEvent, LlmCallData } from '../events/types.js'
-import { localDayKey } from '../log/index.js'
+import { localDayKey, log, errMsg } from '../log/index.js'
 
 /** llm/call 行投影（两消费方字段的并集；下游各取所需） */
 export interface LlmCallReadRow {
@@ -50,7 +51,18 @@ interface ReadLlmCallRowsOptions {
 }
 
 /**
- * 从事件库读 llm/call 事件行投影（观测层失败静默 → []）。
+ * 读侧结果：`degraded: true` = 事件库**读失败**（开库/句柄缺失/迭代故障），
+ * 与「确无数据」两态区分——此前读失败静默返回空壳，UI 把「读不到」渲染成
+ * 「零成本 / 未配置价格（或 0 次调用）」，故障被伪装成业务空态。
+ * 注：`userDataPath` 缺失属「未配置观测面」（非失败）→ degraded:false。
+ */
+export interface LlmCallReadOutcome {
+  degraded: boolean
+}
+
+/**
+ * 从事件库读 llm/call 事件行投影（读失败 → [] + warn 留痕，degraded 经
+ * streamLlmCallRows 反馈；本入口无消费方，保留供全量读语义）。
  * 事件挂 workspace 会话（bookHash(bookRoot) 为 book 标识），按事件创建时间聚日。
  */
 export async function readLlmCallRows(
@@ -60,9 +72,11 @@ export async function readLlmCallRows(
 ): Promise<LlmCallReadRow[]> {
   const out: LlmCallReadRow[] = []
   try {
-    await streamLlmCallRows(userDataPath, bookRoot, opts, (row) => out.push(row))
-  } catch {
-    return [] // 观测层失败静默 → []（与旧实现整段 catch 口径一致：失败丢弃全量，不留半截）
+    const r = await streamLlmCallRows(userDataPath, bookRoot, opts, (row) => out.push(row))
+    if (r.degraded) return [] // 观测层读失败 → []（失败丢弃全量，不留半截）
+  } catch (e) {
+    log.warn('llm-call-read', `llm/call 事件读取失败，本入口返回空（观测层降级）：${errMsg(e)}`)
+    return []
   }
   return out
 }
@@ -93,22 +107,27 @@ function projectRow(e: ChatEvent, skipMissingUsage: boolean): LlmCallReadRow | n
  * listEvents 物化的 ChatEvent 数组）在每次指标刷新时峰值巨大；本入口经 store
  * iterateEvents 游标逐行读，调用方（cost-stats / trace-stats）边读边聚合，峰值只与
  * 聚合桶规模相关。iter 顺序 = seq 升序（与全量读一致），故聚合结果逐字段相同。
- * 观测层失败静默（与 readLlmCallRows 同口径）。
+ * 观测层失败不吞没：开库/句柄缺失 → warn 留痕 + degraded:true（调用方据此
+ * 把空壳标为降级，不冒充业务空态）；迭代期故障照旧上抛由调用方 catch 丢弃半截。
  */
 export async function streamLlmCallRows(
   userDataPath: string | null | undefined,
   bookRoot: string,
   opts: ReadLlmCallRowsOptions,
   visit: (row: LlmCallReadRow) => void,
-): Promise<void> {
-  if (!userDataPath) return
+): Promise<LlmCallReadOutcome> {
+  if (!userDataPath) return { degraded: false } // 未配置观测面（非失败）
   let store: Awaited<ReturnType<typeof openSessionStoreAsync>>
   try {
     store = await openSessionStoreAsync(userDataPath, bookRoot)
-  } catch {
-    return // 开库失败 → 观测层静默
+  } catch (e) {
+    log.warn('llm-call-read', `llm/call 事件库开库失败，本次聚合按降级空壳返回：${errMsg(e)}`)
+    return { degraded: true }
   }
-  if (!store) return
+  if (!store) {
+    log.warn('llm-call-read', 'llm/call 事件库句柄不可用（开库返回空），本次聚合按降级空壳返回')
+    return { degraded: true }
+  }
   try {
     // （内存闸）：type SQL 下推——只取 llm/call 行；核查为全量语义必需
     for (const e of store.iterateEvents(bookHash(bookRoot), undefined, 'llm/call')) {
@@ -120,4 +139,5 @@ export async function streamLlmCallRows(
   }
   // 迭代期错误（游标/SQLite 故障）不在此吞——上抛给调用方，使其能丢弃已
   // 聚合的部分结果返回空壳，保持与「全量读失败 → []」逐字段一致（调用方负责 catch）。
+  return { degraded: false }
 }

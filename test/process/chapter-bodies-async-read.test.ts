@@ -85,4 +85,15 @@ describe('0918独立重评修复批 C001：readChapterBodiesByNumbersAsync', () 
     const bodies = await readChapterBodiesByNumbersAsync(root, [1, 2])
     expect(bodies.size).toBe(0)
   })
+
+  // P1-5：定位收敛到 chapterPathByNumber 公共原语后，命中口径 = chapterNoFromName 单源
+  // （原 chapterNamePrefixes 前缀表对 em 破折号/裸数字名失明——RAG 召回正文静默缺片）。
+  it('P1-5 宽容命名形态按章号命中：em 破折号 `150—前章.md` 与裸数字 `0151.md`（原前缀表 miss）', async () => {
+    const book = makeBook()
+    writeChapter(join(book, '写作', '正文', '150—前章.md'), meta(150, '前章'), '破折号命名章正文标记。')
+    writeChapter(join(book, '写作', '正文', '0151.md'), meta(151, '裸名'), '裸数字命名章正文标记。')
+    const bodies = await readChapterBodiesByNumbersAsync(book, [150, 151])
+    expect(bodies.get(150)).toContain('破折号命名章正文标记')
+    expect(bodies.get(151)).toContain('裸数字命名章正文标记')
+  })
 })

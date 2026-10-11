@@ -18,6 +18,11 @@ import {
   sanitizeForCount,
   posixRelPath,
   findAssertionFreeTestFiles,
+  findAssertionFreeCases,
+  findTestBatchHits,
+  batchAnchorViolations,
+  ZERO_ASSERTION_EXEMPT_MARK,
+  TEST_BATCH_ANCHOR,
   missingPageErrorWiring,
   sharedRuntimeVersionDrift,
   walk,
@@ -507,5 +512,133 @@ describe('R50-F-2（并入档）：check-counts walk TOCTOU 容错', () => {
     writeFileSync(join(sub, '.hidden.test.ts'), 'z')
     const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
     expect(out).toEqual(['a.test.ts'])
+  })
+})
+
+// ── 二轮评审：零断言门下沉到用例粒度（文件门看不见的档内空洞）────────────────
+// 口径见 scripts/check-counts.mjs 的 findAssertionFreeCases 头注：用例体须现出
+// expect/assert 调用，或就地登记「零断言豁免：<理由>」；静态判不了的（断言在辅助
+// 函数内、waitFor 轮询、以抛错判红、哨兵）走显式豁免，不许把断言搬出用例体绕过。
+describe('零断言门下沉到用例粒度：逐用例判定与显式豁免', () => {
+  const entries = (src: string, relPath = 'test/case.test.ts') => [{ relPath, src }]
+
+  it('用例体含 expect/assert 不命中；档内空壳命中（文件级门看不见的洞）', () => {
+    expect(findAssertionFreeCases(entries("it('行为', () => { expect(1).toBe(1) })"))).toEqual([])
+    expect(findAssertionFreeCases(entries("it('节点断言', () => { assert.equal(1, 1) })"))).toEqual([])
+    // 同文件另有用例带断言时，本用例仍被点名——文件级空洞门在此漏判
+    const mixed = ["it('有断言', () => { expect(1).toBe(1) })", "it('空外壳', () => {})"].join('\n')
+    expect(findAssertionFreeCases(entries(mixed))).toEqual([
+      { file: 'test/case.test.ts', line: 2, title: '空外壳' },
+    ])
+  })
+
+  it('容器/钩子不是用例；无内联函数实参（todo/占位/具名引用）不判', () => {
+    const src = [
+      "describe('容器', () => {",
+      '  beforeEach(() => { setup() })',
+      '  afterAll(() => { teardown() })',
+      "  it.todo('待办事项')",
+      "  it('占位无体')",
+      "  it('具名引用', namedFn)",
+      '})',
+    ].join('\n')
+    expect(findAssertionFreeCases(entries(src))).toEqual([])
+  })
+
+  it('两段式 each 外层判一次；遮蔽的 it 形参不当用例声明（实测假阳性钉死）', () => {
+    const each = entries("it.each([[1], [2]])('参数化 %d', (n) => { void n })")
+    expect(findAssertionFreeCases(each)).toEqual([{ file: 'test/case.test.ts', line: 1, title: '参数化 %d' }])
+    // `it` 是回调形参不是 vitest 的 it：不剔除遮蔽时 `it.matches.some((m) => …)` 会被
+    // 当成零断言用例（真实发生过——搜索结果判定链里的 `it.path/it.matches`）
+    const shadowed = entries(
+      [
+        "const hasHit = (d) => d.results.some((it) => it.matches.some((m) => m.text.includes('x')))",
+        "it('真用例', () => { expect(hasHit({ results: [] })).toBe(false) })",
+      ].join('\n'),
+    )
+    expect(findAssertionFreeCases(shadowed)).toEqual([])
+  })
+
+  it('选项参形态（标题, { timeout }, fn）同样判定', () => {
+    expect(findAssertionFreeCases(entries("it('慢用例', { timeout: 1000 }, async () => {})"))).toEqual([
+      { file: 'test/case.test.ts', line: 1, title: '慢用例' },
+    ])
+    expect(
+      findAssertionFreeCases(entries("it('有断言慢用例', { timeout: 1000 }, async () => { expect(1).toBe(1) })")),
+    ).toEqual([])
+  })
+
+  it('豁免注释在用例体内放行；字符串里的同形字样不算（注释面抽取单源）', () => {
+    expect(ZERO_ASSERTION_EXEMPT_MARK).toBe('零断言豁免')
+    const exempt = entries(
+      ["it('辅助断言', () => {", '  // 零断言豁免：断言在辅助函数内', '  runCase()', '})'].join('\n'),
+    )
+    expect(findAssertionFreeCases(exempt)).toEqual([])
+    const inString = entries(
+      ["it('字符串字样不算', () => {", "  const note = '零断言豁免：假注释'", '  runCase(note)', '})'].join('\n'),
+    )
+    expect(findAssertionFreeCases(inString)).toEqual([
+      { file: 'test/case.test.ts', line: 1, title: '字符串字样不算' },
+    ])
+  })
+})
+
+// ── 二轮评审：test/ 批号上锚（上锚不追：超锚才红，锚下不追存量）────────────────
+// 计量面 = check-comments 的标签形态单一源：注释面（注释抽取状态机）+ 标题面
+// （it/test/describe 首参字符串）。用例体字符串里的同形样例两面都不算。
+describe('test/ 批号上锚：标题/注释分面计数与超锚判定', () => {
+  const entries = (src: string, relPath = 'test/batch.test.ts') => [{ relPath, src }]
+
+  it('标题标签与注释标签分面计数；用例体字符串里的同形样例不算标题', () => {
+    const src = [
+      '// R40 备注文字',
+      "it('R30-1 行为标题', () => {",
+      "  const doc = 'R31-2 样例'",
+      '  expect(doc).toBeTruthy()',
+      '})',
+      "it('无标签标题', () => { expect(1).toBe(1) })",
+    ].join('\n')
+    const { titles, comments } = findTestBatchHits(entries(src))
+    expect(titles).toBe(1) // 只有标题面那处；用例体字符串里的样例不算
+    expect(comments).toBe(1) // 只有注释面那处
+  })
+
+  it('两段式 each 标题计入；被形参遮蔽的假标题不算', () => {
+    const src = ['it.each([[1]])("R40-1 %d", (n) => { void n })', 'const run = (it) => it("R40-2 假标题")'].join('\n')
+    expect(findTestBatchHits(entries(src)).titles).toBe(1)
+  })
+
+  it('例外表同源（不在本门另立批号正则）：引擎名等豁免术语不入注', () => {
+    expect(findTestBatchHits(entries('// V8 引擎诊断文案\n')).comments).toBe(0)
+  })
+
+  it('perFile 只含命中档且按命中数降序（超锚时点名大档）', () => {
+    const files = [
+      { relPath: 'test/a.test.ts', src: '// R40 a\n' },
+      {
+        relPath: 'test/b.test.ts',
+        src: ["it('R30-1 b', () => { expect(1).toBe(1) })", '// R31-1 b', '// R32-1 b'].join('\n'),
+      },
+      { relPath: 'test/c.test.ts', src: "it('无标签', () => { expect(1).toBe(1) })\n" },
+    ]
+    const { perFile } = findTestBatchHits(files)
+    expect(perFile.map((f: { file: string }) => f.file)).toEqual(['test/b.test.ts', 'test/a.test.ts'])
+    expect(perFile[0]).toEqual({ file: 'test/b.test.ts', titles: 1, comments: 2 })
+  })
+
+  it('上锚判定：超锚任一面即红，等锚/低于锚不红（上锚不追）', () => {
+    const anchor = { titles: 10, comments: 20 }
+    expect(batchAnchorViolations({ titles: 10, comments: 20 }, anchor)).toEqual([])
+    expect(batchAnchorViolations({ titles: 9, comments: 0 }, anchor)).toEqual([]) // 存量清理不强制
+    expect(batchAnchorViolations({ titles: 11, comments: 20 }, anchor)).toEqual(['用例标题批号 11 处 > 上锚 10'])
+    expect(batchAnchorViolations({ titles: 10, comments: 21 }, anchor)).toEqual(['注释批号 21 处 > 上锚 20'])
+  })
+
+  it('落门锚为冻结常量（防运行期改写放宽）', () => {
+    expect(Object.isFrozen(TEST_BATCH_ANCHOR)).toBe(true)
+    expect(Number.isInteger(TEST_BATCH_ANCHOR.titles)).toBe(true)
+    expect(Number.isInteger(TEST_BATCH_ANCHOR.comments)).toBe(true)
+    expect(TEST_BATCH_ANCHOR.titles).toBeGreaterThanOrEqual(0)
+    expect(TEST_BATCH_ANCHOR.comments).toBeGreaterThanOrEqual(0)
   })
 })

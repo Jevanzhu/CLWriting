@@ -9,9 +9,10 @@
  *    = 幂等」是隐式契约）。行为面见 client-401-replay-idempotency.test.ts + 下方声明点锚。
  * ③ 截断函数单源：chat-dispatch 的码点截断 import 根 shared/text（P3-26 截断函数项，
  *    本地副本已删）——复活本地副本即红。
- * ④ 工具展示面单源：ChatMessages 的中文名/参数摘要取自根 shared/contract/tool-meta.ts
- *    （P3-21 工具名派生项），不得回落手写工具名清单；跨包面只许 src/shared/**，
- *    ai/contract/tool-meta.ts 只是 re-export 桥。
+ * ④ 工具展示面单源：工具卡（chat/ChatToolCard.vue，自 ChatMessages 拆出的唯一消费面）
+ *    的中文名/参数摘要取自根 shared/contract/tool-meta.ts（P3-21 工具名派生项），不得
+ *    回落手写工具名清单；跨包面只许 src/shared/**，ai/contract/tool-meta.ts 只是
+ *    re-export 桥。
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -19,7 +20,8 @@ import { readFileSync } from 'node:fs'
 const CLIENT = 'src/studio/web-next/src/api/client.ts'
 const DOCUMENTS = 'src/studio/web-next/src/api/documents.ts'
 const CHAT_DISPATCH = 'src/studio/web-next/src/stores/chat-dispatch.ts'
-const CHAT_MESSAGES = 'src/studio/web-next/src/components/panels/chat/ChatMessages.vue'
+// 工具展示面消费件（拆件前的 ChatMessages.vue 即此断言主体，随迁不悬空）
+const CHAT_TOOL_CARD = 'src/studio/web-next/src/components/panels/chat/ChatToolCard.vue'
 
 describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
   it('apiFetch 导出签名恰为两参 (path, init)；内部管道不对外', () => {
@@ -52,8 +54,8 @@ describe('R0916-7-P3-26: apiFetch 对外面与编码层单源', () => {
     expect(src).not.toContain('function clipByCodePoints')
   })
 
-  it('工具展示面单源：ChatMessages 的中文名/摘要取自根 shared/contract/tool-meta.ts', () => {
-    const src = readFileSync(CHAT_MESSAGES, 'utf8')
+  it('工具展示面单源：工具卡的中文名/摘要取自根 shared/contract/tool-meta.ts', () => {
+    const src = readFileSync(CHAT_TOOL_CARD, 'utf8')
     expect(src).toContain(
       "import { toolLabel, toolSummary, type ChapterNameLookup } from '../../../../../../shared/contract/tool-meta'",
     )

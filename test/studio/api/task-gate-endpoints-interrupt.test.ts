@@ -167,6 +167,7 @@ afterAll(async () => {
 
 describe('R0912-P2-①: outline 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'text', content: '# 细纲', delayMs: 3000 }])
     await assertInterrupt(bp('/outline'), { chapter: 1 }, 'outline')
   })
@@ -187,6 +188,7 @@ describe('R0912-P2-①: outline 中断通道', () => {
 
 describe('R0912-P2-①: lead-updates 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'text', content: '- 悬念-001 递进：玉佩在胸前微微发光', delayMs: 3000 }])
     await assertInterrupt(bp('/lead-updates'), { chapter: 1 }, 'lead-updates')
   })
@@ -207,6 +209,7 @@ describe('R0912-P2-①: lead-updates 中断通道', () => {
 
 describe('R0912-P2-①: review 三审中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     // 逐 lens runSpec 重复脚本尾条；中断发生在首 lens 在途窗口
     fake.setScript([{ type: 'tool', name: 'submit_issues', input: { issues: [] }, delayMs: 3000 }])
     await assertInterrupt(bp(`/documents/${DOC_ID}/review`), undefined, 'review')
@@ -228,6 +231,7 @@ describe('R0912-P2-①: review 三审中断通道', () => {
 
 describe('R0912-P2-①: analysis(analyze) 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'tool', name: 'submit_score', input: { score: 8, dims: {} }, delayMs: 3000 }])
     await assertInterrupt(bp(`/documents/${DOC_ID}/analyze`), { kind: 'score' }, 'analyze')
   })
@@ -248,6 +252,7 @@ describe('R0912-P2-①: analysis(analyze) 中断通道', () => {
 
 describe('R0912-P2-①: onboard 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'text', content: '# 总纲', delayMs: 3000 }])
     await assertInterrupt(bp('/onboard-ai'), { step: 'synopsis' }, 'onboard')
   })
@@ -268,6 +273,7 @@ describe('R0912-P2-①: onboard 中断通道', () => {
 
 describe('R0912-P2-①: rewrite 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'tool', name: 'submit_text', input: { 正文: '改写后的正文' }, delayMs: 3000 }])
     await assertInterrupt(bp(`/documents/${DOC_ID}/rewrite`), { instruction: '更紧凑' }, 'rewrite')
   })
@@ -295,6 +301,7 @@ describe('R0912-P2-①: rewrite 中断通道', () => {
 
 describe('R0912-P2-①: settings(relations-mine) 中断通道', () => {
   it('注册 → /interrupt 真中断 → 499 ABORTED 信封', { timeout: 15_000 }, async () => {
+    // 零断言豁免：断言在 assertInterrupt 辅助函数内（注册→中断→499 信封逐面判定）
     fake.setScript([{ type: 'tool', name: 'submit_relations', input: { relations: [] }, delayMs: 3000 }])
     await assertInterrupt(bp('/relations/mine'), { force: true }, 'relations-mine')
   })

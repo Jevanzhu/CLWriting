@@ -2,10 +2,6 @@
  * 事件库定位与迁移锁族（bookHash/trueCasePath + session 迁移锁三件套）—— 自
  * src/events/store.ts 缝 C 拆出。
  *
-/**
- * 事件库定位与迁移锁族（bookHash/trueCasePath + session 迁移锁三件套）—— 自
- * src/events/store.ts 缝 C 拆出。
- *
  * 内容：书 hash 定位族（bookHash + trueCasePath win32 大小写归一与 memo 缓存）+
  * 迁移锁族（getSessionMigrateLockTimeoutMs testableConst、sessionMigrateLockPath 按书
  * 分锁、acquireMigrateLockPairAsync 排序双锁）。

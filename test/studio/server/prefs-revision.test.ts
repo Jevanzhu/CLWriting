@@ -201,4 +201,37 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
     expect(after['theme']).toBe('sepia')
     expect(after['revision']).toBe(w.json.revision)
   })
+
+  // P1-14：写侧收敛——白名单外键丢弃不落盘（响应语义不变 200）；白名单内键类型不符 400
+  // 盘上不动；预算两键在白名单内（经端点写不被丢弃，global-defaults 读侧消费面不断链）。
+  it('P1-14: 白名单外键丢弃不落盘；白名单内键类型不符 400 盘上不动；预算键端点可写', async () => {
+    const g = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: '/api/library/prefs' })
+    const rev = g.json.revision
+
+    const a = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: '/api/library/prefs',
+      body: {
+        prefs: { theme: 'dark', 不明偏好键: 1, tokensPerChapter: 123_456, checkRepeatThreshold: 0.12 },
+        expectedRevision: rev,
+      },
+    })
+    expect(a.status).toBe(200)
+    const d1 = disk()
+    expect(d1['theme']).toBe('dark')
+    expect(d1['tokensPerChapter']).toBe(123_456) // 预算键在白名单内（端点写不被丢弃）
+    expect(d1['checkRepeatThreshold']).toBe(0.12)
+    expect('不明偏好键' in d1).toBe(false)
+
+    // 白名单内键类型不符：400 BAD_INPUT（文案含键名），盘上与 ① 后逐位一致（未写）
+    const b = await req<{ code: string; error: string }>({
+      method: 'PUT',
+      path: '/api/library/prefs',
+      body: { prefs: { proseSize: 'big' }, expectedRevision: d1['revision'] as number },
+    })
+    expect(b.status).toBe(400)
+    expect(b.json.code).toBe('BAD_INPUT')
+    expect(b.json.error).toContain('prefs.proseSize')
+    expect(disk()).toEqual(d1)
+  })
 })

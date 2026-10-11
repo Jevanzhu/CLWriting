@@ -35,7 +35,7 @@ import { log, errMsg } from '../log/index.js'
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
 import { BASE_LEAD_TYPES } from '../install/data.js'
 
-// ──：章读 mtime+size 指纹缓存 ──────────────────────────
+// ── 章读 mtime+size 指纹缓存 ──────────────────────────
 // walkMdEach 遍历 textDir 对每章 readChapter 全量同步读（readFile + parseFlat +
 // countWords 全正文扫）——大书（≥500 章）全量重建时秒级阻塞事件循环，而绝大多数
 // 章自上次重建后未变。缓存挂**模块级**（跨 rebuild 调用共享才有收益；每次调用新建
@@ -207,7 +207,7 @@ function walkSourceStats(bookRoot: string): SourceStats {
   return stats
 }
 
-// ──：增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
+// ── 增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
 // 动机：单章机检链（runCheckForDocument → rebuild → tryIncrementalRebuild）每调
 // 一次就对四棵源树逐文件 readdir+stat——本地 SSD 毫秒级无感，SMB/网盘卷上单次
 // 全树 stat 扫描秒级，作者面板连查/三审轮询把扫描成本按请求次数放大。照抄

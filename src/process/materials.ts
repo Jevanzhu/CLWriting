@@ -14,12 +14,10 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
-import { readFile as fsReadFile, stat } from 'node:fs/promises'
+import { readFile as fsReadFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { walkMdEachAsync } from '../fs/walk-md.js'
 import { readFile } from '../format/frontmatter.js'
-import { chapterNamePrefixes } from '../format/chapters.js'
-import { mergedIntoMap } from '../format/chapter-lookup.js'
+import { chapterPathByNumber } from '../format/chapter-lookup.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
 import { prepare, type PrepareResult } from './prepare.js'
 import { selfHealRecentChapterSummaries, selfHealVolumeSummary } from './summary.js'
@@ -35,14 +33,10 @@ import type { BookConfig } from '../format/types.js'
 /**
  * 取召回命中对应的原文片段（精准读取定稿正文，按偏移切片）。
  * 账本不走这里——召回只补正文（#37 红线）。
- * 先收集去重章号、一次遍历解析全部命中章正文——
- * 原对每个命中调 readChapterBodyByNumber（各自一次全树 walk，topK=5 即最多 5 次
- * 全树扫描）；改为单次遍历命中任一候选前缀即读正文。结果等价：同章号取
- * 遍历中最先匹配到的可读文件（与逐个 walkMdFind 的首个命中同序），正文切片口径不变。
- * 正文读取随批转异步（对齐 book-search 同族修法）——
- * 本函数在 studio 服务进程事件循环内被 await，全树扫描 + 逐文件整读同步执行会冻结
- * 同进程全部书的 SSE/保存；现 walk 与文件读全链 fs.promises，扫描期间事件循环可响应
- * 其他请求。
+ * 先收集去重章号，交 readChapterBodiesByNumbersAsync 按章号解析正文（定位口径 =
+ * chapterPathByNumber 公共原语单源；同章号取首个命中文件，正文切片口径不变）。
+ * 正文读取全链异步（fs.promises）——本函数在 studio 服务进程事件循环内被 await，
+ * 逐文件整读同步执行会冻结同进程全部书的 SSE/保存；扫描期间事件循环可响应其他请求。
  */
 async function renderRecallHits(bookRoot: string, hits: RecallHit[]): Promise<string> {
   if (hits.length === 0) return ''
@@ -76,18 +70,18 @@ async function readFileBodyAsync(fp: string): Promise<ReturnType<typeof readFile
 }
 
 /**
- * 按章号集合单次遍历定稿正文目录解析正文（起异步版）。
- * 前缀口径走 chapterNamePrefixes 单一真相源：无补零 / 3 位 / 4 位补零全试——
- * 草稿新建是 3 位补零，此前只试「无补零 + 4 位」导致这些章 RAG 召回静默返回 null。
- * 递归扫描含卷子目录（v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏）；
- * 环剪枝 + 根界走共享 walkMdEachAsync（与同步 walkMdEach 同纪律：Dirent 判型/
- * realpath 剪枝/根界/`._` 排除，IO 面 fs/promises）。
- *
- * 同步版处置：全仓唯一消费链是 renderRecallHits → prepareMaterials（已 async），
- * 无其他调用方 → 同步版随批删除不保留。并入源回退分支的 mergedIntoMap 保留同步调用：
- * meta-only 全扫且 (mtimeNs,size) stat 指纹缓存吸收重复成本（chapter-lookup.ts 成本口径），
- * 其异步孪生须异步化 readChapterDir 的 stat 级缓存核心（大面搅动），按最小正确面原则
- * 不随批双驱——回退仅在按名 miss 的合并窗口触发，首调一次性同步段有界（登记残留点）。
+ * 按章号集合解析定稿正文（RAG 召回片段水源）。
+ * 定位走 format/chapter-lookup.ts 的 chapterPathByNumber 公共原语单源——「两层优先
+ * （正文根 + 直接卷目录，常态零全树 walk）+ 全树 walk 兜底 + 并入回退」：
+ * - 较原实现（每次整树异步 walk + chapterNamePrefixes 前缀表匹配）IO 更省，且命中
+ *   口径由前缀表改为 chapterNoFromName 逐名解析单源（`5—标题.md`/裸数字名等宽容
+ *   形态与 prepare/summary/失配对账等全库消费方同判——新命名形态不再需三处同改）；
+ * - 并入源章回退（合并窗口内召回仍可能带源章号）由原语内建，无需本函数另建 Map。
+ * 正文读取保持异步（fs/promises 读全文后经 frontmatter.readFile content 传参复用
+ * 解析单源；读失败回落 readFile(fp) 自读同路径失败，错误塑形单源）——原语定位段
+ * 为名字级 readdir（不读文件），两层命中时同步段有界；walk 兜底仅在全 miss 的
+ * 合并窗口触发，与 mergedIntoMap 同属「miss 路径一次性同步段」口径（原函同款）。
+ * 目录缺失/章不在盘 → 空 Map（不抛，调用方容错）。
  */
 export async function readChapterBodiesByNumbersAsync(
   bookRoot: string,
@@ -95,38 +89,12 @@ export async function readChapterBodiesByNumbersAsync(
 ): Promise<Map<number, string>> {
   const out = new Map<number, string>()
   if (chapterNumbers.length === 0) return out
-  const bodyDir = join(bookRoot, '写作', '正文')
-  // 原 existsSync 同步探测异步化（stat 探测）——目录缺失返回空 Map 语义不变
-  try {
-    await stat(bodyDir)
-  } catch {
-    return out
-  }
-  // 文件名前缀 → 章号（同章号多前缀；跨章号前缀互斥，见 chapterNamePrefixes）
-  const wanted = new Map<string, number>()
   for (const n of chapterNumbers) {
-    for (const p of chapterNamePrefixes(n)) wanted.set(p, n)
-  }
-  await walkMdEachAsync(bodyDir, async (abs, name) => {
-    for (const [prefix, n] of wanted) {
-      if (out.has(n) || !name.startsWith(prefix)) continue
-      const r = await readFileBodyAsync(abs)
-      if (r.ok) out.set(n, r.body)
-    }
-  })
-  // （阶段 24 留洞制）：并入源章回退——RAG chunk 按章号整型键控，合并后到
-  // buildIndex 清理前的窗口内召回仍可能带源章号；按名 miss 经 mergedIntoMap 取目标章
-  // 正文（正文命中优先；回退口径单源 chapter-lookup.ts；Map 只建一次）。目标章
-  // 正文读随批转异步（readFileBodyAsync）；mergedIntoMap 保留同步（处置见函数头注）。
-  if (out.size < chapterNumbers.length) {
-    const merged = mergedIntoMap(bookRoot)
-    for (const n of chapterNumbers) {
-      if (out.has(n)) continue
-      const target = merged.get(n)
-      if (target === undefined) continue
-      const r = await readFileBodyAsync(target)
-      if (r.ok) out.set(n, r.body)
-    }
+    if (out.has(n)) continue
+    const path = chapterPathByNumber(bookRoot, n)
+    if (path === null) continue
+    const r = await readFileBodyAsync(path)
+    if (r.ok) out.set(n, r.body)
   }
   return out
 }
@@ -224,8 +192,16 @@ export async function prepareMaterials(
   // 文风样章场景（kk- 归一）：显式入参优先，否则按 chapter 走 readChapterScenes 三级
   // 回退（与 draft 链同一水源，全空→['通用']）；留痕只看「已声明」场景（兜底不算声明）
   const { sampleScene, declaredScenes } = resolveScenes(bookRoot, opts)
-  // 写稿模型（creative 档）——prepare 的 token 系数按模型查表
-  const writeModel = resolveTier(opts.userDataPath ?? null, 'creative').model || undefined
+  // 写稿模型（creative 档）——prepare 的 token 系数按模型查表。
+  // 解析失败降级 undefined（= 全局 token 系数兜底）而非上抛：resolveTier 内部
+  // loadProviders 会因 providers.json 损坏/权限抛错，此前裸调在备料链最外层
+  // ——抛错即整条备料链中断（材料段全丢），调用方 catch 又零留痕，故障不可观测。
+  let writeModel: string | undefined
+  try {
+    writeModel = resolveTier(opts.userDataPath ?? null, 'creative').model || undefined
+  } catch (e) {
+    log.warn('materials', `写稿档位解析失败，token 系数回落全局默认：${errMsg(e)}`)
+  }
   // 自愈补漏：备料前发现近章摘要缺失或过期 → 现场补生成
   // （计入本章 calls_per_chapter 预算，既有预算闸口径）；失败不阻断备料（无近章结尾段降级）
   let summaryGenerated: string[] = []
@@ -258,7 +234,16 @@ export async function prepareMaterials(
   // 的是工作目录（bookRoot 的祖先含 .clwriting/）。先用传入 workDir，找不到则上溯 findWorkDir。
   // 全局托底：enabled/provider 书级未设回落 global.json（userDataPath 由调用方注入）
   const ragConfig = readRagConfig(bookRoot, opts.userDataPath ?? null)
-  const ragProviders = opts.userDataPath ? loadProviders(opts.userDataPath).ragProviders : []
+  // loadProviders 同款降级（与上方 writeModel 解析同因——providers.json 损坏/权限
+  // 时整链中断）：解析失败按「无应用级服务商」继续，resolveRag 走旧版内联回落/未配降级
+  let ragProviders: ReturnType<typeof loadProviders>['ragProviders'] = []
+  if (opts.userDataPath) {
+    try {
+      ragProviders = loadProviders(opts.userDataPath).ragProviders
+    } catch (e) {
+      log.warn('materials', `应用级服务商解析失败，RAG 回落书级内联配置：${errMsg(e)}`)
+    }
+  }
   const realWorkDir = existsSync(join(workDir, '.clwriting')) ? workDir : (findWorkDir(bookRoot) ?? workDir)
   const resolved = resolveRag(ragConfig, ragProviders, realWorkDir)
 

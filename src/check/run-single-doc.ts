@@ -93,7 +93,7 @@ export type OpenCheckDbResult = {
   fail?: { error: string; details?: unknown }
 }
 
-// ──：worker 档的节流承接（设计 §1.4-2 备选 (a)）────────
+// ── worker 档的节流承接（设计 §1.4-2 备选 (a)）────────
 // 的 3s 探测节流状态在 rebuild 内核里（cache/rebuild.ts 模块内存表），worker 档
 // 每次新起线程 ⇒ 线程内观测不到主线程的窗态。承接法 (a)：主线程自记「最近一次 async
 // 重建完成时刻」，窗内直接跳重建、只开库——与同步节流分支的净效应等价：同步档窗内也用

@@ -14,8 +14,11 @@ import { mergeFm, formKindOf, isBodyKind, splitFrontmatter } from '../shared/wor
 import { useDebouncedFmFields, useDebouncedWordCount } from '../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../composables/useStaleGuard'
 import { registerBodyWriteback, scheduleBodyWriteback, flushBodyWriteback } from '../shared/body-writeback'
-// 暴露面类型由 CmHost 单源导出（原为本文件手写复制的 CmHostExposed）
-import CmHost, { type CmHostHandle } from '../editor/CmHost.vue'
+// 暴露面类型单源：editor/cm-host-contract.ts（由 CmHost 的 defineExpose 反向钉住）。
+// 为什么不在 .vue 模块里导出该类型——具名类型导出经 SFC 模块解析不到（整个模块落 error
+// 类型），ref 标注拿不到真类型，句柄取用全被判 unsafe-member-access 一族。
+import CmHost from '../editor/CmHost.vue'
+import type { CmHostHandle } from '../editor/cm-host-contract'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
@@ -169,9 +172,8 @@ const { aiActions, runAiAssist } = useAiAssist()
 // 顺序隐式耦合，重排即静默错动作。零行为变更（当前顺序下动作映射不变）。
 const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(aiActions.map((a) => [a.key, a]))
 
-// 暴露面类型改引 CmHost 导出的 CmHostHandle（原为手写复制的
-// CmHostExposed）。import 面保持 `, { type CmHostHandle }` 形态——类型擦除后运行时
-// 仍是默认导入一个组件。
+// 暴露面类型引 editor/cm-host-contract.ts 的 CmHostHandle（import 面保持
+// 默认导入组件 + 具名类型旁挂形态——类型擦除后运行时仍是默认导入一个组件）。
 const cmHost = ref<CmHostHandle | null>(null)
 
 // 右键菜单（桌面端 → macOS 原生 Menu；浏览器 → 自定义 ContextMenu）
@@ -179,7 +181,9 @@ const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, on
 
 function onContextMenu(e: MouseEvent): void {
   const hasSel = cmHost.value?.hasSelection() ?? false
-  popup(buildCtxItems(hasSel), e.clientX, e.clientY, onCtxSelect)
+  // 选中回调整体异步（AI 动作返回 Promise）——popup 契约是同步 void 回调，
+  // 包一层丢弃返回的 Promise（未包 = no-misused-promises：Promise 落进 void 位）
+  popup(buildCtxItems(hasSel), e.clientX, e.clientY, (key) => void onCtxSelect(key))
 }
 
 function buildCtxItems(hasSel: boolean): MenuItem[] {

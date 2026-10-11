@@ -234,6 +234,7 @@ describe('ngramRepeatRate 数值哈希键等价性（PM-7）', () => {
   })
 
   it('随机模糊：混合字母表（含孤立代理/零宽/astral）× n∈{1,2,8,16} × 300 轮全等', () => {
+    // 零断言豁免：以抛错判红（失败信息含 round/n + 两侧快照 + 切片，表达力强于 expect）
     resetSeed(0x4b7e21)
     const alphabet = [
       '字',

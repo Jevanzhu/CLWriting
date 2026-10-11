@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 写作信息面板：实时字数 / 目标进度 / 6 态 / 保存态。
 // 无外层卡片（由 SidebarRight .info-stack 统一卡片容器包裹）。
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
@@ -9,6 +9,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useBookScoped } from '../../composables/useBookScoped'
 import type { TreeNode } from '../../types/tree'
 import { friendlyError } from '../../shared/error'
 // 六态标签委托 shared/words CHAPTER_STATUS 单表
@@ -30,15 +31,15 @@ const err = ref<string | null>(null)
 // A 的慢响应不把 A 的字数目标/口径落到 B 的进度显示。
 // 裸计数器换装 useStaleGuard。
 const configGen = useStaleGuard()
-watch(
-  () => props.bookName,
-  async (n) => {
-    const gen = configGen.begin()
-    // 切书先清上一书错误——原实现只在失败分支写 err、成功路径
-    // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-    // 新错误只由本次请求的 catch 按代守卫落位（同点位；
-    // 连续两次 err.value=null 死代码随批删一处保注释）
+useBookScoped(() => props.bookName, {
+  // 切书先清上一书错误——原实现只在失败分支写 err、成功路径
+  // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
+  // 新错误只由本次请求的 catch 按代守卫落位（同点位）。
+  reset: () => {
     err.value = null
+  },
+  load: async (n) => {
+    const gen = configGen.begin()
     if (!n) return
     try {
       const c = await getConfig(n)
@@ -50,8 +51,8 @@ watch(
       err.value = friendlyError(e)
     }
   },
-  { immediate: true },
-)
+  immediate: true,
+})
 
 // 字数与 fm 字段 150ms 防抖——右栏「信息」tab 常驻（三折叠区默认
 // 展开），此前每击键全文 countWords + parseFmFields 重算（EditorView wordCount

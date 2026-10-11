@@ -16,7 +16,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,6 +33,18 @@ const BOOK_YAML =
   'spec_version: 1\nkind: long\nbook:\n  title: 双装配书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n'
 const root = fileURLToPath(new URL('../../..', import.meta.url))
 const readSrc = (rel: string): string => readFileSync(`${root}${rel}`, 'utf8')
+
+/** src/ 下全部 .ts（跳过 node_modules；源码锚扫描用） */
+function listTs(dir: string): string[] {
+  let out: string[] = []
+  for (const name of readdirSync(dir)) {
+    if (name === 'node_modules' || name.startsWith('.')) continue
+    const fp = join(dir, name)
+    if (statSync(fp).isDirectory()) out = out.concat(listTs(fp))
+    else if (name.endsWith('.ts') && !name.endsWith('.d.ts')) out.push(fp)
+  }
+  return out
+}
 
 /** 替身驱动能力面（StudioDriver 必需契约全成员——缺能力的形态由用例③的编译期探针表达）。 */
 function fakeServiceDriver(): ServiceDriver {
@@ -255,10 +267,22 @@ describe('R0916-7-P3-6：组装根注入（deps 契约 + 双实例隔离）', ()
     const runnerSrc = readSrc('src/ai/runner.ts')
     expect(runnerSrc).not.toContain("process.env['CLWRITING_DRIVER']")
     expect(runnerSrc).not.toContain('process.env.CLWRITING_DRIVER')
-    const portSrc = readSrc('src/studio/server/driver-port.ts')
-    expect(portSrc).toContain("process.env['CLWRITING_DRIVER']")
+    // 唯一读取点：driver/index.ts 的 driverKind()（P1-10 收口——原 driver-port.ts /
+    // mock-tool / provider(models,probe) / runner 五处各读一次，现只此一处）
+    const kindSrc = readSrc('src/driver/index.ts')
+    expect(kindSrc).toContain("process.env['CLWRITING_DRIVER']")
     // 注入面不给任何「按调用期读环境」的通道：runner 侧只有组装期注入点
     expect(runnerSrc).toContain('configureRunnerMockFastPath')
+    // 全仓唯一读取点（除 driverKind 外 src/ 无第二处读取）
+    const offenders: string[] = []
+    for (const f of listTs(join(root, 'src'))) {
+      if (f.endsWith(join('driver', 'index.ts'))) continue
+      const src = readFileSync(f, 'utf-8')
+      if (src.includes("process.env['CLWRITING_DRIVER']") || src.includes('process.env.CLWRITING_DRIVER')) {
+        offenders.push(f.slice(root.length))
+      }
+    }
+    expect(offenders, `CLWRITING_DRIVER 仍被多处读取：\n${offenders.join('\n')}`).toEqual([])
   })
 
   it('②-b 行为锚：env=mock 但注入 cc 宿主 → 真实路径（NO_PROVIDER）；env 缺省但注入 mock 宿主 → mock 快路', async () => {

@@ -51,8 +51,23 @@ vi.mock('../../../../src/studio/web-next/src/composables/useChatTier', () => ({
   EFFORT_LEVELS: ['low', 'medium', 'high'],
 }))
 
+// 摘要求值计数夹具：外层仍走真实摘要实现（渲染面行为不变，只数调用次数）——钉
+// 「每卡一轮渲染恰求值一次」的性能契约（回归形态：v-if 与插值各算一遍 = 每卡两次）
+const summarize = vi.hoisted(() => ({ calls: 0 }))
+vi.mock('../../../../src/shared/contract/tool-meta', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/shared/contract/tool-meta')>()
+  return {
+    ...actual,
+    toolSummary: (name: string, input: unknown, chapterName: (chapter: number) => string | null) => {
+      summarize.calls += 1
+      return actual.toolSummary(name, input, chapterName)
+    },
+  }
+})
+
 beforeEach(() => {
   setActivePinia(createPinia())
+  summarize.calls = 0
   mocks.sendChat.mockReset()
   mocks.confirmTool.mockReset()
   mocks.clearChatHistory.mockReset()
@@ -416,6 +431,32 @@ describe('ChatMessages: 工具确认卡展示参数', () => {
     expect(params.exists()).toBe(true)
     expect(params.text()).toContain('第 3 章')
     expect(params.text()).toContain('把这段改得更克制')
+  })
+})
+
+// ── 工具卡参数摘要按卡算一次（渲染期同参重复求值的性能契约）──
+
+describe('ChatMessages: 工具卡参数摘要按卡算一次', () => {
+  it('两张工具卡渲染 → 摘要恰求值两次（每卡一次），参数行照常显示', async () => {
+    const chat = useChatStore()
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '',
+      done: true,
+      tools: [
+        { callId: 'c1', name: 'rename_chapter', input: { chapter: 12, newTitle: '雪落无声' }, status: 'pending' },
+        { callId: 'c2', name: 'delete_chapter', input: { chapter: 7 }, status: 'ok' },
+      ],
+    })
+    const w = mountPanel()
+    await nextTick()
+    // 回归形态（修复前）：模板 v-if 与插值各调一次 = 每卡两次（流式期间按帧 × 卡数放大）
+    expect(summarize.calls).toBe(2)
+    const params = w.findAll('.chat-tool-params')
+    expect(params).toHaveLength(2)
+    expect(params[0]!.text()).toContain('第 12 章')
+    expect(params[1]!.text()).toContain('第 7 章')
   })
 })
 

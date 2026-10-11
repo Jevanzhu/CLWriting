@@ -186,4 +186,38 @@ describe('R36-24 books.prefs revision（乐观并发）', () => {
     expect('revision' in g.json.prefs).toBe(false)
     expect(g.json.prefs['treeExpanded']).toEqual(['x'])
   })
+
+  // P1-14：写侧收敛——白名单外键丢弃不落盘（响应语义不变 200）+ 白名单内键类型不符 400；
+  // 白名单兼容既有合法键（8 键逐键入表），非「收窄契约面」（见 prefs.ts 头注）。
+  it('P1-14: 白名单外键丢弃不落盘；白名单内键类型不符 → 400 且盘上不动', async () => {
+    const g = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: prefsUrl() })
+    const rev = g.json.revision
+
+    // ① 白名单外键：丢弃（不 400、不落盘）；白名单内合法键照写（含 null 与字符串数组两型）
+    const a = await req<{ ok: boolean; revision: number }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: {
+        prefs: { leftWidth: 300, 不明布局键: { nested: true }, activeDocId: null, treeExpanded: ['写作/正文'] },
+        expectedRevision: rev,
+      },
+    })
+    expect(a.status).toBe(200)
+    const d1 = disk()
+    expect(d1['leftWidth']).toBe(300)
+    expect(d1['activeDocId']).toBeNull()
+    expect(d1['treeExpanded']).toEqual(['写作/正文'])
+    expect('不明布局键' in d1).toBe(false)
+
+    // ② 白名单内键类型不符：400 BAD_INPUT（文案含键名），盘上与 ① 后逐位一致（未写）
+    const b = await req<{ code: string; error: string }>({
+      method: 'PUT',
+      path: prefsUrl(),
+      body: { prefs: { leftOpen: 'yes' }, expectedRevision: d1['revision'] as number },
+    })
+    expect(b.status).toBe(400)
+    expect(b.json.code).toBe('BAD_INPUT')
+    expect(b.json.error).toContain('prefs.leftOpen')
+    expect(disk()).toEqual(d1)
+  })
 })

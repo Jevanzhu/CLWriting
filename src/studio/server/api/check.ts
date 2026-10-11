@@ -44,7 +44,7 @@ interface CheckCtx {
   treeIssuesTtlMs?: number | null
 }
 
-// ──：/tree-issues 结果 5s TTL 缓存 ─────────────────────
+// ── /tree-issues 结果 5s TTL 缓存 ─────────────────────
 // collectTreeIssues 每请求同步扫全书定稿正文聚合机检 red + verdict 驳回（大书秒级
 // 阻塞事件循环），前端树轮询/反复刷新会反复重扫。缓存口径对齐 health.ts styleScanCache
 //（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效——保存/定稿/verdict 落盘后
@@ -105,7 +105,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     },
   })
 
-  // ──：机检误报标记 ──────────────────────────────────────
+  // ── 机检误报标记 ──────────────────────────────────────
   // POST /documents/:docId/check-false-positive  body { checkId }
   // excerpt 服务端从正文切（命中区间 ±50 字、上限 200）——不信客户端传任意长文本。
   // 落 check/false-positive 事件（workspace 会话）；同章同 checkId 重复标记幂等

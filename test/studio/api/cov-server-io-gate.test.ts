@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startServerSafe } from '../../helpers/safe-port.js'
-import { acquireExportSlot, ExportSlotWaitError } from '../../../src/studio/server/api/io.js'
+import { acquireExportSlot, createExportSlotGate, ExportSlotWaitError } from '../../../src/studio/server/api/io.js'
 
 let workDir = ''
 let userDataPath = ''
@@ -247,14 +247,21 @@ describe('R1010c-COV-3：export 端点入参与信封分支', () => {
 
   it('全局闸满载时导出 → 排队等待超时映射 503 BUSY（可重试语义）', async () => {
     // 专用实例：组装根 overrides 注入 80ms 短等待档（原模块级 setter 已删，主实例保持缺省）
+    // P2-10：占位也必须落在「该实例自己的闸」上——exportGate override 注入自建实例，
+    // 测试在服务外把它占满（原靠模块级全局计数与 server 共享同一份状态）。
     const soloWork = mkdtempSync(join(tmpdir(), 'clwriting-cov-io-solo-'))
-    const soloServer = await startServerSafe({ port: 0, workDir: soloWork, overrides: { exportWaitTimeoutMs: 80 } })
+    const soloGate = createExportSlotGate()
+    const soloServer = await startServerSafe({
+      port: 0,
+      workDir: soloWork,
+      overrides: { exportWaitTimeoutMs: 80, exportGate: soloGate },
+    })
     const soloBase = `http://127.0.0.1:${(soloServer!.address() as AddressInfo).port}`
     const soloToken = ((await (await fetch(`${soloBase}/api/boot`)).json()) as { token: string }).token
     try {
       makeBookIn(soloWork, '导出参数书')
-      const r1 = await acquireExportSlot()
-      const r2 = await acquireExportSlot()
+      const r1 = await soloGate.acquire()
+      const r2 = await soloGate.acquire()
       try {
         const r = await request(soloBase, soloToken, {
           method: 'POST',

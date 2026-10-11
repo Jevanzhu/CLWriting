@@ -10,10 +10,9 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite'
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { chapterNoFromName } from '../format/filename.js'
-import { mergedIntoMap } from '../format/chapter-lookup.js'
+import { chapterPathByNumber } from '../format/chapter-lookup.js'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../format/read.js'
 import { readFile, splitFrontMatter } from '../format/frontmatter.js'
@@ -30,62 +29,13 @@ import { volumeSummaryProvablyStale, volumeSummaryPath } from './summary.js'
 // 适配器族反向依赖、后者是环边来源，两者均下沉 shared，本文件不留 re-export 兼容层）
 import { codePointLength } from '../shared/text.js'
 import { estimateTokens } from '../shared/tokens.js'
+// 缺省值单源：输入预算与场景兜底均从正本引入（format 层），本文件不再自带字面量
+import { DEFAULT_INPUT_PER_CHAPTER } from '../format/yaml.js'
+import { DEFAULT_CHAPTER_SCENES } from './draft-pipeline.js'
 import { log, errMsg } from '../log/index.js'
 
 /**
- * 按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
- * 替代 readChapterDir 全树递归扫描（备料为取一章此前要 stat/读全书所有 md）。
- * 文件名数字前缀走 chapterNoFromName 宽容集（阶段 24 统一：-/—/空白分隔均可，
- * `5—标题.md` 形态对 AI 前章读取不再失明——原 parseChapterFileName 窄正则仅认 -，
- * 双向锚定回归见 test/process/prepare.test.ts 前章定位用例族）。找不到 → null。
- * 按名 miss → 并入回退目标章路径（前章被并入时，目标章正文结尾即续写衔接点）。
- * 正确性兜底：卷目录只存在一层（写作/正文/<卷>/），更深嵌套不在此结构内——
- * 若未来出现更深嵌套，此处返回 null 由调用方降级（不产出该段，行为与「无此章」一致）。
- */
-function findChapterByNumber(bookRoot: string, chapterNo: number): string | null {
-  const bodyRoot = join(bookRoot, '写作', '正文')
-  const tryFile = (dir: string): string | null => {
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return null
-    }
-    for (const name of entries) {
-      // （win 平台专项）：扩展名大小写不敏感（家族补齐，对齐
-      // walk-md 口径）——资源管理器改名 .MD 的章此前对前章正文结尾配段隐形
-      if (name.slice(-3).toLowerCase() !== '.md' || name.startsWith('._')) continue
-      if (chapterNoFromName(name) === chapterNo) return join(dir, name)
-    }
-    return null
-  }
-
-  // ① 正文根目录散章
-  const atRoot = tryFile(bodyRoot)
-  if (atRoot) return atRoot
-
-  // ② 各卷子目录（写作/正文/<卷>/）
-  let volDirs: string[]
-  try {
-    volDirs = readdirSync(bodyRoot).filter((n) => {
-      try {
-        return statSync(join(bodyRoot, n)).isDirectory()
-      } catch {
-        return false
-      }
-    })
-  } catch {
-    return mergedIntoMap(bookRoot).get(chapterNo) ?? null
-  }
-  for (const v of volDirs) {
-    const inVol = tryFile(join(bodyRoot, v))
-    if (inVol) return inVol
-  }
-  // （阶段 24）：并入回退（正文命中恒优先——回退仅在全 miss 后咨询）
-  return mergedIntoMap(bookRoot).get(chapterNo) ?? null
-}
-
-/** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
+ * 写作材料的各段（按裁剪优先级标注刚需/弹性） */
 interface MaterialSection {
   /** 段标题 */
   title: string
@@ -154,7 +104,10 @@ function tailByParagraph(body: string, maxChars: number): string {
  * @param ragRecallText 可选：RAG 召回的正文片段文本。
  *        调用方在 prepare 外异步 await 召回后传入；非空则 push 为弹性段（flexibleRank 5，最先砍）。
  *        **不传 → 无此段 → 行为与现状逐字节一致**（红线）。
- * @param sampleScene 文风样章场景。可单值或多值（跨场景）；缺省回落「战斗」，保持旧调用兼容。
+ * @param sampleScene 文风样章场景。可单值或多值（跨场景）；缺省回落「通用」
+ *        （= readChapterScenes 的同源兜底，DEFAULT_CHAPTER_SCENES 单源）——
+ *        此前本缺省为「战斗」，与写稿链的场景兜底双源：同一本书「三级水源全空」时
+ *        备料按战斗选样章、写稿链按通用，样章口径分裂。
  */
 export function prepare(
   db: DatabaseSync,
@@ -162,7 +115,7 @@ export function prepare(
   bookRoot: string,
   chapterLeadIds: string[],
   ragRecallText?: string,
-  sampleScene: string | string[] = '战斗',
+  sampleScene: string | string[] = [...DEFAULT_CHAPTER_SCENES],
   /** 写稿模型 id（token 系数按模型查表；未传 = 全局 0.6 兜底，行为与从前一致） */
   model?: string,
   /** 正在写的章号——卷首章上一卷摘要按「写作章推卷」对齐
@@ -258,7 +211,9 @@ function buildEndingsSections(
   }
 
   // 弹性#1.5 前章正文结尾（衔接靠原文不靠转述；摘要丢结尾场景实际文字 + 行文即时语感）
-  // 来源：findChapterByNumber 两层扫描（正文根 + 卷目录不再全树 readChapterDir）；
+  // 来源：chapterPathByNumber 单源（format/chapter-lookup.ts「两层优先 + walk 兜底 +
+  // 并入回退」公共原语——原私有 findChapterByNumber 两层扫描已收敛删除；两层命中为零
+  // 全树 walk 的常态快路，深嵌套/并入回退与其余消费方同口径）；
   // 都无则无此段（第 1 章/缺文件 → 行为逐字节不变）
   // 前章 = currentChapter（最后定稿章）。原 currentChapter-1 只在旧「含草稿」
   // 口径的重写场景偶发正确；定稿口径收口后，写第 N 章（currentChapter=）拿到的是
@@ -267,8 +222,8 @@ function buildEndingsSections(
   const prevChapterNo = snapshot.currentChapter
   if (prevChapterNo >= 1) {
     let prevBody: string | null = null
-    // 只扫 正文根+卷目录 两层找前一章，不再全树 readChapterDir（为取一章读全书）
-    const prevPath = findChapterByNumber(bookRoot, prevChapterNo)
+    // 按章号定位走公共原语（两层优先，不再全树 readChapterDir 为取一章读全书）
+    const prevPath = chapterPathByNumber(bookRoot, prevChapterNo)
     if (prevPath && isWithinRoot(bookRoot, prevPath)) {
       const r = readFile(prevPath)
       if (r.ok) prevBody = r.body
@@ -486,7 +441,7 @@ function applyBudgetTrim(
   trimLog: string[],
   model?: string,
 ): { estimatedTokens: number; trimmed: boolean } {
-  const budget = config.budget.input_per_chapter ?? 80000
+  const budget = config.budget.input_per_chapter ?? DEFAULT_INPUT_PER_CHAPTER
   let totalTokens = sections.reduce((sum, s) => sum + estimateTokens(s.content, model), 0)
   let trimmed = false
 

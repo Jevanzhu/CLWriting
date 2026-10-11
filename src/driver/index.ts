@@ -12,12 +12,22 @@ export type { Session, SessionOptions, DriverEvent, StudioDriver } from './types
 /** bookId → 当前 session(一个 book 一个 driver session,方案 9.2) */
 const sessions = new Map<string, Session>()
 
-/** 取 driver：env CLWRITING_DRIVER=mock → mock（e2e / 前端开发调试）；其余 → cc（provider 直连）。
+/**
+ * 驱动选择结果：**本函数是全仓 `CLWRITING_DRIVER` 的唯一读取点**——
+ * 选实现（getDriver）与 mock 快路开关（组装根据此注入各下游）都只经本函数取选择结果，
+ * 下游分支不再各自读环境变量（此前 5 处散布判断：driver/index、mock-tool、
+ * provider/models、provider/probe、runner，子进程/测试进程带上环境变量即静默改行为）。
+ */
+export function driverKind(): 'cc' | 'mock' {
+  return process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : 'cc'
+}
+
+/** 取 driver：driverKind()==='mock' → mock（e2e / 前端开发调试）；其余 → cc（provider 直连）。
  * 删 host 形参——全仓唯一实参 'cc'，host==='mock' 分支零调用面
  *  （死参数假扩展）；选择只走 env（e2e global-setup 依赖此口径）。真多 host 时再加显式
  *  参数并落配置 resolve，不预留空壳。 */
 export function getDriver(): StudioDriver {
-  return process.env.CLWRITING_DRIVER === 'mock' ? mockDriver : ccDriver
+  return driverKind() === 'mock' ? mockDriver : ccDriver
 }
 
 /** 取 / 建某书的 session(已存在且未关则复用) */

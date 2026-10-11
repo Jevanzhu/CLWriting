@@ -15,9 +15,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { bundledResource } from '../fs/resources.js'
+import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
 import { log, errMsg } from '../log/index.js'
 
-// ──：技巧包文件级 mtime 缓存 ────────────────────────
+// ── 技巧包文件级 mtime 缓存 ────────────────────────
 // listSkills 此前三根全量 readFileSync+parse（chat 每轮组 system prompt 索引都扫），
 // loadSkill 又经由 listSkills 只为按名找一条、找到后再 readFileSync 重读一遍正文。
 // 每文件 (mtimeNs,size) 指纹 → 已解析条目（meta + 剥 fm 正文）：指纹命中免读免解析，
@@ -33,11 +34,13 @@ interface SkillFileEntry {
 const SKILL_FILE_CACHE_MAX = 256
 const skillFileCache = new Map<string, SkillFileEntry>()
 
-/** 单文件 (mtimeNs,size) 指纹（stat 失败 = null，调用方按未缓存处理，下轮重试） */
+/** 单文件 (mtimeNs,size) 指纹（stat 失败 = null，调用方按未缓存处理，下轮重试）。
+ *  串形走 fs/hash.statFingerprint 单源（原本地为逗号分隔——纯进程内 Map 键，
+ *  收敛后统一冒号，仅在升级当次致一次冷读，行为等价）。 */
 function skillFileSig(fp: string): string | null {
   try {
     const st = statSync(fp, { bigint: true })
-    return `${st.mtimeNs},${st.size}`
+    return statFingerprint(st)
   } catch {
     return null
   }
@@ -139,7 +142,7 @@ export function listSkills(roots: SkillRoots): SkillMeta[] {
   return [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
-// ──：roots 级 name→meta 索引缓存 ──────────────
+// ── roots 级 name→meta 索引缓存 ──────────────
 // loadSkill 原每次都调 listSkills(roots) 全量扫三根（逐文件 readdir + stat）只为按名
 // 取一条，命中后再 stat 目标文件复核指纹——read_skill 每次调用 O(总技巧包数) 系统调用。
 // 现按 roots 指纹（三根目录 mtimeNs：新增/删除/改名会使目录 mtime 变化）缓存 name→meta

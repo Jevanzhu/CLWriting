@@ -101,6 +101,7 @@ const corpus = loadCorpusFrom(CORPUS_DIR)
 // 单文件坏 JSON 的容错 warn 保留（装载器既有口径）。
 if (!existsSync(CORPUS_DIR)) {
   test('B3 语料回归门哨兵：语料目录必须在库（否则 golden-master 门整组静默失效）', () => {
+    // 零断言豁免：哨兵用例——目录缺失时以抛错直接判红，无语义断言面
     throw new Error(
       `语料目录缺失：${CORPUS_DIR}——golden-master 门已整组失效，请恢复 test/corpus/checks/（清空语料须同步下线本哨兵）`,
     )

@@ -31,6 +31,7 @@ import type { DocumentCtx } from './documents-core.js'
 // import 面零改动；registerDocumentRoutes 为本文件聚合入口）。
 export {
   getOrCreateService,
+  structStatus,
   __clearDocumentServices,
   forgetService,
   drainDocumentSaves,

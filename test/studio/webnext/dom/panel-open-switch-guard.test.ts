@@ -246,6 +246,7 @@ describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置
   })
 
   it('稳态（props === ws.bookName）→ 正常 openTab（守卫不误伤）', async () => {
+    // 零断言豁免：断言面为 waitFor 轮询（到点 activeDocId 未落定即红，语义不弱化）
     const ws = useWorkspaceStore()
     ws.setBook('书A')
     const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })

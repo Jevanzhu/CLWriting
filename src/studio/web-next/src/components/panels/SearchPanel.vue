@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -8,6 +8,7 @@ import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction } from '../../composables/useScopedAction'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
+import { useBookScoped } from '../../composables/useBookScoped'
 
 // 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
@@ -69,9 +70,8 @@ async function run(): Promise<void> {
 // 切书清面板——SidebarLeft 常驻渲染不随切书重建，此前 A 书命中残留
 // 到 B 书界面（点击在 B 树找同路径，找到则开 B 书文档、找不到静默无响应）。左栏三面板
 // 中此前唯一没有 bookName watch 的（TrashPanel/ChapterTreePanel/ForeshadowPanel 均有）。
-watch(
-  () => props.bookName,
-  () => {
+useBookScoped(() => props.bookName, {
+  reset: () => {
     // （修复批随批）：切书同清查询词 q——原清
     // results/err/loading 不清 q，切书后残留旧书查询词，回车即对新书重搜旧词
     //（与切书清面板意图不合）。
@@ -85,7 +85,7 @@ watch(
     // 此处直接复位（迟到回填仍被查代挡住，不落结果）
     loading.value = false
   },
-)
+})
 
 // 同族：原 @keyup.enter 在 IME compositionend 之后触发
 //（isComposing 已复位），组词确认键会误触全书搜索；keydown + 组合态守卫同家族。

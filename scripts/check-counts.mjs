@@ -35,6 +35,10 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
+// P2-15（二轮复审）：test/ 批号上锚门复用 check-comments 的标签形态单一源
+// （TAG_PATTERNS/TOKEN_EXCEPTIONS/逐字符注释抽取）——绝不在本脚本另立一套批号正则：
+// 「门与清理器两套形态」是本仓已付过学费的漂移根因（见 check-comments TAG_PATTERNS 头注）。
+import { extractCommentLines, findTagHits, tagSpansOf } from './check-comments.mjs'
 
 // fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -209,27 +213,84 @@ export function countE2eCases(src) {
  * sanitized 文本个别病态形态（未闭合串原样保留，R73-78）解析失败时 TS 容错恢复，
  * 该等文件本就无法过 vitest 收集，检测方向不受影响。
  */
+/** only/skip 门禁的根标识符集。 */
+const GATE_ROOTS = new Set(['it', 'test', 'describe'])
+
+/**
+ * 成员访问链解包（只认字面 `.`，可选链 `?.` 即出射程）；根不在 roots 返回 null。
+ * 三种射程（only/skip 门、用例级断言门、批号标题门）共用同一解包——形态口径单源。
+ * 返回 idNode = 根标识符节点，供遮蔽判定（用例体内的 `(it) => it.path…` 参数遮蔽）。
+ */
+export function callChainRoot(expr, roots = GATE_ROOTS) {
+  const props = []
+  let cur = expr
+  while (ts.isPropertyAccessExpression(cur)) {
+    if (cur.questionDotToken !== undefined) return null
+    props.unshift(cur.name.text)
+    cur = cur.expression
+  }
+  if (!ts.isIdentifier(cur) || !roots.has(cur.text)) return null
+  return { root: cur.text, props, idNode: cur }
+}
+
+/** 绑定名（含解构）是否含目标标识符。 */
+function bindingHasName(name, target) {
+  if (ts.isIdentifier(name)) return name.text === target
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    return name.elements.some((el) => ts.isBindingElement(el) && bindingHasName(el.name, target))
+  }
+  return false
+}
+
+/**
+ * 根标识符是否被局部绑定遮蔽（参数 / 变量 / catch / 具名函数）——`it`/`test` 是测试
+ * 回调里常见的形参名（`.some((it) => it.path.includes(…)`、`for (const it of …)`），
+ * 不剔会把用例体内这些调用误当用例声明（实测假阳性：api-integration.test.ts 的
+ * `it.matches.some((m) => …)` 曾被当零断言用例）。判定沿 parent 链向上找同名绑定；
+ * 需要 createSourceFile(..., setParentNodes=true) 的解析树。
+ */
+function isShadowedRoot(idNode) {
+  const name = idNode.text
+  let cur = idNode.parent
+  while (cur) {
+    if (
+      ts.isArrowFunction(cur) ||
+      ts.isFunctionExpression(cur) ||
+      ts.isFunctionDeclaration(cur) ||
+      ts.isMethodDeclaration(cur) ||
+      ts.isConstructorDeclaration(cur)
+    ) {
+      if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === name) return true
+      if (cur.parameters.some((p) => bindingHasName(p.name, name))) return true
+    } else if (ts.isVariableDeclaration(cur) && bindingHasName(cur.name, name)) {
+      return true
+    } else if (ts.isCatchClause(cur) && cur.variableDeclaration && bindingHasName(cur.variableDeclaration.name, name)) {
+      return true
+    }
+    cur = cur.parent
+  }
+  return false
+}
+
+/** 声明调用链（含两段式外层）+ 遮蔽剔除；非目标根 / 被形参变量遮蔽 → null。 */
+function declCallChainOf(node, roots) {
+  const direct = callChainRoot(node.expression, roots)
+  if (direct && !isShadowedRoot(direct.idNode)) return direct
+  if (ts.isCallExpression(node.expression)) {
+    const inner = callChainRoot(node.expression.expression, roots)
+    if (inner && !isShadowedRoot(inner.idNode)) return inner
+  }
+  return null
+}
+
 export function findOnlyOrSkipViolations(src) {
   const clean = sanitizeForCount(src)
   const sf = ts.createSourceFile('check-counts-gate.ts', clean, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
   let only = 0
   let uncondSkip = 0
-  const GATE_ROOTS = new Set(['it', 'test', 'describe'])
-  /** 成员访问链解包（只认字面 `.`，可选链 `?.` 即出射程）；非 it/test/describe 根返回 null。 */
-  const gateChain = (expr) => {
-    const props = []
-    let cur = expr
-    while (ts.isPropertyAccessExpression(cur)) {
-      if (cur.questionDotToken !== undefined) return null
-      props.unshift(cur.name.text)
-      cur = cur.expression
-    }
-    if (!ts.isIdentifier(cur) || !GATE_ROOTS.has(cur.text)) return null
-    return { root: cur.text, props }
-  }
   const visit = (node) => {
     if (ts.isCallExpression(node)) {
-      const chain = gateChain(node.expression)
+      const chain = callChainRoot(node.expression)
       if (chain) {
         const p = chain.props
         if ((p.length === 1 && p[0] === 'only') || (p.length === 2 && p[0] === 'only' && p[1] === 'each')) {
@@ -242,7 +303,7 @@ export function findOnlyOrSkipViolations(src) {
         }
       } else if (ts.isCallExpression(node.expression)) {
         // it.skip.each(cases)("标题", fn) 两段调用——外层首参为标题串才计（R65-59 口径）
-        const inner = gateChain(node.expression.expression)
+        const inner = callChainRoot(node.expression.expression)
         if (inner && inner.props.length === 2 && inner.props[0] === 'skip' && inner.props[1] === 'each') {
           if (ts.isStringLiteral(node.arguments[0])) uncondSkip++
         }
@@ -266,6 +327,170 @@ export function findAssertionFreeTestFiles(entries) {
     .filter((e) => !/(^|[^.\w])(?:expect|assert)\s*[.(]/.test(sanitizeForCount(e.src)))
     .map((e) => e.relPath)
 }
+
+/**
+ * P2-17（二轮复审）：零断言门从**文件粒度**下沉到**用例粒度**。
+ *
+ * 洞：R76-40 只要求每个 .test.ts 至少一处 expect/assert——文件里一个用例写了断言，
+ * 其余用例体全空也能过门（档内空洞不拦）。升级契约：**每个用例至少 1 断言或显式
+ * 豁免注释**。
+ *
+ * 判定（TS 轻量 AST，与 only/skip 门同族，不跑类型检查）：
+ * - 用例声明 = 根为 `it`/`test` 的调用（含两段式 `it.each(表)('标题', fn)` 外层）；
+ *   容器与钩子（`describe` 链首 / beforeEach/afterEach/beforeAll/afterAll / playwright
+ *   `step`/`use`/`extend`）不是用例，不入判。
+ * - 无内联函数实参（`it.todo('x')`、`it('x')` 占位、具名函数引用）不判——静态面看不到
+ *   可判的用例体，交回人工；有函数实参的用例体子树内须现出断言调用。
+ * - 断言面 = 被调链根标识符恰为 `expect` / `assert` 的调用（`expect(x)`、
+ *   `expect.soft(x)`、`assert.equal(a,b)` 都算；`expectFoo(` 这类前缀标识符不算）。
+ *   与 R76-40 文件门同一语义面，只是从「文件里有一个」收严到「本用例里有」。
+ * - 豁免 = 用例体文本（注释面抽取同 check-comments 状态机，字符串里的字样不算）内
+ *   出现 `零断言豁免` 标记 + 理由。静态判不了「断言在被调辅助函数里」的形态必须
+ *   就地登记豁免，不许把断言搬去用例体外绕过。
+ *
+ * 返回 [{ file, line, title }]（line 为用例声明起始行）。
+ */
+export const ZERO_ASSERTION_EXEMPT_MARK = '零断言豁免'
+const CASE_ROOTS = new Set(['it', 'test'])
+/** 容器/钩子/子步骤——根为 it/test 但不是用例声明，不入用例级判定。 */
+const NON_CASE_PROPS = new Set(['describe', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'step', 'use', 'extend'])
+
+/** 用例声明解包（direct 链 `it(...)` 或两段链 `it.each(表)('标题', fn)` 外层）；非用例返回 null。 */
+function caseChainOf(node) {
+  if (!ts.isCallExpression(node)) return null
+  const chain = declCallChainOf(node, CASE_ROOTS)
+  return chain && !NON_CASE_PROPS.has(chain.props[0]) ? chain : null
+}
+
+/** 被调链根标识符（`expect` / `assert` 判定用；属性链解包同 callChainRoot 口径）。 */
+function calleeRootName(expr) {
+  let cur = expr
+  while (ts.isPropertyAccessExpression(cur)) cur = cur.expression
+  return ts.isIdentifier(cur) ? cur.text : null
+}
+
+/** 子树内是否出现 expect/assert 调用。 */
+function subtreeHasAssertion(fn) {
+  let found = false
+  const visit = (n) => {
+    if (found) return
+    if (ts.isCallExpression(n)) {
+      const root = calleeRootName(n.expression)
+      if (root === 'expect' || root === 'assert') {
+        found = true
+        return
+      }
+    }
+    n.forEachChild(visit)
+  }
+  visit(fn)
+  return found
+}
+
+/** 用例标题（首参字符串字面量；无标题串返回空串）。 */
+function caseTitleOf(node, sf) {
+  const a0 = node.arguments[0]
+  if (!a0) return ''
+  if (ts.isStringLiteral(a0) || ts.isNoSubstitutionTemplateLiteral(a0)) return a0.text.slice(0, 60)
+  if (ts.isTemplateExpression(a0)) return a0.getText(sf).slice(1, -1).slice(0, 60)
+  return ''
+}
+
+export function findAssertionFreeCases(entries) {
+  const out = []
+  for (const e of entries) {
+    // setParentNodes=true：遮蔽判定（isShadowedRoot）沿 parent 链上行，需要父指针。
+    const sf = ts.createSourceFile(e.relPath, e.src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const visit = (node) => {
+      if (caseChainOf(node)) {
+        const fn = node.arguments.find((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a))
+        if (fn) {
+          const span = e.src.slice(node.getStart(sf), node.getEnd())
+          const exempt = extractCommentLines(span).some((c) => c.text.includes(ZERO_ASSERTION_EXEMPT_MARK))
+          if (!exempt && !subtreeHasAssertion(fn)) {
+            const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf))
+            out.push({ file: e.relPath, line: line + 1, title: caseTitleOf(node, sf) })
+          }
+        }
+      }
+      node.forEachChild(visit)
+    }
+    sf.forEachChild(visit)
+  }
+  return out
+}
+
+/**
+ * P2-15（二轮复审）：test/ 批号标签「上锚不追」门。
+ *
+ * 背景：test/ 此前豁免于 check-comments（测试头注释留批次号是纪律允许形态），导致批号
+ * 密度在测试面持续堆积——用例标题 914/10,836、注释 1,481/24,106、53.3% 档含批号。
+ * 复审建议「新档标题禁批号，旧档随改随清」——为不制造一次性大清理，机械化为**上锚**：
+ * 冻结落门时的实测数当上限，**超出即红**（新增批号必须自行清掉同量存量，或改写成不依赖
+ * 批号的表述）；**低于锚不追**（存量清理不强制、不清也不红；锚只随实测手动下调）。
+ * 机制先例 = R0911「testableConst 收编 71→14；上锚 71，超才红」（总览 §五）。
+ *
+ * 计量面（只数这两面，避免把功能字符串误当批号叙事）：
+ * - 注释面：check-comments 的注释抽取 + 标签形态表（单一形态源，见顶部 import 注）；
+ * - 标题面：根为 it/test/describe 的调用首参字符串里的同表标签（两段式 each 外层计入，
+ *   参数表不是标题）。
+ *
+ * 返回 { titles, comments, perFile }（perFile 仅含有命中的档，按命中数降序，供超锚时点名）。
+ */
+export function findTestBatchHits(entries) {
+  let titles = 0
+  let comments = 0
+  const perFile = []
+  const titleRoots = new Set(['it', 'test', 'describe'])
+  for (const e of entries) {
+    const commentHits = findTagHits(e.src, { file: e.relPath, ext: '.ts' })
+    let titleHitCount = 0
+    // setParentNodes=true：遮蔽判定沿 parent 链上行（形参 `it`/`test` 不算用例声明）。
+    const sf = ts.createSourceFile(e.relPath, e.src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const visit = (node) => {
+      if (ts.isCallExpression(node)) {
+        if (declCallChainOf(node, titleRoots)) {
+          const a0 = node.arguments[0]
+          if (a0 && (ts.isStringLiteral(a0) || ts.isNoSubstitutionTemplateLiteral(a0) || ts.isTemplateExpression(a0))) {
+            const text =
+              ts.isTemplateExpression(a0) ? a0.getText(sf).slice(1, -1) : a0.text
+            titleHitCount += tagSpansOf(text).length
+          }
+        }
+      }
+      node.forEachChild(visit)
+    }
+    sf.forEachChild(visit)
+    titles += titleHitCount
+    comments += commentHits.length
+    if (titleHitCount > 0 || commentHits.length > 0) {
+      perFile.push({ file: e.relPath, titles: titleHitCount, comments: commentHits.length })
+    }
+  }
+  perFile.sort((a, b) => b.titles + b.comments - (a.titles + a.comments))
+  return { titles, comments, perFile }
+}
+
+/**
+ * 上锚判定（纯函数，直测锚定「超锚红 / 锚下不追」双向口径）：返回超锚说明串数组，
+ * 空数组 = 未超锚（含低于锚——存量清理不强制、不报）。
+ */
+export function batchAnchorViolations({ titles, comments }, anchor = TEST_BATCH_ANCHOR) {
+  const over = []
+  if (titles > anchor.titles) over.push(`用例标题批号 ${titles} 处 > 上锚 ${anchor.titles}`)
+  if (comments > anchor.comments) over.push(`注释批号 ${comments} 处 > 上锚 ${anchor.comments}`)
+  return over
+}
+
+/**
+ * test/ 批号上锚（P2-15）：落门实测值冻结——超锚即红，锚下不追（见 findTestBatchHits 头注）。
+ * 手动下调锚 = 声明「存量已清到这个水位」，只许收紧不许放宽；上调须过评审（不是维护动作）。
+ * 数值口径：titles/comments 由 findTestBatchHits 对 test/ 全量实测（本仓 2026-10-11 落门）。
+ */
+export const TEST_BATCH_ANCHOR = Object.freeze({
+  titles: 4160,
+  comments: 10054,
+})
 
 /**
  * R76-6（二十四轮 F 域）：e2e pageerror 基线接线静态门——R75-7 把渲染层异常升级为红
@@ -569,13 +794,46 @@ function main() {
   // ── R76-40（二十四轮 F 域）：空洞测试门 ─────────────
   // R33D-37（三十三轮）：扩跑 e2e spec——e2e 用例数同样进 README 对账，零 expect 的
   // spec 此前只被 pageerror 门（全部 spec）间接覆盖接线、不被空洞门覆盖。
-  const assertionFree = findAssertionFreeTestFiles(
-    [...unitFiles, ...e2eSpecs].map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
-  )
+  const caseEntries = [...unitFiles, ...e2eSpecs].map((fp) => ({
+    relPath: posixRelPath(root, fp),
+    src: readFileSync(fp, 'utf8'),
+  }))
+  const assertionFree = findAssertionFreeTestFiles(caseEntries)
   if (assertionFree.length > 0) {
     console.error('\ncheck:counts 失败：零断言测试文件（R76-40）——')
     console.error('  只声明用例不写 expect/assert 也能计入单测数对账（数声明不数断言），空洞测试从计数门静默通过：')
     for (const p of assertionFree) console.error('  - ' + p)
+    process.exit(1)
+  }
+
+  // ── P2-17（二轮复审）：零断言门下沉到用例粒度 ─────────────
+  // 文件门只看「文件里有断言」——一个用例写了断言、其余用例体全空仍能过门。本门逐用例
+  // 要求「至少 1 断言或显式豁免注释」（`零断言豁免：<理由>`，判得了的用例体才判）。
+  const assertionFreeCases = findAssertionFreeCases(caseEntries)
+  if (assertionFreeCases.length > 0) {
+    console.error('\ncheck:counts 失败：用例体零断言（R76-40 下沉到用例粒度，P2-17）——')
+    console.error('  用例体（it/test 的回调）内须现出 expect/assert 调用；断言在被调辅助函数里等静态判不了的形态，')
+    console.error(`  就地加注释 ${ZERO_ASSERTION_EXEMPT_MARK}：<理由> 登记（不得把断言搬出用例体绕过逐用例判定）：`)
+    for (const v of assertionFreeCases.slice(0, 40)) {
+      console.error(`  - ${v.file}:${v.line} 「${v.title}」`)
+    }
+    if (assertionFreeCases.length > 40) console.error(`  …另有 ${assertionFreeCases.length - 40} 处（共 ${assertionFreeCases.length} 处）`)
+    process.exit(1)
+  }
+
+  // ── P2-15（二轮复审）：test/ 批号标签上锚 ─────────────
+  // 存量不追改、新增不许超锚（上锚不追：低于锚不报、锚只随清理手动下调）。见 findTestBatchHits 头注。
+  const batch = findTestBatchHits(caseEntries)
+  const batchOver = batchAnchorViolations(batch)
+  if (batchOver.length > 0) {
+    console.error('\ncheck:counts 失败：test/ 批号标签超上锚（P2-15）——')
+    console.error('  存量不追改、上锚只拦新增：新增用例标题 / 注释里不要再带批号（R65-3 这类），')
+    console.error('  把标题与注释写成行为/不变量描述；确要新增就同步清掉同量存量，或把锚手动下调后落锚。')
+    console.error(`  超锚面：${batchOver.join('；')}`)
+    console.error('  命中最多的大档（咬合增量请查 git diff -- test/）：')
+    for (const f of batch.perFile.slice(0, 12)) {
+      console.error(`  - ${f.file}：标题 ${f.titles} / 注释 ${f.comments}`)
+    }
     process.exit(1)
   }
 
@@ -649,6 +907,9 @@ function main() {
 
   console.log(
     `实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例；Dev/Docs Archive ${archiveActual} 篇`,
+  )
+  console.log(
+    `test/ 批号标签（上锚不追）：注释 ${batch.comments} 处（上锚 ${TEST_BATCH_ANCHOR.comments}）/ 用例标题 ${batch.titles} 处（上锚 ${TEST_BATCH_ANCHOR.titles}）`,
   )
 
   if (mismatch.length > 0) {

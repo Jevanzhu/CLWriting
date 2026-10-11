@@ -22,6 +22,8 @@ import type { TaskGateInjected } from './task-gate.js' // export 并发闸（闸
 
 interface IoCtx extends TaskGateInjected {
   workDir: string | null
+  /** 导出全局并发闸实例（组装根注入；同实例不再由模块级全局状态承载） */
+  exportGate: ExportSlotGate
   /** 收尾：导出排队等待超时覆盖档——组装根 RouteOverrides 注入
    * （undefined = 生产口径 10min 逐位不变） */
   exportWaitTimeoutMs?: number | null
@@ -54,68 +56,93 @@ export class ExportSlotWaitError extends Error {
     this.name = 'ExportSlotWaitError'
   }
 }
-let activeExportWorkers = 0
-const exportWaiters: Array<() => void> = []
 
-/**
- * 释放函数（批注见 acquireExportSlot）：名额转移语义——release 时若有
- * waiter，不自减计数、直接 shift 队列并 resolve（名额直接转移给 waiter，waiter
- * 恢复后不再自增）；无 waiter 才自减。released 门防重复释放（二次转移/二次自减
- * 都会破坏计数不变量）。
- */
-function makeExportSlotReleaser(): () => void {
-  let released = false
-  return () => {
-    if (released) return
-    released = true
-    const next = exportWaiters.shift()
-    if (next) {
-      next() // 名额转移：activeExportWorkers 不变（waiter 恢复后不再自增）
-      return
-    }
-    activeExportWorkers--
-  }
+/** 导出全局并发闸（实例态；对齐 TaskGate 模式）——原为模块级
+ *  `let activeExportWorkers` + `const exportWaiters`：同进程多 server 实例共享同一份
+ *  计数/队列（一族实例的占位可让另一族实例的导出排队，测试面亦跨档串扰）。
+ *  现改随组装根实例化：进程内生产组装一份（语义等价——生产恒单实例），测试自建即隔离。
+ *  语义（名额转移/FIFO/封顶/超时/防重复释放）逐位不变，仅状态载体由模块级改为实例闭包。 */
+export interface ExportSlotGate {
+  /** 取名额：满员排队（≤MAX_EXPORT_WAITERS，超出即拒）；waitTimeoutMs = 本次等待覆盖档
+   *  （undefined/null = 生产口径 10min）。返回 release（幂等，名额转移给队首 waiter）。 */
+  acquire(waitTimeoutMs?: number | null): Promise<() => void>
 }
 
-/** 收尾：waitTimeoutMs = 本次等待的超时覆盖档（组装根 RouteOverrides 经
- * handler / 直测面显式传入；undefined = 生产口径 10min 逐位不变）。 */
-export async function acquireExportSlot(waitTimeoutMs?: number | null): Promise<() => void> {
-  const waitMs = waitTimeoutMs ?? EXPORT_WAIT_TIMEOUT_MS
-  if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
-    // 队列封顶——超限直接拒（不无限堆积）
-    if (exportWaiters.length >= MAX_EXPORT_WAITERS) {
-      throw new ExportSlotWaitError(`导出排队已达上限（${MAX_EXPORT_WAITERS}），请稍后重试`)
-    }
-    // 等待限时——resolve 与 timeout 竞速，先到者定局（单线程
-    // 事件循环下二者互斥执行）；超时方把自己从队列摘除再抛错，防 release shift 到
-    // 已废弃的 waiter 名额转移落空
-    await new Promise<void>((resolve, reject) => {
-      let settled = false
-      const timer = setTimeout(() => {
-        if (settled) return
-        settled = true
-        const idx = exportWaiters.indexOf(wrapped)
-        if (idx !== -1) exportWaiters.splice(idx, 1)
-        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(waitMs / 60_000)} 分钟），请稍后重试`))
-      }, waitMs)
-      const wrapped = () => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        resolve()
+export function createExportSlotGate(): ExportSlotGate {
+  let activeExportWorkers = 0
+  const exportWaiters: Array<() => void> = []
+
+  /**
+   * 释放函数（批注见 acquire）：名额转移语义——release 时若有
+   * waiter，不自减计数、直接 shift 队列并 resolve（名额直接转移给 waiter，waiter
+   * 恢复后不再自增）；无 waiter 才自减。released 门防重复释放（二次转移/二次自减
+   * 都会破坏计数不变量）。
+   */
+  function makeReleaser(): () => void {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const next = exportWaiters.shift()
+      if (next) {
+        next() // 名额转移：activeExportWorkers 不变（waiter 恢复后不再自增）
+        return
       }
-      exportWaiters.push(wrapped)
-    })
-    // 名额已由 release 直接转移（release 未自减、直接 resolve
-    // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
-    // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
-    // 瞬时并发超 MAX=2（违反全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
-    return makeExportSlotReleaser()
+      activeExportWorkers--
+    }
   }
-  // 到这里必有空位：同步块内 check+increment 无 await，原子
-  activeExportWorkers++
-  return makeExportSlotReleaser()
+
+  const acquire = async (waitTimeoutMs?: number | null): Promise<() => void> => {
+    const waitMs = waitTimeoutMs ?? EXPORT_WAIT_TIMEOUT_MS
+    if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
+      // 队列封顶——超限直接拒（不无限堆积）
+      if (exportWaiters.length >= MAX_EXPORT_WAITERS) {
+        throw new ExportSlotWaitError(`导出排队已达上限（${MAX_EXPORT_WAITERS}），请稍后重试`)
+      }
+      // 等待限时——resolve 与 timeout 竞速，先到者定局（单线程
+      // 事件循环下二者互斥执行）；超时方把自己从队列摘除再抛错，防 release shift 到
+      // 已废弃的 waiter 名额转移落空
+      await new Promise<void>((resolve, reject) => {
+        let settled = false
+        const timer = setTimeout(() => {
+          if (settled) return
+          settled = true
+          const idx = exportWaiters.indexOf(wrapped)
+          if (idx !== -1) exportWaiters.splice(idx, 1)
+          reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(waitMs / 60_000)} 分钟），请稍后重试`))
+        }, waitMs)
+        const wrapped = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve()
+        }
+        exportWaiters.push(wrapped)
+      })
+      // 名额已由 release 直接转移（release 未自减、直接 resolve
+      // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
+      // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
+      // 瞬时并发超 MAX=2（违反全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
+      return makeReleaser()
+    }
+    // 到这里必有空位：同步块内 check+increment 无 await，原子
+    activeExportWorkers++
+    return makeReleaser()
+  }
+
+  return { acquire }
 }
+
+/** 进程默认导出闸实例——不接组装根的直调面（测试/脚本）取用；生产经组装根注入实例。 */
+export const processExportSlotGate: ExportSlotGate = createExportSlotGate()
+
+/** 模块级委托壳（对齐 task-gate 的 acquireTaskGate 先例）：直调面沿用旧名——
+ *  收尾：waitTimeoutMs = 本次等待的超时覆盖档（undefined = 生产口径 10min 逐位不变）。
+ *  生产路径不经此壳（组装根注入实例），仅为存量直测面保持名与语义。 */
+export function acquireExportSlot(waitTimeoutMs?: number | null): Promise<() => void> {
+  return processExportSlotGate.acquire(waitTimeoutMs)
+}
+
 
 export function registerIoRoutes(ctx: IoCtx): void {
   // 清偿-导出未过滤提示：透传定稿过滤标记——
@@ -171,8 +198,8 @@ export function registerIoRoutes(ctx: IoCtx): void {
         const format: ExportFormat = formatRaw as ExportFormat
         const platform: ExportPlatform = platformRaw as ExportPlatform
         const output: ExportOutput = outputRaw as ExportOutput
-        // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入
-        releaseGlobal = await acquireExportSlot(ctx.exportWaitTimeoutMs ?? undefined)
+        // 收尾：等待超时覆盖档经 ctx（组装根 RouteOverrides）传入；闸实例同源注入
+        releaseGlobal = await ctx.exportGate.acquire(ctx.exportWaitTimeoutMs ?? undefined)
         const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform, output }))
         // （补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
         // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误

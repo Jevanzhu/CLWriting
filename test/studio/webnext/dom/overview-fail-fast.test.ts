@@ -133,4 +133,34 @@ describe('OverviewView 主请求失败即止（R0912-FE-P3-9）', () => {
     expect(st.foreshadows).toEqual([]) // 组件态同一判别面
     w.unmount()
   })
+
+  // 次级面板失败不再只剩 console.warn：主数据可渲染、子面板取数为空时页内一行
+  // 点名缺失面板（合并为一条，不逐面板刷），面板空态与「本来就没有数据」可区分。
+  it('次级面板失败 → 页内合并提示点名缺失面板，重试成功后提示消失', async () => {
+    mocks.getOverview.mockResolvedValue({
+      identity: { kind: 'long', name: '书', title: '书', genre: '', created_at: '' },
+      progress: { chapters: 1, words: 100, percent: 1, targetWords: null },
+      timeline: [],
+      streak: 0,
+      recentDoc: null,
+    })
+    mocks.getForeshadows.mockRejectedValueOnce(new Error('伏笔挂'))
+    mocks.getRhythm.mockRejectedValueOnce(new Error('节奏挂'))
+    mocks.getAnalysisOverview.mockRejectedValueOnce(new Error('分析挂'))
+    const w = mountView()
+    await flushPromises()
+
+    const banner = w.find('.ov-degraded')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('伏笔健康度')
+    expect(banner.text()).toContain('节奏分布')
+    expect(banner.text()).toContain('文风摘要')
+    expect(w.text()).toContain('总字数') // 提示不阻断主数据渲染
+
+    // 重试：三子请求走成功默认 → 本轮失败面清空，提示消失
+    await banner.find('.btn-retry').trigger('click')
+    await flushPromises()
+    expect(w.find('.ov-degraded').exists()).toBe(false)
+    w.unmount()
+  })
 })

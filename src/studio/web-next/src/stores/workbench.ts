@@ -12,8 +12,10 @@ import { MAX_TEXT_OUT } from '../../../../shared/contract/studio'
  * T3.2 扩展态机（八阶段/草稿/审稿/rebook 等），T3.1 只做事件分派基础。
  */
 
-/** driver SSE 事件（松类型，按 type 分支取字段；对齐 driver/types.ts DriverEvent）。 */
-interface SseEvent {
+/** driver SSE 事件（松类型，按 type 分支取字段；对齐 driver/types.ts DriverEvent——
+ *  各字段真类型见该联合，本类型只保证 type 可分支判定）。
+ *  导出：事件流渲染面（WbAdvanced）按本类型取日志元素，两侧不再各手抄一份结构面。 */
+export interface SseEvent {
   type: string
   _ts: string
   /** 入队序号（store 级单调查）——事件流滑窗渲染的稳定 key 源

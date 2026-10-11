@@ -1,11 +1,12 @@
 /**
  * 诊断包 ZIP 写入器（src/diagnostics/zip.ts）单测：
  * 结构与字段（本地头 = 中央目录、偏移自洽）、UTF-8 条目名标志位、store 模式、
- * CRC 与自带实现互验、空归档可解析、超限 fail-loud。
+ * CRC 与自带实现互验、空归档可解析、超限 fail-loud（单卷 API）。
+ * P2-12：超限分卷/截断省略路径（窄限注入直测）。
  */
 import { describe, it, expect } from 'vitest'
 import { crc32 } from 'node:zlib'
-import { buildZipStore } from '../../src/diagnostics/zip.js'
+import { buildZipStore, buildZipStoreVolumes } from '../../src/diagnostics/zip.js'
 import { readZipStore, crc32Independent } from '../helpers/zip-read.js'
 
 describe('诊断包 ZIP（store 模式手写写入器）', () => {
@@ -63,5 +64,52 @@ describe('诊断包 ZIP（store 模式手写写入器）', () => {
     expect(((date >> 9) & 0x7f) + 1980).toBe(2026)
     expect((date >> 5) & 0x0f).toBe(10) // 月
     expect(date & 0x1f).toBe(10) // 日
+  })
+})
+
+// ── P2-12（全项目源码二轮独立复审）：超限分卷/截断省略（原「超限即抛」）──
+//
+// 契约：>65535 条目或单卷本地段累计超上限 → 按**条目边界**分多卷（每卷独立可解压，
+// 序不变）；单条自身超上限无法切分 → droppedNames 截断省略（调用方提示，不静默丢）。
+// 窄限注入（limits）使 4GiB 量级不可实测的面可在小数据上逐路径验。
+describe('诊断包 ZIP · 超限分卷/截断（P2-12）', () => {
+  it('条目数超 65535 → 自动分卷：各卷独立可解析、条目全集与序不变、无截断', () => {
+    const many = Array.from({ length: 65536 }, (_, i) => ({ name: `f${i}`, data: '' }))
+    const pack = buildZipStoreVolumes(many)
+    expect(pack.droppedNames).toEqual([])
+    expect(pack.volumes.length).toBe(2)
+    const names = pack.volumes.flatMap((v) => readZipStore(v).map((e) => e.name))
+    expect(names).toEqual(many.map((e) => e.name))
+    expect(pack.packedNames).toEqual(names)
+  })
+
+  it('窄限注入：单卷放不下时按条目边界切卷，各卷可解析且卷序 = 条目序', () => {
+    const entries = ['a', 'b', 'c', 'd'].map((n) => ({ name: `${n}.txt`, data: 'x'.repeat(20) }))
+    // 每条本地段 = 30 + 名长(5) + 20 = 55；限 120 → 每卷恰装 2 条
+    const pack = buildZipStoreVolumes(entries, { limits: { maxArchiveBytes: 120 } })
+    expect(pack.droppedNames).toEqual([])
+    expect(pack.volumes.length).toBe(2)
+    const names = pack.volumes.flatMap((v) => readZipStore(v).map((e) => e.name))
+    expect(names).toEqual(['a.txt', 'b.txt', 'c.txt', 'd.txt'])
+    for (const v of pack.volumes) expect(readZipStore(v).every((e) => e.flags === 0x0800 && e.method === 0)).toBe(true)
+  })
+
+  it('单条自身超单卷上限 → 截断省略并留痕（droppedNames），其余条目照常入卷', () => {
+    const pack = buildZipStoreVolumes(
+      [
+        { name: '小.txt', data: 'x' },
+        { name: '巨.jsonl', data: 'y'.repeat(500) },
+      ],
+      { limits: { maxArchiveBytes: 100 } },
+    )
+    expect(pack.droppedNames).toEqual(['巨.jsonl'])
+    expect(pack.packedNames).toEqual(['小.txt'])
+    expect(pack.volumes.length).toBe(1)
+    expect(readZipStore(pack.volumes[0]!).map((e) => e.name)).toEqual(['小.txt'])
+  })
+
+  it('空输入 → 零卷（调用方按零卷判失败，不产半截包）', () => {
+    const pack = buildZipStoreVolumes([])
+    expect(pack).toEqual({ volumes: [], packedNames: [], droppedNames: [] })
   })
 })

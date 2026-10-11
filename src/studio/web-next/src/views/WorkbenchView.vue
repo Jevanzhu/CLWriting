@@ -36,6 +36,7 @@ import WbUsageCard from '../components/workbench/WbUsageCard.vue'
 import { friendlyError } from '../shared/error'
 import { refreshCachedDoc } from '../shared/doc-freshness' // helper 单源
 import { useStaleGuard } from '../composables/useStaleGuard'
+import { useBookScoped } from '../composables/useBookScoped'
 import { useScopedAction, usePendingAction } from '../composables/useScopedAction'
 import { isImeComposing } from '../shared/ime'
 import { countWords } from '../shared/words' // 草稿字数与编辑器头/草稿卡同源
@@ -108,10 +109,9 @@ async function refreshState(): Promise<void> {
     err.value = friendlyError(e)
   }
 }
-watch(
-  () => props.bookName,
-  () => {
-    // 切书清残留——旧书的 prompt 输入与 draftSaved 提示不带进新书
+useBookScoped(() => props.bookName, {
+  // 切书清残留——旧书的 prompt 输入与 draftSaved 提示不带进新书
+  reset: () => {
     prompt.value = ''
     draftSaved.value = null
     // 旧书的错误条与状态卡同样不带进新书——err 是本窗动作失败
@@ -119,16 +119,18 @@ watch(
     // 由下方 refreshState 立即拉新书状态（在途慢响应已有 stateGen 代守卫兜底）
     err.value = null
     state.value = null
+  },
+  // 状态卡拉新书 + 规则命中重载（原第二个
+  // bookName watch 分裂注册，违背「切书清理单点」纪律）。时序钉准：本 hook 带
+  // immediate——初载在 setup 期即触发（原的 onMounted 初载随并删除，避免
+  // 双调；loadRuleHits 纯 API 请求落 ref，无挂载依赖，前移到挂载前语义不变，
+  // 恰一次）；切书时与上方清残留同链触发。
+  load: () => {
     void refreshState()
-    // 切书重载规则命中并入本 watch（原第二个
-    // bookName watch 分裂注册，违背「切书清理单点」纪律）。时序钉准：本 watch 带
-    // immediate——初载在 setup 期即触发（原的 onMounted 初载随并删除，避免
-    // 双调；loadRuleHits 纯 API 请求落 ref，无挂载依赖，前移到挂载前语义不变，
-    // 恰一次）；切书时与上方清残留同链触发。
     void loadRuleHits()
   },
-  { immediate: true },
-)
+  immediate: true,
+})
 onMounted(() => {
   // 档位走统一 store（静默——档位显示不阻断主流程；设置页/ChatDock 已拉过则零请求）
   void pstore.refresh()

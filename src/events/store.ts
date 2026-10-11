@@ -15,7 +15,7 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 // ulid 改直连 fs/id.ts 单源（events→document 跨层边消除；
 // document/stable-id.js 的 re-export 垫片保留给 document 域既有调用方，勿再扩散）
 import { ulid } from '../fs/id.js'
@@ -114,14 +114,16 @@ export interface SessionStore {
    *  （validateEventStream 生产接线的写点前置）。全局 seq 口径——遮蔽可指向跨会话
    *  恢复历史的旧 seq，不能按 session 过滤。返回：①与 [from,to] 相交的既有
    *  compaction/end 遮蔽区间；②该区间内的表面类候选事件行（type+data JSON 串，
-   *  供调用侧按投影口径判「曾可见」）。 */
+   *  供调用侧按投影口径判「曾可见」）。
+   *  默认关闭（debug 开关，见实现注）：未启用返回 **null**（自检未跑，调用方须跳过
+   *  告警——空对象会被误读为「区间内零表面事件」而误报）。 */
   maskSelfCheckData(
     from: number,
     to: number,
   ): {
     intervals: Array<{ start: number; end: number }>
     rows: Array<{ seq: number; type: string; data: string }>
-  }
+  } | null
   clearBook(book: string): void
   /** 多 book 键单事务清理（低级项）：全清或全不动 */
   clearBooks(books: string[]): void
@@ -314,13 +316,22 @@ export function unregisterActiveChatSession(sessionId: string): void {
 }
 
 /**
+ * 事件库文件绝对路径——库版式单源（`<userData>/clwriting/session/<bookHash>.db`）。
+ * 消费方：下方开库/迁移三处 + server 侧 stats 缓存探针（events-db-signature.ts 按本路径
+ * stat 判事件追加，库版式变更只改本函数）。
+ */
+export function sessionDbPath(userDataPath: string, bookRoot: string): string {
+  return join(userDataPath, 'clwriting', 'session', bookHash(bookRoot) + '.db')
+}
+
+/**
  * 打开本书事件库（userDataPath 为空 → null，调用方退化内存模式）。
  * 进程内按 dbPath 单例（引用计数）：命中直接复用；首次建目录 + DDL + 启动修复。
  */
 export function openSessionStore(userDataPath: string | null | undefined, bookRoot: string): SessionStore | null {
   if (!userDataPath) return null
-  const dir = join(userDataPath, 'clwriting', 'session')
-  const dbPath = join(dir, bookHash(bookRoot) + '.db')
+  const dbPath = sessionDbPath(userDataPath, bookRoot)
+  const dir = dirname(dbPath)
   const cached = openStores.get(dbPath)
   if (cached && !cached.closed) {
     cached.refs++
@@ -358,8 +369,8 @@ export async function openSessionStoreAsync(
   bookRoot: string,
 ): Promise<SessionStore | null> {
   if (!userDataPath) return null
-  const dir = join(userDataPath, 'clwriting', 'session')
-  const dbPath = join(dir, bookHash(bookRoot) + '.db')
+  const dbPath = sessionDbPath(userDataPath, bookRoot)
+  const dir = dirname(dbPath)
   const cached = openStores.get(dbPath)
   if (cached && !cached.closed) {
     cached.refs++
@@ -616,7 +627,7 @@ function createReadMethods(
       const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
       return [...queryEventRows(ctx, book, sessionId, cap, type, 'listEvents')]
     },
-    // ──：真尾窗三原语实现（接口处注释为设计正本）──
+    // ── 真尾窗三原语实现（接口处注释为设计正本）──
     listEventsTail(book: string, tail: number): ChatEvent[] {
       const cap = typeof tail === 'number' && Number.isFinite(tail) && tail > 0 ? Math.floor(tail) : 0
       if (cap === 0) return []
@@ -727,12 +738,15 @@ function createSessionQueryMethods(
       // close 写 compaction 前的遮蔽区间自检数据源——不做投影全量
       // 重放（validateEventStream 的生产接线最小面）。区间重叠判定：
       // 既有 [s,e] 与 [from,to] 相交 ⟺ s <= to && e >= from
-      // 勘误：本查询按 surface_op + shadow 区间过滤无可用索引（events 表唯一索引
-      // 是 idx_events_session(session_id, seq)），实为全表扫（O(N)，N = 全库事件数）。
-      // 不设新索引的取舍：随开库 DDL 加 partial index 需对存量用户库做开库期 schema
-      // 变更（首次建索引的写锁窗叠打开期成本敏感面），而本查询仅在 close 写 compaction
-      // 前执行一次（低频诊断面，毫秒级一次性窗）——性能收益不抵迁移风险；后续若
-      // close 链实测成瓶颈再单立迁移项评估。
+      // 成本如实记：本查询按 surface_op + shadow 区间过滤无可用索引（events 表唯一
+      // 索引是 idx_events_session(session_id, seq)），为全表扫（O(N)，N = 全库事件数）。
+      // 处置 = 降为 debug 开关（默认关，读 env CLWRITING_EVENTS_SELF_CHECK=1 启用）：
+      // 本查询仅在 close 写 compaction 前执行一次（低频诊断面），而随 sqlite 阶梯加
+      // 部分索引要对存量用户库做开库期 schema 变更（首次建索引的写锁窗叠打开期成本
+      // 敏感面），并把 events 库 user_version 推到 v2（旧版本应用 fail-closed 拒绝
+      // 打开 v2 库）——迁移风险不抵一处诊断查询的收益；诊断/复现时开开关即恢复全量
+      // 自检。未启用返回 null（调用方跳过告警——返回空对象会被误读为「零表面事件」）。
+      if (process.env.CLWRITING_EVENTS_SELF_CHECK !== '1') return null
       // 两条固定 SQL 走 prepared()（第二条的 IN 占位符
       // 拼自 SURFACE_EVENT_TYPES 常量集——变体数恒 1，符合「变体数须有界」入缓契约）
       const intervals = (
@@ -842,10 +856,10 @@ export async function migrateBookSession(
   newName: string,
 ): Promise<boolean> {
   if (!userDataPath) return true
-  const dir = join(userDataPath, 'clwriting', 'session')
-  const oldDb = join(dir, bookHash(oldRoot) + '.db')
-  const newDb = join(dir, bookHash(newRoot) + '.db')
+  const oldDb = sessionDbPath(userDataPath, oldRoot)
+  const newDb = sessionDbPath(userDataPath, newRoot)
   if (oldDb === newDb) return true
+  const dir = dirname(oldDb)
   // 迁移整段（在途断言→checkpoint→搬移→改钥匙）进 session 跨进程
   // 锁，与 openSessionStore 首开段互斥——此前只挡本进程在途引用（openStores），
   // 另一进程（第二个 studio 实例/CLI）恰在 checkpoint 与 rename 之间首开旧库时，SQLite

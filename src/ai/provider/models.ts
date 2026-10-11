@@ -63,9 +63,14 @@ export async function listModels(
   auth: AuthStrategy = 'anthropic',
   /** 请求中断信号（不传则 SDK 默认超时 10 分钟，网关 TCP 黑洞时「测试连接」挂死） */
   signal?: AbortSignal,
+  /**
+   * mock 快路（组装根的 driver 选择结果注入）——true 时短路返回样例列表，
+   * 避免向不存在端点发真实请求导致「测试连接」超时。缺省 false = 生产真实链路；
+   * 此前本函数自读 CLWRITING_DRIVER，与本函数的调用方（组装根选择结果）两处各判。
+   */
+  opts: { mock?: boolean } = {},
 ): Promise<string[]> {
-  // mock 环境短路（CLWRITING_DRIVER=mock）——避免向不存在端点发真实请求导致 fetchModels 超时
-  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+  if (opts.mock) {
     return ['gpt-4o', 'gpt-4o-mini']
   }
   const url = normalizeBaseUrl(baseUrl, protocol)

@@ -26,17 +26,22 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
 import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
+// 机检器代次：由各检查器模块导出常量/规则表哈希生成（checker-generation.ts）——
+// 词表 / 阈值 / 正则 / 升红集演进时自动变，漏改不可能（原为手工 bump 字面量，
+// 漏 bump 会静默复用旧结果）。代次并入纪元指纹首段 → 变代即整代缓存失效。
+// 语义沿革备忘：a1 代章级行含账本全书性条目；a1-v2 起改独立缓存 leads_book_*，
+// 旧代行整代表失效防新旧混存（该次演进即由代次机制承接）。
+import { CHECKER_GENERATION } from './checker-generation.js'
 // .md 判定走单一真相源（大小写不敏感口径，leak-derive/
 // iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
 import { isMdFileName } from '../format/filename.js'
+import { statFingerprint } from '../fs/hash.js' // stat 指纹单源（下沉 shared）
 import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
 
-/** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
- * a1-v2：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
- *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
-const CHECKER_GENERATION = 'a1-v2'
+/** 机检器代次由检查器规则表哈希生成（见顶部 import 注与 checker-generation.ts）；
+ * 本文件不再持手工代次字面量。 */
 
 // 连接级 prepared 语句缓存（WeakMap<db, Map<sql, stmt>> 形态，同 rag/store.ts 先例）
 // ——树聚合每轮只开一次库，循环内数百次对同一固定 SQL 重编译是纯白付。
@@ -68,7 +73,7 @@ interface TreeIssueEntry {
 function fileFp(p: string): string {
   try {
     const st = statSync(p, { bigint: true })
-    return `${st.mtimeNs}:${st.size}`
+    return statFingerprint(st)
   } catch {
     return 'absent'
   }

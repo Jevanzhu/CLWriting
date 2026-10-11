@@ -33,7 +33,7 @@ const HOOK_LEVELS: readonly HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-// ──：rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
+// ── rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
 // 手法对齐 search.ts（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
 // 每请求 readBookConfig + rhythmLong 双 readChapterDir（写作/正文 + 大纲/章纲）——
 // 章节元数据虽有 stat 级缓存，冷路径（首查/有章变更）仍整读全部章节全文，

@@ -29,10 +29,16 @@ export { createProvider }
  * （createProvider 第三参），适配器降级记忆（persistDegraded/lookupDegraded）按显式
  * path 分发，落探测目标库的 providers.json 而非「活跃库」（此前 undefined 回落
  * runner 侧活跃 path，双库时探测读写错库）。缺省不传 = 旧形态（回落活跃 path，兼容）。
+ * mock = 组装根的 driver 选择结果注入——true 时不真探，直接返回模拟能力
+ * （e2e / 前端开发下「测试连接」按钮可用）。此前本函数自读 CLWRITING_DRIVER。
  */
-export async function probeCapabilities(conf: ProviderConf, userDataPath?: string | null): Promise<ProbeResult> {
+export async function probeCapabilities(
+  conf: ProviderConf,
+  userDataPath?: string | null,
+  mock = false,
+): Promise<ProbeResult> {
   // mock 快路：e2e / 前端开发不真探——测试连接按钮在 mock 下可用
-  if (process.env['CLWRITING_DRIVER'] === 'mock') {
+  if (mock) {
     return {
       caps: { connected: true, streaming: true },
       details: ['mock 驱动：模拟全能力（未真探）'],

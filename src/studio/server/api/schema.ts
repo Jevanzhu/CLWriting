@@ -9,7 +9,21 @@
  *  （HttpError 自带 code；裸抛由 dispatch 兜底）；禁止再造 {ok:false,...}/{reason} 变体（200 业务
  *    结果体不在此列，按各端点自身契约）；
  * 2. input 形状由 parse 声明（handler 拿解析后的类型，不裸 JSON）——新路由（带请求体的）一律声明
- *    parse，不再内联 readJson + 手工校验；存量内联校验待迁移（校验本身仍在，属纪律漂移非洞）。
+ *    parse，不再内联 readJson + 手工校验。存量内联校验已迁一批：documents-crud 四站
+ *    （words-diary.post/新建/PATCH/copy）+ documents-save 两站（content/batch-finalize）+ snapshots
+ *    restore（早前）——一律「gate 承载 404/409 前置门 + parse 承载 body 400」，错误优先序逐位不变。
+ *    其余站点保留内联并登记理由（同一 handler 内 readJson 与占闸/容错语义耦合，或测试面钉住，
+ *    非纪律松弛；清单按全库扫描逐站核对）：
+ *    ① 占闸先于读体（闸在 handler 内且读体是其后首个 await）：io.export（任务闸+全局导出槽）、
+ *       draft-save / documents-structure×3（busyReason 先拦）、onboard-ai / rewrite / outline /
+ *       analyze / lead-updates（runGatedGeneration 闸内回调）、chat.regenerate（chatEntryGateError
+ *       直调；orchestrator-mutex-gates 钉「闸先于 body 400」）；
+ *    ② 读体容错语义（无 body/坏 JSON 按空体继续，defineRoute 的 readJson 失败先于 parse 短路，
+ *       容错路径不可表达）：providers.delete、providers.test、rag-providers.delete、
+ *       settings.relations.mine（兼①：闸包装正本在 task-gate.ts）；
+ *    ③ 直调 handler 测试面钉住（悬持 body 于 readJson 造确定性窗口）：prefs.put、config.put、
+ *       learn-commit（srv-write-bookmoved-guard 直调）、review-verdict（读体后 409 重验先于形状
+ *       400，序亦不可翻）；rewrite.ai-version 为本批外干净候选（序无翻转，待下批收编）。
  *    另有 gate（parse 前置闸）与 bodyLimit 两个声明位，「留而不迁」的理由见各端点处的注；
  * 3. Map 注册表天然防原型链注入（has/get 不走对象属性查找，__proto__/constructor 不会被解析成
  *    truthy 值）。

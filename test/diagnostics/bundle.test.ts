@@ -273,6 +273,64 @@ describe('诊断包 · 内容门分类完备性', () => {
   })
 })
 
+describe('诊断包 · 超限分卷与截断提示（P2-12）', () => {
+  it('超单卷条目上限 → 分卷写入（files 全列、卷名带序号），warning 提示分卷，各卷可解析', () => {
+    const r = buildDiagnosticsBundle({
+      userDataPath: ud,
+      workDir: work,
+      appVersion: '1.0.0-rc.4',
+      now: NOW,
+      zipLimits: { maxEntries: 2 },
+    })
+    expect(r.ok).toBe(true)
+    expect(r.files).toEqual([
+      join(ud, '诊断包', '诊断包-20261010-123040.zip'),
+      join(ud, '诊断包', '诊断包-20261010-123040-2.zip'),
+    ])
+    expect(r.file).toBe(r.files![0])
+    expect(r.dir).toBe(join(ud, '诊断包'))
+    for (const f of r.files!) expect(existsSync(f)).toBe(true)
+    const names = r.files!.flatMap((f) => readZipStore(readFileSync(f)).map((e) => e.name))
+    expect(names).toEqual(['说明.txt', '环境.json', '配置.json', `日志/${TODAY_LOG}`])
+    expect(r.entries).toEqual(names)
+    expect(r.warnings!.some((w) => w.includes('分 2 卷')), '分卷须有 warning 提示（不静默改落点形态）').toBe(true)
+  })
+
+  it('单条超单卷字节上限 → 截断省略 + warning 点名该条，其余条目照常成包', () => {
+    const BIG_LOG = 'app-20261009.jsonl'
+    writeFileSync(join(ud, 'logs', BIG_LOG), JSON.stringify({ msg: 'x'.repeat(6000) }) + '\n', 'utf-8')
+    const r = buildDiagnosticsBundle({
+      userDataPath: ud,
+      workDir: work,
+      appVersion: '1.0.0-rc.4',
+      now: NOW,
+      zipLimits: { maxArchiveBytes: 4096 },
+    })
+    expect(r.ok).toBe(true)
+    expect(r.files!.length).toBe(1)
+    expect(r.entries).not.toContain(`日志/${BIG_LOG}`)
+    expect(r.entries).toContain(`日志/${TODAY_LOG}`)
+    expect(readZipStore(readFileSync(r.file!)).map((e) => e.name)).toEqual(r.entries)
+    expect(
+      r.warnings!.some((w) => w.includes('省略') && w.includes(BIG_LOG)),
+      '截断省略须 warning 点名（不静默丢条目）',
+    ).toBe(true)
+  })
+
+  it('全部条目都超单卷上限 → ok:false 点名病因，不产半截包', () => {
+    const r = buildDiagnosticsBundle({
+      userDataPath: ud,
+      workDir: work,
+      appVersion: '1.0.0-rc.4',
+      now: NOW,
+      zipLimits: { maxArchiveBytes: 10 },
+    })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('单卷上限')
+    expect(existsSync(join(ud, '诊断包', '诊断包-20261010-123040.zip'))).toBe(false)
+  })
+})
+
 describe('诊断包 · 失败面', () => {
   it('无 userDataPath → ok:false 且文案点名病因，盘上无产物', () => {
     const r = buildDiagnosticsBundle({ userDataPath: null, workDir: work, appVersion: '1.0.0-rc.4', now: NOW })

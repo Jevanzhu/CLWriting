@@ -1,13 +1,18 @@
 /**
- * 关系图共享逻辑（RelationsView 拆分）：节点/边状态 + 径向层次布局 + 交互。
- * 壳 RelationsView 调 useRelationGraph(bookName) 并 provide('rel-graph')，
+ * 关系图共享逻辑（RelationsView 拆分）：节点/边状态 + 径向层次布局 + 派生与视觉编码
+ * + 交互装配。壳 RelationsView 调 useRelationGraph(bookName) 并 provide('rel-graph')，
  * RelationGraph / RelationDetail 子组件 inject 获取——避免海量 props 透传。
  *
  * 布局说明：主角居中，其余角色按 BFS 跳数分环；二环挂在各自父节点的角度扇区内——
  * 位置本身即语义（谁是核心、谁因谁而来），且确定性布局每次打开都一致。
  * 数据源 #7.5 settings（parseRelations 派生自角色卡「关系」）。
+ *
+ * 分层（原 719 行混布局/交互一处）：纯计算在 shared/relation-layout
+ *（BFS 分环）、交互在 ./useRelationInteraction（拖拽/平移/缩放/复位 + window 监听
+ * 登记与卸载），本文件只留数据装载、布局编排、派生/筛选/视觉编码，并把交互面装配进
+ * 对外 RelationGraph 对象——对外字段与拆分前逐位一致（provide/inject 消费方零改动）。
  */
-import { ref, computed, onMounted, onUnmounted, provide, inject, type Ref, type InjectionKey } from 'vue'
+import { ref, computed, onMounted, provide, inject, type Ref, type InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
 import { getConfig } from '../api/books'
@@ -18,6 +23,7 @@ import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { friendlyError } from '../shared/error'
 import { CX, CY, W, H, computeRadialLayout } from '../shared/relation-layout'
+import { useRelationInteraction } from './useRelationInteraction'
 
 export interface SimNode {
   id: string
@@ -61,13 +67,9 @@ const LEGEND = [
 /** 债务边的弓形高度：同一对角色往往既有关系边又有债务边，直线会完全重合。 */
 const DEBT_BOW = 26
 
-/** 滚轮 deltaY → 缩放倍率（mac适配，导出纯函数便于单测）。
- *  幅值归一 exp(-deltaY*k)：离散滚轮一格 deltaY≈±100 → ≈1.22 倍（与旧固定步进 1.15
- *  观感接近）；mac 触控板高频小 delta 连发改为平滑缩放，不再一步撞缩放钳制；
- *  捏合手势（ctrlKey 且小 delta）同式自然成立。deltaY 向下滚为正 → 倍率 <1 缩小。 */
-export function wheelScale(deltaY: number): number {
-  return Math.exp(-deltaY * 0.002)
-}
+// 滚轮缩放纯函数随交互面迁 ./useRelationInteraction，原入口（测试的具名导入）经下方
+// re-export 原样保留——对外模块面零变化。
+export { wheelScale } from './useRelationInteraction'
 
 export interface RelationGraph {
   // 数据
@@ -519,67 +521,6 @@ export function useRelationGraph(bookName: string): RelationGraph {
     selectedId.value = id
   }
 
-  // --- 拖拽 + 点击选中 ---
-  const svgRef = ref<SVGSVGElement | null>(null)
-  function bindSvg(el: unknown): void {
-    svgRef.value = el as SVGSVGElement | null
-  }
-  const dragId = ref<string | null>(null)
-  let dragNode: SimNode | null = null
-  let dragOffX = 0
-  let dragOffY = 0
-  let dragMoved = false
-  let downX = 0
-  let downY = 0
-
-  function svgPoint(evt: { clientX: number; clientY: number }): { x: number; y: number } {
-    const svg = svgRef.value
-    if (!svg) return { x: 0, y: 0 }
-    const m = svg.getScreenCTM()
-    if (!m) return { x: 0, y: 0 }
-    const p = new DOMPoint(evt.clientX, evt.clientY).matrixTransform(m.inverse())
-    return { x: p.x, y: p.y }
-  }
-  function onNodeDown(node: SimNode, evt: MouseEvent): void {
-    evt.preventDefault()
-    evt.stopPropagation()
-    dragNode = node
-    dragId.value = node.id
-    dragMoved = false
-    downX = evt.clientX
-    downY = evt.clientY
-    const p = svgPoint(evt)
-    dragOffX = p.x - node.x
-    dragOffY = p.y - node.y
-    window.addEventListener('mousemove', onNodeMove)
-    window.addEventListener('mouseup', onNodeUp)
-  }
-  function onNodeMove(evt: MouseEvent): void {
-    if (!dragNode) return
-    if (!dragMoved) {
-      const dx = evt.clientX - downX
-      const dy = evt.clientY - downY
-      if (dx * dx + dy * dy < 16) return
-      dragMoved = true
-    }
-    const p = svgPoint(evt)
-    dragNode.x = p.x - dragOffX
-    dragNode.y = p.y - dragOffY
-  }
-  function onNodeUp(): void {
-    const n = dragNode
-    if (n && !dragMoved) selectedId.value = n.id // 未拖动 → 选中（联动右侧详情）
-    dragNode = null
-    dragId.value = null
-    window.removeEventListener('mousemove', onNodeMove)
-    window.removeEventListener('mouseup', onNodeUp)
-  }
-  /** 双击节点：拖歪的节点滑回径向原位。 */
-  function onNodeDblClick(node: SimNode): void {
-    node.x = node.homeX
-    node.y = node.homeY
-  }
-
   /** 打开角色卡 tab（详情卡按钮触发）。无 file / 不在树中 → 忽略。 */
   async function openCharacter(n: SimNode): Promise<void> {
     if (!n.hasCard || !n.file) return
@@ -594,59 +535,15 @@ export function useRelationGraph(bookName: string): RelationGraph {
     }
   }
 
-  // --- 缩放 + 平移 ---
-  function onWheel(evt: WheelEvent): void {
-    const p = svgPoint(evt)
-    // mac适配：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
-    // 连发数十事件瞬间撞钳制——改 wheelScale 幅值归一（换算见函数头注）；钳制不动
-    const scale = wheelScale(evt.deltaY)
-    const nw = Math.max(W * 0.2, Math.min(W * 4, view.value.w * scale))
-    if (nw === view.value.w) return
-    const sx = nw / view.value.w
-    view.value.x = p.x - (p.x - view.value.x) * sx
-    view.value.y = p.y - (p.y - view.value.y) * sx
-    view.value.w = nw
-    view.value.h = nw / (W / H)
-  }
-  let panning = false
-  let panStart = { x: 0, y: 0, vx: 0, vy: 0 }
-  function onBgDown(evt: MouseEvent): void {
-    if (evt.button !== 0) return // 仅左键平移（右键=菜单、中键=自动滚轮）
-    panning = true
-    panStart = { x: evt.clientX, y: evt.clientY, vx: view.value.x, vy: view.value.y }
-    window.addEventListener('mousemove', onPanMove)
-    window.addEventListener('mouseup', onPanUp)
-  }
-  function onPanMove(evt: MouseEvent): void {
-    if (!panning) return
-    const svg = svgRef.value
-    if (!svg) return
-    const rect = svg.getBoundingClientRect()
-    const sx = view.value.w / rect.width
-    const sy = view.value.h / rect.height
-    view.value.x = panStart.vx - (evt.clientX - panStart.x) * sx
-    view.value.y = panStart.vy - (evt.clientY - panStart.y) * sy
-  }
-  function onPanUp(): void {
-    panning = false
-    window.removeEventListener('mousemove', onPanMove)
-    window.removeEventListener('mouseup', onPanUp)
-  }
-  // 兜底：拖拽中切 view/卸载时移除残留 window 监听（正常由 onNodeUp/onPanUp 在 mouseup 清理）
-  onUnmounted(() => {
-    window.removeEventListener('mousemove', onNodeMove)
-    window.removeEventListener('mouseup', onNodeUp)
-    window.removeEventListener('mousemove', onPanMove)
-    window.removeEventListener('mouseup', onPanUp)
+  // 交互面（拖拽/平移/缩放/复位 + window 监听登记与卸载）随批抽
+  // ./useRelationInteraction：数据面经 deps 注入（节点读数口 / 视口 / 选中 / 视口贴合），
+  // 本文件只装配——对外字段名与拆分前逐位一致（provide/inject 消费方零改动）。
+  const { svgRef, bindSvg, dragId, onWheel, onBgDown, onNodeDown, onNodeDblClick, resetView } = useRelationInteraction({
+    readNodes: () => nodes.value,
+    view,
+    selectedId,
+    fitView,
   })
-  function resetView(): void {
-    // 视图回到贴合内容，同时把拖歪的节点全部收回原位
-    for (const n of nodes.value) {
-      n.x = n.homeX
-      n.y = n.homeY
-    }
-    fitView()
-  }
 
   /** 边色：债务恒用 --cat-1（朱红），靠 .debt 虚线区分线型；其余走语义映射。 */
   function edgeColor(e: SimEdge): string {

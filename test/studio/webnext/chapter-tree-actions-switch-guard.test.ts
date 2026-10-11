@@ -166,6 +166,7 @@ describe('R34D-21: 七动作 catch 补切书守卫（A 书报错不落 B 书界�
   ]
 
   it.each(guardCases)('%s：失败 + 切书 → openError 不落 B 书', async (_name, trigger, mock) => {
+    // 零断言豁免：断言在 runCase 辅助函数内（参数化组各组共用判定链）
     await runCase(trigger, mock)
   })
 

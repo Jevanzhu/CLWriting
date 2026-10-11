@@ -78,7 +78,7 @@ function insideDir(rel: string, dir: string): boolean {
   return norm.startsWith(`${dir}/`) && !norm.split('/').includes('..') && !norm.includes('\0') && !isAbsolute(norm)
 }
 
-// ──：非闸书级写端点的临界段书注册重验 ──
+// ── 非闸书级写端点的临界段书注册重验 ──
 // 本文件四个写端点（entries 新增/删除、候选确认/忽略）均无任务闸——重验竞态时序与
 // 防线形态单源见 book-context.ts 头注（起四处本地拷贝
 // 收敛，直接调用单源 bookMovedFailure）。同文件同步 handler（entries.get 迁移 /

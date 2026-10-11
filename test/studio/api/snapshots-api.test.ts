@@ -159,6 +159,31 @@ describe('快照端点（单章版本回滚）', () => {
     expect(r.status).toBe(400)
   })
 
+  // P1-13：restore 的 save 失败码 → status 走 structStatus 单源（原内联「仅 REVISION_CONFLICT
+  // 判 409、其余压 400」）。WRITE_ERROR 在 structStatus 是 409 可重试档（与 files.ts PUT /documents
+  // 族同档）——本用例把 journal 落账路径占位成目录造确定性写失败：回退到内联映射即 400 变红。
+  it('P1-13: 写失败（journal 落账路径被占位成目录）→ 409 WRITE_ERROR（structStatus 单源，非 400）', async () => {
+    const list = await request('GET', api('/documents/doc_1/snapshots'))
+    const id = (list.json as { entries: { id: string }[] }).entries[0]!.id
+    const journalPath = join(studio.bookRoot, '工作区', '.journal', 'doc_1.jsonl')
+    const journalBackup = readFileSync(journalPath)
+    const before = readFileSync(join(studio.bookRoot, CHAPTER), 'utf-8')
+    rmSync(journalPath)
+    mkdirSync(journalPath)
+    try {
+      const r = await request('POST', api(`/documents/doc_1/snapshots/${id}/restore`), {
+        expectedRevision: await computeCurrentRevision(),
+      })
+      expect(r.status).toBe(409)
+      expect((r.json as { code: string }).code).toBe('WRITE_ERROR')
+      // fail-closed：journal 都记不上，正文一字未改
+      expect(readFileSync(join(studio.bookRoot, CHAPTER), 'utf-8')).toBe(before)
+    } finally {
+      rmSync(journalPath, { recursive: true, force: true })
+      writeFileSync(journalPath, journalBackup)
+    }
+  })
+
   it('版本不存在 → 404', async () => {
     const r = await request('GET', api('/documents/doc_1/snapshots/0000000000ZZZZZZZZZZZZZZZZ'))
     expect(r.status).toBe(404)

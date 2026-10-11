@@ -386,15 +386,16 @@ export function leadClosureItems(
 // 模块常量（quotes.ts 宽容引号集）与入参无关。带 g 的三枚仅用于 replace（每次重置
 // lastIndex，无跨调用消费态），共享安全；edge 单枚（^单开|单闭$）与 many 枚（^开+|闭+$）
 // 语义不同（剥单层边引 vs 剥多层边引），各自独立保留。
-const EVIDENCE_QUOTED_CORE_RE = new RegExp(
+// 导出供机检代次哈希收编（证据匹配正则改必变代次）。
+export const EVIDENCE_QUOTED_CORE_RE = new RegExp(
   `[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`,
 )
-const EVIDENCE_EDGE_SINGLE_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g')
-const EVIDENCE_ALL_QUOTES_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g')
-const EVIDENCE_QUOTED_INNER_RE = new RegExp(
+export const EVIDENCE_EDGE_SINGLE_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g')
+export const EVIDENCE_ALL_QUOTES_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g')
+export const EVIDENCE_QUOTED_INNER_RE = new RegExp(
   `[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`,
 )
-const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
+export const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
 
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
@@ -469,16 +470,19 @@ export function evidenceNeedles(evidence: string): string[] {
  * 一刀切硬拦，作者揭晓后弃线永远挂着 lead-status-open 红项。成长线同步对齐：
  * 突破后弃线同理不再判标错。
  */
-const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
-const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
-const OPEN_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].open))
-const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].advance))
-const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
+// 动词集合表（单源派生自 LEAD_VERBS；导出供机检代次哈希收编——格式层
+// 动词表变更经这些派生面自动进代次）。
+export const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
+export const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
+export const OPEN_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].open))
+export const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].advance))
+export const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 
-/** 各类合法动词全集（open+advance+resolve+drop，单源派生自
- *  LEAD_VERBS）——履历末条动词词表外（错别字/误写他类动词）时状态闭合校验对其
- *  既不判红也不提示、静默失明。对齐 growth-verb-invalid 的黄项口径：仅提示不判红。 */
-const VALID_VERBS_BY_TYPE: ReadonlyMap<string, Set<string>> = new Map(
+// 各类合法动词全集（open+advance+resolve+drop，单源派生自
+//  LEAD_VERBS）——履历末条动词词表外（错别字/误写他类动词）时状态闭合校验对其
+//  既不判红也不提示、静默失明。对齐 growth-verb-invalid 的黄项口径：仅提示不判红。
+//  导出供机检代次哈希收编。
+export const VALID_VERBS_BY_TYPE: ReadonlyMap<string, Set<string>> = new Map(
   LEAD_TYPES.map((t) => [
     t,
     new Set<string>([...LEAD_VERBS[t].open, ...LEAD_VERBS[t].advance, ...LEAD_VERBS[t].resolve, ...LEAD_VERBS[t].drop]),

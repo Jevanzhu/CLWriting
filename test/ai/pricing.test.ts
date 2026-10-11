@@ -558,6 +558,79 @@ describe('D2 cost-stats 聚合', () => {
     expect((await aggregateCost(ud, tmpDir('clw-cost-empty-'))).enabled).toBe(false)
   })
 
+  // P1-2：事件库读失败与「确无数据/未配价」两态可区分——读失败置 degraded:true，
+  // 前端据此提示「统计暂不可用」而非「未配置价格表 / 零成本」。
+  it('P1-2: 事件库读失败 → degraded:true（与空数据空壳可区分）', async () => {
+    const ud = tmpDir('clw-cost-deg-')
+    const root = tmpDir('clw-cost-deg-book-')
+    // 预埋垃圾字节作 session 库 → 开库即抛
+    const dir = join(ud, 'clwriting', 'session')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, bookHash(root) + '.db'), 'garbage bytes, definitely not a sqlite database')
+
+    const stats = await aggregateCost(ud, root)
+    expect(stats.degraded).toBe(true)
+    expect(stats.enabled).toBe(false)
+    // 对照：正常空数据空壳无 degraded 键（两态可区分）
+    const ok = await aggregateCost(ud, tmpDir('clw-cost-deg-ok-'))
+    expect(ok.degraded).toBeUndefined()
+  })
+
+  // P1-4：金额精度口径单源（roundCost 1e-10 归一）——三笔 0.1 的累加在浮点上
+  // 是 0.30000000000000004，总量/桶不归一即与 0.3 严格不等（故用 toBe 不用 toBeCloseTo）
+  it('P1-4: 多笔金额累加严格等于 1e-10 归一值（浮点噪声不入账）', async () => {
+    const ud = tmpDir('clw-cost-r4-')
+    const root = tmpDir('clw-cost-r4-book-')
+    const store: ProviderStore = {
+      providers: [
+        {
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
+          // 100 token × 1000/MTok = 0.1/次
+          pricing: { inputPerMTok: 1000 },
+        },
+      ],
+      currentId: 'p1',
+      tiers: { creative: { model: 'model-x', effort: 'high' }, assistant: null, chat: null },
+      currentModel: 'model-x',
+      revision: 0,
+      modelCaps: {},
+    } as unknown as ProviderStore
+    await saveProviders(ud, store)
+
+    const es = openSessionStore(ud, root)!
+    try {
+      const sessionId = es.createSession(bookHash(root))
+      es.appendEvents(
+        sessionId,
+        [0, 1, 2].map((i) => ({
+          type: 'llm/call' as const,
+          data: {
+            runId: `r${i}`,
+            task: 'outline',
+            tierKind: 'creative',
+            model: 'model-x',
+            attempt: 0,
+            stopReason: 'end',
+            usage: { input: 100, output: 0 },
+            durationMs: 1,
+            ok: true,
+          },
+        })),
+      )
+    } finally {
+      es.close()
+    }
+
+    const stats = await aggregateCost(ud, root)
+    expect(stats.total).toBe(0.3)
+    expect(stats.byTask['outline']!.cost).toBe(0.3)
+  })
+
   // R42-22（四十二轮）：价格表未配 currency → stats.currency 缺省 'USD'（接口注释承诺落地；
   // 前端 WbUsageCard 同款 ?? 'USD' 兜底，两侧口径一致）
   it('R42-22：无 currency 价格表 → stats.currency === "USD"', async () => {

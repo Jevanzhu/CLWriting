@@ -113,31 +113,45 @@ describe('runTask mock 快路', () => {
   })
 
   it('mockTool 形态：data=tryMockTool 结果，调用方可按真实 generateTool decode', async () => {
-    process.env.CLWRITING_DRIVER = 'mock'
-    const out = await runTask<{ input: unknown }>({
-      userDataPath: tempUserData(),
-      mockTool: 'submit_text',
-      run: (_p, _s) => Promise.resolve({ input: null }),
-    })
-    expect(out.ok).toBe(true)
-    if (out.ok) {
-      // 与 rewrite.ts 同款 decode：input.正文
-      expect((out.data.input as { 正文?: string }).正文).toContain('mock 改写')
-      // B-11（第六十轮）：TaskOk.usage 与 trace 统一携带 MOCK_USAGE——此前记 null 而
-      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
-      expect(out.usage).toEqual({ inputTokens: 100, outputTokens: 50 })
+    // P1-10：工具型快路同认组装根注入的选择结果（原先由 tryMockTool 自读环境变量）
+    configureRunnerMockFastPath(true)
+    try {
+      const out = await runTask<{ input: unknown }>({
+        userDataPath: tempUserData(),
+        mockTool: 'submit_text',
+        run: (_p, _s) => Promise.resolve({ input: null }),
+      })
+      expect(out.ok).toBe(true)
+      if (out.ok) {
+        // 与 rewrite.ts 同款 decode：input.正文
+        expect((out.data.input as { 正文?: string }).正文).toContain('mock 改写')
+        // B-11（第六十轮）：TaskOk.usage 与 trace 统一携带 MOCK_USAGE——此前记 null 而
+        // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
+        expect(out.usage).toEqual({ inputTokens: 100, outputTokens: 50 })
+      }
+    } finally {
+      configureRunnerMockFastPath(false)
     }
   })
 
-  it('非 mock 环境 mockTool 不短路（走 provider 解析）', async () => {
-    delete process.env.CLWRITING_DRIVER
-    expect(tryMockTool('submit_text')).toBeNull()
-    const out = await runTask<string>({
-      userDataPath: tempUserData(), // 无 providers.json → NO_PROVIDER，证明没走 mock
-      mockTool: 'submit_text',
-      run: (_p, _s) => Promise.resolve('x'),
-    })
-    expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
+  // P1-10：mock 快路判定源 = 组装根注入的选择结果，环境变量不再参与。
+  // 反证：环境变量置 mock 而组装根未注入 → 工具型快路不短路，照走真实 provider 解析。
+  it('P1-10: 环境变量=mock 但未注入选择结果 → mockTool 不短路（判定源是注入值）', async () => {
+    process.env.CLWRITING_DRIVER = 'mock'
+    configureRunnerMockFastPath(false)
+    try {
+      const out = await runTask<string>({
+        userDataPath: tempUserData(), // 无 providers.json → NO_PROVIDER，证明没走 mock
+        mockTool: 'submit_text',
+        run: (_p, _s) => Promise.resolve('x'),
+      })
+      expect(out).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
+      // 查表函数本身不持开关（开关单点在 runTask）：命中键即返产出，null 只表「无此键」
+      expect(tryMockTool('submit_text')).not.toBeNull()
+      expect(tryMockTool('no_such_tool')).toBeNull()
+    } finally {
+      delete process.env.CLWRITING_DRIVER
+    }
   })
 
   // P0-1：非 mock 环境 mockText 不短路（与 mockTool 守卫对称，防生产返回 mock 文本）

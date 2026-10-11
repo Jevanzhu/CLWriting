@@ -325,7 +325,7 @@ export interface BookConfig {
     imagery_words?: string[]
     /** 信息差关键词。无内置默认（逐书的秘密无通用词表）；未设 = 静默不启用 */
     leak_keywords?: string[]
-    // ──：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
+    // ── 机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
     // 未设 = 走 runner 直传引擎默认参数；生效链 book.yaml checks.* → global.json 托底 → 引擎默认
     /** 复读占比阈值（0-1 小数；引擎默认 0.15） */
     repeat_threshold?: number

@@ -19,7 +19,8 @@
  * 重建」守则的口径差以此声明（预算闸侧 ai-calls.json 调用时即落 cost，不受影响）；
  * 在 llm/call 事件随记 pricing 指纹（版本/单价）属后续增强。
  */
-import { resolveModelPricing, computeCallCost } from './pricing.js'
+import { resolveModelPricing, computeCallCost, roundCost } from './pricing.js'
+import { log, errMsg } from '../log/index.js'
 // 读侧单源化——原私有
 // readLlmCalls 与 trace-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: true（无 usage 行跳过）
@@ -37,6 +38,10 @@ export interface CostBucket {
 export interface CostStats {
   /** false = 全书无价格表（前端引导配置，不显示 0） */
   enabled: boolean
+  /** true = 事件库读失败（开库/迭代故障）——空壳语义是「读不到」而非「真没有」，
+   *  与 enabled:false（未配价）分态：前端提示「统计暂不可用」而非「未配置价格表」。
+   *  仅在故障时出现（正常路径无此键，既有消费方逐字段不变）。 */
+  degraded?: boolean
   /** 币种（首个命中价格表的 currency；缺省 'USD'） */
   currency?: string
   total: number
@@ -49,7 +54,7 @@ export interface CostStats {
 
 function bump(map: Record<string, CostBucket>, key: string, cost: number): void {
   const b = map[key] ?? { cost: 0, calls: 0 }
-  b.cost = Math.round((b.cost + cost) * 1e10) / 1e10
+  b.cost = roundCost(b.cost + cost)
   b.calls++
   map[key] = b
 }
@@ -71,8 +76,9 @@ export async function aggregateCost(userDataPath: string | null | undefined, boo
   let currency: string | undefined
   let anyEntry = false
   const pricingCache = new Map<string, ReturnType<typeof resolveModelPricing>>()
+  let readDegraded = false
   try {
-    await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: true }, (e: LlmCallReadRow) => {
+    const r = await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: true }, (e: LlmCallReadRow) => {
       anyEntry = true
       let pricing = pricingCache.get(e.model)
       if (pricing === undefined) {
@@ -92,15 +98,18 @@ export async function aggregateCost(userDataPath: string | null | undefined, boo
           ...(e.cacheRead !== undefined ? { cacheReadTokens: e.cacheRead } : {}),
           ...(e.cacheWrite !== undefined ? { cacheWriteTokens: e.cacheWrite } : {}),
         }) ?? 0
-      stats.total = Math.round((stats.total + cost) * 1e10) / 1e10
+      stats.total = roundCost(stats.total + cost)
       bump(stats.byDay, e.day, cost)
       bump(stats.byTask, e.task, cost)
       if (e.chapter !== undefined) bump(stats.byChapter, String(e.chapter), cost)
     })
-  } catch {
-    return emptyCostStats() // 观测层失败丢弃部分聚合 → 空壳
+    readDegraded = r.degraded
+  } catch (e) {
+    // 观测层失败丢弃部分聚合 → 空壳；degraded 标记「读不到」两态（且 warn 留痕）
+    log.warn('cost-stats', `事件库读取失败，成本统计按降级空壳返回：${errMsg(e)}`)
+    return { ...emptyCostStats(), degraded: true }
   }
-  if (!anyEntry) return stats // 无事件 → 空壳（无 currency 字段）
+  if (!anyEntry) return readDegraded ? { ...stats, degraded: true } : stats // 无事件 → 空壳（无 currency 字段）
 
   stats.enabled = pricedSeen.size > 0
   // currency 缺省 'USD' 落地接口注释承诺——前端消费方（WbUsageCard）

@@ -11,6 +11,21 @@
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { PieceList } from '../format/types.js'
 
+// 清单形式检规则表/阈值——导出供机检代次哈希收编（改一处代次自动变，
+// 旧缓存整代表失效；消费面见 checker-generation.ts）。
+
+/** 反转线索表最少有效铺垫点数。 */
+export const MANIFEST_MIN_SETUPS = 3
+/** 情绪曲线最少有效段数。 */
+export const EMOTION_CURVE_MIN_SEGMENTS = 5
+/** 情绪强度合法区间（闭区间）。 */
+export const EMOTION_STRENGTH_MIN = 1
+export const EMOTION_STRENGTH_MAX = 10
+/** 情绪曲线峰值低阈：最高强度低于此值报黄。 */
+export const EMOTION_PEAK_MIN = 8
+/** 清单占位词表（视为未填写）。 */
+export const PIECE_LIST_PLACEHOLDERS = ['待定', '待补', '（待补）']
+
 /**
  * 清单形式检：反转线索表形式 + 伏笔回收闭合。
  * - 反转线索表核心反转为空 / 铺垫点 <3 → 报黄（机检形式，提示补；语义真伪归三审）
@@ -29,11 +44,11 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
     })
   }
   const realSetups = lead.铺垫点.filter((p) => !isPlaceholder(p.位置) && !isPlaceholder(p.内容))
-  if (realSetups.length < 3) {
+  if (realSetups.length < MANIFEST_MIN_SETUPS) {
     items.push({
       checkId: 'manifest-setup-short',
       level: 'yellow',
-      message: `反转线索表有效铺垫点仅 ${realSetups.length} 处（<3），反转信息差可能不成立`,
+      message: `反转线索表有效铺垫点仅 ${realSetups.length} 处（<${MANIFEST_MIN_SETUPS}），反转信息差可能不成立`,
     })
   }
 
@@ -43,14 +58,16 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
     const noteIsPlaceholder = p.说明 !== undefined && isPlaceholder(p.说明)
     return !isPlaceholder(p.段落) && !isPlaceholder(p.情绪) && !noteIsPlaceholder
   })
-  if (realCurve.length < 5) {
+  if (realCurve.length < EMOTION_CURVE_MIN_SEGMENTS) {
     items.push({
       checkId: 'emotion-curve-short',
       level: 'yellow',
-      message: `情绪曲线有效段仅 ${realCurve.length} 段（<5），无法核对单章情绪爆破`,
+      message: `情绪曲线有效段仅 ${realCurve.length} 段（<${EMOTION_CURVE_MIN_SEGMENTS}），无法核对单章情绪爆破`,
     })
   }
-  const invalidStrength = curve.filter((p) => !Number.isFinite(p.强度) || p.强度 < 1 || p.强度 > 10)
+  const invalidStrength = curve.filter(
+    (p) => !Number.isFinite(p.强度) || p.强度 < EMOTION_STRENGTH_MIN || p.强度 > EMOTION_STRENGTH_MAX,
+  )
   if (invalidStrength.length > 0) {
     items.push({
       checkId: 'emotion-curve-strength',
@@ -70,11 +87,11 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
   // 有限）已由上方 emotion-curve-strength 黄项兜底回报，本处只管「有效强度里的峰值」；
   // 过滤后为空 → Math.max 得 -Infinity < 8 照报（fail-noisy：曲线全坏不静默放行）。
   const finiteStrengths = realCurve.map((p) => p.强度).filter((s) => Number.isFinite(s))
-  if (realCurve.length > 0 && Math.max(...finiteStrengths) < 8) {
+  if (realCurve.length > 0 && Math.max(...finiteStrengths) < EMOTION_PEAK_MIN) {
     items.push({
       checkId: 'emotion-curve-peak-low',
       level: 'yellow',
-      message: '情绪曲线最高强度低于 8/10，单章爆破力可能不足',
+      message: `情绪曲线最高强度低于 ${EMOTION_PEAK_MIN}/${EMOTION_STRENGTH_MAX}，单章爆破力可能不足`,
     })
   }
 
@@ -96,5 +113,5 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
 
 function isPlaceholder(value: string | undefined): boolean {
   const v = (value ?? '').trim()
-  return v === '' || v === '待定' || v === '待补' || v === '（待补）'
+  return v === '' || PIECE_LIST_PLACEHOLDERS.includes(v)
 }

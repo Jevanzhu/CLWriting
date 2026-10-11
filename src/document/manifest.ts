@@ -5,6 +5,10 @@
  * - 读：jsonl 解析，header 取 version，entry 按 id 存 Map（后写覆盖）；非法行跳过降级。
  * - 写：原子重写整文件（追加 + 重写，atomicWriteFile）。
  * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
+ *
+ * 注意：与 format/manifest.ts **同名不同物**（新人易误判重复）——那是单章章纲.md
+ * （章纲清单，PieceList 读写）；本文件是 `项目/文档清单.jsonl`（文档清单：id/path/
+ * 定稿基线条目）。两模块勿合并、勿互引。
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -15,6 +19,7 @@ import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { testableConst } from '../shared/testable.js'
 import { platformCaseFold } from '../fs/safe-path.js'
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
 export interface ManifestEntry {
@@ -55,7 +60,7 @@ export function manifestPathOf(bookRoot: string): string {
 /** jsonl 一行的宽松形状（解析后逐字段校验）。 */
 type RawLine = { [k: string]: unknown }
 
-// ──：文档清单指纹缓存 ──────────────────────────────────────────
+// ── 文档清单指纹缓存 ──────────────────────────────────────────
 // 所有 docId 端点（check/review/rewrite/analyze/snapshots/documents 保存等）每请求
 // 全量读盘 + O(N) 解析（自动保存 ≥5s 一次链内 2-3 遍，2000 文档 ≈数百 KB）。stat
 // 指纹（size:mtimeMs）缓存——写必 bump mtime 自然失效，writeManifest 仍主动清一道
@@ -70,12 +75,14 @@ const manifestCache = new Map<string, { sig: string; manifest: Manifest }>()
  *  交原路径判读——读失败面与 stat 失败面同族）。
  * mtimeMs（毫秒浮点）→ mtimeNs（bigint stat）——FAT/exFAT 的
  *  mtime 2 秒粒度 + 同尺寸他进程写（外部编辑器改清单）此前指纹不变 → 缓存陈旧命中
- *  → 后续 RMW 以旧表整文件回写把外部修改回滚。ns 粒度消同尺寸窗口；非 ns 原生的
- *  文件系统上 Node 以低精度值填充 bigint 字段，不劣于现状（chapters.ts /
- *  tree.ts probeCache 同口径先例）。 */
+ *  → 后续 RMW 以旧表整文件回写把外部修改回滚。ns 粒度消同尺寸窗口；**低精度卷
+ *  降级不缓存**：mtimeNs 整毫秒对齐（isCoarseMtimeNs 单源）即该卷时间戳粒度粗于
+ *  毫秒（FAT 2s/exFAT 10ms/SMB 1s），同尺寸写的陈旧窗仍在——返回 null 绕过 get/set
+ *  两侧（重读重解析，正确性优先；真 ns 精度卷对齐概率 ~1e-6，误判仅丢一次缓存命中）。 */
 function manifestStatSig(filePath: string): string | null {
   try {
     const st = statSync(filePath, { bigint: true })
+    if (isCoarseMtimeNs(st.mtimeNs)) return null
     return `${st.size}:${st.mtimeNs}`
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : null
@@ -326,7 +333,7 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
   manifestCache.delete(filePath)
 }
 
-// ──：清单 RMW 跨进程互斥 ────────────────────────
+// ── 清单 RMW 跨进程互斥 ────────────────────────
 
 /**
  * 清单锁等待超时（毫秒）。

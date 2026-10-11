@@ -85,7 +85,7 @@ function matchLines(text: string, lower: string): SearchMatch[] {
   return out
 }
 
-// ──：单源核心 + 双驱动 ─────────────────────────────
+// ── 单源核心 + 双驱动 ─────────────────────────────
 
 /** 搜索计划：前奏解析产物（同步/异步双驱动共用，六要素之前四——归一/query 解析/
  *  dirs/finalizedKeys 折叠；截断上限内聚于核心、排除规则内聚于 walker）。 */

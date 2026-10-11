@@ -15,9 +15,10 @@ import { extractExactRealmFromEvidence, realmIndex } from '../format/realms.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import type { RealmDoc } from '../format/types.js'
 
-/** 成长线跃迁动词（单源取自 LEAD_VERBS，避免硬编码错配） */
-const GROWTH_TRANSITION_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
-const GROWTH_VALID_VERBS = new Set<string>([
+/** 成长线跃迁动词（单源取自 LEAD_VERBS，避免硬编码错配）——导出供机检代次哈希
+ *  收编（格式层动词表变更经此派生面自动进代次）。 */
+export const GROWTH_TRANSITION_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
+export const GROWTH_VALID_VERBS = new Set<string>([
   ...LEAD_VERBS.成长线.open,
   ...LEAD_VERBS.成长线.advance,
   ...LEAD_VERBS.成长线.resolve,

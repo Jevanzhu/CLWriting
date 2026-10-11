@@ -13,6 +13,8 @@ import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
 import { checkLeadsFormCore } from './leads.js'
 import { checkGrowth } from './growth.js'
+// 严格升红白名单落中立叶（机检代次哈希同源收编；见 strict-short-ids.ts 头注）
+import { STRICT_SHORT_CHECK_IDS } from './strict-short-ids.js'
 import {
   checkFrontMatter,
   checkBannedWords,
@@ -390,39 +392,6 @@ function collectByproducts(
 
 /** 导出 hasRed/getRedItems 方便调用方 */
 export { hasRed, getRedItems }
-
-const STRICT_SHORT_CHECK_IDS = new Set([
-  'piece-word-short',
-  'piece-word-long',
-  'body-parts',
-  'simile-density',
-  // 可配阈值三黄项——阈值改成可配后，写坏/误调（如复读占比配成
-  // 0.9）在普通模式只表现为「黄项消失」，严格模式下则必须升红拦闸：严格承诺是「机检
-  // 全绿才可过定稿闸」，这三项黄了同样不该绿灯放行。word-count 不在此列（长篇项，
-  // 严格模式只作用于短篇书，piece-word-* 已覆盖短篇字数语义）
-  'repeat',
-  'sentence-length',
-  'imagery-overuse',
-  'section-count-heading-missing',
-  'section-count',
-  'opening-env',
-  'manifest-no-reversal',
-  'manifest-setup-short',
-  'manifest-payoff-open',
-  'emotion-curve-short',
-  'emotion-curve-strength',
-  'emotion-curve-no-reversal',
-  'emotion-curve-peak-low',
-  // unreadable/degraded 族——「检查没跑成」（名册/线索表/
-  // 布线文件读不出）与「配置降级」（book.yaml 解析失败按默认配置执行）在严格短篇
-  // 下同样升红：严格模式的承诺是「机检全绿才可过定稿闸」，黄项语义（提示性）会让
-  // 没跑成的检查绿灯过闸。普通（非严格）模式维持黄项不动。
-  'roster-unreadable',
-  'piece-list-unreadable',
-  'lead-outline-unreadable',
-  'lead-updates-unreadable',
-  'book-config-degraded',
-])
 
 /** 升红函数导出——run.ts 的三处后置黄项（book-config-degraded /
  *  lead-updates-unreadable / lead-outline-unreadable）在 report 组装完成**之后**推入，

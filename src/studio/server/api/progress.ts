@@ -15,7 +15,7 @@ import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.
 import { yieldToEventLoop } from '../../../async.js'
 import { createTtlProbeCache } from '../ttl-cache.js' // TTL+FIFO 缓存壳单源
 
-// ──：服务热路径全书扫描的逐块让出 ──────────────────────
+// ── 服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
 // 循环 = 桌面整体卡死。让出范式同 learn/index.ts 与 src/check/run.ts
 //（setImmediate 级，块与块之间其它请求/SSE 心跳可跑）；粒度统一每 25 章/条。

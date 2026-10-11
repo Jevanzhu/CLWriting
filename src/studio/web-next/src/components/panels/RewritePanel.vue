@@ -10,6 +10,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf, isBodyKind } from '../../shared/words'
 import { capView } from '../../shared/render-cap'
+import { useBookScoped } from '../../composables/useBookScoped'
 
 const props = defineProps<{ bookName: string }>()
 const rewrite = useRewriteStore()
@@ -34,13 +35,12 @@ const instruction = ref('')
 watch(docId, () => rewrite.clear())
 // 切书清指令（跨文档残留同家族；跨文档由上方保留——
 // 同书换章改写意图常延续，跨书意图不再适用）
-watch(
-  () => props.bookName,
-  () => {
+useBookScoped(() => props.bookName, {
+  reset: () => {
     instruction.value = ''
     rewrite.clear()
   },
-)
+})
 
 const diffStats = computed(() => {
   const d = rewrite.result?.diff ?? []

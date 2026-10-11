@@ -81,7 +81,7 @@ export async function drainDocumentSaves(bookRoot: string, timeoutMs = 2_000): P
   }
 }
 
-// ──：伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
+// ── 伏笔事件族接线（设定/伏笔/*.md 变更 → foreshadow/change 事件）──────
 // 快照-差分模式：变更前抓 设定/伏笔/ 全量状态（非伏笔路径 null 免读），变更后
 // recordForeshadowChanges 差分落 workspace 会话（与 step/llm 链路事件同会话）。
 
@@ -235,7 +235,7 @@ function bookMovedFailureOk(ctx: DocumentCtx, name: string | undefined, captured
   return moved === null ? null : { ...moved, ok: false }
 }
 
-// ──：五站写端点不变链收编单源 ─────────────────────────
+// ── 五站写端点不变链收编单源 ─────────────────────────
 // 原 runSave/runCreate/runPatch/runCopy/runTrash 五份脚手架拷贝（PUT content / 新建 /
 // PATCH / copy / 软删）共享同一不变序，收编为 runBookScopedOp，各站只存 op 业务体与
 // 站参数：

@@ -32,7 +32,7 @@ const ROLE_DIR = join(SETTING_DIR, '角色')
 const ITEM_DIR = join(SETTING_DIR, '物品')
 const ROSTER_FILE = join(SETTING_DIR, '名册.md')
 
-// ──：设定目录读取 TTL 缓存 ─────────────────────────────
+// ── 设定目录读取 TTL 缓存 ─────────────────────────────
 // setting-rule 挂在 AI 热路径（self-heal/spawn-write/rewrite 的 toPrompt/check 每章
 // 反复调用），此前每次全量 readdirSync + readFileSync 读设定目录（角色卡/物品卡逐
 // 文件 parse front matter）。手法对齐 search 缓存（书键 Map + TTL + 目录 mtime

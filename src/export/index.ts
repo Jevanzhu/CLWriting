@@ -26,6 +26,10 @@ import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart, isMdFileName, isTxtFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
+// 非 UTF-8 字节判定：原就地声明 isUtf8ExportBytes（与 document/service-guards
+// isUtf8Bytes 同口径的副本，「避免把 document/service 整链拉进导出依赖图」的顾虑由
+// shared/text 零内部依赖的单源函数整体消除）——本文件不再持副本，直引单源。
+import { isUtf8 } from '../shared/text.js'
 // （errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
 import {
@@ -34,19 +38,6 @@ import {
   SUBMISSION_TEMPLATES,
   type ShortSubmissionPlatform,
 } from '../metrics/short-index.js'
-
-/** 非 UTF-8 字节判定（与 document/service.ts isUtf8Bytes 同口径——
- *  TextDecoder fatal；就地声明避免把 document/service 整链拉进导出依赖图）。
- * 原插在 import 区之间，下移到全部
- *  import 之后（零行为变化）。 */
-function isUtf8ExportBytes(buf: Buffer): boolean {
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buf)
-    return true
-  } catch {
-    return false
-  }
-}
 
 export type ExportFormat = 'merged' | 'split' | 'both'
 /** 平台标识（配置化：查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
@@ -452,7 +443,7 @@ export function readUnitBody(bookRoot: string, u: ExportUnit, warnings: string[]
     warnings.push(`${relPosixIn(bookRoot, u.path)}: 正文读取失败（${errMsg(e)}），已跳过`)
     return null
   }
-  if (!isUtf8ExportBytes(bytes)) {
+  if (!isUtf8(bytes)) {
     warnings.push(
       `${relPosixIn(bookRoot, u.path)}: 正文不是 UTF-8 编码（如 GBK 旧档），导出会产生乱码，已跳过——请先转码为 UTF-8 再导出`,
     )

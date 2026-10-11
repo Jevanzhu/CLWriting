@@ -3,7 +3,8 @@
 // 事件流读 workbench store；规则命中由父层拉取后经 props 传入（切 tab 重挂不重拉，行为与拆分前一致）。
 import { computed } from 'vue'
 import { Activity } from 'lucide-vue-next'
-import { useWorkbenchStore } from '../../stores/workbench'
+import { useWorkbenchStore, type SseEvent } from '../../stores/workbench'
+import { strArr } from '../../stores/sse-guards'
 import type { RuleHitEntry } from '../../api/trace-stats'
 import EmptyState from '../ui/EmptyState.vue'
 import CollapseSection from '../ui/CollapseSection.vue'
@@ -20,53 +21,76 @@ const RULE_LABEL: Record<string, string> = {
 defineProps<{ ruleHits: RuleHitEntry[] }>() // props 绑定零消费改裸调用
 const wb = useWorkbenchStore()
 
-// 事件流渲染：按 type 归类显示
-function evLabel(ev: { type: string; [k: string]: unknown }): string {
+/**
+ * 事件字段读取（渲染面唯一收口）：字符串与数字/布尔按原文，其余（缺失值/对象/数组）
+ * 落空串。字段真类型见 driver/types.ts 的 DriverEvent 联合——这些字段在契约里都是标量，
+ * 非标量即脏载荷，渲染成 `[object Object]`/`undefined` 无意义；事件流是只读展示面，
+ * 收窄只影响脏载荷的表现，合法载荷逐字不变。
+ */
+function field(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v)
+  return ''
+}
+
+// 事件流渲染：按 type 归类显示。写章族（self_heal_* / 写稿复位）与其余事件分表——
+// 两表各自在复杂度硬线内，单表塞全会顶线。
+function evLabel(ev: SseEvent): string {
+  const heal = healLabel(ev)
+  if (heal !== null) return heal
   switch (ev.type) {
     case 'text':
-      return String(ev.text ?? '')
+      return field(ev.text)
     case 'tool_use':
-      return `调用工具 ${ev.tool}${ev.role ? `（${ev.role}）` : ''}`
+      return `调用工具 ${field(ev.tool)}${ev.role ? `（${field(ev.role)}）` : ''}`
     case 'role_spawn':
-      return `子角色 ${ev.role} 开始工作`
+      return `子角色 ${field(ev.role)} 开始工作`
     case 'usage':
-      return `用量：${ev.tokens} tokens${ev.cost ? `（${ev.cost}）` : ''}`
+      return `用量：${field(ev.tokens)} tokens${ev.cost ? `（${field(ev.cost)}）` : ''}`
     case 'review-progress':
-      return `审稿：${ev.label}${ev.phase ? `（${ev.phase}）` : ''}`
-    case 'self_heal_phase':
-      return ev.phase === 'chapter_start'
-        ? `开始写第 ${ev.chapter} 章（${ev.done}/${ev.total}）`
-        : ev.phase === 'chapter_done'
-          ? `第 ${ev.chapter} 章完成（${ev.done}/${ev.total}）`
-          : `自检进入「${ev.phase}」阶段`
-    case 'self_heal_batch':
-      return `批量连写 ${ev.total} 章`
-    case 'self_heal_batch_progress':
-      return `批量连写中断：已完成 ${ev.done}/${ev.total}，停在第 ${ev.stoppedAt} 章`
-    case 'self_heal_reset':
-      return '重新写稿（清空上一次草稿）'
-    case 'text_reset':
-      return '重试写稿（清空上一次草稿）'
+      return `审稿：${field(ev.label)}${ev.phase ? `（${field(ev.phase)}）` : ''}`
     case 'warning':
-      return `提示：${ev.message}`
-    case 'self_heal_progress':
-      return `第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余 ${(ev.remaining as string[] | undefined)?.length ?? 0} 条待修`
-    case 'self_heal_result': {
-      // 补 failed 分支——outcome 白名单（sse-guards isHealResultEvent）含
-      // failed，标签表漏配时落英文原文
-      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断', failed: '失败' }
-      return `自检结果：${m[ev.outcome as string] ?? ev.outcome}`
-    }
+      return `提示：${field(ev.message)}`
     case 'done':
       return '完成'
     case 'error':
-      return `错误：${ev.message}`
+      return `错误：${field(ev.message)}`
     case 'interrupted':
-      return `已中断${ev.reason ? `（${ev.reason}）` : ''}`
+      return `已中断${ev.reason ? `（${field(ev.reason)}）` : ''}`
     case 'init':
       return '准备就绪'
     default:
       return ev.type
+  }
+}
+
+/** 全自动写章族（self_heal_* 与写稿复位）的事件流标签；非本族返回 null，交 evLabel 主表。 */
+function healLabel(ev: SseEvent): string | null {
+  switch (ev.type) {
+    case 'self_heal_phase':
+      return ev.phase === 'chapter_start'
+        ? `开始写第 ${field(ev.chapter)} 章（${field(ev.done)}/${field(ev.total)}）`
+        : ev.phase === 'chapter_done'
+          ? `第 ${field(ev.chapter)} 章完成（${field(ev.done)}/${field(ev.total)}）`
+          : `自检进入「${field(ev.phase)}」阶段`
+    case 'self_heal_batch':
+      return `批量连写 ${field(ev.total)} 章`
+    case 'self_heal_batch_progress':
+      return `批量连写中断：已完成 ${field(ev.done)}/${field(ev.total)}，停在第 ${field(ev.stoppedAt)} 章`
+    case 'self_heal_reset':
+      return '重新写稿（清空上一次草稿）'
+    case 'text_reset':
+      return '重试写稿（清空上一次草稿）'
+    case 'self_heal_progress':
+      return `第 ${field(ev.attempt)}/${field(ev.maxAttempts)} 次重写，剩余 ${strArr(ev.remaining)?.length ?? 0} 条待修`
+    case 'self_heal_result': {
+      // outcome 白名单（sse-guards isHealResultEvent）含 failed——标签表漏配时落英文原文
+      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断', failed: '失败' }
+      const outcome = field(ev.outcome)
+      return `自检结果：${m[outcome] ?? outcome}`
+    }
+    default:
+      return null
   }
 }
 function evKind(ev: { type: string }): 'text' | 'meta' | 'done' | 'error' {

@@ -398,8 +398,9 @@ test('批量：chapters 未传 → 单章行为不变（无 batch 事件）', as
 })
 
 test('W-P2-7：mock 驱动全程 → done 事件携带真实累计 usage（不再恒 0）', async () => {
-  const prev = process.env['CLWRITING_DRIVER']
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // mock 快路判定源 = 组装根注入（P1-10 收口；环境变量不再被 runner/mock-tool 读取）。
+  // 本用例直接驱动 runSelfHeal（不经服务组装），故用例充任组装方，末尾复位。
+  configureRunnerMockFastPath(true)
   try {
     // genFn: undefined 覆盖默认注入 → runGenerate 走 tryMockTool 快路（usage=MOCK_USAGE）
     const { opts, emitted } = setup([`${FM}全绿`], () => greenOutcome(), { genFn: undefined })
@@ -410,8 +411,7 @@ test('W-P2-7：mock 驱动全程 → done 事件携带真实累计 usage（不�
     // 一次生成 × mock outputTokens 50 → done.usage 应为 50（修复前恒 0，前端 leg 计数缺）
     expect(done?.usage).toBe(50)
   } finally {
-    if (prev === undefined) delete process.env['CLWRITING_DRIVER']
-    else process.env['CLWRITING_DRIVER'] = prev
+    configureRunnerMockFastPath(false)
   }
 })
 

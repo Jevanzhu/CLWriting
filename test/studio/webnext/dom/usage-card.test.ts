@@ -138,6 +138,31 @@ describe('WbUsageCard（D1 批 4）', () => {
     expect(w.text()).toContain('暂无 AI 调用记录')
   })
 
+  // P1-2：服务端事件库读失败（degraded 标记）≠ 确无数据——故障不得伪装成业务空态/未配价引导
+  it('P1-2: degraded 分流——「暂不可用」文案取代空态与未配价引导', async () => {
+    mocks.getTraceStats.mockResolvedValue({ total: 0, byTask: {}, ruleHits: [], degraded: true })
+    mocks.getCostStats.mockResolvedValue({
+      enabled: false,
+      total: 0,
+      byDay: {},
+      byTask: {},
+      byChapter: {},
+      unpricedModels: [],
+      degraded: true,
+    })
+    const w = mount(WbUsageCard, { props: { bookName: '测试书' } })
+    await flushPromises()
+    expect(w.text()).toContain('调用统计暂不可用')
+    expect(w.text()).not.toContain('暂无 AI 调用记录')
+
+    // 有任务的正常渲染面下，成本侧 degraded 同样不得落回「未配置价格表」
+    mocks.getTraceStats.mockResolvedValue({ total: 15, byTask: BY_TASK, ruleHits: [] })
+    const w2 = mount(WbUsageCard, { props: { bookName: '测试书' } })
+    await flushPromises()
+    expect(w2.text()).toContain('成本统计暂不可用')
+    expect(w2.text()).not.toContain('未配置价格表')
+  })
+
   it('切书重拉：bookName prop 变化 → 重取数，旧书用量/金额不残留（Y-P2-3 同类）', async () => {
     mocks.getTraceStats.mockResolvedValueOnce({ total: 15, byTask: BY_TASK, ruleHits: [] })
     mocks.getTraceStats.mockResolvedValueOnce({ total: 2, byTask: { outline: BY_TASK.outline! }, ruleHits: [] })

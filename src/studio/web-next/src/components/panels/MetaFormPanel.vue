@@ -11,6 +11,7 @@ import { formKindOf } from '../../shared/words'
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction, usePendingAction } from '../../composables/useScopedAction'
+import { useBookScoped } from '../../composables/useBookScoped'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -223,9 +224,8 @@ const globalChapterTarget = ref<number | undefined>(undefined)
 // 代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder。
 // 裸计数器换装 useStaleGuard。
 const targetGen = useStaleGuard()
-watch(
-  () => props.bookName,
-  async (n) => {
+useBookScoped(() => props.bookName, {
+  load: async (n) => {
     const gen = targetGen.begin()
     if (!n) return
     try {
@@ -236,8 +236,8 @@ watch(
       /* 用默认 */
     }
   },
-  { immediate: true },
-)
+  immediate: true,
+})
 
 const saving = usePendingAction()
 // 切书守卫单源（stillIn/failScoped）——保存族在途切书后，A 书的 refresh/toast 与

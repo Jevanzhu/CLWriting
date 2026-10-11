@@ -1,6 +1,10 @@
 /**
  * 章号回退 helper 单源（阶段 24 章节结构操作留洞制）。
  *
+ * 按章号定位正文 = chapterPathByNumber「两层优先 + walk 兜底 + 并入回退」公共原语
+ * （prepare 前章定位 / materials RAG 召回正文本读取 / summary 卷摘要水源等消费方共用；
+ * 原三套私有实现——prepare 两层扫描、materials 异步 walk 前缀匹配——已删除收敛）。
+ *
  * 被合并的源章从正文区消失（软删回收站），其去向记录在目标章 fm `并入`——按名定位族
  * （数字前缀查表）对源章号 miss 时，经本模块回退到目标章正文：历史章号引用（履历行/
  * 伏笔埋设章/前章正文结尾等）在合并后仍可命中。正文命中恒优先（文件一回来按名即中，
@@ -11,7 +15,7 @@
  * 目录指纹缓存（实施首步核实既有缓存形态——已有，无需加）。调用方按需构建（仅 miss
  * 时咨询），勿在热路径每请求主动重建。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { readChapterDir, parseMergedInto, parseOrderOf } from './chapters.js'
 import { chapterNoFromName } from './filename.js'
@@ -58,8 +62,54 @@ export function mergedIntoMap(bookRoot: string): Map<number, string> {
 }
 
 /**
- * 按章号定位正文文件（含 并入 回退）：按名定位命中优先、短路不咨询 Map；miss
- * 查 mergedIntoMap 取目标章路径；再 miss 返 null（调用方既有容错）。
+ * 两层优先定位（正文根 + 直接卷子目录，不递归）——`写作/正文/<卷>/` 是既定目录
+ * 形态，单章定位先付最便宜的枚举（readdir 名字级：不 stat、不读文件、不整树走）；
+ * miss 再交 chapterPathByNumber 的全树 walk 兜底。文件名数字前缀走 chapterNoFromName
+ * 单源（与 walk 兜底/失配对账同口径）；枚举序 = readdir 序、根目录优先（原
+ * prepare.findChapterByNumber 逐位同）。目录缺失/不可读 → null（容错交兜底与调用方）。
+ * 目录判型走 Dirent（不跟随 symlink），与 walk-md 族同纪律。
+ */
+function chapterPathTwoLayer(bookRoot: string, chapter: number): string | null {
+  const bodyDir = join(bookRoot, '写作', '正文')
+  const tryDir = (dir: string): string | null => {
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return null
+    }
+    for (const e of entries) {
+      // 扩展名大小写不敏感（对齐 walk-md 口径）+ `._` 资源分叉噪声排除
+      if (!e.isFile() || e.name.startsWith('._') || e.name.slice(-3).toLowerCase() !== '.md') continue
+      if (chapterNoFromName(e.name) === chapter) return join(dir, e.name)
+    }
+    return null
+  }
+  const atRoot = tryDir(bodyDir)
+  if (atRoot !== null) return atRoot
+  let volDirs: string[]
+  try {
+    volDirs = readdirSync(bodyDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('._'))
+      .map((e) => e.name)
+  } catch {
+    return null
+  }
+  for (const v of volDirs) {
+    const inVol = tryDir(join(bodyDir, v))
+    if (inVol !== null) return inVol
+  }
+  return null
+}
+
+/**
+ * 按章号定位正文文件——「两层优先 + walk 兜底 + 并入回退」公共原语单源
+ * （prepare 前章定位 / materials RAG 召回正文读取 / summary 卷摘要水源等消费方共用；
+ * 原 prepare 私有两层实现与 materials 异步 walk 的前缀匹配均已删除）。
+ *
+ * ① 两层优先（chapterPathTwoLayer，常态零全树 walk）；② 全树 walk 兜底（两层外/
+ * 更深嵌套形态仍可命中，md 名字级扫描）；③ 按名 miss 查 mergedIntoMap 取目标章路径
+ * （并入回退）；再 miss 返 null（调用方既有容错）。
  *
  * 命中口径 = chapterNoFromName 单源（阶段 36 裸数字扩集后：名字先剥 .md 再解析）——
  * 原 chapterNamePrefixes 三口径（无补零/3 位/4 位，均带连字符）对 `0012.md` 裸数字名
@@ -68,6 +118,8 @@ export function mergedIntoMap(bookRoot: string): Map<number, string> {
  * `120-…` 解析为 120，恒不等于 12（勿退回裸 startsWith(String(chapter)) 写法）。
  */
 export function chapterPathByNumber(bookRoot: string, chapter: number): string | null {
+  const twoLayer = chapterPathTwoLayer(bookRoot, chapter)
+  if (twoLayer !== null) return twoLayer
   const bodyDir = join(bookRoot, '写作', '正文')
   if (existsSync(bodyDir)) {
     const hit = walkMdFind(bodyDir, (abs, name) => (chapterNoFromName(name) === chapter ? abs : undefined))

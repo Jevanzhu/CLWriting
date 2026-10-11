@@ -201,6 +201,15 @@ function trimEffort(e: EffortLevel): EffortLevel {
 // ── 厂家表项（按官方文档填，注释附出处）──
 
 /**
+ * claude 安全输出上限单源：quirks 表 claude 档 maxOutputTokens，同时是
+ * anthropic 适配器「调用方 cap → 模型行 → quirks 表 → 协议兜底」链的最后一跳
+ * （anthropic-adapter.resolveMaxTokens）。此前同一数值两处字面量（本表 + 适配器私有
+ * MAX_TOKENS），改一处漏另一处即静默漂移：unknown 家族模型走兜底时长章必截断，
+ * 且 MAX_TOKENS 是终态不可重试。现两处同引本常量。
+ */
+export const CLAUDE_SAFE_MAX_OUTPUT_TOKENS = 16_384
+
+/**
  * 按模型名查系列参数表。
  *
  * GLM/Kimi 的 effort 支持依赖模型版本（闭包捕获 model 判断），
@@ -214,7 +223,7 @@ export function quirksFor(model: string): FamilyQuirks {
         toolUse: true,
         toolChoiceMode: 'named', // tool_choice 四取值全支持
         // effort 五档全收（docs.anthropic.com），anthropic 线 output_config 原生透传
-        maxOutputTokens: 16_384, // 安全默认（个别模型上限更高，但不做白名单）
+        maxOutputTokens: CLAUDE_SAFE_MAX_OUTPUT_TOKENS, // 安全默认（个别模型上限更高，但不做白名单）
         maxTokensKey: 'max_tokens', // 走 OpenAI 网关时用
         reasoningEffort: () => null, // claude 走 anthropic 协议不发 reasoning_effort
         thinkingWithEffort: false,

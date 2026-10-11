@@ -16,7 +16,7 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // ──：分组 + 双索引单趟复合派生 ──
+  // ── 分组 + 双索引单趟复合派生 ──
   // 原 grouped（groupTree 深克隆）/ byPath / byDocId 三个 computed 各自全树行走（克隆
   // ×1 + 遍历 ×2），几百节点量级下合并为「一次 groupTree + 一次行走」同产三面，树刷新
   // 时遍历次数 3 → 2（groupTree 内部克隆遍历含在内）；渲染结果逐字节不变：

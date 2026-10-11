@@ -28,9 +28,9 @@ import type {
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
-import { quirksFor, detectFamily } from './model-quirks.js'
+import { quirksFor, detectFamily, CLAUDE_SAFE_MAX_OUTPUT_TOKENS } from './model-quirks.js'
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
-import { anthropicClientOpts } from './models.js'
+import { anthropicClientOpts, normalizeBaseUrl } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { createStreamFinalizer, normalizeStopReason, type EstimateUsageSources } from './stream-finalize.js'
 
@@ -57,25 +57,16 @@ const toErrorEvent = makeToErrorEvent({
  */
 function createClient(conf: ProviderConf): Anthropic {
   const auth = conf.auth ?? 'anthropic'
-  return new Anthropic(anthropicClientOpts(normalizeAnthropicBaseUrl(conf.baseUrl), conf.apiKey, auth))
+  // baseUrl 归一走 models.normalizeBaseUrl 单源——原本文件私有
+  // normalizeAnthropicBaseUrl 与它逐字同义（去尾斜杠 + 剥尾部 /v1），两份副本改一漏一
+  // 即静默分叉（同一地址探测与请求两路归一不同的口子）。
+  return new Anthropic(anthropicClientOpts(normalizeBaseUrl(conf.baseUrl, 'anthropic'), conf.apiKey, auth))
 }
 
-/**
- * baseUrl 归一化——存的是「用户直觉地址」，请求时按 SDK 拼接习惯去重。
- * Anthropic SDK 固定请求 {baseURL}/v1/messages：
- * - https://api.anthropic.com        → 原样（SDK 拼 /v1/messages）
- * - https://api.anthropic.com/v1     → 去掉尾部 v1，防 /v1/v1/messages
- * - https://gw.example.com/xxx/v1    → 去掉尾部 v1
- */
-function normalizeAnthropicBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
-}
-
-/** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值。
- * 8192 → 16384（对齐 quirks 表 claude 档 maxOutputTokens）——
- *  unknown 家族模型走协议兜底时长章必截断，且 MAX_TOKENS 是终态不可重试；16384 为
- *  现役 claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
-const MAX_TOKENS = 16_384
+/** Anthropic API 强制要求 max_tokens（不可省略）——协议兜底值单源见
+ *  model-quirks.CLAUDE_SAFE_MAX_OUTPUT_TOKENS（= quirks 表 claude 档 maxOutputTokens）：
+ *  unknown 家族模型走此兜底时长章必截断，且 MAX_TOKENS 是终态不可重试；该值为现役
+ *  claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
 
 /** tool_use.input 归一——ChatMsg 历史
  *  的 input 形状是 unknown（跨协议回放：Responses/OpenAI 线产出合法 JSON 非对象形态
@@ -125,9 +116,14 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
 
 /** 输出上限 resolve 单源——toParams 上线值与 done 事件透出值同源，
  *  防两处各写一份漂移（anthropic 线全链兜底：调用方 cap → 模型行 → quirks 表 →
- * 16384（MAX_TOKENS）；原「→ 8192」系上调后的注释漂移漏网） */
+ *  CLAUDE_SAFE_MAX_OUTPUT_TOKENS 协议兜底；原「→ 8192」系上调后的注释漂移漏网） */
 function resolveMaxTokens(conf: ProviderConf, req: GenRequest): number {
-  return req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? quirksFor(conf.model ?? '').maxOutputTokens ?? MAX_TOKENS
+  return (
+    req.maxTokens ??
+    modelConfOf(conf)?.maxTokens ??
+    quirksFor(conf.model ?? '').maxOutputTokens ??
+    CLAUDE_SAFE_MAX_OUTPUT_TOKENS
+  )
 }
 
 /** GenRequest → Anthropic MessageCreateParams */
@@ -137,8 +133,8 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
 
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 16384（= MAX_TOKENS，
-    // 上调；注释与常量同步，原「兜底 8192」为漂移残留）。
+    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底
+    // CLAUDE_SAFE_MAX_OUTPUT_TOKENS（单源；原「兜底 8192」为漂移残留）。
     // 阶段 14 §7.2 显式 resolve：调用方 cap（req.maxTokens）→ 模型行覆盖（用户声明）→ quirks 表 → 协议兜底。
     max_tokens: resolveMaxTokens(conf, req),
     // 仅 reasoning block 的 assistant 轮 flatMap 产出 content:[]，

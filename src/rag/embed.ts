@@ -24,7 +24,7 @@ export interface EmbedOptions {
 /** 每端点失败留痕去抖（60s 窗口内同端点只留痕一次——分批索引失败不刷屏） */
 const lastWarnAt = new Map<string, number>()
 
-// ──：出站代理环境变量一次性检测 warn（真修缓办留痕） ──
+// ── 出站代理环境变量一次性检测 warn（真修缓办留痕） ──
 // 背景：Node 内置 fetch（bundled undici）不读 HTTPS_PROXY 系环境变量，全库出站点
 // （本函数内置 fetch、AI SDK 实例化）配了系统/环境代理也直连。真修需挂
 // EnvHttpProxyAgent/ProxyAgent——Node 全局面不暴露 dispatcher 符号（v26 实证：

@@ -318,7 +318,7 @@ test('prepare: 超预算优先降档（文风样章降浓度保留）而非整�
     style: { injection: 'heavy' },
     budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 800 },
   }
-  const r = prepare(db, cfg, root, [])
+  const r = prepare(db, cfg, root, [], undefined, '战斗') // 场景显式传（缺省已对齐写稿链「通用」）
 
   expect(r.trimmed).toBe(true)
   expect(r.trimLog.some((l) => l.includes('降档'))).toBe(true)
@@ -411,7 +411,7 @@ test('C1: flexibleRank 1.5 排序——裁剪先于 rank1(近章结尾)、后于
   makePrevChapterFinal(root)
   // 极小预算 → 全弹性段降档 + 移除
   const cfg: BookConfig = { ...DEFAULT_CONFIG, budget: { ...DEFAULT_CONFIG.budget, input_per_chapter: 50 } }
-  const r = prepare(db, cfg, root, ['悬念-031'])
+  const r = prepare(db, cfg, root, ['悬念-031'], undefined, '战斗') // 场景显式（缺省已对齐写稿链「通用」）
   expect(r.trimmed).toBe(true)
   // 移除阶段按 flexibleRank 降序：rank2 → rank1.5 → rank1（只看移除记录，降档记录因各段降档空间不同不可靠）
   const removals = r.trimLog.filter((l) => l.includes('移除'))

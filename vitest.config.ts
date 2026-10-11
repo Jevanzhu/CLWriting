@@ -169,7 +169,11 @@ export default defineConfig({
         // 阈值随实测重算——区段注释口径曾停在
         //（89.45/82.89/95.9），拆桶时未同步收基线，防线弱于宣称口径；全量
         // coverage-summary 实测 statements 91.19 / branches 85.10 / functions 97.44 /
-        // lines 91.19 → −2pp 向下取整 89 / 83 / 95 / 89（同子桶规则）
+        // lines 91.19 → −2pp 向下取整 89 / 83 / 95 / 89（同子桶规则）。
+        // 阶段 43 CI ubuntu 实测重定按「绿门只紧不松」把 lines 89 → 92 收紧
+        //（floor(实测−2pp) > 现门才升；修订口径以本行为准，勿按旧 89 读数）。
+        // 数值全表快照 = test/governance/coverage-threshold-globs.test.ts
+        // EXPECTED_THRESHOLDS（静默下调即红）；改值须两处同批。
         'src/{!(studio),studio/!(web-next)}/**': { statements: 89, branches: 83, functions: 95, lines: 92 },
         // 主桶上叠三个域级子桶——聚合均值仍可稀释新增低覆盖文件
         //（主桶池化 ~90% 均值，新文件 10% 也推不动门）；vitest 多桶语义为「匹配多桶的
@@ -249,7 +253,9 @@ export default defineConfig({
         // L 81.42 / B 83.81 未低于现地板，未触发重定条件（观测明细见本批评审记录）。
         // 根层 *.vue 键现只命中 App.vue 单文件，桶内池化观测 L 98.33 / B 64.29
         // （branches 低因启动分支多被 mock），不能套聚合桶 43/81（branches 必红），
-        // 按 −2pp 规则自定地板 96/62。
+        // 按 −2pp 规则自定地板 96/62；阶段 43 CI ubuntu 实测重定把 branches 62 → 88
+        // 收紧（同「绿门只紧不松」；观测上移后按 −2pp 重算，数值全表快照见
+        // test/governance/coverage-threshold-globs.test.ts EXPECTED_THRESHOLDS）。
         // RC 全项目：views/pages 自聚合桶拆出单列显影桶——两目录 .vue 的单测
         // 恒 mock（webnext 72 测试文件 stub views 路径）、真实视图脚本仅 e2e 驱动而
         // e2e 不回流 v8 覆盖，0% 视图质量在聚合均值里对门不可见（stores/composables
@@ -258,6 +264,15 @@ export default defineConfig({
         // 门此后只辖真有单测面的域（0% 质量移出后观测上浮，门不放松、口径更纯）。
         'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**': { lines: 80, branches: 66 },
         'src/studio/web-next/src/{pages,views}/**': { lines: 0, branches: 0 },
+        // 0/0 显影桶的回收条件机器化：原「views 出现真单测面时立门」只是
+        // 口头条件——现由 governance 门把「被单测真 import 的 views/pages 文件」与「本桶名单」
+        // 双向核对（见 test/governance/coverage-threshold-globs.test.ts 的两向用例）：
+        // 真单测挂载的视图自 e2e 自管名单划出、落本桶非零门，新增单测 import 面不同步本桶即红；
+        // 本桶点名而无单测面的文件（回收登记僵尸）同样红。阈值 = 本地实测
+        //（dom 项目跑全量相关档的 v8 口径，10 文件池化 L 80.02 / B 61.41）−2pp 向下取整
+        // → 78 / 59，只防回退不追高；CI 全量跑（stub 同一批 dom 档）池化观测不低于本地窄跑。
+        'src/studio/web-next/src/{pages,views}/{Book,Library,Shelf,AuditView,EditorView,OnboardView,OverviewView,RelationsView,StyleView,WorkbenchView}.vue':
+          { lines: 78, branches: 59 },
         'src/studio/web-next/src/*.vue': { lines: 96, branches: 88 },
         // stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；

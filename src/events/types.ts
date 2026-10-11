@@ -58,7 +58,7 @@ export type EventType =
   | 'structure.split'
   | 'structure.merge-undo'
 
-// ──：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
+// ── 结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
 // turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
 export const TURN_END_REASONS = [
   'completed',

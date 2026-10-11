@@ -53,15 +53,29 @@ const emit = defineEmits<{
 // active 贴尾段（start = activeIdx - RENDER_CAP + 1，恒 ≤ len - CAP 不越界）——
 // 不做居中偏移（±50 是任意魔法数且窗口位置更难预期），实现最简且测试可钉。尾部
 // 省略提示行语义保持：omittedCount 按全量 - CAP 计，恰为任一窗口位置下的窗口外总数。
+// 增量窗口：提示行带「再显示 N 项」按钮，每点一次把窗口按 RENDER_CAP
+// 步长放大（本地渲染态，数据面/折叠/拖拽语义不动）——2000 章平铺目录原先只能靠快开
+// 搜索触达第 101+ 章，现沿提示行连点即可顺序浏览到底；窗口仍保 active 贴尾滑窗：
+// 窗口放大后 active 若已落回窗口内，start 归 0 从头铺开（顺序浏览形态），active 仍
+// 由窗口外时继续贴尾段保证选中行可见（omittedCount 恒为窗口外总数，按钮按实际
+// 剩余量点名，剩余不足一步时按钮文案即剩余数，点完提示行随 omittedCount=0 消失）。
 const RENDER_CAP = 100
+const extraSteps = ref(0)
+const windowSize = computed(() => RENDER_CAP * (extraSteps.value + 1))
 const renderedChildren = computed<TreeNode[]>(() => {
   const children = props.node.children
-  if (children.length <= RENDER_CAP) return children
+  const cap = windowSize.value
+  if (children.length <= cap) return children
   const activeIdx = props.activePath ? children.findIndex((c) => c.path === props.activePath) : -1
-  const start = activeIdx >= RENDER_CAP ? activeIdx - RENDER_CAP + 1 : 0
-  return children.slice(start, start + RENDER_CAP)
+  const start = activeIdx >= cap ? activeIdx - cap + 1 : 0
+  return children.slice(start, start + cap)
 })
-const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
+const omittedCount = computed(() => Math.max(0, props.node.children.length - windowSize.value))
+/** 下一次放行的条数（不足一步时即剩余量，按钮文案与提示行计数一致） */
+const nextStepCount = computed(() => Math.min(RENDER_CAP, omittedCount.value))
+function showMore(): void {
+  extraSteps.value += 1
+}
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰
 // switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
@@ -291,13 +305,14 @@ watch(
         @dragend="emit('dragend')"
         @drop="emit('drop', $event)"
       />
-      <!-- RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
+      <!-- RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义）+ 增量放行按钮 -->
       <div
         v-if="omittedCount > 0"
         class="tree-item tree-cap-hint"
         :style="{ paddingLeft: `${(depth + 1) * 14 + 8}px` }"
       >
-        … 其余 {{ omittedCount }} 项未渲染（可用快开搜索定位）
+        <span class="cap-text">… 其余 {{ omittedCount }} 项未渲染（可用快开搜索定位）</span>
+        <button type="button" class="cap-more" @click.stop="showMore">再显示 {{ nextStepCount }} 项</button>
       </div>
     </div>
   </div>
@@ -335,11 +350,25 @@ watch(
 .tree-item.dragging {
   opacity: 0.4;
 }
-/* RENDER_CAP 截断提示行——纯展示不可点（弱化色 + 默认光标） */
+/* RENDER_CAP 截断提示行——展示文本弱化；增量按钮是可点控件（别循着行样式做默认光标） */
 .tree-cap-hint {
   color: var(--text-faint);
   font-size: var(--font-size-s);
   cursor: default;
+  gap: 8px;
+}
+.cap-more {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--interactive-accent);
+  font-size: var(--font-size-s);
+  font-family: inherit;
+  cursor: pointer;
+}
+.cap-more:hover {
+  text-decoration: underline;
 }
 /* 顶级分组（写作/大纲/设定/布线）— 与章节行完全同权（作者拍板：
  * 四分区为固定目录骨架（位置恒定 + 折叠箭头 + 缩进已足），字号/字重/颜色三线

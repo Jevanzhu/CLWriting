@@ -11,6 +11,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir, tempUserData, SHORT_BOOK } from '../studio/fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
+import { configureRunnerMockFastPath } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { makeFakeDriver } from './fake-driver.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
@@ -41,7 +42,9 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
   }
   const check = (): CheckOutcome => ({ ok: true, report: { sections: [] }, hasRed: false, chapter: META, body: '正文' })
 
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // mock 快路判定源 = 组装根注入（configureRunnerMockFastPath，P1-10）——
+  // 生产侧由 studio server 按 driver.kind 注入；环境变量不再被 runner 读取。
+  configureRunnerMockFastPath(true)
   try {
     const opts: SelfHealOpts = {
       driver: makeFakeDriver({ emitted }),
@@ -76,7 +79,7 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
     const textDeltas = emitted.filter((e) => e.type === 'text').map((e) => (e as { text?: string }).text ?? '')
     expect(textDeltas.join('')).toContain('mock 自动写章产出的章节正文')
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   }
 })
@@ -100,7 +103,8 @@ test('R65-8: persistFinal 抛错 → 链上仍有 goal 终态（blocked/persist-
   }
   const check = (): CheckOutcome => ({ ok: true, report: { sections: [] }, hasRed: false, chapter: META, body: '正文' })
 
-  process.env['CLWRITING_DRIVER'] = 'mock'
+  // mock 快路判定源 = 组装根注入（同上一用例，P1-10）
+  configureRunnerMockFastPath(true)
   try {
     const r = await runSelfHeal({
       driver: makeFakeDriver({ emitted }),
@@ -131,7 +135,7 @@ test('R65-8: persistFinal 抛错 → 链上仍有 goal 终态（blocked/persist-
       store.close()
     }
   } finally {
-    delete process.env['CLWRITING_DRIVER']
+    configureRunnerMockFastPath(false)
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   }
 })

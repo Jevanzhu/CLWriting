@@ -109,7 +109,7 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   return parseTrashText(raw)
 }
 
-// ──：trash 清单单槽指纹缓存 ─────────
+// ── trash 清单单槽指纹缓存 ─────────
 // readTrashManifestStrict 此前每次调用全量读盘 + 逐行 JSON.parse（executeSave 前段
 // 守卫 + 锁内复核双调用点每笔保存 2 遍重复读，restore/purge/append 的 RMW 链同样
 // 高频触发）。仿 document/manifest.ts manifestCache 先例：trash 清单全库单文件，

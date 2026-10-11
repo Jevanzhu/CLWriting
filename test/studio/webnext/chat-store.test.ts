@@ -22,6 +22,7 @@ import {
 } from '../../../src/studio/web-next/src/api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
+import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 
 const fetchMock = fetchChatHistory as ReturnType<typeof vi.fn>
 const branchesMock = fetchChatBranches as ReturnType<typeof vi.fn>
@@ -313,11 +314,15 @@ describe('Y-P2-5: 历史种子化', () => {
     expect(chat.messages).toHaveLength(0)
   })
 
-  it('拉取失败 → 静默放弃（不抛错，messages 保持空）', async () => {
+  it('拉取失败 → 放弃种子化 + 一条合并提示（不抛错，messages 保持空）', async () => {
     fetchMock.mockRejectedValueOnce(new Error('后端未起'))
     const chat = useChatStore()
     await expect(chat.seedHistory('书A')).resolves.toBeUndefined()
     expect(chat.messages).toHaveLength(0)
+    // 「服务端有历史、界面却是空的」是可感知缺失——补一条 warning 提示（原全静默）
+    const hits = useUiStore().toasts.filter((t) => t.msg === '对话数据加载失败，可稍后重试')
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.kind).toBe('warning')
   })
 
   it('空历史（messages: []）→ 不种入任何气泡', async () => {
@@ -647,7 +652,7 @@ describe('G1: switchBranch 分支切换', () => {
     expect(chat.messages).toHaveLength(2)
   })
 
-  it('fetch 失败 → 静默保留原视图', async () => {
+  it('fetch 失败 → 保留原视图 + 合并提示（不再与「点了没生效」不可区分）', async () => {
     fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
     const chat = useChatStore()
     await chat.seedHistory('书A')
@@ -656,6 +661,17 @@ describe('G1: switchBranch 分支切换', () => {
     expect(chat.messages).toHaveLength(2)
     expect(chat.messages[1]!.content).toBe('好的，马上写。')
     expect(chat.activeBranchId).toBe('b1')
+    expect(useUiStore().toasts.filter((t) => t.msg === '对话数据加载失败，可稍后重试')).toHaveLength(1)
+  })
+
+  it('分支列表失败与切换失败同文案 → ui 去重合并为一条（不堆叠噪声）', async () => {
+    fetchMock.mockResolvedValueOnce(SEQ_HISTORY)
+    branchesMock.mockRejectedValueOnce(new Error('分支列表挂'))
+    const chat = useChatStore()
+    await chat.seedHistory('书A') // 历史成功、分支列表失败 → 一条
+    fetchMock.mockRejectedValueOnce(new Error('切换挂'))
+    await chat.switchBranch('书A', 'b2') // 同文案再发 → 合并，仍是一条
+    expect(useUiStore().toasts.filter((t) => t.msg === '对话数据加载失败，可稍后重试')).toHaveLength(1)
   })
 
   it('在途切换被 clear 作废 → 旧响应不再替换视图', async () => {

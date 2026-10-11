@@ -179,4 +179,41 @@ describe('B004: 结构操作入口章号一致性闸', () => {
     corruptFm('写作/正文/第一卷/0092-第92章.md', chapterContent(92, '第92章', '第九十二章正文。'))
     expect(chapterNumberMismatches(studio.bookRoot).find((x) => x.path.endsWith('0092-第92章.md'))).toBeUndefined()
   })
+
+  // P1-6：fm 章号解析收敛 parseChapterNo 单源（format 层严格整数口径）——原 Number()
+  // 宽松解析把 `0x10`（→16）/`5.0`（→5）当合法号，结构操作带着畸形 fm 照常执行。
+  it('⑥ fm 章号畸形（0x10 / 5.0）：parseChapterNo 单源严格口径 → BAD_INPUT 拒绝（原宽松 Number 放行/误判）', async () => {
+    const cases: Array<{ rel: string; nameNo: number; fmLine: string }> = [
+      // 文件名号 == 宽松解析值（0x10→16）：修复前读态照收 16、闸无失配 → 结构操作执行
+      { rel: '写作/正文/第一卷/0016-第16章.md', nameNo: 16, fmLine: '章号: 0x10' },
+      // 文件名号 ≠ 宽松解析值（5.0→5）：修复前归「真失配」409，修复后归「fm 非法」BAD_INPUT
+      { rel: '写作/正文/第一卷/0017-第17章.md', nameNo: 17, fmLine: '章号: 5.0' },
+    ]
+    for (const c of cases) {
+      const body = `第${c.nameNo}章前半。\n\n第${c.nameNo}章后半。`
+      const d = await createChapter(c.rel, chapterContent(c.nameNo, `第${c.nameNo}章`, body))
+      const corrupted = `---\n${c.fmLine}\n标题: 第${c.nameNo}章\n---\n\n${body}`
+      corruptFm(c.rel, corrupted)
+      // 合法拆分点（正文内、迁出段非空）——修复前宽松 Number 放行时该计划照常 200
+      const cursor = corrupted.indexOf('后半')
+      const r = await planSplit(d, cursor)
+      expect(r.status).toBe(400)
+      expect(r.json['code']).toBe('BAD_INPUT')
+      // 自洁：fm 改回与文件名一致（后续用例在净盘面上跑）
+      corruptFm(c.rel, chapterContent(c.nameNo, `第${c.nameNo}章`, body))
+    }
+  })
+
+  // P1-7：rel 归一委托 normalizeWinSeparators 单源（win32-only）——原手写 replaceAll
+  // 在 posix 上把字面含 `\` 的合法文件名（mac 外部创建）扭曲成 `/` 形态，定位身份键失配。
+  it('⑦ 失配条目 path 保留字面反斜杠（posix 身份键不再被扭曲为 /）', () => {
+    if (process.platform === 'win32') return // win 上 `\` 是分隔符，无法构造字面反斜杠文件名
+    const rel = '写作/正文/第一卷/0093-目\\标.md'
+    corruptFm(rel, chapterContent(7, '目\\标', '第九十三章正文。'))
+    const m = chapterNumberMismatches(studio.bookRoot)
+    const hit = m.find((x) => x.nameNo === 93)
+    expect(hit).toBeDefined()
+    expect(hit!.path).toBe(rel)
+    rmSync(join(studio.bookRoot, rel), { force: true }) // 自洁（该条目 fmNo≠null 会拦后续结构操作）
+  })
 })

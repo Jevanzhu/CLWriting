@@ -10,6 +10,10 @@
  * 手法：handler 直调（withRouteTable 注册 + getRouteSchema 取 handler）+ 假 req/res
  * （error-envelope.test.ts 假 res 先例）；假 req 悬持 body 模拟「入口已过、单元未跑」
  * 窗口，窗口内改名/删书再放行 body——确定性复现，不赌真实竞态时序。
+ * — P1-12 迁移后直驱形态：本族四端点校验迁 gate（找书 404 前置门）+ parse（body 形状
+ * 400），handler 不再读体 → 窗口改为「gate/parse 已过、链单元未开跑」（driveRoute 的
+ * withinWindow 回调位），确定性更强（不再依赖假 req 事件缓冲），被钉的不变量
+ * （链单元首行重验 409 BOOK_MOVED + 旧路径无孤儿）逐位保留。
  * 面 B（P2-1）：已入队未启动的伏笔单元不在 drainDocumentSaves 的 SaveQueue 计数内——
  * drainForeshadowSaveChains 必须等到链尾单元（含在途 svc.save）收尾才 resolve
  * （测试以本进程持有 per-doc 保存锁挡住 svc.save 造确定性在途窗，观测钩子轮询手法
@@ -19,10 +23,11 @@
 import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterAll, describe, expect, it } from 'vitest'
 import { processRouteDeps } from '../helpers/route-deps.js' // R0916-7-P3-6：路由注入面（生产口径）
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import { fakeReqRes, waitForBodyArmed } from '../../helpers/fake-reqres.js'
+import { fakeReqRes } from '../../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../../src/studio/server/router.js'
 import { getRouteSchema } from '../../../src/studio/server/api/schema.js'
 import {
@@ -47,6 +52,28 @@ interface Rig {
   patch: NonNullable<ReturnType<typeof getRouteSchema>>
   wordsDiary: NonNullable<ReturnType<typeof getRouteSchema>>
   cleanup: () => void
+}
+
+/** 路由直驱（P1-12 迁移后形态）：gate（找书 404 前置门）→ parse（body 形状 400）→
+ *  withinWindow（旧「readJson 悬持窗」的等价位：gate/parse 已过、链单元未开跑）→ handler。
+ *  闸拦（gate 回 false）时产生不了请求体语义——本文件用例的书在 gate 时点仍在册，
+ *  不会走到该分支，返回 undefined 供断言兜底。 */
+async function driveRoute(
+  schema: NonNullable<ReturnType<typeof getRouteSchema>>,
+  params: Record<string, string>,
+  body: Record<string, unknown>,
+  req: IncomingMessage,
+  res: ServerResponse,
+  withinWindow?: () => void,
+): Promise<void> {
+  const outcome = await schema.gate!({ params, req, res })
+  if (outcome === false || outcome === undefined || outcome === null) {
+    throw new Error('gate 在窗口前拦下——本用例前提（书在册）不成立')
+  }
+  const gateValue = (outcome as { value: unknown }).value
+  const input = schema.parse ? schema.parse(body) : undefined
+  withinWindow?.()
+  await schema.handler({ params, input, gate: gateValue }, req, res)
 }
 
 /** 每用例独立临时书（workDir + 登记 + 清单登记 doc_f1→设定/伏笔/伏笔-001.md，正文文件
@@ -116,14 +143,17 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
   it('PUT content（伏笔链单元）：单元开跑前书被改名 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验改名书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.content.handler({ params: { name: '重验改名书', docId: 'doc_f1' }, input: undefined }, req, res)
-      // 悬在 readJson（resolveBook/resolvePathAsync 已过——正是被修的入口快照窗）
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      renameBookReg(rig.workDir, '重验改名书', '重验改名书乙')
-      // 放行 body → 伏笔链单元开跑 → 首行重验命中改名
-      send({ content: '窗口期正文', expectedRevision: null, operationId: 'op-r1010b-a1', origin: 'manual' })
-      await done
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(
+        rig.content,
+        { name: '重验改名书', docId: 'doc_f1' },
+        { content: '窗口期正文', expectedRevision: null, operationId: 'op-r1010b-a1', origin: 'manual' },
+        req,
+        res,
+        // 窗口 = gate（找书/docId 解析，含 legacy 补登记）与 parse 已过、链单元未开跑——
+        // 正是被修的入口快照窗（改名后单元首行重验必须命中）
+        () => renameBookReg(rig.workDir, '重验改名书', '重验改名书乙'),
+      )
       expect(captured.status).toBe(409)
       const envelope = JSON.parse(captured.body) as { code: string; error: string }
       expect(envelope.code).toBe('BOOK_MOVED')
@@ -141,14 +171,19 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
   it('POST documents（非伏笔直调单元）：单元开跑前书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验删书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.create.handler({ params: { name: '重验删书' }, input: undefined }, req, res)
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      // 窗口内删书（登记移除 + 目录入墓地 = books.ts 删除完成态模拟）
-      writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
-      rmSync(rig.bookRoot, { recursive: true, force: true })
-      send({ relPath: '写作/正文/0002-新章.md', content: '---\n章号: 2\n---\n新章' })
-      await done
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(
+        rig.create,
+        { name: '重验删书' },
+        { relPath: '写作/正文/0002-新章.md', content: '---\n章号: 2\n---\n新章' },
+        req,
+        res,
+        // 窗口内删书（登记移除 + 目录入墓地 = books.ts 删除完成态模拟）
+        () => {
+          writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
+          rmSync(rig.bookRoot, { recursive: true, force: true })
+        },
+      )
       expect(captured.status).toBe(409)
       expect((JSON.parse(captured.body) as { code: string }).code).toBe('BOOK_MOVED')
       expect(existsSync(rig.bookRoot)).toBe(false)
@@ -160,12 +195,15 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
   it('PATCH fm：单元开跑前书被改名 → 409 BOOK_MOVED（runPatch 单元重验）', async () => {
     const rig = makeBook('重验patch书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.patch.handler({ params: { name: '重验patch书', docId: 'doc_f1' }, input: undefined }, req, res)
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      renameBookReg(rig.workDir, '重验patch书', '重验patch书乙')
-      send({ op: 'fm', meta: { 状态: '进行中' } })
-      await done
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(
+        rig.patch,
+        { name: '重验patch书', docId: 'doc_f1' },
+        { op: 'fm', meta: { 状态: '进行中' } },
+        req,
+        res,
+        () => renameBookReg(rig.workDir, '重验patch书', '重验patch书乙'),
+      )
       expect(captured.status).toBe(409)
       expect((JSON.parse(captured.body) as { code: string }).code).toBe('BOOK_MOVED')
       expect(existsSync(rig.bookRoot)).toBe(false)
@@ -174,16 +212,21 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     }
   })
 
-  it('POST words-diary（同型扫描接线）：readJson 窗口内书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
+  it('POST words-diary（同型扫描接线）：读体窗后书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验字数书')
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.wordsDiary.handler({ params: { name: '重验字数书' }, input: undefined }, req, res)
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
-      rmSync(rig.bookRoot, { recursive: true, force: true })
-      send({ baseline: 1000 })
-      await done
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(
+        rig.wordsDiary,
+        { name: '重验字数书' },
+        { baseline: 1000 },
+        req,
+        res,
+        () => {
+          writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
+          rmSync(rig.bookRoot, { recursive: true, force: true })
+        },
+      )
       expect(captured.status).toBe(409)
       expect((JSON.parse(captured.body) as { code: string }).code).toBe('BOOK_MOVED')
       // appendBaseline 的 mkdir recursive 不得对旧路径重建 项目/ 目录
@@ -201,12 +244,15 @@ describe('R1010b-SRV-P2-1 面 B：drainForeshadowSaveChains', () => {
     expect(release).not.toBeNull()
     let released = false
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.content.handler({ params: { name: 'drain等待书', docId: 'doc_f1' }, input: undefined }, req, res)
-      // 先等 handler 悬在 readJson（假 req 事件无缓冲，早喂即丢），再放行完整 body
-      // ——单元开跑、svc.save 悬在保存锁上
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      send({ content: 'drain 窗正文', expectedRevision: null, operationId: 'op-r1010b-b1', origin: 'manual' })
+      const { req, res, captured } = fakeReqRes()
+      // gate/parse 直驱（body 已齐）→ 单元开跑、svc.save 悬在保存锁上
+      void driveRoute(
+        rig.content,
+        { name: 'drain等待书', docId: 'doc_f1' },
+        { content: 'drain 窗正文', expectedRevision: null, operationId: 'op-r1010b-b1', origin: 'manual' },
+        req,
+        res,
+      )
       // 轮询观测钩子等链键出现（单元已开跑、svc.save 悬在保存锁上）——r71 同手法
       // 轮询观测钩子等链键出现（waitFor 单源；原手写 sleep(1) 轮询循环改收编）
       await waitFor(() => __foreshadowSaveChainKeysForTest().includes(rig.bookRoot), 2000, 1, '伏笔链键出现')
@@ -225,7 +271,6 @@ describe('R1010b-SRV-P2-1 面 B：drainForeshadowSaveChains', () => {
       release!()
       await drainP
       expect(drained).toBe(true)
-      await done
       // 在途单元在书尚在时正常落盘（drain 等待不改变单元语义）
       expect(captured.status).toBe(200)
       expect(readFileSync(join(rig.bookRoot, '设定', '伏笔', '伏笔-001.md'), 'utf-8')).toBe('drain 窗正文')
@@ -248,11 +293,14 @@ describe('R1010b-SRV-P3-1：链尾自清理与 forget 挂点', () => {
     expect(release).not.toBeNull()
     let released = false
     try {
-      const { req, res, send, captured } = fakeReqRes()
-      const done = rig.content.handler({ params: { name: 'forget书', docId: 'doc_f1' }, input: undefined }, req, res)
-      // 同面 B：先等 handler 悬在 readJson 再放行 body
-      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
-      send({ content: 'forget 窗正文', expectedRevision: null, operationId: 'op-r1010b-c1', origin: 'manual' })
+      const { req, res, captured } = fakeReqRes()
+      void driveRoute(
+        rig.content,
+        { name: 'forget书', docId: 'doc_f1' },
+        { content: 'forget 窗正文', expectedRevision: null, operationId: 'op-r1010b-c1', origin: 'manual' },
+        req,
+        res,
+      )
       // 轮询观测钩子等链键出现（waitFor 单源；原手写 sleep(1) 轮询循环改收编）
       await waitFor(() => __foreshadowSaveChainKeysForTest().includes(rig.bookRoot), 2000, 1, '伏笔链键出现')
       // forget 清悬挂条目（删书/改名 forgetBookKeyedCaches 挂点语义）
@@ -261,7 +309,7 @@ describe('R1010b-SRV-P3-1：链尾自清理与 forget 挂点', () => {
       // forget 只清 Map 条目不动在途单元——释放锁后单元照常收尾
       released = true
       release!()
-      await done
+      await waitFor(() => captured.status !== null, 2000, 1, 'PUT 单元收尾')
       expect(captured.status).toBe(200)
     } finally {
       if (!released) release?.()

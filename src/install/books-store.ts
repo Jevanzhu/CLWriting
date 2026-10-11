@@ -15,6 +15,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 // 锁等待异步孪生（acquireCrossProcessLockAsync：setTimeout 轮询，
 // 事件循环不阻塞）+ 同步版（CLI/测试面）——两形态同源互斥
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 import { log } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
@@ -40,17 +41,38 @@ export const KIND_DIRS = {
   short: '短篇',
 } as const
 
-// ──：books.jsonl 解析结果的 (mtimeNs,size) 指纹缓存 ──────────
+// ── books.jsonl 解析结果的 (mtimeNs,size) 指纹缓存 ──────────
 // 动机：resolveBook 是全部书键端点的统一入口（studio/server 面 70+ 处调用点），每请求
 // 经 readBooks → readBooksStrict 对同一 books.jsonl readFileSync 整读 + 逐行
 // JSON.parse——服务进程高峰期同一文件每秒重复解析数十次。指纹缓存（名册缓存
-// 同款范式）：stat (mtimeNs,size) 命中直接回缓存解析结果，命中只付 1 次 statSync，
-// 精度 mtimeNs 无陈旧窗口；键含 books.jsonl 绝对路径；FIFO 上限 16（工作目录数常态
-// 个位数）。写侧失效收口在 writeBooks 开头（append/remove/repair/改名端点全部经它
-// 落盘）——就地先失效保证即便后续物理写抛出，也不留被调用方 mutated 过的缓存数组。
+// 同款范式）：stat (mtimeNs,size) 命中直接回缓存解析结果，命中只付 1 次 statSync；
+// 键含 books.jsonl 绝对路径；FIFO 上限 16（工作目录数常态个位数）。写侧失效收口在
+// writeBooks 开头（append/remove/repair/改名端点全部经它落盘）——就地先失效保证即便
+// 后续物理写抛出，也不留被调用方 mutated 过的缓存数组。
+// 低精度 mtime 卷（FAT 2s/exFAT 10ms/SMB 1s，判据 fs/mtime-precision.ts 单源）降级
+// **不缓存**：同尺寸他进程写的陈旧窗仍在（ns 指纹在低精度卷上退化为粗粒度值），
+// 指纹判据不可信——绕过 get/set 两侧重读重解析（外部编辑器/云同步改 books.jsonl 后
+// 不再有陈旧命中窗）。
 // 缺文件/读失败不缓存失败值（各按原口径返回，下次照常重试）。
 const BOOKS_READ_CACHE_MAX = 16
 const booksReadCache = new Map<string, { mtimeNs: bigint; size: bigint; books: BookEntry[] }>()
+
+/**
+ * books.jsonl stat 报 ENOENT 时分诊「真首启」与「路径损坏态」。
+ *
+ * win 对「路径中间组件是普通文件」的 stat/readFileSync 均返 ENOENT（POSIX 归
+ * ENOTDIR）——只认 errno 会把 `.clwriting` 被损坏成文件的状态误判成首启缺文件而回
+ * 空表，恰好绕过调用方的拒写面。故复核父目录真身：存在且非目录 → 损坏态（false，
+ * 与 POSIX 同归拒写）；父链本身缺失（真首启，含 workDir 未建）→ true；父目录
+ * stat 其他失败（EACCES/EIO 等）→ false（不可读同归拒写）。
+ */
+function booksFileAbsentMeansFreshStart(fp: string): boolean {
+  try {
+    return statSync(dirname(fp)).isDirectory()
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+}
 
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
  * EISDIR 等）→ null——写方据此拒绝重写，防「降级空表 × 后续整写」
@@ -74,24 +96,18 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
     size = st.size
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return null
-    // （#33 平台补）：win 对「路径中间组件是普通文件」的 stat/readFileSync
-    // 均返 ENOENT（POSIX 归 ENOTDIR）——只认 errno 会把 `.clwriting` 被损坏成文件的
-    // 状态误判成首启缺文件而回空表，恰好绕过拒写面。故 ENOENT 分支再复核父目录
-    // 真身：存在且非目录 → null（损坏态，与 POSIX 同归拒写）；父链本身缺失（真首启，
-    // 含 workDir 未建）才归空表。
-    try {
-      if (!statSync(dirname(fp)).isDirectory()) return null
-    } catch (e2) {
-      if ((e2 as NodeJS.ErrnoException).code !== 'ENOENT') return null
-    }
-    return []
+    // （#33 平台补）：ENOENT 复核父目录真身分诊——真首启归空表，损坏态/不可读归
+    // 拒写（null）。判据与理由见 booksFileAbsentMeansFreshStart 头注。
+    return booksFileAbsentMeansFreshStart(fp) ? [] : null
   }
-  // 同指纹直接回缓存解析结果。
+  // 同指纹直接回缓存解析结果；低精度 mtime 卷降级不缓存（见上方缓存段注——
+  // 同尺寸写的陈旧窗仍在，指纹判据不可信）。
   // （c ）：命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
   // 无旁路污染」的承诺不成立（appendBookLocked 曾对命中数组就地 push，跨 await 持
   // 同一引用的读方会看到突增条目）；边界处一次 slice 消灭整类就地 mutate 面，
   // 代价可忽略（条目数 = 书数个位数）。
-  const hit = booksReadCache.get(fp)
+  const cacheable = !isCoarseMtimeNs(mtimeNs)
+  const hit = cacheable ? booksReadCache.get(fp) : undefined
   if (hit && hit.mtimeNs === mtimeNs && hit.size === size) return hit.books.slice()
   let text: string
   try {
@@ -135,12 +151,15 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
       // 坏行跳过（容错，不崩）
     }
   }
-  // 仅成功解析入缓存（缺文件/读失败不缓存失败值）；FIFO 淘汰最旧键
-  if (booksReadCache.size >= BOOKS_READ_CACHE_MAX) {
-    const oldest = booksReadCache.keys().next().value
-    if (oldest !== undefined) booksReadCache.delete(oldest)
+  // 仅成功解析入缓存（缺文件/读失败不缓存失败值；低精度 mtime 卷整体降级不缓存）；
+  // FIFO 淘汰最旧键
+  if (cacheable) {
+    if (booksReadCache.size >= BOOKS_READ_CACHE_MAX) {
+      const oldest = booksReadCache.keys().next().value
+      if (oldest !== undefined) booksReadCache.delete(oldest)
+    }
+    booksReadCache.set(fp, { mtimeNs, size, books })
   }
-  booksReadCache.set(fp, { mtimeNs, size, books })
   // 同上——缓存本体不出缓存，返回浅拷贝
   return books.slice()
 }

@@ -7,6 +7,7 @@ import { usePrefsStore } from './stores/prefs'
 import { useUiStore } from './stores/ui'
 import { prewarmSystemFonts } from './composables/useSystemFonts'
 import { installCrossWindowInvalidation } from './composables/useCrossWindowInvalidation'
+import { awaitStartupWithBudget } from './shared/startup-budget'
 import './styles/tokens.css'
 import './styles/base.css'
 // 跨组件通用单类工具（.is-drag/.head-legend/.spin 兜底档等重体收敛）：
@@ -25,14 +26,17 @@ import './components/ui/btn-shared.css'
 if (window.clwritingDesktop?.platform) {
   document.documentElement.dataset.platform = window.clwritingDesktop.platform
 }
-// top-level await：ESM 入口支持，确保渲染前 token + 偏好就位。
-await boot()
-
-// 全局偏好异步加载（主题 + 排版 + 字体；首次从旧 localStorage 迁移到 JSON 文件）。
+// top-level await：ESM 入口支持，确保常规路径渲染前 token + 偏好就位。
+// 启动两段（boot 取 token → 全局偏好加载：主题 + 排版 + 字体，首次从旧 localStorage
+// 迁移到 JSON 文件，init 内部 applyTheme + apply）带**合计总预算**（口径见
+// shared/startup-budget.ts）：本地 API 正常时两段毫秒级放行、行为与直等一致；API
+// 异常（接受连接但不响应）时到期即离线态挂载——原先两段串联无上界（boot ≈21s +
+// 偏好加载默认 30s 超时），白屏可达 ~50s。超预算的两段不取消：后台跑完自行落位
+// （boot 落 token / init 内部 apply CSS 变量），不刷新自愈。
 // createPinia 不自动 setActivePinia，组件外用 store 前需手动设 active。
 const pinia = createPinia()
 setActivePinia(pinia)
-await usePrefsStore().init() // init 内部 applyTheme + apply（渲染前 CSS 变量就位）
+await awaitStartupWithBudget([boot, () => usePrefsStore().init()])
 // 跨窗失效通知装配（三窗同源各持内存副本）：收到他窗失效 → 本窗走既有刷新链重取
 // （prefs GET 合并 / 书架列表 / 树红点）。通道不可用时内部降级 no-op，不阻断启动。
 installCrossWindowInvalidation()

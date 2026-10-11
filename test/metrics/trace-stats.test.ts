@@ -4,7 +4,8 @@
  * 覆盖：空数据、单 task 多条聚合、通过率/attempt/百分位/token 趋势、多 task 分组、
  * 按天趋势（事件创建时间聚日）、userDataPath 缺失降级。
  */
-import { rmSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -148,5 +149,23 @@ describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
     const root = tempBookRoot()
     const stats = await aggregateTrace(null, root)
     expect(stats.total).toBe(0)
+  })
+
+  // P1-2：事件库读失败与「确无调用」两态可区分——读失败置 degraded:true，
+  // 前端据此提示「统计暂不可用」而非渲染成 0 次调用。
+  it('P1-2: 事件库读失败 → degraded:true（与空数据空壳可区分）', async () => {
+    const user = tempUserData()
+    const root = tempBookRoot()
+    // 预埋垃圾字节作 session 库 → 开库即抛
+    const dir = join(user, 'clwriting', 'session')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, bookHash(root) + '.db'), 'garbage bytes, definitely not a sqlite database')
+
+    const stats = await aggregateTrace(user, root)
+    expect(stats.degraded).toBe(true)
+    expect(stats.total).toBe(0)
+    // 对照：正常空数据空壳无 degraded 键（两态可区分）
+    const ok = await aggregateTrace(tempUserData(), tempBookRoot())
+    expect(ok.degraded).toBeUndefined()
   })
 })

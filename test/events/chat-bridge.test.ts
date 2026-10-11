@@ -1,7 +1,7 @@
 /**
  * F1-P1 桥接层单测：loadHistoryWithSeqs 映射重建 + SessionRecorder 录制/遮蔽。
  */
-import { describe, expect, it, afterEach, vi } from 'vitest'
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest'
 import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
@@ -321,7 +321,17 @@ describe('R62-10/R62-11：close 可重试性 + 空载荷遮蔽过滤', () => {
 // ── R66-16（十四轮）：close 写 compaction 前遮蔽区间自检 ──────────────────
 // validateEventStream 此前生产不接线——自检以 O(1) 查询落在唯一写点（close）上：
 // 二次遮蔽 / 遮蔽从未可见内容两类违约 warn 留痕（不阻断，close 幂等闸已开）。
+// P1-16 起自检降为 debug 开关（默认关，见 store.maskSelfCheckData 注）——本族用例
+// 显式开启 env（CLWRITING_EVENTS_SELF_CHECK=1）；默认关下的短路语义（返回 null、
+// 不按空结果误报）由 store.test.ts 开关用例与其余遮蔽用例（关态 close 不炸）覆盖。
 describe('R66-16: compaction 遮蔽区间自检', () => {
+  beforeEach(() => {
+    process.env.CLWRITING_EVENTS_SELF_CHECK = '1'
+  })
+  afterEach(() => {
+    delete process.env.CLWRITING_EVENTS_SELF_CHECK
+  })
+
   it('正常遮蔽（盖曾可见的 user 消息）→ 无违约 warn（对照组）', () => {
     const { store } = openTmp()
     const warn = vi.spyOn(log, 'warn')

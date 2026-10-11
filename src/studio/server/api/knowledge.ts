@@ -31,7 +31,7 @@ interface KnowledgeCtx extends TaskGateInjected {
   learnCommitYield?: CommitYield | null
 }
 
-// ──：非闸书级写端点的临界段书注册重验 ──
+// ── 非闸书级写端点的临界段书注册重验 ──
 // learn-commit 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
 // 在途 commit）——重验竞态时序与防线形态单源见 book-context.ts 头注
 //（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。同文件 /learn 有
@@ -42,7 +42,7 @@ interface KnowledgeCtx extends TaskGateInjected {
  *  dispatch 兜底（与修复前口径一致）。 */
 class BookMovedSignal extends Error {}
 
-// ──：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
+// ── /learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
 // learnFromBook 整读全书定稿正文（秒级 IO+CPU 段；已 async 化，不再阻塞请求
 // 线程，但同一把书并发闸仍必要）：重复点击 = 双跑双扫；health/files/documents 三处
 // 同型已修，此处漏网。口径对齐 health.ts styleScanCache：5s TTL + 书键 Map FIFO 上限，

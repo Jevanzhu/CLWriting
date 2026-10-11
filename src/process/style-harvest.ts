@@ -35,6 +35,48 @@ import { scanChapters, scanChaptersAsync, aggregateStyleTrend, readBaseline } fr
 const MIN_SAMPLE_PARA = 50
 
 /**
+ * 改稿轨迹 docId → 树反查路径索引（源1 共用内核）：文档已删的悬空轨迹
+ * 查不到即由调用方跳过。同步/异步孪生此前各抄一份 walk（逐行同构）。
+ */
+function docPathIndex(bookRoot: string): Map<string, string> {
+  const byDocId = new Map<string, string>()
+  const walk = (nodes: TreeNode[]): void => {
+    for (const n of nodes) {
+      if (n.docId) byDocId.set(n.docId, n.path)
+      if (n.children.length > 0) walk(n.children)
+    }
+  }
+  walk(buildTree(bookRoot))
+  return byDocId
+}
+
+/**
+ * 原始文本 → 正文 + 章号（源1 共用内核）。
+ * 容错口径：无 front matter 的文档整文件即正文（手写草稿常态）；章号非正整数 → undefined。
+ * 孪生两版此前各抄一份该解析（含 `Number.isInteger(chNum) && chNum > 0` 判据）。
+ */
+function bodyAndChapterNo(raw: string): { body: string; chapterNo: number | undefined } {
+  const split = splitFrontMatter(raw)
+  const body = split ? split.body : raw
+  const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
+  return { body, chapterNo: Number.isInteger(chNum) && chNum > 0 ? chNum : undefined }
+}
+
+/**
+ * 源2 · 机检漂移 → 候选（共用内核）：趋势聚合与固定映射表两侧同源，
+ * 孪生差异只在 samples 的取得方式（scanChapters / scanChaptersAsync）。
+ */
+function driftCandidates(
+  bookRoot: string,
+  kind: 'long' | 'short',
+  today: string,
+  samples: ReturnType<typeof scanChapters>,
+): ReturnType<typeof mapDriftsToCandidates> {
+  const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
+  return mapDriftsToCandidates(trend.drifts, today)
+}
+
+/**
  * 采一个文档的改稿信号：最新 AI 版 vs 当前正文（从 format/style-candidate 下沉到 process 层，
  * 消除 format→git 向上依赖）。
  * @returns 无轨迹 / 读不到 AI 版 → null（旁路证据，静默）
@@ -109,38 +151,26 @@ export function harvestStyleCandidates(
   // ── 源1 · 改稿轨迹（docId → 树反查路径；文档已删的悬空轨迹跳过）──
   const tracked = listTrackedDocs(bookRoot)
   if (tracked.length > 0) {
-    const byDocId = new Map<string, string>()
-    const walk = (nodes: TreeNode[]): void => {
-      for (const n of nodes) {
-        if (n.docId) byDocId.set(n.docId, n.path)
-        if (n.children.length > 0) walk(n.children)
-      }
-    }
-    walk(buildTree(bookRoot))
+    const byDocId = docPathIndex(bookRoot)
     const signals: DocSignals[] = []
     for (const docId of tracked) {
       const rel = byDocId.get(docId)
       if (!rel) continue
-      // 容错读：无 front matter 的文档整文件即正文（手写草稿常态）
       let raw: string
       try {
         raw = readFileSync(join(bookRoot, rel), 'utf-8')
       } catch {
         continue
       }
-      const split = splitFrontMatter(raw)
-      const body = split ? split.body : raw
-      const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
-      const s = collectDocSignals(bookRoot, docId, body, Number.isInteger(chNum) && chNum > 0 ? chNum : undefined)
+      const { body, chapterNo } = bodyAndChapterNo(raw)
+      const s = collectDocSignals(bookRoot, docId, body, chapterNo)
       if (s) signals.push(s)
     }
     candidates.push(...aggregateSignals(signals, today))
   }
 
   // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
-  const samples = scanChapters(bookRoot)
-  const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
-  candidates.push(...mapDriftsToCandidates(trend.drifts, today))
+  candidates.push(...driftCandidates(bookRoot, kind, today, scanChapters(bookRoot)))
 
   return persistCandidates(bookRoot, candidates)
 }
@@ -166,14 +196,7 @@ export async function harvestStyleCandidatesAsync(
   // 「HTTP 链不再同步 spawnSync」此前名不副实）；结果语义与同步版单源对齐。
   const tracked = await listTrackedDocsAsync(bookRoot)
   if (tracked.length > 0) {
-    const byDocId = new Map<string, string>()
-    const walk = (nodes: TreeNode[]): void => {
-      for (const n of nodes) {
-        if (n.docId) byDocId.set(n.docId, n.path)
-        if (n.children.length > 0) walk(n.children)
-      }
-    }
-    walk(buildTree(bookRoot))
+    const byDocId = docPathIndex(bookRoot)
     const signals: DocSignals[] = []
     // 同族收尾——本循环此前
     // 残留两处同步阻塞：① 裸 readFileSync 整读章正文（不走缓存、无让出，大书冷缓存
@@ -190,15 +213,8 @@ export async function harvestStyleCandidatesAsync(
       // 读失败 → null，映射原 catch { continue } 跳过口径。
       const raw = await readMdTextCachedAsync(join(bookRoot, rel))
       if (raw === null) continue
-      const split = splitFrontMatter(raw)
-      const body = split ? split.body : raw
-      const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
-      const s = await collectDocSignalsAsync(
-        bookRoot,
-        docId,
-        body,
-        Number.isInteger(chNum) && chNum > 0 ? chNum : undefined,
-      )
+      const { body, chapterNo } = bodyAndChapterNo(raw) // 解析内核与同步版单源
+      const s = await collectDocSignalsAsync(bookRoot, docId, body, chapterNo)
       if (s) signals.push(s)
       // 按 doc 让出（yieldToEventLoop 单源 src/async.ts）——
       // O(P²) 段对矩阵同步段后交还事件循环，不让下一个 doc 的重算接连冻结。
@@ -210,9 +226,7 @@ export async function harvestStyleCandidatesAsync(
   // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
   // 异步孪生内扫描同样切让出版——同步 scanChapters 在大书上秒级
   // 冻结事件循环（同族漏网点）；同步版上方保留供存量测试与等价性对照
-  const samples = await scanChaptersAsync(bookRoot)
-  const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
-  candidates.push(...mapDriftsToCandidates(trend.drifts, today))
+  candidates.push(...driftCandidates(bookRoot, kind, today, await scanChaptersAsync(bookRoot)))
 
   return persistCandidates(bookRoot, candidates)
 }

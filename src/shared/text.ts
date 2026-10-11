@@ -36,6 +36,28 @@ export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
+/** 字节是否合法 UTF-8（fatal 解码探测）。
+ *
+ *  单源：此判据在四处各持一份同款实现——document/service-guards.ts 的
+ *  isUtf8Bytes（保存链闸）、export/index.ts 的 isUtf8ExportBytes（导出跳过乱码档）、
+ *  process/summary.ts 章摘要入口的内联 try/catch、desktop/win-fonts 的解码回落链。
+ *  前三处口径完全一致（试解失败即 false），且各自注释都写着「与 X 同口径」——收敛到本模块；
+ *  win-fonts 的 decodeRegOutput 是「严格 UTF-8 → gbk → 宽容 utf8」三级回落链，非同一
+ *  函数语义，维持原位（不属本单源面）。
+ *
+ *  与「文本是否已含 U+FFFD」的判据区分：GBK 文件以 utf-8 读入本就产生 U+FFFD，
+ *  用替换符判会把最该拦的场景判成放行；本函数看原始字节。
+ *
+ *  零内部依赖（同本模块惯例），任意层可引。 */
+export function isUtf8(buf: Uint8Array): boolean {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** 毫秒 → 作者可读时长短句。
  *
  *  起因：超时文案在 src/ai/runner.ts 里写死 `${timeoutMs / 60_000} 分钟`——档位 timeoutMs

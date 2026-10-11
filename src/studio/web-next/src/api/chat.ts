@@ -31,7 +31,7 @@ export async function clearChatHistory(name: string): Promise<{ ok: boolean }> {
   return apiJson(bookUrl(name, 'chat', 'clear'), { method: 'POST' }, CHAT_TIMEOUT_MS)
 }
 
-// ──：对话历史恢复（只读投影） ──────────────────
+// ── 对话历史恢复（只读投影） ──────────────────
 
 /** 历史消息 content block（服务端 ContentBlock 的 JSON 投影，同构透出） */
 export type ChatHistoryBlock =
@@ -95,7 +95,7 @@ export async function confirmTool(name: string, body: { callId: string; ok: bool
   )
 }
 
-// ──：分支（变体）与重新生成 ──────────────────────
+// ── 分支（变体）与重新生成 ──────────────────────
 
 /** GET /chat/branches —— 分支（变体组）信息 */
 export interface ChatBranchInfo {

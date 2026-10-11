@@ -117,4 +117,36 @@ describe('重评-P3-15：光晕 mousemove rect 缓存 + rAF 同帧合并', () =>
     flushRaf()
     w.unmount()
   })
+
+  it('导入本模块不挂 window 监听（惰性绑定：首个 mousemove 才登记）', async () => {
+    // 模块级监听在页测试/热更新环境随重载累积且无出口——改惰性后 import 本身零副作用。
+    // resetModules 造干净模块图（其余用例已把本模块绑成在位态）
+    vi.resetModules()
+    const spy = vi.spyOn(window, 'addEventListener')
+    await import('../../../../src/studio/web-next/src/composables/useShelf')
+    const globals = spy.mock.calls.filter(([t]) => t === 'resize' || t === 'scroll')
+    expect(globals).toEqual([])
+    spy.mockRestore()
+  })
+
+  it('dispose 后 scroll 不再失效缓存（监听可回收；再消费自动重绑）', async () => {
+    const { disposeGlowListeners, onCardMove: move } =
+      await import('../../../../src/studio/web-next/src/composables/useShelf')
+    const w = mount(BookCard, { props: { book: BOOK, variant: 'grid', onMove: move } })
+    const el = w.find('.book-card').element as HTMLElement
+    const rectSpy = vi.spyOn(el, 'getBoundingClientRect')
+
+    await w.find('.book-card').trigger('mousemove', { clientX: 1, clientY: 1 })
+    expect(rectSpy).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new Event('scroll'))
+    await w.find('.book-card').trigger('mousemove', { clientX: 2, clientY: 2 })
+    expect(rectSpy).toHaveBeenCalledTimes(2) // 监听在位：失效 → 重读
+
+    disposeGlowListeners()
+    window.dispatchEvent(new Event('scroll'))
+    await w.find('.book-card').trigger('mousemove', { clientX: 3, clientY: 3 })
+    expect(rectSpy).toHaveBeenCalledTimes(2) // 已注销：scroll 不再失效（缓存命中，零新增读）
+    flushRaf()
+    w.unmount()
+  })
 })

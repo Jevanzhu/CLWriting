@@ -272,7 +272,7 @@ test('G1: 三级全空（冷启动）→ 回落「通用」而非「战斗」（
   }
 })
 
-test('legacy: 不传 chapter 的旧调用 → 维持 prepare 内部「战斗」回落（不推导场景）', async () => {
+test('legacy: 不传 chapter 的旧调用 → 用 prepare 内部兜底场景（不推导场景）', async () => {
   const { root, workDir, db } = makeBook()
   try {
     const wd = join(root, '工作区')
@@ -285,8 +285,33 @@ test('legacy: 不传 chapter 的旧调用 → 维持 prepare 内部「战斗」�
       workDir: wd,
       chapterLeadIds: [],
     })
-    expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined() // 战斗无样章
+    // 兜底场景（'通用'，与 readChapterScenes 同源）在 makeBook 无样章 → 无段
+    expect(r.sections.find((s) => s.title === '文风样章')).toBeUndefined()
     expect(r.styleNote).toBeUndefined()
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+test('P1-8: prepare 场景兜底与写稿链同源——全空回落「通用」样章（此前缺省「战斗」必落空）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    // 只有「通用」目录有样章：兜底场景=通用 → 命中；缺省「战斗」（修复前）→ 无段
+    mkdirSync(join(root, '文风', '样章库', '通用'), { recursive: true })
+    writeFileSync(
+      join(root, '文风', '样章库', '通用', '通用-001.md'),
+      '---\n场景: 通用\n来源: 作者原作\n技法指令: 学它的克制\n---\n通用场景样章正文。',
+      'utf-8',
+    )
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+    })
+    const styleSection = r.sections.find((s) => s.title === '文风样章')
+    expect(styleSection).toEqual(expect.objectContaining({ title: '文风样章' }))
+    expect(styleSection!.content).toContain('学它的克制')
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })
@@ -471,6 +496,30 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
   } finally {
     db.close()
     rmSync(workDir, { recursive: true, force: true })
+  }
+})
+
+// P1-1：resolveTier（内部 loadProviders 读 providers.json）受损时不再上抛
+// 中断整条备料链——档位解析降级 undefined（token 系数回落全局默认），备料照常产出。
+test('P1-1: providers.json 损坏 → 备料链不中断（档位解析降级留痕）', async () => {
+  const { root, workDir, db } = makeBook()
+  const userData = mkdtempTracked(join(tmpdir(), 'mat-ud-'))
+  try {
+    // 无 bak 可恢复的损坏 providers.json → loadProviders 抛错
+    writeFileSync(join(userData, 'providers.json'), 'definitely not json', 'utf-8')
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root,
+      workDir,
+      chapterLeadIds: [],
+      userDataPath: userData,
+    })
+    // 修复前：resolveTier 裸调位于任何 try 之外 → 整链抛出，材料段全丢
+    expect(r.text.length).toBeGreaterThan(0)
+    expect(r.sections.find((s) => s.title === '近况')).toBeDefined()
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userData, { recursive: true, force: true })
   }
 })
 

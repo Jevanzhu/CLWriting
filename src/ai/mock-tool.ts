@@ -53,11 +53,13 @@ export const MOCK_TOOL_INPUT: Readonly<Record<string, unknown>> = {
 }
 
 /**
- * mock 快路：CLWRITING_DRIVER=mock 时返回结构化 mock 产出。
- * 非 mock 环境返回 null（调用方走真实 provider 路径）。
+ * mock 工具产出查表：命中即有结构化 mock 产出，未命中（键缺）→ null。
+ *
+ * 是否走快路由调用方决定——runTask 只认组装根注入的 mockFastPath
+ * （见 runner.configureRunnerMockFastPath）。本函数自身**不读环境变量**
+ * （原 CLWRITING_DRIVER 判断在此处再读一次，与调用方的选择结果两处各判、可静默分叉）。
  */
 export function tryMockTool(toolName: string): { input: unknown; text: string; usage: TokenUsage } | null {
-  if (process.env['CLWRITING_DRIVER'] !== 'mock') return null
   const input = MOCK_TOOL_INPUT[toolName] ?? null
   if (!input) return null
   return { input, text: JSON.stringify(input), usage: MOCK_USAGE }

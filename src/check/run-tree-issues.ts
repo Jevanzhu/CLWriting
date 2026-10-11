@@ -25,6 +25,7 @@ import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
 import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
+import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
 import type { BookConfig, ChapterMeta } from '../format/types.js'
 import { enabledLeadTypes } from './leads-config.js'
 import { scanOutlineDeclarationMemo } from './outline-leads.js'
@@ -550,7 +551,7 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       if (envAbs) {
         try {
           const es = statSync(envAbs, { bigint: true })
-          verdictFp = `${es.mtimeNs}:${es.size}`
+          verdictFp = statFingerprint(es)
         } catch {
           verdictFp = null // 信封竞态消失：按无信封处理
         }

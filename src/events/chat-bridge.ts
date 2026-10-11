@@ -376,12 +376,15 @@ export class SessionRecorder {
         }
       }
       segs.push({ start: segStart, end: segEnd })
-      // 写 compaction 前遮蔽区间 O(1) 自检（validateEventStream 的生产
-      // 接线最小面）——违例 warn 留痕不阻断（close 幂等闸已开，阻断反留会话无终态）：
+      // 写 compaction 前遮蔽区间自检（validateEventStream 的生产接线
+      // 最小面）——违例 warn 留痕不阻断（close 幂等闸已开，阻断反留会话无终态）：
       // ① 与既有 replace 遮蔽区间重叠 = 二次遮蔽（投影会重复插存档节点，疑记账错链）；
-      // ② 区间内零表面类事件 = 遮蔽从未可见的内容（遮蔽只许盖「曾可见」节点的契约）
+      // ② 区间内零表面类事件 = 遮蔽从未可见的内容（遮蔽只许盖「曾可见」节点的契约）。
+      // 自检默认关闭（debug 开关，store.maskSelfCheckData 注）——返回 null = 未启用，
+      // 跳过整段检查（不得按空结果告警：那会被误读为「零表面事件」违约）。
       for (const s of segs) {
         const chk = this.store.maskSelfCheckData(s.start, s.end)
+        if (chk === null) break
         if (chk.intervals.length > 0) {
           log.warn(
             'events',

@@ -12,8 +12,14 @@
  * 码页解码条目名，`日志/app-20260101.jsonl` 在 win 资源管理器 / 7z / unzip 下逐端各按各的默认表
  * 解成乱码——包是给作者/开发者人工看的，条目名不可读即废。
  *
- * 未实现（登记边界，诊断包规模用不到，超限即抛）：zip64（>4GiB 或 >65535 条目）、压缩方法 8、
- * 加密、数据描述符、归档注释、条目注释、时间戳精度（DOS 时间 2 秒粒度）。
+ * 超限策略（原「超限即抛」在诊断包侧是死路——包没生成、用户拿不到排查件）：
+ * - `buildZipStoreVolumes`：单卷上限（条目数 / 本地段累计字节）内打包；超限按**条目边界**切多卷
+ *   （每卷都是独立可解压的完整 ZIP，文件名由调用方按卷序区分）；单条自身超单卷上限无法切分 →
+ *   截断省略并列入 droppedNames（调用方据此给用户提示，不静默丢）。
+ * - `buildZipStore`：单卷 API 保留 fail-loud 语义（超限抛错，不产坏包）——既有调用/测试契约。
+ *
+ * 未实现（登记边界）：zip64（本写入器以分卷规避其触发面）、压缩方法 8、加密、数据描述符、
+ * 归档注释、条目注释、时间戳精度（DOS 时间 2 秒粒度）。
  */
 import { crc32 } from 'node:zlib'
 
@@ -22,6 +28,17 @@ export interface ZipEntry {
   name: string
   data: Buffer | string
 }
+
+/** 单卷容量上限。生产缺省 = ZIP 格式硬上限；测试注入窄限可直接验分卷/截断路径
+ *  （真造 4GiB 数据不可行的可测性口，同 mtime 注入先例）。 */
+export interface ZipStoreLimits {
+  /** 单卷最大条目数（EOCD 条目数字段 uint16） */
+  maxEntries: number
+  /** 单卷本地段累计字节上限（保守口径：中央目录起始偏移为 uint32，本地段累计须收敛） */
+  maxArchiveBytes: number
+}
+
+const DEFAULT_ZIP_LIMITS: ZipStoreLimits = { maxEntries: 0xffff, maxArchiveBytes: 0xffffffff }
 
 /** UTF-8 条目名标志位（通用位标志 bit 11） */
 const FLAG_UTF8 = 0x0800
@@ -44,9 +61,22 @@ function dosDateTime(d: Date): { time: number; date: number } {
   }
 }
 
-/** 组一个 store 模式 ZIP（返回完整字节）。entries 顺序即包内顺序。 */
-export function buildZipStore(entries: readonly ZipEntry[], opts: { mtime?: Date } = {}): Buffer {
-  const mtime = opts.mtime ?? new Date()
+/** 编码后的条目标记（utf-8 名 + 字节数据，尺寸预检与写卷共用） */
+interface EncodedEntry {
+  name: Buffer
+  data: Buffer
+}
+
+function encodeEntry(e: ZipEntry): EncodedEntry {
+  return {
+    name: Buffer.from(e.name, 'utf-8'),
+    data: typeof e.data === 'string' ? Buffer.from(e.data, 'utf-8') : e.data,
+  }
+}
+
+/** 写「一卷」store 模式 ZIP（返回完整字节）。entries 顺序即包内顺序。
+ *  本函数保留格式级 fail-loud 双检（调用方已按 limits 切卷/截断，此处是纵深防御）。 */
+function writeArchive(entries: readonly EncodedEntry[], mtime: Date): Buffer {
   const { time, date } = dosDateTime(mtime)
   if (entries.length > MAX_ENTRIES) {
     throw new Error(`诊断包条目数超上限（${entries.length} > ${MAX_ENTRIES}），需 zip64——本写入器不实现`)
@@ -55,8 +85,8 @@ export function buildZipStore(entries: readonly ZipEntry[], opts: { mtime?: Date
   const centrals: Buffer[] = []
   let offset = 0
   for (const e of entries) {
-    const name = Buffer.from(e.name, 'utf-8')
-    const data = typeof e.data === 'string' ? Buffer.from(e.data, 'utf-8') : e.data
+    const data = e.data
+    const name = e.name
     if (data.length > MAX_UINT32 || offset > MAX_UINT32) {
       throw new Error('诊断包体积超 4GiB，需 zip64——本写入器不实现')
     }
@@ -111,4 +141,67 @@ export function buildZipStore(entries: readonly ZipEntry[], opts: { mtime?: Date
   end.writeUInt32LE(offset, 16)
   end.writeUInt16LE(0, 20) // 归档注释长度
   return Buffer.concat([...locals, centralBuf, end])
+}
+
+/** 分卷打包结果 */
+export interface ZipVolumePack {
+  /** 每卷一个完整 store 模式 ZIP（卷序 = 条目序；空输入 = 零卷） */
+  volumes: Buffer[]
+  /** 实际入卷的条目名（按输入序；= 输入减去 droppedNames） */
+  packedNames: string[]
+  /** 单条自身超单卷上限、无法切分而被截断省略的条目名（按输入序；调用方须提示） */
+  droppedNames: string[]
+}
+
+/**
+ * 分卷打包：条目按输入序贪心装箱，单卷限 maxEntries 条 / maxArchiveBytes 本地段累计字节；
+ * 放不下的开新卷（条目边界切分，绝不切条目）——每卷独立可解压。单条自身超上限 → 省略留痕。
+ * 诊断包入口用本函数；单卷 fail-loud 语义见 buildZipStore。
+ */
+export function buildZipStoreVolumes(
+  entries: readonly ZipEntry[],
+  opts: { mtime?: Date; limits?: Partial<ZipStoreLimits> } = {},
+): ZipVolumePack {
+  const mtime = opts.mtime ?? new Date()
+  const limits: ZipStoreLimits = { ...DEFAULT_ZIP_LIMITS, ...opts.limits }
+  const volumes: Buffer[] = []
+  const packedNames: string[] = []
+  const droppedNames: string[] = []
+  let current: EncodedEntry[] = []
+  let currentBytes = 0
+  const flush = (): void => {
+    if (current.length === 0) return
+    volumes.push(writeArchive(current, mtime))
+    current = []
+    currentBytes = 0
+  }
+  for (const e of entries) {
+    const encoded = encodeEntry(e)
+    const localBytes = 30 + encoded.name.length + encoded.data.length
+    if (localBytes > limits.maxArchiveBytes) {
+      droppedNames.push(e.name)
+      continue
+    }
+    if (current.length >= limits.maxEntries || currentBytes + localBytes > limits.maxArchiveBytes) flush()
+    current.push(encoded)
+    currentBytes += localBytes
+    packedNames.push(e.name)
+  }
+  flush()
+  return { volumes, packedNames, droppedNames }
+}
+
+/** 组一个 store 模式 ZIP（返回完整字节）。entries 顺序即包内顺序。
+ *  单卷语义：超上限（>65535 条目或本地段累计 >4GiB）抛出（fail-loud，不产坏包）——
+ *  诊断包侧改用 buildZipStoreVolumes 分卷（见文件头注）。 */
+export function buildZipStore(entries: readonly ZipEntry[], opts: { mtime?: Date } = {}): Buffer {
+  const mtime = opts.mtime ?? new Date()
+  const pack = buildZipStoreVolumes(entries, { mtime })
+  if (pack.droppedNames.length > 0) {
+    throw new Error('诊断包体积超 4GiB，需 zip64——本写入器不实现')
+  }
+  if (pack.volumes.length > 1) {
+    throw new Error(`诊断包条目数超上限（${entries.length} > ${MAX_ENTRIES}），需 zip64——本写入器不实现`)
+  }
+  return pack.volumes[0] ?? writeArchive([], mtime)
 }

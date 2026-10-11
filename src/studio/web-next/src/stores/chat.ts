@@ -1,4 +1,5 @@
 import { useWorkspaceStore } from './workspace'
+import { useUiStore } from './ui'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { rawErrorMessage } from '../shared/error'
@@ -35,8 +36,16 @@ import {
  * re-export 原样保持（ChatMessages.vue 的具名导入等调用方零改动）。
  */
 
-// RC：消息/工具卡片模型迁入 ./chat-dispatch——对外类型面原样转发。
-export type { ChatMessage, ToolStatus } from './chat-dispatch'
+// RC：消息/工具卡片模型迁入 ./chat-dispatch——对外类型面原样转发
+//（ToolCard 一并转发：ChatMessages 拆分后的工具卡子件按本模块具名导入该类型）。
+export type { ChatMessage, ToolCard, ToolStatus } from './chat-dispatch'
+
+/**
+ * 拉取失败合并提示文案单源：历史种子化 / 分支列表 / 分支切换三个拉取点共用同一条
+ * 文案与级别——同一波失败经 ui.toast 的「同文案同级别合并」只留一条（重置消失计时、
+ * 不堆叠），且刻意不分点措辞（三处对作者都是「对话数据没拉到」这一件事）。
+ */
+const PULL_FAIL_MSG = '对话数据加载失败，可稍后重试'
 
 export const useChatStore = defineStore('chat', () => {
   /** 裁剪最旧消息，保持列表不超过上限（在 push / chat_done 后调） */
@@ -69,7 +78,7 @@ export const useChatStore = defineStore('chat', () => {
   }
   /** 当前激活分支（history 返回的实际采用分支；无分支语义/未拉取时 null） */
   const activeBranchId = ref<string | null>(null)
-  /** 分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
+  /** 分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护；失败降级为隐藏切换器 + 合并提示） */
   const branches = ref<ChatBranchInfo[]>([])
   /**
    * 最近一次视图加载（seedHistory/switchBranch）
@@ -83,7 +92,7 @@ export const useChatStore = defineStore('chat', () => {
    *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）。 */
   const historyTotal = ref<number | null>(null)
 
-  // ──：章号语境（对话作用于「全书」还是某章）单一事实源 ──
+  // ── 章号语境（对话作用于「全书」还是某章）单一事实源 ──
   // 此前 ChatDock 与 ChatPanel 各建一份 useChatComposer 实例（dock 开窗时双实例并存），
   // selectedChapter 互不同步：「重新生成」按 ChatPanel 那份带错章号语境。上提到本 store：
   // dock 输入框 / 工作台输入区 / ChatMessages regenerate 三处消费同一份；按书记忆
@@ -158,7 +167,7 @@ export const useChatStore = defineStore('chat', () => {
     chatDispatch.trimMessages()
   }
 
-  // ──：历史种子化（刷新/切书后从事件库投影恢复）────
+  // ── 历史种子化（刷新/切书后从事件库投影恢复）────
 
   /** 历史消息 → 气泡模型（与 SSE 实时渲染等价：tool 结果回填到 assistant 的工具卡片，不渲染为用户气泡）。
    * seqs 与 msgs 平行，气泡 seq 取该消息事件 seq（seqs[i][0]；tool-result 合成消息不渲染为气泡可忽略）。 */
@@ -233,8 +242,10 @@ export const useChatStore = defineStore('chat', () => {
    * 拉取并种子化对话历史：仅当前消息为空且不在生成中时执行。
    * 竞态守卫：拉取期间若有新 SSE 消息到达（messages 非空）/开始生成（running）/
    * 切书（clear 使 seedGen 失效）→ 宁可放弃种子化也不覆盖/插入错位。
-   * 种子化成功后 best-effort 拉 branches（失败静默不影响种子化），
+   * 种子化成功后 best-effort 拉 branches（失败不影响种子化结果），
    * branches 存列表、activeBranchId 用 history 返回的 branchId（两者解耦）。
+   * 拉取失败提示「对话数据没拉到」这一件事——三个拉取点共用同一
+   * 条合并 toast（见 PULL_FAIL_MSG），不再让对话区留白而无任何解释。
    * `replace:true` 替换式补种——pendingReseed 场景下 messages
    * 已被历史种子化（非空），原空列表守卫使补种恒 no-op（在途回合回复界面缺失）。
    * replace 跳过「非空即弃」守卫（gen/running 守卫保留），先清后种（对齐 switchBranch
@@ -255,7 +266,10 @@ export const useChatStore = defineStore('chat', () => {
     try {
       data = await fetchChatHistory(bookName)
     } catch {
-      return // 后端未起/离线：静默放弃（对话区留白，可正常发起新对话）
+      // 后端未起/离线：放弃种子化（对话区留白）——「服务端有历史、界面却是空的」
+      // 属用户可感知的数据缺失，补一条合并提示（可正常发起新对话）
+      useUiStore().toast(PULL_FAIL_MSG, 'warning')
+      return
     }
     // 非 replace：fetch 窗口内 SSE 新消息已到（messages 非空）→ 放弃（不插入错位）
     if (seedGen.stale(gen) || running.value || (!replace && messages.value.length > 0)) return
@@ -298,25 +312,28 @@ export const useChatStore = defineStore('chat', () => {
     // 截断态随本次权威视图对齐（视图自此历史重建，提示面向当前视图）
     historyTruncated.value = data.truncated === true
     historyTotal.value = data.total ?? null
-    // 分支列表 best-effort 拉取（失败静默——变体切换器降级隐藏，对话不受影响）
+    // 分支列表 best-effort 拉取（失败降级——变体切换器隐藏 + 合并提示，对话不受影响）
     await refreshBranches(bookName, gen)
   }
 
-  /** best-effort 刷新分支列表（失败静默；gen 不符丢弃防旧书数据污染新书） */
+  /** best-effort 刷新分支列表（失败降级隐藏切换器 + 合并提示；gen 不符丢弃防旧书数据污染新书） */
   async function refreshBranches(bookName: string, gen: number): Promise<void> {
     try {
       const d = await fetchChatBranches(bookName)
       if (seedGen.stale(gen)) return
       branches.value = d.branches ?? []
     } catch {
-      /* 静默 */
+      // 变体切换器随 branches 为空降级隐藏——分支存在却看不见同样是可感知缺失，
+      // 与历史拉取失败共用同一条合并提示（同波失败在 ui.toast 侧合并为一条）
+      useUiStore().toast(PULL_FAIL_MSG, 'warning')
     }
   }
 
   /**
    * 切换到指定分支（变体组）。仅 !running 时允许；seedGen 作废在途种子化/切换。
    * 成功且无竞态 → 整体替换 messages（新种子，带 seqs）+ activeBranchId=返回的 branchId，
-   * 再 best-effort 刷新分支列表；失败静默返回（保留原视图）。
+   * 再 best-effort 刷新分支列表；失败保留原视图 + 合并提示（作者点了切换必须有回音，
+   * 原全静默时视图不变与「点了没生效」不可区分）。
    * 落视图五连收口 applyHistoryView（公共核心见该函数注）。
    */
   async function switchBranch(bookName: string, branchId: string | null): Promise<void> {
@@ -326,7 +343,8 @@ export const useChatStore = defineStore('chat', () => {
     try {
       data = await fetchChatHistory(bookName, branchId ?? undefined)
     } catch {
-      return // 静默失败：保留原视图
+      useUiStore().toast(PULL_FAIL_MSG, 'warning')
+      return // 保留原视图
     }
     if (seedGen.stale(gen) || running.value) return
     await applyHistoryView(bookName, gen, data, { replace: true, fallbackBranchId: branchId })

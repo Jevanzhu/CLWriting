@@ -13,6 +13,7 @@ import { errMsg, log } from '../log/index.js' // errMsg：错误文案三目单�
 // 复用同套清洗；本文件原已单向 import style-entry，反向会成环——函数随消费方迁移）
 import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
 import { isMdFileName } from './filename.js'
+import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
 import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
@@ -152,7 +153,7 @@ function ironRulesFp(bookRoot: string): string {
   let ruleFp = 'absent'
   try {
     const st = statSync(join(bookRoot, '文风', '文风铁律.md'), { bigint: true })
-    ruleFp = `${st.mtimeNs}:${st.size}`
+    ruleFp = statFingerprint(st)
   } catch {
     /* 无铁律 = absent（解析走空规则，仍缓存——确定性结果） */
   }

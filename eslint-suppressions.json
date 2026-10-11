@@ -259,11 +259,6 @@
       "count": 1
     }
   },
-  "src/document/structure-core.ts": {
-    "@typescript-eslint/no-unnecessary-type-assertion": {
-      "count": 1
-    }
-  },
   "src/document/structure-merge.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -550,12 +545,6 @@
     }
   },
   "src/studio/server/api/documents-save.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
     "@typescript-eslint/require-await": {
       "count": 1
     }
@@ -758,17 +747,6 @@
       "count": 2
     }
   },
-  "src/studio/web-next/src/components/workbench/WbAdvanced.vue": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 5
-    },
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 24
-    },
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/studio/web-next/src/composables/useAppActions.ts": {
     "@typescript-eslint/no-misused-promises": {
       "count": 1
@@ -863,11 +841,6 @@
       "count": 1
     }
   },
-  "src/studio/web-next/src/stores/prefs.ts": {
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
   "src/studio/web-next/src/stores/provider.ts": {
     "@typescript-eslint/no-unnecessary-type-assertion": {
       "count": 1
@@ -886,48 +859,9 @@
       "count": 1
     }
   },
-  "src/studio/web-next/src/stores/workspace.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 10
-    },
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/views/EditorView.vue": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 13
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
-    }
-  },
   "test/ai/chat-tool-error-redact.test.ts": {
     "@typescript-eslint/only-throw-error": {
       "count": 1
-    }
-  },
-  "test/ai/fake-provider.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 2
     }
   },
   "test/desktop/bootstrap-runner.test.ts": {
@@ -937,11 +871,6 @@
   },
   "test/desktop/main-window-failure-logging.test.ts": {
     "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    }
-  },
-  "test/studio/api/readjson-body-lifecycle.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
       "count": 1
     }
   },
@@ -960,84 +889,9 @@
       "count": 1
     }
   },
-  "test/studio/server/static-fallback-canonical.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/server/static-hosting-mime-types.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/server/static-missing-ui-message.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/server/static-spa-cache.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 2
-    }
-  },
-  "test/studio/server/static.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
   "test/studio/server/ttl-window-from-write-time.test.ts": {
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 2
-    }
-  },
-  "test/studio/webnext/chapter-tree-actions-switch-guard.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/chat-regen-active-branch.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/chat-store.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/delete-presave-dirty.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/doc.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 3
-    }
-  },
-  "test/studio/webnext/dom/chapter-tree-actions-y8-y29.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 2
-    }
-  },
-  "test/studio/webnext/dom/composables.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 2
-    }
-  },
-  "test/studio/webnext/dom/finalize-switch-guard.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 3
-    }
-  },
-  "test/studio/webnext/dom/flush-deleted-doc-not-failed.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/dom/manual-save-queue-rounds-cap.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 3
     }
   },
   "test/studio/webnext/dom/model-picker-render-cap.test.ts": {
@@ -1045,69 +899,9 @@
       "count": 1
     }
   },
-  "test/studio/webnext/dom/prefs-409-recovery.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 10
-    }
-  },
-  "test/studio/webnext/dom/prefs-close-flush-inflight.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/dom/prefs-debounce-fire-clears-handle.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/dom/prefs-persist-fail-warn.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/dom/sync-clean-tree-revision-guard.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
   "test/studio/webnext/dom/wb-draft-streaming-render-throttle.test.ts": {
     "@typescript-eslint/await-thenable": {
       "count": 1
-    }
-  },
-  "test/studio/webnext/learn-commit-generation.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 6
-    }
-  },
-  "test/studio/webnext/learn-store.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 4
-    }
-  },
-  "test/studio/webnext/provider-learn-stores.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 3
-    }
-  },
-  "test/studio/webnext/regen-book-preregistration.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    }
-  },
-  "test/studio/webnext/shelf-store.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 8
-    }
-  },
-  "test/studio/webnext/style-store.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 7
-    }
-  },
-  "test/studio/webnext/words-store.test.ts": {
-    "@typescript-eslint/no-misused-promises": {
-      "count": 5
     }
   },
   "tsup.config.ts": {

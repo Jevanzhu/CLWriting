@@ -91,7 +91,7 @@ const styleCorpusCache = createTtlProbeCache<string, StyleCorpusResult>({
   sweepExpiredOnWrite: true,
 })
 
-// ──：analysis-overview 全书聚合 5s TTL 缓存 ─────────────────
+// ── analysis-overview 全书聚合 5s TTL 缓存 ─────────────────
 // 端点遍历 manifest + 分析目录全部信封（长书同步 IO 数百次），工作台进页/轮询/刷新
 // 反复触发。手法对齐 search.ts（mtime 探针 + TTL）：**每文件 mtime/size 探针**
 // （方案偏离记档：只探目录集 mtime，但 overview 信封是内容写——改写既有文件不

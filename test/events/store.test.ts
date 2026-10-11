@@ -426,3 +426,27 @@ describe('R65-20（批 B）：listEvents 坏行降级', () => {
     }
   })
 })
+
+// P1-16：maskSelfCheckData 降为 debug 开关（默认关）——自检查询为 events 全表扫
+// （O(N)，无可用索引），只在 close 写 compaction 前跑一次；诊断/复现时设
+// CLWRITING_EVENTS_SELF_CHECK=1 启用。未启用返回 null（调用方跳过告警，防空结果误报）。
+describe('P1-16 maskSelfCheckData 自检开关', () => {
+  it('默认关 → null（自检未跑）；env 开启 → 返回区间/表面类行（查询面不变）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!
+    const sid = store.createSession('书A')
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: 'hi' }, surfaceOp: 'append' }])
+    delete process.env.CLWRITING_EVENTS_SELF_CHECK
+    expect(store.maskSelfCheckData(1, 1)).toBeNull()
+    process.env.CLWRITING_EVENTS_SELF_CHECK = '1'
+    try {
+      const chk = store.maskSelfCheckData(1, 1)
+      expect(chk).not.toBeNull()
+      expect(chk!.intervals).toEqual([])
+      expect(chk!.rows.map((r) => r.seq)).toEqual([1])
+    } finally {
+      delete process.env.CLWRITING_EVENTS_SELF_CHECK
+    }
+    store.close()
+  })
+})

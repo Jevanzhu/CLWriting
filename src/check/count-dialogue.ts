@@ -97,11 +97,18 @@ export function checkBannedWords(body: string, bannedWords: string[]): CheckSect
   return { name: '禁词', items }
 }
 
+/** 字数检查默认容忍度（%）——导出供机检代次哈希收编（阈值改必变代次）。 */
+export const WORD_COUNT_TOLERANCE_PCT = 30
+
 /**
  * 字数检查（#10 项 5，🟡 黄）。
  * 偏离细纲目标字数过多 → 提示。
  */
-export function checkWordCount(actualWords: number, targetWords: number, tolerancePct = 30): CheckSectionResult {
+export function checkWordCount(
+  actualWords: number,
+  targetWords: number,
+  tolerancePct = WORD_COUNT_TOLERANCE_PCT,
+): CheckSectionResult {
   const items: CheckItem[] = []
   if (targetWords > 0) {
     const diff = (Math.abs(actualWords - targetWords) / targetWords) * 100
@@ -123,18 +130,22 @@ export function checkWordCount(actualWords: number, targetWords: number, toleran
  * 「重复 n-gram 实例数 / 总 n-gram 数」为复读率——重复句改个别字仍有大量相同
  * n-gram 被计数；阈值经测试校准，保持不误报正常文本。
  */
-const REPEAT_N_GRAM = 8
+/** 复读滑窗 n-gram 长度——导出供机检代次哈希收编（规则参数改必变代次）。 */
+export const REPEAT_N_GRAM = 8
 
 /** 绝对重复字符量阈值（双口径的第二口径）。
  *  量纲 = 重复 n-gram 实例折算字符数（每多出现一次计 REPEAT_N_GRAM 字，全书求和，
  *  见 ngramRepeatRate.repeatChars）。取值保守：200 字 ≈ 一段 30+ 字的复读块重复两遍，
  *  正常行文（人名/套语零星重现）远达不到；比率口径（15%）继续管小章，绝对口径兜
  *  大章集中复读（5000 字章重复 100 字 ≈ 2%，比率不报、绝对量 700+ 字必报）。 */
-const REPEAT_CHARS_THRESHOLD = 200
+export const REPEAT_CHARS_THRESHOLD = 200
+
+/** 复读率阈值默认值（比率口径）——导出供机检代次哈希收编。 */
+export const REPEAT_RATE_THRESHOLD = 0.15
 
 export function checkRepeat(
   body: string,
-  threshold = 0.15,
+  threshold = REPEAT_RATE_THRESHOLD,
   repeatCharThreshold = REPEAT_CHARS_THRESHOLD,
 ): CheckSectionResult {
   const items: CheckItem[] = []
@@ -174,11 +185,17 @@ export function checkRepeat(
   return { name: '复读', items }
 }
 
+/** 句长体检默认单句上限（字）——导出供机检代次哈希收编。 */
+export const SENTENCE_MAX_LEN = 60
+
+/** 超长句占比阈值（超限句数/总句数）——导出供机检代次哈希收编。 */
+export const OVERLONG_SENTENCE_RATIO = 0.2
+
 /**
  * 句长体检（#10 项 8，🟡 黄）。
  * 句长方差 / 超长句占比。
  */
-export function checkSentenceLength(body: string, maxLen = 60): CheckSectionResult {
+export function checkSentenceLength(body: string, maxLen = SENTENCE_MAX_LEN): CheckSectionResult {
   const items: CheckItem[] = []
   const sentences = splitSentences(body)
   // 分号句读口径注记——splitSentences 全库
@@ -190,7 +207,7 @@ export function checkSentenceLength(body: string, maxLen = 60): CheckSectionResu
   // 句长统一码点口径（与 countWords 一致）——UTF-16 .length 对
   // astral 字符（emoji/生僻扩展区）一符计 2，句长虚高。codePointLength 见顶部 import。
   const overlong = sentences.filter((s) => codePointLength(s) > maxLen)
-  if (sentences.length > 0 && overlong.length / sentences.length > 0.2) {
+  if (sentences.length > 0 && overlong.length / sentences.length > OVERLONG_SENTENCE_RATIO) {
     items.push({
       checkId: 'sentence-length',
       level: 'yellow',

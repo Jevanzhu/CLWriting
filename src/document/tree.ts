@@ -11,9 +11,9 @@
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
+import { hashBytes } from '../fs/hash.js' // 字节哈希单源
 import { toNfcName } from '../fs/text-canonical.js'
 import { isMdFileName, chapterNoFromName } from '../format/filename.js'
-import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { manifestPathOf, readManifest, type ManifestEntry } from './manifest.js'
 import { deriveStatus, type DocumentStatus } from './status.js'
@@ -270,7 +270,7 @@ function isCountedRole(role: DocumentRole): boolean {
   return role === 'chapter' || role === 'piece-body'
 }
 
-// ──：树单次读 + 哈希缓存 ─────────────────────────────
+// ── 树单次读 + 哈希缓存 ─────────────────────────────
 
 /** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志 + 显示序（原三读合一，阶段 24 增 order）。 */
 interface FileProbe {
@@ -339,7 +339,9 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   } catch {
     return null
   }
-  const rev = ('sha256:' + createHash('sha256').update(raw).digest('hex')) as `sha256:${string}`
+  // 字节哈希走 fs/hash.hashBytes 单源（内联 createHash 副本收敛；
+  // 'sha256:' + 原始字节，与 revision/manifest 同一口径）
+  const rev = hashBytes(raw) as `sha256:${string}`
   // 字数 + published 都从同一份字节解析（一次读、一次 utf8 解码）
   const text = raw.toString('utf8')
   const split = splitFrontMatter(text)

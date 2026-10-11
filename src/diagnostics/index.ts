@@ -1,5 +1,6 @@
 /**
- * 诊断包（排查用打包件）：把「排查一个 bug 需要的最小信息集」打成单个 ZIP。
+ * 诊断包（排查用打包件）：把「排查一个 bug 需要的最小信息集」打成 ZIP（超单卷上限
+ * 按条目边界分卷，见 zip.ts 头注；单卷时行为与既有逐字节一致）。
  *
  * 口径（基础集）：
  * - 环境：应用版本（版本单源，调用方注入）、平台/架构、运行环境（node/electron/chrome/v8 版本，
@@ -25,11 +26,11 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { redactSecret } from '../log/redact.js'
 import { errMsg, recentLogFiles } from '../log/index.js'
-import { buildZipStore, type ZipEntry } from './zip.js'
+import { buildZipStoreVolumes, type ZipEntry, type ZipStoreLimits } from './zip.js'
 
 /** 日志收集天数（与日志轮转的保留期同口径，见 recentLogFiles） */
 const LOG_DAYS = 7
@@ -88,15 +89,19 @@ export interface DiagnosticsOptions {
   appVersion: string
   /** 生成时刻（测试注入固定值；缺省当前时刻） */
   now?: Date
+  /** ZIP 单卷上限收窄（测试注入窄限走分卷/截断路径；生产缺省 = 格式硬上限，见 zip.ts） */
+  zipLimits?: Partial<ZipStoreLimits>
 }
 
 export interface DiagnosticsResult {
   ok: boolean
-  /** 生成的包绝对路径 */
+  /** 生成的包绝对路径（多卷时 = 第一卷） */
   file?: string
+  /** 全部卷路径（卷序；单卷时仅一项。超单卷上限按条目边界分卷，不再整包失败） */
+  files?: string[]
   /** 包所在目录绝对路径 */
   dir?: string
-  /** 包内条目名（首条为 说明.txt） */
+  /** 实际入卷条目名（按输入序；首条为 说明.txt；超限被截断省略的条目不列） */
   entries?: string[]
   bytes?: number
   warnings?: string[]
@@ -283,14 +288,35 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
   const stamp = `${localDayKeyPlain(now)}-${localClockPlain(now)}`
   const file = join(dir, `诊断包-${stamp}.zip`)
   try {
-    const zip = buildZipStore(entries, { mtime: now })
-    atomicWriteFile(file, zip)
+    // 超单卷上限（>4GiB 累计或 >65535 条目）不再整包失败——按条目边界分卷，
+    // 单条自身超限则截断省略，两条路径都经 warnings 显式提示（不静默丢）。
+    const pack = buildZipStoreVolumes(entries, { mtime: now, ...(opts.zipLimits ? { limits: opts.zipLimits } : {}) })
+    if (pack.volumes.length === 0) {
+      return { ok: false, error: '诊断包体积超单卷上限且无可入卷条目，未写入任何内容', ...(warnings.length > 0 ? { warnings } : {}) }
+    }
+    const files = pack.volumes.map((_, i) => (i === 0 ? file : join(dir, `诊断包-${stamp}-${i + 1}.zip`)))
+    let bytes = 0
+    for (let i = 0; i < pack.volumes.length; i++) {
+      atomicWriteFile(files[i]!, pack.volumes[i]!)
+      bytes += pack.volumes[i]!.length
+    }
+    if (pack.droppedNames.length > 0) {
+      const head = pack.droppedNames.slice(0, 3).join('、')
+      const more = pack.droppedNames.length > 3 ? ` 等 ${pack.droppedNames.length} 条` : ''
+      warnings.push(`诊断包有 ${pack.droppedNames.length} 条超出单卷上限被省略：${head}${more}`)
+    }
+    if (pack.volumes.length > 1) {
+      warnings.push(
+        `诊断包超出单卷上限，已按条目边界分 ${pack.volumes.length} 卷写入（${files.map((f) => basename(f)).join('、')}）`,
+      )
+    }
     return {
       ok: true,
-      file,
+      file: files[0],
+      files,
       dir,
-      entries: entries.map((e) => e.name),
-      bytes: zip.length,
+      entries: pack.packedNames,
+      bytes,
       ...(warnings.length > 0 ? { warnings } : {}),
     }
   } catch (e) {

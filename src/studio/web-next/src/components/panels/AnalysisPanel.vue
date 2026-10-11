@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 分析面板（右栏速览）：全书速览（聚合趋势摘要）。
 // 章节标签已回归 MetaFormPanel（章节信息）；单章分析详情在 rhythm 视图。
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { RefreshCw, Tag, Sparkles } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
@@ -12,6 +12,7 @@ import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { useStaleGuard } from '../../composables/useStaleGuard'
+import { useBookScoped } from '../../composables/useBookScoped'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -129,11 +130,7 @@ async function loadOverview(): Promise<void> {
     overview.value = null
   }
 }
-watch(
-  () => props.bookName,
-  () => void loadOverview(),
-  { immediate: true },
-)
+useBookScoped(() => props.bookName, { load: loadOverview, immediate: true })
 
 // 体验分均值 + 趋势（后 3 章均值 vs 前 3 章均值 → ↑/↓/→）
 const scoreAvg = computed(() => {

@@ -32,6 +32,9 @@ const cost = ref<CostStats | null>(null)
 // #19：cost 取数失败与未配价（enabled:false）分流——此前 catch 吞成 null，
 // 失败被渲染成「未配置价格表」引导，误导归因到配置
 const costFailed = ref(false)
+// 服务端事件库读失败（degraded）与「确无调用/未配价」两态分流——
+// 服务端空壳此前把读失败渲染成「暂无调用记录 / 未配置价格表」，故障伪装成业务空态
+const traceDegraded = ref(false)
 const loaded = ref(false)
 
 /** #19：cost 取数失败不打穿整卡（trace-stats 仍要渲染），失败单独记态 */
@@ -66,6 +69,7 @@ async function load(): Promise<void> {
     if (!armed) return // 卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
+    traceDegraded.value = trace.degraded === true
     costFailed.value = costR === 'failed' // #19
     cost.value = costR === 'failed' ? null : costR
   } catch {
@@ -78,6 +82,7 @@ async function load(): Promise<void> {
     total.value = 0
     cost.value = null
     costFailed.value = false // #19：整卡失败走空态，不误报 cost 取数失败
+    traceDegraded.value = false // 整卡失败走空态（HTTP 层失败已由空态表达），不误报服务端降级
   } finally {
     if (loadGen.fresh(gen) && armed) loaded.value = true
   }
@@ -139,6 +144,9 @@ function fmtMs(n: number): string {
     </div>
 
     <div v-if="!loaded" class="usage-empty">统计加载中…</div>
+    <div v-else-if="traceDegraded" class="usage-empty">
+      调用统计暂不可用（服务端事件库读取失败），刷新后重试。
+    </div>
     <div v-else-if="tasks.length === 0" class="usage-empty">
       暂无 AI 调用记录（写作/审稿/摘要等任务的用量在此汇总）。
     </div>
@@ -153,6 +161,9 @@ function fmtMs(n: number): string {
       </div>
       <div v-else-if="costFailed" class="usage-cost usage-cost--muted">
         成本金额取数失败（服务暂不可达），刷新后重试。
+      </div>
+      <div v-else-if="cost?.degraded" class="usage-cost usage-cost--muted">
+        成本统计暂不可用（服务端事件库读取失败），刷新后重试。
       </div>
       <div v-else class="usage-cost usage-cost--muted">
         未配置价格表——在「设置 · 服务提供方」编辑价格后此处显示金额。

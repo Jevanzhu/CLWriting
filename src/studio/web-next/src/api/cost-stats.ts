@@ -9,6 +9,9 @@ export interface CostBucket {
 
 export interface CostStats {
   enabled: boolean
+  /** true = 服务端事件库读失败（空壳语义是「读不到」，而非「未配价/零成本」）——
+   *  与 enabled:false 分态渲染，不把观测层故障伪装成配置引导。 */
+  degraded?: boolean
   currency?: string
   total: number
   byDay: Record<string, CostBucket>

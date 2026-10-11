@@ -32,7 +32,7 @@ interface DraftCtx extends TaskGateInjected {
   userDataPath?: string | null
 }
 
-// ──：draft-save per-book 串行链 ──
+// ── draft-save per-book 串行链 ──
 // 此前 draft-save 端点游离于全部排水闸之外：删书/改名排水清单（busyGate → abort →
 // awaitOrchestrationsSettled → drainDocumentSaves → drainFilePutChainsUnder →
 // drainForeshadowSaveChains）不含本链，在途/迟到 draft-save 在墓地 rename 之后落地，

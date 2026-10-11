@@ -77,6 +77,8 @@ import '../../../document/version.js' // ⑰：版本指纹缓存（join(bookRoo
 import '../../../format/style-entry.js' // ⑱：条目库读取缓存（全部 kind 变体前缀清）
 import '../../../format/iron-rules.js' // ⑲：文风铁律指纹缓存（同名重建书不复用陈规则）
 import './documents-core.js' // ㉑：伏笔保存串行链 Map 残条（drain 链已因 ./documents.js 求值，此行显式化登记来源）
+import './trace-stats.js' // ㉒：trace-stats 聚合书键 TTL 缓存（原每请求全量重算）
+import './cost-stats.js' // ㉓：cost-stats 聚合书键 TTL 缓存（同族）
 // ⑧⑳ ai 侧两条（ai/rules/setting-rule.ts 设定目录读取缓存 / ai/calls.ts 旧格式迁移
 // 标记）因 src/ai/** 零 studio 直连方向锁（test/governance/ai-studio-direction.test.ts）
 // 不能自登记，由本入口代登记——登记语义与自登记逐位相同；机器门照常对账。
@@ -100,7 +102,7 @@ export function forgetBookKeyedCaches(bookRoot: string): void {
   forgetRegisteredBookKeyedCaches(bookRoot)
 }
 
-// ──：书架守卫/配置 TTL 缓存 ──────────────────
+// ── 书架守卫/配置 TTL 缓存 ──────────────────
 // resolveWithinRoot（双侧 realpath + existsSync 链）与 readBookConfig（读盘 + YAML
 // 解析）此前每请求每书全量重跑，不受 30s 摘要缓存保护——书库大 + 书架页高频刷新/
 // 多窗口时每轮数百次同步 stat。与书架摘要同 TTL 口径：book.yaml 变更/书被外部移动

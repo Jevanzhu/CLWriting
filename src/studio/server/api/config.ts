@@ -38,7 +38,7 @@ interface ConfigCtx {
   workDir: string | null
 }
 
-// ──：非闸书级写端点的临界段书注册重验 ──
+// ── 非闸书级写端点的临界段书注册重验 ──
 // PUT /config 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
 // 在途 PUT）——重验竞态时序与防线形态单源见 book-context.ts 头注
 //（起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。重验与下方

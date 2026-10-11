@@ -54,7 +54,7 @@ export function createSystemFontCache(
   }
 }
 
-// ──：mac/linux font-list 调用超时 ─────────────────────
+// ── mac/linux font-list 调用超时 ─────────────────────
 
 /** font-list 枚举超时（毫秒）——10s 对齐 win-fonts 的缺省超时档
  *  （win 走 listWindowsFonts 自带超时 + kill，不经本包裹）。 */

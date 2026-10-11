@@ -24,6 +24,7 @@ function expectCell(
 
 describe('R0912-3：resolveToolChoiceIntent 全组合空间（mode × intent × toolName）', () => {
   it('named：强制意图按请求形态分指名/不指名，auto 照发', () => {
+    // 零断言豁免：断言在 expectCell 辅助函数内（每格逐字段 toEqual 比对）
     expectCell('named', 'any', TOOL_NAME, { action: 'force' })
     expectCell('named', 'any', undefined, { action: 'force' })
     expectCell('named', 'tool', TOOL_NAME, { action: 'force-named', name: TOOL_NAME })
@@ -35,6 +36,7 @@ describe('R0912-3：resolveToolChoiceIntent 全组合空间（mode × intent × 
   })
 
   it('required：强制意图一律降级为不指名 force（toolName 不透传），auto 照发', () => {
+    // 零断言豁免：断言在 expectCell 辅助函数内（每格逐字段 toEqual 比对）
     expectCell('required', 'any', TOOL_NAME, { action: 'force' })
     expectCell('required', 'any', undefined, { action: 'force' })
     expectCell('required', 'tool', TOOL_NAME, { action: 'force' }) // 指名降级：无 name 键
@@ -46,6 +48,7 @@ describe('R0912-3：resolveToolChoiceIntent 全组合空间（mode × intent × 
   })
 
   it('auto：仅 auto 意图放行，强制意图不发（prompt 引导 + 契约层校验重试兜底）', () => {
+    // 零断言豁免：断言在 expectCell 辅助函数内（每格逐字段 toEqual 比对）
     expectCell('auto', 'any', TOOL_NAME, { action: 'none' })
     expectCell('auto', 'any', undefined, { action: 'none' })
     expectCell('auto', 'tool', TOOL_NAME, { action: 'none' })
@@ -57,6 +60,7 @@ describe('R0912-3：resolveToolChoiceIntent 全组合空间（mode × intent × 
   })
 
   it('none：协议不支持 tool_choice——恒 none（responses 线视图无 none 档，不进此分支）', () => {
+    // 零断言豁免：断言在 expectCell 辅助函数内（每格逐字段 toEqual 比对）
     expectCell('none', 'any', TOOL_NAME, { action: 'none' })
     expectCell('none', 'any', undefined, { action: 'none' })
     expectCell('none', 'tool', TOOL_NAME, { action: 'none' })

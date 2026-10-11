@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path'
 import { ulid } from '../fs/id.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { normalizeWinSeparators } from '../fs/safe-path.js'
 import { stringifyValue } from '../format/frontmatter.js'
 import { isPublishedValue } from '../format/chapters.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
@@ -247,11 +248,11 @@ export async function applyChapterSplit(
       // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。
       // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
       // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
-      // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
-      const relPath = join(
-        dirname(o.path),
-        `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`,
-      ).replaceAll('\\', '/')
+      // 归一委托单源 normalizeWinSeparators（win32-only）——手写 replaceAll 在 posix 上
+      // 会把字面含 `\` 的目录/文件名段劈成两级路径（mac 外部创建的 `卷\一` 段）。
+      const relPath = normalizeWinSeparators(
+        join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`),
+      )
       const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
       const created = await svc.createDocument({ relPath, content: newContent })
       if (!created.ok) {

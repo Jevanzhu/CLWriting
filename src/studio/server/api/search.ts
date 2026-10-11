@@ -23,7 +23,7 @@ interface SearchCtx {
   searchTtlMs?: number | null
 }
 
-// ──：全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
+// ── 全书扫描短 TTL 缓存 + 在途去重 ─────────────────────────
 // 手法对齐 knowledge.ts learnCache / progress.ts summaryCache（书键 Map + FIFO 上限 +
 // 纯 TTL；删书/改名经 books.ts forgetBookKeyedCaches 失效）。async 化后扫描不再
 // 冻结事件循环，但查询词稀有时仍须读完全部文件才返回——重复点击/同参数并发去重为一次

@@ -14,6 +14,7 @@ import { CLWRITING_DIR, readBooksStrict } from '../install/books.js'
 // bookRoot）——install/books-resolve 与 install/books 均无 document 侧回边，无环。
 import { findWorkDir } from '../install/books-resolve.js'
 import { testableConst } from '../shared/testable.js'
+import { isUtf8 } from '../shared/text.js'
 import { errMsg } from '../log/index.js'
 
 /** 非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -30,14 +31,11 @@ export const NON_UTF8_REJECT = {
  *  兜底（maybeSnapshot 只留底章文档），一旦覆盖原始字节无版本可恢复。
  *  判据用「盘上字节是否合法 UTF-8」（fatal 解码探测）而非「盘上是否已含 U+FFFD」：
  *  GBK 文件以 utf-8 读入本就产生 U+FFFD，后者会把最该拦的场景判成放行。盘上为合法
- *  UTF-8（含作者真实键入的 � 字符）时不受影响——那是普通编辑，无字节可毁。 */
+ *  UTF-8（含作者真实键入的 � 字符）时不受影响——那是普通编辑，无字节可毁。
+ *  实现体收敛到 shared/text.isUtf8 单源（export/summary 同款副本已迁同一函数）；
+ *  本函数名保留为对外契约（十余处消费方零改动）。 */
 export function isUtf8Bytes(buf: Buffer): boolean {
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buf)
-    return true
-  } catch {
-    return false
-  }
+  return isUtf8(buf)
 }
 
 export const NON_UTF8_SAVE_REJECT = {

@@ -36,6 +36,7 @@ import { walkMdEach } from '../fs/walk-md.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { parseMergedInto } from '../format/chapters.js'
 import { chapterNoFromName } from '../format/filename.js'
+import { normalizeWinSeparators } from '../fs/safe-path.js'
 import { BODY_PREFIX } from './structure-core.js'
 
 // ── re-export 桥：逐名保 structure.ts 既有导出面，消费方零改动 ──
@@ -87,7 +88,9 @@ export function detectStructureViolations(bookRoot: string): StructureViolation[
     registered.push({
       no: n,
       title: typeof title === 'string' ? title : '',
-      path: relative(bookRoot, fp).replaceAll('\\', '/'),
+      // 分隔符归一委托单源（win32-only）——手写 replaceAll 在 posix 上会把字面含 `\`
+      // 的合法文件名的定位路径扭曲成 `/` 形态（violation 报文/repair 定位身份键）
+      path: normalizeWinSeparators(relative(bookRoot, fp)),
       mergedInto,
     })
   })

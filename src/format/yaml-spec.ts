@@ -44,7 +44,7 @@ function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
   )
 }
 
-// ──：book.yaml 键 schema 表（三面单源）────────
+// ── book.yaml 键 schema 表（三面单源）────────
 //
 // 同一份键清单此前三处各写一遍：sectionsToConfig（逐段 findChild+parse+warn 手写）、
 // stringifyBookConfig（逐键条件落行）、CONFIG_PATCH_LEAVES（补丁白名单登记表）——

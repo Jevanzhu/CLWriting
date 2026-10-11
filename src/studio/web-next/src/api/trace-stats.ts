@@ -15,6 +15,8 @@ export interface TraceStats {
   total: number
   byTask: Record<string, unknown>
   ruleHits: RuleHitEntry[]
+  /** true = 服务端事件库读失败——total:0 是「读不到」而非「确无调用」。 */
+  degraded?: boolean
 }
 
 /** GET /api/books/:name/trace-stats → 聚合指标 + 规则命中 */

@@ -133,6 +133,10 @@ const API_LAYER_REGISTERED: ReadonlyMap<string, string> = new Map([
     '状态机端点：仅 redactSecret（经 ai/provider/redact 兼容转发——真家 log/redact.ts，改指即可消 ai 边）',
   ],
   [
+    'src/studio/server/api/stats-signature.ts',
+    '非路由模块：trace-stats / cost-stats 结果缓存的数据源指纹探针——需事件库路径（events 单源）与 rule-hits 统计文件路径（ai/rule-hits 单源导出，禁消费方手抄）同源派生',
+  ],
+  [
     'src/studio/server/api/stream.ts',
     'SSE/spawn/interrupt/auto-write 端点：自愈/chat 编排、spec 运行、计费、spawn registry、task-gate-port 组合根注册',
   ],

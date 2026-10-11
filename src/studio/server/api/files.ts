@@ -21,6 +21,7 @@ import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
+import { forgetStateCache } from './state.js' // PUT 写后 /state 判态缓存失效（写侧失效挂点单源）
 // NonUtf8TargetError 类型化分诊（确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
 import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // 覆盖留底单源复用（同款）
 import { log, errMsg } from '../../../log/index.js'
@@ -236,6 +237,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
           // 改走单键失效——只清本次改写文件的 probe 键，不再整书清空
           // 哈希缓存（否则每次编辑器保存后下一次树请求全书重读+重哈希）
           invalidateTreeIndexForContent(bookRoot, putRel)
+          // 写侧失效挂点补齐：/state 判态聚合（detectState: rebuild 读 布线/、
+          // handEdits 指纹、工作区/细纲.md 未完成判定）吃得到本端点改写的文件——
+          // 白名单含 布线/*.md 与 工作区/细纲.md，写后若不失效，/state 会吐 ≤5s 旧判态
+          //（前端保存后立刻重取状态卡仍读到写前结论）。与上行树索引同点挂线，纯 TTL 兜底不变。
+          forgetStateCache(bookRoot)
           return { revision: hashContent(content) } as const
         } finally {
           wiringRelease?.()

@@ -192,6 +192,15 @@ export default [
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/require-await': 'off',
       '@typescript-eslint/return-await': 'off',
+      // no-misused-promises 的 argument 位检查在测试里被「mock 类型断言」形态
+      // 系统性误报——`X as ReturnType<typeof vi.fn>`
+      // （vitest 5 下该断言解析出的 mockImplementation 形参返回面为 void）后接
+      // `mockImplementation(async …)` 属类型面假阳性而非真缺陷（实测 86 条该规则中
+      // 77 条在 test/，其中 argument 位 75 条，过半来自该断言形态）。
+      // 降噪口径 = 只关 test/ 的 argument 位；conditionals/variables/returns/
+      // properties 等其余上下文仍全量 error，且 no-floating-promises 未动——
+      // 测试面真缺陷类（未 await 的异步断言/调用）仍由后者兜底。
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { arguments: false } }],
       // 复杂度三规则不适用测试文件（describe/it 块天然长）
       complexity: 'off',
       'max-lines-per-function': 'off',

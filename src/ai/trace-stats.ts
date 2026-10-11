@@ -13,6 +13,7 @@
 // 读侧改流式（streamLlmCallRows）——边读边聚合，
 // 不再物化全量行数组；迭代顺序（seq 升序）与聚合口径不变，结果逐字段相同
 import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
+import { log, errMsg } from '../log/index.js'
 
 /** 单个 task 的聚合统计 */
 export interface TaskStat {
@@ -35,6 +36,10 @@ export interface TaskStat {
 export interface TraceStats {
   total: number
   byTask: Record<string, TaskStat>
+  /** true = 事件库读失败（开库/迭代故障）——total:0 是「读不到」而非「确无调用」，
+   *  前端据此提示「统计暂不可用」，不把故障渲染成 0 次调用。
+   *  仅在故障时出现（正常路径无此键，既有消费方逐字段不变）。 */
+  degraded?: boolean
 }
 
 /** 百分位（输入需排序） */
@@ -66,8 +71,9 @@ export async function aggregateTrace(userDataPath: string | null | undefined, bo
   }
   const groups = new Map<string, TaskAcc>()
   let total = 0
+  let readDegraded = false
   try {
-    await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: false }, (e: LlmCallReadRow) => {
+    const r = await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: false }, (e: LlmCallReadRow) => {
       total++
       let g = groups.get(e.task)
       if (g === undefined) {
@@ -86,10 +92,14 @@ export async function aggregateTrace(userDataPath: string | null | undefined, bo
       d.tokens += e.usageIn + e.usageOut
       g.byDay[e.day] = d
     })
-  } catch {
-    return { total: 0, byTask: {} } // 观测层失败静默 → 空壳（与旧全量读失败 → [] 一致）
+    readDegraded = r.degraded
+  } catch (e) {
+    // 观测层失败丢弃部分聚合 → 空壳（与旧全量读失败 → [] 一致）；degraded 标记
+    // 「读不到」两态，warn 留痕不再静默
+    log.warn('trace-stats', `事件库读取失败，轨迹统计按降级空壳返回：${errMsg(e)}`)
+    return { total: 0, byTask: {}, degraded: true }
   }
-  if (total === 0) return { total: 0, byTask: {} }
+  if (total === 0) return readDegraded ? { total: 0, byTask: {}, degraded: true } : { total: 0, byTask: {} }
 
   const byTask: Record<string, TaskStat> = {}
   for (const [task, g] of groups) {

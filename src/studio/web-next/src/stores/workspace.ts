@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, shallowRef, watch, nextTick } from 'vue'
+import { ref, computed, shallowRef, watch, nextTick, type ComputedRef, type Ref } from 'vue'
 import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
@@ -41,6 +41,282 @@ export interface EditorHandle {
   getCursorOffset(): number | null
 }
 
+// ── 模块级件（store setup 的函数体量受行数硬线约束；本区不取 store 实例，
+//    所需 ref/回调由调用方直传，行为与内联形态逐位一致） ──
+
+/** 旧 localStorage 键（书级 prefs 一次性迁移源；迁移成功即清）。 */
+const LEGACY_UI_PREFS_KEY = 'clw2.ui-prefs'
+
+function legacyWorkspaceKey(name: string): string {
+  return `clw2.workspace.${name}`
+}
+
+function legacyFileTreeKey(name: string): string {
+  return `clw2.filetree.${name}`
+}
+
+/** 未知值按记录取键——沿用原 `any` 取值语义（null/undefined 取值即抛，交调用方 catch 降级）。 */
+function pick(v: unknown, key: string): unknown {
+  return (v as Record<string, unknown>)[key]
+}
+
+/** 正数有限守卫（书级覆盖两键共用）：非法值按「无值」处理——服务端 JSON 可表达
+ *  1e999→Infinity，手改 prefs.json 可得 0/负数；autosave 零/负间隔原仅靠 Book.vue
+ *  max(5,·) 事后兜底，pageWidth 非法值直产非法 CSS 宽度。 */
+function posNum(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null
+}
+
+/** 清书级覆盖值并落实：refs 清空 + apply() 一次（只清 refs 不改 CSS 变量，
+ *  --page-width 等 :root 变量仍滞留前书覆盖值）。 */
+function clearBookOverrides(): void {
+  const ps = usePrefsStore()
+  ps.bookPageWidth = null
+  ps.bookAutosaveInterval = null
+  ps.apply()
+}
+
+/** 旧 localStorage → 书级 prefs 一次性迁移（仅 prefs.json 成功读到且为空时调用）。
+ *  返回是否发生迁移：true 时写回服务端并清旧键（不清则每次 prefs.json 为空的新书都会
+ *  重复走迁移分支；清失败静默，下次重迁移无害）。 */
+function migrateLegacyPrefs(prefs: BookPrefs, name: string): boolean {
+  let migrated = false
+  try {
+    const oldUi = localStorage.getItem(LEGACY_UI_PREFS_KEY)
+    if (oldUi) {
+      const p = JSON.parse(oldUi) as unknown
+      const lw = pick(p, 'leftWidth')
+      if (typeof lw === 'number') prefs.leftWidth = lw
+      const lo = pick(p, 'leftOpen')
+      if (typeof lo === 'boolean') prefs.leftOpen = lo
+      const ro = pick(p, 'rightOpen')
+      if (typeof ro === 'boolean') prefs.rightOpen = ro
+      const lp = pick(p, 'leftPanel')
+      if (lp === 'tree' || lp === 'search' || lp === 'trash') prefs.leftPanel = lp
+    }
+    const oldWs = localStorage.getItem(legacyWorkspaceKey(name))
+    if (oldWs) {
+      const ad = pick(JSON.parse(oldWs) as unknown, 'activeDocId')
+      // 只认 string/null——脏值（数字/对象/数组）原样写进 activeDocId 位，
+      // 下游按 string|null 消费（已打开的文档 id 与树节点比对）
+      if (typeof ad === 'string' || ad === null) prefs.activeDocId = ad
+    }
+    const oldTree = localStorage.getItem(legacyFileTreeKey(name))
+    if (oldTree) {
+      const arr = JSON.parse(oldTree) as unknown
+      // 迁移元素验 string——非 string 脏值（数字/null/嵌套）过滤掉，
+      // 否则树展开渲染按 path 比对时出现无主条目
+      if (Array.isArray(arr)) prefs.treeExpanded = arr.filter((x): x is string => typeof x === 'string')
+    }
+    migrated = Object.keys(prefs).length > 0
+  } catch {
+    /* 损坏降级 */
+  }
+  if (migrated) {
+    void putBookPrefs(name, prefs).catch(() => {})
+    try {
+      localStorage.removeItem(LEGACY_UI_PREFS_KEY)
+      localStorage.removeItem(legacyWorkspaceKey(name))
+      localStorage.removeItem(legacyFileTreeKey(name))
+    } catch {
+      /* localStorage 不可用降级 */
+    }
+  }
+  return migrated
+}
+
+/** 布局域 ref 面（模块级件按此读写，免逐个传参）。 */
+interface LayoutTargets {
+  leftWidth: Ref<number>
+  leftOpen: Ref<boolean>
+  rightOpen: Ref<boolean>
+  leftPanel: Ref<LeftPanel>
+  activeDocId: Ref<string | null>
+  treeExpanded: Ref<string[]>
+  /** 用户是否手工调过展开态（loadBookPrefs 迟到回填的守卫）。 */
+  treeExpandedTouched: () => boolean
+}
+
+/** 应用书级 prefs 的布局字段（逐键类型守卫：字段缺失/错型按「不覆盖」处理）。 */
+function applyLayoutPrefs(prefs: BookPrefs, t: LayoutTargets): void {
+  if (typeof prefs.leftWidth === 'number' && prefs.leftWidth >= 180) t.leftWidth.value = prefs.leftWidth
+  if (typeof prefs.leftOpen === 'boolean') t.leftOpen.value = prefs.leftOpen
+  if (typeof prefs.rightOpen === 'boolean') t.rightOpen.value = prefs.rightOpen
+  if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash')
+    t.leftPanel.value = prefs.leftPanel
+  // prefs 迟到回填仅在当前未打开文档时生效——用户已点开另一文档后被覆盖回 prefs
+  // 记录（切书 gen 守卫只防跨书异步竞态，不防同书用户操作）
+  if (t.activeDocId.value === null) t.activeDocId.value = prefs.activeDocId ?? null
+  // 同款守卫护展开态——用户已展开/折叠过则跳过回填，不覆盖作者意图
+  if (Array.isArray(prefs.treeExpanded) && !t.treeExpandedTouched()) t.treeExpanded.value = prefs.treeExpanded
+}
+
+/** 书级 prefs 落盘载荷（写时快照：布局字段 + prefs store 的书级覆盖两键）。 */
+function snapshotBookPrefs(t: LayoutTargets): BookPrefs {
+  const ps = usePrefsStore()
+  return {
+    leftWidth: t.leftWidth.value,
+    leftOpen: t.leftOpen.value,
+    rightOpen: t.rightOpen.value,
+    leftPanel: t.leftPanel.value,
+    activeDocId: t.activeDocId.value,
+    treeExpanded: t.treeExpanded.value,
+    pageWidth: ps.bookPageWidth ?? undefined,
+    autosaveInterval: ps.bookAutosaveInterval ?? undefined,
+  }
+}
+
+/** 书级 prefs 落盘调度器：500ms 防抖窗 + 在途写句柄 + 关窗冲刷。
+ *  行为与内联形态逐位一致：排定时刻快照 gen 与书名、fire 时复查（切书即作废本次落盘）；
+ *  冲刷先等在途落定再清窗直发，防两笔 PUT 乱序旧覆盖新。 */
+function createPrefsPersistScheduler(opts: {
+  guard: { current: () => number; stale: (gen: number) => boolean }
+  name: () => string | null
+  isLoaded: () => boolean
+  snapshot: () => BookPrefs
+  /** 落盘失败：同一失败窗只提示一次（成功落盘复位）。 */
+  onFail: () => void
+  onRecover: () => void
+}) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  /** 在途写句柄（对齐 prefs.ts 的 putInFlight 单飞槽先例）。链尾只清自己占据的占位。 */
+  let inFlight: Promise<void> | null = null
+
+  function write(gen: number, name: string): Promise<void> {
+    // 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
+    if (opts.guard.stale(gen) || !opts.isLoaded() || opts.name() !== name) return Promise.resolve()
+    const settle = (q: Promise<void>): void => {
+      if (inFlight === q) inFlight = null
+    }
+    const p = putBookPrefs(name, opts.snapshot())
+      .then(() => opts.onRecover())
+      .catch(() => opts.onFail())
+      // settle 闭包运行时 p 已初始化（链回调异步于同步段），读参避免自引用早于赋值
+      .finally(() => settle(p))
+    // body 起跑即同步占位（对齐 prefs.ts runPutChain 的单飞不变式）
+    inFlight = p
+    return p
+  }
+
+  /** 布局变更 → 排定一次合并写；fire 即置空句柄（冲刷据此判「无待写」）。 */
+  function schedule(): void {
+    if (!opts.isLoaded()) return
+    const name = opts.name()
+    if (!name) return
+    if (timer) clearTimeout(timer)
+    const gen = opts.guard.current()
+    timer = setTimeout(() => {
+      timer = null
+      void write(gen, name)
+    }, 500)
+  }
+
+  /** 挂起窗作废（切书）：清计时器，本次不写。 */
+  function cancel(): void {
+    if (timer) clearTimeout(timer)
+    timer = null
+  }
+
+  /** 关窗冲刷：先等在途落定（失败已消化，不重试）→ 清窗直发一次写穿；无待写项不空写。 */
+  async function flush(): Promise<void> {
+    if (inFlight)
+      await inFlight.catch(() => {
+        /* 在途失败已消化，此处不重试 */
+      })
+    if (!timer) return
+    clearTimeout(timer)
+    timer = null
+    await write(opts.guard.current(), opts.name() ?? '')
+  }
+
+  return { write, schedule, cancel, flush }
+}
+
+/** 切档时旧文档的存盘链（fire-and-forget，不阻断切换）：
+ *  在途落定 → 复查 → 补存一次 → 仅真失败才可见化。 */
+function savePrevDocOnSwitch(prevId: string, isSameBook: () => boolean): void {
+  const doc = useDocStore()
+  // 失败是异步迟到态：不抛错不打断切换；入口书名快照守卫防在途切书后
+  // 迟到失败提示落新书界面
+  const notify = (): void => {
+    if (isSameBook()) useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+  }
+  // dirty 要到保存落定才清，不等在途即判必吃到 save「saving 中 autosave 返 false」
+  // 的假失败（flushDirty 同款有界轮次台账等待）
+  void (async (): Promise<void> => {
+    await doc.waitInflightSave(prevId)
+    if (!isSameBook()) return // 切书后迟到落定不落当前界面（下方 get 复查兜底）
+    const cur = doc.get(prevId)
+    if (!cur || !cur.dirty || cur.saving) return // ① 已 clean / 条目已清（删除、切书）/ 新在途接手 → 不补存不提示
+    if (cur.conflict) return // ② 冲突未决（autosave 设计内跳过，编辑器自有重载/覆盖冲突 UI）
+    const ok = await doc.save(prevId, 'autosave')
+    if (!ok) {
+      // ③ save 返 false ≠ 全是失败（条目已清的 404、落定冲突都不算）：
+      // 复查仍 dirty、无新在途、非冲突才可见化
+      const after = doc.get(prevId)
+      if (after?.dirty && !after.saving && !after.conflict) notify()
+    }
+  })().catch(notify)
+}
+
+/** 一次性插入令牌构造（消费态随令牌本体走，不与槽位耦合）。 */
+function makeInsertCommand(text: string): InsertCommand {
+  let consumed = false
+  return {
+    text,
+    consume(): string | null {
+      if (consumed) return null
+      consumed = true
+      return text
+    },
+  }
+}
+
+/** 兼容读面构造：句柄在场时借出其方法（闭包内直呼，不依赖 this），离场返回 null——
+ *  读方 `ws.editorGetSelection?.` 的可选链语义与内联 computed 逐位一致。 */
+function handleReader<T>(handle: Ref<EditorHandle | null>, read: (h: EditorHandle) => T): ComputedRef<T | null> {
+  return computed<T | null>(() => {
+    const h = handle.value
+    return h ? read(h) : null
+  })
+}
+
+/** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。
+ *  属主校验——keyset 是某本书整树的 docId 集合，切书窗内 tree 仍持旧书键集
+ *  （byDocId/ownerBook 与 bookName 更不同窗），以旧键集校验新书恢复的 activeDocId
+ *  会误清（恢复文档被清，下次进书不再恢复；无内容丢失，体验面）。ownerBook 与当前
+ *  书名不一致时跳过校验；缺省（既有调用面/存量测试口径）维持原行为不做属主比对。 */
+function validateDocId(
+  activeDocId: Ref<string | null>,
+  bookName: Ref<string | null>,
+  validDocIds: Set<string>,
+  ownerBook?: string,
+): void {
+  if (ownerBook !== undefined && ownerBook !== bookName.value) return
+  if (activeDocId.value && !validDocIds.has(activeDocId.value)) activeDocId.value = null
+}
+
+/** 新建信号发射（TabBar → ChapterTreePanel 监听 createTick 执行）。
+ *  左栏在搜索/回收站时点「新建」此前静默无响应——createTick 唯一消费者
+ *  ChapterTreePanel 只在 leftPanel==='tree' 时挂载（SidebarLeft v-if），信号发出时无
+ *  监听者。非树面板先切回章节树（新建意图指向树，切面板即用户可见反馈），tick 递延到
+ *  nextTick——面板切换触发重新挂载，watch 注册晚于 tick++ 会错过信号（挂载期不
+ *  immediate），nextTick 再递一次让挂载后的 watch 收到。 */
+function emitCreateSignal(
+  kind: CreateKind,
+  s: { kind: Ref<CreateKind>; panel: Ref<LeftPanel>; tick: Ref<number> },
+): void {
+  s.kind.value = kind
+  if (s.panel.value !== 'tree') {
+    s.panel.value = 'tree'
+    void nextTick(() => {
+      s.tick.value++
+    })
+    return
+  }
+  s.tick.value++
+}
+
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
  *
@@ -76,43 +352,77 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const pendingInsert = ref<InsertCommand | null>(null)
   /** 编辑器查询句柄（EditorView onMounted 注册 / onUnmounted 置 null）。null = 无编辑器。 */
   const editorHandle = shallowRef<EditorHandle | null>(null)
-  /** 兼容读面（RewritePanel / useAiAssist / useChapterTreeStructure 既有读取口）：
-   *  句柄在场时借出其方法（闭包内直呼，不依赖 this），离场返回 null——读方
-   *  `ws.editorGetSelection?.` 的可选链语义与改前逐位一致。 */
-  const editorGetSelection = computed<(() => string) | null>(() => {
-    const h = editorHandle.value
-    return h ? () => h.getSelection() : null
-  })
-  const editorGetCursorOffset = computed<(() => number | null) | null>(() => {
-    const h = editorHandle.value
-    return h ? () => h.getCursorOffset() : null
-  })
+  /** 兼容读面（RewritePanel / useAiAssist / useChapterTreeStructure 既有读取口）——
+   *  句柄在场借出其方法、离场返回 null；构造口径见 handleReader。 */
+  const editorGetSelection = handleReader(editorHandle, (h) => () => h.getSelection())
+  const editorGetCursorOffset = handleReader(editorHandle, (h) => () => h.getCursorOffset())
   const bookName = ref<string | null>(null)
 
-  // ── 书库级 prefs 加载/持久化 ──
+  // ── 书级 prefs 加载/持久化状态 ──
   let prefsLoaded = false
   let watchStop: (() => void) | null = null
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染）。
    * 裸计数器换装 useStaleGuard（setBook begin；其余观测点 current）。 */
   const bookGen = useStaleGuard()
-  /** 书级 prefs 持久化失败的一次性提示
-   * 去重标记——对齐全局偏好口径（同一失败窗只 warning 一次，成功落盘复位） */
+  /** 书级 prefs 持久化失败的一次性提示去重标记——对齐全局偏好口径
+   * （同一失败窗只 warning 一次，成功落盘复位） */
   let bookPrefsFailNotified = false
-  /** 书级 prefs 在途写句柄（对齐 prefs.ts 的 putInFlight 单飞槽先例；
-   *  书级侧此前无在途面——防抖刚 fire 出去的那笔写不在关窗冲刷等待范围，缺口在
-   * 注释挂账待拍板，本批收口）。链尾只清自己占据的占位。 */
-  let bookPrefsInFlight: Promise<void> | null = null
-  // 进书后用户是否动过 treeExpanded（展开/折叠 mutation 处 setTreeExpanded
-  // 置位）——loadBookPrefs 迟到回填不得覆盖作者已手工调整的展开态（比照 activeDocId 的
-  // 守卫：既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
+  /** 进书后用户是否动过 treeExpanded（展开/折叠 mutation 处 setTreeExpanded
+   * 置位）——loadBookPrefs 迟到回填不得覆盖作者已手工调整的展开态（比照 activeDocId 的
+   * 守卫：既有 gen 守卫只防跨书异步竞态，不防同书用户操作） */
   let treeExpandedTouched = false
+
+  /** 布局域 ref 面（模块级件按此读写）。 */
+  const layout: LayoutTargets = {
+    leftWidth,
+    leftOpen,
+    rightOpen,
+    leftPanel,
+    activeDocId,
+    treeExpanded,
+    treeExpandedTouched: () => treeExpandedTouched,
+  }
+  /** 书级 prefs 落盘调度器（防抖窗 / 在途写句柄 / 关窗冲刷三件的收拢口）。 */
+  const persist = createPrefsPersistScheduler({
+    guard: bookGen,
+    name: () => bookName.value,
+    isLoaded: () => prefsLoaded,
+    snapshot: () => snapshotBookPrefs(layout),
+    onRecover: () => {
+      bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
+    },
+    onFail: () => {
+      // 落盘失败不再全静默（原 catch(=>{}) 吞掉——离线调面板布局重启回退无提示）
+      if (bookPrefsFailNotified) return
+      bookPrefsFailNotified = true
+      useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+    },
+  })
 
   /** 展开/折叠树节点的唯一用户入口（ChapterTreePanel toggle / 新建自动展开）：
    *  置「用户已操作」位 + 写值。程序化默认展开（首开 defaultExpandedDirs）不走这里。 */
   function setTreeExpanded(paths: string[]): void {
     treeExpandedTouched = true
     treeExpanded.value = paths
+  }
+
+  /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
+  function startPersistWatch(): void {
+    if (watchStop) watchStop()
+    const ps = usePrefsStore()
+    watchStop = watch(
+      [
+        leftWidth,
+        leftOpen,
+        rightOpen,
+        leftPanel,
+        activeDocId,
+        treeExpanded,
+        () => ps.bookPageWidth,
+        () => ps.bookAutosaveInterval,
+      ],
+      () => persist.schedule(),
+    )
   }
 
   /** 切书：异步加载书库级 prefs（工作区布局 + 最后打开文档）。 */
@@ -129,8 +439,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // 滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
     // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
     pendingInsert.value = null
-    if (debounceTimer) clearTimeout(debounceTimer) // ff 细节#11：挂起的落盘随切书作废
-    debounceTimer = null
+    persist.cancel() // 挂起的落盘随切书作废
     const gen = bookGen.begin()
     void loadBookPrefs(gen)
   }
@@ -149,83 +458,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (bookGen.stale(gen)) return
       // 拉取失败直接放弃——不置 prefsLoaded、不 startPersistWatch（下次进书重试），
       // 否则默认布局经持久化 watch 写回覆盖服务端已存的 prefs.json
-      // 放弃前清书级覆盖值——A 书的纸张宽度/自动保存间隔残留
-      // 进 B 书会话直至下次成功加载（活源读取消耗点）。
-      const ps = usePrefsStore()
-      ps.bookPageWidth = null
-      ps.bookAutosaveInterval = null
-      // 清了书级覆盖值但缺 apply()——refs 清空只改 store 态，
-      // --page-width 等 :root CSS 变量仍滞留 A 书覆盖值，B 书正文宽度沿用前书设置
-      // 直至下次成功加载/全局偏好变更才被冲掉。
-      ps.apply()
+      clearBookOverrides()
       return
     }
 
     // 竞态守卫：await 期间若已切到其他书 → 丢弃本次结果，防 A 的 prefs 写入 C 的 slot
     if (bookGen.stale(gen)) return
 
-    // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移（拉取失败已提前 return，不会误迁移写回）
-    if (Object.keys(prefs).length === 0) {
-      let migrated = false
-      try {
-        const oldUi = localStorage.getItem('clw2.ui-prefs')
-        if (oldUi) {
-          const p = JSON.parse(oldUi)
-          if (typeof p.leftWidth === 'number') prefs.leftWidth = p.leftWidth
-          if (typeof p.leftOpen === 'boolean') prefs.leftOpen = p.leftOpen
-          if (typeof p.rightOpen === 'boolean') prefs.rightOpen = p.rightOpen
-          if (p.leftPanel) prefs.leftPanel = p.leftPanel
-        }
-        const oldWs = localStorage.getItem(`clw2.workspace.${bookName.value}`)
-        if (oldWs) {
-          const w = JSON.parse(oldWs)
-          if (w.activeDocId !== undefined) prefs.activeDocId = w.activeDocId
-        }
-        const oldTree = localStorage.getItem(`clw2.filetree.${bookName.value}`)
-        if (oldTree) {
-          const arr = JSON.parse(oldTree)
-          // 迁移元素验 string——非 string 脏值（数字/null/嵌套）过滤掉，
-          // 否则树展开渲染按 path 比对时出现无主条目
-          if (Array.isArray(arr)) prefs.treeExpanded = arr.filter((x): x is string => typeof x === 'string')
-        }
-        migrated = Object.keys(prefs).length > 0
-      } catch {
-        /* 损坏降级 */
-      }
-      if (migrated) {
-        void putBookPrefs(bookName.value, prefs).catch(() => {})
-        // 迁移后清旧键（对齐 prefs store 的 clearLegacyLocalStorage 手法）——
-        // 不清则每次 prefs.json 为空的新书都会重复走迁移分支；清失败静默（下次重迁移无害）
-        try {
-          localStorage.removeItem('clw2.ui-prefs')
-          localStorage.removeItem(`clw2.workspace.${bookName.value}`)
-          localStorage.removeItem(`clw2.filetree.${bookName.value}`)
-        } catch {
-          /* localStorage 不可用降级 */
-        }
-      }
-    }
+    // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移
+    //（拉取失败已提前 return，不会误迁移写回）
+    if (Object.keys(prefs).length === 0) migrateLegacyPrefs(prefs, bookName.value)
 
-    // 应用 prefs 到 store
-    if (typeof prefs.leftWidth === 'number' && prefs.leftWidth >= 180) leftWidth.value = prefs.leftWidth
-    if (typeof prefs.leftOpen === 'boolean') leftOpen.value = prefs.leftOpen
-    if (typeof prefs.rightOpen === 'boolean') rightOpen.value = prefs.rightOpen
-    if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash')
-      leftPanel.value = prefs.leftPanel
-    // prefs 迟到回填仅在当前未打开文档时生效——用户已点开另一
-    // 文档后被覆盖回 prefs 记录（既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
-    if (activeDocId.value === null) activeDocId.value = prefs.activeDocId ?? null
-    // 同款守卫护展开态——用户已展开/折叠过则跳过回填，不覆盖作者意图
-    if (Array.isArray(prefs.treeExpanded) && !treeExpandedTouched) treeExpanded.value = prefs.treeExpanded
+    // 应用 prefs 到 store（布局字段逐键守卫见 applyLayoutPrefs）
+    applyLayoutPrefs(prefs, layout)
 
-    // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）
+    // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）——
+    // 两键补「正数有限」守卫（非法值按「无书级覆盖」处理，全局值托底，与字段缺失同口径）
     const ps = usePrefsStore()
-    // 清偿批两键补「正数有限」守卫（对齐 stores/prefs 迁移侧
-    // Number.isFinite(v) && v > 0 先例）——原 typeof number 单闸放行 0/负数/Infinity
-    //（服务端 JSON 可表达 1e999→Infinity；手改 prefs.json 可得 0/负数）：autosave
-    // 零/负间隔此前仅靠 Book.vue max(5,·) 事后兜底，pageWidth 非法值直产非法 CSS
-    // 宽度。非法值按「无书级覆盖」（null，全局值托底）处理，与字段缺失同口径。
-    const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null)
     ps.bookPageWidth = posNum(prefs.pageWidth)
     ps.bookAutosaveInterval = posNum(prefs.autosaveInterval)
     ps.apply()
@@ -234,130 +483,26 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     startPersistWatch()
   }
 
-  /**
-   * 书级 prefs 落盘直发段：按排定时刻快照（gen/name）复查后写穿一次 putBookPrefs。
-   * 自防抖 setTimeout 回调外提
-   * ——关窗冲刷（flushPendingBookPrefs）与防抖 fire 复用同一段写链（成功复位一次性
-   * 失败提示标记 / 失败走一次性 warning，口径不变）。
-   */
-  function writeBookPrefs(gen: number, name: string): Promise<void> {
-    // ff 细节#11 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
-    if (bookGen.stale(gen) || !prefsLoaded || bookName.value !== name) return Promise.resolve()
-    const ps = usePrefsStore()
-    const settle = (q: Promise<void>): void => {
-      if (bookPrefsInFlight === q) bookPrefsInFlight = null
-    }
-    const p = putBookPrefs(name, {
-      leftWidth: leftWidth.value,
-      leftOpen: leftOpen.value,
-      rightOpen: rightOpen.value,
-      leftPanel: leftPanel.value,
-      activeDocId: activeDocId.value,
-      treeExpanded: treeExpanded.value,
-      pageWidth: ps.bookPageWidth ?? undefined,
-      autosaveInterval: ps.bookAutosaveInterval ?? undefined,
-    })
-      .then(() => {
-        bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
-      })
-      .catch(() => {
-        // 书级 prefs 落盘失败不再
-        // 全静默（原 catch(=>{}) 吞掉——离线调面板布局重启回退无提示）；对齐
-        // 全局偏好一次性 warning 口径（同失败窗只提示一次，成功复位）
-        if (!bookPrefsFailNotified) {
-          bookPrefsFailNotified = true
-          useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
-        }
-      })
-      // settle 闭包运行时 p 已初始化（链回调异步于同步段），读参避免自引用早于赋值
-      .finally(() => settle(p))
-    // body 起跑即同步占位（对齐 prefs.ts runPutChain 的单飞不变式）
-    bookPrefsInFlight = p
-    return p
-  }
-
-  /**
-   * 关窗前强制冲刷书级 prefs 的
-   * 500ms 防抖窗——末次布局态（面板开合/宽度/活动文档/展开态）此前随关窗静默丢失
-   * （备案的取舍，本批收口）。对齐全局偏好 prefs.flushPendingPersist 的关窗
-   * 钩子口径（App.vue __clwFlushPrefs 先例）：清掉挂起计时器后直发一次写穿，整链
-   * Promise 交 Book.vue __clwFlushBeforeClose await（主进程关窗预算内等待）。防抖
-   * 语义不变——平时照旧 500ms 合并写；无待写项（计时器空）不空写。
-   * 配合防抖 fire 分支置空句柄，
-   *  本守卫才真正兑现（此前 fire 后句柄恒非 null，保存过一次的书每次关窗仍空写）。
-   * 原挂账的「已知边界」收口
-   *  ——书级侧补建在途写句柄（bookPrefsInFlight），本冲刷先等在途写落定再清窗直发
-   *  （先等再发，防两笔 PUT 乱序到达旧布局覆盖新布局）；防抖窗空时也等在途——关窗
-   *  钩子「冲刷完成才销毁窗口」的语义自此覆盖刚 fire 出去的那笔写，不随窗夭折。
-   */
+  /** 关窗前强制冲刷书级 prefs 的 500ms 防抖窗——末次布局态
+   *  （面板开合/宽度/活动文档/展开态）此前随关窗静默丢失。对齐全局偏好
+   *  prefs.flushPendingPersist 的关窗钩子口径（App.vue __clwFlushPrefs 先例）：
+   *  清掉挂起计时器后直发一次写穿，整链 Promise 交 Book.vue __clwFlushBeforeClose
+   *  await（主进程关窗预算内等待）。防抖语义不变——平时照旧 500ms 合并写；
+   *  无待写项（计时器空）不空写，但也等在途写落定（先等再发，防两笔 PUT 乱序）。 */
   async function flushPendingBookPrefs(): Promise<void> {
-    if (bookPrefsInFlight)
-      await bookPrefsInFlight.catch(() => {
-        /* 在途失败已消化，此处不重试 */
-      })
-    if (!debounceTimer) return
-    clearTimeout(debounceTimer)
-    debounceTimer = null
-    await writeBookPrefs(bookGen.current(), bookName.value ?? '')
+    await persist.flush()
   }
 
-  /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
-  function startPersistWatch(): void {
-    if (watchStop) watchStop()
-    const ps = usePrefsStore()
-    watchStop = watch(
-      [
-        leftWidth,
-        leftOpen,
-        rightOpen,
-        leftPanel,
-        activeDocId,
-        treeExpanded,
-        () => ps.bookPageWidth,
-        () => ps.bookAutosaveInterval,
-      ],
-      () => {
-        if (!prefsLoaded || !bookName.value) return
-        if (debounceTimer) clearTimeout(debounceTimer)
-        // ff 细节#11：捕获排定时刻的书，fire 时复查（500ms 内切书 → 本次落盘作废，
-        // 防 A 书布局经 setTimeout 回调写进 B 书 prefs.json）
-        const gen = bookGen.current()
-        const name = bookName.value
-        debounceTimer = setTimeout(() => {
-          // fire 即置空句柄——此前
-          // 回调执行完不清空，句柄停在旧定时器上恒非 null，而 flushPendingBookPrefs 以
-          // `!debounceTimer` 作「无待写」判据（立的守卫），于是保存过一次
-          // 的书每次关窗都同值空写 prefs.json（与 prefs.ts persistTimer 同型缺口，两处
-          // 同批收口）；服务端侧表现同为 revision 空 bump + 其他窗伪 409。
-          debounceTimer = null
-          void writeBookPrefs(gen, name)
-        }, 500)
-      },
-    )
-  }
-
-  /** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。
-   *  清偿erBook 属主校验——keyset 是某本书整树的 docId 集合，
-   * 切书窗内 tree 仍持旧书键集（byDocId/ownerBook 与 bookName 更不同窗），
-   *  以旧键集校验新书恢复的 activeDocId 会误清（恢复文档被清，下次进书不再恢复；
-   *  无内容丢失，体验面）。ownerBook 与当前书名不一致时跳过校验；缺省（既有调用面/
-   *  存量测试口径）维持原行为不做属主比对。 */
+  /** tree load 后校验：activeDocId 失效则清空（口径见 validateDocId）。 */
   function validate(validDocIds: Set<string>, ownerBook?: string): void {
-    if (ownerBook !== undefined && ownerBook !== bookName.value) return
-    if (activeDocId.value && !validDocIds.has(activeDocId.value)) {
-      activeDocId.value = null
-    }
+    validateDocId(activeDocId, bookName, validDocIds, ownerBook)
   }
 
   /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。
-   * ②：存旧文档改走 doDelete
-   * 同族的「先落定在途再判」——契约下 entry.saving 时 doc.save('autosave') 直接返
-   *  false 不等待，原实现在途保存窗口内必误报「切换文档时自动保存失败」（内容不丢、
-   *  在途自愈的假警报）。先 await doc.waitInflightSave（flushDirty 同款有界轮次台账等待）
-   *  落定，复查仍 dirty 才补存；真失败（返 false 且仍 dirty、无新在途）才可见化。
-   * （mac 线，merge 同题双修并入）：save 返 false 另有 conflict
-   *  一路（autosave 设计内跳过）——冲突未决不补存不提示（编辑器自有重载/覆盖冲突 UI），
-   *  判式补 !conflict；切书早退守卫显式化（复查前先对 bookAtEntry 复核）。 */
+   * 存旧文档走 doDelete 同族的「先落定在途再判」——契约下 entry.saving 时
+   *  doc.save('autosave') 直接返 false 不等待，原实现在途保存窗口内必误报
+   *  「切换文档时自动保存失败」（内容不丢、在途自愈的假警报）。落定复查细节见
+   *  savePrevDocOnSwitch。 */
   function openTab(docId: string): void {
     activeView.value = 'editor'
     const prevId = activeDocId.value
@@ -368,75 +513,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       // 节拍兜底，切档即存这条保护在窗口内静默失效）。flush 幂等，落尾按槽内 docId。
       flushBodyWriteback()
       if (doc.get(prevId)?.dirty) {
-        // 清偿-切换autosave失败可见化：fire-and-forget 存旧文档
-        // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
-        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新，
-        // 旧 id 以 prevId 快照携带进异步链）；入口书名快照守卫防在途切书后迟到失败提示
-        // 落新书界面（对齐 doc.save / 同款纪律）。dirty 标志与崩溃镜像兜底
-        // 均在（doc.save 失败路径自持），此处仅可见化。
         const bookAtEntry = bookName.value
-        const notify = (): void => {
-          if (bookName.value === bookAtEntry) {
-            useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
-          }
-        }
-        // ②（win）/ （mac）同题双修并合：整链异步 fire-and-forget
-        // 不阻断切换（openTab 保持同步返回）。先落定在途再判（与 doDelete 同族）：
-        // ① 落定已 clean（在途已代存）/ 条目已清（删除/切书）/ 又有新在途接手（结局自担，
-        //    autosaveTick 节拍兜底）→ 不补存不提示；
-        // ② conflict 未决（autosave 设计内跳过，编辑器自有重载/覆盖冲突 UI）→ 不补存不提示；
-        // ③ 仍 dirty → 补存一次，仅判式（返 false 且仍 dirty、无新在途、非冲突）
-        //    才可见化（save 返 false ≠ 全是失败：条目已清的 404、落定冲突都不算）。
-        // reject 兜底沿用 notify（save 正常吞错不拒，契约外 reject 也可见化且不产生
-        // unhandled rejection）。
-        void (async (): Promise<void> => {
-          // dirty 要到保存落定才清，不等在途即判必吃到 save「saving 中 autosave 返 false」
-          // 的假失败（flushDirty 同款有界轮次台账等待）
-          await doc.waitInflightSave(prevId)
-          if (bookName.value !== bookAtEntry) return // 切书后迟到落定不落当前界面（下方 get 复查兜底）
-          const cur = doc.get(prevId)
-          if (!cur || !cur.dirty || cur.saving) return
-          if (cur.conflict) return // 冲突未决不弹本警报（编辑器自有冲突 UI，mac 线三分支②）
-          const ok = await doc.save(prevId, 'autosave')
-          if (!ok) {
-            const after = doc.get(prevId)
-            if (after?.dirty && !after.saving && !after.conflict) notify()
-          }
-        })().catch(notify)
+        savePrevDocOnSwitch(prevId, () => bookName.value === bookAtEntry)
       }
     }
     activeDocId.value = docId
   }
 
   /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。
-   * 左栏在搜索/回收站时点「新建」此前静默无响应——
-   *  createTick 唯一消费者 ChapterTreePanel 只在 leftPanel==='tree' 时挂载（SidebarLeft
-   *  v-if），信号发出时无监听者。修复：非树面板先切回章节树（新建意图指向树，切面板
-   *  即用户可见反馈），tick 递延到 nextTick——面板切换触发重新挂载，watch 注册晚于
-   *  tick++ 会错过信号（挂载期不 immediate），nextTick 再递一次让挂载后的 watch 收到。 */
+   *  非树面板下的切面板与 tick 递延口径见 emitCreateSignal。 */
   function triggerCreate(kind: CreateKind = 'chapter'): void {
-    createKind.value = kind
-    if (leftPanel.value !== 'tree') {
-      leftPanel.value = 'tree'
-      void nextTick(() => {
-        createTick.value++
-      })
-      return
-    }
-    createTick.value++
+    emitCreateSignal(kind, { kind: createKind, panel: leftPanel, tick: createTick })
   }
   /** 请求插入文本到编辑器光标（右栏速查「插入」用）。每次调用产出新一次性令牌
    * （消费态收敛在令牌内，槽位不再承担一次性语义）。 */
   function requestInsert(text: string): void {
-    let consumed = false
-    pendingInsert.value = {
-      text,
-      consume(): string | null {
-        if (consumed) return null
-        consumed = true
-        return text
-      },
-    }
+    pendingInsert.value = makeInsertCommand(text)
   }
 
   function toggleLeft(): void {

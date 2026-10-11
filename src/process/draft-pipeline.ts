@@ -455,7 +455,15 @@ function scenesOfOutlineBody(body: string): string[] {
 }
 
 /**
- * 本章场景声明（文风样章选取的场景水源），三级回退、一级命中即止，全空回落 ['通用']：
+ * 场景兜底单源：三级水源全空 → 仅「通用」候选。
+ * 消费方 = readChapterScenes（写稿链）与 prepare 的 sampleScene 缺省参数（备料链）——
+ * 此前备料缺省另持「战斗」字面量，同一本书冷启动时备料与写稿链选样章的场景口径分裂。
+ */
+export const DEFAULT_CHAPTER_SCENES: readonly string[] = ['通用']
+
+/**
+ * 本章场景声明（文风样章选取的场景水源），三级回退、一级命中即止，全空回落
+ * DEFAULT_CHAPTER_SCENES：
  * ① 本章章纲 front matter「场景」——与节奏偏差对照（rhythm 章纲↔定稿）、章纲契约同一
  *   结构化字段，读它是「数」不是「判」，优先级最高；
  * ② 本章正文 front matter「场景」——重写/续写已存在正文的章时场景跟随实稿
@@ -463,13 +471,13 @@ function scenesOfOutlineBody(body: string): string[] {
  * ③ 细纲「## 场景声明」段——带章号门：细纲 fm「章号」=== 被检章号才可信。细纲是覆盖写的
  *   当前章文件（outline 端点落盘时确定性写 `章号: N` front matter），章号不符说明是别章
  *   陈旧内容，直接用会串场景——门禁不过即弃用此水源。
- * 全空 → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，空场景列表连「通用」目录
- * 都不会碰，须显式点名；条目库路径两写法等价）。
+ * 全空 → DEFAULT_CHAPTER_SCENES（仅通用场景候选——旧样章库路径按场景读目录，
+ * 空场景列表连「通用」目录都不会碰，须显式点名；条目库路径两写法等价）。
  */
 export function readChapterScenes(bookRoot: string, chapter: number, outlinePath?: string | null): string[] {
   // outlinePath 透传（已解析章纲路径复用，见 readDeclaredChapterScenes 注）
   const declared = readDeclaredChapterScenes(bookRoot, chapter, outlinePath)
-  return declared.length > 0 ? declared : ['通用']
+  return declared.length > 0 ? declared : [...DEFAULT_CHAPTER_SCENES]
 }
 
 /**

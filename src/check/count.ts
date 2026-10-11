@@ -131,7 +131,14 @@ function countOccurrences(haystack: string, needle: string): number {
  * 词表即整体替换（不合并），显式空数组 = 彻底关。入参 readonly——runner 直收
  * 种子表的 readonly 字面量，免调用方拷贝。
  */
-export function checkImagery(body: string, imageryWords: readonly string[] = [], threshold = 3): CheckSectionResult {
+/** 高频意象默认阈值（>阈报黄）——导出供机检代次哈希收编。 */
+export const IMAGERY_THRESHOLD = 3
+
+export function checkImagery(
+  body: string,
+  imageryWords: readonly string[] = [],
+  threshold = IMAGERY_THRESHOLD,
+): CheckSectionResult {
   const items: CheckItem[] = []
   if (imageryWords.length === 0) {
     // 空表（未启用或显式关）静默跳过——恒久「未启用」黄项只会训练作者
@@ -167,9 +174,17 @@ export function checkImagery(body: string, imageryWords: readonly string[] = [],
 // 身体部位词 ≤5 / 「像」≤10 / 节数守恒=5 / 开头零环境。
 // 全部零 token 脚本判定，黄项只报不拦（ask 不 deny）。
 
+/** 短篇字数下限/上限（#27 第 5.2 节）——导出供机检代次哈希收编。 */
+export const PIECE_WORD_MIN = 8000
+export const PIECE_WORD_MAX = 20000
+
 /** 短篇字数阈值（#27 第 5.2 节，🟡 黄）。
  *  总字数 8000–20000（工单第 0 节）；阈值待 beta 校准，本期定方向。 */
-export function checkPieceWordCount(actualWords: number, min = 8000, max = 20000): CheckSectionResult {
+export function checkPieceWordCount(
+  actualWords: number,
+  min = PIECE_WORD_MIN,
+  max = PIECE_WORD_MAX,
+): CheckSectionResult {
   const items: CheckItem[] = []
   if (actualWords < min) {
     items.push({
@@ -187,8 +202,9 @@ export function checkPieceWordCount(actualWords: number, min = 8000, max = 20000
   return { name: '短篇字数', items }
 }
 
-/** 默认身体部位词表（吸收点 7.1 正文洁净，AI 味堆砌高发项） */
-const DEFAULT_BODY_PARTS = [
+/** 默认身体部位词表（吸收点 7.1 正文洁净，AI 味堆砌高发项）。
+ *  导出供机检代次哈希收编（词表改必变代次）。 */
+export const DEFAULT_BODY_PARTS = [
   '眼睛',
   '眼神',
   '眼眶',
@@ -207,7 +223,10 @@ const DEFAULT_BODY_PARTS = [
  * 「手」的动作语境模式 —— 单字「手」直接 indexOf 会误伤「对手/高手/随手/手段」等非部位词，
  * 只统计带动作前/后缀的肢体动作（伸手、握住手等），剔除隐喻与惯用语。
  */
-const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
+export const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|扶|搭|拽|按|放|松|紧|握住|抓住)了?手/g
+
+/** 身体部位词默认阈值——导出供机检代次哈希收编。 */
+export const BODY_PARTS_THRESHOLD = 5
 
 /**
  * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
@@ -216,7 +235,11 @@ const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|�
  * 计数前剥对白引号 span（对白是角色嘴里的话非作者
  * 叙述，见函数体内注释——同批 checkSimile 对齐）。
  */
-export function checkBodyParts(body: string, threshold = 5, words: string[] = DEFAULT_BODY_PARTS): CheckSectionResult {
+export function checkBodyParts(
+  body: string,
+  threshold = BODY_PARTS_THRESHOLD,
+  words: string[] = DEFAULT_BODY_PARTS,
+): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
   // （win 线同题锚④）：计数前剥对白引号 span
@@ -277,7 +300,10 @@ export function checkBodyParts(body: string, threshold = 5, words: string[] = DE
 export const SIMILE_RE =
   /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
-export function checkSimile(body: string, threshold = 10): CheckSectionResult {
+/** 比喻密度默认阈值——导出供机检代次哈希收编。 */
+export const SIMILE_THRESHOLD = 10
+
+export function checkSimile(body: string, threshold = SIMILE_THRESHOLD): CheckSectionResult {
   const items: CheckItem[] = []
   // （win 线同题锚④）：统计前剥对白引号 span
   // （禁词/意象/开头/身体部位同款口径，quotes.ts 单源 stripQuotedSpans）——对白里
@@ -305,7 +331,10 @@ export function checkSimile(body: string, threshold = 10): CheckSectionResult {
  * 节数守恒检查（#27 第 5.3 节，🟡 黄）。
  * 正文实际节数（按空行切块）与五段结构一致。严重不符可定红（阈值实现期定）。
  */
-export function checkSectionCount(body: string, expected = 5): CheckSectionResult {
+/** 节数守恒默认期望节数——导出供机检代次哈希收编。 */
+export const SECTION_COUNT_DEFAULT = 5
+
+export function checkSectionCount(body: string, expected = SECTION_COUNT_DEFAULT): CheckSectionResult {
   // section_count 可配置（runner 传 short.section_count），文案
   // 不得硬编码「五段结构」——配置 ≠5 的 strict 短篇把黄提红后 formatRedForRewrite
   // 喂给自愈重写，重写目标被误导成五段。期望值统一插值 expected；五段节名枚举仅在
@@ -353,8 +382,9 @@ export function checkSectionCount(body: string, expected = 5): CheckSectionResul
   return { name: '节数守恒', items }
 }
 
-/** 默认环境描写关键词表（黄金 300 字直入钩子，吸收点 7.1） */
-const DEFAULT_ENV_WORDS = [
+/** 默认环境描写关键词表（黄金 300 字直入钩子，吸收点 7.1）。
+ *  导出供机检代次哈希收编（词表改必变代次）。 */
+export const DEFAULT_ENV_WORDS = [
   '天气',
   '阳光',
   '月光',
@@ -374,13 +404,16 @@ const DEFAULT_ENV_WORDS = [
   '建筑',
 ]
 
+/** 开头零环境默认窗口（字）——导出供机检代次哈希收编。 */
+export const OPENING_ENV_CHARS = 300
+
 /**
  * 开头零环境检查（#27 第 5.3 节，🟡 黄）。
  * 黄金 300 字直入钩子：开篇 300 字命中环境描写词报黄。
  */
 export function checkOpeningNoEnv(
   body: string,
-  openingChars = 300,
+  openingChars = OPENING_ENV_CHARS,
   envWords: string[] = DEFAULT_ENV_WORDS,
 ): CheckSectionResult {
   const items: CheckItem[] = []

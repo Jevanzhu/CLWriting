@@ -14,7 +14,7 @@ import { addEntry, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { log } from '../log/index.js'
 import type { SampleCandidate, QuoteCandidate } from './index.js'
 
-// ──：批量落盘周期让出 ──────────
+// ── 批量落盘周期让出 ──────────
 // learn-commit 单数组上限 400 条（knowledge.ts 2--⑤a），逐条 addEntry 各含原子写
 // tmp+fsync+rename——慢盘上 400×双 fsync 的同步段可秒级，而本服务进程同时承载 SSE
 // 心跳与全部请求，全程无让出即整窗冻结（上限只封顶不消除）。每 COMMIT_YIELD_EVERY

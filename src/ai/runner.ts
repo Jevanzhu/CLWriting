@@ -24,7 +24,7 @@ import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 // run 回调返回值 stopReason 的值域守卫（三线归一判别联合的运行时表）
 import { isStopReason } from './provider/stream-finalize.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
-import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
+import { recordUsageBoth, checkAiTaskCallBudget, addUsage } from './calls.js'
 // chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
 // 无缓存——每次 chat 发送重读，作者改 book.yaml 下一次发送即生效，单文件毫秒级）
 import { readBookConfig } from '../format/yaml.js'
@@ -271,8 +271,8 @@ export function configureProviderRuntime(rt: ProviderRuntime): void {
  * driver」两处各判一次，且环境变量被子进程/测试进程带上就静默改行为。选择结果由组装根
  * （server/index.ts 的 createStudioServer，读 deps.driver.kind）送达。
  *
- * 例外：工具型快路（tryMockTool）的判断在 ai/mock-tool.ts，仍按环境变量短路；生产两处
- * 由同一组装根同拍决定，口径一致。
+ * 工具型快路（tryMockTool）同认本开关（mock-tool 内原自读环境变量，
+ * 与本开关两处各判；现由本开关单点决定，试表失败即返 null 落真实路径的语义不变）。
  */
 let mockFastPath = false
 
@@ -665,8 +665,10 @@ async function prepareRun<T>(opts: RunTaskOpts<T>): Promise<RunPrep<T>> {
     }
   }
 
-  // mock 快路（工具型）：tryMockTool 命中即短路，不触 provider
-  if (opts.mockTool) {
+  // mock 快路（工具型）：组装根选定 mock 驱动（注入的 mockFastPath）且 spec 声明
+  // mockTool → tryMockTool 命中即短路，不触 provider。判定只认注入值，不读环境变量
+  //（原先由 tryMockTool 内部自读 CLWRITING_DRIVER，与本开关两处各判）。
+  if (opts.mockTool && mockFastPath) {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
       // mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——记 null 而
@@ -1132,26 +1134,15 @@ function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage
   }
 }
 
-/** 本 attempt 的可得 usage 计入全 attempt 累计（首次即建副本，防与调用方共享同一对象） */
+/** 本 attempt 的可得 usage 计入全 attempt 累计（首次即建副本，防与调用方共享同一对象）。
+ *  逐字段累加与 estimated 粘性走 addUsage 单源，原手抄块随之删除。 */
 function accumulateAttemptsUsage(rt: RunRuntime, u: TokenUsage | null): void {
   if (!u) return
   if (!rt.attemptsUsage) {
     rt.attemptsUsage = { ...u }
     return
   }
-  rt.attemptsUsage.inputTokens += u.inputTokens
-  rt.attemptsUsage.outputTokens += u.outputTokens
-  if (u.cacheReadTokens !== undefined) {
-    rt.attemptsUsage.cacheReadTokens = (rt.attemptsUsage.cacheReadTokens ?? 0) + u.cacheReadTokens
-  }
-  if (u.cacheWriteTokens !== undefined) {
-    rt.attemptsUsage.cacheWriteTokens = (rt.attemptsUsage.cacheWriteTokens ?? 0) + u.cacheWriteTokens
-  }
-  // reasoningTokens 同口径累计（responses 线观测位易漏计）
-  if (u.reasoningTokens !== undefined) {
-    rt.attemptsUsage.reasoningTokens = (rt.attemptsUsage.reasoningTokens ?? 0) + u.reasoningTokens
-  }
-  if (u.estimated) rt.attemptsUsage.estimated = true // 协同：任一估计 attempt 污染整体标记
+  addUsage(rt.attemptsUsage, u)
 }
 
 /** 超时/中断收尾：中断/超时封套也带 attemptsUsage——中断路径已按次入账，封套同步透出

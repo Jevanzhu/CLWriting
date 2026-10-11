@@ -80,7 +80,7 @@ export function todayDate(): string {
   return `${y}-${m}-${day}`
 }
 
-// ──：今日字数精确增量（每次 save settled 记 delta，当日累加）───
+// ── 今日字数精确增量（每次 save settled 记 delta，当日累加）───
 
 /** 单次保存的字数增量条目（与 baseline 条目共存于同一 jsonl，靠 delta 字段区分）。 */
 interface WordsDeltaEntry {

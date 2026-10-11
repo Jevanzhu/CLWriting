@@ -34,6 +34,7 @@ import {
 import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
 import { probeCapabilities as realProbeCapabilities } from '../../../ai/provider/probe.js'
+import type { DriverHost } from '../driver-port.js' // driver 经组装根注入（mock 快路选择结果）
 import { redactSecret } from '../../../ai/provider/redact.js' // API 错误脱敏
 import { log, errMsg } from '../../../log/index.js'
 
@@ -48,8 +49,11 @@ import { log, errMsg } from '../../../log/index.js'
 
 interface ProvidersCtx {
   userDataPath: string | null
+  /** driver 宿主（mock 选择结果）——组装根注入。「测试连接 / 拉模型列表」的 mock 快路
+   *  只读 ctx.driver.kind，不读环境变量。 */
+  driver: DriverHost
   /** 收尾：探测函数覆盖档（见上方块注） */
-  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null
+  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
 }
 
 // 保存点失败语义（500 WRITE_ERROR / 409 REVISION_CONFLICT 的择一）见 provider-save-guard.ts 头注。
@@ -262,12 +266,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       }
       // apiKey 为空 = 不改（保留原 key）
       const newKey = input.apiKey || existing.apiKey
-      // 编辑后 caps 可能不再准确（baseUrl/key/model 变了）→ 清空要求重新探测
+      // 编辑后 caps 可能不再准确（baseUrl/key/model 变了）→ 清空要求重新探测。
+      // 判定与 POST /providers/:id/test 的探测写回快照核验同源——两处都取
+      // capsFingerprint 单源（原 fieldsChanged 手工四比较 + probeFingerprint 各自维护，
+      // 注释自认「两处将来须同步演进」，漏改一处即漂移）。
       const fieldsChanged =
-        existing.baseUrl !== input.baseUrl ||
-        existing.apiKey !== newKey ||
-        existing.protocol !== input.protocol ||
-        existing.auth !== input.auth
+        capsFingerprint(existing) !==
+        capsFingerprint({ protocol: input.protocol, auth: input.auth, baseUrl: input.baseUrl, apiKey: newKey })
 
       s.providers[idx] = {
         ...existing,
@@ -427,7 +432,10 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // （手改 providers.json 形态）——两分支合流后判定，文案与旧序一致。
       if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
       try {
-        const models = await listModels(protocol, baseUrl, apiKey, auth)
+        // mock 快路读注入的 driver.kind（原由 listModels 自读 CLWRITING_DRIVER）
+        const models = await listModels(protocol, baseUrl, apiKey, auth, undefined, {
+          mock: ctx.driver.kind === 'mock',
+        })
         reply(res, 200, { models })
       } catch (e) {
         // 错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
@@ -469,17 +477,22 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         // 回写会把「打旧端点/旧 key 探出的能力」盖到新配置上，恰好绕过该不变量（PUT /current
         // 的 caps 校验随之形同虚设）。指纹取 caps 有效性相关四字段（与 PUT 的 fieldsChanged
         // 同源；name/models 改动不影响服务级 caps，不误伤）。
-        const probeFp = probeFingerprint(conf)
+        const probeFp = capsFingerprint(conf)
         // 收尾：探测函数经 ctx（组装根 RouteOverrides）注入——undefined 走真探测
         const probe = ctx.probeCapabilities ?? realProbeCapabilities
         // 透传探测目标库 userDataPath——探测实例降级记忆落目标库
-        // providers.json，不再回落「活跃库」（双库时写错库）
-        const { caps, details } = await probe({ ...conf, model: probeModel }, ctx.userDataPath)
+        // providers.json，不再回落「活跃库」（双库时写错库）；
+        // 第三参 = mock 选择结果（读注入的 driver.kind，原由 probe 自读环境变量）
+        const { caps, details } = await probe(
+          { ...conf, model: probeModel },
+          ctx.userDataPath,
+          ctx.driver.kind === 'mock',
+        )
         // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
         const s2 = loadProviders(ctx.userDataPath)
         const target = s2.providers.find((p) => p.id === id)
         if (target) {
-          if (probeFingerprint(target) === probeFp) {
+          if (capsFingerprint(target) === probeFp) {
             target.caps = caps
             target.capsProbedAt = Date.now()
             // 探测写回同样过保存失败闸（外层 catch 兜不到 WRITE_ERROR 口径）
@@ -511,10 +524,11 @@ function nextSortIndex(existing: Array<number | undefined>): number {
   return max + 1
 }
 
-/** caps 有效性相关字段指纹（protocol/auth/baseUrl/apiKey）——这四
- *  个字段决定探测目标（服务端点 + 认证），变了则探测出的 caps 不再描述现配置。字段集
- *  与 PUT 端点 fieldsChanged（编辑后清 caps 的判定）同源，两处将来须同步演进。 */
-function probeFingerprint(p: ProviderConf): string {
+/** caps 有效性相关字段指纹（protocol/auth/baseUrl/apiKey）——这四个字段决定探测目标
+ *  （服务端点 + 认证），变了则探测出的 caps 不再描述现配置。单源覆盖两处消费：
+ *  ① PUT 端点 fieldsChanged（编辑后清 caps/capsProbedAt 与 modelCaps 前缀键）；
+ *  ② POST /providers/:id/test 探测前抓指纹、探测后（可能被并发编辑）核验同一函数。 */
+function capsFingerprint(p: Pick<ProviderConf, 'protocol' | 'auth' | 'baseUrl' | 'apiKey'>): string {
   return JSON.stringify([p.protocol, p.auth, p.baseUrl, p.apiKey])
 }
 

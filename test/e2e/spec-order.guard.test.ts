@@ -139,6 +139,7 @@ function enforceSpecOrder(opts: {
 }
 
 it('e2e spec 顺序契约：*.spec.ts 序列与快照一致（E2E_SPEC_ORDER_SNAPSHOT）', () => {
+  // 零断言豁免：enforceSpecOrder 失配即抛（含两步闸重拍指引），断言面在辅助函数内
   enforceSpecOrder({
     update: process.env[UPDATE_ENV] === '1',
     confirm: process.env[CONFIRM_ENV] === '1',

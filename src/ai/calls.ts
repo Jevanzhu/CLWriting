@@ -23,6 +23,7 @@ import { serializedLockedWrite } from '../fs/lock-file.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
+import { roundCost } from './pricing.js'
 import { log } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
@@ -316,7 +317,7 @@ export const AI_CALLS_LOCK_TIMEOUT_MS = 5_000
 /** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
 export const [getAiCallsLockTimeoutMs, __setAiCallsLockTimeoutForTest] = testableConst(AI_CALLS_LOCK_TIMEOUT_MS)
 
-// ──：写链队列 + 跨进程锁的写段原语已迁 src/fs/lock-file.ts ─────────
+// ── 写链队列 + 跨进程锁的写段原语已迁 src/fs/lock-file.ts ─────────
 // serializedLockedWrite / crossProcessLockedWrite（单源）原定义
 // 于此，被 provider/store.ts 借用（记账模块被动承载 fs 锁职责）；现由两域各自直引
 // fs 层，本文件只留记账职责（预算判定 / 用量累计 / 落盘读写）。
@@ -505,25 +506,54 @@ function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage
   writeRecord(bookRoot, rec)
 }
 
+/**
+ * estimated 粘性置位单源：任一估计入账的 usage 并入累计器 → 累计器整体标记
+ * 「含估计」。调用方含 addUsage（记账三处）与 self-heal 运行进度面
+ * （self-heal-generate 只计 outputTokens，非 TokenUsage 全字段累加，
+ * 不经 addUsage——见 self-heal-registry.RunState.usage 注），口径单点在此。
+ */
+export function markEstimated(acc: { estimated?: boolean }, u: TokenUsage): void {
+  if (u.estimated) acc.estimated = true
+}
+
+/**
+ * TokenUsage 增量累加单源。
+ *
+ * 此前同一组算术在 4 处各自手抄：runTask 的 attemptsUsage 累计（runner）、
+ * chapter 块累计（applyCall）、task 块累计（applyTaskUsage）、self-heal 进度累计
+ * （self-heal-generate.accountUsage）——字段集（含 cache 两档 / reasoning）与
+ * estimated 粘性口径靠复制维持，漏计/漏置位无守卫。累计器面 = TokenUsage 结构
+ * 兼容子集（ChapterUsage / TaskUsage / attemptsUsage 直传）。
+ *
+ * 逐字段口径（与各消费点原实现逐位一致，零行为变化）：
+ * - input/output 必累（累计器已声明此两字段）；
+ * - cache 两档 / reasoning 按**入参**存在即累（缺省键不动累计器——「端点不下发不累计」
+ *   原口径，且首次无值、后续有值时可补建键）；
+ * - estimated 粘性置位（markEstimated 单源）。
+ */
+export function addUsage(acc: TokenUsage, u: TokenUsage): void {
+  acc.inputTokens += u.inputTokens
+  acc.outputTokens += u.outputTokens
+  if (u.cacheReadTokens !== undefined) {
+    acc.cacheReadTokens = (acc.cacheReadTokens ?? 0) + u.cacheReadTokens
+  }
+  if (u.cacheWriteTokens !== undefined) {
+    acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + u.cacheWriteTokens
+  }
+  if (u.reasoningTokens !== undefined) {
+    acc.reasoningTokens = (acc.reasoningTokens ?? 0) + u.reasoningTokens
+  }
+  markEstimated(acc, u)
+}
+
 /** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；含 cache 字段；含 cost；
  * 含 estimated 粘性标记） */
 function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number): void {
   rec.chapter.used += 1
-  if (usage) {
-    rec.chapter.inputTokens += usage.inputTokens
-    rec.chapter.outputTokens += usage.outputTokens
-    if (usage.cacheReadTokens !== undefined) {
-      rec.chapter.cacheReadTokens = (rec.chapter.cacheReadTokens ?? 0) + usage.cacheReadTokens
-    }
-    if (usage.cacheWriteTokens !== undefined) {
-      rec.chapter.cacheWriteTokens = (rec.chapter.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
-    }
-    // 估计口径留痕——账面数字照常累计，标记置位供对账区分实测/估计
-    if (usage.estimated) rec.chapter.estimated = true
-  }
+  if (usage) addUsage(rec.chapter, usage)
   // 金额累计（costUsd 仅在配价时由 runner 传入）
   if (typeof costUsd === 'number' && Number.isFinite(costUsd)) {
-    rec.chapter.costAccum = Math.round(((rec.chapter.costAccum ?? 0) + costUsd) * 1e10) / 1e10
+    rec.chapter.costAccum = roundCost((rec.chapter.costAccum ?? 0) + costUsd)
   }
 }
 
@@ -614,18 +644,8 @@ function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage
 function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null): void {
   const t = rec.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
   t.used += 1
-  if (usage) {
-    t.inputTokens += usage.inputTokens
-    t.outputTokens += usage.outputTokens
-    if (usage.cacheReadTokens !== undefined) {
-      t.cacheReadTokens = (t.cacheReadTokens ?? 0) + usage.cacheReadTokens
-    }
-    if (usage.cacheWriteTokens !== undefined) {
-      t.cacheWriteTokens = (t.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
-    }
-    // 同 applyCall——估计口径粘性标记
-    if (usage.estimated) t.estimated = true
-  }
+  // 同 applyCall——逐字段累加与 estimated 粘性走 addUsage 单源
+  if (usage) addUsage(t, usage)
   rec.tasks[task] = t
 }
 

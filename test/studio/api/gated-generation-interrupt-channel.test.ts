@@ -15,6 +15,7 @@
  * 驱动替身经 vi.mock 注入（getDriver 返回本文件装配的对象），不启服务、不碰真驱动。
  */
 import type { ServerResponse } from 'node:http'
+import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { log } from '../../../src/log/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
@@ -50,8 +51,9 @@ vi.mock('../../../src/driver/index.js', async (importOriginal) => {
   }
 })
 
-/** 包装只写 res 于失败路径；成功路径不触 res——空壳够用（不真发响应）。 */
-const resStub = {} as unknown as ServerResponse
+/** 包装只写 res 于失败路径（不真发响应）；事件面（on/off）必给——断连中止监听
+ *  挂在 res 上（真实 ServerResponse 同面，`writableEnded` 为 Node 原生属性）。 */
+const resStub = Object.assign(new EventEmitter(), { writableEnded: false }) as unknown as ServerResponse
 
 afterEach(() => {
   delete fakeDriver['registerCtrl']
@@ -146,5 +148,78 @@ describe('R0916-7-P3-16 收尾：mock「不支持中断」为显式 no-op（运�
       expect(typeof (mockDriver as unknown as Record<string, unknown>)[m]).toBe('function')
       expect(typeof (ccDriver as unknown as Record<string, unknown>)[m]).toBe('function')
     }
+  })
+})
+
+describe('客户端断连 → 中止在途生成（非 SSE 长任务）', () => {
+  /** EventEmitter 替身：close 可触发；writableEnded 按用例置——真实 res 的
+   *  「响应已写完」与「连接异常中断」两态判据。 */
+  const makeRes = (writableEnded: boolean): EventEmitter & ServerResponse => {
+    const res = new EventEmitter() as EventEmitter & ServerResponse
+    Object.defineProperty(res, 'writableEnded', { value: writableEnded, writable: true })
+    return res
+  }
+  const armDriver = (): void => {
+    fakeDriver['registerCtrl'] = () => {}
+    fakeDriver['unregisterCtrl'] = () => {}
+  }
+
+  it('close 且响应未写完 → ctrl 被 abort（不再照跑到底烧 token）', async () => {
+    armDriver()
+    const res = makeRes(false)
+    let ctrlRef: AbortController | null = null
+    let entered!: () => void
+    const enteredP = new Promise<void>((r) => {
+      entered = r
+    })
+    const run = runGatedGeneration(
+      res,
+      { book: '替身书断连', workDir: '替身目录', action: 'outline', busyText: '忙' },
+      async (ctrl) => {
+        ctrlRef = ctrl
+        entered()
+        await new Promise<void>((resolve) => {
+          if (ctrl.signal.aborted) resolve()
+          else ctrl.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
+      },
+    )
+    await enteredP // fn 已进入、ctrl 已在册
+    res.emit('close') // 客户端断连（响应未写完）
+    await run
+    expect(ctrlRef!.signal.aborted).toBe(true)
+    expect(res.listenerCount('close')).toBe(0) // listener 随 finally 卸载
+  })
+
+  it('close 且响应已写完（正常结束）→ 不 abort（不误伤）', async () => {
+    armDriver()
+    const res = makeRes(true)
+    let ctrlRef: AbortController | null = null
+    await runGatedGeneration(
+      res,
+      { book: '替身书写完', workDir: '替身目录', action: 'outline', busyText: '忙' },
+      async (ctrl) => {
+        ctrlRef = ctrl
+        await new Promise<void>((r) => setTimeout(r, 10))
+      },
+    )
+    res.emit('close')
+    expect(ctrlRef!.signal.aborted).toBe(false)
+  })
+
+  it('任务落定后 close 不再触发 abort（listener 已卸载）', async () => {
+    armDriver()
+    const res = makeRes(false)
+    let ctrlRef: AbortController | null = null
+    await runGatedGeneration(
+      res,
+      { book: '替身书落定', workDir: '替身目录', action: 'outline', busyText: '忙' },
+      async (ctrl) => {
+        ctrlRef = ctrl
+      },
+    )
+    expect(res.listenerCount('close')).toBe(0)
+    res.emit('close')
+    expect(ctrlRef!.signal.aborted).toBe(false)
   })
 })

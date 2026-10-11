@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
+import { ref, nextTick, effectScope } from 'vue'
 
 // ── mock api 层（不碰真实 HTTP）──────────────────
 vi.mock('../../../../src/studio/web-next/src/api/chat', () => ({
@@ -43,6 +43,7 @@ import { getProviders, setChatTier, fetchModels } from '../../../../src/studio/w
 import { deleteDoc, createDoc, copyDoc, updateChapterMetaDoc } from '../../../../src/studio/web-next/src/api/documents'
 import { useChatComposer } from '../../../../src/studio/web-next/src/composables/useChatComposer'
 import { useChapterTreeActions } from '../../../../src/studio/web-next/src/composables/useChapterTreeActions'
+import { useBookScoped } from '../../../../src/studio/web-next/src/composables/useBookScoped'
 import { useChatTier } from '../../../../src/studio/web-next/src/composables/useChatTier'
 import { useLibraryIpc } from '../../../../src/studio/web-next/src/composables/useLibraryIpc'
 import { useNativeMenu } from '../../../../src/studio/web-next/src/composables/useNativeMenu'
@@ -581,5 +582,44 @@ describe('useLibraryIpc（P1-3：桌面桥分支）', () => {
     await ipc.chooseLibrary()
     await ipc.switchTo('/libs/甲')
     expect(ui.toasts).toHaveLength(0)
+  })
+})
+
+// ── 切书作用域单源（useBookScoped）────────────────────────
+
+describe('useBookScoped（切书作用域单源）', () => {
+  it('切书 → 先 reset 再 load（携新书名）；immediate 首跑只 load（无旧态可清）；同值不重触发', async () => {
+    const name = ref('书甲')
+    const calls: string[] = []
+    const scope = effectScope()
+    scope.run(() => {
+      useBookScoped(() => name.value, {
+        reset: () => calls.push('reset'),
+        load: (n) => void calls.push(`load:${n}`),
+        immediate: true,
+      })
+    })
+    // 首跑 = 挂载轮：old 为 undefined（无旧态可清）→ 只 load
+    expect(calls).toEqual(['load:书甲'])
+
+    name.value = '书乙'
+    await nextTick()
+    // 真切书：清残留先于拉新书，load 收到新书名
+    expect(calls).toEqual(['load:书甲', 'reset', 'load:书乙'])
+
+    name.value = '书乙' // 同值重赋：watch 同值短路，不重跑
+    await nextTick()
+    expect(calls).toHaveLength(3)
+
+    // reset-only 形态（无 load）：切书只清残留
+    const only = ref('书甲')
+    const onlyCalls: string[] = []
+    scope.run(() => {
+      useBookScoped(() => only.value, { reset: () => onlyCalls.push('reset') })
+    })
+    only.value = '书乙'
+    await nextTick()
+    expect(onlyCalls).toEqual(['reset'])
+    scope.stop()
   })
 })

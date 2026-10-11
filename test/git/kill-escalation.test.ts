@@ -45,6 +45,7 @@ describe('IR-3 killWithEscalation（SIGTERM→SIGKILL 升级）', () => {
   })
 
   it('kill 抛错（已退出 ESRCH 形态）不炸同步调用与升级定时器', async () => {
+    // 零断言豁免：以「不炸/无未处理异常」为断言面（升级定时器在 cancel 后未再触 kill）
     const child = fakeChild({ throwOnKill: true })
     const cancel = killWithEscalation(child, 30)
     await sleep(80)

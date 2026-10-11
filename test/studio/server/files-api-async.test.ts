@@ -10,6 +10,7 @@ import { writeFileSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
+import { stateCache } from '../../../src/studio/server/api/state.js'
 
 const BOOK = '文件异步测试书'
 const FILE_Q = encodeURIComponent('设定/总纲.md')
@@ -135,5 +136,38 @@ describe('R26-9: PUT /file 覆盖写前快照留底', () => {
     const r = await studio.req('PUT', newPath, { content: '第二版留底新文件（覆盖）' })
     expect(r.status).toBe(200)
     expect(versionFiles().length).toBe(before) // 同内容不产生新快照
+  })
+})
+
+// ── P1-15：PUT /file 写侧失效 /state 判态缓存 ─────────
+// PUT 白名单含 设定/·大纲/·布线/ 与 工作区/细纲.md——detectState（rebuild / handEdits
+// 指纹 / 细纲未完成判定）吃得到本端点改写；修复前写侧不挂 forget，/state 5s TTL 内
+// 吐陈旧判态卡（作者保存后立刻重取状态仍读到写前结论）。命中观测读 stateCache.has()
+// （生产实例即观测面，同 state-ack-cache-invalidation 先例；TTL 默认 5s，本用例窗口
+// 远短于 TTL，「无失效即陈旧」由构造保证）。
+
+describe('P1-15: PUT /file 写侧失效 /state 判态缓存', () => {
+  const statePath = `/api/books/${encodeURIComponent(BOOK)}/state`
+  const filePath = `/api/books/${encodeURIComponent(BOOK)}/file?file=${FILE_Q}`
+
+  it('PUT 命中白名单文件后 stateCache 立即失效（紧随 GET 重算，不吃 5s 陈旧窗）', async () => {
+    // ① 预热：GET /state 填充缓存
+    const s1 = await studio.req('GET', statePath)
+    expect(s1.status).toBe(200)
+    expect(stateCache.has(studio.bookRoot)).toBe(true)
+
+    // ② 编辑器保存（设定/ 属可编辑白名单）
+    const got = await studio.req('GET', filePath)
+    const base = (got.json as { revision: string }).revision
+    const put = await studio.req('PUT', filePath, { content: 'P1-15 判态失效用新总纲', expectedRevision: base })
+    expect(put.status).toBe(200)
+
+    // ③ 修复锚点：写侧已即时清缓存（修复前为 true，直到 5s TTL 过期才自愈）
+    expect(stateCache.has(studio.bookRoot)).toBe(false)
+
+    // ④ 用户可见结果：紧随 GET 重算成功并重新落缓存（不读陈旧结果）
+    const s2 = await studio.req('GET', statePath)
+    expect(s2.status).toBe(200)
+    expect(stateCache.has(studio.bookRoot)).toBe(true)
   })
 })

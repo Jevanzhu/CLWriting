@@ -472,8 +472,11 @@ async function prepareChapterMaterials(
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), canonicalizeText(r.text), { fsync: true })
     promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
-  } catch {
+  } catch (e) {
     // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）。
+    // 但降级不再零留痕：此前 catch 空吞，备料整体抛错（磁盘/权限/
+    // providers.json 损坏等）时本章 prompt 无备料段却无任何记录，工具面亦无感知面。
+    log.warn('self-heal', `备料失败，本章无写作材料段（降级继续写稿）：${errMsg(e)}`)
     // 清掉旧章残留材料（best-effort）——此前静默沿用旧材料文件，
     // buildDraftPrompt 会把上一章的材料注入本章 prompt（模型可见却无本次出处）。
     // 读不到材料文件 = prompt 无备料段，是设计内降级。

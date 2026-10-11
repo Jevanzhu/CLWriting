@@ -13,11 +13,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
+import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 // SRV-（专项精简优化 §五）：resolveBook 双行样板收编单源
-//（resolveBookOrReply 失败即回写错误响应返回 null）。readJson 站点 defineRoute
-// parse 迁移跳过：书域写端点按先占书级闸再读体（悬持计时耦合闸
-// 语义），parse 化会把读体挪到占闸前——顺序纪律不可翻转。
+//（resolveBookOrReply 失败即回写错误响应返回 null）。
+// 本文件两处正文/批量写端点改 gate（找书 404 / 书级闸 409 前置门，先于读体）
+// + parse（body 形状 400）——「先占书级闸再读体」的顺序纪律由 gate 位承载（gate 在
+// parse 之前），不再需要内联 readJson 绕开 parse 声明。
 import { resolveBookOrReply } from '../book-context.js'
 import type { SaveDocumentInput, SaveOutcome } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
@@ -69,10 +70,14 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
   defineRoute('books.documents.content', {
     method: 'PUT',
     path: '/api/books/:name/documents/:docId/content',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：原 handler 内联「找书 → 找文档 → readJson + parseSaveInput」——
+    // 前置两级 404（未找书 / docId 未登记，后者内含 legacy 补登记副作用）落 gate，
+    // body 形状（content/expectedRevision/operationId 缺失或类型不符、origin 非值域）
+    // 落 parse：响应序「404 找书 → 404 文档 → 400 body → 链内 409 BOOK_MOVED」逐位不变
+    // （gate 先于读体，docId 解析仍在读体前——与迁移前同步段序一致）。
+    gate: async ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
-
+      if (!r) return false
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // docId → relPath（含 legacy 旧文件首次补登记，resolvePathAsync → 异步收编孪生——
@@ -80,19 +85,22 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       const path = await svc.resolvePathAsync(docId)
       if (!path) {
         replyError(res, 404, 'NOT_FOUND', `文档ID未在清单登记：${docId}`)
-        return
+        return false
       }
-      // RC：正文保存走内容档上限（默认 1MB 对 >35 万字中文正文即 413）
-      const input = parseSaveInput(await readJson(req, CONTENT_BODY_LIMIT_BYTES))
+      return { value: { svc, path, bookRoot: r.bookRoot } }
+    },
+    // RC：正文保存走内容档上限（默认 1MB 对 >35 万字中文正文即 413）
+    bodyLimit: CONTENT_BODY_LIMIT_BYTES,
+    parse: (raw) => {
+      const input = parseSaveInput((raw ?? {}) as Record<string, unknown>)
       if (!input) {
-        replyError(
-          res,
-          400,
-          'BAD_INPUT',
-          'content / expectedRevision / operationId 缺失或类型不符，或 origin 非值域成员',
-        )
-        return
+        throw new Error('content / expectedRevision / operationId 缺失或类型不符，或 origin 非值域成员')
       }
+      return input
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+      const { svc, path, bookRoot } = gate
+      const docId = params['docId'] ?? ''
 
       // 伏笔快照先于保存（差分需要变更前状态）。
       // 2--①：伏笔域保存（快照读→save→差分落事件）整段入 per-book 串行链
@@ -104,14 +112,14 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       // 失效保留在本站 op 的 ok 分支且先于差分（原序）。
       const outcome = await runBookScopedOp(ctx, {
         bookName: params['name'],
-        bookRoot: r.bookRoot,
+        bookRoot,
         fsPath: path,
         causeId: docId, // docId 留痕因果
         deltaId: () => docId, // 伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
         op: async (): Promise<SaveOutcome> => {
           const o = await svc.save(docId, path, input)
           // 字数变了 → 书架摘要即时失效（不等 5s TTL）
-          if (o.ok) invalidateBookSummary(r.bookRoot)
+          if (o.ok) invalidateBookSummary(bookRoot)
           return o
         },
       })
@@ -234,80 +242,83 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
   defineRoute('books.documents.batch-finalize', {
     method: 'POST',
     path: '/api/books/:name/documents/batch-finalize',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：书级闸占位仍在读体前（gate 先于 parse）——「受理请求即持闸、
+    // 覆盖 body 在途窗口」的既有语义不变（原注：handler 已持闸悬在 readJson 时，后到的
+    // 完整请求 409）；闸的释放走 defineRoute 的 cleanup 唯一收尾点（parse 失败 / handler
+    // 抛错 / 正常返回全覆盖，与迁移前 finally 等价）。错误序「找书 404 → BUSY 409 →
+    // docIds 400」逐位不变。
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
-      // 并发闸——必须在首个 await（readJson）前同步占位，覆盖 body 在途窗口：
-      // handler 已持闸悬在 readJson 时，后到的完整请求 409（与 rewrite/outline 闸同口径）。
-      // 注：定稿循环全程同步，body 已齐的双击会串行执行——由 finalize 幂等（已定稿 →
-      // skipped）兜底，不产生双 commit。
+      if (!r) return false
       const release = ctx.gate.acquire(params['name']!, 'batch-finalize')
       if (!release) {
-        return replyError(res, 409, 'BUSY', '本书批量定稿进行中，请等待完成后再试')
+        replyError(res, 409, 'BUSY', '本书批量定稿进行中，请等待完成后再试')
+        return false
       }
-      try {
-        const body = await readJson(req)
-        const docIds = Array.isArray(body?.docIds) ? body.docIds : null
-        if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
-          return replyError(res, 400, 'BAD_INPUT', 'docIds 必须为非空字符串数组')
-        }
-        if (docIds.length > BATCH_FINALIZE_MAX_DOCS) {
-          return replyError(
-            res,
-            400,
-            'BAD_INPUT',
-            `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`,
-          )
-        }
-        const summarized: string[] = []
-        const results: Array<{
-          docId: string
-          ok: boolean
-          status?: string
-          skipped?: boolean
-          error?: string
-          gateDegraded?: string[]
-        }> = []
-        // 切异步孪生 finalizeRevisionAsync——逐条 await
-        // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
-        // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
-        for (const docId of docIds) {
-          // ee-/ee-LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
-          // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
-          const o = await finalizeRevisionAsync(r.bookRoot, docId)
-          // 批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
-          // 书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
-          if (o.ok && !o.skipped) summarized.push(docId)
-          // 单条降级短语随批量结果透传（前端逐条汇总面可显）
-          results.push({
-            docId,
-            ok: o.ok,
-            status: o.ok ? o.status : undefined,
-            skipped: o.ok ? o.skipped : undefined,
-            error: o.ok ? undefined : o.error,
-            ...(o.ok && o.gateDegraded && o.gateDegraded.length > 0 ? { gateDegraded: o.gateDegraded } : {}),
-          })
-        }
-        // 批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
-        // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
-        // 同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
-        void (async (): Promise<void> => {
-          const session = await ctx.driver
-            .ensureSession(params['name']!, ctx.workDir!)
-            .catch((): undefined => undefined)
-          afterFinalizeGenerateSummaryBatch(
-            r.bookRoot,
-            ctx.userDataPath ?? null,
-            summarized,
-            params['name'],
-            ctx.driver.driver,
-            session,
-          )
-        })()
-        reply(res, 200, { ok: true, results })
-      } finally {
-        release()
+      return { value: { bookRoot: r.bookRoot }, cleanup: release }
+    },
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const docIds = Array.isArray(body['docIds']) ? body['docIds'] : null
+      if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
+        throw new Error('docIds 必须为非空字符串数组')
       }
+      if (docIds.length > BATCH_FINALIZE_MAX_DOCS) {
+        throw new Error(
+          `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`,
+        )
+      }
+      return { docIds: docIds as string[] }
+    },
+    handler: async ({ params, input, gate }, _req: IncomingMessage, res: ServerResponse) => {
+      const { bookRoot } = gate
+      const docIds = input.docIds
+      const summarized: string[] = []
+      const results: Array<{
+        docId: string
+        ok: boolean
+        status?: string
+        skipped?: boolean
+        error?: string
+        gateDegraded?: string[]
+      }> = []
+      // 切异步孪生 finalizeRevisionAsync——逐条 await
+      // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
+      // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
+      for (const docId of docIds) {
+        // ee-/ee-LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
+        // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
+        const o = await finalizeRevisionAsync(bookRoot, docId)
+        // 批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
+        // 书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
+        if (o.ok && !o.skipped) summarized.push(docId)
+        // 单条降级短语随批量结果透传（前端逐条汇总面可显）
+        results.push({
+          docId,
+          ok: o.ok,
+          status: o.ok ? o.status : undefined,
+          skipped: o.ok ? o.skipped : undefined,
+          error: o.ok ? undefined : o.error,
+          ...(o.ok && o.gateDegraded && o.gateDegraded.length > 0 ? { gateDegraded: o.gateDegraded } : {}),
+        })
+      }
+      // 批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
+      // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
+      // 同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
+      void (async (): Promise<void> => {
+        const session = await ctx.driver
+          .ensureSession(params['name']!, ctx.workDir!)
+          .catch((): undefined => undefined)
+        afterFinalizeGenerateSummaryBatch(
+          bookRoot,
+          ctx.userDataPath ?? null,
+          summarized,
+          params['name'],
+          ctx.driver.driver,
+          session,
+        )
+      })()
+      reply(res, 200, { ok: true, results })
     },
   })
 }

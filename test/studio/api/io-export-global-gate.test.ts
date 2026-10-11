@@ -5,7 +5,7 @@
  * loader 基线，19GB 事故乘法项）——acquireExportSlot 全局 ≤2、超出排队、释放放行。
  */
 import { describe, expect, it } from 'vitest'
-import { acquireExportSlot } from '../../../src/studio/server/api/io.js'
+import { acquireExportSlot, createExportSlotGate } from '../../../src/studio/server/api/io.js'
 
 describe('A1 全局导出并发闸（acquireExportSlot）', () => {
   it('前两路立即放行，第三路排队；释放后按 FIFO 放行；全部释放后计数归零', async () => {
@@ -78,5 +78,37 @@ describe('A1 全局导出并发闸（acquireExportSlot）', () => {
     expect(lateGot).toBe(true)
     relLate() // 无 waiter：真正归还
     r2() // 归还最后占位
+  })
+
+  // P2-10：闸随组装根实例化（createExportSlotGate；mirror TaskGate 形态）——名额是
+  // 实例私有状态，跨实例互不占满；acquireExportSlot 只是「进程缺省实例」的委托壳
+  // （测试注入 RouteOverrides.exportGate 后不再借道缺省实例）。race 500ms 兜底：
+  // 若退化为模块级共享计数，B/缺省实例会被 A 占满而排队 → race 落 null 快速判红。
+  it('P2-10: 两实例名额互不影响（A 满时 B 不受阻），与进程缺省实例亦隔离', async () => {
+    const gA = createExportSlotGate()
+    const gB = createExportSlotGate()
+    const a1 = await gA.acquire()
+    const a2 = await gA.acquire() // A 满（2/2）
+    let a3Got = false
+    const a3 = gA.acquire().then((rel) => {
+      a3Got = true
+      return rel
+    })
+    // B 独立实例：A 占满不放行 B（模块级共享闸形态下此处排队 → race 落 null）
+    const b1 = await Promise.race([gB.acquire(), new Promise<null>((r) => setTimeout(() => r(null), 500))])
+    expect(b1).not.toBeNull()
+    // 进程缺省实例（acquireExportSlot 委托）亦独立于 A
+    const d1 = await Promise.race([acquireExportSlot(), new Promise<null>((r) => setTimeout(() => r(null), 500))])
+    expect(d1).not.toBeNull()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(a3Got).toBe(false) // A 仍满：第三路排队中（未被他实例放行）
+
+    a1() // A 释放 → a3 顺位取得
+    const a3Rel = await a3
+    expect(a3Got).toBe(true)
+    a2()
+    a3Rel()
+    ;(b1 as () => void)()
+    ;(d1 as () => void)()
   })
 })

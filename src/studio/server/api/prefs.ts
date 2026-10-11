@@ -53,6 +53,108 @@ interface PrefsCtx {
 /** 全局偏好写锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 极保守（同 providers 锁档） */
 const GLOBAL_PREFS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
+// ── 写入面键白名单 + 值类型校验（两端点同源）────────────────────
+// 背景：原实现把 payload 的任意键与任意 JSON 值直接 {...disk, ...prefs} 合并落盘——
+// prefs.json / global.json 是「按名读键」的共享配置文件（版本保留策略、全局书级托底链、
+// 预算两键、前端 PREF_ROWS 33 键都按名消费），任意键/任意值入库 = 单次请求即可写花配置面
+//（此后 GET 还会原样回显脏值，只能靠各读侧的容错兜底）。
+// 现收口为两段（对齐 config.ts numericChecks 的 fail-loud 口径）：
+// - 白名单内键：粗粒度类型校验，不符 → 400 BAD_INPUT（`prefs.<键> 类型不符`）；
+// - 白名单外键：丢弃不落盘 + log.warn 留痕，响应语义不变（200 {ok,revision}）。为何不是 400：
+//   ① payload 里本就会混入服务端保留键与调用方自有键（前端全量回传、测试面任意键、
+//      revision 保留键），400 会让整次保存失败——「丢未知键」比「丢整次保存」安全；
+//   ② 白名单是防写花的收敛面，不是收窄契约面（预算是按名读，未知键在盘上本无消费方）。
+// 只做粗粒度类型（不做值域/枚举）：值域与夹取窗在前端 PREF_ROWS（手改脏值由前端守卫
+// 与读侧容错两层兜底），服务端收紧到值域会让旧客户端/扩展值（如手写 theme:'sepia'）
+// 整次保存失败——超出「写侧收敛」的正当范围。
+const isStr = (v: unknown): boolean => typeof v === 'string'
+const isNum = (v: unknown): boolean => typeof v === 'number'
+const isBool = (v: unknown): boolean => typeof v === 'boolean'
+const isStrOrNull = (v: unknown): boolean => v === null || typeof v === 'string'
+const isStrArr = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string')
+
+/** 书级 .clwriting/prefs.json 白名单 —— 对照前端 stores/workspace.ts 写面 8 键（BookPrefs 全字段）。 */
+const BOOK_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
+  pageWidth: isNum,
+  autosaveInterval: isNum,
+  leftWidth: isNum,
+  leftOpen: isBool,
+  rightOpen: isBool,
+  leftPanel: isStr,
+  activeDocId: isStrOrNull,
+  treeExpanded: isStrArr,
+}
+
+/** 全局 userData/global.json 白名单 —— 前端 stores/prefs.ts PREF_ROWS 33 键（落盘名）
+ *  + 预算两键（global-defaults 读侧消费的 tokensPerChapter/costPerChapter）。 */
+const GLOBAL_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
+  // 外观 + 全局编辑器偏好
+  theme: isStr,
+  proseSize: isNum,
+  proseLh: isNum,
+  uiFontCn: isStr,
+  uiFontEn: isStr,
+  uiFontSizeStep: isNum,
+  proseFontCn: isStr,
+  proseFontEn: isStr,
+  pageWidth: isNum,
+  autosaveInterval: isNum,
+  shelfView: isStr,
+  chatEnabled: isBool,
+  compact: isBool,
+  // 版本保留全局默认
+  snapMaxDays: isNum,
+  snapMaxCount: isNum,
+  // 书级设定全局托底 13 键
+  defaultGenre: isStr,
+  defaultVolumeSize: isNum,
+  defaultTargetWords: isNum,
+  defaultChapterTargetWords: isNum,
+  defaultShortStrict: isBool,
+  styleInjection: isStr,
+  autoConfirmOutline: isBool,
+  autoBatchSize: isNum,
+  callsPerChapter: isNum,
+  relationAutoMine: isBool,
+  relationMineThreshold: isNum,
+  ragEnabled: isBool,
+  ragProvider: isStr,
+  // 机检阈值五键
+  checkRepeatThreshold: isNum,
+  checkRepeatCharsThreshold: isNum,
+  checkMaxSentenceLen: isNum,
+  checkImageryThreshold: isNum,
+  checkWordCountTolerance: isNum,
+  // 预算两键（按文档由脚本/手工写盘；端点同收——白名单外一律丢弃会让「经端点写预算」静默失效）
+  tokensPerChapter: isNum,
+  costPerChapter: isNum,
+}
+
+/** 白名单过筛：白名单内键留原值（类型不符即抛，调用方转 400）、白名单外键丢弃并留痕。
+ *  调用方两形态：parse 段（library.prefs.put，抛错 → defineRoute 400 信封）与 handler
+ *  内联段（books.prefs.put，readJson 迁移留而不迁，见该端点注）——两处 400 文案同源。 */
+function filterPrefPayload(
+  payload: Record<string, unknown>,
+  types: Readonly<Record<string, (v: unknown) => boolean>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const dropped: string[] = []
+  for (const [k, v] of Object.entries(payload)) {
+    const guard = types[k]
+    if (!guard) {
+      dropped.push(k)
+      continue
+    }
+    if (!guard(v)) throw new Error(`prefs.${k} 类型不符`)
+    // 键已在白名单内（固定字面量集）→ 不存在把 __proto__ 写成原型键的注入面
+    out[k] = v
+  }
+  if (dropped.length > 0) {
+    log.warn('api', `prefs 写入丢弃白名单外键（不落盘）：${dropped.join(', ')}`)
+  }
+  return out
+}
+
 export function registerPrefsRoutes(ctx: PrefsCtx): void {
   /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码；
    *  ok 分支带回 bookRoot——PUT 侧写前重验要用入口快照做比对） */
@@ -98,9 +200,16 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       // defineRoute parse 迁移跳过：校验顺序依赖前置门，parse 化会翻转错误优先级
       //（直调 handler 悬持 body 于 readJson——入口快照→窗口→bookMoved 409 判序被钉）
       const body = await readJson(req)
-      const prefs = body['prefs']
-      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs))
+      const prefsRaw = body['prefs']
+      if (!prefsRaw || typeof prefsRaw !== 'object' || Array.isArray(prefsRaw))
         return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
+      // 白名单过筛——类型不符 400（前置门之后，与 config.ts numericChecks 同段位）
+      let prefs: Record<string, unknown>
+      try {
+        prefs = filterPrefPayload(prefsRaw as Record<string, unknown>, BOOK_PREF_TYPES)
+      } catch (e) {
+        return replyError(res, 400, 'BAD_INPUT', e instanceof Error ? e.message : 'prefs 类型不符')
+      }
       // （服务端端点/摘要簇）：readJson 窗口后写前重验书注册
       //（时序见 bookMovedFailure 头注）；family：config 同款——此前窗口跨越
       // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
@@ -175,7 +284,9 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
 
   // body 形状校验迁 parse——400 BAD_INPUT 信封与
   // 原内联路径逐字节同源；唯一前置 globalPath（NO_USERDATA）无测试钉先后序（cliReq
-  // 用例 body 合法仍落 NO_USERDATA），照 chat.send 先例迁移
+  // 用例 body 合法仍落 NO_USERDATA），照 chat.send 先例迁移。
+  // 键白名单 + 值类型校验随 parse 前置（与书级端点同段位——类型不符 400 先于
+  // 锁/revision 前置门；既有测试面 payload 键合法，优先级无回归）。
   defineRoute('library.prefs.put', {
     method: 'PUT',
     path: '/api/library/prefs',
@@ -183,7 +294,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       const body = (raw ?? {}) as Record<string, unknown>
       const prefs = body['prefs']
       if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) throw new Error('prefs 必填且须为对象')
-      return { prefs: prefs as Record<string, unknown>, expectedRevision: body['expectedRevision'] }
+      return {
+        prefs: filterPrefPayload(prefs as Record<string, unknown>, GLOBAL_PREF_TYPES),
+        expectedRevision: body['expectedRevision'],
+      }
     },
     handler: async ({ input }, _req, res) => {
       const r = globalPath()

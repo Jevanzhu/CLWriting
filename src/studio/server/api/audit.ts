@@ -112,7 +112,7 @@ export async function buildAuditView(
   goals: GoalSnapshot[]
   todos: Todo[]
 }> {
-  // ──：全量物化改流式 iterateEvents ──
+  // ── 全量物化改流式 iterateEvents ──
   // 原两次 store.listEvents 全量物化（含大载荷 llm/call 的 workflow 流逐行 JSON.parse
   // 成对象数组后只取一页）。改单趟流式：只持有①页窗口内条目（≤ limit）与②折叠实需
   // 的类型子集；响应形状逐字段不变（eventsTotal/workflowTotal 沿「可解析事件数」旧口径

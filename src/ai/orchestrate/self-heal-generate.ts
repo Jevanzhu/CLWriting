@@ -18,6 +18,7 @@ import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
 import { redactSecret } from '../provider/redact.js' // SSE 错误事件脱敏第二层
 import { resolveModelPricing, computeCallCost } from '../pricing.js'
+import { markEstimated } from '../calls.js'
 import { preserveStructureFmForChapter } from '../../format/chapter-lookup.js'
 import { errMsg } from '../../log/index.js'
 import type { DriverEvent } from '../../driver/index.js'
@@ -93,8 +94,11 @@ export async function runGenerate(
   //（与 usage 为空同后果，未配价不入账）。
   const accountUsage = (u: TokenUsage | null | undefined, model: string | null | undefined): void => {
     if (!u) return
+    // 进度面只计 outputTokens（inputTokens 无消费方，见 self-heal-registry.RunState.usage
+    // 注的既有裁决）——数值单字段累加不成 TokenUsage 全字段形态，故不走 addUsage；
+    // 但 estimated 粘性口径经 markEstimated 单源（与记账侧同一口径判定）。
     state.usage.outputTokens += u.outputTokens
-    if (u.estimated) state.usage.estimated = true
+    markEstimated(state.usage, u)
     const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
     if (pricing) {
       state.usage.cost +=
