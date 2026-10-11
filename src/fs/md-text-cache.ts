@@ -9,6 +9,10 @@
  * 纪律（对齐 document/tree.ts probeCache / format/chapters.ts chapterDirCache 同款口径）：
  * - bigint stat 指纹（mtimeNs + size，撞车窗口 ns 级）——写必 bump mtime，自然失效，无需写路径
  *   挂钩；文件消失（TOCTOU）清条目；
+ * - 低精度 mtime 卷（FAT/exFAT/SMB：粒度粗于毫秒）指纹判据失真——同尺寸改写可落在同一
+ *   刻度内致 mtimeNs 与 size 全同，故该卷不读不写缓存（isCoarseMtimeNs 单源）；本缓存
+ *   只在删书/改名按书清整键，内容写入无挂钩，粗粒度卷只能靠该判据兜底，否则消费方
+ *   （去 fm 正文/机检正文）静默陈旧；
  * - Map 插入序 FIFO 上限 4096（正文章数千级的 4 倍余量，防长跑无界）；
  * - 只缓存**原始文本**——fm 剥离/降级语义留给调用方：各消费方对「无 fm/未闭合 fm/读失败」的降级
  *   口径不同（foreshadow 归 ''、style 归 null、leads 走 bodyOf 裸文透传、book_search 要原文含
@@ -18,6 +22,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises'
 import { sep } from 'node:path'
 import { platformCaseFold } from './safe-path.js'
+import { isCoarseMtimeNs } from './mtime-precision.js'
 import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 const MD_TEXT_CACHE_MAX = 4096
@@ -58,6 +63,8 @@ function insertEntryLocked(abs: string, st: { mtimeNs: bigint; size: bigint }, t
 /**
  * 带指纹缓存的 md 文本读取：未变（stat 指纹一致）→ 复用缓存零读；变更 → 重读；
  * 消失/读失败 → 清条目返回 null（调用方按各自降级口径处理）。
+ * 低精度 mtime 卷（指纹失真的粗粒度窗口，判据见模块头注）→ 不命中也不落缓存：
+ * 每次真读（正确性优先，代价回到无缓存）。
  */
 export function readMdTextCached(abs: string): string | null {
   let st: { mtimeNs: bigint; size: bigint }
@@ -68,8 +75,9 @@ export function readMdTextCached(abs: string): string | null {
     dropEntryLocked(abs)
     return null
   }
+  const cacheable = !isCoarseMtimeNs(st.mtimeNs)
   const hit = mdTextCache.get(abs)
-  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.text
+  if (cacheable && hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.text
   let text: string
   try {
     text = readFileSync(abs, 'utf-8')
@@ -78,7 +86,7 @@ export function readMdTextCached(abs: string): string | null {
     return null
   }
   // FIFO 淘汰最旧（Map 保插入序，防长跑无界）+ 字节预算
-  insertEntryLocked(abs, st, text)
+  if (cacheable) insertEntryLocked(abs, st, text)
   return text
 }
 
@@ -95,8 +103,10 @@ export async function readMdTextCachedAsync(abs: string): Promise<string | null>
     dropEntryLocked(abs)
     return null
   }
+  // 低精度 mtime 卷降级口径同同步版（不读不写缓存）
+  const cacheable = !isCoarseMtimeNs(st.mtimeNs)
   const hit = mdTextCache.get(abs)
-  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.text
+  if (cacheable && hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.text
   let text: string
   try {
     text = await readFileAsync(abs, 'utf-8')
@@ -104,7 +114,7 @@ export async function readMdTextCachedAsync(abs: string): Promise<string | null>
     dropEntryLocked(abs)
     return null
   }
-  insertEntryLocked(abs, st, text)
+  if (cacheable) insertEntryLocked(abs, st, text)
   return text
 }
 

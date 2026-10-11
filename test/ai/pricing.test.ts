@@ -9,14 +9,14 @@
  * - budget 双口径键解析与序列化 round-trip + global 托底
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, utimesSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { pricingForProvider, computeCallCost, resolveModelPricing } from '../../src/ai/pricing.js'
 import { checkAiCallBudget, effectiveRemainingCalls, recordAiCall } from '../../src/ai/calls.js'
 import { aggregateCost } from '../../src/ai/cost-stats.js'
-import { saveProviders, loadProviders, type ProviderStore } from '../../src/ai/provider/store.js'
+import { saveProviders, loadProviders, PROVIDERS_FILE, type ProviderStore } from '../../src/ai/provider/store.js'
 
 // 0918独立重评修复批（D002）：saveProviders 锁内写前 revision 复验上线后，同目录二次
 // save 的基线须取盘上实况（首次 save 落盘即 bump；测试字面量 revision:0 会被正确拒绝）。
@@ -95,6 +95,39 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(cost).toBeCloseTo((10 * 3 + 40 * 0.3 + 3 * 15) / 1e6, 12)
     const doubleCounted = computeCallCost(pricing, { inputTokens: 50, outputTokens: 3, cacheReadTokens: 40 })!
     expect(cost).toBeLessThan(doubleCounted) // 修复前口径虚高一个命中量
+  })
+
+  // 文件名单源：pricing 的 mtime 指纹与 provider/store 的读写路径必须取同一文件名——
+  // 两处各维字面量时改名单处漏改，指纹恒 'missing' → memo 永不失效重解析，定价静默失效
+  it('文件名单源：pricing 指纹取自 store 导出常量，不镜像字面量（两处同源）', async () => {
+    expect(PROVIDERS_FILE).toBe('providers.json')
+    // 源锚收窄到指纹函数的实参：注释里提文件名无妨，只有「statSync 直接拼第二份字面量」
+    // 才是镜像回潮（此刻断言即红）
+    const pricingSrc = readFileSync(new URL('../../src/ai/pricing.ts', import.meta.url), 'utf8')
+    expect(pricingSrc).toMatch(/statSync\(join\(userDataPath, PROVIDERS_FILE\)\)/)
+    // 端到端锚：按 store 单源常量命名的文件必须被 pricing 的指纹与解析链路看见
+    const ud = tmpDir('clw-pricing-src-')
+    const store: ProviderStore = {
+      providers: [
+        {
+          id: 'p1',
+          name: 'A',
+          protocol: 'openai',
+          auth: 'bearer',
+          baseUrl: 'https://a.local',
+          apiKey: 'sk-a',
+          pricing: { inputPerMTok: 7 },
+        },
+      ],
+      currentId: 'p1',
+      tiers: { creative: { model: 'model-a', effort: 'high' }, assistant: null, chat: null },
+      currentModel: 'model-a',
+      revision: 0,
+      modelCaps: {},
+    } as unknown as ProviderStore
+    await saveProviders(ud, store)
+    expect(existsSync(join(ud, PROVIDERS_FILE))).toBe(true)
+    expect(resolveModelPricing(ud, 'model-a')).toEqual({ inputPerMTok: 7 })
   })
 
   it('resolveModelPricing：models[] 归属优先 → 当前 provider 兜底；无 → null', async () => {

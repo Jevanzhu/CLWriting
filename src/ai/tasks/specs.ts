@@ -7,7 +7,7 @@
  * 调用方不再手抄样板，改用 `runSpec(spec, opts)`。
  */
 import type { TaskSpec } from './spec.js'
-import { REWRITER_SYSTEM, writerSystem } from '../prompts/index.js'
+import { REWRITER_SYSTEM, writerSystem } from '../prompts/writer.js'
 import { ANALYST_SYSTEM } from '../prompts/analyst.js'
 import { reviewSystem } from '../prompts/review.js'
 import { submitText, chapterTool, chapterToolName } from '../contract/index.js'

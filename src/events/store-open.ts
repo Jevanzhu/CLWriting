@@ -8,7 +8,8 @@
  * （clearStaleMigrationTombstone/applyOpenPragmas/createEventsSchema）经残核逐名再导出
  * 供回归直测，全库消费方 import 面零改动。
  *
- * 残核以 FirstOpenHooks 注入三件本文件不可自持的连接服务（见该类型注）：孤儿修复
+ * 残核以 FirstOpenHooks 注入四件本文件不可自持的连接服务（见该类型注）：会话行格式
+ * 校验（错误类与常量持在 store-rows.ts，本文件不反向引）、孤儿修复
  * （本进程活跃会话登记集在残核）、打开期失败的关库出口（残核 closeEventsDb 是
  * prepared 缓存断链序单点）、开口标记续期周期（残核持有可变生效值）。
  *
@@ -186,17 +187,19 @@ export function migrateEventsSchema(db: DatabaseSync): SqliteMigrationOutcome {
 /** 首开核心所需的连接服务（残核注入，本文件不反向取用）：
  * - repairOrphans：DDL 之后、开口标记登记之前的启动修复（孤儿会话补 end；活跃会话
  *   登记集由残核持有，本文件不感知）；
+ * - assertSessionRows：DDL 与迁移完成之后、任何业务读之前的会话行格式校验（见下）；
  * - closeDb：打开期失败时的关库出口（残核 closeEventsDb——prepared 缓存断链序单点，
  *   勿改直连 close）；
  * - markerRenewMs：开口标记续期周期（残核持有可变生效值，取调用时快照）。 */
 export interface FirstOpenHooks {
   repairOrphans(db: DatabaseSync): void
+  assertSessionRows(db: DatabaseSync): void
   closeDb(db: DatabaseSync): void
   markerRenewMs: number
 }
 
-/** 打开全流程（建目录 + 开库 + PRAGMA/WAL + DDL + 孤儿修复 +
- *  开口标记登记）：打开期（PRAGMA/DDL/孤儿修复/标记登记）抛错时句柄不滞留——此刻
+/** 打开全流程（建目录 + 开库 + PRAGMA/WAL + DDL + 会话行格式校验 + 孤儿修复 +
+ *  开口标记登记）：打开期（PRAGMA/DDL/校验/孤儿修复/标记登记）抛错时句柄不滞留——此刻
  *  尚未登记调用方的引用计数缓存（openStores），引用计数的 close 回收路径接不到它；
  *  调用方 catch 后降级 null 继续跑，句柄滞留进程积累（「损坏库重试」类测试反复触发
  *  尤甚）。 */
@@ -211,6 +214,11 @@ function openEventsDbWithDdl(
     applyOpenPragmas(db)
     // schema 阶梯（v1 步 = 原 createEventsSchema 探列迁移本体）：已在目标版本的库零 DDL
     migrateEventsSchema(db)
+    // 会话行语义版本校验（fail-closed）必须在任何业务读之前：user_version 阶梯只管
+    // DDL 形态，行语义跨版本无锚——旧进程读新库时表/列都在位，照样按 v1 解析并
+    // 静默误读。此闸把「不支持的行版本」在打开点拦下（走下方 catch 关库 + 上抛，
+    // 调用方既有降级/500 收编承接），不放进任何读取路径。
+    hooks.assertSessionRows(db)
     hooks.repairOrphans(db)
     // 首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
     // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。

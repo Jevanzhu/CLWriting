@@ -32,3 +32,4 @@ tree-issues.spec.ts
 tree-ops.spec.ts
 usage-card.spec.ts
 version-restore.spec.ts
+welcome.spec.ts

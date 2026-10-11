@@ -36,6 +36,16 @@ export interface SerializedLockedWriteOpts {
   /** 在途/排队 promise 是否随返回值交给调用方：providers 侧 true（失败随 promise
    *  上抛，不吞）；calls 侧 false（历史口径恒 undefined，失败由旁挂 warn 承担） */
   returnInflight: boolean
+  /**
+   * 写段失败的**回执通道**（可选）：登记后由登记方接管留痕与计数，本层不再代劳
+   * 旁挂 warn——登记方知道调用方上下文（书/任务/尝试），可给出可定位的告警并递增计数；
+   * 未登记（providers 侧）保持旁挂 warn 与随 promise 上抛的既有口径。
+   *
+   * 为什么需要：returnInflight=false 的调用方（记账）拿不到任何失败信号，写段被拒只
+   * 留在旁挂 warn 里——上层无从观测「这一笔没记上」，预算判定读到的是少算的用量。
+   * phase 区分失败发生段（'inflight' = 无先前写者时的在途写段，'queued' = 排队写段）。
+   */
+  onFailure?: (err: unknown, phase: 'inflight' | 'queued') => void
 }
 
 export function serializedLockedWrite(
@@ -63,10 +73,12 @@ export function serializedLockedWrite(
     const cleanupInflight = (): void => {
       if (chains.get(key) === r) chains.delete(key)
     }
-    // 口径沿用：在途写段失败旁挂 warn 留痕（少记一次可从日志发现）；
-    // 旁挂 rejection handler 同时向运行时标记「已处理」，防 unhandled rejection
+    // 口径沿用：在途写段失败旁挂留痕（少记一次可从日志发现）；
+    // 旁挂 rejection handler 同时向运行时标记「已处理」，防 unhandled rejection。
+    // 登记了回执通道（记账侧）则由登记方留痕 + 计数——同一失败只报一次，不双重告警。
     void r.then(cleanupInflight, (e: unknown) => {
-      log.warn(opts.warnTag, opts.fastWarn(errMsg(e)))
+      if (opts.onFailure) opts.onFailure(e, 'inflight')
+      else log.warn(opts.warnTag, opts.fastWarn(errMsg(e)))
       cleanupInflight()
     })
     return opts.returnInflight ? r : undefined
@@ -77,9 +89,11 @@ export function serializedLockedWrite(
     if (chains.get(key) === next) chains.delete(key)
   }
   // 排队写段失败留痕对齐 runner recordUsageSafe 口径（旁挂分支只
-  // 留痕 + 清链，是否吞拒绝由 returnInflight 定——providers 侧随返回 promise 上抛）
+  // 留痕 + 清链，是否吞拒绝由 returnInflight 定——providers 侧随返回 promise 上抛）；
+  // 回执通道同在途段：登记即交由登记方留痕 + 计数
   void next.then(cleanup, (e: unknown) => {
-    log.warn(opts.warnTag, opts.queuedWarn(errMsg(e)))
+    if (opts.onFailure) opts.onFailure(e, 'queued')
+    else log.warn(opts.warnTag, opts.queuedWarn(errMsg(e)))
     cleanup()
   })
   return opts.returnInflight ? next : undefined

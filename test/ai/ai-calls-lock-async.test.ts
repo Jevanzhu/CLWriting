@@ -13,7 +13,7 @@ import { rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { recordAiCall, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
+import { recordAiCall, recordTaskUsage, ledgerWriteFailuresForTest, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
 import { saveProviders, loadProviders, emptySettings, type ProviderStore } from '../../src/ai/provider/store.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 
@@ -90,6 +90,39 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
     const rec = JSON.parse(readFileSync(callsFp, 'utf8')) as { chapter: { used: number } }
     expect(rec.chapter.used).toBe(1)
   })
+
+  it('写段失败回执：在途 + 排队两形态同计数，告警带书/任务定位（不只一行旁挂）', async () => {
+    const bookRoot = tempDir('r30-calls-receipt-')
+    const callsFp = join(bookRoot, '.cache', 'ai-calls.json')
+    __setAiCallsLockTimeoutForTest(80) // 注入短超时：两笔写段都必失败（锁被占至超时）
+    const release = tryAcquireCrossProcessLock(`${callsFp}.lock`)
+    expect(release).not.toBeNull()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const before = ledgerWriteFailuresForTest()
+    try {
+      // 第一笔 = 在途写段（无先前写者，锁被占 → 异步轮询等待超时）；
+      // 第二笔随第一笔入链 = 排队写段，段执行时锁仍被占 → 同样失败
+      recordTaskUsage(bookRoot, 'chat', { inputTokens: 1, outputTokens: 2 })
+      recordTaskUsage(bookRoot, 'chat', { inputTokens: 1, outputTokens: 2 })
+      // 修复前：两笔都只留在 fs 层旁挂 warn，无任何可观测计数（本条断言即红）
+      await vi.waitFor(() => expect(ledgerWriteFailuresForTest()).toBe(before + 2), { timeout: 3_000, interval: 5 })
+      const ledgerWarns = warn.mock.calls
+        .map((a) => a.map(String).join(' '))
+        .filter((m) => m.includes('本轮账目缺失'))
+      expect(ledgerWarns).toHaveLength(2)
+      // 定位信息齐备：书根 + 任务名（缺任一项则无法从日志判断哪本书的哪类记账没落地）
+      for (const m of ledgerWarns) {
+        expect(m).toContain(bookRoot)
+        expect(m).toContain('任务=chat')
+      }
+      expect(ledgerWarns.some((m) => m.includes('在途'))).toBe(true)
+      expect(ledgerWarns.some((m) => m.includes('排队'))).toBe(true)
+      expect(existsSync(callsFp)).toBe(false) // 失败口径不变：本轮账目未记
+    } finally {
+      warn.mockRestore()
+      release!()
+    }
+  }, 15_000)
 })
 
 // ── R30-3：providers.json 配置写锁 ──────────────────────────────────────

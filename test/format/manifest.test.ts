@@ -11,6 +11,7 @@ import {
 } from '../../src/format/manifest.js'
 import type { PieceList } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 
 let tmp: string
 beforeEach(() => {
@@ -179,13 +180,21 @@ test('readPieceList: 文件不存在 → 容错错误', () => {
   expect(r.ok).toBe(false)
 })
 
-test('writePieceList + readPieceList: 空清单往返', () => {
+test('章纲写盘往返（测试夹具入口）：空清单落盘 → readPieceList 读回', () => {
   const fp = join(tmp, '清单.md')
-  writePieceList(fp, emptyPieceList())
+  writePieceListFixture(fp, emptyPieceList())
   const r = readPieceList(fp)
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.list.反转线索表.铺垫点).toHaveLength(0)
+})
+
+// writePieceList 为抛错占位（全量重生成写路径不保作者手写未知段；接线前须先落地
+// 补丁式写路径，见函数头注）——断言拒绝执行且文案指向替代通道。
+test('writePieceList: 抛错占位（不保未知段，防误接线）', () => {
+  const fp = join(tmp, '章纲.md')
+  expect(() => writePieceList(fp, emptyPieceList())).toThrow(/未接线/)
+  expect(() => writePieceList(fp, emptyPieceList())).toThrow(/补丁式写路径/)
 })
 
 test('readPieceList: 带 fm 头的章纲文件仍正确解析三段式（F9.5，fm 块内无 ## 段标题被自然跳过）', () => {

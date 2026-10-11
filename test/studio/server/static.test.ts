@@ -206,16 +206,16 @@ test.skipIf(process.platform === 'win32')('M-9: root 内部 symlink（合法用�
 
 // N-3（第十二轮）：errno 分流——存在文件读失败（EACCES 等 IO 错误）不再混叠成 SPA 200
 // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂经登记表对 createReadStream
-// 同步抛 EACCES → 产品外层 catch :211 回 500 IO；posix 臂 chmod 流式异步 error → :201
+// 同步抛 EACCES → 产品外层 catch :211 回 500 IO_ERROR；posix 臂 chmod 流式异步 error → :201
 // 同一信封），摘除 skipIf(win32)——win 生产高发形态（杀毒/索引器/句柄占用）本机可测
-test('N-3: 存在的文件读失败（EACCES）→ 500 IO 信封（R33-62：err.code 不出网）；不存在路由仍 SPA fallback 200', async () => {
+test('N-3: 存在的文件读失败（EACCES）→ 500 IO_ERROR 信封（R33-62：err.code 不出网）；不存在路由仍 SPA fallback 200', async () => {
   writeFileSync(join(root, 'blocked.js'), 'console.log(1)')
   const deny = denyRead(join(root, 'blocked.js'), { ops: ['fs:createReadStream'] }) // stat 过、开流拒——模拟权限/IO 故障
 
   const res = await fetch(`${baseUrl}/blocked.js`)
   expect(res.status).toBe(500)
   const body = await res.text()
-  expect(JSON.parse(body)).toEqual({ code: 'IO', error: '静态文件读取失败' })
+  expect(JSON.parse(body)).toEqual({ code: 'IO_ERROR', error: '静态文件读取失败' })
   expect(body).not.toContain('<title>Studio</title>') // 修复前：静默换成 SPA 入口 200
 
   // 对照：ENOENT 语义不变——不存在的路由仍回 index.html

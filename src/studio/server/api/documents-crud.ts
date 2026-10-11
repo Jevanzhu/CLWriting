@@ -18,6 +18,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
+// 回包形状钉在跨端契约上（shared/contract/documents.ts，前端按同一份声明消费）：
+// 新建/复制/回收站列表三处成功体以 `satisfies` 接在字面量上——服务端加/改字段而契约
+// 未同步即编译期报错。契约是两端共同消费的那份声明，改形须先改契约。
+import type { CreateOk, TrashEntry } from '../../../shared/contract/documents.js'
 import type { CopyResult, CreateResult, MoveResult, TrashResult } from '../../../document/service.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
@@ -106,7 +110,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
           }),
       })
       // 失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
-      if (result.ok) reply(res, 201, result)
+      if (result.ok) reply(res, 201, result satisfies CreateOk)
       else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
@@ -235,7 +239,7 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
       })
       // 失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {
-        reply(res, 201, result)
+        reply(res, 201, result satisfies CreateOk)
       } else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
@@ -279,7 +283,10 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      reply(res, 200, { ok: true, entries: listTrash(r.bookRoot) })
+      // 条目元素类型按契约定型（清单条目数组是变量，多余属性检查作用在信封字面量上
+      // ——加兄弟字段即红；元素逐字段等价由 documents.conformance.ts 的探针钉住）
+      const entries: TrashEntry[] = listTrash(r.bookRoot)
+      reply(res, 200, { ok: true, entries } satisfies { ok: true; entries: TrashEntry[] })
     },
   })
 

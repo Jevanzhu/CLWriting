@@ -512,10 +512,6 @@ const ROUTES_UNCONSUMED_KNOWN: ReadonlyMap<string, string> = new Map([
     'GET /api/books/:name',
     '单书身份端点（book.yaml 身份回显 name/kind/title/genre/host）：web-next 只消费书架列表与 /api/books/:name/config；身份端点现由测试/外部消费（test/studio/server/books-rename-case.test.ts 等），保留为能力面',
   ],
-  [
-    'POST /api/books/:name/documents/:docId/analyze',
-    '重新分析端点（kind → submit_<kind>）：前端已改用细分端点 autotag / infer-meta（api/analysis.ts），analyze 保留给测试与工具链（test/studio/server/analyze-api.test.ts 等）',
-  ],
 ])
 
 /**

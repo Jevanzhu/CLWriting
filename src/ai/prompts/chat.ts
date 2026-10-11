@@ -14,7 +14,7 @@ import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
 import { listSkills, formatSkillIndex } from '../../process/skills.js'
 // 章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
-import { bodyOf } from '../../format/frontmatter-core.js'
+import { bodyOf } from '../../shared/frontmatter-core.js'
 // 码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
 // 两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
 // re-export 中转（环边来源，已剥除），本模块的 ai→process 转运依赖随之消失

@@ -553,9 +553,13 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
     // 异常隔离——本监听承载退出链（app.quit），不得被任何前置 closed 监听
     // 抛错短路；此处自身异常也只留痕（交 uncaughtException 兜底），不静默取消退出。
     guardClosedCleanup('主窗口退出链', () => {
-      wins.mainWindow = null
-      // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
-      app.quit()
+      // 只认当前主窗的关闭——重跑 bootstrap 前回收的陈窗已被摘除 wins 引用
+      // （见 windows.ts reclaimStaleMainWindow），其关闭不得当成本轮主窗关闭而退出应用
+      if (wins.mainWindow === win) {
+        wins.mainWindow = null
+        // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
+        app.quit()
+      }
     })
   })
   // 专注模式全屏反向同步：作者经系统手势（⌘⌃F/绿按钮）退出全屏时通知渲染层

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runAllChecks } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import type { ChapterMeta, BookConfig, PieceList } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -25,7 +25,7 @@ function setupOutline(list: PieceList, piecePath: string): void {
   mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
   writeFileSync(piecePath, '---\n章号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
   mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
-  writePieceList(join(tmp, '大纲', '章纲', '001-雪夜.md'), list)
+  writePieceListFixture(join(tmp, '大纲', '章纲', '001-雪夜.md'), list)
 }
 
 function runShortCheck(piecePath: string) {

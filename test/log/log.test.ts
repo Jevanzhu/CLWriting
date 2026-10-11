@@ -166,6 +166,31 @@ describe('log 模块（A4 批 0）', () => {
     expect(msgs).toContain('after-reinit')
   })
 
+  // 两段初始化（先定输出形态、后补挂目录）：入口在单实例锁判定前只能 init(null)，
+  // 锁通过后才 init(logsDir)——本用例钉住这条切换链的两个对外可观察事实：
+  // ① logsDir 为 null 期间零盘面副作用（不建目录、不落盘、不跑清理）；
+  // ② 补挂调用生效（其后日志落盘、7 天清理在此时执行）。
+  it('先 null 后目录的两段 init：null 期零盘面副作用，补挂调用开关落盘与清理', async () => {
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-two-'))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const stale = new Date(Date.now() - 9 * 24 * 3600 * 1000)
+    const staleName = `app-${stale.getFullYear()}${String(stale.getMonth() + 1).padStart(2, '0')}${String(stale.getDate()).padStart(2, '0')}.jsonl`
+    writeFileSync(join(dir, staleName), '{}\n')
+
+    initLogging({ logsDir: null, mirrorConsole: false })
+    log.info('boot', '锁判定前')
+    await flushLogsForTest()
+    expect(readdirSync(dir)).toEqual([staleName]) // 未落盘（今日文件不出现），旧文件也未清
+
+    initLogging({ logsDir: dir, mirrorConsole: false }) // 持锁后补挂
+    log.info('boot', '补挂后')
+    await flushLogsForTest()
+    expect(existsSync(join(dir, staleName))).toBe(false) // 清理随本调用生效
+    const msgs = readLines().map((l) => l['msg'])
+    expect(msgs).toContain('补挂后')
+    expect(msgs).not.toContain('锁判定前') // 未挂目录期的行不落盘（单写者：第二实例永不写）
+  })
+
   // D2 实施期回归（startup-notices 全量红根因）：换目录 init 与在途泵交错——
   // 首个 emit 已把泵排上 tail，随后 initLogging(新目录) 的 mkdir 链排在该泵之后；
   // 泵排空时 state.logsDir 已指向新目录（dayFile 在写入时取），旧实现 appendFile

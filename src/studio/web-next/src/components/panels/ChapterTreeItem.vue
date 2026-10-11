@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-vue-next'
 import type { TreeNode } from '../../types/tree'
 import { useTreeStore } from '../../stores/tree'
 import { CHAPTER_STATUS } from '../../shared/words'
+import { RENDER_CAP } from '../../shared/render-cap'
 import { isImeComposing } from '../../shared/ime'
 
 defineOptions({ name: 'ChapterTreeItem' })
@@ -42,12 +43,12 @@ const emit = defineEmits<{
   drop: [targetPath: string]
 }>()
 
-// 渲染上限——展开目录子项 > RENDER_CAP 时只渲染 RENDER_CAP 行
-// + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，
-//）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
-// 渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动（children 全量在
-// store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或卷目录分层触达。
-// cap 窗口改含 active 项的滑窗——固定取前 100 时 >100 章平铺
+// 渲染上限——展开目录子项 > RENDER_CAP（帽值取自 shared/render-cap 单源）时只渲染
+// RENDER_CAP 行 + 尾部省略提示行：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章
+// 口径书开书即递归渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动
+//（children 全量在 store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或
+// 卷目录分层触达。
+// cap 窗口含 active 项的滑窗——固定取前 RENDER_CAP 时 >100 章平铺
 // 目录经命令面板/搜索打开第 150 章，选中行在树上不可见。口径：无 active 或 active
 // 落在前 RENDER_CAP 内保持现状（前 100，常规浏览零变化）；active 超出时窗口取
 // active 贴尾段（start = activeIdx - RENDER_CAP + 1，恒 ≤ len - CAP 不越界）——
@@ -59,7 +60,6 @@ const emit = defineEmits<{
 // 窗口放大后 active 若已落回窗口内，start 归 0 从头铺开（顺序浏览形态），active 仍
 // 由窗口外时继续贴尾段保证选中行可见（omittedCount 恒为窗口外总数，按钮按实际
 // 剩余量点名，剩余不足一步时按钮文案即剩余数，点完提示行随 omittedCount=0 消失）。
-const RENDER_CAP = 100
 const extraSteps = ref(0)
 const windowSize = computed(() => RENDER_CAP * (extraSteps.value + 1))
 const renderedChildren = computed<TreeNode[]>(() => {

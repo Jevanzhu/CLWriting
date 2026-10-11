@@ -9,10 +9,14 @@
  * stream.ts registerStreamRoutes 注入（同款注册原语先例见 runner.ts
  * registerDegradedPersist）。
  *
- * 口径：未注册（纯 ai 层单测 / 无服务形态）→ 返回 no-op release（放行）——端口缺失
- * 不得让 chat 工具全数 409；生产路径注册缺位的回归由
- * test/studio/task-gate-port.test.ts 源锚测试锁死（registerStreamRoutes 必调
- * registerTaskGateProvider）。
+ * 口径：未注册（纯 ai 层单测 / 无服务形态）→ 返回 no-op release（放行）**并留痕**——
+ * 端口缺失不得让 chat 工具全数 409（合法降级路径：无服务形态的 ai 层装配本就没有
+ * 跨任务互斥的对象），但静默放行会让接线遗漏（生产忘了注册）退化成「chat 写工具绕过
+ * 跨任务互斥」且无任何痕迹。故保留放行、留一条带书本/动作的告警，让缺位可诊断。
+ * 不抛错的依据：抛错会把「无服务形态的正常装配」一并打死（ai 层单测直接调 chat 工具
+ * 的形态没有闸可注册），而缺位的真实危害是「并发互斥失效」而非「调用必须失败」——
+ * 留痕 + 放行的保守度与该风险相称；生产装配恒经 registerStreamRoutes 注册
+ * （源锚见 test/ai/task-gate-port.test.ts），告警只在异常装配时出现，不构成正常路径噪声。
  *
  * 注册槽随端口实例化——裸模块级 `let provider` 收进 createTaskGatePort 的实例槽位，
  * 模块级函数保留为**进程默认端口**的委托壳（与 task-gate.ts 的进程默认实例委托壳
@@ -21,6 +25,7 @@
  * 注意：acquire 调用面（chat 工具）无实例判别信息，进程默认端口仍是单通道——最后注册
  * 者生效（生产单 server 进程一份，无差异）。
  */
+import { log } from '../../log/index.js'
 
 /** 与 studio/server/api/task-gate.ts acquireTaskGate 同形（闸满返回 null = fail-closed） */
 type TaskGateAcquire = (bookName: string, action: string) => (() => void) | null
@@ -42,7 +47,19 @@ export function createTaskGatePort(): TaskGatePort {
       provider = acquire
     },
     acquire: (bookName, action) => {
-      if (!provider) return (): void => {} // 未注册：no-op release 放行（见头注口径）
+      if (!provider) {
+        // 未注册：no-op release 放行（见头注口径）——留痕使接线遗漏可诊断，
+        // 告警带书本/动作足以定位是哪一次取闸落到了无闸形态
+        log.warn(
+          'task-gate',
+          JSON.stringify({
+            msg: 'task-gate 端口未注册——本次取闸放行（跨任务互斥未生效）',
+            bookName,
+            action,
+          }),
+        )
+        return (): void => {}
+      }
       return provider(bookName, action)
     },
     resetForTest: () => {

@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf, isBodyKind } from '../../shared/words'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { useBookScoped } from '../../composables/useBookScoped'
 
 const props = defineProps<{ bookName: string }>()
@@ -47,11 +47,9 @@ const diffStats = computed(() => {
   return { add: d.filter((x) => x.type === 'add').length, del: d.filter((x) => x.type === 'del').length }
 })
 
-// -（全量代码）：diff 渲染无上限——整章改写千行级 diff 全量
-// 挂 DOM（max-height 只裁视觉不减节点）。对齐 CommandPalette RENDER_CAP=100 域内惯例：
-// 数据面不动（diffStats 统计仍面向全量），只裁渲染面前 100 行 + 尾部省略提示行。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 整章改写千行级 diff 全量挂 DOM 随条数线性膨胀（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源；数据面不动（diffStats 统计仍
+// 面向全量），只裁渲染面前 RENDER_CAP 行 + 尾部省略提示行。
 const diffCap = computed(() => capView(rewrite.result?.diff ?? [], RENDER_CAP))
 
 async function runRewrite(): Promise<void> {
@@ -97,7 +95,7 @@ function accept(): void {
       </button>
       <div class="rw-hint rw-hint--mode">选中段落 → 改写选段；无选区 → 整章改写。</div>
 
-      <div v-if="aiOff" class="rw-hint">AI 不可达，改写置灰。</div>
+      <div v-if="aiOff" class="rw-hint">AI 不可达（{{ ui.aiReasonText }}），改写置灰。</div>
 
       <div v-else-if="rewrite.error" class="rw-error">
         <AlertCircle :size="14" />

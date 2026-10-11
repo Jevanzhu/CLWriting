@@ -51,6 +51,8 @@ import {
   busyGate,
   awaitOrchestrationsSettled,
   drainAndRecheckBookMutation,
+  recordPendingEventMigration,
+  clearPendingEventMigration,
 } from './books-lifecycle.js'
 import type { BookCtx } from './books.js'
 
@@ -232,6 +234,12 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
         log.warn('api', `改名清史失败（${oldName} → ${newName}，改名已生效不回滚，残留内存态待下次清史兜底）`, e)
       }
       const eventsMigrated = await migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
+      // 迁移失败 → 落待办档，供启动自愈重试（见 books-lifecycle.ts 待办族头注：
+      // 目录已搬不可回滚，重试是唯一可行通路；成功 → 清档，成功路径的档本就不存在）。
+      if (ctx.userDataPath) {
+        if (eventsMigrated) clearPendingEventMigration(ctx.userDataPath, newRoot)
+        else recordPendingEventMigration(ctx.userDataPath, { oldRoot, newRoot, oldName, newName })
+      }
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       ctx.driver.forgetSession(oldName)
@@ -293,9 +301,10 @@ export function registerBookRenameRoutes(ctx: BookCtx): void {
 
       // 5.1-3：迁移失败随响应带回（成功时不带该键，对齐本文件「条件展开」的响应风格）；
       // 同步进启动通告——rename 响应只在设置页当场可见，App 级横幅保证
-      // 「对话历史/审计没跟过来」这件事跨页面不失明（横幅一次性，关闭即静默）
+      // 「对话历史/审计没跟过来」这件事跨页面不失明（横幅一次性，关闭即静默）。
+      // 文案明示自动重试通路：待办档已落，下次启动会再试一次，不必手工操作。
       if (!eventsMigrated) {
-        const msg = `书「${oldName}」改名后事件库迁移失败：对话历史/审计暂未跟到新名下，旧库原地完整保留于 ${bookHash(oldRoot)}.db，可重试改名找回`
+        const msg = `书「${oldName}」改名后事件库迁移失败：对话历史/审计暂未跟到新名下，旧库原地完整保留于 ${bookHash(oldRoot)}.db，下次启动会自动重试迁移`
         log.error('events-migration', msg)
         ctx.onStartupNotice?.('events-migration', msg)
       }

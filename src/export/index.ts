@@ -205,23 +205,51 @@ function purifyBody(body: string): string {
  *  ①行首 ATX 标题标记（`## 标题` → `标题`，闭尾 `#` 一并剥）；②行首引用标记（`> `，
  *  含嵌套）；③行内成对标记：`` `码` ``（去反引号）、`**粗**`、`*斜*`、`~~删~~`、
  *  `[文字](链接)`/`![文字](链接)`（留文字）。
+ *  代码围栏（``` 行，行识别收编 format/fence 的 matchFenceLine 单源、与同文件
+ *  purifyBody 同口径）行与围栏内行整段跳过——围栏内是代码字面量，行首 `#`、
+ *  `a[1](b)` 一类不是呈现层标记，剥除即改写代码；只认反引号围栏（``` 与 ~~~ 的
+ *  取舍照 purifyBody 现状：~~~ 不扩大识别范围）。
+ *  围栏未闭合（首遍末态仍在围栏内）按无围栏重剥——围栏边界不可信时以净化优先
+ *  （宁剥不错留，与 purifyBody 的两遍收口一致）。
  *  **不碰**：列表标记（`- `/`1. `——中文正文罕见，且行首短横线可能是作者自用）、
  *  `---` 分隔线（可能是作者的场景分隔）、表格（正文无表格；投稿视图不进 txt 面）。
  *  行内标记要求成对且紧贴内容（开标记后、闭标记前均非空白；单 `*` 另要求闭标记后
  *  非词字符）——`a * b * c`、`3*4*5`、`- *强调*` 一类算式/字面不被误剥
  *  （保守优先：宁留标记不伤正文）。 */
 function stripMarkdownMarks(text: string): string {
-  const lines = text.split('\n').map((line) => {
-    // 行首标题标记（0-3 空格缩进的 CommonMark ATX 口径）+ 行首引用标记
-    return line.replace(/^(\s{0,3})#{1,6}[ \t]+(.*?)[ \t]*#*$/, '$1$2').replace(/^(\s{0,3})(?:>[ \t]?)+/, '$1')
-  })
-  return lines
-    .join('\n')
-    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
-    .replace(/`([^`\n]+)`/g, '$1')
-    .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, '$1')
-    .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '$1')
-    .replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1$2')
+  /** 单行剥除：行首标题标记（0-3 空格缩进的 CommonMark ATX 口径）+ 行首引用标记 +
+   *  行内成对标记。逐行施加——各标记式均不跨行（内容类不含 \n），行内标记的判据
+   *  锚点（`^`/前置字符）在行边界处与整串施加同解。 */
+  const stripLine = (line: string): string =>
+    line
+      .replace(/^(\s{0,3})#{1,6}[ \t]+(.*?)[ \t]*#*$/, '$1$2')
+      .replace(/^(\s{0,3})(?:>[ \t]?)+/, '$1')
+      .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
+      .replace(/`([^`\n]+)`/g, '$1')
+      .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, '$1')
+      .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '$1')
+      .replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1$2')
+  /** 单遍剥除。respectFence=false 时忽略围栏状态（未闭合回退遍用）。
+   *  返回 unclosed = 遍历结束后仍处围栏内（有未闭合围栏）。 */
+  const strip = (respectFence: boolean): { text: string; unclosed: boolean } => {
+    let inFence = false
+    const out = text.split('\n').map((line) => {
+      // 围栏行翻转状态；围栏行与围栏内行整段原样保留（代码字面量不经呈现层剥除）
+      if (respectFence) {
+        const fence = matchFenceLine(line)
+        if (fence !== null && fence.ch === '`') {
+          inFence = !inFence
+          return line
+        }
+        if (inFence) return line
+      }
+      return stripLine(line)
+    })
+    return { text: out.join('\n'), unclosed: inFence }
+  }
+  const first = strip(true)
+  // 首遍末态仍处围栏内 = 存在未闭合围栏 → 按无围栏重剥（围栏边界不可信，净化优先）
+  return first.unclosed ? strip(false).text : first.text
 }
 
 /** 产物载荷单源（md/txt 双形态）——md 为现口径逐字节不变；txt 标题不带 `#`，

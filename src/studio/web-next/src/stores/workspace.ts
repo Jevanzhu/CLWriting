@@ -4,6 +4,7 @@ import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
+import { createBookConfigCache, type BookConfigRead } from '../shared/book-config-cache'
 import { setFullScreen } from '../shared/fullscreen'
 import { flushBodyWriteback } from '../shared/body-writeback'
 import { useStaleGuard } from '../composables/useStaleGuard'
@@ -317,6 +318,9 @@ function emitCreateSignal(
   s.tick.value++
 }
 
+/** 书级配置读取结果类型（定义在 shared/book-config-cache，经此处转发给消费方）。 */
+export type { BookConfigRead }
+
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
  *
@@ -327,6 +331,10 @@ function emitCreateSignal(
  *
  * 切书时异步加载 .clwriting/prefs.json 恢复布局；变更时 debounce 写回。
  * 首次加载如 prefs.json 不存在，从旧 localStorage 自动迁移。
+ *
+ * 书级配置（book.yaml）读取也挂在本 store：它已是书级数据的既有载体（bookName +
+ * 书级 prefs 生命周期），配置的「读哪本、何时失效」与之同一生命周期——另立第二个
+ * store 只会多一份切书协调面。读取口径见 loadBookConfig。
  */
 export const useWorkspaceStore = defineStore('workspace', () => {
   const leftOpen = ref(true)
@@ -425,8 +433,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
   }
 
+  // ── 书级配置（book.yaml）只读单源 ──
+  // 缓存与在途合并的实现收在 shared/book-config-cache（store 侧只留接线与生命周期）；
+  // 失效入口 invalidateBookConfig 由三处调用：本窗写入成功、他窗 book-config 失效通知、
+  // 进书（setBook）。失效只丢缓存，值仍由下次读取向服务端取。
+  const bookConfig = createBookConfigCache()
+  const loadBookConfig = bookConfig.load
+  const invalidateBookConfig = bookConfig.invalidate
+
   /** 切书：异步加载书库级 prefs（工作区布局 + 最后打开文档）。 */
   function setBook(name: string): void {
+    // 进书即失效本窗该书配置缓存（同名重进也算——离开期间盘上的 book.yaml 可能被
+    // 外部或他窗改过）：本次进书重取一遍，书内各消费方共享这次结果。空书名 = 离书，
+    // 无书可读，不立空键。
+    if (name) invalidateBookConfig(name)
     if (bookName.value === name) return
     bookName.value = name
     prefsLoaded = false
@@ -582,6 +602,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createTick,
     bookName,
     setBook,
+    loadBookConfig,
+    invalidateBookConfig,
     setTreeExpanded,
     validate,
     openTab,

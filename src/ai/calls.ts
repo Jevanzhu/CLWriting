@@ -24,7 +24,7 @@ import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
 import { roundCost } from './pricing.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
 import { testableConst } from '../shared/testable.js'
 
 /** chapter 块（预算闸专用） */
@@ -124,14 +124,15 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
               throw err
             }
           })
-          // 锁被占时 serializedWrite 返回在途 promise（异步轮询等待）——
-          // 锁超时等异步失败时 doWrite 未执行、上方内联清标记不生效，这里补清
-          //（口径：锁获取失败与写失败同语义，不清则迁移永不重试）；失败留痕由
-          // serializedWrite 旁挂 warn 承担，此处只补标记清理
+          // 锁被占时本调用走异步轮询等待，但 returnInflight:false 下返回值恒 undefined
+          // （已入队未等待，不把在途 promise 交给调用方）——故下方兜底分支不可达，保留作
+          // 未来异步化返回面；锁超时等异步失败经 onFailure 回执（noteLedgerWriteFailure）
+          // 计数 + 留痕，本处只管标记清理
           if (inflight !== undefined) inflight.catch(() => migratedRoots.delete(bookRoot))
         } catch (err) {
-          // 快路同步抛（锁文件创建 EACCES 等）同样要清标记——
+          // 快路同步抛（锁文件创建 EACCES 等）同样要清标记
           //（口径：锁获取失败与写失败同语义，不清则迁移永不重试）；失败留痕由
+          // onFailure 回执承担，本处只补标记清理
           migratedRoots.delete(bookRoot)
           throw err
         }
@@ -285,13 +286,57 @@ let inWriteSegment = false
 export const AI_CALLS_MUTEX_SCOPE_NOTE =
   'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
 
-/** 读改写互斥队列（per-bookRoot）薄壳。返回 undefined = 已同步完成（本侧历史口径：
- *  在途段也返回 undefined，调用方拿不到 promise——失败由 fs/lock-file.ts 的
- *  serializedLockedWrite 旁挂 warn 留痕；readRecord 迁移写的 inflight 兜底分支
- * 在此口径下不可达，保留作未来异步化返回面）。快/慢双路、
+/** 记账写失败的可定位上下文——写段最终被拒时按此拼装告警（书由调用参数带，其余在此）。 */
+export interface LedgerWriteContext {
+  /** 任务名（runTask 的 task；无则告警写「未知」） */
+  task?: string | undefined
+  /** 章号（runTask 的 chapter；无则告警写「-」） */
+  chapter?: number | undefined
+  /** attempt 序号（runTask 重试链；无则告警写「-」） */
+  attempt?: number | undefined
+}
+
+/**
+ * 记账写段失败计数——「少记一次」的**可观测面**。
+ *
+ * 为什么需要：serializedWrite 以 returnInflight:false 调用，写段被拒只在
+ * fs/lock-file.ts 侧留一行旁挂 warn，调用方拿不到任何回执——用量静默少记后
+ * effectiveRemainingCalls 之类预算判定读到的是少算的用量，用户看到的「还能调多少次」
+ * 偏高。改由本模块接管失败留痕（noteLedgerWriteFailure）并计数，使「本轮账目缺失」
+ * 既进日志、又有可断言的数值面。
+ */
+let ledgerWriteFailures = 0
+
+/** 记账写段失败累计值（测试/诊断探针；生产零调用）。 */
+export function ledgerWriteFailuresForTest(): number {
+  return ledgerWriteFailures
+}
+
+/** 记账写段失败收口（同步 / 在途 / 排队三形态同计数）：计数 + 一条带书/任务/章/尝试的
+ *  告警。保留「本轮账目缺失」原文案（既有告警的检索锚），定位信息补在其后。
+ *  runner 的同步 catch 直接调本函数（phase 'sync'），故同步失败也进同一可观测计数——
+ *  只在 runner 侧各记一份会让「少记一次」的总量被拆成两条互不知晓的账。 */
+export function noteLedgerWriteFailure(
+  bookRoot: string,
+  ctx: LedgerWriteContext | undefined,
+  phase: 'sync' | 'inflight' | 'queued',
+  err: unknown,
+): void {
+  ledgerWriteFailures += 1
+  const where = phase === 'sync' ? '同步' : phase === 'queued' ? '排队' : '在途'
+  log.warn(
+    'ai-calls',
+    `${where}记账写段失败（本轮账目缺失）：书=${bookRoot} 任务=${ctx?.task ?? '未知'} 章=${ctx?.chapter ?? '-'} 尝试=${ctx?.attempt ?? '-'}：${errMsg(err)}`,
+  )
+}
+
+/** 读改写互斥队列（per-bookRoot）薄壳。返回 undefined = 已同步完成**或**已入队未等待
+ *  （两态同值：returnInflight:false 不把在途 promise 交给调用方），故返回值不可作
+ *  成败判据——写段被拒/失败经 onFailure 回执通道（noteLedgerWriteFailure 计数 + 告警，
+ *  带 ctx 定位信息），而不是静默留在旁挂 warn 里。快/慢双路、
  *  在途入链、cleanup 身份比对、旁挂 warn 防未处理 rejection 全部由 serializedLockedWrite
  *  单源承载（provider/store.ts saveProviders 同构薄壳），机制语义不变。 */
-function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<void> {
+function serializedWrite(bookRoot: string, doWrite: () => void, ctx?: LedgerWriteContext): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
   return serializedLockedWrite(writeChains, bookRoot, lockPath, doWrite, {
     warnTag: 'ai-calls',
@@ -302,6 +347,8 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<
     segmentFlag: (on) => {
       inWriteSegment = on
     },
+    // 回执通道登记 → 本模块留痕 + 计数（缺省旁挂 warn 由本分支取代，不双重告警）
+    onFailure: (err, phase) => noteLedgerWriteFailure(bookRoot, ctx, phase, err),
     returnInflight: false,
   })
 }
@@ -482,7 +529,7 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
   // 整段读改写经 per-bookRoot 队列串行化（并发写不丢账）
-  void serializedWrite(bookRoot, () => recordAiCallLocked(bookRoot, chapter, usage, costUsd))
+  void serializedWrite(bookRoot, () => recordAiCallLocked(bookRoot, chapter, usage, costUsd), { chapter })
 }
 
 function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
@@ -624,7 +671,7 @@ export function checkAiTaskCallBudget(
  */
 export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
   // 与 recordAiCall 同队列串行化（chapter/tasks 两块同文件，互斥同一链）
-  void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage))
+  void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage), { task })
 }
 
 function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage | null): void {
@@ -658,6 +705,9 @@ function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null)
  * tasks 保留」口径）；损坏保守跳过同口径（合并后只 log 一次）。原两函数保留不动
  * （rag/index.ts 等其它调用方与测试面零改动）。task/chapter 双缺省 = 无可记块，
  * 不进写段（与旧「两 if 各自跳过」等价）。
+ *
+ * `attempt` 只进失败回执的告警上下文（写段成功与否不影响入账数值），调用方（runner）
+ * 用于把「本轮账目缺失」定位到具体重试序号。
  */
 export function recordUsageBoth(
   bookRoot: string,
@@ -665,9 +715,14 @@ export function recordUsageBoth(
   chapter: number | undefined,
   usage: TokenUsage | null,
   costUsd?: number,
+  attempt?: number,
 ): void {
   if (task === undefined && chapter === undefined) return
-  void serializedWrite(bookRoot, () => recordUsageBothLocked(bookRoot, task, chapter, usage, costUsd))
+  void serializedWrite(bookRoot, () => recordUsageBothLocked(bookRoot, task, chapter, usage, costUsd), {
+    task,
+    chapter,
+    attempt,
+  })
 }
 
 function recordUsageBothLocked(

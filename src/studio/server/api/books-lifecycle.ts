@@ -21,8 +21,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, mkdirSync, readdirSync, lstatSync, type Dirent } from 'node:fs'
-import { renameWithRetry } from '../../../fs/atomic.js'
+import { rmSync, mkdirSync, readdirSync, readFileSync, lstatSync, existsSync, type Dirent } from 'node:fs'
+import { renameWithRetry, atomicWriteFile } from '../../../fs/atomic.js'
 import { ulid } from '../../../fs/id.js' // 删书墓地名唯一后缀
 import { rm } from 'node:fs/promises'
 import { join, basename, dirname } from 'node:path'
@@ -46,7 +46,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import type { BookConfig } from '../../../format/types.js'
 import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { invalidateBookSummary } from './progress.js'
-import { bookHash } from '../../../events/store.js'
+import { bookHash, migrateBookSession } from '../../../events/store.js'
 import type { TaskGate } from './task-gate.js' // 闸实例经组装根注入（busyGate 为模块级助手，显式接闸）
 import { forgetRagBuildTask } from './rag.js'
 import { forgetSseCount } from './stream.js' // isSpawnRunning 面随 busyGate 收编矩阵，本文件不再直取
@@ -175,6 +175,13 @@ const defaultGraveyardCleanup = (graveAbs: string): Promise<void> => rm(graveAbs
  *  中段贪婪：书目录名自身可含 '-'。 */
 const GRAVE_ENTRY_RE = /^\d+-(.+)-[0-9A-HJKMNP-TV-Z]{26}$/
 
+/** 并发清扫同一项时的重试档（见 sweepGraveyardOnce 并发注）。 */
+const SWEEP_RM_ATTEMPTS = 4
+const SWEEP_RM_RETRY_DELAY_MS = 25
+
+/** 让出事件循环的短睡（禁 Atomics.wait——本函数在装配链上，同步睡会冻启动）。 */
+const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * 删书墓地启动兜底清扫（装配挂点单次调用，fire-and-forget）——热路径（books.delete）
  * 只做原子改名入墓地、rm 交后台且失败仅留痕：清理失败的大书目录（含 .git）此前无任何
@@ -186,11 +193,12 @@ const GRAVE_ENTRY_RE = /^\d+-(.+)-[0-9A-HJKMNP-TV-Z]{26}$/
  * 不递归跨目录追击、不碰形态不符项。
  *
  * 并发（两窗同时启动 = 两 server 实例同时清扫）：墓地名带 ulid 唯一后缀，同名项只可能
- * 指向同一物理删除目标；rm(force) 对已消失项是幂等 no-op，且扫描列表是快照——并发
- * 清扫同一项无竞态、无需锁/防重入（最坏是一次多余的 no-op 调用）。与热路径后台清理
- * 并发同理（两处都 force，先到者删净、后到者 no-op）。
+ * 指向同一物理删除目标；rm(force) 只把 ENOENT 当幂等 no-op——**赢家的删除尚未收尾时，
+ * 输家可能拿到 EPERM/EBUSY**（Windows 上目录处于 delete-pending / 子树句柄未闭）。这类
+ * 报错不代表留档，故失败计数前先复核目标是否已消失（收敛判定），只有**仍然存在**才算
+ * 真失败。扫描列表是快照，无需锁/防重入。与热路径后台清理并发同理。
  *
- * 失败不阻断启动：逐项 try/catch，失败 warn 留痕（含路径与原因）留待下次启动重试或
+ * 失败不阻断启动：逐项 try/catch，真失败 warn 留痕（含路径与原因）留待下次启动重试或
  * 手工处理；不因清扫失败/慢盘延后启动（调用方不 await）。
  */
 export async function sweepGraveyardOnce(workDir: string): Promise<{ removed: number; failed: number }> {
@@ -208,15 +216,171 @@ export async function sweepGraveyardOnce(workDir: string): Promise<{ removed: nu
     const abs = join(graveyard, ent.name)
     try {
       if (!lstatSync(abs).isDirectory()) continue // 不跟随符号链接：只清真实目录
-      await rm(abs, { recursive: true, force: true })
-      removed++
-    } catch (e) {
-      failed++
-      log.warn('api', `删书墓地兜底清扫失败（留档待下次启动重试或手工处理：${abs}）：${errMsg(e)}`, e)
+    } catch {
+      continue // 竞态窗口内已被清掉：无清理面（并发清扫的正常形态）
     }
+    // 有界重试：rm(force) 只把 ENOENT 当幂等 no-op——并发清扫时输家会拿到
+    // EPERM/EBUSY（赢家的删除尚未收尾），这类失败**瞬时且不代表留档**。逐次重试，
+    // 任一次成功或目标消失即算清干净（与先到者的 removed 同计，口径与 ENOENT no-op 一致）；
+    // 重试耗尽仍存在才是真失败（真留档：权限/占用/磁盘满）。
+    let cleared = false
+    let lastErr: unknown = null
+    for (let attempt = 1; attempt <= SWEEP_RM_ATTEMPTS; attempt++) {
+      try {
+        await rm(abs, { recursive: true, force: true })
+        cleared = true
+        break
+      } catch (e) {
+        lastErr = e
+        if (!existsSync(abs)) {
+          cleared = true // 另一清扫者已删净
+          break
+        }
+        if (attempt < SWEEP_RM_ATTEMPTS) await sleepMs(SWEEP_RM_RETRY_DELAY_MS)
+      }
+    }
+    if (cleared) {
+      removed++
+      continue
+    }
+    failed++
+    log.warn('api', `删书墓地兜底清扫失败（留档待下次启动重试或手工处理：${abs}）：${errMsg(lastErr)}`, lastErr)
   }
   if (removed > 0) log.info('api', `删书墓地兜底清扫：已清理 ${removed} 个上次未清干净的删书副本`)
   return { removed, failed }
+}
+
+// ── 事件库迁移待办（改名后事件库未跟过来时的重试通路）──────────────
+// 状态来源：改名先搬目录（不可回滚）再迁事件库；迁失败时旧库在旧 hash 下原地完整，
+// 但书已按新名注册——此后 openSessionStore(newRoot) 会在新 hash 下建空库，对话史/
+// 审计在 UI 上静默「消失」，且**没有任何自动通路把它接回来**（旧库文件仍在，
+// 只是再无人寻址）。
+//
+// 形态：待办档落在会话库目录（与库文件同址，随 userDataPath 一起被备份/清理），
+// 内容即 migrateBookSession 的四参「事实记录」——不记派生量（oldDb/newDb 由
+// bookHash 重算）：重试时用记录的参原样调 migrateBookSession，走它与首开/迁移锁
+// 共用的全部守卫（在途引用、他进程开口标记、checkpoint、目标位已存在）——重试不是
+// 第二条迁移实现，只是「把这次调用再发一次」。
+// 为什么不做更强的（改名事务性回滚）：迁移失败后目录已搬家，回滚涉及把书目录搬回
+// 旧名 + 回写登记，与在途对话/缓存的旧路径闭包竞态面大（搬回后新路径闭包再落盘即
+// 重建孤儿目录），风险远高于「保留旧库 + 重试迁移」。为什么不做手动重试端点：
+// 重试参数全在本档内、失败原因是瞬时（锁/句柄/磁盘），作者唯一可行的动作就是再试一次
+// ——启动自愈把这件事在下次启动时自动做掉，扩 API 面只多一个需要前端接线的按钮。
+const PENDING_MIGRATION_EXT = '.migrate-pending.json'
+
+/** 待办档路径（按新根 hash 分书——一书一档，与 sessionDbPath 同目录）。 */
+export function pendingEventMigrationPath(userDataPath: string, newRoot: string): string {
+  return join(userDataPath, 'clwriting', 'session', bookHash(newRoot) + PENDING_MIGRATION_EXT)
+}
+
+/** 落待办档（改名端点迁移失败时调用）。写失败只留痕——改名响应已可给作者，
+ *  下次改名前再试（登记读失败/磁盘故障是它的真因）。 */
+export function recordPendingEventMigration(
+  userDataPath: string,
+  rec: { oldRoot: string; newRoot: string; oldName: string; newName: string },
+): void {
+  try {
+    mkdirSync(join(userDataPath, 'clwriting', 'session'), { recursive: true })
+    atomicWriteFile(pendingEventMigrationPath(userDataPath, rec.newRoot), JSON.stringify({ ...rec, at: Date.now() }))
+  } catch (e) {
+    log.warn('api', `事件库迁移待办档写入失败（下次启动无法自动重试，可再改名一次触发）：${errMsg(e)}`, e)
+  }
+}
+
+/** 清待办档（迁移成功时调用；档不在则 no-op——成功路径的常态）。 */
+export function clearPendingEventMigration(userDataPath: string, newRoot: string): void {
+  try {
+    rmSync(pendingEventMigrationPath(userDataPath, newRoot), { force: true })
+  } catch (e) {
+    // 清除失败留痕不抛：残留档在下次启动重试一次（migrateBookSession 幂等，
+    // 半迁移态自愈分支会零副作用返回 true 后清掉）
+    log.warn('api', `事件库迁移待办档清除失败（下次启动会重试一次，幂等无害）：${errMsg(e)}`, e)
+  }
+}
+
+/**
+ * 启动自愈：重试所有待办的改名事件库迁移（装配挂点单次调用，与 sweepGraveyardOnce
+ * 同址同形态；调用方不 await）。
+ *
+ * 序：按落档时间升序重试——同一本书连续改名两次（A→B 失败后又 B→C）会落两条待办，
+ * 迁移必须沿 A→B→C 的因果序推进（乱序时后一条会因源库不在其记录位而空转返回）。
+ *
+ * 失败不阻断启动也不清档：失败原因（他进程持句柄/锁超时/磁盘瞬时故障）本就可能是
+ * 瞬时的，保留待办留给下次启动；清除只随成功（或 migrateBookSession 的半迁移态
+ * 自愈分支判定已完成）。档不可解析（写中途进程死留下的半截 JSON）同样保留 + error
+ * 留痕，交人工核对——不按「无待办」清除，否则旧库就此失去唯一的自动寻址线索。
+ */
+export async function retryPendingEventMigrations(
+  userDataPath: string | null,
+  notify?: (kind: string, message: string) => void,
+): Promise<{ retried: number; failed: number }> {
+  if (!userDataPath) return { retried: 0, failed: 0 }
+  const dir = join(userDataPath, 'clwriting', 'session')
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return { retried: 0, failed: 0 } // 目录不存在（未用过事件库）：无待办面
+  }
+  const pendings: Array<{
+    oldRoot: string
+    newRoot: string
+    oldName: string
+    newName: string
+    at: number
+    file: string
+  }> = []
+  for (const name of names) {
+    if (!name.endsWith(PENDING_MIGRATION_EXT)) continue
+    const file = join(dir, name)
+    try {
+      const rec = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, unknown>
+      if (
+        typeof rec['oldRoot'] !== 'string' ||
+        typeof rec['newRoot'] !== 'string' ||
+        typeof rec['oldName'] !== 'string' ||
+        typeof rec['newName'] !== 'string'
+      ) {
+        throw new Error('字段缺失或类型不符')
+      }
+      pendings.push({
+        oldRoot: rec['oldRoot'],
+        newRoot: rec['newRoot'],
+        oldName: rec['oldName'],
+        newName: rec['newName'],
+        at: typeof rec['at'] === 'number' ? rec['at'] : 0,
+        file,
+      })
+    } catch (e) {
+      log.error('api', `事件库迁移待办档不可解析（${file}）——保留待办，请人工核对迁移目标：${errMsg(e)}`, e)
+    }
+  }
+  pendings.sort((a, b) => a.at - b.at)
+  let retried = 0
+  let failed = 0
+  for (const p of pendings) {
+    let ok = false
+    try {
+      ok = await migrateBookSession(userDataPath, p.oldRoot, p.newRoot, p.oldName, p.newName)
+    } catch (e) {
+      // migrateBookSession 契约内已把可预期失败收口为 false（锁/引用/checkpoint），
+      // 此处只兜它的裸异常（如 fs 层 EACCES）——同按失败保留待办，不让单条冲断整轮
+      log.warn('api', `事件库迁移待办重试异常（${p.oldName} → ${p.newName}）：${errMsg(e)}`, e)
+    }
+    if (!ok) {
+      failed++
+      log.warn(
+        'api',
+        `事件库迁移待办重试失败（${p.oldName} → ${p.newName}）——旧库原地完整保留，待下次启动再试；对话史/审计在新名下暂不可见`,
+      )
+      continue
+    }
+    retried++
+    rmSync(p.file, { force: true })
+    log.info('api', `事件库迁移待办已重试成功（${p.oldName} → ${p.newName}）——对话史/审计已跟到新名下`)
+    notify?.('events-migration', `书「${p.newName}」的事件库迁移已自动补齐：对话历史/审计已跟到新名下。`)
+  }
+  return { retried, failed }
 }
 
 /** #7：等被 abort 的在途编排（chat / self-heal 后台任务）真正收尾。abort 只是异步
@@ -307,6 +471,12 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
   if (ctx.workDir) {
     void sweepGraveyardOnce(ctx.workDir).catch((e) => log.error('api', '删书墓地兜底清扫异常（忽略，不影响启动）', e))
   }
+  // 启动兜底重试改名遗留的事件库迁移（fire-and-forget）；同样不 await——每条的
+  // migrateBookSession 会等跨进程锁（最坏 2×5s），不该拖住启动。成功时经
+  // onStartupNotice 上报（作者可见「对话史已补齐」），失败只留痕待下次启动。
+  void retryPendingEventMigrations(ctx.userDataPath, ctx.onStartupNotice).catch((e) =>
+    log.error('api', '事件库迁移待办重试异常（忽略，不影响启动）', e),
+  )
   // 删书（物理删除：书目录原子改名入墓地 + 后台清理 + 移 books.jsonl 登记 + 清 active 指针）
   defineRoute('books.delete', {
     method: 'DELETE',
@@ -437,6 +607,9 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
             /* 单个伴生文件清理失败忽略 */
           }
         }
+        // 待办档随删书一并清——否则下次启动重试会「成功」地把已删书的旧库搬到
+        // 已删路径，留一个无读者的孤儿库（且启动通告谎报「对话史已补齐」）
+        clearPendingEventMigration(ctx.userDataPath, bookAbs)
       }
       forgetRagBuildTask(name) // 模块级索引任务表随删书清理
       reply(res, 200, { ok: true, name })

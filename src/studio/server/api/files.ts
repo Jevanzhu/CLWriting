@@ -19,6 +19,11 @@ import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service-guards.js'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
+// GET /file 回包形状钉在跨端契约上（shared/contract/documents.ts，前端 getContentPayload
+// 按同一份声明消费）：字面量 `satisfies` 的多余属性检查即编译期抓「服务端加/改字段而
+// 契约未同步」，缺必填/类型不符同样报错。Revision 随契约口径（GET /file 恒回指纹，
+// 不取文档层 Revision 的 null 分支）。
+import type { FileContentPayload, Revision } from '../../../shared/contract/documents.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 import { forgetStateCache } from './state.js' // PUT 写后 /state 判态缓存失效（写侧失效挂点单源）
@@ -61,7 +66,7 @@ const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进
  */
 async function readFileHashed(
   fp: string,
-): Promise<{ content: string; revision: string; encodingSuspect: boolean } | null> {
+): Promise<{ content: string; revision: Revision; encodingSuspect: boolean } | null> {
   let buf: Buffer
   try {
     buf = await readFileAsync(fp)
@@ -71,7 +76,10 @@ async function readFileHashed(
   }
   return {
     content: buf.toString('utf-8'),
-    revision: 'sha256:' + createHash('sha256').update(buf).digest('hex'),
+    // 模板字面量形态（非 'sha256:' + hex 拼接）：拼接在类型系统里退化为 string，
+    // 而模板表达式可被 Revision 上下文定型——回包据此才受契约的字段级约束
+    // （拼出的字节与前一致，指纹口径不变）
+    revision: `sha256:${createHash('sha256').update(buf).digest('hex')}`,
     encodingSuspect: !isUtf8Bytes(buf),
   }
 }
@@ -105,7 +113,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
               encodingHint: '该文件不是 UTF-8 编码，内容可能显示为乱码——请先在编辑器外转码为 UTF-8 再编辑保存',
             }
           : {}),
-      })
+      } satisfies FileContentPayload)
     },
   })
 

@@ -288,9 +288,10 @@ describe('R0911-B-P3-4: config PUT 临界段书注册重验', () => {
       send({ config: { spec_version: 1, book: { title: '常态新题' }, leads: { enabled: [] }, budget: {}, growth: {} } })
       await done
       expect(captured.status).toBe(200)
-      const d = JSON.parse(captured.body) as { ok: boolean; revision: number }
+      const d = JSON.parse(captured.body) as { ok: boolean; revision: string }
       expect(d.ok).toBe(true)
-      expect(typeof d.revision).toBe('number')
+      // book.yaml 内容指纹为 sha256 全 hex（64 字符）
+      expect(d.revision).toMatch(/^[0-9a-f]{64}$/)
     } finally {
       rig.cleanup()
     }

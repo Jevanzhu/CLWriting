@@ -40,6 +40,23 @@ import { ulid } from '../../../src/fs/id.js'
 const GRAVEYARD = '.删书墓地'
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
 const permsReliable = process.platform !== 'win32' && !isRoot // win chmod 近似 no-op；root 越权不触发 EACCES
+/** 符号链接可建（win 需开发者模式/管理员）；不可建时相关用例跳过而非红。 */
+const canSymlink = ((): boolean => {
+  const probe = join(tmpdir(), `clw-symlink-probe-${Date.now()}`)
+  try {
+    mkdirSync(join(probe, 't'), { recursive: true })
+    symlinkSync(join(probe, 't'), join(probe, 'l'), 'dir')
+    return true
+  } catch {
+    return false
+  } finally {
+    try {
+      rmSync(probe, { recursive: true, force: true })
+    } catch {
+      // 探测残留清理失败不影响判定
+    }
+  }
+})()
 
 let studio: StudioHarness
 let workDir = ''
@@ -163,7 +180,7 @@ describe('删书墓地启动兜底清扫', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 
-  it('装配期扫清墓地：形态匹配的可删目录（含 .git 形态）连根删除；形态不符项与符号链接不动', async () => {
+  it('装配期扫清墓地：形态匹配的可删目录（含 .git 形态）连根删除；形态不符项不动', async () => {
     const dir = mkDir('clw-grave-sweep-')
     const graveyard = join(dir, GRAVEYARD)
     // 形态匹配：`${Date.now()}-${书目录名}-${ulid}`（含 .git 子树 = 报告所指的大书形态）
@@ -173,6 +190,21 @@ describe('删书墓地启动兜底清扫', () => {
     // 形态不符（作者手放杂物）：留档
     const handPlaced = join(graveyard, '手工杂物')
     mkdirSync(handPlaced, { recursive: true })
+
+    const { server } = await bootAt(dir)
+    try {
+      await vi.waitFor(() => expect(existsSync(sweepable)).toBe(false))
+      expect(existsSync(handPlaced)).toBe(true) // 形态不符：不碰
+    } finally {
+      await closeServer(server)
+    }
+  })
+
+  // 符号链接建不了（win 需开发者模式/管理员，`symlinkSync` 直建 EPERM）时不跑——
+  // 该守卫语义由 macOS/Linux CI 腿覆盖；同 test/fs/safe-path-symlink.test.ts 口径。
+  it.skipIf(!canSymlink)('装配期清扫不跟随符号链接：链接本体与链接指向的库外真身都不动', async () => {
+    const dir = mkDir('clw-grave-sweep-link-')
+    const graveyard = join(dir, GRAVEYARD)
     // 形态匹配的符号链接指向书库外真身：不跟随（不删链接、更不删链接指向的目标）
     const outside = join(dir, '库外真身')
     mkdirSync(outside, { recursive: true })
@@ -182,8 +214,6 @@ describe('删书墓地启动兜底清扫', () => {
 
     const { server } = await bootAt(dir)
     try {
-      await vi.waitFor(() => expect(existsSync(sweepable)).toBe(false))
-      expect(existsSync(handPlaced)).toBe(true) // 形态不符：不碰
       expect(existsSync(linkPath)).toBe(true) // 链接本体不动
       expect(readFileSync(join(outside, 'keep.md'), 'utf-8')).toBe('keep') // 未跟随删除
     } finally {

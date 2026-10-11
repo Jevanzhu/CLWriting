@@ -10,7 +10,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { contentStableKeys, checkItemKeyBase } from '../../shared/issue-keys'
 import { useScopedAction } from '../../composables/useScopedAction'
 
@@ -35,12 +35,10 @@ const isCheckable = computed(() => {
 const redKeys = computed(() => contentStableKeys(check.redItems.map(checkItemKeyBase)))
 const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkItemKeyBase)))
 
-// 红/黄项渲染上限——千项级命中全量
-// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
-// 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 红/黄项渲染上限——千项级命中全量 v-for 挂 DOM（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源：只裁渲染面前 RENDER_CAP 条 +
+// 尾部省略提示行；数据面不动——分组头计数仍面向全量，键表也按全量构造
+//（切片与键按下标仍对齐）。
 const redCap = computed(() => capView(check.redItems, RENDER_CAP))
 const yellowCap = computed(() => capView(check.yellowItems, RENDER_CAP))
 

@@ -6,17 +6,39 @@
  * 读失败（权限）返 null 不抛、异步孪生与同步版共享指纹表、FIFO 上限淘汰。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { rmSync, writeFileSync, utimesSync, chmodSync } from 'node:fs'
+import { rmSync, writeFileSync, utimesSync, chmodSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+/** 粗粒度卷替身（见下方「低精度 mtime 卷」组注）——登记路径的 bigint stat 按帧返回。 */
+const { coarseStatFrames } = vi.hoisted(() => ({ coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>() }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
-  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+  return {
+    ...actual,
+    readFileSync: vi.fn(actual.readFileSync),
+    statSync: (p: string, opts?: { bigint?: boolean }) => {
+      if (opts?.bigint && typeof p === 'string') {
+        const frame = coarseStatFrames.get(p)
+        if (frame) return frame as never
+      }
+      return actual.statSync(p, opts as never)
+    },
+  }
 })
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, readFile: vi.fn(actual.readFile) }
+  return {
+    ...actual,
+    readFile: vi.fn(actual.readFile),
+    stat: (p: string, opts?: { bigint?: boolean }) => {
+      if (opts?.bigint && typeof p === 'string') {
+        const frame = coarseStatFrames.get(p)
+        if (frame) return Promise.resolve(frame as never)
+      }
+      return actual.stat(p, opts as never)
+    },
+  }
 })
 
 import { readFileSync } from 'node:fs'
@@ -110,5 +132,63 @@ describe('R47-27：md 文本指纹缓存（fs/md-text-cache.ts）', () => {
     expect(__mdTextCacheTestHooks.size()).toBe(2)
     expect(readMdTextCached(fp)).toContain('正文内容甲') // fp 被淘汰后重扫仍正确
     expect(readMock.mock.calls.length).toBe(4) // fp/fp2/fp3 首读 + fp 重读
+  })
+})
+
+// ── 低精度 mtime 卷（FAT/exFAT/SMB）：文本指纹缓存降级 ──────────────
+// 粗粒度卷的 mtime 粒度粗于毫秒 → 同尺寸改写可落在同一刻度内，(mtimeNs,size) 判据
+// 失真。降级判据 = isCoarseMtimeNs（整毫秒对齐），该卷不读不写缓存、每次真读
+// （见 readMdTextCached 头注）。本机卷为 ns 级精度，粗粒度形态由 stat 打桩构造。
+
+describe('低精度 mtime 卷：md 文本缓存降级不返回陈旧文本', () => {
+  let dir: string
+  let fp: string
+  beforeEach(() => {
+    dir = mkdtempTracked(join(tmpdir(), 'mdcache-coarse-'))
+    fp = join(dir, '001-章.md')
+    __mdTextCacheTestHooks.clear()
+    readMock.mockClear()
+    readAsyncMock.mockClear()
+    coarseStatFrames.clear()
+  })
+  afterEach(() => {
+    coarseStatFrames.clear()
+    rmSync(dir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('同尺寸改写落在同一粗粒度刻度 → 同步读返回新文本（不命中陈旧缓存）', () => {
+    writeFileSync(fp, '---\n章号: 1\n---\n\n正文内容甲')
+    const size = statSync(fp, { bigint: true }).size
+    // 整毫秒对齐 = 低精度卷形态；两次读喂同一帧（粗粒度窗口内 stat 逐位相同）
+    coarseStatFrames.set(fp, { size, mtimeNs: 1_700_000_002_000_000_000n })
+    expect(readMdTextCached(fp)).toContain('正文内容甲')
+
+    // 等长改写（甲 → 乙）：粗粒度卷上 size 与 mtimeNs 都不变
+    writeFileSync(fp, '---\n章号: 1\n---\n\n正文内容乙')
+    // 修复前：指纹全同 → 命中旧文本「甲」（去 fm 正文/机检行静默陈旧）；修复后重读「乙」
+    expect(readMdTextCached(fp)).toContain('正文内容乙')
+    expect(readMock.mock.calls.length).toBe(2) // 该卷不落缓存，两次都真读
+  })
+
+  it('异步孪生同口径：低精度卷两次真读（readFile 各一次），不落缓存', async () => {
+    writeFileSync(fp, '---\n章号: 1\n---\n\n正文内容甲')
+    const size = statSync(fp, { bigint: true }).size
+    coarseStatFrames.set(fp, { size, mtimeNs: 1_700_000_002_000_000_000n })
+    expect(await readMdTextCachedAsync(fp)).toContain('正文内容甲')
+    expect(await readMdTextCachedAsync(fp)).toContain('正文内容甲')
+    expect(readAsyncMock.mock.calls.length).toBe(2)
+    expect(__mdTextCacheTestHooks.size()).toBe(0) // 降级即零驻留
+  })
+
+  it('精修卷（非整毫秒对齐）不降级：同指纹二次读零读盘（降级面只对粗粒度卷生效）', () => {
+    writeFileSync(fp, '---\n章号: 1\n---\n\n正文内容甲')
+    const size = statSync(fp, { bigint: true }).size
+    // 亚毫秒余数 = ns 级精度卷形态；帧不变即判「盘上未变」
+    coarseStatFrames.set(fp, { size, mtimeNs: 1_700_000_002_000_000_123n })
+    expect(readMdTextCached(fp)).toContain('正文内容甲')
+    expect(readMdTextCached(fp)).toContain('正文内容甲')
+    expect(readMock.mock.calls.length).toBe(1) // 命中缓存，零重读
+    expect(__mdTextCacheTestHooks.size()).toBe(1)
   })
 })

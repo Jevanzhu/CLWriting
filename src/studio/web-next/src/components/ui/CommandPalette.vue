@@ -12,7 +12,7 @@ import { useAppActions } from '../../composables/useAppActions'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { useScopedAction } from '../../composables/useScopedAction'
 import { isImeComposing } from '../../shared/ime'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import ModalMask from './ModalMask.vue'
 import type { TreeNode } from '../../types/tree'
 
@@ -70,11 +70,10 @@ const filtered = computed(() => {
       (c.no !== undefined && (c.no.startsWith(k) || c.no.replace(/^0+/, '').startsWith(kNorm))),
   )
 })
-// 内存核查：渲染上限——空查询时全书每章一条全量渲染为 DOM
-// （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，
-// 只裁每节渲染条数（≤100）+ 尾部省略提示行。有查询词（过滤）时同样上限防长匹配。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 渲染上限——空查询时全书每章一条全量渲染为 DOM（千章级千行节点，max-height
+// 只裁视觉不减节点）。帽值与切片/计数样板均取自 shared/render-cap 单源：cmds
+// 数据生成不动，只裁每节渲染条数（≤ RENDER_CAP）+ 尾部省略提示行；有查询词
+//（过滤）时同样上限防长匹配。
 // 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
 const sections = computed(() => {
   const indexed = filtered.value.map((c, i) => ({ c, i }))

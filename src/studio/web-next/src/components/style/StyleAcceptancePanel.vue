@@ -182,7 +182,7 @@ function fmtDate(iso: string): string {
           </div>
         </template>
         <div v-else class="ab-empty">
-          {{ aiOff ? 'AI暂不可用' : '读最近定稿做全书文风总结；口癖和建议会自动进候选箱' }}
+          {{ aiOff ? `AI 暂不可用（${ui.aiReasonText}）` : '读最近定稿做全书文风总结；口癖和建议会自动进候选箱' }}
         </div>
       </div>
     </div>

@@ -13,7 +13,6 @@ import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction, usePendingAction } from '../../composables/useScopedAction'
 import { useBookScoped } from '../../composables/useBookScoped'
 import { updateDocMeta } from '../../api/documents'
-import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 
 type FieldDef = {
@@ -221,17 +220,20 @@ const tagValues = computed<Record<string, string>>(() => {
 
 // 每章字数目标（书级 chapter_target_words ?? 全局默认；0=未设）—— 字数目标字段的 placeholder
 const globalChapterTarget = ref<number | undefined>(undefined)
-// 代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder。
+// 代守卫——快速切书 A→B 时 A 的书级配置慢响应不把 A 的字数目标落到 B 的 placeholder。
 // 裸计数器换装 useStaleGuard。
+// 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+// 失败/读不到均退回全局默认（placeholder 不空）。
 const targetGen = useStaleGuard()
 useBookScoped(() => props.bookName, {
   load: async (n) => {
     const gen = targetGen.begin()
     if (!n) return
     try {
-      const v = (await getConfig(n)).book?.chapter_target_words ?? prefs.get('defaultChapterTargetWords')
+      const r = await ws.loadBookConfig(n)
       if (targetGen.stale(gen)) return
-      globalChapterTarget.value = v
+      if (r.error) return // 用默认
+      globalChapterTarget.value = r.config.book?.chapter_target_words ?? prefs.get('defaultChapterTargetWords')
     } catch {
       /* 用默认 */
     }

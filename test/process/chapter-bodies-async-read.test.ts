@@ -3,11 +3,10 @@
  *
  * 原同步 readChapterBodiesByNumbers（walkMdEach + readFileSync 全树扫描 + 逐文件整读）
  * 在 studio 服务进程事件循环内被 await（ai/orchestrate/self-heal 备料链）会冻结同进程
- * 全部书的 SSE/保存——与 book-search R46-3 同族。随批异步化：新增 walkMdEachAsync
- * （与同步 walkMdEach 同纪律：Dirent 判型/realpath 剪枝/根界/`._` 排除，IO 走
- * fs/promises）+ readFileBodyAsync（fs/promises 读后经 frontmatter.readFile content
- * 传参复用解析单源）。同步版唯一消费链（renderRecallHits → prepareMaterials，已
- * async）随批删除。
+ * 全部书的 SSE/保存——与 book-search R46-3 同族。异步链：章号定位走
+ * chapterPathByNumber 单源（两层优先 + 全树 walk 兜底 + 并入回退）+ readFileBodyAsync
+ * （fs/promises 读后经 frontmatter.readFile content 传参复用解析单源）。同步版唯一
+ * 消费链（renderRecallHits → prepareMaterials，已 async）随批删除。
  *
  * 三态钉：① 章号前缀多形态命中（无补零/3 位/4 位补零 + 卷子目录递归）；
  * ② 并入源回退（按名 miss 经 fm「并入」取目标章正文，正文命中优先）；

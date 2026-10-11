@@ -30,7 +30,7 @@ import { runAllChecks } from '../src/check/runner.js'
 import { SIMILE_RE } from '../src/check/count.js'
 import { rebuild } from '../src/cache/rebuild.js'
 import { DEFAULT_IMAGERY_WORDS } from '../src/check/imagery-seed.js'
-import { bodyOf } from '../src/format/frontmatter-core.js'
+import { bodyOf } from '../src/shared/frontmatter-core.js'
 
 // 重评-26（全库代码重评审 2026-09-05）：入参此前只验 existsSync 不验目录——误传
 // 文件路径时校验放行，readBookConfig(join(bookRoot, 'book.yaml')) 以文件为根拼路径

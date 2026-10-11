@@ -50,7 +50,18 @@ vi.mock('../../../../src/studio/web-next/src/stores/doc', () => ({
   })),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ openTab: mocks.openTab })),
+  // 书级配置读单源（同书共享一次请求）在生产由 workspace store 承担——本档桩面照其
+  // 对外形补 loadBookConfig，桩内转调同一 api 面（转调/失败语义等价，见真件）。
+  useWorkspaceStore: vi.fn(() => ({
+    openTab: mocks.openTab,
+    loadBookConfig: async (name: string) => {
+      try {
+        return { config: await mocks.getConfig(name), error: null }
+      } catch (e) {
+        return { config: null, error: e }
+      }
+    },
+  })),
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => ({ byPath: new Map() })),

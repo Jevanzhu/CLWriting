@@ -14,6 +14,7 @@ import { readBooks, type BookEntry } from '../../install/books.js'
 import { readManifest, type ManifestEntry } from '../../document/manifest.js'
 import { safeManifestPath } from '../../fs/safe-path.js'
 import { readDraft } from '../../format/draft.js'
+import { readMdTextCachedAsync } from '../../fs/md-text-cache.js'
 import { replyError } from './http.js'
 
 export { readKind } from '../../format/kind.js'
@@ -115,8 +116,8 @@ export function bookMovedFailure(
 // 「resolveDocEntry → safeManifestPath → existsSync → readDraft(+TOCTOU 500 守卫)」
 // 及错误文案此前在 docId 直读线端点各持一份（analysis ×3 / review ×2 / check ×2 /
 // rewrite ×1）。本节收编三档单源（按各端点实际读面拆档，响应字节逐位不变）：
-// - resolveDraftByDocId：全链（含单次读取 + TOCTOU 守卫 + 章稿解析）——analysis 三
-// 端点用；「单次读取取快照」口径随之单源（content 进 readDraft
+// - resolveDraftByDocId（async）：全链（含单次读取 + TOCTOU 守卫 + 章稿解析）——
+// analysis 三端点用；「单次读取取快照」口径随之单源（content 进 readDraft
 //   两参形态，一读同源）。
 // - resolveDocFile：只走到存在性（不读稿不解析）——check ×2（机检由
 //   runCheckForDocument 自读，且机检对象含非章稿文档，章稿解析会误伤）与 rewrite
@@ -175,21 +176,23 @@ export type DraftResolution =
  * 落地的「existsSync 后 µs 级竞态删除不再裸穿 dispatch」守卫随链单源——读失败落
  * 500 IO_ERROR DRAFT_UNREADABLE_TEXT（原文案逐字）。NOT_CHAPTER（非章稿/解析失败）
  * → 400 NOT_CHAPTER + readDraft reason（原口径）。文案 variant 见 resolveDocFile。
+ *
+ * 读取走异步孪生 readMdTextCachedAsync（stat 指纹缓存命中零读盘）：本函数只服务
+ * HTTP 端点 handler，桌面单进程下同步读整章会顶住事件循环（并发请求与 SSE 心跳
+ * 一起被拖）；降级语义与既有「一次读盘取快照」口径逐位一致——消失/读失败 → null
+ * → 500 IO_ERROR，成功即单读快照（content 进 readDraft 两参形态，与 sourceHash 同源）。
  */
-export function resolveDraftByDocId(
+export async function resolveDraftByDocId(
   bookRoot: string,
   docId: string,
   opts?: { badPathText?: string; missingText?: string },
-): DraftResolution {
+): Promise<DraftResolution> {
   const f = resolveDocFile(bookRoot, docId, opts)
   if (!f.ok) return f
-  let buf: Buffer
-  try {
-    buf = readFileSync(f.absPath)
-  } catch {
+  const content = await readMdTextCachedAsync(f.absPath)
+  if (content === null) {
     return { ok: false, status: 500, code: 'IO_ERROR', message: DRAFT_UNREADABLE_TEXT }
   }
-  const content = buf.toString('utf-8')
   const draft = readDraft(f.absPath, content)
   if (!draft.ok) return { ok: false, status: 400, code: 'NOT_CHAPTER', message: draft.reason }
   return { ok: true, entry: f.entry, absPath: f.absPath, content, draft }

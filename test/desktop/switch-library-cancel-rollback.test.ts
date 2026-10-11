@@ -14,7 +14,7 @@
  * 断言锚点 = workdir.json 落盘内容（行为契约，不钉日志措辞）。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -466,6 +466,93 @@ describe('多库多窗：workdir.json 跨进程合并（G3）与 relaunch argv �
       expect(opts!.args).not.toContain(libA)
     } finally {
       process.argv.length = argvLen
+    }
+  })
+})
+
+// ── 多库多窗：取消回滚按锁内读-改-合并（不按快照整写）────────────────────
+// 缺陷：回滚按「先前读到的快照」整份写回 workdir.json，其中快照 current 为 null 的
+// 形态（welcome 态切库后取消退出）不做任何盘上合并——「读快照 → 回滚写回」窗口内
+// 另一实例（同机另一库窗口，共享根 workdir.json）新增的 recent 条目被静默抹掉。
+// 修复：回滚写走锁内读-改-合并（workdir-store.rollbackStore），保留盘上「本实例不知情」
+// 的条目，current 仍只认快照。断言面 = workdir.json 落盘内容（not 私有调用序）。
+describe('多库多窗：切库取消回滚的锁内合并', () => {
+  const workdirFpLocal = (): string => join(M.userData, 'workdir.json')
+  /** 读整份落盘 store（回滚合并的观察面） */
+  function persistedStore(): { current: string | null; recent: Array<{ path: string; label: string }> } {
+    return JSON.parse(readFileSync(workdirFpLocal(), 'utf-8')) as {
+      current: string | null
+      recent: Array<{ path: string; label: string }>
+    }
+  }
+  /** 退出链取消驱动（不看 current 终值，由调用方断言；用于 welcome 态快照等形态） */
+  async function quitCancel(): Promise<void> {
+    const win = M.windows.at(-1)!
+    win.webContents.execJsResult = { conflict: ['d1'], failed: [] }
+    M.msgBoxSyncChoice = 1 // 取消（「应用原样保留」）
+    M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
+    // 回滚是异步链（flush → 确认 → 回写）：等回写落定的可观测信号由调用方轮询
+    await new Promise((r) => setImmediate(r))
+  }
+
+  it('welcome 态快照（current=null）回滚：他实例窗口内新增的 recent 条目保留，current 回到 null', async () => {
+    // 快照 current=null（welcome 态）——须在 freshMain 前落盘，缓存才按它重建
+    const libR = mkLibrary()
+    writeFileSync(workdirFp(), JSON.stringify({ current: null, recent: [{ path: libR, label: 'R' }] }))
+    await freshMain()
+    const libB = mkLibrary()
+    const libC = mkLibrary()
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    expect(persistedCurrent()).toBe(libB) // welcome 态切库：无旧 current 可顶入 recent
+    // 另一实例在「快照读取 → 回滚写回」窗口内落盘 recent 新增（本实例缓存不知情）
+    writeFileSync(workdirFp(), JSON.stringify({ current: libB, recent: [{ path: libR, label: 'R' }, { path: libC, label: 'C' }] }))
+    await quitCancel()
+    await vi.waitFor(() => expect(persistedCurrent()).toBeNull(), { timeout: 10_000, interval: 50 })
+    // 修复锚点：他实例新增条目不得被快照整写抹掉；快照侧条目照常复位
+    expect(persistedStore().recent).toEqual([
+      { path: libC, label: 'C' },
+      { path: libR, label: 'R' },
+    ])
+  })
+
+  it('无并发（welcome 态快照）回滚：落盘与快照逐位一致（单实例零差异）', async () => {
+    const libR = mkLibrary()
+    writeFileSync(workdirFp(), JSON.stringify({ current: null, recent: [{ path: libR, label: 'R' }] }))
+    await freshMain()
+    const libB = mkLibrary()
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
+    expect(persistedCurrent()).toBe(libB)
+    const before = readFileSync(workdirFp(), 'utf-8')
+    expect(before).not.toContain('null') // 切换确已落库（回滚有物可回）
+    await quitCancel()
+    await vi.waitFor(() => expect(persistedCurrent()).toBeNull(), { timeout: 10_000, interval: 50 })
+    expect(readFileSync(workdirFp(), 'utf-8')).toBe(
+      JSON.stringify({ current: null, recent: [{ path: libR, label: 'R' }] }, null, 2) + '\n',
+    )
+  })
+
+  it('回滚期盘上文件读失败（非 ENOENT）→ 拒绝回写、不吞错：留痕 + 盘面未被覆写', async () => {
+    const libR = mkLibrary()
+    writeFileSync(workdirFp(), JSON.stringify({ current: null, recent: [{ path: libR, label: 'R' }] }))
+    await freshMain()
+    const libB = mkLibrary()
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
+    expect(persistedCurrent()).toBe(libB)
+    // 回滚期把 workdir.json 换成同名目录（EISDIR：非 ENOENT 读失败）→ 既有分诊口径 = 拒绝覆写
+    rmSync(workdirFp(), { force: true })
+    mkdirSync(workdirFp(), { recursive: true })
+    try {
+      const err0 = M.logErrors.length
+      await quitCancel()
+      await vi.waitFor(() => expect(M.logErrors.length).toBeGreaterThan(err0), { timeout: 10_000, interval: 50 })
+      // 拒绝覆写：盘上目录原样（未被 rename 顶成文件），失败经既有留痕路径暴露而非吞掉
+      expect(statSync(workdirFp()).isDirectory()).toBe(true)
+      expect(M.logErrors.some((l) => String((l as unknown[])[1]).includes('已拒绝回写'))).toBe(true)
+      expect(M.logErrors.some((l) => String((l as unknown[])[1]).includes('回写失败'))).toBe(true)
+    } finally {
+      rmSync(workdirFp(), { recursive: true, force: true })
+      writeFileSync(workdirFp(), JSON.stringify({ current: libA, recent: [] }))
     }
   })
 })

@@ -41,8 +41,19 @@ vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
   }),
 }))
 
+// 书级配置读单源（loadBookConfig）的观察口：api 面只到 getConfig 一层，
+// 请求次数即「同书多消费者是否共享」的对外可观察面。
+const { getConfigMock } = vi.hoisted(() => ({ getConfigMock: vi.fn() }))
+vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
+  getConfig: getConfigMock,
+  // 跨窗失效线装配取 tree store，其 load 未被本档触达；导出占位防「缺导出」访问错
+  getTree: vi.fn(),
+}))
+
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
 import { getBookPrefs, putBookPrefs } from '../../../../src/studio/web-next/src/api/prefs'
+import { installCrossWindowInvalidation } from '../../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
+import type { CrossWindowPort } from '../../../../src/studio/web-next/src/shared/cross-window'
 import { createLocalStorage } from '../../../helpers/local-storage.js'
 
 const BOOK = 'test-book'
@@ -66,6 +77,9 @@ beforeEach(() => {
   docWait.mockReset()
   docWait.mockResolvedValue(undefined)
   toastSpy.mockClear()
+  // 书级配置读单源：缺省成功回空配置——用例覆写以控请求时序/成败
+  getConfigMock.mockReset()
+  getConfigMock.mockResolvedValue({})
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -641,5 +655,141 @@ describe('workspace · R26-79 迁移元素校验与旧键清理', () => {
     await flush()
     expect(bookPrefs.has(BOOK)).toBe(false) // 空迁移不写回
     expect(ws.treeExpanded).toEqual(['写作']) // 默认值
+  })
+})
+
+// 书级配置读单源（loadBookConfig）：进书后编辑器/右栏/专注条/设置页多点读同一份
+// book.yaml——单源的对外可观察面就是 api 层 getConfig 的请求点数与各消费方拿到的值，
+// 故本组只锚这两件（不锚内部缓存结构/键名）。
+// 失效三入口：本窗写入成功、他窗 book-config 通知、进书（setBook）各调一次
+// invalidateBookConfig。失效语义 = 只丢缓存，值仍由下次读取向服务端取。
+describe('workspace · 书级配置读单源（loadBookConfig）', () => {
+  /** 可注入假通道：deliver = 模拟「他窗发来的关窗失效通知」 */
+  function createFakePort(): { port: CrossWindowPort; sent: unknown[]; deliver: (data: unknown) => void } {
+    const listeners: ((data: unknown) => void)[] = []
+    const sent: unknown[] = []
+    return {
+      port: {
+        postMessage: (msg) => void sent.push(msg),
+        subscribe: (l) => {
+          listeners.push(l)
+          return () => {
+            const i = listeners.indexOf(l)
+            if (i >= 0) listeners.splice(i, 1)
+          }
+        },
+        close: () => {},
+      },
+      sent,
+      deliver: (data) => {
+        for (const l of [...listeners]) l(data)
+      },
+    }
+  }
+
+  it('同书并发多消费方 → 底层 getConfig 只发一次，结果逐消费者共享', async () => {
+    let release!: (v: Record<string, unknown>) => void
+    getConfigMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = r
+        }),
+    )
+    const ws = useWorkspaceStore()
+    const reads = [ws.loadBookConfig(BOOK), ws.loadBookConfig(BOOK), ws.loadBookConfig(BOOK)]
+    expect(getConfigMock).toHaveBeenCalledTimes(1) // 三个消费方合一笔在途请求
+    release({ kind: 'short', book: { chapter_target_words: 2222 } })
+    const results = await Promise.all(reads)
+    for (const r of results) {
+      expect(r.error).toBeNull()
+      expect(r.config).toMatchObject({ kind: 'short' })
+    }
+    expect(getConfigMock).toHaveBeenCalledTimes(1) // 合并后仍只有一笔
+  })
+
+  it('第二次读命中缓存 → 不再发请求，且拿同一份配置', async () => {
+    getConfigMock.mockResolvedValue({ book: { chapter_target_words: 2222 } })
+    const ws = useWorkspaceStore()
+    const first = await ws.loadBookConfig(BOOK)
+    const second = await ws.loadBookConfig(BOOK)
+    expect(getConfigMock).toHaveBeenCalledTimes(1)
+    expect(second.config).toEqual(first.config)
+  })
+
+  it('失效（invalidateBookConfig）后重取新值：请求 +1，不吃旧缓存', async () => {
+    getConfigMock
+      .mockResolvedValueOnce({ book: { chapter_target_words: 2222 } })
+      .mockResolvedValueOnce({ book: { chapter_target_words: 3333 } })
+    const ws = useWorkspaceStore()
+    await ws.loadBookConfig(BOOK)
+    ws.invalidateBookConfig(BOOK)
+    const r = await ws.loadBookConfig(BOOK)
+    expect(getConfigMock).toHaveBeenCalledTimes(2)
+    expect(r.config?.book?.chapter_target_words).toBe(3333)
+  })
+
+  it('读取在途时配置被失效 → 迟到响应不回填缓存，下次读仍重取', async () => {
+    let release!: (v: unknown) => void
+    getConfigMock.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = r
+        }),
+    )
+    getConfigMock.mockResolvedValueOnce({ book: { chapter_target_words: 4444 } })
+    const ws = useWorkspaceStore()
+    const inflight = ws.loadBookConfig(BOOK)
+    ws.invalidateBookConfig(BOOK) // 读取在途期间配置已被改写（本窗写入成功/他窗广播）
+    release({ book: { chapter_target_words: 2222 } })
+    const stale = await inflight
+    expect(stale.config?.book?.chapter_target_words).toBe(2222) // 本次结果仍如实交给调用方
+    const again = await ws.loadBookConfig(BOOK)
+    expect(getConfigMock).toHaveBeenCalledTimes(2) // 旧值未被缓存吞下 → 重取
+    expect(again.config?.book?.chapter_target_words).toBe(4444)
+  })
+
+  it('读取失败 → 经 error 面返回（不抛），且不留负缓存：下次读重试成功', async () => {
+    getConfigMock.mockRejectedValueOnce(new Error('HTTP 502')).mockResolvedValueOnce({ kind: 'long' })
+    const ws = useWorkspaceStore()
+    const bad = await ws.loadBookConfig(BOOK) // 不 reject：降级处理留给各消费方
+    expect(bad.config).toBeNull()
+    expect(bad.error?.message).toBe('HTTP 502')
+    const retry = await ws.loadBookConfig(BOOK)
+    expect(getConfigMock).toHaveBeenCalledTimes(2) // 失败不留缓存，重读重试
+    expect(retry.error).toBeNull()
+    expect(retry.config).toMatchObject({ kind: 'long' })
+  })
+
+  it('进书（setBook）即失效该书缓存 → 书内首读重取；同名重进同算', async () => {
+    getConfigMock.mockResolvedValueOnce({ kind: 'long' }).mockResolvedValueOnce({ kind: 'short' })
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    await ws.loadBookConfig(BOOK)
+    ws.setBook(BOOK) // 同名重进：离开期间 book.yaml 可能被外部/他窗改过
+    const r = await ws.loadBookConfig(BOOK)
+    expect(getConfigMock).toHaveBeenCalledTimes(2)
+    expect(r.config).toMatchObject({ kind: 'short' })
+    await flush()
+  })
+
+  it('他窗 book-config 失效通知 → 本窗丢缓存，后续读重取（复用跨窗失效线，且不回环）', async () => {
+    getConfigMock.mockResolvedValueOnce({ kind: 'long' }).mockResolvedValueOnce({ kind: 'short' })
+    const ws = useWorkspaceStore()
+    await ws.loadBookConfig(BOOK)
+
+    const fake = createFakePort()
+    const h = installCrossWindowInvalidation({ windowId: 'self', createPort: () => fake.port, coalesceMs: 0 })
+    try {
+      expect(h.enabled).toBe(true)
+      fake.deliver({ v: 1, src: 'other-window', topics: ['book-config'] })
+      await vi.advanceTimersByTimeAsync(10)
+      const r = await ws.loadBookConfig(BOOK)
+      expect(getConfigMock).toHaveBeenCalledTimes(2) // 缓存已丢 → 向服务端重取
+      expect(r.config).toMatchObject({ kind: 'short' }) // 值来自 GET，不是广播载荷
+      expect(fake.sent).toEqual([]) // 收到通知触发的链路不再广播（不回环）
+    } finally {
+      h.dispose()
+    }
   })
 })

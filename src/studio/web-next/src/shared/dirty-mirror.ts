@@ -188,5 +188,3 @@ export function createDirtyMirror(deps: DirtyMirrorDeps) {
 
   return { scheduleDirtyMirror, clearDirtyMirror, readDirtyMirror, clearBookMirrors }
 }
-
-export type DirtyMirror = ReturnType<typeof createDirtyMirror>

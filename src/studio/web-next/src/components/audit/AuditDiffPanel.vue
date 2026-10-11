@@ -6,7 +6,7 @@
 import { ref, computed } from 'vue'
 import { Eye, EyeOff, User, Bot } from 'lucide-vue-next'
 import type { AuditConversationFE, AuditNodeFE } from '../../api/audit'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 
 const props = defineProps<{
   conversation: AuditConversationFE | null
@@ -27,11 +27,9 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
 })
 
-// -（全量代码）：节点列表渲染无上限——长会话全量挂 DOM。
-// 对齐 CommandPalette RENDER_CAP=100 域内惯例：数据面不动，只裁渲染面前 100 条 +
-// 尾部省略提示行（与 RewritePanel 同批同口径）。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 节点列表渲染上限：长会话全量挂 DOM 随条数线性膨胀（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源；数据面不动（只裁渲染面前
+// RENDER_CAP 条 + 尾部省略提示行）。
 const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 </script>
 

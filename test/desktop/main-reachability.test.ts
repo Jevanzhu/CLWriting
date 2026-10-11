@@ -7,7 +7,7 @@
  * ④批 P2 监听器治理 harness 见 ./main-process-harness.js（R0915-P2 承重墙，逐件复刻）。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   M,
@@ -284,6 +284,125 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       vi.useRealTimers()
       if (prevRecovery === undefined) process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
       else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+})
+
+// ── 预探熔断：失联卷上的挂死 stat 每窗口至多一个 ──────────────────────
+// 缺陷：预探用 raceWithTimeout 对 stat 做超时竞速，超时只放弃等待、不取消底层请求——
+// 失联网络卷上每次交互（启动预探 / 选库循环 ≤10 轮 / 三入口）都在 libuv 线程池里留下
+// 一个挂死 stat，池满（默认 4 线程）后全部 fs 异步调用（含日志 appendFile）排队冻结，
+// 与该预探「不冻主进程」的目的正好相反。修复：路径级熔断——超时后在窗口内直接判
+// 'unreachable'，不再发起新探测。断言面 = 替身 stat 的调用次数 + 契约返回值 + workdir.json。
+describe('预探熔断: 失联卷重复预探不再叠加挂死请求', () => {
+  /** 重装 main 并冲刷 whenReady 链（本域各 describe 各自持有，夹具见 main-fixtures） */
+  async function freshModule(): Promise<void> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+  }
+  /** 共享根 workdir.json（熔断用例会改写 current，用后还原防串扰后续用例） */
+  const storeFp = (): string => join(M.userData, 'workdir.json')
+
+  it('窗口内同一路径重复预探不再发起底层 stat；不同路径各自独立；窗口过期恢复真探', async () => {
+    const prevTimeout = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    const prevTtl = process.env['CLW_PROBE_BREAKER_TTL_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    process.env['CLW_PROBE_BREAKER_TTL_MS'] = '400'
+    const storeBackup = readFileSync(storeFp(), 'utf-8')
+    try {
+      await freshModule()
+      const lostA = mkTmp('clw-breaker-a-') // 失联卷上的书库 A（stat 挂死）
+      const lostB = mkTmp('clw-breaker-b-') // 另一失联卷上的书库 B（键须独立）
+      let stats = 0
+      fsPromisesMock.statGate = () => {
+        stats++
+        return new Promise(() => {}) // 永不 settle：模拟网络卷无响应
+      }
+      const unreachable = { ok: false, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' }
+      expect((await M.ipcHandle['desktop:switch-library']!(trustedEvent(), lostA)) as unknown).toEqual(unreachable)
+      expect(stats, '首次预探真发起底层 stat').toBe(1)
+      // 每次交互各堆一个的旧形态：同一路径的第二次预探在窗口内必须零新增（熔断短路）
+      expect((await M.ipcHandle['desktop:switch-library']!(trustedEvent(), lostA)) as unknown).toEqual(unreachable)
+      expect(stats, '窗口内重复预探不得再发起底层 stat').toBe(1)
+      // 键按路径分：另一失联库不被 A 的熔断牵连，照常真探（多库多窗互不误判）
+      expect((await M.ipcHandle['desktop:switch-library']!(trustedEvent(), lostB)) as unknown).toEqual(unreachable)
+      expect(stats, '另一路径照常真探').toBe(2)
+      // 窗口过期即恢复真探（卷恢复后不被永久拒切）
+      await new Promise((r) => setTimeout(r, 500))
+      expect((await M.ipcHandle['desktop:switch-library']!(trustedEvent(), lostA)) as unknown).toEqual(unreachable)
+      expect(stats, '窗口过期后恢复真探').toBe(3)
+      // 拒切不落库（熔断短路与真探超时的落库面一致）
+      const stored = JSON.parse(readFileSync(storeFp(), 'utf8')) as { current: string }
+      expect([lostA, lostB]).not.toContain(stored.current)
+    } finally {
+      fsPromisesMock.statGate = null
+      writeFileSync(storeFp(), storeBackup)
+      if (prevTimeout === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prevTimeout
+      if (prevTtl === undefined) delete process.env['CLW_PROBE_BREAKER_TTL_MS']
+      else process.env['CLW_PROBE_BREAKER_TTL_MS'] = prevTtl
+    }
+  })
+
+  it('可达卷不受熔断影响：预探照常通过并落库（观察面 = workdir.json 落盘 current）', async () => {
+    const storeBackup = readFileSync(storeFp(), 'utf-8')
+    try {
+      await freshModule()
+      const healthyA = mkTmp('clw-breaker-ok-a-')
+      const healthyB = mkTmp('clw-breaker-ok-b-')
+      // 不设闸：预探走真实 stat（可达卷）。两次切库都须照常通过预探并落库——
+      // 熔断只对超时态开窗，可达路径的判定与用户可观察行为逐位不变
+      const r1 = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), healthyA)) as { ok: boolean }
+      expect(r1.ok).toBe(true)
+      expect((JSON.parse(readFileSync(storeFp(), 'utf8')) as { current: string }).current).toBe(healthyA)
+      const r2 = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), healthyB)) as { ok: boolean }
+      expect(r2.ok).toBe(true)
+      const disk = JSON.parse(readFileSync(storeFp(), 'utf8')) as {
+        current: string
+        recent: Array<{ path: string }>
+      }
+      expect(disk.current).toBe(healthyB)
+      expect(disk.recent.map((x) => x.path), '旧 current 照常入 recent（setCurrent 语义未被熔断改动）').toContain(
+        healthyA,
+      )
+    } finally {
+      writeFileSync(storeFp(), storeBackup)
+    }
+  })
+
+  it('选择器起点预探同样熔断：窗口内不再为同一父目录另留挂死 stat', async () => {
+    const prevTtl = process.env['CLW_PROBE_BREAKER_TTL_MS']
+    process.env['CLW_PROBE_BREAKER_TTL_MS'] = '60000' // 两次「打开书库」都落在熔断面内
+    const dialogBase = M.dialogOpen
+    const storeBackup = readFileSync(storeFp(), 'utf-8')
+    try {
+      const holder = mkTmp('clw-breaker-pick-root-')
+      const lib = join(holder, '书库甲')
+      mkdirSync(join(lib, '.clwriting'), { recursive: true })
+      // 预置 current = 位于失联卷上的书库（起点记忆锚 = 它，探测目标是其父目录 holder）
+      writeFileSync(storeFp(), JSON.stringify({ current: lib, recent: [] }))
+      await freshModule() // bootstrap 读盘采用 lib
+      let stats = 0
+      fsPromisesMock.statGate = () => {
+        stats++
+        return new Promise(() => {}) // 起点预探挂死（父目录 = 失联卷）
+      }
+      M.dialogOpen = { canceled: true, filePaths: [] } // 取消收口（只验起点预探面）
+      const open1 = (await M.ipcHandle['desktop:open-library']!(trustedEvent())) as { canceled?: boolean }
+      const open2 = (await M.ipcHandle['desktop:open-library']!(trustedEvent())) as { canceled?: boolean }
+      expect(open1).toEqual({ ok: false, canceled: true })
+      expect(open2).toEqual({ ok: false, canceled: true })
+      // 两次「打开书库」的起点预探只留一个挂死 stat：第二次在窗口内短路，
+      // 对话框照常弹出（起点是便利面，预算用尽与熔断面同为「不传 defaultPath」）
+      expect(stats).toBe(1)
+    } finally {
+      M.dialogOpen = dialogBase
+      fsPromisesMock.statGate = null
+      writeFileSync(storeFp(), storeBackup)
+      if (prevTtl === undefined) delete process.env['CLW_PROBE_BREAKER_TTL_MS']
+      else process.env['CLW_PROBE_BREAKER_TTL_MS'] = prevTtl
     }
   })
 })

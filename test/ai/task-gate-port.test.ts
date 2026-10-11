@@ -7,7 +7,7 @@
  *   3. turns.ts 源锚：ai 层不再反向 import studio/server/api/task-gate（分层回归门，
  *      治理测试 dependency-direction 语义的文件级补充）。
  */
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi, type MockInstance } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
@@ -19,13 +19,40 @@ import {
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const readSrc = (rel: string): string => readFileSync(`${root}${rel}`, 'utf8')
 
+/** 未注册告警的文本面：console 镜像行（log 未 initLogging 时其唯一出口） */
+function warns(spy: MockInstance<typeof console.warn>): string {
+  return spy.mock.calls.map((a) => a.map(String).join(' ')).join('\n')
+}
+
 describe('R0912：task-gate 端口（依赖倒置）', () => {
   afterEach(() => resetTaskGateProviderForTest())
 
-  it('未注册 → no-op release 放行（纯 ai 层形态不得 409）', () => {
-    const release = acquireTaskGateViaPort('某书', 'rewrite')
-    expect(release).not.toBeNull()
-    expect(() => release!()).not.toThrow()
+  it('未注册 → no-op release 放行（纯 ai 层形态不得 409）且留痕可诊断', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const release = acquireTaskGateViaPort('某书', 'rewrite')
+      expect(release).not.toBeNull()
+      expect(() => release!()).not.toThrow()
+      // 放行是既定口径（缺端口不得让 chat 工具全数 409），但必须留痕——
+      // 否则生产接线遗漏退化成「写工具静默绕过跨任务互斥」而无人察觉
+      const text = warns(warn)
+      expect(text).toContain('task-gate 端口未注册')
+      expect(text).toContain('某书')
+      expect(text).toContain('rewrite')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('已注册 → 取闸不产生未注册告警（生产恒注册，不得成为正常路径噪声）', () => {
+    registerTaskGateProvider(() => (): void => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(acquireTaskGateViaPort('甲书', 'rewrite')).not.toBeNull()
+      expect(warns(warn)).not.toContain('task-gate 端口未注册')
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('注册后透传：provider 收到调用、release 原样返回', () => {

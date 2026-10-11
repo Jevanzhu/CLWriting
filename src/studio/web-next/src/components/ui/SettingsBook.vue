@@ -3,8 +3,9 @@
 // 书名 banner + 基本信息（书名，唯一纯书级项）+ 覆盖组（编辑排版/写作默认/智能分析——各
 // 全局默认已拆到对应独立一级页；编辑排版即纸张宽度/自动保存的书级覆盖，直连 prefs store）
 // + 定稿版本 + 存储。AI 写作与版本保留起砍掉书级（一律跟随全局），不再出现在本书页。
-// 覆盖组拆成子组件各自独立拉 config（设置打开时共 3 次 getConfig——本书页 + Analysis + Writing
-// 三个子组件各 1 次，可接受——不引入父级统一状态）。
+// 覆盖组拆成子组件各自独立拉 config——书级配置读走 workspace.loadBookConfig 单源
+//（同书在途合并 + 缓存复用），故本书页 + Analysis + Writing 各点的读取共享一次请求，
+// 不为「父级统一状态」另造协调面。
 // 书名改动走全量改名（POST /rename：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 同步），
 // 成功后路由切到新名——防「书名/文件夹/登记名」三分歧。
 import { ref, computed, watch } from 'vue'
@@ -13,7 +14,8 @@ import { BookOpen } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
-import { getConfig, renameBook } from '../../api/books'
+import { renameBook } from '../../api/books'
+import { notifyCrossWindow } from '../../shared/cross-window'
 import { friendlyError } from '../../shared/error'
 import { migrateBookKeyedState } from '../../composables/useShelf' // 改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
 import { useStaleGuard } from '../../composables/useStaleGuard'
@@ -87,7 +89,7 @@ async function openBookDir(): Promise<void> {
 }
 
 // 配置加载代守卫（只修了兄弟组件 SettingsBookAnalysis）——本组件
-// 的 titleBaseline 同样会被在途旧响应污染：A 书在途 getConfig 迟到落地 B 书面板后，
+// 的 titleBaseline 同样会被在途旧响应污染：A 书在途配置读取迟到落地 B 书面板后，
 // 书名框显示 A 书标题并污染改名基线（对齐 SettingsBookAnalysis 的 loadGen + 双复检口径）。
 // 裸计数器换装 useStaleGuard。
 const loadGen = useStaleGuard()
@@ -104,9 +106,12 @@ watch(
       return
     }
     try {
-      const cfg = await getConfig(name)
+      // 配置读走 workspace.loadBookConfig 单源（与覆盖组各子页共享一次请求与缓存）；
+      // 读不到（error 面）与失败同口径——书名留空展示
+      const r = await ws.loadBookConfig(name)
       if (loadGen.stale(gen) || ws.bookName !== name) return // 双复检：代 + 书名
-      bookTitle.value = cfg.book?.title ?? ''
+      if (r.error) return
+      bookTitle.value = r.config.book?.title ?? ''
       titleBaseline.value = bookTitle.value
     } catch {
       /* 读不到书名就留空展示 */
@@ -170,6 +175,10 @@ async function doBookTitleChange(): Promise<void> {
       // 同族五件的「清理旧名 + 值搬家」：章号记忆 / 失败草稿 / 误报灰显 / 梗概 / 首开
       // 标记（此前改名零迁移，旧名条目成孤儿 + 新名侧功能丢失）
       migrateBookKeyedState(name, res.name)
+      // 书名搬家即服务端 book.yaml 已变（title 随改名同步）——本窗丢旧/新名两侧配置缓存，
+      // 他窗丢缓存，值各自重取（改名是低频重操作，此处直召 store 与失效通知同点）
+      ws.invalidateBookConfig()
+      notifyCrossWindow(['book-config'])
       // 全量切换：路由换新名 → Book.vue watch 统一清 store / 载 prefs / seed 对话
       void router.replace(`/book/${encodeURIComponent(res.name)}`)
     }

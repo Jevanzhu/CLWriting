@@ -45,6 +45,26 @@ export async function inferMeta(name: string, docId: string): Promise<InferredMe
 
 // ── 全书聚合趋势（后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
 
+/** 单章分析（POST /analyze）支持的 kind——后端白名单 = 此四值（review 走独立三审端点）。
+ *  前端收窄成联合类型：kind 写错在编译期报错，不靠后端 400 BAD_KIND 兜。 */
+export type AnalyzeKind = 'score' | 'emotion' | 'hooks' | 'style'
+
+// POST /documents/:docId/analyze —— AI 读正文单章分析 → 信封落盘（增量：后端按 kind 覆盖该章信封）。
+// 有成本 + 有任务闸（同书并发另一分析 → 409 BUSY；供应商未配置 → 400 NO_*/500 GEN_FAIL，
+// 信封落盘与展示解耦——失败不清存量）。
+export async function analyzeChapter(
+  name: string,
+  docId: string,
+  kind: AnalyzeKind,
+): Promise<{ envelope: EnvelopeFE }> {
+  const r = await apiJson<{ ok: true; envelope: EnvelopeFE }>(
+    bookUrl(name, 'documents', docId, 'analyze'),
+    { method: 'POST', json: { kind } },
+    120_000, // 单章分析超时 2 分钟（同文风分析档：AI 单次生成 1-3 分钟常态）
+  )
+  return { envelope: r.envelope }
+}
+
 interface ScoreTrendPoint {
   章号: number
   标题: string

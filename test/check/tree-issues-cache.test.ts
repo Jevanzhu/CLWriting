@@ -6,11 +6,46 @@
  * 另覆盖 tree-issues-cache 模块单元语义（纪元失效 / NULL 信封匹配 / 损坏行自愈 /
  * 结构性清空）。
  */
-import { describe, it, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, renameSync, existsSync, utimesSync, statSync } from 'node:fs'
+import { describe, it, expect, vi } from 'vitest'
+import { rmSync, mkdirSync, writeFileSync, renameSync, existsSync, utimesSync, statSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+
+/**
+ * 粗粒度卷替身：本机卷（NTFS/APFS/ext4）mtime 为 ns 级，真粗粒度卷（FAT 2s /
+ * exFAT 10ms / SMB 1s）物理上复现不了，故对 statSync 的 bigint 面打桩——登记过的
+ * 章文件路径按帧返回（mtimeNs 整毫秒对齐 = 低精度卷形态），其余路径透传真实 stat。
+ * 登记键同时含词法 join 与 realpath 两种拼写（safeManifestPath 对存在的文件返回
+ * realpath 形式，mac 上 tmpdir 的 symlink 前缀会使两者不同）。
+ */
+const { coarseStatFrames } = vi.hoisted(() => ({
+  coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>(),
+}))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    statSync: (p: string, opts?: { bigint?: boolean }) => {
+      if (opts?.bigint && typeof p === 'string') {
+        const frame = coarseStatFrames.get(p)
+        if (frame) return frame as never
+      }
+      return actual.statSync(p, opts as never)
+    },
+  }
+})
+
+/** 给一个文件登记粗粒度帧（整毫秒对齐），同时覆盖词法与 realpath 两种路径拼写。 */
+function registerCoarseFrame(abs: string, size: bigint): void {
+  const frame = { size, mtimeNs: 1_700_000_002_000_000_000n }
+  coarseStatFrames.set(abs, frame)
+  try {
+    coarseStatFrames.set(join(realpathSync(dirname(abs)), basename(abs)), frame)
+  } catch {
+    /* realpath 失败（目录竞态）：词法键已登记 */
+  }
+}
 import { mkdtempTracked, tempDirTracked } from '../helpers/temp-dir.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import {
@@ -35,6 +70,12 @@ import { SIMILE_RE } from '../../src/check/count.js'
 import { SPEECH_VERBS } from '../../src/check/count-dialogue.js'
 import { QUOTED_SPAN_RE } from '../../src/check/quotes.js'
 import { STRICT_SHORT_CHECK_IDS } from '../../src/check/strict-short-ids.js'
+// 新并入代次表的规则模块：断言「快照确由这些模块的导出面机械导出」
+import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
+import { outlineDeclarationForChapter } from '../../src/check/outline-leads.js'
+import { extractExactRealmFromEvidence } from '../../src/format/realms.js'
+import { parseIronRules } from '../../src/format/iron-rules.js'
+import { ngramRepeatRate } from '../../src/format/sentences.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
@@ -579,7 +620,7 @@ describe('R33D-17：章缓存批量落盘单事务', () => {
 //
 // 原状：CHECKER_GENERATION 是手工字面量（'a1-v2'），检查器语义演进漏 bump 时旧缓存
 // 按章指纹照常命中，红黄项静默陈旧。现契约：代次 = 各检查器模块导出规则面（正则/
-// 词表/阈值/升红集/导出函数名与参数个数）的机械哈希（checker-generation.ts）。
+// 词表/阈值/升红集/导出函数名·参数个数·源文本）的机械哈希（checker-generation.ts）。
 // 用例锚「规则变更必变代次」的可观察面，不锚代次字面量值——回退成字面量时
 // 「同快照可复算」「逐条敏感」两用例即红。
 describe('机检代次：规则表哈希（P1-18）', () => {
@@ -607,11 +648,169 @@ describe('机检代次：规则表哈希（P1-18）', () => {
     )
   })
 
+  it('新并入模块的规则面已入哈希：与真实导出同源且变异必换代次', () => {
+    // 这五个模块参与负载判定，其导出面必须入代次表（lead-updates/outline-leads/realms/
+    // iron-rules/sentences）：否则改其函数体或常量不换代次，旧缓存按章指纹继续命中，
+    // 红黄项静默陈旧。逐条锚「在快照内 + 脱胎于真实导出 + 变异必变代次」。
+    const anchors: ReadonlyArray<readonly [string, unknown]> = [
+      ['lead-updates.leadEvidenceMatchesBody', leadEvidenceMatchesBody],
+      ['outline-leads.outlineDeclarationForChapter', outlineDeclarationForChapter],
+      ['realms.extractExactRealmFromEvidence', extractExactRealmFromEvidence],
+      ['iron-rules.parseIronRules', parseIronRules],
+      ['sentences.ngramRepeatRate', ngramRepeatRate],
+    ]
+    for (const [key, value] of anchors) {
+      expect(CHECKER_RULE_SNAPSHOT[key], `规则「${key}」未入快照（模块未收编或导出改名）`).toBe(
+        canonicalRuleValue(value),
+      )
+      const mutated = { ...CHECKER_RULE_SNAPSHOT, [key]: `${CHECKER_RULE_SNAPSHOT[key]}\u0003mutation` }
+      expect(computeCheckerGeneration(mutated), `规则「${key}」未参与代次哈希`).not.toBe(CHECKER_GENERATION)
+    }
+  })
+
+  it('函数体逻辑变更 → 代次必变（同模块同签名，仅体内实现不同）', () => {
+    // 同名同参数个数的一对替身，仅体内实现差一处（`>` → `>=` 型演进）。名字与参数个数
+    // 用 defineProperty 钉平（转译器给函数表达式改名不属被测语义）：两条规范串的唯一
+    // 差异只能是函数体源文本。「名 + 参数个数」面判不出这类改动（两条相等 → 代次不变，
+    // 缓存按章指纹继续命中，红黄项静默陈旧）；收源文本后代次必变。
+    const narrow = function leadProbe(body: string, evidence: string): boolean {
+      return body.includes(evidence)
+    }
+    const widened = function leadProbe(body: string, evidence: string): boolean {
+      return body.includes(evidence) || evidence.length === 0
+    }
+    for (const fn of [narrow, widened]) {
+      Object.defineProperty(fn, 'name', { value: leadEvidenceMatchesBody.name, configurable: true })
+    }
+    expect(narrow.length).toBe(leadEvidenceMatchesBody.length)
+    expect(widened.length).toBe(narrow.length)
+    const real = canonicalRuleValue(leadEvidenceMatchesBody)
+    const narrowed = canonicalRuleValue(narrow)
+    const widenedCanon = canonicalRuleValue(widened)
+    expect(real).not.toBeNull()
+    expect(narrowed).not.toBeNull()
+    expect(widenedCanon).not.toBeNull()
+    expect(widenedCanon).not.toBe(narrowed)
+    const key = 'lead-updates.leadEvidenceMatchesBody'
+    const base = { ...CHECKER_RULE_SNAPSHOT, [key]: real! }
+    const changed = { ...CHECKER_RULE_SNAPSHOT, [key]: widenedCanon! }
+    // base 与现行代次一致 = 该键的值确为真实导出函数的规范串（非同名占位）
+    expect(computeCheckerGeneration(base)).toBe(CHECKER_GENERATION)
+    expect(computeCheckerGeneration(changed)).not.toBe(CHECKER_GENERATION)
+  })
+
+  it('未变快照恒同串（确定性：重复计算 / 键序无关）', () => {
+    expect(computeCheckerGeneration({ ...CHECKER_RULE_SNAPSHOT })).toBe(CHECKER_GENERATION)
+    const reversed: Record<string, string> = {}
+    for (const key of Object.keys(CHECKER_RULE_SNAPSHOT).reverse()) reversed[key] = CHECKER_RULE_SNAPSHOT[key]!
+    expect(computeCheckerGeneration(reversed)).toBe(CHECKER_GENERATION)
+  })
+
   it('代次参与全局纪元指纹首段（规则变 → 纪元变 → 整表缓存失效的接线锚）', () => {
     const root = bareDir()
     try {
       expect(computeTreeIssuesGlobalFp(root, null).startsWith(`${CHECKER_GENERATION}|`)).toBe(true)
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── 低精度 mtime 卷（FAT/exFAT/SMB）：章级缓存行降级 ────────────────────
+// 粗粒度卷的 mtime 粒度粗于毫秒 → 同尺寸改写可落在同一刻度内，章级行身份
+// （rel_path + (mtime,size) + verdict 指纹 + 纪元）逐位不变。降级判据 =
+// isCoarseMtimeNs（整毫秒对齐），该卷既不读行也不落行（本轮真机检，见
+// collectChapterRedDots 的 coarseMtime 注）。
+
+describe('低精度 mtime 卷：章级缓存行降级（同尺寸改写不返回陈旧红点）', () => {
+  /** 2 章书；第 1 章正文由 body 给出的同字节长度替换（红源有无切换）。 */
+  function makeCoarseBook(): string {
+    return makeCheckBook({ prefix: 'coarse-mtime-', chapterCount: 2 })
+  }
+
+  const chapterRel = '写作/正文/001-第1章.md'
+  const redBody = '山门外的雨夜里，玉佩，连响了三下。\n' // 硬禁词命中（标点夹持）
+  const plainBody = '山门外的雨夜里，灯火，连响了三下。\n' // 同字节长度、无禁词
+  const chapterText = (body: string): string =>
+    `---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}`
+  const docIdOf = (root: string): string =>
+    [...readManifest(join(root, '项目', '文档清单.jsonl')).entries.values()].find((e) => e.path === chapterRel)!.id
+
+  it('同尺寸改写落在同一粗粒度刻度 → 二次聚合仍检出红点（不命中陈旧行）', () => {
+    const root = makeCoarseBook()
+    const fp = join(root, '写作', '正文', '001-第1章.md')
+    try {
+      // 无红源起步 + 粗粒度帧（同尺寸改写下 stat 逐位不变）
+      writeFileSync(fp, chapterText(plainBody), 'utf-8')
+      registerCoarseFrame(fp, statSync(fp, { bigint: true }).size)
+
+      const first = collectTreeIssues(root, () => undefined)
+      expect(first.issues[docIdOf(root)]).toBeUndefined() // 首轮无红源
+
+      // 同尺寸改写引入红源（灯火 → 玉佩，等长替换）
+      writeFileSync(fp, chapterText(redBody), 'utf-8')
+      // 修复前：行指纹全同 → 命中首轮「未检出」行，红点被假阴性固化；修复后：该卷不缓存 → 重算检出
+      const second = collectTreeIssues(root, () => undefined)
+      expect(second.issues[docIdOf(root)]).toEqual({ hasRed: true, verdictRejected: false })
+    } finally {
+      coarseStatFrames.clear()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('该卷零落盘：粗粒度章的缓存行不落表（降级即不驻留）', () => {
+    const root = makeCoarseBook()
+    const fp = join(root, '写作', '正文', '001-第1章.md')
+    try {
+      writeFileSync(fp, chapterText(redBody), 'utf-8')
+      registerCoarseFrame(fp, statSync(fp, { bigint: true }).size)
+      collectTreeIssues(root, () => undefined)
+
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'), { readOnly: true })
+      try {
+        // 粗粒度章零行；同书未登记帧的精修章照常落行——降级面按逐个章文件的 stat 判定
+        const rows = db.prepare('SELECT rel_path FROM tree_issues_cache').all() as Array<{ rel_path: string }>
+        expect(rows.map((r) => r.rel_path)).toEqual(['写作/正文/002-第2章.md'])
+      } finally {
+        db.close()
+      }
+    } finally {
+      coarseStatFrames.clear()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('精修卷（非整毫秒对齐）不降级：同指纹二次聚合走缓存行（降级面只对粗粒度卷生效）', () => {
+    const root = makeCoarseBook()
+    const fp = join(root, '写作', '正文', '001-第1章.md')
+    try {
+      writeFileSync(fp, chapterText(plainBody), 'utf-8')
+      // 登记非对齐帧（ns 级精度卷形态）：同帧即判「盘上未变」
+      const size = statSync(fp, { bigint: true }).size
+      const fine = { size, mtimeNs: 1_700_000_002_000_000_123n }
+      coarseStatFrames.set(fp, fine)
+      try {
+        coarseStatFrames.set(join(realpathSync(dirname(fp)), basename(fp)), fine)
+      } catch {
+        /* realpath 失败：词法键已登记 */
+      }
+
+      const first = collectTreeIssues(root, () => undefined)
+      expect(first.issues[docIdOf(root)]).toBeUndefined()
+      // 同帧（指纹未变）改写：行命中 → 与既有「stat 撞车命中」同口径（缓存行确实落了盘）
+      writeFileSync(fp, chapterText(redBody), 'utf-8')
+      const second = collectTreeIssues(root, () => undefined)
+      expect(second.issues[docIdOf(root)]).toBeUndefined()
+
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'), { readOnly: true })
+      try {
+        const rows = db.prepare('SELECT COUNT(*) AS n FROM tree_issues_cache').get() as { n: number }
+        expect(rows.n).toBe(2) // 两章各一行（降级未误伤精修卷的落盘）
+      } finally {
+        db.close()
+      }
+    } finally {
+      coarseStatFrames.clear()
       rmSync(root, { recursive: true, force: true })
     }
   })

@@ -8,7 +8,7 @@
  * 非 fence 形态不回归：`----`、`--- 分隔`、缩进 `  ---`（Q-16 块标量防线）均不识别。
  */
 import { test, expect } from 'vitest'
-import { splitFrontMatter, hasOpenFrontMatterFence } from '../../src/format/frontmatter-core.js'
+import { splitFrontMatter, hasOpenFrontMatterFence } from '../../src/shared/frontmatter-core.js'
 
 test('R54-E-2: 基线不变——精确 --- 起止照常解析', () => {
   const r = splitFrontMatter('---\n标题: x\n---\n正文')

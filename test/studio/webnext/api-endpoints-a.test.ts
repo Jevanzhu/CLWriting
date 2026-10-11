@@ -174,10 +174,12 @@ describe('api 书级操作 · books/shelf', () => {
 
   it('R34D-25：putConfig 可选 expectedRevision 随 body 上送；409 失配经 apiJson 抛 ApiError（GG-P2-7 同族）', async () => {
     stubFetch(() => ok({ ok: true }))
-    await putConfig('书 A', { kind: 'long', book: { title: '新' } }, 7)
+    // config 的 revision 是 book.yaml 的 sha256 全 hex 指纹（string）——乐观锁按字符串口径上送
+    const rev = 'a'.repeat(64)
+    await putConfig('书 A', { kind: 'long', book: { title: '新' } }, rev)
     expect(jsonBody(lastCall())).toEqual({
       config: { kind: 'long', book: { title: '新' } },
-      expectedRevision: 7, // 修复点：乐观锁版本随负载上送（不传 = 直通，向后兼容）
+      expectedRevision: rev, // 乐观锁版本随负载上送（不传 = 直通，向后兼容）
     })
     // 服务端失配回 409（双标签页后写者拦截）→ ApiError{status:409, code} 供调用方决断
     stubFetch(
@@ -187,7 +189,9 @@ describe('api 书级操作 · books/shelf', () => {
           headers: { 'content-type': 'application/json' },
         }),
     )
-    const err: unknown = await putConfig('书 A', { kind: 'long', book: { title: '再' } }, 6).catch((e) => e)
+    const err: unknown = await putConfig('书 A', { kind: 'long', book: { title: '再' } }, 'b'.repeat(64)).catch(
+      (e) => e,
+    )
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(409)
     expect((err as ApiError).code).toBe('REVISION_CONFLICT')

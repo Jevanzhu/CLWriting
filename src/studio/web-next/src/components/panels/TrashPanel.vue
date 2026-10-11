@@ -8,7 +8,7 @@ import { ApiError } from '../../api/client'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction } from '../../composables/useScopedAction'
 import { useBookScoped } from '../../composables/useBookScoped'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 
 // 回收站面板：严格仿章节树叶子行样式（dot-slot + label + hover 操作按钮）。
@@ -22,12 +22,9 @@ const scoped = useScopedAction(() => props.bookName)
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
 
-// 条目渲染上限——大批量回收站全量
-// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel 、ChapterTree）：只裁渲染面前 100 条 + 尾部
-// 省略提示行，数据面不动（空态判定仍看全量 entries）。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 条目渲染上限——大批量回收站全量 v-for 挂 DOM（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源：只裁渲染面前 RENDER_CAP 条 +
+// 尾部省略提示行，数据面不动（空态判定仍看全量 entries）。
 const entriesCap = computed(() => capView(entries.value, RENDER_CAP))
 
 // 回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
@@ -134,11 +131,11 @@ useBookScoped(() => props.bookName, { load, immediate: true })
     </div>
     <!-- 列表（严格仿章节树叶子行：dot-slot + label 27px 行高） -->
     <div v-else class="tree-list">
-      <div v-for="e in entriesCap.view" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
+      <div v-for="e in entriesCap.view" :key="e.id" class="tree-item" :title="e.originalPath">
         <span class="dot-slot">
           <span class="dot dot-gray"></span>
         </span>
-        <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
+        <span class="label">{{ basename(e.originalPath) }}</span>
         <div class="item-actions">
           <!-- restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
 ：purge 同款在途禁用 -->

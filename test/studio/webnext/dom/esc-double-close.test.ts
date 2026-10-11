@@ -17,7 +17,8 @@ import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
 vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ bookName: '书A' })),
+  // 桩面照 workspace store 对外形补齐（设置打开即失效本书配置缓存）
+  useWorkspaceStore: vi.fn(() => ({ bookName: '书A', invalidateBookConfig: vi.fn() })),
 }))
 
 import ConfirmPrompt from '../../../../src/studio/web-next/src/components/ui/ConfirmPrompt.vue'

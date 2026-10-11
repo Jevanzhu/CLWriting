@@ -46,6 +46,8 @@ const M_hoisted = vi.hoisted(() => ({
   logErrors: [] as unknown[],
   logWarns: [] as unknown[], // P3（打包修复批）：second-instance --book 忽略留痕断言用
   logInfos: [] as unknown[],
+  /** initLogging 实收参数面——文件 sink 归属（单写者：只有持锁实例可落盘）断言用 */
+  initLoggingCalls: [] as Array<{ logsDir: string | null; mirrorConsole?: boolean }>,
   appFocus: [] as unknown[], // R0912-3 #36：second-instance darwin app.focus({steal:true}) 捕获面
   // ── 阶段 22 批 U1：utilityProcess 假件捕获面 ──
   forkCalls: [] as Array<{ modulePath: string; args: string[]; options: Record<string, unknown> }>,
@@ -56,6 +58,8 @@ const M_hoisted = vi.hoisted(() => ({
   errorBox: [] as Array<[string, string]>,
   /** 阶段 53 S2：app.getVersion() 返回值（main 启动链经 env CLW_APP_VERSION 下发） */
   appVersion: '1.2.3-fake',
+  /** app.isPackaged 旋钮（缺省打包态；dev 形态用例置 false——镜像 console 等分支断言用） */
+  isPackaged: true,
   // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
   msgBoxSync: [] as Array<Record<string, unknown>>,
   msgBoxSyncChoice: 1,
@@ -272,7 +276,11 @@ vi.mock('electron', () => {
           M_hoisted.commandLineSwitches.push(a)
         },
       },
-      isPackaged: true,
+      // 取值器而非字面量：mock 工厂求值一次后不再重跑，字面量会把首值钉死，
+      // 运行期翻转（dev/打包两形态同档断言）读不到
+      get isPackaged(): boolean {
+        return M_hoisted.isPackaged
+      },
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
       // 阶段 53 S2：版本号——main 启动链读它下发子进程（env CLW_APP_VERSION），
@@ -385,7 +393,10 @@ vi.mock('../../src/fs/user-data-path.js', () => ({
 vi.mock('../../src/log/index.js', () => ({
   // 复审-0914-优化修复批：desktop 域错误摘要三目收编 errMsg（同语义假件，保持 mock 面完整）
   errMsg: (e: unknown) => (e instanceof Error ? e.message : String(e)),
-  initLogging: () => undefined,
+  // 参数面记账（文件 sink 归属断言用；日志行为面本身不假件——真件见 test/log/）
+  initLogging: (opts: { logsDir: string | null; mirrorConsole?: boolean }) => {
+    M_hoisted.initLoggingCalls.push(opts)
+  },
   log: {
     error: (...a: unknown[]) => {
       M_hoisted.logErrors.push(a)

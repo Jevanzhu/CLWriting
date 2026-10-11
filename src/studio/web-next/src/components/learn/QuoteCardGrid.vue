@@ -6,18 +6,17 @@
 import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 
 const learn = useLearnStore()
 
-// ── 金句区渲染上限（样板 = SampleCandidateList 的 capView 手法）──
-// 金句量不受前端控制，整区 v-for 全量渲染时 DOM 随量线性爆炸；默认渲染前 100 张，
-// 超出「显示剩余 N 条」按需展开（计数/勾选仍面向全量 learn.quotes，仅渲染面截断）。
-const QUOTE_RENDER_CAP = 100
+// ── 金句区渲染上限（帽值与 capView 均取自 shared/render-cap 单源）──
+// 金句量不受前端控制，整区 v-for 全量渲染时 DOM 随量线性爆炸；默认渲染前 RENDER_CAP
+// 张，超出「显示剩余 N 条」按需展开（计数/勾选仍面向全量 learn.quotes，仅渲染面截断）。
 const expanded = ref(false)
 const visibleQuotes = computed(() => {
-  if (expanded.value || learn.quotes.length <= QUOTE_RENDER_CAP) return learn.quotes
-  return capView(learn.quotes, QUOTE_RENDER_CAP).view
+  if (expanded.value || learn.quotes.length <= RENDER_CAP) return learn.quotes
+  return capView(learn.quotes, RENDER_CAP).view
 })
 // 展开态跨收割重置（#23 同款）：收割跑完（loading 落 false）即清，
 // 新一轮数据回到 100 张上限；commit 后列表收缩不推 loading，展开态保留
@@ -58,11 +57,11 @@ watch(
     </div>
     <!-- 渲染上限的展开钮（计数/勾选仍面向全量 learn.quotes） -->
     <button
-      v-if="learn.quotes.length > QUOTE_RENDER_CAP && !expanded"
+      v-if="learn.quotes.length > RENDER_CAP && !expanded"
       class="text-btn expand-more"
       @click="expanded = true"
     >
-      显示剩余 {{ learn.quotes.length - QUOTE_RENDER_CAP }} 条
+      显示剩余 {{ learn.quotes.length - RENDER_CAP }} 条
     </button>
   </section>
 </template>

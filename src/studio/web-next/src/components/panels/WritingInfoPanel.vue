@@ -6,7 +6,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig, type BookConfig } from '../../api/books'
+import { type BookConfig } from '../../api/books'
 import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useBookScoped } from '../../composables/useBookScoped'
@@ -30,26 +30,26 @@ const err = ref<string | null>(null)
 // 代守卫（reqGen 同款）——本面板常驻右侧栏（不随切书重建），快速切书 A→B 时
 // A 的慢响应不把 A 的字数目标/口径落到 B 的进度显示。
 // 裸计数器换装 useStaleGuard。
+// 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+// 失败经 error 面返回（本处按原有口径 friendlyError 上屏，不抛）。
 const configGen = useStaleGuard()
 useBookScoped(() => props.bookName, {
-  // 切书先清上一书错误——原实现只在失败分支写 err、成功路径
-  // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-  // 新错误只由本次请求的 catch 按代守卫落位（同点位）。
+  // 切书先清上一书错误——否则 A 书的配置读取失败信息会粘滞到 B 书（面板常驻不随切书重建）；
+  // 清掉后新错误只由本次读取的失败分支按代守卫落位（同点位）。
   reset: () => {
     err.value = null
   },
   load: async (n) => {
     const gen = configGen.begin()
     if (!n) return
-    try {
-      const c = await getConfig(n)
-      if (configGen.stale(gen)) return
-      config.value = c
-      err.value = null // 成功路径同清
-    } catch (e) {
-      if (configGen.stale(gen)) return
-      err.value = friendlyError(e)
+    const r = await ws.loadBookConfig(n)
+    if (configGen.stale(gen)) return
+    if (r.error) {
+      err.value = friendlyError(r.error)
+      return
     }
+    config.value = r.config
+    err.value = null // 成功路径同清
   },
   immediate: true,
 })

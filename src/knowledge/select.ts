@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { bundledResource } from '../fs/resources.js'
-import { bodyOf } from '../format/frontmatter-core.js'
+import { bodyOf } from '../shared/frontmatter-core.js'
 import { clipByCodePoints, codePointLength } from '../shared/text.js'
 import { log } from '../log/index.js'
 

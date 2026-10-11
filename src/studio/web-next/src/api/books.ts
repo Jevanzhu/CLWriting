@@ -50,12 +50,13 @@ export interface BookConfig {
   [k: string]: unknown
 }
 // GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
-// 服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 前 4 字节 uint32，
-// 文件缺失为 0），供读改写调用方下次 PUT 带 expectedRevision。
+// 服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 全文 hex，文件缺失为
+// 空串），供读改写调用方下次 PUT 带 expectedRevision。取全 hex 而非截断——revision
+// 是并发/变更键，截断后碰撞即误放乐观锁比对。
 // 两函数原为同端点双声明（各自 apiJson 一次），
 // 端点/解析改动时互为漏改点——现以此函数为唯一实现，getConfig 委托取 .config。
-export async function getConfigWithRevision(name: string): Promise<{ config: BookConfig; revision: number }> {
-  return apiJson<{ config: BookConfig; revision: number }>(bookUrl(name, 'config'))
+export async function getConfigWithRevision(name: string): Promise<{ config: BookConfig; revision: string }> {
+  return apiJson<{ config: BookConfig; revision: string }>(bookUrl(name, 'config'))
 }
 
 // 只读视图（返回型不变，只读调用方零波及）：委托 getConfigWithRevision 后取 .config。
@@ -69,7 +70,7 @@ export async function getConfig(name: string): Promise<BookConfig> {
 // ApiError{status:409, code:REVISION_CONFLICT}——调用方以此拦截「双标签页后写者
 // 静默覆盖先写者」）。服务端批已落地消费：GET 回传内容指纹 revision + PUT 比对
 // 409（config.ts 同轮实修），SettingsModal 经 getConfigWithRevision 穿线端到端生效。
-export async function putConfig(name: string, config: BookConfig, expectedRevision?: number): Promise<void> {
+export async function putConfig(name: string, config: BookConfig, expectedRevision?: string): Promise<void> {
   await apiJson<{ ok: true }>(bookUrl(name, 'config'), {
     method: 'PUT',
     json: { config, expectedRevision },

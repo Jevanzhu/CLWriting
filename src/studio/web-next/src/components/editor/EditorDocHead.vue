@@ -294,7 +294,7 @@ async function onTitleCommit(): Promise<void> {
               :key="a.key"
               class="ai-btn"
               :disabled="aiOff || rewrite.loading"
-              :data-tip="aiOff ? 'AI 暂不可用' : 'Beta · ' + a.label"
+              :data-tip="aiOff ? `AI 暂不可用（${ui.aiReasonText}）` : 'Beta · ' + a.label"
               data-tip-dir="bottom"
               @click="runAiAssist(a)"
             >

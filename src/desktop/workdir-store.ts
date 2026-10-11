@@ -44,6 +44,28 @@ function isRecentItem(v: unknown): v is RecentItem {
 }
 
 /**
+ * recent 候选列表的规范化单源（去重 / 剔除与 current 同库项 / 截断上限，保序）——
+ * parseStore（解析容错）、setCurrent（切换重排）、rollbackStore（回滚合并）三处共用，
+ * 各写一份会让「上限与判重口径」随消费点漂移。
+ * 判重走 samePath（win/mac 大小写不敏感卷上 case-only 漂移的同一库不劈成两条），
+ * 与 MAX_RECENT 上限同为本域对外不变量：任何写方落盘的 recent 都满足二者。
+ * current 传 null = 不施加「recent 不含 current」剔除（parseStore 只做容错解析，
+ * 不重排既有盘内容——盘上历史里残留的 current 同名项由下一次 setCurrent 收口）。
+ */
+function normalizeRecent(candidates: RecentItem[], current: string | null): RecentItem[] {
+  const seen: string[] = []
+  return candidates
+    .filter((r) => current === null || !samePath(r.path, current))
+    .filter((r) => {
+      // samePath 等值判重（上限 5 条，线性扫描无规模面）
+      if (seen.some((p) => samePath(p, r.path))) return false
+      seen.push(r.path)
+      return true
+    })
+    .slice(0, MAX_RECENT)
+}
+
+/**
  * 解析 workdir.json 原文为 WorkDirStore（容错）。
  * 损坏 / 缺字段 / 类型不符 → 空存储，不抛异常。
  * 判重改 samePath 等值——win/mac 大小写不敏感卷上 case-only
@@ -61,16 +83,8 @@ export function parseStore(raw: string): WorkDirStore {
   const o = obj as Record<string, unknown>
   const current = typeof o['current'] === 'string' ? (o['current'] as string) : null
   const recentRaw = Array.isArray(o['recent']) ? o['recent'] : []
-  const seen: string[] = []
-  const recent = recentRaw
-    .filter(isRecentItem)
-    .filter((r) => {
-      // samePath 等值判重（上限 5 条，线性扫描无规模面）
-      if (seen.some((p) => samePath(p, r.path))) return false
-      seen.push(r.path)
-      return true
-    })
-    .slice(0, MAX_RECENT)
+  // 非法项过滤 + 去重 + 截断走 normalizeRecent 单源（current 传 null：解析不重排内容）
+  const recent = normalizeRecent(recentRaw.filter(isRecentItem), null)
   return { current, recent }
 }
 
@@ -89,17 +103,51 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
     ...(oldCurrent ? [{ path: oldCurrent, label: basename(oldCurrent) }] : []),
     ...store.recent,
   ]
-  const seen: string[] = []
-  const recent = candidates
-    .filter((r) => !samePath(r.path, newCurrent))
-    .filter((r) => {
-      // samePath 等值判重（同 parseStore）
-      if (seen.some((p) => samePath(p, r.path))) return false
-      seen.push(r.path)
-      return true
-    })
-    .slice(0, MAX_RECENT)
-  return { current: newCurrent, recent }
+  return { current: newCurrent, recent: normalizeRecent(candidates, newCurrent) }
+}
+
+/**
+ * 回滚合并（切库取消路径专用）：current 归位到快照值，recent 并入盘上「本实例不知情」的条目。
+ *
+ * 为什么以快照为基底而非以盘上为基底：要撤销的正是本次切换对 recent 的改动——目标库被
+ * 从 recent 摘走、旧 current 被顶进 recent 头、超上限的尾项被挤掉。这些「缺失」只存在于
+ * 快照里，盘上无从反推；盘上独有条目 = 他实例（同机另一库窗口，共享根 workdir.json）
+ * 在「快照读取 → 本次回滚」窗口内的并发新增，必须保留。
+ *
+ * 次序：盘上独有条目在前、快照条目随后——独有条目是窗口内最新的写入，recent 是
+ * 「最近在前」的窗口（首个元素即起点记忆锚，见 pickLibraryDefaultDir），故新者在前才与
+ * 该语义一致；也正因如此，上限逼出的截断落在快照尾项（最旧）而不是他实例新增（最新）——
+ * 「保留他实例新增」不因上限形同虚设。快照唯一可能被截掉的场景是「盘上另有新增且
+ * 快照已满」，二者取新。
+ *
+ * 无并发的逐位一致性：本次切换的写盘结果里，「本实例不知情」的条目只有一项——被顶进
+ * recent 头的旧 current；而它恰是本函数恢复的 current，由 normalizeRecent 剔除，
+ * 故合并结果与快照逐位相等（与按快照整写零差异）。盘上就是快照本身时（本次写盘亦未
+ * 发生）直接返回快照对象，逐字不重排——手改文件里 current 混在 recent 之类违反不变量的
+ * 既有内容不被本函数顺手改写。
+ *
+ * current 只认快照：那是本次操作唯一改动的字段，盘上 current 即本次写入的新库，
+ * 不作基底亦不保留。合并不变量（去重 / 不含 current / 上限 5 条）由 normalizeRecent
+ * 单源兜住，不为合并放宽上限。
+ */
+export function rollbackStore(disk: WorkDirStore, snapshot: WorkDirStore): WorkDirStore {
+  if (sameStore(disk, snapshot)) return snapshot
+  // 盘上独有条目（本实例的切换不可能写出来）：他实例并发新增，或外部手改
+  const added = disk.recent.filter((r) => !snapshot.recent.some((s) => samePath(s.path, r.path)))
+  return {
+    current: snapshot.current,
+    recent: normalizeRecent([...added, ...snapshot.recent], snapshot.current),
+  }
+}
+
+/** 两个 store 是否逐字相等（path 按原串比：本函数只服务「盘上就是快照」的判定，
+ *  折叠大小写会把异形路径误判为同一份而跳过合并——宁可多一次合并，不可漏他方新增）。 */
+function sameStore(a: WorkDirStore, b: WorkDirStore): boolean {
+  return (
+    a.current === b.current &&
+    a.recent.length === b.recent.length &&
+    a.recent.every((r, i) => r.path === b.recent[i]?.path && r.label === b.recent[i]?.label)
+  )
 }
 
 /** recent 有效性预探超时哨兵（race reject 载体——stat 真实异常带 errno code，唯超时无）。 */
@@ -182,4 +230,73 @@ export async function filterValidRecentBudgeted(
 /** 序列化为 workdir.json 文本（pretty + 尾换行）。 */
 export function serializeStore(store: WorkDirStore): string {
   return JSON.stringify(store, null, 2) + '\n'
+}
+
+// ── 预探熔断（进程级短期熔断）────────────────────────────
+
+/**
+ * 探测熔断器：键（探测目标路径）→ 最近一次「探不通」的时刻。
+ *
+ * 只收「超时」这一态——超时意味着底层 stat 请求仍挂在线程池里（放弃等待≠取消请求），
+ * 在失联网络卷上每次交互都新增一个挂死请求：libuv 线程池（默认 4 线程）被占满后，
+ * 全部 fs 异步调用（含日志 appendFile）排队冻结，与该预探「不冻主进程」的目的相反。
+ * 熔断把「每次交互各挂一个」收敛为「每个窗口至多一个」：窗口内直接判探不通，不再发
+ * 起新的底层探测。确定性失败（ENOENT/EACCES 等）立即落定、无残留请求，故不与熔断。
+ *
+ * 键 = 调用方给出的路径原文，刻意不做归一化（不 resolve、不折叠大小写）：
+ * 归一化在失联卷上不提高准确性，却把「同一目录的不同书写形」并成一键——一旦折叠口径
+ * 与物理卷不符（如大小写敏感卷上仅大小写异名的两个合法目录），健康库会被同一键误判为
+ * 不可达。保守方向 = 宁可多探几次，也不误判。故失联卷上最坏代价是「每个被独立探测的
+ * 路径各挂一个」，仍远小于按次累积。
+ *
+ * 窗口由调用方按「多久算恢复」定档（长窗口 = 挂死请求更少、但卷恢复后拒绝更久）；
+ * ttlMs 取 getter、now 可注入——测试用注入时钟推进窗口，不真等。
+ * 表容量封顶并逐出最旧键：键来自用户交互路径（含目录选择器，路径不受调用方控制），
+ * 窗口内活跃键数已天然有界，封顶只为兜住无界增长；被逐出的键退化为「下次照常真探」，
+ * 不影响任何判定结果（无非是少一次熔断）。
+ */
+export interface ReachabilityBreaker {
+  /** 该键是否在窗口内已判定探不通（真 = 不再发起底层探测）。窗口过期即失效。 */
+  isOpen(key: string): boolean
+  /** 记一次「探不通」（仅超时形态），自此刻起开窗。 */
+  trip(key: string): void
+}
+
+/** 熔断键表容量上限（见 ReachabilityBreaker 头注：只兜无界增长，非常态容量）。 */
+const BREAKER_MAX_KEYS = 32
+
+export function createReachabilityBreaker(opts: {
+  /** 熔断窗口毫秒（getter：生产接常量档，测试可直接给固定值）。 */
+  ttlMs: () => number
+  /** 时钟源（测试注入用）。 */
+  now?: () => number
+  /** 键表容量上限；缺省 BREAKER_MAX_KEYS。 */
+  maxKeys?: number
+}): ReachabilityBreaker {
+  const now = opts.now ?? Date.now
+  const maxKeys = opts.maxKeys ?? BREAKER_MAX_KEYS
+  const trippedAt = new Map<string, number>()
+  return {
+    isOpen(key: string): boolean {
+      const at = trippedAt.get(key)
+      if (at === undefined) return false
+      if (now() - at < opts.ttlMs()) return true
+      trippedAt.delete(key) // 窗口过期即落表——表只留窗口内存活键
+      return false
+    },
+    trip(key: string): void {
+      const t = now()
+      for (const [k, at] of trippedAt) {
+        if (t - at >= opts.ttlMs()) trippedAt.delete(k)
+      }
+      // 先删后插把该键移到表尾：逐出按最旧插入序，重探（刷新窗口）不应因旧位序被先逐出
+      trippedAt.delete(key)
+      trippedAt.set(key, t)
+      while (trippedAt.size > maxKeys) {
+        const oldest = trippedAt.keys().next().value
+        if (oldest === undefined) break
+        trippedAt.delete(oldest)
+      }
+    },
+  }
 }

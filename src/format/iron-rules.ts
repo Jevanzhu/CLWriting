@@ -14,6 +14,7 @@ import { errMsg, log } from '../log/index.js' // errMsg：错误文案三目单�
 import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
 import { isMdFileName } from './filename.js'
 import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js' // 低精度 mtime 卷降级判据单源
 import { registerBookKeyedCache } from '../studio/server/cache-registry.js' // 书键缓存登记表（登记制单源）
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
@@ -74,7 +75,8 @@ export function parseIronRules(text: string): IronRules {
  */
 export function readIronRules(bookRoot: string): IronRules {
   const fp = ironRulesFp(bookRoot)
-  const hit = ironRulesCache.get(bookRoot)
+  // fp null = 低精度 mtime 卷（指纹判据不可信，见 ironRulesFp 注）→ 不命中缓存
+  const hit = fp !== null ? ironRulesCache.get(bookRoot) : undefined
   if (hit && hit.fp === fp) {
     // unparsedBannedEntries 与 bannedWords 同为缓存内可变数组，
     // 浅拷贝只拷后者——调用方 mutate 前者会污染缓存（与函数头「命中返回浅拷贝防
@@ -102,8 +104,9 @@ export function readIronRules(bookRoot: string): IronRules {
   if (unparsedEntries.length > 0) {
     rules.unparsedBannedEntries = unparsedEntries
   }
-  // 铁律读失败（存在但瞬读失败）不缓存降级值——指纹未变会让降级值存活到下次改动
-  if (text !== null || !existsSync(p)) {
+  // 铁律读失败（存在但瞬读失败）不缓存降级值——指纹未变会让降级值存活到下次改动；
+  // fp null（低精度 mtime 卷）不落缓存——同尺寸改写在粗粒度窗口内不可检出
+  if (fp !== null && (text !== null || !existsSync(p))) {
     ironRulesCache.set(bookRoot, { fp, rules })
     // 容量纪律（同款）：超上限 FIFO 修剪最旧书目录（Map 插入序）
     while (ironRulesCache.size > IRON_RULES_CACHE_MAX) {
@@ -148,11 +151,17 @@ registerBookKeyedCache('iron-rules', forgetIronRulesCache)
  * （count:size:maxMtimeNs:文件名FNV，目录未装 = 'no-entries'）。禁词条目库是
  * readBannedEntryWords 的读放大源，指纹必须覆盖；文件名入 hash 防「改名不改 stat」。
  * 旧格式指纹与缓存比对天然 miss（一次性重算，语义无损）。
+ * 低精度 mtime 卷（FAT/exFAT/SMB：粒度粗于毫秒）返回 null——同尺寸改写可落在同一
+ * 刻度内使指纹逐字节不变，词表变更会被静默吞掉（铁律词表是红闸输入，陈旧即误报/
+ * 漏报）。判据逐 stat 判定（任一输入源精度不足即整指纹不可信）；null 时调用方不命中
+ * 也不落缓存，回到每次真读。本缓存只在删书/改名按书清，内容写入无挂钩，粗粒度卷
+ * 只能靠该判据兜底。
  */
-function ironRulesFp(bookRoot: string): string {
+function ironRulesFp(bookRoot: string): string | null {
   let ruleFp = 'absent'
   try {
     const st = statSync(join(bookRoot, '文风', '文风铁律.md'), { bigint: true })
+    if (isCoarseMtimeNs(st.mtimeNs)) return null
     ruleFp = statFingerprint(st)
   } catch {
     /* 无铁律 = absent（解析走空规则，仍缓存——确定性结果） */
@@ -173,6 +182,7 @@ function ironRulesFp(bookRoot: string): string {
       }
       try {
         const st = statSync(join(dir, name), { bigint: true })
+        if (isCoarseMtimeNs(st.mtimeNs)) return null
         size += st.size
         if (st.mtimeNs > maxMtime) maxMtime = st.mtimeNs
       } catch {

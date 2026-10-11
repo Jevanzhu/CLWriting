@@ -24,7 +24,7 @@ import { SURFACE_EVENT_TYPES } from './types.js'
 import { log, errMsg } from '../log/index.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
-import { safeRowToEvent, type Row, type SessionRow } from './store-rows.js'
+import { safeRowToEvent, assertSessionFormatVersion, sessionRowOf, type Row, type SessionRow } from './store-rows.js'
 import { MIGRATED_EXT, sweepOpenMarkers, releaseOpenMarker } from './store-open-markers.js'
 import { firstOpenStoreCore } from './store-open.js'
 import {
@@ -49,6 +49,12 @@ export {
   migrateEventsSchema,
 } from './store-open.js'
 export type { SessionRow } from './store-rows.js'
+// 会话行格式版本族（常量 + 校验 + 错误类）—残核桥再导出，消费方 import 面零改动
+export {
+  SESSION_FORMAT_VERSION,
+  SessionFormatUnsupportedError,
+  assertSessionFormatVersion,
+} from './store-rows.js'
 
 // sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
 // （批内 0-based 索引，仅供 appendEventsResolveLineage 消费）；sourceSeqs 收窄为
@@ -186,6 +192,22 @@ export function configureOpenMarkerRenewMs(ms: number): void {
   OPEN_MARKER_RENEW_MS = ms
 }
 
+/** 会话行格式闸（首开期一次性全表校验）：sessions.format_version 由写入侧恒写 1，
+ *  类型层声明不构成本约束——user_version 阶梯只管 DDL 形态，行语义跨版本无防线，
+ *  旧进程打开新库会照 v1 解析静默误读。此处把「任何一行的版本不是本应用支持的
+ *  版本」在打开点拦下（fail-closed 上抛，首开壳 catch 关库，调用方既有降级/500
+ *  收编承接），任一行不合即整库拒开——对话史/审计是产品数据，不做「跳过坏行继续」
+ *  的部分解析（那会把误读伪装成可用）。
+ *  单条 SELECT 覆盖全表：sessions 行数与会话数同阶（每书几十~几千），同步扫一遍
+ *  相对首开的建目录/PRAGMA/DDL 成本可忽略。导出供回归测试直接驱动。 */
+export function assertSessionRowsVersion(db: DatabaseSync): void {
+  const rows = db.prepare('SELECT session_id, format_version FROM sessions').all() as Array<{
+    session_id: string
+    format_version: number
+  }>
+  for (const r of rows) assertSessionFormatVersion(r.format_version, r.session_id)
+}
+
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
  * 跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
  *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。
@@ -198,19 +220,46 @@ export function configureOpenMarkerRenewMs(ms: number): void {
 export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
   // 键集分批——原单条聚合 SELECT 无 LIMIT，超大库每次
   // 惰性修复全表 GROUP BY；按 session_id 有序键集翻页，单批 IO 有界，修复语义不变。
+  // 「有 start 的会话」先一次物化（下），分批只对本批键集聚合——把
+  // `IN (SELECT DISTINCT … type='session/start')` 嵌在分页语句里会让每批各重跑一次
+  // 全表扫描（批数 ≈ 会话数/500，总成本近似二次复杂度，且同步 SQLite 直接占事件
+  // 循环）。物化后全表只扫一次，后续批次按 IN 命中，输出集合逐位不变。
+  // 代价是「本轮键集为快照」：循环期间他进程新起的会话不在本轮结果内——其 last_at
+  // 即当下，本就在宽限期内不补 end（两侧同判为「不动」），差集无输出影响；下一轮
+  // （下个 TTL 周期/重开库）照常收编。
   const BATCH_SIZE = 500
-  const stmt = db.prepare(
-    `SELECT e.session_id,
-            SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
-            SUM(CASE WHEN e.type = 'session/end' THEN 1 ELSE 0 END) AS ends,
-            MAX(e.created_at) AS last_at
-     FROM events e
-     WHERE e.session_id IN (SELECT DISTINCT session_id FROM events WHERE type = 'session/start')
-       AND e.session_id > ?
-     GROUP BY e.session_id
-     ORDER BY e.session_id
-     LIMIT ${BATCH_SIZE}`,
-  )
+  const startedSessions = db
+    .prepare(
+      `SELECT DISTINCT session_id FROM events WHERE type = 'session/start' ORDER BY session_id`,
+    )
+    .all() as Array<{ session_id: string }>
+  // 本批聚合语句按批内键数拼 IN 占位符——批形只有「满批」与「尾批」两族，
+  // 但尾批宽度不定（≤BATCH_SIZE），故不入 prepared 连接级缓存（键变体数可达 500），
+  // 每批现编译一次；编译成本相对本批 IO 可忽略（本语句的主项是批内聚合扫描，
+  // 不是编译）。
+  const aggregateBatch = (ids: string[]): Array<{
+    session_id: string
+    starts: number
+    ends: number
+    last_at: number | null
+  }> => {
+    const ph = ids.map(() => '?').join(',')
+    const rows = db
+      .prepare(
+        `SELECT e.session_id,
+                SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
+                SUM(CASE WHEN e.type = 'session/end' THEN 1 ELSE 0 END) AS ends,
+                MAX(e.created_at) AS last_at
+         FROM events e
+         WHERE e.session_id IN (${ph})
+         GROUP BY e.session_id`,
+      )
+      .all(...ids) as Array<{ session_id: string; starts: number; ends: number; last_at: number | null }>
+    // 批内顺序按物化键集（升序）对齐——原 SQL 的 ORDER BY session_id 由物化集保证，
+    // 结果行乱序返回不影响修复（逐行独立判定），此处回填为键集序以保确定性。
+    const byId = new Map(rows.map((r) => [r.session_id, r]))
+    return ids.map((id) => byId.get(id)).filter((r): r is NonNullable<typeof r> => r !== undefined)
+  }
   const ins = db.prepare(
     `INSERT INTO events (session_id, type, data, replace_generation, created_at)
      VALUES (?, 'session/end', ?, 0, ?)`,
@@ -235,16 +284,11 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   const now = Date.now()
   let attempted = 0
   const errors: Array<{ session_id: string; err: unknown }> = []
-  let lastSessionId = ''
-  for (;;) {
-    const orphans = stmt.all(lastSessionId) as Array<{
-      session_id: string
-      starts: number
-      ends: number
-      last_at: number | null
-    }>
-    if (orphans.length === 0) break
-    lastSessionId = orphans[orphans.length - 1]!.session_id
+  for (let offset = 0; offset < startedSessions.length; offset += BATCH_SIZE) {
+    const ids = startedSessions.slice(offset, offset + BATCH_SIZE).map((r) => r.session_id)
+    const orphans = aggregateBatch(ids)
+    if (orphans.length === 0) continue
+    const isLastBatch = offset + BATCH_SIZE >= startedSessions.length
     for (const o of orphans) {
       if (o.starts > o.ends && !skip.has(o.session_id)) {
         // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
@@ -274,7 +318,8 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
         }
       }
     }
-    if (orphans.length < BATCH_SIZE) break
+    // 尾批即收口（物化键集已定长，无需再探空批结束）
+    if (isLastBatch) break
   }
   if (errors.length > 0) {
     const summary = errors
@@ -398,9 +443,10 @@ export async function openSessionStoreAsync(
 }
 
 function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
-  // 墓碑判定 + 建库/DDL/孤儿修复/开口标记登记委托首开核心（store-open.ts）；本残核
+  // 墓碑判定 + 建库/DDL/行校验/孤儿修复/开口标记登记委托首开核心（store-open.ts）；本残核
   // 只持引用计数缓存登记段。调用方须已持 session 迁移锁（本函数不改锁时序）。
   const { db, markerTimer } = firstOpenStoreCore(bookRoot, dir, dbPath, {
+    assertSessionRows: (target) => assertSessionRowsVersion(target),
     repairOrphans: (target) => repairOrphanSessions(target, activeChatSessions),
     closeDb: closeEventsDb,
     markerRenewMs: OPEN_MARKER_RENEW_MS,
@@ -727,7 +773,9 @@ function createSessionQueryMethods(
         db,
         `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`,
       ).get(book) as SessionRow | undefined
-      return r ?? null
+      // 行级格式闸（首开已全表校验过；此处兜住「首开之后库被他进程换成新版本行」的
+      // 热路径窗——行语义跨版本无防线，按 v1 解释未知版本会静默误读）
+      return r ? sessionRowOf(r) : null
     },
     lastSeq(): number {
       // recorder 写前算区间的固定查询走 prepared 缓存

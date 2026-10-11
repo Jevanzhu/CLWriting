@@ -12,10 +12,12 @@
  */
 import { mkdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { runTask, resolveProvider, degradedPersistedKeysForTest } from '../../src/ai/runner.js'
 import { GenError } from '../../src/ai/gen.js'
 import { loadProviders, persistDegraded, processProviderRuntime } from '../../src/ai/provider/store.js'
+import { ledgerWriteFailuresForTest, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
+import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData as fixturesTempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
@@ -67,6 +69,47 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
   processProviderRuntime().__resetForTest()
+  __setAiCallsLockTimeoutForTest(5_000) // 防锁超时注入泄漏到他用例
+})
+
+// ── 记账失败可观测（同步 catch 罩不住的在途/排队写段）────────────────────
+
+describe('runner 记账写段失败回执：在途写段失败进可观测计数 + 定位告警', () => {
+  it('锁被占至超时（写段在微任务里失败）：计数 +1、告警带任务/章/尝试，生成结果不受影响', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const root = tempBookRoot()
+    __setAiCallsLockTimeoutForTest(80) // 注入短超时保测试快
+    const release = tryAcquireCrossProcessLock(join(root, '.cache', 'ai-calls.json.lock'))
+    expect(release).not.toBeNull()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const before = ledgerWriteFailuresForTest()
+    try {
+      // recordUsageSafe 的同步 try/catch 只罩空闲快路的直行段；锁被占时写段转入异步
+      // 轮询，其失败不经 runner 的 catch——修复前该笔账只在 fs 层旁挂 warn 里，无从计数
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot: root,
+        task: 'self-heal',
+        chapter: 3,
+        run: () => Promise.resolve('ok'),
+      })
+      expect(out.ok).toBe(true) // 记账失败不得改写生成结果（既有降级口径不回归）
+      await vi.waitFor(() => expect(ledgerWriteFailuresForTest()).toBe(before + 1), { timeout: 3_000, interval: 5 })
+      const ledgerWarns = warn.mock.calls
+        .map((a) => a.map(String).join(' '))
+        .filter((m) => m.includes('本轮账目缺失'))
+      expect(ledgerWarns).toHaveLength(1)
+      // 定位维度齐备：书 + 任务 + 章 + 尝试序号（缺任一项都难从日志归因到具体那次调用）
+      expect(ledgerWarns[0]).toContain(root)
+      expect(ledgerWarns[0]).toContain('任务=self-heal')
+      expect(ledgerWarns[0]).toContain('章=3')
+      expect(ledgerWarns[0]).toContain('尝试=0')
+    } finally {
+      warn.mockRestore()
+      release!()
+    }
+  }, 20_000)
 })
 
 describe('R34D-1：重试分支随 GenError.usage 入账/入 trace（不再硬记 null）', () => {

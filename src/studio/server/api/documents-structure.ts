@@ -14,6 +14,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
+// 回包形状钉在跨端契约上（shared/contract/documents.ts，前端按同一份声明消费）。
+// 干跑/执行/撤销三处成功体的**逐字段**对齐另有编译期探针
+// （documents.conformance.ts 把契约钉在文档层权威类型上）；此处 `satisfies` 再把
+// 回包点的类型真值收口一次——契约与文档层任一侧改形而另一侧未随动即在此或探针处红。
+import type { MergeApplyOk, MergeUndoOk, SplitApplyOk, StructurePlanOk } from '../../../shared/contract/documents.js'
 import {
   planChapterMerge,
   applyChapterMerge,
@@ -66,7 +71,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         }
         const plan = await planChapterMerge(r.bookRoot, svc, docId, body.sourceDocId, structureRag)
         if (!plan.ok) return replyError(res, structStatus(plan.code), plan.code, plan.reason)
-        return reply(res, 200, { ok: true, plan })
+        return reply(res, 200, { ok: true, plan } satisfies StructurePlanOk)
       }
       if (body.op === 'split') {
         const cursorOffset = Number(body.cursorOffset)
@@ -75,7 +80,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         }
         const plan = await planChapterSplit(r.bookRoot, svc, docId, cursorOffset)
         if (!plan.ok) return replyError(res, structStatus(plan.code), plan.code, plan.reason)
-        return reply(res, 200, { ok: true, plan })
+        return reply(res, 200, { ok: true, plan } satisfies StructurePlanOk)
       }
       return replyError(res, 400, 'BAD_INPUT', 'op 需为 merge 或 split')
     },
@@ -153,7 +158,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
         const result = outcome.result
         if (!result.ok) return replyError(res, structStatus(result.code), result.code, result.reason)
-        reply(res, 200, result)
+        reply(res, 200, result satisfies MergeApplyOk | SplitApplyOk)
       } finally {
         release()
       }
@@ -193,7 +198,7 @@ export function registerDocumentsStructureRoutes(ctx: DocumentCtx): void {
         if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
         const result = outcome.result
         if (!result.ok) return replyError(res, structStatus(result.code), result.code, result.reason)
-        reply(res, 200, result)
+        reply(res, 200, result satisfies MergeUndoOk)
       } finally {
         release()
       }

@@ -226,6 +226,10 @@ const trustedSenders = new Set<WebContents>()
 // WeakSet 不持强引用，窗口销毁随 GC 回收无泄漏面；登记随 trackWindow 单点（createSecureWindow
 // 唯一入口），无旁路登记面。
 const factoryWindows = new WeakSet<BrowserWindow>()
+/** 工厂窗 → 登记 webContents 的快照。窗口销毁后读 win.webContents 抛
+ *  「Object has been destroyed」（Electron 实测），注销面（closed 摘除、回收摘除）只能靠
+ *  登记时捕获的引用取回白名单项，不能事后从窗口反查。 */
+const trackedContents = new WeakMap<BrowserWindow, WebContents>()
 function trackWindow(win: BrowserWindow): void {
   // 先捕获局部引用再登记——窗口销毁后读 win.webContents 抛
   // "Object has been destroyed"（Electron 实测）。本监听是 closed 事件的首个监听，
@@ -234,8 +238,55 @@ function trackWindow(win: BrowserWindow): void {
   // 同 openShelfWindow/openLibraryWindow。
   const wc = win.webContents
   factoryWindows.add(win)
+  trackedContents.set(win, wc)
   trustedSenders.add(wc)
   win.on('closed', () => trustedSenders.delete(wc))
+}
+/** 摘除单窗登记面（白名单 + 工厂窗反查集）。幂等：未登记/已摘除形态直接返回
+ *  （Set/WeakSet/WeakMap 删除本就不抛），回收与 closed 两条注销路径可各自独立到达。 */
+function untrackWindow(win: BrowserWindow): void {
+  const wc = trackedContents.get(win)
+  if (wc) trustedSenders.delete(wc)
+  trackedContents.delete(win)
+  factoryWindows.delete(win)
+}
+
+/** 历轮主窗登记集——wins.mainWindow 是可被下一次 bootstrap 覆写的单字段引用，
+ *  覆写后旧窗即失引用（既不在退出 destroy 列表，webContents 又留在 IPC 白名单里）；
+ *  本集保留全部存活主窗，作重跑前的回收面（见 reclaimStaleMainWindow）。closed 自摘除。 */
+const mainWindows = new Set<BrowserWindow>()
+
+/** 登记本轮主窗（bootstrap 建窗后调用）：写 wins.mainWindow 当前引用 + 入回收面。
+ *  建窗与登记单点，防「建了窗却漏进回收面」。 */
+export function setMainWindow(win: BrowserWindow): void {
+  wins.mainWindow = win
+  mainWindows.add(win)
+  win.on('closed', () => mainWindows.delete(win))
+}
+
+/**
+ * 回收历轮主窗（bootstrap 重跑前调用，重跑会新建主窗并覆写 wins.mainWindow）：
+ * 不回收的旧窗永久脱管——已失 wins 引用，又不在退出 destroy 列表（该列表只读 wins
+ * 三字段），其 webContents 还留在 IPC 白名单里成为无主可信发送者。
+ * 顺序不可换：先摘 wins 引用（lifecycle 的「主窗关闭即退出」按身份判定，此处摘除后
+ * 陈窗关闭不再当成本轮主窗关闭），再摘登记、最后 destroy（须在 destroy 前取回白名单项
+ * ——销毁后读 webContents 会抛）；已销毁窗跳过 destroy（重复 destroy 会抛）。
+ * destroy 失败保留登记待下次重跑再收，异常只留痕不外溢（回收不阻断重跑）。
+ */
+export function reclaimStaleMainWindow(): void {
+  for (const win of [...mainWindows]) {
+    if (wins.mainWindow === win) wins.mainWindow = null
+    untrackWindow(win)
+    if (!win.isDestroyed()) {
+      try {
+        win.destroy()
+      } catch (e) {
+        log.warn('desktop', `陈旧主窗回收失败（保留登记待下次重跑再收，退出流程兜底）：${errMsg(e)}`)
+        continue
+      }
+    }
+    mainWindows.delete(win)
+  }
 }
 /** closed 清理监听异常隔离——EventEmitter.emit 同步遍历监听，任一监听抛错
  *  即中断其余监听（同事件后续清理整体被取消）。清理体包一层：异常只留痕、不连累其余

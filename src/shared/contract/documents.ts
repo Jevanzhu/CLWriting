@@ -58,12 +58,39 @@ export interface CreateOk {
   revision: Revision
 }
 
-/** 回收站条目（id = 原 docId）。 */
+/** 回收站条目（id = 原 docId）——GET /trash 回包 entries 的元素，即服务端
+ *  document/trash.ts 的清单条目（工作区/.trash-manifest.jsonl 每行）逐字段原样透出。
+ *  字段集与类型由 documents.conformance.ts 的探针双向钉住：任一侧增删字段/改类型即
+ *  `npm run typecheck` 红，故本声明不得只写前端消费的子集。 */
 export interface TrashEntry {
   id: string
-  path: string
-  originalPath?: string
-  deletedAt?: string
+  /** 软删前路径（恢复目标）——服务端读清单时校验非空 */
+  originalPath: string
+  /** 工作区/.trash/<docId>-<basename> 实际落点（相对 bookRoot） */
+  trashedPath: string
+  /** 软删时刻；旧清单缺此字段时服务端按 '' 回 */
+  trashedAt: string
+  /** 文档角色——单源 src/document/layout.ts 的 DocumentRole（探针同向钉住，改联合即红） */
+  role:
+    | 'chapter'
+    | 'piece-body'
+    | 'chapter-outline'
+    | 'outline'
+    | 'volume-outline'
+    | 'setting'
+    | 'ledger'
+    | 'style'
+    | 'introduction'
+    | 'draft'
+    | 'material'
+    | 'note'
+    | 'discard'
+  /** 软删前的定稿基线（无 = 从未定稿）；丢失会让恢复后的已定稿章被当草稿续写 */
+  finalizedRevision?: string
+  finalizedAt?: string
+  /** 软删前的清单投影字段（tags/order），恢复时按字面带回 */
+  tags?: string[]
+  order?: number
 }
 
 // ── 定稿 ───────────────────────────────────────────────────────────

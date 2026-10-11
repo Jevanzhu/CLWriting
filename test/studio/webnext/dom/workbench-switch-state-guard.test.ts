@@ -109,6 +109,9 @@ describe('R52-I-1: onSpawn/onAutoWrite 成功 toast 的 await 后复检', () => 
     const auto = btn(wrapper, '全自动写章')
     expect(auto, '非 busy 态应有「全自动写章」按钮').toBeTruthy()
     await auto!.trigger('click')
+    // 书级配置读经 workspace 单源（缓存/在途合并壳）后，请求发出比直调 api 多一跳
+    // 微任务——排空后再断言（断言的仍是「以正确参数发出请求」，不是调度时机）
+    await flushPromises()
     expect(booksMocks.getConfig).toHaveBeenCalledWith('书A')
     expect(streamMocks.autoWrite).toHaveBeenCalledWith('书A', 7, expect.any(Number))
 

@@ -93,6 +93,64 @@ describe('txt 导出 · 净化口径', () => {
   })
 })
 
+describe('txt 导出 · 代码围栏', () => {
+  it('围栏内整段跳过：行首 # 与 a[1](b) 逐字节保留，围栏外的标题/行内标记照旧剥', () => {
+    addChapter(
+      root,
+      1,
+      '甲',
+      [
+        '## 小节标题',
+        '',
+        '正文第一段。',
+        '',
+        '```python',
+        '# 计算 a[1](b) 的值',
+        'x = a[1](b)',
+        '```',
+        '',
+        '他说：**重点**、`代码`、[链接](https://example.com)。',
+        '',
+        '正文第二段。',
+      ].join('\n'),
+    )
+    const r = exportBook({ bookRoot: root, format: 'merged', output: 'txt' })
+    expect(r.ok).toBe(true)
+    const text = readFileSync(mergedTxt(), 'utf-8')
+    // 围栏行与围栏内内容逐字节不变（行首 # 不当标题剥、a[1](b) 不当链接剥）
+    expect(text).toContain('```python\n# 计算 a[1](b) 的值\nx = a[1](b)\n```')
+    // 围栏外的既有剥离口径不变（行首标题 + 行内成对标记）
+    expect(text).toContain('\n小节标题\n')
+    expect(text).not.toContain('## 小节标题')
+    expect(text).toContain('他说：重点、代码、链接。')
+    expect(text).toContain('正文第一段。')
+    expect(text).toContain('正文第二段。')
+  })
+
+  it('未闭合围栏按无围栏重剥（与 purifyBody 两遍收口同口径：宁剥不错留）', () => {
+    addChapter(root, 1, '甲', ['正文第一段。', '', '```python', '## 小节标题', 'x = a[1](b)'].join('\n'))
+    const r = exportBook({ bookRoot: root, format: 'merged', output: 'txt' })
+    expect(r.ok).toBe(true)
+    const text = readFileSync(mergedTxt(), 'utf-8')
+    // 末态仍在围栏内 → 边界不可信，其后各行按无围栏重剥（围栏行本体不是标记，原样留）
+    expect(text).toContain('```python')
+    expect(text).toContain('小节标题')
+    expect(text).not.toContain('## 小节标题')
+    expect(text).toContain('x = a1')
+    expect(text).not.toContain('x = a[1](b)')
+    expect(text).toContain('正文第一段。')
+  })
+
+  it('只认反引号围栏：~~~ 行不算围栏，其间标记照剥（识别范围不扩大）', () => {
+    addChapter(root, 1, '甲', ['~~~python', '## 小节标题', '~~~'].join('\n'))
+    const r = exportBook({ bookRoot: root, format: 'merged', output: 'txt' })
+    expect(r.ok).toBe(true)
+    const text = readFileSync(mergedTxt(), 'utf-8')
+    expect(text).toContain('~~~python\n小节标题\n~~~')
+    expect(text).not.toContain('## 小节标题')
+  })
+})
+
 describe('txt 导出 · 分章与 md 面隔离', () => {
   it('分章落 导出/纯文本/分章/0001-标题.txt，正文净化同口径', () => {
     addChapter(root, 1, '甲', '## 小节\n\n正文一')

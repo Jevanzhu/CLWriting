@@ -36,7 +36,7 @@ vi.mock('../../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => ({ byDocId: new Map([['doc_1', { path: '写作/正文/0001-a.md' }]]) })),
 }))
 const uiMock = vi.hoisted(() => ({
-  state: null as unknown as { aiAvailable: boolean; toast: ReturnType<typeof vi.fn> },
+  state: null as unknown as { aiAvailable: boolean; aiReasonText: string; toast: ReturnType<typeof vi.fn> },
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => uiMock.state),
@@ -57,7 +57,7 @@ function baseStores(): void {
     clear: vi.fn(),
   })
   wsMock.state = reactive({ activeDocId: 'doc_1', editorGetSelection: undefined })
-  uiMock.state = reactive({ aiAvailable: true, toast: vi.fn() })
+  uiMock.state = reactive({ aiAvailable: true, aiReasonText: '原因未知', toast: vi.fn() })
 }
 
 beforeEach(() => {
@@ -92,11 +92,14 @@ describe('RewritePanel: 可审性门（R76-8）', () => {
 })
 
 describe('RewritePanel: AI 不可达置灰（R76-8）', () => {
-  it('aiAvailable=false → 指令框置灰 + 提示文案', async () => {
+  it('aiAvailable=false → 指令框置灰 + 提示文案（含后端给的原因）', async () => {
     uiMock.state.aiAvailable = false
+    uiMock.state.aiReasonText = '尚未配置模型档位（请在设置 → AI 中配置）'
     const w = mount(RewritePanel, { props: { bookName: '书A' } })
     await nextTick()
-    expect(w.text()).toContain('AI 不可达，改写置灰')
+    expect(w.text()).toContain('AI 不可达')
+    expect(w.text()).toContain('尚未配置模型档位（请在设置 → AI 中配置）')
+    expect(w.text()).toContain('改写置灰')
     expect(w.find('textarea').attributes('disabled')).toBeDefined()
     w.unmount()
   })

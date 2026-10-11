@@ -2,14 +2,14 @@
 // 「本书」页 · 写作默认覆盖组（IA 重组前是 SettingsBook 书籍与目标子页的本书组）：
 // 题材/每卷章数/目标字数/每章字数的「本书使用独立设定」覆盖，全局默认在「写作默认」页。
 // 生效链 book.yaml book 段对应键 → global.json default*（prefs store）→ 硬编码回落。
-// 父组件（本书页）已用 v-if="hasBook" 保证有书打开；本组件独立拉 config（raw watch），
-// 设置打开时本书页四个子组件共 4 次 getConfig——不引入父级统一状态（KISS）。
+// 父组件（本书页）已用 v-if="hasBook" 保证有书打开；本组件独立读 config（raw watch）——
+// 读走 workspace.loadBookConfig 单源（同书各消费方共享一次请求与缓存），
+// 故与本书页其余覆盖组不产生重复请求。
 import { ref, computed, watch, inject } from 'vue'
 import { LibraryBig } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig } from '../../api/books'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { SAVE_CONFIG_KEY } from './settings-context'
@@ -76,8 +76,12 @@ watch(
       return
     }
     try {
-      const cfg = await getConfig(name)
+      // 配置读走 workspace.loadBookConfig 单源（与本书页各覆盖组共享一次请求与缓存）；
+      // 读不到（error 面）与失败同口径——按跟随全局展示
+      const r = await ws.loadBookConfig(name)
       if (loadGen.stale(gen) || ws.bookName !== name) return // 双复检：代 + 书名
+      if (r.error) return
+      const cfg = r.config
       bookKind.value = cfg.kind ?? 'long'
       // raw 形态契约：13 键未设时为 undefined（genre 空串=未设）——只认合法值，脏值按跟随全局展示
       bookGenre.value = cfg.book?.genre ?? ''

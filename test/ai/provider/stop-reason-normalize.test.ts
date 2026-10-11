@@ -14,6 +14,7 @@ import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adap
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { isStopReason, normalizeStopReason } from '../../../src/ai/provider/stream-finalize.js'
+import { STOP_REASONS } from '../../../src/ai/provider/types.js'
 import { log } from '../../../src/log/index.js'
 import { CONF, REQ, collect, fakeSend } from './adapter-fixtures.js'
 import type { GenEvent, ModelProvider, ProviderConf, StopReason } from '../../../src/ai/provider/index.js'
@@ -75,6 +76,34 @@ describe('normalizeStopReason：三线值表', () => {
     expect(normalizeStopReason('unknown', 'openai')).toBe('unknown')
     expect(providerWarns(spy, 'stopReason 未知值')).toHaveLength(0)
     expect(isStopReason('unknown')).toBe(true)
+  })
+
+  // 值表单源锚：types.ts 的 STOP_REASONS 是联合类型与运行时白名单的同一来源——
+  // 逐值断言「数组里每个成员都被 isStopReason 认作合法」，成员漏进白名单即红。
+  it('单源派生：STOP_REASONS 逐值均为合法值域成员（白名单与联合同源）', () => {
+    for (const v of STOP_REASONS) {
+      expect(isStopReason(v), `STOP_REASONS 成员 '${v}' 未被 isStopReason 认可`).toBe(true)
+      // 白名单外无遗漏：成员经归一函数亦原值直通（不落入 'unknown' 分支）
+      expect(normalizeStopReason(v, 'openai')).toBe(v)
+    }
+  })
+
+  // 逐值一致（对外行为不变）：当前已判定的取值集合与展开表逐位相同——多一个少一个即红，
+  // 防「收敛单源」时顺手增删值域把截断/计费归类改掉
+  it('值域逐位不变：STOP_REASONS 与既有取值集合完全一致', () => {
+    expect([...STOP_REASONS]).toEqual([
+      'end_turn',
+      'stop',
+      'max_tokens',
+      'tool_use',
+      'stop_sequence',
+      'pause_turn',
+      'refusal',
+      'content_filter',
+      'model_context_window_exceeded',
+      'function_call',
+      'unknown',
+    ])
   })
 })
 

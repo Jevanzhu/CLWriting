@@ -10,7 +10,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseChapterFileName, isBodyKind } from '../../shared/words'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useBookScoped } from '../../composables/useBookScoped'
 import { friendlyError } from '../../shared/error'
@@ -56,12 +56,9 @@ const pending = computed(() =>
 const resolved = computed(() => list.value.filter((f) => f.状态 === '已回收'))
 const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废弃'))
 
-// 未回收/已回收渲染上限——千条级
-// 伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例
-// （先例 RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
-// 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 未回收/已回收渲染上限——千条级伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源：只裁渲染面前 RENDER_CAP 条 +
+// 尾部省略提示行；数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量。
 const pendingCap = computed(() => capView(pending.value, RENDER_CAP))
 const resolvedCap = computed(() => capView(resolved.value, RENDER_CAP))
 

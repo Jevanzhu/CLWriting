@@ -20,6 +20,7 @@ import {
   openSessionStore,
 } from '../../src/events/store.js'
 import { SqliteSchemaTooNewError } from '../../src/shared/sqlite-migrate.js'
+import { SessionFormatUnsupportedError } from '../../src/events/store-rows.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
@@ -443,6 +444,50 @@ describe('事件库 schema 阶梯（user_version）', () => {
       expect(columnSignature(after, 'events')).not.toContain('has_branch_meta') // 未半迁移
     } finally {
       after.close()
+    }
+  })
+
+  it('sessions.format_version 为未知值 → 拒绝打开（行语义 fail-closed，不当 v1 解析）', () => {
+    const userData = tmpRoot()
+    const bookRoot = join(userData, '新行书')
+    const dbPath = sessionDbPath(userData, bookRoot)
+    mkdirSync(join(userData, 'clwriting', 'session'), { recursive: true })
+    seedLegacyEventsDb(dbPath, '新行书')
+    // 模拟「更新版本应用写入的行」：格式版本抬到本应用不支持的值
+    const seed = new DatabaseSync(dbPath)
+    seed.exec('UPDATE sessions SET format_version = 2 WHERE session_id = \'s-old\'')
+    seed.close()
+
+    expect(() => openSessionStore(userData, bookRoot)).toThrow(SessionFormatUnsupportedError)
+    // 错误须可行动：点名 session_id 与双方版本（旧进程读新库的诊断面）
+    expect(() => openSessionStore(userData, bookRoot)).toThrow(/format_version=2/)
+    expect(() => openSessionStore(userData, bookRoot)).toThrow(/升级应用版本/)
+
+    // 库零改动（未做任何「按 v1 解释」的写入/迁移）
+    const after = new DatabaseSync(dbPath)
+    try {
+      expect(
+        (after.prepare(`SELECT format_version AS v FROM sessions WHERE session_id = 's-old'`).get() as { v: number })
+          .v,
+      ).toBe(2)
+      expect((after.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n).toBe(3)
+    } finally {
+      after.close()
+    }
+  })
+
+  it('sessions.format_version 恒为 1 的正常库照常打开（校验不误伤现行全流程）', () => {
+    const userData = tmpRoot()
+    const bookRoot = join(userData, '现行书')
+    const dbPath = sessionDbPath(userData, bookRoot)
+    mkdirSync(join(userData, 'clwriting', 'session'), { recursive: true })
+    seedLegacyEventsDb(dbPath, '现行书')
+    const store = openSessionStore(userData, bookRoot)
+    expect(store).not.toBeNull()
+    try {
+      expect(store!.countEvents('现行书')).toBe(3)
+    } finally {
+      store!.close()
     }
   })
 

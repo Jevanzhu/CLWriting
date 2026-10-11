@@ -28,8 +28,12 @@ export const CROSS_WINDOW_CHANNEL_NAME = 'clw.webnext.invalidate.v1'
 /** 载荷版本号：结构再演化时旧窗载荷直接丢弃（跨窗版本不可能协商，宁丢不错读） */
 export const CROSS_WINDOW_PAYLOAD_VERSION = 1
 
-/** 失效主题（三条线）：新增线在此登记，白名单外的主题一律丢弃 */
-export const CROSS_WINDOW_TOPICS = ['prefs', 'shelf', 'tree-issues'] as const
+/**
+ * 失效主题（四条线）：新增线在此登记，白名单外的主题一律丢弃。
+ * book-config 一条只作缓存失效用（书级配置读单源挂 workspace store 的
+ * loadBookConfig）——配置写入成功方广播，他窗只丢缓存，值仍由各自下次读取向服务端取。
+ */
+export const CROSS_WINDOW_TOPICS = ['prefs', 'shelf', 'tree-issues', 'book-config'] as const
 export type CrossWindowTopic = (typeof CROSS_WINDOW_TOPICS)[number]
 
 /** 广播载荷：只有「谁 + 哪条线失效」，没有值——语义是失效通知不是数据同步 */

@@ -130,13 +130,13 @@ describe('GUI API 集成链(设定台 P2)', () => {
         body: JSON.stringify(body),
       })
 
-    const g0 = (await (await fetch(cfgUrl)).json()) as { revision: number }
-    expect(typeof g0.revision).toBe('number')
+    const g0 = (await (await fetch(cfgUrl)).json()) as { revision: string }
+    expect(typeof g0.revision).toBe('string')
 
     // 失配（模拟另一标签页已写入后的旧指纹）→ 409 REVISION_CONFLICT
     const stale = await put({
       config: { spec_version: 1, book: { title: '测试书' }, leads: { enabled: [] }, budget: {}, growth: {} },
-      expectedRevision: g0.revision === 0 ? 1 : 0,
+      expectedRevision: g0.revision === '0' ? '1' : '0',
     })
     expect(stale.status).toBe(409)
     expect(((await stale.json()) as { error: string }).error).toContain('已在其他窗口被修改')
@@ -147,9 +147,9 @@ describe('GUI API 集成链(设定台 P2)', () => {
       expectedRevision: g0.revision,
     })
     expect(ok.status).toBe(200)
-    const next = ((await ok.json()) as { revision: number }).revision
+    const next = ((await ok.json()) as { revision: string }).revision
     expect(next).not.toBe(g0.revision)
-    const g1 = (await (await fetch(cfgUrl)).json()) as { revision: number }
+    const g1 = (await (await fetch(cfgUrl)).json()) as { revision: string }
     expect(g1.revision).toBe(next)
 
     // 缺省直通（不带 expectedRevision）→ 200；写回原标题恢复现场

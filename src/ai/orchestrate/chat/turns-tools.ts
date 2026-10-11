@@ -41,7 +41,7 @@ import { acquireTaskGateViaPort } from '../task-gate-port.js'
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { log, errMsg } from '../../../log/index.js'
 // read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
-import { bodyOf } from '../../../format/frontmatter-core.js'
+import { bodyOf } from '../../../shared/frontmatter-core.js'
 import type { ChatRunState } from './state.js'
 
 /** read_chapter 单次返回上限（code points，与 chat 入口消息上限 5 万字符

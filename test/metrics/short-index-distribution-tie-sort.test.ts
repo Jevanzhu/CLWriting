@@ -12,7 +12,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeChapter } from '../helpers/chapter.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import { analyzeShortCollection, scanShortCollection } from '../../src/metrics/short-index.js'
 import type { PieceList } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -47,7 +47,7 @@ function makePiece(root: string, num: number, title: string, ending: string): vo
     伏笔回收: [{ 伏笔: '门外没有脚印', 回收位置: '结尾' }],
   }
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  writePieceList(join(root, '大纲', '章纲', name), list)
+  writePieceListFixture(join(root, '大纲', '章纲', name), list)
 }
 
 test('四轮-D405: 并列 count 的分布值按码元序（B口味 前于 a口味，与 locale 无关）', () => {

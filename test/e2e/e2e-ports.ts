@@ -11,7 +11,7 @@
  *   1  ai-degrade     2  ai-provider     3  auto-write     4  usage-card（R76-10
  *   独立 server：主 server 无 userDataPath，trace 统计恒空——表格臂需自有事件库）
  *   5  startup-notices（R0915-4b 独立 server：幽灵登记播种 repair-books 通告需自有 workDir）
- *   6  search   7  shelf-search   8  short-flow   9  switch-book   10  audit
+ *   6  search   7  shelf-search   8  short-flow   9  switch-book   10  audit   11  welcome
  *   （P2-13 批：只读型 spec 迁独立 server，缩小共享 workDir 顺序契约的连坐半径）
  *  13  overview-short 14  short-full-flow 15  batch-finalize 16  release-smoke
  *

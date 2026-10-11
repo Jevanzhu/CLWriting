@@ -14,6 +14,7 @@
  * 逐字同款产出」，与 adapter-errors.ts 的分工同构（那边收口 400 降级链与异常工厂）。
  */
 import type { GenErrorCode, GenEvent, GenRequest, StopReason, TokenUsage } from './types.js'
+import { STOP_REASONS } from './types.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 import { log } from '../../log/index.js'
 
@@ -23,24 +24,11 @@ export type WireLine = 'openai' | 'anthropic' | 'responses'
 /** 本线终止字段名（过滤 / 拒答文案里的证据出处，一字不改既有文案） */
 export type StopReasonField = 'finish_reason' | 'stop_reason' | 'incomplete_details.reason'
 
-/** 归一联合的运行时值表（与 types.ts StopReason 逐值对应；新增成员须同步两处） */
-const STOP_REASON_VALUES: readonly StopReason[] = [
-  'end_turn',
-  'stop',
-  'max_tokens',
-  'tool_use',
-  'stop_sequence',
-  'pause_turn',
-  'refusal',
-  'content_filter',
-  'model_context_window_exceeded',
-  'function_call',
-  'unknown',
-]
-
-/** 值域收窄守卫（runner 侧对 run 回调返回值的 stopReason 同用此判定） */
+/** 值域收窄守卫（runner 侧对 run 回调返回值的 stopReason 同用此判定）。
+ *  白名单即 types.ts 的 STOP_REASONS 单源（联合类型的同一来源），不另维一份值表——
+ *  两份手维值表漏同步会把新停止原因误判 'unknown'（截断/计费归类失真）。 */
 export function isStopReason(v: string): v is StopReason {
-  return (STOP_REASON_VALUES as readonly string[]).includes(v)
+  return (STOP_REASONS as readonly string[]).includes(v)
 }
 
 /** 各线原生终止拼写 → 归一值（未列出者须已在联合内，否则归 'unknown' 并留痕） */

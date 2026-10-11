@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 import { contentStableKeys, reviewIssueKeyBase } from '../../shared/issue-keys'
 import IssueGroup, { type IssueGroupModel } from './IssueGroup.vue'
@@ -49,13 +49,10 @@ const warnings = computed(() => review.collected?.normalized.warnings ?? [])
 // 同内容条目按出现序 #n 消歧
 const blockerKeys = computed(() => contentStableKeys(blockers.value.map(reviewIssueKeyBase)))
 const warningKeys = computed(() => contentStableKeys(warnings.value.map(reviewIssueKeyBase)))
-// 意见渲染上限——千条级意见全量
-// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
-// RewritePanel/AuditDiffPanel ）：只裁渲染面前 100 条 + 尾部省略提示行；
-// 数据面不动——分组头计数（阻断项/警告项 N）仍面向全量，键表按全量构造（切片与键
-// 按下标仍对齐）。切片/计数样板收敛 shared/render-cap 单源
-//（capView）。
-const RENDER_CAP = 100
+// 意见渲染上限——千条级意见全量 v-for 挂 DOM（max-height 只裁视觉不减节点）。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源：只裁渲染面前 RENDER_CAP 条 +
+// 尾部省略提示行；数据面不动——分组头计数（阻断项/警告项 N）仍面向全量，键表按
+// 全量构造（切片与键按下标仍对齐）。
 const blockersCap = computed(() => capView(blockers.value, RENDER_CAP))
 const warningsCap = computed(() => capView(warnings.value, RENDER_CAP))
 // passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
@@ -172,7 +169,7 @@ async function setVerdict(approved: boolean): Promise<void> {
       <button
         class="rev-run-btn"
         :disabled="!isReviewable || aiOff || review.loading"
-        :data-tip="aiOff ? 'AI 不可达（断网），仅可查看存量' : ''"
+        :data-tip="aiOff ? `AI 不可达（${ui.aiReasonText}），仅可查看存量` : ''"
         @click="runReview"
       >
         <RefreshCw :size="13" :class="{ spin: review.loading }" />
@@ -205,7 +202,7 @@ async function setVerdict(approved: boolean): Promise<void> {
 
     <div v-if="aiOff" class="rev-ai-off">
       <Clock :size="13" />
-      <span>AI 不可达，按钮置灰（存量仍可查看）。</span>
+      <span>AI 不可达（{{ ui.aiReasonText }}），按钮置灰（存量仍可查看）。</span>
     </div>
 
     <div v-if="!isReviewable" class="rev-hint">三审仅适用于正文 / 草稿文档。</div>

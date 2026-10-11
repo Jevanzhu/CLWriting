@@ -2,8 +2,7 @@
  * 纯字符串 frontmatter 提取（零 Node 依赖，浏览器/服务端共用）。
  *
  * 为什么落在 shared：两端共用一份，消除 web-next/shared/words.ts 手写副本的漂移风险。
- * 本文件是唯一实现——format/frontmatter-core.ts 只 re-export 转出，后端 import 面与
- * 既有测试零改动。
+ * 本文件是唯一实现，后端消费方直引本模块。
  * 仅含 --- 分隔逻辑；值类型推断（parseValue/parseFlat）留在 format/frontmatter.ts（服务端专用）。
  * 约束：本文件不得 import 任何后端目录——shared 是两端共享底座的最低层
  * （web-next 跨包只许 import src/shared/**）。

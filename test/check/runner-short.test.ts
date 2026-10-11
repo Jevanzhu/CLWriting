@@ -5,7 +5,7 @@ import { join, basename } from 'node:path'
 import { runAllChecks, hasRed, enabledLeadTypes } from '../../src/check/runner.js'
 import { BASE_LEAD_TYPES } from '../../src/install/data.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import type { ChapterMeta, BookConfig, PieceList } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -191,7 +191,7 @@ test('runAllChecks short: 同目录有清单.md → 跑清单形式检', () => {
   }
   // 章纲已分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）
   mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
-  writePieceList(join(tmp, '大纲', '章纲', basename(piecePath)), list)
+  writePieceListFixture(join(tmp, '大纲', '章纲', basename(piecePath)), list)
 
   const ch: ChapterMeta = {
     章号: 1,
@@ -224,7 +224,7 @@ test('runAllChecks short: strictShort 把短篇专属黄项提升为红项', () 
   writeFileSync(piecePath, '---\n章号: 1\n标题: 雪夜\n---\n正文', 'utf-8')
   // 章纲已分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）
   mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
-  writePieceList(join(tmp, '大纲', '章纲', basename(piecePath)), {
+  writePieceListFixture(join(tmp, '大纲', '章纲', basename(piecePath)), {
     反转线索表: { 核心反转: '待定', 铺垫点: [{ 位置: '开头钩子', 内容: '待补' }] },
     情绪曲线: [{ 段落: '开头钩子', 情绪: '待定', 强度: 1, 说明: '待补' }],
     伏笔回收: [],

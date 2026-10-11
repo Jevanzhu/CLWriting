@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeChapter } from '../helpers/chapter.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import {
   analyzeShortCollection,
   formatShortSubmissionView,
@@ -59,7 +59,7 @@ function makePiece(
     伏笔回收: [{ 伏笔: opts.object, 回收位置: '结尾' }],
   }
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-  writePieceList(join(root, '大纲', '章纲', name), list)
+  writePieceListFixture(join(root, '大纲', '章纲', name), list)
 }
 
 test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
@@ -162,7 +162,7 @@ test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评�
       '很短的正文',
     )
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-    writePieceList(join(root, '大纲', '章纲', '001-薄反转.md'), {
+    writePieceListFixture(join(root, '大纲', '章纲', '001-薄反转.md'), {
       反转线索表: {
         核心反转: '待补',
         铺垫点: [{ 位置: '开头', 内容: '脚印' }],

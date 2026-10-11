@@ -54,6 +54,49 @@ export const SHELF_DEEP_ALPHA = { confirmDelete: 0.5, create: 0.3 } as const
 const AI_PROBE_BASE_MS = 5_000
 const AI_PROBE_MAX_MS = 60_000
 
+/** AI 可达性探测状态机（退避计时器 + 阶数 + 探测体）——store setup 之外持有，
+ *  经 apply 回调把「可达 + 确切原因」写回 store。原因必须回传：置灰提示面要显示
+ *  后端 probeAi 给的人话原因（未配供应商 / 未测连接 / 未配档位），只回布尔会丢掉它。 */
+function createAiProbe(apply: (available: boolean, reason: string | null) => void): () => Promise<void> {
+  let probeTimer: ReturnType<typeof setTimeout> | null = null
+  let probeStep = 0 // 退避阶数（成功复位；每次失败 +1 → 5s→10s→…→60s 封顶）
+  const scheduleRetry = (): void => {
+    if (probeTimer) return
+    probeStep += 1
+    probeTimer = setTimeout(
+      () => {
+        probeTimer = null
+        void probe()
+      },
+      Math.min(AI_PROBE_BASE_MS * 2 ** (probeStep - 1), AI_PROBE_MAX_MS),
+    )
+  }
+  const probe = async (): Promise<void> => {
+    try {
+      const s = await getAiStatus()
+      // available:false 也重试（与网络异常同口径）——后端可达但 AI 供应商未配置/未就绪
+      // 是暂时态，只有 available:true 才停止探测
+      if (s.available) {
+        probeStep = 0 // 成功复位退避阶数（下次失败重新从 5s 起步）
+        if (probeTimer) {
+          clearTimeout(probeTimer)
+          probeTimer = null
+        }
+        apply(true, null) // 可达即清因——旧故障原因再挂着会让恢复态仍显示故障
+        return
+      }
+      apply(false, s.reason)
+      scheduleRetry()
+    } catch {
+      // 连不上本地 API 不是供应商配置问题：原因就地给，别把「后端没起」渲染成「供应商没配」
+      apply(false, '本地服务未连接（请确认 API 服务已启动）')
+      // API 不可达：退避重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
+      scheduleRetry()
+    }
+  }
+  return probe
+}
+
 export const useUiStore = defineStore('ui', () => {
   const paletteOpen = ref(false)
   const settingsOpen = ref(false)
@@ -70,6 +113,12 @@ export const useUiStore = defineStore('ui', () => {
   const toasts = ref<ToastItem[]>([])
   // AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
+  /** AI 不可达的确切原因（后端 probeAi 的人话串；可达/探测中为 null）。置灰按钮单靠
+   *  available 布尔只能给泛化文案，作者分不清「没配供应商」与「供应商没测连接」——处置动作不同。 */
+  const aiReason = ref<string | null>(null)
+  /** 置灰提示面取用的一行原因（恒为字符串）：探测未返回的瞬时窗口兜底「原因未知」，
+   *  各提示面不必各写一份兜底文案。 */
+  const aiReasonText = computed(() => aiReason.value ?? '原因未知')
 
   function openPalette(): void {
     paletteOpen.value = true
@@ -216,39 +265,13 @@ export const useUiStore = defineStore('ui', () => {
     toasts.value = [...toasts.value, { id, msg, kind }]
     armToastTimer(id, kind)
   }
-  /** 探测 AI 可达性（启动调一次；失败按指数退避自动重试，available:true 成功即停）。 */
-  let probeTimer: ReturnType<typeof setTimeout> | null = null
-  let probeStep = 0 // 退避阶数（成功复位；每次失败 +1 → 5s→10s→…→60s 封顶）
-  function scheduleProbeRetry(): void {
-    if (probeTimer) return
-    probeStep += 1
-    const delay = Math.min(AI_PROBE_BASE_MS * 2 ** (probeStep - 1), AI_PROBE_MAX_MS)
-    probeTimer = setTimeout(() => {
-      probeTimer = null
-      void probeAiStatus()
-    }, delay)
-  }
-  async function probeAiStatus(): Promise<void> {
-    try {
-      const s = await getAiStatus()
-      aiAvailable.value = s.available
-      // available:false 也重试（与网络异常同口径）——后端可达但
-      // AI 供应商未配置/未就绪是暂时态，只有 available:true 才停止探测
-      if (s.available) {
-        probeStep = 0 // 成功复位退避阶数（下次失败重新从 5s 起步）
-        if (probeTimer) {
-          clearTimeout(probeTimer)
-          probeTimer = null
-        }
-        return
-      }
-      scheduleProbeRetry()
-    } catch {
-      aiAvailable.value = false
-      // API 不可达：退避重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
-      scheduleProbeRetry()
-    }
-  }
+  /** 探测 AI 可达性（启动调一次；失败按指数退避自动重试，available:true 成功即停）。
+   *  状态机落在模块级工厂：探测计时器/退避阶与其余 UI 态无耦合，且 store setup
+   *  已到 max-lines-per-function 上限。 */
+  const probeAiStatus = createAiProbe((available, reason) => {
+    aiAvailable.value = available
+    aiReason.value = reason
+  })
 
   /** 全局兜底错误上报（main.ts 的 Vue errorHandler 调，也供其他全局兜底口复用）：
    *  console.error 留痕（原行为）+ 经 toast 通道冒泡给作者——原先只 console.error，
@@ -276,6 +299,8 @@ export const useUiStore = defineStore('ui', () => {
     modelPickerOpen,
     toasts,
     aiAvailable,
+    aiReason,
+    aiReasonText,
     probeAiStatus,
     overlayOpen,
     overlayOpenExcept,

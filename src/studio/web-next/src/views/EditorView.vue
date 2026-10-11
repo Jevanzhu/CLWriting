@@ -9,7 +9,6 @@ import { useDocStore } from '../stores/doc'
 import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
-import { getConfig } from '../api/books'
 import { mergeFm, formKindOf, isBodyKind, splitFrontmatter } from '../shared/words'
 import { useDebouncedFmFields, useDebouncedWordCount } from '../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../composables/useStaleGuard'
@@ -49,6 +48,8 @@ const isReviewable = computed(() => {
 const bookKind = ref<'long' | 'short' | null>(null)
 // 请求代守卫收敛 useStaleGuard 单源（原裸计数器 kindReqId）。
 // 判定时机逐位不变：await 后先查代再落态，被后发请求作废的迟归结果丢弃。
+// 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+// 读不到（error 面）与失败同口径——pill 退到不显示。
 const kindReq = useStaleGuard()
 watch(
   () => doc.bookName,
@@ -59,9 +60,9 @@ watch(
     }
     const reqId = kindReq.begin()
     try {
-      const cfg = await getConfig(name)
+      const r = await ws.loadBookConfig(name)
       if (kindReq.stale(reqId)) return // 丢弃过期结果
-      bookKind.value = cfg.kind === 'short' ? 'short' : 'long'
+      bookKind.value = r.error ? null : r.config.kind === 'short' ? 'short' : 'long'
     } catch {
       if (kindReq.stale(reqId)) return
       bookKind.value = null

@@ -684,14 +684,14 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     // 静态分支兜底 catch（对齐 /api 分支口径）：createStaticHandler
     // 是 async（返回 promise），对已销毁连接 writeHead 抛 ERR_STREAM_ALREADY_FINISHED
     // 等异步异常不接即 unhandledRejection（Node ≥15 默认 throw 即进程崩溃）；
-    // 若响应尚未结束则 500 'IO' 收尾，重复写头由 headersSent/writableEnded 守卫。
+    // 若响应尚未结束则 500 'IO_ERROR' 收尾，重复写头由 headersSent/writableEnded 守卫。
     if (serveStatic) {
       try {
         await serveStatic(req, res)
       } catch (e) {
         log.error('static', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
         if (!res.headersSent && !res.writableEnded && !res.destroyed) {
-          replyError(res, 500, 'IO', '服务器内部错误') // 统一 'IO' 错误码
+          replyError(res, 500, 'IO_ERROR', '服务器内部错误') // 统一 'IO_ERROR' 错误码（全库 IO 故障一码）
         }
       }
       return

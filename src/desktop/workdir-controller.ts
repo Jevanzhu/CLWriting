@@ -19,9 +19,11 @@ import { appDataHomeDir, samePath } from '../fs/user-data-path.js'
 import { stripDirArg } from './startup-instance.js' // 切库 relaunch 清 argv --dir（多库多窗 §4.4）
 import { errMsg, log } from '../log/index.js'
 import {
+  createReachabilityBreaker,
   emptyStore,
   parseStore,
   raceWithTimeout,
+  rollbackStore,
   serializeStore,
   setCurrent,
   type WorkDirStore,
@@ -109,18 +111,19 @@ const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
  * 基底重放本次变更**：
  * ① `setCurrent` 语义（store.current 为串）：读盘上真身再 setCurrent——他实例并发
  *   新增的 recent 全保留，仅本次「设 current」意图落盘；
- * ② 清空/回滚基线形态（store.current 为 null，rollbackCancelledSwitch 专用）：按
- *   字面写入（锁内）。旧实现另有「重读成功但盘上有真内容 → 拒写清空」的兜底分支
- *   （原注「防御分支：防未来新增写方」），本批已移除：现存唯一无 current 写方
- *   （rollback）在快照读失败时按无基线处理不触达此路（见 saveCurrentArmingRollback），
- *   旧分支是零调用路径；如未来新增清空写方，按同一判据（盘上 current/recent 非空即
- *   拒绝）在写方侧补防线，勿在通用写入层重加（会把合法回滚一并拦死）。
+ * ② 回滚形态（store.current 为 null，rollbackCancelledSwitch 专用）：current 归位到
+ *   快照、recent 并入盘上「本实例不知情」的条目（rollbackStore，次序与上限处置见其头注）
+ *   ——按快照整份覆盖会抹掉「快照读取 → 回滚写回」窗口内他实例新增的 recent 条目。
+ *   该形态是 store.current 为 null 时唯一的写方（回滚基线读失败按无基线处理、不触达
+ *   此路，见 saveCurrentArmingRollback）；日后新增清空写方按同一判据（盘上
+ *   current/recent 非空即拒绝）在写方侧补防线，勿在通用写入层重加——那会把合法回滚
+ *   一并拦死。
  * ③ 锁内读盘失败（非 ENOENT）：**拒绝覆写**并抛错（绝不以脱钩内存视图覆盖盘上真
  *   内容）；ENOENT = 无历史可保护，按首启放行。
  * 锁获取失败（超时）同走契约化失败（saveCurrentSafe → {ok:false,reason} / 菜单原生
  * 链错误框）——不静默裸写。
- * 单实例下与旧行为逐位等价（盘上真身 == 内存缓存）；残余差异：外部手改盘的 recent
- * 会被合并保留（旧实现按内存覆盖），upside 方向。
+ * 单实例下与整份覆盖逐位等价（盘上真身 == 内存缓存）；残余差异：外部手改盘的 recent
+ * 会被合并保留（内存缓存不再独占写基底），upside 方向。
  */
 function writeStore(store: WorkDirStore): void {
   const fp = storePath()
@@ -153,7 +156,7 @@ function writeStore(store: WorkDirStore): void {
         log.error('desktop', `workdir.json 锁内重读失败，已拒绝回写清空形态以保护盘上历史记录：${fp}`)
         throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
       }
-      next = store
+      next = rollbackStore(disk!, store)
     }
     atomicWriteFile(fp, serializeStore(next))
     storeCache = next
@@ -295,6 +298,24 @@ const BOOTSTRAP_PROBE_TIMEOUT_MS = Number(process.env['CLW_BOOTSTRAP_PROBE_TIMEO
 /** 预探超时哨兵（raceWithTimeout 的 reject/归一载体——stat 的真实异常都带 errno code，唯超时无）。 */
 const PROBE_TIMEOUT = Symbol('switch-library-probe-timeout')
 
+/**
+ * 预探熔断窗口（毫秒）——某路径预探超时后，窗口内不再为它发起新的底层 stat。
+ * 依据：失联网络卷（NAS/SMB 挂载点在而服务器无响应）上底层请求挂死且无从取消，
+ * race 超时只放弃等待——每次交互（启动预探 + 选择循环 ≤10 轮 + 三入口）各留一个
+ * 挂死请求，占满 libuv 线程池（默认 4 线程）后全部 fs 异步调用（含日志 appendFile）
+ * 排队冻结，与本预探「不冻主进程」的目的相反。熔断把「每次交互各挂一个」收敛为
+ * 「每窗口至多一个」。档位取 60s：卷恢复靠重挂载（作者动作），恢复后在窗口内点一次
+ * 「切换」仍可能等到窗口过；60s 是「拒绝时长」与「一次挂死请求 ≈ 一条线程被占 60s」
+ * 的折中（窗口越短线程越易被重复占，越长拒切越久）。
+ * 只熔断超时态：确定性失败（ENOENT/EACCES）立即落定、无残留请求，不进熔断。
+ * 进程级单例：线程池与预探调用面都是进程级，跨库共享方能真正封顶请求数。
+ * 可注入（测试按短窗快进验证窗口过期，不真等一分钟）。
+ */
+const PROBE_BREAKER_TTL_MS = Number(process.env['CLW_PROBE_BREAKER_TTL_MS']) || 60_000
+
+/** 预探熔断（键 = 探测路径原文；键设计依据见 createReachabilityBreaker 头注）。 */
+const probeBreaker = createReachabilityBreaker({ ttlMs: () => PROBE_BREAKER_TTL_MS })
+
 type DirReachability = 'ok' | 'unreachable' | 'invalid'
 
 /**
@@ -310,14 +331,27 @@ type DirReachability = 'ok' | 'unreachable' | 'invalid'
  * -1：timeoutMs 参数化——bootstrap 侧预探复用同一函数但走独立超时注入
  * （CLW_BOOTSTRAP_PROBE_TIMEOUT_MS），与切库 knob 解耦。
  * race/哨兵/clearTimeout 竞速体收编 raceWithTimeout 单源。
+ * 熔断前置：命中窗口的路径直接判 'unreachable'，不再发起底层 stat（挂死请求封顶为
+ * 每窗口一个，见 PROBE_BREAKER_TTL_MS）。判定结果与不熔断时逐位一致——熔断只在
+ * 「刚刚已探不通」的同一路径上短路，判不通的原因仍是超时那一态。
+ * 仅超时（unreachable）落窗：ok 不缓存——预探通不缓存即「每次都真探」（本预探的
+ * 既有语义），TOCTOU 残窗维持既有取舍（预探后拔线仍落到同步守卫/后续读取的失败
+ * 兜底），也就不引入「刚拔线的活卷被短 TTL 缓存成可达」的新窗口；
+ * 'invalid' 亦不缓存（确定性失败即时可重判，且缓存它会把「卷恢复后新建同名目录」
+ * 拦在窗口外）。
  */
 async function probeDirReachable(
   dir: string,
   timeoutMs: number = SWITCH_LIBRARY_PROBE_TIMEOUT_MS,
 ): Promise<DirReachability> {
+  if (probeBreaker.isOpen(dir)) return 'unreachable'
   try {
     const r = await raceWithTimeout(stat(dir), timeoutMs, PROBE_TIMEOUT)
-    return r === PROBE_TIMEOUT ? 'unreachable' : 'ok'
+    if (r === PROBE_TIMEOUT) {
+      probeBreaker.trip(dir)
+      return 'unreachable'
+    }
+    return 'ok'
   } catch {
     return 'invalid'
   }
@@ -383,15 +417,23 @@ const PICK_DEFAULT_PROBE_TIMEOUT = Symbol('pick-default-dir-probe-timeout')
  * 无记忆源 / 根目录（无父级）/ 预探失败或超时 → null，调用方不写 defaultPath 键交
  * Electron 缺省：起点是便利面，不得为它拖住对话框弹出——失联网络卷上同步 stat 即冻主
  * 进程（同族病因），故走异步 + 预算。
+ * 预算用尽与熔断开窗对外同为「放弃传值」，故起点预探同过熔断（键 = 父目录）——否则
+ * 每次「打开书库」都另留一个挂死 stat，熔断对「每窗口至多一个挂死请求」的封顶在
+ * 选择器这条入口上落空（probeDirReachable 只覆盖被选目录本身）。
  */
 async function pickLibraryDefaultDir(): Promise<string | null> {
   const anchor = currentWorkDir() ?? readStore().recent[0]?.path ?? null
   if (!anchor) return null
   const parent = dirname(anchor)
   if (parent === anchor) return null // 根目录的父级仍是自身——不值得作起点
+  if (probeBreaker.isOpen(parent)) return null
   try {
     const r = await raceWithTimeout(stat(parent), PICK_DEFAULT_PROBE_TIMEOUT_MS, PICK_DEFAULT_PROBE_TIMEOUT)
-    return r === PICK_DEFAULT_PROBE_TIMEOUT ? null : r.isDirectory() ? parent : null
+    if (r === PICK_DEFAULT_PROBE_TIMEOUT) {
+      probeBreaker.trip(parent)
+      return null
+    }
+    return r.isDirectory() ? parent : null
   } catch {
     return null
   }

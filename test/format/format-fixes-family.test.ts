@@ -1,6 +1,6 @@
 /**
  * 四十八轮（R48）format 域修复回归：R48-7/8/52/53/54/55。
- * 各用例对应评审报告 R48-N 条目，源修见 src/format/{yaml,leads,frontmatter,frontmatter-core,style-compare}.ts。
+ * 各用例对应评审报告 R48-N 条目，源修见 src/format/{yaml,leads,frontmatter,style-compare}.ts + src/shared/frontmatter-core.ts。
  */
 import { test, expect } from 'vitest'
 import { rmSync, writeFileSync, readFileSync } from 'node:fs'
@@ -14,7 +14,7 @@ import {
   readLead,
   writeLead,
 } from '../../src/format/leads.js'
-import { hasOpenFrontMatterFence } from '../../src/format/frontmatter-core.js'
+import { hasOpenFrontMatterFence } from '../../src/shared/frontmatter-core.js'
 import { parseFlat, stringifyFlat } from '../../src/format/frontmatter.js'
 import { charNgrams, missingNgrams } from '../../src/format/style-compare.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'

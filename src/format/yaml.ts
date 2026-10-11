@@ -30,7 +30,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
-import { stripInlineComment, firstKeyColon } from './frontmatter-core.js'
+import { stripInlineComment, firstKeyColon } from '../shared/frontmatter-core.js'
 import { log } from '../log/index.js'
 import {
   SECTION_SPECS,

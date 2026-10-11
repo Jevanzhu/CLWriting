@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
-import { getConfig, getRagStatus, triggerRagBuild, triggerRagRebuild, type RagStatus } from '../../api/books'
+import { getRagStatus, triggerRagBuild, triggerRagRebuild, type RagStatus } from '../../api/books'
 import { useProviderStore } from '../../stores/provider'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
@@ -96,7 +96,7 @@ const ragNeedsRebuild = computed(() => {
 const ragMismatch = computed(() => ragStatus.value?.indexModelMismatch === true)
 
 // 配置加载代守卫（style store / AnalysisPanel 的 reqGen 惯例）——
-// 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
+// watch 须带代守卫与 await 后书名复检：缺守卫时 A 书在途响应迟到落地 B 书面板，
 // 组开关（onShortOverrideToggle 等）以 stale 派生值 eff* 调 saveConfig(name=B) →
 // A 的配置值持久写进 B 的 book.yaml（跨书配置污染）。
 // 裸计数器换装 useStaleGuard。
@@ -125,9 +125,13 @@ watch(
       return
     }
     try {
-      const cfg = await getConfig(name)
+      // 配置读走 workspace.loadBookConfig 单源（与本书页各覆盖组共享一次请求与缓存）；
+      // 读不到（error 面）与失败同口径——按跟随全局展示
+      const read = await ws.loadBookConfig(name)
       // 双复检：代（期间又切书/重开触发新加载）+ 书名（配置页开着他书未触发 watch 的极端窗口）
       if (loadGen.stale(gen) || ws.bookName !== name) return
+      if (read.error) return
+      const cfg = read.config
       // raw 形态契约：13 键未设时为 undefined——只认合法类型，脏值按跟随全局展示
       bookKind.value = cfg.kind ?? 'long'
       bookShortStrict.value = typeof cfg.short?.strict === 'boolean' ? cfg.short.strict : null

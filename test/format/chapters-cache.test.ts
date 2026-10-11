@@ -14,10 +14,35 @@
  * - 返回引用隔离：调用方 sort/mutate 不污染缓存
  * - 递归卷子目录也走缓存
  */
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+/**
+ * 粗粒度卷替身：本机卷（NTFS/APFS/ext4）的 mtime 是 ns 级，真粗粒度卷（FAT 2s /
+ * exFAT 10ms / SMB 1s）物理上复现不了，故对 statSync 的 bigint 面打桩——登记过的
+ * 路径按帧返回（mtimeNs 整毫秒对齐 = 低精度卷形态），其余路径透传真实 stat。
+ * 帧值单位是 **ns**：整毫秒对齐形如 `1_700_000_002_000_000_000n`（末尾 6 个 0），
+ * 非对齐形（精修卷）加任意亚毫秒余数。
+ */
+const COARSE_MTIME_NS = 1_700_000_002_000_000_000n // 整毫秒对齐 → isCoarseMtimeNs 判低精度卷
+const FINE_MTIME_NS = 1_700_000_002_000_000_123n // 亚毫秒余数 → 判 ns 级精度卷
+const { coarseStatFrames } = vi.hoisted(() => ({ coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>() }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    statSync: (p: string, opts?: { bigint?: boolean }) => {
+      if (opts?.bigint && typeof p === 'string') {
+        const frame = coarseStatFrames.get(p)
+        if (frame) return frame as never
+      }
+      return actual.statSync(p, opts as never)
+    },
+  }
+})
+
 import {
   readChapterDir,
   readChapterDirSummary,
@@ -305,5 +330,72 @@ describe('clearChapterDirCacheForBook 按 bookRoot 前缀清理（审计 C2）',
     // bookRoot + 分隔符 为前缀：清 bookA 不得吞掉 bookA2 的键（裸 startsWith 会误伤）
     expect(clearChapterDirCacheForBook(a)).toBe(1)
     expect(clearChapterDirCacheForBook(a2)).toBe(1)
+  })
+})
+
+// ── 低精度 mtime 卷（FAT/exFAT/SMB）：章元数据缓存降级 ────────────────
+// 粗粒度卷的 mtime 粒度粗于毫秒，同尺寸改写可落在同一刻度内 —— (mtimeNs,size) 判据
+// 失真，命中会返回陈旧章标题/字数。降级判据 = isCoarseMtimeNs（整毫秒对齐），
+// 该卷不读不写缓存、逐轮真读（见 scanChapterDirCore 头注）。
+
+describe('低精度 mtime 卷：章元数据缓存降级不返回陈旧值', () => {
+  let dir: string
+  afterEach(() => {
+    coarseStatFrames.clear()
+    if (dir) rmSync(dir, { recursive: true, force: true })
+    clearChapterDirCache()
+  })
+
+  function makeDir(): string {
+    dir = mkdtempTracked(join(tmpdir(), 'chapters-coarse-mtime-'))
+    mkdirSync(join(dir, '正文'), { recursive: true })
+    return join(dir, '正文')
+  }
+
+  function write(no: number, title: string, body: string): string {
+    const fp = join(dir, '正文', `${String(no).padStart(3, '0')}-${title}.md`)
+    writeFileSync(
+      fp,
+      `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`,
+      'utf8',
+    )
+    return fp
+  }
+
+  it('同尺寸改写落在同一粗粒度刻度（size+mtimeNs 全同）→ 读到新标题（不命中陈旧缓存）', () => {
+    const bodyDir = makeDir()
+    const fp = write(1, '雪夜', '甲正文。')
+    const st = statSync(fp, { bigint: true })
+    // 帧：整毫秒对齐（低精度卷形态）+ 盘上尺寸 —— 两次读喂同一帧（粗粒度窗口内 stat 全同）
+    coarseStatFrames.set(fp, { size: st.size, mtimeNs: COARSE_MTIME_NS })
+
+    expect(readChapterDir(bodyDir).chapters[0]!.标题).toBe('雪夜')
+
+    // 同字节长度改写（雪夜 → 雪霁，等长替换）——粗粒度卷上 stat 指纹逐位不变
+    writeFileSync(
+      fp,
+      '---\n章号: 1\n标题: 雪霁\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n甲正文。\n',
+      'utf8',
+    )
+    // 修复前：指纹全同 → 命中旧条目返回「雪夜」；修复后：低精度卷不缓存，重读「雪霁」
+    expect(readChapterDir(bodyDir).chapters[0]!.标题).toBe('雪霁')
+  })
+
+  it('精修卷（非整毫秒对齐）不降级：撞车窗口内仍走缓存（降级面只对粗粒度卷生效）', () => {
+    const bodyDir = makeDir()
+    const fp = write(1, '雪夜', '甲正文。')
+    const st = statSync(fp, { bigint: true })
+    // 非整毫秒对齐 = ns 级精度卷形态；帧不变即判「盘上未变」
+    coarseStatFrames.set(fp, { size: st.size, mtimeNs: FINE_MTIME_NS })
+    expect(readChapterDir(bodyDir).chapters[0]!.标题).toBe('雪夜')
+
+    writeFileSync(
+      fp,
+      '---\n章号: 1\n标题: 雪霁\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n甲正文。\n',
+      'utf8',
+    )
+    // 指纹未变 → 命中缓存复用旧条目（与既有「mtime+size 撞车命中」反证同口径）：
+    // 精修卷的缓存判定未被降级判据误伤
+    expect(readChapterDir(bodyDir).chapters[0]!.标题).toBe('雪夜')
   })
 })

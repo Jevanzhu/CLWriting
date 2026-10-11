@@ -17,7 +17,7 @@ import {
   patchFlatFm,
 } from '../../src/format/frontmatter.js'
 import { readBookConfig } from '../../src/format/yaml.js'
-import { stripInlineComment } from '../../src/format/frontmatter-core.js'
+import { stripInlineComment } from '../../src/shared/frontmatter-core.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 值类型推断 ──────────────────────────────────

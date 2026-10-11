@@ -206,7 +206,8 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
     const p = `/api/books/${encodeURIComponent('配置正向书')}/config`
     const before = await req({ method: 'GET', path: p })
     expect(before.status).toBe(200)
-    expect(before.json.revision).not.toBe(0)
+    // 指纹为 sha256 全 hex（64 字符）——碰撞空间不截断，乐观锁比对不失真
+    expect(before.json.revision).toMatch(/^[0-9a-f]{64}$/)
     // config 须为完整 BookConfig（spec_version/leads/budget/growth 必填——patch 与
     // stringify 回落都直读 leads.enabled / growth.realm_span_max，残缺形状触发 500
     // 而非 200，payload 形状与 api-integration 同口径）
@@ -217,7 +218,7 @@ describe('R1010c-COV-1：config 端点校验与回退分支', () => {
     })
     expect(put.status).toBe(200)
     expect(put.json.ok).toBe(true)
-    expect(typeof put.json.revision).toBe('number')
+    expect(put.json.revision).toMatch(/^[0-9a-f]{64}$/)
     const after = await req({ method: 'GET', path: p })
     expect(after.json.config.book.title).toBe('新名')
     // 保注释补丁写：文件级回读确认 revision 与 PUT 回传一致（同内容同指纹）

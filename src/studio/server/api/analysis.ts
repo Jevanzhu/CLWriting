@@ -420,7 +420,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           // 会让 body 与 sourceHash 对应不同稿）——解析链
           // 收编 resolveDraftByDocId 单源（existsSync 后 µs 级竞态删除的 ENOENT 由守卫
           // 转人话 500 IO_ERROR，不再裸穿 dispatch；单读快照口径随链）。
-          const d = resolveDraftByDocId(bookRoot, docId)
+          const d = await resolveDraftByDocId(bookRoot, docId)
           if (!d.ok) return replyError(res, d.status, d.code, d.message)
           const { entry: m, content: draftText, draft } = d
           const { body, chapter } = draft
@@ -481,7 +481,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——
           // 解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
           // 文案模式随链；单读快照口径不变）。
-          const d = resolveDraftByDocId(bookRoot, docId)
+          const d = await resolveDraftByDocId(bookRoot, docId)
           if (!d.ok) return replyError(res, d.status, d.code, d.message)
           const { entry: m, draft } = d
           const { body, chapter } = draft
@@ -544,7 +544,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           const docId = params['docId'] ?? ''
           // 同 autotag——existsSync→readDraft TOCTOU 兜底（模式）；
           // 解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
-          const d = resolveDraftByDocId(bookRoot, docId)
+          const d = await resolveDraftByDocId(bookRoot, docId)
           if (!d.ok) return replyError(res, d.status, d.code, d.message)
           const { entry: m, draft } = d
           const { body, chapter } = draft

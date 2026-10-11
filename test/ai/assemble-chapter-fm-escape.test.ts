@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { assembleChapter } from '../../src/ai/contract/chapter.js'
-import { splitFrontMatter } from '../../src/format/frontmatter-core.js'
+import { splitFrontMatter } from '../../src/shared/frontmatter-core.js'
 import { parseFlat } from '../../src/format/frontmatter.js'
 
 /** 组装 → 落盘文本 → 读回解析，返回读回的 fm Map（round-trip 通道）。 */

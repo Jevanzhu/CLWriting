@@ -25,7 +25,6 @@ import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { useProviderStore } from '../stores/provider'
 import { useTraceStatsStore } from '../stores/trace-stats'
-import { getConfig } from '../api/books'
 import { type RuleHitEntry } from '../api/trace-stats'
 import ChatPanel from '../components/panels/ChatPanel.vue'
 import WbStateCard from '../components/workbench/WbStateCard.vue'
@@ -263,15 +262,18 @@ async function onInterrupt(): Promise<void> {
 async function onAutoWrite(): Promise<void> {
   if (!autoPending.enter()) return // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
   err.value = null
-  // 书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
+  // 书名入口捕获（同 onSpawn）——书级配置 await 期间切书后中止
   const book = props.bookName
   // #24：章号同款请求时刻捕获——toast 处再读 chapter.value 已是生成结束刷新
   // 状态卡后的新值（窄窗文案错位），入队时刻拍定全函数用
   const chap = chapter.value
   try {
-    const cfg = await getConfig(book)
+    // 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+    // 读不到按原失败口径抛出，落 catch 的 err 上屏 + toast + 本次不生成
+    const loaded = await ws.loadBookConfig(book)
+    if (loaded.error) throw loaded.error
     // 书级未设回落全局默认（prefs.get('aiBatchSize') 初值即硬编码回落 8；服务端合并同链）
-    const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.get('aiBatchSize'))))
+    const batchSize = Math.max(1, Math.min(20, Math.floor(loaded.config.auto?.batch_size ?? prefs.get('aiBatchSize'))))
     if (!scoped.stillIn(book)) return
     const r = await autoWrite(book, chap, batchSize)
     // 同 onSpawn——autoWrite POST 在途切书，A 书的「已开始全自动写稿」toast
@@ -405,9 +407,9 @@ async function onSaveDraft(): Promise<void> {
 
     <!-- 写作 tab（默认） -->
     <template v-else>
-      <!-- AI 不可达置灰提示 -->
+      <!-- AI 不可达置灰提示（原因取自后端探测：口径各异——未配供应商/未测连接/未配档位） -->
       <div v-if="ui.aiAvailable === false" class="ai-warn">
-        AI 服务暂不可用（未配置或连接失败），请在「设置 · 服务提供方」页添加并启用提供方。
+        AI 服务暂不可用（{{ ui.aiReasonText }}），请在「设置 · 服务提供方」页添加并启用提供方。
       </div>
       <!-- 任务档位（只读显示，配置在「设置 · 服务提供方」页） -->
       <section v-if="tierCreative" class="card model-bar">

@@ -12,7 +12,7 @@ import {
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { runCheckForDocument } from '../../src/studio/server/api/check.js'
 import { writeChapter } from '../helpers/chapter.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { ReviewIssue } from '../../src/review/contract.js'
 import type { BookConfig, PieceList } from '../../src/format/types.js'
@@ -102,7 +102,7 @@ test('review 打包 short: 读取章号草稿并把清单核对写入执行包',
     }
     // 章纲分离到 大纲/章纲/ 目录，与正文同名（见 runner.ts:228）；草稿场景 basename = 草稿-1.md
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-    writePieceList(join(root, '大纲', '章纲', '草稿-1.md'), list)
+    writePieceListFixture(join(root, '大纲', '章纲', '草稿-1.md'), list)
 
     // 机检 → byproducts.pieceListChecks（清单核对条目，payoff 设定收尾审用）
     const outcome = runCheckForDocument(root, join(workDir, '草稿-1.md'))

@@ -15,7 +15,6 @@
 import { ref, computed, onMounted, provide, inject, type Ref, type InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
-import { getConfig } from '../api/books'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
@@ -330,17 +329,16 @@ export function useRelationGraph(bookName: string): RelationGraph {
     // 自动路径仅明确可用（true）才放行——原 === false 判定让探测中
     //（null）也起跑，后端实际不可达时自动梳理变成自动失败 toast；手动 onMine 不受影响
     if (ui.aiAvailable !== true) return
-    try {
-      const cfg = await getConfig(bookName)
-      // 自动梳理默认关闭（方案③：手动按钮控成本）；作者开启（书级 ?? 全局默认）后才自动
-      if (!(cfg.auto?.relation_auto_mine ?? prefs.get('relationAutoMine'))) return
-      const threshold = cfg.auto?.relation_mine_threshold ?? prefs.get('relationMineThreshold')
-      const last = cache.chapterCount ?? 0
-      if (cache.currentChapters - last < threshold) return
-      await onMine()
-    } catch {
-      /* config 读不到就不自动触发 */
-    }
+    // 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+    // 读不到（error 面）与失败同口径——不自动触发（不惊扰作者）
+    const loaded = await ws.loadBookConfig(bookName)
+    if (loaded.error) return
+    // 自动梳理默认关闭（方案③：手动按钮控成本）；作者开启（书级 ?? 全局默认）后才自动
+    if (!(loaded.config.auto?.relation_auto_mine ?? prefs.get('relationAutoMine'))) return
+    const threshold = loaded.config.auto?.relation_mine_threshold ?? prefs.get('relationMineThreshold')
+    const last = cache.chapterCount ?? 0
+    if (cache.currentChapters - last < threshold) return
+    await onMine()
   }
 
   /** 图例 chip toggle：隐藏/恢复某类语义色的边。 */

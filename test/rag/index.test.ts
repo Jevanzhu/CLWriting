@@ -7,6 +7,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildIndex, recall, recallDetailed, chunkBody } from '../../src/rag/index.js'
+import { closeRagDb } from '../../src/rag/store.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult, EmbedOptions } from '../../src/rag/embed.js'
@@ -324,6 +325,79 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain('未完整配置')
   })
+
+  it('取消：signal 预先置位 → 零写入（库文件不存在，既有索引状态不变）', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    const ac = new AbortController()
+    ac.abort()
+    let embedCalls = 0
+    const countingEmbed = (...args: Parameters<typeof stubEmbed>): Promise<EmbedResult> => {
+      embedCalls++
+      return stubEmbed(...args)
+    }
+    const result = await buildIndex(bookRoot, config, 'key', countingEmbed, { signal: ac.signal })
+    expect(result.ok).toBe(false)
+    expect(result.chunkCount).toBe(0)
+    expect(result.chapterCount).toBe(0)
+    expect(result.error).toContain('已取消')
+    expect(embedCalls).toBe(0) // 入口检查点：一个嵌入往返都不发起
+    expect(existsSync(join(bookRoot, '.cache', 'rag.db'))).toBe(false) // 零写入
+  })
+
+  it('取消：中途置位 → 本轮零写入，既有索引保持上一轮一致状态（可重跑补齐）', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    // 上一轮：正常建完，作为「既有索引」基线
+    const first = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(first.ok).toBe(true)
+    const before = snapshotIndex()
+
+    // 本轮：新增第 3 章（有真活干），嵌入往返中途置位取消——检查点在下个批边界命中
+    const meta: ChapterMeta = {
+      章号: 3,
+      标题: '第3章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: '',
+      _wordCount: 100,
+    }
+    writeChapter(
+      join(bookRoot, '写作', '正文', `3-第3章.md`),
+      meta,
+      `第3章的正文段落内容，这是一个新的战斗场景，主角再次挥剑战斗。`,
+    )
+    const ac = new AbortController()
+    const abortOnFirstCall = (...args: Parameters<typeof stubEmbed>): Promise<EmbedResult> => {
+      ac.abort() // 本批 embed 返回前置位（模拟 watchdog 在往返窗口触发）
+      return stubEmbed(...args)
+    }
+    const cancelled = await buildIndex(bookRoot, config, 'key', abortOnFirstCall, { signal: ac.signal })
+    expect(cancelled.ok).toBe(false)
+    expect(cancelled.error).toContain('已取消')
+    expect(cancelled.chunkCount).toBe(0)
+    expect(cancelled.chapterCount).toBe(0)
+    // 对外可观察面：索引状态逐位等于上一轮（无半个索引：既无新章块，也无游标/指纹推进）
+    expect(snapshotIndex()).toEqual(before)
+
+    // 收尾路径：不传 signal 重跑（模拟作者重试）→ 第 3 章正常补齐
+    const retry = await buildIndex(bookRoot, config, 'key', stubEmbed)
+    expect(retry.ok).toBe(true)
+    expect(retry.chapterCount).toBe(1)
+  })
+
+  /** 索引文件的对外可观察快照：chunks 行集 + rag_meta 键值（排序稳定） */
+  function snapshotIndex(): { chunks: unknown[]; meta: unknown[] } {
+    const db = openRagDb(bookRoot)
+    try {
+      const chunks = db
+        .prepare('SELECT 章号, start_offset, end_offset, norm FROM chunks ORDER BY 章号, start_offset')
+        .all()
+      const meta = db.prepare('SELECT key, value FROM rag_meta ORDER BY key').all()
+      return { chunks, meta }
+    } finally {
+      closeRagDb(db)
+    }
+  }
 
   it('降级：embed 返回 null → 建索引失败但不崩', async () => {
     const failEmbed = (): Promise<EmbedResult> => Promise.resolve(null)

@@ -24,7 +24,7 @@ import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 // run 回调返回值 stopReason 的值域守卫（三线归一判别联合的运行时表）
 import { isStopReason } from './provider/stream-finalize.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
-import { recordUsageBoth, checkAiTaskCallBudget, addUsage } from './calls.js'
+import { recordUsageBoth, checkAiTaskCallBudget, addUsage, noteLedgerWriteFailure } from './calls.js'
 // chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
 // 无缓存——每次 chat 发送重读，作者改 book.yaml 下一次发送即生效，单文件毫秒级）
 import { readBookConfig } from '../format/yaml.js'
@@ -867,7 +867,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
         // 中断路径入账口径随（真实消耗按次入账）。
         if (ctrl.signal.aborted) {
           const abortedUsage = extractUsage(data)
-          recordUsageSafe(rt, ctx, opts, abortedUsage)
+          recordUsageSafe(rt, ctx, opts, abortedUsage, attempt)
           ctx.trace({
             model: tier.model,
             attempt,
@@ -883,7 +883,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
         const usage = extractUsage(data)
         // 记账下沉（task 块全端点覆盖；chapter 块仅 self-heal 传 chapter 时记）。
         // 配价时按模型价格表现算单次金额入 chapter 记账（未配价 undefined=口径不生效）
-        recordUsageSafe(rt, ctx, opts, usage)
+        recordUsageSafe(rt, ctx, opts, usage, attempt)
         // stopReason 单次抽取——trace 与 stepReason 同源（原两次调用，
         // 未知值留痕路径会重复落两行日志）
         const stopReason = extractStopReason(data, ctx.task)
@@ -906,7 +906,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           // abort 边界同拍抛出的 GenError 若携 usage（
           // 载荷通道，如截断随错上抛），按真实消耗入账而非记 0
           const abortUsage = genErrUsage(e)
-          recordUsageSafe(rt, ctx, opts, abortUsage)
+          recordUsageSafe(rt, ctx, opts, abortUsage, attempt)
           ctx.trace({
             model: tier.model,
             attempt,
@@ -932,7 +932,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           const retryUsage = e.usage ? e.usage : null
           // 服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
-            recordUsageSafe(rt, ctx, opts, retryUsage)
+            recordUsageSafe(rt, ctx, opts, retryUsage, attempt)
             ctx.trace({
               model: tier.model,
               attempt,
@@ -975,7 +975,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
           // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
           // （token 量改按 retryUsage——「失败响应无 usage，token 记 0」系截断带
           // usage 机制引入前的过期假设，与 abort(566)/终态失败(621) 两分支口径对齐）
-          recordUsageSafe(rt, ctx, opts, retryUsage)
+          recordUsageSafe(rt, ctx, opts, retryUsage, attempt)
           // 失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           // errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
           ctx.trace({
@@ -1021,7 +1021,7 @@ async function runAttemptLoop<T>(opts: RunTaskOpts<T>, ctx: RunCtx, r: ResolvedP
         // 网关已返回 usage 的终态失败（max_tokens 截断随 GenError.usage
         // 载荷上抛）按可得值入账/入 trace——多数失败响应无 usage，保持 null 口径不变
         const failUsage = genErrUsage(e)
-        recordUsageSafe(rt, ctx, opts, failUsage)
+        recordUsageSafe(rt, ctx, opts, failUsage, attempt)
         // 终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
         ctx.trace({
           model: tier.model,
@@ -1116,8 +1116,14 @@ interface RunLedgerOpts {
  * 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手，
  * 每次 attempt 恰被调用一次——同点累计全 attempt 可得
  * usage（attemptsUsage），done 事件消费方与按次入账的账本口径对齐。
+ *
+ * 失败可观测（两条通道，同一计数）：本函数 try/catch 只罩得住**同步**抛
+ * （空闲快路直行段的 IO / 锁错误）；存在在途写段时（锁被占或已有写者）写段在微任务里
+ * 执行，其失败不经此处——由 calls.ts 的写段失败回执（noteLedgerWriteFailure）计数并告警，
+ * 带书/任务/章/尝试序号。两条通道都进同一计数器，使「本轮账目缺失」既进日志又可断言。
+ * `attempt` 即该回执的定位维度（重试链哪一次没记上）。
  */
-function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage: TokenUsage | null): void {
+function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage: TokenUsage | null, attempt?: number): void {
   accumulateAttemptsUsage(rt, usage)
   if (!ctx.bookRoot) return
   try {
@@ -1128,9 +1134,9 @@ function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage
       opts.chapter !== undefined && usage
         ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage)
         : undefined
-    recordUsageBoth(ctx.bookRoot, ctx.task, opts.chapter, usage, cost ?? undefined)
+    recordUsageBoth(ctx.bookRoot, ctx.task, opts.chapter, usage, cost ?? undefined, attempt)
   } catch (e) {
-    log.warn('runner', `任务记账写库失败（${ctx.task ?? '未知任务'}，本轮账目缺失）：${errMsg(e)}`)
+    noteLedgerWriteFailure(ctx.bookRoot, { task: ctx.task, chapter: opts.chapter, attempt }, 'sync', e)
   }
 }
 

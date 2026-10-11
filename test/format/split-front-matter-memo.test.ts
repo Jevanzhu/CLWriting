@@ -6,7 +6,7 @@
  * 仍正确（2-slot 有界，无陈旧串扰）；④ 长度预过滤（同长不同串不误命中）。
  */
 import { describe, it, expect } from 'vitest'
-import { splitFrontMatter } from '../../src/format/frontmatter-core.js'
+import { splitFrontMatter } from '../../src/shared/frontmatter-core.js'
 
 const DOC = `---\n章号: 12\n标题: 雪\n---\n\n北境的雪落了三天。`
 const DOC2 = `---\n章号: 13\n---\n\n另一章。` // 同为合法 fm、长度不同

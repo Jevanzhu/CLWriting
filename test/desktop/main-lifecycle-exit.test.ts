@@ -287,6 +287,87 @@ describe('kk-P2-8：退出与边界分支', () => {
     M.lock = true
   })
 
+  // 单写者（logs 目录不可多实例同写）：文件 sink 只归持锁实例——第二实例在锁判定前
+  // 只做输出形态初始化（mirrorConsole），补挂 logsDir 只发生在持锁分支内。
+  // 断言面 = initLogging 实收参数（文件 sink 的建立入口：logsDir 非 null 即建泵落盘
+  // 并跑 7 天清理），不锚调用序——回退形态（锁前直接带 logsDir）第 2 段即红。
+  it('第二实例不建文件日志 sink（单写者）：锁前只定输出形态，logsDir 只在持锁分支补挂', async () => {
+    const calls0 = M.initLoggingCalls.length
+    vi.resetModules()
+    M.lock = false // Electron 锁未取得（第二实例）
+    try {
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      const calls = M.initLoggingCalls.slice(calls0)
+      expect(calls.length).toBeGreaterThan(0) // 锁前仍 init（更早的失败行保持可见）
+      expect(calls.map((c) => c.logsDir)).toEqual([null]) // 第二实例永不指向 logs 目录
+    } finally {
+      M.lock = true
+    }
+
+    const calls1 = M.initLoggingCalls.length
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    // 持锁实例：文件 sink 补挂在本次调用（回退形态：无此调用 → 打包态无任何落盘）
+    const holder = M.initLoggingCalls.slice(calls1)
+    expect(holder.map((c) => c.logsDir)).toEqual([null, join(M.userData, 'logs')])
+  })
+
+  // 输出形态两形态共用同一条 `mirrorConsole: !app.isPackaged`：dev 保留 console 镜像
+  // （锁前后都可见），打包态只落文件。锁前的调用只是把出口定下来，不因单写者防线而
+  // 丢掉「dev 早期失败行可见」这一既有意图。
+  it('镜像开关随打包态：dev 两段 init 均镜像 console，打包态均不镜像', async () => {
+    const mirrorCalls = async (): Promise<boolean[]> => {
+      const n = M.initLoggingCalls.length
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      return M.initLoggingCalls.slice(n).map((c) => c.mirrorConsole === true)
+    }
+    M.isPackaged = false
+    try {
+      expect(await mirrorCalls()).toEqual([true, true]) // dev：锁前/锁后都镜像
+    } finally {
+      M.isPackaged = true
+    }
+    expect(await mirrorCalls()).toEqual([false, false]) // 打包态：console 无人看见，不镜像
+  })
+
+  // 重跑 bootstrap 前回收上一轮主窗：主窗引用是单字段（wins.mainWindow），一旦被新一轮
+  // 建窗覆写或被摘走，旧窗就永久脱管——不在退出 destroy 列表（该列表只读 wins 三字段），
+  // 其 webContents 又留在 IPC 白名单里成为无主可信发送者。本用例经 activate 重试路径
+  // 驱动真实 runBootstrap，只锚对外可观察面：旧窗实例已销毁 + 白名单已摘除（不锚内部调用序）。
+  it('重跑 bootstrap 回收旧主窗：旧窗销毁且 IPC 白名单精确摘除（不留无主可信发送者）', async () => {
+    const windows0 = M.windows.length
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    // 钩子/引用取 windows.js 正本（同 epoch 动态 import 同一模块实例）
+    const mod = (await import('../../src/desktop/windows.js')) as unknown as {
+      wins: { mainWindow: Record<string, any> | null }
+      __testHooks: { hasTrustedSender: (wc: unknown) => boolean; trustedSenderCount: () => number }
+    }
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const stale = M.windows[windows0]!
+    const staleWc = stale.webContents
+    expect(mod.__testHooks.hasTrustedSender(staleWc)).toBe(true) // 建窗即登记
+
+    // 残留态：上一轮主窗仍存活且在白名单，但已不在 wins.mainWindow 上（覆写/摘除后的
+    // 脱管形态——重跑前必须先收掉它，否则新主窗一建就再无任何引用指向它）
+    mod.wins.mainWindow = null
+
+    M.appOn['activate']!.at(-1)!() // dock 点击激活 → 主窗引用为空 → 重跑 bootstrap
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+
+    expect(stale.isDestroyed(), '残留旧主窗应被回收销毁').toBe(true)
+    expect(mod.__testHooks.hasTrustedSender(staleWc), '旧窗 webContents 应已摘出白名单').toBe(false)
+    expect(M.windows.length, '回收旧窗 + 新建本轮主窗').toBe(windows0 + 2)
+    expect(mod.wins.mainWindow, '本轮主窗已登记').toBe(M.windows[windows0 + 1])
+  })
+
   it('window-state 越界（屏幕外/过小）→ 丢弃恢复、默认尺寸兜底', async () => {
     writeFileSync(
       join(M.userData, 'window-state.json'),

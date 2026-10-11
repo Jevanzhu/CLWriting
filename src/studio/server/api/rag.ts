@@ -121,12 +121,22 @@ function startRagBuild(
     if (opts?.resetIndexFirst) resetRagIndex(bookRoot)
 
     ragBuildTasks.set(bookName, { running: true, startedAt: new Date().toISOString() })
-    // 总时长 watchdog——超 RAG_BUILD_WATCHDOG_MS 未收尾即放闸 + 任务表
-    // 标 failed + warn 留痕；不 kill 底层 buildIndex（它可能仍持跨进程锁，强杀会留陈锁，
-    // 任其自然收尾/落库），闸释放后作者可重试/重启。release 幂等（task-gate released 门），
-    // 迟到 .finally 的二次 release 无害；watchdog 触发后 build 若迟到落定，下方 then/catch
+    // 取消通道：watchdog 超时置位，buildIndex 在批边界/写事务前检查后零写入退出。
+    // 为什么必须取消而不是「持闸等收尾」：超时的成因是 buildIndex 卡在不可控的外部
+    // 等待（上游 embed 僵死/磁盘 IO 停摆），持闸等它就是把闸无限期锁死——作者除了重启
+    // 没有任何出路，而这正是 watchdog 要开的出口。取消则让「闸已释放」与「索引不再被
+    // 写」两句同时成立：既有索引保持上一轮一致状态（无半个索引可被召回读到，见
+    // buildIndex 头注），作者随即可重试/rebuild。
+    const buildAbort = new AbortController()
+    // 总时长 watchdog——超 RAG_BUILD_WATCHDOG_MS 未收尾即置位取消 + 放闸 +
+    // 任务表标 failed + warn 留痕。置位只是异步信号：buildIndex 要跑到下一个检查点
+    // （批边界，或 embed 单请求超时后）才真正收口，其间它仍被 trackInFlightWork
+    // 计为在途（server close 收尾仍等它 settle），故「已取消但尚未退出」的窗口里
+    // 不会有并发写与新任务叠加。release 幂等（task-gate released 门），迟到 .finally
+    // 的二次 release 无害；watchdog 触发后 build 若迟到落定，下方 then/catch
     // 照常覆盖任务表（failed 占位 → 真实结果），状态优于停在 failed。unref 不拖进程退出。
     const watchdog = setTimeout(() => {
+      buildAbort.abort()
       release()
       if (bookAlive()) {
         ragBuildTasks.set(bookName, {
@@ -136,13 +146,13 @@ function startRagBuild(
             ok: false,
             chunkCount: 0,
             chapterCount: 0,
-            error: `建索引超时（超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾），并发闸已释放——底层任务未中断、可能稍后仍会落库；可重试或重启`,
+            error: `建索引超时（超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾），已请求取消并释放并发闸——底层任务将在下个批边界退出（本轮不再写入索引），届时可重试`,
           },
         })
       }
       log.warn(
         'rag',
-        `「${bookName}」建索引超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾，已释放任务闸并标记失败（底层任务不中断，迟到结果会覆盖本标记）——可重试或重启`,
+        `「${bookName}」建索引超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾，已置位取消并释放任务闸（底层任务在批边界退出，本轮零写入；迟到结果会覆盖本标记）——可重试或重启`,
       )
     }, RAG_BUILD_WATCHDOG_MS)
     watchdog.unref?.()
@@ -162,6 +172,8 @@ function startRagBuild(
           embed_timeout_ms: config.embed_timeout_ms,
         },
         resolved.apiKey,
+        undefined, // embedFn 走生产默认（取消通道经 opts.signal，不替换 embed 实现）
+        { signal: buildAbort.signal },
       ),
     )
       .then((result) => {

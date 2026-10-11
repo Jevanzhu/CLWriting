@@ -32,7 +32,11 @@ import { osKeyMaterial } from './os-kek.js'
 import { errMsg, log } from '../../log/index.js'
 import { createVault, openVault, sealKey, openKey, migrateVaultToOsChannel, type Vault } from './vault.js'
 
-const FILE = 'providers.json'
+/** providers.json 文件名**单源**——本模块读写/锁路径与 ai/pricing.ts 的 mtime 指纹
+ *  同引用此常量：两处各写一份字面量时改名单处漏改即定价静默失效（mtime 恒 'missing'
+ *  → memo 永不走失效路径、价格恒空）。 */
+export const PROVIDERS_FILE = 'providers.json'
+const FILE = PROVIDERS_FILE
 
 /**
  * 写前基线复验失败——盘上 revision 已 ≠ 本操作基于的

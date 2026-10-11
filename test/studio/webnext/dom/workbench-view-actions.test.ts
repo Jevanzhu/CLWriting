@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   getProviders: vi.fn(),
   uiToast: vi.fn(),
   // aiAvailable 可变槽位：AI 不可达用例置 false 后再挂载（mock 工厂每次调用取现值）
-  uiState: { aiAvailable: true },
+  uiState: { aiAvailable: true, aiReasonText: '原因未知' },
 }))
 
 vi.mock('../../../../src/studio/web-next/src/api/workbench', () => ({
@@ -55,7 +55,11 @@ vi.mock('../../../../src/studio/web-next/src/api/providers', () => ({
   getProviders: mocks.getProviders,
 }))
 vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: mocks.uiToast, aiAvailable: mocks.uiState.aiAvailable })),
+  useUiStore: vi.fn(() => ({
+    toast: mocks.uiToast,
+    aiAvailable: mocks.uiState.aiAvailable,
+    aiReasonText: mocks.uiState.aiReasonText,
+  })),
 }))
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
 
@@ -82,6 +86,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   mocks.uiState.aiAvailable = true
+  mocks.uiState.aiReasonText = '原因未知'
   primeLoadApis()
 })
 
@@ -196,6 +201,14 @@ describe('WorkbenchView: AI 不可达置灰（R76-8）', () => {
     const w = await mountView()
     expect(w.text()).toContain('AI 服务暂不可用')
     expect(findBtn(w, '生成')!.attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+
+  it('aiAvailable=false → 警告条带上后端给的精确原因（不止泛化文案）', async () => {
+    mocks.uiState.aiAvailable = false
+    mocks.uiState.aiReasonText = '未配置 AI 服务供应商（请在设置页添加）'
+    const w = await mountView()
+    expect(w.find('.ai-warn').text()).toContain('未配置 AI 服务供应商（请在设置页添加）')
     w.unmount()
   })
 })

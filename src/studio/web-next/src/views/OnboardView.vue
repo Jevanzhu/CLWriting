@@ -9,9 +9,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { TriangleAlert } from 'lucide-vue-next'
 import { onboardAi, onboardSave, STEP_LABEL, STEP_PATH, type OnboardStep } from '../api/onboard'
-import { getConfig } from '../api/books'
 import { useUiStore } from '../stores/ui'
 import { useTreeStore } from '../stores/tree'
+import { useWorkspaceStore } from '../stores/workspace'
 import BetaBadge from '../components/ui/BetaBadge.vue'
 import OnboardPremise from '../components/onboard/OnboardPremise.vue'
 import OnboardStepRail from '../components/onboard/OnboardStepRail.vue'
@@ -23,6 +23,7 @@ const props = defineProps<{ bookName: string }>()
 const route = useRoute()
 const ui = useUiStore()
 const tree = useTreeStore()
+const ws = useWorkspaceStore()
 
 // 活书名复检单源（useScopedAction）——OnboardView 挂 :key=bookName，切书时本实例被
 // 重建、死续体的 props 冻结在旧书（比 props 恒等），故活源取路由 params：
@@ -188,16 +189,16 @@ async function save(): Promise<void> {
 }
 
 onMounted(async () => {
-  // 同 save——config/tree 加载在途切书后死实例放弃（新实例自会加载）
+  // 同 save——配置/tree 加载在途切书后死实例放弃（新实例自会加载）
   const book = props.bookName
-  try {
-    const config = await getConfig(book)
+  // 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+  // 读不到（error 面）与失败同口径——不落值，默认显示 realm（不阻断）
+  const loaded = await ws.loadBookConfig(book)
+  if (!loaded.error) {
     if (!scoped.stillIn(book)) return
-    isShort.value = (config.kind ?? 'long') === 'short'
-    const leadsEnabled = (config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
+    isShort.value = (loaded.config.kind ?? 'long') === 'short'
+    const leadsEnabled = (loaded.config['leads'] as { enabled?: string[] } | undefined)?.enabled ?? []
     isGrowthBook.value = leadsEnabled.includes('成长线')
-  } catch {
-    // config 读取失败 → 默认显示 realm（不阻断）
   }
   if (!scoped.stillIn(book)) return
   await tree.load(book)
@@ -215,7 +216,9 @@ onMounted(async () => {
 
 <template>
   <div class="onboard">
-    <div v-if="ui.aiAvailable === false" class="ai-warn">AI 服务暂不可用，请在设置中检查 AI 配置。</div>
+    <div v-if="ui.aiAvailable === false" class="ai-warn">
+      AI 服务暂不可用（{{ ui.aiReasonText }}），请在设置中检查 AI 配置。
+    </div>
 
     <!-- Hero（渐变头，与总览页同语言） -->
     <section class="ob-hero">

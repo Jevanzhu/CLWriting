@@ -209,7 +209,7 @@ export function createStaticHandler(rootDir: string) {
       })
       stream.on('error', () => {
         if (res.headersSent) res.destroy()
-        else replyError(res, 500, 'IO', '静态文件读取失败')
+        else replyError(res, 500, 'IO_ERROR', '静态文件读取失败')
       })
     } catch (e) {
       // errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
@@ -218,8 +218,9 @@ export function createStaticHandler(rootDir: string) {
       const err = e as NodeJS.ErrnoException
       if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
         // err.code 不出网（对齐 index.ts 500 只回泛化文案口径，
-        // 诊断留日志）；错误码对齐 'IO' 单一口径
-        replyError(res, 500, 'IO', '静态文件读取失败')
+        // 诊断留日志）；错误码对齐 'IO_ERROR' 单一口径（同类 IO 故障一码，
+        // 前端按 code 分派不分裂）
+        replyError(res, 500, 'IO_ERROR', '静态文件读取失败')
         return
       }
       // SPA fallback：非文件路径回 index.html（前端路由接管；HEAD 同口径补长度不发 body）

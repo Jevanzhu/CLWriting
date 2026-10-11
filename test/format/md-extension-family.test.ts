@@ -10,14 +10,38 @@
  * R38-11：writeLead 主导行尾保真——LF 账本字节不变的回归锚（CRLF 保持见
  * r36-leads-crlf 契约演进断言）。
  */
-import { describe, expect, it } from 'vitest'
-import { mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, utimesSync } from 'node:fs'
+import { describe, expect, it, vi } from 'vitest'
+import { mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, utimesSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+
+/**
+ * 粗粒度卷替身：本机卷（NTFS/APFS/ext4）mtime 为 ns 级，真粗粒度卷（FAT 2s /
+ * exFAT 10ms / SMB 1s）物理上复现不了，故对 statSync 的 bigint 面打桩——登记过的
+ * 路径按帧返回（mtimeNs 整毫秒对齐 = 低精度卷形态），其余路径透传真实 stat。
+ * 帧值单位是 ns：整毫秒对齐形如 `1_700_000_002_000_000_000n`，精修卷形加亚毫秒余数。
+ */
+const { coarseStatFrames } = vi.hoisted(() => ({
+  coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>(),
+}))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    statSync: (p: string, opts?: { bigint?: boolean }) => {
+      if (opts?.bigint && typeof p === 'string') {
+        const frame = coarseStatFrames.get(p)
+        if (frame) return frame as never
+      }
+      return actual.statSync(p, opts as never)
+    },
+  }
+})
+
 import { readIronRules } from '../../src/format/iron-rules.js'
 import { parseSampleFileName } from '../../src/format/style.js'
 import { readLead, writeLead } from '../../src/format/leads.js'
@@ -56,6 +80,58 @@ describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
   it('parseSampleFileName 大写扩展名剥离（<场景>-NNN.MD 序号可解析）', () => {
     expect(parseSampleFileName('战斗-001.MD')).toEqual({ 场景: '战斗', 序号: 1 })
     expect(parseSampleFileName('战斗-001.md')).toEqual({ 场景: '战斗', 序号: 1 })
+  })
+
+  // ── 低精度 mtime 卷（FAT/exFAT/SMB）：铁律词表指纹降级 ──────────────
+  // 粗粒度卷的 mtime 粒度粗于毫秒 → 同尺寸改写可落在同一刻度内，ironRulesFp 的
+  // (mtimeNs,size) 分量全同。降级判据 = isCoarseMtimeNs（整毫秒对齐），该卷不命中
+  // 也不落缓存（见 ironRulesFp 注）。本机卷为 ns 级精度，粗粒度形态由 stat 打桩构造。
+  describe('低精度 mtime 卷：铁律/禁词词表缓存降级', () => {
+    it('同尺寸改写落在同一粗粒度刻度 → 铁律词表重读生效（不返回陈旧禁词）', () => {
+      const root = mkdtempTracked(join(tmpdir(), 'iron-coarse-'))
+      try {
+        const rulesPath = join(root, '文风', '文风铁律.md')
+        mkdirSync(join(root, '文风'), { recursive: true })
+        writeFileSync(rulesPath, '# 文风铁律\n## 硬禁词\n- 词甲\n', 'utf-8')
+        const size = statSync(rulesPath, { bigint: true }).size
+        // 整毫秒对齐 = 低精度卷形态；两次读喂同一帧（粗粒度窗口内 stat 逐位相同）
+        coarseStatFrames.set(rulesPath, { size, mtimeNs: 1_700_000_002_000_000_000n })
+
+        expect(readIronRules(root).bannedWords).toContain('词甲')
+
+        // 等长改写（词甲 → 词乙）：粗粒度卷上 size 与 mtimeNs 都不变
+        writeFileSync(rulesPath, '# 文风铁律\n## 硬禁词\n- 词乙\n', 'utf-8')
+        // 修复前：指纹全同 → 命中旧缓存，词乙永不生效（禁词红闸静默失明）；修复后重读
+        const after = readIronRules(root).bannedWords
+        expect(after).toContain('词乙')
+        expect(after).not.toContain('词甲')
+      } finally {
+        coarseStatFrames.clear()
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
+    it('精修卷（非整毫秒对齐）不降级：同指纹二次读走缓存（拷贝出仓语义不变）', () => {
+      const root = mkdtempTracked(join(tmpdir(), 'iron-fine-'))
+      try {
+        const rulesPath = join(root, '文风', '文风铁律.md')
+        mkdirSync(join(root, '文风'), { recursive: true })
+        writeFileSync(rulesPath, '# 文风铁律\n## 硬禁词\n- 词甲\n', 'utf-8')
+        const size = statSync(rulesPath, { bigint: true }).size
+        // 亚毫秒余数 = ns 级精度卷形态；帧不变即判「盘上未变」
+        coarseStatFrames.set(rulesPath, { size, mtimeNs: 1_700_000_002_000_000_123n })
+        const first = readIronRules(root)
+        expect(first.bannedWords).toContain('词甲')
+        // 缓存命中（帧不变）→ 返回值仍是拷贝体：mutate 不污染二次读取
+        first.bannedWords!.push('污染值')
+        const second = readIronRules(root)
+        expect(second.bannedWords).toContain('词甲')
+        expect(second.bannedWords).not.toContain('污染值')
+      } finally {
+        coarseStatFrames.clear()
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
   })
 
   it('format/ 与 check/ 目录级机制扫描：无大小写敏感 .md 过滤残留（新增文件自动在射程内）', () => {

@@ -21,6 +21,10 @@ interface BootstrapRunnerDeps {
    *  实现 close 后调 `deps.setStudioServer(null)` 写 nowhere），属死接口面；随调用点
    *  一并移除（行为零变化——no-op 调用本无副作用）。 */
   getStudioServer: () => { close: () => void | Promise<void> } | null
+  /** 重跑前回收上次遗留的主窗（存在且未销毁才动；缺省无操作）。不回收的后果：新
+   *  bootstrap 建新主窗覆写 wins.mainWindow，旧窗既不在退出 destroy 列表、其
+   *  webContents 又仍留在 IPC 白名单里。 */
+  reclaimStaleMainWindow?: () => void
 }
 
 interface BootstrapRunner {
@@ -42,6 +46,11 @@ export function createBootstrapRunner(deps: BootstrapRunnerDeps, bootstrap: () =
       bootstrapping = true // 先占重入门再进异步体：关旧 server 的 await 期间并发调用同样被挡
       void (async () => {
         try {
+          // 重跑前回收旧主窗——与下方关旧 server 同属「重跑前清旧」：本次 bootstrap
+          // 会在窗口创建处覆写 wins.mainWindow，不回收则旧窗永久脱管（不在退出
+          // destroy 列表、webContents 仍在 IPC 白名单）。先于关旧 server 的 await 执行
+          // ——旧 server 收口可能耗时，旧窗多留一秒就多一次被当主窗操作的机会。
+          deps.reclaimStaleMainWindow?.()
           // 上次失败若发生在 startServer 之后，旧 server 滞留——重试前先关
           // 条件改为「存在旧 server 即关」——原叠加 mainWindow === null 的
           // 判据自相矛盾（deps.getMainWindow 原是「重试关旧 server 的判据」注释语义的残留，

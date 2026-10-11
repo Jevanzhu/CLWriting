@@ -13,6 +13,7 @@ import { countWords, chapterFilePrefix } from './words.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
 import { driveToEnd } from '../async.js'
 import { preludeYieldStats } from '../shared/yield-stats.js'
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js'
 
 /** #7 第 3 节枚举值校验集 */
 const HOOK_TYPES: HookType[] = ['危机钩', '悬念钩', '渴望钩', '情绪钩', '选择钩']
@@ -308,7 +309,9 @@ export function readChapterDirSummary(dirPath: string): {
  * 树红点聚合等）对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。
  * 此处按 (mtimeNs,size) 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除
  * 由每轮 walk 自愈。bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
- * （同 ms 内改回同长内容的撞车窗口收窄到 ns 级，注释同步）。
+ * （同 ms 内改回同长内容的撞车窗口收窄到 ns 级，注释同步）。低精度 mtime 卷上
+ *  (mtimeNs,size) 判据不可信（同尺寸改写可落在同一粗粒度刻度内）→ 该卷不读不写
+ * 缓存，逐轮真读（isCoarseMtimeNs 单源）。
  * 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）；latest 在同一轮 stat 里
  * 顺带跟踪最新 mtime 的章（readChapterDirSummary 消费），不产生第二次 stat。
  */
@@ -360,9 +363,14 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
       continue
     }
     const mtimeMs = Number(st.mtimeNs) / 1e6
+    // 低精度卷（FAT/exFAT/SMB：mtime 粒度粗于毫秒）降级不缓存——同尺寸改写落在粗粒度
+    // 窗口内时 mtimeNs 与 size 都不变，「文件未变」判据失真；命中与写入两侧都绕（宁可重
+    // 解析，不返回陈旧章标题/字数）。本缓存只在删书/改名按书清整键，内容写入无挂钩（靠
+    // stat 自愈），粗粒度卷必须由本判据兜底。
+    const cacheable = !isCoarseMtimeNs(st.mtimeNs)
     const hit = cache.get(fp)
     let chapter: ChapterMeta
-    if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
+    if (cacheable && hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
       chapter = cloneChapter(hit.chapter) // _raw 一并深拷贝——嵌套 mutate 不污染缓存
     } else {
       const r = readChapter(fp)
@@ -371,7 +379,7 @@ export function* scanChapterDirCore(dirPath: string): Generator<void, ChapterDir
         cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
         continue
       }
-      cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
+      if (cacheable) cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
       chapter = cloneChapter(r.chapter)
     }
     chapters.push(chapter)

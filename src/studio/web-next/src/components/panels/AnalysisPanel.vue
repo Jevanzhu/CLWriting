@@ -9,7 +9,14 @@ import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words' // formKindOf/stripFrontmatter/mergeFm 零消费移除
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
-import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
+import {
+  getAnalysisOverview,
+  autotag,
+  inferMeta,
+  analyzeChapter,
+  type AnalysisOverview,
+  type AnalyzeKind,
+} from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useBookScoped } from '../../composables/useBookScoped'
@@ -111,6 +118,42 @@ async function inferChapterMeta(): Promise<void> {
     if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     inferring.value = false
+  }
+}
+
+// ── 单章分析（AI 读本章正文 → 分析/<docId>.json 信封；overview 聚合读它）──
+// kind 与后端白名单（score/emotion/hooks/style）对齐——只列本章有展示落点的三种：
+// 三种趋势由 overview 聚合自逐章信封，style 走全书 analyze-style（本面板速览的文风行
+// 读的是全书 __book__.json，逐章 style 信封不聚合，列出来是无效果动作）。
+const ANALYZE_KIND_OPTIONS: ReadonlyArray<{ value: AnalyzeKind; label: string }> = [
+  { value: 'score', label: '体验分' },
+  { value: 'emotion', label: '情绪曲线' },
+  { value: 'hooks', label: '钩子密度' },
+]
+const analyzeKind = ref<AnalyzeKind>('score')
+const analyzing = ref(false)
+// AI 不可达置灰（同面板其它 AI 动作口径）——本面板两处旧 AI 动作未接此闸，
+// 新增动作按库内统一口径（RewritePanel/ReviewPanel/StyleAcceptancePanel）接上
+const aiOff = computed(() => ui.aiAvailable === false)
+async function runAnalyze(): Promise<void> {
+  if (!docId.value || analyzing.value) return
+  // 入口捕获 docId/bookName（同 analyzeTags）——单章分析可达分钟级，await 期间切档/切书后
+  // 概览刷新与失败提示都会落到别处（写坏/错弹到 B 的界面）
+  const id = docId.value
+  const book = props.bookName
+  analyzing.value = true
+  try {
+    await analyzeChapter(book, id, analyzeKind.value)
+    if (docId.value !== id || props.bookName !== book) return
+    // 复用面板既有加载函数（含切书代守卫），不另造刷新机制
+    await loadOverview()
+    ui.toast('分析完成', 'success')
+  } catch (err) {
+    // 失败提示同域守卫（同 analyzeTags）；错误码面（GEN_FAIL/ABORTED/NO_* 坍缩态/
+    // 409 BUSY）由后端人话信封透出，friendlyError 原样展示
+    if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
+  } finally {
+    analyzing.value = false
   }
 }
 
@@ -224,6 +267,22 @@ function gotoOverview(): void {
         <span class="ap-ov-label">钩子</span>
         <span v-if="hooksCoverage" class="ap-ov-val">覆盖 {{ hooksCoverage }} 章</span>
         <span v-else class="ap-ov-empty">—</span>
+      </div>
+      <!-- 单章分析触发（AI 读本章正文 → 落信封 → 上面三行随之聚合） -->
+      <div class="ap-analyze-row">
+        <span class="ap-cost" data-tip="调用 AI 生成，计入服务额度（本章一次）">消耗额度</span>
+        <select v-model="analyzeKind" class="ap-kind" :disabled="analyzing">
+          <option v-for="k in ANALYZE_KIND_OPTIONS" :key="k.value" :value="k.value">{{ k.label }}</option>
+        </select>
+        <button
+          class="ap-run"
+          :disabled="analyzing || aiOff"
+          :data-tip="aiOff ? `AI 暂不可用（${ui.aiReasonText}）` : ''"
+          @click="runAnalyze"
+        >
+          <RefreshCw :size="12" :class="{ spin: analyzing }" />
+          <span>{{ analyzing ? '分析中…' : '分析本章' }}</span>
+        </button>
       </div>
     </div>
   </section>
@@ -371,5 +430,35 @@ function gotoOverview(): void {
 }
 .ap-ov-empty {
   color: var(--text-faint);
+}
+/* 单章分析触发行：成本徽标 + kind 选择 + 动作按钮（成本告知先于动作可见） */
+.ap-analyze-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--size-4-2);
+  padding-top: var(--size-4-2);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.ap-cost {
+  font-size: var(--font-size-xs);
+  color: var(--dv-warn);
+  background: color-mix(in srgb, var(--dv-warn) 12%, transparent);
+  border-radius: 99px;
+  padding: 1px 8px;
+  cursor: help;
+}
+.ap-kind {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.ap-analyze-row .ap-run {
+  margin-left: auto;
 }
 </style>

@@ -44,6 +44,8 @@ import {
   // windows.ts 且无生产命名访问器——故本文件保留对该钩子的生产路径使用。
   __testHooks,
   getDevProxyApplied, // nano：原 let 导出 devProxyApplied 改函数访问器
+  reclaimStaleMainWindow, // bootstrap 重跑前的旧主窗回收（见 windows.ts）
+  setMainWindow, // 主窗登记单点（写 wins.mainWindow + 入回收面）
 } from './windows.js' // 窗口工厂/三窗引用拆出
 import {
   BOOTSTRAP_PROBE_TIMEOUT_MS,
@@ -94,10 +96,14 @@ const homeDir = appDataHomeDir()
 const startupLibrary = resolveStartupLibraryDir({ argv: process.argv, homeDir, cwd: process.cwd() })
 const instanceKey = startupLibrary.dir ? libraryInstanceKey(startupLibrary.dir) : WELCOME_INSTANCE_KEY
 app.setPath('userData', instanceUserDataPath(instanceKey))
-// 结构化日志——打包态 console 无人看见，尽早切到 JSONL 落盘
-// （userData/logs/app-YYYYMMDD.jsonl）；dev 态保留 console 镜像。后续 startServer
-// 会再 init 一次（幂等，参数一致）。logs 随实例目录（同机多实例各写各的，互不串扰）。
-initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !app.isPackaged })
+// 结构化日志两段初始化（单写者约束：文件 sink 只归持锁实例）——日志目录随实例目录
+// （同机多实例各写各的，互不串扰），但锁判定前只能定输出形态：未持锁实例随后即退，
+// 此前若已建文件泵就会与持锁实例同写同一 logs 目录，7 天轮转清理也在两边各跑一次。
+// 故先 init 成「只镜像 console、不落盘」——dev 态更早的失败行仍在控制台可见；打包态
+// 锁判定前本就没有自身业务行（仅文件锁告警一类），不值得为它开文件泵。
+// 文件落盘待锁通过后再 init 一次补挂目录：initLogging 重复调用按最后一次参数生效，
+// 支持 null→目录切换（见 src/log/index.ts）。
+initLogging({ logsDir: null, mirrorConsole: !app.isPackaged })
 
 // 单实例锁：双开实例会对同一 userData 的 workdir.json / window-state.json
 // 读改写互踩（atomic 写只防文件撕裂，防不了语义层竞态）。锁须在 setPath 之后请求，
@@ -114,10 +120,13 @@ const appInstanceGuard = acquireAppInstanceGuard(app.getPath('userData'))
 if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   app.quit()
 } else {
+  // 持锁实例 = 该 logs 目录的唯一写者：此刻补挂文件 sink——JSONL 落盘
+  // （userData/logs/app-YYYYMMDD.jsonl）与启动期 7 天轮转清理都随本次调用生效；
+  // 第二实例走上一分支，永不落盘、不跑清理。
+  initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !app.isPackaged })
   // 多实例诊断启动行：instanceKey + 解析来源 + 启动库路径。
   // 置于锁判定之后（本实例确为持锁实例才记）——锁判定前落行会把「未持锁即退」的瞬态
-  // 实例行混进持锁实例的日志。initLogging 留在原处（mkdir/轮转清理幂等无害，且更早的
-  // 失败行仍可落盘）。
+  // 实例行混进持锁实例的日志。
   log.info(
     'desktop',
     `实例启动：key=${instanceKey} 来源=${startupLibrary.source} 书库=${startupLibrary.dir ?? '（引导页）'} 共享根=${homeDir}`,
@@ -450,7 +459,9 @@ async function bootstrap(): Promise<void> {
     minHeight,
     title: 'CLWriting',
   })
-  wins.mainWindow = mainWindow
+  // 登记主窗（写 wins.mainWindow + 入历轮主窗回收面，见 windows.ts）：单点登记防
+  // 「建了窗却漏进回收面」——重跑 bootstrap 时旧窗若不在回收面，就永久脱管
+  setMainWindow(mainWindow)
   if (saved?.maximized) mainWindow.maximize()
   // 关窗兜底——首轮 close 先 preventDefault，经渲染层钩子异步
   // flush（页面未死，异步保存链全通）落定/短超时后 destroy 真正关窗（destroy 不再
@@ -730,6 +741,8 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
       // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（语义旁路）；补
       // hasPendingRestart 使「重试前关旧」覆盖重启在途窗口
       getStudioServer: () => (serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null),
+      // 重跑前回收旧主窗（详情见 windows.ts reclaimStaleMainWindow 头注）
+      reclaimStaleMainWindow,
     },
     () => bootstrap(),
   )
@@ -806,6 +819,9 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     // mainWindow === null 会在退出半途再起 server/开窗（与退出竞态同族）
     if (bootstrapRunner.shuttingDown) return
     if (wins.mainWindow === null) {
+      // 重试失败只留痕不退出（与首启失败 app.quit 的差异系有意）：activate 只在 macOS
+      // 触发，dock 图标恒在——失败后用户再点一次即可重试；此处若 quit，反而把一次可恢复
+      // 的重试升级成进程退场。首启失败无重试入口（win/linux 无 activate），故必须退出。
       runBootstrap((e) => log.error('desktop', '重启失败', e))
     }
   })

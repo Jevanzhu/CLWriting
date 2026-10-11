@@ -21,6 +21,7 @@ import {
   inferMeta,
   getAnalysisOverview,
   runStyleAnalysis,
+  analyzeChapter,
 } from '../../../src/studio/web-next/src/api/analysis'
 import { runReview, runVerdictDoc, getReviewEnvelope } from '../../../src/studio/web-next/src/api/review'
 import { runRewriteDoc, reportAiVersion } from '../../../src/studio/web-next/src/api/rewrite'
@@ -136,6 +137,18 @@ describe('api analysis · AI 端点与聚合', () => {
     expect(r.styleCandidates).toBe(0)
     stubFetch(() => ok({ ok: true, envelope: ENVELOPE, styleCandidates: 3 }))
     expect((await runStyleAnalysis('书 A')).styleCandidates).toBe(3)
+  })
+
+  it('analyzeChapter：POST /documents/:docId/analyze，body 为 {kind}，解包信封', async () => {
+    stubFetch(() => ok({ ok: true, envelope: ENVELOPE }))
+    const r = await analyzeChapter('书 A', 'd/1', 'score')
+    expect(lastCall().init?.method).toBe('POST')
+    expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/documents/d%2F1/analyze')
+    expect(jsonBody(lastCall())).toEqual({ kind: 'score' })
+    expect(r.envelope.sourceHash).toBe('h')
+    // kind 逐调用透传（不是首个 kind 被缓存）——第二次换 kind 请求体必须跟着变
+    await analyzeChapter('书 A', 'd/1', 'hooks')
+    expect(jsonBody(lastCall())).toEqual({ kind: 'hooks' })
   })
 })
 

@@ -26,6 +26,7 @@ import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
 import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
+import { isCoarseMtimeNs } from '../fs/mtime-precision.js' // 低精度 mtime 卷降级判据单源
 import type { BookConfig, ChapterMeta } from '../format/types.js'
 import { enabledLeadTypes } from './leads-config.js'
 import { scanOutlineDeclarationMemo } from './outline-leads.js'
@@ -546,6 +547,12 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       }
       // µs 级安全整数指纹（读/写共用同一次换算，口径一致）
       const chapterFp = Number(chapterSt.mtimeNs / 1000n)
+      // 低精度 mtime 卷（FAT/exFAT/SMB：粒度粗于毫秒）降级不缓存——章行身份 = (mtime,size)
+      // + 裁决信封指纹，粗粒度窗口内同尺寸改写会落成同一指纹，读出陈旧行（红点/黄项与
+      // 正文不符）。该卷既不读行也不落行（本轮真机检），正确性优先；本缓存只在结构性
+      // 变更整表清，内容写入无挂钩，粗粒度卷只能靠该判据兜底。
+      // 同一卷上章正文与信封 mtime 同源粗粒度，问章文件一处即代表本卷。
+      const coarseMtime = isCoarseMtimeNs(chapterSt.mtimeNs)
       const envAbs = existingAnalysisPath(bookRoot, docId) // 双候选读侧定位（信封 stat 指纹不吃单候选分裂）
       let verdictFp: string | null = null
       if (envAbs) {
@@ -560,7 +567,7 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       // 且轮中全局输入变更时，他进程按新纪元清表写入的新纪元行不再被本进程按章指纹误读
       //（单轮混纪元口径的修复面）；基线缺席（epochFp0=null，纪元指纹前算失败）时一律按
       // miss（宁重算勿混纪元）。
-      if (cacheEnabled && db && epochFp0 !== null) {
+      if (!coarseMtime && cacheEnabled && db && epochFp0 !== null) {
         const cached = readTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp, epochFp0)
         if (cached) {
           // 章级行只存章作用域 hasRed（拆分后），全书性红项在此合并展示
@@ -596,7 +603,10 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       // 窗口内纪元变了则本轮不落缓存（下轮重算）。比较用轮内缓存值。
       // 直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）。
       // 轮内缓存值即基线 epochFp0（轮前复核遍已消重），入列闸 = 基线存在。
+      // 低精度 mtime 卷（coarseMtime）不落行——否则本轮的粗粒度指纹会把结果定格，
+      // 下轮的窗口内改写照命中同一指纹（假阴性固化）。
       if (
+        !coarseMtime &&
         shouldQueueChapterCacheRow({
           checkFailed,
           cacheEnabled,

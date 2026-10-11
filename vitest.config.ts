@@ -42,9 +42,17 @@ const DOM_FILES = ['test/studio/webnext/dom/**/*.test.ts']
 // 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
 // it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级
 // 显式放宽，勿上调全局值（上调会掩盖常规用例的挂死回归）。
+// v5 里 poolOptions 已整体移除，worker 的 Node 启动参数唯一入口是顶层
+// test.execArgv（projects 内亦可，ProjectConfig = Omit<InlineConfig, NonProjectOptions>，
+// 该键未被非项目键排除；实现侧并入 fork/Worker 的 execArgv 选项）。
+// --expose-gc：内存滞留回归档（test/check/tree-issues-cache-close-pair.test.ts 与
+// test/rag/rag-prepared-cache-release.test.ts 的 gc 门控用例）靠 globalThis.gc 量堆增长，
+// 不注入则本地与 CI 全量永久 skip —— 这类档一旦只能 skip 就是零守护（回退了也无人报警）。
+// 全 worker 常开而非只对两个档：vitest 的 execArgv 是项目级键，无逐档粒度。
 const SHARED = {
   pool: 'forks' as const,
   maxWorkers: process.env.CI ? 2 : 4,
+  execArgv: ['--expose-gc'],
   setupFiles: ['test/helpers/studio-token-setup.ts', 'test/helpers/disable-update-check-setup.ts'],
   testTimeout: 30000,
 }

@@ -155,3 +155,56 @@ describe('R67-6（十五轮）TOCTOU：他进程在 SELECT 与事务之间补了
     }
   })
 })
+
+describe('孤儿修复分页：>500 会话跨批，结果集完整且全表会话集只物化一次', () => {
+  it('620 个过期孤儿全补 end；有 start 的会话集合全表查询只执行一次（不再每批重跑）', () => {
+    const db = openRaw()
+    // 执行计数器：包 db.prepare 的返回语句统计 `.all()` 调用次数。全表会话集查询若
+    // 嵌在分页语句里会随每批重执行一次（620 会话 → 2 批 → 2 次），物化后恒为 1 次
+    // ——这正是「批数 × 全表扫描」二次复杂度被消除的可观测面。
+    let distinctSessionQueries = 0
+    let aggregateQueries = 0
+    const wrapper = {
+      prepare: (sql: string) => {
+        const stmt = db.prepare(sql)
+        const isDistinct = sql.includes('SELECT DISTINCT session_id FROM events')
+        const isAggregate = sql.includes('GROUP BY e.session_id')
+        if (!isDistinct && !isAggregate) return stmt
+        return {
+          all: (...args: unknown[]) => {
+            if (isDistinct) distinctSessionQueries++
+            else aggregateQueries++
+            return (stmt.all as (...a: unknown[]) => unknown)(...args)
+          },
+          get: (...args: unknown[]) => stmt.get(...(args as never[])),
+          run: (...args: unknown[]) => stmt.run(...(args as never[])),
+        }
+      },
+      exec: (sql: string) => db.exec(sql),
+    } as unknown as DatabaseSync
+    try {
+      db.exec('DROP TRIGGER IF EXISTS fail_all')
+      db.exec('DROP TRIGGER IF EXISTS fail_bad')
+      db.exec('DELETE FROM events')
+      db.exec('DELETE FROM sessions')
+      const total = 620 // > BATCH_SIZE(500)：必须跨批，且尾批仅 120 条
+      db.exec('BEGIN')
+      for (let i = 0; i < total; i++) seedOrphan(db, `s-page-${String(i).padStart(4, '0')}`, '书E')
+      db.exec('COMMIT')
+
+      repairOrphanSessions(wrapper, new Set())
+
+      // 结果集完整：每个孤儿恰好补一个 end（无漏补、无重复）
+      const rows = db
+        .prepare(`SELECT session_id, COUNT(*) AS c FROM events WHERE type = 'session/end' GROUP BY session_id`)
+        .all() as Array<{ session_id: string; c: number }>
+      expect(rows).toHaveLength(total)
+      expect(rows.every((r) => r.c === 1)).toBe(true)
+      // 全表会话集只执行一次；分批聚合每批一次（跨 2 批）
+      expect(distinctSessionQueries).toBe(1)
+      expect(aggregateQueries).toBe(2)
+    } finally {
+      db.close()
+    }
+  })
+})

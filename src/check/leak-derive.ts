@@ -10,7 +10,7 @@ import { readdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { splitInlineArray } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
-import { splitFrontMatter, stripInlineComment } from '../format/frontmatter-core.js'
+import { splitFrontMatter, stripInlineComment } from '../shared/frontmatter-core.js'
 
 /**
  * 派生结果按「布线树 stat 指纹」缓存——runAllChecks 每章调用，

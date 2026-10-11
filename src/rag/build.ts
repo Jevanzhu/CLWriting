@@ -136,6 +136,17 @@ export interface BuildIndexResult {
   error?: string
 }
 
+/** 取消出口（signal.aborted）的结果单源：计数归零——本轮零写入，没有可对外声明的
+ *  已提交进度；文案点明「既有索引保持上一轮一致状态」，供 status/lastResult 展示。 */
+function cancelledBuildResult(): BuildIndexResult {
+  return {
+    ok: false,
+    chunkCount: 0,
+    chapterCount: 0,
+    error: '建索引已取消（本轮未写入索引，既有索引保持上一轮一致状态）',
+  }
+}
+
 /**
  * 重建索引前置——清空本书 RAG 库（chunks 全部行 + rag_meta 全部键：
  * 模型/维度/游标/指纹一并清）。修复「请重建索引」死路：此前模型/维度失配后 buildIndex
@@ -261,16 +272,31 @@ export function ragIndexState(bookRoot: string): RagIndexState {
  * @param config RAG 配置（endpoint/model）
  * @param apiKey api_key（绝不进 git）
  * @param embedFn 可选：注入 embed 函数（测试用桩，默认调真实 embed）
+ * @param opts.signal 可选取消信号（端点 watchdog 超时置位；向后兼容，旧调用方零变更）。
+ *
+ * 取消语义（signal.aborted）——检查点退出，**退出即零写入**：检查点取
+ * ①各 embed 批之前（批粒度，批内语义完整：批要么整批进 vectors 要么整批不入）、
+ * ②最终写事务之前（该点到 COMMIT 全同步，事件循环上无让出，检查与提交之间插不进
+ * 第二次取消置位）。取消命中即丢弃本轮已嵌入未落库的向量（它们此时只驻内存，无落盘面），
+ * 直接返回 ok:false，**不走续传 salvage 分支**——salvage 会写库，而取消的前提正是
+ * 「闸可能已被 watchdog 释放」，此刻再写会与作者随即发起的重试/rebuild 清库互相
+ * 穿插。不写库使索引停在上一轮一致点（章指纹为续建游标，「指纹集合 == 已索引章
+ * 集合」不变量保持，无半个索引可被召回读到），代价是重跑要重嵌本轮已烧的向量。
  */
 export async function buildIndex(
   bookRoot: string,
   config: RagConfig,
   apiKey: string,
   embedFn: typeof embed = embed,
+  opts?: { signal?: AbortSignal },
 ): Promise<BuildIndexResult> {
   if (!config.enabled || !config.endpoint || !config.model) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: 'RAG 未完整配置（缺 endpoint/model）' }
   }
+
+  // 取消出口单源（入口检查点与循环检查点共用）——不落库、不走续传，
+  // 计数归零（本轮没有可对外声明的已提交进度）
+  if (opts?.signal?.aborted) return cancelledBuildResult()
 
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
@@ -467,6 +493,11 @@ export async function buildIndex(
     // 低章号时不回退（更高章仍已索引），读失败时不越过失败章
     const cursorTarget = Math.max(indexedMax, chapterHashes.size > 0 ? Math.max(...chapterHashes.keys()) : 0)
 
+    // 取消检查点（进入写事务之前）——此处之后到 COMMIT 全同步无 await（事件循环上
+    // 插不进新的取消置位），故这一次检查等价于「提交前必然已检查过」。命中即返回
+    // 不落库（见 buildIndex 头注：取消路径零写入，索引停在上一轮一致点）。
+    if (opts?.signal?.aborted) return cancelledBuildResult()
+
     const committed = await commitIndexBatch(
       db,
       config,
@@ -476,6 +507,7 @@ export async function buildIndex(
       embedFn,
       apiKey,
       embedOptionsFor(bookRoot, config),
+      opts?.signal,
     )
     if (!committed.ok && readFailAt !== null) {
       // 读失败与 embed 失败叠加时并列两成因——此前直接透传
@@ -515,6 +547,7 @@ async function commitIndexBatch(
   embedFn: typeof embed,
   apiKey: string,
   embedOptions: EmbedOptions = {},
+  signal?: AbortSignal,
 ): Promise<BuildIndexResult> {
   // 批量 embed——分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
   // 必超常见 embedding 端点的单请求上限（静默失败/截断）。分批按块数封顶
@@ -547,6 +580,13 @@ async function commitIndexBatch(
   // 维度基准——首批首行定基准，其后批/行全量比对
   let refDim: number | null = null
   for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
+    // 批边界取消检查点（批内语义完整：命中即整批不嵌、不落库，vectors 丢弃）——
+    // 放在本批 embed 之前而非之后，避免「已付网络往返再丢弃」；检查点落在批边界
+    // 不拆分批次（批是 embed 计费与续传的最小单位）
+    if (signal?.aborted) {
+      log.warn('rag', `建索引已取消（已嵌 ${vectors.length} 块未落库，本轮零写入）——索引保持上一轮一致状态`)
+      return cancelledBuildResult()
+    }
     const batchTexts = allChunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.chunk.text)
     const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts, embedOptions)
     if (batchVec === null) {
@@ -597,6 +637,13 @@ async function commitIndexBatch(
     for (let j = i; j < batchEnd; j++) allChunks[j]!.chunk.text = ''
   }
   if (failedAt >= 0) {
+    // 取消优先于续传：续传会写库，而取消的前提是并发闸可能已被 watchdog 释放——
+    // 此刻落库会与作者随即发起的重试/rebuild 清库互相穿插，且取消的语义就是
+    // 「本轮零写入」（见 buildIndex 头注）。命中即整轮不落库，索引停在上一轮一致点。
+    if (signal?.aborted) {
+      log.warn('rag', `建索引已取消（已嵌 ${vectors.length} 块未落库，本轮零写入）——索引保持上一轮一致状态`)
+      return cancelledBuildResult()
+    }
     // 部分成功续传——此前任一批失败即整体失败、已成功批向量
     // 全弃，重跑整批重 embed 重复计费（200 万字书最贵可白白烧掉百万字级 embedding）。
     // 修复：把「已成功批覆盖到的整章」写入小事务提交——指纹即续传标记（重跑时指纹
@@ -693,6 +740,10 @@ async function commitIndexBatch(
       }
     }
   }
+
+  // 写事务前的取消检查点（本函数最后一个让出点已过——此处到 COMMIT 全同步，
+  // 检查之后插不进新的取消置位）——命中即零写入返回，索引停在上一轮一致点
+  if (signal?.aborted) return cancelledBuildResult()
 
   db.exec('BEGIN IMMEDIATE')
   try {

@@ -14,6 +14,9 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ProviderConf, ModelConf, TokenUsage } from './provider/types.js'
 import { loadProviders } from './provider/index.js'
+// 文件名单源（provider/store.ts）——mtime 指纹与 store 的读写路径同引用一个常量，
+// 避免改文件名时两处字面量漏改其一致价静默失效（指纹恒 'missing' → memo 不失效、价格恒空）
+import { PROVIDERS_FILE } from './provider/store.js'
 
 /** 价格表（每百万 token 单价；currency 缺省 USD） */
 interface PricingConf {
@@ -78,13 +81,14 @@ export function pricingForProvider(provider: ProviderConf | undefined, model: st
 // loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（副本
 // 纪律，不可共享引用）+ 线性归属查找；每次 token 记账都经此解析，memo 后命中路径仅一次
 // stat。失效：文件 mtime 变（saveProviders 落盘即 bump）；mtime 粒度内连续改写的陈旧窗
-// 与 loadProviders 缓存同级（既有口径）。文件名单源在 provider/store.ts FILE 常量（未
-// 导出，此处镜像维护——改文件名须两处联动）。FIFO 上限防多书库/多模型无界。
+// 与 loadProviders 缓存同级（既有口径）。文件名取 provider/store.ts 的 PROVIDERS_FILE
+// 单源——此处镜像字面量会让改名单处漏改时指纹恒 'missing'，定价静默失效。
+// FIFO 上限防多书库/多模型无界。
 const PRICING_MEMO_MAX = 32
 const pricingMemo = new Map<string, { sig: string; value: PricingConf | null }>()
 function providersPricingSig(userDataPath: string): string {
   try {
-    return String(statSync(join(userDataPath, 'providers.json')).mtimeMs)
+    return String(statSync(join(userDataPath, PROVIDERS_FILE)).mtimeMs)
   } catch {
     return 'missing'
   }

@@ -20,6 +20,11 @@ import { reply, replyError, parseRequestUrl, CONTENT_BODY_LIMIT_BYTES } from '..
 // + parse（body 形状 400）——「先占书级闸再读体」的顺序纪律由 gate 位承载（gate 在
 // parse 之前），不再需要内联 readJson 绕开 parse 声明。
 import { resolveBookOrReply } from '../book-context.js'
+// 回包形状钉在跨端契约上（shared/contract/documents.ts，前端按同一份声明消费）：
+// 本文件四处成功体均以 `satisfies` 接在对象字面量上——多余属性检查即编译期抓「服务端
+// 加/改字段而契约未同步」，缺必填/类型不符同样报错。契约是两端共同消费的那份声明，
+// 服务端不得单方面改形；改形须先改契约。
+import type { BatchFinalizeItem, BatchFinalizeOk, FinalizeOk, SaveOk } from '../../../shared/contract/documents.js'
 import type { SaveDocumentInput, SaveOutcome } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevisionAsync } from '../../../document/finalize.js' // 服务进程切异步孪生
@@ -132,7 +137,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           revision: outcome.revision,
           superseded: outcome.superseded,
           ...(outcome.snapshotDegraded ? { snapshotDegraded: true } : {}),
-        })
+        } satisfies SaveOk)
         return
       }
       // 错误信封统一 {error, code?}——save 结构化失败码保留 code，人话进 error
@@ -225,7 +230,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           status: outcome.status,
           skipped: outcome.skipped,
           ...(outcome.gateDegraded && outcome.gateDegraded.length > 0 ? { gateDegraded: outcome.gateDegraded } : {}),
-        })
+        } satisfies FinalizeOk)
       } finally {
         release()
       }
@@ -274,14 +279,9 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       const { bookRoot } = gate
       const docIds = input.docIds
       const summarized: string[] = []
-      const results: Array<{
-        docId: string
-        ok: boolean
-        status?: string
-        skipped?: boolean
-        error?: string
-        gateDegraded?: string[]
-      }> = []
+      // 逐条结果按契约类型声明（前端逐条汇总面消费同一形状）——对象字面量推入即受
+      // 多余属性检查约束，改字段名/加字段漏同步契约时在此报错
+      const results: BatchFinalizeItem[] = []
       // 切异步孪生 finalizeRevisionAsync——逐条 await
       // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
       // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
@@ -300,7 +300,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           skipped: o.ok ? o.skipped : undefined,
           error: o.ok ? undefined : o.error,
           ...(o.ok && o.gateDegraded && o.gateDegraded.length > 0 ? { gateDegraded: o.gateDegraded } : {}),
-        })
+        } satisfies BatchFinalizeItem)
       }
       // 批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
       // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
@@ -318,7 +318,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           session,
         )
       })()
-      reply(res, 200, { ok: true, results })
+      reply(res, 200, { ok: true, results } satisfies BatchFinalizeOk)
     },
   })
 }

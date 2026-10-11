@@ -157,6 +157,41 @@ describe('ui: AI 可达性探测', () => {
     vi.advanceTimersByTime(15000)
     expect(getAiStatusMock).toHaveBeenCalledTimes(4) // 成功即停
   })
+
+  // 后端不可达原因不能只取 available 布尔丢掉——置灰提示面要显示确切原因
+  // （未配供应商 / 供应商未测连接 / 未配档位 的处置动作各不相同）
+  it('available:false 且后端给 reason → 状态留存该原因并可被展示面读到', async () => {
+    getAiStatusMock.mockResolvedValue({
+      available: false,
+      driver: '',
+      reason: '未配置 AI 服务供应商（请在设置页添加）',
+    })
+    const ui = useUiStore()
+    await ui.probeAiStatus()
+    expect(ui.aiAvailable).toBe(false)
+    expect(ui.aiReason).toBe('未配置 AI 服务供应商（请在设置页添加）')
+    expect(ui.aiReasonText).toBe('未配置 AI 服务供应商（请在设置页添加）')
+  })
+
+  it('恢复可达 → 原因清空（不留旧故障原因）', async () => {
+    getAiStatusMock.mockResolvedValue({ available: false, driver: '', reason: '未定位到应用数据目录' })
+    const ui = useUiStore()
+    await ui.probeAiStatus()
+    expect(ui.aiReason).toBe('未定位到应用数据目录')
+    getAiStatusMock.mockResolvedValue({ available: true, driver: 'anthropic' })
+    await ui.probeAiStatus()
+    expect(ui.aiAvailable).toBe(true)
+    expect(ui.aiReason).toBeNull()
+    expect(ui.aiReasonText).toBe('原因未知')
+  })
+
+  it('探测抛错（本地 API 不可达）→ 原因指向本地服务，不冒充供应商未配置', async () => {
+    getAiStatusMock.mockRejectedValue(new Error('down'))
+    const ui = useUiStore()
+    await ui.probeAiStatus()
+    expect(ui.aiAvailable).toBe(false)
+    expect(ui.aiReasonText).toContain('本地服务未连接')
+  })
 })
 
 // ── CC-P1-5：ask/prompt 并发覆盖结清 ────────────────────

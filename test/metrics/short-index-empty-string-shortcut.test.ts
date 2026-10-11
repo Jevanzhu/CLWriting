@@ -10,7 +10,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeChapter } from '../helpers/chapter.js'
-import { writePieceList } from '../../src/format/manifest.js'
+import { writePieceListFixture } from '../helpers/piece-list.js'
 import { scanShortCollection } from '../../src/metrics/short-index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -37,7 +37,7 @@ test('R71-33: 纯标点锚点标题不虚报 anchoredSetupCount（空串短路�
       `## ！！\n\n正文。门外没有脚印。\n\n## 🌑🌑\n\n脚印消失了。`,
     )
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-    writePieceList(join(root, '大纲', '章纲', name), {
+    writePieceListFixture(join(root, '大纲', '章纲', name), {
       反转线索表: {
         核心反转: '来客就是死者',
         铺垫点: [
@@ -77,7 +77,7 @@ test('R71-33: 纯标点铺垫内容不虚报 payoffMatched（空串短路）', (
       '门外没有脚印。',
     )
     mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
-    writePieceList(join(root, '大纲', '章纲', name), {
+    writePieceListFixture(join(root, '大纲', '章纲', name), {
       反转线索表: {
         核心反转: '来客就是死者',
         铺垫点: [{ 位置: '开头', 内容: '……' }], // normalize 后空串（isPlaceholder 不含省略号）

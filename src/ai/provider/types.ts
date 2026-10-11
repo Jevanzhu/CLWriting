@@ -209,19 +209,26 @@ export interface ToolDef {
  * 'stop' 与 'end_turn' 是两协议对「自然完成」各自的原生拼写，同归一保留——改写任一
  * 拼写会移动 done 事件与 llm/call 的既有字符串契约（行为逐位不变约束），消费方只判
  * 'max_tokens'（截断）与 toolCalls 非空，两拼写无实害。
+ *
+ * 值域**运行时单源**在下方数组：联合类型与运行时白名单（stream-finalize 的 isStopReason）
+ * 同从它派生——新增成员只改数组一处，类型与判定同时生效。两处各维一份值表时漏同步即静默
+ * 判错：新成员不在白名单里会被归 'unknown'（截断/计费归类失真），类型层却已放行写入路径。
  */
-export type StopReason =
-  | 'end_turn' // 自然完成（Anthropic 原生）
-  | 'stop' // 自然完成（OpenAI 系原生）
-  | 'max_tokens' // 输出撞上限（三线归一目标值：openai 'length' → 此）
-  | 'tool_use' // 工具调用收尾（三线归一目标值：openai 'tool_calls' → 此）
-  | 'stop_sequence' // 命中停用序列（Anthropic 原生）
-  | 'pause_turn' // 服务端暂停回合（Anthropic 原生）
-  | 'refusal' // 拒答（Anthropic 原生；适配器判 error 不落稿）
-  | 'content_filter' // 内容过滤（两线原生；适配器判 error 不落稿）
-  | 'model_context_window_exceeded' // 输入超窗（Anthropic 原生）
-  | 'function_call' // 旧函数调用收尾（OpenAI 原生遗留值）
-  | 'unknown' // 线上未知/缺失（显式归类 + 日志留痕，不谎报正常完成）
+export const STOP_REASONS = [
+  'end_turn', // 自然完成（Anthropic 原生）
+  'stop', // 自然完成（OpenAI 系原生）
+  'max_tokens', // 输出撞上限（三线归一目标值：openai 'length' → 此）
+  'tool_use', // 工具调用收尾（三线归一目标值：openai 'tool_calls' → 此）
+  'stop_sequence', // 命中停用序列（Anthropic 原生）
+  'pause_turn', // 服务端暂停回合（Anthropic 原生）
+  'refusal', // 拒答（Anthropic 原生；适配器判 error 不落稿）
+  'content_filter', // 内容过滤（两线原生；适配器判 error 不落稿）
+  'model_context_window_exceeded', // 输入超窗（Anthropic 原生）
+  'function_call', // 旧函数调用收尾（OpenAI 原生遗留值）
+  'unknown', // 线上未知/缺失（显式归类 + 日志留痕，不谎报正常完成）
+] as const
+
+export type StopReason = (typeof STOP_REASONS)[number]
 
 /** 统一事件流——每次调用返回独立 async iterable */
 export type GenEvent =

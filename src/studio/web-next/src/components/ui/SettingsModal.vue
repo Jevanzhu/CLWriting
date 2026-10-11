@@ -19,6 +19,7 @@ import {
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfigWithRevision, putConfig, type BookConfig } from '../../api/books'
+import { notifyCrossWindow } from '../../shared/cross-window'
 import { friendlyError } from '../../shared/error'
 import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
@@ -54,7 +55,13 @@ watch(
   () => ui.settingsOpen,
   (open) => {
     contentReady.value = false
-    if (open) afterPaint(() => (contentReady.value = true))
+    if (open) {
+      // 打开设置即丢本书配置缓存：设置页是「看当前 book.yaml 再改」的面，不得拿
+      // 进书时的旧快照（外部/他窗改动要在此可见）。本次打开内本书页各覆盖组照旧共享
+      // 同一次重取（缓存失效点只有这一个，不在各子组各失效一次）。
+      if (ws.bookName) ws.invalidateBookConfig(ws.bookName)
+      afterPaint(() => (contentReady.value = true))
+    }
   },
 )
 
@@ -101,7 +108,11 @@ const currentTabComponent = computed(() => tabComponents[activeTab.value])
  * 乐观锁端到端穿线——每次队列内操作重读 {config, revision}
  * （指纹）随 PUT 上送 expectedRevision；另一标签页/进程在 GET 与 PUT 之间写入时
  * 服务端指纹失配回 409，本侧 toast「书籍配置已在其他窗口被修改，请刷新」提示作者，
- * 后写者不再静默覆盖先写者。串行队列天然自愈：作者下一次修改重读最新基线。 */
+ * 后写者不再静默覆盖先写者。串行队列天然自愈：作者下一次修改重读最新基线。
+ * 读写走 getConfigWithRevision/putConfig 原语（本处必须拿 revision 做乐观锁，
+ * 故不经书级配置读缓存 loadBookConfig——那只服务「读一眼配置」的消费方）。
+ * 写入落定即失效本窗缓存 + 广播 book-config 失效：书内消费方（目标字数等）须见新值，
+ * 他窗只丢缓存、值各自重取。 */
 let saveChain: Promise<void> = Promise.resolve()
 function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
   const name = ws.bookName
@@ -111,6 +122,8 @@ function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<
       const { config: cfg, revision } = await getConfigWithRevision(name)
       mutate(cfg)
       await putConfig(name, cfg, revision)
+      ws.invalidateBookConfig(name)
+      notifyCrossWindow(['book-config'])
       if (!silent) ui.toast('已保存', 'success')
     } catch (e) {
       ui.toast(friendlyError(e), 'error')

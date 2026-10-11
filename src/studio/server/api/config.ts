@@ -5,10 +5,12 @@
  * PUT  /api/books/:name/config  body {config, expectedRevision?} → 文本级补丁写 book.yaml
  *    （保注释/未知段；现文件不可解析时回落 stringifyBookConfig 全量重生成）→ {ok, revision}
  *
- * 乐观并发用**内容指纹**（revision = book.yaml 的 sha256 前 4 字节 uint32，文件缺失/不可读视为 0）：
+ * 乐观并发用**内容指纹**（revision = book.yaml 的 sha256 完整 hex，文件缺失/不可读视为空串）：
  * book.yaml 是作者手写文件（保注释补丁写），不能被服务端塞管理键，故不用 prefs 的内嵌计数键——任何
  * 来源的写入（另一标签页/手工编辑/脚本）都会改变指纹。PUT 带可选 expectedRevision 比对，失配回 409
  *（revision-guard 单源口径），不带则放行（旧客户端向后兼容）。
+ * 指纹取全 64 hex 而非截断——revision 是并发/变更键，截断后碰撞空间有限，碰撞即误判「未变更」
+ * 放过乐观锁比对。
  *
  * 文风铁律复用 /file 读写 文风/文风铁律.md，本端点只管 book.yaml。
  */
@@ -25,12 +27,19 @@ import type { BookConfig } from '../../../format/types.js'
 import { revisionError } from './revision-guard.js'
 import { log } from '../../../log/index.js'
 
-/** book.yaml 内容指纹 revision（见文件头注）。 */
-function yamlRevision(yamlPath: string): number {
+/** book.yaml 内容指纹 revision（见文件头注）：sha256 全文 hex。 */
+function yamlRevisionOf(text: string): string {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+/** 盘上 book.yaml 的指纹；文件缺失/不可读 → 空串（不可与任何真实指纹相等——
+ *  sha256 hex 恒 64 字符——的哨兵值；GET 前已由 readBookConfig 判过可读，
+ *  本兜底只面向 TOCTOU 窗口：读配置与取指纹之间文件被删）。 */
+function yamlRevision(yamlPath: string): string {
   try {
-    return createHash('sha256').update(readFileSync(yamlPath, 'utf8')).digest().readUInt32BE(0)
+    return yamlRevisionOf(readFileSync(yamlPath, 'utf8'))
   } catch {
-    return 0 // 文件缺失/不可读：与 prefs「存量文件无 revision 键视为 0」同口径
+    return ''
   }
 }
 
@@ -119,8 +128,10 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
           yaml = stringifyBookConfig(config)
         }
         atomicWriteFile(yamlPath, yaml)
-        // 回传写入后指纹（下次保存的 expectedRevision 基线）
-        reply(res, 200, { ok: true, revision: createHash('sha256').update(yaml).digest().readUInt32BE(0) })
+        // 回传写入后指纹（下次保存的 expectedRevision 基线）——与 GET 同源算法：
+        // GET 对盘上文件取指纹，此处对刚写入的同一字节串取，故 PUT 回传值与紧随的
+        // GET 一致（前端据此更新下次 expectedRevision 基线）
+        reply(res, 200, { ok: true, revision: yamlRevisionOf(yaml) })
       } catch (e) {
         log.error('api', '写 book.yaml 失败', e)
         return replyError(res, 500, 'IO_ERROR', '写 book.yaml 失败')

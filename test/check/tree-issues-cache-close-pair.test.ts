@@ -47,9 +47,16 @@ describe('R0916-6-P3-5: tree-issues prepared 缓存配对 close——结构契�
 })
 
 describe('R0916-6-P3-5: 高频开/关不滞留（功能实测）', () => {
-  it.skipIf(typeof (globalThis as { gc?: unknown }).gc !== 'function')(
+  it(
     'gc 门控：N 次开/关堆增长有界（裸 close 形态 ~0.35KB/次线性堆积）',
     () => {
+      // 环境闸按失败处理而非按跳过：gc 由 vitest.config.ts 的 test.execArgv（--expose-gc）
+      // 注入到每个 worker。缺 gc = 该注入点被改回，本档必须红——跳过形态下它是「永不失败」
+      // 用例，滞留回退不会有任何报警。
+      expect(
+        typeof (globalThis as { gc?: unknown }).gc,
+        '缺 globalThis.gc：vitest.config.ts 的 test.execArgv 须含 --expose-gc（本档以 gc 量堆增长，无 gc 即不可观测）',
+      ).toBe('function')
       const gc = (globalThis as unknown as { gc: () => void }).gc
       const settled = () => {
         let m = Infinity

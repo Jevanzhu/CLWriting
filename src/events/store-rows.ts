@@ -25,6 +25,51 @@ export interface SessionRow {
   updated_at: number
 }
 
+/** 本版应用支持的唯一会话行格式版本。写入侧恒写该值（createSession /
+ *  workspaceSession 两条 INSERT），读取侧校验也只认该值——「写 1 读 1」是全流程
+ *  （含迁移中间态、墓碑/回滚路径：二者只搬库文件与改 book 键，不触碰本列）的
+ *  单一不变量。升级方式：新增一版时同步把本常量抬到新值并补齐读写两侧语义，
+ *  届时旧进程读新库由下方 fail-closed 拒止。 */
+export const SESSION_FORMAT_VERSION = 1
+
+/** 会话行格式版本不可解释（该行由更新版本的应用写入，本应用不认识其语义）。
+ *  与 SqliteSchemaTooNewError（user_version 阶梯的 DDL 面）同族：类型化是为了让
+ *  调用方按类型分派——区别于库损坏 / 锁 / IO 故障（那三类可重试或可删重建），
+ *  本类只能升级应用版本。 */
+export class SessionFormatUnsupportedError extends Error {
+  readonly sessionId: string
+  readonly found: number
+  readonly supported: number
+
+  constructor(sessionId: string, found: number, supported: number) {
+    super(
+      `事件库会话行格式版本超前（session_id=${sessionId}，format_version=${found}，` +
+        `本应用支持到 v${supported}）——该行由更新版本的应用写入，以旧语义读写会静默` +
+        `损坏对话史/审计数据，故拒绝打开；请升级应用版本后重试`,
+    )
+    this.name = 'SessionFormatUnsupportedError'
+    this.sessionId = sessionId
+    this.found = found
+    this.supported = supported
+  }
+}
+
+/** 会话行格式校验（fail-closed）：未知版本抛 SessionFormatUnsupportedError，绝不按
+ *  v1 解析。非正整数（NULL/字符串/0/负数）同拒——列定义 NOT NULL DEFAULT 1，能落到
+ *  此处即库被外力改写，按不可解释态处理比猜一个版本安全。 */
+export function assertSessionFormatVersion(formatVersion: number, sessionId: string): void {
+  if (!Number.isInteger(formatVersion) || formatVersion !== SESSION_FORMAT_VERSION) {
+    throw new SessionFormatUnsupportedError(sessionId, formatVersion, SESSION_FORMAT_VERSION)
+  }
+}
+
+/** sessions 行 → 校验后的行（唯一「取整行再解释语义」的映射口）。
+ *  调用方拿到即意味着该行已过格式闸，可按下标语义读取各列。 */
+export function sessionRowOf(r: SessionRow): SessionRow {
+  assertSessionFormatVersion(r.format_version, r.session_id)
+  return r
+}
+
 export interface Row {
   seq: number
   session_id: string

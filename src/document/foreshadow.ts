@@ -13,7 +13,7 @@
 import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat, stringifyValue } from '../format/frontmatter.js'
-import { splitFrontMatter } from '../format/frontmatter-core.js'
+import { splitFrontMatter } from '../shared/frontmatter-core.js'
 import { readMdTextCached, forgetMdTextCacheForBook } from '../fs/md-text-cache.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart, isMdFileName, chapterNoFromName } from '../format/filename.js'

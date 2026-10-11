@@ -47,7 +47,11 @@ vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 
 vi.mock('../../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ bookName: '书A' })),
+  // 桩面照 workspace store 对外形补齐（写入成功即失效本窗配置缓存 + 广播他窗）
+  useWorkspaceStore: vi.fn(() => ({
+    bookName: '书A',
+    invalidateBookConfig: vi.fn(),
+  })),
 }))
 
 vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' }) }))
@@ -86,9 +90,11 @@ function mountModal(): { save: SaveConfig; unmount: () => void } {
 
 describe('R34D-25: SettingsModal saveConfig 乐观锁穿线', () => {
   it('saveConfig → getConfigWithRevision 读指纹，putConfig 携 revision 上送', async () => {
+    // config revision 是 book.yaml 内容指纹（sha256 全 hex 字符串）
+    const rev = 'c'.repeat(64)
     mocks.getConfigWithRevision.mockResolvedValue({
       config: { book: { title: '原标题' } } as BookConfig,
-      revision: 7,
+      revision: rev,
     })
     mocks.putConfig.mockResolvedValue(undefined)
     const { save, unmount } = mountModal()
@@ -103,7 +109,7 @@ describe('R34D-25: SettingsModal saveConfig 乐观锁穿线', () => {
     expect(mocks.putConfig).toHaveBeenCalledWith(
       '书A',
       expect.objectContaining({ book: expect.objectContaining({ title: '新标题' }) }),
-      7,
+      rev,
     )
     expect(mocks.toast).toHaveBeenCalledWith('已保存', 'success')
     unmount()

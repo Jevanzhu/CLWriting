@@ -25,8 +25,8 @@ import {
   stripInlineComment,
   firstKeyColon,
   hasOpenFrontMatterFence,
-} from './frontmatter-core.js'
-// splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
+} from '../shared/frontmatter-core.js'
+// splitFrontMatter/bodyOf 实现落在 shared/frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 供既有消费面取值
 export { splitFrontMatter, bodyOf }
 
 // ── 值类型推断 ──────────────────────────────────

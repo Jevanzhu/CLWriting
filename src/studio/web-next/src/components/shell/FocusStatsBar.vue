@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { getConfig, type BookConfig } from '../../api/books'
+import { type BookConfig } from '../../api/books'
 import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useBookScoped } from '../../composables/useBookScoped'
@@ -106,16 +106,14 @@ const config = ref<BookConfig>({})
 const configReqGen = useStaleGuard()
 // 源取 '' 兜底：null 与 '' 同属「无书」，两者间的翻转不触发重载（load 内空书名早退，
 // 语义零变化）——hook 的源面收 string，store 的 bookName 为 string | null
+// 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+// 读不到（error 面）即不落值，目标区退到 fm/全局默认解析。
 useBookScoped(() => ws.bookName ?? '', {
   load: async (n) => {
     if (!n) return
     const gen = configReqGen.begin()
-    try {
-      const c = await getConfig(n)
-      if (configReqGen.fresh(gen)) config.value = c
-    } catch {
-      /* 读不到配置：目标区退到 fm/全局默认解析 */
-    }
+    const r = await ws.loadBookConfig(n)
+    if (configReqGen.fresh(gen) && !r.error) config.value = r.config
   },
   immediate: true,
 })

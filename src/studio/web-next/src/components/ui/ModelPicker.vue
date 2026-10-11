@@ -6,7 +6,7 @@
 import { X, Check } from 'lucide-vue-next'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { isImeComposing } from '../../shared/ime'
-import { capView } from '../../shared/render-cap'
+import { capView, RENDER_CAP } from '../../shared/render-cap'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ModalMask from './ModalMask.vue'
 
@@ -23,12 +23,9 @@ const emit = defineEmits<{
   adopt: []
 }>()
 
-// 候选清单渲染上限——探测返回的模型清单
-// 无条数约束，全量 v-for 挂 DOM 会线性膨胀。对齐 CommandPalette/ChapterTreeItem/
-// RewritePanel 的 RENDER_CAP=100 域内惯例：数据面不动（props.candidates 原样、父层
-// picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。
-// 切片/计数样板收敛 shared/render-cap 单源（capView）。
-const RENDER_CAP = 100
+// 候选清单渲染上限——探测返回的模型清单无条数约束，全量 v-for 挂 DOM 会线性膨胀。
+// 帽值与切片/计数样板均取自 shared/render-cap 单源：数据面不动（props.candidates
+// 原样、父层 picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。
 const capped = computed(() => capView(props.candidates, RENDER_CAP))
 
 // 弹层内按 Esc 关闭自身且不外溢——原无任何 Esc 处理，按键直穿
