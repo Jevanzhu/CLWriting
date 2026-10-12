@@ -129,8 +129,8 @@ describe('清单与直跑可执行性', () => {
     const paths = [...INDEX_FILES, ...INTRO_FILES].map((f: { path: string }) => f.path)
     expect(paths).toHaveLength(3)
     expect(new Set(paths).size).toBe(3)
-    // CLAUDE.md 不入索引面（作者口径：治理正本不被体积门绑定）
-    expect(INDEX_FILES.some((f: { path: string }) => f.path === 'CLAUDE.md')).toBe(false)
+    // AGENTS.md 不入索引面（作者口径：治理正本不被体积门绑定）
+    expect(INDEX_FILES.some((f: { path: string }) => f.path === 'AGENTS.md')).toBe(false)
     // 根 README 属介绍面，不得出现在索引面（作者指令：它只是项目介绍）
     expect(INDEX_FILES.some((f: { path: string }) => f.path === 'README.md')).toBe(false)
     // 不设文件体积上限（作者指令：不塞废话是行文要求，非字节锁）

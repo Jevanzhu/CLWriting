@@ -4,7 +4,7 @@
  * + 原有场景回归的状态机口径（启动失败退避 / 连续崩溃封顶 / 停止幂等 / 重启打断在途
  * 启动）。
  *
- * 分层（CLAUDE.md 测试分层）：行为面（fork 参数、握手、端口钉住、kill 升级）仍由
+ * 分层（AGENTS.md 测试分层）：行为面（fork 参数、握手、端口钉住、kill 升级）仍由
  * server-manager*.test.ts 各件覆盖，本件只补「表契约 + 转移序列」两层断言，不重复
  * 行为断言；假件与装置复用 ./server-manager-fixtures.js（无 vi.mock 依赖注入款）。
  *
