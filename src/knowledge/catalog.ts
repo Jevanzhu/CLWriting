@@ -69,6 +69,21 @@ export const SHORT_FILE_QUALITY = '短篇/质量清单速查.md'
 /** 许可件 */
 export const LICENSE_FILE_MIT = '许可/oh-story-claudecode-MIT.md'
 
+/** 体裁档专属类目名 → 书档位（类目轴的单源映射，见本档头注「分类轴」） */
+const REGISTER_CATEGORY_KIND: Readonly<Record<string, 'long' | 'short'>> = { 长篇: 'long', 短篇: 'short' }
+
+/**
+ * 类目名 → 体裁档位：`长篇`/`短篇` 是档位专属类目；其余（`通用` / 书级自建类目）
+ * 跨档共用，返回 `undefined`。
+ *
+ * 消费面 = 作业包 `references` 的按档过滤（作业包可同时声明两档的引用篇，取用时只嵌
+ * 本书本档的；见 `src/process/skills.ts`）。映射落在这里而非各调用方：类目轴改名时
+ * 各面各写一份就会静默分叉。
+ */
+export function registerKindOfCategory(category: string): 'long' | 'short' | undefined {
+  return REGISTER_CATEGORY_KIND[category]
+}
+
 /**
  * 通用档篇目（跨体裁共用的判断类知识）。
  *

@@ -13,3 +13,5 @@
   - 三审面（`src/knowledge/review-method.ts`）：按书档 × 视角各取对口篇 1 篇，单篇 ≤3000 码点；
   - 对话面（`src/knowledge/chat-method.ts`）：按 catalog 声明序取帽内前 N 篇，单篇 ≤3000、合计 ≤6000 码点。
   篇内 front matter 不进 prompt；冲突时以本书设定为准。
+- 作业包引用：对话面作业包（`resources/skills/*.md`）可经 front matter `references` 引本目录篇目，
+  取用时按书档只嵌本档那篇；`check:knowledge` 的作业包引用门校验声明的篇在本目录与 `知识层/` 均在位。

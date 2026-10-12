@@ -299,3 +299,97 @@ describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
     expect(result!.summary).toContain(locator)
   })
 })
+
+// ─── 作业包判据与引用篇（管线级）────────────────────
+// 判据的解析/过滤单测在 test/process/skills.test.ts；本件锁管线级可观察面：
+// 索引按本书档投放（模型看到的目录）、read_skill 返回包里附的引用篇正文。
+
+describe('作业包判据与引用篇：管线级', () => {
+  it('索引按本书档投放：短篇专属包不出现在长篇书的「写作技巧包」索引里', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
+    writeFileSync(
+      join(longRoot, '设定', '技巧', '短篇专属.md'),
+      '---\nname: 短篇专属\nwhenToUse: 单章闭口的收尾自查\nwhen_kinds: [short]\n---\n短篇正文',
+      'utf8',
+    )
+    writeFileSync(
+      join(longRoot, '设定', '技巧', '两档通用.md'),
+      '---\nname: 两档通用\nwhenToUse: 两档都能用的清单\n---\n通用正文',
+      'utf8',
+    )
+    fake.setScript([{ type: 'text', content: '好。' }])
+    const ud = setup()
+    await runChat({
+      driver: makeFakeDriver({ emitted: [] }),
+      mainSession: { id: 's1', cwd: longRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'b-kind-index',
+      message: '看看技巧包',
+    })
+    // 索引原文（发往 provider 的 system prompt 首条）——档位判据在投放前就过滤，不是取用时才拦
+    const sys = String((fake.lastBody() as { messages: { content: unknown }[] }).messages[0]!.content)
+    expect(sys).toContain('- 两档通用：两档都能用的清单')
+    expect(sys).not.toContain('短篇专属')
+  })
+
+  it('read_skill 返回引用篇正文：书级同名篇优先于随包（与三面同源 rank）', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
+    writeFileSync(
+      join(longRoot, '设定', '技巧', '对话节奏.md'),
+      '---\nname: 对话节奏\nwhenToUse: 对话尬时用\nreferences: [通用/对话技法速查.md]\n---\n包正文清单',
+      'utf8',
+    )
+    // 书级覆盖件：本书知识层/通用/对话技法速查.md
+    const bookPieceDir = join(longRoot, '知识层', '通用')
+    mkdirSync(bookPieceDir, { recursive: true })
+    writeFileSync(join(bookPieceDir, '对话技法速查.md'), '# 对话技法速查\n本书版语料正文。', 'utf8')
+
+    fake.setScript([
+      { type: 'tool', name: 'read_skill', input: { name: '对话节奏' } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const ud = setup()
+    await runChat({
+      driver: makeFakeDriver({ emitted: events }),
+      mainSession: { id: 's1', cwd: longRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'b-ref-book',
+      message: '读技巧包',
+    })
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result!.summary).toContain('包正文清单')
+    expect(result!.summary).toContain('## 引用篇目（来自本书知识层）')
+    expect(result!.summary).toContain('本书版语料正文')
+  })
+
+  it('引用篇两级皆缺 → 只回包正文（引用是增强，不阻断取包）', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
+    writeFileSync(
+      join(longRoot, '设定', '技巧', '带引用.md'),
+      '---\nname: 带引用\nwhenToUse: 试引用缺失\nreferences: [通用/根本不存在篇.md]\n---\n包正文清单',
+      'utf8',
+    )
+    fake.setScript([
+      { type: 'tool', name: 'read_skill', input: { name: '带引用' } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const ud = setup()
+    await runChat({
+      driver: makeFakeDriver({ emitted: events }),
+      mainSession: { id: 's1', cwd: longRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'b-ref-missing',
+      message: '读技巧包',
+    })
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result!.summary).toBe('包正文清单')
+  })
+})

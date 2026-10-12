@@ -64,7 +64,7 @@ export const chatTools: ToolDef[] = [
   {
     name: 'read_skill',
     description:
-      '按名读取写作技巧包全文（场景/对话/开篇等实操清单）。可用技巧包名见 system prompt 的「写作技巧包」索引。',
+      '按名读取写作技巧包全文（场景/对话/开篇等实操清单）。可用技巧包名见 system prompt 的「写作技巧包」索引。部分包末尾附有「引用篇目」，取自本书知识层的相关判断类速查，一并返回。',
     input_schema: {
       type: 'object',
       properties: {

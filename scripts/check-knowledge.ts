@@ -31,6 +31,8 @@ import {
   type KnowledgeManifest,
 } from '../src/knowledge/manifest.js'
 import { BUNDLED_CATALOG } from '../src/knowledge/catalog.js'
+import { readFile, parseFlat } from '../src/format/frontmatter.js'
+import { parseReferences } from '../src/process/skills.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
@@ -129,6 +131,9 @@ export function scanUnregisteredKnowledgeAssets(
 
 /** 随包语料相对目录（写稿面运行时读取；目录结构镜像 知识层/） */
 export const BUNDLED_KNOWLEDGE_DIR = 'resources/knowledge'
+
+/** 随包作业包目录（作业包 frontmatter 的 references 声明面） */
+export const BUNDLED_SKILLS_DIR = 'resources/skills'
 
 /** 随包语料目录说明文件名（非语料副本，豁免逐字节对账） */
 const BUNDLED_README = 'README.md'
@@ -236,6 +241,48 @@ export function scanBundledMissingAttribution(
   return problems
 }
 
+/**
+ * 作业包引用门：`resources/skills/*.md` 的 `references` 声明的每篇，
+ * 必须在随包语料里在位。
+ *
+ * 判据同 catalog 的「声明即门」：`references` 是「取该包时会附上哪些篇」的事实陈述，
+ * 声明了却缺件 = 该包静默少一块（引用篇是增强面，缺件不报错，故只有门能拦住）。
+ * 档位分派（长篇/短篇同名篇）由消费侧按书档过滤，两档都可能取到，故两档都得在位。
+ */
+export function scanSkillReferenceMismatches(
+  projectRoot: string,
+  skillsDir: string = BUNDLED_SKILLS_DIR,
+  bundledDir: string = BUNDLED_KNOWLEDGE_DIR,
+): string[] {
+  const skillsRoot = join(projectRoot, skillsDir)
+  if (!existsSync(skillsRoot)) return []
+  const bundledRoot = join(projectRoot, bundledDir)
+  const problems: string[] = []
+  for (const en of readdirSync(skillsRoot, { withFileTypes: true })) {
+    if (!en.isFile() || en.name.startsWith('.') || !en.name.toLowerCase().endsWith('.md')) continue
+    const fp = join(skillsRoot, en.name)
+    let text: string
+    try {
+      text = readFileSync(fp, 'utf-8')
+    } catch (e) {
+      problems.push(`${skillsDir}/${en.name}: 读取失败（${e instanceof Error ? e.message : String(e)}）`)
+      continue
+    }
+    const r = readFile(fp, text)
+    if (!r.ok) continue // 无 fm 的裸 md（用户自持形态）不声明引用，无判据可查
+    const refs = parseReferences(parseFlat(r.fmRaw).get('references'))
+    if (refs === undefined) continue
+    for (const rel of refs) {
+      if (!existsSync(join(projectRoot, KNOWLEDGE_DIR, ...rel.split('/')))) {
+        problems.push(`${skillsDir}/${en.name}: references 声明 ${rel}，但 ${KNOWLEDGE_DIR}/ 无此篇`)
+      } else if (!existsSync(join(bundledRoot, ...rel.split('/')))) {
+        problems.push(`${skillsDir}/${en.name}: references 声明 ${rel}，但随包缺件（取包时该引用静默不附）`)
+      }
+    }
+  }
+  return problems
+}
+
 /** fm 块内是否含顶层标量键（与 manifest.fmScalar 同口径：逐行前缀匹配，只认 fm 块内） */
 function hasFmKey(text: string, key: string): boolean {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -286,10 +333,18 @@ function main(): void {
     process.exit(1)
   }
 
+  // 作业包引用门：references 声明的篇须在 知识层/ 且随包在位
+  const referenceProblems = scanSkillReferenceMismatches(root)
+  if (referenceProblems.length > 0) {
+    console.error('check:knowledge 作业包引用门失败（references 声明的篇必须随包在位，否则取包时静默不附）：')
+    for (const p of referenceProblems) console.error(`  - ${p}`)
+    process.exit(1)
+  }
+
   const count = manifest?.entries?.length ?? 0
   const declared = BUNDLED_CATALOG.filter((e) => e.faces.length > 0).length
   console.log(
-    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（catalog 声明注入面 ${declared} 篇在位）；署名门通过。`,
+    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（catalog 声明注入面 ${declared} 篇在位）；署名门与作业包引用门通过。`,
   )
 }
 

@@ -14,8 +14,12 @@ import { join, basename } from 'node:path'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
+import { readKind } from '../format/kind.js'
 import { bundledResource } from '../fs/resources.js'
 import { statFingerprint } from '../fs/hash.js' // stat 指纹单源
+import { resolveCorpusFile } from '../knowledge/corpus.js'
+import { titleOf } from '../knowledge/inject.js'
+import { registerKindOfCategory } from '../knowledge/catalog.js'
 import { log, errMsg } from '../log/index.js'
 
 // ── 技巧包文件级 mtime 缓存 ────────────────────────
@@ -51,14 +55,88 @@ export interface SkillMeta {
   name: string
   description: string
   whenToUse: string
+  /** 机器判据（可选；缺省 = 该面该档全投放） */
+  when?: SkillWhen
+  /** 引用语料篇目（单向：作业包 → 知识层；正文按需附于包正文后） */
+  references?: string[]
   source: 'bundled' | 'user' | 'project'
   path: string
+}
+
+/** 作业包唯一的现行消费面（写稿/三审面未接作业包） */
+export const SKILL_FACE_CHAT = 'chat'
+
+/** 作业包投放判据（`when_face` / `when_kinds`；声明即事实，非自由文本） */
+export interface SkillWhen {
+  /** 投放面；缺省 = 不限面。按字面与消费面比较（写错面名 = 不投放 + warn 留痕） */
+  face?: string
+  /** 适用书档位；缺省 = 不限档 */
+  kinds?: ('long' | 'short')[]
+}
+
+/** 投放上下文 = 判据的机算事实（消费面 + 本书档位） */
+export interface SkillDispatchContext {
+  face: string
+  kind: 'long' | 'short'
 }
 
 /** 多根发现入参（均可缺省——缺省的根直接跳过） */
 interface SkillRoots {
   bookRoot?: string
   userDataPath?: string
+}
+
+/** 作业包 front matter 的判据键（受限解析子集：平铺键 + 内联数组，嵌套块不入子集） */
+const FM_KEY_WHEN_FACE = 'when_face'
+const FM_KEY_WHEN_KINDS = 'when_kinds'
+const FM_KEY_REFERENCES = 'references'
+
+/** 档位名白名单（与 `BookConfig.kind` 同域；越界项丢弃并 warn） */
+const SKILL_KINDS: readonly ('long' | 'short')[] = ['long', 'short']
+
+/** fm 平铺值取标量文本：只认 string/number/boolean（`isFmWritableValue` 的标量族）；
+ *  数组/对象等复合值不降级成 '"a,b"' / '"[object Object]"' 这类伪值入索引——取 `fallback`。
+ *  形态（`name: [a, b]`）本就不是本字段的合法值，静默拼出怪名比回落更难查。 */
+function fmScalarOf(map: Map<string, unknown>, key: string, fallback: string): string {
+  const v = map.get(key)
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  return fallback
+}
+
+/** `when` 判据解析：两键皆缺 → undefined（不限）。 */
+function parseWhen(map: Map<string, unknown>, fp: string): SkillWhen | undefined {
+  const face = fmScalarOf(map, FM_KEY_WHEN_FACE, '')
+  const kindsRaw = map.get(FM_KEY_WHEN_KINDS)
+  const items = Array.isArray(kindsRaw) ? kindsRaw : kindsRaw === undefined ? [] : [kindsRaw]
+  const kinds = items.flatMap((v): ('long' | 'short')[] => {
+    const s = typeof v === 'string' ? v.trim() : ''
+    return (SKILL_KINDS as readonly string[]).includes(s) ? [s as 'long' | 'short'] : []
+  })
+  if (kinds.length < items.length) {
+    // 写了但不生效须留痕（与 frontmatter 残行同款纪律）：档位名写错时包会在该档静默消失
+    log.warn('skills', `技巧包 when_kinds 含不识别档位名已忽略（保留 ${kinds.length}/${items.length} 项）：${fp}`)
+  }
+  if (face !== '' && face !== SKILL_FACE_CHAT) {
+    log.warn('skills', `技巧包 when_face 非现行消费面（唯一消费面 = ${SKILL_FACE_CHAT}），该包不投放：${fp}`)
+  }
+  if (face === '' && kinds.length === 0) return undefined
+  return { ...(face !== '' ? { face } : {}), ...(kinds.length > 0 ? { kinds } : {}) }
+}
+
+/** `references` 解析：标量按单篇、数组按序；去空项与重复项，声明序即注入序。
+ *  导出供 CI 门复用——门与运行时对「什么算声明了一篇」须是同一判据。 */
+export function parseReferences(raw: unknown): string[] | undefined {
+  if (raw === undefined) return undefined
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const v of Array.isArray(raw) ? raw : [raw]) {
+    const rel = String(v).trim()
+    if (rel === '' || seen.has(rel)) continue
+    seen.add(rel)
+    out.push(rel)
+  }
+  return out.length > 0 ? out : undefined
 }
 
 /** 扫描单个根目录 → 元信息列表（目录缺失/读失败 → 空数组，best-effort） */
@@ -100,10 +178,14 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
     const r = readFile(fp, text)
     if (r.ok) {
       const map = parseFlat(r.fmRaw)
+      const when = parseWhen(map, fp)
+      const references = parseReferences(map.get(FM_KEY_REFERENCES))
       out.push({
-        name: String(map.get('name') ?? basename(f, '.md')),
-        description: String(map.get('description') ?? ''),
-        whenToUse: String(map.get('whenToUse') ?? ''),
+        name: fmScalarOf(map, 'name', basename(f, '.md')),
+        description: fmScalarOf(map, 'description', ''),
+        whenToUse: fmScalarOf(map, 'whenToUse', ''),
+        ...(when !== undefined ? { when } : {}),
+        ...(references !== undefined ? { references } : {}),
         source,
         path: fp,
       })
@@ -140,6 +222,41 @@ export function listSkills(roots: SkillRoots): SkillMeta[] {
     for (const meta of scanRoot(join(roots.bookRoot, '设定', '技巧'), 'project')) byName.set(meta.name, meta)
   }
   return [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+}
+
+/**
+ * 判据命中（`when` 缺省 = 不限；两键都写上则须同时命中）。
+ *
+ * 面判据按**字面**比较，不做「未声明面 = 全投放」的宽容：作业包判据写错面名时模型看到
+ * 索引却取不到正文，非必要的失配；解析侧已对非现行面名 warn 留痕（唯一消费面 = chat）。
+ */
+export function skillDispatchOK(meta: SkillMeta, ctx: SkillDispatchContext): boolean {
+  const when = meta.when
+  if (!when) return true
+  if (when.face !== undefined && when.face !== ctx.face) return false
+  if (when.kinds !== undefined && !when.kinds.includes(ctx.kind)) return false
+  return true
+}
+
+/**
+ * 按判据过滤索引（投放面单源：`buildChatContext` 组装索引与 `read_skill` 取正文同过此处，
+ * 两侧判据不得各写一份——分叉即「索引里有、取不到」或反向）。
+ */
+export function listDispatchableSkills(roots: SkillRoots, ctx: SkillDispatchContext): SkillMeta[] {
+  return listSkills(roots).filter((m) => skillDispatchOK(m, ctx))
+}
+
+/**
+ * 本书档位（作业包判据与引用篇按档解析的共同入参）。
+ * `bookRoot` 缺省（无书上下文的长目录快照）→ long：与 `readKind` 的读不到即 long 同径。
+ */
+export function bookKindFor(bookRoot: string | undefined): 'long' | 'short' {
+  return bookRoot ? readKind(bookRoot) : 'long'
+}
+
+/** 索引渲染用的投放上下文（无书 = 无档位事实，取 long 档；索引面为长目录快照） */
+function dispatchContextOf(roots: SkillRoots): SkillDispatchContext {
+  return { face: SKILL_FACE_CHAT, kind: bookKindFor(roots.bookRoot) }
 }
 
 // ── roots 级 name→meta 索引缓存 ──────────────
@@ -197,11 +314,11 @@ function skillIndexFor(roots: SkillRoots, force = false): { index: Map<string, S
 }
 
 /**
- * 按需读正文（read_skill 工具的执行通道）。
+ * 取包正文本体（不含引用篇与判据过滤——公开入口 `loadSkill` 在其上补这两层）。
  * 名字未知/文件读失败 → null（调用方据此回「未找到 + 可用列表」）。
  * 查名走 roots 级索引缓存（见上方注释），不再每次全量扫三根。
  */
-export function loadSkill(name: string, roots: SkillRoots): { meta: SkillMeta; content: string } | null {
+function loadSkillContent(name: string, roots: SkillRoots): { meta: SkillMeta; content: string } | null {
   let lookup = skillIndexFor(roots)
   let meta = lookup.index.get(name)
   // 未命中且来自缓存 → 可能新增/改名的包：强制重建一次再查（语义同全量扫描）
@@ -234,11 +351,74 @@ export function loadSkill(name: string, roots: SkillRoots): { meta: SkillMeta; c
   }
 }
 
+// ── 引用篇目（作业包 → 知识层，单向）──────────────
+// 作业包正文留操作清单，可复用的判断类知识不重抄一份，改 `references` 指语料篇：
+// 语料本体单源在 知识层/（书级可覆盖），作业包只声明引用关系。
+// 模型无通用读文件工具（chat 工具面只有 read_chapter/read_skill 等），解析必须由代码做。
+const REFERENCE_HEADING = '## 引用篇目（来自本书知识层）\n'
+
+/**
+ * 按书档过滤引用篇目：档位专属类目（`长篇`/`短篇`）只对本档书生效，`通用` 等跨档类目
+ * 两档共用。判据单源在 catalog 的 `registerKindOfCategory`（类目轴改名时各面不各写一份）。
+ *
+ * 作业包据此可同时声明两档的引用篇（如「黄金三章」引 `长篇/开篇设计速查.md` +
+ * `短篇/章节钩子速查.md`），取用时只嵌本书本档的那些——引用篇本身即分档语料。
+ */
+export function referencesForKind(rels: readonly string[], kind: 'long' | 'short'): string[] {
+  return rels.filter((rel) => {
+    const reg = registerKindOfCategory(rel.split('/')[0] ?? '')
+    return reg === undefined || reg === kind
+  })
+}
+
+/**
+ * 逐 rel 解析（书级 > 随包，单源 `resolveCorpusFile`）并拼引用段。
+ * 标题形态与三面注入同源（`titleOf` 单点）；缺件跳过留痕——引用篇是增强面，不阻断取包。
+ * 篇内 front matter 不进结果（与三面注入口径一致：署名信息随语料本体留存，不进 prompt）。
+ */
+function composeReferences(rels: readonly string[], bookRoot: string | undefined): string | null {
+  const blocks: string[] = []
+  for (const rel of rels) {
+    const resolved = resolveCorpusFile(bookRoot, rel)
+    if (resolved === null) {
+      log.warn('skills', `作业包引用篇两级皆缺，跳过该篇：${rel}`)
+      continue
+    }
+    blocks.push(`### ${titleOf(rel)}\n${resolved.body}`)
+  }
+  return blocks.length > 0 ? `${REFERENCE_HEADING}${blocks.join('\n\n')}` : null
+}
+
+/**
+ * 取作业包全文（read_skill 工具的执行通道）：包正文 + 按本书档解析的引用篇。
+ *
+ * 判据与索引同源（`skillDispatchOK` + `dispatchContextOf`）：按判据不投放的包，此处同样
+ * 取不到——索引可见性与取用面分叉会造出「索引里有、读了说没有」的失配。
+ * 引用篇缺失/全被档位过滤 → 只回包正文（引用是增强，不是取包前置）。
+ *
+ * 体量帽不在此层重复：read_skill 的 `READ_SKILL_MAX_CHARS` 作用在返回的全文上，
+ * 包正文与引用篇同受一帽（截断通知亦按同一量报告）。
+ */
+export function loadSkill(name: string, roots: SkillRoots): { meta: SkillMeta; content: string } | null {
+  const r = loadSkillContent(name, roots)
+  if (!r) return null
+  const ctx = dispatchContextOf(roots)
+  if (!skillDispatchOK(r.meta, ctx)) return null
+  const refs = r.meta.references ? referencesForKind(r.meta.references, ctx.kind) : []
+  if (refs.length === 0) return r
+  const section = composeReferences(refs, roots.bookRoot)
+  if (section === null) return r
+  return { meta: r.meta, content: `${r.content}\n\n${section}` }
+}
+
 /** 索引默认预算（code points，非 UTF-16 单元——emoji 按 1 计） */
 const DEFAULT_INDEX_MAX_CHARS = 800
 
 /**
  * 元信息列表 → system prompt 索引段：头行 + 一行一包（- <name>：<whenToUse>）。
+ *
+ * 判据字段（`when` / `references`）不进索引行——索引面是「名 + 何时用」的两列，
+ * 展判据会顶掉索引预算而不增加模型可用信息（判据已由投放过滤在入口兑现）。
  *
  * 预算纪律：超预算整行丢弃（不切半行），末尾补截断通知行；
  * 通知行自身也计价——装不下则回退再丢整行；头行是地板（只剩头行时破例保留

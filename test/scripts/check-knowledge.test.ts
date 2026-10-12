@@ -19,6 +19,7 @@ import {
   scanUnregisteredKnowledgeAssets,
   scanBundledCorpusMismatches,
   scanBundledMissingAttribution,
+  scanSkillReferenceMismatches,
 } from '../../scripts/check-knowledge.js'
 import { BUNDLED_CATALOG } from '../../src/knowledge/catalog.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
@@ -255,5 +256,53 @@ describe('语料重建批：scanBundledMissingAttribution 署名门', () => {
   it('真实仓库实跑：随包语料全体署名键在位', () => {
     const rootPath = fileURLToPath(new URL('../../', import.meta.url))
     expect(scanBundledMissingAttribution(rootPath)).toEqual([])
+  })
+})
+
+describe('作业包升级批：scanSkillReferenceMismatches 作业包引用门', () => {
+  const REF_REL = '通用/对话技法速查.md'
+  /** 造「包 + 目标篇」两侧；origin/shipped 传 false = 该侧不落件 */
+  function arrange(opts: { refs: string; origin: boolean; shipped: boolean }): void {
+    const pack = join(dir, 'resources', 'skills', '对话节奏.md')
+    mkdirSync(join(pack, '..'), { recursive: true })
+    writeFileSync(pack, ['---', 'name: 对话节奏', `references: ${opts.refs}`, '---', '', '包正文', ''].join('\n'))
+    if (opts.origin) {
+      const p = join(dir, '知识层', ...REF_REL.split('/'))
+      mkdirSync(join(p, '..'), { recursive: true })
+      writeFileSync(p, '# 篇')
+    }
+    if (opts.shipped) {
+      const p = join(dir, 'resources', 'knowledge', ...REF_REL.split('/'))
+      mkdirSync(join(p, '..'), { recursive: true })
+      writeFileSync(p, '# 篇')
+    }
+  }
+
+  it('声明 + 知识层在位 + 随包在位 → 不报', () => {
+    arrange({ refs: `[${REF_REL}]`, origin: true, shipped: true })
+    expect(scanSkillReferenceMismatches(dir)).toEqual([])
+  })
+
+  it('声明但知识层无此篇 → 报（rel 写错 / 篇被改名）', () => {
+    arrange({ refs: `[${REF_REL}]`, origin: false, shipped: false })
+    expect(scanSkillReferenceMismatches(dir).join('\n')).toContain('知识层/ 无此篇')
+  })
+
+  it('知识层在位但随包缺件 → 报（取包时该引用静默不附）', () => {
+    arrange({ refs: `[${REF_REL}]`, origin: true, shipped: false })
+    expect(scanSkillReferenceMismatches(dir).join('\n')).toContain('随包缺件')
+  })
+
+  it('未声明 references 的包不参与本门（含裸 md 无 fm 形态）', () => {
+    const pack = join(dir, 'resources', 'skills', '无引用.md')
+    mkdirSync(join(pack, '..'), { recursive: true })
+    writeFileSync(pack, '---\nname: 无引用\n---\n正文')
+    writeFileSync(join(dir, 'resources', 'skills', '裸包.md'), '没有 fm 的正文')
+    expect(scanSkillReferenceMismatches(dir)).toEqual([])
+  })
+
+  it('真实仓库实跑：随包三包的 references 目标全部在位（与 npm run check:knowledge 同口径）', () => {
+    const rootPath = fileURLToPath(new URL('../../', import.meta.url))
+    expect(scanSkillReferenceMismatches(rootPath)).toEqual([])
   })
 })

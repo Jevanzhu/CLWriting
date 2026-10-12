@@ -37,8 +37,12 @@ license: MIT
 长短两档在「钩子落在哪、反转何时闭口」上口径相反，故同名篇目各档一份、
 互不引用，注入时按书 `kind` 只取本档篇。
 
+对话面的作业包（`resources/skills/*.md`）可经 front matter `references` 单向引用本目录篇目，
+取用时按书档只嵌本档那篇（`通用/` 等跨档类目两档共用）；引用不复制正文，改语料只需改本目录。
+
 校验：知识层为纯文档（AI 运行时按本索引读取），manifest 对账有正式门——
 `npm run check:knowledge`（scripts/check-knowledge.ts：_manifest.json 与实际文件
 sha256/路径任一失配、盘上存在未登记资产、随包语料与 `知识层/` 原稿不一致、
-catalog 声明注入面的篇目随包缺件、署名键缺失，均即红，已入 CI 与 tag 发布门）；
+catalog 声明注入面的篇目随包缺件、署名键缺失、作业包 `references` 指向的篇缺件，
+均即红，已入 CI 与 tag 发布门）；
 内容错漏直接改对应 md，并同步 _manifest.json 的登记与 sha256。

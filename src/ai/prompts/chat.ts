@@ -11,10 +11,12 @@ import { buildSettingsContext } from '../../process/settings-context.js'
 import { resolveDraftPath } from '../../document/draft-path.js'
 import { normalizeMaxMessages } from './window.js'
 import { spillIfLarge, writeSpillFile } from '../../process/spill.js'
-import { listSkills, formatSkillIndex } from '../../process/skills.js'
+import { listDispatchableSkills, SKILL_FACE_CHAT, formatSkillIndex } from '../../process/skills.js'
 // 章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../shared/frontmatter-core.js'
+// 本书档位（作业包投放判据的机算事实）——判据单源 format/kind
+import { readKind } from '../../format/kind.js'
 // 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
@@ -119,6 +121,8 @@ export function visibleInjectionsFromDigests(d: {
  */
 export function buildChatContext(bookRoot: string, chapter?: number, opts?: { userDataPath?: string }): ChatContext {
   const settings = buildSettingsContext(bookRoot)
+  // 本书档位（作业包投放判据的机算事实）——一次读出，索引过滤用
+  const bookKind = readKind(bookRoot)
   let currentChapter: string | undefined
   const files: string[] = []
   let chapterFile: string | undefined
@@ -148,8 +152,12 @@ export function buildChatContext(bookRoot: string, chapter?: number, opts?: { us
     currentChapter = parts.join('\n')
   }
 
-  // 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
-  const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
+  // 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取。
+  // 投放判据（包 front matter 的 when）按本书机算事实过滤——档位判据取 book.yaml 的
+  // kind（缺省 long），与 read_skill 取用面同过一处判据（索引可见 ⇔ 可取）
+  const skillsIndex = formatSkillIndex(
+    listDispatchableSkills({ bookRoot, userDataPath: opts?.userDataPath }, { face: SKILL_FACE_CHAT, kind: bookKind }),
+  )
 
   // 知识层方法论注入——候选篇由 catalog 声明（faces 含 chat 者按声明序取帽内前 N），
   // 选篇与帽值在 src/knowledge/chat-method.ts；两级皆无命中篇 → 零注入

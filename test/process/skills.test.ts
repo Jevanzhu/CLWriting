@@ -4,6 +4,8 @@
  * - fm 缺字段降级：name ← basename；description/whenToUse ← 空串；裸 md（无 fm）同样降级收录
  * - formatSkillIndex：头行 + 一行一包、预算整行截断（通知行计价）、空列表空串
  * - loadSkill：命中取正文（高 rank 覆盖后）/ 名字未知 → null
+ * - 判据（when_face / when_kinds）：解析入索引、按书档投放过滤、取用面同判据（索引可见 ⇔ 可取）
+ * - 引用篇（references）：按书档解析（书级 > 随包）、缺件跳过、只回包正文
  *
  * 捆绑根用 CLWRITING_RESOURCES_DIR 指向 tempdir（隔离真 resources/skills，
  * 覆盖序断言不依赖仓库内容）；用例间保存/还原 env。
@@ -13,7 +15,17 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { listSkills, loadSkill, formatSkillIndex, type SkillMeta } from '../../src/process/skills.js'
+import {
+  listSkills,
+  listDispatchableSkills,
+  loadSkill,
+  skillDispatchOK,
+  bookKindFor,
+  referencesForKind,
+  SKILL_FACE_CHAT,
+  formatSkillIndex,
+  type SkillMeta,
+} from '../../src/process/skills.js'
 
 let root: string
 let bookRoot: string
@@ -184,5 +196,124 @@ describe('loadSkill', () => {
   it('名字未知 → null', () => {
     writeFileSync(join(userDataPath, 'skills', '对话节奏.md'), '---\nname: 对话节奏\n---\n正文')
     expect(loadSkill('不存在的包', { bookRoot, userDataPath })).toBeNull()
+  })
+})
+
+// ─── 判据（when_face / when_kinds）──────────────────
+
+/** 写一个带判据字段的包 */
+function writePack(dir: string, file: string, lines: string, body = '正文'): void {
+  writeFileSync(join(dir, 'skills', file), `---\nname: ${file.replace(/\.md$/, '')}\n${lines}---\n${body}`)
+}
+
+describe('判据解析与投放过滤', () => {
+  it('when_face / when_kinds 入索引 meta；缺省（两键皆无）→ 不限，meta 不带 when', () => {
+    writePack(bundledRoot, '甲.md', 'when_face: chat\nwhen_kinds: [long]\n')
+    writePack(bundledRoot, '乙.md', '')
+    const byName = new Map(listSkills({ userDataPath }).map((m) => [m.name, m]))
+    expect(byName.get('甲')!.when).toEqual({ face: 'chat', kinds: ['long'] })
+    expect(byName.get('乙')!.when).toBeUndefined()
+  })
+
+  it('档位过滤：when_kinds [short] 的包在长篇书不投放、短篇书投放；缺省档不限则两档都在', () => {
+    writePack(bundledRoot, '短篇包.md', 'when_kinds: [short]\n')
+    writePack(bundledRoot, '通用包.md', '')
+    const long = listDispatchableSkills({ userDataPath }, { face: SKILL_FACE_CHAT, kind: 'long' }).map((m) => m.name)
+    const short = listDispatchableSkills({ userDataPath }, { face: SKILL_FACE_CHAT, kind: 'short' }).map((m) => m.name)
+    expect(long).toEqual(['通用包'])
+    expect(short).toEqual(['短篇包', '通用包'])
+  })
+
+  it('面判据按字面比较：写错面名（非 chat）的包不投放', () => {
+    writePack(bundledRoot, '错面.md', 'when_face: draft\n')
+    expect(listDispatchableSkills({ userDataPath }, { face: SKILL_FACE_CHAT, kind: 'long' })).toHaveLength(0)
+  })
+
+  it('判据失配 → loadSkill 取不到（索引可见性与取用面同判据，不造「索引有、读了没有」）', () => {
+    writePack(bundledRoot, '短篇包.md', 'when_kinds: [short]\n', '短篇专用正文')
+    const meta = listSkills({ userDataPath }).find((m) => m.name === '短篇包')!
+    // 同一 meta 在两档下的一次判断：long 不投放、short 投放
+    expect(skillDispatchOK(meta, { face: SKILL_FACE_CHAT, kind: 'long' })).toBe(false)
+    expect(skillDispatchOK(meta, { face: SKILL_FACE_CHAT, kind: 'short' })).toBe(true)
+    // 无书上下文 = long 档 → 不投放 → 取不到正文
+    expect(loadSkill('短篇包', { userDataPath })).toBeNull()
+  })
+
+  it('bookKindFor：book.yaml 缺省/读不到 → long（与 readKind 同口径）', () => {
+    expect(bookKindFor(undefined)).toBe('long')
+    expect(bookKindFor(join(root, '无此书'))).toBe('long')
+    writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 短\n')
+    expect(bookKindFor(bookRoot)).toBe('short')
+  })
+})
+
+// ─── 引用篇（references）────────────────────────────
+
+describe('引用篇：按书档解析 + 书级覆盖', () => {
+  /** 造随包语料（CLWRITING_RESOURCES_DIR 已指向 tempdir → 随包知识层 = <temp>/knowledge） */
+  function seedBundledPiece(rel: string, body: string): void {
+    const abs = join(bundledRoot, 'knowledge', ...rel.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, `---\nsource: test\nlicense: MIT\n---\n${body}`)
+  }
+  /** 造书级语料（书根 知识层/） */
+  function seedBookPiece(rel: string, body: string): void {
+    const abs = join(bookRoot, '知识层', ...rel.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, body)
+  }
+
+  it('referencesForKind：档位专属类目按档过滤，通用类目两档共用', () => {
+    const rels = ['长篇/开篇设计速查.md', '短篇/章节钩子速查.md', '通用/对话技法速查.md']
+    expect(referencesForKind(rels, 'long')).toEqual(['长篇/开篇设计速查.md', '通用/对话技法速查.md'])
+    expect(referencesForKind(rels, 'short')).toEqual(['短篇/章节钩子速查.md', '通用/对话技法速查.md'])
+  })
+
+  it('取包正文附引用段：标题 + 正文，按声明序；未声明的包不附段', () => {
+    writePack(bundledRoot, '带引用.md', 'references: [通用/对话技法速查.md]\n', '包正文')
+    writePack(bundledRoot, '无引用.md', '', '裸正文')
+    seedBundledPiece('通用/对话技法速查.md', '语料正文')
+    const withRef = loadSkill('带引用', { bookRoot, userDataPath })
+    expect(withRef!.content).toContain('包正文')
+    expect(withRef!.content).toContain('## 引用篇目（来自本书知识层）')
+    expect(withRef!.content).toContain('### 对话技法速查')
+    expect(withRef!.content).toContain('语料正文')
+    // 语料篇的 front matter 不进结果（与三面注入口径一致）
+    expect(withRef!.content).not.toContain('license: MIT')
+    expect(loadSkill('无引用', { bookRoot, userDataPath })!.content).toBe('裸正文')
+  })
+
+  it('书级同名篇覆盖随包（与三面同源的 resolveCorpusFile rank）', () => {
+    writePack(bundledRoot, '带引用.md', 'references: [通用/对话技法速查.md]\n', '包正文')
+    seedBundledPiece('通用/对话技法速查.md', '随包版语料')
+    seedBookPiece('通用/对话技法速查.md', '本书版语料')
+    const r = loadSkill('带引用', { bookRoot, userDataPath })!
+    expect(r.content).toContain('本书版语料')
+    expect(r.content).not.toContain('随包版语料')
+  })
+
+  it('引用篇两级皆缺 → 只回包正文（引用是增强，不是取包前置）', () => {
+    writePack(bundledRoot, '带引用.md', 'references: [通用/不存在篇.md]\n', '包正文')
+    const r = loadSkill('带引用', { bookRoot, userDataPath })!
+    expect(r.content).toBe('包正文')
+    expect(r.content).not.toContain('## 引用篇目')
+  })
+
+  it('档位过滤同时生效：短篇书取短篇引用篇，长篇书取长篇引用篇（同一包）', () => {
+    writePack(bundledRoot, '黄金三章.md', 'references: [长篇/开篇设计速查.md, 短篇/章节钩子速查.md]\n', '包正文')
+    seedBundledPiece('长篇/开篇设计速查.md', '长篇开篇语料')
+    seedBundledPiece('短篇/章节钩子速查.md', '短篇钩子语料')
+    const longBook = join(root, '长篇书')
+    mkdirSync(longBook, { recursive: true })
+    writeFileSync(join(longBook, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 长\n')
+    const shortBook = join(root, '短篇书')
+    mkdirSync(shortBook, { recursive: true })
+    writeFileSync(join(shortBook, 'book.yaml'), 'spec_version: 1\nkind: short\nbook:\n  title: 短\n')
+    const long = loadSkill('黄金三章', { bookRoot: longBook, userDataPath })!
+    const short = loadSkill('黄金三章', { bookRoot: shortBook, userDataPath })!
+    expect(long.content).toContain('长篇开篇语料')
+    expect(long.content).not.toContain('短篇钩子语料')
+    expect(short.content).toContain('短篇钩子语料')
+    expect(short.content).not.toContain('长篇开篇语料')
   })
 })

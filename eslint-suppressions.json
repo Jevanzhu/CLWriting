@@ -436,11 +436,6 @@
       "count": 5
     }
   },
-  "src/process/skills.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 3
-    }
-  },
   "src/process/spill.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1

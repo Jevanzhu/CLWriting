@@ -38,7 +38,7 @@ import { resolveDraftPath } from '../../../document/draft-path.js'
 // 在途态查询，下移会形成 ai←fs 环）。未注册形态（纯 ai 层单测）= no-op 放行。
 import { acquireTaskGateViaPort } from '../task-gate-port.js'
 // 写作技巧包按需加载（read_skill 工具的执行通道）
-import { listSkills, loadSkill } from '../../../process/skills.js'
+import { listDispatchableSkills, loadSkill, SKILL_FACE_CHAT, bookKindFor } from '../../../process/skills.js'
 import { log, errMsg } from '../../../log/index.js'
 // read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
 import { bodyOf } from '../../../shared/frontmatter-core.js'
@@ -323,12 +323,17 @@ export async function executeChatTool(
       case 'read_skill': {
         // 按需加载通道：system prompt 索引只给元信息，正文用时才取
         //（三根 rank 覆盖序与 listSkills 一致：项目 > 用户 > 捆绑）
+        // 取用面与索引同过一处投放判据（按判据不投放的包此处同样取不到）；
+        // 引用篇（作业包 references）按本书档解析并附于包正文后，体量帽同受一处
         const skill = loadSkill(String(input['name'] ?? ''), {
           bookRoot: opts.bookRoot,
           userDataPath: opts.userDataPath,
         })
         if (!skill) {
-          const names = listSkills({ bookRoot: opts.bookRoot, userDataPath: opts.userDataPath })
+          const names = listDispatchableSkills(
+            { bookRoot: opts.bookRoot, userDataPath: opts.userDataPath },
+            { face: SKILL_FACE_CHAT, kind: bookKindFor(opts.bookRoot) },
+          )
             .map((m) => m.name)
             .join('、')
           return { ok: false, summary: `未找到该技巧包。可用：${names}` }
