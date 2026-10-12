@@ -68,16 +68,19 @@ function readChatEvents(ud: string, bookName: string) {
 }
 
 describe('T2-1 buildChatContext 文件级溯源', () => {
-  it('未选章 → files 空、chapterFile undefined', () => {
+  it('未选章 → 无章文件、chapterFile undefined(知识层兜底不属章溯源)', () => {
     const c = buildChatContext(bookRoot, undefined)
-    expect(c.files).toEqual([])
+    // 章正文注入面为空:files 只含随包知识层兜底篇(统一批新增)——
+    // 断言取非空 + 逐项前缀(全为空数组会让 every 真空通过,注入断链即漏网)
+    expect(c.files.length).toBeGreaterThan(0)
+    expect(c.files.every((f) => f.startsWith('知识层'))).toBe(true)
     expect(c.chapterFile).toBeUndefined()
   })
 
   it('章正文未超阈值 → files/chapterFile 记草稿相对路径', () => {
     const rel = writeDraft(3, '短正文')
     const c = buildChatContext(bookRoot, 3)
-    expect(c.files).toEqual([rel])
+    expect(c.files).toContain(rel)
     expect(c.chapterFile).toBe(rel)
   })
 
@@ -85,7 +88,7 @@ describe('T2-1 buildChatContext 文件级溯源', () => {
     writeDraft(3, '很长的正文。'.repeat(400)) // > 2000 code points → 外置
     const c = buildChatContext(bookRoot, 3)
     expect(c.chapterFile).toMatch(/^工作区\/spills\/[0-9a-f]{16}\.md$/)
-    expect(c.files).toEqual([c.chapterFile])
+    expect(c.files).toContain(c.chapterFile)
   })
 })
 
@@ -148,7 +151,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     expect((rev.data as { path: string }).path).toBe(rel)
   })
 
-  it('未选章 → promptMeta.files 为空数组（有登记、无文件）', async () => {
+  it('未选章 → promptMeta.files 只含随包知识层兜底(无章文件)', async () => {
     fake.setScript([{ type: 'text', content: '回复。' }])
     const ud = tempUserData()
     dirs.push(ud)
@@ -167,7 +170,10 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     const call = readWorkspaceChain(ud).find((e) => e.type === 'llm/call')!
     const meta = (call.data as { promptMeta?: { files: string[] } }).promptMeta
     expect(meta).toBeDefined()
-    expect(meta!.files).toEqual([])
+    // 统一批:书根无知识层 → 方法论篇回落随包兜底,故 files 含兜底登记名(无章文件)。
+    // 断言取非空 + 逐项前缀:注入断链(files 空)时真空通过会让回归漏网
+    expect(meta!.files.length).toBeGreaterThan(0)
+    expect(meta!.files.every((f) => f.startsWith('知识层'))).toBe(true)
     // P3-10（四轮处置批）：未选章 → 无正文指纹可指涉，revision/ref 事件本就不落
     // （原 `?? 0` 只在 revisionDigest 在时执行；「digest 在而章缺」的载荷契约 =
     // 章号缺省不伪装 0，见 chain-bridge.test.ts 构造器用例）

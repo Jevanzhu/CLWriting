@@ -15,18 +15,17 @@ import { listSkills, formatSkillIndex } from '../../process/skills.js'
 // 章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../shared/frontmatter-core.js'
-// 码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
-// 两函数同直引 shared/text.js——clipByCodePoints 原经 process/summary 的
+// 码点口径单源（clipWithNotice 截断+标注 / codePointLength 计量）
+// 两函数同直引 shared/text.js——原经 process/summary 的
 // re-export 中转（环边来源，已剥除），本模块的 ai→process 转运依赖随之消失
-import { clipByCodePoints, codePointLength } from '../../shared/text.js'
+import { clipWithNotice, codePointLength } from '../../shared/text.js'
 // 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
 // 消毒改动记录类型（事件载荷契约单源在 events/types；纯类型面，不引 runtime 依赖）
 import type { ChatSanitizeChange } from '../../events/types.js'
-// 知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
-import { readKnowledgeManifest } from '../../knowledge/manifest.js'
-import { resolveWithinRoot } from '../../fs/safe-path.js'
+// 知识层方法论注入——书级 > 随包 统一 rank 解析(单源 src/knowledge/corpus.ts)
+import { resolveCorpusFile, listBookKnowledgeEntries, listBundledKnowledgeEntries } from '../../knowledge/corpus.js'
 // trimHistory 回合金盲区回落的 warn 留痕
 import { log } from '../../log/index.js'
 
@@ -38,8 +37,8 @@ export interface ChatContext {
   currentChapter?: string
   /** 写作技巧包索引（一行一包的元信息目录；空库为 undefined 不注入） */
   skillsIndex?: string
-  /** 知识层方法论注入（manifest category='方法论' 条目正文，预算帽内；
-   *  无知识层/无方法论条目为 undefined 不注入）。登记通道 = llm/call systemPrompt hash +
+  /** 知识层方法论注入（目录名='方法论' 的篇正文，书级 > 随包，预算帽内；
+   *  无知识层/无方法论篇为 undefined 不注入）。登记通道 = llm/call systemPrompt hash +
    *  promptMeta.files + settings/snapshot(knowledge 档) 血缘事件 */
   knowledge?: string
   /** 本次注入实际引用的文件清单（相对书根，spill 外置时为其 locator）——
@@ -156,7 +155,8 @@ export function buildChatContext(bookRoot: string, chapter?: number, opts?: { us
   const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
 
   // 知识层方法论注入（登记项「知识层方法论注入未接线」收口）——只取
-  // category='方法论' 条目；manifest 缺失/损坏/无方法论条目 → 零注入（知识层可选，静默降级）
+  // 目录名='方法论' 的篇（目录即分类，运行时不再读 manifest）；书级/随包两级皆无
+  // 方法论篇 → 零注入（知识层可选，静默降级）
   const knowledge = buildKnowledgeContext(bookRoot, files)
 
   return { settings, currentChapter, skillsIndex: skillsIndex || undefined, knowledge, files, chapterFile }
@@ -166,39 +166,39 @@ export function buildChatContext(bookRoot: string, chapter?: number, opts?: { us
 const KNOWLEDGE_MAX_FILES = 4
 const KNOWLEDGE_FILE_CAP = 2000
 const KNOWLEDGE_TOTAL_CAP = 6000
+/** chat 面取篇的类目 = 目录名(目录即分类,统一批后不再依赖 manifest) */
+const KNOWLEDGE_METHOD_DIR = '方法论'
 
-/** 知识层方法论段装配。读取或组装失败一律 undefined（可选增强，不阻断对话）。 */
+/** 知识层方法论段装配(统一批:书级 > 随包 扫描驱动)。
+ *
+ * 取篇口径 = 目录名即分类:书级 知识层/方法论/*.md ∪ 随包 knowledge/方法论/*.md,
+ * 书级同 rel 覆盖随包(同名去重)。读取单源 resolveCorpusFile(书级缺失回落随包)。
+ * 读取或组装失败一律 undefined(可选增强,不阻断对话);无任何方法论篇 → undefined。 */
 function buildKnowledgeContext(bookRoot: string, files: string[]): string | undefined {
-  let report: ReturnType<typeof readKnowledgeManifest>
-  try {
-    report = readKnowledgeManifest(bookRoot)
-  } catch {
-    return undefined
+  // 两级 rel 并集:书级先入、随包后入,Map 同 rel 覆盖 = 书级优先
+  const byRel = new Map<string, true>()
+  for (const e of listBookKnowledgeEntries(bookRoot)) {
+    if (e.category === KNOWLEDGE_METHOD_DIR) byRel.set(e.rel, true)
   }
-  if (!report.ok || !report.manifest) return undefined
-  const picks = report.manifest.entries.filter((e) => e.category === '方法论').slice(0, KNOWLEDGE_MAX_FILES)
-  const parts: string[] = ['## 本书知识层方法论（写作纪律参考，与本书设定冲突时以设定为准）']
+  for (const e of listBundledKnowledgeEntries()) {
+    if (e.category === KNOWLEDGE_METHOD_DIR && !byRel.has(e.rel)) byRel.set(e.rel, true)
+  }
+  const rels = [...byRel.keys()].sort().slice(0, KNOWLEDGE_MAX_FILES)
+  if (rels.length === 0) return undefined
+
+  const parts: string[] = ['## 本书知识层方法论(写作纪律参考,与本书设定冲突时以设定为准)']
   let total = 0
-  for (const entry of picks) {
-    // manifest.target 是登记面输入，过 resolveWithinRoot 防越界（fail-closed：越出/null 跳过）
-    const resolved = resolveWithinRoot(bookRoot, entry.target)
-    if (!resolved || !existsSync(resolved.abs)) continue
-    try {
-      let body = bodyOf(readFileSync(resolved.abs, 'utf-8'))
-      // 码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
-      // ——原 body.length/slice 按 UTF-16 码元计，截断点恰落代理对（emoji/扩展区汉字）
-      // 中间产出孤立代理进 system prompt，且合计帽提前误触发；仓内同族截断
-      // （clipByCodePoints/codePointLength）均已收码点口径，此处单源接入。
-      if (codePointLength(body) > KNOWLEDGE_FILE_CAP)
-        body = `${clipByCodePoints(body, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
-      const bodyLen = codePointLength(body)
-      if (total + bodyLen > KNOWLEDGE_TOTAL_CAP) break
-      total += bodyLen
-      parts.push(`### ${entry.target}\n${body}`)
-      files.push(entry.target)
-    } catch {
-      continue
-    }
+  for (const rel of rels) {
+    const resolved = resolveCorpusFile(bookRoot, rel)
+    if (resolved === null) continue
+    // 码点口径单篇帽（截断 + 标注单源 = shared/text.clipWithNotice）
+    const body = clipWithNotice(resolved.body, KNOWLEDGE_FILE_CAP)
+    const bodyLen = codePointLength(body)
+    if (total + bodyLen > KNOWLEDGE_TOTAL_CAP) break
+    total += bodyLen
+    const title = rel.slice(rel.lastIndexOf('/') + 1).replace(/\.md$/, '')
+    parts.push(`### ${title}\n${body}`)
+    files.push(resolved.source)
   }
   if (parts.length === 1) return undefined
   return parts.join('\n\n')

@@ -100,14 +100,18 @@ export const CONTENT_GATE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
   ['books@install/books-repair.ts#relPath', '书库登记修复日志：相对路径定位破损登记项'],
   ['api@studio/server/api/onboard.ts#relPath', '开书引导日志：相对路径定位未落位的文档'],
   ['draft-pipeline@process/draft-pipeline.ts#relPath', '批量起草日志：相对路径定位失败章'],
+  [
+    'knowledge-seed@knowledge/seed.ts#rel',
+    '知识层播种/升级失败日志:该篇相对路径是定位失败篇的唯一线索(随包语料文件名,跨书恒定)',
+  ],
   ['prepare@process/prepare.ts#relative(bookRoot, r.path)', '备料失败日志：书内相对路径定位材料文件'],
   // 书库侧文件名/题名（basename 与章节事件标题）
   ['style@format/style.ts#basename(filePath)', '样章文件名是定位该样章的唯一线索（仅「来源」值非法时触发）'],
-  ['rag@rag/build.ts#basename(ch._path ?? \'\')', '索引跳过日志：章文件名定位被跳过的章'],
+  ["rag@rag/build.ts#basename(ch._path ?? '')", '索引跳过日志：章文件名定位被跳过的章'],
   ['chain-bridge@events/chain-bridge.ts#e.标题', '链事件回放日志：章节事件标题用于核对事件归属'],
   // 书库绝对路径（宿主目录与家目录替换面只吃前缀，书目录名仍随路径入包）——登记为
   // 有意保留：该行是「同章号两次入库、后写覆盖」的唯一证据（两路径都要看）
-  ['cache@cache/sync.ts#ch._path ?? \'\'', '重复章号入库日志：新旧两路径对照是排查覆盖的唯一证据'],
+  ["cache@cache/sync.ts#ch._path ?? ''", '重复章号入库日志：新旧两路径对照是排查覆盖的唯一证据'],
 ])
 
 /** 事件标签 = 首个股载荷分隔符（「（(：:）之前的文字 + 省略标记——载荷一律不保留 */
@@ -342,7 +346,11 @@ export function buildDiagnosticsBundle(opts: DiagnosticsOptions): DiagnosticsRes
     // 单条自身超限则截断省略，两条路径都经 warnings 显式提示（不静默丢）。
     const pack = buildZipStoreVolumes(entries, { mtime: now, ...(opts.zipLimits ? { limits: opts.zipLimits } : {}) })
     if (pack.volumes.length === 0) {
-      return { ok: false, error: '诊断包体积超单卷上限且无可入卷条目，未写入任何内容', ...(warnings.length > 0 ? { warnings } : {}) }
+      return {
+        ok: false,
+        error: '诊断包体积超单卷上限且无可入卷条目，未写入任何内容',
+        ...(warnings.length > 0 ? { warnings } : {}),
+      }
     }
     const files = pack.volumes.map((_, i) => (i === 0 ? file : join(dir, `诊断包-${stamp}-${i + 1}.zip`)))
     let bytes = 0

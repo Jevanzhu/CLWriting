@@ -638,7 +638,7 @@ export function buildDraftPrompt(
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config, chapterOutlinePath)
   // 写作方法参考（随包语料按章选材）——信号取细纲 + 章纲原文（钩子类型/情绪定位/场景等
   // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记
-  const methodInjection = buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}` })
+  const methodInjection = buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}`, bookRoot })
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win

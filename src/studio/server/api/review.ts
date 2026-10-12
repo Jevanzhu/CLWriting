@@ -38,6 +38,7 @@ import type { ReviewTier } from '../../../review/contract.js'
 import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
+import { buildReviewMethodInjection } from '../../../knowledge/review-method.js' // 三审视角技法运行时注入(统一批)
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 import { effectiveRemainingCalls } from '../../../ai/calls.js'
@@ -401,11 +402,16 @@ async function runLensSpawnLoop(opts: {
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
+    // 视角技法运行时注入(书级 > 随包知识层;统一批)——prompt 只留契约与基线,
+    // 技法段经 systemPromptSuffix 拼在内置/overlay 之后(不参与哈希匹配),
+    // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」
+    const methodInj = buildReviewMethodInjection(lens, opts.bookRoot)
     const out = await runSpec(reviewSpec(lens), {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,
       userPrompt: prompt,
-      promptFiles: opts.sourceFiles,
+      promptFiles: [...(opts.sourceFiles ?? []), ...methodInj.sources],
+      ...(methodInj.text ? { systemPromptSuffix: methodInj.text } : {}),
       ctrl: opts.ctrl,
     })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
