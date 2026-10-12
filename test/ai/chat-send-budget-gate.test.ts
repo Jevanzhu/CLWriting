@@ -7,7 +7,7 @@
  *   compaction 只在收尾 finalizeHistory 执行——重工具会话单轮发送无体量闸可撑到超窗
  *   400 卡死。修复后发送前按 CHAT_SEND_BUDGET_POINTS 保尾预切（budgetTailCut 切点只取
  *   纯文本 user 边界）；promptText 指纹取预切后实际发送末条（指纹与实发同源）；零边界
- *   病态形态照 trimHistory 先例原样发送 + warn）
+ *   病态形态同 trimHistory 先例原样发送 + warn）
  * - r57-chat-send-budget.test.ts（R57-B-2：发送预算硬编码 96k——64k 窗模型防线放行必
  *   超窗；改 resolveChatSendBudget(contextWindow)=min(96k, ⌊窗/2⌋)，未知显式回落 96k。
  *   R57-B-1：预算只数历史不计 system prompt——历史可用 = resolved − sys（下限 clamp
@@ -99,7 +99,7 @@ function readLlmCallHashes(ud: string, bookRoot: string): string[] {
 }
 
 /**
- * 带 contextWindow 模型行的 providers.json（仿 studio/fixtures withFakeProvider，
+ * 带 contextWindow 模型行的 providers.json（同 studio/fixtures withFakeProvider，
  * 增补 models 行）——contextWindow 沿 P9 模型行（provider/types.ts ModelConf）声明。
  * contextWindow 传 undefined = 不写模型行（窗口未知，走显式回退路径）。
  */
@@ -279,7 +279,7 @@ describe('R55-C-1: runAgentTurns 发送前预切（全链路）', () => {
 
     const body = fake.lastBody() as { messages?: WireMsg[] }
     const convo = (body.messages ?? []).slice(1)
-    expect(convo.length).toBe(sent.length) // 原样发送（照 trimHistory 先例不硬劈）
+    expect(convo.length).toBe(sent.length) // 原样发送（同 trimHistory 先例不硬劈）
     expect(convo[0]).toEqual({ role: 'user', content: 'u0' })
     expect(warnSpy.mock.calls.some((c) => String(c[1] ?? '').includes('无法安全预切'))).toBe(true)
   })

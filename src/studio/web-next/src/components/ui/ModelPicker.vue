@@ -91,7 +91,7 @@ useFocusTrap(modalRef)
   flex-direction: column;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  /* dsh Modal 的 24px 大圆角 */
+  /* 24px 大圆角 */
   border-radius: var(--radius-xl);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
   animation: clw-appear var(--dur-norm) var(--ease-out);

@@ -1,7 +1,8 @@
 /**
  * PM-11（性能与内存专项·2026-09-05）回归：ai-calls 合并记账 + 价格解析 memo。
  *
- * - recordUsageBoth（dev 侧 R46-21 同题实现；合并批自 stash 的 recordUsageCombined 用例移植，断言意图不变）：task + chapter 两块记账合并为单次持锁读改写（原 runner
+ * - recordUsageBoth（dev 侧 R46-21 同题实现；合并批自 stash 并入 recordUsageCombined
+ *   用例，断言意图不变）：task + chapter 两块记账合并为单次持锁读改写（原 runner
  *   recordUsageSafe 两笔各自 serializedWrite = 同一 usage 两次整读+两次原子写+双 fsync）。
  *   断言：①真实落盘次数（atomicWriteFile 调用计数）合并 = 1、两分身串行 = 2；
  *   ②合并结果与两分身串行产物逐字段一致（fresh/同章累加/换章重置三形态）；
@@ -49,7 +50,7 @@ const USAGE: TokenUsage = { inputTokens: 100, outputTokens: 200, cacheReadTokens
 const readRec = (root: string) =>
   JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as Record<string, unknown>
 
-describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCombined 用例移植）', () => {
+describe('PM-11 recordUsageBoth 合并记账（合并批自 stash 并入 recordUsageCombined 用例）', () => {
   it('同一笔 usage：合并 = 1 次落盘；两分身串行 = 2 次', () => {
     const merged = tempBook()
     recordUsageBoth(merged, 'gen', 1, USAGE, 0.5)

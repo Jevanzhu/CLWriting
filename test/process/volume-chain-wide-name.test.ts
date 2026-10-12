@@ -3,7 +3,7 @@
  * volumeChainState 定稿章识别升格 chapterNoFromName 单源（与 selfHealRecentChapterSummaries
  * 的 R1010-P3 修复同款宽容集）。修复前窄正则 `/^(\d+)-/` 只认连字符——`1—开局.md`、
  * `1 开局.md`、`1.md` 等宽容命名的定稿章既不进 chain 也不进 missing（卷链完整性判定
- * 静默漏章：卷摘要以残链报缺甚至空链无告警）。装置仿 test/process/summary-volume.test.ts
+ * 静默漏章：卷摘要以残链报缺甚至空链无告警）。装置同 test/process/summary-volume.test.ts
  *（manifest 手工构造 finalizedRevision；volumeChainState 只读 manifest + 章摘要，
  * 正文文件为装置真实性照常落盘）。
  */

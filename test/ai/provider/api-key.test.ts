@@ -1,5 +1,5 @@
 /**
- * API Key 合法性单点单测（I6·dsh 口径，2026-08-22）。
+ * API Key 合法性单点单测（I6 口径，2026-08-22）。
  *
  * 覆盖：合法 key + 静默 trim / 空值（调用方配置态）/ 传输不变量外字符（空格、控制符、
  * 非 ASCII、全角符号）/ 含 = 的 ASCII key 不误杀 / 拒绝文案不回显 key 本体。
@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeApiKey, apiKeyRefusal } from '../../../src/ai/provider/api-key.js'
 
-describe('normalizeApiKey（I6·dsh 单点）', () => {
+describe('normalizeApiKey（I6 单点）', () => {
   it('合法 key → ok + trim 后的值（首尾空白只有一种读法，静默修正）', () => {
     expect(normalizeApiKey('sk-abc123')).toEqual({ ok: true, value: 'sk-abc123' })
     expect(normalizeApiKey('  sk-abc123  ')).toEqual({ ok: true, value: 'sk-abc123' })
@@ -31,7 +31,7 @@ describe('normalizeApiKey（I6·dsh 单点）', () => {
     expect(normalizeApiKey('sk-abc=def')).toEqual({ ok: true, value: 'sk-abc=def' })
   })
 
-  it('拒绝文案口径单一且不回显 key 本体（dsh assertUsableApiKey 同则）', () => {
+  it('拒绝文案口径单一且不回显 key 本体', () => {
     expect(apiKeyRefusal('empty')).toBe('apiKey 必填')
     const msg = apiKeyRefusal('illegalCharacters')
     expect(msg).toContain('无法传输的字符')

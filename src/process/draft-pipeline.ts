@@ -103,7 +103,7 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
  *    失败降级为 SaveResult.snapshotDegraded 标记，服务端透出 200 响应，前端弹一次
  *    info 提示（作者可见化，不静默）。判据同上（唯一性）：被覆写的是编辑器自己上一版
  *    正文，盘上正文与内存稿都在，缺的只是留底副本。
- *  新增调用方按本判据自选，勿照抄邻近端点。
+ *  新增调用方按本判据自选，勿套用邻近端点做法。
  */
 export function snapshotBeforeOverwrite(
   bookRoot: string,

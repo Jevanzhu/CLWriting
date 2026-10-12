@@ -11,7 +11,7 @@
  * 分段让出）——慢盘上机检不再整段冻结事件循环，其间 SSE 心跳与其它请求照跑；信封/报告面与同步版
  * 同款（等价性锚 = test/check/check-chain-async-parity.test.ts）。
  *
- * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；账本两端闭合
+ * 无 AI 依赖、断网可用。流程同 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；账本两端闭合
  *（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'

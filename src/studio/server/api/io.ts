@@ -229,7 +229,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
       // 本请求的取消 controller：worker 在途期间两路可触发（客户端断连 / 服务关停）。
       // 建点必须在取到闸后——闸被拒的请求零在途作业，不该进关停取消面。
       const ctrl = new AbortController()
-      // 客户端断连判据照抄 task-gate.attachClientGoneAbort：res 'close' 在
+      // 客户端断连判据同 task-gate.attachClientGoneAbort：res 'close' 在
       // 「响应已正常写完」与「连接异常中断」两会触发，只有后者（writableEnded 仍假）
       // 应取消；正常写完时在途作业已 settle，此处只是避免误 abort 已落定的 controller。
       const onClientGone = (): void => {

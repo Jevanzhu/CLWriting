@@ -170,7 +170,7 @@ describe('effortMap + reasoningEffort（2026-08-14 定稿：全透传，deepseek
     expect(q.reasoningEffort('max')).toBe('max')
   })
 
-  it('deepseek：唯一 effortMap 特例（medium→high、xhigh→max，cherry 出处）', () => {
+  it('deepseek：唯一 effortMap 特例（medium→high、xhigh→max）', () => {
     const q = quirksFor('deepseek-v4-pro')
     expect(q.effortMap).toEqual({ medium: 'high', xhigh: 'max' })
     expect(q.reasoningEffort('medium')).toBe('high')

@@ -1,5 +1,5 @@
 /**
- * surface 投影纯函数（方案 §四，照抄 dsh surface.ts 语义裁剪）。
+ * surface 投影纯函数（方案 §四）。
  *
  * 投影语义：
  * - 只有 user/message、assistant/message、tool/result 三类可上 surface（SURFACE_EVENT_TYPES）

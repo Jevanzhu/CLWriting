@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 提供方行卡共享壳（照搬 DSH：仅一个「编辑」入口）。
+ * 提供方行卡共享壳（仅一个「编辑」入口）。
  * AI 与 RAG 列表共用：主信息槽 + 操作槽 + 展开槽；展开态由父层管理（互斥），
  * 点「编辑」（#actions 槽内，ProviderRowActions）才切换就地展开。
  * 主信息槽为单行结构（名称/徽章/协议 + 右对齐状态），由 providers.css 的 .row-line
@@ -29,14 +29,14 @@ defineProps<{
 </template>
 
 <style scoped>
-/* 行卡壳（DSH rowCard 语言）：面板底色上描边行卡；展开的编辑器是「填充模块」
+/* 行卡壳：面板底色上描边行卡；展开的编辑器是「填充模块」
  * ——不再边框套边框，展开区用 secondary 底色读作嵌套对象。 */
 .provider-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 10px;
-  /* 紧凑行卡（对齐 dsh rowCard：12 圆角 + 小内边距，信息做减法） */
+  /* 紧凑行卡（12 圆角 + 小内边距，信息做减法） */
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-l);
@@ -49,13 +49,13 @@ defineProps<{
 }
 .provider-row:hover {
   border-color: var(--background-modifier-border-hover);
-  /* 悬浮微升（DSH 允许的 hover-lift） */
+  /* 悬浮微升（hover-lift） */
   transform: translateY(-1px);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 .provider-row.active {
   /* 当前提供方：只走强调描边（「当前」徽章已标身份）——不再叠紫调底，
-   * 否则展开编辑区的灰模块压在紫调上会发脏（dsh：单一模块底，不多层填色） */
+   * 否则展开编辑区的灰模块压在紫调上会发脏（单一模块底，不多层填色） */
   border-color: color-mix(in srgb, var(--interactive-accent) 34%, transparent);
 }
 .provider-row.expanded {

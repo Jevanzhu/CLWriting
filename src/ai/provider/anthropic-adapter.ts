@@ -292,7 +292,7 @@ type WireDeltaUsage = Anthropic.RawMessageDeltaEvent['usage']
  *  - cache 两档：本 delta 值 ?? 前值 ?? message_start 缓存值——非标网关「message_start 缺
  *    cache + 首条 delta 带 cache + 末条 delta 又缺」三条件叠加时，先前 delta 已报的 cache
  *    值不得被丢（丢了 latestUsage 整段无 cache 计量，computeCallCost 缓存档计 0）；
- *  - output：本 delta 值 ?? 前值；两档都缺才归 0（cc-switch 形态逐 delta 回 usage 且末条
+ *  - output：本 delta 值 ?? 前值；两档都缺才归 0（非标网关逐 delta 回 usage 且末条
  *    缺该字段时，先前已报的正确 output 值不得被清零——computeCallCost 输出档计 0、预算闸少计）。
  *  缺失档不产键（undefined 不入对象），与实测 usage 的字段形态一致。 */
 function mergeDeltaUsage(

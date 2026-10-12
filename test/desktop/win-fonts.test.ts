@@ -1,6 +1,6 @@
 /**
- * MP2-1（专项重评二轮修复批）：win 字体自绘枚举——windowsHide 纪律 + font-list
- * 口径移植（\uXXXX 解码 / 剥引号 / 大小写不敏感排序）。
+ * MP2-1（专项重评二轮修复批）：win 字体自绘枚举——windowsHide 纪律 + 解析口径同
+ * font-list（\uXXXX 解码 / 剥引号 / 大小写不敏感排序）。
  *
  * font-list 上游 getByPowerShell 经 cmd.exe exec 未设 windowsHide，win 打包态闪黑窗；
  * 本测试对修复面（spawn 直起 + windowsHide: true + 数组参数）与解析面逐项断言。
@@ -133,7 +133,7 @@ describe('MP2-1：win 字体枚举 spawn 纪径（windowsHide + 数组参数直�
     expect(calls[0]!.cmd).toBe('powershell.exe')
   })
 
-  it('解析口径 = font-list disableQuoting 移植：\\uXXXX 解码 + 剥引号 + 大小写不敏感排序', async () => {
+  it('解析口径同 font-list disableQuoting：\\uXXXX 解码 + 剥引号 + 大小写不敏感排序', async () => {
     const stdout = '"Helvetica Neue"\r\n\\U559c\\U9e4a\r\nArial\r\n\r\n'
     const { promise } = run(stdout)
     await expect(promise).resolves.toEqual(['Arial', 'Helvetica Neue', '喜鹊']) // 修复点：口径一致

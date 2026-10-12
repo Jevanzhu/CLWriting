@@ -53,7 +53,7 @@ export const msgSeqMap = new Map<string, number[][]>()
 // 仅成功回合激活（失败/中断的半截组已被遮蔽，激活会把续聊归因到幽灵组）；
 // 与 histories 同生命周期：LRU 逐出 / clearChatHistory 一并重置
 export const activeBranchByBook = new Map<string, string>()
-// 压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，学 cherry E10 抑制）。
+// 压缩失败一次的书 → 下次溢出直接硬截断（防「每次溢出白打一次摘要」级联，E10 抑制）。
 // 低级项：从 finish.ts 挪入并纳入同生命周期——原进程级 Set 无 LRU/清空挂钩，
 // 删书/换书后 suppress 标记残留（进程级无界，且幽灵标记会让复活书第一次溢出跳过摘要）
 export const compactionSuppressed = new Set<string>()

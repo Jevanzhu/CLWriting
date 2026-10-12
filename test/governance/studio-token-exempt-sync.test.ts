@@ -2,9 +2,9 @@
  * 四轮-F402（2026-09-18 全量源码独立重评四轮修复批）+ 抄本同步纪律：
  * 全局 fetch 包装的 GET token 豁免表抄本 ↔ 服务端正本的双向同步机器门。
  *
- * 背景：test/helpers/studio-token-setup.ts 的 GET_TOKEN_EXEMPT 抄自
+ * 背景：test/helpers/studio-token-setup.ts 的 GET_TOKEN_EXEMPT 与
  * src/studio/server/index.ts 的 GET_TOKEN_EXEMPT_PATHS（X-19 显式豁免清单，唯一事实
- * 源）。抄本不能换成 import 正本——helper 是 vitest setupFiles（挂全部测试 worker），
+ * 源）保持同值。抄本不能换成 import 正本——helper 是 vitest setupFiles（挂全部测试 worker），
  * 直连 server/index 会把整个 studio server 模块图拉进每个 worker，不成比例；故抄本以
  * 字面量存在，注释约定「保持同步」但此前无守卫（对比：coverage EXCLUDE 抄本有
  * coverage-threshold-globs 反向守卫）。正本改路（如 R0912-P3-⑥ 式豁免模式搬家）时

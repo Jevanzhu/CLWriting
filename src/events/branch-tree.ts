@@ -1,7 +1,7 @@
 /**
- * 分支/消息树（方案 §七，抄 cherry message.ts 邻接表 + 兄弟组约束）。
+ * 分支/消息树（方案 §七：邻接表 + 兄弟组约束）。
  *
- * 分支模型（对齐 cherry）：
+ * 分支模型：
  * - 每条消息事件（assistant/message、user/message）可带 parentSeq（前驱消息 seq）
  *   与 branchId（同 parent 的「重新生成」兄弟组；缺省 = 普通线性消息）；
  * - branchId 同组 = 同一 parent 下的多次重新生成（siblingsGroupId 语义）；
@@ -128,7 +128,7 @@ export function defaultBranchId(tree: BranchTree): string | null {
 /**
  * 选分支：沿指定 branchId（或其父链）重建「该分支可见的事件序列」。
  *
- * 语义（对齐 cherry 分支树导航）：
+ * 语义：
  * - 无任何分支元数据（普通线性对话）→ 原样返回全量（按 seq 升序）；
  * - 无 branchId → 默认分支（最新一组）；
  * - 有 branchId → 保留该组全部节点 + 其祖先链（跟随 parentSeq 到根）+

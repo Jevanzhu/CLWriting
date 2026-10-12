@@ -2,7 +2,7 @@
  * 单文档机检执行（架构下沉：从 studio/server/api/check 下沉内核）。
  *
  * 供三审端点（review.ts）、机检端点（check.ts）、树红点聚合、AI 编排层（orchestrate）共用。
- * 无 AI 依赖、断网可用。流程照搬 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
+ * 无 AI 依赖、断网可用。流程同 cli/check.ts：rebuild 缓存（长篇）→ runAllChecks；
  * 账本两端闭合（declaredLeadIds/actualLeadIds）草稿目录有细纲时取，正文目录缺省安全。
  *
  * 本模块 = 原 `check/run.ts` 的

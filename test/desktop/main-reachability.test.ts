@@ -4,7 +4,7 @@
  * switch-library 可达性预探，含 R61-B-1 与 重审-1/2/3）+ 重评-P3-11（second-instance
  * --book 失联卷预探）。fs/promises stat 闸（fsPromisesMock）自 ./main-fixtures.js。
  * 用例自原文件 2466-2745 行整块原样搬移（describe/test 名称、断言、mock 行为零变化）；
- * ④批 P2 监听器治理 harness 见 ./main-process-harness.js（R0915-P2 承重墙，逐件复刻）。
+ * ④批 P2 监听器治理 harness 见 ./main-process-harness.js（R0915-P2 承重墙）。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -25,7 +25,7 @@ import {
   restoreMainProcessListenerHarness,
 } from './main-process-harness.js'
 
-// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙，R0916-5b 随拆分逐件复刻）───────────
+// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙）───────────
 // 模块级包装 process.on/once 透传记账 → afterEach 逐监听器拆除 → afterAll 兜底还原；
 // 语义与原文详见 ./main-process-harness.js 头注。
 installMainProcessListenerHarness()

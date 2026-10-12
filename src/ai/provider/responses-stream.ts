@@ -171,7 +171,7 @@ export function parseToolArgs(raw: string): unknown {
 /** 正文增量：产出累计 + textYielded 置位 + 透出（顺序即产出顺序）。 */
 export function applyTextDelta(st: ResponsesStreamAccum, delta: string | undefined): GenEvent[] {
   if (!delta) return []
-  st.outText.push(delta) // 产出累计（学 openai 线）
+  st.outText.push(delta) // 产出累计（与 openai 线同口径）
   st.textYielded = true // 正文实际 yield 标记（回填门/hasOutput 判据）
   return [{ type: 'text', delta }]
 }
@@ -179,12 +179,12 @@ export function applyTextDelta(st: ResponsesStreamAccum, delta: string | undefin
 /**
  * 推理增量（缺口 4）：reasoning_text.delta（OpenAI/grok 原生文本）与
  * reasoning_summary_text.delta（OpenAI summary）都归一到 reasoning 事件。
- * 计费面进 outText（推理 token 也是真实消耗，学 openai 线），但**不置** textYielded
+ * 计费面进 outText（推理 token 也是真实消耗，与 openai 线同口径），但**不置** textYielded
  * （正文面判据，见 ResponsesStreamAccum.textYielded 注）。
  */
 export function applyReasoningDelta(st: ResponsesStreamAccum, delta: string | undefined): GenEvent[] {
   if (!delta) return []
-  st.outText.push(delta) // 产出累计（学 openai 线）
+  st.outText.push(delta) // 产出累计（与 openai 线同口径）
   return [{ type: 'reasoning', delta }]
 }
 
@@ -312,7 +312,7 @@ function backfillCompletedToolCalls(
 
 /**
  * response.completed：伪流回填（text + tool）→ 空产出判错 / 正常 done。
- * 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call 产出且
+ * 判空（EMPTY_RESPONSE 语义）：completed 但无 message/function_call 产出且
  * 未 yield 过 tool → 退化完成判错不判成功；补「本流已实际流出内容」
  * 判据（网关省略 completed 的 output 数组但 delta 已流出正文时原判据误判空产出且
  * retryable:false 不重试，token 白烧）——起正文面判据取 textYielded

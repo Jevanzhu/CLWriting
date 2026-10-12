@@ -34,7 +34,7 @@ function familyByPrefix(m: string): ModelFamily {
 }
 
 /**
- * 判定系列——三键解析（批次，学 cherry findModel「精确 → 保留尺寸 → 尺寸无关」）：
+ * 判定系列——三键解析（精确 → 保留尺寸 → 尺寸无关）：
  * 原文前缀 → 带尺寸归一键 → 尺寸无关键。归一道解决组织前缀 / 冒号尺寸 / 大小写
  * 变体（`zai-org/glm-4.7`、`gpt-oss:20b`、`deepseek-ai/deepseek-chat`）。
  * 三道全不中 → unknown（宁缺勿错：错误系列比无元数据更糟——参数面发错会 400）。
@@ -96,8 +96,7 @@ function isKimiK3(model: string): boolean {
  * 必须保持**纯数据**（无函数维度）：catalog 三件套（catalog.ts / catalog.gen.ts /
  * generate-model-catalog.ts / catalog-sync.test.ts）已删除（运行时零消费、脚本全可再生、
  * git 历史可考），「catalog-sync 双向校验红线」随之退役；纯数据约束保留
- * （可序列化 / 可快照测试面不变）。设计定型「格式级 profile × 家族覆盖」
- *（cherry reasoningProfiles 同构），出处见《Responses格式适配》设计第六节。
+ * （可序列化 / 可快照测试面不变）。设计定型「格式级 profile × 家族覆盖」。
  */
 export interface ResponsesWireQuirks {
   /** 三值语义同 FamilyQuirks.toolChoiceMode（responsesWire 视图覆盖基表值），无 'none'——协议本身有 tool_choice */
@@ -138,7 +137,7 @@ export interface FamilyQuirks {
    */
   toolChoiceMode: 'named' | 'required' | 'auto' | 'none'
   /**
-   * 档位收敛映射（wire 查表，学 cherry-studio effortMap）。
+   * 档位收敛映射（wire 查表）。
    * 定稿：仅 deepseek 有特例映射（anthropic 线真消费）；
    * 其余厂家全透传，不预演官方折叠（服务端行为）。
    */
@@ -190,15 +189,14 @@ export interface FamilyQuirks {
 
 /**
  * DeepSeek 专用 wire 收敛（定稿唯一特例）。
- * 出处：cherry-studio deepseek 特例——官方 thinking_mode 折叠 medium/xhigh→high，
- * cherry 有意发 max 直达顶档（注释 "leaving max as the only way to reach the top
- * level"），故 wire 上 medium→high、xhigh→max。其余厂家全透传，不预演折叠。
+ * 官方 thinking_mode 把 medium/xhigh 折叠为 high，max 是唯一直达顶档的写法，
+ * 故 wire 上 medium→high、xhigh→max。其余厂家全透传，不预演折叠。
  */
 function trimEffort(e: EffortLevel): EffortLevel {
   return e === 'medium' ? 'high' : e === 'xhigh' ? 'max' : e
 }
 
-// ── 厂家表项（按官方文档填，注释附出处）──
+// ── 厂家表项（按官方文档填）──
 
 /**
  * claude 安全输出上限单源：quirks 表 claude 档 maxOutputTokens，同时是
@@ -255,7 +253,7 @@ export function quirksFor(model: string): FamilyQuirks {
           toolChoiceMode: 'named',
           effortWire: 'reasoning-effort',
           structuredMode: 'json_schema',
-          // codex 后端强制 include encrypted_content + reasoning item 回传（cherry codex.ts 印证）
+          // codex 后端强制 include encrypted_content + reasoning item 回传
           echoReasoning: 'encrypted',
           verbosity: true, // Responses 独有 text.verbosity（留位不发）
           maxTokensIncludesReasoning: false, // 待核实（观测 reasoningTokens 后定，缺口 8）
@@ -283,7 +281,7 @@ export function quirksFor(model: string): FamilyQuirks {
           toolChoiceMode: 'named',
           effortWire: 'reasoning_effort', // 顶层参数（与 Chat 线同款）
           structuredMode: 'json_schema',
-          // CLI 代理语义（拒绝回传 reasoning item，cherry grokCli.ts 剥除处理）；官方线实测后翻档
+          // CLI 代理语义（拒绝回传 reasoning item → 剥除）；官方线实测后翻档
           echoReasoning: 'strip',
           verbosity: false,
           maxTokensIncludesReasoning: true, // 含推理 token（官方文档：上限计入推理消耗）
@@ -297,7 +295,7 @@ export function quirksFor(model: string): FamilyQuirks {
         // 官方 tool_choice 仅 auto/none/required 三个字符串枚举，无指名工具
         //（CCats 等网关对 anthropic 端点发 type:'tool' 指名会 400）→ required 转 any
         toolChoiceMode: 'required',
-        // 唯一 effort 特例（cherry 出处见 trimEffort）：official thinking_mode
+        // 唯一 effort 特例（见 trimEffort）：official thinking_mode
         // 折叠 medium/xhigh→high，wire 有意发 medium→high、xhigh→max
         effortMap: { medium: 'high', xhigh: 'max' },
         maxOutputTokens: 384_000, // v4-pro 最大输出 384K

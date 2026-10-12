@@ -13,8 +13,8 @@ import { log } from '../../../log/index.js'
 
 // -（全量代码）：/auto-write（self-heal）与 /spawn 长任务闸的静默
 // 挂死兜底 watchdog——编排器内部 await 永不 settle 时 isSelfHealRunning / isSpawnRunning
-// 永真 → 本书全部写端点 + 删书/改名（busyGate 同口径）永久 409，仅重启可解。范式参照
-// rag.ts watchdog，但不照抄其固定 10min 总时长：self-heal 批量连写合法运行可持续
+// 永真 → 本书全部写端点 + 删书/改名（busyGate 同口径）永久 409，仅重启可解。范式对齐
+// rag.ts watchdog 形态，但不设其固定 10min 总时长：self-heal 批量连写合法运行可持续
 // 远超任何固定上限，改「进度复位式计时」——每个编排事件经广播/登记点复位计时，只有
 // 「无任何事件推进的静默时长」超限才判挂起。
 // 阈值推导：编排链静默上界 = 一次 runSpec 全链封套（runner.ts:103 DEFAULT_TIMEOUT_MS

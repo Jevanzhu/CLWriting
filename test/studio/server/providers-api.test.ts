@@ -256,7 +256,7 @@ describe('P0-3 structured 降级记忆失效', () => {
   })
 })
 
-describe('/api/providers API Key 单点 + vault 状态点（I6·dsh 口径）', () => {
+describe('/api/providers API Key 单点 + vault 状态点（I6 口径）', () => {
   it('POST charset 外 key（空格/控制符/非 ASCII）→ 400 且文案不回显 key 本体', async () => {
     for (const bad of ['sk-abc def', 'sk-abc\ndef', 'sk-密钥']) {
       const r = await req<{ error: string }>({

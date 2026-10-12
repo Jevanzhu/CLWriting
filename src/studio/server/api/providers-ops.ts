@@ -140,7 +140,7 @@ function parseConnectionInput(
   if (!baseUrl) return { ok: false, error: 'baseUrl 必填' }
   // scheme 校验（与 rag-providers 同口径）——防任意串当 URL 使 listModels/probe 打错目标
   if (!/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'baseUrl 须以 http(s):// 开头' }
-  // （dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留），由调用方按语义处理
+  // 已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留），由调用方按语义处理
   const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
   if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
     return { ok: false, error: apiKeyRefusal('illegalCharacters') }

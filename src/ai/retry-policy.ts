@@ -1,5 +1,5 @@
 /**
- * 重试策略 + 退避公式（批次直抄公式）。
+ * 重试策略 + 退避公式。
  *
  * - 指数退避：exponent=min(retry-1,1024)；exponential=min(initial*2^exp, max)
  * - 对称抖动：jitter=1-jitterRatio+2*jitterRatio*random（围绕 1 对称，均值不变）

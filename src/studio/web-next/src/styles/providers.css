@@ -224,7 +224,7 @@
 }
 
 /* ── 表单骨架（AI / RAG 编辑器共用） ── */
-/* 分组说明（dsh intro）：标题下的一行灰字 */
+/* 分组说明：标题下的一行灰字 */
 .ai-service-panel .group-intro {
   margin: -2px 0 var(--size-4-1);
   padding: 0 var(--size-4-1);

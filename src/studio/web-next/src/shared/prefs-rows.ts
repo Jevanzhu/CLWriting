@@ -380,7 +380,7 @@ export function createPrefRows(refs: PrefRefs): PrefRows {
 
 /** 将 API 读到的 prefs 应用到各 ref。
  * 34 键手写 if 链收敛为行表驱动逐键守卫——typeof 守卫/边界/取整/trim/
- * 枚举白名单逐键照抄原实现，行为等价；数值边界与取整从行窗口（NumWindow）单源派生。 */
+ * 枚举白名单逐键一致（行为等价）；数值边界与取整从行窗口（NumWindow）单源派生。 */
 export function applyPrefsTo(rows: PrefRows, p: GlobalPrefs): void {
   for (const row of Object.values(rows)) {
     const v = p[row.key]

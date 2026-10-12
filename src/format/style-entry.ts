@@ -150,7 +150,7 @@ export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
 
 // ── 条目库读取 TTL+mtime 探针缓存 ─────────────────────
 // 消费面是写稿热路径：book-rules loadAiFlavorRule → rulesPromptParts/applicableRules
-// （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。手法照抄
+// （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。做法对齐
 // 同路径先例 setting-rule（TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
 // 「每文件 (mtimeNs,size) 清单」而非目录 mtime——条目常被整文件就地改写（作者编辑器
 // 保存多为 in-place，目录 mtime 不动会漏）回归正是「改内容须失效」钉住

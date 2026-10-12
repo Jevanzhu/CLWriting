@@ -716,7 +716,7 @@ async function runGatedGenerationIn(
   // 长任务并发闸（分钟级 AI 任务，重复点击=双倍费用）
   const release = acquireIn(state, opts.book, opts.action)
   if (!release) return replyError(res, 409, 'BUSY', opts.busyText)
-  // -①：接入中断通道——接法照抄 stream.ts
+  // -①：接入中断通道——接法同 stream.ts
   // spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl → driver.registerCtrl
   // → settle（外层 finally）统一注销。实现移位：十段
   // 复制收编本包装；owner 分槽语义与 ctrl 注册名逐位保留。

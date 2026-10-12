@@ -392,7 +392,7 @@ export interface SanitizeReport {
 }
 
 /**
- * 发送前历史消毒（方案 §6.4，治 #3a/#3b；学 cherry-studio ensureValidHistory）。
+ * 发送前历史消毒（方案 §6.4，治 #3a/#3b）。
  *
  * 多轮带 tools 往返后历史可能出现的非法序列（Anthropic/OpenAI 硬性 400）：
  * - 空 content 消息 → 剔除；reasoning-only assistant（剔 reasoning 后无

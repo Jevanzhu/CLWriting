@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 模型行编辑器（阶段 14§7.1，对齐 DSH 四字段 + ModelListEditor 探测交互）。
+ * 模型行编辑器（阶段 14§7.1，四字段 + 探测交互）。
  * 每行：id（必填/唯一）+ name（可选）；行内展开 contextWindow/maxTokens（K/M 后缀，空 = 不声明）。
- * 「获取模型列表」按 dsh 语义探测端点——用表单当前值（含未保存的 Key，新增卡一趟完成），
+ * 「获取模型列表」探测端点——用表单当前值（含未保存的 Key，新增卡一趟完成），
  * 编辑卡 Key 留空则回退已存 id 凭据；成功即弹勾选窗（未配置的预勾、已配置的不勾），
  * 采纳按 id 去重追加（用户调过的行原样保留）；失败就地报错不打断手填。
  * 校验交给父层（validateModels 纯函数 + abort)；本组件可被 v-model 双向草稿。
@@ -22,7 +22,7 @@ const props = withDefaults(
   defineProps<{
     /** 外部模型行草稿（受控：父层保存前也读这里） */
     modelValue: ModelRowDraft[]
-    /** 探测目标（dsh ProbeTarget）：表单现值优先（含未保存 Key）；编辑卡可回退已存 id */
+    /** 探测目标：表单现值优先（含未保存 Key）；编辑卡可回退已存 id */
     probe: { id?: string; protocol: Protocol; baseUrl: string; apiKey: string }
     /** 是否禁用（如保存中） */
     disabled?: boolean
@@ -84,7 +84,7 @@ function removeRow(i: number): void {
   sync()
 }
 
-/** 展开态（dsh：默认全折叠——id/名称就在行内可编，容量是例外才折叠；按 _key 记录，删行天然不错位） */
+/** 展开态（默认全折叠——id/名称就在行内可编，容量是例外才折叠；按 _key 记录，删行天然不错位） */
 const expanded = ref<Set<number>>(new Set())
 function toggleRow(key: number): void {
   const n = new Set(expanded.value)
@@ -98,7 +98,7 @@ function rowChanged(i: number, patch: Partial<ModelRowDraft>): void {
   sync()
 }
 
-// ── 探测（dsh：ModelListEditor 自持 fetch，成功即弹勾选窗） ──
+// ── 探测（自持 fetch，成功即弹勾选窗） ──
 /** 实际探测体：表单现值（含未保存 Key）优先——新增卡一趟完成；无 Key 的编辑卡回退已存 id */
 const probeBody = computed<Parameters<typeof fetchModels>[0] | null>(() => {
   const p = props.probe
@@ -106,7 +106,7 @@ const probeBody = computed<Parameters<typeof fetchModels>[0] | null>(() => {
   if (p.id) return { id: p.id }
   return null
 })
-/** 不可探测时的按钮提示（dsh probeBlocked：理由就地说，不发注定失败的请求） */
+/** 不可探测时的按钮提示（理由就地说，不发注定失败的请求） */
 const fetchHint = computed(() => {
   if (probeBody.value) return undefined
   return props.probe.baseUrl ? '填写 API Key 后可获取（编辑已有卡也可留空，用已存 Key）' : '填写 API 地址后可获取'
@@ -137,7 +137,7 @@ async function fetchList(): Promise<void> {
       failure.value = '端点未返回任何模型'
       return
     }
-    // dsh：已配置行不预勾——采纳永不改写用户调过的容量
+    // 已配置行不预勾——采纳永不改写用户调过的容量
     const known = new Set(rows.value.map((x) => x.id.trim()))
     candidates.value = r.models
     picked.value = new Set(r.models.filter((m) => !known.has(m)))

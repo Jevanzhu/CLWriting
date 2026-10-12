@@ -12,7 +12,7 @@
  * - 相位 d（agent 轮循环 / 工具执行 / 确认闸）→ `chat/turns.ts`
  * - 相位 e（六失败出口收敛 finishTurn / 收尾压缩 finalizeHistory）→ `chat/finish.ts`
  *
- * 架构要点（照搬 self-heal 的并发锁 + 中断模式）：
+ * 架构要点（并发锁 + 中断模式同 self-heal）：
  * - per-book `Map<ChatRunState>` 并发锁
  * - 编排级 `AbortController` 贯穿循环 + 总时长 deadline
  * - 工具确认用 `pending Map<callId, resolve>` + 超时兜底
@@ -92,7 +92,7 @@ export async function waitChatSettled(bookName: string): Promise<void> {
 
 /** E1a（steer Inbox 合流）：per-book 待处理消息队列。
  * 对话运行中发来的消息入队（steer「入队让出」语义），当前轮正常完成后自动消费队头续链；
- * abort/error/超时则丢弃队列（cherry steer 四分支：aborted/error → 丢弃，持久化 user 行留历史可重发）。 */
+ * abort/error/超时则丢弃队列（steer 四分支：aborted/error → 丢弃，持久化 user 行留历史可重发）。 */
 interface PendingChatMsg {
   /** 逐条语义字段各自独立——排队时完整保留 message/regenerate/chapter，
    *  续链时不得从上一轮继承（base 含 regenerate 时续链曾走恢复分支吞掉排队新消息） */

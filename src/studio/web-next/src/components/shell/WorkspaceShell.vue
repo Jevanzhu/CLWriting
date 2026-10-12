@@ -26,7 +26,7 @@ import { refreshCachedDoc } from '../../shared/doc-freshness'
 import { useScopedAction } from '../../composables/useScopedAction'
 import { onFullScreenChange } from '../../shared/fullscreen'
 
-// Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
+// 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
 // flex 布局（非旧 web 的 overlay 浮层）；折叠走 width 过渡，专注模式覆盖折叠态。
 // macOS 交通灯处理在 Ribbon 列内（顶部留白 + 可拖动），主区/sidebar 顶部与交通灯同排。
 const props = defineProps<{ bookName: string }>()

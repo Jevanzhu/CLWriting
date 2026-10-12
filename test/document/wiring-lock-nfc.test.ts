@@ -9,7 +9,7 @@
  * 静默失效（丢失更新窗）。修复后：三侧统一「先 toNfcName 后 platformCaseFold」
  * （与 docJoinKey 同序）。
  *
- * 断言形态学 casefold-keys.test.ts：R0916-7-P3-8 起锁键本体在 DocContext
+ * 断言形态同 casefold-keys.test.ts：R0916-7-P3-8 起锁键本体在 DocContext
  * （svc.ctx.wiringFileLockKey 直调，不再 as unknown as 摸类私有面）；精确钉定键字节——NFC 输入键与修前逐位一致（R45-2 字节稳定不变量
  * 防回归），仅 NFD 输入键变化。行为级：真实跨进程文件锁——终稿链键（NFD 磁盘
  * 路径派生）持锁后，保存链键（NFC 清单 relPath 派生）请求同一锁文件自锁超时，

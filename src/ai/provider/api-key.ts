@@ -1,13 +1,13 @@
 /**
  * API Key 合法性单点——「一条 well-formed key 的唯一定义」。
  *
- * 口径参照 dsh（deepseek-harness packages/llm/llm/src/api-key.ts）：字符集 = 可打印
- * ASCII 且不含空格——HTTP header 值能逐字承载的集合。这是传输不变量而非某厂商策略：
+ * 字符集口径 = 可打印 ASCII 且不含空格——HTTP header 值能逐字承载的集合。
+ * 这是传输不变量而非某厂商策略：
  * 集合外的 key 到不了任何 provider（fetch 拒绝构造 header），与其运行期换一个不可解释
  * 的 401，不如写入时就地解释拒绝。
  *
  * 与前端孪生 web-next shared/provider-format.ts 的 apiKeyFailure 保持同 charset
- * （dsh「keep the two in step」）：孪生另做 UX 判断（引号包裹、误贴请求头），本模块
+ * （两处保持同步）：孪生另做 UX 判断（引号包裹、误贴请求头），本模块
  * 只管传输不变量。留空是调用方的配置态（编辑留空 = 保留原 key），本函数只判已提交值。
  */
 
@@ -35,7 +35,7 @@ export function normalizeApiKey(raw: string): ApiKeyCheck {
 
 /**
  * 拒绝文案（端点复用，保证口径单一）——文案永不回显 key 本体：任何形式的把密钥
- * 回显进错误消息/日志/UI，都是这条诊断要避免的失败（dsh assertUsableApiKey 同则）。
+ * 回显进错误消息/日志/UI，都是这条诊断要避免的失败。
  */
 export function apiKeyRefusal(reason: ApiKeyRejection): string {
   return reason === 'empty'

@@ -78,7 +78,7 @@ describe('F1-P3 verifyVisibleRecorded（模型可见 ⟺ 已记录）', () => {
 })
 
 describe('G2-1 verifyVisibleRecorded 三种登记形状（settings/snapshot + revision/ref + skills/snapshot）', () => {
-  /** 事件数组 → 带 seq 的 ChatEvent[]（模拟落库后的 seq 分配；模式照抄 branch-tree.test.ts） */
+  /** 事件数组 → 带 seq 的 ChatEvent[]（模拟落库后的 seq 分配；模式同 branch-tree.test.ts） */
   function seqEvents(evs: NewEvent[]): ChatEvent[] {
     return evs.map((ev, i) => ({
       ...ev,

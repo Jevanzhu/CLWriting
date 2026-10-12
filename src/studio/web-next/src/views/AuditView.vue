@@ -337,7 +337,7 @@ async function doClear(): Promise<void> {
 
 <style scoped>
 /* 变量纪律：只引 tokens.css 既有 token（此前 --text-dim/--bg-elev/--border/--bg/--text
- * 等短名变量全库无定义，静默回退 initial——已按语义映射到 Obsidian 命名体系）。
+ * 等短名变量全库无定义，静默回退 initial——已按语义映射到 tokens.css 命名体系）。
  * style 段硬编码 rem 字号全部就近映射 UI 字号档（tokens.css
  * --font-size-*）——≤0.75rem→xs、0.76-0.85rem→s、0.86-1.0rem→m、>1.0rem→l
  * （1.35rem 标题→l）；只换字号变量，间距/圆角等布局度量不动。 */

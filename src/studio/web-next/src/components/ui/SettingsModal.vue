@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 设置弹窗（Obsidian 风格：左侧分类导航 + 右侧列表项）。
+// 设置弹窗（左侧分类导航 + 右侧列表项）。
 // 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
 // 各 tab 内容拆分到 Settings*.vue 子组件；设置域共享样式在 settings-shared.css
 // （hh §八-16 自本件 <style> 原样搬出——全局样式，全部 Settings* 子件共用）。
@@ -68,7 +68,7 @@ watch(
 // IA 重组：全局默认按选项类别拆 4 个独立一级页（写作默认/AI 写作/智能分析/版本保留），
 // 「本书」收敛为单页（书名 + 各领域的本书独立设定覆盖组 + 定稿版本 + 存储）——共 8 项导航。
 // 「本书」置顶；其余 8 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方/诊断）
-// 三组小节标题分组（Obsidian 设置导航范式：靠命名分组，无线条）。
+// 三组小节标题分组（靠命名分组，无线条）。
 type Tab = 'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'diagnostics' | 'book' | 'providers'
 const activeTab = ref<Tab>('appearance')
 /** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */

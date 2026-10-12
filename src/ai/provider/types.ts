@@ -37,7 +37,7 @@ export interface ProviderConf {
   /**
    * 模型行（加性扩展，阶段 14 §7.1）——可选；缺省 = 无模型编辑器覆盖，行为与旧版完全一致。
    * 用于自定义网关：手写模型 + 行展开 contextWindow / maxTokens（K/M 输入），空值 = 回落 quirks 表/协议兜底。
-   * 行结构开放：未知/未来字段原样存活，编辑不整行重建（DSH 教训）。
+   * 行结构开放：未知/未来字段原样存活，编辑不整行重建。
    */
   models?: ModelConf[]
   /** provider 级价格表（每百万 token 单价；models[].pricing 同键覆盖）。
@@ -55,7 +55,7 @@ export interface ProviderConf {
   notes?: string
 }
 
-/** 模型行（阶段 14 §7.1）——已拍板对齐 DSH 四字段：id / name + 行展开 contextWindow / maxTokens */
+/** 模型行（阶段 14 §7.1）——已拍板四字段：id / name + 行展开 contextWindow / maxTokens */
 export interface ModelConf {
   id: string
   /** 显示名（选择器回落显示 id） */
@@ -72,7 +72,7 @@ export interface ModelConf {
     cacheWritePerMTok?: number
     currency?: string
   }
-  /** 行结构开放：未知/未来字段原样存活（DSH 教训） */
+  /** 行结构开放：未知/未来字段原样存活 */
   [key: string]: unknown
 }
 
@@ -297,7 +297,7 @@ export type GenErrorCode =
   | 'UNKNOWN'
 
 /**
- * 统一 token 用量（批次补 cache 记账，学 cherry TokenUsage 三分）。
+ * 统一 token 用量（批次补 cache 记账，input / output / cache 三分）。
  *
  * inputTokens 口径已归一：**不含** cache 命中读量——OpenAI 兼容线
  * （Chat/Responses）的 prompt_tokens/input_tokens 原本已含 cached_tokens，

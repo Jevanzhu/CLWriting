@@ -40,7 +40,7 @@ afterEach(() => {
 // ── R64-12：writeVersion reason 消毒 ─────────────
 
 test('R64-12：reason 含换行/` # ` → 落盘单行且 readVersionMeta 往返不丢', () => {
-  // 仿 finalize.ts:97 的真实形态：reason 嵌章节标题（标题可含换行/# /引号——AI 产出面）
+  // 按 finalize.ts:97 的真实形态：reason 嵌章节标题（标题可含换行/# /引号——AI 产出面）
   const dirty = '定稿 ch:0001 标题带换行\n伪装行: 假字段 # 尾注释'
   const id = writeVersion(join(root, '工作区', VERSIONS_DIR_NAME), 'doc_a', '内容', {
     origin: 'finalize',

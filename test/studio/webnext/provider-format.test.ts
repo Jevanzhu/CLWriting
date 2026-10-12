@@ -90,7 +90,7 @@ describe('apiKeyFailure（P6 Key 前端校验）', () => {
     expect(apiKeyFailure('OPENAI_API_KEY=sk-abc')).toContain('请求头')
     expect(apiKeyFailure('Authorization: Bearer sk-abc')).toContain('请求头')
   })
-  it('含 = 的合法 key 不误判为请求头（dsh ENV_LINE 收窄：= 后非 =，base64 尾垫不杀）', () => {
+  it('含 = 的合法 key 不误判为请求头（环境行收窄：= 后非 =，base64 尾垫不杀）', () => {
     expect(apiKeyFailure('ABCD==')).toBeNull()
     expect(apiKeyFailure('sk-abc=def')).toBeNull()
   })

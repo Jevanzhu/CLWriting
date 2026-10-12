@@ -106,7 +106,7 @@ export async function updateChapterMetaLocked(
       ...lockFailures.wiring,
     },
     body: async () => {
-      // 单次 Buffer 读派生文本与判据（照抄 updateDocMeta 修法）
+      // 单次 Buffer 读派生文本与判据
       // ——原 readDoc（610）与 readFileSync（619）两次独立读盘，两读之间文件被并发替换
       // （他进程改名/移动不持 save 锁）时判据与写回内容错源（微 TOCTOU）；且第二次读
       // 无守卫，ENOENT 裸穿 MoveResult 契约（ee- 同族）。

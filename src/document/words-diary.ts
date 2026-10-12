@@ -263,7 +263,7 @@ function compactWordsDiaryText(text: string, today: string): string {
  * 超阈值时压缩字数日记（appendBaseline 后触发，best-effort——任何异常吞掉，
  * 不影响基线写入主路径，下次触发再试）。
  *
- * 并发口径照 journal maybeCompactJournal 先例：append 侧不加锁维持
+ * 并发口径同 journal maybeCompactJournal 先例：append 侧不加锁维持
  * O_APPEND 原子裁定；compact 侧非阻塞占锁（拿不到直接弃本轮）+ 锁内基线 stat →
  * 读算 → rename 前重 stat 复核（size/mtime 任变 = 读算期间他进程有 append →
  * 放弃本轮，新行随原文件完整保留）。原子写 fsync: true 同 journal compact。

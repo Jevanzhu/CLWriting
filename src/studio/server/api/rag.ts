@@ -325,7 +325,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       // （登记备查 →机械批处置）：rebuild 清库面对齐
-      // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
+      // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（同 snapshots.ts prune
       // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
       const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
       if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)

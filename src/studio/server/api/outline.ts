@@ -143,7 +143,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 }
 
 /** buildOutlinePromptWithFiles 伴随 files——实际注入源清单（相对书根、注入序去重）。
- * 仿 draft-pipeline 的 DraftPrompt（模式）：铁律①「模型可见⟺已记录」——prompt 注入的
+ * 同 draft-pipeline 的 DraftPrompt（模式）：铁律①「模型可见⟺已记录」——prompt 注入的
  *  每个来源文件都进 files（经 runSpec promptFiles → llm/call promptMeta.files 溯源）。
  *  只列真实入 prompt 的段：空段 = 该源未注入，不登记（promptMeta 可查「本次未注入」）。 */
 interface OutlinePrompt {

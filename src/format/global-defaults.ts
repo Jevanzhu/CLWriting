@@ -94,7 +94,7 @@ const defaultsCache = new Map<string, { mtimeNs: bigint; size: number; val: Glob
 /**
  * 读全局书级默认（userData/global.json）。
  *
- * 完全照 readGlobalSnapshotPolicy 的四重容错（照抄范式，不引入新故障面）：
+ * 完全对齐 readGlobalSnapshotPolicy 的四重容错（同范式，不引入新故障面）：
  * - 读侧四重容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非法 → 该项 undefined（上层继续回退）
  * 逐键类型校验：单键写坏不影响其余键。
  */

@@ -1,6 +1,6 @@
 /**
  * C2 资源层单测：
- * - 一致性（离线重算，cherry catalog-source-sync 同族）：versions.json 末位哈希
+ * - 一致性（离线重算）：versions.json 末位哈希
  *   = 实际资源文件哈希；每个键有对应文件
  * - 资源化零失真：loadBuiltinPrompt 逐字等于 C1 金测夹具（迁移链的证据）
  * - overlay 解析：存在即优先生效

@@ -3,8 +3,8 @@
  *
  * 修复前三观感：handler 同步阻塞事件循环、无任何缓存键（每次请求两遍全目录扫描）、
  * 整文件读（角色卡正文全进 IO 面，只用 fmRaw）。修复后：读面异步化 + fm 头读
- * （frontmatter.ts readFileFmOnly）+「目录指纹 + TTL + FIFO」缓存壳（手法照抄同
- * 文件 R46-16 settings 壳）。断言用 MISS 计数观测口（completionNamesCache.stats()
+ * （frontmatter.ts readFileFmOnly）+「目录指纹 + TTL + FIFO」缓存壳（手法与同文件
+ * R46-16 settings 壳一致）。断言用 MISS 计数观测口（completionNamesCache.stats()
  * .misses），时钟注入走 vi.useFakeTimers({toFake:['Date']})（先例 r0912-ttl-write
  * -clock：TTL 到期即时推走，不付真实睡眠）；目录 mtime 变化臂写真实文件，跨同毫秒
  * 档的 5ms sleep 为 rhythm-cache 先例手法。无平台门，三平台同跑。

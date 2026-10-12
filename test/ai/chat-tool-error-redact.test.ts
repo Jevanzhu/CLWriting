@@ -7,7 +7,7 @@
  *
  * 触发源说明：真实注册表 executor 内部各自吞异常返回 ToolResult，天然路径难达兜底
  * catch——测试用 vi.mock 提供必抛错的 executor（readonly 工具，绕开确认闸）直测
- * executeChatTool（R55-C-4 起导出，仿 waitConfirm「导出供单测」先例）。
+ * executeChatTool（R55-C-4 起导出，同 waitConfirm「导出供单测」先例）。
  */
 import { describe, expect, it, vi } from 'vitest'
 

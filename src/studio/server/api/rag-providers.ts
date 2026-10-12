@@ -47,7 +47,7 @@ function parseRagInput(
   const name = String(body['name'] ?? '').trim()
   const endpoint = String(body['endpoint'] ?? '').trim()
   const model = String(body['model'] ?? '').trim()
-  // （dsh 口径）：已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留）
+  // 已提交的 key 过传输不变量单点；留空是配置态（新增必填/编辑保留）
   const keyChecked = normalizeApiKey(String(body['apiKey'] ?? ''))
   if (!keyChecked.ok && keyChecked.reason === 'illegalCharacters') {
     return { ok: false, error: apiKeyRefusal('illegalCharacters') }

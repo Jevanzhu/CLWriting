@@ -18,7 +18,7 @@
  * - order 是「分层优先级契约」的数值化：小者靠前且约束力更强——
  *   平台约束（输出格式纪律/协议）> 写作风格（钩子/情绪/文风）> 设定数据（书设定注入）。
  *   预算/裁剪场景（设定注入预算）从大 order 端开始丢，平台约束永不被裁。
- * - complete:true 的段独占整份 prompt（dsh 语义：整段即全部）。
+ * - complete:true 的段独占整份 prompt（整段即全部）。
  * - `{{variable}}` 渲染期插值（未提供的变量原样保留）。
  *
  * 现有 writer/review/analyst 的段 order 为保持既有字节序（前缀缓存/行为零变化）
@@ -38,7 +38,7 @@ export interface PromptSection {
 
 /** 标准分层带（新 prompt 用；数值小 = 靠前 + 约束力强 + 预算裁剪时最后丢） */
 export const SECTION_ORDER = {
-  /** 人设：角色身份定调（对应 dsh 的 harness 身份位） */
+  /** 人设：角色身份定调 */
   PERSONA: 0,
   /** 平台约束：输出格式纪律 / 工具协议——最硬，永不被风格/设定覆盖 */
   PLATFORM: 100,

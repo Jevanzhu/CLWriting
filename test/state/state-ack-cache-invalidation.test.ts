@@ -7,7 +7,7 @@
  * 成功路径挂 forgetStateCache（对照 review.ts verdict 落盘即 forgetTreeIssuesCache
  * 先例）；幂等 acknowledged:false 路径不改盘，不挂 forget（缓存语义不变）。
  *
- * 装置（手搭书脚手架 + 假 req/res 直调 handler）照抄 journal-acknowledge-endpoint.test.ts；
+ * 装置（手搭书脚手架 + 假 req/res 直调 handler）同 journal-acknowledge-endpoint.test.ts；
  * 注册期经 ctx 把 TTL 拉大（60s，组装根注入；R0916-7-P3-6 起原模块级 setter/has 钩子
  * 已删，命中观测读 stateCache.has()），无本修复时第二次 GET 必然命中陈旧缓存，用例确定性。
  */

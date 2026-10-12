@@ -214,7 +214,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           const mainSession = await ctx.driver.ensureSession(params['name']!, ctx.workDir!)
           // 接入中断通道——此前 generateTool×3
           // 未接 driver ctrl 注册面，/interrupt 对在途三审完全无效且 driver.isRunning 假空闲
-          // （假成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排
+          // （假成功）。接法同 stream.ts spawn/self-heal 的 register/unregister 形态：编排
           // 段新建 ctrl → driver.registerCtrl（owner='review:<书名>'，含书名使跨书并发互不
           // 误伤；同书重入已被 reviewRunning + 任务闸 409 挡住，同 owner 串行换新安全）→
           // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（口径）

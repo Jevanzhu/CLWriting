@@ -2,7 +2,7 @@
  * R47-11（四十七轮）回归：walkSourceStats 增量探测的 per-book 3s TTL 节流。
  *
  * 动机：单章机检链（runCheckForDocument → rebuild → tryIncrementalRebuild）每调
- * 一次就对四棵源树逐文件 readdir+stat——SMB/网盘卷上单遍秒级。修复：照抄
+ * 一次就对四棵源树逐文件 readdir+stat——SMB/网盘卷上单遍秒级。修复：同
  * state.ts sweepLastAt（R43-2）纪律的 Map<bookRoot, {at, stats}> 节流，仅
  * opts.throttleSourceProbe 调用方 opt-in（直连 rebuild 的「源变立即可见」语义
  * 被 rebuild.test.ts X-P2-1/R-13 系列锚定，默认不节流）。观测面：__testHooks

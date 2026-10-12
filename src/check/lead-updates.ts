@@ -161,7 +161,7 @@ export function readLeadUpdateChapterTag(absPath: string): number | null {
 }
 
 // ── ff- / hh 本章推进单一真相源 ──────────────
-/** 账本推进主文件（常量归一唯一出处——此前 lead-finalize / lead-update-draft 各持一份） */
+/** 账本推进主文件（常量归一唯一单源——此前 lead-finalize / lead-update-draft 各持一份） */
 export const LEAD_UPDATES_FILE = '工作区/账本推进.md'
 /** 批量连写归档目录（章节暂存；同上归一） */
 export const LEAD_UPDATES_ARCHIVE_DIR = '工作区/.账本推进暂存'

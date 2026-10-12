@@ -86,7 +86,7 @@ describe('R51-C-3: anthropic message_delta 合并保留先前 delta 的 cache �
               delta: { stop_reason: 'end_turn' },
               usage: { output_tokens: 5, cache_read_input_tokens: 100, cache_creation_input_tokens: 7 },
             }
-            // 末 delta：R33-4 认的 cc-switch 形态（缺 cache 字段、output 更新）
+            // 末 delta：R33-4 认的非标网关形态（缺 cache 字段、output 更新）
             yield { type: 'message_delta', delta: {}, usage: { output_tokens: 9 } }
           })(),
       },

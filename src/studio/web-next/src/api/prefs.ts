@@ -55,7 +55,7 @@ export async function putBookPrefs(
 
 // ── 全局编辑器偏好（.clwriting/global.json）──
 
-/** 全局编辑器偏好：跨书共享的外观设置（对齐 Obsidian vault 级配置）。 */
+/** 全局编辑器偏好：跨书共享的外观设置。 */
 export interface GlobalPrefs {
   theme?: 'light' | 'dark'
   proseSize?: number

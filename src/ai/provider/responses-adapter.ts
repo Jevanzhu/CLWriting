@@ -3,14 +3,14 @@
  *
  * 骨架自 84e370b^ 历史找回（曾随误判停用删除启用批回接），
  * 按《Responses格式适配-实现方案》重写：
- * -终止事件契约（学 dsh stream.ts）：流必须以 completed / incomplete / failed 之一
+ * -终止事件契约：流必须以 completed / incomplete / failed 之一
  *   收尾——failed/error 事件 → error 不发 done；无终止事件 → 传输截断（可重试）；
  *   completed 零产出 → 判错不判成功；incomplete 非 max_output_tokens 原因 → error。
  * -参数翻译全量走 responsesQuirksFor 视图（tool_choice 三值 / effort 三落点 /
  *   structuredMode / store:false 隐私下发 / include encrypted_content）。
  * -回合状态：assistant 轮 reasoning 块按 echoReasoning 回插（gpt=encrypted 维持
  *   推理延续）；usage 细节计量（cached_tokens / reasoning_tokens）。
- * -降级记忆照 openai-adapter 当前实现（lookupDegraded 新鲜读 + persistDegraded 双写）。
+ * -降级记忆同 openai-adapter 当前实现（lookupDegraded 新鲜读 + persistDegraded 双写）。
  *
  * 与 Chat Completions（openai-adapter.ts）并存，由 registry 按 protocol 路由。
  * 线格式关键差异：input 数组（developer 角色）而非 messages；max_output_tokens；
@@ -91,8 +91,8 @@ export function asSdkParams(p: ResponsesParams): OpenAI.Responses.ResponseCreate
 /**
  * GenRequest → /v1/responses 请求体（全量翻译走 responsesQuirksFor 视图）。
  *
- * 网关偏差挂点（缺口 18，初版不建改写框架）：某网关 400 或缺字段时，按 cherry ark.ts
- * 模式（请求剥 include / 响应补 annotations）在此尾部加 per-family patch。
+ * 网关偏差挂点（缺口 18，初版不建改写框架）：某网关 400 或缺字段时，在此尾部加
+ * per-family patch（请求剥 include / 响应补 annotations）。
  */
 export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
   const q = responsesQuirksFor(conf.model ?? '')
@@ -158,7 +158,7 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
     input,
     stream: true,
     // 缺口 9：OpenAI 默认 store=true（响应留存 30 天）——书稿全文上行场景必须显式 false
-    //（cherry openai 线无条件 store:false 印证）；DeepSeek 恒 false 天然兼容、grok 无状态。
+    //（DeepSeek 恒 false 天然兼容、grok 无状态）。
     store: false,
   }
   // 阶段 14 §7.2：调用方显式 cap（req.maxTokens）优先；其次用户模型行覆盖；仍无 → 不发（同 OpenAI 线行为）
@@ -185,7 +185,7 @@ export function toParams(conf: ProviderConf, req: GenRequest): ResponsesParams {
     }
   }
 
-  // 缺口 5：tool_choice 翻译（学 openai-adapter 分档写法；Responses 指名为扁平
+  // 缺口 5：tool_choice 翻译（同 openai-adapter 分档写法；Responses 指名为扁平
   // {type:'function',name}，非 Chat 的 {type, function:{name}}）——分档决策单源见
   // tool-choice.ts（三适配器同构 if 树收敛；rw.toolChoiceMode 视图无
   // 'none' 档），此处只留动作 → wire 值发射：force → 'required'、force-named → 扁平
@@ -278,7 +278,7 @@ export function createOpenAIResponsesProvider(
       // 400 降级链（缺口 14）：structured → tools 两级剥除；attempts 构造 / 400 续跑闸 /
       // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
       // 判据 q.structuredMode 是 responsesQuirksFor 的 responsesWire 覆盖值（与 text.format
-      // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留（照搬原实现口径）。
+      // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留（同原实现口径）。
       // 携来源 userDataPath——降级记忆读/写按显式 path 分发
       const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 

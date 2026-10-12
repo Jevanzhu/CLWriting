@@ -6,7 +6,7 @@
  * 弹窗字体下拉（首次拉取 / font-cache TTL 过期后重拉）即闪控制台黑窗。本模块对齐项目子进程
  * 纪律：spawn('powershell.exe', [args], { windowsHide: true }) 直起、数组参数不经 shell。
  * PS 脚本对齐 font-list 口径（PresentationCore SystemFontFamilies，zh-cn 族名回落 en-us）；
- * 后处理 = font-list standardize 的 disableQuoting 裸名移植（\uXXXX 解码 + 剥包裹引号 + 大小写
+ * 后处理口径同 font-list standardize 的 disableQuoting（裸名 = \uXXXX 解码 + 剥包裹引号 + 大小写
  * 不敏感排序），调用方拿到的形态与 font-list({ disableQuoting: true }) 一致。
  *
  * 失败语义：spawn 失败 / 非 0 退出 / 超时 → 抛错（与 font-list 同口径），由调用方 catch 返回
@@ -129,7 +129,7 @@ export function decodeRegOutput(buf: Buffer): string {
 
 /** PowerShell stdout → 字体名数组（起为 spawnCollectKillFonts 骨架的结算
  *  回调）：PowerShell UTF-8 输出可能带 BOM 前导（Console.OutputEncoding 初始化）剥一次；
- *  font-list standardize 的 disableQuoting 移植口径（裸名 + 滤空）。 */
+ *  font-list standardize 的 disableQuoting 同口径（裸名 + 滤空）。 */
 function parsePowerShellFontStdout(out: string): string[] {
   const fonts = out
     .replace(/^\uFEFF/, '')

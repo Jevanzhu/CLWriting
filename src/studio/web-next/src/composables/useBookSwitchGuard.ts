@@ -299,7 +299,7 @@ export function useBookSwitchGuard(deps: BookSwitchGuardDeps): void {
       // 不走下方确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
       // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
       if (!n) {
-        workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
+        workbench.clear() // 口径：clear 早于 flushDirty（防双 spawn 窗）
         const failedEmpty = await doc.flushDirty()
         if (bookGen.stale(gen)) return // 挂起期间路由又变：交新轮回处理
         // flush 等待窗口内在途保存可能落成 conflict——这类条目不在

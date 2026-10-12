@@ -80,7 +80,7 @@ import { log } from '../../../log/index.js'
 export type { CharacterCard } from '../../../process/settings-context.js'
 
 // ── settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
-// 手法照抄同族先例 rhythm.ts / foreshadows.ts（探针 + 纯 TTL + FIFO 上限 +
+// 手法与同族先例 rhythm.ts / foreshadows.ts 同款（探针 + 纯 TTL + FIFO 上限 +
 // 书键 forget 挂点）：GET /settings 此前每请求全量重算 settingsLong——境界体系读取 +
 // 角色卡目录整读 + 时间线 md 扫描 + 关系线账本 + relations.json + countChapters 递归
 // 列正文目录，设定台面板打开/轮询反复触发。指纹按本端点实际读面构成：境界体系.md 与
@@ -176,7 +176,7 @@ export function getSettingsCachedAsync(bookRoot: string, ttlOverrideMs?: number 
 }
 
 // ── completion-names「目录指纹 + TTL」缓存壳 ──
-// 手法照抄上方 settings 缓存壳（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
+// 手法与上方 settings 缓存壳同款（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
 // 无任何缓存键，每次请求两遍全目录 fm 读（切书 + 编辑器 @ 键 5min 补拉反复触发）。
 // 指纹按本端点实际读面构成：设定/角色、设定/物品 两目录 mtime（增删改名落盘可见）；
 // 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与同值，宁多扫不脏读）。

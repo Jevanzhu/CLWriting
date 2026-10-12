@@ -75,7 +75,7 @@ function onModelDrafts(v: ModelRowDraft[]): void {
   modelDrafts.value = v
 }
 
-/** 探测目标（dsh ProbeTarget）：表单现值优先——含未保存的 Key/地址，新增卡一趟完成；
+/** 探测目标：表单现值优先——含未保存的 Key/地址，新增卡一趟完成；
  *  编辑卡 Key 留空时 ModelListEditor 回退 initial.id 用已存凭据。 */
 const probe = computed(() => ({
   id: props.initial?.id,
@@ -346,7 +346,7 @@ async function savePricing(clear = false): Promise<void> {
   color: color-mix(in srgb, var(--text-accent) 72%, var(--text-faint));
 }
 
-/* ── 折叠自定义设置（dsh customized）：不是盒子——一条发丝线 + 安静小字摘要，
+/* ── 折叠自定义设置：不是盒子——一条发丝线 + 安静小字摘要，
  *    避免在展开区的模块底上再叠白块（灰白交替是之前配色发脏的根源） ── */
 .adv-details {
   border-top: 1px solid var(--background-modifier-border);

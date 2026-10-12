@@ -4,7 +4,7 @@
  *    @keydown.esc 直连关闭，放行会误关弹窗丢半截输入；
  * ② 焦点圈（useFocusTrap）——打开时焦点入弹窗内首个控件（原依赖裸 autofocus，
  *    Tab 可逃出弹窗落到被遮罩的背景页）。
- * 弹窗体经 <teleport to="body"> 渲染，DOMWrapper 取法照 chapter-meta-dialog.test.ts。
+ * 弹窗体经 <teleport to="body"> 渲染，DOMWrapper 取法同 chapter-meta-dialog.test.ts。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, DOMWrapper } from '@vue/test-utils'

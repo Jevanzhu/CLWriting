@@ -350,7 +350,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       // .版本 快照，写稿系编排（self-heal/对话/手动写稿/后台收尾）的收尾正会写快照，
       // 在途放行 prune = 清理与收尾快照并发互踩；此前闸只挡同 action 重入，
       // 删书/改名 busyGate 是反向枚举面，生成类在途无人拦（矩阵单向不对称）。查法
-      // 照抄 analysis.ts analyze 端点精确形态：先查编排闸再占自身 action 闸，409 的
+      // 同 analysis.ts analyze 端点精确形态：先查编排闸再占自身 action 闸，409 的
       // code/error 与同族端点逐字节一致。
       const busyOrch = ctx.gate.busyReason(params['name']!, 'generate')
       if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)

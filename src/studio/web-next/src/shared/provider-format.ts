@@ -20,7 +20,7 @@ export function timeAgo(ts: number | undefined): string {
   return `${Math.floor(diff / 86400000)} 天前`
 }
 
-// ──§7.1 容量解析（K/M 后缀，DSH 同口径） ──
+// ──§7.1 容量解析（K/M 后缀） ──
 
 /** 把 128K / 1.5M / 8192 解析为 token；空串 → undefined；非法 → null。 */
 export function parseCapacity(raw: string): number | null | undefined {
@@ -53,7 +53,7 @@ export interface ModelRowDraft {
 }
 
 /**
- * 模型行校验（DSH 教训：id 必填且供应商内唯一；容量空串 = 未声明，非法 = 拒存）。
+ * 模型行校验（id 必填且供应商内唯一；容量空串 = 未声明，非法 = 拒存）。
  * 返回第一个错误的附加信息（error 文案 + 行索引 + 行内字段）；全部通过 → null。
  */
 export function validateModels(
@@ -112,9 +112,9 @@ export function dtoToModelDrafts(rows: ModelConfDto[] | undefined): ModelRowDraf
 
 /**
  * API Key 形状校验（新增/编辑共通，服务端 normalizeApiKey 的前端孪生）——返回错误文案，null = 通过。
- * 拒绝：仅空白；charset 外字符（与服务端同口径：不含空格的可打印 ASCII·dsh 对齐——
+ * 拒绝：仅空白；charset 外字符（与服务端同口径：不含空格的可打印 ASCII——
  * 集合外的 key 过不了 HTTP 头，就地拒绝优于上游 opaque 401）；误贴请求头/环境行。
- * 孪生纪律（dsh keep-the-two-in-step）：charset 规则改动须同步 src/ai/provider/api-key.ts。
+ * 孪生纪律：charset 规则改动须同步 src/ai/provider/api-key.ts。
  */
 export function apiKeyFailure(key: string): string | null {
   const s = key.trim()
@@ -123,7 +123,7 @@ export function apiKeyFailure(key: string): string | null {
   const inner = /^(['"])(.*)\1$/.test(s) ? s.slice(1, -1) : s
   // 误贴请求头/环境行：NAME=... / Name: ...（值可含空格，如 Authorization: Bearer x）。
   // = 形的名字不含连字符（真 key 如 sk-abc=def 的连字符断开名字段，不误杀），且 = 后
-  // 不紧跟另一个 =（base64 尾垫 ABCD== 不是赋值）——dsh ENV_LINE 同款收窄思路
+  // 不紧跟另一个 =（base64 尾垫 ABCD== 不是赋值）——环境行赋值收窄思路
   if (/^[A-Za-z][A-Za-z0-9_]*=[^=\s]/.test(inner) || /^[A-Za-z][A-Za-z0-9-]*:\s*\S/.test(inner)) {
     return '粘贴的是请求头/环境行（NAME=...），请只填 Key 值'
   }

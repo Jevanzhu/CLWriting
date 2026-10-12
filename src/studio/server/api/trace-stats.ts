@@ -1,5 +1,5 @@
 /**
- * Trace 指标聚合只读端点（AI Harness + 规则命中统计）。
+ * Trace 指标聚合只读端点（AI 调用 + 规则命中统计）。
  *
  * GET /api/books/:name/trace-stats → { total, byTask, ruleHits }
  *

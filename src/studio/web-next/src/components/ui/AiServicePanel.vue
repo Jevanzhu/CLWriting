@@ -30,12 +30,12 @@ const store = useProviderStore()
 const panelTab = ref<'ai' | 'rag'>('ai')
 
 // ── 编排态（数据本体在 store） ──
-// 单卡就地展开互斥（照搬 DSH ModelsSection §四「编辑 = setEditing(open ? undefined : target)」）：
+// 单卡就地展开互斥（编辑中再点 = 收起「setEditing(open ? undefined : target)」）：
 // AI 与 RAG 各自至多一张卡展开；「编辑」按钮与行尾展开钮都切同一单值 editedId，
 // 展开槽 = 行内编辑器（列表保持可见，不切视图、不弹全屏）。
 const editedId = ref<string | null>(null)
 const ragEditedId = ref<string | null>(null)
-// 新增卡（DSH addBlock）：列表保持可见，新增卡内嵌空白编辑器；与任一行展开互斥
+// 新增卡：列表保持可见，新增卡内嵌空白编辑器；与任一行展开互斥
 const addOpen = ref(false)
 const ragAddOpen = ref(false)
 
@@ -79,7 +79,7 @@ onMounted(async () => {
   syncTierForm()
 })
 
-// ── AI 提供方：就地展开 / 新增（照搬 DSH） ──
+// ── AI 提供方：就地展开 / 新增 ──
 /** 「编辑」/行尾展开钮：切单值互斥就地进行编辑（open ? close : open）；开编辑关新增卡。 */
 function toggleEdit(p: ProviderConfDto): void {
   editedId.value = editedId.value === p.id ? null : p.id
@@ -100,7 +100,7 @@ function setProbeModel(id: string, model: string): void {
   store.probeModels.set(id, model)
 }
 
-/** 编辑器内「获取模型」由 ModelListEditor 自持（表单现值探测 + 勾选弹窗，dsh 语义）。 */
+/** 编辑器内「获取模型」由 ModelListEditor 自持（表单现值探测 + 勾选弹窗）。 */
 
 /** 档位模型越界检测：启用中的档位模型不在目标清单里 → 返回越界档名数组 */
 function outOfRangeTiers(declared: string[]): string[] {
@@ -277,7 +277,7 @@ async function saveTiers(): Promise<void> {
   }
 }
 
-// ── RAG（嵌入）提供方：就地展开 / 新增（照搬 DSH，与 AI 同款单卡互斥） ──
+// ── RAG（嵌入）提供方：就地展开 / 新增（与 AI 同款单卡互斥） ──
 function toggleRagEdit(p: RagProviderDto): void {
   ragEditedId.value = ragEditedId.value === p.id ? null : p.id
   if (ragEditedId.value) ragAddOpen.value = false
@@ -388,7 +388,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
         @test="test"
         @remove="remove"
       >
-        <!-- 单卡就地展开：展开槽 = 行内编辑器（DSH：list 可见，editor 嵌该行下方） -->
+        <!-- 单卡就地展开：展开槽 = 行内编辑器（list 可见，editor 嵌该行下方） -->
         <template #row-expand="{ p }">
           <div v-if="editedId === p.id" class="row-inline-editor">
             <AiProviderEditor
@@ -410,7 +410,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
         </template>
       </AiProviderList>
 
-      <!-- 新增卡（DSH addBlock）：列表保持可见，卡内嵌空白编辑器 -->
+      <!-- 新增卡：列表保持可见，卡内嵌空白编辑器 -->
       <div v-if="addOpen" class="add-provider-card">
         <AiProviderEditor :initial="null" :saving="saving" @save="save" @cancel="addOpen = false" />
       </div>
@@ -528,7 +528,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
   width: 100%;
 }
 
-/* ── 新增卡（DSH addBlock）：面板里唯一的虚线占位壳——「这里将新增一条」的空位感，
+/* ── 新增卡：面板里唯一的虚线占位壳——「这里将新增一条」的空位感，
  *    区别于已有行卡的实线；hover 时虚线转 accent 提示可交互。 ── */
 .add-provider-card {
   padding: 12px 14px;
