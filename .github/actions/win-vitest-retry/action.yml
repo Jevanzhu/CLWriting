@@ -7,7 +7,10 @@
 #    重跑绿 = 该次被吸收（首跑退出码与「零 FAIL 行」写进 step summary，洗白可见可累计）；
 #    重跑仍非零 = exit 1 步红，真失败不吞、只延后一轮。
 # 成因只记形态（非零退出 + 零 FAIL 行）——不写具体包名/内部机制：当前依赖树已不装 tinypool，
-# 旧注记的成因表述与实现不符，勿再按包名归因。上游根治后本兜底两处接线可撤。
+# 旧注记的成因表述与实现不符，勿再按包名归因。
+# 洗白面甄别：每次「重跑洗白面」warning 须逐条判——已知间歇家族记观察，表外新面孔先登记
+# 再放行（登记面 = 总览 §三「已登记开放项」；原 win 腿间歇红台账已撤档，全文 = git 94e2a188）。
+# 上游根治后本兜底接线可撤（现只有 ci.yml 单接线）。
 name: 'win 腿 vitest 收尾竞态重跑一次兜底'
 description: 'win 腿 npm test 首跑非零退出时先判形态：含 FAIL 行（真用例失败）→ 不重跑直接红；零 FAIL 行（收尾竞态形态）→ 同命令重跑一次（R0911-G-P1-1d）'
 inputs:
@@ -22,7 +25,7 @@ runs:
   steps:
     - shell: pwsh
       run: |
-        # 首跑输出落盘留痕（对竞态台账甄别「在册家族」与新增间歇面）。Tee 不吞退出码
+        # 首跑输出落盘留痕（判据一取 FAIL 行；汇总行供后续判因）。Tee 不吞退出码
         #（native 命令 $LASTEXITCODE 照常生效），故紧随其后立即取值，避免后续命令覆盖。
         npm test 2>&1 | Tee-Object -FilePath win-vitest-first.out.log
         $firstCode = $LASTEXITCODE
@@ -43,7 +46,7 @@ runs:
           }
 
           # 判据二：零 FAIL 行却非零退出 = 收尾竞态形态（用例本身全绿、进程收尾期非零退出）
-          # → 同命令重跑一次兜底。首跑汇总行一并带出，供台账甄别。
+          # → 同命令重跑一次兜底。首跑汇总行一并带出，供洗白面甄别。
           $tail = @(
             Select-String -Path win-vitest-first.out.log -Pattern 'Test Files' -ErrorAction SilentlyContinue |
               Select-Object -Last 1 |

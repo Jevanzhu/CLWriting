@@ -25,8 +25,8 @@ function tmpRoot(): string {
 
 /** 删除临时目录：轮询到可删为止（win 句柄释放迟滞族）。
  *  库连接收尾期句柄仍在手——rmSync 内建退避只覆盖极短窗口，实测负载下越预算即 EPERM
- *  整档红，与 server-mutex / cov-server-onboard / server-main-error 同族（win 腿间歇红
- *  台账 suite 级收尾面）。预算耗尽仍抛：真句柄泄漏照旧红，不吞故障。 */
+ *  整档红（win 腿 suite 级收尾面，与 server-mutex / cov-server-onboard /
+ *  server-main-error 同族）。预算耗尽仍抛：真句柄泄漏照旧红，不吞故障。 */
 async function removeDirWhenFree(dir: string, budgetMs = 10_000): Promise<void> {
   const deadline = Date.now() + budgetMs
   for (;;) {
