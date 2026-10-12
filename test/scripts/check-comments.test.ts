@@ -40,6 +40,7 @@ import {
   // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）。
   // 注记须紧贴 `} from` 行（TS 把 TS7016 报在模块说明符所在行），故放字面量末项之后。
 } from '../../scripts/check-comments.mjs'
+import { normalizeWinSeparators } from '../../src/fs/safe-path.js'
 
 interface CommentLine {
   line: number
@@ -468,8 +469,11 @@ describe('扫描面：scripts/** 入网 + 空面 / 不可读 fail-closed（colle
   it('真实仓库面：src 与 scripts 各自都收到文件（两根本身不为空）', () => {
     const { files, problems } = collectFiles()
     expect(problems).toEqual([])
-    expect(files.some((f: string) => f.includes('/src/') || f.endsWith('/src'))).toBe(true)
-    expect(files.some((f: string) => f.includes('/scripts/'))).toBe(true)
+    // 分隔符归一后再判——collectFiles 交回 join 产物，win 上是反斜杠；
+    // 直判 `/src/` 在 win 恒不命中（断言随平台翻红，非扫描面失效）。
+    const rel = files.map((f: string) => normalizeWinSeparators(f))
+    expect(rel.some((f: string) => f.includes('/src/') || f.endsWith('/src'))).toBe(true)
+    expect(rel.some((f: string) => f.includes('/scripts/'))).toBe(true)
   })
 
   it('扫描根缺席 → 报「扫描根不可读」，两根各一条（fail-closed：不静默吞掉缺席的根）', () => {
