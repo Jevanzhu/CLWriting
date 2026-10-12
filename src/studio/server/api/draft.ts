@@ -156,9 +156,11 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       }
       const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath ?? null)
       // files = prompt 实际注入源清单——前端随 prompt 回传 POST /spawn
-      // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合
+      // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合。
+      // knowledge = 知识层方法参考的报告面（逐篇为何入选 / 哪些篇未入选）——首期只到
+      // 接口与 log，未被前端消费；加字段即得数据，消费方（UI）另开批。
       const d = buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config)
-      reply(res, 200, { prompt: d.prompt, files: d.files })
+      reply(res, 200, { prompt: d.prompt, files: d.files, knowledge: d.knowledge })
     },
   })
 }

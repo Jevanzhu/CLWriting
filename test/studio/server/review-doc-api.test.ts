@@ -262,6 +262,29 @@ describe('auto.knowledge_injection：三审视角技法注入开关', () => {
       writeFileSync(yamlPath(), baseYaml, 'utf8')
     }
   })
+
+  it('报告面：knowledge.records 逐 lens 标注取到哪篇；关停时 records 空而 dropped 记 switch-off', async () => {
+    const on = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
+    expect(on.status).toBe(200)
+    const jk = on.json as { knowledge: { records: Array<{ rel: string; reason: string }>; dropped: unknown[] } }
+    // 逐 lens 一条：reason 带视角前缀（同一篇被多视角取到也能分辨是哪个视角的料）
+    expect(jk.knowledge.records.length).toBeGreaterThan(0)
+    expect(jk.knowledge.records.every((r) => r.rel.length > 0 && r.reason.length > 0)).toBe(true)
+    expect(jk.knowledge.dropped).toEqual([])
+
+    writeFileSync(yamlPath(), `${baseYaml}auto:\n  knowledge_injection: false\n`, 'utf8')
+    try {
+      const off = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
+      expect(off.status).toBe(200)
+      const jo = off.json as { knowledge: { records: unknown[]; dropped: Array<{ reason: string }> } }
+      // 关停 = 不读盘不注入：入选空，缺口逐篇记 switch-off（取代静默丢弃）
+      expect(jo.knowledge.records).toEqual([])
+      expect(jo.knowledge.dropped.length).toBeGreaterThan(0)
+      expect(jo.knowledge.dropped.every((d) => d.reason === 'switch-off')).toBe(true)
+    } finally {
+      writeFileSync(yamlPath(), baseYaml, 'utf8')
+    }
+  })
 })
 
 describe('R64-10（十二轮）：读稿守卫——existsSync 后读不到正文给 IO 人话信封', () => {

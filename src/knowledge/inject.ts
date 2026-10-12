@@ -54,6 +54,29 @@ export interface KnowledgeAssembly {
   dropped: DroppedPiece[]
 }
 
+/** 报告面形状（接口返回与 log 共用）——「一篇为何入选 / 哪些篇未入选」两问的答案。 */
+export interface KnowledgeReport {
+  records: PieceRecord[]
+  dropped: DroppedPiece[]
+}
+
+/** 取报告面（装配结果 → 报告）：只挑两列，避免接口面把段文本/sources 一并带出去。 */
+export function knowledgeReportOf(a: KnowledgeAssembly): KnowledgeReport {
+  return { records: a.records, dropped: a.dropped }
+}
+
+/**
+ * 缺口摘要（计数式，人话）：`missing×1 cap-total×1 switch-off×2`。
+ * 只计**不列 rel**——日志要能直接进诊断包（rel 属书库侧取值，带它就得走内容门登记）；
+ * 缺口计数已足够回答「这一面是不是少给了料、少在哪一类」。
+ */
+export function summarizeDropped(dropped: readonly DroppedPiece[]): string {
+  if (dropped.length === 0) return '无'
+  const byReason = new Map<string, number>()
+  for (const d of dropped) byReason.set(d.reason, (byReason.get(d.reason) ?? 0) + 1)
+  return [...byReason].map(([reason, n]) => `${reason}×${n}`).join(' ')
+}
+
 /** `<类目>/<篇>.md` → `<篇>`（标题提取单点） */
 export function titleOf(rel: string): string {
   return rel.slice(rel.lastIndexOf('/') + 1).replace(/\.md$/, '')

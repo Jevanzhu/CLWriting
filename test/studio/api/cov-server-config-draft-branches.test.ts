@@ -347,6 +347,21 @@ describe('R1010c-COV-1：draft 端点入参与边界分支', () => {
       expect(bad.json.error).toContain('chapter')
     }
   })
+
+  it('GET draft-prompt 回知识层报告面：records 逐篇为何入选、dropped 的空态（报告面接口）', async () => {
+    const base = `/api/books/${encodeURIComponent('草稿prompt书')}/draft-prompt`
+    const r = await req({ method: 'GET', path: base })
+    expect(r.status).toBe(200)
+    const k = r.json.knowledge as { records: Array<{ rel: string; reason: string }>; dropped: unknown[] }
+    expect(k).toBeTruthy()
+    // 基础篇恒选 1 篇（该 fixture 无章纲信号）——逐篇带 rel 与入选理由
+    expect(k.records.length).toBeGreaterThan(0)
+    expect(k.records[0]!.rel).toContain('章节钩子速查')
+    expect(typeof k.records[0]!.reason).toBe('string')
+    expect(Array.isArray(k.dropped)).toBe(true)
+    // 段文本与 sources 不进报告面（只挑 records/dropped 两列）
+    expect(Object.keys(k).sort()).toEqual(['dropped', 'records'])
+  })
 })
 
 // ── lead-updates 端点（账本推进生成）───────────────────────────

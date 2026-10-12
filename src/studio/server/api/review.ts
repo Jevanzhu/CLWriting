@@ -40,6 +40,8 @@ import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { buildReviewMethodInjection, type ReviewKind } from '../../../knowledge/review-method.js' // 三审视角技法注入(书级 > 随包;取篇按书档分表)
 import { knowledgeInjectionEnabled } from '../../../knowledge/switch.js' // 注入开关单源
+import { summarizeDropped, type KnowledgeReport, type PieceRecord, type DroppedPiece } from '../../../knowledge/inject.js' // 报告面(缺口结构化回报)
+import { log } from '../../../log/index.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 import { effectiveRemainingCalls } from '../../../ai/calls.js'
@@ -281,7 +283,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               payload: { collected, lenses: loopResult.lenses, ...(collected.ok ? {} : { incomplete: true }) },
             })
 
-            reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+            reply(res, 200, { ok: true, lenses: loopResult.lenses, collected, knowledge: loopResult.knowledge })
           } finally {
             // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc 口径）
             driver.unregisterCtrl(mainSession, ctrl)
@@ -405,8 +407,11 @@ async function runLensSpawnLoop(opts: {
   onProgress?: (lens: string, phase: 'start' | 'done') => void
   /** -①：编排级中断 ctrl（/interrupt 经 driver 注册面对其 abort） */
   ctrl?: AbortController
-}): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
+}): Promise<{ ok: true; lenses: string[]; knowledge: KnowledgeReport } | { ok: false; error: string }> {
   const lenses: string[] = []
+  /** 报告面：逐 lens 的技法篇留痕（为何取该篇 / 该篇未入选及其原因）——出口随响应返回 */
+  const records: PieceRecord[] = []
+  const dropped: DroppedPiece[] = []
   mkdirSync(opts.outDir, { recursive: true })
 
   // 逐 lens：runSpec 统一编排（mock 快路/provider/中断/错误文案），mock 与真实同走 decode
@@ -420,6 +425,9 @@ async function runLensSpawnLoop(opts: {
     // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。
     // 开关关停时装配侧走同一空段形态(不读盘不注入不登记),本面不另设分支
     const methodInj = buildReviewMethodInjection(lens, opts.bookRoot, opts.methodInjectionEnabled, opts.methodInjectionKind)
+    // 报告面按 lens 标注：同一篇可能被多视角取到，逐 lens 一条才能回答「哪个视角少了料」
+    for (const r of methodInj.records) records.push({ ...r, reason: `${lens}：${r.reason}` })
+    for (const d of methodInj.dropped) dropped.push({ ...d, rel: `${lens}@${d.rel}` })
     const out = await runSpec(reviewSpec(lens), {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,
@@ -437,7 +445,14 @@ async function runLensSpawnLoop(opts: {
     atomicWriteFile(join(opts.outDir, issuesFile), issuesJson)
     opts.onProgress?.(lens, 'done')
   }
-  return { ok: true, lenses }
+  // 缺口落 log（计数式，同 draft 面口径）：只记计数不列 rel——摘要须能直接进诊断包
+  if (dropped.length > 0) {
+    log.info(
+      'review',
+      `三审知识层视角技法缺口：入选 ${records.length} 篇 / 未入选 ${dropped.length} 篇（${summarizeDropped(dropped)}）`,
+    )
+  }
+  return { ok: true, lenses, knowledge: { records, dropped } }
 }
 
 /** 组单视角审稿 prompt:焦点 + 账本核对(continuity)/清单核对(payoff) + 正文 + 输出契约 */

@@ -22,6 +22,7 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import { buildMethodInjection } from '../knowledge/select.js'
+import { knowledgeReportOf, summarizeDropped, type KnowledgeReport } from '../knowledge/inject.js'
 import type { KnowledgeAssembly } from '../knowledge/inject.js'
 import { knowledgeInjectionEnabled } from '../knowledge/switch.js'
 import type { BookConfig } from '../format/types.js'
@@ -592,6 +593,9 @@ export interface DraftPrompt {
    *  消费链：self-heal → runSpec promptFiles、GET /draft-prompt 回传前端、
    *  POST /spawn 回传透传——「模型可见⟺已记录」文件级溯源 */
   files: string[]
+  /** 知识层方法参考的逐篇留痕（为何入选 / 哪些篇未入选）——报告面：接口返回 + 缺口落 log；
+   *  不改注入行为，只为「缺口结构化回报」取代静默丢弃（段本身仍按空段不入 prompt 契约）。 */
+  knowledge: KnowledgeReport
 }
 
 /** 组 draft prompt:细纲 + 备料 + 章纲 + 设定(预算注入) + 文风样章(注入档) + 写作方法参考
@@ -649,6 +653,14 @@ export function buildDraftPrompt(
     bookRoot,
     enabled: knowledgeInjectionEnabled(config, 'draft'),
   })
+  // 报告面落 log：缺口非空才记（入选常态不刷日志）；只记计数不列 rel——摘要要能直接
+  // 进诊断包，列 rel 就得走内容门登记。完整 records/dropped 随接口返回（见 DraftPrompt）。
+  if (methodInjection.dropped.length > 0) {
+    log.info(
+      'draft-pipeline',
+      `第 ${chapter} 章知识层方法参考缺口：入选 ${methodInjection.records.length} 篇 / 未入选 ${methodInjection.dropped.length} 篇（${summarizeDropped(methodInjection.dropped)}）`,
+    )
+  }
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win
@@ -683,7 +695,7 @@ export function buildDraftPrompt(
       // 守规稿进重写循环两头矛盾。五段名与机检提示文案同口径。
       `## 要求\n只输出第 ${chapter} 章正文（正文以 ## 标题分五段：## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵；段内纯叙事文本，仅段落与空行，禁加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
-    return { prompt: parts.join('\n\n'), files }
+    return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(methodInjection) }
   }
   const parts: string[] = [`## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
@@ -695,5 +707,5 @@ export function buildDraftPrompt(
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
-  return { prompt: parts.join('\n\n'), files }
+  return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(methodInjection) }
 }

@@ -13,7 +13,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { assembleKnowledge, titleOf } from '../../src/knowledge/inject.js'
+import { assembleKnowledge, titleOf, knowledgeReportOf, summarizeDropped } from '../../src/knowledge/inject.js'
+import { clipWithNotice } from '../../src/shared/text.js'
 
 let dir: string
 let prevResourcesDir: string | undefined
@@ -201,5 +202,61 @@ describe('titleOf：标题提取单点', () => {
     ['多段/深层/篇名.md', '篇名'],
   ])('%s → %s', (rel, expected) => {
     expect(titleOf(rel)).toBe(expected)
+  })
+})
+
+// ── 报告面：装配结果的逐篇留痕与缺口摘要（接口/log 两出口的共面）──────
+describe('知识层报告面：records / dropped / 缺口摘要', () => {
+  it('records 逐篇带层、登记名、理由、码点与是否截断；报告面只挑两列', () => {
+    stubCorpus({ [REL_A]: '甲', '乙类/乙篇.md': '乙乙乙乙乙' })
+    const a = assembleKnowledge({
+      rels: [REL_A, '乙类/乙篇.md'],
+      heading: '## 头\n',
+      fileCap: 3,
+      totalCap: 100,
+      reasonOf: (_rel, i) => `理由-${i}`,
+    })
+    expect(a.records).toEqual([
+      { rel: REL_A, layer: 'bundled', source: `知识层(内置)/${REL_A}`, reason: '理由-0', codePoints: 1, truncated: false },
+      {
+        rel: '乙类/乙篇.md',
+        layer: 'bundled',
+        source: '知识层(内置)/乙类/乙篇.md',
+        reason: '理由-1',
+        codePoints: Array.from(clipWithNotice('乙乙乙乙乙', 3)).length,
+        truncated: true,
+      },
+    ])
+    // 报告面取出来只有两列（接口面不连带段文本与 sources）
+    expect(knowledgeReportOf(a)).toEqual({ records: a.records, dropped: a.dropped })
+  })
+
+  it('dropped 三类齐全且与段处置同源：missing / cap-total / switch-off', () => {
+    stubCorpus({ [REL_A]: '甲。', '丙类/丙篇.md': '丙。' })
+    const a = assembleKnowledge({
+      rels: [REL_A, '无类/此篇.md', '丙类/丙篇.md'],
+      heading: '## 头\n',
+      fileCap: 3000,
+      totalCap: 2, // 甲。已占满 → 丙。超合计帽即止
+      reasonOf: () => 'x',
+    })
+    expect(a.dropped).toEqual([
+      { rel: '无类/此篇.md', reason: 'missing' },
+      { rel: '丙类/丙篇.md', reason: 'cap-total' },
+    ])
+    const off = assemble([REL_A], { enabled: false })
+    expect(off.dropped).toEqual([{ rel: REL_A, reason: 'switch-off' }])
+  })
+
+  it('缺口摘要：只记原因计数不列篇名（摘要要能直接进诊断包），空缺口为「无」', () => {
+    expect(summarizeDropped([])).toBe('无')
+    expect(
+      summarizeDropped([
+        { rel: 'a/1.md', reason: 'missing' },
+        { rel: 'a/2.md', reason: 'missing' },
+        { rel: 'b/3.md', reason: 'cap-total' },
+        { rel: 'c/4.md', reason: 'switch-off' },
+      ]),
+    ).toBe('missing×2 cap-total×1 switch-off×1')
   })
 })
