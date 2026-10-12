@@ -49,6 +49,8 @@ export const PREF_DEFAULTS = {
   relationMineThreshold: 3,
   ragEnabled: false,
   ragProvider: '',
+  // 全表唯一缺省 true 的键——其余「功能开关」缺省 false，本键语义是「默认开启、显式才关」
+  knowledgeInjection: true,
 }
 
 // ── 泛型读写面的模块级类型锚──
@@ -88,6 +90,8 @@ export interface PrefValueMap {
   relationMineThreshold: number
   ragEnabled: boolean
   ragProvider: string
+  /** 知识层方法参考自动注入默认（书级 auto.knowledge_injection；缺省 true = 注入） */
+  knowledgeInjection: boolean
   // ── 机检阈值五键：读面 number | undefined（undefined = 未设 = 走引擎默认）；
   // 写面恒 number（见 PrefWriteValue）──
   checkRepeatThreshold: number | undefined
@@ -106,7 +110,7 @@ export type WritablePrefKey = Exclude<PrefKey, BookOnlyKey>
 /** 写面值型：机检五键读面含 undefined（= 未设），写入参数恒 number——undefined 只出现在读面 */
 export type PrefWriteValue<K extends PrefKey> = PrefValueMap[K] extends number | undefined ? number : PrefValueMap[K]
 
-/** 全量承载 ref 面（33 键；键集/值型由 PrefValueMap 钉死）。 */
+/** 全量承载 ref 面（34 键；键集/值型由 PrefValueMap 钉死）。 */
 export type PrefRefs = { [K in PrefKey]: Ref<PrefValueMap[K]> }
 
 /** 承载 ref 工厂：初值即硬编码回落（见 PREF_DEFAULTS）；机检五键初值 undefined = 未设。 */
@@ -132,7 +136,7 @@ export function createPrefRefs(): PrefRefs {
     /** 版本保留全局默认（天数/数量；持久化为 snapMaxDays/snapMaxCount，所有书统一） */
     snapDays: ref(PREF_DEFAULTS.snapDays),
     snapCount: ref(PREF_DEFAULTS.snapCount),
-    // ── 书级设定全局托底（书级 book.yaml 未设时的展示/生效值；持久化为 global.json 13 键）──
+    // ── 书级设定全局托底（书级 book.yaml 未设时的展示/生效值；持久化为 global.json 14 键）──
     /** 题材默认（'' = 未设；书级 book.genre） */
     defaultGenre: ref(PREF_DEFAULTS.defaultGenre),
     /** 每卷章数默认（仅长篇使用；书级 book.volume_size） */
@@ -159,6 +163,8 @@ export function createPrefRefs(): PrefRefs {
     ragEnabled: ref(PREF_DEFAULTS.ragEnabled),
     /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
     ragProvider: ref(PREF_DEFAULTS.ragProvider),
+    /** 知识层方法参考注入默认（缺省 true = 写稿/三审自动注入知识层语料） */
+    knowledgeInjection: ref(PREF_DEFAULTS.knowledgeInjection),
     // ── 机检阈值全局托底五键（undefined = 未设 = 走引擎默认；刻意不进 PREF_DEFAULTS、
     // 无硬编码托底值——引擎默认参数即最终回落，与 defaultTargetWords 的「0 = 未设」不同源）──
     /** 复读占比阈值默认（0-1 小数；书级 checks.repeat_threshold） */
@@ -289,7 +295,7 @@ export function createPrefRows(refs: PrefRefs): PrefRows {
       kind: 'num',
       win: { clamp: { min: 1, max: 200 }, guardLo: 'positive' },
     },
-    // ── 书级设定全局托底 13 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）──
+    // ── 书级设定全局托底 14 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）──
     defaultGenre: { key: 'defaultGenre', r: refs.defaultGenre, kind: 'str', trim: true },
     defaultVolumeSize: {
       key: 'defaultVolumeSize',
@@ -335,6 +341,7 @@ export function createPrefRows(refs: PrefRefs): PrefRows {
     },
     ragEnabled: { key: 'ragEnabled', r: refs.ragEnabled, kind: 'bool' },
     ragProvider: { key: 'ragProvider', r: refs.ragProvider, kind: 'str', trim: true },
+    knowledgeInjection: { key: 'knowledgeInjection', r: refs.knowledgeInjection, kind: 'bool' },
     // ── 机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
     // 复读占比守 (0,1]（>1 会把全书章节判复读）；浮点两位截断在夹取窗（round2），守卫上界
     // 与夹取上界同界（guardHi），脏值越 1 不收
@@ -372,8 +379,8 @@ export function createPrefRows(refs: PrefRefs): PrefRows {
 }
 
 /** 将 API 读到的 prefs 应用到各 ref。
- * 33 键手写 if 链收敛为行表驱动逐键守卫——typeof 守卫/边界/取整/trim/
- * 枚举白名单逐键照抄原实现，行为等价；数值边界与取整从行窗口（NumWindow）单源派生。 */
+ * 34 键手写 if 链收敛为行表驱动逐键守卫——typeof 守卫/边界/取整/trim/
+ * 枚举白名单逐键一致（行为等价）；数值边界与取整从行窗口（NumWindow）单源派生。 */
 export function applyPrefsTo(rows: PrefRows, p: GlobalPrefs): void {
   for (const row of Object.values(rows)) {
     const v = p[row.key]
@@ -461,7 +468,7 @@ export function createRowSetters(
       finishRow(row)
     }
 
-  /** 31 个同构行的键控 setter 映射（键 = 行名 = PrefKey；store 泛型 set 的分发出口）。
+  /** 32 个同构行的键控 setter 映射（键 = 行名 = PrefKey；store 泛型 set 的分发出口）。
    *  映射标注与 WritablePrefKey 逐键校验：缺行/多行/值型不符编译期红。 */
   return {
     theme: enumRow<ThemeId>(rows.theme),
@@ -493,6 +500,7 @@ export function createRowSetters(
     relationMineThreshold: numRow(rows.relationMineThreshold),
     ragEnabled: boolRow(rows.ragEnabled),
     ragProvider: strRow(rows.ragProvider),
+    knowledgeInjection: boolRow(rows.knowledgeInjection),
     // ── 机检阈值五键（夹取窗在行 win 上 → schedulePersist 防抖落 global.json；
     // checkRepeatThreshold 浮点两位截断在行 win.clamp.round2）──
     checkRepeatThreshold: numRow(rows.checkRepeatThreshold),

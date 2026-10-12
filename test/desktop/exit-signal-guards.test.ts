@@ -38,7 +38,7 @@ import {
   restoreMainProcessListenerHarness,
 } from './main-process-harness.js'
 
-// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙，逐件复刻）─────────────────────────
+// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙）─────────────────────────
 installMainProcessListenerHarness()
 const prevEnv = captureMainTestEnvPrev()
 

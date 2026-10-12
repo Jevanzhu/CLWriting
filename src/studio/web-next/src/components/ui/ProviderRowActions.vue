@@ -12,7 +12,7 @@
  * 纯图标钮的可访问名走 data-tip（TooltipHost 统一同步成 aria-label，同全局口径）。
  * `.mini-btn` 各态样式随本件自持（scoped）：原由行卡壳的 :slotted(.mini-btn) 下发，
  * 插槽内容须挂调用方 scope id 才命中；本簇改由本组件渲染后按钮挂的是本件 scope id，
- * 样式定义随实现落到一处，不再依赖插槽面的作用域约定。声明逐字照搬。
+ * 样式定义随实现落到一处，不再依赖插槽面的作用域约定。
  */
 import { Trash2, Check, Zap, Loader2, Pencil } from 'lucide-vue-next'
 
@@ -56,7 +56,7 @@ const emit = defineEmits<{
   width: 28px;
   height: 28px;
   border: none;
-  /* dsh iconButton 的 6px：小方格图标钮比输入框（8）更收 */
+  /* 小方格图标钮 6px：比输入框（8）更收 */
   border-radius: 6px;
   background: transparent;
   color: var(--text-faint);

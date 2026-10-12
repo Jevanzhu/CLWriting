@@ -20,7 +20,7 @@ import { useUiStore } from './ui'
 /**
  * 全局编辑器偏好 store（主题 + 排版 + 字体 + 书架视图 + 版本保留全局默认）。
  *
- * 存储：userData/global.json（APP 级，跨书库共享；对齐 Obsidian 全局配置）。
+ * 存储：userData/global.json（APP 级，跨书库共享）。
  * 替代旧 localStorage（LevelDB 黑盒，不可编辑不可备份）。
  *
  * 书级覆盖：pageWidth / autosaveInterval 可被 .clwriting/prefs.json 覆盖。

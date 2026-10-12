@@ -13,6 +13,7 @@ import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './r
 import { safeTokenCompare, replyError, urlPathOnly, URL_PARSE_BASE } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateBookDefaults } from '../../install/migrate-defaults.js'
+import { migrateBookKnowledge } from '../../knowledge/seed.js'
 // 书级 layout 迁移链的顺序单点声明（LAYOUT_MIGRATIONS 数组序 = 执行序）：
 // 启动段只负责逐书容错与通告，不再逐行硬编码步骤顺序（契约见该表头注）。
 import { runLayoutMigrationsAsync } from '../../install/layout-migrations.js'
@@ -156,7 +157,8 @@ export interface RouteOverrides {
   /** learn-commit 让出原语桩（缺省 defaultCommitYield） */
   learnCommitYield?: CommitYield | null
   /** provider 探测函数桩（缺省真探测；签名同 透传 userDataPath 口径；第三参 = mock 选择结果） */
-  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
+  probeCapabilities?:
+    ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
 }
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
@@ -500,6 +502,17 @@ async function runStudioStartupChain(
       } catch (e) {
         noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${errMsg(e)}`, e)
       }
+    }
+  }
+  // 书级知识层升级(统一批):刷新「未被作者改动」的随包种子篇(哈希命中历史表),
+  // 作者改过的原样保留(升级不覆盖用户改动——同 prompt overlay 迁移语义)。
+  // 逐书 try/catch,失败不阻断启动(知识层是增强面,随包兜底仍生效)。
+  if (opts.workDir) {
+    try {
+      const roots = readBooks(opts.workDir).map((b) => join(opts.workDir!, b.path))
+      migrateBookKnowledge(roots)
+    } catch (e) {
+      noticeOrLog('migrate-knowledge', `知识层升级整体失败:${errMsg(e)}`, e)
     }
   }
   // 书级默认值一次性迁移（全局托底配套）：旧 scaffold 把 13 键默认值烘焙进了 book.yaml，

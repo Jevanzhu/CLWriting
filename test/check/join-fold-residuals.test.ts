@@ -9,7 +9,7 @@
  *   （overview.ts R41-2 同款范式）——定稿章被误跳「草稿」/文风样本缺章/定稿 scope 漏章；
  * - R42-8 state.unfinishedPieceNames：同文件 findUnfinishedChapter R41-2 先例对齐。
  * posix 保大小写（口径维持，R41-13）——各模块带反向腿断言不折叠。
- * 钉平台手法沿用 test/document/join-keys.test.ts（Object.defineProperty(process,'platform')）。
+ * 钉平台手法同 test/document/join-keys.test.ts（Object.defineProperty(process,'platform')）。
  */
 import { test, expect, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'

@@ -1,5 +1,5 @@
 /**
- * Trace 指标聚合（AI Harness ）。
+ * Trace 指标聚合（AI 调用）。
  *
  * 从事件库（读侧单源 llm-call-read，2- 前为本模块私有 readLlmCalls）聚合产出统计 JSON：
  * 按 task 分组的通过率 / 平均 attempt / 耗时 p50-p95 / token 合计与趋势（按天）。

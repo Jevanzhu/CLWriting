@@ -293,7 +293,7 @@ function runFontListCommandWithKill(command: string, args: string[], deps: FontL
 }
 
 /**
- * font-list standardize 的 disableQuoting 移植单源（win-fonts.ts
+ * font-list standardize 的 disableQuoting 同口径单源（win-fonts.ts
  * 同款逐字双实现收编——本模块导出，win-fonts 消费）：\uXXXX 解码 + 剥包裹引号。
  */
 export function bareFontName(rawLine: string): string {

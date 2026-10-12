@@ -1,10 +1,10 @@
 /**
- * 无模型文本修剪器（批次直抄，中文阈值调小）。
+ * 无模型文本修剪器（中文阈值调小）。
  *
  * 超阈值纯文本入上下文前的机械压缩：code point 头尾保留 + 中段单 marker。
  * 「先机械后智能」的第一道——零模型、零语义判断。
  *
- * 纪律（照抄 dsh compaction-tool-result-pruner）：
+ * 纪律：
  * - 按 Unicode code point 量文本（Array.from，不劈 surrogate pair）；
  * - marker 只插一次；
  * - 替换必须严格更小（< 阈值且 < 原长），否则 throw——宁错勿损坏；
@@ -12,7 +12,7 @@
  */
 
 interface PruneOpts {
-  /** 超过该 code point 数才开始修剪（默认 4096；中文信息密度高，比 dsh 的 8192 调小） */
+  /** 超过该 code point 数才开始修剪（默认 4096；中文信息密度高，取保守小值） */
   threshold?: number
   /** 头部保留 code point 数（默认 2048） */
   head?: number

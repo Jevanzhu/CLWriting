@@ -187,7 +187,7 @@ useBookScoped(() => props.bookName, { load, immediate: true })
 .tree-list {
   padding: 0 var(--size-4-1);
 }
-/* ── 严格仿 ChapterTreeItem 叶子行 ── */
+/* ── 严格对齐 ChapterTreeItem 叶子行 ── */
 .tree-item {
   display: flex;
   align-items: center;
@@ -217,7 +217,7 @@ useBookScoped(() => props.bookName, { load, immediate: true })
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 操作按钮：默认隐藏，hover 行时显形（仿 HistoryPanel restore-btn） */
+/* 操作按钮：默认隐藏，hover 行时显形（同 HistoryPanel restore-btn） */
 .item-actions {
   display: flex;
   gap: 2px;

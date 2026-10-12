@@ -21,7 +21,7 @@ import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
-import { buildMethodInjection } from '../knowledge/select.js'
+import { buildMethodInjection, type MethodInjection } from '../knowledge/select.js'
 import type { BookConfig } from '../format/types.js'
 import {
   readManifest,
@@ -103,7 +103,7 @@ export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = tes
  *    失败降级为 SaveResult.snapshotDegraded 标记，服务端透出 200 响应，前端弹一次
  *    info 提示（作者可见化，不静默）。判据同上（唯一性）：被覆写的是编辑器自己上一版
  *    正文，盘上正文与内存稿都在，缺的只是留底副本。
- *  新增调用方按本判据自选，勿照抄邻近端点。
+ *  新增调用方按本判据自选，勿套用邻近端点做法。
  */
 export function snapshotBeforeOverwrite(
   bookRoot: string,
@@ -637,8 +637,15 @@ export function buildDraftPrompt(
   // （单次组稿：章纲目录 1 walk + 正文目录 1 walk）
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config, chapterOutlinePath)
   // 写作方法参考（随包语料按章选材）——信号取细纲 + 章纲原文（钩子类型/情绪定位/场景等
-  // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记
-  const methodInjection = buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}` })
+  // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记。
+  // 开关 auto.knowledge_injection（缺省注入）：关停 = 段与 files 登记一并消失
+  // （空段不入 prompt 不登记，与下方「各段非空才计」既有契约同）。
+  // 判据 `=== false` 显式关——config 缺省（直调/测试路径）与键未设都照旧注入，
+  // 不因读不到配置而静默降级。
+  const methodInjection: MethodInjection =
+    config?.auto?.knowledge_injection === false
+      ? { text: '', sources: [] }
+      : buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}`, bookRoot })
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win

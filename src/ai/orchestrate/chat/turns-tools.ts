@@ -130,7 +130,7 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
 
 // 写作技巧包按需加载（read_skill 工具的执行通道）
 
-/** 导出供单测直测兜底 catch 脱敏（仿 waitConfirm「导出供单测」先例）。 */
+/** 导出供单测直测兜底 catch 脱敏（同 waitConfirm「导出供单测」先例）。 */
 export async function executeChatTool(
   call: { id: string; name: string; input: unknown },
   opts: ChatOpts,

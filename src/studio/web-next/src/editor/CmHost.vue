@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：Obsidian 风格正文编辑器。
+// CodeMirror 6 封装（细案 §5 editor/CmHost.vue）：正文编辑器。
 // 无行号/无卡片边框、lineWrapping、正文字体（--prose-* 偏好）；md 模式加 markdown 高亮。
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { defaultKeymap, history, historyKeymap, isolateHistory, undo, redo } from '@codemirror/commands'
@@ -60,7 +60,7 @@ const monoHighlight = HighlightStyle.define([
   { tag: t.monospace, color: 'var(--text-muted)' },
 ])
 
-// 外观：透明底贴 --background-primary，正文居中限宽，无焦点边框（Obsidian 风）
+// 外观：透明底贴 --background-primary，正文居中限宽，无焦点边框
 const editorTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
@@ -657,7 +657,7 @@ onUnmounted(() => {
 .cm-host :deep(.cm-scroller) {
   overflow: auto;
 }
-/* 编辑器滚动条：比全局更细（6px → 近 Obsidian 极简风）；与全局口径对齐——半透明胶囊 */
+/* 编辑器滚动条：比全局更细（6px）；与全局口径对齐——半透明胶囊 */
 .cm-host :deep(.cm-scroller)::-webkit-scrollbar {
   width: 6px;
   height: 6px;

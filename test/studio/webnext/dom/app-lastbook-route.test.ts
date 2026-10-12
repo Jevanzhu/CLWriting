@@ -8,7 +8,7 @@
  * `path === '/'` 恒假——lastBook 恢复与 --book 首启直进（getLastInitialBook 汇入同
  * 分支）确定性失效（重评2-P1-1）。修复判据改为 redirectedFrom?.path === '/'（保留
  * path === '/' 直判兜底）；本文件同步重写为真实 vue-router 实例：createMemoryHistory +
- * 路径结构照抄 router.ts（'/' redirect '/shelf' 等）但组件用轻量 stub（不拉真
+ * 路径结构与 router.ts 一致（'/' redirect '/shelf' 等）但组件用轻量 stub（不拉真
  * Shelf.vue 全链），App.vue 以 router 插件真挂载走完整初始导航。api/client 仍局部
  * mock（getLastInitialBook 经 hoisted 持有者按用例可控）；happy-dom localStorage
  * 在 vitest 集成下不可靠——Map 替身沿用原文件形态。
@@ -38,7 +38,7 @@ import App from '../../../../src/studio/web-next/src/App.vue'
 
 const LAST_BOOK_KEY = 'clw-last-book'
 
-// 轻量页面 stub：路径结构照抄 router.ts（'/' redirect '/shelf'、/shelf、/book/:name、
+// 轻量页面 stub：路径结构与 router.ts 一致（'/' redirect '/shelf'、/shelf、/book/:name、
 // /library、/welcome），组件空渲染——只验 App 启动直进判据，不加载真页面全链。
 const pageStub = (name: string) => defineComponent({ name, render: () => null })
 

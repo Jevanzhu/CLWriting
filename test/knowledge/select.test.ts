@@ -1,9 +1,10 @@
 /**
  * 写稿面方法选材（src/knowledge/select.ts）单测。
  *
- * 锚定四条对外可观察行为：①基础篇按体裁（长篇＝章节钩子速查 / 短篇＝反转设计速查）；
+ * 锚定五条对外可观察行为：①基础篇按体裁（长篇＝章节钩子速查 / 短篇＝反转设计速查）；
  * ②信号追加篇与固定优先级；③front matter 不进 prompt、双帽（单篇/合计）与超帽跳过；
- * ④随包语料缺失/受限 → 空段降级（写稿不阻断）。
+ * ④随包语料缺失/受限 → 空段降级（写稿不阻断）；⑤书级 > 随包两级 rank（书名同篇覆盖
+ * 随包、书级缺篇/空篇回落随包）。
  * 后两条用 CLWRITING_RESOURCES_DIR 注入临时资源根造受限/超长语料（真实语料体量够不到帽）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -119,5 +120,38 @@ describe('buildMethodInjection：帽与降级（受限资源根）', () => {
   it('篇文件为空/仅空白 → 该篇跳过（空段不注入）', () => {
     stubCorpus({ [METHOD_FILE_HOOKS]: '\n  \n' })
     expect(buildMethodInjection({ kind: 'long', signals: '' }).text).toBe('')
+  })
+})
+
+describe('buildMethodInjection：书级 > 随包（两 level rank，统一批）', () => {
+  it('书级同名篇覆盖随包，登记名走书根相对路径', () => {
+    stubCorpus({ [METHOD_FILE_HOOKS]: '随包钩子正文。' })
+    const bookRoot = join(dir, 'book')
+    const abs = join(bookRoot, '知识层', ...METHOD_FILE_HOOKS.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '本书钩子口径：只认章尾五式。')
+    const { text, sources } = buildMethodInjection({ kind: 'long', signals: '', bookRoot })
+    expect(text).toContain('本书钩子口径')
+    expect(text).not.toContain('随包钩子正文')
+    expect(sources).toEqual([`知识层/${METHOD_FILE_HOOKS}`])
+  })
+
+  it('书级无该篇 → 回落随包（不因书级缺篇而丢方法参考）', () => {
+    stubCorpus({ [METHOD_FILE_HOOKS]: '随包钩子正文。' })
+    const bookRoot = join(dir, 'book') // 书根存在但无 知识层/
+    mkdirSync(bookRoot, { recursive: true })
+    const { text, sources } = buildMethodInjection({ kind: 'long', signals: '', bookRoot })
+    expect(text).toContain('随包钩子正文')
+    expect(sources).toEqual([`知识层(内置)/${METHOD_FILE_HOOKS}`])
+  })
+
+  it('书级篇为空白 → 回落随包（空文件不算覆盖，不静默丢技法）', () => {
+    stubCorpus({ [METHOD_FILE_HOOKS]: '随包钩子正文。' })
+    const bookRoot = join(dir, 'book')
+    const abs = join(bookRoot, '知识层', ...METHOD_FILE_HOOKS.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '\n \n') // 作者清空但忘了删文件
+    const { text } = buildMethodInjection({ kind: 'long', signals: '', bookRoot })
+    expect(text).toContain('随包钩子正文')
   })
 })

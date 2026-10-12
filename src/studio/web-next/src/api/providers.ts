@@ -30,8 +30,8 @@ export interface TierConfig {
 }
 
 /**
- * 模型行（§7.1 对齐 DSH 四字段）——id 必填 / name 可选 + 行展开 contextWindow / maxTokens。
- * 行结构开放：未知字段服务端原样存盘（DSH 教训），前端仅编辑声明的字段。
+ * 模型行（§7.1 四字段）——id 必填 / name 可选 + 行展开 contextWindow / maxTokens。
+ * 行结构开放：未知字段服务端原样存盘，前端仅编辑声明的字段。
  */
 export interface ModelConfDto {
   id: string

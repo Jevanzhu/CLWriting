@@ -5,7 +5,7 @@
  *「维度不匹配」记账——totalBlocks 虚增、poisonRows 恒 0 永不触发毒行 warn，作者得不到
  * 重建索引指引。修复后归毒行剔除（不占 produced 名额）。此形外部损坏才可达（storeChunk
  * 写入侧恒 Float32Array，序列化字节数恒 4 倍数）——测试以 UPDATE 直改 BLOB 构造。
- * 装置仿 test/rag/float32-overflow-guard.test.ts（桩 embed 不联网，bookRoot 手建临时目录）。
+ * 装置同 test/rag/float32-overflow-guard.test.ts（桩 embed 不联网，bookRoot 手建临时目录）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync } from 'node:fs'

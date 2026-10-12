@@ -6,7 +6,7 @@
  * tabindex 搭法：开启焦点入首项、↑/↓ 循环（跳过分隔线）、Home/End 首尾、Enter/Space
  * 激活（keydown preventDefault 截停原生按钮激活防双触发）、Tab 关闭（与 Esc 同语义：
  * 消费按键 + 还焦右键来源）、Esc 关闭还焦右键来源；容器挂 aria-activedescendant；
- * disabled 可聚焦不可激活。挂法/press 形态仿 font-picker.test.ts 重评-P2-2 段。
+ * disabled 可聚焦不可激活。挂法/press 形态同 font-picker.test.ts 重评-P2-2 段。
  *
  * 本档同时锚定飞出层（子菜单）键盘可达（原「hover 唯一可达」登记的闭合）：→ 进层并聚焦
  * 层内首项、层内 ← 收层还焦父项、层内 ↑/↓ 循环（层界 = 键盘是否在层内）、层内 Enter

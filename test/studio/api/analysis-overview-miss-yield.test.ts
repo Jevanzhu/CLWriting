@@ -7,7 +7,7 @@
  * doc setImmediate 让出（对齐 overview/progress 既有纪律，R39-15 同款），handler
  * 相应 async。
  *
- * 断言手法照抄仓内同类 yield 测试（r37-scan-async-twins）：setImmediate 心跳探针
+ * 断言手法同仓内同类 yield 测试（r37-scan-async-twins）：setImmediate 心跳探针
  * 「至少插队一次」+ globalThis.setImmediate spy 计让出下界（graceful-shutdown
  * setTimeout spy 同款先例）。
  */

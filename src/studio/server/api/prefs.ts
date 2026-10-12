@@ -56,7 +56,7 @@ const GLOBAL_PREFS_WRITE_LOCK_TIMEOUT_MS = 5_000
 // ── 写入面键白名单 + 值类型校验（两端点同源）────────────────────
 // 背景：原实现把 payload 的任意键与任意 JSON 值直接 {...disk, ...prefs} 合并落盘——
 // prefs.json / global.json 是「按名读键」的共享配置文件（版本保留策略、全局书级托底链、
-// 预算两键、前端 PREF_ROWS 33 键都按名消费），任意键/任意值入库 = 单次请求即可写花配置面
+// 预算两键、前端 PREF_ROWS 34 键都按名消费），任意键/任意值入库 = 单次请求即可写花配置面
 //（此后 GET 还会原样回显脏值，只能靠各读侧的容错兜底）。
 // 现收口为两段（对齐 config.ts numericChecks 的 fail-loud 口径）：
 // - 白名单内键：粗粒度类型校验，不符 → 400 BAD_INPUT（`prefs.<键> 类型不符`）；
@@ -85,7 +85,7 @@ const BOOK_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
   treeExpanded: isStrArr,
 }
 
-/** 全局 userData/global.json 白名单 —— 前端 stores/prefs.ts PREF_ROWS 33 键（落盘名）
+/** 全局 userData/global.json 白名单 —— 前端 stores/prefs.ts PREF_ROWS 34 键（落盘名）
  *  + 预算两键（global-defaults 读侧消费的 tokensPerChapter/costPerChapter）。 */
 const GLOBAL_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
   // 外观 + 全局编辑器偏好
@@ -105,7 +105,7 @@ const GLOBAL_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
   // 版本保留全局默认
   snapMaxDays: isNum,
   snapMaxCount: isNum,
-  // 书级设定全局托底 13 键
+  // 书级设定全局托底 14 键
   defaultGenre: isStr,
   defaultVolumeSize: isNum,
   defaultTargetWords: isNum,
@@ -119,6 +119,8 @@ const GLOBAL_PREF_TYPES: Readonly<Record<string, (v: unknown) => boolean>> = {
   relationMineThreshold: isNum,
   ragEnabled: isBool,
   ragProvider: isStr,
+  // 知识层方法参考注入全局默认（书级 auto.knowledge_injection 未设才托底）
+  knowledgeInjection: isBool,
   // 机检阈值五键
   checkRepeatThreshold: isNum,
   checkRepeatCharsThreshold: isNum,
@@ -251,7 +253,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
 
   // ── 全局编辑器偏好（userData/global.json，APP 级）──
   // 跨书库共享的外观设置（主题/字体/字号/行距/纸张宽度/自动保存）。
-  // 放在 APP 数据目录（非书库目录），切书库不受影响——对齐 Obsidian 全局配置位置。
+  // 放在 APP 数据目录（非书库目录），切书库不受影响。
 
   function globalPath(): { ok: true; path: string } | { ok: false; code: number; errCode: string; error: string } {
     if (!ctx.userDataPath) return { ok: false, code: 400, errCode: 'NO_USERDATA', error: '未定位到应用数据目录' }

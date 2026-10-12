@@ -51,7 +51,7 @@ import {
   restoreMainProcessListenerHarness,
 } from './main-process-harness.js'
 
-// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙，R0916-5b 随拆分逐件复刻）───────────
+// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙）───────────
 // 模块级包装 process.on/once 透传记账 → afterEach 逐监听器拆除 → afterAll 兜底还原；
 // 语义与原文详见 ./main-process-harness.js 头注。
 installMainProcessListenerHarness()

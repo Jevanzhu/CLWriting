@@ -90,7 +90,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-/* ── 模型行（dsh modelEntry/modelRow）：平铺输入行 + 展开容量 ── */
+/* ── 模型行：平铺输入行 + 展开容量 ── */
 .model-entry {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
@@ -113,7 +113,7 @@ const emit = defineEmits<{
   width: 28px;
   height: 28px;
   border: none;
-  /* dsh iconButton 6px */
+  /* 图标钮 6px */
   border-radius: 6px;
   background: transparent;
   color: var(--text-faint);
@@ -135,7 +135,7 @@ const emit = defineEmits<{
   color: var(--dv-bad);
   background: color-mix(in srgb, var(--dv-bad) 10%, transparent);
 }
-/* 展开指示：右向箭头旋转 90° 朝下（dsh IconChevron） */
+/* 展开指示：右向箭头旋转 90° 朝下 */
 .row-icon-btn.open {
   transform: rotate(90deg);
   color: var(--text-muted);

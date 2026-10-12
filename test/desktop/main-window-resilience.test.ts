@@ -6,7 +6,7 @@
  * 冒烟门 CLW_SMOKE_WINDOW_CYCLE；与 closed 清理链同批，归并同件）。
  * 用例自原文件 1949-2181 与 2747-2800 行整块原样搬移（describe/test 名称、断言、
  * mock 行为零变化）；mock 工厂/装置见 ./main-fixtures.js，④批 P2 监听器治理 harness
- * 见 ./main-process-harness.js（R0915-P2 承重墙，逐件复刻；本件含两处
+ * 见 ./main-process-harness.js（R0915-P2 承重墙；本件含两处
  * vi.spyOn(process,'on') 竞态用例，与包装的共存语义见该头注）。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
@@ -24,7 +24,7 @@ import {
   restoreMainProcessListenerHarness,
 } from './main-process-harness.js'
 
-// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙，R0916-5b 随拆分逐件复刻）───────────
+// ── ④批 P2 监听器治理 harness（R0915-P2 承重墙）───────────
 // 模块级包装 process.on/once 透传记账 → afterEach 逐监听器拆除 → afterAll 兜底还原；
 // 语义与原文详见 ./main-process-harness.js 头注。
 installMainProcessListenerHarness()

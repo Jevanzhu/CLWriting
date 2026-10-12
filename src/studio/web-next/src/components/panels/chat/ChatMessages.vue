@@ -182,7 +182,7 @@ interface VariantGroupInfo {
  * branches.find（区间扫描）+ 同组 filter/sort——同组过滤/排序逐消息重复（区间扫描本身
  * 仍线性，不构建区间索引）；改为循环前单趟预处理（同 parentSeq 组信息/已排序变体各算
  * 一次），消息循环查表 + 区间线性扫描。渲染输出逐项不变：组内仍 rootSeq 升序、变体
- * 归属/区间判定/无命中 group 即 continue 的 fallback 全部照搬——区间扫描沿 branches
+ * 归属/区间判定/无命中 group 即 continue 的 fallback 全部保留——区间扫描沿 branches
  * 原数组序（即服务端 listBranches 的 lastSeq 降序，branch-tree.ts）取首个命中，与原
  * find 同口径；重叠区间极端场景（跨分支交错续写）归组不因本批改写漂移。
  */

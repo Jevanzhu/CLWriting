@@ -13,6 +13,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../../src/document/manifest.js'
 import { generateDocId } from '../../../src/document/stable-id.js'
+import { openSessionStore, bookHash } from '../../../src/events/store.js'
 
 const BOOK = '三审测试书'
 let workDir = ''
@@ -175,6 +176,91 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
     expect(r.status).toBe(404)
     const j = r.json as { ok: boolean; code: string }
     expect(j.code).toBe('NOT_FOUND')
+  })
+})
+
+// 开关 auto.knowledge_injection：三审侧「视角技法注入」的关停面。
+// 判据取 llm/call 的 promptMeta.files（铁律①登记通道）——只断「接口仍 200」不足以
+// 证明注入被摘：技法段拼在 system 里，不进 files 清单就无从分辨。故按「知识层」前缀
+// 断两头：缺省必在（正向锚）、显式 false 必不在（关停锚），撤任一端本组即红。
+// 前缀取宽（`知识层/` 与 `知识层(内置)/` 两形态都算）——启动迁移会给书根播种
+// 知识层/，命中书级时登记名是该形态；随包兜底才是「知识层(内置)/」。
+describe('auto.knowledge_injection：三审视角技法注入开关', () => {
+  // bookRoot 在模块级 beforeAll 才赋值，路径须在钩子/用例内取（describe 体求值时它是空串）。
+  // 空 bookRoot 必须硬拦：join('', 'book.yaml') === 'book.yaml' 会落到**仓库根**——
+  // 模块级 beforeAll 若先失败，本组 afterAll 的写回就会在仓根留下一个空 book.yaml
+  // （`git status` 里凭空多一件未跟踪文件，且看起来像作者的书配置）。
+  const yamlPath = (): string => {
+    if (!bookRoot) throw new Error('bookRoot 未就绪（模块级 beforeAll 未跑完）——拒写仓根 book.yaml')
+    return join(bookRoot, 'book.yaml')
+  }
+  const KNOWLEDGE_PREFIX = '知识层'
+  let baseYaml = ''
+
+  beforeAll(() => {
+    baseYaml = readFileSync(yamlPath(), 'utf-8')
+  })
+  afterAll(() => {
+    if (!baseYaml) return // 基线没读到 → 无可恢复内容，宁可不写也不造空文件
+    writeFileSync(yamlPath(), baseYaml, 'utf8')
+  })
+
+  /** 本次三审各 llm/call 的 promptMeta.files 并集（本档内多轮三审共用同一事件库，
+   *  按 startSeq 只取本用例新增的事件——否则前序用例的注入源会串进来）。
+   *  读毕即 close（引用归零释放句柄）——否则 win 上 userDataDir 被占，
+   *  afterAll 的 rmSync 报 EPERM（同族见 events/store.test.ts 的句柄竞态收口）。 */
+  function reviewCallFiles(startSeq: number): string[] {
+    const store = openSessionStore(userDataDir, bookRoot)
+    expect(store).not.toBeNull()
+    try {
+      const evs = store!.listEvents(bookHash(bookRoot))
+      const out: string[] = []
+      for (const e of evs) {
+        if (e.seq < startSeq || e.type !== 'llm/call') continue
+        const files = (e.data as { promptMeta?: { files?: string[] } }).promptMeta?.files ?? []
+        out.push(...files)
+      }
+      return out
+    } finally {
+      store!.close()
+    }
+  }
+
+  /** 当前事件库尾序号（下一次三审的新事件自 seq > 此值起） */
+  function lastSeq(): number {
+    const store = openSessionStore(userDataDir, bookRoot)
+    try {
+      const evs = store!.listEvents(bookHash(bookRoot))
+      return evs.length === 0 ? 0 : evs[evs.length - 1]!.seq
+    } finally {
+      store!.close()
+    }
+  }
+
+  it('缺省（键未设）→ 技法注入源进 promptMeta.files', async () => {
+    const from = lastSeq()
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
+    expect(r.status).toBe(200)
+    const files = reviewCallFiles(from)
+    expect(files.length).toBeGreaterThan(0) // 本用例确有三审调用发生（否则下条断言恒真）
+    expect(files.some((f) => f.startsWith(KNOWLEDGE_PREFIX))).toBe(true)
+  })
+
+  it('显式 false → 三审照常成立，但技法注入源不再登记', async () => {
+    writeFileSync(yamlPath(), `${baseYaml}auto:\n  knowledge_injection: false\n`, 'utf8')
+    try {
+      const from = lastSeq()
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/review`, {})
+      expect(r.status).toBe(200)
+      const j = r.json as { ok: boolean; collected: { ok: boolean } }
+      expect(j.ok).toBe(true)
+      expect(j.collected.ok).toBe(true) // 关的是技法注入，不是三审本身
+      const files = reviewCallFiles(from)
+      expect(files.length).toBeGreaterThan(0)
+      expect(files.filter((f) => f.startsWith(KNOWLEDGE_PREFIX))).toEqual([])
+    } finally {
+      writeFileSync(yamlPath(), baseYaml, 'utf8')
+    }
   })
 })
 

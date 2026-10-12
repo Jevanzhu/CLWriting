@@ -30,7 +30,7 @@ const tmpDirs: string[] = []
 afterAll(() => {
   for (const c of children) if (c.exitCode === null) c.kill('SIGKILL')
   // 退避重试：SIGKILL 后子进程句柄释放迟滞（win EPERM）/ 目录收尾竞态（mac ENOTEMPTY），
-  // 与 server-mutex / cov-server-onboard 两档同款（win 腿间歇红台账 suite 级收尾族）
+  // 与 server-mutex / cov-server-onboard 两档同款（win 腿 suite 级收尾竞态族）
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 

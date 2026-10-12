@@ -226,7 +226,8 @@ describe('Y-P2-4 治理：模型可见 ⟺ 已记录（verifyVisibleRecorded 管
     // 全量注入（settings + chapter + skills）对真实事件流校验 missing 为空——
     // 「模型可见 ⟺ 已记录」在本管线成立
     const visible = visibleInjections(ctx)
-    expect(visible.map((v) => v.scope)).toEqual(['settings', 'chapter', 'skills'])
+    // 统一批:知识层方法论注入在场(随包兜底)→ visible 含 knowledge 档
+    expect(visible.map((v) => v.scope)).toEqual(['settings', 'chapter', 'skills', 'knowledge'])
     const check = verifyVisibleRecorded(visible, evs)
     expect(check.missing).toEqual([])
     expect(check.present).toBe(visible.length)

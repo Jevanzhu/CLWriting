@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Obsidian view-header：面包屑（书名 › 视图）。收起右栏/专注入口已移至 TabBar。
+// view-header：面包屑（书名 › 视图）。收起右栏/专注入口已移至 TabBar。
 import { computed } from 'vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { usePlatform } from '../../composables/usePlatform'

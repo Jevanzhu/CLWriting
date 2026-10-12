@@ -6,7 +6,7 @@
  * RENDER_CAP=100 + 尾部省略计数提示行；数据面不动（candidates 原样、picked 集与
  * 「添加 N 个」计数仍按全量）。
  *
- * 挂法仿 model-picker-esc.test.ts（原 r37-e-components ModelPicker 段）（mount + attachTo + Teleport 到
+ * 挂法同 model-picker-esc.test.ts（原 r37-e-components ModelPicker 段）（mount + attachTo + Teleport 到
  * body 的选择器断言）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'

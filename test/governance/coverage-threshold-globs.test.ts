@@ -129,7 +129,7 @@ const EXPECTED_THRESHOLDS: Record<string, Record<string, number>> = {
   'src/studio/web-next/src/components/relations/*.vue': { lines: 40, branches: 47 },
   'src/studio/web-next/src/composables/useLibraryIpc.ts': { lines: 98, branches: 98 },
 }
-/** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
+/** 各桶排除时留下注释标记便于人读；include/exclude 口径同 vitest.config.ts */
 // INCLUDE 抄本同步扩 'src/studio/web-next/src/**/*.vue'
 //（配置侧 include 扩 SFC 入核算，抄本保持口径一致；下方收集函数随动收 .vue）
 const INCLUDE = ['src/**/*.ts', 'src/studio/web-next/src/**/*.vue']

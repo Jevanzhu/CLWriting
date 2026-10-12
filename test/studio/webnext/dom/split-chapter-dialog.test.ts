@@ -2,7 +2,7 @@
  * 阶段 24（S4）：拆分弹窗 SplitChapterDialog mount 回归。
  *
  * 干跑视图（SplitPlanView）渲染 + 新章标题必填守卫 + Esc/取消/Enter/IME 键盘动线。
- * 形态仿 ChapterMetaDialog：弹窗体经 <teleport to="body"> 渲染，元素从 document.body
+ * 形态同 ChapterMetaDialog：弹窗体经 <teleport to="body"> 渲染，元素从 document.body
  * 取（DOMWrapper 复用 VTU 的 setValue/trigger），手法照 chapter-meta-dialog.test.ts /
  * chapter-meta-esc-ime.test.ts。
  */

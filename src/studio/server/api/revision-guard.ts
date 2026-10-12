@@ -1,8 +1,8 @@
 /**
  * expectedRevision 乐观并发守卫单源。
  *
- * providers / rag-providers / prefs 三处各持一份同名 revisionError 拷贝（providers
- * 首创、另两处照抄），校验口径与 409 文案开始漂移（「配置 / 全局偏好」措辞分裂）。
+ * providers / rag-providers / prefs 三处各持一份同名 revisionError 拷贝（彼此
+ * 独立），校验口径与 409 文案开始漂移（「配置 / 全局偏好」措辞分裂）。
  * 收敛到本文件：判定逻辑唯一（缺失放行——旧客户端/脚本向后兼容；存在且与当前
  * revision 不等 → 409 冲突文案），主体名词经 subject 参数注入（providers 族
  * 「配置」、prefs「全局偏好」），各端点的既有行为与文案不变。

@@ -1,5 +1,5 @@
 /**
- * AiServicePanel（「设置 · 服务提供方」面板）卡片化交互测试（阶段 14 第二步 §四，照搬 DSH ModelsSection）：
+ * AiServicePanel（「设置 · 服务提供方」面板）卡片化交互测试（阶段 14 第二步 §四）：
  *  - 列表即卡片、列表始终可见（编辑/新增都不切视图、不弹全屏）；
  *  - 「编辑」/行尾展开钮切单值互斥就地进行编辑（开一张收另一张）；
  *  - 「新增」= 列表下方新增卡（内嵌空白编辑器），与任一展开行互斥。
@@ -112,7 +112,7 @@ beforeEach(() => {
   mocks.setCurrentProvider.mockResolvedValue({ ok: true, currentId: 'p2' })
 })
 
-describe('AiServicePanel 卡片化交互（照搬 DSH）', () => {
+describe('AiServicePanel 卡片化交互', () => {
   it('列表即卡片：多提供方各一行，列表常驻可见', async () => {
     const wrapper = await mountPanel()
     const rows = wrapper.findAll('.ai-service-panel .provider-row')
@@ -132,7 +132,7 @@ describe('AiServicePanel 卡片化交互（照搬 DSH）', () => {
     // 列表仍在（两张行卡都在），编辑器内嵌该行下方
     expect(wrapper.findAll('.ai-service-panel .provider-row')).toHaveLength(2)
     expect(wrapper.findAll('.row-inline-editor')).toHaveLength(1)
-    // 展开不打上游：模型清单预热归 ModelListEditor 按需「获取模型」（dsh 语义），
+    // 展开不打上游：模型清单预热归 ModelListEditor 按需「获取模型」，
     // 展开只是切 editedId 单值——fetchModels 不应被调
     expect(mocks.fetchModels).not.toHaveBeenCalled()
 

@@ -36,6 +36,16 @@ export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
+/** 超帽则保头截断并加显式标注，未超帽原样返回。
+ *
+ *  单源：知识层三面（写稿 select / 三审 review-method / 对话 chat）的语料注入段此前
+ *  各持一份「判帽 → clip → 拼标注」同款三行，标注文案（`…（超长截断）`）与码点口径
+ *  也随之三处漂移（各处自持常量帽，判据重复）。收敛到本模块后，调用方只给帽值。
+ *  标注本身是**对外可观察面**（测试锚定该串），不得改文案而不改测试。 */
+export function clipWithNotice(text: string, max: number): string {
+  return codePointLength(text) > max ? `${clipByCodePoints(text, max)}\n…（超长截断）` : text
+}
+
 /** 字节是否合法 UTF-8（fatal 解码探测）。
  *
  *  单源：此判据在四处各持一份同款实现——document/service-guards.ts 的

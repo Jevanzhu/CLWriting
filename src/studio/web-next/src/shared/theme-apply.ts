@@ -101,7 +101,7 @@ export function createThemeApply(theme: Ref<ThemeId>) {
       // present）：144Hz 帧预算 6.9ms，整页 restyle 必超预算——pre-flush 发送会让
       // 窗控恒定领先页面 1-2 帧（角落先变 = 「抢跑」，作者反馈「切换配色不同
       // 步」）。改为页面先变、窗控随即跟上（落后 ≤1 帧），跟随方向与直觉一致。
-      // 遮罩路径（setOverlayDimmed）不照抄：遮罩帧已轻量化到单帧预算内
+      // 遮罩路径（setOverlayDimmed）不采用此法：遮罩帧已轻量化到单帧预算内
       // （ShelfModal/SettingsModal contentReady 分帧），pre-flush 发送即与遮罩
       // 同帧扫描输出，才是真同步。
       requestAnimationFrame(() =>

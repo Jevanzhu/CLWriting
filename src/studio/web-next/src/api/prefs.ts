@@ -55,7 +55,7 @@ export async function putBookPrefs(
 
 // ── 全局编辑器偏好（.clwriting/global.json）──
 
-/** 全局编辑器偏好：跨书共享的外观设置（对齐 Obsidian vault 级配置）。 */
+/** 全局编辑器偏好：跨书共享的外观设置。 */
 export interface GlobalPrefs {
   theme?: 'light' | 'dark'
   proseSize?: number
@@ -103,6 +103,8 @@ export interface GlobalPrefs {
   ragEnabled?: boolean
   /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
   ragProvider?: string
+  /** 知识层方法参考自动注入默认（书级 auto.knowledge_injection；缺省 true = 注入） */
+  knowledgeInjection?: boolean
   // ── 机检阈值全局托底五键（undefined = 未设，走引擎默认；书级 checks.* 未设才托底）──
   /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
   checkRepeatThreshold?: number

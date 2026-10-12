@@ -38,6 +38,7 @@ import type { ReviewTier } from '../../../review/contract.js'
 import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
+import { buildReviewMethodInjection } from '../../../knowledge/review-method.js' // 三审视角技法运行时注入(统一批)
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 import { effectiveRemainingCalls } from '../../../ai/calls.js'
@@ -213,7 +214,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           const mainSession = await ctx.driver.ensureSession(params['name']!, ctx.workDir!)
           // 接入中断通道——此前 generateTool×3
           // 未接 driver ctrl 注册面，/interrupt 对在途三审完全无效且 driver.isRunning 假空闲
-          // （假成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排
+          // （假成功）。接法同 stream.ts spawn/self-heal 的 register/unregister 形态：编排
           // 段新建 ctrl → driver.registerCtrl（owner='review:<书名>'，含书名使跨书并发互不
           // 误伤；同书重入已被 reviewRunning + 任务闸 409 挡住，同 owner 串行换新安全）→
           // -①：settle（成功/失败/中断）统一注销——isRunning 归 false（口径）
@@ -235,6 +236,10 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               outDir: built.packet.out_dir,
               // 正文注入源登记（f.entry.path = 三审直读的文档相对路径）
               sourceFiles: [f.entry.path],
+              // 知识层视角技法注入开关（书级 auto.knowledge_injection → global 托底，
+              // 缺省开）——关停 = 逐 lens 空段（不入 systemPromptSuffix、不入 promptFiles）。
+              // config 已过 applyGlobalDefaults，生产路径必有值；`!== false` 兜底直调/无配置面
+              methodInjectionEnabled: config.auto?.knowledge_injection !== false,
               onProgress: emitProgress,
               ctrl, // -①：中断通道透传逐 lens runSpec
             })
@@ -388,6 +393,8 @@ async function runLensSpawnLoop(opts: {
   outDir: string
   /** 正文注入源（相对书根）——铁律①登记通道 */
   sourceFiles?: string[]
+  /** 知识层视角技法注入开关（缺省 true；false = 逐 lens 跳过技法段与注入源登记） */
+  methodInjectionEnabled?: boolean
   onProgress?: (lens: string, phase: 'start' | 'done') => void
   /** -①：编排级中断 ctrl（/interrupt 经 driver 注册面对其 abort） */
   ctrl?: AbortController
@@ -401,11 +408,20 @@ async function runLensSpawnLoop(opts: {
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
+    // 视角技法运行时注入(书级 > 随包知识层;统一批)——prompt 只留契约与基线,
+    // 技法段经 systemPromptSuffix 拼在内置/overlay 之后(不参与哈希匹配),
+    // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。
+    // 开关关停时走同一空段形态(不注入不登记),不新增分支语义
+    const methodInj =
+      opts.methodInjectionEnabled === false
+        ? { text: '', sources: [] }
+        : buildReviewMethodInjection(lens, opts.bookRoot)
     const out = await runSpec(reviewSpec(lens), {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,
       userPrompt: prompt,
-      promptFiles: opts.sourceFiles,
+      promptFiles: [...(opts.sourceFiles ?? []), ...methodInj.sources],
+      ...(methodInj.text ? { systemPromptSuffix: methodInj.text } : {}),
       ctrl: opts.ctrl,
     })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }

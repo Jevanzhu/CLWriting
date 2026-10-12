@@ -3,7 +3,7 @@
  *
  * 修复前：GET /completion-names 每请求同步整读 设定/角色 + 设定/物品 全部 md 解 fm
  * （readFmNames 逐文件 readFile），编辑器补全高频调用同步阻塞事件循环 ~80-200ms。
- * 修复后照抄 R46-16 settings 壳（目录指纹 + 纯 TTL + FIFO 上限 + forgetSettingsCache
+ * 修复后同 R46-16 settings 壳（目录指纹 + 纯 TTL + FIFO 上限 + forgetSettingsCache
  * 书键挂点），响应形状 {characters, items} 不变。
  * win 合并批（2026-09-13）适配：R0912-ds41 同题在 win 树独立落地且读面异步化
  * （readFileFmOnly 头读 + handler async），合并合成后直调改 await；TTL 生效值链

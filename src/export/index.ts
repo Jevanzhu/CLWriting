@@ -208,7 +208,7 @@ function purifyBody(body: string): string {
  *  代码围栏（``` 行，行识别收编 format/fence 的 matchFenceLine 单源、与同文件
  *  purifyBody 同口径）行与围栏内行整段跳过——围栏内是代码字面量，行首 `#`、
  *  `a[1](b)` 一类不是呈现层标记，剥除即改写代码；只认反引号围栏（``` 与 ~~~ 的
- *  取舍照 purifyBody 现状：~~~ 不扩大识别范围）。
+ *  取舍同 purifyBody 现状：~~~ 不扩大识别范围）。
  *  围栏未闭合（首遍末态仍在围栏内）按无围栏重剥——围栏边界不可信时以净化优先
  *  （宁剥不错留，与 purifyBody 的两遍收口一致）。
  *  **不碰**：列表标记（`- `/`1. `——中文正文罕见，且行首短横线可能是作者自用）、
@@ -654,7 +654,7 @@ export function prepareExportLayout(args: {
   // 目录创建位于主信封 try 之外——工作区只读/EROFS/EACCES 时裸异常
   // 上抛，worker 形态变 500 且丢 chapterCount/warnings，违背确立的
   // {ok:false} 信封契约。mkdir 结果被后续清旧/分章目录准备依赖、无法并入主 try，
-  // 本地收编同款错误信封（口径照抄的 short 分支收编写法）。
+  // 本地收编同款错误信封（口径同 short 分支收编写法）。
   try {
     mkdirSync(exportDir, { recursive: true })
   } catch (e) {
@@ -668,7 +668,7 @@ export function prepareExportLayout(args: {
     // 书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
     // 拿错稿——同前缀其余文件视为过期产物归档清位（归档不删，清旧失败不阻断导出）
     // readdirSync 清点同在主信封 try 之外——导出目录被并发删/
-    // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径，口径照抄）。
+    // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径）。
     // 清旧循环里归档失败是安全的——清的是「其它名字」的过期产物，归档
     // 不下就留在原位，本次写的是另一个名字，不存在覆写；故此处不比照写入点做兜底改名。
     // 扫描面已按输出分流（md = 导出/ 根、txt = 导出/纯文本/），扩展名判定同口径
@@ -718,7 +718,7 @@ export function prepareExportLayout(args: {
     }
     // 连带（代理范围外上报、主评审收口）：分章目录重建 mkdir 同在主信封
     // try 之外（EROFS/EACCES 裸抛破坏 {ok:false} 信封契约）——与上方母本目录/清旧
-    // 两处同族同款本地收编（口径照抄）。
+    // 两处同族同款本地收编。
     try {
       mkdirSync(join(exportDir, splitTargetDirName), { recursive: true })
     } catch (e) {

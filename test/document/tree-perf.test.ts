@@ -25,8 +25,8 @@ let root = ''
 const chapterFiles: string[] = []
 
 // 60s 帽：CI 慢机重负载下 beforeAll 建具（250 章 + 卷纲清单落盘 + git init/commit）曾超
-// vitest 缺省 10s hookTimeout——win 腿间歇红台账 tree-perf 条目 2026-10-05 两轮 tag CI
-// 复发实录；P2-4 修的是断言帽，此为另一道。建具纯 IO 无断言语义，放宽不弱化守卫。
+// vitest 缺省 10s hookTimeout——win 腿 2026-10-05 两轮 tag CI 复发实录；P2-4 修的是断言
+// 帽，此为另一道。建具纯 IO 无断言语义，放宽不弱化守卫。
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-perf-'))
   const lines = ['{"version":1,"type":"header"}']
@@ -75,7 +75,7 @@ function medianOf(samples: number[]): number {
 describe('tree 大书性能（§9.3）', () => {
   it(`扫描 ${VOL * CH} 章（${VOL} 卷）：buildTree 含派生 + 清单 + 卷纲关联`, () => {
     // RC 全项目重审 P2-4：绝对墙钟帽（1000ms）在 CI 慢机系统性超时即 flaky（win 腿实录
-    // 红三件之一，竞态台账在册）——断言回到相对口径本身（低-a 先例同款「不受机器/CI
+    // 红三件之一）——断言回到相对口径本身（低-a 先例同款「不受机器/CI
     // 快慢影响」）：buildTree 中位数 < 「裸读全部 250 章文件」基线中位数 × 20。基线是
     // 同书同盘的 IO+CPU 混合负载，随机器快慢与 buildTree 同向缩放；倍率余量按本机实测
     // （build ~245ms / 基线 ~40ms ≈ 6x）留 3 倍以上，只拦量级级回归（派生/清单合并

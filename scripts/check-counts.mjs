@@ -694,7 +694,7 @@ export function archiveCountProblem(docText, actual) {
 }
 
 /**
- * `CLAUDE.md` 的测试档数读数不入门（作者口径）。
+ * `AGENTS.md` 的测试档数读数不入门（作者口径）。
  *
  * 曾以「全量 N 档」声称值对账（fail-closed），已撤：治理正本不该被机器门绑定——
  * 「不塞废话」是对编辑者的行文要求，不是给正本套数字锁。撤门后正本的量级读数改由

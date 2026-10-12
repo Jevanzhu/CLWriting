@@ -1,6 +1,6 @@
 /**
  * A1（CS-12）：窗口参数归一——非法值归 null（不设限），绝不猜数字。
- * 测试写法照抄 cherry：非法值批量断言不 throw 且返回 null。
+ * 测试写法：非法值批量断言不 throw 且返回 null。
  */
 import { test, expect } from 'vitest'
 import { normalizeMaxMessages } from '../../src/ai/prompts/window.js'

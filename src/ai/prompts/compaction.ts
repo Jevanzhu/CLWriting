@@ -1,7 +1,7 @@
 /**
- * 历史压缩规划（批次直抄思想；回合判定按 CLWriting 配对版重写）。
+ * 历史压缩规划（回合判定按 CLWriting 配对版重写）。
  *
- * cherry 的 groupIntoTurns 按 role:'tool' 判回合；CLWriting 的 tool_result 是
+ * 回合判定不按 role:'tool'：CLWriting 的 tool_result 是
  * user 消息的 content block（Anthropic 风格），配对判定改为：
  * - user(纯文本) = 回合起点（作者发言）；
  * - assistant(tool_use) 与其后回填的 user(tool_result) 留在同一回合——

@@ -112,7 +112,7 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
 // ── trash 清单单槽指纹缓存 ─────────
 // readTrashManifestStrict 此前每次调用全量读盘 + 逐行 JSON.parse（executeSave 前段
 // 守卫 + 锁内复核双调用点每笔保存 2 遍重复读，restore/purge/append 的 RMW 链同样
-// 高频触发）。仿 document/manifest.ts manifestCache 先例：trash 清单全库单文件，
+// 高频触发）。同 document/manifest.ts manifestCache 先例：trash 清单全库单文件，
 // 单槽 stat 指纹缓存即够——命中零 IO 零解析。指纹 = size:mtimeNs（bigint stat，
 // manifest.ts 同款：mtimeMs 毫秒粒度在 FAT/exFAT + 同尺寸他进程写下指纹
 // 不变会假命中，ns 粒度消同尺寸窗口）——他进程改写必变 mtime/size → 失效重读，

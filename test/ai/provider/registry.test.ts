@@ -113,7 +113,7 @@ describe('settings hash 实例缓存', () => {
   })
 })
 
-describe('配置 + 适配器原子绑定（学 cherry prepareCall 防注册漂移）', () => {
+describe('配置 + 适配器原子绑定（防注册漂移）', () => {
   it('创建后调用方 mutate 自己的对象，不影响已绑定实例', () => {
     const mine: ProviderConf = { ...CONF }
     const provider = createProvider(mine)

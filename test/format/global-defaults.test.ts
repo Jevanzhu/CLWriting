@@ -120,6 +120,8 @@ test('GLOBAL_FALLBACK_DEFAULTS: 契约值 + 三键不回落（不在对象里）
     relationAutoMine: false,
     relationMineThreshold: 3,
     ragEnabled: false,
+    // 全表唯一缺省 true 的回落——语义是「默认开启、显式才关」（见 global-defaults 注释）
+    knowledgeInjection: true,
   })
   // defaultTargetWords / defaultChapterTargetWords / ragProvider 刻意无回落
   expect('defaultTargetWords' in GLOBAL_FALLBACK_DEFAULTS).toBe(false)
@@ -269,5 +271,41 @@ test('R26-13: kind: short 无 short 段 → 保底实例化 strict（defaultShor
   // 长篇无 short 段 → 不强行建段（原语义不回归）
   const eff4 = applyGlobalDefaults(bareConfig(), ud)
   expect(eff4.short).toBeUndefined()
+  rmSync(ud, { recursive: true, force: true })
+})
+
+// ── auto.knowledge_injection：全表唯一「缺省 true」的键（缺省反了 = 给存量书静默关停）──
+
+test('auto.knowledge_injection: 全未设 → 硬编码回落 true（注入是现行行为，缺省不得是关）', () => {
+  const eff = applyGlobalDefaults(bareConfig(), null)
+  expect(eff.auto.knowledge_injection).toBe(true)
+})
+
+test('auto.knowledge_injection: global false → 书级未设时托底生效（关停能经全局下发）', () => {
+  const ud = mkUserData()
+  writeGlobal(ud, { knowledgeInjection: false })
+  const eff = applyGlobalDefaults(bareConfig(), ud)
+  expect(eff.auto.knowledge_injection).toBe(false)
+  rmSync(ud, { recursive: true, force: true })
+})
+
+test('auto.knowledge_injection: 书级显式值赢过全局（true 与 false 两向都不得被翻案）', () => {
+  const ud = mkUserData()
+  writeGlobal(ud, { knowledgeInjection: true })
+  // 书级 false + 全局 true：作者的「本书关掉」必须生效（判据是 === undefined 而非 !== true）
+  const off = applyGlobalDefaults({ ...bareConfig(), auto: { knowledge_injection: false } }, ud)
+  expect(off.auto.knowledge_injection).toBe(false)
+
+  writeGlobal(ud, { knowledgeInjection: false })
+  const on = applyGlobalDefaults({ ...bareConfig(), auto: { knowledge_injection: true } }, ud)
+  expect(on.auto.knowledge_injection).toBe(true)
+  rmSync(ud, { recursive: true, force: true })
+})
+
+test('auto.knowledge_injection: global 脏值（非 boolean）剔除 → 回落 true，不误关', () => {
+  const ud = mkUserData()
+  writeGlobal(ud, { knowledgeInjection: 'yes' }) // 字符串非 boolean → 读侧剔除
+  expect(readGlobalBookDefaults(ud)).toEqual({})
+  expect(applyGlobalDefaults(bareConfig(), ud).auto.knowledge_injection).toBe(true)
   rmSync(ud, { recursive: true, force: true })
 })

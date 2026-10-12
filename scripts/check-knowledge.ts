@@ -138,6 +138,9 @@ export const BUNDLED_KNOWLEDGE_DIR = 'resources/knowledge'
 /** 随包语料目录说明文件名（非语料副本，豁免逐字节对账） */
 const BUNDLED_README = 'README.md'
 
+/** 随包语料历史哈希表(播种/升级判据本身,非语料副本,豁免逐字节对账) */
+const BUNDLED_VERSIONS = 'versions.json'
+
 /** 递归收集目录下全部文件（跳过隐藏项；symlink 按文件参与——对不上字节即报） */
 function collectBundledFiles(dir: string): string[] {
   const out: string[] = []
@@ -166,7 +169,7 @@ export function scanBundledCorpusMismatches(projectRoot: string, bundledDir: str
     .map((p) => relative(bundledRoot, p).split(sep).join('/'))
     .sort()
   for (const rel of rels) {
-    if (rel === BUNDLED_README) continue
+    if (rel === BUNDLED_README || rel === BUNDLED_VERSIONS) continue
     const origin = join(projectRoot, KNOWLEDGE_DIR, rel)
     if (!existsSync(origin)) {
       problems.push(`${bundledDir}/${rel}: 知识层/ 无对应原稿（随包件必须来自正式知识层）`)

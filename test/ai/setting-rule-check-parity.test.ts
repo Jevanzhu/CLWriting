@@ -2,10 +2,10 @@
  * 重评2-P3-1（2026-09-09 全量重评 GLM-5.3，AI 域 P3-②）：check 域口径防漂移对拍。
  *
  * 背景：src/ai/rules/setting-rule.ts:147-174 的守卫族（DIALOGUE_GUIDE_RE /
- * ATTRIBUTION_RE / SPEECH_ATTRIBUTION_RE）与 parseRosterNamesLocal 注释自记
- * 「逐字移植 check/count.ts」（R48-3，只读参照、不改 check 侧）——双实现无编译期
+ * ATTRIBUTION_RE / SPEECH_ATTRIBUTION_RE）与 parseRosterNamesLocal 都要与
+ * check/count.ts 对拍（R48-3，只读参照、不改 check 侧）——双实现无编译期
  * 约束，R48-3 修过同型漂移，属复发风险。本文件不改任何生产代码，把 setting-rule
- * 移植物与 check/count.ts 对应物经**两端公共入口**做行为一致性对拍：
+ * 侧实现与 check/count.ts 对应物经**两端公共入口**做行为一致性对拍：
  * - AI 侧   ：settingConsistencyRule.check（违规名 = message 首个「」片段）
  * - check 侧：checkNewNames（候选名 = message 首个「」片段）
  * 同一 (roster, body) 输入两端必须报出**同一组名字**（对白守卫族 + 名册精确判重
@@ -68,7 +68,7 @@ afterEach(() => {
   dirs.length = 0
 })
 
-describe('重评2-P3-1: setting-rule 移植物 × check/count 对拍（同一输入两端同判）', () => {
+describe('重评2-P3-1: setting-rule 侧实现 × check/count 对拍（同一输入两端同判）', () => {
   // 守卫族语料：空名册（registered 空），逐行单 span，两端必须同判
   // expect = 该行式的两端共同预期（'report' 非空 / 'exempt' 空）——显式声明，
   // 防按标题关键词猜测的哨兵误分类

@@ -23,8 +23,25 @@ function tmpRoot(): string {
   return d
 }
 
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+/** 删除临时目录：轮询到可删为止（win 句柄释放迟滞族）。
+ *  库连接收尾期句柄仍在手——rmSync 内建退避只覆盖极短窗口，实测负载下越预算即 EPERM
+ *  整档红（win 腿 suite 级收尾面，与 server-mutex / cov-server-onboard /
+ *  server-main-error 同族）。预算耗尽仍抛：真句柄泄漏照旧红，不吞故障。 */
+async function removeDirWhenFree(dir: string, budgetMs = 10_000): Promise<void> {
+  const deadline = Date.now() + budgetMs
+  for (;;) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      return
+    } catch (e) {
+      if (Date.now() >= deadline) throw e
+      await new Promise((r) => setTimeout(r, 25))
+    }
+  }
+}
+
+afterEach(async () => {
+  for (const d of dirs.splice(0)) await removeDirWhenFree(d)
 })
 
 describe('F1-P1 bookHash', () => {
@@ -630,6 +647,9 @@ describe('事件库空间回收', () => {
     // 清空对话（clearBooks 双键形态，与 chat 清史/audit 清除同路径）→ 后台回收被调度
     store.clearBooks(['胖书'])
     await waitFor(() => onDisk() < peak / 2, 5000, 20, '事件库回收')
+    // 字节回落不等于维护任务已收尾：它自开连接、块间让出，收尾期仍持库句柄（实测 20/20
+    // 命中「字节已回落但目录仍被持有」）。等它落定再收尾——复用在途任务，不叠第二个连接。
+    await runSessionDbMaintenanceAsync(store.dbPath)
     store.close()
   })
 })

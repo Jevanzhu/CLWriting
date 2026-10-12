@@ -185,7 +185,7 @@ export function addCandidate(bookRoot: string, c: StyleCandidate): string {
 export function confirmCandidate(bookRoot: string, candidateRelPath: string): string | null {
   // 内层收口：统一委托 resolveWithinRoot（symlink 双侧 realpath + fail-closed）
   // ——此前手写 relative 穿越 check 是全库第五套平行实现，无 symlink 防护（API 层已补，
-  // 内层再收口防裸调用绕过 + 防后来者照抄弱实现）
+  // 内层再收口防裸调用绕过 + 防后来者自建弱实现）
   const safe = resolveWithinRoot(bookRoot, candidateRelPath)
   if (!safe) return null
   const fp = safe.abs

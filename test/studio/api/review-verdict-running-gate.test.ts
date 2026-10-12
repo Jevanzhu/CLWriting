@@ -8,7 +8,7 @@
  *
  * 闸态经 __setReviewRunning 第三参（docId，P2-1 新增可选参）预置到真实文档键上
  * （不起真实三审，同 review-audit-gate.test.ts 装置形态）；每例用后同参清理。
- * 装置（手搭书脚手架 + startServerSafe）照抄 review-verdict-race.test.ts。
+ * 装置（手搭书脚手架 + startServerSafe）同 review-verdict-race.test.ts。
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'

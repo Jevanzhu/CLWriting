@@ -30,7 +30,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 const PROD_META_SQL = `SELECT MIN(seq) AS s FROM events
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
            AND has_branch_meta = 1`
-/** 修复前的 LIKE 形态（语义参照，手抄自基线 7fd37bd2） */
+/** 修复前的 LIKE 形态（语义参照） */
 const LEGACY_LIKE_SQL = `SELECT MIN(seq) AS s FROM events
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
            AND (data LIKE '%"branchId"%' OR data LIKE '%"parentSeq"%')`

@@ -1,4 +1,4 @@
-/* web-next 设计 token —— Obsidian 语义变量（M10 重写）。
+/* web-next 设计 token —— 语义变量（M10 重写）。
  * [data-theme='light'|'dark'] 两档，默认 light（无 data-theme 时 :root = light）。
  * 色值为起步值，P0 验收时与 Jevan 视觉定稿。
  * 组件只引 var()；禁止再造透明度派生矩阵（hover 用 modifier 变量或 color-mix 就地表达）。 */
@@ -44,7 +44,7 @@
   --font-size-l: calc(15px + var(--font-size-step));
   --font-size-xl: calc(18px + var(--font-size-step));
   --font-size-2xl: calc(24px + var(--font-size-step));
-  /* 圆角（刻度对齐 dsh：图标钮 6 / 输入·条目 8 / 卡片 12 / 大面板·弹窗 24） */
+  /* 圆角（图标钮 6 / 输入·条目 8 / 卡片 12 / 大面板·弹窗 24） */
   --radius-s: 4px;
   --radius-m: 8px;
   --radius-l: 12px;
@@ -61,7 +61,7 @@
   --size-control-sm: 26px; /* 窄图标按钮（右栏 tab 组） */
   --size-ribbon-btn: 32px; /* Ribbon 图标列按钮 */
   --size-side-right: 260px; /* 右栏固定宽度 */
-  /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
+  /* 4-base 间距阶（4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
   --size-4-2: 8px;
   --size-4-3: 12px;

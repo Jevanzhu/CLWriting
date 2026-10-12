@@ -3,7 +3,7 @@
  *
  * 背景：重评-0911c 确认 /interrupt 对 task-gate 族完全无效且假成功——七个生成端点
  * （outline / lead-updates / review / analysis(analyze) / onboard / settings(relations-mine) /
- * rewrite）的 runSpec 均未接 driver ctrl 注册面。本批统一接线（register/unregister 形态照抄
+ * rewrite）的 runSpec 均未接 driver ctrl 注册面。本批统一接线（register/unregister 形态同
  * stream.ts spawn/self-heal，owner='<task>:<书名>'）后：
  * - 每端点「注册 → /interrupt 真中断 → ABORTED 信封（499 + error='已中断'）」；
  * - 每端点「settle（成功）后注销」——driver.isRunning 归 false（cc X-P2-11 口径）；

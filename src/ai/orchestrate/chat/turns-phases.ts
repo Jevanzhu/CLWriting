@@ -289,7 +289,7 @@ function prepareSendHistory(deps: TurnDeps, sendBudget: number, turn: number): S
   // 切点口径与 trimHistory 回落分支单源（budgetTailCut：只取纯文本 user 边界，永不落
   // tool_use/tool_result 配对中间）。预切只改本轮发送副本 toSend，不改累积 history
   // （中断回滚仍按 baseLen 精确）；下方 promptText 指纹取 toSend 末条（指纹与实发
-  // 同源，守「模型可见 ⟺ 已记录」）。零边界病态形态照 trimHistory 先例：无法安全切
+  // 同源，守「模型可见 ⟺ 已记录」）。零边界病态形态同 trimHistory 先例：无法安全切
   // → 原样发送 + warn（可观测）。
   // system prompt 计入发送预算——历史可用 = resolved 预算 − sys
   // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤到下限以下时

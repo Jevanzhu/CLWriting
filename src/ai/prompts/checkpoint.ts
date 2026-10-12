@@ -1,7 +1,7 @@
 /**
- * checkpoint 摘要模板 + 输出钳制（批次直抄）。
+ * checkpoint 摘要模板 + 输出钳制。
  *
- * 8 段模板逐字结构（dsh summarizer.ts:31-66）：段名保留英文防漂移 + 中文括注。
+ * 8 段模板逐字结构：段名保留英文防漂移 + 中文括注。
  * 两条纪律由调用方配合完成：
  * - 合并而非复制：待压区已含先前 checkpoint 时，摘要指令要求输出唯一一份累计存档；
  * - 空摘要 fail-open：摘要空 ≠ 压缩成功（compaction.ts compactHistory 兜底，绝不占位）。
@@ -15,7 +15,7 @@
 export const CHECKPOINT_TAG_OPEN = '<compacted-summary>'
 export const CHECKPOINT_TAG_CLOSE = '</compacted-summary>'
 
-/** 插入历史时的前导说明（dsh CHECKPOINT_PREAMBLE：视为既定背景，不 acknowledge） */
+/** 插入历史时的前导说明（CHECKPOINT_PREAMBLE：视为既定背景，不 acknowledge） */
 export const CHECKPOINT_PREAMBLE =
   '以下是对此前对话的压缩存档（checkpoint）。将其视为既定背景，直接继续对话，不要复述、确认或评论这份存档。'
 
@@ -66,7 +66,7 @@ export function extractPriorSummary(content: string): string | null {
   return body === '' ? null : body
 }
 
-// ── 输出侧钳制（cherry middleware.ts:48-73 实测：固定 2048 会恰好不够 → 摘要为空） ──
+// ── 输出侧钳制（实测：固定 2048 会恰好不够 → 摘要为空） ──
 
 export const COMPRESSION_MIN_OUTPUT_TOKENS = 4096
 export const COMPRESSION_MAX_OUTPUT_TOKENS = 16384

@@ -21,7 +21,7 @@ import { useTreeStore } from '../stores/tree'
 // 自动保存节拍 / SSE 自愈接线（心跳 + SSE 同挂载点 + 半开看门狗 + 服务重启广播）分别
 // 抽入 composables/{useBookSwitchGuard,useUnloadFlush,useAutosave,useSseSelfHeal}。
 
-// 工作区视图（/book/:name）：套 Obsidian 外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
+// 工作区视图（/book/:name）：套工作区外壳 + 进书心跳 + 编辑视图（消费活动 tab docId）。
 // bookName 走 computed：同组件复用切书（/book/A→/book/B）时 bookName/心跳/doc 缓存/tabs 跟随更新。
 const route = useRoute()
 // params.name 缺失（脏路由/手输 URL）时归空串——String(undefined) 会把字面量 'undefined'

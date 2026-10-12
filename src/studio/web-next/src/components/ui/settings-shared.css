@@ -17,7 +17,7 @@
  * [data-tab-scope] 系选择器自带设置域限定，无需前缀。
  */
 .settings-modal {
-  /* 面板尺寸对齐 dsh SettingsRoot：figma 1080 缩到 800 宽，高度上限 800 取视口，
+  /* 面板尺寸：设计基准 1080 缩到 800 宽，高度上限 800 取视口，
    * 四周留 24px 呼吸位（100vw-48）；高度不随内容跳（超长在 settings-content 滚） */
   width: min(800px, calc(100vw - 48px));
   height: min(800px, calc(100vh - 48px));
@@ -68,7 +68,7 @@
   border: none;
   background: transparent;
   color: var(--text-faint);
-  /* dsh Modal 关闭钮为圆形 */
+  /* 关闭钮为圆形 */
   border-radius: 50%;
   cursor: pointer;
   transition:
@@ -92,7 +92,7 @@
    「本书」= 强调卡片入口（唯一书级页，实底图标章 + 描边淡底）；
    全局 7 页 = 常规条目，按 界面/写作/系统 三组小节标题分组。 */
 .settings-nav {
-  /* 导航列宽对齐 dsh nav rail（188px） */
+  /* 导航列宽 188px */
   width: 188px;
   flex-shrink: 0;
   border-right: 1px solid var(--background-modifier-border);
@@ -124,7 +124,7 @@
   gap: 9px;
   padding: 7px 10px;
   border: none;
-  /* dsh navCell 12px */
+  /* 导航条目 12px */
   border-radius: var(--radius-l);
   background: transparent;
   color: var(--text-muted);
@@ -215,7 +215,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 }
 
-/* ── 右侧内容 ──（内边距对齐 dsh options 区 24px） */
+/* ── 右侧内容 ──（内边距 24px） */
 .settings-content {
   flex: 1;
   overflow-y: auto;

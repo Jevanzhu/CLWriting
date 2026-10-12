@@ -102,7 +102,7 @@ describe('R0916-7-P3-8: 封装面锚（@internal 裸露 / 转发桥 / 双轨残�
   it('旧路径已无引用：src/test 全量扫描——无人再从 document/service.js 取桥名（双轨残留=0）', () => {
     const offenders: string[] = []
     const files = [...collectSources(SRC_ROOT), ...collectSources(join(REPO_ROOT, 'test'))]
-    // 自检：扫描面确实铺开（防路径写错 → 静默空跑，CLAUDE.md 测试分层已记此坑）
+    // 自检：扫描面确实铺开（防路径写错 → 静默空跑，AGENTS.md 测试分层已记此坑）
     expect(files.length).toBeGreaterThan(1000)
     for (const f of files) {
       for (const { bindings, target } of importClauses(f)) {

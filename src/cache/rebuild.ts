@@ -210,8 +210,8 @@ function walkSourceStats(bookRoot: string): SourceStats {
 // ── 增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
 // 动机：单章机检链（runCheckForDocument → rebuild → tryIncrementalRebuild）每调
 // 一次就对四棵源树逐文件 readdir+stat——本地 SSD 毫秒级无感，SMB/网盘卷上单次
-// 全树 stat 扫描秒级，作者面板连查/三审轮询把扫描成本按请求次数放大。照抄
-// state.ts sweepLastAt纪律：Map 键 bookRoot + 时间戳，TTL 窗内直接回
+// 全树 stat 扫描秒级，作者面板连查/三审轮询把扫描成本按请求次数放大。同
+// state.ts sweepLastAt 纪律：Map 键 bookRoot + 时间戳，TTL 窗内直接回
 // 上次扫描结果。口径：
 // ① TTL 只缓存 stat 扫描结果——db 打开/meta 读取保持每调执行（便宜且正确性
 // 相关：元数据失联自愈等闸不受节流影响）；

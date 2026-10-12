@@ -79,7 +79,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.locator('.rbtn[data-tip^="设置（"]').click()
   await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
 
-  // 空态 → 添加第一个供应商（DSH 编辑器：主字段 = API Key；「自定义设置」折叠内含名称/API 地址）
+  // 空态 → 添加第一个供应商（新增卡编辑器：主字段 = API Key；「自定义设置」折叠内含名称/API 地址）
   await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
   const addCard = page.locator('.ai-service-panel .add-provider-card')
   // 主字段：API Key（details 折叠时唯一可见的 text-input）

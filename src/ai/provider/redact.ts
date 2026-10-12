@@ -5,6 +5,5 @@
  *
  * 上游 SDK 报错 message 可能含完整 URL（部分网关把 key 放 query param），
  * 或含 Authorization header 原文。redactSecret 在错误返回前清洗这些痕迹。
- * 思路参照 cc-switch 的 redact_url_for_log_with_secrets（lib.rs:159）。
  */
 export { redactSecret } from '../../log/redact.js'

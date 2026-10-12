@@ -1,13 +1,29 @@
 /**
- * 三审视角清单固化（知识层接入批）：六视角 + 通用 fallback 的 system prompt 必须带
- * 判断类核对项（抽出窗口 = 知识层速查 → resources/prompts/review-*.md 固化）。
+ * 三审技法段(统一批):prompt 只留审查契约与审计基线,视角对口技法改为
+ * 运行时从知识层注入(书级 > 随包,src/knowledge/review-method.ts)。
  *
- * 与金测（prompt-golden）互补：金测锁「文本与夹具字节等价」（改文本须显式同步夹具），
- * 本组锁「固化内容在位」——把某条技法从 prompt 里摘掉即红，不依赖夹具同步动作。
- * 通用一条进全部 7 个文件（视角 prompt 自包含，不复用 common 文本）。
+ * 本件锁两条:
+ * 1) prompt 里「必须保留」的契约/基线仍在(只报问题/evidence/S1-S4/章级判断/连载连续性);
+ * 2) 视角对口技法从注入段产出(按 lens 选篇、随包兜底、书级覆盖),且不再残留于 prompt——
+ *    技法回归 prompt(双份)或注入断链(技法丢失)都即红。
+ *
+ * 记档:`vitest list --json <档>` 是**陷阱命令**——`--json` 收可选**文件路径**
+ * (help 原文 `--json [true/path]`),故 <档> 被当成输出目标,全量枚举结果覆写该档
+ * (本文件与 test/ai/provider/adapter-reasoning-echo-family.test.ts 各中过一次)。
+ * 要枚举单档用 `npx vitest list <档>`(不加 --json),或 `--json` 后只跟输出路径。
  */
-import { describe, it, expect } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
 import { REVIEW_SYSTEMS, REVIEW_COMMON } from '../../src/ai/prompts/review.js'
+import { buildReviewMethodInjection, REVIEW_METHOD_FILE_CAP } from '../../src/knowledge/review-method.js'
+import {
+  METHOD_FILE_HOOKS,
+  METHOD_FILE_REVERSAL,
+  METHOD_FILE_RHYTHM,
+  METHOD_FILE_CHARACTER,
+} from '../../src/knowledge/select.js'
 
 const ALL = ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff'] as const
 const ALL_TEXTS: Array<[string, string]> = [
@@ -15,55 +31,107 @@ const ALL_TEXTS: Array<[string, string]> = [
   ...ALL.map((lens) => [`review-${lens}`, REVIEW_SYSTEMS[lens]!] as [string, string]),
 ]
 
-describe('三审视角清单固化：通用章级判断条（全 7 文件）', () => {
-  it('每个视角 prompt 与 common 都含章级判断核对（水章/信息跟冲突/情绪落地/结尾变化）', () => {
+const dirs: string[] = []
+afterAll(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+})
+function makeBook(): string {
+  const root = mkdtempSync(join(tmpdir(), 'clw-rm-'))
+  dirs.push(root)
+  return root
+}
+
+describe('三审 prompt:契约与审计基线必须保留(全 7 文件)', () => {
+  it('章级判断条恒定在位(删掉即红)', () => {
     for (const [name, text] of ALL_TEXTS) {
       expect(text, name).toContain('章级判断（逐条核对）')
       expect(text, name).toContain('删掉无影响 ＝ 水章')
       expect(text, name).toContain('总结式结尾即问题')
     }
   })
+
+  it('审查契约恒定在位(只报问题 / evidence / severity / 输出工具)', () => {
+    for (const [name, text] of ALL_TEXTS) {
+      expect(text, name).toContain('只报问题')
+      expect(text, name).toContain('evidence')
+      expect(text, name).toContain('S1（致命）')
+    }
+    expect(REVIEW_SYSTEMS['hook']).toContain('钩子不替代推进')
+    expect(REVIEW_SYSTEMS['continuity']).toContain('连载连续性')
+    expect(REVIEW_SYSTEMS['continuity']).toContain('故事引擎是否仍在运转')
+  })
 })
 
-describe('三审视角清单固化：按视角对口的判断类技法', () => {
-  it('hook：章尾钩子手法枚举（八式）与「钩子不替代推进」', () => {
-    expect(REVIEW_SYSTEMS['hook']).toContain('章尾钩子')
-    expect(REVIEW_SYSTEMS['hook']).toContain('回声 / 留白')
-    expect(REVIEW_SYSTEMS['hook']).toContain('钩子不替代推进')
+describe('三审 prompt:视角对口技法已抽出,不再残留 prompt(防双份回归)', () => {
+  it('技法要点不在任何 prompt 文本里(抽到知识层注入)', () => {
+    const allPromptText = ALL_TEXTS.map(([, t]) => t).join('\n')
+    for (const moved of [
+      '回声 / 留白',
+      '埋线是否 ≥2-3 处',
+      '挤牙膏',
+      '升级感三步',
+      '对话质量',
+      '人物活人度',
+      '关系变化是否有事件驱动',
+    ]) {
+      expect(allPromptText, `技法「${moved}」应已抽出 prompt`).not.toContain(moved)
+    }
+  })
+})
+
+describe('三审技法注入(随包兜底)', () => {
+  // 同族参数化一表:lens → 对口篇 + 该篇正文里的锚词。全 6 视角恒覆盖
+  // (此前登记名只断言了 3 个 lens,另 3 个的映射改动可漏网)
+  const FALLBACK: Array<[lens: string, file: string, marker: string]> = [
+    ['hook', METHOD_FILE_HOOKS, '章尾钩子'],
+    ['emotion_peak', METHOD_FILE_REVERSAL, '埋线'],
+    ['payoff', METHOD_FILE_REVERSAL, '打脸节奏'],
+    ['reader', METHOD_FILE_RHYTHM, '升级感三步法'],
+    ['editor', METHOD_FILE_CHARACTER, '潜台词'],
+    ['continuity', METHOD_FILE_CHARACTER, '关系网'],
+  ]
+  it.each(FALLBACK)('%s → 对口技法篇注入(随包兜底)且登记名走内置前缀', (lens, file, marker) => {
+    const inj = buildReviewMethodInjection(lens)
+    expect(inj.text).toContain(marker)
+    expect(inj.sources).toEqual([`知识层(内置)/${file}`])
   })
 
-  it('emotion_peak：反转机制核对（埋线 ≥2-3 处 / 误导 / 一次性揭示 / 揭示后兑现）', () => {
-    const t = REVIEW_SYSTEMS['emotion_peak']!
-    expect(t).toContain('埋线是否 ≥2-3 处')
-    expect(t).toContain('挤牙膏')
-    expect(t).toContain('揭示后是否立刻有情绪兑现')
+  it('钩子篇的第二种手法也可检出;未知 lens 空段', () => {
+    expect(buildReviewMethodInjection('hook').text).toContain('回声钩子')
+    expect(buildReviewMethodInjection('unknown-lens')).toEqual({ text: '', sources: [] })
+  })
+})
+
+describe('三审技法注入(书级覆盖随包)', () => {
+  it('书级同名篇覆盖随包,登记名走书根相对路径', () => {
+    const root = makeBook()
+    const rel = METHOD_FILE_HOOKS
+    const abs = join(root, '知识层', ...rel.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '# 本书钩子口径\n只认本社章尾五式。')
+    const inj = buildReviewMethodInjection('hook', root)
+    expect(inj.text).toContain('本书钩子口径')
+    expect(inj.text).not.toContain('回声钩子')
+    expect(inj.sources).toEqual([`知识层/${rel}`])
   })
 
-  it('payoff：打脸铺垫优先、分层与兑现具体性', () => {
-    const t = REVIEW_SYSTEMS['payoff']!
-    expect(t).toContain('铺垫比打脸重要')
-    expect(t).toContain('打脸是否分层')
-    expect(t).toContain('靠旁白宣告产 issue')
+  it('bookRoot 无对应篇 → 回落随包(不因书级缺篇而丢技法)', () => {
+    const root = makeBook()
+    const inj = buildReviewMethodInjection('emotion_peak', root)
+    expect(inj.text).toContain('埋线')
+    expect(inj.sources).toEqual([`知识层(内置)/${METHOD_FILE_REVERSAL}`])
   })
 
-  it('reader：升级感三步 + 期待值口径 + 看点/爽点分工', () => {
-    const t = REVIEW_SYSTEMS['reader']!
-    expect(t).toContain('升级感三步')
-    expect(t).toContain('期待值 ＝ 价值 × 可能性')
-    expect(t).toContain('看点吊期待、爽点满足期待')
-  })
-
-  it('editor：对话质量四问与人物活人度（工具人/纯恶反派）', () => {
-    const t = REVIEW_SYSTEMS['editor']!
-    expect(t).toContain('对话质量')
-    expect(t).toContain('潜台词（说的不是想的）')
-    expect(t).toContain('只有功能 ＝ 工具人')
-  })
-
-  it('continuity：连载连续性四条与关系网事件驱动', () => {
-    const t = REVIEW_SYSTEMS['continuity']!
-    expect(t).toContain('连载连续性')
-    expect(t).toContain('故事引擎是否仍在运转')
-    expect(t).toContain('关系变化是否有事件驱动')
+  it('书级篇超单篇帽 → 保头截断并标注(不整段丢弃)', () => {
+    const root = makeBook()
+    const rel = METHOD_FILE_HOOKS
+    const abs = join(root, '知识层', ...rel.split('/'))
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, '甲'.repeat(REVIEW_METHOD_FILE_CAP + 500))
+    const inj = buildReviewMethodInjection('hook', root)
+    expect(inj.text).toContain('…（超长截断）')
+    expect(inj.text).not.toContain('甲'.repeat(REVIEW_METHOD_FILE_CAP + 1))
+    // 截断后仍登记为书级源(注入确有其实,非「截没了却报已注入」)
+    expect(inj.sources).toEqual([`知识层/${rel}`])
   })
 })

@@ -254,7 +254,7 @@ describe('RAG 服务商管理端点', () => {
   })
 })
 
-describe('RAG 服务商 API Key 单点 + hasKey 状态点（I6·dsh）', () => {
+describe('RAG 服务商 API Key 单点 + hasKey 状态点（I6）', () => {
   it('POST charset 外 key（含空格/非 ASCII）→ 400 且文案不回显 key 本体', async () => {
     for (const bad of ['sk-rag 密钥', 'sk-rag\nkey']) {
       const r = await api('/api/rag-providers', {

@@ -12,7 +12,7 @@
  * 工具名与实际 input 类型）；数组 typeof 'object' 按契约侧同口径放行（走各
  * 工具字段校验，不在守卫层二次成形）。
  *
- * harness 仿 chat-tool-error-redact.test.ts（executeChatTool 直测 + vi.mock
+ * harness 同 chat-tool-error-redact.test.ts（executeChatTool 直测 + vi.mock
  * TOOL_EXECUTORS——R55-C-4「导出供单测」先例）。
  */
 import { describe, expect, it, vi } from 'vitest'

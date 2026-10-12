@@ -64,6 +64,10 @@ export interface SpecOpts {
   onText?: (delta: string) => void
   /** 覆盖 spec.systemPrompt（动态场景如 stream 的 role 切换） */
   systemPromptOverride?: string
+  /** 内置 prompt 哈希解析之后追加的 system 段(不进 matchBuiltinPrompt——动态注入段
+   *  与内置文本分离,overlay 命中不受影响)。三审视角技法运行时注入(书级 > 随包知识层)
+   *  走此口;注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。 */
+  systemPromptSuffix?: string
   /** 覆盖 spec.tool（动态场景如 review 的逐 lens 切换） */
   toolOverride?: { def: ToolDef; name: string }
   /** 覆盖 spec.mock（动态场景如 self-heal 的 kind 切换） */
@@ -127,7 +131,9 @@ export async function runSpec(spec: TaskSpec, opts: SpecOpts): Promise<TaskResul
   // 注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
   // rulesToPrompt 与 rulesPromptFiles 各自独立读盘，微观窗口注入与登记可撕裂
   const parts = rulesPromptParts(spec.name, opts.bookRoot)
-  const systemPrompt = base + parts.prompt
+  // 动态注入段(如三审视角技法)拼在内置/overlay 与 rules 之后——不参与哈希匹配
+  const suffix = opts.systemPromptSuffix ? '\n\n' + opts.systemPromptSuffix : ''
+  const systemPrompt = base + parts.prompt + suffix
   // rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
   // AI味词表条目库与 rule-hits.json 为可变文件，仅入哈希不可重建，登记后事件可溯源）
   const promptFiles = [

@@ -1,17 +1,17 @@
 /**
- * 适配器注册表（批次，学 cherry-studio ProviderExtension 注册表）。
+ * 适配器注册表。
  *
  * 声明式条目 `{ name, aliases, create }`——新增协议 = 加一行条目，
  * 不再改 switch；adapterFamily 字符串（协议名 + 别名）成为唯一运行时路由键。
  *
- * 实例缓存按 settings hash（学 cherry computeHash + LRU）：
+ * 实例缓存按 settings hash + LRU：
  * - 每次 AI 生成不再重建 SDK 客户端对象；
- * - **配置 + 适配器原子绑定**（学 cherry prepareCall「配置与当时捕获的适配器绑定
+ * - **配置 + 适配器原子绑定**（「配置与当时捕获的适配器绑定
  *   防注册漂移」）：入参 conf 在创建时浅拷贝为 bound conf，调用方事后改自己的
  *   对象不影响已绑定实例；hash 覆盖适配器消费的全部字段，配置变 → 新实例，
  *   命中缓存则配置与实例严格一一对应，无漂移。
  *
- * 与 cherry 的有意分歧：cherry 的 create 是 `async (await import(...))` 懒加载——
+ * 有意分歧：create 是同步工厂，不用 `async (await import(...))` 懒加载——
  * CLWriting 的 createProvider 是同步 API（runner resolveProvider 同步返回），
  * 动态 import 装不进同步签名，故条目持同步工厂；SDK 包本就随 provider/index.ts
  * 静态加载，模块加载面无回退。
@@ -85,7 +85,7 @@ function settingsHash(conf: ProviderConf, userDataPath?: string): string {
   return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }
 
-/** LRU 上限（cherry QuickLRU maxSize=10 同量级——按书分库场景同时活跃的 provider 配置很少） */
+/** LRU 上限（按书分库场景同时活跃的 provider 配置很少） */
 const CACHE_CAPACITY = 8
 
 const _cache = new Map<string, ModelProvider>()

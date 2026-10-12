@@ -26,6 +26,7 @@ import { readBooks, isInvalidBookName, BOOK_NAME_INVALID_REASON } from '../../..
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInitAsync } from '../../../install/init.js'
+import { seedKnowledgeOnBookCreate } from '../../../knowledge/seed.js' // 建书知识层播种(统一批;底座不引 AI 层,故在 server 层触发)
 import { computeBookSummaryAsync, yieldToEventLoop } from './progress.js'
 // 拆分接线：缝 A/B 注册函数残核聚合保序调用；getShelfGuard / initialBook
 // 为残核消费的单源助手 / 活绑定状态（两缝文件不回引本模块任何运行时值）
@@ -176,6 +177,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
         replyError(res, 400, 'BAD_INPUT', result.reason)
         return
       }
+      // 知识层播种(统一批):建书即把随包语料铺进书根 知识层/ 作作者可编辑起点。
+      // 播种在 server 层而非 install/scaffold——底座不得 import AI 生成层(依赖方向治理),
+      // 且播种失败不阻断建书(随包兜底仍生效)。
+      seedKnowledgeOnBookCreate(join(workDir, result.bookPath))
       reply(res, 200, { name: result.bookName, kind: input.kind, path: result.bookPath })
     },
   })

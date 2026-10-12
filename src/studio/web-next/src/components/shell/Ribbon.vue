@@ -24,7 +24,7 @@ import { usePlatform } from '../../composables/usePlatform'
 import { modComboLabel } from '../../shared/mod-key'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
-// macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
+// macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口。
 // 交通灯仅 mac（左上红绿灯）→ has-traffic（top 留白）仅 isMac；win 无左上红绿灯不加。
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
