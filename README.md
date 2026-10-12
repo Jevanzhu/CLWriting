@@ -89,7 +89,6 @@ Node 24+，TypeScript strict。界面 Vue 3 + Pinia + Vite，编辑器 CodeMirro
 
 - [webnovel-writer](https://github.com/lingfengQAQ/webnovel-writer)——架构思想来源；本项目是从零重写的
 - [oh-story-claudecode](https://github.com/worldwonderer/oh-story-claudecode)（MIT）——长篇写作方法论
-- [character-arc](https://github.com/uu201/character-arc)（MIT）——角色弧线与设定方法论
 
 ## 许可证
 

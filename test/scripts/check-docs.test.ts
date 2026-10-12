@@ -113,7 +113,7 @@ describe('findDateAnnotations：括号修订日期标注（规则文档禁）', 
   })
 
   it('文件名内日期放行（命名要素，非修订标注）', () => {
-    const line = '| `03-设计/五大数据子系统归类规则-现行规范-2026-08-15.md` | 现行规范 |'
+    const line = '| `05-规范/五大数据子系统归类规则-现行规范-2026-08-15.md` | 现行规范 |'
     expect(findDateAnnotations(line)).toHaveLength(0)
   })
 
