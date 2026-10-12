@@ -19,10 +19,14 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { REVIEW_SYSTEMS, REVIEW_COMMON } from '../../src/ai/prompts/review.js'
 import { buildReviewMethodInjection } from '../../src/knowledge/review-method.js'
 import {
-  METHOD_FILE_HOOKS,
-  METHOD_FILE_REVERSAL,
-  METHOD_FILE_RHYTHM,
-  METHOD_FILE_CHARACTER,
+  GENERAL_FILE_QUALITY,
+  LONG_FILE_HOOKS,
+  LONG_FILE_QUALITY,
+  LONG_FILE_REVERSAL,
+  LONG_FILE_RHYTHM,
+  SHORT_FILE_HOOKS,
+  SHORT_FILE_QUALITY,
+  SHORT_FILE_REVERSAL,
 } from '../../src/knowledge/catalog.js'
 
 const ALL = ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff'] as const
@@ -83,12 +87,12 @@ describe('三审技法注入(随包兜底)', () => {
   // 同族参数化一表:lens → 对口篇 + 该篇正文里的锚词。全 6 视角恒覆盖
   // (此前登记名只断言了 3 个 lens,另 3 个的映射改动可漏网)
   const FALLBACK: Array<[lens: string, file: string, marker: string]> = [
-    ['hook', METHOD_FILE_HOOKS, '章尾钩子'],
-    ['emotion_peak', METHOD_FILE_REVERSAL, '埋线'],
-    ['payoff', METHOD_FILE_REVERSAL, '打脸节奏'],
-    ['reader', METHOD_FILE_RHYTHM, '升级感三步法'],
-    ['editor', METHOD_FILE_CHARACTER, '潜台词'],
-    ['continuity', METHOD_FILE_CHARACTER, '关系网'],
+    ['hook', LONG_FILE_HOOKS, '章尾'],
+    ['emotion_peak', LONG_FILE_REVERSAL, '埋线'],
+    ['payoff', LONG_FILE_REVERSAL, '打脸'],
+    ['reader', LONG_FILE_RHYTHM, '升级感'],
+    ['editor', GENERAL_FILE_QUALITY, '语言与对话'],
+    ['continuity', LONG_FILE_QUALITY, '连续性'],
   ]
   it.each(FALLBACK)('%s → 对口技法篇注入(随包兜底)且登记名走内置前缀', (lens, file, marker) => {
     const inj = buildReviewMethodInjection(lens)
@@ -96,8 +100,20 @@ describe('三审技法注入(随包兜底)', () => {
     expect(inj.sources).toEqual([`知识层(内置)/${file}`])
   })
 
-  it('钩子篇的第二种手法也可检出;未知 lens 空段', () => {
-    expect(buildReviewMethodInjection('hook').text).toContain('回声钩子')
+  it('短篇档取短篇篇(同 lens 两档指向不同篇——跨档口径不混装)', () => {
+    // hook:长篇取章尾留钩篇 / 短篇取开篇抓力篇;payoff:长篇取打脸篇 / 短篇取收尾审篇
+    expect(buildReviewMethodInjection('hook', undefined, undefined, 'short').sources).toEqual([
+      `知识层(内置)/${SHORT_FILE_HOOKS}`,
+    ])
+    expect(buildReviewMethodInjection('payoff', undefined, undefined, 'short').sources).toEqual([
+      `知识层(内置)/${SHORT_FILE_QUALITY}`,
+    ])
+    expect(buildReviewMethodInjection('reader', undefined, undefined, 'short').sources).toEqual([
+      `知识层(内置)/${SHORT_FILE_REVERSAL}`,
+    ])
+  })
+
+  it('未知 lens 空段', () => {
     const none = buildReviewMethodInjection('unknown-lens')
     expect(none.text).toBe('')
     expect(none.sources).toEqual([])
@@ -107,13 +123,13 @@ describe('三审技法注入(随包兜底)', () => {
 describe('三审技法注入(书级覆盖随包)', () => {
   it('书级同名篇覆盖随包,登记名走书根相对路径', () => {
     const root = makeBook()
-    const rel = METHOD_FILE_HOOKS
+    const rel = LONG_FILE_HOOKS
     const abs = join(root, '知识层', ...rel.split('/'))
     mkdirSync(join(abs, '..'), { recursive: true })
     writeFileSync(abs, '# 本书钩子口径\n只认本社章尾五式。')
     const inj = buildReviewMethodInjection('hook', root)
     expect(inj.text).toContain('本书钩子口径')
-    expect(inj.text).not.toContain('回声钩子')
+    expect(inj.text).not.toContain('跨章期待移交')
     expect(inj.sources).toEqual([`知识层/${rel}`])
   })
 
@@ -121,6 +137,6 @@ describe('三审技法注入(书级覆盖随包)', () => {
     const root = makeBook()
     const inj = buildReviewMethodInjection('emotion_peak', root)
     expect(inj.text).toContain('埋线')
-    expect(inj.sources).toEqual([`知识层(内置)/${METHOD_FILE_REVERSAL}`])
+    expect(inj.sources).toEqual([`知识层(内置)/${LONG_FILE_REVERSAL}`])
   })
 })

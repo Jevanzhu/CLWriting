@@ -38,7 +38,7 @@ import type { ReviewTier } from '../../../review/contract.js'
 import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
-import { buildReviewMethodInjection } from '../../../knowledge/review-method.js' // 三审视角技法运行时注入(统一批)
+import { buildReviewMethodInjection, type ReviewKind } from '../../../knowledge/review-method.js' // 三审视角技法注入(书级 > 随包;取篇按书档分表)
 import { knowledgeInjectionEnabled } from '../../../knowledge/switch.js' // 注入开关单源
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
@@ -242,6 +242,9 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               // 开关判据单源 = knowledgeInjectionEnabled（review 面；config 已过
               // applyGlobalDefaults，生产路径必有值）
               methodInjectionEnabled: knowledgeInjectionEnabled(config, 'review'),
+              // 书档：同名 lens 在长篇（连载）与短篇（单篇闭口）语境下指向不同技法篇，
+              // 故档位随书传入（与上方 hasShort 同源判定）
+              methodInjectionKind: hasShort ? 'short' : 'long',
               onProgress: emitProgress,
               ctrl, // -①：中断通道透传逐 lens runSpec
             })
@@ -397,6 +400,8 @@ async function runLensSpawnLoop(opts: {
   sourceFiles?: string[]
   /** 知识层视角技法注入开关（缺省 true；false = 逐 lens 跳过技法段与注入源登记） */
   methodInjectionEnabled?: boolean
+  /** 书档（视角技法取篇按档分表；缺省 long） */
+  methodInjectionKind?: ReviewKind
   onProgress?: (lens: string, phase: 'start' | 'done') => void
   /** -①：编排级中断 ctrl（/interrupt 经 driver 注册面对其 abort） */
   ctrl?: AbortController
@@ -414,7 +419,7 @@ async function runLensSpawnLoop(opts: {
     // 技法段经 systemPromptSuffix 拼在内置/overlay 之后(不参与哈希匹配),
     // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。
     // 开关关停时装配侧走同一空段形态(不读盘不注入不登记),本面不另设分支
-    const methodInj = buildReviewMethodInjection(lens, opts.bookRoot, opts.methodInjectionEnabled)
+    const methodInj = buildReviewMethodInjection(lens, opts.bookRoot, opts.methodInjectionEnabled, opts.methodInjectionKind)
     const out = await runSpec(reviewSpec(lens), {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,

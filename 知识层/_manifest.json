@@ -2,7 +2,7 @@
   "version": 1,
   "generated_at": "2026-10-13T00:00:00+08:00",
   "summary": {
-    "migrated": 26,
+    "migrated": 33,
     "deferred": 1,
     "review_assets": 0
   },
@@ -12,45 +12,9 @@
       "source": "clwriting-v1-m4-scaffold",
       "source_ref": "workspace",
       "license": "MIT",
-      "sha256": "sha256:fc00b0def4b755ddc150f2baf21d74705176267d84ecc373673a5a15d536fe82",
+      "sha256": "sha256:376d2621de79af5ac172ad468e1ce75fb5be5e9eb9c90040c2822d19a07665fd",
       "category": "索引",
       "note": "知识层入口，说明平移原则与现有素材索引"
-    },
-    {
-      "target": "知识层/题材/README.md",
-      "source": "clwriting-v1-m4-scaffold",
-      "source_ref": "workspace",
-      "license": "MIT",
-      "sha256": "sha256:0012e72f3cd679a3f39f9aea8f11c0f7790c345b90884655694fafa07f0edf71",
-      "category": "题材",
-      "note": "题材模板占位目录"
-    },
-    {
-      "target": "知识层/爽点/README.md",
-      "source": "clwriting-v1-m4-scaffold",
-      "source_ref": "workspace",
-      "license": "MIT",
-      "sha256": "sha256:1b31de140724038f44760c1fc8e0e59a31729bc79b3623463ddc0056e8fe7454",
-      "category": "爽点",
-      "note": "爽点节奏占位目录"
-    },
-    {
-      "target": "知识层/追读力/README.md",
-      "source": "clwriting-v1-m4-scaffold",
-      "source_ref": "workspace",
-      "license": "MIT",
-      "sha256": "sha256:16e96c44520dd6aeae12c7989827de818ff7198c41e7b5dedff98f7f9a356557",
-      "category": "追读力",
-      "note": "追读力素材占位目录"
-    },
-    {
-      "target": "知识层/方法论/README.md",
-      "source": "clwriting-v1-m4-scaffold",
-      "source_ref": "workspace",
-      "license": "MIT",
-      "sha256": "sha256:958333b1a3e761835e49f70654cd1579659e62660fd8d030634e44418738b855",
-      "category": "方法论",
-      "note": "写作方法论占位目录"
     },
     {
       "target": "知识层/许可/README.md",
@@ -62,24 +26,6 @@
       "note": "外部素材许可证和致谢占位目录"
     },
     {
-      "target": "知识层/追读力/章节钩子速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/hooks-chapter.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:effee39b755328f57c00b38227784554f6828dbd1fe046d41729d21b5dbb5807",
-      "category": "追读力",
-      "note": "oh-story 章节钩子素材的精选速查版"
-    },
-    {
-      "target": "知识层/方法论/质量检查清单速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/quality-checklist.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:61db621238bd16534a9a0e266bf59ccf0d6c4cd6795902051f7b1c35650ae277",
-      "category": "方法论",
-      "note": "oh-story 质量检查素材的精选速查版"
-    },
-    {
       "target": "知识层/许可/oh-story-claudecode-MIT.md",
       "source": "Dev/oh-story-claudecode/LICENSE",
       "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
@@ -87,42 +33,6 @@
       "sha256": "sha256:d3c2090717b84fff79cf4fbc6b0f108b7fa6e49b486fc188e78126b9433cf9ac",
       "category": "许可",
       "note": "oh-story-claudecode MIT 许可证全文"
-    },
-    {
-      "target": "知识层/题材/题材路由速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/genre-catalog.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:4f2e2bdf50fa2d1d5eb2f6cbecf784d1d0cacc1263eba0c25132d74b8dbcb4b8",
-      "category": "题材",
-      "note": "oh-story 题材框架路由的精选速查版（建书选题/大纲定位）"
-    },
-    {
-      "target": "知识层/追读力/节奏与升级感速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/outline-rhythm.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:4b0b6c7a075418e4fd0f0dc0611ca62a7535b5af99fd94549f8211b789ea7243",
-      "category": "追读力",
-      "note": "oh-story 节奏与升级感的精选速查版（升级感三步/期待感管理/节奏底线）"
-    },
-    {
-      "target": "知识层/爽点/反转设计速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/reversal-toolkit.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:37900d3b9eac39fa4a86f32f75bf9f98785d242a87d0b99cdb7913e501ba218b",
-      "category": "爽点",
-      "note": "oh-story 反转设计工具箱的精选速查版（反转类型/埋线揭示/打脸节奏）"
-    },
-    {
-      "target": "知识层/方法论/人物与对话技法速查.md",
-      "source": "Dev/oh-story-claudecode/skills/story-setup/references/agent-references/character-design-methods.md",
-      "source_ref": "db95ba2e972fd688cdada3a54747a5725c6b5f5b",
-      "license": "MIT",
-      "sha256": "sha256:c7ee3c48386688501df2f6705d93110dc2afd8dc300a669ad89d020679115d5e",
-      "category": "方法论",
-      "note": "oh-story 人物设计与对话技法的精选速查版（合并 character-design + dialogue）"
     },
     {
       "target": "知识层/通用/情节推演速查.md",
@@ -207,14 +117,14 @@
       "target": "知识层/长篇/README.md",
       "source": "clwriting-v1-m4-scaffold",
       "license": "MIT",
-      "sha256": "sha256:6f1f562dd41800498bc9a85a29dc7bbdeedc9d93d20a901472af020158912e08",
+      "sha256": "sha256:74189ad88f7c7fb9ded9be13f994240b996ff476f947619649e5f4f1464476b1",
       "category": "索引"
     },
     {
       "target": "知识层/短篇/README.md",
       "source": "clwriting-v1-m4-scaffold",
       "license": "MIT",
-      "sha256": "sha256:2efe5a4df13b20a75f812ef23a21877380b028733c122919d7fbfd1d831dd210",
+      "sha256": "sha256:c252fffed300e4a4baff9d12ae1171ddc61f99e10fe6a2be0df60a71170c9fea",
       "category": "索引"
     },
     {
@@ -223,6 +133,142 @@
       "license": "MIT",
       "sha256": "sha256:faa1f9fdc60a3fb67d2a5bdd36beeed37ca3dbb11db428ab0781bc035660df89",
       "category": "索引"
+    },
+    {
+      "target": "知识层/长篇/章节钩子速查.md",
+      "source": "skills/story-long-write/references/long-chapter-hooks.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:2e90914aeee733456576309774c24fb7183a2657b45085d84de7c0e36b750397",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/反转机制速查.md",
+      "source": "skills/story-long-write/references/long-reversal.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:fb218775acd88aa549d8650008f757395e035d8c0f818d19135d04ec024ff226",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/悬念编排速查.md",
+      "source": "skills/story-long-write/references/long-suspense.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:e653b1672c318d19c1c13819d3fbae0c219cdadf462f6492c5158a5c9e0640af",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/节奏与升级感速查.md",
+      "source": "skills/story-long-write/references/outline-rhythm.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:b23acebb3644daf4306adf8918e3350fd64bc46899ec9e9ad7450b6eb38ebfd7",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/情绪引擎速查.md",
+      "source": "skills/story-setup/references/agent-references/long-emotional-methods.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:bddcb9b69869aaec6bdad07e0a7395391b4441f9c13ae3893fa2655bd3c7ba0d",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/核心梗与卖点速查.md",
+      "source": "skills/story-long-write/references/long-genre-mechanics.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:15184785da8aa9b0b4d2d01c1426894df58a9d2b5e5a8b01c48886d48e8b2711",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/开篇设计速查.md",
+      "source": "skills/story-long-write/references/opening-design.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:20f1d0ad247f6f952aed79cc6d0cc863294999a974b57e23578b4ae8f67f36ad",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/大纲方法速查.md",
+      "source": "skills/story-long-write/references/outline-methods.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:08c303c96bf2fc469490ea14ba3bdc4e96cbe610614a8104beea93f37bfeb4ad",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/题材框架速查.md",
+      "source": "skills/story-long-write/references/long-genre-catalog.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:7b346e14144ef723d31084e232a67f920bcc6d90502e5862ec844a59c848d0f4",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/长篇/质量清单速查.md",
+      "source": "skills/story-setup/references/agent-references/long-quality.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:5b81a6df352313a71737eaaf8206e8df2a298b6e57e56914d699a1f526f6aacf",
+      "category": "长篇"
+    },
+    {
+      "target": "知识层/短篇/章节钩子速查.md",
+      "source": "skills/story-setup/references/agent-references/short-chapter-hooks.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:dddecad83d92acf27cbe46560f7e26e01a6268d207d76ccb52891dd9593fc6c7",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/段落钩子速查.md",
+      "source": "skills/story-setup/references/agent-references/short-paragraph-hooks.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:9658205a2ca01a74aac453bd601863cd1e18e11f75eddbb7eef3a56f43eed56f",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/反转机制速查.md",
+      "source": "skills/story-setup/references/agent-references/short-reversal.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:4dcca302601bd95570a2c4967350b31e16bf490e24be302b30042aafad7ae6bd",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/悬念编排速查.md",
+      "source": "skills/story-setup/references/agent-references/short-suspense.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:8ac85caae2025a71edd7efae5e66bc735b721cb8d7cd918baff768223a2af4f2",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/情绪释放速查.md",
+      "source": "skills/story-setup/references/agent-references/short-emotional-methods.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:0cef0b78b4b6c3651296a96eaae830040b82dd3458bd70d79181c0565eaaa44c",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/题材公式速查.md",
+      "source": "skills/story-setup/references/agent-references/short-genre-formulas.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:dad58cffe3f1c3ad627f249f47d26ac78b848f27a7be98867250f9da75f86770",
+      "category": "短篇"
+    },
+    {
+      "target": "知识层/短篇/质量清单速查.md",
+      "source": "skills/story-setup/references/agent-references/short-quality.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:b35c0699d9b38b321b9f4b34d8f9068e2e129293d4838cb203d10ecb9549d4f3",
+      "category": "短篇"
     }
   ]
 }

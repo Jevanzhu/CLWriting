@@ -178,7 +178,9 @@ describe('知识层更新：commit 登记', () => {
       expect(added.target).toBe(finalRel)
       expect(added.source).toBe('语料回归域')
       expect(added.sha256).toBe(hashFileSha256(join(root, finalRel)))
-      expect(added.category).toBe('方法论')
+      // 类目缺省 = target 的一级目录段（盘上目录即分类）；本例 target 直接落在
+      // 知识层/ 根下、无类目段 → 不记该键（不编造标签）
+      expect(added.category).toBeUndefined()
       // 写回形态：2 空格 + 尾换行（与真实 _manifest.json 往返字节恒等口径一致）
       expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8').endsWith('\n')).toBe(true)
     } finally {

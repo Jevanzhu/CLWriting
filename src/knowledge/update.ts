@@ -155,6 +155,12 @@ export function writeFalsePositiveDraft(projectRoot: string, corpusDir: string, 
   return rel
 }
 
+/** target（`知识层/<类目>/<篇>.md`）的一级目录段；无类目段（直接落在 知识层/ 下）→ undefined */
+function categoryOfTarget(target: string): string | undefined {
+  const seg = target.split('/')
+  return seg.length >= 3 ? seg[1] : undefined
+}
+
 interface CommitKnowledgeOpts {
   /** 定稿文件（相对项目根，必须位于 知识层/ 内） */
   target: string
@@ -327,7 +333,10 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
     ...(opts.sourceRef ? { source_ref: opts.sourceRef } : {}),
     license,
     sha256,
-    category: opts.category ?? '方法论',
+    // 类目缺省取 target 的一级目录段（与 corpus 的「目录即分类」同口径；硬编码单一名
+    // 会让新登记的篇带错类目）。直接落在 知识层/ 根下的件无类目段 → 不记该键（可选字段，
+    // 不编造标签）
+    ...(opts.category ?? categoryOfTarget(opts.target) ? { category: opts.category ?? categoryOfTarget(opts.target) } : {}),
     ...(opts.note ? { note: opts.note } : {}),
   }
   manifest.entries = [...manifest.entries, entry]

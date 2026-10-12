@@ -1,18 +1,6 @@
 {
-  "方法论/人物与对话技法速查.md": [
-    "sha256:c7ee3c48386688501df2f6705d93110dc2afd8dc300a669ad89d020679115d5e"
-  ],
-  "爽点/反转设计速查.md": [
-    "sha256:37900d3b9eac39fa4a86f32f75bf9f98785d242a87d0b99cdb7913e501ba218b"
-  ],
   "许可/oh-story-claudecode-MIT.md": [
     "sha256:d3c2090717b84fff79cf4fbc6b0f108b7fa6e49b486fc188e78126b9433cf9ac"
-  ],
-  "追读力/章节钩子速查.md": [
-    "sha256:effee39b755328f57c00b38227784554f6828dbd1fe046d41729d21b5dbb5807"
-  ],
-  "追读力/节奏与升级感速查.md": [
-    "sha256:4b0b6c7a075418e4fd0f0dc0611ca62a7535b5af99fd94549f8211b789ea7243"
   ],
   "通用/人物关系速查.md": [
     "sha256:0b57f62c8758cfa47818b1a4bff4098e6d12b179fd7c508174f88670b7ce6891"
@@ -41,5 +29,69 @@
   "通用/质量清单速查.md": [
     "sha256:2245074b3560b7d97d9ac70cbf62537fc2b6bdb4eccd7504034c090f8c73b1eb"
   ],
-  "__retired__": {}
+  "__retired__": {
+    "追读力/章节钩子速查.md": [
+      "sha256:effee39b755328f57c00b38227784554f6828dbd1fe046d41729d21b5dbb5807"
+    ],
+    "追读力/节奏与升级感速查.md": [
+      "sha256:4b0b6c7a075418e4fd0f0dc0611ca62a7535b5af99fd94549f8211b789ea7243"
+    ],
+    "爽点/反转设计速查.md": [
+      "sha256:37900d3b9eac39fa4a86f32f75bf9f98785d242a87d0b99cdb7913e501ba218b"
+    ],
+    "方法论/人物与对话技法速查.md": [
+      "sha256:c7ee3c48386688501df2f6705d93110dc2afd8dc300a669ad89d020679115d5e"
+    ]
+  },
+  "长篇/章节钩子速查.md": [
+    "sha256:2e90914aeee733456576309774c24fb7183a2657b45085d84de7c0e36b750397"
+  ],
+  "长篇/反转机制速查.md": [
+    "sha256:fb218775acd88aa549d8650008f757395e035d8c0f818d19135d04ec024ff226"
+  ],
+  "长篇/悬念编排速查.md": [
+    "sha256:e653b1672c318d19c1c13819d3fbae0c219cdadf462f6492c5158a5c9e0640af"
+  ],
+  "长篇/节奏与升级感速查.md": [
+    "sha256:b23acebb3644daf4306adf8918e3350fd64bc46899ec9e9ad7450b6eb38ebfd7"
+  ],
+  "长篇/情绪引擎速查.md": [
+    "sha256:bddcb9b69869aaec6bdad07e0a7395391b4441f9c13ae3893fa2655bd3c7ba0d"
+  ],
+  "长篇/核心梗与卖点速查.md": [
+    "sha256:15184785da8aa9b0b4d2d01c1426894df58a9d2b5e5a8b01c48886d48e8b2711"
+  ],
+  "长篇/开篇设计速查.md": [
+    "sha256:20f1d0ad247f6f952aed79cc6d0cc863294999a974b57e23578b4ae8f67f36ad"
+  ],
+  "长篇/大纲方法速查.md": [
+    "sha256:08c303c96bf2fc469490ea14ba3bdc4e96cbe610614a8104beea93f37bfeb4ad"
+  ],
+  "长篇/题材框架速查.md": [
+    "sha256:7b346e14144ef723d31084e232a67f920bcc6d90502e5862ec844a59c848d0f4"
+  ],
+  "长篇/质量清单速查.md": [
+    "sha256:5b81a6df352313a71737eaaf8206e8df2a298b6e57e56914d699a1f526f6aacf"
+  ],
+  "短篇/章节钩子速查.md": [
+    "sha256:dddecad83d92acf27cbe46560f7e26e01a6268d207d76ccb52891dd9593fc6c7"
+  ],
+  "短篇/段落钩子速查.md": [
+    "sha256:9658205a2ca01a74aac453bd601863cd1e18e11f75eddbb7eef3a56f43eed56f"
+  ],
+  "短篇/反转机制速查.md": [
+    "sha256:4dcca302601bd95570a2c4967350b31e16bf490e24be302b30042aafad7ae6bd"
+  ],
+  "短篇/悬念编排速查.md": [
+    "sha256:8ac85caae2025a71edd7efae5e66bc735b721cb8d7cd918baff768223a2af4f2"
+  ],
+  "短篇/情绪释放速查.md": [
+    "sha256:0cef0b78b4b6c3651296a96eaae830040b82dd3458bd70d79181c0565eaaa44c"
+  ],
+  "短篇/题材公式速查.md": [
+    "sha256:dad58cffe3f1c3ad627f249f47d26ac78b848f27a7be98867250f9da75f86770"
+  ],
+  "短篇/质量清单速查.md": [
+    "sha256:b35c0699d9b38b321b9f4b34d8f9068e2e129293d4838cb203d10ecb9549d4f3"
+  ]
 }

@@ -24,7 +24,7 @@ import { log } from '../log/index.js'
 
 /** 单篇入选登记：为何入选、注入了多少、是否被截断（报告面/接口面消费） */
 export interface PieceRecord {
-  /** 子集相对路径（如 `追读力/章节钩子速查.md`） */
+  /** 子集相对路径（如 `长篇/章节钩子速查.md`） */
   rel: string
   /** 取件层：书级 `知识层/<rel>` or 随包 `知识层(内置)/<rel>` */
   layer: 'book' | 'bundled'

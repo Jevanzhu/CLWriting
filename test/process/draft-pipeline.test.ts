@@ -457,7 +457,7 @@ describe('buildDraftPrompt: Q-5 注入源清单', () => {
   it('缺源不列（空段 = 未入 prompt）；空书 files 只含内置语料登记（书内零源）', () => {
     const d = buildDraftPrompt(dir, 1, 'long')
     expect(d.prompt).toContain('## 任务')
-    expect(d.files).toEqual(['知识层(内置)/追读力/章节钩子速查.md'])
+    expect(d.files).toEqual(['知识层(内置)/长篇/章节钩子速查.md'])
   })
 
   it('设定层被预算整层丢弃 → 该层源文件不计（可见⟺已记录双向闭合）', () => {
@@ -567,17 +567,19 @@ describe('写作方法参考：随包语料按章选材注入', () => {
     const d = buildDraftPrompt(dir, 1, 'long')
     expect(d.prompt).toContain('## 写作方法参考(按本章自动选取,冲突时以本书设定为准)')
     expect(d.prompt).toContain('### 章节钩子速查')
-    expect(d.prompt).toContain('章尾钩子')
+    expect(d.prompt).toContain('章尾选型')
     // 注入序：方法参考在「要求」段之前（写作纪律先于输出契约）
     expect(d.prompt.indexOf('## 写作方法参考')).toBeLessThan(d.prompt.indexOf('## 要求'))
-    expect(d.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
+    expect(d.files).toContain('知识层(内置)/长篇/章节钩子速查.md')
   })
 
-  it('短篇：基础篇 = 反转设计速查（核心反转是短篇硬要求）', () => {
+  it('短篇：基础篇 = 短篇反转机制速查（核心反转是短篇硬要求）', () => {
     const d = buildDraftPrompt(dir, 1, 'short')
-    expect(d.prompt).toContain('### 反转设计速查')
+    expect(d.prompt).toContain('### 反转机制速查')
+    // 短篇书不取长篇篇（跨档口径不混装）
     expect(d.prompt).not.toContain('### 章节钩子速查')
-    expect(d.files).toContain('知识层(内置)/爽点/反转设计速查.md')
+    expect(d.prompt).not.toContain('### 节奏与升级感速查')
+    expect(d.files).toContain('知识层(内置)/短篇/反转机制速查.md')
   })
 
   it('章纲信号命中 → 追加节奏篇（两篇两源）；无信号书不虚报（只基础篇）', () => {
@@ -588,12 +590,12 @@ describe('写作方法参考：随包语料按章选材注入', () => {
     )
     const hit = buildDraftPrompt(dir, 1, 'long')
     expect(hit.prompt).toContain('### 节奏与升级感速查')
-    expect(hit.files).toContain('知识层(内置)/追读力/节奏与升级感速查.md')
+    expect(hit.files).toContain('知识层(内置)/长篇/节奏与升级感速查.md')
 
     rmSync(join(dir, '大纲'), { recursive: true, force: true })
     const plain = buildDraftPrompt(dir, 1, 'long')
     expect(plain.prompt).not.toContain('### 节奏与升级感速查')
-    expect(plain.files).not.toContain('知识层(内置)/追读力/节奏与升级感速查.md')
+    expect(plain.files).not.toContain('知识层(内置)/长篇/节奏与升级感速查.md')
   })
 
   // 开关 auto.knowledge_injection：段与 files 登记必须一并消失（只摘段会留下虚报的
@@ -610,11 +612,11 @@ describe('写作方法参考：随包语料按章选材注入', () => {
   it('auto.knowledge_injection: 显式 true 与键未设同效（缺省注入，存量书零影响）', () => {
     const on = buildDraftPrompt(dir, 1, 'long', cfg({ knowledgeInjection: true }))
     expect(on.prompt).toContain('### 章节钩子速查')
-    expect(on.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
+    expect(on.files).toContain('知识层(内置)/长篇/章节钩子速查.md')
 
     // 有 config 但 auto 段整套缺失（旧书/未设）→ 照旧注入
     const unset = buildDraftPrompt(dir, 1, 'long', cfg({}))
     expect(unset.prompt).toContain('### 章节钩子速查')
-    expect(unset.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
+    expect(unset.files).toContain('知识层(内置)/长篇/章节钩子速查.md')
   })
 })

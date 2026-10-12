@@ -21,7 +21,7 @@ export const BUNDLED_KNOWLEDGE_SUBDIR = 'knowledge'
 
 /** 解析结果:正文(已剥 fm)+ 登记名(相对书根或「知识层(内置)/」前缀) */
 export interface ResolvedCorpus {
-  /** 子集相对路径(如 `追读力/章节钩子速查.md`),两级同构 */
+  /** 子集相对路径(如 `长篇/章节钩子速查.md`),两级同构 */
   rel: string
   /** 剥 fm 后的正文 */
   body: string
