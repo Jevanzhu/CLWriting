@@ -104,6 +104,10 @@ export const CONTENT_GATE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
     'knowledge-seed@knowledge/seed.ts#rel',
     '知识层播种/升级失败日志:该篇相对路径是定位失败篇的唯一线索(随包语料文件名,跨书恒定)',
   ],
+  [
+    'knowledge-inject@knowledge/inject.ts#rel',
+    '知识层注入跳过/超帽日志:该篇相对路径是定位被跳过篇的唯一线索(随包语料文件名跨书恒定;书级命中时=知识层内自建件名,同 seed 族口径)',
+  ],
   ['prepare@process/prepare.ts#relative(bookRoot, r.path)', '备料失败日志：书内相对路径定位材料文件'],
   // 书库侧文件名/题名（basename 与章节事件标题）
   ['style@format/style.ts#basename(filePath)', '样章文件名是定位该样章的唯一线索（仅「来源」值非法时触发）'],

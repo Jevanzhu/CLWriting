@@ -21,7 +21,9 @@ import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
-import { buildMethodInjection, type MethodInjection } from '../knowledge/select.js'
+import { buildMethodInjection } from '../knowledge/select.js'
+import type { KnowledgeAssembly } from '../knowledge/inject.js'
+import { knowledgeInjectionEnabled } from '../knowledge/switch.js'
 import type { BookConfig } from '../format/types.js'
 import {
   readManifest,
@@ -640,12 +642,13 @@ export function buildDraftPrompt(
   // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记。
   // 开关 auto.knowledge_injection（缺省注入）：关停 = 段与 files 登记一并消失
   // （空段不入 prompt 不登记，与下方「各段非空才计」既有契约同）。
-  // 判据 `=== false` 显式关——config 缺省（直调/测试路径）与键未设都照旧注入，
-  // 不因读不到配置而静默降级。
-  const methodInjection: MethodInjection =
-    config?.auto?.knowledge_injection === false
-      ? { text: '', sources: [] }
-      : buildMethodInjection({ kind, signals: `${outline}\n${chapterOutline}`, bookRoot })
+  // 开关判据单源 = knowledgeInjectionEnabled（draft 面缺省注入、显式 false 才关）。
+  const methodInjection: KnowledgeAssembly = buildMethodInjection({
+    kind,
+    signals: `${outline}\n${chapterOutline}`,
+    bookRoot,
+    enabled: knowledgeInjectionEnabled(config, 'draft'),
+  })
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // 注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win

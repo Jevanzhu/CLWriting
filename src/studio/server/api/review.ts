@@ -39,6 +39,7 @@ import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../documen
 import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { buildReviewMethodInjection } from '../../../knowledge/review-method.js' // 三审视角技法运行时注入(统一批)
+import { knowledgeInjectionEnabled } from '../../../knowledge/switch.js' // 注入开关单源
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
 import { effectiveRemainingCalls } from '../../../ai/calls.js'
@@ -238,8 +239,9 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               sourceFiles: [f.entry.path],
               // 知识层视角技法注入开关（书级 auto.knowledge_injection → global 托底，
               // 缺省开）——关停 = 逐 lens 空段（不入 systemPromptSuffix、不入 promptFiles）。
-              // config 已过 applyGlobalDefaults，生产路径必有值；`!== false` 兜底直调/无配置面
-              methodInjectionEnabled: config.auto?.knowledge_injection !== false,
+              // 开关判据单源 = knowledgeInjectionEnabled（review 面；config 已过
+              // applyGlobalDefaults，生产路径必有值）
+              methodInjectionEnabled: knowledgeInjectionEnabled(config, 'review'),
               onProgress: emitProgress,
               ctrl, // -①：中断通道透传逐 lens runSpec
             })
@@ -411,11 +413,8 @@ async function runLensSpawnLoop(opts: {
     // 视角技法运行时注入(书级 > 随包知识层;统一批)——prompt 只留契约与基线,
     // 技法段经 systemPromptSuffix 拼在内置/overlay 之后(不参与哈希匹配),
     // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。
-    // 开关关停时走同一空段形态(不注入不登记),不新增分支语义
-    const methodInj =
-      opts.methodInjectionEnabled === false
-        ? { text: '', sources: [] }
-        : buildReviewMethodInjection(lens, opts.bookRoot)
+    // 开关关停时装配侧走同一空段形态(不读盘不注入不登记),本面不另设分支
+    const methodInj = buildReviewMethodInjection(lens, opts.bookRoot, opts.methodInjectionEnabled)
     const out = await runSpec(reviewSpec(lens), {
       userDataPath: opts.userDataPath,
       bookRoot: opts.bookRoot,

@@ -17,13 +17,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { REVIEW_SYSTEMS, REVIEW_COMMON } from '../../src/ai/prompts/review.js'
-import { buildReviewMethodInjection, REVIEW_METHOD_FILE_CAP } from '../../src/knowledge/review-method.js'
+import { buildReviewMethodInjection } from '../../src/knowledge/review-method.js'
 import {
   METHOD_FILE_HOOKS,
   METHOD_FILE_REVERSAL,
   METHOD_FILE_RHYTHM,
   METHOD_FILE_CHARACTER,
-} from '../../src/knowledge/select.js'
+} from '../../src/knowledge/catalog.js'
 
 const ALL = ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff'] as const
 const ALL_TEXTS: Array<[string, string]> = [
@@ -98,7 +98,9 @@ describe('三审技法注入(随包兜底)', () => {
 
   it('钩子篇的第二种手法也可检出;未知 lens 空段', () => {
     expect(buildReviewMethodInjection('hook').text).toContain('回声钩子')
-    expect(buildReviewMethodInjection('unknown-lens')).toEqual({ text: '', sources: [] })
+    const none = buildReviewMethodInjection('unknown-lens')
+    expect(none.text).toBe('')
+    expect(none.sources).toEqual([])
   })
 })
 
@@ -120,18 +122,5 @@ describe('三审技法注入(书级覆盖随包)', () => {
     const inj = buildReviewMethodInjection('emotion_peak', root)
     expect(inj.text).toContain('埋线')
     expect(inj.sources).toEqual([`知识层(内置)/${METHOD_FILE_REVERSAL}`])
-  })
-
-  it('书级篇超单篇帽 → 保头截断并标注(不整段丢弃)', () => {
-    const root = makeBook()
-    const rel = METHOD_FILE_HOOKS
-    const abs = join(root, '知识层', ...rel.split('/'))
-    mkdirSync(join(abs, '..'), { recursive: true })
-    writeFileSync(abs, '甲'.repeat(REVIEW_METHOD_FILE_CAP + 500))
-    const inj = buildReviewMethodInjection('hook', root)
-    expect(inj.text).toContain('…（超长截断）')
-    expect(inj.text).not.toContain('甲'.repeat(REVIEW_METHOD_FILE_CAP + 1))
-    // 截断后仍登记为书级源(注入确有其实,非「截没了却报已注入」)
-    expect(inj.sources).toEqual([`知识层/${rel}`])
   })
 })

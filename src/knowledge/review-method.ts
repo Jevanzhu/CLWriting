@@ -6,11 +6,11 @@
  * 知识层语料运行时注入,单源 = 书级 > 随包(corpus.ts)。书级命中登记名 =
  * `知识层/<rel>`,随包回落 = `知识层(内置)/<rel>`(「模型可见 ⟺ 已记录」)。
  * 书级缺失/两级皆缺 → 空段(退化到「只有契约与基线」,不阻断三审)。
+ *
+ * 本模块只留**策略**(lens → 篇映射、单篇帽声明);装配单源 = src/knowledge/inject.ts。
  */
-import { clipWithNotice } from '../shared/text.js'
-import { resolveCorpusFile } from './corpus.js'
-import { log } from '../log/index.js'
-import { METHOD_FILE_CHARACTER, METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM } from './select.js'
+import { assembleKnowledge, type KnowledgeAssembly } from './inject.js'
+import { METHOD_FILE_CHARACTER, METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM } from './catalog.js'
 
 /** 单篇码点帽——本模块是**单文件映射**(每 lens 恰一篇),故此帽即注入段的有效总帽
  *  (与写稿面 select.ts 的多篇累计不同:那里另有合计帽,可被多篇命中触发)。 */
@@ -32,29 +32,27 @@ const LENS_METHOD_FILE: Record<string, string> = {
   continuity: METHOD_FILE_CHARACTER,
 }
 
-export interface ReviewMethodInjection {
-  /** 注入段全文;该 lens 无对口技法/两级皆缺 → 空串 */
-  text: string
-  /** 注入源登记名(注入序) */
-  sources: string[]
-}
+/** 段头(整块前缀,含其后换行——段文本是测试锚定面) */
+const REVIEW_HEADING = '## 视角技法参考(按本书知识层提供,与下方焦点规则冲突时以焦点规则为准)\n'
 
 /**
  * 组装某视角的技法注入段。bookRoot 缺省 → 只读随包(退化行为稳定可测)。
+ * `enabled === false`(书级开关关停)→ 不读盘,段与登记一并空。
  * 两级皆缺/读失败 → 空段(调用方按「空段不入 prompt 不登记」处置)。
  */
-export function buildReviewMethodInjection(lens: string, bookRoot?: string): ReviewMethodInjection {
-  const file = LENS_METHOD_FILE[lens]
-  if (file === undefined) return { text: '', sources: [] }
-  const resolved = resolveCorpusFile(bookRoot, file)
-  if (resolved === null) {
-    log.warn('knowledge-review', `视角 ${lens} 技法篇两级皆缺,跳过:${file}`)
-    return { text: '', sources: [] }
-  }
-  const body = clipWithNotice(resolved.body, REVIEW_METHOD_FILE_CAP)
-  const title = file.slice(file.lastIndexOf('/') + 1).replace(/\.md$/, '')
-  return {
-    text: `## 视角技法参考(按本书知识层提供,与下方焦点规则冲突时以焦点规则为准)\n### ${title}\n${body}`,
-    sources: [resolved.source],
-  }
+export function buildReviewMethodInjection(
+  lens: string,
+  bookRoot?: string,
+  enabled?: boolean,
+): KnowledgeAssembly {
+  const rel = LENS_METHOD_FILE[lens]
+  return assembleKnowledge({
+    bookRoot,
+    rels: rel === undefined ? [] : [rel],
+    heading: REVIEW_HEADING,
+    fileCap: REVIEW_METHOD_FILE_CAP,
+    totalCap: Infinity, // 单文件映射:合计帽由单篇帽承载
+    enabled,
+    reasonOf: () => `视角 ${lens} 对口技法`,
+  })
 }

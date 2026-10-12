@@ -1,28 +1,25 @@
 /**
  * 写稿面方法选材（src/knowledge/select.ts）单测。
  *
- * 锚定五条对外可观察行为：①基础篇按体裁（长篇＝章节钩子速查 / 短篇＝反转设计速查）；
- * ②信号追加篇与固定优先级；③front matter 不进 prompt、双帽（单篇/合计）与超帽跳过；
- * ④随包语料缺失/受限 → 空段降级（写稿不阻断）；⑤书级 > 随包两级 rank（书名同篇覆盖
+ * 本件只锚**本面策略**：①基础篇按体裁（长篇＝章节钩子速查 / 短篇＝反转设计速查）；
+ * ②信号追加篇与固定优先级（含合计篇数帽）；③书级 > 随包两级 rank（书级同名篇覆盖
  * 随包、书级缺篇/空篇回落随包）。
- * 后两条用 CLWRITING_RESOURCES_DIR 注入临时资源根造受限/超长语料（真实语料体量够不到帽）。
+ * 装配面（单篇截断 / 合计即止 / 缺失 / 开关关 / 空候选 / 多篇序 / 标题提取）单源在
+ * test/knowledge/inject.test.ts 面表；此处不再重复同一族断言。
+ * 后两条用 CLWRITING_RESOURCES_DIR 注入临时资源根造受限语料。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { buildMethodInjection, pickMethodFiles, METHOD_MAX_FILES } from '../../src/knowledge/select.js'
 import {
-  buildMethodInjection,
-  pickMethodFiles,
-  METHOD_FILE_CAP,
   METHOD_FILE_CHARACTER,
   METHOD_FILE_HOOKS,
   METHOD_FILE_REVERSAL,
   METHOD_FILE_RHYTHM,
-  METHOD_MAX_FILES,
-  METHOD_TOTAL_CAP,
-} from '../../src/knowledge/select.js'
+} from '../../src/knowledge/catalog.js'
 
 let dir: string
 let prevResourcesDir: string | undefined
@@ -88,38 +85,6 @@ describe('buildMethodInjection：真实随包语料（仓内 resources/knowledge
     const { text, sources } = buildMethodInjection({ kind: 'long', signals: '场景: 对话' })
     expect(text).toContain('### 人物与对话技法速查')
     expect(sources).toContain(`知识层(内置)/${METHOD_FILE_CHARACTER}`)
-  })
-})
-
-describe('buildMethodInjection：帽与降级（受限资源根）', () => {
-  it('单篇超单篇帽 → 保头截断并标注', () => {
-    stubCorpus({ [METHOD_FILE_HOOKS]: '甲'.repeat(METHOD_FILE_CAP + 500) })
-    const { text } = buildMethodInjection({ kind: 'long', signals: '' })
-    expect(text).toContain('…（超长截断）')
-    // 截断后正文部分不含第 METHOD_FILE_CAP+1 个码点
-    expect(text).not.toContain('甲'.repeat(METHOD_FILE_CAP + 1))
-  })
-
-  it('合计超合计帽 → 后篇整篇跳过（不留半段）', () => {
-    stubCorpus({
-      [METHOD_FILE_HOOKS]: '乙'.repeat(METHOD_FILE_CAP + 500), // 截断后 ≈2000
-      [METHOD_FILE_RHYTHM]: '丙'.repeat(1200), // 2000+1200 > 3000 → 跳过
-    })
-    const { text, sources } = buildMethodInjection({ kind: 'long', signals: '高潮' })
-    expect(text).toContain('### 章节钩子速查')
-    expect(text).not.toContain('### 节奏与升级感速查')
-    expect(sources).toEqual([`知识层(内置)/${METHOD_FILE_HOOKS}`])
-    expect(METHOD_FILE_CAP + 1200).toBeGreaterThan(METHOD_TOTAL_CAP - 100) // 前提自检：该组合确超帽
-  })
-
-  it('随包语料缺失（资源根无 knowledge/）→ 空段降级不抛', () => {
-    process.env['CLWRITING_RESOURCES_DIR'] = dir
-    expect(buildMethodInjection({ kind: 'long', signals: '高潮' })).toEqual({ text: '', sources: [] })
-  })
-
-  it('篇文件为空/仅空白 → 该篇跳过（空段不注入）', () => {
-    stubCorpus({ [METHOD_FILE_HOOKS]: '\n  \n' })
-    expect(buildMethodInjection({ kind: 'long', signals: '' }).text).toBe('')
   })
 })
 

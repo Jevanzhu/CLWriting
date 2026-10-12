@@ -21,7 +21,7 @@ import {
   METHOD_FILE_HOOKS,
   METHOD_FILE_REVERSAL,
   METHOD_FILE_RHYTHM,
-} from '../../src/knowledge/select.js'
+} from '../../src/knowledge/catalog.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
 
 let dir: string

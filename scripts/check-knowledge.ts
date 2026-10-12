@@ -35,7 +35,7 @@ import {
   METHOD_FILE_HOOKS,
   METHOD_FILE_REVERSAL,
   METHOD_FILE_RHYTHM,
-} from '../src/knowledge/select.js'
+} from '../src/knowledge/catalog.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）

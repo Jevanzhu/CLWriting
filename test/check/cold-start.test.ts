@@ -19,7 +19,7 @@ import { scaffoldBookRepo } from '../../src/install/scaffold.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { buildIndex, recall } from '../../src/rag/index.js'
 import { buildDraftPrompt } from '../../src/process/draft-pipeline.js'
-import { METHOD_SOURCE_PREFIX } from '../../src/knowledge/select.js'
+import { BUNDLED_SOURCE_PREFIX } from '../../src/knowledge/corpus.js'
 import { bundledResource } from '../../src/fs/resources.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -121,8 +121,8 @@ describe('新书冷启动：空书/仅一章/空语料/首稿链路', () => {
       // 铁律①双向：files 登记的每个源都真实存在（可见⟺已记录——已记录 ⟹ 可见）；
       // 随包语料不在书根下，按「知识层(内置)/」前缀对 resources/knowledge/ 校验
       for (const rel of r.files) {
-        if (rel.startsWith(METHOD_SOURCE_PREFIX)) {
-          const bundled = bundledResource('knowledge', rel.slice(METHOD_SOURCE_PREFIX.length))
+        if (rel.startsWith(BUNDLED_SOURCE_PREFIX)) {
+          const bundled = bundledResource('knowledge', rel.slice(BUNDLED_SOURCE_PREFIX.length))
           expect(existsSync(bundled), `files 登记了不存在的随包源：${rel}`).toBe(true)
           continue
         }

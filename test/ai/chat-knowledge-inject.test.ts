@@ -3,10 +3,12 @@
  *
  * 口径变化:取篇不再依赖 `知识层/_manifest.json` 的 category 字段,改为
  * **目录名即分类**——书级 `知识层/方法论/*.md` ∪ 随包 `knowledge/方法论/*.md`,
- * 书级同 rel 覆盖随包。双帽(单篇 2000 / 合计 6000 码点)与「无篇不注入」不变;
+ * 书级同 rel 覆盖随包。「无篇不注入」不变;
  * 注入源登记走 files(书级 = `知识层/<rel>`,随包 = `知识层(内置)/<rel>`)。
+ * 装配面(单篇截断 / 合计即止 / 缺失 / 开关关 / 空候选 / 多篇序 / 标题提取)单源在
+ * test/knowledge/inject.test.ts 面表;本件不再重复同一族断言。
  *
- * 本件锁定:只取方法论类目、书级覆盖随包、书级缺失回落随包、双帽、chatSystem 渲染、
+ * 本件锁定:只取方法论类目、书级覆盖随包、书级缺失回落随包、chatSystem 渲染、
  * files 登记面(「模型可见 ⟺ 已记录」通道)。
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -74,17 +76,6 @@ describe('知识层方法论注入(buildChatContext,扫描驱动)', () => {
     expect(ctx.knowledge).toContain('本书自制人物技法')
     expect(ctx.knowledge).not.toContain('人物设计三维度') // 随包含此正文
     expect(ctx.files).toContain('知识层/方法论/人物与对话技法速查.md')
-  })
-
-  it('双帽生效:单文件超 2000 码点截断', () => {
-    const root = makeBook()
-    seedMethod(root, '方法论/肥文件.md', '长'.repeat(2500))
-    const ctx = buildChatContext(root)
-    expect(ctx.knowledge).toBeDefined()
-    // 肥文件 2500 > 单篇帽 2000 → 截断留痕(排序后该篇居首:肥 在 人 之前?)
-    // 断言不依赖排序:只锁「截断留痕出现」与「单篇未全文注入」
-    expect(ctx.knowledge).toContain('…（超长截断）')
-    expect(ctx.knowledge).not.toContain('长'.repeat(2501))
   })
 
   it('防越界 fail-closed:书级 知识层/ 内指向库外 symlink 不注入(不崩)', () => {
