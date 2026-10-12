@@ -83,7 +83,7 @@ watch(
       if (r.error) return
       const cfg = r.config
       bookKind.value = cfg.kind ?? 'long'
-      // raw 形态契约：13 键未设时为 undefined（genre 空串=未设）——只认合法值，脏值按跟随全局展示
+      // raw 形态契约：14 键未设时为 undefined（genre 空串=未设）——只认合法值，脏值按跟随全局展示
       bookGenre.value = cfg.book?.genre ?? ''
       bookVolumeSize.value =
         typeof cfg.book?.volume_size === 'number' && cfg.book.volume_size >= 5 ? cfg.book.volume_size : null

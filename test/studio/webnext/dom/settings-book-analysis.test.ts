@@ -1027,3 +1027,74 @@ describe('R0911b-P2①：失配态「重建索引」入口', () => {
     wrapper.unmount()
   })
 })
+
+// 知识层方法参考注入（本书组）——全页唯一「未设 = 开」的覆盖组：
+// eff 兜底取 prefs 的 true 初值，故「键未设」时组开关 off 但生效文案必须显示「注入方法参考」。
+describe('SettingsBookAnalysis 知识层（本书组）', () => {
+  it('raw 未设 → 组开关 off + 描述显示「注入方法参考（跟随全局默认）」+ 子项不渲染', async () => {
+    const wrapper = await mountOpen()
+    const group = wrapper.find('input[aria-label="知识层使用独立设定"]')
+    expect(group.exists()).toBe(true)
+    expect((group.element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.text()).toContain('当前生效 注入方法参考（跟随全局默认）')
+    expect(wrapper.find('input[aria-label="知识层方法参考注入"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('raw 显式 false → 组开关 on + 子项选中 false（作者关过的书如实回显）', async () => {
+    mocks.getConfig.mockResolvedValue({
+      kind: 'long',
+      book: { title: '测试书' },
+      auto: { knowledge_injection: false },
+    } satisfies BookConfig)
+    const wrapper = await mountOpen()
+    expect((wrapper.find('input[aria-label="知识层使用独立设定"]').element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.text()).toContain('当前生效 不注入')
+    expect((wrapper.find('input[aria-label="知识层方法参考注入"]').element as HTMLInputElement).checked).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('组开关 on → mutator 用生效值写 auto.knowledge_injection（保留段内他键）', async () => {
+    const prefs = usePrefsStore()
+    prefs.set('knowledgeInjection', true)
+    const wrapper = await mountOpen()
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="知识层使用独立设定"]').setValue(true)
+    const cfg = { auto: { relation_auto_mine: true } } as BookConfig
+    run(cfg)
+    expect(cfg.auto?.knowledge_injection).toBe(true)
+    expect(cfg.auto?.relation_auto_mine).toBe(true) // 展开保留，不覆盖同段他键
+    wrapper.unmount()
+  })
+
+  it('组开关 off → mutator delete auto.knowledge_injection（不动同段他键）', async () => {
+    mocks.getConfig.mockResolvedValue({
+      kind: 'long',
+      book: { title: '测试书' },
+      auto: { knowledge_injection: false, relation_auto_mine: true },
+    } satisfies BookConfig)
+    const wrapper = await mountOpen()
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="知识层使用独立设定"]').setValue(false)
+    const cfg = { auto: { knowledge_injection: false, relation_auto_mine: true } } as BookConfig
+    run(cfg)
+    expect(cfg.auto?.knowledge_injection).toBeUndefined()
+    expect(cfg.auto?.relation_auto_mine).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('本书子开关 → saveConfig 写 auto.knowledge_injection（关停动作落盘）', async () => {
+    mocks.getConfig.mockResolvedValue({
+      kind: 'long',
+      book: { title: '测试书' },
+      auto: { knowledge_injection: true },
+    } satisfies BookConfig)
+    const wrapper = await mountOpen()
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="知识层方法参考注入"]').setValue(false)
+    const cfg = {} as BookConfig
+    run(cfg)
+    expect(cfg.auto?.knowledge_injection).toBe(false)
+    wrapper.unmount()
+  })
+})

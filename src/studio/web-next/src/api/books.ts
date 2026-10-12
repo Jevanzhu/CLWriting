@@ -31,6 +31,8 @@ export interface BookConfig {
     batch_size?: number
     relation_auto_mine?: boolean
     relation_mine_threshold?: number
+    /** 知识层方法参考自动注入（缺省 true = 注入；false = 关停写稿/三审两面） */
+    knowledge_injection?: boolean
     [k: string]: unknown
   }
   /** 快照保留策略（单章版本回滚）；缺省 = 后端默认 14 天 / 30 个 */

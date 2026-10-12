@@ -29,7 +29,11 @@ const buildPrompt = (...args: Parameters<typeof buildDraftPrompt>): string => bu
 import type { BookConfig } from '../../src/format/types.js'
 
 /** 最小合法 BookConfig（P1 接线测试用：字数目标 / 注入档按需叠加） */
-function cfg(over: { chapterTarget?: number; injection?: 'light' | 'heavy' }): BookConfig {
+function cfg(over: {
+  chapterTarget?: number
+  injection?: 'light' | 'heavy'
+  knowledgeInjection?: boolean
+}): BookConfig {
   return {
     spec_version: 1,
     book: {
@@ -40,6 +44,7 @@ function cfg(over: { chapterTarget?: number; injection?: 'light' | 'heavy' }): B
     budget: {},
     growth: {},
     ...(over.injection !== undefined ? { style: { injection: over.injection } } : {}),
+    ...(over.knowledgeInjection !== undefined ? { auto: { knowledge_injection: over.knowledgeInjection } } : {}),
   }
 }
 
@@ -589,5 +594,27 @@ describe('写作方法参考：随包语料按章选材注入', () => {
     const plain = buildDraftPrompt(dir, 1, 'long')
     expect(plain.prompt).not.toContain('### 节奏与升级感速查')
     expect(plain.files).not.toContain('知识层(内置)/追读力/节奏与升级感速查.md')
+  })
+
+  // 开关 auto.knowledge_injection：段与 files 登记必须一并消失（只摘段会留下虚报的
+  // 「模型可见 ⟺ 已记录」溯源），且缺省/未设不得失手降级——`!== false` 判据的反向锚。
+  it('auto.knowledge_injection: false → 段与 files 登记一并消失（写稿面关停）', () => {
+    const off = buildDraftPrompt(dir, 1, 'long', cfg({ knowledgeInjection: false }))
+    expect(off.prompt).not.toContain('## 写作方法参考')
+    expect(off.prompt).not.toContain('### 章节钩子速查')
+    expect(off.files.filter((f) => f.startsWith('知识层'))).toEqual([])
+    // 「要求」段照常在位——关的是注入，不是组稿
+    expect(off.prompt).toContain('## 要求')
+  })
+
+  it('auto.knowledge_injection: 显式 true 与键未设同效（缺省注入，存量书零影响）', () => {
+    const on = buildDraftPrompt(dir, 1, 'long', cfg({ knowledgeInjection: true }))
+    expect(on.prompt).toContain('### 章节钩子速查')
+    expect(on.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
+
+    // 有 config 但 auto 段整套缺失（旧书/未设）→ 照旧注入
+    const unset = buildDraftPrompt(dir, 1, 'long', cfg({}))
+    expect(unset.prompt).toContain('### 章节钩子速查')
+    expect(unset.files).toContain('知识层(内置)/追读力/章节钩子速查.md')
   })
 })

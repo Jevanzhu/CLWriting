@@ -307,6 +307,12 @@ export interface BookConfig {
     relation_auto_mine?: boolean
     /** 自动梳理的章节增量阈值（缺省 3；global relationMineThreshold 托底） */
     relation_mine_threshold?: number
+    /** 知识层方法参考自动注入（写稿面「写作方法参考」+ 三审面「视角技法参考」两处）。
+     *  缺省 true = 注入（不写此键的存量书零影响）；false = 关停两面的自动注入
+     *  （对话面知识层注入是作者主动问答的支撑，不受此键管辖）。
+     *  判据在接线点（draft-pipeline / review）读 `!== false`——读不到配置的直调路径
+     *  与测试路径照旧注入，不因缺键而静默降级。global knowledgeInjection 托底。 */
+    knowledge_injection?: boolean
   }
   /** 摘要金字塔。缺省 auto=true：定稿即生成章摘要 + 自愈按需补漏。
    *  summary.auto: false = 整体关闭，回到「作者手写约定」现状。 */

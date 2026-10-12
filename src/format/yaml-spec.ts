@@ -574,6 +574,15 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         emit: scalarLeafEmit('relation_mine_threshold', (c) => c.auto?.relation_mine_threshold),
         get: (c) => c.auto?.relation_mine_threshold,
       },
+      {
+        // 知识层方法参考注入开关——作者写 yes/on/1 也认（parseStrictBool 收口，与
+        // 同段 relation_auto_mine 同款：只认字面 true 会让「想关却开着」无声错位）。
+        key: 'knowledge_injection',
+        parse: strictBoolParse('knowledge_injection', 'auto.knowledge_injection'),
+        emit: (cfg) =>
+          cfg.auto?.knowledge_injection !== undefined ? [`  knowledge_injection: ${cfg.auto.knowledge_injection}`] : [],
+        get: (c) => c.auto?.knowledge_injection,
+      },
     ],
   },
   {

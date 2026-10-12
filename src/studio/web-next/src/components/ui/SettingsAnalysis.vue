@@ -154,6 +154,17 @@ function onGlobalCheckNum(e: Event, key: WritablePrefKey): void {
       </SettingItem>
     </section>
 
+    <div class="cfg-card-head">知识层 <BetaBadge /></div>
+    <section class="cfg-card">
+      <SettingToggle
+        name="方法参考注入"
+        desc="写稿时按章自动注入知识层的写作方法参考，三审时按视角注入对口技法；关掉即两处都不注入（书根的 知识层/ 目录照常可读，对话助手不受影响）；未单独设定的书使用此默认"
+        ariaLabel="知识层方法参考注入（全局默认）"
+        :checked="prefs.get('knowledgeInjection')"
+        @change="prefs.set('knowledgeInjection', $event)"
+      />
+    </section>
+
     <div class="cfg-card-head">关系图 <BetaBadge /></div>
     <section class="cfg-card">
       <SettingToggle

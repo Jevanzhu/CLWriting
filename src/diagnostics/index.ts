@@ -186,6 +186,7 @@ const PREFS_WHITELIST = [
   'relationAutoMine',
   'relationMineThreshold',
   'ragEnabled',
+  'knowledgeInjection',
   'checkRepeatThreshold',
   'checkRepeatCharsThreshold',
   'checkMaxSentenceLen',

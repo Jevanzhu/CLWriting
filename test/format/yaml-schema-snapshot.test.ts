@@ -58,6 +58,7 @@ const LONG_FIXTURE = [
   '  batch_size: 4',
   '  relation_auto_mine: true',
   '  relation_mine_threshold: 5',
+  '  knowledge_injection: false',
   '',
   'growth:',
   '  realm_span_max: 3',
@@ -295,6 +296,7 @@ test('P1-5 快照: parse→stringify 字节输出（长篇全键/短篇全键/�
       batch_size: 4
       relation_auto_mine: true
       relation_mine_threshold: 5
+      knowledge_injection: false
 
     growth:
       realm_span_max: 3
@@ -339,7 +341,13 @@ const LONG_CFG: BookConfig = {
   },
   style: { injection: 'heavy' },
   summary: { auto: false },
-  auto: { confirm_outline: true, batch_size: 4, relation_auto_mine: true, relation_mine_threshold: 5 },
+  auto: {
+    confirm_outline: true,
+    batch_size: 4,
+    relation_auto_mine: true,
+    relation_mine_threshold: 5,
+    knowledge_injection: false,
+  },
   growth: { realm_span_max: 3 },
   checks: {
     imagery_words: ['月', '剑'],
@@ -536,7 +544,7 @@ interface PatchAnchor {
   mutate: (cfg: BookConfig) => void
 }
 
-/** PUT /config 白名单全集（46 叶键 + thresholds 特例 + 3 顶层标量）。
+/** PUT /config 白名单全集（47 叶键 + thresholds 特例 + 3 顶层标量）。
  *  本清单即白名单锁：与 CONFIG_PATCH_LEAVES 派生结果一一对应。 */
 const PATCH_ANCHORS: PatchAnchor[] = [
   {
@@ -691,6 +699,13 @@ const PATCH_ANCHORS: PatchAnchor[] = [
     base: 'long',
     mutate: (c) => {
       c.auto!.relation_mine_threshold = 7
+    },
+  },
+  {
+    label: 'auto.knowledge_injection',
+    base: 'long',
+    mutate: (c) => {
+      c.auto!.knowledge_injection = true
     },
   },
   {
@@ -990,8 +1005,8 @@ function runAnchor(a: PatchAnchor): void {
   }
 }
 
-test('P1-5 快照: PUT patch 白名单全集逐键生效（46 叶键 + thresholds 特例 + 3 顶层标量）', () => {
-  expect(PATCH_ANCHORS).toHaveLength(50)
+test('P1-5 快照: PUT patch 白名单全集逐键生效（47 叶键 + thresholds 特例 + 3 顶层标量）', () => {
+  expect(PATCH_ANCHORS).toHaveLength(51)
   for (const a of PATCH_ANCHORS) runAnchor(a)
 })
 

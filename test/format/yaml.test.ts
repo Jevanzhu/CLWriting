@@ -170,6 +170,48 @@ test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + �
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('auto.knowledge_injection: 解析 + 序列化往返（含 YAML 惯例布尔与缺省不落键）', () => {
+  const dir = mkdtempTracked(join(tmpdir(), 'clw-ki-'))
+  const fp = join(dir, 'book.yaml')
+
+  // 作者按 YAML 惯例写 on/off 也须认（同段布尔键共用 strictBoolParse）——
+  // 只认字面 true 会让「想关却开着」，正是开关类键最坏的失效形态
+  writeFileSync(
+    fp,
+    ['spec_version: 1', 'book:', '  title: 知识层开关', 'auto:', '  knowledge_injection: off'].join('\n'),
+    'utf-8',
+  )
+  const off = readBookConfig(fp)
+  expect(off.ok).toBe(true)
+  if (off.ok) expect(off.config.auto?.knowledge_injection).toBe(false)
+
+  writeFileSync(
+    fp,
+    ['spec_version: 1', 'book:', '  title: 知识层开关', 'auto:', '  knowledge_injection: yes'].join('\n'),
+    'utf-8',
+  )
+  const on = readBookConfig(fp)
+  expect(on.ok).toBe(true)
+  if (on.ok) expect(on.config.auto?.knowledge_injection).toBe(true)
+
+  // 往返：显式值落行并不丢
+  const dir2 = mkdtempTracked(join(tmpdir(), 'clw-ki2-'))
+  const fp2 = join(dir2, 'book.yaml')
+  writeBookConfig(fp2, {
+    ...DEFAULT_CONFIG,
+    auto: { ...DEFAULT_CONFIG.auto, knowledge_injection: false },
+  })
+  expect(readFileSync(fp2, 'utf-8')).toContain('knowledge_injection: false')
+  const back = readBookConfig(fp2)
+  expect(back.ok).toBe(true)
+  if (back.ok) expect(back.config.auto?.knowledge_injection).toBe(false)
+  // 缺省书不落键（存量仓库零改动红线；缺省语义 = 注入靠运行时回落，不靠文件烘焙）
+  expect(stringifyBookConfig(DEFAULT_CONFIG)).not.toContain('knowledge_injection')
+
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(dir2, { recursive: true, force: true })
+})
+
 test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落），不注入 NaN', () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// 「本书」页 · 智能分析覆盖组 ×3（IA 重组前是 SettingsAnalysis 的本书部分）：
-// AI 机检（短篇严格模式，仅短篇书显示）/ 关系图 / 知识检索的「本书使用独立设定」覆盖，全局默认在「智能分析」页。
-// 三组生效链均为 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落（服务端合并同链）。
+// 「本书」页 · 智能分析覆盖组 ×4（IA 重组前是 SettingsAnalysis 的本书部分）：
+// AI 机检（短篇严格模式，仅短篇书显示）/ 关系图 / 知识检索 / 知识层的「本书使用独立设定」覆盖，
+// 全局默认在「智能分析」页。
+// 四组生效链均为 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落（服务端合并同链）。
+// 知识层组是全页唯一「未设 = 注入」的组（key 缺省 true，del 掉回落也是 true）。
 // 知识检索：书里只存「选哪个提供方 + 开不开启」；endpoint/model/key 归应用级 RAG 提供方管。
 // 本组还承载建索引入口与状态轮询（原交互不变）。父组件已用 v-if="hasBook" 保证有书打开。
 import { ref, computed, watch, inject, onUnmounted, onDeactivated, onActivated } from 'vue'
@@ -45,6 +47,12 @@ const bookRagProvider = ref<string | null>(null)
 const effRagEnabled = computed(() => bookRagEnabled.value ?? prefs.get('ragEnabled'))
 const effRagProvider = computed(() => bookRagProvider.value ?? (prefs.get('ragProvider') || null))
 const ragOverride = computed(() => bookRagEnabled.value !== null || bookRagProvider.value !== null)
+
+// 知识层方法参考注入（组键 = auto.knowledge_injection；缺省 true = 注入——
+// 本组是唯一「未设 = 开」的覆盖组，故 eff 兜底取 prefs 的 true 初值而非 false）
+const bookKnowledgeInjection = ref<boolean | null>(null)
+const effKnowledgeInjection = computed(() => bookKnowledgeInjection.value ?? prefs.get('knowledgeInjection'))
+const knowledgeOverride = computed(() => bookKnowledgeInjection.value !== null)
 
 /** 旧版内联配置（endpoint/model 直存 book.yaml）——本书子项展示「沿用」伪选项，选中提供方即迁移清除 */
 const ragLegacy = ref(false)
@@ -121,6 +129,7 @@ watch(
       bookMineThreshold.value = null
       bookRagEnabled.value = null
       bookRagProvider.value = null
+      bookKnowledgeInjection.value = null
       ragLegacy.value = false
       return
     }
@@ -132,7 +141,7 @@ watch(
       if (loadGen.stale(gen) || ws.bookName !== name) return
       if (read.error) return
       const cfg = read.config
-      // raw 形态契约：13 键未设时为 undefined——只认合法类型，脏值按跟随全局展示
+      // raw 形态契约：14 键未设时为 undefined——只认合法类型，脏值按跟随全局展示
       bookKind.value = cfg.kind ?? 'long'
       bookShortStrict.value = typeof cfg.short?.strict === 'boolean' ? cfg.short.strict : null
       bookAutoMine.value = typeof cfg.auto?.relation_auto_mine === 'boolean' ? cfg.auto.relation_auto_mine : null
@@ -142,6 +151,8 @@ watch(
           : null
       bookRagEnabled.value = typeof cfg.rag?.enabled === 'boolean' ? cfg.rag.enabled : null
       bookRagProvider.value = cfg.rag?.provider || null
+      bookKnowledgeInjection.value =
+        typeof cfg.auto?.knowledge_injection === 'boolean' ? cfg.auto.knowledge_injection : null
       ragLegacy.value = !!(cfg.rag?.endpoint && !cfg.rag?.provider)
       // 拉一次建索引状态 + 提供方列表（都不阻塞配置读取）
       void refreshRagStatus(name)
@@ -165,7 +176,8 @@ function providerLabel(id: string | null): string {
 }
 
 // ── 组开关：off = 组内全部键 delete；on = 组内全部键用当前生效值（书级 ?? 全局）写入 ──
-// auto 段展开保留段内他键（confirm_outline/batch_size 归「本书」页的 AI 写作组管，互不覆盖）。
+// auto 段展开保留段内他键（confirm_outline/batch_size 已全局固定、无本书组；
+// relation_auto_mine 归本页关系图组，add 时逐键展开、互不覆盖）。
 
 function onShortOverrideToggle(on: boolean): void {
   if (on) {
@@ -252,6 +264,27 @@ function onBookRagToggle(v: boolean): void {
   bookRagEnabled.value = v
   void saveConfig((c) => {
     c.rag = { ...(c.rag ?? {}), enabled: v }
+  })
+}
+// 知识层：组开关 on = 用当前生效值落键；off = delete 归「未设」（回落全局默认）。
+// 与同页三组同款——auto 段展开保留段内他键（confirm_outline/relation_* 各有其主）
+function onKnowledgeOverrideToggle(on: boolean): void {
+  if (on) {
+    bookKnowledgeInjection.value = effKnowledgeInjection.value
+    void saveConfig((c) => {
+      c.auto = { ...(c.auto ?? {}), knowledge_injection: effKnowledgeInjection.value }
+    })
+  } else {
+    bookKnowledgeInjection.value = null
+    void saveConfig((c) => {
+      if (c.auto) delete c.auto.knowledge_injection
+    })
+  }
+}
+function onBookKnowledgeToggle(v: boolean): void {
+  bookKnowledgeInjection.value = v
+  void saveConfig((c) => {
+    c.auto = { ...(c.auto ?? {}), knowledge_injection: v }
   })
 }
 
@@ -571,6 +604,33 @@ onUnmounted(() => {
         上次重建已清空旧索引、新索引未建成——检索暂时查不到内容。可点「重建索引」重试；书稿正文不受影响。
       </span>
     </div>
+  </section>
+
+  <div class="cfg-card-head">知识层 <BetaBadge /></div>
+  <section class="cfg-card">
+    <SettingToggle
+      name="本书使用独立设定"
+      ariaLabel="知识层使用独立设定"
+      :checked="knowledgeOverride"
+      @change="onKnowledgeOverrideToggle"
+    >
+      <template #desc>
+        当前生效 {{ effKnowledgeInjection ? '注入方法参考' : '不注入'
+        }}{{ knowledgeOverride ? '' : '（跟随全局默认）' }}
+      </template>
+    </SettingToggle>
+    <SettingToggle
+      v-if="knowledgeOverride"
+      sub
+      name="方法参考注入"
+      ariaLabel="知识层方法参考注入"
+      :checked="bookKnowledgeInjection ?? effKnowledgeInjection"
+      @change="onBookKnowledgeToggle"
+    >
+      <template #desc>
+        关掉后本书写稿不再注入「写作方法参考」、三审不再注入视角技法（书根 知识层/ 目录照常可读，对话助手不受影响）
+      </template>
+    </SettingToggle>
   </section>
 </template>
 

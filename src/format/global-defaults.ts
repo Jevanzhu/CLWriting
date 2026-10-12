@@ -30,6 +30,10 @@ export const GLOBAL_FALLBACK_DEFAULTS: Readonly<{
   relationAutoMine: boolean
   relationMineThreshold: number
   ragEnabled: boolean
+  /** 知识层方法参考自动注入（书级 auto.knowledge_injection）。**唯一缺省 true 的回落** ——
+   *  其余键缺省 false 是「功能默认关闭」，本键语义是「默认开启、显式才关」
+   *  （写稿与三审的注入是现行行为，缺省反了就等于给所有存量书静默加关停）。 */
+  knowledgeInjection: boolean
 }> = {
   defaultGenre: '',
   defaultVolumeSize: 50,
@@ -41,6 +45,7 @@ export const GLOBAL_FALLBACK_DEFAULTS: Readonly<{
   relationAutoMine: false,
   relationMineThreshold: 3,
   ragEnabled: false,
+  knowledgeInjection: true,
 }
 
 /** global.json 各全局默认键的合并视图（逐键校验后的部分对象——没写的键不在场） */
@@ -58,6 +63,8 @@ interface GlobalBookDefaults {
   relationMineThreshold?: number
   ragEnabled?: boolean
   ragProvider?: string
+  /** 知识层方法参考自动注入全局默认（书级 auto.knowledge_injection 未设才托底） */
+  knowledgeInjection?: boolean
   /** 单章 token 预算全局默认（无硬编码回落——global 没有就 undefined=不拦） */
   tokensPerChapter?: number
   /** 单章金额预算全局默认（需配价格表才生效） */
@@ -133,6 +140,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       relationMineThreshold: intAtLeast(raw['relationMineThreshold'], 1, 20),
       ragEnabled: bool(raw['ragEnabled']),
       ragProvider: nonEmptyStr(raw['ragProvider']),
+      knowledgeInjection: bool(raw['knowledgeInjection']),
       tokensPerChapter: posNum(raw['tokensPerChapter']),
       costPerChapter: posNum(raw['costPerChapter']),
       // 机检阈值五键——占比限 (0,1]（unitNum），计数类取正整数（posInt），
@@ -167,6 +175,7 @@ type EffectiveBookConfig = BookConfig & {
     batch_size: number
     relation_auto_mine: boolean
     relation_mine_threshold: number
+    knowledge_injection: boolean
   }
 }
 
@@ -227,6 +236,15 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
     cfg.auto = {
       ...(cfg.auto ?? {}),
       relation_mine_threshold: g.relationMineThreshold ?? GLOBAL_FALLBACK_DEFAULTS.relationMineThreshold,
+    }
+  }
+  // 知识层方法参考注入——同属书内策略，保留书级覆盖（与关系图两键同族）。
+  // 注意判据是 `=== undefined` 而非 `!== true`：书级显式写的 false 必须赢过全局 true，
+  // 否则作者「本书关掉」的动作会被全局默认反悔（本键是本函数里唯一缺省 true 的键）。
+  if (cfg.auto?.knowledge_injection === undefined) {
+    cfg.auto = {
+      ...(cfg.auto ?? {}),
+      knowledge_injection: g.knowledgeInjection ?? GLOBAL_FALLBACK_DEFAULTS.knowledgeInjection,
     }
   }
 
