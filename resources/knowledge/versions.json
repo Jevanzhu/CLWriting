@@ -93,5 +93,101 @@
   ],
   "短篇/质量清单速查.md": [
     "sha256:b35c0699d9b38b321b9f4b34d8f9068e2e129293d4838cb203d10ecb9549d4f3"
+  ],
+  "题材/东方仙侠.md": [
+    "sha256:2af09b64c08783ced105acbb53b797ed1ceed3c1d5f35b8dbef3fb43571c47b5"
+  ],
+  "题材/传统玄幻.md": [
+    "sha256:cefdbb1da01ba0518602852a85930e768370f05ed151bc8355ee8db76c105718"
+  ],
+  "题材/历史古代.md": [
+    "sha256:af9d467ab06fb7c79e6fda971ec7425649a0106e375eb0fc23d86d2ff4db0eee"
+  ],
+  "题材/历史脑洞.md": [
+    "sha256:7dfdf4229ea828c2a58eda8c1f0c001cf93bd19c91990c3dae431fef8d3daf9f"
+  ],
+  "题材/双男主.md": [
+    "sha256:2feeac79fe38a37a0bf3daaec69ab073e687a6a93f8651ed9fb982fb7c300043"
+  ],
+  "题材/古言脑洞.md": [
+    "sha256:28c384949982353977fcc80349d9678e285637eff143ae6a9bfbd872890334ba"
+  ],
+  "题材/古风世情.md": [
+    "sha256:e63977927c108f3440e906447fb6cee88e942b23b963f551dae5003ca1ac7a19"
+  ],
+  "题材/女频悬疑.md": [
+    "sha256:3ade11e99410a5a4d8ab24ebf210de52bc8a54071bf2f55af98486617633426c"
+  ],
+  "题材/女频种田.md": [
+    "sha256:58805fc3008ce007b9881ed5c9b03741182194ba345612896c2bd8a1c5c9dd01"
+  ],
+  "题材/宫斗宅斗.md": [
+    "sha256:fb3e26dd0968fd58969c701267519c358dae72832aaa3326a959f812c2af3492"
+  ],
+  "题材/年代.md": [
+    "sha256:a0548050c59ed175c444cb23dd8726d3f77a7e074250282b1efb5a581e5c5666"
+  ],
+  "题材/快穿.md": [
+    "sha256:09217b050eefc65fcf85e577f75e0c7e5dd2c9fbded9dc2f390ac68400453557"
+  ],
+  "题材/悬疑灵异.md": [
+    "sha256:15e6ec1023bd99a4e46f7c5d6e277a76de686a61d2c4b1df26058895786f6db7"
+  ],
+  "题材/悬疑脑洞.md": [
+    "sha256:bb5eea4dfd88b09aca670a1421a82b986c94a779c74fb6a9ec1bf298abae594b"
+  ],
+  "题材/战神赘婿.md": [
+    "sha256:7b352e32f6acef31beeb0e23f0626cf619760b4ca21fc15a8d0921d0a3fb63c0"
+  ],
+  "题材/抗战谍战.md": [
+    "sha256:e065ca35b650d89970acf8fefeeaee153c7609669f4346b4b4177d113911ccfd"
+  ],
+  "题材/星光璀璨.md": [
+    "sha256:26126a172e8e6a3830ac4f3d603762d403373a287980a7c89c93aae2a9711a3e"
+  ],
+  "题材/民国言情.md": [
+    "sha256:51978f065528c23c822584a27ff39ea684723d41969d6ed198f40f516bcf318b"
+  ],
+  "题材/游戏体育.md": [
+    "sha256:7703bb0e6d088c98986bfa70d302e25f647b91702c106e21dad940b06276f1ec"
+  ],
+  "题材/玄幻脑洞.md": [
+    "sha256:9b8f3cca7e8f1d46c40e5ad5498f8cd3d5d4d9afe4acdf2f75431bd596508cff"
+  ],
+  "题材/玄幻言情.md": [
+    "sha256:0c142efe8e081a79db11bcfe87e9afb1e5b51b4a3fe4b7cca9058a11ef41fbc0"
+  ],
+  "题材/现言脑洞.md": [
+    "sha256:c7324ccb19c2f1077d6b293ed055143bfb61ace0724ee1a56dcc9e8582ad4fc1"
+  ],
+  "题材/科幻末世.md": [
+    "sha256:4e7c6361ed5ad152d5ad0143e038d8a7f7f7b90394d946abcc5b3255d296660c"
+  ],
+  "题材/职场婚恋.md": [
+    "sha256:4cf6aad8be0843295de449f9be3dcab505692f50e7d49e9e2e3c81dea0e0ba8c"
+  ],
+  "题材/西方奇幻.md": [
+    "sha256:09b4647171fa401b047096d8f4b24158e6b6ba90cf6767863fec566edda00172"
+  ],
+  "题材/豪门总裁.md": [
+    "sha256:e5c28a470f029168a32ae4995d5dfb7af8a78530e75f383e23f0f8162ef9d336"
+  ],
+  "题材/都市修真.md": [
+    "sha256:8eca7dc21dd5f4494959900facdc705cc6f0d62b462d8b74390c384996d51718"
+  ],
+  "题材/都市日常.md": [
+    "sha256:98c0d32888869fb4d5a326eebc218878794a7957e6c87a2c5b43f5c782cf6929"
+  ],
+  "题材/都市种田.md": [
+    "sha256:436a7f93b5d3962f3712a748768acb803c7caa3816743bd8b47612391e6d7615"
+  ],
+  "题材/都市脑洞.md": [
+    "sha256:2af3de60bdd6abae211ebc3563fec49a2f50bf9aa8e5d3d6685954fab13db2e6"
+  ],
+  "题材/都市高武.md": [
+    "sha256:35bff20efbfab31bff43791fd4a3523fe989099bbb372666c13a845b46f21d51"
+  ],
+  "题材/青春甜宠.md": [
+    "sha256:ae7f013c59cd1213718e693c8137802ea525258e18dc5cfb21db469ef751038a"
   ]
 }

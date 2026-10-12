@@ -66,6 +66,65 @@ export const SHORT_FILE_EMOTION = '短篇/情绪释放速查.md'
 export const SHORT_FILE_GENRE = '短篇/题材公式速查.md'
 export const SHORT_FILE_QUALITY = '短篇/质量清单速查.md'
 
+/** 题材卡类目名（卡目录；一张一类题材，目录名与 rel 一级段恒等） */
+export const GENRE_CATEGORY = '题材'
+
+/**
+ * 题材卡名（32 张；rel 由类目 + 卡名派生）。
+ *
+ * 卡名即题材名，别名声明在各卡 front matter 的 `aliases`（命中判据不在本档——
+ * 本档只声明「有哪些卡」，判据数据随卡文件走，改题材名不必回来改这里）。
+ */
+const GENRE_CARD_NAMES: readonly string[] = [
+  '东方仙侠',
+  '传统玄幻',
+  '历史古代',
+  '历史脑洞',
+  '双男主',
+  '古言脑洞',
+  '古风世情',
+  '女频悬疑',
+  '女频种田',
+  '宫斗宅斗',
+  '年代',
+  '快穿',
+  '悬疑灵异',
+  '悬疑脑洞',
+  '战神赘婿',
+  '抗战谍战',
+  '星光璀璨',
+  '民国言情',
+  '游戏体育',
+  '玄幻脑洞',
+  '玄幻言情',
+  '现言脑洞',
+  '科幻末世',
+  '职场婚恋',
+  '西方奇幻',
+  '豪门总裁',
+  '都市修真',
+  '都市日常',
+  '都市种田',
+  '都市脑洞',
+  '都市高武',
+  '青春甜宠',
+]
+
+/**
+ * 题材卡（写稿面按书题材命中下发，非全量注入）。
+ *
+ * `faces: ['draft']` 是「本卡可被写稿面消费」的事实陈述——命中是条件式的
+ * （`book.genre ∈ 卡 aliases`，≤2 张；判据与召回见 `knowledge/genre.ts`），
+ * 与「通用质量清单按帽内序被对话面取用」同族：faces 声明消费面，不声明必下发。
+ */
+export const GENRE_CATALOG: readonly CatalogEntry[] = GENRE_CARD_NAMES.map((name) => ({
+  rel: `${GENRE_CATEGORY}/${name}.md`,
+  category: GENRE_CATEGORY,
+  purpose: 'judgment' as const,
+  faces: ['draft'] as const,
+  note: '写稿面按书题材命中召回（book.genre ∈ 卡 aliases，至多 2 张）',
+}))
+
 /** 许可件 */
 export const LICENSE_FILE_MIT = '许可/oh-story-claudecode-MIT.md'
 
@@ -137,12 +196,13 @@ export const SHORT_CATALOG: readonly CatalogEntry[] = [
  * 随包篇目注册表（**顺序 = 对话面选篇优先级**）。
  *
  * 通用档在前（对话面按通用 → 体裁专属取帽内前 N）；许可件随包留存即满足 MIT
- * 署名，不播种进书库、三面均不消费。
+ * 署名，不播种进书库、三面均不消费；题材卡按书题材命中下发（不进对话面候选）。
  */
 export const BUNDLED_CATALOG: readonly CatalogEntry[] = [
   ...GENERAL_CATALOG,
   ...LONG_CATALOG,
   ...SHORT_CATALOG,
+  ...GENRE_CATALOG,
   {
     rel: LICENSE_FILE_MIT,
     category: '许可',

@@ -15,3 +15,6 @@
   篇内 front matter 不进 prompt；冲突时以本书设定为准。
 - 作业包引用：对话面作业包（`resources/skills/*.md`）可经 front matter `references` 引本目录篇目，
   取用时按书档只嵌本档那篇；`check:knowledge` 的作业包引用门校验声明的篇在本目录与 `知识层/` 均在位。
+- 题材卡（`题材/`，32 张）：写稿面按书题材召回至多 2 张（判据 = 卡 `aliases` 命中书级
+  `book.yaml` 的 `book.genre`，召回规则见 `知识层/题材/README.md`）；建书播种只铺命中的卡，
+  未命中卡仍在本目录随包可读。`check:knowledge` 的别名门校验每张卡带非空 `aliases`。

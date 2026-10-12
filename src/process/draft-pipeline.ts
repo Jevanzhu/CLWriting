@@ -22,7 +22,13 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import { buildMethodInjection } from '../knowledge/select.js'
-import { knowledgeReportOf, summarizeDropped, type KnowledgeReport } from '../knowledge/inject.js'
+import { buildGenreInjection } from '../knowledge/genre.js'
+import {
+  knowledgeReportOf,
+  mergeKnowledgeAssemblies,
+  summarizeDropped,
+  type KnowledgeReport,
+} from '../knowledge/inject.js'
 import type { KnowledgeAssembly } from '../knowledge/inject.js'
 import { knowledgeInjectionEnabled } from '../knowledge/switch.js'
 import type { BookConfig } from '../format/types.js'
@@ -646,19 +652,29 @@ export function buildDraftPrompt(
   // 声明键值天然成为命中词）；随包资源不在书根下，登记名以「知识层(内置)/」前缀标记。
   // 开关 auto.knowledge_injection（缺省注入）：关停 = 段与 files 登记一并消失
   // （空段不入 prompt 不登记，与下方「各段非空才计」既有契约同）。
-  // 开关判据单源 = knowledgeInjectionEnabled（draft 面缺省注入、显式 false 才关）。
+  // 开关判据单源 = knowledgeInjectionEnabled（draft 面缺省注入、显式 false 才关）——
+  // 技法选材与题材参考同受它辖，故一次判出、两段共用。
+  const knowledgeEnabled = knowledgeInjectionEnabled(config, 'draft')
   const methodInjection: KnowledgeAssembly = buildMethodInjection({
     kind,
     signals: `${outline}\n${chapterOutline}`,
     bookRoot,
-    enabled: knowledgeInjectionEnabled(config, 'draft'),
+    enabled: knowledgeEnabled,
   })
+  // 题材写作参考（按本书题材召回至多 2 张卡）：与技法选材同开关、同报告面（合流后
+  // 段文本相接、留痕并流，哪个来源取到料由 records[].reason 分辨）。判据取书级
+  // book.yaml 的 genre——与建书播种面同源（genre.ts readBookGenre）。
+  const genreInjection: KnowledgeAssembly = buildGenreInjection({
+    bookRoot,
+    enabled: knowledgeEnabled,
+  })
+  const knowledgeInjection = mergeKnowledgeAssemblies([methodInjection, genreInjection])
   // 报告面落 log：缺口非空才记（入选常态不刷日志）；只记计数不列 rel——摘要要能直接
   // 进诊断包，列 rel 就得走内容门登记。完整 records/dropped 随接口返回（见 DraftPrompt）。
-  if (methodInjection.dropped.length > 0) {
+  if (knowledgeInjection.dropped.length > 0) {
     log.info(
       'draft-pipeline',
-      `第 ${chapter} 章知识层方法参考缺口：入选 ${methodInjection.records.length} 篇 / 未入选 ${methodInjection.dropped.length} 篇（${summarizeDropped(methodInjection.dropped)}）`,
+      `第 ${chapter} 章知识层参考缺口：入选 ${knowledgeInjection.records.length} 篇 / 未入选 ${knowledgeInjection.dropped.length} 篇（${summarizeDropped(knowledgeInjection.dropped)}）`,
     )
   }
   const range = wordRange(kind, config?.book?.chapter_target_words)
@@ -678,7 +694,7 @@ export function buildDraftPrompt(
   if (materials) pushFile('工作区/本章写作材料.md')
   if (settingsInjection.text) for (const p of settingsInjection.sources) pushFile(p)
   if (styleSampleInjection.text) for (const p of styleSampleInjection.sources) pushFile(p)
-  if (methodInjection.text) for (const p of methodInjection.sources) pushFile(p)
+  if (knowledgeInjection.text) for (const p of knowledgeInjection.sources) pushFile(p)
   if (kind === 'short') {
     const parts: string[] = [
       `## 任务\n写第 ${chapter} 章正文(短篇,${range},单章完整开合:铺垫→反转→收尾,目标情绪落地)。`,
@@ -688,14 +704,14 @@ export function buildDraftPrompt(
     if (materials) parts.push(`## 备料\n${materials}`)
     if (settingsInjection.text) parts.push(settingsInjection.text)
     if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
-    if (methodInjection.text) parts.push(methodInjection.text)
+    if (knowledgeInjection.text) parts.push(knowledgeInjection.text)
     parts.push(
       // 短篇正文必须带 ## 五段标题——节数守恒机检（checkSectionCount）按 ## 标题
       // 计数，无标题稿必报黄（严格模式升红）；此前 prompt 反而「禁 markdown 标题」，
       // 守规稿进重写循环两头矛盾。五段名与机检提示文案同口径。
       `## 要求\n只输出第 ${chapter} 章正文（正文以 ## 标题分五段：## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵；段内纯叙事文本，仅段落与空行，禁加粗/列表，单章闭合，余韵收尾）。标题 / 目标情绪 / 核心反转 由结构化字段承载，无需写进正文。`,
     )
-    return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(methodInjection) }
+    return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(knowledgeInjection) }
   }
   const parts: string[] = [`## 任务\n按细纲、章纲与备料写第 ${chapter} 章正文(长篇,${range},单章一主场景,章尾留钩)。`]
   if (outline) parts.push(`## 本章细纲(已确认)\n${outline}`)
@@ -703,9 +719,9 @@ export function buildDraftPrompt(
   if (materials) parts.push(`## 备料\n${materials}`)
   if (settingsInjection.text) parts.push(settingsInjection.text)
   if (styleSampleInjection.text) parts.push(styleSampleInjection.text)
-  if (methodInjection.text) parts.push(methodInjection.text)
+  if (knowledgeInjection.text) parts.push(knowledgeInjection.text)
   parts.push(
     `## 要求\n只输出第 ${chapter} 章正文（纯叙事文本，仅段落与空行，禁 markdown 标题/加粗/列表，单章一主场景，章尾留钩，人物与境界须与世界观一致）。标题 / 钩子类型 / 情绪定位 由结构化字段承载，无需写进正文。`,
   )
-  return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(methodInjection) }
+  return { prompt: parts.join('\n\n'), files, knowledge: knowledgeReportOf(knowledgeInjection) }
 }

@@ -168,6 +168,17 @@ describe('随包缺失容错', () => {
     expect(rels.some((r) => r.startsWith('许可/'))).toBe(false)
   })
 
+  it('题材卡按书题材过滤：未设题材不播任何卡，命中只播命中卡（32 张不全播）', () => {
+    delete process.env['CLWRITING_RESOURCES_DIR']
+    // 未设题材（无书/书本无 genre）→ 零题材卡
+    const none = listBundledSeedRels()
+    expect(none.some((r) => r.startsWith('题材/'))).toBe(false)
+    // 命中 → 只播命中的 1–2 张
+    const hit = listBundledSeedRels('都市脑洞')
+    expect(hit.filter((r) => r.startsWith('题材/'))).toEqual(['题材/都市脑洞.md'])
+    expect(hit.filter((r) => r.startsWith('通用/')).length).toBe(9) // 其余类目不受影响
+  })
+
   it('真实仓退役段:旧 4 随包 rel 已登记(存量书升级即删未改动副本)', async () => {
     delete process.env['CLWRITING_RESOURCES_DIR']
     const { readRetiredKnowledgeRels } = await import('../../src/knowledge/seed.js')

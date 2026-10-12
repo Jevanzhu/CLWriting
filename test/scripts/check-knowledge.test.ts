@@ -20,6 +20,7 @@ import {
   scanBundledCorpusMismatches,
   scanBundledMissingAttribution,
   scanSkillReferenceMismatches,
+  scanGenreCardAliasGaps,
 } from '../../scripts/check-knowledge.js'
 import { BUNDLED_CATALOG } from '../../src/knowledge/catalog.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
@@ -304,5 +305,48 @@ describe('作业包升级批：scanSkillReferenceMismatches 作业包引用门',
   it('真实仓库实跑：随包三包的 references 目标全部在位（与 npm run check:knowledge 同口径）', () => {
     const rootPath = fileURLToPath(new URL('../../', import.meta.url))
     expect(scanSkillReferenceMismatches(rootPath)).toEqual([])
+  })
+})
+
+// ── 题材卡批：scanGenreCardAliasGaps 别名门 ──────────────────────────────────
+// 卡靠 aliases 命中书题材被召回；别名缺失时召回静默退化为「只有卡名能命中」（作者按
+// 题材别名写的书召不到且无报错）——声明即门是唯一能拦的形态。别名数据随卡文件走。
+describe('题材卡批：scanGenreCardAliasGaps 题材卡别名门', () => {
+  /** 按 catalog 条目的 rel 造随包卡（fm 由调用方给，覆盖别名在/不在两态） */
+  function writeCard(rel: string, fm: string): void {
+    const p = join(dir, 'resources', 'knowledge', ...rel.split('/'))
+    mkdirSync(join(p, '..'), { recursive: true })
+    writeFileSync(p, `---\n${fm}---\n\n# 卡\n\n正文。\n`)
+  }
+
+  it('别名在位 → 不报', async () => {
+    const { GENRE_CATALOG } = await import('../../src/knowledge/catalog.js')
+    const first = GENRE_CATALOG[0]!
+    writeCard(first.rel, 'aliases: [甲, 乙]\nlicense: MIT\n')
+    // 其余卡缺件由随包对账门报，本门只判在位卡的别名
+    expect(scanGenreCardAliasGaps(dir)).toEqual([])
+  })
+
+  it('卡在随包但缺 aliases → 报（召回只剩卡名能命中）', async () => {
+    const { GENRE_CATALOG } = await import('../../src/knowledge/catalog.js')
+    const first = GENRE_CATALOG[0]!
+    writeCard(first.rel, 'license: MIT\n')
+    expect(scanGenreCardAliasGaps(dir).join('\n')).toContain('缺 aliases')
+  })
+
+  it('aliases 为空数组/裸 md 无 fm → 报（空声明与缺声明同判）', async () => {
+    const { GENRE_CATALOG } = await import('../../src/knowledge/catalog.js')
+    const [a, b] = GENRE_CATALOG
+    writeCard(a!.rel, 'aliases: []\nlicense: MIT\n')
+    const p = join(dir, 'resources', 'knowledge', ...b!.rel.split('/'))
+    mkdirSync(join(p, '..'), { recursive: true })
+    writeFileSync(p, '裸 md 无 fm')
+    const problems = scanGenreCardAliasGaps(dir)
+    expect(problems.length).toBe(2)
+  })
+
+  it('真实仓库实跑：32 张卡的 aliases 全部非空（与 npm run check:knowledge 同口径）', () => {
+    const rootPath = fileURLToPath(new URL('../../', import.meta.url))
+    expect(scanGenreCardAliasGaps(rootPath)).toEqual([])
   })
 })

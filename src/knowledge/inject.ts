@@ -66,6 +66,23 @@ export function knowledgeReportOf(a: KnowledgeAssembly): KnowledgeReport {
 }
 
 /**
+ * 同面多段注入合流（写稿面 = 按章技法选材段 + 按书题材参考段）。
+ *
+ * 段文本按序以空行相接、登记名与非入选留痕并流：报告面仍是「一面一报告」，
+ * 哪个来源取到/漏了料由 `records[].reason` 分辨（与三审按 lens 标注同族）。
+ * 段为空者不参与相接（空段不入 prompt 的既有契约在合流层再保一次）。
+ */
+export function mergeKnowledgeAssemblies(parts: readonly KnowledgeAssembly[]): KnowledgeAssembly {
+  const texts = parts.map((p) => p.text).filter((t) => t !== '')
+  return {
+    text: texts.join('\n\n'),
+    sources: parts.flatMap((p) => p.sources),
+    records: parts.flatMap((p) => p.records),
+    dropped: parts.flatMap((p) => p.dropped),
+  }
+}
+
+/**
  * 缺口摘要（计数式，人话）：`missing×1 cap-total×1 switch-off×2`。
  * 只计**不列 rel**——日志要能直接进诊断包（rel 属书库侧取值，带它就得走内容门登记）；
  * 缺口计数已足够回答「这一面是不是少给了料、少在哪一类」。

@@ -30,7 +30,8 @@ import {
   KNOWLEDGE_DIR,
   type KnowledgeManifest,
 } from '../src/knowledge/manifest.js'
-import { BUNDLED_CATALOG } from '../src/knowledge/catalog.js'
+import { BUNDLED_CATALOG, GENRE_CATALOG } from '../src/knowledge/catalog.js'
+import { parseAliases } from '../src/knowledge/genre.js'
 import { readFile, parseFlat } from '../src/format/frontmatter.js'
 import { parseReferences } from '../src/process/skills.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
@@ -283,6 +284,35 @@ export function scanSkillReferenceMismatches(
   return problems
 }
 
+/**
+ * 题材卡别名门：catalog 声明的每张题材卡，其随包件 front matter 必须带非空 `aliases`。
+ *
+ * 判据同 catalog 的「声明即门」：卡靠 `aliases` 命中书题材被召回，别名缺失时召回
+ * 静默退化为「只有卡名能命中」（作者按题材别名写的书召不到，无任何报错）。
+ * 别名数据随卡文件走（不在 catalog 里，改题材名不必回来改代码），故门必须落到卡上。
+ */
+export function scanGenreCardAliasGaps(projectRoot: string, bundledDir: string = BUNDLED_KNOWLEDGE_DIR): string[] {
+  const bundledRoot = join(projectRoot, bundledDir)
+  const problems: string[] = []
+  for (const entry of GENRE_CATALOG) {
+    const fp = join(bundledRoot, ...entry.rel.split('/'))
+    if (!existsSync(fp)) continue // 缺件由随包对账门报，本门只判别名
+    let text: string
+    try {
+      text = readFileSync(fp, 'utf-8')
+    } catch (e) {
+      problems.push(`${bundledDir}/${entry.rel}: 读取失败（${e instanceof Error ? e.message : String(e)}）`)
+      continue
+    }
+    const r = readFile(fp, text)
+    const aliases = r.ok ? parseAliases(parseFlat(r.fmRaw).get('aliases')) : []
+    if (aliases.length === 0) {
+      problems.push(`${bundledDir}/${entry.rel}: 卡 front matter 缺 aliases（题材召回判据，缺则只有卡名能命中）`)
+    }
+  }
+  return problems
+}
+
 /** fm 块内是否含顶层标量键（与 manifest.fmScalar 同口径：逐行前缀匹配，只认 fm 块内） */
 function hasFmKey(text: string, key: string): boolean {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
@@ -341,10 +371,18 @@ function main(): void {
     process.exit(1)
   }
 
+  // 题材卡别名门：卡靠 aliases 命中书题材，缺则召回静默退化
+  const genreAliasProblems = scanGenreCardAliasGaps(root)
+  if (genreAliasProblems.length > 0) {
+    console.error('check:knowledge 题材卡别名门失败（每张卡须带非空 aliases，否则题材召回只剩卡名能命中）：')
+    for (const p of genreAliasProblems) console.error(`  - ${p}`)
+    process.exit(1)
+  }
+
   const count = manifest?.entries?.length ?? 0
   const declared = BUNDLED_CATALOG.filter((e) => e.faces.length > 0).length
   console.log(
-    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（catalog 声明注入面 ${declared} 篇在位）；署名门与作业包引用门通过。`,
+    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（catalog 声明注入面 ${declared} 篇在位）；署名门、作业包引用门与题材卡别名门通过。`,
   )
 }
 

@@ -620,3 +620,57 @@ describe('写作方法参考：随包语料按章选材注入', () => {
     expect(unset.files).toContain('知识层(内置)/长篇/章节钩子速查.md')
   })
 })
+
+// ── 题材卡批：题材参考段（按本书题材召回）─────────────────────────────────────
+// 靶点 = 「题材段在技法段之后、要求段之前」+「未设题材不注入」+「开关一并关」
+// + 「报告面两来源并流」。判据取书级 book.yaml 的 genre（未设不回落全局默认）。
+describe('题材参考：按本书题材召回题材卡', () => {
+  function writeBookYaml(genre?: string): void {
+    writeFileSync(join(dir, 'book.yaml'), `book:\n  title: 测试书\n${genre ? `  genre: ${genre}\n` : ''}`)
+  }
+
+  it('书题材命中 → 段在技法段之后、要求段之前；登记名带内置前缀', () => {
+    writeBookYaml('都市脑洞')
+    const d = buildDraftPrompt(dir, 1, 'long')
+    expect(d.prompt).toContain('## 题材写作参考(按本书题材自动选取,冲突时以本书设定为准)')
+    expect(d.prompt).toContain('### 都市脑洞')
+    expect(d.prompt.indexOf('## 写作方法参考')).toBeLessThan(d.prompt.indexOf('## 题材写作参考'))
+    expect(d.prompt.indexOf('## 题材写作参考')).toBeLessThan(d.prompt.indexOf('## 要求'))
+    expect(d.files).toContain('知识层(内置)/题材/都市脑洞.md')
+  })
+
+  it('未设题材 → 无题材段也不虚报登记（不猜题材）', () => {
+    writeBookYaml()
+    const d = buildDraftPrompt(dir, 1, 'long')
+    expect(d.prompt).not.toContain('## 题材写作参考')
+    expect(d.files.filter((f) => f.includes('题材/'))).toEqual([])
+  })
+
+  it('开关关停 → 技法段与题材段一并消失（同受 auto.knowledge_injection 辖）', () => {
+    writeBookYaml('都市脑洞')
+    const off = buildDraftPrompt(dir, 1, 'long', cfg({ knowledgeInjection: false }))
+    expect(off.prompt).not.toContain('## 题材写作参考')
+    expect(off.files.filter((f) => f.startsWith('知识层'))).toEqual([])
+  })
+
+  it('报告面两来源并流：技法篇与题材卡逐条留痕，reason 分辨来源', () => {
+    writeBookYaml('都市脑洞')
+    const d = buildDraftPrompt(dir, 1, 'long')
+    const rels = d.knowledge.records.map((r) => r.rel)
+    expect(rels).toContain('长篇/章节钩子速查.md')
+    expect(rels).toContain('题材/都市脑洞.md')
+    expect(d.knowledge.records.find((r) => r.rel === '题材/都市脑洞.md')?.reason).toBe('题材命中:都市脑洞')
+    expect(d.knowledge.dropped).toEqual([])
+  })
+
+  it('书级同名覆盖随包：作者在书根改了卡 → 段取书级正文，登记名不带内置前缀', () => {
+    writeBookYaml('都市脑洞')
+    const dst = join(dir, '知识层', '题材', '都市脑洞.md')
+    mkdirSync(join(dst, '..'), { recursive: true })
+    writeFileSync(dst, '---\nlicense: MIT\n---\n\n# 作者改过的卡\n\n作者口径。\n')
+    const d = buildDraftPrompt(dir, 1, 'long')
+    expect(d.prompt).toContain('作者口径。')
+    expect(d.files).toContain('知识层/题材/都市脑洞.md')
+    expect(d.files).not.toContain('知识层(内置)/题材/都市脑洞.md')
+  })
+})

@@ -20,6 +20,8 @@ import { bundledResource } from '../fs/resources.js'
 import { hashBytes, hashFile } from '../fs/hash.js'
 import { log, errMsg } from '../log/index.js'
 import { BOOK_KNOWLEDGE_DIR, BUNDLED_KNOWLEDGE_SUBDIR, listBundledKnowledgeEntries } from './corpus.js'
+import { GENRE_CATEGORY } from './catalog.js'
+import { listBundledGenreCards, matchGenreCards, readBookGenre } from './genre.js'
 
 /** 随包语料历史哈希表文件名(值形态同 prompts/versions.json:<rel> → [哈希…,末位当前]) */
 export const KNOWLEDGE_VERSIONS_FILE = 'versions.json'
@@ -71,16 +73,26 @@ export function readRetiredKnowledgeRels(): Record<string, string[]> {
 }
 
 /**
- * 随包知识层语料 rel 清单(播种面 = 随包语料减去不播种类目)。
+ * 随包知识层语料 rel 清单（播种面 = 随包语料减去不播种类目与未命中的题材卡）。
  *
  * **不另抄一份目录扫描**:直接复用 corpus.ts 的随包扫描(listBundledKnowledgeEntries)
  * ——此前本函数与那里各持一份逐行同构的遍历 + 各一份「非语料项跳过」名单
  * (同名三项、顺序不同),任一处新增跳过项都会让「对话面注入的篇」与「播种的篇」
  * 静默分叉。判据单源后,播种面恒 ⊆ 三面读取面。
+ *
+ * 题材卡按书题材过滤:32 张全播进书根是每本书 +90KB 噪音(其中九成与本书题材无关),
+ * 未命中者仍可随包读取(书级 > 随包语义不变),只是不在书根落副本。`genre` 缺省
+ * (无书/未设题材) → 不播任何卡。判据与写稿面注入同源(`genreCardsForBook`)。
+ *
+ * 题材改了不回撤已播的卡:卡是作者可编辑副本(改过的按「永不覆盖作者改动」留),
+ * 且未命中卡在位只是「作者书根多一个可改文件」,不参与注入(注入按召回判据走,
+ * 与磁盘面解耦)——回撤要靠退役步,而退役段的语义是「已从随包下架」,不是「本书不用了」。
  */
-export function listBundledSeedRels(): string[] {
+export function listBundledSeedRels(genre?: string): string[] {
+  const cards = new Set(matchGenreCards(genre, listBundledGenreCards()).map((c) => c.rel))
   return listBundledKnowledgeEntries()
     .filter((e) => e.category !== SEED_SKIP_CATEGORY)
+    .filter((e) => e.category !== GENRE_CATEGORY || cards.has(e.rel))
     .map((e) => e.rel)
     .sort()
 }
@@ -132,7 +144,9 @@ function retireBookKnowledge(
  */
 export function seedBookKnowledge(bookRoot: string, opts?: { seedOnly?: boolean }): SeedReport {
   const report: SeedReport = { seeded: [], upgraded: [], kept: [], retired: [] }
-  const rels = listBundledSeedRels()
+  // 播种面按本书题材过滤题材卡——建书播种建的是「作者可编辑起点」，落书根的都是
+  // 本书用得上的；未命中卡仍可随包读取（判据与写稿面注入同源 = readBookGenre）
+  const rels = listBundledSeedRels(readBookGenre(bookRoot))
   const versions = readKnowledgeVersions()
   const targetRoot = join(bookRoot, BOOK_KNOWLEDGE_DIR)
 
