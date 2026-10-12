@@ -3,9 +3,9 @@
  *
  * 本门由 2026-09-19 作者指令「也要保证后续不会塞废话进去」+「根目录 README 只是项目
  * 介绍，不要把项目进展什么的塞进去」而立，把「索引面只写结论 + 指针、介绍面禁进展」
- * 从自律升级为机器门（check-counts X-P2-16 先例）。锚定三档口径的边界语义与两个面的
- * 差异，防止本门自身漂移（尤其 main() 曾因裸拼 `file://` 判据静默不执行——门形同虚设，
- * 用例钉死直跑可执行性）。
+ * 从自律升级为机器门（check-counts X-P2-16 先例）。锚定两档形态判据（单行长度 / 禁语
+ * 与日期标注）的边界语义与两个面的差异，防止本门自身漂移（尤其 main() 曾因裸拼
+ * `file://` 判据静默不执行——门形同虚设，用例钉死直跑可执行性）。
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
@@ -71,7 +71,7 @@ describe('forbiddenPhrasesIn：实录链签名捕获', () => {
 })
 
 describe('checkDocsIndex vs checkIntroDoc：索引面与介绍面口径不同', () => {
-  const spec = { label: 'T', maxLine: 200, maxBytes: 500 }
+  const spec = { label: 'T', maxLine: 200 }
 
   it('索引面放行产品义「拍板」，介绍面亦放行（仅禁「作者拍板」治理义）', () => {
     const line = 'AI 出初稿，你负责审稿和拍板。' + 'x'.repeat(10)
@@ -94,14 +94,15 @@ describe('checkDocsIndex vs checkIntroDoc：索引面与介绍面口径不同', 
     }
   })
 
-  it('体积超限即报（索引面 500 字节上限）', () => {
-    const problems = checkDocsIndex('a'.repeat(600), spec)
-    expect(problems.some((p: string) => p.includes('体积'))).toBe(true)
+  it('不设文件体积上限（作者指令：不塞废话是行文要求，非字节锁）', () => {
+    const content = Array.from({ length: 200 }, (_, i) => `第 ${i} 行短内容，非实录。`).join('\n')
+    expect(Buffer.byteLength(content, 'utf8')).toBeGreaterThan(2000)
+    expect(checkDocsIndex(content, spec)).toEqual([])
   })
 })
 
 describe('findDateAnnotations：括号修订日期标注（规则文档禁）', () => {
-  const spec = { label: 'T', maxLine: 500, maxBytes: 5000 }
+  const spec = { label: 'T', maxLine: 500 }
 
   it('命中「（2026-09-19 …）」「（2026-09-19）」挂条日期标注', () => {
     expect(findDateAnnotations('- **篇幅纪律（2026-09-19 作者指令「…」）**：…')[0].text).toBe(
@@ -124,12 +125,16 @@ describe('findDateAnnotations：括号修订日期标注（规则文档禁）', 
 })
 
 describe('清单与直跑可执行性', () => {
-  it('索引面三件 + 介绍面一件，无重复路径', () => {
+  it('索引面两件 + 介绍面一件,无重复路径', () => {
     const paths = [...INDEX_FILES, ...INTRO_FILES].map((f: { path: string }) => f.path)
-    expect(paths).toHaveLength(4)
-    expect(new Set(paths).size).toBe(4)
+    expect(paths).toHaveLength(3)
+    expect(new Set(paths).size).toBe(3)
+    // CLAUDE.md 不入索引面（作者口径：治理正本不被体积门绑定）
+    expect(INDEX_FILES.some((f: { path: string }) => f.path === 'CLAUDE.md')).toBe(false)
     // 根 README 属介绍面，不得出现在索引面（作者指令：它只是项目介绍）
     expect(INDEX_FILES.some((f: { path: string }) => f.path === 'README.md')).toBe(false)
+    // 不设文件体积上限（作者指令：不塞废话是行文要求，非字节锁）
+    for (const f of [...INDEX_FILES, ...INTRO_FILES]) expect('maxBytes' in f).toBe(false)
   })
 
   it('禁止短语表非空且每条带 why', () => {

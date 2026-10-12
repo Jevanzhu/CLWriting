@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * 文档篇幅门（docs-surface）：防「废话回弹」——索引面短小、介绍面对外、明细归 git 历史。
+ * 文档篇幅门（docs-surface）：防「废话回弹」——索引面只写结论 + 指针、介绍面对外、明细归 git 历史。
  *
  * 背景（作者指令「也要保证后续不会塞废话进去」+「根目录 README 只是项目介绍，不要把项目
  * 进展什么的塞进去」）：精简前四件分别为 4.0K / 46.2K / 2.6K / 6.9K，其中根 README 的
  * 开发段是单个 32KB 行——历代亲跑实录（逐批文件 / 过数 / 跳 / 败 + 门禁明细 + 差值锚沿革
- * + CI 跑红根因复盘）全堆在里面。此前只靠 CLAUDE.md「记档」条的自律，两日即回弹；正如
+ * + CI 跑红根因复盘）全堆在里面。此前只靠「记档」条的自律，两日即回弹；正如
  * check-counts 的对账先例（自律 → 升级门禁），本门把篇幅纪律升级为机器门。
  *
  * 两个面，口径不同：
@@ -14,10 +14,14 @@
  *   **禁一切项目进展**——批级实录、沿革、修复记、跑红复盘、锚号都不属于它。
  *   仅放行机器门依赖的稳定口径数字（check:counts 从本文件抓声称值）。
  *
- * 三档口径（均为上限，宽松留白——只拦堆砌，不拦正常写作）：
+ * CLAUDE.md（治理正本）不入本门：作者口径「正本不需要机器门」——按规则需要增补，
+ * 篇幅纪律以自律为准（细则见《文档操作链-现行规范》「篇幅纪律」节），本门只辖索引面与介绍面。
+ *
+ * 两档口径（均为形态判据——抓「废话的形态」，不设篇幅天花板；作者指令：「不塞废话」
+ * 是对编辑者的行文要求，不是限制文档字节上限）：
  * 1. 单行长度：超长行即红（长实录行的直接指纹）。
- * 2. 文件体积：各件独立上限（按精简后实测值 + 留白拟定，非紧贴）。
- * 3. 禁止短语：实录链/进展记的独特签名出现即红。
+ * 2. 禁止短语：实录链/进展记的独特签名出现即红。
+ * 索引面另禁括号修订日期标注（见下）。
  *
  * 豁免：表格行（`|` 开头）、代码块围栏内、纯 URL 行——天然长而合法。行内代码与
  * 块引用的极端长行不豁免（那正是旧实录的形态）。
@@ -30,23 +34,23 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-// ─ 索引面清单与上限 ─────────────────────────────────────────────────
-// 上限按「精简后实测最长行 + 留白」拟定：CLAUDE 589 / 总览 486 / DD-README 220。
+// ─ 索引面清单 ─────────────────────────────────────────────────
+// 只限单行长度（按「精简后实测最长行 + 留白」拟定）；不设文件体积上限——作者指令：
+// 「不塞废话」是对编辑者的行文要求，字节上限会把「写清楚」逼成压缩或外移，反向激励错误。
+// CLAUDE.md 不入本门（作者口径：正本不被机器门绑定）。
 export const INDEX_FILES = [
-  { path: 'CLAUDE.md', maxLine: 700, maxBytes: 6000, label: 'CLAUDE.md（治理正本）' },
-  { path: 'Dev/Docs/README.md', maxLine: 400, maxBytes: 3000, label: 'Dev/Docs/README.md' },
+  { path: 'Dev/Docs/README.md', maxLine: 400, label: 'Dev/Docs/README.md' },
   {
     path: 'Dev/Docs/00-总览与实施路线-2026-08-15.md',
     maxLine: 700,
-    maxBytes: 6000,
     label: '总览（00-总览与实施路线）',
   },
 ]
 
-// ─ 介绍面清单与上限 ─────────────────────────────────────────────────
+// ─ 介绍面清单 ─────────────────────────────────────────────────
 // 根 README = 对外门面：项目是什么 / 怎么装 / 怎么跑 / 技术栈 / 许可证。
-// 实测精简后 14.6K（含徽章、命令块、介绍长句），上限留白至 20K。
-export const INTRO_FILES = [{ path: 'README.md', maxLine: 1400, maxBytes: 20000, label: '根 README.md（对外介绍面）' }]
+// 只限单行长度（1400 = 长实录行指纹），不设体积上限。
+export const INTRO_FILES = [{ path: 'README.md', maxLine: 1400, label: '根 README.md（对外介绍面）' }]
 
 // ── 实录链签名短语（出现即红，两个面通用）────────────────────────────
 // 旧实录的独特语料：只有「把历批跑门日志堆进文档」才会写出这些串。正常行文不会用到。
@@ -146,12 +150,6 @@ export function findDateAnnotations(content) {
  */
 export function checkDocSurface(content, spec, list = FORBIDDEN_PHRASES, dateAnnotations = false) {
   const problems = []
-  const bytes = Buffer.byteLength(content, 'utf8')
-  if (bytes > spec.maxBytes) {
-    problems.push(
-      `${spec.label}：体积 ${bytes} 字节超上限 ${spec.maxBytes}（只写结论 + 指针，明细归 git 历史/报告正本）。`,
-    )
-  }
   for (const h of findLongLines(content, spec.maxLine)) {
     problems.push(
       `${spec.label}:${h.line}：单行 ${h.length} 字符超上限 ${spec.maxLine}（长实录行的典型指纹——请压成「一句 + 锚」或移出）。行首：${h.preview}…`,
@@ -204,7 +202,7 @@ export function main() {
     console.error('  修法：实录/沿革/批记压成「一句结论 + git 锚」，明细移入 commit message 或报告本体。')
     process.exit(1)
   }
-  console.log('check:docs 通过：索引面三件与介绍面一篇篇幅、禁语均合规。')
+  console.log('check:docs 通过：索引面（Dev/Docs）与介绍面（根 README）单行长度、禁语均合规。')
 }
 
 // 直跑判据走 pathToFileURL——argv[1] 可能是相对路径（`node scripts/check-docs.mjs`），

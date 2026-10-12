@@ -694,21 +694,12 @@ export function archiveCountProblem(docText, actual) {
 }
 
 /**
- * `CLAUDE.md` 的「全量 N 档」测试档数对账。
+ * `CLAUDE.md` 的测试档数读数不入门（作者口径）。
  *
- * 该档若不在本门射程：CLAUDE.md 的提速说明里写着一个测试档数，实际档数会随新增而漂移
- *（门只管根 README 与研究 README），且这句是作者判断「跑哪一档」的依据——
- * 数字陈旧会误导决策。同「索引面自称值」口径并入本门：实测档数为准。
- *
- * 只校档数：「/ N 秒」为单机耗时读数，随机器与负载浮动，不作门（正本改数时以实跑值为准）。
- * 返回失配说明串；一致返回 null。无该句视为失配（fail-closed）。
+ * 曾以「全量 N 档」声称值对账（fail-closed），已撤：治理正本不该被机器门绑定——
+ * 「不塞废话」是对编辑者的行文要求，不是给正本套数字锁。撤门后正本的量级读数改由
+ * 自律维护（提速判据只关心档数百量级；秒数为单机负载读数，本就不作门）。
  */
-export function claudeUnitFilesProblem(docText, actual) {
-  const row = String(docText).match(/全量\s*(\d+)\s*档/)
-  if (!row) return `CLAUDE.md 缺少「全量 N 档」档数声称值（实测 ${actual} 档）`
-  return Number(row[1]) === actual ? null : `CLAUDE.md 全量测试档数：声称 ${row[1]}，实测 ${actual}`
-}
-
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（直测纯函数）时不触发 vitest list / process.exit 副作用
 // win/linux 平台门差值解析（parseWinPlatformDelta /
@@ -894,10 +885,6 @@ function main() {
   const archiveActual = walk(join(root, 'Dev', 'Docs', 'Archive'), (n) => n.endsWith('.md')).length
   const archiveProblem = archiveCountProblem(ddReadme, archiveActual)
   if (archiveProblem) mismatch.push(archiveProblem)
-
-  // 索引面第三处自称值：治理正本 CLAUDE.md 的「全量 N 档」（见 claudeUnitFilesProblem 头注）
-  const claudeProblem = claudeUnitFilesProblem(readFileSync(join(root, 'CLAUDE.md'), 'utf8'), actual.unitFiles)
-  if (claudeProblem) mismatch.push(claudeProblem)
 
   // 双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
   const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}
