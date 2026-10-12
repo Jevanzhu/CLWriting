@@ -70,6 +70,7 @@ import { SIMILE_RE } from '../../src/check/count.js'
 import { SPEECH_VERBS } from '../../src/check/count-dialogue.js'
 import { QUOTED_SPAN_RE } from '../../src/check/quotes.js'
 import { STRICT_SHORT_CHECK_IDS } from '../../src/check/strict-short-ids.js'
+import { AI_PATTERN_RULES, CLICHE_WORDS } from '../../src/check/ai-patterns.js'
 // 新并入代次表的规则模块：断言「快照确由这些模块的导出面机械导出」
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
 import { outlineDeclarationForChapter } from '../../src/check/outline-leads.js'
@@ -658,6 +659,8 @@ describe('机检代次：规则表哈希（P1-18）', () => {
       ['realms.extractExactRealmFromEvidence', extractExactRealmFromEvidence],
       ['iron-rules.parseIronRules', parseIronRules],
       ['sentences.ngramRepeatRate', ngramRepeatRate],
+      ['ai-patterns.CLICHE_WORDS', CLICHE_WORDS],
+      ['ai-patterns.AI_PATTERN_RULES', AI_PATTERN_RULES],
     ]
     for (const [key, value] of anchors) {
       expect(CHECKER_RULE_SNAPSHOT[key], `规则「${key}」未入快照（模块未收编或导出改名）`).toBe(

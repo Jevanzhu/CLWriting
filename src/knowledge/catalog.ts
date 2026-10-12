@@ -125,6 +125,35 @@ export const GENRE_CATALOG: readonly CatalogEntry[] = GENRE_CARD_NAMES.map((name
   note: '写稿面按书题材命中召回（book.genre ∈ 卡 aliases，至多 2 张）',
 }))
 
+/** 去味判断篇（判断面语料；改稿链尚未接运行时注入，故 `faces: []`） */
+export const DESLOP_FILE_AI_TASTE = '去味/去AI味判断速查.md'
+export const DESLOP_FILE_STYLE_FORMAT = '去味/文风与格式速查.md'
+
+/**
+ * 去味判断篇（两篇，判断面——判定面在代码：词表与正则见 `src/check/ai-patterns.ts`，
+ * 格式机检见 `src/check/body-format.ts`；两侧互指注释在位）。
+ *
+ * `faces: []`：改稿链（self-heal/rewrite）当前只在 system prompt 带词表约束，
+ * 尚未接运行时语料注入——两篇先以判断面正本与作者参照在位，接线归后续批
+ * （`faces` 是实际消费面的事实陈述，不虚报未接线的面）。
+ */
+export const DESLOP_CATALOG: readonly CatalogEntry[] = [
+  {
+    rel: DESLOP_FILE_AI_TASTE,
+    category: '去味',
+    purpose: 'judgment',
+    faces: [],
+    note: '去 AI 味的判断面；判定面（词表/正则）在 src/check/ai-patterns.ts，改稿链尚未接运行时注入',
+  },
+  {
+    rel: DESLOP_FILE_STYLE_FORMAT,
+    category: '去味',
+    purpose: 'judgment',
+    faces: [],
+    note: '文风与格式的判断面；判定面（格式机检）在 src/check/body-format.ts，改稿链尚未接运行时注入',
+  },
+]
+
 /** 许可件 */
 export const LICENSE_FILE_MIT = '许可/oh-story-claudecode-MIT.md'
 
@@ -203,6 +232,7 @@ export const BUNDLED_CATALOG: readonly CatalogEntry[] = [
   ...LONG_CATALOG,
   ...SHORT_CATALOG,
   ...GENRE_CATALOG,
+  ...DESLOP_CATALOG,
   {
     rel: LICENSE_FILE_MIT,
     category: '许可',

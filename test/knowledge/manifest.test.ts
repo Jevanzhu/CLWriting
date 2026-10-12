@@ -39,7 +39,7 @@ test('validateKnowledgeManifest: 当前仓库知识层 manifest 与落地文件�
   const report = validateKnowledgeManifest(process.cwd())
   expect(report.ok).toBe(true)
   // 条数即资产面快照（语料库扩容批改这里，顺带确认无静默丢条目）
-  expect(report.manifest?.entries.length).toBe(66)
+  expect(report.manifest?.entries.length).toBe(68)
   expect(report.manifest?.entries.some((entry) => entry.source.includes('oh-story-claudecode'))).toBe(true)
 })
 

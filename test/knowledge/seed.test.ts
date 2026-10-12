@@ -151,13 +151,14 @@ describe('随包缺失容错', () => {
     expect(seedBookKnowledge(bookRoot)).toEqual({ seeded: [], upgraded: [], kept: [], retired: [] })
   })
 
-  it('真实仓随包:播种面 = 通用 9 + 长篇 10 + 短篇 7（33 篇减去许可件与旧件）', () => {
+  it('真实仓随包:播种面 = 通用 9 + 长篇 10 + 短篇 7 + 去味 2（减去许可件与旧件）', () => {
     delete process.env['CLWRITING_RESOURCES_DIR']
     const rels = listBundledSeedRels()
     // 语料重建批:播种 = 随包扫描（新篇不需另登记表）
     expect(rels.filter((r) => r.startsWith('通用/')).length).toBe(9)
     expect(rels.filter((r) => r.startsWith('长篇/')).length).toBe(10)
     expect(rels.filter((r) => r.startsWith('短篇/')).length).toBe(7)
+    expect(rels.filter((r) => r.startsWith('去味/')).length).toBe(2)
     expect(rels).toContain('长篇/章节钩子速查.md')
     expect(rels).toContain('短篇/反转机制速查.md')
     // 退旧件（旧 4 随包 rel）不再在播种面——其书级副本由退役步处置

@@ -2,7 +2,7 @@
   "version": 1,
   "generated_at": "2026-10-13T00:00:00+08:00",
   "summary": {
-    "migrated": 66,
+    "migrated": 68,
     "deferred": 1,
     "review_assets": 0
   },
@@ -12,7 +12,7 @@
       "source": "clwriting-v1-m4-scaffold",
       "source_ref": "workspace",
       "license": "MIT",
-      "sha256": "sha256:0eb7b536d1327b78d3d967557120571b0ff18dd5b57234008f503e4db94ef825",
+      "sha256": "sha256:4cebd7f7dabb2df11a253005054e4b588d60434cabefec5b5f25dce8347c7f04",
       "category": "索引",
       "note": "知识层入口，说明平移原则与现有素材索引"
     },
@@ -131,8 +131,9 @@
       "target": "知识层/去味/README.md",
       "source": "clwriting-v1-m4-scaffold",
       "license": "MIT",
-      "sha256": "sha256:faa1f9fdc60a3fb67d2a5bdd36beeed37ca3dbb11db428ab0781bc035660df89",
-      "category": "索引"
+      "sha256": "sha256:d53bee9d2d437f4401ce17c3f6bec32495abf02308f0135911577fb6c276218e",
+      "category": "索引",
+      "note": "AI 味判断面语料（判定面在 src/check/ai-patterns.ts 与 src/check/body-format.ts）"
     },
     {
       "target": "知识层/长篇/章节钩子速查.md",
@@ -534,6 +535,24 @@
       "license": "MIT",
       "sha256": "sha256:ae7f013c59cd1213718e693c8137802ea525258e18dc5cfb21db469ef751038a",
       "category": "题材"
+    },
+    {
+      "target": "知识层/去味/去AI味判断速查.md",
+      "source": "skills/story-long-write/references/anti-ai-writing.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:73323191d909371db3aaaeeb3f13c95f4c12b1716706da7680ec1df5160d03a6",
+      "category": "去味",
+      "note": "AI 味判断面语料（判定面在 src/check/ai-patterns.ts 与 src/check/body-format.ts）"
+    },
+    {
+      "target": "知识层/去味/文风与格式速查.md",
+      "source": "skills/story-setup/references/agent-references/format-and-structure.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:a401a7892fb987768f4e426ba7a0c2b1bb3dd4c44d6803745a742025276e27d8",
+      "category": "去味",
+      "note": "AI 味判断面语料（判定面在 src/check/ai-patterns.ts 与 src/check/body-format.ts）"
     }
   ]
 }

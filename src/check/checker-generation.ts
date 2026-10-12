@@ -27,6 +27,8 @@ import * as countRules from './count.js'
 import * as countStyleRules from './count-style.js'
 import * as quotesRules from './quotes.js'
 import * as imagerySeedRules from './imagery-seed.js'
+import * as aiPatternsRules from './ai-patterns.js'
+import * as bodyFormatRules from './body-format.js'
 import * as manifestCheckRules from './manifest-check.js'
 import * as growthRules from './growth.js'
 import * as leadsRules from './leads.js'
@@ -57,6 +59,8 @@ const RULE_MODULES: ReadonlyArray<readonly [string, object]> = [
   ['count-style', countStyleRules],
   ['quotes', quotesRules],
   ['imagery-seed', imagerySeedRules],
+  ['ai-patterns', aiPatternsRules],
+  ['body-format', bodyFormatRules],
   ['manifest-check', manifestCheckRules],
   ['growth', growthRules],
   ['leads', leadsRules],

@@ -40,6 +40,7 @@ import { prepared } from '../shared/sqlite-prepared.js'
 import { driveToEnd } from '../async.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
+import { checkBodyFormat } from './body-format.js'
 import { readRealmDoc } from '../format/realms.js'
 import { countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
@@ -271,6 +272,11 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
 
   // AI 味检查（通用项，长短篇都跑）：身体部位词堆砌 + 比喻密度。
   // 短篇有题材预设阈值用短篇的；长篇/未配置用内置默认（body≤5、比喻≤10）。
+  // 正文格式（黄）：markdown/缩进/写作工程词/套话与套路句式——「正文是纯叙事文本」
+  // 的可判定面（判断面在 知识层/去味/，判定单源在 check/ai-patterns.ts 与 body-format.ts）。
+  // 短篇放行五段标题（## 开头钩子 等），长篇不分节。
+  sections.push(checkBodyFormat(body, { allowSectionHeadings: short !== undefined }))
+
   sections.push(checkBodyParts(body, short?.body_part_threshold))
   sections.push(checkSimile(body, short?.simile_threshold))
 
