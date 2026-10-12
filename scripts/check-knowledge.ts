@@ -30,12 +30,7 @@ import {
   KNOWLEDGE_DIR,
   type KnowledgeManifest,
 } from '../src/knowledge/manifest.js'
-import {
-  METHOD_FILE_CHARACTER,
-  METHOD_FILE_HOOKS,
-  METHOD_FILE_REVERSAL,
-  METHOD_FILE_RHYTHM,
-} from '../src/knowledge/catalog.js'
+import { BUNDLED_CATALOG } from '../src/knowledge/catalog.js'
 import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
@@ -156,7 +151,7 @@ function collectBundledFiles(dir: string): string[] {
 /**
  * 随包语料对账（写稿面接入批）：`resources/knowledge/` 是 `知识层/` 正式语料的随包子集——
  * 每个文件必须与 `知识层/<rel>` **逐字节相等**（改语料 = 改原稿 + 同步随包件，漏一处即红），
- * 且写稿面选材篇目（src/knowledge/select.ts 的四个常量）必须在位（缺篇 = 写稿面静默降级）。
+ * 且 catalog 中声明了注入面（`faces` 非空）的篇目必须在位（缺篇 = 该面静默降级）。
  * 豁免：`README.md`（目录说明，非语料副本）。
  */
 export function scanBundledCorpusMismatches(projectRoot: string, bundledDir: string = BUNDLED_KNOWLEDGE_DIR): string[] {
@@ -185,11 +180,68 @@ export function scanBundledCorpusMismatches(projectRoot: string, bundledDir: str
       problems.push(`${bundledDir}/${rel}: 读取失败（${e instanceof Error ? e.message : String(e)}）`)
     }
   }
+  // 选材篇目在位判据改 **catalog 驱动**：条目声明「会下发」（faces 非空）⇒ 该篇必须随包在位。
+  // 硬编码篇名表会在篇目增删时与 catalog 口径分叉——声明即门：faces 是各面实际消费面的事实陈述。
   const shipped = new Set(rels)
-  for (const file of [METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM, METHOD_FILE_CHARACTER]) {
-    if (!shipped.has(file)) problems.push(`${bundledDir}/${file}: 写稿面选材篇目缺位（select.ts 会读它）`)
+  for (const entry of BUNDLED_CATALOG) {
+    if (entry.faces.length === 0) continue
+    if (!shipped.has(entry.rel)) {
+      problems.push(
+        `${bundledDir}/${entry.rel}: catalog 声明注入面 [${entry.faces.join(',')}] 但随包缺件（该面会静默降级）`,
+      )
+    }
   }
   return problems
+}
+
+/**
+ * 署名门（语料重建批）：每篇**随包语料**必须带 `source`/`license` front matter，
+ * 且 MIT 来源篇在 `许可/` 有对应版权行——这是 MIT 再分发义务，缺即红。
+ *
+ * 与 manifest 校验的分工：manifest 校验管已登记篇「fm 与条目是否一致」；本门管
+ * **随包面全体**「署名键是否在位」（含尚未登记进 manifest 的新篇，覆盖面更靠前）。
+ */
+export function scanBundledMissingAttribution(
+  projectRoot: string,
+  bundledDir: string = BUNDLED_KNOWLEDGE_DIR,
+): string[] {
+  const bundledRoot = join(projectRoot, bundledDir)
+  if (!existsSync(bundledRoot)) return []
+  const problems: string[] = []
+  for (const rel of collectBundledFiles(bundledRoot)
+    .map((p) => relative(bundledRoot, p).split(sep).join('/'))
+    .sort()) {
+    if (rel === BUNDLED_README || rel === BUNDLED_VERSIONS) continue
+    if (!rel.toLowerCase().endsWith('.md')) continue
+    let text: string
+    try {
+      text = readFileSync(join(bundledRoot, rel), 'utf-8')
+    } catch (e) {
+      problems.push(`${bundledDir}/${rel}: 读取失败（${e instanceof Error ? e.message : String(e)}）`)
+      continue
+    }
+    const missing = (['source', 'license'] as const).filter((key) => !hasFmKey(text, key))
+    if (missing.length > 0) {
+      problems.push(`${bundledDir}/${rel}: 缺 front matter 署名键 ${missing.join('/')}（MIT 再分发义务）`)
+    }
+  }
+  // 许可件本体须含版权行（MIT 正文的署名要件；许可件缺失由对账门报，此处只判内容）
+  const licenseRel = '许可/oh-story-claudecode-MIT.md'
+  if (existsSync(join(bundledRoot, ...licenseRel.split('/')))) {
+    const licenseText = readFileSync(join(bundledRoot, ...licenseRel.split('/')), 'utf-8')
+    if (!/Copyright \(c\)/i.test(licenseText)) {
+      problems.push(`${bundledDir}/${licenseRel}: 缺版权行（MIT 署名义务）`)
+    }
+  }
+  return problems
+}
+
+/** fm 块内是否含顶层标量键（与 manifest.fmScalar 同口径：逐行前缀匹配，只认 fm 块内） */
+function hasFmKey(text: string, key: string): boolean {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!m || m[1] === undefined) return false
+  const prefix = `${key}:`
+  return m[1].split('\n').some((line) => line.trim().startsWith(prefix))
 }
 
 // 门禁主体收进 main() + 直跑守卫：npm run check:knowledge（node 直跑本文件）时执行；
@@ -218,7 +270,7 @@ function main(): void {
     process.exit(1)
   }
 
-  // 随包语料对账（写稿面接入批）：resources/knowledge/ 与 知识层/ 逐字节相等 + 选材篇目在位
+  // 随包语料对账（写稿面接入批）：resources/knowledge/ 与 知识层/ 逐字节相等 + catalog 声明面在位
   const bundledProblems = scanBundledCorpusMismatches(root)
   if (bundledProblems.length > 0) {
     console.error('check:knowledge 随包语料对账失败（resources/knowledge 必须与 知识层/ 逐字节一致）：')
@@ -226,9 +278,18 @@ function main(): void {
     process.exit(1)
   }
 
+  // 署名门（语料重建批）：随包篇 source/license frontmatter + 许可件版权行
+  const attributionProblems = scanBundledMissingAttribution(root)
+  if (attributionProblems.length > 0) {
+    console.error('check:knowledge 署名门失败（MIT 再分发义务：每篇须带 source/license，许可件须含版权行）：')
+    for (const p of attributionProblems) console.error(`  - ${p}`)
+    process.exit(1)
+  }
+
   const count = manifest?.entries?.length ?? 0
+  const declared = BUNDLED_CATALOG.filter((e) => e.faces.length > 0).length
   console.log(
-    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（写稿面选材 4 篇在位）。`,
+    `check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记资产；随包语料与 知识层/ 原稿逐字节一致（catalog 声明注入面 ${declared} 篇在位）；署名门通过。`,
   )
 }
 

@@ -37,14 +37,37 @@ export const METHOD_FILE_RHYTHM = '追读力/节奏与升级感速查.md'
 export const METHOD_FILE_CHARACTER = '方法论/人物与对话技法速查.md'
 
 /**
- * 随包篇目注册表：
- * - 四篇选材篇：写稿（基础篇 / 信号追加篇）与三审（lens 映射）消费；
- *   其中人物篇另有对话面消费（对话面按「方法论」类目取篇）；
+ * 通用档篇目（语料重建批落地的 9 篇，改写自 oh-story 上游 v0.8.5）。
+ *
+ * `faces` 现只声明 `chat`——对话面按 catalog 声明序取篇；写稿面与三审面的选材表
+ * 仍指旧 rel（`追读力/`、`爽点/`、`方法论/`），其重声明归后续批，届时本组 `faces` 扩容。
+ * 现在不虚报 `draft`/`review`：`faces` 是「各面实际消费」的事实陈述，不是意图登记。
+ *
+ * **声明序即对话面选篇优先级**（帽内取前 N）；后续批扩容时新篇追加在末尾。
+ */
+export const GENERAL_CATALOG: readonly CatalogEntry[] = [
+  { rel: '通用/情节推演速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/冲突结构速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/人物设计速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/人物关系速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/对话技法速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/情绪弧线速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/写作技法速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/读者与平台速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+  { rel: '通用/质量清单速查.md', category: '通用', purpose: 'judgment', faces: ['chat'] },
+]
+
+/**
+ * 随包篇目注册表（**顺序 = 对话面选篇优先级**）：
+ * - 通用 9 篇（`GENERAL_CATALOG`）：对话面消费；
+ * - 四篇旧选材篇：写稿（基础篇 / 信号追加篇）与三审（lens 映射）消费；其对话面角色
+ *   已由通用档后继篇接替（人物与对话 → 人物设计 + 对话技法），故不再声明 `chat`；
  * - 质量检查清单速查：判断类知识，已吸收进三审 prompt 基线，不再下发；
  * - 题材路由速查：判断类知识，建书/大纲面未接线，暂不下发；
  * - 许可件：随包留存即满足署名，不播种进书库、三面均不消费。
  */
 export const BUNDLED_CATALOG: readonly CatalogEntry[] = [
+  ...GENERAL_CATALOG,
   {
     rel: METHOD_FILE_HOOKS,
     category: '追读力',
@@ -67,7 +90,8 @@ export const BUNDLED_CATALOG: readonly CatalogEntry[] = [
     rel: METHOD_FILE_CHARACTER,
     category: '方法论',
     purpose: 'judgment',
-    faces: ['draft', 'review', 'chat'],
+    faces: ['draft', 'review'],
+    note: '对话面角色已由通用档「人物设计速查 + 对话技法速查」接替',
   },
   {
     rel: '方法论/质量检查清单速查.md',

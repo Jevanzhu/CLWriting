@@ -38,7 +38,8 @@ function writeManifest(root: string, manifest: KnowledgeManifest): void {
 test('validateKnowledgeManifest: 当前仓库知识层 manifest 与落地文件一致', () => {
   const report = validateKnowledgeManifest(process.cwd())
   expect(report.ok).toBe(true)
-  expect(report.manifest?.entries.length).toBe(13)
+  // 条数即资产面快照（语料库扩容批改这里，顺带确认无静默丢条目）
+  expect(report.manifest?.entries.length).toBe(26)
   expect(report.manifest?.entries.some((entry) => entry.source.includes('oh-story-claudecode'))).toBe(true)
 })
 

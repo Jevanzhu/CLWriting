@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "generated_at": "2026-08-15T00:00:00+08:00",
+  "generated_at": "2026-10-13T00:00:00+08:00",
   "summary": {
-    "migrated": 13,
+    "migrated": 26,
     "deferred": 1,
     "review_assets": 0
   },
@@ -12,7 +12,7 @@
       "source": "clwriting-v1-m4-scaffold",
       "source_ref": "workspace",
       "license": "MIT",
-      "sha256": "sha256:fcd1bc14ce0b9282e4647139930ebb25fa5f62e47a765dd48ae4e8de8eafae56",
+      "sha256": "sha256:fc00b0def4b755ddc150f2baf21d74705176267d84ecc373673a5a15d536fe82",
       "category": "索引",
       "note": "知识层入口，说明平移原则与现有素材索引"
     },
@@ -123,6 +123,106 @@
       "sha256": "sha256:c7ee3c48386688501df2f6705d93110dc2afd8dc300a669ad89d020679115d5e",
       "category": "方法论",
       "note": "oh-story 人物设计与对话技法的精选速查版（合并 character-design + dialogue）"
+    },
+    {
+      "target": "知识层/通用/情节推演速查.md",
+      "source": "skills/story-long-write/references/plot-core-methods.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:88d6154baf5a261f0af4698c43b8ab22e6b453779b9b353deeac978dcab9bbd5",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/冲突结构速查.md",
+      "source": "skills/story-long-write/references/outline-conflict.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:4b26c6167beaba659e0c3ef603c6dd3973f23530d663ffe6d1432d0a4bf735c6",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/人物设计速查.md",
+      "source": "skills/story-long-write/references/character-design-methods.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:5e18f8bca7fa0c6756fd0ae2d2aba6358192a26e51243b78335032d821ab24dc",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/人物关系速查.md",
+      "source": "skills/story-long-write/references/character-relations.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:0b57f62c8758cfa47818b1a4bff4098e6d12b179fd7c508174f88670b7ce6891",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/对话技法速查.md",
+      "source": "skills/story-long-write/references/dialogue-mastery.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:f5dcc8dc5d3f23229e52bcdddd4f95d72317b2ca5df35d8fac5123beac523ccd",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/情绪弧线速查.md",
+      "source": "skills/story-long-write/references/emotional-arc-design.md + skills/story-long-write/references/emotion-on-page.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:fee01d952abedb40fd9da8b89a8a6c0c77d8e1e7e7379c52298cd22799e796ad",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/写作技法速查.md",
+      "source": "skills/story-long-write/references/writing-craft.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:315ef8ed3be33e180acf0861869d68ccf3bfa184cf5efcc23bce3f189ce1219a",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/读者与平台速查.md",
+      "source": "skills/story-long-write/references/genre-readers.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:1934e115a29c0b27f2bf539bdccf01815ab6c652ae1f2c6fdd2addbc564cdb3b",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/质量清单速查.md",
+      "source": "skills/story-setup/references/agent-references/agent-quality.md + skills/story-review/references/review-quality.md",
+      "source_ref": "2cf7be61b139f3852c82f981a7ff4eed2aaf5926",
+      "license": "MIT",
+      "sha256": "sha256:2245074b3560b7d97d9ac70cbf62537fc2b6bdb4eccd7504034c090f8c73b1eb",
+      "category": "通用"
+    },
+    {
+      "target": "知识层/通用/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "license": "MIT",
+      "sha256": "sha256:83a29221bc029ca271385d8df42c6864ac952bff0bc769b870a9f5bb481050b4",
+      "category": "索引"
+    },
+    {
+      "target": "知识层/长篇/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "license": "MIT",
+      "sha256": "sha256:6f1f562dd41800498bc9a85a29dc7bbdeedc9d93d20a901472af020158912e08",
+      "category": "索引"
+    },
+    {
+      "target": "知识层/短篇/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "license": "MIT",
+      "sha256": "sha256:2efe5a4df13b20a75f812ef23a21877380b028733c122919d7fbfd1d831dd210",
+      "category": "索引"
+    },
+    {
+      "target": "知识层/去味/README.md",
+      "source": "clwriting-v1-m4-scaffold",
+      "license": "MIT",
+      "sha256": "sha256:faa1f9fdc60a3fb67d2a5bdd36beeed37ca3dbb11db428ab0781bc035660df89",
+      "category": "索引"
     }
   ]
 }

@@ -33,7 +33,9 @@ export interface KnowledgeManifestEntry {
   source_ref?: string
   license: string
   sha256: string
-  category?: '题材' | '爽点' | '追读力' | '方法论' | '许可' | '索引'
+  // 旧类目（追读力/爽点/方法论/题材）与体裁档类目（通用/长篇/短篇/去味）并存：
+  // 退旧件随后继就位后的批次清理，期间两套分类同时在盘
+  category?: '通用' | '长篇' | '短篇' | '去味' | '题材' | '爽点' | '追读力' | '方法论' | '许可' | '索引'
   note?: string
 }
 

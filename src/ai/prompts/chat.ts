@@ -151,9 +151,9 @@ export function buildChatContext(bookRoot: string, chapter?: number, opts?: { us
   // 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
   const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
 
-  // 知识层方法论注入（登记项「知识层方法论注入未接线」收口）——只取
-  // 目录名='方法论' 的篇（目录即分类，运行时不再读 manifest）；书级/随包两级皆无
-  // 方法论篇 → 零注入（知识层可选，静默降级）。注入源显式并入 files——
+  // 知识层方法论注入——候选篇由 catalog 声明（faces 含 chat 者按声明序取帽内前 N），
+  // 选篇与帽值在 src/knowledge/chat-method.ts；两级皆无命中篇 → 零注入
+  //（知识层可选，静默降级）。注入源显式并入 files——
   // 装配侧不再原地 mutate 调用方的数组（返回值即全部对外面）
   const chatKnowledge = buildChatKnowledgeInjection(bookRoot)
   const knowledge = chatKnowledge.text === '' ? undefined : chatKnowledge.text

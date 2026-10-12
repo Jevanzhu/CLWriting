@@ -15,13 +15,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { scanUnregisteredKnowledgeAssets, scanBundledCorpusMismatches } from '../../scripts/check-knowledge.js'
 import {
-  METHOD_FILE_CHARACTER,
-  METHOD_FILE_HOOKS,
-  METHOD_FILE_REVERSAL,
-  METHOD_FILE_RHYTHM,
-} from '../../src/knowledge/catalog.js'
+  scanUnregisteredKnowledgeAssets,
+  scanBundledCorpusMismatches,
+  scanBundledMissingAttribution,
+} from '../../scripts/check-knowledge.js'
+import { BUNDLED_CATALOG } from '../../src/knowledge/catalog.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
 
 let dir: string
@@ -161,13 +160,16 @@ describe('R63-15：真实仓库反向扫描——门禁口径锚定（当前全�
 })
 
 // ── 知识层接入批：随包语料对账（resources/knowledge/ ↔ 知识层/ 逐字节 + 选材篇目在位）──
-// 红线条：随包件漏同步 / 无原稿 / 选材篇目缺位 / 目录缺失 四类必报；真实仓实跑须空。
+// 红线条：随包件漏同步 / 无原稿 / 声明注入面篇目缺位 / 目录缺失 四类必报；真实仓实跑须空。
+// 语料重建批复核：篇目判据从「四常量硬编码」改 **catalog 驱动**（`faces` 非空 ⇒ 必须随包在位），
+// 故 fixture 也按 catalog 造——硬编码表会在篇目增删时与门口径分叉，测不出真实判据。
 describe('知识层接入批：scanBundledCorpusMismatches 随包语料对账', () => {
-  const PICK_FILES = [METHOD_FILE_HOOKS, METHOD_FILE_REVERSAL, METHOD_FILE_RHYTHM, METHOD_FILE_CHARACTER]
-  /** 造 mini 仓：4 选材篇目逐字节一致 + README 说明（豁免） */
+  /** 声明「会下发」的篇目（门判它必须在位） */
+  const INJECTED_RELS = BUNDLED_CATALOG.filter((e) => e.faces.length > 0).map((e) => e.rel)
+  /** 造 mini 仓：catalog 声明注入面的篇目逐字节一致 + 署名键 + README 说明（豁免） */
   function makeAlignedRepo(): void {
-    for (const rel of PICK_FILES) {
-      const body = `# ${rel}\n正文`
+    for (const rel of INJECTED_RELS) {
+      const body = ['---', 'source: fixture-source', 'license: MIT', '---', '', `# ${rel}`, '正文', ''].join('\n')
       const origin = join(dir, '知识层', ...rel.split('/'))
       const shipped = join(dir, 'resources', 'knowledge', ...rel.split('/'))
       mkdirSync(join(origin, '..'), { recursive: true })
@@ -185,7 +187,8 @@ describe('知识层接入批：scanBundledCorpusMismatches 随包语料对账', 
 
   it('随包件被改一个字节 → 报不一致（改语料须两处同步）', () => {
     makeAlignedRepo()
-    writeFileSync(join(dir, 'resources', 'knowledge', ...METHOD_FILE_HOOKS.split('/')), '# 被改过\n正文')
+    const rel = INJECTED_RELS[0]!
+    writeFileSync(join(dir, 'resources', 'knowledge', ...rel.split('/')), '# 被改过\n正文')
     expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('不一致')
   })
 
@@ -195,10 +198,15 @@ describe('知识层接入批：scanBundledCorpusMismatches 随包语料对账', 
     expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('知识层/ 无对应原稿')
   })
 
-  it('选材篇目缺位 → 报（写稿面选材会读它）', () => {
+  it('catalog 声明注入面但随包缺件 → 报（该面会静默降级）', () => {
     makeAlignedRepo()
-    rmSync(join(dir, 'resources', 'knowledge', ...METHOD_FILE_CHARACTER.split('/')))
-    expect(scanBundledCorpusMismatches(dir).join('\n')).toContain('写稿面选材篇目缺位')
+    const dropped = INJECTED_RELS[0]!
+    rmSync(join(dir, 'resources', 'knowledge', ...dropped.split('/')))
+    const problems = scanBundledCorpusMismatches(dir).join('\n')
+    expect(problems).toContain(`resources/knowledge/${dropped}`)
+    expect(problems).toContain('随包缺件')
+    // 断言这判定来自声明面而非「文件不存在」——不下发的篇目缺件不报
+    expect(INJECTED_RELS.length).toBeGreaterThan(0)
   })
 
   it('随包语料目录缺失 → 报（缺目录即写稿面降级为零注入）', () => {
@@ -208,5 +216,44 @@ describe('知识层接入批：scanBundledCorpusMismatches 随包语料对账', 
   it('真实仓库实跑：resources/knowledge 与 知识层/ 逐字节一致（与 npm run check:knowledge 同口径）', () => {
     const rootPath = fileURLToPath(new URL('../../', import.meta.url))
     expect(scanBundledCorpusMismatches(rootPath)).toEqual([])
+  })
+})
+
+// ── 语料重建批：署名门（MIT 再分发义务——随包语料篇篇带 source/license；许可件含版权行）──
+describe('语料重建批：scanBundledMissingAttribution 署名门', () => {
+  const REL = '通用/情节推演速查.md'
+  function writeBundled(content: string): void {
+    const shipped = join(dir, 'resources', 'knowledge', ...REL.split('/'))
+    mkdirSync(join(shipped, '..'), { recursive: true })
+    writeFileSync(shipped, content)
+  }
+
+  it('缺 source/license front matter → 报两键名（按 fm 块内顶层键判，正文里出现不算）', () => {
+    writeBundled(['---', 'category: 通用', '---', '', 'source: 正文里出现该词不算署名', ''].join('\n'))
+    const problems = scanBundledMissingAttribution(dir).join('\n')
+    expect(problems).toContain('source/license')
+    expect(problems).toContain('resources/knowledge/' + REL)
+  })
+
+  it('无 front matter 块（裸 md）→ 报缺两键', () => {
+    writeBundled('# 裸篇\n无 fm。')
+    expect(scanBundledMissingAttribution(dir).join('\n')).toContain('缺 front matter 署名键 source/license')
+  })
+
+  it('两键在位 → 不报（README/versions 豁免不参与本门）', () => {
+    writeBundled(['---', 'source: skills/x.md', 'license: MIT', '---', '', '# 篇', ''].join('\n'))
+    expect(scanBundledMissingAttribution(dir)).toEqual([])
+  })
+
+  it('许可件缺版权行 → 报（MIT 署名义务）', () => {
+    const lic = join(dir, 'resources', 'knowledge', '许可', 'oh-story-claudecode-MIT.md')
+    mkdirSync(join(dir, 'resources', 'knowledge', '许可'), { recursive: true })
+    writeFileSync(lic, '# 某许可\n无版权行。')
+    expect(scanBundledMissingAttribution(dir).join('\n')).toContain('缺版权行')
+  })
+
+  it('真实仓库实跑：随包语料全体署名键在位', () => {
+    const rootPath = fileURLToPath(new URL('../../', import.meta.url))
+    expect(scanBundledMissingAttribution(rootPath)).toEqual([])
   })
 })
