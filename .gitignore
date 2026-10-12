@@ -31,7 +31,7 @@ Dev/参考项目
 # 编辑器 / 工具壳
 .claude/
 .codex/
-.agents/
+#.agents/
 .vscode/
 .zcode/
 .zcode-share/
