@@ -21,10 +21,12 @@ import { createTtlProbeCache } from '../ttl-cache.js'
 import { registerBookKeyedCache } from '../cache-registry.js' // 书键缓存登记表（登记制单源）
 import { resolveBookOrReply, resolveDocFile, bookMovedFailure } from '../book-context.js'
 import { readAnalysis } from '../../../document/analysis.js'
-import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
+import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
 import { HANZI } from '../../../check/count.js' // 堆砌锚点汉字段单源（与 count.ts 口径一致）
+import { hasRed, type CheckReport } from '../../../check/types.js'
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
+import { log, errMsg } from '../../../log/index.js'
 import { runCheckForDocumentAsync, collectTreeIssuesAsync, checkOutcomeStatus } from '../../../check/run.js'
 
 // re-export（下沉兼容：既有 import 方零感知）
@@ -74,6 +76,88 @@ export const treeIssuesCache = createTtlProbeCache<string, Record<string, unknow
   ttl: () => TREE_ISSUES_TTL,
 })
 
+// ── 误报标记消费面（标记端点写、机检返回前按标记剔除）──────────────────
+/** 事件载荷形状（chain-bridge.checkFalsePositiveEvent）：{ checkId, chapter, excerpt, docId? }。
+ *  事件库载荷是 JSON（手工/旧版本写入可能是脏形状）——类型不符整条跳过：
+ *  宁可漏过滤（作者再标一次）也不按脏键错过滤。 */
+function isFalsePositiveData(v: unknown): v is { checkId: string; chapter: number } {
+  if (v === null || typeof v !== 'object') return false
+  const d = v as Record<string, unknown>
+  return typeof d['checkId'] === 'string' && typeof d['chapter'] === 'number'
+}
+
+/**
+ * 该书「已标记误报」的 checkId 集（限定本章）。
+ *
+ * 判据 = 同章同 checkId 的**最近一条**事件（标记端点是 append 累积、可重复标记；seq 升序
+ * 读，逐条覆盖即末条胜）。载荷只有 checkId/chapter/excerpt（无正负位可翻转），故最近一条
+ * 恒为「标记」——仍按末条胜读，是为了让判据落在事件序上，而不是依赖「同键事件必定同向」
+ * 这条推论：将来载荷加状态位时不用改这里。
+ *
+ * 返回 null = 判据不可得（无 userDataPath / 事件库打不开 / 读事件抛错）：调用方
+ * fail-open 照原样返回全部项，但必须留痕——静默降级成「无任何标记」会让过滤能力
+ * 无声失效（作者标了误报却照旧报同一条，且无从排查）。
+ */
+async function readSuppressedCheckIds(
+  userDataPath: string | null,
+  bookRoot: string,
+  chapter: number,
+): Promise<Set<string> | null> {
+  // 无数据目录（CLI/未注入 userData 的单测形态）：本就没有事件库可读——按不可得留痕
+  if (!userDataPath) {
+    log.warn('api', '未定位应用数据目录，本章机检结果未按误报标记过滤（标记事件库不可读）')
+    return null
+  }
+  let store: SessionStore | null = null
+  try {
+    // 开库走异步孪生（首开锁等待不阻塞服务事件循环，同本文件标记端点口径）
+    store = await openSessionStoreAsync(userDataPath, bookRoot)
+    if (!store) {
+      log.warn('api', '事件库不可用，本章机检结果未按误报标记过滤')
+      return null
+    }
+    // 按 type 下推（SQL 过滤）——事件库存全书链路事件，全量读再过滤会白付解析；
+    // 按书读（不限会话）与标记端落的 ws 会话兼容，也覆盖历史落在别处的事件。
+    // 同键逐条覆盖（iterateEvents 是 seq 升序）= 末条胜；存 seq 只为让「最近一条」可审
+    const latest = new Map<string, number>()
+    for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, 'check/false-positive')) {
+      if (isFalsePositiveData(ev.data) && ev.data.chapter === chapter) latest.set(ev.data.checkId, ev.seq)
+    }
+    return new Set(latest.keys())
+  } catch (e) {
+    log.warn('api', `误报标记判据读取失败，本章机检结果未按误报标记过滤：${errMsg(e)}`)
+    return null
+  } finally {
+    // 开库是引用计数单例——中途抛错不 close 则 refs 永不归零
+    store?.close()
+  }
+}
+
+/**
+ * 按误报标记集剔除本章命中项。判据 = 该 checkId 被标记 + 项属本章：
+ * - 项自带章号 → 章号相等才算本章（账本/成长线类全书性红项以 chapter 指向被指章，
+ *   检查别的章时顺带带出的他章命中不因本章标记消失）；
+ * - 项无章号 → 由本次被检正文/文档派生（禁词/意象/复读/文风等），即本章的命中。
+ * section 与 items 都出新数组（报告对象在别处仍被引用，不改原引用）；剔空不删段
+ * （段标题与「本检查项零命中」两态在视图上得区分）。返回剔除条数。
+ */
+function dropFlaggedItems(
+  report: CheckReport,
+  suppressed: ReadonlySet<string>,
+  chapter: number,
+): { report: CheckReport; count: number } {
+  let count = 0
+  const sections = report.sections.map((s) => {
+    const items = s.items.filter((i) => {
+      const drop = suppressed.has(i.checkId) && (i.chapter === undefined || i.chapter === chapter)
+      if (drop) count++
+      return !drop
+    })
+    return { ...s, items }
+  })
+  return { report: { ...report, sections }, count }
+}
+
 export function registerCheckRoutes(ctx: CheckCtx): void {
   defineRoute('books.documents.check', {
     method: 'POST',
@@ -101,7 +185,18 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
           outcome.details ? { details: outcome.details } : undefined,
         )
       }
-      reply(res, 200, { ok: true, report: outcome.report, hasRed: outcome.hasRed })
+      // 作者标过的误报项在返回前剔除；判据不可得（无会话/读失败）时 fail-open 全返
+      const suppressed = await readSuppressedCheckIds(ctx.userDataPath, bookRoot, outcome.chapter.章号)
+      const { report, count } = suppressed
+        ? dropFlaggedItems(outcome.report, suppressed, outcome.chapter.章号)
+        : { report: outcome.report, count: 0 }
+      reply(res, 200, {
+        ok: true,
+        report,
+        // hasRed 随剔除后的报告重算（response 自洽：作者标掉的红项不再点亮红标/红点冒泡）
+        hasRed: hasRed(report),
+        suppressedCount: count,
+      })
     },
   })
 
@@ -109,8 +204,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
   // POST /documents/:docId/check-false-positive  body { checkId }
   // excerpt 服务端从正文切（命中区间 ±50 字、上限 200）——不信客户端传任意长文本。
   // 落 check/false-positive 事件（workspace 会话）；同章同 checkId 重复标记幂等
-  //（append 多条；注释对齐：查询侧尚未接线——语料回收消费时按
-  //  (chapter, checkId) 取最近一条，当前全仓无读取方）。
+  //（append 多条，无撤销事件；消费侧 dropFlaggedItems 按「本章该 checkId 出现过即过滤」
+  // 读，等价于取最近一条——追加不会翻转标记态）。标记的现行消费面 = 机检端点返回前的
+  // 剔除（见 readSuppressedCheckIds；语料回收链现走章快照自判，不读本事件）。
   defineRoute('books.documents.check-false-positive', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/check-false-positive',

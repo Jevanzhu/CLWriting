@@ -10,6 +10,7 @@ import {
   recordAiCall,
   checkAiCallBudget,
   recordTaskUsage,
+  recordUsageBoth,
   AI_CALLS_MUTEX_SCOPE_NOTE,
   AI_CALLS_LOCK_TIMEOUT_MS,
   __setAiCallsLockTimeoutForTest,
@@ -138,6 +139,78 @@ describe('recordTaskUsage 任务维度记账（T5）', () => {
     recordTaskUsage(root, 'outline', null)
     const rec = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
     expect(Object.keys(rec.tasks).sort()).toEqual(['analysis', 'outline', 'review'])
+  })
+})
+
+describe('tasks 块金额记账（chat/摘要等无 chapter 调用的金额落点）', () => {
+  const readRec = (root: string): { chapter: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> } =>
+    JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
+
+  it('同一笔调用进两块 → tasks 块 costAccum 与 chapter 块逐位一致', () => {
+    const root = tempBook()
+    recordUsageBoth(root, 'chat', 4, { inputTokens: 1000, outputTokens: 200 }, 0.375)
+    const rec = readRec(root)
+    expect(rec.chapter['costAccum']).toBe(0.375)
+    expect(rec.tasks['chat']!['costAccum']).toBe(rec.chapter['costAccum'])
+  })
+
+  it('task-only 调用（无 chapter）→ 金额落在 tasks 块（此前无任何金额面）', () => {
+    const root = tempBook()
+    recordUsageBoth(root, 'chat', undefined, { inputTokens: 2000, outputTokens: 400 }, 0.9)
+    recordUsageBoth(root, 'chat', undefined, { inputTokens: 1000, outputTokens: 100 }, 0.1)
+    const rec = readRec(root)
+    expect(rec.tasks['chat']!['used']).toBe(2)
+    expect(rec.tasks['chat']!['costAccum']).toBeCloseTo(1, 10)
+    // chapter 块未被这次调用推进（task-only 不动章块）
+    expect(rec.chapter['used']).toBe(0)
+  })
+
+  it('未配价（不传 costUsd）→ 两块都不建 costAccum 键（口径不生效）', () => {
+    const root = tempBook()
+    recordUsageBoth(root, 'chat', 4, { inputTokens: 1000, outputTokens: 200 })
+    recordTaskUsage(root, 'review', { inputTokens: 10, outputTokens: 5 })
+    const rec = readRec(root)
+    expect(rec.chapter['costAccum']).toBeUndefined()
+    expect(rec.tasks['chat']!['costAccum']).toBeUndefined()
+    expect(rec.tasks['review']!['costAccum']).toBeUndefined()
+  })
+
+  it('旧账本（无 costAccum 字段）读出继续记账 → 不崩、不产 NaN、金额从零起算', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    // 旧账本：两块均无金额字段（本字段上线前落盘形态）
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({
+        chapter: { num: 4, used: 1, inputTokens: 100, outputTokens: 200 },
+        tasks: { chat: { used: 1, inputTokens: 100, outputTokens: 200 } },
+      }),
+    )
+    recordUsageBoth(root, 'chat', 4, { inputTokens: 50, outputTokens: 60 }, 0.25)
+    const rec = readRec(root)
+    expect(Number.isNaN(rec.chapter['costAccum'])).toBe(false)
+    expect(Number.isNaN(rec.tasks['chat']!['costAccum'])).toBe(false)
+    expect(rec.chapter['costAccum']).toBeCloseTo(0.25, 10)
+    expect(rec.tasks['chat']!['costAccum']).toBeCloseTo(0.25, 10)
+    // 未参与的旧任务块保持无金额字段（加性字段不凭空生成）
+    expect(rec.tasks['chat']!['used']).toBe(2)
+  })
+
+  it('金额字段坏值（非数字）→ 与 chapter 块同判损坏，不静默归零', () => {
+    const root = tempBook()
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({
+        chapter: { num: 4, used: 1, inputTokens: 1, outputTokens: 1 },
+        tasks: { chat: { used: 1, inputTokens: 1, outputTokens: 1, costAccum: 'x' } },
+      }),
+    )
+    recordTaskUsage(root, 'chat', { inputTokens: 1, outputTokens: 1 })
+    const rec = readRec(root)
+    // 保守阻断：不覆盖坏账（旧值原样留在盘上）
+    expect(rec.tasks['chat']!['costAccum']).toBe('x')
+    expect(rec.tasks['chat']!['used']).toBe(1)
   })
 })
 

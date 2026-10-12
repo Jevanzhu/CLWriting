@@ -124,3 +124,51 @@ describe('MetaFormPanel: 编辑中脏键保护（R69-5）', () => {
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('2000')
   })
 })
+
+describe('MetaFormPanel: 短篇正文表单（书级 kind + 正文路径判定）', () => {
+  /** 正文叶子条目：路径落在 写作/正文/（长短篇路径相同，role 均 'chapter'）。 */
+  function seedBodyDoc(content = '---\n钩子类型: 危机钩\n---\n正文'): DocEntry {
+    return { ...seedDoc(content), path: '写作/正文/001-开篇.md', name: '001-开篇.md' }
+  }
+
+  it('短篇书 + 正文文件 → 渲染短篇字段组（钩子类型/钩子强弱/情绪定位/场景）', async () => {
+    useDocStore().bookKind = 'short'
+    const doc = useDocStore()
+    doc.docs.set('d1', seedBodyDoc())
+    useWorkspaceStore().activeDocId = 'd1'
+    const w = mount(MetaFormPanel, { props: { bookName: '书测' } })
+    await nextTick()
+
+    const labels = w.findAll('.field-label').map((l) => l.text())
+    expect(labels).toEqual(expect.arrayContaining(['目标情绪', '核心反转', '钩子类型', '钩子强弱', '情绪定位', '场景']))
+    // 字段可编辑（select 承载选项值）：fm 值回填到位
+    expect(w.findAll('select').some((s) => s.element.value === '危机钩')).toBe(true)
+  })
+
+  it('长篇书 + 正文文件 → 不渲染短篇字段组（钩子类型等改走只读标签块）', async () => {
+    useDocStore().bookKind = 'long'
+    const doc = useDocStore()
+    doc.docs.set('d1', seedBodyDoc())
+    useWorkspaceStore().activeDocId = 'd1'
+    const w = mount(MetaFormPanel, { props: { bookName: '书测' } })
+    await nextTick()
+
+    expect(w.findAll('.field-label').map((l) => l.text())).not.toContain('钩子类型')
+    expect(w.findAll('select')).toHaveLength(0) // 长篇正文章节表单无 select 字段
+    expect(w.find('.tag-block').exists()).toBe(true) // 钩子/情绪/场景以只读标签呈现
+  })
+
+  it('同一节点随书级 kind 切换：长篇 → 短篇时字段组随之切换（判定源是书级 kind）', async () => {
+    useDocStore().bookKind = 'long'
+    const doc = useDocStore()
+    doc.docs.set('d1', seedBodyDoc())
+    useWorkspaceStore().activeDocId = 'd1'
+    const w = mount(MetaFormPanel, { props: { bookName: '书测' } })
+    await nextTick()
+    expect(w.findAll('select')).toHaveLength(0)
+
+    useDocStore().bookKind = 'short'
+    await nextTick()
+    expect(w.findAll('.field-label').map((l) => l.text())).toContain('钩子类型')
+  })
+})

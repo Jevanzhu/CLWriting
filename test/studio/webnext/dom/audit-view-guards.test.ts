@@ -116,6 +116,20 @@ describe('R36-25：AuditView load 存活守卫', () => {
     wrapper.unmount()
   })
 
+  it('错误横幅带 role="alert"（读屏即时播报，不静默）', async () => {
+    const wrapper = mount(AuditView, { props: { bookName: '测试书' } })
+    await flushPromises()
+    expect(wrapper.find('.audit-err').exists()).toBe(false) // 无错不渲染横幅
+
+    mocks.getAudit.mockRejectedValue(new Error('服务端挂了'))
+    await wrapper.find('.reload-btn:not(.danger)').trigger('click')
+    await flushPromises()
+    const bar = wrapper.find('.audit-err')
+    expect(bar.attributes('role')).toBe('alert')
+    expect(bar.text()).toContain('服务端挂了')
+    wrapper.unmount()
+  })
+
   it('刷新在途卸载 → 迟到成功不回写 loading（loading 不残留卡死渲染面）', async () => {
     const req = pending<unknown>()
     let first = true

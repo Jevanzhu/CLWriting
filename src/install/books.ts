@@ -98,16 +98,14 @@ export function isInvalidBookName(name: string): boolean {
 
 /** 追加一本书到 books.jsonl（同名/目录占用则报冲突）。
  * active 指针随登记在**同一 books.lock 临界段**内写——
- *  此前 appendBook 只登记、writeActive 由调用方（doInit/doInitAsync）在锁外裸写，
- *  双进程并发建书时两个「登记→切指针」段交错，active 被先释放锁的一方事后覆盖
- *  （最后写者胜，指针指向非最后完成的书）。生产调用面（doInit/doInitAsync 两孪生）
- *  全部是「建书即切活动书」语义（grep 核实无「只登记不切 active」调用点），故
- * 无条件写入不加选项参数。active 写失败按口径报「已建成并登记成功，但
- *  设置当前活动书失败」（登记在盘，从书架手动启用即可）。 */
+ *  只登记不写指针会让双进程并发建书时「登记→切指针」段交错、active 被先释放锁的一方
+ *  事后覆盖（最后写者胜，指针指向非最后完成的书）。生产调用面（doInitAsync 经
+ *  appendBookAsync）全部是「建书即切活动书」语义（无「只登记不切 active」调用点），
+ *  故无条件写入不加选项参数。active 写失败按口径报「已建成并登记成功，但
+ *  设置当前活动书失败」（登记在盘，从书架手动启用即可）。
+ * 零生产调用：本同步版的唯一调用方是同样测试专用的 doInit（见其头注）——生产建书走
+ * 异步孪生；保留为同步夹具面。 */
 export function appendBook(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
-  // 读改写整段进跨进程锁——CLI 与桌面并发建书不交错覆盖丢登记
-  // GUI 建书端点与 CLI 建书统一走下方异步孪生 appendBookAsync
-  //（本同步版保留供 CLI 残余/测试合法同步面窄面登记口径）
   const release = tryBooksLock(workDir)
   if (!release) {
     return { ok: false, reason: '书库登记锁获取超时（另一进程正在改写 books.jsonl），本轮不建书——请稍后重试' }
@@ -122,11 +120,10 @@ export function appendBook(workDir: string, entry: BookEntry): { ok: true } | { 
 /**
  * appendBook 的异步孪生——建书锁等待走 tryBooksLockAsync
  * （acquireCrossProcessLockAsync：setTimeout 轮询，事件循环不阻塞）。同步版
- * tryBooksLock 的 Atomics.wait 在双进程争写窗口最坏停 5s；GUI 建书端点（/api/books
- * POST → doInitAsync）承载 SSE/全部接口，此前经 doInit → appendBook 在请求事件
- * 循环上同步睡（指出的 CLI 建书同根漏网：install/books.ts 注释登记「余面
- * 均不在请求窗口」与 GUI 建书事实矛盾）。锁文件/超时档/超时降级/读失败拒
- * 读失败拒重写语义与同步版逐位对齐。
+ * tryBooksLock 的 Atomics.wait 在双进程争写窗口最坏停 5s，而 GUI 建书端点（/api/books
+ * POST → doInitAsync）承载 SSE/全部接口，在请求事件循环上同步睡会冻住整条服务——
+ * 故生产建书一律走本孪生。锁文件/超时档/超时降级/读失败拒
+ * 重写语义与同步版逐位对齐。
  */
 export async function appendBookAsync(
   workDir: string,
@@ -204,8 +201,9 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
 /**
  * 从 books.jsonl 移除一本书的登记（不改文件系统）。
  * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
- * 残留清偿批生产调用面已迁下方异步孪生 removeBookEntryAsync（删书
- * 端点）；本同步版保留供 CLI/测试合法同步面（窄面登记收口）。
+ * 零生产调用：生产删书端点走下方异步孪生 removeBookEntryAsync（同步版会让
+ * 服务进程事件循环承受 Atomics.wait 锁等待）；本同步版是**测试专用导出**
+ * （窄面夹具面，先例同 resource.ts 的同名标注）。
  */
 export function removeBookEntry(workDir: string, name: string): void {
   // 读改写整段进跨进程锁；超时跳过留痕（与读失败同口径——登记留盘由启动
@@ -224,8 +222,8 @@ export function removeBookEntry(workDir: string, name: string): void {
 
 /**
  * removeBookEntry 的异步孪生——删书端点在承载 SSE/全部接口
- * 的服务进程事件循环上直调同步版，其 tryBooksLock 的 Atomics.wait 等待（双进程争用
- * 窗最坏 5s）是 mutator 族登记残留的最后一个服务面落点。锁等待走
+ * 的服务进程事件循环上若直调同步版，其 tryBooksLock 的 Atomics.wait 等待（双进程争用
+ * 窗最坏 5s）会冻住服务，故生产删书走本孪生。锁等待走
  * acquireCrossProcessLockAsync（setTimeout 轮询），锁文件/超时档/超时跳过留痕/
  * 读失败拒重写语义与同步版逐位对齐。
  */
@@ -250,8 +248,8 @@ function removeBookEntryLocked(workDir: string, name: string): void {
   const books = readBooksStrict(workDir)
   if (books === null) return
   // （#37）：写段 try/catch 对齐 appendBookLocked 收编形态——
-  // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（上游删书端点已兜，
-  // CLI/测试同步面无契约），失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
+  // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（测试同步面无契约），
+  // 失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
   // 启动 repairBooks 报告，文件系统侧删除不受影响
   try {
     writeBooks(

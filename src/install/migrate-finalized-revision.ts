@@ -10,12 +10,20 @@
  *
  * 幂等：已有 finalizedRevision 的 entry 跳过；已迁移的书库（任一 document entry 有基线）整书跳过。
  * 迁移后 book.yaml 不再依赖 git——此后状态机、定稿全走指纹 + manifest。
+ *
+ * 异步化（为什么本函数是 async，且只走异步孪生）：
+ *  - 调用链在**启动迁移链**上（layout-migrations → studio/server 组装根的 listen 前段），
+ *    而迁移判定要跑一次 git status。同步 spawnSync 在网盘挂载 / 杀软锁 .git 时会把服务
+ *    进程事件循环连续占满（单次上限 15s），逐书叠加即启动期整体停摆、窗口白屏——故
+ *    git 读走 gitAsync（spawn + 有界超时定时器），等待期事件循环照常推进。
+ *  - 清单 RMW 走 withManifestLockAsync（同步版在等待锁时 Atomics.wait 阻塞事件循环，
+ *    同一阻塞面），git 状态仍取在锁内（脏集新鲜度对齐锁窗口的既有契约不变）。
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { readManifest, readManifestStrict, writeManifest, withManifestLock } from '../document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, withManifestLockAsync } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
-import { statusPorcelain } from '../git/exec.js'
+import { statusPorcelainAsync } from '../git/exec.js'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { log } from '../log/index.js'
 
@@ -25,7 +33,7 @@ import { log } from '../log/index.js'
  * @param bookRoot 书仓库根
  * @returns 本次迁移建立的定稿基线数（0 = 已迁移或无需迁移）
  */
-export function migrateFinalizedRevisions(bookRoot: string): number {
+export async function migrateFinalizedRevisionsAsync(bookRoot: string): Promise<number> {
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(manifestPath)) return 0 // 无清单（新书/未建）→ no-op
   const manifest = readManifest(manifestPath)
@@ -49,7 +57,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   // 判 clean 误标 final（本文件红线：误判 final 断写）。「git 状态在锁外取
   //（与清单无依赖）」就此记正：无依赖不等于无新鲜度要求。代价 = 清单锁持有期含
   // 一次 git status（毫秒级；启动一次性迁移，可接受）。
-  updated = withManifestLock(manifestPath, () => {
+  updated = await withManifestLockAsync(manifestPath, async () => {
     const m = readManifestStrict(manifestPath) // RMW strict 读（读失败上抛走逐书 try 收口）
     for (const e of m.entries.values()) {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
@@ -61,7 +69,9 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     // 超时 kill）下他方两轮等不满即 fail-closed 抛错拒绝写（口径：宁拒绝不覆盖），
     // 本次迁移自身随后按 porcelain===null 跳过。取值取舍已记档（不为此放大他方等待档：
     // 放大到 15s+ 会让正常路径的争用等待变钝，而此形态只出现在坏盘上、后果仅「重试」）。
-    const porcelain = statusPorcelain(bookRoot, true)
+    // 走 statusPorcelainAsync：等待 git 期间让出事件循环（同步 spawnSync 在启动期
+    // 逐书串行会长时间冻结服务进程，见函数头注异步化段）。
+    const porcelain = await statusPorcelainAsync(bookRoot, true)
     if (porcelain === null) {
       // git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
       // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试

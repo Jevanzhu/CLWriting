@@ -224,3 +224,263 @@ describe('0918独立重评修复批 B002: undo 盘面降级择最近并', () => 
     expect(existsSync(join(studio.bookRoot, relB))).toBe(true)
   })
 })
+
+// ── 拍板「择最新」：undo 盘面降级定位同一批候选按 trashedAt 择最新——修复前取「第一条」
+// 误认领历史软删旧条目（删章→同号重建→再合并→再撤销链：回收站首条 = 数天前软删的同章号
+// 旧章，还原旧文并标撤销成功）。──
+
+describe('undo 盘面降级同章号择最新', () => {
+  const BOOK_NEWEST = '撤销择最新测试书'
+  let studioN: StudioHarness
+  let userDataN = ''
+
+  const { createChapter: createChapterN } = bindStructureHelpers({
+    studio: () => studioN,
+    book: BOOK_NEWEST,
+    userDataPath: () => userDataN,
+  })
+
+  beforeAll(async () => {
+    userDataN = mkdtempSync(join(tmpdir(), 'clw-undo-newest-ud-'))
+    studioN = await bootStudio({
+      book: BOOK_NEWEST,
+      prefix: 'clw-undo-newest-',
+      userDataPath: userDataN,
+      dirs: ['写作/正文/第一卷', '写作/正文/第二卷', '工作区'],
+      bookYaml:
+        'spec_version: 1\nkind: long\nbook:\n  title: 撤销择最新测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    })
+  })
+
+  afterAll(async () => {
+    await studioN.close()
+    if (userDataN) rmSync(userDataN, { recursive: true, force: true })
+  })
+
+  /** 旧软删条目 trashedAt 回拨到极早时点——与合并新条目的时序差确定性钉死。 */
+  function backdateTrashEntry(bookRoot: string, originalPathSuffix: string): void {
+    const p = join(bookRoot, '工作区', '.trash', '.trash-manifest.jsonl')
+    const lines = readFileSync(p, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+    const out = lines.map((l) => {
+      const e = JSON.parse(l) as { originalPath?: string; trashedAt?: string }
+      if (e.originalPath?.endsWith(originalPathSuffix)) {
+        return JSON.stringify({ ...e, trashedAt: '2000-01-01T00:00:00.000Z' })
+      }
+      return l
+    })
+    writeFileSync(p, out.join('\n') + '\n', 'utf8')
+  }
+
+  async function trashEntries(): Promise<Array<{ id: string; originalPath?: string }>> {
+    const r = await studioN.req('GET', `/api/books/${encodeURIComponent(BOOK_NEWEST)}/trash`)
+    expect(r.status).toBe(200)
+    return (r.json as { entries: Array<{ id: string; originalPath?: string }> }).entries ?? []
+  }
+
+  async function deleteDoc(docId: string): Promise<void> {
+    const r = await studioN.req('DELETE', `/api/books/${encodeURIComponent(BOOK_NEWEST)}/documents/${encodeURIComponent(docId)}`)
+    expect(r.status).toBe(200)
+  }
+
+  /** 合并干跑 + 施行（helper 化：两用例同链）。 */
+  async function planAndApply(targetDocId: string, sourceDocId: string): Promise<void> {
+    const plan = await studioN.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK_NEWEST)}/documents/${encodeURIComponent(targetDocId)}/structure-plan`,
+      { op: 'merge', sourceDocId },
+    )
+    expect(plan.status).toBe(200)
+    const apply = await studioN.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK_NEWEST)}/documents/${encodeURIComponent(targetDocId)}/structure-apply`,
+      {
+        op: 'merge',
+        sourceDocId,
+        planHash: (plan.json as { plan: { planHash: string } }).plan.planHash,
+      },
+    )
+    expect(apply.status).toBe(200)
+  }
+
+  it('旧软删条目（同章号、trashedAt 在前）→ 择最新合并条目还原，旧条目不误认领', async () => {
+    const relOld = '写作/正文/第二卷/0041-旧章.md'
+    const relTarget = '写作/正文/第一卷/0040-第40章.md'
+    const relSource = '写作/正文/第一卷/0041-第41章.md'
+    const t = await createChapterN(relTarget, chapterContent(40, '第40章', '目标章正文。\n\n第二段。'))
+    const old = await createChapterN(relOld, chapterContent(41, '旧章', '历史软删章正文。'))
+    const s = await createChapterN(relSource, chapterContent(41, '第41章', '源章正文。\n\n第二段。'))
+    // 历史软删同章号旧章（回收站首条）+ 回拨时戳
+    await deleteDoc(old)
+    backdateTrashEntry(studioN.bookRoot, relOld)
+    // 合并 41 → 40（合并产生第二条 41 号回收站条目，trashedAt = 当前）
+    await planAndApply(t, s)
+
+    // userDataPath = null：事件副录缺形态，确定性走盘面降级（修复对象）
+    const svc = new DocumentService({ bookRoot: studioN.bookRoot })
+    const r = await undoChapterMerge(studioN.bookRoot, svc, null, t, ragStub)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.sourceChapterNo).toBe(41)
+    // 择最新 = 合并条目（id = 源 docId），非首条旧条目——修复前此处误认领 old
+    expect(r.sourceDocId).toBe(s)
+    // 源章还原、旧章不复活、旧条目仍在回收站
+    expect(existsSync(join(studioN.bookRoot, relSource))).toBe(true)
+    expect(existsSync(join(studioN.bookRoot, relOld))).toBe(false)
+    const es = await trashEntries()
+    expect(es.some((e) => e.originalPath === relOld)).toBe(true)
+    expect(es.some((e) => e.id === s)).toBe(false)
+  })
+
+  it('无歧义基线（单条目）：盘面降级正常还原源章', async () => {
+    const relTarget = '写作/正文/第一卷/0050-第50章.md'
+    const relSource = '写作/正文/第一卷/0051-第51章.md'
+    const t = await createChapterN(relTarget, chapterContent(50, '第50章', '目标章正文。\n\n第二段。'))
+    const s = await createChapterN(relSource, chapterContent(51, '第51章', '源章正文。\n\n第二段。'))
+    await planAndApply(t, s)
+
+    const svc = new DocumentService({ bookRoot: studioN.bookRoot })
+    const r = await undoChapterMerge(studioN.bookRoot, svc, null, t, ragStub)
+    expect(r.ok).toBe(true)
+    expect(existsSync(join(studioN.bookRoot, relSource))).toBe(true)
+  })
+})
+
+// ── 撤销合并半完成态识别续跑：单次合并 undo 走到「①目标已回滚（fm 并入 随内容整体消失）
+// + ②还原源章失败（OCCUPIED 等）」半完成态后，重试从 undoChapterMerge 函数头进来必死
+// `并入.length === 0` 门报「已撤销」——收尾失败文案承诺的「重试将自动续跑收尾」不可达，
+// 源章滞留回收站只能手工发现。钉住面：半完成态后重试 undo → 识别续跑成功（目标不再二次
+// 回滚、源章还原、事件补录）；完整撤销后再 undo → NOT_MERGE_STATE；「手工摘 并入 键但
+// 目标仍是合并后内容」形态 → 版本指纹对不上 → 不误续跑。──
+
+describe('撤销半完成态识别续跑', () => {
+  const BOOK_RESUME = '合并撤销续跑测试书'
+  let studioR: StudioHarness
+  let userDataR = ''
+
+  const { createChapter: createChapterR, structureEvents } = bindStructureHelpers({
+    studio: () => studioR,
+    book: BOOK_RESUME,
+    userDataPath: () => userDataR,
+  })
+
+  async function planMerge(targetDocId: string, sourceDocId: string): Promise<string> {
+    const r = await studioR.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK_RESUME)}/documents/${encodeURIComponent(targetDocId)}/structure-plan`,
+      { op: 'merge', sourceDocId },
+    )
+    expect(r.status).toBe(200)
+    return (r.json as { plan: Record<string, unknown> }).plan['planHash'] as string
+  }
+
+  async function applyMerge(targetDocId: string, sourceDocId: string, planHash: string): Promise<void> {
+    const r = await studioR.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK_RESUME)}/documents/${encodeURIComponent(targetDocId)}/structure-apply`,
+      { op: 'merge', sourceDocId, planHash },
+    )
+    expect(r.status).toBe(200)
+  }
+
+  async function undo(docId: string): Promise<{ status: number; json: Record<string, unknown> }> {
+    const r = await studioR.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK_RESUME)}/documents/${encodeURIComponent(docId)}/merge-undo`,
+      {},
+    )
+    return { status: r.status, json: r.json as Record<string, unknown> }
+  }
+
+  async function trashHas(id: string): Promise<boolean> {
+    const r = await studioR.req('GET', `/api/books/${encodeURIComponent(BOOK_RESUME)}/trash`)
+    expect(r.status).toBe(200)
+    return ((r.json as { entries: Array<{ id: string }> }).entries ?? []).some((e) => e.id === id)
+  }
+
+  beforeAll(async () => {
+    userDataR = mkdtempSync(join(tmpdir(), 'clw-undo-resume-ud-'))
+    studioR = await bootStudio({
+      book: BOOK_RESUME,
+      prefix: 'clw-undo-resume-',
+      userDataPath: userDataR,
+      dirs: ['写作/正文/第一卷', '工作区'],
+      bookYaml:
+        'spec_version: 1\nkind: long\nbook:\n  title: 合并撤销续跑测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    })
+  })
+
+  afterAll(async () => {
+    await studioR.close()
+    if (userDataR) rmSync(userDataR, { recursive: true, force: true })
+  })
+
+  it('还原失败（OCCUPIED）半完成态 → 重试识别续跑：源章还原 + 事件补录 + 不再二次回滚', async () => {
+    const rel1 = '写作/正文/第一卷/0050-第50章.md'
+    const rel2 = '写作/正文/第一卷/0051-第51章.md'
+    const before = chapterContent(50, '第50章', '第五十章正文，撤销后应逐字节一致。')
+    const srcContent = chapterContent(51, '第51章', '第五十一章正文。')
+    const t = await createChapterR(rel1, before)
+    const s = await createChapterR(rel2, srcContent)
+    const planHash = await planMerge(t, s)
+    await applyMerge(t, s, planHash)
+    expect(existsSync(join(studioR.bookRoot, rel2))).toBe(false)
+    expect(await trashHas(s)).toBe(true)
+
+    // 构造还原失败形态：源章原位被占位文件顶住（内容不同 → 真占用 OCCUPIED）
+    writeFileSync(join(studioR.bookRoot, rel2), '占位文件（顶住原位，非源章内容）。\n', 'utf8')
+    const fail = await undo(t)
+    expect(fail.status).toBe(409)
+    expect((fail.json as { error: string }).error).toContain('源章还原失败')
+    // 半完成态落定：目标已回滚（并入 随内容消失、逐字节 == 合并前）、源章仍在回收站
+    expect(readFileSync(join(studioR.bookRoot, rel1), 'utf8')).toBe(before)
+    expect(await trashHas(s)).toBe(true)
+
+    // 解除占用 → 重试 undo：此前必死「并入 已空」门（修复前红点）——现识别半完成态续跑
+    rmSync(join(studioR.bookRoot, rel2))
+    const resume = await undo(t)
+    expect(resume.status).toBe(200)
+    expect(resume.json['ok']).toBe(true)
+    expect(resume.json['sourceChapterNo']).toBe(51)
+    expect(resume.json['sourceDocId']).toBe(s)
+    // 源章还原（原路径 + 原内容逐字节），回收站条目出账
+    expect(readFileSync(join(studioR.bookRoot, rel2), 'utf8')).toBe(srcContent)
+    expect(await trashHas(s)).toBe(false)
+    // 目标保持已回滚内容（续跑不二次回滚、不重复写）
+    expect(readFileSync(join(studioR.bookRoot, rel1), 'utf8')).toBe(before)
+    // 事件补录：structure.merge-undo 载荷（planHash 与 merge 对应）
+    const undoEvs = structureEvents('structure.merge-undo').filter((e) => e.targetDocId === t)
+    expect(undoEvs.length).toBe(1)
+    expect(undoEvs[0]!['planHash']).toBe(planHash)
+
+    // 完整撤销后再 undo → NOT_MERGE_STATE（merge-undo 事件在档，防误续跑）
+    const again = await undo(t)
+    expect(again.status).toBe(409)
+    expect((again.json as Record<string, unknown>)['code']).toBe('NOT_MERGE_STATE')
+  })
+
+  it('手工摘 并入 键但目标仍是合并后内容 → 版本指纹对不上不误续跑（源章仍滞留回收站）', async () => {
+    const rel1 = '写作/正文/第一卷/0052-第52章.md'
+    const rel2 = '写作/正文/第一卷/0053-第53章.md'
+    const srcContent = chapterContent(53, '第53章', '第五十三章正文。')
+    const t = await createChapterR(rel1, chapterContent(52, '第52章', '第五十二章正文。'))
+    const s = await createChapterR(rel2, srcContent)
+    const planHash = await planMerge(t, s)
+    await applyMerge(t, s, planHash)
+    expect(await trashHas(s)).toBe(true)
+
+    // 手工摘 并入：目标内容仍是合并后拼接正文，但 fm 无 并入 登记
+    writeFileSync(
+      join(studioR.bookRoot, rel1),
+      chapterContent(52, '第52章', '第五十二章正文。\n\n第五十三章正文。'),
+      'utf8',
+    )
+    const r = await undo(t)
+    expect(r.status).toBe(409)
+    expect((r.json as Record<string, unknown>)['code']).toBe('NOT_MERGE_STATE')
+    // fail-closed：不误还原源章（正文已双份含源内容，还原会三份）、回收站条目仍在
+    expect(existsSync(join(studioR.bookRoot, rel2))).toBe(false)
+    expect(await trashHas(s)).toBe(true)
+  })
+})

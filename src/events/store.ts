@@ -34,6 +34,8 @@ import {
   acquireMigrateLockPairAsync,
 } from './store-migrate.js'
 import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
+import { runEventStreamSelfCheck } from './store-selfcheck.js'
+import { isIdleMaintenanceDue, resetPruneCursor, scheduleSessionDbMaintenance } from './store-retention.js'
 
 // 桥：迁出缝的公开名逐名再导出（类型走 export type），消费方 import 面零改动
 export {
@@ -47,7 +49,26 @@ export {
   applyOpenPragmas,
   createEventsSchema,
   migrateEventsSchema,
+  AUTO_VACUUM_NONE,
+  AUTO_VACUUM_INCREMENTAL,
+  readAutoVacuumMode,
 } from './store-open.js'
+// 保留窗口/空间回收族与在线自检的公开名（消费方与回归直测经残核取用，import 面单源在残核）
+export {
+  PRUNABLE_EVENT_TYPES,
+  getEventRetentionMs,
+  __setEventRetentionMsForTest,
+  __setPruneMinIntervalMsForTest,
+  isPruneDue,
+  isIdleMaintenanceDue,
+  resetPruneCursor,
+  pruneExpiredObservationEvents,
+  reclaimFreedSpace,
+  scheduleSessionDbMaintenance,
+  runSessionDbMaintenanceAsync,
+} from './store-retention.js'
+export { runEventStreamSelfCheck, checkEventStreamIntegrity, isSelfCheckEnabled } from './store-selfcheck.js'
+export type { MaintenanceTrigger } from './store-retention.js'
 export type { SessionRow } from './store-rows.js'
 // 会话行格式版本族（常量 + 校验 + 错误类）—残核桥再导出，消费方 import 面零改动
 export {
@@ -788,12 +809,12 @@ function createSessionQueryMethods(
       // 既有 [s,e] 与 [from,to] 相交 ⟺ s <= to && e >= from
       // 成本如实记：本查询按 surface_op + shadow 区间过滤无可用索引（events 表唯一
       // 索引是 idx_events_session(session_id, seq)），为全表扫（O(N)，N = 全库事件数）。
-      // 处置 = 降为 debug 开关（默认关，读 env CLWRITING_EVENTS_SELF_CHECK=1 启用）：
-      // 本查询仅在 close 写 compaction 前执行一次（低频诊断面），而随 sqlite 阶梯加
-      // 部分索引要对存量用户库做开库期 schema 变更（首次建索引的写锁窗叠打开期成本
-      // 敏感面），并把 events 库 user_version 推到 v2（旧版本应用 fail-closed 拒绝
-      // 打开 v2 库）——迁移风险不抵一处诊断查询的收益；诊断/复现时开开关即恢复全量
-      // 自检。未启用返回 null（调用方跳过告警——返回空对象会被误读为「零表面事件」）。
+      // 处置 = 降为开关档（env CLWRITING_EVENTS_SELF_CHECK）：本查询是按 surface_op +
+      // shadow 区间过滤的全表扫描，只在写 compaction 前跑一次（低频诊断面），故默认关；
+      // 开关置 '1' 强制开（诊断/复现用）。同一个 env 也是关闭路径轻量自检的开关（见
+      // store-selfcheck：那里默认开、置 '0' 强制关）——两项自检代价差一个量级，默认档
+      // 因此不同；env 的 '1' / '0' 对两者分别是强制开 / 强制关。
+      // 未启用返回 null（调用方跳过告警——返回空对象会被误读为「零表面事件」）。
       if (process.env.CLWRITING_EVENTS_SELF_CHECK !== '1') return null
       // 两条固定 SQL 走 prepared()（第二条的 IN 占位符
       // 拼自 SURFACE_EVENT_TYPES 常量集——变体数恒 1，符合「变体数须有界」入缓契约）
@@ -830,6 +851,12 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
         )
         prepared(db, 'DELETE FROM sessions WHERE book = ?').run(book)
       })
+      // 清库只把页放进空闲表，文件高水位不回落——清完即调度后台回收（强制档：
+      // 刚删完行的回收不受空闲页阈拦；独立连接 + 让出，调用方不被整库重写拖住，
+      // 见 store-retention 头注）。裁剪游标一并作废：它所指的旧区段已被本次删除清空，
+      // 且 seq 将从 1 重新分配（见 resetPruneCursor 注）。
+      resetPruneCursor(dbPath)
+      scheduleSessionDbMaintenance(dbPath, 'force')
     },
     clearBooks(books: string[]): void {
       // 低级项：多 book 键单事务清理——audit DELETE / chat 清史都是
@@ -848,6 +875,9 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
           delSessions.run(book)
         }
       })
+      // 双键清完同样调度后台回收（强制档；单次调度覆盖两键，游标作废同 clearBook 注）
+      resetPruneCursor(dbPath)
+      scheduleSessionDbMaintenance(dbPath, 'force')
     },
     close(): void {
       // 引用计数释放——归零才真关库 + 清缓存（幂等；旧引用后关不伤新开）。
@@ -858,6 +888,24 @@ function createMaintenanceMethods(ctx: StoreCtx): Pick<SessionStore, 'clearBook'
       if (entry.refs <= 0) {
         entry.closed = true
         openStores.delete(dbPath)
+        // 关闭路径的旁路观察（引用归零、句柄还活着时跑）：条数一致性自检 + 维护调度。
+        // 两者都不得影响关闭本身——自检内部已 catch（详见 store-selfcheck），此处再包一层
+        // 兜住调度/查询的意外异常；失败只留痕，句柄照常按下方断链序收口。
+        try {
+          runEventStreamSelfCheck(db, dbPath)
+        } catch (e) {
+          log.warn('events', `事件流自检未跑（${dbPath}）：${errMsg(e)}`)
+        }
+        // 开工判据在**这条还活着的连接**上现读（索引探测 + header 读，廉价）：未到期且空闲页
+        // 未过阈就连 setImmediate 都不排——常态零开销，也不用为「探路」另开连接（只读连接会
+        // 在 WAL 库上留下不回收的侧车，扰动库文件指纹即打冷 stats 端点缓存，见 store-retention
+        // 头注）；真该干活时由后台任务自开连接并在块间让出，调用方不被整库重写拖住。
+        // 判据读也可能抛（表被外部改写/删掉一类破损态）——与自检同档：只留痕，不拦关闭。
+        try {
+          if (isIdleMaintenanceDue(db)) scheduleSessionDbMaintenance(dbPath)
+        } catch (e) {
+          log.warn('events', `事件库维护未调度（${dbPath}）：${errMsg(e)}`)
+        }
         // 先停续期再注销——反序会让注销后的下一个 tick 重新写出标记（自愈路径
         // 把「已关库」又声明成「在位」，迁移扫描误拒）。
         // 停表/注销再提前到 db.close() 之前，且 close 包 try/catch——

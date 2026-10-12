@@ -556,3 +556,91 @@ describe('多库多窗：切库取消回滚的锁内合并', () => {
     }
   })
 })
+
+// ── 切库落库的锁等待不阻塞主进程事件循环 ───────────────────────────────
+// 缺陷形态：writeStore 的跨进程写锁走同步孪生（acquireCrossProcessLockWithTimeout
+// 内部 Atomics.wait）——他实例（或跨提权持有者）占锁期间，desktop:open-library /
+// desktop:switch-library 两个 IPC handler 与其上游菜单/退出取消回写都在主进程事件
+// 循环上同步睡，最坏等满写锁超时档：三窗口界面、全部 IPC、退出链确认一齐冻结。
+// 修后：锁等待走异步孪生（setTimeout 轮询），等待期事件循环照常让出；
+// 「等不到即按超时契约化失败」的判据与返回形状逐条不变。
+// 断言面 = 可让出性（等待期定时器照跑）+ 契约回执（ok:false + 超时文案）+ 盘面终态，
+// 不钉日志措辞；超时档经测试注入短档（见 WORKDIR_WRITE_LOCK_TIMEOUT_MS 处锚注）。
+describe('切库落库：锁被持有期间主进程事件循环可让出', () => {
+  const lockFp = (): string => `${workdirFp()}.lock`
+
+  it('desktop:switch-library：锁被持有 → 等待期定时器照跑（让出事件循环）、超时回契约化失败，释放后重试成功', async () => {
+    await freshMain()
+    // 生效超时档缩短到 250ms（生产 5s 档不改）——本用例要观察的是「等待方式」而不是
+    // 「等多久」，短档让红/绿都快速落定
+    const ctl = await import('../../src/desktop/workdir-controller.js')
+    const { tryAcquireCrossProcessLock } = await import('../../src/fs/cross-process-lock.js')
+    ctl.__setWorkdirWriteLockTimeoutForTest(250)
+    // 本进程持锁（pid 存活 → 对任何取锁者判 held）——等价他实例正在写共享根
+    const release = tryAcquireCrossProcessLock(lockFp())
+    if (!release) throw new Error('前置：无争用下占锁失败')
+    const libB = mkLibrary()
+    let ticks = 0
+    const ticker = setInterval(() => {
+      ticks++
+    }, 20)
+    let r: { ok: boolean; reason?: string } | null = null
+    const t0 = Date.now()
+    try {
+      r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as { ok: boolean; reason?: string }
+    } finally {
+      clearInterval(ticker)
+      release()
+    }
+    expect(r.ok).toBe(false)
+    // 契约化失败回执（writeStore 的超时人话原因经 saveCurrentSafe 包装透出，
+    // 与同步取锁版逐字同源）
+    expect(r.reason).toContain('正被其他窗口写入')
+    // 关键可观察面：等待期事件循环未被停住——同步实现下此处恒为 0
+    expect(ticks).toBeGreaterThan(0)
+    // 超时预算被如实用满（不是靠悄悄缩短等待来「消除阻塞」）：250ms 档下
+    // 取锁必须至少在位等到大致该时长才判超时。下界断言（留 100ms 宽松余量）。
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(150)
+    // 失败不落库（盘面仍是原 current）
+    expect(persistedCurrent()).toBe(libA)
+    // 锁释放后同一入口重试 → 成功落库（超时失败不是死路）
+    const retry = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as { ok: boolean }
+    expect(retry.ok).toBe(true)
+    expect(persistedCurrent()).toBe(libB)
+  })
+
+  it('退出取消回写同样走异步等待：锁被持有期间事件循环照常让出，锁一释放回写即落定', async () => {
+    await freshMain()
+    const ctl = await import('../../src/desktop/workdir-controller.js')
+    const { tryAcquireCrossProcessLock } = await import('../../src/fs/cross-process-lock.js')
+    // 预算放宽到 1.5s：本用例要在「回写正等待」的窗口内释放锁，短档会让等待窗
+    // 与用例自身的等待相撞（生产 5s 档不改）
+    ctl.__setWorkdirWriteLockTimeoutForTest(1_500)
+    // 先正常切库（落库成功 → 武装回滚基线），再占锁后驱动退出取消
+    const libB = mkLibrary()
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
+    expect(persistedCurrent()).toBe(libB)
+    const release = tryAcquireCrossProcessLock(lockFp())
+    if (!release) throw new Error('前置：无争用下占锁失败')
+    let ticks = 0
+    const ticker = setInterval(() => {
+      ticks++
+    }, 20)
+    try {
+      const win = M.windows.at(-1)!
+      win.webContents.execJsResult = { conflict: ['d1'], failed: [] }
+      M.msgBoxSyncChoice = 1 // 取消（「应用原样保留」）
+      M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
+      // 等事件循环跑过几拍（约 100ms）——此刻回写仍在等待窗内（预算 1.5s）：
+      // 同步实现下这几拍不可能跑起来（主进程被 Atomics.wait 占住）
+      await vi.waitFor(() => expect(ticks).toBeGreaterThanOrEqual(5), { timeout: 5_000, interval: 20 })
+      // 占锁解除 → 在途的异步回写应当拿到锁并把盘面写回旧库（无需新一次退出链动作）
+      release()
+      await vi.waitFor(() => expect(persistedCurrent()).toBe(libA), { timeout: 10_000, interval: 20 })
+    } finally {
+      clearInterval(ticker)
+      release()
+    }
+    expect(ticks, '等待期定时器照跑（同步实现下此处恒为 0）').toBeGreaterThan(0)
+  })
+})

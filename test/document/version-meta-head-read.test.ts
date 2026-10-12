@@ -31,6 +31,7 @@ import {
   listVersions,
   listVersionEntries,
   readVersion,
+  readVersionMeta,
   DEFAULT_VERSION_POLICY,
 } from '../../src/document/version.js'
 
@@ -116,5 +117,39 @@ describe('R66-19: version meta 判定走头部读（整读次数收敛）', () =
       words: countWords('旧版正文无字数字段'),
     })
     for (const e of entries) expect(e.time).toBeLessThanOrEqual(Date.now())
+  })
+})
+
+// ── readVersionMeta 头部读取上限 4KB → 64KB：超长 frontmatter（异常长的「原因」等
+// 字段）跨过 4KB 边界时闭合 --- 落在读取窗外，splitFrontMatter 失败 → 整版本被静默
+// 跳过（列版本缺条/去重/prune 失明）。──
+describe('readVersionMeta 头部读取上限：超长 frontmatter 版本不被静默跳过', () => {
+  let hDir: string
+  const hDocId = 'doc_head_limit'
+
+  beforeEach(() => {
+    hDir = mkdtempTracked(join(tmpdir(), 'clw-head-limit-'))
+  })
+  afterEach(() => {
+    rmSync(hDir, { recursive: true, force: true })
+  })
+
+  it('fm 超 4KB（原因 ~5KB）→ readVersionMeta 可读、listVersions 不缺条', () => {
+    const longReason = '守'.repeat(5_000) // 15KB UTF-8 字节，稳跨旧 4KB 窗
+    const id = writeVersion(hDir, hDocId, '正文内容', { origin: 'manual', reason: longReason })
+    expect(id).not.toBeNull()
+
+    const meta = readVersionMeta(hDir, hDocId, id!)
+    expect(meta).not.toBeNull() // 旧实现：head 截断 → splitFrontMatter 失败 → null
+    expect(meta!.meta.origin).toBe('manual')
+
+    const list = listVersions(hDir, hDocId)
+    expect(list.length).toBe(1) // 旧实现：列版本静默缺条
+  })
+
+  it('常规 fm（<4KB）行为守恒', () => {
+    const id = writeVersion(hDir, hDocId, '常规正文', { origin: 'ai', reason: '节流留底' })
+    expect(readVersionMeta(hDir, hDocId, id!)!.meta.origin).toBe('ai')
+    expect(listVersions(hDir, hDocId).length).toBe(1)
   })
 })

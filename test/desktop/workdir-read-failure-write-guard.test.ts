@@ -12,6 +12,9 @@
  *   current 移入 recent，再写新 current，历史不丢）；重读仍失败 → 拒绝覆写并抛错
  *   （saveCurrentSafe 契约面呈现「已阻止写入」人话文案）；
  * - 读失败期的回滚基线快照置 null（取消退出不得把合并结果回写回空）。
+ * 落库链已异步化（writeStore 的跨进程锁等待走异步孪生），故 saveCurrentArmingRollback /
+ * rollbackCancelledSwitch 返回 Promise——用例一律 await 后断言返回串与盘面，
+ * 断言口径（返回 null / 含「已阻止写入」+ 盘上字节）逐条不变。
  *
  * 手法：electron/windows.js/log 假件 + node:fs 选择性 readFileSync 假件（仅 workdir.json
  * 注入 EACCES，读写不对称才能区分「闸拒绝」与「物理写失败」），每用例 resetModules 取
@@ -121,7 +124,7 @@ describe('C401: workdir.json 读失败防覆写闸', () => {
     expect(degraded.recent).toEqual([])
     expect(M.warns.some((w) => String(w[1]).includes('workdir.json 读取失败'))).toBe(true)
     // 重读仍失败 → 拒绝覆写（saveCurrentSafe 契约面返回人话 reason，不裸抛）
-    const err = ctl.saveCurrentArmingRollback(libC)
+    const err = await ctl.saveCurrentArmingRollback(libC)
     expect(err).toContain('已阻止写入')
     expect(err).toContain('工作目录记录读取失败')
     // 盘上原文件未被触碰（写盘动作整体未发生）
@@ -136,7 +139,7 @@ describe('C401: workdir.json 读失败防覆写闸', () => {
     F.failRead = true
     expect(ctl.readStore().current).toBeNull() // 读失败降级（置闸）
     F.failRead = false // 瞬时故障恢复（杀毒/同步盘锁消散）
-    expect(ctl.saveCurrentArmingRollback(libC)).toBeNull()
+    expect(await ctl.saveCurrentArmingRollback(libC)).toBeNull()
     const disk = JSON.parse(readFileSync(fp, 'utf-8')) as { current: string; recent: { path: string }[] }
     expect(disk.current).toBe(libC)
     const paths = disk.recent.map((r) => r.path)
@@ -151,7 +154,7 @@ describe('C401: workdir.json 读失败防覆写闸', () => {
     const warns0 = M.warns.length
     expect(ctl.readStore()).toEqual({ current: null, recent: [] })
     expect(M.warns.length, 'ENOENT 静默（首启合法常态）').toBe(warns0)
-    expect(ctl.saveCurrentArmingRollback(libA)).toBeNull()
+    expect(await ctl.saveCurrentArmingRollback(libA)).toBeNull()
     const disk = JSON.parse(readFileSync(fp, 'utf-8')) as { current: string; recent: unknown[] }
     expect(disk.current).toBe(libA)
     expect(disk.recent).toEqual([])
@@ -164,8 +167,8 @@ describe('C401: workdir.json 读失败防覆写闸', () => {
     F.failRead = true
     ctl.readStore() // 读失败降级（置闸）——此刻 readStore 快照若作回滚基线即空 store
     F.failRead = false
-    expect(ctl.saveCurrentArmingRollback(libC)).toBeNull() // 恢复后合并写 {current:libC, recent:[libA]}
-    ctl.rollbackCancelledSwitch() // 作者取消退出：无基线（失败空快照不作基线）→ 不回写
+    expect(await ctl.saveCurrentArmingRollback(libC)).toBeNull() // 恢复后合并写 {current:libC, recent:[libA]}
+    await ctl.rollbackCancelledSwitch() // 作者取消退出：无基线（失败空快照不作基线）→ 不回写
     const disk = JSON.parse(readFileSync(fp, 'utf-8')) as { current: string; recent: { path: string }[] }
     expect(disk.current, '取消回滚不得把合并结果覆盖回空').toBe(libC)
     expect(disk.recent.map((r) => r.path)).toContain(libA)

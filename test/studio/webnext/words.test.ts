@@ -8,6 +8,7 @@ import {
   mergeFm,
   formKindOf,
   isBodyKind,
+  isPieceBodyNode,
   formatWanZi,
 } from '../../../src/studio/web-next/src/shared/words'
 
@@ -62,7 +63,7 @@ describe('formKindOf（含 chapter）', () => {
   it('设定/伏笔 → foreshadow', () => {
     expect(formKindOf('设定/伏笔/玉佩埋设.md')).toBe('foreshadow')
   })
-  it('短篇正文（写作/正文/001-x.md）path 视为 chapter；piece-body 由 role 判定', () => {
+  it('短篇正文（写作/正文/001-x.md）path 视为 chapter；短篇由 isPieceBodyNode 按书级 kind 覆写', () => {
     // 短篇正文与长篇路径相同（写作/正文/），formKindOf 无法区分 → 返回 chapter
     expect(formKindOf('写作/正文/001-开篇.md')).toBe('chapter')
   })
@@ -82,6 +83,20 @@ describe('isBodyKind（v2 正文判定）', () => {
   it('非正文 → false', () => {
     expect(isBodyKind('大纲/章纲/x.md')).toBe(false)
     expect(isBodyKind('设定/角色/x.md')).toBe(false)
+  })
+})
+
+describe('isPieceBodyNode（短篇正文判定：书级 kind + 正文路径）', () => {
+  it('短篇书 + 正文路径 → true（长短篇正文 path/role 相同，唯一可辨信号是书级 kind）', () => {
+    expect(isPieceBodyNode('short', { path: '写作/正文/001-开篇.md' })).toBe(true)
+    expect(isPieceBodyNode('short', { path: '写作/正文/第一卷/0001-开篇.md' })).toBe(true)
+  })
+  it('长篇书 → false（同路径与 role 下，只有书级 kind 不同）', () => {
+    expect(isPieceBodyNode('long', { path: '写作/正文/001-开篇.md' })).toBe(false)
+  })
+  it('短篇书但非正文（大纲/设定等）→ false（判据是「书级 short」与「正文路径」的合取）', () => {
+    expect(isPieceBodyNode('short', { path: '大纲/章纲/0001-开篇.md' })).toBe(false)
+    expect(isPieceBodyNode('short', { path: '设定/角色/林远.md' })).toBe(false)
   })
 })
 

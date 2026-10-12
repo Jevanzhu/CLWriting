@@ -159,7 +159,7 @@ export function checkRepeat(
   if (!Number.isInteger(charThreshold) || charThreshold <= 0) {
     log.warn(
       'check',
-      `checks.repeat_chars_threshold ${charThreshold} 非正整数（绝对重复字数阈值口径），已回落默认值 ${REPEAT_CHARS_THRESHOLD}`,
+      `checks.repeat_chars_threshold 取值 ${charThreshold} 非正整数、已回落默认值 ${REPEAT_CHARS_THRESHOLD}（绝对重复字数阈值口径）`,
     )
     charThreshold = REPEAT_CHARS_THRESHOLD
   }

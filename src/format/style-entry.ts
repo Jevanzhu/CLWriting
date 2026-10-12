@@ -35,8 +35,9 @@ export const SOURCE_RANK: Record<EntrySource, number> = {
 }
 
 /** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单。
- * 现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
- *  style-entry.test.ts 类型钉——留作极性判定单源候选，前端消费接入时启用；
+ *  测试专用导出（零生产调用）：生产侧极性语义已由 EntryKind 直分支承担（注入排序读
+ *  SOURCE_RANK、正负清单各走各的读取路径），无人调本函数；导出面服务
+ *  style-entry.test.ts 的类型钉——留作极性判定单源候选，前端消费接入时启用；
  *  删除须先迁移该测试。 */
 export function entryPolarity(kind: EntryKind): '正' | '负' {
   return kind === '样章' || kind === '手法' ? '正' : '负'

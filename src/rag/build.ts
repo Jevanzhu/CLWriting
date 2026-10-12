@@ -20,6 +20,7 @@ import { chapterNoFromName } from '../format/filename.js'
 import { readFile } from '../format/frontmatter.js'
 import {
   openRagDb,
+  openRagDbAsync,
   closeRagDb,
   safeRollback,
   storeChunk,
@@ -165,6 +166,10 @@ export function resetRagIndex(bookRoot: string): void {
   // SQLITE_NOTADB 等）清表救不了——本函数「清表不删文件」对文件级损坏无效，专为
   // 兜底失配而设的重建入口在损坏场景同死。派生缓存可弃可重建：确认损坏后删库
   //（连 -wal/-shm）全新建；busy/IO 等可重试错误原样上抛，绝不误删
+  // 保留同步开库（openRagDb 有界壳）的判据：本函数被 rebuild 端点在**交接后台任务前**
+  // 同步调用（闸内快操作，占用闸窗不计入后台任务），改异步要把清库挪到后台段，
+  // 闸时序随之改变（超范围）。同步壳自有等待预算封顶，争用严重时快速失败上抛，
+  // 作者可重试——不再是最坏 5s 级的事件循环冻结。
   let db: DatabaseSync
   try {
     db = openRagDb(bookRoot)
@@ -199,7 +204,9 @@ export function resetRagIndex(bookRoot: string): void {
  * 成对（同款：章号从索引域整体摘除）+ 目标章 `deleteRagMeta`（指纹失效 →
  *  missingFingerprint，下轮 buildIndex 按合并后正文重嵌）。事务包裹（BEGIN IMMEDIATE
  *  … COMMIT，stale 清理 :393-426 同款先例）；任何失败 warn 回滚不抛——RAG 是投影非
- *  权威源，自愈兜底 = 下轮 buildIndex 的已删章残留清理 + stale 指纹重嵌。 */
+ *  权威源，自愈兜底 = 下轮 buildIndex 的已删章残留清理 + stale 指纹重嵌。
+ *  保留同步开库的判据与 estimateRagChunkCount 同源（StructureRagPort 同步签名），
+ *  且本函数本就吞错降级（best-effort），同步壳封顶的等待不改变任何对外语义。 */
 export function cleanupRagAfterMerge(bookRoot: string, sourceChapterNos: number[], targetChapterNo: number): void {
   if (!ragDbExists(bookRoot)) return
   try {
@@ -340,14 +347,16 @@ export async function buildIndex(
   // 建索引入口（作者自救的第一操作）同死；确认损坏后删库（连 -wal/-shm）全新建，
   // 全量重建由增量逻辑自然承接（空库无指纹/游标 → 全部章落入 toIndex）。busy/IO
   // 等可重试错误照旧上抛——绝无「误判损坏 → 白白整库重嵌」面（口径同 resetRagIndex）。
+  // 开库走异步孪生（本函数已有 await 面：embed 网络往返；后端建索引任务在服务进程
+  // 事件循环上）——并发写方持锁/大库回填首开时等待让出，不冻 SSE 与其余端点。
   let db: DatabaseSync
   try {
-    db = openRagDb(bookRoot)
+    db = await openRagDbAsync(bookRoot)
   } catch (e) {
     if (!isRagDbCorruptionError(e)) throw e
     log.warn('rag', `RAG 索引库文件损坏（${errStr(e)}），删除后全新重建`)
     deleteRagDbFiles(bookRoot)
-    db = openRagDb(bookRoot)
+    db = await openRagDbAsync(bookRoot)
   }
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')

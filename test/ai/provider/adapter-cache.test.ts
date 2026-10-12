@@ -169,10 +169,11 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
       REQ,
     )
     // R73-1：网关完成但不回 usage——判错重试对这类网关是全量破坏，仍放行；但不再按
-    // 0/0 入账（预算闸 tokens/cost 对该类端点永不生效）——input/output 按请求/产出
-    // 字符折算（'hi' 与 '完整' 各 2 码位 × 0.6 → ceil = 2），estimated 标记估计口径
+    // 0/0 入账（预算闸 tokens/cost 对该类端点永不生效）——input 按请求字符 + 消息外壳
+    // 折算（'hi' 2 码位 + 外壳 24 码位 = 26 × 0.6 → ceil = 16），output 按产出字符折算
+    //（'完整' 2 码位 × 0.6 → ceil = 2），estimated 标记估计口径
     expect(evs.find((e) => e.type === 'done')).toMatchObject({
-      usage: { inputTokens: 2, outputTokens: 2, estimated: true },
+      usage: { inputTokens: 16, outputTokens: 2, estimated: true },
       stopReason: 'stop',
     })
     expect(evs.find((e) => e.type === 'error')).toBeUndefined()

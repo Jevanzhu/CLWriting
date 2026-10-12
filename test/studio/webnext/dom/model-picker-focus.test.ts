@@ -64,4 +64,12 @@ describe('R8B-P2-3: ModelPicker 焦点陷阱 + dialog 语义', () => {
     expect(document.body.querySelector('.picker-pop')).toBeNull()
     w.unmount()
   })
+
+  it('关闭钮是纯图标钮：带可访问名（data-tip 与名同源，同全局 tooltip 口径）', () => {
+    const w = mount(ModelPicker, { props: PROPS, attachTo: document.body })
+    const close = document.body.querySelector('.close-btn') as HTMLElement
+    expect(close.getAttribute('aria-label')).toBe('关闭')
+    expect(close.getAttribute('data-tip')).toBe('关闭')
+    w.unmount()
+  })
 })

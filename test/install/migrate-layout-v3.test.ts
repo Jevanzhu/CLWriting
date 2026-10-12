@@ -241,3 +241,46 @@ test('R27-133: 定稿防线 throw 分支稿入回收站 → 同样清除主清�
   expect(paths.has('docD2')).toBe(false)
   expect(paths.get('doc1')).toBe('写作/正文/第一卷/001-开篇.md')
 })
+
+// ── 退役目录残留：非隐藏的未识别条目留痕 ──────────────
+// 修复前 only 拦「非隐藏且 .md」——非 .md 文件与子目录一律静默 continue：退役目录
+// 写作/草稿/ 里的子目录让末尾 rmdirSync 恒失败，目录静默常驻而 errors 为空，作者
+// 得不到任何线索。现凡非隐藏条目未识别即进 errors（与同函数 .md 残留口径一致）。
+
+test('草稿目录残留子目录 → 进 errors 留痕 + 目录仍在（不再静默常驻）', () => {
+  // 子目录名不含 .md 后缀，修复前落入静默跳过分支
+  write('写作/草稿/旧稿子目录/note.md', '内容')
+  const r = migrateLayoutV3(tmp)
+  expect(r.migrated).toBe(0)
+  expect(r.errors).toHaveLength(1)
+  expect(r.errors[0]).toContain('旧稿子目录')
+  // 未自动删/搬（交作者裁决），但滞留事实已可见
+  expect(has('写作/草稿/旧稿子目录/note.md')).toBe(true)
+})
+
+test('草稿目录残留非 .md 文件 → 同口径留痕', () => {
+  write('写作/草稿/备注.txt', '内容')
+  const r = migrateLayoutV3(tmp)
+  expect(r.migrated).toBe(0)
+  expect(r.errors).toHaveLength(1)
+  expect(r.errors[0]).toContain('备注.txt')
+  expect(has('写作/草稿/备注.txt')).toBe(true)
+})
+
+test('隐藏条目（.DS_Store）照旧静默忽略——不制造噪音', () => {
+  write('写作/草稿/.DS_Store')
+  const r = migrateLayoutV3(tmp)
+  expect(r.migrated).toBe(0)
+  expect(r.errors).toEqual([])
+})
+
+test('未识别条目与可迁移稿同存 → 照常搬迁，留痕只点名残留者', () => {
+  write('写作/草稿/草稿-1.md', '---\n章号: 1\n标题: 开篇\n---\n正文')
+  write('写作/草稿/旧稿子目录/note.md', '内容')
+  const r = migrateLayoutV3(tmp)
+  expect(r.migrated).toBe(1)
+  expect(has('写作/正文/第一卷/0001-开篇.md')).toBe(true)
+  expect(r.errors).toHaveLength(1)
+  expect(r.errors[0]).toContain('旧稿子目录')
+  expect(has('写作/草稿/旧稿子目录/note.md')).toBe(true) // 退役目录仍滞留（已可见）
+})

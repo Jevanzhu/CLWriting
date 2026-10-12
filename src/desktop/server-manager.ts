@@ -719,22 +719,18 @@ function scheduleRestart(ctx: ManagerCtx): void {
     // 决断可能异步（异步对话框）——exit 回调不等它，决断到达
     // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
     // 决断链补 .catch——异步决断 reject
-    // （对话框链异常等）此前无接手即成 unhandledRejection；catch 记错误日志后走兜底
+    // （对话框链异常等）无接手即成 unhandledRejection；catch 记错误日志后走兜底
     // 'quit' 语义（本模块的 quit 缺省 = 不再自动重启，真退出由 main 侧执行，deps 无
     // quit 钩子可调——保持进程现状不重启即该语义的兜底形态）。
-    // 缺省 'quit' 臂补显式 error 留痕——本模块 deps 无 quit 钩子可调（真退出由 main 侧执行），
-    // 「quit 语义」的实际形态 = 保持进程现状、不再自动重启。生产 main.ts 已接线
-    // onRestartExhausted，此臂只在接线缺失/异常时到场，届时进程停在「无 server、无提示」态；
-    // 无此留痕时作者无从区分「正在重启」与「已放弃」，故两条路径（无钩子 / 决断为 quit）
-    // 各补一条终态 error，与决策表口径「API 永久不可用」显式对齐。
-    const quitFallback = (why: string): void => {
-      cfg.logger.error(
-        'server-manager',
-        `studio server 已放弃自动重启（${why}）：进程保持运行但本地 API 永久不可用，请重启应用。`,
-      )
+    // 两条终态各留一条 error 且文案按实际形态分写：决断为 quit 时生产钩子已 app.quit()
+    // （main.ts onRestartExhausted），应用正在退出——写成「进程保持运行」与实际相悖、
+    // 误导排障方向；缺钩子/回调异常两臂才是「进程留在原地、本地 API 已停」的形态
+    //（无此留痕时作者无从区分「正在重启」与「已放弃」）。
+    const quitFallback = (why: string, detail: string): void => {
+      cfg.logger.error('server-manager', `studio server 已放弃自动重启（${why}）：${detail}`)
     }
     if (!cfg.onRestartExhausted) {
-      quitFallback('无崩溃封顶决断钩子')
+      quitFallback('无崩溃封顶决断钩子', '进程保持运行但本地 API 已停，请重启应用。')
       return
     }
     void Promise.resolve(cfg.onRestartExhausted())
@@ -744,11 +740,11 @@ function scheduleRestart(ctx: ManagerCtx): void {
           scheduleRestart(ctx)
           return
         }
-        quitFallback('作者决断 quit')
+        quitFallback('作者决断 quit', '应用退出中，本地 API 随进程终止。')
       })
       .catch((e) => {
         cfg.logger.error('server-manager', '崩溃封顶决断回调失败，按兜底 quit 语义收口（不再自动重启）', e)
-        quitFallback('决断回调异常')
+        quitFallback('决断回调异常', '进程保持运行但本地 API 已停，请重启应用。')
       })
     return
   }

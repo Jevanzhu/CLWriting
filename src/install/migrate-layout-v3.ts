@@ -120,14 +120,16 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     }
     const m = name.match(/^草稿-(\d+)\.md$/)
     if (!m) {
-      // 非隐藏的非 .md 认识文件不再静默跳过——v3 布局已退役草稿
-      // 目录，未识别文件将永久滞留。errors 提示作者手动处置（隐藏文件/.DS_Store 等照旧
-      // 忽略，不制造噪音）。
+      // 非隐藏的未识别条目一律留痕——v3 布局已退役草稿目录，未识别文件与子目录都会
+      // 永久滞留（子目录还会让末尾 rmdirSync 恒失败、退役目录静默常驻，作者无从知晓
+      // 目录为何还在）。隐藏文件（.DS_Store 等）照旧忽略，不制造噪音。
       // .md 判定收敛 isMdFileName（大小写不敏感）——语义从「跳过」
       // 变「纳入」：.MD 遗留文件此前静默滞留，现在同样进 errors 提示手动处置
-      if (!name.startsWith('.') && isMdFileName(name)) {
+      if (!name.startsWith('.')) {
         errors.push(
-          `${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`,
+          isMdFileName(name)
+            ? `${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`
+            : `${name}: 草稿目录遗留的未识别条目（非 .md 文件或子目录），v3 布局不再使用 写作/草稿/，请手动处置`,
         )
       }
       continue

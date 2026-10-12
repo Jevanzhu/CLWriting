@@ -60,4 +60,20 @@ describe('R49-32: CreateBookModal 焦点圈 + dialog 语义', () => {
 
     w.unmount()
   })
+
+  it('建书失败的错误条带 role="alert"（读屏即时播报，不静默）', async () => {
+    const w = mount(CreateBookModal, {
+      props: { name: '雪中', kind: 'long' as const, creating: false, error: null },
+      attachTo: document.body,
+    })
+    expect(document.querySelector('.err')).toBeNull() // 无错不渲染错误条
+
+    await w.setProps({ error: '该书已存在' })
+    const err = document.querySelector('.err') as HTMLElement
+    expect(err).not.toBeNull()
+    expect(err.getAttribute('role')).toBe('alert')
+    expect(err.textContent).toContain('该书已存在')
+
+    w.unmount()
+  })
 })

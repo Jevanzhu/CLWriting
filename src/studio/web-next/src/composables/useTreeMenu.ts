@@ -8,6 +8,8 @@
 import { computed } from 'vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 import type { TreeNode } from '../types/tree'
+import { useDocStore } from '../stores/doc'
+import { isPieceBodyNode } from '../shared/words'
 import {
   isVolumeDir,
   moveToTargetsFor,
@@ -46,6 +48,11 @@ export function useTreeMenu(
   treeData: () => { grouped: TreeNode[]; raw: TreeNode[] },
   opts?: { activeDocId?: () => string | null },
 ) {
+  // 书级 kind 取 doc store 的会话级单源（bookKind 随 setBook 落定）——treeData 访问器只带
+  // grouped/raw（ChapterTreePanel 装配面），短篇判定所需书级信号不经参数通道，
+  // 与同族 useChapterTreeActions 的 store 直取口径一致。
+  const doc = useDocStore()
+
   /** 桌面版才有「打开所在文件夹」（Electron shell.showItemInFolder 跨平台；浏览器版隐藏） */
   const hasShowInFolder = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop?.showInFolder)
 
@@ -101,7 +108,7 @@ export function useTreeMenu(
 
   function buildLeafMenu(node: TreeNode, grouped: TreeNode[], raw: TreeNode[]): MenuItem[] {
     const items: MenuItem[] = [{ key: 'rename', label: '重命名' }]
-    if (node.role === 'piece-body') {
+    if (isPieceBodyNode(doc.bookKind, node)) {
       // 短篇正文：标题/篇号编辑（联动文件名）；无跨卷移动（短篇集扁平；path 与长篇同为 写作/正文/）
       items.push({ key: 'meta', label: '篇章信息…' })
       // 定稿：正文区 draft（首次）/ revision（改动后）可定稿；final 已定稿不显
@@ -131,7 +138,7 @@ export function useTreeMenu(
       // 撤销并入不按 并入 键显隐——树数据不带 fm 结构键，服务端是唯一真相（无并入
       // 记录时 NOT_MERGE_STATE 拒收并提示）。光标拆分只对当前打开章开放（拆分点取
       // 编辑器光标，未打开章无光标可依）。
-      const prev = prevBodyChapterInDisplayOrder(node, grouped)
+      const prev = prevBodyChapterInDisplayOrder(node, grouped, doc.bookKind)
       if (prev) items.push({ key: 'merge-into-prev', label: `并入上一章（${prev.name}）` })
       items.push({ key: 'merge-undo', label: '撤销并入…' })
       if (opts?.activeDocId?.() === node.docId) {

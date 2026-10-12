@@ -18,6 +18,7 @@ import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
 import {
   openRagDb,
+  openRagDbAsync,
   migrateRagSchema,
   ragDbExists,
   resolveRagDbPath,
@@ -706,6 +707,138 @@ describe('RAG 库 schema 阶梯（user_version）', () => {
       expect(columnSignature(db, 'chunks')).toContain('norm')
     } finally {
       db.close()
+    }
+  })
+})
+
+// ── 开库争用：同步壳有界、异步孪生让出事件循环 ─────────────────────────
+// 缺陷形态：开库序列在争用下最长阻塞事件循环 ≈ 1.8s 自有退避（8×50ms×(i+1)）
+// + 单条语句至多 5s 的 SQLite 内部等待（node:sqlite 同步 API，busy_timeout 的等待
+// 同样停在事件循环上）——GUI/CLI 争用或大库回填首开时 SSE/保存停摆。
+// 修后口径：语句级等待归零，等待外移到调用方——同步壳保留极小自有预算（争用严重即
+// 快速失败，调用方降级/重试），异步孪生保留满档曲线但全部 await 让出。
+// 断言只锚可观察面：实测阻塞时长上界、事件循环是否让出、返回值/错误码与开库终态。
+describe('RAG 开库争用：事件循环让出与阻塞上界', () => {
+  let root: string
+  let dbPath: string
+
+  /** 造一枚 delete 模式（非 WAL）的库并落一行——WAL 切换才需要写锁，
+   *  是「并发开库撞锁」的确定性形态。 */
+  function seedDeleteModeDb(): void {
+    root = join(tmpdir(), `rag-contend-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    dbPath = join(root, '.cache', 'rag.db')
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    const db = new DatabaseSync(dbPath)
+    try {
+      createRagTables(db)
+      storeChunk(db, {
+        章号: 1,
+        start_offset: 0,
+        end_offset: 10,
+        embedding: Float32Array.from([1, 0, 0]),
+        model: 'contend-model',
+      })
+    } finally {
+      db.close()
+    }
+  }
+
+  beforeEach(() => seedDeleteModeDb())
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+
+  /** 占住写锁的另一连接（等价于另一进程持写锁窗） */
+  function holdWriteLock(): DatabaseSync {
+    const locker = new DatabaseSync(dbPath)
+    locker.exec('BEGIN EXCLUSIVE')
+    locker.exec("INSERT INTO rag_meta (key, value) VALUES ('held', '1')")
+    return locker
+  }
+
+  it('同步壳：写锁被占期间快速失败（错误码 5 非损坏），阻塞上界在毫秒级小档内', () => {
+    const locker = holdWriteLock()
+    const t0 = Date.now()
+    let caught: unknown
+    try {
+      openRagDb(root)
+    } catch (e) {
+      caught = e
+    }
+    const blocked = Date.now() - t0
+    try {
+      // 失败判据不变：BUSY 原样上抛（绝不误判损坏送删库链）
+      expect((caught as { errcode?: number }).errcode).toBe(5)
+      // 最坏阻塞上界：同步壳自有等待预算（100ms）耗尽即返回，
+      // 不再出现「单条语句等满 5s busy_timeout」的形态。上界取 500ms 留宿主抖动余量，
+      // 仍比改写前的秒级冻结低一个数量级。
+      expect(blocked).toBeLessThan(500)
+      expect(existsSync(dbPath)).toBe(true) // 失败不删库
+    } finally {
+      locker.exec('ROLLBACK')
+      locker.close()
+    }
+    // 锁释放后同一路径照常开库（失败不是死路）
+    const db = openRagDb(root)
+    try {
+      expect(readAllChunks(db)).toHaveLength(1)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('异步孪生：写锁被占期间事件循环照常让出（定时器照跑），重试预算不减，释放后重试成功', async () => {
+    const locker = holdWriteLock()
+    let ticks = 0
+    const timer = setInterval(() => {
+      ticks++
+    }, 20)
+    let caught: unknown
+    const t0 = Date.now()
+    try {
+      await openRagDbAsync(root)
+    } catch (e) {
+      caught = e
+    } finally {
+      clearInterval(timer)
+    }
+    const elapsed = Date.now() - t0
+    try {
+      // 失败判据与同步壳一致（同一争用判据/同一曲线）
+      expect((caught as { errcode?: number }).errcode).toBe(5)
+      // 关键可观察面：等待期事件循环未被停住——同步壳在同等争用下此处恒为 0
+      expect(ticks).toBeGreaterThan(0)
+      // 重试预算不减：8 轮 × 50ms×(i+1) 的曲线原样保留（合计 1.8s），
+      // 只是把等待从同步微睡换成 await——超时档没有靠缩短曲线「换」出来。
+      // 下界取 1.5s 留宿主抖动余量。
+      expect(elapsed).toBeGreaterThanOrEqual(1_500)
+    } finally {
+      locker.exec('ROLLBACK')
+      locker.close()
+    }
+    const db = await openRagDbAsync(root)
+    try {
+      expect(readAllChunks(db)).toHaveLength(1)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('无争用：两壳终态同源（WAL 生效、稳态 busy_timeout 复位、回填幂等）', async () => {
+    const syncDb = openRagDb(root)
+    try {
+      expect((syncDb.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
+      // 开库序列的小档只服务序列内不冻结事件循环；打开后连接复位稳态档
+      expect((syncDb.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout).toBe(5_000)
+    } finally {
+      syncDb.close()
+    }
+    const asyncDb = await openRagDbAsync(root)
+    try {
+      expect((asyncDb.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
+      expect((asyncDb.prepare('PRAGMA busy_timeout').get() as { timeout: number }).timeout).toBe(5_000)
+      // 二次开库零 schema 变更、回填幂等（一次性语义不变）
+      expect(readAllChunks(asyncDb)).toHaveLength(1)
+    } finally {
+      asyncDb.close()
     }
   })
 })

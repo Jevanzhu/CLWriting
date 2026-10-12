@@ -272,6 +272,12 @@ export function setMainWindow(win: BrowserWindow): void {
  * 陈窗关闭不再当成本轮主窗关闭），再摘登记、最后 destroy（须在 destroy 前取回白名单项
  * ——销毁后读 webContents 会抛）；已销毁窗跳过 destroy（重复 destroy 会抛）。
  * destroy 失败保留登记待下次重跑再收，异常只留痕不外溢（回收不阻断重跑）。
+ *
+ * 生产可达性登记：本回收在「关窗即退出」形态下**生产不可达**（调用点只在 bootstrap
+ * 重跑路径，而重跑的唯一入口 activate 分支不可达——判据见 main.ts activate 分支与
+ * test/desktop/main-lifecycle-exit.test.ts 的直接置 null 驱动）。保留理由：它是重跑
+ * 链的安全前提（一旦重跑可达而本回收缺席，旧窗即成无主可信发送者），删掉会把该不变量
+ * 从代码里抹去；由单测锚定行为。
  */
 export function reclaimStaleMainWindow(): void {
   for (const win of [...mainWindows]) {

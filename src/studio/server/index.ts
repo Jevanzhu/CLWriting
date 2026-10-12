@@ -15,7 +15,7 @@ import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateBookDefaults } from '../../install/migrate-defaults.js'
 // 书级 layout 迁移链的顺序单点声明（LAYOUT_MIGRATIONS 数组序 = 执行序）：
 // 启动段只负责逐书容错与通告，不再逐行硬编码步骤顺序（契约见该表头注）。
-import { runLayoutMigrations } from '../../install/layout-migrations.js'
+import { runLayoutMigrationsAsync } from '../../install/layout-migrations.js'
 import { registerBookRoutes } from './api/books.js'
 import { registerRagRoutes } from './api/rag.js'
 import { registerRagProviderRoutes } from './api/rag-providers.js'
@@ -42,7 +42,13 @@ import { registerRewriteRoutes } from './api/rewrite.js'
 import { registerConfigRoutes } from './api/config.js'
 import { registerPrefsRoutes } from './api/prefs.js'
 import { registerStateRoutes } from './api/state.js'
-import { registerIoRoutes, createExportSlotGate, type ExportSlotGate } from './api/io.js'
+import {
+  registerIoRoutes,
+  createExportSlotGate,
+  createExportCancelRegistry,
+  type ExportCancelRegistry,
+  type ExportSlotGate,
+} from './api/io.js'
 import { registerKnowledgeRoutes } from './api/knowledge.js'
 import { registerHeartbeatRoutes } from './api/heartbeat.js'
 import { registerDocumentRoutes } from './api/documents.js'
@@ -93,6 +99,8 @@ interface RouteDeps {
   providers: ProviderRuntime
   /** 导出全局并发闸实例（组装根解析一次，随本实例；原模块级全局状态） */
   exportGate: ExportSlotGate
+  /** 在途导出取消登记（组装根解析一次，随本实例；关停收尾 abort 全部在途作业） */
+  exportCancels: ExportCancelRegistry
   /** 逐路由测试覆盖档（缺省 {} = 生产口径逐位不变；测试经组装根 opts.overrides 注入） */
   overrides: RouteOverrides
 }
@@ -138,6 +146,9 @@ export interface RouteOverrides {
   /** 导出并发闸实例覆盖档（缺省 = 组装根按本实例新建；
    *  测试注入自建实例——可在服务外占满闸，断言排队/超时/503 分支） */
   exportGate?: ExportSlotGate | null
+  /** 导出作业 worker 入口覆盖档（缺省 = 生产同伴 entry）——测试注入慢 worker，
+   *  断言取消（客户端断开 / 关停）后 task-gate 槽与全局名额立即归位 */
+  exportWorkerUrl?: URL | null
   /** 删书墓地后台清理函数（缺省真删） */
   graveyardCleanup?: ((graveAbs: string) => Promise<void>) | null
   /** snapshot restore 读体前让出桩（缺省无让出） */
@@ -206,7 +217,14 @@ function buildRoutes(
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath, stateTtlMs: ov.stateTtlMs }) // 状态机入口过全局托底链（volume_size 等喂生效值）
     // token 不注入 io/knowledge 两 ctx——注入后零读取（写闸在路由分派前已拦），属死字段
-    registerIoRoutes({ workDir, gate: deps.gate, exportGate: deps.exportGate, exportWaitTimeoutMs: ov.exportWaitTimeoutMs })
+    registerIoRoutes({
+      workDir,
+      gate: deps.gate,
+      exportGate: deps.exportGate,
+      cancels: deps.exportCancels,
+      exportWaitTimeoutMs: ov.exportWaitTimeoutMs,
+      exportWorkerUrl: ov.exportWorkerUrl,
+    })
     registerKnowledgeRoutes({
       workDir,
       gate: deps.gate,
@@ -362,58 +380,53 @@ export function startServer(opts: StudioServerOptions): http.Server {
     driver: productionDriverHost(),
     providers: processProviderRuntime(),
   })
-  // 兼容形态：把句柄的 close 语义挂到 server 对象上（见 StudioServerHandle.close 注释）
-  const rawClose = handle.server.close.bind(handle.server)
+  // 兼容形态：把句柄的 close 语义挂到 server 对象上（见 StudioServerHandle.close 注释）。
+  // 委托句柄而非自建第二份 closeSseThenSettle：在途导出的关停取消登记归句柄实例，
+  // 两处各持一份实现会让「关停取消」只覆盖其中一条 close 路径。
   handle.server.close = ((cb?: (err?: Error) => void) => {
-    closeSseThenSettle(rawClose, cb)
+    handle.close(cb)
     return handle.server
   }) as typeof handle.server.close
   return handle.server
 }
 
-/** 关停收尾（句柄与兼容壳共用的实现体）：断 SSE → close → 有界等 Worker settle → 回调。 */
-function closeSseThenSettle(rawClose: (cb?: (err?: Error) => void) => http.Server, cb?: (err?: Error) => void): void {
+/** 关停收尾（句柄与兼容壳共用的实现体）：断 SSE → 取消在途导出 → close → 有界等
+ *  Worker settle → 回调。
+ *  取消排在 close 之前：abort 让导出 worker 立刻 terminate、在途登记随即 settle，
+ *  既定的有界等待窗（CLOSE_FLUSH_BUDGET_MS）不必再等一个完整作业周期（最长 120s 超时档）。 */
+function closeSseThenSettle(
+  rawClose: (cb?: (err?: Error) => void) => http.Server,
+  cb?: (err?: Error) => void,
+  cancels?: ExportCancelRegistry,
+): void {
   closeAllSseConnections()
+  cancels?.abortAll()
   rawClose((err?: Error) => {
     void waitInFlightWorkSettled(CLOSE_FLUSH_BUDGET_MS).finally(() => cb?.(err))
   })
 }
 
 /**
- * 组装并起 server（组装根）：迁移/自愈启动链 → 依赖解析 → 路由注册 →
- * 监听。deps 缺省即生产口径（driver 宿主读 CLWRITING_DRIVER 选择实现；闸与 provider
- * 运行时按实例新建/进程单例，见 StudioServerDeps）。
+ * 启动链（组装根 listen 之前的迁移/自愈段）：prompt overlay 升级 → 书库自愈 →
+ * 书级 layout 迁移（编排表，数组序 = 执行序） → 书级默认值迁移。
+ *
+ * 为什么独立成 async 函数：链里书级 layout 迁移的定稿基线步要读 git status——同步
+ * spawnSync 在网盘挂载 / 杀软锁 .git 时会把服务进程事件循环连续占满（单次调用上限
+ * 15s，逐书叠加），启动期整体停摆、窗口白屏、稳态的 SSE 心跳一并卡死。链改走异步
+ * 孪生（gitAsync + 清单锁异步孪生）并逐个 await，等待 git 期间事件循环照常推进。
+ *
+ * 顺序与留痕逐位不变：各步仍是原顺序、原 noticeOrLog 文案；本函数自身不抛
+ *（逐书/整体 catch 兜底），故调用方的 listen 必达——「迁移失败不阻断启动」的口径
+ * 与同步版一致。
+ *
+ * listen 仍等本链完成（见 createStudioServer 尾部的分派）：迁移会改写用户库版式，
+ * 让请求先于迁移进来会读到中间态——「迁移先于服务可用」的既有语义不因异步化而松。
  */
-export function createStudioServer(opts: StudioServerOptions, deps: StudioServerDeps = {}): StudioServerHandle {
-  const studioToken = opts.studioToken ?? randomUUID()
-  // 依赖解析（组装根唯一选择点）：
-  // - 闸：显式传入者胜（生产 = 进程默认实例）；缺省按本实例 workDir 新建（同进程多实例隔离）
-  // - driver：显式传入者胜；缺省生产宿主（环境变量唯一读取点在此宿主内）
-  // - provider 运行时：显式传入者胜；缺省进程单例。注入给 AI 执行器的回调注册面 + mock 快路
-  const driver = deps.driver ?? productionDriverHost()
-  const gate =
-    deps.taskGate ??
-    createTaskGate({ lockRoot: opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null, driver })
-  const providers = deps.providers ?? processProviderRuntime()
-  configureProviderRuntime(providers)
-  configureRunnerMockFastPath(driver.kind === 'mock')
-  // 导出并发闸随本实例实例化（原模块级全局计数/队列——同进程多实例互相影响）。
-  // 生产恒单实例，语义与「进程单一闸」逐位等价（并发上限/排队/超时全不变）；测试经
-  // overrides.exportGate 注入自建实例，可在服务外占满闸以断言 503 分支。
-  const exportGate = opts.overrides?.exportGate ?? createExportSlotGate()
-  // 结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
-  // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
-  initLogging({
-    logsDir: opts.userDataPath ? join(opts.userDataPath, 'logs') : null,
-    mirrorConsole: opts.mirrorConsoleLog ?? true,
-  })
-  // 启动链通告收集——迁移失败不再是「console 失明出口」，统一进
-  // startupNotices 供 /api/startup-notices + App 横幅消费
-  const sink = createStartupNoticeSink()
-  const noticeOrLog = (kind: string, message: string, err?: unknown): void => {
-    sink.add(kind, message)
-    log.error(kind, message, err)
-  }
+async function runStudioStartupChain(
+  opts: StudioServerOptions,
+  sink: StartupNoticeSink,
+  noticeOrLog: (kind: string, message: string, err?: unknown) => void,
+): Promise<void> {
   // 内置 prompt overlay 升级迁移（幂等——未改动的旧版拷贝升级为当前内置，
   // 用户改过的原样保留；「升级不覆盖用户改动」的落点）
   if (opts.userDataPath) {
@@ -473,7 +486,9 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       // atomicWriteFile 等）：单本书目录权限故障（备份恢复/同步盘 EACCES）会炸整
       // 个服务启动、全部书不可用；一本失败只降级该书（migrateBookDefaults 的先例）。
       try {
-        for (const step of runLayoutMigrations(bookPath)) {
+        // 迁移链的定稿基线步读 git 走异步孪生——等待期事件循环可推进（见本函数头注）；
+        // 表序（数组序 = 执行序）与逐书串行语义由逐个 await 承载，契约不变。
+        for (const step of await runLayoutMigrationsAsync(bookPath)) {
           // 结构化错误（非抛出）逐步通告：kind/label 随表条目走，通告面与步骤单点同源
           if (step.errors.length > 0 && step.noticeKind) {
             noticeOrLog(
@@ -498,6 +513,52 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
       noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${errMsg(e)}`, e)
     }
   }
+}
+
+/**
+ * 组装并起 server（组装根）：迁移/自愈启动链 → 依赖解析 → 路由注册 →
+ * 监听。deps 缺省即生产口径（driver 宿主读 CLWRITING_DRIVER 选择实现；闸与 provider
+ * 运行时按实例新建/进程单例，见 StudioServerDeps）。
+ */
+export function createStudioServer(opts: StudioServerOptions, deps: StudioServerDeps = {}): StudioServerHandle {
+  const studioToken = opts.studioToken ?? randomUUID()
+  // 依赖解析（组装根唯一选择点）：
+  // - 闸：显式传入者胜（生产 = 进程默认实例）；缺省按本实例 workDir 新建（同进程多实例隔离）
+  // - driver：显式传入者胜；缺省生产宿主（环境变量唯一读取点在此宿主内）
+  // - provider 运行时：显式传入者胜；缺省进程单例。注入给 AI 执行器的回调注册面 + mock 快路
+  const driver = deps.driver ?? productionDriverHost()
+  const gate =
+    deps.taskGate ??
+    createTaskGate({ lockRoot: opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null, driver })
+  const providers = deps.providers ?? processProviderRuntime()
+  configureProviderRuntime(providers)
+  configureRunnerMockFastPath(driver.kind === 'mock')
+  // 导出并发闸随本实例实例化（原模块级全局计数/队列——同进程多实例互相影响）。
+  // 生产恒单实例，语义与「进程单一闸」逐位等价（并发上限/排队/超时全不变）；测试经
+  // overrides.exportGate 注入自建实例，可在服务外占满闸以断言 503 分支。
+  const exportGate = opts.overrides?.exportGate ?? createExportSlotGate()
+  // 在途导出取消登记随本实例新建（同 exportGate 口径：状态归实例，生产恒单实例）——
+  // close 收尾（closeSseThenSettle）枚举并 abort 全部在途导出，worker 立刻 terminate
+  // 而非占满闸槽到 120s 超时。
+  const exportCancels = createExportCancelRegistry()
+  // 结构化日志——JSONL 按天落 userData/logs/，未提供 userDataPath 时
+  // 保持纯 console 镜像（与引入前行为一致）。desktop main 可能已提前 init（幂等）。
+  initLogging({
+    logsDir: opts.userDataPath ? join(opts.userDataPath, 'logs') : null,
+    mirrorConsole: opts.mirrorConsoleLog ?? true,
+  })
+  // 启动链通告收集——迁移失败不再是「console 失明出口」，统一进
+  // startupNotices 供 /api/startup-notices + App 横幅消费
+  const sink = createStartupNoticeSink()
+  const noticeOrLog = (kind: string, message: string, err?: unknown): void => {
+    sink.add(kind, message)
+    log.error(kind, message, err)
+  }
+  // 启动链（迁移/自愈）——见 runStudioStartupChain 头注。链在此行**同步起跑**：
+  // 链内同步步（prompt overlay / 书库自愈）在本行内跑完，原「先于路由装配与 listen」
+  // 的次序不变；异步步（书级 layout 迁移的 git 读）在本进程首次派发请求前完成——
+  // 请求入口首行 await 本链，等价于同步版「迁移全部完成后服务才可用」。
+  const startupChain = runStudioStartupChain(opts, sink, noticeOrLog)
   // v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户
   // 书库（唯一测试库实测已全规范），写路径收口 + 读侧容忍 + NFC 创建点已覆盖全部保证；
   // 「启动即改写用户数据」的长期风险面大于无受众的收益。裁决记档见
@@ -522,7 +583,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     isTrustedOrigin,
     sink,
     streamTickets,
-    { gate, driver, providers, exportGate, overrides: opts.overrides ?? {} },
+    { gate, driver, providers, exportGate, exportCancels, overrides: opts.overrides ?? {} },
   )
   // host 仅限本机回环（本文件头注释），非回环值启动即拒——
   // 否则 Host 白名单硬编码回环，传非回环 host 时全请求 403（参数存在即故障）；
@@ -553,6 +614,11 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
     res.on('finish', () => {
       if (!req.readableEnded) req.resume()
     })
+    // 启动链未落定前不派发任何请求——迁移会改写用户库版式（清单路径/目录搬迁），
+    // 先于迁移读会拿到中间态。同步版的「迁移先于 listen，故先于一切请求」由此在
+    // 异步形态下逐位保留：等待期事件循环照常推进（不阻塞链内各步与定时器），
+    // 链已落定后每请求只多一跳微任务。
+    await startupChain
     // 请求行 URL 只收 origin-form（以 / 起始，node http 服务端唯一合法形态）。
     // absolute-form（GET http://…/api/*）会绕过下方 /api 前缀判断落静态分支回 200 HTML
     // ——入口直接拒 400，不给绕前缀判断的形态留通道。
@@ -749,7 +815,7 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   //（实现体见 closeSseThenSettle；语义与猴补前逐位一致）。startServer 兼容壳再把
   // 它挂回 server.close，供既有调用方（退出链/测试）按 http.Server 形态使用。
   const rawClose = server.close.bind(server)
-  const close = (cb?: (err?: Error) => void): void => closeSseThenSettle(rawClose, cb)
+  const close = (cb?: (err?: Error) => void): void => closeSseThenSettle(rawClose, cb, exportCancels)
   // ticket 库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
   // 旧实例签发的票随实例隔离，新实例（二次 startServer）零残留零可用
   ;(server as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets = streamTickets

@@ -1,30 +1,31 @@
 #!/usr/bin/env node
 /**
- * 知识层更新·第一步（阶段 23 批 4，D3=a）：语料回归域误报规律 → 知识层草稿。
+ * 知识层更新·第一步：语料回归域误报规律 → 知识层草稿。
  *
  * 用法：npm run knowledge:update
  * 扫 test/corpus/checks/*.json 的 expect:"silent" 条目 → 汇总各 checkId →
  * 落 知识层/机检误报-草稿-<今日>.md。**不动 _manifest.json**。
  * 作者审核（删孤例、归纳语境、改文件名去「草稿」）后走 npm run knowledge:commit。
  *
- * R27-131（二十七轮）：汇总为空不再落草稿——原实现无条件 writeFalsePositiveDraft
- * 之后才判空打印「未产草稿」，只有说明行的占位草稿照落盘，对外口径与实际产物不一致。
- * 主体收进 runKnowledgeUpdate（root/date 可注入，直测见 test/scripts/knowledge-update-empty-summary.test.ts）
- * + 直跑守卫（check-knowledge.ts 同款：被 import 不触发落盘/输出副作用）。
+ * 口径判据：汇总为空**不落草稿**——只有说明行的占位草稿会让对外口径（「未产草稿」）
+ * 与实际产物不一致。
+ * 主体收进 runKnowledgeUpdate（root/date 可注入，直测见
+ * test/scripts/knowledge-update-empty-summary.test.ts）+ 直跑守卫（check-knowledge.ts
+ * 同款：被 import 不触发落盘/输出副作用）。
  */
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { summarizeFalsePositives, writeFalsePositiveDraft, type FalsePositiveSummary } from '../src/knowledge/update.js'
 
 export interface KnowledgeUpdateRun {
   summaries: FalsePositiveSummary[]
-  /** 草稿相对项目根路径；null = 汇总为空，未落任何文件（R27-131 口径） */
+  /** 草稿相对项目根路径；null = 汇总为空，未落任何文件（空汇总不产占位草稿） */
   draftRel: string | null
 }
 
 /** 扫语料 → 空汇总跳过草稿写入，非空照常落盘（纯编排，落盘细节在 src/knowledge/update）。 */
 export function runKnowledgeUpdate(projectRoot: string, corpusDir: string, date: string): KnowledgeUpdateRun {
   const summaries = summarizeFalsePositives(corpusDir)
-  // R27-131：先判空后落盘——空汇总不产占位文件，「未产草稿」口径与磁盘一致
+  // 先判空后落盘——空汇总不产占位文件，「未产草稿」的口径与磁盘一致
   const draftRel = summaries.length === 0 ? null : writeFalsePositiveDraft(projectRoot, corpusDir, date)
   return { summaries, draftRel }
 }
@@ -32,7 +33,7 @@ export function runKnowledgeUpdate(projectRoot: string, corpusDir: string, date:
 function main(): void {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const corpusDir = fileURLToPath(new URL('../test/corpus/checks', import.meta.url))
-  // R62-54：日期取本地时区（东八区）——toISOString 是 UTC，本地 0-8 点产「昨日」文件名
+  // 日期取**本地时区**——toISOString 是 UTC，本地 0-8 点会产出「昨日」文件名
   const _now = new Date()
   const date = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
 

@@ -26,9 +26,12 @@ const { bookPrefs } = vi.hoisted(() => ({
   bookPrefs: new Map<string, Record<string, unknown>>(),
 }))
 vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
-  getBookPrefs: vi.fn(async (name: string) => ({ ...(bookPrefs.get(name) ?? {}) })),
+  // GET 信封 {prefs, revision}（api/prefs.getBookPrefs 契约）；本档不测并发守卫，
+  // revision 固定 1 即可
+  getBookPrefs: vi.fn(async (name: string) => ({ prefs: { ...(bookPrefs.get(name) ?? {}) }, revision: 1 })),
   putBookPrefs: vi.fn(async (name: string, data: Record<string, unknown>) => {
     bookPrefs.set(name, { ...data })
+    return { ok: true, revision: 1 }
   }),
 }))
 
@@ -59,7 +62,7 @@ describe('R61-F-1: 切书窗内旧书 prefs 迟到失败不清新书书级覆盖
     let rejectA!: (e: unknown) => void
     vi.mocked(getBookPrefs).mockImplementationOnce(
       () =>
-        new Promise<Record<string, unknown>>((_res, rej) => {
+        new Promise<{ prefs: Record<string, unknown>; revision: number }>((_res, rej) => {
           rejectA = rej
         }),
     )

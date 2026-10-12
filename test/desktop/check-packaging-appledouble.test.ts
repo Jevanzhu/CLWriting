@@ -28,7 +28,7 @@ describe('全库重评-0914 P3-10：electron-builder.yml AppleDouble 排除项�
     const problems = problemsForElectronBuilderAppleDouble(['dist/**/*', 'resources/**/*', 'package.json'])
     expect(problems).toHaveLength(1)
     expect(String(problems[0])).toContain('!**/._*')
-    expect(String(problems[0])).toContain('P3-10')
+    expect(String(problems[0])).toContain('伴生文件会进 asar')
   })
 
   it('files 缺失/空 → 必红（排除项无从校验）', () => {

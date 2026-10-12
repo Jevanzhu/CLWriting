@@ -31,14 +31,16 @@ import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/works
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
-  mocks.putBookPrefs.mockResolvedValue(undefined)
+  // GET 信封 {prefs, revision}（api/prefs.getBookPrefs 契约）；本档不测并发守卫
+  mocks.getBookPrefs.mockResolvedValue({ prefs: {}, revision: 1 })
+  mocks.putBookPrefs.mockResolvedValue({ ok: true, revision: 1 })
 })
 
 describe('E-3: loadBookPrefs 回填 treeExpanded 的用户已操作守卫', () => {
   it('用户已展开/折叠 → 迟到的 prefs 回填不覆盖；未操作 → 照常回填', async () => {
     const ws = useWorkspaceStore()
     // 书A：getBookPrefs 挂起 → 用户先动展开态 → prefs 迟到
-    let releaseA!: (v: { treeExpanded?: string[] }) => void
+    let releaseA!: (v: { prefs: { treeExpanded?: string[] }; revision: number }) => void
     mocks.getBookPrefs.mockImplementationOnce(
       () =>
         new Promise((r) => {
@@ -47,13 +49,13 @@ describe('E-3: loadBookPrefs 回填 treeExpanded 的用户已操作守卫', () =
     )
     ws.setBook('书A')
     ws.setTreeExpanded(['我的卷']) // 用户操作（展开/折叠唯一入口）
-    releaseA({ treeExpanded: ['服务器组'] })
+    releaseA({ prefs: { treeExpanded: ['服务器组'] }, revision: 1 })
     await vi.waitFor(() => {}) // 泵微任务
     await Promise.resolve()
     expect(ws.treeExpanded).toEqual(['我的卷']) // 修复点：不覆盖用户意图
 
     // 对照 书B：无用户操作 → prefs 回填生效（守卫不误伤）
-    mocks.getBookPrefs.mockResolvedValueOnce({ treeExpanded: ['服务器组'] })
+    mocks.getBookPrefs.mockResolvedValueOnce({ prefs: { treeExpanded: ['服务器组'] }, revision: 1 })
     ws.setBook('书B')
     await vi.waitFor(() => expect(ws.treeExpanded).toEqual(['服务器组']))
   })

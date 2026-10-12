@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * C4（批 3）token 系数实测校准脚本（P8-①）。
+ * token 系数实测校准脚本。
  *
  * 用法：
  *   npx tsx scripts/calibrate-tokens.ts [--user-data <path>]
@@ -25,8 +25,8 @@ import {
   type CalibrationSample,
 } from '../src/ai/token-calibration.js'
 
-// R0912-3 #49：与 verify-responses-relay.ts 严格口径对齐——值缺失/空串/flag 名（`--` 开头）
-// 一律按缺参处理，不误吞下一个 flag 作值
+// 参数取值严格口径：值缺失 / 空串 / 下一个 token 是 flag 名（`--` 开头）一律按缺参处理
+// ——与 verify-responses-relay.ts 同款，不误吞下一个 flag 作值
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
   const v = i !== -1 ? process.argv[i + 1] : undefined
@@ -57,14 +57,14 @@ if (existsSync(sessionDir)) {
             usage?: { input?: number; cacheRead?: number; cacheWrite?: number }
             promptMeta?: { chars?: number }
           }
-          // R55-C-2（五十五轮）：采样过滤单源 isCalibratableCallRow——剔除 task==='chat'
-          // 样本（其 promptMeta.chars 自 Q-11 起只记当轮末条消息，多轮 chat 真实输入含
-          // 整段历史，chars 低估数个量级 → TOKEN_COEFFICIENTS 拟合虚高）与记账残缺行
-          //（原 continue 口径）；不做历史事件迁移
+          // 采样过滤单源 isCalibratableCallRow——chat 任务的 promptMeta.chars 只记当轮
+          // 末条消息，而多轮 chat 的真实输入含整段历史，chars 低估数个量级 →
+          // TOKEN_COEFFICIENTS 拟合虚高，故剔除；记账残缺行一并剔除（口径同 continue）。
+          // 不做历史事件迁移：旧事件保持原样，报告用 r 值与样本量体现其影响。
           if (!isCalibratableCallRow(ev)) continue
-          // M-1 归一后 usage.input 不含 cache 读/写——chars 是全 prompt 字数，
-          // 重建全量输入对齐规模（2026-08-21 前的 OpenAI 旧事件 input 已含 cache，会偏高，
-          // 由报告里 r 值与样本量体现，不做事件库迁移）
+          // usage.input 归一后不含 cache 读 / 写，而 chars 是全 prompt 字数——故重建全量
+          // 输入对齐规模，否则两端口径不一、拟合系数偏低。旧事件里 input 已含 cache 的
+          // 形态会偏高，由报告里 r 值与样本量体现，不做事件库迁移。
           const fullInput = ev.usage!.input! + (ev.usage!.cacheRead ?? 0) + (ev.usage!.cacheWrite ?? 0)
           samples.push({ model: ev.model!, chars: ev.promptMeta!.chars!, inputTokens: fullInput })
         } catch {
@@ -72,8 +72,8 @@ if (existsSync(sessionDir)) {
         }
       }
     } catch (e) {
-      // R64-37（十二轮）：.db 能 open 但 schema 异异（events 表缺失/迁移中）时 prepare
-      // 抛错——此前直接崩脚本、后续 .db 全不再扫。计数跳过，末尾汇总提示。
+      // 单个 .db 能 open 但 schema 异异（events 表缺失 / 迁移中）时 prepare 抛错——不接住
+      // 会连脚本一起崩、后续 .db 全不再扫。此处按库计数跳过，末尾汇总提示。
       console.warn(
         `[calibrate] 查询失败跳过 ${f}（schema 异异或表缺失）：${e instanceof Error ? e.message : String(e)}`,
       )

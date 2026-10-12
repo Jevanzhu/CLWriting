@@ -5,7 +5,6 @@
 import {
   BrowserWindow,
   Menu,
-  app,
   ipcMain,
   nativeTheme,
   shell,
@@ -29,6 +28,7 @@ import {
 } from './font-cache.js' // 系统字体 IPC 缓存；font-list 超时包裹；darwin 自管 spawn 二进制解析；linux fc-list 自管 spawn
 import { listWindowsFonts } from './win-fonts.js' // （专项二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import { diagnosticsDirOf } from '../diagnostics/index.js' // 诊断包目录单源（设置→诊断入口）
+import { appDataHomeDir } from '../fs/user-data-path.js' // 诊断包落点是共享根，非实例目录（见 reveal-diagnostics）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：在新窗口中打开书库
 import {
@@ -204,7 +204,9 @@ export function registerIpc(): void {
     if (!picked) return { ok: false as const, canceled: true as const }
     // 落库失败转契约化失败，不再裸抛绕过 {ok,reason} 信封
     // 清偿批改切库链专用包装——快照武装回滚基线（取消退出可回写）
-    const saveErr = saveCurrentArmingRollback(picked)
+    // 锁等待已异步化（workdir-controller 内 acquireCrossProcessLockAsync）：本 handler
+    // 在 IPC 事件循环上，await 期间主进程照常服务其余请求
+    const saveErr = await saveCurrentArmingRollback(picked)
     if (saveErr) return { ok: false as const, reason: saveErr }
     // 延迟重启改单槽句柄排程（锚注见 armRelaunchDelayTimer）
     armRelaunchDelayTimer()
@@ -216,7 +218,7 @@ export function registerIpc(): void {
     if (!g.ok) return { ok: false as const, reason: g.reason }
     // 落库失败转契约化失败（同 open-library），不触发 relaunch
     // 清偿批改切库链专用包装——快照武装回滚基线（取消退出可回写）
-    const saveErr = saveCurrentArmingRollback(g.dir)
+    const saveErr = await saveCurrentArmingRollback(g.dir)
     if (saveErr) return { ok: false as const, reason: saveErr }
     // 延迟重启改单槽句柄排程（原裸 setTimeout 违 timer 纪律）
     armRelaunchDelayTimer()
@@ -383,11 +385,19 @@ export function registerIpc(): void {
     }
   })
   // 打开诊断包所在目录（设置 → 诊断入口；浏览器版无此通道即隐藏按钮）。
-  // 目录由主进程自行推导（diagnosticsDirOf(app userData)）——不接受渲染层传路径，
+  // 目录由主进程自行推导（diagnosticsDirOf(共享根)）——不接受渲染层传路径，
   // 与 show-in-folder/open-book-dir/open-library-dir 三入口同口径（路径不经渲染层）。
+  // 必须用共享根（appDataHomeDir）而非 `app.getPath('userData')`：后者在多库多窗下
+  // 是**实例目录**，而诊断包由 studio server 写在共享根（服务端 ctx.userDataPath =
+  // 共享根，见 main.ts 的 fork 参数）——按实例目录推导会恒指空目录，按钮点了没反应。
   handleTrusted('desktop:reveal-diagnostics', () => {
-    const dir = diagnosticsDirOf(app.getPath('userData'))
-    if (!existsSync(dir)) return // 未生成过包：无物可开
+    const dir = diagnosticsDirOf(appDataHomeDir())
+    if (!existsSync(dir)) {
+      // 未生成过诊断包（正常路径，按钮点了无反应）：留痕说明是「无物可开」而非本
+      // 分支异常，排查「点了没反应」时有据可查（不静默 return）
+      log.warn('desktop', `诊断包目录不存在，无可打开位置（未生成过诊断包）：${dir}`)
+      return
+    }
     void shell.openPath(dir).then((err) => {
       if (err) log.warn('desktop', `打开诊断包目录失败（${dir}）：${err}`)
     })

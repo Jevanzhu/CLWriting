@@ -93,6 +93,10 @@ const API_LAYER_REGISTERED: ReadonlyMap<string, string> = new Map([
     '分析端点族（6 路由）：runSpec/analysisSpec 组装 AI 分析任务 + ProviderRuntime 端口 + AnalysisKind 契约类型',
   ],
   [
+    'src/studio/server/api/analysis-ops.ts',
+    '非路由模块（analysis.ts 的 handler 落地档）：单章/全书分析编排体——runSpec + analysisSpec、AnalysisKind 契约类型、ProviderRuntime 档位快照',
+  ],
+  [
     'src/studio/server/api/books-lifecycle.ts',
     '书生命周期端点（删书等）：中止在途 chat/自愈、等待后台任务，并失效 setting-rule / calls 迁移缓存——编排状态直连面',
   ],
@@ -120,6 +124,10 @@ const API_LAYER_REGISTERED: ReadonlyMap<string, string> = new Map([
     'src/studio/server/api/providers.ts',
     '供应商端点族（10 路由）：provider store 读写、模型清单、能力探测、脱敏；含 ProviderConf pricing 类型的动态 import',
   ],
+  [
+    'src/studio/server/api/providers-ops.ts',
+    '非路由模块（providers.ts 的 handler 落地档）：供应商增/改/删/档位/模型清单的编排体——provider store 读写、能力探测注入面、脱敏与 revision 冲突映射',
+  ],
   ['src/studio/server/api/rag-providers.ts', 'RAG 供应商端点族：provider store 读写 + Vault 类型'],
   ['src/studio/server/api/rag.ts', 'RAG 端点族：loadProviders 解析 embedding provider + redactSecret'],
   [
@@ -138,7 +146,19 @@ const API_LAYER_REGISTERED: ReadonlyMap<string, string> = new Map([
   ],
   [
     'src/studio/server/api/stream.ts',
-    'SSE/spawn/interrupt/auto-write 端点：自愈/chat 编排、spec 运行、计费、spawn registry、task-gate-port 组合根注册',
+    'SSE/spawn/interrupt/auto-write 端点（声明面）：自愈/chat 编排闸查询、spawn registry、task-gate-port 组合根注册',
+  ],
+  [
+    'src/studio/server/api/stream-sse-connect.ts',
+    '非路由模块（stream.ts 的建流/探测落地档）：SSE 建流与名额探测体——driver 事件流、chat 编排在途态（sync 快照的 chatRunning）',
+  ],
+  [
+    'src/studio/server/api/stream-run-writer.ts',
+    '非路由模块（stream.ts 的写稿/中断落地档）：runWriterSpawn 编排——runSpec/streamSpec、spawn registry、自愈与 chat 编排态、计费',
+  ],
+  [
+    'src/studio/server/api/stream-auto-write.ts',
+    '非路由模块（stream.ts 的全自动写章落地档）：runSelfHeal 起跑接线 + 挂死兜底——自愈编排族（abort/在途/强释放）',
   ],
   [
     'src/studio/server/api/style.ts',

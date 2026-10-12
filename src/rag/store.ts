@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
 import { log } from '../log/index.js'
+import { fsBackoffSleep } from '../fs/atomic.js'
 import { prepared, closeWithPrepared, rollbackQuietly } from '../shared/sqlite-prepared.js'
 import { migrateSqlite, describeSqliteMigration, type SqliteMigrationOutcome } from '../shared/sqlite-migrate.js'
 
@@ -236,43 +237,98 @@ export function migrateRagSchema(db: DatabaseSync): SqliteMigrationOutcome {
   return outcome
 }
 
-/** 打开 per-book RAG 库（.cache/rag.db，书仓库内派生缓存区） */
-export function openRagDb(bookRoot: string): DatabaseSync {
+/** 开库序列的语句级等待上限（毫秒）——0 = 开库序列内不做 SQLite 内部等待。
+ *
+ *  为什么是 0 而不是某个小正值：node:sqlite 是纯同步 API，`PRAGMA busy_timeout = N`
+ *  的等待发生在 SQLite 内部的 sleep 重试里，**JS 侧一行代码也轮不到**——它等价于把
+ *  事件循环停住 N 毫秒。原实现继承 events 域的 5000 档：单条语句（WAL 切换、
+ *  回填事务的 BEGIN IMMEDIATE、DDL 拿写锁）最多各冻 5s，叠加本函数外层的
+ *  自有退避 50ms×(i+1)（8 轮合计 1.8s）——争用开库的最坏冻结是秒级。故开库序列内
+ *  busytimeout 归零：语句撞锁即抛（零等待、零冻结），等待全部外移到调用方——
+ *  openRagDbAsync 的 await 退避（等待期事件循环照常跑）与 openRagDb 的有界微睡预算；
+ *  库打开后连接再复位稳态档（见 RAG_STEADY_BUSY_TIMEOUT_MS，写段/召回读段的并发
+ *  等待语义不变）。
+ *
+ *  争用容忍度的取舍（如实记档）：改写前「单条语句内部等满 5s」意味着一次开库最多能
+ *  忍受约 40s 级的连续持锁——但这正是要治的形态，姊妹域 events/store-open.ts 同款
+ *  退避已裁定「再等只会把打开失败可重试拖成分钟级假死」，耗尽即抛是 fail-closed
+ *  正确出口。现在容忍窗 = 重试曲线本身（8 轮 × 50ms×(i+1)，与改写前逐值相同），
+ *  曲线耗尽即抛 BUSY 给调用方既有降级路径（召回降级为空、status 上报、建索引失败可
+ *  重试、同步壳调用点各自吞错兜底），不再以冻结事件循环换取等待。 */
+const RAG_OPEN_BUSY_TIMEOUT_MS = 0
+
+/** 开库成功后的连接稳态 busy_timeout（毫秒）——此前的开库档原值原样保留：
+ *  它管的是打开之后的写段（commitIndexBatch 批事务、resetRagIndex 清库、召回读）
+ *  与并发写方的等待语义，与「开库序列不长时间停住事件循环」是两件事，故开库收尾复位，
+ *  稳态并发口径逐位不变。 */
+const RAG_STEADY_BUSY_TIMEOUT_MS = 5_000
+
+/** 开库争用重试档（次数 + 线性退避基数，毫秒）——既有 WAL 切换退避的曲线原样
+ *  （8 次 × 50ms×(i+1)），只是重试单位从「仅 WAL 切换」升为「整轮开库尝试」：
+ *  单条语句不再各等 5s，attempt 撞 BUSY 即按本曲线等待后重开（开库各步幂等——WAL 切换
+ *  已是 wal 即短路、DDL/索引 IF NOT EXISTS、回填 WHERE norm IS NULL，重开无副作用），
+ *  损坏等确定性错误立即上抛不重试（isRagDbCorruptionError 窄判定不变）。 */
+const RAG_OPEN_RETRY_ATTEMPTS = 8
+const RAG_OPEN_RETRY_INTERVAL_MS = 50
+
+/** 同步壳（openRagDb）自有退避的**总额**上限（毫秒）——同步壳的调用点全在服务进程
+ *  事件循环上（结构合并的块数预估/合并后清理走同步 StructureRagPort、重建清库、
+ *  索引三态探测），Atomics.wait 睡多少就冻多少；故同步壳只留极小预算（够吸收一次
+ *  毫秒级瞬时争用），超出即快速失败交调用方（这些调用点都是可降级/下次调用自愈的
+ *  面：预估失败按 0、清理失败 warn、状态探测失败上报、重建可重试），不再长停
+ *  事件循环。真正需要「一次开库等到争用散去」的面（召回每轮两次开库、建索引、
+ *  状态端点）走异步孪生 openRagDbAsync——它的等待全部 await 让出，曲线满档。 */
+const RAG_OPEN_SYNC_WAIT_BUDGET_MS = 100
+
+/** 开库争用的可重试判据——SQLITE_BUSY(5)/SQLITE_LOCKED(6)（取扩展码低 8 位，与
+ *  isRagDbCorruptionError 同款取法）。其余错误（损坏/权限/磁盘）不重试：与
+ *  「BUSY/IOERR 绝不误判成损坏送删库链」对称，这里是「损坏/IO 不误当争用空转重试」。 */
+function isRagDbBusyError(e: unknown): boolean {
+  const err = e as { errcode?: unknown; message?: unknown }
+  if (typeof err.errcode === 'number') {
+    const primary = err.errcode & 0xff
+    return primary === 5 || primary === 6
+  }
+  const msg = typeof err.message === 'string' ? err.message : ''
+  return /database is locked|database table is locked/i.test(msg)
+}
+
+/** WAL 切换后的模式探测——exec 撞 BUSY 但他进程恰已完成切换时短路成功（既有判据）。
+ *  探测自身失败（同连接读也撞 BUSY 的窄窗）按「未能证实已切换」处理：返回 null，
+ *  由调用方按原错误走重试判据，不把探测次生错误当成功信号。 */
+function journalModeOf(db: DatabaseSync): string | null {
+  try {
+    return (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 单次开库尝试（同步体）：PRAGMA/WAL 切换/schema 阶梯/表与索引 ensure/norm 回填/
+ * 部分索引，全在本次调用内完成。**不做任何自有等待**——争用即按 BUSY 原样上抛，
+ * 等待与重试归调用方（同步壳给有界微睡、异步孪生给 await 退避），故本函数内部
+ * 阻塞窗只剩语句级 busy_timeout（RAG_OPEN_BUSY_TIMEOUT_MS）。
+ * 句柄纪律：任何一步抛错都先 close 再上抛（win 上泄漏句柄会让删库自愈链撞 EBUSY）。
+ */
+function openRagDbAttempt(bookRoot: string): DatabaseSync {
   const db = new DatabaseSync(resolveRagDbPath(bookRoot))
   // win 适配（阶段 21 真机回归）：初始化语句在损坏库（SQLITE_NOTADB 等）上抛时必须
   // close 后再上抛——`new DatabaseSync` 对垃圾字节文件照样开成功（文件头惰性读取），
   // 句柄若泄漏，win 上 unlink/rm 全撞 EBUSY/EPERM（deleteRagDbFiles 删库自愈链、
   // 测试 afterEach 清理皆死）；posix unlink 虽可带句柄删除，fd 泄漏同样是伤。
   try {
-    // WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
-    // 同款漏修（对照 events/store.ts firstOpenStore）——
     // busy_timeout 必须先于 journal_mode=WAL 设置：WAL 切换在 journal_mode 处需拿写锁，
     // 并发首开 delete 模式库时他进程持锁而 busy_timeout 未设，会立即抛 SQLITE_BUSY。
-    // 并移植 events 侧的 WAL 切换 8 次线性退避重试（对方事务必然短，数百 ms 内可得
-    // 手；Atomics.wait 微睡形态照搬——node:sqlite 全同步 API，不可异步化）；损坏是确定性
-    // 错误立即上抛（本文件既有 isRagDbCorruptionError 窄判定，同旨：绝不把
-    // BUSY/IOERR 误判成损坏送删库链）；journal_mode 已是 wal 则成功短路（exec 撞 BUSY 但
-    // 他进程已完成切换的形态）。重试耗尽即抛（同裁定：fail-closed 正确出口）。
-    db.exec('PRAGMA busy_timeout = 5000')
-    {
-      let lastErr: unknown
-      for (let i = 0; i < 8; i++) {
-        try {
-          db.exec('PRAGMA journal_mode = WAL')
-          lastErr = null
-          break
-        } catch (err) {
-          if (isRagDbCorruptionError(err)) throw err
-          lastErr = err
-          const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
-          if (mode === 'wal') {
-            lastErr = null
-            break
-          }
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
-        }
-      }
-      if (lastErr !== null) throw lastErr
+    db.exec(`PRAGMA busy_timeout = ${RAG_OPEN_BUSY_TIMEOUT_MS}`)
+    try {
+      db.exec('PRAGMA journal_mode = WAL')
+    } catch (err) {
+      // 损坏是确定性错误立即上抛（isRagDbCorruptionError 窄判定：绝不把 BUSY/IOERR
+      // 误判成损坏送删库链）；journal_mode 已是 wal 则成功短路（exec 撞 BUSY 但他进程
+      // 已完成切换的形态）；其余原样上抛给调用方的 BUSY 判据。
+      if (isRagDbCorruptionError(err)) throw err
+      if (journalModeOf(db) !== 'wal') throw err
     }
     // schema 阶梯：形态迁移（探列补 norm 列）走 user_version 版本锚——已在目标版本的库
     // 阶梯零 DDL、零写入（召回每次开库两回，热路径只多读一个整数）。
@@ -295,6 +351,9 @@ export function openRagDb(bookRoot: string): DatabaseSync {
     // 新建索引对既有库为一次 O(n) 迁移（IF NOT EXISTS 幂等）。新写入行由 storeChunk 即时
     // 算 norm，不会长期滞留 NULL（异常行由召回侧现算兜底）。
     db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_norm_null ON chunks(id) WHERE norm IS NULL')
+    // 开库序列收尾：busy_timeout 复位稳态档——开库小档只服务「序列内不长停事件循环」，
+    // 打开后连接（写段/召回读段）的并发等待语义维持既有 5s 口径不变。
+    db.exec(`PRAGMA busy_timeout = ${RAG_STEADY_BUSY_TIMEOUT_MS}`)
   } catch (e) {
     try {
       closeRagDb(db)
@@ -304,6 +363,70 @@ export function openRagDb(bookRoot: string): DatabaseSync {
     throw e
   }
   return db
+}
+
+/**
+ * 打开 per-book RAG 库（.cache/rag.db，书仓库内派生缓存区）——**同步壳**。
+ *
+ * 语义与原实现逐条一致：返回值形状（DatabaseSync）、WAL 切换判据（exec 成功或探测
+ * 已为 wal）、schema 阶梯与 ensure/回填幂等、损坏立即上抛不重试、错误文案与关库纪律。
+ * 差异只在等待分布：开库序列内零语句级等待（RAG_OPEN_BUSY_TIMEOUT_MS = 0），自有
+ * 退避总额封顶 RAG_OPEN_SYNC_WAIT_BUDGET_MS。
+ *
+ * **保留同步形态的判据**（本壳的全部在产调用点，逐个写明为何同步可行/必要）：
+ * ① estimateRagChunkCount（合并干跑预估）：document/structure-core 的 StructureRagPort
+ *    是同步返回值签名（依赖方向守护的接口反转），改异步会一路改到 structure-merge
+ *    的干跑装配，超出必要范围；且该调用失败即按 0 降级，预估只喂提示文案；
+ * ② cleanupRagAfterMerge（合并后清理）：同端口、同签名约束；失败本就吞错只 warn；
+ * ③ resetRagIndex（重建清库）：被 rebuild 端点在**交接后台任务前**同步调用（闸内
+ *    快操作、不计入后台任务窗），改异步会把清库挪进后台段、改变闸时序；
+ * ④ ragIndexState（三态探测）：独立开库的只读探测，现存消费面为回归测试
+ *    （status 端点已在持开的 db 上就地判、走异步孪生）。
+ * 四点共同前提：本壳单次调用的事件循环停顿 = 自有预算（≤ RAG_OPEN_SYNC_WAIT_BUDGET_MS）
+ * + 开库各步的真工作量，不再含任何语句级 SQLite 内部等待——就是这次要治的秒级冻结面。
+ * 需要「一次调用内等到争用散去」的异步面（召回每轮两次开库、建索引、rag 状态端点）
+ * 走 openRagDbAsync——曲线满档且等待全部让出事件循环。
+ */
+export function openRagDb(bookRoot: string): DatabaseSync {
+  let waitBudget = RAG_OPEN_SYNC_WAIT_BUDGET_MS
+  let lastErr: unknown
+  for (let attempt = 0; attempt < RAG_OPEN_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return openRagDbAttempt(bookRoot)
+    } catch (e) {
+      // 非争用错误（损坏/权限/磁盘）立即上抛：重试只会空转，也不该被误当争用吞成重试
+      if (!isRagDbBusyError(e)) throw e
+      lastErr = e
+      // 有界微睡——预算耗尽即不再等（退避曲线同源常量，只是被总额截断）
+      const slice = Math.min(RAG_OPEN_RETRY_INTERVAL_MS * (attempt + 1), Math.max(0, waitBudget))
+      waitBudget -= slice
+      if (slice > 0) fsBackoffSleep(slice)
+      if (waitBudget <= 0) break
+    }
+  }
+  throw lastErr
+}
+
+/**
+ * openRagDb 的异步孪生——**事件循环路径专用**（召回 recallDetailed 两次开库、
+ * buildIndex、rag 状态端点）。同一单次尝试核心（openRagDbAttempt，无第二套开库逻辑）、
+ * 同一争用判据、同一退避曲线（8 次 × 50ms×(i+1)）：差别只在等待实现——同步壳
+ * Atomics.wait 微睡（睡多少冻多少），此处 await setTimeout（等待期事件循环照常跑
+ * SSE/保存/其余端点）。成功/失败判据与同步壳逐条对齐：损坏立即抛、非争用错误立即抛、
+ * 曲线耗尽抛最后一次 BUSY 错误；开库各步幂等，重开不产生半开状态。
+ */
+export async function openRagDbAsync(bookRoot: string): Promise<DatabaseSync> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt < RAG_OPEN_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return openRagDbAttempt(bookRoot)
+    } catch (e) {
+      if (!isRagDbBusyError(e)) throw e
+      lastErr = e
+      await new Promise<void>((resolve) => setTimeout(resolve, RAG_OPEN_RETRY_INTERVAL_MS * (attempt + 1)))
+    }
+  }
+  throw lastErr
 }
 
 // prepared 缓存与配对关库单源 shared/sqlite-prepared.ts——「模块独立性优先，本文件内自持
@@ -359,6 +482,9 @@ function addNormColumnIfMissing(db: DatabaseSync): void {
  * 判存在直接 SELECT NULL 行（不每次 open 都 COUNT 全表；无 NULL 时只读不开写事务）。
  * 回填事务走 BEGIN IMMEDIATE（与 commitIndexBatch 口径一致——deferred BEGIN 到首个
  * UPDATE 才升写锁，并发开库仍有 SQLITE_BUSY 窗口；IMMEDIATE 在 busy_timeout 内排队拿写锁）。
+ * **本函数无自有等待，事务拿写锁的等待由开库序列的 busy_timeout 档决定**（openRagDb
+ * 族统一置 RAG_OPEN_BUSY_TIMEOUT_MS = 0，故争用下立即抛 BUSY 交外层重试，不在事件
+ * 循环上等）；事务一旦拿到写锁，其后的批量 UPDATE 是真工作量（同连接本地写）。
  * NULL 行集走游标逐行读（readAllChunks/内存闸同款降峰）——.all 会把全部待回填行
  *（含 embedding BLOB，200 万字书 3.5 万块 × 6KB ≈ 200MB 级）整表物化后才开写，迁移窗内
  * 峰值驻留白付。游标内不得 UPDATE 同表——同连接「SELECT 游标开着 + 循环内 UPDATE 同表」
@@ -439,8 +565,9 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 
 /**
  * 读全部块（全表线性扫描）。
- * 生产召回走 streamChunkScores（流式打分，向量 BLOB 用完即弃）——本函数 src 内零生产
- * 调用方，现存消费面仅测试（断言/盘点原语）；勿再把它接回召回热路径。
+ * 测试专用导出（零生产调用）：生产召回走 streamChunkScores（流式打分，向量 BLOB 用完
+ * 即弃）——本函数 src 内无调用方，消费面仅测试（落库/剔毒/早停的断言与盘点原语）；
+ * 勿再把它接回召回热路径（热路径全量读回会把全部向量 BLOB 驻留内存）。
  * 可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
  * 语义恒等于全量读后 slice(0, maxChunks)；缺省 undefined = 全读（既有口径不变）。
  * 规模量化（实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景

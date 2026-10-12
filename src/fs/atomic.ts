@@ -14,7 +14,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 // 存活探测收编单源（原 isPidAlive 私抄副本删除）
 // 探测实现拆至零依赖叶子模块 fs/process-alive.ts——此前自
 // cross-process-lock.ts 引 isProcessAlive 而后者引本文件的重试原语，互引成环
@@ -425,14 +425,24 @@ const STALE_LOCK_MIN_AGE_MS = 10 * 60_000
  *  注入缩小年龄门时连带给自身 pid 判定放水。 */
 const SELF_TMP_MIN_AGE_MS = 5 * 60_000
 
-export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; minAgeMs?: number }): number {
+export function sweepAbandonedTmpFiles(
+  rootDir: string,
+  opts?: {
+    now?: number
+    minAgeMs?: number
+    /** 根目录不可读（权限/竞态删除/卷离线）时的留痕钩子——清扫整体放弃（返回 0）而不抛，
+     *  缺省静默（存量调用方零变化）；新接入的启动期清扫据此把「扫不了」与「没得扫」分开。 */
+    onUnreadable?: (dir: string, e: unknown) => void
+  },
+): number {
   const now = opts?.now ?? Date.now()
   const minAge = opts?.minAgeMs ?? 5 * 60_000
   let removed = 0
   let entries: import('node:fs').Dirent[]
   try {
     entries = readdirSync(rootDir, { withFileTypes: true })
-  } catch {
+  } catch (e) {
+    opts?.onUnreadable?.(rootDir, e)
     return 0
   }
   for (const ent of entries) {
@@ -479,6 +489,45 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       removed++
     } catch {
       /* 单项失败跳过（并发消失/权限/半写不可解析） */
+    }
+  }
+  return removed
+}
+
+/**
+ * 启动尾段的**应用级数据目录**tmp 清扫（共享根 + 本实例目录各一次）。
+ *
+ * 为何需要独立入口：libc 侧的 tmp 清扫挂点只有进门健康检查（state/health 的
+ * sweepAbandonedTmpFilesThrottled，恒传**书库根**），而 providers.json / global.json /
+ * workdir.json / window-state.json / prompts/ / clwriting/session / 诊断包 的 atomic 写
+ * 发生在共享根与实例目录——写入期崩溃/被杀留下的 `.<名>.<pid>.<uuid>.tmp` 无任何清扫点，
+ * 永久堆积。本函数把同一 sweepAbandonedTmpFiles 原语接到启动链的两处目录上（复用而非
+ * 另写一套删因：判据、年龄门、pid 存活探测、跳过表全部同源）。
+ *
+ * 不阻塞启动：逐目录先 `await setImmediate` 让出（调用方 fire-and-forget，启动链的
+ * 建窗/首载不被本清扫挤在同步段内）；未 await 的调用方须接 `.catch` 兜底。
+ * 幂等（多实例并发扫同一共享根）：删除走 rmSync 的 `force` 语义，同机另一实例先删掉时
+ * 本侧对该项 ENOENT no-op；年龄门与 pid 存活探测双闸保证在途写不被误清（见
+ * sweepAbandonedTmpFiles 契约）。
+ * 失败留痕不抛：根目录不可读经 onUnreadable 记 warn（区分「扫不了」与「没得扫」），
+ * 逐项失败在 sweep 内静默跳过；本壳另有 catch 兜底防意外上抛。
+ */
+export async function sweepAppDataTmpFiles(dirs: readonly string[], opts?: { minAgeMs?: number }): Promise<number> {
+  let removed = 0
+  const seen = new Set<string>()
+  for (const dir of dirs) {
+    if (dir === '' || seen.has(dir)) continue // 同一目录只扫一次（测试态共享根与实例目录可重合）
+    seen.add(dir)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    try {
+      const n = sweepAbandonedTmpFiles(dir, {
+        ...(opts?.minAgeMs !== undefined ? { minAgeMs: opts.minAgeMs } : {}),
+        onUnreadable: (d, e) => log.warn('fs', `应用数据目录 tmp 清扫跳过（目录不可读）：${d}——${errMsg(e)}`),
+      })
+      if (n > 0) log.info('fs', `已清扫 ${n} 个崩溃残留的临时文件（应用数据目录：${dir}）`)
+      removed += n
+    } catch (e) {
+      log.warn('fs', `应用数据目录 tmp 清扫异常（本轮跳过）：${dir}——${errMsg(e)}`)
     }
   }
   return removed

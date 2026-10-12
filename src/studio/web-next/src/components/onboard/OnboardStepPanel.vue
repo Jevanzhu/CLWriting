@@ -88,7 +88,8 @@ function isGenerated(step: OnboardStep): boolean {
       </div>
     </template>
 
-    <div v-if="err" class="err-msg">{{ err }}</div>
+    <!-- role="alert"：生成/保存失败要读屏即时播报 -->
+    <div v-if="err" class="err-msg" role="alert">{{ err }}</div>
   </section>
 </template>
 

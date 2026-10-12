@@ -132,6 +132,11 @@ export function chapterPathByNumber(bookRoot: string, chapter: number): string |
  * 按章号取正文（剥 front matter；含 并入 回退）——章号回退读取单源。
  * 读失败/无 fm/未闭合 fm 按调用方容错口径：无 fm 的裸 md 原样返回（readMdTextCached
  * 降级语义族）。返回 null = 章号既不在正文也无并入去向。
+ *
+ * 测试专用导出（零生产调用）：生产消费方只需要「定位」这一半——materials / prepare /
+ * summary 都直调 chapterPathByNumber 后各自按需读盘（读失败降级口径与缓存策略各异），
+ * 没有哪个生产点能整段复用本函数的「读 + 剥 fm」；导出面服务 chapter-lookup.test.ts 的
+ * 章号回退语义断言（并入链、裸数字名、宽章号）。改它先改测试，勿当公共 API 接线。
  */
 export function chapterTextByNumber(bookRoot: string, chapter: number): string | null {
   const path = chapterPathByNumber(bookRoot, chapter)

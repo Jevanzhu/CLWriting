@@ -12,12 +12,14 @@ import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  AUTO_VACUUM_INCREMENTAL,
   applyOpenPragmas,
   bookHash,
   clearStaleMigrationTombstone,
   createEventsSchema,
   migrateEventsSchema,
   openSessionStore,
+  readAutoVacuumMode,
 } from '../../src/events/store.js'
 import { SqliteSchemaTooNewError } from '../../src/shared/sqlite-migrate.js'
 import { SessionFormatUnsupportedError } from '../../src/events/store-rows.js'
@@ -58,6 +60,31 @@ describe('R0916-7-P3-2 applyOpenPragmas（打开期 PRAGMA + WAL）', () => {
       expect((db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
     } finally {
       db.close()
+    }
+  })
+
+  it('auto_vacuum 定档增量、journal_size_limit 有界；已达档的库重开零写入', () => {
+    const root = tmpRoot()
+    const dbPath = join(root, 'b.db')
+    const db = new DatabaseSync(dbPath)
+    try {
+      applyOpenPragmas(db)
+      db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+      expect(readAutoVacuumMode(db)).toBe(AUTO_VACUUM_INCREMENTAL) // 新库定档增量（空库才接受写值）
+    } finally {
+      db.close()
+    }
+    // 已定档的库重开：档位不变，且同值重设被跳过（见 applyOpenPragmas 头注——重设会让
+    // SQLite 在关连接时改写主库文件，把「写源指纹」订阅方判成写源已变）
+    const again = new DatabaseSync(dbPath)
+    try {
+      applyOpenPragmas(again)
+      expect(readAutoVacuumMode(again)).toBe(AUTO_VACUUM_INCREMENTAL)
+      expect((again.prepare('PRAGMA journal_size_limit').get() as { journal_size_limit: number }).journal_size_limit).toBe(
+        4 * 1024 * 1024,
+      )
+    } finally {
+      again.close()
     }
   })
 })

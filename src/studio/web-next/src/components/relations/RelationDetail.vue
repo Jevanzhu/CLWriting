@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 关系图右侧详情卡（RelationsView 拆分）：跟随选中节点展示身份/目标/关系列表，
-// 支持点击关系项跳转选中 + 打开角色卡。状态来自 useRelationGraph provide 注入。
+// 支持点击关系项跳转选中 + 打开角色卡。三组共享面来自 useRelationGraph provide 注入。
+// 组整体持有（不解构组内字段）——解构即脱离响应性。
 import { ArrowUpRight, Users } from 'lucide-vue-next'
 import { useRelationGraphInjected } from '../../composables/useRelationGraph'
 
-const g = useRelationGraphInjected()
+const { state, render, ops } = useRelationGraphInjected()
 
 /** #20：key 弃 '-' 裸拼接（自由文本名可含 '-'，other/kind 分段歧义撞 key）——
  *  \u0000 分隔防拼接歧义（对齐 RelationGraph edgeKey / stores/learn.ts 同款口径） */
@@ -15,25 +16,25 @@ function relKey(r: { other: string; kind: string }): string {
 
 <template>
   <aside class="rel-detail">
-    <template v-if="g.selectedNode.value">
+    <template v-if="state.selectedNode">
       <div class="dc-head">
-        <h3 class="dc-name">{{ g.selectedNode.value.id }}</h3>
-        <span class="dc-degree">{{ g.selectedRelations.value.length }} 条关联</span>
+        <h3 class="dc-name">{{ state.selectedNode.id }}</h3>
+        <span class="dc-degree">{{ state.selectedRelations.length }} 条关联</span>
       </div>
-      <template v-if="g.selectedCard.value">
+      <template v-if="state.selectedCard">
         <div class="dc-tags">
-          <span v-if="g.selectedCard.value.境界" class="dc-tag"
-            ><span class="dc-tag-k">境界</span>{{ g.selectedCard.value.境界 }}</span
+          <span v-if="state.selectedCard.境界" class="dc-tag"
+            ><span class="dc-tag-k">境界</span>{{ state.selectedCard.境界 }}</span
           >
-          <span v-if="g.selectedCard.value.身份" class="dc-tag"
-            ><span class="dc-tag-k">身份</span>{{ g.selectedCard.value.身份 }}</span
+          <span v-if="state.selectedCard.身份" class="dc-tag"
+            ><span class="dc-tag-k">身份</span>{{ state.selectedCard.身份 }}</span
           >
         </div>
-        <p v-if="g.selectedCard.value.目标" class="dc-goal">{{ g.selectedCard.value.目标 }}</p>
+        <p v-if="state.selectedCard.目标" class="dc-goal">{{ state.selectedCard.目标 }}</p>
       </template>
       <div v-else class="dc-nocard">该角色仅被提及，暂无角色卡。</div>
 
-      <div v-if="g.selectedRelations.value.length" class="dc-sec">
+      <div v-if="state.selectedRelations.length" class="dc-sec">
         <h4 class="dc-sec-h">关系</h4>
         <ul class="dc-rel">
           <!-- key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
@@ -42,18 +43,18 @@ function relKey(r: { other: string; kind: string }): string {
           <!-- 关系项是跳转选中节点的控件：role=button + 常驻 tabindex（每项都是独立跳转
                目标，roving 会把多数项藏出 Tab 序）+ Enter/Space 同点击语义 -->
           <li
-            v-for="r in g.selectedRelations.value"
+            v-for="r in state.selectedRelations"
             :key="relKey(r)"
             :class="{ debt: r.kind === 'debt' }"
             role="button"
             tabindex="0"
-            @click="g.selectNode(r.other)"
-            @keydown.enter.prevent="g.selectNode(r.other)"
-            @keydown.space.prevent="g.selectNode(r.other)"
+            @click="ops.selectNode(r.other)"
+            @keydown.enter.prevent="ops.selectNode(r.other)"
+            @keydown.space.prevent="ops.selectNode(r.other)"
           >
             <div class="dc-rel-row">
               <span class="dc-rel-name">{{ r.other }}</span>
-              <span class="dc-rel-type" :style="{ color: g.relColor(r) }">{{ r.type }}</span>
+              <span class="dc-rel-type" :style="{ color: render.relColor(r) }">{{ r.type }}</span>
             </div>
             <span v-if="r.note" class="dc-rel-note">{{ r.note }}</span>
           </li>
@@ -61,9 +62,9 @@ function relKey(r: { other: string; kind: string }): string {
       </div>
 
       <button
-        v-if="g.selectedNode.value.hasCard && g.selectedNode.value.file"
+        v-if="state.selectedNode.hasCard && state.selectedNode.file"
         class="dc-open"
-        @click="g.openCharacter(g.selectedNode.value)"
+        @click="ops.openCharacter(state.selectedNode)"
       >
         打开角色卡 <ArrowUpRight :size="13" />
       </button>

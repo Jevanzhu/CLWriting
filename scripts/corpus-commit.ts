@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * B2（批 6）：语料候选入库——把作者勾选（[x]）的候选固化为仓库回归用例。
+ * 语料候选入库——把作者勾选（[x]）的候选固化为仓库回归用例。
  *
  * 用法：npm run corpus:commit [-- <bookRoot>]
  * 读 <bookRoot>/工作区/语料候选/{误报候选,命中候选}.md 的 `- [x]` 行 →
@@ -11,20 +11,18 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-// D201（0918三轮修复批）：缺省语料目录解析单源——脚本与测试同源（本文件顶层即执行，
-// 不可被测试 import，解析逻辑抽 scripts/corpus-paths.ts 供直测）
+// 缺省语料目录解析单源——脚本与测试同源（本文件顶层即执行，不可被测试 import，
+// 解析逻辑抽 scripts/corpus-paths.ts 供直测）
 import { resolveCorpusDir } from './corpus-paths.js'
-// R73-50（二十一轮）：语料 JSON 落盘走原子写原语（同目录 tmp + rename）——写中途被杀
-// 不得留半截文件（checkId.json 是 CI 回归门 corpus.test.ts 的输入，截断即门挂）
+// 语料 JSON 落盘走原子写原语（同目录 tmp + rename）——写中途被杀不得留半截文件
+//（checkId.json 是 CI 回归门 corpus.test.ts 的输入，截断即门挂）
 import { atomicWriteFile } from '../src/fs/atomic.js'
 
 const bookRoot = process.argv[2] ?? '.'
 // 第二可选参：语料输出目录（缺省仓库 test/corpus/checks；测试传 tmp 隔离）。
-// D201：缺省改 import.meta.url 锚定仓库根（对齐 check-counts/check-packaging/
-// knowledge-update 同目录脚本口径）——原 `join('test','corpus','checks')` 按 cwd
-// 相对解析，从子目录直跑 `npx tsx scripts/corpus-commit.ts <bookRoot>` 时语料落
-// <cwd>/test/corpus/checks/（仓外），脚本打印「N 条入库」看似成功而 CI 回归门读真仓
-// 目录零新增、静默。
+// 缺省不用 cwd 相对路径——从子目录直跑 `npx tsx scripts/corpus-commit.ts <bookRoot>`
+// 时相对路径会把语料落进 <cwd>/test/corpus/checks/（仓外），脚本打印「N 条入库」
+// 看似成功而 CI 回归门读真仓目录零新增、静默。改由 corpus-paths.ts 按模块位置锚定。
 const corpusDir = resolveCorpusDir(process.argv[3])
 
 interface Entry {
@@ -48,14 +46,13 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
   for (const line of readFileSync(fp, 'utf8').split('\n')) {
     const h = /^### checkId:\s*(\S+)\s*$/.exec(line)
     if (h) {
-      // R63-13：checkId 直接 join 进写出路径——含路径段（/ \ 或 ..）即路径穿越，
-      // 手编候选 md 的 `### checkId: ../../evil` 会逃出 corpusDir，拒绝入库
-      // R33-96（三十三轮）：win 上 `:` 等非法字符与保留设备名（con/nul/aux/prn/com1..lpt9，
-      // 含扩展名同样保留）会让 <checkId>.json 落盘 EINVAL/ENOENT 崩脚本——统一拒绝
-      // R35-12（三十五轮）：字符类补 `\\`（原 `[\/\]` 里 `\]` 是转义的 `]`、`\` 恰漏网——
-      // win 上 `a\b` 的 `\` 是分隔符，atomicWriteFile 建子目录落盘而语料门非递归装载
-      // 永远看不到该文件）；保留设备名改按 / \ 切分后的每个路径分量判定（整串判定
-      // 可被 `sub\CON` 形态绕过）
+      // checkId 直接 join 进写出路径——含路径段（`/` `\` 或 `..`）即路径穿越：手编候选
+      // md 的 `### checkId: ../../evil` 会逃出 corpusDir，必须拒绝入库。
+      // 另拒两类：① win 上 `:` 等非法字符与保留设备名（con/nul/aux/prn/com1..lpt9，含
+      // 扩展名同样保留）会让 <checkId>.json 落盘 EINVAL/ENOENT 崩脚本；② 反斜杠——
+      // win 上 `a\b` 的 `\` 是分隔符，会让 atomicWriteFile 建子目录落盘，而语料门非
+      // 递归装载、永远看不到该文件。保留设备名按 / 与 \ 切分后的**每个路径分量**判定，
+      // 整串判定可被 `sub\CON` 形态绕过。
       const id = h[1]!
       const reservedDevice = id
         .split(/[\\/]/)
@@ -72,10 +69,10 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
       continue
     }
     if (!checkId) continue
-    // R62-24：非贪婪 `(".+?")（` 遇摘录内转义引号邻接 `（` 会提前收口（截断 →
-    // JSON.parse 失败 → catch 静默丢条，作者勾选条目不入库且无告警）。改贪婪
-    // `(".*")（` 取末个 `"`+`（`（摘录闭合引号后跟的 `（` 必为末个），摘录 JSON
-    // 全文进 m[1]——含内层转义引号也完整进串。
+    // 摘录引号取**贪婪**匹配 `(".*")（`：非贪婪 `(".+?)（` 遇摘录内转义引号邻接 `（`
+    // 会提前收口——截断的串 JSON.parse 失败，勾选条目被静默丢弃且无告警。摘录闭合引号
+    // 后跟的 `（` 必为末个，故取末个 `"`+`（`；摘录 JSON 全文进 m[1]，含内层转义引号
+    // 也完整进串。
     const m = /^- \[x\].*摘录：(".*")（/.exec(line)
     if (!m) continue
     try {
@@ -83,14 +80,13 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
       if (excerpt.trim()) {
         out.push({ checkId, excerpt, expect })
       } else {
-        // R0912-3（2026-09-12 全量重评 #43）：空白摘录行（JSON 合法但内容全空白）此前
-        // 静默丢弃、不进 droppedExcerpts 哨兵——勾选条目无声消失且退出码仍绿。计入
-        // 哨兵 + warn 留痕，口径同下方 catch 臂（R62-24）
+        // 空白摘录行（JSON 合法但内容全空白）不得静默丢弃——不入 droppedExcerpts
+        // 哨兵则勾选条目无声消失而退出码仍绿。计入哨兵 + warn 留痕，口径同下方 catch 臂
         droppedExcerpts++
         console.warn(`[corpus:commit] 摘录行为空白（JSON 合法但无有效内容，已跳过不入库）：${line}`)
       }
     } catch {
-      // R62-24：手写/畸形摘录行——此前静默跳过；改为显式 warn（不再无告警丢条）
+      // 手写/畸形摘录行：显式 warn 而非静默跳过（丢条必须留痕）
       droppedExcerpts++
       console.warn(`[corpus:commit] 摘录行未被解析（JSON 格式异常，已跳过不入库）：${line}`)
     }
@@ -107,11 +103,10 @@ if (droppedExcerpts > 0) {
   )
 }
 if (all.length === 0) {
-  // R34D-6（三十四轮）：空集早退不得绕过尾部退出码哨兵——此前此处无条件 exit(0)，
-  // 「勾选行全部摘录解析失败（droppedExcerpts>0）或全部落在被拒 checkId 节下」时
-  // 以退出码 0 收场：语料门入库端假成功（作者以为入库了，CI 回归门实则零新增且
-  // 无任何告警口径）。真没勾才退出 0；勾了但全军覆没按尾部哨兵（见文件尾 R63-13/
-  // R63-11/R64-36 同款）标红退出 1——语料门 fail-closed
+  // 空集早退不得绕过尾部退出码哨兵——「勾选行全部摘录解析失败（droppedExcerpts>0）或
+  // 全部落在被拒 checkId 节下」时若以退出码 0 收场，入库端就是假成功（作者以为入库了，
+  // CI 回归门实则零新增且无任何告警口径）。真没勾才退出 0；勾了但全军覆没按尾部哨兵
+  // （同款见文件尾）标红退出 1——语料门 fail-closed。
   if (rejectedCheckIds > 0 || droppedExcerpts > 0) {
     console.error(
       `[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${droppedExcerpts} 行勾选摘录解析被丢——0 条入库（见上方逐条告警），修复候选 md 后重跑`,
@@ -140,15 +135,15 @@ for (const [checkId, entries] of byCheck) {
     try {
       parsed = JSON.parse(readFileSync(fp, 'utf8'))
     } catch {
-      // R63-11：存量解析失败不得按空数组整写覆盖（= 静默清空既有回归门条目）。
-      // 跳过该 checkId 合并、原文件保持原样，作者手工修档后重跑
+      // 存量解析失败不得按空数组整写覆盖（= 静默清空既有回归门条目）。跳过该 checkId
+      // 的合并、原文件保持原样，作者手工修档后重跑。
       console.error(`[corpus:commit] 存量语料解析失败，跳过合并（原文件保持原样）：${fp}`)
       failedExisting++
       continue
     }
-    // R51-J-2（五十一轮）：合法 JSON 但非数组（手工编辑成对象/字符串等）同走 R63-11
-    // 口径——旧代码直透 `.map`，非数组裸 TypeError 崩整轮合并循环（后续 checkId 一并
-    // 不落盘），且崩溃栈无人话指引。防住后跳过本档、原样保留、计数进尾部标红哨兵。
+    // 合法 JSON 但非数组（手工编辑成对象/字符串等）走与解析失败同口径——直透 `.map`
+    // 会以非数组裸 TypeError 崩整轮合并循环（后续 checkId 一并不落盘），且崩溃栈无人话
+    // 指引。跳过本档、原样保留、计数进尾部标红哨兵。
     if (!Array.isArray(parsed)) {
       console.error(
         `[corpus:commit] 存量语料是合法 JSON 但不是数组（实为 ${parsed === null ? 'null' : typeof parsed}），跳过合并（原文件保持原样，请手工修档后重跑）：${fp}`,
@@ -156,10 +151,10 @@ for (const [checkId, entries] of byCheck) {
       failedExisting++
       continue
     }
-    // 重评-P2-5（2026-09-09 全量代码重评）：数组元素逐条形状校验（普通对象 + excerpt 为
-    // 字符串）——此前直透 `.map` 对元素零校验：null 元素裸 TypeError 崩整轮合并循环（无
-    // 告警无退出哨兵）、字符串元素 excerpt=undefined 静默写回成回归门输入。坏条丢弃不
-    // 合并、计数进尾部标红哨兵；全部坏则整档跳过、原文件保持原样（R51-J-2 同口径）
+    // 数组元素逐条形状校验（普通对象 + excerpt 为字符串）——直透 `.map` 对元素零校验时：
+    // null 元素裸 TypeError 崩整轮合并循环（无告警无退出哨兵）、字符串元素 excerpt=undefined
+    // 静默写回成回归门输入。坏条丢弃不合并、计数进尾部标红哨兵；全部坏则整档跳过、原文件
+    // 保持原样（同解析失败口径）。
     const rawElements = parsed as unknown[]
     const goodEntries = rawElements.filter(
       (e): e is Entry => e !== null && typeof e === 'object' && typeof (e as Entry).excerpt === 'string',
@@ -180,12 +175,12 @@ for (const [checkId, entries] of byCheck) {
   const merged = new Map(existing.map((e) => [e.excerpt, e] as const))
   for (const e of entries) merged.set(e.excerpt, e)
   const final = [...merged.values()]
-  atomicWriteFile(fp, JSON.stringify(final, null, 2) + '\n') // R73-50：原子替换，防半截 JSON
+  atomicWriteFile(fp, JSON.stringify(final, null, 2) + '\n') // 原子替换，防半截 JSON
   written++
-  console.log(`[corpus:commit] ${fp} ← ${final.length} 条`) // R62-55：打实际 fp，自定义 corpusDir 不误导
+  console.log(`[corpus:commit] ${fp} ← ${final.length} 条`) // 打实际 fp，自定义 corpusDir 不误导
 }
 console.log(`[corpus:commit] 完成：${all.length} 条入库（${written} 个检查器），CI 回归门（corpus.test.ts）即刻生效`)
-// R63-13/R63-11/R64-36：拒绝/跳过/丢条不静默——有效条目照常入库，但退出码标红让作者看见告警
+// 拒绝/跳过/丢条不静默——有效条目照常入库，但退出码标红让作者看见告警
 if (rejectedCheckIds > 0 || failedExisting > 0 || droppedExcerpts > 0) {
   console.error(
     `[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${failedExisting} 个存量文件异常（解析失败或元素形状坏）被跳过＋ ${droppedExcerpts} 行勾选摘录解析被丢——见上方逐条告警`,

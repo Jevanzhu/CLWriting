@@ -50,13 +50,13 @@ test('R37-4: gitAsync()（spawn）调 git 带 windowsHide: true，且不动超�
   }
 })
 
-test('R37-4: statusPorcelain → git() 内层 spawnSync 同样透传 windowsHide', async () => {
+test('R37-4: statusPorcelainAsync → 内层 spawn 同样透传 windowsHide', async () => {
   const root = makeGitBook()
   try {
-    const { statusPorcelain } = await import('../../src/git/exec.js')
-    mockSpawnSync.mockClear()
-    expect(statusPorcelain(root)).not.toBeNull()
-    const opts = mockSpawnSync.mock.calls[0]![2] as { windowsHide?: boolean }
+    const { statusPorcelainAsync } = await import('../../src/git/exec.js')
+    mockSpawn.mockClear()
+    expect(await statusPorcelainAsync(root)).not.toBeNull()
+    const opts = mockSpawn.mock.calls[0]![2] as { windowsHide?: boolean }
     expect(opts.windowsHide).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -11,7 +11,7 @@
  * - R76-27：purgeTrash 连删 journal 同名锁残留（无人持有才删，在持跳过）；
  *   sweepAbandonedTmpFiles 清死 pid 陈锁、不清活 pid/年轻锁/非锁指纹、跳过 .git。
  */
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,6 +29,7 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { detectState } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { findUnsettled } from '../../src/document/journal.js'
 import type { DocumentRole } from '../../src/document/layout.js'
 
 let bookRoot = ''
@@ -243,4 +244,102 @@ test('R76-27: sweep 清死 pid 陈锁；活 pid/年轻锁/非锁指纹不清；�
   expect(existsSync(young)).toBe(true)
   expect(existsSync(notLock)).toBe(true)
   expect(existsSync(gitLock)).toBe(true)
+})
+
+// ── executeSave 锁内段裸穿收编：临界段原为 try { … } finally { docSaveLock() } 无外层
+// catch，段内同步调用（清单收编链锁超时 throw / computeRevision / readFileSync）任一抛出
+// → SaveQueue reject → save() 变 rejected promise / API 500，违反 SaveResult 契约信封。
+// 修后外层 catch 兜「落盘前同步段」意外抛出，save() resolve 出 {ok:false,code:'WRITE_ERROR'}
+// 信封，finally 释放锁不受影响。另：meta PATCH 覆盖前留底不再二次读盘——直喂单次读的
+// fileBytes，断言快照内容 === 被覆盖的盘上旧内容（若仍二次读盘，两读之间被换档时会留错档）。──
+
+describe('保存链契约信封', () => {
+  let envRoot: string
+  let svc: DocumentService
+  let docId: string
+  let absPath: string
+  let lockPath: string
+  const relPath = '写作/正文/0001-开篇.md'
+  const contentV1 = '---\n标题: 开篇\n章号: 1\n---\n正文'
+  const contentV2 = '---\n标题: 开篇\n章号: 1\n---\n新正文'
+
+  beforeEach(async () => {
+    envRoot = mkdtempTracked(join(tmpdir(), 'r28-envelope-'))
+    svc = new DocumentService({ bookRoot: envRoot })
+    const c = await svc.createDocument({ relPath, content: contentV1 })
+    if (!c.ok) throw new Error('prereq create 失败')
+    docId = c.docId
+    absPath = join(envRoot, relPath)
+    lockPath = join(envRoot, '工作区', '.journal', `${docId}.jsonl.save.lock`)
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    rmSync(envRoot, { recursive: true, force: true })
+  })
+
+  test('锁内清单收编链抛出 → save() resolve 出 WRITE_ERROR 信封（不 reject），锁已释放', async () => {
+    // 锁内复核走 lookupPathByDocIdAdoptAsync 异步收编孪生（非 legacy docId 仅清单命中读）
+    // ——mock 其锁内调用即抛，模拟收编链清单锁超时 fail-closed。保存链上现为两次调用：
+    // 第一次 = 前段（真跑放行走到取锁），第二次 = 锁内复核（本测抛点）；恢复真身供后续
+    // 保存用（第二个 save 断言锁释放干净）。
+    const target = svc.ctx
+    const real = svc.ctx.lookupPathByDocIdAdoptAsync.bind(svc.ctx)
+    let calls = 0
+    vi.spyOn(target, 'lookupPathByDocIdAdoptAsync').mockImplementation((id: string) => {
+      calls++
+      if (calls === 2) return Promise.reject(new Error('清单锁获取超时（模拟 withManifestLockAsync 2×5s fail-closed）'))
+      return real(id)
+    })
+    const rev1 = computeRevision(absPath)
+    // 契约信封：resolve 而非 reject——修复前此形态直接裸抛（rejected promise）
+    const r = await svc.save(docId, relPath, {
+      content: contentV2,
+      expectedRevision: rev1,
+      operationId: 'op-r28-5',
+      origin: 'manual',
+    })
+    expect(calls).toBe(2) // 锁内复核 = 第二次 AdoptAsync 调用（前段收编占第一次）
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.code).toBe('WRITE_ERROR')
+      expect(r.reason).toContain('保存失败（未落盘，可重试）')
+      expect(r.reason).toContain('清单锁获取超时')
+    }
+    // 未落盘：正文一字未动
+    expect(readFileSync(absPath, 'utf-8')).toBe(contentV1)
+    // 抛点在 appendPending 之前：无 journal 孤儿 pending（直测生产原语 findUnsettled）
+    expect(findUnsettled(join(envRoot, '工作区', '.journal', `${docId.replace(/:/g, '_')}.jsonl`))).toHaveLength(0)
+    // finally 生效：锁释放干净（锁文件不在盘），后续保存照常成功
+    expect(existsSync(lockPath)).toBe(false)
+    const r2 = await svc.save(docId, relPath, {
+      content: contentV2,
+      expectedRevision: rev1,
+      operationId: 'op-r28-5b',
+      origin: 'manual',
+    })
+    expect(r2.ok).toBe(true)
+    expect(readFileSync(absPath, 'utf-8')).toBe(contentV2)
+    expect(existsSync(lockPath)).toBe(false)
+  })
+
+  test('meta PATCH 覆盖前留底 === 被覆盖的盘上旧内容（单次读同源派生）', async () => {
+    const oldContent = readFileSync(absPath, 'utf-8')
+    expect(oldContent).toBe(contentV1)
+    const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
+    expect(r.ok).toBe(true)
+    const versionsDir = join(envRoot, '工作区', VERSIONS_DIR_NAME)
+    // updateChapterMeta 落两版：meta-overwrite 覆盖前留底 + doMoveOrRename 改名结构留底；
+    // 本修复只锁定前者
+    const entries = listVersions(versionsDir, docId)
+    const metas = entries.map((e) => ({ e, v: readVersion(versionsDir, docId, e.id) }))
+    const snapEntry = metas.find((m) => m.v?.meta.origin === 'meta-overwrite')
+    expect(snapEntry).toBeDefined()
+    expect(metas.filter((m) => m.v?.meta.origin === 'meta-overwrite')).toHaveLength(1) // force 留底恰好一版
+    const snap = snapEntry!.v!
+    expect(snap).not.toBeNull()
+    expect(snap?.meta.origin).toBe('meta-overwrite')
+    // 留底内容 = 被覆盖内容（直喂 fileBytes 字节档；若回退成二次读盘，两读间换档
+    // 即留错档——本断言锁定同源派生契约）
+    expect(snap?.content).toBe(oldContent)
+  })
 })

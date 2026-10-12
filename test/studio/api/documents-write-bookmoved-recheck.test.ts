@@ -212,6 +212,66 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     }
   })
 
+  it('PATCH：书被改名 + op 形状同时非法 → 409 先于 400（优先序不随下沉翻转）', async () => {
+    const rig = makeBook('优先序书')
+    try {
+      const { req, res, captured } = fakeReqRes()
+      // 两个失败因同时在场：链单元首行的书注册重验 409 与 op 形状 400。
+      // 断言的是**对外可观察的优先序**（回 409 BOOK_MOVED，非 400 BAD_INPUT）——
+      // 形状校验若被提到读体段，同一次请求会翻成 400，本条即红。
+      await driveRoute(
+        rig.patch,
+        { name: '优先序书', docId: 'doc_f1' },
+        { op: 'rename' }, // rename 缺 newName = 形状非法 400 的形态
+        req,
+        res,
+        () => renameBookReg(rig.workDir, '优先序书', '优先序书乙'),
+      )
+      expect(captured.status).toBe(409)
+      expect((JSON.parse(captured.body) as { code: string }).code).toBe('BOOK_MOVED')
+      expect(existsSync(rig.bookRoot)).toBe(false)
+    } finally {
+      rig.cleanup()
+    }
+  })
+
+  it('PATCH fm：非法键名 → 400 BAD_INPUT 且盘上 fm 零变化', async () => {
+    const rig = makeBook('键名闸书')
+    try {
+      // 落盘一份真实 fm（键名闸在读盘之后的补丁段生效，缺文件会先撞 WRITE_ERROR）
+      const target = join(rig.bookRoot, '设定', '伏笔', '伏笔-001.md')
+      const before = '---\n标题: 伏笔-001\n状态: 待填\n---\n\n伏笔正文。\n'
+      writeFileSync(target, before, 'utf-8')
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(
+        rig.patch,
+        { name: '键名闸书', docId: 'doc_f1' },
+        { op: 'fm', meta: { 'x\n字数目标': 999, '标题: 999': 'x', '': 'v', ' 状态': '进行中' } },
+        req,
+        res,
+      )
+      expect(captured.status).toBe(400)
+      expect((JSON.parse(captured.body) as { code: string }).code).toBe('BAD_INPUT')
+      expect(readFileSync(target, 'utf-8')).toBe(before)
+    } finally {
+      rig.cleanup()
+    }
+  })
+
+  it('PATCH fm：合法键照常写入（键名闸不误伤正常更新）', async () => {
+    const rig = makeBook('键名放行书')
+    try {
+      const target = join(rig.bookRoot, '设定', '伏笔', '伏笔-001.md')
+      writeFileSync(target, '---\n标题: 伏笔-001\n状态: 待填\n---\n\n伏笔正文。\n', 'utf-8')
+      const { req, res, captured } = fakeReqRes()
+      await driveRoute(rig.patch, { name: '键名放行书', docId: 'doc_f1' }, { op: 'fm', meta: { 状态: '进行中' } }, req, res)
+      expect(captured.status).toBe(200)
+      expect(readFileSync(target, 'utf-8')).toContain('状态: 进行中')
+    } finally {
+      rig.cleanup()
+    }
+  })
+
   it('POST words-diary（同型扫描接线）：读体窗后书被删 → 409 BOOK_MOVED 且旧路径无孤儿', async () => {
     const rig = makeBook('重验字数书')
     try {

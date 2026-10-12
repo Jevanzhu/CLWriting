@@ -73,7 +73,8 @@ function onNameEnter(e: KeyboardEvent): void {
         @input="emit('update:name', ($event.target as HTMLInputElement).value)"
         @keydown.enter="onNameEnter"
       />
-      <div v-if="props.error" class="err">{{ props.error }}</div>
+      <!-- role="alert"：建书失败要读屏即时播报 -->
+      <div v-if="props.error" class="err" role="alert">{{ props.error }}</div>
       <div class="create-actions">
         <button class="btn" @click="emit('cancel')">取消</button>
         <button class="btn primary" :disabled="props.creating || !props.name.trim()" @click="emit('create')">

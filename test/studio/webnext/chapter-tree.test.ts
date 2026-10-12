@@ -6,6 +6,7 @@
  * 恰好覆盖浏览器形态；桌面形态的「打开所在文件夹」由 e2e 兜）。
  */
 import { test, expect, describe } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import {
   sanitizeName,
   isVolumeDir,
@@ -19,7 +20,13 @@ import {
   defaultExpandedDirs,
 } from '../../../src/studio/web-next/src/shared/chapter-tree'
 import { useTreeMenu } from '../../../src/studio/web-next/src/composables/useTreeMenu'
+import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+
+// useTreeMenu 经 doc store 读书级 kind（短篇正文判定的书级信号）——直测需在场 pinia；
+// 菜单在 describe 体内即建（收集期先于一切用例钩子），故在模块层建，且全局只此一份
+//（用例侧 bookKind 的写入须落在菜单读的同一 store 实例上）。
+setActivePinia(createPinia())
 
 // ── fixture：四层树 写作→正文→卷→章（卷一 1/2 章 + 卷二 3/5 章 + 大纲/设定区）─────
 
@@ -193,19 +200,25 @@ describe('useTreeMenu 菜单构建', () => {
     expect(keys[keys.length - 1]).toBe('delete')
     expect(keys).not.toContain('reveal-in-folder')
   })
-  test('短篇 piece-body → 篇章信息（非章节信息），无移动/副本', () => {
+  test('短篇书正文 → 篇章信息（非章节信息），无移动/副本', () => {
     const piece = node({
       path: '写作/正文/001-短篇.md',
       name: '001-短篇.md',
       docId: 'p1',
-      role: 'piece-body',
       status: 'draft',
     })
+    // 短篇判定按书级 kind（role 恒 'chapter'，节点自身无从分辨）——本例切短篇口径
+    useDocStore().bookKind = 'short'
     const keys = menu.buildMenuItems(piece).map((i) => i.key)
     expect(keys).toContain('meta')
     expect(keys).toContain('finalize')
     expect(keys).not.toContain('move')
     expect(keys).not.toContain('copy')
+    // 对照：同节点在长篇口径下走长篇章分支（含移动/副本）
+    useDocStore().bookKind = 'long'
+    const longKeys = menu.buildMenuItems(piece).map((i) => i.key)
+    expect(longKeys).toContain('move')
+    expect(longKeys).toContain('copy')
   })
   test('空白处全量项：8 新建 + 2 分隔线', () => {
     expect(menu.blankItems.filter((i) => !i.separator).map((i) => i.key)).toEqual([

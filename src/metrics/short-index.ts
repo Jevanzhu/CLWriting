@@ -190,7 +190,7 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     if (located.kind === 'found') {
       list = readListAt(located.path)
     } else if (located.kind === 'dir-unreadable') {
-      log.warn('metrics', `短篇章纲目录读取失败（${located.code}），本篇反转质量/结构物件按无章纲计`)
+      log.warn('metrics', `短篇章纲目录读取失败、本篇反转质量与结构物件按无章纲计（错误码 ${located.code}）`)
     }
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
     // 不可读章跳章 + warn 留痕，对齐同源助手（style.ts
@@ -285,7 +285,7 @@ function readListAt(path: string): PieceList | null {
   if (!r.ok) {
     log.warn(
       'metrics',
-      `短篇章纲 ${basename(path)} 读取失败（${r.error.message}），本篇反转质量/结构物件按无章纲计（评估系统性低估）`,
+      `短篇章纲读取失败、本篇反转质量与结构物件按无章纲计（评估系统性低估；章纲 ${basename(path)}：${r.error.message}）`,
     )
     return null
   }

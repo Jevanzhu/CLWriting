@@ -19,7 +19,7 @@
  */
 import { createHash } from 'node:crypto'
 import { readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { testableConst } from '../shared/testable.js'
 
@@ -117,7 +117,20 @@ export const [getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForT
  *  迁移段须同持新旧两把（bookHash 排序获取防 ABBA 死锁）——openSessionStore(newRoot)
  *  与迁移 rename 窗口的互斥由此保持（Global 锁的唯一实质保护面），跨书并发不再互拽。 */
 export function sessionMigrateLockPath(userDataPath: string, bookRoot: string): string {
-  return join(userDataPath, 'clwriting', 'session', `migrate-${bookHash(bookRoot)}.lock`)
+  return join(userDataPath, 'clwriting', 'session', migrateLockName(bookHash(bookRoot)))
+}
+
+/** 锁名单源（两处取锁路径共用，防「锁名口径各写一份」的静默漂移）。 */
+function migrateLockName(hash: string): string {
+  return `migrate-${hash}.lock`
+}
+
+/** 由会话库文件路径反推同一把迁移锁——库文件名单源即 `<bookHash>.db`
+ *  （store.sessionDbPath），故本式与 sessionMigrateLockPath 对同一书恒等。
+ *  维护族（异步空间回收）凭本式与首开/迁移段互斥：持锁期间迁移段拿不到锁（它按
+ *  busy_timeout 档等待而非失败），维护结束时先关库再放锁——文件不会被搬到维护写入中途。 */
+export function sessionMigrateLockPathForDb(dbPath: string): string {
+  return join(dirname(dbPath), migrateLockName(basename(dbPath, '.db')))
 }
 
 /** 迁移段按 bookHash 排序拿新旧两把锁；第二把拿不到 → 释放第一把返回 null（调用方按

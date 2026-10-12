@@ -59,6 +59,8 @@ vi.mock('../../../../src/studio/web-next/src/api/onboard', () => ({
     'style-quotes': '文风/金句库.md',
     'first-outline': '写作/正文/0001-第一章.md',
   },
+  // 步骤面板 detail 相位渲染 STEP_DESC[active]——直挂面板的用例需要该键
+  STEP_DESC: { synopsis: '一句话说清全书主线。' },
 }))
 vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
@@ -266,6 +268,29 @@ describe('R51-I-5: 重新生成确认弹窗滞留切书', () => {
     await flushPromises()
     expect(mocks.onboardAi).toHaveBeenCalledTimes(2)
     expect(mocks.onboardAi).toHaveBeenLastCalledWith('书A', { step: 'synopsis', premise: '' })
+    w.unmount()
+  })
+})
+
+// ── 步骤面板错误条可及性 ──────────────────────────
+// 生成/保存失败的红条是视图错误必达用户的最后一环，须给 role="alert" 才能即时播报。
+
+describe('OnboardStepPanel 错误条可及性', () => {
+  function mountPanel(err: string | null): ReturnType<typeof mount> {
+    return mount(OnboardStepPanel, {
+      props: { active: 'synopsis', phase: 'detail', lastWords: 0, saving: false, err, modelValue: '' },
+    })
+  }
+
+  it('err 非空 → 错误条带 role="alert"；无错不渲染该条', () => {
+    const clean = mountPanel(null)
+    expect(clean.find('.err-msg').exists()).toBe(false)
+    clean.unmount()
+
+    const w = mountPanel('生成失败：请求超时')
+    const bar = w.find('.err-msg')
+    expect(bar.attributes('role')).toBe('alert')
+    expect(bar.text()).toContain('生成失败：请求超时')
     w.unmount()
   })
 })

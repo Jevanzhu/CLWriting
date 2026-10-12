@@ -5,11 +5,17 @@
  * - POST /api/books/:name/onboard-ai 自由文本长度上限——premise/discussionContext
  *   超 5 万字符 → 400（打不进 prompt）
  *
+ * 同域并入：全局 PUT /api/library/prefs 写失败的错误码面（与书级 PUT 同「落盘 IO 异常」
+ * 形态，原双端点码面分叉 500 IO_ERROR / 500 ERROR，修复后统一 IO_ERROR）。该组用自带
+ * userDataPath 的独立启动实例（global.json 同名目录占位需直接落盘该目录），组内
+ * beforeAll/afterAll 成对自建自清。
+ *
  * 测试精简批（2026-09-12）：启动样板收编 bootStudio；req 走泛型 node:http 形态
  * 保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
@@ -139,5 +145,71 @@ describe('L-S1（第八轮）：GET 侧 prefs 形状校验（PUT 修复的同族
     // 形状校验逻辑由书级同款代码路径覆盖（两处实现逐字同构），此处锁降级不裸抛
     const r = await req<{ prefs?: unknown; error?: string }>('GET', '/api/library/prefs')
     expect([200, 400]).toContain(r.status)
+  })
+})
+
+// ── 全局 prefs 写失败错误码统一：书级 PUT /api/books/:name/prefs 写失败回 500 IO_ERROR，
+// 全局 PUT /api/library/prefs 写失败原回 500 ERROR——同一「落盘 IO 异常」双端点码面分叉，
+// 前端按码分类的降级/提示路径不一致。修复后统一 IO_ERROR。空书架 + 自带 userDataPath
+// 实例（global.json 做成同名目录占位：读侧形状兜底吞掉 EISDIR，写侧 atomicWriteFile 必败）。──
+
+describe('全局 prefs 写失败错误码统一 IO_ERROR', () => {
+  const GLOBAL_PREFS_BODY = JSON.stringify({ prefs: { theme: 'dark' } })
+  let gStudio: StudioHarness
+  let gUserDataPath = ''
+
+  function putGlobalPrefs(): Promise<{ status: number; json: { code?: string; error?: string } }> {
+    return new Promise((resolve, reject) => {
+      const u = new URL(gStudio.baseUrl)
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: '/api/library/prefs',
+          method: 'PUT',
+          headers: {
+            'x-studio-token': gStudio.token,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(GLOBAL_PREFS_BODY),
+          },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (c) => (data += c.toString('utf-8')))
+          res.on('end', () => {
+            let json: { code?: string; error?: string } = {}
+            try {
+              json = JSON.parse(data) as { code?: string; error?: string }
+            } catch {
+              /* 非 JSON 体 */
+            }
+            resolve({ status: res.statusCode ?? 0, json })
+          })
+        },
+      )
+      r.on('error', reject)
+      r.write(GLOBAL_PREFS_BODY)
+      r.end()
+    })
+  }
+
+  beforeAll(async () => {
+    gUserDataPath = mkdtempSync(join(tmpdir(), 'clwriting-prefs-io-ud-'))
+    gStudio = await bootStudio({ prefix: 'clwriting-prefs-io-', userDataPath: gUserDataPath })
+  })
+
+  afterAll(async () => {
+    await gStudio.close()
+    if (gUserDataPath) rmSync(gUserDataPath, { recursive: true, force: true })
+  })
+
+  it('global.json 落盘失败（同名目录占位）→ 500 IO_ERROR（原 ERROR——回归红）', async () => {
+    // global.json 做成目录：读侧形状兜底吞掉 EISDIR，写侧 atomicWriteFile 必败
+    rmSync(join(gUserDataPath, 'global.json'), { force: true })
+    mkdirSync(join(gUserDataPath, 'global.json'))
+    const r = await putGlobalPrefs()
+    expect(r.status).toBe(500)
+    expect(r.json.code).toBe('IO_ERROR')
+    expect(r.json.error).toContain('写全局偏好失败')
   })
 })

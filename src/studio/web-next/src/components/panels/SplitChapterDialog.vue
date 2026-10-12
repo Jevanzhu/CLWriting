@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// 拆分弹窗（阶段 24 ）：干跑视图展示 + 新章标题必填输入。
+// 拆分弹窗：干跑视图展示 + 新章标题必填输入。
 // 拆分需要标题输入（执行参数），ui.ask 的布尔确认不够用——合并确认走 ui.ask
-// （.cp-modal 动线），本弹窗只承接拆分；形态仿 ChapterMetaDialog（焦点圈/IME 让渡）。
-import { ref, watch } from 'vue'
-import { isImeComposing } from '../../shared/ime'
-import { useFocusTrap } from '../../composables/useFocusTrap'
+// （.cp-modal 动线），本弹窗只承接拆分；焦点圈 / Enter-Esc 让渡 / 重开复位走
+// useModalDialog（与篇章信息弹窗同源）。
+import { ref } from 'vue'
+import { useModalDialog } from '../../composables/useModalDialog'
 import ModalMask from '../ui/ModalMask.vue'
 import type { SplitPlanView } from '../../api/documents'
 
@@ -20,14 +20,6 @@ const emit = defineEmits<{
 }>()
 
 const titleInput = ref('')
-watch(
-  () => props.modelValue,
-  (v) => {
-    // 重开复位（同款）——取消关闭再开不得残留上次的标题草稿
-    if (v) titleInput.value = ''
-  },
-  { immediate: true },
-)
 
 function onConfirm(): void {
   const t = titleInput.value.trim()
@@ -35,22 +27,18 @@ function onConfirm(): void {
   emit('confirm', t)
 }
 
-// 同款焦点圈：打开时焦点入输入框，Tab 循环锁在弹窗内，关闭归还焦点
+// 焦点圈 / Enter-Esc 让渡 / 打开沿复位三件事的域（模板 ref 由本件声明后传入）
 const dlgRef = ref<HTMLElement | null>(null)
-useFocusTrap(dlgRef)
-
-function onKeyConfirm(e: KeyboardEvent): void {
-  // IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，放行会以缺字标题拆分）
-  if (isImeComposing(e)) return
-  // Enter 目标是按钮时让渡原生激活——容器级 @keydown.enter 此前抢在按钮 click 前
-  if ((e.target as HTMLElement | null)?.closest('button')) return
-  onConfirm()
-}
-// IME 组合期 Esc 让渡——组合中按 Esc 是收输入法候选框，放行会误关弹窗
-function onKeyEsc(e: KeyboardEvent): void {
-  if (isImeComposing(e)) return
-  emit('update:modelValue', false)
-}
+const { onDialogEnter, onDialogEsc } = useModalDialog({
+  target: dlgRef,
+  open: () => props.modelValue,
+  // 打开沿复位——取消关闭再开不得残留上次的标题草稿
+  onOpen: () => {
+    titleInput.value = ''
+  },
+  onEnter: onConfirm,
+  onEsc: () => emit('update:modelValue', false),
+})
 </script>
 
 <template>
@@ -67,8 +55,8 @@ function onKeyEsc(e: KeyboardEvent): void {
         aria-modal="true"
         aria-label="在光标处拆分"
         tabindex="-1"
-        @keydown.enter="onKeyConfirm"
-        @keydown.esc="onKeyEsc"
+        @keydown.enter="onDialogEnter"
+        @keydown.esc="onDialogEsc"
       >
         <div class="side-title">在光标处拆分</div>
         <div class="split-info">

@@ -11,7 +11,7 @@
  *   复审-0913-mac适配 P3-2：归一收窄 win32-only——posix 侧 `\` 是合法文件名字符，
  *   按 R33-9 段消毒单字段落 `_`（不再拆层、不再拒伪 UNC），两臂分别钉定。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, existsSync, writeFileSync, linkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,18 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { appendMovePending } from '../../src/document/journal.js'
 import { detectState } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+
+// 结构性整书失效计数：tree 两入口透传 spy（行为零改，只计数）——仅供本文件末尾的
+// 双重失效去重用例读计数，其余用例零断言依赖。
+vi.mock('../../src/document/tree.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/document/tree.js')>()
+  return {
+    ...actual,
+    invalidateTreeIndex: vi.fn(actual.invalidateTreeIndex),
+    invalidateTreeIndexForContent: vi.fn(actual.invalidateTreeIndexForContent),
+  }
+})
+import { invalidateTreeIndex, invalidateTreeIndexForContent } from '../../src/document/tree.js'
 
 let bookRoot: string
 let svc: DocumentService
@@ -224,5 +236,67 @@ describe('R71-22: 章号-only 标题回落', () => {
     const r = await svc.updateChapterMeta(docId, { 章号: 6 })
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.path).toBe('笔记/0006-正式标题.md')
+  })
+})
+
+// ── updateChapterMeta 操作链双重 invalidateTreeIndex 去重：修复前在分支汇合处先做一次
+// invalidateTreeIndex(bookRoot, true)，rename 路径委托 doMoveOrRename 后其链尾对同一
+// bookRoot 再做一次同参整书失效。修复后契约：①rename 路径全程恰好 1 次；②不 rename
+// 路径 0 次（rel_path 集合不变，上方 invalidateTreeIndexForContent 单键内容失效已足够
+// ——链中提前清会把未变章的有效章级机检缓存行连坐清空）。手法：tree 透传 spy 只计数
+// 不改行为（见文件头的 vi.mock）。──
+
+describe('updateChapterMeta 整书失效去重', () => {
+  const invalidateMock = vi.mocked(invalidateTreeIndex)
+  const invalidateContentMock = vi.mocked(invalidateTreeIndexForContent)
+
+  /** 手建章文件 + 清单登记 */
+  function registerChapter(name: string): string {
+    writeFileSync(join(bookRoot, '笔记', name), '---\n---\n\n正文。\n', 'utf-8')
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const m = readManifest(manifestPath)
+    const docId = `backlog-g1-${seq++}`
+    upsertEntry(m, { id: docId, nodeType: 'document', path: `笔记/${name}`, parentId: null })
+    writeManifest(manifestPath, m)
+    return docId
+  }
+
+  beforeEach(() => {
+    invalidateMock.mockClear()
+    invalidateContentMock.mockClear()
+    mkdirSync(join(bookRoot, '笔记'), { recursive: true })
+  })
+
+  test('rename 路径全程恰好 1 次结构性整书失效（单源在 doMoveOrRename 链尾）', async () => {
+    const docId = registerChapter('0001-我的章节.md')
+
+    const r = await svc.updateChapterMeta(docId, { 章号: 5 })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.path).toBe('笔记/0005-我的章节.md')
+    expect(existsSync(join(bookRoot, '笔记', '0005-我的章节.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '笔记', '0001-我的章节.md'))).toBe(false)
+
+    // 内容单键失效 1 次（既有口径不变）
+    expect(invalidateContentMock).toHaveBeenCalledTimes(1)
+    // 结构性整书失效恰 1 次（修复前：链中 + 链尾 = 2 次）
+    expect(invalidateMock).toHaveBeenCalledTimes(1)
+    expect(invalidateMock.mock.calls[0]).toEqual([bookRoot, true])
+  })
+
+  test('不 rename 路径 0 次结构性整书失效（单键内容失效已足够）', async () => {
+    const docId = registerChapter('0003-我的章节.md')
+
+    // 章号 3 → newName 与现名一致 → 不走 rename 委托
+    const r = await svc.updateChapterMeta(docId, { 章号: 3 })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.path).toBe('笔记/0003-我的章节.md')
+    expect(existsSync(join(bookRoot, '笔记', '0003-我的章节.md'))).toBe(true)
+    // fm 章号已写回
+    expect(readFileSync(join(bookRoot, '笔记', '0003-我的章节.md'), 'utf-8')).toContain('章号: 3')
+
+    // 内容单键失效 1 次；结构性整书失效 0 次（修复前：链中 1 次）
+    expect(invalidateContentMock).toHaveBeenCalledTimes(1)
+    expect(invalidateMock).toHaveBeenCalledTimes(0)
   })
 })

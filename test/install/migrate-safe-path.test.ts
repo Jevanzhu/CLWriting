@@ -1,5 +1,5 @@
 /**
- * R73-36（二十一轮）回归：migrateFinalizedRevisions 的 join(bookRoot, e.path) 直拼
+ * R73-36（二十一轮）回归：migrateFinalizedRevisionsAsync 的 join(bookRoot, e.path) 直拼
  * 改过 safe-path 校验（resolveWithinRoot 口径）。
  *
  * manifest 属可篡改数据面：`../` 越出条目此前可让 computeRevision 读到书仓库外文件
@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import { execSync } from 'node:child_process'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
+import { migrateFinalizedRevisionsAsync } from '../../src/install/migrate-finalized-revision.js'
 import { readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 
 describe('R73-36 / 定稿基线迁移 safe-path 校验', () => {
@@ -44,18 +44,18 @@ describe('R73-36 / 定稿基线迁移 safe-path 校验', () => {
     writeManifest(join(root, '项目', '文档清单.jsonl'), m)
   }
 
-  it('../ 越出条目被跳过（不越界读、不误标 final），合法条目照常设基线', () => {
+  it('../ 越出条目被跳过（不越界读、不误标 final），合法条目照常设基线', async () => {
     seedManifest(`../${basename(outsideFile)}`)
-    const n = migrateFinalizedRevisions(root)
+    const n = await migrateFinalizedRevisionsAsync(root)
     expect(n).toBe(1) // 仅 doc_ok
     const entries = readManifest(join(root, '项目', '文档清单.jsonl')).entries
     expect(entries.get('doc_ok')?.finalizedRevision).toMatch(/^sha256:/)
     expect(entries.get('doc_evil')?.finalizedRevision).toBeUndefined()
   })
 
-  it('绝对路径条目同样被拒', () => {
+  it('绝对路径条目同样被拒', async () => {
     seedManifest(outsideFile)
-    const n = migrateFinalizedRevisions(root)
+    const n = await migrateFinalizedRevisionsAsync(root)
     expect(n).toBe(1)
     expect(
       readManifest(join(root, '项目', '文档清单.jsonl')).entries.get('doc_evil')?.finalizedRevision,

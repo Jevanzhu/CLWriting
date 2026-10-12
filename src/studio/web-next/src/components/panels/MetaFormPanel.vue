@@ -7,7 +7,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { formKindOf } from '../../shared/words'
+import { formKindOf, isPieceBodyNode } from '../../shared/words'
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { useStaleGuard } from '../../composables/useStaleGuard'
 import { useScopedAction, usePendingAction } from '../../composables/useScopedAction'
@@ -34,7 +34,8 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: '字数目标', label: '字数目标', type: 'number' },
   ],
   'piece-body': [
-    // 目标情绪/核心反转（短篇目标函数）+ 钩子/情绪/场景（连续故事可选，对齐 chapter-outline）
+    // 短篇目标函数 + 钩子/情绪/场景（连续故事可选，对齐 chapter-outline）——
+    // 服务端短篇节奏分析读的正是这批 fm 键（写作/正文 的 钩子类型/钩子强弱/情绪定位/场景）
     { key: '目标情绪', label: '目标情绪', type: 'text' },
     { key: '核心反转', label: '核心反转', type: 'text' },
     {
@@ -122,11 +123,13 @@ const ui = useUiStore()
 const prefs = usePrefsStore()
 
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
-// 短篇正文（role=piece-body）与长篇正文 path 相同（写作/正文/），
-// formKindOf 按 path 返回 'chapter'；短篇表单由 role 覆写为 'piece-body'。
+// 短篇正文与长篇正文 path 相同（写作/正文/），formKindOf 按 path 返回 'chapter'；
+// 短篇表单改由「书级 kind + 正文路径」覆写为 'piece-body'（isPieceBodyNode 单源，
+// 书级 kind 取 doc store 的会话级单源）。键名 'piece-body' 是表单分区键（FIELD_DEFS
+// 键位），与服务端历史 wire role 枚举同名不同义。
 const kind = computed(() => {
   if (!entry.value) return null
-  if (entry.value.role === 'piece-body') return 'piece-body'
+  if (isPieceBodyNode(doc.bookKind, entry.value)) return 'piece-body'
   return formKindOf(entry.value.path)
 })
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
@@ -198,7 +201,7 @@ watch(
 )
 
 // ── 正文标签（AI 判定 → fm，只读展示）──
-// 长篇 chapter：钩子/情绪/场景（AI 判定只读）；短篇 piece-body 标签已移入 FIELD_DEFS 可编辑
+// 长篇 chapter：钩子/情绪/场景（AI 判定只读）；短篇标签已移入 FIELD_DEFS 可编辑
 const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> = {
   chapter: [
     { key: '时间锚点', label: '时间锚点' },
@@ -313,7 +316,7 @@ async function onSave(): Promise<void> {
   <div class="meta-form-panel">
     <div v-if="!entry" class="side-hint">未打开文档</div>
     <div v-else class="info-card">
-      <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景——短篇 piece-body 的目标情绪/
+      <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景——短篇 的目标情绪/
       核心反转已移入 FIELD_DEFS 可编辑区，见 TAG_FIELDS_BY_KIND 头注，本块对短篇不渲染） -->
       <div v-if="tagFields.length" class="tag-block">
         <div class="card-title"><Tag :size="14" />章节标签<span class="ai-tag">AI 判定</span></div>

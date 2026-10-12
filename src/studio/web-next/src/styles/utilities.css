@@ -36,12 +36,28 @@
   color: var(--text-faint);
 }
 
-/* 章节树/回收站叶子行状态点（ChapterTreeItem / TrashPanel，严格仿同构行） */
+/* 章节树/回收站叶子行状态点（ChapterTreeItem / TrashPanel，严格仿同构行）。
+ * 四态色类（dot-green|red|yellow|gray）是本文件唯一定义点：态→色 的判定源是
+ * shared/words.ts 的 CHAPTER_STATUS 单表，色类必须跟着它聚在一处——此前三色留在
+ * ChapterTreeItem 的 scoped 块内、灰色单独在本文件，扩一态要改两个文件，漏改即点
+ * 不可见。TrashPanel 不在 ChapterTreeItem 的子树上，scoped 规则到不了它，故归本文件
+ * （全局）而非任一组件内。`.dot` 基础尺寸仍各组件自持：树行带 cursor: grab
+ * （整行可拖）、回收站行不可拖，属同名异体，按本文件头注口径不收。
+ * 防复活锚 = test/studio/webnext/styles-single-source.test.ts */
 .dot-slot {
   width: 14px;
   display: flex;
   justify-content: center;
   flex-shrink: 0;
+}
+.dot-green {
+  background: var(--dv-good);
+}
+.dot-red {
+  background: var(--text-error);
+}
+.dot-yellow {
+  background: var(--text-warning);
 }
 .dot-gray {
   background: var(--text-faint);

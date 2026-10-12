@@ -5,7 +5,7 @@
  * 默认展开集。输入 TreeNode[]（tree.grouped 或 tree.raw），不依赖组件与响应式。
  */
 import type { TreeNode } from '../types/tree'
-import { parseChapterFileName } from './words'
+import { parseChapterFileName, isPieceBodyNode, type BookKind } from './words'
 
 /** Windows 保留设备名（大小写不敏感）：主文件名命中即不可建（CON.md 在 Win 侧同样非法）。
  *  COM1-9 / LPT1-9 为串并口设备名系列；不含 console（普通词，非保留名）。 */
@@ -128,7 +128,7 @@ export function moveToTargetsFor(node: TreeNode, nodes: TreeNode[]): { label: st
 
 /**
  * 收集「≤ 目标章号」的所有待定稿正文章（draft/revision）。
- * 从整树 raw 扫（含短篇 piece-body，扁平无卷——章号从文件名取）。
+ * 从整树 raw 扫（写作/正文/ 下正文叶子；短篇集扁平无卷——章号从文件名取）。
  * 返回 docId 列表（含目标章自身，按章号升序）。
  * 注意：TreeNode.path 是完整相对路径（写作/正文/N-标题.md），章号只能从 name 提取。
  */
@@ -149,14 +149,20 @@ export function pendingChaptersUpToIn(target: TreeNode, rawNodes: TreeNode[]): s
   return out.sort((a, b) => a.no - b.no).map((x) => x.docId)
 }
 
-/** 阶段 24：正文长篇章按树显示序扁平（grouped 已由服务端 sortTreeByOrder 按
- *  fm `序` ?? 章号 排好，深度优先遍历即作者看到的章序；短篇 piece-body 不参与结构
- *  操作——留洞制合并/拆分只对长篇章开放）。 */
-export function bodyChaptersInDisplayOrder(nodes: TreeNode[]): TreeNode[] {
+/** 正文长篇章按树显示序扁平（grouped 已由服务端 sortTreeByOrder 按
+ *  fm `序` ?? 章号 排好，深度优先遍历即作者看到的章序；短篇正文不参与结构
+ *  操作——留洞制合并/拆分只对长篇章开放）。
+ *  bookKind 缺省 'long'：结构动作（doMergeIntoPrev）经菜单门（短篇正文不开放结构项）
+ *  不可达短篇形态，按长篇口径；菜单侧（useTreeMenu）传书级真值，短篇书正文一律排除。
+ *
+ *  测试专用导出面——模块外零生产调用方：生产只经同档 prevBodyChapterInDisplayOrder
+ *  取序（它才进菜单/结构动作链），跨组件无人直调本函数；导出仅为测试树序语义
+ *  （tree-menu-structure.test.ts 直断言扁平结果与短篇排除）。改签名即改测试，勿当公共 API。 */
+export function bodyChaptersInDisplayOrder(nodes: TreeNode[], bookKind: BookKind = 'long'): TreeNode[] {
   const out: TreeNode[] = []
   const walk = (ns: TreeNode[]): void => {
     for (const n of ns) {
-      if (!n.isDirectory && n.docId && n.role !== 'piece-body' && n.path.startsWith('写作/正文/')) out.push(n)
+      if (!n.isDirectory && n.docId && n.path.startsWith('写作/正文/') && !isPieceBodyNode(bookKind, n)) out.push(n)
       if (n.children.length) walk(n.children)
     }
   }
@@ -165,9 +171,14 @@ export function bodyChaptersInDisplayOrder(nodes: TreeNode[]): TreeNode[] {
 }
 
 /** 显示序前一章（「并入上一章」的目标章；非章号−1——插序/跨卷后视觉上的上一章才是
- *  作者心智中的「上一章」，与树面板渲染序一致）。无前章（首章）→ null。 */
-export function prevBodyChapterInDisplayOrder(target: TreeNode, grouped: TreeNode[]): TreeNode | null {
-  const seq = bodyChaptersInDisplayOrder(grouped)
+ *  作者心智中的「上一章」，与树面板渲染序一致）。无前章（首章）→ null。
+ *  bookKind 语义同 bodyChaptersInDisplayOrder。 */
+export function prevBodyChapterInDisplayOrder(
+  target: TreeNode,
+  grouped: TreeNode[],
+  bookKind: BookKind = 'long',
+): TreeNode | null {
+  const seq = bodyChaptersInDisplayOrder(grouped, bookKind)
   const idx = seq.findIndex((n) => n.path === target.path)
   return idx > 0 ? (seq[idx - 1] ?? null) : null
 }

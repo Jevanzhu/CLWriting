@@ -1,32 +1,31 @@
 #!/usr/bin/env node
 /**
- * X-P2-16：README 数字对账门——测试文件数 + 用例数 vs README 声称值。
+ * README 数字对账门——测试文件数 + 用例数 vs README 声称值。
  *
- * 背景：「账实对照」是本项目卖点，但 W-P2-15 专项修账后批 6 加测试又漂移
- * （修账用了滞后统计快照，之后无人对账）。把对账从自律升级为门禁：
- * CI 每跑必核，README 数字失准即红。
+ * 背景：「账实对照」是本项目卖点，但对账此前是自律面（修账用的统计快照随后就滞后，
+ * 之后无人复对）。本门把对账升级为门禁：CI 每跑必核，README 数字失准即红。
  *
  * 统计口径：
  * - 单测文件：test 目录下全部 *.test.ts（不含 e2e 的 *.spec.ts）
  * - 单测用例：`vitest list --json` 全量静态枚举（不执行，秒级）——vitest 5 起为静态
  *   抽取：数声明不数执行（模板标题不求值、循环产用例按调用点计 1），平台门用例
- *   全计，win/mac/linux 三腿同一数对账（作者拍板静态口径；此前 v3 list 为运行时收集、
- *   各平台计数不同，须以「win = mac − N」差值锚分账反推——该机制随 v5 静态化废除）
+ *   全计，win/mac/linux 三腿同一数对账。若是运行时收集口径，各平台计数不同，就须以
+ *   「win = mac − N」差值锚分账反推——该机制随静态化废除，勿再引入。
  * - e2e spec：test/e2e 目录下 *.spec.ts 文件数
  * - e2e 用例：spec 文件内 `test(`/`test.serial(`/`test.describe(` 顶层调用静态计数
  *   （playwright 无 list --json，静态计数足够当门禁——漂移即失配）
  *
- * R63-12：`.only` 拒绝门扩到无条件 `.skip`（调试遗留 it.skip 同样让用例静默
+ * `.only` 拒绝门扩到无条件 `.skip`（调试遗留 it.skip 同样让用例静默
  * 跳过而门禁照常绿）；条件式 skip（test.skip(!env.X) 环境门）白名单豁免。
  * 净化/计数/检出逻辑抽为纯函数 export，直测见 test/scripts/check-counts.test.ts。
  *
- * R66-37（十四轮）：e2e spec 顺序快照守卫——README「勿改动 spec 顺序」从注释
+ * e2e spec 顺序快照守卫——README「勿改动 spec 顺序」从注释
  * 契约升级为机器门：spec 名单/字典序位漂移即红（详见 E2E_SPEC_ORDER_SNAPSHOT）。
  *
- * 0917清库修复批 AST 化：skip 门禁形态枚举（.only / 无条件 .skip / .skip.each）
+ * skip 门禁形态枚举（.only / 无条件 .skip / .skip.each）
  * 自正则改 TypeScript 编译器 API 轻量 AST 扫描（findOnlyOrSkipViolations），封死
- * 正则近似族盲区（R0912-3 skip.each 一层平衡括号近似——嵌套 ≥2 层 `)` 漏检向）；
- * 对账口径与改前正则逐位一致（只换枚举机制，不加检测面），README 声称值不动。
+ * 正则近似族盲区（`.skip.each` 一层平衡括号近似——嵌套 ≥2 层 `)` 漏检向）；
+ * 对账口径与正则版逐位一致（只换枚举机制，不加检测面），README 声称值不动。
  *
  * 用法：npm run check:counts（退出码 1 = 失配，并列出实测值供修 README）
  */
@@ -35,7 +34,7 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
-// P2-15（二轮复审）：test/ 批号上锚门复用 check-comments 的标签形态单一源
+// test/ 批号上锚门复用 check-comments 的标签形态单一源
 // （TAG_PATTERNS/TOKEN_EXCEPTIONS/逐字符注释抽取）——绝不在本脚本另立一套批号正则：
 // 「门与清理器两套形态」是本仓已付过学费的漂移根因（见 check-comments TAG_PATTERNS 头注）。
 import { extractCommentLines, findTagHits, tagSpansOf } from './check-comments.mjs'
@@ -43,21 +42,21 @@ import { extractCommentLines, findTagHits, tagSpansOf } from './check-comments.m
 // fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-// ── 剥注释/字符串（X-32：e2e 用例计数与 .only 检查共用同一净化口径）──────────────
-// 背景 A（二轮复审门禁补强）：test.only/it.only/describe.only 会让该文件其余用例
+// ── 剥注释/字符串（e2e 用例计数与 .only 检查共用同一净化口径）────────────────
+// 背景 A（门禁补强）：test.only/it.only/describe.only 会让该文件其余用例
 // 静默跳过——门禁照常绿但覆盖面骤减，vitest list 的枚举数不变、README 对账也发现不了。
-// 背景 B（X-32）：e2e 用例静态计数此前不剥——注释掉的样例用例、字符串里的「test(」
+// 背景 B：e2e 用例静态计数若不剥注释/字符串——注释掉的样例用例、字符串里的「test(」
 // 说明文本会被数成真实用例，README 对账口径失真。剥注释时保留 https:// 的协议斜杠
 // 不被误剥。
 export function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
 // 字符串字面量内容清空（保留空串定界符维持词法形态）：标题/说明文本不参与匹配。
-// R73-78（批 F-12）：模板串改前向扫描支持 ${} 嵌套——旧单条正则 `[^`\\]*` 在
+// 模板串须前向扫描支持 ${} 嵌套——单条正则 `[^`\\]*` 会在
 // 「模板内嵌套模板/字符串」（如 `a ${ t(`x`) } b`）处提前截断，半截模板残留在净化
 // 输出里：残留中的 `test(` 假声明被虚增计数、真实用例可能被吞（计数漂移）。扫描器
 // 口径：最外层模板（含 ${} 表达式内的嵌套模板与单双引号串）整体清成 ""；未闭合
-// 模板与旧正则口径一致——不匹配、原样保留。
+// 模板与单条正则口径一致——不匹配、原样保留。
 /**
  * 从 src[at]（须为反引号）起吞一个完整模板串，返回闭合反引号下标；未闭合返回 -1。
  * ${} 表达式内允许：花括号嵌套（对象字面量）、单双引号串（串内反引号不算定界）、
@@ -113,7 +112,7 @@ function skipTemplateLiteral(src, at) {
   return -1
 }
 
-// R31-35（三十一轮）登记维持：stripStrings/stripComments 均不识别正则字面量——
+// 登记维持：stripStrings/stripComments 均不识别正则字面量——
 // `/['"]/` 类形态内的引号被当字符串定界吞掉同行后续代码。实测当前全部 spec/.test.ts
 // 无实伤（counts 门绿）；漂移主方向 e2e 用例少计 → README 对账红（fail-closed 可接受），
 // 次方向 `.skip(` 漏检（假绿向）——已有空洞测试门/`.only` 机器门双兜底。补正则识别需
@@ -167,7 +166,7 @@ export function stripStrings(src) {
 }
 
 /**
- * R65-63（F-11）：门禁净化统一入口——先清字符串再剥注释。
+ * 门禁净化统一入口——先清字符串再剥注释。
  * 反过来（先注释后字符串）时，字符串内容里的非冒前 `//`（如 base64 片段、
  * URL 路径段）会被当行注释吃掉、吞掉行尾引号污染后续计数；先空串则注释内
  * 的引号已成对占位，注释剥离不受影响。占位 `""` 保形使 .skip 标题串探测仍命中。
@@ -179,13 +178,12 @@ export function sanitizeForCount(src) {
 /**
  * e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only( / test.fail( /
  * test.fixme(，排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）；
- * 计数前剥注释/字符串（X-32），被注释/写进字符串的声明样例不再计入
- * R62-56：test.fail( / test.fixme( 也声明真实用例（期望失败/挂起的测试），此前漏数
+ * 计数前剥注释/字符串，被注释/写进字符串的声明样例不再计入。
+ * test.fail( / test.fixme( 也声明真实用例（期望失败/挂起的测试），不得漏数。
  */
 export function countE2eCases(src) {
-  // R33D-33（三十三轮）：补 test.each 参数化组形态——整组此前只计 1 条（当前 29 spec
-  // 零 .each 无实伤；漂移方向 = 用例数计少、README 口径失真）。each 组计 1 条与既有
-  // 「数声明」口径一致（组内运行时行数静态不可知）。
+  // 补 test.each 参数化组形态——整组若不计，用例数会少算（each 组计 1 条与既有
+  // 「数声明」口径一致：组内运行时行数静态不可知）。
   const m = sanitizeForCount(src).match(
     /(^|[^.\w])(?:test\.serial|test\.only|test\.fail|test\.fixme|test)(?:\.each(?:\.only|\.skip|\.fails)?)?\s*\(/g,
   )
@@ -193,24 +191,24 @@ export function countE2eCases(src) {
 }
 
 /**
- * R63-12：.only / 无条件 .skip 检出（返回各自命中数，剥注释/字符串后判定）。
+ * .only / 无条件 .skip 检出（返回各自命中数，剥注释/字符串后判定）。
  * - .only 一律拒绝（其余用例被静默跳过，门禁假绿）。
  * - .skip 只拒「无条件式」——首参为标题字符串（剥字符串后 `(` 紧跟 `"`）是调试
  *   遗留/长期弃置；条件式（首参布尔表达式，如 test.skip(!process.env.X) 环境门）
  *   `(` 后非 `"`，白名单豁免（release-smoke.spec.ts 的发布门先例）。
  *
- * 0917清库修复批 AST 化：only/skip 形态枚举自正则改 TypeScript 编译器 API 轻量
+ * 形态枚举走 TypeScript 编译器 API 轻量
  * AST 扫描（createSourceFile 解析 sanitized 文本，无类型检查），封死正则近似族
- * 盲区（R31-35 正则字面量 / R0912-3 skip.each 一层平衡括号近似——嵌套 ≥2 层
- * 括号漏检向）。对账口径逐位对齐改前正则，只换枚举机制不加检测面：
+ * 盲区（正则字面量 / `.each` 一层平衡括号近似——嵌套 ≥2 层
+ * 括号漏检向）。对账口径逐位对齐正则版，只换枚举机制不加检测面：
  * - only：`it|test|describe` 根标识符 + 成员链恰为 `.only` / `.only.each` 的调用
  *   （原 `\s*[({[]` = 调用本身；`test?.only` 可选链、`each.only` 反序不在射程）。
  * - skip 平铺：成员链恰为 `.skip`，且零参 / 首参字符串字面量（sanitized 占位 `""`）
- *   / 首参 `true` 字面量（R54-E-3）；`(true)` 括号包裹与 `truthy` 标识符同旧正则
+ *   / 首参 `true` 字面量；`(true)` 括号包裹与 `truthy` 标识符同正则版
  *   不命中（不解包括号、按 kind 精确判定）。
  * - skip.each 两段调用：外层调用首参字符串字面量才计（each 表格参数有无条件不做
- *   判定，同旧正则）；`.skipIf(` 与 `skipIf(true)` 均不在射程（平台门豁免口径不变）。
- * sanitized 文本个别病态形态（未闭合串原样保留，R73-78）解析失败时 TS 容错恢复，
+ *   判定，同正则版）；`.skipIf(` 与 `skipIf(true)` 均不在射程（平台门豁免口径不变）。
+ * sanitized 文本个别病态形态（未闭合串原样保留）解析失败时 TS 容错恢复，
  * 该等文件本就无法过 vitest 收集，检测方向不受影响。
  */
 /** only/skip 门禁的根标识符集。 */
@@ -302,7 +300,7 @@ export function findOnlyOrSkipViolations(src) {
           }
         }
       } else if (ts.isCallExpression(node.expression)) {
-        // it.skip.each(cases)("标题", fn) 两段调用——外层首参为标题串才计（R65-59 口径）
+        // it.skip.each(cases)("标题", fn) 两段调用——外层首参为标题串才计
         const inner = callChainRoot(node.expression.expression)
         if (inner && inner.props.length === 2 && inner.props[0] === 'skip' && inner.props[1] === 'each') {
           if (ts.isStringLiteral(node.arguments[0])) uncondSkip++
@@ -316,9 +314,9 @@ export function findOnlyOrSkipViolations(src) {
 }
 
 /**
- * R76-40（二十四轮 F 域）：空洞测试门——剥注释/字符串后每个 .test.ts 至少一处
+ * 空洞测试门——剥注释/字符串后每个 .test.ts 至少一处
  * expect( / assert 调用。单测数来自 vitest list（数声明不数断言）：只声明用例、
- * 零断言的文件也能满足 README 计数对账，此前仅靠 coverage 语句门 82 弱兜底。
+ * 零断言的文件也能满足 README 计数对账，此前仅靠 coverage 语句门弱兜底。
  * 口径：expect( 是 vitest 家规断言面（全量实测无一文件例外）；assert(/.( 认
  * node:assert 形态；写进字符串/注释的样例不算（sanitizeForCount 同源）。
  */
@@ -329,9 +327,9 @@ export function findAssertionFreeTestFiles(entries) {
 }
 
 /**
- * P2-17（二轮复审）：零断言门从**文件粒度**下沉到**用例粒度**。
+ * 零断言门从**文件粒度**下沉到**用例粒度**。
  *
- * 洞：R76-40 只要求每个 .test.ts 至少一处 expect/assert——文件里一个用例写了断言，
+ * 洞：文件粒度门只要求每个 .test.ts 至少一处 expect/assert——文件里一个用例写了断言，
  * 其余用例体全空也能过门（档内空洞不拦）。升级契约：**每个用例至少 1 断言或显式
  * 豁免注释**。
  *
@@ -343,7 +341,7 @@ export function findAssertionFreeTestFiles(entries) {
  *   可判的用例体，交回人工；有函数实参的用例体子树内须现出断言调用。
  * - 断言面 = 被调链根标识符恰为 `expect` / `assert` 的调用（`expect(x)`、
  *   `expect.soft(x)`、`assert.equal(a,b)` 都算；`expectFoo(` 这类前缀标识符不算）。
- *   与 R76-40 文件门同一语义面，只是从「文件里有一个」收严到「本用例里有」。
+ *   与文件门同一语义面，只是从「文件里有一个」收严到「本用例里有」。
  * - 豁免 = 用例体文本（注释面抽取同 check-comments 状态机，字符串里的字样不算）内
  *   出现 `零断言豁免` 标记 + 理由。静态判不了「断言在被调辅助函数里」的形态必须
  *   就地登记豁免，不许把断言搬去用例体外绕过。
@@ -353,7 +351,16 @@ export function findAssertionFreeTestFiles(entries) {
 export const ZERO_ASSERTION_EXEMPT_MARK = '零断言豁免'
 const CASE_ROOTS = new Set(['it', 'test'])
 /** 容器/钩子/子步骤——根为 it/test 但不是用例声明，不入用例级判定。 */
-const NON_CASE_PROPS = new Set(['describe', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'step', 'use', 'extend'])
+const NON_CASE_PROPS = new Set([
+  'describe',
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'step',
+  'use',
+  'extend',
+])
 
 /** 用例声明解包（direct 链 `it(...)` 或两段链 `it.each(表)('标题', fn)` 外层）；非用例返回 null。 */
 function caseChainOf(node) {
@@ -421,14 +428,14 @@ export function findAssertionFreeCases(entries) {
 }
 
 /**
- * P2-15（二轮复审）：test/ 批号标签「上锚不追」门。
+ * test/ 批号标签「上锚不追」门。
  *
  * 背景：test/ 此前豁免于 check-comments（测试头注释留批次号是纪律允许形态），导致批号
- * 密度在测试面持续堆积——用例标题 914/10,836、注释 1,481/24,106、53.3% 档含批号。
- * 复审建议「新档标题禁批号，旧档随改随清」——为不制造一次性大清理，机械化为**上锚**：
+ * 密度在测试面持续堆积——用例标题与注释两面合计命中率过半。处置取「新档标题禁批号，
+ * 旧档随改随清」——为不制造一次性大清理，机械化为**上锚**：
  * 冻结落门时的实测数当上限，**超出即红**（新增批号必须自行清掉同量存量，或改写成不依赖
  * 批号的表述）；**低于锚不追**（存量清理不强制、不清也不红；锚只随实测手动下调）。
- * 机制先例 = R0911「testableConst 收编 71→14；上锚 71，超才红」（总览 §五）。
+ * 机制先例 = 「testableConst 收编 71→14；上锚 71，超才红」（总览 §五）。
  *
  * 计量面（只数这两面，避免把功能字符串误当批号叙事）：
  * - 注释面：check-comments 的注释抽取 + 标签形态表（单一形态源，见顶部 import 注）；
@@ -452,8 +459,7 @@ export function findTestBatchHits(entries) {
         if (declCallChainOf(node, titleRoots)) {
           const a0 = node.arguments[0]
           if (a0 && (ts.isStringLiteral(a0) || ts.isNoSubstitutionTemplateLiteral(a0) || ts.isTemplateExpression(a0))) {
-            const text =
-              ts.isTemplateExpression(a0) ? a0.getText(sf).slice(1, -1) : a0.text
+            const text = ts.isTemplateExpression(a0) ? a0.getText(sf).slice(1, -1) : a0.text
             titleHitCount += tagSpansOf(text).length
           }
         }
@@ -483,9 +489,9 @@ export function batchAnchorViolations({ titles, comments }, anchor = TEST_BATCH_
 }
 
 /**
- * test/ 批号上锚（P2-15）：落门实测值冻结——超锚即红，锚下不追（见 findTestBatchHits 头注）。
+ * test/ 批号上锚：落门实测值冻结——超锚即红，锚下不追（见 findTestBatchHits 头注）。
  * 手动下调锚 = 声明「存量已清到这个水位」，只许收紧不许放宽；上调须过评审（不是维护动作）。
- * 数值口径：titles/comments 由 findTestBatchHits 对 test/ 全量实测（本仓 2026-10-11 落门）。
+ * 数值口径：titles/comments 由 findTestBatchHits 对 test/ 全量实测。
  */
 export const TEST_BATCH_ANCHOR = Object.freeze({
   titles: 4160,
@@ -493,14 +499,14 @@ export const TEST_BATCH_ANCHOR = Object.freeze({
 })
 
 /**
- * R76-6（二十四轮 F 域）：e2e pageerror 基线接线静态门——R75-7 把渲染层异常升级为红
+ * e2e pageerror 基线接线静态门——渲染层异常升级为红
  * 的前提是各 spec 接 attachPageErrorBaseline，但接线是约定式 opt-in 无机器校验：新增
  * spec 漏接一行，「渲染层异常被断言偶然通过掩盖」的洞静默重开。剥注释/字符串后每个
  * spec 须有一处 attachPageErrorBaseline( 调用（import 行不带 `(` 不会误判通过）；
  * 无浏览器页面的 spec 走显式豁免名单（登记理由，新增须改此处过目）。
  */
 export const PAGEERROR_WIRING_EXEMPT = [
-  'test/e2e/release-smoke.spec.ts', // 发布 smoke：API 冒烟无浏览器页面（R75-7 摸底时即未接，正当理由）
+  'test/e2e/release-smoke.spec.ts', // 发布 smoke：API 冒烟无浏览器页面（摸底时即未接，正当理由）
 ]
 export function missingPageErrorWiring(entries, exempt = PAGEERROR_WIRING_EXEMPT) {
   return entries
@@ -511,12 +517,12 @@ export function missingPageErrorWiring(entries, exempt = PAGEERROR_WIRING_EXEMPT
 
 /**
  * 递归收集文件
- * F-5（二十九轮批 F）：`.` 前缀跳过同时覆盖外置卷 AppleDouble 元数据（macOS 在 exFAT
+ * `.` 前缀跳过同时覆盖外置卷 AppleDouble 元数据（macOS 在 exFAT
  * 等卷上为每个真实文件旁生成 `._<name>` 副本，含 `._x.test.ts` 形态）——与 vitest
  * exclude 的 `._*` 通配同口径（vitest.config.ts），否则外置卷工作区跑门禁时副本虚增
  * 测试文件计数。此处显式注记，防后续把点前缀跳过误当普通 dotfile 卫生而收窄。
- * F-2（五十轮评审批）：TOCTOU 容错——readdir/stat 与条目 stat 之间目录/条目被并发
- * 移走（ENOENT）或目录被换成文件（ENOTDIR）时不再裸抛炸脚本（失败方向 fail-closed
+ * TOCTOU 容错——readdir/stat 与条目 stat 之间目录/条目被并发
+ * 移走（ENOENT）或目录被换成文件（ENOTDIR）时不得裸抛炸脚本（失败方向 fail-closed
  * 不变：跳过只损诊断面）；其余错误照抛（不吞真故障、不假绿）。导出供直测。
  */
 export function walk(dir, pred, out = []) {
@@ -536,25 +542,25 @@ export function walk(dir, pred, out = []) {
     const fp = join(dir, name)
     let st
     try {
-      // 0918独立重评修复批（D005）：lstatSync 判型不跟随 symlink——此前 statSync 跟随 +
-      // isDirectory 递归：目录环 symlink（a→b→a）令跟随撞内核 symlink 解析上限裸抛
-      // ELOOP（mac 实测；非本段容错码 → 炸门），未成环的目录/文件 symlink 也被跟随
-      // 下钻/收集（计数扩面）。对齐 check-knowledge R71-39 的「symlink 环路/越界不可判」
-      // fail-safe 口径（彼处 fail-closed 抛错，本侧计数门语义选跳过：对账面只认实体树，
-      // vitest/coverage 收集同样不循 symlink 扩面，跳过不虚增不漏计实体文件）。
+      // lstatSync 判型不跟随 symlink——若用 statSync 跟随 + isDirectory 递归：目录环
+      // symlink（a→b→a）会令跟随撞内核 symlink 解析上限裸抛 ELOOP（mac 实测；非本段
+      // 容错码 → 炸门），未成环的目录/文件 symlink 也被跟随下钻/收集（计数扩面）。
+      // 对齐 check-knowledge 的「symlink 环路/越界不可判」fail-safe 口径（彼处抛错，
+      // 本侧计数门语义选跳过：对账面只认实体树，vitest/coverage 收集同样不循 symlink
+      // 扩面，跳过不虚增不漏计实体文件）。
       st = lstatSync(fp)
     } catch (e) {
-      // F-2（五十轮评审批）：TOCTOU 容错保持——readdir 后条目被并发移走/路径段被换
-      // （ENOENT/ENOTDIR）照旧 warn 跳过；断链 symlink 此前经 statSync 跟随得 ENOENT，
-      // 现 lstat 对链接本体仍成功 → 归入下方 symlink 跳过分支（warn 留痕同款）
+      // TOCTOU 容错保持——readdir 后条目被并发移走/路径段被换
+      // （ENOENT/ENOTDIR）照旧 warn 跳过；断链 symlink 经 statSync 跟随会得 ENOENT，
+      // 而 lstat 对链接本体仍成功 → 归入下方 symlink 跳过分支（warn 留痕同款）
       if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
         console.warn(`check:counts walk 跳过消失条目（${e.code}）：${fp}`)
         continue
       }
       throw e
     }
-    // 0918独立重评修复批（D005）：symlink 一律跳过（不跟随；含断链/指向文件/指向目录/
-    // 环）——warn 留痕同 F-2 跳过样式，真实树（无 symlink）计数与改前逐位一致
+    // symlink 一律跳过（不跟随；含断链/指向文件/指向目录/
+    // 环）——warn 留痕同 TOCTOU 跳过样式，真实树（无 symlink）计数与不跳版本逐位一致
     if (st.isSymbolicLink()) {
       console.warn(`check:counts walk 跳过 symlink（不跟随）：${fp}`)
       continue
@@ -565,22 +571,23 @@ export function walk(dir, pred, out = []) {
   return out
 }
 
-// ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────────────────────
+// ── e2e spec 顺序快照守卫 ─────────────────────────────────────
 // e2e 的 28+ spec 共享 globalSetup 的单一临时 workDir，playwright.config workers:1
 // 下按 spec 路径 localeCompare 序串行跑，前一个建的书/写的内容供后一个用——顺序是
 // 隐式契约（README「勿加并行或改动 spec 顺序」此前只有注释、无机器守卫）。
-// R28-28（二十八轮）：快照单一真相源 = test/e2e/spec-order.snapshot.txt——此前本处
-// 硬编码 spec 名单数组、与快照文件双真相源，改序者同步其一漏其二即静默分叉。本脚本
+// 快照单一真相源 = test/e2e/spec-order.snapshot.txt——硬编码 spec 名单数组会与快照
+// 文件双真相源，改序者同步其一漏其二即静默分叉。本脚本
 // 改为直读快照文件（缺失/解析失败/行形不合规一律 fail-closed 报人话），按 spec 裸
 // 文件名比对（快照由守卫写入 entry.name，e2e 扁平目录下锁名即锁序）：
 // 新增/改名/删除任何 spec 都会改变名单或序位 → 失配红，逼改动者显式确认「插序是否
-// 破坏前序 spec 的落盘依赖」后经两步闸重拍快照（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1
+// 破坏前序 spec 的落盘依赖」后经两步闸重拍快照：
+// CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1
 // 预览（守卫失败并列出新顺序）→ 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1
-// 确认写入（序为 localeCompare，镜像 Playwright 收集序，见 spec-order.guard.test.ts R28-27）。
+// 确认写入（序为 localeCompare，镜像 Playwright 收集序，见 spec-order.guard.test.ts）。
 const SPEC_ORDER_SNAPSHOT_PATH = join(root, 'test', 'e2e', 'spec-order.snapshot.txt')
 
 /**
- * R28-28：读取 spec 顺序快照（唯一真相源），fail-closed——
+ * 读取 spec 顺序快照（唯一真相源），fail-closed——
  * - 文件缺失 / 读失败：报人话指路重拍命令；
  * - 解析后 0 行：空快照当不了契约基线；
  * - 行形不合规（须为 test/e2e/*.spec.ts 相对路径）：点名坏行。
@@ -591,7 +598,7 @@ function loadSpecOrderSnapshot() {
   try {
     raw = readFileSync(SPEC_ORDER_SNAPSHOT_PATH, 'utf8')
   } catch (e) {
-    console.error('\ncheck:counts 失败：spec 顺序快照缺失/不可读（R28-28 fail-closed）——')
+    console.error('\ncheck:counts 失败：spec 顺序快照缺失/不可读（fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
     console.error(`  读失败原因：${e.message ?? String(e)}`)
     console.error(
@@ -604,7 +611,7 @@ function loadSpecOrderSnapshot() {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
   if (lines.length === 0) {
-    console.error('\ncheck:counts 失败：spec 顺序快照为空，当不了契约基线（R28-28 fail-closed）——')
+    console.error('\ncheck:counts 失败：spec 顺序快照为空，当不了契约基线（fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
     console.error(
       '  重拍两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）',
@@ -613,9 +620,7 @@ function loadSpecOrderSnapshot() {
   }
   const bad = lines.filter((line) => !/^[\w.-]+\.spec\.ts$/.test(line))
   if (bad.length > 0) {
-    console.error(
-      '\ncheck:counts 失败：spec 顺序快照含不合规行（须为 *.spec.ts 裸文件名，每行一个）（R28-28 fail-closed）——',
-    )
+    console.error('\ncheck:counts 失败：spec 顺序快照含不合规行（须为 *.spec.ts 裸文件名，每行一个）（fail-closed）——')
     for (const b of bad) console.error('  - ' + b)
     process.exit(1)
   }
@@ -623,7 +628,7 @@ function loadSpecOrderSnapshot() {
 }
 
 /**
- * R66-37：spec 名单/顺序失配检出（纯函数，便于直测）。
+ * spec 名单/顺序失配检出（纯函数，便于直测）。
  * 返回 { added, removed }——同名增删即名单漂移；只有名单一致时顺序才有意义
  * （名单一致 + 排序后比较恒等，顺序漂移只会表现为增删位差）。
  */
@@ -636,26 +641,26 @@ export function diffSpecOrder(actualRelativePaths, snapshot) {
 }
 
 /**
- * J0（win 适配，2026-08-28 本机实测暴露）：walk 产出平台原生分隔符路径（Windows 为 `\`），
+ * walk 产出平台原生分隔符路径（Windows 为 `\`），
  * 快照名单恒为 posix 相对路径——先剥 root 再统一 `\`→`/` 归一化。否则 windows 上
- * R66-37 守卫全体失配假红（'test\e2e\x.spec.ts' ≠ 'test/e2e/x.spec.ts'）；R70-9 只修了
- * vitest list 的 spawn，本归一化是其漏网的另一半（win CI 腿落库后未实跑 check:counts 故未暴露）。
+ * spec 顺序守卫全体失配假红（'test\e2e\x.spec.ts' ≠ 'test/e2e/x.spec.ts'）；vitest list
+ * 的 spawn 已单独适配 win，本归一化是其漏网的另一半（win CI 腿落库后未实跑
+ * check:counts 故未暴露）。
  */
 export function posixRelPath(root, fp) {
-  // 重评-P3-24①（2026-09-09 全量代码重评）：replace 剥根的正确性隐性依赖 root 以分隔符
+  // replace 剥根的正确性隐性依赖 root 以分隔符
   // 结尾——调用面 root 出自 URL('..') 自带尾分隔符，直测/复用面无此保证（缺尾分隔符时
   // 残留前导 `/`，快照比对假红）。入口归一：win 形态（含 `\`）补 `\`，posix 补 `/`。
   if (!root.endsWith('/') && !root.endsWith('\\')) root += root.includes('\\') ? '\\' : '/'
   return fp.replace(root, '').replace(/\\/g, '/')
 }
 
-// R1010c-TL-P2-2（2026-09-10 全量独立复审修复批）：双包共享运行时版本对账——
-// vue/pinia/@vitejs/plugin-vue 在根与 web-next 两份 lockfile 必须解析到同一版本：
-// vitest 侧前端测试按 resolve.alias 消费根副本，vite 构建发布产物按子包依赖解析，
-// 两副本漂移时「测试运行时 ≠ 发布构建运行时」且无门会红（R1010c 前已实际漂移：
-// vue 3.5.38 ↔ 3.5.40，plugin-vue 6.0.7 ↔ 6.0.8）。vue-router 刻意只存于子包
+// 双包共享运行时版本对账——vue/pinia/@vitejs/plugin-vue 在根与 web-next 两份 lockfile
+// 必须解析到同一版本：vitest 侧前端测试按 resolve.alias 消费根副本，vite 构建发布产物
+// 按子包依赖解析，两副本漂移时「测试运行时 ≠ 发布构建运行时」且无门会红（历史上确已
+// 漂移过：vue 3.5.38 ↔ 3.5.40，plugin-vue 6.0.7 ↔ 6.0.8）。vue-router 刻意只存于子包
 //（vitest alias 直钉 web-next 副本），故只比对两侧齐备的项、不要求在位。
-// 0918四轮修复批（G411）：清单补 typescript——根 devDependencies ^5.5.0 与子包
+// 清单补 typescript——根 devDependencies ^5.5.0 与子包
 // ^5.6.0 声明范围漂移无门可拦（两把 lock 实装版本失配时 tsc 门与 vite 构建消费
 // 不同编译器副本，同「测试/构建运行时分裂」族面）；两 lock 实装一致时门绿不扰。
 export function sharedRuntimeVersionDrift(
@@ -673,10 +678,10 @@ export function sharedRuntimeVersionDrift(
 }
 
 /**
- * 全项目源码重审（2026-09-27，P3-11）：`Dev/Docs/README.md` 的 `Archive/` 行篇数对账。
+ * `Dev/Docs/README.md` 的 `Archive/` 行篇数对账。
  *
- * 此前该计数只在自律面：DD-README 写 16 篇、总览 §1.3 写 15 篇，两处各写一个数且无人核
- * ——本门只校根 README 的对账数字，check-docs 只管篇幅与禁语，故这类漂移不被任何门拦住。
+ * 该计数若只在自律面（DD-README 与总览各写一个数且无人核）就会分叉——本门只校根
+ * README 的对账数字，check-docs 只管篇幅与禁语，故这类漂移不被任何门拦住。
  * 归档篇数与根 README 的测试数同属「索引面自称值」，并入本门：目录实数（`find -name
  * '*.md' | wc -l` 的等价口径）为准。
  *
@@ -689,13 +694,13 @@ export function archiveCountProblem(docText, actual) {
 }
 
 /**
- * `CLAUDE.md` 的「全量 N 档」测试档数对账（09-30 复审 §六 测试/工具链条）。
+ * `CLAUDE.md` 的「全量 N 档」测试档数对账。
  *
- * 该档此前不在本门射程：CLAUDE.md 的 L1 提速说明里写着一个测试档数，实际档数随批次
- * 增长而漂移（门只管根 README 与研究 README），且这句是作者判断「跑哪一档」的依据——
+ * 该档若不在本门射程：CLAUDE.md 的提速说明里写着一个测试档数，实际档数会随新增而漂移
+ *（门只管根 README 与研究 README），且这句是作者判断「跑哪一档」的依据——
  * 数字陈旧会误导决策。同「索引面自称值」口径并入本门：实测档数为准。
  *
- * 只校档数：「/ N 秒」为单机耗时读数，随机器与负载浮动，不作门（正本改数时以当批实跑值为准）。
+ * 只校档数：「/ N 秒」为单机耗时读数，随机器与负载浮动，不作门（正本改数时以实跑值为准）。
  * 返回失配说明串；一致返回 null。无该句视为失配（fail-closed）。
  */
 export function claudeUnitFilesProblem(docText, actual) {
@@ -705,10 +710,10 @@ export function claudeUnitFilesProblem(docText, actual) {
 }
 
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
-// 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
-// vitest 5 升级批（阶段 39）：win/linux 平台门差值解析（parseWinPlatformDelta /
+// 被测试 import（直测纯函数）时不触发 vitest list / process.exit 副作用
+// win/linux 平台门差值解析（parseWinPlatformDelta /
 // parseLinuxPlatformDelta）与单测数分账反推判定（problemsForWinUnitTestsClaim）
-// 随静态口径废除整体删除——v5 list 静态抽取全平台同数，单测数退化为直读对账。
+// 随静态口径废除整体删除——静态 list 全平台同数，单测数退化为直读对账。
 function main() {
   const unitFiles = walk(join(root, 'test'), (n) => n.endsWith('.test.ts'))
   const e2eSpecs = walk(join(root, 'test', 'e2e'), (n) => n.endsWith('.spec.ts'))
@@ -716,7 +721,7 @@ function main() {
   // vitest list --json：[{ fullName, ... }]（不执行用例）
   let vitestJson = ''
   try {
-    // R70-9（十八轮）：win 上 spawn(shell:false) 只找 npx.exe（实际是 npx.cmd）→
+    // win 上 spawn(shell:false) 只找 npx.exe（实际是 npx.cmd）→
     // ENOENT/EINVAL 必挂 windows CI 腿；改 process.execPath 直跑 vitest.mjs（免 npx 免 shell）
     vitestJson = execFileSync(
       process.execPath,
@@ -737,16 +742,16 @@ function main() {
   let e2eCases = 0
   for (const fp of e2eSpecs) e2eCases += countE2eCases(readFileSync(fp, 'utf8'))
 
-  // ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────
+  // ── e2e spec 顺序快照守卫 ─────────────────────
   // spec 名单/localeCompare 序位与快照失配即红：新 spec 插序改变 workers:1 下的执行
   // 顺序，前序 spec 的落盘依赖可能静默错位——须人工确认后重拍唯一真相源快照文件。
   const { added: specAdded, removed: specRemoved } = diffSpecOrder(
-    // R28-28：快照行 = spec 裸文件名（守卫写 entry.name），此处对齐口径取 basename
+    // 快照行 = spec 裸文件名（守卫写 entry.name），此处对齐口径取 basename
     e2eSpecs.map((fp) => basename(fp)),
     loadSpecOrderSnapshot(),
   )
   if (specAdded.length > 0 || specRemoved.length > 0) {
-    console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配（R66-37）——')
+    console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配——')
     console.error(
       '  spec 按 workers:1 localeCompare 序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。',
     )
@@ -776,14 +781,14 @@ function main() {
     process.exit(1)
   }
 
-  // ── R76-6（二十四轮 F 域）：e2e pageerror 接线静态门 ─────────────
+  // ── e2e pageerror 接线静态门 ─────────────
   const pageerrorMissing = missingPageErrorWiring(
     e2eSpecs.map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
   )
   if (pageerrorMissing.length > 0) {
-    console.error('\ncheck:counts 失败：e2e spec 未接 pageerror 基线（R76-6）——')
+    console.error('\ncheck:counts 失败：e2e spec 未接 pageerror 基线——')
     console.error(
-      '  渲染层未捕获异常只有接了 attachPageErrorBaseline 才会让用例红（R75-7），漏接=该 spec 异常被断言偶然通过掩盖。',
+      '  渲染层未捕获异常只有接了 attachPageErrorBaseline 才会让用例红，漏接=该 spec 异常被断言偶然通过掩盖。',
     )
     console.error("  在首个 page 动作前接线：attachPageErrorBaseline(page, '<spec 文件名去 .spec.ts>')；")
     console.error('  无浏览器页面的 spec 须在 PAGEERROR_WIRING_EXEMPT 登记理由：')
@@ -791,43 +796,44 @@ function main() {
     process.exit(1)
   }
 
-  // ── R76-40（二十四轮 F 域）：空洞测试门 ─────────────
-  // R33D-37（三十三轮）：扩跑 e2e spec——e2e 用例数同样进 README 对账，零 expect 的
-  // spec 此前只被 pageerror 门（全部 spec）间接覆盖接线、不被空洞门覆盖。
+  // ── 空洞测试门 ─────────────
+  // 扩跑 e2e spec——e2e 用例数同样进 README 对账，零 expect 的
+  // spec 若只被 pageerror 门（全部 spec）间接覆盖接线、不被空洞门覆盖就会漏网。
   const caseEntries = [...unitFiles, ...e2eSpecs].map((fp) => ({
     relPath: posixRelPath(root, fp),
     src: readFileSync(fp, 'utf8'),
   }))
   const assertionFree = findAssertionFreeTestFiles(caseEntries)
   if (assertionFree.length > 0) {
-    console.error('\ncheck:counts 失败：零断言测试文件（R76-40）——')
+    console.error('\ncheck:counts 失败：零断言测试文件——')
     console.error('  只声明用例不写 expect/assert 也能计入单测数对账（数声明不数断言），空洞测试从计数门静默通过：')
     for (const p of assertionFree) console.error('  - ' + p)
     process.exit(1)
   }
 
-  // ── P2-17（二轮复审）：零断言门下沉到用例粒度 ─────────────
+  // ── 零断言门下沉到用例粒度 ─────────────
   // 文件门只看「文件里有断言」——一个用例写了断言、其余用例体全空仍能过门。本门逐用例
   // 要求「至少 1 断言或显式豁免注释」（`零断言豁免：<理由>`，判得了的用例体才判）。
   const assertionFreeCases = findAssertionFreeCases(caseEntries)
   if (assertionFreeCases.length > 0) {
-    console.error('\ncheck:counts 失败：用例体零断言（R76-40 下沉到用例粒度，P2-17）——')
+    console.error('\ncheck:counts 失败：用例体零断言——')
     console.error('  用例体（it/test 的回调）内须现出 expect/assert 调用；断言在被调辅助函数里等静态判不了的形态，')
     console.error(`  就地加注释 ${ZERO_ASSERTION_EXEMPT_MARK}：<理由> 登记（不得把断言搬出用例体绕过逐用例判定）：`)
     for (const v of assertionFreeCases.slice(0, 40)) {
       console.error(`  - ${v.file}:${v.line} 「${v.title}」`)
     }
-    if (assertionFreeCases.length > 40) console.error(`  …另有 ${assertionFreeCases.length - 40} 处（共 ${assertionFreeCases.length} 处）`)
+    if (assertionFreeCases.length > 40)
+      console.error(`  …另有 ${assertionFreeCases.length - 40} 处（共 ${assertionFreeCases.length} 处）`)
     process.exit(1)
   }
 
-  // ── P2-15（二轮复审）：test/ 批号标签上锚 ─────────────
+  // ── test/ 批号标签上锚 ─────────────
   // 存量不追改、新增不许超锚（上锚不追：低于锚不报、锚只随清理手动下调）。见 findTestBatchHits 头注。
   const batch = findTestBatchHits(caseEntries)
   const batchOver = batchAnchorViolations(batch)
   if (batchOver.length > 0) {
-    console.error('\ncheck:counts 失败：test/ 批号标签超上锚（P2-15）——')
-    console.error('  存量不追改、上锚只拦新增：新增用例标题 / 注释里不要再带批号（R65-3 这类），')
+    console.error('\ncheck:counts 失败：test/ 批号标签超上锚——')
+    console.error('  存量不追改、上锚只拦新增：新增用例标题 / 注释里不要再带批号，')
     console.error('  把标题与注释写成行为/不变量描述；确要新增就同步清掉同量存量，或把锚手动下调后落锚。')
     console.error(`  超锚面：${batchOver.join('；')}`)
     console.error('  命中最多的大档（咬合增量请查 git diff -- test/）：')
@@ -861,13 +867,12 @@ function main() {
     }
   }
 
-  // R67-23（十五轮）：锚定短语的正则对全/半角变体容错——此前只认全角括号 + 半角
-  // 斜杠/逗号的一种精确排印，README 排版微调即模式失配→假红（fail-closed 方向没错，
+  // 锚定短语的正则对全/半角变体容错——只认全角括号 + 半角
+  // 斜杠/逗号的一种精确排印时，README 排版微调即模式失配→假红（fail-closed 方向没错，
   // 但把排版差异当数字失真红太脆）；语义锚（短语 + 数字位置）不变，真失配/真缺行仍红。
   const PH = (inner) => `[（(]${inner}[)）]`
-  // vitest 5 升级批（阶段 39）：单测数对账回归四腿同一直读断言——v5 list 静态抽取
-  // 全平台同数，win/linux 差值分账臂（J0 win 适配 → R0910-W 分账反推 → 2026-09-17
-  // 拍板快断批 linux 分账的三段演变）随静态口径终局废除；README「开发」节相应
+  // 单测数对账回归四腿同一直读断言——静态 list 抽取
+  // 全平台同数，win/linux 差值分账臂随静态口径终局废除；README「开发」节相应
   // 改写为静态口径（「过数/linux 实测差 N 恒定」句删除）。仅剩参数序适配。
   const claimUnitTests = (pattern, label) => claim(pattern, actual.unitTests, label)
   // 徽章：tests-7880%20all%20green（示例为当前值，实际以 README 为准）
@@ -878,7 +883,7 @@ function main() {
   // 「vitest（7880 单测）+ Playwright（33 specs / 54 用例）」
   claimUnitTests(new RegExp(`vitest${PH('(\\d+) 单测')}`), '技术栈单测数')
   claim(new RegExp('Playwright[（(](\\d+) specs'), actual.e2eSpecs, 'Playwright spec 数')
-  // dd-P3（E-P3-3）：锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
+  // 锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
   claim(new RegExp(`Playwright${PH('\\d+ specs [\\/／] (\\d+) 用例')}`), actual.e2eCases, 'Playwright 用例数')
   // 「1272 个测试文件 / 7880 单测全绿」（原开发节合入门槛句，随节撤移入技术栈段）
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
@@ -894,7 +899,7 @@ function main() {
   const claudeProblem = claudeUnitFilesProblem(readFileSync(join(root, 'CLAUDE.md'), 'utf8'), actual.unitFiles)
   if (claudeProblem) mismatch.push(claudeProblem)
 
-  // R1010c-TL-P2-2：双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
+  // 双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
   const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}
   const webLock =
     JSON.parse(readFileSync(join(root, 'src', 'studio', 'web-next', 'package-lock.json'), 'utf8')).packages ?? {}

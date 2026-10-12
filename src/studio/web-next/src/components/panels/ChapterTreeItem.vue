@@ -400,15 +400,8 @@ watch(
   border-radius: 50%;
   cursor: grab;
 }
-.dot-green {
-  background: var(--dv-good);
-}
-.dot-red {
-  background: var(--text-error);
-}
-.dot-yellow {
-  background: var(--text-warning);
-}
+/* 四态色类（dot-green|red|yellow|gray）单源在 styles/utilities.css——与回收站行共用、
+ * 且跟随 shared/words CHAPTER_STATUS 单表；本组件只留 .dot 的尺寸与拖拽光标。 */
 .label {
   flex: 1;
   min-width: 0;

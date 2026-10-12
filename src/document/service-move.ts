@@ -3,10 +3,13 @@
  *
  * 为什么独立成模块：doMoveOrRename 有两个消费方——service.ts 的公开入口
  * （moveDocument/renameDocument 及 meta 族改名链）与 service-meta.ts 的短篇/长篇
- * 文件名联动 rename（updateChapterMetaLocked 尾部 + syncRenamePieceList）。放在
- * service.ts 里会让 service-meta.ts 必须反向 import 宿主文件（评审指出的「拆出的
- * 文件与主类双向耦合」）；本模块只依赖 DocContext 与 document 叶子件，两个消费方
- * 都是单向引入，无环。
+ * 文件名联动 rename（updateChapterMetaLocked 尾部）。放在 service.ts 里会让
+ * service-meta.ts 必须反向 import 宿主文件（评审指出的「拆出的文件与主类双向耦合」）；
+ * 本模块只依赖 DocContext 与 document 叶子件，两个消费方都是单向引入，无环。
+ *
+ * 本模块同时是「改名后的同族派生件跟随」唯一接线点（syncRenamePieceList）——
+ * 章纲与正文的同名契约必须在每个改名入口一致落地；接线散在各调用方时，漏接的入口会
+ * 让章纲滞留旧名，随后按新名补建的新件遮蔽作者手改过的旧件（读侧静默换源、旧件永成死档）。
  *
  * 依赖方向：对 service.ts 仅 `import type { MoveResult }`（verbatimModuleSyntax 下
  * 编译期擦除，运行时零回边）；共享设施一律经 `ctx: DocContext` 显式取得（
@@ -23,13 +26,14 @@ import { safeDocId, normalizeWinSeparators } from '../fs/safe-path.js'
 import { linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { computeRevision, computeRevisionBytes } from './revision.js'
 import { layoutOf } from './layout.js'
+import { readManifestStrict, type Manifest } from './manifest.js'
 import { appendAborted, appendMovePending, appendSettled } from './journal.js'
 import { writeVersion } from './version.js'
 import { invalidateTreeIndex } from './tree.js'
 import { getStructSaveLockTimeoutMs, saveLockFailures } from './service-guards.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
-import { isSamePhysicalFile, sanitizeCreateSegment } from './service-helpers.js'
-import { errMsg } from '../log/index.js'
+import { isPieceBody, isSamePhysicalFile, sanitizeCreateSegment } from './service-helpers.js'
+import { errMsg, log } from '../log/index.js'
 import type { DocContext } from './doc-context.js'
 // 依赖方向纪律：对公共入口模块仅 import type（编译期擦除，运行时零回边）
 import type { MoveResult } from './service.js'
@@ -56,6 +60,113 @@ function normalizeMoveToDir(toDir: string): string | null {
   const segs = normalized.split('/')
   if (segs.includes('..') || segs.includes('.')) return null
   return normalized
+}
+
+// ── 短篇章纲同名跟随 ─────────────────────────────────────────────────
+
+/** 短篇章纲同步重命名（章纲/旧名.md → 章纲/新名.md）：正文已改名，章纲同名文件跟随。
+ *  章纲不存在 / 非短篇正文 / 纯移动（basename 未变）→ 静默跳过（不阻断正文 rename）。
+ * 章纲已入清单（对其做过任何结构性操作即落）时委托 doMoveOrRename——裸 renameSync 既不
+ *  更新 项目/文档清单.jsonl 也不写 move-pending journal，清单残留指向旧路径的孤儿条目；
+ *  tree 按旧 path 匹配 miss → docId 退化为 legacyId(新 path)，编辑器按 docId 挂的标签页/
+ *  分析信封/工作区/.版本/<docId>/ 版本历史全断链。委托后 journal + snapshot + 清单 path
+ *  更新 + 树索引失效与正文改名同一纪律。未登记（从未做过结构性操作）时无条目可孤儿，
+ *  保留无登记回落（linkOrRenameExclusive 独占落位 + 时间戳后缀保双份，失败结构化 warn
+ *  不阻断正文 rename）。
+ *  由 doMoveOrRename 尾部统一调用（不在各调用方分头接线）：改名漏斗只有一个，
+ *  章纲去向必须与正文一致——漏接的入口（如 PATCH op=rename）会让章纲滞留旧名，
+ *  之后正文保存又按新名补建一份，作者手改过的旧名那份被同名新件遮蔽（读侧静默换源）。 */
+async function syncRenamePieceList(ctx: DocContext, oldBodyRel: string, newName: string): Promise<void> {
+  if (basename(oldBodyRel) === newName) return // 纯移动：文件名未变，无跟随面
+  if (!isPieceBody(oldBodyRel, ctx.bookRoot)) return // 短篇正文以外（章纲自身/长篇/设定等）无同名契约
+  const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
+  const newListRel = `大纲/章纲/${newName}`
+  const oldSafe = ctx.resolveSafePath(oldListRel)
+  const newSafe = ctx.resolveSafePath(newListRel)
+  if (!oldSafe || !newSafe) return
+  if (!existsSync(oldSafe)) return
+  if (existsSync(ctx.manifestPath)) {
+    // 命中读改 strict（lookupPathByDocIdAdoptAsync 同款口径）。容忍版在瞬态锁占
+    // （win 杀软/索引器/他进程 RMW 的 EACCES/EBUSY/EIO）时返回空清单 → oldListRel
+    // 不命中 → 落入裸 rename 兜底：清单登记仍认领旧路径而被搬走 = 孤儿条目 + 新条目
+    // 并存，docJoinKey 失配 docId 退化（同款危害终点）。strict 读失败时登记态未知，
+    // **不走裸 rename 兜底、也不阻断正文 rename**（本函数在正文 rename 成功之后调用，
+    // 上抛会把已成功的改名劣化为失败）：章纲滞留旧名 + 清单与盘上文件一致（世界自洽），
+    // warn 留痕交作者重试或机检收口。
+    let listedStrict: Manifest
+    try {
+      listedStrict = readManifestStrict(ctx.manifestPath)
+    } catch (e) {
+      log.warn(
+        'document',
+        `章纲清单读失败（strict），章纲同步重命名跳过（${oldListRel} 滞留旧名，登记与盘上文件保持一致）：${errMsg(e)}`,
+      )
+      return
+    }
+    const hit = [...listedStrict.entries].find(([, e]) => e.path === oldListRel)
+    if (hit) {
+      const r = await doMoveOrRename(ctx, hit[0], { kind: 'rename', newName })
+      if (r.ok) return
+      // 失败（含「文件已移、清单更新失败」半程态）不阻断正文 rename：前者落回裸
+      // rename 兜底配对，后者 healthCheck 按悬置 pending 收口（语义）
+    }
+  }
+  try {
+    mkdirSync(dirname(newSafe), { recursive: true })
+    // 落位走 linkOrRenameExclusive——裸 renameSync 对已存在目标静默替换
+    // （existsSync 预检只挡慢路径，预检与 rename 之间的并发落位窄窗仍在，无留底毁同名
+    // 章纲）；link 独占探测无窗口，'exists'（预检漏网的并发占用）沿用时间戳后缀保双份。
+    // 落位成功后删源（link 落位时源为同 inode 硬链接；linkOrRenameExclusive 内部降级
+    // rename 落位时源已搬走，rmSync force 为 no-op）——删源失败先回收新位再抛
+    //（doMoveOrRename 同款范式），失败收口走外层 warn。
+    let dst = newSafe
+    let placed = linkOrRenameExclusive(oldSafe, dst)
+    if (placed === 'exists') {
+      // 大小写不敏感 FS（win NTFS/mac APFS）上「仅大小写变化」的章纲改名——目标位与源
+      // 是同一物理文件，linkOrRenameExclusive 恒 EEXIST，原实现误落 `-旧稿-<时间戳>`
+      // 双份分支（内容无损但需手工改名）。对齐 doMoveOrRename 主路径同判：dev+ino
+      // 相等 → 原位 renameWithRetry 落大小写变体（win MoveFileEx/mac APFS 均支持；
+      // 落位后源已搬走，下方删源 rmWithRetry 对已不存在路径为无害 no-op）。
+      if (isSamePhysicalFile(oldSafe, dst)) {
+        renameWithRetry(oldSafe, dst)
+        placed = 'created'
+      } else {
+        dst = newSafe.replace(/\.md$/, `-旧稿-${Date.now()}.md`)
+        placed = linkOrRenameExclusive(oldSafe, dst)
+      }
+    }
+    if (placed === 'exists') {
+      // 目标名与后缀名均被持续占用：不覆盖、不上抛（正文已改名成功），warn 留痕
+      log.warn(
+        'document',
+        `章纲同步重命名未落位（目标 ${newListRel} 被持续占用，正文已改名，章纲滞留旧名 ${oldListRel}）`,
+      )
+      return
+    }
+    try {
+      // 删源走 rmWithRetry（fs/atomic.ts，trash.ts 先例）——win 杀毒/索引器瞬时锁
+      //（EPERM/EBUSY）下裸 rmSync 直败会让章纲同步无谓滞留旧名；退避后仍失败照走既有
+      //「回收新位再抛」回滚链（语义不变）
+      rmWithRetry(oldSafe)
+    } catch (rmErr) {
+      try {
+        // 回滚删新位走 rmWithRetry——win 瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会把
+        //「可回收的回滚」劣化成孤儿残留；退避后仍失败照走 catch 留痕
+        //（孤儿副本硬链接同数据，语义不变）
+        rmWithRetry(dst)
+      } catch {
+        /* 新位残留孤儿副本：硬链接同数据，无丢失，重试前需手工清理 */
+      }
+      throw rmErr
+    }
+    invalidateTreeIndex(ctx.bookRoot, true)
+  } catch (e) {
+    // win 平台专项：失败不再静默吞——本函数只在正文 rename 成功后调用，按既有约定
+    // 不阻断/不回滚正文 rename（改 Promise 不上抛），但零留痕吞掉会让「章纲滞留旧名」
+    // 不可见（win 上章纲被编辑器占用 EBUSY/EPERM 的典型形态，正文/章纲文件名无痕分叉）；
+    // 改结构化 warn 留痕（对齐 doCreate 登记失败 / doTrash 的 warn 口径）。
+    log.warn('document', `章纲同步重命名失败（${oldListRel} → ${newListRel}，正文已改名，章纲滞留旧名）：${errMsg(e)}`)
+  }
 }
 
 /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。
@@ -310,6 +421,12 @@ export async function doMoveOrRename(
         }
       }
       invalidateTreeIndex(ctx.bookRoot, true)
+      // 短篇正文改名后章纲同名跟随——放在本操作的成功尾部（全部结构性簿记已落定）：
+      // 章纲去向必须与正文一致，此前只有 meta 改名链分头接线，PATCH op=rename 直连入口
+      // 漏接，章纲滞留旧名，正文再保存时按新名补建一份，作者手改过的旧件被遮蔽（读侧
+      // 静默换源、旧件成死档）；本函数的改名漏斗是唯一共同点，收口于此各入口自然一致。
+      // 本调用自身失败只 warn、不改本次结果（fail-open，见 syncRenamePieceList）。
+      await syncRenamePieceList(ctx, oldPath, basename(newPath))
       return { ok: true, docId, path: newPath }
     },
   })

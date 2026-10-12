@@ -6,8 +6,8 @@
  * 本文件锚定：成员缺失必红、顺序/格式变化不误报、非数组形状必红、真实脚本对账绿。
  */
 import { describe, it, expect } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +20,7 @@ import {
   problemsForElectronBuilderAsarUnpack,
   problemsForElectronBuilderNodeModulesExclusion,
   problemsForDistFontList,
+  distFontListGateApplicability,
   parseTsupNoExternal,
   problemsForDepsNoExternal,
   problemsForDepsVersionSync,
@@ -38,10 +39,10 @@ describe('P3：package.json files 断言（JSON.parse 口径，顺序/格式无�
 
   it('缺 dist 或缺 resources → 各自一条问题（防回潮门不静默）', () => {
     expect(problemsForPackageFiles(['dist'])).toEqual([
-      'package.json files 未包含 resources——npm 打包内容缺整目录（CC-P1-7 回潮）',
+      'package.json files 未包含 resources——npm 打包内容缺整目录（打包资源门回潮）',
     ])
     expect(problemsForPackageFiles(['resources'])).toEqual([
-      'package.json files 未包含 dist——npm 打包内容缺整目录（CC-P1-7 回潮）',
+      'package.json files 未包含 dist——npm 打包内容缺整目录（打包资源门回潮）',
     ])
     expect(problemsForPackageFiles([])).toHaveLength(2)
   })
@@ -87,10 +88,10 @@ describe('R62-22：electron-builder.yml files 断言（asar 实际打包面，�
   })
   it('缺 dist 或缺 resources → 各自一条（asar 打包面防回潮）', () => {
     expect(problemsForElectronBuilderFiles(['dist/**/*'])).toEqual([
-      'electron-builder.yml files 未包含 resources——asar 打包缺整目录（CC-P1-7 回潮）',
+      'electron-builder.yml files 未包含 resources——asar 打包缺整目录（打包资源门回潮）',
     ])
     expect(problemsForElectronBuilderFiles(['resources/**/*'])).toEqual([
-      'electron-builder.yml files 未包含 dist——asar 打包缺整目录（CC-P1-7 回潮）',
+      'electron-builder.yml files 未包含 dist——asar 打包缺整目录（打包资源门回潮）',
     ])
   })
   it('files 缺失/空 → 必红（视为配置缺失）', () => {
@@ -126,7 +127,7 @@ describe('R0911-A-P2-1：electron-builder.yml asarUnpack 断言（spawn 不解 a
   it('R0912 反向钉：旧错误形态裸 desktop/fontlist（R0911 首修形态——漏 dist/ 前缀，asar 内零命中的无效外置）→ 必红', () => {
     const problems = problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])
     expect(problems).toHaveLength(1)
-    expect(String(problems[0])).toContain('R0912')
+    expect(String(problems[0])).toContain('无效外置')
     expect(String(problems[0])).toContain('dist/desktop/fontlist')
   })
   it('缺 dist/desktop/fontlist / 序列缺失为空 → 必红（A-P2-1 半修回潮形态）', () => {
@@ -154,6 +155,57 @@ describe('R0911-A-P2-1：problemsForDistFontList（darwin dist 实存门，注�
     const problems = problemsForDistFontList(dir, 'darwin')
     expect(problems).toHaveLength(1)
     expect(String(problems[0])).toContain('fontlist')
+  })
+})
+
+describe('打包判据适用面显式声明：distFontListGateApplicability（跳过必须带原因，不许静默）', () => {
+  it('非 darwin → applies:false 且原因点名当前平台与「darwin 专属产物」', () => {
+    const gate = distFontListGateApplicability('/whatever/dist/desktop', 'linux')
+    expect(gate.applies).toBe(false)
+    expect(gate.reason).toContain('darwin')
+    expect(gate.reason).toContain('linux')
+  })
+  it('darwin 但 dist 未构建 → applies:false 且原因说明「缺产物不是回潮」', () => {
+    const gate = distFontListGateApplicability(join(tmpdir(), 'clw-no-such-dist-' + Date.now()), 'darwin')
+    expect(gate.applies).toBe(false)
+    expect(gate.reason).toContain('未构建')
+  })
+  it('darwin 且 dist 已构建 → applies:true 且无原因（判据生效）', () => {
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-pkg-gate-applicable-'))
+    writeFileSync(join(dir, 'main.js'), '// built')
+    expect(distFontListGateApplicability(dir, 'darwin')).toEqual({ applies: true, reason: '' })
+  })
+  it('真实脚本直跑：dist 未构建的根下打印跳过注解（跳过得看得见，不静默返回 []）', () => {
+    // 根系 fixture：脚本 root = 自身所在 scripts/ 的上一级，故复制脚本到临时根的
+    // scripts/ 下即可让全链读 fixture 而非真实仓库；dist/desktop/main.js 缺席。
+    const fixtureRoot = mkdtempTracked(join(tmpdir(), 'clw-pkg-skip-note-'))
+    mkdirSync(join(fixtureRoot, 'scripts'), { recursive: true })
+    copyFileSync(scriptPath, join(fixtureRoot, 'scripts', 'check-packaging.mjs'))
+    writeFileSync(join(fixtureRoot, 'package.json'), JSON.stringify({ files: ['dist', 'resources'], dependencies: {} }))
+    writeFileSync(join(fixtureRoot, 'tsup.config.ts'), 'export default { noExternal: [] }\n')
+    writeFileSync(
+      join(fixtureRoot, 'electron-builder.yml'),
+      'files:\n  - dist/**/*\n  - resources/**/*\n  - "!**/._*"\n  - "!node_modules/**"\nasarUnpack:\n  - dist/desktop/fontlist\n',
+    )
+    mkdirSync(join(fixtureRoot, 'src', 'studio', 'web-next'), { recursive: true })
+    writeFileSync(join(fixtureRoot, 'src', 'studio', 'web-next', 'package.json'), '{}')
+    mkdirSync(join(fixtureRoot, 'resources', 'prompts'), { recursive: true })
+    mkdirSync(join(fixtureRoot, 'resources', 'skills'), { recursive: true })
+    writeFileSync(join(fixtureRoot, 'resources', 'prompts', 'versions.json'), '{}')
+    writeFileSync(join(fixtureRoot, 'resources', 'skills', 'a.md'), '# skill\n')
+
+    // realpath 后再起：macOS tmpdir 是 /var → /private/var 符号链接，直跑判定
+    // （import.meta.url === pathToFileURL(argv[1])）会因两侧路径形态不同而不触发。
+    const scriptFile = join(realpathSync(fixtureRoot), 'scripts', 'check-packaging.mjs')
+    const r = spawnSync('node', [scriptFile], {
+      encoding: 'utf8',
+      env: { ...process.env, CLW_CHECK_PACKAGING_SKIP_DIST_GATE: '' },
+    })
+    const out = String(r.stdout ?? '')
+    // dist 未构建 = 本地未 build 的合法形态（非回潮）：不红，但跳过注解必须在输出里
+    expect(out).toContain('check:packaging 通过')
+    expect(out).toContain('判据跳过')
+    expect(String(r.stderr ?? '')).not.toContain('失配')
   })
 })
 

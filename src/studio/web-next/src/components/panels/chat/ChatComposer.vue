@@ -117,7 +117,13 @@ const {
             <Square :size="14" />
           </button>
           <!-- busy/sending 禁用同双消费方（入口静默 return 的死按钮面） -->
-          <button v-else class="chat-send-btn" :disabled="!input.trim() || busy || sending" @click="handleSend">
+          <button
+            v-else
+            class="chat-send-btn"
+            aria-label="发送"
+            :disabled="!input.trim() || busy || sending"
+            @click="handleSend"
+          >
             <Send :size="15" />
           </button>
         </div>

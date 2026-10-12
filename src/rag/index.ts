@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import {
   openRagDb,
+  openRagDbAsync,
   closeRagDb,
   getRagMeta,
   readAllChapterFingerprints,
@@ -60,7 +61,13 @@ export {
 export const RAG_CHUNK_WARN_THRESHOLD = 100_000
 
 /** 阶段 24：合并干跑的 RAG 清除预估——源章向量块数合计（只读；库不存在/读失败 → 0，
- *  ragDbExists 守卫避免为预估落空建库）。 */
+ *  ragDbExists 守卫避免为预估落空建库）。
+ *  **保留同步开库**的判据：调用方是 document/structure-core 的 StructureRagPort
+ *  （依赖方向守护的接口反转，签名即同步返回值），合并干跑在其上同步串联——改异步会
+ *  沿该端口一路改到 structure-merge 的干跑装配，超出本次必要范围。代价已由开库壳
+ *  封顶：同步壳自有等待预算 ≤ RAG_OPEN_SYNC_WAIT_BUDGET_MS，争用严重时快速失败并走
+ *  本函数的 catch 兜底（返回 0，预估缺失不影响合并决策——它只喂提示文案），不再是
+ *  5s 级事件循环冻结。 */
 export function estimateRagChunkCount(bookRoot: string, chapters: number[]): number {
   if (chapters.length === 0 || !ragDbExists(bookRoot)) return 0
   try {
@@ -149,7 +156,10 @@ export async function recallDetailed(
 
   // 先取数后联网——db 数据（chunks/元信息/指纹元数据）全部在 close 前完成，
   // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用。
-  const db = openRagDb(bookRoot)
+  // 开库走异步孪生——本函数在服务进程事件循环上被 await（materials 备料/召回端点），
+  // 开库等待（并发写方持锁/大库回填首开）改为 await 让出，不再用同步壳的
+  // Atomics.wait 把事件循环停住。
+  const db = await openRagDbAsync(bookRoot)
   // 截断事实随结构化出口上抛（旧口径仅 log.warn，前端无感）
   let truncated = false
   let totalBlocks = 0
@@ -214,9 +224,10 @@ export async function recallDetailed(
 
   // 流式打分段：重开库逐行算余弦——段内无网络等待，句柄随段开关（
   // 纪律不变）。重开间隙索引被重建换模型的竞态 → 二次模型校验 fail-closed 回空。
+  // 与上方元数据预检段同走异步开库（召回每次开库两回，两回都在事件循环上）。
   let rows: ChunkScoreRow[]
   {
-    const db2 = openRagDb(bookRoot)
+    const db2 = await openRagDbAsync(bookRoot)
     try {
       const indexedModel2 = getRagMeta(db2, 'embedding_model')
       if (indexedModel2 && indexedModel2 !== config.model) {
@@ -307,12 +318,10 @@ export async function recallDetailed(
 }
 
 /** 兼容包装：签名与返回（RecallHit[]）保持不变。
- *  生产代码零调用方（materials.ts 已切 recallDetailed），本包装仅服务存量测试面
- *  （test/rag/*、test/studio/* 的旧断言）。丢弃 truncated/totalBlocks 属有意取舍，
- *  生产召回链路一律走 recallDetailed（截断信号不丢失）。
- * @internal test-only：本应随生产零调用方删除，但存量测试消费面实测 10 文件 34 处调用
- *  （test/rag 8 + test/studio 1 + test/check 1），形状转换平凡（r.hits 透传，无维护
- *  风险）、生产 import 面已零引用；后续改造存量断言为 recallDetailed 时一并删除本包装。 */
+ *  测试专用导出（零生产调用）：生产召回一律走 recallDetailed——丢 truncated/totalBlocks
+ *  是包装形态的**有意取舍**，生产若接回本包装，截断信号（候选池耗尽、证据不全）会静默
+ *  消失，而该信号正是改材料/召回告警的判据。存量测试断言仍按旧返回形状直调本函数；
+ *  改造这些断言为 recallDetailed 时一并删除本包装（届时生产面无需任何改动）。 */
 export async function recall(
   bookRoot: string,
   config: RagConfig,

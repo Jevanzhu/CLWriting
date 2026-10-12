@@ -1,6 +1,6 @@
 /**
  * R71-14（总七十一轮）回归：启动迁移链中 伏笔搬迁（migrateLegacyForeshadows）必须
- * 先于 定稿基线迁移（migrateFinalizedRevisions）执行。
+ * 先于 定稿基线迁移（migrateFinalizedRevisionsAsync）执行。
  *
  * 缺陷形态：migrateLayoutV2 的清单路径改写已把 大纲/伏笔/* 指到 设定/伏笔/*，但物理
  * 文件靠 migrateLegacyForeshadows 搬——若 finalize 先跑，伏笔 entry 对 设定/伏笔/*
@@ -21,9 +21,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateLayoutV2 } from '../../src/install/migrate-layout-v2.js'
-import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
+import { migrateFinalizedRevisionsAsync } from '../../src/install/migrate-finalized-revision.js'
 import { migrateLegacyForeshadows } from '../../src/document/foreshadow.js'
-import { LAYOUT_MIGRATIONS, runLayoutMigrations } from '../../src/install/layout-migrations.js'
+import { LAYOUT_MIGRATIONS, runLayoutMigrationsAsync } from '../../src/install/layout-migrations.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { computeRevision } from '../../src/document/revision.js'
 
@@ -84,7 +84,7 @@ function manifestOf() {
   return readManifest(join(tmp, '项目', '文档清单.jsonl'))
 }
 
-test('R71-14: 新顺序（伏笔先搬→定稿基线后跑）——伏笔 entry 拿到定稿基线', () => {
+test('R71-14: 新顺序（伏笔先搬→定稿基线后跑）——伏笔 entry 拿到定稿基线', async () => {
   scaffoldGitEraBook()
   // 启动迁移链（新顺序）：V2 清单改写 → 伏笔物理搬迁 → 定稿基线
   expect(migrateLayoutV2(tmp).errors).toHaveLength(0)
@@ -100,7 +100,7 @@ test('R71-14: 新顺序（伏笔先搬→定稿基线后跑）——伏笔 entry
   // untracked 新位按 draft 不设——不 commit 则伏笔/正文同理都不建，测不到顺序差）
   execSync('git add -A && git commit -m migrate', { cwd: tmp, stdio: 'pipe' })
 
-  const n = migrateFinalizedRevisions(tmp)
+  const n = await migrateFinalizedRevisionsAsync(tmp)
   expect(n).toBe(2) // 正文 + 伏笔（干净 committed）都建基线
   const m = manifestOf()
   const byPath = new Map([...m.entries.values()].map((e) => [e.path, e]))
@@ -109,25 +109,25 @@ test('R71-14: 新顺序（伏笔先搬→定稿基线后跑）——伏笔 entry
   )
 })
 
-test('R71-14: 旧顺序缺陷锚定（定稿基线先跑）——伏笔 entry 基线永久缺失', () => {
+test('R71-14: 旧顺序缺陷锚定（定稿基线先跑）——伏笔 entry 基线永久缺失', async () => {
   scaffoldGitEraBook()
   // 旧顺序：V2 → finalize 先 → 伏笔后
   expect(migrateLayoutV2(tmp).errors).toHaveLength(0)
   // 同一 clean 语义前提：正文在旧位 committed clean（finalize 建基线），伏笔位尚空
   execSync('git add -A && git commit -m v2', { cwd: tmp, stdio: 'pipe' })
-  const n = migrateFinalizedRevisions(tmp)
+  const n = await migrateFinalizedRevisionsAsync(tmp)
   expect(n).toBe(1) // 只有正文建基线；伏笔（设定/伏笔/* 物理不存在）被跳过
   migrateLegacyForeshadows(tmp)
   execSync('git add -A && git commit -m fore', { cwd: tmp, stdio: 'pipe' })
   // 物理文件已就位（且 committed clean）后重跑 finalize：幂等闸（正文已有基线→
   // 整书跳过）不再补——新顺序下同样的终局盘面伏笔本应有基线
-  expect(migrateFinalizedRevisions(tmp)).toBe(0)
+  expect(await migrateFinalizedRevisionsAsync(tmp)).toBe(0)
   const m = manifestOf()
   const fore = [...m.entries.values()].find((e) => e.path === '设定/伏笔/伏笔-012-暗号.md')
   expect(fore?.finalizedRevision).toBeUndefined() // 旧顺序下永久缺基线（缺陷形态）
 })
 
-test('编排表序声明既有依赖：版式 v2 → 伏笔搬迁 → 定稿基线（表序即依赖声明）', () => {
+test('编排表序声明既有依赖：版式 v2 → 伏笔搬迁 → 定稿基线（表序即依赖声明）', async () => {
   const ids = LAYOUT_MIGRATIONS.map((s) => s.id)
   // id 唯一是表序断言与启动通告定位的前提
   expect(new Set(ids).size).toBe(ids.length)
@@ -140,10 +140,10 @@ test('编排表序声明既有依赖：版式 v2 → 伏笔搬迁 → 定稿基�
   expect(ids.indexOf('legacy-foreshadows')).toBeLessThan(ids.indexOf('finalized-revisions'))
 })
 
-test('按编排表驱动整链——伏笔 entry 拿到定稿基线，且整表重跑幂等零错误', () => {
+test('按编排表驱动整链——伏笔 entry 拿到定稿基线，且整表重跑幂等零错误', async () => {
   scaffoldGitEraBook()
   for (const step of LAYOUT_MIGRATIONS) {
-    expect(step.run(tmp).errors).toHaveLength(0)
+    expect((await step.run(tmp)).errors).toHaveLength(0)
     if (step.id === 'legacy-foreshadows') {
       // 作者把迁移中间态 commit：定稿基线只对 clean 文件建（不 commit 则两序都不建，
       // 测不到顺序差）——此刻伏笔物理文件已在新位且 clean，才轮到定稿基线判定。
@@ -157,7 +157,7 @@ test('按编排表驱动整链——伏笔 entry 拿到定稿基线，且整表�
   expect(foreOf()?.finalizedRevision).toBe(computeRevision(forePath))
 
   // 生产入口（整表一次跑）在终局盘面上重跑：各步幂等——全步零错误且基线不丢
-  const outcomes = runLayoutMigrations(tmp)
+  const outcomes = await runLayoutMigrationsAsync(tmp)
   expect(outcomes).toHaveLength(LAYOUT_MIGRATIONS.length)
   expect(outcomes.filter((o) => o.errors.length > 0)).toEqual([])
   expect(foreOf()?.finalizedRevision).toBe(computeRevision(forePath))

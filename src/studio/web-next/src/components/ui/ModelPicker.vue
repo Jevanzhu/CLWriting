@@ -59,7 +59,9 @@ useFocusTrap(modalRef)
       <div class="picker-pop" ref="modalRef" role="dialog" aria-modal="true" aria-label="从模型清单选择" tabindex="-1">
         <div class="picker-head">
           <span>从模型清单选择</span>
-          <button class="close-btn" @click="emit('close')"><X :size="15" /></button>
+          <!-- 关闭钮是纯图标：data-tip 经 TooltipHost 同步可访问名；aria-label 显式给出，
+               名不依赖宿主挂载时机（对齐 SettingsModal 关闭钮双写口径） -->
+          <button class="close-btn" data-tip="关闭" aria-label="关闭" @click="emit('close')"><X :size="15" /></button>
         </div>
         <div class="picker-list">
           <label v-for="c in capped.view" :key="c" class="picker-item">

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * R0910-W（2026-09-10）：Electron 集成冒烟（PR/push CI 用）。
+ * Electron 集成冒烟（PR/push CI 用）。
  *
  * 背景：产品是 Electron 桌面应用，但 ci.yml 的 e2e job 只跑 Playwright + web 包 +
  * mock driver，从不启动 Electron 壳；唯一 Electron 覆盖是 desktop.yml 的 25s 存活
@@ -22,13 +22,12 @@
  * detached 进程组 + kill(-pid)。退出码 0 仅当观察到 window-cycle-ok。
  *
  * 跑：node scripts/electron-smoke.mjs（CI 侧经 xvfb-run -a 包裹）。
- * 可调：CLW_SMOKE_TIMEOUT_MS（默认 60000）；CLW_SMOKE_APP_BIN（R0911-G-P3-2，
- * 2026-09-11 全量重评 GLM-5.3 修复批：注入打包态可执行体——desktop.yml tag 门的
- * mac .app 二进制 / win win-unpacked exe——缺省维持「node electron/cli.js .」开发态
- * 形态，行为零变化；打包态跳过 package.json main 前置门，由下方存在性/可访问性检查
- * 兜——R0917-6-nano（2026-09-17 六轮重评修复批）：本处只验存在与 stat 可达，**不查
- * mode 可执行位**；位检查由 workflow 侧 `test -x "$APP_BIN"`（desktop.yml mac/win 两
- * 腿各一处）补位，脚本单跑时以 spawn 失败为准）。
+ * 可调：CLW_SMOKE_TIMEOUT_MS（默认 60000）；CLW_SMOKE_APP_BIN 注入打包态可执行体
+ *（desktop.yml tag 门的 mac .app 二进制 / win win-unpacked exe）——缺省维持
+ *「node electron/cli.js .」开发态形态，行为零变化。打包态跳过 package.json main 前置门，
+ * 由下方存在性/可访问性检查兜底：本处只验存在与 stat 可达，**不查 mode 可执行位**——
+ * 位检查由 workflow 侧 `test -x "$APP_BIN"`（desktop.yml mac/win 两腿各一处）补位，
+ * 脚本单跑时以 spawn 失败为准。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -45,14 +44,14 @@ const FAIL_MARKER = '[CLW_SMOKE] window-cycle-fail'
 const TIMEOUT_MS = Number(process.env['CLW_SMOKE_TIMEOUT_MS']) || 60_000
 /** 日志保留尾长（失败时打印现场；限长防 CI 日志被巨量输出淹没）。 */
 const TAIL_CHARS = 8_000
-// 全库重评-0914（P3-7）：日志累积缓冲上限（4MB）——ELECTRON_ENABLE_LOGGING=1 下
-// Chromium 全量日志 60s 可达数十 MB，无界累积拖垮驱动进程内存（对齐
-// src/desktop/server-manager.ts MAX_LINE_CHARS 的内存闸纪律）。超限丢头部保尾部：
-// marker 命中只依赖保留段（标记行到达时位于缓冲尾部，丢头不误伤判定）。
+// 日志累积缓冲上限（4MB）——ELECTRON_ENABLE_LOGGING=1 下 Chromium 全量日志 60s 可达
+// 数十 MB，无界累积会拖垮驱动进程内存（对齐 src/desktop/server-manager.ts
+// MAX_LINE_CHARS 的内存闸纪律）。超限丢头部保尾部：marker 命中只依赖保留段
+//（标记行到达时位于缓冲尾部，丢头不误伤判定）。
 const MAX_LOG_CHARS = 4 << 20
 
-// R0911-G-P3-2：打包态注入（CLW_SMOKE_APP_BIN）——前置门只验可执行体存在（产物自身
-// 即入口）；开发态缺省走原「package.json main 存在性」指路门，行为零变化。
+// 打包态注入（CLW_SMOKE_APP_BIN）——前置门只验可执行体存在（产物自身即入口）；
+// 开发态缺省走原「package.json main 存在性」指路门，行为零变化。
 const appBin = process.env['CLW_SMOKE_APP_BIN']
 if (appBin) {
   if (!existsSync(appBin)) {
@@ -87,8 +86,8 @@ if (appBin) {
 // 会以 "SUID sandbox helper binary… not configured correctly" 直接退出。只在确需时补
 // --no-sandbox：平台为 linux 且（CI 环境或 root）。Windows/macOS 本地不传，保持真沙箱。
 const needNoSandbox = process.platform === 'linux' && (Boolean(process.env['CI']) || process.getuid?.() === 0)
-// R0911-G-P3-2：打包态直起二进制（CLW_SMOKE_WINDOW_CYCLE 等契约 env 照注）；开发态
-// 维持原 node electron/cli.js 形态（--no-sandbox 仅 dev 直跑面需要，打包态不传）。
+// 打包态直起二进制（CLW_SMOKE_WINDOW_CYCLE 等契约 env 照注）；开发态维持原
+// node electron/cli.js 形态（--no-sandbox 仅 dev 直跑面需要，打包态不传）。
 const child = appBin
   ? spawn(appBin, [], {
       cwd: root,
@@ -158,11 +157,11 @@ function finish(code, reason, extra) {
     console.error(`[electron-smoke] ---- 应用输出尾部（最近 ${tail.length} 字符）----`)
     console.error(tail || '(无输出)')
   }
-  // D203（0918三轮修复批）：改 exitCode + 自然排空——Node 对管道的 console 写是异步
-  // 的，紧随其后的同步 process.exit 可在刷盘前终止进程：CI（输出即管道）失败时恰是
-  // 最需要日志尾的场景被截断，与头注「失败/超时即带日志尾失败」承诺相悖。设
-  // exitCode 后让事件循环排空自然退出（killTree 后子进程句柄随即关闭，可排空）；
-  // 3s 兜底硬退（unref——排空正常则不触发）防残留句柄钉住循环把 CI 拖到超时。
+  // 用 exitCode + 自然排空，不用同步 process.exit——Node 对管道的 console 写是异步的，
+  // 紧随其后的同步 exit 可在刷盘前终止进程：CI（输出即管道）失败时恰是最需要日志尾的
+  // 场景被截断，与头注「失败/超时即带日志尾失败」的承诺相悖。设 exitCode 后让事件循环
+  // 排空自然退出（killTree 后子进程句柄随即关闭，可排空）；3s 兜底硬退（unref——排空
+  // 正常则不触发）防残留句柄钉住循环把 CI 拖到超时。
   process.exitCode = code
   setTimeout(() => process.exit(process.exitCode ?? code), 3000).unref()
 }
@@ -177,8 +176,8 @@ timer.unref?.()
 
 function onChunk(buf) {
   log += buf.toString('utf8')
-  // P3-7：超上限丢头部保尾部（内存闸，防 Chromium 全量日志无界累积）；marker 命中
-  // 只依赖保留段，丢头不影响判定。
+  // 超上限丢头部保尾部（内存闸，防 Chromium 全量日志无界累积）；marker 命中只依赖
+  // 保留段，丢头不影响判定。
   if (log.length > MAX_LOG_CHARS) log = log.slice(-MAX_LOG_CHARS)
   if (settled) return
   if (log.includes(OK_MARKER)) return finish(0, '捕获到 window-cycle-ok（真实建窗→关窗链通过）')

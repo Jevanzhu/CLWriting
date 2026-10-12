@@ -31,6 +31,12 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
+// 书级 kind（短篇判定信号）读经 shared/book-config-cache → api/books.getConfig
+const getConfig = vi.hoisted(() => vi.fn())
+vi.mock('../../../src/studio/web-next/src/api/books', () => ({
+  getConfig,
+  getTree: vi.fn(),
+}))
 
 import { saveContent, type SaveOk } from '../../../src/studio/web-next/src/api/documents'
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
@@ -61,6 +67,8 @@ async function openForSwitch(docId: string, path: string): Promise<ReturnType<ty
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  // 默认长篇口径（缺 kind 字段）：多数用例不关心书级 kind，读挂载即落 long 不惊扰
+  vi.mocked(getConfig).mockResolvedValue({})
 })
 
 describe('doc store · open / patch', () => {
@@ -530,5 +538,57 @@ describe('doc store · R0912-FE-P3-6：discard 清 inflightOpens', () => {
     const doc = await openDoc('d-ifo2', '写作/正文/第1章.md', 'a')
     doc.discard('d-ifo2')
     expect(doc.get('d-ifo2')).toBeUndefined()
+  })
+})
+
+// ── 书级 kind（短篇正文判定的书级信号单源）──────────────────────────
+// 判定消费方（MetaFormPanel/SidebarRight/useTreeMenu/useChapterTreeActions）统一经
+// shared/words 的 isPieceBodyNode(doc.bookKind, node) 取值，故本档钉住「值从哪来、何时变」：
+// 随 setBook 落定、读失败保持长篇口径、旧书迟到响应不落新书。
+describe('doc store · 书级 kind（book.yaml kind 单源）', () => {
+  /** 排空 setBook 内 fire-and-forget 的 loadBookKind 链（配置读 await + 落态）。 */
+  async function settleKind(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  it('setBook → 经书级配置读单源取 kind；短篇书落 short，缺字段落 long', async () => {
+    vi.mocked(getConfig).mockResolvedValueOnce({ kind: 'short' })
+    const doc = useDocStore()
+    doc.setBook('短篇书')
+    await settleKind()
+    expect(doc.bookKind).toBe('short')
+    expect(getConfig).toHaveBeenCalledWith('短篇书') // 读经既有单源，非新造请求面
+
+    vi.mocked(getConfig).mockResolvedValueOnce({})
+    doc.setBook('长篇书')
+    await settleKind()
+    expect(doc.bookKind).toBe('long')
+  })
+
+  it('配置读失败 → 保持长篇口径（保守：不误开短篇字段组）', async () => {
+    vi.mocked(getConfig).mockRejectedValueOnce(new Error('HTTP 502'))
+    const doc = useDocStore()
+    doc.setBook('短篇书')
+    await settleKind()
+    expect(doc.bookKind).toBe('long')
+  })
+
+  it('A 书 kind 慢响应迟归不落 B 书（切书即复位 + 代/书名双守卫）', async () => {
+    let releaseSlow!: (v: { kind: string }) => void
+    vi.mocked(getConfig).mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          releaseSlow = r as (v: { kind: string }) => void
+        }),
+    )
+    const doc = useDocStore()
+    doc.setBook('A书') // A 书 kind 请求挂起
+    doc.setBook('B书') // 在途切书（B 为长篇）
+    await settleKind()
+    expect(doc.bookKind).toBe('long') // 切书即复位，不等响应
+
+    releaseSlow({ kind: 'short' }) // A 书迟归
+    await settleKind()
+    expect(doc.bookKind).toBe('long') // 旧书 kind 不得盖到 B 书
   })
 })

@@ -26,17 +26,21 @@ import { testableConst } from '../shared/testable.js'
 type GitResult = { ok: true; stdout: string } | { ok: false; humanMsg: string; stderr?: string }
 
 /**
- * git 单次调用超时：仓库锁 / 交互提示 / 挂载盘无响应时 spawnSync 会永久阻塞
- * 调用线程——statusPorcelain 在 server 启动链路（migrate 反推）会拖死启动。超时后
- * kill 子进程并按失败返回（fail-closed：调用方不能把「未完成」当「成功/干净」）。
- * gitAsync（异步路径）共用同一超时档；测试经 __setGitAsyncTimeoutForTest 缩短。
+ * git 单次调用超时：仓库锁 / 交互提示 / 挂载盘无响应时子进程调用会永久阻塞
+ * 调用方——既定稿基线迁移（server 启动链路的 migrate 反推）走的是异步孪生，
+ * 同步 git() 的这条超时只保护 ai-track 的同步侧。超时后 kill 子进程并按失败返回
+ *（fail-closed：调用方不能把「未完成」当「成功/干净」）。
+ * 异步路径（gitAsync / statusPorcelainAsync）共用同一超时档；测试经
+ * __setGitAsyncTimeoutForTest 缩短。
  */
 const GIT_TIMEOUT_MS = 15_000
 
 /** 三件套换装 testableConst 工厂异步路径超时覆盖档——
  *  getter 消费点显式调用（null 回退常量档），setter 元组第二位原名原签名
- *  （传 null 即还原默认档，测试面零感知）。 */
-export const [getGitAsyncTimeoutMs, __setGitAsyncTimeoutForTest] = testableConst<number | null>(null)
+ *  （传 null 即还原默认档，测试面零感知）。
+ *  导出面收窄：getter 仅本文件（gitAsync 超时定时器）消费，不再对外导出。 */
+const [getGitAsyncTimeoutMs, __setGitAsyncTimeoutForTest] = testableConst<number | null>(null)
+export { __setGitAsyncTimeoutForTest }
 
 /**
  * IR-3SIGTERM → SIGKILL 升级 kill。SIGTERM 是 best-effort
@@ -83,7 +87,7 @@ const GIT_MAX_BUFFER = 64 * 1024 * 1024
  * `.git/config`，其中 `core.fsmonitor = <命令>` 在 `status` 刷新索引时被当场执行
  *（本机实测 git 2.52 win：裸 `git status --porcelain` 即触发命名脚本），
  * 而 `safe.directory` 只拦属主不一致——作者自己下载/解压的书目录属主就是他本人，
- * 拦不住。server 启动链 migrateFinalizedRevisions 对每本书跑 statusPorcelain，
+ * 拦不住。server 启动链的定稿基线迁移对每本书跑 statusPorcelainAsync，
  * 等价于「把他人共享的书目录放进书库 = 启动即执行任意命令」。
  *
  * 统一前置两类 -c 覆盖（命令行 -c 优先级高于仓库内配置，实测生效）：
@@ -113,7 +117,7 @@ export function hardenGitArgs(args: string[]): string[] {
  * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败按退出码 → 人话，不把作者丢给 git 报错。
  * opts.input：喂 stdin（hash-object --stdin 等内容写入场景用）。
- * 超时：15s 上限，git 无响应即中止并按失败返回（statusPorcelain 得 null → fail-closed）。
+ * 超时：15s 上限，git 无响应即中止并按失败返回（statusPorcelainAsync 得 null → fail-closed）。
  * 传参经 hardenGitArgs（RC：仓库内 fsmonitor/hooks 配置不可信）；
  * 报错信封仍用调用方原 args 拼装，-c 加固参数不外露给作者。
  */
@@ -326,17 +330,22 @@ function gitMissingHint(): string {
   return '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
 }
 
-/** git status --porcelain（判定工作树脏不脏；core.quotepath=false 保中文路径不转义）。
+/** git status --porcelain 的异步孪生（定稿基线迁移反推 git 脏集用）。
  *  注意：只去末尾换行，**不动行首空格**——porcelain 是固定宽度格式（XY<空格>path），
  *  XY 中 X 状态码可能是空格（如 " M"=worktree改），行首 trim 会吃掉它破坏对齐。
  *  调用方按 .slice(3) 取 path。
+ *  走 gitAsync（spawn + 有界超时定时器）而非同步 git()：本函数的唯一消费方在
+ *  **启动迁移链**上（install/migrate-finalized-revision → layout-migrations →
+ *  server 组装根的 listen 前段），网盘挂载 / 杀软锁 .git 时同步 spawnSync 会把
+ *  服务进程事件循环连续占满（每书最长 15s 超时档），启动期整体停摆——异步孪生
+ *  让该链在等待 git 期间让出事件循环，迁移完成序不变。
  * 失败返回 null（与「干净」的 '' 区分）——fail-open 会让调用方把
  *  无法判定的脏集当空集（migrate 据此把脏 entry 全部误标已定稿）。调用方须显式处理 null。 */
-export function statusPorcelain(cwd: string, untrackedAll = false): string | null {
+export async function statusPorcelainAsync(cwd: string, untrackedAll = false): Promise<string | null> {
   // -c core.quotepath=false：非 ASCII 路径（中文目录/文件名）原样输出，免八进制转义
   const args = ['-c', 'core.quotepath=false', 'status', '--porcelain']
   if (untrackedAll) args.push('-uall')
-  const r = git(args, cwd)
+  const r = await gitAsync(args, cwd)
   return r.ok ? r.stdout.replace(/\n+$/, '') : null
 }
 

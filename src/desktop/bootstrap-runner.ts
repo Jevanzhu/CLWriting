@@ -3,8 +3,9 @@
  *
  * 收编三段历史修复语义（行为零变更，main.ts 接线见调用处）：
  * 并发重入防护：进行中（bootstrapping）重复调用直接挡掉；完成/失败后可重试
- *   （保 activate 重建窗口语义）；
- * -：上次 bootstrap 若在 startServer 之后失败（如 loadURL 抛错），重试会
+ *（「完成/失败后可重试」是机制能力，不等于生产有第二次调用——生产唯二调用点是首启与
+ *   activate 重建，后者在当前「关窗即退出」形态下不可达，判据见 main.ts activate 分支）；
+ * - 上次 bootstrap 若在 startServer 之后失败（如 loadURL 抛错），重试会
  *   再起新 server 覆盖变量、旧 server 端口/SSE 计数滞留至进程退出——重试前先关旧的；
  * - 低-8：退出途中（shutdownStarted 已置位）不再重 bootstrap（before-quit
  *   的 2s 优雅退出窗口内 macOS dock 点击仍会触发 activate）。

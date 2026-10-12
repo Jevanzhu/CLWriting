@@ -11,7 +11,7 @@ import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
 import { useWorkspaceStore } from './workspace'
 import { useWordsStore } from './words'
-import { countWords, stripFrontmatter, mergeFm } from '../shared/words'
+import { countWords, stripFrontmatter, mergeFm, type BookKind } from '../shared/words'
 import type { TreeNode } from '../types/tree'
 
 /**
@@ -35,8 +35,9 @@ export interface DocEntry {
   docId: string
   path: string
   name: string
-  /** 文档角色（后端 buildTree 标注；短篇判定读 book.yaml kind——role 恒 'chapter'，
-   *  'piece-body' 是历史 wire 兼容位，后端从不产出）。 */
+  /** 文档角色（后端 buildTree 按路径标注，写作/正文/ 恒 'chapter'）。短篇判定不读此位
+   *  ——长短篇正文的 role 相同，须按「书级 kind + 正文路径」判（shared/words 的
+   *  isPieceBodyNode 单源）；本字段随 wire 保留，'piece-body' 是历史兼容枚举位。 */
   role: string
   mode: 'text' | 'md'
   content: string
@@ -67,6 +68,31 @@ const MAX_CACHED_DOCS = 20
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
   const bookName = ref<string | null>(null)
+  /** 书级类型（book.yaml kind）——「短篇正文」判定的书级信号单源，消费方经 shared/words
+   *  的 isPieceBodyNode(bookKind, node) 判定，不得各自再读一份配置。
+   *  读取经 workspace.loadBookConfig（既有书级配置读单源：同书并发合并 + 结果缓存），
+   *  不新立 request 面；取不到/读失败/未落定一律按 'long'（保守：宁按长篇表单展示，
+   *  不误开短篇字段组）。
+   *  为什么落在 doc store：短篇/长篇的两套语义都挂在「同一本书当前会话」上——doc store
+   *  已持该会话的书名与切书代数（bookName/bookGen），setBook 是唯一必然经过的进书钩子；
+   *  workspace store 不新增字段（该文件改由他人在改），tree store 静态 import workspace
+   *  会新增 stores 模块级环（governance/webnext-store-import-cycles 即红）。 */
+  const bookKind = ref<BookKind>('long')
+  /** 书级 kind 读取代守卫——切书后在途旧书响应不落新书（口径同本文件 bookGen）。 */
+  const bookKindGen = useStaleGuard()
+  /** 拉书级 kind（best-effort：任何失败都保持长篇口径，不惊扰作者——书级配置的失败
+   *  提示面由各面板的配置读取负责，此处只服务判定）。 */
+  async function loadBookKind(name: string): Promise<void> {
+    const gen = bookKindGen.begin()
+    try {
+      const r = await useWorkspaceStore().loadBookConfig(name)
+      // 双守卫：本代被后发读取作废，或会话已换书（同名重进也算）时不落态
+      if (bookKindGen.stale(gen) || bookName.value !== name) return
+      bookKind.value = !r.error && r.config.kind === 'short' ? 'short' : 'long'
+    } catch {
+      /* 读取异常：保持长篇口径 */
+    }
+  }
   /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫）。
    * 裸计数器换装 useStaleGuard（begin/current 语义映射见工具注；
    *  判定时机不变——doOpen 进入时快照、await 落定后 stale 复检）。 */
@@ -100,6 +126,11 @@ export const useDocStore = defineStore('doc', () => {
     inflightSaves.clear()
     if (prevBook) mirror.clearBookMirrors(prevBook)
     bookGen.invalidate()
+    // 书级 kind 随切书复位并按新书重取（推代 + 复位在取之前：新书拉取失败也不沿用前书
+    // 的短篇口径；在途旧书响应被 bookKindGen 作废）
+    bookKindGen.invalidate()
+    bookKind.value = 'long'
+    if (name) void loadBookKind(name)
   }
 
   function get(docId: string): DocEntry | undefined {
@@ -377,13 +408,20 @@ export const useDocStore = defineStore('doc', () => {
         // autosaveTick 每 30s 对已删 docId 无限重试（404 后 dirty 不清）、LRU 永不驱逐、
         // 切书 flushDirty 计入 failed 触发「保存失败将永久丢弃」假警报。
         // discard 同时清 inflightSaves（本 promise 正在 settle 链上，条件删兜底）。
+        // 书名 + 条目身份双复检（成功分支同名守卫 + flushDirty 的 docs.get(docId) === e 先例）：
+        // legacy docId 由路径派生、跨书可同 id（本文件 setBook 头注同因）——A 书求在途切到
+        // B 书后，若迟到 404 无门直接 delete，删掉的是 B 书同路径条目（B 的 dirty 正文随条目
+        // 消失，只剩一条 toast）；身份复检同时挡「同书内条目已被 discard/LRU 驱逐重建」形态，
+        // 只清理本次保存所依附的那一条。守卫不过即整体放弃（本条已不属当前书缓存，
+        // 未落盘正文的丢弃告警也不该打在切书后的新书界面上）。
+        if (bookName.value !== book || docs.value.get(docId) !== e) return false
         docs.value.delete(docId)
         // 本 promise 的在途登记由 save 的 finally 条件删收口（get === p）
         mirror.clearDirtyMirror(book, docId) // 文档已删，镜像一并清（复活无主）
         // 条目清理连未落盘正文一并丢弃（本条快照与 await 窗口内的新键入都在 e 上，
         // 随笔目移除消失）——必须让作者看见「这段键入未写入」：autosave 路径此前零提示，
-        // 手动路径只报「已清理本地缓存」。提示与切书守卫无关：本条已被移出缓存，
-        // flushDirty 的条目身份复检（docs.get(docId) === e）不把它计入 failed。
+        // 手动路径只报「已清理本地缓存」。提示与 flushDirty 的条目身份复检同口径：
+        // 本条已被移出缓存，不把它计入 failed（切书守卫不对其弹保存失败假警报）。
         useUiStore().toast('文档已被外部删除，这段键入未写入（已清理本地缓存）', 'warning')
         return false
       } else {
@@ -760,6 +798,7 @@ export const useDocStore = defineStore('doc', () => {
   return {
     docs,
     bookName,
+    bookKind,
     setBook,
     get,
     open,

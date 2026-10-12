@@ -8,6 +8,10 @@
  * 单作业线程：收到 job → 同步执行 exportBook → postMessage 结果；任务完成由
  * spawn 侧 terminate（本入口保持消息监听不自然退出）。独立 tsup entry——打包态
  * 与 server bundle 同目录成伴（解析见 run-async.ts 头注）。
+ *
+ * 取消：本入口**不注册**取消消息/共享中止位的监听——内核执行期单线程同步到底，
+ * worker 消息在期间不会被派发，协作取消在这一结构上不可达；取消一律由 spawn 侧
+ * terminate 承担（取舍与产物清理口径见 run-async.ts 头注「取消与产物清理」段）。
  */
 import { parentPort } from 'node:worker_threads'
 import { exportBook } from './index.js'

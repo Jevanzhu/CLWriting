@@ -29,7 +29,7 @@ import {
   batchFinalizeDocs,
   type SplitPlanView,
 } from '../api/documents'
-import { parseChapterFileName, chapterFilePrefix } from '../shared/words'
+import { parseChapterFileName, chapterFilePrefix, isPieceBodyNode } from '../shared/words'
 import { friendlyError } from '../shared/error'
 import { flushBodyWriteback } from '../shared/body-writeback'
 import {
@@ -195,7 +195,9 @@ export function useChapterTreeActions(deps: { bookName: () => string; openError:
       const docIds = pendingChaptersUpTo(node)
       if (docIds.length) void doBatchFinalize(docIds)
     } else if (key === 'meta') {
-      const isPiece = node.role === 'piece-body'
+      // 短篇正文判定取书级 kind + 正文路径（isPieceBodyNode 单源；服务端 role 恒
+      // 'chapter'，按 role 判恒不命中）
+      const isPiece = isPieceBodyNode(doc.bookKind, node)
       // 短篇/长篇均从文件名提取编号+标题（短篇 写作/正文/N-标题.md，长篇 写作/正文/[卷/]N-标题.md）
       // 注意：TreeNode.path 是完整相对路径（写作/正文/N-标题.md），章号只能从 name 提取（与 pendingChaptersUpTo 一致）
       const m = parseChapterFileName(node.name)

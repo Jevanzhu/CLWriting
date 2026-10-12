@@ -37,7 +37,7 @@ vi.mock('../../../../src/studio/web-next/src/api/client', async (importOriginal)
 import { ApiError } from '../../../../src/studio/web-next/src/api/client'
 import { useDocStore } from '../../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../../src/studio/web-next/src/stores/ui'
-import { makeChapterNode } from '../helpers/tree-node'
+import { makeChapterNode, makeChapterNodeAt } from '../helpers/tree-node'
 
 const BOOK = '书A'
 
@@ -127,5 +127,72 @@ describe('NOT_FOUND 提示：外部删除导致的未落盘键入丢弃必须可
     expect(ui.toasts.at(-1)?.msg).toBe('文档已被外部删除，这段键入未写入（已清理本地缓存）')
     expect(doc.get('d1')).toBeUndefined() // R33-13 缓存清理不回归
     expect(await doc.flushDirty()).toEqual([]) // 幽灵条目不入 failed
+  })
+})
+
+describe('NOT_FOUND 归属守卫：迟到 404 只清理本次保存依附的条目', () => {
+  /** 在途保存的手动放行句柄（起一笔挂起的保存，稍后由用例决定以什么错误落定）。 */
+  let rejectSave: ((e: unknown) => void) | null = null
+  function startPendingSave(): void {
+    rejectSave = null
+    vi.mocked(saveContent).mockReturnValueOnce(
+      new Promise<never>((_res, rej) => {
+        rejectSave = rej
+      }) as ReturnType<typeof saveContent>,
+    )
+  }
+  function takeReject(): (e: unknown) => void {
+    if (!rejectSave) throw new Error('保存请求未在途')
+    const r = rejectSave
+    rejectSave = null
+    return r
+  }
+
+  it('A 书保存在途 → 切 B 书 → 迟到 NOT_FOUND → B 书同路径条目仍在（含 dirty 正文），且无删除提示', async () => {
+    const doc = useDocStore()
+    doc.setBook('书A')
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
+    doc.patch('d1', 'A 书未落盘改动')
+    startPendingSave()
+    const p = doc.save('d1', 'manual')
+    // 在途切书：缓存清空。legacy docId 由路径派生、跨书可同 id（本文件 flush 系列同因），
+    // B 书同路径条目即同 docId——旧实现在此处被 A 书迟到的 404 直接 delete
+    doc.setBook('书B')
+    await doc.open(makeChapterNodeAt('写作/正文/第1章.md', 'd1'))
+    doc.patch('d1', 'B 书未落盘改动')
+    const ui = useUiStore()
+
+    takeReject()(new ApiError('文档不存在', 404, 'NOT_FOUND'))
+    await expect(p).resolves.toBe(false)
+
+    // 修复点：归属判定不过（书名 + 条目身份双复检）→ B 书条目原样保留，正文未丢
+    expect(doc.get('d1')?.content).toBe('B 书未落盘改动')
+    expect(doc.get('d1')?.dirty).toBe(true)
+    // 未落盘正文的丢弃告警属 A 书那笔，不得打在 B 书界面
+    expect(ui.toasts.some((t) => t.msg.includes('文档已被外部删除'))).toBe(false)
+  })
+
+  it('同书条目已替换（discard 后重开）→ 迟到 404 不误删新条目，对照：本书记录确被删时仍清理 + 提示', async () => {
+    const doc = useDocStore()
+    doc.setBook(BOOK)
+    await doc.open(makeChapterNode('d1'))
+    doc.patch('d1', '旧条目改动')
+    startPendingSave()
+    const p = doc.save('d1', 'manual')
+    doc.discard('d1') // 条目已弃（删除确认链先例），同路径随即重开
+    await doc.open(makeChapterNode('d1'))
+    doc.patch('d1', '重开条目改动')
+
+    takeReject()(new ApiError('文档不存在', 404, 'NOT_FOUND'))
+    await expect(p).resolves.toBe(false)
+    // 旧条目已脱离缓存，迟到 404 不得删掉后来者
+    expect(doc.get('d1')?.content).toBe('重开条目改动')
+
+    // 对照：本书记录确实被删（条目仍在缓存）→ 行为不变（清理条目 + 提示）
+    const ui = useUiStore()
+    vi.mocked(saveContent).mockRejectedValueOnce(new ApiError('文档不存在', 404, 'NOT_FOUND'))
+    expect(await doc.save('d1', 'manual')).toBe(false)
+    expect(doc.get('d1')).toBeUndefined()
+    expect(ui.toasts.at(-1)?.msg).toBe('文档已被外部删除，这段键入未写入（已清理本地缓存）')
   })
 })

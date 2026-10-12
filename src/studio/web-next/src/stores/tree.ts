@@ -58,10 +58,12 @@ export const useTreeStore = defineStore('tree', () => {
     return sum
   }
 
-  const WORD_ALL = new Set(['chapter', 'piece-body'])
+  /** 正文叶子角色集：服务端 roleOf 对 写作/正文/ 恒返 'chapter'（layout.ts 口径，长短篇
+   *  同构）——短篇正文同样由 'chapter' 计入，本集无需（也不应）再列历史 wire 位。 */
+  const BODY_ROLES = new Set(['chapter'])
 
-  /** 全书已写字数（chapter+piece-body）。 */
-  const totalWords = computed(() => sumWords(raw.value, WORD_ALL))
+  /** 全书已写字数（正文叶子，长短篇同口径）。 */
+  const totalWords = computed(() => sumWords(raw.value, BODY_ROLES))
 
   /** save 后局部更新某叶子字数（避免重拉整树）。 */
   function updateWordCount(path: string, count: number): void {

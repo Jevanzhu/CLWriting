@@ -2,11 +2,19 @@
  * F1-P1 事件库存取层单测：建库/写入/读取/清空/启动修复。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { rmSync, writeFileSync } from 'node:fs'
+import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
-import { openSessionStore, bookHash } from '../../src/events/store.js'
+import {
+  openSessionStore,
+  bookHash,
+  runSessionDbMaintenanceAsync,
+  __setEventRetentionMsForTest,
+  __setPruneMinIntervalMsForTest,
+} from '../../src/events/store.js'
+import { log } from '../../src/log/index.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
+import { waitFor } from '../helpers/wait-for.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
@@ -427,7 +435,7 @@ describe('R65-20（批 B）：listEvents 坏行降级', () => {
   })
 })
 
-// P1-16：maskSelfCheckData 降为 debug 开关（默认关）——自检查询为 events 全表扫
+// P1-16：maskSelfCheckData 降为开关档（默认关）——自检查询为 events 全表扫
 // （O(N)，无可用索引），只在 close 写 compaction 前跑一次；诊断/复现时设
 // CLWRITING_EVENTS_SELF_CHECK=1 启用。未启用返回 null（调用方跳过告警，防空结果误报）。
 describe('P1-16 maskSelfCheckData 自检开关', () => {
@@ -448,5 +456,326 @@ describe('P1-16 maskSelfCheckData 自检开关', () => {
       delete process.env.CLWRITING_EVENTS_SELF_CHECK
     }
     store.close()
+  })
+})
+
+// ── 保留策略与空间回收 ──────────────────────────────────────────────────────
+// 判据：白名单三族（llm/retry、retry/attempt、check/report）零读取方故可裁；surface/
+// 边界/血缘/成本各族的读取方见 src/events/store-retention.ts 头注的逐个核对。
+
+/** 造事件：created_at 统一回拨到 ageMs 前（保留窗口内的行传 0）。 */
+function seedBackdated(
+  store: ReturnType<typeof openSessionStore>,
+  book: string,
+  rows: Array<{ type: string; data: Record<string, unknown>; ageMs: number }>,
+): string {
+  const sid = store!.createSession(book)
+  const db = new DatabaseSync(store!.dbPath)
+  try {
+    for (const r of rows) {
+      store!.appendEvents(sid, [{ type: r.type as never, data: r.data, surfaceOp: 'append' as never }])
+    }
+    // created_at 由 appendEvents 统一写 now——按需逐条回拨（seq 升序对应 rows 顺序）
+    const seqs = store!.listEvents(book, sid).map((e) => e.seq)
+    seqs.forEach((seq, i) => {
+      db.prepare('UPDATE events SET created_at = ? WHERE seq = ?').run(Date.now() - rows[i]!.ageMs, seq)
+    })
+  } finally {
+    db.close()
+  }
+  return sid
+}
+
+/** 按类型计数（读侧可观察面）。 */
+function countByType(store: ReturnType<typeof openSessionStore>, book: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const e of store!.listEvents(book)) out[e.type] = (out[e.type] ?? 0) + 1
+  return out
+}
+
+/** 逐行签名（seq + 类型 + 载荷原文）：prune 前后整表对拍用——只计数分不出「删错行、留错行」。 */
+function rowSignatures(store: ReturnType<typeof openSessionStore>, book: string): string[] {
+  return store!.listEvents(book).map((e) => `${e.seq}:${e.type}:${JSON.stringify(e.data)}`)
+}
+
+const DAY = 24 * 60 * 60 * 1000
+
+describe('事件库保留策略（观测类裁剪）', () => {
+  it('超窗的观测类族被裁剪、禁删族逐条仍在；重复执行零副作用', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/retain')!
+    const old = 40 * DAY // 越过 30 天缺省窗口
+    seedBackdated(store, '留痕书', [
+      { type: 'session/start', data: { book: '留痕书' }, ageMs: old },
+      { type: 'llm/retry', data: { attempt: 1, delayMs: 10 }, ageMs: old },
+      { type: 'user/message', data: { message: '旧对话正文' }, ageMs: old },
+      { type: 'retry/attempt', data: { attempt: 1, maxAttempts: 3 }, ageMs: old },
+      { type: 'assistant/message', data: { message: '旧回复' }, ageMs: old },
+      { type: 'check/report', data: { chapter: 1, reds: [] }, ageMs: old },
+      { type: 'llm/call', data: { task: 'chat', ok: true }, ageMs: old },
+      { type: 'tool/result', data: { callId: 'c1', content: '旧工具结果' }, ageMs: old },
+      { type: 'session/end', data: { reason: 'completed' }, ageMs: old },
+    ])
+    // 保留窗口内的观测行：不得被裁（同族同库两条，窗口是唯一分界）
+    seedBackdated(store, '留痕书', [
+      { type: 'llm/retry', data: { attempt: 2, delayMs: 10 }, ageMs: 1 * DAY },
+      { type: 'check/report', data: { chapter: 2, reds: [] }, ageMs: 0 },
+    ])
+    // 逐行对拍基线：prune 之后应为「基线减去超窗的三条白名单行」，其余行逐字不动
+    // （只比计数分不出「删错行、留错行」；seq 因删行留空洞，故按行签名对拍而非重算序号）
+    const before = rowSignatures(store, '留痕书')
+    const prunableTypes = new Set(['llm/retry', 'retry/attempt', 'check/report'])
+    const expectedKept = before.filter((sig) => {
+      const type = sig.slice(sig.indexOf(':') + 1, sig.indexOf(':', sig.indexOf(':') + 1))
+      if (!prunableTypes.has(type)) return true
+      // 白名单族里窗口内的两条（载荷可辨）保留：only 超窗那一条会消失
+      return sig.includes('"attempt":2') || sig.includes('"chapter":2')
+    })
+    expect(expectedKept).toHaveLength(before.length - 3)
+
+    const first = await runSessionDbMaintenanceAsync(store.dbPath)
+    expect(first?.pruned).not.toBeNull()
+    expect(first!.pruned!.deleted).toBe(3) // llm/retry + retry/attempt + check/report 各一条
+    // 逐行对拍：残留行与期望逐条一致（顺序、seq、载荷全等）——禁删族一条不少，窗口内观测族一条不丢
+    expect(rowSignatures(store, '留痕书')).toEqual(expectedKept)
+    const after = countByType(store, '留痕书')
+    // 禁删族逐条仍在（正文/审计/成本/边界/工具各族）
+    expect(after['session/start']).toBe(1)
+    expect(after['session/end']).toBe(1)
+    expect(after['user/message']).toBe(1)
+    expect(after['assistant/message']).toBe(1)
+    expect(after['tool/result']).toBe(1)
+    expect(after['llm/call']).toBe(1)
+    // 窗口内的观测族保留，超窗的三族只剩窗口内那一条/清零
+    expect(after['llm/retry']).toBe(1)
+    expect(after['check/report']).toBe(1)
+    expect(after['retry/attempt']).toBeUndefined()
+    // 正文原样可读（裁剪不碰载荷）
+    expect(store.listEvents('留痕书').find((e) => e.type === 'user/message')!.data['message']).toBe('旧对话正文')
+
+    // 幂等：重复跑零副作用（无到期白名单行 → deleted=0，行数不变；逐行签名同前）
+    const again = await runSessionDbMaintenanceAsync(store.dbPath)
+    expect(again?.pruned?.deleted ?? 0).toBe(0)
+    expect(rowSignatures(store, '留痕书')).toEqual(expectedKept)
+    store.close()
+  })
+
+  it('窗口内的行不裁：把保留窗口设到 365 天，则 40 天前的观测行原样保留', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/fresh')!
+    seedBackdated(store, '新书', [
+      { type: 'llm/retry', data: { attempt: 1, delayMs: 1 }, ageMs: 40 * DAY },
+      { type: 'user/message', data: { message: 'hi' }, ageMs: 0 },
+    ])
+    __setEventRetentionMsForTest(365 * DAY)
+    try {
+      const out = await runSessionDbMaintenanceAsync(store.dbPath)
+      // 未到期且空闲页未过阈 → 整轮维护不开工（返回 null = 连写事务都没开）
+      expect(out).toBeNull()
+      expect(countByType(store, '新书')['llm/retry']).toBe(1)
+      expect(countByType(store, '新书')['user/message']).toBe(1)
+    } finally {
+      __setEventRetentionMsForTest(30 * DAY)
+      store.close()
+    }
+  })
+
+  it('清库后 seq 重新分配 → 游标不越界：新落库的超窗观测行照常被裁', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/cursor')!
+    // 第一轮：把游标推到旧区段末尾（清库前跑过一次裁剪）
+    seedBackdated(store, '游标书', [{ type: 'llm/retry', data: { attempt: 1, delayMs: 1 }, ageMs: 40 * DAY }])
+    expect((await runSessionDbMaintenanceAsync(store.dbPath))!.pruned!.deleted).toBe(1)
+    __setPruneMinIntervalMsForTest(0) // 间隔闸放到 0：本用例要在同一进程内连跑两轮
+    try {
+      // 清库：行删空后主键从 1 重新分配，而游标停在旧的高位（进程内存态不回退）
+      store.clearBooks(['游标书'])
+      store.createSession('游标书')
+      seedBackdated(store, '游标书', [{ type: 'llm/retry', data: { attempt: 9, delayMs: 1 }, ageMs: 40 * DAY }])
+      const out = await runSessionDbMaintenanceAsync(store.dbPath)
+      expect(out!.pruned!.deleted).toBe(1) // 新行 seq 落在旧游标之前也必须被扫到
+      expect(countByType(store, '游标书')['llm/retry']).toBeUndefined()
+    } finally {
+      __setPruneMinIntervalMsForTest(6 * 60 * 60 * 1000)
+      store.close()
+    }
+  })
+})
+
+describe('事件库空间回收', () => {
+  it('清空对话后回收被触发：库 + WAL 的落盘字节回落（不是只删行）', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/shrink')!
+    const sid = store.createSession('胖书')
+    const payload = '正'.repeat(400)
+    /** 库与两个侧车的落盘字节合计——写入先进 WAL 侧车，只看主库文件量不到峰值。 */
+    const onDisk = (): number => {
+      let total = 0
+      for (const suffix of ['', '-wal', '-shm']) {
+        try {
+          total += statSync(store.dbPath + suffix).size
+        } catch {
+          /* 侧车不存在即不计 */
+        }
+      }
+      return total
+    }
+    for (let i = 0; i < 200; i++) {
+      store.appendEvents(sid, [
+        { type: 'assistant/message', data: { message: `${payload}${i}` }, surfaceOp: 'append' },
+      ])
+    }
+    const peak = onDisk()
+    expect(peak).toBeGreaterThan(0)
+    // 清空对话（clearBooks 双键形态，与 chat 清史/audit 清除同路径）→ 后台回收被调度
+    store.clearBooks(['胖书'])
+    await waitFor(() => onDisk() < peak / 2, 5000, 20, '事件库回收')
+    store.close()
+  })
+})
+
+// ── 关闭路径的在线条数一致性自检 ────────────────────────────────────────────
+// 判据：遮蔽区间内的条数与投影可见条数守恒（复用 projection.shadowCoverageStep 的
+// 判词与差异数）、session/start 与 session/end 配对计数一致。默认开（廉价尾窗查询），
+// env 强制档 '0' 关 / '1' 开；自检自身异常只降级留痕，不影响关闭流程。
+
+/** 区间守恒造盘：user/message(seq 1) + 中间 seq 被删的空洞 + compaction/end 遮蔽 [1,3]
+ *  ——区间内只剩 seq 1 可见，区间跨度 3，差 2。 */
+function seedBrokenShadow(store: ReturnType<typeof openSessionStore>): { sid: string; dbPath: string } {
+  const sid = store!.createSession('坏遮蔽书')
+  store!.appendEvents(sid, [
+    { type: 'session/start', data: { book: '坏遮蔽书' } },
+    { type: 'user/message', data: { message: '可见一' }, surfaceOp: 'append' },
+    { type: 'user/message', data: { message: '即将消失' }, surfaceOp: 'append' },
+    { type: 'user/message', data: { message: '也会消失' }, surfaceOp: 'append' },
+  ])
+  store!.appendEvents(sid, [
+    {
+      type: 'compaction/end',
+      data: { reason: 'completed' },
+      surfaceOp: 'replace',
+      shadowStart: 2,
+      shadowEnd: 4,
+      sourceSeqs: [2, 3, 4],
+    },
+  ])
+  // 外力把区间内的两行抹掉（模拟写坏/外部改写）：区间 [2,4] 只剩 seq 2 可见 → 差 2
+  const db = new DatabaseSync(store!.dbPath)
+  try {
+    db.prepare('DELETE FROM events WHERE seq IN (3, 4)').run()
+  } finally {
+    db.close()
+  }
+  return { sid, dbPath: store!.dbPath }
+}
+
+describe('关闭路径事件流自检', () => {
+  it('遮蔽区间不一致 → 关闭时 warn 留痕（含会话键与差异数）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/selfcheck')!
+    seedBrokenShadow(store)
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      store.close()
+      const msgs = warn.mock.calls.map((c) => String(c[1]))
+      const hit = msgs.find((m) => m.includes('事件流自检发现'))
+      expect(hit).toBeDefined()
+      expect(hit).toContain('可见仅') // 判词来自 projection 的守恒步（含区间与可见条数）
+      expect(hit).toContain(store.dbPath) // 留痕带库路径
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('数据一致 → 关闭时零告警（对照组，防误报刷屏）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/ok')!
+    const sid = store.createSession('好遮蔽书')
+    store.appendEvents(sid, [
+      { type: 'session/start', data: { book: '好遮蔽书' } },
+      { type: 'user/message', data: { message: '一' }, surfaceOp: 'append' },
+      { type: 'user/message', data: { message: '二' }, surfaceOp: 'append' },
+    ])
+    store.appendEvents(sid, [
+      {
+        type: 'compaction/end',
+        data: { reason: 'completed' },
+        surfaceOp: 'replace',
+        shadowStart: 2,
+        shadowEnd: 3,
+        sourceSeqs: [2, 3],
+      },
+    ])
+    store.appendEvents(sid, [{ type: 'session/end', data: { reason: 'completed' } }])
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      store.close()
+      expect(warn.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('事件流自检'))).toEqual([])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('env 强制档：置 0 强制关（不一致也不告警）；置 1 强制开', () => {
+    const ud = tmpRoot()
+    const off = openSessionStore(ud, '/books/off')!
+    seedBrokenShadow(off)
+    process.env.CLWRITING_EVENTS_SELF_CHECK = '0'
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      off.close()
+      expect(warn.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('事件流自检'))).toEqual([])
+    } finally {
+      warn.mockRestore()
+      delete process.env.CLWRITING_EVENTS_SELF_CHECK
+    }
+    const on = openSessionStore(ud, '/books/on')!
+    seedBrokenShadow(on)
+    process.env.CLWRITING_EVENTS_SELF_CHECK = '1'
+    const warn2 = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      on.close()
+      expect(warn2.mock.calls.map((c) => String(c[1])).some((m) => m.includes('事件流自检发现'))).toBe(true)
+    } finally {
+      warn2.mockRestore()
+      delete process.env.CLWRITING_EVENTS_SELF_CHECK
+    }
+  })
+
+  it('校验自身抛错 → 降级留痕，关闭流程照常完成（句柄收口、标记注销）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/errors')!
+    const sid = store.createSession('查询失败书')
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
+    // 让 events 名下的查询必抛：真表改名让位，同名视图指向不存在的表（只在自检取行时炸，
+    // 关闭流程的其余段落不碰 events）
+    const db = new DatabaseSync(store.dbPath)
+    try {
+      db.exec('ALTER TABLE events RENAME TO events_bak')
+      db.exec('CREATE VIEW events AS SELECT * FROM events_missing')
+    } finally {
+      db.close()
+    }
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      expect(() => store.close()).not.toThrow()
+      expect(warn.mock.calls.map((c) => String(c[1])).some((m) => m.includes('事件流自检降级'))).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
+    // 关闭流程照常收口：开口标记已注销
+    expect(existsSync(store.dbPath + '.open-' + process.pid)).toBe(false)
+    // 还原真表 → 同路径重开读到原数据（关闭把句柄收干净了）
+    const restore = new DatabaseSync(store.dbPath)
+    try {
+      restore.exec('DROP VIEW events')
+      restore.exec('ALTER TABLE events_bak RENAME TO events')
+    } finally {
+      restore.close()
+    }
+    const reopened = openSessionStore(ud, '/books/errors')
+    expect(reopened).not.toBeNull()
+    expect(reopened!.listEvents('查询失败书')).toHaveLength(1)
+    reopened!.close()
   })
 })

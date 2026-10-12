@@ -408,7 +408,7 @@ export function* maxWrittenChapterOfCore(
     // 定稿基线缺失仅本轮 maxWritten 低估；树聚合侧同源降级已有旗标透出端点层）
     const r = readManifestDegraded(join(bookRoot, '项目', '文档清单.jsonl'))
     if (r.degraded)
-      log.warn('check', `文档清单读取失败（${r.degraded.code}），已定稿基准降级为空（maxWritten 可能低估）`)
+      log.warn('check', `文档清单读取失败、已定稿基准降级为空、maxWritten 可能低估；错误码 ${r.degraded.code}`)
     entries = r.manifest.entries
   }
   const finalized = new Set<string>()
@@ -512,7 +512,7 @@ export function* scanChapterUpdatesByChapterCore(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
       if (code === 'ENOENT' || code === 'ENOTDIR') {
-        log.warn('check', `归档目录读取失败（${archiveDir}，${code}），本轮归档账本推进按空处理`)
+        log.warn('check', `归档目录读取失败、本轮归档账本推进按空处理；错误码 ${code}（归档目录：${archiveDir}）`)
       } else {
         throw e
       }
@@ -680,7 +680,7 @@ export function* checkWithDbCore(
     // 留痕——树聚合路径对单章机检失败已有同款（collectTreeIssues 的「章机检失败（红点
     // 可能缺失）」），单章端点此前静默：CHECK_ERROR 只存在于响应信封，服务日志零线索。
     // tag 'check' 对齐本文件现有用法；带文档路径与异常信息。
-    log.warn('check', `单章机检失败（CHECK_ERROR，红点缺失）：${absPath}——${errMsg(e)}`)
+    log.warn('check', `单章机检失败、CHECK_ERROR、红点缺失（文档：${absPath}；错误：${errMsg(e)}）`)
     return { ok: false, code: 'CHECK_ERROR', error: errMsg(e) }
   }
 }

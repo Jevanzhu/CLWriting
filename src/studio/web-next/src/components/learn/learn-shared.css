@@ -1,0 +1,44 @@
+/**
+ * 文风收割候选区共享样式声明——SampleCandidateList 与 QuoteCardGrid 两件里
+ * 逐字重复的区段骨架（.sec / .sec-title / .text-btn）收敛件。
+ *
+ * 接入机制照 components/ui/btn-shared.css 先例：非 scoped 全局样式表，由消费组件按模块
+ * import 注入一次。选择器一律带 .learn-body 前缀——三个类名在审计域（AuditView /
+ * AuditDiffPanel / AuditGoalTodoPanel）也用，且那里的 .sec-title 字号与本域不同：
+ * 无前缀的全局声明会往审计标题上叠本域的 font-weight/color（那些声明它们的
+ * scoped 规则没写），属静默视觉改动。候选两件恒在 LearnView 的 .learn-body 内渲染
+ * （前缀用法与 providers.css 的 .ai-service-panel 同款）。
+ *
+ * 收纳口径：只收两件里逐字相同的声明；各件的档位差异（.sec-bar 覆盖、场景分组、
+ * 卡片形态等）留在各自 scoped 块内——scoped 规则特异性更高，恒压过本文件。
+ */
+
+/* ══ 区段基础 ══ */
+.learn-body .sec {
+  margin-bottom: var(--size-4-6);
+}
+.learn-body .sec-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin: 0 0 var(--size-4-3);
+  font-size: var(--font-size-l);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+/* ══ 文字按钮（批量操作与渲染上限展开钮共用）══ */
+.learn-body .text-btn {
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.learn-body .text-btn:hover {
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+}

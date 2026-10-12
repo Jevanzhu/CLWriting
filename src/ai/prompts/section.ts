@@ -1,10 +1,23 @@
 /**
- * PromptSection 命名段注册表（批次直抄思想）。
+ * PromptSection 命名段注册表（未接线保留面）。
  *
- * system prompt 不再是整段字符串，而是命名段落按 order 升序拼接：
+ * 现状：本档零生产引用——写稿/审稿/分析各 prompt 实际由 resource.ts 的
+ * loadBuiltinPrompt 从 resources/prompts/*.md 单段载入（段组装没有参与生产链），
+ * 本档唯一消费方是 test/ai/prompt-golden.test.ts（锚定 assembleSections 语义与分层带）。
+ *
+ * 保留理由：这是「按 order 分层裁剪」的设计载体——标准分层带与独占段语义已在此定义并被
+ * 测试钉住，未来若做「设定注入预算超限时按层丢段」可直接复用，不必重新设计分层。
+ *
+ * 若要用它：必须先落地三件事——① 把 writer/review/analyst 的文案拆成命名段并保持与
+ * resources/prompts/*.md 的哈希版本链一致（否则 overlay 升级链断）；② 在 resource.ts 侧
+ * 接上 assembleSections，替换单段载入；③ 实现「按 order 从大到小丢段」的预算裁剪
+ *（本档注释所述的裁剪行为目前只是设计意图，代码里没有裁剪实现）。在此之前，任何
+ * 「段组装已生效」的表述都是失实的。
+ *
+ * 段语义（设计正本）：
  * - order 是「分层优先级契约」的数值化：小者靠前且约束力更强——
  *   平台约束（输出格式纪律/协议）> 写作风格（钩子/情绪/文风）> 设定数据（书设定注入）。
- * 预算/裁剪场景（设定注入预算）从大 order 端开始丢，平台约束永不被裁。
+ *   预算/裁剪场景（设定注入预算）从大 order 端开始丢，平台约束永不被裁。
  * - complete:true 的段独占整份 prompt（dsh 语义：整段即全部）。
  * - `{{variable}}` 渲染期插值（未提供的变量原样保留）。
  *

@@ -161,11 +161,16 @@ const targetFmt = computed(() => {
   return t ? (t >= 10000 ? formatWanZi(t, { digits: 0 }) : t.toLocaleString()) : null
 })
 const hasTarget = computed(() => !!targetFmt.value)
-// Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
-const days = computed(() => {
+// Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）。
+// created_at 是服务端可选字段，只信可解析形态：缺失/非法一律归 null（模板渲成页内
+// 既有「—」空态），不要让不可解析值流进算式——new Date('非 ISO').getTime() 得 NaN，
+// Math.max(1, NaN) 仍是 NaN，days > 0 恒假，整个「创作」格无提示地不渲染。
+const days = computed<number | null>(() => {
   const c = data.value?.identity.created_at
-  if (!c) return 0
-  return Math.max(1, Math.floor((Date.now() - new Date(c).getTime()) / 86400000))
+  if (!c) return null
+  const t = new Date(c).getTime()
+  if (!Number.isFinite(t)) return null
+  return Math.max(1, Math.floor((Date.now() - t) / 86400000))
 })
 /** 有产出的天数（timeline 只记有章节定稿的日子）。 */
 const activeDays = computed(() => (data.value?.timeline ?? []).filter((t) => t.count > 0).length)
@@ -297,8 +302,8 @@ const fsStats = computed(() => {
             <span class="kpi-val">{{ streak }}<small class="kpi-unit">天</small></span>
             <span class="kpi-label">连续</span>
           </div>
-          <div v-else-if="days > 0" class="kpi">
-            <span class="kpi-val">{{ days }}<small class="kpi-unit">天</small></span>
+          <div v-else class="kpi">
+            <span class="kpi-val">{{ days ?? '—' }}<small v-if="days !== null" class="kpi-unit">天</small></span>
             <span class="kpi-label">创作</span>
           </div>
         </div>

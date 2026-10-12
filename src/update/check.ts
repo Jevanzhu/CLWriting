@@ -163,7 +163,9 @@ export function __setUpdateCheckResultForTest(next: UpdateCheckResult | null): v
   setCheckResult(next)
 }
 
-/** 检查是否已跑过（端点/前端测试判别未完成态用；生产只读） */
+/** 检查是否已跑过（端点 update 三态判定「未完成」与测试判别用）。
+ *  生产路由不直接调它——端点读 getUpdateCheckResult 的 null 即「未完成/查无新版」
+ *  合并态；本函数只被测试用作非空基断言（= 检查真跑过而非被开关短路）。 */
 export function getUpdateCheckState(): 'idle' | 'done' {
   return getCheckState()
 }

@@ -16,7 +16,10 @@
  * 事件库 append-only 不做迁移；确需精确口径可按事件时间切分。
  * 历史成本计价口径：aggregateCost 按当前价格表现算历史事件（事件
  * 不落价格快照），价格表调整后 byDay/byChapter 等历史数字随之漂移——与「重放可精确
- * 重建」守则的口径差以此声明（预算闸侧 ai-calls.json 调用时即落 cost，不受影响）；
+ * 重建」守则的口径差以此声明。漂移面**仅限本模块这条读事件库的路**：账本侧
+ * （ai-calls.json，本模块不读，「只服务预算闸」分工不变）的 chapter 块与 tasks 块都在
+ * 调用时按当时价格表落 costAccum，调价不动既有数字——需要「task 维度不随调价漂移的
+ * 当期金额」时该读账本的 tasks[task].costAccum，而不是按当下价表重算事件库。
  * 在 llm/call 事件随记 pricing 指纹（版本/单价）属后续增强。
  */
 import { resolveModelPricing, computeCallCost, roundCost } from './pricing.js'

@@ -261,7 +261,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   min-height: 0;
-  position: relative; /* 展开右栏按钮（.ws-reopen-right）的定位基准 */
 }
 .ws-side {
   flex-shrink: 0;

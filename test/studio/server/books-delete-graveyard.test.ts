@@ -205,6 +205,8 @@ describe('删书墓地启动兜底清扫', () => {
   it.skipIf(!canSymlink)('装配期清扫不跟随符号链接：链接本体与链接指向的库外真身都不动', async () => {
     const dir = mkDir('clw-grave-sweep-link-')
     const graveyard = join(dir, GRAVEYARD)
+    // 墓地目录须先建：符号链接本体落其内（拆分自原三断言用例时丢的正是这一步建目录）
+    mkdirSync(graveyard, { recursive: true })
     // 形态匹配的符号链接指向书库外真身：不跟随（不删链接、更不删链接指向的目标）
     const outside = join(dir, '库外真身')
     mkdirSync(outside, { recursive: true })

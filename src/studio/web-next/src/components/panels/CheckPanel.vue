@@ -140,6 +140,11 @@ async function flagFalsePositive(checkId: string): Promise<void> {
       </template>
 
       <div v-if="check.flagError" class="check-hint fp-error">{{ check.flagError }}</div>
+      <!-- 误报标记的可见性：本次结果里被服务端按标记跳过几条（0 = 不显示）——
+           标完重查该条消失而不说明，作者会以为检查器漏报 -->
+      <div v-if="check.suppressedCount > 0" class="check-hint">
+        已按误报标记跳过 {{ check.suppressedCount }} 条命中（重查仍会跳过）
+      </div>
     </template>
 
     <div v-else class="check-hint">点击「校对」检查当前文档（禁词 / 复读 / 句式 / 字数 / 设定连贯…）。</div>

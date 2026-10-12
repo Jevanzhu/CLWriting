@@ -3,11 +3,25 @@
  *
  * 验证：readForeshadows fm 解析、scanForeshadowTrails 足迹命中/风险计算/边界。
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
+import { describe, test, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+// 章正文读取计数（透明转发 + 按绝对路径计数）——仅供章正文指纹缓存用例读计数，
+// 其余用例零断言依赖，行为与原实现逐位一致。
+const READS = vi.hoisted(() => new Map<string, number>())
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    readFileSync: ((p, ...rest) => {
+      if (typeof p === 'string') READS.set(p, (READS.get(p) ?? 0) + 1)
+      return (actual.readFileSync as typeof readFileSync)(p, ...rest)
+    }) as typeof readFileSync,
+  }
+})
+
 import {
   readForeshadows,
   scanForeshadowTrails,
@@ -507,5 +521,106 @@ describe('R65-33: 重复章号 warn', () => {
     } finally {
       warnSpy.mockRestore()
     }
+  })
+})
+
+// ── 伏笔足迹全书扫描的章正文指纹缓存：此前 scanForeshadowTrails/searchForeshadowTrails
+// 每次调用 walkMdEach + 逐章 readFile 整读全书正文（请求线程同步执行，长篇秒级阻塞事件
+// 循环）；修复后按 mtimeNs+size 指纹缓存章正文——二次扫描未变章节零重读，变更章指纹
+// 失配自动重读并更新足迹。──
+
+describe('伏笔章正文指纹缓存', () => {
+  let cacheRoot: string
+  let cacheP1: string
+  let cacheP2: string
+
+  beforeEach(() => {
+    cacheRoot = mkdtempTracked(join(tmpdir(), 'clw-r66-6-'))
+    const vol = join(cacheRoot, '写作', '正文', '第一卷')
+    mkdirSync(vol, { recursive: true })
+    mkdirSync(join(cacheRoot, '设定', '伏笔'), { recursive: true })
+    writeFileSync(
+      join(cacheRoot, '设定', '伏笔', '玉佩.md'),
+      '---\n标题: 玉佩\n状态: 未回收\n重要性: 高\n关联词: 玉佩\n---\n',
+      'utf-8',
+    )
+    cacheP1 = join(vol, '0001-埋.md')
+    cacheP2 = join(vol, '0002-承.md')
+    writeFileSync(cacheP1, '---\n章号: 1\n标题: 埋\n---\n他摸了摸胸前的玉佩。\n', 'utf-8')
+    writeFileSync(cacheP2, '---\n章号: 2\n标题: 承\n---\n与关键词无关的正文。\n', 'utf-8')
+    READS.clear()
+  })
+
+  afterEach(() => {
+    rmSync(cacheRoot, { recursive: true, force: true })
+  })
+
+  it('首扫读全部章 → 二扫未变章节零重读且足迹一致 → 变更章单章重读且结果更新', () => {
+    const t1 = scanForeshadowTrails(cacheRoot, readForeshadows(cacheRoot))
+    expect(t1.get('玉佩')!.hits.length).toBe(1)
+    expect(READS.get(cacheP1)).toBe(1)
+    expect(READS.get(cacheP2)).toBe(1)
+
+    READS.clear()
+    const t2 = scanForeshadowTrails(cacheRoot, readForeshadows(cacheRoot))
+    expect(t2).toEqual(t1) // 缓存命中路径的结果与首扫逐字节一致
+    expect(READS.get(cacheP1) ?? 0).toBe(0) // 未变章节零重读
+    expect(READS.get(cacheP2) ?? 0).toBe(0)
+
+    // 变更第 1 章（追加一次命中，size 变 → 指纹失配）：只重读该章
+    writeFileSync(cacheP1, '---\n章号: 1\n标题: 埋\n---\n他摸了摸胸前的玉佩，玉佩又响了一声。\n', 'utf-8')
+    READS.clear()
+    const t3 = scanForeshadowTrails(cacheRoot, readForeshadows(cacheRoot))
+    expect(READS.get(cacheP1)).toBe(1)
+    expect(READS.get(cacheP2) ?? 0).toBe(0)
+    expect(t3.get('玉佩')!.hits.length).toBe(2) // 足迹按新正文更新
+  })
+})
+
+// ── 伏笔命中片段按 ±SNIPPET_RADIUS(15) UTF-16 码元切片，边界可落在代理对
+// 中间——emoji/扩展区汉字恰在边界时片段边缘劈出孤立代理对（乱码），且该片段参与
+// searchForeshadowTrails 的命中片段检索。修复：切片边界按码点回退；断言口径 = 片段
+// 逐码元扫描无孤立代理对。（章节/伏笔夹具复用本文件既有 writeChapter / writeForeshadow）──
+
+/** 逐 UTF-16 码元扫描：存在孤立代理对 → true（用 charCodeAt 半边判定，for..of
+ *  按码点迭代会静默吞掉孤立代理对，检不出来） */
+function hasOrphanSurrogate(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      const prev = i > 0 ? s.charCodeAt(i - 1) : 0
+      if (!(prev >= 0xd800 && prev <= 0xdbff)) return true
+    }
+  }
+  return false
+}
+
+describe('伏笔命中片段代理对边界', () => {
+  test('命中词后 15 码元处恰为 emoji 代理对 → 片段尾不劈对（end 边界回退）', () => {
+    // 前缀布局（相对命中词）：'玉佩'(2 码元) + 14 个 BMP 字母 = 16 码元，end =
+    // idx + 2 + 15 = 17 恰落在 🔥（U+1F525，码元 16-17）高低半之间——修复前
+    // slice(0, 17) 片段以孤立高代理结尾
+    writeForeshadow('火签', { 关联词: '玉佩', 重要性: '中', 埋设章号: '1' })
+    writeChapter(1, '埋', '玉佩abcdefghijklmn🔥。')
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const hit = trails.get('火签')!.hits[0]!
+    expect(hit.命中片段).toContain('玉佩')
+    expect(hit.命中片段.endsWith('n')).toBe(true) // 修复前以孤立高代理结尾
+    expect(hasOrphanSurrogate(hit.命中片段)).toBe(false)
+  })
+
+  test('命中词前 15 码元处恰为扩展区汉字代理对 → 片段头不劈对（start 边界回退）', () => {
+    // 前缀布局：4 个 BMP + 𠀀（U+20000，码元 4-5）+ 14 个 BMP = 20 码元，start =
+    // idx - 15 = 5 恰落在 𠀀 低半——修复前 slice(5, …) 片段以孤立低代理开头
+    writeForeshadow('古镜', { 关联词: '铜镜', 重要性: '中', 埋设章号: '1' })
+    writeChapter(1, '埋', '甲乙丙丁𠀀戊己庚辛壬癸甲乙丙丁戊己庚辛铜镜，镜中映出旧事。')
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const hit = trails.get('古镜')!.hits[0]!
+    expect(hit.命中片段).toContain('铜镜')
+    expect(hit.命中片段.startsWith('𠀀')).toBe(true) // 修复前以孤立低代理开头
+    expect(hasOrphanSurrogate(hit.命中片段)).toBe(false)
   })
 })

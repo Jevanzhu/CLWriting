@@ -6,6 +6,8 @@
  * setBook 的 `void loadBookPrefs(gen)` 浮空无人接（prefsLoaded 永不置位、持久化
  * watch 不挂）。修复为 `r.prefs ?? {}` 兜底（对齐全局侧 stores/prefs init 的
  * R51-H-2 同族口径）：空偏好走既有「迁移/默认布局」链，不抛不挂。
+ * revision 一并回传（乐观并发守卫的期望号来源）：缺该字段同样按「号未知」（null，写链
+ * 不带 expectedRevision）降级——不把 undefined 当合法号。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -21,22 +23,24 @@ afterEach(() => {
 })
 
 describe('R61-F-2: getBookPrefs 200 空信封兜底', () => {
-  it('200 体 {}（缺 prefs 键）→ 返回 {} 而非 undefined（修复前直返 undefined）', async () => {
+  it('200 体 {}（缺 prefs 键）→ prefs 兜底为空对象而非 undefined（修复前直返 undefined）', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response(JSON.stringify({}), { status: 200 })),
     )
-    const prefs = await getBookPrefs(BOOK)
-    expect(prefs).toEqual({})
+    const r = await getBookPrefs(BOOK)
+    expect(r.prefs).toEqual({})
+    expect(r.revision).toBeNull() // 缺 revision → 号未知（写链不带守卫发出）
   })
 
-  it('对照：正常信封 {prefs:{...}} → 原样透传（守卫不误伤常规加载）', async () => {
+  it('对照：正常信封 {prefs:{...}, revision} → 原样透传（守卫不误伤常规加载）', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ prefs: { pageWidth: 800 } }), { status: 200 })),
+      vi.fn(async () => new Response(JSON.stringify({ prefs: { pageWidth: 800 }, revision: 3 }), { status: 200 })),
     )
-    const prefs = await getBookPrefs(BOOK)
-    expect(prefs).toEqual({ pageWidth: 800 })
+    const r = await getBookPrefs(BOOK)
+    expect(r.prefs).toEqual({ pageWidth: 800 })
+    expect(r.revision).toBe(3)
   })
 })
 

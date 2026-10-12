@@ -1,26 +1,23 @@
 <script setup lang="ts">
 /**
- * 书架弹层「继续写作」hero 卡（hh §八-16 自 ShelfModal.vue 拆出，纯搬家）。
+ * 书架弹层「继续写作」hero 卡（自 ShelfModal.vue 拆出，纯搬家）。
  * 弹层专属横版单行卡（grid 视图，进度右置）；紧凑单行（list 视图）与全屏页同构，
- * 起收敛为共享子件 ShelfHeroList。
- * 全屏页竖版在 ShelfHeroCard。
- * role/tabindex/keydown 补键盘可达（原仅 @click 只修了
- * ShelfHeroCard 漏此）；Enter/Space 与点击同一手势处理，语义不变（契约随抽取迁入
- * ShelfHeroList，grid 横版大卡本件保留同款）。
+ * 收敛为共享子件 ShelfHeroList。
+ * 全屏页竖版在 ShelfHeroCard；三档的契约与「打开」手势单源在 shelf-hero——
+ * role/tabindex/keydown 键盘可达与点击是同一手势，语义不变。
  */
 import { ArrowRight } from 'lucide-vue-next'
-import type { BookEntry } from '../../api/shelf'
-import { formatWords, formatRelative, progressPercent, onCardMove } from '../../composables/useShelf'
+import { formatWords, formatRelative, progressPercent } from '../../composables/useShelf'
 import ShelfHeroList from './ShelfHeroList.vue'
+import { useShelfHeroGesture, type ShelfHeroEmits, type ShelfHeroProps } from './shelf-hero'
+// hero 族共享声明（非 scoped 全局表，按模块注入一次；收纳口径见该文件头注）
+import './hero-shared.css'
 
-defineProps<{
-  book: BookEntry
-  viewMode: 'grid' | 'list'
-}>()
+const props = defineProps<ShelfHeroProps>()
 
-const emit = defineEmits<{
-  open: [name: string]
-}>()
+const emit = defineEmits<ShelfHeroEmits>()
+
+const { onActivate, onMove } = useShelfHeroGesture(() => props.book.name, (name) => emit('open', name))
 </script>
 
 <template>
@@ -29,10 +26,10 @@ const emit = defineEmits<{
     class="hero-card"
     role="button"
     tabindex="0"
-    @mousemove="onCardMove"
-    @click="emit('open', book.name)"
-    @keydown.enter.prevent="emit('open', book.name)"
-    @keydown.space.prevent="emit('open', book.name)"
+    @mousemove="onMove"
+    @click="onActivate"
+    @keydown.enter.prevent="onActivate"
+    @keydown.space.prevent="onActivate"
   >
     <div class="hero-left">
       <span class="hero-label">继续写作</span>
@@ -58,46 +55,28 @@ const emit = defineEmits<{
 </template>
 
 <style scoped>
-/* hero 跨整宽——继续写作快捷入口 + 字数进度可视化 */
+/* hero 跨整宽——继续写作快捷入口 + 字数进度可视化。
+   外壳定位/描边/渐变底、光斑骨架与 hover 描边、标签/箭标/进度条/卡脚共有声明
+   已收 hero-shared.css（本块只留弹层横版档差异） */
 .hero-card {
   grid-column: 1 / -1;
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--size-4-4);
   padding: var(--size-4-3) var(--size-4-4);
   border-radius: var(--radius-m);
-  background: linear-gradient(135deg, var(--background-secondary-alt), var(--background-secondary));
-  border: 1px solid var(--background-modifier-border);
   box-shadow: var(--shadow-s);
-  cursor: pointer;
-  overflow: hidden;
-  transition:
-    transform var(--dur-norm) var(--ease-out),
-    box-shadow var(--dur-norm) var(--ease-out),
-    border-color var(--dur-norm) var(--ease-out);
 }
+/* 光斑半径按本档卡高收小（全屏页竖版 600px，见 ShelfHeroCard） */
 .hero-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
   background: radial-gradient(
     400px circle at var(--mx, 30%) var(--my, 50%),
     color-mix(in srgb, var(--text-accent) 10%, transparent),
     transparent 50%
   );
-  opacity: 0;
-  transition: opacity var(--dur-norm) var(--ease-out);
-  pointer-events: none;
-}
-.hero-card:hover::before {
-  opacity: 1;
 }
 .hero-card:hover {
   transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--text-accent) 40%, var(--background-modifier-border));
-  box-shadow: var(--shadow-l);
 }
 .hero-left {
   display: flex;
@@ -106,22 +85,7 @@ const emit = defineEmits<{
   flex-shrink: 0;
 }
 .hero-label {
-  font-size: var(--font-size-xs);
-  color: var(--text-accent);
-  font-weight: 500;
   letter-spacing: 0.06em;
-}
-.hero-arrow {
-  color: var(--text-accent);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition:
-    opacity var(--dur-norm) var(--ease-out),
-    transform var(--dur-norm) var(--ease-out);
-}
-.hero-card:hover .hero-arrow {
-  opacity: 1;
-  transform: translateX(0);
 }
 .hero-mid {
   display: flex;
@@ -155,31 +119,16 @@ const emit = defineEmits<{
   width: 180px;
   flex-shrink: 0;
 }
-.progress-bar {
-  height: 4px;
-  border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  border-radius: var(--radius-s);
-  background: var(--text-accent);
-  transition: width var(--dur-slow) var(--ease-out);
-}
 .progress-text {
   font-size: var(--font-size-xxs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 .hero-foot {
-  display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 .hero-time {

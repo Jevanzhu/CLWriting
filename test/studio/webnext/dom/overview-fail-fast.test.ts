@@ -164,3 +164,32 @@ describe('OverviewView 主请求失败即止（R0912-FE-P3-9）', () => {
     w.unmount()
   })
 })
+
+// created_at 是不可信输入（服务端可选字段）：不可解析的值不得让它流进天数算式——
+// 修复前 new Date(值).getTime() 得 NaN → Math.max(1, NaN) 仍 NaN → days > 0 恒假，
+// 「创作」格连同空态一起消失（无报错、无提示）；修复后归 null，渲成页内既有「—」空态。
+describe('OverviewView 创作天数：created_at 缺失/非法一律走空态', () => {
+  /** 创作格取值（按 label 定位，避免依赖格序）。 */
+  function creationKpiText(w: ReturnType<typeof mountView>): string | null {
+    const cell = w.findAll('.kpi').find((k) => k.find('.kpi-label').text() === '创作')
+    return cell ? cell.find('.kpi-val').text() : null
+  }
+
+  it.each<[string, string | undefined]>([
+    ['缺失（未设字段）', undefined],
+    ['非法（非 ISO 串）', '我记得是去年冬天开的书'],
+  ])('created_at %s → 创作格为空态占位，页面不出现 NaN', async (_name, created_at) => {
+    mocks.getOverview.mockResolvedValue({
+      identity: { kind: 'long', name: '书', title: '书', genre: '', ...(created_at ? { created_at } : {}) },
+      progress: { chapters: 1, words: 100, percent: 1, targetWords: null },
+      timeline: [],
+      streak: 0, // 连续写作 0 天 → 创作格是唯一可渲染的天数格（否则被「连续」格顶掉）
+      recentDoc: null,
+    })
+    const w = mountView()
+    await flushPromises()
+    expect(creationKpiText(w)).toBe('—')
+    expect(w.text()).not.toContain('NaN')
+    w.unmount()
+  })
+})

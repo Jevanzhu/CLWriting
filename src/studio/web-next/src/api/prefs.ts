@@ -14,26 +14,42 @@ export interface BookPrefs {
   [k: string]: unknown
 }
 
-export async function getBookPrefs(name: string): Promise<BookPrefs> {
-  const r = await apiJson<{ prefs: BookPrefs }>(bookUrl(name, 'prefs'))
-  // 200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
-  // 原直返 r.prefs 会把 undefined 交给消费侧：workspace.loadBookPrefs 的
-  // Object.keys(prefs) 抛 TypeError，且该 rejection 在 setBook 的 void loadBookPrefs
-  // 浮空无人接（prefsLoaded 永不置位）。对齐全局侧 stores/prefs init 同款口径
-  //（同族：缺字段按「空偏好」降级，走迁移/默认布局既有链，不抛不挂）。
-  return r.prefs ?? {}
+/** GET 书级 prefs 的响应信封。
+ *
+ * `prefs` 声明为可选 = 如实反映线上可能缺该字段（200 空信封/旧网关代理截断），
+ * 消费侧统一按「空偏好」降级（workspace.loadBookPrefs 的 `?? {}`），不抛不挂。
+ * `revision` 为 null 表示号未知（同一截断面：字段缺失）——写链据此走「写前重拉对齐、
+ * 对齐不了才不带守卫发出」，不把缺字段当 0（0 是合法的服务端号，会让守卫恒放行）。 */
+export interface BookPrefsRead {
+  prefs?: BookPrefs
+  revision: number | null
 }
 
-/**
- * 备案：书级 prefs 写入不带 expectedRevision（服务端守卫
- * 契约已在，config/global 两级客户端均已接线）——刻意轻量取舍：书级 prefs 全为低价值
- * 布局态（面板宽/开合/活动文档），双窗并发时后写者胜可接受，409 冲突链反而打扰；
- * 若后续 prefs 承载高价值数据需加锁，另立批次接线（服务端零改动）。
- */
-export async function putBookPrefs(name: string, prefs: BookPrefs): Promise<void> {
-  await apiJson<{ ok: true }>(bookUrl(name, 'prefs'), {
+export async function getBookPrefs(name: string): Promise<BookPrefsRead> {
+  const r = await apiJson<{ prefs?: BookPrefs; revision?: number }>(bookUrl(name, 'prefs'))
+  // 缺 prefs 字段兜底为空偏好——原直返 r.prefs 会把 undefined 交给消费侧：
+  // workspace.loadBookPrefs 的 Object.keys(prefs) 抛 TypeError，且该 rejection 在
+  // setBook 的 void loadBookPrefs 浮空无人接（prefsLoaded 永不置位）。对齐全局侧
+  // stores/prefs init 同款口径（同族：缺字段按「空偏好」降级，走迁移/默认布局既有链）。
+  // revision 随信封一并回传供写链带 expectedRevision（服务端 PUT 契约见 prefs.ts 端点）。
+  return { prefs: r.prefs ?? {}, revision: typeof r.revision === 'number' ? r.revision : null }
+}
+
+/** 书级 prefs 写（PUT 语义为合并写：服务端 {…盘上键, …本次键}，未出现的键保持不动——
+ *  故「只发本窗改过的键」是安全补丁，不会清掉他窗/脚本写入的键）。
+ *
+ * expectedRevision 可选——服务端乐观并发守卫（缺失放行，向后兼容）：带上则与服务端
+ * revision 比对，失配回 409 REVISION_CONFLICT（他窗先写过），调用方据此重拉+重放本窗
+ * 改动再重试；成功回传自增后的 revision 供调用方续用，避免下次保存带陈旧号。
+ * 不带 = 无法检出并发覆盖（后写静默盖先写），仅在号未知（旧服务端）时使用。 */
+export async function putBookPrefs(
+  name: string,
+  prefs: BookPrefs,
+  expectedRevision?: number,
+): Promise<{ ok: true; revision: number }> {
+  return apiJson<{ ok: true; revision: number }>(bookUrl(name, 'prefs'), {
     method: 'PUT',
-    json: { prefs },
+    json: { prefs, expectedRevision },
   })
 }
 

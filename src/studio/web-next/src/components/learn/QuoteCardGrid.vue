@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /**
- * 文风收割 · 金句候选区（hh §八-16 自 LearnView.vue 拆出，纯搬家）。
+ * 文风收割 · 金句候选区（自 LearnView.vue 拆出，纯搬家）。
  * 网格卡片点击即勾选（候选制红线：品味归人）——勾选态直接读写 learn store。
+ * 区段骨架与文字按钮的共有声明走 learn-shared.css（与样章候选区共）。
  */
 import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
 import { capView, RENDER_CAP } from '../../shared/render-cap'
+// 候选区共享声明（非 scoped 全局表，按模块注入一次；收纳口径见该文件头注）
+import './learn-shared.css'
 
 const learn = useLearnStore()
 
@@ -67,19 +70,7 @@ watch(
 </template>
 
 <style scoped>
-/* 区段基础（与 LearnView 同式） */
-.sec {
-  margin-bottom: var(--size-4-6);
-}
-.sec-title {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin: 0 0 var(--size-4-3);
-  font-size: var(--font-size-l);
-  font-weight: 700;
-  color: var(--text-muted);
-}
+/* 区段基础（.sec/.sec-title）与 .text-btn 已收 learn-shared.css（本块只留本区独有） */
 .sec-count {
   font-size: var(--font-size-xs);
   font-weight: 500;
@@ -128,21 +119,7 @@ watch(
   align-items: center;
   justify-content: space-between;
 }
-/* 展开钮（样式与 SampleCandidateList 的 text-btn 同式） */
-.text-btn {
-  padding: 3px 8px;
-  border: none;
-  background: none;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-s);
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.text-btn:hover {
-  color: var(--text-accent);
-  background: var(--background-modifier-hover);
-}
+/* 展开钮用 .text-btn（样式单源在 learn-shared.css） */
 .picked-mark {
   color: var(--text-accent);
 }

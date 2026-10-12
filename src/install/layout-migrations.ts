@@ -12,13 +12,19 @@
  * 表序即依赖声明——需要「先于某步」的新迁移插在该步之前；既有依赖由顺序契约测试锁住
  * （见 test/install/migrate-foreshadow-before-finalize.test.ts）。
  *
+ * 执行面为异步（`runLayoutMigrationsAsync`）：链在服务启动段跑在 listen 之前，
+ * 其中定稿基线步要读 git status——同步版（spawnSync + 清单锁 Atomics.wait）在网盘
+ * 挂载 / 杀软锁 .git 时会把服务进程事件循环连续占满，启动整体停摆。各步 run 记作
+ * 「同步或异步」，驱动器逐个 await（同步步 await 一个非 promise 值零额外调度代价），
+ * **表序契约与执行顺序逐位不变**。
+ *
  * 不引入书级 layout_version 锚：各步判定成本低（目录/清单 existsSync）且幂等，版本锚
  * 要新增用户库文件，且半途失败时锚语义复杂（锚已 bump 而某步未成，须按步回退或降级），
  * 收益不抵风险面——顺序单点化已消掉本问题的错序通道。
  */
 import { migrateLayoutV2 } from './migrate-layout-v2.js'
 import { migrateLayoutV3 } from './migrate-layout-v3.js'
-import { migrateFinalizedRevisions } from './migrate-finalized-revision.js'
+import { migrateFinalizedRevisionsAsync } from './migrate-finalized-revision.js'
 import { migrateLegacyForeshadows } from '../document/foreshadow.js'
 import { migrateVersionsDir } from '../document/version.js'
 
@@ -36,7 +42,7 @@ export interface LayoutMigration {
   /** 通告文案中的步骤名（如「版式 v2 迁移」） */
   noticeLabel?: string
   /** 执行一步（幂等）；抛出即中断本表，由调用方逐书收口 */
-  run: (bookRoot: string) => LayoutMigrationStepResult
+  run: (bookRoot: string) => LayoutMigrationStepResult | Promise<LayoutMigrationStepResult>
 }
 
 /**
@@ -82,10 +88,9 @@ export const LAYOUT_MIGRATIONS: readonly LayoutMigration[] = [
   {
     id: 'finalized-revisions',
     // 定稿基线：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）。
-    run: (bookRoot) => {
-      migrateFinalizedRevisions(bookRoot)
-      return { errors: [] }
-    },
+    // 本步为异步（git status 走异步孪生 + 清单锁异步孪生，见该函数头注）。
+    run: (bookRoot) =>
+      migrateFinalizedRevisionsAsync(bookRoot).then(() => ({ errors: [] as string[] })),
   },
 ]
 
@@ -98,14 +103,20 @@ export interface LayoutMigrationOutcome {
 }
 
 /**
- * 按表序执行全部书级 layout 迁移（同步——启动段、createServer/listen 之前）。
+ * 按表序执行全部书级 layout 迁移（异步——启动段在 createServer/listen 之前 await）。
  * 任一步抛出即中断本表，由调用方逐书 try/catch 收口（单本书故障只降级该书）。
+ * 表序即执行序：逐个 await 保证「前一步完成才起后一步」，顺序契约与同步版逐位一致。
  */
-export function runLayoutMigrations(bookRoot: string): LayoutMigrationOutcome[] {
-  return LAYOUT_MIGRATIONS.map((migration) => ({
-    id: migration.id,
-    noticeKind: migration.noticeKind,
-    noticeLabel: migration.noticeLabel,
-    errors: migration.run(bookRoot).errors,
-  }))
+export async function runLayoutMigrationsAsync(bookRoot: string): Promise<LayoutMigrationOutcome[]> {
+  const outcomes: LayoutMigrationOutcome[] = []
+  for (const migration of LAYOUT_MIGRATIONS) {
+    const result = await migration.run(bookRoot)
+    outcomes.push({
+      id: migration.id,
+      noticeKind: migration.noticeKind,
+      noticeLabel: migration.noticeLabel,
+      errors: result.errors,
+    })
+  }
+  return outcomes
 }

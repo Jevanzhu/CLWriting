@@ -32,7 +32,12 @@ import { quirksFor, detectFamily, CLAUDE_SAFE_MAX_OUTPUT_TOKENS } from './model-
 import { resolveToolChoiceIntent } from './tool-choice.js' // tool_choice 分档决策单源
 import { anthropicClientOpts, normalizeBaseUrl } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
-import { createStreamFinalizer, normalizeStopReason, type EstimateUsageSources } from './stream-finalize.js'
+import {
+  createStreamFinalizer,
+  normalizeStopReason,
+  type EstimateUsageSources,
+  type StreamFinalizer,
+} from './stream-finalize.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -222,6 +227,276 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
+/* ── 流消费分解：建流降级编排 / 单事件消费 / 流末收尾各自成函数，stream 主体只留
+ *「建流 → 逐事件消费 → 收尾」骨架；终止值与 flag 更新留在主体（流级状态）。──
+ * 与 openai 线同构（那边是 consumeChunk / settleStream / attemptUsageNow），差异只在
+ * 各线 wire 形态：本线的用量在 message_delta 逐字段 merge、截断判据是「有无终止值」。 */
+
+/** 流级累计：一次 stream 调用一份，跨事件覆盖式更新（attempt 循环在建流侧、消费在循环外，
+ *  本线天然不重跑，故无「半截累计泄入下一 attempt」面） */
+interface StreamAcc {
+  /** message_start 带 input_tokens；message_delta 一般只有 output_tokens */
+  inputTokensFromStart: number
+  /** message_start 的 cache 读/写量（message_delta 缺字段时兜底） */
+  cacheReadFromStart: number | undefined
+  cacheWriteFromStart: number | undefined
+  /** 流内逐 delta 覆盖，流末统一 emit（末见 wins） */
+  latestUsage: TokenUsage | null
+  /** 缓存归一后的终止值——捕获点即归一枚举（非标拼写归 'unknown' 并留痕） */
+  pendingStopReason: StopReason | null
+  /** 产出累计（text_delta 与 thinking_delta 串联 + tool jsonBuf）——网关吞 usage 时按此
+   *  折算估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账 */
+  outText: string[]
+  outToolText: string[]
+  /** tool_use input 增量拼装：content_block_start 记 tool name，input_json_delta 增量拼
+   *  JSON 字符串，content_block_stop 时整体解析 */
+  toolBlocks: Map<number, { id: string; name: string; jsonBuf: string }>
+}
+
+/** 流级累计初始化（每次 stream 调用新建一次——声明点原在 try 块内的消费段，外层 catch
+ *  取不到异常时点的估计用量信号，故声明上移到流级作用域，语义不变） */
+function createStreamAcc(): StreamAcc {
+  return {
+    inputTokensFromStart: 0,
+    cacheReadFromStart: undefined,
+    cacheWriteFromStart: undefined,
+    latestUsage: null,
+    pendingStopReason: null,
+    outText: [],
+    outToolText: [],
+    toolBlocks: new Map(),
+  }
+}
+
+/** 估计用量输入单点（在途 toolBlocks 一并计入产出折算）——估计分支、截断分支、异常 catch
+ *  三处同源，防三份各写各的信号清单漂移 */
+function lateSourcesOf(conf: ProviderConf, req: GenRequest, acc: StreamAcc): EstimateUsageSources {
+  return {
+    req,
+    model: conf.model ?? undefined,
+    outText: acc.outText,
+    outToolText: acc.outToolText,
+    pendingToolText: [...acc.toolBlocks.values()].map((tb) => tb.name + tb.jsonBuf),
+    measuredInputTokens: acc.inputTokensFromStart,
+    ...(acc.cacheReadFromStart !== undefined ? { cacheReadTokens: acc.cacheReadFromStart } : {}),
+    ...(acc.cacheWriteFromStart !== undefined ? { cacheWriteTokens: acc.cacheWriteFromStart } : {}),
+  }
+}
+
+/** message_delta 的 usage 面：input 与 cache 两档线上可缺（SDK 标 nullable），
+ *  output_tokens 是必填计量——「真实 usage」闸只看前两者是否在位（见 message_delta 分支注）。 */
+type WireDeltaUsage = Anthropic.RawMessageDeltaEvent['usage']
+
+/** message_delta usage 逐字段 merge（末见 wins，但缺字段保留前值而非清零）：
+ *  - input：本 delta 值 ?? 前值 ?? message_start 缓存值；
+ *  - cache 两档：本 delta 值 ?? 前值 ?? message_start 缓存值——非标网关「message_start 缺
+ *    cache + 首条 delta 带 cache + 末条 delta 又缺」三条件叠加时，先前 delta 已报的 cache
+ *    值不得被丢（丢了 latestUsage 整段无 cache 计量，computeCallCost 缓存档计 0）；
+ *  - output：本 delta 值 ?? 前值；两档都缺才归 0（cc-switch 形态逐 delta 回 usage 且末条
+ *    缺该字段时，先前已报的正确 output 值不得被清零——computeCallCost 输出档计 0、预算闸少计）。
+ *  缺失档不产键（undefined 不入对象），与实测 usage 的字段形态一致。 */
+function mergeDeltaUsage(
+  usage: WireDeltaUsage,
+  prevUsage: TokenUsage | null,
+  inputTokensFromStart: number,
+  cacheReadFromStart: number | undefined,
+  cacheWriteFromStart: number | undefined,
+): TokenUsage {
+  const cacheRead = usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
+  const cacheWrite = usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
+  return {
+    inputTokens: usage.input_tokens ?? prevUsage?.inputTokens ?? inputTokensFromStart,
+    outputTokens: usage.output_tokens ?? prevUsage?.outputTokens ?? 0,
+    ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
+  }
+}
+
+/**
+ * 消费一个流事件：message_start 捕获起始用量 → content_block_* 增量透出并按需拼装 tool →
+ * message_delta 落终止值与用量。纯转发事件（text/reasoning/tool）即时 yield，跨事件状态只写
+ * acc（流级状态与 done 判定留在调用方）。
+ */
+function* consumeStreamEvent(event: Anthropic.RawMessageStreamEvent, acc: StreamAcc): Generator<GenEvent, void, void> {
+  switch (event.type) {
+    case 'message_start': {
+      // input_tokens 在 message_start（message_delta 一般不含）；cache 读/写量同点捕获
+      // （Anthropic input_tokens 不含 cache，独立记账）。
+      // ?? 0 终兜底——非标网关 message_start 缺 input_tokens 时原样赋 undefined 会覆盖
+      // 声明侧的 0 初值，下游 TokenUsage.inputTokens 变 undefined → calls 记账 += 得 NaN
+      // → checkAiCallBudget 对 NaN 恒 false，该进程内 token/成本预算闸静默失效（cache/output
+      // 侧均有 ?? 兜底，唯此处漏）
+      acc.inputTokensFromStart = event.message.usage.input_tokens ?? 0
+      acc.cacheReadFromStart = event.message.usage.cache_read_input_tokens ?? undefined
+      acc.cacheWriteFromStart = event.message.usage.cache_creation_input_tokens ?? undefined
+      return
+    }
+    case 'content_block_start': {
+      const block = event.content_block
+      if (block.type === 'tool_use') {
+        // 非官方兼容端点可能不发 id——空 id 进历史会被 tool_result 关联拒绝，
+        // 按块 index 生成兜底（对齐 OpenAI 线）
+        acc.toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
+      }
+      // thinking / redacted_thinking 块 start 无操作——流内块缓存（含签名）为死存储已移除；
+      // thinking 文本仍经下方 thinking_delta 分支以 reasoning 事件透出，行为不变
+      return
+    }
+    case 'content_block_delta': {
+      const delta = event.delta
+      if (delta.type === 'text_delta') {
+        // 产出累计与事件透出同步——回传历史另经 toAnthropicMessage，此处只影响估计入账
+        acc.outText.push(delta.text)
+        yield { type: 'text', delta: delta.text }
+      } else if (delta.type === 'input_json_delta') {
+        const tb = acc.toolBlocks.get(event.index)
+        if (tb) tb.jsonBuf += delta.partial_json
+      } else if (delta.type === 'thinking_delta') {
+        // 思考增量即刻以 reasoning 事件透出（对齐 openai 线 reasoning_content /
+        // responses 线 reasoning_text 口径）；文本入产出累计（思考 token 也是真实计费面，
+        // 与 Anthropic output_tokens 含思考 token 的口径一致）
+        acc.outText.push(delta.thinking)
+        yield { type: 'reasoning', delta: delta.thinking }
+      }
+      return
+    }
+    case 'content_block_stop': {
+      const tb = acc.toolBlocks.get(event.index)
+      if (tb) {
+        let input: unknown
+        try {
+          input = tb.jsonBuf ? JSON.parse(tb.jsonBuf) : {}
+        } catch {
+          input = { _raw: tb.jsonBuf }
+        }
+        yield { type: 'tool', id: tb.id, name: tb.name, input }
+        // stop 即消费条目——非标网关对同一 index 重发 content_block_stop 时原样滞留会重复
+        // 产出同 id tool_use（下游同 id 写历史两条，回传 400）。tool 参数产出累计也在消费时
+        // 入 outToolText，流异常兜底（lateSourcesOf 逐条推送只余未 stop 残块）的折算口径
+        // 与消费前一致。
+        acc.outToolText.push(tb.name + tb.jsonBuf)
+        acc.toolBlocks.delete(event.index)
+      }
+      return
+    }
+    case 'message_delta': {
+      // 缓存 stop_reason（即使无 usage 也不丢）——捕获点即归一（本线原生值即归一值；
+      // 非标拼写归 'unknown' 并留痕），done / llm-call 的重放口径自此收敛到判别联合
+      if (event.delta?.stop_reason) {
+        acc.pendingStopReason = normalizeStopReason(event.delta.stop_reason, 'anthropic')
+      }
+      // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存）。
+      // 只记 latestUsage 不即席 emit——逐 delta 回 usage 的网关（早期部分值 + 末条完整值）
+      // 在流末统一按末见 wins 取值，与 openai 线口径一致。
+      // 空 usage 对象（{} truthy 但无计量字段）等价「无 usage」——原样进 merge 会把
+      // latestUsage 置成 input=message_start 兜底、output=0 的假计量，流末 done 走实测分支
+      // 绕过估计兜底。对齐 openai 线 isRealUsage 口径：input/output 至少一个在位才采信，
+      // {} 落到流末估计分支（cache 两档不计入该闸——线上可为 null，单凭它采信会引入
+      // 无 input/output 的假计量）。
+      if (event.usage && (event.usage.input_tokens !== undefined || event.usage.output_tokens !== undefined)) {
+        // prevUsage 显式取前值交 merge（cache 两档链与 input/output 兜底都引用它；
+        // 未置位时为 null，merge 内以 message_start 缓存值殿后）
+        const prevUsage: TokenUsage | null = acc.latestUsage
+        acc.latestUsage = mergeDeltaUsage(
+          event.usage,
+          prevUsage,
+          acc.inputTokensFromStart,
+          acc.cacheReadFromStart,
+          acc.cacheWriteFromStart,
+        )
+      }
+      return
+    }
+  }
+}
+
+/**
+ * 流末收尾（事件循环之后）：只产「过滤/拒答 error」「done」「截断 error」三者之一。
+ *
+ * 分流判据（与 openai 线的 settleStream 同构，差异只在信号的可得形态）：
+ * - 有实测 usage → 先判 refusal（error 出场），否则 done 带末见 usage；
+ * - 无 usage 但到过 message_delta（终止值已缓存）→ 网关完成不回 usage，放行生成：input 优先
+ *   message_start 实测值、缺失才按请求字符折算，output 按累计产出折算，estimated 标估计口径
+ *   （否则 output 恒 0，预算闸 tokens/cost 对该类端点永不生效），同款先判 refusal；
+ * - 连终止值都没有 → 传输截断（中转/代理提前断流时 SDK 迭代器不抛错而是正常 return 的形态），
+ *   报可重试错误不发 done——半截正文不得当完整产出落稿、不得按成功 0 成本入账。
+ *   两情形混同会把截断流伪造成 end_turn 正常完成。
+ *
+ * usage 随错上抛：截断 error 与（无 usage 的）refusal error 均带估计用量，已发生消耗不被丢。
+ */
+function* settleStream(
+  acc: StreamAcc,
+  fin: StreamFinalizer,
+  req: GenRequest,
+  conf: ProviderConf,
+): Generator<GenEvent, void, void> {
+  const pending = acc.pendingStopReason
+  if (acc.latestUsage) {
+    const filtered = fin.filterError(acc.latestUsage, pending)
+    if (filtered) {
+      yield filtered
+      return
+    }
+    const ev = fin.done(acc.latestUsage, pending)
+    if (ev) yield ev
+    return
+  }
+  if (pending !== null) {
+    // 在途 toolBlocks 经 lateSourcesOf.pendingToolText 计入产出累计；message_start 已实测的
+    // cache 两档原样保留（整包重估输入时丢弃会让四档分计在兜底路径少两档、cache 计费面被清零；
+    // anthropic 的 input_tokens 不含 cache，独立记账不双计）
+    const usage = fin.estimateUsage(lateSourcesOf(conf, req, acc))
+    const filtered = fin.filterError(usage, pending)
+    if (filtered) {
+      yield filtered
+      return
+    }
+    const ev = fin.done(usage, pending)
+    if (ev) yield ev
+    return
+  }
+  yield fin.truncatedError(fin.estimateUsage(lateSourcesOf(conf, req, acc)))
+}
+
+/**
+ * 400 降级链建流（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors 公共
+ * 实现，「连接期异常可安全换参数面重试、流中异常不重跑」的约定见其注释；本线的消费循环在
+ * attempts 循环之外，天然不重跑（半截产出不会泄入下一 attempt）。携来源 userDataPath——
+ * 降级记忆读/写按显式 path 分发。
+ * 返回值 degraded 只在「建流成功」这一支有意义：建的流吃的是非首发（降级）参数面时置位，
+ * done 事件据此透出（重放按事件重建会再 400 的口径缺口闭合）。
+ */
+async function openStreamWithDegrade(
+  req: GenRequest,
+  conf: ProviderConf,
+  client: Anthropic,
+  signal: AbortSignal,
+  store: ProviderStore | undefined,
+  userDataPath: string | undefined,
+): Promise<{ stream: AsyncIterable<Anthropic.RawMessageStreamEvent>; degraded: boolean }> {
+  const q = quirksFor(conf.model ?? '')
+  const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
+  let lastErr: unknown = null
+  for (const attempt of plan.attempts) {
+    try {
+      const stream = await client.messages.create(toParams(conf, attempt), { signal })
+      markStructuredDegrade(plan, attempt, store)
+      // 成功建流用的是非首发（降级）参数面 → done 事件带 degraded。判据基准是
+      // plan.original——记忆命中时 attempts[0] 已是剥除版，拿它当基准对首发恒 false，
+      // 记忆命中路径（常态）会漏标 degraded
+      return { stream, degraded: attempt !== plan.original }
+    } catch (e) {
+      if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {
+        lastErr = e
+        continue
+      }
+      throw e
+    }
+  }
+  // 全部 attempt 都是非末位 400 才走到此（末位 400 由 isMidChain400 挡下并抛出）
+  throw lastErr
+}
+
 export function createAnthropicProvider(
   conf: ProviderConf,
   client?: Anthropic,
@@ -234,31 +509,11 @@ export function createAnthropicProvider(
     conf,
 
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
-      let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens
-      let cacheReadFromStart: number | undefined // message_start 的 cache 读量（message_delta 缺字段时兜底）
-      let cacheWriteFromStart: number | undefined // message_start 的 cache 写量（同上）
-      let latestUsage: TokenUsage | null = null // 流内逐 delta 覆盖，流末统一 emit（末见 wins）
-      // 缓存归一后的终止值——此前透传上游原生拼写、命名三线未归一
-      // （登记），现捕获点即归一枚举（非标拼写归 'unknown' 并留痕）
-      let pendingStopReason: StopReason | null = null
-      let degraded = false // 成功建流是否用了降级参数面（fin.isDegraded 闭包读）
-      // 流是否已开始消费——外层 catch
-      // 据此决定 usage 随错上抛与否（建连期异常无任何消耗，不得按估计值虚报入账）
+      const acc = createStreamAcc()
+      // 流是否已开始消费——外层 catch 据此决定 usage 随错上抛与否
+      // （建连期异常无任何消耗，不得按估计值虚报入账）
       let consumedAny = false
-      // 产出累计与 tool 拼装缓存上移流级作用域——原声明在 try 块内的流消费段，
-      // 外层 catch（流中 SDK 直接 throw）取不到，异常时点的估计用量算不出。声明点仍是每次
-      // stream 调用新建一次（语义不变），unused-before-assign 由消费分支保证
-      // tool_use input 增量拼装：content_block_start 记 tool name，
-      // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
-      const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
-      // 产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
-      // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
-      const outText: string[] = []
-      const outToolText: string[] = []
-      // 异常时点的可得用量——① 已实测（latestUsage 末见值）优先，② 缺失才按
-      // 累计产出折算（与截断分支同源公式），estimated 标记估计口径；供外层 catch 交
-      // toErrorEvent 随错上抛（通道，runner 终态失败入账）
-      // （折算体已收敛进 fin.estimateUsage 单点，此处只留「实测优先」次序）
+      let degraded = false // 成功建流是否用了降级参数面（fin.isDegraded 闭包读）
       // resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
       // 按原始 req 计算与各 attempt toParams 上线值一致）
       const resolvedMaxTokens = resolveMaxTokens(conf, req)
@@ -272,223 +527,27 @@ export function createAnthropicProvider(
         isDegraded: () => degraded,
         missingStopReason: 'end_turn',
       })
-      /** 估计用量输入单点（流级作用域；在途 toolBlocks 一并计入产出折算）——估计分支、
-       *  截断分支、异常 catch 三处同源，防三份各写各的信号清单漂移 */
-      const lateSources = (): EstimateUsageSources => ({
-        req,
-        model: conf.model ?? undefined,
-        outText,
-        outToolText,
-        pendingToolText: [...toolBlocks.values()].map((tb) => tb.name + tb.jsonBuf),
-        measuredInputTokens: inputTokensFromStart,
-        ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
-        ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
-      })
-      const errorUsage = (): TokenUsage => latestUsage ?? fin.estimateUsage(lateSources())
+      // 异常时点的可得用量——① 已实测（latestUsage 末见值）优先，② 缺失才按累计产出折算
+      // （与截断分支同源公式），estimated 标记估计口径；供外层 catch 交 toErrorEvent
+      // 随错上抛（runner 终态失败按真实消耗入账）
+      const errorUsage = (): TokenUsage => acc.latestUsage ?? fin.estimateUsage(lateSourcesOf(conf, req, acc))
 
       try {
-        // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
-        // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
-        // 携来源 userDataPath——降级记忆读/写按显式 path 分发
-        const q = quirksFor(conf.model ?? '')
-        const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
-        let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
-        let lastErr: unknown = null
-        for (const attempt of plan.attempts) {
-          try {
-            stream = await c.messages.create(toParams(conf, attempt), { signal })
-            markStructuredDegrade(plan, attempt, store)
-            // 成功建流用的是非首发（降级）参数面 → done 事件带
-            // degraded（重放按事件重建会再 400 的口径缺口闭合）
-            // 判据并入降级记忆命中——基准改 plan.original（记忆命中时
-            // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
-            degraded = attempt !== plan.original
-            break
-          } catch (e) {
-            if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {
-              lastErr = e
-              continue
-            }
-            throw e
-          }
-        }
-        if (!stream) throw lastErr
+        const opened = await openStreamWithDegrade(req, conf, c, signal, store, userDataPath)
+        degraded = opened.degraded
 
-        // 的 thinkingBlocks 流内缓存已移除——六处引用全在
-        // 声明与累积内（start set / delta get 后累加文本与签名），零后续消费：thinking
-        // 文本已单独以 reasoning 事件透出（下见 thinking_delta 分支），签名无回传链路
-        // 纯滞留（toParams 的 claude+effort 显式禁思考是防 400 主防线）。签名回传待
-        // 跨批需求落地时按需重建。
-        // （toolBlocks / outText / outToolText 三件的声明已上移流级作用域，见 :235-262 注释）
-
-        for await (const event of stream) {
+        for await (const event of opened.stream) {
           consumedAny = true // 进流即算已消费（catch 侧 usage 上抛门）
-          switch (event.type) {
-            case 'message_start': {
-              // input_tokens 在 message_start（message_delta 一般不含）；
-              // cache 读/写量同点捕获（Anthropic input_tokens 不含 cache，独立记账）
-              // ?? 0 终兜底——非标网关 message_start 缺 input_tokens 时
-              // 原样赋 undefined 会覆盖声明侧的 0 初值，下游 TokenUsage.inputTokens 变
-              // undefined → calls 记账 += 得 NaN → checkAiCallBudget 对 NaN 恒 false，
-              // 该进程内 token/成本预算闸静默失效（cache/output 侧均有 ?? 兜底，唯此处漏）
-              inputTokensFromStart = event.message.usage.input_tokens ?? 0
-              cacheReadFromStart = event.message.usage.cache_read_input_tokens ?? undefined
-              cacheWriteFromStart = event.message.usage.cache_creation_input_tokens ?? undefined
-              break
-            }
-            case 'content_block_start': {
-              const block = event.content_block
-              if (block.type === 'tool_use') {
-                // 低级项：非官方兼容端点可能不发 id——空 id 进历史会被
-                // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线）
-                toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
-              }
-              // thinking / redacted_thinking 块 start 无操作——的流内
-              // 缓存（thinkingBlocks）为死存储已移除；thinking 文本仍经下方
-              // thinking_delta 分支以 reasoning 事件透出，行为不变
-              break
-            }
-            case 'content_block_delta': {
-              const delta = event.delta
-              if (delta.type === 'text_delta') {
-                outText.push(delta.text) // 同 id 写历史两条，回传 400。的 tool 参数产出累计同步改在消费时
-                yield { type: 'text', delta: delta.text }
-              } else if (delta.type === 'input_json_delta') {
-                const tb = toolBlocks.get(event.index)
-                if (tb) tb.jsonBuf += delta.partial_json
-              } else if (delta.type === 'thinking_delta') {
-                // 思考增量即刻以 reasoning 事件透出（对齐 openai 线
-                // reasoning_content / responses 线 reasoning_text 口径）；文本入产出
-                // 累计（思考 token 也是真实计费面估计入账与 Anthropic
-                // output_tokens 含思考 token 的口径一致）。
-                // 不再累积进流内块缓存（死存储已移除），事件透出路径不变
-                outText.push(delta.thinking)
-                yield { type: 'reasoning', delta: delta.thinking }
-              }
-              break
-            }
-            case 'content_block_stop': {
-              const tb = toolBlocks.get(event.index)
-              if (tb) {
-                let input: unknown
-                try {
-                  input = tb.jsonBuf ? JSON.parse(tb.jsonBuf) : {}
-                } catch {
-                  input = { _raw: tb.jsonBuf }
-                }
-                yield { type: 'tool', id: tb.id, name: tb.name, input }
-                // -（全量代码）：stop 即消费条目——非标网关对同一
-                // index 重发 content_block_stop 时原样滞留会重复产出同 id tool_use（下游
-                // 同 id 写历史两条，回传 400）。的 tool 参数产出累计同步改在消费时
-                // 入 outToolText，流异常兜底（下方 toolBlocks 逐条推送只余未 stop 残块）
-                // 的折算口径与消费前一致。
-                outToolText.push(tb.name + tb.jsonBuf)
-                toolBlocks.delete(event.index)
-              }
-              break
-            }
-            case 'message_delta': {
-              // 缓存 stop_reason（即使无 usage 也不丢）——捕获点即归一
-              // （本线原生值即归一值；非标拼写归 'unknown' 并留痕），done/llm-call 的重放
-              // 口径自此收敛到判别联合，不再受登记的「三线命名未归一」影响
-              if (event.delta?.stop_reason)
-                pendingStopReason = normalizeStopReason(event.delta.stop_reason, 'anthropic')
-              // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存）。
-              // 「末见 wins」——此前 message_delta 即席 emitDone（幂等门锁
-              // 首个 usage），逐 delta 回 usage 的网关被记成早期部分值、末 delta 完整值被丢，
-              // 与 openai 线末见口径分叉；现只记 latestUsage，流末统一 emit（下同）
-              // 空 usage 对象（{} truthy 但无计量字段）等价「无 usage」
-              // ——原样进 merge 会把 latestUsage 置成 input=message_start 兜底、output=0
-              // 的假计量，流末 done 走实测分支绕过估计兜底。对齐 openai 线 isRealUsage
-              // 口径：至少一个计量字段在位才采信，{} 落到流末估计分支。
-              if (event.usage && (event.usage.input_tokens !== undefined || event.usage.output_tokens !== undefined)) {
-                // prevUsage 显式断言拓宽 TS 对 latestUsage 的 null 收窄（注解不拓宽
-                // const 初始化收窄；循环回边处真实类型是 TokenUsage | null）。
-                // 声明上移到 cache 行之前——cache 两档 fallback 链引用前值。
-                const prevUsage = latestUsage as TokenUsage | null
-                // cache 两档 fallback 链补先前 delta 值——原链只兜
-                // message_start（cacheReadFromStart/cacheWriteFromStart），非标网关三条件
-                // 叠加（message_start 缺 cache 字段 + 首条 message_delta 带 cache 计量 +
-                // 末条 delta 又缺）时先前 delta 已报的 cache 值被丢、latestUsage 整段无
-                // cache 计量（computeCallCost 缓存档计 0）。对齐本 merge 内 input/output
-                // 的「delta 值 ?? 前值 ?? 起始值」次序：delta 在位优先，缺失保留前值，
-                // message_start 兜底殿后。
-                const cacheRead =
-                  event.usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
-                const cacheWrite =
-                  event.usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
-                // 末见 wins 改逐字段 merge——input 有
-                // inputTokensFromStart 兜底、cache 两档有 message_start 兜底，唯
-                // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（cc-switch
-                // 形态）且末条缺该字段时，delta 已报的正确 output 值被清零
-                //（computeCallCost 输出档计 0、预算闸少计）。
-                latestUsage = {
-                  inputTokens: event.usage.input_tokens ?? prevUsage?.inputTokens ?? inputTokensFromStart,
-                  outputTokens: event.usage.output_tokens ?? prevUsage?.outputTokens ?? 0,
-                  ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
-                  ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
-                }
-              }
-              break
-            }
-          }
+          yield* consumeStreamEvent(event, acc)
         }
 
-        // 兜底：流结束未发 done 的两种情形必须分流——与 OpenAI 线
-        // sawFinishReason / Responses 线同款契约：
-        // ① 到过 message_delta（stop_reason 已缓存）但无 usage → 网关完成不回 usage，
-        // 放行生成（0 成本是可得最优估计的旧取舍已被升级）：input 优先用
-        //    message_start 缓存的实测值，缺失才按请求字符折算；output 按累计产出
-        //    （text_delta + tool jsonBuf）折算；estimated 标记估计口径（否则 output
-        //    恒 0，预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）；
-        // ② 连 message_delta 都没到 → 传输截断（中转/代理提前断流时 SDK 迭代器不抛错
-        //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
-        //    落稿、不得按成功 0 成本入账、必须进重试路径。两种情形混同会把截断流
-        //    伪造成 end_turn 正常完成。
-        // stopReason 命名三线收敛——本线终止值
-        // 在 message_delta 捕获点即归一（见该处注释），done / llm/call 落的是判别联合成员。
-        if (!fin.doneEmitted()) {
-          // 流末统一 emit——末见 usage 优先（上面 message_delta 只记
-          // 不发）；无 usage 才走估计/截断兜底（与 openai 线同构）
-          // refusal 不是正常完成——该值此前按成功 done 出场，被过滤的
-          // 半截正文按成功落稿（openai 线 content_filter / responses 线缺口 2 同因判
-          // error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
-          // 两处 refusal 块与两处估计体收敛进 fin（done/filterError/
-          // estimateUsage/truncatedError），本处只留三情形分流
-          if (latestUsage) {
-            const filtered = fin.filterError(latestUsage, pendingStopReason)
-            if (filtered) {
-              yield filtered
-              return
-            }
-            const ev = fin.done(latestUsage, pendingStopReason)
-            if (ev) yield ev
-          } else if (pendingStopReason !== null) {
-            // 在途 toolBlocks 经 lateSources.pendingToolText 计入产出累计
-            // message_start 已实测的 cache 两档原样保留——
-            // 整包重估输入时丢弃，usage 四档分计在兜底路径少两档（cache 计费面被清零）；
-            // anthropic 的 input_tokens 不含 cache（独立记账），并档不双计
-            const usage = fin.estimateUsage(lateSources())
-            // 无 usage 的 refusal 同款判错（估计 usage 随错上抛）
-            const filtered = fin.filterError(usage, pendingStopReason)
-            if (filtered) {
-              yield filtered
-              return
-            }
-            const ev = fin.done(usage, pendingStopReason)
-            if (ev) yield ev
-          } else {
-            // 截断 error 随错上抛已发生消耗（openai 线同口径，
-            // 通道）——message_start 实测 input/cache 优先（本分支 latestUsage 必为
-            // null，见上），output 按累计产出折算，标 estimated；截断不再丢已发生计费。
-            yield fin.truncatedError(fin.estimateUsage(lateSources()))
-          }
-        }
+        // 流末兜底的三情形分流（实测 usage / 估计兜底 / 传输截断）见 settleStream 头注
+        if (!fin.doneEmitted()) yield* settleStream(acc, fin, req, conf)
       } catch (e) {
-        // 流中 SDK 直接 throw（mid-stream
-        // 连接重置等）此前恒裸传——message_start 已实测的 input/cache 与流内产出随异常蒸发，
-        // runner 终态失败按 0 入账。已消费过流才折算估计用量随错上抛（未消费 = 建连期异常，
-        // 无消耗，不得虚报；与「400 降级续跑只在未消费流时安全」的 ii-1 判据同源）。
+        // 流中 SDK 直接 throw（mid-stream 连接重置等）此前恒裸传——message_start 已实测的
+        // input/cache 与流内产出随异常蒸发，runner 终态失败按 0 入账。已消费过流才折算估计
+        // 用量随错上抛（未消费 = 建连期异常，无消耗，不得虚报；与 400 降级续跑只在未消费流时
+        // 安全的判据同源）。
         yield toErrorEvent(e, consumedAny ? errorUsage() : undefined)
       }
     },

@@ -372,3 +372,34 @@ describe('跨窗失效通知（树红点 / 机检判态线·本窗广播）', ()
     expect(fake.sent).toEqual([])
   })
 })
+
+// ── 误报标记消费侧的可见性（服务端返回前已剔除命中，前端只报跳过条数）──
+describe('check: 服务端按误报标记跳过命中的可见性', () => {
+  it('响应带 suppressedCount → 落 store 供面板提示', async () => {
+    checkMock.mockResolvedValue({ ok: true, hasRed: false, report: REPORT, suppressedCount: 2 })
+    const s = useCheckStore()
+    await s.run('book1', 'doc_1')
+    expect(s.suppressedCount).toBe(2)
+  })
+
+  it('响应缺 suppressedCount（旧服务端）→ 按 0 兜底（同「无跳过」语义，不显示提示）', async () => {
+    checkMock.mockResolvedValue({ ok: true, hasRed: false, report: REPORT })
+    const s = useCheckStore()
+    await s.run('book1', 'doc_1')
+    expect(s.suppressedCount).toBe(0)
+  })
+
+  it('run 失败 / clear → 跳过条数一并复位（不把上一份报告的计数留到新文档）', async () => {
+    const s = useCheckStore()
+    checkMock.mockResolvedValue({ ok: true, hasRed: false, report: REPORT, suppressedCount: 3 })
+    await s.run('book1', 'doc_1')
+    expect(s.suppressedCount).toBe(3)
+    checkMock.mockRejectedValue(new Error('读取失败'))
+    await s.run('book1', 'doc_2')
+    expect(s.suppressedCount).toBe(0)
+    checkMock.mockResolvedValue({ ok: true, hasRed: false, report: REPORT, suppressedCount: 1 })
+    await s.run('book1', 'doc_3')
+    s.clear()
+    expect(s.suppressedCount).toBe(0)
+  })
+})

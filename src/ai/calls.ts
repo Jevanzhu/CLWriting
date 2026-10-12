@@ -9,6 +9,9 @@
  * 数据结构（泛化后）：
  *   chapter 块 — 预算闸专用，换章重置（仅 self-heal 记，通过 runTask chapter 参数）
  *   tasks 块   — 按任务类型累计、不重置（runTask 自动记账，7/7 端点覆盖）
+ * 两块都收 token 与金额（costAccum）：配价时 runner 把现算金额同额传给两块，
+ * 未配价两块都不建金额键（口径不生效）。金额在**调用时**落账、不随后续调价漂移——
+ * chat / 摘要这类不带 chapter 的调用，tasks 块是其唯一金额落点。
  *
  * 与旧版差异：去掉目录锁 / limit_override / stale lock 检测（YAGNI）。
  * 旧格式（flat { chapter, used, ... }）读到即一次性迁移。
@@ -52,6 +55,11 @@ interface TaskUsage {
   outputTokens: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /** 任务维度金额累计（可选——与 chapter 块同口径：配价时按价格表现算传入，
+   *  未配价不建键=口径不生效）。tasks 块是**不重置**的累计面，chat / 摘要等
+   *  不带 chapter 的调用只有这一处金额落点——缺此键则「chat 花了多少钱」只能事后
+   *  按当时价格表重算事件库（调价即历史漂移）。币种口径同 chapter 块 */
+  costAccum?: number
   /** 同 chapter 块——含估计入账标记（粘性置位） */
   estimated?: boolean
 }
@@ -172,13 +180,17 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         }
         const cr = cacheNum(t.cacheReadTokens)
         const cw = cacheNum(t.cacheWriteTokens)
-        if (Number.isNaN(cr) || Number.isNaN(cw)) return { rec: null, corrupt: true }
+        // 金额字段与 chapter 块同判：存在但非数字按损坏处理（静默归 0 是烂账）；
+        // 旧账本无此键 → undefined 不建键，往返不产 NaN
+        const tc = cacheNum(t.costAccum)
+        if (Number.isNaN(cr) || Number.isNaN(cw) || Number.isNaN(tc)) return { rec: null, corrupt: true }
         tasks[k] = {
           used: t.used,
           inputTokens: t.inputTokens,
           outputTokens: t.outputTokens,
           ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
           ...(cw !== undefined ? { cacheWriteTokens: cw } : {}),
+          ...(tc !== undefined ? { costAccum: tc } : {}),
           // 加性字段原样收（非布尔值按未标记丢弃，不判损坏——
           // 标记不参与数值累计，错型无烂账风险）
           ...(t.estimated === true ? { estimated: true } : {}),
@@ -614,8 +626,9 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
  * - tasks 块 used ≥ limit → 拦截（次数口径读 tasks[task].used——runTask 每 attempt
  * 均按次入账，重试/失败调用不漏）。
  *
- * cost 口径不设：tasks 块历史不累计金额（cost 仅 chapter 块记），无现成机制可复用，
- * 按「不强造」口径本闸只做次数上限。
+ * cost 口径不设：tasks 块虽自本闸同族记账落 costAccum（金额面，
+ * 与 chapter 块同口径），但「按 task 维度设金额上限」尚无配置键与消费面
+ * （book.yaml 只有 budget.cost_per_chapter），按「不强造」口径本闸只做次数上限。
  *
  * 文案参数化——本闸签名通用（任意
  * task），但 reason 文案若写死「chat 调用上限 / 本书对话 / 降低对话/压缩频率 /
@@ -668,13 +681,20 @@ export function checkAiTaskCallBudget(
  * 记一次 task 维度 AI 调用（全端点覆盖；不重置）。
  *
  * 由 runTask 末尾自动调用（有 bookRoot + task 时）。
+ * costUsd 与 chapter 块同源同口径：调用方按价格表现算传入（未配价不传——
+ * cost 面静默不生效），调用时落账不受后续调价影响。
  */
-export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null): void {
+export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsage | null, costUsd?: number): void {
   // 与 recordAiCall 同队列串行化（chapter/tasks 两块同文件，互斥同一链）
-  void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage), { task })
+  void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage, costUsd), { task })
 }
 
-function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage | null): void {
+function recordTaskUsageLocked(
+  bookRoot: string,
+  task: string,
+  usage: TokenUsage | null,
+  costUsd?: number,
+): void {
   const { rec, corrupt } = readRecord(bookRoot)
   // 与 recordAiCall 同口径——损坏不重置，保守阻断保持
   if (corrupt) {
@@ -682,17 +702,21 @@ function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage
     return
   }
   const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
-  applyTaskUsage(base, task, usage)
+  applyTaskUsage(base, task, usage, costUsd)
   writeRecord(bookRoot, base)
 }
 
-/** task 计数 +1 并累计 tokens（自 recordTaskUsageLocked 拆出的单源突变段，
- *  与 recordUsageBothLocked 共用——两入口写入语义逐字段一致，防手抄漂移） */
-function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null): void {
+/** task 计数 +1 并累计 tokens/金额（自 recordTaskUsageLocked 拆出的单源突变段，
+ *  与 recordUsageBothLocked 共用——两入口写入语义逐字段一致，防手抄漂移）。
+ *  金额与 applyCall 同款：仅有限数入账 + roundCost 归一（浮点累加噪声不进记账） */
+function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null, costUsd?: number): void {
   const t = rec.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
   t.used += 1
   // 同 applyCall——逐字段累加与 estimated 粘性走 addUsage 单源
   if (usage) addUsage(t, usage)
+  if (typeof costUsd === 'number' && Number.isFinite(costUsd)) {
+    t.costAccum = roundCost((t.costAccum ?? 0) + costUsd)
+  }
   rec.tasks[task] = t
 }
 
@@ -705,6 +729,10 @@ function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null)
  * tasks 保留」口径）；损坏保守跳过同口径（合并后只 log 一次）。原两函数保留不动
  * （rag/index.ts 等其它调用方与测试面零改动）。task/chapter 双缺省 = 无可记块，
  * 不进写段（与旧「两 if 各自跳过」等价）。
+ *
+ * `costUsd` 同额进两块——数量与金额都必须两块齐备：带 chapter 的调用走预算闸口径，
+ * 不带 chapter 的（chat / 摘要等 task-only）只有 task 块一个金额落点，漏进任一块
+ * 都会让该维度金额只能事后按当下价表重算事件库（调价即历史漂移）。
  *
  * `attempt` 只进失败回执的告警上下文（写段成功与否不影响入账数值），调用方（runner）
  * 用于把「本轮账目缺失」定位到具体重试序号。
@@ -738,8 +766,8 @@ function recordUsageBothLocked(
     return
   }
   const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
-  // task 块（与 recordTaskUsageLocked 逐字段一致）
-  if (task !== undefined) applyTaskUsage(base, task, usage)
+  // task 块（与 recordTaskUsageLocked 逐字段一致，含金额）
+  if (task !== undefined) applyTaskUsage(base, task, usage, costUsd)
   // chapter 块（与 recordAiCallLocked 逐字段一致：换章 fresh 重置 chapter、tasks 保留）
   if (chapter !== undefined) {
     if (!rec || rec.chapter.num !== chapter) {

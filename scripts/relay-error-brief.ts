@@ -1,12 +1,13 @@
 /**
- * verify-responses-relay 的错误摘要单行出口（D202，0918三轮修复批）。
+ * verify-responses-relay 的错误摘要单行出口。
  *
- * 抽离因由：verify-responses-relay.ts 顶层即执行（缺参打印用法即退），不可被测试
- * 安全 import——errBrief/ErrInfo/trunc 抽本零副作用模块供直测。D202 本体：网关 4xx
- * 报错 message 常回显请求 URL，部分网关把 key 放 query param（src/log/redact.ts
- * 自述泄漏形态，恰是本脚本要测的中转网关），原 errBrief 直出 message（仅截断不脱敏）
- * 可把完整凭据打到终端（可能进 CI 日志/截图），与脚本头注「输出永不回显完整 key」
- * 承诺相悖——message 出口统一过 redactSecret 后再截断。
+ * 抽离因由：verify-responses-relay.ts 顶层即执行（缺参打印用法即退），不可被测试安全
+ * import——errBrief/ErrInfo/trunc 抽本零副作用模块供直测。
+ *
+ * 不变量：message 出口必须先过 redactSecret 再截断。网关 4xx 报错 message 常回显请求
+ * URL，部分网关把 key 放 query param（src/log/redact.ts 自述的泄漏形态，恰是本脚本要测
+ * 的中转网关），若直出 message（仅截断不脱敏）会把完整凭据打到终端（可能进 CI 日志 /
+ * 截图），与脚本头注「输出永不回显完整 key」的承诺相悖。
  */
 import { redactSecret } from '../src/log/redact.js'
 

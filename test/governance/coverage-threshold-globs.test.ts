@@ -62,6 +62,9 @@ const EXPECTED_GLOBS = [
   // 视图文件自「e2e 自管」名单划出、落非零门；本测试双向核对（新增单测面不同步即红、
   // 点名无单测面的文件同样红），阈值 = 本地 v8 窄跑池化实测 −2pp（缘由见 vitest.config.ts 同锚注）
   'src/studio/web-next/src/{pages,views}/{Book,Library,Shelf,AuditView,EditorView,OnboardView,OverviewView,RelationsView,StyleView,WorkbenchView}.vue',
+  // 同族的窄桶延伸：Welcome/LearnView 补 dom 直测后自 0/0 显影桶划出、单列非零门
+  //（并入上方 10 文件桶会被池化均值稀释，缘由见 vitest.config.ts 同锚注）
+  'src/studio/web-next/src/{pages,views}/{Welcome,LearnView}.vue',
   'src/studio/web-next/src/*.vue',
   // stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
   'src/studio/web-next/src/stores/**',
@@ -118,6 +121,7 @@ const EXPECTED_THRESHOLDS: Record<string, Record<string, number>> = {
   'src/studio/web-next/src/{pages,views}/**': { lines: 0, branches: 0 },
   'src/studio/web-next/src/{pages,views}/{Book,Library,Shelf,AuditView,EditorView,OnboardView,OverviewView,RelationsView,StyleView,WorkbenchView}.vue':
     { lines: 78, branches: 59 },
+  'src/studio/web-next/src/{pages,views}/{Welcome,LearnView}.vue': { lines: 98, branches: 98 },
   'src/studio/web-next/src/*.vue': { lines: 96, branches: 88 },
   'src/studio/web-next/src/stores/**': { lines: 93, branches: 83 },
   'src/studio/web-next/src/composables/**': { lines: 79, branches: 63 },

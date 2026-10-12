@@ -148,6 +148,15 @@ describe('ChatPanel: 停止按钮（P1-2）', () => {
     expect(w.find('.chat-stop-btn').exists()).toBe(false)
     expect(w.find('.chat-send-btn').exists()).toBe(true)
   })
+
+  it('发送钮是纯图标钮：带可访问名（读屏不落到无名按钮上）', async () => {
+    const w = mountPanel()
+    await nextTick()
+    const send = w.find('.chat-send-btn')
+    // 图标本身 aria-hidden，名称只能来自按钮属性；无可见文案，名称不来自内容
+    expect(send.attributes('aria-label')).toBe('发送')
+    expect(send.text()).toBe('')
+  })
 })
 
 // ── G1 重新生成 + 变体切换 ────────────────────────────

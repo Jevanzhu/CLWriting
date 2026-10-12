@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 /**
- * CC-P1-7 打包资源门——resources/ 必须进 asar + 捆绑资源自洽。
+ * 打包资源门——resources/ 必须进 asar + 捆绑资源自洽。
  *
  * 背景：electron-builder files 长期只含 dist（通配），resources/（内置 prompt/技巧包）
  * 缺席时打包态 resourcesRoot() 必抛错、AI 链路全挂——dev 形态无此问题，只有打包
- * 冒烟才能暴露（cc 轮评审 P1-7）。真打包校验（asar 清单 + 解包冒烟）靠发布前
+ * 冒烟才能暴露。真打包校验（asar 清单 + 解包冒烟）靠发布前
  * build:desktop:dir 手动跑；本门做两层廉价的静态防回潮，CI 每跑必核：
- *   1. package.json files 数组必须含 dist 与 resources（P3 修复：原正则按两空格
- *      缩进 + 精确通配文本锚定 electron-builder.yml，格式微调即静默失效——改为
+ *   1. package.json files 数组必须含 dist 与 resources（按两空格缩进 + 精确通配文本
+ *      锚定 electron-builder.yml 的正则版本，格式微调即静默失效——故改为
  *      JSON.parse 后直接断言，顺序/格式无关）
  *   2. resources/prompts/versions.json 与实际 .md 文件互相对账（改名单不改表即红）
+ *
+ * 判据的适用面必须明说（不许静默跳过）：仅 darwin 成立的判据（如字体二进制实存门）
+ * 由 distFontListGateApplicability 显式声明「本判据是否适用」+ 不适用原因，主流程
+ * 把原因打成注解输出；CI linux/win 腿因此可见「这一条在本腿不适用」，而不是看不出
+ * 这一条到底跑没跑。
  *
  * 用法：npm run check:packaging（退出码 1 = 失配，并列出问题）
  */
@@ -21,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const problems = []
 
-// ── 1. package.json：files 数组必须含 dist 与 resources（P3：正则 → JSON.parse）──
+// ── 1. package.json：files 数组必须含 dist 与 resources ──
 // 导出纯函数供 test/desktop/check-packaging.test.ts 直测断言口径（脚本本体只在
 // 直跑时执行校验/退出，import 不产生副作用）。
 export function problemsForPackageFiles(files) {
@@ -35,16 +40,16 @@ export function problemsForPackageFiles(files) {
   for (const need of ['dist', 'resources']) {
     const covers = (entry) => entry === need || entry.startsWith(need + '/')
     if (!files.some((entry) => typeof entry === 'string' && covers(entry))) {
-      found.push(`package.json files 未包含 ${need}——npm 打包内容缺整目录（CC-P1-7 回潮）`)
+      found.push(`package.json files 未包含 ${need}——npm 打包内容缺整目录（打包资源门回潮）`)
     }
   }
   return found
 }
 
-// ── 第三层（R62-22）：electron-builder.yml files 断言（asar 实际打包面）────
+// ── 第三层：electron-builder.yml files 断言（asar 实际打包面）────
 // DMG 打包走 electron-builder.yml 的 files（非 package.json）——resources/ 缺席时
-// 用「删掉 resources 仍全绿」的自欺门（CC-P1-7 场景的另一半）。以下两个纯函数导出
-// 供 test/desktop/check-packaging.test.ts 锚定（承 P3「勿正则钉格式」——只做行级
+// 用「删掉 resources 仍全绿」的自欺门（打包资源门场景的另一半）。以下两个纯函数导出
+// 供 test/desktop/check-packaging.test.ts 锚定（勿正则钉格式——只做行级
 // 序列解析 + 成员资格断言，不锚定 glob 文本/缩进）。
 /** 解析 electron-builder.yml 顶层 files: 序列（行扫描）。返回 string[]；找不到 files
  *  键或序列为空 → null（视为配置缺失）。容忍成员缩进/引号/空行/注释变化。 */
@@ -62,9 +67,9 @@ export function parseBuilderFiles(yamlText) {
       continue
     }
     if (line.startsWith('- ')) {
-      // R64-39（十二轮）：头注称容忍引号但 slice(2).trim() 实不剥——YAML 合法形态
-      // `- "dist"` 此前原样入列（含引号），成员资格断言 mismatch 误报缺目录（fail-closed
-      // 不破绿但注释与实现相悖）。剥成对的引号后入列。
+      // 头注称容忍引号，则 slice(2).trim() 必须真剥——YAML 合法形态
+      // `- "dist"` 若不剥会原样入列（含引号），成员资格断言 mismatch 误报缺目录
+      //（fail-closed 不破绿但注释与实现相悖）。剥成对的引号后入列。
       let v = line.slice(2).trim()
       if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
         v = v.slice(1, -1)
@@ -87,13 +92,13 @@ export function problemsForElectronBuilderFiles(files) {
   for (const need of ['dist', 'resources']) {
     const covers = (entry) => entry === need || entry.startsWith(need + '/')
     if (!files.some((entry) => typeof entry === 'string' && covers(entry))) {
-      found.push(`electron-builder.yml files 未包含 ${need}——asar 打包缺整目录（CC-P1-7 回潮）`)
+      found.push(`electron-builder.yml files 未包含 ${need}——asar 打包缺整目录（打包资源门回潮）`)
     }
   }
   return found
 }
 
-// ── 全库重评-0914（P3-10）：AppleDouble 排除项锚定 ─────────────────────────
+// ── AppleDouble 排除项锚定 ─────────────────────────
 // electron-builder.yml files 补否定模式 '!**/._*'——外置/网络构建卷上 macOS 为每个
 // 文件生成 ._ 伴生文件（资源叉），白名单 `dist/**/*` 通配把它们一并打进 asar。本门
 // 锁定排除项存在（防回潮）。独立函数而非并入 problemsForElectronBuilderFiles：后者
@@ -105,45 +110,43 @@ export function problemsForElectronBuilderFiles(files) {
 export function problemsForElectronBuilderAppleDouble(files) {
   const found = []
   if (!Array.isArray(files) || files.length === 0) {
-    found.push('electron-builder.yml files 不可解析或为空——AppleDouble 排除项无法校验（全库重评-0914 P3-10）')
+    found.push('electron-builder.yml files 不可解析或为空——AppleDouble 排除项无法校验')
     return found
   }
   if (!files.some((entry) => entry === '!**/._*')) {
-    found.push(
-      'electron-builder.yml files 缺 AppleDouble 否定模式（!**/._*）——外置卷 ._ 伴生文件会进 asar（全库重评-0914 P3-10 回潮）',
-    )
+    found.push('electron-builder.yml files 缺 AppleDouble 否定模式（!**/._*）——外置卷 ._ 伴生文件会进 asar（防回潮）')
   }
   return found
 }
 
-// ── 单立清账批（2026-09-17）：node_modules 全排除项锚定 ─────────────────────
-// 0917清库修复批给 electron-builder.yml files 增补 '!node_modules/**'——tsup 全量
+// ── node_modules 全排除项锚定 ─────────────────────
+// electron-builder.yml files 须有 '!node_modules/**'——tsup 全量
 // bundle（external 仅 electron）后运行时零裸包解析，3 个生产依赖（@anthropic-ai/sdk、
 // font-list、openai）已内联进 chunk、fontlist 二进制走 dist/desktop/fontlist +
 // asarUnpack，收集器再装 node_modules 纯属冗余（旧 asar 98.5% 条目是 node_modules，
-// 排除后装机体 −27M）。该排除行此前无任何静态门——被误删只有 packaged-app-smoke/
-// CI 冒烟能拦（迟面），本门静态锁存在。精确钉 '!node_modules/**'（parseBuilderFiles
+// 排除后装机体 −27M）。该排除行若无静态门——被误删只有 packaged-app-smoke/
+// CI 冒烟能拦（迟面），故本门静态锁存在。精确钉 '!node_modules/**'（parseBuilderFiles
 // 已剥引号）——排除模式单一正本在配置内，钉死形态即 fail-closed：被删/收窄（如
 // '!node_modules' 漏子层）即红。独立函数不并入 problemsForElectronBuilderFiles
 // （同 AppleDouble 先例：并臂会打红存量直测夹具）。导出供直测锚定。
 export function problemsForElectronBuilderNodeModulesExclusion(files) {
   const found = []
   if (!Array.isArray(files) || files.length === 0) {
-    found.push('electron-builder.yml files 不可解析或为空——node_modules 排除项无法校验（单立清账批 2026-09-17）')
+    found.push('electron-builder.yml files 不可解析或为空——node_modules 排除项无法校验')
     return found
   }
   if (!files.some((entry) => entry === '!node_modules/**')) {
     found.push(
-      'electron-builder.yml files 缺 node_modules 全排除模式（!node_modules/**）——冗余依赖整树回装 asar、装机体回涨（0917清库修复批回潮）',
+      'electron-builder.yml files 缺 node_modules 全排除模式（!node_modules/**）——冗余依赖整树回装 asar、装机体回涨（防回潮）',
     )
   }
   return found
 }
 
-// ── RC 全项目重审（GLM-5.3，2026-09-20）P2-2：裸包外置回潮静态门 ──────────────
-// 背景：rc.0 假绿链的根因形态——package.json dependencies 新增裸包而 tsup noExternal
+// ── 裸包外置回潮静态门 ──────────────
+// 背景：发布链的假绿根因形态——package.json dependencies 新增裸包而 tsup noExternal
 // 漏收时，ESM 产物留裸 import × electron-builder '!node_modules/**' 排除 → 打包态链接期
-// ERR_MODULE_NOT_FOUND 秒崩。此前无任何 PR 级门：ci.yml release-smoke 在工作区内直跑、
+// ERR_MODULE_NOT_FOUND 秒崩。若无 PR 级门：发布冒烟在工作区内直跑、
 // 裸包解析沿路径向上摸到仓库 node_modules（假绿），asar 清单断言只查 node_modules 不混入、
 // 查不出「产物 js 残留裸 import」——回潮要到 tag 发布出工作区冒烟才红（发布周期浪费）。
 // 本门把发现提前到 PR：断言 package.json dependencies ⊆ tsup.config.ts 全部 noExternal
@@ -191,11 +194,11 @@ export function problemsForDepsNoExternal(dependencies, noExternal) {
   return found
 }
 
-// ── RC 全项目重审（GLM-5.3，2026-09-20）P3-15：根/子包重复依赖版本同步门 ──────
+// ── 根/子包重复依赖版本同步门 ──────
 // 背景：vue/pinia/@vitejs/plugin-vue/typescript 在根与 web-next 子包双侧手抄（根侧钉根
-// 副本供 vitest alias 用、子包供构建用——双 package.json 结构的固有形态），此前无同步门：
-// typescript 声明区间已漂移（根 ^5.5.0 / 子 ^5.6.0，实测同落 5.9.3 未爆），测试面与构建面
-// 静默分叉。本门断言：同一包名在两 package.json 出现（依赖区不限）时版本声明必须一致。
+// 副本供 vitest alias 用、子包供构建用——双 package.json 结构的固有形态），若无同步门：
+// typescript 声明区间可静默漂移（根 ^5.5.0 / 子 ^5.6.0，实测同落 5.9.3 未爆），测试面与
+// 构建面静默分叉。本门断言：同一包名在两 package.json 出现（依赖区不限）时版本声明必须一致。
 export function problemsForDepsVersionSync(rootDeps, subDeps) {
   const found = []
   const a = rootDeps && typeof rootDeps === 'object' ? rootDeps : {}
@@ -206,7 +209,7 @@ export function problemsForDepsVersionSync(rootDeps, subDeps) {
     const vb = b[name]
     if (va !== undefined && vb !== undefined && va !== vb) {
       found.push(
-        `根包与 web-next 子包的 ${name} 版本声明分叉（根 ${va} / 子 ${vb}）——测试面（钉根副本）与构建面（子包副本）静默分叉（RC 全项目重审 P3-15）`,
+        `根包与 web-next 子包的 ${name} 版本声明分叉（根 ${va} / 子 ${vb}）——测试面（钉根副本）与构建面（子包副本）静默分叉`,
       )
     }
   }
@@ -214,7 +217,7 @@ export function problemsForDepsVersionSync(rootDeps, subDeps) {
 }
 
 /**
- * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
+ * TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
  * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
  * 该侧对账诊断，失败方向 fail-closed 不变——不假绿也不吞真故障）；其余错误照抛。
  * 导出供 test/desktop/check-packaging-readdir-tolerant.test.ts 直测。
@@ -231,13 +234,13 @@ export function readDirTolerant(dir) {
   }
 }
 
-// ── 第四层（R0911-A-P2-1，2026-09-11 全量重评 GLM-5.3 修复批）：mac 字体二进制分发门 ──
-// fontlist 原生二进制此前不随包分发（electron-builder files 白名单无 node_modules、
-// tsup 不拷原生文件），mac 打包态字体枚举主路径恒 ENOENT 回落 system_profiler 慢路径。
+// ── mac 字体二进制分发门 ──
+// fontlist 原生二进制须随包分发（electron-builder files 白名单无 node_modules、
+// tsup 不拷原生文件），否则 mac 打包态字体枚举主路径恒 ENOENT 回落 system_profiler 慢路径。
 // 修复链 = tsup onSuccess 拷入 dist/desktop/（darwin）+ asarUnpack 外置 + main.ts 接线；
 // 本门静态锁前两环的防回潮：asarUnput 配置缺失 / darwin dist 已构建但二进制缺席/丢执行位。
-// R0912-A-P2-1（2026-09-12 独立重评 GLM-5.3 修复批）：外置路径修正为 asar 内真实形态
-// dist/desktop/fontlist（上批裸 desktop/fontlist 在 files `dist/**/*` 口径下零命中），
+// 外置路径必须是 asar 内真实形态
+// dist/desktop/fontlist（裸 desktop/fontlist 在 files `dist/**/*` 口径下零命中），
 // 本门覆盖判定随配置同步收紧——门随改，旧错误形态改判红。
 
 /** 解析 electron-builder.yml 顶层 asarUnpack: 序列（行扫描，与 parseBuilderFiles 同口径
@@ -269,10 +272,9 @@ export function parseBuilderAsarUnpack(yamlText) {
 }
 
 /** 断言 asarUnpack 序列覆盖 fontlist 真实产物路径 dist/desktop/fontlist——spawn 不解
- *  asar，外置缺失则打包态自管枚举恒回落（A-P2-1 只修了一半的回潮形态）。R0912（mac 线
- *  重评-0911c P2）/ R0912-A-P2-1（win 线 2026-09-12 独立重评修复批）同题并合：files 的
+ *  asar，外置缺失则打包态自管枚举恒回落（只覆盖裸路径的半修形态即回潮）。files 的
  *  dist 通配规则下 asar 内路径带 dist/ 段（FileMatcher 以 appDir 相对路径做 minimatch），
- *  旧口径认裸 `desktop/fontlist` 会放过「配置了也零命中」的无效外置（真打包才能暴露的
+ *  认裸 `desktop/fontlist` 会放过「配置了也零命中」的无效外置（真打包才能暴露的
  *  假绿）——视为半修回潮必红；门接受可命中 dist/desktop/fontlist 的模式族（两星斜杠根
  *  锚定形态、显式 dist/ 前缀形态、dist 目录级通配，含目录级尾巴/子路径前缀）。导出供
  *  直测锚定。 */
@@ -280,11 +282,11 @@ export function problemsForElectronBuilderAsarUnpack(items) {
   const found = []
   if (!Array.isArray(items) || items.length === 0) {
     found.push(
-      'electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）',
+      'electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（回潮）',
     )
     return found
   }
-  // 可命中 dist/desktop/fontlist 的模式族（R0912 两线并集：两星斜杠根锚定 / 显式 dist/
+  // 可命中 dist/desktop/fontlist 的模式族（两线并集：两星斜杠根锚定 / 显式 dist/
   // 前缀及其子路径 / dist 目录级通配；目录级 `/**`、`/**/*` 尾巴归一剥除后判定；纯字符串
   // 判定，不写内联 glob 正则——vite import-analysis 对复杂正则字面量解析易脆）
   const hits = (entry) => {
@@ -299,23 +301,47 @@ export function problemsForElectronBuilderAsarUnpack(items) {
   }
   if (!items.some(hits)) {
     found.push(
-      'electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮；R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中，为无效外置）',
+      'electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（回潮；裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中，为无效外置）',
     )
   }
   return found
 }
 
-/** dist 侧实存门：仅 darwin 且 dist/desktop/main.js 已构建时生效（其余平台/未构建
- *  返回 []——CI linux/win 腿 dist 无二进制属预期，纯本地 check 不 build 也不误报）。
- *  断言 dist/desktop/fontlist 存在且带可执行位。导出供直测（注入路径与平台）。 */
+/**
+ * darwin dist 实存门的适用面声明——判据只在「darwin 且本机 dist 已构建」时成立：
+ * - 非 darwin（CI linux/win 腿）：fontlist 二进制是 darwin 专属产物，别的平台上判它必假红；
+ * - darwin 但 dist/desktop/main.js 缺席：本机未构建（纯 check 不 build 的常规本地用法），
+ *   缺产物不是回潮。
+ * 两种情形都返回 applies:false + 人话原因：主流程把原因打成注解输出——判据没跑必须看得见，
+ * 不许静默返回 []（静默跳过与「跑过且绿」在输出上无法区分，等于名义门）。
+ * 返回 { applies, reason }（applies 为 true 时 reason 为空串）。
+ */
+export function distFontListGateApplicability(distDesktopDir, platform) {
+  if (platform !== 'darwin') {
+    return {
+      applies: false,
+      reason: `本判据只适用于 darwin（当前平台 ${platform}）——CI linux/win 腿不产出 fontlist 二进制，dist 无此件属预期`,
+    }
+  }
+  if (!existsSync(join(distDesktopDir, 'main.js'))) {
+    return {
+      applies: false,
+      reason: `本机 dist/desktop 未构建（main.js 缺席）——纯 check 不 build 的本地用法，缺产物不是回潮（npm run build 后本判据自动生效）`,
+    }
+  }
+  return { applies: true, reason: '' }
+}
+
+/** dist 侧实存门：断言 dist/desktop/fontlist 存在且带可执行位。
+ *  适用面由 distFontListGateApplicability 显式声明，不适用（非 darwin / dist 未构建）
+ *  返回 []，原因由主流程打成注解。导出供直测（注入路径与平台）。 */
 export function problemsForDistFontList(distDesktopDir, platform) {
-  if (platform !== 'darwin') return []
-  if (!existsSync(join(distDesktopDir, 'main.js'))) return []
+  if (!distFontListGateApplicability(distDesktopDir, platform).applies) return []
   const found = []
   const bin = join(distDesktopDir, 'fontlist')
   if (!existsSync(bin)) {
-    // R0912（重评-0911c P3/G）：两态文案——本机 dist 陈旧（工作树半新态）与拷贝链
-    // 失效（真回潮）此前不可区分，误导排障方向（R0911 修复后本地首跑曾因陈旧 dist
+    // 两态文案——本机 dist 陈旧（工作树半新态）与拷贝链
+    // 失效（真回潮）须可区分，否则误导排障方向（修复后本地首跑曾因陈旧 dist
     // 伪红）。fail-closed 方向不变：两种形态都要求先重跑 build 再复检。
     found.push(
       `darwin dist 已构建但缺 ${bin}——dist 陈旧（先 npm run build 重新构建再复检）或 tsup onSuccess 拷贝步骤失效（回潮）`,
@@ -342,8 +368,8 @@ function checkPackaging() {
   }
   if (pkg) problems.push(...problemsForPackageFiles(pkg.files))
 
-  // ── RC 全项目重审 P2-2：裸包外置回潮静态门（dependencies ⊆ tsup noExternal）──
-  // P3-15：根/子包重复依赖版本同步门（vue/pinia/plugin-vue/typescript 双侧手抄面）
+  // ── 裸包外置回潮静态门（dependencies ⊆ tsup noExternal）──
+  // 根/子包重复依赖版本同步门（vue/pinia/plugin-vue/typescript 双侧手抄面）
   if (pkg) {
     const tsupPath = join(root, 'tsup.config.ts')
     let tsupText = ''
@@ -368,29 +394,36 @@ function checkPackaging() {
     }
   }
 
-  // ── 1b. （R62-22）第三层：electron-builder.yml files 断言（asar 实际打包面）──
+  // ── 1b. 第三层：electron-builder.yml files 断言（asar 实际打包面）──
   // package.json files 只约束 npm pack；DMG 实际打包走 electron-builder.yml——
-  // files 里缺 resources/ 时 CI 仍全绿、打包态 AI 链路全挂（CC-P1-7 另一半）。
+  // files 里缺 resources/ 时 CI 仍全绿、打包态 AI 链路全挂（打包资源门的另一半）。
   const ebPath = join(root, 'electron-builder.yml')
   if (!existsSync(ebPath)) {
     problems.push('缺 electron-builder.yml——桌面打包配置没了（asar 清单无法校验）')
   } else {
     const ebFiles = parseBuilderFiles(readFileSync(ebPath, 'utf8'))
     problems.push(...problemsForElectronBuilderFiles(ebFiles))
-    // 全库重评-0914（P3-10）：AppleDouble 排除项锚定门（与 dist/resources 成员门并跑）
+    // AppleDouble 排除项锚定门（与 dist/resources 成员门并跑）
     problems.push(...problemsForElectronBuilderAppleDouble(ebFiles))
-    // 单立清账批（2026-09-17）：node_modules 全排除项锚定门（与 AppleDouble 门并跑）
+    // node_modules 全排除项锚定门（与 AppleDouble 门并跑）
     problems.push(...problemsForElectronBuilderNodeModulesExclusion(ebFiles))
-    // R0911-A-P2-1 第四层：fontlist asarUnpack 配置门（静态，全平台可查）
+    // fontlist asarUnpack 配置门（静态，全平台可查）
     problems.push(...problemsForElectronBuilderAsarUnpack(parseBuilderAsarUnpack(readFileSync(ebPath, 'utf8'))))
   }
-  // R0911-A-P2-1 第四层：darwin dist 实存门（仅 darwin + dist 已构建时生效）。
-  // R0912（重评-0911c P2/G）：CLW_CHECK_PACKAGING_SKIP_DIST_GATE=1 可跳过本门——
-  // 供 test/desktop/check-packaging.test.ts 的「真实脚本直跑」用例使用：单测不应把
+  // darwin dist 实存门——适用面显式声明：非 darwin 或本机 dist 未构建时不适用，
+  // 原因打成注解输出（判据没跑要看得见，不许静默跳过）。
+  // CLW_CHECK_PACKAGING_SKIP_DIST_GATE=1 可跳过本门——供
+  // test/desktop/check-packaging.test.ts 的「真实脚本直跑」用例使用：单测不应把
   // 不受控的本地工作树构建产物状态当断言对象（dist 半新态曾致全量单测单点红），
   // 用例置此变量只锁配置面与资源对账面；CI 与本地常规跑不设变量，门照常生效。
   if (process.env.CLW_CHECK_PACKAGING_SKIP_DIST_GATE !== '1') {
-    problems.push(...problemsForDistFontList(join(root, 'dist', 'desktop'), process.platform))
+    const distDesktopDir = join(root, 'dist', 'desktop')
+    const gate = distFontListGateApplicability(distDesktopDir, process.platform)
+    if (gate.applies) {
+      problems.push(...problemsForDistFontList(distDesktopDir, process.platform))
+    } else {
+      console.log(`[check:packaging] 判据跳过（显式声明，非静默）：darwin dist fontlist 实存门——${gate.reason}`)
+    }
   }
 
   // ── 2. 捆绑资源自洽：versions.json ↔ 实际 .md 双向对账 ────────────────────
@@ -418,8 +451,8 @@ function checkPackaging() {
           }
         }
         // 盘上有文件、表里无名 → 该 prompt 永远走不到版本化链路（静默漂移）
-        // F-2（五十轮评审批）：TOCTOU 容错——existsSync 后目录被并发移走（ENOENT）/
-        // 被换成文件（ENOTDIR）不再裸抛炸脚本（跳过只损该侧对账诊断，失败方向不变）；
+        // TOCTOU 容错——existsSync 后目录被并发移走（ENOENT）/
+        // 被换成文件（ENOTDIR）时不裸抛炸脚本（跳过只损该侧对账诊断，失败方向不变）；
         // 其余错误照抛。导出 readDirTolerant 供直测。
         const listed = new Set(Object.keys(versions))
         for (const f of readDirTolerant(promptsDir)) {

@@ -108,7 +108,10 @@ export async function clearBatchPause(bookRoot: string): Promise<void> {
       try {
         renameSync(fp, corruptPath)
         preserved = true
-        log.warn('batch-pause', `.auto-batch.json 解析失败，原文件已保留为 ${corruptPath}（留证），重建全新暂停记录`)
+        log.warn(
+          'batch-pause',
+          `.auto-batch.json 解析失败、原文件已改名留证、重建全新暂停记录（留证副本：${corruptPath}）`,
+        )
       } catch {
         log.warn('batch-pause', '.auto-batch.json 解析失败且留证改名失败，按旧口径删除重建')
       }

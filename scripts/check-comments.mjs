@@ -2,14 +2,21 @@
 /**
  * 源码注释门（comment-surface）：注释只留约束、不变量、平台差与语义说明——修复史归 git。
  *
- * 背景（质量债 P3-1「注释考古化」）：批号标签曾是注释主体（评审度量：全库注释 28.8%、
- * 带标注释行 7484 行 / 标签 11098 个），现行契约要从修复叙事里打捞，且行号引用、悬空
- * 路径、过时状态已开始腐烂。本门仿 check:docs 先例，把「注释不写修复史」从纪律升级为
- * 机器门：源码注释中出现批号标签形态即红，防止清理后回弹。
+ * 背景：批号标签曾是注释主体（评审度量：全库注释 28.8%、带标注释行 7484 行 / 标签
+ * 11098 个），现行契约要从修复叙事里打捞，且行号引用、悬空路径、过时状态已开始腐烂。
+ * 本门仿 check:docs 先例，把「注释不写修复史」从纪律升级为机器门：源码注释中出现批号
+ * 标签形态即红，防止清理后回弹。
  *
- * 扫描范围：`src/**`（含 `src/studio/web-next/src/**`）+ 根构建配置四件
- * （tsup / vitest / eslint / playwright config）。排除 node_modules、`*.d.ts`。
- * `test/` 不入门——测试文件头注释留批次号是纪律允许形态（CLAUDE.md 测试分层）。
+ * 扫描范围：`src/**`（含 `src/studio/web-next/src/**`）+ `scripts/**`（工具链自身：
+ * 机器门与清理器同属叙述面，把 scripts 排除在扫描面外时该目录的批号密度长期无人对账）
+ * + 根构建配置五件（tsup / vitest / eslint / prettier / playwright config）。扩展名口径
+ * 见 SCAN_EXTS（`scripts/` 下 `.mjs` 与 `.ts` 都在内），排除 node_modules。
+ * `test/` 不入门——测试面批号由 check-counts 的「上锚不追」门单独管（测试分层见
+ * CLAUDE.md），本门只负责生产面与工具链面。
+ *
+ * fail-closed：扫描面本身不可信时报红而非放行——扫描根目录缺席 / 该根下零个可扫文件 /
+ * 递归中 readdir·stat 失败，都进 problems（带人话原因）并以退出码 1 收口。「扫了 0 个
+ * 文件仍打通过」的假绿不是可接受形态。
  *
  * 标签形态（按全库实测标定，均为「只可能是批号 / 轮次 / 评审史」的高置信形态）：
  * - R 系批号：`R40`、`R68-3`、`R51-C-3`、`R34D-19`、`R0916-7-P3-3`、`R1a`、`R-5`
@@ -29,21 +36,21 @@
  * `TOKEN_EXCEPTIONS` 显式放行，**不靠「大概不会撞」**。
  *
  * 字符串字面量零误报：扫描器是逐字符状态机（字符串 / 模板串含 ${} 嵌套 / 正则字面量 /
- * .vue 模板 HTML 注释 / CSS url 裸 URL），字符串内容里的 `R40`、`//` 一律不进注释判定
- * ——清理只动注释、绝不碰生产字面量（此前有误删字面量的事故，本门是该红线的机器化）。
+ * .vue 模板 HTML 注释 / CSS url 裸 URL），字符串内容里的标签样文本、`//` 一律不进注释
+ * 判定——清理只动注释、绝不碰生产字面量（此前有误删字面量的事故，本门是该红线的机器化）。
  *
  * allowlist（承重锚注）：若某注释被测试 readFileSync 源码断言钉住（删改即测试红），
- * 在 ANCHOR_ALLOWLIST 登记「文件 + 行内容子串 + 钉住它的测试」放行。开工盘点
- * （方法：全量 test/ 中 readFileSync 读 src 的断言字面量反查注释行）结论：当前零批号
- * 锚注——原「R43-8（四十三轮）」类锚已随测试资产行为化移除，R40 静态锚全部改钉代码
- * 形态——故本表启动为空；机制与直测在位，日后发现承重锚注在此登记，不在注释里续命。
+ * 在 ANCHOR_ALLOWLIST 登记「文件 + 行内容子串 + 钉住它的测试」放行。开工盘点（方法：
+ * 全量 test/ 中 readFileSync 读 src 的断言字面量反查注释行）结论：当前零批号锚注——旧的
+ * 带轮次括注的批号锚已随测试资产行为化移除，另一批静态锚全改钉代码形态——故本表启动为空；
+ * 机制与直测在位，日后发现承重锚注在此登记，不在注释里续命。
  *
  * 判据分两族，缺一不可：**标签形态**（上表，抓「注释里还写着批号」）与**切除后残形**
  * （`RESIDUE_PATTERNS`，抓「批号被清理器切走、只剩半截括注 / 标点」）。只做前者时，
  * 清理器把标签连同它依附的括注一并删掉后留下的残形不含标签，门判定为干净——历史上两批
  * 残形（43 处 + 5 处）都是这样漏过去的。两族判据的分工与标定见各自表头注释。
  *
- * 用法：npm run check:comments（退出码 1 = 命中，列出文件:行 + 形态 + 原文供修）。
+ * 用法：npm run check:comments（退出码 1 = 命中或扫描面异常，列出文件:行 + 形态 + 原文）。
  * 纯函数 export，直测见 test/scripts/check-comments.test.ts。
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -51,6 +58,13 @@ import { join, relative, sep } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * 扫描的源码根目录（相对仓库根）。`src` 是生产面，`scripts` 是工具链面——机器门与清理器
+ * 自身也在这一层，其注释同样是叙述面；scripts 不入扫描面时该目录的批号密度长期无人对账
+ * （实测 603 处标签 + 10 处残形），故一并入网。
+ */
+export const SCAN_ROOTS = ['src', 'scripts']
 
 /**
  * 扫描的根配置文件（构建配置同病：构建期注释曾数倍于代码）。
@@ -1201,33 +1215,56 @@ function lineOfOffset(lines, offset) {
   return lines.length - 1
 }
 
-/** 收集待扫文件清单（src/** + 根配置）。 */
+/**
+ * 收集待扫文件清单（SCAN_ROOTS 各根目录递归 + 根配置）。
+ * 返回 `{ files, problems }`——problems 为「扫描面本身不可信」的人话原因（fail-closed）：
+ * - 扫描根目录缺席 / 不可读（readdir 直接失败）→ 报该根不可读；
+ * - 某根下零个可扫文件（存在但扩展名全不合）→ 报该根扫描面为空；
+ * - 递归中逐层 readdir / 条目 stat 失败 → 留痕为 problem（静默吞正是「扫 0 个文件仍打
+ *   通过」假绿的成因，历史事故）；
+ * - 全部扫描面合计零文件 → 报整体为空。
+ * EXCLUDED_DIRS 的显式排除不算问题（那是声明式排除，非事故）。
+ */
 export function collectFiles(base = root) {
   const files = []
-  const walk = (dir) => {
+  const problems = []
+  const walk = (dir, relDir) => {
     let names
     try {
       names = readdirSync(dir)
-    } catch {
+    } catch (e) {
+      problems.push(`扫描根不可读：${relDir}/（${e.code ?? e.message ?? String(e)}）——目录缺席或权限不足`)
       return
     }
     for (const name of names.sort()) {
+      if (EXCLUDED_DIRS.has(name)) continue
       const p = join(dir, name)
+      const rel = `${relDir}/${name}`
       let st
       try {
         st = statSync(p)
-      } catch {
+      } catch (e) {
+        problems.push(`条目不可读：${rel}（${e.code ?? e.message ?? String(e)}）——扫描面不完整，修复后重跑`)
         continue
       }
       if (st.isDirectory()) {
-        if (!EXCLUDED_DIRS.has(name)) walk(p)
+        walk(p, rel)
         continue
       }
       if (!SCAN_EXTS.has(name.slice(name.lastIndexOf('.')))) continue
       files.push(p)
     }
   }
-  walk(join(base, 'src'))
+  for (const dir of SCAN_ROOTS) {
+    const before = files.length
+    const problemsBefore = problems.length
+    walk(join(base, dir), dir)
+    if (files.length === before && problems.length === problemsBefore) {
+      problems.push(
+        `扫描面为空：${dir}/ 下零个可扫文件（扩展名 ${[...SCAN_EXTS].join(' ')}）——目录结构或扩展名口径已失效`,
+      )
+    }
+  }
   for (const f of ROOT_CONFIG_FILES) {
     try {
       statSync(join(base, f))
@@ -1236,37 +1273,136 @@ export function collectFiles(base = root) {
       /* 配置可缺席 */
     }
   }
-  return files
+  if (files.length === 0) {
+    problems.push(`扫描面整体为空：${SCAN_ROOTS.join('/')} 与根配置均无待扫文件——门无从判定，按红收口`)
+  }
+  return { files, problems }
+}
+
+/**
+ * 判据样例区登记（唯一豁免形态，逐区登记 + 逐区理由）。
+ *
+ * 为什么需要：本档是判据正本——形态表、残形样本、逐条标定说明里**必然**引用它维护的
+ * 标签形态原文。这些引用是判据的对照物（样例一删，读者无法核对「这条正则收的是哪个
+ * 形态」），属「判据自己的样例」而非「待清的历史残留」。
+ *
+ * 为什么不是整档跳过：整档豁免会让本档内真该清的批号叙事一起漏网（本档同时是叙述面，
+ * 头注与函数说明里的修复史同样归 git）。故只放行**逐区登记**的注释区段。
+ * 为什么不是行号白名单：行号随编辑漂移，写死的数字会静默失准。这里用**锚行**界定：
+ * 区段 = 首个含 `from` 的行 → 首个其后含 `to` 的行（含端点）。
+ * fail-closed 判据：`from`/`to` 各自必须在本档唯一命中、且 `to` 在 `from` 之后——任一
+ * 不满足即报 problem 且该区不放行（锚失配时宁可全档报红，也不默认豁免）。
+ */
+export const SAMPLE_ZONES = [
+  {
+    file: 'scripts/check-comments.mjs',
+    from: '标签形态（按全库实测标定',
+    to: '都曾被当批号删掉',
+    why: '头注的形态样例表：每行是一门判据的正例清单，是门的对照表本体',
+  },
+  {
+    file: 'scripts/check-comments.mjs',
+    from: '修复史批名：只写**后缀**',
+    to: '整行注释只剩标点',
+    why: '两张判据表（TAG_PATTERNS / RESIDUE_PATTERNS）的逐条条目与标定说明：条目注释即该形态的正例与零误报边界',
+  },
+  {
+    file: 'scripts/check-comments.mjs',
+    from: '去重叠口径 = 「命中数 = 真实标签数而非形态数」',
+    to: '留下 `.2`」）',
+    why: 'tagSpansOf 的去重叠说明：举例的撞形 token 是「同 token 多形只报一次」的对照物',
+  },
+  {
+    file: 'scripts/check-comments.mjs',
+    from: '原则的既有先例 = 扫描器对源码字符串里',
+    to: '字符串内容不进注释判定）',
+    why: 'maskQuotedParens 的引用面说明：举例 token 是「字符串内容不进注释判定」的对照物',
+  },
+]
+
+/**
+ * 算出某文件被 SAMPLE_ZONES 登记的区段（行号区间，1 基含端点）。
+ *
+ * 锚只在**注释行**里找（注释抽取同 extractCommentLines 单一源）：判据样例区是注释面概念，
+ * 且本表自身以字面量形式写在源码里——只在注释面找锚，本表的登记项就不会自我命中。
+ * 返回 `{ ranges, problems }`：锚缺失/重复/逆序 → 该区不进 ranges 并附问题串（fail-closed，
+ * 锚失配时宁可全档报红，也不默认豁免）。
+ */
+export function sampleZoneRanges(content, relFile, zones = SAMPLE_ZONES) {
+  const ext = relFile.endsWith('.vue') ? '.vue' : relFile.slice(relFile.lastIndexOf('.'))
+  const commentLines = new Set(extractCommentLines(content, ext).map((c) => c.line))
+  const lines = content.split('\n')
+  const lineOf = (needle) => {
+    const hits = []
+    for (let i = 0; i < lines.length; i++) {
+      if (commentLines.has(i + 1) && lines[i].includes(needle)) hits.push(i + 1)
+    }
+    return hits
+  }
+  const ranges = []
+  const problems = []
+  for (const z of zones) {
+    if (z.file !== relFile) continue
+    const froms = lineOf(z.from)
+    const tos = lineOf(z.to)
+    // `to` 可与 `from` 同行（单行样例说明）：此时区段即该行本身；`to` 在 `from` 之前才是错形
+    if (froms.length !== 1 || tos.length !== 1 || tos[0] < froms[0]) {
+      problems.push(
+        `判据样例区锚失配：${z.file}（from 命中 ${froms.length} 处 / to 命中 ${tos.length} 处）——区段未生效，请核锚文本`,
+      )
+      continue
+    }
+    ranges.push([froms[0], tos[0]])
+  }
+  return { ranges, problems }
+}
+
+/** 行号是否落在判据样例区内。 */
+export function inSampleZone(line, ranges) {
+  return ranges.some(([a, b]) => line >= a && line <= b)
 }
 
 /**
  * 全库扫描（file 为相对仓库根的 POSIX 路径）。
- * 返回 `{ tags, residues }` 两族命中——标签形态与切除后残形（见各自表头注释）。
+ * 返回 `{ tags, residues, problems }`——两族命中 + 扫描面问题（fail-closed，见 collectFiles）。
+ * 命中按判据样例区过滤（见 sampleZoneRanges）；锚失配时该区不豁免并把问题带出。
  */
 export function scanRepo(base = root) {
   const tags = []
   const residues = []
-  for (const abs of collectFiles(base)) {
+  const { files, problems } = collectFiles(base)
+  for (const abs of files) {
     const rel = relative(base, abs).split(sep).join('/')
     let content
     try {
       content = readFileSync(abs, 'utf8')
-    } catch {
+    } catch (e) {
+      problems.push(`文件不可读：${rel}（${e.code ?? e.message ?? String(e)}）——扫描面不完整`)
       continue
     }
+    const zone = sampleZoneRanges(content, rel)
+    problems.push(...zone.problems)
     const ext = abs.endsWith('.vue') ? '.vue' : abs.slice(abs.lastIndexOf('.'))
     for (const h of findTagHits(content, { file: rel, ext })) {
+      if (inSampleZone(h.line, zone.ranges)) continue
       tags.push({ file: rel, ...h })
     }
     for (const h of findResidueHits(content, { file: rel, ext })) {
+      if (inSampleZone(h.line, zone.ranges)) continue
       residues.push({ file: rel, ...h })
     }
   }
-  return { tags, residues }
+  return { tags, residues, problems }
 }
 
 export function main() {
-  const { tags, residues } = scanRepo()
+  const { tags, residues, problems } = scanRepo()
+  if (problems.length) {
+    console.error('源码注释门未过（comment-surface）：扫描面本身不可信——下列问题使判定无意义，')
+    console.error('先修复扫描面再重跑（fail-closed：扫描面为空 / 不可读时绝不打通过）。')
+    for (const p of problems) console.error(`  • ${p}`)
+    process.exit(1)
+  }
   if (tags.length || residues.length) {
     console.error('源码注释门未过（comment-surface）。')
     if (tags.length) {
@@ -1298,7 +1434,9 @@ export function main() {
     }
     process.exit(1)
   }
-  console.log(`check:comments 通过：src 与根配置注释零批号标签、零切除残形（扫描 ${collectFiles().length} 个文件）。`)
+  console.log(
+    `check:comments 通过：src 与 scripts 及根配置注释零批号标签、零切除残形（扫描 ${collectFiles().files.length} 个文件）。`,
+  )
 }
 
 // 直跑判据走 pathToFileURL——argv[1] 可能是相对路径（`node scripts/check-comments.mjs`），

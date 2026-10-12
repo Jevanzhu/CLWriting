@@ -56,7 +56,7 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
     expect(atomicWrites.n).toBe(1)
 
     const split = tempBook()
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.5)
     recordAiCall(split, 1, USAGE, 0.5)
     expect(atomicWrites.n).toBe(3) // 1（合并）+ 2（两分身）
   })
@@ -65,7 +65,7 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
     const merged = tempBook()
     recordUsageBoth(merged, 'gen', 1, USAGE, 0.5)
     const split = tempBook()
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.5)
     recordAiCall(split, 1, USAGE, 0.5)
     expect(readRec(merged)).toEqual(readRec(split))
   })
@@ -75,9 +75,9 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
     recordUsageBoth(merged, 'gen', 1, USAGE, 0.5)
     recordUsageBoth(merged, 'gen', 1, USAGE, 0.25)
     const split = tempBook()
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.5)
     recordAiCall(split, 1, USAGE, 0.5)
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.25)
     recordAiCall(split, 1, USAGE, 0.25)
     expect(readRec(merged)).toEqual(readRec(split))
     const rec = readRec(merged) as { chapter: { used: number }; tasks: Record<string, { used: number }> }
@@ -90,9 +90,9 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
     recordUsageBoth(merged, 'gen', 1, USAGE, 0.5)
     recordUsageBoth(merged, 'gen', 2, USAGE, 0.25)
     const split = tempBook()
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.5)
     recordAiCall(split, 1, USAGE, 0.5)
-    recordTaskUsage(split, 'gen', USAGE)
+    recordTaskUsage(split, 'gen', USAGE, 0.25)
     recordAiCall(split, 2, USAGE, 0.25)
     expect(readRec(merged)).toEqual(readRec(split))
     const rec = readRec(merged) as { chapter: { num: number; used: number } }
@@ -101,10 +101,12 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
   })
 
   it('单块退化：task-only / chapter-only 与对应分身产物一致', () => {
+    // task-only 也带金额：不带 chapter 的调用（chat/摘要）只有 tasks 块一个金额落点，
+    // 合并写段漏带即两路径产物分叉
     const mergedTask = tempBook()
-    recordUsageBoth(mergedTask, 'rag-embed', undefined, USAGE)
+    recordUsageBoth(mergedTask, 'rag-embed', undefined, USAGE, 0.1)
     const splitTask = tempBook()
-    recordTaskUsage(splitTask, 'rag-embed', USAGE)
+    recordTaskUsage(splitTask, 'rag-embed', USAGE, 0.1)
     expect(readRec(mergedTask)).toEqual(readRec(splitTask))
 
     const mergedCh = tempBook()

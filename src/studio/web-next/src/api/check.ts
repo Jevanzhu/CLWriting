@@ -22,6 +22,9 @@ interface CheckResult {
   ok: true
   report: CheckReport
   hasRed: boolean
+  /** 本次按作者误报标记跳过的命中条数（结果由服务端过滤；旧服务端缺此字段，
+   *  消费侧按 0 兜底——0 与缺省同义，都是「本次没有跳过任何命中」）。 */
+  suppressedCount?: number
 }
 
 // POST /documents/:docId/check —— 本地机检（无 AI、断网可用；M12 块3 B3.1）。

@@ -110,6 +110,25 @@ describe('R0911b-C2-P3-1：AuditEventList 抽件等价性契约', () => {
     await w.find('.load-more').trigger('click')
     expect(w.emitted('load-more')).toHaveLength(1)
   })
+
+  it('展开箭头是纯图标钮：可访问名随展开态切换（开/收各对应当前状态）', async () => {
+    const w = mount(AuditEventList, {
+      props: {
+        events: [ev({ seq: 7 })],
+        total: 1,
+        loadingMore: false,
+        hasMore: false,
+        capHit: false,
+        renderCap: 2000,
+        expanded: new Set<number>(),
+        emptyText: '暂无事件',
+      },
+    })
+    expect(w.find('.ev-toggle').attributes('aria-label')).toBe('展开事件详情')
+    // 展开态由父持有（props 传入）——名须跟着当前态走，否则读屏读到的是旧状态
+    await w.setProps({ expanded: new Set([7]) })
+    expect(w.find('.ev-toggle').attributes('aria-label')).toBe('收起事件详情')
+  })
 })
 
 // ── 七轮重评-5（2026-09-19 源码独立重评七轮修复批）：摘要截断改码位 ──

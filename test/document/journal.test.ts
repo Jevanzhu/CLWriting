@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { appendFileSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { statSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── KN-H-1（2026-08-23）/ N4（五十九轮）：compact 并发守卫确定性复现 ──
@@ -12,12 +11,19 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 // N4「读算期间有变即整轮弃压」（原文件原样保留、新行随原文件在盘），故注入后断言
 // 弃轮（文件仍超阈值且原文俱在），语义与 A-6 期相反，见 maybeCompactJournal 注释。
 const RACE = vi.hoisted(() => ({ armed: false, journalPath: '', line: '' }))
+// 读侧注入（同文件另一组用例）：journal 在盘但读取失败（EACCES/EBUSY）——只劫持指定
+// 路径的单次读。默认不武装，本文件其余用例全程透传。
+const READFAIL = vi.hoisted(() => ({ inject: false, journalPath: '' }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
     // 注入点：compact 主读（scanUnsettled 的 readFileSync）返回「追加前」内容之后
     readFileSync: ((p, ...rest) => {
+      if (READFAIL.inject && typeof p === 'string' && p === READFAIL.journalPath) {
+        READFAIL.inject = false // 只注入一次（findUnsettled / compact 内 scanUnsettled 单次读）
+        throw Object.assign(new Error(`EACCES: permission denied, open '${p}'`), { code: 'EACCES' })
+      }
       const content = (actual.readFileSync as typeof readFileSync)(p, ...rest)
       if (RACE.armed && typeof p === 'string' && p === RACE.journalPath && rest[0] === 'utf-8') {
         RACE.armed = false // 一次性：一轮压缩只注入一次
@@ -37,6 +43,7 @@ import {
   findUnsettled,
   JOURNAL_COMPACT_BYTES,
 } from '../../src/document/journal.js'
+import { log } from '../../src/log/index.js'
 
 const SHA = (s: string) => s as `sha256:${string}`
 
@@ -270,5 +277,109 @@ describe('journal move pending（P3-10）', () => {
       JSON.stringify({ opId: 'x', docId: 'd', ts: 't', status: 'pending', kind: 'move', oldPath: 'a.md' }) + '\n',
     )
     expect(findUnsettled(j)).toHaveLength(0)
+  })
+})
+
+// ── findUnsettled 对「journal 在盘但读取失败」（EACCES/EBUSY 等异常）走空体
+// catch 直接返回 []——崩溃恢复扫描静默归零，作者对丢字风险零感知且无诊断线索。修复：
+// catch 内补 log.warn，降级语义不变（仍返回 []，不阻断进门），但失败必留痕。──
+
+describe('journal 读失败留痕与 compact 弃轮（读侧注入）', () => {
+  let dir: string
+  afterEach(() => {
+    READFAIL.inject = false
+    vi.restoreAllMocks()
+    if (dir) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('journal 在盘但读取失败 → log.warn 留痕（含 journalPath 与错误信息）且仍降级返回 []', () => {
+    dir = mkdtempTracked(join(tmpdir(), 'journal-r61c1-'))
+    const jp = join(dir, 'doc_1.jsonl')
+    writeFileSync(jp, '{"status":"pending","opId":"x"}\n', 'utf-8') // 在盘（existsSync 探测通过）
+    const warnSpy = vi.spyOn(log, 'warn')
+
+    READFAIL.journalPath = jp
+    READFAIL.inject = true
+    const u = findUnsettled(jp)
+
+    expect(u).toHaveLength(0) // 降级语义不变：读失败不阻断进门（返回 []）
+    expect(warnSpy).toHaveBeenCalledTimes(1) // 修复点：不再静默（原空体 catch 零留痕）
+    const [tag, msg] = warnSpy.mock.calls[0]!
+    expect(tag).toBe('journal')
+    expect(msg).toContain(jp) // 文案带路径
+    expect(msg).toContain('EACCES') // 文案带错误信息
+  })
+
+  it('读成功路径不发 warn（守卫不误伤正常扫描）', () => {
+    dir = mkdtempTracked(join(tmpdir(), 'journal-r61c1-ok-'))
+    const jp = join(dir, 'doc_1.jsonl')
+    writeFileSync(
+      jp,
+      JSON.stringify({ opId: 'ok1', docId: 'doc_1', ts: 't', status: 'pending', content: '正文' }) + '\n',
+      'utf-8',
+    )
+    const warnSpy = vi.spyOn(log, 'warn')
+    const u = findUnsettled(jp)
+    expect(u).toHaveLength(1)
+    expect(u[0]!.opId).toBe('ok1')
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  // ── compact 读失败弃本轮压缩：maybeCompactJournal 原复用 findUnsettled 的读失败降级 []，
+  // 把空集当「保留集」→ atomicWriteFile('') 把在档全部未结算 pending 清空。修复后 compact
+  // 走 scanUnsettled 可辨信号，读失败整轮放弃。──
+
+  /** 造超阈值 journal（settled 行垫字节 + 手写一条未结算 pending）。
+   *  pending 行手写不经 appendPending——appendPending 尾部自带 maybeCompactJournal，
+   *  会把垫字节先压掉，破坏「超阈值在盘」前提。 */
+  function seedOversized(jp: string): string {
+    let text = ''
+    for (let i = 0; i < 200; i++) {
+      text += `${JSON.stringify({ opId: `seed${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
+    }
+    while (text.length < JOURNAL_COMPACT_BYTES + 64 * 1024) text += text
+    const keepOp = 'keep-op-1'
+    text += `${JSON.stringify({ opId: keepOp, docId: 'doc_1', ts: 't', status: 'pending', baseRevision: null, content: '待恢复正文快照' })}\n`
+    writeFileSync(jp, text, 'utf-8')
+    return keepOp
+  }
+
+  it('读失败时的 compact 轮整轮放弃：文件仍超阈值且 pending 原文保持（原缺陷此际已被清空）', async () => {
+    dir = mkdtempTracked(join(tmpdir(), 'journal-a101-'))
+    const jp = join(dir, 'doc_1.jsonl')
+    const keepOp = seedOversized(jp)
+    const warnSpy = vi.spyOn(log, 'warn')
+
+    READFAIL.journalPath = jp
+    READFAIL.inject = true
+    // appendPending 不触发 compact（仅 settle/abort 后压缩）——注入保持武装，由
+    // appendSettled 的 compact 轮消费（scanUnsettled 单次读）
+    const done = await appendPending(jp, 'doc_1', null)
+    await appendSettled(jp, done, SHA('sha256:done'))
+
+    // 修复点①：compact 弃本轮（warn 留痕），不拿空集当保留集清空文件
+    expect(warnSpy.mock.calls.some(([, msg]) => String(msg).includes('本轮压缩放弃'))).toBe(true)
+    const after = readFileSync(jp, 'utf-8') // 注入已被 compact 消费，此处读为真读
+    expect(after.length, '读失败清空 = 崩溃恢复依据全丢（原缺陷形态）').toBeGreaterThan(JOURNAL_COMPACT_BYTES)
+    expect(after).toContain(keepOp) // 未结算 pending 原文保持
+
+    // 修复点②：恢复扫描仍可找回该 pending；后续读成功的 settle 照常压缩且 pending 保留
+    expect(findUnsettled(jp).map((p) => p.opId)).toContain(keepOp)
+    const done2 = await appendPending(jp, 'doc_1', null)
+    await appendSettled(jp, done2, SHA('sha256:done2'))
+    expect(findUnsettled(jp).map((p) => p.opId)).toEqual([keepOp])
+  })
+
+  it('读成功路径 compact 照常压缩（守卫不误伤正常压缩）', async () => {
+    dir = mkdtempTracked(join(tmpdir(), 'journal-a101-ok-'))
+    const jp = join(dir, 'doc_1.jsonl')
+    const keepOp = seedOversized(jp)
+    const done = await appendPending(jp, 'doc_1', null)
+    await appendSettled(jp, done, SHA('sha256:done'))
+    // 正常压缩后：settled 垫字节被清、未结算 pending 保留
+    const after = readFileSync(jp, 'utf-8')
+    expect(after.length).toBeLessThan(JOURNAL_COMPACT_BYTES)
+    expect(after).toContain(keepOp)
+    expect(findUnsettled(jp).map((p) => p.opId)).toEqual([keepOp])
   })
 })

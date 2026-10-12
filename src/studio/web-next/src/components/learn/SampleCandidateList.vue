@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * 文风收割 · 样章候选区（hh §八-16 自 LearnView.vue 拆出，纯搬家）。
+ * 文风收割 · 样章候选区（自 LearnView.vue 拆出，纯搬家）。
  * 筛选（全部/仅 A 级）+ 批量操作（全选 A / 清空）+ 场景分组候选卡列表。
  * 候选制红线：勾选才入库，品味归人——勾选态直接读写 learn store（单一实例）。
+ * 区段骨架与文字按钮的共有声明走 learn-shared.css（与金句候选区共）。
  */
 import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
@@ -10,6 +11,8 @@ import { useLearnStore } from '../../stores/learn'
 import { TIER_A, scoreTierStats, tierOf } from '../../shared/learn-tier'
 import { capView } from '../../shared/render-cap'
 import type { SampleCandidateFE } from '../../api/learn'
+// 候选区共享声明（非 scoped 全局表，按模块注入一次；收纳口径见该文件头注）
+import './learn-shared.css'
 
 const learn = useLearnStore()
 
@@ -162,19 +165,7 @@ function clearAllPicks(): void {
 </template>
 
 <style scoped>
-/* 区段基础（与 LearnView 同式） */
-.sec {
-  margin-bottom: var(--size-4-6);
-}
-.sec-title {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  margin: 0 0 var(--size-4-3);
-  font-size: var(--font-size-l);
-  font-weight: 700;
-  color: var(--text-muted);
-}
+/* 区段基础（.sec/.sec-title）与 .text-btn 已收 learn-shared.css（本块只留本区独有） */
 
 /* 样章区工具栏 */
 .sec-bar {
@@ -213,20 +204,6 @@ function clearAllPicks(): void {
   display: flex;
   gap: var(--size-4-2);
   margin-left: auto;
-}
-.text-btn {
-  padding: 3px 8px;
-  border: none;
-  background: none;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-s);
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.text-btn:hover {
-  color: var(--text-accent);
-  background: var(--background-modifier-hover);
 }
 
 /* 场景分组 */

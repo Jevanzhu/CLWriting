@@ -13,11 +13,12 @@ import { stat } from 'node:fs/promises' // 切库可达性预探（异步+超时
 import { findWorkDir, readBooks } from '../install/books.js'
 import { findGitAncestor } from '../install/scaffold.js' // git-ancestor 防线与 init（doInitSteps）同源判定
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { probeCaseSensitive } from '../fs/case-probe.js' // 平台 E：大小写敏感卷警告（探测失败 fail-open 不拦）——换目录回循环顶
 import { appDataHomeDir, samePath } from '../fs/user-data-path.js'
 import { stripDirArg } from './startup-instance.js' // 切库 relaunch 清 argv --dir（多库多窗 §4.4）
 import { errMsg, log } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 import {
   createReachabilityBreaker,
   emptyStore,
@@ -100,8 +101,13 @@ function readStore(): WorkDirStore {
 }
 
 /** 跨进程写锁等待超时（多库多窗）——写段为共享根本地小文件 IO 级毫秒，
- *  5s 极保守（同 providers/books 锁档口径）；超时按契约化失败上抛。 */
-const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
+ *  5s 极保守（同 providers/books 锁档口径）；超时按契约化失败上抛。
+ *  测试可注入（testableConst 工厂解构导出：生效值走 getter，测试用注入 setter
+ *  短档验证「超时 → 契约化失败回执」而不真等 5s；生产默认值不变）。 */
+export const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位。 */
+export const [getWorkdirWriteLockTimeoutMs, __setWorkdirWriteLockTimeoutForTest] =
+  testableConst(WORKDIR_WRITE_LOCK_TIMEOUT_MS)
 
 /**
  * 原子写 store。写后同步刷新缓存（写后即读一致）。
@@ -124,10 +130,27 @@ const WORKDIR_WRITE_LOCK_TIMEOUT_MS = 5_000
  * 链错误框）——不静默裸写。
  * 单实例下与整份覆盖逐位等价（盘上真身 == 内存缓存）；残余差异：外部手改盘的 recent
  * 会被合并保留（内存缓存不再独占写基底），upside 方向。
+ *
+ * 锁等待走 acquireCrossProcessLockAsync 而非同步孪生
+ * （acquireCrossProcessLockWithTimeout 的 Atomics.wait）：本文件全部写方都在**主进程
+ * 事件循环**上——desktop:open-library / desktop:switch-library 两个 IPC handler、
+ * 菜单 openLibraryAction、以及退出取消路径 rollbackCancelledSwitch（before-quit 链的
+ * 确认回调）。他实例（或跨提权持有者）占锁期间同步版会把主进程整体停住，最坏等满
+ * WORKDIR_WRITE_LOCK_TIMEOUT_MS：三窗口界面/全部 IPC/退出链确认在争用窗内一齐冻结，
+ * 而争用窗恰是「另一实例正在写共享根」的高发期。异步化后等待期让出事件循环，只损失
+ * 一点轮询精度，超时/失败回执/留痕/fail-closed 判据逐条不变；语义与同步版逐位同源
+ * （同一锁文件、同一 stale 接管、同一 release 幂等），与仍走同步孪生的别域调用者对
+ * 同一把锁互通互斥。
+ * 本文件无保留的同步取锁点：writeStore 是唯一取锁处，其全部上游本就在 async 上下文，
+ * 故一律 await 化，不存在「只能在同步上下文取锁」的例外。
+ * 连带形态：本函数（连同 saveCurrent / saveCurrentSafe / saveCurrentArmingRollback /
+ * rollbackCancelledSwitch）返回 Promise，调用方一律 await。锁内段仍为纯同步读改写
+ * （readFileSync + atomicWriteFile）：锁内的文件 IO 是本域既有取舍（本地小文件毫秒级），
+ * 异步化锁等待只消除「他实例持锁期间的整段停摆」，不改变持有段长度。
  */
-function writeStore(store: WorkDirStore): void {
+async function writeStore(store: WorkDirStore): Promise<void> {
   const fp = storePath()
-  const release = acquireCrossProcessLockWithTimeout(`${fp}.lock`, WORKDIR_WRITE_LOCK_TIMEOUT_MS)
+  const release = await acquireCrossProcessLockAsync(`${fp}.lock`, getWorkdirWriteLockTimeoutMs())
   if (!release) {
     log.error('desktop', `workdir.json 跨进程写锁等待超时（其他窗口长期占用）：${fp}`)
     throw new Error('工作目录记录正被其他窗口写入，请稍后重试')
@@ -166,9 +189,10 @@ function writeStore(store: WorkDirStore): void {
   }
 }
 
-/** 设新 current（旧入 recent）+ 持久化。 */
-function saveCurrent(dir: string): void {
-  writeStore(setCurrent(readStore(), dir))
+/** 设新 current（旧入 recent）+ 持久化。readStore 为纯内存缓存（同步），
+ *  唯落盘段异步——顺序不变：先快照内存态、再进锁落盘。 */
+function saveCurrent(dir: string): Promise<void> {
+  return writeStore(setCurrent(readStore(), dir))
 }
 
 /**
@@ -180,10 +204,12 @@ function saveCurrent(dir: string): void {
  * 菜单链 openLibraryAction 同走本包装：落库失败弹一次性原生
  * 错误框反馈并中止切换——原「调用点 .catch 留痕兜底」取舍废弃（日志留痕对用户
  * 不可见，点菜单后切换静默失败）。
+ * 锁等待异步化后本包装为 async：await 失败继续收在同一 try 内转人话 reason
+ * （失败判据与信封形状逐位不变），调用方 await 后读返回串即可。
  */
-function saveCurrentSafe(dir: string): string | null {
+async function saveCurrentSafe(dir: string): Promise<string | null> {
   try {
-    saveCurrent(dir)
+    await saveCurrent(dir)
     return null
   } catch (e) {
     log.error('main', `workdir.json 持久化失败（切库中止）：${errMsg(e)}`, e)
@@ -205,8 +231,10 @@ let switchRollbackStore: WorkDirStore | null = null
  *  三入口共用本函数——武装点收敛一处，新增切库入口漏接即测试面缺口。
  *  快照读失败按无基线处理（快照本身非切换要件）：readStore 原在 saveCurrentSafe
  * 的 try 内（契约化错误面），此处外提后若裸抛反而放宽了失败语义；
- *  落库失败的契约返回由 saveCurrentSafe 内层 readStore（缓存）原样保住。 */
-function saveCurrentArmingRollback(dir: string): string | null {
+ *  落库失败的契约返回由 saveCurrentSafe 内层 readStore（缓存）原样保住。
+ *  快照段（readStore）同步、落库段 await——「先快照后落库」的次序与同步形态一致，
+ *  两者之间无 await 之外的让出点以外的写方介入面不变（本函数是切库链唯一写入口）。 */
+async function saveCurrentArmingRollback(dir: string): Promise<string | null> {
   let prev: WorkDirStore | null = null
   try {
     // 读失败期（workdirReadFailed）的 readStore 快照是「失败空
@@ -216,19 +244,24 @@ function saveCurrentArmingRollback(dir: string): string | null {
   } catch {
     prev = null
   }
-  const err = saveCurrentSafe(dir)
+  const err = await saveCurrentSafe(dir)
   if (err) return err
   switchRollbackStore = prev
   return null
 }
 
-/** 退出被取消路径调用：回写切库前 store，跨会话不残留被取消的新库。 */
-function rollbackCancelledSwitch(): void {
+/** 退出被取消路径调用：回写切库前 store，跨会话不残留被取消的新库。
+ *  失败不另起错误面（退出取消路径），只留痕——判据见 catch 内锚注。
+ *  返回 Promise 供退出链 await：退出取消是「应用继续活着」的路径，回写必须落定
+ *  （调用方 await 后再走后续链），fire-and-forget 会让迟到的回写与下一次退出链
+ *  交错。基线取用即清（switchRollbackStore = null 在首个 await 之前）——本函数
+ *  重入时第二次调用无基线可回，不产生双份回写。 */
+async function rollbackCancelledSwitch(): Promise<void> {
   const prev = switchRollbackStore
   switchRollbackStore = null
   if (!prev) return
   try {
-    writeStore(prev)
+    await writeStore(prev)
     log.info(
       'main',
       `切库的退出被作者取消：workdir.json 已回写为原书库（${prev.current ?? '未选'}），本会话与下次启动均维持原库`,
@@ -584,7 +617,7 @@ async function openLibraryAction(): Promise<boolean> {
   const picked = await pickLibrary()
   if (!picked) return false
   // 清偿批落库改切库链专用包装（快照武装回滚基线），取消退出可回写
-  const saveErr = saveCurrentArmingRollback(picked)
+  const saveErr = await saveCurrentArmingRollback(picked)
   if (saveErr) {
     dialog.showErrorBox(
       '打开书库目录失败',

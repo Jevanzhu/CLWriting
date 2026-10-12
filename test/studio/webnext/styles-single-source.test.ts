@@ -10,10 +10,14 @@
  * ② `--text-warning` 回退值——token 在 tokens.css 浅/暗两档均已定义，此前两处回退值
  *    互不同（StartupNoticeBanner 的 #d4a72c 与 WbDraftCard 的 #b8860b）且与 token 三方
  *    不一致；回退值只会掩盖拼写错误、让失配静默，全库清零。
+ *
+ * ③ 状态点色类（dot-green|red|yellow|gray）——原三色在 ChapterTreeItem 的 scoped 块、
+ *    灰色在 styles/utilities.css，同属 CHAPTER_STATUS 一表的两处定义；现收归 utilities.css。
  */
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { CHAPTER_STATUS } from '../../../src/studio/web-next/src/shared/words'
 
 const SRC = 'src/studio/web-next/src'
 const UTILITIES = 'styles/utilities.css'
@@ -100,5 +104,34 @@ describe('R0916-7-P3-26: --text-warning 不留回退值', () => {
   it('全库无 var(--text-warning, <回退值>) 形态', () => {
     const withFallback = files.filter((rel) => /--text-warning\s*,/.test(read(rel)))
     expect(withFallback).toEqual([])
+  })
+})
+
+/**
+ * 章节六态状态点的色类（dot-green|red|yellow|gray）单源。
+ *
+ * 收敛前分居两处：三色在 ChapterTreeItem.vue 的 scoped 块内、灰色在 styles/utilities.css。
+ * 态→色 的判定源早已收敛到 shared/words 的 CHAPTER_STATUS 单表，色类却仍是两处定义
+ * ——扩一态要改两个文件，漏改即点渲染成透明（无报错、无空态）。现四色唯一定义点在
+ * utilities.css（回收站行不在 ChapterTreeItem 子树上，scoped 规则到不了它，故归全局）。
+ *
+ * 判据取「表列值 ↔ 定义点」双向闭合：单向「表里的色类都有定义」挡不住定义点散开，
+ * 故两道断言并用。
+ */
+describe('章节状态点色类单源（CHAPTER_STATUS.dot）', () => {
+  const DOT_CLASSES = ['dot-green', 'dot-red', 'dot-yellow', 'dot-gray']
+
+  it('四色色类唯一定义点在 utilities.css（组件内不得再出现）', () => {
+    const definitions = files.filter((rel) =>
+      ruleBlocks(readRules(rel)).some(({ selector }) =>
+        DOT_CLASSES.some((c) => new RegExp(`\\.${c}(?![\\w-])`).test(selector)),
+      ),
+    )
+    expect(definitions).toEqual([UTILITIES])
+  })
+
+  it('CHAPTER_STATUS.dot 列与四色定义点闭合（新增态不得指向无色类可渲染的类名）', () => {
+    const used = [...new Set(Object.values(CHAPTER_STATUS).map((m) => m.dot))].sort()
+    expect(used).toEqual([...DOT_CLASSES].sort())
   })
 })

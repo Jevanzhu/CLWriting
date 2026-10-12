@@ -49,6 +49,44 @@ describe('Anthropic 适配器 400 降级（§6.5：仅 structured 一级 + 记�
     expect(evs.some((e) => e.type === 'done')).toBe(true)
   })
 
+  // 降级链的终态口径：400 之后拿到的流是「非原始参数面」建的 —— done 既须带 degraded，
+  // 用量也须取该流的实测值（既不是首发失败流的残值，也不落到估计兜底）
+  it('400 降级重建流成功 → done 带 degraded 且 usage 取降级流实测值（重发请求已剥 structured）', async () => {
+    const sent: Array<Record<string, unknown>> = []
+    const client = {
+      messages: {
+        create: async (params: unknown) => {
+          sent.push(params as Record<string, unknown>)
+          if ((params as Record<string, unknown>)['output_config']) {
+            throw new Anthropic.APIError(400, { type: 'error', message: 'bad request' }, 'bad request', undefined)
+          }
+          return (async function* () {
+            yield {
+              type: 'message_start',
+              message: { usage: { input_tokens: 31, cache_read_input_tokens: 8 } },
+            }
+            yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } }
+            yield { type: 'message_delta', usage: { output_tokens: 4 }, delta: { stop_reason: 'end_turn' } }
+          })()
+        },
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client), {
+      ...REQ,
+      structured: { schema: { type: 'object', properties: {} } },
+    })
+    expect(sent).toHaveLength(2)
+    // 降级链只剥 structured——重发请求不得再带 output_config（否则必然二次 400）
+    expect(sent[0]!['output_config']).toBeDefined()
+    expect(sent[1]!['output_config']).toBeUndefined()
+    const done = evs.find((e) => e.type === 'done')
+    if (done?.type !== 'done') return expect.fail('降级重建流未产出 done')
+    expect(done.usage).toEqual({ inputTokens: 31, outputTokens: 4, cacheReadTokens: 8 })
+    expect(done.usage.estimated).toBeUndefined()
+    expect(done.degraded).toBe(true)
+    expect(done.stopReason).toBe('end_turn')
+  })
+
   it('降级命中 → 写记忆（structured 不支持），下次直接跳过 structured 单次请求', async () => {
     let callCount = 0
     const client = {

@@ -163,6 +163,19 @@ export function isFmWritableValue(val: unknown): boolean {
   return false
 }
 
+/** fm 平铺键名闸——补丁行是 `key: value` 逐字拼接（块标量头同理），键名即行结构的一部分：
+ *  含换行会劈出新的顶层键行（注入/改写其他键）、含冒号会拼出伪值行（`标题: 999: x`），
+ *  两者都写坏 fm 且回读时无从分辨。
+ *  半角 `:` 与全角 `：` 同类拒——parseFlat 的键位冒号双认全角键行，全角冒号处同样被切成
+ *  「键 + 伪值」两段。首尾空白不 trim 放行（trim 后合法也一律拒）：静默纠正会把
+ *  「写的是别的键」洗成成功，键名/落盘名分叉正是本闸要拦的失实。
+ *  以 `-` / `#` 开头即列表行/注释行形态，与 parseFlat 的非键行口径同源，同样拒。 */
+export function isValidFmKey(key: string): boolean {
+  if (key === '' || key !== key.trim()) return false
+  if (key.startsWith('-') || key.startsWith('#')) return false
+  return !/[:：\n\r]/.test(key)
+}
+
 // ── front matter 提取/包裹 ──────────────────────
 // splitFrontMatter 定义已移至 frontmatter-core.ts，文件顶部 re-export
 
@@ -299,6 +312,17 @@ export function patchFlatFm(
   fmRaw: string,
   updates: Record<string, unknown>,
 ): { ok: true; text: string } | { ok: false; reason: string } {
+  // 键名闸先行（补丁尚未拼任何行，未命中即盘面零变化）——非法键一个都不写，
+  // 防逐字拼行写坏 fm；值闸在调用方（isFmWritableValue），键闸是本函数自持的边界。
+  for (const key of Object.keys(updates)) {
+    if (!isValidFmKey(key)) {
+      const shown = key.replace(/\n/g, '\\n').replace(/\r/g, '\\r')
+      return {
+        ok: false,
+        reason: `fm 键名「${shown}」非法（不得为空、含换行/冒号（半角全角同拒）或首尾空白，也不得以 - / # 开头）——已拒绝写入`,
+      }
+    }
+  }
   // 平台规范化批输出整体规范形（见函数尾 canonicalizeText）——
   // 的「按 fm 原文行尾渲染」语义随规范形拍板翻转；未触碰行携带的 CRLF 残尾一并归一。
   const lines = fmRaw === '' ? [] : fmRaw.split('\n')

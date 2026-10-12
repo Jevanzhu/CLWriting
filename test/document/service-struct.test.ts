@@ -3,7 +3,7 @@
  * 与 W1 save 测试分文件。覆盖：落盘+清单登记+docId、ALREADY_EXISTS、CAPABILITY_DENIED、
  * PATH_ESCAPE、跨卷移动章号不变、清单 path 更新、移动前 snapshot、rename、NOT_FOUND。
  */
-import { test, expect } from 'vitest'
+import { test, expect, describe, it } from 'vitest'
 import {
   rmSync,
   mkdirSync,
@@ -16,13 +16,15 @@ import {
 } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
 import { parseRealmSystems, splitFrontMatter, parseFlat } from '../../src/format/frontmatter.js'
 import { getBookTreeIndex, type TreeNode } from '../../src/document/tree.js'
-import { legacyId } from '../../src/document/stable-id.js'
+import { legacyId, generateDocId } from '../../src/document/stable-id.js'
 import { findUnsettled } from '../../src/document/journal.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 /** 深度优先按 docId 找叶子（树索引验证用）。 */
 function findNodeByDocId(nodes: TreeNode[], docId: string): TreeNode | undefined {
@@ -383,6 +385,40 @@ test('N-7: 章纲未登记（从未结构性操作）→ 裸 rename 回落：文
   rmSync(root, { recursive: true, force: true })
 })
 
+// ── 短篇正文「结构性 rename」入口的章纲跟随 ──
+// 章纲与正文同名是短篇的读侧契约（大纲/章纲/<正文basename>）：改名漏斗只此一处接线，
+// 直连 renameDocument 与 meta 改名链行为一致。
+
+test('短篇正文 renameDocument（直连改名）：章纲同名跟随、旧名清理、作者手改内容不丢', async () => {
+  const { root, svc } = makeBookWithPiece()
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  writeFileSync(join(root, '大纲', '章纲', '1-原标.md'), '章纲内容（作者手改）', 'utf-8')
+
+  const r = await svc.renameDocument({ docId: 'doc_p01', newName: '001-新标.md' })
+  expect(r.ok).toBe(true)
+
+  expect(existsSync(join(root, '写作', '正文', '001-新标.md'))).toBe(true)
+  expect(existsSync(join(root, '写作', '正文', '1-原标.md'))).toBe(false)
+  // 章纲跟随改名（修复前滞留旧名）：新名一份就是作者那份，旧名无残留
+  expect(readFileSync(join(root, '大纲', '章纲', '001-新标.md'), 'utf-8')).toBe('章纲内容（作者手改）')
+  expect(existsSync(join(root, '大纲', '章纲', '1-原标.md'))).toBe(false)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('长篇正文 renameDocument：大纲/章纲 无同名契约，不产生跟随件', async () => {
+  const { root, svc } = makeBookWithChapter()
+  writeFileSync(join(root, 'book.yaml'), 'kind: long\n', 'utf-8')
+  mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
+  // 长篇章纲是独立规划件（按章号-标题命名），与正文 basename 不绑
+  writeFileSync(join(root, '大纲', '章纲', '0001-开篇.md'), '规划章纲', 'utf-8')
+
+  const r = await svc.renameDocument({ docId: 'doc_ch01', newName: '0001-改名.md' })
+  expect(r.ok).toBe(true)
+  expect(existsSync(join(root, '大纲', '章纲', '0001-开篇.md'))).toBe(true)
+  expect(readdirSync(join(root, '大纲', '章纲'))).toEqual(['0001-开篇.md'])
+  rmSync(root, { recursive: true, force: true })
+})
+
 // ── N-11（第十二轮）：引号章号归一（文件名派生不吃字符串劣化）──
 
 test('N-11: 短篇 fm 章号为引号数字串（"7"）→ 文件名仍按 3 位补零派生（007-）', async () => {
@@ -691,4 +727,163 @@ test('lookupPathByDocId: 非 legacy 前缀的未知 ID 仍 NOT_FOUND（不扫盘
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
   rmSync(root, { recursive: true, force: true })
+})
+
+// ── 纯大小写文档改名：大小写不敏感 FS（win NTFS/mac APFS）上「目标与源是同一物理文件」
+// 不再误判 ALREADY_EXISTS（对齐书级口径）；posix 走常规落位路径（回归保护）。──
+
+describe('纯大小写文档改名', () => {
+  /** 空书根夹具（本组用例断言「目标目录内文件集」——须是不含他物的裸目录） */
+  function makeBareSvc(): { root: string; svc: DocumentService } {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r2w1-case-'))
+    return { root, svc: new DocumentService({ bookRoot: root }) }
+  }
+
+  it('0001-Dragon.md → 0001-dragon.md：ok、盘上单文件、正文保持、清单跟随', async () => {
+    const { root, svc } = makeBareSvc()
+    try {
+      const dir = join(root, '写作', '正文')
+      mkdirSync(dir, { recursive: true })
+      const oldName = '0001-Dragon.md'
+      writeFileSync(join(dir, oldName), '---\n标题: Dragon\n---\n正文内容', 'utf-8')
+      const docId = legacyId(`写作/正文/${oldName}`)
+
+      const r = await svc.renameDocument({ docId, newName: '0001-dragon.md' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.path).toBe('写作/正文/0001-dragon.md')
+
+      // 盘上单文件（win 上两个词法名指向同一物理文件；修复前此处 409 且旧名保持）
+      const files = readdirSync(dir)
+      expect(files).toEqual(['0001-dragon.md'])
+      expect(readFileSync(join(dir, '0001-dragon.md'), 'utf-8')).toContain('正文内容')
+      // 清单 path 跟随大小写更新
+      const manifest = readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')
+      expect(manifest).toContain('0001-dragon.md')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('目标位存在语义不同的他文件 → 仍 ALREADY_EXISTS（不误吞）', async () => {
+    const { root, svc } = makeBareSvc()
+    try {
+      const dir = join(root, '写作', '正文')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, '0001-a.md'), '源', 'utf-8')
+      writeFileSync(join(dir, '0001-b.md'), '别章', 'utf-8')
+      const r = await svc.renameDocument({ docId: legacyId('写作/正文/0001-a.md'), newName: '0001-b.md' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.code).toBe('ALREADY_EXISTS')
+      expect(readFileSync(join(dir, '0001-b.md'), 'utf-8')).toBe('别章')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── 根级文档 rename 不得产 './' 前缀清单键。rename 分支原直拼
+// `${dirname(oldPath)}/${newName}`，根级 dirname 为 '.' → 清单键 './新名.md'，而
+// docJoinKey/树扫描/保存守卫均不剥 './' → 登记与盘面分裂（docId 退化 legacyId +
+// 按树路径保存恒 REVISION_CONFLICT）。move/copy 同族均已修，此处锁 rename 特判。──
+
+describe('根级文档 rename 的清单键形态', () => {
+  /** 造根级自由文档（盘上落盘 + 手工登记，模拟脚手架 简介.md 形态） */
+  function makeRootDoc(root: string, name: string, content: string): string {
+    writeFileSync(join(root, name), content, 'utf-8')
+    const mp = join(root, '项目', '文档清单.jsonl')
+    const m = readManifest(mp)
+    const id = generateDocId()
+    upsertEntry(m, { id, nodeType: 'document', path: name, parentId: null })
+    writeManifest(mp, m)
+    return id
+  }
+
+  function registeredPath(root: string, docId: string): string {
+    return readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!.path
+  }
+
+  it('根级 rename → 清单键与返回路径均为裸新名，按树路径保存不再 REVISION_CONFLICT', async () => {
+    const { root } = makeBookWithChapter()
+    const svc = new DocumentService({ bookRoot: root })
+    try {
+      const docId = makeRootDoc(root, '旧名.md', '根级自由文档内容。')
+      const r = await svc.renameDocument({ docId, newName: '新名.md' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.path).toBe('新名.md') // 修复前：'./新名.md'
+      expect(registeredPath(root, docId)).toBe('新名.md') // 修复前清单键 './新名.md' 与树扫描键失配
+      expect(existsSync(join(root, '旧名.md'))).toBe(false)
+      expect(existsSync(join(root, '新名.md'))).toBe(true)
+      // 身份闭合：按树路径（无 ./ 前缀）保存命中同一 docId，恒 REVISION_CONFLICT 缺陷不复现
+      const s = await svc.save(docId, '新名.md', {
+        content: '改名后按树路径保存。',
+        expectedRevision: computeRevision(join(root, '新名.md')),
+        operationId: 'op-root-rename-0',
+        origin: 'manual',
+      })
+      expect(s.ok).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('非根级 rename 行为不变（清单键保持 目录/新名 形态）', async () => {
+    const { root } = makeBookWithChapter()
+    const svc = new DocumentService({ bookRoot: root })
+    try {
+      mkdirSync(join(root, '笔记'), { recursive: true })
+      writeFileSync(join(root, '笔记', '甲.md'), '子目录内容。', 'utf-8')
+      const mp = join(root, '项目', '文档清单.jsonl')
+      const m = readManifest(mp)
+      const id = generateDocId()
+      upsertEntry(m, { id, nodeType: 'document', path: '笔记/甲.md', parentId: null })
+      writeManifest(mp, m)
+      const r = await svc.renameDocument({ docId: id, newName: '乙.md' })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.path).toBe('笔记/乙.md')
+      expect(registeredPath(root, id)).toBe('笔记/乙.md')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── doCreate 深层路径超长的错误分诊：ENAMETOOLONG 收 BAD_INPUT 人话（客户端可修），
+// 其余写错误维持 WRITE_ERROR 信封。平台性：>260 单位深路径在长路径启用的卷上可正常建
+// ——用例先做同深度运行时探测（不假设宿主配置），按探测结果分支断言。──
+
+describe('doCreate 深层路径超长分诊', () => {
+  /** 同深度运行时探测：宿主盘是否允许该深度落盘（长路径启用 → true）。 */
+  function hostAllowsDeepPaths(): boolean {
+    const probe = mkdtempTracked(join(tmpdir(), 'r0913-lp-probe-'))
+    try {
+      const deep = join(probe, ...Array.from({ length: 40 }, (_, i) => `层级目录段${i}`), 'probe.md')
+      mkdirSync(dirname(deep), { recursive: true })
+      writeFileSync(deep, 'x', 'utf-8')
+      return true
+    } catch {
+      return false
+    } finally {
+      rmSync(probe, { recursive: true, force: true })
+    }
+  }
+
+  it('40 层深 relPath：宿主允许深路径 → 正常建；超限盘 → BAD_INPUT 人话（非裸 errno WRITE_ERROR）', async () => {
+    const { root } = makeBookWithChapter()
+    const svc = new DocumentService({ bookRoot: root })
+    try {
+      const deepRel = ['笔记', ...Array.from({ length: 40 }, (_, i) => `层级目录段${i}`), '0001-x.md'].join('/')
+      const r = await svc.createDocument({ relPath: deepRel, content: '' })
+      if (hostAllowsDeepPaths()) {
+        expect(r.ok).toBe(true)
+      } else {
+        expect(r.ok).toBe(false)
+        if (!r.ok) {
+          expect(r.code).toBe('BAD_INPUT')
+          expect(r.reason).toContain('路径过长')
+        }
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

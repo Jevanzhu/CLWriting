@@ -2,8 +2,10 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 // 路由极简两级（M10）：/shelf 书架、/book/:name 工作区；tab 态由 workspace store 自管。
 // /library 书库管理、/welcome 首启引导为后补直挂路由（不在两级模型内，独立整页）。
-// 路由表提升为具名导出——404 catch-all
-// 的行为级测试用真实表建 memory router（不手抄路由表，表漂移即测试红），主应用装配不变。
+//
+// 路由表导出面**测试专用**（零生产消费方）：主应用只取 default（createRouter 装配处同档），
+// 具名导出的用途是让 404 catch-all 的行为级测试拿真实表建 memory router——手抄一份表会与
+// 本档漂移，测试对 catch-all 的守门就失效（表漂移即测试红）。
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/shelf' },
   {

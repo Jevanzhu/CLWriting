@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// 篇章信息弹窗（块2.2）：编辑 章号 / 标题，落 frontmatter + 路径同步 rename。
+// 篇章信息弹窗：编辑 章号 / 标题，落 frontmatter + 路径同步 rename。
 // 长/短篇统一用「章号」作正文编号字段（无「篇号」概念）。
-import { ref, watch } from 'vue'
-import { isImeComposing } from '../../shared/ime'
-import { useFocusTrap } from '../../composables/useFocusTrap'
+// 焦点圈 / Enter-Esc 让渡 / 重开复位三件事走 useModalDialog（与拆分弹窗同源）。
+import { ref } from 'vue'
+import { useModalDialog } from '../../composables/useModalDialog'
 import ModalMask from '../ui/ModalMask.vue'
 
 //
@@ -30,23 +30,18 @@ const noInput = ref('')
 // 章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
 // Enter 提交「看似失灵」无任何提示
 const numError = ref('')
-watch(
-  () => props.modelValue,
-  (v) => {
-    if (v) {
-      titleInput.value = props.title
-      noInput.value = props.num === null ? '' : String(props.num)
-      // 重开复位错误提示（引入面）——置错后取消关闭再开，
-      // numError 残留会让作者误以为新弹窗的章号仍非法
-      numError.value = ''
-    }
-  },
-  { immediate: true },
-)
+
+/** 打开沿复位：回填当前值 + 清错误提示（置错后取消关闭再开，
+ *  numError 残留会让作者误以为新弹窗的章号仍非法） */
+function onOpen(): void {
+  titleInput.value = props.title
+  noInput.value = props.num === null ? '' : String(props.num)
+  numError.value = ''
+}
 
 function onSave(): void {
   const n = Number(noInput.value)
-  // 低-3：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
+  // 章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
   // 从「章号 = 整数编号」特性中脱落（前端拒收 + 服务端 documents.ts 同点位 fail-closed）
   if (!Number.isInteger(n) || n < 1) {
     numError.value = '章号须为 ≥1 的整数'
@@ -59,25 +54,15 @@ function onSave(): void {
 const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
 
-// 焦点圈（域内既有惯例 useFocusTrap——同族的弹窗可及性配套）：
-// 打开时焦点入首个控件，Tab 循环锁在弹窗内，关闭归还焦点
+// 焦点圈 / Enter-Esc 让渡 / 打开沿复位三件事的域（模板 ref 由本件声明后传入）
 const dlgRef = ref<HTMLElement | null>(null)
-useFocusTrap(dlgRef)
-
-function onKeySave(e: KeyboardEvent): void {
-  // IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
-  // 放行会以缺字标题保存并触发 rename）
-  if (isImeComposing(e)) return
-  // Enter 目标是按钮时让渡原生激活——容器级 @keydown.enter
-  // 此前抢在按钮 click 前保存，焦点在「取消」钮上按 Enter 变成先保存后取消
-  if ((e.target as HTMLElement | null)?.closest('button')) return
-  onSave()
-}
-// IME 组合期 Esc 让渡（同族）——组合中按 Esc 是收输入法候选框，放行会误关弹窗
-function onKeyEsc(e: KeyboardEvent): void {
-  if (isImeComposing(e)) return
-  emit('update:modelValue', false)
-}
+const { onDialogEnter, onDialogEsc } = useModalDialog({
+  target: dlgRef,
+  open: () => props.modelValue,
+  onOpen,
+  onEnter: onSave,
+  onEsc: () => emit('update:modelValue', false),
+})
 </script>
 
 <template>
@@ -92,8 +77,8 @@ function onKeyEsc(e: KeyboardEvent): void {
         aria-modal="true"
         :aria-label="dlgTitle()"
         tabindex="-1"
-        @keydown.enter="onKeySave"
-        @keydown.esc="onKeyEsc"
+        @keydown.enter="onDialogEnter"
+        @keydown.esc="onDialogEsc"
       >
         <div class="side-title">{{ dlgTitle() }}</div>
         <label class="field">

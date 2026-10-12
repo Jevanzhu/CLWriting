@@ -346,8 +346,12 @@ interface FlushConfirmOpts {
    *  session-end 后置也命中），调用时快照布尔会漏掉后置置位——评估点固定在 flush 落定后
    *  （flushRendererWithBudget await 之后的唯一读取点）。 */
   skipConfirms?: () => boolean
-  /** 确认被取消：复位旗/丢弃切库意图（各链差异点） */
-  onCancel: () => void
+  /** 确认被取消：复位旗/丢弃切库意图（各链差异点）。
+   *  可为 async——quit 链的取消要回写 workdir.json 回滚基线，回写等待已异步化
+   *  （跨进程锁异步孪生），调用点 await 后本函数才返回 'cancel'：取消链的收口顺序
+   *  与同步形态一致，仅把「回写未落定即返回」的窗口关掉（调用方随后 return，
+   *  不会再等待回写）。close 链取消仍是纯同步置旗，await 一个 void 等价。 */
+  onCancel: () => void | Promise<void>
 }
 async function runFlushConfirm(win: BrowserWindow, opts: FlushConfirmOpts): Promise<'proceed' | 'cancel'> {
   // 超时态 warn、无钩子态 info——保存链慢盘/server 退避窗下超时窗内的最后键入静默丢失
@@ -371,7 +375,7 @@ async function runFlushConfirm(win: BrowserWindow, opts: FlushConfirmOpts): Prom
   if (res && res.conflict.length > 0 && !win.isDestroyed() && !skipConfirms) {
     // 冲突未决的本地修改无法代存，原生确认给作者最后一念
     if (!confirmDiscardConflicts(win, res.conflict.length)) {
-      opts.onCancel()
+      await opts.onCancel()
       return 'cancel'
     }
   }
@@ -383,7 +387,7 @@ async function runFlushConfirm(win: BrowserWindow, opts: FlushConfirmOpts): Prom
       `${opts.failedPrefix} flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`,
     )
     if (!confirmDiscardFailed(win, res.failed.length)) {
-      opts.onCancel()
+      await opts.onCancel()
       return 'cancel'
     }
   }
@@ -650,10 +654,13 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             failedPrefix: '退出前',
             // 取消 = 丢弃切库意图（退出语义不被劫持成重启）
             // 取消 = 回写旧库（跨会话不残留被取消的新库）
-            onCancel: () => {
+            // 回写等待已异步化（writeStore 的跨进程锁走异步孪生），本回调 await 完
+            // 才让 runFlushConfirm 返回 'cancel'——退出取消路径的盘面落定不再靠
+            // fire-and-forget（否则取消后立即再退一次会与在途回写交错）
+            onCancel: async () => {
               transition('quit-flush-cancel')
               discardPendingRelaunch()
-              rollbackCancelledSwitch()
+              await rollbackCancelledSwitch()
             },
           })
           if (outcome === 'cancel') return

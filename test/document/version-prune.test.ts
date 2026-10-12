@@ -21,6 +21,7 @@ import {
   readVersion,
   encodeDocDirName,
   DEFAULT_VERSION_POLICY,
+  type VersionPolicy,
 } from '../../src/document/version.js'
 
 // actual 经 hoisted 容器带出——用例内 mockImplementation 需要真实现做 pass-through
@@ -301,5 +302,66 @@ describe('pruneVersions 头部不可读保护（R34D-14）', () => {
     const removed = pruneVersions(dir, HEAD_DOC, DEFAULT_VERSION_POLICY)
     expect(removed).toBe(1)
     expect(existsHead(oldId)).toBe(false)
+  })
+})
+
+// ── pruneVersions 可选 knownList：writeVersion 顺带 prune 的链路复用已 listVersions
+// 的列表（补上刚写入的新条目），跳过重复 readdir；不传（其他调用方）行为不变。──
+const KNOWN_POLICY_MAX3: VersionPolicy = { maxDays: 14, maxCount: 3, throttleMinutes: 0 }
+const KNOWN_POLICY_KEEP: VersionPolicy = { maxDays: 14, maxCount: 999, throttleMinutes: 0 }
+
+describe('pruneVersions knownList', () => {
+  /** 逐版间隔 ≥5ms 写 n 版（假时钟推进，保证 ULID 时间序 = 创建序），返回创建序 id 数组 */
+  async function seed(dRoot: string, n: number, policy: VersionPolicy = KNOWN_POLICY_KEEP): Promise<string[]> {
+    const ids: string[] = []
+    for (let i = 0; i < n; i++) {
+      if (i > 0) vi.advanceTimersByTime(5)
+      const id = writeVersion(dRoot, 'doc_test', `第 ${i} 版正文内容各不相同-${i}`, { origin: 'autosave' }, { policy, force: true })
+      if (id) ids.push(id)
+    }
+    return ids
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date() })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('写入链语义锚：maxCount=3 连写 4 版 → 最旧版被清，留存恒 3（不因跳过重扫漂移）', async () => {
+    const kDir = mkdtempTracked(join(tmpdir(), 'r0912-prune-known-'))
+    try {
+      const ids = await seed(kDir, 4, KNOWN_POLICY_MAX3) // 每次写入后的顺带 prune 走 knownList（含新条目）
+      expect(ids).toHaveLength(4)
+      const remaining = listVersions(kDir, 'doc_test')
+      expect(remaining).toHaveLength(3)
+      // 最旧版（首个）被清，其余按 id 降序（新在前）留存
+      expect(remaining.map((s) => s.id)).toEqual([ids[3]!, ids[2]!, ids[1]!])
+    } finally {
+      rmSync(kDir, { recursive: true, force: true })
+    }
+  })
+
+  it('等价性：同构双档案，传 knownList 与不传的 prune 结果一致（删除数/留存序）', async () => {
+    const dirA = mkdtempTracked(join(tmpdir(), 'r0912-prune-a-'))
+    const dirB = mkdtempTracked(join(tmpdir(), 'r0912-prune-b-'))
+    try {
+      const idsA = await seed(dirA, 5)
+      const idsB = await seed(dirB, 5)
+      const policy: VersionPolicy = { maxDays: 14, maxCount: 2, throttleMinutes: 0 }
+      const removedB = pruneVersions(dirB, 'doc_test', policy, Date.now(), listVersions(dirB, 'doc_test'))
+      const removedA = pruneVersions(dirA, 'doc_test', policy) // 不传 = 旧路径内部现扫
+      expect(removedB).toBe(removedA)
+      // 两库 ULID 不同，按「创建序下标」对齐比较留存序
+      const rankA = listVersions(dirA, 'doc_test').map((s) => idsA.indexOf(s.id))
+      const rankB = listVersions(dirB, 'doc_test').map((s) => idsB.indexOf(s.id))
+      expect(rankB).toEqual(rankA)
+      // 幂等：knownList 路径未破坏状态，二次 prune 零删除
+      expect(pruneVersions(dirB, 'doc_test', policy, Date.now(), listVersions(dirB, 'doc_test'))).toBe(0)
+    } finally {
+      rmSync(dirA, { recursive: true, force: true })
+      rmSync(dirB, { recursive: true, force: true })
+    }
   })
 })

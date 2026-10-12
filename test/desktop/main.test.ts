@@ -31,8 +31,9 @@
  * 的精确累计态有断言锚（如 forkCalls.length===1），保持原顺序原状态序列运行。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { deadPid } from '../helpers/dead-pid.js'
 import {
   M,
   mkTmp,
@@ -433,6 +434,38 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(win.focused).toBeGreaterThan(0)
   })
 
+  // reveal-diagnostics：包目录必须按**共享根**推导——多库多窗下 Electron 的 userData
+  // 被 main 设成实例目录（app.setPath），而诊断包由 server 写在共享根；按实例目录推导
+  // 会恒指空目录（按钮点了没反应）。本装置的 electron 假件把两者都锚 M.userData
+  // （无法分辨），故用例内临时把 getPath('userData') 顶到实例目录形态（生产真实形态），
+  // 断言打开的仍是共享根下的包目录；目录不存在时另断言有 warn 留痕（不静默 return）。
+  it('reveal-diagnostics：目录按共享根推导（非实例目录）；目录缺失时留痕不静默', async () => {
+    const { app } = await import('electron')
+    const spy = vi
+      .spyOn(app, 'getPath')
+      .mockImplementation((k: string) => (k === 'userData' ? join(M.userData, 'instances', 'key-a') : `/fake/${k}`))
+    const bundleDir = join(M.userData, '诊断包')
+    const open0 = M.shell.open.length
+    const warns0 = M.logWarns.length
+    try {
+      // ① 目录缺失：不触 shell.openPath，但必须留痕（旧实现静默 return，无痕可查）
+      M.ipcHandle['desktop:reveal-diagnostics']!(trustedEvent())
+      expect(M.shell.open.length).toBe(open0)
+      expect(M.logWarns.length).toBeGreaterThan(warns0)
+      expect(String((M.logWarns.at(-1) as unknown[])[1])).toContain(bundleDir)
+      // ② 共享根下已有包目录 → 打开它；同名目录出现在实例目录下也不算数（判据只看共享根）
+      mkdirSync(bundleDir, { recursive: true })
+      mkdirSync(join(M.userData, 'instances', 'key-a', '诊断包'), { recursive: true })
+      M.ipcHandle['desktop:reveal-diagnostics']!(trustedEvent())
+      expect(M.shell.open.length).toBe(open0 + 1)
+      expect(M.shell.open[open0]).toBe(bundleDir)
+    } finally {
+      spy.mockRestore()
+      rmSync(bundleDir, { recursive: true, force: true })
+      rmSync(join(M.userData, 'instances'), { recursive: true, force: true })
+    }
+  })
+
   it('context-menu：合法载荷建菜单、点选回传 key；非法载荷整体忽略', () => {
     const win = mainWin()
     const sender = win.webContents
@@ -692,5 +725,37 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
       expect(w.webContents.sent.length, `窗口 ${i} 不得收到 menu-action`).toBe(sentCounts[i]!)
     })
     shelf.close() // 清理：书架子窗让位后续用例
+  })
+})
+
+// ── 启动尾段的应用级临时文件清扫（共享根 + 实例目录）──────────────────────
+// 两处目录是 providers.json / global.json / workdir.json / window-state.json 与诊断包的
+// atomic 写落点，此前无清扫挂点（书库根的那份在进门健康检查里，恒传 bookRoot）。本块
+// 排在文件末位：fresh module 重导会重绑 IPC 处理器与窗口引用，放在中段会打乱前文用例的
+// 捕获面（既有 resetModules 用例的同一纪律）。
+describe('应用级数据目录 tmp 清扫（启动尾段接线）', () => {
+  it('共享根与实例目录的超龄残留被清；未过期与命名异形的文件不动', async () => {
+    const deadPidValue = deadPid()
+    const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const staleShared = join(M.userData, `.providers.json.${deadPidValue}.${uuid}.tmp`)
+    const instanceDir = join(M.userData, 'instances', 'sweep-fixture')
+    mkdirSync(instanceDir, { recursive: true })
+    const staleInstance = join(instanceDir, `.workdir.json.${deadPidValue}.${uuid}.tmp`)
+    const freshShared = join(M.userData, `.global.json.${deadPidValue}.${uuid}.tmp`)
+    const oddName = join(M.userData, '.providers.json.tmp')
+    const old = new Date(Date.now() - 30 * 60_000)
+    for (const p of [staleShared, staleInstance, oddName]) writeFileSync(p, 'x')
+    writeFileSync(freshShared, 'x') // 刚写（年龄门内，可能在途）
+    for (const p of [staleShared, staleInstance, oddName]) utimesSync(p, old, old)
+
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    // 清扫逐目录让出，多冲刷几拍等整轮落定
+    for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r))
+
+    expect(existsSync(staleShared), '共享根超龄残留应被清扫').toBe(false)
+    expect(existsSync(staleInstance), '实例目录超龄残留应被清扫').toBe(false)
+    expect(existsSync(freshShared), '未过期（可能在途）不得被清').toBe(true)
+    expect(existsSync(oddName), '命名形态不符的 .tmp 不得被清').toBe(true)
   })
 })

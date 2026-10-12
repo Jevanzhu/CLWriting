@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   readManifest,
@@ -12,7 +12,17 @@ import {
   finalizedChapterSetOfBook,
   finalizedPathSet,
   finalizedChapterNumbers,
+  MANIFEST_LOCK_TIMEOUT_MS,
+  withManifestLock,
+  __setManifestLockTimeoutForTest,
 } from '../../src/document/manifest.js'
+import { AI_CALLS_LOCK_TIMEOUT_MS } from '../../src/ai/calls.js'
+import { processBootTime } from '../../src/fs/cross-process-lock.js'
+import * as guardsMod from '../../src/document/service-guards.js'
+import * as journalMod from '../../src/document/journal.js'
+import * as manifestMod from '../../src/document/manifest.js'
+import * as leadMod from '../../src/document/lead-finalize.js'
+import * as pauseMod from '../../src/state/batch-pause.js'
 import { denyRead } from '../helpers/fs-deny.js'
 
 // win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
@@ -275,5 +285,56 @@ describe('R43-13: finalizedChapterNumbers 失真章号不入集合', () => {
     expect(s.has(999999999999999)).toBe(true)
     expect(s.has(Number('12345678901234567'))).toBe(false) // 失真值不入
     expect(s.size).toBe(2) // 只有安全整数的两条
+  })
+})
+
+// ── 锁超时档常量化：清单锁等待超时 ≥5s（与 ai-calls 口径对齐）——2s 时双进程争用高峰可
+// 同时超时降级裸写 → 后写者吞先写者的清单更新；六个导出档 `export let` 改 `export const`
+// + `__setXxxTimeoutForTest` 注入函数，外部赋值不可达生效路径。──
+
+test('MANIFEST_LOCK_TIMEOUT_MS ≥ 5s 且与 ai-calls 口径对齐', () => {
+  expect(MANIFEST_LOCK_TIMEOUT_MS).toBeGreaterThanOrEqual(5_000)
+  expect(MANIFEST_LOCK_TIMEOUT_MS).toBeGreaterThanOrEqual(AI_CALLS_LOCK_TIMEOUT_MS)
+})
+
+describe('锁超时档常量化：导出档恒为生产默认值 + 注入钩子仍生效', () => {
+  it('六个导出档为生产默认值，且外部赋值不可达生效路径（值恒不变）', () => {
+    const cases: [string, object, string, number][] = [
+      ['service-guards.META', guardsMod, 'META_SAVE_LOCK_TIMEOUT_MS', 5_000],
+      ['service-guards.WIRING', guardsMod, 'WIRING_SAVE_LOCK_TIMEOUT_MS', 5_000],
+      ['journal', journalMod, 'JOURNAL_LOCK_TIMEOUT_MS', 2_000],
+      ['manifest', manifestMod, 'MANIFEST_LOCK_TIMEOUT_MS', 5_000],
+      ['lead-finalize', leadMod, 'LEAD_FINALIZE_LOCK_TIMEOUT_MS', 5_000],
+      ['batch-pause', pauseMod, 'PAUSE_LOCK_TIMEOUT_MS', 2_000],
+    ]
+    for (const [name, mod, key, expected] of cases) {
+      // ESM 只读绑定下赋值抛 TypeError；转译层可能吞掉抛错——两种形态都不允许改到值
+      try {
+        ;(mod as unknown as Record<string, number>)[key] = 999_999
+      } catch {
+        /* 预期形态之一 */
+      }
+      expect((mod as unknown as Record<string, unknown>)[key], name).toBe(expected)
+    }
+  })
+
+  it('注入钩子仍生效：清单锁在持时按注入档快速 fail-closed（远小于 5s 默认档）', () => {
+    const root = mkdtempTracked(join(tmpdir(), 'r30-consts-'))
+    try {
+      const manifestPath = join(root, '项目', '文档清单.jsonl')
+      mkdirSync(dirname(manifestPath), { recursive: true })
+      writeFileSync(manifestPath, '{"version":1,"type":"header"}\n', 'utf-8')
+      // 模拟他进程持清单锁（活 pid 探针锁，内容格式与锁基建一致）
+      const lockPath = `${manifestPath}.lock`
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
+      __setManifestLockTimeoutForTest(0) // 注入 0ms → 2 轮均立即失败
+      const t0 = Date.now()
+      expect(() => withManifestLock(manifestPath, () => '不应执行')).toThrow(/清单锁获取超时/)
+      // 有界：2 轮 × 0ms + 50ms 间隔，远小于默认 2×5s（若注入失效本断言超时）
+      expect(Date.now() - t0).toBeLessThan(2_000)
+    } finally {
+      __setManifestLockTimeoutForTest(5_000)
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

@@ -301,3 +301,104 @@ describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5�
     expect(j.emotionTrend.every((e) => e.章号 === 2)).toBe(true) // 好信封章 2 照常聚合
   })
 })
+
+// ── analysis 端点读盘守卫（读侧竞态稳定复现）：analyze 端点 sourceHash 与进 prompt 正文
+// 分两次读盘（readDraft 一读 + sourceHashOf(readFileSync) 二读），两读间保存会让 body 与
+// hash 对应不同稿；且第二次 readFileSync 无守卫，existsSync 后竞态删除的 ENOENT 裸穿
+// dispatch。修复：单次读取取 buffer，readDraft 经 content 吃同一快照；读失败转人话 500 IO。
+// （hash 与正文同源的竞态行为面由 source-hash-race.test.ts 锚定，此处只锚守卫。）
+// analysis-overview 的 readdirSync 同理无守卫（existsSync 后目录被移/占位抛 ENOTDIR/ENOENT
+// 裸穿 500）；修复后读失败降级空趋势。
+// µs 级竞态无法从外部稳定命中，用「路径被目录占位 / 分析目录是文件」制造 existsSync 命中
+// + read 必抛的稳定形态（同型于 review.ts 既有守卫口径）。
+// 独立书根（读稿守卫测试书）自建自清：空趋势断言要求书内无任何既有分析落盘，故不并入
+// 上文既有分析信封的夹具书。──
+
+describe('analysis 端点读稿/读目录守卫', () => {
+  const GUARD_BOOK = '读稿守卫测试书'
+  let gStudio: StudioHarness
+
+  function guardReq(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+    return new Promise((resolve, reject) => {
+      const u = new URL(gStudio.baseUrl)
+      const payload = body ? JSON.stringify(body) : ''
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path,
+          method,
+          headers: {
+            'x-studio-token': gStudio.token,
+            origin: gStudio.baseUrl,
+            ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
+          },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (c) => (data += c.toString('utf-8')))
+          res.on('end', () => {
+            let json: unknown = null
+            try {
+              json = JSON.parse(data)
+            } catch {
+              /* 非 JSON */
+            }
+            resolve({ status: res.statusCode ?? 0, json })
+          })
+        },
+      )
+      r.on('error', reject)
+      if (payload) r.write(payload)
+      r.end()
+    })
+  }
+
+  /** 登记一个 manifest 文档条目，返回 docId */
+  function registerDoc(relPath: string): string {
+    const manifestPath = join(gStudio.bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    const d = generateDocId()
+    upsertEntry(m, { id: d, nodeType: 'document', path: relPath, parentId: null })
+    writeManifest(manifestPath, m)
+    return d
+  }
+
+  beforeAll(async () => {
+    gStudio = await bootStudio({
+      book: GUARD_BOOK,
+      prefix: 'clwriting-analysis-guard-',
+      dirs: ['写作/正文', '项目'],
+      bookYaml:
+        'spec_version: 1\nkind: long\nbook:\n  title: 读稿守卫测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    })
+  })
+
+  afterAll(() => gStudio.close())
+
+  it('analyze 正文路径被目录占位（existsSync true + read 必抛）→ 人话 500 IO，不裸穿', async () => {
+    // 0002-占位.md 建成目录：resolveDocEntry/existsSync 命中，readFileSync 抛 EISDIR
+    // ——稳定复现 existsSync→read 间读失败形态。修复前：readDraft 先吃到目录
+    // 返回 NOT_CHAPTER 400（或第二次 readFileSync EISDIR 裸穿 500）；修复后统一
+    // 走守卫人话 500 IO。
+    mkdirSync(join(gStudio.bookRoot, '写作', '正文', '0002-占位.md'), { recursive: true })
+    const d = registerDoc('写作/正文/0002-占位.md')
+    const res = await guardReq('POST', `/api/books/${encodeURIComponent(GUARD_BOOK)}/documents/${d}/analyze`, {
+      kind: 'score',
+    })
+    expect(res.status).toBe(500)
+    expect((res.json as { code?: string }).code).toBe('IO_ERROR')
+    expect((res.json as { error?: string }).error).toContain('读不到正文文件')
+  })
+
+  it('analysis-overview 分析目录被文件占位（existsSync true + readdir 抛 ENOTDIR）→ 空趋势 200，不裸穿', async () => {
+    // 项目/分析 建成普通文件：existsSync 命中，readdirSync 必抛——稳定复现
+    // existsSync→readdir 间目录消失/被占位的竞态形态（修复前 ENOTDIR 裸穿 500）
+    writeFileSync(join(gStudio.bookRoot, '项目', '分析'), '不是目录\n')
+    const res = await guardReq('GET', `/api/books/${encodeURIComponent(GUARD_BOOK)}/analysis-overview`)
+    expect(res.status).toBe(200)
+    const d = res.json as { ok?: boolean; scoreTrend?: unknown[] }
+    expect(d.ok).toBe(true)
+    expect(d.scoreTrend).toEqual([])
+  })
+})

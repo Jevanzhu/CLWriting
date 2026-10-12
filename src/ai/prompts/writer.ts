@@ -1,9 +1,10 @@
 /**
- * 写稿角色 system prompt（方案 §四③；起资源化——文案唯一源 = resources/prompts/*.md）。
+ * 写稿角色 system prompt（起资源化——文案唯一源 = resources/prompts/*.md）。
  *
- * 导出名保持不变（specs.ts 等消费方零改动）。段组装机制（PromptSection）见 section.ts，
- * 供新增 prompt 使用；内置文案迭代流程：改资源文件 → 金测夹具同步 → versions.json 追加哈希。
- * prompt 前缀稳定约束（方案 §四①）：角色设定 + 写作准则在前（不变），
+ * 导出名保持不变（specs.ts 等消费方零改动）。取文案走 resource.ts 的 loadBuiltinPrompt
+ * （内容哈希版本表 versions.json + overlay 升级链）；内置文案迭代流程：改资源文件 →
+ * 金测夹具同步 → versions.json 追加旧哈希。
+ * prompt 前缀稳定约束：角色设定 + 写作准则在前（不变），
  * 变动的章节内容在 messages 后段，保证前缀缓存命中。
  */
 import { loadBuiltinPrompt } from './resource.js'

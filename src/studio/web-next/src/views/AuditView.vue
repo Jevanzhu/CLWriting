@@ -252,7 +252,8 @@ async function doClear(): Promise<void> {
       </div>
     </header>
 
-    <p v-if="err" class="audit-err"><AlertCircle :size="14" /> {{ err }}</p>
+    <!-- role="alert"：加载/清除失败要读屏即时播报（视觉上只是横幅，读屏原无提示） -->
+    <p v-if="err" class="audit-err" role="alert"><AlertCircle :size="14" /> {{ err }}</p>
 
     <template v-if="!loading">
       <!-- tab 切换 -->
@@ -446,10 +447,7 @@ async function doClear(): Promise<void> {
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-/* ev-list/ev-row/pager 等事件列表样式随模板迁 AuditEventList.vue
- * （scoped 隔离，子组件同名类不与本视图互相泄漏）；.empty/.empty.big 本视图仍用，保留。
- * （mac 线，merge 并入）：.ev-full-btn 放行钮样式随懒展开逻辑
- * 同迁子组件。 */
+/* 本视图自己的空态（事件列表的 ev-* 样式属 AuditEventList 的 scoped 块，不在此处） */
 .empty {
   color: var(--text-muted);
   font-size: var(--font-size-s);

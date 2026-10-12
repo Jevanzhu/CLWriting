@@ -17,6 +17,7 @@ import { app, BrowserWindow, session, screen, dialog, Menu, type MenuItemConstru
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
+import { sweepAppDataTmpFiles } from '../fs/atomic.js' // 应用级数据目录 tmp 清扫（启动尾段排程，见 scheduleAppDataTmpSweep）
 import {
   appDataHomeDir,
   instanceUserDataPath,
@@ -514,6 +515,28 @@ async function bootstrap(): Promise<void> {
   if (process.env['CLW_SMOKE_WINDOW_CYCLE'] === '1') {
     runSmokeWindowCycle()
   }
+  // 首载落定后的应用级 tmp 清扫（共享根 + 实例目录；异步让出、失败留痕，见排程函数注）
+  scheduleAppDataTmpSweep()
+}
+
+/** 应用级数据目录 tmp 清扫是否已排过（bootstrap 会因 activate/失败重试重跑，清扫一次即可） */
+let appDataTmpSweepScheduled = false
+
+/** 启动尾段的 tmp 清扫排程：共享根（providers/global/workdir/诊断包…的 atomic 写落点）
+ *  与**本实例目录**（window-state/日志目录所在的 Electron userData）各扫一次。
+ *
+ *  为何挂在启动尾段而不是启动前：sweepAppDataTmpFiles 内部逐目录让出，且此处
+ *  fire-and-forget 不 await——建窗与首载已完成，清扫不占启动关键路径（书库根的同款清扫
+ *  在进门健康检查里是另一挂点，两处目录互不重叠）。清扫失败只留痕（函数内 best-effort），
+ *  绝不把启动链带红。
+ *  实例目录取 app.getPath('userData')（本进程已 setPath 的权威值），共享根取
+ *  appDataHomeDir()；两者在测试态可重合，清扫函数内已按目录去重。 */
+function scheduleAppDataTmpSweep(): void {
+  if (appDataTmpSweepScheduled) return
+  appDataTmpSweepScheduled = true
+  void sweepAppDataTmpFiles([appDataHomeDir(), app.getPath('userData')]).catch((e) => {
+    log.warn('desktop', `应用数据目录 tmp 清扫排程异常（不影响启动）：${errMsg(e)}`)
+  })
 }
 
 // ── 原生菜单 ──────────────────────────────────────────
@@ -750,7 +773,8 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     bootstrapRunner.runBootstrap(onError)
   }
 
-  // 桌面应用：关窗即退出（停 server）
+  // 桌面应用：关窗即退出（停 server）。本行是无条件 quit，与「关窗不退出、靠 activate
+  // 重建」互斥——activate 分支的「无窗重建」链因此生产不可达（判据见该分支内登记）。
   app.on('window-all-closed', () => {
     app.quit()
   })
@@ -822,6 +846,14 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
       // 重试失败只留痕不退出（与首启失败 app.quit 的差异系有意）：activate 只在 macOS
       // 触发，dock 图标恒在——失败后用户再点一次即可重试；此处若 quit，反而把一次可恢复
       // 的重试升级成进程退场。首启失败无重试入口（win/linux 无 activate），故必须退出。
+      //
+      // 生产可达性登记：本分支当前**生产不可达**，勿据其在场推断存在「无窗重建」链。
+      // 判据：mainWindow 置 null 的唯一生产点在 lifecycle.ts 主窗 closed 监听（置 null 后
+      // 同一回调内即 app.quit），而 window-all-closed 无条件 quit、quit 链会把
+      // bootstrapRunner.shuttingDown 置位——activate 到达时上面第一行守卫必先 return。
+      // 仅测试直接置 wins.mainWindow = null（test/desktop/main-lifecycle-exit.test.ts）
+      // 能驱动本分支，故保留不删（删掉即丢该路径的回归锚）；若将来放开「关窗不退出」，
+      // 本分支就是重建入口，届时须同时复核 window-all-closed 与 shuttingDown 守卫。
       runBootstrap((e) => log.error('desktop', '重启失败', e))
     }
   })

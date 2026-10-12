@@ -63,13 +63,15 @@ type InitStepOutcome =
 const CLWRITING_DIR = '.clwriting'
 
 /**
- * init 主流程（#30 第 5 节 9 步，CLI 退场后收敛为：骨架 + scaffold + 登记）。
- * 非交互：调用方已收集 name/genre/leads；交互式逃生由 CLI 层处理（本函数纯逻辑）。
+ * init 主流程（CLI 退场后收敛为：骨架 + scaffold + 登记）。
+ * 非交互：调用方已收集 name/genre/leads。
  *
  * 主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
- * 瞬时段），登记段（books.lock）收口为独立步骤——同步版 doInit 经 appendBook、
+ * 瞬时段），登记段（books.lock）收口为独立步骤——本同步版经 appendBook、
  * 异步孪生 doInitAsync 经 appendBookAsync（AcquireAsync：事件循环不阻塞）。
- * GUI 建书端点统一走 doInitAsync；本同步版保留供测试/CLI 残余合法同步面。
+ * 生产建书唯一入口 = doInitAsync（POST /api/books 等 GUI 端点）；本同步版零生产调用，
+ * 是**测试专用导出**（同步建书夹具免 await 铺陈，先例同 resource.ts 的同名标注），
+ * 保留但不得在生产路径接线——GUI 端点走它会把 Atomics.wait 的锁等待压到服务进程事件循环上。
  */
 export function doInit(opts: InitOptions): InitResult {
   const step = doInitSteps(opts)

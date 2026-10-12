@@ -1129,11 +1129,11 @@ function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage
   try {
     // task/chapter 两块合并单写段（recordUsageBoth 一次
     // 「锁+读+写+fsync」同改两块）——两段 RMW 先后写同账本纯增争用窗口；
-    // cost 仅 chapter 块需要（配价才算，未配价 undefined=口径不生效）
-    const cost =
-      opts.chapter !== undefined && usage
-        ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage)
-        : undefined
+    // cost 两块同额（配价才算，未配价 undefined=口径不生效）——原先只在带 chapter
+    // 时计价，chat/摘要这类 task-only 调用的 tasks 块永无金额，只能事后按当下价表
+    // 重算事件库（调价即历史漂移）。查价按 attempt 时刻模型快照（rt.tier.model）——
+    // 事后重算拿不到这个时点，故落账即钉死。
+    const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, rt.tier.model), usage) : undefined
     recordUsageBoth(ctx.bookRoot, ctx.task, opts.chapter, usage, cost ?? undefined, attempt)
   } catch (e) {
     noteLedgerWriteFailure(ctx.bookRoot, { task: ctx.task, chapter: opts.chapter, attempt }, 'sync', e)

@@ -17,8 +17,12 @@ export const RING_R1 = 168
 const RING_STEP = 132
 /** 同环相邻节点的最小弧长（防重叠，含胶囊宽 + 间隙） */
 export const MIN_ARC = 96
-/** 子节点挂在父节点角度两侧的扇区宽度 */
-export const CHILD_SPREAD = Math.PI / 3
+/** 子节点挂在父节点角度两侧的扇区宽度（仅本档布局取值用，不导出） */
+const CHILD_SPREAD = Math.PI / 3
+// RING_R1 / MIN_ARC 的导出面**测试专用**（零生产消费方）：两者只在本档 ringRadius 内
+// 参与取值，跨模块无人 import；导出是为让 relation-layout.test.ts 以常量（而非手抄数字）
+// 断言半径下限与拥挤外扩——抄数字会让「改取值」与「改期望」两处失联。与 W/H/CX/CY
+// 不同，后者有真实组件消费方。
 
 /** 布局所需的最小节点形状（useRelationGraph 的 SimNode 结构满足；身份用于选中心）。 */
 export interface RadialLayoutNode {

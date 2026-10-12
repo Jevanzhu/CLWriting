@@ -111,6 +111,27 @@ describe('阶段 24（S4）：关闭动线（Esc / 取消）', () => {
   })
 })
 
+// 重开复位：取消关闭再开不得残留上次的标题草稿（组件实例常驻，开合只切 props）
+describe('阶段 24（S4）：重开复位', () => {
+  it('输入草稿 → 关闭 → 再开 → 输入清空、确认钮回到禁用（草稿不残留）', async () => {
+    await dialog().find('input').setValue('半截标题')
+    expect(confirmBtn().attributes('disabled')).toBeUndefined()
+
+    await wrapper!.setProps({ modelValue: false })
+    expect(document.body.querySelector('.split-dialog')).toBeNull() // 关闭即卸载弹窗内容
+
+    await wrapper!.setProps({ modelValue: true })
+    expect((dialog().find('input').element as HTMLInputElement).value).toBe('')
+    expect(confirmBtn().attributes('disabled')).toBeDefined()
+
+    // 复位后照常可提交新标题（复位不误伤提交链）
+    await dialog().find('input').setValue('新章')
+    await confirmBtn().trigger('click')
+    await flushPromises()
+    expect(wrapper!.emitted('confirm')).toEqual([['新章']])
+  })
+})
+
 describe('阶段 24（S4）：Enter 提交 / IME 让渡（R61-3 / R49-29 同款）', () => {
   it('Enter 落在输入框上（target 非 button）→ 提交，title trim 生效', async () => {
     const input = dialog().find('input')

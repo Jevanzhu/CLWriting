@@ -1,25 +1,39 @@
 /**
  * 源码注释门直测（scripts/check-comments.mjs）。
  *
- * 覆盖四面：
+ * 覆盖六面：
  * 1. 形态命中——批号 / 轮次 / 日期戳 / 评审过程词各形逐一红。
  * 2. 字符串字面量零误报——字符串 / 模板串（含 ${} 嵌套）/ 正则字面量 / .vue 属性串 /
  *    裸 URL 里的标签样文本一律不进注释判定（清理只动注释、绝不碰生产字面量的机器化）。
  * 3. allowlist——承重锚注（被测试 readFileSync 断言钉住的注释）按 文件+行内容 放行。
  * 4. 切除后残形——标签被切走、只剩半截括注 / 标点的那一族（`RESIDUE_PATTERNS`）。它与
  *    形态表互补：残形本身不含标签，故形态表对它零命中（用例把这个盲区本身钉住）。
+ * 5. 扫描面——`src/**` 与 `scripts/**` 同入网（本仓 scripts 是判据 / 工具正本面，
+ *    历史缺口正是漏扫该面）；扫描面为空 / 不可读 = fail-closed 报红，绝不「扫 0 个文件
+ *    仍打通过」（见 collectFiles）。
+ * 6. 判据样例区——唯一豁免形态：逐区锚定 + 逐区理由（见 SAMPLE_ZONES）；锚失配即报红，
+ *    且豁免只在区内生效（区外同形文本照常红）。
  */
 import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   ANCHOR_ALLOWLIST,
+  collectFiles,
   extractCommentLines,
   findResidueHits,
   findTagHits,
+  inSampleZone,
   isAllowlisted,
   maskQuotedParens,
   orphanCloserOffsets,
   PAIR_RESIDUE_PATTERNS,
   RESIDUE_PATTERNS,
+  SAMPLE_ZONES,
+  sampleZoneRanges,
+  SCAN_ROOTS,
   stripTagSpans,
   tagSpansOf,
   TOKEN_EXCEPTIONS,
@@ -47,6 +61,10 @@ interface HitOpts {
 
 const hits = (content: string, opts: HitOpts = {}): TagHit[] => findTagHits(content, opts)
 const residue = (content: string, opts: HitOpts = {}): TagHit[] => findResidueHits(content, opts)
+
+/** 读本档自身（判据样例区所在文件——门自扫面的一员）。 */
+const readSelf = (): string =>
+  readFileSync(fileURLToPath(new URL('../../scripts/check-comments.mjs', import.meta.url)), 'utf8')
 
 describe('extractCommentLines：注释抽取与字符串保护', () => {
   it('行注释 / 块注释 / .vue HTML 注释均抽出，行号正确', () => {
@@ -439,5 +457,115 @@ describe('stripTagSpans：切除粒度与门同源', () => {
   it('tagSpansOf 去重叠后跨度互不相交（切除不重不漏）', () => {
     const spans = tagSpansOf('// R0916-7-P3-3 与 D3 批 5 同批')
     for (let i = 1; i < spans.length; i++) expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end)
+  })
+})
+
+describe('扫描面：scripts/** 入网 + 空面 / 不可读 fail-closed（collectFiles）', () => {
+  it('SCAN_ROOTS 同时含 src 与 scripts——scripts 是判据正本面，漏扫即历史缺口的成因', () => {
+    expect([...SCAN_ROOTS]).toEqual(['src', 'scripts'])
+  })
+
+  it('真实仓库面：src 与 scripts 各自都收到文件（两根本身不为空）', () => {
+    const { files, problems } = collectFiles()
+    expect(problems).toEqual([])
+    expect(files.some((f: string) => f.includes('/src/') || f.endsWith('/src'))).toBe(true)
+    expect(files.some((f: string) => f.includes('/scripts/'))).toBe(true)
+  })
+
+  it('扫描根缺席 → 报「扫描根不可读」，两根各一条（fail-closed：不静默吞掉缺席的根）', () => {
+    const base = mkdtempSync(join(tmpdir(), 'clw-scan-empty-'))
+    const { files, problems } = collectFiles(base)
+    expect(files).toEqual([])
+    expect(problems.filter((p: string) => p.includes('扫描根不可读'))).toHaveLength(SCAN_ROOTS.length)
+    expect(problems.some((p: string) => p.includes('扫描面整体为空'))).toBe(true)
+  })
+
+  it('某根下零个可扫文件（扩展名口径失效）→ 单独报该根扫描面为空', () => {
+    const base = mkdtempSync(join(tmpdir(), 'clw-scan-exts-'))
+    mkdirSync(join(base, 'src'))
+    mkdirSync(join(base, 'scripts'))
+    writeFileSync(join(base, 'src', 'a.mdx'), '// R1-1\n') // 不在 SCAN_EXTS 内
+    writeFileSync(join(base, 'scripts', 'b.mjs'), '// R2-2\n')
+    const { files, problems } = collectFiles(base)
+    expect(files).toHaveLength(1)
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('扫描面为空：src/')
+  })
+
+  it('两根都空但根配置在位 → 只报两根「扫描面为空」，不误判整体（文件清单仍有配置面）', () => {
+    const base = mkdtempSync(join(tmpdir(), 'clw-scan-cfg-'))
+    mkdirSync(join(base, 'src'))
+    mkdirSync(join(base, 'scripts'))
+    writeFileSync(join(base, 'tsup.config.ts'), 'export default {}\n')
+    const { files, problems } = collectFiles(base)
+    expect(files).toHaveLength(1)
+    expect(problems).toHaveLength(SCAN_ROOTS.length)
+    expect(problems.every((p: string) => p.includes('扫描面为空'))).toBe(true)
+  })
+})
+
+describe('判据样例区：唯一豁免形态（逐区锚定 + 逐区理由，锚失配即红）', () => {
+  const SELF = 'scripts/check-comments.mjs'
+
+  it('登记项齐备且逐区带理由（粗豁免的反面：每条都点名区段与缘由）', () => {
+    expect(SAMPLE_ZONES.length).toBeGreaterThan(0)
+    for (const z of SAMPLE_ZONES) {
+      expect(z.file).toBe(SELF)
+      expect(z.from.length).toBeGreaterThan(0)
+      expect(z.to.length).toBeGreaterThan(0)
+      expect(z.why.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('真实本档：每区锚唯一命中、区间有效（无 problems，区段数与登记数一致）', () => {
+    const content = readSelf()
+    const { ranges, problems } = sampleZoneRanges(content, SELF)
+    expect(problems).toEqual([])
+    expect(ranges).toHaveLength(SAMPLE_ZONES.length)
+    for (const [a, b] of ranges as [number, number][]) expect(b).toBeGreaterThanOrEqual(a)
+  })
+
+  it('锚缺失 / 重复 / 逆序 → 该区不生效且带出 problem（宁可全档报红，不默认豁免）', () => {
+    const miss = sampleZoneRanges('const a = 1\n', SELF, [
+      { file: SELF, from: '不存在的锚甲', to: '不存在的锚乙', why: 'x' },
+    ])
+    expect(miss.ranges).toEqual([])
+    expect(miss.problems).toHaveLength(1)
+    expect(miss.problems[0]).toContain('锚失配')
+
+    const dup = sampleZoneRanges('// 锚甲\n// 锚甲\n// 锚乙\n', SELF, [
+      { file: SELF, from: '锚甲', to: '锚乙', why: 'x' },
+    ])
+    expect(dup.ranges).toEqual([])
+    expect(dup.problems[0]).toContain('from 命中 2 处')
+
+    const reversed = sampleZoneRanges('// 锚乙\n// 锚甲\n', SELF, [{ file: SELF, from: '锚甲', to: '锚乙', why: 'x' }])
+    expect(reversed.ranges).toEqual([])
+    expect(reversed.problems).toHaveLength(1)
+  })
+
+  it('锚只在注释面找——登记表自身的字符串字面量不自我命中', () => {
+    const src = `const z = { from: '锚甲', to: '锚乙' }\n// 锚甲\n// 锚乙\n`
+    const { ranges, problems } = sampleZoneRanges(src, SELF, [{ file: SELF, from: '锚甲', to: '锚乙', why: 'x' }])
+    expect(problems).toEqual([])
+    expect(ranges).toEqual([[2, 3]])
+  })
+
+  it('inSampleZone 半开闭边界：端点在区内、区外一行即不在', () => {
+    expect(inSampleZone(5, [[5, 7]])).toBe(true)
+    expect(inSampleZone(7, [[5, 7]])).toBe(true)
+    expect(inSampleZone(4, [[5, 7]])).toBe(false)
+    expect(inSampleZone(8, [[5, 7]])).toBe(false)
+  })
+
+  it('豁免只在区内生效——区外同形批号注释照常命中（区不是整档跳过）', () => {
+    const content = readSelf()
+    const { ranges } = sampleZoneRanges(content, SELF)
+    const inside = findTagHits(content, { file: SELF }).filter((h: TagHit) => inSampleZone(h.line, ranges))
+    expect(inside.length).toBeGreaterThan(0) // 样例区里确有形态原文
+    const fake = '// R99-9（九十九轮）：区外带批号的注释'
+    const hits = findTagHits(fake, { file: SELF }).filter((h: TagHit) => inSampleZone(h.line, [[100, 200]]))
+    expect(hits).toHaveLength(0)
+    expect(findTagHits(fake, { file: SELF }).length).toBeGreaterThan(0) // 同文本未落区即红
   })
 })

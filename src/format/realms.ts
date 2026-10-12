@@ -26,7 +26,12 @@ export function readRealmDoc(filePath: string): { ok: true; doc: RealmDoc } | { 
   }
 }
 
-/** 写入 境界体系.md */
+/**
+ * 写入 境界体系.md。
+ * 测试专用导出（零生产调用）：境界体系.md 是「文件即真相」的作者手编资产，生产侧只读
+ * （settings-context / check/runner / settings API 全走 readRealmDoc），没有写回路径；
+ * 导出面服务 style-realms.test.ts 的读写往返断言。改它先改测试，勿当公共 API 接线。
+ */
 export function writeRealmDoc(filePath: string, doc: RealmDoc): void {
   const fmText = stringifyRealmSystems(doc.体系)
   writeFile(filePath, fmText, doc.正文 ?? '')
@@ -35,6 +40,9 @@ export function writeRealmDoc(filePath: string, doc: RealmDoc): void {
 /**
  * 取某体系序列（成长线机检用，#6 第 4 节）。
  * @returns 序列数组（索引即高低），不存在返回 null
+ *
+ * 测试专用导出（零生产调用）：生产成长线机检（check/growth.ts）拿的是整条序列 + realmIndex，
+ * 不经本取名的中转；导出面服务 style-realms.test.ts 的序列提取断言（含未命中 null）。
  */
 export function getRealmSequence(doc: RealmDoc, systemName: string): string[] | null {
   const sys = doc.体系.find((s) => s.名称 === systemName)

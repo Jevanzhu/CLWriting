@@ -81,10 +81,14 @@ async function onCommit(): Promise<void> {
     <div v-if="showCommit" class="banner ok">
       <Check :size="14" />
       <span>{{ learn.commitMessage }}</span>
-      <button class="banner-close" @click="commitDismissed = true"><X :size="13" /></button>
+      <!-- 关闭钮是纯图标：data-tip 经 TooltipHost 同步可访问名；aria-label 显式给出，
+           名不依赖宿主挂载时机（对齐 SettingsModal 关闭钮双写口径） -->
+      <button class="banner-close" data-tip="关闭提示" aria-label="关闭提示" @click="commitDismissed = true">
+        <X :size="13" />
+      </button>
     </div>
-    <!-- 错误条 -->
-    <div v-if="learn.error" class="banner err">
+    <!-- 错误条（role="alert"：收割/收录失败要读屏即时播报，不静默） -->
+    <div v-if="learn.error" class="banner err" role="alert">
       <AlertCircle :size="14" />
       <span>{{ learn.error }}</span>
     </div>

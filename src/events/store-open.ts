@@ -69,13 +69,39 @@ export function clearStaleMigrationTombstone(bookRoot: string, dbPath: string): 
   }
 }
 
+/** SQLite auto_vacuum 档位（PRAGMA 读回值，库 header 位域）：0=未定档 1=整库 2=增量。
+ *  档位判定单源——打开期（决定是否下 auto_vacuum 语句）与维护族（回收路径分流）同取本值。 */
+export const AUTO_VACUUM_NONE = 0
+export const AUTO_VACUUM_INCREMENTAL = 2
+
+/** 现读库的 auto_vacuum 档（header 读，廉价；读不到按 0 = 未定档处理）。 */
+export function readAutoVacuumMode(db: DatabaseSync): number {
+  return (db.prepare('PRAGMA auto_vacuum').get() as { auto_vacuum?: number } | undefined)?.auto_vacuum ?? 0
+}
+
 /** 打开期 PRAGMA + WAL 切换（须在 DDL 之前）：busy_timeout 必须先于 journal_mode=WAL
  *  设置——WAL 切换在 journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，
  * 会立即抛 SQLITE_BUSY。
+ *  auto_vacuum 必须排在 journal_mode=WAL **之前**：切到 WAL 后 auto_vacuum 需先回滚成
+ *  非 WAL 日志模式才接受写值，本函数刻意不做那次模式往返（打开期多一次日志模式切换，
+ *  并发首开窗口随之变大）；顺序反了会让本 PRAGMA 静默不生效（实测如此），新库退回
+ *  「删行不回收空间」的旧形态。
+ *  journal_size_limit 有界——WAL 切换带读者（并发首开/他进程长读）时可长到主库量级，
+ *  限制 checkpoint 后侧车保留的字节数，把「WAL 侧车也长成第二个大文件」纳入上界。
+ *  auto_vacuum 的生效面与下语句的**前提**：对**新建空库**生效（首开流程即此形态）；存量库
+ *  此刻语句静默无效（须在同一连接上接着 VACUUM 才落库，见 store-retention 的转换路径），
+ *  故本函数对存量库是零行为变更——真正的收敛在维护族。另须只在**未达目标档**的库上下这条
+ *  语句：对已是增量档的库重设同一值会让 SQLite 在连接关闭时改写主库文件（实测：零写入的
+ *  开/读/关循环里文件内容每轮都变），而库文件指纹正是 stats 端点结果缓存的失效判据
+ *  （见 studio/server/api/stats-signature）——重设会把只读轮询判成「写源已变」而每轮重算，
+ *  观测面被自己的打开动作打冷。档位经 readAutoVacuumMode 单源读取。
  * 导出供回归直测（生产唯一调用点在本文件首开全流程）。 */
 export function applyOpenPragmas(db: DatabaseSync): void {
   // busy_timeout 先设（见上）
   db.exec('PRAGMA busy_timeout = 5000')
+  // auto_vacuum 与 journal_size_limit 次设（见上：auto_vacuum 须早于 WAL 切换、且只在未达档时下）
+  if (readAutoVacuumMode(db) !== AUTO_VACUUM_INCREMENTAL) db.exec('PRAGMA auto_vacuum = INCREMENTAL')
+  db.exec('PRAGMA journal_size_limit = 4194304')
   // 退避维持不加深：8 次退避耗尽仍可抛 SQLITE_BUSY，但耗尽即抛是 fail-closed 正确
   // 出口，不是缺陷——每轮失败前 busy_timeout 已在 SQLite 内部等待 5s，8 轮 × 5s +
   // 退避 1.8s ≈ 42s 仍抢不到，说明对手是僵死写方（SIGSTOP 挂起/磁盘级卡死），再等

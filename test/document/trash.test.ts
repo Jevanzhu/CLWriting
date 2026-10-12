@@ -3,14 +3,48 @@
  * 覆盖：软删（移 .trash + 清单移除 + manifest 记录）、账本 CAPABILITY_DENIED、NOT_FOUND、
  * 恢复（移回 + 清单恢复）、原位占用 OCCUPIED、永久删、listTrash。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi, describe } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, linkSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
-import { listTrash, restoreTrash, purgeTrash } from '../../src/document/trash.js'
+import { listTrash, restoreTrash, purgeTrash, readTrashManifest } from '../../src/document/trash.js'
+import { waitFor } from '../helpers/wait-for.js'
+
+// purge 条目写回 best-effort 注入：atomicWriteFile 只对回收站清单一次性失败。默认不武装
+// （由对应用例内显式 arm/disarm），避免与同文件其他用例的回收站清单写入互相干扰。
+const ATOMIC_FAIL = vi.hoisted(() => ({ failNextTrashWrite: false }))
+vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/fs/atomic.js')>()
+  return {
+    ...orig,
+    atomicWriteFile: vi.fn((p: string, data: string, opts?: { fsync?: boolean }) => {
+      if (ATOMIC_FAIL.failNextTrashWrite && p.includes('.trash-manifest.jsonl')) {
+        ATOMIC_FAIL.failNextTrashWrite = false
+        throw Object.assign(new Error('EACCES: 权限不足（模拟磁盘故障）'), { code: 'EACCES' })
+      }
+      return orig.atomicWriteFile(p, data, opts)
+    }),
+  }
+})
+
+// purgeTrash 条目定位 strict 读注入：默认不武装（本文件其余用例的回收站清单读写全透传），
+// 由对应用例内显式 arm（vi.hoisted + importOriginal 透传手法与既有注入族同款）。
+const FAIL = vi.hoisted(() => ({ manifestRead: false }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    readFileSync: ((p, ...rest) => {
+      if (FAIL.manifestRead && typeof p === 'string' && p.includes('.trash-manifest.jsonl')) {
+        throw Object.assign(new Error('EBUSY: 瞬时占用（模拟同步盘扫描锁）'), { code: 'EBUSY' })
+      }
+      return (actual.readFileSync as typeof readFileSync)(p, ...rest)
+    }) as typeof readFileSync,
+  }
+})
 
 /** 造书：写作/正文/第一卷/0001 + 项目清单登记 doc_ch01。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
@@ -272,4 +306,188 @@ test('R67-11: 恶意 docId（manifest 篡改数据面）→ PATH_ESCAPE，不进
   expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'))).toBe(true)
   expect(existsSync(join(root, '工作区', '.trash'))).toBe(false)
   rmSync(root, { recursive: true, force: true })
+})
+
+// ── purgeTrash 条目定位读改 strict：此前用容错版 readTrashManifest（读失败返 []），
+// 瞬态读失败（EBUSY/EACCES/EIO）会把在册条目误判 NOT_FOUND（作者以为没删成、条目悬置
+// 成幽灵）。修复后走 readTrashManifestStrict，strict 读失败按 WRITE_ERROR 信封如实上报
+// （物理删除未发生，不可逆动作未成，重试即续）。──
+
+describe('purgeTrash 清单 strict 读', () => {
+  function makeTrashedBook(): string {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r49-16-purge-'))
+    mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
+    writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
+    writeFileSync(
+      join(root, '工作区', '.trash', '.trash-manifest.jsonl'),
+      JSON.stringify({
+        id: 'doc_a',
+        originalPath: '写作/正文/0001-旧稿.md',
+        trashedPath: '工作区/.trash/doc_a-旧稿.md',
+        trashedAt: '',
+        role: 'chapter',
+      }) + '\n',
+      'utf-8',
+    )
+    return root
+  }
+
+  test('清单瞬态读失败 → WRITE_ERROR（不再误报 NOT_FOUND），物理删除不发生', async () => {
+    FAIL.manifestRead = true // 本用例专属武装：读侧注入一次瞬态占用
+    const root = makeTrashedBook()
+    try {
+      const trashFile = join(root, '工作区', '.trash', 'doc_a-旧稿.md')
+      const r = await purgeTrash(root, 'doc_a')
+      expect(r.ok).toBe(false)
+      if (r.ok) return
+      expect(r.code).toBe('WRITE_ERROR') // 修复前：容错读返 [] → 误报 NOT_FOUND
+      expect(r.reason).toContain('回收站清单读取失败')
+      expect(existsSync(trashFile)).toBe(true) // 不可逆动作未成（重试即续）
+      FAIL.manifestRead = false // 解除 mock 故障后再验证条目未动（本文件自身读也走 mock）
+      expect(readTrashManifest(root)).toHaveLength(1)
+      // 瞬态恢复后重试 → 正常永久删（非死路）
+      const retry = await purgeTrash(root, 'doc_a')
+      expect(retry.ok).toBe(true)
+      expect(existsSync(trashFile)).toBe(false)
+      expect(readTrashManifest(root)).toHaveLength(0)
+    } finally {
+      FAIL.manifestRead = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('在册可读时 NOT_FOUND 契约不变（未知 id）', async () => {
+    const root = makeTrashedBook()
+    try {
+      const r = await purgeTrash(root, 'doc_none')
+      expect(r.ok).toBe(false)
+      if (r.ok) return
+      expect(r.code).toBe('NOT_FOUND')
+      expect(existsSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── restore/purge 的清单写回段隔着跨进程清单锁 await——书可在「端点入口守卫已过、
+// 锁等待窗」内被整目录删除。修复后写回锁回调首行做回收站清单在位复评，死书弃写回
+// （best-effort catch 留痕），不在死书残骸上重建清单与回收站条目文件。──
+
+describe('trash 写回段死书弃收口', () => {
+  function makeBookWithChapter(): { root: string; svc: DocumentService } {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-trash-deadbook-'))
+    execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', {
+      cwd: root,
+      stdio: 'pipe',
+    })
+    mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+    mkdirSync(join(root, '工作区'), { recursive: true })
+    mkdirSync(join(root, '项目'), { recursive: true })
+    writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n---\n正文', 'utf-8')
+    writeFileSync(
+      join(root, '项目', '文档清单.jsonl'),
+      [
+        '{"version":1,"type":"header"}',
+        '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null,"status":"draft"}',
+      ].join('\n') + '\n',
+    )
+    execSync('git add -A && git commit -m init', { cwd: root, stdio: 'pipe' })
+    return { root, svc: new DocumentService({ bookRoot: root }) }
+  }
+
+  /** 预持清单锁（本进程 pid → 活性探测恒存活，等待者持续轮询）。 */
+  function holdLock(target: string): void {
+    writeFileSync(`${target}.lock`, JSON.stringify({ pid: process.pid, bootTime: 0 }))
+  }
+
+  test('restore：清单锁等待窗内书被整删 → 弃写回，不重建孤儿文档清单', async () => {
+    const { root, svc } = makeBookWithChapter()
+    const trashed = await svc.trashDocument({ docId: 'doc_ch01' })
+    expect(trashed.ok).toBe(true)
+
+    holdLock(join(root, '项目', '文档清单.jsonl'))
+    const restoring = restoreTrash(root, 'doc_ch01')
+
+    // 物理搬运（锁前同步段）完成 = 正卡在清单锁等待窗：原位文件已回
+    const origAbs = join(root, '写作', '正文', '第一卷', '0001-开篇.md')
+    await waitFor(() => existsSync(origAbs), 4000, 10, 'restore 到达清单锁等待窗')
+
+    // 窗内整删书目录（.lock 随目录消失 = 释放等待者）
+    rmSync(root, { recursive: true })
+    const r = await restoring
+    expect(r.ok).toBe(true) // 物理恢复已发生，收口段弃写回不反悔
+
+    // 修复前：锁回调在死书残骸上写孤儿文档清单（134b：头 + doc 条目）+ 0b 空回收站清单
+    // 修复后：回调首行书身份锚复评（book.yaml ENOENT-only）弃写回，两个清单文件都不得重建
+    expect(existsSync(join(root, '项目', '文档清单.jsonl'))).toBe(false)
+    expect(existsSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl'))).toBe(false)
+  })
+
+  test('purge：条目写回锁窗内书被整删 → strict 读先弃，不重建回收站清单', async () => {
+    const { root, svc } = makeBookWithChapter()
+    const trashed = await svc.trashDocument({ docId: 'doc_ch01' })
+    expect(trashed.ok).toBe(true)
+
+    const trashFile = join(root, '工作区', '.trash', 'doc_ch01-0001-开篇.md')
+    expect(existsSync(trashFile)).toBe(true)
+
+    holdLock(join(root, '工作区', '.trash', '.trash-manifest.jsonl'))
+    const purging = purgeTrash(root, 'doc_ch01')
+
+    // 物理删除（锁前同步段）完成 = 正卡在条目写回锁等待窗
+    await waitFor(() => !existsSync(trashFile), 4000, 10, 'purge 到达条目写回锁等待窗')
+
+    rmSync(root, { recursive: true })
+    const r = await purging
+    expect(r.ok).toBe(true)
+    // 修复前实证：缺失按合法空读（[]）+ 取锁 mkdir 复活祖先链 → 死书面「成功」写出 0b
+    // 空清单；修复后回调首行书身份锚复评弃写——回收站清单文件不得重建
+    expect(existsSync(join(root, '工作区', '.trash', '.trash-manifest.jsonl'))).toBe(false)
+  })
+})
+
+// ── purgeTrash 条目写回 best-effort：主文件已物理删除（不可逆动作已成）后，trash
+// manifest 写失败（磁盘满/权限）不应把整端点打成 500——吞掉写失败仍返回 ok:true；
+// 残留条目下次对该 id 操作报 NOT_FOUND 自愈。──
+
+describe('purgeTrash 条目写回 best-effort', () => {
+  function makeTrashedBook(): string {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-trash-purge-be-'))
+    mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
+    writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
+    writeFileSync(
+      join(root, '工作区', '.trash', '.trash-manifest.jsonl'),
+      JSON.stringify({
+        id: 'doc_a',
+        originalPath: '写作/正文/0001-旧稿.md',
+        trashedPath: '工作区/.trash/doc_a-旧稿.md',
+        trashedAt: '',
+        role: 'chapter',
+      }) + '\n',
+      'utf-8',
+    )
+    return root
+  }
+
+  test('条目写失败 → best-effort ok:true，物理删除照发生', async () => {
+    ATOMIC_FAIL.failNextTrashWrite = true // 只失败一次：先证「写失败不上抛」，再证残留条目自愈
+    const root = makeTrashedBook()
+    try {
+      const r = await purgeTrash(root, 'doc_a')
+      expect(r.ok).toBe(true) // 修复前：writeTrashManifest 的 EACCES 直接上抛（端点 500）
+      expect(existsSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'))).toBe(false) // 不可逆动作已发生
+      expect(readTrashManifest(root).some((e) => e.id === 'doc_a')).toBe(true) // 条目残留（写失败未除名）
+      // 残留自愈：磁盘恢复后再次 purge → 条目正常除名；此后该 id 报 NOT_FOUND
+      expect((await purgeTrash(root, 'doc_a')).ok).toBe(true)
+      expect(readTrashManifest(root).some((e) => e.id === 'doc_a')).toBe(false)
+      const third = await purgeTrash(root, 'doc_a')
+      expect(third.ok).toBe(false)
+      if (third.ok) return
+      expect(third.code).toBe('NOT_FOUND')
+    } finally {
+      ATOMIC_FAIL.failNextTrashWrite = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

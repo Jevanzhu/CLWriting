@@ -26,7 +26,7 @@ import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
-import { openRagDb, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
+import { openRagDbAsync, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
 import type { TaskGate, TaskGateInjected } from './task-gate.js' // 闸实例经组装根注入（startRagBuild 为模块级助手，显式接闸）
 // 建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
@@ -209,7 +209,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
   defineRoute('books.rag.status', {
     method: 'GET',
     path: '/api/books/:name/rag/status',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       const bookRoot = r.bookRoot
@@ -233,9 +233,11 @@ export function registerRagRoutes(ctx: RagCtx): void {
         // 此前 openRagDb 原样上抛 → dispatch 兜底裸 500，作者无从得知出路；回结构化
         // 错误 + 重建指引（rebuild 端点的 resetRagIndex 已能删库自愈）。busy/IO 等非
         // 损坏错误不吞，照旧走兜底
+        // 开库走异步孪生——本端点是前端轮询热路径（服务进程事件循环），并发写方持锁/
+        // 大库回填首开时等待让出，不把 SSE 与其余端点一起停住
         let db: DatabaseSync
         try {
-          db = openRagDb(bookRoot)
+          db = await openRagDbAsync(bookRoot)
         } catch (e) {
           if (!isRagDbCorruptionError(e)) throw e
           return replyError(

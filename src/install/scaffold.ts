@@ -266,7 +266,9 @@ function renderVolumeOutlineExample(): string {
   ].join('\n')
 }
 
-/** 文风铁律模板（瘦身为纯配置：阈值 + 删除分级；禁词知识在条目库）。 */
+/** 文风铁律模板（瘦身为纯配置：阈值 + 删除分级；禁词知识在条目库）。
+ *  入参 genre 保留但未用（模板内容与题材无关——阈值/分级为全书统一正本，题材差异走
+ *  条目库而非本模板）；保签名是为了调用点与测试锚定不随将来若按题材细分而改形。 */
 export function renderStyleRules(_genre: string): string {
   return [
     '# 文风铁律',

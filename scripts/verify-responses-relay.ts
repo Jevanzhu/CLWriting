@@ -6,19 +6,18 @@
  *   responses-adapter（src/ai/provider/responses-adapter.ts）对 /v1/responses 下发三个
  *   高风险参数：store:false（书稿隐私）、include:['reasoning.encrypted_content']
  *   （store:false 下 gpt-5 多轮工具链的推理延续载体）、parallel_tool_calls:false
- *   （一轮一调契约）。中转网关对它们有两类失败模式：
+ *   （每轮至多一次工具调用的硬约束）。中转网关对它们有两类失败模式：
  *   - 响亮失败：直接 400 拒收，报错文案通常指名参数；
  *   - 静默降质：吞掉 include——reasoning item 不带 encrypted_content，表面一切正常，
  *     但 gpt-5 多轮工具链丢失推理延续。
- *   本脚本两轮真机调用一次测出两种：第 1 轮强制工具调用，看参数容受与加密推理项
- *   是否透出；第 2 轮回插加密推理项 + tool_result，看回插是否被 400 拒。
+ *   本脚本两趟真机调用一次测出两种：首趟强制工具调用，看参数容受与加密推理项是否
+ *   透出；次趟回插加密推理项 + tool_result，看回插是否被 400 拒。
  *
  * 用法：
  *   npx tsx scripts/verify-responses-relay.ts --base-url <url> --api-key <key> --model <model>
  *   --model 缺省 gpt-5；缺 --base-url / --api-key 时打印用法并以 0 退出。
- *   R61-15（第六十一轮）：key 支持经 env CLW_RELAY_API_KEY 注入（推荐——argv 明文
- *   ps 可见 ~90s 窗口，同 E-9b「凭据只走 env」红线）；仍传 --api-key 时打一行
- *   告警提示改用 env，兼容存量用法。
+ *   key 支持经 env CLW_RELAY_API_KEY 注入（推荐——argv 明文 ps 可见约 90s 窗口，
+ *   同「凭据只走 env」红线）；仍传 --api-key 时打一行告警提示改用 env，兼容存量用法。
  *   进程内直连 createOpenAIResponsesProvider 组临时 conf（不落盘、不碰 vault /
  *   providers.json），输出永不回显完整 key。
  *
@@ -27,16 +26,16 @@
  *   ② 参数容受——400 文案指名 store / include / parallel_tool_calls 则点名；
  *      「强制工具未产出调用」= 疑参数被 400 拒后适配器剥 tools 降级重试（静默）；
  *   ③ 推理延续三态——开（透传加密推理项）/ 关（include 被静默吞，多轮工具链丢推理
- *      延续）/ 中转拒收回插（第 2 轮回插 400）；
+ *      延续）/ 中转拒收回插（次趟回插 400）；
  *   ④ 结论——该中转用于 openai-responses 协议：可用 / 受限 / 不可用。
  */
 import process from 'node:process'
 import { createOpenAIResponsesProvider, detectFamily, responsesQuirksFor } from '../src/ai/provider/index.js'
 import type { ContentBlock, GenRequest, ModelProvider, ProviderConf, TokenUsage } from '../src/ai/provider/index.js'
-// D202（0918三轮修复批）：ErrInfo/errBrief/trunc 单源 scripts/relay-error-brief.ts
-// ——errBrief 的 message 出口统一过 redactSecret（中转网关 4xx 报错常回显含 key 的
-// 请求 URL，直出可把凭据打进终端/CI 日志，与头注「输出永不回显完整 key」承诺相悖）；
-// 抽离同时让脱敏行为可被测试直测（本文件顶层即执行不可 import）。
+// ErrInfo/errBrief/trunc 单源 scripts/relay-error-brief.ts——errBrief 的 message 出口
+// 统一过 redactSecret（中转网关 4xx 报错常回显含 key 的请求 URL，直出可把凭据打进
+// 终端 / CI 日志，与头注「输出永不回显完整 key」的承诺相悖）；抽离同时让脱敏行为可被
+// 测试直测（本文件顶层即执行，不可 import）。
 import { errBrief, trunc, type ErrInfo } from './relay-error-brief.js'
 
 const TIMEOUT_MS = 90_000
@@ -54,10 +53,9 @@ function usage(): void {
   console.log('缺 key（env 与 --api-key 均无）或 --base-url 时仅打印本用法并以 0 退出，不发任何请求。')
 }
 
-// R0912-3（2026-09-12 全量重评 #49）：本判式为两脚本 argValue 的严格口径——值缺失/
-// 空串/以 `--` 开头（误吞下一个 flag 名）一律按缺参返回 null。（六轮重评 D101 勘误：
-// 原注「calibrate-tokens.ts 宽松直取、待另行对齐」已失实——该处早已同口径对齐，
-// 现两脚本判式等价，勿据旧注再去「修」对侧。）
+// 严格取参口径（两脚本单源基准）：值缺失 / 空串 / 以 `--` 开头（误吞下一个 flag 名）
+// 一律按缺参返回 null。判据双脚本等价——dev-api.ts 与 calibrate-tokens.ts 的 argValue
+// 同款，勿据「对侧宽松」的旧说法去改任一侧。
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
   if (i === -1 || i + 1 >= process.argv.length) return null
@@ -67,7 +65,7 @@ function argValue(flag: string): string | null {
 }
 
 const baseUrl = argValue('--base-url')
-// R61-15：env 优先，argv 兜底（兼容存量）；argv 传入时告警留痕
+// env 优先，argv 兜底（兼容存量）；argv 传入时告警留痕
 const envKey =
   process.env.CLW_RELAY_API_KEY && process.env.CLW_RELAY_API_KEY !== '' ? process.env.CLW_RELAY_API_KEY : null
 const argvKey = argValue('--api-key')
@@ -95,10 +93,8 @@ function safeJson(v: unknown): string {
   }
 }
 
-// D202（0918三轮修复批）：ErrInfo/errBrief/trunc 单源移至 scripts/relay-error-brief.ts
-//（顶部 import）——errBrief 的 message 出口统一过 redactSecret（中转网关 4xx 报错常
-// 回显含 key 的请求 URL，直出可把凭据打进终端/CI 日志，与头注「输出永不回显完整 key」
-// 承诺相悖）；抽离同时让脱敏行为可被测试直测（本文件顶层即执行不可 import）。
+// ErrInfo/errBrief/trunc 单源在 scripts/relay-error-brief.ts（顶部 import）：errBrief 的
+// message 出口统一过 redactSecret，据此本文件不得自建第二套摘要实现。
 
 /** 一轮流式调用的全部观测（encrypted 只留长度与载荷引用，永不打印内容） */
 interface RoundOutcome {
@@ -186,7 +182,7 @@ async function runRound(provider: ModelProvider, req: GenRequest): Promise<Round
   return out
 }
 
-// errBrief 已随 D202 抽至 scripts/relay-error-brief.ts（顶部 import；message 过脱敏）
+// errBrief 的单源在 scripts/relay-error-brief.ts（顶部 import；message 过脱敏）
 
 function fmtCounts(c: Record<string, number>): string {
   const order = ['text', 'reasoning', 'reasoning_item', 'tool', 'done', 'error']
@@ -274,7 +270,7 @@ console.log(
 )
 console.log(`每轮超时：${TIMEOUT_MS / 1000}s`)
 
-// ── 第 1 轮：强制工具调用 ──
+// ── 首趟：强制工具调用 ──
 console.log()
 console.log('── 第 1 轮：强制工具调用（tool_choice 指名 relay_echo） ──')
 const req1: GenRequest = {
@@ -289,7 +285,7 @@ const req1: GenRequest = {
 const r1 = await runRound(provider, req1)
 printRound(r1)
 
-// ── 第 2 轮：回插加密推理项 + tool_result（仅当拿到工具调用） ──
+// ── 次趟：回插加密推理项 + tool_result（仅当拿到工具调用） ──
 let r2: RoundOutcome | null = null
 if (r1.tool) {
   const blocks: ContentBlock[] = []

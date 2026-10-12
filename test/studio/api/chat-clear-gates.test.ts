@@ -18,15 +18,16 @@
  * test/ai/chat-clear-gate-recheck.test.ts。
  */
 import http from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../../helpers/studio-server.js'
-import { openSessionStore, bookHash } from '../../../src/events/store.js'
+import { openSessionStore, sessionDbPath, bookHash } from '../../../src/events/store.js'
 import { stepStartEvent } from '../../../src/events/chain-bridge.js'
 import { acquireTaskGate } from '../../../src/studio/server/api/task-gate.js'
 import { isSelfHealRunning } from '../../../src/ai/orchestrate/self-heal.js'
+import { waitFor } from '../../helpers/wait-for.js'
 
 vi.mock('../../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../../src/ai/orchestrate/self-heal.js')>()
@@ -162,5 +163,41 @@ describe('M-2 + 重评二轮-P3-2: chat/clear 与 audit DELETE 六闸同口径',
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)
     expect(workflowEvents()).toBe(0)
+  })
+
+  // 清空对话不只删行：DELETE 只把页放进空闲表，文件高水位不回落——清完即调度后台回收
+  // （见 store-retention 的回收路径；清库路径走强制档，不受空闲页阈拦）。断言只锚落盘
+  // 字节（主库 + WAL 侧车，写入先进侧车故只看主库量不到峰值），不锚日志文案。
+  it('清空对话 → 事件库落盘字节回落（不止删行）', async () => {
+    /** 库与两个侧车的落盘字节合计。 */
+    const onDisk = (): number => {
+      const dbPath = sessionDbPath(userDataPath, studio.bookRoot)
+      let total = 0
+      for (const suffix of ['', '-wal', '-shm']) {
+        try {
+          total += statSync(dbPath + suffix).size
+        } catch {
+          /* 侧车不存在即不计 */
+        }
+      }
+      return total
+    }
+    const seed = openSessionStore(userDataPath, studio.bookRoot)!
+    try {
+      const wsSid = seed.workspaceSession(bookHash(studio.bookRoot))
+      const filler = '正'.repeat(2000)
+      for (let i = 0; i < 120; i++) {
+        seed.appendEvents(wsSid, [
+          { type: 'assistant/message', data: { message: `${filler}${i}` }, surfaceOp: 'append' },
+        ])
+      }
+    } finally {
+      seed.close() // 关库 checkpoint：高水位折进主库文件，峰值才量得到
+    }
+    const peak = onDisk()
+    expect(peak).toBeGreaterThan(100_000)
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
+    expect(r.status).toBe(200)
+    await waitFor(() => onDisk() < peak / 2, 5000, 20, '清空对话后事件库回收')
   })
 })

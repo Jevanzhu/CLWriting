@@ -118,7 +118,9 @@ export function parseFmFields(content: string): Record<string, string> {
 
 /** 文档路径 → 结构化表单类型（右栏按此切表单）。非表单文档 → null。
  *  短篇正文（写作/正文/xxx.md）与长篇正文路径相同，path 无法区分：
- *  统一返回 'chapter'；短篇表单（piece-body）由调用方按 node.role 判定。 */
+ *  统一返回 'chapter'；短篇表单由调用方按「书级 kind + 正文路径」覆写为 'piece-body'
+ *  （isPieceBodyNode 单源）。注意本返回值的 'piece-body' 是表单键（FIELD_DEFS 键），
+ *  与服务端历史 wire role 枚举同名不同义。 */
 export function formKindOf(
   path: string,
 ):
@@ -143,10 +145,25 @@ export function formKindOf(
   return null
 }
 
-/** 是否正文文档（长篇 chapter / 短篇 piece-body）—— 统一标题可编辑 + 可分析/review/check 判定。
- *  仅按路径判定（v2：写作/正文/ 前缀）；短篇正文与长篇路径相同，由 node.role 补充。 */
+/** 是否正文文档—— 统一标题可编辑 + 可分析/review/check 判定。
+ *  仅按路径判定（v2：写作/正文/ 前缀）；长短篇正文路径相同，是否短篇另由
+ *  isPieceBodyNode 按书级 kind 判定。 */
 export function isBodyKind(path: string): boolean {
   return path.startsWith('写作/正文/')
+}
+
+/** 书级类型（book.yaml 的 kind）：缺省/读不到按 `'long'` 处理（短篇判定只认 `'short'`）。 */
+export type BookKind = 'long' | 'short'
+
+/** 短篇正文判定（书级口径单源）：书级 kind 为 short 且路径落在正文目录（写作/正文/）。
+ *
+ *  为什么不能按 role 判：服务端 roleOf（src/document/layout.ts）对 写作/正文/ 恒返
+ *  'chapter'——'piece-body' 是历史 wire 兼容枚举位，服务端从不产出。短篇/长篇正文的
+ *  路径与 role 都相同，唯一可辨信号是书级 book.yaml kind；故判据收在本函数：接受
+ *  TreeNode / DocEntry 等任何带 path 的节点，各处判「短篇正文」一律引本函数，禁止再按
+ *  role 或路径各写一遍（书级 kind 由 doc store 的 bookKind 单源提供）。 */
+export function isPieceBodyNode(bookKind: BookKind, node: { path: string }): boolean {
+  return bookKind === 'short' && isBodyKind(node.path)
 }
 
 /**

@@ -148,8 +148,9 @@ describe('R26-2: anthropic message_start 缺 input_tokens → 0 兜底（NaN 防
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
-    // 折算锚定同 r74 口径：input = 'hi' 2 码位 → 2；output = '正文产出' 4 码位 → 3
-    expect(done.usage.inputTokens).toBe(2)
+    // 折算锚定：input = 'hi' 2 码位 + 消息外壳 24 码位 = 26 → ceil(15.6) = 16；
+    // output = '正文产出' 4 码位 → 3
+    expect(done.usage.inputTokens).toBe(16)
     expect(done.usage.outputTokens).toBe(3)
     expect(done.usage.estimated).toBe(true)
   })

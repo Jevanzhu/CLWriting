@@ -60,4 +60,27 @@ describe('R35-36: 焦点圈', () => {
     expect(dlg).not.toBeNull()
     expect(dlg!.contains(document.activeElement)).toBe(true)
   })
+
+  it('关闭后归还焦点给打开前的落点（焦点圈随弹窗卸载解除）', async () => {
+    // 开合顺序须自持：先让「打开前的落点」到位，再打开（焦点圈在弹窗挂载时记下该落点）
+    wrapper!.unmount()
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    expect(document.activeElement).toBe(trigger)
+
+    wrapper = mount(ChapterMetaDialog, {
+      props: { modelValue: false, num: 3, title: '开篇' },
+      attachTo: document.body,
+    })
+    await wrapper.setProps({ modelValue: true })
+    await nextTick()
+    expect(document.body.querySelector('.meta-dialog')!.contains(document.activeElement)).toBe(true)
+
+    await wrapper.setProps({ modelValue: false })
+    await nextTick()
+    expect(document.body.querySelector('.meta-dialog')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    trigger.remove()
+  })
 })

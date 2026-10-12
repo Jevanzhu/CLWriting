@@ -18,10 +18,25 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
 import { openRagDb, setRagMeta, getRagMeta } from '../../src/rag/store.js'
+import {
+  planChapterSplit,
+  applyChapterSplit,
+  type StructureRagPort,
+} from '../../src/document/structure.js'
+import { DocumentService } from '../../src/document/service.js'
+import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
+import { splitFrontMatter, parseFlat } from '../../src/format/frontmatter.js'
+import {
+  readManifest,
+  writeManifest,
+  upsertEntry,
+  finalizedChapterNumbers as finalizedChapterNumbersFromManifest,
+} from '../../src/document/manifest.js'
+import { finalizedChapterNumbers } from '../../src/document/structure-core.js'
 
 const BOOK = '结构拆分测试书'
 let studio: StudioHarness
@@ -316,5 +331,390 @@ describe('六轮重评 C101: 拆分干跑预览码位截断', () => {
     const preview = String((plan.json['plan'] as Record<string, unknown>)['tailPreview'])
     expect(preview).toBe(ASTRAL.repeat(60)) // 60 码位整字符，旧码元口径此处会劈出孤立高代理
     expect(preview.length).toBe(120) // 60 码位 × 2 码元
+  })
+})
+
+// ── 拆分光标落在 UTF-16 代理对中间的劈字防线：cursorOffset 落在高低位代理之间（CJK
+// 扩展 B 生僻字 𠀀 U+20000、emoji 等 astral 字符内部）时，applyChapterSplit 的 slice
+// 切分把一个字符劈成两个孤立代理，落盘各编码为 U+FFFD——原章尾与新章头同时永久损坏
+// 一字，且恢复重放经同一光标复现损坏。validateSplitCursor 补边界判定后：劈中间 →
+// 400 BAD_INPUT；码点边界（含 astral 字符前后两侧）→ 正常干跑/执行不受影响。
+// （章号取本文件未用过的 30/31/32，避免与既有用例的取号基线相撞）──
+
+describe('拆分光标代理对边界（validateSplitCursor）', () => {
+  const BODY = '前段正文。\n\n主角念出古字𠀀后天地变色。\n\n后段迁移。'
+
+  it('光标落在 𠀀（U+20000）代理对中间 → 干跑 400 BAD_INPUT（修复前 200，apply 劈字成 U+FFFD）', async () => {
+    // 𠀀 = \uD840\uDC00 高低位代理对；正文含 astral 字符夹正常段
+    const content = chapterContent(30, '第30章', BODY)
+    const d = await createChapter('写作/正文/第一卷/0030-第30章.md', content)
+    const cp = content.indexOf('𠀀')
+    expect(cp).toBeGreaterThan(0)
+    // 高代理与低代理之间（cp + 1）＝字符内部
+    const mid = await planSplit(d, cp + 1)
+    expect(mid.status).toBe(400)
+    expect(mid.json['code']).toBe('BAD_INPUT')
+    expect((mid.json as { error: string }).error).toContain('代理对')
+  })
+
+  it('光标在码点边界（astral 字符前/后两侧）→ 干跑正常（防线不误伤合法拆分点）', async () => {
+    const content = chapterContent(31, '第31章', BODY)
+    const d = await createChapter('写作/正文/第一卷/0031-第31章.md', content)
+    const cp = content.indexOf('𠀀')
+    for (const cursor of [cp, cp + 2]) {
+      const plan = await planSplit(d, cursor)
+      expect(plan.status).toBe(200)
+      const p = plan.json['plan'] as Record<string, unknown>
+      expect(typeof p['planHash']).toBe('string')
+      expect(p['tailWords']).toBeGreaterThan(0)
+    }
+  })
+
+  it('apply 同道拒收：劈中间光标 → 400 且盘面不动（校验先于 slice 切分）', async () => {
+    const content = chapterContent(32, '第32章', BODY)
+    const rel = '写作/正文/第一卷/0032-第32章.md'
+    const d = await createChapter(rel, content)
+    const cp = content.indexOf('𠀀')
+    const boundary = await planSplit(d, cp + 2)
+    expect(boundary.status).toBe(200)
+    const r = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(d)}/structure-apply`,
+      {
+        op: 'split',
+        title: '新章',
+        cursorOffset: cp + 1,
+        planHash: (boundary.json['plan'] as Record<string, unknown>)['planHash'],
+      },
+    )
+    expect(r.status).toBe(400)
+    expect((r.json as Record<string, unknown>)['code']).toBe('BAD_INPUT')
+    // 拒收即盘面逐字节不动（未发生任何劈字写盘）
+    expect(readFileSync(join(studio.bookRoot, rel), 'utf8')).toBe(content)
+  })
+})
+
+// ── 拆分取号临界区的跨进程锁：修复前 applyChapterSplit 只有进程内互斥（per-bookRoot
+// 串行链）——双进程（GUI 服务 + CLI 合法并存形态）并发拆分同书时，两进程各自扫盘取得
+// 同一章号、新章文件名含标题 → 路径不同 → createDocument 独占探测不拦 → 静默重号。
+// 修复后临界区外层先取 per-bookRoot 跨进程锁（工作区/.structure-op.lock）：
+// 他进程持锁（手动预持锁模拟，锁文件带本进程活 pid → 判 held 不误接管）→ 等满超时
+// OCCUPIED fail-loud；锁在成功与失败（PLAN_STALE）两态收尾均释放（try/finally）。
+// 直调模块函数；OCCUPIED 等待窗用假时钟推进（等待期唯一活动是锁轮询的 setTimeout）。
+// （章号取 40/50 段，避免与既有用例的取号基线相撞）──
+
+const splitRagStub: StructureRagPort = {
+  estimateRagChunkCount: () => 0,
+  cleanupRagAfterMerge: () => {},
+}
+
+const splitOpLockPath = (): string => join(studio.bookRoot, '工作区', '.structure-op.lock')
+
+/** 直调形态的拆分 apply 入参组装（干跑取指纹）。 */
+async function planDirect(
+  docId: string,
+  content: string,
+  marker: string,
+): Promise<{ planHash: string; cursorOffset: number }> {
+  const cursorOffset = content.indexOf(marker)
+  const plan = await planChapterSplit(
+    studio.bookRoot,
+    new DocumentService({ bookRoot: studio.bookRoot }),
+    docId,
+    cursorOffset,
+  )
+  if (!plan.ok) throw new Error(`干跑失败：${JSON.stringify(plan)}`)
+  return { planHash: plan.planHash, cursorOffset }
+}
+
+describe('拆分取号跨进程锁', () => {
+  it('他进程持锁（预持锁模拟）→ 等满 10s 超时 OCCUPIED fail-loud；释放后重试成功且锁文件收尾清零', async () => {
+    const relA = '写作/正文/第一卷/0040-甲章.md'
+    const contentA = chapterContent(40, '甲章', '甲章前半段保留。\n\n甲章后半段迁出标记。')
+    const dA = await createChapter(relA, contentA)
+    const pA = await planDirect(dA, contentA, '甲章后半段迁出标记')
+    const svcA = new DocumentService({ bookRoot: studio.bookRoot })
+    const input = { docId: dA, title: '甲拆分新章', cursorOffset: pA.cursorOffset, planHash: pA.planHash }
+
+    // 预持锁 = 「另一进程正在拆分」的进程内等价物（活 pid 在位 → judgeStaleLock 判 held，
+    // 不触发 stale 接管；12s 推进 < 10min 超龄门槛，不误判超龄）
+    const pre = tryAcquireCrossProcessLock(splitOpLockPath())
+    expect(pre).not.toBeNull()
+    try {
+      // 推进 12s（> 模块内 10s 等待窗，留余量）：轮询每 20ms 一拍，截止判定随假钟 Date 走
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      const pending = applyChapterSplit(studio.bookRoot, svcA, null, input, splitRagStub)
+      await vi.advanceTimersByTimeAsync(12_000)
+      const r = await pending
+      expect(r.ok).toBe(false)
+      if (!r.ok) {
+        expect(r.code).toBe('OCCUPIED')
+        expect(r.reason).toContain('跨进程锁')
+      }
+    } finally {
+      vi.useRealTimers()
+      pre?.()
+    }
+
+    // 释放后同 plan 重试 → 成功（锁内重读基线未变：尚无新章落盘）+ 锁文件不残留
+    const retry = await applyChapterSplit(studio.bookRoot, svcA, null, input, splitRagStub)
+    expect(retry.ok).toBe(true)
+    if (!('newChapterNo' in retry)) throw new Error('unreachable')
+    expect(retry.newChapterNo).toBe(41)
+    expect(existsSync(splitOpLockPath())).toBe(false)
+  }, 20_000)
+
+  it('成功与 PLAN_STALE 两态收尾锁文件均清零（try/finally 释放面）', async () => {
+    const rel40 = '写作/正文/第一卷/0050-丁章.md'
+    const rel41 = '写作/正文/第一卷/0051-戊章.md'
+    const content40 = chapterContent(50, '丁章', '丁章前半段保留。\n\n丁章后半段迁出标记。')
+    const content41 = chapterContent(51, '戊章', '戊章前半段保留。\n\n戊章后半段迁出标记。')
+    const d40 = await createChapter(rel40, content40)
+    const d41 = await createChapter(rel41, content41)
+    const stalePlan = await planDirect(d40, content40, '丁章后半段迁出标记')
+    const freshPlan = await planDirect(d41, content41, '戊章后半段迁出标记')
+    const svcB = new DocumentService({ bookRoot: studio.bookRoot })
+
+    const fresh = await applyChapterSplit(
+      studio.bookRoot,
+      svcB,
+      null,
+      { docId: d41, title: '戊拆分新章', cursorOffset: freshPlan.cursorOffset, planHash: freshPlan.planHash },
+      splitRagStub,
+    )
+    expect(fresh.ok).toBe(true)
+    expect(existsSync(splitOpLockPath())).toBe(false) // 成功收尾释放
+
+    const stale = await applyChapterSplit(
+      studio.bookRoot,
+      svcB,
+      null,
+      { docId: d40, title: '丁拆分新章', cursorOffset: stalePlan.cursorOffset, planHash: stalePlan.planHash },
+      splitRagStub,
+    )
+    expect(stale.ok).toBe(false)
+    if (!stale.ok) expect(stale.code).toBe('PLAN_STALE')
+    expect(existsSync(splitOpLockPath())).toBe(false) // 失败收尾同样释放（修复面 = try/finally）
+  })
+})
+
+// ── 定稿章号集认裸数字名：finalizedChapterNumbers 双实现同根盲区收编 chapterNoFromName
+// 单源（isMdFileName 剥 .md 茎后判定）——structure-core 版（拆分取号 skipFinalized 面）
+// 对「0061.md」这类带扩展直判失明 → skipFinalized 漏跳 → 取号撞定稿章号；manifest 版
+// （state.ts/recap.ts nextChapter 与 assembleStatus 的 skip 口径）同盲区一并收编。
+// 用例形态：定稿条目文件不在盘（定稿章经并入/回收后的既有形态）→ 盘面 max 落在 60 段，
+// 拆分取号须跳过已定稿的 61 取 62。（章号取 60 段避免与既有用例取号基线相撞）──
+
+describe('定稿章号集认裸数字名', () => {
+  const REL60 = '写作/正文/第一卷/0060-第60章.md'
+  let d60 = ''
+
+  beforeAll(async () => {
+    d60 = await createChapter(
+      REL60,
+      chapterContent(60, '第60章', '第六十章前半段。\n\n第六十章后半段迁出标记。'),
+    )
+    // 盘面唯一在盘章 0060（max=60）+ 定稿裸名条目 0061.md（文件不在盘，finalizedRevision 在档）
+    const mp = join(studio.bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(mp)
+    upsertEntry(m, {
+      id: 'doc_bare61',
+      nodeType: 'document',
+      path: '写作/正文/0061.md',
+      parentId: null,
+      finalizedRevision: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+    })
+    writeManifest(mp, m)
+  })
+
+  it('双实现均把裸数字定稿条目（0061.md）计入章号集（口径一致）', () => {
+    const mp = join(studio.bookRoot, '项目', '文档清单.jsonl')
+    // structure-core 版（拆分取号 skipFinalized 面）
+    expect(finalizedChapterNumbers(studio.bookRoot).has(61)).toBe(true)
+    // manifest 版（state.ts/recap.ts nextChapter 与 assembleStatus 面）
+    expect(finalizedChapterNumbersFromManifest(readManifest(mp)).has(61)).toBe(true)
+  })
+
+  it('拆分取号跳过定稿裸名 61 取 62（plan+apply 全链，落盘 0062 不落 0061）', async () => {
+    const content = chapterContent(60, '第60章', '第六十章前半段。\n\n第六十章后半段迁出标记。')
+    const cursor = content.indexOf('第六十章后半段迁出标记')
+    const plan = await planSplit(d60, cursor)
+    expect(plan.status).toBe(200)
+    expect((plan.json as { plan: { newChapterNo: number } }).plan.newChapterNo).toBe(62)
+    const apply = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(d60)}/structure-apply`,
+      {
+        op: 'split',
+        title: '跳号新章',
+        cursorOffset: cursor,
+        planHash: (plan.json as { plan: { planHash: string } }).plan.planHash,
+      },
+    )
+    expect(apply.status).toBe(200)
+    expect((apply.json as { newChapterNo: number }).newChapterNo).toBe(62)
+    expect(existsSync(join(studio.bookRoot, '写作/正文/第一卷/0062-跳号新章.md'))).toBe(true)
+    expect(existsSync(join(studio.bookRoot, '写作/正文/第一卷/0061-跳号新章.md'))).toBe(false)
+  })
+})
+
+// ── 拆分取号 per-bookRoot 串行互斥：applyChapterSplit 的「状态重读→取号→planHash 复核→
+// 截断→新章落位」段此前无跨请求互斥——两个拆分 apply 并发重叠时各算得同一章号、目标文件名
+// 不同，createDocument 双双成功 → 章号复用（「篇号永不复用」被破坏）。修复后临界段整段置于
+// 模块级 per-bookRoot 串行链内：并发第二个 apply 锁内重读取号得新号 → planHash 失配 →
+// PLAN_STALE fail-loud（期望行为），盘面永不出现重复章号。直调模块函数（绕开 api 层
+// enqueueStructureOp 串行链——正是无互斥裸露面）；服务级建账（API 造章）+ planChapterSplit
+// 干跑同基线；userDataPath 只作事件副录隔离（取号行为与其无关）。
+// 独立书根自建自清：本组断言按「全书 fm 章号」逐位钉死，独占书根方可不与他组累积章号相扰。──
+
+const MUTEX_BOOK = '拆分取号互斥测试书'
+let mutexStudio: StudioHarness
+let mutexUserDataPath = ''
+
+const { createChapter: createMutexChapter } = bindStructureHelpers({
+  studio: () => mutexStudio,
+  book: MUTEX_BOOK,
+  userDataPath: () => mutexUserDataPath,
+})
+
+const mutexRagStub: StructureRagPort = {
+  estimateRagChunkCount: () => 0,
+  cleanupRagAfterMerge: () => {},
+}
+
+/** 直调形态的拆分 apply 入参组装（干跑取指纹）。 */
+async function planDirectMutex(
+  docId: string,
+  content: string,
+  marker: string,
+): Promise<{ planHash: string; cursorOffset: number }> {
+  const cursorOffset = content.indexOf(marker)
+  const plan = await planChapterSplit(
+    mutexStudio.bookRoot,
+    new DocumentService({ bookRoot: mutexStudio.bookRoot }),
+    docId,
+    cursorOffset,
+  )
+  if (!plan.ok) throw new Error(`干跑失败：${JSON.stringify(plan)}`)
+  return { planHash: plan.planHash, cursorOffset }
+}
+
+/** 读全书正文区各章 fm 章号（递归卷目录），断言唯一性用。 */
+function mutexChapterNosOnDisk(): Array<{ no: number; file: string }> {
+  const root = join(mutexStudio.bookRoot, '写作', '正文')
+  const out: Array<{ no: number; file: string }> = []
+  const walk = (dir: string): void => {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const fp = join(dir, ent.name)
+      if (ent.isDirectory()) {
+        walk(fp)
+        continue
+      }
+      if (!ent.name.endsWith('.md')) continue
+      const raw = readFileSync(fp, 'utf8')
+      const sp = splitFrontMatter(raw)
+      if (!sp) continue
+      const no = parseFlat(sp.fmRaw).get('章号')
+      if (typeof no === 'number') out.push({ no, file: ent.name })
+    }
+  }
+  walk(root)
+  return out
+}
+
+describe('拆分取号并发互斥（per-bookRoot 串行链）', () => {
+  beforeAll(async () => {
+    mutexUserDataPath = mkdtempSync(join(tmpdir(), 'clw-split-mutex-ud-'))
+    mutexStudio = await bootStudio({
+      book: MUTEX_BOOK,
+      prefix: 'clw-split-mutex-',
+      userDataPath: mutexUserDataPath,
+      dirs: ['写作/正文/第一卷', '工作区'],
+      bookYaml:
+        'spec_version: 1\nkind: long\nbook:\n  title: 拆分取号互斥测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    })
+  })
+
+  afterAll(async () => {
+    await mutexStudio.close()
+    if (mutexUserDataPath) rmSync(mutexUserDataPath, { recursive: true, force: true })
+  })
+
+  it('同一书根并发两个 applyChapterSplit（不同源章、同 plan 基线）→ 恰一成功一 PLAN_STALE，盘面无重复章号', async () => {
+    const relA = '写作/正文/第一卷/0020-甲章.md'
+    const relB = '写作/正文/第一卷/0021-乙章.md'
+    const contentA = chapterContent(20, '甲章', '甲章前半段保留。\n\n甲章后半段迁出标记。')
+    const contentB = chapterContent(21, '乙章', '乙章前半段保留。\n\n乙章后半段迁出标记。')
+    const dA = await createMutexChapter(relA, contentA)
+    const dB = await createMutexChapter(relB, contentB)
+    // 同基线干跑：两 plan 都在 max=21 时点算出 newChapterNo=22
+    const pA = await planDirectMutex(dA, contentA, '甲章后半段迁出标记')
+    const pB = await planDirectMutex(dB, contentB, '乙章后半段迁出标记')
+    const svc = new DocumentService({ bookRoot: mutexStudio.bookRoot })
+    const apply = (docId: string, p: { planHash: string; cursorOffset: number }, title: string) =>
+      applyChapterSplit(
+        mutexStudio.bookRoot,
+        svc,
+        null,
+        { docId, title, cursorOffset: p.cursorOffset, planHash: p.planHash },
+        mutexRagStub,
+      )
+
+    // 并发重叠（Promise.all 同拍入队；互斥使其串行过临界段）
+    const [rA, rB] = await Promise.all([apply(dA, pA, '甲拆分新章'), apply(dB, pB, '乙拆分新章')])
+
+    // 期望行为：先过临界段者成功，后者锁内重读（max 已被前者推进）→ PLAN_STALE fail-loud
+    const results = [rA, rB]
+    const okCount = results.filter((r) => r.ok).length
+    expect(okCount).toBe(1)
+    for (const r of results) {
+      if (!r.ok) expect(r.code).toBe('PLAN_STALE')
+    }
+    const okResult = results.find((r) => r.ok)!
+    if (!('newChapterNo' in okResult)) throw new Error('unreachable')
+    expect(okResult.newChapterNo).toBe(22)
+
+    // 盘面断言：全书 fm 章号无重复（双章未产生）
+    const onDisk = mutexChapterNosOnDisk()
+    const nos = onDisk.map((e) => e.no)
+    expect(new Set(nos).size).toBe(nos.length)
+    expect(nos.sort((a, b) => a - b)).toEqual([20, 21, 22])
+  })
+
+  it('串行重放同 plan（取号基线已被另一次拆分推进）→ 第二个 PLAN_STALE，盘面无重复章号', async () => {
+    // 场景：0041 先拆（成功，max 推进到 42）→ 0040 的同基线旧 plan 重放——源章内容
+    // 未变（光标仍合法），但锁内重读取号 42→43 → 指纹失配 → PLAN_STALE fail-loud
+    const rel40 = '写作/正文/第一卷/0040-丁章.md'
+    const rel41 = '写作/正文/第一卷/0041-戊章.md'
+    const content40 = chapterContent(40, '丁章', '丁章前半段保留。\n\n丁章后半段迁出标记。')
+    const content41 = chapterContent(41, '戊章', '戊章前半段保留。\n\n戊章后半段迁出标记。')
+    const d40 = await createMutexChapter(rel40, content40)
+    const d41 = await createMutexChapter(rel41, content41)
+    const stalePlan = await planDirectMutex(d40, content40, '丁章后半段迁出标记')
+    const freshPlan = await planDirectMutex(d41, content41, '戊章后半段迁出标记')
+    const svc = new DocumentService({ bookRoot: mutexStudio.bookRoot })
+    const first = await applyChapterSplit(
+      mutexStudio.bookRoot,
+      svc,
+      null,
+      { docId: d41, title: '戊拆分新章', cursorOffset: freshPlan.cursorOffset, planHash: freshPlan.planHash },
+      mutexRagStub,
+    )
+    expect(first.ok).toBe(true)
+    const replayed = await applyChapterSplit(
+      mutexStudio.bookRoot,
+      svc,
+      null,
+      { docId: d40, title: '丁拆分新章', cursorOffset: stalePlan.cursorOffset, planHash: stalePlan.planHash },
+      mutexRagStub,
+    )
+    expect(replayed.ok).toBe(false)
+    if (!replayed.ok) expect(replayed.code).toBe('PLAN_STALE')
+    // 盘面无重复章号（同书累积：含上一用例的 20/21/22）
+    const onDisk = mutexChapterNosOnDisk()
+    const nos = onDisk.map((e) => e.no)
+    expect(new Set(nos).size).toBe(nos.length)
+    expect(nos.sort((a, b) => a - b)).toEqual([20, 21, 22, 40, 41, 42])
+    expect(existsSync(join(mutexStudio.bookRoot, '写作/正文/第一卷/0042-戊拆分新章.md'))).toBe(true)
   })
 })

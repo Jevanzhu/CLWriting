@@ -240,6 +240,33 @@ test('R65-1: patchFlatFm 空 fm 全量追加 + 注释行保留', () => {
   expect(parseFlat(r.text).get('新键')).toBe(42)
 })
 
+// 键名闸：非法键在拼行前被拒（未命中即 fm 文本零变化）；中文/ASCII 合法键照常写入
+test('patchFlatFm: 非法键名（换行/冒号/全角冒号/空串/首尾空白/列表注释前缀）→ ok:false 且原 fm 零变化', () => {
+  const fmRaw = '章号: 1\n标题: 测试\n目标情绪: 铺垫'
+  const bad = ['x\n字数目标', '标题: 999', '标题：999', '', ' 标题', '标题 ', '- 标题', '#标题']
+  for (const key of bad) {
+    const r = patchFlatFm(fmRaw, { [key]: '值' })
+    expect(r.ok, `键「${JSON.stringify(key)}」应被拒`).toBe(false)
+    if (r.ok) continue
+    // 拒绝即无产物可回写（调用方无文本可用，盘面不会被触碰）
+    expect('text' in r).toBe(false)
+    expect(typeof r.reason).toBe('string')
+    expect(r.reason.length).toBeGreaterThan(0)
+  }
+})
+
+test('patchFlatFm: 中文键与 ASCII 键照常写入（键名闸不误伤正常键）', () => {
+  const fmRaw = '章号: 1\n标题: 旧'
+  const r = patchFlatFm(fmRaw, { 标题: '新', 目标情绪: '铺垫', summary: '一句' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const map = parseFlat(r.text)
+  expect(map.get('标题')).toBe('新')
+  expect(map.get('目标情绪')).toBe('铺垫')
+  expect(map.get('summary')).toBe('一句')
+  expect(map.get('章号')).toBe(1)
+})
+
 test('joinFrontMatter: 包裹完整 markdown', () => {
   expect(joinFrontMatter('编号: X', '正文')).toBe('---\n编号: X\n---\n正文')
   expect(joinFrontMatter('', '正文')).toBe('正文')

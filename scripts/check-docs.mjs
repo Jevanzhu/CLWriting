@@ -2,16 +2,15 @@
 /**
  * 文档篇幅门（docs-surface）：防「废话回弹」——索引面短小、介绍面对外、明细归 git 历史。
  *
- * 背景（2026-09-19 作者指令「也要保证后续不会塞废话进去」+「根目录 README 只是项目介绍，
- * 不要把项目进展什么的塞进去」）：精简前四件分别为 4.0K / 46.2K / 2.6K / 6.9K，其中根
- * README 的开发段是单个 32KB 行——历代 L2 亲跑实录（逐批文件/过数/跳/败 + 九门明细 +
- * 差值锚沿革 + CI 跑红根因复盘）全堆在里面。此前只靠 CLAUDE.md「记档」条的自律，两日即
- * 回弹；正如 check-counts 的 X-P2-16 先例（对账自律 → 升级门禁），本门把篇幅纪律升级为
- * 机器门。
+ * 背景（作者指令「也要保证后续不会塞废话进去」+「根目录 README 只是项目介绍，不要把项目
+ * 进展什么的塞进去」）：精简前四件分别为 4.0K / 46.2K / 2.6K / 6.9K，其中根 README 的
+ * 开发段是单个 32KB 行——历代亲跑实录（逐批文件 / 过数 / 跳 / 败 + 门禁明细 + 差值锚沿革
+ * + CI 跑红根因复盘）全堆在里面。此前只靠 CLAUDE.md「记档」条的自律，两日即回弹；正如
+ * check-counts 的对账先例（自律 → 升级门禁），本门把篇幅纪律升级为机器门。
  *
  * 两个面，口径不同：
  * - **索引面**（治理/索引文档）：只写结论 + 指针，不装明细。
- * - **介绍面**（根 README）：对外介绍（是什么/怎么装/怎么跑/技术栈/许可证），
+ * - **介绍面**（根 README）：对外介绍（是什么 / 怎么装 / 怎么跑 / 技术栈 / 许可证），
  *   **禁一切项目进展**——批级实录、沿革、修复记、跑红复盘、锚号都不属于它。
  *   仅放行机器门依赖的稳定口径数字（check:counts 从本文件抓声称值）。
  *
@@ -32,7 +31,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 // ─ 索引面清单与上限 ─────────────────────────────────────────────────
-// 实测单行最长（2026-09-19 精简后）= CLAUDE 589 / 总览 486 / DD-README 220。
+// 上限按「精简后实测最长行 + 留白」拟定：CLAUDE 589 / 总览 486 / DD-README 220。
 export const INDEX_FILES = [
   { path: 'CLAUDE.md', maxLine: 700, maxBytes: 6000, label: 'CLAUDE.md（治理正本）' },
   { path: 'Dev/Docs/README.md', maxLine: 400, maxBytes: 3000, label: 'Dev/Docs/README.md' },
@@ -125,9 +124,9 @@ export function forbiddenPhrasesIn(content, list = FORBIDDEN_PHRASES) {
 
 // ─ 修订日期标注（索引面禁）─────────────────────────────────────────
 // 作者指令：「为什么一定要加修订日期之类的……特别是 CLAUDE.md，不是记录文档，是规则！」
-// 规则/索引文档写的是「现在是什么规矩」，不是「哪批改的」——批号与日期正本 = git 历史
-// （blame 一查即得）。文件名内的日期（`…-2026-08-15.md`）是命名要素，放行；只禁**括号
-// 标注形态**「（2026-09-19 …）」「（2026-09-19）」这类挂在条目上的修订日期。
+// 规则 / 索引文档写的是「现在是什么规矩」，不是「哪批改的」——批号与日期正本 = git 历史
+// （blame 一查即得）。文件名内的日期（`…-<年>-<月>-<日>.md` 这类命名要素）放行；
+// 只禁**括号标注形态**——即挂在条目上的「（年-月-日）」或「（年-月-日 + 短语）」。
 const DATE_ANNOTATION_RE = /[（(]\s*\d{4}-\d{2}-\d{2}\s*[)）]|[（(]\s*\d{4}-\d{2}-\d{2}\s+[^)）]{0,40}[)）]/
 
 /** 命中的括号日期标注（含行号与原文）。返回 [{ line, text, preview }]。 */
@@ -210,4 +209,5 @@ export function main() {
 
 // 直跑判据走 pathToFileURL——argv[1] 可能是相对路径（`node scripts/check-docs.mjs`），
 // 裸拼 `file://${argv[1]}` 与之不等，main() 会静默不执行（门形同虚设）。
-if (import.meta.url === pathToFileURL(process.argv[1]).href) main()
+// argv[1] 可缺席（node -e / REPL 动态 import 该模块）——缺席即非直跑，不得裸取下标。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

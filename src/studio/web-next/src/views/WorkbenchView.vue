@@ -36,7 +36,7 @@ import { friendlyError } from '../shared/error'
 import { refreshCachedDoc } from '../shared/doc-freshness' // helper 单源
 import { useStaleGuard } from '../composables/useStaleGuard'
 import { useBookScoped } from '../composables/useBookScoped'
-import { useScopedAction, usePendingAction } from '../composables/useScopedAction'
+import { usePendingAction, useBookActionRunner } from '../composables/useScopedAction'
 import { isImeComposing } from '../shared/ime'
 import { countWords } from '../shared/words' // 草稿字数与编辑器头/草稿卡同源
 
@@ -165,9 +165,10 @@ const genBusy = computed(
     !!spawnPending.value || !!outlinePending.value || !!leadUpdatesPending.value || !!autoPending.value || wb.running,
 )
 
-// 书名入口捕获 + await 后复检 + catch 尾款（stillIn/failScoped 单源）——
-// 生成族动作在途切书后，A 书的 toast/err/落态不得进入 B 书界面。
-const scoped = useScopedAction(() => props.bookName)
+// 生成族动作执行器（单源单点）：入口捕获书名 → 体内逐 await 复检 → catch 尾款 → 在途锁进出
+// 全在本件内完成，动作侧只声明差异（自己的锁 / 是否清错误条 / 失败提示 / 每步编排）。
+// 书域不变的约束：动作在途切书后，A 书的 toast/err/落态一律不进入 B 书界面。
+const runScoped = useBookActionRunner(() => props.bookName)
 
 function onPromptEnter(e: KeyboardEvent): void {
   // 原 @keyup.enter 在 IME compositionend 之后触发（isComposing
@@ -182,32 +183,27 @@ function onPromptEnter(e: KeyboardEvent): void {
 }
 
 async function onSpawn(): Promise<void> {
-  if (!spawnPending.enter()) return // 本地在途锁（wb.running 回流前的重复提交窗）
-  err.value = null
-  // 书名入口捕获（类收敛）——拉写稿上下文的 await 期间切书后，
-  // 生成请求不能再发到切换后的书（A 书上下文的生成发进 B 书）
-  const book = props.bookName
-  try {
-    // 先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
-    // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
-    const { prompt: ctx, files } = await getDraftPrompt(book, chapter.value)
-    const userText = prompt.value.trim()
-    const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
-    if (!scoped.stillIn(book)) return
-    // 注入源清单随 prompt 回传——服务端登记进 llm/call promptMeta.files（可见⟺已记录）
-    await spawnRole(book, { role: 'writer', prompt: final, ...(files?.length ? { files } : {}) })
-    // 成功 toast 同款 await 后复检（家族收口到成功路径）——
-    // spawn POST 在途期间切书，A 书的「已开始生成」toast 不得落 B 书工作台
-    if (!scoped.stillIn(book)) return
-    ui.toast('已开始生成', 'info')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
-      err.value = friendlyError(e) // A 书的失败 toast/err 不落 B 书界面
+  await runScoped.run({
+    pending: spawnPending,
+    clearError: () => {
+      err.value = null
+    },
+    body: async ({ book, step }) => {
+      // 先拉写稿上下文（细纲 + 备料 + 设定注入），再拼输入框内容——
+      // 原来仅发输入框文本（常为空串 → 只有 system prompt，产出与本书无关）
+      const { prompt: ctx, files } = await step(() => getDraftPrompt(book, chapter.value))
+      const userText = prompt.value.trim()
+      const final = userText ? `${ctx}\n\n## 作者补充要求\n${userText}` : ctx
+      // 注入源清单随 prompt 回传——服务端登记进 llm/call promptMeta.files（可见⟺已记录）
+      await step(() => spawnRole(book, { role: 'writer', prompt: final, ...(files?.length ? { files } : {}) }))
+      ui.toast('已开始生成', 'info')
+    },
+    onError: (e) => {
+      // A 书的失败 toast/err 不落 B 书界面（切书判定已在执行器内完成）
+      err.value = friendlyError(e)
       ui.toast(err.value, 'error')
-    })
-  } finally {
-    spawnPending.exit()
-  }
+    },
+  })
 }
 // 崩溃 pending「忽略此提醒」（WbStateCard
 // 上抛）。逐个 acknowledge（端点幂等，重复确认 acknowledged:false），成功 toast + 刷新
@@ -217,121 +213,111 @@ async function onSpawn(): Promise<void> {
 const ackCrashedPending = usePendingAction()
 async function onAcknowledgeCrashed(): Promise<void> {
   const opIds = state.value?.crashedPendingOpIds ?? []
-  if (opIds.length === 0) return
-  if (!ackCrashedPending.enter()) return
-  const book = props.bookName
-  try {
-    let any = false
-    for (const opId of opIds) {
-      const r = await acknowledgeJournalPending(book, opId)
-      if (!scoped.stillIn(book)) return // 切书：成功结果不落新书界面
-      if (r.acknowledged) any = true
-    }
-    ui.toast(any ? '已忽略崩溃恢复提醒，进门体检不再报该条' : '该提醒已失效或已确认', 'success')
-    await refreshState()
-  } catch (e) {
-    scoped.failScoped(book, e, () => ui.toast(friendlyError(e), 'error')) // 失败提示同样不落新书界面
-  } finally {
-    ackCrashedPending.exit()
-  }
+  if (opIds.length === 0) return // 无待确认项：不发请求也不取锁
+  await runScoped.run({
+    pending: ackCrashedPending,
+    body: async ({ book, step }) => {
+      let any = false
+      for (const opId of opIds) {
+        // 逐个确认（端点幂等，重复确认 acknowledged:false）；每个 opId 都是独立一步——
+        // 确认在途切书即中止，剩余 opId 不再打
+        const r = await step(() => acknowledgeJournalPending(book, opId))
+        if (r.acknowledged) any = true
+      }
+      ui.toast(any ? '已忽略崩溃恢复提醒，进门体检不再报该条' : '该提醒已失效或已确认', 'success')
+      await step(() => refreshState())
+    },
+    // 失败面只有 toast（不写 err 状态条）；同样不落新书界面
+    onError: (e) => ui.toast(friendlyError(e), 'error'),
+  })
 }
 
 async function onInterrupt(): Promise<void> {
-  if (!interruptPending.enter()) return // 在途锁（双击重复 POST 中断）
-  // 书名入口捕获 + await 后复检（家族，onSpawn/onAutoWrite
-  // 同款）——原实现裸用 props.bookName：A 书中断 POST 在途期间切到 B 书，失败 toast/
-  // err 落 B 书工作台且无清除路径（err 只在下一次本窗动作时覆写）
-  const book = props.bookName
-  try {
-    const r = await interrupt(book)
-    if (!scoped.stillIn(book)) return // 切书后：成功 toast 也不落新书界面
-    // interrupted=false = 当前没有在途生成——不再误导性
-    // 「已中断」。r 缺省（异常形态/旧 mock）维持原「已中断」口径
-    ui.toast(r && r.interrupted === false ? '当前没有正在进行的生成' : '已中断', 'info')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
+  await runScoped.run({
+    pending: interruptPending,
+    body: async ({ book, step }) => {
+      const r = await step(() => interrupt(book))
+      // interrupted=false = 当前没有在途生成——不再误导性
+      // 「已中断」。r 缺省（异常形态/旧 mock）维持原「已中断」口径
+      ui.toast(r && r.interrupted === false ? '当前没有正在进行的生成' : '已中断', 'info')
+    },
+    // 失败只落错误条（不 toast）
+    onError: (e) => {
       err.value = friendlyError(e)
-    })
-  } finally {
-    interruptPending.exit()
-  }
+    },
+  })
 }
 
 // 全自动写章：AI 写稿→机检→红则自动重写→全绿或触顶交作者。进度经 SSE self_heal_* 事件回流。
 // 批量连写——章数取配置 auto.batch_size（>1 时后端连写多章，进度经 self_heal_batch* 事件回流）。
 async function onAutoWrite(): Promise<void> {
-  if (!autoPending.enter()) return // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
-  err.value = null
-  // 书名入口捕获（同 onSpawn）——书级配置 await 期间切书后中止
-  const book = props.bookName
-  // #24：章号同款请求时刻捕获——toast 处再读 chapter.value 已是生成结束刷新
+  // 章号同款请求时刻捕获——toast 处再读 chapter.value 已是生成结束刷新
   // 状态卡后的新值（窄窗文案错位），入队时刻拍定全函数用
   const chap = chapter.value
-  try {
-    // 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
-    // 读不到按原失败口径抛出，落 catch 的 err 上屏 + toast + 本次不生成
-    const loaded = await ws.loadBookConfig(book)
-    if (loaded.error) throw loaded.error
-    // 书级未设回落全局默认（prefs.get('aiBatchSize') 初值即硬编码回落 8；服务端合并同链）
-    const batchSize = Math.max(1, Math.min(20, Math.floor(loaded.config.auto?.batch_size ?? prefs.get('aiBatchSize'))))
-    if (!scoped.stillIn(book)) return
-    const r = await autoWrite(book, chap, batchSize)
-    // 同 onSpawn——autoWrite POST 在途切书，A 书的「已开始全自动写稿」toast
-    // 不落 B 书界面（消息里的章号也是 A 书的，落 B 书更误导）
-    if (!scoped.stillIn(book)) return
-    const msg = (r.batchSize ?? 1) > 1 ? `第 ${chap} 章起连写 ${r.batchSize} 章已开始` : `第 ${chap} 章已开始全自动写稿`
-    ui.toast(msg, 'info')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
+  await runScoped.run({
+    pending: autoPending, // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
+    clearError: () => {
+      err.value = null
+    },
+    body: async ({ book, step }) => {
+      // 配置读走 workspace.loadBookConfig 单源（同书多消费方共享一次请求与缓存）；
+      // 读不到按原失败口径抛出，落 catch 的 err 上屏 + toast + 本次不生成
+      const loaded = await step(() => ws.loadBookConfig(book))
+      if (loaded.error) throw loaded.error
+      // 书级未设回落全局默认（prefs.get('aiBatchSize') 初值即硬编码回落 8；服务端合并同链）
+      const batchSize = Math.max(
+        1,
+        Math.min(20, Math.floor(loaded.config.auto?.batch_size ?? prefs.get('aiBatchSize'))),
+      )
+      const r = await step(() => autoWrite(book, chap, batchSize))
+      // 消息里的章号是发起时刻拍定的 A 书章号，落 B 书更误导
+      const msg =
+        (r.batchSize ?? 1) > 1 ? `第 ${chap} 章起连写 ${r.batchSize} 章已开始` : `第 ${chap} 章已开始全自动写稿`
+      ui.toast(msg, 'info')
+    },
+    onError: (e) => {
       err.value = friendlyError(e)
       ui.toast(err.value, 'error')
-    })
-  } finally {
-    autoPending.exit()
-  }
+    },
+  })
 }
 
 // AI 生成本章细纲（工作区/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
 async function onOutline(): Promise<void> {
-  if (!outlinePending.enter()) return // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
-  err.value = null
-  // 书名入口捕获 + await 后复检（/L- 惯例，兄弟函数均已有）——
-  // 生成期间切书后 toast 会落到切换后的书，误导作者
-  const book = props.bookName
-  const chap = chapter.value // #24：章号请求时刻捕获（同 onAutoWrite）
-  try {
-    await generateOutline(book, chap)
-    if (!scoped.stillIn(book)) return
-    ui.toast(`第 ${chap} 章细纲已生成`, 'success')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
+  const chap = chapter.value // 章号请求时刻捕获（同 onAutoWrite）
+  await runScoped.run({
+    pending: outlinePending, // 本地在途锁（阻塞 POST 最长 300s，全程无禁用态）
+    clearError: () => {
+      err.value = null
+    },
+    body: async ({ book, step }) => {
+      await step(() => generateOutline(book, chap))
+      ui.toast(`第 ${chap} 章细纲已生成`, 'success')
+    },
+    onError: (e) => {
       err.value = friendlyError(e)
       ui.toast(err.value, 'error')
-    })
-  } finally {
-    outlinePending.exit()
-  }
+    },
+  })
 }
 
 // AI 草拟本章账本推进（工作区/账本推进.md）——作者确认/修改后定稿时回写布线履历
 async function onLeadUpdates(): Promise<void> {
-  if (!leadUpdatesPending.enter()) return // 本地在途锁（同 onOutline）
-  err.value = null
-  // 书名入口捕获 + await 后复检（同 onOutline）
-  const book = props.bookName
-  const chap = chapter.value // #24：章号请求时刻捕获（同 onAutoWrite）
-  try {
-    const r = await generateLeadUpdates(book, chap)
-    if (!scoped.stillIn(book)) return
-    ui.toast(r.count > 0 ? `已生成 ${r.count} 条账本推进，请确认` : '本章无账本推进', 'success')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
+  const chap = chapter.value // 章号请求时刻捕获（同 onAutoWrite）
+  await runScoped.run({
+    pending: leadUpdatesPending, // 本地在途锁（同 onOutline）
+    clearError: () => {
+      err.value = null
+    },
+    body: async ({ book, step }) => {
+      const r = await step(() => generateLeadUpdates(book, chap))
+      ui.toast(r.count > 0 ? `已生成 ${r.count} 条账本推进，请确认` : '本章无账本推进', 'success')
+    },
+    onError: (e) => {
       err.value = friendlyError(e)
       ui.toast(err.value, 'error')
-    })
-  } finally {
-    leadUpdatesPending.exit()
-  }
+    },
+  })
 }
 
 // 存草稿并编辑：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
@@ -355,37 +341,29 @@ async function onSaveDraft(): Promise<void> {
     ui.toast('重连同步中，生成正文可能不完整，暂不能存为草稿', 'error')
     return
   }
-  if (!saveDraftPending.enter()) return // 本地在途锁（同族——双击第二笔重复 POST 存同一草稿）
-  // L-F1await 前捕获书名——存草稿在途切书后 tree.load/openTab/toast 会
-  // 落到 B 书界面（legacy docId 可撞 B 书同路径），确认后守卫中止
-  const book = props.bookName
-  const chap = chapter.value // #24：章号请求时刻捕获（同 onAutoWrite）
-  try {
-    const r = await saveDraft(book, chap, wb.textOut)
-    // 低-2：draftSaved 赋值移到切书守卫之后——原先守卫前就写徽标，存草稿
-    // 在途切书时 watch(bookName) 已清残留，晚到的赋值又把 A 书「已存 N 字」徽标
-    // 留在 B 书工作台（L- 同点收尾）
-    if (!scoped.stillIn(book)) return // 已切书：草稿已落 A 书盘，不再动 B 界面
-    draftSaved.value = { words: countWords(wb.textOut) } // 与草稿卡同源口径
-    // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
-    await tree.load(book)
-    // 第二 await 窗补守卫（对齐 useChapterTreeStructure
-    // onSplitCommit 的 stillIn 口径）——L- 锚注点名的 tree.load/openTab/toast 三件，
-    // 原守卫只堵 saveDraft POST 一窗；tree.load 在途（大书树 GET 秒级）切书后，
-    // openTab 会把 A 书草稿 docId 劫持进 B 书工作区（activeView/activeDocId 强切 +
-    // 500ms 后 writeBookPrefs 把 A 书 docId 落进 B 书 prefs.json），成功 toast 落错书。
-    if (!scoped.stillIn(book)) return // 已切书：同上，不再动 B 界面
-    refreshCachedDoc(doc, r.docId) // 同 healResult——缓存命中（clean）时先异步重拉再开
-    ws.openTab(r.docId)
-    ui.toast(`第 ${chap} 章草稿已存，转到编辑`, 'success')
-  } catch (e) {
-    scoped.failScoped(book, e, () => {
+  const chap = chapter.value // 章号请求时刻捕获（同 onAutoWrite）
+  await runScoped.run({
+    pending: saveDraftPending, // 本地在途锁（同族——双击第二笔重复 POST 存同一草稿）
+    body: async ({ book, step }) => {
+      const r = await step(() => saveDraft(book, chap, wb.textOut))
+      // draftSaved 赋值在守卫步之后——存草稿在途切书时不写徽标（晚到的赋值会把
+      // A 书「已存 N 字」徽标留在 B 书工作台）
+      draftSaved.value = { words: countWords(wb.textOut) } // 与草稿卡同源口径
+      // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档。
+      // tree.load（大书树 GET 秒级）在途切书后，openTab 会把 A 书草稿 docId 劫持进
+      // B 书工作区（activeView/activeDocId 强切 + 500ms 后 writeBookPrefs 把 A 书
+      // docId 落进 B 书 prefs.json），成功 toast 落错书——故 tree.load 亦经守卫步，
+      // 其落定后的 openTab/toast 只在仍属本书时才执行
+      await step(() => tree.load(book))
+      refreshCachedDoc(doc, r.docId) // 同 healResult——缓存命中（clean）时先异步重拉再开
+      ws.openTab(r.docId)
+      ui.toast(`第 ${chap} 章草稿已存，转到编辑`, 'success')
+    },
+    onError: (e) => {
       err.value = friendlyError(e) // 同 onSpawn——A 书失败不落 B 书界面
       ui.toast(err.value, 'error')
-    })
-  } finally {
-    saveDraftPending.exit()
-  }
+    },
+  })
 }
 </script>
 
@@ -487,7 +465,8 @@ async function onSaveDraft(): Promise<void> {
       <!-- genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
       <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" :gen-busy="genBusy" @save="onSaveDraft" />
 
-      <div v-if="err" class="err-msg">{{ err }}</div>
+      <!-- role="alert"：动作失败提示要即刻播报（失败进本窗动作的落点，作者未必在看着屏） -->
+      <div v-if="err" class="err-msg" role="alert">{{ err }}</div>
     </template>
   </div>
 </template>

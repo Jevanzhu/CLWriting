@@ -13,7 +13,7 @@ import { rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:f
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
-import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
+import { sweepAbandonedTmpFiles, sweepAppDataTmpFiles } from '../../src/fs/atomic.js'
 import { extractEvidenceCore, evidenceNeedles } from '../../src/check/leads.js'
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -147,5 +147,67 @@ describe('Y-24: sweepAbandonedTmpFiles', () => {
     expect(removed).toBe(1)
     expect(existsSync(escaped)).toBe(false) // 自身 pid + 超 5min → 废弃清走
     expect(existsSync(inFlight)).toBe(true) // 年轻（<5min）→ 在途保护不动
+  })
+})
+
+// ── 应用级数据目录（共享根 + 实例目录）的 tmp 清扫 ─────────────────────────
+// 这两处是 providers.json / global.json / workdir.json / window-state.json / 诊断包 的
+// atomic 写落点，此前无任何清扫挂点（书库根的清扫在进门健康检查里，恒传 bookRoot）。
+// 断言只锚文件存在性（可观察面），不锚日志文本。
+describe('sweepAppDataTmpFiles：共享根与实例目录各扫一次', () => {
+  const uuidOf = (tag: string): string => `aaaaaaaa-bbbb-cccc-dddd-${tag.padEnd(12, 'e')}`
+  const staleName = (tag: string): string => `.x.json.${deadPid()}.${uuidOf(tag)}.tmp`
+
+  it('两目录各放一枚过期 tmp → 清理后都消失；形态不符与未过期文件不动', async () => {
+    const sharedRoot = join(root, '共享根')
+    const instanceDir = join(sharedRoot, 'instances', 'key-x')
+    mkdirSync(instanceDir, { recursive: true })
+    const now = Date.now()
+    const plant = (p: string, old: boolean): string => {
+      writeFileSync(p, 'x')
+      if (old) utimesSync(p, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000))
+      return p
+    }
+    const staleShared = plant(join(sharedRoot, staleName('a')), true)
+    const staleInstance = plant(join(instanceDir, staleName('b')), true)
+    // 未过期（1 分钟前）：年龄门内，可能在途 → 不动
+    const freshShared = plant(join(sharedRoot, staleName('c')), false)
+    const freshInstance = plant(join(instanceDir, staleName('d')), false)
+    // 形态不符：非 tmp 后缀、缺 pid/uuid 段——一律不动（不得删非本形态文件）
+    const notTmp = plant(join(sharedRoot, 'providers.json'), true)
+    const shortTmp = plant(join(sharedRoot, '.providers.json.tmp'), true)
+    const noUuid = plant(join(sharedRoot, `.providers.json.${deadPid()}.tmp`), true)
+
+    const removed = await sweepAppDataTmpFiles([sharedRoot, instanceDir], { minAgeMs: 5 * 60_000 })
+    expect(removed).toBe(2)
+    for (const p of [staleShared, staleInstance]) expect(existsSync(p), `${p} 应被清扫`).toBe(false)
+    for (const p of [freshShared, freshInstance, notTmp, shortTmp, noUuid]) {
+      expect(existsSync(p), `${p} 不得被删`).toBe(true)
+    }
+  })
+
+  it('幂等（多实例并发扫同一目录的形态）：二次清扫返回 0 且不动任何文件', async () => {
+    const sharedRoot = join(root, '共享根2')
+    mkdirSync(sharedRoot, { recursive: true })
+    const stale = join(sharedRoot, staleName('e'))
+    writeFileSync(stale, 'x')
+    utimesSync(stale, new Date(Date.now() - 30 * 60_000), new Date(Date.now() - 30 * 60_000))
+    const keeper = join(sharedRoot, 'global.json')
+    writeFileSync(keeper, '{}')
+
+    expect(await sweepAppDataTmpFiles([sharedRoot])).toBe(1)
+    expect(await sweepAppDataTmpFiles([sharedRoot])).toBe(0) // 已清 → 再扫零产出且不抛
+    expect(existsSync(stale)).toBe(false)
+    expect(existsSync(keeper)).toBe(true)
+  })
+
+  it('目录缺失或不可读：不抛、零清除；同一目录重复传入同样安全（幂等入口）', async () => {
+    const missing = join(root, '不存在目录')
+    // 「不可读」的真实形态：路径是普通文件（readdirSync 抛 ENOTDIR，非权限注入）
+    const notADir = join(root, '其实是文件')
+    writeFileSync(notADir, 'not a dir')
+    expect(await sweepAppDataTmpFiles([missing, notADir])).toBe(0)
+    expect(await sweepAppDataTmpFiles([missing, missing, notADir])).toBe(0)
+    expect(existsSync(notADir)).toBe(true) // 非目录路径不得被误删
   })
 })

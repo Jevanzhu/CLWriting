@@ -145,7 +145,12 @@ function withinDetailLimit(s: string): boolean {
 <template>
   <div class="ev-list">
     <div v-for="e in events" :key="e.seq" class="ev-row">
-      <button class="ev-toggle" @click="emit('toggle', e.seq)">
+      <!-- 展开箭头是纯图标钮：可访问名随展开态切换（读屏才知道当前是开还是收） -->
+      <button
+        class="ev-toggle"
+        :aria-label="expanded.has(e.seq) ? '收起事件详情' : '展开事件详情'"
+        @click="emit('toggle', e.seq)"
+      >
         <ChevronRight v-if="!expanded.has(e.seq)" :size="13" />
         <ChevronDown v-else :size="13" />
       </button>

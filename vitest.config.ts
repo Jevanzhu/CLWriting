@@ -281,6 +281,12 @@ export default defineConfig({
         // → 78 / 59，只防回退不追高；CI 全量跑（stub 同一批 dom 档）池化观测不低于本地窄跑。
         'src/studio/web-next/src/{pages,views}/{Book,Library,Shelf,AuditView,EditorView,OnboardView,OverviewView,RelationsView,StyleView,WorkbenchView}.vue':
           { lines: 78, branches: 59 },
+        // 视图层窄桶：Welcome/LearnView 此前只落上方的「e2e 自管」0/0 显影桶（无单测面），
+        // 补 dom 直测后按实测单列——两文件池化并入上方 10 文件桶则其质量在池化均值里再次
+        // 不可见（单文件腰斩对门不可见，同 useLibraryIpc / relations SFC 窄桶论证）。
+        // 阈值 = 本地 v8 窄跑（npx vitest run --coverage 跑两档 dom，与全量跑同值）实测
+        // −2pp 向下取整：池化 L 55/55 = 100 → 98 · B 82/82 = 100 → 98，只防回退不追高。
+        'src/studio/web-next/src/{pages,views}/{Welcome,LearnView}.vue': { lines: 98, branches: 98 },
         'src/studio/web-next/src/*.vue': { lines: 96, branches: 88 },
         // stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；

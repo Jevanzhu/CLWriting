@@ -1,13 +1,15 @@
 /**
- * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（批次 LlmFailure 对标）。
+ * HTTP 错误 → 结构化错误码映射 + 失败处置决策表（LlmFailure 对标）。
  *
  * 三个适配器的 toErrorEvent 统一走这里；runner 重试按 failureAction 的结果决定动作
  * （retry-policy.shouldRetryError 消费 'retry' 族——单口径化后的唯一事实源），
- * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（最小版，
- * 超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
- * 发送处）；switch-provider 亦已接线（chat 编排层主发送
- * 处首发命中换网族且有备用供应商配置时换网重发恰一次，同 turns.ts；「无消费者」
- * 自认随之销案；self-heal/spawn/rewrite 等非 chat 路径照旧终态）。
+ * 不再对 message 字符串做模式匹配。
+ *
+ * 两个动作的消费者范围同界（都在 chat 编排层最小接线，其余路径照旧终态）：
+ * - shrink-prompt：超窗 400 后收缩历史重试恰一次（orchestrate/chat/turns.ts 主模型发送处）；
+ * - switch-provider：首发命中换网族（AUTH/NOT_FOUND/UNSUPPORTED）且存在备用供应商时，
+ *   换网重发恰一次（同 turns-phases.ts retryWithAlternateProvider）。非 chat 路径
+ *   （self-heal/spawn/rewrite 等）拿到这两个动作仍按终态处理。
  */
 
 import type { GenErrorCode } from './types.js'
@@ -95,21 +97,15 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     case 'TIMEOUT':
     case 'NETWORK':
       return 'retry'
-    // switch-provider 至今无消费者——调用侧拿到该动作的实际处理与
-    // 终态（author）等同：配额/凭据错不会自动换供应商。勿据返回值断言存在自动降级行为。
-    // 最小版：shrink-prompt 已在 chat 编排层接线（最小版，仅
-    // 收缩重试恰一次——orchestrate/chat/turns.ts 主模型发送处）；self-heal/spawn/rewrite
-    // 等非 chat 路径仍无消费者，runner 内该动作照旧同归终态（author）。
-    // 上注「switch-provider 无消费者」销案——chat 编排层
-    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次同款最小
-    // 范型；见 turns.ts switch 块与 test/ai/chat-switch-provider.test.ts）。非 chat 路径
-    // 照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
     case 'AUTH':
     case 'NOT_FOUND':
     case 'UNSUPPORTED':
+      // 消费者 = chat 编排层（turns-phases.ts retryWithAlternateProvider：首发命中本族
+      // 且有备用供应商配置时换网重发恰一次，见 test/ai/chat-switch-provider.test.ts）。
+      // runner 自身不做换网：非 chat 路径拿到本动作仍按终态处理（与下方 shrink-prompt 同界）。
       return 'switch-provider'
     case 'CONTEXT_WINDOW_EXCEEDED':
-      // 消费者 = chat 编排层最小版（见上注）；runner 本身无收缩行为，非 chat 路径照旧终态
+      // 消费者 = chat 编排层超窗收缩重试（同上）；runner 本身无收缩行为，非 chat 路径照旧终态
       return 'shrink-prompt'
     case 'ABORTED':
       return 'none'

@@ -439,8 +439,10 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
   }
 
   it('渲染：本次起步 +0、未动笔速度 —、本章目标走书级链；输入后 delta/速度更新', async () => {
-    seedDoc('---\n标题: 标题\n---\n\n正文') // 正文 2 字
+    // 配置桩先于 seedDoc：doc.setBook 会经书级配置读单源取 book.yaml kind（短篇正文判定
+    // 的会话级信号），该首笔读取即入本书配置缓存——桩后置会被首笔的默认证顶掉
     mocks.getConfig.mockResolvedValue({ kind: 'long', book: { chapter_target_words: 2000 } })
+    seedDoc('---\n标题: 标题\n---\n\n正文') // 正文 2 字
     const w = mount(FocusStatsBar)
     await flushPromises()
     expect(w.find('[aria-label="专注统计"]').exists()).toBe(true)

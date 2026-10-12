@@ -29,11 +29,23 @@ vi.mock('../../../../src/studio/web-next/src/stores/ui', () => ({
 const { bookPrefs } = vi.hoisted(() => ({
   bookPrefs: new Map<string, Record<string, unknown>>(),
 }))
+// GET 信封 {prefs, revision}（api/prefs.getBookPrefs 契约）；revision 固定 1——
+// 写链带 expectedRevision 的并发路径见本档「书级 prefs 乐观并发」组，该组用自己的
+// 受控实现覆写，beforeEach 复位回本默认实现（覆写不留到下个用例）
+const defaultGetBookPrefs = async (name: string): Promise<{ prefs: Record<string, unknown>; revision: number }> => ({
+  prefs: { ...(bookPrefs.get(name) ?? {}) },
+  revision: 1,
+})
+const defaultPutBookPrefs = async (
+  name: string,
+  data: Record<string, unknown>,
+): Promise<{ ok: true; revision: number }> => {
+  bookPrefs.set(name, { ...data })
+  return { ok: true, revision: 1 }
+}
 vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
-  getBookPrefs: vi.fn(async (name: string) => ({ ...(bookPrefs.get(name) ?? {}) })),
-  putBookPrefs: vi.fn(async (name: string, data: Record<string, unknown>) => {
-    bookPrefs.set(name, { ...data })
-  }),
+  getBookPrefs: vi.fn(),
+  putBookPrefs: vi.fn(),
   usePrefsStore: () => ({
     bookPageWidth: null,
     bookAutosaveInterval: null,
@@ -52,6 +64,7 @@ vi.mock('../../../../src/studio/web-next/src/api/books', () => ({
 
 import { useWorkspaceStore } from '../../../../src/studio/web-next/src/stores/workspace'
 import { getBookPrefs, putBookPrefs } from '../../../../src/studio/web-next/src/api/prefs'
+import { ApiError } from '../../../../src/studio/web-next/src/api/client'
 import { installCrossWindowInvalidation } from '../../../../src/studio/web-next/src/composables/useCrossWindowInvalidation'
 import type { CrossWindowPort } from '../../../../src/studio/web-next/src/shared/cross-window'
 import { createLocalStorage } from '../../../helpers/local-storage.js'
@@ -80,6 +93,11 @@ beforeEach(() => {
   // 书级配置读单源：缺省成功回空配置——用例覆写以控请求时序/成败
   getConfigMock.mockReset()
   getConfigMock.mockResolvedValue({})
+  // 书级 prefs 读/写：默认实现（空信封读 + 单笔写成功）；并发组用受控实现覆写本处
+  vi.mocked(getBookPrefs).mockReset()
+  vi.mocked(getBookPrefs).mockImplementation(defaultGetBookPrefs)
+  vi.mocked(putBookPrefs).mockReset()
+  vi.mocked(putBookPrefs).mockImplementation(defaultPutBookPrefs)
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -451,7 +469,8 @@ describe('workspace · 关窗冲刷书级 prefs（R0911-C1-P3-3）', () => {
     await ws.flushPendingBookPrefs()
     // 写穿断言：未经 advanceTimersByTime(500)，putBookPrefs 已带最新布局态落盘
     expect(putBookPrefs).toHaveBeenCalledTimes(1)
-    expect(putBookPrefs).toHaveBeenCalledWith(BOOK, expect.objectContaining({ activeDocId: 'd-close' }))
+    // 第三参 = 从 GET 信封读到的 expectedRevision（乐观并发守卫的期望号）
+    expect(putBookPrefs).toHaveBeenCalledWith(BOOK, expect.objectContaining({ activeDocId: 'd-close' }), 1)
     expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd-close' })
   })
 
@@ -504,7 +523,8 @@ describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）'
     const gate = new Promise<void>((r) => {
       release = r
     })
-    vi.mocked(putBookPrefs).mockImplementationOnce(() => gate)
+    // 在途写：落定值由 release 控制，成功信封在 gate 之后给出
+    vi.mocked(putBookPrefs).mockImplementationOnce(() => gate.then(() => ({ ok: true as const, revision: 1 })))
     ws.openTab('d-inflight')
     await nextTick()
     await vi.advanceTimersByTimeAsync(500) // 防抖 fire → PUT 出手（受控 promise 挂起 = 在途）
@@ -531,7 +551,7 @@ describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）'
     const calls: string[] = []
     vi.mocked(putBookPrefs).mockImplementationOnce(() => {
       calls.push('first')
-      return gate
+      return gate.then(() => ({ ok: true as const, revision: 1 }))
     })
     ws.openTab('d-first')
     await nextTick()
@@ -541,6 +561,7 @@ describe('workspace · 关窗冲刷等在途书级 prefs 写（R0916-7-P3-24）'
     vi.mocked(putBookPrefs).mockImplementationOnce(async (_n, d) => {
       calls.push('second')
       bookPrefs.set(BOOK, { ...(d as Record<string, unknown>) })
+      return { ok: true as const, revision: 2 }
     })
     const flushing = ws.flushPendingBookPrefs()
     await drain()
@@ -569,6 +590,100 @@ describe('workspace · R-6 prefs 拉取失败不覆盖已存 prefs', () => {
     await flush()
     expect(putBookPrefs).not.toHaveBeenCalled() // 修复前：默认布局覆盖服务端 prefs.json
     expect(bookPrefs.has('r6book')).toBe(false)
+  })
+})
+
+// 书级 prefs 乐观并发守卫（客户端接线）：保存带 expectedRevision；失配 409 时
+// 重拉服务端最新值 + 只重放本窗改过的键，重试一次；二次冲突上屏失败提示且本窗改动不丢。
+// 服务端契约（src/studio/server/api/prefs.ts）：PUT 为合并写（盘上键 ← 本次键），
+// 信封 {ok, revision}；失配回 409 REVISION_CONFLICT。
+describe('workspace · 书级 prefs 乐观并发（expectedRevision + 409 重放重试）', () => {
+  /** 受控服务端：内存盘 + revision，按 expectedRevision 判冲突（对齐服务端语义） */
+  function stubServer(opts: { revision: number; disk: Record<string, unknown>; conflictTimes?: number }): {
+    disk: () => Record<string, unknown>
+    revision: () => number
+    puts: Array<Record<string, unknown>>
+  } {
+    const state = { revision: opts.revision, disk: { ...opts.disk }, conflict: opts.conflictTimes ?? 0 }
+    const puts: Array<Record<string, unknown>> = []
+    vi.mocked(getBookPrefs).mockImplementation(async () => ({ prefs: { ...state.disk }, revision: state.revision }))
+    vi.mocked(putBookPrefs).mockImplementation(async (_n, data, expected) => {
+      puts.push({ ...(data as Record<string, unknown>) })
+      if (state.conflict > 0) {
+        state.conflict--
+        // 他窗先写过：盘面/revision 推进（本窗重拉看到新值），本笔回 409
+        state.revision++
+        throw new ApiError('本书布局已在其他窗口被修改，请刷新', 409, 'REVISION_CONFLICT')
+      }
+      if (expected !== undefined && expected !== state.revision) {
+        throw new ApiError('本书布局已在其他窗口被修改，请刷新', 409, 'REVISION_CONFLICT')
+      }
+      state.disk = { ...state.disk, ...(data as Record<string, unknown>) }
+      state.revision++
+      return { ok: true as const, revision: state.revision }
+    })
+    return { disk: () => state.disk, revision: () => state.revision, puts }
+  }
+
+  it('带版本保存成功 → 服务端 revision 到位，后续写用推进后的新号（不因陈旧号伪 409）', async () => {
+    const srv = stubServer({ revision: 5, disk: { leftWidth: 200 } })
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    vi.mocked(putBookPrefs).mockClear()
+    ws.openTab('d-1')
+    await flush()
+    expect(putBookPrefs).toHaveBeenCalledWith(BOOK, expect.objectContaining({ activeDocId: 'd-1' }), 5)
+    expect(srv.revision()).toBe(6)
+    // 第二笔带第一笔回传的 6（不是读到的 5）
+    ws.openTab('d-2')
+    await flush()
+    expect(putBookPrefs).toHaveBeenLastCalledWith(BOOK, expect.objectContaining({ activeDocId: 'd-2' }), 6)
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+
+  it('版本过期 → 重拉 + 只重放本窗改动键重试一次成功（他窗别的键不被清）', async () => {
+    const srv = stubServer({ revision: 2, disk: { leftWidth: 200, leftOpen: true }, conflictTimes: 1 })
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    // 他窗在本窗读之后写入「别的键」（本轮冲突模拟里盘面推进）
+    vi.mocked(putBookPrefs).mockClear()
+    ws.openTab('d-3')
+    await flush()
+    // 首次带 2 → 409；重拉（盘面含他窗新值）→ 重放 {activeDocId} → 带 3 成功
+    expect(srv.puts[0]).toMatchObject({ activeDocId: 'd-3' })
+    expect(srv.puts[1]).toEqual({ activeDocId: 'd-3' }) // 重试载荷 = 仅本窗改动键的补丁
+    expect(putBookPrefs).toHaveBeenLastCalledWith(BOOK, { activeDocId: 'd-3' }, 3)
+    expect(srv.disk()).toMatchObject({ leftWidth: 200, leftOpen: true, activeDocId: 'd-3' })
+    expect(toastSpy).not.toHaveBeenCalled() // 一次重试成功：不打扰
+  })
+
+  it('二次冲突 → 失败提示上屏，本窗改动保留在 store，不再自旋重试', async () => {
+    stubServer({ revision: 2, disk: { leftWidth: 200 }, conflictTimes: 2 })
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    vi.mocked(putBookPrefs).mockClear()
+    ws.openTab('d-keep')
+    await flush()
+    // 首次 + 重试各一笔后停手（不无限重试）
+    expect(putBookPrefs).toHaveBeenCalledTimes(2)
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('其他窗口'), 'error')
+    expect(ws.activeDocId).toBe('d-keep') // 本窗用户改动不丢（refs 保持用户意图值）
+  })
+
+  it('他窗写入的键不被本窗重试覆盖（PATCH 语义：只发本窗改动键）', async () => {
+    const srv = stubServer({ revision: 2, disk: { leftWidth: 200 }, conflictTimes: 1 })
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    // 他窗并发改的键：模拟成读后盘面出现的新值
+    vi.mocked(putBookPrefs).mockClear()
+    ws.openTab('d-4')
+    await flush()
+    const retryBody = srv.puts[1]!
+    expect(Object.keys(retryBody)).toEqual(['activeDocId']) // 不带他窗键、不带全量快照
   })
 })
 

@@ -18,7 +18,10 @@ import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
 import { createOpenAIResponsesProvider } from '../../../src/ai/provider/responses-adapter.js'
 import { createOpenAIProviderChat } from '../../../src/ai/provider/openai-adapter.js'
-import type { GenEvent, GenRequest, ProviderConf } from '../../../src/ai/provider/index.js'
+import { estimateInputTokens } from '../../../src/ai/provider/usage-estimate.js'
+import { DEFAULT_TOKEN_COEFF, estimateTokens } from '../../../src/shared/tokens.js'
+import { chatTools } from '../../../src/ai/contract/chat.js'
+import type { GenEvent, GenRequest, ProviderConf, ToolDef } from '../../../src/ai/provider/index.js'
 
 const CONF = {
   id: 't1',
@@ -65,9 +68,9 @@ describe('R73-1: OpenAI 线网关吞 usage → 估计入账', () => {
     expect(done.usage.inputTokens).toBeGreaterThan(0)
     expect(done.usage.outputTokens).toBeGreaterThan(0)
     expect(done.usage.estimated).toBe(true)
-    // 折算口径锚定（0.6 token/码位向上取整）：input = '系统提示词'+'写一段' 8 码位 → 5；
-    // output = 两段 delta 共 16 码位 → 10
-    expect(done.usage.inputTokens).toBe(5)
+    // 折算口径锚定（0.6 token/码位向上取整）：input = '系统提示词'+'写一段' 8 码位
+    // + 单条消息的协议外壳 24 码位 = 32 → 20；output = 两段 delta 共 16 码位 → 10
+    expect(done.usage.inputTokens).toBe(20)
     expect(done.usage.outputTokens).toBe(10)
   })
 
@@ -149,8 +152,9 @@ describe('R73-1: Anthropic 线网关吞 usage → 估计入账', () => {
     const done = evs.find((e) => e.type === 'done')
     expect(done).toBeDefined()
     if (done?.type !== 'done') return
-    // input = 'sys'+'问' 4 码位 → ceil(2.4) = 3；output = '你好世界 end' 8 码位（含空格）→ ceil(4.8) = 5
-    expect(done.usage.inputTokens).toBe(3)
+    // input = 'sys'+'问' 4 码位 + 消息外壳 24 码位 = 28 → ceil(16.8) = 17；
+    // output = '你好世界 end' 8 码位（含空格）→ ceil(4.8) = 5
+    expect(done.usage.inputTokens).toBe(17)
     expect(done.usage.outputTokens).toBe(5)
     expect(done.usage.estimated).toBe(true)
   })
@@ -210,9 +214,9 @@ describe('R74-1: Responses 线终止事件无 usage → 估计入账', () => {
     if (done?.type !== 'done') return
     // 修复前：toUsage(null) = {inputTokens: 0, outputTokens: 0} 且无 estimated——预算闸永不生效
     expect(done.usage.estimated).toBe(true)
-    // 折算口径锚定（0.6 token/码位向上取整，与 r73 openai 线同款）：input = '系统提示词'
-    // +'写一段' 8 码位 → 5；output = 两段 delta 共 16 码位 → 10
-    expect(done.usage.inputTokens).toBe(5)
+    // 折算口径锚定（0.6 token/码位向上取整，与 openai 线同款）：input = '系统提示词'
+    // +'写一段' 8 码位 + 消息外壳 24 码位 = 32 → 20；output = 两段 delta 共 16 码位 → 10
+    expect(done.usage.inputTokens).toBe(20)
     expect(done.usage.outputTokens).toBe(10)
     expect(done.stopReason).toBe('stop')
   })
@@ -260,9 +264,9 @@ describe('R74-1: Responses 线终止事件无 usage → 估计入账', () => {
     if (done?.type !== 'done') return
     expect(done.stopReason).toBe('max_tokens')
     expect(done.usage.estimated).toBe(true)
-    // input = 'hi' 2 码位 → 2；output = 残留 tool 参数串 14 码位 → ceil(8.4) = 9
-    //（修复前恒 0/0——截断场景网关更常缺 usage）
-    expect(done.usage.inputTokens).toBe(2)
+    // input = 'hi' 2 码位 + 消息外壳 24 码位 = 26 → ceil(15.6) = 16；
+    // output = 残留 tool 参数串 14 码位 → ceil(8.4) = 9（修复前恒 0/0——截断场景网关更常缺 usage）
+    expect(done.usage.inputTokens).toBe(16)
     expect(done.usage.outputTokens).toBe(9)
   })
 })
@@ -319,5 +323,58 @@ describe('R74-7: Anthropic 兜底路径保留 message_start 实测 cache 两档'
     expect(done.usage.cacheReadTokens).toBeUndefined()
     expect(done.usage.cacheWriteTokens).toBeUndefined()
     expect(done.usage.estimated).toBe(true)
+  })
+})
+
+describe('输入侧估计覆盖工具 schema 与消息外壳', () => {
+  const REQ_BASE: GenRequest = { systemPrompt: '写一章', messages: [{ role: 'user', content: '继续' }] }
+
+  /** 合成工具：只有空 schema 的最小定义，便于按码位精确核算增量 */
+  const minimalTool = (name: string): ToolDef => ({ name, input_schema: { type: 'object', properties: {} } })
+
+  it('带 tools 的估计值 > 同一请求不带 tools（增量单向为正）', () => {
+    const withTools = estimateInputTokens({ ...REQ_BASE, tools: chatTools }, CONF.model)
+    const without = estimateInputTokens(REQ_BASE, CONF.model)
+    expect(withTools).toBeGreaterThan(without)
+  })
+
+  it('增量与工具序列化长度同向：工具集变大/描述变长，估计值不降', () => {
+    const none = estimateInputTokens(REQ_BASE, CONF.model)
+    const one = estimateInputTokens({ ...REQ_BASE, tools: [minimalTool('a')] }, CONF.model)
+    const many = estimateInputTokens(
+      { ...REQ_BASE, tools: [minimalTool('a'), minimalTool('b'), minimalTool('c')] },
+      CONF.model,
+    )
+    expect(one).toBeGreaterThan(none)
+    expect(many).toBeGreaterThan(one)
+    // 描述变长 → 序列化变长 → 估计不降（同工具数）
+    const short = estimateInputTokens({ ...REQ_BASE, tools: [{ ...minimalTool('a'), description: 'x' }] }, CONF.model)
+    const long = estimateInputTokens(
+      { ...REQ_BASE, tools: [{ ...minimalTool('a'), description: 'x'.repeat(200) }] },
+      CONF.model,
+    )
+    expect(long).toBeGreaterThan(short)
+  })
+
+  it('增量量级下界：chat 工具集（15 个）的增量与序列化长度折算同档', () => {
+    const base = estimateInputTokens(REQ_BASE, CONF.model)
+    const withTools = estimateInputTokens({ ...REQ_BASE, tools: chatTools }, CONF.model)
+    // 工具 schema 是本仓输入侧最大单项结构，量级为「数千码位 → 千级 token」（0.6 兜底系数）；
+    // 断言锚「增量 ≈ 序列化码位折算」而非具体常数：两侧各自向上取整，差至多 1 token
+    const cpCount = Array.from(JSON.stringify(chatTools)).length
+    expect(cpCount).toBeGreaterThan(2_000)
+    const scaled = cpCount * DEFAULT_TOKEN_COEFF
+    expect(withTools - base).toBeGreaterThanOrEqual(Math.floor(scaled) - 1)
+    expect(withTools - base).toBeLessThanOrEqual(Math.ceil(scaled) + 1)
+  })
+
+  it('消息外壳按条计：同文本多一条消息的增量 > 该条文本自身折算（包装非零）', () => {
+    const one: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '正文' }] }
+    const two: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '正文' }, { role: 'user', content: '正文' }] }
+    const delta = estimateInputTokens(two, CONF.model) - estimateInputTokens(one, CONF.model)
+    // 增量 = 该条文本折算 + 该条包装；故严格大于纯文本部分
+    expect(delta).toBeGreaterThan(estimateTokens('正文', CONF.model))
+    // 入口对同一请求幂等（无隐藏状态）
+    expect(estimateInputTokens(two, CONF.model)).toBe(estimateInputTokens(two, CONF.model))
   })
 })

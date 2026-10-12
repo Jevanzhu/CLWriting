@@ -34,9 +34,12 @@ const { bookPrefs } = vi.hoisted(() => ({
   bookPrefs: new Map<string, Record<string, unknown>>(),
 }))
 vi.mock('../../../../src/studio/web-next/src/api/prefs', () => ({
-  getBookPrefs: vi.fn(async (name: string) => ({ ...(bookPrefs.get(name) ?? {}) })),
+  // GET 信封 {prefs, revision}（api/prefs.getBookPrefs 契约）——revision 固定 1，
+  // 写链带 expectedRevision 的路径不参与本档断言
+  getBookPrefs: vi.fn(async (name: string) => ({ prefs: { ...(bookPrefs.get(name) ?? {}) }, revision: 1 })),
   putBookPrefs: vi.fn(async (name: string, data: Record<string, unknown>) => {
     bookPrefs.set(name, { ...data })
+    return { ok: true, revision: 1 }
   }),
   getGlobalPrefs: vi.fn(async () => ({})),
   putGlobalPrefs: vi.fn(async () => ({ revision: 1 })),

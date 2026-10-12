@@ -1,7 +1,22 @@
 /**
  * 关系图共享逻辑（RelationsView 拆分）：节点/边状态 + 径向层次布局 + 派生与视觉编码
- * + 交互装配。壳 RelationsView 调 useRelationGraph(bookName) 并 provide('rel-graph')，
- * RelationGraph / RelationDetail 子组件 inject 获取——避免海量 props 透传。
+ * + 交互装配。壳 RelationsView 调 useRelationGraph(bookName)，本件把三组共享面 provide
+ * 出去，RelationGraph / RelationDetail 子组件各自 inject——避免海量 props 透传。
+ *
+ * 对外契约 = 三个按职能分组的 provide key：状态（数据/筛选/焦点）、渲染（派生统计/视觉
+ * 编码）、操作（画布交互/业务动作）。每组是 reactive 组对象：组内字段即解包后的裸值，
+ * 模板与脚本直读 `state.nodes` / `render.edgeGeoms` / `ops.onMine`，不再逐处 `.value`；
+ * 新增派生值只落一组、只改一处消费。
+ *
+ * 响应性口径（组内字段不得解构）：组承载的仍是原 ref/computed（ref 身份未变），
+ * reactive 只在读写口解包——读到的是值、赋值写回 `.value`，与裸 ref 逐位等价。
+ * 因此 `const { nodes } = state` 取到的是当下快照，此后模板不再更新：组要么整体持有
+ * （provide/inject 传的就是组本身），要么只解构外层 handle（`{ state, render, ops }`
+ * 是普通对象，三个组引用恒定，解构安全）。
+ *
+ * 引用稳定约定：画布/交互面的函数（bindSvg / onWheel / onNodeDown…）与节点、边数组
+ * 原样传递，不包装不重建——`:ref="ops.bindSvg"` 依赖函数引用稳定；useRelationInteraction
+ * 依赖注入进去的 ref（view / selectedId）身份不变。
  *
  * 布局说明：主角居中，其余角色按 BFS 跳数分环；二环挂在各自父节点的角度扇区内——
  * 位置本身即语义（谁是核心、谁因谁而来），且确定性布局每次打开都一致。
@@ -10,9 +25,9 @@
  * 分层（原 719 行混布局/交互一处）：纯计算在 shared/relation-layout
  *（BFS 分环）、交互在 ./useRelationInteraction（拖拽/平移/缩放/复位 + window 监听
  * 登记与卸载），本文件只留数据装载、布局编排、派生/筛选/视觉编码，并把交互面装配进
- * 对外 RelationGraph 对象——对外字段与拆分前逐位一致（provide/inject 消费方零改动）。
+ * 操作组——对外字段在分组内与分组前逐位一致。
  */
-import { ref, computed, onMounted, provide, inject, type Ref, type InjectionKey } from 'vue'
+import { ref, computed, reactive, onMounted, provide, inject, type InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
 import { useDocStore } from '../stores/doc'
@@ -50,6 +65,15 @@ interface SimEdge {
   note?: string
 }
 
+/** 详情卡关系项（选中节点视角的邻边：对方名 + 边语义 + 对方有无角色卡） */
+export interface SelectedRelation {
+  other: string
+  type: string
+  kind: 'relation' | 'debt'
+  hasCard: boolean
+  note?: string
+}
+
 // 画布基准与布局常量：移 shared/relation-layout（纯函数层，可单测）；
 // CX/CY 转发导出（RelationGraph.vue 消费）
 export { CX, CY } from '../shared/relation-layout'
@@ -70,44 +94,35 @@ const DEBT_BOW = 26
 // re-export 原样保留——对外模块面零变化。
 export { wheelScale } from './useRelationInteraction'
 
-export interface RelationGraph {
-  // 数据
-  nodes: Ref<SimNode[]>
-  edges: Ref<SimEdge[]>
-  loading: Ref<boolean>
-  err: Ref<string | null>
-  // 筛选
-  searchQuery: Ref<string>
-  showOrphans: Ref<boolean>
-  hiddenColors: Ref<Set<string>>
-  visibleNodes: Ref<SimNode[]>
-  hiddenCount: Ref<number>
-  // 焦点 = 悬停（临时探索）优先，否则选中（详情卡所指）
-  hoverId: Ref<string | null>
-  selectedId: Ref<string | null>
-  dragId: Ref<string | null>
-  selectedNode: Ref<SimNode | null>
-  selectedCard: Ref<CharacterCard | null>
-  selectedRelations: Ref<{ other: string; type: string; kind: 'relation' | 'debt'; hasCard: boolean; note?: string }[]>
-  // 派生
-  view: Ref<{ x: number; y: number; w: number; h: number }>
-  viewBoxStr: Ref<string>
-  edgeGeoms: Ref<{ e: SimEdge; d: string; mx: number; my: number }[]>
-  nodeCount: Ref<number>
-  edgeCount: Ref<number>
-  debtCount: Ref<number>
-  activeLegend: Ref<Array<(typeof LEGEND)[number]>>
-  // 交互
-  svgRef: Ref<SVGSVGElement | null>
-  bindSvg: (el: unknown) => void
-  onWheel: (evt: WheelEvent) => void
-  onBgDown: (evt: MouseEvent) => void
-  onNodeDown: (node: SimNode, evt: MouseEvent) => void
-  onNodeDblClick: (node: SimNode) => void
-  resetView: () => void
-  selectNode: (id: string) => void
-  toggleColor: (color: string) => void
-  // 视觉（子组件模板用）
+/** 共享面之一——状态：图数据、三层筛选与焦点（选中/hover/拖拽）及其派生视图。
+ *  焦点口径：hover（临时探索）优先，否则选中（详情卡所指）。 */
+export interface RelationState {
+  nodes: SimNode[]
+  edges: SimEdge[]
+  loading: boolean
+  err: string | null
+  searchQuery: string
+  showOrphans: boolean
+  hiddenColors: Set<string>
+  visibleNodes: SimNode[]
+  hiddenCount: number
+  hoverId: string | null
+  selectedId: string | null
+  dragId: string | null
+  selectedNode: SimNode | null
+  selectedCard: CharacterCard | null
+  selectedRelations: SelectedRelation[]
+}
+
+/** 共享面之二——渲染：视口/边几何/计数/图例等派生值 + 节点与边的视觉编码。 */
+export interface RelationRender {
+  view: { x: number; y: number; w: number; h: number }
+  viewBoxStr: string
+  edgeGeoms: { e: SimEdge; d: string; mx: number; my: number }[]
+  nodeCount: number
+  edgeCount: number
+  debtCount: number
+  activeLegend: Array<(typeof LEGEND)[number]>
   isDim: (id: string) => boolean
   edgeDim: (e: SimEdge) => boolean
   edgeActive: (e: SimEdge) => boolean
@@ -118,23 +133,48 @@ export interface RelationGraph {
   nodeColor: (node: SimNode) => string
   edgeColor: (e: SimEdge) => string
   relColor: (r: { type: string; kind: 'relation' | 'debt' }) => string
-  // 业务
-  mining: Ref<boolean>
+}
+
+/** 共享面之三——操作：画布交互（拖拽/平移/缩放/复位 + svg 绑定）与业务动作
+ *（点选与图例过滤、重载、AI 梳理、打开角色卡）。 */
+export interface RelationOps {
+  bindSvg: (el: unknown) => void
+  onWheel: (evt: WheelEvent) => void
+  onBgDown: (evt: MouseEvent) => void
+  onNodeDown: (node: SimNode, evt: MouseEvent) => void
+  onNodeDblClick: (node: SimNode) => void
+  resetView: () => void
+  selectNode: (id: string) => void
+  toggleColor: (color: string) => void
+  mining: boolean
   onMine: () => Promise<void>
   openCharacter: (n: SimNode) => Promise<void>
   load: () => Promise<void>
 }
 
-const KEY: InjectionKey<RelationGraph> = Symbol('rel-graph')
-
-/** 子组件取图实例（必须在 RelationsView 的 provide 作用域内调用） */
-export function useRelationGraphInjected(): RelationGraph {
-  const g = inject(KEY)
-  if (!g) throw new Error('useRelationGraphInjected 必须在 RelationsView 内部使用')
-  return g
+/** useRelationGraph 的返回（= 三个 provide key 的持有袋）。
+ *  外层是普通对象：解构出组是安全的；组内字段不可解构（见文件头响应性口径）。 */
+export interface RelationGraphHandle {
+  state: RelationState
+  render: RelationRender
+  ops: RelationOps
 }
 
-export function useRelationGraph(bookName: string): RelationGraph {
+const STATE_KEY: InjectionKey<RelationState> = Symbol('rel-graph-state')
+const RENDER_KEY: InjectionKey<RelationRender> = Symbol('rel-graph-render')
+const OPS_KEY: InjectionKey<RelationOps> = Symbol('rel-graph-ops')
+
+/** 子组件取图共享面（必须在 RelationsView 的 provide 作用域内调用）。
+ *  三组分别注入：缺任一组即 provide/inject 契约破损，就地抛错定位，不让下游读到 undefined。 */
+export function useRelationGraphInjected(): RelationGraphHandle {
+  const state = inject(STATE_KEY)
+  const render = inject(RENDER_KEY)
+  const ops = inject(OPS_KEY)
+  if (!state || !render || !ops) throw new Error('useRelationGraphInjected 必须在 RelationsView 内部使用')
+  return { state, render, ops }
+}
+
+export function useRelationGraph(bookName: string): RelationGraphHandle {
   const doc = useDocStore()
   const ws = useWorkspaceStore()
   const tree = useTreeStore()
@@ -491,10 +531,10 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // ── 右侧详情卡派生（跟随 selectedId，不随 hover 跳动）──
   const selectedNode = computed(() => nodes.value.find((n) => n.id === selectedId.value) ?? null)
   const selectedCard = computed(() => selectedNode.value?.card ?? null)
-  const selectedRelations = computed(() => {
+  const selectedRelations = computed<SelectedRelation[]>(() => {
     const id = selectedId.value
     if (!id) return []
-    const out: { other: string; type: string; kind: 'relation' | 'debt'; hasCard: boolean; note?: string }[] = []
+    const out: SelectedRelation[] = []
     for (const e of edges.value) {
       if (e.from === id)
         out.push({
@@ -533,10 +573,11 @@ export function useRelationGraph(bookName: string): RelationGraph {
     }
   }
 
-  // 交互面（拖拽/平移/缩放/复位 + window 监听登记与卸载）随批抽
+  // 交互面（拖拽/平移/缩放/复位 + window 监听登记与卸载）抽
   // ./useRelationInteraction：数据面经 deps 注入（节点读数口 / 视口 / 选中 / 视口贴合），
-  // 本文件只装配——对外字段名与拆分前逐位一致（provide/inject 消费方零改动）。
-  const { svgRef, bindSvg, dragId, onWheel, onBgDown, onNodeDown, onNodeDblClick, resetView } = useRelationInteraction({
+  // 本文件只装配——对外操作组内字段名与装配前逐位一致。
+  // 注入的 view / selectedId 是下面的同一个 ref 实例，身份不得换（交互写回同一响应源）。
+  const { bindSvg, dragId, onWheel, onBgDown, onNodeDown, onNodeDblClick, resetView } = useRelationInteraction({
     readNodes: () => nodes.value,
     view,
     selectedId,
@@ -562,7 +603,9 @@ export function useRelationGraph(bookName: string): RelationGraph {
     return LEGEND.filter((l) => used.has(l.color))
   })
 
-  const graph: RelationGraph = {
+  // 三组共享面：字段仍是上面的 ref/computed（reactive 只在读写口解包），组对象本身即
+  // provide 值——子组件 inject 到的是同一实例，不复制、不重建。
+  const state: RelationState = reactive({
     nodes,
     edges,
     loading,
@@ -578,6 +621,8 @@ export function useRelationGraph(bookName: string): RelationGraph {
     selectedNode,
     selectedCard,
     selectedRelations,
+  })
+  const render: RelationRender = reactive({
     view,
     viewBoxStr,
     edgeGeoms,
@@ -585,15 +630,6 @@ export function useRelationGraph(bookName: string): RelationGraph {
     edgeCount,
     debtCount,
     activeLegend,
-    svgRef,
-    bindSvg,
-    onWheel,
-    onBgDown,
-    onNodeDown,
-    onNodeDblClick,
-    resetView,
-    selectNode,
-    toggleColor,
     isDim,
     edgeDim,
     edgeActive,
@@ -604,11 +640,24 @@ export function useRelationGraph(bookName: string): RelationGraph {
     nodeColor,
     edgeColor,
     relColor,
+  })
+  const ops: RelationOps = reactive({
+    bindSvg,
+    onWheel,
+    onBgDown,
+    onNodeDown,
+    onNodeDblClick,
+    resetView,
+    selectNode,
+    toggleColor,
     mining,
     onMine,
     openCharacter,
     load,
-  }
-  provide(KEY, graph)
-  return graph
+  })
+
+  provide(STATE_KEY, state)
+  provide(RENDER_KEY, render)
+  provide(OPS_KEY, ops)
+  return { state, render, ops }
 }

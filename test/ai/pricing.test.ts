@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { pricingForProvider, computeCallCost, resolveModelPricing } from '../../src/ai/pricing.js'
-import { checkAiCallBudget, effectiveRemainingCalls, recordAiCall } from '../../src/ai/calls.js'
+import { checkAiCallBudget, effectiveRemainingCalls, recordAiCall, recordUsageBoth } from '../../src/ai/calls.js'
 import { aggregateCost } from '../../src/ai/cost-stats.js'
 import { saveProviders, loadProviders, PROVIDERS_FILE, type ProviderStore } from '../../src/ai/provider/store.js'
 
@@ -390,6 +390,56 @@ describe('D3 checkAiCallBudget 三口径', () => {
       chapter: { costAccum: number }
     }
     expect(raw2.chapter.costAccum).toBeCloseTo(0.3, 10)
+  })
+
+  it('task 维度金额：同一笔配价调用落 task 与 chapter 两块，金额逐位一致', () => {
+    recordUsageBoth(root, 'chat', 5, { inputTokens: 1000, outputTokens: 100 }, 0.1)
+    recordUsageBoth(root, 'chat', 5, { inputTokens: 500, outputTokens: 50 }, 0.05)
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { costAccum: number }
+      tasks: Record<string, { costAccum?: number; used: number }>
+    }
+    expect(raw.tasks['chat']!.used).toBe(2)
+    expect(raw.tasks['chat']!.costAccum).toBeCloseTo(0.15, 10)
+    expect(raw.tasks['chat']!.costAccum).toBe(raw.chapter.costAccum)
+  })
+
+  it('未配价（不传 costUsd）→ task 与 chapter 两块都不产 costAccum 键', () => {
+    recordUsageBoth(root, 'chat', 5, { inputTokens: 1000, outputTokens: 100 })
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: Record<string, unknown>
+      tasks: Record<string, Record<string, unknown>>
+    }
+    expect(raw.tasks['chat']!['costAccum']).toBeUndefined()
+    expect(raw.chapter['costAccum']).toBeUndefined()
+  })
+
+  it('task-only 调用的金额：无 chapter 时仍落在 tasks 块（chat/摘要的可读成本）', () => {
+    recordUsageBoth(root, 'chat', undefined, { inputTokens: 1000, outputTokens: 100 }, 0.42)
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      tasks: Record<string, { costAccum?: number }>
+    }
+    expect(raw.tasks['chat']!.costAccum).toBeCloseTo(0.42, 10)
+  })
+
+  it('旧账本（tasks 块无 costAccum 字段）读出后继续记账：不崩、无 NaN', () => {
+    mkdirSync(join(root, '.cache'), { recursive: true })
+    writeFileSync(
+      join(root, '.cache', 'ai-calls.json'),
+      JSON.stringify({
+        chapter: { num: 2, used: 1, inputTokens: 10, outputTokens: 20 },
+        tasks: { chat: { used: 3, inputTokens: 30, outputTokens: 60 } },
+      }),
+    )
+    recordUsageBoth(root, 'chat', 2, { inputTokens: 5, outputTokens: 7 }, 0.02)
+    const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as {
+      chapter: { costAccum?: number; used: number }
+      tasks: Record<string, { costAccum?: number; used: number }>
+    }
+    expect(raw.tasks['chat']!.used).toBe(4)
+    expect(raw.tasks['chat']!.costAccum).toBeCloseTo(0.02, 10)
+    expect(Number.isNaN(raw.tasks['chat']!.costAccum)).toBe(false)
+    expect(raw.chapter.used).toBe(2)
   })
 })
 

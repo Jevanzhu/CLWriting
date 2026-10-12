@@ -28,8 +28,10 @@ export interface AppInstanceGuard {
    *  false = 检测到他实例在持（含跨提权形态），调用方应退出 */
   acquired: boolean
   /** 幂等释放（process.once('exit') 内部退出钩子消费——不挂 will-quit
-   * 〔与 main.test.ts Electron 假件交互致 worker OOM〕；未真持锁时为 no-op，
-   * 生产路径无需调用）。 */
+   * 〔与 main.test.ts Electron 假件交互致 worker OOM〕；未真持锁时为 no-op）。
+   *  零调用方（生产与测试都不直调）：真实释放走模块内的进程退出钩子
+   * （ensureExitHook → releaseAllGuards 逐条释放，测试亦只用该出口），故本方法只作
+   *  接口完整性保留——若将来要给「切库换实例」路径手动释放，直接调它即可。 */
   release(): void
 }
 

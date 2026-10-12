@@ -4,6 +4,7 @@ import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
+import { ApiError } from '../api/client'
 import { createBookConfigCache, type BookConfigRead } from '../shared/book-config-cache'
 import { setFullScreen } from '../shared/fullscreen'
 import { flushBodyWriteback } from '../shared/body-writeback'
@@ -79,8 +80,11 @@ function clearBookOverrides(): void {
 
 /** 旧 localStorage → 书级 prefs 一次性迁移（仅 prefs.json 成功读到且为空时调用）。
  *  返回是否发生迁移：true 时写回服务端并清旧键（不清则每次 prefs.json 为空的新书都会
- *  重复走迁移分支；清失败静默，下次重迁移无害）。 */
-function migrateLegacyPrefs(prefs: BookPrefs, name: string): boolean {
+ *  重复走迁移分支；清失败静默，下次重迁移无害）。
+ *  写回同样带 expectedRevision（本次 GET 读到的号）——迁移是「空文件上的首写」，
+ *  带号后他窗恰在此刻写入的键不会被这份全量迁移快照盖掉；不带号（号未知）时退化为
+ *  无守卫首写，与既有兼容口径一致。 */
+function migrateLegacyPrefs(prefs: BookPrefs, name: string, revision: number | null): boolean {
   let migrated = false
   try {
     const oldUi = localStorage.getItem(LEGACY_UI_PREFS_KEY)
@@ -114,7 +118,7 @@ function migrateLegacyPrefs(prefs: BookPrefs, name: string): boolean {
     /* 损坏降级 */
   }
   if (migrated) {
-    void putBookPrefs(name, prefs).catch(() => {})
+    void putPrefsGuarded(name, prefs, revision).catch(() => {})
     try {
       localStorage.removeItem(LEGACY_UI_PREFS_KEY)
       localStorage.removeItem(legacyWorkspaceKey(name))
@@ -167,9 +171,35 @@ function snapshotBookPrefs(t: LayoutTargets): BookPrefs {
   }
 }
 
-/** 书级 prefs 落盘调度器：500ms 防抖窗 + 在途写句柄 + 关窗冲刷。
+/** 信封回传的 revision 归一：非 number（字段缺失/截断/测试桩回 undefined）一律按
+ *  「号未知」（null）——不可把它当「非 null」直传 PUT 第三参（undefined 等价缺失，
+ *  但会以三参形态发出，绕不开「没号就不带守卫」这条口径）。 */
+function asRevision(v: unknown): number | null {
+  return typeof v === 'number' ? v : null
+}
+
+/** 带守卫发出（书级 prefs）：revision 未知（旧服务端/未对齐态）时不带第三参——
+ *  服务端契约 {prefs, expectedRevision?} 对缺失放行；已知则带上，失配即 409。 */
+function putPrefsGuarded(
+  name: string,
+  prefs: BookPrefs,
+  revision: number | null,
+): Promise<{ ok: true; revision: number }> {
+  return revision === null ? putBookPrefs(name, prefs) : putBookPrefs(name, prefs, revision)
+}
+
+/** 书级 prefs 落盘调度器：500ms 防抖窗 + 在途写句柄 + 关窗冲刷 + 乐观并发守卫。
  *  行为与内联形态逐位一致：排定时刻快照 gen 与书名、fire 时复查（切书即作废本次落盘）；
- *  冲刷先等在途落定再清窗直发，防两笔 PUT 乱序旧覆盖新。 */
+ *  冲刷先等在途落定再清窗直发，防两笔 PUT 乱序旧覆盖新。
+ *
+ *  乐观并发（服务端 revision 保留键 + 409 REVISION_CONFLICT）：写入带 expectedRevision，
+ *  两窗同时保存时后写者收 409 而非静默覆盖先写。号来源 = 读取信封 / 写成功响应；
+ *  null（旧服务端/上次冲突未决）→ 写前重拉对齐，拉不到才降级为不带守卫发出。
+ *
+ *  409 恢复只重放「本窗改过的键」的补丁（不是整份快照）——服务端 PUT 是合并写
+ *  （盘上键 ← 本次键，未出现的键不动），故补丁不会盖掉他窗对其它键的改动；重试仅一次，
+ *  二次冲突不再自旋，改为上屏失败提示并保留本窗值（
+ *  revision 置 null：下次保存先重拉对齐，不带着废号反复撞 409）。 */
 function createPrefsPersistScheduler(opts: {
   guard: { current: () => number; stale: (gen: number) => boolean }
   name: () => string | null
@@ -178,10 +208,99 @@ function createPrefsPersistScheduler(opts: {
   /** 落盘失败：同一失败窗只提示一次（成功落盘复位）。 */
   onFail: () => void
   onRecover: () => void
+  /** 二次冲突（重拉+重放重试仍失配）：上屏人话失败提示，本窗改动保留不丢 */
+  onConflict: () => void
 }) {
   let timer: ReturnType<typeof setTimeout> | null = null
   /** 在途写句柄（对齐 prefs.ts 的 putInFlight 单飞槽先例）。链尾只清自己占据的占位。 */
   let inFlight: Promise<void> | null = null
+  /** 服务端 revision（null = 号未知——写前重拉对齐，对齐不了则不带 expectedRevision 发出） */
+  let revision: number | null = null
+  /** 最近一次「本窗与服务端一致」的键值视图：判定本窗改过哪些键的基线
+   *  （读取后 = 已应用到 refs 的生效值；写成功后 = 本次所发载荷） */
+  let baseline: BookPrefs | null = null
+
+  /** 读取/写入信封回灌：载入后置位、写成功后推进（调用方不必各自记账）。 */
+  function noteRevision(rev: unknown, applied?: BookPrefs): void {
+    revision = asRevision(rev)
+    if (applied) baseline = applied
+  }
+  /** 本窗改过的键（当前值 ≠ 基线值）——409 重试用补丁的构造依据。 */
+  function changedKeys(local: BookPrefs): BookPrefs {
+    const patch: BookPrefs = {}
+    for (const [k, v] of Object.entries(local)) {
+      if (baseline?.[k] !== v) patch[k] = v
+    }
+    return patch
+  }
+
+  /** 409 恢复：重拉服务端最新值 → 本窗改过的键按当前值重放（补丁）→ 带新号重试一次。
+   *  本窗无改动可重放（冲突由他窗写入触发而本窗快照与基线一致）时只对齐号，不空写。 */
+  async function recoverConflict(gen: number, name: string): Promise<void> {
+    let remote: { prefs?: BookPrefs; revision: number | null }
+    try {
+      remote = await getBookPrefs(name)
+    } catch {
+      // 重拉失败（网络/服务异常）：保持本窗值，号置未知——下次保存前重拉对齐，
+      // 不做无守卫的重试写（宁可暂时不落盘也不静默覆盖他窗）
+      revision = null
+      opts.onFail()
+      return
+    }
+    if (opts.guard.stale(gen) || opts.name() !== name || !opts.isLoaded()) return // 重拉窗内切书：本次作罢
+    revision = asRevision(remote.revision)
+    // 重拉落定后的当前值——重拉在途期间的新编辑同样属本窗意图，须一并重放
+    const patch = changedKeys(opts.snapshot())
+    if (Object.keys(patch).length === 0) return
+    if (revision === null) {
+      // 服务端不回 revision：乐观并发无从谈起（无法构造有效期望号做重试）——
+      // 不重试、不无守卫硬写，按保存失败上屏并由下次调整触发写前重拉对齐
+      opts.onFail()
+      return
+    }
+    try {
+      const r = await putPrefsGuarded(name, patch, revision)
+      // 信封缺 revision（截断/旧服务端）→ 号置未知，下次保存写前重拉对齐
+      revision = asRevision(r?.revision)
+      // 重试成功后的服务端态 = 重拉值 ∪ 本窗补丁（合并写），作新基线
+      baseline = { ...(remote.prefs ?? {}), ...patch }
+      opts.onRecover()
+    } catch {
+      // 二次冲突/二次失败：不再重试（禁自旋）。本窗值留在 refs，号置未知等下次保存重拉；
+      // 上屏失败提示——静默丢弃本窗改动不可接受
+      revision = null
+      opts.onConflict()
+    }
+  }
+
+  /** 一次写链（写前对齐 + PUT + 409 恢复）；失败路径内部消化为上屏提示，不向调用方抛
+   *  （关窗冲刷链不得被打断）。 */
+  async function runWrite(gen: number, name: string): Promise<void> {
+    if (revision === null) {
+      // 号未知（旧服务端/上次冲突未决）：写前重拉对齐——不带守卫的空写会让并发覆盖失检
+      try {
+        const r = await getBookPrefs(name)
+        revision = asRevision(r.revision)
+      } catch {
+        /* 拉不到：照旧无守卫发出，服务端对缺失放行（降级不阻断保存） */
+      }
+      if (opts.guard.stale(gen) || opts.name() !== name || !opts.isLoaded()) return
+    }
+    const body = opts.snapshot()
+    try {
+      const r = await putPrefsGuarded(name, body, revision)
+      // 信封缺 revision（截断/旧服务端）→ 号置未知，下次保存写前重拉对齐
+      revision = asRevision(r?.revision)
+      baseline = body
+      opts.onRecover()
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 409) {
+        opts.onFail()
+        return
+      }
+      await recoverConflict(gen, name)
+    }
+  }
 
   function write(gen: number, name: string): Promise<void> {
     // 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
@@ -189,8 +308,8 @@ function createPrefsPersistScheduler(opts: {
     const settle = (q: Promise<void>): void => {
       if (inFlight === q) inFlight = null
     }
-    const p = putBookPrefs(name, opts.snapshot())
-      .then(() => opts.onRecover())
+    const p = runWrite(gen, name)
+      // runWrite 已消化业务失败，此处兜底防御（关窗钩子 await 本链，不得冒出未处理 rejection）
       .catch(() => opts.onFail())
       // settle 闭包运行时 p 已初始化（链回调异步于同步段），读参避免自引用早于赋值
       .finally(() => settle(p))
@@ -230,7 +349,7 @@ function createPrefsPersistScheduler(opts: {
     await write(opts.guard.current(), opts.name() ?? '')
   }
 
-  return { write, schedule, cancel, flush }
+  return { write, schedule, cancel, flush, noteRevision }
 }
 
 /** 切档时旧文档的存盘链（fire-and-forget，不阻断切换）：
@@ -390,7 +509,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     treeExpanded,
     treeExpandedTouched: () => treeExpandedTouched,
   }
-  /** 书级 prefs 落盘调度器（防抖窗 / 在途写句柄 / 关窗冲刷三件的收拢口）。 */
+  /** 书级 prefs 落盘调度器（防抖窗 / 在途写句柄 / 关窗冲刷 / 乐观并发守卫的收拢口）。 */
   const persist = createPrefsPersistScheduler({
     guard: bookGen,
     name: () => bookName.value,
@@ -404,6 +523,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (bookPrefsFailNotified) return
       bookPrefsFailNotified = true
       useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+    },
+    onConflict: () => {
+      // 二次冲突（重拉+重放重试仍失配）：不静默、不丢弃本窗改动——本窗 refs 仍是用户
+      // 意图值（下次调整/保存照旧带最新号重试），只是此刻服务端被另一窗持续改写
+      useUiStore().toast('本书布局已被其他窗口连续修改，本次未能保存——当前界面保持你的改动，请稍后再调一次面板', 'error')
     },
   })
 
@@ -467,9 +591,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** 从 .clwriting/prefs.json 加载书库级偏好；首次为空时从旧 localStorage 迁移。 */
   async function loadBookPrefs(gen = bookGen.current()): Promise<void> {
     if (!bookName.value) return
-    let prefs: BookPrefs = {}
+    let read: { prefs?: BookPrefs; revision: number | null }
     try {
-      prefs = await getBookPrefs(bookName.value)
+      read = await getBookPrefs(bookName.value)
     } catch {
       // 迟到失败先过切书代际守卫——「清残留」语义仅对当前书成立。A 书
       // getBookPrefs 挂起窗内已切到 B 书（B 已成功回填书级覆盖）时，A 的迟到 reject
@@ -485,9 +609,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // 竞态守卫：await 期间若已切到其他书 → 丢弃本次结果，防 A 的 prefs 写入 C 的 slot
     if (bookGen.stale(gen)) return
 
+    // 缺 prefs 字段（截断信封/旧服务端）按空偏好降级——与 api 层 getBookPrefs 同口径
+    // 的第二层兜底，缺字段也走「空偏好 → 默认布局/迁移」既有链，不抛
+    const prefs = read.prefs ?? {}
+
     // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移
-    //（拉取失败已提前 return，不会误迁移写回）
-    if (Object.keys(prefs).length === 0) migrateLegacyPrefs(prefs, bookName.value)
+    //（拉取失败已提前返回，不会误迁移写回）
+    if (Object.keys(prefs).length === 0) migrateLegacyPrefs(prefs, bookName.value, read.revision)
 
     // 应用 prefs 到 store（布局字段逐键守卫见 applyLayoutPrefs）
     applyLayoutPrefs(prefs, layout)
@@ -498,6 +626,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     ps.bookPageWidth = posNum(prefs.pageWidth)
     ps.bookAutosaveInterval = posNum(prefs.autosaveInterval)
     ps.apply()
+
+    // 乐观并发基线：本次读到的服务端号 + 生效快照 → 写链据此判定「本窗改过哪些键」
+    // 并带 expectedRevision；顺序在 migrateLegacyPrefs 之后（迁移写回值与 refs 生效值
+    // 同源，作基线不会把迁移内容误判成后续本窗改动）
+    persist.noteRevision(read.revision, snapshotBookPrefs(layout))
 
     prefsLoaded = true
     startPersistWatch()

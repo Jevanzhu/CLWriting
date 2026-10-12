@@ -1,12 +1,12 @@
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { createReadStream, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createReadStream, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { listenSafe } from '../../helpers/safe-port.js'
@@ -380,4 +380,94 @@ test('R30-23: 静态响应（GET/HEAD/SPA fallback）均含 x-content-type-optio
   const index = await fetch(`${baseUrl}/`)
   expect(index.status).toBe(200)
   expect(index.headers.get('x-content-type-options')).toBe('nosniff')
+})
+
+// ── SPA fallback 同过 canonical 判界：fallback 分支此前裸 readFile(join(root, 'index.html'))
+// ——绕过主路径 resolveWithinRoot 防线，dist/index.html 被换成外指 symlink 时 fallback 直接
+// 跟随（主路径请求该文件 403、未知路由 fallback 却把 symlink 目标内容吐回 200 的分歧行为）。
+// 修复后 fallback 同样经 resolveWithinRoot(root, 'index.html')：null 按主路径口径回 403
+// BAD_PATH；index.html 整体缺失仍走 404「前端尚未构建」提示。断链 symlink 契约随行——
+// resolveWithinRoot 对断链 realpath 失败 fail-closed 返 null → 403（主路径直请求同判）。
+// 夹具自建自清（独立 root/outside 目录对；变量加 fb 前缀避免与文件级夹具同名）。──
+
+describe('静态 SPA fallback 与主路径同口径（canonical 判界）', () => {
+  let fbRoot = ''
+  let fbOutside = ''
+  let fbServer: http.Server | undefined
+  let fbBaseUrl = ''
+
+  beforeEach(async () => {
+    fbRoot = mkdtempTracked(join(tmpdir(), 'clw-static-fallback-'))
+    fbOutside = mkdtempTracked(join(tmpdir(), 'clw-static-fallback-out-'))
+    writeFileSync(join(fbRoot, 'index.html'), '<!doctype html><title>Studio</title>')
+    fbServer = http.createServer(createStaticHandler(fbRoot))
+    await listenSafe(fbServer!)
+    const address = fbServer.address() as AddressInfo
+    fbBaseUrl = `http://127.0.0.1:${address.port}`
+  })
+
+  afterEach(async () => {
+    if (fbServer) {
+      await new Promise<void>((resolve) => fbServer?.close(() => resolve()))
+      fbServer = undefined
+    }
+    if (fbRoot) rmSync(fbRoot, { recursive: true, force: true })
+    if (fbOutside) rmSync(fbOutside, { recursive: true, force: true })
+  })
+
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  test.skipIf(process.platform === 'win32')(
+    'index.html 被换成外指 symlink + 未知路由 → fallback 403 BAD_PATH（不跟随）',
+    async () => {
+      writeFileSync(join(fbOutside, 'evil.html'), '<!doctype html><title>EVIL-OUTSIDE-LEAK</title>')
+      unlinkSync(join(fbRoot, 'index.html'))
+      // dist/index.html 被植入外指 symlink（本地可写前提，与主路径同威胁模型）
+      symlinkSync(join(fbOutside, 'evil.html'), join(fbRoot, 'index.html'))
+
+      const res = await fetch(`${fbBaseUrl}/some/unknown/route`)
+      expect(res.status).toBe(403)
+      const body = await res.text()
+      expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+      expect(body).not.toContain('EVIL-OUTSIDE-LEAK') // 修复前：fallback 跟随 symlink 吐出 root 外内容
+    },
+  )
+
+  // 断链 symlink 契约：merged 实现 fallback 走 canonical 判界，resolveWithinRoot 对断链
+  // realpath 失败 fail-closed 返 null → 403 BAD_PATH（外指/断链/realpath 失败同判）；主路径
+  // 对断链 /index.html 亦 403（stat ENOENT → fallback → 同一守卫），「与主路径断链口径一致、
+  // 无内容外泄」的原意由 403 如实恢复——原 404 期望系 pre-merge 词法分支行为
+  // （existsSync 判不在 → readFile ENOENT → 404），已不成立。
+  test.skipIf(process.platform === 'win32')(
+    'index.html 为断链 symlink + 未知路由 → 403 BAD_PATH（与主路径断链口径一致，无内容外泄）',
+    async () => {
+      unlinkSync(join(fbRoot, 'index.html'))
+      symlinkSync(join(fbOutside, 'never-exists.html'), join(fbRoot, 'index.html'))
+
+      const res = await fetch(`${fbBaseUrl}/some/unknown/route`)
+      expect(res.status).toBe(403)
+      const body = await res.text()
+      expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+      // 同一断链在主路径直请求同样 403（口径一致断言）
+      const direct = await fetch(`${fbBaseUrl}/index.html`)
+      expect(direct.status).toBe(403)
+      expect(body).not.toContain('前端尚未构建')
+    },
+  )
+
+  test('对照: 正常 index.html + 未知路由 → fallback 200 行为不变', async () => {
+    const res = await fetch(`${fbBaseUrl}/some/unknown/route`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<title>Studio</title>')
+  })
+
+  test('对照: index.html 整体缺失（未建站）+ 未知路由 → 404 建站提示不变', async () => {
+    unlinkSync(join(fbRoot, 'index.html'))
+    const res = await fetch(`${fbBaseUrl}/some/unknown/route`)
+    expect(res.status).toBe(404)
+    const body = await res.text()
+    expect(JSON.parse(body)).toEqual({
+      code: 'NOT_FOUND',
+      error: '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build',
+    })
+  })
 })

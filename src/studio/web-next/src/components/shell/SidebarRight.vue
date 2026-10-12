@@ -14,12 +14,14 @@ import HistoryPanel from '../panels/HistoryPanel.vue'
 import ForeshadowPanel from '../panels/ForeshadowPanel.vue'
 import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useDocStore } from '../../stores/doc'
 import { useTreeStore } from '../../stores/tree'
-import { formKindOf, isBodyKind } from '../../shared/words'
+import { formKindOf, isBodyKind, isPieceBodyNode } from '../../shared/words'
 import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
+const doc = useDocStore()
 const tree = useTreeStore()
 const { isDesktop, isWin } = usePlatform()
 
@@ -35,7 +37,8 @@ const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info
   { key: 'check', label: '校对', icon: CheckCheck },
 ]
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。
- *  短篇正文（role=piece-body）与长篇同 path（写作/正文/），按 role 取「短篇」标题。 */
+ *  短篇正文与长篇同 path（写作/正文/），按「书级 kind + 正文路径」取「短篇」标题
+ *  （isPieceBodyNode 单源，书级 kind 取 doc store 的会话级单源）。 */
 const FORM_TITLE: Record<string, string> = {
   chapter: '章节',
   'piece-body': '短篇',
@@ -50,7 +53,7 @@ const formSectionTitle = computed(() => {
   if (!ws.activeDocId) return '信息'
   const node = tree.byDocId.get(ws.activeDocId)
   if (!node) return '信息'
-  const k = node.role === 'piece-body' ? 'piece-body' : formKindOf(node.path)
+  const k = isPieceBodyNode(doc.bookKind, node) ? 'piece-body' : formKindOf(node.path)
   return k ? `${FORM_TITLE[k] ?? '文档'}信息` : '信息'
 })
 /** 折叠区标题：有表单 → "章节信息"/"章纲信息"…；无表单 → "写作信息" */

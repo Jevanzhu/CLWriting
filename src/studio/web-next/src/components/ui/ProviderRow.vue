@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 提供方行卡共享壳（阶段 14，照搬 DSH：仅一个「编辑」入口）。
+ * 提供方行卡共享壳（照搬 DSH：仅一个「编辑」入口）。
  * AI 与 RAG 列表共用：主信息槽 + 操作槽 + 展开槽；展开态由父层管理（互斥），
- * 点「编辑」（#actions 槽内）才切换就地展开。
- * 主信息槽为单行结构（名称/徽章/协议 + 右对齐状态），由 providers.css 的
- * .row-line 提供布局；#actions 槽内按钮用 .mini-btn，
- * 其样式经 :slotted 下发——插槽内容不带本组件 scope id，普通 scoped 选择器够不着。
+ * 点「编辑」（#actions 槽内，ProviderRowActions）才切换就地展开。
+ * 主信息槽为单行结构（名称/徽章/协议 + 右对齐状态），由 providers.css 的 .row-line
+ * 提供布局；#actions 槽内按钮的 .mini-btn 样式随 ProviderRowActions 自持
+ * （插槽内容不带本组件 scope id，scoped 规则够不着，故不在本壳下发）。
  */
 defineProps<{
   expanded: boolean
@@ -86,37 +86,7 @@ defineProps<{
   animation: clw-card-in var(--dur-norm) var(--ease-out);
 }
 
-/* ── 操作图标按钮（28px ghost）：定义在本壳、写给 #actions 槽内容用。
- *    插槽内容挂的是调用方 scope id，必须 :slotted 才能命中（曾因此整排
- *    按钮回落成浏览器原生样式）。 ── */
-:slotted(.mini-btn) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  /* dsh iconButton 的 6px：小方格图标钮比输入框（8）更收 */
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-:slotted(.mini-btn:hover) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-:slotted(.mini-btn.enable) {
-  color: var(--dv-good);
-}
-:slotted(.mini-btn.testing) {
-  pointer-events: none;
-}
-:slotted(.mini-btn.danger:hover) {
-  color: var(--dv-bad);
-  background: color-mix(in srgb, var(--dv-bad) 10%, transparent);
-}
+/* 操作图标按钮（28px ghost）的样式不在此处：原 :slotted(.mini-btn) 只对直接插槽
+ * 子节点生效，操作簇改由 ProviderRowActions 渲染后按钮挂的是该件 scope id，
+ * :slotted 恒不命中且会静默失样式；声明随 ProviderRowActions 自持（值不变）。 */
 </style>

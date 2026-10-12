@@ -18,11 +18,15 @@
  *   （node:_http_server），必须按栈过滤才量得到应用层；本机（node 26）实测修复前
  *    闸拒绝路径应用层计 0（红）、/api 分支计 1（对照组，钩子在 index.ts /api 分支）。
  *    修复后入口单挂点全路径 ≥1（绿）。
- * 2. 行为（守住无自动排空的运行时）：跟随 api-keepalive-drain.test.ts（R64-28）
- *    手法——keep-alive Agent（maxSockets 1）被拒请求后同 socket 第二请求正常
- *    往返。注：node ≥25 核心在响应 finish 后自动排空未消费 body（本机实测），
- *    该层修复前后皆绿，作为 Electron 内嵌 Node / CI node 24 等运行时的防回归
- *    护栏保留。
+ * 2. 行为（守住无自动排空的运行时）：keep-alive Agent（maxSockets 1）
+ *    被拒请求后同 socket 第二请求正常往返。注：node ≥25 核心在响应 finish 后自动排空
+ *    未消费 body（本机实测），该层修复前后皆绿，作为 Electron 内嵌 Node / CI node 24
+ *    等运行时的防回归护栏保留。
+ *
+ * 同域并入：dispatch 层 finish 后排空未消费请求体——无 body POST 端点
+ * （heartbeat 等）handler 不读 body 也不 resume，脚本客户端带 body 时服务端不排空请求流
+ * 就不会在同一 keep-alive socket 上解析下一个请求（第二请求悬挂直至客户端超时）。夹具沿
+ * 本文件既有 studio（book + 项目 目录 + token），不另起实例。
  */
 import http from 'node:http'
 import net from 'node:net'
@@ -281,5 +285,61 @@ describe('R61-E-1：闸拒绝路径带 body → 排空钩子挂载 + keep-alive 
     expect(result.s2).toBe(200) // 同一 socket 上第二个请求正常往返
     // 红：修复前 bad request 400 路径不挂排空钩子
     expect(hooksAfterFirst).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ── dispatch 层 finish 后统一排空未消费请求体（与 stream 票据同口径）。
+// 无 body POST 端点（heartbeat/style/rag/chat-branches 等）handler 不读 body 也不 resume
+// ——脚本客户端带 body 时，服务端不排空请求流就不会在同一 keep-alive socket 上解析下一个
+// 请求（第二个请求悬挂直至客户端超时）。断言：带 body 连打两次无 body POST，两次都 200
+// 且复用同一 socket。──
+
+describe('finish 后排空未消费请求体（keep-alive 可复用）', () => {
+  /** 同一 keep-alive agent 上带 body 的 POST；记录用到的 socket 以断言复用 */
+  function postHeartbeat(agent: http.Agent, sockets: Set<net.Socket>): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const u = new URL(studio.baseUrl)
+      const payload = JSON.stringify({ padding: 'x'.repeat(512) })
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent(BOOK)}/heartbeat`,
+          method: 'POST',
+          agent,
+          headers: {
+            'x-studio-token': studio.token,
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          // 消费响应体（keep-alive 复用的另一半前提）
+          res.resume()
+          res.on('end', () => resolve(res.statusCode ?? 0))
+        },
+      )
+      r.on('socket', (s) => sockets.add(s))
+      r.on('error', reject)
+      r.end(payload)
+    })
+  }
+
+  it('带 body 连打两次无 body POST → 两次都 200 且复用同一 socket', async () => {
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 })
+    const sockets = new Set<net.Socket>()
+    try {
+      const s1 = await postHeartbeat(agent, sockets)
+      expect(s1).toBe(200)
+      // 修复前：第一个请求的 body 未排空，第二个请求在同 socket 上不被解析（悬挂）
+      const s2 = await orHang(
+        postHeartbeat(agent, sockets),
+        '第二个请求悬挂：请求体未排空（R64-28）',
+      )
+      expect(s2).toBe(200)
+      expect(sockets.size).toBe(1) // 同一 socket 承载两次请求
+    } finally {
+      agent.destroy()
+    }
   })
 })

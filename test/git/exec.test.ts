@@ -2,7 +2,8 @@
  * git/exec.ts 存活面测试（去 git 清理后）。
  *
  * exec.ts 已删 addCommit / findChapterCommit / gitHealthCheck / lastCommitMsg
- * （零生产调用方的死代码）；仍存活：git() / statusPorcelain（migrate 反推用）/
+ * （零生产调用方的死代码）；仍存活：git()（ai-track 同步侧）/
+ * statusPorcelainAsync（migrate 反推用——启动迁移链上不得再走同步 spawnSync）/
  * scanCloudCopies（状态机进门检查）。本文件覆盖后两者的行为契约。
  */
 import { test, expect, vi, afterEach } from 'vitest'
@@ -10,7 +11,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, a
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { git, gitAsync, hardenGitArgs, scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
+import { git, gitAsync, hardenGitArgs, scanCloudCopies, statusPorcelainAsync } from '../../src/git/exec.js'
 import { makeGitBook } from '../helpers/book.js'
 
 const ORIG_PLATFORM = process.platform
@@ -19,7 +20,7 @@ afterEach(() => {
 })
 
 // P2-30：包装 spawnSync 记录调用参数（真实实现保留——现有测试零感知），
-// 断言 git()/statusPorcelain 每次调用都带 timeout（防挂起永久阻塞）。
+// 断言 git() 每次调用都带 timeout（防挂起永久阻塞）。
 // RC 源码重审 A-2：spawn 同款包装（argv 加固断言用，真实实现保留）。
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
@@ -98,11 +99,11 @@ test('scanCloudCopies: .git / node_modules / .cache 内部不扫', () => {
   }
 })
 
-test('statusPorcelain: 中文路径原样输出（core.quotepath=false）+ 行首状态码保留', () => {
+test('statusPorcelainAsync: 中文路径原样输出（core.quotepath=false）+ 行首状态码保留', async () => {
   const root = makeGitBook()
   try {
     writeFileSync(join(root, '布线', '悬念', '悬念-999-测试.md'), '---\n---\n内容', 'utf-8')
-    const out = statusPorcelain(root)
+    const out = await statusPorcelainAsync(root)
     expect(out).not.toBeNull() // 成功路径返回 string
     expect(out!).toContain('悬念-999-测试.md') // 不被八进制转义
     expect(out!).not.toContain('\\351') // 未启用 quotepath=false 时的转义形态
@@ -113,17 +114,17 @@ test('statusPorcelain: 中文路径原样输出（core.quotepath=false）+ 行�
   }
 })
 
-test('RB-IF-P1-1: git 不可用/执行失败 → statusPorcelain 返回 null（与干净 "" 区分，不 fail-open）', () => {
+test('RB-IF-P1-1: git 不可用/执行失败 → statusPorcelainAsync 返回 null（与干净 "" 区分，不 fail-open）', async () => {
   const root = join(tmpdir(), `clw-exec-${Date.now()}`)
   mkdirSync(join(root, '.git'), { recursive: true }) // 空 .git：git status 报 not a git repository
   try {
-    expect(statusPorcelain(root)).toBeNull()
+    expect(await statusPorcelainAsync(root)).toBeNull()
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('P2-30: git()/statusPorcelain 调 spawnSync 必带 timeout（防仓库锁/交互提示永久阻塞）', () => {
+test('P2-30: git() 调 spawnSync 必带 timeout（防仓库锁/交互提示永久阻塞）', () => {
   const root = makeGitBook()
   try {
     mockSpawn.mockClear()
@@ -131,12 +132,19 @@ test('P2-30: git()/statusPorcelain 调 spawnSync 必带 timeout（防仓库锁/�
     expect(mockSpawn).toHaveBeenCalled()
     const opts = mockSpawn.mock.calls[0]![2] as { timeout?: number }
     expect(opts.timeout).toBe(15000)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
+test('statusPorcelainAsync 走异步 spawn（不再有同步 spawnSync 形态——启动迁移链不得冻事件循环）', async () => {
+  const root = makeGitBook()
+  try {
     mockSpawn.mockClear()
-    statusPorcelain(root)
-    expect(mockSpawn).toHaveBeenCalled()
-    const opts2 = mockSpawn.mock.calls[0]![2] as { timeout?: number }
-    expect(opts2.timeout).toBe(15000)
+    mockSpawnArgv.mockClear()
+    await statusPorcelainAsync(root)
+    expect(mockSpawnArgv).toHaveBeenCalled() // 异步路径：spawn
+    expect(mockSpawn).not.toHaveBeenCalled() // 同步路径零调用
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -238,7 +246,7 @@ function makeFsmonRepo(): { root: string; marker: string } {
   return { root, marker }
 }
 
-test('RC 源码重审 A-2: 仓库内 core.fsmonitor 命令经统一执行器不被执行（裸 git 对照支证明害面为真）', () => {
+test('RC 源码重审 A-2: 仓库内 core.fsmonitor 命令经统一执行器不被执行（裸 git 对照支证明害面为真）', async () => {
   const probe = makeFsmonRepo()
   const subject = makeFsmonRepo()
   try {
@@ -251,7 +259,7 @@ test('RC 源码重审 A-2: 仓库内 core.fsmonitor 命令经统一执行器不�
     ).toBe(true)
 
     // 受试支：同款仓库经统一执行器（-c core.fsmonitor=false 前置）→ 命令不执行、status 仍正常返回
-    expect(statusPorcelain(subject.root)).not.toBeNull()
+    expect(await statusPorcelainAsync(subject.root)).not.toBeNull()
     expect(existsSync(subject.marker)).toBe(false)
   } finally {
     for (const r of [probe, subject]) rmSync(r.root, { recursive: true, force: true })

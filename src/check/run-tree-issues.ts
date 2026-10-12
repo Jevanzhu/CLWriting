@@ -292,7 +292,7 @@ function* loadTreeIssuesInputs(
   // 与「读失败=降级」：降级 warn 留痕 + manifestDegraded 旗标随返回透出。
   const manifestRead = readManifestDegraded(join(bookRoot, '项目', '文档清单.jsonl'))
   if (manifestRead.degraded) {
-    log.warn('check', `文档清单读取失败（${manifestRead.degraded.code}），本轮章-账本红点聚合降级（红点可能缺失）`)
+    log.warn('check', `文档清单读取失败、本轮章-账本红点聚合降级、红点可能缺失；错误码 ${manifestRead.degraded.code}`)
   }
   const manifestDegraded = manifestRead.degraded !== null
   const manifest = manifestRead.manifest.entries
@@ -343,7 +343,7 @@ function* loadTreeIssuesInputs(
   let chaptersParseDegraded = 0
   for (const pe of bodyDirScan?.errors ?? []) {
     chaptersParseDegraded++
-    log.warn('check', `章文件解析失败（树红点对该章失明）：${pe.file}——${pe.message}`)
+    log.warn('check', `章文件解析失败、树红点对该章失明：${pe.file}——${pe.message}`)
   }
   const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters, manifest)
   return {
@@ -417,12 +417,12 @@ function* computeLeadsBookRed(
         if (leadsFpNow === leadsFp) {
           writeLeadsBookRed(db, leadsFp, leadsBookRed)
         } else {
-          log.warn('check', '账本全书性红项聚合窗口内纪元漂移——本轮结果不落缓存（下轮重算）')
+          log.warn('check', '账本全书性红项聚合窗口内纪元漂移、本轮结果不落缓存、下轮重算')
         }
       }
     } catch (e) {
       leadsBookDegraded = true
-      log.warn('check', `账本全书性红项计算失败（本轮降级为无，不落缓存）：${errMsg(e)}`)
+      log.warn('check', `账本全书性红项计算失败、本轮降级为无且不落缓存（错误：${errMsg(e)}）`)
     }
   }
   return { leadsBookRed, leadsBookDegraded }
@@ -592,7 +592,7 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
       // 红点缺失且响应零提示（fail-open 漏红不可见）
       if (checkFailed) {
         chaptersDegraded++
-        log.warn('check', `章机检失败（红点可能缺失）：${relPath}`)
+        log.warn('check', `章机检失败、红点可能缺失（章文件：${relPath}）`)
       }
       const verdict = readReviewVerdict(docId)
       const verdictRejected = !!verdict && !verdict.approved
@@ -636,7 +636,7 @@ function* collectChapterRedDots(a: ChapterCollectArgs): Generator<void, ChapterR
     if (pendingCacheWrites.length > 0 && db && epochFp0 !== null) {
       const epochFpEnd = yield* computeTreeIssuesGlobalFpCore(bookRoot, userDataPath)
       if (epochFpEnd !== epochFp0) {
-        log.warn('check', `聚合窗口内全局输入纪元漂移——本轮 ${pendingCacheWrites.length} 条章缓存不落盘（下轮重算）`)
+        log.warn('check', `聚合窗口内全局输入纪元漂移、本轮 ${pendingCacheWrites.length} 条章缓存不落盘、下轮重算`)
       } else {
         writeTreeIssuesCacheBatch(db, pendingCacheWrites)
       }
