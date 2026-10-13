@@ -24,7 +24,7 @@ const reportWithLedger: CheckReport = {
 
 // ── buildReviewPacket ─────────────────────────────
 
-test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只进设定校对', () => {
+test('buildReviewPacket: 满审档位 → 五份独立分包，账本清单只进设定校对', () => {
   const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const built = buildReviewPacket({
     checkReport: reportWithLedger,
@@ -42,9 +42,9 @@ test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只�
 
   const { packet } = built
   expect(packet.tier).toBe('full')
-  expect(packet.planned_calls).toBe(3)
-  expect(packet.packets).toHaveLength(3)
-  expect(packet.packets.map((p) => p.lens)).toEqual(['reader', 'editor', 'continuity'])
+  expect(packet.planned_calls).toBe(5)
+  expect(packet.packets).toHaveLength(5)
+  expect(packet.packets.map((p) => p.lens)).toEqual(['reader', 'editor', 'continuity', 'disclosure', 'plot_causality'])
 
   // 账本清单只在设定校对（continuity）分包
   const continuity = packet.packets.find((p) => p.lens === 'continuity')!
@@ -53,6 +53,49 @@ test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只�
   const reader = packet.packets.find((p) => p.lens === 'reader')!
   expect(reader.ledger_checks).toHaveLength(0)
   expect(packet.out_dir).toBe(join(workDir, '三审'))
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('buildReviewPacket: 机检信息差候选进 disclosure 分包（合审单包亦不丢）', () => {
+  const report: CheckReport = {
+    sections: [],
+    byproducts: { infoLeakCandidates: ['身世之谜', '半枚玉佩'] },
+  }
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
+  // 满审：候选只落 disclosure 分包
+  const full = buildReviewPacket({
+    checkReport: report,
+    body: '正文。',
+    chapter: 3,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 8,
+    high_risk: false,
+    hasWiring: false,
+    hasShort: false,
+  })
+  expect(full.ok).toBe(true)
+  if (!full.ok) return
+  const disclosure = full.packet.packets.find((p) => p.lens === 'disclosure')!
+  expect(disclosure.leak_candidates).toEqual(['身世之谜', '半枚玉佩'])
+  expect(full.packet.packets.find((p) => p.lens === 'plot_causality')!.leak_candidates).toBeUndefined()
+
+  // 合审（预算只够一次调用）：候选不随降级稀释
+  const combined = buildReviewPacket({
+    checkReport: report,
+    body: '正文。',
+    chapter: 3,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 1,
+    high_risk: false,
+    hasWiring: false,
+    hasShort: false,
+  })
+  expect(combined.ok).toBe(true)
+  if (!combined.ok) return
+  expect(combined.packet.tier).toBe('combined')
+  expect(combined.packet.packets[0]!.leak_candidates).toEqual(['身世之谜', '半枚玉佩'])
   rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -102,7 +145,7 @@ test('buildReviewPacket: 高风险章预算不足 → 拒绝（禁止降级）',
 
 // ── collectReviewIssues ───────────────────────────
 
-/** 造一个满审 packet（三视角）便于 collect 测试 */
+/** 造一个满审 packet（长篇五视角）便于 collect 测试 */
 function makeFullPacket(workDir: string): ReviewExecutionPacket {
   const built = buildReviewPacket({
     checkReport: reportWithLedger,
@@ -119,15 +162,21 @@ function makeFullPacket(workDir: string): ReviewExecutionPacket {
   return built.packet
 }
 
-test('collectReviewIssues: 回收三视角 issues → 设定校对逮到账本 blocker', () => {
+/** 给 packet 的全部视角回写空 issues（调用方再覆写需要给意见的视角）——
+ *  视角数随任务书动态（长篇 5 / 短篇 5），逐视角硬写字面量会在加视角时静默缺视角。 */
+function writeEmptyIssuesForAll(packet: ReviewExecutionPacket): void {
+  mkdirSync(packet.out_dir, { recursive: true })
+  for (const lens of packet.lenses_run) {
+    writeFileSync(join(packet.out_dir, lensIssuesFileName(lens)), '[]', 'utf-8')
+  }
+}
+
+test('collectReviewIssues: 回收全部五视角 issues → 设定校对逮到账本 blocker', () => {
   const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
-  mkdirSync(packet.out_dir, { recursive: true })
+  writeEmptyIssuesForAll(packet)
 
-  // 读者审 / 编辑审：无问题
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
-  // 设定校对：账本声明推进但正文无证据 → ledger blocker
+  // 设定校对：账本声明推进但正文无证据 → ledger blocker（其余视角已空回收）
   const continuityIssues: ReviewIssue[] = [
     {
       lens: 'continuity',
@@ -187,7 +236,7 @@ test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立
   const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
-  // 三视角都回写，但有个空 evidence issue
+  // 全部视角都回写，但有个空 evidence issue
   const badIssue: ReviewIssue[] = [
     {
       lens: 'reader',
@@ -199,9 +248,8 @@ test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立
       fix: '补钩子',
     },
   ]
+  writeEmptyIssuesForAll(packet)
   writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), JSON.stringify(badIssue), 'utf-8')
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
-  writeFileSync(join(packet.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
 
   const collected = collectReviewIssues({ packet })
   expect(collected.normalized.invalid_issues).toHaveLength(1)
@@ -273,20 +321,14 @@ test('R61-13: collect 校验 draft_hash——不符 → 审稿单不成立带原
     return built.packet
   }
 
-  // 相符：三视角齐 → ok
+  // 相符：全视角齐 → ok
   const okPacket = build(hash)
-  mkdirSync(okPacket.out_dir, { recursive: true })
-  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
-  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
-  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+  writeEmptyIssuesForAll(okPacket)
   expect(collectReviewIssues({ packet: okPacket }).ok).toBe(true)
 
-  // 不符（审阅期间草稿漂移）：即便三视角齐也判不成立
+  // 不符（审阅期间草稿漂移）：即便视角齐也判不成立
   const stalePacket = build('deadbeef')
-  mkdirSync(stalePacket.out_dir, { recursive: true })
-  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
-  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
-  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+  writeEmptyIssuesForAll(stalePacket)
   const stale = collectReviewIssues({ packet: stalePacket })
   expect(stale.ok).toBe(false)
   expect(stale.bad_entries[0]!.reason).toContain('draft_hash')
@@ -424,9 +466,9 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
   const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   try {
     const packet = makeFullPacket(workDir)
-    mkdirSync(packet.out_dir, { recursive: true })
+    writeEmptyIssuesForAll(packet)
     // continuity：一条 evidence 含对象项（修复前 String({})='[object Object]' 穿透空证据硬闸）、
-    // 一条合法字符串证据；reader/editor 空回收
+    // 一条合法字符串证据（其余视角空回收）
     writeFileSync(
       join(packet.out_dir, lensIssuesFileName('continuity')),
       JSON.stringify([
@@ -451,8 +493,6 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
       ]),
       'utf-8',
     )
-    writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
-    writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
 
     const collected = collectReviewIssues({ packet })
     // 对象壳条目 → bad_entries（非静默通过；reason 截 80 字符，按前缀匹配）
@@ -465,7 +505,7 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
     ]
     expect(allNormalized.some((i) => i.issue === '正常字符串证据')).toBe(true)
     expect(allNormalized.some((i) => i.issue === '对象壳证据')).toBe(false)
-    // 收录数口径：3 回收、0 缺失
+    // 收录数口径：全视角回收、0 缺失
     expect(collected.missing_lenses).toHaveLength(0)
   } finally {
     rmSync(workDir, { recursive: true, force: true })
@@ -476,7 +516,7 @@ test('R0916-6-P3-7：空 issue 描述 + 非空 evidence → 格式不符丢弃�
   const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   try {
     const packet = makeFullPacket(workDir)
-    mkdirSync(packet.out_dir, { recursive: true })
+    writeEmptyIssuesForAll(packet)
     // continuity：一条空白描述（修复前借非空 evidence 成立为 S1 blocker）、一条合法条目
     writeFileSync(
       join(packet.out_dir, lensIssuesFileName('continuity')),
@@ -502,8 +542,6 @@ test('R0916-6-P3-7：空 issue 描述 + 非空 evidence → 格式不符丢弃�
       ]),
       'utf-8',
     )
-    writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
-    writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
 
     const collected = collectReviewIssues({ packet })
     // 空描述条 → extractIssues 既有「issue 格式不符」bad_entries 路径（留痕非静默）

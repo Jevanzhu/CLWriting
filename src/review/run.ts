@@ -43,6 +43,8 @@ export interface ReviewLensPacket {
   ledger_checks: ReviewTask['ledger_checks']
   /** 短篇设定收尾审专属：单篇清单核对条目（反转线索表 + 伏笔回收，恒跑） */
   list_checks?: PieceListCheck[]
+  /** 信息披露审专属：机检信息差候选词（关键词命中，真伪归该视角裁） */
+  leak_candidates?: string[]
   /** 输出契约：JSON only / 必带证据 / 不打分 */
   output_contract: ReviewTask['output_contract']
   /** 本章正文（front matter 之后的正文体） */
@@ -64,7 +66,7 @@ export interface ReviewExecutionPacket {
   downgrade_reason?: string
   lenses_run: ReviewLens[]
   /** 预计 AI 调用次数。注释改正：已改按 lenses 动态——
-   *  满审/顺序审 = 实际视角数（lenses_run.length，长篇 2-3、短篇 5），合审 = 1
+   *  满审/顺序审 = 实际视角数（lenses_run.length，长篇 2-5、短篇 5），合审 = 1
    *  （contract.selectReviewTier 口径，不再硬编码 3） */
   planned_calls: number
   /** 各视角分包。注释改正：份数按 lenses 动态——满审/顺序审 =
@@ -121,7 +123,7 @@ export function buildReviewPacket(input: {
   const outDir = join(input.workDir, '三审')
 
   // 合审：全部视角合并成单个分包（宿主单次调用覆盖全部视角，数量随任务书动态——
-  // 长篇 3 已有布线/短篇 5/无布线最小 2，见 buildCombinedPacket）
+  // 长篇 5/短篇 5/无布线最小 2，见 buildCombinedPacket）
   const packets: ReviewLensPacket[] =
     decision.tier === 'combined'
       ? [buildCombinedPacket(tasks, input.body, input.chapter)]
@@ -154,6 +156,7 @@ function taskToPacket(task: ReviewTask, body: string, chapter: number): ReviewLe
     focus: task.focus,
     ledger_checks: task.ledger_checks,
     ...(task.list_checks && task.list_checks.length > 0 ? { list_checks: task.list_checks } : {}),
+    ...(task.leak_candidates && task.leak_candidates.length > 0 ? { leak_candidates: task.leak_candidates } : {}),
     output_contract: task.output_contract,
     body,
     chapter,
@@ -165,12 +168,14 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
   // 长篇：账本清单恒属设定校对（continuity）；短篇：清单核对恒属设定收尾审（payoff）
   const continuity = tasks.find((t) => t.lens === 'continuity')
   const payoff = tasks.find((t) => t.lens === 'payoff')
+  const disclosure = tasks.find((t) => t.lens === 'disclosure')
   const ledgerChecks = continuity?.ledger_checks ?? []
   const listChecks = payoff?.list_checks ?? []
+  const leakCandidates = disclosure?.leak_candidates ?? []
   // 合审锚定 lens：长篇 continuity（账本核对不丢）/ 短篇 payoff（清单核对不丢）
   const anchor = payoff ?? continuity ?? tasks[0]!
   // 焦点首条不再硬编码「覆盖三视角」——合审视角数随任务书动态
-  // （长篇 3 / 短篇 5 / 无布线最小 2），按 tasks.length 生成，文案与实际一致
+  // （长篇 5 / 短篇 5 / 无布线最小 2），按 tasks.length 生成，文案与实际一致
   const focus = [`合审：覆盖${tasks.length}视角`].concat(tasks.flatMap((t) => t.focus.map((f) => `[${t.title}] ${f}`)))
   return {
     lens: anchor.lens,
@@ -178,6 +183,7 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
     focus,
     ledger_checks: ledgerChecks,
     ...(listChecks.length > 0 ? { list_checks: listChecks } : {}),
+    ...(leakCandidates.length > 0 ? { leak_candidates: leakCandidates } : {}),
     output_contract: tasks[0]!.output_contract,
     body,
     chapter,
@@ -186,7 +192,7 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
 
 /**
  * 从 out_dir 回收各视角 issues JSON，归一化成审稿单数据。
- * - 满审/顺序审：读 issues-reader.json / issues-editor.json / issues-continuity.json
+ * - 满审/顺序审：按 lenses_run 逐视角读 issues-<lens>.json
  * - 合审：读 issues-combined.json（单文件，issue.lens 字段标属哪个视角）
  *
  * 缺文件、坏 JSON、空 issues 均不崩：缺视角记到 collected_lens、bad_entries 记损坏项。
@@ -504,6 +510,9 @@ const CATEGORIES: ReadonlySet<string> = new Set([
   'strand',
   'ledger',
   'safety',
+  // 长篇叙事机制维（信息披露 / 情节与因果）
+  'disclosure',
+  'causality',
   // 短篇单篇爆破力维（#28 第 4 节）
   'hook',
   'emotion_peak',
@@ -518,6 +527,9 @@ const LENSES: ReadonlySet<string> = new Set([
   'reader',
   'editor',
   'continuity',
+  // 长篇叙事机制两维
+  'disclosure',
+  'plot_causality',
   // 短篇三视角（#28 第 2 节）
   'hook',
   'emotion_peak',

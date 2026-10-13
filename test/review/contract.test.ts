@@ -8,7 +8,7 @@ import {
 } from '../../src/review/contract.js'
 import type { CheckReport } from '../../src/check/types.js'
 
-test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入设定校对且恒跑', () => {
+test('buildReviewTasks: 长篇五视角，账本清单只进入设定校对且恒跑', () => {
   const report: CheckReport = {
     sections: [],
     byproducts: {
@@ -16,18 +16,21 @@ test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入�
     },
   }
 
-  // R65-26：默认 hasWiring:false——长篇三视角须显式传参（此前缺省凭空带 continuity）
+  // R65-26：默认 hasWiring:false——continuity 须显式传参（此前缺省凭空带该视角）
   const tasks = buildReviewTasks(report, { hasWiring: true, hasShort: false })
 
-  expect(tasks.map((task) => task.lens)).toEqual(['reader', 'editor', 'continuity'])
+  expect(tasks.map((task) => task.lens)).toEqual(['reader', 'editor', 'continuity', 'disclosure', 'plot_causality'])
   expect(tasks.every((task) => task.must_run)).toBe(true)
-  expect(tasks[0]!.ledger_checks).toHaveLength(0)
-  expect(tasks[1]!.ledger_checks).toHaveLength(0)
-  expect(tasks[2]!.title).toBe('设定校对')
-  expect(tasks[2]!.ledger_checks).toEqual([
+  for (const t of tasks) {
+    if (t.lens === 'continuity') continue
+    expect(t.ledger_checks).toHaveLength(0)
+  }
+  const continuity = tasks.find((t) => t.lens === 'continuity')!
+  expect(continuity.title).toBe('设定校对')
+  expect(continuity.ledger_checks).toEqual([
     { lead_id: '悬念-031', chapter: 12, verb: '推进', evidence: '他终于看见焦痕背后的掌印。' },
   ])
-  expect(tasks[2]!.output_contract).toEqual({ json_only: true, evidence_required: true, no_score: true })
+  expect(continuity.output_contract).toEqual({ json_only: true, evidence_required: true, no_score: true })
 })
 
 test('selectReviewTier: 宿主支持并行且预算足够时默认满审', () => {

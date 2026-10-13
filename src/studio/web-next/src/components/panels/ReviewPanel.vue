@@ -113,6 +113,8 @@ const LENS_LABEL: Record<string, string> = {
   reader: '读者审',
   editor: '编辑审',
   continuity: '设定校对',
+  disclosure: '信息披露审',
+  plot_causality: '情节与因果审',
   hook: '钩子审',
   emotion_peak: '情绪反转审',
   payoff: '设定收尾审',

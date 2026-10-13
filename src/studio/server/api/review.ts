@@ -77,6 +77,8 @@ const LENS_LABEL: Record<string, string> = {
   reader: '读者',
   editor: '编辑',
   continuity: '连续性',
+  disclosure: '信息披露',
+  plot_causality: '情节与因果',
   hook: '钩子',
   emotion_peak: '情绪反转',
   payoff: '回报',
@@ -211,7 +213,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           return replyError(res, 500, 'PACKET_FAIL', built.reason)
         }
 
-        // generateTool×3（共享循环；逐角进度经主 session SSE 回流）
+        // 逐 lens generateTool（共享循环；视角数随任务书动态，进度经主 session SSE 回流）
         try {
           const driver = ctx.driver.driver
           const mainSession = await ctx.driver.ensureSession(params['name']!, ctx.workDir!)
@@ -458,7 +460,7 @@ async function runLensSpawnLoop(opts: {
 /** 组单视角审稿 prompt:焦点 + 账本核对(continuity)/清单核对(payoff) + 正文 + 输出契约 */
 export function buildLensPrompt(
   lens: string,
-  sub: Pick<ReviewLensPacket, 'lens' | 'title' | 'focus' | 'ledger_checks' | 'list_checks'>,
+  sub: Pick<ReviewLensPacket, 'lens' | 'title' | 'focus' | 'ledger_checks' | 'list_checks' | 'leak_candidates'>,
   draftBody: string,
   chapter: number,
 ): string {
@@ -471,6 +473,15 @@ export function buildLensPrompt(
       checks.length
         ? `## 账本核对(逐条核对账实相符)\n${checks.map((c) => `- ${c.lead_id} 第${c.chapter}章 ${c.verb}:${c.evidence}`).join('\n')}`
         : `## 账本核对\n(本章无账本清单)`,
+    )
+  }
+  // 信息披露审：机检信息差候选逐词核实（与 continuity 账本核对对称——都与机检 byproduct 对接）
+  if (lens === 'disclosure') {
+    const candidates = sub.leak_candidates ?? []
+    parts.push(
+      candidates.length
+        ? `## 信息差候选核对(逐词判真伪)\n${candidates.map((c) => `- ${c}`).join('\n')}`
+        : `## 信息差候选核对\n(本章机检无信息差候选词)`,
     )
   }
   // 短篇设定收尾审：清单.md 的反转线索 + 伏笔回收逐条核对（与 continuity 账本核对对称）
@@ -489,7 +500,7 @@ export function buildLensPrompt(
   }
   parts.push(`## 正文\n${draftBody}`)
   parts.push(
-    `## category 枚举参考（与回收白名单一致，短篇视角用后四维）\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)/hook(开篇钩子)/emotion_peak(情绪反转)/reversal(反转线索)/payoff(伏笔回收)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
+    `## category 枚举参考（与回收白名单一致，短篇视角用后四维）\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)/disclosure(信息披露)/causality(因果)/hook(开篇钩子)/emotion_peak(情绪反转)/reversal(反转线索)/payoff(伏笔回收)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
 }

@@ -21,15 +21,26 @@ import { buildReviewMethodInjection } from '../../src/knowledge/review-method.js
 import {
   GENERAL_FILE_QUALITY,
   LONG_FILE_HOOKS,
+  LONG_FILE_OUTLINE,
   LONG_FILE_QUALITY,
   LONG_FILE_REVERSAL,
   LONG_FILE_RHYTHM,
+  LONG_FILE_SUSPENSE,
   SHORT_FILE_HOOKS,
   SHORT_FILE_QUALITY,
   SHORT_FILE_REVERSAL,
 } from '../../src/knowledge/catalog.js'
 
-const ALL = ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff'] as const
+const ALL = [
+  'reader',
+  'editor',
+  'continuity',
+  'disclosure',
+  'plot_causality',
+  'hook',
+  'emotion_peak',
+  'payoff',
+] as const
 const ALL_TEXTS: Array<[string, string]> = [
   ['review-common', REVIEW_COMMON],
   ...ALL.map((lens) => [`review-${lens}`, REVIEW_SYSTEMS[lens]!] as [string, string]),
@@ -45,7 +56,7 @@ function makeBook(): string {
   return root
 }
 
-describe('三审 prompt:契约与审计基线必须保留(全 7 文件)', () => {
+describe('三审 prompt:契约与审计基线必须保留(全 9 文件)', () => {
   it('章级判断条恒定在位(删掉即红)', () => {
     for (const [name, text] of ALL_TEXTS) {
       expect(text, name).toContain('章级判断（逐条核对）')
@@ -87,6 +98,8 @@ describe('三审技法注入(随包兜底)', () => {
   // 同族参数化一表:lens → 对口篇 + 该篇正文里的锚词。全 6 视角恒覆盖
   // (此前登记名只断言了 3 个 lens,另 3 个的映射改动可漏网)
   const FALLBACK: Array<[lens: string, file: string, marker: string]> = [
+    ['disclosure', LONG_FILE_SUSPENSE, '信息差'],
+    ['plot_causality', LONG_FILE_OUTLINE, '因果'],
     ['hook', LONG_FILE_HOOKS, '章尾'],
     ['emotion_peak', LONG_FILE_REVERSAL, '埋线'],
     ['payoff', LONG_FILE_REVERSAL, '打脸'],

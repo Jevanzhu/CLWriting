@@ -148,20 +148,32 @@ test('V-P1-8: 短篇 5 视角满审需 5 次调用（预算 3 只能合审）', 
   expect(hr.ok).toBe(false) // 高风险章必须满审：3 < 5 → 拒绝而非放行
 })
 
-test('V-P1-8: 长篇基础二视角满审 calls = 2', () => {
+test('V-P1-8: 长篇无布线满审 calls = 视角数（基础二 + 叙事机制二）', () => {
+  // 不变量是「满审调用数 = lenses_run.length，非硬编码 3」——视角集随任务书动态，
+  // 此处按实际产出的视角数组取数（加/减视角不必改本用例，硬编码字数即又开一处漂移）
   const report: CheckReport = { sections: [], byproducts: {} }
   const lenses = buildReviewTasks(report, { hasWiring: false, hasShort: false }).map((t) => t.lens)
+  const budget = lenses.length
   const d = selectReviewTier({
     capabilities: { parallel_subagents: true, multiple_calls: true },
-    remaining_calls: 2,
+    remaining_calls: budget,
     high_risk: false,
     lenses,
   })
   expect(d.ok).toBe(true)
   if (d.ok) {
     expect(d.tier).toBe('full')
-    expect(d.calls).toBe(2)
+    expect(d.calls).toBe(budget)
   }
+  // 预算少一次即降合审（满审不可得）
+  const tight = selectReviewTier({
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: budget - 1,
+    high_risk: false,
+    lenses,
+  })
+  expect(tight.ok).toBe(true)
+  if (tight.ok) expect(tight.tier).toBe('combined')
 })
 
 // ── V-P2-17：境界前缀匹配（炼气一层 vs 序列枚举 炼气）───────────────────────────

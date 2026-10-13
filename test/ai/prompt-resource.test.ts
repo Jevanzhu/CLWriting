@@ -38,6 +38,8 @@ const NAMES = [
   'review-reader',
   'review-editor',
   'review-continuity',
+  'review-disclosure',
+  'review-plot_causality',
   'review-hook',
   'review-emotion_peak',
   'review-payoff',

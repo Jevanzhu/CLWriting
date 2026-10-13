@@ -7,7 +7,16 @@
 
 import type { CheckReport } from '../check/types.js'
 
-export type ReviewLens = 'reader' | 'editor' | 'continuity' | 'hook' | 'emotion_peak' | 'payoff'
+export type ReviewLens =
+  | 'reader'
+  | 'editor'
+  | 'continuity'
+  // 长篇叙事机制维（信息披露 / 情节与因果）——长程机制，短篇语境不适用
+  | 'disclosure'
+  | 'plot_causality'
+  | 'hook'
+  | 'emotion_peak'
+  | 'payoff'
 
 type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
 
@@ -24,6 +33,9 @@ type ReviewCategory =
   | 'strand'
   | 'ledger'
   | 'safety'
+  // 长篇叙事机制维（信息披露 / 情节与因果）
+  | 'disclosure'
+  | 'causality'
   // 短篇单章爆破力维（#28 第 4 节）
   | 'hook'
   | 'emotion_peak'
@@ -62,6 +74,8 @@ export interface ReviewTask {
   ledger_checks: LedgerCheck[]
   /** 短篇清单核对条目（#28，设定收尾审用；长篇为空） */
   list_checks?: PieceListCheck[]
+  /** 信息披露审：机检信息差候选词（infoLeakCandidates，关键词命中待三审判真伪） */
+  leak_candidates?: string[]
   output_contract: {
     json_only: true
     evidence_required: true
@@ -141,7 +155,18 @@ const SEVERITY_RANK: Record<ReviewSeverity, number> = {
  * 长短篇统一按数据存在性条件化：
  * - 基础：reader + editor（恒跑）
  * - 有布线：+ continuity（设定校对，账本清单驱动）
- * - kind==='short'（config.kind，经 hasShort 传入；注释口径对齐实装）：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
+ * - kind==='long'：+ disclosure（信息披露）+ plot_causality（情节与因果）——长篇两条叙事
+ *   机制维：信息差怎么给（给多少、何时揭、角色是否越界用信息）、事件是否因果化（不是靠
+ *   时间顺序串起来）。两维判据都取章内可判事项（信息倾倒 / 新概念超载 / 信息是否跟着冲突走 /
+ *   因果链断在哪），故恒跑、不受布线有无辖制；有布线时 disclosure 另带机检信息差候选清单
+ *   （关键词命中只出候选，真伪归本视角裁）。
+ * - kind==='short'：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
+ *
+ * **短篇不跑 disclosure / plot_causality**：两维判的是长程机制——「本章保住几处信息差、
+ * 揭开时点怎么排」跨章才成立，「单元之间靠因果而非时间串联」要有若干单元才可判；单篇闭口
+ * 语境下这两维分别由 emotion_peak（反转信息差可回溯）与 payoff（单章设定自洽 / 因果逻辑）
+ * 承接，另开视角只是把同一批判据再问一遍，且把满审调用数从 5 抬到 7——预算帽（缺省
+ * budget.calls_per_chapter 8，本章写稿已耗用若干）会把普通章系统性压回合审。
  *
  * 默认 hasWiring:false——原 true 是反向兜底（短篇书调用方漏传
  * opts 时凭空多出 continuity 视角与账本核对）；生产唯一调用方（run.ts buildReviewPacket）
@@ -183,6 +208,27 @@ export function buildReviewTasks(
       must_run: true,
       focus: ['设定连续', '时间线', '多线承接', '账本属实核对'],
       ledger_checks: ledgerChecks,
+      output_contract: baseOutputContract(),
+    })
+  }
+
+  // 长篇叙事机制两维：恒跑（判据在章内可判），不与 hasWiring 联动
+  if (!opts.hasShort) {
+    tasks.push({
+      lens: 'disclosure',
+      title: '信息披露审',
+      must_run: true,
+      focus: ['信息差维持与揭开时点', '信息跟着冲突走', '角色已知边界', '泄密候选核实'],
+      ledger_checks: [],
+      leak_candidates: report.byproducts?.infoLeakCandidates ?? [],
+      output_contract: baseOutputContract(),
+    })
+    tasks.push({
+      lens: 'plot_causality',
+      title: '情节与因果审',
+      must_run: true,
+      focus: ['事件因果化（非时间串联）', '因果链闭合', '转折的意外与合理', '主线因果不漂移'],
+      ledger_checks: [],
       output_contract: baseOutputContract(),
     })
   }

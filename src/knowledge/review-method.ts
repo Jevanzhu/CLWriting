@@ -18,9 +18,11 @@ import { assembleKnowledge, type KnowledgeAssembly } from './inject.js'
 import {
   GENERAL_FILE_QUALITY,
   LONG_FILE_HOOKS,
+  LONG_FILE_OUTLINE,
   LONG_FILE_QUALITY,
   LONG_FILE_REVERSAL,
   LONG_FILE_RHYTHM,
+  LONG_FILE_SUSPENSE,
   SHORT_FILE_HOOKS,
   SHORT_FILE_QUALITY,
   SHORT_FILE_REVERSAL,
@@ -38,10 +40,15 @@ export type ReviewKind = 'long' | 'short'
  * 书档 × lens → 视角对口技法篇(相对知识层根的 rel;单文件映射,缺口径即不注入)。
  *
  * 未列出的组合(如长篇无 payoff 视角之外的组合)→ 空段:调用方按「空段不入 prompt
- * 不登记」契约处置。
+ * 不登记」契约处置。短篇档不列 disclosure / plot_causality——两视角不在短篇任务书里
+ *(判据见 contract.buildReviewTasks 头注)。
  */
 const LENS_METHOD_FILE: Record<ReviewKind, Record<string, string>> = {
   long: {
+    // 信息差编排（四方信息账 / 揭开时点 / 每章至少保住一处信息差）← 长篇悬念编排速查
+    disclosure: LONG_FILE_SUSPENSE,
+    // 事件因果化（单元靠因果而非时间串联 / 转折的意外合理推动力）← 长篇大纲方法速查
+    plot_causality: LONG_FILE_OUTLINE,
     // 章尾留钩/跨章承接(章尾八式)← 长篇章节钩子速查
     hook: LONG_FILE_HOOKS,
     // 反转机制核对(埋线 ≥2-3 处/误导/揭示后兑现)← 长篇反转机制速查

@@ -62,8 +62,17 @@ describe('writer.ts', () => {
 })
 
 describe('review.ts', () => {
-  it('REVIEW_SYSTEMS 含 reader/editor/continuity/hook/emotion_peak/payoff 六视角', () => {
-    for (const lens of ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff']) {
+  it('REVIEW_SYSTEMS 含八视角（基础二 + 长程机制二 + 短篇三 + 连续性）', () => {
+    for (const lens of [
+      'reader',
+      'editor',
+      'continuity',
+      'disclosure',
+      'plot_causality',
+      'hook',
+      'emotion_peak',
+      'payoff',
+    ]) {
       expect(REVIEW_SYSTEMS[lens]).toContain('资深网文审稿员')
       expect(REVIEW_SYSTEMS[lens]).toContain('只报问题')
     }

@@ -55,6 +55,43 @@ describe('buildLensPrompt（W-P1-2 清单核对 / W-P2-13 枚举）', () => {
     expect(p).not.toContain('清单核对')
   })
 
+  it('disclosure + leak_candidates → 渲染候选词逐词；无候选 → 占位说明', () => {
+    const withCandidates = buildLensPrompt(
+      'disclosure',
+      {
+        lens: 'disclosure',
+        title: '信息披露审',
+        focus: ['信息差维持与揭开时点'],
+        ledger_checks: [],
+        leak_candidates: ['身世之谜', '半枚玉佩'],
+      },
+      '正文。',
+      1,
+    )
+    expect(withCandidates).toContain('## 信息差候选核对(逐词判真伪)')
+    expect(withCandidates).toContain('- 身世之谜')
+    expect(withCandidates).toContain('- 半枚玉佩')
+
+    const without = buildLensPrompt(
+      'disclosure',
+      { lens: 'disclosure', title: '信息披露审', focus: [], ledger_checks: [] },
+      '正文。',
+      2,
+    )
+    expect(without).toContain('## 信息差候选核对\n(本章机检无信息差候选词)')
+  })
+
+  it('category 枚举含长篇机制两维（与内核回收白名单一致）', () => {
+    const p = buildLensPrompt(
+      'plot_causality',
+      { lens: 'plot_causality', title: '情节与因果审', focus: [], ledger_checks: [] },
+      '正文。',
+      1,
+    )
+    expect(p).toContain('disclosure(信息披露)')
+    expect(p).toContain('causality(因果)')
+  })
+
   it('category 枚举含短篇四类（与内核回收白名单一致）', () => {
     const p = buildLensPrompt('hook', { lens: 'hook', title: '钩子审', focus: [], ledger_checks: [] }, '正文。', 1)
     for (const c of ['hook(开篇钩子)', 'emotion_peak(情绪反转)', 'reversal(反转线索)', 'payoff(伏笔回收)']) {

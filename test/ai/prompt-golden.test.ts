@@ -27,9 +27,18 @@ describe('C1 金测：段组装与旧整段常量字节等价', () => {
     expect(ANALYST_SYSTEM).toBe(golden['analyst'])
   })
 
-  it('review：六视角 + 通用 fallback', () => {
+  it('review：八视角 + 通用 fallback', () => {
     expect(REVIEW_COMMON).toBe(golden['review-common'])
-    for (const lens of ['reader', 'editor', 'continuity', 'hook', 'emotion_peak', 'payoff']) {
+    for (const lens of [
+      'reader',
+      'editor',
+      'continuity',
+      'disclosure',
+      'plot_causality',
+      'hook',
+      'emotion_peak',
+      'payoff',
+    ]) {
       expect(REVIEW_SYSTEMS[lens]).toBe(golden[`review-${lens}`])
     }
   })

@@ -195,12 +195,12 @@ export const GENERAL_CATALOG: readonly CatalogEntry[] = [
 export const LONG_CATALOG: readonly CatalogEntry[] = [
   { rel: LONG_FILE_HOOKS, category: '长篇', purpose: 'judgment', faces: ['draft', 'review'] },
   { rel: LONG_FILE_REVERSAL, category: '长篇', purpose: 'judgment', faces: ['draft', 'review'] },
-  { rel: LONG_FILE_SUSPENSE, category: '长篇', purpose: 'judgment', faces: ['draft'] },
+  { rel: LONG_FILE_SUSPENSE, category: '长篇', purpose: 'judgment', faces: ['draft', 'review'] },
   { rel: LONG_FILE_RHYTHM, category: '长篇', purpose: 'judgment', faces: ['draft', 'review'] },
   { rel: LONG_FILE_EMOTION, category: '长篇', purpose: 'judgment', faces: ['draft'] },
   { rel: LONG_FILE_CORE, category: '长篇', purpose: 'judgment', faces: ['draft'] },
   { rel: LONG_FILE_OPENING, category: '长篇', purpose: 'judgment', faces: ['draft'] },
-  { rel: LONG_FILE_OUTLINE, category: '长篇', purpose: 'judgment', faces: ['draft'] },
+  { rel: LONG_FILE_OUTLINE, category: '长篇', purpose: 'judgment', faces: ['draft', 'review'] },
   { rel: LONG_FILE_GENRE, category: '长篇', purpose: 'judgment', faces: ['draft'] },
   { rel: LONG_FILE_QUALITY, category: '长篇', purpose: 'judgment', faces: ['review'] },
 ]
