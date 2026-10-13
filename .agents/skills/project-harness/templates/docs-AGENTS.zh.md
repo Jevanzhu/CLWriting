@@ -27,7 +27,9 @@ node scripts/harness/verify-doc-budgets.ts
 node scripts/harness/verify-doc-budgets.ts --list
 ```
 
-清单在 `scripts/harness/doc-budgets.manifest.json`。**超限的处理顺序是 迁移 → 精简 → 提高上限**，提高上限必须在同一个改动里给出理由。
+清单在 `scripts/harness/doc-budgets.manifest.json`。计数口径：空白分词，每个汉字另计一词——中文没有词边界，只数空白分词会让任何长度的中文文档都通过英文尺度的上限。
+
+**超限的处理顺序是 迁移 → 精简 → 提高上限**，提高上限必须在同一个改动里给出理由。
 
 上限是护栏不是削减目标：目标以内保留至少 5% 余量；已在目标以上就冻结上限。**上限过低是 bug。**
 

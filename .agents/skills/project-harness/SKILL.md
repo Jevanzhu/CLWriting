@@ -74,13 +74,17 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> --ado
 
 推送前**不要**为了「再确认一次」重跑已经通过的检查。反过来，`Do not push and hope CI differs.` 细节见 [references/pre-push.md](references/pre-push.md)。
 
+### 语言面与配对
+
+每个文件属于哪个面，决定它用哪种语言：**被执行面**（指令、配置、模板）单语，语言 = 仓库工作语言，**永不配对**——要换语言就整体迁移一次；**被理解面**（README、`docs/`、决策记录）跟随主语言，需要双语时只在这一面配对照。采用方的起步模板按 `--notes-language` 出 en/zh 两版，由 bootstrap 选。判据（「这条改了，需要谁点头？」）、四类清单与执法边界见 [references/language-policy.md](references/language-policy.md)。
+
 ### 文档层级与预算
 
-每个层级有明确的职责边界和「不属于这里」的清单。字数预算用 `wc -w` 计数、只在超限和文件缺失时失败，超限的处理顺序是**迁移 → 精简 → 提高上限**，且提高上限必须在同一个改动里给出理由。`A too-low ceiling is a budget bug.` 见 [references/doc-governance.md](references/doc-governance.md)。
+每个层级有明确的职责边界和「不属于这里」的清单。字数预算按「空白分词 + 每个汉字另计一词」计数——中文没有词边界，只数空白分词会让中文文档在任何上限下都通过；只在超限和文件缺失时失败，超限的处理顺序是**迁移 → 精简 → 提高上限**，且提高上限必须在同一个改动里给出理由。`A too-low ceiling is a budget bug.` 见 [references/doc-governance.md](references/doc-governance.md)。
 
 ### 文档链
 
-常驻文档管「事实住哪」；链管「一件事从提出到了结走哪些档」：索引（导航）、活账（未了结事项的唯一清单）、槽位目录（评审／设计／执行／调研／规范）、归档（明说的冻结）。判据包括：活账一行一条、只记「一句结论 + 指针」；评审必须给出通过／有条件通过／退回之一；归档前核验内容与历史一致、未了结的事先立开放项、归档 commit 号留痕。`verify-doc-index.ts` 强制索引与槽位一一对应——契约是仓库数据（`scripts/harness/doc-index.manifest.json`，`{}` 即不带链）。见 [references/doc-lifecycle.md](references/doc-lifecycle.md) 与模板 [templates/ledger.md](templates/ledger.md)、[templates/docs-index.md](templates/docs-index.md)。
+常驻文档管「事实住哪」；链管「一件事从提出到了结走哪些档」：索引（导航）、活账（未了结事项的唯一清单）、槽位目录（评审／设计／执行／调研／规范）、归档（明说的冻结）。判据包括：活账一行一条、只记「一句结论 + 指针」；评审必须给出通过／有条件通过／退回之一；归档前核验内容与历史一致、未了结的事先立开放项、归档 commit 号留痕。`verify-doc-index.ts` 强制索引与槽位一一对应——契约是仓库数据（`scripts/harness/doc-index.manifest.json`，`{}` 即不带链）。见 [references/doc-lifecycle.md](references/doc-lifecycle.md) 与模板 [templates/ledger.zh.md](templates/ledger.zh.md)、[templates/docs-index.zh.md](templates/docs-index.zh.md)（英文采用方用同名 `.en.md`）。
 
 ### 宣称值对账
 
@@ -120,7 +124,7 @@ PR 历史怎么组织、堆叠 PR 怎么落地、什么时候 merge-forward 什�
 
 ## 模板
 
-[ templates/](templates/) 下有起步用的骨架：`AGENTS.md`（standing orders 层）、`docs-AGENTS.md`（文档层级与预算表）、`ledger.md`（活账）、`docs-index.md`（索引）、`lefthook.yml`（薄提交钩子）。
+[ templates/](templates/) 下有起步用的骨架，每份按语言两版（`<名>.zh.md` / `<名>.en.md`，`lefthook` 为 `.yml`；模板名里的语言标签标的是模板自身的语言）：`AGENTS.zh.md`（standing orders 层，含工作语言声明与「指令面永不配对」）、`docs-AGENTS`（文档层级与预算）、`ledger`（活账）、`docs-index`（索引）、`lefthook`（薄提交钩子）。bootstrap 按 `--notes-language` 选版；`AGENTS`、`docs-AGENTS`、`lefthook` 三份复制进目标仓，另两份由采用方按提示自行起步。
 
 ## 责任边界
 

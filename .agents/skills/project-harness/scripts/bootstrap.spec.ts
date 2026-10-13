@@ -56,6 +56,7 @@ describe('bootstrapping a fresh repository', () => {
       'harness-root.ts',
       'surface.ts',
       'markdown.ts',
+      'doc-words.ts',
       'baseline.ts',
       'aliases.ts',
       'harness-config.ts',
@@ -119,6 +120,20 @@ describe('bootstrapping a fresh repository', () => {
       primaryLanguage: 'en',
       pairedDocuments: false,
     })
+  })
+
+  test('writes the starter standing docs in the declared language, not the skill author’s', () => {
+    // The starters are language-paired and picked by the same resolution as the
+    // corpus: an English repository handed Chinese standing orders is the same
+    // defect as a Chinese corpus spelled in English folder names.
+    const agents = readFileSync(join(target, 'AGENTS.md'), 'utf8')
+    assert.match(agents, /## Maintaining these instructions/)
+    assert.match(agents, /repository's working language: \*\*English\*\*/)
+    assert.doesNotMatch(agents, /本文件的维护/)
+    assert.match(readFileSync(join(target, 'docs/AGENTS.md'), 'utf8'), /## One fact, one home/)
+    assert.match(readFileSync(join(target, 'lefthook.yml'), 'utf8'), /Commit hooks: deliberately thin/)
+    assert.match(result.stdout ?? '', /ledger\.en\.md/)
+    assert.match(result.stdout ?? '', /docs-index\.en\.md/)
   })
 
   test('measures the standing docs that already existed, not the templates it just wrote', () => {
@@ -240,6 +255,16 @@ describe('scaffolding a Chinese corpus', () => {
     assert.equal(existsSync(join(target, '.agents/notes/archived')), false, 'the English container is not seeded alongside')
   })
 
+  test('writes the starter standing docs in that same language', () => {
+    const agents = readFileSync(join(target, 'AGENTS.md'), 'utf8')
+    assert.match(agents, /## 本文件的维护/)
+    assert.match(agents, /本仓的工作语言在这里声明：\*\*中文\*\*/)
+    assert.match(readFileSync(join(target, 'docs/AGENTS.md'), 'utf8'), /## 一个事实一个家/)
+    assert.match(readFileSync(join(target, 'lefthook.yml'), 'utf8'), /提交钩子：刻意保持薄/)
+    assert.match(result.stdout ?? '', /ledger\.zh\.md/)
+    assert.match(result.stdout ?? '', /docs-index\.zh\.md/)
+  })
+
   test('runs the note gates green on the tree it just seeded', () => {
     const run = spawnSync(process.execPath, [join(target, 'scripts/harness/run-gates.ts'), 'agent-notes'], {
       cwd: target,
@@ -265,6 +290,24 @@ describe('scaffolding a Chinese corpus', () => {
     const refused = spawnSync(process.execPath, [BOOTSTRAP, '--target', directory, '--notes-language', 'jp'], { encoding: 'utf8' })
     assert.equal(refused.status, 1)
     assert.match(refused.stderr ?? '', /--notes-language must be en or zh/)
+  })
+})
+
+describe('seeding budgets from a Chinese document', () => {
+  test('counts CJK ideographs, so the seeded ceiling measures the same document the gate will', () => {
+    // Three whitespace tokens carrying ten ideographs: a token-only seed would set a
+    // ceiling of ~3, and the same gate measuring ideographs would then fail the very
+    // document the ceiling was measured from.
+    const target = tracked()
+    const text = '# 示例\n\n这一段有十个汉字。\n'
+    writeFileSync(join(target, 'README.md'), text)
+    const run = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--notes-language', 'zh'], { encoding: 'utf8' })
+    assert.equal(run.status, 0, String(run.stderr))
+    const budgets = JSON.parse(readFileSync(join(target, 'scripts/harness/doc-budgets.manifest.json'), 'utf8')) as Record<string, number>
+    const tokens = text.split(/\s+/).filter(Boolean).length
+    const ideographs = (text.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) ?? []).length
+    assert.equal(ideographs, 10)
+    assert.equal(budgets['README.md'], Math.ceil((tokens + ideographs) * 1.15))
   })
 })
 

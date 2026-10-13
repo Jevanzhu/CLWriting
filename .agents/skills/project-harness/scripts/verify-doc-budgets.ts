@@ -1,20 +1,20 @@
 /**
- * Enforce `wc -w`-style ceilings from `scripts/harness/doc-budgets.manifest.json`.
+ * Enforce the word ceilings in `scripts/harness/doc-budgets.manifest.json`.
  * Missing files and invalid ceilings fail; `--list` reports current usage.
  * Only listed standing docs are budgeted. Ceilings ratchet down with at least
  * 5% headroom; raising one requires the justification defined in `docs/AGENTS.md`.
+ *
+ * A word is a whitespace-delimited token or one CJK ideograph — the counting rule
+ * lives in `doc-words.ts`, shared with the bootstrap seed so ceilings and their
+ * enforcement cannot be measured in different units.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { countDocWords } from './doc-words.ts'
 import { resolveRepoRoot } from './harness-root.ts'
 
 const MANIFEST_REL = 'scripts/harness/doc-budgets.manifest.json'
-
-/** `wc -w` equivalent: count whitespace-delimited tokens. */
-function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length
-}
 
 let root: string
 try {
@@ -48,7 +48,7 @@ for (const [path, ceiling] of Object.entries(manifest)) {
     failures.push(`${path}: budgeted file does not exist (renamed or deleted? update ${MANIFEST_REL} in the same change)`)
     continue
   }
-  const words = countWords(readFileSync(abs, 'utf8'))
+  const words = countDocWords(readFileSync(abs, 'utf8'))
   rows.push(`${words <= ceiling ? 'ok  ' : 'OVER'}  ${String(words).padStart(6)} / ${String(ceiling).padEnd(6)} ${path}`)
   if (words > ceiling) {
     failures.push(`${path}: ${words} words exceeds the ${ceiling}-word ceiling — relocate or condense per docs/AGENTS.md (raising the ceiling requires justification in the same change)`)

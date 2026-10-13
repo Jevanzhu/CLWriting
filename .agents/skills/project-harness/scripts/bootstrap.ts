@@ -15,6 +15,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } 
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BASELINE_REL } from './baseline.ts'
+import { countDocWords } from './doc-words.ts'
 import type { ClassSlot, LifecycleSlot, Locale } from '../../agent-notes/scripts/aliases.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
@@ -72,6 +73,8 @@ const VERIFIER_FILES: ReadonlyArray<readonly [file: string, sourceDir: string, p
   // The shared scanners the text gates import.
   ['surface.ts', SCRIPT_DIR],
   ['markdown.ts', SCRIPT_DIR],
+  // The word-counting rule the budget gate and this script's seed both measure in.
+  ['doc-words.ts', SCRIPT_DIR],
   // The debt ledger every baseline-aware gate records into.
   ['baseline.ts', SCRIPT_DIR],
   // The Agent Note corpus gates, owned by the `agent-notes` skill.
@@ -213,9 +216,10 @@ function usage(): never {
   console.error('usage: node bootstrap.ts --target <repo> [--adopt] [--notes-language en|zh] [--dry-run] [--force] [--reset-manifests]')
   console.error('  --adopt            record the violations already in the target as accepted debt,')
   console.error('                     so the Markdown gates fail only on violations added from now on')
-  console.error('  --notes-language   the Agent Note corpus language of a fresh scaffold (default en):')
-  console.error('                     it spells the lifecycle folders, the class folders, the archive')
-  console.error('                     container, and .agents/notes/harness.json together')
+  console.error('  --notes-language   the working language of a fresh scaffold (default en): it spells')
+  console.error('                     the lifecycle folders, the class folders, the archive container, and')
+  console.error('                     .agents/notes/harness.json together, and picks the starter templates')
+  console.error('                     (AGENTS, docs/AGENTS, lefthook) written in that language')
   console.error('  --force            refresh the copied verifiers; declarations are preserved —')
   console.error('                     the manifests, and a gate table the target has edited')
   console.error('  --reset-manifests  re-seed the manifests and the gate table even where they exist,')
@@ -281,11 +285,6 @@ function resolveNotesLanguage(options: Options): Locale {
     process.exit(1)
   }
   return declared
-}
-
-/** Count whitespace-delimited tokens, matching `wc -w`. */
-function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length
 }
 
 async function main(): Promise<void> {
@@ -437,7 +436,7 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     for (const candidate of BUDGET_CANDIDATES) {
       const abs = join(options.target, candidate)
       if (!existsSync(abs)) continue
-      const words = countWords(readFileSync(abs, 'utf8'))
+      const words = countDocWords(readFileSync(abs, 'utf8'))
       budgets[candidate] = Math.ceil(words * BUDGET_HEADROOM)
     }
     if (Object.keys(budgets).length === 0) {
@@ -458,7 +457,7 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     // Named by absolute path: these templates live in the skill, not in the target,
     // so a relative-looking path would send the reader looking for a file that is not
     // there. They are deliberately not copied — the chain slots are a judgement call.
-    notes.push(`doc-index.manifest.json declares no chain yet; when this repository keeps an indexed document chain, start it from ${join(SKILL_ROOT, 'templates')} (ledger.md, docs-index.md)`)
+    notes.push(`doc-index.manifest.json declares no chain yet; when this repository keeps an indexed document chain, start it from ${join(SKILL_ROOT, 'templates')} (ledger.${notesLanguage}.md, docs-index.${notesLanguage}.md) — the language tier names the template's language, not a counterpart`)
   }
 
   // 6. Seed the comment rules against the target's own tree. Which candidate roots
@@ -501,14 +500,21 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     notes.push('doc-claims.manifest.json declares no claims yet; when a document states a number or a list a command can measure (how many gates, which directories), declare the claim so a stale copy fails the gate')
   }
 
-  // 9. Copy the starter templates only when the target has no equivalent yet.
+  // 9. Copy the starter templates only when the target has no equivalent yet. The
+  // starters are language-paired, and the same resolution that spells the notes tree
+  // picks them: the standing orders an adopter reads are written in the repository's
+  // working language, never in the skill author's. A template for a language the
+  // bundle does not carry is left uncopied and reported, not silently substituted.
   for (const [template, destination] of [
-    ['AGENTS.md', 'AGENTS.md'],
-    ['lefthook.yml', 'lefthook.yml'],
-    ['docs-AGENTS.md', 'docs/AGENTS.md'],
+    [`AGENTS.${notesLanguage}.md`, 'AGENTS.md'],
+    [`lefthook.${notesLanguage}.yml`, 'lefthook.yml'],
+    [`docs-AGENTS.${notesLanguage}.md`, 'docs/AGENTS.md'],
   ] as const) {
     const source = join(SKILL_ROOT, 'templates', template)
-    if (!existsSync(source)) continue
+    if (!existsSync(source)) {
+      notes.push(`no ${template} in this bundle; write ${destination} yourself (the other language's starter is in ${join(SKILL_ROOT, 'templates')})`)
+      continue
+    }
     const abs = join(options.target, destination)
     if (existsSync(abs)) {
       skipped.push(destination)
@@ -578,8 +584,8 @@ Next steps that need your judgment (the harness cannot infer these):
   5. To require the archive gate, seal the tree with:
        node ${HARNESS_DIR}/verify-archived-agent-notes.ts --write
   6. If this repository keeps an indexed document chain (an index document, slot
-     directories, a ledger of open items), start it from ${join(SKILL_ROOT, 'templates', 'ledger.md')}
-     and ${join(SKILL_ROOT, 'templates', 'docs-index.md')}, then declare the slots in
+     directories, a ledger of open items), start it from ${join(SKILL_ROOT, 'templates', `ledger.${notesLanguage}.md`)}
+     and ${join(SKILL_ROOT, 'templates', `docs-index.${notesLanguage}.md`)}, then declare the slots in
      ${HARNESS_DIR}/doc-index.manifest.json.
   7. When a document states a number or a list a command can measure (how many gates
      run, which directories exist), declare it in ${HARNESS_DIR}/doc-claims.manifest.json

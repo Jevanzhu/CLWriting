@@ -24,12 +24,14 @@
 
 ## 字数预算
 
-用 `wc -w` 计数，只在**超限**和**文件缺失**时失败：
+按「空白分词 + 每个汉字另计一词」计数，只在**超限**和**文件缺失**时失败：
 
 ```sh
 node scripts/harness/verify-doc-budgets.ts
 node scripts/harness/verify-doc-budgets.ts --list   # 只报告，不失败
 ```
+
+汉字必须另计，因为中文没有词边界：只数空白分词会让一篇中文文档在任何上限下都通过。计数规则住在 `doc-words.ts` 一处，预算门禁与 bootstrap 的初始播种共用它。
 
 预算清单在 `scripts/harness/doc-budgets.manifest.json`，形如 `{ "AGENTS.md": 1960 }`。
 
