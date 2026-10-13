@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, before, describe, test } from 'node:test'
+import { findWrapViolations } from './verify-md-wrap.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const BOOTSTRAP = join(SCRIPT_DIR, 'bootstrap.ts')
@@ -293,6 +294,23 @@ describe('scaffolding a Chinese corpus', () => {
   })
 })
 
+describe('the archive instruction file', () => {
+  test('is wrap-conformant prose in either language', () => {
+    // Sealed bytes, but still Markdown a repository may scan with the wrap gate: a
+    // scaffold shipping a wrapped paragraph goes red on day one, before anyone has
+    // edited a line.
+    for (const [language, container] of [['en', 'archived'], ['zh', '归档']] as const) {
+      const target = tracked()
+      const run = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--notes-language', language], {
+        encoding: 'utf8',
+      })
+      assert.equal(run.status, 0, String(run.stderr))
+      const doc = readFileSync(join(target, '.agents/notes', container, 'AGENTS.md'), 'utf8')
+      assert.deepEqual(findWrapViolations(doc), [], `${language}: the archive instructions ship wrapped prose`)
+    }
+  })
+})
+
 describe('seeding budgets from a Chinese document', () => {
   test('counts CJK ideographs, so the seeded ceiling measures the same document the gate will', () => {
     // Three whitespace tokens carrying ten ideographs: a token-only seed would set a
@@ -364,6 +382,57 @@ describe('upgrading with --force', () => {
     }
     assert.equal(readFileSync(join(target, 'AGENTS.md'), 'utf8'), '# Mine\n')
     assert.match(result.stdout ?? '', /--force refreshed the copied verifiers only/)
+  })
+})
+
+describe('what an upgrade leaves alone', () => {
+  test('a repository-edited archive instruction file survives a refresh', () => {
+    // The archive's instruction file is sealed with the tree it describes. An upgrade
+    // that rewrites it reverts an adaptation silently — and touches a tree whose gate
+    // rejects changed bytes.
+    const target = tracked()
+    const install = spawnSync(process.execPath, [BOOTSTRAP, '--target', target], { encoding: 'utf8' })
+    assert.equal(install.status, 0, String(install.stderr))
+    const archived = join(target, '.agents/notes/archived/AGENTS.md')
+    writeFileSync(archived, '# Mine\n')
+    const result = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--force'], { encoding: 'utf8' })
+    assert.equal(result.status, 0, String(result.stderr))
+    assert.equal(readFileSync(archived, 'utf8'), '# Mine\n', '--force rewrote the sealed archive instructions')
+    assert.match(result.stdout ?? '', /\.agents[\\/]notes[\\/]archived[\\/]AGENTS\.md/)
+  })
+
+  test('a starter document deleted since the install stays deleted', () => {
+    // The starters exist so the first run has a shape to edit. Once the harness is
+    // installed the repository owns them: re-creating a missing one would resurrect a
+    // decision — a real incident for lefthook.yml, deleted deliberately — as a side
+    // effect of re-running or upgrading.
+    const target = tracked()
+    const install = spawnSync(process.execPath, [BOOTSTRAP, '--target', target], { encoding: 'utf8' })
+    assert.equal(install.status, 0, String(install.stderr))
+    rmSync(join(target, 'lefthook.yml'))
+    for (const args of [[], ['--force']] as const) {
+      const result = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, ...args], { encoding: 'utf8' })
+      assert.equal(result.status, 0, String(result.stderr))
+      assert.equal(
+        existsSync(join(target, 'lefthook.yml')),
+        false,
+        `the ${args.join(' ') || 'plain'} re-run resurrected a deleted starter`,
+      )
+    }
+    const result = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--force'], { encoding: 'utf8' })
+    assert.match(result.stdout ?? '', /starter documents are written only on the first scaffold/)
+    assert.match(result.stdout ?? '', /templates[\\/]lefthook\.en\.yml/)
+  })
+
+  test('says that an upgrade can change what a gate accepts', () => {
+    // A version bump can change what a gate accepts without touching the adopting
+    // repository, so the documents that describe gate behavior have to be re-checked
+    // by hand. The flag that performs the upgrade is the one that says so.
+    const target = tracked()
+    spawnSync(process.execPath, [BOOTSTRAP, '--target', target], { encoding: 'utf8' })
+    const result = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--force'], { encoding: 'utf8' })
+    assert.equal(result.status, 0, String(result.stderr))
+    assert.match(result.stdout ?? '', /an upgrade can change what a gate accepts/)
   })
 })
 

@@ -124,7 +124,7 @@ PR 历史怎么组织、堆叠 PR 怎么落地、什么时候 merge-forward 什�
 
 ## 模板
 
-[ templates/](templates/) 下有起步用的骨架，每份按语言两版（`<名>.zh.md` / `<名>.en.md`，`lefthook` 为 `.yml`；模板名里的语言标签标的是模板自身的语言）：`AGENTS.zh.md`（standing orders 层，含工作语言声明与「指令面永不配对」）、`docs-AGENTS`（文档层级与预算）、`ledger`（活账）、`docs-index`（索引）、`lefthook`（薄提交钩子）。bootstrap 按 `--notes-language` 选版；`AGENTS`、`docs-AGENTS`、`lefthook` 三份复制进目标仓，另两份由采用方按提示自行起步。
+[ templates/](templates/) 下有起步用的骨架，每份按语言两版（`<名>.zh.md` / `<名>.en.md`，`lefthook` 为 `.yml`；模板名里的语言标签标的是模板自身的语言）：`AGENTS.zh.md`（standing orders 层，含工作语言声明与「指令面永不配对」）、`docs-AGENTS`（文档层级与预算）、`ledger`（活账）、`docs-index`（索引）、`lefthook`（薄提交钩子）。bootstrap 按 `--notes-language` 选版；`AGENTS`、`docs-AGENTS`、`lefthook` 三份只在**首次铺装**时写入目标仓（升级重跑不复活已删的起步文件），另两份由采用方按提示自行起步。
 
 ## 责任边界
 

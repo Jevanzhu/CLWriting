@@ -6,8 +6,10 @@
  * Verifiers are COPIED, never referenced: a gate must run in a fresh clone and in CI
  * without this skill installed. Re-run with `--force` to refresh the copies after
  * upgrading the harness. Refreshing stops at the copies: every manifest carries the
- * adopter's own declarations, so re-seeding them takes the separate
- * `--reset-manifests`, never a side effect of an upgrade.
+ * adopter's own declarations, the starter documents are written once and never
+ * re-created, and the sealed archive's files are left as the repository froze them —
+ * re-seeding a declaration takes the separate `--reset-manifests`, never a side
+ * effect of an upgrade.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -163,40 +165,31 @@ const NOTES_CONFIG = '.agents/notes/harness.json'
 const ARCHIVED_AGENTS_CONTENT: Record<Locale, string> = {
   en: `# Archived Agent Notes
 
-Sealed decision records. Every artifact here is frozen: never edit, reformat, translate,
-repair, move, or delete one. \`manifest.json\` records a content hash per file and is
-append-only, so any change to sealed bytes is rejected by
-\`scripts/harness/verify-archived-agent-notes.ts\`.
+Sealed decision records. Every artifact here is frozen: never edit, reformat, translate, repair, move, or delete one. \`manifest.json\` records a content hash per file and is append-only, so any change to sealed bytes is rejected by \`scripts/harness/verify-archived-agent-notes.ts\`.
 
 Archiving a note is the only way files appear here:
 
 1. Move the complete artifact set from \`implemented/<class>/\`.
-2. Insert an identical \`Archived: YYYY-MM-DD\` line directly below \`Status: implemented\`
-   in every language file.
+2. Insert an identical \`Archived: YYYY-MM-DD\` line directly below \`Status: implemented\` in every language file.
 3. Re-record any paired-content hashes.
 4. Repair or remove inbound links.
 5. Seal with \`node scripts/harness/verify-archived-agent-notes.ts --write\`.
 
-Archive links are checked inbound only: links pointing into this tree are validated, but
-links this tree makes to the outside are not, because they may be stale by design.
+Archive links are checked inbound only: links pointing into this tree are validated, but links this tree makes to the outside are not, because they may be stale by design.
 `,
   zh: `# 归档决策记录
 
-封存的决策记录。此处的每一件都已冻结：永不编辑、重排、翻译、修复、移动或删除。
-\`manifest.json\` 逐条记录内容哈希且只增不改——对已封存字节的任何改动都会被
-\`scripts/harness/verify-archived-agent-notes.ts\` 拒绝。
+封存的决策记录。此处的每一件都已冻结：永不编辑、重排、翻译、修复、移动或删除。\`manifest.json\` 逐条记录内容哈希且只增不改——对已封存字节的任何改动都会被 \`scripts/harness/verify-archived-agent-notes.ts\` 拒绝。
 
 归档是文件进入此树的唯一途径：
 
 1. 从 \`已实施/<类>/\` 移动完整的三件套。
-2. 在每个语言文件的 \`Status: implemented\` 行正下方插入一行相同的
-   \`Archived: YYYY-MM-DD\`。
+2. 在每个语言文件的 \`Status: implemented\` 行正下方插入一行相同的 \`Archived: YYYY-MM-DD\`。
 3. 重录任何配对内容哈希。
 4. 修理或删除指向它的入站链接。
 5. 用 \`node scripts/harness/verify-archived-agent-notes.ts --write\` 封存。
 
-归档树的链接只查入站：指向本树的链接会被校验，本树发出的链接不查——它们按设计
-可能已经过时。
+归档树的链接只查入站：指向本树的链接会被校验，本树发出的链接不查——它们按设计可能已经过时。
 `,
 }
 
@@ -319,6 +312,12 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
   const archive = names.archiveDir(notesLanguage)
   const archiveRootRel = `.agents/notes/${archive}`
 
+  // Whether the harness was already installed when this run started, read before any
+  // write. It separates the first scaffold, which writes the starter documents, from an
+  // upgrade, which must not: a destination missing on an upgrade was deleted on
+  // purpose, and re-creating it would revert that decision as a refresh's side effect.
+  const installedBefore = existsSync(join(options.target, HARNESS_DIR, GATE_TABLE))
+
   const planned: string[] = []
   const skipped: string[] = []
   const notes: string[] = []
@@ -361,7 +360,16 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
       writeFileSync(abs, '')
     }
   }
-  write(archivedAgentsPath(notesLanguage, archive), ARCHIVED_AGENTS_CONTENT[notesLanguage])
+  // The archive's instruction file is sealed with the tree it describes: written once
+  // on the first scaffold, then the repository's own bytes. Re-writing it would revert
+  // an adaptation as an upgrade's side effect — and silently touch a tree whose gate
+  // rejects changed bytes.
+  const archivedAgentsRel = archivedAgentsPath(notesLanguage, archive)
+  if (!existsSync(join(options.target, archivedAgentsRel))) {
+    write(archivedAgentsRel, ARCHIVED_AGENTS_CONTENT[notesLanguage])
+  } else {
+    skipped.push(archivedAgentsRel)
+  }
   const manifestRel = `${archiveRootRel}/manifest.json`
   if (!existsSync(join(options.target, manifestRel))) {
     write(manifestRel, '{\n  "version": 1,\n  "files": {}\n}\n')
@@ -500,11 +508,14 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     notes.push('doc-claims.manifest.json declares no claims yet; when a document states a number or a list a command can measure (how many gates, which directories), declare the claim so a stale copy fails the gate')
   }
 
-  // 9. Copy the starter templates only when the target has no equivalent yet. The
-  // starters are language-paired, and the same resolution that spells the notes tree
-  // picks them: the standing orders an adopter reads are written in the repository's
-  // working language, never in the skill author's. A template for a language the
-  // bundle does not carry is left uncopied and reported, not silently substituted.
+  // 9. Write the starter templates on the first scaffold only. The starters are
+  // language-paired, and the same resolution that spells the notes tree picks them:
+  // the standing orders an adopter reads are written in the repository's working
+  // language, never in the skill author's. A template for a language the bundle does
+  // not carry is left uncopied and reported, not silently substituted. Once the
+  // harness is installed the repository owns these files — a destination missing on
+  // an upgrade was deleted on purpose, so it is reported instead of re-created, with
+  // the starter still available in this skill for whoever wants it back.
   for (const [template, destination] of [
     [`AGENTS.${notesLanguage}.md`, 'AGENTS.md'],
     [`lefthook.${notesLanguage}.yml`, 'lefthook.yml'],
@@ -518,6 +529,10 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     const abs = join(options.target, destination)
     if (existsSync(abs)) {
       skipped.push(destination)
+      continue
+    }
+    if (installedBefore) {
+      notes.push(`${destination} is missing; starter documents are written only on the first scaffold, so a deleted one stays deleted — take ${join(SKILL_ROOT, 'templates', template)} if it should come back`)
       continue
     }
     planned.push(destination)
@@ -567,6 +582,9 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
   }
   if (options.force && !options.resetManifests) {
     notes.push('--force refreshed the copied verifiers only; the manifests holding your declarations were preserved (--reset-manifests re-seeds them)')
+  }
+  if (options.force) {
+    notes.push("an upgrade can change what a gate accepts, not just its code: re-check any document that states a gate's behavior or explains why one is not wired — that statement is a copy of behavior, and a copy does not update itself")
   }
   for (const line of adopted) console.log(`adopted: ${line}`)
   for (const note of notes) console.log(`note: ${note}`)

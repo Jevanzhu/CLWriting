@@ -54,10 +54,10 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --a
 ## 它会做什么
 
 1. **建 Agent Note 生命周期树**：三个 lifecycle × 六个 class，各放一个 `.gitkeep` 让 git 保留空目录；目录名按 `--notes-language` 拼写（缺省英文：`proposed/`、`implemented/`、`rejected/`）。
-2. **建归档树**：六个 class 目录**全部建出**（即使为空——归档门禁要求六个都在），加空的 `manifest.json` 与 `AGENTS.md`。
+2. **建归档树**：六个 class 目录**全部建出**（即使为空——归档门禁要求六个都在），加空的 `manifest.json` 与 `AGENTS.md`；后两者只写一次，重跑不再触碰——它们随封存树冻结。
 3. **复制校验器**到 `<target>/scripts/harness/`，并把安装来源的版本写进 `scripts/harness/version.json`（安装方元数据：内容一变就刷新，不是你的申报项）。
 4. **实测词数生成文档预算**：读 `AGENTS.md`、`docs/AGENTS.md`、`README.md`、`docs/architecture.md` 里存在的那些，按当前词数 × 1.15 作为初始上限（词数 = 空白分词 + 每个汉字另计一词）。留 15% 余量是因为初始上限不该立刻就对现有内容亮红灯。
-5. **复制起步模板**：`AGENTS.md`、`docs/AGENTS.md`、`lefthook.yml`——按 `--notes-language` 取对应语言的那一版，且仅在目标不存在同名文件时。
+5. **复制起步模板**：`AGENTS.md`、`docs/AGENTS.md`、`lefthook.yml`——按 `--notes-language` 取对应语言的那一版，且**只在首次铺装**（目标还没有 `scripts/harness/run-gates.ts`）、目标不存在同名文件时复制；升级重跑不复活已删除的起步文件（它们仍在 skill 的 `templates/` 下，要找回自取）。
 6. **`--adopt` 时录制债务台账**：跑一遍 link 与 wrap 门禁并 `--write-baseline`，把当前违规记为已接受债务。
 
 注意第 4 步和第 6 步是同一种设计：**都是从当前实测值起步，而不是从理想值起步**。文档预算不因为现有文档超长就报错，债务台账不因为现有死链就报错。棘轮的原则是「只能变好」，不是「立刻变好」。
@@ -112,7 +112,9 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --a
 
 ## 升级
 
-skill 更新后，用 `--force` 重跑可以刷新 `scripts/harness/` 下的校验器副本。**这会覆盖你对校验器的本地修改**——如果你改过它们（这很正常，门禁本来就该按仓库定制），先 diff 一下再决定。唯一的例外是门表 `run-gates.ts`：它写的是这个仓库的检查声明，改过就默认保留（没改动的副本照常升级），还原成预置表要显式 `--reset-manifests`；manifest 里的申报同样不受影响。
+skill 更新后，用 `--force` 重跑可以刷新 `scripts/harness/` 下的校验器副本。**这会覆盖你对校验器的本地修改**——如果你改过它们（这很正常，门禁本来就该按仓库定制），先 diff 一下再决定。校验器里唯一的例外是门表 `run-gates.ts`：它写的是这个仓库的检查声明，改过就默认保留（没改动的副本照常升级），还原成预置表要显式 `--reset-manifests`；manifest 里的申报同样不受影响。
+
+升级是**行为变化**，不只是代码刷新：同一份文档在旧版过得了门、在新版可能过不了（口径会变），而描述门的行为、或说明「为什么不接某道门」的文档写的是旧行为却不自知；复制进仓库的起步文档里承诺的命令（「跑这个模式」）同样如此。碰到改门禁的版本，这些陈述要同批核对更正——它们是行为的副本，副本不会自己更新。
 
 升级后确认装的是哪一版：`scripts/harness/version.json` 记录复制这些校验器时 skill 的版本，`bootstrap` 的输出行里也会打印。版本号只住在 `skills/VERSION` 一处，两个 skill 一起发版、共用一号；凡是改动 `scripts/`、`SKILL.md`、`references/`、`templates/` 下任何文件，都同批动它——采用方据此回答「我这个仓库装的是哪一版」，而这一问只在出问题时才有人问。
 
