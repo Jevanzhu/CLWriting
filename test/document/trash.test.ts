@@ -7,10 +7,10 @@ import { test, expect, vi, describe } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, linkSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
-import { listTrash, restoreTrash, purgeTrash, readTrashManifest } from '../../src/document/trash.js'
+import { listTrash, restoreTrash, purgeTrash, readTrashManifest, appendTrashEntry } from '../../src/document/trash.js'
 import { waitFor } from '../helpers/wait-for.js'
 
 // purge 条目写回 best-effort 注入：atomicWriteFile 只对回收站清单一次性失败。默认不武装
@@ -487,6 +487,126 @@ describe('purgeTrash 条目写回 best-effort', () => {
       expect(third.code).toBe('NOT_FOUND')
     } finally {
       ATOMIC_FAIL.failNextTrashWrite = false
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── 章纲随迁批：无主章纲能力例外（判据 = 章号 ∈ 并入引用 ∪ 回收站正文章号集，
+// 且无存活同号正文；见 outline-orphan.ts）——合并/删章留下的孤儿纲唯一清理口。──
+
+describe('章纲随迁批: 无主章纲可删（能力例外）', () => {
+  /** 造书：files 逐项 mkdir -p + 落盘（含项目/文档清单.jsonl）。 */
+  function makeBook(files: Record<string, string>): { root: string; svc: DocumentService } {
+    const root = mkdtempTracked(join(tmpdir(), 'clw-outline-exempt-'))
+    for (const [rel, content] of Object.entries(files)) {
+      const abs = join(root, rel)
+      mkdirSync(dirname(abs), { recursive: true })
+      writeFileSync(abs, content, 'utf-8')
+    }
+    return { root, svc: new DocumentService({ bookRoot: root }) }
+  }
+
+  const OUTLINE_REL = '大纲/章纲/0002-第2章纲.md'
+  const OUTLINE_FM = '---\n章号: 2\n标题: 第2章\n---\n\n第2章章纲'
+  const MANIFEST_BASE = '{"version":1,"type":"header"}\n'
+
+  test('并入去向证据（fm 并入 引用 + 无存活同号正文）→ 放行软删，条目 role=chapter-outline', async () => {
+    const { root, svc } = makeBook({
+      '写作/正文/第一卷/0001-第1章.md': '---\n章号: 1\n标题: 第1章\n并入: [2]\n---\n\n正文',
+      [OUTLINE_REL]: OUTLINE_FM,
+      '项目/文档清单.jsonl':
+        MANIFEST_BASE +
+        [
+          '{"id":"doc_ch01","nodeType":"document","path":"写作/正文/第一卷/0001-第1章.md","parentId":null}',
+          '{"id":"doc_ol02","nodeType":"document","path":"大纲/章纲/0002-第2章纲.md","parentId":null}',
+        ].join('\n') +
+        '\n',
+    })
+    try {
+      const r = await svc.trashDocument({ docId: 'doc_ol02' })
+      expect(r.ok).toBe(true)
+      expect(existsSync(join(root, OUTLINE_REL))).toBe(false)
+      const entry = listTrash(root).find((e) => e.id === 'doc_ol02')
+      expect(entry?.role).toBe('chapter-outline')
+      expect(entry?.originalPath).toBe(OUTLINE_REL)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('删章去向证据：先拒（存活宿主）→ 删章后放行（删章作废的纲清理口）', async () => {
+    const { root, svc } = makeBook({
+      '写作/正文/第一卷/0002-第2章.md': '---\n章号: 2\n标题: 第2章\n---\n\n第2章正文',
+      [OUTLINE_REL]: OUTLINE_FM,
+      '项目/文档清单.jsonl':
+        MANIFEST_BASE +
+        [
+          '{"id":"doc_ch02","nodeType":"document","path":"写作/正文/第一卷/0002-第2章.md","parentId":null}',
+          '{"id":"doc_ol02","nodeType":"document","path":"大纲/章纲/0002-第2章纲.md","parentId":null}',
+        ].join('\n') +
+        '\n',
+    })
+    try {
+      // 宿主存活：纲不可删
+      const denied = await svc.trashDocument({ docId: 'doc_ol02' })
+      expect(denied.ok).toBe(false)
+      if (!denied.ok) expect(denied.code).toBe('CAPABILITY_DENIED')
+      // 删章（作废）→ 回收站留痕构成证据 → 纲放行
+      expect((await svc.trashDocument({ docId: 'doc_ch02' })).ok).toBe(true)
+      const allowed = await svc.trashDocument({ docId: 'doc_ol02' })
+      expect(allowed.ok).toBe(true)
+      expect(existsSync(join(root, OUTLINE_REL))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('无证据（计划前置纲）→ CAPABILITY_DENIED，原文件不动', async () => {
+    const { root, svc } = makeBook({
+      '写作/正文/第一卷/0001-第1章.md': '---\n章号: 1\n标题: 第1章\n---\n\n正文',
+      [OUTLINE_REL]: OUTLINE_FM,
+      '项目/文档清单.jsonl':
+        MANIFEST_BASE +
+        ['{"id":"doc_ol02","nodeType":"document","path":"大纲/章纲/0002-第2章纲.md","parentId":null}'].join('\n') +
+        '\n',
+    })
+    try {
+      const r = await svc.trashDocument({ docId: 'doc_ol02' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.code).toBe('CAPABILITY_DENIED')
+      expect(existsSync(join(root, OUTLINE_REL))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('复号有存活宿主（回收站旧条目不构成放行）→ CAPABILITY_DENIED', async () => {
+    const { root, svc } = makeBook({
+      '写作/正文/第一卷/0002-第2章.md': '---\n章号: 2\n标题: 第2章\n---\n\n第2章新正文',
+      [OUTLINE_REL]: OUTLINE_FM,
+      '项目/文档清单.jsonl':
+        MANIFEST_BASE +
+        [
+          '{"id":"doc_ch02","nodeType":"document","path":"写作/正文/第一卷/0002-第2章.md","parentId":null}',
+          '{"id":"doc_ol02","nodeType":"document","path":"大纲/章纲/0002-第2章纲.md","parentId":null}',
+        ].join('\n') +
+        '\n',
+    })
+    try {
+      // 历史删章留痕（同号旧章），但同号新章存活——宁拒勿错删
+      appendTrashEntry(root, {
+        id: 'doc_old02',
+        originalPath: '写作/正文/第一卷/0002-旧.md',
+        trashedPath: '工作区/.trash/doc_old02-0002-旧.md',
+        trashedAt: '2026-01-01T00:00:00Z',
+        role: 'chapter',
+      })
+      const r = await svc.trashDocument({ docId: 'doc_ol02' })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.code).toBe('CAPABILITY_DENIED')
+      expect(existsSync(join(root, OUTLINE_REL))).toBe(true)
+    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })

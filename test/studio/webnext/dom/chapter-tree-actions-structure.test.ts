@@ -83,6 +83,7 @@ const mergePlan: MergePlanView = {
   sourceChapterNo: 2,
   targetTitle: '甲',
   sourceTitle: '乙',
+  sourceOutlinePath: null,
   encodingSuspect: false,
   sourceWords: 10,
   sourcePreview: '乙章结尾拼接预览…',
@@ -184,6 +185,26 @@ describe('doMergeIntoPrev（阶段 24 S3：并入上一章动作流）', () => {
     expect(uiAskMock).not.toHaveBeenCalled() // 确认框都不弹——不让作者确认后才被拒
     expect(openError.value).toContain('UTF-8')
     expect(docMock.discard).not.toHaveBeenCalled()
+  })
+
+  it('sourceOutlinePath 非空 → 确认弹窗含章纲随迁提示；无纲（null）不含', async () => {
+    planMock.mockResolvedValue({ plan: { ...mergePlan, sourceOutlinePath: '大纲/章纲/0002-乙.md' } })
+    applyMock.mockResolvedValue({ ...applyOk })
+    uiAskMock.mockResolvedValue(true)
+    const { actions, node2 } = setupActions()
+
+    actions.onMenuSelect('merge-into-prev', node2)
+    await flushPromises()
+
+    const msg = (uiAskMock.mock.calls[0] as unknown as [arg: { message: string }])[0].message
+    expect(msg).toContain('章纲随正文一并移入回收站')
+    // 无纲形态（fixture 缺省 null）：弹窗不含该行
+    uiAskMock.mockClear()
+    planMock.mockResolvedValue({ plan: { ...mergePlan } })
+    actions.onMenuSelect('merge-into-prev', node2)
+    await flushPromises()
+    const msg2 = (uiAskMock.mock.calls[0] as unknown as [arg: { message: string }])[0].message
+    expect(msg2).not.toContain('章纲随正文一并移入回收站')
   })
 
   it('ui.ask 拒 false → apply 零调用（openError 不置、不动 doc 缓存）', async () => {

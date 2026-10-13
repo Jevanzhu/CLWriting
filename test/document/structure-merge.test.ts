@@ -29,6 +29,7 @@ import { openSessionStore } from '../../src/events/store.js'
 import { log } from '../../src/log/index.js'
 import { openRagDb, storeChunk, setRagMeta, getRagMeta, countChunksByChapter } from '../../src/rag/store.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { listTrash } from '../../src/document/trash.js'
 
 const BOOK = '结构合并测试书'
 let studio: StudioHarness
@@ -644,5 +645,101 @@ describe('评审-2026-10-11 P2-18: merge 事件载荷逐字段校验（脏载荷
     } finally {
       warnSpy.mockRestore()
     }
+  })
+})
+
+// ── 章纲随迁批：合并软删源章后其章纲随迁入回收站（独立条目）+ 撤销对称还原 ──────
+
+describe('章纲随迁批: 源章纲随正文一并入回收站 + 撤销对称还原', () => {
+  it('有纲合并：干跑预览 sourceOutlinePath + 纲入回收站（role=chapter-outline）+ 事件携条目 id', async () => {
+    const rel1 = '写作/正文/第一卷/0061-第61章.md'
+    const rel2 = '写作/正文/第一卷/0062-第62章.md'
+    const outlineRel = '大纲/章纲/0062-第62章纲.md'
+    const t = await createChapter(rel1, chapterContent(61, '第61章', '第61章正文。'))
+    const s = await createChapter(rel2, chapterContent(62, '第62章', '第62章正文。'))
+    // 纲与正文不同名 → 定位走 fm 章号口径（章号复用静默认领的同一条路径）
+    const o = await createChapter(outlineRel, '---\n章号: 62\n标题: 第62章\n---\n\n第62章章纲。\n')
+
+    const plan = await planMerge(t, s)
+    expect(plan['sourceOutlinePath']).toBe(outlineRel)
+    const apply = await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })
+    expect(apply.status).toBe(200)
+    // 正文与纲双双离盘；回收站独立条目按 role 区分
+    expect(existsSync(join(studio.bookRoot, rel2))).toBe(false)
+    expect(existsSync(join(studio.bookRoot, outlineRel))).toBe(false)
+    const entries = listTrash(studio.bookRoot)
+    expect(entries.find((e) => e.id === s)?.role).toBe('chapter')
+    const outlineEntry = entries.find((e) => e.id === o)
+    expect(outlineEntry?.role).toBe('chapter-outline')
+    expect(outlineEntry?.originalPath).toBe(outlineRel)
+    // 事件副录携带纲条目 id（undo 直用；缺省形态 undo 按章号扫回收站兜底）
+    const ev = structureEvents('structure.merge').find((e) => e.targetDocId === t && e.sourceDocId === s)
+    expect(ev?.['outlineTrashEntryId']).toBe(o)
+  })
+
+  it('撤销（事件主路径）：源章与章纲对称还原，条目双出账', async () => {
+    const rel1 = '写作/正文/第一卷/0063-第63章.md'
+    const rel2 = '写作/正文/第一卷/0064-第64章.md'
+    const outlineRel = '大纲/章纲/0064-纲.md'
+    const outlineContent = '---\n章号: 64\n标题: 第64章\n---\n\n第64章章纲，撤销后应逐字节还原。\n'
+    const t = await createChapter(rel1, chapterContent(63, '第63章', '第63章正文。'))
+    const s = await createChapter(rel2, chapterContent(64, '第64章', '第64章正文。'))
+    const o = await createChapter(outlineRel, outlineContent)
+    const plan = await planMerge(t, s)
+    expect(plan['sourceOutlinePath']).toBe(outlineRel)
+    expect((await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })).status).toBe(200)
+    expect(existsSync(join(studio.bookRoot, outlineRel))).toBe(false)
+
+    const undo = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/merge-undo`,
+      {},
+    )
+    expect(undo.status).toBe(200)
+    // 正文与纲双双还原（原路径 + 原内容），条目双出账
+    expect(existsSync(join(studio.bookRoot, rel2))).toBe(true)
+    expect(readFileSync(join(studio.bookRoot, outlineRel), 'utf8')).toBe(outlineContent)
+    const entries = listTrash(studio.bookRoot)
+    expect(entries.some((e) => e.id === s)).toBe(false)
+    expect(entries.some((e) => e.id === o)).toBe(false)
+  })
+
+  it('无纲合并：干跑 sourceOutlinePath=null + 事件无纲字段 + 无纲条目', async () => {
+    const rel1 = '写作/正文/第一卷/0065-第65章.md'
+    const rel2 = '写作/正文/第一卷/0066-第66章.md'
+    const t = await createChapter(rel1, chapterContent(65, '第65章', '第65章正文。'))
+    const s = await createChapter(rel2, chapterContent(66, '第66章', '第66章正文。'))
+    const plan = await planMerge(t, s)
+    expect(plan['sourceOutlinePath']).toBeNull()
+    expect((await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })).status).toBe(200)
+    const ev = structureEvents('structure.merge').find((e) => e.targetDocId === t && e.sourceDocId === s)
+    expect(ev).toBeDefined()
+    expect('outlineTrashEntryId' in ev!).toBe(false)
+    expect(listTrash(studio.bookRoot).some((e) => e.role === 'chapter-outline' && e.originalPath.includes('0066'))).toBe(
+      false,
+    )
+  })
+
+  it('撤销兜底（事件缺纲字段的旧载荷形态）：按章号扫回收站还原纲', async () => {
+    const rel1 = '写作/正文/第一卷/0067-第67章.md'
+    const rel2 = '写作/正文/第一卷/0068-第68章.md'
+    const outlineRel = '大纲/章纲/0068-第68章纲.md'
+    const outlineContent = '---\n章号: 68\n标题: 第68章\n---\n\n第68章章纲。\n'
+    const t = await createChapter(rel1, chapterContent(67, '第67章', '第67章正文。'))
+    const s = await createChapter(rel2, chapterContent(68, '第68章', '第68章正文。'))
+    const o = await createChapter(outlineRel, outlineContent)
+    const plan = await planMerge(t, s)
+    expect((await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: plan['planHash'] })).status).toBe(200)
+    // 旧载荷形态：事件缺 outlineTrashEntryId（载纲后崩溃/更早版本事件）——定位链缺 id
+    // 时按章号扫回收站兜底（role=chapter-outline）
+    tamperMergeEvent(t, { outlineTrashEntryId: undefined })
+    const undo = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/merge-undo`,
+      {},
+    )
+    expect(undo.status).toBe(200)
+    expect(readFileSync(join(studio.bookRoot, outlineRel), 'utf8')).toBe(outlineContent)
+    expect(listTrash(studio.bookRoot).some((e) => e.id === o)).toBe(false)
   })
 })

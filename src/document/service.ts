@@ -42,6 +42,8 @@ import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
 import { bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync, TRASH_DIR_REL } from './trash.js'
+// 无主章纲能力例外判据（章纲随迁批）——证据单源，见 outline-orphan.ts 头注
+import { outlineTrashExempt } from './outline-orphan.js'
 import { errMsg, log } from '../log/index.js'
 import {
   isUtf8Bytes,
@@ -896,8 +898,15 @@ async function lookupTrashTarget(
     }
   }
   if (!oldPath) return { rejected: { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` } }
-  if (!layoutOf(oldPath).capabilities.trash) {
-    return { rejected: { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' } }
+  const layout = layoutOf(oldPath)
+  if (!layout.capabilities.trash) {
+    // 能力例外：无主章纲（章号 ∈ 并入引用 ∪ 回收站正文章号集，且无存活同号正文）
+    // 放行软删——清理合并/删章孤儿纲的唯一入口，判据单源 outline-orphan.ts；
+    // 存活正文的章纲与其余系统文档维持不可删
+    const orphanOutline = layout.role === 'chapter-outline' && outlineTrashExempt(ctx.bookRoot, oldPath)
+    if (!orphanOutline) {
+      return { rejected: { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' } }
+    }
   }
   const oldSafe = ctx.resolveSafePath(oldPath)
   if (!oldSafe) return { rejected: { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' } }

@@ -27,6 +27,9 @@ const KNOWN_CHECK_IDS: readonly string[] = [
   'banned-entry-unparsed',
   'piece-list-unreadable',
   'piece-list-outline-missing',
+  // 章纲随迁批：章纲一致性（孤儿纲挂目标章 / 复号旧纲提示）
+  'merged-outline-orphan',
+  'reused-chapter-stale-outline',
   // count.ts（通用章检）
   'banned-word',
   'word-count',

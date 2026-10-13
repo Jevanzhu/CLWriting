@@ -217,6 +217,9 @@ export interface StructureMergeData {
   mergedInto: number[]
   /** 源章回收站条目 id（TrashEntry.id = 源 docId）——undo 还原源章用 */
   trashEntryId: string
+  /** 源章章纲回收站条目 id（随迁产生；无纲的合并缺省）——undo 对称还原纲用；
+   *  缺省时 undo 按章号扫回收站兜底（载纲前崩溃的旧载荷形态） */
+  outlineTrashEntryId?: string
   /** 目标章合并前内容的留底版本 id（external-merge 强制留底产生）——undo 版本回滚
    *  用；快照未产生（罕见）时缺省，undo 定位走降级推演 */
   rollbackSnapshotId?: string

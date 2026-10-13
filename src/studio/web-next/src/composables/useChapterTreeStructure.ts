@@ -112,6 +112,9 @@ export function useChapterTreeStructure(deps: {
       `· 源章移入回收站，可随时右键「撤销并入」还原`,
       `· 目标章 并入 记录：第 ${plan.mergedInto.join('、')} 章`,
     ]
+    if (plan.sourceOutlinePath) {
+      lines.push('· 源章章纲随正文一并移入回收站（撤销并入时一并还原）')
+    }
     if (plan.leadPreviews.length) {
       lines.push(`· 履历引文预演：${plan.leadPreviews.length} 条中 ${missCount} 条合并后将失配（体检红）`)
     }
@@ -157,7 +160,7 @@ export function useChapterTreeStructure(deps: {
         `确认撤销「${node.name}」最近一次并入？`,
         '',
         '· 目标章将回滚到合并前版本（合并后的新改动会丢失）',
-        '· 源章从回收站还原为独立章节',
+        '· 源章从回收站还原为独立章节（并入时随迁的章纲一并还原）',
       ].join('\n'),
       confirmText: '撤销并入',
     })

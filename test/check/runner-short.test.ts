@@ -1,11 +1,12 @@
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, beforeEach, afterEach, describe } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, basename } from 'node:path'
+import { dirname, join, basename } from 'node:path'
 import { runAllChecks, hasRed, enabledLeadTypes } from '../../src/check/runner.js'
 import { BASE_LEAD_TYPES } from '../../src/install/data.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writePieceListFixture } from '../helpers/piece-list.js'
+import { appendTrashEntry } from '../../src/document/trash.js'
 import type { ChapterMeta, BookConfig, PieceList } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -464,4 +465,84 @@ test('重评-P2-4: 长篇误写 short.strict → imagery-overuse 保持黄不升
   const item = r.sections.flatMap((s) => s.items).find((i) => i.checkId === 'imagery-overuse')
   expect(item?.level).toBe('yellow')
   expect(hasRed(r)).toBe(false)
+})
+
+// ── 章纲随迁批：章纲一致性黄项（判据单源 outline-orphan.ts）────────────────────
+// 合并去向孤儿纲挂目标章（merged-outline-orphan）；删章留痕 + 同号新章存活 = 复号
+// 旧纲提示（reused-chapter-stale-outline，可误报灰显）；无证据计划前置纲零误报。
+
+describe('章纲一致性（章纲随迁批）', () => {
+  /** 落章文件（mkdir -p 父目录），返回绝对路径。 */
+  function writeMd(rel: string, content: string): string {
+    const abs = join(tmp, rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, content, 'utf-8')
+    return abs
+  }
+
+  test('并入去向的无主纲 → 挂目标章黄项；计划前置纲（无证据）零误报', () => {
+    const targetAbs = writeMd(
+      '写作/正文/第一卷/0001-第1章.md',
+      '---\n章号: 1\n标题: 第1章\n并入: [2]\n---\n\n第1章正文。',
+    )
+    writeMd('大纲/章纲/0002-第2章纲.md', '---\n章号: 2\n标题: 第2章\n---\n\n第2章纲。')
+    writeMd('大纲/章纲/0003-第3章纲.md', '---\n章号: 3\n标题: 第3章\n---\n\n第3章纲（计划前置）。')
+    const ch: ChapterMeta = {
+      章号: 1,
+      标题: '第1章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      并入: [2],
+      _path: targetAbs,
+    }
+    const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文', fileName: '0001-第1章.md' })
+    const items = r.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'merged-outline-orphan')
+    expect(items).toHaveLength(1)
+    expect(items[0]!.level).toBe('yellow')
+    expect(items[0]!.message).toContain('第 2 章已并入本章')
+    expect(items[0]!.message).toContain('0002-第2章纲.md')
+    // 计划前置（无任何证据）的纲不产出任何项
+    expect(r.sections.flatMap((s) => s.items).some((i) => i.message.includes('0003-第3章纲.md'))).toBe(false)
+  })
+
+  test('复号旧纲：删章留痕 + 同号新章存活 → 复号提示黄项；无删章留痕不报', () => {
+    const live5 = writeMd('写作/正文/第一卷/0005-第5章.md', '---\n章号: 5\n标题: 第5章\n---\n\n第5章正文。')
+    writeMd('大纲/章纲/0005-旧纲.md', '---\n章号: 5\n---\n\n旧纲。')
+    appendTrashEntry(tmp, {
+      id: 'doc_old05',
+      originalPath: '写作/正文/第一卷/0005-旧.md',
+      trashedPath: '工作区/.trash/doc_old05-0005-旧.md',
+      trashedAt: '2026-01-01T00:00:00Z',
+      role: 'chapter',
+    })
+    const ch5: ChapterMeta = {
+      章号: 5,
+      标题: '第5章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: live5,
+    }
+    const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch5, body: '正文', fileName: '0005-第5章.md' })
+    const items = r.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'reused-chapter-stale-outline')
+    expect(items).toHaveLength(1)
+    expect(items[0]!.level).toBe('yellow')
+    expect(items[0]!.message).toContain('章号已复用')
+    expect(items[0]!.message).toContain('0005-旧纲.md')
+
+    // 对照：同号章 + 章纲并存但回收站无该章号条目（正常书）→ 零项
+    const live6 = writeMd('写作/正文/第一卷/0006-第6章.md', '---\n章号: 6\n标题: 第6章\n---\n\n第6章正文。')
+    writeMd('大纲/章纲/0006-第6章纲.md', '---\n章号: 6\n---\n\n第6章纲。')
+    const ch6: ChapterMeta = {
+      章号: 6,
+      标题: '第6章',
+      钩子类型: '悬念钩',
+      钩子强弱: '中',
+      情绪定位: '铺垫',
+      _path: live6,
+    }
+    const r6 = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch6, body: '正文', fileName: '0006-第6章.md' })
+    expect(r6.sections.flatMap((s) => s.items).some((i) => i.checkId === 'reused-chapter-stale-outline')).toBe(false)
+  })
 })

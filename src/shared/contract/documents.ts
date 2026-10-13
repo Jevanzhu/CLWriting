@@ -138,6 +138,9 @@ export interface MergePlanView {
   sourcePath: string
   targetTitle: string
   sourceTitle: string
+  /** 源章章纲相对路径（定位三口径命中；无纲 = null）——前端据此提示「纲随正文一并
+   *  移入回收站」；合并将随迁，撤销时对称还原 */
+  sourceOutlinePath: string | null
   /** 任一方非 UTF-8（GBK 存量）——apply 将 400 拒绝，前端干跑后即拦 */
   encodingSuspect: boolean
   sourceWords: number

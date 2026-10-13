@@ -9,7 +9,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { join, basename } from 'node:path'
 import { existsSync } from 'node:fs'
-import type { CheckReport, CheckSectionResult } from './types.js'
+import type { CheckItem, CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
 import { checkLeadsFormCore } from './leads.js'
 import { checkGrowth } from './growth.js'
@@ -51,6 +51,9 @@ import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
 import { enabledLeadTypes } from './leads-config.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
 import { locateChapterOutline } from '../format/piece-list-locate.js'
+// 章纲孤儿/复号判据单源（章纲随迁批）——证据 = 并入引用 ∪ 回收站正文章号集
+import { scanOutlineFindings } from '../document/outline-orphan.js'
+import { listTrash } from '../document/trash.js'
 // 章纲目录容错降级留痕（同 run.ts 口径）
 import { log } from '../log/index.js'
 
@@ -341,6 +344,37 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
         ],
       })
     }
+  }
+
+  // 章纲一致性（判据单源 outline-orphan.ts）：合并软删源章后其章纲留盘（无主纲），
+  // 与删章后章号复用被旧纲经 fm 章号静默认领两形态的观测面。仅当本章带 并入 登记
+  // 或回收站在册正文章目时扫描（常态书零成本零项）；「误报」灰显走检查器级标记
+  // （复号项可能误报，作者自判）。
+  if ((chapter.并入?.length ?? 0) > 0 || listTrash(bookRoot).some((e) => e.role === 'chapter')) {
+    const items: CheckItem[] = []
+    for (const f of scanOutlineFindings(bookRoot)) {
+      if (
+        f.kind === 'orphan' &&
+        f.evidence === 'merged' &&
+        chapter._path !== undefined &&
+        f.mergedIntoPath === chapter._path
+      ) {
+        items.push({
+          checkId: 'merged-outline-orphan',
+          level: 'yellow',
+          message: `第 ${f.chapterNo} 章已并入本章，但原章纲《${basename(f.outlinePath)}》仍在 大纲/章纲/ 留盘——不再需要时打开该纲删除即可（已并入章号的无主纲允许删除），也可留作存档。`,
+          chapter: chapter.章号,
+        })
+      } else if (f.kind === 'reused' && f.chapterNo === chapter.章号) {
+        items.push({
+          checkId: 'reused-chapter-stale-outline',
+          level: 'yellow',
+          message: `第 ${f.chapterNo} 章号此前删除过一章（章号已复用），盘上章纲《${basename(f.outlinePath)}》可能属于旧章——若确为本章新纲可标「误报」忽略，否则请核对重写。`,
+          chapter: chapter.章号,
+        })
+      }
+    }
+    if (items.length > 0) sections.push({ name: '章纲一致性', items })
   }
 
   let byproducts: CheckReport['byproducts'] = {}

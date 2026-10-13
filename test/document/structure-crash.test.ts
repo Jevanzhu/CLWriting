@@ -260,3 +260,89 @@ describe('阶段 24 S5：崩溃注入两形态 + detectState 结构不变量挂�
     expect(d.state).not.toBe(1)
   })
 })
+
+// ── 章纲随迁批：②b（纲软删段）崩溃注入 + 删章无主纲报表/能力例外 ──────────────
+
+describe('章纲随迁批: 章纲随迁崩溃续跑 + 无主纲报表与清理口', () => {
+  it('②b 崩溃注入：正文已软删但纲软删失败（save 锁占用）→ 409 fail-loud → 重试续跑补搬', async () => {
+    const relT = '写作/正文/第一卷/0011-第11章.md'
+    const relS = '写作/正文/第一卷/0012-第12章.md'
+    const outlineRel = '大纲/章纲/0012-第12章纲.md'
+    const t = await createChapter(relT, '---\n章号: 11\n标题: 第11章\n---\n\n第11章正文。\n')
+    const s = await createChapter(relS, '---\n章号: 12\n标题: 第12章\n---\n\n第12章正文。\n')
+    const o = await createChapter(outlineRel, '---\n章号: 12\n标题: 第12章\n---\n\n第12章章纲。\n')
+    const planRes = await studio.req(
+      'POST',
+      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`,
+      { op: 'merge', sourceDocId: s },
+    )
+    expect(planRes.status).toBe(200)
+    const planHash = (planRes.json as { plan: { planHash: string } }).plan.planHash
+
+    // 占纲章 save 锁 + 收短结构锁超时：①正文并入与②正文软删已落定，②b 纲软删超时
+    __setStructSaveLockTimeoutForTest(300)
+    const release = acquireCrossProcessLockWithTimeout(saveLockPath(o), 0)
+    expect(release).not.toBeNull()
+    try {
+      const r1 = await studio.req(
+        'POST',
+        `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
+        { op: 'merge', sourceDocId: s, planHash },
+      )
+      expect(r1.status).toBe(409)
+      expect((r1.json as { code: string }).code).toBe('WRITE_ERROR')
+      expect(String((r1.json as { error: string }).error)).toContain('源章纲')
+    } finally {
+      release!()
+    }
+    // ②b 前崩溃盘面：正文已软删、纲未动、事件未记（③ 在 ②b 之后）
+    expect(existsSync(join(studio.bookRoot, relS))).toBe(false)
+    expect(listTrash(studio.bookRoot).some((e) => e.id === s)).toBe(true)
+    expect(existsSync(join(studio.bookRoot, outlineRel))).toBe(true)
+    expect(listTrash(studio.bookRoot).some((e) => e.id === o)).toBe(false)
+    expect(structureEvents('structure.merge').filter((e) => e.targetDocId === t)).toHaveLength(0)
+
+    // 重试续跑（②后形态）：alreadyTrashed 跳过正文软删，补搬纲 + 记事件携条目 id
+    __setStructSaveLockTimeoutForTest(5_000)
+    const r2 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+      op: 'merge',
+      sourceDocId: s,
+      planHash,
+    })
+    expect(r2.status).toBe(200)
+    expect(existsSync(join(studio.bookRoot, outlineRel))).toBe(false)
+    expect(listTrash(studio.bookRoot).find((e) => e.id === o)?.role).toBe('chapter-outline')
+    const evs = structureEvents('structure.merge').filter((e) => e.targetDocId === t)
+    expect(evs).toHaveLength(1)
+    expect(evs[0]!['outlineTrashEntryId']).toBe(o)
+  })
+
+  it('删章留纲：detectState 报 outlineOrphan；无主纲经能力例外删除后报文自消（存活纲仍 403）', async () => {
+    const rel = '写作/正文/第一卷/0021-第21章.md'
+    const outlineRel = '大纲/章纲/0021-第21章纲.md'
+    const c = await createChapter(rel, '---\n章号: 21\n标题: 第21章\n---\n\n第21章正文。\n')
+    const o = await createChapter(outlineRel, '---\n章号: 21\n标题: 第21章\n---\n\n第21章章纲。\n')
+    const outlineOrphanCount = (d: Awaited<ReturnType<typeof detect>>): number =>
+      d.state === 1 ? d.issues.filter((i) => i.kind === 'outlineOrphan').length : 0
+
+    // 存活章的章纲 → 系统文档口径不放宽
+    const denied = await studio.req('DELETE', `/api/books/${ENC}/documents/${encodeURIComponent(o)}`)
+    expect(denied.status).toBe(403)
+    expect((denied.json as { code: string }).code).toBe('CAPABILITY_DENIED')
+
+    // 删章（作废）→ 纲无主 → 报表项（含纲路径定位）
+    const del = await studio.req('DELETE', `/api/books/${ENC}/documents/${encodeURIComponent(c)}`)
+    expect(del.status).toBe(200)
+    const d1 = await detect()
+    expect(outlineOrphanCount(d1)).toBe(1)
+    const issue = d1.state === 1 ? d1.issues.find((i) => i.kind === 'outlineOrphan') : undefined
+    expect(issue?.humanMsg).toContain('第21章')
+    expect(issue?.files).toContain(outlineRel)
+
+    // 无主纲可删（能力例外）→ 条目入回收站、报表报文自消
+    const ok = await studio.req('DELETE', `/api/books/${ENC}/documents/${encodeURIComponent(o)}`)
+    expect(ok.status).toBe(200)
+    expect(listTrash(studio.bookRoot).find((e) => e.id === o)?.role).toBe('chapter-outline')
+    expect(outlineOrphanCount(await detect())).toBe(0)
+  })
+})

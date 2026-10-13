@@ -9,11 +9,13 @@
  * 端口由组合根注入（依赖反转，零 rag import）。
  */
 import { existsSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { ulid } from '../fs/id.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
-import { safeManifestPath } from '../fs/safe-path.js'
+import { safeManifestPath, normalizeWinSeparators } from '../fs/safe-path.js'
 import { patchFlatFm } from '../format/frontmatter.js'
+// 章纲定位三口径单源（随迁段与机检/短篇索引同源）
+import { locateChapterOutline } from '../format/piece-list-locate.js'
 // isMdFileName = 路径章号提取剥 .md 茎单源（本文件
 // chapterNoFromEntryPath 小件）
 import { chapterNoFromName, isMdFileName } from '../format/filename.js'
@@ -25,6 +27,10 @@ import { readVersionRaw, listVersions } from './version.js'
 // 读失败成空表会把「已软删」误判成「未软删」续跑（service.ts 同款口径：
 // 容错版只供只读展示面）。locateMergeByDisk（undo 降级定位，只读候选扫描）维持容错版
 import { restoreTrash, listTrash, readTrashManifestStrict, type TrashEntry } from './trash.js'
+// 撤销对称还原的纲条目兜底定位（事件未携带 id 形态）——判据单源 outline-orphan.ts
+import { findOutlineTrashEntry } from './outline-orphan.js'
+// 章纲 docId 反查未登记时的运行期身份（收养链 legacy: 前缀补登）
+import { legacyId } from './stable-id.js'
 import { isUtf8Bytes } from './service-guards.js'
 import type { DocumentService } from './service.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -63,6 +69,9 @@ export interface MergePlanView {
   sourcePath: string
   targetTitle: string
   sourceTitle: string
+  /** 源章章纲相对路径（定位三口径命中；无纲 = null）——合并将随正文一并移入
+   *  回收站（独立条目），撤销时对称还原 */
+  sourceOutlinePath: string | null
   /** 任一方非 UTF-8（GBK 存量）——apply 将 400 拒绝（NOT_UTF8_TARGET 家族口径） */
   encodingSuspect: boolean
   sourceWords: number
@@ -130,6 +139,9 @@ export async function planChapterMerge(
     证据: u.证据,
     willMatch: leadEvidenceMatchesBody(concatBody, u.证据),
   }))
+  // 源章纲定位（只读预览）：目录读失败（瞬态占用）干跑按无纲预览不拦——apply 段
+  // 重定位失败会 fail-loud 交重试续跑，干跑不抢先误报
+  const outlineLoc = locateChapterOutline(bookRoot, s.path, s.章号)
   return {
     ok: true,
     op: 'merge',
@@ -141,6 +153,8 @@ export async function planChapterMerge(
     sourcePath: s.path,
     targetTitle: t.标题,
     sourceTitle: s.标题,
+    sourceOutlinePath:
+      outlineLoc.kind === 'found' ? normalizeWinSeparators(relative(bookRoot, outlineLoc.path)) : null,
     encodingSuspect: !isUtf8Bytes(t.bytes) || !isUtf8Bytes(s.bytes),
     sourceWords: countWords(s.body),
     // 预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——
@@ -287,13 +301,14 @@ export async function applyChapterMerge(
   return finishMerge(bookRoot, svc, userDataPath, s, merged, rag)
 }
 
-/** 合并收尾段（②软删 + ③事件 + ④RAG + ⑤缓存失效）——新执行与幂等续跑共用。
- *  source 仅用于类型收窄语义（②后崩溃续跑形态源章盘面态不可读传 null）。 */
+/** 合并收尾段（②软删 + ②b 章纲随迁 + ③事件 + ④RAG + ⑤缓存失效）——新执行与幂等
+ *  续跑共用。source = 源章盘面态（②后崩溃续跑形态不可读传 null；②b 的纲定位随之
+ *  改走回收站条目 originalPath）。 */
 async function finishMerge(
   bookRoot: string,
   svc: DocumentService,
   userDataPath: string | null,
-  _source: ChapterDiskState | null,
+  source: ChapterDiskState | null,
   merged: Extract<MergeApplyResult, { ok: true }>,
   rag: StructureRagPort,
 ): Promise<MergeApplyResult> {
@@ -332,6 +347,34 @@ async function finishMerge(
       )
     }
   }
+  // ②b 源章纲随迁：正文软删后纲留盘即成无主纲（机检/结构报表的观测面）——随正文
+  // 一并入回收站（独立条目）。幂等：上次已搬走的纲不在盘（定位 missing）自然跳过；
+  // docId 反查清单命中为正式 id，未登记回退 legacyId（收养链补登）。目录读失败
+  // （非瞬删 ENOENT/ENOTDIR）与软删失败同款 fail-loud 交重试续跑。
+  let outlineTrashEntryId: string | undefined
+  if (source !== null || trashEntry !== undefined) {
+    const srcPath = source?.path ?? trashEntry!.originalPath
+    const located = locateChapterOutline(bookRoot, srcPath, merged.sourceChapterNo)
+    if (located.kind === 'dir-unreadable') {
+      if (located.code !== 'ENOENT' && located.code !== 'ENOTDIR') {
+        return fail(
+          'WRITE_ERROR',
+          `源章已进回收站，但章纲目录读取失败（章纲随迁未执行，可重试续跑）：${errMsg(located.error)}`,
+        )
+      }
+    } else if (located.kind === 'found') {
+      const outlineRel = normalizeWinSeparators(relative(bookRoot, located.path))
+      const outlineDocId = docIdByPath(bookRoot, outlineRel)
+      const trashedOutline = await svc.trashDocument({ docId: outlineDocId })
+      if (!trashedOutline.ok) {
+        return fail(
+          trashedOutline.code,
+          `源章已进回收站，但源章纲《${basename(located.path)}》进回收站失败：${trashedOutline.reason}——重试将自动续跑收尾，或「撤销合并」回退`,
+        )
+      }
+      outlineTrashEntryId = outlineDocId
+    }
+  }
   // ③ 事件副录（审计）
   await recordStructureEvents(userDataPath, bookRoot, [
     structureMergeEvent({
@@ -342,6 +385,7 @@ async function finishMerge(
       sourceChapterNo: merged.sourceChapterNo,
       mergedInto: merged.mergedInto,
       trashEntryId: merged.trashEntryId,
+      ...(outlineTrashEntryId !== undefined ? { outlineTrashEntryId } : {}),
       ...(merged.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: merged.rollbackSnapshotId } : {}),
       planHash: merged.planHash,
     }),
@@ -363,10 +407,29 @@ function chapterNoFromEntryPath(relPath: string): number | null {
   return chapterNoFromName(isMdFileName(base) ? base.slice(0, -3) : base)
 }
 
+/** 相对路径 → docId：清单反查命中为正式 id；未登记（外部创建的纲）回退 legacyId——
+ *  trashDocument 的 lookupPathByDocIdAdoptAsync 对 legacy: 前缀扫盘收养补登，
+ *  身份一次落定不分裂。strict 读失败同款回退（收养链在软删段自会再读）。 */
+function docIdByPath(bookRoot: string, relPath: string): string {
+  const manifestPath = manifestPathOf(bookRoot)
+  if (existsSync(manifestPath)) {
+    try {
+      for (const [id, e] of readManifestStrict(manifestPath).entries) {
+        if (e.nodeType === 'document' && e.path === relPath) return id
+      }
+    } catch {
+      /* 回退 legacyId */
+    }
+  }
+  return legacyId(relPath)
+}
+
 interface MergeUndoLocator {
   sourceDocId: string
   sourceChapterNo: number
   trashEntryId: string
+  /** 源章纲回收站条目 id（合并随迁产生；旧载荷/无纲缺省，undo 按章号扫回收站兜底） */
+  outlineTrashEntryId?: string
   rollbackSnapshotId?: string
   planHash: string
 }
@@ -396,7 +459,13 @@ function isChapterNo(v: unknown): v is number {
  *  防「校验面」与「事件载荷形状」两处各自漂移。 */
 type MergeEventFields = Pick<
   StructureMergeData,
-  'targetDocId' | 'sourceDocId' | 'sourceChapterNo' | 'trashEntryId' | 'rollbackSnapshotId' | 'planHash'
+  | 'targetDocId'
+  | 'sourceDocId'
+  | 'sourceChapterNo'
+  | 'trashEntryId'
+  | 'outlineTrashEntryId'
+  | 'rollbackSnapshotId'
+  | 'planHash'
 >
 
 /** structure.merge 事件载荷**逐字段校验**（事件库是持久化可改写面：库文件可被外部
@@ -412,18 +481,21 @@ type MergeEventFields = Pick<
  * 不抛穿——抛穿会击穿整条定位链（连带废掉 body/disk 降级面）。 */
 function readMergeEventFields(data: Record<string, unknown>): MergeEventFields | null {
   const rollbackSnapshotId = data['rollbackSnapshotId']
+  const outlineTrashEntryId = data['outlineTrashEntryId']
   const { targetDocId, sourceDocId, sourceChapterNo, trashEntryId, planHash } = data
   if (data['op'] !== 'merge') return null
   if (!isNonEmptyString(targetDocId) || !isNonEmptyString(sourceDocId)) return null
   if (!isChapterNo(sourceChapterNo)) return null
   if (!isNonEmptyString(trashEntryId) || !isNonEmptyString(planHash)) return null
   if (rollbackSnapshotId !== undefined && !isNonEmptyString(rollbackSnapshotId)) return null
+  if (outlineTrashEntryId !== undefined && !isNonEmptyString(outlineTrashEntryId)) return null
   return {
     targetDocId,
     sourceDocId,
     sourceChapterNo,
     trashEntryId,
     planHash,
+    ...(outlineTrashEntryId !== undefined ? { outlineTrashEntryId } : {}),
     ...(rollbackSnapshotId !== undefined ? { rollbackSnapshotId } : {}),
   }
 }
@@ -486,6 +558,7 @@ async function locateLatestMergeEvent(
           sourceDocId: fields.sourceDocId,
           sourceChapterNo: fields.sourceChapterNo,
           trashEntryId: fields.trashEntryId,
+          ...(fields.outlineTrashEntryId !== undefined ? { outlineTrashEntryId: fields.outlineTrashEntryId } : {}),
           ...(fields.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: fields.rollbackSnapshotId } : {}),
           planHash: fields.planHash,
         }
@@ -627,7 +700,7 @@ async function locateUndoHalfDone(
   return { ...loc, rollbackSnapshotId: rollbackId }
 }
 
-/** undo 收尾段（②还原源章 + ③事件 + ④RAG 指纹
+/** undo 收尾段（②还原源章 + ②b 对称还原源章纲 + ③事件 + ④RAG 指纹
  *  失效 + ⑤缓存失效）——常规路径（回滚后）与半完成态续跑（并入 已空、回滚已在前次
  *  完成）共用；rollbackId 为本次撤销实际采用的回滚版本（事件载荷留档）。 */
 async function finishUndo(
@@ -642,10 +715,27 @@ async function finishUndo(
   // ② 还原源章：①后崩溃形态（正文盘面定位，trashEntryId 空）源章存活正文无需
   // 还原；常规形态 restoreTrash（OCCUPIED 等失败透传——目标已回滚，重试直接进本
   // 分支续跑；restoreTrash 自带字节一致幂等续跑）
+  const bodyEntry = listTrash(bookRoot).find((e) => e.id === loc.trashEntryId)
   if (loc.trashEntryId !== '') {
     const restored = await restoreTrash(bookRoot, loc.trashEntryId)
     if (!restored.ok) {
       return fail(restored.code, `目标章已回滚（并入 已摘），但源章还原失败：${restored.reason}——重试将自动续跑收尾`)
+    }
+  }
+  // ②b 源章纲对称还原（best-effort 不阻断——纲是规划资产，还原失败留痕即可，
+  // 条目仍在回收站可手工还原）。事件携带 id 优先；旧载荷/载纲后崩溃形态按章号扫
+  // 回收站兜底（源章同名优先 + 择最新）。重复进入本段（幂等续跑/二次撤销重试）时
+  // 条目已不在 → NOT_FOUND 仅留痕
+  const outlineEntryId =
+    loc.outlineTrashEntryId ??
+    findOutlineTrashEntry(bookRoot, loc.sourceChapterNo, bodyEntry ? basename(bodyEntry.originalPath) : undefined)?.id
+  if (outlineEntryId !== undefined) {
+    const outlineRestored = await restoreTrash(bookRoot, outlineEntryId)
+    if (!outlineRestored.ok) {
+      log.warn(
+        'document',
+        `撤销合并：源章纲还原失败（条目 ${outlineEntryId}，${outlineRestored.reason}）——如仍在回收站可手工还原`,
+      )
     }
   }
   // ③ 事件 + ④ RAG 指纹失效（目标章内容已变；源章下轮 buildIndex 按 missingFingerprint

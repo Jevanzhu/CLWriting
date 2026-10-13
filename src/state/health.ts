@@ -16,7 +16,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync, rmSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { samePhysicalFileExact } from '../fs/file-identity.js'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles, rmWithRetry, renameWithRetry } from '../fs/atomic.js'
@@ -51,6 +51,8 @@ import {
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { detectStructureViolations } from '../document/structure.js'
+// 章纲孤儿判据单源（章纲随迁批）：无主纲观测面（合并去向的孤儿纲由机检黄项报）
+import { scanOutlineFindings } from '../document/outline-orphan.js'
 import { safeManifestPath, docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import type { BookConfig } from '../format/types.js'
@@ -154,9 +156,18 @@ export function volumeSizeOf(config: BookConfig): number {
  *  哨兵，不新增写阻断路径）。
  *  阶段 24 （章节结构操作三批）：kind 联合新增 'structurePending'（结构操作
  *  ①②间崩溃半成态哨兵——「并入」所指章仍存活于正文；detectStructureViolations 只读判定，
- *  收敛 = apply 重跑幂等续跑 / undo 整体回退，盘面收敛报文自消，不进 acknowledge 闭环）。 */
+ *  收敛 = apply 重跑幂等续跑 / undo 整体回退，盘面收敛报文自消，不进 acknowledge 闭环）。
+ *  kind 联合新增 'outlineOrphan'（章纲随迁批：正文已删/已并而章纲留盘的无主纲
+ *  ——回收站有正文章目且无存活同号正文；收敛 = 删除该纲（能力例外放行）或还原原章）。 */
 export interface HealthIssue {
-  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty' | 'structurePending'
+  kind:
+    | 'crashedWrite'
+    | 'cloudCopy'
+    | 'finalizedLost'
+    | 'wiringMissing'
+    | 'manifestEmpty'
+    | 'structurePending'
+    | 'outlineOrphan'
   humanMsg: string
   fix: string
   files?: string[]
@@ -372,6 +383,24 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
   } catch (e) {
     // 降级纪律：检查异常不阻断进门，warn 留痕
     log.warn('state', `结构不变量检查异常，本轮降级跳过：${errMsg(e)}`)
+  }
+
+  // ⑦ 无主章纲（章纲随迁批）：章纲章号 ∈ 回收站正文章号集且无存活同号正文——
+  // 删章（作废）后纲留盘无宿主认领。合并去向（并入引用）的孤儿纲挂目标章走机检
+  // 黄项，不在此重复。收敛 = 打开该纲删除（能力例外放行）或从回收站还原原章。
+  try {
+    for (const f of scanOutlineFindings(bookRoot)) {
+      if (f.kind !== 'orphan' || f.evidence !== 'trashed') continue
+      issues.push({
+        kind: 'outlineOrphan',
+        humanMsg: `第${f.chapterNo}章的正文已删除（回收站有该章条目），但其章纲《${basename(f.outlinePath)}》仍在 大纲/章纲/。`,
+        fix: '不再续写原章时，打开该章纲删除（无主章纲允许删除）；或从回收站还原原章使纲归位。',
+        files: [f.outlinePath],
+      })
+    }
+  } catch (e) {
+    // 降级纪律：检查异常不阻断进门，warn 留痕
+    log.warn('state', `章纲孤儿检查异常，本轮降级跳过：${errMsg(e)}`)
   }
 
   return issues
