@@ -219,6 +219,13 @@ jobs:
       - name: 源码注释门（check:comments）
         run: npm run check:comments
 
+      # 2026-10-14：链面门（project-harness 校验器副本，判据与采用面见 05-规范/文档操作链）——
+      # Markdown 链接与锚点、一句一行、文档链索引与篇数对账三合一；扫描面与槽位声明住
+      # scripts/harness/ 的 markdown-patterns.json 与 doc-index.manifest.json，链上存量硬换行
+      # 挂 baseline.json 债务台账。本步与自建五 check 合为「六 check」（AGENTS.md 恒常纪律）。
+      - name: 链面门（check:harness）
+        run: npm run check:harness
+
       # W-P2-14：删三死步——test:rc-path 脚本已不存在；dist/cli.js 无此产物（tsup 只出 dist/desktop/*，
       # 已并入上方发布产物门查 package.main）；「零第三方依赖断言」与 dependencies 3 项矛盾。
 

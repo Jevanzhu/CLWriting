@@ -1,0 +1,12 @@
+{
+  "index": "Dev/Docs/README.md",
+  "scan": "Dev/Docs",
+  "entries": [
+    { "dir": "01-评审", "count": true },
+    { "dir": "02-执行", "count": true },
+    { "dir": "03-设计", "count": true },
+    { "dir": "04-调研", "count": true },
+    { "dir": "05-规范", "count": true },
+    { "dir": "Archive", "count": true }
+  ]
+}

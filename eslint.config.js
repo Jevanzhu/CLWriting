@@ -97,6 +97,10 @@ export default [
       'src/studio/web-next/test-results/**',
       'src/studio/web-next/dist/**',
       'dist-electron/**', // 本地 build:desktop:dir 出包的解包产物（lint 不扫假红；CI 不受影响）
+      // project-harness 校验器副本面与 .agents/skills/ 同性质：随上游整体替换，
+      // 风格随来源（行首逻辑运算符、单参箭头不带括号），本地门表编辑只在升级面保留。
+      // 纳入 lint 只产出「副本不合本仓 lint 口径」的假红；其行为由 check:harness 实跑背书。
+      'scripts/harness/**',
     ],
   },
   {

@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import {
   ANCHOR_ALLOWLIST,
   collectFiles,
+  EXCLUDED_PATHS,
   extractCommentLines,
   findResidueHits,
   findTagHits,
@@ -34,6 +35,7 @@ import {
   SAMPLE_ZONES,
   sampleZoneRanges,
   SCAN_ROOTS,
+  scanRepo,
   stripTagSpans,
   tagSpansOf,
   TOKEN_EXCEPTIONS,
@@ -505,6 +507,27 @@ describe('扫描面：scripts/** 入网 + 空面 / 不可读 fail-closed（colle
     expect(files).toHaveLength(1)
     expect(problems).toHaveLength(SCAN_ROOTS.length)
     expect(problems.every((p: string) => p.includes('扫描面为空'))).toBe(true)
+  })
+
+  it('副本面按路径整目录豁免：scripts/harness/ 的命中不进清单，同内容在 scripts/ 其他处照报', () => {
+    // 排除面与保留面同内容对照——只断言「不报」不能区分「豁免生效」与「扫面坏了」。
+    const base = mkdtempSync(join(tmpdir(), 'clw-scan-copies-'))
+    mkdirSync(join(base, 'src'))
+    mkdirSync(join(base, 'scripts', 'harness'), { recursive: true })
+    writeFileSync(join(base, 'src', 'a.ts'), '// 作用说明\n')
+    const probe = '// ---------------------------------------------------------------------------\n'
+    writeFileSync(join(base, 'scripts', 'harness', 'run-gates.ts'), probe)
+    writeFileSync(join(base, 'scripts', 'check-custom.mjs'), probe)
+
+    expect([...EXCLUDED_PATHS]).toEqual(['scripts/harness'])
+    const { files, problems } = collectFiles(base)
+    expect(problems).toEqual([])
+    const rel = files.map((f: string) => normalizeWinSeparators(f))
+    expect(rel.some((f: string) => f.includes('/scripts/harness/'))).toBe(false)
+    expect(rel.some((f: string) => f.endsWith('/scripts/check-custom.mjs'))).toBe(true)
+
+    const { residues } = scanRepo(base)
+    expect(residues.map((h: { file: string }) => h.file)).toEqual(['scripts/check-custom.mjs'])
   })
 })
 

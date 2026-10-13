@@ -91,6 +91,15 @@ const SCAN_EXTS = new Set(['.ts', '.tsx', '.mts', '.cts', '.vue', '.js', '.mjs',
 const EXCLUDED_DIRS = new Set(['node_modules'])
 
 /**
+ * 豁免路径（相对仓库根）。`scripts/harness/` 是 project-harness 校验器副本面：
+ * 随上游整体替换（bootstrap --force），注释风格随来源——含上游用作分区的手绘
+ * 分隔注释行，形态上与本门的「切除后残形」判据撞车。本门管本仓手写的叙述面；
+ * 副本面纳入只会产出「副本不合本仓注释口径」的假红，其行为由 check:harness 实跑
+ * 与上游仓 spec 背书。声明式排除，非事故（同 EXCLUDED_DIRS 语义，不入 problems）。
+ */
+export const EXCLUDED_PATHS = new Set(['scripts/harness'])
+
+/**
  * 修复史批名：只写**后缀**、不吞前缀——`重评修复批` / `0918修复批` / `优化修复批` /
  * `临时目录收敛批` 都命中「修复批」「收敛批」这两个后缀。判定面窄 = 零误报（`批量` /
  * `批注` / `批次` / `批复` / `本批` / `同批` 这类后随汉字的真词一律不入）；切除面由
@@ -1228,7 +1237,8 @@ function lineOfOffset(lines, offset) {
  * - 递归中逐层 readdir / 条目 stat 失败 → 留痕为 problem（静默吞正是「扫 0 个文件仍打
  *   通过」假绿的成因，历史事故）；
  * - 全部扫描面合计零文件 → 报整体为空。
- * EXCLUDED_DIRS 的显式排除不算问题（那是声明式排除，非事故）。
+ * EXCLUDED_DIRS 的显式排除不算问题（那是声明式排除，非事故）；EXCLUDED_PATHS 同义
+ * （副本面按路径整目录排除，见其头注）。
  */
 export function collectFiles(base = root) {
   const files = []
@@ -1245,6 +1255,7 @@ export function collectFiles(base = root) {
       if (EXCLUDED_DIRS.has(name)) continue
       const p = join(dir, name)
       const rel = `${relDir}/${name}`
+      if (EXCLUDED_PATHS.has(rel)) continue
       let st
       try {
         st = statSync(p)

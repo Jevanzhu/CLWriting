@@ -22,5 +22,14 @@
     "noEmit": true
   },
   "include": ["src", "test", "scripts", "*.config.ts"],
-  "exclude": ["src/studio/web-next", "test/studio/webnext"]
+  "exclude": [
+    "src/studio/web-next",
+    "test/studio/webnext",
+    // project-harness 校验器副本面：随上游整体替换（刷新见 bootstrap --force），
+    // 按 Node 类型剥离直跑，导入带 .ts 扩展、风格随来源；纳入 tsc 只会产出「副本
+    // 不合本仓编译口径」的假红。正确性由 check:harness 实跑与上游仓 spec 保证。
+    // 本仓自己写死的门表（run-gates.ts 的 MODES）与 harness 清单仍在 scripts/ 下 ——
+    // 清单是 JSON 不入 tsc；门表随 check:harness 每条实跑背书。
+    "scripts/harness"
+  ]
 }
