@@ -25,7 +25,7 @@
 - **并入优先**：新用例加进同域既有档，不为单例新开档；碎片档并档。
 - **L0 零测试面**：纯文档/注释/用户数据/纯类型面——不跑测试，回复声明改动面。
 - **L1 中间刀（跑最窄面）**：只跑改过/新增档（`npx vitest run <档>`）；跨域或动共享模块才升域目录/全量。`npm run test:related` 走传递闭包、非叶子档两百档起，非默认；动前端加 `npm run typecheck:web-next`；路径错会静默空跑（wrapper 已防呆）。
-- **L2 终门（批收口一次，不按刀）**：vitest 全量 + tsc/vue-tsc + eslint + 六 check（五自建 + `check:harness` 链面门）；e2e 仅当批动到前端/SSE/端点链；coverage 归 CI 阈值门；收口记实测数字。
+- **L2 终门（批收口一次，不按刀）**：vitest 全量 + tsc/vue-tsc + eslint + 七 check（五自建 + `check:harness` 链面门 + `check:notes` 决策记录门）；e2e 仅当批动到前端/SSE/端点链；coverage 归 CI 阈值门；收口记实测数字。
 - **测试命名**：新测试文件按被测行为命名，批次号只留文件头注释与源码锚注。
 
 ## 任务与阅读纪律

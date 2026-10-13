@@ -35,6 +35,7 @@
     "check:docs": "node scripts/check-docs.mjs",
     "check:comments": "node scripts/check-comments.mjs",
     "check:harness": "node scripts/harness/run-gates.ts text --stream",
+    "check:notes": "node scripts/harness/run-gates.ts agent-notes --stream",
     "check:packaging": "node scripts/check-packaging.mjs",
     "check:knowledge": "tsx scripts/check-knowledge.ts",
     "verify:responses": "tsx scripts/verify-responses-relay.ts",
