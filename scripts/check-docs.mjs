@@ -41,9 +41,9 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 export const INDEX_FILES = [
   { path: 'Dev/Docs/README.md', maxLine: 400, label: 'Dev/Docs/README.md' },
   {
-    path: 'Dev/Docs/00-总览与实施路线-2026-08-15.md',
+    path: 'Dev/Docs/00-活账.md',
     maxLine: 700,
-    label: '总览（00-总览与实施路线）',
+    label: '活账（00-活账）',
   },
 ]
 
