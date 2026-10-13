@@ -112,7 +112,11 @@ export function markdownFiles(root: string): string[] {
       return
     }
     for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
+      // The default walk skips dot directories: they hold tool state, not prose. A
+      // pattern list may name one on purpose (`.agents/notes/**/*.md`), so the skip
+      // yields to the declaration — otherwise that pattern silently matches nothing
+      // and the surface looks checked while nothing under it ever was.
+      if (entry.name.startsWith('.') && patterns === undefined) continue
       const abs = resolve(absDir, entry.name)
       const rel = relative(root, abs).split(sep).join('/')
       if (gitignored.has(rel)) continue

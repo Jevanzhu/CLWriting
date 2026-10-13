@@ -84,6 +84,7 @@ node scripts/harness/verify-doc-budgets.ts --list   # 只报告，不失败
 - 锚点比对使用 GitHub 的 slug 规则（小写、去标点、空格转连字符、**保留连字符与下划线**）。最后一条容易写错：`### list_agents` 的锚点是 `#list_agents`，把下划线当标点删掉会让所有下划线标题的引用变成假阳性。
 - 记录生成的产物（`expected/`、`snapshots/`、`fixtures/`）不参与链接检查。它们引用的是被测系统输出的字面文本，其中的占位路径（`path/to/image.png`）是内容而不是引用。需要检查其中某个文件时，用 `scripts/harness/markdown-patterns.json` 显式列入。
 - `.gitignore` 里的条目按**写出的路径**精确跳过：`Dev/reference-clone` 只排除那一条，父目录 `Dev/` 照常扫描。只取首段会把整棵树连同一个文档链一起静默剪掉——扫描面缩小而成绿，和门禁从没跑过是一回事。含 glob 的条目在 glob 处截断（`dist/**` 排除 `dist`）。
+- 默认遍历跳过**点目录**：`.git`、`.cache` 一类是工具状态，不是散文。要让点目录进门，必须在 `markdown-patterns.json` 里显式点名——上游项目正是这样把 `.agents/notes/` 纳入扫描面的。没点名的点目录不在面上；这个例外只对**显式模式**成立，默认遍历永远跳过它们。
 - 扫描面为空时报红而不是通过（模式文件什么都没匹配上、根解析得太高）：一个什么都没扫的门禁，任何检查都能通过。`--write-baseline` 是例外——空面上没有可记的账，那是事实，不是沉默通过。
 
 ## 扫描范围的两种模式

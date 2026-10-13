@@ -10,7 +10,7 @@ node_modules/
 src/studio/web-next/node_modules/
 src/studio/web-next/dist/
 src/studio/web-next/test-results/
-# 项目文档链（评审正本、执行方案、Archive）：正文归 Dev/Docs 自管篇幅门（check:docs）。
+# 项目文档链（根 docs/：评审正本、执行方案、Archive）：正文归篇幅门（check:docs）自管。
 # markdown 一律不入格式化面——本仓文档是中文长文，格式化器会重排表格列宽并给 HTML
 # 注记块补空行，制造大量无意义 diff（实测 README 一处表格 7 行全改 + 注记块插空行）。
 Dev/

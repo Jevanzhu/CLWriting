@@ -864,7 +864,7 @@ function main() {
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
   claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '合入门槛单测数')
 
-  // Dev/Docs 索引面的篇数声称原在本门对账（`Archive/` 行正则）；链面收口批起改由
+  // docs 索引面的篇数声称原在本门对账（`Archive/` 行正则）；链面收口批起改由
   // `check:harness` 的 verify-doc-index 按 `scripts/harness/doc-index.manifest.json`
   // 声明的槽位逐条对账（六槽 + 顶层档引用），单一声明点、更宽覆盖面，故本门不再重复。
 

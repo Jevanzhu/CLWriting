@@ -39,9 +39,9 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 // 「不塞废话」是对编辑者的行文要求，字节上限会把「写清楚」逼成压缩或外移，反向激励错误。
 // AGENTS.md 不入本门（作者口径：正本不被机器门绑定）。
 export const INDEX_FILES = [
-  { path: 'Dev/Docs/README.md', maxLine: 400, label: 'Dev/Docs/README.md' },
+  { path: 'docs/README.md', maxLine: 400, label: 'docs/README.md' },
   {
-    path: 'Dev/Docs/00-活账.md',
+    path: 'docs/00-活账.md',
     maxLine: 700,
     label: '活账（00-活账）',
   },
@@ -202,7 +202,7 @@ export function main() {
     console.error('  修法：实录/沿革/批记压成「一句结论 + git 锚」，明细移入 commit message 或报告本体。')
     process.exit(1)
   }
-  console.log('check:docs 通过：索引面（Dev/Docs）与介绍面（根 README）单行长度、禁语均合规。')
+  console.log('check:docs 通过：索引面（docs/）与介绍面（根 README）单行长度、禁语均合规。')
 }
 
 // 直跑判据走 pathToFileURL——argv[1] 可能是相对路径（`node scripts/check-docs.mjs`），

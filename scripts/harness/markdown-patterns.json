@@ -2,5 +2,8 @@
   "README.md",
   "AGENTS.md",
   "CLAUDE.md",
-  "Dev/Docs/**/*.md"
+  "docs/**/*.md",
+  ".agents/notes/proposed/**/*.md",
+  ".agents/notes/implemented/**/*.md",
+  ".agents/notes/rejected/**/*.md"
 ]

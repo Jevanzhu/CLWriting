@@ -117,6 +117,26 @@ describe('scan surface', () => {
     assert.deepEqual(report(root), ['docs/a.md -> ./missing.md'])
   })
 
+  test('a pattern may name a dot directory the default walk skips', () => {
+    const root = fixture({
+      'scripts/harness/markdown-patterns.json': '[\n  ".agents/notes/implemented/**/*.md"\n]\n',
+      '.agents/notes/implemented/a.md': '[gone](./missing.md)\n',
+      '.agents/notes/archived/b.md': '[gone](./missing.md)\n',
+      'docs/a.md': '[gone](./missing.md)\n',
+    })
+    // Pair: the declared dot subtree is scanned, its undeclared sibling under the same
+    // dot tree is not, and a non-dot tree stays out of an explicit list.
+    assert.deepEqual(report(root), ['.agents/notes/implemented/a.md -> ./missing.md'])
+  })
+
+  test('the default walk still skips dot directories', () => {
+    const root = fixture({
+      '.agents/notes/implemented/a.md': '[gone](./missing.md)\n',
+      'docs/a.md': '[gone](./missing.md)\n',
+    })
+    assert.deepEqual(report(root), ['docs/a.md -> ./missing.md'])
+  })
+
   test('a pattern file that is not an array of strings is an error, not a full scan', () => {
     const root = fixture({
       'scripts/harness/markdown-patterns.json': '{ "scan": ["docs/**"] }\n',
