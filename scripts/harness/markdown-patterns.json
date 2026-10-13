@@ -3,7 +3,7 @@
   "AGENTS.md",
   "CLAUDE.md",
   "docs/**/*.md",
-  ".agents/notes/proposed/**/*.md",
-  ".agents/notes/implemented/**/*.md",
-  ".agents/notes/rejected/**/*.md"
+  ".agents/notes/提案中/**/*.md",
+  ".agents/notes/已实施/**/*.md",
+  ".agents/notes/已否决/**/*.md"
 ]

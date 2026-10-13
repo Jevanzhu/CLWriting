@@ -13,8 +13,9 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BASELINE_REL } from './baseline.ts'
+import type { ClassSlot, LifecycleSlot, Locale } from '../../agent-notes/scripts/aliases.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_ROOT = resolve(SCRIPT_DIR, '..')
@@ -132,17 +133,32 @@ const BUDGET_CANDIDATES = ['AGENTS.md', 'docs/AGENTS.md', 'README.md', 'docs/arc
 /** Headroom added above the current measurement when seeding a ceiling. */
 const BUDGET_HEADROOM = 1.15
 
-/** Agent Note classes; the archive mirrors this closed set. */
-const CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing']
+/**
+ * The Agent Note tree's language-driven names, loaded from the sibling skill at run
+ * time. A static import would fail before this script's own missing-skill check could
+ * explain the problem, and duplicating the tables would let the two drift.
+ */
+interface NoteTreeNames {
+  LIFECYCLE_SLOTS: readonly LifecycleSlot[]
+  CLASS_SLOTS: readonly ClassSlot[]
+  lifecycleDir: (slot: LifecycleSlot, locale: Locale) => string
+  classDir: (slot: ClassSlot, locale: Locale) => string
+  archiveDir: (locale: Locale) => string
+}
 
-/** Relative path of the archive's own instruction file, required by the archive gate. */
-const ARCHIVED_AGENTS = '.agents/notes/archived/AGENTS.md'
+async function loadNoteTreeNames(): Promise<NoteTreeNames> {
+  return await import(pathToFileURL(join(AGENT_NOTES_SKILL, 'aliases.ts')).href) as unknown as NoteTreeNames
+}
+
+/** The archive's own instruction file, required by the archive gate; its path follows the corpus language. */
+const archivedAgentsPath = (locale: Locale, archive: string): string => `.agents/notes/${archive}/AGENTS.md`
 
 /** Notes-tree configuration: the corpus's primary language and paired-document mode. */
 const NOTES_CONFIG = '.agents/notes/harness.json'
 
 /** What the archive gate requires at its root. Sealed artifacts are immutable. */
-const ARCHIVED_AGENTS_CONTENT = `# Archived Agent Notes
+const ARCHIVED_AGENTS_CONTENT: Record<Locale, string> = {
+  en: `# Archived Agent Notes
 
 Sealed decision records. Every artifact here is frozen: never edit, reformat, translate,
 repair, move, or delete one. \`manifest.json\` records a content hash per file and is
@@ -160,7 +176,26 @@ Archiving a note is the only way files appear here:
 
 Archive links are checked inbound only: links pointing into this tree are validated, but
 links this tree makes to the outside are not, because they may be stale by design.
-`
+`,
+  zh: `# 归档决策记录
+
+封存的决策记录。此处的每一件都已冻结：永不编辑、重排、翻译、修复、移动或删除。
+\`manifest.json\` 逐条记录内容哈希且只增不改——对已封存字节的任何改动都会被
+\`scripts/harness/verify-archived-agent-notes.ts\` 拒绝。
+
+归档是文件进入此树的唯一途径：
+
+1. 从 \`已实施/<类>/\` 移动完整的三件套。
+2. 在每个语言文件的 \`Status: implemented\` 行正下方插入一行相同的
+   \`Archived: YYYY-MM-DD\`。
+3. 重录任何配对内容哈希。
+4. 修理或删除指向它的入站链接。
+5. 用 \`node scripts/harness/verify-archived-agent-notes.ts --write\` 封存。
+
+归档树的链接只查入站：指向本树的链接会被校验，本树发出的链接不查——它们按设计
+可能已经过时。
+`,
+}
 
 interface Options {
   target: string
@@ -170,12 +205,17 @@ interface Options {
   /** Re-seed the manifests even where they already exist — destructive, so its own flag. */
   resetManifests: boolean
   adopt: boolean
+  /** Language of a fresh Agent Note corpus; ignored once the target declares its own. */
+  notesLanguage?: Locale
 }
 
 function usage(): never {
-  console.error('usage: node bootstrap.ts --target <repo> [--adopt] [--dry-run] [--force] [--reset-manifests]')
+  console.error('usage: node bootstrap.ts --target <repo> [--adopt] [--notes-language en|zh] [--dry-run] [--force] [--reset-manifests]')
   console.error('  --adopt            record the violations already in the target as accepted debt,')
   console.error('                     so the Markdown gates fail only on violations added from now on')
+  console.error('  --notes-language   the Agent Note corpus language of a fresh scaffold (default en):')
+  console.error('                     it spells the lifecycle folders, the class folders, the archive')
+  console.error('                     container, and .agents/notes/harness.json together')
   console.error('  --force            refresh the copied verifiers; declarations are preserved —')
   console.error('                     the manifests, and a gate table the target has edited')
   console.error('  --reset-manifests  re-seed the manifests and the gate table even where they exist,')
@@ -189,12 +229,21 @@ function parseArgs(argv: readonly string[]): Options {
   let force = false
   let resetManifests = false
   let adopt = false
+  let notesLanguage: Locale | undefined
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--target') {
       index += 1
       target = argv[index]
       if (target === undefined) usage()
+    } else if (arg === '--notes-language') {
+      index += 1
+      const value = argv[index]
+      if (value !== 'en' && value !== 'zh') {
+        console.error(`bootstrap: --notes-language must be en or zh (got ${JSON.stringify(value ?? '')})`)
+        usage()
+      }
+      notesLanguage = value
     } else if (arg === '--dry-run') dryRun = true
     else if (arg === '--force') force = true
     else if (arg === '--reset-manifests') resetManifests = true
@@ -202,7 +251,36 @@ function parseArgs(argv: readonly string[]): Options {
     else usage()
   }
   if (target === undefined) usage()
-  return { target: resolve(target), dryRun, force, resetManifests, adopt }
+  return { target: resolve(target), dryRun, force, resetManifests, adopt, notesLanguage }
+}
+
+/**
+ * The corpus language for this run: the target's own declaration when it has one, else
+ * the flag, else the upstream default. A flag that contradicts an existing declaration
+ * is refused — changing a corpus's language moves its whole tree, so it is its own act,
+ * never a side effect of a re-run.
+ */
+function resolveNotesLanguage(options: Options): Locale {
+  const configPath = join(options.target, NOTES_CONFIG)
+  if (!existsSync(configPath)) return options.notesLanguage ?? 'en'
+  let declared: unknown
+  try {
+    declared = (JSON.parse(readFileSync(configPath, 'utf8')) as { primaryLanguage?: unknown }).primaryLanguage
+  } catch {
+    console.error(`bootstrap: ${NOTES_CONFIG} is not valid JSON; fix or remove it before bootstrapping`)
+    process.exit(1)
+  }
+  if (declared !== 'en' && declared !== 'zh') {
+    console.error(`bootstrap: ${NOTES_CONFIG} declares primaryLanguage ${JSON.stringify(declared ?? '')}; expected en or zh`)
+    process.exit(1)
+  }
+  if (options.notesLanguage !== undefined && options.notesLanguage !== declared) {
+    console.error(`bootstrap: --notes-language ${options.notesLanguage} contradicts ${NOTES_CONFIG} (declared ${declared}).`)
+    console.error('Changing a corpus\'s language means moving its whole tree — every lifecycle folder,')
+    console.error('class folder, and archive container. Do that as its own change, or pass the declared language.')
+    process.exit(1)
+  }
+  return declared
 }
 
 /** Count whitespace-delimited tokens, matching `wc -w`. */
@@ -210,7 +288,7 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2))
   if (!existsSync(options.target) || !statSync(options.target).isDirectory()) {
     console.error(`bootstrap: target ${JSON.stringify(options.target)} is not a directory`)
@@ -235,6 +313,13 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     process.exit(1)
   }
 
+  // The corpus language spells the whole Agent Note tree, so the scaffold and the
+  // declaration are written together from one resolution.
+  const notesLanguage = resolveNotesLanguage(options)
+  const names = await loadNoteTreeNames()
+  const archive = names.archiveDir(notesLanguage)
+  const archiveRootRel = `.agents/notes/${archive}`
+
   const planned: string[] = []
   const skipped: string[] = []
   const notes: string[] = []
@@ -251,10 +336,11 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
     writeFileSync(abs, content)
   }
 
-  // 1. Agent Note lifecycle tree with a README placeholder per lifecycle root.
-  for (const lifecycle of ['proposed', 'implemented', 'rejected'] as const) {
-    for (const cls of CLASSES) {
-      const keep = join('.agents/notes', lifecycle, cls, '.gitkeep')
+  // 1. Agent Note lifecycle tree with a placeholder per lifecycle/class folder, named
+  // in the corpus language (提案中/已实施/已否决 × 功能/缺陷修复/… when it is zh).
+  for (const lifecycle of names.LIFECYCLE_SLOTS) {
+    for (const cls of names.CLASS_SLOTS) {
+      const keep = join('.agents/notes', names.lifecycleDir(lifecycle, notesLanguage), names.classDir(cls, notesLanguage), '.gitkeep')
       const abs = join(options.target, keep)
       if (existsSync(abs)) continue
       planned.push(keep)
@@ -266,8 +352,8 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
   }
 
   // 2. Archive tree: all six class directories are required by the gate, even empty.
-  for (const cls of CLASSES) {
-    const keep = join('.agents/notes/archived', cls, '.gitkeep')
+  for (const cls of names.CLASS_SLOTS) {
+    const keep = join(archiveRootRel, names.classDir(cls, notesLanguage), '.gitkeep')
     const abs = join(options.target, keep)
     if (existsSync(abs)) continue
     planned.push(keep)
@@ -276,16 +362,17 @@ skill directory (~/.agents/skills/agent-notes and ~/.agents/skills/project-harne
       writeFileSync(abs, '')
     }
   }
-  write(ARCHIVED_AGENTS, ARCHIVED_AGENTS_CONTENT)
-  if (!existsSync(join(options.target, '.agents/notes/archived/manifest.json'))) {
-    write('.agents/notes/archived/manifest.json', '{\n  "version": 1,\n  "files": {}\n}\n')
+  write(archivedAgentsPath(notesLanguage, archive), ARCHIVED_AGENTS_CONTENT[notesLanguage])
+  const manifestRel = `${archiveRootRel}/manifest.json`
+  if (!existsSync(join(options.target, manifestRel))) {
+    write(manifestRel, '{\n  "version": 1,\n  "files": {}\n}\n')
   } else {
-    skipped.push('.agents/notes/archived/manifest.json')
+    skipped.push(manifestRel)
   }
-  // English primary files, no paired counterparts required: both are the deliberate
-  // choices, so the scaffold spells them out instead of hiding them behind defaults.
+  // The declared language carries the whole corpus: notes are written in it, and it
+  // spells the tree. Pairing stays off until a repository asks for counterparts.
   if (!existsSync(join(options.target, NOTES_CONFIG))) {
-    write(NOTES_CONFIG, `{\n  "primaryLanguage": "en",\n  "pairedDocuments": false\n}\n`)
+    write(NOTES_CONFIG, `{\n  "primaryLanguage": "${notesLanguage}",\n  "pairedDocuments": false\n}\n`)
   } else {
     skipped.push(NOTES_CONFIG)
   }
@@ -503,4 +590,4 @@ re-record with \`--write-baseline\` so the file visibly shrinks. Each entry left
 ${BASELINE_REL} is a violation the gates will not stop from spreading.` : ''}`)
 }
 
-main()
+await main()

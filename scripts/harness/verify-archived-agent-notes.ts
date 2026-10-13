@@ -3,7 +3,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { AGENT_NOTE_CLASSES, agentNoteRoot } from './agent-note-tree.ts'
+import { agentNoteRoot } from './agent-note-tree.ts'
+import { archiveDir, classDir, classDirs, classSlotAny, CLASS_SLOTS, type ClassSlot } from './aliases.ts'
 import { readHarnessConfig } from './harness-config.ts'
 import { resolveRepoRoot } from './harness-root.ts'
 import {
@@ -41,37 +42,43 @@ try {
 }
 
 const notesRoot = agentNoteRoot(repoRoot)
-const archiveRoot = resolve(notesRoot, 'archived')
-const manifestPath = resolve(archiveRoot, 'manifest.json')
-const manifestRepoPath = '.agents/notes/archived/manifest.json'
-const errors: string[] = []
-const allowedRootFiles = new Set(['AGENTS.md', 'manifest.json', 'harness.json'])
-const kinds = new Set<string>()
-const artifacts = new Map<string, Buffer>()
 
 const harness = readHarnessConfig(notesRoot)
+const errors: string[] = []
 errors.push(...harness.errors)
 
+// The archive container is spelled in the corpus's language, like the rest of the
+// tree; a corpus that flipped its declaration renames this one directory, and the
+// sealed paths inside it — which name the kind directory — keep their own spelling.
+const archive = archiveDir(harness.config.primaryLanguage)
+const archiveRoot = resolve(notesRoot, archive)
+const manifestPath = resolve(archiveRoot, 'manifest.json')
+const manifestRepoPath = `.agents/notes/${archive}/manifest.json`
+const allowedRootFiles = new Set(['AGENTS.md', 'manifest.json', 'harness.json'])
+const kinds = new Set<ClassSlot>()
+const artifacts = new Map<string, Buffer>()
+
 if (!existsSync(archiveRoot)) {
-  console.error('verify-archived-agent-notes: no .agents/notes/archived/ tree found; create it with the harness bootstrap script.')
+  console.error(`verify-archived-agent-notes: no ${manifestRepoPath.replace(/\/manifest\.json$/, '/')} tree found; create it with the harness bootstrap script.`)
   process.exit(1)
 }
 
-if (!existsSync(resolve(archiveRoot, 'AGENTS.md'))) errors.push('archived/AGENTS.md is required')
+if (!existsSync(resolve(archiveRoot, 'AGENTS.md'))) errors.push(`${archive}/AGENTS.md is required`)
 for (const entry of readdirSync(archiveRoot, { withFileTypes: true })) {
   if (entry.isFile()) {
-    if (!allowedRootFiles.has(entry.name)) errors.push(`archived/${entry.name}: unexpected root file`)
+    if (!allowedRootFiles.has(entry.name)) errors.push(`${archive}/${entry.name}: unexpected root file`)
     continue
   }
   if (!entry.isDirectory()) {
-    errors.push(`archived/${entry.name}: only regular files and kind directories are allowed`)
+    errors.push(`${archive}/${entry.name}: only regular files and kind directories are allowed`)
     continue
   }
-  if (!(AGENT_NOTE_CLASSES as readonly string[]).includes(entry.name)) {
-    errors.push(`archived/${entry.name}/: unknown Agent Note kind`)
+  const kind = classSlotAny(entry.name)
+  if (kind === undefined) {
+    errors.push(`${archive}/${entry.name}/: unknown Agent Note kind (the corpus's own spellings are ${classDirs(harness.config.primaryLanguage).join(', ')})`)
     continue
   }
-  kinds.add(entry.name)
+  kinds.add(kind)
   for (const child of readdirSync(resolve(archiveRoot, entry.name), { withFileTypes: true })) {
     // Dotfiles keep otherwise-empty kind directories in version control; they are
     // not archived artifacts and carry no seal.
@@ -84,8 +91,8 @@ for (const entry of readdirSync(archiveRoot, { withFileTypes: true })) {
     artifacts.set(rel, readFileSync(resolve(archiveRoot, rel)))
   }
 }
-for (const kind of AGENT_NOTE_CLASSES) {
-  if (!kinds.has(kind)) errors.push(`archived/${kind}/: required kind directory is missing`)
+for (const kind of CLASS_SLOTS) {
+  if (!kinds.has(kind)) errors.push(`${archive}/${classDir(kind, harness.config.primaryLanguage)}/: required kind directory is missing`)
 }
 errors.push(...validateArchiveArtifacts(artifacts, harness.config))
 
@@ -131,10 +138,10 @@ if (existsSync(manifestPath)) {
   try {
     manifest = parseArchiveManifest(readFileSync(manifestPath, 'utf8'))
   } catch (error: unknown) {
-    errors.push(`archived/manifest.json: ${error instanceof Error ? error.message : String(error)}`)
+    errors.push(`${manifestRepoPath}: ${error instanceof Error ? error.message : String(error)}`)
   }
 } else if (!writeMode) {
-  errors.push('archived/manifest.json is required; seal new artifacts with `node verify-archived-agent-notes.ts --write`')
+  errors.push(`${manifestRepoPath} is required; seal new artifacts with \`node verify-archived-agent-notes.ts --write\``)
 }
 
 // CI supplies its trusted pre-change commit; local writes compare with committed HEAD.
@@ -148,7 +155,7 @@ if (!isGitRepository()) {
     if (warning !== undefined) console.warn(`verify-archived-agent-notes: ${warning}`)
     errors.push(...validateArchiveManifestExtension(baseline, manifest))
   } catch (error: unknown) {
-    errors.push(`archived/manifest.json: cannot read baseline ${JSON.stringify(baselineRef)}: ${error instanceof Error ? error.message : String(error)}`)
+    errors.push(`${manifestRepoPath}: cannot read baseline ${JSON.stringify(baselineRef)}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

@@ -73,7 +73,7 @@ node scripts/harness/verify-doc-budgets.ts --list   # 只报告，不失败
 
 **八、强调膨胀。** 处处加粗、大写、`critically`、`very important`。**处处是重点等于没有重点**，而且它让真正重要的那一处失去了信号。
 
-另有一类专门针对 `implemented/` 决策记录：**规格腔**（should、迁移计划、验收清单）。已交付的东西用陈述句，见 `agent-notes` skill。
+另有一类专门针对 `implemented/`（中文语料 `已实施/`）决策记录：**规格腔**（should、迁移计划、验收清单）。已交付的东西用陈述句，见 `agent-notes` skill。
 
 ## 链接
 

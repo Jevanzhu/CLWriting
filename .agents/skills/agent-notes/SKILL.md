@@ -27,13 +27,17 @@ Agent Notes 是给 agent 写、也给 agent 读的 RFC：它记录一个决策�
 
 格式是 `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md`，两个维度都编码在路径里，日期取**该主题首次被提出的那天**（查 git 历史，不是写文件的今天）。
 
+目录名（英文语料 / 中文语料）：
+
 | lifecycle | 含义 |
 |---|---|
-| `proposed/` | 已评审但尚未落地（或只落了一部分）。可以用将来时态、写迁移计划。 |
-| `implemented/` | 决策已交付。必须用现在时描述**已存在的事实**。 |
-| `rejected/` | 考虑过并否决了。只在它的理由能防止一个诱人的错误时保留。 |
+| `proposed/` · `提案中/` | 已评审但尚未落地（或只落了一部分）。可以用将来时态、写迁移计划。 |
+| `implemented/` · `已实施/` | 决策已交付。必须用现在时描述**已存在的事实**。 |
+| `rejected/` · `已否决/` | 考虑过并否决了。只在它的理由能防止一个诱人的错误时保留。 |
 
-class 是决策的种类，取值封闭：`feature`（新的用户或模型可见能力）、`bug-fix`、`simplification`（删代码或表面积、不加能力）、`architecture`（**交付源码**的结构决策）、`process`（**围绕代码**的工具链与工作流）、`testing`。
+**声明一次，拼写全树**：语料的主语言（`.agents/notes/harness.json`）同时决定骨架标题和目录名——中文语料从 lifecycle 到文件名主干一路中文，两种拼写不混住一棵树。拼错了门禁会点名期望的名字。
+
+class 是决策的种类，取值封闭：`feature`/`功能`（新的用户或模型可见能力）、`bug-fix`/`缺陷修复`、`simplification`/`简化`（删代码或表面积、不加能力）、`architecture`/`架构`（**交付源码**的结构决策）、`process`/`流程`（**围绕代码**的工具链与工作流）、`testing`/`测试`。
 
 `architecture` 与 `process` 的分界线：架构管我们交付的源码，流程管外围的工具与工作流。`refactor` 被刻意排除——「可观察行为是否改变」这个判据已经被 `simplification` 覆盖。归类判断见 [references/classification.md](references/classification.md)。
 
@@ -55,7 +59,7 @@ class 是决策的种类，取值封闭：`feature`（新的用户或模型可�
 
 缺省是单语：**没有对照文件、没有一致性记录，门禁不施加任何双语要求**。要用中文主语言或维护中英配对时才启用——
 
-- 主语言声明在 `.agents/notes/harness.json`（`{ "primaryLanguage": "zh" }`，缺省 `en`）；正文件 `foo.md` 用它，对照文件 `foo.zh.md` / `foo.en.md` 用另一语言，分类只算一篇。
+- 主语言声明在 `.agents/notes/harness.json`（`{ "primaryLanguage": "zh" }`，缺省 `en`）；它一次定下三件事：正文件 `foo.md` 的语言、每个文件的骨架标题、目录名与文件名主干。**怎么选**：语料语言跟仓库自己的散文走——常驻档、`docs/`、提交信息是中文就选 `zh`，否则留缺省 `en`；上游语料是英文，所以缺省是 `en`。换语言是显式动作：声明改了，整棵树（三个 lifecycle 目录、六个 class 目录、归档容器、文件名主干）跟着移，门禁按声明逐条点名拼写不符的目录。
 - 配对一旦存在就按「一对即三个文件」走：正文件、对照文件、`foo.i18n.yaml` 分节一致性记录；门禁按**文件存在**启用切换行、逐节镜像、记录校验三组规则。
 - 改完任一侧（含改标题），同一改动里更新对侧并重录：`node scripts/verify-agent-note-format.ts --write`；它只重录结构已过关的配对。
 
@@ -70,7 +74,7 @@ class 是决策的种类，取值封闭：`feature`（新的用户或模型可�
 
 ## 归档
 
-活跃树会无限增长，所以有 `archived/`。归档的判据是**语义**，不是字数或年龄——上游语料的校准例子里，533 词的局部 UI 笔记被删掉了，248 词的 event-sourced sessions 笔记被留下了。
+活跃树会无限增长，所以有 `archived/`（中文语料为 `归档/`）。归档的判据是**语义**，不是字数或年龄——上游语料的校准例子里，533 词的局部 UI 笔记被删掉了，248 词的 event-sourced sessions 笔记被留下了。
 
 流程与纪律见 [references/archiving.md](references/archiving.md)。最要紧的一条：**封存之后不可变**。归档树由一份 append-only 的 `manifest.json` 内容哈希清单钉死，任何对已封存字节的改写——哪怕只是重排格式——都会被门禁拒绝。这不是保守，是因为归档笔记一旦可以被悄悄编辑，「历史没被改写」就不再有任何保证。
 

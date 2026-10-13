@@ -7,6 +7,14 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --d
 node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj
 ```
 
+中文语料在第一次铺的时候声明语言，别等铺完再改：
+
+```sh
+node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --notes-language zh
+```
+
+`--notes-language`（缺省 `en`）一次定下三件事：`harness.json` 里的 `primaryLanguage`、决策记录树的目录名（`提案中/已实施/已否决` × `功能/缺陷修复/简化/架构/流程/测试`、归档容器 `归档/`）、以及归档说明书用的语言。它只在**首次铺树**时生效：目标已经有 `harness.json` 时以声明为准，旗标与声明不符会直接报错退出——换语言要移动整棵树，那是独立的一次改动，不是重跑的副作用。
+
 ## 新项目 vs 已有项目
 
 **空仓库**直接跑。**已有内容的仓库**加 `--adopt`，这是两种情况的唯一区别，但它是关键区别：
@@ -45,7 +53,7 @@ node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target ~/myproj --a
 
 ## 它会做什么
 
-1. **建 Agent Note 生命周期树**：`proposed/`、`implemented/`、`rejected/` 三个 lifecycle × 六个 class，各放一个 `.gitkeep` 让 git 保留空目录。
+1. **建 Agent Note 生命周期树**：三个 lifecycle × 六个 class，各放一个 `.gitkeep` 让 git 保留空目录；目录名按 `--notes-language` 拼写（缺省英文：`proposed/`、`implemented/`、`rejected/`）。
 2. **建归档树**：六个 class 目录**全部建出**（即使为空——归档门禁要求六个都在），加空的 `manifest.json` 与 `AGENTS.md`。
 3. **复制校验器**到 `<target>/scripts/harness/`，并把安装来源的版本写进 `scripts/harness/version.json`（安装方元数据：内容一变就刷新，不是你的申报项）。
 4. **实测词数生成文档预算**：读 `AGENTS.md`、`docs/AGENTS.md`、`README.md`、`docs/architecture.md` 里存在的那些，按当前词数 × 1.15 作为初始上限。留 15% 余量是因为初始上限不该立刻就对现有内容亮红灯。

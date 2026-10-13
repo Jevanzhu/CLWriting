@@ -2,8 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
-import { otherLocale, splitTier, tierSuffix, type Locale } from './aliases.ts'
-import { AGENT_NOTE_CLASSES } from './agent-note-tree.ts'
+import { classSlotAny, otherLocale, splitTier, tierSuffix, type Locale } from './aliases.ts'
 
 /** Versioned fields in the frozen-content manifest. */
 export interface ArchiveManifest {
@@ -86,6 +85,8 @@ function validDate(value: string): boolean {
 interface Triplet {
   source?: Buffer
   counterpart?: Buffer
+  /** The counterpart's sealed filename; its tier is read off the file, never assumed. */
+  counterpartName?: string
   meta?: Buffer
 }
 
@@ -130,6 +131,11 @@ function validateMetadata(path: string, content: Buffer, sourceBase: string): { 
  * Validate the closed kind tree, archive metadata, and the artifact set each note
  * shipped with. In paired mode the set is a complete triplet; in monolingual mode a
  * single primary file is complete.
+ *
+ * A kind directory is accepted in either language: sealed paths keep the spelling
+ * they were sealed under, so a corpus that changed its declared language still reads
+ * the entries archived before the change. New entries follow the declared language's
+ * spelling; that rule belongs to the archive gate, which walks the tree.
  */
 export function validateArchiveArtifacts(
   artifacts: ReadonlyMap<string, Buffer>,
@@ -149,7 +155,7 @@ export function validateArchiveArtifacts(
       errors.push(`${path}: expected {kind}/yyyy-mm-dd-topic.${shapeAlternatives}`)
       continue
     }
-    if (!(AGENT_NOTE_CLASSES as readonly string[]).includes(kind)) {
+    if (classSlotAny(kind) === undefined) {
       errors.push(`${path}: unknown Agent Note kind ${JSON.stringify(kind)}`)
       continue
     }
@@ -165,10 +171,6 @@ export function validateArchiveArtifacts(
     } else {
       const split = splitTier(name)
       stem = split.stem
-      if (split.tier === options.primaryLanguage) {
-        errors.push(`${path}: \`${tierSuffix(split.tier)}\` names the primary language (${options.primaryLanguage}); the primary file is \`${kind}/${stem}.md\``)
-        continue
-      }
       if (split.tier === undefined) {
         if (!name.endsWith('.md')) {
           errors.push(`${path}: expected {kind}/yyyy-mm-dd-topic.${shapeAlternatives}`)
@@ -176,6 +178,11 @@ export function validateArchiveArtifacts(
         }
         role = 'source'
       } else {
+        // The tier is read off the sealed file rather than against the current
+        // declaration: a corpus that changed its declared language keeps the tiers it
+        // sealed under, and re-reading them against the new primary would demand a
+        // rename the seal forbids. What a new triplet must look like is the tree
+        // gate's business — the archive only proves the set is complete.
         role = 'counterpart'
       }
     }
@@ -186,16 +193,18 @@ export function validateArchiveArtifacts(
     const key = `${kind}/${stem}`
     const triplet = triplets.get(key) ?? {}
     if (role === 'source') triplet.source = content
-    else if (role === 'counterpart') triplet.counterpart = content
-    else triplet.meta = content
+    else if (role === 'counterpart') {
+      triplet.counterpart = content
+      triplet.counterpartName = name
+    } else triplet.meta = content
     triplets.set(key, triplet)
   }
 
   for (const [key, triplet] of [...triplets].sort(([left], [right]) => left.localeCompare(right))) {
     const sourcePath = `${key}.md`
-    const { source, counterpart, meta } = triplet
+    const { source, counterpart, counterpartName, meta } = triplet
     if (source === undefined) {
-      const found = [counterpart === undefined ? undefined : `${key}${counterpartSuffix}`, meta === undefined ? undefined : `${key}.i18n.yaml`]
+      const found = [counterpartName, meta === undefined ? undefined : `${key}.i18n.yaml`]
         .filter((path): path is string => path !== undefined)
       errors.push(`${key}: archived note has no primary file (found ${found.join(', ')})`)
       continue
@@ -220,7 +229,7 @@ export function validateArchiveArtifacts(
       errors.push(`${key}: incomplete archived triplet; missing ${missing.join(', ')}`)
       continue
     }
-    const { errors: counterpartErrors, date: counterpartDate } = validateMetadata(`${key}${counterpartSuffix}`, counterpart!, sourceBase)
+    const { errors: counterpartErrors, date: counterpartDate } = validateMetadata(`${key}${counterpartName}`, counterpart!, sourceBase)
     errors.push(...counterpartErrors)
     if (sourceDate !== undefined && counterpartDate !== undefined && sourceDate !== counterpartDate) {
       errors.push(`${key}: primary and counterpart archive dates differ (${sourceDate} vs ${counterpartDate})`)
@@ -228,7 +237,7 @@ export function validateArchiveArtifacts(
     const pair = pairMeta(meta!.toString('utf8'))
     if (pair === undefined || pair.size !== 2
       || pair.get(`${sourceBase}.md`) !== gitBlobHash(source)
-      || pair.get(`${sourceBase}${counterpartSuffix}`) !== gitBlobHash(counterpart!)) {
+      || pair.get(counterpartName!) !== gitBlobHash(counterpart!)) {
       errors.push(`${key}.i18n.yaml: consistency record must contain the current Git blob hashes of both archived sides`)
     }
   }

@@ -32,7 +32,7 @@ description: >-
 ## 从零建立
 
 ```sh
-node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> [--dry-run]
+node ~/.agents/skills/project-harness/scripts/bootstrap.ts --target <repo> [--notes-language en|zh] [--dry-run]
 ```
 
 它会建好 Agent Note 生命周期树与归档清单、按目标仓库实测词数算出文档预算、把校验器复制到 `<target>/scripts/harness/`（**复制而非引用**——CI 和任何 clone 者必须能独立跑门禁），并列出需要你决策的剩余步骤。详细流程见 [references/bootstrap.md](references/bootstrap.md)。

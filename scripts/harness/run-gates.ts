@@ -308,28 +308,25 @@ const noteGates: Gate[] = [
  * Rules over the repository's own text — documentation, comments, test surface — none
  * of which needs a build. The aggregate mode keeps its historic name `doc-quick` so
  * branch protection on an already-installed repository keeps pointing at one check.
- *
- * This repository wires three of them (`npm run check:harness` = `text`). The two
- * surfaces that stay out are owned by the repository's own gates with a stronger,
- * language-specific rule set: comment tags by `check:comments`, focused and skipped
- * tests by the AST scan inside `check:counts`. Word budgets do not hold for Chinese
- * documents (`wc -w` counts whitespace, not words) and number claims stay in
- * `check:counts`; both manifests declare `{}` rather than listing a surface nothing
- * uses, so the copies stay upgrade-ready without pretending to check them.
  */
 const textGates: Gate[] = [
   { id: 'markdown-links', label: 'Markdown links and anchors', command: 'node', args: [join(HARNESS, 'verify-md-links.ts')], quick: true },
   { id: 'markdown-wrap', label: 'One paragraph per line', command: 'node', args: [join(HARNESS, 'verify-md-wrap.ts')], quick: true },
+  { id: 'doc-budgets', label: 'Documentation word budgets', command: 'node', args: [join(HARNESS, 'verify-doc-budgets.ts')], quick: true },
   { id: 'doc-index', label: 'Document chain index', command: 'node', args: [join(HARNESS, 'verify-doc-index.ts')], quick: true },
+  { id: 'comment-hygiene', label: 'Comment hygiene', command: 'node', args: [join(HARNESS, 'verify-comment-hygiene.ts')], quick: true },
+  { id: 'test-hygiene', label: 'Focused and skipped tests', command: 'node', args: [join(HARNESS, 'verify-test-hygiene.ts')], quick: true },
+  { id: 'doc-claims', label: 'Documented claims versus their sources', command: 'node', args: [join(HARNESS, 'verify-doc-claims.ts')], quick: true },
 ]
 
 /**
  * Named aggregates. `doc-quick` still carries the historic name; `text` is the
- * text-surface set a repository runs on every change (`npm run check:harness` points
- * here, so the gate table stays the single place that list is declared); `check-all`
- * is the full run — the extension point a repository adds its build and test gates to.
- * The note gates join `doc-quick` and `check-all`; the decision-record layer they
- * check lives under `.agents/notes/`.
+ * text-surface set a repository runs on every change (`npm run check` points here, so
+ * the gate table stays the single place that list is declared); `check-all` is the full
+ * run — the extension point a repository adds its build and test gates to. It contains
+ * everything the harness ships, and nothing else, so today it lists the same gates as
+ * `doc-quick`; the spec pins it as a superset of every other mode, which is what its
+ * name claims.
  */
 export const MODES: Readonly<Record<string, readonly Gate[]>> = {
   'doc-quick': [...noteGates, ...textGates],

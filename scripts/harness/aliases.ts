@@ -1,8 +1,8 @@
 /**
  * Language contract for Agent Notes: canonical heading names per language,
- * counterpart naming, and the language switcher. The tree, format, and archive
- * gates share this table; headings are compared through slots, never as literal
- * strings across languages.
+ * lifecycle and class directory names per language, counterpart naming, and the
+ * language switcher. The tree, format, and archive gates share this table; names
+ * are compared through slots, never as literal strings across languages.
  *
  * A note's primary file is `yyyy-mm-dd-topic.md`, written in the repository's
  * primary language (`.agents/notes/harness.json`, default `en`). A counterpart
@@ -66,6 +66,94 @@ export function anyCanonicalHeading(heading: string): boolean {
 /** The other language of a pair. */
 export function otherLocale(locale: Locale): Locale {
   return locale === 'en' ? 'zh' : 'en'
+}
+
+/** A lifecycle, language-neutral: the tree's first level. */
+export type LifecycleSlot = 'proposed' | 'implemented' | 'rejected'
+
+/** A decision class, language-neutral: the tree's second level. */
+export type ClassSlot = 'feature' | 'bug-fix' | 'simplification' | 'architecture' | 'process' | 'testing'
+
+/** The closed lifecycle set, in tree order. */
+export const LIFECYCLE_SLOTS: readonly LifecycleSlot[] = ['proposed', 'implemented', 'rejected']
+
+/**
+ * The closed class set, in tree order. Adding one is a deliberate act: extend this
+ * list, the directory table below, and the classification reference together.
+ */
+export const CLASS_SLOTS: readonly ClassSlot[] =
+  ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing']
+
+/**
+ * Directory name per slot, per language. The corpus's declared language spells the
+ * whole path — lifecycle, class, and the archive container — so a Chinese corpus
+ * reads Chinese end to end and never mixes the two spellings in one tree.
+ */
+const LIFECYCLE_DIRS: Record<LifecycleSlot, Record<Locale, string>> = {
+  proposed: { en: 'proposed', zh: '提案中' },
+  implemented: { en: 'implemented', zh: '已实施' },
+  rejected: { en: 'rejected', zh: '已否决' },
+}
+
+const CLASS_DIRS: Record<ClassSlot, Record<Locale, string>> = {
+  feature: { en: 'feature', zh: '功能' },
+  'bug-fix': { en: 'bug-fix', zh: '缺陷修复' },
+  simplification: { en: 'simplification', zh: '简化' },
+  architecture: { en: 'architecture', zh: '架构' },
+  process: { en: 'process', zh: '流程' },
+  testing: { en: 'testing', zh: '测试' },
+}
+
+/** The archive's container directory, per language. */
+const ARCHIVE_DIRS: Record<Locale, string> = { en: 'archived', zh: '归档' }
+
+/** The directory a lifecycle occupies in a corpus written in `locale`. */
+export function lifecycleDir(slot: LifecycleSlot, locale: Locale): string {
+  return LIFECYCLE_DIRS[slot][locale]
+}
+
+/** The directory a class occupies in a corpus written in `locale`. */
+export function classDir(slot: ClassSlot, locale: Locale): string {
+  return CLASS_DIRS[slot][locale]
+}
+
+/** The archive container's name in a corpus written in `locale`. */
+export function archiveDir(locale: Locale): string {
+  return ARCHIVE_DIRS[locale]
+}
+
+/** Every lifecycle directory name of `locale`, in tree order. */
+export function lifecycleDirs(locale: Locale): string[] {
+  return LIFECYCLE_SLOTS.map(slot => lifecycleDir(slot, locale))
+}
+
+/** Every class directory name of `locale`, in tree order. */
+export function classDirs(locale: Locale): string[] {
+  return CLASS_SLOTS.map(slot => classDir(slot, locale))
+}
+
+/** The lifecycle a directory name names in `locale`; undefined for anything else. */
+export function lifecycleSlotOf(name: string, locale: Locale): LifecycleSlot | undefined {
+  return LIFECYCLE_SLOTS.find(slot => LIFECYCLE_DIRS[slot][locale] === name)
+}
+
+/** The class a directory name names in `locale`; undefined for anything else. */
+export function classSlotOf(name: string, locale: Locale): ClassSlot | undefined {
+  return CLASS_SLOTS.find(slot => CLASS_DIRS[slot][locale] === name)
+}
+
+/**
+ * The lifecycle a directory name names in either language. Frozen archives use this:
+ * a sealed path keeps the spelling it was sealed under, so a corpus that changed its
+ * declared language still reads the entries archived before the change.
+ */
+export function lifecycleSlotAny(name: string): LifecycleSlot | undefined {
+  return lifecycleSlotOf(name, 'en') ?? lifecycleSlotOf(name, 'zh')
+}
+
+/** The class a directory name names in either language. Sealed paths, as above. */
+export function classSlotAny(name: string): ClassSlot | undefined {
+  return classSlotOf(name, 'en') ?? classSlotOf(name, 'zh')
 }
 
 /**

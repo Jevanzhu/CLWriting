@@ -207,6 +207,67 @@ describe('bootstrapping a fresh repository', () => {
 /** Content that marks a manifest as the adopter's own, so an overwrite is visible. */
 const MINE = '{"__mine__": 1}\n'
 
+describe('scaffolding a Chinese corpus', () => {
+  let target: string
+  let result: ReturnType<typeof spawnSync>
+
+  before(() => {
+    target = tracked()
+    result = spawnSync(process.execPath, [BOOTSTRAP, '--target', target, '--notes-language', 'zh'], { encoding: 'utf8' })
+  })
+
+  test('succeeds, and spells the whole Agent Note tree in the declared language', () => {
+    assert.equal(result.status, 0, String(result.stderr))
+    for (const lifecycle of ['提案中', '已实施', '已否决']) {
+      for (const cls of ['功能', '缺陷修复', '简化', '架构', '流程', '测试']) {
+        assert.ok(existsSync(join(target, '.agents/notes', lifecycle, cls)), `${lifecycle}/${cls} missing`)
+        assert.ok(existsSync(join(target, '.agents/notes/归档', cls)), `归档/${cls} missing`)
+      }
+    }
+  })
+
+  test('declares the language it seeded, so tree and declaration cannot disagree', () => {
+    assert.deepEqual(JSON.parse(readFileSync(join(target, '.agents/notes/harness.json'), 'utf8')), {
+      primaryLanguage: 'zh',
+      pairedDocuments: false,
+    })
+  })
+
+  test('writes the archive instruction file in that language, naming folders that exist', () => {
+    const doc = readFileSync(join(target, '.agents/notes/归档/AGENTS.md'), 'utf8')
+    assert.match(doc, /归档是文件进入此树的唯一途径/)
+    assert.match(doc, /已实施\/<类>\//)
+    assert.equal(existsSync(join(target, '.agents/notes/archived')), false, 'the English container is not seeded alongside')
+  })
+
+  test('runs the note gates green on the tree it just seeded', () => {
+    const run = spawnSync(process.execPath, [join(target, 'scripts/harness/run-gates.ts'), 'agent-notes'], {
+      cwd: target,
+      encoding: 'utf8',
+    })
+    const out = `${run.stdout ?? ''}${run.stderr ?? ''}`
+    assert.equal(run.status, 0, out)
+    assert.match(out, /3 passed, 0 failed, 0 skipped/, out)
+  })
+
+  test('refuses a flag that contradicts an existing declaration', () => {
+    // Changing a corpus's language moves its whole tree, so it is its own change,
+    // never a side effect of re-running the scaffold.
+    const directory = tracked()
+    spawnSync(process.execPath, [BOOTSTRAP, '--target', directory], { encoding: 'utf8' })
+    const refused = spawnSync(process.execPath, [BOOTSTRAP, '--target', directory, '--notes-language', 'zh'], { encoding: 'utf8' })
+    assert.equal(refused.status, 1)
+    assert.match(refused.stderr ?? '', /--notes-language zh contradicts \.agents\/notes\/harness\.json \(declared en\)/)
+  })
+
+  test('rejects a language it does not know', () => {
+    const directory = tracked()
+    const refused = spawnSync(process.execPath, [BOOTSTRAP, '--target', directory, '--notes-language', 'jp'], { encoding: 'utf8' })
+    assert.equal(refused.status, 1)
+    assert.match(refused.stderr ?? '', /--notes-language must be en or zh/)
+  })
+})
+
 /** The manifests bootstrap seeds; every one of them carries adopter declarations. */
 const SEEDED_MANIFESTS = [
   'doc-budgets.manifest.json',

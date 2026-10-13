@@ -23,7 +23,7 @@
 
 ## 归档一个笔记
 
-路径变成 `archived/{class}/yyyy-mm-dd-topic-title.md`——注意 `implemented` 这一层被去掉了，因为只有已交付的笔记能进归档。
+路径变成 `archived/{class}/yyyy-mm-dd-topic-title.md`（中文语料为 `归档/{类}/…`）——注意 `implemented` 这一层被去掉了，因为只有已交付的笔记能进归档。容器与类目录按语料的**主语言**拼写；新的归档件进主语言那套目录，封存过的老件留在它封存时的名字上。
 
 1. 移动完整的三件套（正文件 `foo.md`、对照文件 `foo.{zh,en}.md`、一致性记录 `foo.i18n.yaml`）。对照文件的语言由 `.agents/notes/harness.json` 的 `primaryLanguage` 决定，见 [bilingual.md](bilingual.md)；未配对的笔记只有正文件一件。
 2. 在**两侧**的 `Status: implemented` 行**正下方**各插入一行完全相同的 `Archived: YYYY-MM-DD`。
@@ -57,6 +57,6 @@
 
 ## 与常规门禁的关系
 
-归档笔记免于常规文档门禁（字数预算、单行段落、配对、链接检查都会跳过它），但归档树自己有一套门禁。归档目录另有几点结构要求：六个 class 目录必须**全部存在**（哪怕为空），根目录只接受 `AGENTS.md`、`manifest.json` 与 `harness.json`，class 目录内只允许普通文件。
+归档笔记免于常规文档门禁（字数预算、单行段落、配对、链接检查都会跳过它），但归档树自己有一套门禁。归档目录另有几点结构要求：六个 class 目录必须**全部存在**（哪怕为空），根目录只接受 `AGENTS.md`、`manifest.json` 与 `harness.json`，class 目录内只允许普通文件。类目录的拼写两套都认（`process` 与 `流程` 都算 `process` 这一类），因为封存路径不可改写；容器名则跟声明走。
 
 CI 请用 `HARNESS_ARCHIVE_BASE_REF` 传入受信基线提交（PR 的 base SHA）。本地写入默认与已提交的 `HEAD` 比对；在尚未有任何提交的新仓库里，比对会降级为一条警告而不是失败，这样第一次封存能正常进行。而**当 CI 显式提供了 ref 却读不到时，那是硬错误**——浅检出绝不能变成静默跳过。

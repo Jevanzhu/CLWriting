@@ -1,7 +1,9 @@
 /**
  * Shared structural source of truth for the Agent Note tree. Lifecycle and class
  * sets are closed under `.agents/notes/README.md`; the language contract lives in
- * `aliases.ts` and `.agents/notes/harness.json`.
+ * `aliases.ts` and `.agents/notes/harness.json`, and it spells the tree: the three
+ * lifecycle folders, the six class folders, and the archive container all take the
+ * corpus's declared language, so one tree never mixes the two spellings.
  *
  * A note is its primary-language file (`yyyy-mm-dd-topic.md`) plus an optional
  * counterpart in the other language. Both members of a pair are the same Agent
@@ -11,26 +13,28 @@
 
 import { globSync, readdirSync, statSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
-import { otherLocale, SIDECAR_SUFFIX, splitTier, tierSuffix, type Locale } from './aliases.ts'
+import {
+  archiveDir,
+  classDirs,
+  classSlotAny,
+  classSlotOf,
+  lifecycleDir,
+  lifecycleDirs,
+  lifecycleSlotAny,
+  lifecycleSlotOf,
+  LIFECYCLE_SLOTS,
+  otherLocale,
+  SIDECAR_SUFFIX,
+  splitTier,
+  tierSuffix,
+  type Locale,
+} from './aliases.ts'
 import { readHarnessConfig, type HarnessConfig } from './harness-config.ts'
 
 /** Location of the Agent Note tree inside a repository. */
 export function agentNoteRoot(repoRoot: string): string {
   return resolve(repoRoot, '.agents/notes')
 }
-
-/** The closed set of active Agent Note lifecycles (top-level folders under .agents/notes/). */
-const AGENT_NOTE_LIFECYCLES = ['proposed', 'implemented', 'rejected'] as const
-
-/**
- * The closed set of Agent Note classes (nested folder under each lifecycle). Adding a
- * class is a deliberate act: extend this list AND the README's Classification
- * section. The gate rejects any folder not listed here.
- */
-export const AGENT_NOTE_CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing'] as const
-
-/** Historical implemented notes live outside the active lifecycle tree. */
-const AGENT_NOTE_ARCHIVE = 'archived'
 
 /** Non-Agent Note Markdown allowed to sit directly at a lifecycle root. */
 const ROOT_ALLOWLIST = new Set(['AGENTS.md', 'CLAUDE.md'])
@@ -66,6 +70,8 @@ interface NoteGroup {
 export function walkAgentNoteTree(repoRoot: string): { notes: AgentNote[]; errors: string[]; config: HarnessConfig } {
   const root = agentNoteRoot(repoRoot)
   const { config, errors } = readHarnessConfig(root)
+  const locale = config.primaryLanguage
+  const archive = archiveDir(locale)
   const notes: AgentNote[] = []
   // An absent tree is a valid, empty corpus — gates stay green before the first note.
   let topLevel: string[]
@@ -81,26 +87,26 @@ export function walkAgentNoteTree(repoRoot: string): { notes: AgentNote[]; error
       errors.push('structure: INDEX.md — centralized Agent Note indexes are forbidden; browse the lifecycle/class tree or search the repository')
       continue
     }
-    if (isDirectory(resolve(root, name))
-      && name !== AGENT_NOTE_ARCHIVE
-      && !(AGENT_NOTE_LIFECYCLES as readonly string[]).includes(name)) {
-      errors.push(`structure: ${name}/ — unknown lifecycle folder (allowed: ${AGENT_NOTE_LIFECYCLES.join(', ')}, plus ${AGENT_NOTE_ARCHIVE}/)`)
+    if (isDirectory(resolve(root, name)) && name !== archive && lifecycleSlotOf(name, locale) === undefined) {
+      errors.push(lifecycleError(name, locale, archive))
     }
   }
-  for (const lifecycle of AGENT_NOTE_LIFECYCLES) {
+  for (const lifecycle of LIFECYCLE_SLOTS) {
+    const dir = lifecycleDir(lifecycle, locale)
     const groups = new Map<string, NoteGroup>()
-    for (const match of globSync(`${lifecycle}/**/*.md`, { cwd: root }).map(path => path.split(sep).join('/')).sort()) {
+    for (const match of globSync(`${dir}/**/*.md`, { cwd: root }).map(path => path.split(sep).join('/')).sort()) {
       const segs = match.split('/')
       // Allowlisted file directly at the lifecycle root (e.g. implemented/AGENTS.md).
       if (segs.length === 2 && ROOT_ALLOWLIST.has(segs[1] ?? '')) continue
-      const cls = segs[1]
+      const clsName = segs[1]
       const base = segs[2]
-      if (segs.length !== 3 || cls === undefined || base === undefined) {
+      if (segs.length !== 3 || clsName === undefined || base === undefined) {
         errors.push(`structure: ${match} — expected {lifecycle}/{class}/file.md (got depth ${segs.length})`)
         continue
       }
-      if (!(AGENT_NOTE_CLASSES as readonly string[]).includes(cls)) {
-        errors.push(`structure: ${match} — unknown class folder "${cls}" (allowed: ${AGENT_NOTE_CLASSES.join(', ')})`)
+      const cls = classSlotOf(clsName, locale)
+      if (cls === undefined) {
+        errors.push(classError(match, clsName, locale))
         continue
       }
       const { stem, tier } = splitTier(base)
@@ -118,7 +124,7 @@ export function walkAgentNoteTree(repoRoot: string): { notes: AgentNote[]; error
       else group.counterpart = match
       groups.set(key, group)
     }
-    for (const [key, sidecar] of sidecarFiles(root, lifecycle, errors)) {
+    for (const [key, sidecar] of sidecarFiles(root, dir, locale, errors)) {
       const group = groups.get(key)
       if (group === undefined) {
         errors.push(`structure: ${sidecar} — consistency record without its note; a record belongs to a pair`)
@@ -147,19 +153,38 @@ export function walkAgentNoteTree(repoRoot: string): { notes: AgentNote[]; error
   return { notes, errors, config }
 }
 
+/** Reject a lifecycle folder that is not this corpus's name for one of the three. */
+function lifecycleError(name: string, locale: Locale, archive: string): string {
+  const foreign = lifecycleSlotAny(name) !== undefined || name === archiveDir(otherLocale(locale))
+  const why = foreign
+    ? ` — that is the ${otherLocale(locale)} spelling, and the two spellings never share one tree`
+    : ''
+  return `structure: ${name}/ — unknown lifecycle folder (allowed: ${lifecycleDirs(locale).join(', ')}, plus ${archive}/)${why}`
+}
+
+/** Reject a class folder that is not this corpus's name for one of the six. */
+function classError(path: string, name: string, locale: Locale): string {
+  const foreign = classSlotAny(name) !== undefined
+  const why = foreign
+    ? ` — that is the ${otherLocale(locale)} spelling; the corpus declares primaryLanguage "${locale}", so rename it or flip the declaration and move the tree with it`
+    : ''
+  return `structure: ${path} — unknown class folder "${name}" (allowed: ${classDirs(locale).join(', ')})${why}`
+}
+
 /** The section-keyed consistency records of one lifecycle, keyed by class and stem. */
-function sidecarFiles(root: string, lifecycle: string, errors: string[]): Map<string, string> {
+function sidecarFiles(root: string, lifecycleDirName: string, locale: Locale, errors: string[]): Map<string, string> {
   const records = new Map<string, string>()
-  for (const match of globSync(`${lifecycle}/**/*.i18n.yaml`, { cwd: root }).map(path => path.split(sep).join('/')).sort()) {
+  for (const match of globSync(`${lifecycleDirName}/**/*.i18n.yaml`, { cwd: root }).map(path => path.split(sep).join('/')).sort()) {
     const segs = match.split('/')
-    const cls = segs[1]
+    const clsName = segs[1]
     const base = segs[2]
-    if (segs.length !== 3 || cls === undefined || base === undefined) {
+    if (segs.length !== 3 || clsName === undefined || base === undefined) {
       errors.push(`structure: ${match} — expected {lifecycle}/{class}/file.i18n.yaml`)
       continue
     }
-    if (!(AGENT_NOTE_CLASSES as readonly string[]).includes(cls)) {
-      errors.push(`structure: ${match} — unknown class folder "${cls}" (allowed: ${AGENT_NOTE_CLASSES.join(', ')})`)
+    const cls = classSlotOf(clsName, locale)
+    if (cls === undefined) {
+      errors.push(classError(match, clsName, locale))
       continue
     }
     const stem = base.slice(0, -SIDECAR_SUFFIX.length)

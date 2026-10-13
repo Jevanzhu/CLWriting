@@ -7,16 +7,24 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { after, describe, test } from 'node:test'
+import {
+  archiveDir,
+  classDir,
+  classSlotAny,
+  CLASS_SLOTS,
+  lifecycleDir,
+  lifecycleSlotAny,
+  LIFECYCLE_SLOTS,
+  type Locale,
+} from './aliases.ts'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
-const CLASSES = ['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing']
-const LIFECYCLES = ['proposed', 'implemented', 'rejected']
 
 /** Temporary repository roots created by this suite, removed on exit. */
 const created: string[] = []
@@ -24,17 +32,34 @@ after(() => {
   for (const dir of created) rmSync(dir, { recursive: true, force: true })
 })
 
+/**
+ * The declared corpus language of every fixture root: fixtures must build the tree
+ * their own declaration names, since the gates reject the other language's spelling.
+ */
+const localeOfRoot = new Map<string, Locale>()
+
+/** The declared corpus language of a fixture root, defaulting to the upstream `en`. */
+function localeOf(root: string): Locale {
+  return localeOfRoot.get(root) ?? 'en'
+}
+
 /** Create an empty repository root with the full lifecycle and archive tree. */
-function makeRepo(withArchive = false, options: { pairedDocuments?: boolean; primaryLanguage?: 'en' | 'zh' } = {}): string {
+function makeRepo(withArchive = false, options: { pairedDocuments?: boolean; primaryLanguage?: Locale } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'harness-notes-'))
   created.push(root)
-  for (const lifecycle of LIFECYCLES) {
-    for (const cls of CLASSES) mkdirSync(join(root, '.agents/notes', lifecycle, cls), { recursive: true })
+  const locale = options.primaryLanguage ?? 'en'
+  localeOfRoot.set(root, locale)
+  for (const lifecycle of LIFECYCLE_SLOTS) {
+    for (const cls of CLASS_SLOTS) {
+      mkdirSync(join(root, '.agents/notes', lifecycleDir(lifecycle, locale), classDir(cls, locale)), { recursive: true })
+    }
   }
   if (withArchive) {
-    for (const cls of CLASSES) mkdirSync(join(root, '.agents/notes/archived', cls), { recursive: true })
-    writeFileSync(join(root, '.agents/notes/archived/AGENTS.md'), '# Archived\n')
-    writeFileSync(join(root, '.agents/notes/archived/manifest.json'), '{\n  "version": 1,\n  "files": {}\n}\n')
+    for (const cls of CLASS_SLOTS) {
+      mkdirSync(join(root, '.agents/notes', archiveDir(locale), classDir(cls, locale)), { recursive: true })
+    }
+    writeFileSync(join(root, '.agents/notes', archiveDir(locale), 'AGENTS.md'), '# Archived\n')
+    writeFileSync(join(root, '.agents/notes', archiveDir(locale), 'manifest.json'), '{\n  "version": 1,\n  "files": {}\n}\n')
   }
   const config: Record<string, unknown> = {}
   if (options.pairedDocuments !== undefined) config.pairedDocuments = options.pairedDocuments
@@ -45,9 +70,31 @@ function makeRepo(withArchive = false, options: { pairedDocuments?: boolean; pri
   return root
 }
 
-/** Write one Agent Note into a lifecycle/class folder. */
+/** A conforming Chinese note body for each lifecycle. */
+function zhBody(lifecycle: string): string {
+  const header = lifecycle === 'rejected'
+    ? 'Status: rejected — 已被更窄的决策取代\n'
+    : `Status: ${lifecycle}\n`
+  if (lifecycle === 'proposed') {
+    return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 提案\n打算做什么。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n\n## 验收标准\n可观察的完成状态。\n\n## 风险\n可能出什么错。\n`
+  }
+  if (lifecycle === 'rejected') {
+    return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 提案\n当初的提案。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n`
+  }
+  return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 决策\n已交付的事实，现在时。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n\n## 后果\n代价与收获。\n`
+}
+
+/**
+ * Write one Agent Note into a lifecycle/class folder, in the fixture's own language.
+ * A name from the closed sets — in either language — is placed under the fixture's
+ * spelling of that slot; anything else is written verbatim, so a negative-control
+ * case can plant the folder it means to reject.
+ */
 function writeNote(root: string, lifecycle: string, cls: string, filename: string, body: string): void {
-  const abs = join(root, '.agents/notes', lifecycle, cls, filename)
+  const locale = localeOf(root)
+  const lifecycleName = lifecycleSlotAny(lifecycle) === undefined ? lifecycle : lifecycleDir(lifecycleSlotAny(lifecycle)!, locale)
+  const className = classSlotAny(cls) === undefined ? cls : classDir(classSlotAny(cls)!, locale)
+  const abs = join(root, '.agents/notes', lifecycleName, className, filename)
   mkdirSync(dirname(abs), { recursive: true })
   writeFileSync(abs, body)
 }
@@ -104,7 +151,9 @@ function writeTriplet(root: string, cls: string, date: string, options: TripletO
   const header = `# Agent Note: Sample\n\nStatus: implemented\nArchived: ${archived}\n\n## Problem\nx\n\n## Decision\ny\n\n## Alternatives considered\n**Z.** no\n\n## Consequences\ncost\n`
   const source = header
   const counterpart = header.replace('# Agent Note: Sample', '# Agent Note: 示例')
-  const dir = join(root, '.agents/notes/archived', cls)
+  const locale = localeOf(root)
+  const clsName = classSlotAny(cls) === undefined ? cls : classDir(classSlotAny(cls)!, locale)
+  const dir = join(root, '.agents/notes', archiveDir(locale), clsName)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, `${base}.md`), source)
   if (options.primaryOnly === true) return { source, counterpart }
@@ -125,7 +174,7 @@ describe('agent note structure gate', () => {
 
   test('accepts a conforming note in every lifecycle', () => {
     const root = makeRepo()
-    for (const lifecycle of LIFECYCLES) {
+    for (const lifecycle of LIFECYCLE_SLOTS) {
       writeNote(root, lifecycle, 'process', '2026-01-01-sample-topic.md', validBody(lifecycle))
     }
     const result = runGate('verify-agent-note-classification.ts', root)
@@ -139,6 +188,42 @@ describe('agent note structure gate', () => {
     const result = runGate('verify-agent-note-classification.ts', root)
     assert.equal(result.code, 1)
     assert.match(result.output, /unknown lifecycle folder/)
+  })
+
+  test('rejects the English spelling of the tree in a Chinese-primary corpus', () => {
+    // The declared language spells the whole path. A corpus that flips its
+    // declaration moves its tree with it; the two spellings never share one tree.
+    const root = makeRepo(false, { primaryLanguage: 'zh' })
+    const english = join(root, '.agents/notes/implemented/process')
+    mkdirSync(english, { recursive: true })
+    writeFileSync(join(english, '2026-01-01-sample.md'), zhBody('implemented'))
+    const result = runGate('verify-agent-note-classification.ts', root)
+    assert.equal(result.code, 1)
+    assert.match(result.output, /structure: implemented\/ — unknown lifecycle folder \(allowed: 提案中, 已实施, 已否决, plus 归档\/\)/)
+    assert.match(result.output, /that is the en spelling, and the two spellings never share one tree/)
+  })
+
+  test('rejects the Chinese spelling of the tree in an English-primary corpus', () => {
+    const root = makeRepo()
+    const chinese = join(root, '.agents/notes/implemented/流程')
+    mkdirSync(chinese, { recursive: true })
+    writeFileSync(join(chinese, '2026-01-01-sample.md'), validBody('implemented'))
+    const result = runGate('verify-agent-note-classification.ts', root)
+    assert.equal(result.code, 1)
+    assert.match(result.output, /unknown class folder "流程" \(allowed: feature, bug-fix, simplification, architecture, process, testing\)/)
+    assert.match(result.output, /that is the zh spelling/)
+  })
+
+  test('accepts a Chinese-primary corpus tree end to end', () => {
+    const root = makeRepo(true, { primaryLanguage: 'zh' })
+    assert.ok(existsSync(join(root, '.agents/notes/已实施/流程')), 'lifecycle and class folders are spelled in the declared language')
+    assert.ok(existsSync(join(root, '.agents/notes/归档/测试')), 'the archive container and its kind folders follow the same language')
+    writeNote(root, 'implemented', 'process', '2026-01-01-sample.md', zhBody('implemented'))
+    const classification = runGate('verify-agent-note-classification.ts', root)
+    assert.equal(classification.code, 0, classification.output)
+    assert.match(classification.output, /1 Agent Note\(s\) checked/)
+    const archived = runGate('verify-archived-agent-notes.ts', root)
+    assert.equal(archived.code, 0, archived.output)
   })
 
   test('rejects an unknown class folder', () => {
@@ -403,27 +488,47 @@ describe('frozen archive gate', () => {
 
   test('ignores dotfiles that keep empty kind directories', () => {
     const root = makeRepo(true)
-    for (const cls of CLASSES) writeFileSync(join(root, '.agents/notes/archived', cls, '.gitkeep'), '')
+    for (const cls of CLASS_SLOTS) {
+      writeFileSync(join(root, '.agents/notes', archiveDir(localeOf(root)), classDir(cls, localeOf(root)), '.gitkeep'), '')
+    }
     const result = runGate('verify-archived-agent-notes.ts', root)
     assert.equal(result.code, 0, result.output)
+  })
+
+  test('names the declared container when the archive tree is missing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'harness-notes-'))
+    created.push(root)
+    mkdirSync(join(root, '.agents/notes'), { recursive: true })
+    writeFileSync(join(root, '.agents/notes/harness.json'), '{"primaryLanguage":"zh"}\n')
+    const result = runGate('verify-archived-agent-notes.ts', root)
+    assert.equal(result.code, 1)
+    assert.match(result.output, /no \.agents\/notes\/归档\/ tree found/)
+  })
+
+  test('reads an archive sealed under the other language after the declaration flips', () => {
+    // Sealed paths keep the spelling they were sealed under: a corpus that changes
+    // its declared language renames the container, never a sealed kind directory.
+    const root = makeRepo(true, { pairedDocuments: true })
+    writeTriplet(root, 'process', '2026-01-01')
+    const sealed = runGate('verify-archived-agent-notes.ts', root, ['--write'])
+    assert.equal(sealed.code, 0, sealed.output)
+    writeFileSync(join(root, '.agents/notes/harness.json'), '{"primaryLanguage":"zh","pairedDocuments":true}\n')
+    renameSync(join(root, '.agents/notes/archived'), join(root, '.agents/notes/归档'))
+    const verified = runGate('verify-archived-agent-notes.ts', root)
+    assert.equal(verified.code, 0, verified.output)
+    assert.match(verified.output, /3 frozen artifact\(s\) checked across 6 kind\(s\)/)
+  })
+
+  test('rejects a kind folder that is no language spelling of a class', () => {
+    const root = makeRepo(true, { primaryLanguage: 'zh' })
+    mkdirSync(join(root, '.agents/notes/归档/重构'), { recursive: true })
+    const result = runGate('verify-archived-agent-notes.ts', root)
+    assert.equal(result.code, 1)
+    assert.match(result.output, /unknown Agent Note kind \(the corpus's own spellings are 功能, 缺陷修复, 简化, 架构, 流程, 测试\)/)
   })
 })
 
 describe('bilingual notes', () => {
-  /** A conforming Chinese note body for each lifecycle. */
-  const zhBody = (lifecycle: string): string => {
-    const header = lifecycle === 'rejected'
-      ? 'Status: rejected — 已被更窄的决策取代\n'
-      : `Status: ${lifecycle}\n`
-    if (lifecycle === 'proposed') {
-      return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 提案\n打算做什么。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n\n## 验收标准\n可观察的完成状态。\n\n## 风险\n可能出什么错。\n`
-    }
-    if (lifecycle === 'rejected') {
-      return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 提案\n当初的提案。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n`
-    }
-    return `# Agent Note: 示例主题\n\n${header}\n## 问题\n这一段脱离方案也能独立成立。\n\n## 决策\n已交付的事实，现在时。\n\n## 曾考虑的替代方案\n**维持现状。** 否决，因为失败会复现。\n\n## 后果\n代价与收获。\n`
-  }
-
   /** Insert the line-5 language switcher, which every paired note carries. */
   const withSwitcher = (body: string, line: string): string => {
     const lines = body.split('\n')
@@ -463,7 +568,7 @@ describe('bilingual notes', () => {
     writeNote(root, 'implemented', 'process', `${stem}.en.md`, withSwitcher(validBody('implemented'), `English | [中文](${stem}.md)`))
     const format = runGate('verify-agent-note-format.ts', root)
     assert.equal(format.code, 1)
-    assert.match(format.output, /missing `implemented\/process\/2026-01-01-sample\.i18n\.yaml`/)
+    assert.match(format.output, /missing `已实施\/流程\/2026-01-01-sample\.i18n\.yaml`/)
     sealPair(root)
     const confirmed = runGate('verify-agent-note-format.ts', root)
     assert.equal(confirmed.code, 0, confirmed.output)
@@ -669,12 +774,25 @@ describe('bilingual notes', () => {
     assert.equal(verified.code, 0, verified.output)
   })
 
-  test('rejects an English tier in an English-primary archive', () => {
+  test('accepts a sealed tier that names the declared primary language', () => {
+    // The tier is frozen with the seal. A corpus that flips its declaration keeps the
+    // tiers it archived under; the tree gate, not the archive, owns the live rule.
     const root = makeRepo(true, { pairedDocuments: true })
     writeTriplet(root, 'process', '2026-01-01', { counterpartTier: 'en' })
+    const sealed = runGate('verify-archived-agent-notes.ts', root, ['--write'])
+    assert.equal(sealed.code, 0, sealed.output)
+    const verified = runGate('verify-archived-agent-notes.ts', root)
+    assert.equal(verified.code, 0, verified.output)
+  })
+
+  test('rejects an archived set with no untiered primary file', () => {
+    const root = makeRepo(true, { pairedDocuments: true })
+    const dir = join(root, '.agents/notes', archiveDir(localeOf(root)), classDir('process', localeOf(root)))
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '2026-01-01-sample.zh.md'), '# Agent Note: Sample\n\nStatus: implemented\nArchived: 2026-02-01\n')
     const result = runGate('verify-archived-agent-notes.ts', root)
     assert.equal(result.code, 1)
-    assert.match(result.output, /`\.en\.md` names the primary language \(en\)/)
+    assert.match(result.output, /archived note has no primary file \(found 2026-01-01-sample\.zh\.md\)/)
   })
 
   test('rejects an archived pair whose record was not converted to blob hashes', () => {
