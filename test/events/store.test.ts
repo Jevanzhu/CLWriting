@@ -2,16 +2,22 @@
  * F1-P1 事件库存取层单测：建库/写入/读取/清空/启动修复。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import {
   openSessionStore,
   bookHash,
+  checkEventStreamIntegrity,
+  readAutoVacuumMode,
+  AUTO_VACUUM_NONE,
+  AUTO_VACUUM_INCREMENTAL,
   runSessionDbMaintenanceAsync,
   __setEventRetentionMsForTest,
   __setPruneMinIntervalMsForTest,
 } from '../../src/events/store.js'
+import { sessionMigrateLockPathForDb } from '../../src/events/store-migrate.js'
+import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { log } from '../../src/log/index.js'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { waitFor } from '../helpers/wait-for.js'
@@ -620,6 +626,80 @@ describe('事件库保留策略（观测类裁剪）', () => {
 })
 
 describe('事件库空间回收', () => {
+  it('存量库（auto_vacuum=0）空闲页充裕 → 整库重写转增量档，mode=vacuum', async () => {
+    const ud = tmpRoot()
+    mkdirSync(join(ud, 'session'), { recursive: true })
+    const dbPath = join(ud, 'session', `${bookHash('/books/legacy')}.db`)
+    // 造存量库形态：不经首开流程建库（跳开 applyOpenPragmas 的 auto_vacuum=INCREMENTAL），
+    // 直接按老形态建表灌数据再删空——删空的页进空闲表，高水位不回落
+    const seed = new DatabaseSync(dbPath)
+    try {
+      seed.exec('PRAGMA auto_vacuum = 0')
+      seed.exec(
+        'CREATE TABLE events (seq INTEGER PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL, surface_op TEXT, shadow_start INTEGER, shadow_end INTEGER, source_seqs TEXT, replace_generation INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)',
+      )
+      const ins = seed.prepare(
+        `INSERT INTO events (session_id, type, data, replace_generation, created_at) VALUES (?, 'user/message', ?, 0, ?)`,
+      )
+      const payload = '正'.repeat(2000) // 每行约 6KB → 积累 400+ 页
+      for (let i = 0; i < 300; i++) ins.run('s1', JSON.stringify({ message: payload }), Date.now())
+      seed.exec('DELETE FROM events')
+    } finally {
+      seed.close()
+    }
+    const db = new DatabaseSync(dbPath)
+    try {
+      expect(readAutoVacuumMode(db)).toBe(AUTO_VACUUM_NONE)
+    } finally {
+      db.close()
+    }
+    const out = await runSessionDbMaintenanceAsync(dbPath)
+    expect(out!.reclaimed!.mode).toBe('vacuum')
+    // 转换落库：档位已改增量（后续删除即自动回收，不必再整库重写）
+    const after = new DatabaseSync(dbPath)
+    try {
+      expect(readAutoVacuumMode(after)).toBe(AUTO_VACUUM_INCREMENTAL)
+      expect(after.prepare('PRAGMA freelist_count').get()).toMatchObject({ freelist_count: 0 })
+    } finally {
+      after.close()
+    }
+  })
+
+  it('强制档：空闲页未到阈仍回收（清库路径要空间回落）；机会档同现场则不动', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/forced')!
+    const sid = store.createSession('强制书')
+    // 灌一批再删大半：留下少量空闲页（低于 RELEASE_MIN_FREE_PAGES=64 的机会档阈）
+    for (let i = 0; i < 60; i++) {
+      store.appendEvents(sid, [{ type: 'user/message', data: { message: '正'.repeat(300) }, surfaceOp: 'append' }])
+    }
+    const db = new DatabaseSync(store.dbPath)
+    let freeAfterDelete = 0
+    try {
+      db.exec('DELETE FROM events WHERE seq > 5')
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      freeAfterDelete = (db.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count
+    } finally {
+      db.close()
+    }
+    // 现场前提成立才有区分度：有空闲页但未到机会档阈
+    expect(freeAfterDelete).toBeGreaterThan(0)
+    expect(freeAfterDelete).toBeLessThan(64)
+    // 机会档：到期未至且空闲页未到阈 → 整轮不动工（返回 null，连回收都没进）
+    const idle = await runSessionDbMaintenanceAsync(store.dbPath, 'idle')
+    expect(idle).toBeNull()
+    // 强制档：同一现场照收（清库刚删完行，等阈会让空间回落落空）
+    const forced = await runSessionDbMaintenanceAsync(store.dbPath, 'force')
+    expect(forced!.reclaimed!.mode).toBe('incremental')
+    const after = new DatabaseSync(store.dbPath)
+    try {
+      expect((after.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count).toBe(0)
+    } finally {
+      after.close()
+    }
+    store.close()
+  })
+
   it('清空对话后回收被触发：库 + WAL 的落盘字节回落（不是只删行）', async () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/shrink')!
@@ -649,6 +729,90 @@ describe('事件库空间回收', () => {
     // 命中「字节已回落但目录仍被持有」）。等它落定再收尾——复用在途任务，不叠第二个连接。
     await runSessionDbMaintenanceAsync(store.dbPath)
     store.close()
+  })
+})
+
+// ── 维护任务的「不动手」现场 ────────────────────────────────────────────────
+// 判据：库不在位 / 幽灵库 / 迁移锁被占三种现场都静默跳过（返回 null），不抛错、不留痕、
+// 更不留孤儿空壳——维护是让利路径，三类现场分别是删书（先清行再删文件）、他进程刚建文件
+// 未跑 DDL、首开与迁移段进行中，都属常态而非故障。
+
+describe('事件库维护：不动手的现场', () => {
+  it('库路径不存在 → 静默跳过，且不新建空壳文件', async () => {
+    const ud = tmpRoot()
+    const missing = join(ud, 'session', 'gone.db')
+    expect(await runSessionDbMaintenanceAsync(missing)).toBeNull()
+    // DatabaseSync 打开不存在的路径会新建空文件——跳过必须发生在此之前，否则删书路径留孤儿
+    expect(existsSync(missing)).toBe(false)
+  })
+
+  it('幽灵库（有文件无 events 表）→ 静默跳过，不建表', async () => {
+    const ud = tmpRoot()
+    mkdirSync(join(ud, 'session'), { recursive: true })
+    const ghost = join(ud, 'session', 'ghost.db')
+    const seed = new DatabaseSync(ghost)
+    try {
+      seed.exec('CREATE TABLE unrelated(x INTEGER)')
+    } finally {
+      seed.close()
+    }
+    expect(await runSessionDbMaintenanceAsync(ghost)).toBeNull()
+    const after = new DatabaseSync(ghost)
+    try {
+      const tables = after.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string
+      }>
+      expect(tables.map((t) => t.name)).toEqual(['unrelated'])
+    } finally {
+      after.close()
+    }
+  })
+
+  it('迁移锁在他手 → 本轮跳过（不排队等待，一行不动）', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/locked')!
+    seedBackdated(store, '锁占书', [{ type: 'llm/retry', data: { attempt: 1 }, ageMs: 40 * DAY }])
+    const release = await acquireCrossProcessLockAsync(sessionMigrateLockPathForDb(store.dbPath), 50)
+    expect(release).not.toBeNull()
+    try {
+      expect(await runSessionDbMaintenanceAsync(store.dbPath)).toBeNull()
+      expect(countByType(store, '锁占书')['llm/retry']).toBe(1)
+    } finally {
+      release!()
+      store.close()
+    }
+  })
+
+  it('游标越界自愈：库被删后重建致 seq 回落 → 游标夹回起点，新行照裁', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/clamp')!
+    // 三条超窗观测行：首轮把游标推到 seq 3
+    seedBackdated(store, '夹书', [
+      { type: 'llm/retry', data: { attempt: 1 }, ageMs: 40 * DAY },
+      { type: 'llm/retry', data: { attempt: 2 }, ageMs: 40 * DAY },
+      { type: 'llm/retry', data: { attempt: 3 }, ageMs: 40 * DAY },
+    ])
+    __setPruneMinIntervalMsForTest(0)
+    try {
+      expect((await runSessionDbMaintenanceAsync(store.dbPath))!.pruned!.deleted).toBe(3)
+      // 库文件被删后重建的形态：行清空（seq 从 1 重新分配）后再落一条超窗行——
+      // 游标停在旧高位 3，新行的 seq 落在它之前，不夹回就永久漏裁
+      const db = new DatabaseSync(store.dbPath)
+      try {
+        db.exec('DELETE FROM events')
+        db.prepare(
+          `INSERT INTO events (session_id, type, data, replace_generation, created_at)
+           VALUES ('夹书', 'llm/retry', '{}', 0, ?)`,
+        ).run(Date.now() - 40 * DAY)
+      } finally {
+        db.close()
+      }
+      const out = await runSessionDbMaintenanceAsync(store.dbPath)
+      expect(out!.pruned!.deleted).toBe(1)
+    } finally {
+      __setPruneMinIntervalMsForTest(6 * 60 * 60 * 1000)
+      store.close()
+    }
   })
 })
 
@@ -688,6 +852,125 @@ function seedBrokenShadow(store: ReturnType<typeof openSessionStore>): { sid: st
 }
 
 describe('关闭路径事件流自检', () => {
+  it('区间端点缺失 / 区间倒置 → 各自成一条不一致判词（判词含 seq 与端点）', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/malformed')!
+    const sid = store.createSession('坏端点书')
+    store.appendEvents(sid, [
+      { type: 'session/start', data: { book: '坏端点书' } },
+      { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' },
+    ])
+    // 直接落两条畸形载体：appendEvents 的类型面收窄不让 shadowStart 缺席，故走原表写
+    // （自检读的就是盘上行，此处模拟外力改坏/旧版写坏形态）
+    const db = new DatabaseSync(store.dbPath)
+    try {
+      db.prepare(
+        `INSERT INTO events (session_id, type, data, surface_op, shadow_start, shadow_end, replace_generation, created_at)
+         VALUES (?, 'compaction/end', '{"reason":"completed"}', 'replace', NULL, NULL, 0, ?)`,
+      ).run(sid, Date.now())
+      db.prepare(
+        `INSERT INTO events (session_id, type, data, surface_op, shadow_start, shadow_end, replace_generation, created_at)
+         VALUES (?, 'compaction/end', '{"reason":"completed"}', 'replace', 5, 3, 0, ?)`,
+      ).run(sid, Date.now())
+    } finally {
+      db.close()
+    }
+    const out = checkEventStreamIntegrity(new DatabaseSync(store.dbPath))
+    const msgs = out.issues.map((i) => i.message)
+    expect(msgs.some((m) => m.includes('缺 shadowStart/shadowEnd 端点'))).toBe(true)
+    expect(msgs.some((m) => m.includes('区间倒置'))).toBe(true)
+    expect(out.issues.every((i) => i.sessionId === sid)).toBe(true)
+    store.close()
+  })
+
+  it('会话配对失衡（差 < 0 重复 end / 差 > 1 重复 start）→ 逐会话报一条', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/pairing')!
+    const sidA = store.createSession('重尾书')
+    // 差 < 0：一个 start 配两个 end（重复 end / 缺 start 同族）
+    store.appendEvents(sidA, [
+      { type: 'session/start', data: { book: '重尾书' } },
+      { type: 'session/end', data: { reason: 'completed' } },
+      { type: 'session/end', data: { reason: 'completed' } },
+    ])
+    const sidB = store.createSession('重头书')
+    // 差 > 1：两个 start 无 end（重复 start）
+    store.appendEvents(sidB, [
+      { type: 'session/start', data: { book: '重头书' } },
+      { type: 'session/start', data: { book: '重头书' } },
+    ])
+    const db = new DatabaseSync(store.dbPath)
+    let out: ReturnType<typeof checkEventStreamIntegrity>
+    try {
+      out = checkEventStreamIntegrity(db)
+    } finally {
+      db.close()
+    }
+    const bySession = new Map(out.issues.map((i) => [i.sessionId, i.message]))
+    expect(bySession.get(sidA)).toContain('配对失衡')
+    expect(bySession.get(sidA)).toContain('差 -1')
+    expect(bySession.get(sidB)).toContain('差 2')
+    store.close()
+  })
+
+  it('会话首行被尾窗切走 → 不判配对（宁可漏报不误报）；窗口内首行是 start 才判', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/window')!
+    const sid = store.createSession('窗切书')
+    // 会话首行（start）之后垫一条 session/end，再垫到超过窗口：start 被切在窗外时
+    // 窗内计数只剩 end — 若不看首行形态就会误报「差 -1」
+    store.appendEvents(sid, [
+      { type: 'session/start', data: { book: '窗切书' } },
+      { type: 'session/end', data: { reason: 'completed' } },
+    ])
+    for (let i = 0; i < 6; i++) {
+      store.appendEvents(sid, [{ type: 'user/message', data: { message: `填充${i}` }, surfaceOp: 'append' }])
+    }
+    const db = new DatabaseSync(store.dbPath)
+    let out: ReturnType<typeof checkEventStreamIntegrity>
+    try {
+      // 尾窗只取 3 行：start/end 都被切走，窗内首行是 user/message → 该会话不判配对
+      out = checkEventStreamIntegrity(db, 3)
+    } finally {
+      db.close()
+    }
+    expect(out.tailRows).toBe(3)
+    expect(out.issues.filter((i) => i.sessionId === sid)).toEqual([])
+    store.close()
+  })
+
+  it('遮蔽区间起点落在窗口之外 → 跳过该载体（窗内守恒判定不成立）', async () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/floor')!
+    const sid = store.createSession('窗外书')
+    store.appendEvents(sid, [{ type: 'session/start', data: { book: '窗外书' } }])
+    store.appendEvents(sid, [
+      { type: 'user/message', data: { message: 'a' }, surfaceOp: 'append' },
+      { type: 'user/message', data: { message: 'b' }, surfaceOp: 'append' },
+    ])
+    store.appendEvents(sid, [
+      {
+        type: 'compaction/end',
+        data: { reason: 'completed' },
+        surfaceOp: 'replace',
+        shadowStart: 2,
+        shadowEnd: 3,
+        sourceSeqs: [2, 3],
+      },
+    ])
+    const db = new DatabaseSync(store.dbPath)
+    let out: ReturnType<typeof checkEventStreamIntegrity>
+    try {
+      // 尾窗只取 1 行（就是那条载体）：区间起点 2 < 窗内最旧 seq → 跳过，intervals 为 0
+      out = checkEventStreamIntegrity(db, 1)
+    } finally {
+      db.close()
+    }
+    expect(out.intervals).toBe(0)
+    expect(out.issues).toEqual([])
+    store.close()
+  })
+
   it('遮蔽区间不一致 → 关闭时 warn 留痕（含会话键与差异数）', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/selfcheck')!
