@@ -269,6 +269,7 @@ describe('desktop:update-apply', () => {
   })
 
   it('非 win/打包态 → 拒绝（文案指向平台限制），不退出', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true }) // 前提显式：宿主平台随机器（win 机缺省即 win32）
     __setPendingUpdateForTest({ zipPath: join(M.home, 'z.zip'), sha256: ZIP_SHA, toVersion: '1.0.0' })
     const r = M.ipcHandle['desktop:update-apply']?.({}, '1.0.0') as { ok: boolean; reason: string }
     expect(r.ok).toBe(false)

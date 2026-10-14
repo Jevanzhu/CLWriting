@@ -48,6 +48,10 @@ const M_hoisted = vi.hoisted(() => ({
   logInfos: [] as unknown[],
   /** initLogging 实收参数面——文件 sink 归属（单写者：只有持锁实例可落盘）断言用 */
   initLoggingCalls: [] as Array<{ logsDir: string | null; mirrorConsole?: boolean }>,
+  /** 阶段 55 修复 D：flushLogs 调用捕获面 + 调用时刻已落定的退出码数——「退出前等过
+   *  日志泵」与「flush 在 exit 之前」的顺序判据（助手证据行不随 process.exit 丢） */
+  flushLogsCalls: 0,
+  exitCodesAtFlush: [] as number[],
   appFocus: [] as unknown[], // R0912-3 #36：second-instance darwin app.focus({steal:true}) 捕获面
   // ── 阶段 22 批 U1：utilityProcess 假件捕获面 ──
   forkCalls: [] as Array<{ modulePath: string; args: string[]; options: Record<string, unknown> }>,
@@ -422,6 +426,13 @@ vi.mock('../../src/log/index.js', () => ({
   // 参数面记账（文件 sink 归属断言用；日志行为面本身不假件——真件见 test/log/）
   initLogging: (opts: { logsDir: string | null; mirrorConsole?: boolean }) => {
     M_hoisted.initLoggingCalls.push(opts)
+  },
+  // 阶段 55 修复 D：助手退出前的日志泵等待（记调用与当时退出码数——真件等待语义
+  // 由 test/log/log-backpressure.test.ts 的挂盘闸用例锚定）
+  flushLogs: () => {
+    M_hoisted.flushLogsCalls += 1
+    M_hoisted.exitCodesAtFlush.push(M_hoisted.exitCodes.length)
+    return Promise.resolve()
   },
   log: {
     error: (...a: unknown[]) => {

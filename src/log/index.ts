@@ -464,11 +464,18 @@ export function resetLoggingForTest(): void {
   sweepInFlight = null
 }
 
-/** 测试钩子：等待串行队列排空（断言文件内容前调用）。在途运行期清理
+/** 等待落盘队列排空（**退出前调用**）。process.exit 不等在途异步 appendFile——助手进程
+ *  整局无控制台、日志即唯一过程证据，退出前不等这一泵，结局行与失败原因行就随进程丢
+ *  （win 真机实测：助手日志只落得下启动那一行）。在途运行期清理
  *  （cleanupOldLogsThrottled）一并等——unlink 与断言的调度竞速见 sweepInFlight 注。 */
-export async function flushLogsForTest(): Promise<void> {
+export async function flushLogs(): Promise<void> {
   await state.tail
   if (sweepInFlight) await sweepInFlight
+}
+
+/** 测试钩子：等待串行队列排空（断言文件内容前调用） */
+export async function flushLogsForTest(): Promise<void> {
+  await flushLogs()
 }
 
 /** 测试钩子：待写队列长度与累计丢写数——背压行为可观测（封顶/丢最旧断言面）。 */

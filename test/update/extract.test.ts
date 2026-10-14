@@ -8,7 +8,7 @@
  */
 import { crc32, deflateRawSync } from 'node:zlib'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
 import { extractZipTo, resolveEntryPath } from '../../src/update/extract.js'
@@ -87,10 +87,13 @@ function scene(): { root: string; dest: string; zipOf: (entries: FixtureEntry[])
 describe('resolveEntryPath（条目名 → 目标内绝对路径）', () => {
   it('常规/子目录名放行；越界、盘符、空名、NUL 拒绝', () => {
     const dest = '/tmp/clw-extract-x'
-    expect(resolveEntryPath(dest, 'CLWriting.exe')).toBe(join(dest, 'CLWriting.exe'))
-    expect(resolveEntryPath(dest, 'resources/app.asar')).toBe(join(dest, 'resources/app.asar'))
-    expect(resolveEntryPath(dest, 'resources\\app.asar')).toBe(join(dest, 'resources/app.asar'))
-    expect(resolveEntryPath(dest, './a/./b.txt')).toBe(join(dest, 'a/b.txt'))
+    // 实现按 resolve(destDir) 锚定根且返回绝对路径——期望值同口径派生，不写死平台形态
+    //（win 真机实测：join('/tmp',…) 不带盘符、resolve 会归到 cwd 所在盘，两者不同形）
+    const rooted = resolve(dest)
+    expect(resolveEntryPath(dest, 'CLWriting.exe')).toBe(join(rooted, 'CLWriting.exe'))
+    expect(resolveEntryPath(dest, 'resources/app.asar')).toBe(join(rooted, 'resources/app.asar'))
+    expect(resolveEntryPath(dest, 'resources\\app.asar')).toBe(join(rooted, 'resources/app.asar'))
+    expect(resolveEntryPath(dest, './a/./b.txt')).toBe(join(rooted, 'a/b.txt'))
     expect(resolveEntryPath(dest, '../evil.txt')).toBeNull()
     expect(resolveEntryPath(dest, 'a/../../evil.txt')).toBeNull()
     expect(resolveEntryPath(dest, '..\\evil.txt')).toBeNull()

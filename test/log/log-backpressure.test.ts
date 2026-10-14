@@ -18,6 +18,7 @@ import {
   initLogging,
   log,
   resetLoggingForTest,
+  flushLogs,
   flushLogsForTest,
   debugLogQueueForTest,
   MAX_PENDING_WRITES,
@@ -112,5 +113,25 @@ describe('log 落盘队列背压（D2 内存闸 2026-08-24）', () => {
     expect(msgs).toEqual(Array.from({ length: 50 }, (_, i) => `line-${i}`))
     expect(debugLogQueueForTest()).toEqual({ pending: 0, dropped: 0 })
     expect(errSpy).not.toHaveBeenCalled()
+  })
+
+  it('flushLogs（生产退出前 API）：磁盘挂起时不落定，释放后与队列一起收口', async () => {
+    // 阶段 55 修复 D：助手进程退出前 await flushLogs——它是「结局行/错误行不随
+    // process.exit 丢」的唯一兑现点。挂盘闸给出确定性判据：仍在途时不 resolve。
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-bp3-'))
+    hangWrites()
+    initLogging({ logsDir: dir, mirrorConsole: false })
+    log.info('update', '更新助手结局：aborted（extract-failed）')
+    let settled = false
+    const flushed = flushLogs().then(() => {
+      settled = true
+    })
+    await new Promise((r) => setTimeout(r, 10)) // 宏任务窗：无「等队列尾」实现的 flush 早已 resolve
+    expect(settled).toBe(false)
+    releaseWrites()
+    await flushed
+    expect(settled).toBe(true)
+    const msgs = gate.writes.map((w) => (JSON.parse(w.data) as { msg: string }).msg)
+    expect(msgs).toEqual(['更新助手结局：aborted（extract-failed）'])
   })
 })

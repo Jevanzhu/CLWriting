@@ -17,6 +17,7 @@ import {
   armPendingUpdateIfAny,
   cancelUpdateDownload,
   discardPendingUpdate,
+  helperStageDir,
   prepareUpdateApply,
   runUpdateMaintenance,
   selfUpdateDownloadCapable,
@@ -265,30 +266,64 @@ describe('prepareUpdateApply（四道闸）', () => {
 })
 
 describe('armPendingUpdateIfAny / discardPendingUpdate（退出链兑现）', () => {
-  it('就绪 + win 打包态 → 拉起助手进程（argv 全量：payload/target/pid/版本/共享根/日志目录/--dir）', () => {
+  it('就绪 + win 打包态 → 暂存副本 + 拉起助手（argv 全量：payload/target/pid/版本/共享根/日志目录/--dir）', () => {
     setPlatform('win32')
     wd.workDir = 'D:/书库'
-    __setPendingUpdateForTest({ zipPath: 'C:/home/更新缓存/1.0.0/pkg.zip', sha256: ZIP_SHA, toVersion: '1.0.0' })
-    armPendingUpdateIfAny()
-    expect(spawnSpy.calls).toHaveLength(1)
-    const [exe, ...args] = spawnSpy.calls[0]!
-    expect(exe).toBe(process.execPath)
-    expect(args).toContain('--apply-update')
-    expect(args).toContain('--payload')
-    expect(args[args.indexOf('--payload') + 1]).toBe('C:/home/更新缓存/1.0.0/pkg.zip')
-    expect(args[args.indexOf('--pid') + 1]).toBe(String(process.pid))
-    expect(args[args.indexOf('--from-version') + 1]).toBe(M.appVersion)
-    expect(args[args.indexOf('--to-version') + 1]).toBe('1.0.0')
-    expect(args[args.indexOf('--home') + 1]).toBe(M.userData)
-    expect(args[args.indexOf('--sha256') + 1]).toBe(ZIP_SHA)
-    expect(args.slice(args.indexOf('--dir'), args.indexOf('--dir') + 2)).toEqual(['--dir', 'D:/书库'])
-    // 兑现即清（二次调用不得再拉起）
-    expect(__getPendingUpdateForTest()).toBeNull()
-    armPendingUpdateIfAny()
-    expect(spawnSpy.calls).toHaveLength(1)
+    // 假应用目录经 process.execPath 改道（生产 = dirname(execPath)；用例结束还原）
+    const appDir = mkTmp('clw-upd-appdir-')
+    writeFileSync(join(appDir, 'CLWriting.exe'), 'fake exe')
+    mkdirSync(join(appDir, 'resources'), { recursive: true })
+    writeFileSync(join(appDir, 'resources', 'app.asar'), 'fake asar')
+    const execPathPrev = process.execPath
+    process.execPath = join(appDir, 'CLWriting.exe')
+    try {
+      __setPendingUpdateForTest({ zipPath: 'C:/home/更新缓存/1.0.0/pkg.zip', sha256: ZIP_SHA, toVersion: '1.0.0' })
+      armPendingUpdateIfAny()
+      const stage = helperStageDir(M.userData, '1.0.0')
+      // 助手从暂存副本运行（目标目录外的镜像——自镜像在目标内时目录改名必败 EPERM，
+      // win 真机实测）
+      expect(spawnSpy.calls).toHaveLength(1)
+      const [exe, ...args] = spawnSpy.calls[0]!
+      expect(exe).toBe(join(stage, 'CLWriting.exe'))
+      expect(existsSync(join(stage, 'resources', 'app.asar'))).toBe(true) // 整棵复制
+      expect(args).toContain('--apply-update')
+      expect(args).toContain('--payload')
+      expect(args[args.indexOf('--payload') + 1]).toBe('C:/home/更新缓存/1.0.0/pkg.zip')
+      expect(args[args.indexOf('--target') + 1]).toBe(appDir) // 目标仍是真应用目录，不是暂存
+      expect(args[args.indexOf('--pid') + 1]).toBe(String(process.pid))
+      expect(args[args.indexOf('--from-version') + 1]).toBe(M.appVersion)
+      expect(args[args.indexOf('--to-version') + 1]).toBe('1.0.0')
+      expect(args[args.indexOf('--home') + 1]).toBe(M.userData)
+      expect(args[args.indexOf('--sha256') + 1]).toBe(ZIP_SHA)
+      expect(args.slice(args.indexOf('--dir'), args.indexOf('--dir') + 2)).toEqual(['--dir', 'D:/书库'])
+      // 兑现即清（二次调用不得再拉起）
+      expect(__getPendingUpdateForTest()).toBeNull()
+      armPendingUpdateIfAny()
+      expect(spawnSpy.calls).toHaveLength(1)
+    } finally {
+      process.execPath = execPathPrev
+    }
+  })
+
+  it('暂存副本复制失败（源目录缺席）→ 不起进程、意图丢弃、错误+告警双留痕', () => {
+    setPlatform('win32')
+    const execPathPrev = process.execPath
+    process.execPath = join(mkTmp('clw-upd-missing-app-'), 'nope', 'CLWriting.exe')
+    try {
+      __setPendingUpdateForTest({ zipPath: '/tmp/z.zip', sha256: null, toVersion: '1.0.0' })
+      armPendingUpdateIfAny()
+      expect(spawnSpy.calls).toHaveLength(0)
+      expect(M.logErrors.some((w) => String((w as unknown[])[1] ?? '').includes('暂存副本复制失败'))).toBe(true)
+      expect(M.logWarns.some((w) => String((w as unknown[])[1] ?? '').includes('暂存副本不可用'))).toBe(true)
+      armPendingUpdateIfAny() // 意图已丢弃：再兑现一次也无声
+      expect(spawnSpy.calls).toHaveLength(0)
+    } finally {
+      process.execPath = execPathPrev
+    }
   })
 
   it('形态不支持（非 win/打包态）→ 意图丢弃 + 留痕，不起进程（不让退出链挂着）', () => {
+    setPlatform('darwin') // 前提显式：宿主平台随机器（win 机上缺省即 win32，不再等于「非 win」）
     __setPendingUpdateForTest({ zipPath: '/tmp/z.zip', sha256: null, toVersion: '1.0.0' })
     armPendingUpdateIfAny()
     expect(spawnSpy.calls).toHaveLength(0)
@@ -341,5 +376,33 @@ describe('runUpdateMaintenance（启动维护清扫规则）', () => {
   it('缓存根不存在 → 空操作不抛（首启形态）', () => {
     const home = mkTmp('clw-upd-cache2-')
     expect(() => runUpdateMaintenance({ appDir: null, homeDir: home, currentVersion: '1.0.0' })).not.toThrow()
+  })
+
+  it('asar 叶容忍：Electron 层对含 resources/app.asar 的目录递归删必 EPERM，摘叶重试后清掉', async () => {
+    const dir = mkTmp('clw-upd-asarleaf-')
+    mkdirSync(join(dir, 'resources'), { recursive: true })
+    writeFileSync(join(dir, 'resources', 'app.asar'), 'fake-asar')
+    // 仿真 Electron asar 层（win 真机实测口径）：app.asar 在位时 rmSync 抛 EPERM、摘名后放行。
+    // doMock + 动态导入取新实例：本文件其余用例走真实 fs，不能吃文件级桩。
+    vi.doMock('node:fs', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs')>()
+      const out: Record<string, unknown> = { ...(actual as unknown as Record<string, unknown>) }
+      out['rmSync'] = (p: unknown, o?: unknown): unknown => {
+        if (existsSync(join(String(p), 'resources', 'app.asar'))) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' })
+        }
+        return (actual.rmSync as (...a: unknown[]) => unknown)(p, o)
+      }
+      return out as unknown as typeof actual
+    })
+    vi.resetModules()
+    try {
+      const fresh = await import('../../src/desktop/update-controller.js')
+      fresh.rmDirQuietly(dir)
+      expect(existsSync(dir)).toBe(false)
+    } finally {
+      vi.doUnmock('node:fs')
+      vi.resetModules()
+    }
   })
 })

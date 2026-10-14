@@ -16,7 +16,7 @@
  * （apply 已武装后切库）靠退出链相位收敛——切库的 reboot 意图只在退出链不可回头点兑现，
  * 那时本模块意图已先行兑现并占了进程重启位（见 armPendingUpdateIfAny 调用点注释）。
  */
-import { existsSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app, net, shell } from 'electron'
 import { testableConst } from '../shared/testable.js'
@@ -28,7 +28,7 @@ import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from '../update
 import { downloadUpdateZip, sha256OfFile } from '../update/download.js'
 import { UPDATE_RESULT_FILENAME, updateCacheDir, updateCacheRoot } from '../update/cache.js'
 import { currentWorkDir, isRelaunchPending } from './workdir-controller.js'
-import { APPLY_UPDATE_FLAG, otherInstancesRunning, spawnDetachedProcess } from './update-helper.js'
+import { APPLY_UPDATE_FLAG, otherInstancesRunning, PORTABLE_EXE_NAME, spawnDetachedProcess } from './update-helper.js'
 
 /**
  * 开发/非 Windows 形态下强制开启「下载」能力的开关（严格 opt-in，同 CLW_SMOKE_* 口径）：
@@ -218,9 +218,31 @@ export function appDirOf(execPath: string): string {
   return dirname(execPath)
 }
 
+/** 助手暂存副本落点：`<home>/更新缓存/<目标版本>/helper`——与包体同目录，随版本缓存一并清扫 */
+export function helperStageDir(homeDir: string, toVersion: string): string {
+  return join(updateCacheDir(homeDir, toVersion), 'helper')
+}
+
+/** 整棵应用目录 → 暂存落点（半成品先清）；成功返回暂存 exe 路径，失败留痕并返回 null */
+function stageHelperCopy(sourceDir: string, stageDir: string): string | null {
+  try {
+    rmDirQuietly(stageDir)
+    cpSync(sourceDir, stageDir, { recursive: true })
+    return join(stageDir, PORTABLE_EXE_NAME)
+  } catch (e) {
+    log.error('update', `助手暂存副本复制失败（${sourceDir} → ${stageDir}）：${errMsg(e)}`)
+    rmDirQuietly(stageDir)
+    return null
+  }
+}
+
 /**
  * 退出链不可回头点兑现更新意图（lifecycle 调用，时序与 pendingRelaunch 同款）：
  * 此刻旧应用的 flush/停机全过、进程即将退出，助手进程接管（它自己等我们死透）。
+ * 助手一律从**目标目录外的暂存副本**运行：Electron 进程会把自镜像所在目录占住，
+ * 从目标内跑助手则「target → .old-」改名必败 EPERM（win 真机实测；三连对照：
+ * 真 node.exe 同样形态不挡、Electron 镜像移出目标即通）。暂存副本放更新缓存内，随版本
+ * 缓存一并清扫；复制失败与「形态不支持」同款收口——丢弃意图留痕，不让退出链挂着。
  * 形态不支持（非 win 打包态）时静默丢弃并留痕——意图不该把应用卡在退出链上。
  */
 export function armPendingUpdateIfAny(): void {
@@ -231,7 +253,13 @@ export function armPendingUpdateIfAny(): void {
     log.warn('update', '带更新意图退出但当前形态不支持自动安装——已丢弃（更新包留在缓存）')
     return
   }
+  const home = appDataHomeDir()
   const targetDir = appDirOf(process.execPath)
+  const stagedExe = stageHelperCopy(targetDir, helperStageDir(home, pending.toVersion))
+  if (!stagedExe) {
+    log.warn('update', '助手暂存副本不可用——本次更新已丢弃（更新包仍在缓存，可稍后重试）')
+    return
+  }
   const args = [
     APPLY_UPDATE_FLAG,
     '--payload',
@@ -245,7 +273,7 @@ export function armPendingUpdateIfAny(): void {
     '--to-version',
     pending.toVersion,
     '--home',
-    appDataHomeDir(),
+    home,
     '--log-dir',
     join(app.getPath('userData'), 'logs'),
   ]
@@ -254,10 +282,10 @@ export function armPendingUpdateIfAny(): void {
   if (pending.sha256) args.push('--sha256', pending.sha256)
   // 助手拉起是 fire-and-forget：主进程随后退出，助手自己等本 pid 消失——
   // 此处 await 会把退出链钉在助手存活上（助手要等我们退出，成了死结）
-  void spawnDetachedProcess(process.execPath, args).then((ok) => {
+  void spawnDetachedProcess(stagedExe, args).then((ok) => {
     if (!ok) log.error('update', '更新助手拉起失败——本次更新未执行（更新包仍在缓存，可稍后重试）')
   })
-  log.info('update', `已交接更新助手：${app.getVersion()} → ${pending.toVersion}`)
+  log.info('update', `已交接更新助手（暂存副本）：${app.getVersion()} → ${pending.toVersion}`)
 }
 
 /** 丢弃更新意图（退出被取消时调用）；返回是否确有意图（IPC 层据此广播「已取消」） */
@@ -279,9 +307,44 @@ export function __getPendingUpdateForTest(): PendingUpdate | null {
 
 // ── 启动维护（bootstrap 尾段排程）────────────────────────
 
-function rmDirQuietly(path: string): void {
+/** 把 `<dir>/resources` 下的 `*.asar` 文件摘成普通名（返回摘了几件）。
+ *  Electron 正常应用进程的 fs 带 asar 层：`resources/app.asar` 被呈现为**目录**，递归删
+ *  整树在这片叶子上必 EPERM（win 真机实测）——摘名后它只是普通文件，删除恢复照常。 */
+function detachAsarLeaves(dir: string): number {
+  const resources = join(dir, 'resources')
+  let names: string[]
   try {
-    rmSync(path, { recursive: true, force: true })
+    names = readdirSync(resources)
+  } catch {
+    return 0
+  }
+  let detached = 0
+  for (const name of names) {
+    if (!name.endsWith('.asar')) continue
+    try {
+      renameSync(join(resources, name), join(resources, `${name}.rm-${process.pid}`))
+      detached++
+    } catch {
+      /* 摘不动：删除同样只是失败残留，两者等价，不另行处置 */
+    }
+  }
+  return detached
+}
+
+/** 删目录（best-effort；rm 可注入——测试用桩模拟 asar 层的 EPERM）。
+ *  Electron 进程的 asar 层会绊住含 `resources/*.asar` 的递归删（见 detachAsarLeaves）：
+ *  先摘叶再重试一次，两次仍失败交残留（下次启动维护再清），不阻断调用方。 */
+export function rmDirQuietly(path: string, opts?: { rm?: (p: string) => void }): void {
+  const doRm = opts?.rm ?? ((p: string) => rmSync(p, { recursive: true, force: true }))
+  try {
+    doRm(path)
+    return
+  } catch {
+    /* 见函数注：摘 asar 叶后重试 */
+  }
+  detachAsarLeaves(path)
+  try {
+    doRm(path)
   } catch {
     /* 瞬时占用：残留交下次启动，不阻断 */
   }

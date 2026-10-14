@@ -14,7 +14,7 @@
  *（dist/web + dist/desktop/{main,server-utility,preload} 进 asar）。
  */
 import { app, BrowserWindow, session, screen, dialog, Menu, type MenuItemConstructorOptions } from 'electron'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
 import { sweepAppDataTmpFiles } from '../fs/atomic.js' // 应用级数据目录 tmp 清扫（启动尾段排程，见 scheduleAppDataTmpSweep）
@@ -53,11 +53,13 @@ import {
   setBootstrappedWorkDir,
 } from './workdir-controller.js' // workdir 控制器拆出
 import { filterValidRecentBudgeted } from './workdir-store.js'
-import { errMsg, initLogging, log } from '../log/index.js'
+import { errMsg, flushLogs, initLogging, log } from '../log/index.js'
 import { isApplyUpdateInvocation, parseApplyUpdateArgv, runUpdateHelper } from './update-helper.js' // 阶段 55 更新助手态分流（见下）
 import { scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护（bootstrap 尾段排程）
 
 // ── 更新助手态分流（阶段 55）──────────────────────────────
+/** 助手退出前等日志落盘的上限——盘面挂起时日志丢行可接受，助手被钉住退出前不可接受 */
+const UPDATE_LOG_FLUSH_TIMEOUT_MS = 2000
 // 判据只看旗（`--apply-update`）：带旗即绝不进入应用形态——不 setPath、不请求单实例锁、
 // 不起 server、不开窗。助手是「旧应用已退出、新版未就位」窗口里唯一活着的进程；它若按
 // 应用形态跑起来，会与即将被换名的目录纠缠出双开与锁冲突（自己持有的 userData 锁还可能
@@ -66,15 +68,34 @@ import { scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 
 // app.exit 是 Electron 语义的立即退出（不发 before-quit），process.exit 兜底两者同发，
 // 先到者接管进程终止（同发无副作用）。
 if (isApplyUpdateInvocation(process.argv)) {
+  // 关掉 Electron 的 asar 层：它把「写向 `*.asar` 目标」也当包体去解析——解压真实便携包的
+  // `resources/app.asar` 条目会在 open 即抛 Invalid package（win 真机实测，更新链在打包态
+  // 必败）。助手自身代码在分流前已载入完毕、其后只做目标目录的文件搬运与重启，全程不需要
+  // asar；本开关只在本进程内生效，重启出的正式应用是独立进程、不受影响。
+  process.noAsar = true
   const inv = parseApplyUpdateArgv(process.argv)
   if (!inv) {
     log.error('update', `更新助手参数不完整，放弃本次更新：${process.argv.slice(1).join(' ')}`)
     app.exit(2)
     process.exit(2)
   }
+  // 助手自身 cwd 挪出目标目录：旧应用若由双击/快捷方式启动，其 cwd = 应用目录，助手经
+  // spawn 继承之——进程 cwd 占住某目录时该目录改名必 EBUSY（win 真机实测：与「谁在运行」
+  // 无关，exe 镜像本身不挡）。挪到上级（换名产物的落点）；上级不可达的极端形态维持原
+  // cwd，由随后的改名以 target-locked 安全收口。
+  try {
+    process.chdir(dirname(inv.targetDir))
+  } catch {
+    /* 见上：安全收口在改名侧 */
+  }
   if (inv.logDir) initLogging({ logsDir: inv.logDir, mirrorConsole: !app.isPackaged })
   log.info('update', `更新助手启动：${inv.fromVersion} → ${inv.toVersion}（等待 pid ${inv.pid} 退出）`)
   const outcome = await runUpdateHelper(inv)
+  // 结局行与失败原因行须落盘后再退出：process.exit 不等在途异步写泵（win 真机实测——
+  // 正是这次丢掉的「更新助手结局：aborted（reason）」与解压错误行）。上限 2s 兜底：
+  // 盘面挂起时「日志没落」不该把助手永远钉在退出前（旧应用已退、新版未就位的窗口里
+  // 它就是唯一活口）。
+  await Promise.race([flushLogs(), new Promise((r) => setTimeout(r, UPDATE_LOG_FLUSH_TIMEOUT_MS))])
   const code = outcome === 'applied' ? 0 : 3
   app.exit(code)
   process.exit(code)
