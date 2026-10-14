@@ -17,7 +17,6 @@ import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import CreateBookModal from '../components/ui/CreateBookModal.vue'
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
-import UpdateCorner from '../components/ui/UpdateCorner.vue'
 
 const router = useRouter()
 const { theme, toggle } = useTheme()
@@ -114,9 +113,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div class="glow glow-bl"></div>
     </div>
 
-    <header class="shelf-titlebar titlebar-corner">
-      <UpdateCorner />
-    </header>
+    <header class="shelf-titlebar" />
     <main class="shelf-main">
       <header class="shelf-head">
         <div class="head-left">

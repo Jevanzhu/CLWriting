@@ -4,10 +4,11 @@
 // 警示图标=失败或「上次更新未完成」。点击出小弹层（详情/进度/按钮），
 // 「忽略此版本」是弹层内的显式按钮——弹层右上角的叉只关弹层，两义不混。
 //
-// 挂点（四处顶栏条右端）：工作区 TabBar 的 tabbar-actions 与 Welcome/Library/Shelf
-// 三页标题条（后者挂全局 .titlebar-corner 宿主类，含 win 窗控 env() 避让）。
-// 状态与订阅都在 stores/update（角标按页挂卸，进度不随切页丢）。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// 挂点（单点）：工作区左栏标题条最左（SidebarLeft 的 .left-tabs，与「刷新目录」同排）——
+// 即「已进库的工作窗」的常驻面。引导页 / 书架窗 / 书库管理窗不挂；也不入 TabBar
+// （那条属中栏，右端还与专注/右栏按钮、右栏顶栏、win 窗控让位挤在同一角）。
+// 状态与订阅都在 stores/update（组件按页挂卸，进度不随切页丢）。
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AlertTriangle, Download, Loader2, X } from 'lucide-vue-next'
 import { useUpdateStore } from '../../stores/update'
 import { isImeComposing } from '../../shared/ime'
@@ -111,9 +112,11 @@ function onDocKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** 角标隐去（忽略/清掉结果条）时弹层不悬空 */
+/** 角标隐去（忽略/清掉结果条）时弹层不悬空；形态变化（26px 图标 ⟷ 就绪胶囊
+ *  改宽）改变右缘锚点，弹层开着时须按新几何重锚（否则锚在旧右缘上）。 */
 watch(chipMode, (m) => {
   if (!m) popOpen.value = false
+  else if (popOpen.value) void nextTick(syncPopPos)
 })
 
 onMounted(() => {
@@ -164,7 +167,9 @@ onBeforeUnmount(() => {
     <AlertTriangle v-else-if="chipMode === 'warn'" :size="16" class="uc-ic uc-warn-ic" />
     <template v-else>
       <Download :size="16" class="uc-ic" />
-      <span class="uc-dot" />
+      <!-- 指示点类名**不得**与形态类同名（uc-dot）：同名时按钮自己吃下
+           「absolute + top/right 3px + 6px 见方」，角标被钉到容器右上角 6px 小格 -->
+      <span class="uc-badge" />
     </template>
   </button>
   <Teleport to="body">
@@ -203,8 +208,10 @@ onBeforeUnmount(() => {
 .uc-ic {
   flex-shrink: 0;
 }
-/* 有新版本：图标右上角一枚强调色小点（安静但有指示） */
-.uc-dot {
+/* 有新版本：图标右上角一枚强调色小点（安静但有指示）。
+ * 类名是 .uc-badge 不是 .uc-dot——「点」形态类名就叫 uc-dot，同名会让按钮
+ * 自己命中本规则（实测：角标被定成容器右上角 6px 绝对定位小格）。 */
+.uc-badge {
   position: absolute;
   top: 3px;
   right: 3px;

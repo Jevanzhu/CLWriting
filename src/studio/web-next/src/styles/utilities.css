@@ -22,18 +22,6 @@
   -webkit-app-region: drag;
 }
 
-/* 独立页顶栏条右端角标宿主（Welcome / Library / Shelf 三页标题条）：flex 右端对齐 +
- * win 窗控避让（env(titlebar-area-*)；非 win/浏览器/mac hiddenInset 回退 0px，只剩
- * 12px 呼吸隙）。与 TabBar（避让在自身 scoped 规则、作用于 tabbar-actions）和
- * SidebarRight（取窗控宽为上限、刻意不叠隙）是三个宿主形态，规则体不同源，
- * 本类只服务三页标题条。 */
-.titlebar-corner {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + var(--size-4-3));
-}
-
 /* 概览卡片头右侧图例（RhythmDistPanel / ShortProfileGaps / WordCurveChart / OverviewView） */
 .head-legend {
   margin-left: auto;

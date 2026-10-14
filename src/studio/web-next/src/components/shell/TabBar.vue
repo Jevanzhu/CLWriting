@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 顶栏操作条：新建按钮（split：主钮=新建正文，caret=下拉新建大纲/设定）
 //   + 左栏/右栏/专注按钮（标签页已移除，单文档模式）。
-// 最右为更新角标（ui/UpdateCorner，自更新链提示面；窗控避让随 .avoid-wco 规则）。
 // 新建信号通过 workspace store createTick 触发 ChapterTreePanel 执行。
+// （更新角标不住本栏——它挂左栏标题条 SidebarLeft，见该档。）
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { FilePlus, ChevronDown, Focus, PanelRight, PanelLeft } from 'lucide-vue-next'
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
@@ -10,7 +10,6 @@ import { useTreeStore } from '../../stores/tree'
 import { usePlatform } from '../../composables/usePlatform'
 import { modComboLabel } from '../../shared/mod-key'
 import { isImeComposing } from '../../shared/ime'
-import UpdateCorner from '../ui/UpdateCorner.vue'
 
 // #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
 const ws = useWorkspaceStore()
@@ -129,7 +128,6 @@ onUnmounted(() => {
       <button v-show="!ws.rightOpen" class="tb-btn" data-tip="展开右栏" data-tip-dir="bottom" @click="ws.toggleRight()">
         <PanelRight :size="17" :stroke-width="1.6" />
       </button>
-      <UpdateCorner />
     </div>
     <!-- 下拉菜单（Teleport 到 body 脱离 tabbar overflow:hidden 裁剪） -->
     <Teleport to="body">

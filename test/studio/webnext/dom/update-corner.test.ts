@@ -132,7 +132,7 @@ describe('更新角标：形态', () => {
     installBridge()
     mocks.getAppInfo.mockResolvedValue({ version: '1.0.0-rc.4', update: UPDATE_FULL, updateAttempt: null })
     const wrapper = await mountCorner()
-    expect(wrapper.find('.uc-chip .uc-dot').exists()).toBe(true)
+    expect(wrapper.find('.uc-chip .uc-badge').exists()).toBe(true)
     expect(wrapper.find('.uc-chip').attributes('data-tip')).toBe('有新版本 v1.0.0')
     await wrapper.find('.uc-chip').trigger('click')
     await flush()
@@ -140,6 +140,21 @@ describe('更新角标：形态', () => {
     expect(popEl()!.textContent).toContain('有新版本 v1.0.0')
     expect(popEl()!.textContent).toContain('约 30.0 MB')
     expect(popEl()!.querySelector('.ua-primary')?.textContent).toContain('下载并更新')
+  })
+
+  // 红锚（真机暴露）：形态类名与内部元素类名撞名——「点」形态的按钮类 uc-dot
+  // 与指示点 span 同名，按钮因此吃下 .uc-dot 的 absolute + 6px 见方规则，角标被钉到
+  // 容器右上角 6px 小格（真机实测 rect = [1267,3,6,6]，--size-control 26px 整个失效）。
+  it('形态类名不与内部元素类名撞名（同名即把形态规则漏到元素上）', async () => {
+    installBridge()
+    mocks.getAppInfo.mockResolvedValue({ version: '1.0.0-rc.4', update: UPDATE_FULL, updateAttempt: null })
+    const wrapper = await mountCorner()
+    const chip = wrapper.find('.uc-chip').element as HTMLElement
+    const own = [...chip.classList]
+    const leaked = [...chip.querySelectorAll<HTMLElement>('*')].flatMap((el) =>
+      [...el.classList].filter((c) => own.includes(c)),
+    )
+    expect(leaked).toEqual([])
   })
 
   it('下载在途 → 环形进度 + tip 百分比；落定 → 就绪胶囊', async () => {

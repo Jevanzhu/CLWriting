@@ -10,7 +10,6 @@ import { usePlatform } from '../composables/usePlatform'
 import { useLibraryIpc } from '../composables/useLibraryIpc'
 import { useNativeMenu } from '../composables/useNativeMenu'
 import ContextMenu, { type MenuItem } from '../components/ui/ContextMenu.vue'
-import UpdateCorner from '../components/ui/UpdateCorner.vue'
 
 const ui = useUiStore()
 const { isDesktop: hasDesktop, isMac } = usePlatform()
@@ -87,9 +86,7 @@ function onRowContextmenu(e: MouseEvent, path: string): void {
       <div class="glow glow-bl"></div>
     </div>
 
-    <header class="lib-titlebar titlebar-corner">
-      <UpdateCorner />
-    </header>
+    <header class="lib-titlebar" />
     <main class="lib-main">
       <header class="lib-head">
         <div class="head-left">
