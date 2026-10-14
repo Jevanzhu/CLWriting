@@ -45,6 +45,8 @@ Status: <status>
 mergeability check never runs a local driver, so conflicts still appear on the host.
 ```
 
+**先写它最强的理由，再写为什么否决。** 只反驳弱处等于没有评估过它：读者会以为被否的是一个没人会选的选项，于是把真正的选项重新提一遍。最强理由写完仍被否决，这个决定才站得住。
+
 **不要编造备选方案。** 只为凑齐格式而虚构一条从未考虑的路径，会让读者以为它被评估过。真的没有可写的历史时，用祖父注释代替（仅限 2026-07-05 之前提出的笔记）：
 
 ```markdown
@@ -52,6 +54,12 @@ mergeability check never runs a local driver, so conflicts still appear on the h
 ```
 
 这个注释与 `## Alternatives considered` 只能二选一，不能同时出现。文档日期在 2026-07-05 之后的笔记不得使用它——门禁会报错。
+
+## 后果要写全，重访条件要有
+
+`## Consequences` 里**代价和收获都要写**。自问「什么变难了、维护成本是什么」——只有收益的后果是挑选过的。
+
+做减法、收窄范围或降低能力的决策，另写**已知上限与重访条件**：什么情况下它不再成立、该回头重看。没有重访条件的简化会悄悄变成永久决定。
 
 ## 生命周期之间的搬家
 

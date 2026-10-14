@@ -49,7 +49,7 @@ class 是决策的种类，取值封闭：`feature`/`功能`（新的用户或�
 - **implemented/**：`## Problem` → `## Decision`（现在时）→ 自定义小节 → `## Alternatives considered` → `## Consequences`（代价**和**收获都要写）。**禁止**出现 `## Proposal`、`## Plan`、`## Migration plan`、`## Acceptance criteria`——那是提案期的措辞，门禁会直接报错。
 - **rejected/**：保留提案期的结构，判决写在 `Status:` 行上。
 
-`## Alternatives considered` 一篇都不能少。没记录「击败了什么」的决策会反复招来重开争论——这正是决策记录存在的意义。每条备选一段，粗体起头。
+`## Alternatives considered` 一篇都不能少。没记录「击败了什么」的决策会反复招来重开争论——这正是决策记录存在的意义。每条备选一段，粗体起头；先写该方案最强的理由，再写为什么否决——只否掉弱处等于没评估过它。
 
 头部三行同样是强制的，门禁逐行比对：第 1 行 `# Agent Note: <标题>`、第 2 行空行、第 3 行 `Status: <状态>`、第 4 行空行。`Status:` 全文件只能出现一次，且必须与所在目录一致；`rejected` 必须在破折号后给出理由。
 
