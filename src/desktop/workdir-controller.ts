@@ -601,6 +601,12 @@ function discardPendingRelaunch(): void {
   pendingRelaunch = false
 }
 
+/** 是否有在途切库/重启意图（阶段 55：更新应用前的互斥预检——两者都以「退出 + 重启」
+ *  兑现，同时挂起会起两个新进程，见 update-controller 头注）。 */
+export function isRelaunchPending(): boolean {
+  return pendingRelaunch
+}
+
 function relaunch(): void {
   pendingRelaunch = true
   // 走 before-quit 优雅清理（app.exit 会跳过 before-quit）

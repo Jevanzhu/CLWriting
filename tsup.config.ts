@@ -55,7 +55,10 @@ export default defineConfig([
     // 冒烟假绿是 .app 躺在 workspace dist-electron/ 下、解析沿文件路径向上摸到仓库
     // node_modules——装进 /Applications / 从 dmg 挂载卷运行必死。font-list 内联后
     // __dirname 指向本目录的二进制同伴拷贝（onSuccess）设计随之成真。
-    noExternal: ['@anthropic-ai/sdk', 'openai', 'font-list'],
+    // yauzl（阶段 55 自更新解压）：同「零裸包解析」前提——主进程 helper 分支在打包态
+    // 解压便携包，node_modules 已排除出 asar，不内联即 ERR_MODULE_NOT_FOUND。
+    // 其自身依赖随内联递归进 bundle，无需逐个列出。
+    noExternal: ['@anthropic-ai/sdk', 'openai', 'font-list', 'yauzl'],
     // rc.0 发布·font-list 特例：其 ESM 壳 index.mjs 是 createRequire 运行时
     // require('./libs/core')（相对 import.meta.url）——esbuild bundle 后该路径指向
     // dist/desktop/、libs/ 不在，裸 noExternal 内联会在模块顶层抛 MODULE_NOT_FOUND

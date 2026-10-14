@@ -70,6 +70,11 @@ const M_hoisted = vi.hoisted(() => ({
   // R0910-W（2026-09-10 修复批）：真实 Electron 窗口销毁后读 win.webContents 抛
   // "Object has been destroyed"——默认关闭不扰存量用例，回归用例按需打开。
   throwWebContentsOnDestroyed: false,
+  // ── 阶段 55：更新下载链走 net.fetch（受系统代理）──
+  /** net.fetch 实收 URL 捕获面（更新链用例断言「下载的正是解析出的资产地址」） */
+  netFetchCalls: [] as string[],
+  /** net.fetch 响应桩（null = 缺省 503——存量用例不触更新链，恒不生效） */
+  netFetchResponse: null as unknown,
 }))
 
 vi.mock('electron', () => {
@@ -370,6 +375,24 @@ vi.mock('electron', () => {
         return ''
       },
     },
+    // 阶段 55：更新下载链的发布信息与包体都走 net.fetch（Chromium 网络栈，受系统代理）
+    // ——假件缺省恒回 503（存量用例不触更新链）；需驱动下载的用例经 M.netFetchResponse
+    // 注入自定义响应（形状同 fetch：ok/status/headers.get/body）
+    net: {
+      fetch: async (url: string) => {
+        M_hoisted.netFetchCalls.push(String(url))
+        const canned = M_hoisted.netFetchResponse
+        if (typeof canned === 'function') return (canned as (u: string) => unknown)(String(url))
+        return (
+          canned ?? {
+            ok: false,
+            status: 503,
+            headers: { get: () => null },
+            body: null,
+          }
+        )
+      },
+    },
     // 阶段 22 批 U1：utilityProcess 假件——server-manager 经此注入 fork；假 child
     // 下一拍按 forkBehavior 回传握手消息（ready 45678 / boot-error EADDRINUSE 后退出）
     utilityProcess: {
@@ -387,6 +410,9 @@ vi.mock('../../src/fs/user-data-path.js', () => ({
   instanceUserDataPath: (key: string) => `${M_hoisted.userData}/instances/${key}`,
   WELCOME_INSTANCE_KEY: 'welcome',
   libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
+  // 阶段 55：启动链与更新控制器自查排除共用的单源派生（dir 空 = welcome）
+  instanceKeyForDir: (dir?: string | null) =>
+    dir ? `key-${Buffer.from(dir).toString('hex').slice(0, 12)}` : 'welcome',
   // R1W-7：isLibraryDir/--book 路径匹配收编的同一性原语（win 小写降口径；mock 同语义）
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))

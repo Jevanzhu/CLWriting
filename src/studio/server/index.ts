@@ -183,7 +183,7 @@ function buildRoutes(
     // 元：启动通告——启动链迁移失败 / 事件库迁移失败的用户可见出口
     registerStartupNoticeRoutes({ sink })
     // 元：应用信息——版本号 + 更新检查结果（前端 App 级横幅数据源）
-    registerAppInfoRoutes()
+    registerAppInfoRoutes({ userDataPath })
     // 元：诊断包——排查件打包（设置 → 诊断入口；APP 级，非书级）
     registerDiagnosticsRoutes({ workDir, userDataPath })
 

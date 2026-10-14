@@ -232,6 +232,9 @@ vi.mock('../../src/fs/user-data-path.js', () => ({
   instanceUserDataPath: (key: string) => `${M.userData}/instances/${key}`,
   WELCOME_INSTANCE_KEY: 'welcome',
   libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
+  // 阶段 55：启动链与更新控制器自查排除共用的单源派生（dir 空 = welcome）
+  instanceKeyForDir: (dir?: string | null) =>
+    dir ? `key-${Buffer.from(dir).toString('hex').slice(0, 12)}` : 'welcome',
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({
@@ -506,7 +509,16 @@ describe('多库多窗：切库取消回滚的锁内合并', () => {
     expect(r.ok).toBe(true)
     expect(persistedCurrent()).toBe(libB) // welcome 态切库：无旧 current 可顶入 recent
     // 另一实例在「快照读取 → 回滚写回」窗口内落盘 recent 新增（本实例缓存不知情）
-    writeFileSync(workdirFp(), JSON.stringify({ current: libB, recent: [{ path: libR, label: 'R' }, { path: libC, label: 'C' }] }))
+    writeFileSync(
+      workdirFp(),
+      JSON.stringify({
+        current: libB,
+        recent: [
+          { path: libR, label: 'R' },
+          { path: libC, label: 'C' },
+        ],
+      }),
+    )
     await quitCancel()
     await vi.waitFor(() => expect(persistedCurrent()).toBeNull(), { timeout: 10_000, interval: 50 })
     // 修复锚点：他实例新增条目不得被快照整写抹掉；快照侧条目照常复位

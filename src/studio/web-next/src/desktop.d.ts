@@ -31,6 +31,21 @@ declare global {
        *  主进程侧白名单（仅本项目 GitHub 发布页）——白名单外/打开失败回 {ok:false,reason}
        *  （带值 channel 精确 union 口径，token 面 openLibrary 信封同款）。 */
       openExternal: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>
+      /** 阶段 55：自更新能力闸（主进程按平台 + 打包态判定；渲染层不自行推平台结论）。
+       *  canDownload = 应用内下载；canInstall = 换目录并重启（Windows 便携版专属）。 */
+      updateCapability: () => Promise<{ canDownload: boolean; canInstall: boolean }>
+      /** 阶段 55：下载便携包（进度经 onUpdateProgress 推送，返回值只给终态契约） */
+      updateDownload: (version: string) => Promise<{ ok: true } | { ok: false; reason: string }>
+      /** 阶段 55：取消在途下载（无在途时 no-op） */
+      updateCancel: () => Promise<{ ok: true }>
+      /** 阶段 55：带更新意图退出并重启；形态不支持/包未就绪等回 {ok:false,reason}（人话） */
+      updateApply: (version: string) => Promise<{ ok: true } | { ok: false; reason: string }>
+      /** 阶段 55：在文件管理器中显示已下载的更新包（成功路径 main 侧无返回值） */
+      updateReveal: () => Promise<void>
+      /** 阶段 55：订阅下载进度（total 为 null = 服务端未报总长），返回退订函数 */
+      onUpdateProgress: (cb: (p: { received: number; total: number | null }) => void) => () => void
+      /** 阶段 55：订阅「退出被取消、更新意图作废」，返回退订函数 */
+      onUpdateApplyCancelled: (cb: () => void) => () => void
       openBook: (name: string) => Promise<void>
       /** 打开诊断包所在目录（设置 → 诊断入口；目录由主进程推导，未生成过包时静默
        *  返回——成功路径 main 侧无返回值，如实标 void、不虚构 {ok:true} 态） */

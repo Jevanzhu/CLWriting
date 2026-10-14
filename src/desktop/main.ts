@@ -18,13 +18,7 @@ import { join } from 'node:path'
 import { statSync } from 'node:fs'
 import { findWorkDir } from '../install/books.js'
 import { sweepAppDataTmpFiles } from '../fs/atomic.js' // 应用级数据目录 tmp 清扫（启动尾段排程，见 scheduleAppDataTmpSweep）
-import {
-  appDataHomeDir,
-  instanceUserDataPath,
-  libraryInstanceKey,
-  samePath,
-  WELCOME_INSTANCE_KEY,
-} from '../fs/user-data-path.js'
+import { appDataHomeDir, instanceKeyForDir, instanceUserDataPath, samePath } from '../fs/user-data-path.js'
 import { resolveStartupLibraryDir } from './startup-instance.js' // 多库多窗：pre-setPath 同步解析启动库 + instanceKey
 import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：菜单「在新窗口中打开书库…」
 import { initialBookArg, resolveInitialBook } from './initial-book.js' // --book 直进——argv 解析为登记书名仍在 main（书架登记表就在手边），
@@ -60,6 +54,31 @@ import {
 } from './workdir-controller.js' // workdir 控制器拆出
 import { filterValidRecentBudgeted } from './workdir-store.js'
 import { errMsg, initLogging, log } from '../log/index.js'
+import { isApplyUpdateInvocation, parseApplyUpdateArgv, runUpdateHelper } from './update-helper.js' // 阶段 55 更新助手态分流（见下）
+import { scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护（bootstrap 尾段排程）
+
+// ── 更新助手态分流（阶段 55）──────────────────────────────
+// 判据只看旗（`--apply-update`）：带旗即绝不进入应用形态——不 setPath、不请求单实例锁、
+// 不起 server、不开窗。助手是「旧应用已退出、新版未就位」窗口里唯一活着的进程；它若按
+// 应用形态跑起来，会与即将被换名的目录纠缠出双开与锁冲突（自己持有的 userData 锁还可能
+// 绊住换名）。故本分支须在任何应用级装配（下方的 homeDir/setPath/单实例锁）之前。
+// 出口纪律：两条路径都直接终止进程——模块后续顶层代码（整个应用装配面）不得求值；
+// app.exit 是 Electron 语义的立即退出（不发 before-quit），process.exit 兜底两者同发，
+// 先到者接管进程终止（同发无副作用）。
+if (isApplyUpdateInvocation(process.argv)) {
+  const inv = parseApplyUpdateArgv(process.argv)
+  if (!inv) {
+    log.error('update', `更新助手参数不完整，放弃本次更新：${process.argv.slice(1).join(' ')}`)
+    app.exit(2)
+    process.exit(2)
+  }
+  if (inv.logDir) initLogging({ logsDir: inv.logDir, mirrorConsole: !app.isPackaged })
+  log.info('update', `更新助手启动：${inv.fromVersion} → ${inv.toVersion}（等待 pid ${inv.pid} 退出）`)
+  const outcome = await runUpdateHelper(inv)
+  const code = outcome === 'applied' ? 0 : 3
+  app.exit(code)
+  process.exit(code)
+}
 
 /** 生产模式 CSP：限定所有资源走本地 origin，防渲染层注入外部脚本/样式 */
 const CLW_CSP = [
@@ -95,7 +114,7 @@ function isDevUi(): boolean {
 // 隔离真实用户库——覆盖**共享根**，实例目录嵌套其下；env 未设时走缺省路径，生产零行为差异。
 const homeDir = appDataHomeDir()
 const startupLibrary = resolveStartupLibraryDir({ argv: process.argv, homeDir, cwd: process.cwd() })
-const instanceKey = startupLibrary.dir ? libraryInstanceKey(startupLibrary.dir) : WELCOME_INSTANCE_KEY
+const instanceKey = instanceKeyForDir(startupLibrary.dir)
 app.setPath('userData', instanceUserDataPath(instanceKey))
 // 结构化日志两段初始化（单写者约束：文件 sink 只归持锁实例）——日志目录随实例目录
 // （同机多实例各写各的，互不串扰），但锁判定前只能定输出形态：未持锁实例随后即退，
@@ -366,7 +385,7 @@ async function bootstrap(): Promise<void> {
       `实例 key 按启动解析的库派生（${startupLibrary.dir}），bootstrap 实际采用 ${workDir}——已补挂实例守卫到实际库（同库单实例防线恢复）`,
     )
     try {
-      const actualKey = libraryInstanceKey(workDir)
+      const actualKey = instanceKeyForDir(workDir)
       if (actualKey !== instanceKey) {
         const supplement = acquireAppInstanceGuard(instanceUserDataPath(actualKey))
         if (!supplement.acquired) {
@@ -517,6 +536,8 @@ async function bootstrap(): Promise<void> {
   }
   // 首载落定后的应用级 tmp 清扫（共享根 + 实例目录；异步让出、失败留痕，见排程函数注）
   scheduleAppDataTmpSweep()
+  // 更新残留清扫（旧版本目录 / 旧版更新包；打包态才跑，见 update-controller 注）
+  scheduleUpdateMaintenance()
 }
 
 /** 应用级数据目录 tmp 清扫是否已排过（bootstrap 会因 activate/失败重试重跑，清扫一次即可） */

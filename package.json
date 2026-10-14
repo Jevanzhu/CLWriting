@@ -58,6 +58,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^24.13.6",
+    "@types/yauzl": "3.4.0",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vitest/coverage-v8": "^5.0.1",
     "@vue/test-utils": "^2.5.1",
@@ -83,6 +84,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "font-list": "^2.1.0",
-    "openai": "^7.23.0"
+    "openai": "^7.23.0",
+    "yauzl": "3.4.0"
   }
 }

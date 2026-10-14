@@ -3,6 +3,7 @@
  *
  */
 import {
+  app,
   BrowserWindow,
   Menu,
   ipcMain,
@@ -31,6 +32,14 @@ import { diagnosticsDirOf } from '../diagnostics/index.js' // 诊断包目录单
 import { appDataHomeDir } from '../fs/user-data-path.js' // 诊断包落点是共享根，非实例目录（见 reveal-diagnostics）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import { spawnLibraryInstance } from './new-instance.js' // 多库多窗·新窗入口：在新窗口中打开书库
+import {
+  cancelUpdateDownload,
+  prepareUpdateApply,
+  revealUpdateDownload,
+  selfUpdateDownloadCapable,
+  selfUpdateInstallCapable,
+  startUpdateDownload,
+} from './update-controller.js' // 阶段 55：便携版自更新（能力/下载/应用三入口）
 import {
   canSwitchLibraryDir,
   currentWorkDir,
@@ -195,6 +204,50 @@ async function guardLibraryDir(path: unknown): Promise<{ ok: true; dir: string }
     return { ok: false, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
   }
   return { ok: true, dir: path }
+}
+
+/**
+ * 便携版自更新五入口（能力闸 / 下载 / 取消 / 应用 / 打开所在文件夹）。
+ * 进度不另开 handle：长任务由主进程向发起窗口推事件（download 内部 150ms 节流），
+ * invoke 的返回值只在「下载整体落定」时给一次——避免渲染层轮询。
+ */
+function registerUpdateIpc(): void {
+  handleTrusted('desktop:update-capability', () => ({
+    canDownload: selfUpdateDownloadCapable(),
+    canInstall: selfUpdateInstallCapable(),
+  }))
+  handleTrusted('desktop:update-download', (e, version: unknown) => {
+    if (typeof version !== 'string' || version.trim() === '') return { ok: false as const, reason: '版本参数无效' }
+    // 直接返回下载 Promise（不在本层 await——return-await 纪律：非 try 段不加 await）
+    return startUpdateDownload({
+      version: version.trim(),
+      onProgress: (p) => {
+        // 下载期间窗口可被关闭：send 前验存活（同 context-menu 的 sender 守卫口径）
+        try {
+          if (!e.sender.isDestroyed()) e.sender.send('desktop:update-progress', p)
+        } catch {
+          /* 窗口销毁竞态：进度丢了不影响下载落定（invoke 返回仍有终态） */
+        }
+      },
+    })
+  })
+  handleTrusted('desktop:update-cancel', () => {
+    cancelUpdateDownload()
+    return { ok: true as const }
+  })
+  handleTrusted('desktop:update-apply', (_e, version: unknown) => {
+    if (typeof version !== 'string' || version.trim() === '') return { ok: false as const, reason: '版本参数无效' }
+    const gate = prepareUpdateApply({ version: version.trim() })
+    if (!gate.ok) return { ok: false as const, reason: gate.reason ?? '当前不可更新' }
+    // 就绪态在下载成功时已置位；这里只是「带意图退出」——真正的换目录在退出链不可
+    // 回头点（armPendingUpdateIfAny 拉起助手）。返回值先送达渲染层再开始退出：
+    // quit 走 before-quit 优雅链（同步段不销毁窗口），invoke 回程不受影响
+    app.quit()
+    return { ok: true as const }
+  })
+  handleTrusted('desktop:update-reveal', () => {
+    revealUpdateDownload()
+  })
 }
 
 export function registerIpc(): void {
@@ -402,6 +455,8 @@ export function registerIpc(): void {
       if (err) log.warn('desktop', `打开诊断包目录失败（${dir}）：${err}`)
     })
   })
+  // ── 阶段 55：便携版自更新（注册面同文件独立段，见 registerUpdateIpc）──
+  registerUpdateIpc()
   // 打开外部链接（阶段 53 更新检查横幅「去下载」用；白名单见 isAllowedExternalUrl）
   handleTrusted('desktop:open-external', async (_e, url: unknown) => {
     if (!isAllowedExternalUrl(url)) {

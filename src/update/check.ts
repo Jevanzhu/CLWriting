@@ -5,6 +5,9 @@
  * pickLatestStable）；启动后延迟一次、进程内一次、不落盘；失败/离线/被墙/限速
  * 一律静默（§3.3）。数据源 = 公开仓匿名 releases 列表（60/h/IP，每次启动至多 1 请求）。
  *
+ * 阶段 55 扩资产面：结果随带便携 zip 资产与校验清单地址（纯解析在 `asset.ts`），
+ * 前端「下载并更新」与主进程下载链据此定位；同一响应内解析，不额外请求。
+ *
  * 与 `src/rag/embed.ts`（本仓另一出站面）的**刻意差异**（设计 §3.3）：那边失败打
  * warn 去抖，因为「配了代理为何召回为空」需要可定位；更新检查失败对用户无任何损害
  * （少一次提示而已），打 warn 只会给正常离线使用刷噪音——故失败只留一行 **info**
@@ -20,6 +23,7 @@ import { dirname, join } from 'node:path'
 import { testableConst } from '../shared/testable.js'
 import { log, errMsg } from '../log/index.js'
 import { compareSemver, pickLatestStable } from './semver.js'
+import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from './asset.js'
 
 /** GitHub releases 列表（公开仓匿名；per_page 上限 100，20 足够覆盖正式版 + 若干 rc） */
 const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?per_page=20'
@@ -38,6 +42,17 @@ export interface UpdateCheckResult {
   version: string
   /** 发布页地址（外链 IPC 白名单前缀内） */
   url: string
+  /** 便携 zip 资产（有则可一键下载更新；null = 只给发布页链接的降级态） */
+  asset: UpdateAsset | null
+  /** 校验清单地址（`asset.sha256` 缺失时的校验值来源；无 → null） */
+  checksumsUrl: string | null
+}
+
+/** 最新正式版（tag + 原始 assets 数组）——下载链按此重新解析资产，无需二次请求 */
+export interface LatestRelease {
+  /** tag 原串（含前导 v） */
+  tag: string
+  assets: unknown
 }
 
 /** 进程内结果（随 server 生命周期，同 startup-notices sink 语义：不落盘）。
@@ -66,8 +81,8 @@ export function resolveAppVersion(): string {
   return '0.0.0'
 }
 
-/** 本次检查的结局（区分「取到 tag」「没取到正式版」与「出错」，后者才留 info） */
-type FetchOutcome = { kind: 'tag'; tag: string } | { kind: 'none' } | { kind: 'error'; reason: string }
+/** 本次检查的结局（区分「取到正式版」「没取到正式版」与「出错」，后者才留 info） */
+type FetchOutcome = { kind: 'release'; release: LatestRelease } | { kind: 'none' } | { kind: 'error'; reason: string }
 
 async function fetchOutcome(fetchImpl: typeof fetch, timeoutMs: number): Promise<FetchOutcome> {
   const controller = timeoutMs > 0 ? new AbortController() : null
@@ -88,20 +103,38 @@ async function fetchOutcome(fetchImpl: typeof fetch, timeoutMs: number): Promise
     }
     const data = (await resp.json()) as unknown
     if (!Array.isArray(data)) return { kind: 'error', reason: '响应不是数组' }
-    const tags = data
-      .filter((r): r is { tag_name?: unknown; draft?: unknown } => typeof r === 'object' && r !== null)
+    const entries = data
+      .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
       // draft 匿名 list 本不含，防御性保留；prerelease 标记不参与筛选（rc 不标
       // prerelease，靠 tag 串里的 `-` 判别——pickLatestStable 负责）
-      .filter((r) => r.draft !== true)
-      .map((r) => r.tag_name)
-      .filter((t): t is string => typeof t === 'string')
-    const tag = pickLatestStable(tags)
-    return tag === null ? { kind: 'none' } : { kind: 'tag', tag }
+      .filter((r) => r['draft'] !== true)
+      .map((r) => ({ tag: r['tag_name'], assets: r['assets'] }))
+      .filter((e): e is { tag: string; assets: unknown } => typeof e.tag === 'string')
+    const tag = pickLatestStable(entries.map((e) => e.tag))
+    if (tag === null) return { kind: 'none' }
+    // tag → 该 release 的 assets（同一次响应内配对，不额外请求；解析交 asset.ts 纯函数面）
+    const picked = entries.find((e) => e.tag === tag)
+    return { kind: 'release', release: { tag, assets: picked?.assets } }
   } catch (e) {
     return { kind: 'error', reason: errMsg(e) }
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+/**
+ * 取最新**正式版**发布（tag + 原始 assets；无正式版/失败 → null，不抛）。
+ * 下载链在用户点「下载并更新」时调本函数重新定位资产——不复用启动时的检查结果
+ * （进程可能已开很久，期间可能发了新版本；重新解析保证下载的正是当下最新正式版）。
+ * @param fetchImpl 注入用（缺省全局 fetch；测试传桩）
+ * @param timeoutMs 超时毫秒；<=0 关闭超时
+ */
+export async function fetchLatestRelease(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = UPDATE_CHECK_TIMEOUT_MS,
+): Promise<LatestRelease | null> {
+  const outcome = await fetchOutcome(fetchImpl, timeoutMs)
+  return outcome.kind === 'release' ? outcome.release : null
 }
 
 /**
@@ -113,8 +146,8 @@ export async function fetchLatestStable(
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = UPDATE_CHECK_TIMEOUT_MS,
 ): Promise<string | null> {
-  const outcome = await fetchOutcome(fetchImpl, timeoutMs)
-  return outcome.kind === 'tag' ? outcome.tag : null
+  const release = await fetchLatestRelease(fetchImpl, timeoutMs)
+  return release?.tag ?? null
 }
 
 /**
@@ -139,10 +172,14 @@ export async function runUpdateCheckOnce(opts?: {
     return
   }
   if (outcome.kind === 'none' || current === '0.0.0') return
-  if (compareSemver(current, outcome.tag) >= 0) return
+  if (compareSemver(current, outcome.release.tag) >= 0) return
+  const version = outcome.release.tag.replace(/^v/, '')
   setCheckResult({
-    version: outcome.tag.replace(/^v/, ''),
-    url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(outcome.tag)}`,
+    version,
+    url: `https://github.com/Jevanzhu/CLWriting/releases/tag/${encodeURIComponent(outcome.release.tag)}`,
+    // 资产面与版本同一响应内解析——`asset` 为 null 即前端只给「去下载」链接
+    asset: pickPortableAsset(outcome.release.assets, version),
+    checksumsUrl: pickChecksumsUrl(outcome.release.assets),
   })
 }
 

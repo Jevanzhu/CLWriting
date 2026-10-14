@@ -11,6 +11,7 @@ import { log } from '../log/index.js'
 import { raceWithTimeout } from './workdir-store.js'
 import { guardClosedCleanup, saveWinState, wins } from './windows.js'
 import { armPendingRelaunchIfAny, discardPendingRelaunch, rollbackCancelledSwitch } from './workdir-controller.js'
+import { armPendingUpdateIfAny, discardPendingUpdate } from './update-controller.js'
 
 // ── 退出编排（显式状态机：相位 × OS 停机面 + 待汇入退出请求）──
 // 旧形态：5 个模块级可变旗（sessionEnding / appTearingDown / closeFlushInFlight /
@@ -578,6 +579,18 @@ export function attachMainWindowLifecycle(win: BrowserWindow, deps: MainWindowLi
   })
 }
 
+/** 退出被取消 → 撤回渲染层的「正在退出并更新…」态（阶段 55）：意图作废了，
+ *  界面不该继续等那个不会发生的重启。窗口可能已销毁，逐窗隔离（同收口 destroy 的隔离口径）。 */
+function broadcastUpdateApplyCancelled(): void {
+  for (const w of [wins.mainWindow, wins.shelfWindow, wins.libraryWindow]) {
+    try {
+      if (w && !w.isDestroyed()) w.webContents.send('desktop:update-apply-cancelled')
+    } catch {
+      /* 单窗发送失败不阻断其余窗口 */
+    }
+  }
+}
+
 /**
  * before-quit 优雅退出链装配。beginShutdown 幂等（二次 quit 直通，shutdownStarted 归
  * runner 自持）；before-quit 走 shutdown 指令——child 内 shutdownStudio（在途编排
@@ -660,6 +673,9 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             onCancel: async () => {
               transition('quit-flush-cancel')
               discardPendingRelaunch()
+              // 更新意图同款作废——并广播回渲染层（横幅停在「正在退出并更新…」态时
+              // 用户看不到任何反馈，取消后必须撤回该态，否则只能靠手动刷新）
+              if (discardPendingUpdate()) broadcastUpdateApplyCancelled()
               await rollbackCancelledSwitch()
             },
           })
@@ -672,6 +688,9 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
       // 不可回头点——flush 冲突/失败确认全过、停机将启，此刻兑现切库意图
       //（武装重启 + 交接释放锁）；取消路径到不了这里，意图已在上方丢弃
       armPendingRelaunchIfAny()
+      // 更新意图同点兑现：拉起助手进程（它自己等本进程死透再换目录），与切库意图
+      // 的时序同款；两者同时挂起属极端竞态（预检已拒切库在途的 apply），此处不互斥
+      armPendingUpdateIfAny()
       if (!gate.beginShutdown()) {
         // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口。相位不回落
         // ——不可回头点已置（原 appTearingDown 置位点在本判断之前，且该旗不随本分支复位），
@@ -706,6 +725,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
         // 防御：shutdown 同步抛（当前为 async fn 不可达，防将来重构回归同型挂死）
         log.error('desktop', '优雅停机 shutdown 同步抛错（继续退出）', err)
         armPendingRelaunchIfAny() // 兜底收口同样过不可回头点，切库意图不失
+        armPendingUpdateIfAny() // 更新意图同款（助手进程与主进程退出解耦，兜底路径不漏）
         for (const w of [wins.mainWindow, wins.shelfWindow, wins.libraryWindow]) {
           try {
             if (w && !w.isDestroyed()) w.destroy()

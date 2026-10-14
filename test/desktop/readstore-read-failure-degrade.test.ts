@@ -241,6 +241,9 @@ vi.mock('../../src/fs/user-data-path.js', () => ({
   instanceUserDataPath: (key: string) => `${M.userData}/instances/${key}`,
   WELCOME_INSTANCE_KEY: 'welcome',
   libraryInstanceKey: (dir: string) => `key-${Buffer.from(dir).toString('hex').slice(0, 12)}`,
+  // 阶段 55：启动链与更新控制器自查排除共用的单源派生（dir 空 = welcome）
+  instanceKeyForDir: (dir?: string | null) =>
+    dir ? `key-${Buffer.from(dir).toString('hex').slice(0, 12)}` : 'welcome',
   samePath: (a: string, b: string) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b),
 }))
 vi.mock('../../src/log/index.js', () => ({

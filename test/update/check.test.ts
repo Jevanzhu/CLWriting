@@ -4,10 +4,14 @@
  *
  * 出站面在单测里一律走注入桩，**不打网**：`fetchImpl` 由用例给，全局 fetch 不参与
  * （vitest setup 的 token 包装只对 `/api/` 前缀请求生效，与本面无关，但仍不依赖）。
+ *
+ * 阶段 55 扩资产面：结果随带便携 zip 资产（`asset`）与校验清单地址——解析纯函数
+ * （asset.ts）与 check 的结果接线在同一档内测（同域并入，不新开碎片档）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   runUpdateCheckOnce,
+  fetchLatestRelease,
   fetchLatestStable,
   getUpdateCheckResult,
   getUpdateCheckState,
@@ -15,6 +19,7 @@ import {
   __resetUpdateCheckForTest,
   UPDATE_CHECK_DISABLE_ENV,
 } from '../../src/update/check.js'
+import { parseChecksums, pickPortableAsset, portableZipName, toUpdateAsset } from '../../src/update/asset.js'
 import { log } from '../../src/log/index.js'
 
 /** 造 ok 响应：json 体为 GitHub releases 形的数组（只用到 tag_name / draft 两字段） */
@@ -47,9 +52,25 @@ const hangingFetch = (async (_url: unknown, init?: { signal?: AbortSignal }) => 
   })
 }) as unknown as typeof fetch
 
+/** 便携 zip 的假 digest（GitHub 资产 digest 字段形态：`sha256:<hex>`） */
+const ZIP_SHA = 'a1'.repeat(32)
+
 const RELEASES = [
   { tag_name: 'v1.0.0-rc.0', draft: false },
-  { tag_name: 'v1.0.0', draft: false },
+  {
+    tag_name: 'v1.0.0',
+    draft: false,
+    assets: [
+      {
+        name: 'CLWriting-1.0.0-x64.zip',
+        browser_download_url: 'https://dl.test/CLWriting-1.0.0-x64.zip',
+        size: 4096,
+        digest: `sha256:${ZIP_SHA}`,
+      },
+      { name: 'CLWriting-1.0.0-arm64.zip', browser_download_url: 'https://dl.test/arm64.zip', size: 4096 },
+      { name: 'SHA256SUMS.txt', browser_download_url: 'https://dl.test/SHA256SUMS.txt', size: 120 },
+    ],
+  },
   { tag_name: 'nightly', draft: false },
 ]
 
@@ -96,7 +117,32 @@ describe('runUpdateCheckOnce 正常路径', () => {
     expect(getUpdateCheckResult()).toEqual({
       version: '1.0.0',
       url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.0.0',
+      // 资产面与版本同响应解析：便携 zip（x64）+ 校验清单地址
+      asset: {
+        name: 'CLWriting-1.0.0-x64.zip',
+        url: 'https://dl.test/CLWriting-1.0.0-x64.zip',
+        size: 4096,
+        sha256: ZIP_SHA,
+      },
+      checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
     })
+  })
+
+  it('正式版无 assets / 无匹配资产 → asset 与 checksumsUrl 均 null（只给发布页链接的降级态）', async () => {
+    const noAssets = okFetch([{ tag_name: 'v1.0.0', draft: false }])
+    await runUpdateCheckOnce({ currentVersion: '1.0.0-rc.0', fetchImpl: noAssets.fn })
+    expect(getUpdateCheckResult()).toMatchObject({ version: '1.0.0', asset: null, checksumsUrl: null })
+
+    __resetUpdateCheckForTest()
+    const armOnly = okFetch([
+      {
+        tag_name: 'v1.0.0',
+        draft: false,
+        assets: [{ name: 'CLWriting-1.0.0-arm64.zip', browser_download_url: 'https://dl.test/a.zip' }],
+      },
+    ])
+    await runUpdateCheckOnce({ currentVersion: '1.0.0-rc.0', fetchImpl: armOnly.fn })
+    expect(getUpdateCheckResult()).toMatchObject({ asset: null, checksumsUrl: null })
   })
 
   it('当前已是正式版 → 无更新（结果 null），且不重复调用', async () => {
@@ -177,10 +223,55 @@ describe('runUpdateCheckOnce 静默失败面（不抛、不置结果）', () => 
   })
 })
 
-describe('fetchLatestStable（薄包装面）', () => {
+describe('fetchLatestStable / fetchLatestRelease（薄包装面）', () => {
   it('取到最大正式版原串 / 失败返 null', async () => {
     expect(await fetchLatestStable(okFetch(RELEASES).fn)).toBe('v1.0.0')
     expect(await fetchLatestStable(okFetch({}, { status: 403 }).fn)).toBeNull()
     expect(await fetchLatestStable(okFetch([{ tag_name: 'nightly' }]).fn)).toBeNull()
+  })
+
+  it('fetchLatestRelease 同响应带 assets（下载链重新定位资产用）', async () => {
+    const release = await fetchLatestRelease(okFetch(RELEASES).fn)
+    expect(release?.tag).toBe('v1.0.0')
+    expect(pickPortableAsset(release?.assets, '1.0.0')?.url).toBe('https://dl.test/CLWriting-1.0.0-x64.zip')
+    expect(await fetchLatestRelease(okFetch({}, { status: 500 }).fn)).toBeNull()
+  })
+})
+
+describe('发布资产解析（asset.ts 纯函数面）', () => {
+  it('portableZipName：版本去前导 v，架构后缀与 electron-builder artifactName 对齐', () => {
+    expect(portableZipName('1.2.3')).toBe('CLWriting-1.2.3-x64.zip')
+    expect(portableZipName('v1.2.3')).toBe('CLWriting-1.2.3-x64.zip')
+  })
+
+  it('toUpdateAsset：digest 只认 sha256:<64hex>（其余形态 → sha256 null，asset 仍成立）', () => {
+    expect(
+      toUpdateAsset({ name: 'a.zip', browser_download_url: 'u', size: 3, digest: `sha256:${ZIP_SHA}` })?.sha256,
+    ).toBe(ZIP_SHA)
+    expect(toUpdateAsset({ name: 'a.zip', browser_download_url: 'u', digest: 'sha512:deadbeef' })?.sha256).toBeNull()
+    expect(toUpdateAsset({ name: 'a.zip', browser_download_url: 'u', digest: 'sha256:zz' })?.sha256).toBeNull()
+    // 名字/地址缺失或非串 → 整条作废（不可下载的资产不进来）
+    expect(toUpdateAsset({ browser_download_url: 'u' })).toBeNull()
+    expect(toUpdateAsset({ name: 'a.zip' })).toBeNull()
+    expect(toUpdateAsset('not-an-object')).toBeNull()
+  })
+
+  it('pickPortableAsset：版本串（带/不带 v）命中同名资产；尺寸缺失 → null 而非 0', () => {
+    const assets = [{ name: 'CLWriting-2.0.0-x64.zip', browser_download_url: 'u' }]
+    expect(pickPortableAsset(assets, 'v2.0.0')?.size).toBeNull()
+    expect(pickPortableAsset(assets, '2.0.1')).toBeNull()
+    expect(pickPortableAsset('not-an-array', '2.0.0')).toBeNull()
+  })
+
+  it('parseChecksums：命中行取 hex；容忍 * 二进制标记与含空格文件名；无该行 → null', () => {
+    const sum = [
+      `${'b'.repeat(64)}  other.zip`,
+      `${'C'.repeat(64)} *CLWriting-1.0.0-x64.zip`,
+      `${'d'.repeat(64)}  my app.zip`,
+    ].join('\r\n')
+    expect(parseChecksums(sum, 'CLWriting-1.0.0-x64.zip')).toBe('c'.repeat(64))
+    expect(parseChecksums(sum, 'my app.zip')).toBe('d'.repeat(64))
+    expect(parseChecksums(sum, 'missing.zip')).toBeNull()
+    expect(parseChecksums('', 'CLWriting-1.0.0-x64.zip')).toBeNull()
   })
 })

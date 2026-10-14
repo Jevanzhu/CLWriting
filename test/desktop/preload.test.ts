@@ -76,6 +76,12 @@ describe('kk-P2-8：preload 暴露面 → channel 映射', () => {
     ['openBook', 'desktop:open-book', ['书A']],
     // 阶段 53 S3：外链（更新横幅「去下载」用；白名单校验在主进程侧）
     ['openExternal', 'desktop:open-external', ['https://github.com/Jevanzhu/CLWriting/releases/tag/v1.0.0']],
+    // 阶段 55：自更新五入口（channel 名与 ipc.ts 注册面逐字对齐——三处同步面）
+    ['updateCapability', 'desktop:update-capability', []],
+    ['updateDownload', 'desktop:update-download', ['1.0.0']],
+    ['updateCancel', 'desktop:update-cancel', []],
+    ['updateApply', 'desktop:update-apply', ['1.0.0']],
+    ['updateReveal', 'desktop:update-reveal', []],
   ]
   for (const [method, channel, args] of CASES) {
     it(`${method}() → invoke ${channel}${args.length ? ' ' + JSON.stringify(args) : ''}`, async () => {
@@ -119,6 +125,24 @@ describe('kk-P2-8：preload 订阅通道', () => {
     expect(got).toEqual([45678])
     off()
     expect(M.removed.some(([ch]) => ch === 'desktop:server-restarted')).toBe(true)
+  })
+
+  it('阶段 55：onUpdateProgress / onUpdateApplyCancelled 回调透传 + 退订生效', () => {
+    const got: Array<{ received: number; total: number | null }> = []
+    const offP = (
+      M.exposed!['onUpdateProgress']! as (cb: (p: { received: number; total: number | null }) => void) => () => void
+    )((p) => got.push(p))
+    M.listeners['desktop:update-progress']![0]!({}, { received: 1024, total: null })
+    expect(got).toEqual([{ received: 1024, total: null }])
+    offP()
+    expect(M.removed.some(([ch]) => ch === 'desktop:update-progress')).toBe(true)
+
+    let cancelled = 0
+    const offC = (M.exposed!['onUpdateApplyCancelled']! as (cb: () => void) => () => void)(() => cancelled++)
+    M.listeners['desktop:update-apply-cancelled']![0]!({})
+    expect(cancelled).toBe(1)
+    offC()
+    expect(M.removed.some(([ch]) => ch === 'desktop:update-apply-cancelled')).toBe(true)
   })
 
   it('showContextMenu：send 载荷 + once 回传 key', () => {

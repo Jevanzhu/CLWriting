@@ -58,6 +58,13 @@ export function instanceUserDataPath(instanceKey: string): string {
 /** 无书库（欢迎态）实例的固定 key——与库 key（hex hash）不同形，天然不撞。 */
 export const WELCOME_INSTANCE_KEY = 'welcome'
 
+/** 启动库路径（可为空 = 欢迎态）→ 实例 key。
+ *  单源：main.ts 启动链与更新控制器的自查排除（`otherInstancesRunning` 的 excludeKey）
+ *  都用本函数——两处各写一次三元会漂移成「排除的 key 与实际持锁的 key 不是同一个」。 */
+export function instanceKeyForDir(dir: string | null | undefined): string {
+  return dir ? libraryInstanceKey(dir) : WELCOME_INSTANCE_KEY
+}
+
 /** 库路径 → 实例 key：平台折叠后的路径 hash。
  *  折叠（platformCaseFold：win/darwin 小写、linux 全等）覆盖盘符/大小写漂移——
  *  同一物理库的两种拼写在 win/mac 上归同 key（linux 大小写敏感，异名合法共存不折叠）。
