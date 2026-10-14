@@ -9,6 +9,7 @@
  * app.exit + process.exit 双发，先到者终止进程；截断本身即判据——其后的装配面一行都
  * 不该跑到）。runUpdateHelper 打桩（真跑会去换真目录），argv 解析走真件。
  */
+import { realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { deadPid } from '../helpers/dead-pid.js'
@@ -128,8 +129,10 @@ describe('助手态分流（--apply-update）', () => {
     expect(M.initLoggingCalls.at(-1)?.logsDir).toBe(logDir)
     // asar 层已关（助手进程写 resources/app.asar 的成活前提——win 真机实测的必败点）
     expect(helperCalls.noAsarAtRun).toBe(true)
-    // 助手 cwd 已挪出目标目录（cwd 占住目录会让目标目录改名 EBUSY——win 真机实测）
-    expect(String(helperCalls.cwdAtRun).toLowerCase()).toBe(appsParent.toLowerCase())
+    // 助手 cwd 已挪出目标目录（cwd 占住目录会让目标目录改名 EBUSY——win 真机实测）。
+    // 两侧先取真身再比：macOS 的 /var 是指向 /private/var 的符号链接，process.cwd()
+    // 回的是解析后形态，而 tmpdir() 给的路径不解析——字串直比在 mac 恒不等。
+    expect(realpathSync(String(helperCalls.cwdAtRun)).toLowerCase()).toBe(realpathSync(appsParent).toLowerCase())
     // 修复 D：退出前等过日志泵（恰一次，且发生在本次 exit 之前——结局行/错误行不随
     // process.exit 丢，这是助手无控制台下唯一的过程证据）
     expect(M.flushLogsCalls).toBe(before.flushLogs + 1)
