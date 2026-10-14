@@ -648,27 +648,7 @@
     }
   },
   "src/studio/web-next/src/components/panels/ChatPanel.vue": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/components/shell/ChatDock.vue": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     }
   },
@@ -702,14 +682,6 @@
   },
   "src/studio/web-next/src/components/ui/SettingsBookRetention.vue": {
     "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/components/ui/SettingsModal.vue": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 1
     }
   },
@@ -778,11 +750,6 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/studio/web-next/src/main.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     }
   },

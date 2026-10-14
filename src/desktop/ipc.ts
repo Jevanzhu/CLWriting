@@ -457,7 +457,7 @@ export function registerIpc(): void {
   })
   // ── 阶段 55：便携版自更新（注册面同文件独立段，见 registerUpdateIpc）──
   registerUpdateIpc()
-  // 打开外部链接（阶段 53 更新检查横幅「去下载」用；白名单见 isAllowedExternalUrl）
+  // 打开外部链接（阶段 53 更新检查「去下载」用；白名单见 isAllowedExternalUrl）
   handleTrusted('desktop:open-external', async (_e, url: unknown) => {
     if (!isAllowedExternalUrl(url)) {
       return { ok: false as const, reason: '仅支持打开本项目的 GitHub 发布页' }

@@ -74,7 +74,7 @@ describe('kk-P2-8：preload 暴露面 → channel 映射', () => {
     ['openLibraryWindow', 'desktop:open-library-window', []],
     ['openLibraryDir', 'desktop:open-library-dir', []],
     ['openBook', 'desktop:open-book', ['书A']],
-    // 阶段 53 S3：外链（更新横幅「去下载」用；白名单校验在主进程侧）
+    // 阶段 53 S3：外链（更新提示面「去下载」用；白名单校验在主进程侧）
     ['openExternal', 'desktop:open-external', ['https://github.com/Jevanzhu/CLWriting/releases/tag/v1.0.0']],
     // 阶段 55：自更新五入口（channel 名与 ipc.ts 注册面逐字对齐——三处同步面）
     ['updateCapability', 'desktop:update-capability', []],

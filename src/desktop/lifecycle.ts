@@ -673,7 +673,7 @@ export function registerQuitChain(gate: ShutdownGateLike, serverManager: ServerM
             onCancel: async () => {
               transition('quit-flush-cancel')
               discardPendingRelaunch()
-              // 更新意图同款作废——并广播回渲染层（横幅停在「正在退出并更新…」态时
+              // 更新意图同款作废——并广播回渲染层（提示面停在「正在退出并更新…」态时
               // 用户看不到任何反馈，取消后必须撤回该态，否则只能靠手动刷新）
               if (discardPendingUpdate()) broadcastUpdateApplyCancelled()
               await rollbackCancelledSwitch()

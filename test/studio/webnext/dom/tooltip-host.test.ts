@@ -11,6 +11,9 @@
  * R42-29（四十二轮）：估宽按码位分类累加——同长度 ASCII 文案估宽 < 同长度 CJK 文案
  * （原 r42-shell-mount 的 R42-29 节并入；happy-dom 零矩形下 top 翻 bottom、
  * left = 估宽/2 + 8，估宽经 left 可观察）。
+ * 批 E（2026-10-14）：宿主上移根组件（App.vue）后，「挂载时扫一次」早于路由子树出现——
+ * 晚到的 [data-tip]（工作区 Ribbon/顶栏等）不再补 aria-label，读屏名在首次交互前缺失
+ * （e2e 角色名定位同面）；补 DOM 变更观察（新增子树含目标才查）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -104,6 +107,17 @@ describe('R29-13 TooltipHost 全局 tooltip 宿主', () => {
     document.body.appendChild(pre)
     mountHost()
     expect(pre.getAttribute('aria-label')).toBe('首屏按钮')
+  })
+
+  it('挂载后新增的 [data-tip] 元素也补同步 aria-label（宿主在根层、目标随路由子树后到）', async () => {
+    mountHost()
+    const late = document.createElement('button')
+    late.dataset.tip = '工作台'
+    const shell = document.createElement('div')
+    shell.appendChild(late)
+    document.body.appendChild(shell)
+    await nextTick()
+    expect(late.getAttribute('aria-label')).toBe('工作台')
   })
 
   // R0911-C2-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：250ms 延迟窗内目标被移除

@@ -24,7 +24,6 @@ const SHELL_CHILDREN = [
   'FocusFormatBar',
   'FocusStatsBar',
   'CommandPalette',
-  'TooltipHost',
 ]
 function mountShell() {
   return mount(WorkspaceShell, {

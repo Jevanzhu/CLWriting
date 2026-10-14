@@ -14,6 +14,12 @@ vi.mock('../../../../src/studio/web-next/src/composables/usePlatform', () => ({
   usePlatform: () => ({ isDesktop: true, platform: 'win32', isMac: false, isWin: true }),
 }))
 
+// 更新角标随页挂载即取 app-info（fire-and-forget）——不 mock 会对 127.0.0.1:3000
+// 发真 fetch（ECONNREFUSED 噪音，同 batch-finalize-failure-reason-toast 先例）
+vi.mock('../../../../src/studio/web-next/src/api/app-info', () => ({
+  getAppInfo: vi.fn(async () => ({ version: '0.0.0-test', update: null, updateAttempt: null })),
+}))
+
 import Library from '../../../../src/studio/web-next/src/pages/Library.vue'
 import type { MenuItem } from '../../../../src/studio/web-next/src/components/ui/ContextMenu.vue'
 

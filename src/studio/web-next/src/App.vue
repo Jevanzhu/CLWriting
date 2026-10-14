@@ -7,8 +7,6 @@ import { usePrefsStore } from './stores/prefs'
 import { LAST_BOOK_KEY } from './shared/storage-keys'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
-// 阶段 53：更新提示横幅（有新正式版时提示 + 指路下载）
-import UpdateBanner from './components/ui/UpdateBanner.vue'
 // 反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
 // /welcome、/library、书库独立窗口上 ui.toast 静默失效（switchLibrary 取消原因/
 // openLibraryDir 失败无渲染点）、系统菜单「设置/新建书/导出」（CmdOrCtrl+, / Cmd+N /
@@ -19,6 +17,9 @@ import ConfirmPrompt from './components/ui/ConfirmPrompt.vue'
 import SettingsModal from './components/ui/SettingsModal.vue'
 import ShelfModal from './components/ui/ShelfModal.vue'
 import ExportDialog from './components/ui/ExportDialog.vue'
+// 工具提示宿主随「反馈层上移」同口径上移：更新角标挂三个独立页标题条，
+// data-tip → aria-label 同步依赖本宿主（此前只在 WorkspaceShell 挂载，独立页失能）
+import TooltipHost from './components/ui/TooltipHost.vue'
 
 // 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
 const router = useRouter()
@@ -83,7 +84,6 @@ onBeforeUnmount(() => {
 <template>
   <ErrorBoundary>
     <StartupNoticeBanner />
-    <UpdateBanner />
     <router-view />
     <!-- 全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
     <Toast />
@@ -91,5 +91,6 @@ onBeforeUnmount(() => {
     <SettingsModal />
     <ShelfModal />
     <ExportDialog />
+    <TooltipHost />
   </ErrorBoundary>
 </template>

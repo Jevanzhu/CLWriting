@@ -15,6 +15,7 @@ import {
   BookOpen,
   Server,
   Stethoscope,
+  Info,
 } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -36,6 +37,7 @@ import SettingsAi from './SettingsAi.vue'
 import SettingsAnalysis from './SettingsAnalysis.vue'
 import SettingsRetention from './SettingsRetention.vue'
 import SettingsDiagnostics from './SettingsDiagnostics.vue'
+import SettingsAbout from './SettingsAbout.vue'
 import SettingsBook from './SettingsBook.vue'
 import AiServicePanel from './AiServicePanel.vue'
 
@@ -67,9 +69,10 @@ watch(
 
 // IA 重组：全局默认按选项类别拆 4 个独立一级页（写作默认/AI 写作/智能分析/版本保留），
 // 「本书」收敛为单页（书名 + 各领域的本书独立设定覆盖组 + 定稿版本 + 存储）——共 8 项导航。
-// 「本书」置顶；其余 8 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方/诊断）
+// 「本书」置顶；其余 9 页按 界面（外观/编辑器）/ 写作（默认/AI/分析）/ 系统（保留/提供方/诊断/关于）
 // 三组小节标题分组（靠命名分组，无线条）。
-type Tab = 'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'diagnostics' | 'book' | 'providers'
+type Tab =
+  'appearance' | 'editor' | 'writing' | 'ai' | 'analysis' | 'retention' | 'diagnostics' | 'book' | 'providers' | 'about'
 const activeTab = ref<Tab>('appearance')
 /** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */
 const TAB_SUBTITLES: Record<Tab, string> = {
@@ -82,9 +85,10 @@ const TAB_SUBTITLES: Record<Tab, string> = {
   diagnostics: '生成诊断包（环境、配置与近 7 天日志，脱敏）供排查问题',
   book: '书名与各领域的本书独立设定、定稿版本、存储',
   providers: 'AI 与 RAG 提供方增删、测试连接与任务档位',
+  about: '当前版本与应用更新',
 }
 const tabSubtitle = computed(() => TAB_SUBTITLES[activeTab.value])
-/** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 8 页均为 global（跨书共享）。
+/** 当前 tab 的配置归属：仅「本书」页为 book（实存 book.yaml），其余 9 页均为 global（跨书共享）。
  * 绑在 settings-content 上即可覆盖整页——本书页内的条目得「本书」徽章，全局页条目得「全局」徽章。 */
 const tabScope = computed<'global' | 'book'>(() => (activeTab.value === 'book' ? 'book' : 'global'))
 
@@ -98,6 +102,7 @@ const tabComponents = {
   diagnostics: SettingsDiagnostics,
   book: SettingsBook,
   providers: AiServicePanel,
+  about: SettingsAbout,
 }
 const currentTabComponent = computed(() => tabComponents[activeTab.value])
 
@@ -216,9 +221,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <button :class="{ active: activeTab === 'diagnostics' }" @click="activeTab = 'diagnostics'">
               <Stethoscope :size="16" /><span>诊断</span>
             </button>
+            <!-- 关于：版本与更新入口（应用级；预览通道开关将来的落点） -->
+            <button :class="{ active: activeTab === 'about' }" @click="activeTab = 'about'">
+              <Info :size="16" /><span>关于</span>
+            </button>
           </nav>
 
-          <!-- 右侧设置内容：data-tab-scope 驱动整页徽章（book 页条目得「本书」，其余 7 页得「全局」） -->
+          <!-- 右侧设置内容：data-tab-scope 驱动整页徽章（book 页条目得「本书」，其余 9 页得「全局」） -->
           <div class="settings-content" :data-tab-scope="tabScope">
             <div class="tab-pane">
               <!-- mode="out-in" + keep-alive +:key 是 Vue 3 已知竞态组合：

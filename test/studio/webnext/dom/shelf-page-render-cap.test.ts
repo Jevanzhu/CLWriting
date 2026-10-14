@@ -29,6 +29,11 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/shelf', params: {} }),
 }))
 vi.mock('../../../../src/studio/web-next/src/api/shelf', () => ({ listBooks: mocks.listBooks }))
+// 更新角标随页挂载即取 app-info（fire-and-forget）——不 mock 会对 127.0.0.1:3000
+// 发真 fetch（ECONNREFUSED 噪音，同 batch-finalize-failure-reason-toast 先例）
+vi.mock('../../../../src/studio/web-next/src/api/app-info', () => ({
+  getAppInfo: vi.fn(async () => ({ version: '0.0.0-test', update: null, updateAttempt: null })),
+}))
 
 import Shelf from '../../../../src/studio/web-next/src/pages/Shelf.vue'
 import { SHELF_RENDER_CAP } from '../../../../src/studio/web-next/src/shared/render-cap'

@@ -13,7 +13,7 @@
  * 结果条（阶段 55）：更新助手进程写在共享根 `<home>/更新缓存/更新结果.json`，本端点
  * **取一次即删**（`takeUpdateAttemptNote`）——它是跨进程的一次性信箱，唯一作用是把
  * 「上次更新没成」送进新起进程的界面。这是本端点唯一的写副作用：`applied`（成功换新）
- * 静默消费（用户看不到多余提示），`aborted`/`rolled-back` 原样回给横幅展示原因。
+ * 静默消费（用户看不到多余提示），`aborted`/`rolled-back` 原样回给提示面展示原因。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'

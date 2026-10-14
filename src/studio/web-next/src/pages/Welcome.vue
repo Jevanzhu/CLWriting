@@ -6,6 +6,7 @@ import { Sparkles, FolderOpen, BookOpen, ArrowRight, Clock } from 'lucide-vue-ne
 import { usePlatform } from '../composables/usePlatform'
 import { useLibraryIpc } from '../composables/useLibraryIpc'
 import { rawErrorMessage } from '../shared/error'
+import UpdateCorner from '../components/ui/UpdateCorner.vue'
 
 const { isDesktop: hasDesktop, isMac } = usePlatform()
 const recents = ref<{ path: string; label: string }[]>([])
@@ -44,7 +45,9 @@ const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage
       <div class="glow glow-bl"></div>
     </div>
 
-    <header class="welcome-titlebar" />
+    <header class="welcome-titlebar titlebar-corner">
+      <UpdateCorner />
+    </header>
 
     <main class="welcome-stage">
       <!-- 品牌 -->

@@ -67,7 +67,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 打开诊断包所在目录（设置 → 诊断入口）。目录由主进程自行推导（不接受渲染层
    *  传路径，同三入口口径）；未生成过包时主进程静默返回（无物可开）。 */
   revealDiagnostics: (): Promise<void> => ipcRenderer.invoke('desktop:reveal-diagnostics'),
-  /** 阶段 53：用系统浏览器打开外部链接（更新横幅「去下载」用）。
+  /** 阶段 53：用系统浏览器打开外部链接（更新提示面「去下载」用）。
    *  主进程侧白名单只放行本项目 GitHub 发布页——白名单外回 { ok:false, reason }，
    *  前端据此降级「复制链接」。 */
   openExternal: (url: string): Promise<{ ok: true } | { ok: false; reason: string }> =>

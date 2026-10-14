@@ -40,10 +40,9 @@ interface SuppressionTable {
 }
 
 function readSuppressionTable(): SuppressionTable {
-  const raw = JSON.parse(readFileSync(new URL('eslint-suppressions.json', new URL('../../', import.meta.url)), 'utf-8')) as Record<
-    string,
-    Record<string, unknown>
-  >
+  const raw = JSON.parse(
+    readFileSync(new URL('eslint-suppressions.json', new URL('../../', import.meta.url)), 'utf-8'),
+  ) as Record<string, Record<string, unknown>>
   const byFileRule = new Map<string, number>()
   const byRule = new Map<string, number>()
   let total = 0
@@ -59,27 +58,27 @@ function readSuppressionTable(): SuppressionTable {
 }
 
 /**
- * 基线档位（= 2026-10-11 三审修复批收口时的实测值）。
+ * 基线档位（= 2026-10-14 批 E 收口实测值）。
  * **只许下调**：消解了抑制项就把对应数字改小；不得为了放行新增而上调。
  */
-const BASELINE_TOTAL = 348
+const BASELINE_TOTAL = 317
 const BASELINE_RULE_CEILING: Readonly<Record<string, number>> = {
   '@typescript-eslint/no-base-to-string': 83,
   '@typescript-eslint/no-unnecessary-type-assertion': 76,
   complexity: 52,
-  '@typescript-eslint/no-unsafe-assignment': 29,
+  '@typescript-eslint/no-unsafe-assignment': 18,
   '@typescript-eslint/require-await': 16,
   'max-depth': 13,
-  '@typescript-eslint/no-unsafe-member-access': 11,
+  '@typescript-eslint/no-unsafe-member-access': 8,
   'max-lines-per-function': 11,
   '@typescript-eslint/no-misused-promises': 10,
-  '@typescript-eslint/no-unsafe-argument': 8,
+  '@typescript-eslint/no-unsafe-argument': 7,
   '@typescript-eslint/prefer-promise-reject-errors': 8,
   '@typescript-eslint/return-await': 7,
-  '@typescript-eslint/no-unsafe-call': 6,
+  '@typescript-eslint/no-unsafe-call': 3,
   '@typescript-eslint/only-throw-error': 6,
   '@typescript-eslint/await-thenable': 3,
-  '@typescript-eslint/no-unsafe-return': 3,
+  '@typescript-eslint/no-unsafe-return': 2,
   '@typescript-eslint/restrict-template-expressions': 2,
   '@typescript-eslint/unbound-method': 2,
   'vue/no-mutating-props': 2,
@@ -119,7 +118,9 @@ describe('eslint 抑制表只减不增守护', () => {
   it('基线表自身无冗余项（已清零的规则须从基线删除，防基线虚高）', () => {
     const { byRule } = readSuppressionTable()
     const stale = Object.keys(BASELINE_RULE_CEILING).filter((r) => (byRule.get(r) ?? 0) === 0)
-    expect(stale, '以下规则抑制已清零但仍留在基线表（请从 BASELINE_RULE_CEILING 删除）：' + stale.join(', ')).toEqual([])
+    expect(stale, '以下规则抑制已清零但仍留在基线表（请从 BASELINE_RULE_CEILING 删除）：' + stale.join(', ')).toEqual(
+      [],
+    )
   })
 
   it('抑制表可读且形态合法（解析失败/结构漂移即红，防守护静默空转）', () => {

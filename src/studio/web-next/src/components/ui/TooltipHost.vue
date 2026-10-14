@@ -116,6 +116,8 @@ function onFocusIn(e: FocusEvent): void {
   if (el) syncAriaLabel(el)
 }
 
+let domObserver: MutationObserver | null = null
+
 onMounted(() => {
   document.addEventListener('mouseover', onOver)
   document.addEventListener('scroll', hide, { capture: true })
@@ -124,12 +126,28 @@ onMounted(() => {
   document.addEventListener('focusin', onFocusIn)
   // 挂载时对已存在元素补一次（首屏常驻按钮）
   document.querySelectorAll<HTMLElement>('[data-tip]').forEach(syncAriaLabel)
+  // 宿主挂根组件（App.vue）而 tooltip 目标多在路由子树里：晚于宿主挂载出现的
+  // [data-tip] 元素（工作区 Ribbon/顶栏、独立页标题条、弹层）不会被上面那次扫到，
+  // 只靠 hover/focus 同步会让读屏名在首次交互前缺失（角色名定位面同此）。新增
+  // 子树只在含目标时才查一次。
+  domObserver = new MutationObserver((records) => {
+    for (const rec of records) {
+      for (const node of rec.addedNodes) {
+        if (!(node instanceof HTMLElement)) continue
+        if (node.hasAttribute('data-tip')) syncAriaLabel(node)
+        node.querySelectorAll<HTMLElement>('[data-tip]').forEach(syncAriaLabel)
+      }
+    }
+  })
+  domObserver.observe(document.body, { childList: true, subtree: true })
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mouseover', onOver)
   document.removeEventListener('scroll', hide, { capture: true })
   window.removeEventListener('blur', hide)
   document.removeEventListener('focusin', onFocusIn)
+  domObserver?.disconnect()
+  domObserver = null
   if (showTimer) clearTimeout(showTimer)
 })
 </script>
