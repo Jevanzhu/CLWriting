@@ -11,6 +11,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ParsedServerArgs } from '../../src/desktop/server-boot.js'
+import {
+  getUpdateCheckResult,
+  getUpdateCheckState,
+  __resetUpdateCheckForTest,
+  UPDATE_RESULT_MESSAGE_TYPE,
+} from '../../src/update/check.js'
 
 /** hoisted 状态：vi.mock 工厂内可引用（工厂闭包不得触外部词法绑定） */
 const h = vi.hoisted(() => {
@@ -176,6 +182,39 @@ describe('批 U2：runUtilityEntry 握手与 shutdown 指令', () => {
     await flush()
     expect(h.shutdownCalls).toHaveLength(0)
     expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  it('update-check-result 下发 → 落检查态（端点读口可见），不触发 shutdown', async () => {
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed())
+    await flush()
+    port.send({
+      type: UPDATE_RESULT_MESSAGE_TYPE,
+      result: {
+        version: '1.2.3',
+        url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+        asset: { name: 'CLWriting-1.2.3-x64.zip', url: 'https://dl.test/z.zip', size: 7, sha256: 'ab'.repeat(32) },
+        checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
+      },
+    })
+    expect(getUpdateCheckResult()).toEqual({
+      version: '1.2.3',
+      url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+      asset: { name: 'CLWriting-1.2.3-x64.zip', url: 'https://dl.test/z.zip', size: 7, sha256: 'ab'.repeat(32) },
+      checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
+    })
+    expect(h.shutdownCalls).toHaveLength(0)
+    expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  it('update-check-result 携 null（已检查、无新版）→ 同样落「已检查」态', async () => {
+    __resetUpdateCheckForTest()
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed())
+    await flush()
+    port.send({ type: UPDATE_RESULT_MESSAGE_TYPE, result: null })
+    expect(getUpdateCheckState()).toBe('done')
+    expect(getUpdateCheckResult()).toBeNull()
   })
 
   // R71-13（总七十一轮）：boot-error / shutdown-done 回执后不得同步 exit——同步退出会

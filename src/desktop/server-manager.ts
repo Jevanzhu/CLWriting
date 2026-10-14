@@ -338,6 +338,10 @@ interface StudioServerManager {
   /** 是否有崩溃退避后排程、尚未落地的挂起自动重启（main 侧「关旧」判据补充——
    *  child 已崩但重启在途时 isRunning 为 false，仅凭它会漏关并漏取消挂起重启） */
   hasPendingRestart(): boolean
+  /** 向当值 child 发单向消息（更新检查结果下发；见 update-controller 的检查宿主）。
+   *  无 child / 停机流程中返 false（在途 child 正退场，消息随进程消亡无意义）——
+   *  调用方据此决定待服务重启后补发。 */
+  postMessage(message: unknown): boolean
 }
 
 /**
@@ -1055,6 +1059,21 @@ function hasPendingRestart(ctx: ManagerCtx): boolean {
   return ctx.state.backoffTimer !== null
 }
 
+/** 主→子单向消息下发（无当值 child / 停机流程中不送；发失败只留痕不回抛——
+ *  下发失败面的处置归调用方（补发时机在服务重启后）） */
+function postToChild(ctx: ManagerCtx, message: unknown): boolean {
+  if (isShutting(ctx)) return false
+  const child = ctx.state.child
+  if (!child) return false
+  try {
+    child.proc.postMessage(message)
+    return true
+  } catch (e) {
+    ctx.cfg.logger.warn('server-manager', '下发子进程消息失败（消息未送达）', e)
+    return false
+  }
+}
+
 /** 钉住端口自愈重启（session-end 观察窗：停机流程有界等待 + 在途轮复用 + 失败 resolve null） */
 async function restartPinnedFromLastBoot(ctx: ManagerCtx): Promise<number | null> {
   const { cfg, state } = ctx
@@ -1138,5 +1157,6 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     isRunning: () => isRunning(ctx),
     restartPinned: () => restartPinnedFromLastBoot(ctx),
     hasPendingRestart: () => hasPendingRestart(ctx),
+    postMessage: (message) => postToChild(ctx, message),
   }
 }

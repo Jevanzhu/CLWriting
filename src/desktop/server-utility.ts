@@ -10,7 +10,12 @@
  *   { type: 'boot-error', code, message }（监听失败；发完即退出）；{ type: 'shutdown-done' }
  *  （shutdown 指令执行完回执）
  * - main → child：{ type: 'shutdown' }（执行 shutdownStudio 全流程——在途编排 abort/session/end
- *   落库 + server.close；该职责随 server 下沉，main 不再 import graceful-shutdown）
+ *   落库 + server.close；该职责随 server 下沉，main 不再 import graceful-shutdown）；
+ *   { type: 'update-check-result', result }（更新检查结果下发——检查在主进程跑，见下）
+ *
+ * 更新检查归主进程：子进程全局 fetch 不读系统代理，「只配系统代理」的用户永远收不到提示
+ * （与下载腿的 net.fetch 不对称）。主进程跑完检查经默认消息通道下发结果，本入口落态
+ * （`applyUpdateCheckResult`），端点（api/app-info.ts）照旧读模块态。子进程自己不出站。
  *
  * 日志通道：fork 注入 CLW_LOG_STDOUT=1，src/log stdout-only 模式直写 stdout 一行 JSON；main 以
  * stdio:pipe 收行解析重发落盘（单写者）。
@@ -25,6 +30,11 @@ import {
   type ParsedServerArgs,
 } from './server-boot.js'
 import { shutdownStudio } from './graceful-shutdown.js'
+import {
+  applyUpdateCheckResult,
+  parsePushedUpdateCheckResult,
+  UPDATE_RESULT_MESSAGE_TYPE,
+} from '../update/check.js'
 import { initLogging, log } from '../log/index.js'
 
 /** parentPort 最小契约（Electron ParentPort 的 MessageEvent 包裹：消息在 e.data） */
@@ -56,7 +66,12 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
   // 回执退出；main 侧另有总超时（3.5s，覆盖本流程 close+settle 最坏预算）+ kill
   // 兜底，不等本回执也安全（§3.4 时序 4）
   parentPort.on('message', (event: { data?: unknown }) => {
-    const msg = event.data as { type?: string } | undefined
+    const msg = event.data as { type?: string; result?: unknown } | undefined
+    // 更新检查结果下发（主进程跑完检查后送；见文件头「更新检查归主进程」）
+    if (msg?.type === UPDATE_RESULT_MESSAGE_TYPE) {
+      applyUpdateCheckResult(parsePushedUpdateCheckResult(msg.result))
+      return
+    }
     if (msg?.type !== 'shutdown') return
     // shutdown-done 回执（及随之的 exit）严格后置于 shutdownStudio 全流程——
     // 该流程现已含在途 Worker 线程/保存队列的有界收尾（graceful-shutdown），

@@ -7,7 +7,7 @@
  * 信箱）与拉起调用面同批断言——它们是新进程唯一的现场来源。
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { tempDirTracked } from '../helpers/temp-dir.js'
@@ -175,6 +175,9 @@ describe('recoverInterruptedSwap（中断自愈）', () => {
     mkdirSync(older, { recursive: true })
     mkdirSync(newer, { recursive: true })
     writeFileSync(join(newer, 'CLWriting.exe'), 'old-exe')
+    // mtime 显式置位：同毫秒落盘时排序平局会取 readdir 序，判据退化为「看运气」
+    utimesSync(older, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
+    utimesSync(newer, new Date('2026-01-02T00:00:00Z'), new Date('2026-01-02T00:00:00Z'))
     expect(recoverInterruptedSwap(target)).toBe(true)
     expect(readFileSync(join(target, 'CLWriting.exe'), 'utf-8')).toBe('old-exe')
     expect(existsSync(newer)).toBe(false) // 已改名回位

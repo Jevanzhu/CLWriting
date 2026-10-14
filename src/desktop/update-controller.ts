@@ -5,7 +5,9 @@
  *  - 路径与结果条归 `update/cache.ts`；资产解析归 `update/asset.ts`；下载原语归
  *    `update/download.ts`；换目录的执行者在 `update-helper.ts`（本模块只**计划**它，不执行）；
  *  - 渲染层交互面（IPC 三处同步）在 `ipc.ts` / `preload.ts` / `desktop.d.ts`，本模块
- *    只暴露纯函数式入口（返回 {ok, reason} 契约与 reason 人话），供 IPC 层直调。
+ *    只暴露纯函数式入口（返回 {ok, reason} 契约与 reason 人话），供 IPC 层直调；
+ *  - 更新检查也归本模块侧（`createUpdateCheckHost`）：检查出站与下载同走 `net.fetch`
+ *    （受系统代理），结果下发子进程落态——子进程全局 fetch 不读代理，见该函数注。
  *
  * 为什么下载要重新解析发布信息（不复用启动时检查结果）：进程可能已开着很久，期间可能
  * 发了新版本；重新取一次保证「下载的就是当下最新正式版」，并顺手把版本对不上（响应被
@@ -23,7 +25,14 @@ import { testableConst } from '../shared/testable.js'
 import { errMsg, log } from '../log/index.js'
 import { appDataHomeDir, instanceKeyForDir } from '../fs/user-data-path.js'
 import { compareSemver } from '../update/semver.js'
-import { fetchLatestRelease } from '../update/check.js'
+import {
+  fetchLatestRelease,
+  getUpdateCheckResult,
+  getUpdateCheckState,
+  runUpdateCheckOnce,
+  UPDATE_CHECK_DELAY_MS,
+  UPDATE_RESULT_MESSAGE_TYPE,
+} from '../update/check.js'
 import { pickChecksumsUrl, pickPortableAsset, type UpdateAsset } from '../update/asset.js'
 import { downloadUpdateZip, sha256OfFile } from '../update/download.js'
 import { UPDATE_RESULT_FILENAME, updateCacheDir, updateCacheRoot } from '../update/cache.js'
@@ -431,5 +440,72 @@ export function scheduleUpdateMaintenance(): void {
     })
   } catch (e) {
     log.warn('update', `更新残留清扫异常（不影响启动）：${errMsg(e)}`)
+  }
+}
+
+// ── 更新检查宿主（主进程侧）────────────────────────────
+
+export interface UpdateCheckHostDeps {
+  /** 结果下发通道（main 接 `serverManager.postMessage`）；返回是否送达 */
+  push: (message: unknown) => boolean
+  /** 当前版本读数（缺省 `app.getVersion()`） */
+  currentVersion?: () => string
+  /** 检查实现（缺省真件：`netFetch` 走 Chromium 网络栈受系统代理，与下载腿同通道）；
+   *  测试注入桩免打网 */
+  runCheck?: () => Promise<void>
+}
+
+export interface UpdateCheckHost {
+  /** 延迟跑一次检查并下发结果（幂等：本 app 生命周期只排一次；缺省延时 UPDATE_CHECK_DELAY_MS） */
+  scheduleCheck(delayMs?: number): void
+  /** 补发最近一次检查结果（child 崩溃重启 / session-end 自愈拉起新进程后调用——新 child 的
+   *  模块态是空的，不补发则「已检查」结论随重启丢失）。返回是否送达。 */
+  pushLastResult(): boolean
+}
+
+/**
+ * 更新检查宿主（主进程侧）：跑检查 + 把结果下发子进程。
+ *
+ * 检查归主进程的动因：子进程全局 fetch 走 Node 网络栈，**不读系统代理**——「只配系统代理」
+ * 的用户检查恒失败且静默（实测直连 api.github.com 超时），而下载腿的 `net.fetch` 受系统
+ * 代理。检查搬到主进程后两腿同通道，代理面一并收敛；子进程经 parentPort 收结果落态
+ * （server-utility），端点（api/app-info.ts）仍是只读口。
+ *
+ * 下发时机两处：延迟跑完一次（scheduleCheck）；child 重启后补发（pushLastResult——见其注）。
+ * 未跑过检查（未到点 / 开关短路）不下发：子进程保持「未完成」态，端点语义同从前。
+ */
+export function createUpdateCheckHost(deps: UpdateCheckHostDeps): UpdateCheckHost {
+  const currentVersion = deps.currentVersion ?? (() => app.getVersion())
+  const runCheck =
+    deps.runCheck ?? (() => runUpdateCheckOnce({ fetchImpl: netFetch, currentVersion: currentVersion() }))
+  let scheduled = false
+
+  const pushLastResult = (): boolean => {
+    if (getUpdateCheckState() !== 'done') return false
+    const delivered = deps.push({ type: UPDATE_RESULT_MESSAGE_TYPE, result: getUpdateCheckResult() })
+    if (!delivered) {
+      log.info('update', '更新检查结果未能下发子进程（服务不在位）——服务重启后会补发')
+    }
+    return delivered
+  }
+
+  return {
+    scheduleCheck(delayMs: number = UPDATE_CHECK_DELAY_MS): void {
+      // 本 app 生命周期只排一次：bootstrap 重跑（activate / 失败重试）不得重复出站——
+      // 检查结论在进程内是「一次」语义（原实现随 child 生命周期，现随 app 生命周期）
+      if (scheduled) return
+      scheduled = true
+      const timer = setTimeout(() => {
+        void runCheck()
+          .then(() => {
+            pushLastResult()
+          })
+          .catch((e) => {
+            log.warn('update', `更新检查宿主异常（不影响启动）：${errMsg(e)}`)
+          })
+      }, delayMs)
+      timer.unref?.()
+    },
+    pushLastResult,
   }
 }

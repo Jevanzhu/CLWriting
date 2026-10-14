@@ -16,6 +16,8 @@ import {
   getUpdateCheckResult,
   getUpdateCheckState,
   resolveAppVersion,
+  applyUpdateCheckResult,
+  parsePushedUpdateCheckResult,
   __resetUpdateCheckForTest,
   UPDATE_CHECK_DISABLE_ENV,
 } from '../../src/update/check.js'
@@ -235,6 +237,60 @@ describe('fetchLatestStable / fetchLatestRelease（薄包装面）', () => {
     expect(release?.tag).toBe('v1.0.0')
     expect(pickPortableAsset(release?.assets, '1.0.0')?.url).toBe('https://dl.test/CLWriting-1.0.0-x64.zip')
     expect(await fetchLatestRelease(okFetch({}, { status: 500 }).fn)).toBeNull()
+  })
+})
+
+describe('主进程下发结果落态（applyUpdateCheckResult / parsePushedUpdateCheckResult）', () => {
+  it('落态后端点读口如实回读（含 asset 全字段）', () => {
+    applyUpdateCheckResult({
+      version: '1.2.3',
+      url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+      asset: { name: 'CLWriting-1.2.3-x64.zip', url: 'https://dl.test/z.zip', size: 7, sha256: ZIP_SHA },
+      checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
+    })
+    expect(getUpdateCheckState()).toBe('done')
+    expect(getUpdateCheckResult()).toEqual({
+      version: '1.2.3',
+      url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+      asset: { name: 'CLWriting-1.2.3-x64.zip', url: 'https://dl.test/z.zip', size: 7, sha256: ZIP_SHA },
+      checksumsUrl: 'https://dl.test/SHA256SUMS.txt',
+    })
+  })
+
+  it('下发「无新版」（result null）同样落「已检查」态——与「未完成」在端点语义上不可混同', () => {
+    __resetUpdateCheckForTest()
+    expect(getUpdateCheckState()).toBe('idle')
+    applyUpdateCheckResult(null)
+    expect(getUpdateCheckState()).toBe('done')
+    expect(getUpdateCheckResult()).toBeNull()
+  })
+
+  it('载荷形状抽查：不合形一律落 null（不把半截对象漏进端点响应）', () => {
+    // 合法三态：完整 / asset null / checksumsUrl null
+    expect(parsePushedUpdateCheckResult(null)).toBeNull()
+    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: null, checksumsUrl: null })).toEqual({
+      version: '1.0.0',
+      url: 'u',
+      asset: null,
+      checksumsUrl: null,
+    })
+    // 缺 version/url 或空串 → null
+    expect(parsePushedUpdateCheckResult({ url: 'u' })).toBeNull()
+    expect(parsePushedUpdateCheckResult({ version: '', url: 'u' })).toBeNull()
+    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: '' })).toBeNull()
+    expect(parsePushedUpdateCheckResult('not-an-object')).toBeNull()
+    // asset 缺 name/url 或类型漂移 → null；size/sha256 类型漂移 → 落 null 字段（asset 仍成立）
+    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: { url: 'z' } })).toBeNull()
+    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: { name: 'a', url: 'z', size: 'x' } })).toEqual(
+      {
+        version: '1.0.0',
+        url: 'u',
+        asset: { name: 'a', url: 'z', size: null, sha256: null },
+        checksumsUrl: null,
+      },
+    )
+    // checksumsUrl 非串非 null → null
+    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', checksumsUrl: 7 })).toBeNull()
   })
 })
 

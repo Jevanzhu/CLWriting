@@ -210,12 +210,23 @@ describe('R0916-7-P3-2 重启退避：nextBackoffMs 读数表', () => {
 })
 
 describe('R0916-7-P3-2 工厂薄壳：句柄形态冻结', () => {
-  it('createStudioServerManager 返回 7 个 API 键且不因拆分增删', () => {
+  it('createStudioServerManager 返回 8 个 API 键且不因拆分增删', () => {
     const manager = createStudioServerManager({ logger, isProcessExiting: () => true })
     expect(Object.keys(manager).sort()).toEqual(
-      ['killNow', 'restartPinned', 'shutdown', 'start', 'stopChild', 'hasPendingRestart', 'isRunning'].sort(),
+      [
+        'killNow',
+        'restartPinned',
+        'shutdown',
+        'start',
+        'stopChild',
+        'hasPendingRestart',
+        'isRunning',
+        'postMessage',
+      ].sort(),
     )
     expect(manager.isRunning()).toBe(false)
     expect(manager.hasPendingRestart()).toBe(false)
+    // 无当值 child 时下发返 false（调用方据此决定重启后补发）
+    expect(manager.postMessage({ type: 'x' })).toBe(false)
   })
 })

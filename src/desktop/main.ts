@@ -55,7 +55,7 @@ import {
 import { filterValidRecentBudgeted } from './workdir-store.js'
 import { errMsg, flushLogs, initLogging, log } from '../log/index.js'
 import { isApplyUpdateInvocation, parseApplyUpdateArgv, runUpdateHelper } from './update-helper.js' // 阶段 55 更新助手态分流（见下）
-import { scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护（bootstrap 尾段排程）
+import { createUpdateCheckHost, scheduleUpdateMaintenance } from './update-controller.js' // 阶段 55 启动维护 + 更新检查宿主（检查归主进程，见 update-controller 注）
 
 // ── 更新助手态分流（阶段 55）──────────────────────────────
 /** 助手退出前等日志落盘的上限——盘面挂起时日志丢行可接受，助手被钉住退出前不可接受 */
@@ -230,6 +230,9 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   })
 }
 
+/** 更新检查宿主（下方 serverManager 之后装配；onRestarted 早于装配求值的静态引用经此转发） */
+let updateCheckHost: ReturnType<typeof createUpdateCheckHost> | null = null
+
 /** studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；崩溃退避自动重启，
  *  3 次自动重启耗尽转原生对话框（重启服务/退出） */
 const serverManager = createStudioServerManager({
@@ -245,6 +248,9 @@ const serverManager = createStudioServerManager({
     for (const win of [wins.mainWindow, wins.shelfWindow, wins.libraryWindow]) {
       if (win && !win.isDestroyed()) win.webContents.send('desktop:server-restarted', port)
     }
+    // 新 child 的更新检查模块态是空的——不补发则「已检查/有新版本」结论随重启丢失，
+    // 用户看到角标消失且直到下次检查（本 app 生命周期只排一次）都不会再出现
+    updateCheckHost?.pushLastResult()
   },
   onRestartExhausted: async () => {
     // 同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环会被冻（三窗口输入/
@@ -559,6 +565,11 @@ async function bootstrap(): Promise<void> {
   scheduleAppDataTmpSweep()
   // 更新残留清扫（旧版本目录 / 旧版更新包；打包态才跑，见 update-controller 注）
   scheduleUpdateMaintenance()
+  // 更新检查宿主（延迟跑一次 + 结果下发子进程；检查走 net.fetch 与下载腿同通道受系统代理）
+  if (!updateCheckHost) {
+    updateCheckHost = createUpdateCheckHost({ push: (message) => serverManager.postMessage(message) })
+  }
+  updateCheckHost.scheduleCheck()
 }
 
 /** 应用级数据目录 tmp 清扫是否已排过（bootstrap 会因 activate/失败重试重跑，清扫一次即可） */

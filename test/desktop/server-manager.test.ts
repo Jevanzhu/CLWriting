@@ -202,6 +202,19 @@ describe('批 U1：并发 start 防护', () => {
     expect(forkRecords.length).toBe(1)
     await manager.stopChild()
   })
+
+  it('postMessage：当值 child 在位即送达其消息队列（更新检查结果下发路径）', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const ud = mkUserData()
+    const p1 = manager.start({ workDir: null, userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 9 })
+    await expect(p1).resolves.toBe(9)
+    expect(manager.postMessage({ type: 'update-check-result', result: null })).toBe(true)
+    expect(forkRecords[0]!.child.posted).toContainEqual({ type: 'update-check-result', result: null })
+    // 停完 child 后不再送达（消息随进程消亡无意义——调用方据此待重启后补发）
+    await manager.stopChild()
+    expect(manager.postMessage({ type: 'update-check-result', result: null })).toBe(false)
+  })
 })
 
 afterAll(() => {

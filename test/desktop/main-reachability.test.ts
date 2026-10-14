@@ -286,6 +286,41 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
     }
   })
+
+  it('更新检查结果补发: 服务重启后向新 child 重送最近一次结果（检查态随 child 重启丢失）', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      // 先置「已检查」态再装 main：新 child 的模块态是空的，唯补发能把结论送回。
+      // 推进量刻意小于检查延迟（5000ms）：本用例只锚「重启补发」一条路径——推满会让
+      // 排期的检查定时器同时到点，两条路径都能送出消息，撤补发也测不出红。
+      const check = await import('../../src/update/check.js')
+      check.applyUpdateCheckResult({
+        version: '9.9.9',
+        url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v9.9.9',
+        asset: null,
+        checksumsUrl: null,
+      })
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗落定
+      const firstChild = M.forkChildren.at(-1) as unknown as { posted: unknown[] }
+      expect(firstChild.posted).toHaveLength(0) // 未到检查点，此前无任何下发
+      ;(firstChild as unknown as { emit: (e: string, c: number) => void }).emit('exit', 1)
+      await vi.advanceTimersByTimeAsync(3_000) // 退避 0 → doRestart → 新 child ready → 补发（< 检查延迟）
+      const newChild = M.forkChildren.at(-1) as unknown as { posted: unknown[] }
+      expect(newChild.posted).toContainEqual({
+        type: 'update-check-result',
+        result: {
+          version: '9.9.9',
+          url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v9.9.9',
+          asset: null,
+          checksumsUrl: null,
+        },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 // ── 预探熔断：失联卷上的挂死 stat 每窗口至多一个 ──────────────────────

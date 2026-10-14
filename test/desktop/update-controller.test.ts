@@ -16,6 +16,7 @@ import {
   __setPendingUpdateForTest,
   armPendingUpdateIfAny,
   cancelUpdateDownload,
+  createUpdateCheckHost,
   discardPendingUpdate,
   helperStageDir,
   prepareUpdateApply,
@@ -25,6 +26,11 @@ import {
   startUpdateDownload,
   UPDATE_DEV_FORCE_ENV,
 } from '../../src/desktop/update-controller.js'
+import {
+  applyUpdateCheckResult,
+  __resetUpdateCheckForTest,
+  UPDATE_RESULT_MESSAGE_TYPE,
+} from '../../src/update/check.js'
 import { updateCacheDir, updateCacheRoot, UPDATE_RESULT_FILENAME } from '../../src/update/cache.js'
 
 const wd = vi.hoisted(() => ({ workDir: null as string | null, relaunchPending: false }))
@@ -403,6 +409,122 @@ describe('runUpdateMaintenance（启动维护清扫规则）', () => {
     } finally {
       vi.doUnmock('node:fs')
       vi.resetModules()
+    }
+  })
+})
+
+describe('createUpdateCheckHost（主进程检查宿主：延迟跑一次 + 结果下发子进程）', () => {
+  let pushed: unknown[]
+
+  beforeEach(() => {
+    pushed = []
+    __resetUpdateCheckForTest()
+  })
+
+  const host = (opts: { runCheck?: () => Promise<void>; pushOk?: boolean } = {}) =>
+    createUpdateCheckHost({
+      push: (message) => {
+        pushed.push(message)
+        return opts.pushOk ?? true
+      },
+      // 只在显式给桩时传 runCheck——缺省留空才走生产实现（net.fetch 腿）
+      ...(opts.runCheck ? { runCheck: opts.runCheck } : {}),
+      currentVersion: () => '1.0.0',
+    })
+
+  it('到点跑检查并把结果经下发通道送出（类型与载荷形状）', async () => {
+    const h = host({
+      runCheck: async () => {
+        applyUpdateCheckResult({
+          version: '1.2.3',
+          url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+          asset: null,
+          checksumsUrl: null,
+        })
+      },
+    })
+    h.scheduleCheck(0)
+    await vi.waitFor(() => expect(pushed).toHaveLength(1))
+    expect(pushed[0]).toEqual({
+      type: UPDATE_RESULT_MESSAGE_TYPE,
+      result: {
+        version: '1.2.3',
+        url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v1.2.3',
+        asset: null,
+        checksumsUrl: null,
+      },
+    })
+  })
+
+  it('只排一次：重复 scheduleCheck（bootstrap 重跑形态）不二次出站', async () => {
+    let runs = 0
+    const h = host({
+      runCheck: async () => {
+        runs++
+        applyUpdateCheckResult(null)
+      },
+    })
+    h.scheduleCheck(0)
+    h.scheduleCheck(0)
+    await vi.waitFor(() => expect(pushed).toHaveLength(1))
+    await new Promise((r) => setTimeout(r, 5))
+    expect(runs).toBe(1)
+    expect(pushed).toHaveLength(1)
+  })
+
+  it('未到点/未跑完不下发：pushLastResult 返 false 且通道零调用', () => {
+    const h = host()
+    expect(h.pushLastResult()).toBe(false)
+    expect(pushed).toHaveLength(0)
+  })
+
+  it('补发（child 重启后）：跑完后 pushLastResult 把同结果再送一次', async () => {
+    const h = host({
+      runCheck: async () => {
+        applyUpdateCheckResult({
+          version: '2.0.0',
+          url: 'https://github.com/Jevanzhu/CLWriting/releases/tag/v2.0.0',
+          asset: null,
+          checksumsUrl: null,
+        })
+      },
+    })
+    h.scheduleCheck(0)
+    await vi.waitFor(() => expect(pushed).toHaveLength(1))
+    // 新 child 模块态是空的——补发把同结果再送一次（幂等，子进程侧只落态）
+    expect(h.pushLastResult()).toBe(true)
+    expect(pushed).toHaveLength(2)
+    expect(pushed[1]).toEqual(pushed[0])
+  })
+
+  it('检查抛错不外溢（只留痕），也不下发', async () => {
+    const h = host({ runCheck: () => Promise.reject(new Error('boom')) })
+    h.scheduleCheck(0)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(pushed).toHaveLength(0)
+    expect(M.logWarns.length).toBeGreaterThan(0)
+  })
+
+  it('默认检查腿走 net.fetch（Chromium 网络栈受系统代理——与下载腿同通道）', async () => {
+    // 全局 setup 置了不打网开关，本例要真跑一次默认检查腿（net.fetch 已假件，不出网）
+    const saved = process.env['CLW_DISABLE_UPDATE_CHECK']
+    delete process.env['CLW_DISABLE_UPDATE_CHECK']
+    M.netFetchResponse = {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: { cancel: async () => {} },
+      json: async () => [{ tag_name: 'v9.9.9', draft: false }],
+    }
+    try {
+      const h = host() // 不给 runCheck —— 走缺省实现
+      h.scheduleCheck(0)
+      await vi.waitFor(() => expect(pushed).toHaveLength(1))
+      // 出站落 net.fetch 捕获面（全局 fetch 直连通道不参与——撤 netFetch 换回全局 fetch 即本断言红）
+      expect(M.netFetchCalls.some((u) => u.includes('api.github.com'))).toBe(true)
+      expect(pushed[0]).toMatchObject({ result: { version: '9.9.9' } })
+    } finally {
+      if (saved !== undefined) process.env['CLW_DISABLE_UPDATE_CHECK'] = saved
     }
   })
 })

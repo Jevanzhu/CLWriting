@@ -8,6 +8,12 @@
  * 阶段 55 扩资产面：结果随带便携 zip 资产与校验清单地址（纯解析在 `asset.ts`），
  * 前端「下载并更新」与主进程下载链据此定位；同一响应内解析，不额外请求。
  *
+ * 出站归**主进程**：`update-controller.createUpdateCheckHost` 以 Electron `net.fetch`
+ * 调本模块的 `runUpdateCheckOnce`（Chromium 网络栈受系统代理，与下载腿同通道）。服务端
+ * 子进程的全局 fetch 不读代理，「只配系统代理」的用户曾因此永远收不到提示；子进程改为
+ * 不下发结果即不自行出站——主进程跑完经 parentPort 送 `UPDATE_RESULT_MESSAGE_TYPE`
+ * 消息，`applyUpdateCheckResult` 落态，端点（`app-info`）照旧读 `getUpdateCheckResult`。
+ *
  * 与 `src/rag/embed.ts`（本仓另一出站面）的**刻意差异**（设计 §3.3）：那边失败打
  * warn 去抖，因为「配了代理为何召回为空」需要可定位；更新检查失败对用户无任何损害
  * （少一次提示而已），打 warn 只会给正常离线使用刷噪音——故失败只留一行 **info**
@@ -31,7 +37,7 @@ const RELEASES_URL = 'https://api.github.com/repos/Jevanzhu/CLWriting/releases?p
 /** 单次请求超时（设计 §3.3：5s；超时即静默放弃，不重试） */
 const UPDATE_CHECK_TIMEOUT_MS = 5000
 
-/** 起服后延迟检查的缺省毫秒数（接线用；不与起服抢首屏） */
+/** 起服后延迟检查的缺省毫秒数（主进程侧接线用；不与起服抢首屏） */
 export const UPDATE_CHECK_DELAY_MS = 5000
 
 /** 测试态开关（设计 §3.3）：置 1 时完全不检查——e2e/单测不打网的硬保证 */
@@ -57,7 +63,9 @@ export interface LatestRelease {
 
 /** 进程内结果（随 server 生命周期，同 startup-notices sink 语义：不落盘）。
  * 收敛：原手写模块可变态（`let state` / `let result` + 测试钩子直改）
- *  换装 testableConst 工厂——生产写入/读取与测试注入走同一元组，模块面无裸可变量。 */
+ *  换装 testableConst 工厂——生产写入/读取与测试注入走同一元组，模块面无裸可变量。
+ * 写入两路：主进程跑完经 parentPort 下发（`applyUpdateCheckResult`，生产唯一路径）；
+ * 测试直置（`__setUpdateCheckResultForTest`）。子进程不自行出站，见文件头。 */
 const [getCheckState, setCheckState] = testableConst<'idle' | 'done'>('idle')
 const [getCheckResult, setCheckResult] = testableConst<UpdateCheckResult | null>(null)
 
@@ -151,7 +159,7 @@ export async function fetchLatestStable(
 }
 
 /**
- * 跑一次检查（起服后延迟调用一次；fire-and-forget，调用方不 await）。
+ * 跑一次检查（主进程侧起服后延迟调用一次；调用方 await 到落定后取结果下发子进程）。
  * 开关短路：`CLW_DISABLE_UPDATE_CHECK=1` 直接返回且**不置结果**（保持未完成态——
  * 关掉检查的环境里端点不会凭空给出「已查无新版」）。
  */
@@ -186,6 +194,55 @@ export async function runUpdateCheckOnce(opts?: {
 /** 更新结果（null = 未完成或已查无新版；端点 `update` 字段直用） */
 export function getUpdateCheckResult(): UpdateCheckResult | null {
   return getCheckResult()
+}
+
+/** main → child 下发检查结果的消息类型（协议形状两侧共用本单源：`update-controller` 发、
+ *  `server-utility` 收）。只在检查真跑完后下发——收到即「已检查」，result null 即无新版。 */
+export const UPDATE_RESULT_MESSAGE_TYPE = 'update-check-result'
+
+/** 下发消息载荷（`{ type, result }`；result 形状校验见 `parsePushedUpdateCheckResult`） */
+export interface UpdateResultMessage {
+  type: typeof UPDATE_RESULT_MESSAGE_TYPE
+  result: unknown
+}
+
+/**
+ * 下发载荷 → 结果（形状抽查后收下；不合形一律 null）。
+ * 契约由本方主进程构造（非外部输入），此处只防「字段漂移 / 半截对象」流进端点响应：
+ * version/url 非空串、asset 为 null 或缺 name/url 的字符串对象、checksumsUrl 为 null 或串。
+ */
+export function parsePushedUpdateCheckResult(raw: unknown): UpdateCheckResult | null {
+  if (raw === null) return null
+  if (typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const version = r['version']
+  const url = r['url']
+  if (typeof version !== 'string' || version === '' || typeof url !== 'string' || url === '') return null
+  const checksumsUrl = r['checksumsUrl'] ?? null
+  if (checksumsUrl !== null && typeof checksumsUrl !== 'string') return null
+  const asset = r['asset'] ?? null
+  if (asset === null) return { version, url, asset: null, checksumsUrl }
+  if (typeof asset !== 'object') return null
+  const a = asset as Record<string, unknown>
+  if (typeof a['name'] !== 'string' || a['name'] === '' || typeof a['url'] !== 'string' || a['url'] === '') return null
+  return {
+    version,
+    url,
+    asset: {
+      name: a['name'],
+      url: a['url'],
+      size: typeof a['size'] === 'number' ? a['size'] : null,
+      sha256: typeof a['sha256'] === 'string' ? a['sha256'] : null,
+    },
+    checksumsUrl,
+  }
+}
+
+/** 落主进程下发的检查结果（子进程侧生产写入唯一路径；收到即「已检查」——内部自跑已随
+ *  迁主进程移除，端点三态语义不变）。 */
+export function applyUpdateCheckResult(result: UpdateCheckResult | null): void {
+  setCheckState('done')
+  setCheckResult(result)
 }
 
 /** 测试钩子：复位为未完成态（模块内存态跨用例隔离用） */

@@ -82,11 +82,10 @@ import { configureProviderRuntime } from '../../ai/runner.js'
 import { setInitialBook } from './api/books.js'
 // 启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
-// 应用信息端点（版本号 + 更新检查结果）+ 起服后延迟一次的更新检查
+// 应用信息端点（版本号 + 更新检查结果；检查本体在主进程，见 server.listen 后注释）
 import { registerAppInfoRoutes } from './api/app-info.js'
 // 诊断包端点（排查件打包：环境 + 配置白名单 + 近 7 天日志，逐项脱敏）
 import { registerDiagnosticsRoutes } from './api/diagnostics.js'
-import { runUpdateCheckOnce, UPDATE_CHECK_DELAY_MS } from '../../update/check.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log, errMsg } from '../../log/index.js'
 
@@ -788,16 +787,10 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   //（见 http.ts 注）；只依赖 Node 缺省值（当前恰 300s）则无锚可依、跨版本漂移即翻车。
   server.requestTimeout = 300_000
   server.listen(opts.port, host)
-  // 起服后延迟一次更新检查（fire-and-forget——不 await、不阻塞监听，
-  // 也不进启动关键路径）。timer 显式 unref：否则「只起 server 不求请求」的进程
-  //（单测/脚本形态）会被这枚待触发定时器多留住数秒；close 时清掉（实例关灯后
-  // 不再出站）。检查内部自带开关短路与静默（CLW_DISABLE_UPDATE_CHECK=1 → 不打网），
-  // 失败不抛——此处无需 try/catch。
-  let updateCheckTimer: NodeJS.Timeout | null = setTimeout(() => {
-    updateCheckTimer = null
-    void runUpdateCheckOnce()
-  }, UPDATE_CHECK_DELAY_MS)
-  updateCheckTimer.unref?.()
+  // 更新检查**不在此处**：子进程全局 fetch 不读系统代理（只配系统代理的用户收不到提示），
+  // 检查归主进程（`update-controller.createUpdateCheckHost` 以 net.fetch 跑、与下载腿同通道），
+  // 结果经 parentPort 下发（`server-utility` 收 → `applyUpdateCheckResult`）；本进程只留
+  // 端点读口（api/app-info.ts）。
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {
     const addr = server.address()
@@ -816,11 +809,6 @@ export function createStudioServer(opts: StudioServerOptions, deps: StudioServer
   // 还依赖运行中实例的 live-set 语义（set 后即可读），close 清空两头都保住。
   server.on('close', () => {
     setInitialBook(undefined)
-    // 清掉尚未触发的更新检查定时器（关灯后不再出站）
-    if (updateCheckTimer) {
-      clearTimeout(updateCheckTimer)
-      updateCheckTimer = null
-    }
     // 模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
     closeAllSseConnections()
   })
