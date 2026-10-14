@@ -316,7 +316,13 @@ describe('pruneVersions knownList', () => {
     const ids: string[] = []
     for (let i = 0; i < n; i++) {
       if (i > 0) vi.advanceTimersByTime(5)
-      const id = writeVersion(dRoot, 'doc_test', `第 ${i} 版正文内容各不相同-${i}`, { origin: 'autosave' }, { policy, force: true })
+      const id = writeVersion(
+        dRoot,
+        'doc_test',
+        `第 ${i} 版正文内容各不相同-${i}`,
+        { origin: 'autosave' },
+        { policy, force: true },
+      )
       if (id) ids.push(id)
     }
     return ids

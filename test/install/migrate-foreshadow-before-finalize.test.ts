@@ -152,8 +152,7 @@ test('按编排表驱动整链——伏笔 entry 拿到定稿基线，且整表�
     }
   }
   const forePath = join(tmp, '设定', '伏笔', '伏笔-012-暗号.md')
-  const foreOf = () =>
-    [...manifestOf().entries.values()].find((e) => e.path === '设定/伏笔/伏笔-012-暗号.md')
+  const foreOf = () => [...manifestOf().entries.values()].find((e) => e.path === '设定/伏笔/伏笔-012-暗号.md')
   expect(foreOf()?.finalizedRevision).toBe(computeRevision(forePath))
 
   // 生产入口（整表一次跑）在终局盘面上重跑：各步幂等——全步零错误且基线不丢

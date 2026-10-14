@@ -28,7 +28,9 @@ import { join } from 'node:path'
  */
 const COARSE_MTIME_NS = 1_700_000_002_000_000_000n // 整毫秒对齐 → isCoarseMtimeNs 判低精度卷
 const FINE_MTIME_NS = 1_700_000_002_000_000_123n // 亚毫秒余数 → 判 ns 级精度卷
-const { coarseStatFrames } = vi.hoisted(() => ({ coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>() }))
+const { coarseStatFrames } = vi.hoisted(() => ({
+  coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>(),
+}))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {

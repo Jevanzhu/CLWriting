@@ -379,8 +379,7 @@ describe('诊断包 · 内容门分类完备性', () => {
     (s) => CONTENT_BEARING_FAMILIES.some((p) => s.file.startsWith(p)) && !CONTENT_BEARING_LOG_TAGS.has(s.tag),
   )
   const labelMisses = sites.filter(
-    (s) =>
-      CONTENT_BEARING_LOG_TAGS.has(s.tag) && s.labelExprs.some((e) => BOOK_SIDE_MARKER.test(e)),
+    (s) => CONTENT_BEARING_LOG_TAGS.has(s.tag) && s.labelExprs.some((e) => BOOK_SIDE_MARKER.test(e)),
   )
   const unregisteredBookSide = sites
     .filter((s) => !CONTENT_BEARING_LOG_TAGS.has(s.tag))
@@ -483,7 +482,10 @@ describe('诊断包 · 超限分卷与截断提示（P2-12）', () => {
     const names = r.files!.flatMap((f) => readZipStore(readFileSync(f)).map((e) => e.name))
     expect(names).toEqual(['说明.txt', '环境.json', '配置.json', `日志/${TODAY_LOG}`])
     expect(r.entries).toEqual(names)
-    expect(r.warnings!.some((w) => w.includes('分 2 卷')), '分卷须有 warning 提示（不静默改落点形态）').toBe(true)
+    expect(
+      r.warnings!.some((w) => w.includes('分 2 卷')),
+      '分卷须有 warning 提示（不静默改落点形态）',
+    ).toBe(true)
   })
 
   it('单条超单卷字节上限 → 截断省略 + warning 点名该条，其余条目照常成包', () => {

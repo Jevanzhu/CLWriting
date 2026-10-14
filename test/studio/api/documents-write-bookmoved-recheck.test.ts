@@ -264,7 +264,13 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
       const target = join(rig.bookRoot, '设定', '伏笔', '伏笔-001.md')
       writeFileSync(target, '---\n标题: 伏笔-001\n状态: 待填\n---\n\n伏笔正文。\n', 'utf-8')
       const { req, res, captured } = fakeReqRes()
-      await driveRoute(rig.patch, { name: '键名放行书', docId: 'doc_f1' }, { op: 'fm', meta: { 状态: '进行中' } }, req, res)
+      await driveRoute(
+        rig.patch,
+        { name: '键名放行书', docId: 'doc_f1' },
+        { op: 'fm', meta: { 状态: '进行中' } },
+        req,
+        res,
+      )
       expect(captured.status).toBe(200)
       expect(readFileSync(target, 'utf-8')).toContain('状态: 进行中')
     } finally {
@@ -276,17 +282,10 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     const rig = makeBook('重验字数书')
     try {
       const { req, res, captured } = fakeReqRes()
-      await driveRoute(
-        rig.wordsDiary,
-        { name: '重验字数书' },
-        { baseline: 1000 },
-        req,
-        res,
-        () => {
-          writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
-          rmSync(rig.bookRoot, { recursive: true, force: true })
-        },
-      )
+      await driveRoute(rig.wordsDiary, { name: '重验字数书' }, { baseline: 1000 }, req, res, () => {
+        writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
+        rmSync(rig.bookRoot, { recursive: true, force: true })
+      })
       expect(captured.status).toBe(409)
       expect((JSON.parse(captured.body) as { code: string }).code).toBe('BOOK_MOVED')
       // appendBaseline 的 mkdir recursive 不得对旧路径重建 项目/ 目录

@@ -22,11 +22,7 @@ import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
 import { openRagDb, setRagMeta, getRagMeta } from '../../src/rag/store.js'
-import {
-  planChapterSplit,
-  applyChapterSplit,
-  type StructureRagPort,
-} from '../../src/document/structure.js'
+import { planChapterSplit, applyChapterSplit, type StructureRagPort } from '../../src/document/structure.js'
 import { DocumentService } from '../../src/document/service.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import { splitFrontMatter, parseFlat } from '../../src/format/frontmatter.js'
@@ -510,10 +506,7 @@ describe('定稿章号集认裸数字名', () => {
   let d60 = ''
 
   beforeAll(async () => {
-    d60 = await createChapter(
-      REL60,
-      chapterContent(60, '第60章', '第六十章前半段。\n\n第六十章后半段迁出标记。'),
-    )
+    d60 = await createChapter(REL60, chapterContent(60, '第60章', '第六十章前半段。\n\n第六十章后半段迁出标记。'))
     // 盘面唯一在盘章 0060（max=60）+ 定稿裸名条目 0061.md（文件不在盘，finalizedRevision 在档）
     const mp = join(studio.bookRoot, '项目', '文档清单.jsonl')
     const m = readManifest(mp)

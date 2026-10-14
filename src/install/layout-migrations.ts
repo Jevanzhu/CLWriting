@@ -89,8 +89,7 @@ export const LAYOUT_MIGRATIONS: readonly LayoutMigration[] = [
     id: 'finalized-revisions',
     // 定稿基线：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）。
     // 本步为异步（git status 走异步孪生 + 清单锁异步孪生，见该函数头注）。
-    run: (bookRoot) =>
-      migrateFinalizedRevisionsAsync(bookRoot).then(() => ({ errors: [] as string[] })),
+    run: (bookRoot) => migrateFinalizedRevisionsAsync(bookRoot).then(() => ({ errors: [] as string[] })),
   },
 ]
 

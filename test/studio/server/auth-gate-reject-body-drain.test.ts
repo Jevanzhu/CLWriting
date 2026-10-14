@@ -332,10 +332,7 @@ describe('finish 后排空未消费请求体（keep-alive 可复用）', () => {
       const s1 = await postHeartbeat(agent, sockets)
       expect(s1).toBe(200)
       // 修复前：第一个请求的 body 未排空，第二个请求在同 socket 上不被解析（悬挂）
-      const s2 = await orHang(
-        postHeartbeat(agent, sockets),
-        '第二个请求悬挂：请求体未排空（R64-28）',
-      )
+      const s2 = await orHang(postHeartbeat(agent, sockets), '第二个请求悬挂：请求体未排空（R64-28）')
       expect(s2).toBe(200)
       expect(sockets.size).toBe(1) // 同一 socket 承载两次请求
     } finally {

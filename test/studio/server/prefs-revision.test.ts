@@ -205,7 +205,10 @@ describe('GG-P2-7 global.json revision（乐观并发）', () => {
   // P1-14：写侧收敛——白名单外键丢弃不落盘（响应语义不变 200）；白名单内键类型不符 400
   // 盘上不动；预算两键在白名单内（经端点写不被丢弃，global-defaults 读侧消费面不断链）。
   it('P1-14: 白名单外键丢弃不落盘；白名单内键类型不符 400 盘上不动；预算键端点可写', async () => {
-    const g = await req<{ prefs: Record<string, unknown>; revision: number }>({ method: 'GET', path: '/api/library/prefs' })
+    const g = await req<{ prefs: Record<string, unknown>; revision: number }>({
+      method: 'GET',
+      path: '/api/library/prefs',
+    })
     const rev = g.json.revision
 
     const a = await req<{ ok: boolean; revision: number }>({

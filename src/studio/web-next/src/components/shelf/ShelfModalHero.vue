@@ -17,7 +17,10 @@ const props = defineProps<ShelfHeroProps>()
 
 const emit = defineEmits<ShelfHeroEmits>()
 
-const { onActivate, onMove } = useShelfHeroGesture(() => props.book.name, (name) => emit('open', name))
+const { onActivate, onMove } = useShelfHeroGesture(
+  () => props.book.name,
+  (name) => emit('open', name),
+)
 </script>
 
 <template>

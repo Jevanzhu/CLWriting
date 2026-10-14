@@ -84,11 +84,7 @@ function intervalCarrier(r: TailRow): ChatEvent {
  *  谓词与投影侧 advanceVisibleStep 同源（离线重放只把这类行计入可见集）；唯一略去的分支
  *  是空壳 assistant 的载荷判空（要读 data），而录制侧本就把该形态排除在遮蔽位之外
  *  （见 chat-bridge 的 pendingSurfaceIdx 注），故区间内行按本谓词判定与离线口径一致。 */
-function buildIntervalCursor(
-  db: DatabaseSync,
-  start: number,
-  end: number,
-): ReturnType<typeof createValidateCursor> {
+function buildIntervalCursor(db: DatabaseSync, start: number, end: number): ReturnType<typeof createValidateCursor> {
   const cur = createValidateCursor()
   const ph = [...SURFACE_EVENT_TYPES].map(() => '?').join(',')
   const rows = db
@@ -121,7 +117,10 @@ export function checkEventStreamIntegrity(db: DatabaseSync, tail = SELF_CHECK_TA
       continue
     }
     if (r.shadow_start > r.shadow_end) {
-      issues.push({ sessionId: r.session_id, message: `compaction/end（seq=${r.seq}）区间倒置 [${r.shadow_start},${r.shadow_end}]` })
+      issues.push({
+        sessionId: r.session_id,
+        message: `compaction/end（seq=${r.seq}）区间倒置 [${r.shadow_start},${r.shadow_end}]`,
+      })
       continue
     }
     if (r.shadow_start < windowFloorSeq) continue

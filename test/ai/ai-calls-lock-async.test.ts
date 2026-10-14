@@ -13,7 +13,12 @@ import { rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { recordAiCall, recordTaskUsage, ledgerWriteFailuresForTest, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
+import {
+  recordAiCall,
+  recordTaskUsage,
+  ledgerWriteFailuresForTest,
+  __setAiCallsLockTimeoutForTest,
+} from '../../src/ai/calls.js'
 import { saveProviders, loadProviders, emptySettings, type ProviderStore } from '../../src/ai/provider/store.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 
@@ -106,9 +111,7 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
       recordTaskUsage(bookRoot, 'chat', { inputTokens: 1, outputTokens: 2 })
       // 修复前：两笔都只留在 fs 层旁挂 warn，无任何可观测计数（本条断言即红）
       await vi.waitFor(() => expect(ledgerWriteFailuresForTest()).toBe(before + 2), { timeout: 3_000, interval: 5 })
-      const ledgerWarns = warn.mock.calls
-        .map((a) => a.map(String).join(' '))
-        .filter((m) => m.includes('本轮账目缺失'))
+      const ledgerWarns = warn.mock.calls.map((a) => a.map(String).join(' ')).filter((m) => m.includes('本轮账目缺失'))
       expect(ledgerWarns).toHaveLength(2)
       // 定位信息齐备：书根 + 任务名（缺任一项则无法从日志判断哪本书的哪类记账没落地）
       for (const m of ledgerWarns) {

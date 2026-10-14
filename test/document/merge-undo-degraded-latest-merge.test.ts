@@ -280,7 +280,10 @@ describe('undo 盘面降级同章号择最新', () => {
   }
 
   async function deleteDoc(docId: string): Promise<void> {
-    const r = await studioN.req('DELETE', `/api/books/${encodeURIComponent(BOOK_NEWEST)}/documents/${encodeURIComponent(docId)}`)
+    const r = await studioN.req(
+      'DELETE',
+      `/api/books/${encodeURIComponent(BOOK_NEWEST)}/documents/${encodeURIComponent(docId)}`,
+    )
     expect(r.status).toBe(200)
   }
 

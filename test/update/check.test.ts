@@ -281,14 +281,14 @@ describe('主进程下发结果落态（applyUpdateCheckResult / parsePushedUpda
     expect(parsePushedUpdateCheckResult('not-an-object')).toBeNull()
     // asset 缺 name/url 或类型漂移 → null；size/sha256 类型漂移 → 落 null 字段（asset 仍成立）
     expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: { url: 'z' } })).toBeNull()
-    expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: { name: 'a', url: 'z', size: 'x' } })).toEqual(
-      {
-        version: '1.0.0',
-        url: 'u',
-        asset: { name: 'a', url: 'z', size: null, sha256: null },
-        checksumsUrl: null,
-      },
-    )
+    expect(
+      parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', asset: { name: 'a', url: 'z', size: 'x' } }),
+    ).toEqual({
+      version: '1.0.0',
+      url: 'u',
+      asset: { name: 'a', url: 'z', size: null, sha256: null },
+      checksumsUrl: null,
+    })
     // checksumsUrl 非串非 null → null
     expect(parsePushedUpdateCheckResult({ version: '1.0.0', url: 'u', checksumsUrl: 7 })).toBeNull()
   })

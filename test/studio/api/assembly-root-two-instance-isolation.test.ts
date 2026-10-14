@@ -357,8 +357,7 @@ describe('组装根双实例互不干扰判据（R0916-7-P3-6 收尾）', () => 
     // /spawn 的 mock 快路判定（route 级）——两实例各随其 deps 的判定点。
     // 判定点随编排体下沉到 stream-run-writer.ts（路由声明面 stream.ts 只剩一行转调）：
     // 两文件合读，锚的是「判定读注入的 ctx.driver.kind 而非环境变量」这一点，不锚它在哪个文件。
-    const spawnSrc =
-      readSrc('src/studio/server/api/stream.ts') + readSrc('src/studio/server/api/stream-run-writer.ts')
+    const spawnSrc = readSrc('src/studio/server/api/stream.ts') + readSrc('src/studio/server/api/stream-run-writer.ts')
     expect(spawnSrc).toContain('mock: ctx.driver.kind === ')
     // runner 级 mockText 快路开关是进程级注入点（跨实例残余，见文件头注「如实记」）
     const runnerSrc = readSrc('src/ai/runner.ts')

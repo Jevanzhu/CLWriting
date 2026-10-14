@@ -271,11 +271,10 @@ describe('章纲随迁批: 章纲随迁崩溃续跑 + 无主纲报表与清理�
     const t = await createChapter(relT, '---\n章号: 11\n标题: 第11章\n---\n\n第11章正文。\n')
     const s = await createChapter(relS, '---\n章号: 12\n标题: 第12章\n---\n\n第12章正文。\n')
     const o = await createChapter(outlineRel, '---\n章号: 12\n标题: 第12章\n---\n\n第12章章纲。\n')
-    const planRes = await studio.req(
-      'POST',
-      `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`,
-      { op: 'merge', sourceDocId: s },
-    )
+    const planRes = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-plan`, {
+      op: 'merge',
+      sourceDocId: s,
+    })
     expect(planRes.status).toBe(200)
     const planHash = (planRes.json as { plan: { planHash: string } }).plan.planHash
 
@@ -284,11 +283,11 @@ describe('章纲随迁批: 章纲随迁崩溃续跑 + 无主纲报表与清理�
     const release = acquireCrossProcessLockWithTimeout(saveLockPath(o), 0)
     expect(release).not.toBeNull()
     try {
-      const r1 = await studio.req(
-        'POST',
-        `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`,
-        { op: 'merge', sourceDocId: s, planHash },
-      )
+      const r1 = await studio.req('POST', `/api/books/${ENC}/documents/${encodeURIComponent(t)}/structure-apply`, {
+        op: 'merge',
+        sourceDocId: s,
+        planHash,
+      })
       expect(r1.status).toBe(409)
       expect((r1.json as { code: string }).code).toBe('WRITE_ERROR')
       expect(String((r1.json as { error: string }).error)).toContain('源章纲')

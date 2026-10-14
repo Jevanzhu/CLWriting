@@ -165,23 +165,22 @@ function truncateWal(db: DatabaseSync): boolean {
 /** 页数/空闲页数读数（廉价 header 读；拿不到按 -1/0 处理，调用方据此退化为「不回收」）。 */
 function pageStats(db: DatabaseSync): { pages: number; free: number } {
   const pages = (db.prepare('PRAGMA page_count').get() as { page_count?: number } | undefined)?.page_count ?? -1
-  const free = (db.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined)?.freelist_count ?? 0
+  const free =
+    (db.prepare('PRAGMA freelist_count').get() as { freelist_count?: number } | undefined)?.freelist_count ?? 0
   return { pages, free }
 }
 
 /** 库内是否已有 events 表：幽灵库（他进程刚建文件未跑 DDL）与空库在此静默跳过。 */
 function hasEventsTable(db: DatabaseSync): boolean {
   const r = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'events'").get() as
-    | { n?: number }
-    | undefined
+    { n?: number } | undefined
   return (r?.n ?? 0) > 0
 }
 
 /** 到期闸：最旧一行的时间戳（seq 是主键，取首行是索引探测不扫全表）早于保留窗口才算到期。 */
 export function isPruneDue(db: DatabaseSync, now: number = Date.now()): boolean {
   const oldest = db.prepare('SELECT created_at FROM events ORDER BY seq ASC LIMIT 1').get() as
-    | { created_at: number }
-    | undefined
+    { created_at: number } | undefined
   return oldest !== undefined && oldest.created_at < now - getEventRetentionMs()
 }
 
@@ -217,12 +216,17 @@ export function resetPruneCursor(dbPath: string): void {
  * （见该函数注：游标所指的旧区段随清库消失，留着它会让该书的新行永久落在游标之前、再也不裁）；
  * 本函数另按 MAX(seq) 夹一次游标，兜住「库文件被删后重建」这类清库路径之外的形态。
  */
-export function pruneExpiredObservationEvents(db: DatabaseSync, dbPath: string, now: number = Date.now()): PruneOutcome {
+export function pruneExpiredObservationEvents(
+  db: DatabaseSync,
+  dbPath: string,
+  now: number = Date.now(),
+): PruneOutcome {
   const cutoff = now - getEventRetentionMs()
   return withShortBusyTimeout(db, () => {
     const window = db.prepare('SELECT seq, type, created_at FROM events WHERE seq > ? ORDER BY seq ASC LIMIT ?')
     const del = db.prepare('DELETE FROM events WHERE seq = ?')
-    const maxSeq = (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM events').get() as { m?: number } | undefined)?.m ?? 0
+    const maxSeq =
+      (db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM events').get() as { m?: number } | undefined)?.m ?? 0
     let cursor = pruneCursors.get(dbPath) ?? 0
     if (cursor > maxSeq) cursor = 0
     let scanned = 0

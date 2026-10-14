@@ -144,9 +144,7 @@ function fmtMs(n: number): string {
     </div>
 
     <div v-if="!loaded" class="usage-empty">统计加载中…</div>
-    <div v-else-if="traceDegraded" class="usage-empty">
-      调用统计暂不可用（服务端事件库读取失败），刷新后重试。
-    </div>
+    <div v-else-if="traceDegraded" class="usage-empty">调用统计暂不可用（服务端事件库读取失败），刷新后重试。</div>
     <div v-else-if="tasks.length === 0" class="usage-empty">
       暂无 AI 调用记录（写作/审稿/摘要等任务的用量在此汇总）。
     </div>

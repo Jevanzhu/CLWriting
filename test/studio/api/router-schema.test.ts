@@ -6,7 +6,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { defineRoute, getRouteSchema, resetRouteSchemas } from '../../../src/studio/server/api/schema.js'
-import { createRouteTable, dispatch, route, withRouteTable, type RouteTable } from '../../../src/studio/server/router.js'
+import {
+  createRouteTable,
+  dispatch,
+  route,
+  withRouteTable,
+  type RouteTable,
+} from '../../../src/studio/server/router.js'
 import { HttpError, replyError } from '../../../src/studio/server/http.js'
 import { listenSafe } from '../../helpers/safe-port.js'
 

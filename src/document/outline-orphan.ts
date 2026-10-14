@@ -150,11 +150,7 @@ export function outlineTrashExempt(bookRoot: string, outlineRelPath: string): bo
 /** 回收站按章号找章纲条目（undo 对称还原的兜底定位：事件未携带 id 的旧载荷/崩溃形态）。
  *  preferBasename（源章正文 basename）命中者优先，各自择最新 trashedAt——短篇纲与
  *  正文同名，长篇纲不同名时自然落到全章号择最新。 */
-export function findOutlineTrashEntry(
-  bookRoot: string,
-  chapterNo: number,
-  preferBasename?: string,
-): TrashEntry | null {
+export function findOutlineTrashEntry(bookRoot: string, chapterNo: number, preferBasename?: string): TrashEntry | null {
   let best: TrashEntry | null = null
   let bestPreferred: TrashEntry | null = null
   for (const e of listTrash(bookRoot)) {

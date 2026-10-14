@@ -106,9 +106,7 @@ function baseFileOf(kind: 'long' | 'short'): string {
 
 /** 选篇:基础 1 篇 + 首个命中的追加篇(≤METHOD_MAX_FILES) */
 function pickMethodPieces(kind: 'long' | 'short', signals: string): MethodPick[] {
-  const picks: MethodPick[] = [
-    { rel: baseFileOf(kind), reason: kind === 'short' ? '基础篇-短篇' : '基础篇-长篇' },
-  ]
+  const picks: MethodPick[] = [{ rel: baseFileOf(kind), reason: kind === 'short' ? '基础篇-短篇' : '基础篇-长篇' }]
   for (const extra of KIND_PICKS[kind]) {
     if (picks.length >= METHOD_MAX_FILES) break
     if (extra.hit.test(signals)) picks.push({ rel: extra.file, reason: extra.reason })

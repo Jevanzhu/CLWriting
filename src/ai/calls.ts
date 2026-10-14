@@ -689,12 +689,7 @@ export function recordTaskUsage(bookRoot: string, task: string, usage: TokenUsag
   void serializedWrite(bookRoot, () => recordTaskUsageLocked(bookRoot, task, usage, costUsd), { task })
 }
 
-function recordTaskUsageLocked(
-  bookRoot: string,
-  task: string,
-  usage: TokenUsage | null,
-  costUsd?: number,
-): void {
+function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage | null, costUsd?: number): void {
   const { rec, corrupt } = readRecord(bookRoot)
   // 与 recordAiCall 同口径——损坏不重置，保守阻断保持
   if (corrupt) {

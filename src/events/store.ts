@@ -71,11 +71,7 @@ export { runEventStreamSelfCheck, checkEventStreamIntegrity, isSelfCheckEnabled 
 export type { MaintenanceTrigger } from './store-retention.js'
 export type { SessionRow } from './store-rows.js'
 // 会话行格式版本族（常量 + 校验 + 错误类）—残核桥再导出，消费方 import 面零改动
-export {
-  SESSION_FORMAT_VERSION,
-  SessionFormatUnsupportedError,
-  assertSessionFormatVersion,
-} from './store-rows.js'
+export { SESSION_FORMAT_VERSION, SessionFormatUnsupportedError, assertSessionFormatVersion } from './store-rows.js'
 
 // sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
 // （批内 0-based 索引，仅供 appendEventsResolveLineage 消费）；sourceSeqs 收窄为
@@ -250,15 +246,15 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   // （下个 TTL 周期/重开库）照常收编。
   const BATCH_SIZE = 500
   const startedSessions = db
-    .prepare(
-      `SELECT DISTINCT session_id FROM events WHERE type = 'session/start' ORDER BY session_id`,
-    )
+    .prepare(`SELECT DISTINCT session_id FROM events WHERE type = 'session/start' ORDER BY session_id`)
     .all() as Array<{ session_id: string }>
   // 本批聚合语句按批内键数拼 IN 占位符——批形只有「满批」与「尾批」两族，
   // 但尾批宽度不定（≤BATCH_SIZE），故不入 prepared 连接级缓存（键变体数可达 500），
   // 每批现编译一次；编译成本相对本批 IO 可忽略（本语句的主项是批内聚合扫描，
   // 不是编译）。
-  const aggregateBatch = (ids: string[]): Array<{
+  const aggregateBatch = (
+    ids: string[],
+  ): Array<{
     session_id: string
     starts: number
     ends: number

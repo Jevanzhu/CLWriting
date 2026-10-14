@@ -30,11 +30,7 @@ import {
   type ParsedServerArgs,
 } from './server-boot.js'
 import { shutdownStudio } from './graceful-shutdown.js'
-import {
-  applyUpdateCheckResult,
-  parsePushedUpdateCheckResult,
-  UPDATE_RESULT_MESSAGE_TYPE,
-} from '../update/check.js'
+import { applyUpdateCheckResult, parsePushedUpdateCheckResult, UPDATE_RESULT_MESSAGE_TYPE } from '../update/check.js'
 import { initLogging, log } from '../log/index.js'
 
 /** parentPort 最小契约（Electron ParentPort 的 MessageEvent 包裹：消息在 e.data） */

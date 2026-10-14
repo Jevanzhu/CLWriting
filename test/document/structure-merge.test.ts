@@ -715,9 +715,9 @@ describe('章纲随迁批: 源章纲随正文一并入回收站 + 撤销对称�
     const ev = structureEvents('structure.merge').find((e) => e.targetDocId === t && e.sourceDocId === s)
     expect(ev).toBeDefined()
     expect('outlineTrashEntryId' in ev!).toBe(false)
-    expect(listTrash(studio.bookRoot).some((e) => e.role === 'chapter-outline' && e.originalPath.includes('0066'))).toBe(
-      false,
-    )
+    expect(
+      listTrash(studio.bookRoot).some((e) => e.role === 'chapter-outline' && e.originalPath.includes('0066')),
+    ).toBe(false)
   })
 
   it('撤销兜底（事件缺纲字段的旧载荷形态）：按章号扫回收站还原纲', async () => {

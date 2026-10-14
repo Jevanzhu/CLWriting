@@ -129,33 +129,30 @@ test('重评-13: 移动删源失败回滚——回收新位持续 EPERM → 重�
 
 describe('移动失败且留痕也失败（双重故障契约）', () => {
   // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  test.skipIf(process.platform === 'win32')(
-    '移动失败且 appendAborted 也失败 → 仍返回 {ok:false} 不穿透',
-    async () => {
-      const { root, svc, docId, bodyAbs } = await makeBookWithChapter()
-      ABORT_FAIL.arm = true
-      // 目标目录只读 → renameSync EACCES 进 catch（pending 已写入，opId 已拿到）
-      mkdirSync(join(root, '写作', '正文', '第二卷'), { recursive: true })
-      chmodSync(join(root, '写作', '正文', '第二卷'), 0o555)
-      try {
-        const r = await svc.moveDocument({ docId, toDir: '写作/正文/第二卷' })
-        // 契约：双重故障下仍拿到 {ok:false}，而不是裸异常/rejected promise
-        // （落盘走 linkSync——只读目录同样 EACCES，非 EEXIST，仍是 WRITE_ERROR）
-        expect(r.ok).toBe(false)
-        if (r.ok) return
-        expect(r.code).toBe('WRITE_ERROR')
-        expect(r.reason).toContain('移动/重命名失败')
-        // 留痕尝试发生过（appendAborted 被调用，失败被兜底吞掉）
-        expect(vi.mocked(appendAborted)).toHaveBeenCalledTimes(1)
-        // fail-closed：源文件未被移动
-        expect(existsSync(bodyAbs)).toBe(true)
-        expect(existsSync(join(root, '写作', '正文', '第二卷', '0001-开篇.md'))).toBe(false)
-      } finally {
-        chmodSync(join(root, '写作', '正文', '第二卷'), 0o755)
-        ABORT_FAIL.arm = false
-        vi.mocked(appendAborted).mockClear()
-        rmSync(root, { recursive: true, force: true })
-      }
-    },
-  )
+  test.skipIf(process.platform === 'win32')('移动失败且 appendAborted 也失败 → 仍返回 {ok:false} 不穿透', async () => {
+    const { root, svc, docId, bodyAbs } = await makeBookWithChapter()
+    ABORT_FAIL.arm = true
+    // 目标目录只读 → renameSync EACCES 进 catch（pending 已写入，opId 已拿到）
+    mkdirSync(join(root, '写作', '正文', '第二卷'), { recursive: true })
+    chmodSync(join(root, '写作', '正文', '第二卷'), 0o555)
+    try {
+      const r = await svc.moveDocument({ docId, toDir: '写作/正文/第二卷' })
+      // 契约：双重故障下仍拿到 {ok:false}，而不是裸异常/rejected promise
+      // （落盘走 linkSync——只读目录同样 EACCES，非 EEXIST，仍是 WRITE_ERROR）
+      expect(r.ok).toBe(false)
+      if (r.ok) return
+      expect(r.code).toBe('WRITE_ERROR')
+      expect(r.reason).toContain('移动/重命名失败')
+      // 留痕尝试发生过（appendAborted 被调用，失败被兜底吞掉）
+      expect(vi.mocked(appendAborted)).toHaveBeenCalledTimes(1)
+      // fail-closed：源文件未被移动
+      expect(existsSync(bodyAbs)).toBe(true)
+      expect(existsSync(join(root, '写作', '正文', '第二卷', '0001-开篇.md'))).toBe(false)
+    } finally {
+      chmodSync(join(root, '写作', '正文', '第二卷'), 0o755)
+      ABORT_FAIL.arm = false
+      vi.mocked(appendAborted).mockClear()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

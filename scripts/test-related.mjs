@@ -81,9 +81,7 @@ function scanTextReferences(changedSet) {
   return hits
 }
 
-const changedPosix = new Set(
-  changed.map((a) => relative(root, resolve(root, a)).split(sep).join('/')),
-)
+const changedPosix = new Set(changed.map((a) => relative(root, resolve(root, a)).split(sep).join('/')))
 const fallback = scanTextReferences(changedPosix)
 if (fallback.length > 0) {
   process.stderr.write(

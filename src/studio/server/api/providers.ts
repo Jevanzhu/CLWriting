@@ -45,7 +45,8 @@ export interface ProvidersCtx {
    *  只读 ctx.driver.kind，不读环境变量。 */
   driver: DriverHost
   /** 收尾：探测函数覆盖档（见下方块注） */
-  probeCapabilities?: ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
+  probeCapabilities?:
+    ((conf: ProviderConf, userDataPath?: string | null, mock?: boolean) => Promise<ProbeResult>) | null
 }
 
 // 探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的

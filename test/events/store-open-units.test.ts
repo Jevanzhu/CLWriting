@@ -80,9 +80,9 @@ describe('R0916-7-P3-2 applyOpenPragmas（打开期 PRAGMA + WAL）', () => {
     try {
       applyOpenPragmas(again)
       expect(readAutoVacuumMode(again)).toBe(AUTO_VACUUM_INCREMENTAL)
-      expect((again.prepare('PRAGMA journal_size_limit').get() as { journal_size_limit: number }).journal_size_limit).toBe(
-        4 * 1024 * 1024,
-      )
+      expect(
+        (again.prepare('PRAGMA journal_size_limit').get() as { journal_size_limit: number }).journal_size_limit,
+      ).toBe(4 * 1024 * 1024)
     } finally {
       again.close()
     }
@@ -482,7 +482,7 @@ describe('事件库 schema 阶梯（user_version）', () => {
     seedLegacyEventsDb(dbPath, '新行书')
     // 模拟「更新版本应用写入的行」：格式版本抬到本应用不支持的值
     const seed = new DatabaseSync(dbPath)
-    seed.exec('UPDATE sessions SET format_version = 2 WHERE session_id = \'s-old\'')
+    seed.exec("UPDATE sessions SET format_version = 2 WHERE session_id = 's-old'")
     seed.close()
 
     expect(() => openSessionStore(userData, bookRoot)).toThrow(SessionFormatUnsupportedError)
@@ -494,8 +494,7 @@ describe('事件库 schema 阶梯（user_version）', () => {
     const after = new DatabaseSync(dbPath)
     try {
       expect(
-        (after.prepare(`SELECT format_version AS v FROM sessions WHERE session_id = 's-old'`).get() as { v: number })
-          .v,
+        (after.prepare(`SELECT format_version AS v FROM sessions WHERE session_id = 's-old'`).get() as { v: number }).v,
       ).toBe(2)
       expect((after.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n).toBe(3)
     } finally {

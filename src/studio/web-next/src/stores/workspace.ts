@@ -440,6 +440,10 @@ function emitCreateSignal(
 /** 书级配置读取结果类型（定义在 shared/book-config-cache，经此处转发给消费方）。 */
 export type { BookConfigRead }
 
+/** 布局二次冲突提示文案（本窗改动未被服务端接受）：长中文串内联在 store setup 体内会因
+ *  printWidth 折行——与本节其余件同因（函数行数硬线），提为模块常量。 */
+const LAYOUT_CONFLICT_TOAST = '本书布局已被其他窗口连续修改，本次未能保存——当前界面保持你的改动，请稍后再调一次面板'
+
 /**
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
  *
@@ -527,7 +531,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     onConflict: () => {
       // 二次冲突（重拉+重放重试仍失配）：不静默、不丢弃本窗改动——本窗 refs 仍是用户
       // 意图值（下次调整/保存照旧带最新号重试），只是此刻服务端被另一窗持续改写
-      useUiStore().toast('本书布局已被其他窗口连续修改，本次未能保存——当前界面保持你的改动，请稍后再调一次面板', 'error')
+      useUiStore().toast(LAYOUT_CONFLICT_TOAST, 'error')
     },
   })
 

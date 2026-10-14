@@ -217,7 +217,14 @@ describe('知识层报告面：records / dropped / 缺口摘要', () => {
       reasonOf: (_rel, i) => `理由-${i}`,
     })
     expect(a.records).toEqual([
-      { rel: REL_A, layer: 'bundled', source: `知识层(内置)/${REL_A}`, reason: '理由-0', codePoints: 1, truncated: false },
+      {
+        rel: REL_A,
+        layer: 'bundled',
+        source: `知识层(内置)/${REL_A}`,
+        reason: '理由-0',
+        codePoints: 1,
+        truncated: false,
+      },
       {
         rel: '乙类/乙篇.md',
         layer: 'bundled',

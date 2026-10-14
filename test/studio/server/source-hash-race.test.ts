@@ -271,11 +271,9 @@ describe('review-verdict 与三审完成的读改写竞态', () => {
     verdictSeq.armed = true
     verdictSeq.seq = [OLD_ENV, NEW_ENV]
 
-    const r = await verdictReq(
-      'POST',
-      `/api/books/${encodeURIComponent(V_BOOK)}/documents/${vDocId}/review-verdict`,
-      { approved: true },
-    )
+    const r = await verdictReq('POST', `/api/books/${encodeURIComponent(V_BOOK)}/documents/${vDocId}/review-verdict`, {
+      approved: true,
+    })
     expect(r.status).toBe(200)
     expect((r.json as { verdict: { approved: boolean } }).verdict.approved).toBe(true)
 

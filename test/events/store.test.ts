@@ -638,9 +638,7 @@ describe('事件库空间回收', () => {
       return total
     }
     for (let i = 0; i < 200; i++) {
-      store.appendEvents(sid, [
-        { type: 'assistant/message', data: { message: `${payload}${i}` }, surfaceOp: 'append' },
-      ])
+      store.appendEvents(sid, [{ type: 'assistant/message', data: { message: `${payload}${i}` }, surfaceOp: 'append' }])
     }
     const peak = onDisk()
     expect(peak).toBeGreaterThan(0)

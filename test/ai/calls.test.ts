@@ -143,7 +143,9 @@ describe('recordTaskUsage 任务维度记账（T5）', () => {
 })
 
 describe('tasks 块金额记账（chat/摘要等无 chapter 调用的金额落点）', () => {
-  const readRec = (root: string): { chapter: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> } =>
+  const readRec = (
+    root: string,
+  ): { chapter: Record<string, unknown>; tasks: Record<string, Record<string, unknown>> } =>
     JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8'))
 
   it('同一笔调用进两块 → tasks 块 costAccum 与 chapter 块逐位一致', () => {

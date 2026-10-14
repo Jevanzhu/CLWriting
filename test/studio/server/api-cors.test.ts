@@ -6,7 +6,7 @@
  *
  * 同域并入：OPTIONS 预检的 allow-methods 清单（原缺 PATCH——服务端写闸 isWrite 本就把
  * PATCH 纳入 Origin/token 校验，浏览器对 PATCH 先发预检，清单不含 PATCH → 预检后实际
- * 请求仍被浏览器按 CORS 拒发，服务端放行口径与预检清单失配）。夹具沿本文件既有 studio。 
+ * 请求仍被浏览器按 CORS 拒发，服务端放行口径与预检清单失配）。夹具沿本文件既有 studio。
  */
 import http from 'node:http'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'

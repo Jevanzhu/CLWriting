@@ -370,7 +370,13 @@ describe('输入侧估计覆盖工具 schema 与消息外壳', () => {
 
   it('消息外壳按条计：同文本多一条消息的增量 > 该条文本自身折算（包装非零）', () => {
     const one: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '正文' }] }
-    const two: GenRequest = { systemPrompt: '', messages: [{ role: 'user', content: '正文' }, { role: 'user', content: '正文' }] }
+    const two: GenRequest = {
+      systemPrompt: '',
+      messages: [
+        { role: 'user', content: '正文' },
+        { role: 'user', content: '正文' },
+      ],
+    }
     const delta = estimateInputTokens(two, CONF.model) - estimateInputTokens(one, CONF.model)
     // 增量 = 该条文本折算 + 该条包装；故严格大于纯文本部分
     expect(delta).toBeGreaterThan(estimateTokens('正文', CONF.model))

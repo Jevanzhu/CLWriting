@@ -1123,7 +1123,13 @@ interface RunLedgerOpts {
  * 带书/任务/章/尝试序号。两条通道都进同一计数器，使「本轮账目缺失」既进日志又可断言。
  * `attempt` 即该回执的定位维度（重试链哪一次没记上）。
  */
-function recordUsageSafe(rt: RunRuntime, ctx: RunCtx, opts: RunLedgerOpts, usage: TokenUsage | null, attempt?: number): void {
+function recordUsageSafe(
+  rt: RunRuntime,
+  ctx: RunCtx,
+  opts: RunLedgerOpts,
+  usage: TokenUsage | null,
+  attempt?: number,
+): void {
   accumulateAttemptsUsage(rt, usage)
   if (!ctx.bookRoot) return
   try {

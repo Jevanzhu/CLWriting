@@ -67,56 +67,50 @@ describe('R0911-G-P3-4: openRagDb/closeRagDb 高频开/关不滞留（功能实�
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   })
 
-  it(
-    'gc 门控：N 次开/关堆增长有界（修复前线性 ~0.35KB/次）',
-    () => {
-      // 环境闸按失败处理而非按跳过：gc 由 vitest.config.ts 的 test.execArgv（--expose-gc）
-      // 注入到每个 worker。缺 gc = 该注入点被改回，本档必须红——跳过形态下它是「永不失败」
-      // 用例，滞留回退不会有任何报警。
-      expect(
-        typeof (globalThis as { gc?: unknown }).gc,
-        '缺 globalThis.gc：vitest.config.ts 的 test.execArgv 须含 --expose-gc（本档以 gc 量堆增长，无 gc 即不可观测）',
-      ).toBe('function')
-      const gc = (globalThis as unknown as { gc: () => void }).gc
-      const settled = () => {
-        let m = Infinity
-        for (let i = 0; i < 5; i++) {
-          gc()
-          m = Math.min(m, process.memoryUsage().heapUsed)
-        }
-        return m
+  it('gc 门控：N 次开/关堆增长有界（修复前线性 ~0.35KB/次）', () => {
+    // 环境闸按失败处理而非按跳过：gc 由 vitest.config.ts 的 test.execArgv（--expose-gc）
+    // 注入到每个 worker。缺 gc = 该注入点被改回，本档必须红——跳过形态下它是「永不失败」
+    // 用例，滞留回退不会有任何报警。
+    expect(
+      typeof (globalThis as { gc?: unknown }).gc,
+      '缺 globalThis.gc：vitest.config.ts 的 test.execArgv 须含 --expose-gc（本档以 gc 量堆增长，无 gc 即不可观测）',
+    ).toBe('function')
+    const gc = (globalThis as unknown as { gc: () => void }).gc
+    const settled = () => {
+      let m = Infinity
+      for (let i = 0; i < 5; i++) {
+        gc()
+        m = Math.min(m, process.memoryUsage().heapUsed)
       }
-      const dir = mkdtempSync(join(tmpdir(), 'r0911-g-p3-4-close-'))
-      dirs.push(dir)
-      mkdirSync(dir, { recursive: true })
-      // 关 console 镜像：openRagDb 每次开库记一行 schema 阶梯 info，而 vitest worker 的
-      // console 输出是「先入队、由主进程异步取走」——8000 行未被取走的队列自身即
-      // ~0.44KB/行（实测 3.40MB），量到的是 harness 的传输队列而非源码滞留。关镜像后
-      // 同一循环实测 0.01MB；未修复形态（裸 close）在关镜像下仍实测 3.15MB > 1.5MB 界
-      // ——界值与检出能力均不变，去掉的只是这条非源码噪声源。
-      initLogging({ logsDir: null, mirrorConsole: false })
-      try {
-        const N = 8_000
-        for (let i = 0; i < 1_000; i++) {
-          const db = openRagDb(dir)
-          closeRagDb(db)
-        }
-        const before = settled()
-        for (let i = 0; i < N; i++) {
-          const db = openRagDb(dir)
-          closeRagDb(db)
-        }
-        const after = settled()
-        const growthMB = (after - before) / 1048576
-        // 修复前实测 ≈ 2.7MB（0.35KB × 8000）；修复后 ≈ 0。1.5MB 界于两者之间，
-        // 留足噪声余量同时必捕回归。
-        expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（修复前形态 ~2.7MB）`).toBeLessThan(1.5)
-      } finally {
-        resetLoggingForTest()
+      return m
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'r0911-g-p3-4-close-'))
+    dirs.push(dir)
+    mkdirSync(dir, { recursive: true })
+    // 关 console 镜像：openRagDb 每次开库记一行 schema 阶梯 info，而 vitest worker 的
+    // console 输出是「先入队、由主进程异步取走」——8000 行未被取走的队列自身即
+    // ~0.44KB/行（实测 3.40MB），量到的是 harness 的传输队列而非源码滞留。关镜像后
+    // 同一循环实测 0.01MB；未修复形态（裸 close）在关镜像下仍实测 3.15MB > 1.5MB 界
+    // ——界值与检出能力均不变，去掉的只是这条非源码噪声源。
+    initLogging({ logsDir: null, mirrorConsole: false })
+    try {
+      const N = 8_000
+      for (let i = 0; i < 1_000; i++) {
+        const db = openRagDb(dir)
+        closeRagDb(db)
       }
-    },
-    // 大负载用例的预算在用例级显式给（全局 30s 是常规单测兜底，非本档预算）：本档
-    // 9000 次真库开/关 + 12 次全量 GC 实测 27s 量级，贴全局值即随时超时。
-    120_000,
-  )
+      const before = settled()
+      for (let i = 0; i < N; i++) {
+        const db = openRagDb(dir)
+        closeRagDb(db)
+      }
+      const after = settled()
+      const growthMB = (after - before) / 1048576
+      // 修复前实测 ≈ 2.7MB（0.35KB × 8000）；修复后 ≈ 0。1.5MB 界于两者之间，
+      // 留足噪声余量同时必捕回归。
+      expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（修复前形态 ~2.7MB）`).toBeLessThan(1.5)
+    } finally {
+      resetLoggingForTest()
+    }
+  }, 120_000) // 9000 次真库开/关 + 12 次全量 GC 实测 27s 量级，贴全局值即随时超时。 // 大负载用例的预算在用例级显式给（全局 30s 是常规单测兜底，非本档预算）：本档
 })

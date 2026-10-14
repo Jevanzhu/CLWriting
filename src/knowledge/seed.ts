@@ -115,11 +115,7 @@ export interface SeedReport {
  *
  * 退役段为空 = 本轮不删任何件(机制在位、数据随批落);单篇失败不拖死整轮。
  */
-function retireBookKnowledge(
-  bookRoot: string,
-  liveRels: ReadonlySet<string>,
-  report: SeedReport,
-): void {
+function retireBookKnowledge(bookRoot: string, liveRels: ReadonlySet<string>, report: SeedReport): void {
   const retired = readRetiredKnowledgeRels()
   for (const [rel, history] of Object.entries(retired)) {
     if (liveRels.has(rel)) continue // 仍在随包播种面:交播种/升级步处置

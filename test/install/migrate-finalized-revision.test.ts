@@ -312,9 +312,7 @@ test('慢 git 状态下事件循环仍可让出：定时器先于迁移完成兑
   // 慢 git：状态输出推迟到 300ms——同步实现会把这段等待整段占满事件循环
   mockSpawnSync.mockClear()
   mockSpawn.mockClear()
-  mockSpawn.mockImplementationOnce(
-    () => new SlowGitChild('', 300) as unknown as ChildProcess,
-  )
+  mockSpawn.mockImplementationOnce(() => new SlowGitChild('', 300) as unknown as ChildProcess)
 
   let tickedAt = 0
   const tick = new Promise<void>((r) =>
@@ -343,9 +341,7 @@ test('慢 git 状态下事件循环仍可让出：定时器先于迁移完成兑
 test('git 状态读取失败（不可读）时迁移照常收口：不抛、不写基线、链上后续步骤不受影响', async () => {
   scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n标题: 开篇\n---\n正文']], true)
   // 慢 git 后非 0 退出（不可读形态）——迁移须按 fail-closed 跳过而非抛出
-  mockSpawn.mockImplementationOnce(
-    () => new SlowGitChild('', 150, 128) as unknown as ChildProcess,
-  )
+  mockSpawn.mockImplementationOnce(() => new SlowGitChild('', 150, 128) as unknown as ChildProcess)
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   try {
     const n = await migrateFinalizedRevisionsAsync(tmp)

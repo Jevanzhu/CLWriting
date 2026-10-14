@@ -65,12 +65,7 @@ export const ANALYSIS_LABEL: Record<AnalysisKind, string> = {
 }
 
 /** 组 analyst prompt（`[kind:x]` 标记供 mock 分发；附正文 + 该 kind JSON 契约 + 章纲/stats 为底）。 */
-export function buildAnalystPrompt(
-  kind: AnalysisKind,
-  body: string,
-  chapter: ChapterMeta,
-  bookRoot: string,
-): string {
+export function buildAnalystPrompt(kind: AnalysisKind, body: string, chapter: ChapterMeta, bookRoot: string): string {
   const parts: string[] = [
     `[kind:${kind}]`,
     '',
@@ -413,9 +408,7 @@ export async function runAnalyzeStyleGated(
   ].join('\n')
 
   // 全书采样注入源登记（相对书根；readChapterDir 的 _path 为绝对路径）
-  const styleSources = recent
-    .filter((ch) => ch._path)
-    .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
+  const styleSources = recent.filter((ch) => ch._path).map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
   const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources, ctrl)
   if (!result.ok) {
     // 中断收口——ABORTED → 499 人话信封；

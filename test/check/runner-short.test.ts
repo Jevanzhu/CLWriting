@@ -496,7 +496,13 @@ describe('章纲一致性（章纲随迁批）', () => {
       并入: [2],
       _path: targetAbs,
     }
-    const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文', fileName: '0001-第1章.md' })
+    const r = runAllChecks({
+      bookRoot: tmp,
+      config: shortConfig(),
+      chapter: ch,
+      body: '正文',
+      fileName: '0001-第1章.md',
+    })
     const items = r.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'merged-outline-orphan')
     expect(items).toHaveLength(1)
     expect(items[0]!.level).toBe('yellow')
@@ -524,7 +530,13 @@ describe('章纲一致性（章纲随迁批）', () => {
       情绪定位: '铺垫',
       _path: live5,
     }
-    const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch5, body: '正文', fileName: '0005-第5章.md' })
+    const r = runAllChecks({
+      bookRoot: tmp,
+      config: shortConfig(),
+      chapter: ch5,
+      body: '正文',
+      fileName: '0005-第5章.md',
+    })
     const items = r.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'reused-chapter-stale-outline')
     expect(items).toHaveLength(1)
     expect(items[0]!.level).toBe('yellow')
@@ -542,7 +554,13 @@ describe('章纲一致性（章纲随迁批）', () => {
       情绪定位: '铺垫',
       _path: live6,
     }
-    const r6 = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch6, body: '正文', fileName: '0006-第6章.md' })
+    const r6 = runAllChecks({
+      bookRoot: tmp,
+      config: shortConfig(),
+      chapter: ch6,
+      body: '正文',
+      fileName: '0006-第6章.md',
+    })
     expect(r6.sections.flatMap((s) => s.items).some((i) => i.checkId === 'reused-chapter-stale-outline')).toBe(false)
   })
 })

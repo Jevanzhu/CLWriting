@@ -399,9 +399,10 @@ describe('预探熔断: 失联卷重复预探不再叠加挂死请求', () => {
         recent: Array<{ path: string }>
       }
       expect(disk.current).toBe(healthyB)
-      expect(disk.recent.map((x) => x.path), '旧 current 照常入 recent（setCurrent 语义未被熔断改动）').toContain(
-        healthyA,
-      )
+      expect(
+        disk.recent.map((x) => x.path),
+        '旧 current 照常入 recent（setCurrent 语义未被熔断改动）',
+      ).toContain(healthyA)
     } finally {
       writeFileSync(storeFp(), storeBackup)
     }

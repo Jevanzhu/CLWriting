@@ -295,10 +295,7 @@ describe('导出取消通道（AbortSignal → terminate + 取消语义）', () 
       mkdirSync(join(root, '写作', '正文'), { recursive: true })
       // book.yaml 的 title 必须与登记名一致：启动自愈以 title 为准回写登记名，
       // 不一致会让按登记名的解析落到 404
-      writeFileSync(
-        join(root, 'book.yaml'),
-        `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`,
-      )
+      writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`)
       writeFileSync(join(root, '写作', '正文', '1-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n雪落在了城墙上。')
       // 独立实例 + 独立闸：断言落在本实例的闸上（不借道进程默认闸，避免同文件多实例互扰）
       const host = makeHost()
@@ -365,10 +362,7 @@ describe('导出取消通道（AbortSignal → terminate + 取消语义）', () 
       )
       const root = join(bigWork, BOOK_OK)
       mkdirSync(join(root, '写作', '正文'), { recursive: true })
-      writeFileSync(
-        join(root, 'book.yaml'),
-        `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`,
-      )
+      writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`)
       const payload = '正文内容。'.repeat(6_000)
       for (let i = 1; i <= CHAPTERS; i++) {
         // 末章特厚（约 24MB）：全本流式写的最后一个 append 持续数百毫秒，
@@ -438,10 +432,7 @@ describe('导出取消通道（AbortSignal → terminate + 取消语义）', () 
       )
       const root = join(shutWork, BOOK_OK)
       mkdirSync(join(root, '写作', '正文'), { recursive: true })
-      writeFileSync(
-        join(root, 'book.yaml'),
-        `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`,
-      )
+      writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK_OK}\n  genre: 玄幻\n`)
       writeFileSync(join(root, '写作', '正文', '1-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n雪落在了城墙上。')
       // 独立实例：关停取消登记归实例，断言落本实例的闸与在途登记（不与文件级共享实例串扰）
       const host = makeHost()

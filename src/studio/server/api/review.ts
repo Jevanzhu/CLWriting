@@ -40,7 +40,12 @@ import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { buildReviewMethodInjection, type ReviewKind } from '../../../knowledge/review-method.js' // 三审视角技法注入(书级 > 随包;取篇按书档分表)
 import { knowledgeInjectionEnabled } from '../../../knowledge/switch.js' // 注入开关单源
-import { summarizeDropped, type KnowledgeReport, type PieceRecord, type DroppedPiece } from '../../../knowledge/inject.js' // 报告面(缺口结构化回报)
+import {
+  summarizeDropped,
+  type KnowledgeReport,
+  type PieceRecord,
+  type DroppedPiece,
+} from '../../../knowledge/inject.js' // 报告面(缺口结构化回报)
 import { log } from '../../../log/index.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import type { ProviderRuntime } from '../../../ai/provider/store.js' // provider 运行时端口（组装根注入）
@@ -426,7 +431,12 @@ async function runLensSpawnLoop(opts: {
     // 技法段经 systemPromptSuffix 拼在内置/overlay 之后(不参与哈希匹配),
     // 注入源并入 promptFiles 满足「模型可见 ⟺ 已记录」。
     // 开关关停时装配侧走同一空段形态(不读盘不注入不登记),本面不另设分支
-    const methodInj = buildReviewMethodInjection(lens, opts.bookRoot, opts.methodInjectionEnabled, opts.methodInjectionKind)
+    const methodInj = buildReviewMethodInjection(
+      lens,
+      opts.bookRoot,
+      opts.methodInjectionEnabled,
+      opts.methodInjectionKind,
+    )
     // 报告面按 lens 标注：同一篇可能被多视角取到，逐 lens 一条才能回答「哪个视角少了料」
     for (const r of methodInj.records) records.push({ ...r, reason: `${lens}：${r.reason}` })
     for (const d of methodInj.dropped) dropped.push({ ...d, rel: `${lens}@${d.rel}` })

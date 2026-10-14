@@ -260,9 +260,11 @@ export function parseTiersInput(raw: unknown): {
 }
 
 /** chat 单档：{clear:true} / 空 {} = 清档（回落 creative）；其余进 parseTierSlot */
-export function parseTiersChatInput(
-  raw: unknown,
-): { clear: boolean; slot: TierSlot | null; expectedRevision: unknown } {
+export function parseTiersChatInput(raw: unknown): {
+  clear: boolean
+  slot: TierSlot | null
+  expectedRevision: unknown
+} {
   // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
   // readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
   // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
@@ -315,9 +317,7 @@ export function handleProvidersList(ctx: ProvidersCtx, res: ServerResponse): voi
   if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
   const s = loadProviders(ctx.userDataPath)
   reply(res, 200, {
-    providers: s.providers
-      .map((p) => maskProvider(p, s.vault))
-      .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
+    providers: s.providers.map((p) => maskProvider(p, s.vault)).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0)),
     currentId: s.currentId,
     currentModel: s.currentModel,
     tiers: s.tiers,
@@ -647,11 +647,7 @@ export async function handleProviderTest(
     // 透传探测目标库 userDataPath——探测实例降级记忆落目标库
     // providers.json，不再回落「活跃库」（双库时写错库）；
     // 第三参 = mock 选择结果（读注入的 driver.kind，原由 probe 自读环境变量）
-    const { caps, details } = await probe(
-      { ...conf, model: probeModel },
-      ctx.userDataPath,
-      ctx.driver.kind === 'mock',
-    )
+    const { caps, details } = await probe({ ...conf, model: probeModel }, ctx.userDataPath, ctx.driver.kind === 'mock')
     // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
     const s2 = loadProviders(ctx.userDataPath)
     const target = s2.providers.find((p) => p.id === id)

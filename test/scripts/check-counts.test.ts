@@ -486,9 +486,7 @@ describe('零断言门下沉到用例粒度：逐用例判定与显式豁免', (
     expect(findAssertionFreeCases(entries("it('节点断言', () => { assert.equal(1, 1) })"))).toEqual([])
     // 同文件另有用例带断言时，本用例仍被点名——文件级空洞门在此漏判
     const mixed = ["it('有断言', () => { expect(1).toBe(1) })", "it('空外壳', () => {})"].join('\n')
-    expect(findAssertionFreeCases(entries(mixed))).toEqual([
-      { file: 'test/case.test.ts', line: 2, title: '空外壳' },
-    ])
+    expect(findAssertionFreeCases(entries(mixed))).toEqual([{ file: 'test/case.test.ts', line: 2, title: '空外壳' }])
   })
 
   it('容器/钩子不是用例；无内联函数实参（todo/占位/具名引用）不判', () => {
@@ -536,9 +534,7 @@ describe('零断言门下沉到用例粒度：逐用例判定与显式豁免', (
     const inString = entries(
       ["it('字符串字样不算', () => {", "  const note = '零断言豁免：假注释'", '  runCase(note)', '})'].join('\n'),
     )
-    expect(findAssertionFreeCases(inString)).toEqual([
-      { file: 'test/case.test.ts', line: 1, title: '字符串字样不算' },
-    ])
+    expect(findAssertionFreeCases(inString)).toEqual([{ file: 'test/case.test.ts', line: 1, title: '字符串字样不算' }])
   })
 })
 

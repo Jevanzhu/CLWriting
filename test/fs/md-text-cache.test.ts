@@ -11,7 +11,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /** 粗粒度卷替身（见下方「低精度 mtime 卷」组注）——登记路径的 bigint stat 按帧返回。 */
-const { coarseStatFrames } = vi.hoisted(() => ({ coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>() }))
+const { coarseStatFrames } = vi.hoisted(() => ({
+  coarseStatFrames: new Map<string, { size: bigint; mtimeNs: bigint }>(),
+}))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {

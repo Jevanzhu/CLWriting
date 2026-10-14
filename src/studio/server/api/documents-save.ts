@@ -269,9 +269,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
         throw new Error('docIds 必须为非空字符串数组')
       }
       if (docIds.length > BATCH_FINALIZE_MAX_DOCS) {
-        throw new Error(
-          `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`,
-        )
+        throw new Error(`批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`)
       }
       return { docIds: docIds as string[] }
     },
@@ -306,9 +304,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
       // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
       // 同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
       void (async (): Promise<void> => {
-        const session = await ctx.driver
-          .ensureSession(params['name']!, ctx.workDir!)
-          .catch((): undefined => undefined)
+        const session = await ctx.driver.ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
         afterFinalizeGenerateSummaryBatch(
           bookRoot,
           ctx.userDataPath ?? null,

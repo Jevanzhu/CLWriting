@@ -47,51 +47,47 @@ describe('R0916-6-P3-5: tree-issues prepared 缓存配对 close——结构契�
 })
 
 describe('R0916-6-P3-5: 高频开/关不滞留（功能实测）', () => {
-  it(
-    'gc 门控：N 次开/关堆增长有界（裸 close 形态 ~0.35KB/次线性堆积）',
-    () => {
-      // 环境闸按失败处理而非按跳过：gc 由 vitest.config.ts 的 test.execArgv（--expose-gc）
-      // 注入到每个 worker。缺 gc = 该注入点被改回，本档必须红——跳过形态下它是「永不失败」
-      // 用例，滞留回退不会有任何报警。
-      expect(
-        typeof (globalThis as { gc?: unknown }).gc,
-        '缺 globalThis.gc：vitest.config.ts 的 test.execArgv 须含 --expose-gc（本档以 gc 量堆增长，无 gc 即不可观测）',
-      ).toBe('function')
-      const gc = (globalThis as unknown as { gc: () => void }).gc
-      const settled = () => {
-        let m = Infinity
-        for (let i = 0; i < 5; i++) {
-          gc()
-          m = Math.min(m, process.memoryUsage().heapUsed)
-        }
-        return m
+  it('gc 门控：N 次开/关堆增长有界（裸 close 形态 ~0.35KB/次线性堆积）', () => {
+    // 环境闸按失败处理而非按跳过：gc 由 vitest.config.ts 的 test.execArgv（--expose-gc）
+    // 注入到每个 worker。缺 gc = 该注入点被改回，本档必须红——跳过形态下它是「永不失败」
+    // 用例，滞留回退不会有任何报警。
+    expect(
+      typeof (globalThis as { gc?: unknown }).gc,
+      '缺 globalThis.gc：vitest.config.ts 的 test.execArgv 须含 --expose-gc（本档以 gc 量堆增长，无 gc 即不可观测）',
+    ).toBe('function')
+    const gc = (globalThis as unknown as { gc: () => void }).gc
+    const settled = () => {
+      let m = Infinity
+      for (let i = 0; i < 5; i++) {
+        gc()
+        m = Math.min(m, process.memoryUsage().heapUsed)
       }
-      const dir = mkdtempSync(join(tmpdir(), 'r0916-6-p3-5-close-'))
-      const dbPath = join(dir, 'index.db')
-      // 与生产章循环同形态：开库 → 读写各走一次 prepared 缓存路径 → 配对关库
-      const cycle = (): void => {
-        const db = new DatabaseSync(dbPath)
-        ensureTreeIssuesTables(db)
-        writeTreeIssuesCache(db, '001-章.md', 1, 2, null, { hasRed: false, verdictRejected: false }, 'fp')
-        readTreeIssuesCache(db, '001-章.md', 1, 2, null, 'fp')
-        closeTreeIssuesDb(db)
-      }
-      try {
-        for (let i = 0; i < 500; i++) cycle()
-        const before = settled()
-        const N = 2_500
-        for (let i = 0; i < N; i++) cycle()
-        const after = settled()
-        const growthMB = (after - before) / 1048576
-        // 修复前形态 ≈ 0.85MB（0.35KB × 2500，rag R0911-G-P3-4 同源实测系数）；修复后 ≈ 0。
-        // N 收窄自 rag 侧用例的 8000（win 单机文件 IO 慢，控总时长），界值比例一致。
-        expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（裸 close 形态 ~0.85MB）`).toBeLessThan(0.5)
-      } finally {
-        rmSync(dir, { recursive: true, force: true })
-      }
-    },
-    120_000,
-  )
+      return m
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'r0916-6-p3-5-close-'))
+    const dbPath = join(dir, 'index.db')
+    // 与生产章循环同形态：开库 → 读写各走一次 prepared 缓存路径 → 配对关库
+    const cycle = (): void => {
+      const db = new DatabaseSync(dbPath)
+      ensureTreeIssuesTables(db)
+      writeTreeIssuesCache(db, '001-章.md', 1, 2, null, { hasRed: false, verdictRejected: false }, 'fp')
+      readTreeIssuesCache(db, '001-章.md', 1, 2, null, 'fp')
+      closeTreeIssuesDb(db)
+    }
+    try {
+      for (let i = 0; i < 500; i++) cycle()
+      const before = settled()
+      const N = 2_500
+      for (let i = 0; i < N; i++) cycle()
+      const after = settled()
+      const growthMB = (after - before) / 1048576
+      // 修复前形态 ≈ 0.85MB（0.35KB × 2500，rag R0911-G-P3-4 同源实测系数）；修复后 ≈ 0。
+      // N 收窄自 rag 侧用例的 8000（win 单机文件 IO 慢，控总时长），界值比例一致。
+      expect(growthMB, `高频开/关后堆增长 ${growthMB.toFixed(2)}MB 超界（裸 close 形态 ~0.85MB）`).toBeLessThan(0.5)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 120_000)
 
   it('closeTreeIssuesDb 后句柄失效——库已关，后续 prepare 不再可用', () => {
     const dir = mkdtempSync(join(tmpdir(), 'r0916-6-p3-5-close-'))

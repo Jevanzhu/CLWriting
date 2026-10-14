@@ -147,7 +147,12 @@ describe('助手态分流（--apply-update）', () => {
 
   it('带旗但参数不全：记 error 后退出码 2，不跑助手、同样不落回应用形态', async () => {
     helperCalls.invocations.length = 0
-    const before = { windows: M.windows.length, forks: M.forkCalls.length, logs: M.logErrors.length, flushLogs: M.flushLogsCalls }
+    const before = {
+      windows: M.windows.length,
+      forks: M.forkCalls.length,
+      logs: M.logErrors.length,
+      flushLogs: M.flushLogsCalls,
+    }
     const err = await importMainWithArgv(['CLWriting.exe', '--apply-update', '--payload', '/tmp/pkg.zip'])
     expect(err.message).toBe('__helper_exit__')
     expect(M.exitCodes.at(-1)).toBe(2)

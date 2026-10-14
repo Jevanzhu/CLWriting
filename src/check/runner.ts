@@ -304,7 +304,10 @@ export function* runAllChecksCore(input: CheckInput): Generator<void, CheckRepor
       // 读目录间隙被瞬删/异常迁移（TOCTOU）或路径被文件占用（ENOTDIR）——
       // 降级按无章纲处理 + warn 留痕（走下方缺失黄项，不静默）；其余错误码照旧抛（失败可见）
       if (located.code === 'ENOENT' || located.code === 'ENOTDIR') {
-        log.warn('check', `章纲目录读取失败、本轮按无章纲处理（错误码 ${located.code}；章纲目录：${join(bookRoot, '大纲', '章纲')}）`)
+        log.warn(
+          'check',
+          `章纲目录读取失败、本轮按无章纲处理（错误码 ${located.code}；章纲目录：${join(bookRoot, '大纲', '章纲')}）`,
+        )
       } else {
         throw located.error
       }

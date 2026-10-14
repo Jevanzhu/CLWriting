@@ -153,8 +153,7 @@ export async function planChapterMerge(
     sourcePath: s.path,
     targetTitle: t.标题,
     sourceTitle: s.标题,
-    sourceOutlinePath:
-      outlineLoc.kind === 'found' ? normalizeWinSeparators(relative(bookRoot, outlineLoc.path)) : null,
+    sourceOutlinePath: outlineLoc.kind === 'found' ? normalizeWinSeparators(relative(bookRoot, outlineLoc.path)) : null,
     encodingSuspect: !isUtf8Bytes(t.bytes) || !isUtf8Bytes(s.bytes),
     sourceWords: countWords(s.body),
     // 预览按码位截断（clipByCodePoints 单源下沉 shared/text.ts）——

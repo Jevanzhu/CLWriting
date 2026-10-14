@@ -96,9 +96,7 @@ describe('runner 记账写段失败回执：在途写段失败进可观测计数
       })
       expect(out.ok).toBe(true) // 记账失败不得改写生成结果（既有降级口径不回归）
       await vi.waitFor(() => expect(ledgerWriteFailuresForTest()).toBe(before + 1), { timeout: 3_000, interval: 5 })
-      const ledgerWarns = warn.mock.calls
-        .map((a) => a.map(String).join(' '))
-        .filter((m) => m.includes('本轮账目缺失'))
+      const ledgerWarns = warn.mock.calls.map((a) => a.map(String).join(' ')).filter((m) => m.includes('本轮账目缺失'))
       expect(ledgerWarns).toHaveLength(1)
       // 定位维度齐备：书 + 任务 + 章 + 尝试序号（缺任一项都难从日志归因到具体那次调用）
       expect(ledgerWarns[0]).toContain(root)

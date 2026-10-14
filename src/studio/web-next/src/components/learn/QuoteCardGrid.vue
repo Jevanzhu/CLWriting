@@ -59,11 +59,7 @@ watch(
       </div>
     </div>
     <!-- 渲染上限的展开钮（计数/勾选仍面向全量 learn.quotes） -->
-    <button
-      v-if="learn.quotes.length > RENDER_CAP && !expanded"
-      class="text-btn expand-more"
-      @click="expanded = true"
-    >
+    <button v-if="learn.quotes.length > RENDER_CAP && !expanded" class="text-btn expand-more" @click="expanded = true">
       显示剩余 {{ learn.quotes.length - RENDER_CAP }} 条
     </button>
   </section>
