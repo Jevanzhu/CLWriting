@@ -12,12 +12,13 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../../helpers/safe-port.js'
 import { openSessionStore, bookHash } from '../../../src/events/store.js'
+import { ERROR_CODES } from '../../../src/studio/server/http.js'
 
 let baseUrl = ''
 let server: http.Server | undefined
@@ -119,4 +120,57 @@ describe('Z-1/Z-4: /rewrite 端点登记与章预算', () => {
     expect(call!.data.promptMeta!.files).toContain('写作/正文/0001-开篇.md') // Z-1
     expect(call!.data.chapter).toBe(1) // Z-4
   }, 30_000)
+})
+
+// ai-version 端点：载荷契约（parse）+ 临界段书注册重验（bookMovedFailure）。
+// 前者把「行内 typeof 临时判定」收成同族声明式 parse；后者把 await readJson 窗口内
+// 书被改名/删除时对旧捕获路径写入成孤儿 ref 的面挡在 409 BOOK_MOVED。
+describe('POST /documents/:docId/ai-version：载荷校验与临界段书注册重验', () => {
+  const AI_VERSION = `/api/books/${encodeURIComponent('书Z')}/documents/doc_z1/ai-version`
+
+  it('空载荷 / 纯空白 content → 400 BAD_INPUT（parse 契约拦截，码在词表内）', async () => {
+    const empty = await req('POST', AI_VERSION, {})
+    expect(empty.status).toBe(400)
+    expect((JSON.parse(empty.text) as { code: string }).code).toBe('BAD_INPUT')
+
+    const blank = await req('POST', AI_VERSION, { content: '   ' })
+    expect(blank.status).toBe(400)
+    expect((JSON.parse(blank.text) as { code: string }).code).toBe('BAD_INPUT')
+  })
+
+  it('长度上限取内容档口径：越旧 1MB 缺省、未越 16MB 内容档的大载荷照常受理', async () => {
+    // 内容档上限 single source = CONTENT_BODY_LIMIT_BYTES（16MB）——旧 handler 用
+    // readJson 缺省 1MB 档会把 2MB 的整章 AI 版拒成 413；本档须按内容档放行。
+    const big = '文'.repeat(1_000_000) // ≈3MB UTF-8，越 1MB 缺省、远未越 16MB 内容档
+    const r = await req('POST', AI_VERSION, { content: big })
+    expect(r.status).toBe(200)
+    expect((JSON.parse(r.text) as { ok: boolean }).ok).toBe(true)
+  }, 30_000)
+
+  it('超长载荷（越 CONTENT_BODY_LIMIT_BYTES 内容档上限）→ 413 PAYLOAD_TOO_LARGE 且码在词表内', async () => {
+    const huge = 'a'.repeat(17 * 1024 * 1024)
+    const r = await req('POST', AI_VERSION, { content: huge })
+    expect(r.status).toBe(413)
+    const code = (JSON.parse(r.text) as { code: string }).code
+    expect(code).toBe('PAYLOAD_TOO_LARGE')
+    expect(ERROR_CODES).toContain(code)
+  }, 30_000)
+
+  it('窗口内书被改名/移走 → 409 BOOK_MOVED（写前重验，不静默落写）', async () => {
+    // 书目录搬走但 books.jsonl 登记仍在（改名端点「搬盘先行、登记后改」的窗口形态）：
+    // 入口 resolveBookOrReply 读登记仍解析出旧 bookRoot，只有写前 bookMovedFailure
+    // 的盘面校验能识破。
+    const bookRoot = join(workDir, '书Z')
+    const movedRoot = join(workDir, '书Z-moved')
+    renameSync(bookRoot, movedRoot)
+    try {
+      const r = await req('POST', AI_VERSION, { content: 'AI 版正文' })
+      expect(r.status).toBe(409)
+      const j = JSON.parse(r.text) as { code: string; error: string }
+      expect(j.code).toBe('BOOK_MOVED')
+      expect(typeof j.error).toBe('string')
+    } finally {
+      renameSync(movedRoot, bookRoot)
+    }
+  })
 })

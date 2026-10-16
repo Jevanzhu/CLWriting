@@ -14,8 +14,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError } from '../http.js'
-import { resolveBookOrReply, resolveDocFile } from '../book-context.js' // docId→正文解析链单源（本端点只走到存在性，读稿无守卫为既有语义）
+import { readJson, reply, replyError, CONTENT_BODY_LIMIT_BYTES } from '../http.js'
+import { resolveBookOrReply, resolveDocFile, bookMovedFailure } from '../book-context.js' // docId→正文解析链单源（本端点只走到存在性，读稿无守卫为既有语义）+ 书注册重验单源（ai-version 写前临界段）
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
@@ -175,16 +175,30 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
   defineRoute('books.documents.ai-version', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/ai-version',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    // 校验单轨：找书 404（前置门）→ content 400（parse）→ BOOK_MOVED 409（写前重验）——
+    // 错误优先序与迁移前「handler 内 resolveBookOrReply → readJson → 空校验」逐位不变。
+    gate: ({ params, res }) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
-      if (!r) return
-      const reqBody = await readJson(req)
-      const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
-      if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
+      return r ? { value: r } : false
+    },
+    // content = AI 版全文，走内容档上限（同 documents 正文档，默认 1MB 对整章 AI 版会 413）
+    bodyLimit: CONTENT_BODY_LIMIT_BYTES,
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const content = typeof body['content'] === 'string' ? (body['content'] as string) : ''
+      if (!content.trim()) throw new Error('content 为空')
+      return { content }
+    },
+    handler: async ({ params, input, gate: r }, _req: IncomingMessage, res: ServerResponse) => {
+      // 临界段重验书注册（时序见 bookMovedFailure 头注）：旁路 ref 落进 bookRoot 的 git
+      // 目录，await readJson 窗口内书被改名/删除时对旧捕获路径写入会成孤儿 ref——写前重验
+      // 命中即 409 BOOK_MOVED，不静默落写。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
       // recordAiVersion 迁异步孪生——同步 spawnSync git 在请求
       // 事件循环上可冻 15s×2（git 无响应）；异步版失败 resolve null，语义不变（轨迹
       // 是旁路证据，失败静默，不阻断「接受改写」）
-      const ref = await recordAiVersionAsync(r.bookRoot, params['docId'] ?? '', content)
+      const ref = await recordAiVersionAsync(r.bookRoot, params['docId'] ?? '', input.content)
       reply(res, 200, { ok: true, recorded: ref !== null })
     },
   })
