@@ -325,6 +325,98 @@ describe('R0911-C2-P3-1: FontPicker 双开实例 id 互异', () => {
   })
 })
 
+// R-FP-FLIP（行级批）：win 自绘浮层视口贴边——openMenu 原只落 left/top/width，
+// 触发按钮靠视口右缘时浮层右缘探出视口（放不下且不可滚），靠视口下缘时浮层下缘探出
+// （超出部分滚不到、拉不回来）。修后：右侧放不下即左移夹边（不改「左缘对齐按钮」语义）；
+// 下方放不下且上方更宽裕即上翻（原生 select 惯例）。边距与溢出阈值口径与 ContextMenu
+// 的翻转测量同款（8px），落点策略按本浮层的锚定几何取夹边/上翻。
+describe('浮层视口贴边：右侧/底部空间不足时改位落在视口内', () => {
+  const GAP = 8
+  const MENU_W = 240 // 浮层宽 = max(按钮宽, 240)
+  const MENU_H = 360 // 浮层内容满高（视口容不下 → 触发改位判定）
+  const ORIG_VW = window.innerWidth
+  const ORIG_VH = window.innerHeight
+  let trigger = { left: 100, top: 100, width: 120, height: 30 }
+
+  function box(l: number, t: number, w: number, h: number): DOMRect {
+    return {
+      left: l,
+      top: t,
+      width: w,
+      height: h,
+      right: l + w,
+      bottom: t + h,
+      x: l,
+      y: t,
+      toJSON: () => ({}),
+    } as DOMRect
+  }
+
+  function setViewport(vw: number, vh: number): void {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: vw })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: vh })
+  }
+
+  /** happy-dom 无布局引擎（矩形恒 0）——按元素类名给触发按钮/浮层发实测矩形 */
+  async function openPick(): Promise<HTMLElement> {
+    wrapper = mount(FontPicker, { props: PROPS })
+    await wrapper.find('button.font-picker').trigger('click')
+    await nextTick() // 浮层落位第二拍（实测高度后写 pos/listH）flush
+    return menuEl()
+  }
+
+  function placed(el: HTMLElement): { left: number; top: number; width: number; maxH: number } {
+    return {
+      left: parseFloat(el.style.left),
+      top: parseFloat(el.style.top),
+      width: parseFloat(el.style.width),
+      maxH: parseFloat(el.style.maxHeight),
+    }
+  }
+
+  beforeEach(() => {
+    trigger = { left: 100, top: 100, width: 120, height: 30 }
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.classList.contains('fp-menu')) return box(0, 0, MENU_W, MENU_H)
+      if (this.classList.contains('font-picker')) return box(trigger.left, trigger.top, trigger.width, trigger.height)
+      return box(0, 0, 0, 0)
+    })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks() // 还原矩形桩（usePlatform 的模块 mock 不受影响）
+    setViewport(ORIG_VW, ORIG_VH)
+  })
+
+  it('触发按钮靠视口右缘：浮层左移夹边，左右缘都落在视口内', async () => {
+    setViewport(400, 600)
+    trigger = { left: 180, top: 100, width: 200, height: 30 } // 按钮 180..380，视口宽 400
+    const p = placed(await openPick())
+    // 改前：left = 180，右缘 420 探出视口 20px（浮层右侧不可见/不可点）
+    expect(p.left + p.width).toBeLessThanOrEqual(400 - GAP)
+    expect(p.left).toBeGreaterThanOrEqual(GAP)
+    expect(p.left).toBe(400 - GAP - p.width) // 恰好夹到右缘
+  })
+
+  it('触发按钮靠视口下缘：浮层上翻到按钮之上，top 落在视口内', async () => {
+    setViewport(600, 320)
+    trigger = { left: 100, top: 240, width: 120, height: 30 } // 按钮下缘 270，视口高 320
+    const p = placed(await openPick())
+    // 改前：top = 274，maxHeight 下限 120 → 浮层 274..394 探出视口下缘 74px
+    expect(p.top).toBeLessThanOrEqual(320 - GAP)
+    expect(p.top).toBeGreaterThanOrEqual(GAP)
+    expect(p.top).toBeLessThan(trigger.top) // 翻到按钮之上
+    expect(p.top + p.maxH).toBeLessThanOrEqual(320 - GAP) // 含 maxHeight 收口的满高也在视口内
+  })
+
+  it('空间充足：位置与改前一致（左缘对齐按钮、下方展开、宽 240）', async () => {
+    setViewport(1024, 768)
+    const p = placed(await openPick())
+    expect(p.left).toBe(100) // 按钮左缘
+    expect(p.top).toBe(134) // 按钮下缘 130 + 间隙 4
+    expect(p.width).toBe(240)
+  })
+})
+
 // R0910-W（2026-09-10 修复批）：卸载回收 typeahead 800ms 复位定时器——组件销毁后
 // 回调仍会触发（对已销毁实例的闭包写 typeBuf，纯泄漏）；随监听器一并 clearTimeout。
 describe('R0910-W: FontPicker 卸载清 typeahead 定时器', () => {

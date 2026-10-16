@@ -16,7 +16,7 @@ let nextFpUid = 0
  * 视觉对齐 `.font-select`（padding/边框/背景由调用方 class 提供，本组件只补按钮
  * 语义与下拉箭头）；菜单项以各字体 fontFamily 预览显示名。
  */
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { usePlatform } from '../../composables/usePlatform'
 import { isImeComposing } from '../../shared/ime'
 
@@ -49,6 +49,16 @@ const btn = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
+
+// ── 浮层视口贴边口径 ──
+/** 浮层与视口边缘的最小间隙（溢出判定与 maxHeight 预算同用，口径同 ContextMenu 的翻转测量） */
+const VIEWPORT_GAP = 8
+/** 浮层与触发按钮的间隙 */
+const MENU_OFFSET = 4
+/** 菜单宽下限（窄按钮也要容得下字体名）；高下限 = 至少露出可滚几项，高上限 = 常规可视窗 */
+const MIN_MENU_W = 240
+const MIN_LIST_H = 120
+const MAX_LIST_H = 360
 
 // win 自绘浮层补 listbox 键盘导航——此前 aria 声明
 // 完整 combobox/listbox/option 契约（"声明即承诺"），onKey 却只处理 Esc：「声明与
@@ -98,19 +108,41 @@ const defaultLabel = computed(() => (props.defaultFont ? props.display(props.def
 function toggle(): void {
   open.value ? close() : openMenu()
 }
+/** 视口内夹边：左缘锚定按钮左缘，右侧放不下则左移——菜单宽可大于按钮（下限 240），
+ *  不能只取按钮 left；极窄视口（可用宽 < 菜单宽）时退到左边距、右缘溢出不可避免。 */
+function clampLeft(left: number, width: number): number {
+  return Math.min(left, Math.max(VIEWPORT_GAP, window.innerWidth - VIEWPORT_GAP - width))
+}
 function openMenu(): void {
   const r = btn.value!.getBoundingClientRect()
-  pos.value = {
-    left: r.left,
-    top: r.bottom + 4,
-    width: Math.max(r.width, 240),
-  }
-  listH.value = Math.max(120, Math.min(360, window.innerHeight - pos.value.top - 12))
+  const width = Math.max(r.width, MIN_MENU_W)
+  // 首拍按「下方展开 + 满高」渲染：内容高随字体项数变（win 系统数百项），
+  // 唯一可靠来源是实测，故过一拍（nextTick）按实测高度落定——同 ContextMenu 的
+  // 「渲染→测量→改位」序，两次写位在同一帧内完成（浏览器未绘制，无可见跳动）
+  pos.value = { left: clampLeft(r.left, width), top: r.bottom + MENU_OFFSET, width }
+  listH.value = MAX_LIST_H
   rendered.value = true
   open.value = true
   // 打开即定位 roving 光标到当前值对应项（无值 → 默认项 0）
   const cur = props.value === '' ? 0 : props.fonts.indexOf(props.value) + 1
   activeIdx.value = cur >= 1 ? cur : 0
+  void nextTick(placeMenu)
+}
+/** 实测高度后落位：下方放不下且上方更宽裕 → 上翻（原生 select 惯例）；
+ *  否则下方展开。两条路径都把 top/maxHeight 收进视口（边距与溢出阈值同 ContextMenu 口径）。 */
+function placeMenu(): void {
+  const el = menu.value
+  const button = btn.value
+  if (!open.value || !el || !button) return
+  const r = button.getBoundingClientRect()
+  const h = el.getBoundingClientRect().height
+  const spaceBelow = window.innerHeight - VIEWPORT_GAP - (r.bottom + MENU_OFFSET)
+  const spaceAbove = r.top - MENU_OFFSET - VIEWPORT_GAP
+  const flip = h > spaceBelow && spaceAbove > spaceBelow
+  const top = flip ? Math.max(VIEWPORT_GAP, r.top - MENU_OFFSET - h) : r.bottom + MENU_OFFSET
+  // maxHeight 随落位重算：上翻按上方可用空间收口（否则会顶出视口上缘），否则按下方
+  listH.value = Math.max(MIN_LIST_H, Math.min(MAX_LIST_H, flip ? spaceAbove : spaceBelow))
+  pos.value = { ...pos.value, top }
 }
 function close(): void {
   open.value = false
